@@ -25,7 +25,9 @@ import (
 	"github.com/eycorsican/go-tun2socks/core"
 
 	"github.com/Jigsaw-Code/outline-go-tun2socks/tunnel/intra/doh"
+	"github.com/Jigsaw-Code/outline-go-tun2socks/tunnel/intra/protect"
 	"github.com/Jigsaw-Code/outline-go-tun2socks/tunnel/intra/split"
+	"github.com/Jigsaw-Code/outline-go-tun2socks/tunnel/settings"
 )
 
 // TCPHandler is a core TCP handler that also supports DOH and splitting control.
@@ -34,6 +36,8 @@ type TCPHandler interface {
 	SetDNS(doh.Transport)
 	SetAlwaysSplitHTTPS(bool)
 	EnableSNIReporter(file io.ReadWriter, suffix, country string) error
+	blockConn(localConn net.Conn, target *net.TCPAddr) bool
+	dnsOverride(target *net.TCPAddr) bool
 }
 
 type tcpHandler struct {
@@ -42,6 +46,8 @@ type tcpHandler struct {
 	dns              doh.Atomic
 	alwaysSplitHTTPS bool
 	dialer           *net.Dialer
+	blocker          protect.Blocker
+	tunMode          *settings.TunMode
 	listener         TCPListener
 	sniReporter      tcpSNIReporter
 }
@@ -66,10 +72,13 @@ type TCPListener interface {
 // Connections to `fakedns` are redirected to DOH.
 // All other traffic is forwarded using `dialer`.
 // `listener` is provided with a summary of each socket when it is closed.
-func NewTCPHandler(fakedns net.TCPAddr, dialer *net.Dialer, listener TCPListener) TCPHandler {
+func NewTCPHandler(fakedns net.TCPAddr, dialer *net.Dialer, blocker protect.Blocker,
+	tunMode *settings.TunMode, listener TCPListener) TCPHandler {
 	return &tcpHandler{
 		fakedns:  fakedns,
 		dialer:   dialer,
+		blocker:  blocker,
+		tunMode:  tunMode,
 		listener: listener,
 	}
 }
@@ -121,14 +130,46 @@ func filteredPort(addr net.Addr) int16 {
 	return -1
 }
 
+func (h *tcpHandler) dnsOverride(target *net.TCPAddr) bool {
+	if h.tunMode.DNSMode == settings.DNSModeIP {
+		return target.IP.Equal(h.fakedns.IP) && target.Port == h.fakedns.Port
+	} else if h.tunMode.DNSMode == settings.DNSModePort {
+		// h.fakedns.Port always expected to be 53?
+		return target.Port == h.fakedns.Port
+	}
+	return h.tunMode.DNSMode != settings.DNSModeNone
+}
+
+func (h *tcpHandler) blockConn(localConn net.Conn, target *net.TCPAddr) (block bool) {
+	if h.tunMode.BlockMode != settings.BlockModeFilter {
+		// BlockModeNone returns false, BlockModeSink returns true
+		return h.tunMode.BlockMode == settings.BlockModeSink
+	}
+	// Implict: BlockModeFilter
+	localtcp := localConn.(core.TCPConn)
+	localaddr := localtcp.LocalAddr().(*net.TCPAddr)
+
+	block = h.blocker.Block(6 /*TCP*/, localaddr.String(), target.String())
+
+	if block {
+		log.Infof("firewalled connection from %s:%s to %s:%s",
+			localaddr.Network(), localaddr.String(), target.Network(), target.String())
+	}
+	return
+}
+
 // TODO: Request upstream to make `conn` a `core.TCPConn` so we can avoid a type assertion.
 func (h *tcpHandler) Handle(conn net.Conn, target *net.TCPAddr) error {
-	// DNS override
-	if target.IP.Equal(h.fakedns.IP) && target.Port == h.fakedns.Port {
+	if h.blockConn(conn, target) {
+		return conn.Close()
+	}
+
+	if h.dnsOverride(target) {
 		dns := h.dns.Load()
 		go doh.Accept(dns, conn)
 		return nil
 	}
+
 	var summary TCPSocketSummary
 	summary.ServerPort = filteredPort(target)
 	start := time.Now()

@@ -28,6 +28,8 @@ import (
 	"github.com/eycorsican/go-tun2socks/core"
 
 	"github.com/Jigsaw-Code/outline-go-tun2socks/tunnel/intra/doh"
+	"github.com/Jigsaw-Code/outline-go-tun2socks/tunnel/intra/protect"
+	"github.com/Jigsaw-Code/outline-go-tun2socks/tunnel/settings"
 )
 
 // UDPSocketSummary describes a non-DNS UDP association, reported when it is discarded.
@@ -57,6 +59,7 @@ func makeTracker(conn *net.UDPConn) *tracker {
 type UDPHandler interface {
 	core.UDPConnHandler
 	SetDNS(dns doh.Transport)
+	blockConn(localudp core.UDPConn, target *net.UDPAddr) bool
 }
 
 type udpHandler struct {
@@ -68,6 +71,8 @@ type udpHandler struct {
 	fakedns  net.UDPAddr
 	dns      doh.Transport
 	config   *net.ListenConfig
+	blocker  protect.Blocker
+	tunMode  *settings.TunMode
 	listener UDPListener
 }
 
@@ -77,11 +82,14 @@ type udpHandler struct {
 // `timeout` controls the effective NAT mapping lifetime.
 // `config` is used to bind new external UDP ports.
 // `listener` receives a summary about each UDP binding when it expires.
-func NewUDPHandler(fakedns net.UDPAddr, timeout time.Duration, config *net.ListenConfig, listener UDPListener) UDPHandler {
+func NewUDPHandler(fakedns net.UDPAddr, timeout time.Duration, blocker protect.Blocker,
+	tunMode *settings.TunMode, config *net.ListenConfig, listener UDPListener) UDPHandler {
 	return &udpHandler{
 		timeout:  timeout,
 		udpConns: make(map[core.UDPConn]*tracker, 8),
 		fakedns:  fakedns,
+		blocker:  blocker,
+		tunMode:  tunMode,
 		config:   config,
 		listener: listener,
 	}
@@ -113,6 +121,10 @@ func (h *udpHandler) fetchUDPInput(conn core.UDPConn, t *tracker) {
 }
 
 func (h *udpHandler) Connect(conn core.UDPConn, target *net.UDPAddr) error {
+	if h.blockConn(conn, target) {
+		h.Close(conn)
+		return fmt.Errorf("connection %v->%v firewalled", conn.LocalAddr(), target)
+	}
 	bindAddr := &net.UDPAddr{IP: nil, Port: 0}
 	pc, err := h.config.ListenPacket(context.TODO(), bindAddr.Network(), bindAddr.String())
 	if err != nil {
@@ -128,8 +140,29 @@ func (h *udpHandler) Connect(conn core.UDPConn, target *net.UDPAddr) error {
 	return nil
 }
 
+func (h *udpHandler) blockConn(localudp core.UDPConn, target *net.UDPAddr) (block bool) {
+	if h.tunMode.BlockMode != settings.BlockModeFilter {
+		// BlockModeNone returns false, BlockModeSink returns true
+		return h.tunMode.BlockMode == settings.BlockModeSink
+	}
+	// Implict: BlockModeFilter
+	localaddr := localudp.LocalAddr() //.(*net.UDPAddr)
+	return h.blockConnAddr(localaddr, target)
+}
+
+func (h *udpHandler) blockConnAddr(source *net.UDPAddr, target *net.UDPAddr) (block bool) {
+	block = h.blocker.Block(17 /*UDP*/, source.String(), target.String())
+
+	if block {
+		log.Infof("firewalled udp connection from %s:%s to %s:%s",
+			source.Network(), source.String(), target.Network(), target.String())
+	}
+	return block
+}
+
 func (h *udpHandler) doDoh(dns doh.Transport, t *tracker, conn core.UDPConn, data []byte) {
 	resp, err := dns.Query(data)
+
 	if err == nil {
 		_, err = conn.WriteFrom(resp, &h.fakedns)
 	}
@@ -146,6 +179,16 @@ func (h *udpHandler) doDoh(dns doh.Transport, t *tracker, conn core.UDPConn, dat
 	}
 }
 
+func (h *udpHandler) dnsOverride(addr *net.UDPAddr) bool {
+	if h.tunMode.DNSMode == settings.DNSModeIP {
+		return addr.IP.Equal(h.fakedns.IP) && addr.Port == h.fakedns.Port
+	} else if h.tunMode.DNSMode == settings.DNSModePort {
+		// h.fakedns.Port always expected to be 53?
+		return addr.Port == h.fakedns.Port
+	}
+	return h.tunMode.DNSMode != settings.DNSModeNone
+}
+
 func (h *udpHandler) ReceiveTo(conn core.UDPConn, data []byte, addr *net.UDPAddr) error {
 	h.RLock()
 	dns := h.dns
@@ -159,7 +202,7 @@ func (h *udpHandler) ReceiveTo(conn core.UDPConn, data []byte, addr *net.UDPAddr
 	// Update deadline.
 	t.conn.SetDeadline(time.Now().Add(h.timeout))
 
-	if addr.IP.Equal(h.fakedns.IP) && addr.Port == h.fakedns.Port {
+	if h.dnsOverride(addr) {
 		dataCopy := append([]byte{}, data...)
 		go h.doDoh(dns, t, conn, dataCopy)
 		return nil

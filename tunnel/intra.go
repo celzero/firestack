@@ -26,6 +26,8 @@ import (
 
 	"github.com/Jigsaw-Code/outline-go-tun2socks/tunnel/intra"
 	"github.com/Jigsaw-Code/outline-go-tun2socks/tunnel/intra/doh"
+	"github.com/Jigsaw-Code/outline-go-tun2socks/tunnel/intra/protect"
+	"github.com/Jigsaw-Code/outline-go-tun2socks/tunnel/settings"
 )
 
 // IntraListener receives usage statistics when a UDP or TCP socket is closed,
@@ -45,6 +47,8 @@ type IntraTunnel interface {
 	// to the TUN device.  The transport can be changed at any time during operation, but
 	// must not be nil.
 	SetDNS(doh.Transport)
+	// Set the DNSMode.
+	SetTunMode(int, int)
 	// When set to true, Intra will pre-emptively split all HTTPS connections.
 	SetAlwaysSplitHTTPS(bool)
 	// Enable reporting of SNIs that resulted in connection failures, using the
@@ -57,9 +61,10 @@ type IntraTunnel interface {
 
 type intratunnel struct {
 	*tunnel
-	tcp intra.TCPHandler
-	udp intra.UDPHandler
-	dns doh.Transport
+	tcp     intra.TCPHandler
+	udp     intra.UDPHandler
+	dns     doh.Transport
+	tunmode *settings.TunMode
 }
 
 // NewIntraTunnel creates a connected Intra session.
@@ -72,16 +77,18 @@ type intratunnel struct {
 // `tunWriter` is the downstream VPN tunnel
 // `dialer` and `config` will be used for all network activity.
 // `listener` will be notified at the completion of every tunneled socket.
-func NewIntraTunnel(fakedns string, dohdns doh.Transport, tunWriter io.WriteCloser, dialer *net.Dialer, config *net.ListenConfig, listener IntraListener) (IntraTunnel, error) {
+func NewIntraTunnel(fakedns string, dohdns doh.Transport, tunWriter io.WriteCloser, dialer *net.Dialer,
+	blocker protect.Blocker, config *net.ListenConfig, listener IntraListener) (IntraTunnel, error) {
 	if tunWriter == nil {
 		return nil, errors.New("Must provide a valid TUN writer")
 	}
 	core.RegisterOutputFn(tunWriter.Write)
 	base := &tunnel{tunWriter, core.NewLWIPStack(), true}
 	t := &intratunnel{
-		tunnel: base,
+		tunnel:  base,
+		tunmode: settings.DefaultTunMode(),
 	}
-	if err := t.registerConnectionHandlers(fakedns, dialer, config, listener); err != nil {
+	if err := t.registerConnectionHandlers(fakedns, dialer, blocker, config, listener); err != nil {
 		return nil, err
 	}
 	t.SetDNS(dohdns)
@@ -89,7 +96,8 @@ func NewIntraTunnel(fakedns string, dohdns doh.Transport, tunWriter io.WriteClos
 }
 
 // Registers Intra's custom UDP and TCP connection handlers to the tun2socks core.
-func (t *intratunnel) registerConnectionHandlers(fakedns string, dialer *net.Dialer, config *net.ListenConfig, listener IntraListener) error {
+func (t *intratunnel) registerConnectionHandlers(fakedns string, dialer *net.Dialer,
+	blocker protect.Blocker, config *net.ListenConfig, listener IntraListener) error {
 	// RFC 5382 REQ-5 requires a timeout no shorter than 2 hours and 4 minutes.
 	timeout, _ := time.ParseDuration("2h4m")
 
@@ -97,14 +105,14 @@ func (t *intratunnel) registerConnectionHandlers(fakedns string, dialer *net.Dia
 	if err != nil {
 		return err
 	}
-	t.udp = intra.NewUDPHandler(*udpfakedns, timeout, config, listener)
+	t.udp = intra.NewUDPHandler(*udpfakedns, timeout, blocker, t.tunmode, config, listener)
 	core.RegisterUDPConnHandler(t.udp)
 
 	tcpfakedns, err := net.ResolveTCPAddr("tcp", fakedns)
 	if err != nil {
 		return err
 	}
-	t.tcp = intra.NewTCPHandler(*tcpfakedns, dialer, listener)
+	t.tcp = intra.NewTCPHandler(*tcpfakedns, dialer, blocker, t.tunmode, listener)
 	core.RegisterTCPConnHandler(t.tcp)
 	return nil
 }
@@ -113,6 +121,10 @@ func (t *intratunnel) SetDNS(dns doh.Transport) {
 	t.dns = dns
 	t.udp.SetDNS(dns)
 	t.tcp.SetDNS(dns)
+}
+
+func (t *intratunnel) SetTunMode(dnsmode int, blockmode int) {
+	t.tunmode.SetMode(dnsmode, blockmode)
 }
 
 func (t *intratunnel) GetDNS() doh.Transport {
