@@ -141,15 +141,25 @@ func (h *tcpHandler) dnsOverride(target *net.TCPAddr) bool {
 }
 
 func (h *tcpHandler) blockConn(localConn net.Conn, target *net.TCPAddr) (block bool) {
-	if h.tunMode.BlockMode != settings.BlockModeFilter {
-		// BlockModeNone returns false, BlockModeSink returns true
-		return h.tunMode.BlockMode == settings.BlockModeSink
+	// BlockModeNone returns false, BlockModeSink returns true
+	if h.tunMode.BlockMode == settings.BlockModeSink {
+		return true
+	} else if h.tunMode.BlockMode == settings.BlockModeNone {
+		return false
 	}
-	// Implict: BlockModeFilter
+	// Implict: BlockModeFilter or BlockModeFilterProc
 	localtcp := localConn.(core.TCPConn)
 	localaddr := localtcp.LocalAddr().(*net.TCPAddr)
 
-	block = h.blocker.Block(6 /*TCP*/, localaddr.String(), target.String())
+	uid := -1
+	if (h.tunMode.BlockMode == settings.BlockModeFilterProc) {
+		procEntry := settings.FindProcNetEntry("tcp", localaddr.IP, localaddr.Port, target.IP, target.Port)
+		if (procEntry != nil) {
+			uid = procEntry.UserID
+		}
+	}
+
+	block = h.blocker.Block(6 /*TCP*/, uid, localaddr.String(), target.String())
 
 	if block {
 		log.Infof("firewalled connection from %s:%s to %s:%s",

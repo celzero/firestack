@@ -125,12 +125,14 @@ func (h *udpHandler) Connect(conn core.UDPConn, target *net.UDPAddr) error {
 		h.Close(conn)
 		return fmt.Errorf("connection %v->%v firewalled", conn.LocalAddr(), target)
 	}
+
 	bindAddr := &net.UDPAddr{IP: nil, Port: 0}
 	pc, err := h.config.ListenPacket(context.TODO(), bindAddr.Network(), bindAddr.String())
 	if err != nil {
 		log.Errorf("failed to bind udp address")
 		return err
 	}
+
 	t := makeTracker(pc.(*net.UDPConn))
 	h.Lock()
 	h.udpConns[conn] = t
@@ -141,17 +143,29 @@ func (h *udpHandler) Connect(conn core.UDPConn, target *net.UDPAddr) error {
 }
 
 func (h *udpHandler) blockConn(localudp core.UDPConn, target *net.UDPAddr) (block bool) {
-	if h.tunMode.BlockMode != settings.BlockModeFilter {
-		// BlockModeNone returns false, BlockModeSink returns true
-		return h.tunMode.BlockMode == settings.BlockModeSink
+	// BlockModeNone returns false, BlockModeSink returns true
+	if h.tunMode.BlockMode == settings.BlockModeSink {
+		return true
 	}
-	// Implict: BlockModeFilter
+	if h.tunMode.BlockMode == settings.BlockModeNone {
+		return false
+	}
+	// Implict: BlockModeFilter or BlockModeFilterProc
 	localaddr := localudp.LocalAddr() //.(*net.UDPAddr)
 	return h.blockConnAddr(localaddr, target)
 }
 
 func (h *udpHandler) blockConnAddr(source *net.UDPAddr, target *net.UDPAddr) (block bool) {
-	block = h.blocker.Block(17 /*UDP*/, source.String(), target.String())
+
+	uid := -1
+	if (h.tunMode.BlockMode == settings.BlockModeFilterProc) {
+		procEntry := settings.FindProcNetEntry("udp", source.IP, source.Port, target.IP, target.Port)
+		if (procEntry != nil) {
+			uid = procEntry.UserID
+		}
+	}
+
+	block = h.blocker.Block(17 /*UDP*/, uid, source.String(), target.String())
 
 	if block {
 		log.Infof("firewalled udp connection from %s:%s to %s:%s",

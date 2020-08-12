@@ -18,6 +18,10 @@ const BlockModeFilter int = 1
 // BlockModeSink blackholes all packets.
 const BlockModeSink int = 2
 
+// BlockModeFilterProc determines owner-uid of a tcp/udp connection
+// from procfs before filtering
+const BlockModeFilterProc int = 3
+
 // TunMode specifies blocking and dns modes
 type TunMode struct {
 	// DNSMode specifies the kind of DNS traffic to be trapped and routed to DoH servers
