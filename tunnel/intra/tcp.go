@@ -17,6 +17,7 @@
 package intra
 
 import (
+	"fmt"
 	"io"
 	"net"
 	"time"
@@ -171,7 +172,8 @@ func (h *tcpHandler) blockConn(localConn net.Conn, target *net.TCPAddr) (block b
 // TODO: Request upstream to make `conn` a `core.TCPConn` so we can avoid a type assertion.
 func (h *tcpHandler) Handle(conn net.Conn, target *net.TCPAddr) error {
 	if h.blockConn(conn, target) {
-		return conn.Close()
+		// an error here results in a core.tcpConn.Abort
+		return fmt.Errorf("tcp connection firewalled")
 	}
 
 	if h.dnsOverride(target) {

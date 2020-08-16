@@ -122,8 +122,8 @@ func (h *udpHandler) fetchUDPInput(conn core.UDPConn, t *tracker) {
 
 func (h *udpHandler) Connect(conn core.UDPConn, target *net.UDPAddr) error {
 	if h.blockConn(conn, target) {
-		h.Close(conn)
-		return fmt.Errorf("connection %v->%v firewalled", conn.LocalAddr(), target)
+		// an error here results in a core.udpConn.Close
+		return fmt.Errorf("udp connection firewalled")
 	}
 
 	bindAddr := &net.UDPAddr{IP: nil, Port: 0}
