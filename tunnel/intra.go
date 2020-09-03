@@ -16,15 +16,18 @@ package tunnel
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"os"
 	"strings"
 	"time"
 
+	"github.com/eycorsican/go-tun2socks/common/log"
 	"github.com/eycorsican/go-tun2socks/core"
 
 	"github.com/Jigsaw-Code/outline-go-tun2socks/tunnel/intra"
+	"github.com/Jigsaw-Code/outline-go-tun2socks/tunnel/intra/dnscrypt"
 	"github.com/Jigsaw-Code/outline-go-tun2socks/tunnel/intra/doh"
 	"github.com/Jigsaw-Code/outline-go-tun2socks/tunnel/intra/protect"
 	"github.com/Jigsaw-Code/outline-go-tun2socks/tunnel/settings"
@@ -36,6 +39,7 @@ type IntraListener interface {
 	intra.UDPListener
 	intra.TCPListener
 	doh.Listener
+	dnscrypt.Listener
 }
 
 // IntraTunnel represents an Intra session.
@@ -47,8 +51,8 @@ type IntraTunnel interface {
 	// to the TUN device.  The transport can be changed at any time during operation, but
 	// must not be nil.
 	SetDNS(doh.Transport)
-	// Set the DNSMode.
-	SetTunMode(int, int)
+	// Set DNSMode, BlockMode, and ProxyMode.
+	SetTunMode(int, int, int)
 	// When set to true, Intra will pre-emptively split all HTTPS connections.
 	SetAlwaysSplitHTTPS(bool)
 	// Enable reporting of SNIs that resulted in connection failures, using the
@@ -57,14 +61,42 @@ type IntraTunnel interface {
 	// authoritative domain to which reports will be sent, and `country` is a
 	// two-letter ISO country code for the user's current location.
 	EnableSNIReporter(file, suffix, country string) error
+	// StartDNSCryptProxy starts a DNSCrypt proxy instance for resolvers
+	// (csv of dns-stamps) and relays (csv of dns-stamps).
+	StartDNSCryptProxy(string, string, IntraListener) (int, error)
+	// GetDNSCryptProxy gets DNSCrypt proxy in-use.
+	GetDNSCryptProxy() *dnscrypt.Proxy
+	// AddDNSCryptProxyServer adds dns-crypt resolvers and routes
+	// which must be csv values of "unique-id:dns-stamp"
+	AddDNSCryptProxyServer(string, string) (int, error)
+	// RemoveDNSCryptProxyServers removes dns-crypt resolvers
+	// which must be csv values of "unique-id" assigned when adding them.
+	// and routes (given their dnsstamp, csv separated).
+	RemoveDNSCryptProxyServers(string, string) (int, error)
+	// StartTCPProxy starts tcp forwarding proxy as dictated by current TunMode.
+	StartTCPProxy(uname string, pwd string, ip string, port string) error
+	// GetTCPProxyOptions returns "uname,pwd,ip,port" csv
+	GetTCPProxyOptions() string
+	// StartUDPProxy starts udp forwarding proxy as dictated by current TunMode.
+	StartUDPProxy(uname string, pwd string, ip string, port string) error
+	// GetProxyOptions returns "uname,pwd,ip,port" csv
+	GetUDPProxyOptions() string
+	// StartDNSProxy starts dns proxy as dictated by current TunMode.
+	StartDNSProxy(ip string, port string) error
+	// GetDNSOptions returns "ip,port" csv
+	GetDNSProxyOptions() string
 }
 
 type intratunnel struct {
 	*tunnel
-	tcp     intra.TCPHandler
-	udp     intra.UDPHandler
-	dns     doh.Transport
-	tunmode *settings.TunMode
+	tcp             intra.TCPHandler
+	udp             intra.UDPHandler
+	dns             doh.Transport
+	tunmode         *settings.TunMode
+	dnscrypt        *dnscrypt.Proxy
+	tcpProxyOptions *settings.ProxyOptions
+	udpProxyOptions *settings.ProxyOptions
+	dnsOptions      *settings.DNSOptions
 }
 
 // NewIntraTunnel creates a connected Intra session.
@@ -123,8 +155,8 @@ func (t *intratunnel) SetDNS(dns doh.Transport) {
 	t.tcp.SetDNS(dns)
 }
 
-func (t *intratunnel) SetTunMode(dnsmode int, blockmode int) {
-	t.tunmode.SetMode(dnsmode, blockmode)
+func (t *intratunnel) SetTunMode(dnsmode int, blockmode int, proxymode int) {
+	t.tunmode.SetMode(dnsmode, blockmode, proxymode)
 }
 
 func (t *intratunnel) GetDNS() doh.Transport {
@@ -141,4 +173,136 @@ func (t *intratunnel) EnableSNIReporter(filename, suffix, country string) error 
 		return err
 	}
 	return t.tcp.EnableSNIReporter(f, suffix, strings.ToLower(country))
+}
+
+func (t *intratunnel) GetDNSCryptProxy() *dnscrypt.Proxy {
+	return t.dnscrypt
+}
+
+func (t *intratunnel) StartDNSProxy(ip string, port string) (err error) {
+	d := settings.NewDNSOptions(ip, port)
+	if err = t.tcp.SetDNSOptions(d); err == nil {
+		t.udp.SetDNSOptions(d)
+	}
+	if err != nil {
+		t.dnsOptions = nil
+		return
+	}
+	t.dnsOptions = d
+	return
+}
+
+func (t *intratunnel) GetDNSProxyOptions() string {
+	return t.dnsOptions.String()
+}
+
+func (t *intratunnel) AddDNSCryptProxyServer(resolvers, routes string) (int, error) {
+	if t.dnscrypt == nil {
+		return 0, fmt.Errorf("no dns-crypt instance running")
+	}
+
+	var err error
+	var s int = 0
+	var r int = 0
+	if len(resolvers) > 0 {
+		s, err = t.dnscrypt.AddServers(resolvers)
+	}
+	if err != nil {
+		return s, err
+	}
+	if len(routes) > 0 {
+		r, err = t.dnscrypt.AddRoutes(routes)
+	}
+
+	return s + r, err
+}
+
+func (t *intratunnel) RemoveDNSCryptProxyServers(resolveridscsv, routestampscsv string) (int, error) {
+	var err error
+	if t.dnscrypt == nil {
+		return 0, fmt.Errorf("no dns-crypt instance running")
+	}
+
+	var s int = 0
+	var r int = 0
+	if len(resolveridscsv) > 0 {
+		s, err = t.dnscrypt.RemoveServers(resolveridscsv)
+	}
+
+	if err != nil {
+		return s, err
+	}
+
+	if len(routestampscsv) > 0 {
+		r, err = t.dnscrypt.RemoveRoutes(routestampscsv)
+	}
+
+	return s + r, err
+}
+
+func (t *intratunnel) StartDNSCryptProxy(resolvers string, relays string, listener IntraListener) (int, error) {
+	var err error
+	if t.dnscrypt != nil {
+		return 0, fmt.Errorf("only one instance of dns-crypt proxy allowed")
+	}
+	dnscrypt := dnscrypt.NewProxy(listener)
+	if _, err = dnscrypt.AddServers(resolvers); err == nil {
+		if len(relays) > 0 {
+			_, err = dnscrypt.AddRoutes(relays)
+		}
+	}
+	if err != nil {
+		return 0, err
+	}
+	t.udp.SetDNSCryptProxy(dnscrypt)
+	t.tcp.SetDNSCryptProxy(dnscrypt)
+	t.dnscrypt = dnscrypt
+	return dnscrypt.StartProxy()
+}
+
+func (t *intratunnel) StopDNSCryptProxy() error {
+	// TODO: implement this as a TunMode method?
+	if t.tunmode.DNSMode == settings.DNSModeCryptIP || t.tunmode.DNSMode == settings.DNSModeCryptPort {
+		return fmt.Errorf("dns-crypt-mode for the current session is active")
+	}
+	if t.dnscrypt == nil {
+		return fmt.Errorf("no dns-crypt instance running")
+	}
+	err := t.dnscrypt.StopProxy()
+	t.udp.SetDNSCryptProxy(nil)
+	t.tcp.SetDNSCryptProxy(nil)
+	t.dnscrypt = nil
+	return err
+}
+
+func (t *intratunnel) StartTCPProxy(uname string, pwd string, ip string, port string) (err error) {
+	p := settings.NewAuthProxyOptions(uname, pwd, ip, port)
+	if err = t.tcp.SetProxyOptions(p); err != nil {
+		t.tcpProxyOptions = nil
+		return
+	}
+	t.tcpProxyOptions = p
+	return
+}
+
+func (t *intratunnel) GetTCPProxyOptions() string {
+	return t.tcpProxyOptions.String()
+}
+
+func (t *intratunnel) StartUDPProxy(uname string, pwd string, ip string, port string) (err error) {
+	p := settings.NewAuthProxyOptions(uname, pwd, ip, port)
+	if err = t.udp.SetProxyOptions(p); err != nil {
+		t.udpProxyOptions = nil
+		return
+	}
+	t.udpProxyOptions = p
+	return
+}
+
+func (t *intratunnel) GetUDPProxyOptions() string {
+	return t.udpProxyOptions.String()
+}
+
+func EnableDebugLog() {
+	log.SetLevel(log.DEBUG)
 }

@@ -22,10 +22,13 @@ import (
 	"net"
 	"time"
 
+	"golang.org/x/net/proxy"
+
 	"github.com/eycorsican/go-tun2socks/common/log"
 	"github.com/eycorsican/go-tun2socks/core"
 
 	"github.com/Jigsaw-Code/outline-go-tun2socks/tunnel/intra/doh"
+	"github.com/Jigsaw-Code/outline-go-tun2socks/tunnel/intra/dnscrypt"
 	"github.com/Jigsaw-Code/outline-go-tun2socks/tunnel/intra/protect"
 	"github.com/Jigsaw-Code/outline-go-tun2socks/tunnel/intra/split"
 	"github.com/Jigsaw-Code/outline-go-tun2socks/tunnel/settings"
@@ -38,7 +41,10 @@ type TCPHandler interface {
 	SetAlwaysSplitHTTPS(bool)
 	EnableSNIReporter(file io.ReadWriter, suffix, country string) error
 	blockConn(localConn net.Conn, target *net.TCPAddr) bool
-	dnsOverride(target *net.TCPAddr) bool
+	dnsOverride(net.Conn, *net.TCPAddr) bool
+	SetDNSCryptProxy(*dnscrypt.Proxy)
+	SetProxyOptions(*settings.ProxyOptions) error
+	SetDNSOptions(*settings.DNSOptions) error
 }
 
 type tcpHandler struct {
@@ -51,6 +57,9 @@ type tcpHandler struct {
 	tunMode          *settings.TunMode
 	listener         TCPListener
 	sniReporter      tcpSNIReporter
+	dnscrypt		 *dnscrypt.Proxy
+	dnsproxy		 *net.TCPAddr
+	proxy	 	 	 proxy.Dialer
 }
 
 // TCPSocketSummary provides information about each TCP socket, reported when it is closed.
@@ -58,7 +67,7 @@ type TCPSocketSummary struct {
 	DownloadBytes int64 // Total bytes downloaded.
 	UploadBytes   int64 // Total bytes uploaded.
 	Duration      int32 // Duration in seconds.
-	ServerPort    int16 // The server port.  All values except 80, 443, and 0 are set to -1.
+	ServerPort    int16 // The server port.  All values except 53, 80, 443, and 0 are set to -1.
 	Synack        int32 // TCP handshake latency (ms)
 	// Retry is non-nil if retry was possible.  Retry.Split is non-zero if a retry occurred.
 	Retry *split.RetryStats
@@ -128,17 +137,54 @@ func filteredPort(addr net.Addr) int16 {
 	if port == "0" {
 		return 0
 	}
+	if port == "53" {
+		return 53
+	}
 	return -1
 }
 
-func (h *tcpHandler) dnsOverride(target *net.TCPAddr) bool {
+func (h *tcpHandler) isDNSProxy(addr *net.TCPAddr) bool {
+	if h.tunMode.DNSMode == settings.DNSModeProxyIP {
+		return addr.IP.Equal(h.fakedns.IP) && addr.Port == h.fakedns.Port
+	} else if h.tunMode.DNSMode == settings.DNSModeProxyPort {
+		// h.fakedns.Port always expected to be 53?
+		return addr.Port == h.fakedns.Port
+	}
+	return false
+}
+
+func (h *tcpHandler) isDoh(addr *net.TCPAddr) bool {
 	if h.tunMode.DNSMode == settings.DNSModeIP {
-		return target.IP.Equal(h.fakedns.IP) && target.Port == h.fakedns.Port
+		return addr.IP.Equal(h.fakedns.IP) && addr.Port == h.fakedns.Port
 	} else if h.tunMode.DNSMode == settings.DNSModePort {
 		// h.fakedns.Port always expected to be 53?
-		return target.Port == h.fakedns.Port
+		return addr.Port == h.fakedns.Port
 	}
-	return h.tunMode.DNSMode != settings.DNSModeNone
+	return false
+}
+
+func (h *tcpHandler) isDNSCrypt(addr *net.TCPAddr) bool {
+	if h.tunMode.DNSMode == settings.DNSModeCryptIP {
+		return addr.IP.Equal(h.fakedns.IP) && addr.Port == h.fakedns.Port
+	} else if h.tunMode.DNSMode == settings.DNSModeCryptPort {
+		// h.fakedns.Port always expected to be 53?
+		return addr.Port == h.fakedns.Port
+	}
+	return false
+}
+
+func (h *tcpHandler) dnsOverride(conn net.Conn, addr *net.TCPAddr) bool {
+
+	if (h.isDoh(addr)) {
+		dns := h.dns.Load()
+		go doh.Accept(dns, conn)
+		return true
+	} else if (h.isDNSCrypt(addr)) {
+		go dnscrypt.HandleTCP(h.dnscrypt, conn)
+		return true
+	}
+	// assert h.tunMode.DNSMode == settings.DNSModeNone
+	return false
 }
 
 func (h *tcpHandler) blockConn(localConn net.Conn, target *net.TCPAddr) (block bool) {
@@ -169,6 +215,19 @@ func (h *tcpHandler) blockConn(localConn net.Conn, target *net.TCPAddr) (block b
 	return
 }
 
+// TODO: move these to settings pkg
+func (h *tcpHandler) socks5Proxy() bool {
+	return h.tunMode.ProxyMode == settings.ProxyModeSOCKS5
+}
+
+func (h *tcpHandler) httpsProxy() bool {
+	return h.tunMode.ProxyMode == settings.ProxyModeHTTPS
+}
+
+func (h *tcpHandler) hasProxy() bool {
+	return h.proxy != nil
+}
+
 // TODO: Request upstream to make `conn` a `core.TCPConn` so we can avoid a type assertion.
 func (h *tcpHandler) Handle(conn net.Conn, target *net.TCPAddr) error {
 	if h.blockConn(conn, target) {
@@ -176,9 +235,7 @@ func (h *tcpHandler) Handle(conn net.Conn, target *net.TCPAddr) error {
 		return fmt.Errorf("tcp connection firewalled")
 	}
 
-	if h.dnsOverride(target) {
-		dns := h.dns.Load()
-		go doh.Accept(dns, conn)
+	if h.dnsOverride(conn, target) {
 		return nil
 	}
 
@@ -187,13 +244,30 @@ func (h *tcpHandler) Handle(conn net.Conn, target *net.TCPAddr) error {
 	start := time.Now()
 	var c split.DuplexConn
 	var err error
-	// TODO: Cancel dialing if c is closed.
-	if summary.ServerPort == 443 {
+
+	// TODO: Cancel dialing if c is closed
+	// Ref: https://stackoverflow.com/questions/63656117/
+	// Ref: https://stackoverflow.com/questions/40328025
+	if h.hasProxy() && (h.socks5Proxy() || h.httpsProxy()) {
+		var generic net.Conn
+		// deprecated: https://github.com/golang/go/issues/25104
+		generic, err = h.proxy.Dial(target.Network(), target.String())
+		if generic != nil {
+			c = generic.(*net.TCPConn)
+		}
+	} else if summary.ServerPort == 443 {
 		if h.alwaysSplitHTTPS {
 			c, err = split.DialWithSplit(h.dialer, target)
 		} else {
 			summary.Retry = &split.RetryStats{}
 			c, err = split.DialWithSplitRetry(h.dialer, target, summary.Retry)
+		}
+	} else if summary.ServerPort == 53 && h.isDNSProxy(target) {
+		var generic net.Conn
+		target = h.dnsproxy
+		generic, err = h.dialer.Dial(target.Network(), target.String())
+		if generic != nil {
+			c = generic.(*net.TCPConn)
 		}
 	} else {
 		var generic net.Conn
@@ -223,3 +297,30 @@ func (h *tcpHandler) SetAlwaysSplitHTTPS(s bool) {
 func (h *tcpHandler) EnableSNIReporter(file io.ReadWriter, suffix, country string) error {
 	return h.sniReporter.Configure(file, suffix, country)
 }
+
+func (h *tcpHandler) SetDNSCryptProxy(dnscrypt *dnscrypt.Proxy) {
+	h.dnscrypt = dnscrypt
+}
+
+func (h *tcpHandler) SetDNSOptions(do *settings.DNSOptions) error {
+	dnsaddr, err := net.ResolveTCPAddr("tcp", do.IPPort)
+	h.dnsproxy = dnsaddr
+	return err
+}
+
+func (h *tcpHandler) SetProxyOptions(po *settings.ProxyOptions) error {
+	var fproxy proxy.Dialer
+	var err error
+	if h.socks5Proxy() {
+		fproxy, err = proxy.SOCKS5("tcp", po.IPPort, po.Auth, proxy.Direct)
+	} else if h.httpsProxy() {
+		err = fmt.Errorf("http-proxy not supported")
+	}
+	if (err != nil) {
+		h.proxy = nil
+		return err
+	}
+	h.proxy = fproxy
+	return nil
+}
+

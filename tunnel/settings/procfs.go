@@ -162,7 +162,7 @@ func ParseProcNet(protocol string) ([]ProcNetEntry, error) {
 }
 
 // FindProcNetEntry parses /proc/net/* and return the line matching the argument five-tuple
-// (protocol, source, sport, destination, dport) as an NewProcNetEntry.
+// (protocol, source, sport, destination, dport) as NewProcNetEntry.
 func FindProcNetEntry(protocol string, srcIP net.IP, srcPort int, dstIP net.IP, dstPort int) *ProcNetEntry {
 	entries, err := ParseProcNet(protocol)
 	if err != nil {
