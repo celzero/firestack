@@ -5,7 +5,7 @@ go 1.14
 require (
 	github.com/Jigsaw-Code/choir v1.0.1
 	github.com/Jigsaw-Code/getsni v0.0.0-20190807203514-efe2dbf35d1f
-	github.com/Jigsaw-Code/outline-ss-server v1.1.8
+	github.com/Jigsaw-Code/outline-ss-server v1.2.1
 	github.com/eycorsican/go-tun2socks v1.16.11
 	github.com/oschwald/maxminddb-golang v1.7.0 // indirect
 	github.com/prometheus/client_golang v1.7.1 // indirect
