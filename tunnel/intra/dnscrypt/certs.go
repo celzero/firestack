@@ -1,6 +1,5 @@
 package dnscrypt
 
-
 import (
 	"bytes"
 	"encoding/binary"
@@ -13,7 +12,6 @@ import (
 
 	"github.com/eycorsican/go-tun2socks/common/log"
 	"github.com/miekg/dns"
-
 )
 
 type CertInfo struct {
@@ -25,15 +23,14 @@ type CertInfo struct {
 }
 
 type dnsExchangeResponse struct {
-	response         *dns.Msg
-	rtt              time.Duration
-	priority         int
-	err              error
+	response *dns.Msg
+	rtt      time.Duration
+	priority int
+	err      error
 }
 
-
 func FetchCurrentDNSCryptCert(proxy *Proxy, serverName *string, proto string, pk ed25519.PublicKey,
-			serverAddress string, providerName string, isNew bool, relayTCPAddr *net.TCPAddr) (CertInfo, *net.TCPAddr, error) {
+	serverAddress string, providerName string, isNew bool, relayTCPAddr *net.TCPAddr) (CertInfo, *net.TCPAddr, error) {
 	if len(pk) != ed25519.PublicKeySize {
 		return CertInfo{}, nil, errors.New("Invalid public key length")
 	}
@@ -154,7 +151,7 @@ func FetchCurrentDNSCryptCert(proxy *Proxy, serverName *string, proto string, pk
 	if certInfo.CryptoConstruction == UndefinedConstruction {
 		return certInfo, nil, errors.New("No useable certificate found")
 	}
-	if (relayTCPAddr == nil) {
+	if relayTCPAddr == nil {
 		log.Warnf("relays for %v not supported.", *serverName)
 	}
 	return certInfo, relayTCPAddr, nil
@@ -196,16 +193,16 @@ func packTxtString(s string) []byte {
 }
 
 func dnsExchange(proxy *Proxy, proto string, query *dns.Msg, serverAddress string,
-		relayTCPAddr *net.TCPAddr, serverName *string, relayForCerts bool) (*dns.Msg, time.Duration, *net.TCPAddr, error) {
-	
+	relayTCPAddr *net.TCPAddr, serverName *string, relayForCerts bool) (*dns.Msg, time.Duration, *net.TCPAddr, error) {
+
 	// dnscrypt-relay forwards queries over udp only and so fragmentation support
 	// is a must otherwise larger queries simply won't work with the server
 	// over relays destinted for such "buggy" dnscrypt servers. So, when a
-	// relay-address is set, fetch certs over UDP. When not, it is okay to 
-	// only rely on TCP to fetch certs as proxy supports TCP transport only 
+	// relay-address is set, fetch certs over UDP. When not, it is okay to
+	// only rely on TCP to fetch certs as proxy supports TCP transport only
 	// which has no problems with larger queries even with "buggy" servers.
 	// flow: client ---[tcp|udp]---> relay ---[always-udp]---> server
-	if (relayTCPAddr == nil) {
+	if relayTCPAddr == nil {
 		// if there are no relays, use tcp to validate the servers
 		// since we do not care about large query support over udp.
 		proto = "tcp"
@@ -215,51 +212,51 @@ func dnsExchange(proxy *Proxy, proto string, query *dns.Msg, serverAddress strin
 		proto = "udp"
 	}
 
-		cancelChannel := make(chan struct{})
-		channel := make(chan dnsExchangeResponse)
-		var err error
-		options := 0
+	cancelChannel := make(chan struct{})
+	channel := make(chan dnsExchangeResponse)
+	var err error
+	options := 0
 
-		for tries := 0; tries < 3; tries++ {
-				queryCopy := query.Copy()
-				queryCopy.Id += uint16(options)
-				go func(query *dns.Msg, delay time.Duration) {
-					option := _dnsExchange(proxy, proto, query, serverAddress, relayTCPAddr, 1500, relayForCerts)
-					option.priority = 0
-					channel <- option
-					time.Sleep(delay)
-					select {
-					case <-cancelChannel:
-						return
-					default:
-					}
-				}(queryCopy, time.Duration(200*tries)*time.Millisecond)
-				options++
-		}
-		var bestOption *dnsExchangeResponse
-		for i := 0; i < options; i++ {
-			if dnsExchangeResponse := <-channel; dnsExchangeResponse.err == nil {
-				if bestOption == nil || dnsExchangeResponse.rtt < bestOption.rtt {
-					bestOption = &dnsExchangeResponse
-					close(cancelChannel)
-					break
-				}
-			} else {
-				err = dnsExchangeResponse.err
+	for tries := 0; tries < 3; tries++ {
+		queryCopy := query.Copy()
+		queryCopy.Id += uint16(options)
+		go func(query *dns.Msg, delay time.Duration) {
+			option := _dnsExchange(proxy, proto, query, serverAddress, relayTCPAddr, 1500, relayForCerts)
+			option.priority = 0
+			channel <- option
+			time.Sleep(delay)
+			select {
+			case <-cancelChannel:
+				return
+			default:
 			}
+		}(queryCopy, time.Duration(200*tries)*time.Millisecond)
+		options++
+	}
+	var bestOption *dnsExchangeResponse
+	for i := 0; i < options; i++ {
+		if dnsExchangeResponse := <-channel; dnsExchangeResponse.err == nil {
+			if bestOption == nil || dnsExchangeResponse.rtt < bestOption.rtt {
+				bestOption = &dnsExchangeResponse
+				close(cancelChannel)
+				break
+			}
+		} else {
+			err = dnsExchangeResponse.err
 		}
-		if bestOption != nil {
-			log.Debugf("Certificate retrieval for [%v] succeeded via relay?", *serverName, relayForCerts)
-			return bestOption.response, bestOption.rtt, relayTCPAddr, nil
-		}
+	}
+	if bestOption != nil {
+		log.Debugf("Certificate retrieval for [%v] succeeded via relay?", *serverName, relayForCerts)
+		return bestOption.response, bestOption.rtt, relayTCPAddr, nil
+	}
 
-		log.Infof("no certificate, ignoring server: [%v] relay: [%v] proto: [%v]", *serverName, relayTCPAddr, proto)
-		
-		if err == nil {
-			err = errors.New("unable to reach server to fetch certs")
-		}
+	log.Infof("no certificate, ignoring server: [%v] relay: [%v] proto: [%v]", *serverName, relayTCPAddr, proto)
 
-		return nil, 0, nil, err
+	if err == nil {
+		err = errors.New("unable to reach server to fetch certs")
+	}
+
+	return nil, 0, nil, err
 }
 
 func _dnsExchange(proxy *Proxy, proto string, query *dns.Msg, serverAddress string,
@@ -268,7 +265,7 @@ func _dnsExchange(proxy *Proxy, proto string, query *dns.Msg, serverAddress stri
 	var rtt time.Duration
 
 	if proto == "udp" {
-		if (relayForCerts) {
+		if relayForCerts {
 			// FIXME: udp relays do not support fetching certs over relays, and
 			// doing so leaks client's identity to the actual dns-crypt server!
 			log.Warnf("relay will not be used when fetching certs over udp")
@@ -326,10 +323,10 @@ func _dnsExchange(proxy *Proxy, proto string, query *dns.Msg, serverAddress stri
 		// when relay addresses are nil. Uncomment the code
 		// below when udp transport for dnscrypt-proxy is ready.
 		/*
-		if relayTCPAddr != nil && relayForCerts {
-			proxy.prepareForRelay(tcpAddr.IP, tcpAddr.Port, &binQuery)
-			upstreamAddr = relayTCPAddr
-		}
+			if relayTCPAddr != nil && relayForCerts {
+				proxy.prepareForRelay(tcpAddr.IP, tcpAddr.Port, &binQuery)
+				upstreamAddr = relayTCPAddr
+			}
 		*/
 		now := time.Now()
 		var pc net.Conn

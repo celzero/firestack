@@ -1,8 +1,8 @@
 package settings
 
 import (
-	"strings"
 	"golang.org/x/net/proxy"
+	"strings"
 )
 
 // TODO: These modes could be covered by bit-flags instead.
@@ -62,13 +62,13 @@ type TunMode struct {
 
 // DNSOptions define https or socks5 proxy options
 type DNSOptions struct {
-	IPPort			string
+	IPPort string
 }
 
 // ProxyOptions define https or socks5 proxy options
 type ProxyOptions struct {
-	Auth			*proxy.Auth
-	IPPort			string
+	Auth   *proxy.Auth
+	IPPort string
 }
 
 // SetMode re-assigns d to DNSMode, b to BlockMode, and p to ProxyMode
@@ -97,9 +97,9 @@ func NewTunMode(d int, b int, p int) *TunMode {
 // and with firewall disabled.
 func DefaultTunMode() *TunMode {
 	return &TunMode{
-		DNSMode:   	DNSModeIP,
-		BlockMode: 	BlockModeNone,
-		ProxyMode: 	ProxyModeNone,
+		DNSMode:   DNSModeIP,
+		BlockMode: BlockModeNone,
+		ProxyMode: ProxyModeNone,
 	}
 }
 
@@ -107,13 +107,13 @@ func DefaultTunMode() *TunMode {
 func NewDNSOptions(ip string, port string) *DNSOptions {
 	// TODO: validate IP and port, protocol
 	return &DNSOptions{
-		IPPort: 	ip + ":" + port,
+		IPPort: ip + ":" + port,
 	}
 }
 
 // NewAuthProxyOptions returns a new ProxyOptions object with authentication object.
 func NewAuthProxyOptions(username string, password string, ip string, port string) *ProxyOptions {
-	if (len(username) <= 0 || len(password) <= 0) {
+	if len(username) <= 0 || len(password) <= 0 {
 		return NewProxyOptions(ip, port)
 	}
 	auth := proxy.Auth{
@@ -122,8 +122,8 @@ func NewAuthProxyOptions(username string, password string, ip string, port strin
 	}
 	// TODO: validate IP and port, protocol
 	return &ProxyOptions{
-		Auth:   	&auth,
-		IPPort: 	ip + ":" + port,
+		Auth:   &auth,
+		IPPort: ip + ":" + port,
 	}
 }
 
@@ -131,8 +131,8 @@ func NewAuthProxyOptions(username string, password string, ip string, port strin
 func NewProxyOptions(ip string, port string) *ProxyOptions {
 	// TODO: validate IP and port, protocol
 	return &ProxyOptions{
-		Auth:   	nil,
-		IPPort: 	ip + ":" + port,
+		Auth:   nil,
+		IPPort: ip + ":" + port,
 	}
 }
 
@@ -145,7 +145,7 @@ func (p *ProxyOptions) String() string {
 	ipport := strings.Split(p.IPPort, ":")
 	var username string
 	var password string
-	if (p.Auth == nil) {
+	if p.Auth == nil {
 		username = ""
 		password = ""
 	} else {

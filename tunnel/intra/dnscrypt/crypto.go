@@ -1,6 +1,5 @@
 package dnscrypt
 
-
 import (
 	"bytes"
 	crypto_rand "crypto/rand"
@@ -18,7 +17,7 @@ const (
 	// NonceSize is what the name suggests
 	NonceSize = 24
 	// TagSize is what the name suggests
-	TagSize = 16
+	TagSize          = 16
 	HalfNonceSize    = NonceSize / 2
 	PublicKeySize    = 32
 	QueryOverhead    = ClientMagicLen + PublicKeySize + HalfNonceSize + TagSize
@@ -70,9 +69,9 @@ func (proxy *Proxy) Encrypt(serverInfo *ServerInfo, packet []byte, proto string)
 	publicKey = &proxy.proxyPublicKey
 
 	minQuestionSize := QueryOverhead + len(packet)
-		var xpad [1]byte
-		rand.Read(xpad[:])
-		minQuestionSize += int(xpad[0])
+	var xpad [1]byte
+	rand.Read(xpad[:])
+	minQuestionSize += int(xpad[0])
 	paddedLength := Min(MaxDNSUDPPacketSize, (Max(minQuestionSize, QueryOverhead)+1+63) & ^63)
 
 	// was: serverInfo.RelayUDAddr

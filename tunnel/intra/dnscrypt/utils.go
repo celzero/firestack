@@ -126,13 +126,13 @@ func addEDNS0PaddingIfNoneFound(msg *dns.Msg, unpaddedPacket []byte, paddingLen 
 func remove(s []string, r []int) []string {
 	// TODO: check if the max(r...) is within len(s)
 	// FIXME: s shouldn't contain empty string
-	for _, x := range(r) {
+	for _, x := range r {
 		s[x] = ""
 	}
 	// expect sort to group empty strings to the top
 	sort.Strings(s)
 	// slice out the top-half that's likely to be r
-    return s[len(r):]
+	return s[len(r):]
 }
 
 // remove removes elements at indices r from a ascii string slice s
@@ -141,40 +141,40 @@ func removeOverlap(s []string, r []string) []string {
 	// TODO: check if the max(r...) is within len(s)
 	// FIXME: s shouldn't contain empty string
 	var j int = 0
-	for _, x := range(s) {
+	for _, x := range s {
 		var skip bool = false
-		for _, y := range(r) {
-			if (x == y) {
+		for _, y := range r {
+			if x == y {
 				skip = true
 				break
 			}
 		}
-		if (!skip) {
+		if !skip {
 			s[j] = x
 			j++
 		}
 	}
 	// slice out the bottom-half to be removed
-    return s[:j]
+	return s[:j]
 }
 
 // returns unique strings in n not in s and returns a new array
 func findUnique(s []string, n []string) []string {
-	if (len(s) == 0) {
+	if len(s) == 0 {
 		return n
 	}
-	if (len(n) == 0) {
+	if len(n) == 0 {
 		return nil
 	}
 
 	var u []string
-	
+
 	for _, e := range n {
 		uniq := true
 		for _, x := range s {
-        	if e == x {
+			if e == x {
 				uniq = false
-            	break
+				break
 			}
 		}
 		if uniq {
@@ -182,5 +182,5 @@ func findUnique(s []string, n []string) []string {
 		}
 	}
 
-    return u
+	return u
 }

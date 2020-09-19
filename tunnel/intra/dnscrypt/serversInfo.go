@@ -11,8 +11,8 @@ import (
 	"sync"
 	"time"
 
-	stamps "github.com/jedisct1/go-dnsstamps"
 	"github.com/eycorsican/go-tun2socks/common/log"
+	stamps "github.com/jedisct1/go-dnsstamps"
 	"golang.org/x/crypto/ed25519"
 )
 
@@ -83,19 +83,19 @@ func (serversInfo *ServersInfo) unregisterServer(name string) (int, error) {
 	defer serversInfo.Unlock()
 
 	var l int = len(serversInfo.registeredServers)
-	if (l <= 0) {
+	if l <= 0 {
 		return 0, errors.New("zero registered servers")
 	}
 
 	var i int = 0
-	for _, s := range(serversInfo.registeredServers) {
+	for _, s := range serversInfo.registeredServers {
 		if s.name != name {
 			serversInfo.registeredServers[i] = s
 			i++
 		}
 	}
 	var j int = 0
-	for _, s := range(serversInfo.inner) {
+	for _, s := range serversInfo.inner {
 		if s.Name != name {
 			serversInfo.inner[j] = s
 			j++
@@ -132,7 +132,7 @@ func (serversInfo *ServersInfo) refresh(proxy *Proxy) (int, error) {
 		if err = serversInfo.refreshServer(proxy, registeredServer.name, registeredServer.stamp); err == nil {
 			liveServers++
 		}
-		if (err != nil) {
+		if err != nil {
 			log.Errorf("%s not a live server? %w", registeredServer.stamp, err)
 		}
 	}
@@ -202,7 +202,7 @@ func fetchDNSCryptServerInfo(proxy *Proxy, name string, stamp stamps.ServerStamp
 		return ServerInfo{}, err
 	}
 	certInfo, relayTCPAddr, err := FetchCurrentDNSCryptCert(proxy, &name, proxy.mainProto, stamp.ServerPk, stamp.ServerAddrStr, stamp.ProviderName, isNew, relayTCPAddr)
-	if (err != nil) {
+	if err != nil {
 		return ServerInfo{}, err
 	}
 	remoteTCPAddr, err := net.ResolveTCPAddr("tcp", stamp.ServerAddrStr)
@@ -221,7 +221,6 @@ func fetchDNSCryptServerInfo(proxy *Proxy, name string, stamp stamps.ServerStamp
 		RelayTCPAddr:       relayTCPAddr,
 	}, nil
 }
-
 
 func fetchDoHServerInfo(proxy *Proxy, name string, stamp stamps.ServerStamp, isNew bool) (ServerInfo, error) {
 	// FIXME: custom ip-address, user-certs, and cert-pinning not supported

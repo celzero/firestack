@@ -27,8 +27,8 @@ import (
 	"github.com/eycorsican/go-tun2socks/common/log"
 	"github.com/eycorsican/go-tun2socks/core"
 
-	"github.com/Jigsaw-Code/outline-go-tun2socks/tunnel/intra/doh"
 	"github.com/Jigsaw-Code/outline-go-tun2socks/tunnel/intra/dnscrypt"
+	"github.com/Jigsaw-Code/outline-go-tun2socks/tunnel/intra/doh"
 	"github.com/Jigsaw-Code/outline-go-tun2socks/tunnel/intra/protect"
 	"github.com/Jigsaw-Code/outline-go-tun2socks/tunnel/intra/split"
 	"github.com/Jigsaw-Code/outline-go-tun2socks/tunnel/settings"
@@ -57,9 +57,9 @@ type tcpHandler struct {
 	tunMode          *settings.TunMode
 	listener         TCPListener
 	sniReporter      tcpSNIReporter
-	dnscrypt		 *dnscrypt.Proxy
-	dnsproxy		 *net.TCPAddr
-	proxy	 	 	 proxy.Dialer
+	dnscrypt         *dnscrypt.Proxy
+	dnsproxy         *net.TCPAddr
+	proxy            proxy.Dialer
 }
 
 // TCPSocketSummary provides information about each TCP socket, reported when it is closed.
@@ -175,11 +175,11 @@ func (h *tcpHandler) isDNSCrypt(addr *net.TCPAddr) bool {
 
 func (h *tcpHandler) dnsOverride(conn net.Conn, addr *net.TCPAddr) bool {
 
-	if (h.isDoh(addr)) {
+	if h.isDoh(addr) {
 		dns := h.dns.Load()
 		go doh.Accept(dns, conn)
 		return true
-	} else if (h.isDNSCrypt(addr)) {
+	} else if h.isDNSCrypt(addr) {
 		go dnscrypt.HandleTCP(h.dnscrypt, conn)
 		return true
 	}
@@ -199,9 +199,9 @@ func (h *tcpHandler) blockConn(localConn net.Conn, target *net.TCPAddr) (block b
 	localaddr := localtcp.LocalAddr().(*net.TCPAddr)
 
 	uid := -1
-	if (h.tunMode.BlockMode == settings.BlockModeFilterProc) {
+	if h.tunMode.BlockMode == settings.BlockModeFilterProc {
 		procEntry := settings.FindProcNetEntry("tcp", localaddr.IP, localaddr.Port, target.IP, target.Port)
-		if (procEntry != nil) {
+		if procEntry != nil {
 			uid = procEntry.UserID
 		}
 	}
@@ -316,11 +316,10 @@ func (h *tcpHandler) SetProxyOptions(po *settings.ProxyOptions) error {
 	} else if h.httpsProxy() {
 		err = fmt.Errorf("http-proxy not supported")
 	}
-	if (err != nil) {
+	if err != nil {
 		h.proxy = nil
 		return err
 	}
 	h.proxy = fproxy
 	return nil
 }
-

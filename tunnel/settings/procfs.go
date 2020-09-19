@@ -20,15 +20,15 @@ const (
 var (
 	parser = regexp.MustCompile(`(?i)` +
 		`\d+:\s+` + // sl
-		 // source
+		// source
 		`([a-f0-9]{8,32}):([a-f0-9]{4})\s+` +
-		 // destination
+		// destination
 		`([a-f0-9]{8,32}):([a-f0-9]{4})\s+` +
 		`[a-f0-9]{2}\s+` + // st
 		// transfer queue, recieve queue
 		`[a-f0-9]{8}:[a-f0-9]{8}\s+` +
 		// tr tm->when
-		`[a-f0-9]{2}:[a-f0-9]{8}\s+` + 
+		`[a-f0-9]{2}:[a-f0-9]{8}\s+` +
 		// retrnsmt
 		`[a-f0-9]{8}\s+` +
 		// uid
@@ -36,32 +36,32 @@ var (
 		// timeout
 		`\d+\s+` +
 		// inode
-		`(\d+)\s+` + 
+		`(\d+)\s+` +
 		// the rest...
-		`.+`) 
+		`.+`)
 )
 
 // ProcNetEntry represents a single line as fetched from /proc/net/*
 type ProcNetEntry struct {
-	Protocol	string
-	SrcIP   	net.IP
-	SrcPort 	int
-	DstIP   	net.IP
-	DstPort 	int
-	UserID  	int
-	INode   	int
+	Protocol string
+	SrcIP    net.IP
+	SrcPort  int
+	DstIP    net.IP
+	DstPort  int
+	UserID   int
+	INode    int
 }
 
 // NewProcNetEntry creates an Entry
 func NewProcNetEntry(protocol string, srcIP net.IP, srcPort int, dstIP net.IP, dstPort int, userID int, iNode int) ProcNetEntry {
-	return ProcNetEntry {
-		Protocol:	protocol,
-		SrcIP:   	srcIP,
-		SrcPort: 	srcPort,
-		DstIP:   	dstIP,
-		DstPort: 	dstPort,
-		UserID:  	userID,
-		INode:   	iNode,
+	return ProcNetEntry{
+		Protocol: protocol,
+		SrcIP:    srcIP,
+		SrcPort:  srcPort,
+		DstIP:    dstIP,
+		DstPort:  dstPort,
+		UserID:   userID,
+		INode:    iNode,
 	}
 }
 
@@ -84,7 +84,6 @@ func hexToInt(h string) int {
 	}
 	return int(d)
 }
-
 
 func hexToInt2(h string) (int, int) {
 	if len(h) > 16 {
@@ -112,9 +111,9 @@ func hexToIP(h string) net.IP {
 	if m != 0 {
 		ip = make(net.IP, 16)
 		// TODO: Check if this depends on machine endianness?
-		binary.LittleEndian.PutUint32(ip, uint32(n >> 32))
+		binary.LittleEndian.PutUint32(ip, uint32(n>>32))
 		binary.LittleEndian.PutUint32(ip[4:], uint32(n))
-		binary.LittleEndian.PutUint32(ip[8:], uint32(m >> 32))
+		binary.LittleEndian.PutUint32(ip[8:], uint32(m>>32))
 		binary.LittleEndian.PutUint32(ip[12:], uint32(m))
 	} else {
 		ip = make(net.IP, 4)

@@ -29,8 +29,8 @@ import (
 	"github.com/eycorsican/go-tun2socks/common/log"
 	"github.com/eycorsican/go-tun2socks/core"
 
-	"github.com/Jigsaw-Code/outline-go-tun2socks/tunnel/intra/doh"
 	"github.com/Jigsaw-Code/outline-go-tun2socks/tunnel/intra/dnscrypt"
+	"github.com/Jigsaw-Code/outline-go-tun2socks/tunnel/intra/doh"
 	"github.com/Jigsaw-Code/outline-go-tun2socks/tunnel/intra/protect"
 	"github.com/Jigsaw-Code/outline-go-tun2socks/tunnel/settings"
 )
@@ -50,8 +50,8 @@ type UDPListener interface {
 type tracker struct {
 	conn     interface{} // net.Conn and net.PacketConn
 	start    time.Time
-	upload   int64 // Non-DNS upload bytes
-	download int64 // Non-DNS download bytes
+	upload   int64        // Non-DNS upload bytes
+	download int64        // Non-DNS download bytes
 	ip       *net.UDPAddr // masked addr
 }
 
@@ -73,17 +73,17 @@ type udpHandler struct {
 	UDPHandler
 	sync.RWMutex
 
-	timeout  		time.Duration
-	udpConns 		map[core.UDPConn]*tracker
-	fakedns  		net.UDPAddr
-	dns      		doh.Transport
-	config   		*net.ListenConfig
-	blocker  		protect.Blocker
-	tunMode  		*settings.TunMode
-	listener 		UDPListener
-	dnscrypt 		*dnscrypt.Proxy
-	dnsproxy		*net.UDPAddr
-	proxy		 	proxy.Dialer
+	timeout  time.Duration
+	udpConns map[core.UDPConn]*tracker
+	fakedns  net.UDPAddr
+	dns      doh.Transport
+	config   *net.ListenConfig
+	blocker  protect.Blocker
+	tunMode  *settings.TunMode
+	listener UDPListener
+	dnscrypt *dnscrypt.Proxy
+	dnsproxy *net.UDPAddr
+	proxy    proxy.Dialer
 }
 
 // NewUDPHandler makes a UDP handler with Intra-style DNS redirection:
@@ -136,7 +136,7 @@ func (h *udpHandler) fetchUDPInput(conn core.UDPConn, t *tracker) {
 		}
 
 		var udpaddr *net.UDPAddr
-		if (t.ip == nil && addr != nil) {
+		if t.ip == nil && addr != nil {
 			udpaddr = addr.(*net.UDPAddr)
 		} else {
 			// overwrite source-addr as set in t.ip
@@ -169,9 +169,9 @@ func (h *udpHandler) blockConn(localudp core.UDPConn, target *net.UDPAddr) (bloc
 func (h *udpHandler) blockConnAddr(source *net.UDPAddr, target *net.UDPAddr) (block bool) {
 
 	uid := -1
-	if (h.tunMode.BlockMode == settings.BlockModeFilterProc) {
+	if h.tunMode.BlockMode == settings.BlockModeFilterProc {
 		procEntry := settings.FindProcNetEntry("udp", source.IP, source.Port, target.IP, target.Port)
-		if (procEntry != nil) {
+		if procEntry != nil {
 			uid = procEntry.UserID
 		}
 	}
@@ -212,7 +212,7 @@ func (h *udpHandler) Connect(conn core.UDPConn, target *net.UDPAddr) error {
 
 	t := makeTracker(c)
 
-	if (proxymode) {
+	if proxymode {
 		t.ip = target
 	}
 
@@ -291,19 +291,19 @@ func (h *udpHandler) isDNSCrypt(addr *net.UDPAddr, t *tracker) bool {
 }
 
 func (h *udpHandler) dnsOverride(dns doh.Transport, dnscrypt *dnscrypt.Proxy,
-			t *tracker, conn core.UDPConn, addr *net.UDPAddr, data []byte) bool {
+	t *tracker, conn core.UDPConn, addr *net.UDPAddr, data []byte) bool {
 	dataCopy := append([]byte{}, data...)
 
-	if (h.isDoh(addr)) {
-		if (dns == nil) {
+	if h.isDoh(addr) {
+		if dns == nil {
 			log.Errorf("doh transport nil")
 			return false
 		}
 		t.ip = addr
 		go h.doDoh(dns, t, conn, dataCopy)
 		return true
-	} else if (h.isDNSCrypt(addr, t)) {
-		if (dnscrypt == nil) {
+	} else if h.isDNSCrypt(addr, t) {
+		if dnscrypt == nil {
 			log.Errorf("dns crypt nil")
 			return false
 		}
@@ -328,8 +328,8 @@ func (h *udpHandler) ReceiveTo(conn core.UDPConn, data []byte, addr *net.UDPAddr
 		return fmt.Errorf("connection %v->%v does not exists", conn.LocalAddr(), addr)
 	}
 
-	if (h.isDNSProxy(addr)) {
-		if (dnsproxy == nil) {
+	if h.isDNSProxy(addr) {
+		if dnsproxy == nil {
 			log.Errorf("dns proxy nil")
 		} else {
 			t.ip = addr
@@ -397,7 +397,6 @@ func (h *udpHandler) SetDNSCryptProxy(dnscrypt *dnscrypt.Proxy) {
 	h.Unlock()
 }
 
-
 func (h *udpHandler) SetDNSOptions(do *settings.DNSOptions) error {
 	h.Lock()
 	dnsaddr, err := net.ResolveUDPAddr("udp", do.IPPort)
@@ -430,10 +429,10 @@ func (h *udpHandler) SetProxyOptions(po *settings.ProxyOptions) error {
 	} else if h.httpsProxy() {
 		err = fmt.Errorf("http-proxy not supported")
 	}
-	if (err != nil) {
+	if err != nil {
 		h.proxy = nil
 		return err
 	}
 	h.proxy = fproxy
 	return nil
-} 
+}

@@ -30,12 +30,12 @@ func (e *dnscryptError) Unwrap() error {
 
 // Summary is a summary of a DNS transaction, reported when it is complete.
 type Summary struct {
-	Latency    		float64 // Response (or failure) latency in seconds
-	Query      		[]byte
-	Response   		[]byte
-	Server     		string
-	RelayServer	   	string
-	Status     		int
+	Latency     float64 // Response (or failure) latency in seconds
+	Query       []byte
+	Response    []byte
+	Server      string
+	RelayServer string
+	Status      int
 }
 
 // Listener receives Summaries.

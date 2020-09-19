@@ -10,7 +10,7 @@ import (
 )
 
 const (
-	ActionNone     = iota
+	ActionNone = iota
 	ActionContinue
 	ActionDrop
 	ActionSynth
@@ -23,9 +23,9 @@ const (
 
 type ReturnCode int
 
-var ReturnCodeToString = map[ReturnCode]string {
-	ReturnCodePass:          "PASS",
-	ReturnCodeSynth:         "SYNTH",
+var ReturnCodeToString = map[ReturnCode]string{
+	ReturnCodePass:  "PASS",
+	ReturnCodeSynth: "SYNTH",
 }
 
 type Plugin interface {
@@ -38,20 +38,20 @@ type Plugin interface {
 
 type Intercept struct {
 	Plugin
-	undelegatedSet 			*critbitgo.Trie
-	state 					*InterceptState
+	undelegatedSet *critbitgo.Trie
+	state          *InterceptState
 }
 
 type InterceptState struct {
-	originalMaxPayloadSize 				int
-	maxUnencryptedUDPSafePayloadSize 	int
-	maxPayloadSize 						int
-	question 							*dns.Msg
-	qName 								string
-	response 							*dns.Msg
-	action 								int
-	returnCode 							int
-	dnssec 								bool
+	originalMaxPayloadSize           int
+	maxUnencryptedUDPSafePayloadSize int
+	maxPayloadSize                   int
+	question                         *dns.Msg
+	qName                            string
+	response                         *dns.Msg
+	action                           int
+	returnCode                       int
+	dnssec                           bool
 }
 
 // HandleRequest changes the incoming DNS question either to add padding to it or synthesize a pre-determined answer.
@@ -222,21 +222,21 @@ func (ic *Intercept) blockUndelegated(msg *dns.Msg) error {
 }
 
 func NewIntercept(set *critbitgo.Trie) *Intercept {
-	return &Intercept {
+	return &Intercept{
 		undelegatedSet: set,
-		state: NewInterceptState(),
+		state:          NewInterceptState(),
 	}
 }
 
 func NewInterceptState() *InterceptState {
-	return &InterceptState {
-		action:                          	ActionContinue,
-		returnCode:                      	ReturnCodePass,
-		maxPayloadSize:                  	MaxDNSUDPPacketSize - ResponseOverhead,
-		question:                     		nil,
-		qName:                           	"",
-		maxUnencryptedUDPSafePayloadSize:	MaxDNSUDPSafePacketSize,
-		dnssec:							 	false,
-		response:                        	nil,
+	return &InterceptState{
+		action:                           ActionContinue,
+		returnCode:                       ReturnCodePass,
+		maxPayloadSize:                   MaxDNSUDPPacketSize - ResponseOverhead,
+		question:                         nil,
+		qName:                            "",
+		maxUnencryptedUDPSafePayloadSize: MaxDNSUDPSafePacketSize,
+		dnssec:                           false,
+		response:                         nil,
 	}
 }

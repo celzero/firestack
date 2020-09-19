@@ -12,10 +12,10 @@ import (
 	"time"
 
 	"github.com/eycorsican/go-tun2socks/common/log"
-	"github.com/k-sone/critbitgo"
-	stamps "github.com/jedisct1/go-dnsstamps"
-	"golang.org/x/crypto/curve25519"
 	clocksmith "github.com/jedisct1/go-clocksmith"
+	stamps "github.com/jedisct1/go-dnsstamps"
+	"github.com/k-sone/critbitgo"
+	"golang.org/x/crypto/curve25519"
 )
 
 var undelegatedSet = []string{
@@ -185,21 +185,21 @@ type Controller interface {
 
 type Proxy struct {
 	Controller
-	undelegatedSet				   *critbitgo.Trie
-	proxyPublicKey                 [32]byte
-	proxySecretKey                 [32]byte
-	serversInfo                    ServersInfo
-	timeout                        time.Duration
-	certRefreshDelay               time.Duration
-	certRefreshDelayAfterFailure   time.Duration
-	certIgnoreTimestamp            bool
-	mainProto                      string
-	registeredServers              []RegisteredServer
-	registeredRelays               []RegisteredServer
-	routes                         []string
-	quit						   chan bool
-	listener					   Listener
-	sigterm						   context.CancelFunc
+	undelegatedSet               *critbitgo.Trie
+	proxyPublicKey               [32]byte
+	proxySecretKey               [32]byte
+	serversInfo                  ServersInfo
+	timeout                      time.Duration
+	certRefreshDelay             time.Duration
+	certRefreshDelayAfterFailure time.Duration
+	certIgnoreTimestamp          bool
+	mainProto                    string
+	registeredServers            []RegisteredServer
+	registeredRelays             []RegisteredServer
+	routes                       []string
+	quit                         chan bool
+	listener                     Listener
+	sigterm                      context.CancelFunc
 }
 
 func (proxy *Proxy) exchangeWithTCPServer(serverInfo *ServerInfo, sharedKey *[32]byte, encryptedQuery []byte, clientNonce []byte) ([]byte, error) {
@@ -262,7 +262,7 @@ func (proxy *Proxy) query(packet []byte, truncate bool) (response []byte, server
 
 	query, err := intercept.HandleRequest(packet, needsEDNS0Padding)
 
-	if (err != nil || intercept.state.action == ActionDrop) {
+	if err != nil || intercept.state.action == ActionDrop {
 		log.Errorf("ActionDrop or err on request %w.", err)
 		qerr = &dnscryptError{BadQuery, err}
 		return
@@ -280,7 +280,7 @@ func (proxy *Proxy) query(packet []byte, truncate bool) (response []byte, server
 	state := intercept.state
 	if state.response != nil {
 		response, err = state.response.PackBuffer(response)
-		if (err != nil) {
+		if err != nil {
 			log.Warnf("sending intercepted response failed %w", err)
 			qerr = &dnscryptError{BadResponse, err}
 		}
@@ -330,7 +330,7 @@ func (proxy *Proxy) query(packet []byte, truncate bool) (response []byte, server
 
 	response, err = intercept.HandleResponse(response, truncate)
 
-	if (err != nil) {
+	if err != nil {
 		log.Errorf("failed to intercept %s response %w", serverInfo.String(), err)
 		qerr = &dnscryptError{BadResponse, err}
 	}
@@ -340,7 +340,7 @@ func (proxy *Proxy) query(packet []byte, truncate bool) (response []byte, server
 
 // HandleUDP handles incoming udp connection speaking plain old DNS
 func HandleUDP(proxy *Proxy, data []byte) (response []byte, err error) {
-	if (proxy == nil) {
+	if proxy == nil {
 		return nil, fmt.Errorf("dns-crypt proxy not set")
 	}
 
@@ -358,7 +358,7 @@ func HandleUDP(proxy *Proxy, data []byte) (response []byte, err error) {
 		var relay string
 		if s != nil {
 			resolver = s.TCPAddr.IP.String()
-			if (s.RelayTCPAddr != nil) {
+			if s.RelayTCPAddr != nil {
 				relay = s.RelayTCPAddr.IP.String()
 			}
 		}
@@ -369,12 +369,12 @@ func HandleUDP(proxy *Proxy, data []byte) (response []byte, err error) {
 		}
 
 		proxy.listener.OnDNSCryptResponse(&Summary{
-			Latency:    	latency.Seconds(),
-			Query:      	data,
-			Response:   	response,
-			Server:     	resolver,
-			RelayServer:    relay,
-			Status: 		status,
+			Latency:     latency.Seconds(),
+			Query:       data,
+			Response:    response,
+			Server:      resolver,
+			RelayServer: relay,
+			Status:      status,
 		})
 	}
 
@@ -400,7 +400,7 @@ func (proxy *Proxy) forward(conn net.Conn) (q []byte, response []byte, serverInf
 		return
 	}
 	response, err = PrefixWithSize(response)
-	if (err != nil) {
+	if err != nil {
 		log.Errorf("failed reading answer for dnscrypt query %w", err)
 	}
 	return
@@ -410,7 +410,7 @@ func (proxy *Proxy) forward(conn net.Conn) (q []byte, response []byte, serverInf
 func HandleTCP(proxy *Proxy, conn net.Conn) {
 	defer conn.Close()
 
-	if (proxy == nil) {
+	if proxy == nil {
 		log.Errorf("dns-crypt proxy not set")
 		return
 	}
@@ -441,12 +441,12 @@ func HandleTCP(proxy *Proxy, conn net.Conn) {
 		}
 
 		proxy.listener.OnDNSCryptResponse(&Summary{
-			Latency:    	latency.Seconds(),
-			Query:      	query,
-			Response:   	response,
-			Server:     	resolver,
-			RelayServer:    relay,
-			Status: 		status,
+			Latency:     latency.Seconds(),
+			Query:       query,
+			Response:    response,
+			Server:      resolver,
+			RelayServer: relay,
+			Status:      status,
 		})
 	}
 
@@ -469,12 +469,12 @@ func (proxy *Proxy) Refresh() (int, error) {
 		// ignore error if live-servers are around
 		return 0, err
 	}
-	return liveServers, nil;
+	return liveServers, nil
 }
 
 // StartProxy fetches server-list and starts a dnscrypt stub resolver
 func (proxy *Proxy) StartProxy() (int, error) {
-	if (proxy.sigterm != nil) {
+	if proxy.sigterm != nil {
 		return 0, fmt.Errorf("proxy already started")
 	}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -510,7 +510,7 @@ func (proxy *Proxy) StartProxy() (int, error) {
 }
 
 func (proxy *Proxy) StopProxy() error {
-	if (proxy.sigterm != nil) {
+	if proxy.sigterm != nil {
 		proxy.sigterm()
 	}
 	proxy.sigterm = nil
@@ -519,7 +519,7 @@ func (proxy *Proxy) StopProxy() error {
 
 // AddRoutes set anonymous dnscrypt relay routes
 func (proxy *Proxy) AddRoutes(routescsv string) (int, error) {
-	if (len(routescsv) <= 0) {
+	if len(routescsv) <= 0 {
 		return 0, fmt.Errorf("specify atleast one dns-crypt route")
 	}
 	r := findUnique(proxy.routes, strings.Split(routescsv, ","))
@@ -528,7 +528,7 @@ func (proxy *Proxy) AddRoutes(routescsv string) (int, error) {
 }
 
 func (proxy *Proxy) RemoveRoutes(routescsv string) (int, error) {
-	if (len(routescsv) <= 0) {
+	if len(routescsv) <= 0 {
 		return 0, fmt.Errorf("specify atleast one dns-crypt route")
 	}
 	rm := strings.Split(routescsv, ",")
@@ -538,14 +538,14 @@ func (proxy *Proxy) RemoveRoutes(routescsv string) (int, error) {
 }
 
 func (proxy *Proxy) RemoveServers(servernamescsv string) (int, error) {
-	if (len(servernamescsv) <= 0) {
+	if len(servernamescsv) <= 0 {
 		return 0, fmt.Errorf("specify at least one dns-crypt resolver endpoint")
 	}
 
 	servernames := strings.Split(servernamescsv, ",")
 	var c int
-	for _, name := range(servernames) {
-		if (len(name) == 0) {
+	for _, name := range servernames {
+		if len(name) == 0 {
 			continue
 		}
 		// TODO: handle err
@@ -557,7 +557,7 @@ func (proxy *Proxy) RemoveServers(servernamescsv string) (int, error) {
 
 // AddServers registers additional dnscrypt servers
 func (proxy *Proxy) AddServers(serverscsv string) (int, error) {
-	if (len(serverscsv) <= 0) {
+	if len(serverscsv) <= 0 {
 		return 0, fmt.Errorf("specify at least one dns-crypt resolver endpoint")
 	}
 
@@ -572,7 +572,7 @@ func (proxy *Proxy) AddServers(serverscsv string) (int, error) {
 		if err != nil {
 			return 0, fmt.Errorf("Stamp error for the stamp [%s] definition: [%v]", serverStampPair, err)
 		}
-		if (stamp.Proto == stamps.StampProtoTypeDoH) {
+		if stamp.Proto == stamps.StampProtoTypeDoH {
 			// TODO: Implement doh
 			return 0, fmt.Errorf("DoH with DNSCrypt client not supported", serverStamp)
 		}
@@ -590,15 +590,15 @@ func NewProxy(l Listener) *Proxy {
 		suffixes.Insert([]byte(pattern), true)
 	}
 	return &Proxy{
-		routes:							nil,
-		registeredServers:				nil,
-		undelegatedSet:					suffixes,
-		certRefreshDelay:				time.Duration(240) * time.Minute,
-		certRefreshDelayAfterFailure:	time.Duration(10 * time.Second),
-		certIgnoreTimestamp:		 	false,
-		timeout:	 					time.Duration(20000) * time.Millisecond,
-		mainProto: 						"tcp",
-		serversInfo: 					NewServersInfo(),
-		listener:						l,
+		routes:                       nil,
+		registeredServers:            nil,
+		undelegatedSet:               suffixes,
+		certRefreshDelay:             time.Duration(240) * time.Minute,
+		certRefreshDelayAfterFailure: time.Duration(10 * time.Second),
+		certIgnoreTimestamp:          false,
+		timeout:                      time.Duration(20000) * time.Millisecond,
+		mainProto:                    "tcp",
+		serversInfo:                  NewServersInfo(),
+		listener:                     l,
 	}
 }
