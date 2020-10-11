@@ -1,9 +1,7 @@
-package dnscrypt
+package xdns
 
 import (
-	"encoding/binary"
 	"errors"
-	"sort"
 	"strings"
 	"unicode/utf8"
 
@@ -11,7 +9,10 @@ import (
 )
 
 func EmptyResponseFromMessage(srcMsg *dns.Msg) *dns.Msg {
-	dstMsg := dns.Msg{MsgHdr: srcMsg.MsgHdr, Compress: true}
+	dstMsg := dns.Msg{
+		MsgHdr:   srcMsg.MsgHdr,
+		Compress: true,
+	}
 	dstMsg.Question = srcMsg.Question
 	dstMsg.Response = true
 	if srcMsg.RecursionDesired {
@@ -38,26 +39,6 @@ func TruncatedResponse(packet []byte) ([]byte, error) {
 
 func HasTCFlag(packet []byte) bool {
 	return packet[2]&2 == 2
-}
-
-func TransactionID(packet []byte) uint16 {
-	return binary.BigEndian.Uint16(packet[0:2])
-}
-
-func SetTransactionID(packet []byte, tid uint16) {
-	binary.BigEndian.PutUint16(packet[0:2], tid)
-}
-
-func Rcode(packet []byte) uint8 {
-	return packet[3] & 0xf
-}
-
-func NormalizeRawQName(name *[]byte) {
-	for i, c := range *name {
-		if c >= 65 && c <= 90 {
-			(*name)[i] = c + 32
-		}
-	}
 }
 
 func NormalizeQName(str string) (string, error) {
@@ -89,7 +70,7 @@ func NormalizeQName(str string) (string, error) {
 	return b.String(), nil
 }
 
-func removeEDNS0Options(msg *dns.Msg) bool {
+func RemoveEDNS0Options(msg *dns.Msg) bool {
 	edns0 := msg.IsEdns0()
 	if edns0 == nil {
 		return false
@@ -98,7 +79,7 @@ func removeEDNS0Options(msg *dns.Msg) bool {
 	return true
 }
 
-func addEDNS0PaddingIfNoneFound(msg *dns.Msg, unpaddedPacket []byte, paddingLen int) ([]byte, error) {
+func AddEDNS0PaddingIfNoneFound(msg *dns.Msg, unpaddedPacket []byte, paddingLen int) ([]byte, error) {
 	edns0 := msg.IsEdns0()
 	if edns0 == nil {
 		msg.SetEdns0(uint16(MaxDNSPacketSize), false)
@@ -122,65 +103,70 @@ func addEDNS0PaddingIfNoneFound(msg *dns.Msg, unpaddedPacket []byte, paddingLen 
 	return msg.Pack()
 }
 
-// remove removes elements at indices r from a ascii string slice s
-func remove(s []string, r []int) []string {
-	// TODO: check if the max(r...) is within len(s)
-	// FIXME: s shouldn't contain empty string
-	for _, x := range r {
-		s[x] = ""
+func BlockResponseFromMessage(q []byte) (*dns.Msg, error) {
+	r := &dns.Msg{}
+	if err := r.Unpack(q); err != nil {
+		return r, err
 	}
-	// expect sort to group empty strings to the top
-	sort.Strings(s)
-	// slice out the top-half that's likely to be r
-	return s[len(r):]
+	return RefusedResponseFromMessage(r)
 }
 
-// remove removes elements at indices r from a ascii string slice s
-// and returns a slice
-func removeOverlap(s []string, r []string) []string {
-	// TODO: check if the max(r...) is within len(s)
-	// FIXME: s shouldn't contain empty string
-	var j int = 0
-	for _, x := range s {
-		var skip bool = false
-		for _, y := range r {
-			if x == y {
-				skip = true
-				break
-			}
-		}
-		if !skip {
-			s[j] = x
-			j++
-		}
+func RefusedResponseFromMessage(srcMsg *dns.Msg) (dstMsg *dns.Msg, err error) {
+	if srcMsg == nil {
+		return nil, errors.New("empty source dns message")
 	}
-	// slice out the bottom-half to be removed
-	return s[:j]
-}
+	dstMsg = EmptyResponseFromMessage(srcMsg)
+	dstMsg.Rcode = dns.RcodeSuccess
+	ttl := BlockTTL
 
-// returns unique strings in n not in s and returns a new array
-func findUnique(s []string, n []string) []string {
-	if len(s) == 0 {
-		return n
-	}
-	if len(n) == 0 {
-		return nil
+	questions := srcMsg.Question
+	if len(questions) == 0 {
+		return
 	}
 
-	var u []string
+	question := questions[0]
+	sendHInfoResponse := true
 
-	for _, e := range n {
-		uniq := true
-		for _, x := range s {
-			if e == x {
-				uniq = false
-				break
-			}
+	if question.Qtype == dns.TypeA {
+		rr := new(dns.A)
+		rr.Hdr = dns.RR_Header{
+			Name:   question.Name,
+			Rrtype: dns.TypeA,
+			Class:  dns.ClassINET,
+			Ttl:    ttl,
 		}
-		if uniq {
-			u = append(u, e)
+		rr.A = ip4.To4()
+		if rr.A != nil {
+			dstMsg.Answer = []dns.RR{rr}
+			sendHInfoResponse = false
+		}
+	} else if question.Qtype == dns.TypeAAAA {
+		rr := new(dns.AAAA)
+		rr.Hdr = dns.RR_Header{
+			Name:   question.Name,
+			Rrtype: dns.TypeAAAA,
+			Class:  dns.ClassINET,
+			Ttl:    ttl,
+		}
+		rr.AAAA = ip6.To16()
+		if rr.AAAA != nil {
+			dstMsg.Answer = []dns.RR{rr}
+			sendHInfoResponse = false
 		}
 	}
 
-	return u
+	if sendHInfoResponse {
+		hinfo := new(dns.HINFO)
+		hinfo.Hdr = dns.RR_Header{
+			Name:   question.Name,
+			Rrtype: dns.TypeHINFO,
+			Class:  dns.ClassINET,
+			Ttl:    ttl,
+		}
+		hinfo.Cpu = "These are not the queries you are"
+		hinfo.Os = "looking for"
+		dstMsg.Answer = []dns.RR{hinfo}
+	}
+
+	return
 }

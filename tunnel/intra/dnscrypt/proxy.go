@@ -9,9 +9,13 @@ import (
 	"net"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/Jigsaw-Code/outline-go-tun2socks/tunnel/intra/dnsx"
+	"github.com/Jigsaw-Code/outline-go-tun2socks/tunnel/intra/xdns"
 	"github.com/eycorsican/go-tun2socks/common/log"
+
 	clocksmith "github.com/jedisct1/go-clocksmith"
 	stamps "github.com/jedisct1/go-dnsstamps"
 	"github.com/k-sone/critbitgo"
@@ -168,12 +172,12 @@ var undelegatedSet = []string{
 // Controller represents an dnscrypt session.
 type Controller interface {
 	// StartProxy starts a dnscrypt proxy, returns number of live-servers and errors if any.
-	StartProxy() (int, error)
+	StartProxy() (string, error)
 	// StopProxy stops the dnscrypt proxy
 	StopProxy() error
 	// Refresh registers servers.
 	Refresh() (int, error)
-	// AddServers adds new dns-crypt resolvers given csv-separated list of "unqiue-id:dns-stamp"
+	// AddServers adds new dns-crypt resolvers given csv-separated list of "unqiue-id#dns-stamp"
 	AddServers(string) (int, error)
 	// RemoveServers removes existing dns-crypt resolvers given csv-separated list of "unqiue-id"s
 	RemoveServers(string) (int, error)
@@ -181,10 +185,13 @@ type Controller interface {
 	AddRoutes(string) (int, error)
 	// RemoveRoutes removes existing dns-crypt relays given csv-separated list of "dns-stamp"
 	RemoveRoutes(string) (int, error)
+	// LiveServers returns a csv of currently in-use dnscrypt-server names
+	LiveServers() string
 }
 
 type Proxy struct {
 	Controller
+	sync.RWMutex
 	undelegatedSet               *critbitgo.Trie
 	proxyPublicKey               [32]byte
 	proxySecretKey               [32]byte
@@ -199,7 +206,9 @@ type Proxy struct {
 	routes                       []string
 	quit                         chan bool
 	listener                     Listener
+	liveServers                  []string
 	sigterm                      context.CancelFunc
+	bravedns                     dnsx.BraveDNS
 }
 
 func (proxy *Proxy) exchangeWithTCPServer(serverInfo *ServerInfo, sharedKey *[32]byte, encryptedQuery []byte, clientNonce []byte) ([]byte, error) {
@@ -221,7 +230,7 @@ func (proxy *Proxy) exchangeWithTCPServer(serverInfo *ServerInfo, sharedKey *[32
 	if serverInfo.RelayTCPAddr != nil {
 		proxy.prepareForRelay(serverInfo.TCPAddr.IP, serverInfo.TCPAddr.Port, &encryptedQuery)
 	}
-	encryptedQuery, err = PrefixWithSize(encryptedQuery)
+	encryptedQuery, err = xdns.PrefixWithSize(encryptedQuery)
 	if err != nil {
 		log.Errorf("failed prefix(encrypted-query) from %s because %v", serverInfo.String(), err)
 		return nil, err
@@ -230,7 +239,7 @@ func (proxy *Proxy) exchangeWithTCPServer(serverInfo *ServerInfo, sharedKey *[32
 		log.Errorf("failed to write to remote-addr at %s because %v", serverInfo.String(), err)
 		return nil, err
 	}
-	encryptedResponse, err := ReadPrefixed(&pc)
+	encryptedResponse, err := xdns.ReadPrefixed(&pc)
 	if err != nil {
 		log.Errorf("failed to read(encrypted-response) from %s because %v", serverInfo.String(), err)
 		return nil, err
@@ -248,36 +257,53 @@ func (proxy *Proxy) prepareForRelay(ip net.IP, port int, encryptedQuery *[]byte)
 	*encryptedQuery = relayedQuery
 }
 
-func (proxy *Proxy) query(packet []byte, truncate bool) (response []byte, serverInfo *ServerInfo, qerr error) {
-	if len(packet) < MinDNSPacketSize {
+func (proxy *Proxy) query(packet []byte, truncate bool) (response []byte, blocklists string, serverInfo *ServerInfo, qerr error) {
+	if len(packet) < xdns.MinDNSPacketSize {
 		log.Warnf("DNS query size too short, cannot process dns-crypt query.")
 		qerr = &dnscryptError{BadQuery, fmt.Errorf("dns-crypt query size too short")}
 		return
 	}
 
-	intercept := NewIntercept(proxy.undelegatedSet)
+	intercept := NewIntercept(proxy.undelegatedSet, proxy.bravedns)
 	// serverName := "-"
 	// needsEDNS0Padding = (serverInfo.Proto == stamps.StampProtoTypeDoH || serverInfo.Proto == stamps.StampProtoTypeTLS)
 	needsEDNS0Padding := false
 
 	query, err := intercept.HandleRequest(packet, needsEDNS0Padding)
+	state := intercept.state
 
-	if err != nil || intercept.state.action == ActionDrop {
+	saction := state.action
+	sr := state.response
+	blocklists = state.blocklists
+	if err != nil || saction == ActionDrop {
 		log.Errorf("ActionDrop or err on request %w.", err)
 		qerr = &dnscryptError{BadQuery, err}
 		return
 	}
-	if len(query) < MinDNSPacketSize {
+	if saction == ActionSynth {
+		if sr != nil {
+			var err error
+			log.Debugf("send intercepted synth response")
+			response, err = sr.PackBuffer(response)
+			// XXX: when the query is blocked and pack-buffer fails
+			// doh falls back to forwarding the query instead.
+			if err != nil {
+				qerr = &dnscryptError{BadResponse, err}
+			}
+			return
+		}
+		log.Warnf("missing synth response, forwarding query...")
+	}
+	if len(query) < xdns.MinDNSPacketSize {
 		log.Errorf("DNS query size too short, cannot post-process dns-crypt query.")
 		qerr = &dnscryptError{BadQuery, err}
 		return
 	}
-	if len(query) > MaxDNSPacketSize {
+	if len(query) > xdns.MaxDNSPacketSize {
 		log.Errorf("DNS query size too large, cannot process dns-crypt query.")
 		qerr = &dnscryptError{BadQuery, err}
 		return
 	}
-	state := intercept.state
 	if state.response != nil {
 		response, err = state.response.PackBuffer(response)
 		if err != nil {
@@ -322,7 +348,7 @@ func (proxy *Proxy) query(packet []byte, truncate bool) (response []byte, server
 		return
 	}
 
-	if len(response) < MinDNSPacketSize || len(response) > MaxDNSPacketSize {
+	if len(response) < xdns.MinDNSPacketSize || len(response) > xdns.MaxDNSPacketSize {
 		log.Errorf("response packet size from %s too small or too large", serverInfo.String())
 		qerr = &dnscryptError{BadResponse, fmt.Errorf("response packet size too small or too big")}
 		return
@@ -335,6 +361,17 @@ func (proxy *Proxy) query(packet []byte, truncate bool) (response []byte, server
 		qerr = &dnscryptError{BadResponse, err}
 	}
 
+	if state.action == ActionSynth && state.response != nil {
+		blocklists = state.blocklists // refresh blocklists
+		response, err = state.response.PackBuffer(response)
+		// XXX: when the query is blocked and pack-buffer fails doh falls
+		// back to forwarding the query instead, but here we don't.
+		if err != nil {
+			qerr = &dnscryptError{BadResponse, err}
+		}
+		return
+	}
+
 	return
 }
 
@@ -345,9 +382,10 @@ func HandleUDP(proxy *Proxy, data []byte) (response []byte, err error) {
 	}
 
 	var s *ServerInfo
+	var b string
 
 	before := time.Now()
-	response, s, err = proxy.query(data, true)
+	response, b, s, err = proxy.query(data, true)
 	after := time.Now()
 
 	if proxy.listener != nil {
@@ -375,31 +413,32 @@ func HandleUDP(proxy *Proxy, data []byte) (response []byte, err error) {
 			Server:      resolver,
 			RelayServer: relay,
 			Status:      status,
+			Blocklists:  b,
 		})
 	}
 
 	return response, err
 }
 
-func (proxy *Proxy) forward(conn net.Conn) (q []byte, response []byte, serverInfo *ServerInfo, err error) {
+func (proxy *Proxy) forward(conn net.Conn) (q []byte, response []byte, blocklists string, serverInfo *ServerInfo, err error) {
 
 	// Unlike Intra's handling of DoH (?), DNSCrypt strictly closes
 	// connection after a single read-response cycle.
 	if err = conn.SetDeadline(time.Now().Add(proxy.timeout)); err != nil {
-		q, err = ReadPrefixed(&conn)
+		q, err = xdns.ReadPrefixed(&conn)
 	}
 	if err != nil {
 		log.Errorf("could not read dns query %v", err)
 		return
 	}
 
-	response, serverInfo, err = proxy.query(q, false)
+	response, blocklists, serverInfo, err = proxy.query(q, false)
 
 	if err != nil {
 		log.Errorf("failed forwarding dnscrypt query %w", err)
 		return
 	}
-	response, err = PrefixWithSize(response)
+	response, err = xdns.PrefixWithSize(response)
 	if err != nil {
 		log.Errorf("failed reading answer for dnscrypt query %w", err)
 	}
@@ -415,13 +454,8 @@ func HandleTCP(proxy *Proxy, conn net.Conn) {
 		return
 	}
 
-	var err error
-	var response []byte
-	var query []byte
-	var s *ServerInfo
-
 	before := time.Now()
-	query, response, s, err = proxy.forward(conn)
+	query, response, b, s, err := proxy.forward(conn)
 	after := time.Now()
 
 	if proxy.listener != nil {
@@ -447,6 +481,7 @@ func HandleTCP(proxy *Proxy, conn net.Conn) {
 			Server:      resolver,
 			RelayServer: relay,
 			Status:      status,
+			Blocklists:  b,
 		})
 	}
 
@@ -457,33 +492,46 @@ func HandleTCP(proxy *Proxy, conn net.Conn) {
 	}
 }
 
+func (p *Proxy) SetBraveDNS(b dnsx.BraveDNS) {
+	p.bravedns = b
+}
+
+// LiveServers returns csv of dnscrypt server-names currently in-use
+func (proxy *Proxy) LiveServers() string {
+	if len(proxy.liveServers) <= 0 {
+		return ""
+	}
+	return strings.Join(proxy.liveServers[:], ",")
+}
+
 // Refresh re-registers servers
-func (proxy *Proxy) Refresh() (int, error) {
+func (proxy *Proxy) Refresh() (string, error) {
 	for _, registeredServer := range proxy.registeredServers {
 		proxy.serversInfo.registerServer(registeredServer.name, registeredServer.stamp)
 	}
-	liveServers, err := proxy.serversInfo.refresh(proxy)
-	if liveServers > 0 {
+	var err error
+	proxy.liveServers, err = proxy.serversInfo.refresh(proxy)
+	if len(proxy.liveServers) > 0 {
 		proxy.certIgnoreTimestamp = false
 	} else if err != nil {
 		// ignore error if live-servers are around
-		return 0, err
+		return "", err
 	}
-	return liveServers, nil
+	return proxy.LiveServers(), nil
 }
 
 // StartProxy fetches server-list and starts a dnscrypt stub resolver
-func (proxy *Proxy) StartProxy() (int, error) {
+func (proxy *Proxy) StartProxy() (string, error) {
 	if proxy.sigterm != nil {
-		return 0, fmt.Errorf("proxy already started")
+		return "", fmt.Errorf("proxy already started")
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	proxy.sigterm = cancel
 	if _, err := crypto_rand.Read(proxy.proxySecretKey[:]); err != nil {
-		return 0, err
+		return "", err
 	}
 	curve25519.ScalarBaseMult(&proxy.proxyPublicKey, &proxy.proxySecretKey)
-	liveServers, err := proxy.Refresh()
+	_, err := proxy.Refresh()
 	if len(proxy.serversInfo.registeredServers) > 0 {
 		go func(ctx context.Context) {
 			for {
@@ -493,12 +541,12 @@ func (proxy *Proxy) StartProxy() (int, error) {
 					return
 				default:
 					delay := proxy.certRefreshDelay
-					if liveServers == 0 {
+					if len(proxy.liveServers) == 0 {
 						delay = proxy.certRefreshDelayAfterFailure
 					}
 					clocksmith.Sleep(delay)
-					liveServers, _ = proxy.serversInfo.refresh(proxy)
-					if liveServers > 0 {
+					proxy.liveServers, _ = proxy.serversInfo.refresh(proxy)
+					if len(proxy.liveServers) > 0 {
 						proxy.certIgnoreTimestamp = false
 					}
 					runtime.GC()
@@ -506,7 +554,7 @@ func (proxy *Proxy) StartProxy() (int, error) {
 			}
 		}(ctx)
 	}
-	return liveServers, err
+	return proxy.LiveServers(), err
 }
 
 func (proxy *Proxy) StopProxy() error {
@@ -522,7 +570,11 @@ func (proxy *Proxy) AddRoutes(routescsv string) (int, error) {
 	if len(routescsv) <= 0 {
 		return 0, fmt.Errorf("specify atleast one dns-crypt route")
 	}
-	r := findUnique(proxy.routes, strings.Split(routescsv, ","))
+
+	proxy.Lock()
+	defer proxy.Unlock()
+
+	r := xdns.FindUnique(proxy.routes, strings.Split(routescsv, ","))
 	proxy.routes = append(proxy.routes, r...)
 	return len(r), nil
 }
@@ -531,16 +583,46 @@ func (proxy *Proxy) RemoveRoutes(routescsv string) (int, error) {
 	if len(routescsv) <= 0 {
 		return 0, fmt.Errorf("specify atleast one dns-crypt route")
 	}
+
+	proxy.Lock()
+	defer proxy.Unlock()
+
 	rm := strings.Split(routescsv, ",")
 	l := len(proxy.routes)
-	proxy.routes = findUnique(proxy.routes, rm)
+	proxy.routes = xdns.FindUnique(rm, proxy.routes)
 	return l - len(proxy.routes), nil
+}
+
+func (proxy *Proxy) removeRegisteredServers(servernames []string) {
+	if len(servernames) == 0 || len(proxy.registeredServers) == 0 {
+		return
+	}
+
+	var u []RegisteredServer
+
+	for _, e := range proxy.registeredServers {
+		keep := true
+		for _, x := range servernames {
+			if e.name == x {
+				keep = false
+				break
+			}
+		}
+		if keep {
+			u = append(u, e)
+		}
+	}
+
+	proxy.registeredServers = u
 }
 
 func (proxy *Proxy) RemoveServers(servernamescsv string) (int, error) {
 	if len(servernamescsv) <= 0 {
 		return 0, fmt.Errorf("specify at least one dns-crypt resolver endpoint")
 	}
+
+	proxy.Lock()
+	defer proxy.Unlock()
 
 	servernames := strings.Split(servernamescsv, ",")
 	var c int
@@ -552,6 +634,9 @@ func (proxy *Proxy) RemoveServers(servernamescsv string) (int, error) {
 		n, _ := proxy.serversInfo.unregisterServer(name)
 		c = c + n
 	}
+
+	proxy.removeRegisteredServers(servernames)
+
 	return c, nil
 }
 
@@ -561,6 +646,9 @@ func (proxy *Proxy) AddServers(serverscsv string) (int, error) {
 		return 0, fmt.Errorf("specify at least one dns-crypt resolver endpoint")
 	}
 
+	proxy.Lock()
+	defer proxy.Unlock()
+
 	servers := strings.Split(serverscsv, ",")
 	var registeredServers []RegisteredServer
 	for _, serverStampPair := range servers {
@@ -568,6 +656,7 @@ func (proxy *Proxy) AddServers(serverscsv string) (int, error) {
 			return 0, fmt.Errorf("Missing stamp for the stamp [%s] definition", serverStampPair)
 		}
 		serverStamp := strings.Split(serverStampPair, "#")
+		// TODO: skip duplicates.
 		stamp, err := stamps.NewServerStampFromString(serverStamp[1])
 		if err != nil {
 			return 0, fmt.Errorf("Stamp error for the stamp [%s] definition: [%v]", serverStampPair, err)
@@ -586,7 +675,7 @@ func (proxy *Proxy) AddServers(serverscsv string) (int, error) {
 func NewProxy(l Listener) *Proxy {
 	suffixes := critbitgo.NewTrie()
 	for _, line := range undelegatedSet {
-		pattern := StringReverse(line)
+		pattern := xdns.StringReverse(line)
 		suffixes.Insert([]byte(pattern), true)
 	}
 	return &Proxy{
@@ -599,6 +688,7 @@ func NewProxy(l Listener) *Proxy {
 		timeout:                      time.Duration(20000) * time.Millisecond,
 		mainProto:                    "tcp",
 		serversInfo:                  NewServersInfo(),
+		liveServers:                  nil,
 		listener:                     l,
 	}
 }

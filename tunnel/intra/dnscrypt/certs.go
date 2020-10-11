@@ -10,15 +10,17 @@ import (
 
 	"golang.org/x/crypto/ed25519"
 
+	"github.com/Jigsaw-Code/outline-go-tun2socks/tunnel/intra/xdns"
 	"github.com/eycorsican/go-tun2socks/common/log"
+
 	"github.com/miekg/dns"
 )
 
 type CertInfo struct {
 	ServerPk           [32]byte
 	SharedKey          [32]byte
-	MagicQuery         [ClientMagicLen]byte
-	CryptoConstruction CryptoConstruction
+	MagicQuery         [xdns.ClientMagicLen]byte
+	CryptoConstruction xdns.CryptoConstruction
 	ForwardSecurity    bool
 }
 
@@ -53,7 +55,7 @@ func FetchCurrentDNSCryptCert(proxy *Proxy, serverName *string, proto string, pk
 		return CertInfo{}, nil, err
 	}
 	now := uint32(time.Now().Unix())
-	certInfo := CertInfo{CryptoConstruction: UndefinedConstruction}
+	certInfo := CertInfo{CryptoConstruction: xdns.UndefinedConstruction}
 	highestSerial := uint32(0)
 	var certCountStr string
 	for _, answerRr := range in.Answer {
@@ -69,16 +71,16 @@ func FetchCurrentDNSCryptCert(proxy *Proxy, serverName *string, proto string, pk
 			log.Warnf("[%v] Certificate too short", *serverName)
 			continue
 		}
-		if !bytes.Equal(binCert[:4], CertMagic[:4]) {
+		if !bytes.Equal(binCert[:4], xdns.CertMagic[:4]) {
 			log.Warnf("[%v] Invalid cert magic", *serverName)
 			continue
 		}
-		cryptoConstruction := CryptoConstruction(0)
+		cryptoConstruction := xdns.CryptoConstruction(0)
 		switch esVersion := binary.BigEndian.Uint16(binCert[4:6]); esVersion {
 		case 0x0001:
-			cryptoConstruction = XSalsa20Poly1305
+			cryptoConstruction = xdns.XSalsa20Poly1305
 		case 0x0002:
-			cryptoConstruction = XChacha20Poly1305
+			cryptoConstruction = xdns.XChacha20Poly1305
 		default:
 			log.Warnf("[%v] Unsupported crypto construction", *serverName)
 			continue
@@ -129,7 +131,7 @@ func FetchCurrentDNSCryptCert(proxy *Proxy, serverName *string, proto string, pk
 				log.Warnf("[%v] Upgrading the construction from %v to %v", *serverName, certInfo.CryptoConstruction, cryptoConstruction)
 			}
 		}
-		if cryptoConstruction != XChacha20Poly1305 && cryptoConstruction != XSalsa20Poly1305 {
+		if cryptoConstruction != xdns.XChacha20Poly1305 && cryptoConstruction != xdns.XSalsa20Poly1305 {
 			log.Warnf("[%v] Cryptographic construction %v not supported", *serverName, cryptoConstruction)
 			continue
 		}
@@ -148,7 +150,7 @@ func FetchCurrentDNSCryptCert(proxy *Proxy, serverName *string, proto string, pk
 		}
 		certCountStr = " - additional certificate"
 	}
-	if certInfo.CryptoConstruction == UndefinedConstruction {
+	if certInfo.CryptoConstruction == xdns.UndefinedConstruction {
 		return certInfo, nil, errors.New("No useable certificate found")
 	}
 	if relayTCPAddr == nil {
@@ -302,7 +304,7 @@ func _dnsExchange(proxy *Proxy, proto string, query *dns.Msg, serverAddress stri
 		if _, err := pc.Write(binQuery); err != nil {
 			return dnsExchangeResponse{err: err}
 		}
-		packet = make([]byte, MaxDNSPacketSize)
+		packet = make([]byte, xdns.MaxDNSPacketSize)
 		length, err := pc.Read(packet)
 		if err != nil {
 			return dnsExchangeResponse{err: err}
@@ -338,14 +340,14 @@ func _dnsExchange(proxy *Proxy, proto string, query *dns.Msg, serverAddress stri
 		if err := pc.SetDeadline(time.Now().Add(proxy.timeout)); err != nil {
 			return dnsExchangeResponse{err: err}
 		}
-		binQuery, err = PrefixWithSize(binQuery)
+		binQuery, err = xdns.PrefixWithSize(binQuery)
 		if err != nil {
 			return dnsExchangeResponse{err: err}
 		}
 		if _, err := pc.Write(binQuery); err != nil {
 			return dnsExchangeResponse{err: err}
 		}
-		packet, err = ReadPrefixed(&pc)
+		packet, err = xdns.ReadPrefixed(&pc)
 		if err != nil {
 			return dnsExchangeResponse{err: err}
 		}

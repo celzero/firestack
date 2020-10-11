@@ -31,8 +31,10 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/Jigsaw-Code/outline-go-tun2socks/tunnel/intra/dnsx"
 	"github.com/Jigsaw-Code/outline-go-tun2socks/tunnel/intra/doh/ipmap"
 	"github.com/Jigsaw-Code/outline-go-tun2socks/tunnel/intra/split"
+	"github.com/Jigsaw-Code/outline-go-tun2socks/tunnel/intra/xdns"
 	"github.com/eycorsican/go-tun2socks/common/log"
 )
 
@@ -58,7 +60,8 @@ type Summary struct {
 	Response   []byte
 	Server     string
 	Status     int
-	HTTPStatus int // Zero unless Status is Complete or HTTPError
+	HTTPStatus int    // Zero unless Status is Complete or HTTPError
+	Blocklists string // csv separated list of blocklists names, if any.
 }
 
 // A Token is an opaque handle used to match responses to queries.
@@ -78,6 +81,8 @@ type Transport interface {
 	Query(q []byte) ([]byte, error)
 	// Return the server URL used to initialize this transport.
 	GetURL() string
+	// SetBraveDNS sets bravedns variable
+	SetBraveDNS(dnsx.BraveDNS)
 }
 
 // TODO: Keep a context here so that queries can be canceled.
@@ -90,6 +95,7 @@ type transport struct {
 	client   http.Client
 	dialer   *net.Dialer
 	listener Listener
+	bravedns dnsx.BraveDNS
 }
 
 // Wait up to three seconds for the TCP handshake to complete.
@@ -146,7 +152,8 @@ func (t *transport) dial(network, addr string) (net.Conn, error) {
 // `dialer` is the dialer that the transport will use.  The transport will modify the dialer's
 //   timeout but will not mutate it otherwise.
 // `listener` will receive the status of each DNS query when it is complete.
-func NewTransport(rawurl string, addrs []string, dialer *net.Dialer, listener Listener) (Transport, error) {
+func NewTransport(rawurl string, addrs []string, dialer *net.Dialer,
+	listener Listener) (Transport, error) {
 	if dialer == nil {
 		dialer = &net.Dialer{}
 	}
@@ -222,10 +229,21 @@ func (e *httpError) Error() string {
 // Independent of the query's success or failure, this function also returns the
 // address of the server on a best-effort basis, or nil if the address could not
 // be determined.
-func (t *transport) doQuery(q []byte) (response []byte, server *net.TCPAddr, qerr error) {
+func (t *transport) doQuery(q []byte) (response []byte, blocklists string, server *net.TCPAddr, qerr error) {
 	if len(q) < 2 {
 		qerr = &queryError{BadQuery, fmt.Errorf("Query length is %d", len(q))}
 		return
+	}
+
+	if err := t.prepareOnDeviceBlock(); err == nil {
+		response, blocklists, err = t.applyBlocklists(q)
+		if err == nil { // blocklist applied only when err is nil
+			return
+		}
+		log.Infof("skipping local block for %s with err %s", blocklists, err)
+		// skipping block because err
+	} else {
+		log.Debugf("forward query: no local block")
 	}
 
 	// Add padding to the raw query
@@ -336,6 +354,7 @@ func (t *transport) doQuery(q []byte) (response []byte, server *net.TCPAddr, qer
 		return
 	}
 	log.Debugf("%d Got response", id)
+
 	response, err = ioutil.ReadAll(httpResponse.Body)
 	if err != nil {
 		qerr = &queryError{BadResponse, err}
@@ -357,10 +376,16 @@ func (t *transport) doQuery(q []byte) (response []byte, server *net.TCPAddr, qer
 		qerr = &queryError{HTTPError, &httpError{httpResponse.StatusCode}}
 		return
 	}
+
 	// Restore the query ID.
 	binary.BigEndian.PutUint16(q, id)
 	if len(response) >= 2 {
 		binary.BigEndian.PutUint16(response, id)
+		blocklists, r := t.resolveBlock(q, httpResponse, response)
+		// overwrite response when blocked
+		if len(blocklists) > 0 && r != nil {
+			response = r
+		}
 	} else {
 		qerr = &queryError{BadResponse, fmt.Errorf("Response length is %d", len(response))}
 		return
@@ -379,7 +404,7 @@ func (t *transport) Query(q []byte) ([]byte, error) {
 	}
 
 	before := time.Now()
-	response, server, err := t.doQuery(q)
+	response, blocklists, server, err := t.doQuery(q)
 	after := time.Now()
 
 	if t.listener != nil {
@@ -409,6 +434,7 @@ func (t *transport) Query(q []byte) ([]byte, error) {
 			Server:     ip,
 			Status:     status,
 			HTTPStatus: httpStatus,
+			Blocklists: blocklists,
 		})
 	}
 	return response, err
@@ -416,6 +442,98 @@ func (t *transport) Query(q []byte) ([]byte, error) {
 
 func (t *transport) GetURL() string {
 	return t.url
+}
+
+func (t *transport) SetBraveDNS(b dnsx.BraveDNS) {
+	t.bravedns = b
+}
+
+func (t *transport) prepareOnDeviceBlock() error {
+	b := t.bravedns
+	u := t.url
+
+	if b == nil || len(u) <= 0 {
+		return errors.New("t.url or dnsx.bravedns nil")
+	}
+
+	if !b.OnDeviceBlock() {
+		return errors.New("on device block not set")
+	}
+
+	return nil
+}
+
+func (t *transport) applyBlocklists(q []byte) (response []byte, blocklists string, err error) {
+	bravedns := t.bravedns
+	if bravedns == nil {
+		errors.New("bravedns is nil")
+		return
+	}
+	blocklists, err = bravedns.BlockRequest(q)
+	if err != nil {
+		return
+	}
+	if len(blocklists) <= 0 {
+		err = errors.New("no blocklist applies")
+		return
+	}
+
+	ans, err := xdns.BlockResponseFromMessage(q)
+	if err != nil {
+		return
+	}
+
+	response, err = ans.Pack()
+	return
+}
+
+func (t *transport) resolveBlock(q []byte, res *http.Response, ans []byte) (blocklistNames string, blockedResponse []byte) {
+	bravedns := t.bravedns
+	if bravedns == nil {
+		return
+	}
+
+	var err error
+	blocklistNames = t.blocklistsFromHeader(bravedns, res)
+	if len(blocklistNames) > 0 || bravedns.OnDeviceBlock() == false {
+		return
+	}
+
+	if blocklistNames, err = bravedns.BlockResponse(ans); err != nil {
+		log.Debugf("response not blocked %v", err)
+		return
+	}
+
+	if len(blocklistNames) <= 0 {
+		log.Debugf("query not blocked blocklist empty")
+		return
+	}
+
+	msg, err := xdns.BlockResponseFromMessage(q)
+	if err != nil {
+		log.Warnf("could not pack blocked dns ans %v", err)
+		return
+	}
+
+	blockedResponse, err = msg.Pack()
+	return
+}
+
+func (t *transport) blocklistsFromHeader(bravedns dnsx.BraveDNS, res *http.Response) (blocklistNames string) {
+	blocklistStamp := res.Header.Get(bravedns.GetBlocklistStampHeaderKey())
+	log.Debugf("header", res.Header)
+	log.Debugf("st", blocklistStamp)
+	if len(blocklistStamp) <= 0 {
+		return
+	}
+	var err error
+	blocklistNames, err = bravedns.StampToNames(blocklistStamp)
+	if err != nil {
+		log.Errorf("could not resolve blocklist-stamp %v", err)
+		return
+	}
+	log.Debugf(blocklistNames)
+	return
 }
 
 // Perform a query using the transport, and send the response to the writer.

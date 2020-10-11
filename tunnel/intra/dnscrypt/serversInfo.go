@@ -11,7 +11,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Jigsaw-Code/outline-go-tun2socks/tunnel/intra/xdns"
 	"github.com/eycorsican/go-tun2socks/common/log"
+
 	stamps "github.com/jedisct1/go-dnsstamps"
 	"golang.org/x/crypto/ed25519"
 )
@@ -27,7 +29,7 @@ type ServerInfo struct {
 	MagicQuery         [8]byte
 	ServerPk           [32]byte
 	SharedKey          [32]byte
-	CryptoConstruction CryptoConstruction
+	CryptoConstruction xdns.CryptoConstruction
 	Name               string
 	Timeout            time.Duration
 	URL                *url.URL
@@ -50,7 +52,7 @@ type LBStrategy interface {
 type LBStrategyP2 struct{}
 
 func (LBStrategyP2) getCandidate(serversCount int) int {
-	return rand.Intn(Min(serversCount, 2))
+	return rand.Intn(xdns.Min(serversCount, 2))
 }
 
 var DefaultLBStrategy = LBStrategyP2{}
@@ -121,16 +123,16 @@ func (serversInfo *ServersInfo) registerServer(name string, stamp stamps.ServerS
 	serversInfo.registeredServers = append(serversInfo.registeredServers, newRegisteredServer)
 }
 
-func (serversInfo *ServersInfo) refresh(proxy *Proxy) (int, error) {
+func (serversInfo *ServersInfo) refresh(proxy *Proxy) ([]string, error) {
 	log.Debugf("Refreshing certificates")
 	serversInfo.RLock()
 	registeredServers := serversInfo.registeredServers
 	serversInfo.RUnlock()
-	liveServers := 0
+	var liveServers []string
 	var err error
 	for _, registeredServer := range registeredServers {
 		if err = serversInfo.refreshServer(proxy, registeredServer.name, registeredServer.stamp); err == nil {
-			liveServers++
+			liveServers = append(liveServers, registeredServer.name)
 		}
 		if err != nil {
 			log.Errorf("%s not a live server? %w", registeredServer.stamp, err)

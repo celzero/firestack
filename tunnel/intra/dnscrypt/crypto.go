@@ -6,7 +6,9 @@ import (
 	"errors"
 	"math/rand"
 
+	"github.com/Jigsaw-Code/outline-go-tun2socks/tunnel/intra/xdns"
 	"github.com/eycorsican/go-tun2socks/common/log"
+
 	"github.com/jedisct1/xsecretbox"
 
 	"golang.org/x/crypto/nacl/box"
@@ -20,8 +22,8 @@ const (
 	TagSize          = 16
 	HalfNonceSize    = NonceSize / 2
 	PublicKeySize    = 32
-	QueryOverhead    = ClientMagicLen + PublicKeySize + HalfNonceSize + TagSize
-	ResponseOverhead = len(ServerMagic) + NonceSize + TagSize
+	QueryOverhead    = xdns.ClientMagicLen + PublicKeySize + HalfNonceSize + TagSize
+	ResponseOverhead = len(xdns.ServerMagic) + NonceSize + TagSize
 )
 
 func pad(packet []byte, minSize int) []byte {
@@ -46,8 +48,8 @@ func unpad(packet []byte) ([]byte, error) {
 	}
 }
 
-func ComputeSharedKey(cryptoConstruction CryptoConstruction, secretKey *[32]byte, serverPk *[32]byte, providerName *string) (sharedKey [32]byte) {
-	if cryptoConstruction == XChacha20Poly1305 {
+func ComputeSharedKey(cryptoConstruction xdns.CryptoConstruction, secretKey *[32]byte, serverPk *[32]byte, providerName *string) (sharedKey [32]byte) {
+	if cryptoConstruction == xdns.XChacha20Poly1305 {
 		var err error
 		sharedKey, err = xsecretbox.SharedKey(*secretKey, *serverPk)
 		if err != nil {
@@ -72,11 +74,11 @@ func (proxy *Proxy) Encrypt(serverInfo *ServerInfo, packet []byte, proto string)
 	var xpad [1]byte
 	rand.Read(xpad[:])
 	minQuestionSize += int(xpad[0])
-	paddedLength := Min(MaxDNSUDPPacketSize, (Max(minQuestionSize, QueryOverhead)+1+63) & ^63)
+	paddedLength := xdns.Min(xdns.MaxDNSUDPPacketSize, (xdns.Max(minQuestionSize, QueryOverhead)+1+63) & ^63)
 
 	// was: serverInfo.RelayUDAddr
 	if serverInfo.RelayTCPAddr != nil && proto == "tcp" {
-		paddedLength = MaxDNSPacketSize
+		paddedLength = xdns.MaxDNSPacketSize
 	}
 	if QueryOverhead+len(packet)+1 > paddedLength {
 		err = errors.New("Question too large; cannot be padded")
@@ -85,7 +87,7 @@ func (proxy *Proxy) Encrypt(serverInfo *ServerInfo, packet []byte, proto string)
 	encrypted = append(serverInfo.MagicQuery[:], publicKey[:]...)
 	encrypted = append(encrypted, nonce[:HalfNonceSize]...)
 	padded := pad(packet, paddedLength-QueryOverhead)
-	if serverInfo.CryptoConstruction == XChacha20Poly1305 {
+	if serverInfo.CryptoConstruction == xdns.XChacha20Poly1305 {
 		encrypted = xsecretbox.Seal(encrypted, nonce, padded, sharedKey[:])
 	} else {
 		var xsalsaNonce [24]byte
@@ -96,11 +98,11 @@ func (proxy *Proxy) Encrypt(serverInfo *ServerInfo, packet []byte, proto string)
 }
 
 func (proxy *Proxy) Decrypt(serverInfo *ServerInfo, sharedKey *[32]byte, encrypted []byte, nonce []byte) ([]byte, error) {
-	serverMagicLen := len(ServerMagic)
+	serverMagicLen := len(xdns.ServerMagic)
 	responseHeaderLen := serverMagicLen + NonceSize
-	if len(encrypted) < responseHeaderLen+TagSize+int(MinDNSPacketSize) ||
-		len(encrypted) > responseHeaderLen+TagSize+int(MaxDNSPacketSize) ||
-		!bytes.Equal(encrypted[:serverMagicLen], ServerMagic[:]) {
+	if len(encrypted) < responseHeaderLen+TagSize+int(xdns.MinDNSPacketSize) ||
+		len(encrypted) > responseHeaderLen+TagSize+int(xdns.MaxDNSPacketSize) ||
+		!bytes.Equal(encrypted[:serverMagicLen], xdns.ServerMagic[:]) {
 		return encrypted, errors.New("Invalid message size or prefix")
 	}
 	serverNonce := encrypted[serverMagicLen:responseHeaderLen]
@@ -109,7 +111,7 @@ func (proxy *Proxy) Decrypt(serverInfo *ServerInfo, sharedKey *[32]byte, encrypt
 	}
 	var packet []byte
 	var err error
-	if serverInfo.CryptoConstruction == XChacha20Poly1305 {
+	if serverInfo.CryptoConstruction == xdns.XChacha20Poly1305 {
 		packet, err = xsecretbox.Open(nil, serverNonce, encrypted[responseHeaderLen:], sharedKey[:])
 	} else {
 		var xsalsaServerNonce [24]byte
@@ -124,7 +126,7 @@ func (proxy *Proxy) Decrypt(serverInfo *ServerInfo, sharedKey *[32]byte, encrypt
 		return encrypted, err
 	}
 	packet, err = unpad(packet)
-	if err != nil || len(packet) < MinDNSPacketSize {
+	if err != nil || len(packet) < xdns.MinDNSPacketSize {
 		return encrypted, errors.New("Incorrect padding")
 	}
 	return packet, nil

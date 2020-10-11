@@ -36,6 +36,7 @@ type Summary struct {
 	Server      string
 	RelayServer string
 	Status      int
+	Blocklists  string
 }
 
 // Listener receives Summaries.

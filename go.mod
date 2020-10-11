@@ -6,6 +6,7 @@ require (
 	github.com/Jigsaw-Code/choir v1.0.1
 	github.com/Jigsaw-Code/getsni v0.0.0-20190807203514-efe2dbf35d1f
 	github.com/Jigsaw-Code/outline-ss-server v1.2.1
+	github.com/celzero/gotrie v0.0.0-20201011053133-276b101aac05
 	github.com/eycorsican/go-tun2socks v1.16.11
 	github.com/jedisct1/go-clocksmith v0.0.0-20190707124905-73e087c7979c
 	github.com/jedisct1/go-dnsstamps v0.0.0-20200621175006-302248eecc94

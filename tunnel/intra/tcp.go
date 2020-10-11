@@ -248,10 +248,10 @@ func (h *tcpHandler) Handle(conn net.Conn, target *net.TCPAddr) error {
 	// TODO: Cancel dialing if c is closed
 	// Ref: https://stackoverflow.com/questions/63656117/
 	// Ref: https://stackoverflow.com/questions/40328025
-	if h.hasProxy() && (h.socks5Proxy() || h.httpsProxy()) {
+	if p := h.proxy; ((h.socks5Proxy() || h.httpsProxy()) && p != nil) {
 		var generic net.Conn
 		// deprecated: https://github.com/golang/go/issues/25104
-		generic, err = h.proxy.Dial(target.Network(), target.String())
+		generic, err = p.Dial(target.Network(), target.String())
 		if generic != nil {
 			c = generic.(*net.TCPConn)
 		}

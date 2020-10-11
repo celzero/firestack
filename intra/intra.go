@@ -76,3 +76,7 @@ func NewDoHTransport(url string, ips string, protector protect.Protector, listen
 	dialer := protect.MakeDialer(protector)
 	return doh.NewTransport(url, split, dialer, listener)
 }
+
+func EnableDebugLog() {
+	log.SetLevel(log.DEBUG)
+}

@@ -4,6 +4,9 @@ import (
 	"errors"
 	"strings"
 
+	"github.com/Jigsaw-Code/outline-go-tun2socks/tunnel/intra/dnsx"
+	"github.com/Jigsaw-Code/outline-go-tun2socks/tunnel/intra/xdns"
+
 	"github.com/eycorsican/go-tun2socks/common/log"
 	"github.com/k-sone/critbitgo"
 	"github.com/miekg/dns"
@@ -39,6 +42,7 @@ type Plugin interface {
 type Intercept struct {
 	Plugin
 	undelegatedSet *critbitgo.Trie
+	bravedns       dnsx.BraveDNS
 	state          *InterceptState
 }
 
@@ -52,6 +56,7 @@ type InterceptState struct {
 	action                           int
 	returnCode                       int
 	dnssec                           bool
+	blocklists                       string
 }
 
 // HandleRequest changes the incoming DNS question either to add padding to it or synthesize a pre-determined answer.
@@ -64,7 +69,7 @@ func (ic *Intercept) HandleRequest(packet []byte, needsEDNS0Padding bool) ([]byt
 	if len(msg.Question) != 1 {
 		return packet, errors.New("Unexpected number of questions")
 	}
-	qName, err := NormalizeQName(msg.Question[0].Name)
+	qName, err := xdns.NormalizeQName(msg.Question[0].Name)
 	if err != nil {
 		return packet, err
 	}
@@ -81,6 +86,10 @@ func (ic *Intercept) HandleRequest(packet []byte, needsEDNS0Padding bool) ([]byt
 		state.action = ActionDrop
 		return packet, err
 	}
+	if err := ic.requestBlockedByBraveDNS(packet); err != nil {
+		state.action = ActionDrop
+		return packet, err
+	}
 	if err := ic.getSetPayloadSize(&msg); err != nil {
 		state.action = ActionDrop
 		return packet, err
@@ -92,7 +101,7 @@ func (ic *Intercept) HandleRequest(packet []byte, needsEDNS0Padding bool) ([]byt
 	}
 	if needsEDNS0Padding && state.action == ActionContinue {
 		padLen := 63 - ((len(packet2) + 63) & 63)
-		if paddedPacket2, _ := addEDNS0PaddingIfNoneFound(&msg, packet2, padLen); paddedPacket2 != nil {
+		if paddedPacket2, _ := xdns.AddEDNS0PaddingIfNoneFound(&msg, packet2, padLen); paddedPacket2 != nil {
 			return paddedPacket2, nil
 		}
 	}
@@ -104,8 +113,8 @@ func (ic *Intercept) HandleResponse(packet []byte, truncate bool) ([]byte, error
 	state := ic.state
 	msg := dns.Msg{Compress: true}
 	if err := msg.Unpack(packet); err != nil {
-		// HasTCFlag is mostly false because currently transport is TCP only
-		if len(packet) >= MinDNSPacketSize && HasTCFlag(packet) {
+		// HasTCFlag is always false because currently transport is TCP only
+		if len(packet) >= xdns.MinDNSPacketSize && xdns.HasTCFlag(packet) {
 			log.Warnf("has-tc-flag, retry with tcp, ignore err: %w", err)
 			err = nil
 		}
@@ -113,7 +122,14 @@ func (ic *Intercept) HandleResponse(packet []byte, truncate bool) ([]byte, error
 		return packet, err
 	}
 
-	removeEDNS0Options(&msg)
+	xdns.RemoveEDNS0Options(&msg)
+
+	ic.responseBlockedByBraveDNS(packet)
+
+	if state.action == ActionSynth && len(state.blocklists) > 0 {
+		log.Debugf("bravedns locally blocked response", state.blocklists)
+		return packet, nil
+	}
 
 	packet2, err := msg.PackBuffer(packet)
 	if err != nil {
@@ -122,7 +138,7 @@ func (ic *Intercept) HandleResponse(packet []byte, truncate bool) ([]byte, error
 	}
 
 	if truncate && len(packet2) > state.maxUnencryptedUDPSafePayloadSize {
-		return TruncatedResponse(packet2)
+		return xdns.TruncatedResponse(packet2)
 	}
 
 	return packet2, nil
@@ -142,12 +158,12 @@ func (ic *Intercept) getSetPayloadSize(msg *dns.Msg) error {
 	dnssec := false
 	if edns0 != nil {
 		state.maxUnencryptedUDPSafePayloadSize = int(edns0.UDPSize())
-		state.originalMaxPayloadSize = Max(state.maxUnencryptedUDPSafePayloadSize-ResponseOverhead, state.originalMaxPayloadSize)
+		state.originalMaxPayloadSize = xdns.Max(state.maxUnencryptedUDPSafePayloadSize-ResponseOverhead, state.originalMaxPayloadSize)
 		dnssec = edns0.Do()
 	}
 	var options *[]dns.EDNS0
 	state.dnssec = dnssec
-	state.maxPayloadSize = Min(MaxDNSUDPPacketSize-ResponseOverhead, Max(state.originalMaxPayloadSize, state.maxPayloadSize))
+	state.maxPayloadSize = xdns.Min(xdns.MaxDNSUDPPacketSize-ResponseOverhead, xdns.Max(state.originalMaxPayloadSize, state.maxPayloadSize))
 	if state.maxPayloadSize > 512 {
 		extra2 := []dns.RR{}
 		for _, extra := range msg.Extra {
@@ -187,7 +203,7 @@ func (ic *Intercept) blockUnqualified(msg *dns.Msg) error {
 	if strings.IndexByte(state.qName, '.') >= 0 {
 		return nil
 	}
-	synth := EmptyResponseFromMessage(msg)
+	synth := xdns.EmptyResponseFromMessage(msg)
 	synth.Rcode = dns.RcodeNameError
 	state.response = synth
 	state.action = ActionSynth
@@ -206,13 +222,13 @@ func (ic *Intercept) blockUndelegated(msg *dns.Msg) error {
 	}
 
 	undelegatedSet := ic.undelegatedSet
-	revQname := StringReverse(state.qName)
+	revQname := xdns.StringReverse(state.qName)
 	match, _, found := undelegatedSet.LongestPrefix([]byte(revQname))
 	if !found {
 		return nil
 	}
 	if len(match) == len(revQname) || revQname[len(match)] == '.' {
-		synth := EmptyResponseFromMessage(msg)
+		synth := xdns.EmptyResponseFromMessage(msg)
 		synth.Rcode = dns.RcodeNameError
 		state.response = synth
 		state.action = ActionSynth
@@ -221,9 +237,75 @@ func (ic *Intercept) blockUndelegated(msg *dns.Msg) error {
 	return nil
 }
 
-func NewIntercept(set *critbitgo.Trie) *Intercept {
+// requestBlockedByBraveDNS blocks DNS names blocked by local rules.
+func (ic *Intercept) requestBlockedByBraveDNS(q []byte) error {
+	state := ic.state
+	b := ic.bravedns
+
+	if b == nil || state.action != ActionContinue || !b.OnDeviceBlock() {
+		return nil // nothing to do.
+	}
+
+	blocklists, err := b.BlockRequest(q)
+	if err != nil {
+		log.Debugf("request not blocked %v", err)
+		return nil // ignore error
+	}
+	if len(blocklists) <= 0 {
+		log.Debugf("query not blocked blocklist empty")
+		return nil // nothing to do
+	}
+
+	ans, err := xdns.BlockResponseFromMessage(q)
+	if err != nil {
+		return err // ignore this error? doh.Transport does.
+	}
+
+	state.response = ans
+	state.blocklists = blocklists
+	state.action = ActionSynth
+	state.returnCode = ReturnCodeSynth
+
+	return nil
+}
+
+// responseBlockedByBraveDNS blocks DNS names blocked by local rules.
+func (ic *Intercept) responseBlockedByBraveDNS(ans []byte) error {
+	state := ic.state
+	b := ic.bravedns
+
+	if b == nil || !b.OnDeviceBlock() {
+		return nil // nothing to do.
+	}
+
+	blocklists, err := b.BlockResponse(ans)
+	if err != nil {
+		log.Debugf("response not blocked %v", err)
+		return nil // ignore error
+	}
+	if len(blocklists) <= 0 {
+		log.Debugf("query not blocked blocklist empty")
+		return nil // nothing to do
+	}
+
+	res, err := xdns.RefusedResponseFromMessage(state.question)
+	if err != nil {
+		log.Warnf("could not pack blocked dns ans %v", err)
+		return err // ignore this error? doh.Transport does.
+	}
+
+	state.response = res
+	state.blocklists = blocklists
+	state.action = ActionSynth
+	state.returnCode = ReturnCodeSynth
+
+	return nil
+}
+
+func NewIntercept(set *critbitgo.Trie, bravedns dnsx.BraveDNS) *Intercept {
 	return &Intercept{
 		undelegatedSet: set,
+		bravedns:       bravedns,
 		state:          NewInterceptState(),
 	}
 }
@@ -232,11 +314,12 @@ func NewInterceptState() *InterceptState {
 	return &InterceptState{
 		action:                           ActionContinue,
 		returnCode:                       ReturnCodePass,
-		maxPayloadSize:                   MaxDNSUDPPacketSize - ResponseOverhead,
+		maxPayloadSize:                   xdns.MaxDNSUDPPacketSize - ResponseOverhead,
 		question:                         nil,
 		qName:                            "",
-		maxUnencryptedUDPSafePayloadSize: MaxDNSUDPSafePacketSize,
+		maxUnencryptedUDPSafePayloadSize: xdns.MaxDNSUDPSafePacketSize,
 		dnssec:                           false,
 		response:                         nil,
+		blocklists:                       "",
 	}
 }
