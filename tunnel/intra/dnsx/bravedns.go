@@ -302,6 +302,9 @@ func (brave *bravedns) decode(stamp string, ver string) (tags []string, err erro
 		u16 = stringtouint(string(buf))
 	} else if ver == "1" {
 		u16 = bytestouint(buf)
+	} else {
+		err = fmt.Errorf("unimplemented header stamp version %v", ver)
+		return
 	}
 	return brave.flagstotag(u16)
 }

@@ -381,7 +381,8 @@ func (t *transport) doQuery(q []byte) (response []byte, blocklists string, serve
 	binary.BigEndian.PutUint16(q, id)
 	if len(response) >= 2 {
 		binary.BigEndian.PutUint16(response, id)
-		blocklists, r := t.resolveBlock(q, httpResponse, response)
+		var r []byte
+		blocklists, r = t.resolveBlock(q, httpResponse, response)
 		// overwrite response when blocked
 		if len(blocklists) > 0 && r != nil {
 			response = r
