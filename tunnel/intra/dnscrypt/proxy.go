@@ -276,13 +276,12 @@ func (proxy *Proxy) query(packet []byte, truncate bool) (response []byte, blockl
 	sr := state.response
 	blocklists = state.blocklists
 	if err != nil || saction == ActionDrop {
-		log.Errorf("ActionDrop or err on request %w.", err)
+		log.Errorf("ActionDrop or err on request %w", err)
 		qerr = &dnscryptError{BadQuery, err}
 		return
 	}
 	if saction == ActionSynth {
 		if sr != nil {
-			var err error
 			log.Debugf("send intercepted synth response")
 			response, err = sr.PackBuffer(response)
 			// XXX: when the query is blocked and pack-buffer fails
@@ -295,28 +294,20 @@ func (proxy *Proxy) query(packet []byte, truncate bool) (response []byte, blockl
 		log.Warnf("missing synth response, forwarding query...")
 	}
 	if len(query) < xdns.MinDNSPacketSize {
-		log.Errorf("DNS query size too short, cannot post-process dns-crypt query.")
+		err = errors.New("dns query size too short, drop dns-crypt query")
 		qerr = &dnscryptError{BadQuery, err}
 		return
 	}
 	if len(query) > xdns.MaxDNSPacketSize {
-		log.Errorf("DNS query size too large, cannot process dns-crypt query.")
+		err = errors.New("dns query size too large, drop dns-crypt query")
 		qerr = &dnscryptError{BadQuery, err}
-		return
-	}
-	if state.response != nil {
-		response, err = state.response.PackBuffer(response)
-		if err != nil {
-			log.Warnf("sending intercepted response failed %w", err)
-			qerr = &dnscryptError{BadResponse, err}
-		}
 		return
 	}
 
 	serverInfo = proxy.serversInfo.getOne()
 
 	if serverInfo == nil {
-		log.Warnf("ServerInfo not found, cannot process dns-crypt query")
+		err = errors.New("server-info nil, drop dns-crypt query")
 		qerr = &dnscryptError{InternalError, err}
 		return
 	}
@@ -653,17 +644,17 @@ func (proxy *Proxy) AddServers(serverscsv string) (int, error) {
 	var registeredServers []RegisteredServer
 	for _, serverStampPair := range servers {
 		if len(serverStampPair) == 0 {
-			return 0, fmt.Errorf("Missing stamp for the stamp [%s] definition", serverStampPair)
+			return len(registeredServers), fmt.Errorf("Missing stamp for the stamp [%s] definition", serverStampPair)
 		}
 		serverStamp := strings.Split(serverStampPair, "#")
 		// TODO: skip duplicates.
 		stamp, err := stamps.NewServerStampFromString(serverStamp[1])
 		if err != nil {
-			return 0, fmt.Errorf("Stamp error for the stamp [%s] definition: [%v]", serverStampPair, err)
+			return len(registeredServers), fmt.Errorf("Stamp error for the stamp [%s] definition: [%v]", serverStampPair, err)
 		}
 		if stamp.Proto == stamps.StampProtoTypeDoH {
 			// TODO: Implement doh
-			return 0, fmt.Errorf("DoH with DNSCrypt client not supported", serverStamp)
+			return len(registeredServers), fmt.Errorf("DoH with DNSCrypt client not supported", serverStamp)
 		}
 		registeredServers = append(registeredServers, RegisteredServer{name: serverStamp[0], stamp: stamp})
 	}
