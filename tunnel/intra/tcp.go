@@ -282,7 +282,7 @@ func (h *tcpHandler) Handle(conn net.Conn, target *net.TCPAddr) error {
 	}
 	summary.Synack = int32(time.Since(start).Seconds() * 1000)
 	go h.forward(conn, c, &summary)
-	log.Infof("new proxy connection for target: %v:%s:%s", uid, target.Network(), target.String())
+	log.Infof("new proxy connection for target: %s:%s", target.Network(), target.String())
 	return nil
 }
 
