@@ -195,21 +195,21 @@ func (t *intratunnel) StartDNSCryptProxy(resolvers string, relays string, listen
 	if t.dnscrypt != nil {
 		return "", fmt.Errorf("only one instance of dns-crypt proxy allowed")
 	}
-	dnscrypt := dnscrypt.NewProxy(listener)
-	if _, err = dnscrypt.AddServers(resolvers); err == nil {
+	p := dnscrypt.NewProxy(listener)
+	if _, err = p.AddServers(resolvers); err == nil {
 		if len(relays) > 0 {
-			_, err = dnscrypt.AddRoutes(relays)
+			_, err = p.AddRoutes(relays)
 		}
 	}
 	if err != nil {
 		return "", err
 	}
-	t.udp.SetDNSCryptProxy(dnscrypt)
-	t.tcp.SetDNSCryptProxy(dnscrypt)
-	dnscrypt.SetBraveDNS(bravedns)
+	t.udp.SetDNSCryptProxy(p)
+	t.tcp.SetDNSCryptProxy(p)
+	p.SetBraveDNS(bravedns)
 
-	t.dnscrypt = dnscrypt
-	return dnscrypt.StartProxy()
+	t.dnscrypt = p
+	return p.StartProxy()
 }
 
 func (t *intratunnel) StopDNSCryptProxy() error {

@@ -212,6 +212,7 @@ func (h *tcpHandler) blockConn(localConn net.Conn, target *net.TCPAddr) (block b
 		log.Infof("firewalled connection from %s:%s to %s:%s",
 			localaddr.Network(), localaddr.String(), target.Network(), target.String())
 	}
+
 	return
 }
 
@@ -248,7 +249,7 @@ func (h *tcpHandler) Handle(conn net.Conn, target *net.TCPAddr) error {
 	// TODO: Cancel dialing if c is closed
 	// Ref: https://stackoverflow.com/questions/63656117/
 	// Ref: https://stackoverflow.com/questions/40328025
-	if p := h.proxy; ((h.socks5Proxy() || h.httpsProxy()) && p != nil) {
+	if p := h.proxy; (h.socks5Proxy() || h.httpsProxy()) && p != nil {
 		var generic net.Conn
 		// deprecated: https://github.com/golang/go/issues/25104
 		generic, err = p.Dial(target.Network(), target.String())
@@ -281,7 +282,7 @@ func (h *tcpHandler) Handle(conn net.Conn, target *net.TCPAddr) error {
 	}
 	summary.Synack = int32(time.Since(start).Seconds() * 1000)
 	go h.forward(conn, c, &summary)
-	log.Infof("new proxy connection for target: %s:%s", target.Network(), target.String())
+	log.Infof("new proxy connection for target: %v:%s:%s", uid, target.Network(), target.String())
 	return nil
 }
 
@@ -298,8 +299,8 @@ func (h *tcpHandler) EnableSNIReporter(file io.ReadWriter, suffix, country strin
 	return h.sniReporter.Configure(file, suffix, country)
 }
 
-func (h *tcpHandler) SetDNSCryptProxy(dnscrypt *dnscrypt.Proxy) {
-	h.dnscrypt = dnscrypt
+func (h *tcpHandler) SetDNSCryptProxy(dcrypt *dnscrypt.Proxy) {
+	h.dnscrypt = dcrypt
 }
 
 func (h *tcpHandler) SetDNSOptions(do *settings.DNSOptions) error {

@@ -220,7 +220,7 @@ func (h *udpHandler) Connect(conn core.UDPConn, target *net.UDPAddr) error {
 	h.udpConns[conn] = t
 	h.Unlock()
 	go h.fetchUDPInput(conn, t)
-	log.Infof("new udp proxy (socks5? %s) connection for target: %s", target.String(), proxymode)
+	log.Infof("new udp proxy (mode: %s) conn to target: %s", proxymode, target.String())
 	return nil
 }
 
@@ -290,7 +290,7 @@ func (h *udpHandler) isDNSCrypt(addr *net.UDPAddr, t *tracker) bool {
 	return false
 }
 
-func (h *udpHandler) dnsOverride(dns doh.Transport, dnscrypt *dnscrypt.Proxy,
+func (h *udpHandler) dnsOverride(dns doh.Transport, dcrypt *dnscrypt.Proxy,
 	t *tracker, conn core.UDPConn, addr *net.UDPAddr, data []byte) bool {
 	dataCopy := append([]byte{}, data...)
 
@@ -303,12 +303,12 @@ func (h *udpHandler) dnsOverride(dns doh.Transport, dnscrypt *dnscrypt.Proxy,
 		go h.doDoh(dns, t, conn, dataCopy)
 		return true
 	} else if h.isDNSCrypt(addr, t) {
-		if dnscrypt == nil {
+		if dcrypt == nil {
 			log.Errorf("dns crypt nil")
 			return false
 		}
 		t.ip = addr
-		go h.doDNSCrypt(dnscrypt, t, conn, dataCopy)
+		go h.doDNSCrypt(dcrypt, t, conn, dataCopy)
 		return true
 	}
 	// assert h.tunMode.DNSMode == settings.DNSModeNone
@@ -319,7 +319,7 @@ func (h *udpHandler) dnsOverride(dns doh.Transport, dnscrypt *dnscrypt.Proxy,
 func (h *udpHandler) ReceiveTo(conn core.UDPConn, data []byte, addr *net.UDPAddr) (err error) {
 	h.RLock()
 	doh := h.dns
-	dnscrypt := h.dnscrypt
+	dcrypt := h.dnscrypt
 	dnsproxy := h.dnsproxy
 	t, ok1 := h.udpConns[conn]
 	h.RUnlock()
@@ -335,7 +335,7 @@ func (h *udpHandler) ReceiveTo(conn core.UDPConn, data []byte, addr *net.UDPAddr
 			t.ip = addr
 			addr = h.dnsproxy
 		}
-	} else if h.dnsOverride(doh, dnscrypt, t, conn, addr, data) {
+	} else if h.dnsOverride(doh, dcrypt, t, conn, addr, data) {
 		return nil
 	}
 
@@ -391,9 +391,9 @@ func (h *udpHandler) SetDNS(dns doh.Transport) {
 	h.Unlock()
 }
 
-func (h *udpHandler) SetDNSCryptProxy(dnscrypt *dnscrypt.Proxy) {
+func (h *udpHandler) SetDNSCryptProxy(dcrypt *dnscrypt.Proxy) {
 	h.Lock()
-	h.dnscrypt = dnscrypt
+	h.dnscrypt = dcrypt
 	h.Unlock()
 }
 
