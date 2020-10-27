@@ -229,14 +229,16 @@ func (e *httpError) Error() string {
 // Independent of the query's success or failure, this function also returns the
 // address of the server on a best-effort basis, or nil if the address could not
 // be determined.
-func (t *transport) doQuery(q []byte) (response []byte, blocklists string, server *net.TCPAddr, qerr error) {
+func (t *transport) doQuery(q []byte) (response []byte, blocklists string, server *net.TCPAddr, elapsed time.Duration, qerr error) {
 	if len(q) < 2 {
 		qerr = &queryError{BadQuery, fmt.Errorf("Query length is %d", len(q))}
 		return
 	}
 
+	start := time.Now()
 	if err := t.prepareOnDeviceBlock(); err == nil {
 		response, blocklists, err = t.applyBlocklists(q)
+		elapsed = time.Since(start)
 		if err == nil { // blocklist applied only when err is nil
 			return
 		}
@@ -249,6 +251,7 @@ func (t *transport) doQuery(q []byte) (response []byte, blocklists string, serve
 	// Add padding to the raw query
 	q, err := AddEdnsPadding(q)
 	if err != nil {
+		elapsed = time.Since(start)
 		qerr = &queryError{InternalError, err}
 		return
 	}
@@ -258,6 +261,7 @@ func (t *transport) doQuery(q []byte) (response []byte, blocklists string, serve
 	binary.BigEndian.PutUint16(q, 0)
 	req, err := http.NewRequest(http.MethodPost, t.url, bytes.NewBuffer(q))
 	if err != nil {
+		elapsed = time.Since(start)
 		qerr = &queryError{InternalError, err}
 		return
 	}
@@ -348,14 +352,19 @@ func (t *transport) doQuery(q []byte) (response []byte, blocklists string, serve
 	req.Header.Set("Accept", mimetype)
 	req.Header.Set("User-Agent", "Intra")
 	log.Debugf("%d Sending query", id)
+	start = time.Now() // re...start
 	httpResponse, err := t.client.Do(req)
 	if err != nil {
+		elapsed = time.Since(start)
 		qerr = &queryError{SendFailed, err}
 		return
 	}
 	log.Debugf("%d Got response", id)
 
 	response, err = ioutil.ReadAll(httpResponse.Body)
+
+	elapsed = time.Since(start)
+
 	if err != nil {
 		qerr = &queryError{BadResponse, err}
 		return
@@ -404,12 +413,10 @@ func (t *transport) Query(q []byte) ([]byte, error) {
 		token = t.listener.OnQuery(t.url)
 	}
 
-	before := time.Now()
-	response, blocklists, server, err := t.doQuery(q)
-	after := time.Now()
+	response, blocklists, server, elapsed, err := t.doQuery(q)
 
 	if t.listener != nil {
-		latency := after.Sub(before)
+		latency := elapsed
 		status := Complete
 		httpStatus := http.StatusOK
 		var qerr *queryError
