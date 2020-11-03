@@ -2,6 +2,7 @@ package tunnel
 
 import (
 	"errors"
+	"golang.org/x/sys/unix"
 	"os"
 
 	"github.com/eycorsican/go-tun2socks/common/log"
@@ -18,15 +19,15 @@ func MakeTunFile(fd int) (*os.File, error) {
 	if fd < 0 {
 		return nil, errors.New("Must provide a valid TUN file descriptor")
 	}
-	/*
-		// Make a copy of `fd` so that os.File's finalizer doesn't close `fd`.
-		newfd, err := unix.Dup(fd)
-		if err != nil {
-			return nil, err
-		}
-	*/
+
+	// Make a copy of `fd` so that os.File's finalizer doesn't close `fd`.
+	newfd, err := unix.Dup(fd)
+	if err != nil {
+		return nil, err
+	}
+
 	// java-land gives up its ownership of fd
-	file := os.NewFile(uintptr(fd), "")
+	file := os.NewFile(uintptr(newfd), "")
 	if file == nil {
 		return nil, errors.New("Failed to open TUN file descriptor")
 	}

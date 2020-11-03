@@ -316,6 +316,8 @@ func (h *tcpHandler) SetProxyOptions(po *settings.ProxyOptions) error {
 		fproxy, err = proxy.SOCKS5("tcp", po.IPPort, po.Auth, proxy.Direct)
 	} else if h.httpsProxy() {
 		err = fmt.Errorf("http-proxy not supported")
+	} else {
+		err = fmt.Errorf("proxy mode not set")
 	}
 	if err != nil {
 		h.proxy = nil
