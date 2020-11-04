@@ -40,8 +40,8 @@ type ServerInfo struct {
 
 type ServersInfo struct {
 	sync.RWMutex
-	inner             []*ServerInfo
-	registeredServers []RegisteredServer
+	inner             map[string]*ServerInfo
+	registeredServers map[string]RegisteredServer
 	lbStrategy        LBStrategy
 }
 
@@ -52,19 +52,12 @@ type LBStrategy interface {
 type LBStrategyP2 struct{}
 
 func (LBStrategyP2) getCandidate(serversCount int) int {
-	return rand.Intn(xdns.Min(serversCount, 2))
+	return rand.Intn(xdns.Min(serversCount, 5))
 }
 
 var DefaultLBStrategy = LBStrategyP2{}
 
-func (serversInfo *ServersInfo) shuffle() {
-	rand.Seed(time.Now().UnixNano())
-	rand.Shuffle(len(serversInfo.inner), func(i, j int) {
-		serversInfo.inner[i], serversInfo.inner[j] = serversInfo.inner[j], serversInfo.inner[i]
-	})
-}
-
-func (serversInfo *ServersInfo) getOne() *ServerInfo {
+func (serversInfo *ServersInfo) getOne() (serverInfo *ServerInfo) {
 	serversInfo.RLock()
 	defer serversInfo.RUnlock()
 
@@ -72,9 +65,15 @@ func (serversInfo *ServersInfo) getOne() *ServerInfo {
 	if serversCount <= 0 {
 		return nil
 	}
-	serversInfo.shuffle()
 	candidate := serversInfo.lbStrategy.getCandidate(serversCount)
-	serverInfo := serversInfo.inner[candidate]
+	i := 0
+	for _, si := range serversInfo.inner {
+		if i == candidate {
+			serverInfo = si
+			break
+		}
+		i++
+	}
 	log.Debugf("Using candidate [%s]", (*serverInfo).Name)
 
 	return serverInfo
@@ -84,53 +83,25 @@ func (serversInfo *ServersInfo) unregisterServer(name string) (int, error) {
 	serversInfo.Lock()
 	defer serversInfo.Unlock()
 
-	var l int = len(serversInfo.registeredServers)
-	if l <= 0 {
-		return 0, errors.New("zero registered servers")
-	}
+	delete(serversInfo.registeredServers, name)
+	delete(serversInfo.inner, name)
 
-	var i int = 0
-	for _, s := range serversInfo.registeredServers {
-		if s.name != name {
-			serversInfo.registeredServers[i] = s
-			i++
-		}
-	}
-	var j int = 0
-	for _, s := range serversInfo.inner {
-		if s.Name != name {
-			serversInfo.inner[j] = s
-			j++
-		}
-	}
-
-	serversInfo.registeredServers = serversInfo.registeredServers[:i]
-	serversInfo.inner = serversInfo.inner[:j]
-
-	return l - i, nil
+	return len(serversInfo.registeredServers), nil
 }
 
 func (serversInfo *ServersInfo) registerServer(name string, stamp stamps.ServerStamp) {
 	newRegisteredServer := RegisteredServer{name: name, stamp: stamp}
 	serversInfo.Lock()
 	defer serversInfo.Unlock()
-	for i, oldRegisteredServer := range serversInfo.registeredServers {
-		if oldRegisteredServer.name == name {
-			serversInfo.registeredServers[i] = newRegisteredServer
-			return
-		}
-	}
-	serversInfo.registeredServers = append(serversInfo.registeredServers, newRegisteredServer)
+
+	serversInfo.registeredServers[name] = newRegisteredServer
 }
 
 func (serversInfo *ServersInfo) refresh(proxy *Proxy) ([]string, error) {
 	log.Debugf("Refreshing certificates")
-	serversInfo.RLock()
-	registeredServers := serversInfo.registeredServers
-	serversInfo.RUnlock()
 	var liveServers []string
 	var err error
-	for _, registeredServer := range registeredServers {
+	for _, registeredServer := range serversInfo.registeredServers {
 		if err = serversInfo.refreshServer(proxy, registeredServer.name, registeredServer.stamp); err == nil {
 			liveServers = append(liveServers, registeredServer.name)
 		}
@@ -143,13 +114,7 @@ func (serversInfo *ServersInfo) refresh(proxy *Proxy) ([]string, error) {
 
 func (serversInfo *ServersInfo) refreshServer(proxy *Proxy, name string, stamp stamps.ServerStamp) error {
 	serversInfo.RLock()
-	isNew := true
-	for _, oldServer := range serversInfo.inner {
-		if oldServer.Name == name {
-			isNew = false
-			break
-		}
-	}
+	_, isNew := serversInfo.inner[name]
 	serversInfo.RUnlock()
 
 	newServer, err := fetchServerInfo(proxy, name, stamp, isNew)
@@ -160,23 +125,11 @@ func (serversInfo *ServersInfo) refreshServer(proxy *Proxy, name string, stamp s
 		return fmt.Errorf("[%s] != [%s]", name, newServer.Name)
 	}
 
-	// update if not a new server
-	isNew = true
 	serversInfo.Lock()
-	for i, oldServer := range serversInfo.inner {
-		if oldServer.Name == name {
-			serversInfo.inner[i] = &newServer
-			isNew = false
-			break
-		}
-	}
-
-	// append if new server
-	if isNew {
-		serversInfo.inner = append(serversInfo.inner, &newServer)
-		serversInfo.registeredServers = append(serversInfo.registeredServers, RegisteredServer{name: name, stamp: stamp})
-	}
+	serversInfo.inner[name] = &newServer
+	serversInfo.registeredServers[name] = RegisteredServer{name: name, stamp: stamp}
 	serversInfo.Unlock()
+
 	return nil
 }
 
@@ -268,7 +221,11 @@ func route(proxy *Proxy, name string) (*net.TCPAddr, error) {
 
 // NewServersInfo returns a new servers-info object
 func NewServersInfo() ServersInfo {
-	return ServersInfo{lbStrategy: DefaultLBStrategy, registeredServers: make([]RegisteredServer, 0)}
+	return ServersInfo{
+		lbStrategy:        DefaultLBStrategy,
+		registeredServers: make(map[string]RegisteredServer),
+		inner:             make(map[string]*ServerInfo),
+	}
 }
 
 func (s *ServerInfo) String() string {

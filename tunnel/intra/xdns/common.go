@@ -94,15 +94,13 @@ func StringReverse(s string) string {
 }
 
 // returns unique strings in n not in s as new array
-func FindUnique(s []string, n []string) []string {
+func FindUnique(s []string, n []string) (u []string) {
 	if len(s) == 0 {
 		return n
 	}
 	if len(n) == 0 {
-		return nil
+		return u
 	}
-
-	var u []string
 
 	for _, e := range n {
 		uniq := true
@@ -117,7 +115,7 @@ func FindUnique(s []string, n []string) []string {
 		}
 	}
 
-	return u
+	return
 }
 
 // remove removes elements at indices r from a ascii string slice s

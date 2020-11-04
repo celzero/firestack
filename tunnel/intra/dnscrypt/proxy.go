@@ -201,7 +201,7 @@ type Proxy struct {
 	certRefreshDelayAfterFailure time.Duration
 	certIgnoreTimestamp          bool
 	mainProto                    string
-	registeredServers            []RegisteredServer
+	registeredServers            map[string]RegisteredServer
 	registeredRelays             []RegisteredServer
 	routes                       []string
 	quit                         chan bool
@@ -584,29 +584,6 @@ func (proxy *Proxy) RemoveRoutes(routescsv string) (int, error) {
 	return l - len(proxy.routes), nil
 }
 
-func (proxy *Proxy) removeRegisteredServers(servernames []string) {
-	if len(servernames) == 0 || len(proxy.registeredServers) == 0 {
-		return
-	}
-
-	var u []RegisteredServer
-
-	for _, e := range proxy.registeredServers {
-		keep := true
-		for _, x := range servernames {
-			if e.name == x {
-				keep = false
-				break
-			}
-		}
-		if keep {
-			u = append(u, e)
-		}
-	}
-
-	proxy.registeredServers = u
-}
-
 func (proxy *Proxy) RemoveServers(servernamescsv string) (int, error) {
 	if len(servernamescsv) <= 0 {
 		return 0, fmt.Errorf("specify at least one dns-crypt resolver endpoint")
@@ -623,10 +600,10 @@ func (proxy *Proxy) RemoveServers(servernamescsv string) (int, error) {
 		}
 		// TODO: handle err
 		n, _ := proxy.serversInfo.unregisterServer(name)
+		delete(proxy.registeredServers, name)
+
 		c = c + n
 	}
-
-	proxy.removeRegisteredServers(servernames)
 
 	return c, nil
 }
@@ -641,25 +618,23 @@ func (proxy *Proxy) AddServers(serverscsv string) (int, error) {
 	defer proxy.Unlock()
 
 	servers := strings.Split(serverscsv, ",")
-	var registeredServers []RegisteredServer
-	for _, serverStampPair := range servers {
+	for i, serverStampPair := range servers {
 		if len(serverStampPair) == 0 {
-			return len(registeredServers), fmt.Errorf("Missing stamp for the stamp [%s] definition", serverStampPair)
+			return i, fmt.Errorf("Missing stamp for the stamp [%s] definition", serverStampPair)
 		}
 		serverStamp := strings.Split(serverStampPair, "#")
 		// TODO: skip duplicates.
 		stamp, err := stamps.NewServerStampFromString(serverStamp[1])
 		if err != nil {
-			return len(registeredServers), fmt.Errorf("Stamp error for the stamp [%s] definition: [%v]", serverStampPair, err)
+			return i, fmt.Errorf("Stamp error for the stamp [%s] definition: [%v]", serverStampPair, err)
 		}
 		if stamp.Proto == stamps.StampProtoTypeDoH {
 			// TODO: Implement doh
-			return len(registeredServers), fmt.Errorf("DoH with DNSCrypt client not supported", serverStamp)
+			return i, fmt.Errorf("DoH with DNSCrypt client not supported", serverStamp)
 		}
-		registeredServers = append(registeredServers, RegisteredServer{name: serverStamp[0], stamp: stamp})
+		proxy.registeredServers[serverStamp[0]] = RegisteredServer{name: serverStamp[0], stamp: stamp}
 	}
-	proxy.registeredServers = append(proxy.registeredServers, registeredServers...)
-	return len(registeredServers), nil
+	return len(servers), nil
 }
 
 // NewProxy creates a dnscrypt proxy
@@ -671,7 +646,7 @@ func NewProxy(l Listener) *Proxy {
 	}
 	return &Proxy{
 		routes:                       nil,
-		registeredServers:            nil,
+		registeredServers:            make(map[string]RegisteredServer),
 		undelegatedSet:               suffixes,
 		certRefreshDelay:             time.Duration(240) * time.Minute,
 		certRefreshDelayAfterFailure: time.Duration(10 * time.Second),
