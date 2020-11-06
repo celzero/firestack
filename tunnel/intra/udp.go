@@ -428,6 +428,8 @@ func (h *udpHandler) SetProxyOptions(po *settings.ProxyOptions) error {
 		err = errors.New("udp not supported")
 	} else if h.httpsProxy() {
 		err = fmt.Errorf("http-proxy not supported")
+	} else {
+		err = errors.New("proxy mode not set")
 	}
 	if err != nil {
 		h.proxy = nil
