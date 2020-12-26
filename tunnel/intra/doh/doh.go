@@ -333,6 +333,7 @@ func (t *transport) doQuery(q []byte) (response []byte, blocklists string, serve
 			log.Debugf("%d ConnectDone(%s, %s, %v)", id, network, addr, err)
 		},
 		TLSHandshakeStart: func() {
+			start = time.Now() // re...start
 			log.Debugf("%d TLSHandshakeStart()", id)
 		},
 		TLSHandshakeDone: func(state tls.ConnectionState, err error) {
@@ -352,7 +353,6 @@ func (t *transport) doQuery(q []byte) (response []byte, blocklists string, serve
 	req.Header.Set("Accept", mimetype)
 	req.Header.Set("User-Agent", "Intra")
 	log.Debugf("%d Sending query", id)
-	start = time.Now() // re...start
 	httpResponse, err := t.client.Do(req)
 	if err != nil {
 		elapsed = time.Since(start)
