@@ -118,6 +118,8 @@ func (h *udpHandler) fetchUDPInput(conn core.UDPConn, t *tracker) {
 		var addr net.Addr
 		var err error
 
+		// FIXME: ReadFrom seems to block for 50mins+ at times:
+		// Cancel the goroutine in such cases and close the conns
 		switch c := t.conn.(type) {
 		case net.PacketConn:
 			// reads a packet from t.conn copying it to buf

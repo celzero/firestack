@@ -64,14 +64,13 @@ type ProcNetEntry struct {
 }
 
 type ProcNetCache struct {
-	rw          sync.RWMutex
-	pool        map[string]*ProcNetEntry
+	pool        *sync.Map // string, *ProcNetEntry{}
 	lastcleanup time.Time
 }
 
 func NewProcNetCache() ProcNetCache {
 	return ProcNetCache{
-		pool:        map[string]*ProcNetEntry{},
+		pool:        new(sync.Map),
 		lastcleanup: time.Now(),
 	}
 }
@@ -230,24 +229,19 @@ func ParseProcNet(protocol string) ([]ProcNetEntry, error) {
 }
 
 func cleanupPool() {
-	// golang locks aren't re-entrant, careful java developers
-	cache.rw.Lock()
 	if time.Since(cache.lastcleanup).Milliseconds() <= cachettl {
-		cache.rw.Unlock()
 		return
 	}
 	cache.lastcleanup = time.Now()
-	cache.rw.Unlock()
 
-	for _, v := range cache.pool {
-		// slight window of opportunity for a data-race when
-		// invalidProcNetEntry says one thing but the state
-		// has changed by the time delete does its thing
-		if invalidProcNetEntry(v) {
-			// delete does its own locking
-			deleteProcNetEntryFromPool(v)
+	cache.pool.Range(func(k, v interface{}) bool {
+		if e, ok := v.(*ProcNetEntry); ok {
+			if invalidProcNetEntry(e) {
+				deleteProcNetEntryFromPool(e)
+			}
 		}
-	}
+		return true
+	})
 }
 
 func invalidProcNetEntry(p *ProcNetEntry) bool {
@@ -255,12 +249,12 @@ func invalidProcNetEntry(p *ProcNetEntry) bool {
 		return true
 	}
 
-	cache.rw.RLock()
-	defer cache.rw.RUnlock()
+	e := getProcNetEntryFromPool(p)
+	if e == nil {
+		return true
+	}
 
-	e := cache.pool[p.String()]
-
-	return e == nil || time.Since(e.ctime).Milliseconds() > cachettl
+	return time.Since(e.ctime).Milliseconds() > cachettl
 }
 
 func deleteProcNetEntryFromPool(p *ProcNetEntry) {
@@ -268,10 +262,7 @@ func deleteProcNetEntryFromPool(p *ProcNetEntry) {
 		return
 	}
 
-	cache.rw.Lock()
-	defer cache.rw.Unlock()
-
-	delete(cache.pool, p.String())
+	cache.pool.Delete(p.String())
 }
 
 func addProcNetEntryToPool(p *ProcNetEntry) {
@@ -279,10 +270,7 @@ func addProcNetEntryToPool(p *ProcNetEntry) {
 		return
 	}
 
-	cache.rw.Lock()
-	defer cache.rw.Unlock()
-
-	cache.pool[p.String()] = p
+	cache.pool.Store(p.String(), p)
 }
 
 func getProcNetEntryFromPool(p *ProcNetEntry) *ProcNetEntry {
@@ -290,10 +278,17 @@ func getProcNetEntryFromPool(p *ProcNetEntry) *ProcNetEntry {
 		return nil
 	}
 
-	cache.rw.RLock()
-	defer cache.rw.RUnlock()
+	v, ok1 := cache.pool.Load(p.String())
+	if !ok1 {
+		return nil
+	}
 
-	return cache.pool[p.String()]
+	e, ok2 := v.(*ProcNetEntry)
+	if !ok2 {
+		return nil
+	}
+
+    return e
 }
 
 // findProcNetEntryForProtocol parses /proc/net/* and return the line matching the argument five-tuple
@@ -302,13 +297,12 @@ func findProcNetEntryForProtocol(protocol string, srcIP net.IP, srcPort int, dst
 
 	n := NewProcNetEntry(protocol, srcIP, srcPort, dstIP, dstPort, 0, 0)
 	e := &n // https://groups.google.com/g/golang-nuts/c/reaIlFdibWU?pli=1
-	pool := getProcNetEntryFromPool(e)
 
-	if e.Same(pool) {
-		if invalidProcNetEntry(pool) == false {
-			return pool
+	if f := getProcNetEntryFromPool(e); e.Same(f) {
+		if !invalidProcNetEntry(f) {
+			return f
 		}
-		deleteProcNetEntryFromPool(pool)
+		deleteProcNetEntryFromPool(f)
 	}
 
 	entries, err := ParseProcNet(protocol)
@@ -318,10 +312,12 @@ func findProcNetEntryForProtocol(protocol string, srcIP net.IP, srcPort int, dst
 	}
 
 	for _, entry := range entries {
-		pe := getProcNetEntryFromPool(&entry)
-		if invalidProcNetEntry(pe) {
+		cached := getProcNetEntryFromPool(&entry)
+		if invalidProcNetEntry(cached) {
 			addProcNetEntryToPool(&entry)
 		}
+		// return on first match since e.Same is pretty lax and deliberately
+		// not exact at matching the various procnet entries
 		if e.Same(&entry) {
 			return &entry
 		}
@@ -344,3 +340,4 @@ func FindProcNetEntry(protocol string, srcIP net.IP, srcPort int, dstIP net.IP, 
 
 	return nil
 }
+
