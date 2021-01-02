@@ -125,8 +125,8 @@ func NewIntraTunnel(fakedns string, dohdns doh.Transport, tunWriter io.WriteClos
 // Registers Intra's custom UDP and TCP connection handlers to the tun2socks core.
 func (t *intratunnel) registerConnectionHandlers(fakedns string, dialer *net.Dialer,
 	blocker protect.Blocker, config *net.ListenConfig, listener IntraListener) error {
-	// RFC 5382 REQ-5 requires a timeout no shorter than 2 hours and 4 minutes.
-	timeout, _ := time.ParseDuration("2h4m")
+	// RFC 4787 REQ-5 requires a timeout no shorter than 5 minutes.
+	timeout, _ := time.ParseDuration("5m")
 
 	udpfakedns, err := net.ResolveUDPAddr("udp", fakedns)
 	if err != nil {
