@@ -29,13 +29,15 @@ import (
 	"net/textproto"
 	"net/url"
 	"strconv"
+	"sync"
 	"time"
 
-	"github.com/Jigsaw-Code/outline-go-tun2socks/tunnel/intra/dnsx"
-	"github.com/Jigsaw-Code/outline-go-tun2socks/tunnel/intra/doh/ipmap"
-	"github.com/Jigsaw-Code/outline-go-tun2socks/tunnel/intra/split"
-	"github.com/Jigsaw-Code/outline-go-tun2socks/tunnel/intra/xdns"
+	"github.com/Jigsaw-Code/outline-go-tun2socks/intra/dnsx"
+	"github.com/Jigsaw-Code/outline-go-tun2socks/intra/xdns"
+	"github.com/Jigsaw-Code/outline-go-tun2socks/intra/doh/ipmap"
+	"github.com/Jigsaw-Code/outline-go-tun2socks/intra/split"
 	"github.com/eycorsican/go-tun2socks/common/log"
+	"golang.org/x/net/dns/dnsmessage"
 )
 
 const (
@@ -52,6 +54,11 @@ const (
 	// InternalError : This should never happen
 	InternalError
 )
+
+// If the server sends an invalid reply, we start a "servfail hangover"
+// of this duration, during which all queries are rejected.
+// This rate-limits queries to misconfigured servers (e.g. wrong URL).
+const hangoverDuration = 10 * time.Second
 
 // Summary is a summary of a DNS transaction, reported when it is complete.
 type Summary struct {
@@ -77,7 +84,8 @@ type Listener interface {
 // so it has to be very simple.
 type Transport interface {
 	// Given a DNS query (including ID), returns a DNS response with matching
-	// ID, or an error if no response was received.
+	// ID, or an error if no response was received.  The error may be accompanied
+	// by a SERVFAIL response if appropriate.
 	Query(q []byte) ([]byte, error)
 	// Return the server URL used to initialize this transport.
 	GetURL() string
@@ -96,6 +104,8 @@ type transport struct {
 	dialer   *net.Dialer
 	listener Listener
 	bravedns dnsx.BraveDNS
+	hangoverLock       sync.RWMutex
+	hangoverExpiration time.Time
 }
 
 // Wait up to three seconds for the TCP handshake to complete.
@@ -151,9 +161,9 @@ func (t *transport) dial(network, addr string) (net.Conn, error) {
 //   lookup fails or returns non-working addresses.
 // `dialer` is the dialer that the transport will use.  The transport will modify the dialer's
 //   timeout but will not mutate it otherwise.
+// `auth` will provide a client certificate if required by the TLS server.
 // `listener` will receive the status of each DNS query when it is complete.
-func NewTransport(rawurl string, addrs []string, dialer *net.Dialer,
-	listener Listener) (Transport, error) {
+func NewTransport(rawurl string, addrs []string, dialer *net.Dialer, auth ClientAuth, listener Listener) (Transport, error) {
 	if dialer == nil {
 		dialer = &net.Dialer{}
 	}
@@ -192,12 +202,22 @@ func NewTransport(rawurl string, addrs []string, dialer *net.Dialer,
 		return nil, fmt.Errorf("No IP addresses for %s", t.hostname)
 	}
 
+	// Supply a client certificate during TLS handshakes.
+	var tlsconfig *tls.Config
+	if auth != nil {
+		signer := newClientAuthWrapper(auth)
+		tlsconfig = &tls.Config{
+			GetClientCertificate: signer.GetClientCertificate,
+		}
+	}
+
 	// Override the dial function.
 	t.client.Transport = &http.Transport{
 		Dial:                  t.dial,
 		ForceAttemptHTTP2:     true,
 		TLSHandshakeTimeout:   10 * time.Second,
 		ResponseHeaderTimeout: 20 * time.Second, // Same value as Android DNS-over-TLS
+		TLSClientConfig:       tlsconfig,
 	}
 	return t, nil
 }
@@ -225,11 +245,11 @@ func (e *httpError) Error() string {
 
 // Given a raw DNS query (including the query ID), this function sends the
 // query.  If the query is successful, it returns the response and a nil qerr.  Otherwise,
-// it returns a nil response and a qerr with a status value indicating the cause.
+// it returns a SERVFAIL response and a qerr with a status value indicating the cause.
 // Independent of the query's success or failure, this function also returns the
 // address of the server on a best-effort basis, or nil if the address could not
 // be determined.
-func (t *transport) doQuery(q []byte) (response []byte, blocklists string, server *net.TCPAddr, elapsed time.Duration, qerr error) {
+func (t *transport) doQuery(q []byte) (response []byte, blocklists string, server *net.TCPAddr, elapsed time.Duration, qerr *queryError) {
 	if len(q) < 2 {
 		qerr = &queryError{BadQuery, fmt.Errorf("Query length is %d", len(q))}
 		return
@@ -238,6 +258,7 @@ func (t *transport) doQuery(q []byte) (response []byte, blocklists string, serve
 	start := time.Now()
 	if err := t.prepareOnDeviceBlock(); err == nil {
 		response, blocklists, err = t.applyBlocklists(q)
+		qerr = &queryError{BadQuery, err}
 		elapsed = time.Since(start)
 		if err == nil { // blocklist applied only when err is nil
 			return
@@ -246,6 +267,16 @@ func (t *transport) doQuery(q []byte) (response []byte, blocklists string, serve
 		// skipping block because err
 	} else {
 		log.Debugf("forward query: no local block")
+	}
+
+	t.hangoverLock.RLock()
+	inHangover := time.Now().Before(t.hangoverExpiration)
+	t.hangoverLock.RUnlock()
+	if inHangover {
+		response = tryServfail(q)
+		qerr = &queryError{HTTPError, errors.New("Forwarder is in servfail hangover")}
+		elapsed = time.Since(start)
+		return
 	}
 
 	// Add padding to the raw query
@@ -259,18 +290,37 @@ func (t *transport) doQuery(q []byte) (response []byte, blocklists string, serve
 	// Zero out the query ID.
 	id := binary.BigEndian.Uint16(q)
 	binary.BigEndian.PutUint16(q, 0)
-	req, err := http.NewRequest(http.MethodPost, t.url, bytes.NewBuffer(q))
-	if err != nil {
-		elapsed = time.Since(start)
-		qerr = &queryError{InternalError, err}
-		return
+
+	var hostname string
+	response, hostname, server, elapsed, qerr = t.sendRequest(id, q)
+
+	// restore dns query id
+	binary.BigEndian.PutUint16(q, id)
+
+	if qerr != nil { // only on send-request errors
+		if qerr.status != SendFailed {
+			t.hangoverLock.Lock()
+			t.hangoverExpiration = time.Now().Add(hangoverDuration)
+			t.hangoverLock.Unlock()
+		}
+
+		response = tryServfail(q)
 	}
 
-	hostname := t.hostname
+	if server != nil {
+		// Record a working IP address for this server
+		t.ips.Get(hostname).Confirm(server.IP)
+	}
+	return
+}
+
+func (t *transport) sendRequest(id uint16, q []byte) (response []byte, hostname string, server *net.TCPAddr, elapsed time.Duration, qerr *queryError) {
+	hostname = t.hostname
 
 	// The connection used for this request.  If the request fails, we will close
 	// this socket, in case it is no longer functioning.
 	var conn net.Conn
+	start := time.Now()
 
 	// Error cleanup function.  If the query fails, this function will close the
 	// underlying socket and disconfirm the server IP.  Empirically, sockets often
@@ -289,6 +339,13 @@ func (t *transport) doQuery(q []byte) (response []byte, blocklists string, serve
 			conn.Close()
 		}
 	}()
+
+	req, err := http.NewRequest(http.MethodPost, t.url, bytes.NewBuffer(q))
+	if err != nil {
+		elapsed = time.Since(start)
+		qerr = &queryError{InternalError, err}
+		return
+	}
 
 	// Add a trace to the request in order to expose the server's IP address.
 	// Only GotConn performs any action; the other methods just provide debug logs.
@@ -327,13 +384,13 @@ func (t *transport) doQuery(q []byte) (response []byte, blocklists string, serve
 			log.Debugf("%d, DNSDone(%v)", id, info)
 		},
 		ConnectStart: func(network, addr string) {
+			start = time.Now() // re...start
 			log.Debugf("%d ConnectStart(%s, %s)", id, network, addr)
 		},
 		ConnectDone: func(network, addr string, err error) {
 			log.Debugf("%d ConnectDone(%s, %s, %v)", id, network, addr, err)
 		},
 		TLSHandshakeStart: func() {
-			start = time.Now() // re...start
 			log.Debugf("%d TLSHandshakeStart()", id)
 		},
 		TLSHandshakeDone: func(state tls.ConnectionState, err error) {
@@ -352,17 +409,18 @@ func (t *transport) doQuery(q []byte) (response []byte, blocklists string, serve
 	req.Header.Set("Content-Type", mimetype)
 	req.Header.Set("Accept", mimetype)
 	req.Header.Set("User-Agent", "Intra")
+
 	log.Debugf("%d Sending query", id)
 	httpResponse, err := t.client.Do(req)
+
 	if err != nil {
 		elapsed = time.Since(start)
 		qerr = &queryError{SendFailed, err}
 		return
 	}
+
 	log.Debugf("%d Got response", id)
-
 	response, err = ioutil.ReadAll(httpResponse.Body)
-
 	elapsed = time.Since(start)
 
 	if err != nil {
@@ -386,24 +444,21 @@ func (t *transport) doQuery(q []byte) (response []byte, blocklists string, serve
 		return
 	}
 
-	// Restore the query ID.
-	binary.BigEndian.PutUint16(q, id)
 	if len(response) >= 2 {
-		binary.BigEndian.PutUint16(response, id)
-		var r []byte
-		blocklists, r = t.resolveBlock(q, httpResponse, response)
-		// overwrite response when blocked
-		if len(blocklists) > 0 && r != nil {
-			response = r
+		if binary.BigEndian.Uint16(response) == 0 {
+			binary.BigEndian.PutUint16(response, id)
+			blocklists, r := t.resolveBlock(q, httpResponse, response)
+			// overwrite response when blocked
+			if len(blocklists) > 0 && r != nil {
+				response = r
+			}
+		} else {
+			qerr = &queryError{BadResponse, errors.New("Nonzero response ID")}
 		}
 	} else {
 		qerr = &queryError{BadResponse, fmt.Errorf("Response length is %d", len(response))}
-		return
 	}
-	if server != nil {
-		// Record a working IP address for this server
-		t.ips.Get(hostname).Confirm(server.IP)
-	}
+
 	return
 }
 
@@ -413,23 +468,24 @@ func (t *transport) Query(q []byte) ([]byte, error) {
 		token = t.listener.OnQuery(t.url)
 	}
 
-	response, blocklists, server, elapsed, err := t.doQuery(q)
+	response, blocklists, server, elapsed, qerr := t.doQuery(q)
+
+	var err error
+	status := Complete
+	httpStatus := http.StatusOK
+	if qerr != nil {
+		err = qerr
+		status = qerr.status
+		httpStatus = 0
+
+		var herr *httpError
+		if errors.As(qerr.err, &herr) {
+			httpStatus = herr.status
+		}
+	}
 
 	if t.listener != nil {
 		latency := elapsed
-		status := Complete
-		httpStatus := http.StatusOK
-		var qerr *queryError
-		if errors.As(err, &qerr) {
-			status = qerr.status
-			httpStatus = 0
-
-			var herr *httpError
-			if errors.As(qerr.err, &herr) {
-				httpStatus = herr.status
-			}
-		}
-
 		var ip string
 		if server != nil {
 			ip = server.IP.String()
@@ -546,9 +602,9 @@ func (t *transport) blocklistsFromHeader(bravedns dnsx.BraveDNS, res *http.Respo
 
 // Perform a query using the transport, and send the response to the writer.
 func forwardQuery(t Transport, q []byte, c io.Writer) error {
-	resp, err := t.Query(q)
-	if err != nil {
-		return err
+	resp, qerr := t.Query(q)
+	if resp == nil && qerr != nil {
+		return qerr
 	}
 	rlen := len(resp)
 	if rlen > math.MaxUint16 {
@@ -566,7 +622,7 @@ func forwardQuery(t Transport, q []byte, c io.Writer) error {
 	if int(n) != len(rlbuf) {
 		return fmt.Errorf("Incomplete response write: %d < %d", n, len(rlbuf))
 	}
-	return nil
+	return qerr
 }
 
 // Perform a query using the transport, send the response to the writer,
@@ -612,3 +668,26 @@ func Accept(t Transport, c io.ReadWriteCloser) {
 	// TODO: Cancel outstanding queries at this point.
 	c.Close()
 }
+
+// FIXME: Move this to xdns pkg, see: BlockResponseFromMessage
+// Servfail returns a SERVFAIL response to the query q.
+func Servfail(q []byte) ([]byte, error) {
+	var msg dnsmessage.Message
+	if err := msg.Unpack(q); err != nil {
+		return nil, err
+	}
+	msg.Response = true
+	msg.RecursionAvailable = true
+	msg.RCode = dnsmessage.RCodeServerFailure
+	msg.Additionals = nil // Strip EDNS
+	return msg.Pack()
+}
+
+func tryServfail(q []byte) []byte {
+	response, err := Servfail(q)
+	if err != nil {
+		log.Warnf("Error constructing servfail: %v", err)
+	}
+	return response
+}
+

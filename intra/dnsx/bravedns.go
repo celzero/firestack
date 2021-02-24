@@ -12,7 +12,7 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/Jigsaw-Code/outline-go-tun2socks/tunnel/intra/xdns"
+	"github.com/Jigsaw-Code/outline-go-tun2socks/intra/xdns"
 
 	"github.com/celzero/gotrie/trie"
 	"github.com/miekg/dns"

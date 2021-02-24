@@ -29,10 +29,10 @@ import (
 	"github.com/eycorsican/go-tun2socks/common/log"
 	"github.com/eycorsican/go-tun2socks/core"
 
-	"github.com/Jigsaw-Code/outline-go-tun2socks/tunnel/intra/dnscrypt"
-	"github.com/Jigsaw-Code/outline-go-tun2socks/tunnel/intra/doh"
-	"github.com/Jigsaw-Code/outline-go-tun2socks/tunnel/intra/protect"
-	"github.com/Jigsaw-Code/outline-go-tun2socks/tunnel/settings"
+	"github.com/Jigsaw-Code/outline-go-tun2socks/intra/dnscrypt"
+	"github.com/Jigsaw-Code/outline-go-tun2socks/intra/doh"
+	"github.com/Jigsaw-Code/outline-go-tun2socks/intra/protect"
+	"github.com/Jigsaw-Code/outline-go-tun2socks/intra/settings"
 )
 
 // UDPSocketSummary describes a non-DNS UDP association, reported when it is discarded.
@@ -229,7 +229,7 @@ func (h *udpHandler) Connect(conn core.UDPConn, target *net.UDPAddr) error {
 func (h *udpHandler) doDoh(dns doh.Transport, t *tracker, conn core.UDPConn, data []byte) {
 	resp, err := dns.Query(data)
 
-	if err == nil {
+	if resp != nil {
 		_, err = conn.WriteFrom(resp, t.ip)
 	}
 	if err != nil {

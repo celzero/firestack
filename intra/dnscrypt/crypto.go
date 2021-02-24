@@ -6,7 +6,7 @@ import (
 	"errors"
 	"math/rand"
 
-	"github.com/Jigsaw-Code/outline-go-tun2socks/tunnel/intra/xdns"
+	"github.com/Jigsaw-Code/outline-go-tun2socks/intra/xdns"
 	"github.com/eycorsican/go-tun2socks/common/log"
 
 	"github.com/jedisct1/xsecretbox"
