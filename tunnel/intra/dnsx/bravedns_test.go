@@ -1,10 +1,10 @@
-// Copyright (c) 2020 RethinkDNS and its authors.                               
-//                                                                              
-// This Source Code Form is subject to the terms of the Mozilla Public          
-// License, v. 2.0. If a copy of the MPL was not distributed with this          
-// file, You can obtain one at http://mozilla.org/MPL/2.0/.                     
+// Copyright (c) 2020 RethinkDNS and its authors.
+//
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
-package main
+package dnsx
 
 import (
     "fmt"
@@ -37,7 +37,7 @@ func main() {
     //fmt.Println(x, y)
 }
 
-func load() ([]string, map[string]string) {    
+func load() ([]string, map[string]string) {
     obj := map[int]string{
 0: "MTF",
 1: "KBI",
@@ -210,108 +210,108 @@ func load() ([]string, map[string]string) {
 168: "IVO",
 169: "ALQ",
 170: "FHM",
-}                                                              
-
-    rflags := make([]string, len(obj))                                          
-    fdata := make(map[string]string)                                            
-    for key := range obj {                                                      
-        val :=  obj[key]                                                                                                        
-        rflags[key] =  val                                   
-        fdata[val] = val                                      
-    }                                                                           
-    return rflags, fdata                                                   
 }
 
-func (brave *bravedns) decode(s string) (tags []string, err error) {        
-    stamp, err := url.QueryUnescape(s)                                       
-    if (err != nil) {                                                           
-    return                                                    
-    }                                                                           
-                                                                                
-    buf, err := b64.StdEncoding.DecodeString(stamp)                             
+    rflags := make([]string, len(obj))
+    fdata := make(map[string]string)
+    for key := range obj {
+        val :=  obj[key]
+        rflags[key] =  val
+        fdata[val] = val
+    }
+    return rflags, fdata
+}
+
+func (brave *bravedns) decode(s string) (tags []string, err error) {
+    stamp, err := url.QueryUnescape(s)
     if (err != nil) {
-    stamp, err = url.PathUnescape(s)                                                           
-    buf, err = b64.StdEncoding.DecodeString(stamp)   
+    return
+    }
+
+    buf, err := b64.StdEncoding.DecodeString(stamp)
+    if (err != nil) {
+    stamp, err = url.PathUnescape(s)
+    buf, err = b64.StdEncoding.DecodeString(stamp)
     }
     if (err != nil) {
-    return  
-    }                                                                           
-                                                                               
-    return brave.flagstotag(stringtouint(buf))                                
+    return
+    }
+
+    return brave.flagstotag(stringtouint(buf))
 }
 
 func stringtouint(b []byte) []uint16 {
-    stamp := string(b)                                          
+    stamp := string(b)
     runedata := []rune(stamp)
 data := make([]uint16, len(b)/2)
 for i := range data {
     // assuming little endian
     data[i] = binary.LittleEndian.Uint16(b[i*2:(i+1)*2])
 }
-    resp := make([]uint16, len(runedata))                                       
+    resp := make([]uint16, len(runedata))
     for key, value := range runedata {
-        resp[key] = uint16(value)                                               
+        resp[key] = uint16(value)
     }
-    fmt.Println(resp, data, len(b))                                                                                                                             
-    return resp                                                                 
+    fmt.Println(resp, data, len(b))
+    return resp
 }
 
-func (brave *bravedns) flagstotag(flags []uint16) ([]string, error) {           
-    // flags has to be an array of 16-bit integers.                             
-                                                                                
-    // first index always contains the header                                   
-    header := uint16(flags[0])                                                  
-    // store of each big-endian position of set bits in header                  
-    tagIndices := []int{}                                                       
-    values := []string{}                                                        
-    var mask uint16                                                             
-                                                                                
-    // b1000,0000,0000,0000                                                     
-    mask = 0x8000                                                               
-                                                                                
-    // read first 16 header bits from msb to lsb                                
-    // and capture indices of set bits in tagIndices                            
-    for i := 0; i < 16; i++ {                                                   
-        if (header << i) == 0 {                                                 
-            break                                                               
-        }                                                                       
-        if (header & mask) == mask {                                            
-            tagIndices = append(tagIndices, i)                                  
-        }                                                                       
-        mask = mask >> 1 // shift to read the next msb bit                      
-    }                                                                           
-    // the number of set bits in header must correspond to total                
-    // blocklist "flags" excluding the header at position 0                     
-    if len(tagIndices) != (len(flags) - 1) {                                    
-        err := fmt.Errorf("%v %v flags and header mismatch", tagIndices, flags) 
-        return nil, err                                                         
-    }                                                                           
-                                                                                
-    // for all blocklist flags excluding the header                             
-    // figure out the blocklist-ids                                             
-    for i := 1; i < len(flags); i++ {                                           
-        // 16 blocklists are represented by one flag                            
+func (brave *bravedns) flagstotag(flags []uint16) ([]string, error) {
+    // flags has to be an array of 16-bit integers.
+
+    // first index always contains the header
+    header := uint16(flags[0])
+    // store of each big-endian position of set bits in header
+    tagIndices := []int{}
+    values := []string{}
+    var mask uint16
+
+    // b1000,0000,0000,0000
+    mask = 0x8000
+
+    // read first 16 header bits from msb to lsb
+    // and capture indices of set bits in tagIndices
+    for i := 0; i < 16; i++ {
+        if (header << i) == 0 {
+            break
+        }
+        if (header & mask) == mask {
+            tagIndices = append(tagIndices, i)
+        }
+        mask = mask >> 1 // shift to read the next msb bit
+    }
+    // the number of set bits in header must correspond to total
+    // blocklist "flags" excluding the header at position 0
+    if len(tagIndices) != (len(flags) - 1) {
+        err := fmt.Errorf("%v %v flags and header mismatch", tagIndices, flags)
+        return nil, err
+    }
+
+    // for all blocklist flags excluding the header
+    // figure out the blocklist-ids
+    for i := 1; i < len(flags); i++ {
+        // 16 blocklists are represented by one flag
         // that is, one bit per blocklist
-        var flag = uint16(flags[i])                                             
-        // get the index of the current flag in the header                      
-        var index = tagIndices[i-1]                                             
-        mask = 0x8000                                                           
-        // for each of the 16 bits in the flag                                  
-        // capture the set bits and calculate                                   
-        // its actual decimal value, the blocklist-id                           
-        for j := 0; j < 16; j++ {                                               
-            if (flag << j) == 0 {                                               
-                break                                                           
-            }                                                                   
-            if (flag & mask) == mask {                                          
-                pos := (index * 16) + j                                         
-                // from the decimal value which is its                          
-                // blocklist-id, fetch its metadata                             
-                values = append(values, brave.flags[pos])                       
-            }                                                                   
-            mask = mask >> 1                                                    
-        }                                                                       
-    }                                                                           
-    return values, nil                                                          
-}                                                                               
+        var flag = uint16(flags[i])
+        // get the index of the current flag in the header
+        var index = tagIndices[i-1]
+        mask = 0x8000
+        // for each of the 16 bits in the flag
+        // capture the set bits and calculate
+        // its actual decimal value, the blocklist-id
+        for j := 0; j < 16; j++ {
+            if (flag << j) == 0 {
+                break
+            }
+            if (flag & mask) == mask {
+                pos := (index * 16) + j
+                // from the decimal value which is its
+                // blocklist-id, fetch its metadata
+                values = append(values, brave.flags[pos])
+            }
+            mask = mask >> 1
+        }
+    }
+    return values, nil
+}
 
