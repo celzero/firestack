@@ -1,0 +1,42 @@
+#!/bin/bash
+#
+# Copyright (c) 2021 RethinkDNS and its authors.
+#
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at http://mozilla.org/MPL/2.0/.
+set -eux
+
+# refs:
+# github.com/Stremio/vlc-android-sdk/blob/d8ab13e/prepare-aar
+# gitlab.com/fdroid/fdroiddata/-/blob/81c14003f/metadata/com.tailscale.ipn.yml
+# gitlab.com/fdroid/fdroiddata/-/blob/d6c5315a/metadata/org.calyxinstitute.vpn.yml
+
+# download golang
+curl -Lso go.tar.gz https://golang.org/dl/go1.15.4.linux-amd64.tar.gz
+echo "eb61005f0b932c93b424a3a4eaa67d72196c79129d9a3ea8578047683e2c80d5 go.tar.gz" | sha256sum -c -
+
+# setup golang
+mkdir -p golang
+tar -C golang -xzf go.tar.gz
+export GOPATH="$(pwd)"
+export GO_LANG="$(pwd)/golang/go/bin"
+export GO_COMPILED="$(pwd)/bin"
+export PATH="$GO_LANG:$GO_COMPILED:$PATH"
+
+# init gomobile
+go get golang.org/x/mobile/cmd/gomobile
+gomobile init
+
+# checkout tagged branch?
+# git checkout -b "$VERSION"
+
+# godeps
+go get -d ./...
+
+# gomobile aar
+./build_android.sh intra
+
+# rename
+mv ./"$BOUT" ./"$FOUT"
+
