@@ -30,3 +30,8 @@ We build binaries for Linux and Windows from source without any custom integrati
 go get -d ./...
 ./build_[ios|android|macos|windows].sh
 ```
+
+# For ex, build Intra for Android
+```bash
+./build_android.sh intra
+```
