@@ -1,0 +1,22 @@
+#!/bin/bash
+#
+# Copyright (c) 2021 RethinkDNS and its authors.
+#
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+set -eux
+
+# refs:
+# github.com/shiguredo/shiguredo-webrtc-android/blob/8f5bea7/prepareAar.sh
+# github.com/zoff99/pkgs_guardianprojectNetcipher/blob/52d9a59/jitpack.yml
+# repo: jitpack.io/com/github/$GROUP/$ARTIFACT/$VERSION/
+# logs: jitpack.io/com/github/$GROUP/$ARTIFACT/$VERSION/build.log
+
+mvn install:install-file \
+    -Dfile=${FOUT} \
+    -Dpackaging=${PACK} \
+    -Dversion=${VERSION} \
+    -DgroupId=${GROUP} \
+    -DartifactId=${ARTIFACT}
