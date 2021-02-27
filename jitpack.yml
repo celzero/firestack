@@ -1,0 +1,14 @@
+jdk:
+  - openjdk14
+env:
+  PACK: "aar"
+  FOUT: "firestack.aar"
+  BOUT: "build/android/tun2socks.aar"
+before_install:
+  - ./make-aar
+install:
+  - ./mvn-install
+
+# cmds: jitpack.io/docs/BUILDING/#custom-commands
+# envs: jitpack.io/docs/BUILDING/#environment-variables
+# bout: github.com/celzero/outline-go-tun2socks/blob/88be3c35/Makefile#L13
