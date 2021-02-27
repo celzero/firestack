@@ -1,3 +1,4 @@
+language: Android
 jdk:
   - openjdk14
 env:
@@ -5,6 +6,9 @@ env:
   FOUT: "firestack.aar"
   BOUT: "build/android/tun2socks.aar"
 before_install:
+   - yes | $ANDROID_HOME/tools/bin/sdkmanager "platforms;android-30"
+   - yes | $ANDROID_HOME/tools/bin/sdkmanager "build-tools;29.0.3"
+   - yes | $ANDROID_HOME/tools/bin/sdkmanager --install "ndk;22.0.7026061"
   - ./make-aar
 install:
   - ./mvn-install
@@ -12,3 +16,7 @@ install:
 # cmds: jitpack.io/docs/BUILDING/#custom-commands
 # envs: jitpack.io/docs/BUILDING/#environment-variables
 # bout: github.com/celzero/outline-go-tun2socks/blob/88be3c35/Makefile#L13
+# tool: developer.android.com/studio/releases/build-tools
+# sdkm: developer.android.com/studio/command-line/sdkmanager
+# ndkm: developer.android.com/ndk/downloads
+# inst: github.com/wordpress-mobile/AztecEditor-Android/blob/5d983f8/jitpack.yml

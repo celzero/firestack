@@ -12,6 +12,11 @@ set -eux
 # gitlab.com/fdroid/fdroiddata/-/blob/81c14003f/metadata/com.tailscale.ipn.yml
 # gitlab.com/fdroid/fdroiddata/-/blob/d6c5315a/metadata/org.calyxinstitute.vpn.yml
 
+# debug
+printenv
+ls -ltr $ANDROID_HOME/platforms/
+ls -ltr $ANDROID_HOME/ndk/
+
 # download golang
 curl -Lso go.tar.gz https://golang.org/dl/go1.15.4.linux-amd64.tar.gz
 echo "eb61005f0b932c93b424a3a4eaa67d72196c79129d9a3ea8578047683e2c80d5 go.tar.gz" | sha256sum -c -
