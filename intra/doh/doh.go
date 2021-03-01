@@ -208,7 +208,7 @@ func NewTransport(rawurl string, addrs []string, dialer *net.Dialer, auth Client
 		ips.Add(addr)
 	}
 	if ips.Empty() {
-		return nil, fmt.Errorf("No IP addresses for %s", t.hostname)
+		log.Errorf("No IP addresses for %s", t.hostname)
 	}
 
 	// Supply a client certificate during TLS handshakes.
@@ -267,13 +267,12 @@ func (t *transport) doQuery(q []byte) (response []byte, blocklists string, serve
 	start := time.Now()
 	if err := t.prepareOnDeviceBlock(); err == nil {
 		response, blocklists, err = t.applyBlocklists(q)
-		qerr = &queryError{BadQuery, err}
-		elapsed = time.Since(start)
 		if err == nil { // blocklist applied only when err is nil
+			elapsed = time.Since(start)
 			return
 		}
-		log.Infof("skipping local block for %s with err %s", blocklists, err)
 		// skipping block because err
+		log.Debugf("skipping local block for %s with err %s", blocklists, err)
 	} else {
 		log.Debugf("forward query: no local block")
 	}
@@ -301,7 +300,7 @@ func (t *transport) doQuery(q []byte) (response []byte, blocklists string, serve
 	binary.BigEndian.PutUint16(q, 0)
 
 	var hostname string
-	response, hostname, server, elapsed, qerr = t.sendRequest(id, q)
+	response, hostname, server, blocklists, elapsed, qerr = t.sendRequest(id, q)
 
 	// restore dns query id
 	binary.BigEndian.PutUint16(q, id)
@@ -323,7 +322,7 @@ func (t *transport) doQuery(q []byte) (response []byte, blocklists string, serve
 	return
 }
 
-func (t *transport) sendRequest(id uint16, q []byte) (response []byte, hostname string, server *net.TCPAddr, elapsed time.Duration, qerr *queryError) {
+func (t *transport) sendRequest(id uint16, q []byte) (response []byte, hostname string, server *net.TCPAddr, blocklists string, elapsed time.Duration, qerr *queryError) {
 	hostname = t.hostname
 
 	// The connection used for this request.  If the request fails, we will close
@@ -455,8 +454,9 @@ func (t *transport) sendRequest(id uint16, q []byte) (response []byte, hostname 
 
 	if len(response) >= 2 {
 		if binary.BigEndian.Uint16(response) == 0 {
+			var r []byte
 			binary.BigEndian.PutUint16(response, id)
-			blocklists, r := t.resolveBlock(q, httpResponse, response)
+			blocklists, r = t.resolveBlock(q, httpResponse, response)
 			// overwrite response when blocked
 			if len(blocklists) > 0 && r != nil {
 				response = r

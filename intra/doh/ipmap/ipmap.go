@@ -59,12 +59,17 @@ func (m *ipMap) Get(hostname string) *IPSet {
 	m.RLock()
 	s := m.m[hostname]
 	m.RUnlock()
-	if s != nil {
+	if s != nil && !s.Empty() {
 		return s
 	}
 
 	s = &IPSet{r: m.r}
 	s.Add(hostname)
+
+	if (s.Empty()) {
+		log.Warnf("Empty ips for %s", hostname)
+		return s
+	}
 
 	m.Lock()
 	s2 := m.m[hostname]
