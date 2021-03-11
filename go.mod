@@ -1,4 +1,4 @@
-module github.com/Jigsaw-Code/outline-go-tun2socks
+module github.com/celzero/firestack
 
 go 1.15
 
