@@ -73,7 +73,7 @@ func (m *ipMap) Get(hostname string) *IPSet {
 
 	m.Lock()
 	s2 := m.m[hostname]
-	if s2 == nil {
+	if s2 == nil || s2.Empty() {
 		m.m[hostname] = s
 	} else {
 		// Another pending call to Get populated m[hostname]

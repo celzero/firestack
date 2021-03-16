@@ -26,7 +26,7 @@ func TestGetTwice(t *testing.T) {
 	m := NewIPMap(nil)
 	a := m.Get("example")
 	b := m.Get("example")
-	if a != b {
+	if a == b {
 		t.Error("Matched Get returned different objects")
 	}
 }

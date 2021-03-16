@@ -313,12 +313,11 @@ func (t *transport) doQuery(q []byte) (response []byte, blocklists string, serve
 		}
 
 		response = tryServfail(q)
-	}
-
-	if server != nil {
+	} else if server != nil {
 		// Record a working IP address for this server
 		t.ips.Get(hostname).Confirm(server.IP)
 	}
+
 	return
 }
 
