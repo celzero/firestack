@@ -18,8 +18,8 @@ import (
 	"errors"
 	"strings"
 
-	"github.com/Jigsaw-Code/outline-go-tun2socks/intra/dnsx"
-	"github.com/Jigsaw-Code/outline-go-tun2socks/intra/xdns"
+	"github.com/celzero/firestack/intra/dnsx"
+	"github.com/celzero/firestack/intra/xdns"
 
 	"github.com/eycorsican/go-tun2socks/common/log"
 	"github.com/k-sone/critbitgo"

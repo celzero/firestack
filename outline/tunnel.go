@@ -32,8 +32,8 @@ import (
 	"github.com/eycorsican/go-tun2socks/core"
 	"github.com/eycorsican/go-tun2socks/proxy/dnsfallback"
 
-	oss "github.com/Jigsaw-Code/outline-go-tun2socks/shadowsocks"
-	"github.com/Jigsaw-Code/outline-go-tun2socks/tunnel"
+	oss "github.com/celzero/firestack/shadowsocks"
+	"github.com/celzero/firestack/tunnel"
 	shadowsocks "github.com/Jigsaw-Code/outline-ss-server/client"
 )
 

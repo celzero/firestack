@@ -38,10 +38,10 @@ import (
 	"github.com/eycorsican/go-tun2socks/common/log"
 	"github.com/eycorsican/go-tun2socks/core"
 
-	"github.com/Jigsaw-Code/outline-go-tun2socks/intra/dnscrypt"
-	"github.com/Jigsaw-Code/outline-go-tun2socks/intra/doh"
-	"github.com/Jigsaw-Code/outline-go-tun2socks/intra/protect"
-	"github.com/Jigsaw-Code/outline-go-tun2socks/intra/settings"
+	"github.com/celzero/firestack/intra/dnscrypt"
+	"github.com/celzero/firestack/intra/doh"
+	"github.com/celzero/firestack/intra/protect"
+	"github.com/celzero/firestack/intra/settings"
 )
 
 // UDPSocketSummary describes a non-DNS UDP association, reported when it is discarded.

@@ -18,10 +18,11 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/Jigsaw-Code/outline-go-tun2socks/intra/xdns"
+	"github.com/miekg/dns"
+
+	"github.com/celzero/firestack/intra/xdns"
 
 	"github.com/celzero/gotrie/trie"
-	"github.com/miekg/dns"
 )
 
 const (

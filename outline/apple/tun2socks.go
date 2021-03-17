@@ -22,7 +22,7 @@ import (
 	"runtime/debug"
 	"time"
 
-	"github.com/Jigsaw-Code/outline-go-tun2socks/outline"
+	"github.com/celzero/firestack/outline"
 )
 
 // OutlineTunnel embeds the tun2socks.Tunnel interface so it gets exported by gobind.

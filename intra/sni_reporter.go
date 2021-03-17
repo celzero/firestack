@@ -29,8 +29,9 @@ import (
 	"time"
 
 	"github.com/Jigsaw-Code/choir"
-	"github.com/Jigsaw-Code/outline-go-tun2socks/intra/doh"
 	"github.com/eycorsican/go-tun2socks/common/log"
+
+	"github.com/celzero/firestack/intra/doh"
 )
 
 // Number of bins to assign reports to.  Should be large enough for

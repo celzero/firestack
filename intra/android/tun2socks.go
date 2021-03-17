@@ -27,11 +27,12 @@ import (
 	"runtime/debug"
 	"strings"
 
-	"github.com/Jigsaw-Code/outline-go-tun2socks/intra"
-	"github.com/Jigsaw-Code/outline-go-tun2socks/intra/doh"
-	"github.com/Jigsaw-Code/outline-go-tun2socks/intra/protect"
-	"github.com/Jigsaw-Code/outline-go-tun2socks/tunnel"
 	"github.com/eycorsican/go-tun2socks/common/log"
+
+	"github.com/celzero/firestack/intra"
+	"github.com/celzero/firestack/intra/doh"
+	"github.com/celzero/firestack/intra/protect"
+	"github.com/celzero/firestack/tunnel"
 )
 
 func init() {

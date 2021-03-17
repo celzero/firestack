@@ -34,12 +34,12 @@ import (
 
 	"github.com/eycorsican/go-tun2socks/core"
 
-	"github.com/Jigsaw-Code/outline-go-tun2socks/intra/dnscrypt"
-	"github.com/Jigsaw-Code/outline-go-tun2socks/intra/dnsx"
-	"github.com/Jigsaw-Code/outline-go-tun2socks/intra/doh"
-	"github.com/Jigsaw-Code/outline-go-tun2socks/intra/protect"
-	"github.com/Jigsaw-Code/outline-go-tun2socks/intra/settings"
-	"github.com/Jigsaw-Code/outline-go-tun2socks/tunnel"
+	"github.com/celzero/firestack/intra/dnscrypt"
+	"github.com/celzero/firestack/intra/dnsx"
+	"github.com/celzero/firestack/intra/doh"
+	"github.com/celzero/firestack/intra/protect"
+	"github.com/celzero/firestack/intra/settings"
+	"github.com/celzero/firestack/tunnel"
 )
 
 // Listener receives usage statistics when a UDP or TCP socket is closed,

@@ -24,10 +24,12 @@ import (
 
 	"golang.org/x/crypto/ed25519"
 
-	"github.com/Jigsaw-Code/outline-go-tun2socks/intra/xdns"
 	"github.com/eycorsican/go-tun2socks/common/log"
 
 	"github.com/miekg/dns"
+
+	"github.com/celzero/firestack/intra/xdns"
+
 )
 
 type CertInfo struct {

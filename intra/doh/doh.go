@@ -41,10 +41,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Jigsaw-Code/outline-go-tun2socks/intra/dnsx"
-	"github.com/Jigsaw-Code/outline-go-tun2socks/intra/xdns"
-	"github.com/Jigsaw-Code/outline-go-tun2socks/intra/doh/ipmap"
-	"github.com/Jigsaw-Code/outline-go-tun2socks/intra/split"
+	"github.com/celzero/firestack/intra/dnsx"
+	"github.com/celzero/firestack/intra/xdns"
+	"github.com/celzero/firestack/intra/doh/ipmap"
+	"github.com/celzero/firestack/intra/split"
 	"github.com/eycorsican/go-tun2socks/common/log"
 	"golang.org/x/net/dns/dnsmessage"
 )

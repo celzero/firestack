@@ -25,7 +25,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Jigsaw-Code/outline-go-tun2socks/intra/xdns"
+	"github.com/celzero/firestack/intra/xdns"
 	"github.com/eycorsican/go-tun2socks/common/log"
 
 	stamps "github.com/jedisct1/go-dnsstamps"
