@@ -28,8 +28,6 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"os"
-	"strings"
 	"time"
 
 	"github.com/eycorsican/go-tun2socks/core"
@@ -64,12 +62,6 @@ type Tunnel interface {
 	SetTunMode(int, int, int)
 	// When set to true, Intra will pre-emptively split all HTTPS connections.
 	SetAlwaysSplitHTTPS(bool)
-	// Enable reporting of SNIs that resulted in connection failures, using the
-	// Choir library for privacy-preserving error reports.  `file` is the path
-	// that Choir should use to store its persistent state, `suffix` is the
-	// authoritative domain to which reports will be sent, and `country` is a
-	// two-letter ISO country code for the user's current location.
-	EnableSNIReporter(file, suffix, country string) error
 	// StartDNSCryptProxy starts a DNSCrypt proxy instance for resolvers
 	// (csv of dns-stamps) and relays (csv of dns-stamps).
 	StartDNSCryptProxy(string, string, Listener) (string, error)
@@ -168,14 +160,6 @@ func (t *intratunnel) SetTunMode(dnsmode int, blockmode int, proxymode int) {
 
 func (t *intratunnel) SetAlwaysSplitHTTPS(s bool) {
 	t.tcp.SetAlwaysSplitHTTPS(s)
-}
-
-func (t *intratunnel) EnableSNIReporter(filename, suffix, country string) error {
-	f, err := os.OpenFile(filename, os.O_RDWR|os.O_CREATE, 0600)
-	if err != nil {
-		return err
-	}
-	return t.tcp.EnableSNIReporter(f, suffix, strings.ToLower(country))
 }
 
 func (t *intratunnel) StartDNSProxy(ip string, port string) (err error) {

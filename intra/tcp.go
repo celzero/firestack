@@ -48,7 +48,6 @@ type TCPHandler interface {
 	core.TCPConnHandler
 	SetDNS(doh.Transport)
 	SetAlwaysSplitHTTPS(bool)
-	EnableSNIReporter(file io.ReadWriter, suffix, country string) error
 	blockConn(localConn net.Conn, target *net.TCPAddr) bool
 	dnsOverride(net.Conn, *net.TCPAddr) bool
 	SetDNSCryptProxy(*dnscrypt.Proxy)
@@ -65,7 +64,6 @@ type tcpHandler struct {
 	blocker          protect.Blocker
 	tunMode          *settings.TunMode
 	listener         TCPListener
-	sniReporter      tcpSNIReporter
 	dnscrypt         *dnscrypt.Proxy
 	dnsproxy         *net.TCPAddr
 	proxy            proxy.Dialer
@@ -127,9 +125,6 @@ func (h *tcpHandler) forward(local net.Conn, remote split.DuplexConn, summary *T
 	summary.UploadBytes = <-upload
 	summary.Duration = int32(time.Since(start).Seconds())
 	h.listener.OnTCPSocketClosed(summary)
-	if summary.Retry != nil {
-		h.sniReporter.Report(*summary)
-	}
 }
 
 func filteredPort(addr net.Addr) int16 {
@@ -297,15 +292,10 @@ func (h *tcpHandler) Handle(conn net.Conn, target *net.TCPAddr) error {
 
 func (h *tcpHandler) SetDNS(dns doh.Transport) {
 	h.dns.Store(dns)
-	h.sniReporter.SetDNS(dns)
 }
 
 func (h *tcpHandler) SetAlwaysSplitHTTPS(s bool) {
 	h.alwaysSplitHTTPS = s
-}
-
-func (h *tcpHandler) EnableSNIReporter(file io.ReadWriter, suffix, country string) error {
-	return h.sniReporter.Configure(file, suffix, country)
 }
 
 func (h *tcpHandler) SetDNSCryptProxy(dcrypt *dnscrypt.Proxy) {
