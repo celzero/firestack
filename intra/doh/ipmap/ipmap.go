@@ -38,6 +38,10 @@ type IPMap interface {
 	// discovered by resolving it.  Subsequent calls to Get return the
 	// same IPSet.
 	Get(hostname string) *IPSet
+
+	// Of creates an IPSet for this hostname bootstrapped with given IPs.
+	// Subsequent calls to Of return a new, overriden IPSet.
+	Of(hostname string, ips []string) *IPSet
 }
 
 // NewIPMap returns a fresh IPMap.
@@ -95,6 +99,17 @@ type IPSet struct {
 	r         *net.Resolver // Resolver to use for hostname resolution
 }
 
+func (m *ipMap) Of(hostname string, ips []string) *IPSet {
+	s := &IPSet{r: m.r}
+	s.bootstrap(ips)
+
+	m.Lock()
+	m.m[hostname] = s
+	m.Unlock()
+
+	return s
+}
+
 // Reports whether ip is in the set.  Must be called under RLock.
 func (s *IPSet) has(ip net.IP) bool {
 	for _, oldIP := range s.ips {
@@ -107,7 +122,7 @@ func (s *IPSet) has(ip net.IP) bool {
 
 // Adds an IP to the set if it is not present.  Must be called under Lock.
 func (s *IPSet) add(ip net.IP) {
-	if !s.has(ip) {
+	if ip != nil && !s.has(ip) {
 		s.ips = append(s.ips, ip)
 	}
 }
@@ -123,6 +138,15 @@ func (s *IPSet) Add(hostname string) {
 	s.Lock()
 	for _, addr := range resolved {
 		s.add(addr.IP)
+	}
+	s.Unlock()
+}
+
+// Adds one or more IP addresses to the set.
+func (s *IPSet) bootstrap(ips []string) {
+	s.Lock()
+	for _, ipstr := range ips {
+		s.add(net.ParseIP(ipstr))
 	}
 	s.Unlock()
 }

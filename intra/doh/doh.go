@@ -194,7 +194,6 @@ func NewTransport(rawurl string, addrs []string, dialer *net.Dialer, auth Client
 	} else {
 		port = 443
 	}
-
 	t := &transport{
 		url:      rawurl,
 		hostname: parsedurl.Hostname(),
@@ -203,12 +202,11 @@ func NewTransport(rawurl string, addrs []string, dialer *net.Dialer, auth Client
 		dialer:   dialer,
 		ips:      ipmap.NewIPMap(dialer.Resolver),
 	}
-	ips := t.ips.Get(t.hostname)
-	for _, addr := range addrs {
-		ips.Add(addr)
-	}
-	if ips.Empty() {
-		log.Errorf("No IP addresses for %s", t.hostname)
+
+	ipset := t.ips.Of(t.hostname, addrs)
+	if ipset.Empty() {
+		// IPs instead resolved just-in-time with ipmap.Get in transport.dial
+		log.Warnf("zero bootstrap ips %s", t.hostname)
 	}
 
 	// Supply a client certificate during TLS handshakes.
