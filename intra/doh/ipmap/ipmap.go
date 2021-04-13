@@ -70,7 +70,7 @@ func (m *ipMap) Get(hostname string) *IPSet {
 	s = &IPSet{r: m.r}
 	s.Add(hostname)
 
-	if (s.Empty()) {
+	if s.Empty() {
 		log.Warnf("Empty ips for %s", hostname)
 		return s
 	}
@@ -97,11 +97,12 @@ type IPSet struct {
 	ips       []net.IP      // All known IPs for the server.
 	confirmed net.IP        // IP address confirmed to be working
 	r         *net.Resolver // Resolver to use for hostname resolution
+	seed      []string      // Bootstrap IPs
 }
 
 func (m *ipMap) Of(hostname string, ips []string) *IPSet {
-	s := &IPSet{r: m.r}
-	s.bootstrap(ips)
+	s := &IPSet{r: m.r, seed: ips}
+	s.bootstrap()
 
 	m.Lock()
 	m.m[hostname] = s
@@ -140,13 +141,14 @@ func (s *IPSet) Add(hostname string) {
 		s.add(addr.IP)
 	}
 	s.Unlock()
+	s.bootstrap()
 }
 
 // Adds one or more IP addresses to the set.
-func (s *IPSet) bootstrap(ips []string) {
+func (s *IPSet) bootstrap() {
 	s.Lock()
-	for _, ipstr := range ips {
-		s.add(net.ParseIP(ipstr))
+	for _, ip := range s.seed {
+		s.add(net.ParseIP(ip))
 	}
 	s.Unlock()
 }
