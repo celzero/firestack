@@ -37,6 +37,7 @@ import (
 
 	"github.com/eycorsican/go-tun2socks/common/log"
 	"github.com/eycorsican/go-tun2socks/core"
+	"github.com/txthinking/socks5"
 
 	"github.com/celzero/firestack/intra/dnscrypt"
 	"github.com/celzero/firestack/intra/doh"
@@ -436,7 +437,9 @@ func (h *udpHandler) SetProxyOptions(po *settings.ProxyOptions) error {
 		// x.net.proxy doesn't yet support udp
 		// https://github.com/golang/net/blob/62affa334/internal/socks/socks.go#L233
 		// fproxy, err = proxy.SOCKS5("udp", po.IPPort, po.Auth, proxy.Direct)
-		err = errors.New("udp not supported")
+		udptimeoutsec := 5 * 60 // 5m
+		tcptimeoutsec := (2 * 60 * 60) + (40 * 60) // 2h40m
+		fproxy, err = socks5.NewClient(po.IPPort, po.Auth.User, po.Auth.Password, tcptimeoutsec, udptimeoutsec)
 	} else if h.httpsProxy() {
 		err = fmt.Errorf("http-proxy not supported")
 	} else {

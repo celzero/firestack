@@ -14,6 +14,7 @@ require (
 	github.com/k-sone/critbitgo v1.4.0
 	github.com/miekg/dns v1.1.31
 	github.com/songgao/water v0.0.0-20200317203138-2b4b6d7c09d8 // indirect
+	github.com/txthinking/socks5 v0.0.0-20210716140126-fa1f52a8f2da
 	golang.org/x/crypto v0.0.0-20201016220609-9e8e0b390897
 	golang.org/x/mobile v0.0.0-20210220033013-bdb1ca9a1e08 // indirect
 	golang.org/x/net v0.0.0-20201006153459-a7d1128ccaa0
