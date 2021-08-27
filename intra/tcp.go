@@ -40,6 +40,7 @@ import (
 	"github.com/eycorsican/go-tun2socks/core"
 
 	"github.com/celzero/firestack/intra/dnscrypt"
+	"github.com/celzero/firestack/intra/dnsproxy"
 	"github.com/celzero/firestack/intra/doh"
 	"github.com/celzero/firestack/intra/protect"
 	"github.com/celzero/firestack/intra/settings"
@@ -55,7 +56,7 @@ type TCPHandler interface {
 	dnsOverride(net.Conn, *net.TCPAddr) bool
 	SetDNSCryptProxy(*dnscrypt.Proxy)
 	SetProxyOptions(*settings.ProxyOptions) error
-	SetDNSOptions(*settings.DNSOptions) error
+	SetDNSProxy(dnsproxy.Transport)
 }
 
 type tcpHandler struct {
@@ -70,7 +71,7 @@ type tcpHandler struct {
 	tunMode          *settings.TunMode
 	listener         TCPListener
 	dnscrypt         *dnscrypt.Proxy
-	dnsproxy         *net.TCPAddr
+	dnsproxy         dnsproxy.Transport
 	proxies          map[string]*proxy.Dialer
 }
 
@@ -154,6 +155,11 @@ func filteredPort(addr net.Addr) int16 {
 }
 
 func (h *tcpHandler) isDNSProxy(addr *net.TCPAddr) bool {
+	if h.dnsproxy == nil {
+		log.Warnf("dnsproxy nil")
+		return false
+	}
+
 	if h.tunMode.DNSMode == settings.DNSModeProxyIP {
 		return addr.IP.Equal(h.fakedns.IP) && addr.Port == h.fakedns.Port
 	} else if h.tunMode.DNSMode == settings.DNSModeProxyPort {
@@ -191,6 +197,9 @@ func (h *tcpHandler) dnsOverride(conn net.Conn, addr *net.TCPAddr) bool {
 		return true
 	} else if h.isDNSCrypt(addr) {
 		go dnscrypt.HandleTCP(h.dnscrypt, conn)
+		return true
+	} else if h.isDNSProxy(addr) {
+		go dnsproxy.Accept(h.dnsproxy, conn)
 		return true
 	}
 	// assert h.tunMode.DNSMode == settings.DNSModeNone
@@ -273,13 +282,6 @@ func (h *tcpHandler) Handle(conn net.Conn, target *net.TCPAddr) error {
 			summary.Retry = &split.RetryStats{}
 			c, err = split.DialWithSplitRetry(h.dialer, target, summary.Retry)
 		}
-	} else if summary.ServerPort == 53 && h.isDNSProxy(target) {
-		var generic net.Conn
-		target = h.dnsproxy
-		generic, err = h.dialer.Dial(target.Network(), target.String())
-		if generic != nil {
-			c = generic.(*net.TCPConn)
-		}
 	} else {
 		var generic net.Conn
 		generic, err = h.dialer.Dial(target.Network(), target.String())
@@ -308,14 +310,12 @@ func (h *tcpHandler) SetDNSCryptProxy(dcrypt *dnscrypt.Proxy) {
 	h.dnscrypt = dcrypt
 }
 
-func (h *tcpHandler) SetDNSOptions(do *settings.DNSOptions) error {
-	dnsaddr, err := net.ResolveTCPAddr("tcp", do.IPPort)
-	h.dnsproxy = dnsaddr
-	return err
+func (h *tcpHandler) SetDNSProxy(d dnsproxy.Transport) {
+	h.dnsproxy = d
 }
 
 func (h *tcpHandler) SetProxyOptions(po *settings.ProxyOptions) (err error) {
-	if po.IsEmpty() {
+	if po.IsGrounded() {
 		h.Lock()
 		delete(h.proxies, po.Id)
 		h.Unlock()
@@ -340,18 +340,18 @@ func (h *tcpHandler) SetProxyOptions(po *settings.ProxyOptions) (err error) {
 	return
 }
 
-type httpsproxy struct {
+type httpproxy struct {
 	underlyingServer *goproxy.ProxyHttpServer
 }
 
-func (p *httpsproxy) Dial(network, addr string) (c net.Conn, err error) {
+func (p *httpproxy) Dial(network, addr string) (c net.Conn, err error) {
 	return p.underlyingServer.ConnectDial(network, addr)
 }
 
 func newHttpProxy(po *settings.ProxyOptions) proxy.Dialer {
 	server := goproxy.NewProxyHttpServer()
 	server.ConnectDial = server.NewConnectDialToProxy(po.String())
-	return &httpsproxy{
+	return &httpproxy{
 		server,
 	}
 }

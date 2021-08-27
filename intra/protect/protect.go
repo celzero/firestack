@@ -36,9 +36,9 @@ import (
 
 // Flow dictates network traffic rules.
 type Flow interface {
-	// on is called on a new connection setup; return protect.ActiveNetId to forward
+	// on is called on a new connection setup; return protect.NetIdActive to forward
 	// the flow to the underlying active network, a valid net-id to forward it to approp
-	// proxy / vpn, or protect.BlockNetId to ground the flow.
+	// proxy / vpn, or protect.NetIdBlock to ground the flow.
 	// source and target are string'd representation of net.TCPAddr and net.UDPAddr
 	// depending on the protocol. Note: IPv4 and IPv6 have a very different string
 	// representations: https://stackoverflow.com/a/48519490
@@ -98,7 +98,7 @@ func scan(ips []string, wantV4 bool) string {
 // by the first address of a different family if there are none of the same.
 func replaceIP(addr string, ips []string) (string, error) {
 	if len(ips) == 0 {
-		return "", errors.New("No resolvers available")
+		return "", errors.New("no resolvers")
 	}
 	orighost, port, err := net.SplitHostPort(addr)
 	if err != nil {
@@ -106,7 +106,7 @@ func replaceIP(addr string, ips []string) (string, error) {
 	}
 	origip := net.ParseIP(orighost)
 	if origip == nil {
-		return "", fmt.Errorf("Can't parse resolver IP: %s", orighost)
+		return "", fmt.Errorf("cannot parse resolver-ip: %s", orighost)
 	}
 	isV4 := origip.To4() != nil
 	newIP := scan(ips, isV4)

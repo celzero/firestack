@@ -33,6 +33,7 @@ import (
 	"github.com/eycorsican/go-tun2socks/core"
 
 	"github.com/celzero/firestack/intra/dnscrypt"
+	"github.com/celzero/firestack/intra/dnsproxy"
 	"github.com/celzero/firestack/intra/dnsx"
 	"github.com/celzero/firestack/intra/doh"
 	"github.com/celzero/firestack/intra/protect"
@@ -47,6 +48,7 @@ type Listener interface {
 	TCPListener
 	doh.Listener
 	dnscrypt.Listener
+	dnsproxy.Listener
 }
 
 // Tunnel represents an Intra session.
@@ -72,9 +74,9 @@ type Tunnel interface {
 	// StartTCPProxy starts tcp and udp forwarding proxy as dictated by current TunMode.
 	SetProxy(typ int, id, uname, pwd, ip, port string) error
 	// StartDNSProxy starts dns proxy as dictated by current TunMode.
-	StartDNSProxy(ip, port string) error
+	StartDNSProxy(ip, port string, listener Listener) error
 	// GetDNSOptions returns "ip,port" csv
-	GetDNSProxyOptions() string
+	GetDNSProxy() dnsproxy.Transport
 	// SetBraveDNS sets bravedns with various dns transports
 	SetBraveDNS(dnsx.BraveDNS) error
 	// GetBraveDNS gets bravedns in-use by various dns transports
@@ -83,14 +85,13 @@ type Tunnel interface {
 
 type intratunnel struct {
 	tunnel.Tunnel
-	tcp          TCPHandler
-	udp          UDPHandler
-	dns          doh.Transport
-	tunmode      *settings.TunMode
-	dnscrypt     *dnscrypt.Proxy
-	proxyOptions *settings.ProxyOptions
-	dnsOptions   *settings.DNSOptions
-	bravedns     dnsx.BraveDNS
+	tcp      TCPHandler
+	udp      UDPHandler
+	dns      doh.Transport
+	tunmode  *settings.TunMode
+	dnscrypt *dnscrypt.Proxy
+	dnsproxy dnsproxy.Transport
+	bravedns dnsx.BraveDNS
 }
 
 // NewTunnel creates a connected Intra session.
@@ -105,7 +106,7 @@ type intratunnel struct {
 // `listener` will be notified at the completion of every tunneled socket.
 func NewTunnel(fakedns string, dohdns doh.Transport, tunWriter io.WriteCloser, dialer *net.Dialer, flow protect.Flow, config *net.ListenConfig, listener Listener) (Tunnel, error) {
 	if tunWriter == nil {
-		return nil, errors.New("Must provide a valid TUN writer")
+		return nil, errors.New("invalid tunnel writer")
 	}
 	core.RegisterOutputFn(tunWriter.Write)
 	t := &intratunnel{
@@ -160,21 +161,25 @@ func (t *intratunnel) SetAlwaysSplitHTTPS(s bool) {
 	t.tcp.SetAlwaysSplitHTTPS(s)
 }
 
-func (t *intratunnel) StartDNSProxy(ip string, port string) (err error) {
-	d := settings.NewDNSOptions(ip, port)
-	if err = t.tcp.SetDNSOptions(d); err == nil {
-		t.udp.SetDNSOptions(d)
-	}
+func (t *intratunnel) StartDNSProxy(ip string, port string, listener Listener) (err error) {
+	d, err := dnsproxy.NewTransport(settings.NewDNSOptions(ip, port), listener)
+
 	if err != nil {
-		t.dnsOptions = nil
+		t.tcp.SetDNSProxy(nil)
+		t.udp.SetDNSProxy(nil)
+		t.dnsproxy = nil
 		return
 	}
-	t.dnsOptions = d
+
+	t.tcp.SetDNSProxy(d)
+	t.udp.SetDNSProxy(d)
+	t.dnsproxy = d
+
 	return
 }
 
-func (t *intratunnel) GetDNSProxyOptions() string {
-	return t.dnsOptions.String()
+func (t *intratunnel) GetDNSProxy() dnsproxy.Transport {
+	return t.dnsproxy
 }
 
 func (t *intratunnel) StartDNSCryptProxy(resolvers string, relays string, listener Listener) (string, error) {
@@ -190,6 +195,8 @@ func (t *intratunnel) StartDNSCryptProxy(resolvers string, relays string, listen
 		}
 	}
 	if err != nil {
+		t.udp.SetDNSCryptProxy(nil)
+		t.tcp.SetDNSCryptProxy(nil)
 		return "", err
 	}
 	t.udp.SetDNSCryptProxy(p)
@@ -242,6 +249,7 @@ func (t *intratunnel) SetProxy(typ int, id, uname, pwd, ip, port string) (err er
 func (t *intratunnel) SetBraveDNS(b dnsx.BraveDNS) error {
 	doh := t.dns
 	dnscrypt := t.dnscrypt
+	dnsproxy := t.dnsproxy
 
 	t.bravedns = b
 
@@ -250,6 +258,9 @@ func (t *intratunnel) SetBraveDNS(b dnsx.BraveDNS) error {
 	}
 	if dnscrypt != nil {
 		dnscrypt.SetBraveDNS(b)
+	}
+	if dnsproxy != nil {
+		dnsproxy.SetBraveDNS(b)
 	}
 
 	return nil

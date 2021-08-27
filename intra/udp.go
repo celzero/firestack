@@ -40,6 +40,7 @@ import (
 	"github.com/txthinking/socks5"
 
 	"github.com/celzero/firestack/intra/dnscrypt"
+	"github.com/celzero/firestack/intra/dnsproxy"
 	"github.com/celzero/firestack/intra/doh"
 	"github.com/celzero/firestack/intra/protect"
 	"github.com/celzero/firestack/intra/settings"
@@ -76,7 +77,7 @@ type UDPHandler interface {
 	onConn(localudp core.UDPConn, target *net.UDPAddr) string
 	SetDNSCryptProxy(*dnscrypt.Proxy)
 	SetProxyOptions(*settings.ProxyOptions) error
-	SetDNSOptions(*settings.DNSOptions) error
+	SetDNSProxy(dnsproxy.Transport)
 }
 
 type udpHandler struct {
@@ -86,13 +87,13 @@ type udpHandler struct {
 	timeout  time.Duration
 	udpConns map[core.UDPConn]*tracker
 	fakedns  net.UDPAddr
+	tunMode  *settings.TunMode
 	dns      doh.Transport
+	dnscrypt *dnscrypt.Proxy
+	dnsproxy dnsproxy.Transport
 	config   *net.ListenConfig
 	flow     protect.Flow
-	tunMode  *settings.TunMode
 	listener UDPListener
-	dnscrypt *dnscrypt.Proxy
-	dnsproxy *net.UDPAddr
 	proxies  map[string]*proxy.Dialer
 }
 
@@ -116,7 +117,8 @@ func NewUDPHandler(fakedns net.UDPAddr, timeout time.Duration, flow protect.Flow
 	}
 }
 
-func (h *udpHandler) fetchUDPInput(conn core.UDPConn, t *tracker) {
+// fetchUDPInput reads from nat.conn to masqurade-write it to core.UDPConn
+func (h *udpHandler) fetchUDPInput(conn core.UDPConn, nat *tracker) {
 	buf := core.NewBytes(core.BufSize)
 
 	defer func() {
@@ -131,15 +133,15 @@ func (h *udpHandler) fetchUDPInput(conn core.UDPConn, t *tracker) {
 
 		// FIXME: ReadFrom seems to block for 50mins+ at times:
 		// Cancel the goroutine in such cases and close the conns
-		switch c := t.conn.(type) {
+		switch c := nat.conn.(type) {
 		case net.PacketConn:
 			// reads a packet from t.conn copying it to buf
 			n, addr, err = c.ReadFrom(buf)
-			c.SetDeadline(time.Now().Add(h.timeout))
+			c.SetDeadline(time.Now().Add(h.timeout)) // extend deadline
 		case net.Conn:
 			// c is already dialed-in to some addr in udpHandler.Connect
 			n, err = c.Read(buf)
-			c.SetDeadline(time.Now().Add(h.timeout))
+			c.SetDeadline(time.Now().Add(h.timeout)) // extend deadline
 		default:
 			err = errors.New("failed to read from proxy udp conn")
 		}
@@ -149,14 +151,14 @@ func (h *udpHandler) fetchUDPInput(conn core.UDPConn, t *tracker) {
 		}
 
 		var udpaddr *net.UDPAddr
-		if t.ip == nil && addr != nil {
+		if nat.ip == nil && addr != nil {
 			udpaddr = addr.(*net.UDPAddr)
 		} else {
 			// overwrite source-addr as set in t.ip
-			udpaddr = t.ip
+			udpaddr = nat.ip
 		}
 
-		t.download += int64(n)
+		nat.download += int64(n)
 		// writes data to conn (tun) with addr as source
 		_, err = conn.WriteFrom(buf[:n], udpaddr)
 		if err != nil {
@@ -249,43 +251,52 @@ func (h *udpHandler) Connect(conn core.UDPConn, target *net.UDPAddr) error {
 	return nil
 }
 
-func (h *udpHandler) doDoh(dns doh.Transport, t *tracker, conn core.UDPConn, data []byte) {
-	resp, err := dns.Query(data)
+func (h *udpHandler) doDNSProxy(dns dnsproxy.Transport, nat *tracker, conn core.UDPConn, data []byte) {
+	defer h.Close(conn)
+
+	resp, err := dns.Query("udp", data)
 
 	if resp != nil {
-		_, err = conn.WriteFrom(resp, t.ip)
+		_, err = conn.WriteFrom(resp, nat.ip)
 	}
 	if err != nil {
-		log.Warnf("DoH query failed: %v", err)
-	}
-	// Note: Reading t.upload and t.download on this thread, while they are written on
-	// other threads, is theoretically a race condition.  In practice, this race is
-	// impossible on 64-bit platforms, likely impossible on 32-bit platforms, and
-	// low-impact if it occurs (a mixed-use socket might be closed early).
-	if t.upload == 0 && t.download == 0 {
-		// conn was only used for this DNS query, so it's unlikely to be used again.
-		h.Close(conn)
+		log.Warnf("dnsproxy udp query fail: %v", err)
 	}
 }
 
-func (h *udpHandler) doDNSCrypt(p *dnscrypt.Proxy, t *tracker, conn core.UDPConn, data []byte) {
+func (h *udpHandler) doDoh(dns doh.Transport, nat *tracker, conn core.UDPConn, data []byte) {
+	defer h.Close(conn)
+
+	resp, err := dns.Query(data)
+
+	if resp != nil {
+		_, err = conn.WriteFrom(resp, nat.ip)
+	}
+	if err != nil {
+		log.Warnf("doh udp query fail: %v", err)
+	}
+}
+
+func (h *udpHandler) doDNSCrypt(p *dnscrypt.Proxy, nat *tracker, conn core.UDPConn, data []byte) {
+	defer h.Close(conn)
+
 	resp, err := dnscrypt.HandleUDP(p, data)
 	if err != nil || resp == nil {
-		log.Errorf("dns-crypt udp query failed: %v", err)
+		log.Errorf("dnscrypt udp query fail: %v", err)
 	} else {
-		_, err = conn.WriteFrom(resp, t.ip)
+		_, err = conn.WriteFrom(resp, nat.ip)
 		if err != nil {
-			log.Errorf("dns-crypt udp query reply failed: %v", err)
+			log.Errorf("dnscrypt udp query reply fail: %v", err)
 		}
-	}
-
-	if t.upload == 0 && t.download == 0 {
-		// conn was only used for this DNS query, so it's unlikely to be used again.
-		h.Close(conn)
 	}
 }
 
 func (h *udpHandler) isDNSProxy(addr *net.UDPAddr) bool {
+	if h.dnsproxy == nil {
+		log.Warnf("dnsproxy nil")
+		return false
+	}
+
 	if h.tunMode.DNSMode == settings.DNSModeProxyIP {
 		return addr.IP.Equal(h.fakedns.IP) && addr.Port == h.fakedns.Port
 	} else if h.tunMode.DNSMode == settings.DNSModeProxyPort {
@@ -296,6 +307,10 @@ func (h *udpHandler) isDNSProxy(addr *net.UDPAddr) bool {
 }
 
 func (h *udpHandler) isDoh(addr *net.UDPAddr) bool {
+	if h.dns == nil {
+		log.Errorf("doh transport nil")
+		return false
+	}
 	if h.tunMode.DNSMode == settings.DNSModeIP {
 		return addr.IP.Equal(h.fakedns.IP) && addr.Port == h.fakedns.Port
 	} else if h.tunMode.DNSMode == settings.DNSModePort {
@@ -306,6 +321,11 @@ func (h *udpHandler) isDoh(addr *net.UDPAddr) bool {
 }
 
 func (h *udpHandler) isDNSCrypt(addr *net.UDPAddr, t *tracker) bool {
+	if h.dnscrypt == nil {
+		log.Errorf("dnscrypt nil")
+		return false
+	}
+
 	if h.tunMode.DNSMode == settings.DNSModeCryptIP {
 		return addr.IP.Equal(h.fakedns.IP) && addr.Port == h.fakedns.Port
 	} else if h.tunMode.DNSMode == settings.DNSModeCryptPort {
@@ -315,25 +335,26 @@ func (h *udpHandler) isDNSCrypt(addr *net.UDPAddr, t *tracker) bool {
 	return false
 }
 
-func (h *udpHandler) dnsOverride(dns doh.Transport, dcrypt *dnscrypt.Proxy,
-	t *tracker, conn core.UDPConn, addr *net.UDPAddr, data []byte) bool {
-	dataCopy := append([]byte{}, data...)
+func (h *udpHandler) dnsOverride(nat *tracker, conn core.UDPConn, addr *net.UDPAddr, data []byte) bool {
+	query := append([]byte{}, data...)
+
+	h.RLock()
+	doh := h.dns
+	dcrypt := h.dnscrypt
+	dproxy := h.dnsproxy
+	h.RUnlock()
 
 	if h.isDoh(addr) {
-		if dns == nil {
-			log.Errorf("doh transport nil")
-			return false
-		}
-		t.ip = addr
-		go h.doDoh(dns, t, conn, dataCopy)
+		nat.ip = addr
+		go h.doDoh(doh, nat, conn, query)
 		return true
-	} else if h.isDNSCrypt(addr, t) {
-		if dcrypt == nil {
-			log.Errorf("dns crypt nil")
-			return false
-		}
-		t.ip = addr
-		go h.doDNSCrypt(dcrypt, t, conn, dataCopy)
+	} else if h.isDNSCrypt(addr, nat) {
+		nat.ip = addr
+		go h.doDNSCrypt(dcrypt, nat, conn, query)
+		return true
+	} else if h.isDNSProxy(addr) {
+		nat.ip = addr
+		go h.doDNSProxy(dproxy, nat, conn, query)
 		return true
 	}
 	// assert h.tunMode.DNSMode == settings.DNSModeNone
@@ -343,47 +364,35 @@ func (h *udpHandler) dnsOverride(dns doh.Transport, dcrypt *dnscrypt.Proxy,
 // ReceiveTo is called when data arrives from conn (tun).
 func (h *udpHandler) ReceiveTo(conn core.UDPConn, data []byte, addr *net.UDPAddr) (err error) {
 	h.RLock()
-	doh := h.dns
-	dcrypt := h.dnscrypt
-	dnsproxy := h.dnsproxy
-	t, ok1 := h.udpConns[conn]
+	nat, ok1 := h.udpConns[conn]
 	h.RUnlock()
 
 	if !ok1 {
 		return fmt.Errorf("connection %v->%v does not exists", conn.LocalAddr(), addr)
 	}
 
-	if h.isDNSProxy(addr) {
-		if dnsproxy == nil {
-			log.Errorf("dns proxy nil")
-		} else {
-			t.ip = addr
-			addr = h.dnsproxy
-		}
-	} else if h.dnsOverride(doh, dcrypt, t, conn, addr, data) {
+	if h.dnsOverride(nat, conn, addr, data) {
 		return nil
 	}
 
-	t.upload += int64(len(data))
+	nat.upload += int64(len(data))
 
-	switch c := t.conn.(type) {
+	switch c := nat.conn.(type) {
 	case net.PacketConn:
-		// Update deadline.
 		c.SetDeadline(time.Now().Add(h.timeout))
 		// writes packet payload, data, to addr
 		_, err = c.WriteTo(data, addr)
 	case net.Conn:
-		// Update deadline.
 		c.SetDeadline(time.Now().Add(h.timeout))
 		// c is already dialed-in to some addr in udpHandler.Connect
 		_, err = c.Write(data)
 	default:
-		err = errors.New("failed to write to proxy udp conn")
+		err = errors.New("failed write to udp proxy")
 	}
 
 	if err != nil {
-		log.Warnf("failed to forward UDP payload")
-		return errors.New("failed to write UDP data")
+		log.Warnf("failed to forward udp payload")
+		return errors.New("failed to write udp data")
 	}
 
 	return nil
@@ -422,16 +431,14 @@ func (h *udpHandler) SetDNSCryptProxy(dcrypt *dnscrypt.Proxy) {
 	h.Unlock()
 }
 
-func (h *udpHandler) SetDNSOptions(do *settings.DNSOptions) error {
+func (h *udpHandler) SetDNSProxy(dnsproxy dnsproxy.Transport) {
 	h.Lock()
-	dnsaddr, err := net.ResolveUDPAddr("udp", do.IPPort)
-	h.dnsproxy = dnsaddr
+	h.dnsproxy = dnsproxy
 	h.Unlock()
-	return err
 }
 
 func (h *udpHandler) SetProxyOptions(po *settings.ProxyOptions) (err error) {
-	if po.IsEmpty() {
+	if po.IsGrounded() {
 		h.Lock()
 		delete(h.proxies, po.Id)
 		h.Unlock()
@@ -443,11 +450,10 @@ func (h *udpHandler) SetProxyOptions(po *settings.ProxyOptions) (err error) {
 		// x.net.proxy doesn't yet support udp
 		// https://github.com/golang/net/blob/62affa334/internal/socks/socks.go#L233
 		// fproxy, err = proxy.SOCKS5("udp", po.IPPort, po.Auth, proxy.Direct)
-		udptimeoutsec := 5 * 60                    // 5m
-		tcptimeoutsec := (2 * 60 * 60) + (40 * 60) // 2h40m
-		pd, err = socks5.NewClient(po.IPPort, po.Auth.User, po.Auth.Password, tcptimeoutsec, udptimeoutsec)
+		timeoutsec := int(h.timeout.Seconds())
+		pd, err = socks5.NewClient(po.IPPort, po.Auth.User, po.Auth.Password, timeoutsec, timeoutsec)
 	} else if po.IsHttp() {
-		// pd, err =
+		err = errors.New("http/quic proxy over udp unsupported")
 	} else {
 		err = errors.New("invalid proxy")
 	}
