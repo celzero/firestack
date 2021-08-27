@@ -88,7 +88,7 @@ func (brave *bravedns) GetBlocklistStampHeaderKey() string {
 
 func (brave *bravedns) StampToNames(stamp string) (string, error) {
 	if len(stamp) <= 0 {
-		errors.New("empty blocklist stamp")
+		return "", errors.New("empty blocklist stamp")
 	}
 
 	var blocklists []string
@@ -147,7 +147,7 @@ func (brave *bravedns) blockUnpackedRequest(msg *dns.Msg) (r string, err error) 
 		r = strings.Join(brave.keyToNames(lists), ",")
 		return
 	}
-	err = fmt.Errorf("%v name not in blocklist %s [%s]", qname, stamp, block)
+	err = fmt.Errorf("%v name not in blocklist %s [%t]", qname, stamp, block)
 	return
 }
 
@@ -187,7 +187,7 @@ func (brave *bravedns) blockUnpackedResponse(msg *dns.Msg) (r string, err error)
 			// nothing to do
 		}
 	}
-	if cnamed == false || len(ansname) <= 0 {
+	if !cnamed || len(ansname) <= 0 {
 		err = fmt.Errorf("not cnamed")
 		return
 	}
@@ -293,7 +293,7 @@ func (brave *bravedns) decode(stamp string, ver string) (tags []string, err erro
 		stamp, err = url.PathUnescape(stamp)
 		decoder = b64.URLEncoding
 	} else {
-		err = fmt.Errorf("version does not exist", ver)
+		err = fmt.Errorf("version %s does not exist", ver)
 	}
 	if err != nil {
 		return nil, err

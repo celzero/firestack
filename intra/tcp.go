@@ -26,20 +26,23 @@
 package intra
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"net"
+	"sync"
 	"time"
 
 	"golang.org/x/net/proxy"
 
+	"github.com/elazarl/goproxy"
 	"github.com/eycorsican/go-tun2socks/common/log"
 	"github.com/eycorsican/go-tun2socks/core"
 
 	"github.com/celzero/firestack/intra/dnscrypt"
+	"github.com/celzero/firestack/intra/doh"
 	"github.com/celzero/firestack/intra/protect"
 	"github.com/celzero/firestack/intra/settings"
-	"github.com/celzero/firestack/intra/doh"
 	"github.com/celzero/firestack/intra/split"
 )
 
@@ -57,16 +60,18 @@ type TCPHandler interface {
 
 type tcpHandler struct {
 	TCPHandler
+	sync.RWMutex
+
 	fakedns          net.TCPAddr
 	dns              doh.Atomic
 	alwaysSplitHTTPS bool
 	dialer           *net.Dialer
-	blocker          protect.Blocker
+	flow             protect.Flow
 	tunMode          *settings.TunMode
 	listener         TCPListener
 	dnscrypt         *dnscrypt.Proxy
 	dnsproxy         *net.TCPAddr
-	proxy            proxy.Dialer
+	proxies          map[string]*proxy.Dialer
 }
 
 // TCPSocketSummary provides information about each TCP socket, reported when it is closed.
@@ -89,14 +94,15 @@ type TCPListener interface {
 // Connections to `fakedns` are redirected to DOH.
 // All other traffic is forwarded using `dialer`.
 // `listener` is provided with a summary of each socket when it is closed.
-func NewTCPHandler(fakedns net.TCPAddr, dialer *net.Dialer, blocker protect.Blocker,
+func NewTCPHandler(fakedns net.TCPAddr, dialer *net.Dialer, flow protect.Flow,
 	tunMode *settings.TunMode, listener TCPListener) TCPHandler {
 	return &tcpHandler{
 		fakedns:  fakedns,
 		dialer:   dialer,
-		blocker:  blocker,
+		flow:     flow,
 		tunMode:  tunMode,
 		listener: listener,
+		proxies:  make(map[string]*proxy.Dialer, 8),
 	}
 }
 
@@ -191,12 +197,12 @@ func (h *tcpHandler) dnsOverride(conn net.Conn, addr *net.TCPAddr) bool {
 	return false
 }
 
-func (h *tcpHandler) blockConn(localConn net.Conn, target *net.TCPAddr) (block bool) {
+func (h *tcpHandler) onConn(localConn net.Conn, target *net.TCPAddr) (netid string) {
 	// BlockModeNone returns false, BlockModeSink returns true
 	if h.tunMode.BlockMode == settings.BlockModeSink {
-		return true
+		return protect.NetIdBlock
 	} else if h.tunMode.BlockMode == settings.BlockModeNone {
-		return false
+		return protect.NetIdActive
 	}
 	// Implict: BlockModeFilter or BlockModeFilterProc
 	localtcp := localConn.(core.TCPConn)
@@ -210,9 +216,9 @@ func (h *tcpHandler) blockConn(localConn net.Conn, target *net.TCPAddr) (block b
 		}
 	}
 
-	block = h.blocker.Block(6 /*TCP*/, uid, localaddr.String(), target.String())
+	netid = h.flow.On(6 /*TCP*/, uid, localaddr.String(), target.String())
 
-	if block {
+	if netid == protect.NetIdBlock {
 		log.Infof("firewalled connection from %s:%s to %s:%s",
 			localaddr.Network(), localaddr.String(), target.Network(), target.String())
 	}
@@ -220,28 +226,28 @@ func (h *tcpHandler) blockConn(localConn net.Conn, target *net.TCPAddr) (block b
 	return
 }
 
-// TODO: move these to settings pkg
-func (h *tcpHandler) socks5Proxy() bool {
-	return h.tunMode.ProxyMode == settings.ProxyModeSOCKS5
-}
-
-func (h *tcpHandler) httpsProxy() bool {
-	return h.tunMode.ProxyMode == settings.ProxyModeHTTPS
-}
-
-func (h *tcpHandler) hasProxy() bool {
-	return h.proxy != nil
-}
-
 // TODO: Request upstream to make `conn` a `core.TCPConn` so we can avoid a type assertion.
 func (h *tcpHandler) Handle(conn net.Conn, target *net.TCPAddr) error {
-	if h.blockConn(conn, target) {
+	netid := h.onConn(conn, target)
+
+	if netid == protect.NetIdBlock {
 		// an error here results in a core.tcpConn.Abort
 		return fmt.Errorf("tcp connection firewalled")
 	}
 
 	if h.dnsOverride(conn, target) {
 		return nil
+	}
+
+	var forwarder *proxy.Dialer
+	if netid != protect.NetIdActive {
+		h.RLock()
+		forwarder = h.proxies[netid]
+		h.RUnlock()
+	}
+
+	if forwarder == nil && netid != protect.NetIdActive {
+		return fmt.Errorf("connection to non-existent netid %s firewalled", netid)
 	}
 
 	var summary TCPSocketSummary
@@ -253,17 +259,17 @@ func (h *tcpHandler) Handle(conn net.Conn, target *net.TCPAddr) error {
 	// TODO: Cancel dialing if c is closed
 	// Ref: https://stackoverflow.com/questions/63656117/
 	// Ref: https://stackoverflow.com/questions/40328025
-	if p := h.proxy; (h.socks5Proxy() || h.httpsProxy()) && p != nil {
+	if forwarder != nil {
 		var generic net.Conn
 		// deprecated: https://github.com/golang/go/issues/25104
-		generic, err = p.Dial(target.Network(), target.String())
+		generic, err = (*forwarder).Dial(target.Network(), target.String())
 		if generic != nil {
 			c = generic.(*net.TCPConn)
 		}
-	} else if summary.ServerPort == 443 {
-		if h.alwaysSplitHTTPS {
+	} else if summary.ServerPort == 443 || summary.ServerPort == 80 {
+		if summary.ServerPort == 443 && h.alwaysSplitHTTPS { // always split-dial https
 			c, err = split.DialWithSplit(h.dialer, target)
-		} else {
+		} else { // split with retry otherwise
 			summary.Retry = &split.RetryStats{}
 			c, err = split.DialWithSplitRetry(h.dialer, target, summary.Retry)
 		}
@@ -308,20 +314,44 @@ func (h *tcpHandler) SetDNSOptions(do *settings.DNSOptions) error {
 	return err
 }
 
-func (h *tcpHandler) SetProxyOptions(po *settings.ProxyOptions) error {
-	var fproxy proxy.Dialer
-	var err error
-	if h.socks5Proxy() {
-		fproxy, err = proxy.SOCKS5("tcp", po.IPPort, po.Auth, proxy.Direct)
-	} else if h.httpsProxy() {
-		err = fmt.Errorf("http-proxy not supported")
+func (h *tcpHandler) SetProxyOptions(po *settings.ProxyOptions) (err error) {
+	if po.IsEmpty() {
+		h.Lock()
+		delete(h.proxies, po.Id)
+		h.Unlock()
+		return
+	}
+
+	var pd proxy.Dialer
+	if po.IsSocks5() {
+		pd, err = proxy.SOCKS5("tcp", po.IPPort, po.Auth, proxy.Direct)
+	} else if po.IsHttp() {
+		pd = newHttpProxy(po)
 	} else {
-		err = fmt.Errorf("proxy mode not set")
+		err = errors.New("invalid proxy")
 	}
-	if err != nil {
-		h.proxy = nil
-		return err
+
+	if err != nil && pd != nil {
+		h.Lock()
+		h.proxies[po.Id] = &pd
+		h.Unlock()
 	}
-	h.proxy = fproxy
-	return nil
+
+	return
+}
+
+type httpsproxy struct {
+	underlyingServer *goproxy.ProxyHttpServer
+}
+
+func (p *httpsproxy) Dial(network, addr string) (c net.Conn, err error) {
+	return p.underlyingServer.ConnectDial(network, addr)
+}
+
+func newHttpProxy(po *settings.ProxyOptions) proxy.Dialer {
+	server := goproxy.NewProxyHttpServer()
+	server.ConnectDial = server.NewConnectDialToProxy(po.String())
+	return &httpsproxy{
+		server,
+	}
 }

@@ -73,7 +73,7 @@ func makeTracker(conn interface{}) *tracker {
 type UDPHandler interface {
 	core.UDPConnHandler
 	SetDNS(dns doh.Transport)
-	blockConn(localudp core.UDPConn, target *net.UDPAddr) bool
+	onConn(localudp core.UDPConn, target *net.UDPAddr) string
 	SetDNSCryptProxy(*dnscrypt.Proxy)
 	SetProxyOptions(*settings.ProxyOptions) error
 	SetDNSOptions(*settings.DNSOptions) error
@@ -88,12 +88,12 @@ type udpHandler struct {
 	fakedns  net.UDPAddr
 	dns      doh.Transport
 	config   *net.ListenConfig
-	blocker  protect.Blocker
+	flow     protect.Flow
 	tunMode  *settings.TunMode
 	listener UDPListener
 	dnscrypt *dnscrypt.Proxy
 	dnsproxy *net.UDPAddr
-	proxy    proxy.Dialer
+	proxies  map[string]*proxy.Dialer
 }
 
 // NewUDPHandler makes a UDP handler with Intra-style DNS redirection:
@@ -102,16 +102,17 @@ type udpHandler struct {
 // `timeout` controls the effective NAT mapping lifetime.
 // `config` is used to bind new external UDP ports.
 // `listener` receives a summary about each UDP binding when it expires.
-func NewUDPHandler(fakedns net.UDPAddr, timeout time.Duration, blocker protect.Blocker,
+func NewUDPHandler(fakedns net.UDPAddr, timeout time.Duration, flow protect.Flow,
 	tunMode *settings.TunMode, config *net.ListenConfig, listener UDPListener) UDPHandler {
 	return &udpHandler{
 		timeout:  timeout,
 		udpConns: make(map[core.UDPConn]*tracker, 8),
 		fakedns:  fakedns,
-		blocker:  blocker,
+		flow:     flow,
 		tunMode:  tunMode,
 		config:   config,
 		listener: listener,
+		proxies:  make(map[string]*proxy.Dialer),
 	}
 }
 
@@ -165,21 +166,19 @@ func (h *udpHandler) fetchUDPInput(conn core.UDPConn, t *tracker) {
 	}
 }
 
-func (h *udpHandler) blockConn(localudp core.UDPConn, target *net.UDPAddr) (block bool) {
+func (h *udpHandler) onConn(localudp core.UDPConn, target *net.UDPAddr) (netid string) {
 	// BlockModeNone returns false, BlockModeSink returns true
 	if h.tunMode.BlockMode == settings.BlockModeSink {
-		return true
+		return protect.NetIdBlock
 	}
 	if h.tunMode.BlockMode == settings.BlockModeNone {
-		return false
+		return protect.NetIdActive
 	}
-	// Implict: BlockModeFilter or BlockModeFilterProc
-	localaddr := localudp.LocalAddr() //.(*net.UDPAddr)
-	return h.blockConnAddr(localaddr, target)
+	// Next-up If: BlockModeFilter or BlockModeFilterProc
+	return h.onNewConn(localudp.LocalAddr(), target)
 }
 
-func (h *udpHandler) blockConnAddr(source *net.UDPAddr, target *net.UDPAddr) (block bool) {
-
+func (h *udpHandler) onNewConn(source *net.UDPAddr, target *net.UDPAddr) (netid string) {
 	uid := -1
 	if h.tunMode.BlockMode == settings.BlockModeFilterProc {
 		procEntry := settings.FindProcNetEntry("udp", source.IP, source.Port, target.IP, target.Port)
@@ -188,30 +187,42 @@ func (h *udpHandler) blockConnAddr(source *net.UDPAddr, target *net.UDPAddr) (bl
 		}
 	}
 
-	block = h.blocker.Block(17 /*UDP*/, uid, source.String(), target.String())
+	netid = h.flow.On(17 /*UDP*/, uid, source.String(), target.String())
 
-	if block {
+	if netid == protect.NetIdBlock {
 		log.Infof("firewalled udp connection from %s:%s to %s:%s",
 			source.Network(), source.String(), target.Network(), target.String())
 	}
-	return block
+
+	return
 }
 
 // Connect connects the proxy server. Note that target can be nil.
 func (h *udpHandler) Connect(conn core.UDPConn, target *net.UDPAddr) error {
-	if h.blockConn(conn, target) {
+	netid := h.onConn(conn, target)
+
+	if netid == protect.NetIdBlock {
 		// an error here results in a core.udpConn.Close
 		return fmt.Errorf("udp connection firewalled")
 	}
 
-	proxymode := h.hasProxy() && (h.socks5Proxy() || h.httpsProxy())
+	var forwarder *proxy.Dialer
+	if netid != protect.NetIdActive {
+		h.RLock()
+		forwarder = h.proxies[netid]
+		h.RUnlock()
+	}
+
+	if forwarder == nil && netid != protect.NetIdActive {
+		return fmt.Errorf("connection to non-existent netid %s firewalled", netid)
+	}
 
 	var c interface{}
 	var err error
-	if proxymode {
+	if forwarder != nil { // TODO: h.httpproxy.Dial with quic
 		// deprecated: https://github.com/golang/go/issues/25104
 		// FIXME: target can be nil: What happens then?
-		c, err = h.proxy.Dial(target.Network(), target.String())
+		c, err = (*forwarder).Dial(target.Network(), target.String())
 	} else {
 		bindAddr := &net.UDPAddr{IP: nil, Port: 0}
 		c, err = h.config.ListenPacket(context.TODO(), bindAddr.Network(), bindAddr.String())
@@ -224,15 +235,17 @@ func (h *udpHandler) Connect(conn core.UDPConn, target *net.UDPAddr) error {
 
 	t := makeTracker(c)
 
-	if proxymode {
+	if forwarder != nil {
 		t.ip = target
 	}
 
 	h.Lock()
 	h.udpConns[conn] = t
 	h.Unlock()
+
 	go h.fetchUDPInput(conn, t)
-	log.Infof("new udp proxy (mode: %s) conn to target: %s", proxymode, target.String())
+	log.Infof("new udp proxy (mode: %s) conn to target: %s", (forwarder != nil), target.String())
+
 	return nil
 }
 
@@ -417,38 +430,33 @@ func (h *udpHandler) SetDNSOptions(do *settings.DNSOptions) error {
 	return err
 }
 
-// TODO: move these to settings pkg
-func (h *udpHandler) socks5Proxy() bool {
-	return h.tunMode.ProxyMode == settings.ProxyModeSOCKS5
-}
+func (h *udpHandler) SetProxyOptions(po *settings.ProxyOptions) (err error) {
+	if po.IsEmpty() {
+		h.Lock()
+		delete(h.proxies, po.Id)
+		h.Unlock()
+		return
+	}
 
-func (h *udpHandler) httpsProxy() bool {
-	return h.tunMode.ProxyMode == settings.ProxyModeHTTPS
-}
-
-func (h *udpHandler) hasProxy() bool {
-	return h.proxy != nil
-}
-
-func (h *udpHandler) SetProxyOptions(po *settings.ProxyOptions) error {
-	var fproxy proxy.Dialer
-	var err error
-	if h.socks5Proxy() {
+	var pd proxy.Dialer
+	if po.IsSocks5() {
 		// x.net.proxy doesn't yet support udp
 		// https://github.com/golang/net/blob/62affa334/internal/socks/socks.go#L233
 		// fproxy, err = proxy.SOCKS5("udp", po.IPPort, po.Auth, proxy.Direct)
-		udptimeoutsec := 5 * 60 // 5m
+		udptimeoutsec := 5 * 60                    // 5m
 		tcptimeoutsec := (2 * 60 * 60) + (40 * 60) // 2h40m
-		fproxy, err = socks5.NewClient(po.IPPort, po.Auth.User, po.Auth.Password, tcptimeoutsec, udptimeoutsec)
-	} else if h.httpsProxy() {
-		err = fmt.Errorf("http-proxy not supported")
+		pd, err = socks5.NewClient(po.IPPort, po.Auth.User, po.Auth.Password, tcptimeoutsec, udptimeoutsec)
+	} else if po.IsHttp() {
+		// pd, err =
 	} else {
-		err = errors.New("proxy mode not set")
+		err = errors.New("invalid proxy")
 	}
-	if err != nil {
-		h.proxy = nil
-		return err
+
+	if err != nil && pd != nil {
+		h.Lock()
+		h.proxies[po.Id] = &pd
+		h.Unlock()
 	}
-	h.proxy = fproxy
-	return nil
+
+	return
 }

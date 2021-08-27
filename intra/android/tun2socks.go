@@ -57,7 +57,7 @@ func init() {
 //
 // Throws an exception if the TUN file descriptor cannot be opened, or if the tunnel fails to
 // connect.
-func ConnectIntraTunnel(fd int, fakedns string, dohdns doh.Transport, protector protect.Protector, blocker protect.Blocker, listener intra.Listener) (intra.Tunnel, error) {
+func ConnectIntraTunnel(fd int, fakedns string, dohdns doh.Transport, protector protect.Protector, blocker protect.Flow, listener intra.Listener) (intra.Tunnel, error) {
 	tun, err := tunnel.MakeTunFile(fd)
 	if err != nil {
 		return nil, err

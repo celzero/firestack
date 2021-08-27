@@ -6,8 +6,10 @@
 package settings
 
 import (
-	"golang.org/x/net/proxy"
+	"net/url"
 	"strings"
+
+	"golang.org/x/net/proxy"
 )
 
 // TODO: These modes could be covered by bit-flags instead.
@@ -46,14 +48,14 @@ const BlockModeSink int = 2
 // from procfs before filtering
 const BlockModeFilterProc int = 3
 
-// ProxyModeNone forwards no packet.
-const ProxyModeNone int = 0
+// ProxyModeNone forwards nothing.
+const ProxyTypeNone int = 0
 
-// ProxyModeSOCKS5 forwards packets to a SOCKS5 endpoint.
-const ProxyModeSOCKS5 int = 1
+// ProxyModeSOCKS5 forwards connections to a SOCKS5 endpoint.
+const ProxyTypeSOCKS5 int = 1
 
-// ProxyModeHTTPS forwards packets to a HTTPS proxy.
-const ProxyModeHTTPS int = 2
+// ProxyModeHTTPS forwards HTTP connections to a HTTP proxy.
+const ProxyTypeHTTP int = 2
 
 // TunMode specifies blocking and dns modes
 type TunMode struct {
@@ -61,8 +63,6 @@ type TunMode struct {
 	DNSMode int
 	// BlockMode instructs change in firewall behaviour.
 	BlockMode int
-	// ProxyMode determines where the traffic is forwarded to.
-	ProxyMode int
 }
 
 // DNSOptions define https or socks5 proxy options
@@ -72,26 +72,25 @@ type DNSOptions struct {
 
 // ProxyOptions define https or socks5 proxy options
 type ProxyOptions struct {
+	Id     string
+	Typ    int
 	Auth   *proxy.Auth
 	IPPort string
 }
 
 // SetMode re-assigns d to DNSMode, b to BlockMode, and p to ProxyMode
-func (t *TunMode) SetMode(d int, b int, p int) {
+func (t *TunMode) SetMode(d, b int) {
 	t.DNSMode = d
 	t.BlockMode = b
-	t.ProxyMode = p
 }
 
 // NewTunMode returns a new TunMode object.
 // `d` sets dns-mode.
 // `b` sets block-mode.
-// `p` sets proxy-mode.
-func NewTunMode(d int, b int, p int) *TunMode {
+func NewTunMode(d, b int) *TunMode {
 	return &TunMode{
 		DNSMode:   d,
 		BlockMode: b,
-		ProxyMode: p,
 	}
 }
 
@@ -104,39 +103,13 @@ func DefaultTunMode() *TunMode {
 	return &TunMode{
 		DNSMode:   DNSModeIP,
 		BlockMode: BlockModeNone,
-		ProxyMode: ProxyModeNone,
 	}
 }
 
 // NewDNSOptions returns a new DNSOpitons object.
-func NewDNSOptions(ip string, port string) *DNSOptions {
+func NewDNSOptions(ip, port string) *DNSOptions {
 	// TODO: validate IP and port, protocol
 	return &DNSOptions{
-		IPPort: ip + ":" + port,
-	}
-}
-
-// NewAuthProxyOptions returns a new ProxyOptions object with authentication object.
-func NewAuthProxyOptions(username string, password string, ip string, port string) *ProxyOptions {
-	if len(username) <= 0 || len(password) <= 0 {
-		return NewProxyOptions(ip, port)
-	}
-	auth := proxy.Auth{
-		User:     username,
-		Password: password,
-	}
-	// TODO: validate IP and port, protocol
-	return &ProxyOptions{
-		Auth:   &auth,
-		IPPort: ip + ":" + port,
-	}
-}
-
-// NewProxyOptions returns a new ProxyOptions object.
-func NewProxyOptions(ip string, port string) *ProxyOptions {
-	// TODO: validate IP and port, protocol
-	return &ProxyOptions{
-		Auth:   nil,
 		IPPort: ip + ":" + port,
 	}
 }
@@ -146,16 +119,78 @@ func (d *DNSOptions) String() string {
 	return ipport[0] + "," + ipport[1]
 }
 
-func (p *ProxyOptions) String() string {
-	ipport := strings.Split(p.IPPort, ":")
-	var username string
-	var password string
-	if p.Auth == nil {
-		username = ""
-		password = ""
-	} else {
-		username = p.Auth.User
-		password = p.Auth.Password
+// NewAuthProxyOptions returns a new ProxyOptions object with authentication object.
+func NewAuthProxyOptions(typ int, id, username, password, ip, port string) *ProxyOptions {
+	if len(username) <= 0 || len(password) <= 0 {
+		return NewProxyOptions(typ, id, ip, port)
 	}
-	return username + "," + password + "," + ipport[0] + "," + ipport[1]
+	auth := proxy.Auth{
+		User:     username,
+		Password: password,
+	}
+	// TODO: validate typ, IP and port, protocol
+	return &ProxyOptions{
+		Id:     id,
+		Typ:    typ,
+		Auth:   &auth,
+		IPPort: ip + ":" + port,
+	}
+}
+
+// NewAuthProxyOptions returns a new ProxyOptions object with authentication object.
+func NewEmptyAuthProxyOptions(id string) *ProxyOptions {
+	// TODO: validate typ, IP and port, protocol
+	return &ProxyOptions{
+		Id:  id,
+		Typ: ProxyTypeNone,
+	}
+}
+
+// NewProxyOptions returns a new ProxyOptions object.
+func NewProxyOptions(typ int, id, ip, port string) *ProxyOptions {
+	// TODO: validate typ, IP and port, protocol
+	return &ProxyOptions{
+		Id:     id,
+		Typ:    typ,
+		Auth:   nil,
+		IPPort: ip + ":" + port,
+	}
+}
+
+func (p *ProxyOptions) IsSocks5() bool {
+	return p.Typ == ProxyTypeSOCKS5
+}
+
+func (p *ProxyOptions) IsHttp() bool {
+	return p.Typ == ProxyTypeHTTP
+}
+
+func (p *ProxyOptions) IsGrounded() bool {
+	return len(p.IPPort) == 0 || p.Typ == ProxyTypeNone
+}
+
+func (p *ProxyOptions) Url() *url.URL {
+	return &url.URL{
+		Scheme: p.Scheme(),
+		Opaque: "",
+		User:   url.UserPassword(p.Auth.User, p.Auth.Password),
+		Host:   p.IPPort,
+	}
+}
+
+func (p *ProxyOptions) Scheme() string {
+	switch p.Typ {
+	case ProxyTypeSOCKS5:
+		return "socks5"
+	case ProxyTypeHTTP:
+		return "http"
+	case ProxyTypeNone:
+		return "none"
+	default:
+		return ""
+	}
+}
+
+func (p *ProxyOptions) String() string {
+	return p.Url().String()
 }
