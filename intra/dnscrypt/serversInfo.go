@@ -33,9 +33,8 @@ import (
 )
 
 type RegisteredServer struct {
-	name        string
-	stamp       stamps.ServerStamp
-	description string
+	name  string
+	stamp stamps.ServerStamp
 }
 
 type ServerInfo struct {
@@ -153,14 +152,14 @@ func fetchServerInfo(proxy *Proxy, name string, stamp stamps.ServerStamp, isNew 
 	} else if stamp.Proto == stamps.StampProtoTypeDoH {
 		return fetchDoHServerInfo(proxy, name, stamp, isNew)
 	}
-	return ServerInfo{}, errors.New("Unsupported protocol")
+	return ServerInfo{}, errors.New("unsupported protocol")
 }
 
 func fetchDNSCryptServerInfo(proxy *Proxy, name string, stamp stamps.ServerStamp, isNew bool) (ServerInfo, error) {
 	if len(stamp.ServerPk) != ed25519.PublicKeySize {
 		serverPk, err := hex.DecodeString(strings.Replace(string(stamp.ServerPk), ":", "", -1))
 		if err != nil || len(serverPk) != ed25519.PublicKeySize {
-			return ServerInfo{}, fmt.Errorf("Unsupported public key for [%s]: [%s]", name, stamp.ServerPk)
+			return ServerInfo{}, fmt.Errorf("unsupported public key for [%s]: [%s]", name, stamp.ServerPk)
 		}
 		log.Warnf("Public key [%s] shouldn't be hex-encoded any more", string(stamp.ServerPk))
 		stamp.ServerPk = serverPk
@@ -193,7 +192,7 @@ func fetchDNSCryptServerInfo(proxy *Proxy, name string, stamp stamps.ServerStamp
 
 func fetchDoHServerInfo(proxy *Proxy, name string, stamp stamps.ServerStamp, isNew bool) (ServerInfo, error) {
 	// FIXME: custom ip-address, user-certs, and cert-pinning not supported
-	return ServerInfo{}, errors.New("Unsupported protocol")
+	return ServerInfo{}, errors.New("unsupported protocol")
 }
 
 func route(proxy *Proxy, name string) (*net.TCPAddr, error) {
@@ -210,7 +209,7 @@ func route(proxy *Proxy, name string) (*net.TCPAddr, error) {
 	}
 	var relayCandidateStamp *stamps.ServerStamp
 	if len(relayName) == 0 {
-		return nil, fmt.Errorf("Route declared for [%v] but an empty relay list", name)
+		return nil, fmt.Errorf("route declared for [%v] but an empty relay list", name)
 	} else if relayStamp, err := stamps.NewServerStampFromString(relayName); err == nil {
 		relayCandidateStamp = &relayStamp
 	} else if _, err := net.ResolveTCPAddr("tcp", relayName); err == nil {
@@ -220,7 +219,7 @@ func route(proxy *Proxy, name string) (*net.TCPAddr, error) {
 		}
 	}
 	if relayCandidateStamp == nil {
-		return nil, fmt.Errorf("Undefined relay [%v] for server [%v]", relayName, name)
+		return nil, fmt.Errorf("undefined relay [%v] for server [%v]", relayName, name)
 	}
 	if relayCandidateStamp.Proto == stamps.StampProtoTypeDNSCrypt ||
 		relayCandidateStamp.Proto == stamps.StampProtoTypeDNSCryptRelay {
@@ -230,7 +229,7 @@ func route(proxy *Proxy, name string) (*net.TCPAddr, error) {
 		}
 		return relayTCPAddr, nil
 	}
-	return nil, fmt.Errorf("Invalid relay [%v] for server [%v]", relayName, name)
+	return nil, fmt.Errorf("invalid relay [%v] for server [%v]", relayName, name)
 }
 
 // NewServersInfo returns a new servers-info object

@@ -34,9 +34,9 @@ import (
 
 	"github.com/celzero/firestack/intra/dnscrypt"
 	"github.com/celzero/firestack/intra/dnsproxy"
-	"github.com/celzero/firestack/intra/dnsx"
 	"github.com/celzero/firestack/intra/doh"
 	"github.com/celzero/firestack/intra/protect"
+	"github.com/celzero/firestack/intra/rdns"
 	"github.com/celzero/firestack/intra/settings"
 	"github.com/celzero/firestack/tunnel"
 )
@@ -77,21 +77,21 @@ type Tunnel interface {
 	StartDNSProxy(ip, port string, listener Listener) error
 	// GetDNSOptions returns "ip,port" csv
 	GetDNSProxy() dnsproxy.Transport
-	// SetBraveDNS sets bravedns with various dns transports
-	SetBraveDNS(dnsx.BraveDNS) error
-	// GetBraveDNS gets bravedns in-use by various dns transports
-	GetBraveDNS() dnsx.BraveDNS
+	// SetRethinkDNS sets rethinkdns with various dns transports
+	SetRethinkDNS(rdns.RethinkDNS) error
+	// GetRethinkDNS gets rethinkdns in-use by various dns transports
+	GetRethinkDNS() rdns.RethinkDNS
 }
 
 type intratunnel struct {
 	tunnel.Tunnel
-	tcp      TCPHandler
-	udp      UDPHandler
-	dns      doh.Transport
-	tunmode  *settings.TunMode
-	dnscrypt *dnscrypt.Proxy
-	dnsproxy dnsproxy.Transport
-	bravedns dnsx.BraveDNS
+	tcp        TCPHandler
+	udp        UDPHandler
+	dns        doh.Transport
+	tunmode    *settings.TunMode
+	dnscrypt   *dnscrypt.Proxy
+	dnsproxy   dnsproxy.Transport
+	rethinkdns rdns.RethinkDNS
 }
 
 // NewTunnel creates a connected Intra session.
@@ -142,11 +142,11 @@ func (t *intratunnel) registerConnectionHandlers(fakedns string, dialer *net.Dia
 }
 
 func (t *intratunnel) SetDNS(dns doh.Transport) {
-	bravedns := t.bravedns
+	rethinkdns := t.rethinkdns
 	t.dns = dns
 	t.udp.SetDNS(dns)
 	t.tcp.SetDNS(dns)
-	dns.SetBraveDNS(bravedns)
+	dns.SetRethinkDNS(rethinkdns)
 }
 
 func (t *intratunnel) GetDNS() doh.Transport {
@@ -184,7 +184,7 @@ func (t *intratunnel) GetDNSProxy() dnsproxy.Transport {
 
 func (t *intratunnel) StartDNSCryptProxy(resolvers string, relays string, listener Listener) (string, error) {
 	var err error
-	bravedns := t.bravedns
+	rethinkdns := t.rethinkdns
 	if t.dnscrypt != nil {
 		return "", fmt.Errorf("only one instance of dns-crypt proxy allowed")
 	}
@@ -201,7 +201,7 @@ func (t *intratunnel) StartDNSCryptProxy(resolvers string, relays string, listen
 	}
 	t.udp.SetDNSCryptProxy(p)
 	t.tcp.SetDNSCryptProxy(p)
-	p.SetBraveDNS(bravedns)
+	p.SetRethinkDNS(rethinkdns)
 
 	t.dnscrypt = p
 	return p.StartProxy()
@@ -218,7 +218,7 @@ func (t *intratunnel) StopDNSCryptProxy() error {
 	err := t.dnscrypt.StopProxy()
 	t.udp.SetDNSCryptProxy(nil)
 	t.tcp.SetDNSCryptProxy(nil)
-	t.dnscrypt.SetBraveDNS(nil)
+	t.dnscrypt.SetRethinkDNS(nil)
 	t.dnscrypt = nil
 	return err
 }
@@ -246,26 +246,26 @@ func (t *intratunnel) SetProxy(typ int, id, uname, pwd, ip, port string) (err er
 	return
 }
 
-func (t *intratunnel) SetBraveDNS(b dnsx.BraveDNS) error {
+func (t *intratunnel) SetRethinkDNS(b rdns.RethinkDNS) error {
 	doh := t.dns
 	dnscrypt := t.dnscrypt
 	dnsproxy := t.dnsproxy
 
-	t.bravedns = b
+	t.rethinkdns = b
 
 	if doh != nil {
-		doh.SetBraveDNS(b)
+		doh.SetRethinkDNS(b)
 	}
 	if dnscrypt != nil {
-		dnscrypt.SetBraveDNS(b)
+		dnscrypt.SetRethinkDNS(b)
 	}
 	if dnsproxy != nil {
-		dnsproxy.SetBraveDNS(b)
+		dnsproxy.SetRethinkDNS(b)
 	}
 
 	return nil
 }
 
-func (t *intratunnel) GetBraveDNS() dnsx.BraveDNS {
-	return t.bravedns
+func (t *intratunnel) GetRethinkDNS() rdns.RethinkDNS {
+	return t.rethinkdns
 }

@@ -51,13 +51,13 @@ func pad(packet []byte, minSize int) []byte {
 func unpad(packet []byte) ([]byte, error) {
 	for i := len(packet); ; {
 		if i == 0 {
-			return nil, errors.New("Invalid padding (short packet)")
+			return nil, errors.New("invalid padding (short packet)")
 		}
 		i--
 		if packet[i] == 0x80 {
 			return packet[:i], nil
 		} else if packet[i] != 0x00 {
-			return nil, errors.New("Invalid padding (delimiter not found)")
+			return nil, errors.New("invalid padding (delimiter not found)")
 		}
 	}
 }
@@ -67,7 +67,7 @@ func ComputeSharedKey(cryptoConstruction xdns.CryptoConstruction, secretKey *[32
 		var err error
 		sharedKey, err = xsecretbox.SharedKey(*secretKey, *serverPk)
 		if err != nil {
-			log.Warnf("[%v] Weak public key", providerName)
+			log.Warnf("[%v] weak public key", providerName)
 		}
 	} else {
 		box.Precompute(&sharedKey, serverPk, secretKey)
@@ -95,7 +95,7 @@ func (proxy *Proxy) Encrypt(serverInfo *ServerInfo, packet []byte, proto string)
 		paddedLength = xdns.MaxDNSPacketSize
 	}
 	if QueryOverhead+len(packet)+1 > paddedLength {
-		err = errors.New("Question too large; cannot be padded")
+		err = errors.New("question too large; cannot be padded")
 		return
 	}
 	encrypted = append(serverInfo.MagicQuery[:], publicKey[:]...)
@@ -117,11 +117,11 @@ func (proxy *Proxy) Decrypt(serverInfo *ServerInfo, sharedKey *[32]byte, encrypt
 	if len(encrypted) < responseHeaderLen+TagSize+int(xdns.MinDNSPacketSize) ||
 		len(encrypted) > responseHeaderLen+TagSize+int(xdns.MaxDNSPacketSize) ||
 		!bytes.Equal(encrypted[:serverMagicLen], xdns.ServerMagic[:]) {
-		return encrypted, errors.New("Invalid message size or prefix")
+		return encrypted, errors.New("invalid message size or prefix")
 	}
 	serverNonce := encrypted[serverMagicLen:responseHeaderLen]
 	if !bytes.Equal(nonce[:HalfNonceSize], serverNonce[:HalfNonceSize]) {
-		return encrypted, errors.New("Unexpected nonce")
+		return encrypted, errors.New("unexpected nonce")
 	}
 	var packet []byte
 	var err error
@@ -133,7 +133,7 @@ func (proxy *Proxy) Decrypt(serverInfo *ServerInfo, sharedKey *[32]byte, encrypt
 		var ok bool
 		packet, ok = secretbox.Open(nil, encrypted[responseHeaderLen:], &xsalsaServerNonce, sharedKey)
 		if !ok {
-			err = errors.New("Incorrect tag")
+			err = errors.New("incorrect tag")
 		}
 	}
 	if err != nil {
@@ -141,7 +141,7 @@ func (proxy *Proxy) Decrypt(serverInfo *ServerInfo, sharedKey *[32]byte, encrypt
 	}
 	packet, err = unpad(packet)
 	if err != nil || len(packet) < xdns.MinDNSPacketSize {
-		return encrypted, errors.New("Incorrect padding")
+		return encrypted, errors.New("incorrect padding")
 	}
 	return packet, nil
 }

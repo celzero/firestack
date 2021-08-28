@@ -29,7 +29,6 @@ import (
 	"github.com/miekg/dns"
 
 	"github.com/celzero/firestack/intra/xdns"
-
 )
 
 type CertInfo struct {
@@ -50,7 +49,7 @@ type dnsExchangeResponse struct {
 func FetchCurrentDNSCryptCert(proxy *Proxy, serverName *string, proto string, pk ed25519.PublicKey,
 	serverAddress string, providerName string, isNew bool, relayTCPAddr *net.TCPAddr) (CertInfo, *net.TCPAddr, error) {
 	if len(pk) != ed25519.PublicKeySize {
-		return CertInfo{}, nil, errors.New("Invalid public key length")
+		return CertInfo{}, nil, errors.New("invalid public key length")
 	}
 	if !strings.HasSuffix(providerName, ".") {
 		providerName = providerName + "."
@@ -167,7 +166,7 @@ func FetchCurrentDNSCryptCert(proxy *Proxy, serverName *string, proto string, pk
 		certCountStr = " - additional certificate"
 	}
 	if certInfo.CryptoConstruction == xdns.UndefinedConstruction {
-		return certInfo, nil, errors.New("No useable certificate found")
+		return certInfo, nil, errors.New("no useable certificate found")
 	}
 	if relayTCPAddr == nil {
 		log.Warnf("relays for %v not supported.", *serverName)

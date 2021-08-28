@@ -17,7 +17,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/celzero/firestack/intra/dnsx"
+	"github.com/celzero/firestack/intra/rdns"
 	"github.com/celzero/firestack/intra/settings"
 	"github.com/celzero/firestack/intra/xdns"
 	"github.com/eycorsican/go-tun2socks/common/log"
@@ -35,17 +35,17 @@ type Transport interface {
 	Query(network string, q []byte) ([]byte, error)
 	// Return the server URL used to initialize this transport.
 	GetAddr() string
-	// SetBraveDNS sets bravedns variable
-	SetBraveDNS(dnsx.BraveDNS)
+	// SetRethinkDNS sets rethinkdns
+	SetRethinkDNS(rdns.RethinkDNS)
 }
 
 // TODO: Keep a context here so that queries can be canceled.
 type transport struct {
 	Transport
-	udp      *net.UDPAddr
-	tcp      *net.TCPAddr
-	listener Listener
-	bravedns dnsx.BraveDNS
+	udp        *net.UDPAddr
+	tcp        *net.TCPAddr
+	listener   Listener
+	rethinkdns rdns.RethinkDNS
 }
 
 // NewTransport returns a DNS transport, ready for use.
@@ -61,10 +61,10 @@ func NewTransport(do *settings.DNSOptions, listener Listener) (t Transport, err 
 	}
 
 	t = &transport{
-		udp:      udp,
-		tcp:      tcp,
-		listener: listener,
-		bravedns: nil,
+		udp:        udp,
+		tcp:        tcp,
+		listener:   listener,
+		rethinkdns: nil,
 	}
 	return
 }
@@ -195,16 +195,16 @@ func (t *transport) GetAddr() string {
 	return t.udp.String()
 }
 
-func (t *transport) SetBraveDNS(b dnsx.BraveDNS) {
-	t.bravedns = b
+func (t *transport) SetBraveDNS(b rdns.RethinkDNS) {
+	t.rethinkdns = b
 }
 
 func (t *transport) prepareOnDeviceBlock() error {
-	b := t.bravedns
+	b := t.rethinkdns
 	u := t.GetAddr()
 
 	if b == nil || len(u) <= 0 {
-		return errors.New("t.addr or dnsx.bravedns nil")
+		return errors.New("t.addr or rdns.rethinkdns nil")
 	}
 
 	if !b.OnDeviceBlock() {
@@ -215,12 +215,12 @@ func (t *transport) prepareOnDeviceBlock() error {
 }
 
 func (t *transport) applyBlocklists(q []byte) (response []byte, blocklists string, err error) {
-	bravedns := t.bravedns
-	if bravedns == nil {
-		err = errors.New("bravedns is nil")
+	rdns := t.rethinkdns
+	if rdns == nil {
+		err = errors.New("rethinkdns is nil")
 		return
 	}
-	blocklists, err = bravedns.BlockRequest(q)
+	blocklists, err = rdns.BlockRequest(q)
 	if err != nil {
 		return
 	}
@@ -239,17 +239,17 @@ func (t *transport) applyBlocklists(q []byte) (response []byte, blocklists strin
 }
 
 func (t *transport) resolveBlock(q []byte, ans []byte) (blocklistNames string, blockedResponse []byte) {
-	bravedns := t.bravedns
-	if bravedns == nil {
+	rdns := t.rethinkdns
+	if rdns == nil {
 		return
 	}
 
 	var err error
-	if !bravedns.OnDeviceBlock() {
+	if !rdns.OnDeviceBlock() {
 		return
 	}
 
-	if blocklistNames, err = bravedns.BlockResponse(ans); err != nil {
+	if blocklistNames, err = rdns.BlockResponse(ans); err != nil {
 		log.Debugf("response not blocked %v", err)
 		return
 	}

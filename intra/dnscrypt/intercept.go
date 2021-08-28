@@ -18,7 +18,7 @@ import (
 	"errors"
 	"strings"
 
-	"github.com/celzero/firestack/intra/dnsx"
+	"github.com/celzero/firestack/intra/rdns"
 	"github.com/celzero/firestack/intra/xdns"
 
 	"github.com/eycorsican/go-tun2socks/common/log"
@@ -56,7 +56,7 @@ type Plugin interface {
 type Intercept struct {
 	Plugin
 	undelegatedSet *critbitgo.Trie
-	bravedns       dnsx.BraveDNS
+	rethinkdns     rdns.RethinkDNS
 	state          *InterceptState
 }
 
@@ -81,7 +81,7 @@ func (ic *Intercept) HandleRequest(packet []byte, needsEDNS0Padding bool) ([]byt
 		return packet, err
 	}
 	if len(msg.Question) != 1 {
-		return packet, errors.New("Unexpected number of questions")
+		return packet, errors.New("unexpected number of questions")
 	}
 	qName, err := xdns.NormalizeQName(msg.Question[0].Name)
 	if err != nil {
@@ -141,7 +141,7 @@ func (ic *Intercept) HandleResponse(packet []byte, truncate bool) ([]byte, error
 	ic.responseBlockedByBraveDNS(packet)
 
 	if state.action == ActionSynth && len(state.blocklists) > 0 {
-		log.Debugf("bravedns locally blocked response", state.blocklists)
+		log.Debugf("rethinkdns locally blocked response", state.blocklists)
 		return packet, nil
 	}
 
@@ -254,7 +254,7 @@ func (ic *Intercept) blockUndelegated(msg *dns.Msg) error {
 // requestBlockedByBraveDNS blocks DNS names blocked by local rules.
 func (ic *Intercept) requestBlockedByBraveDNS(q []byte) error {
 	state := ic.state
-	b := ic.bravedns
+	b := ic.rethinkdns
 
 	if b == nil || state.action != ActionContinue || !b.OnDeviceBlock() {
 		return nil // nothing to do.
@@ -286,7 +286,7 @@ func (ic *Intercept) requestBlockedByBraveDNS(q []byte) error {
 // responseBlockedByBraveDNS blocks DNS names blocked by local rules.
 func (ic *Intercept) responseBlockedByBraveDNS(ans []byte) error {
 	state := ic.state
-	b := ic.bravedns
+	b := ic.rethinkdns
 
 	if b == nil || !b.OnDeviceBlock() {
 		return nil // nothing to do.
@@ -316,10 +316,10 @@ func (ic *Intercept) responseBlockedByBraveDNS(ans []byte) error {
 	return nil
 }
 
-func NewIntercept(set *critbitgo.Trie, bravedns dnsx.BraveDNS) *Intercept {
+func NewIntercept(set *critbitgo.Trie, rethinkdns rdns.RethinkDNS) *Intercept {
 	return &Intercept{
 		undelegatedSet: set,
-		bravedns:       bravedns,
+		rethinkdns:     rethinkdns,
 		state:          NewInterceptState(),
 	}
 }

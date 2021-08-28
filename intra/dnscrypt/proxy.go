@@ -26,7 +26,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/celzero/firestack/intra/dnsx"
+	"github.com/celzero/firestack/intra/rdns"
 	"github.com/celzero/firestack/intra/xdns"
 	"github.com/eycorsican/go-tun2socks/common/log"
 
@@ -222,7 +222,7 @@ type Proxy struct {
 	listener                     Listener
 	liveServers                  []string
 	sigterm                      context.CancelFunc
-	bravedns                     dnsx.BraveDNS
+	rethinkdns                   rdns.RethinkDNS
 }
 
 func (proxy *Proxy) exchangeWithTCPServer(serverInfo *ServerInfo, sharedKey *[32]byte, encryptedQuery []byte, clientNonce []byte) ([]byte, error) {
@@ -278,7 +278,7 @@ func (proxy *Proxy) query(packet []byte, truncate bool) (response []byte, blockl
 		return
 	}
 
-	intercept := NewIntercept(proxy.undelegatedSet, proxy.bravedns)
+	intercept := NewIntercept(proxy.undelegatedSet, proxy.rethinkdns)
 	// serverName := "-"
 	// needsEDNS0Padding = (serverInfo.Proto == stamps.StampProtoTypeDoH || serverInfo.Proto == stamps.StampProtoTypeTLS)
 	needsEDNS0Padding := false
@@ -497,8 +497,8 @@ func HandleTCP(proxy *Proxy, conn net.Conn) {
 	}
 }
 
-func (p *Proxy) SetBraveDNS(b dnsx.BraveDNS) {
-	p.bravedns = b
+func (p *Proxy) SetRethinkDNS(b rdns.RethinkDNS) {
+	p.rethinkdns = b
 }
 
 // LiveServers returns csv of dnscrypt server-names currently in-use
@@ -634,17 +634,17 @@ func (proxy *Proxy) AddServers(serverscsv string) (int, error) {
 	servers := strings.Split(serverscsv, ",")
 	for i, serverStampPair := range servers {
 		if len(serverStampPair) == 0 {
-			return i, fmt.Errorf("Missing stamp for the stamp [%s] definition", serverStampPair)
+			return i, fmt.Errorf("missing stamp for the stamp [%s] definition", serverStampPair)
 		}
 		serverStamp := strings.Split(serverStampPair, "#")
 		// TODO: skip duplicates.
 		stamp, err := stamps.NewServerStampFromString(serverStamp[1])
 		if err != nil {
-			return i, fmt.Errorf("Stamp error for the stamp [%s] definition: [%v]", serverStampPair, err)
+			return i, fmt.Errorf("stamp error for the stamp [%s] definition: [%v]", serverStampPair, err)
 		}
 		if stamp.Proto == stamps.StampProtoTypeDoH {
 			// TODO: Implement doh
-			return i, fmt.Errorf("DoH with DNSCrypt client not supported", serverStamp)
+			return i, fmt.Errorf("doh %s with dnscrypt-client not supported", serverStamp)
 		}
 		proxy.registeredServers[serverStamp[0]] = RegisteredServer{name: serverStamp[0], stamp: stamp}
 	}

@@ -41,10 +41,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/celzero/firestack/intra/dnsx"
-	"github.com/celzero/firestack/intra/xdns"
 	"github.com/celzero/firestack/intra/doh/ipmap"
+	"github.com/celzero/firestack/intra/rdns"
 	"github.com/celzero/firestack/intra/split"
+	"github.com/celzero/firestack/intra/xdns"
 	"github.com/eycorsican/go-tun2socks/common/log"
 	"golang.org/x/net/dns/dnsmessage"
 )
@@ -98,27 +98,24 @@ type Transport interface {
 	Query(q []byte) ([]byte, error)
 	// Return the server URL used to initialize this transport.
 	GetURL() string
-	// SetBraveDNS sets bravedns variable
-	SetBraveDNS(dnsx.BraveDNS)
+	// SetRethinkDNS sets rethinkdns variable
+	SetRethinkDNS(rdns.RethinkDNS)
 }
 
 // TODO: Keep a context here so that queries can be canceled.
 type transport struct {
 	Transport
-	url      string
-	hostname string
-	port     int
-	ips      ipmap.IPMap
-	client   http.Client
-	dialer   *net.Dialer
-	listener Listener
-	bravedns dnsx.BraveDNS
+	url                string
+	hostname           string
+	port               int
+	ips                ipmap.IPMap
+	client             http.Client
+	dialer             *net.Dialer
+	listener           Listener
+	rethinkdns         rdns.RethinkDNS
 	hangoverLock       sync.RWMutex
 	hangoverExpiration time.Time
 }
-
-// Wait up to three seconds for the TCP handshake to complete.
-const tcpTimeout time.Duration = 3 * time.Second
 
 func (t *transport) dial(network, addr string) (net.Conn, error) {
 	log.Debugf("Dialing %s", addr)
@@ -181,7 +178,7 @@ func NewTransport(rawurl string, addrs []string, dialer *net.Dialer, auth Client
 		return nil, err
 	}
 	if parsedurl.Scheme != "https" {
-		return nil, fmt.Errorf("Bad scheme: %s", parsedurl.Scheme)
+		return nil, fmt.Errorf("bad scheme: %s", parsedurl.Scheme)
 	}
 	// Resolve the hostname and put those addresses first.
 	portStr := parsedurl.Port()
@@ -280,7 +277,7 @@ func (t *transport) doQuery(q []byte) (response []byte, blocklists string, serve
 	t.hangoverLock.RUnlock()
 	if inHangover {
 		response = tryServfail(q)
-		qerr = &queryError{HTTPError, errors.New("Forwarder is in servfail hangover")}
+		qerr = &queryError{HTTPError, errors.New("forwarder in servfail hangover")}
 		elapsed = time.Since(start)
 		return
 	}
@@ -459,10 +456,10 @@ func (t *transport) sendRequest(id uint16, q []byte) (response []byte, hostname 
 				response = r
 			}
 		} else {
-			qerr = &queryError{BadResponse, errors.New("Nonzero response ID")}
+			qerr = &queryError{BadResponse, errors.New("nonzero response-id")}
 		}
 	} else {
-		qerr = &queryError{BadResponse, fmt.Errorf("Response length is %d", len(response))}
+		qerr = &queryError{BadResponse, fmt.Errorf("response length is %d", len(response))}
 	}
 
 	return
@@ -514,16 +511,16 @@ func (t *transport) GetURL() string {
 	return t.url
 }
 
-func (t *transport) SetBraveDNS(b dnsx.BraveDNS) {
-	t.bravedns = b
+func (t *transport) SetRethinkDNS(b rdns.RethinkDNS) {
+	t.rethinkdns = b
 }
 
 func (t *transport) prepareOnDeviceBlock() error {
-	b := t.bravedns
+	b := t.rethinkdns
 	u := t.url
 
 	if b == nil || len(u) <= 0 {
-		return errors.New("t.url or dnsx.bravedns nil")
+		return errors.New("t.url or rethinkdns nil")
 	}
 
 	if !b.OnDeviceBlock() {
@@ -534,12 +531,12 @@ func (t *transport) prepareOnDeviceBlock() error {
 }
 
 func (t *transport) applyBlocklists(q []byte) (response []byte, blocklists string, err error) {
-	bravedns := t.bravedns
-	if bravedns == nil {
-		errors.New("bravedns is nil")
+	rdns := t.rethinkdns
+	if rdns == nil {
+		err = errors.New("rethinkdns is nil")
 		return
 	}
-	blocklists, err = bravedns.BlockRequest(q)
+	blocklists, err = rdns.BlockRequest(q)
 	if err != nil {
 		return
 	}
@@ -558,18 +555,18 @@ func (t *transport) applyBlocklists(q []byte) (response []byte, blocklists strin
 }
 
 func (t *transport) resolveBlock(q []byte, res *http.Response, ans []byte) (blocklistNames string, blockedResponse []byte) {
-	bravedns := t.bravedns
-	if bravedns == nil {
+	rethinkdns := t.rethinkdns
+	if rethinkdns == nil {
 		return
 	}
 
 	var err error
-	blocklistNames = t.blocklistsFromHeader(bravedns, res)
-	if len(blocklistNames) > 0 || bravedns.OnDeviceBlock() == false {
+	blocklistNames = t.blocklistsFromHeader(rethinkdns, res)
+	if len(blocklistNames) > 0 || !rethinkdns.OnDeviceBlock() {
 		return
 	}
 
-	if blocklistNames, err = bravedns.BlockResponse(ans); err != nil {
+	if blocklistNames, err = rethinkdns.BlockResponse(ans); err != nil {
 		log.Debugf("response not blocked %v", err)
 		return
 	}
@@ -585,19 +582,18 @@ func (t *transport) resolveBlock(q []byte, res *http.Response, ans []byte) (bloc
 		return
 	}
 
-	blockedResponse, err = msg.Pack()
+	blockedResponse, _ = msg.Pack()
 	return
 }
 
-func (t *transport) blocklistsFromHeader(bravedns dnsx.BraveDNS, res *http.Response) (blocklistNames string) {
-	blocklistStamp := res.Header.Get(bravedns.GetBlocklistStampHeaderKey())
-	log.Debugf("header", res.Header)
-	log.Debugf("st", blocklistStamp)
+func (t *transport) blocklistsFromHeader(rethinkdns rdns.RethinkDNS, res *http.Response) (blocklistNames string) {
+	blocklistStamp := res.Header.Get(rethinkdns.GetBlocklistStampHeaderKey())
+	log.Debugf("st %s / header %s", blocklistStamp, res.Header)
 	if len(blocklistStamp) <= 0 {
 		return
 	}
 	var err error
-	blocklistNames, err = bravedns.StampToNames(blocklistStamp)
+	blocklistNames, err = rethinkdns.StampToNames(blocklistStamp)
 	if err != nil {
 		log.Errorf("could not resolve blocklist-stamp %v", err)
 		return
@@ -614,7 +610,7 @@ func forwardQuery(t Transport, q []byte, c io.Writer) error {
 	}
 	rlen := len(resp)
 	if rlen > math.MaxUint16 {
-		return fmt.Errorf("Oversize response: %d", rlen)
+		return fmt.Errorf("oversized response: %d", rlen)
 	}
 	// Use a combined write to ensure atomicity.  Otherwise, writes from two
 	// responses could be interleaved.
@@ -626,7 +622,7 @@ func forwardQuery(t Transport, q []byte, c io.Writer) error {
 		return err
 	}
 	if int(n) != len(rlbuf) {
-		return fmt.Errorf("Incomplete response write: %d < %d", n, len(rlbuf))
+		return fmt.Errorf("incomplete response write: %d < %d", n, len(rlbuf))
 	}
 	return qerr
 }
@@ -635,7 +631,7 @@ func forwardQuery(t Transport, q []byte, c io.Writer) error {
 // and close the writer if there was an error.
 func forwardQueryAndCheck(t Transport, q []byte, c io.WriteCloser) {
 	if err := forwardQuery(t, q, c); err != nil {
-		log.Warnf("Query forwarding failed: %v", err)
+		log.Warnf("query forwarding failed: %v", err)
 		c.Close()
 	}
 }
@@ -696,4 +692,3 @@ func tryServfail(q []byte) []byte {
 	}
 	return response
 }
-

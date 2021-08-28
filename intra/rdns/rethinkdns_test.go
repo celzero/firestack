@@ -4,7 +4,7 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
-package dnsx
+package rdns
 
 import (
 	b64 "encoding/base64"
@@ -13,7 +13,7 @@ import (
 	"net/url"
 )
 
-type bravelist struct {
+type rdnslist struct {
 	flags []string
 	tags  map[string]string
 }
@@ -21,7 +21,7 @@ type bravelist struct {
 func main() {
 	fmt.Println("Hello, playground")
 	r, f := load2()
-	b := &bravelist{
+	b := &rdnslist{
 		flags: r,
 		tags:  f,
 	}
@@ -222,7 +222,7 @@ func load2() ([]string, map[string]string) {
 	return rflags, fdata
 }
 
-func (brave *bravelist) decode(s string) (tags []string, err error) {
+func (rdns *rdnslist) decode(s string) (tags []string, err error) {
 	stamp, err := url.QueryUnescape(s)
 	if err != nil {
 		return
@@ -237,7 +237,7 @@ func (brave *bravelist) decode(s string) (tags []string, err error) {
 		return
 	}
 
-	return brave.flagstotag(stringtouint2(buf))
+	return rdns.flagstotag(stringtouint2(buf))
 }
 
 func stringtouint2(b []byte) []uint16 {
@@ -256,7 +256,7 @@ func stringtouint2(b []byte) []uint16 {
 	return resp
 }
 
-func (brave *bravelist) flagstotag(flags []uint16) ([]string, error) {
+func (rdns *rdnslist) flagstotag(flags []uint16) ([]string, error) {
 	// flags has to be an array of 16-bit integers.
 
 	// first index always contains the header
@@ -307,7 +307,7 @@ func (brave *bravelist) flagstotag(flags []uint16) ([]string, error) {
 				pos := (index * 16) + j
 				// from the decimal value which is its
 				// blocklist-id, fetch its metadata
-				values = append(values, brave.flags[pos])
+				values = append(values, rdns.flags[pos])
 			}
 			mask = mask >> 1
 		}

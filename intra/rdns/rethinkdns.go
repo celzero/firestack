@@ -4,7 +4,7 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
-package dnsx
+package rdns
 
 import (
 	b64 "encoding/base64"
@@ -31,7 +31,7 @@ const (
 	remoteBlock        = 1
 )
 
-type BraveDNS interface {
+type RethinkDNS interface {
 
 	// Mode
 	OnDeviceBlock() bool
@@ -51,8 +51,8 @@ type BraveDNS interface {
 	BlockResponse([]byte) (string, error)
 }
 
-type bravedns struct {
-	BraveDNS
+type rethinkdns struct {
+	RethinkDNS
 	trie  *trie.FrozenTrie
 	flags []string
 	tags  map[string]string
@@ -60,33 +60,33 @@ type bravedns struct {
 	stamp string
 }
 
-func (brave *bravedns) OnDeviceBlock() bool {
-	return brave.mode == localBlock
+func (rdns *rethinkdns) OnDeviceBlock() bool {
+	return rdns.mode == localBlock
 }
 
-func (brave *bravedns) GetStamp() (s string, err error) {
-	if len(brave.stamp) <= 0 {
+func (rdns *rethinkdns) GetStamp() (s string, err error) {
+	if len(rdns.stamp) <= 0 {
 		err = errors.New("no stamp")
 		return
 	}
-	s = brave.stamp
+	s = rdns.stamp
 	return
 }
 
-func (brave *bravedns) SetStamp(stamp string) error {
+func (rdns *rethinkdns) SetStamp(stamp string) error {
 	// validate
-	if _, err := brave.StampToNames(stamp); err != nil {
+	if _, err := rdns.StampToNames(stamp); err != nil {
 		return err
 	}
-	brave.stamp = stamp
+	rdns.stamp = stamp
 	return nil
 }
 
-func (brave *bravedns) GetBlocklistStampHeaderKey() string {
+func (rdns *rethinkdns) GetBlocklistStampHeaderKey() string {
 	return http.CanonicalHeaderKey(blocklistHeaderKey)
 }
 
-func (brave *bravedns) StampToNames(stamp string) (string, error) {
+func (rdns *rethinkdns) StampToNames(stamp string) (string, error) {
 	if len(stamp) <= 0 {
 		return "", errors.New("empty blocklist stamp")
 	}
@@ -95,9 +95,9 @@ func (brave *bravedns) StampToNames(stamp string) (string, error) {
 	var err error
 	s := strings.Split(stamp, ":")
 	if len(s) > 1 {
-		blocklists, err = brave.decode(s[1], s[0])
+		blocklists, err = rdns.decode(s[1], s[0])
 	} else {
-		blocklists, err = brave.decode(stamp, "0")
+		blocklists, err = rdns.decode(stamp, "0")
 	}
 
 	if err != nil {
@@ -107,9 +107,9 @@ func (brave *bravedns) StampToNames(stamp string) (string, error) {
 	return strings.Join(blocklists[:], ","), nil
 }
 
-func (brave *bravedns) keyToNames(list []string) (v []string) {
+func (rdns *rethinkdns) keyToNames(list []string) (v []string) {
 	for _, l := range list {
-		x := brave.tags[l]
+		x := rdns.tags[l]
 		if len(x) > 0 { // TODO: else err?
 			v = append(v, x)
 		}
@@ -117,20 +117,20 @@ func (brave *bravedns) keyToNames(list []string) (v []string) {
 	return
 }
 
-func (brave *bravedns) BlockRequest(q []byte) (r string, err error) {
+func (rdns *rethinkdns) BlockRequest(q []byte) (r string, err error) {
 	msg := dns.Msg{}
 	if err = msg.Unpack(q); err != nil {
 		return
 	}
-	return brave.blockUnpackedRequest(&msg)
+	return rdns.blockUnpackedRequest(&msg)
 }
 
-func (brave *bravedns) blockUnpackedRequest(msg *dns.Msg) (r string, err error) {
+func (rdns *rethinkdns) blockUnpackedRequest(msg *dns.Msg) (r string, err error) {
 	if len(msg.Question) != 1 {
 		err = errors.New("one question too many")
 		return
 	}
-	stamp, err := brave.GetStamp()
+	stamp, err := rdns.GetStamp()
 	if err != nil {
 		return
 	}
@@ -141,30 +141,30 @@ func (brave *bravedns) blockUnpackedRequest(msg *dns.Msg) (r string, err error) 
 		err = fmt.Errorf("unsupported dns query type %v", qtype)
 		return
 	}
-	block, lists := brave.trie.DNlookup(qname, stamp)
+	block, lists := rdns.trie.DNlookup(qname, stamp)
 	// TODO: handle empty lists as err?
 	if block {
-		r = strings.Join(brave.keyToNames(lists), ",")
+		r = strings.Join(rdns.keyToNames(lists), ",")
 		return
 	}
 	err = fmt.Errorf("%v name not in blocklist %s [%t]", qname, stamp, block)
 	return
 }
 
-func (brave *bravedns) BlockResponse(q []byte) (r string, err error) {
+func (rdns *rethinkdns) BlockResponse(q []byte) (r string, err error) {
 	msg := dns.Msg{}
 	if err = msg.Unpack(q); err != nil {
 		return
 	}
-	return brave.blockUnpackedResponse(&msg)
+	return rdns.blockUnpackedResponse(&msg)
 }
 
-func (brave *bravedns) blockUnpackedResponse(msg *dns.Msg) (r string, err error) {
+func (rdns *rethinkdns) blockUnpackedResponse(msg *dns.Msg) (r string, err error) {
 	if len(msg.Answer) <= 1 {
 		err = errors.New("req at least two answers")
 		return
 	}
-	stamp, err := brave.GetStamp()
+	stamp, err := rdns.GetStamp()
 	if err != nil {
 		return
 	}
@@ -198,30 +198,30 @@ func (brave *bravedns) blockUnpackedResponse(msg *dns.Msg) (r string, err error)
 	// err when incoming name != ascii, ignore
 	ansname, _ = xdns.NormalizeQName(ansname)
 
-	block, lists := brave.trie.DNlookup(ansname, stamp)
+	block, lists := rdns.trie.DNlookup(ansname, stamp)
 	// TODO: handle empty lists as err?
 	if block {
-		r = strings.Join(brave.keyToNames(lists), ",")
+		r = strings.Join(rdns.keyToNames(lists), ",")
 		return
 	}
 	err = fmt.Errorf("%v cloaked domain not in blocklist %s", ansname, stamp)
 	return
 }
 
-func NewBraveDNSRemote(listinfo string) (BraveDNS, error) {
+func NewRethinkDNSRemote(listinfo string) (RethinkDNS, error) {
 	flags, tags, err := load(listinfo)
 	if err != nil {
 		return nil, err
 	}
-	return &bravedns{
+	return &rethinkdns{
 		flags: flags,
 		tags:  tags,
 		mode:  remoteBlock,
 	}, nil
 }
 
-func NewBraveDNSLocal(t string, rank string,
-	conf string, listinfo string) (BraveDNS, error) {
+func NewRethinkDNSLocal(t string, rank string,
+	conf string, listinfo string) (RethinkDNS, error) {
 
 	if len(t) <= 0 || len(rank) <= 0 || len(conf) <= 0 || len(listinfo) <= 0 {
 		return nil, errors.New("missing data, unable to build blocklist")
@@ -243,7 +243,7 @@ func NewBraveDNSLocal(t string, rank string,
 	runtime.GC()
 
 	// https://docs.pi-hole.net/ftldns/blockingmode/
-	return &bravedns{
+	return &rethinkdns{
 		trie:  &trie,
 		flags: flags,
 		tags:  tags,
@@ -285,7 +285,7 @@ func load(blacklistconfigjson string) ([]string, map[string]string, error) {
 	return rflags, fdata, nil
 }
 
-func (brave *bravedns) decode(stamp string, ver string) (tags []string, err error) {
+func (rdns *rethinkdns) decode(stamp string, ver string) (tags []string, err error) {
 	decoder := b64.StdEncoding
 	if ver == "0" {
 		stamp, err = url.QueryUnescape(stamp)
@@ -313,10 +313,10 @@ func (brave *bravedns) decode(stamp string, ver string) (tags []string, err erro
 		err = fmt.Errorf("unimplemented header stamp version %v", ver)
 		return
 	}
-	return brave.flagstotag(u16)
+	return rdns.flagstotag(u16)
 }
 
-func (brave *bravedns) flagstotag(flags []uint16) ([]string, error) {
+func (rdns *rethinkdns) flagstotag(flags []uint16) ([]string, error) {
 	// flags has to be an array of 16-bit integers.
 
 	// first index always contains the header
@@ -367,7 +367,7 @@ func (brave *bravedns) flagstotag(flags []uint16) ([]string, error) {
 				pos := (index * 16) + j
 				// from the decimal value which is its
 				// blocklist-id, fetch its metadata
-				values = append(values, brave.flags[pos])
+				values = append(values, rdns.flags[pos])
 			}
 			mask = mask >> 1
 		}
