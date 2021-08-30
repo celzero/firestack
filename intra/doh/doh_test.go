@@ -591,7 +591,7 @@ func TestAccept(t *testing.T) {
 	}
 	rlen := binary.BigEndian.Uint16(lbuf)
 	resp := make([]byte, int(rlen))
-	n, err = client.Read(resp)
+	_, err = client.Read(resp)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -854,4 +854,3 @@ func TestServfail(t *testing.T) {
 		t.Errorf("Wrong question: %v", servfail.Questions[0])
 	}
 }
-

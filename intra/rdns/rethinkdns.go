@@ -169,42 +169,39 @@ func (rdns *rethinkdns) blockUnpackedResponse(msg *dns.Msg) (r string, err error
 		return
 	}
 
-	cnamed := false
-	anstype := dns.TypeNone
-	ansname := ""
-	// TODO: SVCB/HTTPS tools.ietf.org/html/draft-ietf-dnsop-svcb-https-01
+	// handle cname, https/svcb name cloaking: news.ycombinator.com/item?id=26298339
+	// adopted from: github.com/DNSCrypt/dnscrypt-proxy/blob/6e8628f79/dnscrypt-proxy/plugin_block_name.go#L178
 	for _, a := range msg.Answer {
-		switch a.(type) {
+		var target string
+		switch r := a.(type) {
 		case *dns.CNAME:
-			cnamed = true
-		case *dns.A:
-			anstype = dns.TypeA
-			ansname = a.Header().Name
-		case *dns.AAAA:
-			anstype = dns.TypeAAAA
-			ansname = a.Header().Name
+			target = r.Target
+		case *dns.SVCB:
+			if r.Priority == 0 {
+				target = r.Target
+			}
+		case *dns.HTTPS:
+			if r.Priority == 0 {
+				target = r.Target
+			}
 		default:
-			// nothing to do
+			// no-op
+		}
+
+		if len(target) <= 0 {
+			continue
+		}
+
+		// err when incoming name != ascii, ignore
+		target, _ = xdns.NormalizeQName(target)
+		block, lists := rdns.trie.DNlookup(target, stamp)
+		if block { // TODO: handle empty lists as err?
+			r = strings.Join(rdns.keyToNames(lists), ",")
+			return
 		}
 	}
-	if !cnamed || len(ansname) <= 0 {
-		err = fmt.Errorf("not cnamed")
-		return
-	}
-	if anstype != dns.TypeAAAA && anstype != dns.TypeA {
-		err = fmt.Errorf("not a or aaaa")
-		return
-	}
-	// err when incoming name != ascii, ignore
-	ansname, _ = xdns.NormalizeQName(ansname)
 
-	block, lists := rdns.trie.DNlookup(ansname, stamp)
-	// TODO: handle empty lists as err?
-	if block {
-		r = strings.Join(rdns.keyToNames(lists), ",")
-		return
-	}
-	err = fmt.Errorf("%v cloaked domain not in blocklist %s", ansname, stamp)
+	err = fmt.Errorf("answers not in blocklist %s", stamp)
 	return
 }
 
