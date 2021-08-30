@@ -36,6 +36,8 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/celzero/firestack/intra/rdns"
+
 	"golang.org/x/net/dns/dnsmessage"
 )
 
@@ -157,15 +159,15 @@ func TestBadUrl(t *testing.T) {
 
 // Check for failure when the query is too short to be valid.
 func TestShortQuery(t *testing.T) {
-	var qerr *queryError
+	var qerr *rdns.QueryError
 	doh, _ := NewTransport(testURL, ips, nil, nil, nil)
 	_, err := doh.Query([]byte{})
 	if err == nil {
 		t.Error("Empty query should fail")
 	} else if !errors.As(err, &qerr) {
 		t.Errorf("Wrong error type: %v", err)
-	} else if qerr.status != BadQuery {
-		t.Errorf("Wrong error status: %d", qerr.status)
+	} else if qerr.Status != rdns.BadQuery {
+		t.Errorf("Wrong error status: %d", qerr.Status)
 	}
 
 	_, err = doh.Query([]byte{1})
@@ -173,8 +175,8 @@ func TestShortQuery(t *testing.T) {
 		t.Error("One byte query should fail")
 	} else if !errors.As(err, &qerr) {
 		t.Errorf("Wrong error type: %v", err)
-	} else if qerr.status != BadQuery {
-		t.Errorf("Wrong error status: %d", qerr.status)
+	} else if qerr.Status != rdns.BadQuery {
+		t.Errorf("Wrong error status: %d", qerr.Status)
 	}
 }
 
@@ -354,13 +356,13 @@ func TestEmptyResponse(t *testing.T) {
 	}()
 
 	_, err := doh.Query(simpleQueryBytes)
-	var qerr *queryError
+	var qerr *rdns.QueryError
 	if err == nil {
 		t.Error("Empty body should cause an error")
 	} else if !errors.As(err, &qerr) {
 		t.Errorf("Wrong error type: %v", err)
-	} else if qerr.status != BadResponse {
-		t.Errorf("Wrong error status: %d", qerr.status)
+	} else if qerr.Status != rdns.BadResponse {
+		t.Errorf("Wrong error status: %d", qerr.Status)
 	}
 }
 
@@ -384,13 +386,13 @@ func TestHTTPError(t *testing.T) {
 	}()
 
 	_, err := doh.Query(simpleQueryBytes)
-	var qerr *queryError
+	var qerr *rdns.QueryError
 	if err == nil {
 		t.Error("Empty body should cause an error")
 	} else if !errors.As(err, &qerr) {
 		t.Errorf("Wrong error type: %v", err)
-	} else if qerr.status != HTTPError {
-		t.Errorf("Wrong error status: %d", qerr.status)
+	} else if qerr.Status != rdns.TransportError {
+		t.Errorf("Wrong error status: %d", qerr.Status)
 	}
 }
 
@@ -403,29 +405,29 @@ func TestSendFailed(t *testing.T) {
 
 	rt.err = errors.New("test")
 	_, err := doh.Query(simpleQueryBytes)
-	var qerr *queryError
+	var qerr *rdns.QueryError
 	if err == nil {
 		t.Error("Send failure should be reported")
 	} else if !errors.As(err, &qerr) {
 		t.Errorf("Wrong error type: %v", err)
-	} else if qerr.status != SendFailed {
-		t.Errorf("Wrong error status: %d", qerr.status)
+	} else if qerr.Status != rdns.SendFailed {
+		t.Errorf("Wrong error status: %d", qerr.Status)
 	} else if !errors.Is(qerr, rt.err) {
 		t.Errorf("Underlying error is not retained")
 	}
 }
 
 type fakeListener struct {
-	Listener
-	summary *Summary
+	rdns.Listener
+	summary *rdns.Summary
 }
 
-func (l *fakeListener) OnQuery(url string) Token {
-	return nil
+func (l *fakeListener) OnQuery(domain string) string {
+	return ""
 }
 
-func (l *fakeListener) OnResponse(tok Token, summ *Summary) {
-	l.summary = summ
+func (l *fakeListener) OnResponse(s *rdns.Summary) {
+	l.summary = s
 }
 
 type fakeConn struct {
@@ -479,7 +481,7 @@ func TestListener(t *testing.T) {
 	if s.Server != "192.0.2.2" {
 		t.Errorf("Wrong server IP string: %s", s.Server)
 	}
-	if s.Status != Complete {
+	if s.Status != rdns.Complete {
 		t.Errorf("Wrong status: %d", s.Status)
 	}
 }

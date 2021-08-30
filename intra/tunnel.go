@@ -46,9 +46,7 @@ import (
 type Listener interface {
 	UDPListener
 	TCPListener
-	doh.Listener
-	dnscrypt.Listener
-	dnsproxy.Listener
+	rdns.Listener
 }
 
 // Tunnel represents an Intra session.

@@ -49,45 +49,10 @@ import (
 	"golang.org/x/net/dns/dnsmessage"
 )
 
-const (
-	// Complete : Transaction completed successfully
-	Complete = iota
-	// SendFailed : Failed to send query
-	SendFailed
-	// HTTPError : Got a non-200 HTTP status
-	HTTPError
-	// BadQuery : Malformed input
-	BadQuery
-	// BadResponse : Response was invalid
-	BadResponse
-	// InternalError : This should never happen
-	InternalError
-)
-
 // If the server sends an invalid reply, we start a "servfail hangover"
 // of this duration, during which all queries are rejected.
 // This rate-limits queries to misconfigured servers (e.g. wrong URL).
 const hangoverDuration = 10 * time.Second
-
-// Summary is a summary of a DNS transaction, reported when it is complete.
-type Summary struct {
-	Latency    float64 // Response (or failure) latency in seconds
-	Query      []byte
-	Response   []byte
-	Server     string
-	Status     int
-	HTTPStatus int    // Zero unless Status is Complete or HTTPError
-	Blocklists string // csv separated list of blocklists names, if any.
-}
-
-// A Token is an opaque handle used to match responses to queries.
-type Token interface{}
-
-// Listener receives Summaries.
-type Listener interface {
-	OnQuery(url string) Token
-	OnResponse(Token, *Summary)
-}
 
 // Transport represents a DNS query transport.  This interface is exported by gobind,
 // so it has to be very simple.
@@ -111,7 +76,7 @@ type transport struct {
 	ips                ipmap.IPMap
 	client             http.Client
 	dialer             *net.Dialer
-	listener           Listener
+	listener           rdns.Listener
 	rethinkdns         rdns.RethinkDNS
 	hangoverLock       sync.RWMutex
 	hangoverExpiration time.Time
@@ -169,7 +134,7 @@ func (t *transport) dial(network, addr string) (net.Conn, error) {
 //   timeout but will not mutate it otherwise.
 // `auth` will provide a client certificate if required by the TLS server.
 // `listener` will receive the status of each DNS query when it is complete.
-func NewTransport(rawurl string, addrs []string, dialer *net.Dialer, auth ClientAuth, listener Listener) (Transport, error) {
+func NewTransport(rawurl string, addrs []string, dialer *net.Dialer, auth ClientAuth, listener rdns.Listener) (Transport, error) {
 	if dialer == nil {
 		dialer = &net.Dialer{}
 	}
@@ -226,36 +191,15 @@ func NewTransport(rawurl string, addrs []string, dialer *net.Dialer, auth Client
 	return t, nil
 }
 
-type queryError struct {
-	status int
-	err    error
-}
-
-func (e *queryError) Error() string {
-	return e.err.Error()
-}
-
-func (e *queryError) Unwrap() error {
-	return e.err
-}
-
-type httpError struct {
-	status int
-}
-
-func (e *httpError) Error() string {
-	return fmt.Sprintf("HTTP request failed: %d", e.status)
-}
-
 // Given a raw DNS query (including the query ID), this function sends the
 // query.  If the query is successful, it returns the response and a nil qerr.  Otherwise,
 // it returns a SERVFAIL response and a qerr with a status value indicating the cause.
 // Independent of the query's success or failure, this function also returns the
 // address of the server on a best-effort basis, or nil if the address could not
 // be determined.
-func (t *transport) doQuery(q []byte) (response []byte, blocklists string, server *net.TCPAddr, elapsed time.Duration, qerr *queryError) {
+func (t *transport) doQuery(q []byte) (response []byte, blocklists string, server *net.TCPAddr, elapsed time.Duration, qerr *rdns.QueryError) {
 	if len(q) < 2 {
-		qerr = &queryError{BadQuery, fmt.Errorf("Query length is %d", len(q))}
+		qerr = &rdns.QueryError{rdns.BadQuery, fmt.Errorf("Query length is %d", len(q))}
 		return
 	}
 
@@ -277,7 +221,7 @@ func (t *transport) doQuery(q []byte) (response []byte, blocklists string, serve
 	t.hangoverLock.RUnlock()
 	if inHangover {
 		response = tryServfail(q)
-		qerr = &queryError{HTTPError, errors.New("forwarder in servfail hangover")}
+		qerr = &rdns.QueryError{rdns.TransportError, errors.New("forwarder in servfail hangover")}
 		elapsed = time.Since(start)
 		return
 	}
@@ -286,7 +230,7 @@ func (t *transport) doQuery(q []byte) (response []byte, blocklists string, serve
 	q, err := AddEdnsPadding(q)
 	if err != nil {
 		elapsed = time.Since(start)
-		qerr = &queryError{InternalError, err}
+		qerr = &rdns.QueryError{rdns.InternalError, err}
 		return
 	}
 
@@ -301,7 +245,7 @@ func (t *transport) doQuery(q []byte) (response []byte, blocklists string, serve
 	binary.BigEndian.PutUint16(q, id)
 
 	if qerr != nil { // only on send-request errors
-		if qerr.status != SendFailed {
+		if qerr.Status != rdns.SendFailed {
 			t.hangoverLock.Lock()
 			t.hangoverExpiration = time.Now().Add(hangoverDuration)
 			t.hangoverLock.Unlock()
@@ -316,7 +260,7 @@ func (t *transport) doQuery(q []byte) (response []byte, blocklists string, serve
 	return
 }
 
-func (t *transport) sendRequest(id uint16, q []byte) (response []byte, hostname string, server *net.TCPAddr, blocklists string, elapsed time.Duration, qerr *queryError) {
+func (t *transport) sendRequest(id uint16, q []byte) (response []byte, hostname string, server *net.TCPAddr, blocklists string, elapsed time.Duration, qerr *rdns.QueryError) {
 	hostname = t.hostname
 
 	// The connection used for this request.  If the request fails, we will close
@@ -345,7 +289,7 @@ func (t *transport) sendRequest(id uint16, q []byte) (response []byte, hostname 
 	req, err := http.NewRequest(http.MethodPost, t.url, bytes.NewBuffer(q))
 	if err != nil {
 		elapsed = time.Since(start)
-		qerr = &queryError{InternalError, err}
+		qerr = &rdns.QueryError{rdns.InternalError, err}
 		return
 	}
 
@@ -417,7 +361,7 @@ func (t *transport) sendRequest(id uint16, q []byte) (response []byte, hostname 
 
 	if err != nil {
 		elapsed = time.Since(start)
-		qerr = &queryError{SendFailed, err}
+		qerr = &rdns.QueryError{rdns.SendFailed, err}
 		return
 	}
 
@@ -426,7 +370,7 @@ func (t *transport) sendRequest(id uint16, q []byte) (response []byte, hostname 
 	elapsed = time.Since(start)
 
 	if err != nil {
-		qerr = &queryError{BadResponse, err}
+		qerr = &rdns.QueryError{rdns.BadResponse, err}
 		return
 	}
 	httpResponse.Body.Close()
@@ -442,7 +386,7 @@ func (t *transport) sendRequest(id uint16, q []byte) (response []byte, hostname 
 		httpResponse.Write(respBuf)
 		log.Debugf("%d request: %s\nresponse: %s", id, reqBuf.String(), respBuf.String())
 
-		qerr = &queryError{HTTPError, &httpError{httpResponse.StatusCode}}
+		qerr = &rdns.QueryError{rdns.TransportError, fmt.Errorf("http-request failed: %d", httpResponse.StatusCode)}
 		return
 	}
 
@@ -456,35 +400,27 @@ func (t *transport) sendRequest(id uint16, q []byte) (response []byte, hostname 
 				response = r
 			}
 		} else {
-			qerr = &queryError{BadResponse, errors.New("nonzero response-id")}
+			qerr = &rdns.QueryError{rdns.BadResponse, errors.New("nonzero response-id")}
 		}
 	} else {
-		qerr = &queryError{BadResponse, fmt.Errorf("response length is %d", len(response))}
+		qerr = &rdns.QueryError{rdns.BadResponse, fmt.Errorf("response length is %d", len(response))}
 	}
 
 	return
 }
 
 func (t *transport) Query(q []byte) ([]byte, error) {
-	var token Token
 	if t.listener != nil {
-		token = t.listener.OnQuery(t.url)
+		t.listener.OnQuery(t.url)
 	}
 
 	response, blocklists, server, elapsed, qerr := t.doQuery(q)
 
 	var err error
-	status := Complete
-	httpStatus := http.StatusOK
+	status := rdns.Complete
 	if qerr != nil {
 		err = qerr
-		status = qerr.status
-		httpStatus = 0
-
-		var herr *httpError
-		if errors.As(qerr.err, &herr) {
-			httpStatus = herr.status
-		}
+		status = qerr.Status
 	}
 
 	if t.listener != nil {
@@ -494,13 +430,12 @@ func (t *transport) Query(q []byte) ([]byte, error) {
 			ip = server.IP.String()
 		}
 
-		t.listener.OnResponse(token, &Summary{
+		t.listener.OnResponse(&rdns.Summary{
 			Latency:    latency.Seconds(),
 			Query:      q,
 			Response:   response,
 			Server:     ip,
 			Status:     status,
-			HTTPStatus: httpStatus,
 			Blocklists: blocklists,
 		})
 	}

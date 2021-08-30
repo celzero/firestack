@@ -219,7 +219,7 @@ type Proxy struct {
 	registeredRelays             []RegisteredServer
 	routes                       []string
 	quit                         chan bool
-	listener                     Listener
+	listener                     rdns.Listener
 	liveServers                  []string
 	sigterm                      context.CancelFunc
 	rethinkdns                   rdns.RethinkDNS
@@ -274,7 +274,7 @@ func (proxy *Proxy) prepareForRelay(ip net.IP, port int, encryptedQuery *[]byte)
 func (proxy *Proxy) query(packet []byte, truncate bool) (response []byte, blocklists string, serverInfo *ServerInfo, qerr error) {
 	if len(packet) < xdns.MinDNSPacketSize {
 		log.Warnf("DNS query size too short, cannot process dns-crypt query.")
-		qerr = &dnscryptError{BadQuery, fmt.Errorf("dns-crypt query size too short")}
+		qerr = &rdns.QueryError{rdns.BadQuery, fmt.Errorf("dns-crypt query size too short")}
 		return
 	}
 
@@ -291,7 +291,7 @@ func (proxy *Proxy) query(packet []byte, truncate bool) (response []byte, blockl
 	blocklists = state.blocklists
 	if err != nil || saction == ActionDrop {
 		log.Errorf("ActionDrop or err on request %w", err)
-		qerr = &dnscryptError{BadQuery, err}
+		qerr = &rdns.QueryError{rdns.BadQuery, err}
 		return
 	}
 	if saction == ActionSynth {
@@ -301,7 +301,7 @@ func (proxy *Proxy) query(packet []byte, truncate bool) (response []byte, blockl
 			// XXX: when the query is blocked and pack-buffer fails
 			// doh falls back to forwarding the query instead.
 			if err != nil {
-				qerr = &dnscryptError{BadResponse, err}
+				qerr = &rdns.QueryError{rdns.BadResponse, err}
 			}
 			return
 		}
@@ -309,12 +309,12 @@ func (proxy *Proxy) query(packet []byte, truncate bool) (response []byte, blockl
 	}
 	if len(query) < xdns.MinDNSPacketSize {
 		err = errors.New("dns query size too short, drop dns-crypt query")
-		qerr = &dnscryptError{BadQuery, err}
+		qerr = &rdns.QueryError{rdns.BadQuery, err}
 		return
 	}
 	if len(query) > xdns.MaxDNSPacketSize {
 		err = errors.New("dns query size too large, drop dns-crypt query")
-		qerr = &dnscryptError{BadQuery, err}
+		qerr = &rdns.QueryError{rdns.BadQuery, err}
 		return
 	}
 
@@ -322,7 +322,7 @@ func (proxy *Proxy) query(packet []byte, truncate bool) (response []byte, blockl
 
 	if serverInfo == nil {
 		err = errors.New("server-info nil, drop dns-crypt query")
-		qerr = &dnscryptError{InternalError, err}
+		qerr = &rdns.QueryError{rdns.InternalError, err}
 		return
 	}
 
@@ -331,7 +331,7 @@ func (proxy *Proxy) query(packet []byte, truncate bool) (response []byte, blockl
 
 		if err != nil {
 			log.Warnf("Encryption failure with dns-crypt query to %s.", serverInfo.String())
-			qerr = &dnscryptError{InternalError, err}
+			qerr = &rdns.QueryError{rdns.InternalError, err}
 			return
 		}
 
@@ -339,23 +339,23 @@ func (proxy *Proxy) query(packet []byte, truncate bool) (response []byte, blockl
 
 		if err != nil {
 			log.Warnf("dns crypt query exchange with %s failed: %v", serverInfo.String(), err)
-			qerr = &dnscryptError{SendFailed, err}
+			qerr = &rdns.QueryError{rdns.SendFailed, err}
 			return
 		}
 	} else if serverInfo.Proto == stamps.StampProtoTypeDoH {
 		// FIXME: implement
 		log.Errorf("Unsupported dns-crypt transport protocol")
-		qerr = &dnscryptError{SendFailed, fmt.Errorf("doh not supported with dns-crypt proxy")}
+		qerr = &rdns.QueryError{rdns.SendFailed, fmt.Errorf("doh not supported with dns-crypt proxy")}
 		return
 	} else {
 		log.Errorf("Unsupported dns-crypt transport protocol")
-		qerr = &dnscryptError{Error, fmt.Errorf("dns-crypt: unknown protocol")}
+		qerr = &rdns.QueryError{rdns.NoReponse, fmt.Errorf("dns-crypt: unknown protocol")}
 		return
 	}
 
 	if len(response) < xdns.MinDNSPacketSize || len(response) > xdns.MaxDNSPacketSize {
 		log.Errorf("response packet size from %s too small or too large", serverInfo.String())
-		qerr = &dnscryptError{BadResponse, fmt.Errorf("response packet size too small or too big")}
+		qerr = &rdns.QueryError{rdns.BadResponse, fmt.Errorf("response packet size too small or too big")}
 		return
 	}
 
@@ -363,7 +363,7 @@ func (proxy *Proxy) query(packet []byte, truncate bool) (response []byte, blockl
 
 	if err != nil {
 		log.Errorf("failed to intercept %s response %w", serverInfo.String(), err)
-		qerr = &dnscryptError{BadResponse, err}
+		qerr = &rdns.QueryError{rdns.BadResponse, err}
 	}
 
 	if state.action == ActionSynth && state.response != nil {
@@ -372,7 +372,7 @@ func (proxy *Proxy) query(packet []byte, truncate bool) (response []byte, blockl
 		// XXX: when the query is blocked and pack-buffer fails doh falls
 		// back to forwarding the query instead, but here we don't.
 		if err != nil {
-			qerr = &dnscryptError{BadResponse, err}
+			qerr = &rdns.QueryError{rdns.BadResponse, err}
 		}
 		return
 	}
@@ -395,7 +395,7 @@ func HandleUDP(proxy *Proxy, data []byte) (response []byte, err error) {
 
 	if proxy.listener != nil {
 		latency := after.Sub(before)
-		status := Complete
+		status := rdns.Complete
 
 		var resolver string
 		var relay string
@@ -406,12 +406,12 @@ func HandleUDP(proxy *Proxy, data []byte) (response []byte, err error) {
 			}
 		}
 
-		var qerr *dnscryptError
+		var qerr *rdns.QueryError
 		if errors.As(err, &qerr) {
-			status = qerr.status
+			status = qerr.Status
 		}
 
-		proxy.listener.OnDNSCryptResponse(&Summary{
+		proxy.listener.OnResponse(&rdns.Summary{
 			Latency:     latency.Seconds(),
 			Query:       data,
 			Response:    response,
@@ -465,7 +465,7 @@ func HandleTCP(proxy *Proxy, conn net.Conn) {
 
 	if proxy.listener != nil {
 		latency := after.Sub(before)
-		status := Complete
+		status := rdns.Complete
 
 		var resolver string
 		var relay string
@@ -474,12 +474,12 @@ func HandleTCP(proxy *Proxy, conn net.Conn) {
 			relay = s.RelayTCPAddr.IP.String()
 		}
 
-		var qerr *dnscryptError
+		var qerr *rdns.QueryError
 		if errors.As(err, &qerr) {
-			status = qerr.status
+			status = qerr.Status
 		}
 
-		proxy.listener.OnDNSCryptResponse(&Summary{
+		proxy.listener.OnResponse(&rdns.Summary{
 			Latency:     latency.Seconds(),
 			Query:       query,
 			Response:    response,
@@ -652,7 +652,7 @@ func (proxy *Proxy) AddServers(serverscsv string) (int, error) {
 }
 
 // NewProxy creates a dnscrypt proxy
-func NewProxy(l Listener) *Proxy {
+func NewProxy(l rdns.Listener) *Proxy {
 	suffixes := critbitgo.NewTrie()
 	for _, line := range undelegatedSet {
 		pattern := xdns.StringReverse(line)

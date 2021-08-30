@@ -26,7 +26,7 @@ import (
 )
 
 const (
-	blocklistHeaderKey = "x-nile-flags" // "x-bl-fl"
+	blocklistHeaderKey = "x-nile-flags"
 	localBlock         = 0
 	remoteBlock        = 1
 )
