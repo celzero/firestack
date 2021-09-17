@@ -18,8 +18,8 @@ ls -ltr $ANDROID_HOME/platforms/
 ls -ltr $ANDROID_HOME/ndk/
 
 # download golang
-curl -Lso go.tar.gz https://golang.org/dl/go1.15.4.linux-amd64.tar.gz
-echo "eb61005f0b932c93b424a3a4eaa67d72196c79129d9a3ea8578047683e2c80d5 go.tar.gz" | sha256sum -c -
+curl -Lso go.tar.gz https://golang.org/dl/go1.17.1.linux-amd64.tar.gz
+echo "dab7d9c34361dc21ec237d584590d72500652e7c909bf082758fb63064fca0ef go.tar.gz" | sha256sum -c -
 
 # setup golang
 mkdir -p golang

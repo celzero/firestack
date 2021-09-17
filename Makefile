@@ -19,7 +19,6 @@ WINDOWS_BUILDDIR=$(BUILDDIR)/windows
 LINUX_BUILDDIR=$(BUILDDIR)/linux
 
 ANDROID_BUILD_CMD="$(GOBIND) -a -ldflags $(ANDROID_LDFLAGS) -target=android -tags android -work -o $(ANDROID_ARTIFACT)"
-ANDROID_OUTLINE_BUILD_CMD="$(ANDROID_BUILD_CMD) $(IMPORT_PATH)/outline/android $(IMPORT_PATH)/outline/shadowsocks"
 ANDROID_INTRA_BUILD_CMD="$(ANDROID_BUILD_CMD) $(IMPORT_PATH)/intra $(IMPORT_PATH)/intra/android $(IMPORT_PATH)/intra/doh $(IMPORT_PATH)/intra/split $(IMPORT_PATH)/intra/protect $(IMPORT_PATH)/intra/settings $(IMPORT_PATH)/intra/dnscrypt $(IMPORT_PATH)/intra/dnsproxy $(IMPORT_PATH)/intra/rdns $(IMPORT_PATH)/intra/xdns"
 IOS_BUILD_CMD="$(GOBIND) -a -ldflags $(LDFLAGS) -bundleid org.outline.tun2socks -target=ios/arm64 -tags ios -o $(IOS_ARTIFACT) $(IMPORT_PATH)/outline/apple $(IMPORT_PATH)/outline/shadowsocks"
 MACOS_BUILD_CMD="./tools/$(GOBIND) -a -ldflags $(LDFLAGS) -bundleid org.outline.tun2socks -target=ios/amd64 -tags ios -o $(MACOS_ARTIFACT) $(IMPORT_PATH)/outline/apple $(IMPORT_PATH)/outline/shadowsocks"
@@ -28,15 +27,13 @@ LINUX_BUILD_CMD="$(XGOCMD) -ldflags $(XGO_LDFLAGS) --targets=linux/amd64 -dest $
 
 define build
 	mkdir -p $(1)
+	go env -w GOFLAGS=-mod=mod # github.com/golang/go/issues/44129
 	eval $(2)
 endef
 
-.PHONY: android-outline android-intra ios linux macos windows clean
+.PHONY: android-intra ios linux macos windows clean
 
-all: android-outline android-intra ios linux macos windows
-
-android-outline:
-	$(call build,$(ANDROID_BUILDDIR),$(ANDROID_OUTLINE_BUILD_CMD))
+all: android-intra ios linux macos windows
 
 android-intra:
 	$(call build,$(ANDROID_BUILDDIR),$(ANDROID_INTRA_BUILD_CMD))
