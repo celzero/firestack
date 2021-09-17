@@ -30,7 +30,7 @@ export GO_COMPILED="$GOPATH/bin"
 export PATH="$GO_LANG:$GO_COMPILED:$PATH"
 
 # init gomobile
-go get golang.org/x/mobile/cmd/gomobile
+go install golang.org/x/mobile/cmd/gomobile
 gomobile init
 
 # checkout tagged branch?
