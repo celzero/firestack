@@ -36,8 +36,10 @@ gomobile init
 # checkout tagged branch?
 # git checkout -b "$VERSION"
 
-# godeps
-go get -d ./...
+# godeps, for some reason fails with,
+# "panic: Lookup called with empty package path"
+# but works without it too, for now
+# go get -d ./...
 
 # gomobile aar
 ./build_android.sh intra
