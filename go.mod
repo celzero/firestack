@@ -19,5 +19,4 @@ require (
 	golang.org/x/mobile v0.0.0-20210716004757-34ab1303b554 // indirect
 	github.com/aead/poly1305 v0.0.0-20180717145839-3fee0db0b635 // indirect
 	github.com/aead/chacha20 v0.0.0-20180709150244-8b13a72661da // indirect
-
 )
