@@ -76,5 +76,5 @@ go get -d ./...
 ./build_android.sh intra
 
 # other unsupported, unmaintained builds:
-./build_[ios|android|macos|windows].sh
+./build_[ios|linux|macos|windows].sh
 ```
