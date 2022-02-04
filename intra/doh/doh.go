@@ -360,7 +360,7 @@ func (t *transport) sendRequest(id uint16, q []byte) (response []byte, hostname 
 	const mimetype = "application/dns-message"
 	req.Header.Set("Content-Type", mimetype)
 	req.Header.Set("Accept", mimetype)
-	req.Header.Set("User-Agent", "Intra")
+	req.Header.Set("User-Agent", "")
 
 	log.Debugf("%d Sending query", id)
 	httpResponse, err := t.client.Do(req)
