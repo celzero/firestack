@@ -21,9 +21,11 @@
 //     See the License for the specific language governing permissions and
 //     limitations under the License.
 
-package tun2socks
+package intra
 
 import (
+	"errors"
+	"os"
 	"runtime/debug"
 	"strings"
 
@@ -57,20 +59,28 @@ func init() {
 //
 // Throws an exception if the TUN file descriptor cannot be opened, or if the tunnel fails to
 // connect.
-func ConnectIntraTunnel(fd int, fakedns string, dohdns doh.Transport, protector protect.Protector, flow protect.Flow, listener intra.Listener) (intra.Tunnel, error) {
-	tun, err := tunnel.MakeTunFile(fd)
+const gvisor bool = true
+const mtu uint32 = 1500
+
+func ConnectIntraTunnel(fd int, fakedns string, dohdns doh.Transport, protector protect.Protector, flow protect.Flow, listener intra.Listener) (t intra.Tunnel, err error) {
+	dupfd, err := tunnel.Dup(fd)
 	if err != nil {
 		return nil, err
 	}
-
 	dialer := protect.MakeDialer(protector)
 	config := protect.MakeListenConfig(protector)
-	t, err := intra.NewTunnel(fakedns, dohdns, tun, dialer, flow, config, listener)
-	if err != nil {
-		return nil, err
+	if gvisor {
+		return intra.NewGTunnel(fakedns, dohdns, fd, mtu, dialer, flow, config, listener)
+	} else {
+		// java-land gives up its ownership of fd
+		tun := os.NewFile(uintptr(dupfd), "")
+		if tun == nil {
+			return nil, errors.New("failed to open TUN file descriptor")
+		}
+		t, err = intra.NewTunnel(fakedns, dohdns, tun, dialer, flow, config, listener)
+		go tunnel.ProcessInputPackets(t, tun)
+		return
 	}
-	go tunnel.ProcessInputPackets(t, tun)
-	return t, nil
 }
 
 // NewDoHTransport returns a DNSTransport that connects to the specified DoH server.

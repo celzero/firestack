@@ -1,6 +1,6 @@
 module github.com/celzero/firestack
 
-go 1.15
+go 1.18
 
 require (
 	github.com/Jigsaw-Code/getsni v1.0.0
@@ -14,9 +14,16 @@ require (
 	github.com/miekg/dns v1.1.43
 	github.com/txthinking/socks5 v0.0.0-20210716140126-fa1f52a8f2da
 	golang.org/x/crypto v0.0.0-20210817164053-32db794688a5
-	golang.org/x/net v0.0.0-20210825183410-e898025ed96a
-	golang.org/x/sys v0.0.0-20210823070655-63515b42dcdf
-	golang.org/x/mobile v0.0.0-20210716004757-34ab1303b554 // indirect
-	github.com/aead/poly1305 v0.0.0-20180717145839-3fee0db0b635 // indirect
-	github.com/aead/chacha20 v0.0.0-20180709150244-8b13a72661da // indirect
+	golang.org/x/net v0.0.0-20211015210444-4f30a5c0130f
+	golang.org/x/sys v0.0.0-20211019181941-9d821ace8654
+	gvisor.dev/gvisor v0.0.0-20220329084425-9638e18d39b3
+)
+
+require (
+	github.com/google/btree v1.0.1 // indirect
+	github.com/patrickmn/go-cache v2.1.0+incompatible // indirect
+	github.com/txthinking/runnergroup v0.0.0-20210608031112-152c7c4432bf // indirect
+	github.com/txthinking/x v0.0.0-20210326105829-476fab902fbe // indirect
+	golang.org/x/mobile v0.0.0-20220325161704-447654d348e3 // indirect
+	golang.org/x/time v0.0.0-20191024005414-555d28b269f0 // indirect
 )

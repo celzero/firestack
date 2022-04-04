@@ -38,6 +38,7 @@ import (
 	"github.com/celzero/firestack/intra/protect"
 	"github.com/celzero/firestack/intra/rdns"
 	"github.com/celzero/firestack/intra/settings"
+
 	"github.com/celzero/firestack/tunnel"
 )
 
@@ -106,6 +107,7 @@ func NewTunnel(fakedns string, dohdns doh.Transport, tunWriter io.WriteCloser, d
 	if tunWriter == nil {
 		return nil, errors.New("invalid tunnel writer")
 	}
+
 	core.RegisterOutputFn(tunWriter.Write)
 	t := &intratunnel{
 		Tunnel:  tunnel.NewTunnel(tunWriter, core.NewLWIPStack()),
@@ -116,6 +118,31 @@ func NewTunnel(fakedns string, dohdns doh.Transport, tunWriter io.WriteCloser, d
 	}
 	t.SetDNS(dohdns)
 	return t, nil
+}
+
+func NewGTunnel(fakedns string, dohdns doh.Transport, fd int, mtu uint32, dialer *net.Dialer, flow protect.Flow, config *net.ListenConfig, listener Listener) (Tunnel, error) {
+	fakednsaddr := net.TCPAddr{IP: net.ParseIP(fakedns)}
+
+	tunmode := settings.DefaultTunMode()
+
+	tcph := NewTCPHandler(fakednsaddr, dialer, flow, tunmode, listener)
+	t, err := tunnel.NewGTunnel(fd, mtu, tcph)
+
+	if err != nil {
+		return nil, err
+	}
+
+	gt := &intratunnel{
+		Tunnel:  t,
+		tunmode: tunmode,
+	}
+
+	if err := gt.registerGConnectionHandlers(fakedns, dialer, flow, config, listener); err != nil {
+		return nil, err
+	}
+
+	gt.SetDNS(dohdns)
+	return gt, nil
 }
 
 // Registers Intra's custom UDP and TCP connection handlers to the tun2socks core.
@@ -136,6 +163,17 @@ func (t *intratunnel) registerConnectionHandlers(fakedns string, dialer *net.Dia
 	}
 	t.tcp = NewTCPHandler(*tcpfakedns, dialer, flow, t.tunmode, listener)
 	core.RegisterTCPConnHandler(t.tcp)
+	return nil
+}
+
+// FIXME: Remove, as this fn is similar to registerConnectionHandlers
+func (t *intratunnel) registerGConnectionHandlers(fakedns string, dialer *net.Dialer, flow protect.Flow, config *net.ListenConfig, listener Listener) error {
+	tunmode := settings.DefaultTunMode()
+	tcpfakedns, err := net.ResolveTCPAddr("tcp", fakedns)
+	if err != nil {
+		return err
+	}
+	t.tcp = NewTCPHandler(*tcpfakedns, dialer, flow, tunmode, listener)
 	return nil
 }
 
