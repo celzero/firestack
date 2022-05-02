@@ -18,7 +18,7 @@ MACOS_ARTIFACT=$(MACOS_BUILDDIR)/Tun2socks.framework
 WINDOWS_BUILDDIR=$(BUILDDIR)/windows
 LINUX_BUILDDIR=$(BUILDDIR)/linux
 
-ANDROID_BUILD_CMD="$(GOBIND) -a -ldflags $(ANDROID_LDFLAGS) -target=android -tags android -work -o $(ANDROID_ARTIFACT)"
+ANDROID_BUILD_CMD="$(GOBIND) -v -a -trimpath -ldflags $(ANDROID_LDFLAGS) -target=android -tags='android,disable_debug' -work -o $(ANDROID_ARTIFACT)"
 ANDROID_INTRA_BUILD_CMD="$(ANDROID_BUILD_CMD) $(IMPORT_PATH)/intra $(IMPORT_PATH)/intra/android $(IMPORT_PATH)/intra/doh $(IMPORT_PATH)/intra/split $(IMPORT_PATH)/intra/protect $(IMPORT_PATH)/intra/settings $(IMPORT_PATH)/intra/dnscrypt $(IMPORT_PATH)/intra/dnsproxy $(IMPORT_PATH)/intra/rdns $(IMPORT_PATH)/intra/xdns"
 IOS_BUILD_CMD="$(GOBIND) -a -ldflags $(LDFLAGS) -bundleid org.outline.tun2socks -target=ios/arm64 -tags ios -o $(IOS_ARTIFACT) $(IMPORT_PATH)/outline/apple $(IMPORT_PATH)/outline/shadowsocks"
 MACOS_BUILD_CMD="./tools/$(GOBIND) -a -ldflags $(LDFLAGS) -bundleid org.outline.tun2socks -target=ios/amd64 -tags ios -o $(MACOS_ARTIFACT) $(IMPORT_PATH)/outline/apple $(IMPORT_PATH)/outline/shadowsocks"
