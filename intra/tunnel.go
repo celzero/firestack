@@ -125,8 +125,17 @@ func NewGTunnel(fakedns string, dohdns doh.Transport, fd int, mtu uint32, dialer
 
 	tunmode := settings.DefaultTunMode()
 
+	// RFC 4787 REQ-5 requires a timeout no shorter than 5 minutes.
+	udptimeout, _ := time.ParseDuration("5m")
+
+	udpfakedns, err := net.ResolveUDPAddr("udp", fakedns)
+	if err != nil {
+		return nil, err
+	}
+
 	tcph := NewTCPHandler(fakednsaddr, dialer, flow, tunmode, listener)
-	t, err := tunnel.NewGTunnel(fd, mtu, tcph)
+	udph := NewUDPHandler(*udpfakedns, udptimeout, flow, tunmode, config, listener)
+	t, err := tunnel.NewGTunnel(fd, mtu, tcph, udph)
 
 	if err != nil {
 		return nil, err

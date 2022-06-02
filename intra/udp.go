@@ -44,6 +44,8 @@ import (
 	"github.com/celzero/firestack/intra/doh"
 	"github.com/celzero/firestack/intra/protect"
 	"github.com/celzero/firestack/intra/settings"
+
+	"github.com/celzero/firestack/intra/netstack"
 )
 
 // UDPSocketSummary describes a non-DNS UDP association, reported when it is discarded.
@@ -73,6 +75,8 @@ func makeTracker(conn interface{}) *tracker {
 // UDPHandler adds DOH support to the base UDPConnHandler interface.
 type UDPHandler interface {
 	core.UDPConnHandler
+	netstack.GUDPConnHandler
+
 	SetDNS(dns doh.Transport)
 	onConn(localudp core.UDPConn, target *net.UDPAddr) string
 	SetDNSCryptProxy(*dnscrypt.Proxy)
@@ -97,7 +101,7 @@ type udpHandler struct {
 	proxies  map[string]*proxy.Dialer
 }
 
-// NewUDPHandler makes a UDP handler with Intra-style DNS redirection:
+// NewUDPHandler makes a UDP handler with Intra-style DNS redirection:udpHandler
 // All packets are routed directly to their destination, except packets whose
 // destination is `fakedns`.  Those packets are redirected to DOH.
 // `timeout` controls the effective NAT mapping lifetime.
@@ -176,8 +180,10 @@ func (h *udpHandler) onConn(localudp core.UDPConn, target *net.UDPAddr) (netid s
 	if h.tunMode.BlockMode == settings.BlockModeNone {
 		return protect.NetIdActive
 	}
+	// localudp is either core.UDPConn or gonet.UDPConn wrapped in GUDPConn
+	uconn := localudp.LocalAddr()
 	// Next-up If: BlockModeFilter or BlockModeFilterProc
-	return h.onNewConn(localudp.LocalAddr(), target)
+	return h.onNewConn(uconn, target)
 }
 
 func (h *udpHandler) onNewConn(source *net.UDPAddr, target *net.UDPAddr) (netid string) {
@@ -197,6 +203,15 @@ func (h *udpHandler) onNewConn(source *net.UDPAddr, target *net.UDPAddr) (netid 
 	}
 
 	return
+}
+
+func (h *udpHandler) NewUDPConnection(conn *netstack.GUDPConn, _, dst *net.UDPAddr) bool {
+	/*gconn := GTCPConn{C: conn}
+	newConn:= gconn.(net.Conn)*/
+	if err := h.Connect(conn, dst); err != nil {
+		return false
+	}
+	return true
 }
 
 // Connect connects the proxy server. Note that target can be nil.
@@ -359,6 +374,10 @@ func (h *udpHandler) dnsOverride(nat *tracker, conn core.UDPConn, addr *net.UDPA
 	}
 	// assert h.tunMode.DNSMode == settings.DNSModeNone
 	return false
+}
+
+func (h *udpHandler) HandleData(conn *netstack.GUDPConn, data []byte, addr *net.UDPAddr) error {
+	return h.ReceiveTo(conn, data, addr)
 }
 
 // ReceiveTo is called when data arrives from conn (tun).

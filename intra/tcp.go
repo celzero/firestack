@@ -238,7 +238,7 @@ func (h *tcpHandler) onConn(localConn net.Conn, target *net.TCPAddr) (netid stri
 	return
 }
 
-func (h *tcpHandler) NewConnection(conn netstack.GTCPConn, src, dst net.TCPAddr) {
+func (h *tcpHandler) NewTCPConnection(conn netstack.GTCPConn, src, dst net.TCPAddr) {
 	/*gconn := GTCPConn{C: conn}
 	newConn:= gconn.(net.Conn)*/
 	if err := h.Handle(conn, &dst); err != nil {

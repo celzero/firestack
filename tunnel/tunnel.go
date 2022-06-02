@@ -87,12 +87,13 @@ func (t *tunnel) Write(data []byte) (int, error) {
 	return t.lwipStack.Write(data)
 }
 
-func NewGTunnel(fd int, mtu uint32, tcphdl netstack.GTCPConnHandler) (Tunnel, error) {
+func NewGTunnel(fd int, mtu uint32, tcph netstack.GTCPConnHandler, udph netstack.GUDPConnHandler) (Tunnel, error) {
 	endpoint, err := netstack.NewEndpoint(fd, mtu)
 	if err != nil {
 		return nil, err
 	}
-	stack, err := netstack.NewStack(tcphdl, endpoint)
+	ghdl := netstack.NewGConnHandler(tcph, udph)
+	stack, err := netstack.NewStack(ghdl, endpoint)
 	if err != nil {
 		return nil, err
 	}

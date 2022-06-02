@@ -18,7 +18,7 @@ import (
 )
 
 type GTCPConnHandler interface {
-	NewConnection(conn GTCPConn, src, dst net.TCPAddr)
+	NewTCPConnection(conn GTCPConn, src, dst net.TCPAddr)
 }
 
 func setupTcpHandler(s *stack.Stack, handler GTCPConnHandler) {
@@ -43,7 +43,7 @@ func setupTcpHandler(s *stack.Stack, handler GTCPConnHandler) {
 			Port: int(id.LocalPort),
 		}
 
-		go handler.NewConnection(GTCPConn{endpoint, gonet.NewTCPConn(waitQueue, endpoint)}, src, dst)
+		go handler.NewTCPConnection(GTCPConn{endpoint, gonet.NewTCPConn(waitQueue, endpoint)}, src, dst)
 	})
 	s.SetTransportProtocolHandler(tcp.ProtocolNumber, forwarder.HandlePacket)
 }

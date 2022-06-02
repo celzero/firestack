@@ -15,6 +15,32 @@ import (
 	"gvisor.dev/gvisor/pkg/tcpip/transport/udp"
 )
 
+type GConnHandler interface {
+	TCP() GTCPConnHandler
+	UDP() GUDPConnHandler
+}
+
+type gconnhandler struct {
+	GConnHandler
+	tcp GTCPConnHandler
+	udp GUDPConnHandler
+}
+
+func NewGConnHandler(tcp GTCPConnHandler, udp GUDPConnHandler) GConnHandler {
+	return &gconnhandler{
+		tcp: tcp,
+		udp: udp,
+	}
+}
+
+func (g *gconnhandler) TCP() GTCPConnHandler {
+	return g.tcp
+}
+
+func (g *gconnhandler) UDP() GUDPConnHandler {
+	return g.udp
+}
+
 func NewEndpoint(dev int, mtu uint32) (stack.LinkEndpoint, error) {
 	var endpoint stack.LinkEndpoint
 	var fd_array []int
@@ -29,7 +55,7 @@ func NewEndpoint(dev int, mtu uint32) (stack.LinkEndpoint, error) {
 
 const nic tcpip.NICID = 0x01
 
-func NewStack(handler GTCPConnHandler, endpoint stack.LinkEndpoint) (*stack.Stack, error) {
+func NewStack(handler GConnHandler, endpoint stack.LinkEndpoint) (*stack.Stack, error) {
 	var o stack.Options
 	o = stack.Options{
 		NetworkProtocols: []stack.NetworkProtocolFactory{
@@ -60,8 +86,9 @@ func NewStack(handler GTCPConnHandler, endpoint stack.LinkEndpoint) (*stack.Stac
 	assertNoErr(s.SetSpoofing(nic, true))
 	// allow all packets sent to our fake nic through to netstack
 	assertNoErr(s.SetPromiscuousMode(nic, true))
-	setupTcpHandler(s, handler)
-	// setupUdpHandler(s, handler)
+	setupTcpHandler(s, handler.TCP())
+	setupUdpHandler(s, handler.UDP())
+	//setupUdpHandler(s, handler)
 	// setupIcmpHandler(s, endpoint, handler)
 
 	return s, nil
