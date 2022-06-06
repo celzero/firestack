@@ -24,6 +24,8 @@
 package tun2socks
 
 import (
+	"errors"
+	"os"
 	"runtime/debug"
 	"strings"
 
@@ -34,6 +36,9 @@ import (
 	"github.com/celzero/firestack/intra/protect"
 	"github.com/celzero/firestack/tunnel"
 )
+
+const gvisor bool = true
+const mtu uint32 = 1500
 
 func init() {
 	// Conserve memory by increasing garbage collection frequency.
@@ -57,27 +62,33 @@ func init() {
 //
 // Throws an exception if the TUN file descriptor cannot be opened, or if the tunnel fails to
 // connect.
-func ConnectIntraTunnel(fd int, fakedns string, dohdns doh.Transport, protector protect.Protector, blocker protect.Blocker, listener intra.Listener) (intra.Tunnel, error) {
-	tun, err := tunnel.MakeTunFile(fd)
+func ConnectIntraTunnel(fd int, fakedns string, dohdns doh.Transport, protector protect.Protector, blocker protect.Blocker, listener intra.Listener) (t intra.Tunnel, err error) {
+	dupfd, err := tunnel.Dup(fd)
 	if err != nil {
 		return nil, err
 	}
 
 	dialer := protect.MakeDialer(protector)
 	config := protect.MakeListenConfig(protector)
-	t, err := intra.NewTunnel(fakedns, dohdns, tun, dialer, blocker, config, listener)
-	if err != nil {
-		return nil, err
+	if gvisor {
+		return intra.NewGTunnel(fakedns, dohdns, fd, mtu, dialer, blocker, config, listener)
+	} else {
+		// java-land gives up its ownership of fd
+		tun := os.NewFile(uintptr(dupfd), "")
+		if tun == nil {
+			return nil, errors.New("failed to open TUN file descriptor")
+		}
+		t, err = intra.NewTunnel(fakedns, dohdns, tun, dialer, blocker, config, listener)
+		go tunnel.ProcessInputPackets(t, tun)
+		return
 	}
-	go tunnel.ProcessInputPackets(t, tun)
-	return t, nil
 }
 
 // NewDoHTransport returns a DNSTransport that connects to the specified DoH server.
 // `url` is the URL of a DoH server (no template, POST-only).  If it is nonempty, it
 //   overrides `udpdns` and `tcpdns`.
 // `ips` is an optional comma-separated list of IP addresses for the server.  (This
-//   wrapper is required because gomobile can't make bindings for []string.)
+//   wrapper is required because gomobile cannot make bindings for []string.)
 // `protector` is the socket protector to use for all external network activity.
 // `auth` will provide a client certificate if required by the TLS server.
 // `listener` will be notified after each DNS query succeeds or fails.

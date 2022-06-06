@@ -111,7 +111,7 @@ func NewTunnel(fakedns string, dohdns doh.Transport, tunWriter io.WriteCloser, d
 	}
 	core.RegisterOutputFn(tunWriter.Write)
 	t := &intratunnel{
-		Tunnel: tunnel.NewTunnel(tunWriter, core.NewLWIPStack()),
+		Tunnel:  tunnel.NewTunnel(tunWriter, core.NewLWIPStack()),
 		tunmode: settings.DefaultTunMode(),
 	}
 	if err := t.registerConnectionHandlers(fakedns, dialer, blocker, config, listener); err != nil {
@@ -119,6 +119,40 @@ func NewTunnel(fakedns string, dohdns doh.Transport, tunWriter io.WriteCloser, d
 	}
 	t.SetDNS(dohdns)
 	return t, nil
+}
+
+func NewGTunnel(fakedns string, dohdns doh.Transport, fd int, mtu uint32, dialer *net.Dialer, blocker protect.Blocker, config *net.ListenConfig, listener Listener) (Tunnel, error) {
+	fakednsaddr := net.TCPAddr{IP: net.ParseIP(fakedns)}
+
+	tunmode := settings.DefaultTunMode()
+
+	// RFC 4787 REQ-5 requires a timeout no shorter than 5 minutes.
+	udptimeout, _ := time.ParseDuration("5m")
+
+	udpfakedns, err := net.ResolveUDPAddr("udp", fakedns)
+	if err != nil {
+		return nil, err
+	}
+
+	tcph := NewTCPHandler(fakednsaddr, dialer, blocker, tunmode, listener)
+	udph := NewUDPHandler(*udpfakedns, udptimeout, blocker, tunmode, config, listener)
+	t, err := tunnel.NewGTunnel(fd, mtu, tcph, udph)
+
+	if err != nil {
+		return nil, err
+	}
+
+	gt := &intratunnel{
+		Tunnel:  t,
+		tunmode: tunmode,
+	}
+
+	if err := gt.registerGConnectionHandlers(fakedns, dialer, blocker, config, listener); err != nil {
+		return nil, err
+	}
+
+	gt.SetDNS(dohdns)
+	return gt, nil
 }
 
 // Registers Intra's custom UDP and TCP connection handlers to the tun2socks core.
@@ -139,6 +173,17 @@ func (t *intratunnel) registerConnectionHandlers(fakedns string, dialer *net.Dia
 	}
 	t.tcp = NewTCPHandler(*tcpfakedns, dialer, blocker, t.tunmode, listener)
 	core.RegisterTCPConnHandler(t.tcp)
+	return nil
+}
+
+// FIXME: Remove, as this fn is similar to registerConnectionHandlers
+func (t *intratunnel) registerGConnectionHandlers(fakedns string, dialer *net.Dialer, blocker protect.Blocker, config *net.ListenConfig, listener Listener) error {
+	tunmode := settings.DefaultTunMode()
+	tcpfakedns, err := net.ResolveTCPAddr("tcp", fakedns)
+	if err != nil {
+		return err
+	}
+	t.tcp = NewTCPHandler(*tcpfakedns, dialer, blocker, tunmode, listener)
 	return nil
 }
 

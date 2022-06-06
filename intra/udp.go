@@ -40,6 +40,7 @@ import (
 
 	"github.com/celzero/firestack/intra/dnscrypt"
 	"github.com/celzero/firestack/intra/doh"
+	"github.com/celzero/firestack/intra/netstack"
 	"github.com/celzero/firestack/intra/protect"
 	"github.com/celzero/firestack/intra/settings"
 )
@@ -71,6 +72,7 @@ func makeTracker(conn interface{}) *tracker {
 // UDPHandler adds DOH support to the base UDPConnHandler interface.
 type UDPHandler interface {
 	core.UDPConnHandler
+	netstack.GUDPConnHandler
 	SetDNS(dns doh.Transport)
 	blockConn(localudp core.UDPConn, target *net.UDPAddr) bool
 	SetDNSCryptProxy(*dnscrypt.Proxy)
@@ -194,6 +196,15 @@ func (h *udpHandler) blockConnAddr(source *net.UDPAddr, target *net.UDPAddr) (bl
 			source.Network(), source.String(), target.Network(), target.String())
 	}
 	return block
+}
+
+func (h *udpHandler) NewUDPConnection(conn *netstack.GUDPConn, _, dst *net.UDPAddr) bool {
+	/*gconn := GTCPConn{C: conn}
+	newConn:= gconn.(net.Conn)*/
+	if err := h.Connect(conn, dst); err != nil {
+		return false
+	}
+	return true
 }
 
 // Connect connects the proxy server. Note that target can be nil.
@@ -324,6 +335,10 @@ func (h *udpHandler) dnsOverride(dns doh.Transport, dcrypt *dnscrypt.Proxy,
 	}
 	// assert h.tunMode.DNSMode == settings.DNSModeNone
 	return false
+}
+
+func (h *udpHandler) HandleData(conn *netstack.GUDPConn, data []byte, addr *net.UDPAddr) error {
+	return h.ReceiveTo(conn, data, addr)
 }
 
 // ReceiveTo is called when data arrives from conn (tun).

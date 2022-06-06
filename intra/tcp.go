@@ -37,15 +37,18 @@ import (
 	"github.com/eycorsican/go-tun2socks/core"
 
 	"github.com/celzero/firestack/intra/dnscrypt"
+	"github.com/celzero/firestack/intra/doh"
+	"github.com/celzero/firestack/intra/netstack"
 	"github.com/celzero/firestack/intra/protect"
 	"github.com/celzero/firestack/intra/settings"
-	"github.com/celzero/firestack/intra/doh"
 	"github.com/celzero/firestack/intra/split"
 )
 
 // TCPHandler is a core TCP handler that also supports DOH and splitting control.
 type TCPHandler interface {
 	core.TCPConnHandler
+	netstack.GTCPConnHandler
+
 	SetDNS(doh.Transport)
 	SetAlwaysSplitHTTPS(bool)
 	blockConn(localConn net.Conn, target *net.TCPAddr) bool
@@ -231,6 +234,12 @@ func (h *tcpHandler) httpsProxy() bool {
 
 func (h *tcpHandler) hasProxy() bool {
 	return h.proxy != nil
+}
+
+func (h *tcpHandler) NewTCPConnection(conn netstack.GTCPConn, _, dst net.TCPAddr) {
+	if err := h.Handle(conn, &dst); err != nil {
+		conn.Close()
+	}
 }
 
 // TODO: Request upstream to make `conn` a `core.TCPConn` so we can avoid a type assertion.

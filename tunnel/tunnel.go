@@ -27,7 +27,9 @@ import (
 	"errors"
 	"io"
 
+	"github.com/celzero/firestack/intra/netstack"
 	"github.com/eycorsican/go-tun2socks/core"
+	"gvisor.dev/gvisor/pkg/tcpip/stack"
 )
 
 // Tunnel represents a session on a TUN device.
@@ -61,11 +63,46 @@ func (t *tunnel) Disconnect() {
 
 func (t *tunnel) Write(data []byte) (int, error) {
 	if !t.isConnected {
-		return 0, errors.New("Failed to write, network stack closed")
+		return 0, errors.New("failed to write, network stack closed")
 	}
 	return t.lwipStack.Write(data)
 }
 
 func NewTunnel(tunWriter io.WriteCloser, lwipStack core.LWIPStack) Tunnel {
 	return &tunnel{tunWriter, lwipStack, true}
+}
+
+// netstack
+
+type gtunnel struct {
+	endpoint    stack.LinkEndpoint
+	stack       *stack.Stack
+	isConnected bool
+}
+
+func (t *gtunnel) Disconnect() {
+	// FIXME: figure out what must be done here?
+	t.isConnected = false
+}
+
+func (t *gtunnel) IsConnected() bool {
+	return t.isConnected
+}
+
+func (t *gtunnel) Write([]byte) (int, error) {
+	return 0, errors.New("no write() on gvisor netstack")
+}
+
+func NewGTunnel(fd int, mtu uint32, tcph netstack.GTCPConnHandler, udph netstack.GUDPConnHandler) (Tunnel, error) {
+	endpoint, err := netstack.NewEndpoint(fd, mtu)
+	if err != nil {
+		return nil, err
+	}
+	ghdl := netstack.NewGConnHandler(tcph, udph)
+	stack, err := netstack.NewStack(ghdl, endpoint)
+	if err != nil {
+		return nil, err
+	}
+
+	return &gtunnel{endpoint, stack, true}, nil
 }
