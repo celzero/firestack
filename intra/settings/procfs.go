@@ -19,7 +19,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/eycorsican/go-tun2socks/common/log"
+	"github.com/celzero/firestack/intra/log"
 )
 
 const (
@@ -294,7 +294,7 @@ func getProcNetEntryFromPool(p *ProcNetEntry) *ProcNetEntry {
 		return nil
 	}
 
-    return e
+	return e
 }
 
 // findProcNetEntryForProtocol parses /proc/net/* and return the line matching the argument five-tuple
@@ -346,4 +346,3 @@ func FindProcNetEntry(protocol string, srcIP net.IP, srcPort int, dstIP net.IP, 
 
 	return nil
 }
-

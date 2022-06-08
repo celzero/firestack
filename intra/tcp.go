@@ -60,7 +60,7 @@ type TCPHandler interface {
 
 type tcpHandler struct {
 	TCPHandler
-	fakedns          net.TCPAddr
+	fakedns          []*net.TCPAddr
 	dns              doh.Atomic
 	alwaysSplitHTTPS bool
 	dialer           *net.Dialer
@@ -92,7 +92,7 @@ type TCPListener interface {
 // Connections to `fakedns` are redirected to DOH.
 // All other traffic is forwarded using `dialer`.
 // `listener` is provided with a summary of each socket when it is closed.
-func NewTCPHandler(fakedns net.TCPAddr, dialer *net.Dialer, blocker protect.Blocker,
+func NewTCPHandler(fakedns []*net.TCPAddr, dialer *net.Dialer, blocker protect.Blocker,
 	tunMode *settings.TunMode, listener TCPListener) TCPHandler {
 	return &tcpHandler{
 		fakedns:  fakedns,
@@ -150,32 +150,60 @@ func filteredPort(addr net.Addr) int16 {
 	return -1
 }
 
+func (h *tcpHandler) isFakeDnsIpPort(addr *net.TCPAddr) bool {
+	for _, dnsaddr := range h.fakedns {
+		if addr.IP.Equal(dnsaddr.IP) && addr.Port == dnsaddr.Port {
+			return true
+		}
+	}
+	return false
+}
+
+func (h *tcpHandler) isFakeDnsPort(addr *net.TCPAddr) bool {
+	// isn't h.fakedns.Port always expected to be 53?
+	for _, dnsaddr := range h.fakedns {
+		if addr.Port == dnsaddr.Port {
+			return true
+		}
+	}
+	return false
+}
+
 func (h *tcpHandler) isDNSProxy(addr *net.TCPAddr) bool {
 	if h.tunMode.DNSMode == settings.DNSModeProxyIP {
-		return addr.IP.Equal(h.fakedns.IP) && addr.Port == h.fakedns.Port
+		if yes := h.isFakeDnsIpPort(addr); yes {
+			return true
+		}
 	} else if h.tunMode.DNSMode == settings.DNSModeProxyPort {
-		// h.fakedns.Port always expected to be 53?
-		return addr.Port == h.fakedns.Port
+		if yes := h.isFakeDnsPort(addr); yes {
+			return true
+		}
 	}
 	return false
 }
 
 func (h *tcpHandler) isDoh(addr *net.TCPAddr) bool {
 	if h.tunMode.DNSMode == settings.DNSModeIP {
-		return addr.IP.Equal(h.fakedns.IP) && addr.Port == h.fakedns.Port
+		if yes := h.isFakeDnsIpPort(addr); yes {
+			return true
+		}
 	} else if h.tunMode.DNSMode == settings.DNSModePort {
-		// h.fakedns.Port always expected to be 53?
-		return addr.Port == h.fakedns.Port
+		if yes := h.isFakeDnsPort(addr); yes {
+			return true
+		}
 	}
 	return false
 }
 
 func (h *tcpHandler) isDNSCrypt(addr *net.TCPAddr) bool {
 	if h.tunMode.DNSMode == settings.DNSModeCryptIP {
-		return addr.IP.Equal(h.fakedns.IP) && addr.Port == h.fakedns.Port
+		if yes := h.isFakeDnsIpPort(addr); yes {
+			return true
+		}
 	} else if h.tunMode.DNSMode == settings.DNSModeCryptPort {
-		// h.fakedns.Port always expected to be 53?
-		return addr.Port == h.fakedns.Port
+		if yes := h.isFakeDnsPort(addr); yes {
+			return true
+		}
 	}
 	return false
 }
@@ -236,8 +264,8 @@ func (h *tcpHandler) hasProxy() bool {
 	return h.proxy != nil
 }
 
-func (h *tcpHandler) NewTCPConnection(conn netstack.GTCPConn, _, dst net.TCPAddr) {
-	if err := h.Handle(conn, &dst); err != nil {
+func (h *tcpHandler) OnNewConn(conn *netstack.GTCPConn, _, dst *net.TCPAddr) {
+	if err := h.Handle(conn, dst); err != nil {
 		conn.Close()
 	}
 }
@@ -290,12 +318,15 @@ func (h *tcpHandler) Handle(conn net.Conn, target *net.TCPAddr) error {
 			c = generic.(*net.TCPConn)
 		}
 	}
+
 	if err != nil {
 		return err
 	}
 	summary.Synack = int32(time.Since(start).Seconds() * 1000)
+
 	go h.forward(conn, c, &summary)
-	log.Infof("new proxy connection for target: %s:%s", target.Network(), target.String())
+
+	log.Infof("new proxy conn(%s) from(%s) to target(%s)", target.Network(), conn.LocalAddr(), target)
 	return nil
 }
 

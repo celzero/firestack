@@ -42,6 +42,8 @@ type Tunnel interface {
 	Write(data []byte) (int, error)
 }
 
+// lwip
+
 type tunnel struct {
 	tunWriter   io.WriteCloser
 	lwipStack   core.LWIPStack
@@ -81,8 +83,10 @@ type gtunnel struct {
 }
 
 func (t *gtunnel) Disconnect() {
-	// FIXME: figure out what must be done here?
+	// TODO: is t.endpoint.Wait() needed?
 	t.isConnected = false
+	// TODO: is t.endpoint.Attach(nil) needed?
+	t.stack.Close()
 }
 
 func (t *gtunnel) IsConnected() bool {
@@ -90,17 +94,19 @@ func (t *gtunnel) IsConnected() bool {
 }
 
 func (t *gtunnel) Write([]byte) (int, error) {
-	return 0, errors.New("no write() on gvisor netstack")
+	// May be: t.endpoint.WritePackets()
+	return 0, errors.New("no write() on netstack")
 }
 
-func NewGTunnel(fd int, mtu uint32, tcph netstack.GTCPConnHandler, udph netstack.GUDPConnHandler) (Tunnel, error) {
-	endpoint, err := netstack.NewEndpoint(fd, mtu)
+func NewGTunnel(fd int, l3 string, tcph netstack.GTCPConnHandler, udph netstack.GUDPConnHandler) (Tunnel, error) {
+	hdl := netstack.NewGConnHandler(tcph, udph)
+	stack := netstack.NewNetstack(l3)
+	endpoint, err := netstack.NewEndpoint(fd)
 	if err != nil {
 		return nil, err
 	}
-	ghdl := netstack.NewGConnHandler(tcph, udph)
-	stack, err := netstack.NewStack(ghdl, endpoint)
-	if err != nil {
+
+	if err := netstack.Up(stack, endpoint, hdl); err != nil {
 		return nil, err
 	}
 

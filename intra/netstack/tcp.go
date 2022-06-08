@@ -6,10 +6,11 @@
 package netstack
 
 import (
-	"fmt"
+	"errors"
 	"net"
 	"time"
 
+	"github.com/celzero/firestack/intra/log"
 	"gvisor.dev/gvisor/pkg/tcpip"
 	"gvisor.dev/gvisor/pkg/tcpip/adapters/gonet"
 	"gvisor.dev/gvisor/pkg/tcpip/stack"
@@ -17,40 +18,95 @@ import (
 	"gvisor.dev/gvisor/pkg/waiter"
 )
 
+// ref: github.com/tailscale/tailscale/blob/cfb5bd0559/wgengine/netstack/netstack.go#L236-L237
+const rcvwnd = 0
+const maxInFlight = 16
+
 type GTCPConnHandler interface {
-	NewTCPConnection(conn GTCPConn, src, dst net.TCPAddr)
+	OnNewConn(conn *GTCPConn, src, dst *net.TCPAddr)
 }
 
-func setupTcpHandler(s *stack.Stack, handler GTCPConnHandler) {
-	forwarder := tcp.NewForwarder(s, 0, 1024, func(request *tcp.ForwarderRequest) {
+func setupTcpHandler(s *stack.Stack, h GTCPConnHandler) {
+	s.SetTransportProtocolHandler(tcp.ProtocolNumber, NewTCPForwarder(s, h).HandlePacket)
+}
+
+func NewTCPForwarder(s *stack.Stack, h GTCPConnHandler) *tcp.Forwarder {
+	return tcp.NewForwarder(s, rcvwnd, maxInFlight, func(request *tcp.ForwarderRequest) {
 		id := request.ID()
+		// src 10.111.222.1:38312
+		src := remoteTCPAddr(id)
+		// dst 213.188.195.179:80
+		dst := localTCPAddr(id)
 		waitQueue := new(waiter.Queue)
-		endpoint, errT := request.CreateEndpoint(waitQueue)
-		if errT != nil {
-			fmt.Errorf("failed to create TCP connection")
+		endpoint, err := request.CreateEndpoint(waitQueue)
+		if err != nil {
+			log.Errorf("ns.tcp.forwarder: src(%v) => dst(%v); err(%v)", src, dst, err)
 			// prevent potential half-open TCP connection leak.
 			request.Complete(true)
 			return
 		}
+
 		request.Complete(false)
-		src := net.TCPAddr{
-			IP:   net.IP(id.RemoteAddress),
-			Port: int(id.RemotePort),
-		}
+		log.Debugf("ns.tcp.forwarder: src(%v) => dst(%v)", src, dst)
 
-		dst := net.TCPAddr{
-			IP:   net.IP(id.LocalAddress),
-			Port: int(id.LocalPort),
-		}
-
-		go handler.NewTCPConnection(GTCPConn{endpoint, gonet.NewTCPConn(waitQueue, endpoint)}, src, dst)
+		go h.OnNewConn(NewGTCPConn(waitQueue, endpoint), src, dst)
 	})
-	s.SetTransportProtocolHandler(tcp.ProtocolNumber, forwarder.HandlePacket)
 }
 
 type GTCPConn struct {
-	ep tcpip.Endpoint
 	*gonet.TCPConn
+	ep tcpip.Endpoint
+}
+
+func NewGTCPConn(wq *waiter.Queue, ep tcpip.Endpoint) *GTCPConn {
+	return &GTCPConn{gonet.NewTCPConn(wq, ep), ep}
+}
+
+func (g *GTCPConn) LocalAddr() net.Addr {
+	// client local addr is remote to the gonet adapter
+	return g.TCPConn.RemoteAddr()
+}
+
+func (g *GTCPConn) RemoteAddr() net.Addr {
+	// client remote addr is local to the gonet adapter
+	return g.TCPConn.LocalAddr()
+}
+
+// Sent will be called when sent data has been acknowledged by peer.
+func (tcp *GTCPConn) Sent(len uint16) error {
+	// no-op
+	return errors.New("unimpl for gtcpconn")
+}
+
+// Receive will be called when data arrives from TUN.
+func (tcp *GTCPConn) Receive(data []byte) error {
+	// no-op
+	return errors.New("unimpl for gtcpconn")
+}
+
+// Err will be called when a fatal error has occurred on the connection.
+// The corresponding pcb is already freed when this callback is called
+func (tcp *GTCPConn) Err(err error) {
+	// no-op
+}
+
+// LocalClosed will be called when underlying stack
+// receives a FIN segment on a connection.
+func (tcp *GTCPConn) LocalClosed() error {
+	// no-op
+	return nil
+}
+
+// Poll will be periodically called by TCP timers.
+func (tcp *GTCPConn) Poll() error {
+	// no-op
+	return nil
+}
+
+// Abort aborts the connection by sending a RST segment.
+func (tcp *GTCPConn) Abort() {
+	tcp.ep.Abort()
+	tcp.TCPConn.Close()
 }
 
 func (g GTCPConn) Close() error {

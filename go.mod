@@ -16,9 +16,8 @@ require (
 	golang.org/x/crypto v0.0.0-20201016220609-9e8e0b390897
 	golang.org/x/net v0.0.0-20211015210444-4f30a5c0130f
 	golang.org/x/sys v0.0.0-20211019181941-9d821ace8654
+	gvisor.dev/gvisor v0.0.0-20220329084425-9638e18d39b3
 )
-
-require gvisor.dev/gvisor v0.0.0-20220329084425-9638e18d39b3
 
 require (
 	github.com/aead/chacha20 v0.0.0-20180709150244-8b13a72661da // indirect

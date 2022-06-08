@@ -86,7 +86,7 @@ type udpHandler struct {
 
 	timeout  time.Duration
 	udpConns map[core.UDPConn]*tracker
-	fakedns  net.UDPAddr
+	fakedns  []*net.UDPAddr
 	dns      doh.Transport
 	config   *net.ListenConfig
 	blocker  protect.Blocker
@@ -103,7 +103,7 @@ type udpHandler struct {
 // `timeout` controls the effective NAT mapping lifetime.
 // `config` is used to bind new external UDP ports.
 // `listener` receives a summary about each UDP binding when it expires.
-func NewUDPHandler(fakedns net.UDPAddr, timeout time.Duration, blocker protect.Blocker,
+func NewUDPHandler(fakedns []*net.UDPAddr, timeout time.Duration, blocker protect.Blocker,
 	tunMode *settings.TunMode, config *net.ListenConfig, listener UDPListener) UDPHandler {
 	return &udpHandler{
 		timeout:  timeout,
@@ -129,22 +129,24 @@ func (h *udpHandler) fetchUDPInput(conn core.UDPConn, t *tracker) {
 		var addr net.Addr
 		var err error
 
+		log.Debugf("t.udp.fetchudp: read remote for local-addr(%v)", conn.LocalAddr())
 		// FIXME: ReadFrom seems to block for 50mins+ at times:
 		// Cancel the goroutine in such cases and close the conns
 		switch c := t.conn.(type) {
 		case net.PacketConn:
+			c.SetDeadline(time.Now().Add(h.timeout))
 			// reads a packet from t.conn copying it to buf
 			n, addr, err = c.ReadFrom(buf)
-			c.SetDeadline(time.Now().Add(h.timeout))
 		case net.Conn:
+			c.SetDeadline(time.Now().Add(h.timeout))
 			// c is already dialed-in to some addr in udpHandler.Connect
 			n, err = c.Read(buf)
-			c.SetDeadline(time.Now().Add(h.timeout))
 		default:
 			err = errors.New("failed to read from proxy udp conn")
 		}
 
 		if err != nil {
+			log.Warnf("t.udp.fetchudpinput: err(%v)", err)
 			return
 		}
 
@@ -156,11 +158,13 @@ func (h *udpHandler) fetchUDPInput(conn core.UDPConn, t *tracker) {
 			udpaddr = t.ip
 		}
 
+		log.Debugf("t.udp.fetchudpinput: data(%d) from remote(actual:%v/masq:%v)", n, addr, udpaddr)
+
 		t.download += int64(n)
 		// writes data to conn (tun) with addr as source
 		_, err = conn.WriteFrom(buf[:n], udpaddr)
 		if err != nil {
-			log.Warnf("failed to write UDP data to TUN from %s", udpaddr)
+			log.Warnf("failed to write udp data to tun from %s", udpaddr)
 			return
 		}
 	}
@@ -180,7 +184,6 @@ func (h *udpHandler) blockConn(localudp core.UDPConn, target *net.UDPAddr) (bloc
 }
 
 func (h *udpHandler) blockConnAddr(source *net.UDPAddr, target *net.UDPAddr) (block bool) {
-
 	uid := -1
 	if h.tunMode.BlockMode == settings.BlockModeFilterProc {
 		procEntry := settings.FindProcNetEntry("udp", source.IP, source.Port, target.IP, target.Port)
@@ -198,9 +201,7 @@ func (h *udpHandler) blockConnAddr(source *net.UDPAddr, target *net.UDPAddr) (bl
 	return block
 }
 
-func (h *udpHandler) NewUDPConnection(conn *netstack.GUDPConn, _, dst *net.UDPAddr) bool {
-	/*gconn := GTCPConn{C: conn}
-	newConn:= gconn.(net.Conn)*/
+func (h *udpHandler) OnNewConn(conn *netstack.GUDPConn, _, dst *net.UDPAddr) bool {
 	if err := h.Connect(conn, dst); err != nil {
 		return false
 	}
@@ -241,7 +242,12 @@ func (h *udpHandler) Connect(conn core.UDPConn, target *net.UDPAddr) error {
 	h.Lock()
 	h.udpConns[conn] = t
 	h.Unlock()
-	go h.fetchUDPInput(conn, t)
+
+	// Should fetch udp input when target is dns? dns overrides take over
+	// and so it is likely to be unnecessary?
+	if !h.isDoh(target) && !h.isDNSCrypt(target) && !h.isDNSProxy(target) {
+		go h.fetchUDPInput(conn, t)
+	}
 	log.Infof("new udp proxy (mode: %s) conn to target: %s", proxymode, target.String())
 	return nil
 }
@@ -282,32 +288,60 @@ func (h *udpHandler) doDNSCrypt(p *dnscrypt.Proxy, t *tracker, conn core.UDPConn
 	}
 }
 
+func (h *udpHandler) isFakeDnsIpPort(addr *net.UDPAddr) bool {
+	for _, dnsaddr := range h.fakedns {
+		if addr.IP.Equal(dnsaddr.IP) && addr.Port == dnsaddr.Port {
+			return true
+		}
+	}
+	return false
+}
+
+func (h *udpHandler) isFakeDnsPort(addr *net.UDPAddr) bool {
+	// isn't h.fakedns.Port always expected to be 53?
+	for _, dnsaddr := range h.fakedns {
+		if addr.Port == dnsaddr.Port {
+			return true
+		}
+	}
+	return false
+}
+
 func (h *udpHandler) isDNSProxy(addr *net.UDPAddr) bool {
 	if h.tunMode.DNSMode == settings.DNSModeProxyIP {
-		return addr.IP.Equal(h.fakedns.IP) && addr.Port == h.fakedns.Port
+		if yes := h.isFakeDnsIpPort(addr); yes {
+			return true
+		}
 	} else if h.tunMode.DNSMode == settings.DNSModeProxyPort {
-		// h.fakedns.Port always expected to be 53?
-		return addr.Port == h.fakedns.Port
+		if yes := h.isFakeDnsPort(addr); yes {
+			return true
+		}
 	}
 	return false
 }
 
 func (h *udpHandler) isDoh(addr *net.UDPAddr) bool {
 	if h.tunMode.DNSMode == settings.DNSModeIP {
-		return addr.IP.Equal(h.fakedns.IP) && addr.Port == h.fakedns.Port
+		if yes := h.isFakeDnsIpPort(addr); yes {
+			return true
+		}
 	} else if h.tunMode.DNSMode == settings.DNSModePort {
-		// h.fakedns.Port always expected to be 53?
-		return addr.Port == h.fakedns.Port
+		if yes := h.isFakeDnsPort(addr); yes {
+			return true
+		}
 	}
 	return false
 }
 
-func (h *udpHandler) isDNSCrypt(addr *net.UDPAddr, t *tracker) bool {
+func (h *udpHandler) isDNSCrypt(addr *net.UDPAddr) bool {
 	if h.tunMode.DNSMode == settings.DNSModeCryptIP {
-		return addr.IP.Equal(h.fakedns.IP) && addr.Port == h.fakedns.Port
+		if yes := h.isFakeDnsIpPort(addr); yes {
+			return true
+		}
 	} else if h.tunMode.DNSMode == settings.DNSModeCryptPort {
-		// h.fakedns.Port always expected to be 53?
-		return addr.Port == h.fakedns.Port
+		if yes := h.isFakeDnsPort(addr); yes {
+			return true
+		}
 	}
 	return false
 }
@@ -324,7 +358,7 @@ func (h *udpHandler) dnsOverride(dns doh.Transport, dcrypt *dnscrypt.Proxy,
 		t.ip = addr
 		go h.doDoh(dns, t, conn, dataCopy)
 		return true
-	} else if h.isDNSCrypt(addr, t) {
+	} else if h.isDNSCrypt(addr) {
 		if dcrypt == nil {
 			log.Errorf("dns crypt nil")
 			return false
@@ -351,7 +385,8 @@ func (h *udpHandler) ReceiveTo(conn core.UDPConn, data []byte, addr *net.UDPAddr
 	h.RUnlock()
 
 	if !ok1 {
-		return fmt.Errorf("connection %v->%v does not exists", conn.LocalAddr(), addr)
+		log.Warnf("t.udp.rcv: no nat(%v -> %v)", conn.LocalAddr(), addr)
+		return fmt.Errorf("conn %v->%v does not exist", conn.LocalAddr(), addr)
 	}
 
 	if h.isDNSProxy(addr) {
@@ -383,10 +418,11 @@ func (h *udpHandler) ReceiveTo(conn core.UDPConn, data []byte, addr *net.UDPAddr
 	}
 
 	if err != nil {
-		log.Warnf("failed to forward UDP payload")
-		return errors.New("failed to write UDP data")
+		log.Warnf("t.udp.rcv: forward udp err(%v)", err)
+		return errors.New("failed to write udp data")
 	}
 
+	log.Infof("t.udp.rcv: src(%v) -> dst(%v) / data(%d)", conn.LocalAddr(), addr, len(data))
 	return nil
 }
 

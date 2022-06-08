@@ -6,8 +6,9 @@
 package settings
 
 import (
-	"golang.org/x/net/proxy"
 	"strings"
+
+	"golang.org/x/net/proxy"
 )
 
 // TODO: These modes could be covered by bit-flags instead.
@@ -54,6 +55,30 @@ const ProxyModeSOCKS5 int = 1
 
 // ProxyModeHTTPS forwards packets to a HTTPS proxy.
 const ProxyModeHTTPS int = 2
+
+// msb to lsb: ipv6, ipv4, lwip(1) or netstack(0)
+const Lwip4 = 0b111 // 7
+const Ns4 = 0b010   // 2
+const Ns46 = 0b110  // 6
+const Ns6 = 0b100   // 4
+
+const IP4 = "4"
+const IP46 = "46"
+const IP6 = "6"
+
+const VpnMtu = 1500
+const NICID = 0x01
+
+func L3(w int) string {
+	switch w {
+	case Ns46:
+		return IP46
+	case Ns6:
+		return IP6
+	default:
+		return IP4
+	}
+}
 
 // TunMode specifies blocking and dns modes
 type TunMode struct {

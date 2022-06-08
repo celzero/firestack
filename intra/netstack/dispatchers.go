@@ -27,6 +27,7 @@ package netstack
 import (
 	"fmt"
 
+	"github.com/celzero/firestack/intra/log"
 	"golang.org/x/sys/unix"
 	"gvisor.dev/gvisor/pkg/tcpip"
 	"gvisor.dev/gvisor/pkg/tcpip/buffer"
@@ -61,29 +62,14 @@ func newIovecBuffer(sizes []int) *iovecBuffer {
 	b := &iovecBuffer{
 		views: make([]buffer.View, len(sizes)),
 		sizes: sizes,
-		//	skipsVnetHdr: skipsVnetHdr,
 	}
-	/*niov := len(b.views)
-	if b.skipsVnetHdr {
-		niov++
-	}
-	b.iovecs = make([]unix.Iovec, niov)*/
 	b.iovecs = make([]unix.Iovec, len(b.views))
 	return b
 }
 
 func (b *iovecBuffer) nextIovecs() []unix.Iovec {
 	vnetHdrOff := 0
-	/*	if b.skipsVnetHdr {
-			var vnetHdr [virtioNetHdrSize]byte
-			// The kernel adds virtioNetHdr before each packet, but
-			// we don't use it, so so we allocate a buffer for it,
-			// add it in iovecs but don't add it in a view.
-			b.iovecs[0] = unix.Iovec{Base: &vnetHdr[0]}
-			b.iovecs[0].SetLen(virtioNetHdrSize)
-			vnetHdrOff++
-		}
-	*/for i := range b.views {
+	for i := range b.views {
 		if b.views[i] != nil {
 			break
 		}
@@ -98,13 +84,7 @@ func (b *iovecBuffer) nextIovecs() []unix.Iovec {
 func (b *iovecBuffer) pullViews(n int) buffer.VectorisedView {
 	var views []buffer.View
 	c := 0
-	/*	if b.skipsVnetHdr {
-		c += virtioNetHdrSize
-		if c >= n {
-			// Nothing in the packet.
-			return buffer.NewVectorisedView(0, nil)
-		}
-	}*/
+
 	for i, v := range b.views {
 		c += len(v)
 		if c >= n {
@@ -117,10 +97,7 @@ func (b *iovecBuffer) pullViews(n int) buffer.VectorisedView {
 	for i := range views {
 		b.views[i] = nil
 	}
-	/*	if b.skipsVnetHdr {
-		// Exclude the size of the vnet header.
-		n -= virtioNetHdrSize
-	}*/
+
 	return buffer.NewVectorisedView(n, views)
 }
 
@@ -182,7 +159,10 @@ func newReadVDispatcher(fd int, e *endpoint) (linkDispatcher, error) {
 
 // dispatch reads one packet from the file descriptor and dispatches it.
 func (d *readVDispatcher) dispatch() (bool, tcpip.Error) {
+	log.Debugf("ns.dispatchers.dispatch: resume")
 	n, err := rawfile.BlockingReadvUntilStopped(d.efd, d.fd, d.buf.nextIovecs())
+	log.Debugf("ns.dispatchers.dispatch: got(%d bytes), err(%v)", n, err)
+
 	if n <= 0 || err != nil {
 		return false, err
 	}
@@ -218,7 +198,8 @@ func (d *readVDispatcher) dispatch() (bool, tcpip.Error) {
 		}
 	}
 
-	d.e.dispatcher.DeliverNetworkPacket(p, pkt)
+	log.Debugf("ns.dispatchers.dispatch: deliver %d packet(s) via route(%v)", p, pkt.EgressRoute)
 
+	d.e.dispatcher.DeliverNetworkPacket(p, pkt)
 	return true, nil
 }

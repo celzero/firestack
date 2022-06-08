@@ -24,21 +24,18 @@
 package tun2socks
 
 import (
-	"errors"
-	"os"
 	"runtime/debug"
 	"strings"
 
-	"github.com/eycorsican/go-tun2socks/common/log"
-
 	"github.com/celzero/firestack/intra"
 	"github.com/celzero/firestack/intra/doh"
+	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
+	"github.com/celzero/firestack/intra/settings"
 	"github.com/celzero/firestack/tunnel"
 )
 
-const gvisor bool = true
-const mtu uint32 = 1500
+var engine int = settings.Ns46
 
 func init() {
 	// Conserve memory by increasing garbage collection frequency.
@@ -63,24 +60,25 @@ func init() {
 // Throws an exception if the TUN file descriptor cannot be opened, or if the tunnel fails to
 // connect.
 func ConnectIntraTunnel(fd int, fakedns string, dohdns doh.Transport, protector protect.Protector, blocker protect.Blocker, listener intra.Listener) (t intra.Tunnel, err error) {
-	dupfd, err := tunnel.Dup(fd)
-	if err != nil {
-		return nil, err
-	}
-
 	dialer := protect.MakeDialer(protector)
 	config := protect.MakeListenConfig(protector)
-	if gvisor {
-		return intra.NewGTunnel(fakedns, dohdns, fd, mtu, dialer, blocker, config, listener)
-	} else {
-		// java-land gives up its ownership of fd
-		tun := os.NewFile(uintptr(dupfd), "")
-		if tun == nil {
-			return nil, errors.New("failed to open TUN file descriptor")
+	if engine == settings.Lwip4 {
+		tun, err := tunnel.MakeTunFile(fd)
+		if err != nil {
+			return nil, err
 		}
+
 		t, err = intra.NewTunnel(fakedns, dohdns, tun, dialer, blocker, config, listener)
 		go tunnel.ProcessInputPackets(t, tun)
-		return
+		return t, err
+	} else {
+		dupfd, err := tunnel.Dup(fd)
+		if err != nil {
+			return nil, err
+		}
+
+		l3 := settings.L3(engine)
+		return intra.NewGTunnel(fakedns, dohdns, dupfd, l3, dialer, blocker, config, listener)
 	}
 }
 
@@ -103,4 +101,18 @@ func NewDoHTransport(url string, ips string, protector protect.Protector, auth d
 
 func EnableDebugLog() {
 	log.SetLevel(log.DEBUG)
+}
+
+func PreferredEngine(w int) {
+	switch w {
+	case settings.Lwip4:
+	case settings.Ns4:
+	case settings.Ns6:
+	case settings.Ns46:
+	default:
+		log.Warnf("tun2socks: engine(%d) unknown, using default", w)
+		engine = settings.Ns46
+		return
+	}
+	engine = w
 }

@@ -1,0 +1,76 @@
+// Copyright (c) 2022 RethinkDNS and its authors.
+//
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at http://mozilla.org/MPL/2.0/.
+//
+// This file incorporates work covered by the following copyright and
+// permission notice:
+//
+//    MIT License
+//
+//    Copyright (c) 2018 eycorsican
+//
+//    Permission is hereby granted, free of charge, to any person obtaining a copy
+//    of this software and associated documentation files (the "Software"), to deal
+//    in the Software without restriction, including without limitation the rights
+//    to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+//    copies of the Software, and to permit persons to whom the Software is
+//    furnished to do so, subject to the following conditions:
+//
+//    The above copyright notice and this permission notice shall be included in all
+//    copies or substantial portions of the Software.
+//
+//    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+//    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+//    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+//    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+//    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+//    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+//    SOFTWARE.
+
+package log
+
+// based on: github.com/eycorsican/go-tun2socks/blob/301549c43/common/log/log.go#L5
+var logger Logger
+
+func RegisterLogger(l Logger) bool {
+	logger = l
+	return true
+}
+
+func SetLevel(level LogLevel) {
+	if logger != nil {
+		logger.SetLevel(level)
+	}
+}
+
+func Debugf(msg string, args ...interface{}) {
+	if logger != nil {
+		logger.Debugf(msg, args...)
+	}
+}
+
+func Infof(msg string, args ...interface{}) {
+	if logger != nil {
+		logger.Infof(msg, args...)
+	}
+}
+
+func Warnf(msg string, args ...interface{}) {
+	if logger != nil {
+		logger.Warnf(msg, args...)
+	}
+}
+
+func Errorf(msg string, args ...interface{}) {
+	if logger != nil {
+		logger.Errorf(msg, args...)
+	}
+}
+
+func Fatalf(msg string, args ...interface{}) {
+	if logger != nil {
+		logger.Fatalf(msg, args...)
+	}
+}

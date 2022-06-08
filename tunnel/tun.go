@@ -26,13 +26,10 @@ import (
 	"errors"
 	"os"
 
+	"github.com/celzero/firestack/intra/log"
+	"github.com/celzero/firestack/intra/settings"
 	"golang.org/x/sys/unix"
-
-	"github.com/eycorsican/go-tun2socks/common/log"
-	_ "github.com/eycorsican/go-tun2socks/common/log/simple" // Import simple log for the side effect of making logs printable.
 )
-
-const vpnMtu = 1500
 
 func Dup(fd int) (int, error) {
 	if fd < 0 {
@@ -74,7 +71,7 @@ func MakeTunFile(fd int) (*os.File, error) {
 
 // ProcessInputPackets reads packets from a TUN device `tun` and writes them to `tunnel`.
 func ProcessInputPackets(tunnel Tunnel, tun *os.File) {
-	buffer := make([]byte, vpnMtu)
+	buffer := make([]byte, settings.VpnMtu)
 	for tunnel.IsConnected() {
 		len, err := tun.Read(buffer)
 		if err != nil {

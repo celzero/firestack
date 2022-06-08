@@ -28,6 +28,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"strings"
 	"time"
 
 	"github.com/eycorsican/go-tun2socks/core"
@@ -121,22 +122,55 @@ func NewTunnel(fakedns string, dohdns doh.Transport, tunWriter io.WriteCloser, d
 	return t, nil
 }
 
-func NewGTunnel(fakedns string, dohdns doh.Transport, fd int, mtu uint32, dialer *net.Dialer, blocker protect.Blocker, config *net.ListenConfig, listener Listener) (Tunnel, error) {
-	fakednsaddr := net.TCPAddr{IP: net.ParseIP(fakedns)}
+// TODO: Generics?
+func fakeDnsTcpAddr(csvaddr string) ([]*net.TCPAddr, error) {
+	addrs := strings.Split(csvaddr, ",")
+	tcpaddrs := make([]*net.TCPAddr, len(addrs))
+	for _, a := range addrs {
+		if tcpaddr, err := net.ResolveTCPAddr("tcp", a); err != nil {
+			return nil, err
+		} else {
+			tcpaddrs = append(tcpaddrs, tcpaddr)
+		}
+	}
+	return tcpaddrs, nil
+}
+
+func fakeDnsUdpAddr(csvaddr string) ([]*net.UDPAddr, error) {
+	addrs := strings.Split(csvaddr, ",")
+	udpaddrs := make([]*net.UDPAddr, len(addrs))
+	for _, a := range addrs {
+		if udpaddr, err := net.ResolveUDPAddr("udp", a); err != nil {
+			return nil, err
+		} else {
+			udpaddrs = append(udpaddrs, udpaddr)
+		}
+	}
+	return udpaddrs, nil
+}
+
+func NewGTunnel(fakedns string, dohdns doh.Transport, fd int, l3 string, dialer *net.Dialer, blocker protect.Blocker, config *net.ListenConfig, listener Listener) (Tunnel, error) {
+	tcpfakedns, err := fakeDnsTcpAddr(fakedns)
+	if err != nil {
+		return nil, err
+	}
+	udpfakedns, err := fakeDnsUdpAddr(fakedns)
+	if err != nil {
+		return nil, err
+	}
 
 	tunmode := settings.DefaultTunMode()
 
 	// RFC 4787 REQ-5 requires a timeout no shorter than 5 minutes.
 	udptimeout, _ := time.ParseDuration("5m")
 
-	udpfakedns, err := net.ResolveUDPAddr("udp", fakedns)
 	if err != nil {
 		return nil, err
 	}
 
-	tcph := NewTCPHandler(fakednsaddr, dialer, blocker, tunmode, listener)
-	udph := NewUDPHandler(*udpfakedns, udptimeout, blocker, tunmode, config, listener)
-	t, err := tunnel.NewGTunnel(fd, mtu, tcph, udph)
+	tcph := NewTCPHandler(tcpfakedns, dialer, blocker, tunmode, listener)
+	udph := NewUDPHandler(udpfakedns, udptimeout, blocker, tunmode, config, listener)
+	t, err := tunnel.NewGTunnel(fd, l3, tcph, udph)
 
 	if err != nil {
 		return nil, err
@@ -147,9 +181,8 @@ func NewGTunnel(fakedns string, dohdns doh.Transport, fd int, mtu uint32, dialer
 		tunmode: tunmode,
 	}
 
-	if err := gt.registerGConnectionHandlers(fakedns, dialer, blocker, config, listener); err != nil {
-		return nil, err
-	}
+	gt.udp = udph
+	gt.tcp = tcph
 
 	gt.SetDNS(dohdns)
 	return gt, nil
@@ -160,30 +193,20 @@ func (t *intratunnel) registerConnectionHandlers(fakedns string, dialer *net.Dia
 	// RFC 4787 REQ-5 requires a timeout no shorter than 5 minutes.
 	timeout, _ := time.ParseDuration("5m")
 
-	udpfakedns, err := net.ResolveUDPAddr("udp", fakedns)
+	udpfakedns, err := fakeDnsUdpAddr(fakedns)
 	if err != nil {
 		return err
 	}
-	t.udp = NewUDPHandler(*udpfakedns, timeout, blocker, t.tunmode, config, listener)
+	t.udp = NewUDPHandler(udpfakedns, timeout, blocker, t.tunmode, config, listener)
 	core.RegisterUDPConnHandler(t.udp)
 
-	tcpfakedns, err := net.ResolveTCPAddr("tcp", fakedns)
+	tcpfakedns, err := fakeDnsTcpAddr(fakedns)
 	if err != nil {
 		return err
 	}
-	t.tcp = NewTCPHandler(*tcpfakedns, dialer, blocker, t.tunmode, listener)
+	t.tcp = NewTCPHandler(tcpfakedns, dialer, blocker, t.tunmode, listener)
 	core.RegisterTCPConnHandler(t.tcp)
-	return nil
-}
 
-// FIXME: Remove, as this fn is similar to registerConnectionHandlers
-func (t *intratunnel) registerGConnectionHandlers(fakedns string, dialer *net.Dialer, blocker protect.Blocker, config *net.ListenConfig, listener Listener) error {
-	tunmode := settings.DefaultTunMode()
-	tcpfakedns, err := net.ResolveTCPAddr("tcp", fakedns)
-	if err != nil {
-		return err
-	}
-	t.tcp = NewTCPHandler(*tcpfakedns, dialer, blocker, tunmode, listener)
 	return nil
 }
 

@@ -32,6 +32,7 @@ import (
 	"fmt"
 	"sync/atomic"
 
+	"github.com/celzero/firestack/intra/log"
 	"golang.org/x/sys/unix"
 	"gvisor.dev/gvisor/pkg/sync"
 	"gvisor.dev/gvisor/pkg/tcpip"
@@ -202,7 +203,7 @@ func NewFdbasedInjectableEndpoint(opts *Options) (stack.LinkEndpoint, error) {
 	// the next endpoint.
 	fid := atomic.AddInt32(&fanoutID, 1)
 
-	// Create per channel dispatchers.
+	// Create per channel dispatchers; usually only one.
 	for _, fd := range opts.FDs {
 		if err := unix.SetNonblock(fd, true); err != nil {
 			return nil, fmt.Errorf("unix.SetNonblock(%v) failed: %v", fd, err)
@@ -302,151 +303,29 @@ func (e *endpoint) AddHeader(pkt *stack.PacketBuffer) {
 	}
 }
 
-// writePacket writes outbound packets to the file descriptor. If it is not
+// writePackets writes outbound packets to the file descriptor. If it is not
 // currently writable, the packet is dropped.
-func (e *endpoint) writePacket(pkt *stack.PacketBuffer) tcpip.Error {
-	fdInfo := e.fds[pkt.Hash%uint32(len(e.fds))]
-	fd := fdInfo.fd
-	// var vnetHdrBuf []byte
-
-	views := pkt.Views()
-	numIovecs := len(views)
-	/*if len(vnetHdrBuf) != 0 {
-		numIovecs++
-	}*/
-	if numIovecs > e.writevMaxIovs {
-		numIovecs = e.writevMaxIovs
-	}
-
-	// Allocate small iovec arrays on the stack.
-	var iovecsArr [8]unix.Iovec
-	iovecs := iovecsArr[:0]
-	if numIovecs > len(iovecsArr) {
-		iovecs = make([]unix.Iovec, 0, numIovecs)
-	}
-	//iovecs = rawfile.AppendIovecFromBytes(iovecs, vnetHdrBuf, numIovecs)
-	for _, v := range views {
-		iovecs = rawfile.AppendIovecFromBytes(iovecs, v, numIovecs)
-	}
-	return rawfile.NonBlockingWriteIovec(fd, iovecs)
-}
-
-func (e *endpoint) sendBatch(batchFDInfo fdInfo, pkts []*stack.PacketBuffer) (int, tcpip.Error) {
-	// Send a batch of packets through batchFD.
-	batchFD := batchFDInfo.fd
-	mmsgHdrsStorage := make([]rawfile.MMsgHdr, 0, len(pkts))
-	packets := 0
-	for packets < len(pkts) {
-		mmsgHdrs := mmsgHdrsStorage
-		batch := pkts[packets:]
-		syscallHeaderBytes := uintptr(0)
-		for _, pkt := range batch {
-			// var vnetHdrBuf []byte
-
-			views := pkt.Views()
-			numIovecs := len(views)
-			/*if len(vnetHdrBuf) != 0 {
-				numIovecs++
-			}*/
-			if numIovecs > rawfile.MaxIovs {
-				numIovecs = rawfile.MaxIovs
-			}
-			if e.maxSyscallHeaderBytes != 0 {
-				syscallHeaderBytes += rawfile.SizeofMMsgHdr + uintptr(numIovecs)*rawfile.SizeofIovec
-				if syscallHeaderBytes > e.maxSyscallHeaderBytes {
-					// We can't fit this packet into this call to sendmmsg().
-					// We could potentially do so if we reduced numIovecs
-					// further, but this might incur considerable extra
-					// copying. Leave it to the next batch instead.
-					break
-				}
-			}
-
-			// We can't easily allocate iovec arrays on the stack here since
-			// they will escape this loop iteration via mmsgHdrs.
-			iovecs := make([]unix.Iovec, 0, numIovecs)
-			// iovecs = rawfile.AppendIovecFromBytes(iovecs, vnetHdrBuf, numIovecs)
-			for _, v := range views {
-				iovecs = rawfile.AppendIovecFromBytes(iovecs, v, numIovecs)
-			}
-
-			var mmsgHdr rawfile.MMsgHdr
-			mmsgHdr.Msg.Iov = &iovecs[0]
-			mmsgHdr.Msg.SetIovlen(len(iovecs))
-			mmsgHdrs = append(mmsgHdrs, mmsgHdr)
-		}
-
-		if len(mmsgHdrs) == 0 {
-			// We can't fit batch[0] into a mmsghdr while staying under
-			// e.maxSyscallHeaderBytes. Use WritePacket, which will avoid the
-			// mmsghdr (by using writev) and re-buffer iovecs more aggressively
-			// if necessary (by using e.writevMaxIovs instead of
-			// rawfile.MaxIovs).
-			pkt := batch[0]
-			if err := e.writePacket(pkt); err != nil {
-				return packets, err
-			}
-			packets++
-		} else {
-			for len(mmsgHdrs) > 0 {
-				sent, err := rawfile.NonBlockingSendMMsg(batchFD, mmsgHdrs)
-				if err != nil {
-					return packets, err
-				}
-				packets += sent
-				mmsgHdrs = mmsgHdrs[sent:]
-			}
-		}
-	}
-
-	return packets, nil
-}
-
-// WritePackets writes outbound packets to the underlying file descriptors. If
-// one is not currently writable, the packet is dropped.
-//
-// Being a batch API, each packet in pkts should have the following
-// fields populated:
-//  - pkt.EgressRoute
-//  - pkt.GSOOptions
-//  - pkt.NetworkProtocolNumber
 func (e *endpoint) WritePackets(pkts stack.PacketBufferList) (int, tcpip.Error) {
 	// Preallocate to avoid repeated reallocation as we append to batch.
 	// batchSz is 47 because when SWGSO is in use then a single 65KB TCP
 	// segment can get split into 46 segments of 1420 bytes and a single 216
 	// byte segment.
 	const batchSz = 47
-	batch := make([]*stack.PacketBuffer, 0, batchSz)
-	batchFDInfo := fdInfo{fd: -1}
-	sentPackets := 0
+	fd := e.fds[0].fd
+	batch := make([]unix.Iovec, 0, batchSz)
 	// for _, pkt := range pkts.AsSlice() {
 	for pkt := pkts.Front(); pkt != nil; pkt = pkt.Next() {
-		if len(batch) == 0 {
-			batchFDInfo = e.fds[pkt.Hash%uint32(len(e.fds))]
-		}
-		pktFDInfo := e.fds[pkt.Hash%uint32(len(e.fds))]
-		if sendNow := pktFDInfo != batchFDInfo; !sendNow {
-			batch = append(batch, pkt)
-			continue
-		}
-		n, err := e.sendBatch(batchFDInfo, batch)
-		sentPackets += n
-		if err != nil {
-			return sentPackets, err
-		}
-		batch = batch[:0]
-		batch = append(batch, pkt)
-		batchFDInfo = pktFDInfo
-	}
-
-	if len(batch) != 0 {
-		n, err := e.sendBatch(batchFDInfo, batch)
-		sentPackets += n
-		if err != nil {
-			return sentPackets, err
+		views := pkt.Views()
+		for _, v := range views {
+			batch = rawfile.AppendIovecFromBytes(batch, v, len(views))
 		}
 	}
-	return sentPackets, nil
+	err := rawfile.NonBlockingWriteIovec(fd, batch)
+	if err != nil {
+		log.Warnf("ns.e.WritePackets -> ns.rawfile.Write: err(%v)", err)
+		return 0, err
+	}
+	return pkts.Len(), nil
 }
 
 // viewsEqual tests whether v1 and v2 refer to the same backing bytes.
@@ -473,12 +352,14 @@ func (e *endpoint) ARPHardwareType() header.ARPHardwareType {
 	return header.ARPHardwareNone
 }
 
-// InjectInbound injects an inbound packet.
+// Unused: InjectInbound injects an inbound packet.
 func (e *endpoint) InjectInbound(protocol tcpip.NetworkProtocolNumber, pkt *stack.PacketBuffer) {
+	log.Debugf("ns.e.inject-in %d to(%v)", protocol, pkt.EgressRoute)
 	e.dispatcher.DeliverNetworkPacket(protocol, pkt)
 }
 
-// InjectOutobund implements stack.InjectableEndpoint.InjectOutbound.
+// Unused: InjectOutobund implements stack.InjectableEndpoint.InjectOutbound.
 func (e *endpoint) InjectOutbound(dest tcpip.Address, packet []byte) tcpip.Error {
+	log.Debugf("ns,e.inject-out to(%v)", dest)
 	return rawfile.NonBlockingWrite(e.fds[0].fd, packet)
 }
