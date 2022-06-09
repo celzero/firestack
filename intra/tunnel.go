@@ -125,7 +125,7 @@ func NewTunnel(fakedns string, dohdns doh.Transport, tunWriter io.WriteCloser, d
 // TODO: Generics?
 func fakeDnsTcpAddr(csvaddr string) ([]*net.TCPAddr, error) {
 	addrs := strings.Split(csvaddr, ",")
-	tcpaddrs := make([]*net.TCPAddr, len(addrs))
+	tcpaddrs := make([]*net.TCPAddr, 0, len(addrs))
 	count := 0
 	for _, a := range addrs {
 		if tcpaddr, err := net.ResolveTCPAddr("tcp", a); err != nil {
@@ -140,7 +140,7 @@ func fakeDnsTcpAddr(csvaddr string) ([]*net.TCPAddr, error) {
 
 func fakeDnsUdpAddr(csvaddr string) ([]*net.UDPAddr, error) {
 	addrs := strings.Split(csvaddr, ",")
-	udpaddrs := make([]*net.UDPAddr, len(addrs))
+	udpaddrs := make([]*net.UDPAddr, 0, len(addrs))
 	count := 0
 	for _, a := range addrs {
 		if udpaddr, err := net.ResolveUDPAddr("udp", a); err != nil {

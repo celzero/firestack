@@ -151,6 +151,10 @@ func filteredPort(addr net.Addr) int16 {
 }
 
 func (h *tcpHandler) isFakeDnsIpPort(addr *net.TCPAddr) bool {
+	if addr == nil || len(h.fakedns) <= 0 {
+		log.Errorf("nil dst-addr(%v) or dns(%v)", addr, h.fakedns)
+		return false
+	}
 	for _, dnsaddr := range h.fakedns {
 		if addr.IP.Equal(dnsaddr.IP) && addr.Port == dnsaddr.Port {
 			return true
@@ -160,6 +164,10 @@ func (h *tcpHandler) isFakeDnsIpPort(addr *net.TCPAddr) bool {
 }
 
 func (h *tcpHandler) isFakeDnsPort(addr *net.TCPAddr) bool {
+	if addr == nil || len(h.fakedns) <= 0 {
+		log.Errorf("nil dst-addr(%v) or dns(%v)", addr, h.fakedns)
+		return false
+	}
 	// isn't h.fakedns.Port always expected to be 53?
 	for _, dnsaddr := range h.fakedns {
 		if addr.Port == dnsaddr.Port {

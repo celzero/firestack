@@ -40,14 +40,14 @@ func NewTCPForwarder(s *stack.Stack, h GTCPConnHandler) *tcp.Forwarder {
 		waitQueue := new(waiter.Queue)
 		endpoint, err := request.CreateEndpoint(waitQueue)
 		if err != nil {
-			log.Errorf("ns.tcp.forwarder: src(%v) => dst(%v); err(%v)", src, dst, err)
+			log.Errorf("ns.tcp.forwarder: data src(%v) => dst(%v); err(%v)", src, dst, err)
 			// prevent potential half-open TCP connection leak.
 			request.Complete(true)
 			return
 		}
 
 		request.Complete(false)
-		log.Debugf("ns.tcp.forwarder: src(%v) => dst(%v)", src, dst)
+		log.Debugf("ns.tcp.forwarder: data src(%v) => dst(%v)", src, dst)
 
 		go h.OnNewConn(NewGTCPConn(waitQueue, endpoint), src, dst)
 	})

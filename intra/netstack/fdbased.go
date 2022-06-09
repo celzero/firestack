@@ -325,6 +325,7 @@ func (e *endpoint) WritePackets(pkts stack.PacketBufferList) (int, tcpip.Error) 
 		log.Warnf("ns.e.WritePackets -> ns.rawfile.Write: err(%v)", err)
 		return 0, err
 	}
+	log.Infof("ns.e.WritePackets (to tun): count %d", pkts.Len())
 	return pkts.Len(), nil
 }
 

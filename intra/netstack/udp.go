@@ -35,6 +35,21 @@ type GUDPConn struct {
 	gudp *gonet.UDPConn
 }
 
+func NewGUDPConn(s *stack.Stack, r *udp.ForwarderRequest) *GUDPConn {
+	waitQueue := new(waiter.Queue)
+	// use gonet.DialUDP instead?
+	if endpoint, err := r.CreateEndpoint(waitQueue); err != nil {
+		log.Errorf("ns.udp.forwarder: mk endpoint; err(%v)", err)
+		return nil
+	} else {
+		return &GUDPConn{
+			ep:   endpoint,
+			gudp: gonet.NewUDPConn(s, waitQueue, endpoint),
+		}
+	}
+
+}
+
 func setupUdpHandler(s *stack.Stack, h GUDPConnHandler) {
 	s.SetTransportProtocolHandler(udp.ProtocolNumber, NewUDPForwarder(s, h).HandlePacket)
 }
@@ -42,21 +57,16 @@ func setupUdpHandler(s *stack.Stack, h GUDPConnHandler) {
 func NewUDPForwarder(s *stack.Stack, h GUDPConnHandler) *udp.Forwarder {
 	return udp.NewForwarder(s, func(request *udp.ForwarderRequest) {
 		id := request.ID()
-		waitQueue := new(waiter.Queue)
-		// use gonet.DialUDP instead?
-		endpoint, err := request.CreateEndpoint(waitQueue)
-		if err != nil {
-			log.Errorf("ns.udp.forwarder: mk endpoint; err(%v)", err)
-			return
-		}
+
 		// src 10.111.222.1:20716; same as endpoint.GetRemoteAddress
 		src := remoteUDPAddr(id)
 		// dst 10.111.222.3:53; same as endpoint.GetLocalAddress
 		dst := localUDPAddr(id)
 
-		gc := &GUDPConn{
-			ep:   endpoint,
-			gudp: gonet.NewUDPConn(s, waitQueue, endpoint),
+		gc := NewGUDPConn(s, request)
+
+		if gc == nil {
+			return
 		}
 
 		// TODO: on stack.close, mop these goroutines up
@@ -70,17 +80,18 @@ func NewUDPForwarder(s *stack.Stack, h GUDPConnHandler) *udp.Forwarder {
 				return
 			}
 
+			// TODO: should q be init inside the for-loop?
 			q := make([]byte, maxUDPReqSize)
 			for {
 				gc.gudp.SetReadDeadline(time.Now().Add(readDeadline))
 				if n, addr, err := gc.gudp.ReadFrom(q); err == nil {
-					// src(10.111.222.1:17711)
-					// dst(l:10.111.222.3:53 / r:10.111.222.1:17711)
+					// src(10.111.222.1:53)
+					// dst(l:10.111.222.3:17711 / r:10.111.222.1:53)
 					udpaddr := addr.(*net.UDPAddr)
 					l := gc.LocalAddr()
 					r := gc.RemoteAddr()
 					log.Debugf("ns.udp.forwarder: data src(%v) => dst(l:%v / r:%v)", udpaddr, l, r)
-					if errh := h.HandleData(gc, q[:n], udpaddr); errh != nil {
+					if errh := h.HandleData(gc, q[:n], r); errh != nil {
 						break
 					}
 				} else {
@@ -124,7 +135,7 @@ func (g *GUDPConn) ReceiveTo(_ []byte, addr *net.UDPAddr) error {
 // UDP packets that output to TUN.
 func (g *GUDPConn) WriteFrom(data []byte, addr *net.UDPAddr) (int, error) {
 	// nb: write-deadlines set by intra.udp
-	// addr: 10.111.222.3:53; g.LocalAddr: 10.111.222.3:53; g.RemoteAddr: 10.111.222.1:17711
+	// addr: 10.111.222.3:17711; g.LocalAddr(g.udp.remote): 10.111.222.3:17711; g.RemoteAddr(g.udp.local): 10.111.222.1:53
 	// ep(state 3 / info &{2048 17 {53 10.111.222.3 17711 10.111.222.1} 1 10.111.222.3 1} / stats &{{{1}} {{0}} {{{0}} {{0}} {{0}} {{0}}} {{{0}} {{0}} {{0}}} {{{0}} {{0}}} {{{0}} {{0}} {{0}}}})
 	// 3: status:datagram-connected / {2048=>proto, 17=>transport, {53=>local-port localip 17711=>remote-port remoteip}=>endpoint-id, 1=>bind-nic-id, ip=>bind-addr, 1=>registered-nic-id}
 	log.Debugf("ns.udp.writeFrom: ep(state %v / info %v / stats %v)", g.ep.State(), g.ep.Info(), g.ep.Stats())

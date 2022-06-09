@@ -90,6 +90,7 @@ func (t *gtunnel) Disconnect() {
 }
 
 func (t *gtunnel) IsConnected() bool {
+	// TODO: check t.endpoint.IsAttached()?
 	return t.isConnected
 }
 

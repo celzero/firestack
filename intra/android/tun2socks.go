@@ -68,8 +68,10 @@ func ConnectIntraTunnel(fd int, fakedns string, dohdns doh.Transport, protector 
 			return nil, err
 		}
 
-		t, err = intra.NewTunnel(fakedns, dohdns, tun, dialer, blocker, config, listener)
-		go tunnel.ProcessInputPackets(t, tun)
+		if t, err = intra.NewTunnel(fakedns, dohdns, tun, dialer, blocker, config, listener); t != nil {
+			go tunnel.ProcessInputPackets(t, tun)
+		}
+
 		return t, err
 	} else {
 		dupfd, err := tunnel.Dup(fd)

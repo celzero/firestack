@@ -152,7 +152,6 @@ func newReadVDispatcher(fd int, e *endpoint) (linkDispatcher, error) {
 		e:      e,
 	}
 
-	//	skipsVnetHdr := d.e.gsoKind == stack.HWGSOSupported
 	d.buf = newIovecBuffer(BufConfig)
 	return d, nil
 }
@@ -198,7 +197,7 @@ func (d *readVDispatcher) dispatch() (bool, tcpip.Error) {
 		}
 	}
 
-	log.Debugf("ns.dispatchers.dispatch: deliver %d packet(s) via route(%v)", p, pkt.EgressRoute)
+	log.Debugf("ns.dispatchers.dispatch: from tun(proto: %d) via route(%v)", p, pkt.EgressRoute)
 
 	d.e.dispatcher.DeliverNetworkPacket(p, pkt)
 	return true, nil

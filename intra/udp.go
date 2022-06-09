@@ -243,11 +243,12 @@ func (h *udpHandler) Connect(conn core.UDPConn, target *net.UDPAddr) error {
 	h.udpConns[conn] = t
 	h.Unlock()
 
-	// Should fetch udp input when target is dns? dns overrides take over
-	// and so it is likely to be unnecessary?
-	if !h.isDoh(target) && !h.isDNSCrypt(target) && !h.isDNSProxy(target) {
-		go h.fetchUDPInput(conn, t)
-	}
+	// TODO: fetch-udp-input not required for dns? dns-override takes over;
+	// so it is likely to be unnecessary? in such a case, undoing book-
+	// keeping for tracker-entry and closing conn 'c' must be handled.
+	// if !h.isDoh(target) && !h.isDNSCrypt(target) && !h.isDNSProxy(target):
+	go h.fetchUDPInput(conn, t)
+
 	log.Infof("new udp proxy (mode: %s) conn to target: %s", proxymode, target.String())
 	return nil
 }
@@ -289,6 +290,10 @@ func (h *udpHandler) doDNSCrypt(p *dnscrypt.Proxy, t *tracker, conn core.UDPConn
 }
 
 func (h *udpHandler) isFakeDnsIpPort(addr *net.UDPAddr) bool {
+	if addr == nil || len(h.fakedns) <= 0 {
+		log.Errorf("nil dst-addr(%v) or dns(%v)", addr, h.fakedns)
+		return false
+	}
 	for _, dnsaddr := range h.fakedns {
 		if addr.IP.Equal(dnsaddr.IP) && addr.Port == dnsaddr.Port {
 			return true
@@ -298,6 +303,10 @@ func (h *udpHandler) isFakeDnsIpPort(addr *net.UDPAddr) bool {
 }
 
 func (h *udpHandler) isFakeDnsPort(addr *net.UDPAddr) bool {
+	if addr == nil || len(h.fakedns) <= 0 {
+		log.Errorf("nil dst-addr(%v) or dns(%v)", addr, h.fakedns)
+		return false
+	}
 	// isn't h.fakedns.Port always expected to be 53?
 	for _, dnsaddr := range h.fakedns {
 		if addr.Port == dnsaddr.Port {
@@ -367,7 +376,6 @@ func (h *udpHandler) dnsOverride(dns doh.Transport, dcrypt *dnscrypt.Proxy,
 		go h.doDNSCrypt(dcrypt, t, conn, dataCopy)
 		return true
 	}
-	// assert h.tunMode.DNSMode == settings.DNSModeNone
 	return false
 }
 
@@ -397,6 +405,7 @@ func (h *udpHandler) ReceiveTo(conn core.UDPConn, data []byte, addr *net.UDPAddr
 			addr = h.dnsproxy
 		}
 	} else if h.dnsOverride(doh, dcrypt, t, conn, addr, data) {
+		log.Debugf("t.udp.rcv: dns-override for dstaddr(%v)", addr)
 		return nil
 	}
 
