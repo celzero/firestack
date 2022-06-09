@@ -39,42 +39,64 @@ see how to integrate with Firestack on Android.
 
 ## Build
 
-Firestack APIs are available only on Android builds for now. iOS and Linux
-support will come by fall 2021.
-
 ### Prerequisites
 
-- macOS host and Xcode (iOS, macOS)
+- macOS host (iOS, macOS)
 - make
-- Go >= 1.14
+- Go >= 1.18
 - A C compiler (e.g.: clang, gcc)
-- [gomobile](https://github.com/golang/go/wiki/Mobile) (iOS, macOS, Android)
-- [xgo](https://github.com/techknowlogick/xgo) (Windows, Linux)
-- Docker (Windows, Linux)
-- Other common utilities (e.g.: git)
 
-### macOS Framework
+Firestack APIs are available only on Android builds for now. iOS and Linux
+support will come by fall 2022.
 
-As of Go 1.14, `gomobile` does not support building frameworks for macOS. [Jigsaw](https://jigsaw.google.com)
-engineers have patched gomobile to enable building a framework for macOS by
-replacing the default iOS simulator build. Until the change is upstreamed,
-the (Darwin) binary to enable this behavior is located at `tools/gomobile` and
-is used by the `build_macos.sh` build script.
+### Android
+
+- [sdkmanager](https://developer.android.com/studio/command-line/sdkmanager)
+  1. Download the command line tools from [developer.android.com](https://developer.android.com/studio).
+  1. Unzip the pacakge as `~/Android/Sdk/cmdline-tools/latest/`. Make sure `sdkmanager` is located at `~/Android/Sdk/cmdline-tools/latest/bin/sdkmanager`
+- Android NDK 23+
+  1. Install the NDK with `~/Android/Sdk/cmdline-tools/latest/bin/sdkmanager "platforms;android-30" "ndk;23.1.7779620"`
+    (platform from [outline-client](https://github.com/Jigsaw-Code/outline-client#building-the-android-app), exact NDK 23 version obtained from `sdkmanager --list`)
+  1. Set up the environment variables:
+     ```
+     export ANDROID_NDK_HOME=~/Android/Sdk/ndk/23.1.7779620 ANDROID_HOME=~/Android/Sdk
+     ```
+- [gomobile](https://pkg.go.dev/golang.org/x/mobile/cmd/gobind) (installed as needed by `make`)
+
+### Apple (iOS and macOS)
+
+- Xcode
+- [gomobile](https://pkg.go.dev/golang.org/x/mobile/cmd/gobind) (installed as needed by `make`)
 
 ### Linux and Windows
 
-Not maintained right now but you can build binaries for Linux and Windows
-from source without any custom integrations. `xgo` and Docker are required to
-support cross-compilation.
+We build binaries for Linux and Windows from source without any custom integrations.
+`xgo` and Docker are required to support cross-compilation.
 
-### Build the "Intra" flavour for Android
+- [Docker](https://docs.docker.com/get-docker/) (for XGO)
+- [xgo](https://github.com/crazy-max/xgo) (installed as needed by `make`)
+- [ghcr.io/crazy-max/xgo Docker image](https://github.com/crazy-max/xgo/pkgs/container/xgo) (~6.8GB pulled by `xgo`).
 
+## Make
+
+```
+# iOS and macOS: This will create build/apple/Tun2socks.xcframework
+make clean && make apple
+
+# Linux: This will create build/linux/tun2socks
+make clean && make linux
+
+# For Windows: This will create build/windows/tun2socks.exe
+make clean && make windows
+
+# For Android: This will create build/android/{tun2socks.aar,tun2socks-sources.jar}
+make clean && make android
+
+# For Intra: This will create build/intra/{tun2socks.aar,tun2socks-sources.jar}
+make clean && make intra
+
+```
+If needed, you can extract the jni files into `build/android/jni` with:
 ```bash
-go get -d ./...
-
-# the only supported flavour right now
-./build_android.sh intra
-
-# other unsupported, unmaintained builds:
-./build_[ios|android|macos|windows].sh
+unzip build/android/tun2socks.aar 'jni/*' -d build/android
 ```

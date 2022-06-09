@@ -29,18 +29,11 @@ export GO_LANG="$GOPATH/go/bin"
 export GO_COMPILED="$GOPATH/bin"
 export PATH="$GO_LANG:$GO_COMPILED:$PATH"
 
-# init gomobile
-go install golang.org/x/mobile/cmd/gomobile
-gomobile init
-
 # checkout tagged branch?
 # git checkout -b "$VERSION"
 
-# godeps
-go get -d ./...
-
 # gomobile aar
-./build_android.sh intra
+make clean && make intra
 
 # rename
 mv ./"$BOUT" ./"$FOUT"

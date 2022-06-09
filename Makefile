@@ -1,57 +1,65 @@
-GOMOBILE=gomobile
-GOBIND=$(GOMOBILE) bind
-XGOCMD=xgo
-BUILDDIR=$(shell pwd)/build
-IMPORT_PATH=github.com/celzero/firestack
+BUILDDIR=$(CURDIR)/build
+GOBIN=$(CURDIR)/bin
+GOMOBILE=$(GOBIN)/gomobile
 ELECTRON_PATH=$(IMPORT_PATH)/outline/electron
-LDFLAGS='-s -w'
-ANDROID_LDFLAGS='-w' # Don't strip Android debug symbols so we can upload them to crash reporting tools.
+XGO=$(GOBIN)/xgo
+IMPORT_PATH=github.com/celzero/firestack
 TUN2SOCKS_VERSION=v1.16.11
 XGO_LDFLAGS='-s -w -X main.version=$(TUN2SOCKS_VERSION)'
 
-ANDROID_BUILDDIR=$(BUILDDIR)/android
-ANDROID_ARTIFACT=$(ANDROID_BUILDDIR)/tun2socks.aar
-IOS_BUILDDIR=$(BUILDDIR)/ios
-IOS_ARTIFACT=$(IOS_BUILDDIR)/Tun2socks.framework
-MACOS_BUILDDIR=$(BUILDDIR)/macos
-MACOS_ARTIFACT=$(MACOS_BUILDDIR)/Tun2socks.framework
 WINDOWS_BUILDDIR=$(BUILDDIR)/windows
 LINUX_BUILDDIR=$(BUILDDIR)/linux
 
-ANDROID_BUILD_CMD="$(GOBIND) -v -a -trimpath -ldflags $(ANDROID_LDFLAGS) -target=android -tags='android,disable_debug' -work -o $(ANDROID_ARTIFACT)"
-ANDROID_OUTLINE_BUILD_CMD="$(ANDROID_BUILD_CMD) $(IMPORT_PATH)/outline/android $(IMPORT_PATH)/outline/shadowsocks"
-ANDROID_INTRA_BUILD_CMD="$(ANDROID_BUILD_CMD) $(IMPORT_PATH)/intra $(IMPORT_PATH)/intra/android $(IMPORT_PATH)/intra/doh $(IMPORT_PATH)/intra/split $(IMPORT_PATH)/intra/protect $(IMPORT_PATH)/intra/settings $(IMPORT_PATH)/intra/dnscrypt $(IMPORT_PATH)/intra/dnsx $(IMPORT_PATH)/intra/xdns"
-IOS_BUILD_CMD="$(GOBIND) -a -ldflags $(LDFLAGS) -bundleid org.outline.tun2socks -target=ios/arm64 -tags ios -o $(IOS_ARTIFACT) $(IMPORT_PATH)/outline/apple $(IMPORT_PATH)/outline/shadowsocks"
-MACOS_BUILD_CMD="./tools/$(GOBIND) -a -ldflags $(LDFLAGS) -bundleid org.outline.tun2socks -target=ios/amd64 -tags ios -o $(MACOS_ARTIFACT) $(IMPORT_PATH)/outline/apple $(IMPORT_PATH)/outline/shadowsocks"
-WINDOWS_BUILD_CMD="$(XGOCMD) -ldflags $(XGO_LDFLAGS) --targets=windows/386 -dest $(WINDOWS_BUILDDIR) $(ELECTRON_PATH)"
-LINUX_BUILD_CMD="$(XGOCMD) -ldflags $(XGO_LDFLAGS) --targets=linux/amd64 -dest $(LINUX_BUILDDIR) $(ELECTRON_PATH)"
+ANDROID_BUILD_CMD=$(GOMOBILE) bind -v -a -trimpath -ldflags '-w' -target=android -tags='android,disable_debug'
 
-define build
-	mkdir -p $(1)
-	eval $(2)
-endef
+$(BUILDDIR)/intra/tun2socks.aar: $(GOMOBILE)
+	mkdir -p $(BUILDDIR)/intra
+	$(ANDROID_BUILD_CMD) -o $@ $(IMPORT_PATH)/intra $(IMPORT_PATH)/intra/android $(IMPORT_PATH)/intra/doh $(IMPORT_PATH)/intra/split $(IMPORT_PATH)/intra/protect $(IMPORT_PATH)/intra/settings $(IMPORT_PATH)/intra/dnscrypt $(IMPORT_PATH)/intra/dnsx $(IMPORT_PATH)/intra/xdns
 
-.PHONY: android-outline android-intra ios linux macos windows clean
+$(BUILDDIR)/android/tun2socks.aar: $(GOMOBILE)
+	mkdir -p $(BUILDDIR)/android
+	$(ANDROID_BUILD_CMD) -o $@ $(IMPORT_PATH)/outline/android $(IMPORT_PATH)/outline/shadowsocks
 
-all: android-outline android-intra ios linux macos windows
+$(LINUX_BUILDDIR)/tun2socks: $(XGO)
+	$(XGO) -ldflags $(XGO_LDFLAGS) --targets=linux/amd64 -dest $(LINUX_BUILDDIR) $(ELECTRON_PATH)
+	mv $(LINUX_BUILDDIR)/electron-linux-amd64 $@
 
-android-outline:
-	$(call build,$(ANDROID_BUILDDIR),$(ANDROID_OUTLINE_BUILD_CMD))
+$(WINDOWS_BUILDDIR)/tun2socks.exe: $(XGO)
+	$(XGO) -ldflags $(XGO_LDFLAGS) --targets=windows/386 -dest $(WINDOWS_BUILDDIR) $(ELECTRON_PATH)
+	mv $(WINDOWS_BUILDDIR)/electron-windows-4.0-386.exe $@
 
-android-intra:
-	$(call build,$(ANDROID_BUILDDIR),$(ANDROID_INTRA_BUILD_CMD))
+# MACOSX_DEPLOYMENT_TARGET and -iosversion should match what outline-client supports.
+$(BUILDDIR)/apple/Tun2socks.xcframework: $(GOMOBILE)
+	export MACOSX_DEPLOYMENT_TARGET=10.14; $(GOMOBILE) bind -iosversion=9.0 -target=ios,iossimulator,macos -o $@ -ldflags '-s -w' -bundleid org.outline.tun2socks $(IMPORT_PATH)/outline/apple $(IMPORT_PATH)/outline/shadowsocks
 
-ios:
-	$(call build,$(IOS_BUILDDIR),$(IOS_BUILD_CMD))
+go.mod:
+	go mod tidy
+	touch go.mod
 
-linux:
-	$(call build,$(LINUX_BUILDDIR),$(LINUX_BUILD_CMD))
+$(GOMOBILE): go.mod
+	env GOBIN=$(GOBIN) go install golang.org/x/mobile/cmd/gomobile
+	$(GOMOBILE) init
 
-macos:
-	$(call build,$(MACOS_BUILDDIR),$(MACOS_BUILD_CMD))
+(XGO): go.mod
+	env GOBIN=$(GOBIN) go install github.com/crazy-max/xgo
 
-windows:
-	$(call build,$(WINDOWS_BUILDDIR),$(WINDOWS_BUILD_CMD))
+.PHONY: android intra linux apple windows clean clean-all
+
+all: android intra linux apple windows
+
+android: $(BUILDDIR)/android/tun2socks.aar
+
+intra: $(BUILDDIR)/intra/tun2socks.aar
+
+apple: $(BUILDDIR)/apple/Tun2socks.xcframework
+
+linux: $(LINUX_BUILDDIR)/tun2socks
+
+windows: $(WINDOWS_BUILDDIR)/tun2socks.exe
 
 clean:
 	rm -rf $(BUILDDIR)
+	go clean
+
+clean-all: clean
+	rm -rf $(GOBIN)

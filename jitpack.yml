@@ -3,7 +3,7 @@ jdk:
 env:
   PACK: "aar"
   FOUT: "firestack.aar"
-  BOUT: "build/android/tun2socks.aar"
+  BOUT: "build/intra/tun2socks.aar"
 before_install:
    - yes | $ANDROID_HOME/tools/bin/sdkmanager "platforms;android-30"
    - yes | $ANDROID_HOME/tools/bin/sdkmanager "build-tools;29.0.3"

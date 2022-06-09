@@ -4,7 +4,7 @@ go 1.18
 
 require (
 	github.com/Jigsaw-Code/getsni v0.0.0-20190807203514-efe2dbf35d1f
-	github.com/Jigsaw-Code/outline-ss-server v1.3.2
+	github.com/Jigsaw-Code/outline-ss-server v1.3.5
 	github.com/celzero/gotrie v0.0.0-20210413153406-d9d0dcea9cbd
 	github.com/eycorsican/go-tun2socks v1.16.11
 	github.com/jedisct1/go-clocksmith v0.0.0-20190707124905-73e087c7979c
@@ -16,6 +16,11 @@ require (
 	golang.org/x/crypto v0.0.0-20201016220609-9e8e0b390897
 	golang.org/x/net v0.0.0-20211015210444-4f30a5c0130f
 	golang.org/x/sys v0.0.0-20211019181941-9d821ace8654
+)
+
+require (
+	github.com/crazy-max/xgo v0.17.0
+	golang.org/x/mobile v0.0.0-20220518205345-8578da9835fd
 	gvisor.dev/gvisor v0.0.0-20220329084425-9638e18d39b3
 )
 
@@ -24,6 +29,8 @@ require (
 	github.com/aead/poly1305 v0.0.0-20180717145839-3fee0db0b635 // indirect
 	github.com/google/btree v1.0.1 // indirect
 	github.com/shadowsocks/go-shadowsocks2 v0.1.4-0.20201002022019-75d43273f5a5 // indirect
-	golang.org/x/mobile v0.0.0-20220518205345-8578da9835fd // indirect
+	golang.org/x/mod v0.5.1 // indirect
 	golang.org/x/time v0.0.0-20191024005414-555d28b269f0 // indirect
+	golang.org/x/tools v0.1.9 // indirect
+	golang.org/x/xerrors v0.0.0-20200804184101-5ec99f83aff1 // indirect
 )

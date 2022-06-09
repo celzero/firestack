@@ -126,27 +126,31 @@ func NewTunnel(fakedns string, dohdns doh.Transport, tunWriter io.WriteCloser, d
 func fakeDnsTcpAddr(csvaddr string) ([]*net.TCPAddr, error) {
 	addrs := strings.Split(csvaddr, ",")
 	tcpaddrs := make([]*net.TCPAddr, len(addrs))
+	count := 0
 	for _, a := range addrs {
 		if tcpaddr, err := net.ResolveTCPAddr("tcp", a); err != nil {
 			return nil, err
-		} else {
+		} else if tcpaddr != nil {
 			tcpaddrs = append(tcpaddrs, tcpaddr)
+			count += 1
 		}
 	}
-	return tcpaddrs, nil
+	return tcpaddrs[:count], nil
 }
 
 func fakeDnsUdpAddr(csvaddr string) ([]*net.UDPAddr, error) {
 	addrs := strings.Split(csvaddr, ",")
 	udpaddrs := make([]*net.UDPAddr, len(addrs))
+	count := 0
 	for _, a := range addrs {
 		if udpaddr, err := net.ResolveUDPAddr("udp", a); err != nil {
 			return nil, err
-		} else {
+		} else if udpaddr != nil {
 			udpaddrs = append(udpaddrs, udpaddr)
+			count += 1
 		}
 	}
-	return udpaddrs, nil
+	return udpaddrs[:count], nil
 }
 
 func NewGTunnel(fakedns string, dohdns doh.Transport, fd int, l3 string, dialer *net.Dialer, blocker protect.Blocker, config *net.ListenConfig, listener Listener) (Tunnel, error) {

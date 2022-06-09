@@ -360,7 +360,7 @@ func (h *udpHandler) dnsOverride(dns doh.Transport, dcrypt *dnscrypt.Proxy,
 		return true
 	} else if h.isDNSCrypt(addr) {
 		if dcrypt == nil {
-			log.Errorf("dns crypt nil")
+			log.Errorf("dnscrypt nil")
 			return false
 		}
 		t.ip = addr
