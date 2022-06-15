@@ -10,11 +10,11 @@ XGO_LDFLAGS='-s -w -X main.version=$(TUN2SOCKS_VERSION)'
 WINDOWS_BUILDDIR=$(BUILDDIR)/windows
 LINUX_BUILDDIR=$(BUILDDIR)/linux
 
-ANDROID_BUILD_CMD=$(GOMOBILE) bind -v -a -trimpath -ldflags '-w' -target=android -tags='android,disable_debug'
+ANDROID_BUILD_CMD=env PATH=$(GOBIN):$(PATH) $(GOMOBILE) bind -v -a -trimpath -ldflags '-w' -target=android -tags='android,disable_debug'
 
 $(BUILDDIR)/intra/tun2socks.aar: $(GOMOBILE)
 	mkdir -p $(BUILDDIR)/intra
-	$(ANDROID_BUILD_CMD) -o $@ $(IMPORT_PATH)/intra $(IMPORT_PATH)/intra/android $(IMPORT_PATH)/intra/doh $(IMPORT_PATH)/intra/split $(IMPORT_PATH)/intra/protect $(IMPORT_PATH)/intra/settings $(IMPORT_PATH)/intra/dnscrypt $(IMPORT_PATH)/intra/dnsx $(IMPORT_PATH)/intra/xdns
+	$(ANDROID_BUILD_CMD) -o $@ $(IMPORT_PATH)/intra $(IMPORT_PATH)/intra/android $(IMPORT_PATH)/intra/ipn $(IMPORT_PATH)/intra/doh $(IMPORT_PATH)/intra/split $(IMPORT_PATH)/intra/protect $(IMPORT_PATH)/intra/settings $(IMPORT_PATH)/intra/dnscrypt $(IMPORT_PATH)/intra/dnsx $(IMPORT_PATH)/intra/xdns
 
 $(BUILDDIR)/android/tun2socks.aar: $(GOMOBILE)
 	mkdir -p $(BUILDDIR)/android
@@ -32,13 +32,13 @@ $(WINDOWS_BUILDDIR)/tun2socks.exe: $(XGO)
 $(BUILDDIR)/apple/Tun2socks.xcframework: $(GOMOBILE)
 	export MACOSX_DEPLOYMENT_TARGET=10.14; $(GOMOBILE) bind -iosversion=9.0 -target=ios,iossimulator,macos -o $@ -ldflags '-s -w' -bundleid org.outline.tun2socks $(IMPORT_PATH)/outline/apple $(IMPORT_PATH)/outline/shadowsocks
 
-go.mod:
+go.mod: tools/tools.go
 	go mod tidy
 	touch go.mod
 
 $(GOMOBILE): go.mod
 	env GOBIN=$(GOBIN) go install golang.org/x/mobile/cmd/gomobile
-	$(GOMOBILE) init
+	env PATH=$(GOBIN):$(PATH) $(GOMOBILE) init
 
 (XGO): go.mod
 	env GOBIN=$(GOBIN) go install github.com/crazy-max/xgo

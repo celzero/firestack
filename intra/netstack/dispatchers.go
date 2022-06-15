@@ -197,8 +197,8 @@ func (d *readVDispatcher) dispatch() (bool, tcpip.Error) {
 		}
 	}
 
-	log.Debugf("ns.dispatchers.dispatch: from tun(proto: %d) via route(%v)", p, pkt.EgressRoute)
+	log.Debugf("ns.dispatchers.dispatch (from-tun) proto(%d) for pkt-id(%d)", p, pkt.Hash)
 
-	d.e.dispatcher.DeliverNetworkPacket(p, pkt)
+	d.e.InjectInbound(p, pkt)
 	return true, nil
 }

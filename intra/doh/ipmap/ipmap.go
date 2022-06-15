@@ -29,7 +29,7 @@ import (
 	"net"
 	"sync"
 
-	"github.com/eycorsican/go-tun2socks/common/log"
+	"github.com/celzero/firestack/intra/log"
 )
 
 // IPMap maps hostnames to IPSets.

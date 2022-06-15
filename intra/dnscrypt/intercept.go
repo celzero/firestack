@@ -21,7 +21,7 @@ import (
 	"github.com/celzero/firestack/intra/dnsx"
 	"github.com/celzero/firestack/intra/xdns"
 
-	"github.com/eycorsican/go-tun2socks/common/log"
+	"github.com/celzero/firestack/intra/log"
 	"github.com/k-sone/critbitgo"
 	"github.com/miekg/dns"
 )

@@ -35,11 +35,12 @@ import (
 
 	"golang.org/x/net/proxy"
 
-	"github.com/eycorsican/go-tun2socks/common/log"
+	"github.com/celzero/firestack/intra/log"
 	"github.com/eycorsican/go-tun2socks/core"
 
 	"github.com/celzero/firestack/intra/dnscrypt"
 	"github.com/celzero/firestack/intra/doh"
+	"github.com/celzero/firestack/intra/ipn"
 	"github.com/celzero/firestack/intra/netstack"
 	"github.com/celzero/firestack/intra/protect"
 	"github.com/celzero/firestack/intra/settings"
@@ -95,6 +96,7 @@ type udpHandler struct {
 	dnscrypt *dnscrypt.Proxy
 	dnsproxy *net.UDPAddr
 	proxy    proxy.Dialer
+	pt       ipn.NatPt
 }
 
 // NewUDPHandler makes a UDP handler with Intra-style DNS redirection:
@@ -103,9 +105,9 @@ type udpHandler struct {
 // `timeout` controls the effective NAT mapping lifetime.
 // `config` is used to bind new external UDP ports.
 // `listener` receives a summary about each UDP binding when it expires.
-func NewUDPHandler(fakedns []*net.UDPAddr, timeout time.Duration, blocker protect.Blocker,
+func NewUDPHandler(fakedns []*net.UDPAddr, pt ipn.NatPt, timeout time.Duration, blocker protect.Blocker,
 	tunMode *settings.TunMode, config *net.ListenConfig, listener UDPListener) UDPHandler {
-	return &udpHandler{
+	h := &udpHandler{
 		timeout:  timeout,
 		udpConns: make(map[core.UDPConn]*tracker, 8),
 		fakedns:  fakedns,
@@ -113,7 +115,10 @@ func NewUDPHandler(fakedns []*net.UDPAddr, timeout time.Duration, blocker protec
 		tunMode:  tunMode,
 		config:   config,
 		listener: listener,
+		pt:       pt,
 	}
+
+	return h
 }
 
 func (h *udpHandler) fetchUDPInput(conn core.UDPConn, t *tracker) {
@@ -220,8 +225,9 @@ func (h *udpHandler) Connect(conn core.UDPConn, target *net.UDPAddr) error {
 	var c interface{}
 	var err error
 	if proxymode {
-		// deprecated: https://github.com/golang/go/issues/25104
-		// FIXME: target can be nil: What happens then?
+		// TODO: translate target to addr4 when local dns64/nat64
+		// TODO: target can be nil: What happens then?
+		// deprecated: github.com/golang/go/issues/25104
 		c, err = h.proxy.Dial(target.Network(), target.String())
 	} else {
 		bindAddr := &net.UDPAddr{IP: nil, Port: 0}
@@ -244,9 +250,7 @@ func (h *udpHandler) Connect(conn core.UDPConn, target *net.UDPAddr) error {
 	h.Unlock()
 
 	// TODO: fetch-udp-input not required for dns? dns-override takes over;
-	// so it is likely to be unnecessary? in such a case, undoing book-
-	// keeping for tracker-entry and closing conn 'c' must be handled.
-	// if !h.isDoh(target) && !h.isDNSCrypt(target) && !h.isDNSProxy(target):
+	// and funcs doDoh and doDnscrypt close the conns once tx is complete.
 	go h.fetchUDPInput(conn, t)
 
 	log.Infof("new udp proxy (mode: %s) conn to target: %s", proxymode, target.String())
@@ -399,14 +403,25 @@ func (h *udpHandler) ReceiveTo(conn core.UDPConn, data []byte, addr *net.UDPAddr
 
 	if h.isDNSProxy(addr) {
 		if dnsproxy == nil {
-			log.Errorf("dns proxy nil")
+			log.Errorf("t.udp.rcv: dns proxy nil")
 		} else {
+			log.Debugf("t.udp.rcv: dns proxy to dst-addr(%v) instead", h.dnsproxy)
+			h.Lock()
 			t.ip = addr
 			addr = h.dnsproxy
+			h.Unlock()
 		}
 	} else if h.dnsOverride(doh, dcrypt, t, conn, addr, data) {
 		log.Debugf("t.udp.rcv: dns-override for dstaddr(%v)", addr)
 		return nil
+	} else if h.pt.IsNat64(ipn.Local464Resolver, addr.IP) {
+		h.Lock()
+		if ip4 := h.pt.X64(ipn.Local464Resolver, addr.IP); ip4 != nil {
+			t.ip = addr
+			addr.IP = ip4
+		}
+		h.Unlock()
+		log.Debugf("t.udp.rcv: local-nat to addr4(%v) for addr6(%v)", addr, t.ip)
 	}
 
 	t.upload += int64(len(data))

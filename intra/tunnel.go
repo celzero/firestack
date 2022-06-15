@@ -36,6 +36,7 @@ import (
 	"github.com/celzero/firestack/intra/dnscrypt"
 	"github.com/celzero/firestack/intra/dnsx"
 	"github.com/celzero/firestack/intra/doh"
+	"github.com/celzero/firestack/intra/ipn"
 	"github.com/celzero/firestack/intra/protect"
 	"github.com/celzero/firestack/intra/settings"
 	"github.com/celzero/firestack/tunnel"
@@ -94,6 +95,7 @@ type intratunnel struct {
 	proxyOptions *settings.ProxyOptions
 	dnsOptions   *settings.DNSOptions
 	bravedns     dnsx.BraveDNS
+	natpt        ipn.NatPt
 }
 
 // NewTunnel creates a connected Intra session.
@@ -106,7 +108,7 @@ type intratunnel struct {
 // `tunWriter` is the downstream VPN tunnel.  IntraTunnel.Disconnect() will close `tunWriter`.
 // `dialer` and `config` will be used for all network activity.
 // `listener` will be notified at the completion of every tunneled socket.
-func NewTunnel(fakedns string, dohdns doh.Transport, tunWriter io.WriteCloser, dialer *net.Dialer, blocker protect.Blocker, config *net.ListenConfig, listener Listener) (Tunnel, error) {
+func NewTunnel(fakedns string, dohdns doh.Transport, tunWriter io.WriteCloser, mode string, dialer *net.Dialer, blocker protect.Blocker, config *net.ListenConfig, listener Listener) (Tunnel, error) {
 	if tunWriter == nil {
 		return nil, errors.New("Must provide a valid TUN writer")
 	}
@@ -115,7 +117,7 @@ func NewTunnel(fakedns string, dohdns doh.Transport, tunWriter io.WriteCloser, d
 		Tunnel:  tunnel.NewTunnel(tunWriter, core.NewLWIPStack()),
 		tunmode: settings.DefaultTunMode(),
 	}
-	if err := t.registerConnectionHandlers(fakedns, dialer, blocker, config, listener); err != nil {
+	if err := t.registerConnectionHandlers(fakedns, mode, dialer, blocker, config, listener); err != nil {
 		return nil, err
 	}
 	t.SetDNS(dohdns)
@@ -172,8 +174,10 @@ func NewGTunnel(fakedns string, dohdns doh.Transport, fd int, l3 string, dialer 
 		return nil, err
 	}
 
-	tcph := NewTCPHandler(tcpfakedns, dialer, blocker, tunmode, listener)
-	udph := NewUDPHandler(udpfakedns, udptimeout, blocker, tunmode, config, listener)
+	natpt := ipn.NewNatPt(l3)
+
+	tcph := NewTCPHandler(tcpfakedns, natpt, dialer, blocker, tunmode, listener)
+	udph := NewUDPHandler(udpfakedns, natpt, udptimeout, blocker, tunmode, config, listener)
 	t, err := tunnel.NewGTunnel(fd, l3, tcph, udph)
 
 	if err != nil {
@@ -187,28 +191,32 @@ func NewGTunnel(fakedns string, dohdns doh.Transport, fd int, l3 string, dialer 
 
 	gt.udp = udph
 	gt.tcp = tcph
+	gt.natpt = natpt
 
 	gt.SetDNS(dohdns)
 	return gt, nil
 }
 
 // Registers Intra's custom UDP and TCP connection handlers to the tun2socks core.
-func (t *intratunnel) registerConnectionHandlers(fakedns string, dialer *net.Dialer, blocker protect.Blocker, config *net.ListenConfig, listener Listener) error {
+func (t *intratunnel) registerConnectionHandlers(fakedns, l3 string, dialer *net.Dialer, blocker protect.Blocker, config *net.ListenConfig, listener Listener) error {
 	// RFC 4787 REQ-5 requires a timeout no shorter than 5 minutes.
 	timeout, _ := time.ParseDuration("5m")
+
+	natpt := ipn.NewNatPt(l3)
+	t.natpt = natpt
 
 	udpfakedns, err := fakeDnsUdpAddr(fakedns)
 	if err != nil {
 		return err
 	}
-	t.udp = NewUDPHandler(udpfakedns, timeout, blocker, t.tunmode, config, listener)
+	t.udp = NewUDPHandler(udpfakedns, natpt, timeout, blocker, t.tunmode, config, listener)
 	core.RegisterUDPConnHandler(t.udp)
 
 	tcpfakedns, err := fakeDnsTcpAddr(fakedns)
 	if err != nil {
 		return err
 	}
-	t.tcp = NewTCPHandler(tcpfakedns, dialer, blocker, t.tunmode, listener)
+	t.tcp = NewTCPHandler(tcpfakedns, natpt, dialer, blocker, t.tunmode, listener)
 	core.RegisterTCPConnHandler(t.tcp)
 
 	return nil
@@ -220,6 +228,7 @@ func (t *intratunnel) SetDNS(dns doh.Transport) {
 	t.udp.SetDNS(dns)
 	t.tcp.SetDNS(dns)
 	dns.SetBraveDNS(bravedns)
+	dns.SetNatPt(t.natpt)
 }
 
 func (t *intratunnel) GetDNS() doh.Transport {
@@ -258,6 +267,7 @@ func (t *intratunnel) StartDNSCryptProxy(resolvers string, relays string, listen
 		return "", fmt.Errorf("only one instance of dns-crypt proxy allowed")
 	}
 	p := dnscrypt.NewProxy(listener)
+	p.SetNatPt(t.natpt)
 	if _, err = p.AddServers(resolvers); err == nil {
 		if len(relays) > 0 {
 			_, err = p.AddRoutes(relays)

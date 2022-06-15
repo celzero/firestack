@@ -31,7 +31,7 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/eycorsican/go-tun2socks/common/log"
+	"github.com/celzero/firestack/intra/log"
 )
 
 // Blocker provides answers to filter network traffic.

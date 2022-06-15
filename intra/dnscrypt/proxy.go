@@ -27,8 +27,9 @@ import (
 	"time"
 
 	"github.com/celzero/firestack/intra/dnsx"
+	"github.com/celzero/firestack/intra/ipn"
+	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/xdns"
-	"github.com/eycorsican/go-tun2socks/common/log"
 
 	clocksmith "github.com/jedisct1/go-clocksmith"
 	stamps "github.com/jedisct1/go-dnsstamps"
@@ -223,6 +224,7 @@ type Proxy struct {
 	liveServers                  []string
 	sigterm                      context.CancelFunc
 	bravedns                     dnsx.BraveDNS
+	natpt                        ipn.NatPt
 }
 
 func (proxy *Proxy) exchangeWithTCPServer(serverInfo *ServerInfo, sharedKey *[32]byte, encryptedQuery []byte, clientNonce []byte) ([]byte, error) {
@@ -271,7 +273,11 @@ func (proxy *Proxy) prepareForRelay(ip net.IP, port int, encryptedQuery *[]byte)
 	*encryptedQuery = relayedQuery
 }
 
-func (proxy *Proxy) query(packet []byte, truncate bool) (response []byte, blocklists string, serverInfo *ServerInfo, qerr error) {
+func (proxy *Proxy) query(q []byte, trunc bool) (r []byte, blocklists string, s *ServerInfo, qerr error) {
+	return proxy.queryServer(q, trunc, nil)
+}
+
+func (proxy *Proxy) queryServer(packet []byte, truncate bool, preferredServer *ServerInfo) (response []byte, blocklists string, serverInfo *ServerInfo, qerr error) {
 	if len(packet) < xdns.MinDNSPacketSize {
 		log.Warnf("DNS query size too short, cannot process dns-crypt query.")
 		qerr = &dnscryptError{BadQuery, fmt.Errorf("dns-crypt query size too short")}
@@ -318,7 +324,11 @@ func (proxy *Proxy) query(packet []byte, truncate bool) (response []byte, blockl
 		return
 	}
 
-	serverInfo = proxy.serversInfo.getOne()
+	if preferredServer == nil {
+		serverInfo = proxy.serversInfo.getOne()
+	} else {
+		serverInfo = preferredServer
+	}
 
 	if serverInfo == nil {
 		err = errors.New("server-info nil, drop dns-crypt query")
@@ -391,6 +401,9 @@ func HandleUDP(proxy *Proxy, data []byte) (response []byte, err error) {
 
 	before := time.Now()
 	response, b, s, err = proxy.query(data, true)
+	if len(b) <= 0 && err == nil && proxy.natpt != nil {
+		response = proxy.natpt.D64(s.URL.String(), data, response, proxy.ExchangeWith(s))
+	}
 	after := time.Now()
 
 	if proxy.listener != nil {
@@ -499,6 +512,30 @@ func HandleTCP(proxy *Proxy, conn net.Conn) {
 
 func (p *Proxy) SetBraveDNS(b dnsx.BraveDNS) {
 	p.bravedns = b
+}
+
+func (proxy *Proxy) SetNatPt(pt ipn.NatPt) {
+	proxy.natpt = pt
+	// TODO: pt.AddResolver(t.url, t.Query)
+}
+
+type OneServerProxy struct {
+	server *ServerInfo
+	inner  *Proxy
+}
+
+// Implements ipn.DnsExchange
+func (sp *OneServerProxy) Exchange(x []byte) (r []byte, err error) {
+	// TODO: support truncation
+	r, _, _, err = sp.inner.queryServer(x, false, sp.server)
+	return
+}
+
+func (proxy *Proxy) ExchangeWith(s *ServerInfo) ipn.Resolver {
+	return &OneServerProxy{
+		server: s,
+		inner:  proxy,
+	}
 }
 
 // LiveServers returns csv of dnscrypt server-names currently in-use

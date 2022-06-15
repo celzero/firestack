@@ -30,6 +30,7 @@ func setupTcpHandler(s *stack.Stack, h GTCPConnHandler) {
 	s.SetTransportProtocolHandler(tcp.ProtocolNumber, NewTCPForwarder(s, h).HandlePacket)
 }
 
+// ref: github.com/google/gvisor/blob/e89e736f1/pkg/tcpip/adapters/gonet/gonet_test.go#L189
 func NewTCPForwarder(s *stack.Stack, h GTCPConnHandler) *tcp.Forwarder {
 	return tcp.NewForwarder(s, rcvwnd, maxInFlight, func(request *tcp.ForwarderRequest) {
 		id := request.ID()
@@ -59,6 +60,7 @@ type GTCPConn struct {
 }
 
 func NewGTCPConn(wq *waiter.Queue, ep tcpip.Endpoint) *GTCPConn {
+	// set sock-opts? github.com/xjasonlyu/tun2socks/blob/31468620e/core/tcp.go#L82
 	return &GTCPConn{gonet.NewTCPConn(wq, ep), ep}
 }
 

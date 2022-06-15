@@ -35,6 +35,7 @@ type GUDPConn struct {
 	gudp *gonet.UDPConn
 }
 
+// ref: github.com/google/gvisor/blob/e89e736f1/pkg/tcpip/adapters/gonet/gonet_test.go#L373
 func NewGUDPConn(s *stack.Stack, r *udp.ForwarderRequest) *GUDPConn {
 	waitQueue := new(waiter.Queue)
 	// use gonet.DialUDP instead?

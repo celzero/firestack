@@ -16,11 +16,32 @@ package xdns
 
 import (
 	"errors"
+	"net"
 	"strings"
 	"unicode/utf8"
 
+	"github.com/celzero/firestack/intra/log"
 	"github.com/miekg/dns"
 )
+
+func Request4FromResponse6(msg6 *dns.Msg) *dns.Msg {
+	msg4 := &dns.Msg{
+		Compress: true,
+	}
+	msg4.SetQuestion(QName(msg6), dns.TypeA)
+	msg4.RecursionDesired = true
+	msg4.CheckingDisabled = false
+	msg4.AuthenticatedData = false
+	msg4.Authoritative = false
+	msg4.Id = msg6.Id
+	return msg4
+}
+
+func Request4FromRequest6(msg6 *dns.Msg) *dns.Msg {
+	msg4 := msg6.Copy()
+	msg4.SetQuestion(QName(msg6), dns.TypeA)
+	return msg4
+}
 
 func EmptyResponseFromMessage(srcMsg *dns.Msg) *dns.Msg {
 	dstMsg := dns.Msg{
@@ -53,6 +74,13 @@ func TruncatedResponse(packet []byte) ([]byte, error) {
 
 func HasTCFlag(packet []byte) bool {
 	return packet[2]&2 == 2
+}
+
+func QName(msg *dns.Msg) string {
+	if msg != nil && len(msg.Question) > 0 {
+		return msg.Question[0].Name
+	}
+	return ""
 }
 
 func NormalizeQName(str string) (string, error) {
@@ -183,4 +211,157 @@ func RefusedResponseFromMessage(srcMsg *dns.Msg) (dstMsg *dns.Msg, err error) {
 	}
 
 	return
+}
+
+func HasRcodeSuccess(msg *dns.Msg) bool {
+	return msg.Rcode == dns.RcodeSuccess
+}
+
+func HasAnyAnswer(msg *dns.Msg) bool {
+	return len(msg.Answer) > 0
+}
+
+func HasAAAAAnswer(msg *dns.Msg) bool {
+	for _, answer := range msg.Answer {
+		if answer.Header().Rrtype == dns.TypeAAAA {
+			return true
+		}
+	}
+	return false
+}
+
+func HasAAAAQuestion(msg *dns.Msg) bool {
+	q := msg.Question[0]
+	return q.Qclass == dns.ClassINET && q.Qtype == dns.TypeAAAA
+}
+
+func MaybeToQuadA(answer dns.RR, prefix *net.IPNet) dns.RR {
+	header := answer.Header()
+	if header.Rrtype != dns.TypeA {
+		return answer
+	}
+	ipv4 := answer.(*dns.A).A.To4()
+	// TODO: refuse to translate bogons
+	if ipv4 == nil {
+		return nil
+	}
+	ttl := uint32(300) // 5 minutes
+	if ttl > header.Ttl {
+		ttl = header.Ttl
+	}
+
+	ipv6 := ip4to6(prefix, ipv4)
+
+	trec := new(dns.AAAA)
+	trec.Hdr = dns.RR_Header{
+		Name:   header.Name,
+		Rrtype: dns.TypeAAAA,
+		Class:  header.Class,
+		Ttl:    ttl,
+	}
+	trec.AAAA = ipv6
+	return trec
+}
+
+func ToIp6Hint(answer dns.RR, prefix *net.IPNet) dns.RR {
+	header := answer.Header()
+	var kv []dns.SVCBKeyValue
+	if header.Rrtype == dns.TypeHTTPS {
+		kv = answer.(*dns.HTTPS).Value
+	} else if header.Rrtype == dns.TypeSVCB {
+		kv = answer.(*dns.SVCB).Value
+	} else {
+		log.Warnf("toIp6Hint: Not a svcb/https record/1")
+		return nil
+	}
+
+	if len(kv) <= 0 {
+		return nil
+	}
+	ttl := uint32(300) // 5 minutes
+
+	hint4 := make([]string, 0)
+	rest := make([]dns.SVCBKeyValue, 0)
+	for _, x := range kv {
+		if x.Key() == dns.SVCB_IPV6HINT {
+			// ipv6hint found, no need to translate ipv4s
+			return nil
+		} else if x.Key() == dns.SVCB_IPV4HINT {
+			ipstr := x.String()
+			if len(ipstr) <= 0 {
+				continue
+			}
+			hint4 = append(hint4, strings.Split(ipstr, ",")...)
+		} else {
+			rest = append(rest, x)
+		}
+	}
+
+	hint6 := new(dns.SVCBIPv6Hint)
+	for _, x := range hint4 {
+		ip4 := net.ParseIP(x)
+		if ip4 == nil {
+			log.Warnf("dnsutil: invalid https/svcb ipv4hint %s", x)
+			continue
+		}
+		hint6.Hint = append(hint6.Hint, ip4to6(prefix, ip4))
+	}
+
+	if header.Rrtype == dns.TypeSVCB {
+		trec := new(dns.SVCB)
+		trec.Hdr = dns.RR_Header{
+			Name:   header.Name,
+			Rrtype: header.Rrtype,
+			Class:  header.Class,
+			Ttl:    ttl,
+		}
+		trec.Value = append(rest, hint6)
+		return trec
+	} else if header.Rrtype == dns.TypeHTTPS {
+		trec := new(dns.HTTPS)
+		trec.Hdr = dns.RR_Header{
+			Name:   header.Name,
+			Rrtype: header.Rrtype,
+			Class:  header.Class,
+			Ttl:    ttl,
+		}
+		trec.Value = append(rest, hint6)
+		return trec
+	} else {
+		// should never happen
+		log.Errorf("toIp6Hint: Not a svcb/https record/2")
+		return nil
+	}
+}
+
+func ip4to6(prefix6 *net.IPNet, ip4 net.IP) net.IP {
+	ip6 := make(net.IP, net.IPv6len)
+	copy(ip6, prefix6.IP)
+	n, _ := prefix6.Mask.Size()
+	ipShift := n / 8
+	for i := 0; i < net.IPv4len; i++ {
+		// skip byte 8, datatracker.ietf.org/doc/html/rfc6052#section-2.2
+		if ipShift+i == 8 {
+			ipShift++
+		}
+		ip6[ipShift+i] = ip4[i]
+	}
+	return ip6
+}
+
+func AQuadAUnspecified(msg *dns.Msg) bool {
+	ans := msg.Answer
+	for _, rr := range ans {
+		switch v := rr.(type) {
+		case *dns.AAAA:
+			if net.IPv6zero.Equal(v.AAAA) {
+				return true
+			}
+		case *dns.A:
+			if net.IPv4zero.Equal(v.A) {
+				return true
+			}
+		}
+	}
+	return false
 }

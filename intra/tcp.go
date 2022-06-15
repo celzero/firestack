@@ -33,11 +33,12 @@ import (
 
 	"golang.org/x/net/proxy"
 
-	"github.com/eycorsican/go-tun2socks/common/log"
+	"github.com/celzero/firestack/intra/log"
 	"github.com/eycorsican/go-tun2socks/core"
 
 	"github.com/celzero/firestack/intra/dnscrypt"
 	"github.com/celzero/firestack/intra/doh"
+	"github.com/celzero/firestack/intra/ipn"
 	"github.com/celzero/firestack/intra/netstack"
 	"github.com/celzero/firestack/intra/protect"
 	"github.com/celzero/firestack/intra/settings"
@@ -70,6 +71,7 @@ type tcpHandler struct {
 	dnscrypt         *dnscrypt.Proxy
 	dnsproxy         *net.TCPAddr
 	proxy            proxy.Dialer
+	pt               ipn.NatPt
 }
 
 // TCPSocketSummary provides information about each TCP socket, reported when it is closed.
@@ -92,27 +94,43 @@ type TCPListener interface {
 // Connections to `fakedns` are redirected to DOH.
 // All other traffic is forwarded using `dialer`.
 // `listener` is provided with a summary of each socket when it is closed.
-func NewTCPHandler(fakedns []*net.TCPAddr, dialer *net.Dialer, blocker protect.Blocker,
+func NewTCPHandler(fakedns []*net.TCPAddr, pt ipn.NatPt, dialer *net.Dialer, blocker protect.Blocker,
 	tunMode *settings.TunMode, listener TCPListener) TCPHandler {
-	return &tcpHandler{
+	h := &tcpHandler{
 		fakedns:  fakedns,
 		dialer:   dialer,
 		blocker:  blocker,
 		tunMode:  tunMode,
 		listener: listener,
+		pt:       pt,
 	}
+
+	return h
 }
 
 // TODO: Propagate TCP RST using local.Abort(), on appropriate errors.
 func (h *tcpHandler) handleUpload(local core.TCPConn, remote split.DuplexConn, upload chan int64) {
-	bytes, _ := remote.ReadFrom(local)
+	// io.copy does remote.ReadFrom(local)
+	bytes, err := io.Copy(remote, local)
+	log.Debugf("t.tcp handle-upload(%d) done(%v) b/w %s", bytes, err, conn2str(local, remote))
 	local.CloseRead()
 	remote.CloseWrite()
 	upload <- bytes
 }
 
+func conn2str(a net.Conn, b net.Conn) string {
+	ar := a.RemoteAddr()
+	br := b.RemoteAddr()
+	al := a.LocalAddr()
+	bl := b.LocalAddr()
+	return fmt.Sprintf("a(%v->%v) => b(%v<-%v)", al, ar, bl, br)
+}
+
 func (h *tcpHandler) handleDownload(local core.TCPConn, remote split.DuplexConn) (bytes int64, err error) {
 	bytes, err = io.Copy(local, remote)
+	if err != nil {
+		log.Warnf("t.tcp handle-download(%d) done(%v) b/w %s", bytes, err, conn2str(local, remote))
+	}
 	local.CloseWrite()
 	remote.CloseRead()
 	return
@@ -217,7 +235,6 @@ func (h *tcpHandler) isDNSCrypt(addr *net.TCPAddr) bool {
 }
 
 func (h *tcpHandler) dnsOverride(conn net.Conn, addr *net.TCPAddr) bool {
-
 	if h.isDoh(addr) {
 		dns := h.dns.Load()
 		go doh.Accept(dns, conn)
@@ -287,6 +304,14 @@ func (h *tcpHandler) Handle(conn net.Conn, target *net.TCPAddr) error {
 
 	if h.dnsOverride(conn, target) {
 		return nil
+	} else if h.pt.IsNat64(ipn.Local464Resolver, target.IP) {
+		// TODO: check if the network this process binds to has ipv4 connectivity
+		if ip4 := h.pt.X64(ipn.Local464Resolver, target.IP); len(ip4) == net.IPv4len {
+			log.Debugf("t.tcp.handle: local nat64 to ip4(%v) for ip6(%v)", ip4, target.IP)
+			target.IP = ip4
+		} else {
+			log.Warnf("t.tcp.handle: failed local nat64 to ip4(%v) for ip6(%v)", ip4, target.IP)
+		}
 	}
 
 	var summary TCPSocketSummary
@@ -296,11 +321,11 @@ func (h *tcpHandler) Handle(conn net.Conn, target *net.TCPAddr) error {
 	var err error
 
 	// TODO: Cancel dialing if c is closed
-	// Ref: https://stackoverflow.com/questions/63656117/
-	// Ref: https://stackoverflow.com/questions/40328025
+	// Ref: stackoverflow.com/questions/63656117
+	// Ref: stackoverflow.com/questions/40328025
 	if p := h.proxy; (h.socks5Proxy() || h.httpsProxy()) && p != nil {
 		var generic net.Conn
-		// deprecated: https://github.com/golang/go/issues/25104
+		// deprecated: github.com/golang/go/issues/25104
 		generic, err = p.Dial(target.Network(), target.String())
 		if generic != nil {
 			c = generic.(*net.TCPConn)

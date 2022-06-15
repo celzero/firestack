@@ -22,14 +22,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/celzero/firestack/intra/log"
+	"github.com/miekg/dns"
 	"golang.org/x/crypto/ed25519"
 
-	"github.com/eycorsican/go-tun2socks/common/log"
-
-	"github.com/miekg/dns"
-
 	"github.com/celzero/firestack/intra/xdns"
-
 )
 
 type CertInfo struct {

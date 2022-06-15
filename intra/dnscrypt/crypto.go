@@ -20,8 +20,8 @@ import (
 	"errors"
 	"math/rand"
 
+	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/xdns"
-	"github.com/eycorsican/go-tun2socks/common/log"
 
 	"github.com/jedisct1/xsecretbox"
 

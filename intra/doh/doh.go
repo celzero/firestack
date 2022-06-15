@@ -42,10 +42,11 @@ import (
 	"time"
 
 	"github.com/celzero/firestack/intra/dnsx"
-	"github.com/celzero/firestack/intra/xdns"
 	"github.com/celzero/firestack/intra/doh/ipmap"
+	"github.com/celzero/firestack/intra/ipn"
+	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/split"
-	"github.com/eycorsican/go-tun2socks/common/log"
+	"github.com/celzero/firestack/intra/xdns"
 	"golang.org/x/net/dns/dnsmessage"
 )
 
@@ -100,19 +101,21 @@ type Transport interface {
 	GetURL() string
 	// SetBraveDNS sets bravedns variable
 	SetBraveDNS(dnsx.BraveDNS)
+	SetNatPt(ipn.NatPt)
 }
 
 // TODO: Keep a context here so that queries can be canceled.
 type transport struct {
 	Transport
-	url      string
-	hostname string
-	port     int
-	ips      ipmap.IPMap
-	client   http.Client
-	dialer   *net.Dialer
-	listener Listener
-	bravedns dnsx.BraveDNS
+	url                string
+	hostname           string
+	port               int
+	ips                ipmap.IPMap
+	client             http.Client
+	dialer             *net.Dialer
+	listener           Listener
+	bravedns           dnsx.BraveDNS
+	natpt              ipn.NatPt
 	hangoverLock       sync.RWMutex
 	hangoverExpiration time.Time
 }
@@ -181,7 +184,7 @@ func NewTransport(rawurl string, addrs []string, dialer *net.Dialer, auth Client
 		return nil, err
 	}
 	if parsedurl.Scheme != "https" {
-		return nil, fmt.Errorf("Bad scheme: %s", parsedurl.Scheme)
+		return nil, fmt.Errorf("bad scheme: %s", parsedurl.Scheme)
 	}
 	// Resolve the hostname and put those addresses first.
 	portStr := parsedurl.Port()
@@ -280,7 +283,7 @@ func (t *transport) doQuery(q []byte) (response []byte, blocklists string, serve
 	t.hangoverLock.RUnlock()
 	if inHangover {
 		response = tryServfail(q)
-		qerr = &queryError{HTTPError, errors.New("Forwarder is in servfail hangover")}
+		qerr = &queryError{HTTPError, errors.New("forwarder is in servfail hangover")}
 		elapsed = time.Since(start)
 		return
 	}
@@ -309,7 +312,6 @@ func (t *transport) doQuery(q []byte) (response []byte, blocklists string, serve
 			t.hangoverExpiration = time.Now().Add(hangoverDuration)
 			t.hangoverLock.Unlock()
 		}
-
 		response = tryServfail(q)
 	} else if server != nil {
 		// Record a working IP address for this server
@@ -459,10 +461,10 @@ func (t *transport) sendRequest(id uint16, q []byte) (response []byte, hostname 
 				response = r
 			}
 		} else {
-			qerr = &queryError{BadResponse, errors.New("Nonzero response ID")}
+			qerr = &queryError{BadResponse, errors.New("nonzero response ID")}
 		}
 	} else {
-		qerr = &queryError{BadResponse, fmt.Errorf("Response length is %d", len(response))}
+		qerr = &queryError{BadResponse, fmt.Errorf("response length is %d", len(response))}
 	}
 
 	return
@@ -475,6 +477,10 @@ func (t *transport) Query(q []byte) ([]byte, error) {
 	}
 
 	response, blocklists, server, elapsed, qerr := t.doQuery(q)
+
+	if len(blocklists) <= 0 && qerr == nil && t.natpt != nil {
+		response = t.natpt.D64(t.url, q, response, t)
+	}
 
 	var err error
 	status := Complete
@@ -516,6 +522,17 @@ func (t *transport) GetURL() string {
 
 func (t *transport) SetBraveDNS(b dnsx.BraveDNS) {
 	t.bravedns = b
+}
+
+func (t *transport) SetNatPt(pt ipn.NatPt) {
+	t.natpt = pt
+	// TODO: pt.AddResolver(t.url, t.Query)
+}
+
+// Implements ipn.DnsExchange
+func (t *transport) Exchange(q []byte) (r []byte, err error) {
+	r, _, _, _, err = t.doQuery(q)
+	return
 }
 
 func (t *transport) prepareOnDeviceBlock() error {
@@ -614,7 +631,7 @@ func forwardQuery(t Transport, q []byte, c io.Writer) error {
 	}
 	rlen := len(resp)
 	if rlen > math.MaxUint16 {
-		return fmt.Errorf("Oversize response: %d", rlen)
+		return fmt.Errorf("oversize response: %d", rlen)
 	}
 	// Use a combined write to ensure atomicity.  Otherwise, writes from two
 	// responses could be interleaved.
@@ -626,7 +643,7 @@ func forwardQuery(t Transport, q []byte, c io.Writer) error {
 		return err
 	}
 	if int(n) != len(rlbuf) {
-		return fmt.Errorf("Incomplete response write: %d < %d", n, len(rlbuf))
+		return fmt.Errorf("incomplete response write: %d < %d", n, len(rlbuf))
 	}
 	return qerr
 }
@@ -696,4 +713,3 @@ func tryServfail(q []byte) []byte {
 	}
 	return response
 }
-

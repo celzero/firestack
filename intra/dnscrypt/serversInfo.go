@@ -25,8 +25,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/xdns"
-	"github.com/eycorsican/go-tun2socks/common/log"
 
 	stamps "github.com/jedisct1/go-dnsstamps"
 	"golang.org/x/crypto/ed25519"

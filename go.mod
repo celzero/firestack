@@ -11,7 +11,7 @@ require (
 	github.com/jedisct1/go-dnsstamps v0.0.0-20200621175006-302248eecc94
 	github.com/jedisct1/xsecretbox v0.0.0-20190909160646-b731c21297f9
 	github.com/k-sone/critbitgo v1.4.0
-	github.com/miekg/dns v1.1.31
+	github.com/miekg/dns v1.1.49
 	github.com/songgao/water v0.0.0-20200317203138-2b4b6d7c09d8 // indirect
 	golang.org/x/crypto v0.0.0-20201016220609-9e8e0b390897
 	golang.org/x/net v0.0.0-20211015210444-4f30a5c0130f

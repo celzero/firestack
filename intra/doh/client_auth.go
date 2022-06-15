@@ -22,7 +22,7 @@ import (
 	"errors"
 	"io"
 
-	"github.com/eycorsican/go-tun2socks/common/log"
+	"github.com/celzero/firestack/intra/log"
 )
 
 // ClientAuth interface for providing TLS certificates and signatures.
@@ -42,7 +42,7 @@ type ClientAuth interface {
 // clientAuthWrapper manages certificate loading and usage during TLS handshakes.
 // Implements crypto.Signer.
 type clientAuthWrapper struct {
-	signer              ClientAuth
+	signer ClientAuth
 }
 
 // GetClientCertificate returns the client certificate chain as a tls.Certificate.

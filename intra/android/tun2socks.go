@@ -29,10 +29,11 @@ import (
 
 	"github.com/celzero/firestack/intra"
 	"github.com/celzero/firestack/intra/doh"
-	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
 	"github.com/celzero/firestack/intra/settings"
 	"github.com/celzero/firestack/tunnel"
+
+	"github.com/celzero/firestack/intra/log"
 )
 
 var engine int = settings.Ns46
@@ -62,13 +63,15 @@ func init() {
 func ConnectIntraTunnel(fd int, fakedns string, dohdns doh.Transport, protector protect.Protector, blocker protect.Blocker, listener intra.Listener) (t intra.Tunnel, err error) {
 	dialer := protect.MakeDialer(protector)
 	config := protect.MakeListenConfig(protector)
+	l3 := settings.L3(engine)
+
 	if engine == settings.Lwip4 {
 		tun, err := tunnel.MakeTunFile(fd)
 		if err != nil {
 			return nil, err
 		}
 
-		if t, err = intra.NewTunnel(fakedns, dohdns, tun, dialer, blocker, config, listener); t != nil {
+		if t, err = intra.NewTunnel(fakedns, dohdns, tun, l3, dialer, blocker, config, listener); t != nil {
 			go tunnel.ProcessInputPackets(t, tun)
 		}
 
@@ -78,8 +81,6 @@ func ConnectIntraTunnel(fd int, fakedns string, dohdns doh.Transport, protector 
 		if err != nil {
 			return nil, err
 		}
-
-		l3 := settings.L3(engine)
 		return intra.NewGTunnel(fakedns, dohdns, dupfd, l3, dialer, blocker, config, listener)
 	}
 }

@@ -36,7 +36,6 @@ import (
 	"golang.org/x/sys/unix"
 	"gvisor.dev/gvisor/pkg/sync"
 	"gvisor.dev/gvisor/pkg/tcpip"
-	"gvisor.dev/gvisor/pkg/tcpip/buffer"
 	"gvisor.dev/gvisor/pkg/tcpip/header"
 	"gvisor.dev/gvisor/pkg/tcpip/link/rawfile"
 	"gvisor.dev/gvisor/pkg/tcpip/stack"
@@ -305,6 +304,7 @@ func (e *endpoint) AddHeader(pkt *stack.PacketBuffer) {
 
 // writePackets writes outbound packets to the file descriptor. If it is not
 // currently writable, the packet is dropped.
+// Way more simplified than og impl, ref: github.com/google/gvisor/issues/7125
 func (e *endpoint) WritePackets(pkts stack.PacketBufferList) (int, tcpip.Error) {
 	// Preallocate to avoid repeated reallocation as we append to batch.
 	// batchSz is 47 because when SWGSO is in use then a single 65KB TCP
@@ -313,25 +313,31 @@ func (e *endpoint) WritePackets(pkts stack.PacketBufferList) (int, tcpip.Error) 
 	const batchSz = 47
 	fd := e.fds[0].fd
 	batch := make([]unix.Iovec, 0, batchSz)
+	packets := 0
 	// for _, pkt := range pkts.AsSlice() {
 	for pkt := pkts.Front(); pkt != nil; pkt = pkt.Next() {
 		views := pkt.Views()
 		for _, v := range views {
 			batch = rawfile.AppendIovecFromBytes(batch, v, len(views))
 		}
+		packets += 1
 	}
-	err := rawfile.NonBlockingWriteIovec(fd, batch)
-	if err != nil {
-		log.Warnf("ns.e.WritePackets -> ns.rawfile.Write: err(%v)", err)
-		return 0, err
-	}
-	log.Infof("ns.e.WritePackets (to tun): count %d", pkts.Len())
-	return pkts.Len(), nil
-}
 
-// viewsEqual tests whether v1 and v2 refer to the same backing bytes.
-func viewsEqual(vs1, vs2 []buffer.View) bool {
-	return len(vs1) == len(vs2) && (len(vs1) == 0 || &vs1[0] == &vs2[0])
+	// TODO: a single pkt.View may be spread out across two writes
+	l := len(batch)
+	for i := 0; i < l; i += e.writevMaxIovs {
+		j := i + e.writevMaxIovs
+		if j > l {
+			j = l
+		}
+		if err := rawfile.NonBlockingWriteIovec(fd, batch[i:j]); err != nil {
+			log.Errorf("ns.e.WritePackets: err(%v); wrote iovec(%d/%d) in pkts(%d)", err, i, l, packets)
+			return 0, err
+		}
+	}
+
+	log.Infof("ns.e.WritePackets (to tun): bytes(%d)/pkts(%d)", l, packets)
+	return packets, nil
 }
 
 // dispatchLoop reads packets from the file descriptor in a loop and dispatches
@@ -355,12 +361,12 @@ func (e *endpoint) ARPHardwareType() header.ARPHardwareType {
 
 // Unused: InjectInbound injects an inbound packet.
 func (e *endpoint) InjectInbound(protocol tcpip.NetworkProtocolNumber, pkt *stack.PacketBuffer) {
-	log.Debugf("ns.e.inject-in %d to(%v)", protocol, pkt.EgressRoute)
+	log.Debugf("ns.e.inject-inbound(from-tun) %d pkt(%v)", protocol, pkt.Hash)
 	e.dispatcher.DeliverNetworkPacket(protocol, pkt)
 }
 
 // Unused: InjectOutobund implements stack.InjectableEndpoint.InjectOutbound.
 func (e *endpoint) InjectOutbound(dest tcpip.Address, packet []byte) tcpip.Error {
-	log.Debugf("ns,e.inject-out to(%v)", dest)
+	log.Debugf("ns.e.inject-outbound(to-tun) to dst(%v)", dest)
 	return rawfile.NonBlockingWrite(e.fds[0].fd, packet)
 }

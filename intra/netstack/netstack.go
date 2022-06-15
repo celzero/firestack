@@ -20,6 +20,7 @@ import (
 	"gvisor.dev/gvisor/pkg/tcpip/transport/udp"
 )
 
+// ref: github.com/google/gvisor/blob/91f58d2cc/pkg/tcpip/sample/tun_tcp_echo/main.go#L102
 func NewEndpoint(dev int) (stack.LinkEndpoint, error) {
 	var mtu uint32 = settings.VpnMtu
 	var endpoint stack.LinkEndpoint
@@ -38,10 +39,12 @@ func Up(s *stack.Stack, ep stack.LinkEndpoint, h GConnHandler) error {
 	if nerr := s.CreateNIC(nic, ep); nerr != nil {
 		return e(nerr)
 	}
+	// ref: github.com/xjasonlyu/tun2socks/blob/31468620e/core/stack.go#L80
 	// allow spoofing packets tuples
 	if nerr := s.SetSpoofing(nic, true); nerr != nil {
 		return e(nerr)
 	}
+	// ref: github.com/xjasonlyu/tun2socks/blob/31468620e/core/stack.go#L94
 	// allow all packets sent to our fake nic through to netstack
 	if nerr := s.SetPromiscuousMode(nic, true); nerr != nil {
 		return e(nerr)
@@ -51,6 +54,8 @@ func Up(s *stack.Stack, ep stack.LinkEndpoint, h GConnHandler) error {
 	setupUdpHandler(s, h.UDP())
 	// TODO: setupIcmpHandler(s, h.ICMP())
 
+	// TODO: setup protocol opts?
+	// github.com/google/gvisor/blob/ef9e8d91/test/benchmarks/tcp/tcp_proxy.go#L233
 	log.Infof("netstack: up(%d)!", nic)
 
 	return nil
@@ -63,6 +68,10 @@ func e(err tcpip.Error) error {
 	return nil
 }
 
+// also: github.com/google/gvisor/blob/adbdac747/runsc/boot/loader.go#L1132
+// github.com/FlowerWrong/tun2socks/blob/1045a49618/cmd/netstack/main.go
+// github.com/zen-of-proxy/go-tun2io/blob/c08b329b8/tun2io/util.go
+// github.com/WireGuard/wireguard-go/blob/42c9af4/tun/netstack/tun.go
 func NewNetstack(l3 string) (s *stack.Stack) {
 	var nic tcpip.NICID = settings.NICID
 	switch l3 {
@@ -78,6 +87,9 @@ func NewNetstack(l3 string) (s *stack.Stack) {
 				icmp.NewProtocol4,
 				icmp.NewProtocol6,
 			},
+			// Setting HandleLocal to true breaks internet connectivity;
+			// also: github.com/Jigsaw-Code/outline-go-tun2socks/blob/5416729062/tunnel/tunnel.go#L45
+			// HandleLocal: true,
 		}
 		s = stack.New(o)
 		s.SetRouteTable([]tcpip.Route{
@@ -90,6 +102,8 @@ func NewNetstack(l3 string) (s *stack.Stack) {
 				NIC:         nic,
 			},
 		})
+		s.SetNICForwarding(nic, ipv4.ProtocolNumber, true)
+		s.SetNICForwarding(nic, ipv6.ProtocolNumber, true)
 	case settings.IP6:
 		o := stack.Options{
 			NetworkProtocols: []stack.NetworkProtocolFactory{
@@ -108,6 +122,7 @@ func NewNetstack(l3 string) (s *stack.Stack) {
 				NIC:         nic,
 			},
 		})
+		s.SetNICForwarding(nic, ipv6.ProtocolNumber, true)
 	case settings.IP4:
 		fallthrough
 	default:
@@ -128,8 +143,11 @@ func NewNetstack(l3 string) (s *stack.Stack) {
 				NIC:         nic,
 			},
 		})
+		s.SetNICForwarding(nic, ipv4.ProtocolNumber, true)
 	}
 
+	// TODO: setup stack otps?
+	// github.com/xjasonlyu/tun2socks/blob/31468620e/core/option/option.go#L69
 	log.Infof("netstack: new L3(%s)", l3)
 	return
 }
