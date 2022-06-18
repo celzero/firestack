@@ -21,13 +21,19 @@ ls -ltr $ANDROID_HOME/ndk/
 curl -Lso go.tar.gz https://go.dev/dl/go1.18.3.linux-amd64.tar.gz
 echo "956f8507b302ab0bb747613695cdae10af99bbd39a90cae522b7c0302cc27245 go.tar.gz" | sha256sum -c -
 
-# setup go
-mkdir -p golang
-tar -C golang -xzf go.tar.gz
-export GOPATH="$(pwd)/golang"
+# HOME=/home/jitpack
+# PWD=/home/jitpack/build
+# setup go, /opt isn't writeable
+export GOPATH="$HOME/golang"
+mkdir -p $GOPATH
+# golang in pwd confuses "go mod", as firestack source is in the same dir
+tar -C $GOPATH -xzf go.tar.gz
 export GO_LANG="$GOPATH/go/bin"
 export GO_COMPILED="$GOPATH/bin"
 export PATH="$GO_LANG:$GO_COMPILED:$PATH"
+
+# go debug
+go env
 
 # checkout tagged branch?
 # git checkout -b "$VERSION"

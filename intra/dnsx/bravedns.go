@@ -16,6 +16,7 @@ import (
 	"net/http"
 	"net/url"
 	"runtime"
+	"strconv"
 	"strings"
 
 	"github.com/miekg/dns"
@@ -29,6 +30,12 @@ const (
 	blocklistHeaderKey = "x-nile-flags" // "x-bl-fl"
 	localBlock         = 0
 	remoteBlock        = 1
+	verseperator       = ":"
+)
+
+const (
+	ver1 = "1"
+	ver0 = "0"
 )
 
 type BraveDNS interface {
@@ -46,6 +53,12 @@ type BraveDNS interface {
 	// BlocklistsStampToNames returns csv separated group:names of blocklists in the given stamp
 	StampToNames(stamp string) (string, error)
 
+	// Returns a blockstamp for given blocklist ids, if valid
+	FlagsToStamp(csv string) (string, error)
+
+	// Returns comma-separated blocklist ids given a valid blockstamp
+	StampToFlags(s string) (string, error)
+
 	BlockRequest([]byte) (string, error)
 
 	BlockResponse([]byte) (string, error)
@@ -53,11 +66,20 @@ type BraveDNS interface {
 
 type bravedns struct {
 	BraveDNS
-	trie  *trie.FrozenTrie
+	trie *trie.FrozenTrie
+	// value -> group:name
 	flags []string
+	// uname -> group:name
 	tags  map[string]string
 	mode  int
 	stamp string
+
+	bitsSetTable256 []int
+}
+
+type listinfo struct {
+	pos  int
+	name string
 }
 
 func (brave *bravedns) OnDeviceBlock() bool {
@@ -86,25 +108,65 @@ func (brave *bravedns) GetBlocklistStampHeaderKey() string {
 	return http.CanonicalHeaderKey(blocklistHeaderKey)
 }
 
-func (brave *bravedns) StampToNames(stamp string) (string, error) {
-	if len(stamp) <= 0 {
-		errors.New("empty blocklist stamp")
+// Returns blockstamp given comma-separated blocklist ids
+func (brave *bravedns) FlagsToStamp(flagscsv string) (string, error) {
+	fstr := strings.Split(flagscsv, ",")
+	if len(fstr) <= 0 {
+		return "", errors.New("zero comma-separated flags")
 	}
 
-	var blocklists []string
-	var err error
-	s := strings.Split(stamp, ":")
-	if len(s) > 1 {
-		blocklists, err = brave.decode(s[1], s[0])
+	if stamp, err := brave.flagtostamp(fstr); err != nil {
+		return "", err
 	} else {
-		blocklists, err = brave.decode(stamp, "0")
+		return encode(ver1, stamp)
 	}
+}
 
+// Returns comma-separated blocklist ids, given a stamp of form version:base64
+func (brave *bravedns) StampToFlags(stamp string) (string, error) {
+	blocklists, err := brave.stampToBlocklist(stamp)
 	if err != nil {
 		return "", err
 	}
 
-	return strings.Join(blocklists[:], ","), nil
+	var blocklistids []string
+	for _, x := range blocklists {
+		blocklistids = append(blocklistids, fmt.Sprint(x.pos))
+	}
+
+	return strings.Join(blocklistids[:], ","), nil
+}
+
+func (brave *bravedns) flagstotag(stamp string) (string, error) {
+	return brave.StampToNames(stamp)
+}
+
+func (brave *bravedns) StampToNames(stamp string) (string, error) {
+
+	blocklists, err := brave.stampToBlocklist(stamp)
+	if err != nil {
+		return "", err
+	}
+
+	var blocklistnames []string
+	for _, x := range blocklists {
+		blocklistnames = append(blocklistnames, x.name)
+	}
+
+	return strings.Join(blocklistnames[:], ","), nil
+}
+
+func (brave *bravedns) stampToBlocklist(stamp string) ([]*listinfo, error) {
+	if len(stamp) <= 0 {
+		return nil, errors.New("empty blocklist stamp")
+	}
+
+	s := strings.Split(stamp, verseperator)
+	if len(s) > 1 {
+		return brave.decode(s[1], s[0])
+	} else {
+		return brave.decode(stamp, "0")
+	}
 }
 
 func (brave *bravedns) keyToNames(list []string) (v []string) {
@@ -112,6 +174,17 @@ func (brave *bravedns) keyToNames(list []string) (v []string) {
 		x := brave.tags[l]
 		if len(x) > 0 { // TODO: else err?
 			v = append(v, x)
+		}
+	}
+	return
+}
+
+func (brave *bravedns) flagsToNames(flagstr []string) (v []string) {
+	for _, entry := range flagstr {
+		if i, err := strconv.Atoi(entry); err == nil {
+			v = append(v, brave.flags[i])
+		} else {
+			continue
 		}
 	}
 	return
@@ -147,7 +220,7 @@ func (brave *bravedns) blockUnpackedRequest(msg *dns.Msg) (r string, err error) 
 		r = strings.Join(brave.keyToNames(lists), ",")
 		return
 	}
-	err = fmt.Errorf("%v name not in blocklist %s [%s]", qname, stamp, block)
+	err = fmt.Errorf("%v name not in blocklist %s [%t]", qname, stamp, block)
 	return
 }
 
@@ -187,7 +260,7 @@ func (brave *bravedns) blockUnpackedResponse(msg *dns.Msg) (r string, err error)
 			// nothing to do
 		}
 	}
-	if cnamed == false || len(ansname) <= 0 {
+	if cnamed || len(ansname) <= 0 {
 		err = fmt.Errorf("not cnamed")
 		return
 	}
@@ -208,32 +281,34 @@ func (brave *bravedns) blockUnpackedResponse(msg *dns.Msg) (r string, err error)
 	return
 }
 
-func NewBraveDNSRemote(listinfo string) (BraveDNS, error) {
-	flags, tags, err := load(listinfo)
+func NewBraveDNSRemote(filetagjson string) (BraveDNS, error) {
+	flags, tags, err := load(filetagjson)
 	if err != nil {
 		return nil, err
 	}
-	return &bravedns{
+	b := &bravedns{
 		flags: flags,
 		tags:  tags,
 		mode:  remoteBlock,
-	}, nil
+	}
+	b.initBitSetTable()
+	return b, nil
 }
 
 func NewBraveDNSLocal(t string, rank string,
-	conf string, listinfo string) (BraveDNS, error) {
+	conf string, filetagjson string) (BraveDNS, error) {
 
-	if len(t) <= 0 || len(rank) <= 0 || len(conf) <= 0 || len(listinfo) <= 0 {
+	if len(t) <= 0 || len(rank) <= 0 || len(conf) <= 0 || len(filetagjson) <= 0 {
 		return nil, errors.New("missing data, unable to build blocklist")
 	}
 
-	err, trie := trie.Build(t, rank, conf, listinfo)
+	err, trie := trie.Build(t, rank, conf, filetagjson)
 
 	if err != nil {
 		return nil, err
 	}
 
-	flags, tags, err := load(listinfo)
+	flags, tags, err := load(filetagjson)
 
 	if err != nil {
 		return nil, err
@@ -242,13 +317,18 @@ func NewBraveDNSLocal(t string, rank string,
 	// TODO: find a better place
 	runtime.GC()
 
-	// https://docs.pi-hole.net/ftldns/blockingmode/
-	return &bravedns{
-		trie:  &trie,
+	// docs.pi-hole.net/ftldns/blockingmode/
+	b := &bravedns{
+		trie: &trie,
+		// pos/index/value ->subgroup:vname
 		flags: flags,
-		tags:  tags,
-		mode:  localBlock,
-	}, nil
+		// uname -> subgroup:vname
+		tags: tags,
+		mode: localBlock,
+	}
+	b.initBitSetTable()
+
+	return b, nil
 }
 
 func load(blacklistconfigjson string) ([]string, map[string]string, error) {
@@ -265,6 +345,20 @@ func load(blacklistconfigjson string) ([]string, map[string]string, error) {
 
 	rflags := make([]string, len(obj))
 	fdata := make(map[string]string)
+	// example:
+	// {
+	//    "XYZ": {
+	//      "value":171,
+	//      "uname":"XYZ",
+	//      "vname":"1Hosts",
+	//      "group":"privacy",
+	//      "subg":"",
+	//      "url":"badmojr.github.io...",
+	//      "show":1,
+	//      "entries":511684
+	//    }
+	//    ...
+	// }
 	for key := range obj {
 		indata := obj[key].(map[string]interface{})
 		index := int(indata["value"].(float64))
@@ -279,21 +373,23 @@ func load(blacklistconfigjson string) ([]string, map[string]string, error) {
 			name = subgroup
 			subgroup = group
 		}
+		// 171 -> privacy:1Hosts
 		rflags[index] = subgroup + ":" + name
+		// XYZ -> privacy:1Hosts
 		fdata[key] = subgroup + ":" + name
 	}
 	return rflags, fdata, nil
 }
 
-func (brave *bravedns) decode(stamp string, ver string) (tags []string, err error) {
+func (brave *bravedns) decode(stamp string, ver string) (info []*listinfo, err error) {
 	decoder := b64.StdEncoding
-	if ver == "0" {
+	if ver == ver0 {
 		stamp, err = url.QueryUnescape(stamp)
-	} else if ver == "1" {
+	} else if ver == ver1 {
 		stamp, err = url.PathUnescape(stamp)
 		decoder = b64.URLEncoding
 	} else {
-		err = fmt.Errorf("version does not exist", ver)
+		err = fmt.Errorf("version %s unsupported", ver)
 	}
 	if err != nil {
 		return nil, err
@@ -305,25 +401,26 @@ func (brave *bravedns) decode(stamp string, ver string) (tags []string, err erro
 	}
 
 	var u16 []uint16
-	if ver == "0" {
+	if ver == ver0 {
 		u16 = stringtouint(string(buf))
-	} else if ver == "1" {
+	} else if ver == ver1 {
 		u16 = bytestouint(buf)
 	} else {
 		err = fmt.Errorf("unimplemented header stamp version %v", ver)
 		return
 	}
-	return brave.flagstotag(u16)
+
+	return brave.flagstoinfo(u16)
 }
 
-func (brave *bravedns) flagstotag(flags []uint16) ([]string, error) {
+func (brave *bravedns) flagstoinfo(flags []uint16) ([]*listinfo, error) {
 	// flags has to be an array of 16-bit integers.
 
 	// first index always contains the header
 	header := uint16(flags[0])
 	// store of each big-endian position of set bits in header
 	tagIndices := []int{}
-	values := []string{}
+	values := make([]*listinfo, 0)
 	var mask uint16
 
 	// b1000,0000,0000,0000
@@ -367,12 +464,73 @@ func (brave *bravedns) flagstotag(flags []uint16) ([]string, error) {
 				pos := (index * 16) + j
 				// from the decimal value which is its
 				// blocklist-id, fetch its metadata
-				values = append(values, brave.flags[pos])
+				values = append(values, &listinfo{pos, brave.flags[pos]})
 			}
 			mask = mask >> 1
 		}
 	}
 	return values, nil
+}
+
+func (brave *bravedns) flagtostamp(fl []string) ([]uint16, error) {
+	const header = 0
+	const u1 = uint16(1)
+	res := []uint16{0}
+
+	for _, flag := range fl {
+		val, err := strconv.Atoi(flag)
+		if err != nil {
+			return nil, err
+		}
+
+		hindex := uint16(val / 16)
+		pos := uint16(val % 16)
+
+		h := &res[header]
+		n := uint16(0)
+
+		// only header present in res, append 'n' to it
+		if len(res) == 1 {
+			*h |= u1 << (15 - hindex)
+			n |= u1 << (15 - pos)
+			res = append(res, n)
+			continue
+		}
+
+		dataindex := brave.countSetBits(*h&maskLsb[16-hindex]) + 1
+		datafound := ((*h >> (15 - hindex)) & 0x1) == 1
+		if datafound {
+			// upsert, as in 'n' is updated in-place
+			u := &res[dataindex]
+			*u |= 1 << (15 - pos)
+		} else {
+			// insert 'n' between res[:dataindex] and r[dataindex+1:]
+			*h |= 1 << (15 - hindex)
+			n |= 1 << (15 - pos)
+			tmp := append(res[:dataindex], n)
+			if dataindex+1 < len(res) {
+				tmp = append(tmp, res[dataindex+1:]...)
+			}
+			res = tmp
+		}
+	}
+
+	return res, nil
+}
+
+func encode(ver string, bin []uint16) (string, error) {
+	if ver != ver1 {
+		return "", fmt.Errorf("version %s unsupported / len(input): %d", ver, len(bin))
+	}
+
+	bytes := uinttobytes(bin)
+
+	return ver + verseperator + b64.URLEncoding.EncodeToString(bytes), nil
+}
+
+func stringtobyte(str string) []byte {
+	u16 := stringtouint(str)
+	return uinttobytes(u16)
 }
 
 func stringtouint(str string) []uint16 {
@@ -391,4 +549,47 @@ func bytestouint(b []byte) []uint16 {
 		data[i] = binary.LittleEndian.Uint16(b[i*2 : (i+1)*2])
 	}
 	return data
+}
+
+func uinttobytes(u16 []uint16) []byte {
+	bytes := make([]byte, len(u16)*2)
+	for i, v := range u16 {
+		binary.LittleEndian.PutUint16(bytes[i*2:(i+1)*2], v)
+	}
+	fmt.Println(len(bytes), bytes, "\n", len(u16), u16)
+	return bytes
+}
+
+// return the count of set bits in n
+func (b *bravedns) countSetBits(n uint16) int {
+	return (b.bitsSetTable256[n&0xff] + b.bitsSetTable256[(n>>8)&0xff])
+}
+
+// initialise the lookup table
+func (b *bravedns) initBitSetTable() {
+	b.bitsSetTable256 = make([]int, 256)
+	b.bitsSetTable256[0] = 0
+	for i := 0; i < 256; i++ {
+		b.bitsSetTable256[i] = (i & 1) + b.bitsSetTable256[(i/2)]
+	}
+}
+
+var maskLsb = []uint16{
+	0xffff,
+	0xfffe,
+	0xfffc,
+	0xfff8,
+	0xfff0,
+	0xffe0,
+	0xffc0,
+	0xff80,
+	0xff00,
+	0xfe00,
+	0xfc00,
+	0xf800,
+	0xf000,
+	0xe000,
+	0xc000,
+	0x8000,
+	0x0000,
 }

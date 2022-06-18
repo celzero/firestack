@@ -40,7 +40,7 @@ $(GOMOBILE): go.mod
 	env GOBIN=$(GOBIN) go install golang.org/x/mobile/cmd/gomobile
 	env PATH=$(GOBIN):$(PATH) $(GOMOBILE) init
 
-(XGO): go.mod
+$(XGO): go.mod
 	env GOBIN=$(GOBIN) go install github.com/crazy-max/xgo
 
 .PHONY: android intra linux apple windows clean clean-all
