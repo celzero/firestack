@@ -508,21 +508,23 @@ func (brave *bravedns) flagtostamp(fl []uint16) ([]uint16, error) {
 		if !datafound {
 			log.Debugf("!!flag not found: len(res) %d / dataindex %d / found? %t\n", len(res), dataindex, datafound)
 		}
-		log.Debugf("processing: %d/%x | %x / hidx: %d / mask: %x / databit: %x / didx: %d\n", val, res, *h, hindex, hmask, databit, dataindex)
 		if datafound {
 			// upsert, as in 'n' is updated in-place
-			u := &res[dataindex]
-			*u |= u1 << (15 - pos)
+			n = res[dataindex]
+			n |= u1 << (15 - pos)
+			res[dataindex] = n
 		} else {
 			// insert 'n' between res[:dataindex] and r[dataindex:]
 			*h |= u1 << (15 - hindex)
 			n |= u1 << (15 - pos)
-			tmp := append(res[:dataindex], n)
+			nxt := append([]uint16{}, res[:dataindex]...)
+			nxt = append(nxt, n)
 			if dataindex < len(res) {
-				tmp = append(tmp, res[dataindex:]...)
+				nxt = append(nxt, res[dataindex:]...)
 			}
-			res = tmp
+			res = nxt
 		}
+		log.Debugf("done: %d/%x | %x | n:%x / hidx: %d / mask: %x / databit: %x / didx: %d\n", val, res, *h, n, hindex, hmask, databit, dataindex)
 	}
 
 	return res, nil
