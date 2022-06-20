@@ -21,6 +21,7 @@ import (
 
 	"github.com/miekg/dns"
 
+	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/xdns"
 
 	"github.com/celzero/gotrie/trie"
@@ -115,7 +116,16 @@ func (brave *bravedns) FlagsToStamp(flagscsv string) (string, error) {
 		return "", errors.New("zero comma-separated flags")
 	}
 
-	if stamp, err := brave.flagtostamp(fstr); err != nil {
+	flags := make([]uint16, len(fstr))
+	for i, s := range fstr {
+		val, err := strconv.Atoi(s)
+		if err != nil {
+			return "", err
+		}
+		flags[i] = uint16(val)
+	}
+
+	if stamp, err := brave.flagtostamp(flags); err != nil {
 		return "", err
 	} else {
 		return encode(ver1, stamp)
@@ -472,21 +482,15 @@ func (brave *bravedns) flagstoinfo(flags []uint16) ([]*listinfo, error) {
 	return values, nil
 }
 
-func (brave *bravedns) flagtostamp(fl []string) ([]uint16, error) {
-	const header = 0
+func (brave *bravedns) flagtostamp(fl []uint16) ([]uint16, error) {
 	const u1 = uint16(1)
 	res := []uint16{0}
 
-	for _, flag := range fl {
-		val, err := strconv.Atoi(flag)
-		if err != nil {
-			return nil, err
-		}
-
+	for _, val := range fl {
 		hindex := uint16(val / 16)
 		pos := uint16(val % 16)
 
-		h := &res[header]
+		h := &res[0]
 		n := uint16(0)
 
 		// only header present in res, append 'n' to it
@@ -497,19 +501,25 @@ func (brave *bravedns) flagtostamp(fl []string) ([]uint16, error) {
 			continue
 		}
 
-		dataindex := brave.countSetBits(*h&maskLsb[16-hindex]) + 1
-		datafound := ((*h >> (15 - hindex)) & 0x1) == 1
+		hmask := *h & maskLsb[16-hindex]
+		databit := *h >> (15 - hindex)
+		dataindex := brave.countSetBits(hmask) + 1
+		datafound := (databit & 0x1) == 1
+		if !datafound {
+			log.Debugf("!!flag not found: len(res) %d / dataindex %d / found? %t\n", len(res), dataindex, datafound)
+		}
+		log.Debugf("processing: %d/%x | %x / hidx: %d / mask: %x / databit: %x / didx: %d\n", val, res, *h, hindex, hmask, databit, dataindex)
 		if datafound {
 			// upsert, as in 'n' is updated in-place
 			u := &res[dataindex]
-			*u |= 1 << (15 - pos)
+			*u |= u1 << (15 - pos)
 		} else {
-			// insert 'n' between res[:dataindex] and r[dataindex+1:]
-			*h |= 1 << (15 - hindex)
-			n |= 1 << (15 - pos)
+			// insert 'n' between res[:dataindex] and r[dataindex:]
+			*h |= u1 << (15 - hindex)
+			n |= u1 << (15 - pos)
 			tmp := append(res[:dataindex], n)
-			if dataindex+1 < len(res) {
-				tmp = append(tmp, res[dataindex+1:]...)
+			if dataindex < len(res) {
+				tmp = append(tmp, res[dataindex:]...)
 			}
 			res = tmp
 		}
@@ -556,7 +566,6 @@ func uinttobytes(u16 []uint16) []byte {
 	for i, v := range u16 {
 		binary.LittleEndian.PutUint16(bytes[i*2:(i+1)*2], v)
 	}
-	fmt.Println(len(bytes), bytes, "\n", len(u16), u16)
 	return bytes
 }
 

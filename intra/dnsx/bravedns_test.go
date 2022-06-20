@@ -14,8 +14,17 @@ import (
 )
 
 const (
+	v0case0 = "6b%2Bg67y%2Bz7%2Fvv7%2Fvv7ztlaDvgIDkhIDnhYTogKA%3D"
+	v0case1 = "77%2Bg77%2B%2F77%2B%2F77%2B%2F77%2B%2F77%2B%2F77%2B%2F77%2B%2F77%2B%2F77%2B%2F77%2B%2F77%2Bg"
+	v1case0 = "1:ENz_PwDwfwD___j_YKE=" // same as fcase0
 	v1case1 = "1:4J8-v_8D___8_2DVAPAAQURxIIA="
 	v1case2 = "1:4P___________________________-D_"
+)
+
+var (
+	fcase0 = []uint16{ // same as v1case0
+		15, 16, 17, 18, 186, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 176, 183, 3, 4, 185, 2, 19, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 178,
+	}
 )
 
 func TestGeneric(tester *testing.T) {
@@ -25,25 +34,38 @@ func TestGeneric(tester *testing.T) {
 		tags:  f,
 	}
 	b.initBitSetTable()
-	_, err := b.decode("6b%2Bg67y%2Bz7%2Fvv7%2Fvv7ztlaDvgIDkhIDnhYTogKA%3D", ver0)
-	ok(err)
-	_, err = b.decode("77%2Bg77%2B%2F77%2B%2F77%2B%2F77%2B%2F77%2B%2F77%2B%2F77%2B%2F77%2B%2F77%2B%2F77%2B%2F77%2Bg", ver0)
-	ok(err)
-	// fmt.Println(t, err)
+
+	// decode v0 to blocklist-info
+	_, err := b.decode(v0case0, ver0)
+	ok("v0case0", err)
+	_, err = b.decode(v0case1, ver0)
+	ok("v0case1", err)
+
+	// blockstamp to flags (csv)
+	f0, err := b.StampToFlags(v1case0)
+	ko(tester, err)
+	s0, err := b.FlagsToStamp(f0)
+	ko(tester, err)
+	fmt.Println("case1", v1case1, f0, s0)
+
 	f1, err := b.StampToFlags(v1case1)
 	ko(tester, err)
 	s1, err := b.FlagsToStamp(f1)
 	ko(tester, err)
+	fmt.Println("case1", v1case1, f1, s1)
+
 	f2, err := b.StampToFlags(v1case2)
 	ko(tester, err)
 	s2, err := b.FlagsToStamp(f2)
 	ko(tester, err)
-	fmt.Println("case1", v1case1, f1, s1)
 	fmt.Println("case2", v1case2, f2, s2)
-	//m, n := url.PathUnescape("4J8+v/8D///8/2DVAPAAQURxIIA=")
-	//x, y := b64.StdEncoding.DecodeString(m)
-	//fmt.Println(m, n)
-	//fmt.Println(x, y)
+
+	// flag to blockstamp test
+	ustamp0, err := b.flagtostamp(fcase0)
+	ko(tester, err)
+	stamp0, err := encode(ver1, ustamp0)
+	ko(tester, err)
+	fmt.Println("fcase0", v1case0, ustamp0, stamp0)
 }
 
 func load1() ([]string, map[string]string) {
@@ -219,6 +241,24 @@ func load1() ([]string, map[string]string) {
 		168: "IVO",
 		169: "ALQ",
 		170: "FHM",
+		171: "AA1",
+		172: "AA2",
+		173: "AA3",
+		174: "AA4",
+		175: "AA5",
+		176: "AA6",
+		177: "AA7",
+		178: "AA8",
+		179: "AA9",
+		180: "AB0",
+		181: "AB1",
+		182: "AB2",
+		183: "AB3",
+		184: "AB4",
+		185: "AB5",
+		186: "AB6",
+		187: "AB7",
+		188: "AB8",
 	}
 
 	rflags := make([]string, len(obj))
@@ -237,8 +277,8 @@ func ko(t *testing.T, err error) {
 	}
 }
 
-func ok(err error) {
+func ok(tag string, err error) {
 	if err != nil {
-		fmt.Println(err)
+		fmt.Println(tag, err)
 	}
 }
