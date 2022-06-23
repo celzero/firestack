@@ -122,6 +122,9 @@ func (brave *bravedns) FlagsToStamp(flagscsv string) (string, error) {
 		if err != nil {
 			return "", err
 		}
+		if i >= len(flags) {
+			return "", errors.New("flagcsv does not match loaded flags")
+		}
 		flags[i] = uint16(val)
 	}
 
@@ -191,7 +194,7 @@ func (brave *bravedns) keyToNames(list []string) (v []string) {
 
 func (brave *bravedns) flagsToNames(flagstr []string) (v []string) {
 	for _, entry := range flagstr {
-		if i, err := strconv.Atoi(entry); err == nil {
+		if i, err := strconv.Atoi(entry); err == nil && i < len(brave.flags) {
 			v = append(v, brave.flags[i])
 		} else {
 			continue
@@ -472,6 +475,12 @@ func (brave *bravedns) flagstoinfo(flags []uint16) ([]*listinfo, error) {
 			}
 			if (flag & mask) == mask {
 				pos := (index * 16) + j
+				if pos >= len(brave.flags) {
+					// github.com/celzero/firestack/issues/5
+					// sliently ignore scenarios where stamp encode many
+					// more blocklsts than what's currently loaded
+					continue
+				}
 				// from the decimal value which is its
 				// blocklist-id, fetch its metadata
 				values = append(values, &listinfo{pos, brave.flags[pos]})
