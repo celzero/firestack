@@ -479,7 +479,7 @@ func (t *transport) Query(q []byte) ([]byte, error) {
 	response, blocklists, server, elapsed, qerr := t.doQuery(q)
 
 	if len(blocklists) <= 0 && qerr == nil && t.natpt != nil {
-		response = t.natpt.D64(t.url, q, response, t)
+		response = t.natpt.D64(t.url, response, t)
 	}
 
 	var err error

@@ -56,6 +56,15 @@ const ProxyModeSOCKS5 int = 1
 // ProxyModeHTTPS forwards packets to a HTTPS proxy.
 const ProxyModeHTTPS int = 2
 
+// PtModeAuto does not enforce (but may still use) 6to4 protocol translation.
+const PtModeAuto int = 0
+
+// PtModeForce64 enforces 6to4 protocol translation.
+const PtModeForce64 int = 1
+
+// Android implements 464Xlat out-of-the-box, so this zero userspace impl
+const PtModeMaybe46 int = 2
+
 // msb to lsb: ipv6, ipv4, lwip(1) or netstack(0)
 const Lwip4 = 0b111 // 7
 const Ns4 = 0b010   // 2
@@ -88,6 +97,8 @@ type TunMode struct {
 	BlockMode int
 	// ProxyMode determines where the traffic is forwarded to.
 	ProxyMode int
+	// PtMode determines overrides 6to4 translation heuristics.
+	PtMode int
 }
 
 // DNSOptions define https or socks5 proxy options
@@ -102,21 +113,23 @@ type ProxyOptions struct {
 }
 
 // SetMode re-assigns d to DNSMode, b to BlockMode, and p to ProxyMode
-func (t *TunMode) SetMode(d int, b int, p int) {
+func (t *TunMode) SetMode(d int, b int, p int, pt int) {
 	t.DNSMode = d
 	t.BlockMode = b
 	t.ProxyMode = p
+	t.PtMode = pt
 }
 
 // NewTunMode returns a new TunMode object.
 // `d` sets dns-mode.
 // `b` sets block-mode.
 // `p` sets proxy-mode.
-func NewTunMode(d int, b int, p int) *TunMode {
+func NewTunMode(d int, b int, p int, pt int) *TunMode {
 	return &TunMode{
 		DNSMode:   d,
 		BlockMode: b,
 		ProxyMode: p,
+		PtMode:    pt,
 	}
 }
 
@@ -130,6 +143,7 @@ func DefaultTunMode() *TunMode {
 		DNSMode:   DNSModeIP,
 		BlockMode: BlockModeNone,
 		ProxyMode: ProxyModeNone,
+		PtMode:    PtModeAuto,
 	}
 }
 

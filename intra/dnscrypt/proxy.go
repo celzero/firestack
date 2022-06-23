@@ -402,7 +402,7 @@ func HandleUDP(proxy *Proxy, data []byte) (response []byte, err error) {
 	before := time.Now()
 	response, b, s, err = proxy.query(data, true)
 	if len(b) <= 0 && err == nil && proxy.natpt != nil {
-		response = proxy.natpt.D64(s.URL.String(), data, response, proxy.ExchangeWith(s))
+		response = proxy.natpt.D64(s.URL.String(), response, proxy.ExchangeWith(s))
 	}
 	after := time.Now()
 

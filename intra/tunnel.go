@@ -60,8 +60,8 @@ type Tunnel interface {
 	// to the TUN device.  The transport can be changed at any time during operation, but
 	// must not be nil.
 	SetDNS(doh.Transport)
-	// Set DNSMode, BlockMode, and ProxyMode.
-	SetTunMode(int, int, int)
+	// Set DNSMode, BlockMode, ProxyMode, PtMode.
+	SetTunMode(int, int, int, int)
 	// When set to true, Intra will pre-emptively split all HTTPS connections.
 	SetAlwaysSplitHTTPS(bool)
 	// StartDNSCryptProxy starts a DNSCrypt proxy instance for resolvers
@@ -174,7 +174,7 @@ func NewGTunnel(fakedns string, dohdns doh.Transport, fd int, l3 string, dialer 
 		return nil, err
 	}
 
-	natpt := ipn.NewNatPt(l3)
+	natpt := ipn.NewNatPt(l3, tunmode)
 
 	tcph := NewTCPHandler(tcpfakedns, natpt, dialer, blocker, tunmode, listener)
 	udph := NewUDPHandler(udpfakedns, natpt, udptimeout, blocker, tunmode, config, listener)
@@ -202,7 +202,7 @@ func (t *intratunnel) registerConnectionHandlers(fakedns, l3 string, dialer *net
 	// RFC 4787 REQ-5 requires a timeout no shorter than 5 minutes.
 	timeout, _ := time.ParseDuration("5m")
 
-	natpt := ipn.NewNatPt(l3)
+	natpt := ipn.NewNatPt(l3, t.tunmode)
 	t.natpt = natpt
 
 	udpfakedns, err := fakeDnsUdpAddr(fakedns)
@@ -235,8 +235,8 @@ func (t *intratunnel) GetDNS() doh.Transport {
 	return t.dns
 }
 
-func (t *intratunnel) SetTunMode(dnsmode int, blockmode int, proxymode int) {
-	t.tunmode.SetMode(dnsmode, blockmode, proxymode)
+func (t *intratunnel) SetTunMode(dnsmode int, blockmode int, proxymode int, ptmode int) {
+	t.tunmode.SetMode(dnsmode, blockmode, proxymode, ptmode)
 }
 
 func (t *intratunnel) SetAlwaysSplitHTTPS(s bool) {

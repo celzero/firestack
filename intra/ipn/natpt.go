@@ -16,7 +16,8 @@ import (
 type natPt struct {
 	*nat64
 	*dns64
-	l3 string
+	l3      string
+	tunmode *settings.TunMode
 }
 
 type Resolver interface {
@@ -24,28 +25,33 @@ type Resolver interface {
 }
 
 type NatPt interface {
-	D64(id string, q6 []byte, ans6 []byte, f Resolver) []byte
+	D64(id string, ans6 []byte, f Resolver) []byte
 	IsNat64(id string, ip []byte) bool
 	X64(id string, ip []byte) []byte
 }
 
-func NewNatPt(l3 string) NatPt {
+func NewNatPt(l3 string, tunmode *settings.TunMode) NatPt {
 	return &natPt{
-		nat64: newNat64(),
-		dns64: newDns64(),
-		l3:    l3,
+		nat64:   newNat64(),
+		dns64:   newDns64(),
+		l3:      l3,
+		tunmode: tunmode,
 	}
 }
 
-func (pt *natPt) D64(id string, query6 []byte, ans6 []byte, f Resolver) []byte {
-	if isIp6Only(pt.l3) {
-		return pt.dns64.eval(id, query6, ans6, f.Exchange)
+func (pt *natPt) D64(id string, ans6 []byte, f Resolver) []byte {
+	if pt.can64() {
+		return pt.dns64.eval(id, pt.force64(), ans6, f.Exchange)
 	}
 	return ans6
 }
 
-func isIp6Only(l3 string) bool {
-	return settings.IP6 == l3
+func (pt *natPt) can64() bool {
+	return settings.IP6 == pt.l3 || pt.force64()
+}
+
+func (pt *natPt) force64() bool {
+	return pt.tunmode.PtMode == settings.PtModeForce64
 }
 
 func (n *natPt) IsNat64(id string, ip []byte) bool {

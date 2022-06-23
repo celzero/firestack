@@ -45,7 +45,7 @@ const (
 	NONE
 )
 
-const defaultLevel = INFO
+const defaultLevel = WARN
 
 type Logger interface {
 	SetLevel(level LogLevel)

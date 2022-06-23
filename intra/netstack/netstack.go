@@ -33,6 +33,7 @@ func NewEndpoint(dev int) (stack.LinkEndpoint, error) {
 	return endpoint, nil
 }
 
+// ref: github.com/brewlin/net-protocol/blob/ec64e5f899/internal/endpoint/endpoint.go#L20
 func Up(s *stack.Stack, ep stack.LinkEndpoint, h GConnHandler) error {
 	var nic tcpip.NICID = settings.NICID
 	// creates a fake nic and attaches netstack to it

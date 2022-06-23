@@ -12,6 +12,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"net"
+	"net/netip"
 	"os"
 	"regexp"
 	"strconv"
@@ -52,17 +53,17 @@ var (
 
 	cache = NewProcNetCache()
 
-	zeroIP = net.ParseIP("::")
-
+	zeroip4  = netip.IPv4Unspecified()
+	zeroip6  = netip.IPv6Unspecified()
 	zeroPort = 0
 )
 
 // ProcNetEntry represents a single line as fetched from /proc/net/*
 type ProcNetEntry struct {
 	Protocol string
-	SrcIP    net.IP
+	SrcIP    netip.Addr
 	SrcPort  int
-	DstIP    net.IP
+	DstIP    netip.Addr
 	DstPort  int
 	UserID   int
 	INode    int
@@ -82,7 +83,7 @@ func NewProcNetCache() ProcNetCache {
 }
 
 // NewProcNetEntry creates an Entry
-func NewProcNetEntry(protocol string, srcIP net.IP, srcPort int, dstIP net.IP, dstPort int, userID int, iNode int) ProcNetEntry {
+func NewProcNetEntry(protocol string, srcIP netip.Addr, srcPort int, dstIP netip.Addr, dstPort int, userID int, iNode int) ProcNetEntry {
 	return ProcNetEntry{
 		Protocol: protocol,
 		SrcIP:    srcIP,
@@ -104,23 +105,45 @@ func (p *ProcNetEntry) Same(q *ProcNetEntry) bool {
 		return false
 	}
 
-	// https://github.com/M66B/NetGuard/blob/1fe3a04ae/app/src/main/jni/netguard/ip.c#L393
+	if p.Protocol != q.Protocol {
+		return false
+	}
+
+	src1 := p.SrcIP.Unmap()
+	src2 := q.SrcIP.Unmap()
+	dst1 := p.DstIP.Unmap()
+	dst2 := q.DstIP.Unmap()
+
+	// github.com/M66B/NetGuard/blob/1fe3a04ae/app/src/main/jni/netguard/ip.c#L393
 	skipSrcIP := false
 	skipDstIP := false
 	skipDstPort := false
-	if zeroIP.Equal(p.SrcIP) || zeroIP.Equal(q.SrcIP) {
+
+	var zeroip netip.Addr = zeroip4
+	if src1.Is6() || dst1.Is6() {
+		if src2.Is4() || dst2.Is4() {
+			return false
+		}
+		zeroip = zeroip6
+	} else {
+		if src2.Is6() || dst2.Is6() {
+			return false
+		}
+	}
+
+	if zeroip.Compare(src1) == 0 || zeroip.Compare(src2) == 0 {
 		skipSrcIP = true
 	}
-	if zeroIP.Equal(p.DstIP) || zeroIP.Equal(q.DstIP) {
+	if zeroip.Compare(dst1) == 0 || zeroip.Compare(dst2) == 0 {
 		skipDstIP = true
 	}
 	if zeroPort == p.DstPort || zeroPort == q.DstPort {
 		skipDstPort = true
 	}
 
-	return (skipSrcIP || p.SrcIP.Equal(q.SrcIP)) &&
+	return (skipSrcIP || src1.Compare(src2) == 0) &&
 		p.SrcPort == q.SrcPort &&
-		(skipDstIP || p.DstIP.Equal(q.DstIP)) &&
+		(skipDstIP || dst1.Compare(dst2) == 0) &&
 		(skipDstPort || p.DstPort == q.DstPort)
 }
 
@@ -164,7 +187,7 @@ func hexToInt2(h string) (uint, uint) {
 
 }
 
-func hexToIP(h string) net.IP {
+func hexToIP(h string) netip.Addr {
 	n, m := hexToInt2(h)
 	var ip net.IP
 	if m != 0 {
@@ -172,7 +195,7 @@ func hexToIP(h string) net.IP {
 		v4IPv6 := false
 		ip = make(net.IP, 16)
 
-		// https://stackoverflow.com/questions/22751035
+		// stackoverflow.com/questions/22751035
 		if n == 0 && mmsb == 0 {
 			v4IPv6 = true // ipv4 in ipv6
 		}
@@ -180,7 +203,7 @@ func hexToIP(h string) net.IP {
 		binary.LittleEndian.PutUint32(ip, uint32(n>>32))
 		binary.LittleEndian.PutUint32(ip[4:], uint32(n))
 		if v4IPv6 {
-			// https://github.com/golang/go/blob/2bed2797/src/net/ip.go#L195-L196
+			// github.com/golang/go/blob/2bed2797/src/net/ip.go#L195-L196
 			// 0000 0000 0000 0000 1111 1111 1111 1111
 			binary.BigEndian.PutUint32(ip[8:], uint32(0xffff))
 		} else {
@@ -191,7 +214,12 @@ func hexToIP(h string) net.IP {
 		ip = make(net.IP, 4)
 		binary.LittleEndian.PutUint32(ip, uint32(n))
 	}
-	return ip
+	return toUnmappedAddr(ip)
+}
+
+func toUnmappedAddr(ip net.IP) netip.Addr {
+	ipp, _ := netip.AddrFromSlice(ip[:])
+	return ipp.Unmap()
 }
 
 // ParseProcNet scans /proc/net/* returns a list of entries, one entry per line scanned
@@ -301,8 +329,8 @@ func getProcNetEntryFromPool(p *ProcNetEntry) *ProcNetEntry {
 // (protocol, source, sport, destination, dport) as NewProcNetEntry.
 func findProcNetEntryForProtocol(protocol string, srcIP net.IP, srcPort int, dstIP net.IP, dstPort int) *ProcNetEntry {
 
-	n := NewProcNetEntry(protocol, srcIP, srcPort, dstIP, dstPort, 0, 0)
-	e := &n // https://groups.google.com/g/golang-nuts/c/reaIlFdibWU?pli=1
+	n := NewProcNetEntry(protocol, toUnmappedAddr(srcIP), srcPort, toUnmappedAddr(dstIP), dstPort, 0, 0)
+	e := &n // groups.google.com/g/golang-nuts/c/reaIlFdibWU?pli=1
 
 	if f := getProcNetEntryFromPool(e); e.Same(f) {
 		if !invalidProcNetEntry(f) {

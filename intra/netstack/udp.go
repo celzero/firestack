@@ -33,10 +33,12 @@ type GUDPConn struct {
 	core.UDPConn
 	ep   tcpip.Endpoint
 	gudp *gonet.UDPConn
+	src  *net.UDPAddr
+	dst  *net.UDPAddr
 }
 
 // ref: github.com/google/gvisor/blob/e89e736f1/pkg/tcpip/adapters/gonet/gonet_test.go#L373
-func NewGUDPConn(s *stack.Stack, r *udp.ForwarderRequest) *GUDPConn {
+func NewGUDPConn(s *stack.Stack, r *udp.ForwarderRequest, src, dst *net.UDPAddr) *GUDPConn {
 	waitQueue := new(waiter.Queue)
 	// use gonet.DialUDP instead?
 	if endpoint, err := r.CreateEndpoint(waitQueue); err != nil {
@@ -46,9 +48,10 @@ func NewGUDPConn(s *stack.Stack, r *udp.ForwarderRequest) *GUDPConn {
 		return &GUDPConn{
 			ep:   endpoint,
 			gudp: gonet.NewUDPConn(s, waitQueue, endpoint),
+			src:  src,
+			dst:  dst,
 		}
 	}
-
 }
 
 func setupUdpHandler(s *stack.Stack, h GUDPConnHandler) {
@@ -64,7 +67,7 @@ func NewUDPForwarder(s *stack.Stack, h GUDPConnHandler) *udp.Forwarder {
 		// dst 10.111.222.3:53; same as endpoint.GetLocalAddress
 		dst := localUDPAddr(id)
 
-		gc := NewGUDPConn(s, request)
+		gc := NewGUDPConn(s, request, src, dst)
 
 		if gc == nil {
 			return
@@ -109,9 +112,8 @@ func (g *GUDPConn) LocalAddr() *net.UDPAddr {
 		if addr, ok := g.gudp.RemoteAddr().(*net.UDPAddr); ok {
 			return addr
 		}
-		return nil
 	}
-	return nil
+	return g.src
 }
 
 func (g *GUDPConn) RemoteAddr() *net.UDPAddr {
@@ -119,9 +121,8 @@ func (g *GUDPConn) RemoteAddr() *net.UDPAddr {
 		if addr, ok := g.gudp.LocalAddr().(*net.UDPAddr); ok {
 			return addr
 		}
-		return nil
 	}
-	return nil
+	return g.dst
 }
 
 // ReceiveTo will be called when data arrives from TUN, and the received

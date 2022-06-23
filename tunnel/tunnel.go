@@ -26,7 +26,9 @@ package tunnel
 import (
 	"errors"
 	"io"
+	"syscall"
 
+	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/netstack"
 	"github.com/eycorsican/go-tun2socks/core"
 	"gvisor.dev/gvisor/pkg/tcpip/stack"
@@ -76,22 +78,31 @@ func NewTunnel(tunWriter io.WriteCloser, lwipStack core.LWIPStack) Tunnel {
 
 // netstack
 
+const invalidfd = -1
+
 type gtunnel struct {
-	endpoint    stack.LinkEndpoint
-	stack       *stack.Stack
-	isConnected bool
+	endpoint stack.LinkEndpoint
+	stack    *stack.Stack
+	fdref    int
 }
 
 func (t *gtunnel) Disconnect() {
+	if !t.IsConnected() {
+		log.Infof("tun: cannot disconnect an unconnected fd")
+		return
+	}
 	// TODO: is t.endpoint.Wait() needed?
-	t.isConnected = false
 	// TODO: is t.endpoint.Attach(nil) needed?
 	t.stack.Close()
+	if err := syscall.Close(t.fdref); err != nil {
+		log.Errorf("tun: close(fd) fail, err(%v)", err)
+	}
+	t.fdref = invalidfd
 }
 
 func (t *gtunnel) IsConnected() bool {
 	// TODO: check t.endpoint.IsAttached()?
-	return t.isConnected
+	return t.fdref != invalidfd
 }
 
 func (t *gtunnel) Write([]byte) (int, error) {
@@ -111,5 +122,5 @@ func NewGTunnel(fd int, l3 string, tcph netstack.GTCPConnHandler, udph netstack.
 		return nil, err
 	}
 
-	return &gtunnel{endpoint, stack, true}, nil
+	return &gtunnel{endpoint, stack, fd}, nil
 }

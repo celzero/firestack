@@ -151,7 +151,7 @@ func (h *udpHandler) fetchUDPInput(conn core.UDPConn, t *tracker) {
 		}
 
 		if err != nil {
-			log.Warnf("t.udp.fetchudpinput: err(%v)", err)
+			log.Infof("t.udp.fetchudpinput: err(%v)", err)
 			return
 		}
 

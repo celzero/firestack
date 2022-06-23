@@ -43,10 +43,6 @@ var (
 	// Address: 64:ff9b::c000:ab
 	_, rfc6052WKP, _ = net.ParseCIDR("64:ff9b::/96")
 	_, rfc8215WKP, _ = net.ParseCIDR("64:ff9b:1:fffe::/96")
-	// this addr64, hopefully, isn't used by any other dns world-wide
-	localip64 = []net.IP{
-		net.ParseIP("64:ff9b:1:fffe::192.0.0.170"),
-	}
 
 	ipv6bits = 8 * net.IPv6len
 
@@ -142,7 +138,7 @@ func (d *dns64) RemoveResolver(id string) {
 
 // TODO: handle svcb/https ipv4hint/ipv6hint
 // datatracker.ietf.org/doc/html/draft-ietf-dnsop-svcb-https-10#section-7.4
-func (d *dns64) eval(id string, q []byte, og []byte, f dnsExchange) []byte {
+func (d *dns64) eval(id string, force64 bool, og []byte, f dnsExchange) []byte {
 	d.RLock()
 	ip64, ok := d.ip64[id]
 	d.RUnlock()
@@ -158,22 +154,21 @@ func (d *dns64) eval(id string, q []byte, og []byte, f dnsExchange) []byte {
 		log.Debugf("dns64: attempt underlay/local464 resolver ip64 w len(%d)", len(ip64))
 	}
 
-	msgin := new(dns.Msg)
-	qerr := msgin.Unpack(q)
 	ansin := &dns.Msg{}
 	err := ansin.Unpack(og)
 
-	qname := xdns.QName(msgin)
+	qname := xdns.QName(ansin)
 	hasq6 := xdns.HasAAAAQuestion(ansin)
 	hasans6 := xdns.HasAAAAAnswer(ansin)
-	if qerr != nil || err != nil || !hasq6 || hasans6 {
+	// treat as if v6 answer missing if enforcing 6to4
+	if err != nil || !hasq6 || (hasans6 && !force64) {
 		// nb: has-aaaa-answer should cover for cases where
 		// the response is blocked by dnsx.BraveDNS
-		log.Debugf("dns64: no-op q(%s), qerr(%v), aerr(%v), q6(%t), ans6(%t)", qname, qerr, err, hasq6, hasans6)
+		log.Debugf("dns64: no-op q(%s), err(%v), q6(%t), ans6(%t), force64(%t)", qname, err, hasq6, hasans6, force64)
 		return og
 	}
 
-	ans4, err := d.query64(msgin, f)
+	ans4, err := d.query64(ansin, f)
 	rgood := xdns.HasRcodeSuccess(ans4)
 	if err != nil || ans4 == nil || len(ans4.Answer) <= 0 || xdns.AQuadAUnspecified(ans4) {
 		log.Warnf("dns64: query(n:%s / a:%v) to resolver(%s) rgood(%t), err(%v)", qname, ans4, id, rgood, err)
@@ -212,7 +207,7 @@ func (d *dns64) eval(id string, q []byte, og []byte, f dnsExchange) []byte {
 }
 
 func (d *dns64) query64(msg6 *dns.Msg, f dnsExchange) (*dns.Msg, error) {
-	msg4 := xdns.Request4FromRequest6(msg6)
+	msg4 := xdns.Request4FromResponse6(msg6)
 	q4, err := msg4.Pack()
 	if err != nil {
 		return nil, err
@@ -251,7 +246,11 @@ func ofUnderlay(d *dns64) error {
 func ofLocal464(d *dns64) error {
 	d.register(Local464Resolver)
 	// send a copy of localip64 as d.add mutates its entries in-place
-	return d.add(Local464Resolver, append([]net.IP{}, localip64...))
+	// this addr64, hopefully, isn't used by any other dns world-wide
+	localip64 := []net.IP{
+		net.ParseIP("64:ff9b:1:fffe::192.0.0.170"),
+	}
+	return d.add(Local464Resolver, localip64)
 }
 
 func (d *dns64) add(serverid string, nat64 []net.IP) error {

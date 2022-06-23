@@ -110,9 +110,10 @@ func NewTCPHandler(fakedns []*net.TCPAddr, pt ipn.NatPt, dialer *net.Dialer, blo
 
 // TODO: Propagate TCP RST using local.Abort(), on appropriate errors.
 func (h *tcpHandler) handleUpload(local core.TCPConn, remote split.DuplexConn, upload chan int64) {
+	ci := conn2str(local, remote)
 	// io.copy does remote.ReadFrom(local)
 	bytes, err := io.Copy(remote, local)
-	log.Debugf("t.tcp handle-upload(%d) done(%v) b/w %s", bytes, err, conn2str(local, remote))
+	log.Debugf("t.tcp handle-upload(%d) done(%v) b/w %s", bytes, err, ci)
 	local.CloseRead()
 	remote.CloseWrite()
 	upload <- bytes
@@ -127,9 +128,10 @@ func conn2str(a net.Conn, b net.Conn) string {
 }
 
 func (h *tcpHandler) handleDownload(local core.TCPConn, remote split.DuplexConn) (bytes int64, err error) {
+	ci := conn2str(local, remote)
 	bytes, err = io.Copy(local, remote)
 	if err != nil {
-		log.Warnf("t.tcp handle-download(%d) done(%v) b/w %s", bytes, err, conn2str(local, remote))
+		log.Warnf("t.tcp handle-download(%d) done(%v) b/w %s", bytes, err, ci)
 	}
 	local.CloseWrite()
 	remote.CloseRead()

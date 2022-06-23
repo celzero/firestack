@@ -20,7 +20,7 @@ import (
 
 // ref: github.com/tailscale/tailscale/blob/cfb5bd0559/wgengine/netstack/netstack.go#L236-L237
 const rcvwnd = 0
-const maxInFlight = 16
+const maxInFlight = 128
 
 type GTCPConnHandler interface {
 	OnNewConn(conn *GTCPConn, src, dst *net.TCPAddr)
@@ -39,6 +39,8 @@ func NewTCPForwarder(s *stack.Stack, h GTCPConnHandler) *tcp.Forwarder {
 		// dst 213.188.195.179:80
 		dst := localTCPAddr(id)
 		waitQueue := new(waiter.Queue)
+
+		// TODO: sends a 3-way tcp handshake; onNewConn should happen before this
 		endpoint, err := request.CreateEndpoint(waitQueue)
 		if err != nil {
 			log.Errorf("ns.tcp.forwarder: data src(%v) => dst(%v); err(%v)", src, dst, err)
@@ -50,28 +52,40 @@ func NewTCPForwarder(s *stack.Stack, h GTCPConnHandler) *tcp.Forwarder {
 		request.Complete(false)
 		log.Debugf("ns.tcp.forwarder: data src(%v) => dst(%v)", src, dst)
 
-		go h.OnNewConn(NewGTCPConn(waitQueue, endpoint), src, dst)
+		go h.OnNewConn(NewGTCPConn(waitQueue, endpoint, src, dst), src, dst)
 	})
 }
 
 type GTCPConn struct {
 	*gonet.TCPConn
-	ep tcpip.Endpoint
+	ep  tcpip.Endpoint
+	src *net.TCPAddr
+	dst *net.TCPAddr
 }
 
-func NewGTCPConn(wq *waiter.Queue, ep tcpip.Endpoint) *GTCPConn {
+func NewGTCPConn(wq *waiter.Queue, ep tcpip.Endpoint, src, dst *net.TCPAddr) *GTCPConn {
 	// set sock-opts? github.com/xjasonlyu/tun2socks/blob/31468620e/core/tcp.go#L82
-	return &GTCPConn{gonet.NewTCPConn(wq, ep), ep}
+	return &GTCPConn{gonet.NewTCPConn(wq, ep), ep, src, dst}
 }
 
+// gonet conn local and remote addresses may be nil
+// ref: github.com/tailscale/tailscale/blob/8c5c87be2/wgengine/netstack/netstack.go#L768-L775
 func (g *GTCPConn) LocalAddr() net.Addr {
 	// client local addr is remote to the gonet adapter
-	return g.TCPConn.RemoteAddr()
+	if addr := g.TCPConn.RemoteAddr(); addr != nil {
+		return addr
+	} else {
+		return g.src
+	}
 }
 
 func (g *GTCPConn) RemoteAddr() net.Addr {
 	// client remote addr is local to the gonet adapter
-	return g.TCPConn.LocalAddr()
+	if addr := g.TCPConn.LocalAddr(); addr != nil {
+		return addr
+	} else {
+		return g.dst
+	}
 }
 
 // Sent will be called when sent data has been acknowledged by peer.
