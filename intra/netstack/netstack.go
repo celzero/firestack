@@ -88,7 +88,8 @@ func NewNetstack(l3 string) (s *stack.Stack) {
 				icmp.NewProtocol4,
 				icmp.NewProtocol6,
 			},
-			// Setting HandleLocal to true breaks internet connectivity;
+			// HandleLocal if the packets must be forwarded to another nic within this stack, or
+			// to let this stack forward packets to the OS' network stack.
 			// also: github.com/Jigsaw-Code/outline-go-tun2socks/blob/5416729062/tunnel/tunnel.go#L45
 			// HandleLocal: true,
 		}

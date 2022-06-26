@@ -6,8 +6,11 @@
 package settings
 
 import (
+	"net/netip"
+	"strconv"
 	"strings"
 
+	"github.com/celzero/firestack/intra/log"
 	"golang.org/x/net/proxy"
 )
 
@@ -133,7 +136,7 @@ func NewTunMode(d int, b int, p int, pt int) *TunMode {
 	}
 }
 
-// DefaultTunMode returns a default TunMode object with
+// DefaultTunMode returns a new default TunMode with
 // IP-only DNS capture and replay (not all DNS traffic but
 // only the DNS traffic sent to [tcp/udp]handler.fakedns
 // is captured and replayed to the remote DoH server)
@@ -148,11 +151,18 @@ func DefaultTunMode() *TunMode {
 }
 
 // NewDNSOptions returns a new DNSOpitons object.
-func NewDNSOptions(ip string, port string) *DNSOptions {
-	// TODO: validate IP and port, protocol
-	return &DNSOptions{
-		IPPort: ip + ":" + port,
+func NewDNSOptions(ip string, port string) (*DNSOptions, error) {
+	var err error
+	if ip, err := netip.ParseAddr(ip); err == nil {
+		if p, err := strconv.Atoi(port); err == nil {
+			ipp := netip.AddrPortFrom(ip, uint16(p))
+			return &DNSOptions{
+				IPPort: ipp.String(),
+			}, nil
+		}
 	}
+	log.Warnf("dnsopt(%s:%s); err(%v)", ip, port, err)
+	return nil, err
 }
 
 // NewAuthProxyOptions returns a new ProxyOptions object with authentication object.

@@ -8,16 +8,36 @@ package ipn
 
 import (
 	"net"
+	"net/netip"
+	"strings"
 
 	"github.com/celzero/firestack/intra/log"
+	"github.com/celzero/firestack/intra/protect"
 	"github.com/celzero/firestack/intra/settings"
 )
 
+// app    |  interface  |  pt        |  who    |  internet?
+// ----   |  --------   |  --------  |  ----   |  --------
+// ip4    |  ip4        |  -         |  -      |  y
+// ip4    |  ip6        |  464xlat   |  os     |  y
+// ----   |  --------   |  --------  |  ----   |  --------
+// ip6    |  ip6        |  -         |  -      |  y
+// ip6    |  ip4        |  nat64     |  rdns   |  y
+// ----   |  --------   |  --------  |  ----   |  --------
+// ip4+6  |  ip6        |  464xlat   |  os     |  y
+// ip4+6  |  ip4	    |  happyeye  |  app    |  y
+// ----   |  --------   |  --------  |  ----   |  --------
+// ip4+6  |  ip4+6      |  bind      |  rdns   |  y
+// ip4+6  |  ip6+4	    |  bind      |  rdns   |  y
+
+// datatracker.ietf.org/doc/html/rfc8305#section-7
 type natPt struct {
 	*nat64
 	*dns64
 	l3      string
 	tunmode *settings.TunMode
+	ip4s    []net.IP
+	ip6s    []net.IP
 }
 
 type Resolver interface {
@@ -25,9 +45,11 @@ type Resolver interface {
 }
 
 type NatPt interface {
+	protect.Protector
 	D64(id string, ans6 []byte, f Resolver) []byte
 	IsNat64(id string, ip []byte) bool
 	X64(id string, ip []byte) []byte
+	LinkIP(ipcsv string) error
 }
 
 func NewNatPt(l3 string, tunmode *settings.TunMode) NatPt {
@@ -36,6 +58,8 @@ func NewNatPt(l3 string, tunmode *settings.TunMode) NatPt {
 		dns64:   newDns64(),
 		l3:      l3,
 		tunmode: tunmode,
+		ip4s:    nil,
+		ip6s:    nil,
 	}
 }
 
@@ -76,6 +100,50 @@ func (n *natPt) X64(id string, ip6 []byte) []byte {
 	} else {
 		log.Debugf("nat64: no matching prefix64 for ip(%v) in id(%s/%d)", ip6, id, len(prefixes))
 	}
+	return nil
+}
+
+// Returns the first matching local-interface net.IP for the network
+func (n *natPt) UIP(network string) []byte {
+	switch network {
+	case "tcp6":
+		fallthrough
+	case "udp6":
+		if len(n.ip6s) > 0 {
+			return n.ip6s[0]
+		}
+		return net.IPv6zero
+	default:
+		if len(n.ip4s) > 0 {
+			return n.ip4s[0]
+		}
+		return net.IPv4zero
+	}
+}
+
+// Report active local-interface IPs
+func (n *natPt) LinkIP(ipcsv string) error {
+	ips := strings.Split(ipcsv, ",")
+	n.ip4s = make([]net.IP, 0)
+	n.ip6s = make([]net.IP, 0)
+	for _, x := range ips {
+		ip, err := netip.ParseAddr(x)
+		if err != nil {
+			log.Warnf("nat64: invalid ip(%s); err(%w)", x, err)
+			continue
+		}
+		ip = ip.Unmap()
+		if !ip.IsGlobalUnicast() || !ip.IsValid() {
+			log.Warnf("nat64: ignoring non-unicast ip(%s)", x)
+			continue
+		}
+		if ip.Is4() {
+			n.ip4s = append(n.ip4s, ip.AsSlice())
+		} else {
+			n.ip6s = append(n.ip6s, ip.AsSlice())
+		}
+	}
+	log.Warnf("nat64: linked ip4s(%v) ip6s(%v)", n.ip4s, n.ip6s)
 	return nil
 }
 

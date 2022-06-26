@@ -73,9 +73,10 @@ func NewUDPForwarder(s *stack.Stack, h GUDPConnHandler) *udp.Forwarder {
 			return
 		}
 
-		// TODO: on stack.close, mop these goroutines up
+		// TODO: on stack.close, mop these goroutines up; just too many of them
+		// hanging around with failing dns queries (esp with happy-eyeballs)
 		go func() {
-			defer gc.gudp.Close()
+			// defer gc.gudp.Close() ?
 
 			log.Debugf("ns.udp.forwarder: src(%v) => dst(%v)", src, dst)
 
@@ -87,15 +88,17 @@ func NewUDPForwarder(s *stack.Stack, h GUDPConnHandler) *udp.Forwarder {
 			// TODO: should q be init inside the for-loop?
 			q := make([]byte, maxUDPReqSize)
 			for {
-				gc.gudp.SetReadDeadline(time.Now().Add(readDeadline))
+				gc.gudp.SetDeadline(time.Now().Add(readDeadline))
 				if n, addr, err := gc.gudp.ReadFrom(q); err == nil {
+					// TODO: pooling bytes
+					data := append([]byte{}, q...)
 					// src(10.111.222.1:53)
 					// dst(l:10.111.222.3:17711 / r:10.111.222.1:53)
 					udpaddr := addr.(*net.UDPAddr)
 					l := gc.LocalAddr()
 					r := gc.RemoteAddr()
 					log.Debugf("ns.udp.forwarder: data src(%v) => dst(l:%v / r:%v)", udpaddr, l, r)
-					if errh := h.HandleData(gc, q[:n], r); errh != nil {
+					if errh := h.HandleData(gc, data[:n], r); errh != nil {
 						break
 					}
 				} else {

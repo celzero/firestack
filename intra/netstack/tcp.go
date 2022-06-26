@@ -40,11 +40,14 @@ func NewTCPForwarder(s *stack.Stack, h GTCPConnHandler) *tcp.Forwarder {
 		dst := localTCPAddr(id)
 		waitQueue := new(waiter.Queue)
 
-		// TODO: sends a 3-way tcp handshake; onNewConn should happen before this
+		// the passive-handshake (SYN) may not successful for a non-existent route (say, ipv6)
 		endpoint, err := request.CreateEndpoint(waitQueue)
 		if err != nil {
 			log.Errorf("ns.tcp.forwarder: data src(%v) => dst(%v); err(%v)", src, dst, err)
 			// prevent potential half-open TCP connection leak.
+			// hopefully doesn't break happy-eyeballs datatracker.ietf.org/doc/html/rfc8305#section-5
+			// ie, apps that expect network-unreachable ICMP msgs instead of TCP RSTs?
+			// TCP RST here is indistinguishable to an app from being firewalled.
 			request.Complete(true)
 			return
 		}
@@ -70,6 +73,7 @@ func NewGTCPConn(wq *waiter.Queue, ep tcpip.Endpoint, src, dst *net.TCPAddr) *GT
 
 // gonet conn local and remote addresses may be nil
 // ref: github.com/tailscale/tailscale/blob/8c5c87be2/wgengine/netstack/netstack.go#L768-L775
+// and: github.com/google/gvisor/blob/ffabadf0/pkg/tcpip/transport/tcp/endpoint.go#L2759
 func (g *GTCPConn) LocalAddr() net.Addr {
 	// client local addr is remote to the gonet adapter
 	if addr := g.TCPConn.RemoteAddr(); addr != nil {

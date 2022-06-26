@@ -33,6 +33,7 @@ import (
 
 	"golang.org/x/net/proxy"
 
+	"github.com/celzero/firestack/intra/dns53"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/eycorsican/go-tun2socks/core"
 
@@ -55,8 +56,8 @@ type TCPHandler interface {
 	blockConn(localConn net.Conn, target *net.TCPAddr) bool
 	dnsOverride(net.Conn, *net.TCPAddr) bool
 	SetDNSCryptProxy(*dnscrypt.Proxy)
+	SetDNSProxy(dns53.Transport)
 	SetProxyOptions(*settings.ProxyOptions) error
-	SetDNSOptions(*settings.DNSOptions) error
 }
 
 type tcpHandler struct {
@@ -69,7 +70,7 @@ type tcpHandler struct {
 	tunMode          *settings.TunMode
 	listener         TCPListener
 	dnscrypt         *dnscrypt.Proxy
-	dnsproxy         *net.TCPAddr
+	dnsproxy         dns53.Transport
 	proxy            proxy.Dialer
 	pt               ipn.NatPt
 }
@@ -94,11 +95,12 @@ type TCPListener interface {
 // Connections to `fakedns` are redirected to DOH.
 // All other traffic is forwarded using `dialer`.
 // `listener` is provided with a summary of each socket when it is closed.
-func NewTCPHandler(fakedns []*net.TCPAddr, pt ipn.NatPt, dialer *net.Dialer, blocker protect.Blocker,
+func NewTCPHandler(fakedns []*net.TCPAddr, pt ipn.NatPt, blocker protect.Blocker,
 	tunMode *settings.TunMode, listener TCPListener) TCPHandler {
+	d := protect.MakeDialer3()
 	h := &tcpHandler{
 		fakedns:  fakedns,
-		dialer:   dialer,
+		dialer:   d,
 		blocker:  blocker,
 		tunMode:  tunMode,
 		listener: listener,
@@ -130,9 +132,7 @@ func conn2str(a net.Conn, b net.Conn) string {
 func (h *tcpHandler) handleDownload(local core.TCPConn, remote split.DuplexConn) (bytes int64, err error) {
 	ci := conn2str(local, remote)
 	bytes, err = io.Copy(local, remote)
-	if err != nil {
-		log.Warnf("t.tcp handle-download(%d) done(%v) b/w %s", bytes, err, ci)
-	}
+	log.Debugf("t.tcp handle-download(%d) done(%v) b/w %s", bytes, err, ci)
 	local.CloseWrite()
 	remote.CloseRead()
 	return
@@ -238,12 +238,20 @@ func (h *tcpHandler) isDNSCrypt(addr *net.TCPAddr) bool {
 
 func (h *tcpHandler) dnsOverride(conn net.Conn, addr *net.TCPAddr) bool {
 	if h.isDoh(addr) {
-		dns := h.dns.Load()
-		go doh.Accept(dns, conn)
-		return true
+		if dns := h.dns.Load(); dns != nil {
+			go doh.Accept(dns, conn)
+			return true
+		}
 	} else if h.isDNSCrypt(addr) {
-		go dnscrypt.HandleTCP(h.dnscrypt, conn)
-		return true
+		if dns := h.dnscrypt; dns != nil {
+			go dnscrypt.HandleTCP(dns, conn)
+			return true
+		}
+	} else if h.isDNSProxy(addr) {
+		if dns := h.dnsproxy; dns != nil {
+			go dns53.Accept(dns, conn)
+			return true
+		}
 	}
 	// assert h.tunMode.DNSMode == settings.DNSModeNone
 	return false
@@ -339,13 +347,6 @@ func (h *tcpHandler) Handle(conn net.Conn, target *net.TCPAddr) error {
 			summary.Retry = &split.RetryStats{}
 			c, err = split.DialWithSplitRetry(h.dialer, target, summary.Retry)
 		}
-	} else if summary.ServerPort == 53 && h.isDNSProxy(target) {
-		var generic net.Conn
-		target = h.dnsproxy
-		generic, err = h.dialer.Dial(target.Network(), target.String())
-		if generic != nil {
-			c = generic.(*net.TCPConn)
-		}
 	} else {
 		var generic net.Conn
 		generic, err = h.dialer.Dial(target.Network(), target.String())
@@ -377,10 +378,8 @@ func (h *tcpHandler) SetDNSCryptProxy(dcrypt *dnscrypt.Proxy) {
 	h.dnscrypt = dcrypt
 }
 
-func (h *tcpHandler) SetDNSOptions(do *settings.DNSOptions) error {
-	dnsaddr, err := net.ResolveTCPAddr("tcp", do.IPPort)
-	h.dnsproxy = dnsaddr
-	return err
+func (h *tcpHandler) SetDNSProxy(d dns53.Transport) {
+	h.dnsproxy = d
 }
 
 func (h *tcpHandler) SetProxyOptions(po *settings.ProxyOptions) error {

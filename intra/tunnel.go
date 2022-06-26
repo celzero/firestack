@@ -33,6 +33,7 @@ import (
 
 	"github.com/eycorsican/go-tun2socks/core"
 
+	"github.com/celzero/firestack/intra/dns53"
 	"github.com/celzero/firestack/intra/dnscrypt"
 	"github.com/celzero/firestack/intra/dnsx"
 	"github.com/celzero/firestack/intra/doh"
@@ -49,6 +50,7 @@ type Listener interface {
 	TCPListener
 	doh.Listener
 	dnscrypt.Listener
+	dns53.Listener
 }
 
 // Tunnel represents an Intra session.
@@ -62,6 +64,8 @@ type Tunnel interface {
 	SetDNS(doh.Transport)
 	// Set DNSMode, BlockMode, ProxyMode, PtMode.
 	SetTunMode(int, int, int, int)
+	// Set IPs (comma-separated IPs as string) to bind to for outbound traffic.
+	SetLinkIP(ipcsv string) bool
 	// When set to true, Intra will pre-emptively split all HTTPS connections.
 	SetAlwaysSplitHTTPS(bool)
 	// StartDNSCryptProxy starts a DNSCrypt proxy instance for resolvers
@@ -76,9 +80,9 @@ type Tunnel interface {
 	// GetTCPProxyOptions returns "uname,pwd,ip,port" csv
 	GetProxyOptions() string
 	// StartDNSProxy starts dns proxy as dictated by current TunMode.
-	StartDNSProxy(ip string, port string) error
-	// GetDNSOptions returns "ip,port" csv
-	GetDNSProxyOptions() string
+	StartDNSProxy(ip, port string, listener Listener) error
+	// GetDNSProxy returns dnsproxy transport
+	GetDNSProxy() dns53.Transport
 	// SetBraveDNS sets bravedns with various dns transports
 	SetBraveDNS(dnsx.BraveDNS) error
 	// GetBraveDNS gets bravedns in-use by various dns transports
@@ -93,7 +97,7 @@ type intratunnel struct {
 	tunmode      *settings.TunMode
 	dnscrypt     *dnscrypt.Proxy
 	proxyOptions *settings.ProxyOptions
-	dnsOptions   *settings.DNSOptions
+	dnsproxy     dns53.Transport
 	bravedns     dnsx.BraveDNS
 	natpt        ipn.NatPt
 }
@@ -108,16 +112,18 @@ type intratunnel struct {
 // `tunWriter` is the downstream VPN tunnel.  IntraTunnel.Disconnect() will close `tunWriter`.
 // `dialer` and `config` will be used for all network activity.
 // `listener` will be notified at the completion of every tunneled socket.
-func NewTunnel(fakedns string, dohdns doh.Transport, tunWriter io.WriteCloser, mode string, dialer *net.Dialer, blocker protect.Blocker, config *net.ListenConfig, listener Listener) (Tunnel, error) {
+func NewTunnel(fakedns string, dohdns doh.Transport, tunWriter io.WriteCloser, l3 string, blocker protect.Blocker, listener Listener) (Tunnel, error) {
 	if tunWriter == nil {
 		return nil, errors.New("Must provide a valid TUN writer")
 	}
+	defaultmode := settings.DefaultTunMode()
 	core.RegisterOutputFn(tunWriter.Write)
 	t := &intratunnel{
 		Tunnel:  tunnel.NewTunnel(tunWriter, core.NewLWIPStack()),
-		tunmode: settings.DefaultTunMode(),
+		tunmode: defaultmode,
+		natpt:   ipn.NewNatPt(l3, defaultmode),
 	}
-	if err := t.registerConnectionHandlers(fakedns, mode, dialer, blocker, config, listener); err != nil {
+	if err := t.registerConnectionHandlers(fakedns, l3, blocker, listener); err != nil {
 		return nil, err
 	}
 	t.SetDNS(dohdns)
@@ -155,7 +161,7 @@ func fakeDnsUdpAddr(csvaddr string) ([]*net.UDPAddr, error) {
 	return udpaddrs[:count], nil
 }
 
-func NewGTunnel(fakedns string, dohdns doh.Transport, fd int, l3 string, dialer *net.Dialer, blocker protect.Blocker, config *net.ListenConfig, listener Listener) (Tunnel, error) {
+func NewGTunnel(fakedns string, dohdns doh.Transport, fd int, l3 string, blocker protect.Blocker, listener Listener) (Tunnel, error) {
 	tcpfakedns, err := fakeDnsTcpAddr(fakedns)
 	if err != nil {
 		return nil, err
@@ -176,8 +182,8 @@ func NewGTunnel(fakedns string, dohdns doh.Transport, fd int, l3 string, dialer 
 
 	natpt := ipn.NewNatPt(l3, tunmode)
 
-	tcph := NewTCPHandler(tcpfakedns, natpt, dialer, blocker, tunmode, listener)
-	udph := NewUDPHandler(udpfakedns, natpt, udptimeout, blocker, tunmode, config, listener)
+	tcph := NewTCPHandler(tcpfakedns, natpt, blocker, tunmode, listener)
+	udph := NewUDPHandler(udpfakedns, natpt, udptimeout, blocker, tunmode, listener)
 	t, err := tunnel.NewGTunnel(fd, l3, tcph, udph)
 
 	if err != nil {
@@ -187,36 +193,32 @@ func NewGTunnel(fakedns string, dohdns doh.Transport, fd int, l3 string, dialer 
 	gt := &intratunnel{
 		Tunnel:  t,
 		tunmode: tunmode,
+		udp:     udph,
+		tcp:     tcph,
+		natpt:   natpt,
 	}
-
-	gt.udp = udph
-	gt.tcp = tcph
-	gt.natpt = natpt
 
 	gt.SetDNS(dohdns)
 	return gt, nil
 }
 
 // Registers Intra's custom UDP and TCP connection handlers to the tun2socks core.
-func (t *intratunnel) registerConnectionHandlers(fakedns, l3 string, dialer *net.Dialer, blocker protect.Blocker, config *net.ListenConfig, listener Listener) error {
+func (t *intratunnel) registerConnectionHandlers(fakedns, l3 string, blocker protect.Blocker, listener Listener) error {
 	// RFC 4787 REQ-5 requires a timeout no shorter than 5 minutes.
 	timeout, _ := time.ParseDuration("5m")
-
-	natpt := ipn.NewNatPt(l3, t.tunmode)
-	t.natpt = natpt
 
 	udpfakedns, err := fakeDnsUdpAddr(fakedns)
 	if err != nil {
 		return err
 	}
-	t.udp = NewUDPHandler(udpfakedns, natpt, timeout, blocker, t.tunmode, config, listener)
+	t.udp = NewUDPHandler(udpfakedns, t.natpt, timeout, blocker, t.tunmode, listener)
 	core.RegisterUDPConnHandler(t.udp)
 
 	tcpfakedns, err := fakeDnsTcpAddr(fakedns)
 	if err != nil {
 		return err
 	}
-	t.tcp = NewTCPHandler(tcpfakedns, natpt, dialer, blocker, t.tunmode, listener)
+	t.tcp = NewTCPHandler(tcpfakedns, t.natpt, blocker, t.tunmode, listener)
 	core.RegisterTCPConnHandler(t.tcp)
 
 	return nil
@@ -239,25 +241,35 @@ func (t *intratunnel) SetTunMode(dnsmode int, blockmode int, proxymode int, ptmo
 	t.tunmode.SetMode(dnsmode, blockmode, proxymode, ptmode)
 }
 
+func (t *intratunnel) SetLinkIP(ipcsv string) bool {
+	err := t.natpt.LinkIP(ipcsv)
+	return err == nil
+}
+
 func (t *intratunnel) SetAlwaysSplitHTTPS(s bool) {
 	t.tcp.SetAlwaysSplitHTTPS(s)
 }
 
-func (t *intratunnel) StartDNSProxy(ip string, port string) (err error) {
-	d := settings.NewDNSOptions(ip, port)
-	if err = t.tcp.SetDNSOptions(d); err == nil {
-		t.udp.SetDNSOptions(d)
-	}
+func (t *intratunnel) StartDNSProxy(ip, port string, listener Listener) (err error) {
+	d, err := dns53.NewTransport(ip, port, listener)
+	d.SetNatPt(t.natpt)
+
 	if err != nil {
-		t.dnsOptions = nil
+		t.tcp.SetDNSProxy(nil)
+		t.udp.SetDNSProxy(nil)
+		t.dnsproxy = nil
 		return
 	}
-	t.dnsOptions = d
+
+	t.tcp.SetDNSProxy(d)
+	t.udp.SetDNSProxy(d)
+	t.dnsproxy = d
+
 	return
 }
 
-func (t *intratunnel) GetDNSProxyOptions() string {
-	return t.dnsOptions.String()
+func (t *intratunnel) GetDNSProxy() dns53.Transport {
+	return t.dnsproxy
 }
 
 func (t *intratunnel) StartDNSCryptProxy(resolvers string, relays string, listener Listener) (string, error) {
@@ -266,14 +278,18 @@ func (t *intratunnel) StartDNSCryptProxy(resolvers string, relays string, listen
 	if t.dnscrypt != nil {
 		return "", fmt.Errorf("only one instance of dns-crypt proxy allowed")
 	}
+
 	p := dnscrypt.NewProxy(listener)
 	p.SetNatPt(t.natpt)
+
 	if _, err = p.AddServers(resolvers); err == nil {
 		if len(relays) > 0 {
 			_, err = p.AddRoutes(relays)
 		}
 	}
 	if err != nil {
+		t.udp.SetDNSCryptProxy(nil)
+		t.tcp.SetDNSCryptProxy(nil)
 		return "", err
 	}
 	t.udp.SetDNSCryptProxy(p)
@@ -326,6 +342,7 @@ func (t *intratunnel) GetProxyOptions() string {
 func (t *intratunnel) SetBraveDNS(b dnsx.BraveDNS) error {
 	doh := t.dns
 	dnscrypt := t.dnscrypt
+	dnsproxy := t.dnsproxy
 
 	t.bravedns = b
 
@@ -334,6 +351,9 @@ func (t *intratunnel) SetBraveDNS(b dnsx.BraveDNS) error {
 	}
 	if dnscrypt != nil {
 		dnscrypt.SetBraveDNS(b)
+	}
+	if dnsproxy != nil {
+		dnsproxy.SetBraveDNS(b)
 	}
 
 	return nil

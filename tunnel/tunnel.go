@@ -91,12 +91,12 @@ func (t *gtunnel) Disconnect() {
 		log.Infof("tun: cannot disconnect an unconnected fd")
 		return
 	}
-	// TODO: is t.endpoint.Wait() needed?
-	// TODO: is t.endpoint.Attach(nil) needed?
-	t.stack.Close()
 	if err := syscall.Close(t.fdref); err != nil {
 		log.Errorf("tun: close(fd) fail, err(%v)", err)
 	}
+	// TODO: is t.endpoint.Wait() needed?
+	// TODO: is t.endpoint.Attach(nil) needed?
+	t.stack.Close()
 	t.fdref = invalidfd
 }
 

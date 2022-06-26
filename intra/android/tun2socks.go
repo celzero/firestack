@@ -60,9 +60,7 @@ func init() {
 //
 // Throws an exception if the TUN file descriptor cannot be opened, or if the tunnel fails to
 // connect.
-func ConnectIntraTunnel(fd int, fakedns string, dohdns doh.Transport, protector protect.Protector, blocker protect.Blocker, listener intra.Listener) (t intra.Tunnel, err error) {
-	dialer := protect.MakeDialer(protector)
-	config := protect.MakeListenConfig(protector)
+func ConnectIntraTunnel(fd int, fakedns string, dohdns doh.Transport, blocker protect.Blocker, listener intra.Listener) (t intra.Tunnel, err error) {
 	l3 := settings.L3(engine)
 
 	if engine == settings.Lwip4 {
@@ -71,7 +69,7 @@ func ConnectIntraTunnel(fd int, fakedns string, dohdns doh.Transport, protector 
 			return nil, err
 		}
 
-		if t, err = intra.NewTunnel(fakedns, dohdns, tun, l3, dialer, blocker, config, listener); t != nil {
+		if t, err = intra.NewTunnel(fakedns, dohdns, tun, l3, blocker, listener); t != nil {
 			go tunnel.ProcessInputPackets(t, tun)
 		}
 
@@ -81,7 +79,7 @@ func ConnectIntraTunnel(fd int, fakedns string, dohdns doh.Transport, protector 
 		if err != nil {
 			return nil, err
 		}
-		return intra.NewGTunnel(fakedns, dohdns, dupfd, l3, dialer, blocker, config, listener)
+		return intra.NewGTunnel(fakedns, dohdns, dupfd, l3, blocker, listener)
 	}
 }
 
@@ -93,12 +91,12 @@ func ConnectIntraTunnel(fd int, fakedns string, dohdns doh.Transport, protector 
 // `protector` is the socket protector to use for all external network activity.
 // `auth` will provide a client certificate if required by the TLS server.
 // `listener` will be notified after each DNS query succeeds or fails.
-func NewDoHTransport(url string, ips string, protector protect.Protector, auth doh.ClientAuth, listener intra.Listener) (doh.Transport, error) {
+func NewDoHTransport(url string, ips string, auth doh.ClientAuth, listener intra.Listener) (doh.Transport, error) {
 	split := []string{}
 	if len(ips) > 0 {
 		split = strings.Split(ips, ",")
 	}
-	dialer := protect.MakeDialer(protector)
+	dialer := protect.MakeDialer(nil)
 	return doh.NewTransport(url, split, dialer, auth, listener)
 }
 

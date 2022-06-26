@@ -396,15 +396,12 @@ func HandleUDP(proxy *Proxy, data []byte) (response []byte, err error) {
 		return nil, fmt.Errorf("dns-crypt proxy not set")
 	}
 
-	var s *ServerInfo
-	var b string
-
 	before := time.Now()
-	response, b, s, err = proxy.query(data, true)
-	if len(b) <= 0 && err == nil && proxy.natpt != nil {
-		response = proxy.natpt.D64(s.URL.String(), response, proxy.ExchangeWith(s))
-	}
+	response, b, s, err := proxy.query(data, true)
 	after := time.Now()
+	if len(b) <= 0 && err == nil && proxy.natpt != nil {
+		response = proxy.natpt.D64(s.Name, response, proxy.ExchangeWith(s))
+	}
 
 	if proxy.listener != nil {
 		latency := after.Sub(before)
@@ -475,6 +472,9 @@ func HandleTCP(proxy *Proxy, conn net.Conn) {
 	before := time.Now()
 	query, response, b, s, err := proxy.forward(conn)
 	after := time.Now()
+	if len(b) <= 0 && err == nil && proxy.natpt != nil {
+		response = proxy.natpt.D64(s.Name, response, proxy.ExchangeWith(s))
+	}
 
 	if proxy.listener != nil {
 		latency := after.Sub(before)

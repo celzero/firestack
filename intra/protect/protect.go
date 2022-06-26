@@ -24,11 +24,8 @@
 package protect
 
 import (
-	"context"
-	"errors"
-	"fmt"
 	"net"
-	"strings"
+	"net/netip"
 	"syscall"
 
 	"github.com/celzero/firestack/intra/log"
@@ -39,109 +36,125 @@ type Blocker interface {
 	// Block is called on a new connection setup; return true to block the connection;
 	// false otherwise.
 	// source and target are string'd representation of net.TCPAddr and net.UDPAddr
-	// depending on the protocol. Note: IPv4 and IPv6 have a very different string
-	// representations: https://stackoverflow.com/a/48519490
+	// depending on the protocol. Note: IPv4 and IPv6 have very different string
+	// representations: stackoverflow.com/a/48519490
 	// uid is -1 in case owner-uid of the connection couldn't be determined
 	Block(protocol int32, uid int, source string, target string) bool
+	// Calls in to javaland asking it to bind fd to any internet-capable IPv4 interface.
+	Bind4(fd int)
+	// Calls in to javaland asking it to bind fd to any internet-capable IPv6 interface.
+	Bind6(fd int)
 }
 
-// Protector provides the ability to bypass a VPN on Android, pre-Lollipop.
 type Protector interface {
-	// Protect a socket, i.e. exclude it from the VPN.
-	// This is needed in order to avoid routing loops for the VPN's own sockets.
-	// This is a wrapper for Android's VpnService.protect().
-	Protect(socket int32) bool
-
-	// Returns a comma-separated list of the system's configured DNS resolvers,
-	// in roughly descending priority order.
-	// This is needed because (1) Android Java cannot protect DNS lookups but Go can, and
-	// (2) Android Java can determine the list of system DNS resolvers but Go cannot.
-	// A comma-separated list is used because Gomobile cannot bind []string.
-	GetResolvers() string
+	// Returns ip to bind given a network, n
+	UIP(n string) []byte
 }
 
-func makeControl(p Protector) func(string, string, syscall.RawConn) error {
-	return func(network, address string, c syscall.RawConn) error {
+func makeControl2(b Blocker) func(string, string, syscall.RawConn) error {
+	return func(network, address string, c syscall.RawConn) (err error) {
 		return c.Control(func(fd uintptr) {
-			if !p.Protect(int32(fd)) {
-				// TODO: Record and report these errors.
-				log.Errorf("Failed to protect a %s socket", network)
+			sock := int(fd)
+			switch network {
+			case "tcp6":
+				fallthrough
+			case "udp6":
+				b.Bind6(sock)
+			case "tcp4":
+				fallthrough
+			case "udp4":
+				fallthrough
+			case "tcp":
+				fallthrough
+			case "udp":
+				b.Bind4(sock)
+			default:
+				// no-op
 			}
 		})
 	}
 }
 
-// Returns the first IP address that is of the desired family.
-func scan(ips []string, wantV4 bool) string {
-	for _, ip := range ips {
-		parsed := net.ParseIP(ip)
-		if parsed == nil {
-			// `ip` failed to parse.  Skip it.
-			continue
+func makeControl(p Protector) func(string, string, syscall.RawConn) error {
+	return func(network, address string, c syscall.RawConn) (err error) {
+		src := p.UIP(network)
+		ipaddr, _ := netip.AddrFromSlice(src)
+		origaddr, err := netip.ParseAddrPort(address)
+		log.Warnf("control: net(%s), orig(%s/%w), bind(%s)", network, origaddr, err, ipaddr)
+		if err != nil {
+			return err
 		}
-		isV4 := parsed.To4() != nil
-		if isV4 == wantV4 {
-			return ip
-		}
+		return c.Control(func(fd uintptr) {
+			if origaddr.Addr().IsUnspecified() {
+				return
+			}
+			port := int(origaddr.Port())
+			switch network {
+			case "tcp6":
+				fallthrough
+			case "udp6":
+				// TODO: zone := origaddr.Addr().Zone()
+				bind6 := &syscall.SockaddrInet6{Addr: ipaddr.As16(), Port: port}
+				err = syscall.Bind(int(fd), bind6)
+			default:
+				bind4 := &syscall.SockaddrInet4{Addr: ipaddr.As4(), Port: port}
+				err = syscall.Bind(int(fd), bind4)
+			}
+			if err != nil {
+				log.Errorf("protect: fail to bind ip(%s) to socket %v", ipaddr, err)
+			}
+		})
 	}
-	return ""
 }
 
-// Given a slice of IP addresses, and a transport address, return a transport
-// address with the IP replaced by the first IP of the same family in `ips`, or
-// by the first address of a different family if there are none of the same.
-func replaceIP(addr string, ips []string) (string, error) {
-	if len(ips) == 0 {
-		return "", errors.New("No resolvers available")
-	}
-	orighost, port, err := net.SplitHostPort(addr)
-	if err != nil {
-		return "", err
-	}
-	origip := net.ParseIP(orighost)
-	if origip == nil {
-		return "", fmt.Errorf("Can't parse resolver IP: %s", orighost)
-	}
-	isV4 := origip.To4() != nil
-	newIP := scan(ips, isV4)
-	if newIP == "" {
-		// There are no IPs of the desired address family.  Use a different family.
-		newIP = ips[0]
-	}
-	return net.JoinHostPort(newIP, port), nil
-}
-
-// MakeDialer creates a new Dialer.  Recipients can safely mutate
-// any public field except Control and Resolver, which are both populated.
+// Creates a dialer that bypasses vpn ip rules.
 func MakeDialer(p Protector) *net.Dialer {
 	if p == nil {
-		return &net.Dialer{}
+		return MakeDialer3()
 	}
 	d := &net.Dialer{
 		Control: makeControl(p),
 	}
-	resolverDialer := func(ctx context.Context, network, address string) (net.Conn, error) {
-		resolvers := strings.Split(p.GetResolvers(), ",")
-		newAddress, err := replaceIP(address, resolvers)
-		if err != nil {
-			return nil, err
-		}
-		return d.DialContext(ctx, network, newAddress)
-	}
-	d.Resolver = &net.Resolver{
-		PreferGo: true,
-		Dial:     resolverDialer,
-	}
 	return d
 }
 
-// MakeListenConfig returns a new ListenConfig that creates protected
-// listener sockets.
+// Creates a listener that bypasses vpn ip rules.
 func MakeListenConfig(p Protector) *net.ListenConfig {
 	if p == nil {
-		return &net.ListenConfig{}
+		return MakeListenConfig3()
 	}
 	return &net.ListenConfig{
 		Control: makeControl(p),
 	}
+}
+
+// Creates a dialer that can bind to multiple interfaces
+func MakeDialer2(b Blocker) *net.Dialer {
+	if b == nil {
+		return MakeDialer3()
+	}
+	d := &net.Dialer{
+		Control: makeControl2(b),
+	}
+	return d
+}
+
+// Creates a listener that can bind to multiple interfaces
+func MakeListenConfig2(b Blocker) *net.ListenConfig {
+	if b == nil {
+		return MakeListenConfig3()
+	}
+	return &net.ListenConfig{
+		Control: makeControl2(b),
+	}
+}
+
+// Creates a plain old dialer
+func MakeDialer3() *net.Dialer {
+	return &net.Dialer{}
+}
+
+// Creates a plain old listener
+func MakeListenConfig3() *net.ListenConfig {
+	return &net.ListenConfig{}
 }
