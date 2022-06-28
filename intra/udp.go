@@ -107,11 +107,13 @@ type udpHandler struct {
 // `timeout` controls the effective NAT mapping lifetime.
 // `config` is used to bind new external UDP ports.
 // `listener` receives a summary about each UDP binding when it expires.
-func NewUDPHandler(fakedns []*net.UDPAddr, pt ipn.NatPt, timeout time.Duration, blocker protect.Blocker,
+func NewUDPHandler(fakedns []*net.UDPAddr, pt ipn.NatPt, blocker protect.Blocker,
 	tunMode *settings.TunMode, listener UDPListener) UDPHandler {
-	c := protect.MakeListenConfig3()
+	// RFC 4787 REQ-5 requires a timeout no shorter than 5 minutes.
+	udptimeout, _ := time.ParseDuration("5m")
+	c := protect.MakeListenConfig2(blocker)
 	h := &udpHandler{
-		timeout:  timeout,
+		timeout:  udptimeout,
 		udpConns: make(map[core.UDPConn]*tracker, 8),
 		fakedns:  fakedns,
 		blocker:  blocker,
@@ -426,12 +428,12 @@ func (h *udpHandler) ReceiveTo(conn core.UDPConn, data []byte, addr *net.UDPAddr
 		log.Debugf("t.udp.rcv: dns-override for dstaddr(%v)", addr)
 		return nil
 	} else if h.pt.IsNat64(ipn.Local464Resolver, addr.IP) {
-		h.Lock()
-		if ip4 := h.pt.X64(ipn.Local464Resolver, addr.IP); ip4 != nil {
+		if ip4 := h.pt.X64(ipn.Local464Resolver, addr.IP); len(ip4) > 0 {
+			h.Lock()
 			t.ip = addr
 			addr.IP = ip4
+			h.Unlock()
 		}
-		h.Unlock()
 		log.Debugf("t.udp.rcv: local-nat to addr4(%v) for addr6(%v)", addr, t.ip)
 	}
 

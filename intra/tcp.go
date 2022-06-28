@@ -97,7 +97,7 @@ type TCPListener interface {
 // `listener` is provided with a summary of each socket when it is closed.
 func NewTCPHandler(fakedns []*net.TCPAddr, pt ipn.NatPt, blocker protect.Blocker,
 	tunMode *settings.TunMode, listener TCPListener) TCPHandler {
-	d := protect.MakeDialer3()
+	d := protect.MakeDialer2(blocker)
 	h := &tcpHandler{
 		fakedns:  fakedns,
 		dialer:   d,

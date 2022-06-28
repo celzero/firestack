@@ -29,7 +29,6 @@ import (
 	"io"
 	"net"
 	"strings"
-	"time"
 
 	"github.com/eycorsican/go-tun2socks/core"
 
@@ -173,17 +172,10 @@ func NewGTunnel(fakedns string, dohdns doh.Transport, fd int, l3 string, blocker
 
 	tunmode := settings.DefaultTunMode()
 
-	// RFC 4787 REQ-5 requires a timeout no shorter than 5 minutes.
-	udptimeout, _ := time.ParseDuration("5m")
-
-	if err != nil {
-		return nil, err
-	}
-
 	natpt := ipn.NewNatPt(l3, tunmode)
 
 	tcph := NewTCPHandler(tcpfakedns, natpt, blocker, tunmode, listener)
-	udph := NewUDPHandler(udpfakedns, natpt, udptimeout, blocker, tunmode, listener)
+	udph := NewUDPHandler(udpfakedns, natpt, blocker, tunmode, listener)
 	t, err := tunnel.NewGTunnel(fd, l3, tcph, udph)
 
 	if err != nil {
@@ -204,14 +196,11 @@ func NewGTunnel(fakedns string, dohdns doh.Transport, fd int, l3 string, blocker
 
 // Registers Intra's custom UDP and TCP connection handlers to the tun2socks core.
 func (t *intratunnel) registerConnectionHandlers(fakedns, l3 string, blocker protect.Blocker, listener Listener) error {
-	// RFC 4787 REQ-5 requires a timeout no shorter than 5 minutes.
-	timeout, _ := time.ParseDuration("5m")
-
 	udpfakedns, err := fakeDnsUdpAddr(fakedns)
 	if err != nil {
 		return err
 	}
-	t.udp = NewUDPHandler(udpfakedns, t.natpt, timeout, blocker, t.tunmode, listener)
+	t.udp = NewUDPHandler(udpfakedns, t.natpt, blocker, t.tunmode, listener)
 	core.RegisterUDPConnHandler(t.udp)
 
 	tcpfakedns, err := fakeDnsTcpAddr(fakedns)

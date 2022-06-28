@@ -94,10 +94,14 @@ func (t *gtunnel) Disconnect() {
 	if err := syscall.Close(t.fdref); err != nil {
 		log.Errorf("tun: close(fd) fail, err(%v)", err)
 	}
-	// TODO: is t.endpoint.Wait() needed?
-	// TODO: is t.endpoint.Attach(nil) needed?
-	t.stack.Close()
+	log.Infof("tun: disconnected %d", t.fdref)
 	t.fdref = invalidfd
+	go func() {
+		// TODO: is t.endpoint.Wait() needed?
+		// TODO: is t.endpoint.Attach(nil) needed?
+		t.stack.Close()
+		log.Infof("tun: stack closed")
+	}()
 }
 
 func (t *gtunnel) IsConnected() bool {

@@ -128,7 +128,7 @@ func MakeListenConfig(p Protector) *net.ListenConfig {
 	}
 }
 
-// Creates a dialer that can bind to multiple interfaces
+// Creates a dialer that can bind to any active interface
 func MakeDialer2(b Blocker) *net.Dialer {
 	if b == nil {
 		return MakeDialer3()
@@ -139,7 +139,7 @@ func MakeDialer2(b Blocker) *net.Dialer {
 	return d
 }
 
-// Creates a listener that can bind to multiple interfaces
+// Creates a listener that can bind to any active interfaces
 func MakeListenConfig2(b Blocker) *net.ListenConfig {
 	if b == nil {
 		return MakeListenConfig3()
