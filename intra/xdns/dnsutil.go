@@ -224,7 +224,10 @@ func HasAnyAnswer(msg *dns.Msg) bool {
 func HasAAAAAnswer(msg *dns.Msg) bool {
 	for _, answer := range msg.Answer {
 		if answer.Header().Rrtype == dns.TypeAAAA {
-			return true
+			rec, ok := answer.(*dns.AAAA)
+			if ok && len(rec.AAAA) == net.IPv6len {
+				return true
+			}
 		}
 	}
 	return false

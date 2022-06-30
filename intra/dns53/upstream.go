@@ -13,7 +13,6 @@ import (
 	"io"
 	"math"
 	"net"
-	"net/http"
 	"time"
 
 	"github.com/celzero/firestack/intra/dnsx"
@@ -45,13 +44,13 @@ type Transport interface {
 type transport struct {
 	Transport
 	ipport   string
-	listener Listener
+	listener dnsx.Listener
 	natpt    ipn.NatPt
 	bravedns dnsx.BraveDNS
 }
 
 // NewTransport returns a DNS transport, ready for use.
-func NewTransport(ip, port string, listener Listener) (t Transport, err error) {
+func NewTransport(ip, port string, listener dnsx.Listener) (t Transport, err error) {
 	do, err := settings.NewDNSOptions(ip, port)
 	if err != nil {
 		return
@@ -68,9 +67,9 @@ func NewTransport(ip, port string, listener Listener) (t Transport, err error) {
 // Given a raw DNS query (including the query ID), this function sends the
 // query.  If the query is successful, it returns the response and a nil qerr.  Otherwise,
 // it returns a SERVFAIL response and a qerr with a status value indicating the cause.
-func (t *transport) doQuery(network string, q []byte) (response []byte, blocklists string, elapsed time.Duration, qerr *queryError) {
+func (t *transport) doQuery(network string, q []byte) (response []byte, blocklists string, elapsed time.Duration, qerr *dnsx.QueryError) {
 	if len(q) < 2 {
-		qerr = &queryError{BadQuery, fmt.Errorf("query length is %d", len(q))}
+		qerr = dnsx.NewBadQueryError(fmt.Errorf("query length is %d", len(q)))
 		return
 	}
 
@@ -96,7 +95,7 @@ func (t *transport) doQuery(network string, q []byte) (response []byte, blocklis
 	return
 }
 
-func (t *transport) sendRequest(network string, q []byte) (response []byte, blocklists string, elapsed time.Duration, qerr *queryError) {
+func (t *transport) sendRequest(network string, q []byte) (response []byte, blocklists string, elapsed time.Duration, qerr *dnsx.QueryError) {
 	var conn net.Conn
 	var dialError error
 	start := time.Now()
@@ -113,7 +112,7 @@ func (t *transport) sendRequest(network string, q []byte) (response []byte, bloc
 	conn, dialError = net.Dial(network, t.ipport)
 	if dialError != nil {
 		elapsed = time.Since(start)
-		qerr = &queryError{SendFailed, dialError}
+		qerr = dnsx.NewSendFailedQueryError(dialError)
 		return
 	}
 
@@ -121,7 +120,7 @@ func (t *transport) sendRequest(network string, q []byte) (response []byte, bloc
 	_, err := conn.Write(q)
 	if err != nil {
 		elapsed = time.Since(start)
-		qerr = &queryError{SendFailed, err}
+		qerr = dnsx.NewSendFailedQueryError(err)
 		return
 	}
 
@@ -137,7 +136,7 @@ func (t *transport) sendRequest(network string, q []byte) (response []byte, bloc
 	n, err := conn.Read(b)
 	elapsed = time.Since(start)
 	if err != nil {
-		qerr = &queryError{BadResponse, err}
+		qerr = dnsx.NewBadResponseQueryError(err)
 		return
 	}
 
@@ -149,7 +148,7 @@ func (t *transport) sendRequest(network string, q []byte) (response []byte, bloc
 			response = r // overwrite response when blocked
 		}
 	} else {
-		qerr = &queryError{BadResponse, fmt.Errorf("response length is %d", len(response))}
+		qerr = dnsx.NewBadResponseQueryError(fmt.Errorf("response length is %d", len(response)))
 	}
 
 	return
@@ -163,9 +162,8 @@ func (t *transport) Exchange(q []byte) (r []byte, err error) {
 }
 
 func (t *transport) Query(network string, q []byte) ([]byte, error) {
-	var token Token
 	if t.listener != nil {
-		token = t.listener.OnDNSProxyQuery(t.GetAddr())
+		t.listener.OnQuery(t.GetAddr())
 	}
 
 	response, blocklists, elapsed, qerr := t.doQuery(network, q)
@@ -174,29 +172,22 @@ func (t *transport) Query(network string, q []byte) ([]byte, error) {
 	}
 
 	var err error
-	status := Complete
-	proxyStatus := http.StatusOK // ?
+	status := dnsx.Complete
 	if qerr != nil {
 		log.Warnf("dns53 err(%w) / size(%d)", qerr, len(response))
 		err = qerr
-		status = qerr.status
-		proxyStatus = 0
-
-		var perr *proxyError
-		if errors.As(qerr.err, &perr) {
-			proxyStatus = perr.status
-		}
+		status = qerr.Status()
 	}
 
 	if t.listener != nil {
-		t.listener.OnDNSProxyResponse(token, &Summary{
-			Latency:     elapsed.Seconds(),
-			Query:       q,
-			Response:    response,
-			Server:      t.GetAddr(),
-			Status:      status,
-			ProxyStatus: proxyStatus,
-			Blocklists:  blocklists,
+		t.listener.OnResponse(&dnsx.Summary{
+			Type:       dnsx.DNS53,
+			Latency:    elapsed.Seconds(),
+			Query:      q,
+			Response:   response,
+			Server:     t.GetAddr(),
+			Status:     status,
+			Blocklists: blocklists,
 		})
 	}
 	return response, err

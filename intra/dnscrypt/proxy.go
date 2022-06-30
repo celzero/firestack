@@ -37,153 +37,6 @@ import (
 	"golang.org/x/crypto/curve25519"
 )
 
-var undelegatedSet = []string{
-	"0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.ip6.arpa",
-	"0.in-addr.arpa",
-	"1",
-	"1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.ip6.arpa",
-	"10.in-addr.arpa",
-	"100.100.in-addr.arpa",
-	"100.51.198.in-addr.arpa",
-	"101.100.in-addr.arpa",
-	"102.100.in-addr.arpa",
-	"103.100.in-addr.arpa",
-	"104.100.in-addr.arpa",
-	"105.100.in-addr.arpa",
-	"106.100.in-addr.arpa",
-	"107.100.in-addr.arpa",
-	"108.100.in-addr.arpa",
-	"109.100.in-addr.arpa",
-	"110.100.in-addr.arpa",
-	"111.100.in-addr.arpa",
-	"112.100.in-addr.arpa",
-	"113.0.203.in-addr.arpa",
-	"113.100.in-addr.arpa",
-	"114.100.in-addr.arpa",
-	"115.100.in-addr.arpa",
-	"116.100.in-addr.arpa",
-	"117.100.in-addr.arpa",
-	"118.100.in-addr.arpa",
-	"119.100.in-addr.arpa",
-	"120.100.in-addr.arpa",
-	"121.100.in-addr.arpa",
-	"122.100.in-addr.arpa",
-	"123.100.in-addr.arpa",
-	"124.100.in-addr.arpa",
-	"125.100.in-addr.arpa",
-	"126.100.in-addr.arpa",
-	"127.100.in-addr.arpa",
-	"127.in-addr.arpa",
-	"16.172.in-addr.arpa",
-	"168.192.in-addr.arpa",
-	"17.172.in-addr.arpa",
-	"18.172.in-addr.arpa",
-	"19.172.in-addr.arpa",
-	"2.0.192.in-addr.arpa",
-	"20.172.in-addr.arpa",
-	"21.172.in-addr.arpa",
-	"22.172.in-addr.arpa",
-	"23.172.in-addr.arpa",
-	"24.172.in-addr.arpa",
-	"25.172.in-addr.arpa",
-	"254.169.in-addr.arpa",
-	"255.255.255.255.in-addr.arpa",
-	"26.172.in-addr.arpa",
-	"27.172.in-addr.arpa",
-	"28.172.in-addr.arpa",
-	"29.172.in-addr.arpa",
-	"30.172.in-addr.arpa",
-	"31.172.in-addr.arpa",
-	"64.100.in-addr.arpa",
-	"65.100.in-addr.arpa",
-	"66.100.in-addr.arpa",
-	"67.100.in-addr.arpa",
-	"68.100.in-addr.arpa",
-	"69.100.in-addr.arpa",
-	"70.100.in-addr.arpa",
-	"71.100.in-addr.arpa",
-	"72.100.in-addr.arpa",
-	"73.100.in-addr.arpa",
-	"74.100.in-addr.arpa",
-	"75.100.in-addr.arpa",
-	"76.100.in-addr.arpa",
-	"77.100.in-addr.arpa",
-	"78.100.in-addr.arpa",
-	"79.100.in-addr.arpa",
-	"8.b.d.0.1.0.0.2.ip6.arpa",
-	"8.e.f.ip6.arpa",
-	"80.100.in-addr.arpa",
-	"81.100.in-addr.arpa",
-	"82.100.in-addr.arpa",
-	"83.100.in-addr.arpa",
-	"84.100.in-addr.arpa",
-	"85.100.in-addr.arpa",
-	"86.100.in-addr.arpa",
-	"87.100.in-addr.arpa",
-	"88.100.in-addr.arpa",
-	"89.100.in-addr.arpa",
-	"9.e.f.ip6.arpa",
-	"90.100.in-addr.arpa",
-	"91.100.in-addr.arpa",
-	"92.100.in-addr.arpa",
-	"93.100.in-addr.arpa",
-	"94.100.in-addr.arpa",
-	"95.100.in-addr.arpa",
-	"96.100.in-addr.arpa",
-	"97.100.in-addr.arpa",
-	"98.100.in-addr.arpa",
-	"99.100.in-addr.arpa",
-	"a.e.f.ip6.arpa",
-	"airdream",
-	"api",
-	"b.e.f.ip6.arpa",
-	"bbrouter",
-	"belkin",
-	"bind",
-	"blinkap",
-	"corp",
-	"d.f.ip6.arpa",
-	"davolink",
-	"dearmyrouter",
-	"dhcp",
-	"dlink",
-	"domain",
-	"envoy",
-	"example",
-	"f.f.ip6.arpa",
-	"grp",
-	"gw==",
-	"home",
-	"hub",
-	"internal",
-	"intra",
-	"intranet",
-	"invalid",
-	"ksyun",
-	"lan",
-	"loc",
-	"local",
-	"localdomain",
-	"localhost",
-	"localnet",
-	"modem",
-	"mynet",
-	"myrouter",
-	"novalocal",
-	"onion",
-	"openstacklocal",
-	"priv",
-	"private",
-	"prv",
-	"router",
-	"telus",
-	"test",
-	"totolink",
-	"wlan_ap",
-	"workgroup",
-	"zghjccbob3n0",
-}
-
 // Controller represents an dnscrypt session.
 type Controller interface {
 	// StartProxy starts a dnscrypt proxy, returns number of live-servers and errors if any.
@@ -220,7 +73,7 @@ type Proxy struct {
 	registeredRelays             []RegisteredServer
 	routes                       []string
 	quit                         chan bool
-	listener                     Listener
+	listener                     dnsx.Listener
 	liveServers                  []string
 	sigterm                      context.CancelFunc
 	bravedns                     dnsx.BraveDNS
@@ -280,7 +133,7 @@ func (proxy *Proxy) query(q []byte, trunc bool) (r []byte, blocklists string, s 
 func (proxy *Proxy) queryServer(packet []byte, truncate bool, preferredServer *ServerInfo) (response []byte, blocklists string, serverInfo *ServerInfo, qerr error) {
 	if len(packet) < xdns.MinDNSPacketSize {
 		log.Warnf("DNS query size too short, cannot process dns-crypt query.")
-		qerr = &dnscryptError{BadQuery, fmt.Errorf("dns-crypt query size too short")}
+		qerr = dnsx.NewBadQueryError(fmt.Errorf("dns-crypt query size too short"))
 		return
 	}
 
@@ -297,7 +150,7 @@ func (proxy *Proxy) queryServer(packet []byte, truncate bool, preferredServer *S
 	blocklists = state.blocklists
 	if err != nil || saction == ActionDrop {
 		log.Errorf("ActionDrop or err on request %w", err)
-		qerr = &dnscryptError{BadQuery, err}
+		qerr = dnsx.NewBadQueryError(err)
 		return
 	}
 	if saction == ActionSynth {
@@ -307,7 +160,7 @@ func (proxy *Proxy) queryServer(packet []byte, truncate bool, preferredServer *S
 			// XXX: when the query is blocked and pack-buffer fails
 			// doh falls back to forwarding the query instead.
 			if err != nil {
-				qerr = &dnscryptError{BadResponse, err}
+				qerr = dnsx.NewBadResponseQueryError(err)
 			}
 			return
 		}
@@ -315,12 +168,12 @@ func (proxy *Proxy) queryServer(packet []byte, truncate bool, preferredServer *S
 	}
 	if len(query) < xdns.MinDNSPacketSize {
 		err = errors.New("dns query size too short, drop dns-crypt query")
-		qerr = &dnscryptError{BadQuery, err}
+		qerr = dnsx.NewBadQueryError(err)
 		return
 	}
 	if len(query) > xdns.MaxDNSPacketSize {
 		err = errors.New("dns query size too large, drop dns-crypt query")
-		qerr = &dnscryptError{BadQuery, err}
+		qerr = dnsx.NewBadQueryError(err)
 		return
 	}
 
@@ -332,7 +185,7 @@ func (proxy *Proxy) queryServer(packet []byte, truncate bool, preferredServer *S
 
 	if serverInfo == nil {
 		err = errors.New("server-info nil, drop dns-crypt query")
-		qerr = &dnscryptError{InternalError, err}
+		qerr = dnsx.NewInternalQueryError(err)
 		return
 	}
 
@@ -341,7 +194,7 @@ func (proxy *Proxy) queryServer(packet []byte, truncate bool, preferredServer *S
 
 		if err != nil {
 			log.Warnf("Encryption failure with dns-crypt query to %s.", serverInfo.String())
-			qerr = &dnscryptError{InternalError, err}
+			qerr = dnsx.NewInternalQueryError(err)
 			return
 		}
 
@@ -349,23 +202,23 @@ func (proxy *Proxy) queryServer(packet []byte, truncate bool, preferredServer *S
 
 		if err != nil {
 			log.Warnf("dns crypt query exchange with %s failed: %v", serverInfo.String(), err)
-			qerr = &dnscryptError{SendFailed, err}
+			qerr = dnsx.NewSendFailedQueryError(err)
 			return
 		}
 	} else if serverInfo.Proto == stamps.StampProtoTypeDoH {
 		// FIXME: implement
 		log.Errorf("Unsupported dns-crypt transport protocol")
-		qerr = &dnscryptError{SendFailed, fmt.Errorf("doh not supported with dns-crypt proxy")}
+		qerr = dnsx.NewSendFailedQueryError(errors.New("doh not supported with dns-crypt proxy"))
 		return
 	} else {
 		log.Errorf("Unsupported dns-crypt transport protocol")
-		qerr = &dnscryptError{Error, fmt.Errorf("dns-crypt: unknown protocol")}
+		qerr = dnsx.NewTransportQueryError(fmt.Errorf("dns-crypt: unknown protocol"))
 		return
 	}
 
 	if len(response) < xdns.MinDNSPacketSize || len(response) > xdns.MaxDNSPacketSize {
 		log.Errorf("response packet size from %s too small or too large", serverInfo.String())
-		qerr = &dnscryptError{BadResponse, fmt.Errorf("response packet size too small or too big")}
+		qerr = dnsx.NewBadResponseQueryError(errors.New("response packet size too small or too big"))
 		return
 	}
 
@@ -373,7 +226,8 @@ func (proxy *Proxy) queryServer(packet []byte, truncate bool, preferredServer *S
 
 	if err != nil {
 		log.Errorf("failed to intercept %s response %w", serverInfo.String(), err)
-		qerr = &dnscryptError{BadResponse, err}
+		qerr = dnsx.NewBadResponseQueryError(err)
+		return
 	}
 
 	if state.action == ActionSynth && state.response != nil {
@@ -382,7 +236,7 @@ func (proxy *Proxy) queryServer(packet []byte, truncate bool, preferredServer *S
 		// XXX: when the query is blocked and pack-buffer fails doh falls
 		// back to forwarding the query instead, but here we don't.
 		if err != nil {
-			qerr = &dnscryptError{BadResponse, err}
+			qerr = dnsx.NewBadResponseQueryError(err)
 		}
 		return
 	}
@@ -393,7 +247,7 @@ func (proxy *Proxy) queryServer(packet []byte, truncate bool, preferredServer *S
 // HandleUDP handles incoming udp connection speaking plain old DNS
 func HandleUDP(proxy *Proxy, data []byte) (response []byte, err error) {
 	if proxy == nil {
-		return nil, fmt.Errorf("dns-crypt proxy not set")
+		return nil, fmt.Errorf("dnscrypt proxy not set")
 	}
 
 	before := time.Now()
@@ -405,7 +259,7 @@ func HandleUDP(proxy *Proxy, data []byte) (response []byte, err error) {
 
 	if proxy.listener != nil {
 		latency := after.Sub(before)
-		status := Complete
+		status := dnsx.Complete
 
 		var resolver string
 		var relay string
@@ -416,12 +270,13 @@ func HandleUDP(proxy *Proxy, data []byte) (response []byte, err error) {
 			}
 		}
 
-		var qerr *dnscryptError
+		var qerr *dnsx.QueryError
 		if errors.As(err, &qerr) {
-			status = qerr.status
+			status = qerr.Status()
 		}
 
-		proxy.listener.OnDNSCryptResponse(&Summary{
+		proxy.listener.OnResponse(&dnsx.Summary{
+			Type:        dnsx.DNSCrypt,
 			Latency:     latency.Seconds(),
 			Query:       data,
 			Response:    response,
@@ -465,7 +320,7 @@ func HandleTCP(proxy *Proxy, conn net.Conn) {
 	defer conn.Close()
 
 	if proxy == nil {
-		log.Errorf("dns-crypt proxy not set")
+		log.Errorf("dnscrypt proxy not set")
 		return
 	}
 
@@ -478,7 +333,7 @@ func HandleTCP(proxy *Proxy, conn net.Conn) {
 
 	if proxy.listener != nil {
 		latency := after.Sub(before)
-		status := Complete
+		status := dnsx.Complete
 
 		var resolver string
 		var relay string
@@ -487,12 +342,13 @@ func HandleTCP(proxy *Proxy, conn net.Conn) {
 			relay = s.RelayTCPAddr.IP.String()
 		}
 
-		var qerr *dnscryptError
+		var qerr *dnsx.QueryError
 		if errors.As(err, &qerr) {
-			status = qerr.status
+			status = qerr.Status()
 		}
 
-		proxy.listener.OnDNSCryptResponse(&Summary{
+		proxy.listener.OnResponse(&dnsx.Summary{
+			Type:        dnsx.DNSCrypt,
 			Latency:     latency.Seconds(),
 			Query:       query,
 			Response:    response,
@@ -689,16 +545,11 @@ func (proxy *Proxy) AddServers(serverscsv string) (int, error) {
 }
 
 // NewProxy creates a dnscrypt proxy
-func NewProxy(l Listener) *Proxy {
-	suffixes := critbitgo.NewTrie()
-	for _, line := range undelegatedSet {
-		pattern := xdns.StringReverse(line)
-		suffixes.Insert([]byte(pattern), true)
-	}
+func NewProxy(l dnsx.Listener) *Proxy {
 	return &Proxy{
 		routes:                       nil,
 		registeredServers:            make(map[string]RegisteredServer),
-		undelegatedSet:               suffixes,
+		undelegatedSet:               dnsx.UndelegatedDomainsTrie(),
 		certRefreshDelay:             time.Duration(240) * time.Minute,
 		certRefreshDelayAfterFailure: time.Duration(10 * time.Second),
 		certIgnoreTimestamp:          false,
