@@ -37,6 +37,7 @@ import (
 	"github.com/celzero/firestack/intra/dnsx"
 	"github.com/celzero/firestack/intra/doh"
 	"github.com/celzero/firestack/intra/ipn"
+	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
 	"github.com/celzero/firestack/intra/settings"
 	"github.com/celzero/firestack/tunnel"
@@ -47,9 +48,7 @@ import (
 type Listener interface {
 	UDPListener
 	TCPListener
-	doh.Listener
-	dnscrypt.Listener
-	dns53.Listener
+	dnsx.Listener
 }
 
 // Tunnel represents an Intra session.
@@ -220,6 +219,8 @@ func (t *intratunnel) SetDNS(dns doh.Transport) {
 	t.tcp.SetDNS(dns)
 	dns.SetBraveDNS(bravedns)
 	dns.SetNatPt(t.natpt)
+	log.Infof("tun: DoH set to %s", dns.GetURL())
+
 }
 
 func (t *intratunnel) GetDNS() doh.Transport {
@@ -241,7 +242,6 @@ func (t *intratunnel) SetAlwaysSplitHTTPS(s bool) {
 
 func (t *intratunnel) StartDNSProxy(ip, port string, listener Listener) (err error) {
 	d, err := dns53.NewTransport(ip, port, listener)
-	d.SetNatPt(t.natpt)
 
 	if err != nil {
 		t.tcp.SetDNSProxy(nil)
@@ -250,10 +250,13 @@ func (t *intratunnel) StartDNSProxy(ip, port string, listener Listener) (err err
 		return
 	}
 
+	d.SetNatPt(t.natpt)
+
 	t.tcp.SetDNSProxy(d)
 	t.udp.SetDNSProxy(d)
 	t.dnsproxy = d
 
+	log.Infof("tun: DNSProxy set to %s:%s", ip, port)
 	return
 }
 
@@ -269,7 +272,6 @@ func (t *intratunnel) StartDNSCryptProxy(resolvers string, relays string, listen
 	}
 
 	p := dnscrypt.NewProxy(listener)
-	p.SetNatPt(t.natpt)
 
 	if _, err = p.AddServers(resolvers); err == nil {
 		if len(relays) > 0 {
@@ -281,11 +283,17 @@ func (t *intratunnel) StartDNSCryptProxy(resolvers string, relays string, listen
 		t.tcp.SetDNSCryptProxy(nil)
 		return "", err
 	}
+
+	p.SetNatPt(t.natpt)
+
 	t.udp.SetDNSCryptProxy(p)
 	t.tcp.SetDNSCryptProxy(p)
 	p.SetBraveDNS(bravedns)
 
 	t.dnscrypt = p
+
+	log.Infof("tun: DNSCrypt set to %s:%s", resolvers, relays)
+
 	return p.StartProxy()
 }
 

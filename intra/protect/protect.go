@@ -107,7 +107,7 @@ func makeControl(p Protector) func(string, string, syscall.RawConn) error {
 	}
 }
 
-// Creates a dialer that bypasses vpn ip rules.
+// Creates a dialer that binds to a particular ip.
 func MakeDialer(p Protector) *net.Dialer {
 	if p == nil {
 		return MakeDialer3()
@@ -118,7 +118,7 @@ func MakeDialer(p Protector) *net.Dialer {
 	return d
 }
 
-// Creates a listener that bypasses vpn ip rules.
+// Creates a listener that binds to a particular ip.
 func MakeListenConfig(p Protector) *net.ListenConfig {
 	if p == nil {
 		return MakeListenConfig3()
@@ -128,7 +128,7 @@ func MakeListenConfig(p Protector) *net.ListenConfig {
 	}
 }
 
-// Creates a dialer that can bind to any active interface
+// Creates a dialer that can bind to any active interface,
 func MakeDialer2(b Blocker) *net.Dialer {
 	if b == nil {
 		return MakeDialer3()
@@ -139,7 +139,7 @@ func MakeDialer2(b Blocker) *net.Dialer {
 	return d
 }
 
-// Creates a listener that can bind to any active interfaces
+// Creates a listener that can bind to any active interface.
 func MakeListenConfig2(b Blocker) *net.ListenConfig {
 	if b == nil {
 		return MakeListenConfig3()

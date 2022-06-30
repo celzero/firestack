@@ -316,7 +316,7 @@ func (h *tcpHandler) Handle(conn net.Conn, target *net.TCPAddr) error {
 		return nil
 	} else if h.pt.IsNat64(ipn.Local464Resolver, target.IP) {
 		// TODO: check if the network this process binds to has ipv4 connectivity
-		if ip4 := h.pt.X64(ipn.Local464Resolver, target.IP); len(ip4) == net.IPv4len {
+		if ip4 := h.pt.X64(ipn.Local464Resolver, target.IP); len(ip4) >= net.IPv4len {
 			log.Debugf("t.tcp.handle: local nat64 to ip4(%v) for ip6(%v)", ip4, target.IP)
 			target.IP = ip4
 		} else {

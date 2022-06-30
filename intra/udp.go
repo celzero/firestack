@@ -428,7 +428,7 @@ func (h *udpHandler) ReceiveTo(conn core.UDPConn, data []byte, addr *net.UDPAddr
 		log.Debugf("t.udp.rcv: dns-override for dstaddr(%v)", addr)
 		return nil
 	} else if h.pt.IsNat64(ipn.Local464Resolver, addr.IP) {
-		if ip4 := h.pt.X64(ipn.Local464Resolver, addr.IP); len(ip4) > 0 {
+		if ip4 := h.pt.X64(ipn.Local464Resolver, addr.IP); len(ip4) >= net.IPv4len {
 			h.Lock()
 			t.ip = addr
 			addr.IP = ip4
