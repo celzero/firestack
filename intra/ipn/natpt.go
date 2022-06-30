@@ -49,6 +49,7 @@ type NatPt interface {
 	D64(id string, ans6 []byte, f Resolver) []byte
 	IsNat64(id string, ip []byte) bool
 	X64(id string, ip []byte) []byte
+	SetNat64Prefix(ip6prefix string) bool
 	LinkIP(ipcsv string) error
 }
 
@@ -101,6 +102,15 @@ func (n *natPt) X64(id string, ip6 []byte) []byte {
 		log.Debugf("nat64: no matching prefix64 for ip(%v) in id(%s/%d)", ip6, id, len(prefixes))
 	}
 	return nil
+}
+
+func (n *natPt) SetNat64Prefix(ip6prefix string) bool {
+	if _, ipnet, err := net.ParseCIDR(ip6prefix); err == nil {
+		n.dns64.addNat64Prefix(underlayResolver, ipnet)
+	} else {
+		log.Warnf("natpt: invalid nat64 prefix: %s; err %v", ip6prefix, err)
+	}
+	return false
 }
 
 // Returns the first matching local-interface net.IP for the network

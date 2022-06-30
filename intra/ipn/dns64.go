@@ -75,8 +75,8 @@ func newDns64() *dns64 {
 }
 
 func (d *dns64) init() {
-	err1 := ofUnderlay(d)
-	err2 := ofLocal464(d)
+	err1 := d.ofUnderlay()
+	err2 := d.ofLocal464()
 	if err1 != nil || err2 != nil {
 		log.Warnf("dns64: err reg underlay(%v) / local(%v)", err1, err2)
 	}
@@ -227,7 +227,7 @@ func (d *dns64) query64(msg6 *dns.Msg, f dnsExchange) (*dns.Msg, error) {
 	return r, nil
 }
 
-func ofUnderlay(d *dns64) error {
+func (d *dns64) ofUnderlay() error {
 	ips, err := net.DefaultResolver.LookupIP(context.Background(), "ip6", Rfc7050WKN)
 	log.Infof("dns64: ipv4only.arpa w underlying network resolver")
 
@@ -243,7 +243,7 @@ func ofUnderlay(d *dns64) error {
 	return d.add(underlayResolver, ips)
 }
 
-func ofLocal464(d *dns64) error {
+func (d *dns64) ofLocal464() error {
 	d.register(Local464Resolver)
 	// send a copy of localip64 as d.add mutates its entries in-place
 	// this addr64, hopefully, isn't used by any other dns world-wide
@@ -254,19 +254,10 @@ func ofLocal464(d *dns64) error {
 }
 
 func (d *dns64) add(serverid string, nat64 []net.IP) error {
-	d.Lock()
-	defer d.Unlock()
 
 	if len(nat64) <= 0 {
 		log.Warnf("dns64: no nat64 ips for %s", serverid)
 		return errEmpty
-	}
-
-	ip64, ok1 := d.ip64[serverid]
-	uniq, ok2 := d.uniqIP64[serverid]
-	if !ok1 || !ok2 {
-		log.Warnf("dns64: no server found id(%s)", serverid)
-		return errNoSuchServer
 	}
 
 	for _, ipv6 := range nat64 {
@@ -301,18 +292,15 @@ func (d *dns64) add(serverid string, nat64 []net.IP) error {
 		// 64:ff9b:1::WKA -> 64:ff9b:1::
 		ipxx.IP = append(ipv6[:endByte], net.IPv6zero[endByte:]...)
 		ipxx.Mask = net.CIDRMask(endBit, ipv6bits)
-		_, exists := uniq[ipxx.String()]
-		if !exists {
-			ip64 = append(ip64, ipxx)
-			uniq[ipxx.String()] = emptyStruct
-			log.Infof("dns64: add ipnet [%s] for id(%s)", ipxx.String(), serverid)
-		} else {
-			log.Debugf("dns64: id(%s); prefix6(%v) for ip6(%v) exists!", serverid, ipxx, ipv6)
+
+		if err := d.addNat64Prefix(serverid, ipxx); err != nil {
+			return err
 		}
 	}
 
-	// nil / empty lists are valid values in map[string][]*net.IP
-	d.ip64[serverid] = ip64
+	d.RLock()
+	ip64 := d.ip64[serverid]
+	d.RUnlock()
 
 	if len(ip64) == 0 {
 		log.Infof("dns64: id(%s) has zero nat64 prefixes", serverid)
@@ -320,4 +308,30 @@ func (d *dns64) add(serverid string, nat64 []net.IP) error {
 	} else {
 		return nil
 	}
+}
+
+func (d *dns64) addNat64Prefix(id string, ipxx *net.IPNet) error {
+	d.Lock()
+	defer d.Unlock()
+
+	ip64, ok1 := d.ip64[id]
+	uniq, ok2 := d.uniqIP64[id]
+	if !ok1 || !ok2 {
+		log.Warnf("dns64: no server found server(%s)", id)
+		return errNoSuchServer
+	}
+
+	// ipxx.String -> 64:ff9b:1::/mask
+	_, exists := uniq[ipxx.String()]
+	if !exists {
+		ip64 = append(ip64, ipxx)
+		uniq[ipxx.String()] = emptyStruct
+		log.Infof("dns64: add ipnet [%s] for server(%s)", ipxx, id)
+	} else {
+		log.Debugf("dns64: prefix6(%v) for server(%s) exists!", id, ipxx)
+	}
+	// nil / empty lists are valid values in map[string][]*net.IP
+	d.ip64[id] = ip64
+
+	return nil
 }
