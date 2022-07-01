@@ -185,6 +185,7 @@ func (d *readVDispatcher) dispatch() (bool, tcpip.Error) {
 		// IP version information is at the first octet, so pulling up 1 byte.
 		h, ok := pkt.Data().PullUp(1)
 		if !ok {
+			log.Debugf("ns.dispatchers.dispatch: no data!")
 			return true, nil
 		}
 		switch header.IPVersion(h) {
@@ -193,12 +194,13 @@ func (d *readVDispatcher) dispatch() (bool, tcpip.Error) {
 		case header.IPv6Version:
 			p = header.IPv6ProtocolNumber
 		default:
+			log.Debugf("ns.dispatchers.dispatch: unknown proto!")
 			return true, nil
 		}
 	}
 
 	log.Debugf("ns.dispatchers.dispatch (from-tun) proto(%d) for pkt-id(%d)", p, pkt.Hash)
 
-	d.e.InjectInbound(p, pkt)
+	go d.e.InjectInbound(p, pkt)
 	return true, nil
 }

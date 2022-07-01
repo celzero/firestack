@@ -91,13 +91,13 @@ func NewUDPForwarder(s *stack.Stack, h GUDPConnHandler) *udp.Forwarder {
 				gc.gudp.SetDeadline(time.Now().Add(readDeadline))
 				if n, addr, err := gc.gudp.ReadFrom(q); err == nil {
 					// TODO: pooling bytes
-					data := append([]byte{}, q...)
+					data := append([]byte{}, q[:n]...)
 					// src(10.111.222.1:53)
 					// dst(l:10.111.222.3:17711 / r:10.111.222.1:53)
-					udpaddr := addr.(*net.UDPAddr)
+					who := addr.(*net.UDPAddr)
 					l := gc.LocalAddr()
 					r := gc.RemoteAddr()
-					log.Debugf("ns.udp.forwarder: data src(%v) => dst(l:%v / r:%v)", udpaddr, l, r)
+					log.Debugf("ns.udp.forwarder: data src(%v) => dst(l:%v / r:%v)", who, l, r)
 					if errh := h.HandleData(gc, data[:n], r); errh != nil {
 						break
 					}

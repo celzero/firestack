@@ -313,30 +313,27 @@ func (e *endpoint) WritePackets(pkts stack.PacketBufferList) (int, tcpip.Error) 
 	const batchSz = 47
 	fd := e.fds[0].fd
 	batch := make([]unix.Iovec, 0, batchSz)
-	packets := 0
+	packets, bytes := 0, 0
+	total := pkts.Len()
 	// for _, pkt := range pkts.AsSlice() {
 	for pkt := pkts.Front(); pkt != nil; pkt = pkt.Next() {
+		// truncate batch to len 0
+		batch = batch[:0]
 		views := pkt.Views()
+		numIovecs := len(views)
 		for _, v := range views {
-			batch = rawfile.AppendIovecFromBytes(batch, v, len(views))
+			batch = rawfile.AppendIovecFromBytes(batch, v, numIovecs)
 		}
+		// writes in to fd, up to len(batch) not cap(batch)
+		if err := rawfile.NonBlockingWriteIovec(fd, batch); err != nil {
+			log.Warnf("ns.e.WritePackets (to tun): err(%v), sent(%d)/total(%d)", err, packets, total)
+			return packets, err
+		}
+		bytes += numIovecs
 		packets += 1
 	}
 
-	// TODO: a single pkt.View may be spread out across two writes
-	l := len(batch)
-	for i := 0; i < l; i += e.writevMaxIovs {
-		j := i + e.writevMaxIovs
-		if j > l {
-			j = l
-		}
-		if err := rawfile.NonBlockingWriteIovec(fd, batch[i:j]); err != nil {
-			log.Errorf("ns.e.WritePackets: err(%v); wrote iovec(%d/%d) in pkts(%d)", err, i, l, packets)
-			return 0, err
-		}
-	}
-
-	log.Infof("ns.e.WritePackets (to tun): bytes(%d)/pkts(%d)", l, packets)
+	log.Infof("ns.e.WritePackets (to tun): bytes(%d)/pkts(%d)", bytes, packets)
 	return packets, nil
 }
 
@@ -359,13 +356,14 @@ func (e *endpoint) ARPHardwareType() header.ARPHardwareType {
 	return header.ARPHardwareNone
 }
 
-// Unused: InjectInbound injects an inbound packet.
+// Unused: InjectInbound ingresses a netstack-inbound packet.
 func (e *endpoint) InjectInbound(protocol tcpip.NetworkProtocolNumber, pkt *stack.PacketBuffer) {
 	log.Debugf("ns.e.inject-inbound(from-tun) %d pkt(%v)", protocol, pkt.Hash)
 	e.dispatcher.DeliverNetworkPacket(protocol, pkt)
 }
 
 // Unused: InjectOutobund implements stack.InjectableEndpoint.InjectOutbound.
+// InjectOutbound egresses a tun-inbound packet.
 func (e *endpoint) InjectOutbound(dest tcpip.Address, packet []byte) tcpip.Error {
 	log.Debugf("ns.e.inject-outbound(to-tun) to dst(%v)", dest)
 	return rawfile.NonBlockingWrite(e.fds[0].fd, packet)
