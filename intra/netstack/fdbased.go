@@ -313,28 +313,40 @@ func (e *endpoint) WritePackets(pkts stack.PacketBufferList) (int, tcpip.Error) 
 	const batchSz = 47
 	fd := e.fds[0].fd
 	batch := make([]unix.Iovec, 0, batchSz)
-	packets, bytes := 0, 0
+	packets, written := 0, 0
 	total := pkts.Len()
 	// for _, pkt := range pkts.AsSlice() {
 	for pkt := pkts.Front(); pkt != nil; pkt = pkt.Next() {
-		// truncate batch to len 0
-		batch = batch[:0]
 		views := pkt.Views()
 		numIovecs := len(views)
+		if len(batch)+numIovecs > rawfile.MaxIovs {
+			// writes in to fd, up to len(batch) not cap(batch)
+			if err := rawfile.NonBlockingWriteIovec(fd, batch); err != nil {
+				log.Warnf("ns.e.WritePackets (to tun): err(%v), sent(%d)/total(%d)", err, written, total)
+				return written, err
+			}
+			// mark processed packets as written
+			written += packets
+			// truncate batch
+			batch = batch[:0]
+			// reset processed packets count
+			packets = 0
+		}
 		for _, v := range views {
-			batch = rawfile.AppendIovecFromBytes(batch, v, numIovecs)
+			batch = rawfile.AppendIovecFromBytes(batch, v, rawfile.MaxIovs)
 		}
-		// writes in to fd, up to len(batch) not cap(batch)
-		if err := rawfile.NonBlockingWriteIovec(fd, batch); err != nil {
-			log.Warnf("ns.e.WritePackets (to tun): err(%v), sent(%d)/total(%d)", err, packets, total)
-			return packets, err
-		}
-		bytes += numIovecs
 		packets += 1
 	}
+	if len(batch) > 0 {
+		if err := rawfile.NonBlockingWriteIovec(fd, batch); err != nil {
+			log.Warnf("ns.e.WritePackets (to tun): err(%v), sent(%d)/total(%d)", err, packets, total)
+			return written, err
+		}
+		written += packets
+	}
 
-	log.Infof("ns.e.WritePackets (to tun): bytes(%d)/pkts(%d)", bytes, packets)
-	return packets, nil
+	log.Infof("ns.e.WritePackets (to tun): written(%d)/total(%d)", written, total)
+	return written, nil
 }
 
 // dispatchLoop reads packets from the file descriptor in a loop and dispatches

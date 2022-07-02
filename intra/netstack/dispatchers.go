@@ -169,7 +169,6 @@ func (d *readVDispatcher) dispatch() (bool, tcpip.Error) {
 	pkt := stack.NewPacketBuffer(stack.PacketBufferOptions{
 		Data: d.buf.pullViews(n),
 	})
-	defer pkt.DecRef()
 
 	var p tcpip.NetworkProtocolNumber
 	// hdrSize always zero; unused
@@ -201,6 +200,9 @@ func (d *readVDispatcher) dispatch() (bool, tcpip.Error) {
 
 	log.Debugf("ns.dispatchers.dispatch (from-tun) proto(%d) for pkt-id(%d)", p, pkt.Hash)
 
-	go d.e.InjectInbound(p, pkt)
+	go func() {
+		d.e.InjectInbound(p, pkt)
+		pkt.DecRef()
+	}()
 	return true, nil
 }
