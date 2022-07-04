@@ -175,6 +175,7 @@ func (d *readVDispatcher) dispatch() (bool, tcpip.Error) {
 	if d.e.hdrSize > 0 {
 		hdr, ok := pkt.LinkHeader().Consume(d.e.hdrSize)
 		if !ok {
+			pkt.DecRef()
 			return false, nil
 		}
 		p = header.Ethernet(hdr).Type()
@@ -185,6 +186,7 @@ func (d *readVDispatcher) dispatch() (bool, tcpip.Error) {
 		h, ok := pkt.Data().PullUp(1)
 		if !ok {
 			log.Debugf("ns.dispatchers.dispatch: no data!")
+			pkt.DecRef()
 			return true, nil
 		}
 		switch header.IPVersion(h) {
@@ -194,6 +196,7 @@ func (d *readVDispatcher) dispatch() (bool, tcpip.Error) {
 			p = header.IPv6ProtocolNumber
 		default:
 			log.Debugf("ns.dispatchers.dispatch: unknown proto!")
+			pkt.DecRef()
 			return true, nil
 		}
 	}
