@@ -19,6 +19,7 @@ import (
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/settings"
 	"github.com/celzero/firestack/intra/xdns"
+	"github.com/k-sone/critbitgo"
 	"github.com/miekg/dns"
 )
 
@@ -80,16 +81,30 @@ type Resolver interface {
 type resolver struct {
 	sync.RWMutex
 	Resolver
-	tunmode    *settings.TunMode
-	tcpaddrs   []*net.TCPAddr
-	udpaddrs   []*net.UDPAddr
-	systemdns  []Transport
-	transports map[string]Transport
-	pool       map[string]*oneTransport
-	rdnsl      BraveDNS
-	rdnsr      BraveDNS
-	natpt      ipn.DNS64
-	listener   Listener
+	tunmode      *settings.TunMode
+	tcpaddrs     []*net.TCPAddr
+	udpaddrs     []*net.UDPAddr
+	systemdns    []Transport
+	transports   map[string]Transport
+	pool         map[string]*oneTransport
+	localdomains *critbitgo.Trie
+	rdnsl        BraveDNS
+	rdnsr        BraveDNS
+	natpt        ipn.DNS64
+	listener     Listener
+}
+
+func NewResolver(fakeaddrs string, tunmode *settings.TunMode, defaultdns Transport, l Listener, pt ipn.DNS64) Resolver {
+	r := &resolver{
+		listener:     l,
+		natpt:        pt,
+		transports:   make(map[string]Transport),
+		tunmode:      tunmode,
+		localdomains: UndelegatedDomainsTrie(),
+	}
+	r.Add(defaultdns)
+	r.loadaddrs(fakeaddrs)
+	return r
 }
 
 type oneTransport struct {
@@ -226,7 +241,14 @@ func (r *resolver) Forward(q []byte) ([]byte, error) {
 		return b, e
 	}
 
-	id := r.listener.OnQuery(qname(msg))
+	qname := qname(msg)
+	id := r.requiresSystem(qname)
+	if len(id) <= 0 {
+		id = r.listener.OnQuery(qname)
+	} else {
+		log.Infof("transport (udp): using system-dns %s for %s", id, qname)
+	}
+
 	r.RLock()
 	var t Transport
 	t, ok := r.transports[id]
@@ -279,18 +301,6 @@ func (r *resolver) Serve(x Conn) {
 	}
 }
 
-func NewResolver(fakeaddrs string, tunmode *settings.TunMode, defaultdns Transport, l Listener, pt ipn.DNS64) Resolver {
-	r := &resolver{
-		listener:   l,
-		natpt:      pt,
-		transports: make(map[string]Transport),
-		tunmode:    tunmode,
-	}
-	r.Add(defaultdns)
-	r.loadaddrs(fakeaddrs)
-	return r
-}
-
 // Perform a query using the transport, and send the response to the writer.
 func (r *resolver) forwardQuery(q []byte, c io.Writer) error {
 	starttime := time.Now()
@@ -321,7 +331,14 @@ func (r *resolver) forwardQuery(q []byte, c io.Writer) error {
 		return e
 	}
 
-	id := r.listener.OnQuery(qname(msg))
+	qname := qname(msg)
+	id := r.requiresSystem(qname)
+	if len(id) <= 0 {
+		id = r.listener.OnQuery(qname)
+	} else {
+		log.Infof("transport (tcp): using system-dns %s for %s", id, qname)
+	}
+
 	r.RLock()
 	var t Transport
 	t, ok := r.transports[id]

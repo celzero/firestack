@@ -166,3 +166,14 @@ func UndelegatedDomainsTrie() *critbitgo.Trie {
 	}
 	return t
 }
+
+func (r *resolver) requiresSystem(qname string) (id string) {
+	rev := xdns.StringReverse(qname)
+	match, _, ok := r.localdomains.LongestPrefix([]byte(rev))
+	// full match (ipvonly.arpa), or match upto a tld (.arpa)
+	if ok && (len(match) == len(rev) || rev[len(match)] == '.') {
+		return System
+	} else {
+		return ""
+	}
+}

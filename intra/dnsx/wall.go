@@ -63,7 +63,7 @@ func (r *resolver) blockRes(q *dns.Msg, ans *dns.Msg, blocklistStamp string) (fi
 	if len(blocklistStamp) > 0 && br != nil {
 		blocklistNames, err = br.StampToNames(blocklistStamp)
 		if err != nil {
-			log.Errorf("could not resolve blocklist-stamp %v", err)
+			log.Errorf("could not resolve blocklist-stamp(%s), err: %v", blocklistStamp, err)
 			return
 		}
 		log.Debugf(blocklistNames)
