@@ -12,6 +12,11 @@ import (
 	"github.com/celzero/firestack/intra/log"
 )
 
+type NAT64 interface {
+	IsNat64(id string, ip []byte) bool
+	X64(id string, ip []byte) []byte
+}
+
 type nat64 struct {
 }
 

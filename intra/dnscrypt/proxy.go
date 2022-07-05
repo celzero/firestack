@@ -27,7 +27,6 @@ import (
 	"time"
 
 	"github.com/celzero/firestack/intra/dnsx"
-	"github.com/celzero/firestack/intra/ipn"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/xdns"
 
@@ -44,7 +43,7 @@ type Controller interface {
 	// StopProxy stops the dnscrypt proxy
 	StopProxy() error
 	// Refresh registers servers.
-	Refresh() (int, error)
+	Refresh() (string, error)
 	// AddServers adds new dns-crypt resolvers given csv-separated list of "unqiue-id#dns-stamp"
 	AddServers(string) (int, error)
 	// RemoveServers removes existing dns-crypt resolvers given csv-separated list of "unqiue-id"s
@@ -58,6 +57,7 @@ type Controller interface {
 }
 
 type Proxy struct {
+	dnsx.Transport
 	Controller
 	sync.RWMutex
 	undelegatedSet               *critbitgo.Trie
@@ -70,14 +70,9 @@ type Proxy struct {
 	certIgnoreTimestamp          bool
 	mainProto                    string
 	registeredServers            map[string]RegisteredServer
-	registeredRelays             []RegisteredServer
 	routes                       []string
-	quit                         chan bool
-	listener                     dnsx.Listener
 	liveServers                  []string
 	sigterm                      context.CancelFunc
-	bravedns                     dnsx.BraveDNS
-	natpt                        ipn.NatPt
 }
 
 func (proxy *Proxy) exchangeWithTCPServer(serverInfo *ServerInfo, sharedKey *[32]byte, encryptedQuery []byte, clientNonce []byte) ([]byte, error) {
@@ -126,18 +121,18 @@ func (proxy *Proxy) prepareForRelay(ip net.IP, port int, encryptedQuery *[]byte)
 	*encryptedQuery = relayedQuery
 }
 
-func (proxy *Proxy) query(q []byte, trunc bool) (r []byte, blocklists string, s *ServerInfo, qerr error) {
+func (proxy *Proxy) query(q []byte, trunc bool) (r []byte, s *ServerInfo, qerr error) {
 	return proxy.queryServer(q, trunc, nil)
 }
 
-func (proxy *Proxy) queryServer(packet []byte, truncate bool, preferredServer *ServerInfo) (response []byte, blocklists string, serverInfo *ServerInfo, qerr error) {
+func (proxy *Proxy) queryServer(packet []byte, truncate bool, preferredServer *ServerInfo) (response []byte, serverInfo *ServerInfo, qerr error) {
 	if len(packet) < xdns.MinDNSPacketSize {
 		log.Warnf("DNS query size too short, cannot process dns-crypt query.")
 		qerr = dnsx.NewBadQueryError(fmt.Errorf("dns-crypt query size too short"))
 		return
 	}
 
-	intercept := NewIntercept(proxy.undelegatedSet, proxy.bravedns)
+	intercept := NewIntercept(proxy.undelegatedSet)
 	// serverName := "-"
 	// needsEDNS0Padding = (serverInfo.Proto == stamps.StampProtoTypeDoH || serverInfo.Proto == stamps.StampProtoTypeTLS)
 	needsEDNS0Padding := false
@@ -147,7 +142,6 @@ func (proxy *Proxy) queryServer(packet []byte, truncate bool, preferredServer *S
 
 	saction := state.action
 	sr := state.response
-	blocklists = state.blocklists
 	if err != nil || saction == ActionDrop {
 		log.Errorf("ActionDrop or err on request %w", err)
 		qerr = dnsx.NewBadQueryError(err)
@@ -231,7 +225,6 @@ func (proxy *Proxy) queryServer(packet []byte, truncate bool, preferredServer *S
 	}
 
 	if state.action == ActionSynth && state.response != nil {
-		blocklists = state.blocklists // refresh blocklists
 		response, err = state.response.PackBuffer(response)
 		// XXX: when the query is blocked and pack-buffer fails doh falls
 		// back to forwarding the query instead, but here we don't.
@@ -244,154 +237,37 @@ func (proxy *Proxy) queryServer(packet []byte, truncate bool, preferredServer *S
 	return
 }
 
-// HandleUDP handles incoming udp connection speaking plain old DNS
-func HandleUDP(proxy *Proxy, data []byte) (response []byte, err error) {
-	if proxy == nil {
-		return nil, fmt.Errorf("dnscrypt proxy not set")
-	}
-
+// resolve resolves incoming DNS query, data
+func (proxy *Proxy) resolve(data []byte, s *dnsx.Summary, trunc bool) (response []byte, err error) {
 	before := time.Now()
-	response, b, s, err := proxy.query(data, true)
+	response, serverinfo, err := proxy.query(data, trunc)
 	after := time.Now()
-	if len(b) <= 0 && err == nil && proxy.natpt != nil {
-		response = proxy.natpt.D64(s.Name, response, proxy.ExchangeWith(s))
+
+	latency := after.Sub(before)
+	status := dnsx.Complete
+
+	var resolver string
+	var relay string
+	if serverinfo != nil {
+		resolver = serverinfo.TCPAddr.IP.String()
+		if serverinfo.RelayTCPAddr != nil {
+			relay = serverinfo.RelayTCPAddr.IP.String()
+		}
 	}
 
-	if proxy.listener != nil {
-		latency := after.Sub(before)
-		status := dnsx.Complete
-
-		var resolver string
-		var relay string
-		if s != nil {
-			resolver = s.TCPAddr.IP.String()
-			if s.RelayTCPAddr != nil {
-				relay = s.RelayTCPAddr.IP.String()
-			}
-		}
-
-		var qerr *dnsx.QueryError
-		if errors.As(err, &qerr) {
-			status = qerr.Status()
-		}
-
-		proxy.listener.OnResponse(&dnsx.Summary{
-			Type:        dnsx.DNSCrypt,
-			Latency:     latency.Seconds(),
-			Query:       data,
-			Response:    response,
-			Server:      resolver,
-			RelayServer: relay,
-			Status:      status,
-			Blocklists:  b,
-		})
+	var qerr *dnsx.QueryError
+	if errors.As(err, &qerr) {
+		status = qerr.Status()
 	}
+
+	s.Latency = latency.Seconds()
+	s.Query = data
+	s.Response = response
+	s.Server = resolver
+	s.RelayServer = relay
+	s.Status = status
 
 	return response, err
-}
-
-func (proxy *Proxy) forward(conn net.Conn) (q []byte, response []byte, blocklists string, serverInfo *ServerInfo, err error) {
-
-	// Unlike Intra's handling of DoH (?), DNSCrypt strictly closes
-	// connection after a single read-response cycle.
-	if err = conn.SetDeadline(time.Now().Add(proxy.timeout)); err != nil {
-		q, err = xdns.ReadPrefixed(&conn)
-	}
-	if err != nil {
-		log.Errorf("could not read dns query %v", err)
-		return
-	}
-
-	response, blocklists, serverInfo, err = proxy.query(q, false)
-
-	if err != nil {
-		log.Errorf("failed forwarding dnscrypt query %w", err)
-		return
-	}
-	response, err = xdns.PrefixWithSize(response)
-	if err != nil {
-		log.Errorf("failed reading answer for dnscrypt query %w", err)
-	}
-	return
-}
-
-// HandleTCP handles incoming tcp connection speaking plain old DNS
-func HandleTCP(proxy *Proxy, conn net.Conn) {
-	defer conn.Close()
-
-	if proxy == nil {
-		log.Errorf("dnscrypt proxy not set")
-		return
-	}
-
-	before := time.Now()
-	query, response, b, s, err := proxy.forward(conn)
-	after := time.Now()
-	if len(b) <= 0 && err == nil && proxy.natpt != nil {
-		response = proxy.natpt.D64(s.Name, response, proxy.ExchangeWith(s))
-	}
-
-	if proxy.listener != nil {
-		latency := after.Sub(before)
-		status := dnsx.Complete
-
-		var resolver string
-		var relay string
-		if s != nil {
-			resolver = s.TCPAddr.IP.String()
-			relay = s.RelayTCPAddr.IP.String()
-		}
-
-		var qerr *dnsx.QueryError
-		if errors.As(err, &qerr) {
-			status = qerr.Status()
-		}
-
-		proxy.listener.OnResponse(&dnsx.Summary{
-			Type:        dnsx.DNSCrypt,
-			Latency:     latency.Seconds(),
-			Query:       query,
-			Response:    response,
-			Server:      resolver,
-			RelayServer: relay,
-			Status:      status,
-			Blocklists:  b,
-		})
-	}
-
-	/*number of byte, err*/
-	_, err = conn.Write(response)
-	if err != nil {
-		log.Errorf("failed writing dns response: %w", err)
-	}
-}
-
-func (p *Proxy) SetBraveDNS(b dnsx.BraveDNS) {
-	p.bravedns = b
-}
-
-func (proxy *Proxy) SetNatPt(pt ipn.NatPt) {
-	proxy.natpt = pt
-	// TODO: pt.AddResolver(t.url, t.Query)
-}
-
-type OneServerProxy struct {
-	server *ServerInfo
-	inner  *Proxy
-}
-
-// Implements ipn.DnsExchange
-func (sp *OneServerProxy) Exchange(x []byte) (r []byte, err error) {
-	// TODO: support truncation
-	r, _, _, err = sp.inner.queryServer(x, false, sp.server)
-	return
-}
-
-func (proxy *Proxy) ExchangeWith(s *ServerInfo) ipn.Resolver {
-	return &OneServerProxy{
-		server: s,
-		inner:  proxy,
-	}
 }
 
 // LiveServers returns csv of dnscrypt server-names currently in-use
@@ -537,15 +413,29 @@ func (proxy *Proxy) AddServers(serverscsv string) (int, error) {
 		}
 		if stamp.Proto == stamps.StampProtoTypeDoH {
 			// TODO: Implement doh
-			return i, fmt.Errorf("DoH with DNSCrypt client not supported", serverStamp)
+			return i, fmt.Errorf("DoH with DNSCrypt client not supported %s", serverStamp)
 		}
 		proxy.registeredServers[serverStamp[0]] = RegisteredServer{name: serverStamp[0], stamp: stamp}
 	}
 	return len(servers), nil
 }
 
+func (p *Proxy) Type() string {
+	return dnsx.DNSCrypt
+}
+
+func (p *Proxy) Query(network string, q []byte, summary *dnsx.Summary) (r []byte, err error) {
+	cantruncate := network == dnsx.NetTypeUDP
+	return p.resolve(q, summary, cantruncate)
+}
+
+func (p *Proxy) GetAddr() string {
+	// TODO: stub
+	return ""
+}
+
 // NewProxy creates a dnscrypt proxy
-func NewProxy(l dnsx.Listener) *Proxy {
+func NewProxy() *Proxy {
 	return &Proxy{
 		routes:                       nil,
 		registeredServers:            make(map[string]RegisteredServer),
@@ -557,6 +447,5 @@ func NewProxy(l dnsx.Listener) *Proxy {
 		mainProto:                    "tcp",
 		serversInfo:                  NewServersInfo(),
 		liveServers:                  nil,
-		listener:                     l,
 	}
 }

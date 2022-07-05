@@ -17,6 +17,7 @@ package xdns
 import (
 	"errors"
 	"net"
+	"net/http"
 	"strings"
 	"unicode/utf8"
 
@@ -367,4 +368,27 @@ func AQuadAUnspecified(msg *dns.Msg) bool {
 		}
 	}
 	return false
+}
+
+// Servfail returns a SERVFAIL response to the query q.
+func Servfail(q []byte) []byte {
+	msg := &dns.Msg{}
+	if err := msg.Unpack(q); err != nil {
+		log.Warnf("Error reading q for servfail: %v", err)
+		return nil
+	}
+	msg.Response = true
+	msg.RecursionAvailable = true
+	msg.Rcode = dns.RcodeServerFailure
+	msg.Extra = nil
+	b, err := msg.Pack()
+	if err != nil {
+		log.Warnf("Error constructing servfail: %v", err)
+	}
+	return b
+}
+
+// GetBlocklistStampHeaderKey returns the http-header key for blocklists stamp
+func GetBlocklistStampHeaderKey() string {
+	return http.CanonicalHeaderKey(blocklistHeaderKey)
 }

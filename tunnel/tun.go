@@ -27,7 +27,6 @@ import (
 	"os"
 
 	"github.com/celzero/firestack/intra/log"
-	"github.com/celzero/firestack/intra/settings"
 	"golang.org/x/sys/unix"
 )
 
@@ -71,7 +70,7 @@ func MakeTunFile(fd int) (*os.File, error) {
 
 // ProcessInputPackets reads packets from a TUN device `tun` and writes them to `tunnel`.
 func ProcessInputPackets(tunnel Tunnel, tun *os.File) {
-	buffer := make([]byte, settings.VpnMtu)
+	buffer := make([]byte, tunnel.Mtu())
 	for tunnel.IsConnected() {
 		len, err := tun.Read(buffer)
 		if err != nil {

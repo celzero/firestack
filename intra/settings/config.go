@@ -6,6 +6,7 @@
 package settings
 
 import (
+	"errors"
 	"net/netip"
 	"strconv"
 	"strings"
@@ -16,7 +17,7 @@ import (
 
 // TODO: These modes could be covered by bit-flags instead.
 
-// DNSModeNone does no redirects of DNS queries sent to the tunnel.
+// DNSModeNone does not redirect DNS queries sent to the tunnel.
 const DNSModeNone = 0
 
 // DNSModeIP redirects DNS requests sent to the IP endpoint set by VPN.
@@ -24,18 +25,6 @@ const DNSModeIP int = 1
 
 // DNSModePort redirects all DNS requests on port 53.
 const DNSModePort int = 2
-
-// DNSModeCryptIP redirects DNS requests sent to the IP endpoint set by VPN to DNSCrypt
-const DNSModeCryptIP int = 3
-
-// DNSModeCryptPort redirects all DNS requests on port 53 to DNSCrypt.
-const DNSModeCryptPort int = 4
-
-// DNSModeProxyIP redirects DNS requests sent to the IP endpoint set by VPN to a DNS Proxy.
-const DNSModeProxyIP int = 5
-
-// DNSModeProxyPort redirects all DNS requests on port 53 to a DNS proxy.
-const DNSModeProxyPort int = 6
 
 // BlockModeNone filters no packet.
 const BlockModeNone int = 0
@@ -78,7 +67,6 @@ const IP4 = "4"
 const IP46 = "46"
 const IP6 = "6"
 
-const VpnMtu = 1500
 const NICID = 0x01
 
 func L3(w int) string {
@@ -174,6 +162,15 @@ func NewDNSOptions(ip string, port string) (*DNSOptions, error) {
 	}
 	log.Warnf("dnsopt(%s:%s); err(%v)", ip, port, err)
 	return nil, err
+}
+
+func NewDNSOptionsFromNetIp(ipp netip.AddrPort) (*DNSOptions, error) {
+	if !ipp.IsValid() {
+		return nil, errors.New("dnsopt: empty ipport")
+	}
+	return &DNSOptions{
+		IPPort: ipp.String(),
+	}, nil
 }
 
 // NewAuthProxyOptions returns a new ProxyOptions object with authentication object.

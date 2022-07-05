@@ -26,7 +26,7 @@ type GTCPConnHandler interface {
 	OnNewConn(conn *GTCPConn, src, dst *net.TCPAddr)
 }
 
-func setupTcpHandler(s *stack.Stack, h GTCPConnHandler) {
+func setupTcpHandler(s *stack.Stack, _ stack.LinkEndpoint, h GTCPConnHandler) {
 	s.SetTransportProtocolHandler(tcp.ProtocolNumber, NewTCPForwarder(s, h).HandlePacket)
 }
 

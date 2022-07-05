@@ -33,12 +33,10 @@ import (
 
 	"golang.org/x/net/proxy"
 
-	"github.com/celzero/firestack/intra/dns53"
+	"github.com/celzero/firestack/intra/dnsx"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/eycorsican/go-tun2socks/core"
 
-	"github.com/celzero/firestack/intra/dnscrypt"
-	"github.com/celzero/firestack/intra/doh"
 	"github.com/celzero/firestack/intra/ipn"
 	"github.com/celzero/firestack/intra/netstack"
 	"github.com/celzero/firestack/intra/protect"
@@ -51,26 +49,20 @@ type TCPHandler interface {
 	core.TCPConnHandler
 	netstack.GTCPConnHandler
 
-	SetDNS(doh.Transport)
 	SetAlwaysSplitHTTPS(bool)
-	blockConn(localConn net.Conn, target *net.TCPAddr) bool
+	blockConn(localConn *net.TCPAddr, target *net.TCPAddr) bool
 	dnsOverride(net.Conn, *net.TCPAddr) bool
-	SetDNSCryptProxy(*dnscrypt.Proxy)
-	SetDNSProxy(dns53.Transport)
 	SetProxyOptions(*settings.ProxyOptions) error
 }
 
 type tcpHandler struct {
 	TCPHandler
-	fakedns          []*net.TCPAddr
-	dns              doh.Atomic
+	resolver         dnsx.Resolver
 	alwaysSplitHTTPS bool
 	dialer           *net.Dialer
 	blocker          protect.Blocker
 	tunMode          *settings.TunMode
 	listener         TCPListener
-	dnscrypt         *dnscrypt.Proxy
-	dnsproxy         dns53.Transport
 	proxy            proxy.Dialer
 	pt               ipn.NatPt
 }
@@ -95,11 +87,11 @@ type TCPListener interface {
 // Connections to `fakedns` are redirected to DOH.
 // All other traffic is forwarded using `dialer`.
 // `listener` is provided with a summary of each socket when it is closed.
-func NewTCPHandler(fakedns []*net.TCPAddr, pt ipn.NatPt, blocker protect.Blocker,
+func NewTCPHandler(resolver dnsx.Resolver, pt ipn.NatPt, blocker protect.Blocker,
 	tunMode *settings.TunMode, listener TCPListener) TCPHandler {
 	d := protect.MakeDialer2(blocker)
 	h := &tcpHandler{
-		fakedns:  fakedns,
+		resolver: resolver,
 		dialer:   d,
 		blocker:  blocker,
 		tunMode:  tunMode,
@@ -170,94 +162,17 @@ func filteredPort(addr net.Addr) int16 {
 	return -1
 }
 
-func (h *tcpHandler) isFakeDnsIpPort(addr *net.TCPAddr) bool {
-	if addr == nil || len(h.fakedns) <= 0 {
-		log.Errorf("nil dst-addr(%v) or dns(%v)", addr, h.fakedns)
-		return false
-	}
-	for _, dnsaddr := range h.fakedns {
-		if addr.IP.Equal(dnsaddr.IP) && addr.Port == dnsaddr.Port {
-			return true
-		}
-	}
-	return false
-}
-
-func (h *tcpHandler) isFakeDnsPort(addr *net.TCPAddr) bool {
-	if addr == nil || len(h.fakedns) <= 0 {
-		log.Errorf("nil dst-addr(%v) or dns(%v)", addr, h.fakedns)
-		return false
-	}
-	// isn't h.fakedns.Port always expected to be 53?
-	for _, dnsaddr := range h.fakedns {
-		if addr.Port == dnsaddr.Port {
-			return true
-		}
-	}
-	return false
-}
-
-func (h *tcpHandler) isDNSProxy(addr *net.TCPAddr) bool {
-	if h.tunMode.DNSMode == settings.DNSModeProxyIP {
-		if yes := h.isFakeDnsIpPort(addr); yes {
-			return true
-		}
-	} else if h.tunMode.DNSMode == settings.DNSModeProxyPort {
-		if yes := h.isFakeDnsPort(addr); yes {
-			return true
-		}
-	}
-	return false
-}
-
-func (h *tcpHandler) isDoh(addr *net.TCPAddr) bool {
-	if h.tunMode.DNSMode == settings.DNSModeIP {
-		if yes := h.isFakeDnsIpPort(addr); yes {
-			return true
-		}
-	} else if h.tunMode.DNSMode == settings.DNSModePort {
-		if yes := h.isFakeDnsPort(addr); yes {
-			return true
-		}
-	}
-	return false
-}
-
-func (h *tcpHandler) isDNSCrypt(addr *net.TCPAddr) bool {
-	if h.tunMode.DNSMode == settings.DNSModeCryptIP {
-		if yes := h.isFakeDnsIpPort(addr); yes {
-			return true
-		}
-	} else if h.tunMode.DNSMode == settings.DNSModeCryptPort {
-		if yes := h.isFakeDnsPort(addr); yes {
-			return true
-		}
-	}
-	return false
-}
-
 func (h *tcpHandler) dnsOverride(conn net.Conn, addr *net.TCPAddr) bool {
-	if h.isDoh(addr) {
-		if dns := h.dns.Load(); dns != nil {
-			go doh.Accept(dns, conn)
-			return true
-		}
-	} else if h.isDNSCrypt(addr) {
-		if dns := h.dnscrypt; dns != nil {
-			go dnscrypt.HandleTCP(dns, conn)
-			return true
-		}
-	} else if h.isDNSProxy(addr) {
-		if dns := h.dnsproxy; dns != nil {
-			go dns53.Accept(dns, conn)
-			return true
-		}
+	// addr with zone information removed; see: netip.ParseAddrPort which h.resolver relies on
+	addr2 := &net.TCPAddr{IP: addr.IP, Port: addr.Port}
+	if h.resolver.IsDnsAddr(dnsx.NetTypeTCP, addr2.String()) {
+		h.resolver.Serve(conn)
+		return true
 	}
-	// assert h.tunMode.DNSMode == settings.DNSModeNone
 	return false
 }
 
-func (h *tcpHandler) blockConn(localConn net.Conn, target *net.TCPAddr) (block bool) {
+func (h *tcpHandler) blockConn(localaddr *net.TCPAddr, target *net.TCPAddr) (block bool) {
 	// BlockModeNone returns false, BlockModeSink returns true
 	if h.tunMode.BlockMode == settings.BlockModeSink {
 		return true
@@ -265,9 +180,6 @@ func (h *tcpHandler) blockConn(localConn net.Conn, target *net.TCPAddr) (block b
 		return false
 	}
 	// Implict: BlockModeFilter or BlockModeFilterProc
-	localtcp := localConn.(core.TCPConn)
-	localaddr := localtcp.LocalAddr().(*net.TCPAddr)
-
 	uid := -1
 	if h.tunMode.BlockMode == settings.BlockModeFilterProc {
 		procEntry := settings.FindProcNetEntry("tcp", localaddr.IP, localaddr.Port, target.IP, target.Port)
@@ -307,7 +219,16 @@ func (h *tcpHandler) OnNewConn(conn *netstack.GTCPConn, _, dst *net.TCPAddr) {
 
 // TODO: Request upstream to make `conn` a `core.TCPConn` so we can avoid a type assertion.
 func (h *tcpHandler) Handle(conn net.Conn, target *net.TCPAddr) error {
-	if h.blockConn(conn, target) {
+	localtcp, ok1 := conn.(core.TCPConn)
+	if !ok1 {
+		return fmt.Errorf("t.tcp Handle: non-tcp-conn(%v)", conn)
+	}
+	localaddr, ok2 := localtcp.LocalAddr().(*net.TCPAddr)
+	if !ok2 {
+		return fmt.Errorf("t.tcp Handle: non-tcp-addr(%v)", localtcp.LocalAddr())
+	}
+
+	if h.blockConn(localaddr, target) {
 		// an error here results in a core.tcpConn.Abort
 		return fmt.Errorf("tcp connection firewalled")
 	}
@@ -366,20 +287,8 @@ func (h *tcpHandler) Handle(conn net.Conn, target *net.TCPAddr) error {
 	return nil
 }
 
-func (h *tcpHandler) SetDNS(dns doh.Transport) {
-	h.dns.Store(dns)
-}
-
 func (h *tcpHandler) SetAlwaysSplitHTTPS(s bool) {
 	h.alwaysSplitHTTPS = s
-}
-
-func (h *tcpHandler) SetDNSCryptProxy(dcrypt *dnscrypt.Proxy) {
-	h.dnscrypt = dcrypt
-}
-
-func (h *tcpHandler) SetDNSProxy(d dns53.Transport) {
-	h.dnsproxy = d
 }
 
 func (h *tcpHandler) SetProxyOptions(po *settings.ProxyOptions) error {

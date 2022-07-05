@@ -31,7 +31,8 @@ const (
 )
 
 const (
-	ClientMagicLen = 8
+	ClientMagicLen     = 8
+	blocklistHeaderKey = "x-nile-flags" // "x-bl-fl"
 )
 
 var (
@@ -42,6 +43,7 @@ var (
 	MaxDNSUDPPacketSize     = 4096
 	MaxDNSUDPSafePacketSize = 1252
 	BlockTTL                = uint32(5)
+	MaxMTU                  = 0xffff // 65k, ought to be enough for everybody
 )
 
 var (
@@ -49,40 +51,20 @@ var (
 	ip6 = net.ParseIP("::")
 )
 
+var (
+	errMassivePkt     = errors.New("packet too large")
+	errRdnsUrlMissing = errors.New("url missing")
+)
+
 func PrefixWithSize(packet []byte) ([]byte, error) {
 	packetLen := len(packet)
-	if packetLen > 0xffff {
-		return packet, errors.New("Packet too large")
+	if packetLen > MaxMTU {
+		return packet, errMassivePkt
 	}
 	packet = append(append(packet, 0), 0)
 	copy(packet[2:], packet[:len(packet)-2])
 	binary.BigEndian.PutUint16(packet[0:2], uint16(len(packet)-2))
 	return packet, nil
-}
-
-// TODO: merge this with doh.Accept
-func ReadPrefixed(conn *net.Conn) ([]byte, error) {
-	buf := make([]byte, 2+MaxDNSPacketSize)
-	packetLength, pos := -1, 0
-	for {
-		readnb, err := (*conn).Read(buf[pos:])
-		if err != nil {
-			return buf, err
-		}
-		pos += readnb
-		if pos >= 2 && packetLength < 0 {
-			packetLength = int(binary.BigEndian.Uint16(buf[0:2]))
-			if packetLength > MaxDNSPacketSize-1 {
-				return buf, errors.New("dns crypt resp packet too large")
-			}
-			if packetLength < MinDNSPacketSize {
-				return buf, errors.New("dns crypt resp packet too short")
-			}
-		}
-		if packetLength >= 0 && pos >= 2+packetLength {
-			return buf[2 : 2+packetLength], nil
-		}
-	}
 }
 
 func Min(a, b int) int {
@@ -155,12 +137,37 @@ func RemoveOverlap(s []string, r []string) []string {
 	return s[:j]
 }
 
+// TODO: merge this with doh.Accept
+func ReadPrefixed(conn *net.Conn) ([]byte, error) {
+	buf := make([]byte, 2+MaxDNSPacketSize)
+	packetLength, pos := -1, 0
+	for {
+		readnb, err := (*conn).Read(buf[pos:])
+		if err != nil {
+			return buf, err
+		}
+		pos += readnb
+		if pos >= 2 && packetLength < 0 {
+			packetLength = int(binary.BigEndian.Uint16(buf[0:2]))
+			if packetLength > MaxDNSPacketSize-1 {
+				return buf, errors.New("dns crypt resp packet too large")
+			}
+			if packetLength < MinDNSPacketSize {
+				return buf, errors.New("dns crypt resp packet too short")
+			}
+		}
+		if packetLength >= 0 && pos >= 2+packetLength {
+			return buf[2 : 2+packetLength], nil
+		}
+	}
+}
+
 // TODO: Move to dnsx?
 func GetBlocklistStampFromURL(rawurl string) (string, error) {
 	if len(rawurl) <= 0 {
-		return "", errors.New("url missing")
+		return "", errRdnsUrlMissing
 	}
-	// TODO: validate if the domain is bravedns.com?
+	// TODO: validate if the domain is bravedns.com/rethinkdns.com?
 	u, err := url.Parse(rawurl)
 	if err != nil {
 		return "", err

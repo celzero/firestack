@@ -36,6 +36,7 @@ import (
 
 // Tunnel represents a session on a TUN device.
 type Tunnel interface {
+	Mtu() int
 	// IsConnected indicates whether the tunnel is in a connected state.
 	IsConnected() bool
 	// Disconnect disconnects the tunnel.
@@ -50,6 +51,11 @@ type tunnel struct {
 	tunWriter   io.WriteCloser
 	lwipStack   core.LWIPStack
 	isConnected bool
+	mtu         int
+}
+
+func (t *tunnel) Mtu() int {
+	return t.mtu
 }
 
 func (t *tunnel) IsConnected() bool {
@@ -72,8 +78,8 @@ func (t *tunnel) Write(data []byte) (int, error) {
 	return t.lwipStack.Write(data)
 }
 
-func NewTunnel(tunWriter io.WriteCloser, lwipStack core.LWIPStack) Tunnel {
-	return &tunnel{tunWriter, lwipStack, true}
+func NewTunnel(tunWriter io.WriteCloser, lwipStack core.LWIPStack, mtu int) Tunnel {
+	return &tunnel{tunWriter, lwipStack, true, mtu}
 }
 
 // netstack
@@ -84,6 +90,11 @@ type gtunnel struct {
 	endpoint stack.LinkEndpoint
 	stack    *stack.Stack
 	fdref    int
+	mtu      int
+}
+
+func (t *gtunnel) Mtu() int {
+	return t.mtu
 }
 
 func (t *gtunnel) Disconnect() {
@@ -91,16 +102,16 @@ func (t *gtunnel) Disconnect() {
 		log.Infof("tun: cannot disconnect an unconnected fd")
 		return
 	}
-	if err := syscall.Close(t.fdref); err != nil {
-		log.Errorf("tun: close(fd) fail, err(%v)", err)
-	}
-	log.Infof("tun: disconnected %d", t.fdref)
-	t.fdref = invalidfd
 	go func() {
 		t.endpoint.Attach(nil)
 		t.stack.Close()
 		log.Infof("tun: stack closed")
 	}()
+	if err := syscall.Close(t.fdref); err != nil {
+		log.Errorf("tun: close(fd) fail, err(%v)", err)
+	}
+	log.Infof("tun: disconnected %d", t.fdref)
+	t.fdref = invalidfd
 }
 
 func (t *gtunnel) IsConnected() bool {
@@ -113,10 +124,10 @@ func (t *gtunnel) Write([]byte) (int, error) {
 	return 0, errors.New("no write() on netstack")
 }
 
-func NewGTunnel(fd int, l3 string, tcph netstack.GTCPConnHandler, udph netstack.GUDPConnHandler) (Tunnel, error) {
+func NewGTunnel(fd int, l3 string, mtu int, tcph netstack.GTCPConnHandler, udph netstack.GUDPConnHandler) (Tunnel, error) {
 	hdl := netstack.NewGConnHandler(tcph, udph)
 	stack := netstack.NewNetstack(l3)
-	endpoint, err := netstack.NewEndpoint(fd)
+	endpoint, err := netstack.NewEndpoint(fd, mtu)
 	if err != nil {
 		return nil, err
 	}
@@ -125,5 +136,5 @@ func NewGTunnel(fd int, l3 string, tcph netstack.GTCPConnHandler, udph netstack.
 		return nil, err
 	}
 
-	return &gtunnel{endpoint, stack, fd}, nil
+	return &gtunnel{endpoint, stack, fd, mtu}, nil
 }

@@ -13,7 +13,6 @@ import (
 	"errors"
 	"fmt"
 	"io/ioutil"
-	"net/http"
 	"net/url"
 	"runtime"
 	"strconv"
@@ -27,16 +26,22 @@ import (
 )
 
 const (
-	blocklistHeaderKey = "x-nile-flags" // "x-bl-fl"
-	localBlock         = 0
-	remoteBlock        = 1
-	verseperator       = ":"
+	localBlock   = 0
+	remoteBlock  = 1
+	verseperator = ":"
 )
 
 const (
 	ver1 = "1"
 	ver0 = "0"
 )
+
+type RdnsResolver interface {
+	SetRdnsLocal(BraveDNS) error
+	GetRdnsLocal()
+	SetRdnsRemote(BraveDNS) error
+	GetRdnsRemote()
+}
 
 type BraveDNS interface {
 
@@ -46,9 +51,6 @@ type BraveDNS interface {
 	SetStamp(string) error
 
 	GetStamp() (string, error)
-
-	// GetBlocklistStampHeaderKey returns the http-header key for blocklists stamp
-	GetBlocklistStampHeaderKey() string
 
 	// BlocklistsStampToNames returns csv separated group:names of blocklists in the given stamp
 	StampToNames(stamp string) (string, error)
@@ -62,6 +64,9 @@ type BraveDNS interface {
 	BlockRequest([]byte) (string, error)
 
 	BlockResponse([]byte) (string, error)
+
+	blockQuery(*dns.Msg) (string, error)
+	blockAnswer(*dns.Msg) (string, error)
 }
 
 type bravedns struct {
@@ -102,10 +107,6 @@ func (brave *bravedns) SetStamp(stamp string) error {
 	}
 	brave.stamp = stamp
 	return nil
-}
-
-func (brave *bravedns) GetBlocklistStampHeaderKey() string {
-	return http.CanonicalHeaderKey(blocklistHeaderKey)
 }
 
 // Returns blockstamp given comma-separated blocklist ids
@@ -203,14 +204,14 @@ func (brave *bravedns) flagsToNames(flagstr []string) (v []string) {
 }
 
 func (brave *bravedns) BlockRequest(q []byte) (r string, err error) {
-	msg := dns.Msg{}
+	msg := &dns.Msg{}
 	if err = msg.Unpack(q); err != nil {
 		return
 	}
-	return brave.blockUnpackedRequest(&msg)
+	return brave.blockQuery(msg)
 }
 
-func (brave *bravedns) blockUnpackedRequest(msg *dns.Msg) (r string, err error) {
+func (brave *bravedns) blockQuery(msg *dns.Msg) (r string, err error) {
 	if len(msg.Question) != 1 {
 		err = errors.New("one question too many")
 		return
@@ -237,14 +238,14 @@ func (brave *bravedns) blockUnpackedRequest(msg *dns.Msg) (r string, err error) 
 }
 
 func (brave *bravedns) BlockResponse(q []byte) (r string, err error) {
-	msg := dns.Msg{}
+	msg := &dns.Msg{}
 	if err = msg.Unpack(q); err != nil {
 		return
 	}
-	return brave.blockUnpackedResponse(&msg)
+	return brave.blockAnswer(msg)
 }
 
-func (brave *bravedns) blockUnpackedResponse(msg *dns.Msg) (r string, err error) {
+func (brave *bravedns) blockAnswer(msg *dns.Msg) (r string, err error) {
 	if len(msg.Answer) <= 1 {
 		err = errors.New("req at least two answers")
 		return

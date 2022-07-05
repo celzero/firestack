@@ -18,7 +18,6 @@ import (
 	"errors"
 	"strings"
 
-	"github.com/celzero/firestack/intra/dnsx"
 	"github.com/celzero/firestack/intra/xdns"
 
 	"github.com/celzero/firestack/intra/log"
@@ -56,7 +55,6 @@ type Plugin interface {
 type Intercept struct {
 	Plugin
 	undelegatedSet *critbitgo.Trie
-	bravedns       dnsx.BraveDNS
 	state          *InterceptState
 }
 
@@ -100,10 +98,6 @@ func (ic *Intercept) HandleRequest(packet []byte, needsEDNS0Padding bool) ([]byt
 		state.action = ActionDrop
 		return packet, err
 	}
-	if err := ic.requestBlockedByBraveDNS(packet); err != nil {
-		state.action = ActionDrop
-		return packet, err
-	}
 	if err := ic.getSetPayloadSize(&msg); err != nil {
 		state.action = ActionDrop
 		return packet, err
@@ -137,13 +131,6 @@ func (ic *Intercept) HandleResponse(packet []byte, truncate bool) ([]byte, error
 	}
 
 	xdns.RemoveEDNS0Options(&msg)
-
-	ic.responseBlockedByBraveDNS(packet)
-
-	if state.action == ActionSynth && len(state.blocklists) > 0 {
-		log.Debugf("bravedns locally blocked response", state.blocklists)
-		return packet, nil
-	}
 
 	packet2, err := msg.PackBuffer(packet)
 	if err != nil {
@@ -251,75 +238,9 @@ func (ic *Intercept) blockUndelegated(msg *dns.Msg) error {
 	return nil
 }
 
-// requestBlockedByBraveDNS blocks DNS names blocked by local rules.
-func (ic *Intercept) requestBlockedByBraveDNS(q []byte) error {
-	state := ic.state
-	b := ic.bravedns
-
-	if b == nil || state.action != ActionContinue || !b.OnDeviceBlock() {
-		return nil // nothing to do.
-	}
-
-	blocklists, err := b.BlockRequest(q)
-	if err != nil {
-		log.Debugf("request not blocked %v", err)
-		return nil // ignore error
-	}
-	if len(blocklists) <= 0 {
-		log.Debugf("query not blocked blocklist empty")
-		return nil // nothing to do
-	}
-
-	ans, err := xdns.BlockResponseFromMessage(q)
-	if err != nil {
-		return err // ignore this error? doh.Transport does.
-	}
-
-	state.response = ans
-	state.blocklists = blocklists
-	state.action = ActionSynth
-	state.returnCode = ReturnCodeSynth
-
-	return nil
-}
-
-// responseBlockedByBraveDNS blocks DNS names blocked by local rules.
-func (ic *Intercept) responseBlockedByBraveDNS(ans []byte) error {
-	state := ic.state
-	b := ic.bravedns
-
-	if b == nil || !b.OnDeviceBlock() {
-		return nil // nothing to do.
-	}
-
-	blocklists, err := b.BlockResponse(ans)
-	if err != nil {
-		log.Debugf("response not blocked %v", err)
-		return nil // ignore error
-	}
-	if len(blocklists) <= 0 {
-		log.Debugf("query not blocked blocklist empty")
-		return nil // nothing to do
-	}
-
-	res, err := xdns.RefusedResponseFromMessage(state.question)
-	if err != nil {
-		log.Warnf("could not pack blocked dns ans %v", err)
-		return err // ignore this error? doh.Transport does.
-	}
-
-	state.response = res
-	state.blocklists = blocklists
-	state.action = ActionSynth
-	state.returnCode = ReturnCodeSynth
-
-	return nil
-}
-
-func NewIntercept(set *critbitgo.Trie, bravedns dnsx.BraveDNS) *Intercept {
+func NewIntercept(set *critbitgo.Trie) *Intercept {
 	return &Intercept{
 		undelegatedSet: set,
-		bravedns:       bravedns,
 		state:          NewInterceptState(),
 	}
 }

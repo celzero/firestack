@@ -20,7 +20,6 @@ import (
 	"gvisor.dev/gvisor/pkg/waiter"
 )
 
-const maxUDPReqSize = 1600            // Always >= settings.VpnMtu
 const readDeadline = 30 * time.Second // FIXME: Udp.Timeout
 
 var _ core.UDPConn = (*GUDPConn)(nil)
@@ -54,11 +53,11 @@ func NewGUDPConn(s *stack.Stack, r *udp.ForwarderRequest, src, dst *net.UDPAddr)
 	}
 }
 
-func setupUdpHandler(s *stack.Stack, h GUDPConnHandler) {
-	s.SetTransportProtocolHandler(udp.ProtocolNumber, NewUDPForwarder(s, h).HandlePacket)
+func setupUdpHandler(s *stack.Stack, ep stack.LinkEndpoint, h GUDPConnHandler) {
+	s.SetTransportProtocolHandler(udp.ProtocolNumber, NewUDPForwarder(s, h, ep.MTU()).HandlePacket)
 }
 
-func NewUDPForwarder(s *stack.Stack, h GUDPConnHandler) *udp.Forwarder {
+func NewUDPForwarder(s *stack.Stack, h GUDPConnHandler, mtu uint32) *udp.Forwarder {
 	return udp.NewForwarder(s, func(request *udp.ForwarderRequest) {
 		id := request.ID()
 
@@ -86,7 +85,7 @@ func NewUDPForwarder(s *stack.Stack, h GUDPConnHandler) *udp.Forwarder {
 			}
 
 			// TODO: should q be init inside the for-loop?
-			q := make([]byte, maxUDPReqSize)
+			q := make([]byte, mtu)
 			for {
 				gc.gudp.SetDeadline(time.Now().Add(readDeadline))
 				if n, addr, err := gc.gudp.ReadFrom(q); err == nil {

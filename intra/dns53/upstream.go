@@ -8,59 +8,51 @@ package dns53
 
 import (
 	"encoding/binary"
-	"errors"
 	"fmt"
-	"io"
-	"math"
 	"net"
+	"net/netip"
 	"time"
 
 	"github.com/celzero/firestack/intra/dnsx"
-	"github.com/celzero/firestack/intra/ipn"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/settings"
 	"github.com/celzero/firestack/intra/xdns"
-	"golang.org/x/net/dns/dnsmessage"
 )
 
 const timeout = 10 * time.Second
 
-// Transport represents a DNS query transport.  This interface is exported by gobind,
-// so it has to be very simple.
-type Transport interface {
-	// Given a DNS query (including ID), returns a DNS response with matching
-	// ID, or an error if no response was received.  The error may be accompanied
-	// by a SERVFAIL response if appropriate.
-	Query(network string, q []byte) ([]byte, error)
-	// Return the server URL used to initialize this transport.
-	GetAddr() string
-	// SetBraveDNS sets bravedns variable
-	SetBraveDNS(dnsx.BraveDNS)
-	// SetNatPt sets NAT PT variable
-	SetNatPt(ipn.NatPt)
-}
-
 // TODO: Keep a context here so that queries can be canceled.
 type transport struct {
-	Transport
-	ipport   string
-	listener dnsx.Listener
-	natpt    ipn.NatPt
-	bravedns dnsx.BraveDNS
+	dnsx.Transport
+	id     string
+	ipport string
 }
 
 // NewTransport returns a DNS transport, ready for use.
-func NewTransport(ip, port string, listener dnsx.Listener) (t Transport, err error) {
+func NewTransport(id, ip, port string) (t dnsx.Transport, err error) {
 	do, err := settings.NewDNSOptions(ip, port)
 	if err != nil {
 		return
 	}
 	t = &transport{
-		ipport:   do.IPPort,
-		listener: listener,
-		bravedns: nil,
+		id:     id,
+		ipport: do.IPPort,
 	}
-	log.Infof("dns53 setup: %s", do.IPPort)
+	log.Infof("dns53(%s) setup: %s", id, do.IPPort)
+	return
+}
+
+// NewTransport returns a DNS transport, ready for use.
+func NewTransportFrom(id string, ipp netip.AddrPort) (t dnsx.Transport, err error) {
+	do, err := settings.NewDNSOptionsFromNetIp(ipp)
+	if err != nil {
+		return
+	}
+	t = &transport{
+		id:     id,
+		ipport: do.IPPort,
+	}
+	log.Infof("dns53(%s) setup: %s", id, do.IPPort)
 	return
 }
 
@@ -72,24 +64,10 @@ func (t *transport) doQuery(network string, q []byte) (response []byte, blocklis
 		qerr = dnsx.NewBadQueryError(fmt.Errorf("query length is %d", len(q)))
 		return
 	}
-
-	start := time.Now()
-	if err := t.prepareOnDeviceBlock(); err == nil {
-		response, blocklists, err = t.applyBlocklists(q)
-		if err == nil { // blocklist applied only when err is nil
-			elapsed = time.Since(start)
-			return
-		}
-		// skipping block because err
-		log.Debugf("skip local block for %s with err %s", blocklists, err)
-	} else {
-		log.Debugf("forward query: no local block")
-	}
-
 	response, blocklists, elapsed, qerr = t.sendRequest(network, q)
 
 	if qerr != nil { // only on send-request errors
-		response = tryServfail(q)
+		response = xdns.Servfail(q)
 	}
 
 	return
@@ -116,6 +94,15 @@ func (t *transport) sendRequest(network string, q []byte) (response []byte, bloc
 		return
 	}
 
+	if network == dnsx.NetTypeTCP {
+		// for tcp, prefix the len(q) in the first two bytes
+		if q, dialError = xdns.PrefixWithSize(q); dialError != nil {
+			elapsed = time.Since(start)
+			qerr = dnsx.NewSendFailedQueryError(dialError)
+			return
+		}
+	}
+
 	conn.SetDeadline(time.Now().Add(timeout)) // extend deadline
 	_, err := conn.Write(q)
 	if err != nil {
@@ -129,47 +116,62 @@ func (t *transport) sendRequest(network string, q []byte) (response []byte, bloc
 	// ref: github.com/celzero/midway/blob/77ede02c/midway/server.go#L179
 	// udp size is expected no more than 512 bytes?
 	// ref: github.com/miekg/dns/blob/b3dfea071/server.go#L207
-	b := make([]byte, 2048) // some sufficiently large buffer
-	// for tcp reads, we need to read the length of the response first which
-	// is sent in the first 2 bytes.
-	// see: github.com/miekg/dns/blob/b3dfea071/server.go#L662
-	n, err := conn.Read(b)
-	elapsed = time.Since(start)
-	if err != nil {
-		qerr = dnsx.NewBadResponseQueryError(err)
-		return
-	}
 
-	response = b[:n]
-	if len(response) >= 2 {
-		var r []byte
-		blocklists, r = t.resolveBlock(q, response)
-		if len(blocklists) > 0 && r != nil {
-			response = r // overwrite response when blocked
+	if network == dnsx.NetTypeTCP {
+		// TODO: replace xdns.ReadPrefixed impl
+		// for tcp, read the len(response) which is sent in the first 2 bytes
+		// see: github.com/miekg/dns/blob/b3dfea071/server.go#L662
+		b := make([]byte, 2)
+		n, err := conn.Read(b)
+		if err != nil || n < 2 {
+			elapsed = time.Since(start)
+			qerr = dnsx.NewBadResponseQueryError(err)
+			return
+		}
+		l := binary.BigEndian.Uint16(b)
+		if int(l) < xdns.MinDNSPacketSize {
+			elapsed = time.Since(start)
+			qerr = dnsx.NewBadResponseQueryError(fmt.Errorf("tcp: too small a response %d", l))
+			return
+		}
+
+		b = make([]byte, l)
+		for {
+			conn.SetDeadline(time.Now().Add(timeout)) // extend deadline
+			_, err = conn.Read(b)
+			if err != nil {
+				elapsed = time.Since(start)
+				qerr = dnsx.NewTransportQueryError(fmt.Errorf("failed read %d/%d", len(response), l))
+				return
+			}
+			response = append(response, b...)
+			rem := int(l) - len(response)
+			if rem <= 0 {
+				break
+			}
+			b = b[:rem]
 		}
 	} else {
-		qerr = dnsx.NewBadResponseQueryError(fmt.Errorf("response length is %d", len(response)))
+		b := make([]byte, xdns.MaxDNSUDPSafePacketSize)
+		conn.SetDeadline(time.Now().Add(timeout)) // extend deadline
+		n, err := conn.Read(b)
+		elapsed = time.Since(start)
+		if err != nil {
+			qerr = dnsx.NewBadResponseQueryError(err)
+			return
+		}
+		if n < xdns.MinDNSPacketSize {
+			qerr = dnsx.NewBadResponseQueryError(fmt.Errorf("udp: too small a response %d", n))
+		}
+		response = b[:n]
 	}
 
 	return
 }
 
-// Implements ipn.DnsExchange
-func (t *transport) Exchange(q []byte) (r []byte, err error) {
-	// TODO: set network as original query
-	r, _, _, err = t.doQuery("udp", q)
-	return
-}
-
-func (t *transport) Query(network string, q []byte) ([]byte, error) {
-	if t.listener != nil {
-		t.listener.OnQuery(t.GetAddr())
-	}
+func (t *transport) Query(network string, q []byte, summary *dnsx.Summary) ([]byte, error) {
 
 	response, blocklists, elapsed, qerr := t.doQuery(network, q)
-	if len(blocklists) <= 0 && qerr == nil && t.natpt != nil {
-		response = t.natpt.D64(t.GetAddr(), response, t)
-	}
 
 	var err error
 	status := dnsx.Complete
@@ -178,195 +180,23 @@ func (t *transport) Query(network string, q []byte) ([]byte, error) {
 		err = qerr
 		status = qerr.Status()
 	}
+	summary.Latency = elapsed.Seconds()
+	summary.Response = response
+	summary.Server = t.GetAddr()
+	summary.Status = status
+	summary.Blocklists = blocklists
 
-	if t.listener != nil {
-		t.listener.OnResponse(&dnsx.Summary{
-			Type:       dnsx.DNS53,
-			Latency:    elapsed.Seconds(),
-			Query:      q,
-			Response:   response,
-			Server:     t.GetAddr(),
-			Status:     status,
-			Blocklists: blocklists,
-		})
-	}
 	return response, err
+}
+
+func (t *transport) ID() string {
+	return t.id
+}
+
+func (t *transport) Type() string {
+	return dnsx.DNS53
 }
 
 func (t *transport) GetAddr() string {
 	return t.ipport
-}
-
-func (t *transport) SetBraveDNS(b dnsx.BraveDNS) {
-	t.bravedns = b
-}
-
-func (t *transport) SetNatPt(pt ipn.NatPt) {
-	t.natpt = pt
-	// TODO: pt.AddResolver(t.url, t.Query)
-}
-
-func (t *transport) prepareOnDeviceBlock() error {
-	b := t.bravedns
-	u := t.GetAddr()
-
-	if b == nil || len(u) <= 0 {
-		return errors.New("t.addr or dnsx.bravedns nil")
-	}
-
-	if !b.OnDeviceBlock() {
-		return errors.New("on-device block not set")
-	}
-
-	return nil
-}
-
-func (t *transport) applyBlocklists(q []byte) (response []byte, blocklists string, err error) {
-	bravedns := t.bravedns
-	if bravedns == nil {
-		err = errors.New("bravedns is nil")
-		return
-	}
-	blocklists, err = bravedns.BlockRequest(q)
-	if err != nil {
-		return
-	}
-	if len(blocklists) <= 0 {
-		err = errors.New("no blocklist applies")
-		return
-	}
-
-	ans, err := xdns.BlockResponseFromMessage(q)
-	if err != nil {
-		return
-	}
-
-	response, err = ans.Pack()
-	return
-}
-
-func (t *transport) resolveBlock(q []byte, ans []byte) (blocklistNames string, blockedResponse []byte) {
-	bravedns := t.bravedns
-	if bravedns == nil {
-		return
-	}
-
-	var err error
-	if !bravedns.OnDeviceBlock() {
-		return
-	}
-
-	if blocklistNames, err = bravedns.BlockResponse(ans); err != nil {
-		log.Debugf("response not blocked %v", err)
-		return
-	}
-
-	if len(blocklistNames) <= 0 {
-		log.Debugf("query not blocked blocklist empty")
-		return
-	}
-
-	msg, err := xdns.BlockResponseFromMessage(q)
-	if err != nil {
-		log.Warnf("could not pack blocked dns ans %v", err)
-		return
-	}
-
-	blockedResponse, _ = msg.Pack()
-	return
-}
-
-// Perform a query using the transport, and send the response to the writer.
-func forwardQuery(t Transport, q []byte, c io.Writer) error {
-	resp, qerr := t.Query("tcp", q)
-	if resp == nil && qerr != nil {
-		return qerr
-	}
-
-	rlen := len(resp)
-	if rlen > math.MaxUint16 {
-		return fmt.Errorf("oversize response: %d", rlen)
-	}
-
-	// Use a combined write to ensure atomicity.  Otherwise, writes from two
-	// responses could be interleaved.
-	rlbuf := make([]byte, rlen+2)
-	binary.BigEndian.PutUint16(rlbuf, uint16(rlen))
-	copy(rlbuf[2:], resp)
-
-	n, err := c.Write(rlbuf)
-	if err != nil {
-		return err
-	}
-
-	if int(n) != len(rlbuf) {
-		return fmt.Errorf("res write incomplete: %d < %d", n, len(rlbuf))
-	}
-	return qerr
-}
-
-// Perform a query using the transport, send the response to the writer,
-// and close the writer if there was an error.
-func forwardQueryAndCheck(t Transport, q []byte, c io.WriteCloser) {
-	if err := forwardQuery(t, q, c); err != nil {
-		log.Warnf("Query forwarding failed: %v", err)
-		c.Close()
-	}
-}
-
-// Accept a DNS-over-TCP socket from a stub resolver, and connect the socket
-// to this DNSTransport.
-func Accept(t Transport, c io.ReadWriteCloser) {
-	qlbuf := make([]byte, 2)
-	for {
-		n, err := c.Read(qlbuf)
-		if n == 0 {
-			log.Debugf("tcp query socket clean shutdown")
-			break
-		}
-		if err != nil {
-			log.Warnf("error reading from tcp query socket: %v", err)
-			break
-		}
-		if n < 2 {
-			log.Warnf("incomplete query length")
-			break
-		}
-		qlen := binary.BigEndian.Uint16(qlbuf)
-		q := make([]byte, qlen)
-		n, err = c.Read(q)
-		if err != nil {
-			log.Warnf("error reading query: %v", err)
-			break
-		}
-		if n != int(qlen) {
-			log.Warnf("incomplete query: %d < %d", n, qlen)
-			break
-		}
-		go forwardQueryAndCheck(t, q, c)
-	}
-	// TODO: Cancel outstanding queries at this point.
-	c.Close()
-}
-
-// FIXME: Move this to xdns pkg, see: BlockResponseFromMessage
-// Servfail returns a SERVFAIL response to the query q.
-func Servfail(q []byte) ([]byte, error) {
-	var msg dnsmessage.Message
-	if err := msg.Unpack(q); err != nil {
-		return nil, err
-	}
-	msg.Response = true
-	msg.RecursionAvailable = true
-	msg.RCode = dnsmessage.RCodeServerFailure
-	msg.Additionals = nil // Strip EDNS
-	return msg.Pack()
-}
-
-func tryServfail(q []byte) []byte {
-	response, err := Servfail(q)
-	if err != nil {
-		log.Warnf("Error constructing servfail: %v", err)
-	}
-	return response
 }
