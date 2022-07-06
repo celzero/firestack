@@ -97,8 +97,7 @@ func (t *gtunnel) Disconnect() {
 	log.Infof("tun: disconnected %d", t.fdref)
 	t.fdref = invalidfd
 	go func() {
-		// TODO: is t.endpoint.Wait() needed?
-		// TODO: is t.endpoint.Attach(nil) needed?
+		t.endpoint.Attach(nil)
 		t.stack.Close()
 		log.Infof("tun: stack closed")
 	}()
