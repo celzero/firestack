@@ -29,8 +29,8 @@ import (
 
 	"github.com/celzero/firestack/intra/log"
 	"golang.org/x/sys/unix"
+	"gvisor.dev/gvisor/pkg/buffer"
 	"gvisor.dev/gvisor/pkg/tcpip"
-	"gvisor.dev/gvisor/pkg/tcpip/buffer"
 	"gvisor.dev/gvisor/pkg/tcpip/header"
 	"gvisor.dev/gvisor/pkg/tcpip/link/rawfile"
 	"gvisor.dev/gvisor/pkg/tcpip/stack"
@@ -40,8 +40,10 @@ import (
 var BufConfig = []int{128, 256, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768}
 
 type iovecBuffer struct {
-	// views are the actual buffers that hold the packet contents.
-	views []buffer.View
+	// buffer is the actual buffer that holds the packet contents. Some contents
+	// are reused across calls to pullBuffer if number of requested bytes is
+	// smaller than the number of bytes allocated in the buffer.
+	buffer buffer.Buffer
 
 	// iovecs are initialized with base pointers/len of the corresponding
 	// entries in the views defined above, except when GSO is enabled
@@ -54,51 +56,66 @@ type iovecBuffer struct {
 	// immutable.
 	sizes []int
 
-	// skipsVnetHdr is true if virtioNetHdr is to skipped.
-	//skipsVnetHdr bool
+	// unused: skipsVnetHdr is true if virtioNetHdr is to skipped.
+	// skipsVnetHdr bool
+
+	// pulledIndex is the index of the last []byte buffer pulled from the
+	// underlying buffer storage during a call to pullBuffers. It is -1
+	// if no buffer is pulled.
+	pulledIndex int
 }
 
 func newIovecBuffer(sizes []int) *iovecBuffer {
 	b := &iovecBuffer{
-		views: make([]buffer.View, len(sizes)),
 		sizes: sizes,
+		// Setting pulledIndex to the length of sizes will allocate all
+		// the buffers.
+		pulledIndex: len(sizes),
 	}
-	b.iovecs = make([]unix.Iovec, len(b.views))
+	niov := len(sizes)
+	b.iovecs = make([]unix.Iovec, niov)
 	return b
 }
 
 func (b *iovecBuffer) nextIovecs() []unix.Iovec {
 	vnetHdrOff := 0
-	for i := range b.views {
-		if b.views[i] != nil {
+
+	var buf buffer.Buffer
+	for i, size := range b.sizes {
+		if i > b.pulledIndex {
 			break
 		}
-		v := buffer.NewView(b.sizes[i])
-		b.views[i] = v
+		v := make([]byte, size)
+		buf.AppendOwned(v)
 		b.iovecs[i+vnetHdrOff] = unix.Iovec{Base: &v[0]}
 		b.iovecs[i+vnetHdrOff].SetLen(len(v))
 	}
+	buf.Merge(&b.buffer)
+	b.buffer = buf
+	b.pulledIndex = -1
 	return b.iovecs
 }
 
-func (b *iovecBuffer) pullViews(n int) buffer.VectorisedView {
-	var views []buffer.View
+// pullBuffer extracts the enough underlying storage from b.buffer to hold n
+// bytes. It removes this storage from b.buffer, returns a new buffer
+// that holds the storage, and updates pulledIndex to indicate which part
+// of b.buffer's storage must be reallocated during the next call to
+// nextIovecs.
+func (b *iovecBuffer) pullBuffer(n int) buffer.Buffer {
+	var pulled buffer.Buffer
 	c := 0
-
-	for i, v := range b.views {
-		c += len(v)
+	// Remove the used views from the buffer.
+	pulled = b.buffer.Clone()
+	for _, size := range b.sizes {
+		b.pulledIndex++
+		c += size
+		b.buffer.TrimFront(int64(size))
 		if c >= n {
-			b.views[i].CapLength(len(v) - (c - n))
-			views = append([]buffer.View(nil), b.views[:i+1]...)
 			break
 		}
 	}
-	// Remove the first len(views) used views from the state.
-	for i := range views {
-		b.views[i] = nil
-	}
-
-	return buffer.NewVectorisedView(n, views)
+	pulled.Truncate(int64(n))
+	return pulled
 }
 
 // stopFd is an eventfd used to signal the stop of a dispatcher.
@@ -167,7 +184,7 @@ func (d *readVDispatcher) dispatch() (bool, tcpip.Error) {
 	}
 
 	pkt := stack.NewPacketBuffer(stack.PacketBufferOptions{
-		Data: d.buf.pullViews(n),
+		Payload: d.buf.pullBuffer(n),
 	})
 
 	var p tcpip.NetworkProtocolNumber

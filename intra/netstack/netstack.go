@@ -104,8 +104,8 @@ func NewNetstack(l3 string) (s *stack.Stack) {
 				NIC:         nic,
 			},
 		})
-		s.SetNICForwarding(nic, ipv4.ProtocolNumber, true)
-		s.SetNICForwarding(nic, ipv6.ProtocolNumber, true)
+		s.SetNICForwarding(nic, ipv4.ProtocolNumber, false)
+		s.SetNICForwarding(nic, ipv6.ProtocolNumber, false)
 	case settings.IP6:
 		o := stack.Options{
 			NetworkProtocols: []stack.NetworkProtocolFactory{
@@ -124,7 +124,7 @@ func NewNetstack(l3 string) (s *stack.Stack) {
 				NIC:         nic,
 			},
 		})
-		s.SetNICForwarding(nic, ipv6.ProtocolNumber, true)
+		s.SetNICForwarding(nic, ipv6.ProtocolNumber, false)
 	case settings.IP4:
 		fallthrough
 	default:
@@ -145,7 +145,7 @@ func NewNetstack(l3 string) (s *stack.Stack) {
 				NIC:         nic,
 			},
 		})
-		s.SetNICForwarding(nic, ipv4.ProtocolNumber, true)
+		s.SetNICForwarding(nic, ipv4.ProtocolNumber, false)
 	}
 
 	// TODO: setup stack otps?

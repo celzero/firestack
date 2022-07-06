@@ -26,6 +26,7 @@
 // seqpacket/datagram sockets).
 //
 // Adopted from: github.com/google/gvisor/blob/f33d034/pkg/tcpip/link/fdbased/endpoint.go
+// since fdbased isn't built when building for android (it is only built for linux).
 package netstack
 
 import (
@@ -315,9 +316,8 @@ func (e *endpoint) WritePackets(pkts stack.PacketBufferList) (int, tcpip.Error) 
 	batch := make([]unix.Iovec, 0, batchSz)
 	packets, written := 0, 0
 	total := pkts.Len()
-	// for _, pkt := range pkts.AsSlice() {
-	for pkt := pkts.Front(); pkt != nil; pkt = pkt.Next() {
-		views := pkt.Views()
+	for _, pkt := range pkts.AsSlice() {
+		views := pkt.Slices()
 		numIovecs := len(views)
 		if len(batch)+numIovecs > rawfile.MaxIovs {
 			// writes in to fd, up to len(batch) not cap(batch)

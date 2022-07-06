@@ -22,7 +22,7 @@ require (
 	github.com/crazy-max/xgo v0.17.0
 	github.com/txthinking/socks5 v0.0.0-20220615051428-39268faee3e6
 	golang.org/x/mobile v0.0.0-20220518205345-8578da9835fd
-	gvisor.dev/gvisor v0.0.0-20220329084425-9638e18d39b3
+	gvisor.dev/gvisor v0.0.0-20220701225953-3108ea2a69b2
 )
 
 require (
