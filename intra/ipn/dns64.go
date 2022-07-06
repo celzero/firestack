@@ -144,7 +144,7 @@ func (d *dns64) eval(id string, force64 bool, og []byte, f dnsExchange) []byte {
 	d.RUnlock()
 
 	if !ok {
-		log.Warnf("dns64: no resolver id(%s) registered", id)
+		log.Debugf("dns64: no resolver id(%s) registered", id)
 	}
 
 	if len(ip64) <= 0 {
@@ -171,7 +171,7 @@ func (d *dns64) eval(id string, force64 bool, og []byte, f dnsExchange) []byte {
 	ans4, err := d.query64(ansin, f)
 	rgood := xdns.HasRcodeSuccess(ans4)
 	if err != nil || ans4 == nil || len(ans4.Answer) <= 0 || xdns.AQuadAUnspecified(ans4) {
-		log.Warnf("dns64: query(n:%s / a:%v) to resolver(%s) rgood(%t), err(%v)", qname, ans4, id, rgood, err)
+		log.Warnf("dns64: query(n:%s / a:%d) to resolver(%s) rgood(%t), err(%v)", qname, len(ans4.Answer), id, rgood, err)
 		return og
 	}
 
