@@ -392,12 +392,12 @@ func load(blacklistconfigjson string) ([]string, map[string]string, error) {
 }
 
 func (brave *bravedns) decode(stamp string, ver string) (info []*listinfo, err error) {
-	decoder := b64.StdEncoding
+	decoder := b64.RawStdEncoding
 	if ver == ver0 {
 		stamp, err = url.QueryUnescape(stamp)
 	} else if ver == ver1 {
 		stamp, err = url.PathUnescape(stamp)
-		decoder = b64.URLEncoding
+		decoder = b64.RawURLEncoding
 	} else {
 		err = fmt.Errorf("version %s unsupported", ver)
 	}
@@ -543,7 +543,7 @@ func encode(ver string, bin []uint16) (string, error) {
 
 	bytes := uinttobytes(bin)
 
-	return ver + verseperator + b64.URLEncoding.EncodeToString(bytes), nil
+	return ver + verseperator + b64.RawURLEncoding.EncodeToString(bytes), nil
 }
 
 func stringtobyte(str string) []byte {
