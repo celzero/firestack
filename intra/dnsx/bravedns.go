@@ -550,7 +550,6 @@ func encode(ver string, bin []uint16) (string, error) {
 	}
 
 	bytes := uinttobytes(bin)
-
 	// decode may recv padded or unpadded stamps, but always encode with pad
 	// as FrozenTrie.DNLookup expects only padded b64url for ver1
 	return ver + verseperator + b64.URLEncoding.EncodeToString(bytes), nil

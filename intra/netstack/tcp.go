@@ -30,6 +30,7 @@ func setupTcpHandler(s *stack.Stack, _ stack.LinkEndpoint, h GTCPConnHandler) {
 	s.SetTransportProtocolHandler(tcp.ProtocolNumber, NewTCPForwarder(s, h).HandlePacket)
 }
 
+// nic.deliverNetworkPacket -> no existing matching endpoints -> NewTCPForwarder.HandlePacket
 // ref: github.com/google/gvisor/blob/e89e736f1/pkg/tcpip/adapters/gonet/gonet_test.go#L189
 func NewTCPForwarder(s *stack.Stack, h GTCPConnHandler) *tcp.Forwarder {
 	return tcp.NewForwarder(s, rcvwnd, maxInFlight, func(request *tcp.ForwarderRequest) {
@@ -55,6 +56,9 @@ func NewTCPForwarder(s *stack.Stack, h GTCPConnHandler) *tcp.Forwarder {
 		request.Complete(false)
 		log.Debugf("ns.tcp.forwarder: data src(%v) => dst(%v)", src, dst)
 
+		// read/writes are routed using 5-tuple to the same conn (endpoint)
+		// demuxer.handlePacket -> find matching endpoint -> queue-packet -> send/recv conn (ep)
+		// ref: github.com/google/gvisor/blob/be6ffa7/pkg/tcpip/stack/transport_demuxer.go#L180
 		go h.OnNewConn(NewGTCPConn(waitQueue, endpoint, src, dst), src, dst)
 	})
 }

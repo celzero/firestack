@@ -29,6 +29,8 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/netip"
+	"strings"
 	"time"
 
 	"golang.org/x/net/proxy"
@@ -172,7 +174,7 @@ func (h *tcpHandler) dnsOverride(conn net.Conn, addr *net.TCPAddr) bool {
 	return false
 }
 
-func (h *tcpHandler) blockConn(localaddr *net.TCPAddr, target *net.TCPAddr) (block bool) {
+func (h *tcpHandler) onFlow(localaddr *net.TCPAddr, target *net.TCPAddr, realips string, domains string) (block bool) {
 	// BlockModeNone returns false, BlockModeSink returns true
 	if h.tunMode.BlockMode == settings.BlockModeSink {
 		return true
@@ -188,11 +190,18 @@ func (h *tcpHandler) blockConn(localaddr *net.TCPAddr, target *net.TCPAddr) (blo
 		}
 	}
 
-	block = h.blocker.Block(6 /*TCP*/, uid, localaddr.String(), target.String())
+	var proto int32 = 6 // tcp
+	src := localaddr.String()
+	dst := target.String()
+	if len(realips) > 0 && len(domains) > 0 {
+		block = h.blocker.BlockAlg(proto, uid, src, dst, realips, domains)
+	} else {
+		block = h.blocker.Block(proto, uid, src, dst)
+	}
 
 	if block {
 		log.Infof("firewalled connection from %s:%s to %s:%s",
-			localaddr.Network(), localaddr.String(), target.Network(), target.String())
+			localaddr.Network(), src, target.Network(), dst)
 	}
 
 	return
@@ -219,37 +228,35 @@ func (h *tcpHandler) OnNewConn(conn *netstack.GTCPConn, _, dst *net.TCPAddr) {
 
 // TODO: Request upstream to make `conn` a `core.TCPConn` so we can avoid a type assertion.
 func (h *tcpHandler) Handle(conn net.Conn, target *net.TCPAddr) error {
-	localtcp, ok1 := conn.(core.TCPConn)
-	if !ok1 {
-		return fmt.Errorf("t.tcp Handle: non-tcp-conn(%v)", conn)
-	}
-	localaddr, ok2 := localtcp.LocalAddr().(*net.TCPAddr)
-	if !ok2 {
-		return fmt.Errorf("t.tcp Handle: non-tcp-addr(%v)", localtcp.LocalAddr())
+	localaddr, err := tcpaddr(conn)
+	if err != nil {
+		log.Errorf("conn has invalid local-addr(%s); %v", conn.LocalAddr(), err)
+		return err
 	}
 
-	if h.blockConn(localaddr, target) {
+	// alg happens before nat64, and so, alg has no knowledge of nat-ed ips
+	// ipx4 is un-nated (but same as target.IP when no nat64 is involved)
+	ipx4 := maybeUndoNat64(h.pt, target.IP)
+	realips, domains := undoAlg(h.resolver, ipx4)
+
+	// flow/dns-override are nat-aware, as in, they can deal with
+	// nat-ed ips just fine, and so, use target as-is instead of ipx4
+	if h.onFlow(localaddr, target, realips, domains) {
 		// an error here results in a core.tcpConn.Abort
 		return fmt.Errorf("tcp connection firewalled")
 	}
-
 	if h.dnsOverride(conn, target) {
 		return nil
-	} else if h.pt.IsNat64(ipn.Local464Resolver, target.IP) {
-		// TODO: check if the network this process binds to has ipv4 connectivity
-		if ip4 := h.pt.X64(ipn.Local464Resolver, target.IP); len(ip4) >= net.IPv4len {
-			log.Debugf("t.tcp.handle: local nat64 to ip4(%v) for ip6(%v)", ip4, target.IP)
-			target.IP = ip4
-		} else {
-			log.Warnf("t.tcp.handle: failed local nat64 to ip4(%v) for ip6(%v)", ip4, target.IP)
-		}
 	}
+
+	// dialers must connect to un-nated ips; overwrite target.IP with ipx4
+	// but ipx4 might itself be an alg ip; so check if there's a real-ip to connect to
+	target.IP = oneRealIp(realips, ipx4)
 
 	var summary TCPSocketSummary
 	summary.ServerPort = filteredPort(target)
 	start := time.Now()
 	var c split.DuplexConn
-	var err error
 
 	// TODO: Cancel dialing if c is closed
 	// Ref: stackoverflow.com/questions/63656117
@@ -311,4 +318,63 @@ func (h *tcpHandler) SetProxyOptions(po *settings.ProxyOptions) error {
 	}
 	h.proxy = fproxy
 	return nil
+}
+
+func maybeUndoNat64(pt ipn.NAT64, ip net.IP) net.IP {
+	ipx4 := ip
+	if pt.IsNat64(ipn.Local464Resolver, ip) { // un-nat64, when dns64 done by local464-resolver
+		// TODO: check if the network this process binds to has ipv4 connectivity
+		ipx4 = pt.X64(ipn.Local464Resolver, ip) // ipx4 may be nil
+		if len(ipx4) < net.IPv4len {            // no nat?
+			ipx4 = ip // reassign the actual ip
+			log.Warnf("t.tcp.handle: No local nat64 to ip4(%v) for ip6(%v)", ipx4, ip)
+		}
+	}
+	return ipx4
+}
+
+func netipFrom(ip net.IP) *netip.Addr {
+	if addr, ok := netip.AddrFromSlice(ip); ok {
+		addr = addr.Unmap()
+		return &addr
+	}
+	return nil
+}
+
+func oneRealIp(realips string, dstip net.IP) net.IP {
+	if len(realips) <= 0 {
+		return dstip
+	}
+	// override alg-ip with the first real-ip
+	if ips := strings.Split(realips, ","); len(ips) > 0 {
+		for _, v := range ips {
+			// len may be zero when realips is "," or ""
+			if len(v) > 0 {
+				return net.ParseIP(v)
+			}
+		}
+	}
+	return dstip
+}
+
+func undoAlg(r dnsx.Resolver, algip net.IP) (realips, domains string) {
+	dstip := netipFrom(algip)
+	if gw := r.Gateway(); dstip.IsValid() && gw != nil {
+		dst := dstip.AsSlice()
+		domains = gw.PTR(dst)
+		realips = gw.X(dst)
+	}
+	return
+}
+
+func tcpaddr(conn net.Conn) (*net.TCPAddr, error) {
+	localtcp, ok1 := conn.(core.TCPConn)
+	if !ok1 {
+		return nil, fmt.Errorf("t.tcp Handle: non-tcp-conn(%v)", conn)
+	}
+	localaddr, ok2 := localtcp.LocalAddr().(*net.TCPAddr)
+	if !ok2 {
+		return nil, fmt.Errorf("t.tcp Handle: non-tcp-addr(%v)", localtcp.LocalAddr())
+	}
+	return localaddr, nil
 }

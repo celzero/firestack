@@ -21,6 +21,7 @@ import (
 )
 
 const readDeadline = 30 * time.Second // FIXME: Udp.Timeout
+const K64 = 64 * 1024                 // 64K bytes
 
 var _ core.UDPConn = (*GUDPConn)(nil)
 
@@ -57,6 +58,17 @@ func setupUdpHandler(s *stack.Stack, ep stack.LinkEndpoint, h GUDPConnHandler) {
 	s.SetTransportProtocolHandler(udp.ProtocolNumber, NewUDPForwarder(s, h, ep.MTU()).HandlePacket)
 }
 
+// Perhaps udp conns shouldn't be closed as eagerly as its tcp counterpart
+// Netstack's udp conn is apparently a 'connected udp' socket and it goes through a
+// lot of motions, from what I can tell, to support both unconnected and connected
+// udp sockets. This is untested and unconfirmed speculation from us, but unless
+// intra/udp.go refrains from closing this udp conn, we'll never find out I guess.
+// ref: github.com/google/gvisor/blob/be6ffa7/pkg/tcpip/stack/transport_demuxer.go#L590
+// and: github.com/google/gvisor/blob/be6ffa7/pkg/tcpip/stack/transport_demuxer.go#L75
+// and: github.com/google/gvisor/blob/be6ffa7/pkg/tcpip/transport/udp/endpoint.go#L903
+// via: github.com/google/gvisor/blob/be6ffa7/pkg/tcpip/adapters/gonet/gonet.go#L315
+// fin: github.com/google/gvisor/blob/be6ffa7/pkg/tcpip/transport/udp/endpoint.go#L220
+// but: github.com/google/gvisor/blob/be6ffa7/pkg/tcpip/transport/udp/endpoint.go#L180
 func NewUDPForwarder(s *stack.Stack, h GUDPConnHandler, mtu uint32) *udp.Forwarder {
 	return udp.NewForwarder(s, func(request *udp.ForwarderRequest) {
 		id := request.ID()
@@ -64,6 +76,9 @@ func NewUDPForwarder(s *stack.Stack, h GUDPConnHandler, mtu uint32) *udp.Forward
 		// src 10.111.222.1:20716; same as endpoint.GetRemoteAddress
 		src := remoteUDPAddr(id)
 		// dst 10.111.222.3:53; same as endpoint.GetLocalAddress
+		// but it may not always be the true dst (for now it is),
+		// especially if the resulting udp-conn is setup to handle
+		// multiple dst in the unconnected udp case.
 		dst := localUDPAddr(id)
 
 		gc := NewGUDPConn(s, request, src, dst)
@@ -75,33 +90,37 @@ func NewUDPForwarder(s *stack.Stack, h GUDPConnHandler, mtu uint32) *udp.Forward
 		// TODO: on stack.close, mop these goroutines up; just too many of them
 		// hanging around with failing dns queries (esp with happy-eyeballs)
 		go func() {
-			// defer gc.gudp.Close() ?
-
-			log.Debugf("ns.udp.forwarder: src(%v) => dst(%v)", src, dst)
+			log.Debugf("ns.udp.forwarder: NEW src(%v) => dst(%v)", src, dst)
 
 			ok := h.OnNewConn(gc, src, dst)
 			if !ok {
 				return
 			}
 
-			// TODO: should q be init inside the for-loop?
-			q := make([]byte, mtu)
+			// assign a big enough buffer since netstack does assemble fragmented packets
+			// which could go as big as max-packet-size (65K?)
+			// also: github.com/cloudflare/slirpnetstack/blob/41e49c3294/proxy.go#L73
+			// and: github.com/cloudflare/slirpnetstack/blob/41e49c3294/proxy.go#L114
+			// max: github.com/google/gvisor/blob/be6ffa78/pkg/tcpip/transport/udp/protocol.go#L43
+			// though, we never expect to exceed mtu, so we can use a smaller buffer?
+			q := make([]byte, K64)
 			for {
 				gc.gudp.SetDeadline(time.Now().Add(readDeadline))
+				// addr is gc.gudp.RemoteAddr() ie gc.LocalAddr()
+				// github.com/google/gvisor/blob/be6ffa78e/pkg/tcpip/transport/udp/endpoint.go#L298
 				if n, addr, err := gc.gudp.ReadFrom(q); err == nil {
-					// TODO: pooling bytes
 					data := append([]byte{}, q[:n]...)
-					// src(10.111.222.1:53)
+					// who(10.111.222.3:17711)
 					// dst(l:10.111.222.3:17711 / r:10.111.222.1:53)
 					who := addr.(*net.UDPAddr)
 					l := gc.LocalAddr()
 					r := gc.RemoteAddr()
-					log.Debugf("ns.udp.forwarder: data src(%v) => dst(l:%v / r:%v)", who, l, r)
+					log.Debugf("ns.udp.forwarder: DATA src(%v) => dst(l:%v / r:%v)", who, l, r)
 					if errh := h.HandleData(gc, data[:n], r); errh != nil {
 						break
 					}
 				} else {
-					log.Debugf("ns.udp.forwarder: read done(%v)", err)
+					log.Debugf("ns.udp.forwarder: DONE err(%v)", err)
 					break
 				}
 			}

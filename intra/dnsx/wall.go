@@ -16,7 +16,11 @@ import (
 
 // question
 
-func (r *resolver) block(msg *dns.Msg) (ans *dns.Msg, blocklists string, err error) {
+func (r *resolver) block(t Transport, msg *dns.Msg) (ans *dns.Msg, blocklists string, err error) {
+	if t.ID() == ALG || t.ID() == BlockFree {
+		return nil, "", errBlockFreeTransport
+	}
+
 	b := r.rdnsl
 	if b == nil {
 		return nil, "", errNoRdns
@@ -56,7 +60,11 @@ func (r *resolver) applyBlocklists(q *dns.Msg) (ans *dns.Msg, blocklists string,
 
 // answer
 
-func (r *resolver) blockRes(q *dns.Msg, ans *dns.Msg, blocklistStamp string) (finalans *dns.Msg, blocklistNames string) {
+func (r *resolver) blockRes(t Transport, q *dns.Msg, ans *dns.Msg, blocklistStamp string) (finalans *dns.Msg, blocklistNames string) {
+	if t.ID() == ALG || t.ID() == BlockFree {
+		return nil, ""
+	}
+
 	// remote block resolution, if any
 	br := r.rdnsr
 	var err error

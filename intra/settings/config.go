@@ -9,7 +9,6 @@ import (
 	"errors"
 	"net/netip"
 	"strconv"
-	"strings"
 
 	"github.com/celzero/firestack/intra/log"
 	"golang.org/x/net/proxy"
@@ -197,17 +196,13 @@ func NewAuthProxyOptions(username string, password string, ip string, port strin
 
 // NewProxyOptions returns a new ProxyOptions object.
 func NewProxyOptions(ip string, port string) *ProxyOptions {
-	return NewAuthProxyOptions(/*user*/"", /*password*/"", ip, port)
+	return NewAuthProxyOptions("" /*user*/, "" /*password*/, ip, port)
 }
 
 func (d *DNSOptions) String() string {
-	ipport := strings.Split(d.IPPort, ":")
-	return ipport[0] + "," + ipport[1]
+	return d.IPPort
 }
 
 func (p *ProxyOptions) String() string {
-	ipport := strings.Split(p.IPPort, ":")
-	username := p.Auth.User
-	password := p.Auth.Password
-	return username + "," + password + "," + ipport[0] + "," + ipport[1]
+	return p.Auth.User + "," + p.Auth.Password + "," + p.IPPort
 }

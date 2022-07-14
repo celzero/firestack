@@ -29,9 +29,11 @@ const (
 	DNSCrypt = "DNSCrypt"
 	DNS53    = "DNS"
 
-	// special DNS transports (IDs)
-	System  = "System"  // network/os provided dns
-	Default = "Default" // default (fallback) dns
+	// special singleton DNS transports (IDs)
+	System    = "System"    // network/os provided dns
+	Default   = "Default"   // default (fallback) dns
+	BlockFree = "BlockFree" // no blocks
+	ALG       = "alg"       // dns application-level gateway
 )
 
 const (
@@ -41,9 +43,10 @@ const (
 
 var (
 	errNoSuchTransport     = errors.New("missing transport")
-	errNoRdns              = errors.New("no rethinkdns")
-	errRdnsLocalIncorrect  = errors.New("RethinkDNS local is not remote")
-	errRdnsRemoteIncorrect = errors.New("RethinkDNS remote is not local")
+	errBlockFreeTransport  = errors.New("block free transport")
+	errNoRdns              = errors.New("no rdns")
+	errRdnsLocalIncorrect  = errors.New("rdns local is not remote")
+	errRdnsRemoteIncorrect = errors.New("rdns remote is not local")
 )
 
 // Transport represents a DNS query transport.  This interface is exported by gobind,
@@ -73,6 +76,7 @@ type Resolver interface {
 	Remove(id string) bool
 	AddSystemDNS(t Transport) bool
 	RemoveSystemDNS() int
+	Gateway() Gateway
 	IsDnsAddr(network, ipport string) bool
 	Forward(q []byte) ([]byte, error)
 	Serve(conn Conn)
@@ -103,6 +107,7 @@ func NewResolver(fakeaddrs string, tunmode *settings.TunMode, defaultdns Transpo
 		localdomains: UndelegatedDomainsTrie(),
 	}
 	r.Add(defaultdns)
+	r.Add(NewDNSGateway(defaultdns))
 	r.loadaddrs(fakeaddrs)
 	return r
 }
@@ -112,9 +117,36 @@ type oneTransport struct {
 	t Transport
 }
 
+func (r *resolver) Gateway() Gateway {
+	if gw, ok := r.transports[ALG]; ok {
+		return gw.(Gateway)
+	}
+	return nil
+}
+
 // Implements ipn.Exchange
 func (one *oneTransport) Exchange(q []byte) (r []byte, err error) {
-	return one.t.Query(NetTypeUDP, q, &Summary{})
+	ans1, err1 := one.t.Query(NetTypeUDP, q, &Summary{})
+	if err1 != nil {
+		return ans1, err1
+	}
+	// if the transport type is anything else but dns53, then the
+	// ans isn't expected to be truncated. So, nothing left to do.
+	if one.t.Type() != DNS53 {
+		return ans1, err1
+	}
+
+	msg1 := &dns.Msg{}
+	err1 = msg1.Unpack(ans1)
+	if err != nil {
+		return ans1, err1
+	}
+	if !msg1.Truncated {
+		return ans1, err1
+	}
+
+	// else if: returned response is truncated dns ans, retry over tcp
+	return one.t.Query(NetTypeTCP, q, &Summary{})
 }
 
 // Implements RdnsResolver
@@ -172,6 +204,10 @@ func (r *resolver) Add(t Transport) (ok bool) {
 	defer r.Unlock()
 	r.transports[t.ID()] = t
 	r.pool[t.ID()] = &oneTransport{t: t}
+	// if resetting default transport, update underlying transport for alg
+	if gw := r.Gateway(); t.ID() == Default && gw != nil {
+		gw.WithTransport(t)
+	}
 	return true
 }
 
@@ -231,16 +267,7 @@ func (r *resolver) Forward(q []byte) ([]byte, error) {
 		return nil, err
 	}
 
-	res1, blocklists, err := r.block(msg)
-	if err == nil {
-		b, e := res1.Pack()
-		summary.Latency = time.Since(starttime).Seconds()
-		summary.Status = Complete
-		summary.Blocklists = blocklists
-		summary.Response = b
-		return b, e
-	}
-
+	// figure out transport to use
 	qname := qname(msg)
 	id := r.requiresSystem(qname)
 	if len(id) <= 0 {
@@ -248,7 +275,7 @@ func (r *resolver) Forward(q []byte) ([]byte, error) {
 	} else {
 		log.Infof("transport (udp): using system-dns %s for %s", id, qname)
 	}
-
+	// retrieve transport
 	r.RLock()
 	var t Transport
 	t, ok := r.transports[id]
@@ -260,6 +287,18 @@ func (r *resolver) Forward(q []byte) ([]byte, error) {
 		return nil, errNoSuchTransport
 	}
 
+	// block query if needed (skipped for alg/block-free)
+	res1, blocklists, err := r.block(t, msg)
+	if err == nil {
+		b, e := res1.Pack()
+		summary.Latency = time.Since(starttime).Seconds()
+		summary.Status = Complete
+		summary.Blocklists = blocklists
+		summary.Response = b
+		return b, e
+	}
+
+	// query the transport
 	summary.Type = t.Type()
 	summary.ID = t.ID()
 	res2, err := t.Query(NetTypeUDP, q, summary)
@@ -274,7 +313,8 @@ func (r *resolver) Forward(q []byte) ([]byte, error) {
 		return res2, err
 	}
 
-	ans2, blocklistnames := r.blockRes(msg, ans1, summary.Blocklists)
+	// block response if needed
+	ans2, blocklistnames := r.blockRes(t, msg, ans1, summary.Blocklists)
 	// overwrite response when blocked
 	if len(blocklistnames) > 0 && ans2 != nil {
 		// summary latency, response, status, ips already set by transport t
@@ -289,7 +329,7 @@ func (r *resolver) Forward(q []byte) ([]byte, error) {
 			return d64, nil
 		}
 	} else {
-		log.Warnf("missing onetransport for %s", t.ID())
+		log.Warnf("dns64: missing onetransport for %s", t.ID())
 	}
 
 	return ans1.Pack()
@@ -321,16 +361,7 @@ func (r *resolver) forwardQuery(q []byte, c io.Writer) error {
 		return err
 	}
 
-	res1, blocklists, err := r.block(msg)
-	if err == nil {
-		b, e := res1.Pack()
-		summary.Latency = time.Since(starttime).Seconds()
-		summary.Status = Complete
-		summary.Blocklists = blocklists
-		summary.Response = b
-		return e
-	}
-
+	// figure out transport to use
 	qname := qname(msg)
 	id := r.requiresSystem(qname)
 	if len(id) <= 0 {
@@ -338,7 +369,7 @@ func (r *resolver) forwardQuery(q []byte, c io.Writer) error {
 	} else {
 		log.Infof("transport (tcp): using system-dns %s for %s", id, qname)
 	}
-
+	// retrieve transport
 	r.RLock()
 	var t Transport
 	t, ok := r.transports[id]
@@ -350,6 +381,19 @@ func (r *resolver) forwardQuery(q []byte, c io.Writer) error {
 		return errNoSuchTransport
 	}
 
+	// block query if needed (skipped for alg/block-free)
+	res1, blocklists, err := r.block(t, msg)
+	if err == nil {
+		b, e := res1.Pack()
+		summary.Latency = time.Since(starttime).Seconds()
+		summary.Status = Complete
+		summary.Blocklists = blocklists
+		summary.Response = b
+		writeto(c, b, len(b))
+		return e
+	}
+
+	// query the transport
 	summary.Type = t.Type()
 	summary.ID = t.ID()
 	res2, err := t.Query(NetTypeTCP, q, summary)
@@ -364,7 +408,7 @@ func (r *resolver) forwardQuery(q []byte, c io.Writer) error {
 		return qerr
 	}
 
-	ans2, blocklistnames := r.blockRes(msg, ans1, summary.Blocklists)
+	ans2, blocklistnames := r.blockRes(t, msg, ans1, summary.Blocklists)
 	// overwrite response when blocked
 	if len(blocklistnames) > 0 {
 		// summary latency, response, status, ips already set by transport t
@@ -391,22 +435,17 @@ func (r *resolver) forwardQuery(q []byte, c io.Writer) error {
 			resp = d64
 		}
 	} else {
-		log.Warnf("missing onetransport for %s", t.ID())
+		log.Warnf("dns64: missing onetransport for %s", t.ID())
 	}
 
-	// Use a combined write to ensure atomicity.  Otherwise, writes from two
-	// responses could be interleaved.
-	rlbuf := make([]byte, rlen+2)
-	binary.BigEndian.PutUint16(rlbuf, uint16(rlen))
-	copy(rlbuf[2:], resp)
-	n, err := c.Write(rlbuf)
+	n, err := writeto(c, resp, rlen)
 	if err != nil {
 		summary.Status = InternalError
 		return err
 	}
-	if n != len(rlbuf) {
+	if n != rlen {
 		summary.Status = InternalError
-		return fmt.Errorf("incomplete response write: %d < %d", n, len(rlbuf))
+		return fmt.Errorf("incomplete response write: %d < %d", n, rlen)
 	}
 	return qerr
 }
@@ -472,4 +511,13 @@ func qname(msg *dns.Msg) string {
 func (r *resolver) loadaddrs(csvaddr string) {
 	r.fakeTcpAddr(csvaddr)
 	r.fakeUdpAddr(csvaddr)
+}
+
+func writeto(w io.Writer, b []byte, l int) (int, error) {
+	rlbuf := make([]byte, l+2)
+	binary.BigEndian.PutUint16(rlbuf, uint16(l))
+	copy(rlbuf[2:], b)
+	// Use a combined write to ensure atomicity.
+	// Otherwise, writes from two responses could be interleaved.
+	return w.Write(rlbuf)
 }
