@@ -228,9 +228,11 @@ func (h *udpHandler) Connect(conn core.UDPConn, target *net.UDPAddr) error {
 
 	proxymode := h.hasProxy() && (h.socks5Proxy() || h.httpsProxy())
 
+	dnsredir := h.isDns(target)
+
 	var c interface{}
 	var err error
-	if proxymode {
+	if proxymode && !dnsredir {
 		// TODO: translate target to addr4 when local dns64/nat64
 		// TODO: target can be nil: What happens then?
 		// deprecated: github.com/golang/go/issues/25104
@@ -384,6 +386,10 @@ func (h *udpHandler) isDNSCrypt(addr *net.UDPAddr) bool {
 	return false
 }
 
+func (h* udpHandler) isDns(addr *net.UDPAddr) bool {
+	return h.isDoh(addr) || h.isDNSCrypt(addr) || h.isDNSProxy(addr)
+}
+
 func (h *udpHandler) dnsOverride(nat *tracker, conn core.UDPConn, addr *net.UDPAddr, query []byte) bool {
 	// TODO: copy required? query := append([]byte{}, data...)
 	h.RLock()
@@ -518,6 +524,12 @@ func (h *udpHandler) hasProxy() bool {
 func (h *udpHandler) SetProxyOptions(po *settings.ProxyOptions) error {
 	var fproxy proxy.Dialer
 	var err error
+	if po == nil {
+		h.proxy = nil
+		err = fmt.Errorf("udp: proxyopts nil")
+		return err
+	}
+
 	if h.socks5Proxy() {
 		// x.net.proxy doesn't yet support udp
 		// https://github.com/golang/net/blob/62affa334/internal/socks/socks.go#L233

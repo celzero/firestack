@@ -385,12 +385,16 @@ func (h *tcpHandler) SetDNSProxy(d dns53.Transport) {
 func (h *tcpHandler) SetProxyOptions(po *settings.ProxyOptions) error {
 	var fproxy proxy.Dialer
 	var err error
+	if po == nil {
+		h.proxy = nil
+		return fmt.Errorf("tcp: proxyopts nil")
+	}
 	if h.socks5Proxy() {
 		fproxy, err = proxy.SOCKS5("tcp", po.IPPort, po.Auth, proxy.Direct)
 	} else if h.httpsProxy() {
-		err = fmt.Errorf("http-proxy not supported")
+		err = fmt.Errorf("tcp: http-proxy not supported")
 	} else {
-		err = fmt.Errorf("proxy mode not set")
+		err = fmt.Errorf("tcp: proxy mode not set")
 	}
 	if err != nil {
 		h.proxy = nil

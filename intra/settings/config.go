@@ -150,16 +150,27 @@ func DefaultTunMode() *TunMode {
 	}
 }
 
+func addrport(ip string, port string) (*netip.AddrPort, error) {
+	var ipaddr netip.Addr
+	var p int
+	var err error
+	if ipaddr, err = netip.ParseAddr(ip); err == nil {
+		if p, err = strconv.Atoi(port); err == nil {
+			ipp := netip.AddrPortFrom(ipaddr, uint16(p))
+			return &ipp, nil
+		}
+	}
+	return nil, err
+}
+
 // NewDNSOptions returns a new DNSOpitons object.
 func NewDNSOptions(ip string, port string) (*DNSOptions, error) {
+	var ipp *netip.AddrPort
 	var err error
-	if ip, err := netip.ParseAddr(ip); err == nil {
-		if p, err := strconv.Atoi(port); err == nil {
-			ipp := netip.AddrPortFrom(ip, uint16(p))
-			return &DNSOptions{
-				IPPort: ipp.String(),
-			}, nil
-		}
+	if ipp, err = addrport(ip, port); err == nil {
+		return &DNSOptions{
+			IPPort: ipp.String(),
+		}, nil
 	}
 	log.Warnf("dnsopt(%s:%s); err(%v)", ip, port, err)
 	return nil, err
@@ -167,27 +178,29 @@ func NewDNSOptions(ip string, port string) (*DNSOptions, error) {
 
 // NewAuthProxyOptions returns a new ProxyOptions object with authentication object.
 func NewAuthProxyOptions(username string, password string, ip string, port string) *ProxyOptions {
+	ipp, err := addrport(ip, port)
+	if err != nil {
+		log.Warnf("proxyopt(%s:%s); ipport invalid(%v)", ip, port, err)
+		return nil
+	}
 	if len(username) <= 0 || len(password) <= 0 {
-		return NewProxyOptions(ip, port)
+		username = ""
+		password = ""
+		log.Warnf("proxyopt; empty user(%s)/pwd(%d)", username, len(password))
 	}
 	auth := proxy.Auth{
 		User:     username,
 		Password: password,
 	}
-	// TODO: validate IP and port, protocol
 	return &ProxyOptions{
 		Auth:   &auth,
-		IPPort: ip + ":" + port,
+		IPPort: ipp.String(),
 	}
 }
 
 // NewProxyOptions returns a new ProxyOptions object.
 func NewProxyOptions(ip string, port string) *ProxyOptions {
-	// TODO: validate IP and port, protocol
-	return &ProxyOptions{
-		Auth:   nil,
-		IPPort: ip + ":" + port,
-	}
+	return NewAuthProxyOptions(/*user*/"", /*password*/"", ip, port)
 }
 
 func (d *DNSOptions) String() string {
@@ -197,14 +210,7 @@ func (d *DNSOptions) String() string {
 
 func (p *ProxyOptions) String() string {
 	ipport := strings.Split(p.IPPort, ":")
-	var username string
-	var password string
-	if p.Auth == nil {
-		username = ""
-		password = ""
-	} else {
-		username = p.Auth.User
-		password = p.Auth.Password
-	}
+	username := p.Auth.User
+	password := p.Auth.Password
 	return username + "," + password + "," + ipport[0] + "," + ipport[1]
 }
