@@ -21,7 +21,6 @@ import (
 
 	"github.com/miekg/dns"
 
-	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/xdns"
 
 	"github.com/celzero/gotrie/trie"
@@ -392,12 +391,18 @@ func load(blacklistconfigjson string) ([]string, map[string]string, error) {
 }
 
 func (brave *bravedns) decode(stamp string, ver string) (info []*listinfo, err error) {
+	haspad := strings.Contains(stamp, "=")
 	decoder := b64.RawStdEncoding
+	if haspad {
+		decoder = b64.StdEncoding
+	}
 	if ver == ver0 {
 		stamp, err = url.QueryUnescape(stamp)
 	} else if ver == ver1 {
-		stamp, err = url.PathUnescape(stamp)
 		decoder = b64.RawURLEncoding
+		if haspad {
+			decoder = b64.URLEncoding
+		}
 	} else {
 		err = fmt.Errorf("version %s unsupported", ver)
 	}
@@ -512,7 +517,8 @@ func (brave *bravedns) flagtostamp(fl []uint16) ([]uint16, error) {
 		dataindex := brave.countSetBits(hmask) + 1
 		datafound := (databit & 0x1) == 1
 		if !datafound {
-			log.Debugf("!!flag not found: len(res) %d / dataindex %d / found? %t\n", len(res), dataindex, datafound)
+			// log too verbose
+			// log.Debugf("!!flag not found: len(res) %d / dataindex %d / found? %t\n", len(res), dataindex, datafound)
 		}
 		if datafound {
 			// upsert, as in 'n' is updated in-place
@@ -530,7 +536,8 @@ func (brave *bravedns) flagtostamp(fl []uint16) ([]uint16, error) {
 			}
 			res = nxt
 		}
-		log.Debugf("done: %d/%x | %x | n:%x / hidx: %d / mask: %x / databit: %x / didx: %d\n", val, res, *h, n, hindex, hmask, databit, dataindex)
+		// log too verbose
+		// log.Debugf("done: %d/%x | %x | n:%x / hidx: %d / mask: %x / databit: %x / didx: %d\n", val, res, *h, n, hindex, hmask, databit, dataindex)
 	}
 
 	return res, nil
@@ -543,7 +550,9 @@ func encode(ver string, bin []uint16) (string, error) {
 
 	bytes := uinttobytes(bin)
 
-	return ver + verseperator + b64.RawURLEncoding.EncodeToString(bytes), nil
+	// decode may recv padded or unpadded stamps, but always encode with pad
+	// as FrozenTrie.DNLookup expects only padded b64url for ver1
+	return ver + verseperator + b64.URLEncoding.EncodeToString(bytes), nil
 }
 
 func stringtobyte(str string) []byte {

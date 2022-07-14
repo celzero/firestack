@@ -218,7 +218,7 @@ func (t *transport) doQuery(q []byte) (response []byte, blocklists string, serve
 			return
 		}
 		// skipping block because err
-		log.Debugf("skipping local block for %s with err %s", blocklists, err)
+		log.Debugf("skipping local block for %s with err %v", blocklists, err)
 	} else {
 		log.Debugf("forward query: no local block")
 	}
@@ -543,8 +543,7 @@ func (t *transport) resolveBlock(q []byte, res *http.Response, ans []byte) (bloc
 
 func (t *transport) blocklistsFromHeader(bravedns dnsx.BraveDNS, res *http.Response) (blocklistNames string) {
 	blocklistStamp := res.Header.Get(bravedns.GetBlocklistStampHeaderKey())
-	log.Debugf("header", res.Header)
-	log.Debugf("st", blocklistStamp)
+	log.Debugf("header / st : %v / %v", res.Header, blocklistStamp)
 	if len(blocklistStamp) <= 0 {
 		return
 	}
@@ -554,7 +553,7 @@ func (t *transport) blocklistsFromHeader(bravedns dnsx.BraveDNS, res *http.Respo
 		log.Errorf("could not resolve blocklist-stamp %v", err)
 		return
 	}
-	log.Debugf(blocklistNames)
+	log.Debugf("blocklists-names %s", blocklistNames)
 	return
 }
 

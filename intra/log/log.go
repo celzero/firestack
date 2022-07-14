@@ -47,30 +47,30 @@ func SetLevel(level LogLevel) {
 
 func Debugf(msg string, args ...interface{}) {
 	if logger != nil {
-		logger.Debugf(msg, args...)
+		logger.Debugf("D " + msg, args...)
 	}
 }
 
 func Infof(msg string, args ...interface{}) {
 	if logger != nil {
-		logger.Infof(msg, args...)
+		logger.Infof("I " + msg, args...)
 	}
 }
 
 func Warnf(msg string, args ...interface{}) {
 	if logger != nil {
-		logger.Warnf(msg, args...)
+		logger.Warnf("W " + msg, args...)
 	}
 }
 
 func Errorf(msg string, args ...interface{}) {
 	if logger != nil {
-		logger.Errorf(msg, args...)
+		logger.Errorf("E " + msg, args...)
 	}
 }
 
 func Fatalf(msg string, args ...interface{}) {
 	if logger != nil {
-		logger.Fatalf(msg, args...)
+		logger.Fatalf("F " + msg, args...)
 	}
 }
