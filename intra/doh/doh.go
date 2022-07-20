@@ -60,6 +60,7 @@ type transport struct {
 	ips                ipmap.IPMap
 	client             http.Client
 	dialer             *net.Dialer
+	status             int
 	hangoverLock       sync.RWMutex
 	hangoverExpiration time.Time
 }
@@ -147,6 +148,7 @@ func NewTransport(rawurl string, addrs []string, dialer *net.Dialer, auth Client
 		port:     port,
 		dialer:   dialer,
 		ips:      ipmap.NewIPMap(dialer.Resolver),
+		status:   dnsx.Start,
 	}
 
 	ipset := t.ips.Of(t.hostname, addrs)
@@ -389,7 +391,7 @@ func (t *transport) Query(_ string, q []byte, summary *dnsx.Summary) ([]byte, er
 	if qerr != nil {
 		status = qerr.Status()
 	}
-
+	t.status = status
 	summary.Latency = elapsed.Seconds()
 	summary.Response = response
 	summary.Server = server.IP.String()
@@ -401,4 +403,8 @@ func (t *transport) Query(_ string, q []byte, summary *dnsx.Summary) ([]byte, er
 
 func (t *transport) GetAddr() string {
 	return t.hostname
+}
+
+func (t *transport) Status() int {
+	return t.status
 }

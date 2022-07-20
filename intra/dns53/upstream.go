@@ -26,6 +26,7 @@ type transport struct {
 	dnsx.Transport
 	id     string
 	ipport string
+	status int
 }
 
 // NewTransport returns a DNS transport, ready for use.
@@ -37,6 +38,7 @@ func NewTransport(id, ip, port string) (t dnsx.Transport, err error) {
 	t = &transport{
 		id:     id,
 		ipport: do.IPPort,
+		status: dnsx.Start,
 	}
 	log.Infof("dns53(%s) setup: %s", id, do.IPPort)
 	return
@@ -51,6 +53,7 @@ func NewTransportFrom(id string, ipp netip.AddrPort) (t dnsx.Transport, err erro
 	t = &transport{
 		id:     id,
 		ipport: do.IPPort,
+		status: dnsx.Start,
 	}
 	log.Infof("dns53(%s) setup: %s", id, do.IPPort)
 	return
@@ -180,6 +183,7 @@ func (t *transport) Query(network string, q []byte, summary *dnsx.Summary) ([]by
 		err = qerr
 		status = qerr.Status()
 	}
+	t.status = status
 	summary.Latency = elapsed.Seconds()
 	summary.Response = response
 	summary.Server = t.GetAddr()
@@ -199,4 +203,8 @@ func (t *transport) Type() string {
 
 func (t *transport) GetAddr() string {
 	return t.ipport
+}
+
+func (t *transport) Status() int {
+	return t.status
 }

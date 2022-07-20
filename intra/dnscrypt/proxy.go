@@ -73,6 +73,7 @@ type Proxy struct {
 	routes                       []string
 	liveServers                  []string
 	sigterm                      context.CancelFunc
+	status                       int
 }
 
 func (proxy *Proxy) exchangeWithTCPServer(serverInfo *ServerInfo, sharedKey *[32]byte, encryptedQuery []byte, clientNonce []byte) ([]byte, error) {
@@ -259,7 +260,7 @@ func (proxy *Proxy) resolve(data []byte, s *dnsx.Summary, trunc bool) (response 
 	if errors.As(err, &qerr) {
 		status = qerr.Status()
 	}
-
+	proxy.status = status
 	s.Latency = latency.Seconds()
 	s.Query = data
 	s.Response = response
@@ -434,6 +435,10 @@ func (p *Proxy) GetAddr() string {
 	return ""
 }
 
+func (p *Proxy) Status() int {
+	return p.status
+}
+
 // NewProxy creates a dnscrypt proxy
 func NewProxy() *Proxy {
 	return &Proxy{
@@ -447,5 +452,6 @@ func NewProxy() *Proxy {
 		mainProto:                    "tcp",
 		serversInfo:                  NewServersInfo(),
 		liveServers:                  nil,
+		status:                       dnsx.Start,
 	}
 }
