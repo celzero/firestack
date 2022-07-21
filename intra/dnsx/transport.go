@@ -33,6 +33,7 @@ const (
 	System    = "System"    // network/os provided dns
 	Default   = "Default"   // default (fallback) dns
 	BlockFree = "BlockFree" // no blocks
+	BlockAll  = "BlockAll"  // all blocks
 	ALG       = "alg"       // dns application-level gateway
 )
 
@@ -62,6 +63,8 @@ type Transport interface {
 	Query(network string, q []byte, summary *Summary) ([]byte, error)
 	// Return the server host address used to initialize this transport.
 	GetAddr() string
+	// State of the transport after previous query (see: queryerror.go)
+	Status() int
 }
 
 type Conn interface {

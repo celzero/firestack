@@ -104,6 +104,7 @@ func NewTunnel(fakedns string, defaultdns dnsx.Transport, tunWriter io.WriteClos
 		natpt:    natpt,
 		resolver: dnsx.NewResolver(fakedns, defaultmode, defaultdns, listener, natpt),
 	}
+	t.resolver.Add(NewGroundedTransport())
 	if err := t.registerConnectionHandlers(fakedns, l3, blocker, listener); err != nil {
 		return nil, err
 	}
@@ -116,6 +117,7 @@ func NewGTunnel(fakedns string, defaultdns dnsx.Transport, fd int, l3 string, mt
 
 	natpt := ipn.NewNatPt(l3, tunmode)
 	resolver := dnsx.NewResolver(fakedns, tunmode, defaultdns, listener, natpt)
+	resolver.Add(NewGroundedTransport())
 
 	tcph := NewTCPHandler(resolver, natpt, blocker, tunmode, listener)
 	udph := NewUDPHandler(resolver, natpt, blocker, tunmode, listener)

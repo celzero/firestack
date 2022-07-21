@@ -227,6 +227,26 @@ func RefusedResponseFromMessage(srcMsg *dns.Msg) (dstMsg *dns.Msg, err error) {
 			dstMsg.Answer = []dns.RR{rr}
 			sendHInfoResponse = false
 		}
+	} else if question.Qtype == dns.TypeHTTPS || question.Qtype == dns.TypeSVCB {
+		rrh := new(dns.HTTPS)
+		rrh.Hdr = dns.RR_Header{
+			Name:   question.Name,
+			Rrtype: dns.TypeHTTPS,
+			Class:  dns.ClassINET,
+			Ttl:    ttl,
+		}
+		// some random 63-char string
+		rrh.Target = fakedomain
+		rra := new(dns.A)
+		rra.Hdr = dns.RR_Header{
+			Name:   fakedomain,
+			Rrtype: dns.TypeA,
+			Class:  dns.ClassINET,
+			Ttl:    ttl,
+		}
+		rra.A = ip4.To4()
+		dstMsg.Answer = []dns.RR{rrh, rra}
+		sendHInfoResponse = false
 	}
 
 	if sendHInfoResponse {

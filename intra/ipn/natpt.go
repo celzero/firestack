@@ -96,12 +96,15 @@ func (n *natPt) X64(id string, ip6 []byte) []byte {
 }
 
 func (n *natPt) ResetNat64Prefix(ip6prefix string) bool {
-	if _, ipnet, err := net.ParseCIDR(ip6prefix); err == nil {
+	var err error
+	var ipnet *net.IPNet
+	if _, ipnet, err = net.ParseCIDR(ip6prefix); err == nil {
 		n.dns64.register(UnderlayResolver) // wipe the slate clean
-		n.dns64.addNat64Prefix(UnderlayResolver, ipnet)
-	} else {
-		log.Warnf("natpt: invalid nat64 prefix: %s; err %v", ip6prefix, err)
+		if err = n.dns64.addNat64Prefix(UnderlayResolver, ipnet); err == nil {
+			return true
+		}
 	}
+	log.Warnf("natpt: could not add underlay nat64 prefix: %s; err %v", ip6prefix, err)
 	return false
 }
 

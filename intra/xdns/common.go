@@ -47,8 +47,9 @@ var (
 )
 
 var (
-	ip4 = net.ParseIP("0.0.0.0")
-	ip6 = net.ParseIP("::")
+	ip4        = net.ParseIP("0.0.0.0")
+	ip6        = net.ParseIP("::")
+	fakedomain = "MTE1LDI1MiwxNjMsMjI4LDg5LDI0NSwxOTIsNzEsNiwyNTQsNjMsOTEsMjE1LDY.lan"
 )
 
 var (

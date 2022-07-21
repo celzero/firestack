@@ -27,6 +27,10 @@ func newDNSProxy(id string, ipp netip.AddrPort) (d dnsx.Transport, err error) {
 	return dns53.NewTransportFrom(id, ipp)
 }
 
+func NewGroundedTransport() (d dnsx.Transport) {
+	return dns53.NewGroundedTransport()
+}
+
 func (t *intratunnel) NewDNSCryptProxy(resolvers, relays string) (dnscrypt.Controller, error) {
 	var err error
 	if t.dnscrypt != nil {
