@@ -236,7 +236,7 @@ func dnsExchange(proxy *Proxy, proto string, query *dns.Msg, serverAddress strin
 		queryCopy := query.Copy()
 		queryCopy.Id += uint16(options)
 		go func(query *dns.Msg, delay time.Duration) {
-			option := _dnsExchange(proxy, proto, query, serverAddress, relayTCPAddr, 1500, relayForCerts)
+			option := _dnsExchange(proxy, proto, query, serverAddress, relayTCPAddr, 0, relayForCerts)
 			option.priority = 0
 			channel <- option
 			time.Sleep(delay)
