@@ -31,6 +31,7 @@ import (
 	"net"
 	"time"
 
+	"github.com/txthinking/socks5"
 	"golang.org/x/net/proxy"
 
 	"github.com/celzero/firestack/intra/dns53"
@@ -338,7 +339,17 @@ func (h *tcpHandler) Handle(conn net.Conn, target *net.TCPAddr) error {
 		// deprecated: github.com/golang/go/issues/25104
 		generic, err = p.Dial(target.Network(), target.String())
 		if generic != nil {
-			c = generic.(*net.TCPConn)
+			switch uc := generic.(type) {
+			// if p is golang/x/net/proxy, then underlying-conn is simply uc
+			case *net.TCPConn:
+				c = uc
+			// if p is txthinking/socks5, then underlying-conn is uc.TCPConn
+			// github.com/txthinking/socks5/blob/39268fae/client.go#L15
+			case *socks5.Client:
+				c = uc.TCPConn
+			default:
+				err = fmt.Errorf("Proxy dialer failed to make a tcp conn")
+			}
 		}
 	} else if summary.ServerPort == 443 {
 		if h.alwaysSplitHTTPS {
@@ -356,13 +367,14 @@ func (h *tcpHandler) Handle(conn net.Conn, target *net.TCPAddr) error {
 	}
 
 	if err != nil {
+		log.Warnf("tcp: err dialing to(%v): %v", target, err)
 		return err
 	}
 	summary.Synack = int32(time.Since(start).Seconds() * 1000)
 
 	go h.forward(conn, c, &summary)
 
-	log.Infof("new proxy conn(%s) from(%s) to target(%s)", target.Network(), conn.LocalAddr(), target)
+	log.Infof("tcp: new proxy conn(%s) from(%s) to target(%s)", target.Network(), conn.LocalAddr(), target)
 	return nil
 }
 
@@ -387,16 +399,26 @@ func (h *tcpHandler) SetProxyOptions(po *settings.ProxyOptions) error {
 	var err error
 	if po == nil {
 		h.proxy = nil
+		log.Warnf("tcp: err proxying to(%v): %v", po, err)
 		return fmt.Errorf("tcp: proxyopts nil")
 	}
 	if h.socks5Proxy() {
-		fproxy, err = proxy.SOCKS5("tcp", po.IPPort, po.Auth, proxy.Direct)
+		// x.net.proxy doesn't yet support udp
+		// https://github.com/golang/net/blob/62affa334/internal/socks/socks.go#L233
+		// if po.Auth.User and po.Auth.Password are empty strings, the upstream
+		// socks5 server may throw err when dialing with golang/net/x/proxy;
+		// although, txthinking/socks5 deals gracefully with empty auth strings
+		// fproxy, err = proxy.SOCKS5("udp", po.IPPort, po.Auth, proxy.Direct)
+		udptimeoutsec := 5 * 60                    // 5m
+		tcptimeoutsec := (2 * 60 * 60) + (40 * 60) // 2h40m
+		fproxy, err = socks5.NewClient(po.IPPort, po.Auth.User, po.Auth.Password, tcptimeoutsec, udptimeoutsec)
 	} else if h.httpsProxy() {
 		err = fmt.Errorf("tcp: http-proxy not supported")
 	} else {
 		err = fmt.Errorf("tcp: proxy mode not set")
 	}
 	if err != nil {
+		log.Warnf("tcp: err proxying to(%v): %v", po, err)
 		h.proxy = nil
 		return err
 	}
