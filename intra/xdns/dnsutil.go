@@ -17,6 +17,8 @@ package xdns
 import (
 	"errors"
 	"net"
+	"net/http"
+	"net/netip"
 	"strings"
 	"unicode/utf8"
 
@@ -81,6 +83,36 @@ func QName(msg *dns.Msg) string {
 		return msg.Question[0].Name
 	}
 	return ""
+}
+
+func Targets(msg *dns.Msg) []string {
+	var targets []string
+	for _, a := range msg.Answer {
+		var target string
+		switch r := a.(type) {
+		case *dns.A:
+			target = r.Header().Name
+		case *dns.AAAA:
+			target = r.Header().Name
+		case *dns.CNAME:
+			target = r.Target
+		case *dns.SVCB:
+			if r.Priority == 0 {
+				target = r.Target
+			}
+		case *dns.HTTPS:
+			if r.Priority == 0 {
+				target = r.Target
+			}
+		default:
+			// no-op
+		}
+		target, _ = NormalizeQName(target)
+		if len(target) > 0 {
+			targets = append(targets, target)
+		}
+	}
+	return targets
 }
 
 func NormalizeQName(str string) (string, error) {
@@ -195,6 +227,26 @@ func RefusedResponseFromMessage(srcMsg *dns.Msg) (dstMsg *dns.Msg, err error) {
 			dstMsg.Answer = []dns.RR{rr}
 			sendHInfoResponse = false
 		}
+	} else if question.Qtype == dns.TypeHTTPS || question.Qtype == dns.TypeSVCB {
+		rrh := new(dns.HTTPS)
+		rrh.Hdr = dns.RR_Header{
+			Name:   question.Name,
+			Rrtype: dns.TypeHTTPS,
+			Class:  dns.ClassINET,
+			Ttl:    ttl,
+		}
+		// some random 63-char string
+		rrh.Target = fakedomain
+		rra := new(dns.A)
+		rra.Hdr = dns.RR_Header{
+			Name:   fakedomain,
+			Rrtype: dns.TypeA,
+			Class:  dns.ClassINET,
+			Ttl:    ttl,
+		}
+		rra.A = ip4.To4()
+		dstMsg.Answer = []dns.RR{rrh, rra}
+		sendHInfoResponse = false
 	}
 
 	if sendHInfoResponse {
@@ -221,6 +273,18 @@ func HasAnyAnswer(msg *dns.Msg) bool {
 	return len(msg.Answer) > 0
 }
 
+func HasAAnswer(msg *dns.Msg) bool {
+	for _, answer := range msg.Answer {
+		if answer.Header().Rrtype == dns.TypeA {
+			rec, ok := answer.(*dns.A)
+			if ok && len(rec.A) >= net.IPv4len {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func HasAAAAAnswer(msg *dns.Msg) bool {
 	for _, answer := range msg.Answer {
 		if answer.Header().Rrtype == dns.TypeAAAA {
@@ -233,9 +297,90 @@ func HasAAAAAnswer(msg *dns.Msg) bool {
 	return false
 }
 
+func AAnswer(msg *dns.Msg) []*netip.Addr {
+	a4 := []*netip.Addr{}
+	for _, answer := range msg.Answer {
+		if answer.Header().Rrtype == dns.TypeA {
+			if rec, ok := answer.(*dns.A); ok {
+				if ipaddr, ok := netip.AddrFromSlice(rec.A); ok {
+					a4 = append(a4, &ipaddr)
+				}
+			}
+		}
+	}
+	return a4
+}
+
+func AAAAAnswer(msg *dns.Msg) []*netip.Addr {
+	a6 := []*netip.Addr{}
+	for _, answer := range msg.Answer {
+		if answer.Header().Rrtype == dns.TypeAAAA {
+			if rec, ok := answer.(*dns.AAAA); ok {
+				if ipaddr, ok := netip.AddrFromSlice(rec.AAAA); ok {
+					a6 = append(a6, &ipaddr)
+				}
+			}
+		}
+	}
+	return a6
+}
+
 func HasAAAAQuestion(msg *dns.Msg) bool {
 	q := msg.Question[0]
 	return q.Qclass == dns.ClassINET && q.Qtype == dns.TypeAAAA
+}
+
+func HasAQuestion(msg *dns.Msg) bool {
+	q := msg.Question[0]
+	return q.Qclass == dns.ClassINET && q.Qtype == dns.TypeA
+}
+
+func HasAQuadAQuestion(msg *dns.Msg) bool {
+	return HasAAAAQuestion(msg) || HasAQuestion(msg)
+}
+
+func MakeARecord(qname string, ip4 string, expiry int) dns.RR {
+	if len(ip4) <= 0 || len(qname) <= 0 {
+		return nil
+	}
+	ttl := uint32(expiry)
+
+	b := net.ParseIP(ip4)
+	if len(b) <= 0 {
+		return nil
+	}
+
+	rec := new(dns.A)
+	rec.Hdr = dns.RR_Header{
+		Name:   qname,
+		Rrtype: dns.TypeA,
+		Class:  dns.ClassINET,
+		Ttl:    ttl,
+	}
+	rec.A = b
+	return rec
+}
+
+func MakeAAAARecord(qname string, ip6 string, expiry int) dns.RR {
+	if len(ip6) <= 0 || len(qname) <= 0 {
+		return nil
+	}
+	ttl := uint32(expiry)
+
+	b := net.ParseIP(ip6)
+	if len(b) <= 0 {
+		return nil
+	}
+
+	rec := new(dns.AAAA)
+	rec.Hdr = dns.RR_Header{
+		Name:   qname,
+		Rrtype: dns.TypeAAAA,
+		Class:  dns.ClassINET,
+		Ttl:    ttl,
+	}
+	rec.AAAA = b
+	return rec
 }
 
 func MaybeToQuadA(answer dns.RR, prefix *net.IPNet) dns.RR {
@@ -367,4 +512,27 @@ func AQuadAUnspecified(msg *dns.Msg) bool {
 		}
 	}
 	return false
+}
+
+// Servfail returns a SERVFAIL response to the query q.
+func Servfail(q []byte) []byte {
+	msg := &dns.Msg{}
+	if err := msg.Unpack(q); err != nil {
+		log.Warnf("Error reading q for servfail: %v", err)
+		return nil
+	}
+	msg.Response = true
+	msg.RecursionAvailable = true
+	msg.Rcode = dns.RcodeServerFailure
+	msg.Extra = nil
+	b, err := msg.Pack()
+	if err != nil {
+		log.Warnf("Error constructing servfail: %v", err)
+	}
+	return b
+}
+
+// GetBlocklistStampHeaderKey returns the http-header key for blocklists stamp
+func GetBlocklistStampHeaderKey() string {
+	return http.CanonicalHeaderKey(blocklistHeaderKey)
 }

@@ -39,10 +39,17 @@ type Blocker interface {
 	// depending on the protocol. Note: IPv4 and IPv6 have very different string
 	// representations: stackoverflow.com/a/48519490
 	// uid is -1 in case owner-uid of the connection couldn't be determined
+	// todo: returns a string "rdnsblockstamp,proxyid" instead of bool
+	// where, rdnsblockstamp can be "", or "1:b64-blockstamp"
+	// and, proxyid can be "allow", "block", or "proxyid"
 	Block(protocol int32, uid int, source string, target string) bool
+	// BlockAlg is called on a new ALG connection setup; return true to block the connection;
+	// false otherwise.
+	BlockAlg(p int32, uid int, src string, dst string, realips string, domains string) bool
 	// Calls in to javaland asking it to bind fd to any internet-capable IPv4 interface.
 	Bind4(fd int)
 	// Calls in to javaland asking it to bind fd to any internet-capable IPv6 interface.
+	// also: github.com/lwip-tcpip/lwip/blob/239918c/src/core/ipv6/ip6.c#L68
 	Bind6(fd int)
 }
 

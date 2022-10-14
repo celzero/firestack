@@ -6,15 +6,10 @@
 
 package dnsx
 
-const (
-	DOH      = "DNS-over-HTTPS"
-	DNSCrypt = "DNSCrypt"
-	DNS53    = "DNS"
-)
-
 // Summary is a summary of a DNS transaction, reported when it is complete.
 type Summary struct {
 	Type        string  // dnscrypt, dns53, doh
+	ID          string  // transport id
 	Latency     float64 // Response (or failure) latency in seconds
 	Query       []byte
 	Response    []byte

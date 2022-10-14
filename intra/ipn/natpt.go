@@ -8,8 +8,6 @@ package ipn
 
 import (
 	"net"
-	"net/netip"
-	"strings"
 
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
@@ -40,17 +38,10 @@ type natPt struct {
 	ip6s    []net.IP
 }
 
-type Resolver interface {
-	Exchange([]byte) ([]byte, error)
-}
-
 type NatPt interface {
 	protect.Protector
-	D64(id string, ans6 []byte, f Resolver) []byte
-	IsNat64(id string, ip []byte) bool
-	X64(id string, ip []byte) []byte
-	SetNat64Prefix(ip6prefix string) bool
-	LinkIP(ipcsv string) error
+	DNS64
+	NAT64
 }
 
 func NewNatPt(l3 string, tunmode *settings.TunMode) NatPt {
@@ -66,7 +57,7 @@ func NewNatPt(l3 string, tunmode *settings.TunMode) NatPt {
 
 func (pt *natPt) D64(id string, ans6 []byte, f Resolver) []byte {
 	if pt.can64() {
-		return pt.dns64.eval(id, pt.force64(), ans6, f.Exchange)
+		return pt.dns64.eval(id, pt.force64(), ans6, f)
 	}
 	return ans6
 }
@@ -104,12 +95,16 @@ func (n *natPt) X64(id string, ip6 []byte) []byte {
 	return nil
 }
 
-func (n *natPt) SetNat64Prefix(ip6prefix string) bool {
-	if _, ipnet, err := net.ParseCIDR(ip6prefix); err == nil {
-		n.dns64.addNat64Prefix(underlayResolver, ipnet)
-	} else {
-		log.Warnf("natpt: invalid nat64 prefix: %s; err %v", ip6prefix, err)
+func (n *natPt) ResetNat64Prefix(ip6prefix string) bool {
+	var err error
+	var ipnet *net.IPNet
+	if _, ipnet, err = net.ParseCIDR(ip6prefix); err == nil {
+		n.dns64.register(UnderlayResolver) // wipe the slate clean
+		if err = n.dns64.addNat64Prefix(UnderlayResolver, ipnet); err == nil {
+			return true
+		}
 	}
+	log.Warnf("natpt: could not add underlay nat64 prefix: %s; err %v", ip6prefix, err)
 	return false
 }
 
@@ -129,32 +124,6 @@ func (n *natPt) UIP(network string) []byte {
 		}
 		return net.IPv4zero
 	}
-}
-
-// Report active local-interface IPs
-func (n *natPt) LinkIP(ipcsv string) error {
-	ips := strings.Split(ipcsv, ",")
-	n.ip4s = make([]net.IP, 0)
-	n.ip6s = make([]net.IP, 0)
-	for _, x := range ips {
-		ip, err := netip.ParseAddr(x)
-		if err != nil {
-			log.Warnf("nat64: invalid ip(%s); err(%w)", x, err)
-			continue
-		}
-		ip = ip.Unmap()
-		if !ip.IsGlobalUnicast() || !ip.IsValid() {
-			log.Warnf("nat64: ignoring non-unicast ip(%s)", x)
-			continue
-		}
-		if ip.Is4() {
-			n.ip4s = append(n.ip4s, ip.AsSlice())
-		} else {
-			n.ip6s = append(n.ip6s, ip.AsSlice())
-		}
-	}
-	log.Warnf("nat64: linked ip4s(%v) ip6s(%v)", n.ip4s, n.ip6s)
-	return nil
 }
 
 func (n *natPt) nat64PrefixForResolver(id string) []*net.IPNet {

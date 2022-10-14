@@ -21,12 +21,11 @@ import (
 )
 
 // ref: github.com/google/gvisor/blob/91f58d2cc/pkg/tcpip/sample/tun_tcp_echo/main.go#L102
-func NewEndpoint(dev int) (stack.LinkEndpoint, error) {
-	var mtu uint32 = settings.VpnMtu
+func NewEndpoint(dev int, mtu int) (stack.LinkEndpoint, error) {
 	var endpoint stack.LinkEndpoint
 	opt := Options{
 		FDs: []int{dev},
-		MTU: mtu,
+		MTU: uint32(mtu),
 	}
 	endpoint, _ = NewFdbasedInjectableEndpoint(&opt)
 	log.Infof("netstack: new endpoint(fd:%d / mtu:%d)", dev, mtu)
@@ -51,8 +50,8 @@ func Up(s *stack.Stack, ep stack.LinkEndpoint, h GConnHandler) error {
 		return e(nerr)
 	}
 
-	setupTcpHandler(s, h.TCP())
-	setupUdpHandler(s, h.UDP())
+	setupTcpHandler(s, ep, h.TCP())
+	setupUdpHandler(s, ep, h.UDP())
 	// TODO: setupIcmpHandler(s, h.ICMP())
 
 	// TODO: setup protocol opts?

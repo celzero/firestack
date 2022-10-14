@@ -6,8 +6,10 @@
 package dnsx
 
 const (
+	// Start: Transaction started
+	Start = iota
 	// Complete : Transaction completed successfully
-	Complete = iota
+	Complete
 	// SendFailed : Failed to send query
 	SendFailed
 	// NoResponse : Got no response

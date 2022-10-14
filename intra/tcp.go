@@ -29,17 +29,17 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/netip"
+	"strings"
 	"time"
 
 	"github.com/txthinking/socks5"
 	"golang.org/x/net/proxy"
 
-	"github.com/celzero/firestack/intra/dns53"
+	"github.com/celzero/firestack/intra/dnsx"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/eycorsican/go-tun2socks/core"
 
-	"github.com/celzero/firestack/intra/dnscrypt"
-	"github.com/celzero/firestack/intra/doh"
 	"github.com/celzero/firestack/intra/ipn"
 	"github.com/celzero/firestack/intra/netstack"
 	"github.com/celzero/firestack/intra/protect"
@@ -52,26 +52,20 @@ type TCPHandler interface {
 	core.TCPConnHandler
 	netstack.GTCPConnHandler
 
-	SetDNS(doh.Transport)
 	SetAlwaysSplitHTTPS(bool)
-	blockConn(localConn net.Conn, target *net.TCPAddr) bool
+	blockConn(localConn *net.TCPAddr, target *net.TCPAddr) bool
 	dnsOverride(net.Conn, *net.TCPAddr) bool
-	SetDNSCryptProxy(*dnscrypt.Proxy)
-	SetDNSProxy(dns53.Transport)
 	SetProxyOptions(*settings.ProxyOptions) error
 }
 
 type tcpHandler struct {
 	TCPHandler
-	fakedns          []*net.TCPAddr
-	dns              doh.Atomic
+	resolver         dnsx.Resolver
 	alwaysSplitHTTPS bool
 	dialer           *net.Dialer
 	blocker          protect.Blocker
 	tunMode          *settings.TunMode
 	listener         TCPListener
-	dnscrypt         *dnscrypt.Proxy
-	dnsproxy         dns53.Transport
 	proxy            proxy.Dialer
 	pt               ipn.NatPt
 }
@@ -96,11 +90,11 @@ type TCPListener interface {
 // Connections to `fakedns` are redirected to DOH.
 // All other traffic is forwarded using `dialer`.
 // `listener` is provided with a summary of each socket when it is closed.
-func NewTCPHandler(fakedns []*net.TCPAddr, pt ipn.NatPt, blocker protect.Blocker,
+func NewTCPHandler(resolver dnsx.Resolver, pt ipn.NatPt, blocker protect.Blocker,
 	tunMode *settings.TunMode, listener TCPListener) TCPHandler {
 	d := protect.MakeDialer2(blocker)
 	h := &tcpHandler{
-		fakedns:  fakedns,
+		resolver: resolver,
 		dialer:   d,
 		blocker:  blocker,
 		tunMode:  tunMode,
@@ -171,94 +165,17 @@ func filteredPort(addr net.Addr) int16 {
 	return -1
 }
 
-func (h *tcpHandler) isFakeDnsIpPort(addr *net.TCPAddr) bool {
-	if addr == nil || len(h.fakedns) <= 0 {
-		log.Errorf("nil dst-addr(%v) or dns(%v)", addr, h.fakedns)
-		return false
-	}
-	for _, dnsaddr := range h.fakedns {
-		if addr.IP.Equal(dnsaddr.IP) && addr.Port == dnsaddr.Port {
-			return true
-		}
-	}
-	return false
-}
-
-func (h *tcpHandler) isFakeDnsPort(addr *net.TCPAddr) bool {
-	if addr == nil || len(h.fakedns) <= 0 {
-		log.Errorf("nil dst-addr(%v) or dns(%v)", addr, h.fakedns)
-		return false
-	}
-	// isn't h.fakedns.Port always expected to be 53?
-	for _, dnsaddr := range h.fakedns {
-		if addr.Port == dnsaddr.Port {
-			return true
-		}
-	}
-	return false
-}
-
-func (h *tcpHandler) isDNSProxy(addr *net.TCPAddr) bool {
-	if h.tunMode.DNSMode == settings.DNSModeProxyIP {
-		if yes := h.isFakeDnsIpPort(addr); yes {
-			return true
-		}
-	} else if h.tunMode.DNSMode == settings.DNSModeProxyPort {
-		if yes := h.isFakeDnsPort(addr); yes {
-			return true
-		}
-	}
-	return false
-}
-
-func (h *tcpHandler) isDoh(addr *net.TCPAddr) bool {
-	if h.tunMode.DNSMode == settings.DNSModeIP {
-		if yes := h.isFakeDnsIpPort(addr); yes {
-			return true
-		}
-	} else if h.tunMode.DNSMode == settings.DNSModePort {
-		if yes := h.isFakeDnsPort(addr); yes {
-			return true
-		}
-	}
-	return false
-}
-
-func (h *tcpHandler) isDNSCrypt(addr *net.TCPAddr) bool {
-	if h.tunMode.DNSMode == settings.DNSModeCryptIP {
-		if yes := h.isFakeDnsIpPort(addr); yes {
-			return true
-		}
-	} else if h.tunMode.DNSMode == settings.DNSModeCryptPort {
-		if yes := h.isFakeDnsPort(addr); yes {
-			return true
-		}
-	}
-	return false
-}
-
 func (h *tcpHandler) dnsOverride(conn net.Conn, addr *net.TCPAddr) bool {
-	if h.isDoh(addr) {
-		if dns := h.dns.Load(); dns != nil {
-			go doh.Accept(dns, conn)
-			return true
-		}
-	} else if h.isDNSCrypt(addr) {
-		if dns := h.dnscrypt; dns != nil {
-			go dnscrypt.HandleTCP(dns, conn)
-			return true
-		}
-	} else if h.isDNSProxy(addr) {
-		if dns := h.dnsproxy; dns != nil {
-			go dns53.Accept(dns, conn)
-			return true
-		}
+	// addr with zone information removed; see: netip.ParseAddrPort which h.resolver relies on
+	addr2 := &net.TCPAddr{IP: addr.IP, Port: addr.Port}
+	if h.resolver.IsDnsAddr(dnsx.NetTypeTCP, addr2.String()) {
+		h.resolver.Serve(conn)
+		return true
 	}
-	// assert h.tunMode.DNSMode == settings.DNSModeNone
 	return false
 }
 
-func (h *tcpHandler) blockConn(localConn net.Conn, target *net.TCPAddr) (block bool) {
+func (h *tcpHandler) onFlow(localaddr *net.TCPAddr, target *net.TCPAddr, realips string, domains string) (block bool) {
 	// BlockModeNone returns false, BlockModeSink returns true
 	if h.tunMode.BlockMode == settings.BlockModeSink {
 		return true
@@ -266,9 +183,6 @@ func (h *tcpHandler) blockConn(localConn net.Conn, target *net.TCPAddr) (block b
 		return false
 	}
 	// Implict: BlockModeFilter or BlockModeFilterProc
-	localtcp := localConn.(core.TCPConn)
-	localaddr := localtcp.LocalAddr().(*net.TCPAddr)
-
 	uid := -1
 	if h.tunMode.BlockMode == settings.BlockModeFilterProc {
 		procEntry := settings.FindProcNetEntry("tcp", localaddr.IP, localaddr.Port, target.IP, target.Port)
@@ -277,11 +191,18 @@ func (h *tcpHandler) blockConn(localConn net.Conn, target *net.TCPAddr) (block b
 		}
 	}
 
-	block = h.blocker.Block(6 /*TCP*/, uid, localaddr.String(), target.String())
+	var proto int32 = 6 // tcp
+	src := localaddr.String()
+	dst := target.String()
+	if len(realips) > 0 && len(domains) > 0 {
+		block = h.blocker.BlockAlg(proto, uid, src, dst, realips, domains)
+	} else {
+		block = h.blocker.Block(proto, uid, src, dst)
+	}
 
 	if block {
 		log.Infof("firewalled connection from %s:%s to %s:%s",
-			localaddr.Network(), localaddr.String(), target.Network(), target.String())
+			localaddr.Network(), src, target.Network(), dst)
 	}
 
 	return
@@ -308,28 +229,35 @@ func (h *tcpHandler) OnNewConn(conn *netstack.GTCPConn, _, dst *net.TCPAddr) {
 
 // TODO: Request upstream to make `conn` a `core.TCPConn` so we can avoid a type assertion.
 func (h *tcpHandler) Handle(conn net.Conn, target *net.TCPAddr) error {
-	if h.blockConn(conn, target) {
+	localaddr, err := tcpaddr(conn)
+	if err != nil {
+		log.Errorf("conn has invalid local-addr(%s); %v", conn.LocalAddr(), err)
+		return err
+	}
+
+	// alg happens before nat64, and so, alg has no knowledge of nat-ed ips
+	// ipx4 is un-nated (but same as target.IP when no nat64 is involved)
+	ipx4 := maybeUndoNat64(h.pt, target.IP)
+	realips, domains := undoAlg(h.resolver, ipx4)
+
+	// flow/dns-override are nat-aware, as in, they can deal with
+	// nat-ed ips just fine, and so, use target as-is instead of ipx4
+	if h.onFlow(localaddr, target, realips, domains) {
 		// an error here results in a core.tcpConn.Abort
 		return fmt.Errorf("tcp connection firewalled")
 	}
-
 	if h.dnsOverride(conn, target) {
 		return nil
-	} else if h.pt.IsNat64(ipn.Local464Resolver, target.IP) {
-		// TODO: check if the network this process binds to has ipv4 connectivity
-		if ip4 := h.pt.X64(ipn.Local464Resolver, target.IP); len(ip4) >= net.IPv4len {
-			log.Debugf("t.tcp.handle: local nat64 to ip4(%v) for ip6(%v)", ip4, target.IP)
-			target.IP = ip4
-		} else {
-			log.Warnf("t.tcp.handle: failed local nat64 to ip4(%v) for ip6(%v)", ip4, target.IP)
-		}
 	}
+
+	// dialers must connect to un-nated ips; overwrite target.IP with ipx4
+	// but ipx4 might itself be an alg ip; so check if there's a real-ip to connect to
+	target.IP = oneRealIp(realips, ipx4)
 
 	var summary TCPSocketSummary
 	summary.ServerPort = filteredPort(target)
 	start := time.Now()
 	var c split.DuplexConn
-	var err error
 
 	// TODO: Cancel dialing if c is closed
 	// Ref: stackoverflow.com/questions/63656117
@@ -378,20 +306,8 @@ func (h *tcpHandler) Handle(conn net.Conn, target *net.TCPAddr) error {
 	return nil
 }
 
-func (h *tcpHandler) SetDNS(dns doh.Transport) {
-	h.dns.Store(dns)
-}
-
 func (h *tcpHandler) SetAlwaysSplitHTTPS(s bool) {
 	h.alwaysSplitHTTPS = s
-}
-
-func (h *tcpHandler) SetDNSCryptProxy(dcrypt *dnscrypt.Proxy) {
-	h.dnscrypt = dcrypt
-}
-
-func (h *tcpHandler) SetDNSProxy(d dns53.Transport) {
-	h.dnsproxy = d
 }
 
 func (h *tcpHandler) SetProxyOptions(po *settings.ProxyOptions) error {
@@ -424,4 +340,63 @@ func (h *tcpHandler) SetProxyOptions(po *settings.ProxyOptions) error {
 	}
 	h.proxy = fproxy
 	return nil
+}
+
+func maybeUndoNat64(pt ipn.NAT64, ip net.IP) net.IP {
+	ipx4 := ip
+	if pt.IsNat64(ipn.Local464Resolver, ip) { // un-nat64, when dns64 done by local464-resolver
+		// TODO: check if the network this process binds to has ipv4 connectivity
+		ipx4 = pt.X64(ipn.Local464Resolver, ip) // ipx4 may be nil
+		if len(ipx4) < net.IPv4len {            // no nat?
+			ipx4 = ip // reassign the actual ip
+			log.Warnf("t.tcp.handle: No local nat64 to ip4(%v) for ip6(%v)", ipx4, ip)
+		}
+	}
+	return ipx4
+}
+
+func netipFrom(ip net.IP) *netip.Addr {
+	if addr, ok := netip.AddrFromSlice(ip); ok {
+		addr = addr.Unmap()
+		return &addr
+	}
+	return nil
+}
+
+func oneRealIp(realips string, dstip net.IP) net.IP {
+	if len(realips) <= 0 {
+		return dstip
+	}
+	// override alg-ip with the first real-ip
+	if ips := strings.Split(realips, ","); len(ips) > 0 {
+		for _, v := range ips {
+			// len may be zero when realips is "," or ""
+			if len(v) > 0 {
+				return net.ParseIP(v)
+			}
+		}
+	}
+	return dstip
+}
+
+func undoAlg(r dnsx.Resolver, algip net.IP) (realips, domains string) {
+	dstip := netipFrom(algip)
+	if gw := r.Gateway(); dstip.IsValid() && gw != nil {
+		dst := dstip.AsSlice()
+		domains = gw.PTR(dst)
+		realips = gw.X(dst)
+	}
+	return
+}
+
+func tcpaddr(conn net.Conn) (*net.TCPAddr, error) {
+	localtcp, ok1 := conn.(core.TCPConn)
+	if !ok1 {
+		return nil, fmt.Errorf("t.tcp Handle: non-tcp-conn(%v)", conn)
+	}
+	localaddr, ok2 := localtcp.LocalAddr().(*net.TCPAddr)
+	if !ok2 {
+		return nil, fmt.Errorf("t.tcp Handle: non-tcp-addr(%v)", localtcp.LocalAddr())
+	}
+	return localaddr, nil
 }

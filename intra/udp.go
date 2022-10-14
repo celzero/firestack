@@ -35,13 +35,11 @@ import (
 
 	"golang.org/x/net/proxy"
 
-	"github.com/celzero/firestack/intra/dns53"
+	"github.com/celzero/firestack/intra/dnsx"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/eycorsican/go-tun2socks/core"
 	"github.com/txthinking/socks5"
 
-	"github.com/celzero/firestack/intra/dnscrypt"
-	"github.com/celzero/firestack/intra/doh"
 	"github.com/celzero/firestack/intra/ipn"
 	"github.com/celzero/firestack/intra/netstack"
 	"github.com/celzero/firestack/intra/protect"
@@ -76,29 +74,24 @@ func makeTracker(conn interface{}) *tracker {
 type UDPHandler interface {
 	core.UDPConnHandler
 	netstack.GUDPConnHandler
-	SetDNS(dns doh.Transport)
 	blockConn(localudp core.UDPConn, target *net.UDPAddr) bool
-	SetDNSCryptProxy(*dnscrypt.Proxy)
 	SetProxyOptions(*settings.ProxyOptions) error
-	SetDNSProxy(dns53.Transport)
 }
 
 type udpHandler struct {
 	UDPHandler
 	sync.RWMutex
 
+	resolver dnsx.Resolver
 	timeout  time.Duration
 	udpConns map[core.UDPConn]*tracker
 	fakedns  []*net.UDPAddr
-	dns      doh.Transport
 	config   *net.ListenConfig
 	blocker  protect.Blocker
 	tunMode  *settings.TunMode
 	listener UDPListener
-	dnscrypt *dnscrypt.Proxy
-	dnsproxy dns53.Transport
 	proxy    proxy.Dialer
-	pt       ipn.NatPt
+	pt       ipn.NAT64
 }
 
 // NewUDPHandler makes a UDP handler with Intra-style DNS redirection:
@@ -107,7 +100,7 @@ type udpHandler struct {
 // `timeout` controls the effective NAT mapping lifetime.
 // `config` is used to bind new external UDP ports.
 // `listener` receives a summary about each UDP binding when it expires.
-func NewUDPHandler(fakedns []*net.UDPAddr, pt ipn.NatPt, blocker protect.Blocker,
+func NewUDPHandler(resolver dnsx.Resolver, pt ipn.NAT64, blocker protect.Blocker,
 	tunMode *settings.TunMode, listener UDPListener) UDPHandler {
 	// RFC 4787 REQ-5 requires a timeout no shorter than 5 minutes.
 	udptimeout, _ := time.ParseDuration("5m")
@@ -115,7 +108,7 @@ func NewUDPHandler(fakedns []*net.UDPAddr, pt ipn.NatPt, blocker protect.Blocker
 	h := &udpHandler{
 		timeout:  udptimeout,
 		udpConns: make(map[core.UDPConn]*tracker, 8),
-		fakedns:  fakedns,
+		resolver: resolver,
 		blocker:  blocker,
 		tunMode:  tunMode,
 		config:   c,
@@ -181,7 +174,33 @@ func (h *udpHandler) fetchUDPInput(conn core.UDPConn, t *tracker) {
 	}
 }
 
-func (h *udpHandler) blockConn(localudp core.UDPConn, target *net.UDPAddr) (block bool) {
+func (h *udpHandler) dnsOverride(nat *tracker, conn core.UDPConn, addr *net.UDPAddr, query []byte) bool {
+	if !h.isDns(addr) {
+		return false
+	}
+
+	resp, err := h.resolver.Forward(query)
+	if resp != nil {
+		_, err = conn.WriteFrom(resp, nat.ip)
+	}
+	if err != nil {
+		log.Warnf("dns udp query failed: %v", err)
+	}
+
+	// conn was only used for this DNS query, so it's unlikely to be used again.
+	if nat.upload == 0 && nat.download == 0 {
+		h.Close(conn)
+	}
+	return true
+}
+
+func (h *udpHandler) isDns(addr *net.UDPAddr) bool {
+	// addr with zone information removed; see: netip.ParseAddrPort which h.resolver relies on
+	addr2 := &net.UDPAddr{IP: addr.IP, Port: addr.Port}
+	return h.resolver.IsDnsAddr(dnsx.NetTypeUDP, addr2.String())
+}
+
+func (h *udpHandler) onFlow(localudp core.UDPConn, target *net.UDPAddr, realips string, domains string) (block bool) {
 	// BlockModeNone returns false, BlockModeSink returns true
 	if h.tunMode.BlockMode == settings.BlockModeSink {
 		return true
@@ -190,11 +209,11 @@ func (h *udpHandler) blockConn(localudp core.UDPConn, target *net.UDPAddr) (bloc
 		return false
 	}
 	// Implict: BlockModeFilter or BlockModeFilterProc
-	localaddr := localudp.LocalAddr() //.(*net.UDPAddr)
-	return h.blockConnAddr(localaddr, target)
+	localaddr := localudp.LocalAddr()
+	return h.blockConnAddr(localaddr, target, realips, domains)
 }
 
-func (h *udpHandler) blockConnAddr(source *net.UDPAddr, target *net.UDPAddr) (block bool) {
+func (h *udpHandler) blockConnAddr(source *net.UDPAddr, target *net.UDPAddr, realips string, domains string) (block bool) {
 	uid := -1
 	if h.tunMode.BlockMode == settings.BlockModeFilterProc {
 		procEntry := settings.FindProcNetEntry("udp", source.IP, source.Port, target.IP, target.Port)
@@ -203,7 +222,14 @@ func (h *udpHandler) blockConnAddr(source *net.UDPAddr, target *net.UDPAddr) (bl
 		}
 	}
 
-	block = h.blocker.Block(17 /*UDP*/, uid, source.String(), target.String())
+	var proto int32 = 17 // udp
+	src := source.String()
+	dst := target.String()
+	if len(realips) > 0 && len(domains) > 0 {
+		block = h.blocker.BlockAlg(proto, uid, src, dst, realips, domains)
+	} else {
+		block = h.blocker.Block(proto, uid, src, dst)
+	}
 
 	if block {
 		log.Infof("firewalled udp connection from %s:%s to %s:%s",
@@ -219,44 +245,49 @@ func (h *udpHandler) OnNewConn(conn *netstack.GUDPConn, _, dst *net.UDPAddr) boo
 	return true
 }
 
-// Connect connects the proxy server. Note that target can be nil.
+// Connect connects the proxy server.
+// Note, target may be nil in lwip (deprecated) while it may be unspecified in netstack
 func (h *udpHandler) Connect(conn core.UDPConn, target *net.UDPAddr) error {
-	if h.blockConn(conn, target) {
-		// an error here results in a core.udpConn.Close
-		return fmt.Errorf("udp connection firewalled")
-	}
+	ipx4 := maybeUndoNat64(h.pt, target.IP)
 
-	proxymode := h.hasProxy() && (h.socks5Proxy() || h.httpsProxy())
+	realips, domains := undoAlg(h.resolver, ipx4)
+
+	// flow is alg/nat-aware, do not change target or any addrs
+	if h.onFlow(conn, target, realips, domains) {
+		// an error here results in a core.udpConn.Close
+		return fmt.Errorf("udp connect: connection firewalled")
+	}
 
 	dnsredir := h.isDns(target)
 
-	var c interface{}
+	// TODO: fake-dns-ips shouldn't be un-nated / un-alg'd
+	// alg happens before nat64, and so, alg has no knowledge of nat-ed ips
+	// ipx4 is un-nated (and same as target.IP when no nat64 is involved)
+	// but ipx4 might itself be an alg ip; so check if there's a real-ip to connect to
+	// ie, must send to un-nated ips; overwrite target.IP with ipx4
+	target.IP = oneRealIp(realips, ipx4)
+
+	var c any
 	var err error
-	if proxymode && !dnsredir {
-		// TODO: translate target to addr4 when local dns64/nat64
+	if h.proxymode() && !dnsredir {
 		// TODO: target can be nil: What happens then?
+		// TODO: target can unspecified on netstack... handle approp in receiveTo?
 		// deprecated: github.com/golang/go/issues/25104
 		c, err = h.proxy.Dial(target.Network(), target.String())
 	} else {
 		bindaddr := &net.UDPAddr{IP: nil, Port: 0}
-		c, err = h.config.ListenPacket(context.TODO(), target.Network(), bindaddr.String())
-		// ipaddr, _ := netip.AddrFromSlice(h.pt.UIP(target.Network()))
-		// ipp := netip.AddrPortFrom(ipaddr.Unmap(), 0)
-		// bindaddr := &net.UDPAddr{
-		//	IP:   h.pt.UIP(target.Network()),
-		//	Port: 0,
-		// }
+		c, err = h.config.ListenPacket(context.TODO(), bindaddr.Network(), bindaddr.String())
 	}
 
 	if err != nil {
-		log.Errorf("failed to bind udp addr for(%s); err(%v)", target.String(), err)
+		log.Errorf("failed to bind udp addr for(%s); err(%v)", target, err)
 		return err
 	}
 
 	t := makeTracker(c)
 
-	if proxymode {
-		t.ip = target
+	if h.proxymode() {
+		t.ip = &(*target)
 	}
 
 	h.Lock()
@@ -267,152 +298,8 @@ func (h *udpHandler) Connect(conn core.UDPConn, target *net.UDPAddr) error {
 	// and funcs doDoh and doDnscrypt close the conns once tx is complete.
 	go h.fetchUDPInput(conn, t)
 
-	log.Infof("new udp proxy (mode: %s) conn to target: %s", proxymode, target.String())
+	log.Infof("new udp proxy (mode: %s) conn to target: %s", h.proxymode(), target)
 	return nil
-}
-
-func (h *udpHandler) doDNSProxy(dns dns53.Transport, t *tracker, conn core.UDPConn, data []byte) {
-	resp, err := dns.Query("udp", data)
-
-	if resp != nil {
-		_, err = conn.WriteFrom(resp, t.ip)
-	}
-	if err != nil {
-		log.Warnf("dnsproxy udp query fail: %v", err)
-	}
-
-	if t.upload == 0 && t.download == 0 {
-		// conn was only used for this DNS query, so it's unlikely to be used again.
-		h.Close(conn)
-	}
-}
-
-func (h *udpHandler) doDoh(dns doh.Transport, t *tracker, conn core.UDPConn, data []byte) {
-	resp, err := dns.Query(data)
-
-	if resp != nil {
-		_, err = conn.WriteFrom(resp, t.ip)
-	}
-	if err != nil {
-		log.Warnf("doh udp query failed: %v", err)
-	}
-
-	if t.upload == 0 && t.download == 0 {
-		// conn was only used for this DNS query, so it's unlikely to be used again.
-		h.Close(conn)
-	}
-}
-
-func (h *udpHandler) doDNSCrypt(p *dnscrypt.Proxy, t *tracker, conn core.UDPConn, data []byte) {
-	resp, err := dnscrypt.HandleUDP(p, data)
-	if err != nil || resp == nil {
-		log.Errorf("dnscrypt udp query failed: %v", err)
-	} else {
-		_, err = conn.WriteFrom(resp, t.ip)
-		if err != nil {
-			log.Errorf("dnscrypt udp query reply failed: %v", err)
-		}
-	}
-
-	if t.upload == 0 && t.download == 0 {
-		// conn was only used for this DNS query, so it's unlikely to be used again.
-		h.Close(conn)
-	}
-}
-
-func (h *udpHandler) isFakeDnsIpPort(addr *net.UDPAddr) bool {
-	if addr == nil || len(h.fakedns) <= 0 {
-		log.Errorf("nil dst-addr(%v) or dns(%v)", addr, h.fakedns)
-		return false
-	}
-	for _, dnsaddr := range h.fakedns {
-		if addr.IP.Equal(dnsaddr.IP) && addr.Port == dnsaddr.Port {
-			return true
-		}
-	}
-	return false
-}
-
-func (h *udpHandler) isFakeDnsPort(addr *net.UDPAddr) bool {
-	if addr == nil || len(h.fakedns) <= 0 {
-		log.Errorf("nil dst-addr(%v) or dns(%v)", addr, h.fakedns)
-		return false
-	}
-	// isn't h.fakedns.Port always expected to be 53?
-	for _, dnsaddr := range h.fakedns {
-		if addr.Port == dnsaddr.Port {
-			return true
-		}
-	}
-	return false
-}
-
-func (h *udpHandler) isDNSProxy(addr *net.UDPAddr) bool {
-	if h.tunMode.DNSMode == settings.DNSModeProxyIP {
-		if yes := h.isFakeDnsIpPort(addr); yes {
-			return true
-		}
-	} else if h.tunMode.DNSMode == settings.DNSModeProxyPort {
-		if yes := h.isFakeDnsPort(addr); yes {
-			return true
-		}
-	}
-	return false
-}
-
-func (h *udpHandler) isDoh(addr *net.UDPAddr) bool {
-	if h.tunMode.DNSMode == settings.DNSModeIP {
-		if yes := h.isFakeDnsIpPort(addr); yes {
-			return true
-		}
-	} else if h.tunMode.DNSMode == settings.DNSModePort {
-		if yes := h.isFakeDnsPort(addr); yes {
-			return true
-		}
-	}
-	return false
-}
-
-func (h *udpHandler) isDNSCrypt(addr *net.UDPAddr) bool {
-	if h.tunMode.DNSMode == settings.DNSModeCryptIP {
-		if yes := h.isFakeDnsIpPort(addr); yes {
-			return true
-		}
-	} else if h.tunMode.DNSMode == settings.DNSModeCryptPort {
-		if yes := h.isFakeDnsPort(addr); yes {
-			return true
-		}
-	}
-	return false
-}
-
-func (h* udpHandler) isDns(addr *net.UDPAddr) bool {
-	return h.isDoh(addr) || h.isDNSCrypt(addr) || h.isDNSProxy(addr)
-}
-
-func (h *udpHandler) dnsOverride(nat *tracker, conn core.UDPConn, addr *net.UDPAddr, query []byte) bool {
-	// TODO: copy required? query := append([]byte{}, data...)
-	h.RLock()
-	doh := h.dns
-	dcrypt := h.dnscrypt
-	dproxy := h.dnsproxy
-	h.RUnlock()
-
-	if doh != nil && h.isDoh(addr) {
-		nat.ip = addr
-		go h.doDoh(doh, nat, conn, query)
-		return true
-	} else if dcrypt != nil && h.isDNSCrypt(addr) {
-		nat.ip = addr
-		go h.doDNSCrypt(dcrypt, nat, conn, query)
-		return true
-	} else if dproxy != nil && h.isDNSProxy(addr) {
-		nat.ip = addr
-		go h.doDNSProxy(dproxy, nat, conn, query)
-		return true
-	}
-	// assert h.tunMode.DNSMode == settings.DNSModeNone
-	return false
 }
 
 func (h *udpHandler) HandleData(conn *netstack.GUDPConn, data []byte, addr *net.UDPAddr) error {
@@ -433,15 +320,23 @@ func (h *udpHandler) ReceiveTo(conn core.UDPConn, data []byte, addr *net.UDPAddr
 	if h.dnsOverride(t, conn, addr, data) {
 		log.Debugf("t.udp.rcv: dns-override for dstaddr(%v)", addr)
 		return nil
-	} else if h.pt.IsNat64(ipn.Local464Resolver, addr.IP) {
-		if ip4 := h.pt.X64(ipn.Local464Resolver, addr.IP); len(ip4) >= net.IPv4len {
-			h.Lock()
-			t.ip = addr
-			addr.IP = ip4
-			h.Unlock()
-		}
-		log.Debugf("t.udp.rcv: local-nat to addr4(%v) for addr6(%v)", addr, t.ip)
 	}
+
+	ipx4 := h.maybeUndoNat64(addr.IP)
+
+	// unused in netstack as it only supports connected udp
+	// that is, udpconn.writeFrom(data, addr) isn't supported
+	t.ip = &(*addr)
+
+	// send data to un-nated ips; overwrite target.IP with ipx4
+	// alg happens before nat64, and so, alg has no knowledge of nat-ed ips
+	// ipx4 is un-nated (and equal to target.IP when no nat64 is involved)
+	realips, _ := undoAlg(h.resolver, ipx4)
+
+	// TODO: should onFlow be called from RecieveTo?
+
+	// but ipx4 might itself be an alg ip; so check if there's a real-ip to connect to
+	addr.IP = oneRealIp(realips, ipx4)
 
 	t.upload += int64(len(data))
 
@@ -490,24 +385,6 @@ func (h *udpHandler) Close(conn core.UDPConn) {
 	}
 }
 
-func (h *udpHandler) SetDNS(dns doh.Transport) {
-	h.Lock()
-	h.dns = dns
-	h.Unlock()
-}
-
-func (h *udpHandler) SetDNSCryptProxy(dcrypt *dnscrypt.Proxy) {
-	h.Lock()
-	h.dnscrypt = dcrypt
-	h.Unlock()
-}
-
-func (h *udpHandler) SetDNSProxy(dnsproxy dns53.Transport) {
-	h.Lock()
-	h.dnsproxy = dnsproxy
-	h.Unlock()
-}
-
 // TODO: move these to settings pkg
 func (h *udpHandler) socks5Proxy() bool {
 	return h.tunMode.ProxyMode == settings.ProxyModeSOCKS5
@@ -540,9 +417,9 @@ func (h *udpHandler) SetProxyOptions(po *settings.ProxyOptions) error {
 		tcptimeoutsec := (2 * 60 * 60) + (40 * 60) // 2h40m
 		fproxy, err = socks5.NewClient(po.IPPort, po.Auth.User, po.Auth.Password, tcptimeoutsec, udptimeoutsec)
 	} else if h.httpsProxy() {
-		err = fmt.Errorf("http-proxy not supported")
+		err = fmt.Errorf("udp: http-proxy not supported")
 	} else {
-		err = errors.New("proxy mode not set")
+		err = errors.New("udp: proxy mode not set")
 	}
 	if err != nil {
 		h.proxy = nil
@@ -551,4 +428,20 @@ func (h *udpHandler) SetProxyOptions(po *settings.ProxyOptions) error {
 	}
 	h.proxy = fproxy
 	return nil
+}
+
+func (h *udpHandler) proxymode() bool {
+	return h.hasProxy() && (h.socks5Proxy() || h.httpsProxy())
+}
+
+func (h *udpHandler) maybeUndoNat64(ip net.IP) net.IP {
+	ipx4 := ip
+	if h.pt.IsNat64(ipn.Local464Resolver, ip) { // un-nat64, if dns64 by local464-resolver
+		ipx4 = h.pt.X64(ipn.Local464Resolver, ip) // ipx4 here may be assigned nil
+		if len(ipx4) < net.IPv4len {              // no nat?
+			log.Debugf("t.udp.rcv: No local-nat to addr4(%v) for addr6(%v)", ipx4, ip)
+			ipx4 = ip
+		}
+	}
+	return ipx4
 }

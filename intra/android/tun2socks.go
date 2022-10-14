@@ -25,10 +25,9 @@ package tun2socks
 
 import (
 	"runtime/debug"
-	"strings"
 
 	"github.com/celzero/firestack/intra"
-	"github.com/celzero/firestack/intra/doh"
+	"github.com/celzero/firestack/intra/dnsx"
 	"github.com/celzero/firestack/intra/protect"
 	"github.com/celzero/firestack/intra/settings"
 	"github.com/celzero/firestack/tunnel"
@@ -60,7 +59,7 @@ func init() {
 //
 // Throws an exception if the TUN file descriptor cannot be opened, or if the tunnel fails to
 // connect.
-func ConnectIntraTunnel(fd int, fakedns string, dohdns doh.Transport, blocker protect.Blocker, listener intra.Listener) (t intra.Tunnel, err error) {
+func ConnectIntraTunnel(fd int, mtu int, fakedns string, dohdns dnsx.Transport, blocker protect.Blocker, listener intra.Listener) (t intra.Tunnel, err error) {
 	l3 := settings.L3(engine)
 
 	if engine == settings.Lwip4 {
@@ -69,7 +68,7 @@ func ConnectIntraTunnel(fd int, fakedns string, dohdns doh.Transport, blocker pr
 			return nil, err
 		}
 
-		if t, err = intra.NewTunnel(fakedns, dohdns, tun, l3, blocker, listener); t != nil {
+		if t, err = intra.NewTunnel(fakedns, dohdns, tun, l3, mtu, blocker, listener); t != nil {
 			go tunnel.ProcessInputPackets(t, tun)
 		}
 
@@ -79,25 +78,8 @@ func ConnectIntraTunnel(fd int, fakedns string, dohdns doh.Transport, blocker pr
 		if err != nil {
 			return nil, err
 		}
-		return intra.NewGTunnel(fakedns, dohdns, dupfd, l3, blocker, listener)
+		return intra.NewGTunnel(fakedns, dohdns, dupfd, l3, mtu, blocker, listener)
 	}
-}
-
-// NewDoHTransport returns a DNSTransport that connects to the specified DoH server.
-// `url` is the URL of a DoH server (no template, POST-only).  If it is nonempty, it
-//   overrides `udpdns` and `tcpdns`.
-// `ips` is an optional comma-separated list of IP addresses for the server.  (This
-//   wrapper is required because gomobile cannot make bindings for []string.)
-// `protector` is the socket protector to use for all external network activity.
-// `auth` will provide a client certificate if required by the TLS server.
-// `listener` will be notified after each DNS query succeeds or fails.
-func NewDoHTransport(url string, ips string, auth doh.ClientAuth, listener intra.Listener) (doh.Transport, error) {
-	split := []string{}
-	if len(ips) > 0 {
-		split = strings.Split(ips, ",")
-	}
-	dialer := protect.MakeDialer(nil)
-	return doh.NewTransport(url, split, dialer, auth, listener)
 }
 
 func EnableDebugLog() {
@@ -112,8 +94,7 @@ func PreferredEngine(w int) {
 	case settings.Ns46:
 	default:
 		log.Warnf("tun2socks: engine(%d) unknown, using default", w)
-		engine = settings.Ns46
-		return
+		w = settings.Ns46
 	}
 	engine = w
 }

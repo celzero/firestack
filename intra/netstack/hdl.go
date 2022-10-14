@@ -38,6 +38,10 @@ func (g *gconnhandler) UDP() GUDPConnHandler {
 	return g.udp
 }
 
+// src/dst addrs are flipped
+// fdbased.Attach -> ... -> nic.DeliverNetworkPacket -> ... -> nic.DeliverTransportPacket:
+// github.com/google/gvisor/blob/be6ffa7/pkg/tcpip/stack/nic.go#L831-L837
+
 func remoteTCPAddr(id stack.TransportEndpointID) *net.TCPAddr {
 	return &net.TCPAddr{
 		IP:   net.IP(id.RemoteAddress),

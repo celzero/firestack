@@ -28,7 +28,8 @@ import (
 
 // ref: datatracker.ietf.org/doc/html/rfc8880
 const Rfc7050WKN = "ipv4only.arpa."
-const underlayResolver = "__underlay"
+const UnderlayResolver = "__underlay"
+const OverlayResolver = "__overlay"
 const Local464Resolver = "__local464"
 
 var (
@@ -55,6 +56,16 @@ var (
 	arpa64 = question()
 )
 
+type Resolver interface {
+	Exchange([]byte) ([]byte, error)
+}
+
+type DNS64 interface {
+	AddResolver(id string, f Resolver) bool
+	ResetNat64Prefix(ip6prefix string) bool
+	D64(id string, ans6 []byte, f Resolver) []byte
+}
+
 type dns64 struct {
 	sync.RWMutex
 	// dns-resolver -> nat64-ips
@@ -62,8 +73,6 @@ type dns64 struct {
 	// dns-resolver -> unique nat64-ips
 	uniqIP64 map[string]map[string]struct{}
 }
-
-type dnsExchange func([]byte) ([]byte, error)
 
 func newDns64() *dns64 {
 	x := &dns64{
@@ -75,7 +84,7 @@ func newDns64() *dns64 {
 }
 
 func (d *dns64) init() {
-	err1 := d.ofUnderlay()
+	err1 := d.ofOverlay()
 	err2 := d.ofLocal464()
 	if err1 != nil || err2 != nil {
 		log.Warnf("dns64: err reg underlay(%v) / local(%v)", err1, err2)
@@ -99,11 +108,11 @@ func (d *dns64) register(id string) {
 	d.uniqIP64[id] = make(map[string]struct{})
 }
 
-func (d *dns64) AddResolver(id string, f dnsExchange) bool {
+func (d *dns64) AddResolver(id string, r Resolver) bool {
 
 	d.register(id)
 
-	b, err := f(arpa64)
+	b, err := r.Exchange(arpa64)
 	if err != nil {
 		log.Warnf("dns64: could not query resolver %s", id)
 		return false
@@ -138,7 +147,7 @@ func (d *dns64) RemoveResolver(id string) {
 
 // TODO: handle svcb/https ipv4hint/ipv6hint
 // datatracker.ietf.org/doc/html/draft-ietf-dnsop-svcb-https-10#section-7.4
-func (d *dns64) eval(id string, force64 bool, og []byte, f dnsExchange) []byte {
+func (d *dns64) eval(id string, force64 bool, og []byte, r Resolver) []byte {
 	d.RLock()
 	ip64, ok := d.ip64[id]
 	d.RUnlock()
@@ -148,8 +157,10 @@ func (d *dns64) eval(id string, force64 bool, og []byte, f dnsExchange) []byte {
 	}
 
 	if len(ip64) <= 0 {
-		if ip64 = d.ip64[underlayResolver]; len(ip64) <= 0 {
-			ip64 = d.ip64[Local464Resolver]
+		if ip64 = d.ip64[UnderlayResolver]; len(ip64) <= 0 {
+			if ip64 = d.ip64[OverlayResolver]; len(ip64) <= 0 {
+				ip64 = d.ip64[Local464Resolver]
+			}
 		}
 		log.Debugf("dns64: attempt underlay/local464 resolver ip64 w len(%d)", len(ip64))
 	}
@@ -168,7 +179,7 @@ func (d *dns64) eval(id string, force64 bool, og []byte, f dnsExchange) []byte {
 		return og
 	}
 
-	ans4, err := d.query64(ansin, f)
+	ans4, err := d.query64(ansin, r)
 	rgood := xdns.HasRcodeSuccess(ans4)
 	if err != nil || ans4 == nil || len(ans4.Answer) <= 0 || xdns.AQuadAUnspecified(ans4) {
 		log.Warnf("dns64: query(n:%s / a:%d) to resolver(%s) rgood(%t), err(%v)", qname, len(ans4.Answer), id, rgood, err)
@@ -206,28 +217,28 @@ func (d *dns64) eval(id string, force64 bool, og []byte, f dnsExchange) []byte {
 	}
 }
 
-func (d *dns64) query64(msg6 *dns.Msg, f dnsExchange) (*dns.Msg, error) {
+func (d *dns64) query64(msg6 *dns.Msg, r Resolver) (*dns.Msg, error) {
 	msg4 := xdns.Request4FromResponse6(msg6)
 	q4, err := msg4.Pack()
 	if err != nil {
 		return nil, err
 	}
 
-	a4, err := f(q4)
+	a4, err := r.Exchange(q4)
 	log.Debugf("dns64: upstream q(%s) / a(%d) / e(%v) / e-not-nil(%t)", xdns.QName(msg4), len(a4), err, err != nil)
 	if len(a4) <= 0 {
 		return nil, err
 	}
 
-	r := &dns.Msg{}
-	if err := r.Unpack(a4); err != nil {
+	res := &dns.Msg{}
+	if err := res.Unpack(a4); err != nil {
 		return nil, err
 	}
 
-	return r, nil
+	return res, nil
 }
 
-func (d *dns64) ofUnderlay() error {
+func (d *dns64) ofOverlay() error {
 	ips, err := net.DefaultResolver.LookupIP(context.Background(), "ip6", Rfc7050WKN)
 	log.Infof("dns64: ipv4only.arpa w underlying network resolver")
 
@@ -239,8 +250,8 @@ func (d *dns64) ofUnderlay() error {
 		return errNotFound
 	}
 
-	d.register(underlayResolver)
-	return d.add(underlayResolver, ips)
+	d.register(OverlayResolver)
+	return d.add(OverlayResolver, ips)
 }
 
 func (d *dns64) ofLocal464() error {
