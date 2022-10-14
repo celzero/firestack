@@ -404,8 +404,11 @@ func (h *udpHandler) SetProxyOptions(po *settings.ProxyOptions) error {
 	if po == nil {
 		h.proxy = nil
 		err = fmt.Errorf("udp: proxyopts nil")
+		log.Warnf("udp: err proxying to(%v): %v", po, err)
 		return err
 	}
+
+	// TODO: merge this code which is similar between tcp.go/udp.go
 	if h.socks5Proxy() {
 		// x.net.proxy doesn't yet support udp
 		// https://github.com/golang/net/blob/62affa334/internal/socks/socks.go#L233
@@ -420,6 +423,7 @@ func (h *udpHandler) SetProxyOptions(po *settings.ProxyOptions) error {
 	}
 	if err != nil {
 		h.proxy = nil
+		log.Warnf("udp: err proxying to(%v): %v", po, err)
 		return err
 	}
 	h.proxy = fproxy
