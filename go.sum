@@ -16,6 +16,8 @@ github.com/beorn7/perks v1.0.0/go.mod h1:KWe93zE9D1o94FZ5RNwFwVgaQK1VOXiVxmqh+Ce
 github.com/beorn7/perks v1.0.1/go.mod h1:G2ZrVWU2WbWT9wwq4/hrbKbnv/1ERSJQ0ibhJ6rlkpw=
 github.com/celzero/gotrie v0.0.0-20210413153406-d9d0dcea9cbd h1:hKeS1WzcKkGk/NfOIgTHHFhYgSvKpUEDTtg21VYbPVQ=
 github.com/celzero/gotrie v0.0.0-20210413153406-d9d0dcea9cbd/go.mod h1:Qo0txkBFM3m4+mXbyY6Pd46jCEUUHRd5C3Y4cSdA7jM=
+github.com/celzero/gotrie v0.0.0-20221124200459-e1c8445dcd61 h1:oN3Vh8P2LNLTG8BHI4lDEgENEjfcawuLtkXT3HfZXtM=
+github.com/celzero/gotrie v0.0.0-20221124200459-e1c8445dcd61/go.mod h1:FFmXMJnccyCwRVyXHfZQ9GHaen96aFx2AlbzXz55kbU=
 github.com/cespare/xxhash/v2 v2.1.1/go.mod h1:VGX0DQ3Q6kWi7AoAeZDth3/j3BFtOZR5XLFGgcrjCOs=
 github.com/crazy-max/xgo v0.17.0 h1:P2666cWhZrXBggacjb5dMChojETEKvLhUXpoNwldT0I=
 github.com/crazy-max/xgo v0.17.0/go.mod h1:m/aqfKaN/cYzfw+Pzk7Mk0tkmShg3/rCS4Zdhdugi4o=
