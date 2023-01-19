@@ -153,7 +153,7 @@ func (one *oneTransport) Exchange(q []byte) (r []byte, err error) {
 }
 
 // Implements RdnsResolver
-func (r *resolver) SetRethinkDNSLocal(b BraveDNS) error {
+func (r *resolver) SetRdnsLocal(b BraveDNS) error {
 	if b == nil {
 		r.rdnsl = nil
 	} else if b.OnDeviceBlock() {
@@ -164,7 +164,7 @@ func (r *resolver) SetRethinkDNSLocal(b BraveDNS) error {
 	return nil
 }
 
-func (r *resolver) SetRethinkDNSRemote(b BraveDNS) error {
+func (r *resolver) SetRdnsRemote(b BraveDNS) error {
 	if b == nil {
 		r.rdnsl = nil
 	} else if !b.OnDeviceBlock() {
@@ -175,11 +175,11 @@ func (r *resolver) SetRethinkDNSRemote(b BraveDNS) error {
 	return nil
 }
 
-func (r *resolver) GetRethinkDNSLocal() BraveDNS {
+func (r *resolver) GetRdnsLocal() BraveDNS {
 	return r.rdnsl
 }
 
-func (r *resolver) GetRethinkDNSRemote() BraveDNS {
+func (r *resolver) GetRdnsRemote() BraveDNS {
 	return r.rdnsr
 }
 

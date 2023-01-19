@@ -38,9 +38,9 @@ const (
 
 type RdnsResolver interface {
 	SetRdnsLocal(BraveDNS) error
-	GetRdnsLocal()
+	GetRdnsLocal() BraveDNS
 	SetRdnsRemote(BraveDNS) error
-	GetRdnsRemote()
+	GetRdnsRemote() BraveDNS
 }
 
 type BraveDNS interface {
