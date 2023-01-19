@@ -69,11 +69,11 @@ func (t *intratunnel) GetDNSCryptProxy() dnscrypt.Controller {
 // `protector` is the socket protector to use for all external network activity.
 // `auth` will provide a client certificate if required by the TLS server.
 // `listener` will be notified after each DNS query succeeds or fails.
-func NewDoHTransport(url string, ips string, auth doh.ClientAuth) (dnsx.Transport, error) {
+func NewDoHTransport(id, url string, ips string, auth doh.ClientAuth) (dnsx.Transport, error) {
 	split := []string{}
 	if len(ips) > 0 {
 		split = strings.Split(ips, ",")
 	}
 	dialer := protect.MakeDialer(nil)
-	return doh.NewTransport(url, split, dialer, auth)
+	return doh.NewTransport(id, url, split, dialer, auth)
 }

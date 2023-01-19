@@ -54,6 +54,7 @@ const hangoverDuration = 10 * time.Second
 // TODO: Keep a context here so that queries can be canceled.
 type transport struct {
 	dnsx.Transport
+	id                 string
 	url                string
 	hostname           string
 	port               int
@@ -120,7 +121,7 @@ func (t *transport) dial(network, addr string) (net.Conn, error) {
 //   timeout but will not mutate it otherwise.
 // `auth` will provide a client certificate if required by the TLS server.
 // `listener` will receive the status of each DNS query when it is complete.
-func NewTransport(rawurl string, addrs []string, dialer *net.Dialer, auth ClientAuth) (dnsx.Transport, error) {
+func NewTransport(id, rawurl string, addrs []string, dialer *net.Dialer, auth ClientAuth) (dnsx.Transport, error) {
 	if dialer == nil {
 		dialer = &net.Dialer{}
 	}
@@ -143,6 +144,7 @@ func NewTransport(rawurl string, addrs []string, dialer *net.Dialer, auth Client
 		port = 443
 	}
 	t := &transport{
+		id:       id,
 		url:      rawurl,
 		hostname: parsedurl.Hostname(),
 		port:     port,
@@ -377,6 +379,10 @@ func (t *transport) rdnsBlockstamp(res *http.Response) (blocklistStamp string) {
 	blocklistStamp = res.Header.Get(xdns.GetBlocklistStampHeaderKey())
 	log.Debugf("header", res.Header, "st", blocklistStamp)
 	return
+}
+
+func (t *transport) ID() string {
+	return t.id
 }
 
 func (t *transport) Type() string {
