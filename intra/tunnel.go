@@ -24,12 +24,8 @@
 package intra
 
 import (
-	"errors"
-	"io"
 	"net/netip"
 	"strings"
-
-	"github.com/eycorsican/go-tun2socks/core"
 
 	"github.com/celzero/firestack/intra/dnscrypt"
 	"github.com/celzero/firestack/intra/dnsx"
@@ -74,41 +70,8 @@ type intratunnel struct {
 	tunmode      *settings.TunMode
 	dnscrypt     *dnscrypt.Proxy
 	proxyOptions *settings.ProxyOptions
-	dns          dnsx.Transport
-	dnsproxy     dnsx.Transport
-	bravedns     dnsx.BraveDNS
 	natpt        ipn.NatPt
 	resolver     dnsx.Resolver
-}
-
-// NewTunnel creates a connected Intra session.
-//
-// `fakedns` is the DNS server (IP and port) that will be used by apps on the TUN device.
-//    This will normally be a reserved or remote IP address, port 53.
-// `udpdns` and `tcpdns` are the actual location of the DNS server in use.
-//    These will normally be localhost with a high-numbered port.
-// `dohdns` is the initial DOH transport.
-// `tunWriter` is the downstream VPN tunnel.  IntraTunnel.Disconnect() will close `tunWriter`.
-// `dialer` and `config` will be used for all network activity.
-// `listener` will be notified at the completion of every tunneled socket.
-func NewTunnel(fakedns string, defaultdns dnsx.Transport, tunWriter io.WriteCloser, l3 string, mtu int, blocker protect.Blocker, listener Listener) (Tunnel, error) {
-	if tunWriter == nil {
-		return nil, errors.New("Must provide a valid TUN writer")
-	}
-	defaultmode := settings.DefaultTunMode()
-	natpt := ipn.NewNatPt(l3, defaultmode)
-	core.RegisterOutputFn(tunWriter.Write)
-	t := &intratunnel{
-		Tunnel:   tunnel.NewTunnel(tunWriter, core.NewLWIPStack(), mtu),
-		tunmode:  defaultmode,
-		natpt:    natpt,
-		resolver: dnsx.NewResolver(fakedns, defaultmode, defaultdns, listener, natpt),
-	}
-	t.resolver.Add(NewGroundedTransport())
-	if err := t.registerConnectionHandlers(fakedns, l3, blocker, listener); err != nil {
-		return nil, err
-	}
-	return t, nil
 }
 
 func NewGTunnel(fakedns string, defaultdns dnsx.Transport, fd int, l3 string, mtu int, blocker protect.Blocker, listener Listener) (Tunnel, error) {
@@ -137,18 +100,6 @@ func NewGTunnel(fakedns string, defaultdns dnsx.Transport, fd int, l3 string, mt
 	}
 
 	return gt, nil
-}
-
-// Registers Intra's custom UDP and TCP connection handlers to the tun2socks core.
-func (t *intratunnel) registerConnectionHandlers(fakedns, l3 string, blocker protect.Blocker, listener Listener) error {
-
-	t.udp = NewUDPHandler(t.resolver, t.natpt, blocker, t.tunmode, listener)
-	core.RegisterUDPConnHandler(t.udp)
-
-	t.tcp = NewTCPHandler(t.resolver, t.natpt, blocker, t.tunmode, listener)
-	core.RegisterTCPConnHandler(t.tcp)
-
-	return nil
 }
 
 func (t *intratunnel) GetResolver() dnsx.Resolver {

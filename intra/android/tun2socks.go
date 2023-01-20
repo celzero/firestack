@@ -62,24 +62,11 @@ func init() {
 func ConnectIntraTunnel(fd int, mtu int, fakedns string, dohdns dnsx.Transport, blocker protect.Blocker, listener intra.Listener) (t intra.Tunnel, err error) {
 	l3 := settings.L3(engine)
 
-	if engine == settings.Lwip4 {
-		tun, err := tunnel.MakeTunFile(fd)
-		if err != nil {
-			return nil, err
-		}
-
-		if t, err = intra.NewTunnel(fakedns, dohdns, tun, l3, mtu, blocker, listener); t != nil {
-			go tunnel.ProcessInputPackets(t, tun)
-		}
-
-		return t, err
-	} else {
-		dupfd, err := tunnel.Dup(fd)
-		if err != nil {
-			return nil, err
-		}
-		return intra.NewGTunnel(fakedns, dohdns, dupfd, l3, mtu, blocker, listener)
+	dupfd, err := tunnel.Dup(fd)
+	if err != nil {
+		return nil, err
 	}
+	return intra.NewGTunnel(fakedns, dohdns, dupfd, l3, mtu, blocker, listener)
 }
 
 func EnableDebugLog() {
@@ -88,7 +75,6 @@ func EnableDebugLog() {
 
 func PreferredEngine(w int) {
 	switch w {
-	case settings.Lwip4:
 	case settings.Ns4:
 	case settings.Ns6:
 	case settings.Ns46:

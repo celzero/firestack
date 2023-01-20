@@ -37,9 +37,9 @@ import (
 
 	"github.com/celzero/firestack/intra/dnsx"
 	"github.com/celzero/firestack/intra/log"
-	"github.com/eycorsican/go-tun2socks/core"
 	"github.com/txthinking/socks5"
 
+	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/ipn"
 	"github.com/celzero/firestack/intra/netstack"
 	"github.com/celzero/firestack/intra/protect"
@@ -85,7 +85,6 @@ type udpHandler struct {
 	resolver dnsx.Resolver
 	timeout  time.Duration
 	udpConns map[core.UDPConn]*tracker
-	fakedns  []*net.UDPAddr
 	config   *net.ListenConfig
 	blocker  protect.Blocker
 	tunMode  *settings.TunMode
@@ -95,8 +94,7 @@ type udpHandler struct {
 }
 
 // NewUDPHandler makes a UDP handler with Intra-style DNS redirection:
-// All packets are routed directly to their destination, except packets whose
-// destination is `fakedns`.  Those packets are redirected to DOH.
+// All packets are routed directly to their destination.
 // `timeout` controls the effective NAT mapping lifetime.
 // `config` is used to bind new external UDP ports.
 // `listener` receives a summary about each UDP binding when it expires.

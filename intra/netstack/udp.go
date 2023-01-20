@@ -9,8 +9,8 @@ import (
 	"net"
 	"time"
 
+	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/log"
-	"github.com/eycorsican/go-tun2socks/core"
 	"gvisor.dev/gvisor/pkg/tcpip"
 
 	"gvisor.dev/gvisor/pkg/tcpip/adapters/gonet"

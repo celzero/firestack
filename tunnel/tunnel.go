@@ -25,12 +25,10 @@ package tunnel
 
 import (
 	"errors"
-	"io"
 	"syscall"
 
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/netstack"
-	"github.com/eycorsican/go-tun2socks/core"
 	"gvisor.dev/gvisor/pkg/tcpip/stack"
 )
 
@@ -43,43 +41,6 @@ type Tunnel interface {
 	Disconnect()
 	// Write writes input data to the TUN interface.
 	Write(data []byte) (int, error)
-}
-
-// lwip
-
-type tunnel struct {
-	tunWriter   io.WriteCloser
-	lwipStack   core.LWIPStack
-	isConnected bool
-	mtu         int
-}
-
-func (t *tunnel) Mtu() int {
-	return t.mtu
-}
-
-func (t *tunnel) IsConnected() bool {
-	return t.isConnected
-}
-
-func (t *tunnel) Disconnect() {
-	if !t.isConnected {
-		return
-	}
-	t.isConnected = false
-	t.lwipStack.Close()
-	t.tunWriter.Close()
-}
-
-func (t *tunnel) Write(data []byte) (int, error) {
-	if !t.isConnected {
-		return 0, errors.New("failed to write, network stack closed")
-	}
-	return t.lwipStack.Write(data)
-}
-
-func NewTunnel(tunWriter io.WriteCloser, lwipStack core.LWIPStack, mtu int) Tunnel {
-	return &tunnel{tunWriter, lwipStack, true, mtu}
 }
 
 // netstack

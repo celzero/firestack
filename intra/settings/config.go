@@ -57,10 +57,9 @@ const PtModeForce64 int = 1
 const PtModeMaybe46 int = 2
 
 // msb to lsb: ipv6, ipv4, lwip(1) or netstack(0)
-const Lwip4 = 0b111 // 7
-const Ns4 = 0b010   // 2
-const Ns46 = 0b110  // 6
-const Ns6 = 0b100   // 4
+const Ns4 = 0b010  // 2
+const Ns46 = 0b110 // 6
+const Ns6 = 0b100  // 4
 
 const IP4 = "4"
 const IP46 = "46"
