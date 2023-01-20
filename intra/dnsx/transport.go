@@ -106,6 +106,7 @@ func NewResolver(fakeaddrs string, tunmode *settings.TunMode, defaultdns Transpo
 		listener:     l,
 		natpt:        pt,
 		transports:   make(map[string]Transport),
+		pool:         make(map[string]*oneTransport),
 		tunmode:      tunmode,
 		localdomains: UndelegatedDomainsTrie(),
 	}
