@@ -58,6 +58,9 @@ func (t *intratunnel) NewDNSCryptProxy(resolvers, relays string) (dnscrypt.Contr
 }
 
 func (t *intratunnel) GetDNSCryptProxy() dnscrypt.Controller {
+	if t.dnscrypt == nil {
+		return nil
+	}
 	return t.dnscrypt
 }
 
