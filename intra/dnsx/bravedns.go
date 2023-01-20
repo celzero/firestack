@@ -36,6 +36,16 @@ const (
 	ver0 = "0"
 )
 
+var (
+	errRemote           = errors.New("op not valid in remote block mode")
+	errNoStamps         = errors.New("no stamp set")
+	errMissingCsv       = errors.New("zero comma-separated flags")
+	errFlagsMismatch    = errors.New("flagcsv does not match loaded flags")
+	errTooManyQuestions = errors.New("one question too many")
+	errNotEnoughAnswers = errors.New("req at least two answers")
+	errTrieArgs         = errors.New("missing data, unable to build blocklist")
+)
+
 type RdnsResolver interface {
 	SetRdnsLocal(BraveDNS) error
 	GetRdnsLocal() BraveDNS
@@ -92,8 +102,12 @@ func (brave *bravedns) OnDeviceBlock() bool {
 }
 
 func (brave *bravedns) GetStamp() (s string, err error) {
+	if !brave.OnDeviceBlock() {
+		err = errRemote
+		return
+	}
 	if len(brave.stamp) <= 0 {
-		err = errors.New("no stamp")
+		err = errNoStamps
 		return
 	}
 	s = brave.stamp
@@ -113,7 +127,7 @@ func (brave *bravedns) SetStamp(stamp string) error {
 func (brave *bravedns) FlagsToStamp(flagscsv string) (string, error) {
 	fstr := strings.Split(flagscsv, ",")
 	if len(fstr) <= 0 {
-		return "", errors.New("zero comma-separated flags")
+		return "", errMissingCsv
 	}
 
 	flags := make([]uint16, len(fstr))
@@ -123,7 +137,7 @@ func (brave *bravedns) FlagsToStamp(flagscsv string) (string, error) {
 			return "", err
 		}
 		if i >= len(flags) {
-			return "", errors.New("flagcsv does not match loaded flags")
+			return "", errFlagsMismatch
 		}
 		flags[i] = uint16(val)
 	}
@@ -171,7 +185,7 @@ func (brave *bravedns) StampToNames(stamp string) (string, error) {
 
 func (brave *bravedns) stampToBlocklist(stamp string) ([]*listinfo, error) {
 	if len(stamp) <= 0 {
-		return nil, errors.New("empty blocklist stamp")
+		return nil, errNoStamps
 	}
 
 	s := strings.Split(stamp, verseperator)
@@ -213,7 +227,7 @@ func (brave *bravedns) BlockRequest(q []byte) (r string, err error) {
 
 func (brave *bravedns) blockQuery(msg *dns.Msg) (r string, err error) {
 	if len(msg.Question) != 1 {
-		err = errors.New("one question too many")
+		err = errTooManyQuestions
 		return
 	}
 	stamp, err := brave.GetStamp()
@@ -247,7 +261,7 @@ func (brave *bravedns) BlockResponse(q []byte) (r string, err error) {
 
 func (brave *bravedns) blockAnswer(msg *dns.Msg) (r string, err error) {
 	if len(msg.Answer) <= 1 {
-		err = errors.New("req at least two answers")
+		err = errNotEnoughAnswers
 		return
 	}
 	stamp, err := brave.GetStamp()
@@ -309,7 +323,7 @@ func NewBraveDNSLocal(t string, rank string,
 	conf string, filetagjson string) (BraveDNS, error) {
 
 	if len(t) <= 0 || len(rank) <= 0 || len(conf) <= 0 || len(filetagjson) <= 0 {
-		return nil, errors.New("missing data, unable to build blocklist")
+		return nil, errTrieArgs
 	}
 
 	err, trie := trie.Build(t, rank, conf, filetagjson)
