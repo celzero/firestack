@@ -322,6 +322,8 @@ func (r *resolver) Forward(q []byte) ([]byte, error) {
 	summary.ID = t.ID()
 	res2, err := t.Query(NetTypeUDP, q, summary)
 
+	// FIXME: in case of alg, if there's no-alg, err is set
+	// which should be ignored if res2 is not nil
 	if err != nil {
 		// summary latency, ips, response, status already set by transport t
 		return res2, err
