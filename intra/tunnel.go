@@ -27,7 +27,6 @@ import (
 	"net/netip"
 	"strings"
 
-	"github.com/celzero/firestack/intra/dnscrypt"
 	"github.com/celzero/firestack/intra/dnsx"
 	"github.com/celzero/firestack/intra/ipn"
 	"github.com/celzero/firestack/intra/log"
@@ -51,8 +50,6 @@ type Tunnel interface {
 	GetResolver() dnsx.Resolver
 	// Add system dns
 	SetSystemDNS(ippcsv string) int
-	NewDNSCryptProxy(string, string) (dnscrypt.Controller, error)
-	GetDNSCryptProxy() dnscrypt.Controller
 	// Set DNSMode, BlockMode, ProxyMode, PtMode.
 	SetTunMode(int, int, int, int)
 	// When set to true, Intra will pre-emptively split all HTTPS connections.
@@ -68,22 +65,22 @@ type intratunnel struct {
 	tcp          TCPHandler
 	udp          UDPHandler
 	tunmode      *settings.TunMode
-	dnscrypt     *dnscrypt.Proxy
 	proxyOptions *settings.ProxyOptions
 	natpt        ipn.NatPt
 	resolver     dnsx.Resolver
 }
 
 func NewGTunnel(fakedns string, defaultdns dnsx.Transport, fd int, l3 string, mtu int, blocker protect.Blocker, listener Listener) (Tunnel, error) {
-
 	tunmode := settings.DefaultTunMode()
 
 	natpt := ipn.NewNatPt(l3, tunmode)
 	resolver := dnsx.NewResolver(fakedns, tunmode, defaultdns, listener, natpt)
 	resolver.Add(NewGroundedTransport())
+	resolver.Add(newDNSCryptTransport())
 
 	tcph := NewTCPHandler(resolver, natpt, blocker, tunmode, listener)
 	udph := NewUDPHandler(resolver, natpt, blocker, tunmode, listener)
+
 	t, err := tunnel.NewGTunnel(fd, l3, mtu, tcph, udph)
 
 	if err != nil {
@@ -99,7 +96,13 @@ func NewGTunnel(fakedns string, defaultdns dnsx.Transport, fd int, l3 string, mt
 		resolver: resolver,
 	}
 
+	resolver.Start()
 	return gt, nil
+}
+
+func (t *intratunnel) Disconnect() {
+	t.resolver.Stop()
+	t.Tunnel.Disconnect()
 }
 
 func (t *intratunnel) GetResolver() dnsx.Resolver {
@@ -126,7 +129,7 @@ func (t *intratunnel) SetSystemDNS(ippcsv string) int {
 			log.Warnf("invalid system dns %s; err(%v)", ipport, err)
 		}
 	}
-	log.Infof("added %d system dns(es)", n)
+	log.Infof("added %d system dns(es) from %s", n, ipports)
 	return n
 }
 

@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"strings"
 	"sync"
 	"time"
 
@@ -70,19 +71,48 @@ type Transport interface {
 	Status() int
 }
 
+// TransportMult is a hybrid: transport and a multi-transport.
+type TransportMult interface {
+	Mult
+	Transport
+}
+
 type Conn interface {
 	Read(b []byte) (n int, err error)
 	Write(b []byte) (n int, err error)
 	Close() error
 }
 
-type Resolver interface {
-	RdnsResolver
+type Mult interface {
+	// Add adds a transport to this multi-transport.
 	Add(t Transport) bool
+	// Remove removes a transport from this multi-transport.
 	Remove(id string) bool
+	// Start starts a multi-transport, returns number of live-servers and errors if any.
+	Start() (string, error)
+	// Stop stops this multi-transport.
+	Stop() error
+	// Refresh re-registers transports and returns a csv of active ones.
+	Refresh() (string, error)
+	// LiveTransports returns a csv of active transports.
+	LiveTransports() string
+}
+
+type Resolver interface {
+	Mult
+	RdnsResolver
+
 	AddSystemDNS(t Transport) bool
 	RemoveSystemDNS() int
+
+	// special purpose pre-defined transports
+	// Gateway implements a DNS ALG transport
 	Gateway() Gateway
+	// DcProxy implements a DNSCrypt multi-transport
+	DcProxy() (TransportMult, error)
+	// BlockAll implements a DNS transport that blocks all queries
+	BlockAll() Transport
+
 	IsDnsAddr(network, ipport string) bool
 	Forward(q []byte) ([]byte, error)
 	Serve(conn Conn)
@@ -210,11 +240,19 @@ func (r *resolver) RemoveSystemDNS() int {
 func (r *resolver) Add(t Transport) (ok bool) {
 	r.Lock()
 	defer r.Unlock()
-	r.transports[t.ID()] = t
-	r.pool[t.ID()] = &oneTransport{t: t}
-	// if resetting default transport, update underlying transport for alg
-	if gw := r.Gateway(); t.ID() == Default && gw != nil {
-		gw.WithTransport(t)
+	switch t.Type() {
+	case DNS53:
+		fallthrough
+	case DOH:
+		fallthrough
+	case DNSCrypt:
+		r.transports[t.ID()] = t
+		r.pool[t.ID()] = &oneTransport{t: t}
+		// if resetting default transport, update underlying transport for alg
+		if gw := r.Gateway(); t.ID() == Default && gw != nil {
+			gw.WithTransport(t)
+		}
+		return true
 	}
 	return false
 }
@@ -257,13 +295,17 @@ func (r *resolver) Remove(id string) (ok bool) {
 	defer r.Unlock()
 	_, ok1 := r.transports[id]
 	_, ok2 := r.pool[id]
+	var ok3 bool
+	if tm, err := r.DcProxy(); err == nil {
+		ok3 = tm.Remove(id)
+	}
 	if ok1 {
 		delete(r.transports, id)
 	}
 	if ok2 {
 		delete(r.pool, id)
 	}
-	return ok1 || ok2
+	return ok1 || ok2 || ok3
 }
 
 func (r *resolver) IsDnsAddr(network, ipport string) bool {
@@ -552,4 +594,52 @@ func writeto(w io.Writer, b []byte, l int) (int, error) {
 	// Use a combined write to ensure atomicity.
 	// Otherwise, writes from two responses could be interleaved.
 	return w.Write(rlbuf)
+}
+
+func (r *resolver) Start() (string, error) {
+	if dc, err := r.DcProxy(); err == nil {
+		return dc.Start()
+	}
+	return "", ErrNoDcProxy
+}
+
+func (r *resolver) Stop() error {
+	if dc, err := r.DcProxy(); err == nil {
+		return dc.Stop()
+	}
+	// nothing to stop / no error
+	return nil
+}
+
+func (r *resolver) Refresh() (string, error) {
+	s := map2csv(r.transports)
+	if dc, err := r.DcProxy(); err == nil {
+		if x, err := dc.Refresh(); err == nil {
+			s += "," + x
+		}
+	}
+	return trimcsv(s), nil
+}
+
+func (r *resolver) LiveTransports() string {
+	s := map2csv(r.transports)
+	if dc, err := r.DcProxy(); err == nil {
+		x := dc.LiveTransports()
+		if len(x) > 0 {
+			s += x
+		}
+	}
+	return trimcsv(s)
+}
+
+func map2csv(ts map[string]Transport) string {
+	s := ""
+	for _, t := range ts {
+		s += t.ID() + ","
+	}
+	return trimcsv(s)
+}
+
+func trimcsv(s string) string {
+	return strings.Trim(s, ",")
 }

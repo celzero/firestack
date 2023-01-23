@@ -7,7 +7,6 @@
 package intra
 
 import (
-	"errors"
 	"net/netip"
 	"strings"
 
@@ -15,7 +14,6 @@ import (
 	"github.com/celzero/firestack/intra/dnscrypt"
 	"github.com/celzero/firestack/intra/dnsx"
 	"github.com/celzero/firestack/intra/doh"
-	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
 )
 
@@ -31,37 +29,9 @@ func NewGroundedTransport() (d dnsx.Transport) {
 	return dns53.NewGroundedTransport()
 }
 
-func (t *intratunnel) NewDNSCryptProxy(resolvers, relays string) (dnscrypt.Controller, error) {
-	var err error
-	if t.dnscrypt != nil {
-		return nil, errors.New("dnscrypt already configured")
-	}
-	p := dnscrypt.NewProxy()
-
-	if _, err = p.AddServers(resolvers); err == nil {
-		if len(relays) > 0 {
-			_, err = p.AddRoutes(relays)
-		}
-	}
-	if err != nil {
-		return nil, err
-	}
-
-	t.dnscrypt = p
-
-	log.Infof("tun: DNSCrypt set to %s:%s", resolvers, relays)
-
-	// TODO: impl stop/start apis in transport.go?
-	p.StartProxy()
-
-	return p, nil
-}
-
-func (t *intratunnel) GetDNSCryptProxy() dnscrypt.Controller {
-	if t.dnscrypt == nil {
-		return nil
-	}
-	return t.dnscrypt
+func newDNSCryptTransport() (p dnsx.TransportMult) {
+	p = dnscrypt.NewProxy()
+	return
 }
 
 // NewDoHTransport returns a DNSTransport that connects to the specified DoH server.
@@ -79,4 +49,26 @@ func NewDoHTransport(id, url string, ips string, auth doh.ClientAuth) (dnsx.Tran
 	}
 	dialer := protect.MakeDialer(nil)
 	return doh.NewTransport(id, url, split, dialer, auth)
+}
+
+func NewDNSCryptTransport(r dnsx.Resolver, id, stamp string) (d dnsx.Transport, err error) {
+	if tm, err := r.DcProxy(); err == nil {
+		if p, ok := tm.(*dnscrypt.Proxy); ok {
+			return dnscrypt.NewTransport(p, id, stamp), nil
+		} else {
+			err = dnsx.ErrNoDcProxy
+		}
+	}
+	return nil, err
+}
+
+func NewDNSCryptRelay(r dnsx.Resolver, stamp string) (d dnsx.Transport, err error) {
+	if tm, err := r.DcProxy(); err == nil {
+		if p, ok := tm.(*dnscrypt.Proxy); ok {
+			return dnscrypt.NewRelayTransport(p, stamp), nil
+		} else {
+			err = dnsx.ErrNoDcProxy
+		}
+	}
+	return nil, err
 }

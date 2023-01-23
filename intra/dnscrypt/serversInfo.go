@@ -99,6 +99,16 @@ func (serversInfo *ServersInfo) getOne() (serverInfo *ServerInfo) {
 	return serverInfo
 }
 
+func (serversInfo *ServersInfo) get(name string) *ServerInfo {
+	serversInfo.RLock()
+	defer serversInfo.RUnlock()
+	serversCount := len(name)
+	if serversCount <= 0 {
+		return nil
+	}
+	return serversInfo.inner[name]
+}
+
 func (serversInfo *ServersInfo) unregisterServer(name string) (int, error) {
 	serversInfo.Lock()
 	defer serversInfo.Unlock()
@@ -248,5 +258,28 @@ func NewServersInfo() ServersInfo {
 }
 
 func (s *ServerInfo) String() string {
-	return s.Name + ":" + s.HostName + "/" + s.TCPAddr.String() + "<=>" + s.RelayTCPAddr.String()
+	return s.Name + ":" + s.URL.Host + "/" + s.TCPAddr.String() + "<=>" + s.RelayTCPAddr.String()
+}
+
+func (s *ServerInfo) ID() string {
+	return s.Name
+}
+
+func (s *ServerInfo) Type() string {
+	return dnsx.DNSCrypt
+}
+
+func (s *ServerInfo) Query(proto string, q []byte, summary *dnsx.Summary) (r []byte, err error) {
+	cantruncate := proto == dnsx.NetTypeUDP
+	r, err = resolve(q, s, summary, cantruncate)
+	s.status = summary.Status
+	return
+}
+
+func (s *ServerInfo) GetAddr() string {
+	return s.HostName
+}
+
+func (s *ServerInfo) Status() int {
+	return s.status
 }
