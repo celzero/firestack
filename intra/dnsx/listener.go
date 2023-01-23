@@ -21,6 +21,6 @@ type Summary struct {
 
 // Listener receives Summaries.
 type Listener interface {
-	OnQuery(domain string) string
+	OnQuery(domain string, suggested string) string
 	OnResponse(*Summary)
 }

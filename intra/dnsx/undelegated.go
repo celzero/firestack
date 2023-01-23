@@ -170,8 +170,11 @@ func UndelegatedDomainsTrie() *critbitgo.Trie {
 func (r *resolver) requiresSystem(qname string) (id string) {
 	rev := xdns.StringReverse(qname)
 	match, _, ok := r.localdomains.LongestPrefix([]byte(rev))
+	if ok {
+		return System
+	}
 	// full match (ipvonly.arpa), or match upto a tld (.arpa)
-	if ok && (len(match) == len(rev) || rev[len(match)] == '.') {
+	if len(match) == len(rev) || rev[len(match)] == '.' {
 		return System
 	} else {
 		return ""

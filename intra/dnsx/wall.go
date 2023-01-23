@@ -17,7 +17,7 @@ import (
 // question
 
 func (r *resolver) block(t Transport, msg *dns.Msg) (ans *dns.Msg, blocklists string, err error) {
-	if t.ID() == ALG || t.ID() == BlockFree {
+	if t.ID() == Alg || t.ID() == BlockFree {
 		return nil, "", errBlockFreeTransport
 	}
 
@@ -61,13 +61,10 @@ func (r *resolver) applyBlocklists(q *dns.Msg) (ans *dns.Msg, blocklists string,
 // answer
 
 func (r *resolver) blockRes(t Transport, q *dns.Msg, ans *dns.Msg, blocklistStamp string) (finalans *dns.Msg, blocklistNames string) {
-	if t.ID() == ALG || t.ID() == BlockFree {
-		return nil, ""
-	}
-
-	// remote block resolution, if any
 	br := r.rdnsr
 	var err error
+
+	// remote block resolution, if any
 	if len(blocklistStamp) > 0 && br != nil {
 		blocklistNames, err = br.StampToNames(blocklistStamp)
 		if err != nil {

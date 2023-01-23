@@ -32,9 +32,10 @@ const (
 	// special singleton DNS transports (IDs)
 	System    = "System"    // network/os provided dns
 	Default   = "Default"   // default (fallback) dns
-	BlockFree = "BlockFree" // no blocks
+	BlockFree = "BlockFree" // no local blocks; if not set, default is used
 	BlockAll  = "BlockAll"  // all blocks
-	ALG       = "alg"       // dns application-level gateway
+	Alg       = "Alg"       // dns application-level gateway
+	DcProxy   = "DcProxy"   // dnscrypt.Proxy as a transport
 )
 
 const (
@@ -43,11 +44,13 @@ const (
 )
 
 var (
+	ErrNoDcProxy           = errors.New("no dnscrypt-proxy")
 	errNoSuchTransport     = errors.New("missing transport")
 	errBlockFreeTransport  = errors.New("block free transport")
 	errNoRdns              = errors.New("no rdns")
 	errRdnsLocalIncorrect  = errors.New("rdns local is not remote")
 	errRdnsRemoteIncorrect = errors.New("rdns remote is not local")
+	errTransportNotMult    = errors.New("not a multi-transport")
 )
 
 // Transport represents a DNS query transport.  This interface is exported by gobind,
@@ -122,7 +125,8 @@ type oneTransport struct {
 }
 
 func (r *resolver) Gateway() Gateway {
-	if gw, ok := r.transports[ALG]; ok {
+	// called from Add, so no lock
+	if gw, ok := r.transports[Alg]; ok {
 		return gw.(Gateway)
 	}
 	return nil
@@ -212,7 +216,24 @@ func (r *resolver) Add(t Transport) (ok bool) {
 	if gw := r.Gateway(); t.ID() == Default && gw != nil {
 		gw.WithTransport(t)
 	}
-	return true
+	return false
+}
+
+func (r *resolver) DcProxy() (TransportMult, error) {
+	if t, ok := r.transports[DcProxy]; ok {
+		if tm, ok := t.(TransportMult); ok {
+			return tm, nil
+		}
+		return nil, errTransportNotMult
+	}
+	return nil, errNoSuchTransport
+}
+
+func (r *resolver) BlockAll() Transport {
+	if t, ok := r.transports[BlockAll]; ok {
+		return t
+	}
+	return nil
 }
 
 func (r *resolver) addSystemDnsIfAbsent(t Transport) (ok bool) {
@@ -274,18 +295,12 @@ func (r *resolver) Forward(q []byte) ([]byte, error) {
 	// figure out transport to use
 	qname := qname(msg)
 	id := r.requiresSystem(qname)
-	if len(id) <= 0 {
-		id = r.listener.OnQuery(qname)
-	} else {
-		log.Infof("transport (udp): using system-dns %s for %s", id, qname)
+	if len(id) > 0 {
+		log.Infof("transport (udp): suggest system-dns %s for %s", id, qname)
 	}
-	// retrieve transport
-	r.RLock()
-	var t Transport
-	t, ok := r.transports[id]
-	onet := r.pool[id]
-	r.RUnlock()
-	if !ok {
+	id = r.listener.OnQuery(qname, id)
+	t, onet := r.determineTransports(id)
+	if t == nil || onet == nil {
 		summary.Latency = time.Since(starttime).Seconds()
 		summary.Status = TransportError
 		return nil, errNoSuchTransport
@@ -345,6 +360,22 @@ func (r *resolver) Serve(x Conn) {
 	}
 }
 
+func (r *resolver) determineTransports(id string) (Transport, *oneTransport) {
+	r.RLock()
+	defer r.RUnlock()
+
+	if t, ok := r.transports[id]; ok {
+		if onet, ok := r.pool[id]; ok {
+			return t, onet
+		}
+	}
+	if id == BlockFree {
+		return r.transports[Default], r.pool[Default]
+	}
+
+	return nil, nil
+}
+
 // Perform a query using the transport, and send the response to the writer.
 func (r *resolver) forwardQuery(q []byte, c io.Writer) error {
 	starttime := time.Now()
@@ -368,18 +399,13 @@ func (r *resolver) forwardQuery(q []byte, c io.Writer) error {
 	// figure out transport to use
 	qname := qname(msg)
 	id := r.requiresSystem(qname)
-	if len(id) <= 0 {
-		id = r.listener.OnQuery(qname)
-	} else {
-		log.Infof("transport (tcp): using system-dns %s for %s", id, qname)
+	if len(id) > 0 {
+		log.Infof("transport (udp): suggest system-dns %s for %s", id, qname)
 	}
+	id = r.listener.OnQuery(qname, id)
 	// retrieve transport
-	r.RLock()
-	var t Transport
-	t, ok := r.transports[id]
-	onet := r.pool[id]
-	r.RUnlock()
-	if !ok {
+	t, onet := r.determineTransports(id)
+	if t == nil || onet == nil {
 		summary.Latency = time.Since(starttime).Seconds()
 		summary.Status = TransportError
 		return errNoSuchTransport
