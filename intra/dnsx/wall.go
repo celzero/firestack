@@ -75,6 +75,11 @@ func (r *resolver) blockRes(t Transport, q *dns.Msg, ans *dns.Msg, blocklistStam
 		return
 	}
 
+	// skip local blocks for alg and blockfree
+	if t.ID() == Alg || t.ID() == BlockFree {
+		return
+	}
+
 	// local block resolution, if any
 	b := r.rdnsl
 	if b == nil {
