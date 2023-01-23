@@ -162,11 +162,11 @@ func (t *dnsgateway) Query(network string, q []byte, summary *Summary) (r []byte
 }
 
 func (t *dnsgateway) ID() string {
-	return t.Transport.ID()
+	return Alg
 }
 
 func (t *dnsgateway) Type() string {
-	return ALG
+	return t.Transport.Type()
 }
 
 func (t *dnsgateway) GetAddr() string {
