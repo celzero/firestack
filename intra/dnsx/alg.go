@@ -28,7 +28,7 @@ const (
 
 var (
 	errNoAlg          = errors.New("no valid alg ips")
-	errCannotRegister = errors.New("cannot register")
+	errCannotRegister = errors.New("cannot register alg ip")
 )
 
 type Gateway interface {
@@ -71,7 +71,7 @@ func NewDNSGateway(inner Transport) (t *dnsgateway) {
 		octets:    []uint8{100, 0, 0, 1},
 		hexes:     []uint16{0x64, 0xff9b, 0x1, 0xda19, 0x100, 0x0, 0x0, 0x0},
 	}
-	log.Infof("alg(%s) setup: %s/%s/%s", inner.ID(), inner.GetAddr(), inner.Type())
+	log.Infof("alg(%s) setup: %s/%s", inner.ID(), inner.GetAddr(), inner.Type())
 	return
 }
 
@@ -90,12 +90,13 @@ func (t *dnsgateway) Query(network string, q []byte, summary *Summary) (r []byte
 	}
 
 	qname, _ := xdns.NormalizeQName(xdns.QName(ansin))
+	// TODO: Handle SVCB/HTTPS records
 	hasq := xdns.HasAQuadAQuestion(ansin)
 	hasans := xdns.HasAnyAnswer(ansin)
 	rgood := xdns.HasRcodeSuccess(ansin)
 	ans0000 := xdns.AQuadAUnspecified(ansin)
 	if !hasans || !hasq || !rgood || ans0000 {
-		log.Warnf("alg: skip; query(n:%s / a:%d) hasans(%t) rgood(%t), ans0000(%t)", qname, len(ansin.Answer), hasans, rgood, ans0000)
+		log.Debugf("alg: skip; query(n:%s / a:%d) hasq(%t) hasans(%t) rgood(%t), ans0000(%t)", qname, len(ansin.Answer), hasq, hasans, rgood, ans0000)
 		return
 	}
 
@@ -130,7 +131,7 @@ func (t *dnsgateway) Query(network string, q []byte, summary *Summary) (r []byte
 
 	if len(rr) <= 0 {
 		// may be there were no A or AAAA records
-		log.Warnf("alg: no translations done; a6(%d)/a4(%d)", len(a6), len(a4))
+		log.Debugf("alg: no translations done; a6(%d)/a4(%d)", len(a6), len(a4))
 		return
 	}
 
@@ -145,13 +146,13 @@ func (t *dnsgateway) Query(network string, q []byte, summary *Summary) (r []byte
 	ansout := xdns.EmptyResponseFromMessage(ansin)
 	ansout.Answer = append(ansout.Answer, rr...)
 	if rout, err := ansout.Pack(); err == nil {
-		if t.register(qname, x) {
+		if t.registerLocked(qname, x) {
 			return rout, nil
 		} else {
 			return rout, errCannotRegister
 		}
 	} else {
-		log.Warnf("dns64: unpacking ans64 err(%v)", err)
+		log.Warnf("alg: unpacking err(%v)", err)
 		return r, err
 	}
 }
@@ -168,7 +169,7 @@ func (t *dnsgateway) GetAddr() string {
 	return t.Transport.GetAddr()
 }
 
-func (t *dnsgateway) register(q string, x *ans) bool {
+func (t *dnsgateway) registerLocked(q string, x *ans) bool {
 	ip := x.algip
 	var k string
 	if ip.Is4() {
@@ -227,6 +228,10 @@ func (t *dnsgateway) take6Locked(q string) (*netip.Addr, bool) {
 		ip := ans.algip
 		if ip.Is6() {
 			return ip, true
+		} else {
+			// shouldn't happen; if it does, rm erroneous entry
+			delete(t.alg, k)
+			delete(t.nat, *ip)
 		}
 	}
 
@@ -261,6 +266,7 @@ func (t *dnsgateway) take6Locked(q string) (*netip.Addr, bool) {
 
 // Implements Gateway
 func (t *dnsgateway) WithTransport(inner Transport) bool {
+	log.Infof("alg: NewTransport %s / %s", inner.GetAddr(), inner.Type())
 	t.Transport = inner
 	return true
 }
@@ -276,12 +282,13 @@ func (t *dnsgateway) X(algip []byte) (ips string) {
 			for _, r := range rip {
 				s = append(s, r.String())
 			}
-			return strings.Join(s, ",")
+			ips = strings.Join(s, ",")
 		} // else: algip isn't really an alg ip, nothing to do
 	} else {
 		log.Warnf("alg: invalid algip(%s)", algip)
 	}
-	return ""
+
+	return ips
 }
 
 func (t *dnsgateway) PTR(algip []byte) (domains string) {
@@ -291,14 +298,15 @@ func (t *dnsgateway) PTR(algip []byte) (domains string) {
 	if fip, ok := netip.AddrFromSlice(algip); ok {
 		d := t.ptr(&fip)
 		if len(d) > 0 {
-			return strings.Join(d, ",")
+			domains = strings.Join(d, ",")
 		} // else: algip isn't really an alg ip, nothing to do
 	} else {
 		log.Warnf("alg: invalid algip(%s)", algip)
 	}
-	return ""
+	return domains
 }
 
+// locked
 func (t *dnsgateway) x(algip *netip.Addr) (realip []*netip.Addr) {
 	if ans, ok := t.nat[*algip]; ok {
 		return ans.realip
@@ -306,6 +314,7 @@ func (t *dnsgateway) x(algip *netip.Addr) (realip []*netip.Addr) {
 	return nil
 }
 
+// locked
 func (t *dnsgateway) ptr(algip *netip.Addr) (domains []string) {
 	if ans, ok := t.nat[*algip]; ok {
 		return ans.domain
