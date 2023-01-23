@@ -21,7 +21,6 @@ import (
 	"github.com/celzero/firestack/intra/xdns"
 
 	"github.com/celzero/firestack/intra/log"
-	"github.com/k-sone/critbitgo"
 	"github.com/miekg/dns"
 )
 
@@ -49,13 +48,11 @@ type Plugin interface {
 	HandleResponse([]byte, bool) ([]byte, error)
 	getSetPayloadSize(*dns.Msg) error
 	blockUnqualified(*dns.Msg) error
-	blockUndelegated(*dns.Msg) error
 }
 
 type Intercept struct {
 	Plugin
-	undelegatedSet *critbitgo.Trie
-	state          *InterceptState
+	state *InterceptState
 }
 
 type InterceptState struct {
@@ -79,7 +76,7 @@ func (ic *Intercept) HandleRequest(packet []byte, needsEDNS0Padding bool) ([]byt
 		return packet, err
 	}
 	if len(msg.Question) != 1 {
-		return packet, errors.New("Unexpected number of questions")
+		return packet, errors.New("unexpected number of questions")
 	}
 	qName, err := xdns.NormalizeQName(msg.Question[0].Name)
 	if err != nil {
@@ -91,10 +88,6 @@ func (ic *Intercept) HandleRequest(packet []byte, needsEDNS0Padding bool) ([]byt
 
 	// TODO: Recheck: None of these methods return err
 	if err := ic.blockUnqualified(&msg); err != nil {
-		state.action = ActionDrop
-		return packet, err
-	}
-	if err := ic.blockUndelegated(&msg); err != nil {
 		state.action = ActionDrop
 		return packet, err
 	}
@@ -213,35 +206,9 @@ func (ic *Intercept) blockUnqualified(msg *dns.Msg) error {
 	return nil
 }
 
-// BlockUndelegated blocks undelegated DNS names
-func (ic *Intercept) blockUndelegated(msg *dns.Msg) error {
-	state := ic.state
-
-	if state.action != ActionContinue {
-		// nothing to do.
-		return nil
-	}
-
-	undelegatedSet := ic.undelegatedSet
-	revQname := xdns.StringReverse(state.qName)
-	match, _, found := undelegatedSet.LongestPrefix([]byte(revQname))
-	if !found {
-		return nil
-	}
-	if len(match) == len(revQname) || revQname[len(match)] == '.' {
-		synth := xdns.EmptyResponseFromMessage(msg)
-		synth.Rcode = dns.RcodeNameError
-		state.response = synth
-		state.action = ActionSynth
-		state.returnCode = ReturnCodeSynth
-	}
-	return nil
-}
-
-func NewIntercept(set *critbitgo.Trie) *Intercept {
+func NewIntercept() *Intercept {
 	return &Intercept{
-		undelegatedSet: set,
-		state:          NewInterceptState(),
+		state: NewInterceptState(),
 	}
 }
 

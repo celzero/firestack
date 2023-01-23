@@ -133,7 +133,7 @@ func (proxy *Proxy) queryServer(packet []byte, truncate bool, preferredServer *S
 		return
 	}
 
-	intercept := NewIntercept(proxy.undelegatedSet)
+	intercept := NewIntercept()
 	// serverName := "-"
 	// needsEDNS0Padding = (serverInfo.Proto == stamps.StampProtoTypeDoH || serverInfo.Proto == stamps.StampProtoTypeTLS)
 	needsEDNS0Padding := false
