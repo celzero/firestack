@@ -242,14 +242,14 @@ func (r *resolver) addSystemDnsIfAbsent(t Transport) (ok bool) {
 	if _, ok = r.transports[t.ID()]; !ok {
 		// r.Add before r.registerSystemDns64, since r.pool must be populated
 		ok1 := r.Add(t)
-		go r.registerSystemDns64(t)
+		go r.registerSystemDns64(r.pool[t.ID()])
 		return ok1
 	}
 	return false
 }
 
-func (r *resolver) registerSystemDns64(t Transport) (ok bool) {
-	return r.natpt.AddResolver(ipn.UnderlayResolver, r.pool[t.ID()])
+func (r *resolver) registerSystemDns64(ur ipn.Resolver) (ok bool) {
+	return r.natpt.AddResolver(ipn.UnderlayResolver, ur)
 }
 
 func (r *resolver) Remove(id string) (ok bool) {
