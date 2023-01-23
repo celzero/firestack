@@ -117,14 +117,18 @@ func (t *dnsgateway) Query(network string, q []byte, summary *Summary) (r []byte
 		if !ipok {
 			return r, errNoAlg
 		}
-		rr = append(rr, xdns.MakeAAAARecord(qname, algip.String(), ttl))
+		// get fully qualified query-name (str qname is normalized)
+		nn := xdns.QName(ansin)
+		rr = append(rr, xdns.MakeAAAARecord(nn, algip.String(), ttl))
 	} else if len(a4) > 0 {
-		realip = append(realip, a6...)
+		realip = append(realip, a4...)
 		algip, ipok = t.take4Locked(qname)
 		if !ipok {
 			return r, errNoAlg
 		}
-		rr = append(rr, xdns.MakeARecord(qname, algip.String(), ttl))
+		// get fully qualified query-name (str qname is normalized)
+		nn := xdns.QName(ansin)
+		rr = append(rr, xdns.MakeARecord(nn, algip.String(), ttl))
 	} else {
 		// TODO: Handle SVCB/HTTPS records
 	}
