@@ -25,6 +25,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/celzero/firestack/intra/dnsx"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/xdns"
 
@@ -33,14 +34,18 @@ import (
 )
 
 type RegisteredServer struct {
-	name        string
-	stamp       stamps.ServerStamp
-	description string
+	name  string
+	stamp stamps.ServerStamp
 }
 
+var _ dnsx.Transport = &(ServerInfo{})
+
 type ServerInfo struct {
+	dnsx.Transport
+	networktype        string
 	Proto              stamps.StampProtoType
 	MagicQuery         [8]byte
+	ClientPubKey       *[32]byte
 	ServerPk           [32]byte
 	SharedKey          [32]byte
 	CryptoConstruction xdns.CryptoConstruction
@@ -50,6 +55,7 @@ type ServerInfo struct {
 	HostName           string
 	TCPAddr            *net.TCPAddr
 	RelayTCPAddr       *net.TCPAddr
+	status             int
 }
 
 type ServersInfo struct {
@@ -127,11 +133,7 @@ func (serversInfo *ServersInfo) refresh(proxy *Proxy) ([]string, error) {
 }
 
 func (serversInfo *ServersInfo) refreshServer(proxy *Proxy, name string, stamp stamps.ServerStamp) error {
-	serversInfo.RLock()
-	_, isNew := serversInfo.inner[name]
-	serversInfo.RUnlock()
-
-	newServer, err := fetchServerInfo(proxy, name, stamp, isNew)
+	newServer, err := fetchServerInfo(proxy, name, stamp)
 	if err != nil {
 		return err
 	}
@@ -179,11 +181,14 @@ func fetchDNSCryptServerInfo(proxy *Proxy, name string, stamp stamps.ServerStamp
 		return ServerInfo{}, err
 	}
 	return ServerInfo{
+		networktype:        proxy.mainProto,
 		Proto:              stamps.StampProtoTypeDNSCrypt,
 		MagicQuery:         certInfo.MagicQuery,
+		ClientPubKey:       &proxy.proxyPublicKey,
 		ServerPk:           certInfo.ServerPk,
 		SharedKey:          certInfo.SharedKey,
 		CryptoConstruction: certInfo.CryptoConstruction,
+		HostName:           stamp.ProviderName,
 		Name:               name,
 		Timeout:            proxy.timeout,
 		TCPAddr:            remoteTCPAddr,
@@ -191,9 +196,9 @@ func fetchDNSCryptServerInfo(proxy *Proxy, name string, stamp stamps.ServerStamp
 	}, nil
 }
 
-func fetchDoHServerInfo(proxy *Proxy, name string, stamp stamps.ServerStamp, isNew bool) (ServerInfo, error) {
+func fetchDoHServerInfo(proxy *Proxy, name string, stamp stamps.ServerStamp) (ServerInfo, error) {
 	// FIXME: custom ip-address, user-certs, and cert-pinning not supported
-	return ServerInfo{}, errors.New("Unsupported protocol")
+	return ServerInfo{}, errors.New("unsupported protocol")
 }
 
 func route(proxy *Proxy, name string) (*net.TCPAddr, error) {
@@ -210,7 +215,7 @@ func route(proxy *Proxy, name string) (*net.TCPAddr, error) {
 	}
 	var relayCandidateStamp *stamps.ServerStamp
 	if len(relayName) == 0 {
-		return nil, fmt.Errorf("Route declared for [%v] but an empty relay list", name)
+		return nil, fmt.Errorf("route declared for [%v] but an empty relay list", name)
 	} else if relayStamp, err := stamps.NewServerStampFromString(relayName); err == nil {
 		relayCandidateStamp = &relayStamp
 	} else if _, err := net.ResolveTCPAddr("tcp", relayName); err == nil {
@@ -220,7 +225,7 @@ func route(proxy *Proxy, name string) (*net.TCPAddr, error) {
 		}
 	}
 	if relayCandidateStamp == nil {
-		return nil, fmt.Errorf("Undefined relay [%v] for server [%v]", relayName, name)
+		return nil, fmt.Errorf("undefined relay [%v] for server [%v]", relayName, name)
 	}
 	if relayCandidateStamp.Proto == stamps.StampProtoTypeDNSCrypt ||
 		relayCandidateStamp.Proto == stamps.StampProtoTypeDNSCryptRelay {
@@ -230,7 +235,7 @@ func route(proxy *Proxy, name string) (*net.TCPAddr, error) {
 		}
 		return relayTCPAddr, nil
 	}
-	return nil, fmt.Errorf("Invalid relay [%v] for server [%v]", relayName, name)
+	return nil, fmt.Errorf("invalid relay [%v] for server [%v]", relayName, name)
 }
 
 // NewServersInfo returns a new servers-info object

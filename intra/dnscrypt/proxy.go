@@ -109,7 +109,7 @@ func (proxy *Proxy) exchangeWithTCPServer(serverInfo *ServerInfo, sharedKey *[32
 		log.Errorf("failed to read(encrypted-response) from %s because %v", serverInfo.String(), err)
 		return nil, err
 	}
-	return proxy.Decrypt(serverInfo, sharedKey, encryptedResponse, clientNonce)
+	return Decrypt(serverInfo, sharedKey, encryptedResponse, clientNonce)
 }
 
 func (proxy *Proxy) prepareForRelay(ip net.IP, port int, encryptedQuery *[]byte) {
@@ -185,7 +185,7 @@ func (proxy *Proxy) queryServer(packet []byte, truncate bool, preferredServer *S
 	}
 
 	if serverInfo.Proto == stamps.StampProtoTypeDNSCrypt {
-		sharedKey, encryptedQuery, clientNonce, err := proxy.Encrypt(serverInfo, query, proxy.mainProto)
+		sharedKey, encryptedQuery, clientNonce, err := Encrypt(serverInfo, query)
 
 		if err != nil {
 			log.Warnf("Encryption failure with dns-crypt query to %s.", serverInfo.String())
