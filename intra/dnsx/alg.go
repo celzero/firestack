@@ -38,6 +38,8 @@ type Gateway interface {
 	PTR(algip []byte) (domaincsv string)
 	// set Transport as the underlying upstream DNS for alg queries
 	WithTransport(Transport) bool
+	// clear obj state
+	Stop()
 }
 
 type ans struct {
@@ -273,6 +275,15 @@ func (t *dnsgateway) WithTransport(inner Transport) bool {
 	log.Infof("alg: NewTransport %s / %s", inner.GetAddr(), inner.Type())
 	t.Transport = inner
 	return true
+}
+
+func (t *dnsgateway) Stop() {
+	t.Lock()
+	defer t.Unlock()
+	t.alg = make(map[string]*ans)
+	t.nat = make(map[netip.Addr]*ans)
+	t.octets = []uint8{100, 0, 0, 1}
+	t.hexes = []uint16{0x64, 0xff9b, 0x1, 0xda19, 0x100, 0x0, 0x0, 0x0}
 }
 
 func (t *dnsgateway) X(algip []byte) (ips string) {

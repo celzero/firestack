@@ -618,6 +618,9 @@ func (r *resolver) Start() (string, error) {
 }
 
 func (r *resolver) Stop() error {
+	if gw := r.Gateway(); gw != nil {
+		gw.Stop()
+	}
 	if dc, err := r.DcProxy(); err == nil {
 		return dc.Stop()
 	}
