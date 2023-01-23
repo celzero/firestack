@@ -45,7 +45,7 @@ type dnsExchangeResponse struct {
 }
 
 func FetchCurrentDNSCryptCert(proxy *Proxy, serverName *string, proto string, pk ed25519.PublicKey,
-	serverAddress string, providerName string, isNew bool, relayTCPAddr *net.TCPAddr) (CertInfo, *net.TCPAddr, error) {
+	serverAddress string, providerName string, relayTCPAddr *net.TCPAddr) (CertInfo, *net.TCPAddr, error) {
 	if len(pk) != ed25519.PublicKeySize {
 		return CertInfo{}, nil, errors.New("Invalid public key length")
 	}
@@ -156,11 +156,7 @@ func FetchCurrentDNSCryptCert(proxy *Proxy, serverName *string, proto string, pk
 		certInfo.CryptoConstruction = cryptoConstruction
 		copy(certInfo.ServerPk[:], serverPk[:])
 		copy(certInfo.MagicQuery[:], binCert[104:112])
-		if isNew {
-			log.Infof("[%s] OK (DNSCrypt) - rtt: %dms%s", *serverName, rtt.Nanoseconds()/1000000, certCountStr)
-		} else {
-			log.Infof("[%s] OK (DNSCrypt) - rtt: %dms%s", *serverName, rtt.Nanoseconds()/1000000, certCountStr)
-		}
+		log.Infof("[%s] OK (DNSCrypt) - rtt: %dms%s", *serverName, rtt.Nanoseconds()/1000000, certCountStr)
 		certCountStr = " - additional certificate"
 	}
 	if certInfo.CryptoConstruction == xdns.UndefinedConstruction {

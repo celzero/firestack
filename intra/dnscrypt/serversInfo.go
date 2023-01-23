@@ -149,20 +149,20 @@ func (serversInfo *ServersInfo) refreshServer(proxy *Proxy, name string, stamp s
 	return nil
 }
 
-func fetchServerInfo(proxy *Proxy, name string, stamp stamps.ServerStamp, isNew bool) (ServerInfo, error) {
+func fetchServerInfo(proxy *Proxy, name string, stamp stamps.ServerStamp) (ServerInfo, error) {
 	if stamp.Proto == stamps.StampProtoTypeDNSCrypt {
-		return fetchDNSCryptServerInfo(proxy, name, stamp, isNew)
+		return fetchDNSCryptServerInfo(proxy, name, stamp)
 	} else if stamp.Proto == stamps.StampProtoTypeDoH {
-		return fetchDoHServerInfo(proxy, name, stamp, isNew)
+		return fetchDoHServerInfo(proxy, name, stamp)
 	}
-	return ServerInfo{}, errors.New("Unsupported protocol")
+	return ServerInfo{}, errors.New("unsupported protocol")
 }
 
-func fetchDNSCryptServerInfo(proxy *Proxy, name string, stamp stamps.ServerStamp, isNew bool) (ServerInfo, error) {
+func fetchDNSCryptServerInfo(proxy *Proxy, name string, stamp stamps.ServerStamp) (ServerInfo, error) {
 	if len(stamp.ServerPk) != ed25519.PublicKeySize {
 		serverPk, err := hex.DecodeString(strings.Replace(string(stamp.ServerPk), ":", "", -1))
 		if err != nil || len(serverPk) != ed25519.PublicKeySize {
-			return ServerInfo{}, fmt.Errorf("Unsupported public key for [%s]: [%s]", name, stamp.ServerPk)
+			return ServerInfo{}, fmt.Errorf("unsupported public key for [%s]: [%s]", name, stamp.ServerPk)
 		}
 		log.Warnf("Public key [%s] shouldn't be hex-encoded any more", string(stamp.ServerPk))
 		stamp.ServerPk = serverPk
@@ -172,7 +172,7 @@ func fetchDNSCryptServerInfo(proxy *Proxy, name string, stamp stamps.ServerStamp
 	if err != nil {
 		return ServerInfo{}, err
 	}
-	certInfo, relayTCPAddr, err := FetchCurrentDNSCryptCert(proxy, &name, proxy.mainProto, stamp.ServerPk, stamp.ServerAddrStr, stamp.ProviderName, isNew, relayTCPAddr)
+	certInfo, relayTCPAddr, err := FetchCurrentDNSCryptCert(proxy, &name, proxy.mainProto, stamp.ServerPk, stamp.ServerAddrStr, stamp.ProviderName, relayTCPAddr)
 	if err != nil {
 		return ServerInfo{}, err
 	}
