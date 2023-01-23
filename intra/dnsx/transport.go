@@ -240,6 +240,12 @@ func (r *resolver) RemoveSystemDNS() int {
 func (r *resolver) Add(t Transport) (ok bool) {
 	r.Lock()
 	defer r.Unlock()
+
+	// these IDs are reserved for internal use
+	if isReserved(t.ID()) {
+		return false
+	}
+
 	switch t.Type() {
 	case DNS53:
 		fallthrough
@@ -293,6 +299,10 @@ func (r *resolver) registerSystemDns64(ur ipn.Resolver) (ok bool) {
 func (r *resolver) Remove(id string) (ok bool) {
 	r.Lock()
 	defer r.Unlock()
+	// these IDs are reserved for internal use
+	if isReserved(id) {
+		return false
+	}
 	_, ok1 := r.transports[id]
 	_, ok2 := r.pool[id]
 	var ok3 bool
@@ -568,6 +578,10 @@ func (r *resolver) accept(c io.ReadWriteCloser) {
 		go r.forwardQueryAndCheck(q, c)
 	}
 	// TODO: Cancel outstanding queries.
+}
+
+func isReserved(id string) (ok bool) {
+	return id == Alg || id == DcProxy || id == BlockAll
 }
 
 func unpack(q []byte) (*dns.Msg, error) {
