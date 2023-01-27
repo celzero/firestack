@@ -168,9 +168,8 @@ func (one *oneTransport) Exchange(q []byte) (r []byte, err error) {
 	if err1 != nil {
 		return ans1, err1
 	}
-	// if the transport type is anything else but dns53, then the
-	// ans isn't expected to be truncated. So, nothing left to do.
-	if one.t.Type() != DNS53 {
+	// for doh, dns ans is never truncated
+	if one.t.Type() == DOH {
 		return ans1, err1
 	}
 
