@@ -17,6 +17,7 @@ package xdns
 import (
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"net"
 	"net/url"
 	"strings"
@@ -151,10 +152,10 @@ func ReadPrefixed(conn *net.Conn) ([]byte, error) {
 		if pos >= 2 && packetLength < 0 {
 			packetLength = int(binary.BigEndian.Uint16(buf[0:2]))
 			if packetLength > MaxDNSPacketSize-1 {
-				return buf, errors.New("dns crypt resp packet too large")
+				return buf, errors.New("dnscrypt resp packet too large")
 			}
 			if packetLength < MinDNSPacketSize {
-				return buf, errors.New("dns crypt resp packet too short")
+				return buf, fmt.Errorf("dnscrypt resp packet too short %d", packetLength)
 			}
 		}
 		if packetLength >= 0 && pos >= 2+packetLength {
