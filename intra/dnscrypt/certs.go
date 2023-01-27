@@ -44,10 +44,10 @@ type dnsExchangeResponse struct {
 	err      error
 }
 
-func FetchCurrentDNSCryptCert(proxy *Proxy, serverName *string, proto string, pk ed25519.PublicKey,
+func FetchCurrentDNSCryptCert(proxy *Proxy, serverName *string, pk ed25519.PublicKey,
 	serverAddress string, providerName string, relayTCPAddr *net.TCPAddr) (CertInfo, *net.TCPAddr, error) {
 	if len(pk) != ed25519.PublicKeySize {
-		return CertInfo{}, nil, errors.New("Invalid public key length")
+		return CertInfo{}, nil, errors.New("invalid public key length")
 	}
 	if !strings.HasSuffix(providerName, ".") {
 		providerName = providerName + "."
@@ -62,7 +62,8 @@ func FetchCurrentDNSCryptCert(proxy *Proxy, serverName *string, proto string, pk
 		log.Warnf("[%v] is not v2, ('%v' doesn't start with '2.dnscrypt-cert.')", *serverName, providerName)
 		relayForCerts = false
 	}
-	in, rtt, relayTCPAddr, err := dnsExchange(proxy, proto, &query, serverAddress, relayTCPAddr, serverName, relayForCerts)
+	log.Infof("[%v] Fetching DNSCrypt certificate for [%s] over [%v] at [%v]", *serverName, providerName, "udp", serverAddress)
+	in, rtt, relayTCPAddr, err := dnsExchange(proxy, &query, serverAddress, relayTCPAddr, serverName, relayForCerts)
 	if err != nil {
 		log.Warnf("[%s] TIMEOUT %v", *serverName, err)
 		return CertInfo{}, nil, err
@@ -203,26 +204,15 @@ func packTxtString(s string) []byte {
 	return msg
 }
 
-func dnsExchange(proxy *Proxy, proto string, query *dns.Msg, serverAddress string,
+func dnsExchange(proxy *Proxy, query *dns.Msg, serverAddress string,
 	relayTCPAddr *net.TCPAddr, serverName *string, relayForCerts bool) (*dns.Msg, time.Duration, *net.TCPAddr, error) {
 
-	// dnscrypt-relay forwards queries over udp only and so fragmentation support
-	// is a must otherwise larger queries simply won't work with the server
-	// over relays destinted for such "buggy" dnscrypt servers. So, when a
-	// relay-address is set, fetch certs over UDP. When not, it is okay to
-	// only rely on TCP to fetch certs as proxy supports TCP transport only
-	// which has no problems with larger queries even with "buggy" servers.
-	// flow: client ---[tcp|udp]---> relay ---[always-udp]---> server
-	if relayTCPAddr == nil {
-		// if there are no relays, use tcp to validate the servers
-		// since we do not care about large query support over udp.
-		proto = "tcp"
-	} else {
-		// if there's a relay set, check if the server can handle
-		// large queries by fetching certs over udp instead.
-		proto = "udp"
-	}
+	// always use udp to fetch certs since most servers like adguard, cleanbrowsing
+	// don't support fetching certs over tcp
+	proto := "udp"
 
+	// add padding to ensure that the cert txt response is large enough
+	minsz := 480
 	cancelChannel := make(chan struct{})
 	channel := make(chan dnsExchangeResponse)
 	var err error
@@ -232,7 +222,7 @@ func dnsExchange(proxy *Proxy, proto string, query *dns.Msg, serverAddress strin
 		queryCopy := query.Copy()
 		queryCopy.Id += uint16(options)
 		go func(query *dns.Msg, delay time.Duration) {
-			option := _dnsExchange(proxy, proto, query, serverAddress, relayTCPAddr, 0, relayForCerts)
+			option := _dnsExchange(proxy, proto, query, serverAddress, relayTCPAddr, minsz, relayForCerts)
 			option.priority = 0
 			channel <- option
 			time.Sleep(delay)
