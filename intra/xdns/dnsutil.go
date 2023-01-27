@@ -302,6 +302,119 @@ func HasAAAAAnswer(msg *dns.Msg) bool {
 	return false
 }
 
+func SubstSVCBRecordIPs(out *dns.Msg, x dns.SVCBKey, subiphints []*netip.Addr, subips []*netip.Addr, ttl int) bool {
+	// substitute ip hints in https / svcb records; and in any a / aaaa records
+	i := 0
+	f := 0
+	s := 0
+	for _, answer := range out.Answer {
+		if x == dns.SVCB_IPV4HINT && answer.Header().Rrtype == dns.TypeA {
+			rec, ok := answer.(*dns.A)
+			if ok && len(rec.A) >= net.IPv4len {
+				rec.A = subips[i].AsSlice()
+				rec.Hdr.Ttl = uint32(ttl)
+				f += 1
+			}
+		} else if x == dns.SVCB_IPV6HINT && answer.Header().Rrtype == dns.TypeAAAA {
+			rec, ok := answer.(*dns.AAAA)
+			if ok && len(rec.AAAA) == net.IPv6len {
+				rec.AAAA = subips[i].AsSlice()
+				rec.Hdr.Ttl = uint32(ttl)
+				s += 1
+			}
+		} else if !(answer.Header().Rrtype == dns.TypeHTTPS) && !(answer.Header().Rrtype == dns.TypeSVCB) {
+			continue
+		}
+		switch rec := answer.(type) {
+		case *dns.SVCB:
+			anchor := i
+			for j, kv := range rec.Value {
+				k := kv.Key()
+				// replace with a single ip hint
+				if k == x && x == dns.SVCB_IPV6HINT {
+					rec.Value[j] = &dns.SVCBIPv6Hint{
+						Hint: []net.IP{subiphints[i].AsSlice()},
+					}
+					i += 1
+				} else if k == x && x == dns.SVCB_IPV4HINT {
+					rec.Value[j] = &dns.SVCBIPv4Hint{
+						Hint: []net.IP{subiphints[i].AsSlice()},
+					}
+					i += 1
+				}
+			}
+			if i > anchor {
+				rec.Hdr.Ttl = uint32(ttl)
+			}
+		case *dns.HTTPS:
+			anchor := i
+			for j, kv := range rec.Value {
+				k := kv.Key()
+				// replace with a single ip hint
+				if k == x && x == dns.SVCB_IPV6HINT {
+					rec.Value[j] = &dns.SVCBIPv6Hint{
+						Hint: []net.IP{subiphints[i].AsSlice()},
+					}
+					i += 1
+				} else if k == x && x == dns.SVCB_IPV4HINT {
+					rec.Value[j] = &dns.SVCBIPv4Hint{
+						Hint: []net.IP{subiphints[i].AsSlice()},
+					}
+					i += 1
+				}
+			}
+			if i > anchor {
+				rec.Hdr.Ttl = uint32(ttl)
+			}
+		}
+	}
+	return i > 0
+}
+
+func IPHints(msg *dns.Msg, x dns.SVCBKey) []*netip.Addr {
+	// extract ip hints from https / svcb records
+	// https://tools.ietf.org/html/draft-ietf-dnsop-svcb-https-02#section-8.1
+	ips := []*netip.Addr{}
+	for _, answer := range msg.Answer {
+		if !(answer.Header().Rrtype == dns.TypeHTTPS) && !(answer.Header().Rrtype == dns.TypeSVCB) {
+			continue
+		}
+		switch rec := answer.(type) {
+		case *dns.SVCB:
+			for _, kv := range rec.Value {
+				if kv.Key() != x {
+					continue
+				}
+				// ipcsv may be "<nil>" or a csv of ips
+				ipcsv := kv.String()
+				for _, ipstr := range strings.Split(ipcsv, ",") {
+					if v, err := netip.ParseAddr(ipstr); err == nil {
+						ips = append(ips, &v)
+					} else {
+						log.Warnf("svcb: could not parse iphint %v", ipstr)
+					}
+				}
+			}
+		case *dns.HTTPS:
+			for _, kv := range rec.Value {
+				if kv.Key() != x {
+					continue
+				}
+				// ipcsv may be "<nil>" or a csv of ips
+				ipcsv := kv.String()
+				for _, ipstr := range strings.Split(ipcsv, ",") {
+					if v, err := netip.ParseAddr(ipstr); err == nil {
+						ips = append(ips, &v)
+					} else {
+						log.Warnf("https: could not parse iphint %v", ipstr)
+					}
+				}
+			}
+		}
+	}
+	return ips
+}
+
 func AAnswer(msg *dns.Msg) []*netip.Addr {
 	a4 := []*netip.Addr{}
 	for _, answer := range msg.Answer {
@@ -342,6 +455,11 @@ func HasAQuestion(msg *dns.Msg) bool {
 
 func HasAQuadAQuestion(msg *dns.Msg) bool {
 	return HasAAAAQuestion(msg) || HasAQuestion(msg)
+}
+
+func HasSVCBQuestion(msg *dns.Msg) bool {
+	q := msg.Question[0]
+	return q.Qclass == dns.ClassINET && (q.Qtype == dns.TypeSVCB || q.Qtype == dns.TypeHTTPS)
 }
 
 func MakeARecord(qname string, ip4 string, expiry int) dns.RR {

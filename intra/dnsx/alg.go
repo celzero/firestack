@@ -50,6 +50,14 @@ type ans struct {
 	ttl    time.Time
 }
 
+type ansMulti struct {
+	algip  []*netip.Addr // generated answers
+	realip []*netip.Addr // all ip answers
+	domain []string      // all domain names in an answer (incl qname)
+	qname  string        // the query domain name
+	ttl    time.Time
+}
+
 // TODO: Keep a context here so that queries can be canceled.
 type dnsgateway struct {
 	sync.RWMutex // locks alg, nat, octets, hexes
@@ -95,8 +103,7 @@ func (t *dnsgateway) Query(network string, q []byte, summary *Summary) (r []byte
 	}
 
 	qname, _ := xdns.NormalizeQName(xdns.QName(ansin))
-	// TODO: Handle SVCB/HTTPS records
-	hasq := xdns.HasAQuadAQuestion(ansin)
+	hasq := xdns.HasAQuadAQuestion(ansin) || xdns.HasSVCBQuestion(ansin)
 	hasans := xdns.HasAnyAnswer(ansin)
 	rgood := xdns.HasRcodeSuccess(ansin)
 	ans0000 := xdns.AQuadAUnspecified(ansin)
@@ -105,65 +112,134 @@ func (t *dnsgateway) Query(network string, q []byte, summary *Summary) (r []byte
 		return
 	}
 
-	var ipok bool
 	a6 := xdns.AAAAAnswer(ansin)
 	a4 := xdns.AAnswer(ansin)
+	ip4hints := xdns.IPHints(ansin, dns.SVCB_IPV4HINT)
+	ip6hints := xdns.IPHints(ansin, dns.SVCB_IPV6HINT)
 	targets := xdns.Targets(ansin)
 	rr := make([]dns.RR, 0)
 	realip := make([]*netip.Addr, 0)
-	var algip *netip.Addr
+	algips := make([]*netip.Addr, 0)
 
 	t.Lock()
 	defer t.Unlock()
-
-	if len(a6) > 0 {
-		realip = append(realip, a6...)
-		algip, ipok = t.take6Locked(qname)
-		if !ipok {
-			return r, errNoAlg
+	if ip4hints == nil && ip6hints == nil {
+		if len(a6) > 0 {
+			realip = append(realip, a6...)
+			algip, ipok := t.take6Locked(qname)
+			if !ipok {
+				return r, errNotAvailableAlg
+			}
+			// get fully qualified query-name (str qname is normalized)
+			nn := xdns.QName(ansin)
+			rr = append(rr, xdns.MakeAAAARecord(nn, algip.String(), ttl))
+			algips = append(algips, algip)
 		}
-		// get fully qualified query-name (str qname is normalized)
-		nn := xdns.QName(ansin)
-		rr = append(rr, xdns.MakeAAAARecord(nn, algip.String(), ttl))
-	} else if len(a4) > 0 {
-		realip = append(realip, a4...)
-		algip, ipok = t.take4Locked(qname)
-		if !ipok {
-			return r, errNoAlg
+		if len(a4) > 0 {
+			realip = append(realip, a4...)
+			algip, ipok := t.take4Locked(qname)
+			if !ipok {
+				return r, errNotAvailableAlg
+			}
+			// get fully qualified query-name (str qname is normalized)
+			nn := xdns.QName(ansin)
+			rr = append(rr, xdns.MakeARecord(nn, algip.String(), ttl))
+			algips = append(algips, algip)
 		}
-		// get fully qualified query-name (str qname is normalized)
-		nn := xdns.QName(ansin)
-		rr = append(rr, xdns.MakeARecord(nn, algip.String(), ttl))
-	} else {
-		// TODO: Handle SVCB/HTTPS records
-	}
-
-	if len(rr) <= 0 {
-		// may be there were no A or AAAA records
-		log.Debugf("alg: no translations done; a6(%d)/a4(%d)", len(a6), len(a4))
-		return
-	}
-
-	x := &ans{
-		algip:  algip,
-		realip: realip,
-		domain: targets,
-		qname:  qname,
-		// qname->realip valid for next ttl seconds
-		ttl: time.Now().Add(ttl * time.Second),
-	}
-	ansout := xdns.EmptyResponseFromMessage(ansin)
-	ansout.Answer = append(ansout.Answer, rr...)
-	if rout, err := ansout.Pack(); err == nil {
-		if t.registerLocked(qname, x) {
-			return rout, nil
+		// TODO: targets map 1:1 with AlgIPs
+		x := &ansMulti{
+			algip:  algips,
+			realip: realip,
+			domain: targets,
+			qname:  qname,
+			// qname->realip valid for next ttl seconds
+			ttl: time.Now().Add(ttl * time.Second),
+		}
+		ansout := xdns.EmptyResponseFromMessage(ansin)
+		ansout.Answer = append(ansout.Answer, rr...)
+		if rout, err := ansout.Pack(); err == nil {
+			if t.registerMultiLocked(qname, x) {
+				return rout, nil
+			} else {
+				return rout, errCannotRegisterAlg
+			}
 		} else {
-			return rout, errCannotRegister
+			log.Warnf("alg: unpacking err(%v)", err)
+			return r, err
 		}
 	} else {
-		log.Warnf("alg: unpacking err(%v)", err)
-		return r, err
+		algip4hints := []*netip.Addr{}
+		algip6hints := []*netip.Addr{}
+		algip4s := []*netip.Addr{}
+		algip6s := []*netip.Addr{}
+		for _, ip4 := range ip4hints {
+			realip = append(realip, ip4)
+			algip, ipok := t.take4Locked(qname)
+			if !ipok {
+				return r, errNotAvailableAlg
+			}
+			algip4hints = append(algip4hints, algip)
+		}
+		for _, ip6 := range ip6hints {
+			realip = append(realip, ip6)
+			algip, ipok := t.take6Locked(qname)
+			if !ipok {
+				return r, errNotAvailableAlg
+			}
+			algip6hints = append(algip6hints, algip)
+		}
+		if len(a6) > 0 {
+			realip = append(realip, a6...)
+			algip, ipok := t.take6Locked(qname)
+			if !ipok {
+				return r, errNotAvailableAlg
+			}
+			algip6s = append(algip6s, algip)
+		}
+		if len(a4) > 0 {
+			realip = append(realip, a4...)
+			algip, ipok := t.take4Locked(qname)
+			if !ipok {
+				return r, errNotAvailableAlg
+			}
+			algip4s = append(algip4s, algip)
+		}
+		substok1 := false
+		substok2 := false
+		if len(algip4hints) > 0 {
+			substok1 = xdns.SubstSVCBRecordIPs( /*out*/ ansin, dns.SVCB_IPV4HINT, algip4hints, algip4s, ttl)
+		}
+		if len(algip6hints) > 0 {
+			substok2 = xdns.SubstSVCBRecordIPs( /*out*/ ansin, dns.SVCB_IPV6HINT, algip6hints, algip6s, ttl)
+		}
+		if !substok1 || !substok2 {
+			// may be there were no A or AAAA records
+			log.Debugf("alg: no translations; a6(%d)/a4(%d)/substHint(%t/%t)", len(a6), len(a4), substok1, substok2)
+		}
+		algips = append(algips, algip4hints...)
+		algips = append(algips, algip6hints...)
+		algips = append(algips, algip4s...)
+		algips = append(algips, algip6s...)
+		x := &ansMulti{
+			algip:  algips,
+			realip: realip,
+			domain: targets,
+			qname:  qname,
+			// qname->realip valid for next ttl seconds
+			ttl: time.Now().Add(ttl * time.Second),
+		}
+		if rout, err := ansin.Pack(); err == nil {
+			if t.registerMultiLocked(qname, x) {
+				return rout, nil
+			} else {
+				return rout, errCannotRegisterAlg
+			}
+		} else {
+			log.Warnf("alg: unpacking err(%v)", err)
+			return r, err
+		}
 	}
+
 }
 
 func (t *dnsgateway) ID() string {
@@ -176,6 +252,33 @@ func (t *dnsgateway) Type() string {
 
 func (t *dnsgateway) GetAddr() string {
 	return t.Transport.GetAddr()
+}
+
+func (am *ansMulti) ansViewLocked(i int) *ans {
+	return &ans{
+		algip:  am.algip[i],
+		realip: am.realip,
+		domain: am.domain,
+		qname:  am.qname,
+		ttl:    am.ttl,
+	}
+}
+
+func (t *dnsgateway) registerMultiLocked(q string, am *ansMulti) bool {
+	for i, ip := range am.algip {
+		ax := am.ansViewLocked(i)
+		var k string
+		if ip.Is4() {
+			k = q + key4
+		} else if ip.Is6() {
+			k = q + key6
+		} else {
+			return false
+		}
+		t.alg[k] = ax
+		t.nat[*ip] = ax
+	}
+	return true
 }
 
 func (t *dnsgateway) registerLocked(q string, x *ans) bool {
