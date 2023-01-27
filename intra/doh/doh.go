@@ -391,7 +391,7 @@ func (t *transport) Type() string {
 
 func (t *transport) Query(_ string, q []byte, summary *dnsx.Summary) ([]byte, error) {
 
-	response, blocklists, server, elapsed, qerr := t.doQuery(q)
+	response, blocklists, _, elapsed, qerr := t.doQuery(q)
 
 	status := dnsx.Complete
 	if qerr != nil {
@@ -400,7 +400,7 @@ func (t *transport) Query(_ string, q []byte, summary *dnsx.Summary) ([]byte, er
 	t.status = status
 	summary.Latency = elapsed.Seconds()
 	summary.Response = response
-	summary.Server = server.IP.String()
+	summary.Server = t.GetAddr()
 	summary.Status = status
 	summary.Blocklists = blocklists
 
