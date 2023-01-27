@@ -87,6 +87,9 @@ func QName(msg *dns.Msg) string {
 
 func Targets(msg *dns.Msg) []string {
 	var targets []string
+	if qname, err := NormalizeQName(QName(msg)); err == nil {
+		targets = append(targets, qname)
+	}
 	for _, a := range msg.Answer {
 		var target string
 		switch r := a.(type) {
@@ -107,8 +110,9 @@ func Targets(msg *dns.Msg) []string {
 		default:
 			// no-op
 		}
-		target, _ = NormalizeQName(target)
-		if len(target) > 0 {
+		if len(target) <= 0 {
+			continue
+		} else if target, err := NormalizeQName(target); err == nil {
 			targets = append(targets, target)
 		}
 	}
@@ -235,6 +239,7 @@ func RefusedResponseFromMessage(srcMsg *dns.Msg) (dstMsg *dns.Msg, err error) {
 			Class:  dns.ClassINET,
 			Ttl:    ttl,
 		}
+		// TODO: instead use a self-referential "."?
 		// some random 63-char string
 		rrh.Target = fakedomain
 		rra := new(dns.A)
