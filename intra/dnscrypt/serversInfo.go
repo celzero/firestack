@@ -134,8 +134,7 @@ func (serversInfo *ServersInfo) refresh(proxy *Proxy) ([]string, error) {
 	for _, registeredServer := range serversInfo.registeredServers {
 		if err = serversInfo.refreshServer(proxy, registeredServer.name, registeredServer.stamp); err == nil {
 			liveServers = append(liveServers, registeredServer.name)
-		}
-		if err != nil {
+		} else {
 			log.Errorf("%s not a live server? %w", registeredServer.stamp, err)
 		}
 	}
@@ -214,7 +213,7 @@ func fetchDoHServerInfo(proxy *Proxy, name string, stamp stamps.ServerStamp) (Se
 func route(proxy *Proxy, name string) (*net.TCPAddr, error) {
 	relayNames := proxy.routes
 	if relayNames == nil {
-		log.Infof("dns-crypt: No relay routes found.")
+		log.Infof("dnscrypt: No relay routes found.")
 		return nil, nil
 	}
 
@@ -258,7 +257,18 @@ func NewServersInfo() ServersInfo {
 }
 
 func (s *ServerInfo) String() string {
-	return s.Name + ":" + s.URL.Host + "/" + s.TCPAddr.String() + "<=>" + s.RelayTCPAddr.String()
+	serverid := s.ID()
+	servername := s.GetAddr()
+	serveraddr := "notcp"
+	relayaddr := "norelay"
+	if s.TCPAddr != nil {
+		serveraddr = s.TCPAddr.String()
+	}
+	if s.RelayTCPAddr != nil {
+		relayaddr = s.RelayTCPAddr.String()
+	}
+
+	return serverid + ":" + servername + "/" + serveraddr + "<=>" + relayaddr
 }
 
 func (s *ServerInfo) ID() string {
