@@ -7,8 +7,6 @@
 package dnsx
 
 import (
-	"errors"
-
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/xdns"
 	"github.com/miekg/dns"
@@ -22,18 +20,14 @@ func (r *resolver) block(t Transport, msg *dns.Msg) (ans *dns.Msg, blocklists st
 	}
 
 	b := r.rdnsl
-	if b == nil {
+	if b == nil || !b.OnDeviceBlock() {
 		return nil, "", errNoRdns
 	}
-	if b.OnDeviceBlock() {
-		ans, blocklists, err = r.applyBlocklists(msg)
-		if err == nil { // blocklist enforced when err is nil
-			return
-		}
+	// OnDeviceBlock() is true; enforce blocklists
+	ans, blocklists, err = r.applyBlocklists(msg)
+	if err != nil {
 		// block skipped because err is set
 		log.Debugf("skipping local block for %s with err %s", blocklists, err)
-	} else {
-		log.Debugf("forward query: no local block")
 	}
 	return
 }
@@ -49,7 +43,7 @@ func (r *resolver) applyBlocklists(q *dns.Msg) (ans *dns.Msg, blocklists string,
 		return
 	}
 	if len(blocklists) <= 0 {
-		err = errors.New("no blocklist applies")
+		err = errNoBlocklistMatch
 		return
 	}
 

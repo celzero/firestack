@@ -44,6 +44,7 @@ var (
 	errTooManyQuestions = errors.New("one question too many")
 	errNotEnoughAnswers = errors.New("req at least two answers")
 	errTrieArgs         = errors.New("missing data, unable to build blocklist")
+	errNoBlocklistMatch = errors.New("no blocklist applies")
 )
 
 type RdnsResolver interface {
