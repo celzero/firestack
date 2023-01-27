@@ -237,8 +237,6 @@ func (r *resolver) RemoveSystemDNS() int {
 
 // Implements Resolver
 func (r *resolver) Add(t Transport) (ok bool) {
-	r.Lock()
-	defer r.Unlock()
 
 	// these IDs are reserved for internal use
 	if isReserved(t.ID()) {
@@ -248,15 +246,20 @@ func (r *resolver) Add(t Transport) (ok bool) {
 	switch t.Type() {
 	case DNS53:
 		fallthrough
-	case DOH:
-		fallthrough
 	case DNSCrypt:
+		// DNSCrypt transports are also registered with DcProxy
+		// remove if present
+		r.Remove(t.ID())
+		fallthrough
+	case DOH:
+		r.Lock()
 		r.transports[t.ID()] = t
 		r.pool[t.ID()] = &oneTransport{t: t}
 		// if resetting default transport, update underlying transport for alg
 		if gw := r.Gateway(); t.ID() == Default && gw != nil {
 			gw.WithTransport(t)
 		}
+		r.Unlock()
 		return true
 	}
 	return false
