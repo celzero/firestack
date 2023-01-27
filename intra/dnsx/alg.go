@@ -27,8 +27,8 @@ const (
 )
 
 var (
-	errNoAlg          = errors.New("no valid alg ips")
-	errCannotRegister = errors.New("cannot register alg ip")
+	errNotAvailableAlg   = errors.New("no valid alg ips")
+	errCannotRegisterAlg = errors.New("cannot register alg ip")
 )
 
 type Gateway interface {
@@ -80,6 +80,9 @@ func NewDNSGateway(inner Transport) (t *dnsgateway) {
 func (t *dnsgateway) Query(network string, q []byte, summary *Summary) (r []byte, err error) {
 
 	r, err = t.Transport.Query(network, q, summary)
+	if err != nil {
+		return
+	}
 
 	// override relevant values in summary
 	summary.ID = t.ID()
@@ -223,7 +226,7 @@ func (t *dnsgateway) take4Locked(q string) (*netip.Addr, bool) {
 		genip := netip.AddrFrom4(b4)
 		return &genip, genip.IsValid()
 	} else {
-		log.Warnf("alg: no more IPs (%v)", t.octets)
+		log.Warnf("alg: no more IP4s (%v)", t.octets)
 	}
 	return nil, false
 }
@@ -265,7 +268,7 @@ func (t *dnsgateway) take6Locked(q string) (*netip.Addr, bool) {
 		genip := netip.AddrFrom16(b16)
 		return &genip, genip.IsValid()
 	} else {
-		log.Warnf("alg: no more IPs (%x)", t.hexes)
+		log.Warnf("alg: no more IP6s (%x)", t.hexes)
 	}
 	return nil, false
 }
@@ -335,4 +338,8 @@ func (t *dnsgateway) ptr(algip *netip.Addr) (domains []string) {
 		return ans.domain
 	}
 	return nil
+}
+
+func isAlgErr(err error) bool {
+	return (err == errCannotRegisterAlg || err == errNotAvailableAlg)
 }
