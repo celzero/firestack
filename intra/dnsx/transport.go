@@ -242,7 +242,7 @@ func (r *resolver) Add(t Transport) (ok bool) {
 
 	// these IDs are reserved for internal use
 	if isReserved(t.ID()) {
-		return false
+		log.Infof("dns: updating reserved transport %s", t.ID())
 	}
 
 	switch t.Type() {
@@ -298,10 +298,12 @@ func (r *resolver) registerSystemDns64(ur ipn.Resolver) (ok bool) {
 func (r *resolver) Remove(id string) (ok bool) {
 	r.Lock()
 	defer r.Unlock()
+
 	// these IDs are reserved for internal use
 	if isReserved(id) {
-		return false
+		log.Infof("dns: removing reserved transport %s", id)
 	}
+
 	_, ok1 := r.transports[id]
 	_, ok2 := r.pool[id]
 	var ok3 bool
