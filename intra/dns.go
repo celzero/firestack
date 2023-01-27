@@ -54,7 +54,7 @@ func NewDoHTransport(id, url string, ips string, auth doh.ClientAuth) (dnsx.Tran
 func NewDNSCryptTransport(r dnsx.Resolver, id, stamp string) (d dnsx.Transport, err error) {
 	if tm, err := r.DcProxy(); err == nil {
 		if p, ok := tm.(*dnscrypt.Proxy); ok {
-			return dnscrypt.NewTransport(p, id, stamp), nil
+			return dnscrypt.NewTransport(p, id, stamp)
 		} else {
 			err = dnsx.ErrNoDcProxy
 		}
@@ -62,13 +62,14 @@ func NewDNSCryptTransport(r dnsx.Resolver, id, stamp string) (d dnsx.Transport, 
 	return nil, err
 }
 
-func NewDNSCryptRelay(r dnsx.Resolver, stamp string) (d dnsx.Transport, err error) {
+func NewDNSCryptRelay(r dnsx.Resolver, stamp string) (dnsx.Transport, error) {
 	if tm, err := r.DcProxy(); err == nil {
 		if p, ok := tm.(*dnscrypt.Proxy); ok {
-			return dnscrypt.NewRelayTransport(p, stamp), nil
+			return dnscrypt.NewRelayTransport(p, stamp)
 		} else {
-			err = dnsx.ErrNoDcProxy
+			return nil, dnsx.ErrNoDcProxy
 		}
+	} else {
+		return nil, err
 	}
-	return nil, err
 }

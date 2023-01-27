@@ -56,6 +56,10 @@ type Proxy struct {
 	lastAddr                     string
 }
 
+var (
+	errNoCert = errors.New("dnscrypt: error refreshing cert")
+)
+
 func exchangeWithTCPServer(serverInfo *ServerInfo, sharedKey *[32]byte, encryptedQuery []byte, clientNonce []byte) ([]byte, error) {
 	upstreamAddr := serverInfo.TCPAddr
 	if serverInfo.RelayTCPAddr != nil {
@@ -257,7 +261,7 @@ func (proxy *Proxy) refreshOne(uid string) bool {
 		return false
 	}
 	if err := proxy.serversInfo.refreshServer(proxy, r.name, r.stamp); err != nil {
-		log.Errorf("dnscrypt: failed to refresh %s: %v", r.name, err)
+		log.Errorf("dnscrypt: refresh failed %s: %v", r.name, err)
 		return false
 	}
 	return true
@@ -467,19 +471,28 @@ func NewProxy() *Proxy {
 	}
 }
 
-func NewTransport(p *Proxy, id, serverstamp string) dnsx.Transport {
+func NewTransport(p *Proxy, id, serverstamp string) (dnsx.Transport, error) {
+	if p == nil {
+		return nil, dnsx.ErrNoDcProxy
+	}
 	if _, err := p.addOne(id, serverstamp); err == nil {
 		if ok := p.refreshOne(id); ok {
-			return p.serversInfo.get(id)
+			return p.serversInfo.get(id), nil
+		} else {
+			return nil, errNoCert
 		}
+	} else {
+		return nil, err
 	}
-
-	return nil
 }
 
-func NewRelayTransport(p *Proxy, relaystamp string) dnsx.Transport {
-	if _, err := p.AddGateways(relaystamp); err == nil {
-		return p
+func NewRelayTransport(p *Proxy, relaystamp string) (dnsx.Transport, error) {
+	if p == nil {
+		return nil, dnsx.ErrNoDcProxy
 	}
-	return nil
+	if _, err := p.AddGateways(relaystamp); err == nil {
+		return p, nil
+	} else {
+		return nil, err
+	}
 }
