@@ -202,7 +202,7 @@ func (h *udpHandler) dnsOverride(nat *tracker, conn core.UDPConn, addr *net.UDPA
 
 	resp, err := h.resolver.Forward(query)
 	if resp != nil {
-		_, err = conn.WriteFrom(resp, nat.ip)
+		_, err = conn.WriteFrom(resp, addr)
 	}
 	if err != nil {
 		log.Warnf("dns udp query failed: %v", err)
