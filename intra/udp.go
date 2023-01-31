@@ -305,19 +305,23 @@ func (h *udpHandler) Connect(conn core.UDPConn, target *net.UDPAddr) error {
 		return err
 	}
 
-	t := makeTracker(c)
+	nat := makeTracker(c)
 
-	if h.proxymode() {
-		t.ip = &(*target)
+	if h.proxymode() && !dnsredir {
+		nat.ip = &net.UDPAddr{
+			IP:   target.IP,
+			Port: target.Port,
+			Zone: target.Zone,
+		}
 	}
 
 	h.Lock()
-	h.udpConns[conn] = t
+	h.udpConns[conn] = nat
 	h.Unlock()
 
 	// TODO: fetch-udp-input not required for dns? dns-override takes over;
 	// and funcs doDoh and doDnscrypt close the conns once tx is complete.
-	go h.fetchUDPInput(conn, t)
+	go h.fetchUDPInput(conn, nat)
 
 	log.Infof("new udp proxy (mode: %s) conn to target: %s", h.proxymode(), target)
 	return nil
@@ -347,7 +351,11 @@ func (h *udpHandler) ReceiveTo(conn core.UDPConn, data []byte, addr *net.UDPAddr
 
 	// unused in netstack as it only supports connected udp
 	// that is, udpconn.writeFrom(data, addr) isn't supported
-	t.ip = &(*addr)
+	nat.ip = &net.UDPAddr{
+		IP:   addr.IP,
+		Port: addr.Port,
+		Zone: addr.Zone,
+	}
 
 	// send data to un-nated ips; overwrite target.IP with ipx4
 	// alg happens before nat64, and so, alg has no knowledge of nat-ed ips
