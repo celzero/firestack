@@ -29,6 +29,7 @@ type GUDPConnHandler interface {
 	OnNewConn(conn *GUDPConn, src, dst *net.UDPAddr) bool
 	HandleData(conn *GUDPConn, data []byte, addr *net.UDPAddr) error
 }
+
 type GUDPConn struct {
 	core.UDPConn
 	ep   tcpip.Endpoint
@@ -42,7 +43,7 @@ func NewGUDPConn(s *stack.Stack, r *udp.ForwarderRequest, src, dst *net.UDPAddr)
 	waitQueue := new(waiter.Queue)
 	// use gonet.DialUDP instead?
 	if endpoint, err := r.CreateEndpoint(waitQueue); err != nil {
-		log.Errorf("ns.udp.forwarder: mk endpoint; err(%v)", err)
+		log.Errorf("ns.udp.forwarder: MAKE endpoint for %v => %v; err(%v)", src, dst, err)
 		return nil
 	} else {
 		return &GUDPConn{
@@ -83,6 +84,7 @@ func NewUDPForwarder(s *stack.Stack, h GUDPConnHandler, mtu uint32) *udp.Forward
 
 		gc := NewGUDPConn(s, request, src, dst)
 
+		// gc is nil when udp is a bound but unconnected socket
 		if gc == nil {
 			return
 		}
@@ -92,8 +94,7 @@ func NewUDPForwarder(s *stack.Stack, h GUDPConnHandler, mtu uint32) *udp.Forward
 		go func() {
 			log.Debugf("ns.udp.forwarder: NEW src(%v) => dst(%v)", src, dst)
 
-			ok := h.OnNewConn(gc, src, dst)
-			if !ok {
+			if ok := h.OnNewConn(gc, src, dst); !ok {
 				return
 			}
 
@@ -115,11 +116,15 @@ func NewUDPForwarder(s *stack.Stack, h GUDPConnHandler, mtu uint32) *udp.Forward
 					who := addr.(*net.UDPAddr)
 					l := gc.LocalAddr()
 					r := gc.RemoteAddr()
+					if who.IP.String() != l.IP.String() {
+						log.Warnf("ns.udp.forwarder: MISMATCH expected-src(%v) => actual(l:%v)", who, l)
+					}
 					log.Debugf("ns.udp.forwarder: DATA src(%v) => dst(l:%v / r:%v)", who, l, r)
 					if errh := h.HandleData(gc, data[:n], r); errh != nil {
 						break
 					}
 				} else {
+					// TODO: handle temporary errors?
 					log.Debugf("ns.udp.forwarder: DONE err(%v)", err)
 					break
 				}
@@ -161,8 +166,9 @@ func (g *GUDPConn) WriteFrom(data []byte, addr *net.UDPAddr) (int, error) {
 	// addr: 10.111.222.3:17711; g.LocalAddr(g.udp.remote): 10.111.222.3:17711; g.RemoteAddr(g.udp.local): 10.111.222.1:53
 	// ep(state 3 / info &{2048 17 {53 10.111.222.3 17711 10.111.222.1} 1 10.111.222.3 1} / stats &{{{1}} {{0}} {{{0}} {{0}} {{0}} {{0}}} {{{0}} {{0}} {{0}}} {{{0}} {{0}}} {{{0}} {{0}} {{0}}}})
 	// 3: status:datagram-connected / {2048=>proto, 17=>transport, {53=>local-port localip 17711=>remote-port remoteip}=>endpoint-id, 1=>bind-nic-id, ip=>bind-addr, 1=>registered-nic-id}
-	log.Debugf("ns.udp.writeFrom: ep(state %v / info %v / stats %v)", g.ep.State(), g.ep.Info(), g.ep.Stats())
+	log.Debugf("ns.udp.writeFrom: from(%v) / ep(state %v / info %v / stats %v)", addr, g.ep.State(), g.ep.Info(), g.ep.Stats())
 	return g.gudp.Write(data)
+
 }
 
 // Close closes the connection.
