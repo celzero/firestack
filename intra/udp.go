@@ -46,6 +46,11 @@ import (
 	"github.com/celzero/firestack/intra/settings"
 )
 
+const (
+	// arbitrary threshold of temporary errs before connection is closed
+	maxconnerr = 7
+)
+
 // UDPSocketSummary describes a non-DNS UDP association, reported when it is discarded.
 type UDPSocketSummary struct {
 	UploadBytes   int64 // Amount uploaded (bytes)
@@ -63,6 +68,7 @@ type tracker struct {
 	start    time.Time
 	upload   int64        // Non-DNS upload bytes
 	download int64        // Non-DNS download bytes
+	errcount int          // conn splice err count
 	ip       *net.UDPAddr // masked addr
 }
 
@@ -118,7 +124,7 @@ func NewUDPHandler(resolver dnsx.Resolver, pt ipn.NAT64, blocker protect.Blocker
 }
 
 // fetchUDPInput reads from nat.conn to masqurade-write it to core.UDPConn
-func (h *udpHandler) fetchUDPInput(conn core.UDPConn, t *tracker) {
+func (h *udpHandler) fetchUDPInput(conn core.UDPConn, nat *tracker) {
 	buf := core.NewBytes(core.BufSize)
 
 	defer func() {
@@ -127,6 +133,11 @@ func (h *udpHandler) fetchUDPInput(conn core.UDPConn, t *tracker) {
 	}()
 
 	for {
+		if nat.errcount > maxconnerr {
+			log.Debugf("t.udp.fetchudp: too many errors (%v), closing", errcount)
+			return
+		}
+
 		var n int
 		var addr net.Addr
 		var err error
@@ -134,7 +145,7 @@ func (h *udpHandler) fetchUDPInput(conn core.UDPConn, t *tracker) {
 		log.Debugf("t.udp.fetchudp: read remote for local-addr(%v)", conn.LocalAddr())
 		// FIXME: ReadFrom seems to block for 50mins+ at times:
 		// Cancel the goroutine in such cases and close the conns
-		switch c := t.conn.(type) {
+		switch c := nat.conn.(type) {
 		case net.PacketConn:
 			c.SetDeadline(time.Now().Add(h.timeout)) // extend deadline
 			// reads a packet from t.conn copying it to buf
@@ -147,26 +158,38 @@ func (h *udpHandler) fetchUDPInput(conn core.UDPConn, t *tracker) {
 			err = errors.New("failed to read from proxy udp conn")
 		}
 
+		// is err recoverable?
+		// ref: github.com/miekg/dns/blob/f8a185d39/server.go#L521
+		if neterr, ok := err.(net.Error); ok && neterr.Temporary() {
+			nat.errcount += 1
+			continue
+		}
 		if err != nil {
 			log.Infof("t.udp.fetchudpinput: err(%v)", err)
 			return
 		}
 
 		var udpaddr *net.UDPAddr
-		if t.ip == nil && addr != nil {
+		if addr != nil {
 			udpaddr = addr.(*net.UDPAddr)
-		} else {
+		} else if nat.ip != nil {
 			// overwrite source-addr as set in t.ip
-			udpaddr = t.ip
+			udpaddr = nat.ip
 		}
 
 		log.Debugf("t.udp.fetchudpinput: data(%d) from remote(actual:%v/masq:%v)", n, addr, udpaddr)
 
-		t.download += int64(n)
-		// writes data to conn (tun) with addr as source
+		nat.download += int64(n)
+		// writes data to conn (tun) with udpaddr as source
 		_, err = conn.WriteFrom(buf[:n], udpaddr)
 		if err != nil {
 			log.Warnf("failed to write udp data to tun from %s", udpaddr)
+		}
+		// is err recoverable? see above
+		if neterr, ok := err.(net.Error); ok && neterr.Temporary() {
+			nat.errcount += 1
+			continue
+		} else {
 			return
 		}
 	}
@@ -307,7 +330,7 @@ func (h *udpHandler) HandleData(conn *netstack.GUDPConn, data []byte, addr *net.
 // ReceiveTo is called when data arrives from conn (tun).
 func (h *udpHandler) ReceiveTo(conn core.UDPConn, data []byte, addr *net.UDPAddr) (err error) {
 	h.RLock()
-	t, ok1 := h.udpConns[conn]
+	nat, ok1 := h.udpConns[conn]
 	h.RUnlock()
 
 	if !ok1 {
@@ -315,7 +338,7 @@ func (h *udpHandler) ReceiveTo(conn core.UDPConn, data []byte, addr *net.UDPAddr
 		return fmt.Errorf("conn %v->%v does not exist", conn.LocalAddr(), addr)
 	}
 
-	if h.dnsOverride(t, conn, addr, data) {
+	if h.dnsOverride(nat, conn, addr, data) {
 		log.Debugf("t.udp.rcv: dns-override for dstaddr(%v)", addr)
 		return nil
 	}
@@ -336,9 +359,9 @@ func (h *udpHandler) ReceiveTo(conn core.UDPConn, data []byte, addr *net.UDPAddr
 	// but ipx4 might itself be an alg ip; so check if there's a real-ip to connect to
 	addr.IP = oneRealIp(realips, ipx4)
 
-	t.upload += int64(len(data))
+	nat.upload += int64(len(data))
 
-	switch c := t.conn.(type) {
+	switch c := nat.conn.(type) {
 	case net.PacketConn:
 		// Update deadline.
 		c.SetDeadline(time.Now().Add(h.timeout))
@@ -353,9 +376,20 @@ func (h *udpHandler) ReceiveTo(conn core.UDPConn, data []byte, addr *net.UDPAddr
 		err = errors.New("failed write to udp proxy")
 	}
 
-	if err != nil {
-		log.Debugf("t.udp.rcv: forward udp err(%v)", err)
-		return errors.New("failed to write udp data")
+	// is err recoverable?
+	// ref: github.com/miekg/dns/blob/f8a185d39/server.go#L521
+	if neterr, ok := err.(net.Error); ok && neterr.Temporary() {
+		nat.errcount += 1
+		if nat.errcount > maxconnerr {
+			log.Warnf("t.udp.rcv: too many errors(%d) for conn(%v)", nat.errcount, conn.LocalAddr())
+			return err
+		} else {
+			log.Warnf("t.udp.rcv: temporary error(%v) for conn(%v)", err, conn.LocalAddr())
+			return nil
+		}
+	} else if err != nil {
+		log.Infof("t.udp.rcv: end splice, forward udp err(%v)", err)
+		return err
 	}
 
 	log.Infof("t.udp.rcv: src(%v) -> dst(%v) / data(%d)", conn.LocalAddr(), addr, len(data))
