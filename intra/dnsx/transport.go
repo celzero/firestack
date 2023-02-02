@@ -396,10 +396,12 @@ func (r *resolver) Forward(q []byte) ([]byte, error) {
 
 	// block response if needed
 	ans2, blocklistnames := r.blockRes(t, msg, ans1, summary.Blocklists)
-	// overwrite response when blocked
-	if len(blocklistnames) > 0 && ans2 != nil {
+	if len(blocklistnames) > 0 {
 		// summary latency, response, status, ips already set by transport t
 		summary.Blocklists = blocklistnames
+	}
+	// overwrite response when blocked
+	if ans2 != nil {
 		ans1 = ans2
 	}
 
@@ -509,6 +511,9 @@ func (r *resolver) forwardQuery(q []byte, c io.Writer) error {
 	if len(blocklistnames) > 0 {
 		// summary latency, response, status, ips already set by transport t
 		summary.Blocklists = blocklistnames
+	}
+	// overwrite response when blocked
+	if ans2 != nil {
 		ans1 = ans2
 	}
 
