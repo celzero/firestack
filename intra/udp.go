@@ -73,7 +73,7 @@ type tracker struct {
 }
 
 func makeTracker(conn interface{}) *tracker {
-	return &tracker{conn, time.Now(), 0, 0, nil}
+	return &tracker{conn, time.Now(), 0, 0, 0, nil}
 }
 
 // UDPHandler adds DOH support to the base UDPConnHandler interface.
@@ -134,7 +134,7 @@ func (h *udpHandler) fetchUDPInput(conn core.UDPConn, nat *tracker) {
 
 	for {
 		if nat.errcount > maxconnerr {
-			log.Debugf("t.udp.fetchudp: too many errors (%v), closing", errcount)
+			log.Debugf("t.udp.fetchudp: too many errors (%v), closing", nat.errcount)
 			return
 		}
 

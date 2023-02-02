@@ -11,8 +11,11 @@ type Summary struct {
 	Type        string  // dnscrypt, dns53, doh
 	ID          string  // transport id
 	Latency     float64 // Response (or failure) latency in seconds
-	Query       []byte
-	Response    []byte
+	QName       string  // query domain
+	QType       int     // A, AAAA, SVCB, HTTPS, etc.
+	RData       string  // response data, usually a csv of ips
+	RCode       int     // response code
+	RTtl        int     // response ttl
 	Server      string
 	RelayServer string
 	Status      int

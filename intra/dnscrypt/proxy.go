@@ -237,9 +237,12 @@ func resolve(data []byte, serverinfo *ServerInfo, s *dnsx.Summary, trunc bool) (
 		status = qerr.Status()
 	}
 
+	ans := xdns.AsMsg(response)
+
 	s.Latency = latency.Seconds()
-	s.Query = data
-	s.Response = response
+	s.RData = xdns.GetInterestingRData(ans)
+	s.RCode = xdns.Rcode(ans)
+	s.RTtl = xdns.RTtl(ans)
 	s.Server = resolver
 	s.RelayServer = relay
 	s.Status = status

@@ -26,6 +26,14 @@ import (
 	"github.com/miekg/dns"
 )
 
+func AsMsg(packet []byte) *dns.Msg {
+	msg := &dns.Msg{}
+	if err := msg.Unpack(packet); err != nil {
+		return nil
+	}
+	return msg
+}
+
 func Request4FromResponse6(msg6 *dns.Msg) *dns.Msg {
 	msg4 := &dns.Msg{
 		Compress: true,
@@ -83,6 +91,164 @@ func QName(msg *dns.Msg) string {
 		return msg.Question[0].Name
 	}
 	return ""
+}
+
+func QType(msg *dns.Msg) uint16 {
+	if msg != nil && len(msg.Question) > 0 {
+		return msg.Question[0].Qtype
+	}
+	return dns.TypeNone
+}
+
+func Rcode(msg *dns.Msg) int {
+	if msg != nil {
+		return msg.Rcode
+	}
+	return dns.RcodeFormatError
+}
+
+func RTtl(msg *dns.Msg) int {
+	maxttl := uint32(0)
+	if msg == nil || len(msg.Answer) <= 0 {
+		return int(maxttl)
+	}
+	for _, a := range msg.Answer {
+		if a.Header().Ttl > 0 {
+			ttl := a.Header().Ttl
+			if maxttl < ttl {
+				maxttl = ttl
+			}
+		}
+	}
+	return int(maxttl)
+}
+
+func GetInterestingRData(msg *dns.Msg) string {
+	if msg == nil {
+		return ""
+	}
+	var ipcsv string
+	ip4s := IPHints(msg, dns.SVCB_IPV4HINT)
+	ip6s := IPHints(msg, dns.SVCB_IPV6HINT)
+	data := make([]string, 0)
+	if len(ip4s) > 0 {
+		data = append(data, netips2str(ip4s)...)
+	}
+	if len(ip6s) > 0 {
+		data = append(data, netips2str(ip6s)...)
+	}
+	if len(data) > 0 {
+		ipcsv += strings.Join(data, ",")
+	}
+	for _, a := range msg.Answer {
+		switch r := a.(type) {
+		case *dns.A:
+			if len(ipcsv) > 0 {
+				ipcsv += "," + ip2str(r.A)
+			} else {
+				ipcsv += ip2str(r.A)
+			}
+		case *dns.AAAA:
+			if len(ipcsv) > 0 {
+				ipcsv += "," + ip2str(r.AAAA)
+			} else {
+				ipcsv += ip2str(r.AAAA)
+			}
+		case *dns.NS:
+			return r.Ns
+		case *dns.TXT:
+			if len(r.Txt) > 0 {
+				return r.Txt[0]
+			}
+			return r.String()
+		case *dns.SOA:
+			return r.Mbox
+		case *dns.HINFO:
+			return r.Os
+		case *dns.SRV:
+			return r.Target
+		case *dns.CAA:
+			return r.Value
+		case *dns.MX:
+			return r.Mx
+		case *dns.RP:
+			return r.Mbox
+		case *dns.DNSKEY:
+			return r.PublicKey
+		case *dns.DS:
+			return r.Digest
+		case *dns.RRSIG:
+			return r.SignerName
+		case *dns.SVCB:
+			// already handled
+			continue
+		case *dns.HTTPS:
+			// already handled
+			continue
+		case *dns.NSEC:
+			return r.NextDomain
+		case *dns.NSEC3:
+			return r.NextDomain
+		case *dns.NSEC3PARAM:
+			return r.Salt
+		case *dns.TLSA:
+			return r.Certificate
+		case *dns.OPT:
+			return r.String()
+		case *dns.APL:
+			return r.String()
+		case *dns.SSHFP:
+			return r.FingerPrint
+		case *dns.DNAME:
+			return r.Target
+		case *dns.NAPTR:
+			return r.Service
+		case *dns.CERT:
+			return r.Certificate
+		case *dns.DLV:
+			return r.Digest
+		case *dns.DHCID:
+			return r.Digest
+		case *dns.SMIMEA:
+			return r.Certificate
+		case *dns.NINFO:
+			if len(r.ZSData) > 0 {
+				return r.ZSData[0]
+			}
+			return r.String()
+		case *dns.RKEY:
+			return r.PublicKey
+		case *dns.TKEY:
+			return r.OtherData
+		case *dns.TSIG:
+			return r.OtherData
+		case *dns.URI:
+			return r.Target
+		case *dns.HIP:
+			return r.PublicKey
+		case *dns.CDS:
+			return r.Digest
+		case *dns.OPENPGPKEY:
+			return r.PublicKey
+		case *dns.SPF:
+			if len(r.Txt) > 0 {
+				return r.Txt[0]
+			}
+			return r.String()
+		case *dns.NSAPPTR:
+			return r.Ptr
+		case *dns.TALINK:
+			return r.NextName
+		case *dns.CSYNC:
+			return r.String()
+		case *dns.ZONEMD:
+			return r.Digest
+		default:
+			// no-op
+			continue
+		}
+	}
+	return ipcsv
 }
 
 func Targets(msg *dns.Msg) []string {
@@ -663,4 +829,19 @@ func Servfail(q []byte) []byte {
 // GetBlocklistStampHeaderKey returns the http-header key for blocklists stamp
 func GetBlocklistStampHeaderKey() string {
 	return http.CanonicalHeaderKey(blocklistHeaderKey)
+}
+
+func netips2str(addrs []*netip.Addr) []string {
+	var str []string
+	for _, x := range addrs {
+		str = append(str, x.String())
+	}
+	return str
+}
+
+func ip2str(ip net.IP) string {
+	if ip == nil {
+		return ""
+	}
+	return ip.String()
 }

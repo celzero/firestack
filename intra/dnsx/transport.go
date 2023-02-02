@@ -37,6 +37,8 @@ const (
 	BlockAll  = "BlockAll"  // all blocks
 	Alg       = "Alg"       // dns application-level gateway
 	DcProxy   = "DcProxy"   // dnscrypt.Proxy as a transport
+
+	invalidQname = "invalid.query"
 )
 
 const (
@@ -332,7 +334,7 @@ func (r *resolver) IsDnsAddr(network, ipport string) bool {
 func (r *resolver) Forward(q []byte) ([]byte, error) {
 	starttime := time.Now()
 	summary := &Summary{
-		Query:  q,
+		QName:  invalidQname,
 		Status: Start,
 	}
 	// always call up to the listener
@@ -350,6 +352,8 @@ func (r *resolver) Forward(q []byte) ([]byte, error) {
 
 	// figure out transport to use
 	qname := qname(msg)
+	summary.QName = qname
+	summary.QType = qtype(msg)
 	id := r.requiresSystem(qname)
 	if len(id) > 0 {
 		log.Infof("transport (udp): suggest system-dns %s for %s", id, qname)
@@ -369,7 +373,7 @@ func (r *resolver) Forward(q []byte) ([]byte, error) {
 		summary.Latency = time.Since(starttime).Seconds()
 		summary.Status = Complete
 		summary.Blocklists = blocklists
-		summary.Response = b
+		summary.RData = xdns.GetInterestingRData(res1)
 		return b, e
 	}
 
@@ -438,7 +442,7 @@ func (r *resolver) determineTransports(id string) (Transport, *oneTransport) {
 func (r *resolver) forwardQuery(q []byte, c io.Writer) error {
 	starttime := time.Now()
 	summary := &Summary{
-		Query:  q,
+		QName:  invalidQname,
 		Status: Start,
 	}
 	// always call up to the listener
@@ -456,6 +460,8 @@ func (r *resolver) forwardQuery(q []byte, c io.Writer) error {
 
 	// figure out transport to use
 	qname := qname(msg)
+	summary.QName = qname
+	summary.QType = qtype(msg)
 	id := r.requiresSystem(qname)
 	if len(id) > 0 {
 		log.Infof("transport (udp): suggest system-dns %s for %s", id, qname)
@@ -476,7 +482,7 @@ func (r *resolver) forwardQuery(q []byte, c io.Writer) error {
 		summary.Latency = time.Since(starttime).Seconds()
 		summary.Status = Complete
 		summary.Blocklists = blocklists
-		summary.Response = b
+		summary.RData = xdns.GetInterestingRData(res1)
 		writeto(c, b, len(b))
 		return e
 	}
@@ -600,6 +606,10 @@ func qname(msg *dns.Msg) string {
 	n := xdns.QName(msg)
 	n, _ = xdns.NormalizeQName(n)
 	return n
+}
+
+func qtype(msg *dns.Msg) int {
+	return int(xdns.QType(msg))
 }
 
 func (r *resolver) loadaddrs(csvaddr string) {

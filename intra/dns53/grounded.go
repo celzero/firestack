@@ -50,7 +50,9 @@ func (t *grounded) Query(_ string, q []byte, summary *dnsx.Summary) ([]byte, err
 	}
 	elapsed := 0 * time.Second
 	summary.Latency = elapsed.Seconds()
-	summary.Response = response
+	summary.RData = xdns.GetInterestingRData(ans)
+	summary.RCode = xdns.Rcode(ans)
+	summary.RTtl = xdns.RTtl(ans)
 	summary.Server = t.GetAddr()
 	summary.Status = t.Status()
 	summary.Blocklists = ""

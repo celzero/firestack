@@ -183,9 +183,12 @@ func (t *transport) Query(network string, q []byte, summary *dnsx.Summary) ([]by
 		err = qerr
 		status = qerr.Status()
 	}
+	ans := xdns.AsMsg(response)
 	t.status = status
 	summary.Latency = elapsed.Seconds()
-	summary.Response = response
+	summary.RData = xdns.GetInterestingRData(ans)
+	summary.RCode = xdns.Rcode(ans)
+	summary.RTtl = xdns.RTtl(ans)
 	summary.Server = t.GetAddr()
 	summary.Status = status
 	summary.Blocklists = blocklists
