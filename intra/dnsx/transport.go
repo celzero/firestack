@@ -202,9 +202,9 @@ func (r *resolver) SetRdnsLocal(b BraveDNS) error {
 
 func (r *resolver) SetRdnsRemote(b BraveDNS) error {
 	if b == nil {
-		r.rdnsl = nil
+		r.rdnsr = nil
 	} else if !b.OnDeviceBlock() {
-		r.rdnsl = b
+		r.rdnsr = b
 	} else {
 		return errRdnsRemoteIncorrect
 	}
