@@ -29,6 +29,7 @@ const (
 var (
 	errNotAvailableAlg   = errors.New("no valid alg ips")
 	errCannotRegisterAlg = errors.New("cannot register alg ip")
+	errCannotSubstAlg    = errors.New("cannot substitute alg ip")
 )
 
 type Gateway interface {
@@ -123,121 +124,93 @@ func (t *dnsgateway) Query(network string, q []byte, summary *Summary) (r []byte
 
 	t.Lock()
 	defer t.Unlock()
-	if ip4hints == nil && ip6hints == nil {
-		if len(a6) > 0 {
-			realip = append(realip, a6...)
-			algip, ipok := t.take6Locked(qname)
-			if !ipok {
-				return r, errNotAvailableAlg
-			}
-			// get fully qualified query-name (str qname is normalized)
-			nn := xdns.QName(ansin)
-			rr = append(rr, xdns.MakeAAAARecord(nn, algip.String(), ttl))
-			algips = append(algips, algip)
+
+	algip4hints := []*netip.Addr{}
+	algip6hints := []*netip.Addr{}
+	algip4s := []*netip.Addr{}
+	algip6s := []*netip.Addr{}
+	for _, ip4 := range ip4hints {
+		realip = append(realip, ip4)
+		algip, ipok := t.take4Locked(qname)
+		if !ipok {
+			return r, errNotAvailableAlg
 		}
-		if len(a4) > 0 {
-			realip = append(realip, a4...)
-			algip, ipok := t.take4Locked(qname)
-			if !ipok {
-				return r, errNotAvailableAlg
-			}
-			// get fully qualified query-name (str qname is normalized)
-			nn := xdns.QName(ansin)
-			rr = append(rr, xdns.MakeARecord(nn, algip.String(), ttl))
-			algips = append(algips, algip)
+		algip4hints = append(algip4hints, algip)
+	}
+	for _, ip6 := range ip6hints {
+		realip = append(realip, ip6)
+		algip, ipok := t.take6Locked(qname)
+		if !ipok {
+			return r, errNotAvailableAlg
 		}
-		// TODO: targets map 1:1 with AlgIPs
-		x := &ansMulti{
-			algip:  algips,
-			realip: realip,
-			domain: targets,
-			qname:  qname,
-			// qname->realip valid for next ttl seconds
-			ttl: time.Now().Add(ttl * time.Second),
+		algip6hints = append(algip6hints, algip)
+	}
+	if len(a6) > 0 {
+		realip = append(realip, a6...)
+		algip, ipok := t.take6Locked(qname)
+		if !ipok {
+			return r, errNotAvailableAlg
 		}
-		ansout := xdns.EmptyResponseFromMessage(ansin)
-		ansout.Answer = append(ansout.Answer, rr...)
-		if rout, err := ansout.Pack(); err == nil {
-			if t.registerMultiLocked(qname, x) {
-				return rout, nil
-			} else {
-				return rout, errCannotRegisterAlg
-			}
+		algip6s = append(algip6s, algip)
+		// get fully qualified query-name (str qname is normalized)
+		nn := xdns.QName(ansin)
+		rr = append(rr, xdns.MakeAAAARecord(nn, algip.String(), ttl))
+	}
+	if len(a4) > 0 {
+		realip = append(realip, a4...)
+		algip, ipok := t.take4Locked(qname)
+		if !ipok {
+			return r, errNotAvailableAlg
+		}
+		algip4s = append(algip4s, algip)
+		// get fully qualified query-name (str qname is normalized)
+		nn := xdns.QName(ansin)
+		rr = append(rr, xdns.MakeARecord(nn, algip.String(), ttl))
+	}
+
+	substok4 := false
+	substok6 := false
+	ansout := ansin
+	if len(algip4hints) > 0 {
+		substok4 = xdns.SubstSVCBRecordIPs( /*out*/ ansout, dns.SVCB_IPV4HINT, algip4hints, ttl) || substok4
+	}
+	if len(algip6hints) > 0 {
+		substok6 = xdns.SubstSVCBRecordIPs( /*out*/ ansout, dns.SVCB_IPV6HINT, algip6hints, ttl) || substok6
+	}
+	if len(algip4s) > 0 {
+		substok4 = xdns.SubstARecords( /*out*/ ansout, algip4s, ttl) || substok4
+	}
+	if len(algip6s) > 0 {
+		substok6 = xdns.SubstAAAARecords( /*out*/ ansout, algip6s, ttl) || substok6
+	}
+
+	log.Debugf("alg: a6(a %d / h %d / s %t) : a4(a %d / h %d / s %t)", len(a6), len(ip6hints), substok6, len(a4), len(ip4hints), substok4)
+	if !substok4 && !substok6 {
+		log.Debugf("alg: skip; err ips subst")
+		return r, errCannotSubstAlg
+	}
+
+	algips = append(algips, algip4hints...)
+	algips = append(algips, algip6hints...)
+	algips = append(algips, algip4s...)
+	algips = append(algips, algip6s...)
+	x := &ansMulti{
+		algip:  algips,
+		realip: realip,
+		domain: targets,
+		qname:  qname,
+		// qname->realip valid for next ttl seconds
+		ttl: time.Now().Add(ttl * time.Second),
+	}
+	if rout, err := ansout.Pack(); err == nil {
+		if t.registerMultiLocked(qname, x) {
+			return rout, nil
 		} else {
-			log.Warnf("alg: unpacking err(%v)", err)
-			return r, err
+			return r, errCannotRegisterAlg
 		}
 	} else {
-		algip4hints := []*netip.Addr{}
-		algip6hints := []*netip.Addr{}
-		algip4s := []*netip.Addr{}
-		algip6s := []*netip.Addr{}
-		for _, ip4 := range ip4hints {
-			realip = append(realip, ip4)
-			algip, ipok := t.take4Locked(qname)
-			if !ipok {
-				return r, errNotAvailableAlg
-			}
-			algip4hints = append(algip4hints, algip)
-		}
-		for _, ip6 := range ip6hints {
-			realip = append(realip, ip6)
-			algip, ipok := t.take6Locked(qname)
-			if !ipok {
-				return r, errNotAvailableAlg
-			}
-			algip6hints = append(algip6hints, algip)
-		}
-		if len(a6) > 0 {
-			realip = append(realip, a6...)
-			algip, ipok := t.take6Locked(qname)
-			if !ipok {
-				return r, errNotAvailableAlg
-			}
-			algip6s = append(algip6s, algip)
-		}
-		if len(a4) > 0 {
-			realip = append(realip, a4...)
-			algip, ipok := t.take4Locked(qname)
-			if !ipok {
-				return r, errNotAvailableAlg
-			}
-			algip4s = append(algip4s, algip)
-		}
-		substok1 := false
-		substok2 := false
-		if len(algip4hints) > 0 {
-			substok1 = xdns.SubstSVCBRecordIPs( /*out*/ ansin, dns.SVCB_IPV4HINT, algip4hints, algip4s, ttl)
-		}
-		if len(algip6hints) > 0 {
-			substok2 = xdns.SubstSVCBRecordIPs( /*out*/ ansin, dns.SVCB_IPV6HINT, algip6hints, algip6s, ttl)
-		}
-		if !substok1 || !substok2 {
-			// may be there were no A or AAAA records
-			log.Debugf("alg: no translations; a6(%d)/a4(%d)/substHint(%t/%t)", len(a6), len(a4), substok1, substok2)
-		}
-		algips = append(algips, algip4hints...)
-		algips = append(algips, algip6hints...)
-		algips = append(algips, algip4s...)
-		algips = append(algips, algip6s...)
-		x := &ansMulti{
-			algip:  algips,
-			realip: realip,
-			domain: targets,
-			qname:  qname,
-			// qname->realip valid for next ttl seconds
-			ttl: time.Now().Add(ttl * time.Second),
-		}
-		if rout, err := ansin.Pack(); err == nil {
-			if t.registerMultiLocked(qname, x) {
-				return rout, nil
-			} else {
-				return rout, errCannotRegisterAlg
-			}
-		} else {
-			log.Warnf("alg: unpacking err(%v)", err)
-			return r, err
-		}
+		log.Warnf("alg: unpacking err(%v)", err)
+		return r, err
 	}
 }
 

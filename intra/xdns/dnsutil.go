@@ -302,32 +302,40 @@ func HasAAAAAnswer(msg *dns.Msg) bool {
 	return false
 }
 
-func SubstSVCBRecordIPs(out *dns.Msg, x dns.SVCBKey, subiphints []*netip.Addr, subips []*netip.Addr, ttl int) bool {
-	// substitute ip hints in https / svcb records; and in any a / aaaa records
+func SubstAAAARecords(out *dns.Msg, subip6s []*netip.Addr, ttl int) bool {
+	// substitute ips in any a / aaaa records
 	i := 0
-	f := 0
-	s := 0
 	for _, answer := range out.Answer {
-		if x == dns.SVCB_IPV4HINT && answer.Header().Rrtype == dns.TypeA {
-			rec, ok := answer.(*dns.A)
-			if ok && len(rec.A) >= net.IPv4len {
-				rec.A = subips[i].AsSlice()
-				rec.Hdr.Ttl = uint32(ttl)
-				f += 1
-			}
-		} else if x == dns.SVCB_IPV6HINT && answer.Header().Rrtype == dns.TypeAAAA {
-			rec, ok := answer.(*dns.AAAA)
-			if ok && len(rec.AAAA) == net.IPv6len {
-				rec.AAAA = subips[i].AsSlice()
-				rec.Hdr.Ttl = uint32(ttl)
-				s += 1
-			}
-		} else if !(answer.Header().Rrtype == dns.TypeHTTPS) && !(answer.Header().Rrtype == dns.TypeSVCB) {
-			continue
+		switch rec := answer.(type) {
+		case *dns.AAAA:
+			rec.AAAA = subip6s[i].AsSlice()
+			rec.Hdr.Ttl = uint32(ttl)
+			i++
 		}
+	}
+	return i > 0
+}
+
+func SubstARecords(out *dns.Msg, subip4s []*netip.Addr, ttl int) bool {
+	// substitute ips in any a / aaaa records
+	i := 0
+	for _, answer := range out.Answer {
+		switch rec := answer.(type) {
+		case *dns.A:
+			rec.A = subip4s[i].AsSlice()
+			rec.Hdr.Ttl = uint32(ttl)
+			i++
+		}
+	}
+	return i > 0
+}
+
+func SubstSVCBRecordIPs(out *dns.Msg, x dns.SVCBKey, subiphints []*netip.Addr, ttl int) bool {
+	// substitute ip hints in https / svcb records
+	i := 0
+	for _, answer := range out.Answer {
 		switch rec := answer.(type) {
 		case *dns.SVCB:
-			anchor := i
 			for j, kv := range rec.Value {
 				k := kv.Key()
 				// replace with a single ip hint
@@ -335,19 +343,17 @@ func SubstSVCBRecordIPs(out *dns.Msg, x dns.SVCBKey, subiphints []*netip.Addr, s
 					rec.Value[j] = &dns.SVCBIPv6Hint{
 						Hint: []net.IP{subiphints[i].AsSlice()},
 					}
+					rec.Hdr.Ttl = uint32(ttl)
 					i += 1
 				} else if k == x && x == dns.SVCB_IPV4HINT {
 					rec.Value[j] = &dns.SVCBIPv4Hint{
 						Hint: []net.IP{subiphints[i].AsSlice()},
 					}
+					rec.Hdr.Ttl = uint32(ttl)
 					i += 1
 				}
-			}
-			if i > anchor {
-				rec.Hdr.Ttl = uint32(ttl)
 			}
 		case *dns.HTTPS:
-			anchor := i
 			for j, kv := range rec.Value {
 				k := kv.Key()
 				// replace with a single ip hint
@@ -355,16 +361,15 @@ func SubstSVCBRecordIPs(out *dns.Msg, x dns.SVCBKey, subiphints []*netip.Addr, s
 					rec.Value[j] = &dns.SVCBIPv6Hint{
 						Hint: []net.IP{subiphints[i].AsSlice()},
 					}
+					rec.Hdr.Ttl = uint32(ttl)
 					i += 1
 				} else if k == x && x == dns.SVCB_IPV4HINT {
 					rec.Value[j] = &dns.SVCBIPv4Hint{
 						Hint: []net.IP{subiphints[i].AsSlice()},
 					}
+					rec.Hdr.Ttl = uint32(ttl)
 					i += 1
 				}
-			}
-			if i > anchor {
-				rec.Hdr.Ttl = uint32(ttl)
 			}
 		}
 	}
