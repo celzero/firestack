@@ -372,7 +372,10 @@ func oneRealIp(realips string, dstip net.IP) net.IP {
 		for _, v := range ips {
 			// len may be zero when realips is "," or ""
 			if len(v) > 0 {
-				return net.ParseIP(v)
+				ip := net.ParseIP(v)
+				if !ip.IsUnspecified() {
+					return ip
+				}
 			}
 		}
 	}
