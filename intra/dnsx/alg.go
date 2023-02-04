@@ -27,10 +27,15 @@ const (
 )
 
 var (
+	errNoTransportAlg    = errors.New("no alg transport")
 	errNotAvailableAlg   = errors.New("no valid alg ips")
 	errCannotRegisterAlg = errors.New("cannot register alg ip")
 	errCannotSubstAlg    = errors.New("cannot substitute alg ip")
 )
+
+func isAlgErr(err error) bool {
+	return (err == errCannotRegisterAlg || err == errNotAvailableAlg || err == errCannotSubstAlg)
+}
 
 type Gateway interface {
 	// given an alg ip, retrieve its actual ips as csv, if any
@@ -44,19 +49,21 @@ type Gateway interface {
 }
 
 type ans struct {
-	algip  *netip.Addr   // generated answer
-	realip []*netip.Addr // all ip answers
-	domain []string      // all domain names in an answer (incl qname)
-	qname  string        // the query domain name
-	ttl    time.Time
+	algip        *netip.Addr   // generated answer
+	realip       []*netip.Addr // all ip answers
+	secondaryips []*netip.Addr // all ip answers from secondary
+	domain       []string      // all domain names in an answer (incl qname)
+	qname        string        // the query domain name
+	ttl          time.Time
 }
 
 type ansMulti struct {
-	algip  []*netip.Addr // generated answers
-	realip []*netip.Addr // all ip answers
-	domain []string      // all domain names in an answer (incl qname)
-	qname  string        // the query domain name
-	ttl    time.Time
+	algip        []*netip.Addr // generated answers
+	realip       []*netip.Addr // all ip answers
+	secondaryips []*netip.Addr // all ip answers from secondary
+	domain       []string      // all domain names in an answer (incl qname)
+	qname        string        // the query domain name
+	ttl          time.Time
 }
 
 // TODO: Keep a context here so that queries can be canceled.
@@ -64,10 +71,11 @@ type dnsgateway struct {
 	sync.RWMutex // locks alg, nat, octets, hexes
 	Transport
 	Gateway
-	alg    map[string]*ans     // domain+type -> ans
-	nat    map[netip.Addr]*ans // algip -> ans
-	octets []uint8             // ip4 octets, 100.x.y.z
-	hexes  []uint16            // ip6 hex, 64:ff9b:1:da19:0100.x.y.z
+	secondary Transport
+	alg       map[string]*ans     // domain+type -> ans
+	nat       map[netip.Addr]*ans // algip -> ans
+	octets    []uint8             // ip4 octets, 100.x.y.z
+	hexes     []uint16            // ip6 hex, 64:ff9b:1:da19:0100.x.y.z
 }
 
 // NewDNSGateway returns a DNS ALG, ready for use.
@@ -76,20 +84,24 @@ func NewDNSGateway(inner Transport) (t *dnsgateway) {
 	nat := make(map[netip.Addr]*ans)
 
 	t = &dnsgateway{
-		Transport: inner, // may be overriden, see: WithTransport
-		alg:       alg,
-		nat:       nat,
-		octets:    []uint8{100, 0, 0, 1},
-		hexes:     []uint16{0x64, 0xff9b, 0x1, 0xda19, 0x100, 0x0, 0x0, 0x0},
+		alg:    alg,
+		nat:    nat,
+		octets: []uint8{100, 0, 0, 1},
+		hexes:  []uint16{0x64, 0xff9b, 0x1, 0xda19, 0x100, 0x0, 0x0, 0x0},
 	}
+	t.WithTransport(inner)
 	log.Infof("alg(%s) setup: %s/%s", inner.ID(), inner.GetAddr(), inner.Type())
 	return
 }
 
 func (t *dnsgateway) Query(network string, q []byte, summary *Summary) (r []byte, err error) {
+	if t.Transport == nil {
+		return nil, errNoTransportAlg
+	}
 
 	r, err = t.Transport.Query(network, q, summary)
 	if err != nil {
+		log.Debugf("alg: abort; qerr %v", err)
 		return
 	}
 
@@ -100,6 +112,7 @@ func (t *dnsgateway) Query(network string, q []byte, summary *Summary) (r []byte
 	ansin := &dns.Msg{}
 	err = ansin.Unpack(r)
 	if err != nil {
+		log.Debugf("alg: abort; ans err %v", err)
 		return nil, err
 	}
 
@@ -117,8 +130,8 @@ func (t *dnsgateway) Query(network string, q []byte, summary *Summary) (r []byte
 	a4 := xdns.AAnswer(ansin)
 	ip4hints := xdns.IPHints(ansin, dns.SVCB_IPV4HINT)
 	ip6hints := xdns.IPHints(ansin, dns.SVCB_IPV6HINT)
+	// TODO: generate one alg ip per target, synth one rec per target
 	targets := xdns.Targets(ansin)
-	rr := make([]dns.RR, 0)
 	realip := make([]*netip.Addr, 0)
 	algips := make([]*netip.Addr, 0)
 
@@ -152,9 +165,6 @@ func (t *dnsgateway) Query(network string, q []byte, summary *Summary) (r []byte
 			return r, errNotAvailableAlg
 		}
 		algip6s = append(algip6s, algip)
-		// get fully qualified query-name (str qname is normalized)
-		nn := xdns.QName(ansin)
-		rr = append(rr, xdns.MakeAAAARecord(nn, algip.String(), ttl))
 	}
 	if len(a4) > 0 {
 		realip = append(realip, a4...)
@@ -163,9 +173,6 @@ func (t *dnsgateway) Query(network string, q []byte, summary *Summary) (r []byte
 			return r, errNotAvailableAlg
 		}
 		algip4s = append(algip4s, algip)
-		// get fully qualified query-name (str qname is normalized)
-		nn := xdns.QName(ansin)
-		rr = append(rr, xdns.MakeARecord(nn, algip.String(), ttl))
 	}
 
 	substok4 := false
@@ -190,15 +197,32 @@ func (t *dnsgateway) Query(network string, q []byte, summary *Summary) (r []byte
 		return r, errCannotSubstAlg
 	}
 
-	algips = append(algips, algip4hints...)
-	algips = append(algips, algip6hints...)
+	secips := []*netip.Addr{}
+	if t.secondary != nil {
+		if r2, err2 := t.secondary.Query(network, q, summary); err2 != nil {
+			log.Debugf("alg: skip; sec transport %s err %v", t.secondary.ID(), err2)
+		} else if secans := xdns.AsMsg(r2); secans != nil {
+			seca4 := xdns.AAAAAnswer(ansout)
+			seca6 := xdns.AAnswer(ansout)
+			secip4hints := xdns.IPHints(ansin, dns.SVCB_IPV4HINT)
+			secip6hints := xdns.IPHints(ansin, dns.SVCB_IPV6HINT)
+			secips = append(secips, seca4...)
+			secips = append(secips, seca6...)
+			secips = append(secips, secip4hints...)
+			secips = append(secips, secip6hints...)
+		}
+	}
+
 	algips = append(algips, algip4s...)
 	algips = append(algips, algip6s...)
+	algips = append(algips, algip4hints...)
+	algips = append(algips, algip6hints...)
 	x := &ansMulti{
-		algip:  algips,
-		realip: realip,
-		domain: targets,
-		qname:  qname,
+		algip:        algips,
+		realip:       realip,
+		secondaryips: secips,
+		domain:       targets,
+		qname:        qname,
 		// qname->realip valid for next ttl seconds
 		ttl: time.Now().Add(ttl * time.Second),
 	}
@@ -228,11 +252,12 @@ func (t *dnsgateway) GetAddr() string {
 
 func (am *ansMulti) ansViewLocked(i int) *ans {
 	return &ans{
-		algip:  am.algip[i],
-		realip: am.realip,
-		domain: am.domain,
-		qname:  am.qname,
-		ttl:    am.ttl,
+		algip:        am.algip[i],
+		realip:       am.realip,
+		secondaryips: am.secondaryips,
+		domain:       am.domain,
+		qname:        am.qname,
+		ttl:          am.ttl,
 	}
 }
 
@@ -369,7 +394,11 @@ func (t *dnsgateway) take6Locked(q string) (*netip.Addr, bool) {
 // Implements Gateway
 func (t *dnsgateway) WithTransport(inner Transport) bool {
 	log.Infof("alg: NewTransport %s / %s", inner.GetAddr(), inner.Type())
-	t.Transport = inner
+	if inner != nil && inner.Type() == Default {
+		t.Transport = inner
+	} else {
+		t.secondary = inner
+	}
 	return true
 }
 
@@ -420,7 +449,7 @@ func (t *dnsgateway) PTR(algip []byte) (domains string) {
 // locked
 func (t *dnsgateway) x(algip *netip.Addr) (realip []*netip.Addr) {
 	if ans, ok := t.nat[*algip]; ok {
-		return ans.realip
+		return append(ans.realip, ans.secondaryips...)
 	}
 	return nil
 }
@@ -431,8 +460,4 @@ func (t *dnsgateway) ptr(algip *netip.Addr) (domains []string) {
 		return ans.domain
 	}
 	return nil
-}
-
-func isAlgErr(err error) bool {
-	return (err == errCannotRegisterAlg || err == errNotAvailableAlg)
 }
