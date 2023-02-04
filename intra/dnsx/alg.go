@@ -20,10 +20,11 @@ import (
 )
 
 const (
-	timeout = 10 * time.Second
-	ttl     = 120 // 2m
-	key4    = ":a"
-	key6    = ":aaaa"
+	timeout     = 10 * time.Second
+	ttl         = 120 // 2m
+	key4        = ":a"
+	key6        = ":aaaa"
+	NoTransport = "NoTransport"
 )
 
 var (
@@ -243,11 +244,23 @@ func (t *dnsgateway) ID() string {
 }
 
 func (t *dnsgateway) Type() string {
-	return t.Transport.Type()
+	if t.Transport != nil {
+		return t.Transport.Type()
+	} else if t.secondary != nil {
+		return t.secondary.Type()
+	} else {
+		return NoTransport
+	}
 }
 
 func (t *dnsgateway) GetAddr() string {
-	return t.Transport.GetAddr()
+	if t.Transport != nil {
+		return t.Transport.GetAddr()
+	} else if t.secondary != nil {
+		return t.secondary.GetAddr()
+	} else {
+		return NoTransport
+	}
 }
 
 func (am *ansMulti) ansViewLocked(i int) *ans {
@@ -394,7 +407,7 @@ func (t *dnsgateway) take6Locked(q string) (*netip.Addr, bool) {
 // Implements Gateway
 func (t *dnsgateway) WithTransport(inner Transport) bool {
 	log.Infof("alg: NewTransport %s / %s", inner.GetAddr(), inner.Type())
-	if inner != nil && inner.Type() == Default {
+	if inner != nil && inner.ID() == Default {
 		t.Transport = inner
 	} else {
 		t.secondary = inner
