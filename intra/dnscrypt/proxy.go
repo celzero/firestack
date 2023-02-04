@@ -235,6 +235,7 @@ func resolve(data []byte, serverinfo *ServerInfo, s *dnsx.Summary, trunc bool) (
 	var qerr *dnsx.QueryError
 	if errors.As(err, &qerr) {
 		status = qerr.Status()
+		err = qerr.Unwrap()
 	}
 
 	ans := xdns.AsMsg(response)

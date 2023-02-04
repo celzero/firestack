@@ -172,15 +172,14 @@ func (t *transport) sendRequest(network string, q []byte) (response []byte, bloc
 	return
 }
 
-func (t *transport) Query(network string, q []byte, summary *dnsx.Summary) ([]byte, error) {
+func (t *transport) Query(network string, q []byte, summary *dnsx.Summary) (r []byte, err error) {
 
 	response, blocklists, elapsed, qerr := t.doQuery(network, q)
 
-	var err error
 	status := dnsx.Complete
 	if qerr != nil {
 		log.Warnf("dns53 err(%w) / size(%d)", qerr, len(response))
-		err = qerr
+		err = qerr.Unwrap()
 		status = qerr.Status()
 	}
 	ans := xdns.AsMsg(response)

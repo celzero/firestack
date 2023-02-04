@@ -389,13 +389,14 @@ func (t *transport) Type() string {
 	return dnsx.DOH
 }
 
-func (t *transport) Query(_ string, q []byte, summary *dnsx.Summary) ([]byte, error) {
+func (t *transport) Query(_ string, q []byte, summary *dnsx.Summary) (r []byte, err error) {
 
 	response, blocklists, _, elapsed, qerr := t.doQuery(q)
 
 	status := dnsx.Complete
 	if qerr != nil {
 		status = qerr.Status()
+		err = qerr.Unwrap()
 	}
 	ans := xdns.AsMsg(response)
 	t.status = status
@@ -407,7 +408,7 @@ func (t *transport) Query(_ string, q []byte, summary *dnsx.Summary) ([]byte, er
 	summary.Status = status
 	summary.Blocklists = blocklists
 
-	return response, qerr
+	return response, err
 }
 
 func (t *transport) GetAddr() string {
