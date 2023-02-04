@@ -252,6 +252,7 @@ func GetInterestingRData(msg *dns.Msg) string {
 }
 
 func Targets(msg *dns.Msg) []string {
+	touched := make(map[string]interface{})
 	var targets []string
 	if qname, err := NormalizeQName(QName(msg)); err == nil {
 		targets = append(targets, qname)
@@ -279,7 +280,9 @@ func Targets(msg *dns.Msg) []string {
 		if len(target) <= 0 {
 			continue
 		} else if target, err := NormalizeQName(target); err == nil {
-			targets = append(targets, target)
+			if _, ok := touched[target]; !ok {
+				targets = append(targets, target)
+			}
 		}
 	}
 	return targets
@@ -397,7 +400,7 @@ func RefusedResponseFromMessage(srcMsg *dns.Msg) (dstMsg *dns.Msg, err error) {
 			dstMsg.Answer = []dns.RR{rr}
 			sendHInfoResponse = false
 		}
-	} else if question.Qtype == dns.TypeHTTPS || question.Qtype == dns.TypeSVCB {
+	} else if IsSVCBQuestion(&question) {
 		rrh := new(dns.HTTPS)
 		rrh.Hdr = dns.RR_Header{
 			Name:   question.Name,
@@ -470,30 +473,50 @@ func HasAAAAAnswer(msg *dns.Msg) bool {
 
 func SubstAAAARecords(out *dns.Msg, subip6s []*netip.Addr, ttl int) bool {
 	// substitute ips in any a / aaaa records
-	i := 0
+	touched := make(map[string]interface{})
+	rrs := make([]dns.RR, 0)
 	for _, answer := range out.Answer {
 		switch rec := answer.(type) {
 		case *dns.AAAA:
-			rec.AAAA = subip6s[i].AsSlice()
-			rec.Hdr.Ttl = uint32(ttl)
-			i++
+			// one aaaa rec per name
+			if _, ok := touched[rec.Hdr.Name]; !ok {
+				name := rec.Hdr.Name
+				// fixme: use different ips for different names
+				ip6 := subip6s[0].String()
+				touched[rec.Hdr.Name] = nil
+				rrs = append(rrs, MakeAAAARecord(name, ip6, ttl))
+			}
 		}
 	}
-	return i > 0
+	if len(rrs) > 0 {
+		out.Answer = rrs
+		return true
+	}
+	return false
 }
 
 func SubstARecords(out *dns.Msg, subip4s []*netip.Addr, ttl int) bool {
 	// substitute ips in any a / aaaa records
-	i := 0
+	touched := make(map[string]interface{})
+	rrs := make([]dns.RR, 0)
 	for _, answer := range out.Answer {
 		switch rec := answer.(type) {
-		case *dns.A:
-			rec.A = subip4s[i].AsSlice()
-			rec.Hdr.Ttl = uint32(ttl)
-			i++
+		case *dns.AAAA:
+			// one a rec per name
+			if _, ok := touched[rec.Hdr.Name]; !ok {
+				name := rec.Hdr.Name
+				// fixme: use different ips for different names
+				ip4 := subip4s[0].String()
+				touched[rec.Hdr.Name] = nil
+				rrs = append(rrs, MakeARecord(name, ip4, ttl))
+			}
 		}
 	}
-	return i > 0
+	if len(rrs) > 0 {
+		out.Answer = rrs
+		return true
+	}
+	return false
 }
 
 func SubstSVCBRecordIPs(out *dns.Msg, x dns.SVCBKey, subiphints []*netip.Addr, ttl int) bool {
@@ -543,6 +566,9 @@ func SubstSVCBRecordIPs(out *dns.Msg, x dns.SVCBKey, subiphints []*netip.Addr, t
 }
 
 func IPHints(msg *dns.Msg, x dns.SVCBKey) []*netip.Addr {
+	if !HasSVCBQuestion(msg) {
+		return nil
+	}
 	// extract ip hints from https / svcb records
 	// https://tools.ietf.org/html/draft-ietf-dnsop-svcb-https-02#section-8.1
 	ips := []*netip.Addr{}
@@ -624,17 +650,21 @@ func HasAQuestion(msg *dns.Msg) bool {
 	return q.Qclass == dns.ClassINET && q.Qtype == dns.TypeA
 }
 
+func IsSVCBQuestion(q *dns.Question) bool {
+	return q.Qclass == dns.ClassINET && (q.Qtype == dns.TypeHTTPS || q.Qtype == dns.TypeSVCB)
+}
+
 func HasAQuadAQuestion(msg *dns.Msg) bool {
 	return HasAAAAQuestion(msg) || HasAQuestion(msg)
 }
 
 func HasSVCBQuestion(msg *dns.Msg) bool {
 	q := msg.Question[0]
-	return q.Qclass == dns.ClassINET && (q.Qtype == dns.TypeSVCB || q.Qtype == dns.TypeHTTPS)
+	return IsSVCBQuestion(&q)
 }
 
-func MakeARecord(qname string, ip4 string, expiry int) dns.RR {
-	if len(ip4) <= 0 || len(qname) <= 0 {
+func MakeARecord(name string, ip4 string, expiry int) dns.RR {
+	if len(ip4) <= 0 || len(name) <= 0 {
 		return nil
 	}
 	ttl := uint32(expiry)
@@ -646,7 +676,7 @@ func MakeARecord(qname string, ip4 string, expiry int) dns.RR {
 
 	rec := new(dns.A)
 	rec.Hdr = dns.RR_Header{
-		Name:   qname,
+		Name:   name,
 		Rrtype: dns.TypeA,
 		Class:  dns.ClassINET,
 		Ttl:    ttl,
@@ -655,8 +685,8 @@ func MakeARecord(qname string, ip4 string, expiry int) dns.RR {
 	return rec
 }
 
-func MakeAAAARecord(qname string, ip6 string, expiry int) dns.RR {
-	if len(ip6) <= 0 || len(qname) <= 0 {
+func MakeAAAARecord(name string, ip6 string, expiry int) dns.RR {
+	if len(ip6) <= 0 || len(name) <= 0 {
 		return nil
 	}
 	ttl := uint32(expiry)
@@ -668,7 +698,7 @@ func MakeAAAARecord(qname string, ip6 string, expiry int) dns.RR {
 
 	rec := new(dns.AAAA)
 	rec.Hdr = dns.RR_Header{
-		Name:   qname,
+		Name:   name,
 		Rrtype: dns.TypeAAAA,
 		Class:  dns.ClassINET,
 		Ttl:    ttl,
