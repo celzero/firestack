@@ -366,7 +366,7 @@ func (r *resolver) Forward(q []byte) ([]byte, error) {
 		return nil, errNoSuchTransport
 	}
 
-	// block query if needed (skipped for alg/block-free)
+	// block skipped if the transport is alg/block-free
 	res1, blocklists, err := r.block(t, msg)
 	if err == nil {
 		b, e := res1.Pack()
@@ -381,10 +381,14 @@ func (r *resolver) Forward(q []byte) ([]byte, error) {
 	summary.Type = t.Type()
 	summary.ID = t.ID()
 	res2, err := t.Query(NetTypeUDP, q, summary)
+	algerr := isAlgErr(err)
 
+	if algerr {
+		log.Debugf("transport (udp): alg error %s for %s", err, qname)
+	}
 	// in the case of an alg transport, if there's no-alg,
 	// err is set which should be ignored if res2 is not nil
-	if err != nil && !isAlgErr(err) {
+	if err != nil && algerr {
 		// summary latency, ips, response, status already set by transport t
 		return res2, err
 	}
@@ -428,13 +432,13 @@ func (r *resolver) determineTransports(id string) (Transport, *oneTransport) {
 	r.RLock()
 	defer r.RUnlock()
 
+	if id == BlockFree {
+		return r.transports[Default], r.pool[Default]
+	}
 	if t, ok := r.transports[id]; ok {
 		if onet, ok := r.pool[id]; ok {
 			return t, onet
 		}
-	}
-	if id == BlockFree {
-		return r.transports[Default], r.pool[Default]
 	}
 
 	return nil, nil
@@ -493,10 +497,14 @@ func (r *resolver) forwardQuery(q []byte, c io.Writer) error {
 	summary.Type = t.Type()
 	summary.ID = t.ID()
 	res2, err := t.Query(NetTypeTCP, q, summary)
+	algerr := isAlgErr(err)
 
+	if algerr {
+		log.Debugf("transport (tcp): alg error %s for %s", err, qname)
+	}
 	// in the case of an alg transport, if there's no-alg,
 	// err is set which should be ignored if res2 is not nil
-	if err != nil && !isAlgErr(err) {
+	if err != nil && !algerr {
 		// summary latency, ips, response, status already set by transport t
 		return err
 	}
