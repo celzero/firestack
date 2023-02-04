@@ -59,7 +59,8 @@ func NewTCPForwarder(s *stack.Stack, h GTCPConnHandler) *tcp.Forwarder {
 		// read/writes are routed using 5-tuple to the same conn (endpoint)
 		// demuxer.handlePacket -> find matching endpoint -> queue-packet -> send/recv conn (ep)
 		// ref: github.com/google/gvisor/blob/be6ffa7/pkg/tcpip/stack/transport_demuxer.go#L180
-		go h.OnNewConn(NewGTCPConn(waitQueue, endpoint, src, dst), src, dst)
+		gtcp := NewGTCPConn(waitQueue, endpoint, src, dst)
+		go h.OnNewConn(gtcp, src, dst)
 	})
 }
 
