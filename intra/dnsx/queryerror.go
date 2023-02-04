@@ -45,30 +45,30 @@ func (e *QueryError) SendFailed() bool {
 	return e.status == SendFailed
 }
 
-func NewQueryError(no int, err error) *QueryError {
+func newQueryError(no int, err error) *QueryError {
 	return &QueryError{no, err}
 }
 
 func NewSendFailedQueryError(err error) *QueryError {
-	return NewQueryError(SendFailed, err)
+	return newQueryError(SendFailed, err)
 }
 
 func NewNoResponseQueryError(err error) *QueryError {
-	return NewQueryError(NoResponse, err)
+	return newQueryError(NoResponse, err)
 }
 
 func NewInternalQueryError(err error) *QueryError {
-	return NewQueryError(InternalError, err)
+	return newQueryError(InternalError, err)
 }
 
 func NewBadQueryError(err error) *QueryError {
-	return NewQueryError(BadQuery, err)
+	return newQueryError(BadQuery, err)
 }
 
 func NewBadResponseQueryError(err error) *QueryError {
-	return NewQueryError(BadResponse, err)
+	return newQueryError(BadResponse, err)
 }
 
 func NewTransportQueryError(err error) *QueryError {
-	return NewQueryError(TransportError, err)
+	return newQueryError(TransportError, err)
 }
