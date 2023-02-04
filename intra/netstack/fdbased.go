@@ -371,7 +371,11 @@ func (e *endpoint) ARPHardwareType() header.ARPHardwareType {
 // Unused: InjectInbound ingresses a netstack-inbound packet.
 func (e *endpoint) InjectInbound(protocol tcpip.NetworkProtocolNumber, pkt *stack.PacketBuffer) {
 	log.Debugf("ns.e.inject-inbound(from-tun) %d pkt(%v)", protocol, pkt.Hash)
-	e.dispatcher.DeliverNetworkPacket(protocol, pkt)
+	if e.IsAttached() {
+		e.dispatcher.DeliverNetworkPacket(protocol, pkt)
+	} else {
+		log.Warnf("ns.e.inject-inbound(from-tun) %d pkt(%v) dropped: endpoint not attached", protocol, pkt.Hash)
+	}
 }
 
 // Unused: InjectOutobund implements stack.InjectableEndpoint.InjectOutbound.
