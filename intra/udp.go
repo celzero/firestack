@@ -163,8 +163,7 @@ func (h *udpHandler) fetchUDPInput(conn core.UDPConn, nat *tracker) {
 		if neterr, ok := err.(net.Error); ok && neterr.Temporary() {
 			nat.errcount += 1
 			continue
-		}
-		if err != nil {
+		} else if err != nil {
 			log.Infof("t.udp.fetchudpinput: err(%v)", err)
 			return
 		}
@@ -181,16 +180,8 @@ func (h *udpHandler) fetchUDPInput(conn core.UDPConn, nat *tracker) {
 
 		nat.download += int64(n)
 		// writes data to conn (tun) with udpaddr as source
-		_, err = conn.WriteFrom(buf[:n], udpaddr)
-		if err != nil {
+		if _, err = conn.WriteFrom(buf[:n], udpaddr); err != nil {
 			log.Warnf("failed to write udp data to tun from %s", udpaddr)
-		}
-		// is err recoverable? see above
-		if neterr, ok := err.(net.Error); ok && neterr.Temporary() {
-			nat.errcount += 1
-			continue
-		} else {
-			return
 		}
 	}
 }
