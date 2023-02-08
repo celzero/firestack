@@ -192,7 +192,7 @@ func (t *dnsgateway) Query(network string, q []byte, summary *Summary) (r []byte
 		substok6 = xdns.SubstAAAARecords( /*out*/ ansout, algip6s, ttl) || substok6
 	}
 
-	log.Debugf("alg: a6(a %d / h %d / s %t) : a4(a %d / h %d / s %t)", len(a6), len(ip6hints), substok6, len(a4), len(ip4hints), substok4)
+	log.Debugf("alg: %s a6(a %d / h %d / s %t) : a4(a %d / h %d / s %t)", qname, len(a6), len(ip6hints), substok6, len(a4), len(ip4hints), substok4)
 	if !substok4 && !substok6 {
 		log.Debugf("alg: skip; err ips subst")
 		return r, errCannotSubstAlg
@@ -203,10 +203,10 @@ func (t *dnsgateway) Query(network string, q []byte, summary *Summary) (r []byte
 		if r2, err2 := t.secondary.Query(network, q, summary); err2 != nil {
 			log.Debugf("alg: skip; sec transport %s err %v", t.secondary.ID(), err2)
 		} else if secans := xdns.AsMsg(r2); secans != nil {
-			seca4 := xdns.AAAAAnswer(ansout)
-			seca6 := xdns.AAnswer(ansout)
-			secip4hints := xdns.IPHints(ansin, dns.SVCB_IPV4HINT)
-			secip6hints := xdns.IPHints(ansin, dns.SVCB_IPV6HINT)
+			seca4 := xdns.AAAAAnswer(secans)
+			seca6 := xdns.AAnswer(secans)
+			secip4hints := xdns.IPHints(secans, dns.SVCB_IPV4HINT)
+			secip6hints := xdns.IPHints(secans, dns.SVCB_IPV6HINT)
 			secips = append(secips, seca4...)
 			secips = append(secips, seca6...)
 			secips = append(secips, secip4hints...)
