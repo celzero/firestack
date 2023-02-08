@@ -228,6 +228,9 @@ func (t *dnsgateway) Query(network string, q []byte, summary *Summary) (r []byte
 		// qname->realip valid for next ttl seconds
 		ttl: time.Now().Add(ttl * time.Second),
 	}
+
+	log.Debugf("alg: ok; %s ips subst %s", targets, algips)
+
 	if rout, err := ansout.Pack(); err == nil {
 		if t.registerMultiLocked(qname, x) {
 			return rout, nil
@@ -353,7 +356,7 @@ func (t *dnsgateway) take4Locked(q string) (*netip.Addr, bool) {
 	if gen {
 		// 100.x.y.z: big endian is network-order, which netip expects
 		b4 := [4]byte{t.octets[0], t.octets[1], t.octets[2], t.octets[3]}
-		genip := netip.AddrFrom4(b4)
+		genip := netip.AddrFrom4(b4).Unmap()
 		return &genip, genip.IsValid()
 	} else {
 		log.Warnf("alg: no more IP4s (%v)", t.octets)
@@ -462,7 +465,9 @@ func (t *dnsgateway) PTR(algip []byte) (domains string) {
 
 // locked
 func (t *dnsgateway) x(algip *netip.Addr) (realip []*netip.Addr) {
-	if ans, ok := t.nat[*algip]; ok {
+	// alg ips are always unmappped; see take4Locked
+	unmapped := algip.Unmap()
+	if ans, ok := t.nat[unmapped]; ok {
 		return append(ans.realip, ans.secondaryips...)
 	}
 	return nil
@@ -470,7 +475,9 @@ func (t *dnsgateway) x(algip *netip.Addr) (realip []*netip.Addr) {
 
 // locked
 func (t *dnsgateway) ptr(algip *netip.Addr) (domains []string) {
-	if ans, ok := t.nat[*algip]; ok {
+	// alg ips are always unmappped; see take4Locked
+	unmapped := algip.Unmap()
+	if ans, ok := t.nat[unmapped]; ok {
 		return ans.domain
 	}
 	return nil
