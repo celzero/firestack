@@ -256,6 +256,7 @@ func Targets(msg *dns.Msg) []string {
 	var targets []string
 	if qname, err := NormalizeQName(QName(msg)); err == nil {
 		targets = append(targets, qname)
+		touched[qname] = nil
 	}
 	for _, a := range msg.Answer {
 		var target string
@@ -282,6 +283,7 @@ func Targets(msg *dns.Msg) []string {
 		} else if target, err := NormalizeQName(target); err == nil {
 			if _, ok := touched[target]; !ok {
 				targets = append(targets, target)
+				touched[target] = nil
 			}
 		}
 	}
