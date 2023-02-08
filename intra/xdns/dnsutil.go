@@ -501,7 +501,7 @@ func SubstARecords(out *dns.Msg, subip4s []*netip.Addr, ttl int) bool {
 	rrs := make([]dns.RR, 0)
 	for _, answer := range out.Answer {
 		switch rec := answer.(type) {
-		case *dns.AAAA:
+		case *dns.A:
 			// one a rec per name
 			if _, ok := touched[rec.Hdr.Name]; !ok {
 				name := rec.Hdr.Name
