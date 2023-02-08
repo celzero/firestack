@@ -194,13 +194,14 @@ func (t *dnsgateway) Query(network string, q []byte, summary *Summary) (r []byte
 
 	log.Debugf("alg: %s a6(a %d / h %d / s %t) : a4(a %d / h %d / s %t)", qname, len(a6), len(ip6hints), substok6, len(a4), len(ip4hints), substok4)
 	if !substok4 && !substok6 {
-		log.Debugf("alg: skip; err ips subst")
+		log.Debugf("alg: skip; err ips subst %s", qname)
 		return r, errCannotSubstAlg
 	}
 
 	secips := []*netip.Addr{}
 	if t.secondary != nil {
-		if r2, err2 := t.secondary.Query(network, q, summary); err2 != nil {
+		ignored := &Summary{}
+		if r2, err2 := t.secondary.Query(network, q, ignored); err2 != nil {
 			log.Debugf("alg: skip; sec transport %s err %v", t.secondary.ID(), err2)
 		} else if secans := xdns.AsMsg(r2); secans != nil {
 			seca4 := xdns.AAAAAnswer(secans)
