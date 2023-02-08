@@ -182,6 +182,11 @@ func (h *tcpHandler) onFlow(localaddr *net.TCPAddr, target *net.TCPAddr, realips
 	} else if h.tunMode.BlockMode == settings.BlockModeNone {
 		return false
 	}
+
+	if len(realips) <= 0 || len(domains) <= 0 {
+		log.Debugf("onFlow: no realips(%s) or domains(%s), for src=%s dst=%s", realips, domains, localaddr, target)
+	}
+
 	// Implict: BlockModeFilter or BlockModeFilterProc
 	uid := -1
 	if h.tunMode.BlockMode == settings.BlockModeFilterProc {
@@ -344,6 +349,7 @@ func (h *tcpHandler) SetProxyOptions(po *settings.ProxyOptions) error {
 
 func maybeUndoNat64(pt ipn.NAT64, ip net.IP) net.IP {
 	ipx4 := ip
+	// TODO: need the actual ID of the transport that did nat64
 	if pt.IsNat64(ipn.Local464Resolver, ip) { // un-nat64, when dns64 done by local464-resolver
 		// TODO: check if the network this process binds to has ipv4 connectivity
 		ipx4 = pt.X64(ipn.Local464Resolver, ip) // ipx4 may be nil
@@ -388,6 +394,8 @@ func undoAlg(r dnsx.Resolver, algip net.IP) (realips, domains string) {
 		dst := dstip.AsSlice()
 		domains = gw.PTR(dst)
 		realips = gw.X(dst)
+	} else {
+		log.Debugf("t.tcp.handle: no gw(%t) or alg-ip(%s)", gw == nil, algip)
 	}
 	return
 }
