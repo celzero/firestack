@@ -435,6 +435,9 @@ func (r *resolver) determineTransports(id string) (Transport, *oneTransport) {
 	if id == BlockFree {
 		return r.transports[Default], r.pool[Default]
 	}
+	if id == Alg {
+		return r.transports[Alg], r.pool[Default]
+	}
 	if t, ok := r.transports[id]; ok {
 		if onet, ok := r.pool[id]; ok {
 			return t, onet
