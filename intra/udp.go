@@ -338,7 +338,7 @@ func (h *udpHandler) ReceiveTo(conn core.UDPConn, data []byte, addr *net.UDPAddr
 		return nil
 	}
 
-	ipx4 := h.maybeUndoNat64(addr.IP)
+	ipx4 := maybeUndoNat64(h.pt, addr.IP)
 
 	// unused in netstack as it only supports connected udp
 	// that is, udpconn.writeFrom(data, addr) isn't supported
@@ -463,16 +463,4 @@ func (h *udpHandler) SetProxyOptions(po *settings.ProxyOptions) error {
 
 func (h *udpHandler) proxymode() bool {
 	return h.hasProxy() && (h.socks5Proxy() || h.httpsProxy())
-}
-
-func (h *udpHandler) maybeUndoNat64(ip net.IP) net.IP {
-	ipx4 := ip
-	if h.pt.IsNat64(ipn.Local464Resolver, ip) { // un-nat64, if dns64 by local464-resolver
-		ipx4 = h.pt.X64(ipn.Local464Resolver, ip) // ipx4 here may be assigned nil
-		if len(ipx4) < net.IPv4len {              // no nat?
-			log.Debugf("t.udp.rcv: No local-nat to addr4(%v) for addr6(%v)", ipx4, ip)
-			ipx4 = ip
-		}
-	}
-	return ipx4
 }
