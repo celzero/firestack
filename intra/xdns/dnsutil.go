@@ -475,6 +475,8 @@ func SubstAAAARecords(out *dns.Msg, subip6s []*netip.Addr, ttl int) bool {
 	// substitute ips in any a / aaaa records
 	touched := make(map[string]interface{})
 	rrs := make([]dns.RR, 0)
+	ip6 := subip6s[0].String()
+	atleastone := false
 	for _, answer := range out.Answer {
 		switch rec := answer.(type) {
 		case *dns.AAAA:
@@ -482,23 +484,31 @@ func SubstAAAARecords(out *dns.Msg, subip6s []*netip.Addr, ttl int) bool {
 			if _, ok := touched[rec.Hdr.Name]; !ok {
 				name := rec.Hdr.Name
 				// fixme: use different ips for different names
-				ip6 := subip6s[0].String()
 				touched[rec.Hdr.Name] = nil
-				rrs = append(rrs, MakeAAAARecord(name, ip6, ttl))
+				if aaaanew := MakeAAAARecord(name, ip6, ttl); aaaanew != nil {
+					rrs = append(rrs, aaaanew)
+				} else {
+					log.Debugf("dnsutil: subst AAAA rec fail for %s %s %d", name, ip6, ttl)
+				}
+				atleastone = true
 			}
+		default:
+			// append cnames and other records as is
+			rrs = append(rrs, rec)
 		}
 	}
 	if len(rrs) > 0 {
 		out.Answer = rrs
-		return true
 	}
-	return false
+	return atleastone
 }
 
 func SubstARecords(out *dns.Msg, subip4s []*netip.Addr, ttl int) bool {
 	// substitute ips in any a / aaaa records
 	touched := make(map[string]interface{})
 	rrs := make([]dns.RR, 0)
+	ip4 := subip4s[0].Unmap().String()
+	atleastone := false
 	for _, answer := range out.Answer {
 		switch rec := answer.(type) {
 		case *dns.A:
@@ -506,17 +516,23 @@ func SubstARecords(out *dns.Msg, subip4s []*netip.Addr, ttl int) bool {
 			if _, ok := touched[rec.Hdr.Name]; !ok {
 				name := rec.Hdr.Name
 				// fixme: use different ips for different names
-				ip4 := subip4s[0].String()
 				touched[rec.Hdr.Name] = nil
-				rrs = append(rrs, MakeARecord(name, ip4, ttl))
+				if anew := MakeARecord(name, ip4, ttl); anew != nil {
+					rrs = append(rrs, anew)
+				} else {
+					log.Debugf("dnsutil: subst A rec fail for %s %s %d", name, ip4, ttl)
+				}
+				atleastone = true
 			}
+		default:
+			// append cnames and other records as is
+			rrs = append(rrs, rec)
 		}
 	}
 	if len(rrs) > 0 {
 		out.Answer = rrs
-		return true
 	}
-	return false
+	return atleastone
 }
 
 func SubstSVCBRecordIPs(out *dns.Msg, x dns.SVCBKey, subiphints []*netip.Addr, ttl int) bool {
