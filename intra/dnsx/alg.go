@@ -96,10 +96,50 @@ func NewDNSGateway(inner Transport) (t *dnsgateway) {
 	return
 }
 
+func (t *dnsgateway) querySecondary(network string, q []byte, out chan<- []*netip.Addr, timeout time.Duration) {
+	ips := []*netip.Addr{}
+	go func() {
+		time.Sleep(timeout)
+		out <- []*netip.Addr{}
+	}()
+	defer func() {
+		out <- ips
+	}()
+
+	if t.secondary == nil {
+		return // no secondary transport
+	} else if msg := xdns.AsMsg(q); msg == nil {
+		return // not a valid dns message
+	} else if ok := xdns.HasAQuadAQuestion(msg) || xdns.HasSVCBQuestion(msg); !ok {
+		return // not a dns question we care about
+	}
+
+	ignored := &Summary{}
+	if r, err := t.secondary.Query(network, q, ignored); err != nil {
+		log.Debugf("alg: skip; sec transport %s err %v", t.secondary.ID(), err)
+		return
+	} else if ans := xdns.AsMsg(r); ans == nil {
+		return // not a valid dns answer
+	} else {
+		a4 := xdns.AAAAAnswer(ans)
+		a6 := xdns.AAnswer(ans)
+		ip4hints := xdns.IPHints(ans, dns.SVCB_IPV4HINT)
+		ip6hints := xdns.IPHints(ans, dns.SVCB_IPV6HINT)
+		ips = append(ips, a4...)
+		ips = append(ips, a6...)
+		ips = append(ips, ip4hints...)
+		ips = append(ips, ip6hints...)
+	}
+}
+
 func (t *dnsgateway) Query(network string, q []byte, summary *Summary) (r []byte, err error) {
 	if t.Transport == nil {
 		return nil, errNoTransportAlg
 	}
+
+	secch := make(chan []*netip.Addr, 1)
+	// todo: use context?
+	go t.querySecondary(network, q, secch, 10*time.Second)
 
 	r, err = t.Transport.Query(network, q, summary)
 	if err != nil {
@@ -136,6 +176,8 @@ func (t *dnsgateway) Query(network string, q []byte, summary *Summary) (r []byte
 	targets := xdns.Targets(ansin)
 	realip := make([]*netip.Addr, 0)
 	algips := make([]*netip.Addr, 0)
+	// fetch secondary ips before lock
+	secips := <-secch
 
 	t.Lock()
 	defer t.Unlock()
@@ -199,23 +241,6 @@ func (t *dnsgateway) Query(network string, q []byte, summary *Summary) (r []byte
 	if !substok4 && !substok6 {
 		log.Debugf("alg: skip; err ips subst %s", qname)
 		return r, errCannotSubstAlg
-	}
-
-	secips := []*netip.Addr{}
-	if t.secondary != nil {
-		ignored := &Summary{}
-		if r2, err2 := t.secondary.Query(network, q, ignored); err2 != nil {
-			log.Debugf("alg: skip; sec transport %s err %v", t.secondary.ID(), err2)
-		} else if secans := xdns.AsMsg(r2); secans != nil {
-			seca4 := xdns.AAAAAnswer(secans)
-			seca6 := xdns.AAnswer(secans)
-			secip4hints := xdns.IPHints(secans, dns.SVCB_IPV4HINT)
-			secip6hints := xdns.IPHints(secans, dns.SVCB_IPV6HINT)
-			secips = append(secips, seca4...)
-			secips = append(secips, seca6...)
-			secips = append(secips, secip4hints...)
-			secips = append(secips, secip6hints...)
-		}
 	}
 
 	algips = append(algips, algip4s...)
