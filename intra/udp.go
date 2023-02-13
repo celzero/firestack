@@ -314,7 +314,7 @@ func (h *udpHandler) Connect(conn core.UDPConn, target *net.UDPAddr) error {
 	// and funcs doDoh and doDnscrypt close the conns once tx is complete.
 	go h.fetchUDPInput(conn, nat)
 
-	log.Infof("new udp proxy (mode: %s) conn to target: %s", h.proxymode(), target)
+	log.Infof("new udp proxy (proxy? %t) conn to target: %s", h.proxymode(), target)
 	return nil
 }
 
