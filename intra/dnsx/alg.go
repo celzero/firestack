@@ -442,7 +442,7 @@ func (t *dnsgateway) WithTransport(inner Transport) bool {
 	if inner != nil && inner.ID() == Default {
 		t.Transport = inner
 	} else {
-		t.secondary = inner
+		t.secondary = NewCachingTransport(inner)
 	}
 	return true
 }
