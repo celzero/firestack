@@ -50,6 +50,11 @@ type Gateway interface {
 	Stop()
 }
 
+type secans struct {
+	ips     []*netip.Addr
+	summary *Summary
+}
+
 type ans struct {
 	algip        *netip.Addr   // generated answer
 	realip       []*netip.Addr // all ip answers
@@ -96,14 +101,17 @@ func NewDNSGateway(inner Transport) (t *dnsgateway) {
 	return
 }
 
-func (t *dnsgateway) querySecondary(network string, q []byte, out chan<- []*netip.Addr, timeout time.Duration) {
-	ips := []*netip.Addr{}
+func (t *dnsgateway) querySecondary(network string, q []byte, out chan<- secans, timeout time.Duration) {
+	result := secans{
+		ips:     []*netip.Addr{},
+		summary: &Summary{},
+	}
 	go func() {
 		time.Sleep(timeout)
-		out <- []*netip.Addr{}
+		out <- result
 	}()
 	defer func() {
-		out <- ips
+		out <- result
 	}()
 
 	if t.secondary == nil {
@@ -112,23 +120,38 @@ func (t *dnsgateway) querySecondary(network string, q []byte, out chan<- []*neti
 		return // not a valid dns message
 	} else if ok := xdns.HasAQuadAQuestion(msg) || xdns.HasSVCBQuestion(msg); !ok {
 		return // not a dns question we care about
-	}
-
-	ignored := &Summary{}
-	if r, err := t.secondary.Query(network, q, ignored); err != nil {
+	} else if ans1, blocklists, err := t.rdns.blockQ(t.secondary, msg); err == nil {
+		// if err !is nil, then the question is blocked
+		result.ips = append(result.ips, xdns.AAnswer(ans1)...)
+		result.ips = append(result.ips, xdns.AAAAAnswer(ans1)...)
+		result.summary.Blocklists = blocklists
+		result.summary.Status = Complete
+		return
+	} else if r, err := t.secondary.Query(network, q, result.summary); err != nil {
 		log.Debugf("alg: skip; sec transport %s err %v", t.secondary.ID(), err)
 		return
-	} else if ans := xdns.AsMsg(r); ans == nil {
-		return // not a valid dns answer
+	} else if ans2 := xdns.AsMsg(r); ans2 == nil {
+		// not a valid dns answer
+		return
+	} else if ans3, blocklistnames := t.rdns.blockA(t.secondary, msg, ans2, result.summary.Blocklists); ans3 != nil {
+		// if ans3 is not nil, then the answer is blocked
+		if len(blocklistnames) > 0 {
+			result.summary.Blocklists = blocklistnames
+		}
+		result.ips = append(result.ips, xdns.AAnswer(ans3)...)
+		result.ips = append(result.ips, xdns.AAAAAnswer(ans3)...)
 	} else {
-		a4 := xdns.AAAAAnswer(ans)
-		a6 := xdns.AAnswer(ans)
-		ip4hints := xdns.IPHints(ans, dns.SVCB_IPV4HINT)
-		ip6hints := xdns.IPHints(ans, dns.SVCB_IPV6HINT)
-		ips = append(ips, a4...)
-		ips = append(ips, a6...)
-		ips = append(ips, ip4hints...)
-		ips = append(ips, ip6hints...)
+		if len(blocklistnames) > 0 {
+			result.summary.Blocklists = blocklistnames
+		}
+		a4 := xdns.AAAAAnswer(ans2)
+		a6 := xdns.AAnswer(ans2)
+		ip4hints := xdns.IPHints(ans2, dns.SVCB_IPV4HINT)
+		ip6hints := xdns.IPHints(ans2, dns.SVCB_IPV6HINT)
+		result.ips = append(result.ips, a4...)
+		result.ips = append(result.ips, a6...)
+		result.ips = append(result.ips, ip4hints...)
+		result.ips = append(result.ips, ip6hints...)
 	}
 }
 
@@ -137,7 +160,7 @@ func (t *dnsgateway) Query(network string, q []byte, summary *Summary) (r []byte
 		return nil, errNoTransportAlg
 	}
 
-	secch := make(chan []*netip.Addr, 1)
+	secch := make(chan secans, 1)
 	// todo: use context?
 	go t.querySecondary(network, q, secch, 10*time.Second)
 
@@ -177,7 +200,7 @@ func (t *dnsgateway) Query(network string, q []byte, summary *Summary) (r []byte
 	realip := make([]*netip.Addr, 0)
 	algips := make([]*netip.Addr, 0)
 	// fetch secondary ips before lock
-	secips := <-secch
+	secres := <-secch
 
 	t.Lock()
 	defer t.Unlock()
@@ -250,7 +273,7 @@ func (t *dnsgateway) Query(network string, q []byte, summary *Summary) (r []byte
 	x := &ansMulti{
 		algip:        algips,
 		realip:       realip,
-		secondaryips: secips,
+		secondaryips: secres.ips,
 		domain:       targets,
 		qname:        qname,
 		// qname->realip valid for next ttl seconds
