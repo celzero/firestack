@@ -53,7 +53,6 @@ type ctransport struct {
 	status    int
 }
 
-// NewGroundedTransport returns a DNS transport that blocks all DNS queries.
 func NewCachingTransport(t Transport) (ct Transport) {
 	ct = &ctransport{
 		Transport: t,
@@ -61,7 +60,7 @@ func NewCachingTransport(t Transport) (ct Transport) {
 		ipport:    "[fdaa:cac::ed:3]:53",
 		status:    Start,
 	}
-	log.Infof("caching(%s) setup: %s", t.ID(), t.GetAddr())
+	log.Infof("caching(%s) setup: %s", ct.ID(), ct.GetAddr())
 	return
 }
 
