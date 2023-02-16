@@ -175,7 +175,7 @@ func (h *tcpHandler) dnsOverride(conn net.Conn, addr *net.TCPAddr) bool {
 	return false
 }
 
-func (h *tcpHandler) onFlow(localaddr *net.TCPAddr, target *net.TCPAddr, realips string, domains string) (block bool) {
+func (h *tcpHandler) onFlow(localaddr *net.TCPAddr, target *net.TCPAddr, realips, domains, blocklists string) (block bool) {
 	// BlockModeNone returns false, BlockModeSink returns true
 	if h.tunMode.BlockMode == settings.BlockModeSink {
 		return true
@@ -200,7 +200,7 @@ func (h *tcpHandler) onFlow(localaddr *net.TCPAddr, target *net.TCPAddr, realips
 	src := localaddr.String()
 	dst := target.String()
 	if len(realips) > 0 && len(domains) > 0 {
-		block = h.blocker.BlockAlg(proto, uid, src, dst, realips, domains)
+		block = h.blocker.BlockAlg(proto, uid, src, dst, realips, domains, blocklists)
 	} else {
 		block = h.blocker.Block(proto, uid, src, dst)
 	}
@@ -243,11 +243,11 @@ func (h *tcpHandler) Handle(conn net.Conn, target *net.TCPAddr) error {
 	// alg happens before nat64, and so, alg has no knowledge of nat-ed ips
 	// ipx4 is un-nated (but same as target.IP when no nat64 is involved)
 	ipx4 := maybeUndoNat64(h.pt, target.IP)
-	realips, domains := undoAlg(h.resolver, ipx4)
+	realips, domains, blocklists := undoAlg(h.resolver, ipx4)
 
 	// flow/dns-override are nat-aware, as in, they can deal with
 	// nat-ed ips just fine, and so, use target as-is instead of ipx4
-	if h.onFlow(localaddr, target, realips, domains) {
+	if h.onFlow(localaddr, target, realips, domains, blocklists) {
 		// an error here results in a core.tcpConn.Abort
 		return fmt.Errorf("tcp connection firewalled")
 	}
@@ -388,12 +388,13 @@ func oneRealIp(realips string, dstip net.IP) net.IP {
 	return dstip
 }
 
-func undoAlg(r dnsx.Resolver, algip net.IP) (realips, domains string) {
+func undoAlg(r dnsx.Resolver, algip net.IP) (realips, domains, blocklists string) {
 	dstip := netipFrom(algip)
 	if gw := r.Gateway(); dstip.IsValid() && gw != nil {
 		dst := dstip.AsSlice()
 		domains = gw.PTR(dst)
 		realips = gw.X(dst)
+		blocklists = gw.RDNSBL(dst)
 	} else {
 		log.Debugf("t.tcp.handle: no gw(%t) or alg-ip(%s)", gw == nil, algip)
 	}

@@ -212,7 +212,7 @@ func (h *udpHandler) isDns(addr *net.UDPAddr) bool {
 	return h.resolver.IsDnsAddr(dnsx.NetTypeUDP, addr2.String())
 }
 
-func (h *udpHandler) onFlow(localudp core.UDPConn, target *net.UDPAddr, realips string, domains string) (block bool) {
+func (h *udpHandler) onFlow(localudp core.UDPConn, target *net.UDPAddr, realips, domains, blocklists string) (block bool) {
 	// BlockModeNone returns false, BlockModeSink returns true
 	if h.tunMode.BlockMode == settings.BlockModeSink {
 		return true
@@ -222,10 +222,10 @@ func (h *udpHandler) onFlow(localudp core.UDPConn, target *net.UDPAddr, realips 
 	}
 	// Implict: BlockModeFilter or BlockModeFilterProc
 	localaddr := localudp.LocalAddr()
-	return h.blockConnAddr(localaddr, target, realips, domains)
+	return h.blockConnAddr(localaddr, target, realips, domains, blocklists)
 }
 
-func (h *udpHandler) blockConnAddr(source *net.UDPAddr, target *net.UDPAddr, realips string, domains string) (block bool) {
+func (h *udpHandler) blockConnAddr(source *net.UDPAddr, target *net.UDPAddr, realips, domains, blocklists string) (block bool) {
 	uid := -1
 	if h.tunMode.BlockMode == settings.BlockModeFilterProc {
 		procEntry := settings.FindProcNetEntry("udp", source.IP, source.Port, target.IP, target.Port)
@@ -238,7 +238,7 @@ func (h *udpHandler) blockConnAddr(source *net.UDPAddr, target *net.UDPAddr, rea
 	src := source.String()
 	dst := target.String()
 	if len(realips) > 0 && len(domains) > 0 {
-		block = h.blocker.BlockAlg(proto, uid, src, dst, realips, domains)
+		block = h.blocker.BlockAlg(proto, uid, src, dst, realips, domains, blocklists)
 	} else {
 		block = h.blocker.Block(proto, uid, src, dst)
 	}
@@ -262,10 +262,10 @@ func (h *udpHandler) OnNewConn(conn *netstack.GUDPConn, _, dst *net.UDPAddr) boo
 func (h *udpHandler) Connect(conn core.UDPConn, target *net.UDPAddr) error {
 	ipx4 := maybeUndoNat64(h.pt, target.IP)
 
-	realips, domains := undoAlg(h.resolver, ipx4)
+	realips, domains, blocklists := undoAlg(h.resolver, ipx4)
 
 	// flow is alg/nat-aware, do not change target or any addrs
-	if h.onFlow(conn, target, realips, domains) {
+	if h.onFlow(conn, target, realips, domains, blocklists) {
 		// an error here results in a core.udpConn.Close
 		return fmt.Errorf("udp connect: connection firewalled")
 	}
@@ -351,7 +351,7 @@ func (h *udpHandler) ReceiveTo(conn core.UDPConn, data []byte, addr *net.UDPAddr
 	// send data to un-nated ips; overwrite target.IP with ipx4
 	// alg happens before nat64, and so, alg has no knowledge of nat-ed ips
 	// ipx4 is un-nated (and equal to target.IP when no nat64 is involved)
-	realips, _ := undoAlg(h.resolver, ipx4)
+	realips, _, _ := undoAlg(h.resolver, ipx4)
 
 	// TODO: should onFlow be called from RecieveTo?
 

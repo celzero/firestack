@@ -146,7 +146,7 @@ func NewResolver(fakeaddrs string, tunmode *settings.TunMode, defaultdns Transpo
 		localdomains: UndelegatedDomainsTrie(),
 	}
 	r.Add(defaultdns)
-	r.Add(NewDNSGateway(defaultdns))
+	r.Add(NewDNSGateway(defaultdns, r))
 	r.loadaddrs(fakeaddrs)
 	return r
 }

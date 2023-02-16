@@ -44,6 +44,8 @@ type Gateway interface {
 	X(algip []byte) (realipcsv string)
 	// given an alg ip, retrieve its dns names as csv, if any
 	PTR(algip []byte) (domaincsv string)
+	// given an alg ip, retrieve its blocklists as csv, if any
+	RDNSBL(algip []byte) (blocklistcsv string)
 	// set Transport as the underlying upstream DNS for alg queries
 	WithTransport(Transport) bool
 	// clear obj state
@@ -61,6 +63,7 @@ type ans struct {
 	secondaryips []*netip.Addr // all ip answers from secondary
 	domain       []string      // all domain names in an answer (incl qname)
 	qname        string        // the query domain name
+	blocklists   string        // csv blocklists containing qname per active config at the time
 	ttl          time.Time
 }
 
@@ -70,6 +73,7 @@ type ansMulti struct {
 	secondaryips []*netip.Addr // all ip answers from secondary
 	domain       []string      // all domain names in an answer (incl qname)
 	qname        string        // the query domain name
+	blocklists   string        // csv blocklists containing qname per active config at the time
 	ttl          time.Time
 }
 
@@ -81,18 +85,20 @@ type dnsgateway struct {
 	secondary Transport
 	alg       map[string]*ans     // domain+type -> ans
 	nat       map[netip.Addr]*ans // algip -> ans
+	rdns      RdnsResolver        // local and remote rdns blocks
 	octets    []uint8             // ip4 octets, 100.x.y.z
 	hexes     []uint16            // ip6 hex, 64:ff9b:1:da19:0100.x.y.z
 }
 
 // NewDNSGateway returns a DNS ALG, ready for use.
-func NewDNSGateway(inner Transport) (t *dnsgateway) {
+func NewDNSGateway(inner Transport, outer RdnsResolver) (t *dnsgateway) {
 	alg := make(map[string]*ans)
 	nat := make(map[netip.Addr]*ans)
 
 	t = &dnsgateway{
 		alg:    alg,
 		nat:    nat,
+		rdns:   outer,
 		octets: []uint8{100, 0, 0, 1},
 		hexes:  []uint16{0x64, 0xff9b, 0x1, 0xda19, 0x100, 0x0, 0x0, 0x0},
 	}
@@ -276,6 +282,7 @@ func (t *dnsgateway) Query(network string, q []byte, summary *Summary) (r []byte
 		secondaryips: secres.ips,
 		domain:       targets,
 		qname:        qname,
+		blocklists:   secres.summary.Blocklists,
 		// qname->realip valid for next ttl seconds
 		ttl: time.Now().Add(ttl * time.Second),
 	}
@@ -325,6 +332,7 @@ func (am *ansMulti) ansViewLocked(i int) *ans {
 		secondaryips: am.secondaryips,
 		domain:       am.domain,
 		qname:        am.qname,
+		blocklists:   am.blocklists,
 		ttl:          am.ttl,
 	}
 }
@@ -514,14 +522,26 @@ func (t *dnsgateway) PTR(algip []byte) (domains string) {
 	return domains
 }
 
+func (t *dnsgateway) RDNSBL(algip []byte) (blocklists string) {
+	t.RLock()
+	defer t.RUnlock()
+
+	if fip, ok := netip.AddrFromSlice(algip); ok {
+		blocklists = t.rdnsbl(&fip)
+	} else {
+		log.Warnf("alg: invalid algip(%s)", algip)
+	}
+	return blocklists
+}
+
 // locked
 func (t *dnsgateway) x(algip *netip.Addr) (realip []*netip.Addr) {
 	// alg ips are always unmappped; see take4Locked
 	unmapped := algip.Unmap()
 	if ans, ok := t.nat[unmapped]; ok {
-		return append(ans.realip, ans.secondaryips...)
+		realip = append(ans.realip, ans.secondaryips...)
 	}
-	return nil
+	return
 }
 
 // locked
@@ -529,7 +549,17 @@ func (t *dnsgateway) ptr(algip *netip.Addr) (domains []string) {
 	// alg ips are always unmappped; see take4Locked
 	unmapped := algip.Unmap()
 	if ans, ok := t.nat[unmapped]; ok {
-		return ans.domain
+		domains = ans.domain
 	}
-	return nil
+	return
+}
+
+// locked
+func (t *dnsgateway) rdnsbl(algip *netip.Addr) (bcsv string) {
+	// alg ips are always unmappped; see take4Locked
+	unmapped := algip.Unmap()
+	if ans, ok := t.nat[unmapped]; ok {
+		bcsv = ans.blocklists
+	}
+	return bcsv
 }

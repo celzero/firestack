@@ -45,7 +45,7 @@ type Blocker interface {
 	Block(protocol int32, uid int, source string, target string) bool
 	// BlockAlg is called on a new ALG connection setup; return true to block the connection;
 	// false otherwise.
-	BlockAlg(p int32, uid int, src string, dst string, realips string, domains string) bool
+	BlockAlg(p int32, uid int, src string, dst string, realips, domains, blocklists string) bool
 	// Calls in to javaland asking it to bind fd to any internet-capable IPv4 interface.
 	Bind4(fd int)
 	// Calls in to javaland asking it to bind fd to any internet-capable IPv6 interface.
