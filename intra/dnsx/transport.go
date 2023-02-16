@@ -367,7 +367,7 @@ func (r *resolver) Forward(q []byte) ([]byte, error) {
 	}
 
 	// block skipped if the transport is alg/block-free
-	res1, blocklists, err := r.block(t, msg)
+	res1, blocklists, err := r.blockQ(t, msg)
 	if err == nil {
 		b, e := res1.Pack()
 		summary.Latency = time.Since(starttime).Seconds()
@@ -399,7 +399,7 @@ func (r *resolver) Forward(q []byte) ([]byte, error) {
 	}
 
 	// block response if needed
-	ans2, blocklistnames := r.blockRes(t, msg, ans1, summary.Blocklists)
+	ans2, blocklistnames := r.blockA(t, msg, ans1, summary.Blocklists)
 	if len(blocklistnames) > 0 {
 		// summary latency, response, status, ips already set by transport t
 		summary.Blocklists = blocklistnames
@@ -485,7 +485,7 @@ func (r *resolver) forwardQuery(q []byte, c io.Writer) error {
 	}
 
 	// block query if needed (skipped for alg/block-free)
-	res1, blocklists, err := r.block(t, msg)
+	res1, blocklists, err := r.blockQ(t, msg)
 	if err == nil {
 		b, e := res1.Pack()
 		summary.Latency = time.Since(starttime).Seconds()
@@ -517,7 +517,7 @@ func (r *resolver) forwardQuery(q []byte, c io.Writer) error {
 		return qerr
 	}
 
-	ans2, blocklistnames := r.blockRes(t, msg, ans1, summary.Blocklists)
+	ans2, blocklistnames := r.blockA(t, msg, ans1, summary.Blocklists)
 	// overwrite response when blocked
 	if len(blocklistnames) > 0 {
 		// summary latency, response, status, ips already set by transport t

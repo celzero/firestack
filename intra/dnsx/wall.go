@@ -12,9 +12,7 @@ import (
 	"github.com/miekg/dns"
 )
 
-// question
-
-func (r *resolver) block(t Transport, msg *dns.Msg) (ans *dns.Msg, blocklists string, err error) {
+func (r *resolver) blockQ(t Transport, msg *dns.Msg) (ans *dns.Msg, blocklists string, err error) {
 	if t.ID() == Alg || t.ID() == BlockFree {
 		return nil, "", errBlockFreeTransport
 	}
@@ -56,7 +54,7 @@ func (r *resolver) applyBlocklists(q *dns.Msg) (ans *dns.Msg, blocklists string,
 
 // answer
 
-func (r *resolver) blockRes(t Transport, q *dns.Msg, ans *dns.Msg, blocklistStamp string) (finalans *dns.Msg, blocklistNames string) {
+func (r *resolver) blockA(t Transport, q *dns.Msg, ans *dns.Msg, blocklistStamp string) (finalans *dns.Msg, blocklistNames string) {
 	br := r.rdnsr
 	var err error
 	qname := xdns.QName(q)
