@@ -398,16 +398,18 @@ func (h *udpHandler) ReceiveTo(conn core.UDPConn, data []byte, addr *net.UDPAddr
 	nat.upload += int64(len(data))
 
 	switch c := nat.conn.(type) {
-	case net.PacketConn:
-		// Update deadline.
-		c.SetDeadline(time.Now().Add(h.timeout))
-		// writes packet payload, data, to addr
-		_, err = c.WriteTo(data, addr)
+	// net.UDPConn is both net.Conn and net.PacketConn; check net.Conn
+	// first, as it denotes a connected socket which netstack also uses
 	case net.Conn:
 		// Update deadline.
 		c.SetDeadline(time.Now().Add(h.timeout))
 		// c is already dialed-in to some addr in udpHandler.Connect
 		_, err = c.Write(data)
+	case net.PacketConn:
+		// Update deadline.
+		c.SetDeadline(time.Now().Add(h.timeout))
+		// writes packet payload, data, to addr
+		_, err = c.WriteTo(data, addr)
 	default:
 		err = errors.New("t.udp.egress: unknown conn type")
 	}
