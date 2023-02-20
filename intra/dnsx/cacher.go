@@ -39,6 +39,7 @@ var (
 
 type cres struct {
 	ans   *dns.Msg
+	s     *Summary
 	ttl   time.Time
 	bumps int
 }
@@ -110,7 +111,7 @@ func (t *ctransport) fresh(msg *dns.Msg) (v *cres, ok bool) {
 	return v, time.Since(v.ttl) <= 0
 }
 
-func (t *ctransport) put(q *dns.Msg, response []byte) (ok bool) {
+func (t *ctransport) put(q *dns.Msg, response []byte, s *Summary) (ok bool) {
 	key := t.ckey(q)
 
 	if len(key) <= 0 || len(response) <= 0 {
@@ -136,6 +137,7 @@ func (t *ctransport) put(q *dns.Msg, response []byte) (ok bool) {
 
 	t.cache[key] = &cres{
 		ans:   ans,
+		s:     s,
 		ttl:   time.Now().Add(initialttl),
 		bumps: 0,
 	}
@@ -143,7 +145,7 @@ func (t *ctransport) put(q *dns.Msg, response []byte) (ok bool) {
 	return true
 }
 
-func (t *ctransport) touch(q *dns.Msg, v *cres) ([]byte, error) {
+func (t *ctransport) touch(q *dns.Msg, v *cres) (r []byte, s *Summary, err error) {
 	t.Lock()
 	defer t.Unlock()
 
@@ -155,14 +157,17 @@ func (t *ctransport) touch(q *dns.Msg, v *cres) ([]byte, error) {
 
 	if a != nil {
 		a.Id = q.Id
-		return a.Pack()
+		s = v.s
+		r, err = a.Pack()
 	} else {
-		return nil, errCacheResponseEmpty
+		err = errCacheResponseEmpty
 	}
+	return
 }
 
 func (t *ctransport) Query(network string, q []byte, summary *Summary) ([]byte, error) {
 	var response []byte
+	var s *Summary
 	var err error
 
 	msg := xdns.AsMsg(q)
@@ -170,10 +175,10 @@ func (t *ctransport) Query(network string, q []byte, summary *Summary) ([]byte, 
 	if v, ok := t.fresh(msg); !ok {
 		response, err = t.Transport.Query(network, q, summary)
 		if err == nil {
-			t.put(msg, response)
+			t.put(msg, response, summary)
 		}
 	} else {
-		response, err = t.touch(msg, v)
+		response, s, err = t.touch(msg, v)
 	}
 
 	if err != nil {
@@ -181,16 +186,19 @@ func (t *ctransport) Query(network string, q []byte, summary *Summary) ([]byte, 
 	} else {
 		t.status = Complete
 	}
+	summary.Status = t.Status()
+	summary.Server = t.GetAddr()
 
-	ans := xdns.AsMsg(response)
 	elapsed := 0 * time.Second
 	summary.Latency = elapsed.Seconds()
-	summary.RData = xdns.GetInterestingRData(ans)
-	summary.RCode = xdns.Rcode(ans)
-	summary.RTtl = xdns.RTtl(ans)
-	summary.Server = t.GetAddr()
-	summary.Status = t.Status()
-	summary.Blocklists = ""
+	if s != nil {
+		summary.RData = s.RData
+		summary.RCode = s.RCode
+		summary.RTtl = s.RTtl
+		summary.Blocklists = s.Blocklists
+	} else {
+		log.Warnf("caching(%s) no summary for %s", t.ID(), xdns.QName(msg))
+	}
 
 	return response, err
 }
