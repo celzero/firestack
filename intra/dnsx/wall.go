@@ -66,7 +66,7 @@ func (r *resolver) blockA(t Transport, q *dns.Msg, ans *dns.Msg, blocklistStamp 
 			log.Errorf("wall: could not resolve blocklist-stamp(%s) for %s, err: %v", blocklistStamp, qname, err)
 			return
 		}
-		log.Debugf("wall:for %s blocklists %s", qname, blocklistNames)
+		log.Debugf("wall: for %s blocklists %s", qname, blocklistNames)
 		return
 	} else {
 		log.Debugf("wall: no block for %s; blocklist-stamp? (%d) / rdnsr? (%t)", qname, len(blocklistStamp), br != nil)

@@ -146,6 +146,7 @@ func (t *dnsgateway) querySecondary(network string, q []byte, out chan<- secans,
 		}
 		result.ips = append(result.ips, xdns.AAnswer(ans3)...)
 		result.ips = append(result.ips, xdns.AAAAAnswer(ans3)...)
+		return
 	} else {
 		if len(blocklistnames) > 0 {
 			result.summary.Blocklists = blocklistnames
@@ -158,6 +159,7 @@ func (t *dnsgateway) querySecondary(network string, q []byte, out chan<- secans,
 		result.ips = append(result.ips, a6...)
 		result.ips = append(result.ips, ip4hints...)
 		result.ips = append(result.ips, ip6hints...)
+		return
 	}
 }
 
