@@ -128,14 +128,14 @@ func nc2str(conn core.UDPConn, c net.Conn, nat *tracker) string {
 	raddr := c.RemoteAddr()
 	nsladdr := conn.LocalAddr()
 	nsraddr := conn.RemoteAddr()
-	return fmt.Sprintf("(l:%v [%v] <- r:%v [%v / n:%v])", laddr, nsladdr, nsraddr, raddr, nat.ip)
+	return fmt.Sprintf("nc(l:%v [%v] <- r:%v [%v / n:%v])", laddr, nsladdr, nsraddr, raddr, nat.ip)
 }
 
 func pc2str(conn core.UDPConn, c net.PacketConn, nat *tracker) string {
 	laddr := c.LocalAddr()
 	nsladdr := conn.LocalAddr()
 	nsraddr := conn.RemoteAddr()
-	return fmt.Sprintf("(l:%v [%v] <- r:%v [ / n:%v])", laddr, nsladdr, nsraddr, nat.ip)
+	return fmt.Sprintf("pc(l:%v [%v] <- r:%v [ / n:%v])", laddr, nsladdr, nsraddr, nat.ip)
 }
 
 // fetchUDPInput reads from nat.conn to masqurade-write it to core.UDPConn
@@ -149,7 +149,7 @@ func (h *udpHandler) fetchUDPInput(conn core.UDPConn, nat *tracker) {
 
 	for {
 		if nat.errcount > maxconnerr {
-			log.Debugf("t.udp.fetchudp: too many errors (%v), closing", nat.errcount)
+			log.Debugf("t.udp.ingress: too many errors (%v), closing", nat.errcount)
 			return
 		}
 
@@ -162,13 +162,15 @@ func (h *udpHandler) fetchUDPInput(conn core.UDPConn, nat *tracker) {
 		switch c := nat.conn.(type) {
 		case net.PacketConn:
 			logaddr = pc2str(conn, c, nat)
-			log.Debugf("t.udp.fetchudp: read (pc) remote for %s", logaddr)
+			log.Debugf("t.udp.ingress: read (pc) remote for %s", logaddr)
+
 			c.SetDeadline(time.Now().Add(h.timeout)) // extend deadline
 			// reads a packet from t.conn copying it to buf
 			n, addr, err = c.ReadFrom(buf)
 		case net.Conn:
 			logaddr = nc2str(conn, c, nat)
-			log.Debugf("t.udp.fetchudp: read (c) remote for %s", logaddr)
+			log.Debugf("t.udp.ingress: read (c) remote for %s", logaddr)
+
 			c.SetDeadline(time.Now().Add(h.timeout)) // extend deadline
 			// c is already dialed-in to some addr in udpHandler.Connect
 			n, err = c.Read(buf)
@@ -180,10 +182,10 @@ func (h *udpHandler) fetchUDPInput(conn core.UDPConn, nat *tracker) {
 		// ref: github.com/miekg/dns/blob/f8a185d39/server.go#L521
 		if neterr, ok := err.(net.Error); ok && neterr.Temporary() {
 			nat.errcount += 1
-			log.Infof("t.udp.fetchudpinput: %s temp err#%d(%v)", logaddr, err, nat.errcount)
+			log.Infof("t.udp.ingress: %s temp err#%d(%v)", logaddr, err, nat.errcount)
 			continue
 		} else if err != nil {
-			log.Infof("t.udp.fetchudpinput: %s err(%v)", logaddr, err)
+			log.Infof("t.udp.ingress: %s err(%v)", logaddr, err)
 			return
 		} else {
 			nat.errcount = 0
@@ -197,12 +199,12 @@ func (h *udpHandler) fetchUDPInput(conn core.UDPConn, nat *tracker) {
 			udpaddr = nat.ip
 		}
 
-		log.Debugf("t.udp.fetchudpinput: data(%d) from remote(actual:%v/masq:%v) | addrs: %s", n, addr, udpaddr, logaddr)
+		log.Debugf("t.udp.ingress: data(%d) from remote(actual:%v/masq:%v) | addrs: %s", n, addr, udpaddr, logaddr)
 
 		nat.download += int64(n)
 		// writes data to conn (tun) with udpaddr as source
 		if _, err = conn.WriteFrom(buf[:n], udpaddr); err != nil {
-			log.Warnf("failed to write udp data to tun (%s) from %s", logaddr, udpaddr)
+			log.Warnf("t.udp.ingress: failed to write udp data to tun (%s) from %s", logaddr, udpaddr)
 		}
 	}
 }
@@ -217,7 +219,7 @@ func (h *udpHandler) dnsOverride(nat *tracker, conn core.UDPConn, addr *net.UDPA
 		_, err = conn.WriteFrom(resp, addr)
 	}
 	if err != nil {
-		log.Warnf("dns udp query failed: %v", err)
+		log.Warnf("t.udp.dns: query failed %v", err)
 	}
 
 	// conn was only used for this DNS query, so it's unlikely to be used again.
@@ -265,7 +267,7 @@ func (h *udpHandler) blockConnAddr(source *net.UDPAddr, target *net.UDPAddr, rea
 	}
 
 	if block {
-		log.Infof("firewalled udp connection from %s:%s to %s:%s",
+		log.Infof("t.udp.egress: firewalled src(%s:%s) -> dst(%s:%s)",
 			source.Network(), source.String(), target.Network(), target.String())
 	}
 	return block
@@ -288,7 +290,7 @@ func (h *udpHandler) Connect(conn core.UDPConn, target *net.UDPAddr) error {
 	// flow is alg/nat-aware, do not change target or any addrs
 	if h.onFlow(conn, target, realips, domains, blocklists) {
 		// an error here results in a core.udpConn.Close
-		return fmt.Errorf("udp connect: connection firewalled")
+		return fmt.Errorf("t.udp.connect: firewalled")
 	}
 
 	dnsredir := h.isDns(target)
@@ -313,7 +315,7 @@ func (h *udpHandler) Connect(conn core.UDPConn, target *net.UDPAddr) error {
 	}
 
 	if err != nil {
-		log.Errorf("failed to bind udp addr for(%s); err(%v)", target, err)
+		log.Errorf("t.udp.connect: failed to bind addr(%s); err(%v)", target, err)
 		return err
 	}
 
@@ -335,7 +337,7 @@ func (h *udpHandler) Connect(conn core.UDPConn, target *net.UDPAddr) error {
 	// and funcs doDoh and doDnscrypt close the conns once tx is complete.
 	go h.fetchUDPInput(conn, nat)
 
-	log.Infof("new udp proxy (proxy? %t) conn to target: %s", h.proxymode(), target)
+	log.Infof("t.udp.connect: (proxy? %t) to target: %s", h.proxymode(), target)
 	return nil
 }
 
@@ -349,13 +351,17 @@ func (h *udpHandler) ReceiveTo(conn core.UDPConn, data []byte, addr *net.UDPAddr
 	nat, ok1 := h.udpConns[conn]
 	h.RUnlock()
 
+	nsladdr := conn.LocalAddr()
+	nsraddr := conn.RemoteAddr()
+	raddr := addr
+
 	if !ok1 {
-		log.Warnf("t.udp.rcv: no nat(%v -> %v)", conn.LocalAddr(), addr)
-		return fmt.Errorf("conn %v->%v does not exist", conn.LocalAddr(), addr)
+		log.Warnf("t.udp.egress: no nat(%v -> %v [%v])", nsladdr, raddr, nsraddr)
+		return fmt.Errorf("conn %v -> %v [%v] does not exist", nsladdr, raddr, nsraddr)
 	}
 
 	if h.dnsOverride(nat, conn, addr, data) {
-		log.Debugf("t.udp.rcv: dns-override for dstaddr(%v)", addr)
+		log.Debugf("t.udp.egress: dns-override for dstaddr(%v) <- src(l:%v r:%v)", raddr, nsladdr, nsraddr)
 		return nil
 	}
 
@@ -393,7 +399,7 @@ func (h *udpHandler) ReceiveTo(conn core.UDPConn, data []byte, addr *net.UDPAddr
 		// c is already dialed-in to some addr in udpHandler.Connect
 		_, err = c.Write(data)
 	default:
-		err = errors.New("failed write to udp proxy")
+		err = errors.New("t.udp.egress: unknown conn type")
 	}
 
 	// is err recoverable?
@@ -401,20 +407,20 @@ func (h *udpHandler) ReceiveTo(conn core.UDPConn, data []byte, addr *net.UDPAddr
 	if neterr, ok := err.(net.Error); ok && neterr.Temporary() {
 		nat.errcount += 1
 		if nat.errcount > maxconnerr {
-			log.Warnf("t.udp.rcv: too many errors(%d) for conn(%v)", nat.errcount, conn.LocalAddr())
+			log.Warnf("t.udp.egress: too many errors(%d) for conn(l:%v -> r:%v [%v])", nat.errcount, nsladdr, raddr, nsraddr)
 			return err
 		} else {
-			log.Warnf("t.udp.rcv: temporary error(%v) for conn(%v)", err, conn.LocalAddr())
+			log.Warnf("t.udp.egress: temporary error(%v) for conn(l:%v -> r:%v [%v])", err, nsladdr, raddr, nsraddr)
 			return nil
 		}
 	} else if err != nil {
-		log.Infof("t.udp.rcv: end splice, forward udp err(%v)", err)
+		log.Infof("t.udp.egress: end splice (%v -> %v [%v]), forward udp err(%v)", conn.LocalAddr(), raddr, nsraddr, err)
 		return err
 	} else {
 		nat.errcount = 0
 	}
 
-	log.Infof("t.udp.rcv: src(%v) -> dst(%v) / data(%d)", conn.LocalAddr(), addr, len(data))
+	log.Infof("t.udp.egress: conn(%v -> %v [%v]) / data(%d)", nsladdr, raddr, nsraddr, len(data))
 	return nil
 }
 
