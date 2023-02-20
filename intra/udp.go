@@ -165,13 +165,8 @@ func (h *udpHandler) fetchUDPInput(conn core.UDPConn, nat *tracker) {
 		// FIXME: ReadFrom seems to block for 50mins+ at times:
 		// Cancel the goroutine in such cases and close the conns
 		switch c := nat.conn.(type) {
-		case net.PacketConn:
-			logaddr = pc2str(conn, c, nat)
-			log.Debugf("t.udp.ingress: read (pc) remote for %s", logaddr)
-
-			c.SetDeadline(time.Now().Add(h.timeout)) // extend deadline
-			// reads a packet from t.conn copying it to buf
-			n, addr, err = c.ReadFrom(buf)
+		// net.UDPConn is both net.Conn and net.PacketConn; check net.Conn
+		// first, as it denotes a connected socket which netstack also uses
 		case net.Conn:
 			logaddr = nc2str(conn, c, nat)
 			log.Debugf("t.udp.ingress: read (c) remote for %s", logaddr)
@@ -179,6 +174,13 @@ func (h *udpHandler) fetchUDPInput(conn core.UDPConn, nat *tracker) {
 			c.SetDeadline(time.Now().Add(h.timeout)) // extend deadline
 			// c is already dialed-in to some addr in udpHandler.Connect
 			n, err = c.Read(buf)
+		case net.PacketConn:
+			logaddr = pc2str(conn, c, nat)
+			log.Debugf("t.udp.ingress: read (pc) remote for %s", logaddr)
+
+			c.SetDeadline(time.Now().Add(h.timeout)) // extend deadline
+			// reads a packet from t.conn copying it to buf
+			n, addr, err = c.ReadFrom(buf)
 		default:
 			err = errors.New("failed to read from proxy udp conn")
 		}
@@ -187,7 +189,7 @@ func (h *udpHandler) fetchUDPInput(conn core.UDPConn, nat *tracker) {
 		// ref: github.com/miekg/dns/blob/f8a185d39/server.go#L521
 		if neterr, ok := err.(net.Error); ok && neterr.Temporary() {
 			nat.errcount += 1
-			log.Infof("t.udp.ingress: %s temp err#%d(%v)", logaddr, err, nat.errcount)
+			log.Infof("t.udp.ingress: %s temp err#%d(%v)", logaddr, nat.errcount, err)
 			continue
 		} else if err != nil {
 			log.Infof("t.udp.ingress: %s err(%v)", logaddr, err)
