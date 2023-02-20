@@ -92,11 +92,13 @@ type udpHandler struct {
 	timeout  time.Duration
 	udpConns map[core.UDPConn]*tracker
 	config   *net.ListenConfig
+	dialer   *net.Dialer
 	blocker  protect.Blocker
 	tunMode  *settings.TunMode
 	listener UDPListener
 	proxy    proxy.Dialer
 	pt       ipn.NAT64
+	symnat   bool
 }
 
 // NewUDPHandler makes a UDP handler with Intra-style DNS redirection:
@@ -109,6 +111,7 @@ func NewUDPHandler(resolver dnsx.Resolver, pt ipn.NAT64, blocker protect.Blocker
 	// RFC 4787 REQ-5 requires a timeout no shorter than 5 minutes.
 	udptimeout, _ := time.ParseDuration("5m")
 	c := protect.MakeListenConfig2(blocker)
+	d := protect.MakeDialer2(blocker)
 	h := &udpHandler{
 		timeout:  udptimeout,
 		udpConns: make(map[core.UDPConn]*tracker, 8),
@@ -116,8 +119,10 @@ func NewUDPHandler(resolver dnsx.Resolver, pt ipn.NAT64, blocker protect.Blocker
 		blocker:  blocker,
 		tunMode:  tunMode,
 		config:   c,
+		dialer:   d,
 		listener: listener,
 		pt:       pt,
+		symnat:   true,
 	}
 
 	return h
@@ -309,10 +314,11 @@ func (h *udpHandler) Connect(conn core.UDPConn, target *net.UDPAddr) error {
 		// TODO: target can unspecified on netstack... handle approp in receiveTo?
 		// deprecated: github.com/golang/go/issues/25104
 		c, err = h.proxy.Dial(target.Network(), target.String())
+	} else if h.symnat {
+		c, err = h.dialer.Dial(target.Network(), target.String())
 	} else {
-		// bindaddr := &net.UDPAddr{IP: nil, Port: 0}
-		// symmetric nat: bind to target addr
-		c, err = h.config.ListenPacket(context.TODO(), target.Network(), target.String())
+		bindaddr := &net.UDPAddr{IP: nil, Port: 0}
+		c, err = h.config.ListenPacket(context.TODO(), bindaddr.Network(), bindaddr.String())
 	}
 
 	if err != nil {
