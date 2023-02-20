@@ -310,8 +310,9 @@ func (h *udpHandler) Connect(conn core.UDPConn, target *net.UDPAddr) error {
 		// deprecated: github.com/golang/go/issues/25104
 		c, err = h.proxy.Dial(target.Network(), target.String())
 	} else {
-		bindaddr := &net.UDPAddr{IP: nil, Port: 0}
-		c, err = h.config.ListenPacket(context.TODO(), bindaddr.Network(), bindaddr.String())
+		// bindaddr := &net.UDPAddr{IP: nil, Port: 0}
+		// symmetric nat: bind to target addr
+		c, err = h.config.ListenPacket(context.TODO(), target.Network(), target.String())
 	}
 
 	if err != nil {
