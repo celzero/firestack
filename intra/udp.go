@@ -216,10 +216,12 @@ func (h *udpHandler) fetchUDPInput(conn core.UDPConn, nat *tracker) {
 	}
 }
 
-func (h *udpHandler) dnsOverride(nat *tracker, conn core.UDPConn, addr *net.UDPAddr, query []byte) bool {
+func (h *udpHandler) dnsOverride(conn core.UDPConn, addr *net.UDPAddr, query []byte) bool {
 	if !h.isDns(addr) {
 		return false
 	}
+	// conn was only used for this DNS query, so it's unlikely to be used again.
+	defer h.Close(conn)
 
 	resp, err := h.resolver.Forward(query)
 	if resp != nil {
@@ -228,12 +230,7 @@ func (h *udpHandler) dnsOverride(nat *tracker, conn core.UDPConn, addr *net.UDPA
 	if err != nil {
 		log.Warnf("t.udp.dns: query failed %v", err)
 	}
-
-	// conn was only used for this DNS query, so it's unlikely to be used again.
-	if nat.upload == 0 && nat.download == 0 {
-		h.Close(conn)
-	}
-	return true
+	return true // handled
 }
 
 func (h *udpHandler) isDns(addr *net.UDPAddr) bool {
@@ -300,7 +297,9 @@ func (h *udpHandler) Connect(conn core.UDPConn, target *net.UDPAddr) error {
 		return fmt.Errorf("t.udp.connect: firewalled")
 	}
 
-	dnsredir := h.isDns(target)
+	if h.isDns(target) {
+		return nil // no need to connect as target is a fake dns server
+	}
 
 	// TODO: fake-dns-ips shouldn't be un-nated / un-alg'd
 	// alg happens before nat64, and so, alg has no knowledge of nat-ed ips
@@ -310,17 +309,21 @@ func (h *udpHandler) Connect(conn core.UDPConn, target *net.UDPAddr) error {
 	target.IP = oneRealIp(realips, ipx4)
 
 	var c any
+	var laddr net.Addr
 	var err error
-	if h.proxymode() && !dnsredir {
+	if h.proxymode() {
 		// TODO: target can be nil: What happens then?
 		// TODO: target can unspecified on netstack... handle approp in receiveTo?
 		// deprecated: github.com/golang/go/issues/25104
 		c, err = h.proxy.Dial(target.Network(), target.String())
+		laddr = c.(net.Conn).LocalAddr()
 	} else if h.symnat {
 		c, err = h.dialer.Dial(target.Network(), target.String())
+		laddr = c.(net.Conn).LocalAddr()
 	} else {
 		bindaddr := &net.UDPAddr{IP: nil, Port: 0}
 		c, err = h.config.ListenPacket(context.TODO(), bindaddr.Network(), bindaddr.String())
+		laddr = c.(net.PacketConn).LocalAddr()
 	}
 
 	if err != nil {
@@ -330,7 +333,7 @@ func (h *udpHandler) Connect(conn core.UDPConn, target *net.UDPAddr) error {
 
 	nat := makeTracker(c)
 
-	if h.proxymode() && !dnsredir {
+	if h.proxymode() {
 		nat.ip = &net.UDPAddr{
 			IP:   target.IP,
 			Port: target.Port,
@@ -342,11 +345,9 @@ func (h *udpHandler) Connect(conn core.UDPConn, target *net.UDPAddr) error {
 	h.udpConns[conn] = nat
 	h.Unlock()
 
-	// TODO: fetch-udp-input not required for dns? dns-override takes over;
-	// and funcs doDoh and doDnscrypt close the conns once tx is complete.
 	go h.fetchUDPInput(conn, nat)
 
-	log.Infof("t.udp.connect: (proxy? %t) to target: %s", h.proxymode(), target)
+	log.Infof("t.udp.connect: (proxy? %t) %v -> %v", h.proxymode(), laddr, target)
 	return nil
 }
 
@@ -356,22 +357,22 @@ func (h *udpHandler) HandleData(conn *netstack.GUDPConn, data []byte, addr *net.
 
 // ReceiveTo is called when data arrives from conn (tun).
 func (h *udpHandler) ReceiveTo(conn core.UDPConn, data []byte, addr *net.UDPAddr) (err error) {
-	h.RLock()
-	nat, ok1 := h.udpConns[conn]
-	h.RUnlock()
-
 	nsladdr := conn.LocalAddr()
 	nsraddr := conn.RemoteAddr()
 	raddr := addr
 
+	if h.dnsOverride(conn, addr, data) {
+		log.Debugf("t.udp.egress: dns-override for dstaddr(%v) <- src(l:%v r:%v)", raddr, nsladdr, nsraddr)
+		return nil
+	}
+
+	h.RLock()
+	nat, ok1 := h.udpConns[conn]
+	h.RUnlock()
+
 	if !ok1 {
 		log.Warnf("t.udp.egress: no nat(%v -> %v [%v])", nsladdr, raddr, nsraddr)
 		return fmt.Errorf("conn %v -> %v [%v] does not exist", nsladdr, raddr, nsraddr)
-	}
-
-	if h.dnsOverride(nat, conn, addr, data) {
-		log.Debugf("t.udp.egress: dns-override for dstaddr(%v) <- src(l:%v r:%v)", raddr, nsladdr, nsraddr)
-		return nil
 	}
 
 	ipx4 := maybeUndoNat64(h.pt, addr.IP)
