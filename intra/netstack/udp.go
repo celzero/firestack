@@ -21,7 +21,7 @@ import (
 )
 
 const readDeadline = 30 * time.Second // FIXME: Udp.Timeout
-const K64 = 64 * 1024                 // 64K bytes
+const K64 = core.BufSize              // 64K bytes
 
 var _ core.UDPConn = (*GUDPConn)(nil)
 

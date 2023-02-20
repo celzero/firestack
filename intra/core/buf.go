@@ -6,17 +6,17 @@ import (
 	"sync"
 )
 
-var pool *sync.Pool
+var slab *sync.Pool
 
-const BufSize = 2 * 1024
+const BufSize = 64 * 1024
 
-func SetBufferPool(p *sync.Pool) {
-	pool = p
+func SetSlabAllocator(p *sync.Pool) {
+	slab = p
 }
 
 func NewBytes(size int) []byte {
 	if size <= BufSize {
-		return pool.Get().([]byte)
+		return slab.Get().([]byte)
 	} else {
 		return make([]byte, size)
 	}
@@ -24,12 +24,12 @@ func NewBytes(size int) []byte {
 
 func FreeBytes(b []byte) {
 	if len(b) >= BufSize {
-		pool.Put(b)
+		slab.Put(b)
 	}
 }
 
 func init() {
-	SetBufferPool(&sync.Pool{
+	SetSlabAllocator(&sync.Pool{
 		New: func() interface{} {
 			return make([]byte, BufSize)
 		},
