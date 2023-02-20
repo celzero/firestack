@@ -86,6 +86,7 @@ type TCPConn interface {
 type UDPConn interface {
 	// LocalAddr returns the local client network address.
 	LocalAddr() *net.UDPAddr
+	RemoteAddr() *net.UDPAddr
 
 	// ReceiveTo will be called when data arrives from TUN, and the received
 	// data should be sent to addr.

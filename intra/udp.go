@@ -123,6 +123,21 @@ func NewUDPHandler(resolver dnsx.Resolver, pt ipn.NAT64, blocker protect.Blocker
 	return h
 }
 
+func nc2str(conn core.UDPConn, c net.Conn, nat *tracker) string {
+	laddr := c.LocalAddr()
+	raddr := c.RemoteAddr()
+	nsladdr := conn.LocalAddr()
+	nsraddr := conn.RemoteAddr()
+	return fmt.Sprintf("(l:%v [%v] <- r:%v [%v / n:%v])", laddr, nsladdr, nsraddr, raddr, nat.ip)
+}
+
+func pc2str(conn core.UDPConn, c net.PacketConn, nat *tracker) string {
+	laddr := c.LocalAddr()
+	nsladdr := conn.LocalAddr()
+	nsraddr := conn.RemoteAddr()
+	return fmt.Sprintf("(l:%v [%v] <- r:%v [ / n:%v])", laddr, nsladdr, nsraddr, nat.ip)
+}
+
 // fetchUDPInput reads from nat.conn to masqurade-write it to core.UDPConn
 func (h *udpHandler) fetchUDPInput(conn core.UDPConn, nat *tracker) {
 	buf := core.NewBytes(core.BufSize)
@@ -139,18 +154,21 @@ func (h *udpHandler) fetchUDPInput(conn core.UDPConn, nat *tracker) {
 		}
 
 		var n int
+		var logaddr string
 		var addr net.Addr
 		var err error
-
-		log.Debugf("t.udp.fetchudp: read remote for local-addr(%v)", conn.LocalAddr())
 		// FIXME: ReadFrom seems to block for 50mins+ at times:
 		// Cancel the goroutine in such cases and close the conns
 		switch c := nat.conn.(type) {
 		case net.PacketConn:
+			logaddr = pc2str(conn, c, nat)
+			log.Debugf("t.udp.fetchudp: read (pc) remote for %s", logaddr)
 			c.SetDeadline(time.Now().Add(h.timeout)) // extend deadline
 			// reads a packet from t.conn copying it to buf
 			n, addr, err = c.ReadFrom(buf)
 		case net.Conn:
+			logaddr = nc2str(conn, c, nat)
+			log.Debugf("t.udp.fetchudp: read (c) remote for %s", logaddr)
 			c.SetDeadline(time.Now().Add(h.timeout)) // extend deadline
 			// c is already dialed-in to some addr in udpHandler.Connect
 			n, err = c.Read(buf)
@@ -162,10 +180,13 @@ func (h *udpHandler) fetchUDPInput(conn core.UDPConn, nat *tracker) {
 		// ref: github.com/miekg/dns/blob/f8a185d39/server.go#L521
 		if neterr, ok := err.(net.Error); ok && neterr.Temporary() {
 			nat.errcount += 1
+			log.Infof("t.udp.fetchudpinput: %s temp err#%d(%v)", logaddr, err, nat.errcount)
 			continue
 		} else if err != nil {
-			log.Infof("t.udp.fetchudpinput: err(%v)", err)
+			log.Infof("t.udp.fetchudpinput: %s err(%v)", logaddr, err)
 			return
+		} else {
+			nat.errcount = 0
 		}
 
 		var udpaddr *net.UDPAddr
@@ -176,12 +197,12 @@ func (h *udpHandler) fetchUDPInput(conn core.UDPConn, nat *tracker) {
 			udpaddr = nat.ip
 		}
 
-		log.Debugf("t.udp.fetchudpinput: data(%d) from remote(actual:%v/masq:%v)", n, addr, udpaddr)
+		log.Debugf("t.udp.fetchudpinput: data(%d) from remote(actual:%v/masq:%v) | addrs: %s", n, addr, udpaddr, logaddr)
 
 		nat.download += int64(n)
 		// writes data to conn (tun) with udpaddr as source
 		if _, err = conn.WriteFrom(buf[:n], udpaddr); err != nil {
-			log.Warnf("failed to write udp data to tun from %s", udpaddr)
+			log.Warnf("failed to write udp data to tun (%s) from %s", logaddr, udpaddr)
 		}
 	}
 }
@@ -353,7 +374,7 @@ func (h *udpHandler) ReceiveTo(conn core.UDPConn, data []byte, addr *net.UDPAddr
 	// ipx4 is un-nated (and equal to target.IP when no nat64 is involved)
 	realips, _, _ := undoAlg(h.resolver, ipx4)
 
-	// TODO: should onFlow be called from RecieveTo?
+	// TODO: should onFlow be called from ReceiveTo?
 
 	// but ipx4 might itself be an alg ip; so check if there's a real-ip to connect to
 	addr.IP = oneRealIp(realips, ipx4)
@@ -389,6 +410,8 @@ func (h *udpHandler) ReceiveTo(conn core.UDPConn, data []byte, addr *net.UDPAddr
 	} else if err != nil {
 		log.Infof("t.udp.rcv: end splice, forward udp err(%v)", err)
 		return err
+	} else {
+		nat.errcount = 0
 	}
 
 	log.Infof("t.udp.rcv: src(%v) -> dst(%v) / data(%d)", conn.LocalAddr(), addr, len(data))
