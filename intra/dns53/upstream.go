@@ -178,9 +178,9 @@ func (t *transport) Query(network string, q []byte, summary *dnsx.Summary) (r []
 
 	status := dnsx.Complete
 	if qerr != nil {
-		log.Warnf("dns53 err(%w) / size(%d)", qerr, len(response))
 		err = qerr.Unwrap()
 		status = qerr.Status()
+		log.Warnf("dns53 err(%v) / size(%d)", err, len(response))
 	}
 	ans := xdns.AsMsg(response)
 	t.status = status

@@ -206,7 +206,7 @@ func (h *udpHandler) fetchUDPInput(conn core.UDPConn, nat *tracker) {
 			udpaddr = nat.ip
 		}
 
-		log.Debugf("t.udp.ingress: data(%d) from remote(actual:%v/masq:%v) | addrs: %s", n, addr, udpaddr, logaddr)
+		log.Debugf("t.udp.ingress: data(%d) from remote(pc?%v/masq:%v) | addrs: %s", n, addr, udpaddr, logaddr)
 
 		nat.download += int64(n)
 		// writes data to conn (tun) with udpaddr as source
