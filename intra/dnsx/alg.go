@@ -377,13 +377,12 @@ func (t *dnsgateway) registerLocked(q string, idx int, x *ans) bool {
 }
 
 func (t *dnsgateway) take4Locked(q string, idx int) (*netip.Addr, bool) {
-	maxiter := 1000
 	k := q + key4 + strconv.Itoa(idx)
 	if ans, ok := t.alg[k]; ok {
 		ip := ans.algip
 		if ip.Is4() {
 			ans.ttl = time.Now().Add(ttl * time.Second)
-			return ans.algip, true
+			return ip, true
 		} else {
 			// shouldn't happen; if it does, rm erroneous entry
 			delete(t.alg, k)
@@ -403,21 +402,20 @@ func (t *dnsgateway) take4Locked(q string, idx int) (*netip.Addr, bool) {
 		t.octets[2] = 0  // y
 		t.octets[3] = 1  // z
 	} else {
-		gen = false
 		i := 0
 		for kx, ent := range t.alg {
 			if i > maxiter {
 				break
 			}
 			if d := time.Since(ent.ttl); d > 0 {
-				log.Infof("alg: rm stale alg for %s", kx)
+				log.Infof("alg: reuse stale alg %s for %s", kx, k)
 				delete(t.alg, kx)
 				delete(t.nat, *ent.algip)
-				gen = true
-				break
+				return ent.algip, true
 			}
 			i += 1
 		}
+		gen = false
 	}
 	if gen {
 		// 100.x.y.z: big endian is network-order, which netip expects
