@@ -300,7 +300,7 @@ func NormalizeQName(str string) (string, error) {
 	for i := 0; i < strLen; i++ {
 		c := str[i]
 		if c >= utf8.RuneSelf {
-			return str, errors.New("Query name is not an ASCII string")
+			return str, errors.New("query name is not an ASCII string")
 		}
 		hasUpper = hasUpper || ('A' <= c && c <= 'Z')
 	}
@@ -478,7 +478,6 @@ func SubstAAAARecords(out *dns.Msg, subip6s []*netip.Addr, ttl int) bool {
 	touched := make(map[string]interface{})
 	rrs := make([]dns.RR, 0)
 	ip6 := subip6s[0].String()
-	atleastone := false
 	for _, answer := range out.Answer {
 		switch rec := answer.(type) {
 		case *dns.AAAA:
@@ -492,7 +491,6 @@ func SubstAAAARecords(out *dns.Msg, subip6s []*netip.Addr, ttl int) bool {
 				} else {
 					log.Debugf("dnsutil: subst AAAA rec fail for %s %s %d", name, ip6, ttl)
 				}
-				atleastone = true
 			}
 		default:
 			// append cnames and other records as is
@@ -502,7 +500,7 @@ func SubstAAAARecords(out *dns.Msg, subip6s []*netip.Addr, ttl int) bool {
 	if len(rrs) > 0 {
 		out.Answer = rrs
 	}
-	return atleastone
+	return len(touched) > 0
 }
 
 func SubstARecords(out *dns.Msg, subip4s []*netip.Addr, ttl int) bool {
@@ -510,7 +508,6 @@ func SubstARecords(out *dns.Msg, subip4s []*netip.Addr, ttl int) bool {
 	touched := make(map[string]interface{})
 	rrs := make([]dns.RR, 0)
 	ip4 := subip4s[0].Unmap().String()
-	atleastone := false
 	for _, answer := range out.Answer {
 		switch rec := answer.(type) {
 		case *dns.A:
@@ -524,7 +521,6 @@ func SubstARecords(out *dns.Msg, subip4s []*netip.Addr, ttl int) bool {
 				} else {
 					log.Debugf("dnsutil: subst A rec fail for %s %s %d", name, ip4, ttl)
 				}
-				atleastone = true
 			}
 		default:
 			// append cnames and other records as is
@@ -534,7 +530,7 @@ func SubstARecords(out *dns.Msg, subip4s []*netip.Addr, ttl int) bool {
 	if len(rrs) > 0 {
 		out.Answer = rrs
 	}
-	return atleastone
+	return len(touched) > 0
 }
 
 func SubstSVCBRecordIPs(out *dns.Msg, x dns.SVCBKey, subiphints []*netip.Addr, ttl int) bool {
