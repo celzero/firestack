@@ -353,18 +353,10 @@ func (am *ansMulti) ansViewLocked(i int) *ans {
 }
 
 func (t *dnsgateway) registerMultiLocked(q string, am *ansMulti) bool {
-	for i, ip := range am.algip {
-		ax := am.ansViewLocked(i)
-		var k string
-		if ip.Is4() {
-			k = q + key4 + strconv.Itoa(i)
-		} else if ip.Is6() {
-			k = q + key6 + strconv.Itoa(i)
-		} else {
+	for i := range am.algip {
+		if ok := t.registerLocked(q, i, am.ansViewLocked(i)); !ok {
 			return false
 		}
-		t.alg[k] = ax
-		t.nat[*ip] = ax
 	}
 	return true
 }
