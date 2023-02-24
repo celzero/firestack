@@ -148,7 +148,7 @@ func (t *ctransport) put(q *dns.Msg, response []byte, s *Summary) (ok bool) {
 	defer t.Unlock()
 
 	// scrub the cache if it's getting too big
-	if len(t.cache) > t.size*0.75 {
+	if len(t.cache) > t.size*75/100 {
 		go t.scrub()
 	}
 	if len(t.cache) > t.size {
