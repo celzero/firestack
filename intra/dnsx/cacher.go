@@ -9,6 +9,7 @@ package dnsx
 import (
 	"errors"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -20,17 +21,15 @@ import (
 // ideally set by clients via dnsx.cache-opts
 const (
 	// time to live for a cached response
-	initialttl = 2 * time.Hour
-	// bump ttl by this much on each read
-	touchttl = initialttl / 10
-	// max bumps before we stop bumping a response
-	maxbumps = int(initialttl / touchttl)
+	defttl = 2 * time.Hour
 	// max size of the response cache
-	maxsize = 10000
+	defsize = 10000
 	// min duration between scrubs
 	scrubgap = 1 * time.Minute
 	// how many entries to scrub at a time
-	maxscrubs = maxsize / 10
+	maxscrubs = defsize / 10
+	// prefix for cached transport addresses
+	addrprefix = "cached."
 )
 
 var (
@@ -52,17 +51,38 @@ type ctransport struct {
 	scrubtime time.Time
 	ipport    string
 	status    int
+	ttl       time.Duration // how long to cache the valid dns response
+	bumpttl   time.Duration // how much to bump ttl by on each read
+	bumps     int           // max bumps before we stop bumping a response
+	size      int           // max size of the cache
 }
 
-func NewCachingTransport(t Transport) (ct Transport) {
-	ct = &ctransport{
+func NewDefaultCachingTransport(t Transport) (ct Transport) {
+	return NewCachingTransport(t, defttl)
+}
+
+func NewCachingTransport(t Transport, ttl time.Duration) Transport {
+	// is type casting is a better way to do this?
+	if strings.HasPrefix(t.GetAddr(), addrprefix) {
+		log.Infof("caching(%s) no-op: %s", t.ID(), t.GetAddr())
+		return t
+	}
+	ct := &ctransport{
 		Transport: t,
 		cache:     make(map[string]*cres),
 		ipport:    "[fdaa:cac::ed:3]:53",
 		status:    Start,
+		ttl:       ttl,
+		bumpttl:   ttl / 10,
+		bumps:     10,
+		size:      defsize,
 	}
-	log.Infof("caching(%s) setup: %s", ct.ID(), ct.GetAddr())
-	return
+	log.Infof("caching(%s) setup: %s; opts: %s", ct.ID(), ct.GetAddr(), ct.str())
+	return ct
+}
+
+func (t *ctransport) str() string {
+	return "ttl=" + t.ttl.String() + ";bumps=" + strconv.Itoa(t.bumps) + ";size=" + strconv.Itoa(t.size)
 }
 
 func (*ctransport) ckey(q *dns.Msg) string {
@@ -128,17 +148,21 @@ func (t *ctransport) put(q *dns.Msg, response []byte, s *Summary) (ok bool) {
 	defer t.Unlock()
 
 	// scrub the cache if it's getting too big
-	if len(t.cache) > maxsize*0.75 {
+	if len(t.cache) > t.size*0.75 {
 		go t.scrub()
 	}
-	if len(t.cache) > maxsize {
+	if len(t.cache) > t.size {
 		return false
 	}
 
+	ansttl := time.Duration(xdns.RTtl(ans)) * time.Second
+	if ansttl < t.ttl {
+		ansttl = t.ttl
+	}
 	t.cache[key] = &cres{
 		ans:   ans,
 		s:     s,
-		ttl:   time.Now().Add(initialttl),
+		ttl:   time.Now().Add(ansttl),
 		bumps: 0,
 	}
 
@@ -149,8 +173,8 @@ func (t *ctransport) touch(q *dns.Msg, v *cres) (r []byte, s *Summary, err error
 	t.Lock()
 	defer t.Unlock()
 
-	if v.bumps < maxbumps {
-		v.ttl = time.Now().Add(touchttl)
+	if v.bumps < t.bumps {
+		v.ttl = time.Now().Add(t.bumpttl)
 		v.bumps = v.bumps + 1
 	}
 	a := v.ans
@@ -189,9 +213,8 @@ func (t *ctransport) Query(network string, q []byte, summary *Summary) ([]byte, 
 	summary.Status = t.Status()
 	summary.Server = t.GetAddr()
 
-	elapsed := 0 * time.Second
-	summary.Latency = elapsed.Seconds()
-	if s != nil {
+	if s != nil { // nil when response is not from cache
+		summary.Latency = 0 // instantaneous
 		summary.RData = s.RData
 		summary.RCode = s.RCode
 		summary.RTtl = s.RTtl
@@ -204,7 +227,7 @@ func (t *ctransport) Query(network string, q []byte, summary *Summary) ([]byte, 
 }
 
 func (t *ctransport) GetAddr() string {
-	return "cached." + t.Transport.GetAddr()
+	return addrprefix + t.Transport.GetAddr()
 }
 
 func (t *ctransport) Status() int {

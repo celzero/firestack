@@ -22,10 +22,12 @@ import (
 
 const (
 	timeout     = 10 * time.Second
-	ttl         = 120 // 2m
+	ttl         = 120 // 2m ttl for alg/nat ip
+	algttl      = 15  // 15s ttl for alg dns
 	key4        = ":a"
 	key6        = ":aaaa"
 	NoTransport = "NoTransport"
+	maxiter     = 1000 // max number alg/nat evict iterations
 )
 
 var (
@@ -255,17 +257,18 @@ func (t *dnsgateway) Query(network string, q []byte, summary *Summary) (r []byte
 	substok4 := false
 	substok6 := false
 	ansout := ansin
+	// TODO: substitute ips in additional section
 	if len(algip4hints) > 0 {
-		substok4 = xdns.SubstSVCBRecordIPs( /*out*/ ansout, dns.SVCB_IPV4HINT, algip4hints, ttl) || substok4
+		substok4 = xdns.SubstSVCBRecordIPs( /*out*/ ansout, dns.SVCB_IPV4HINT, algip4hints, algttl) || substok4
 	}
 	if len(algip6hints) > 0 {
-		substok6 = xdns.SubstSVCBRecordIPs( /*out*/ ansout, dns.SVCB_IPV6HINT, algip6hints, ttl) || substok6
+		substok6 = xdns.SubstSVCBRecordIPs( /*out*/ ansout, dns.SVCB_IPV6HINT, algip6hints, algttl) || substok6
 	}
 	if len(algip4s) > 0 {
-		substok4 = xdns.SubstARecords( /*out*/ ansout, algip4s, ttl) || substok4
+		substok4 = xdns.SubstARecords( /*out*/ ansout, algip4s, algttl) || substok4
 	}
 	if len(algip6s) > 0 {
-		substok6 = xdns.SubstAAAARecords( /*out*/ ansout, algip6s, ttl) || substok6
+		substok6 = xdns.SubstAAAARecords( /*out*/ ansout, algip6s, algttl) || substok6
 	}
 
 	log.Debugf("alg: %s a6(a %d / h %d / s %t) : a4(a %d / h %d / s %t)", qname, len(a6), len(ip6hints), substok6, len(a4), len(ip4hints), substok4)
@@ -289,7 +292,7 @@ func (t *dnsgateway) Query(network string, q []byte, summary *Summary) (r []byte
 		ttl: time.Now().Add(ttl * time.Second),
 	}
 
-	log.Debugf("alg: ok; %s ips subst %s", targets, algips)
+	log.Debugf("alg: ok; domains %s ips %s => subst %s", targets, realip, algips)
 
 	if rout, err := ansout.Pack(); err == nil {
 		if t.registerMultiLocked(qname, x) {
@@ -471,22 +474,20 @@ func (t *dnsgateway) take6Locked(q string, idx int) (*netip.Addr, bool) {
 
 // Implements Gateway
 func (t *dnsgateway) WithTransport(inner Transport) bool {
+	if inner == nil {
+		return false
+	}
 	log.Infof("alg: NewTransport %s / %s", inner.GetAddr(), inner.Type())
-	if inner != nil && inner.ID() == Default {
-		t.Transport = inner
+	if inner.ID() == BlockFree {
+		// blockfree overrides default
+		t.Transport = NewCachingTransport(inner, ttl)
+	} else if inner.ID() == Default {
+		t.Transport = NewCachingTransport(inner, ttl)
 	} else {
-		t.secondary = NewCachingTransport(inner)
+		// any other transport is secondary
+		t.secondary = NewDefaultCachingTransport(inner)
 	}
 	return true
-}
-
-func (t *dnsgateway) Stop() {
-	t.Lock()
-	defer t.Unlock()
-	t.alg = make(map[string]*ans)
-	t.nat = make(map[netip.Addr]*ans)
-	t.octets = []uint8{100, 0, 0, 1}
-	t.hexes = []uint16{0x64, 0xff9b, 0x1, 0xda19, 0x100, 0x0, 0x0, 0x0}
 }
 
 func (t *dnsgateway) X(algip []byte) (ips string) {
