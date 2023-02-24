@@ -258,7 +258,7 @@ func (r *resolver) Add(t Transport) (ok bool) {
 		r.transports[t.ID()] = t
 		r.pool[t.ID()] = &oneTransport{t: t}
 		// if resetting default transport, update underlying transport for alg
-		if gw := r.Gateway(); t.ID() == Default && gw != nil {
+		if gw := r.Gateway(); t.ID() == BlockFree && gw != nil {
 			gw.WithTransport(t)
 		}
 		r.Unlock()
