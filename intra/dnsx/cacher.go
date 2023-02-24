@@ -211,7 +211,6 @@ func (t *ctransport) Query(network string, q []byte, summary *Summary) ([]byte, 
 		t.status = Complete
 	}
 	summary.Status = t.Status()
-	summary.Server = t.GetAddr()
 
 	if s != nil { // nil when response is not from cache
 		summary.Latency = 0 // instantaneous
@@ -219,8 +218,7 @@ func (t *ctransport) Query(network string, q []byte, summary *Summary) ([]byte, 
 		summary.RCode = s.RCode
 		summary.RTtl = s.RTtl
 		summary.Blocklists = s.Blocklists
-	} else {
-		log.Warnf("caching(%s) no summary for %s", t.ID(), xdns.QName(msg))
+		summary.Server = t.GetAddr()
 	}
 
 	return response, err
