@@ -101,12 +101,22 @@ func NewDNSGateway(inner Transport, outer RdnsResolver) (t *dnsgateway) {
 		alg:    alg,
 		nat:    nat,
 		rdns:   outer,
-		octets: []uint8{100, 0, 0, 1},
+		octets: []uint8{100, 64, 0, 1},
 		hexes:  []uint16{0x64, 0xff9b, 0x1, 0xda19, 0x100, 0x0, 0x0, 0x0},
 	}
 	t.WithTransport(inner)
 	log.Infof("alg(%s) setup: %s/%s", inner.ID(), inner.GetAddr(), inner.Type())
 	return
+}
+
+func (t *dnsgateway) Stop() {
+	t.Lock()
+	defer t.Unlock()
+
+	t.alg = make(map[string]*ans)
+	t.nat = make(map[netip.Addr]*ans)
+	t.octets = []uint8{100, 64, 0, 1}
+	t.hexes = []uint16{0x64, 0xff9b, 0x1, 0xda19, 0x100, 0x0, 0x0, 0x0}
 }
 
 func (t *dnsgateway) querySecondary(network string, q []byte, out chan<- secans, timeout time.Duration) {
@@ -172,7 +182,7 @@ func (t *dnsgateway) Query(network string, q []byte, summary *Summary) (r []byte
 
 	secch := make(chan secans, 1)
 	// todo: use context?
-	go t.querySecondary(network, q, secch, 10*time.Second)
+	go t.querySecondary(network, q, secch, timeout)
 
 	r, err = t.Transport.Query(network, q, summary)
 	if err != nil {
@@ -390,13 +400,13 @@ func (t *dnsgateway) take4Locked(q string, idx int) (*netip.Addr, bool) {
 	}
 
 	gen := true
-	// 100.x.y.z: 16m+ ip4s
-	if z := t.octets[3]; z < 253 {
+	// 100.x.y.z: 4m+ ip4s
+	if z := t.octets[3]; z < 254 {
 		t.octets[3] += 1 // z
-	} else if y := t.octets[2]; y < 253 {
+	} else if y := t.octets[2]; y < 254 {
 		t.octets[2] += 1 // y
 		t.octets[3] = 1  // z
-	} else if x := t.octets[1]; x < 253 {
+	} else if x := t.octets[1]; x < 128 {
 		t.octets[1] += 1 // x
 		t.octets[2] = 0  // y
 		t.octets[3] = 1  // z
