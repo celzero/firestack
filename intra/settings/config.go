@@ -67,6 +67,8 @@ const IP6 = "6"
 
 const NICID = 0x01
 
+var Debug bool = false
+
 func L3(w int) string {
 	switch w {
 	case Ns46:

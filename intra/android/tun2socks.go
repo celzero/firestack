@@ -69,8 +69,24 @@ func ConnectIntraTunnel(fd int, mtu int, fakedns string, dohdns dnsx.Transport, 
 	return intra.NewGTunnel(fakedns, dohdns, dupfd, l3, mtu, blocker, listener)
 }
 
-func EnableDebugLog() {
-	log.SetLevel(log.DEBUG)
+func LogLevel(level int) {
+	dbg := false
+	dlvl := log.WARN
+	switch l := log.LogLevel(level); l {
+	case log.DEBUG:
+		dlvl = log.DEBUG
+		dbg = true
+	case log.INFO:
+		dlvl = log.INFO
+	case log.WARN:
+		dlvl = log.WARN
+	case log.ERROR:
+		dlvl = log.ERROR
+	default:
+		log.Warnf("tun2socks: unknown log-level(%d), using warn", l)
+	}
+	log.SetLevel(dlvl)
+	settings.Debug = dbg
 }
 
 func PreferredEngine(w int) {
