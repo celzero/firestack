@@ -22,6 +22,7 @@ import (
 )
 
 const (
+	algprefix   = "alg."
 	timeout     = 10 * time.Second
 	ttl         = 120 // 2m ttl for alg/nat ip
 	algttl      = 15  // 15s ttl for alg dns
@@ -334,9 +335,9 @@ func (t *dnsgateway) Type() string {
 
 func (t *dnsgateway) GetAddr() string {
 	if t.Transport != nil {
-		return t.Transport.GetAddr()
+		return algprefix + t.Transport.GetAddr()
 	} else if t.secondary != nil {
-		return t.secondary.GetAddr()
+		return algprefix + t.secondary.GetAddr()
 	} else {
 		return NoTransport
 	}
@@ -488,10 +489,7 @@ func (t *dnsgateway) WithTransport(inner Transport) bool {
 		return false
 	}
 	log.Infof("alg: NewTransport %s / %s", inner.GetAddr(), inner.Type())
-	if inner.ID() == BlockFree {
-		// blockfree overrides default
-		t.Transport = NewCachingTransport(inner, ttl)
-	} else if inner.ID() == Default {
+	if inner.ID() == BlockFree || inner.ID() == Default {
 		t.Transport = NewCachingTransport(inner, ttl)
 	} else {
 		// any other transport is secondary
