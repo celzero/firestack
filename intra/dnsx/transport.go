@@ -433,7 +433,7 @@ func (r *resolver) determineTransports(id string) (Transport, *oneTransport) {
 	defer r.RUnlock()
 
 	if id == BlockFree {
-		return r.transports[Default], r.pool[Default]
+		return r.transports[BlockFree], r.pool[BlockFree]
 	}
 	if id == Alg {
 		return r.transports[Alg], r.pool[Default]
