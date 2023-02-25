@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/celzero/firestack/intra/log"
+	"github.com/celzero/firestack/intra/settings"
 	"github.com/celzero/firestack/intra/xdns"
 	"github.com/miekg/dns"
 )
@@ -306,6 +307,7 @@ func (t *dnsgateway) Query(network string, q []byte, summary *Summary) (r []byte
 
 	if rout, err := ansout.Pack(); err == nil {
 		if t.registerMultiLocked(qname, x) {
+			t.withAlgSummaryIfNeeded(ansout, summary)
 			return rout, nil
 		} else {
 			return r, errCannotRegisterAlg
@@ -337,6 +339,14 @@ func (t *dnsgateway) GetAddr() string {
 		return t.secondary.GetAddr()
 	} else {
 		return NoTransport
+	}
+}
+
+func (t *dnsgateway) withAlgSummaryIfNeeded(algans *dns.Msg, s *Summary) {
+	if settings.Debug {
+		s.RData = xdns.GetInterestingRData(algans)
+		s.RTtl = xdns.RTtl(algans)
+		s.Server = t.GetAddr()
 	}
 }
 
