@@ -62,6 +62,9 @@ func NewDefaultCachingTransport(t Transport) (ct Transport) {
 }
 
 func NewCachingTransport(t Transport, ttl time.Duration) Transport {
+	if t == nil {
+		return nil
+	}
 	// is type casting is a better way to do this?
 	if strings.HasPrefix(t.GetAddr(), addrprefix) {
 		log.Infof("caching(%s) no-op: %s", t.ID(), t.GetAddr())
@@ -187,6 +190,15 @@ func (t *ctransport) touch(q *dns.Msg, v *cres) (r []byte, s *Summary, err error
 		err = errCacheResponseEmpty
 	}
 	return
+}
+
+func (t *ctransport) ID() string {
+	// must always return underlying transport's ID; alg relies on this
+	return t.Transport.ID()
+}
+
+func (t *ctransport) Type() string {
+	return t.Transport.Type()
 }
 
 func (t *ctransport) Query(network string, q []byte, summary *Summary) ([]byte, error) {
