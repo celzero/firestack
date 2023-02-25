@@ -491,7 +491,7 @@ func (t *dnsgateway) WithTransport(inner Transport) bool {
 		return false
 	}
 	log.Infof("alg: NewTransport %s / %s", inner.GetAddr(), inner.Type())
-	if inner.ID() == BlockFree || inner.ID() == Default {
+	if inner.ID() == Preferred || inner.ID() == Default {
 		t.Transport = NewCachingTransport(inner, ttl)
 	} else {
 		// any other transport is secondary

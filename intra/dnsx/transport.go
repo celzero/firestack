@@ -33,6 +33,7 @@ const (
 	// special singleton DNS transports (IDs)
 	System    = "System"    // network/os provided dns
 	Default   = "Default"   // default (fallback) dns
+	Preferred = "Preferred" // user preferred dns, primary for alg
 	BlockFree = "BlockFree" // no local blocks; if not set, default is used
 	BlockAll  = "BlockAll"  // all blocks
 	Alg       = "Alg"       // dns application-level gateway
@@ -258,7 +259,7 @@ func (r *resolver) Add(t Transport) (ok bool) {
 		r.transports[t.ID()] = t
 		r.pool[t.ID()] = &oneTransport{t: t}
 		// if resetting default transport, update underlying transport for alg
-		if gw := r.Gateway(); t.ID() == BlockFree && gw != nil {
+		if gw := r.Gateway(); t.ID() == Preferred && gw != nil {
 			gw.WithTransport(t)
 		}
 		r.Unlock()
@@ -436,11 +437,8 @@ func (r *resolver) determineTransports(id string) (Transport, *oneTransport) {
 	r.RLock()
 	defer r.RUnlock()
 
-	if id == BlockFree {
-		return r.transports[BlockFree], r.pool[BlockFree]
-	}
 	if id == Alg {
-		return r.transports[Alg], r.pool[Default]
+		return r.transports[Alg], r.pool[Preferred]
 	}
 	if t, ok := r.transports[id]; ok {
 		if onet, ok := r.pool[id]; ok {
