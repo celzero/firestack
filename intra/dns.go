@@ -52,7 +52,8 @@ func NewDoHTransport(id, url string, ips string, auth doh.ClientAuth) (dnsx.Tran
 }
 
 func NewDNSCryptTransport(r dnsx.Resolver, id, stamp string) (d dnsx.Transport, err error) {
-	if tm, err := r.DcProxy(); err == nil {
+	var tm dnsx.TransportMult
+	if tm, err = r.DcProxy(); err == nil {
 		if p, ok := tm.(*dnscrypt.Proxy); ok {
 			return dnscrypt.NewTransport(p, id, stamp)
 		} else {
