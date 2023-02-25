@@ -52,6 +52,8 @@ type Gateway interface {
 	RDNSBL(algip []byte) (blocklistcsv string)
 	// set Transport as the underlying upstream DNS for alg queries
 	WithTransport(Transport) bool
+	// unset Transport as the underlying upstream DNS for alg queries
+	WithoutTransport(Transport) bool
 	// clear obj state
 	Stop()
 }
@@ -496,6 +498,20 @@ func (t *dnsgateway) WithTransport(inner Transport) bool {
 		t.secondary = NewDefaultCachingTransport(inner)
 	}
 	return true
+}
+
+// Implements Gateway
+func (t *dnsgateway) WithoutTransport(goner Transport) (ok bool) {
+	if goner == nil || len(goner.ID()) == 0 {
+		return
+	}
+	if t.Transport != nil && goner.ID() == t.Transport.ID() {
+		t.Transport = nil
+	} else if t.secondary != nil && t.secondary.ID() == goner.ID() {
+		t.secondary = nil
+	}
+	log.Infof("alg: %s RemoveTransport %s / %s; Done? %t", goner.GetAddr(), goner.Type(), goner.ID(), ok)
+	return ok
 }
 
 func (t *dnsgateway) X(algip []byte) (ips string) {

@@ -309,11 +309,15 @@ func (r *resolver) Remove(id string) (ok bool) {
 		log.Infof("dns: removing reserved transport %s", id)
 	}
 
-	_, ok1 := r.transports[id]
+	t, ok1 := r.transports[id]
 	_, ok2 := r.pool[id]
 	var ok3 bool
 	if tm, err := r.DcProxy(); err == nil {
 		ok3 = tm.Remove(id)
+	}
+	var ok4 bool
+	if gw := r.Gateway(); gw != nil {
+		ok4 = gw.WithoutTransport(t)
 	}
 	if ok1 {
 		delete(r.transports, id)
@@ -321,7 +325,7 @@ func (r *resolver) Remove(id string) (ok bool) {
 	if ok2 {
 		delete(r.pool, id)
 	}
-	return ok1 || ok2 || ok3
+	return ok1 || ok2 || ok3 || ok4
 }
 
 func (r *resolver) IsDnsAddr(network, ipport string) bool {
