@@ -212,6 +212,10 @@ func (r *resolver) SetRdnsRemote(b BraveDNS) error {
 	return nil
 }
 
+func (r *resolver) BlockFreeTransport() Transport {
+	return r.transports[BlockFree]
+}
+
 func (r *resolver) GetRdnsLocal() BraveDNS {
 	return r.rdnsl
 }

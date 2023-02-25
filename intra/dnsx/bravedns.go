@@ -37,6 +37,14 @@ const (
 )
 
 var (
+	RdnsDomains = []string{
+		"bravedns.com",
+		"rethinkdns.com",
+		"nile.workers.dev",
+	}
+)
+
+var (
 	errRemote           = errors.New("op not valid in remote block mode")
 	errNoStamps         = errors.New("no stamp set")
 	errMissingCsv       = errors.New("zero comma-separated flags")
@@ -54,6 +62,8 @@ type RdnsResolver interface {
 	GetRdnsRemote() BraveDNS
 	blockQ(Transport, *dns.Msg) (*dns.Msg, string, error)
 	blockA(Transport, *dns.Msg, *dns.Msg, string) (*dns.Msg, string)
+	// may be nil
+	BlockFreeTransport() Transport
 }
 
 type BraveDNS interface {

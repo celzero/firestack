@@ -491,7 +491,28 @@ func (t *dnsgateway) WithTransport(inner Transport) bool {
 		return false
 	}
 	log.Infof("alg: NewTransport %s / %s", inner.GetAddr(), inner.Type())
-	if inner.ID() == Preferred || inner.ID() == Default {
+	if inner.ID() == Default {
+		// default transport is primary
+		t.Transport = NewCachingTransport(inner, ttl)
+	} else if inner.ID() == Preferred {
+		// if preferred transport is a rdns transport, use BlockFree as the primary
+		// that's because a rdns transport can be a filtering dns server whereas
+		// alg works best with a non-filtering dns server (which BlockFree is)
+		for _, dom := range RdnsDomains {
+			if strings.Contains(inner.GetAddr(), dom) {
+				blkfree := t.rdns.BlockFreeTransport()
+				if blkfree == nil {
+					log.Warnf("alg: BlockFree primary missing for rdns %s", inner.GetAddr())
+					t.Transport = nil
+					t.secondary = nil
+					return false
+				} else {
+					t.Transport = NewCachingTransport(blkfree, ttl)
+					t.secondary = NewDefaultCachingTransport(inner)
+					return true
+				}
+			}
+		}
 		t.Transport = NewCachingTransport(inner, ttl)
 	} else {
 		// any other transport is secondary
