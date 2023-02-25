@@ -505,9 +505,12 @@ func (t *dnsgateway) WithoutTransport(goner Transport) (ok bool) {
 	if goner == nil || len(goner.ID()) == 0 {
 		return
 	}
+
+	// pimary and secondary transports could be the same transport
 	if t.Transport != nil && goner.ID() == t.Transport.ID() {
 		t.Transport = nil
-	} else if t.secondary != nil && t.secondary.ID() == goner.ID() {
+	}
+	if t.secondary != nil && t.secondary.ID() == goner.ID() {
 		t.secondary = nil
 	}
 	log.Infof("alg: %s RemoveTransport %s / %s; Done? %t", goner.GetAddr(), goner.Type(), goner.ID(), ok)
