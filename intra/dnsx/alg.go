@@ -235,7 +235,8 @@ func (t *dnsgateway) Query(network string, q []byte, summary *Summary) (r []byte
 	algip6s := []*netip.Addr{}
 	for i, ip4 := range ip4hints {
 		realip = append(realip, ip4)
-		algip, ipok := t.take4Locked(qname, i)
+		// 0th algip is reserved for A records
+		algip, ipok := t.take4Locked(qname, i+1)
 		if !ipok {
 			return r, errNotAvailableAlg
 		}
@@ -243,7 +244,8 @@ func (t *dnsgateway) Query(network string, q []byte, summary *Summary) (r []byte
 	}
 	for i, ip6 := range ip6hints {
 		realip = append(realip, ip6)
-		algip, ipok := t.take6Locked(qname, i)
+		// 0th algip is reserved for AAAA records
+		algip, ipok := t.take6Locked(qname, i+1)
 		if !ipok {
 			return r, errNotAvailableAlg
 		}
