@@ -22,6 +22,8 @@ import (
 const (
 	// time to live for a cached response
 	defttl = 2 * time.Hour
+	// max bumps before we stop bumping a response
+	defbumps = 10
 	// max size of the response cache
 	defsize = 10000
 	// min duration between scrubs
@@ -37,10 +39,10 @@ var (
 )
 
 type cres struct {
-	ans   *dns.Msg
-	s     *Summary
-	ttl   time.Time
-	bumps int
+	ans    *dns.Msg
+	s      *Summary
+	expiry time.Time
+	bumps  int
 }
 
 // TODO: Keep a context here so that queries can be canceled.
@@ -52,7 +54,7 @@ type ctransport struct {
 	ipport    string
 	status    int
 	ttl       time.Duration // how long to cache the valid dns response
-	bumpttl   time.Duration // how much to bump ttl by on each read
+	halflife  time.Duration // how much to increment ttl on each read
 	bumps     int           // max bumps before we stop bumping a response
 	size      int           // max size of the cache
 }
@@ -80,8 +82,8 @@ func NewCachingTransport(t Transport, ttl time.Duration) Transport {
 		ipport:    "[fdaa:cac::ed:3]:53",
 		status:    Start,
 		ttl:       ttl,
-		bumpttl:   ttl / 10,
-		bumps:     10,
+		halflife:  ttl / 2,
+		bumps:     defbumps,
 		size:      defsize,
 	}
 	log.Infof("caching(%s) setup: %s; opts: %s", ct.ID(), ct.GetAddr(), ct.str())
@@ -112,7 +114,7 @@ func (t *ctransport) scrub() {
 	t.scrubtime = now
 	i := 0
 	for k, v := range t.cache {
-		if time.Since(v.ttl) > 0 {
+		if time.Since(v.expiry) > 0 {
 			delete(t.cache, k)
 		}
 		i++
@@ -135,7 +137,7 @@ func (t *ctransport) fresh(msg *dns.Msg) (v *cres, ok bool) {
 		return
 	}
 
-	return v, time.Since(v.ttl) <= 0
+	return v, time.Since(v.expiry) < 0
 }
 
 func (t *ctransport) put(q *dns.Msg, response []byte, s *Summary) (ok bool) {
@@ -167,10 +169,10 @@ func (t *ctransport) put(q *dns.Msg, response []byte, s *Summary) (ok bool) {
 		ansttl = t.ttl
 	}
 	t.cache[key] = &cres{
-		ans:   ans,
-		s:     s,
-		ttl:   time.Now().Add(ansttl),
-		bumps: 0,
+		ans:    ans,
+		s:      s,
+		expiry: time.Now().Add(ansttl),
+		bumps:  0,
 	}
 
 	return true
@@ -181,8 +183,12 @@ func (t *ctransport) touch(q *dns.Msg, v *cres) (r []byte, s *Summary, err error
 	defer t.Unlock()
 
 	if v.bumps < t.bumps {
-		v.ttl = time.Now().Add(t.bumpttl)
 		v.bumps = v.bumps + 1
+		n := time.Duration(v.bumps) * t.halflife
+		// if the expiry time is already n duration in the future, don't bump
+		if time.Since(v.expiry.Add(-n)) < 0 {
+			v.expiry = v.expiry.Add(n)
+		}
 	}
 	a := v.ans
 
