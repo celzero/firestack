@@ -349,7 +349,7 @@ func (t *dnsgateway) GetAddr() string {
 
 func (t *dnsgateway) withAlgSummaryIfNeeded(algans *dns.Msg, s *Summary) {
 	if settings.Debug {
-		s.RData = xdns.GetInterestingRData(algans)
+		s.RData = xdns.GetInterestingRData(algans) + "," + s.RData
 		s.RTtl = xdns.RTtl(algans)
 		s.Server = t.GetAddr()
 	}
