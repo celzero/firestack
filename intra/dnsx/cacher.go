@@ -70,6 +70,10 @@ func NewCachingTransport(t Transport, ttl time.Duration) Transport {
 		log.Infof("caching(%s) no-op: %s", t.ID(), t.GetAddr())
 		return t
 	}
+	if strings.HasPrefix(t.GetAddr(), algprefix) {
+		log.Warnf("caching(%s) no-op for alg: %s", t.ID(), t.GetAddr())
+		return t
+	}
 	ct := &ctransport{
 		Transport: t,
 		cache:     make(map[string]*cres),
