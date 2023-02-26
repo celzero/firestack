@@ -167,11 +167,15 @@ func (t *ctransport) put(q *dns.Msg, response []byte, s *Summary) (ok bool) {
 	ansttl := time.Duration(xdns.RTtl(ans)) * time.Second
 	if ansttl < t.ttl {
 		ansttl = t.ttl
+	} else {
+		// bump up a bit longer than the ttl
+		ansttl = ansttl + t.halflife
 	}
+	exp := time.Now().Add(ansttl)
 	t.cache[key] = &cres{
 		ans:    ans,
 		s:      s,
-		expiry: time.Now().Add(ansttl),
+		expiry: exp,
 		bumps:  0,
 	}
 
