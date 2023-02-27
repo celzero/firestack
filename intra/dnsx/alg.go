@@ -525,7 +525,7 @@ func (t *dnsgateway) WithTransport(inner Transport) bool {
 	}
 	inneraddr := inner.GetAddr()
 
-	log.Infof("alg: processing transport %s / %s", inneraddr, inner.Type())
+	log.Infof("alg: processing transport %s@%s / %s", inner.ID(), inneraddr, inner.Type())
 
 	t.muTransport.Lock()
 	defer t.muTransport.Unlock()

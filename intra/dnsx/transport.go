@@ -158,7 +158,7 @@ type oneTransport struct {
 }
 
 func (r *resolver) Gateway() Gateway {
-	// called from Add, so no lock
+	// TODO: lock?
 	if gw, ok := r.transports[Alg]; ok {
 		return gw.(Gateway)
 	}
@@ -244,12 +244,6 @@ func (r *resolver) RemoveSystemDNS() int {
 
 // Implements Resolver
 func (r *resolver) Add(t Transport) (ok bool) {
-
-	// these IDs are reserved for internal use
-	if isReserved(t.ID()) {
-		log.Infof("dns: updating reserved transport %s", t.ID())
-	}
-
 	switch t.Type() {
 	case DNS53:
 		fallthrough
@@ -261,14 +255,23 @@ func (r *resolver) Add(t Transport) (ok bool) {
 		// Remove cleans those up
 		r.Remove(t.ID())
 
+		// these IDs are reserved for internal use
+		if isReserved(t.ID()) {
+			log.Infof("dns: updating reserved transport %s@%s", t.ID(), t.GetAddr())
+		}
+
 		r.Lock()
 		r.transports[t.ID()] = t
 		r.pool[t.ID()] = &oneTransport{t: t}
 		r.Unlock()
 
+		log.Infof("dns: add transport %s@%s", t.ID(), t.GetAddr())
+
 		// if resetting default transport, update underlying transport for alg
 		if gw := r.Gateway(); t.ID() == Preferred && gw != nil {
 			gw.WithTransport(t)
+		} else {
+			log.Errorf("dns: no gateway to update %s@%s", t.ID(), t.GetAddr())
 		}
 		return true
 	}
@@ -315,9 +318,16 @@ func (r *resolver) Remove(id string) (ok bool) {
 		log.Infof("dns: removing reserved transport %s", id)
 	}
 
+	var ok1, ok2 bool
+	var t Transport
+
 	r.Lock()
-	t, ok1 := r.transports[id]
-	_, ok2 := r.pool[id]
+	if t, ok1 = r.transports[id]; ok1 {
+		delete(r.transports, id)
+	}
+	if _, ok2 = r.pool[id]; ok2 {
+		delete(r.pool, id)
+	}
 	r.Unlock()
 
 	if tm, err := r.DcProxy(); err == nil {
@@ -326,13 +336,10 @@ func (r *resolver) Remove(id string) (ok bool) {
 	if gw := r.Gateway(); gw != nil {
 		gw.WithoutTransport(t)
 	}
-	if ok1 {
-		delete(r.transports, id)
-	}
-	if ok2 {
-		delete(r.pool, id)
-	}
-	return ok1 || ok2
+	ok = ok1 || ok2
+
+	log.Infof("dns: remove(%t) transport %s@%s", ok, t.ID(), t.GetAddr())
+	return ok
 }
 
 func (r *resolver) IsDnsAddr(network, ipport string) bool {
@@ -355,7 +362,7 @@ func (r *resolver) Forward(q []byte) ([]byte, error) {
 
 	msg, err := unpack(q)
 	if err != nil {
-		log.Warnf("not a dns packet %v", err)
+		log.Warnf("dns: not a dns packet %v", err)
 		summary.Latency = time.Since(starttime).Seconds()
 		summary.Status = BadQuery
 		return nil, err
