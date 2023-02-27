@@ -123,7 +123,10 @@ func (t *dnsgateway) Stop() {
 	t.hexes = []uint16{0x64, 0xff9b, 0x1, 0xda19, 0x100, 0x0, 0x0, 0x0}
 }
 
-func (t *dnsgateway) querySecondary(network string, q []byte, out chan<- secans, timeout time.Duration) {
+func (t *dnsgateway) querySecondary(network string, q []byte, out chan<- secans, in <-chan []byte, timeout time.Duration) {
+	var r []byte
+	var msg *dns.Msg
+	var err error
 	result := secans{
 		ips:     []*netip.Addr{},
 		summary: &Summary{},
@@ -137,8 +140,18 @@ func (t *dnsgateway) querySecondary(network string, q []byte, out chan<- secans,
 	}()
 
 	if t.secondary == nil {
-		return // no secondary transport
-	} else if msg := xdns.AsMsg(q); msg == nil {
+		// no secondary transport; check if there's already an answer to work with
+		ticker := time.NewTicker(timeout)
+		select {
+		case r = <-in:
+			ticker.Stop()
+		case <-ticker.C:
+			return
+		}
+	}
+
+	// check if the question is blocked
+	if msg = xdns.AsMsg(q); msg == nil {
 		return // not a valid dns message
 	} else if ok := xdns.HasAQuadAQuestion(msg) || xdns.HasSVCBQuestion(msg); !ok {
 		return // not a dns question we care about
@@ -149,10 +162,18 @@ func (t *dnsgateway) querySecondary(network string, q []byte, out chan<- secans,
 		result.summary.Blocklists = blocklists
 		result.summary.Status = Complete
 		return
-	} else if r, err := t.secondary.Query(network, q, result.summary); err != nil {
-		log.Debugf("alg: skip; sec transport %s err %v", t.secondary.ID(), err)
-		return
-	} else if ans2 := xdns.AsMsg(r); ans2 == nil {
+	}
+
+	// check if the query must be upstreamed to get answer r
+	if r == nil {
+		if r, err = t.secondary.Query(network, q, result.summary); err != nil {
+			log.Debugf("alg: skip; sec transport %s err %v", t.secondary.ID(), err)
+			return
+		}
+	}
+
+	// check if answer r is blocked
+	if ans2 := xdns.AsMsg(r); ans2 == nil {
 		// not a valid dns answer
 		return
 	} else if ans3, blocklistnames := t.rdns.blockA(t.secondary, msg, ans2, result.summary.Blocklists); ans3 != nil {
@@ -185,10 +206,12 @@ func (t *dnsgateway) Query(network string, q []byte, summary *Summary) (r []byte
 	}
 
 	secch := make(chan secans, 1)
+	resch := make(chan []byte, 1)
 	// todo: use context?
-	go t.querySecondary(network, q, secch, timeout)
+	go t.querySecondary(network, q, secch, resch, timeout)
 
 	r, err = t.Transport.Query(network, q, summary)
+	resch <- r
 	if err != nil {
 		log.Debugf("alg: abort; qerr %v", err)
 		return
