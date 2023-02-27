@@ -13,7 +13,7 @@ import (
 )
 
 func (r *resolver) blockQ(t Transport, msg *dns.Msg) (ans *dns.Msg, blocklists string, err error) {
-	if t.ID() == Alg || t.ID() == BlockFree {
+	if t != nil && (t.ID() == Alg || t.ID() == BlockFree) {
 		return nil, "", errBlockFreeTransport
 	}
 
@@ -73,7 +73,7 @@ func (r *resolver) blockA(t Transport, q *dns.Msg, ans *dns.Msg, blocklistStamp 
 	}
 
 	// skip local blocks for alg and blockfree
-	if t.ID() == Alg || t.ID() == BlockFree {
+	if t != nil && (t.ID() == Alg || t.ID() == BlockFree) {
 		return
 	}
 

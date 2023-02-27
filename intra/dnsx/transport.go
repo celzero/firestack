@@ -264,12 +264,12 @@ func (r *resolver) Add(t Transport) (ok bool) {
 		r.Lock()
 		r.transports[t.ID()] = t
 		r.pool[t.ID()] = &oneTransport{t: t}
-		// if resetting default transport, update underlying transport for alg
-		if gw := r.Gateway(); t.ID() == Preferred && gw != nil {
-			go gw.WithTransport(t)
-		}
 		r.Unlock()
 
+		// if resetting default transport, update underlying transport for alg
+		if gw := r.Gateway(); t.ID() == Preferred && gw != nil {
+			gw.WithTransport(t)
+		}
 		return true
 	}
 	return false
@@ -321,10 +321,10 @@ func (r *resolver) Remove(id string) (ok bool) {
 	r.Unlock()
 
 	if tm, err := r.DcProxy(); err == nil {
-		go tm.Remove(id)
+		tm.Remove(id)
 	}
 	if gw := r.Gateway(); gw != nil {
-		go gw.WithoutTransport(t)
+		gw.WithoutTransport(t)
 	}
 	if ok1 {
 		delete(r.transports, id)

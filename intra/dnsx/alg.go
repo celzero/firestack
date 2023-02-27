@@ -23,7 +23,7 @@ import (
 
 const (
 	algprefix   = "alg."
-	timeout     = 10 * time.Second
+	timeout     = 15 * time.Second
 	ttl         = 120 // 2m ttl for alg/nat ip
 	algttl      = 15  // 15s ttl for alg dns
 	key4        = ":a"
@@ -141,29 +141,34 @@ func (t *dnsgateway) querySecondary(network string, q []byte, out chan<- secans,
 		out <- result
 	}()
 
-	// no secondary transport; check if there's already an answer to work with
-	if t.secondary == nil {
-		ticker := time.NewTicker(timeout)
-		select {
-		case r = <-in:
-			ticker.Stop()
-		case <-ticker.C:
-			return
-		}
-	}
-
 	// check if the question is blocked
 	if msg = xdns.AsMsg(q); msg == nil {
 		return // not a valid dns message
 	} else if ok := xdns.HasAQuadAQuestion(msg) || xdns.HasSVCBQuestion(msg); !ok {
 		return // not a dns question we care about
-	} else if ans1, blocklists, err := t.rdns.blockQ(t.secondary, msg); err == nil {
+	} else if ans1, blocklists, err := t.rdns.blockQ( /*maybe nil*/ t.secondary, msg); err == nil {
 		// if err !is nil, then the question is blocked
 		result.ips = append(result.ips, xdns.AAnswer(ans1)...)
 		result.ips = append(result.ips, xdns.AAAAAnswer(ans1)...)
 		result.summary.Blocklists = blocklists
 		result.summary.Status = Complete
 		return
+	}
+
+	// no secondary transport; check if there's already an answer to work with
+	if t.secondary == nil {
+		ticker := time.NewTicker(timeout)
+		select {
+		case r = <-in:
+			ticker.Stop()
+			break
+		case <-ticker.C:
+			ticker.Stop()
+			return
+		}
+		if len(r) == 0 {
+			return
+		}
 	}
 
 	// check if the query must be upstreamed to get answer r
@@ -514,24 +519,29 @@ func (t *dnsgateway) take6Locked(q string, idx int) (*netip.Addr, bool) {
 
 // Implements Gateway
 func (t *dnsgateway) WithTransport(inner Transport) bool {
-	t.muTransport.Lock()
-	defer t.muTransport.Unlock()
-
+	blkfree := t.rdns.BlockFreeTransport()
 	if inner == nil {
 		return false
 	}
-	log.Infof("alg: NewTransport %s / %s", inner.GetAddr(), inner.Type())
+	inneraddr := inner.GetAddr()
+
+	log.Infof("alg: processing transport %s / %s", inneraddr, inner.Type())
+
+	t.muTransport.Lock()
+	defer t.muTransport.Unlock()
+
 	if inner.ID() == Default {
-		// default transport is primary
-		t.Transport = NewCachingTransport(inner, ttl)
+		// default transport is primary only when no other transport is set
+		// or if the current primary is also the default
+		if t.Transport == nil || t.Transport.ID() == Default {
+			t.Transport = NewCachingTransport(inner, ttl)
+		} // else: no-op
 	} else if inner.ID() == Preferred {
 		// if preferred transport is a rdns transport, use BlockFree as the primary
 		// that's because a rdns transport can be a filtering dns server whereas
 		// alg works best with a non-filtering dns server (which BlockFree is)
-		taddr := inner.GetAddr()
 		for _, dom := range RdnsDomains {
-			if strings.Contains(taddr, dom) {
-				blkfree := t.rdns.BlockFreeTransport()
+			if strings.Contains(inneraddr, dom) {
 				if blkfree == nil {
 					log.Warnf("alg: rdns.BlockFree preferred primary missing %s", inner.GetAddr())
 					t.Transport = nil
