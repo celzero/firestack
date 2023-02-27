@@ -504,19 +504,25 @@ func (t *dnsgateway) WithTransport(inner Transport) bool {
 			if strings.Contains(inner.GetAddr(), dom) {
 				blkfree := t.rdns.BlockFreeTransport()
 				if blkfree == nil {
-					log.Warnf("alg: BlockFree primary missing for rdns %s", inner.GetAddr())
+					log.Warnf("alg: rdns.BlockFree preferred primary missing %s", inner.GetAddr())
 					t.Transport = nil
 					t.secondary = nil
 					return false
 				} else {
+					log.Infof("alg: primary for preferred rdns %s / sec %s", blkfree.GetAddr(), inner.GetAddr())
 					t.Transport = NewCachingTransport(blkfree, ttl)
 					t.secondary = NewDefaultCachingTransport(inner)
 					return true
 				}
 			}
 		}
+		log.Infof("alg: primary preferred for %s / sec nil", inner.GetAddr())
+		// use the preferred transport as primary
 		t.Transport = NewCachingTransport(inner, ttl)
+		// and disable the secondary
+		t.secondary = nil
 	} else {
+		log.Infof("alg: sec set %s / primary %s", inner.GetAddr(), t.GetAddr())
 		// any other transport is secondary
 		t.secondary = NewDefaultCachingTransport(inner)
 	}
