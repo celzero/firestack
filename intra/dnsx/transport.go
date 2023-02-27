@@ -146,8 +146,9 @@ func NewResolver(fakeaddrs string, tunmode *settings.TunMode, defaultdns Transpo
 		tunmode:      tunmode,
 		localdomains: UndelegatedDomainsTrie(),
 	}
-	r.Add(defaultdns)
-	r.Add(NewDNSGateway(defaultdns, r))
+	ok1 := r.Add(defaultdns)
+	ok2 := r.Add(NewDNSGateway(defaultdns, r))
+	log.Infof("dns: setup defaultdns set? %t, gateway set? %t", ok1, ok2)
 	r.loadaddrs(fakeaddrs)
 	return r
 }
@@ -271,7 +272,7 @@ func (r *resolver) Add(t Transport) (ok bool) {
 		if gw := r.Gateway(); t.ID() == Preferred && gw != nil {
 			gw.WithTransport(t)
 		} else {
-			log.Errorf("dns: no gateway to update %s@%s", t.ID(), t.GetAddr())
+			log.Errorf("dns: no gw %v / not preffered %s@%s", gw, t.ID(), t.GetAddr())
 		}
 		return true
 	}

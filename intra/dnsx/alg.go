@@ -109,8 +109,9 @@ func NewDNSGateway(inner Transport, outer RdnsResolver) (t *dnsgateway) {
 		octets: []uint8{100, 64, 0, 1},
 		hexes:  []uint16{0x64, 0xff9b, 0x1, 0xda19, 0x100, 0x0, 0x0, 0x0},
 	}
-	go t.WithTransport(inner)
-	log.Infof("alg(%s) setup: %s/%s", inner.ID(), inner.GetAddr(), inner.Type())
+	// initial transport must be set before starting the gateway
+	t.WithTransport(inner)
+	log.Infof("alg: setup %s@%s / %s", inner.ID(), inner.GetAddr(), inner.Type())
 	return
 }
 
