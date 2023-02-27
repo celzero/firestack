@@ -336,10 +336,14 @@ func (r *resolver) Remove(id string) (ok bool) {
 	if gw := r.Gateway(); gw != nil {
 		gw.WithoutTransport(t)
 	}
-	ok = ok1 || ok2
 
-	log.Infof("dns: remove(%t) transport %s@%s", ok, t.ID(), t.GetAddr())
-	return ok
+	ok = ok1 || ok2
+	if ok {
+		log.Infof("dns: remove(%t) transport %s@%s", ok, t.ID(), t.GetAddr())
+	} else {
+		log.Infof("dns: remove(%t) transport %s", ok, id)
+	}
+	return
 }
 
 func (r *resolver) IsDnsAddr(network, ipport string) bool {
