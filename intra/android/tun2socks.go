@@ -50,23 +50,37 @@ func init() {
 // `fd` is the TUN device.  The IntraTunnel acquires an additional reference to it, which
 //  is released by IntraTunnel.Disconnect(), so the caller must close `fd` _and_ call
 //  Disconnect() in order to close the TUN device.
+// `fpcap` is a file descriptor for a PCAP file to which all packets will be written.
+//  If `fpcap` is -1, no PCAP file will be written.
+// `mtu` is the MTU of the TUN device.
 // `fakedns` is the DNS server that the system believes it is using, in "host:port" style.
 //  The port is normally 53.
-// `dohdns` is the initial DoH transport.  It must not be `nil`.
-// `protector` is a wrapper for Android's VpnService.protect() method.
-// `blocker` implements firewall rules.
+// `dohdns` is the default fallback DoH transport.  It must not be `nil`.
+// `blocker` is a kotlin object that implements firewall rules.
 // `listener` will be provided with a summary of each TCP and UDP socket when it is closed.
 //
 // Throws an exception if the TUN file descriptor cannot be opened, or if the tunnel fails to
 // connect.
-func ConnectIntraTunnel(fd int, mtu int, fakedns string, dohdns dnsx.Transport, blocker protect.Blocker, listener intra.Listener) (t intra.Tunnel, err error) {
+func ConnectIntraTunnel(fd int, fdpcap int, mtu int, fakedns string, dohdns dnsx.Transport, blocker protect.Blocker, listener intra.Listener) (t intra.Tunnel, err error) {
 	l3 := settings.L3(engine)
 
-	dupfd, err := tunnel.Dup(fd)
+	var dupfd, dupfdpcap int
+	dupfd, err = tunnel.Dup(fd)
 	if err != nil {
-		return nil, err
+		return
 	}
-	return intra.NewGTunnel(fakedns, dohdns, dupfd, l3, mtu, blocker, listener)
+	if fdpcap > 2 {
+		dupfdpcap, err = tunnel.Dup(fdpcap)
+		if err != nil {
+			return
+		}
+	} else {
+		// negative fdpcap means no pcap
+		// 0, 1, 2 mean pcap is logged to stdout
+		dupfdpcap = fdpcap
+	}
+
+	return intra.NewTunnel(fakedns, dohdns, dupfd, dupfdpcap, l3, mtu, blocker, listener)
 }
 
 func LogLevel(level int) {

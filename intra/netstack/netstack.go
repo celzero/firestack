@@ -7,11 +7,13 @@ package netstack
 
 import (
 	"errors"
+	"os"
 
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/settings"
 	"gvisor.dev/gvisor/pkg/tcpip"
 	"gvisor.dev/gvisor/pkg/tcpip/header"
+	"gvisor.dev/gvisor/pkg/tcpip/link/sniffer"
 	"gvisor.dev/gvisor/pkg/tcpip/network/ipv4"
 	"gvisor.dev/gvisor/pkg/tcpip/network/ipv6"
 	"gvisor.dev/gvisor/pkg/tcpip/stack"
@@ -30,6 +32,17 @@ func NewEndpoint(dev int, mtu int) (stack.LinkEndpoint, error) {
 	endpoint, _ = NewFdbasedInjectableEndpoint(&opt)
 	log.Infof("netstack: new endpoint(fd:%d / mtu:%d)", dev, mtu)
 	return endpoint, nil
+}
+
+// ref: github.com/google/gvisor/blob/aeabb785278/pkg/tcpip/link/sniffer/sniffer.go#L111-L131
+func PcapOf(south stack.LinkEndpoint, fd int) (stack.LinkEndpoint, error) {
+	if fd < 3 { // 0, 1, 2 are for stdin, stdout, stderr; log packets to stdout
+		log.Infof("netstack: stdout(%d) pcap", fd)
+		return sniffer.NewWithPrefix(south, "rdnspcap"), nil
+	}
+	log.Infof("netstack: fd(%d) pcap", fd)
+	fout := os.NewFile(uintptr(fd), "")
+	return sniffer.NewWithWriter(south, fout, south.MTU())
 }
 
 // ref: github.com/brewlin/net-protocol/blob/ec64e5f899/internal/endpoint/endpoint.go#L20
