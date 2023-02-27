@@ -85,15 +85,16 @@ type ansMulti struct {
 
 // TODO: Keep a context here so that queries can be canceled.
 type dnsgateway struct {
-	sync.RWMutex // locks alg, nat, octets, hexes
-	Transport
-	Gateway
-	secondary Transport
-	alg       map[string]*ans     // domain+type -> ans
-	nat       map[netip.Addr]*ans // algip -> ans
-	rdns      RdnsResolver        // local and remote rdns blocks
-	octets    []uint8             // ip4 octets, 100.x.y.z
-	hexes     []uint16            // ip6 hex, 64:ff9b:1:da19:0100.x.y.z
+	sync.RWMutex                     // locks alg, nat, octets, hexes
+	Transport                        // primary transport for alg queries
+	Gateway                          // dns alg interface
+	muTransport  sync.RWMutex        // locks for Transport assignments
+	secondary    Transport           // secondary transport for alg queries
+	alg          map[string]*ans     // domain+type -> ans
+	nat          map[netip.Addr]*ans // algip -> ans
+	rdns         RdnsResolver        // local and remote rdns blocks
+	octets       []uint8             // ip4 octets, 100.x.y.z
+	hexes        []uint16            // ip6 hex, 64:ff9b:1:da19:0100.x.y.z
 }
 
 // NewDNSGateway returns a DNS ALG, ready for use.
@@ -108,7 +109,7 @@ func NewDNSGateway(inner Transport, outer RdnsResolver) (t *dnsgateway) {
 		octets: []uint8{100, 64, 0, 1},
 		hexes:  []uint16{0x64, 0xff9b, 0x1, 0xda19, 0x100, 0x0, 0x0, 0x0},
 	}
-	t.WithTransport(inner)
+	go t.WithTransport(inner)
 	log.Infof("alg(%s) setup: %s/%s", inner.ID(), inner.GetAddr(), inner.Type())
 	return
 }
@@ -131,6 +132,7 @@ func (t *dnsgateway) querySecondary(network string, q []byte, out chan<- secans,
 		ips:     []*netip.Addr{},
 		summary: &Summary{},
 	}
+
 	go func() {
 		time.Sleep(timeout)
 		out <- result
@@ -139,8 +141,8 @@ func (t *dnsgateway) querySecondary(network string, q []byte, out chan<- secans,
 		out <- result
 	}()
 
+	// no secondary transport; check if there's already an answer to work with
 	if t.secondary == nil {
-		// no secondary transport; check if there's already an answer to work with
 		ticker := time.NewTicker(timeout)
 		select {
 		case r = <-in:
@@ -335,7 +337,7 @@ func (t *dnsgateway) Query(network string, q []byte, summary *Summary) (r []byte
 
 	if rout, err := ansout.Pack(); err == nil {
 		if t.registerMultiLocked(qname, x) {
-			t.withAlgSummaryIfNeeded(ansout, summary)
+			t.withAlgSummaryIfNeededLocked(ansout, summary)
 			return rout, nil
 		} else {
 			return r, errCannotRegisterAlg
@@ -370,7 +372,7 @@ func (t *dnsgateway) GetAddr() string {
 	}
 }
 
-func (t *dnsgateway) withAlgSummaryIfNeeded(algans *dns.Msg, s *Summary) {
+func (t *dnsgateway) withAlgSummaryIfNeededLocked(algans *dns.Msg, s *Summary) {
 	if settings.Debug {
 		s.RData = xdns.GetInterestingRData(algans) + "," + s.RData
 		s.RTtl = xdns.RTtl(algans)
@@ -512,6 +514,9 @@ func (t *dnsgateway) take6Locked(q string, idx int) (*netip.Addr, bool) {
 
 // Implements Gateway
 func (t *dnsgateway) WithTransport(inner Transport) bool {
+	t.muTransport.Lock()
+	defer t.muTransport.Unlock()
+
 	if inner == nil {
 		return false
 	}
@@ -523,8 +528,9 @@ func (t *dnsgateway) WithTransport(inner Transport) bool {
 		// if preferred transport is a rdns transport, use BlockFree as the primary
 		// that's because a rdns transport can be a filtering dns server whereas
 		// alg works best with a non-filtering dns server (which BlockFree is)
+		taddr := inner.GetAddr()
 		for _, dom := range RdnsDomains {
-			if strings.Contains(inner.GetAddr(), dom) {
+			if strings.Contains(taddr, dom) {
 				blkfree := t.rdns.BlockFreeTransport()
 				if blkfree == nil {
 					log.Warnf("alg: rdns.BlockFree preferred primary missing %s", inner.GetAddr())
@@ -557,6 +563,9 @@ func (t *dnsgateway) WithoutTransport(goner Transport) (ok bool) {
 	if goner == nil || len(goner.ID()) == 0 {
 		return
 	}
+
+	t.muTransport.Lock()
+	defer t.muTransport.Unlock()
 
 	// pimary and secondary transports could be the same transport
 	if t.Transport != nil && goner.ID() == t.Transport.ID() {

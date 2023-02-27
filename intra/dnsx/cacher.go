@@ -198,7 +198,7 @@ func (t *ctransport) touch(q *dns.Msg, v *cres) (r []byte, s *Summary, err error
 
 	if a != nil {
 		a.Id = q.Id
-		s = v.s
+		s = v.s // copy the summary
 		r, err = a.Pack()
 	} else {
 		err = errCacheResponseEmpty

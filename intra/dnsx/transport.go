@@ -254,19 +254,22 @@ func (r *resolver) Add(t Transport) (ok bool) {
 	case DNS53:
 		fallthrough
 	case DNSCrypt:
-		// DNSCrypt transports are also registered with DcProxy
-		// remove if present
-		r.Remove(t.ID())
 		fallthrough
 	case DOH:
+		// DNSCrypt transports are also registered with DcProxy
+		// Alg transports are also registered with Gateway
+		// Remove cleans those up
+		r.Remove(t.ID())
+
 		r.Lock()
 		r.transports[t.ID()] = t
 		r.pool[t.ID()] = &oneTransport{t: t}
 		// if resetting default transport, update underlying transport for alg
 		if gw := r.Gateway(); t.ID() == Preferred && gw != nil {
-			gw.WithTransport(t)
+			go gw.WithTransport(t)
 		}
 		r.Unlock()
+
 		return true
 	}
 	return false
@@ -291,14 +294,14 @@ func (r *resolver) BlockAll() Transport {
 
 func (r *resolver) addSystemDnsIfAbsent(t Transport) (ok bool) {
 	r.Lock()
-	defer r.Unlock()
-	if _, ok = r.transports[t.ID()]; !ok {
+	_, ok = r.transports[t.ID()]
+	r.Unlock()
+	if !ok {
 		// r.Add before r.registerSystemDns64, since r.pool must be populated
-		ok1 := r.Add(t)
+		ok = r.Add(t)
 		go r.registerSystemDns64(r.pool[t.ID()])
-		return ok1
 	}
-	return false
+	return ok
 }
 
 func (r *resolver) registerSystemDns64(ur ipn.Resolver) (ok bool) {
@@ -306,23 +309,22 @@ func (r *resolver) registerSystemDns64(ur ipn.Resolver) (ok bool) {
 }
 
 func (r *resolver) Remove(id string) (ok bool) {
-	r.Lock()
-	defer r.Unlock()
 
 	// these IDs are reserved for internal use
 	if isReserved(id) {
 		log.Infof("dns: removing reserved transport %s", id)
 	}
 
+	r.Lock()
 	t, ok1 := r.transports[id]
 	_, ok2 := r.pool[id]
-	var ok3 bool
+	r.Unlock()
+
 	if tm, err := r.DcProxy(); err == nil {
-		ok3 = tm.Remove(id)
+		go tm.Remove(id)
 	}
-	var ok4 bool
 	if gw := r.Gateway(); gw != nil {
-		ok4 = gw.WithoutTransport(t)
+		go gw.WithoutTransport(t)
 	}
 	if ok1 {
 		delete(r.transports, id)
@@ -330,7 +332,7 @@ func (r *resolver) Remove(id string) (ok bool) {
 	if ok2 {
 		delete(r.pool, id)
 	}
-	return ok1 || ok2 || ok3 || ok4
+	return ok1 || ok2
 }
 
 func (r *resolver) IsDnsAddr(network, ipport string) bool {
@@ -615,7 +617,7 @@ func (r *resolver) accept(c io.ReadWriteCloser) {
 }
 
 func isReserved(id string) (ok bool) {
-	return id == Alg || id == DcProxy || id == BlockAll
+	return id == Alg || id == DcProxy || id == BlockAll || id == Preferred || id == BlockFree
 }
 
 func unpack(q []byte) (*dns.Msg, error) {
