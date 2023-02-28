@@ -85,9 +85,9 @@ func (t *gtunnel) Write([]byte) (int, error) {
 	return 0, errors.New("no write() on netstack")
 }
 
-func NewGTunnel(fd int, fdpcap int, l3 string, mtu int, tcph netstack.GTCPConnHandler, udph netstack.GUDPConnHandler) (t Tunnel, err error) {
+func NewGTunnel(fd int, fdpcap int, l3 string, mtu int, tcph netstack.GTCPConnHandler, udph netstack.GUDPConnHandler, icmph netstack.GICMPHandler) (t Tunnel, err error) {
 	var endpoint stack.LinkEndpoint
-	hdl := netstack.NewGConnHandler(tcph, udph)
+	hdl := netstack.NewGConnHandler(tcph, udph, icmph)
 	stack := netstack.NewNetstack(l3)
 
 	endpoint, err = netstack.NewEndpoint(fd, mtu)

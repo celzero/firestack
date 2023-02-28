@@ -3,7 +3,7 @@
 // This Source Code Form is subject to the terms of the Mozilla Public
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
-//
+
 package netstack
 
 import (
@@ -15,18 +15,21 @@ import (
 type GConnHandler interface {
 	TCP() GTCPConnHandler
 	UDP() GUDPConnHandler
+	ICMP() GICMPHandler
 }
 
 type gconnhandler struct {
 	GConnHandler
-	tcp GTCPConnHandler
-	udp GUDPConnHandler
+	tcp  GTCPConnHandler
+	udp  GUDPConnHandler
+	icmp GICMPHandler
 }
 
-func NewGConnHandler(tcp GTCPConnHandler, udp GUDPConnHandler) GConnHandler {
+func NewGConnHandler(tcp GTCPConnHandler, udp GUDPConnHandler, icmp GICMPHandler) GConnHandler {
 	return &gconnhandler{
-		tcp: tcp,
-		udp: udp,
+		tcp:  tcp,
+		udp:  udp,
+		icmp: icmp,
 	}
 }
 
@@ -36,6 +39,10 @@ func (g *gconnhandler) TCP() GTCPConnHandler {
 
 func (g *gconnhandler) UDP() GUDPConnHandler {
 	return g.udp
+}
+
+func (g *gconnhandler) ICMP() GICMPHandler {
+	return g.icmp
 }
 
 // src/dst addrs are flipped

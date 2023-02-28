@@ -80,8 +80,8 @@ func NewTunnel(fakedns string, defaultdns dnsx.Transport, fd int, fdpcap int, l3
 
 	tcph := NewTCPHandler(resolver, natpt, blocker, tunmode, listener)
 	udph := NewUDPHandler(resolver, natpt, blocker, tunmode, listener)
-
-	t, err := tunnel.NewGTunnel(fd, fdpcap, l3, mtu, tcph, udph)
+	icmph := NewICMPHandler(resolver, natpt, blocker, tunmode)
+	t, err := tunnel.NewGTunnel(fd, fdpcap, l3, mtu, tcph, udph, icmph)
 
 	if err != nil {
 		return nil, err
