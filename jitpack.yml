@@ -5,9 +5,9 @@ env:
   FOUT: "firestack.aar"
   BOUT: "build/intra/tun2socks.aar"
 before_install:
-   - yes | $ANDROID_HOME/tools/bin/sdkmanager "platforms;android-30"
-   - yes | $ANDROID_HOME/tools/bin/sdkmanager "build-tools;29.0.3"
-   - yes | $ANDROID_HOME/tools/bin/sdkmanager --install "ndk;22.0.7026061"
+   - yes | $ANDROID_HOME/tools/bin/sdkmanager "platforms;android-33"
+   - yes | $ANDROID_HOME/tools/bin/sdkmanager "build-tools;33.0.0"
+   - yes | $ANDROID_HOME/tools/bin/sdkmanager --install "ndk;23.1.7779620"
    - ./make-aar
 install:
   - ./mvn-install
