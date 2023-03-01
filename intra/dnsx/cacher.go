@@ -47,16 +47,17 @@ type cres struct {
 
 // TODO: Keep a context here so that queries can be canceled.
 type ctransport struct {
-	sync.RWMutex
-	Transport
-	cache     map[string]*cres // query -> response
-	scrubtime time.Time
-	ipport    string
-	status    int
-	ttl       time.Duration // how long to cache the valid dns response
-	halflife  time.Duration // how much to increment ttl on each read
-	bumps     int           // max bumps before we stop bumping a response
-	size      int           // max size of the cache
+	sync.RWMutex                        // protects the barrier
+	Transport                           // the underlying transport
+	barrier      map[string]*sync.Mutex // coalesce requests for the same query
+	cache        map[string]*cres       // query -> response
+	scrubtime    time.Time              // last time cache was scrubbed / purged
+	ipport       string                 // a fake ip:port
+	status       int                    // status of this transport
+	ttl          time.Duration          // how long to cache the valid dns response
+	halflife     time.Duration          // how much to increment ttl on each read
+	bumps        int                    // max bumps before we stop bumping a response
+	size         int                    // max size of the cache
 }
 
 func NewDefaultCachingTransport(t Transport) (ct Transport) {
@@ -78,6 +79,7 @@ func NewCachingTransport(t Transport, ttl time.Duration) Transport {
 	}
 	ct := &ctransport{
 		Transport: t,
+		barrier:   make(map[string]*sync.Mutex),
 		cache:     make(map[string]*cres),
 		ipport:    "[fdaa:cac::ed:3]:53",
 		status:    Start,
@@ -119,9 +121,11 @@ func (t *ctransport) scrub() {
 
 	t.scrubtime = now
 	i := 0
+
 	for k, v := range t.cache {
 		if time.Since(v.expiry) > 0 {
 			delete(t.cache, k)
+			delete(t.barrier, k)
 		}
 		i++
 		if i > maxscrubs {
@@ -130,37 +134,24 @@ func (t *ctransport) scrub() {
 	}
 }
 
-func (t *ctransport) fresh(msg *dns.Msg) (v *cres, ok bool) {
-	key := t.ckey(msg)
-	if len(key) <= 0 {
-		return
-	}
-
-	t.RLock()
-	defer t.RUnlock()
-
+func (t *ctransport) freshLocked(key string) (v *cres, ok bool) {
 	if v, ok = t.cache[key]; !ok {
 		return
 	}
-
 	return v, time.Since(v.expiry) < 0
 }
 
-func (t *ctransport) put(q *dns.Msg, response []byte, s *Summary) (ok bool) {
-	key := t.ckey(q)
-
-	if len(key) <= 0 || len(response) <= 0 {
+func (t *ctransport) putLocked(key string, response []byte, s *Summary) (ok bool) {
+	if len(response) <= 0 {
 		return false
 	}
 
 	ans := xdns.AsMsg(response)
 	// only cache successful responses
+	// TODO: implement negative caching
 	if !xdns.HasRcodeSuccess(ans) || xdns.HasTCFlag(response) {
 		return false
 	}
-
-	t.Lock()
-	defer t.Unlock()
 
 	// scrub the cache if it's getting too big
 	if len(t.cache) > t.size*75/100 {
@@ -188,10 +179,7 @@ func (t *ctransport) put(q *dns.Msg, response []byte, s *Summary) (ok bool) {
 	return true
 }
 
-func (t *ctransport) touch(q *dns.Msg, v *cres) (r []byte, s *Summary, err error) {
-	t.Lock()
-	defer t.Unlock()
-
+func (t *ctransport) getLocked(q *dns.Msg, v *cres) (r []byte, s *Summary, err error) {
 	if v.bumps < t.bumps {
 		v.bumps = v.bumps + 1
 		n := time.Duration(v.bumps) * t.halflife
@@ -228,16 +216,31 @@ func (t *ctransport) Query(network string, q []byte, summary *Summary) ([]byte, 
 	var response []byte
 	var s *Summary
 	var err error
+	var mu *sync.Mutex
 
 	msg := xdns.AsMsg(q)
 
-	if v, ok := t.fresh(msg); !ok {
-		response, err = t.Transport.Query(network, q, summary)
-		if err == nil {
-			t.put(msg, response, summary)
+	if key := t.ckey(msg); len(key) > 0 {
+		t.Lock()
+		mu = t.barrier[key]
+		if mu == nil {
+			mu = &sync.Mutex{}
+			t.barrier[key] = mu
 		}
+		t.Unlock()
+
+		mu.Lock()
+		if v, ok := t.freshLocked(key); !ok {
+			response, err = t.Transport.Query(network, q, summary)
+			if err == nil {
+				t.putLocked(key, response, summary)
+			}
+		} else {
+			response, s, err = t.getLocked(msg, v)
+		}
+		mu.Unlock()
 	} else {
-		response, s, err = t.touch(msg, v)
+		err = errMissingQueryName
 	}
 
 	if err != nil {
