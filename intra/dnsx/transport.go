@@ -272,6 +272,7 @@ func (r *resolver) Add(t Transport) (ok bool) {
 		r.transports[ct.ID()] = ct
 		r.transports[t.ID()] = t
 		r.pool[t.ID()] = onet
+		r.pool[ct.ID()] = onet
 		r.Unlock()
 
 		log.Infof("dns: add transport %s@%s", t.ID(), t.GetAddr())
@@ -338,6 +339,7 @@ func (r *resolver) Remove(id string) (ok bool) {
 	}
 	if _, ok2 = r.pool[id]; ok2 {
 		delete(r.pool, id)
+		delete(r.pool, ctid)
 	}
 	r.Unlock()
 
