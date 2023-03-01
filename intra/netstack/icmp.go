@@ -46,6 +46,7 @@ func setupIcmpHandler(s *stack.Stack, ep stack.LinkEndpoint, handler GICMPHandle
 		din8.AppendOwned(l4)
 		req := din8.Flatten()
 
+		// github.com/google/gvisor/blob/9b4a7aa00/pkg/tcpip/network/ipv6/icmp.go#L1180
 		r := make([]byte, ep.MTU())
 		din := buffer.NewWithData(r)
 		din.Append(packet.TransportHeader().View())
@@ -136,6 +137,7 @@ func setupIcmpHandler(s *stack.Stack, ep stack.LinkEndpoint, handler GICMPHandle
 		din8.Append(l4)
 		req := din8.Flatten()
 
+		// github.com/google/gvisor/blob/9b4a7aa00/pkg/tcpip/network/ipv6/icmp.go#L1180
 		r := make([]byte, ep.MTU())
 		din := buffer.NewWithData(r)
 		din.Append(packet.TransportHeader().View())

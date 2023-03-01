@@ -41,10 +41,6 @@ type icmpHandler struct {
 	pt       ipn.NAT64
 }
 
-// NewUDPHandler makes a UDP handler with Intra-style DNS redirection:
-// All packets are routed directly to their destination.
-// `timeout` controls the effective NAT mapping lifetime.
-// `config` is used to bind new external UDP ports.
 func NewICMPHandler(resolver dnsx.Resolver, pt ipn.NAT64, blocker protect.Blocker,
 	tunMode *settings.TunMode) ICMPHandler {
 	udptimeout, _ := time.ParseDuration("30s")
@@ -97,29 +93,30 @@ func (h *icmpHandler) onFlow(source *net.UDPAddr, target *net.UDPAddr, realips, 
 	return block
 }
 
-func (h *icmpHandler) Ping(source *net.UDPAddr, destination *net.UDPAddr, message []byte, pong netstack.Pong) bool {
-	ipx4 := maybeUndoNat64(h.pt, destination.IP)
+func (h *icmpHandler) Ping(source *net.UDPAddr, target *net.UDPAddr, msg []byte, pong netstack.Pong) bool {
+	ipx4 := maybeUndoNat64(h.pt, target.IP)
 	realips, domains, blocklists := undoAlg(h.resolver, ipx4)
 
 	// flow is alg/nat-aware, do not change target or any addrs
-	if h.onFlow(source, destination, realips, domains, blocklists) {
+	if h.onFlow(source, target, realips, domains, blocklists) {
 		log.Errorf("t.icmp.connect: firewalled")
 		return false
 	}
 
-	destination.IP = oneRealIp(realips, ipx4)
-	c, err := h.dialer.Dial(destination.Network(), destination.String())
+	target.IP = oneRealIp(realips, ipx4)
+	c, err := h.dialer.Dial(target.Network(), target.String())
 	if err != nil {
 		log.Errorf("t.icmp.connect: dail err %v", err)
 		c.Close()
 		return false
 	}
 	c.SetDeadline(time.Now().Add(h.timeout))
-	if _, err = c.Write(message); err != nil {
-		log.Errorf("t.icmp.egress:  write(%v) ping; err %v", destination, err)
+	if _, err = c.Write(msg); err != nil {
+		log.Errorf("t.icmp.egress:  write(%v) ping; err %v", target, err)
 		c.Close()
 		return false
 	}
+	log.Errorf("t.icmp.egress: writeTo(%v) ping; done %d", target, len(msg))
 
 	go h.fetch(c, pong)
 
@@ -130,16 +127,19 @@ func (h *icmpHandler) fetch(c net.Conn, pong netstack.Pong) {
 	defer c.Close()
 	b := core.NewBytes(core.BufSize)
 	defer core.FreeBytes(b)
+	src := c.LocalAddr()
+	dst := c.RemoteAddr()
 	for {
 		c.SetDeadline(time.Now().Add(h.timeout))
 		if n, err := c.Read(b); err != nil {
-			log.Errorf("t.icmp.ingress: read(%v <- %v) ping err %v", c.LocalAddr(), c.RemoteAddr(), err)
+			log.Errorf("t.icmp.ingress: read(%v <- %v) ping err %v", src, dst, err)
 			break
 		} else if err = pong(b[:n]); err != nil {
 			if err != unix.ENETUNREACH {
-				log.Errorf("t.icmp.ingress: write(%v <- %v) pong err %v", c.LocalAddr(), c.RemoteAddr(), err)
+				log.Errorf("t.icmp.ingress: write(%v <- %v) pong err %v", src, dst, err)
 			}
 			break
 		}
 	}
+	log.Infof("t.icmp.egress: ReadFrom(%v <- %v) ping; done %d", src, dst)
 }
