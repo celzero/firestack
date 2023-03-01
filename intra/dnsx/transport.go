@@ -30,6 +30,8 @@ const (
 	DNSCrypt = "DNSCrypt"
 	DNS53    = "DNS"
 
+	CT = "Cache" // cached transport prefix
+
 	// special singleton DNS transports (IDs)
 	System    = "System"    // network/os provided dns
 	Default   = "Default"   // default (fallback) dns
@@ -40,11 +42,12 @@ const (
 	DcProxy   = "DcProxy"   // dnscrypt.Proxy as a transport
 
 	invalidQname = "invalid.query"
-)
 
-const (
+	// preferred network to use with t.Query
 	NetTypeUDP = "udp"
 	NetTypeTCP = "tcp"
+
+	ttl10m = 10 * time.Minute // 10m ttl
 )
 
 var (
@@ -55,6 +58,7 @@ var (
 	errRdnsLocalIncorrect  = errors.New("rdns local is not remote")
 	errRdnsRemoteIncorrect = errors.New("rdns remote is not local")
 	errTransportNotMult    = errors.New("not a multi-transport")
+	errMissingQueryName    = errors.New("no query name")
 )
 
 // Transport represents a DNS query transport.  This interface is exported by gobind,
@@ -137,6 +141,11 @@ type resolver struct {
 	listener     Listener
 }
 
+type oneTransport struct {
+	ipn.Resolver
+	t Transport
+}
+
 func NewResolver(fakeaddrs string, tunmode *settings.TunMode, defaultdns Transport, l Listener, pt ipn.DNS64) Resolver {
 	r := &resolver{
 		listener:     l,
@@ -151,11 +160,6 @@ func NewResolver(fakeaddrs string, tunmode *settings.TunMode, defaultdns Transpo
 	log.Infof("dns: setup defaultdns set? %t, gateway set? %t", ok1, ok2)
 	r.loadaddrs(fakeaddrs)
 	return r
-}
-
-type oneTransport struct {
-	ipn.Resolver
-	t Transport
 }
 
 func (r *resolver) Gateway() Gateway {
@@ -261,9 +265,13 @@ func (r *resolver) Add(t Transport) (ok bool) {
 			log.Infof("dns: updating reserved transport %s@%s", t.ID(), t.GetAddr())
 		}
 
+		ct := NewCachingTransport(t, ttl10m)
+		onet := &oneTransport{t: ct}
+
 		r.Lock()
+		r.transports[ct.ID()] = ct
 		r.transports[t.ID()] = t
-		r.pool[t.ID()] = &oneTransport{t: t}
+		r.pool[t.ID()] = onet
 		r.Unlock()
 
 		log.Infof("dns: add transport %s@%s", t.ID(), t.GetAddr())
@@ -319,12 +327,14 @@ func (r *resolver) Remove(id string) (ok bool) {
 		log.Infof("dns: removing reserved transport %s", id)
 	}
 
+	ctid := CT + id
 	var ok1, ok2 bool
 	var t Transport
 
 	r.Lock()
 	if t, ok1 = r.transports[id]; ok1 {
 		delete(r.transports, id)
+		delete(r.transports, ctid)
 	}
 	if _, ok2 = r.pool[id]; ok2 {
 		delete(r.pool, id)
@@ -333,6 +343,7 @@ func (r *resolver) Remove(id string) (ok bool) {
 
 	if tm, err := r.DcProxy(); err == nil {
 		tm.Remove(id)
+		tm.Remove(ctid)
 	}
 	if gw := r.Gateway(); gw != nil {
 		gw.WithoutTransport(t)

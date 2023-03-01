@@ -207,8 +207,8 @@ func (t *ctransport) touch(q *dns.Msg, v *cres) (r []byte, s *Summary, err error
 }
 
 func (t *ctransport) ID() string {
-	// must always return underlying transport's ID; alg relies on this
-	return t.Transport.ID()
+	// must match with how wrapping transports like DcProxy / Gateway rely on the ID
+	return CT + t.Transport.ID()
 }
 
 func (t *ctransport) Type() string {
