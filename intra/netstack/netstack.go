@@ -40,9 +40,10 @@ func PcapOf(south stack.LinkEndpoint, fd int) (stack.LinkEndpoint, error) {
 		log.Infof("netstack: stdout(%d) pcap", fd)
 		return sniffer.NewWithPrefix(south, "rdnspcap"), nil
 	}
-	log.Infof("netstack: fd(%d) pcap", fd)
+	mtu := south.MTU()
+	log.Infof("netstack: fd(%d) pcap(%d)", fd, mtu)
 	fout := os.NewFile(uintptr(fd), "")
-	return sniffer.NewWithWriter(south, fout, south.MTU())
+	return sniffer.NewWithWriter(south, fout, mtu)
 }
 
 // ref: github.com/brewlin/net-protocol/blob/ec64e5f899/internal/endpoint/endpoint.go#L20

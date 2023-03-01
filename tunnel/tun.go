@@ -32,10 +32,10 @@ import (
 
 func Dup(fd int) (int, error) {
 	if fd < 0 {
-		return -1, errors.New("Must provide a valid TUN file descriptor")
+		return -1, errors.New("not a valid tun fd")
 	}
 
-	// Make a copy of `fd` so that os.File's finalizer doesn't close `fd`.
+	// Make a copy of `fd` so that os.File's finalizer doesn't close `fd`
 	newfd, err := unix.Dup(fd)
 	if err != nil {
 		return -1, err
