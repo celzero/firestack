@@ -204,6 +204,9 @@ func (t *ctransport) touch(q *dns.Msg, v *cres) (r []byte, s *Summary, err error
 
 	if a != nil {
 		a.Id = q.Id
+		// dns 0x20 may mangle the question section, so preserve it
+		// github.com/jedisct1/edgedns#correct-support-for-the-dns0x20-extension
+		a.Question = q.Question
 		s = v.s // copy the summary
 		r, err = a.Pack()
 	} else {
