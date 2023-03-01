@@ -594,11 +594,11 @@ func (t *dnsgateway) WithoutTransport(goner Transport) (ok bool) {
 	t.tranMu.Lock()
 	defer t.tranMu.Unlock()
 
-	// pimary and secondary transports could be the same transport
-	if t.Transport != nil && goner.ID() == t.Transport.ID() {
+	// pimary and secondary are caching transports; and could be the same transport too
+	if t.Transport != nil && CT+goner.ID() == t.Transport.ID() {
 		t.Transport = nil
 	}
-	if t.secondary != nil && t.secondary.ID() == goner.ID() {
+	if t.secondary != nil && CT+goner.ID() == t.secondary.ID() {
 		t.secondary = nil
 	}
 	log.Infof("alg: %s RemoveTransport %s / %s; Done? %t", goner.GetAddr(), goner.Type(), goner.ID(), ok)
