@@ -27,9 +27,9 @@ const (
 	// max size of the response cache
 	defsize = 10000
 	// min duration between scrubs
-	scrubgap = 1 * time.Minute
+	scrubgap = 5 * time.Minute
 	// how many entries to scrub at a time
-	maxscrubs = defsize / 10
+	maxscrubs = defsize / 4 // 25% of the cache
 	// prefix for cached transport addresses
 	addrprefix = "cached."
 )
