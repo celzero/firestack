@@ -98,8 +98,14 @@ func (*ctransport) ckey(q *dns.Msg) string {
 	if q == nil {
 		return ""
 	}
+
+	qname, err := xdns.NormalizeQName(xdns.QName(q))
+	if len(qname) <= 0 || err != nil {
+		return ""
+	}
 	qtyp := strconv.Itoa(int(xdns.QType(q)))
-	return xdns.QName(q) + ":" + qtyp
+
+	return qname + ":" + qtyp
 }
 
 func (t *ctransport) scrub() {
