@@ -88,7 +88,7 @@ type dnsgateway struct {
 	sync.RWMutex                     // locks alg, nat, octets, hexes
 	Transport                        // primary transport for alg queries
 	Gateway                          // dns alg interface
-	muTransport  sync.RWMutex        // locks for Transport assignments
+	tranMu       sync.RWMutex        // locks for Transport assignments
 	secondary    Transport           // secondary transport for alg queries
 	alg          map[string]*ans     // domain+type -> ans
 	nat          map[netip.Addr]*ans // algip -> ans
@@ -544,8 +544,8 @@ func (t *dnsgateway) WithTransport(inner Transport) bool {
 
 	log.Infof("alg: processing transport %s@%s / %s", inner.ID(), inneraddr, inner.Type())
 
-	t.muTransport.Lock()
-	defer t.muTransport.Unlock()
+	t.tranMu.Lock()
+	defer t.tranMu.Unlock()
 
 	if inner.ID() == Default {
 		// default transport is primary only when no other transport is set
@@ -591,8 +591,8 @@ func (t *dnsgateway) WithoutTransport(goner Transport) (ok bool) {
 		return
 	}
 
-	t.muTransport.Lock()
-	defer t.muTransport.Unlock()
+	t.tranMu.Lock()
+	defer t.tranMu.Unlock()
 
 	// pimary and secondary transports could be the same transport
 	if t.Transport != nil && goner.ID() == t.Transport.ID() {
