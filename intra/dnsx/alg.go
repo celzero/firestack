@@ -343,7 +343,7 @@ func (t *dnsgateway) Query(network string, q []byte, summary *Summary) (r []byte
 
 	if rout, err := ansout.Pack(); err == nil {
 		if t.registerMultiLocked(qname, x) {
-			t.withAlgSummaryIfNeededLocked(ansout, summary)
+			t.withAlgSummaryIfNeededLocked(algips, summary)
 			return rout, nil
 		} else {
 			return r, errCannotRegisterAlg
@@ -378,10 +378,26 @@ func (t *dnsgateway) GetAddr() string {
 	}
 }
 
-func (t *dnsgateway) withAlgSummaryIfNeededLocked(algans *dns.Msg, s *Summary) {
+func netip2csv(ips []*netip.Addr) (csv string) {
+	for i, ip := range ips {
+		if i > 0 {
+			csv += ","
+		}
+		csv += ip.String()
+	}
+	return
+}
+
+func (t *dnsgateway) withAlgSummaryIfNeededLocked(algips []*netip.Addr, s *Summary) {
+	// convert algips to ipcsv
+	ipcsv := netip2csv(algips)
+
 	if settings.Debug {
-		s.RData = xdns.GetInterestingRData(algans) + "," + s.RData
-		s.RTtl = xdns.RTtl(algans)
+		if len(s.RData) > 0 {
+			s.RData = ipcsv + "," + s.RData
+		} else {
+			s.RData = ipcsv
+		}
 		s.Server = t.GetAddr()
 	}
 }
