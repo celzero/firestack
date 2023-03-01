@@ -24,8 +24,8 @@ import (
 const (
 	algprefix   = "alg."
 	timeout     = 15 * time.Second
-	ttl         = 120 // 2m ttl for alg/nat ip
-	algttl      = 15  // 15s ttl for alg dns
+	ttl2m       = 2 * time.Minute // 2m ttl for alg/nat ip
+	algttl      = 15              // 15s ttl for alg dns
 	key4        = ":a"
 	key6        = ":aaaa"
 	NoTransport = "NoTransport"
@@ -336,7 +336,7 @@ func (t *dnsgateway) Query(network string, q []byte, summary *Summary) (r []byte
 		qname:        qname,
 		blocklists:   secres.summary.Blocklists,
 		// qname->realip valid for next ttl seconds
-		ttl: time.Now().Add(ttl * time.Second),
+		ttl: time.Now().Add(ttl2m),
 	}
 
 	log.Debugf("alg: ok; domains %s ips %s => subst %s", targets, realip, algips)
@@ -443,7 +443,7 @@ func (t *dnsgateway) take4Locked(q string, idx int) (*netip.Addr, bool) {
 	if ans, ok := t.alg[k]; ok {
 		ip := ans.algip
 		if ip.Is4() {
-			ans.ttl = time.Now().Add(ttl * time.Second)
+			ans.ttl = time.Now().Add(ttl2m)
 			return ip, true
 		} else {
 			// shouldn't happen; if it does, rm erroneous entry
@@ -495,7 +495,7 @@ func (t *dnsgateway) take6Locked(q string, idx int) (*netip.Addr, bool) {
 	if ans, ok := t.alg[k]; ok {
 		ip := ans.algip
 		if ip.Is6() {
-			ans.ttl = time.Now().Add(ttl * time.Second)
+			ans.ttl = time.Now().Add(ttl2m)
 			return ip, true
 		} else {
 			// shouldn't happen; if it does, rm erroneous entry
@@ -551,7 +551,7 @@ func (t *dnsgateway) WithTransport(inner Transport) bool {
 		// default transport is primary only when no other transport is set
 		// or if the current primary is also the default
 		if t.Transport == nil || t.Transport.ID() == Default {
-			t.Transport = NewCachingTransport(inner, ttl)
+			t.Transport = NewCachingTransport(inner, ttl2m)
 		} // else: no-op
 	} else if inner.ID() == Preferred {
 		// if preferred transport is a rdns transport, use BlockFree as the primary
@@ -566,7 +566,7 @@ func (t *dnsgateway) WithTransport(inner Transport) bool {
 					return false
 				} else {
 					log.Infof("alg: primary for preferred rdns %s / sec %s", blkfree.GetAddr(), inner.GetAddr())
-					t.Transport = NewCachingTransport(blkfree, ttl)
+					t.Transport = NewCachingTransport(blkfree, ttl2m)
 					t.secondary = NewDefaultCachingTransport(inner)
 					return true
 				}
@@ -574,7 +574,7 @@ func (t *dnsgateway) WithTransport(inner Transport) bool {
 		}
 		log.Infof("alg: primary preferred for %s / sec nil", inner.GetAddr())
 		// use the preferred transport as primary
-		t.Transport = NewCachingTransport(inner, ttl)
+		t.Transport = NewCachingTransport(inner, ttl2m)
 		// and disable the secondary
 		t.secondary = nil
 	} else {
