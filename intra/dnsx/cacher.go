@@ -237,9 +237,10 @@ func (t *ctransport) Query(network string, q []byte, summary *Summary) ([]byte, 
 
 		mu.Lock()
 		if v, ok := t.freshLocked(key); !ok {
-			response, err = t.Transport.Query(network, q, summary)
-			if err == nil {
+			if response, err = t.Transport.Query(network, q, summary); err == nil {
 				t.putLocked(key, response, summary)
+			} else if v != nil {
+				response, s, err = t.getLocked(msg, v)
 			}
 		} else {
 			response, s, err = t.getLocked(msg, v)
