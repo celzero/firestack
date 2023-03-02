@@ -89,8 +89,11 @@ func (h *icmpHandler) onFlow(source *net.UDPAddr, target *net.UDPAddr, realips, 
 	if block {
 		log.Infof("t.icmp.egress: firewalled src(%s:%s) -> dst(%s:%s)",
 			source.Network(), src, target.Network(), dst)
+		// sleep for a while to avoid busy conns
+		time.Sleep(blocktime)
 	}
-	return block
+
+	return
 }
 
 func (h *icmpHandler) Ping(source *net.UDPAddr, target *net.UDPAddr, msg []byte, pong netstack.Pong) bool {

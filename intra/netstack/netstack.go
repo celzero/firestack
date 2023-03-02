@@ -66,7 +66,10 @@ func Up(s *stack.Stack, ep stack.LinkEndpoint, h GConnHandler) error {
 
 	setupTcpHandler(s, ep, h.TCP())
 	setupUdpHandler(s, ep, h.UDP())
-	setupIcmpHandler(s, ep, h.ICMP())
+	// until stable, use the icmp handler only in debug mode
+	if settings.Debug {
+		setupIcmpHandler(s, ep, h.ICMP())
+	}
 
 	// TODO: setup protocol opts?
 	// github.com/google/gvisor/blob/ef9e8d91/test/benchmarks/tcp/tcp_proxy.go#L233

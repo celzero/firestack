@@ -47,6 +47,10 @@ import (
 	"github.com/celzero/firestack/intra/split"
 )
 
+const (
+	blocktime = 25 * time.Second
+)
+
 // TCPHandler is a core TCP handler that also supports DOH and splitting control.
 type TCPHandler interface {
 	core.TCPConnHandler
@@ -208,6 +212,8 @@ func (h *tcpHandler) onFlow(localaddr *net.TCPAddr, target *net.TCPAddr, realips
 	if block {
 		log.Infof("firewalled connection from %s:%s to %s:%s",
 			localaddr.Network(), src, target.Network(), dst)
+		// sleep for a while to avoid busy conns
+		time.Sleep(blocktime)
 	}
 
 	return

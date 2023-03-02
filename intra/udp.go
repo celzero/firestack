@@ -273,8 +273,11 @@ func (h *udpHandler) blockConnAddr(source *net.UDPAddr, target *net.UDPAddr, rea
 	if block {
 		log.Infof("t.udp.egress: firewalled src(%s:%s) -> dst(%s:%s)",
 			source.Network(), source.String(), target.Network(), target.String())
+		// sleep for a while to avoid busy conns
+		time.Sleep(blocktime)
 	}
-	return block
+
+	return
 }
 
 func (h *udpHandler) OnNewConn(conn *netstack.GUDPConn, _, dst *net.UDPAddr) bool {
