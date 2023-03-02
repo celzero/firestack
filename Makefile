@@ -10,7 +10,7 @@ XGO_LDFLAGS='-s -w -X main.version=$(TUN2SOCKS_VERSION)'
 WINDOWS_BUILDDIR=$(BUILDDIR)/windows
 LINUX_BUILDDIR=$(BUILDDIR)/linux
 
-ANDROID_BUILD_CMD=env PATH=$(GOBIN):$(PATH) $(GOMOBILE) bind -v -a -ldflags '-w' -target=android -tags='android,enable_debug' -work
+ANDROID_BUILD_CMD=env PATH=$(GOBIN):$(PATH) $(GOMOBILE) bind -v -a -ldflags '-w -s' -androidapi 23 -target=android -tags='android' -work
 
 $(BUILDDIR)/intra/tun2socks.aar: $(GOMOBILE)
 	mkdir -p $(BUILDDIR)/intra
