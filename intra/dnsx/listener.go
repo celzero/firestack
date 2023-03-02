@@ -22,6 +22,21 @@ type Summary struct {
 	Blocklists  string // csv separated list of blocklists names, if any.
 }
 
+func (s *Summary) CopyInto(other *Summary) {
+	other.Type = s.Type
+	other.ID = s.ID
+	other.Latency = s.Latency
+	other.QName = s.QName
+	other.QType = s.QType
+	other.RData = s.RData
+	other.RCode = s.RCode
+	other.RTtl = s.RTtl
+	other.Server = s.Server
+	other.RelayServer = s.RelayServer
+	other.Status = s.Status
+	other.Blocklists = s.Blocklists
+}
+
 // Listener receives Summaries.
 type Listener interface {
 	OnQuery(domain string, suggested string) string

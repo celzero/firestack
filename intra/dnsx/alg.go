@@ -215,10 +215,11 @@ func (t *dnsgateway) Query(network string, q []byte, summary *Summary) (r []byte
 
 	secch := make(chan secans, 1)
 	resch := make(chan []byte, 1)
+	innersummary := &Summary{}
 	// todo: use context?
 	go t.querySecondary(network, q, secch, resch, timeout)
 
-	r, err = t.Transport.Query(network, q, summary)
+	r, err = t.Transport.Query(network, q, innersummary)
 	resch <- r
 	if err != nil {
 		log.Debugf("alg: abort; qerr %v", err)
@@ -226,6 +227,7 @@ func (t *dnsgateway) Query(network string, q []byte, summary *Summary) (r []byte
 	}
 
 	// override relevant values in summary
+	innersummary.CopyInto(summary)
 	summary.ID = t.ID()
 	summary.Type = t.Type()
 
