@@ -70,7 +70,7 @@ type intratunnel struct {
 	resolver     dnsx.Resolver
 }
 
-func NewTunnel(fakedns string, defaultdns dnsx.Transport, fd int, fdpcap int, l3 string, mtu int, blocker protect.Blocker, listener Listener) (Tunnel, error) {
+func NewTunnel(fakedns string, defaultdns dnsx.Transport, fd int, fpcap string, l3 string, mtu int, blocker protect.Blocker, listener Listener) (Tunnel, error) {
 	tunmode := settings.DefaultTunMode()
 
 	natpt := ipn.NewNatPt(l3, tunmode)
@@ -81,7 +81,7 @@ func NewTunnel(fakedns string, defaultdns dnsx.Transport, fd int, fdpcap int, l3
 	tcph := NewTCPHandler(resolver, natpt, blocker, tunmode, listener)
 	udph := NewUDPHandler(resolver, natpt, blocker, tunmode, listener)
 	icmph := NewICMPHandler(resolver, natpt, blocker, tunmode)
-	t, err := tunnel.NewGTunnel(fd, fdpcap, l3, mtu, tcph, udph, icmph)
+	t, err := tunnel.NewGTunnel(fd, fpcap, l3, mtu, tcph, udph, icmph)
 
 	if err != nil {
 		return nil, err

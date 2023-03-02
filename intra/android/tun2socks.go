@@ -50,7 +50,7 @@ func init() {
 // `fd` is the TUN device.  The IntraTunnel acquires an additional reference to it, which
 //  is released by IntraTunnel.Disconnect(), so the caller must close `fd` _and_ call
 //  Disconnect() in order to close the TUN device.
-// `fpcap` is a file descriptor for a PCAP file to which all packets will be written.
+// `fpcap` is the absolute filepath to which a PCAP file will be written to.
 //  If `fpcap` is -1, no PCAP file will be written.
 // `mtu` is the MTU of the TUN device.
 // `fakedns` is the DNS server that the system believes it is using, in "host:port" style.
@@ -61,26 +61,16 @@ func init() {
 //
 // Throws an exception if the TUN file descriptor cannot be opened, or if the tunnel fails to
 // connect.
-func ConnectIntraTunnel(fd int, fdpcap int, mtu int, fakedns string, dohdns dnsx.Transport, blocker protect.Blocker, listener intra.Listener) (t intra.Tunnel, err error) {
+func ConnectIntraTunnel(fd int, fpcap string, mtu int, fakedns string, dohdns dnsx.Transport, blocker protect.Blocker, listener intra.Listener) (t intra.Tunnel, err error) {
 	l3 := settings.L3(engine)
 
-	var dupfd, dupfdpcap int
+	var dupfd int
 	dupfd, err = tunnel.Dup(fd)
 	if err != nil {
 		return
 	}
-	if fdpcap > 2 {
-		dupfdpcap, err = tunnel.Dup(fdpcap)
-		if err != nil {
-			return
-		}
-	} else {
-		// negative fdpcap means no pcap
-		// 0, 1, 2 mean pcap is logged to stdout
-		dupfdpcap = fdpcap
-	}
 
-	return intra.NewTunnel(fakedns, dohdns, dupfd, dupfdpcap, l3, mtu, blocker, listener)
+	return intra.NewTunnel(fakedns, dohdns, dupfd, fpcap, l3, mtu, blocker, listener)
 }
 
 func LogLevel(level int) {

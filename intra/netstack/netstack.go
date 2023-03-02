@@ -7,6 +7,7 @@ package netstack
 
 import (
 	"errors"
+	"fmt"
 	"os"
 
 	"github.com/celzero/firestack/intra/log"
@@ -35,16 +36,22 @@ func NewEndpoint(dev int, mtu int) (stack.LinkEndpoint, error) {
 }
 
 // ref: github.com/google/gvisor/blob/aeabb785278/pkg/tcpip/link/sniffer/sniffer.go#L111-L131
-func PcapOf(south stack.LinkEndpoint, fd int) (stack.LinkEndpoint, error) {
-	nom := "rdnspcap"
-	if fd < 3 { // 0, 1, 2 are for stdin, stdout, stderr; log packets to stdout
-		log.Infof("netstack: pcap stdout(%d)", fd)
+func PcapOf(south stack.LinkEndpoint, nom string) (stack.LinkEndpoint, error) {
+	if len(nom) == 1 {
+		// 0, 1, 2 are for stdin, stdout, stderr; log packets to stdout
+		log.Infof("netstack: pcap stdout(%s)", nom)
+		nom = "rdnspcap"
 		return sniffer.NewWithPrefix(south, nom), nil
+	} else if len(nom) > 1 {
+		if fout, err := os.OpenFile(nom, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0600); err != nil {
+			return nil, err
+		} else {
+			mtu := south.MTU()
+			log.Infof("netstack: pcap(%s)/file(%v)/mtu(%d)", nom, fout, mtu)
+			return sniffer.NewWithWriter(south, fout, mtu)
+		}
 	}
-	mtu := south.MTU()
-	fout := os.NewFile(uintptr(fd), nom)
-	log.Infof("netstack: pcap fd(%d)/file(%v)/mtu(%d)", fd, fout, mtu)
-	return sniffer.NewWithWriter(south, fout, mtu)
+	return nil, fmt.Errorf("netstack: pcap: invalid file name %s", nom)
 }
 
 // ref: github.com/brewlin/net-protocol/blob/ec64e5f899/internal/endpoint/endpoint.go#L20
