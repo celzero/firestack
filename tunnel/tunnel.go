@@ -25,6 +25,7 @@ package tunnel
 
 import (
 	"errors"
+	"io"
 	"syscall"
 
 	"github.com/celzero/firestack/intra/log"
@@ -51,6 +52,7 @@ type gtunnel struct {
 	endpoint stack.LinkEndpoint
 	stack    *stack.Stack
 	fdref    int
+	pcapio   io.Closer
 	mtu      int
 }
 
@@ -63,13 +65,25 @@ func (t *gtunnel) Disconnect() {
 		log.Infof("tun: cannot disconnect an unconnected fd")
 		return
 	}
+	// close netstack
 	t.endpoint.Attach(nil)
 	t.stack.Close()
 	log.Infof("tun: netstack closed")
+	// close tun fd
 	if err := syscall.Close(t.fdref); err != nil {
 		log.Errorf("tun: close(fd) fail, err(%v)", err)
+	} else {
+		log.Infof("tun: fd closed %d", t.fdref)
 	}
-	log.Infof("tun: fd closed %d", t.fdref)
+	// close pcap if any
+	if t.pcapio != nil {
+		if err := t.pcapio.Close(); err != nil {
+			log.Errorf("tun: close(pcap) fail, err(%v)", err)
+		} else {
+			log.Infof("tun: pcap closed")
+		}
+	}
+	t.pcapio = nil
 	t.fdref = invalidfd
 }
 
@@ -92,9 +106,11 @@ func NewGTunnel(fd int, fpcap string, l3 string, mtu int, tcph netstack.GTCPConn
 	if err != nil {
 		return
 	}
+
+	var pcapio io.Closer // may be nil
 	if len(fpcap) > 0 {
 		// if fdpcap is 0, 1, or 2 then pcap is written to stdout
-		if endpoint, err = netstack.PcapOf(endpoint, fpcap); err != nil {
+		if endpoint, pcapio, err = netstack.PcapOf(endpoint, fpcap); err != nil {
 			log.Errorf("tun: pcap(%s) err(%v)", fpcap, err)
 			return
 		}
@@ -104,5 +120,5 @@ func NewGTunnel(fd int, fpcap string, l3 string, mtu int, tcph netstack.GTCPConn
 		return nil, err
 	}
 
-	return &gtunnel{endpoint, stack, fd, mtu}, nil
+	return &gtunnel{endpoint, stack, fd, pcapio, mtu}, nil
 }
