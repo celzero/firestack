@@ -36,13 +36,14 @@ func NewEndpoint(dev int, mtu int) (stack.LinkEndpoint, error) {
 
 // ref: github.com/google/gvisor/blob/aeabb785278/pkg/tcpip/link/sniffer/sniffer.go#L111-L131
 func PcapOf(south stack.LinkEndpoint, fd int) (stack.LinkEndpoint, error) {
+	nom := "rdnspcap"
 	if fd < 3 { // 0, 1, 2 are for stdin, stdout, stderr; log packets to stdout
-		log.Infof("netstack: stdout(%d) pcap", fd)
-		return sniffer.NewWithPrefix(south, "rdnspcap"), nil
+		log.Infof("netstack: pcap stdout(%d)", fd)
+		return sniffer.NewWithPrefix(south, nom), nil
 	}
 	mtu := south.MTU()
-	log.Infof("netstack: fd(%d) pcap(%d)", fd, mtu)
-	fout := os.NewFile(uintptr(fd), "")
+	fout := os.NewFile(uintptr(fd), nom)
+	log.Infof("netstack: pcap fd(%d)/file(%v)/mtu(%d)", fd, fout, mtu)
 	return sniffer.NewWithWriter(south, fout, mtu)
 }
 
