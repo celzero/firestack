@@ -8,6 +8,7 @@ package dnsx
 
 import (
 	"errors"
+	"hash/fnv"
 	"math/rand"
 	"strconv"
 	"strings"
@@ -25,11 +26,13 @@ const (
 	defttl = 2 * time.Hour
 	// max bumps before we stop bumping a response
 	defbumps = 10
-	// max size of the response cache
-	defsize = 10000
+	// max size per cache bucket
+	defsize = 256
+	// total cache buckets; can't be more than 256 (uint8 255)
+	defbuckets = 128
 	// min duration between scrubs
 	scrubgap = 5 * time.Minute
-	// how many entries to scrub at a time
+	// how many entries to scrub at a time per cache bucket
 	maxscrubs = defsize / 4 // 25% of the cache
 	// prefix for cached transport addresses
 	addrprefix = "cached."
@@ -38,6 +41,16 @@ const (
 var (
 	errCacheResponseEmpty = errors.New("empty cache response")
 )
+
+type cache struct {
+	c         map[string]*cres // query -> response
+	mu        *sync.RWMutex    // protects the cache
+	ttl       time.Duration    // how long to cache the valid dns response
+	halflife  time.Duration    // how much to increment ttl on each read
+	bumps     int              // max bumps before we stop bumping a response
+	size      int              // max size of the cache
+	scrubtime time.Time        // last time cache was scrubbed / purged
+}
 
 type cres struct {
 	ans    *dns.Msg
@@ -48,17 +61,15 @@ type cres struct {
 
 // TODO: Keep a context here so that queries can be canceled.
 type ctransport struct {
-	sync.RWMutex                        // protects the barrier
-	Transport                           // the underlying transport
-	barrier      map[string]*sync.Mutex // coalesce requests for the same query
-	cache        map[string]*cres       // query -> response
-	scrubtime    time.Time              // last time cache was scrubbed / purged
-	ipport       string                 // a fake ip:port
-	status       int                    // status of this transport
-	ttl          time.Duration          // how long to cache the valid dns response
-	halflife     time.Duration          // how much to increment ttl on each read
-	bumps        int                    // max bumps before we stop bumping a response
-	size         int                    // max size of the cache
+	sync.RWMutex               // protects the barrier
+	Transport                  // the underlying transport
+	store        []*cache      // coalesce requests for the same query
+	ipport       string        // a fake ip:port
+	status       int           // status of this transport
+	ttl          time.Duration // lifetime duration of a cached dns entry
+	halflife     time.Duration // increment ttl on each read
+	bumps        int           // max bumps in lifetime of a cached response
+	size         int           // max size of a cache bucket
 }
 
 func NewDefaultCachingTransport(t Transport) (ct Transport) {
@@ -83,8 +94,7 @@ func NewCachingTransport(t Transport, ttl time.Duration) Transport {
 	}
 	ct := &ctransport{
 		Transport: t,
-		barrier:   make(map[string]*sync.Mutex),
-		cache:     make(map[string]*cres),
+		store:     make([]*cache, defbuckets),
 		ipport:    "[fdaa:cac::ed:3]:53",
 		status:    Start,
 		ttl:       ttl,
@@ -100,36 +110,45 @@ func (t *ctransport) str() string {
 	return "ttl=" + t.ttl.String() + ";bumps=" + strconv.Itoa(t.bumps) + ";size=" + strconv.Itoa(t.size)
 }
 
-func (*ctransport) ckey(q *dns.Msg) string {
+func hash(s string) uint8 {
+	h := fnv.New32a()
+	h.Write([]byte(s))
+	return uint8(h.Sum32() % defbuckets)
+}
+
+func (*ctransport) ckey(q *dns.Msg) (string, uint8, bool) {
 	if q == nil {
-		return ""
+		return "", 0, false
 	}
 
 	qname, err := xdns.NormalizeQName(xdns.QName(q))
 	if len(qname) <= 0 || err != nil {
-		return ""
+		return "", 0, false
 	}
 	qtyp := strconv.Itoa(int(xdns.QType(q)))
 
-	return qname + ":" + qtyp
+	return qname + ":" + qtyp, hash(qname), true
 }
 
-func (t *ctransport) scrub() {
-	t.Lock()
-	defer t.Unlock()
+func (cb *cache) scrub() {
+	cb.mu.Lock()
+	defer cb.mu.Unlock()
 
-	now := time.Now()
-	if now.Sub(t.scrubtime) < scrubgap {
+	// scrub the cache if it's getting too big
+	if len(cb.c) > cb.size*75/100 {
 		return
 	}
 
-	t.scrubtime = now
-	i := 0
+	now := time.Now()
+	if now.Sub(cb.scrubtime) < scrubgap {
+		return
+	}
+	cb.scrubtime = now
 
-	for k, v := range t.cache {
+	i := 0
+	for k, v := range cb.c {
 		if time.Since(v.expiry) > 0 {
-			delete(t.cache, k)
-			delete(t.barrier, k)
+			delete(cb.c, k)
 		}
 		i++
 		if i > maxscrubs {
@@ -138,15 +157,28 @@ func (t *ctransport) scrub() {
 	}
 }
 
-func (t *ctransport) freshLocked(key string) (v *cres, ok bool) {
-	if v, ok = t.cache[key]; !ok {
+func (cb *cache) fresh(key string) (v *cres, ok bool) {
+	cb.mu.RLock()
+	defer cb.mu.RUnlock()
+
+	if v, ok = cb.c[key]; !ok {
 		return
 	}
+
+	if v.bumps < cb.bumps {
+		v.bumps = v.bumps + 1
+		n := time.Duration(v.bumps) * cb.halflife
+		// if the expiry time is already n duration in the future, don't incr ttl
+		if time.Since(v.expiry.Add(-n)) < 0 {
+			v.expiry = v.expiry.Add(n)
+		}
+	}
+
 	r80 := rand.Intn(1000) < 700 // 70% chance of reusing from the cache
 	return v, r80 && time.Since(v.expiry) < 0
 }
 
-func (t *ctransport) putLocked(key string, response []byte, s *Summary) (ok bool) {
+func (cb *cache) put(key string, response []byte, s *Summary) (ok bool) {
 	if len(response) <= 0 {
 		return false
 	}
@@ -158,23 +190,24 @@ func (t *ctransport) putLocked(key string, response []byte, s *Summary) (ok bool
 		return false
 	}
 
-	// scrub the cache if it's getting too big
-	if len(t.cache) > t.size*75/100 {
-		go t.scrub()
-	}
-	if len(t.cache) > t.size {
+	cb.mu.Lock()
+	defer cb.mu.Unlock()
+
+	go cb.scrub()
+
+	if len(cb.c) > cb.size {
 		return false
 	}
 
 	ansttl := time.Duration(xdns.RTtl(ans)) * time.Second
-	if ansttl < t.ttl {
-		ansttl = t.ttl
+	if ansttl < cb.ttl {
+		ansttl = cb.ttl
 	} else {
 		// bump up a bit longer than the ttl
-		ansttl = ansttl + t.halflife
+		ansttl = ansttl + cb.halflife
 	}
 	exp := time.Now().Add(ansttl)
-	t.cache[key] = &cres{
+	cb.c[key] = &cres{
 		ans:    ans,
 		s:      s,
 		expiry: exp,
@@ -184,15 +217,8 @@ func (t *ctransport) putLocked(key string, response []byte, s *Summary) (ok bool
 	return true
 }
 
-func (t *ctransport) getLocked(q *dns.Msg, v *cres) (r []byte, s *Summary, err error) {
-	if v.bumps < t.bumps {
-		v.bumps = v.bumps + 1
-		n := time.Duration(v.bumps) * t.halflife
-		// if the expiry time is already n duration in the future, don't incr ttl
-		if time.Since(v.expiry.Add(-n)) < 0 {
-			v.expiry = v.expiry.Add(n)
-		}
-	}
+func asResponse(q *dns.Msg, v *cres) (r []byte, s *Summary, err error) {
+	// TODO: needs read lock?
 	a := v.ans
 
 	if a != nil {
@@ -221,31 +247,35 @@ func (t *ctransport) Query(network string, q []byte, summary *Summary) ([]byte, 
 	var response []byte
 	var s *Summary
 	var err error
-	var mu *sync.Mutex
+	var cb *cache
 
 	msg := xdns.AsMsg(q)
 
 	start := time.Now()
-	if key := t.ckey(msg); len(key) > 0 {
+	if key, h, ok := t.ckey(msg); ok {
 		t.Lock()
-		mu = t.barrier[key]
-		if mu == nil {
-			mu = &sync.Mutex{}
-			t.barrier[key] = mu
+		cb = t.store[h]
+		if cb == nil {
+			cb = &cache{
+				c:        make(map[string]*cres),
+				mu:       &sync.RWMutex{},
+				ttl:      t.ttl,
+				bumps:    t.bumps,
+				halflife: t.halflife,
+			}
+			t.store[h] = cb
 		}
 		t.Unlock()
 
-		mu.Lock()
-		if v, ok := t.freshLocked(key); !ok {
+		if v, ok := cb.fresh(key); !ok {
 			if response, err = t.Transport.Query(network, q, summary); err == nil {
-				t.putLocked(key, response, summary)
+				cb.put(key, response, summary)
 			} else if v != nil {
-				response, s, err = t.getLocked(msg, v)
+				response, s, err = asResponse(msg, v)
 			}
 		} else {
-			response, s, err = t.getLocked(msg, v)
+			response, s, err = asResponse(msg, v)
 		}
-		mu.Unlock()
 	} else {
 		err = errMissingQueryName
 	}
