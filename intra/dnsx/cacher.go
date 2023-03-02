@@ -225,6 +225,7 @@ func (t *ctransport) Query(network string, q []byte, summary *Summary) ([]byte, 
 
 	msg := xdns.AsMsg(q)
 
+	start := time.Now()
 	if key := t.ckey(msg); len(key) > 0 {
 		t.Lock()
 		mu = t.barrier[key]
@@ -247,6 +248,7 @@ func (t *ctransport) Query(network string, q []byte, summary *Summary) ([]byte, 
 	} else {
 		err = errMissingQueryName
 	}
+	elapsed := time.Since(start)
 
 	if err != nil {
 		t.status = BadResponse
@@ -256,7 +258,7 @@ func (t *ctransport) Query(network string, q []byte, summary *Summary) ([]byte, 
 	summary.Status = t.Status()
 
 	if s != nil { // nil when response is not from cache
-		summary.Latency = 0 // instantaneous
+		summary.Latency = elapsed.Seconds()
 		summary.RData = s.RData
 		summary.RCode = s.RCode
 		summary.RTtl = s.RTtl
