@@ -249,6 +249,10 @@ func (r *resolver) RemoveSystemDNS() int {
 
 // Implements Resolver
 func (r *resolver) Add(t Transport) (ok bool) {
+	if t == nil {
+		return false
+	}
+
 	switch t.Type() {
 	case DNS53:
 		fallthrough
@@ -266,13 +270,16 @@ func (r *resolver) Add(t Transport) (ok bool) {
 		}
 
 		ct := NewCachingTransport(t, ttl10m)
-		onet := &oneTransport{t: ct}
+		onet := &oneTransport{t: t}
+		ctonet := &oneTransport{t: ct}
 
 		r.Lock()
-		r.transports[ct.ID()] = ct
+		// regular transports
 		r.transports[t.ID()] = t
 		r.pool[t.ID()] = onet
-		r.pool[ct.ID()] = onet
+		// cached transports
+		r.transports[ct.ID()] = ct
+		r.pool[ct.ID()] = ctonet
 		r.Unlock()
 
 		log.Infof("dns: add transport %s@%s", t.ID(), t.GetAddr())
@@ -284,6 +291,8 @@ func (r *resolver) Add(t Transport) (ok bool) {
 			log.Errorf("dns: no gw %v / not preffered %s@%s", gw, t.ID(), t.GetAddr())
 		}
 		return true
+	default:
+		log.Errorf("dns: unknown transport(%s) type: %s", t.ID(), t.Type())
 	}
 	return false
 }
@@ -693,7 +702,18 @@ func (r *resolver) Stop() error {
 	return nil
 }
 
+func (r *resolver) refresh() {
+	r.RLock()
+	defer r.RUnlock()
+	for _, t := range r.transports {
+		// re-adding creates NEW cached transports
+		// which is akin to a cache flush
+		go r.Add(t)
+	}
+}
+
 func (r *resolver) Refresh() (string, error) {
+	go r.refresh()
 	s := map2csv(r.transports)
 	if dc, err := r.DcProxy(); err == nil {
 		if x, err := dc.Refresh(); err == nil {
