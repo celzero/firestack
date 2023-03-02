@@ -163,7 +163,9 @@ func NewResolver(fakeaddrs string, tunmode *settings.TunMode, defaultdns Transpo
 }
 
 func (r *resolver) Gateway() Gateway {
-	// TODO: lock?
+	r.RLock()
+	defer r.RUnlock()
+
 	if gw, ok := r.transports[Alg]; ok {
 		return gw.(Gateway)
 	}
@@ -218,6 +220,9 @@ func (r *resolver) SetRdnsRemote(b BraveDNS) error {
 }
 
 func (r *resolver) BlockFreeTransport() Transport {
+	r.RLock()
+	defer r.RUnlock()
+
 	return r.transports[BlockFree]
 }
 
@@ -298,6 +303,9 @@ func (r *resolver) Add(t Transport) (ok bool) {
 }
 
 func (r *resolver) DcProxy() (TransportMult, error) {
+	r.RLock()
+	defer r.RUnlock()
+
 	if t, ok := r.transports[DcProxy]; ok {
 		if tm, ok := t.(TransportMult); ok {
 			return tm, nil
@@ -308,6 +316,9 @@ func (r *resolver) DcProxy() (TransportMult, error) {
 }
 
 func (r *resolver) BlockAll() Transport {
+	r.RLock()
+	defer r.RUnlock()
+
 	if t, ok := r.transports[BlockAll]; ok {
 		return t
 	}
@@ -315,9 +326,9 @@ func (r *resolver) BlockAll() Transport {
 }
 
 func (r *resolver) addSystemDnsIfAbsent(t Transport) (ok bool) {
-	r.Lock()
+	r.RLock()
 	_, ok = r.transports[t.ID()]
-	r.Unlock()
+	r.RUnlock()
 	if !ok {
 		// r.Add before r.registerSystemDns64, since r.pool must be populated
 		ok = r.Add(t)
@@ -705,6 +716,7 @@ func (r *resolver) Stop() error {
 func (r *resolver) refresh() {
 	r.RLock()
 	defer r.RUnlock()
+
 	for _, t := range r.transports {
 		// re-adding creates NEW cached transports
 		// which is akin to a cache flush
