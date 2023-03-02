@@ -227,7 +227,7 @@ func (t *dnsgateway) Query(network string, q []byte, summary *Summary) (r []byte
 	}
 
 	// override relevant values in summary
-	innersummary.CopyInto(summary)
+	innersummary.FillInto(summary)
 	summary.ID = t.ID()
 	summary.Type = t.Type()
 

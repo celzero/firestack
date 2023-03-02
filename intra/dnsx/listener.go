@@ -22,13 +22,25 @@ type Summary struct {
 	Blocklists  string // csv separated list of blocklists names, if any.
 }
 
-func (s *Summary) CopyInto(other *Summary) {
-	other.Type = s.Type
-	other.ID = s.ID
-	other.Latency = s.Latency
-	other.QName = s.QName
+func (s *Summary) FillInto(other *Summary) {
+	if len(s.Type) != 0 {
+		other.Type = s.Type
+	}
+	if len(s.ID) != 0 {
+		other.ID = s.ID
+	}
+	if s.Latency != 0 {
+		other.Latency = s.Latency
+	}
+	if len(s.QName) != 0 {
+		other.QName = s.QName
+	}
+	// dns.TypeNone = 0
 	other.QType = s.QType
-	other.RData = s.RData
+	if len(s.RData) != 0 {
+		other.RData = s.RData
+	}
+	// RcodeSuccess = 0
 	other.RCode = s.RCode
 	other.RTtl = s.RTtl
 	other.Server = s.Server
