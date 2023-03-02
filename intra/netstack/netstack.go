@@ -32,7 +32,7 @@ func NewEndpoint(dev int, mtu int) (stack.LinkEndpoint, error) {
 		MTU: uint32(mtu),
 	}
 	endpoint, _ = NewFdbasedInjectableEndpoint(&opt)
-	log.Infof("netstack: new endpoint(fd:%d / mtu:%d)", dev, mtu)
+	log.I("netstack: new endpoint(fd:%d / mtu:%d)", dev, mtu)
 	return endpoint, nil
 }
 
@@ -40,7 +40,7 @@ func NewEndpoint(dev int, mtu int) (stack.LinkEndpoint, error) {
 func PcapOf(south stack.LinkEndpoint, nom string) (stack.LinkEndpoint, io.Closer, error) {
 	if len(nom) == 1 {
 		// 0, 1, 2 are for stdin, stdout, stderr; log packets to stdout
-		log.Infof("netstack: pcap stdout(%s)", nom)
+		log.I("netstack: pcap stdout(%s)", nom)
 		nom = "rdnspcap"
 		return sniffer.NewWithPrefix(south, nom), nil, nil
 	} else if len(nom) > 1 {
@@ -49,7 +49,7 @@ func PcapOf(south stack.LinkEndpoint, nom string) (stack.LinkEndpoint, io.Closer
 		} else {
 			mtu := south.MTU()
 			ep, err := sniffer.NewWithWriter(south, fout, mtu)
-			log.Infof("netstack: pcap(%s)/file(%v)/mtu(%d)/err(%v)", nom, fout, mtu, err)
+			log.I("netstack: pcap(%s)/file(%v)/mtu(%d)/err(%v)", nom, fout, mtu, err)
 			return ep, fout, err
 		}
 	}
@@ -83,7 +83,7 @@ func Up(s *stack.Stack, ep stack.LinkEndpoint, h GConnHandler) error {
 
 	// TODO: setup protocol opts?
 	// github.com/google/gvisor/blob/ef9e8d91/test/benchmarks/tcp/tcp_proxy.go#L233
-	log.Infof("netstack: up(%d)!", nic)
+	log.I("netstack: up(%d)!", nic)
 
 	return nil
 }
@@ -176,6 +176,6 @@ func NewNetstack(l3 string) (s *stack.Stack) {
 
 	// TODO: setup stack otps?
 	// github.com/xjasonlyu/tun2socks/blob/31468620e/core/option/option.go#L69
-	log.Infof("netstack: new L3(%s)", l3)
+	log.I("netstack: new L3(%s)", l3)
 	return
 }

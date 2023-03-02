@@ -13,7 +13,7 @@ import (
 
 func (h *resolver) isUdpDnsIpPort(addr *net.UDPAddr) bool {
 	if addr == nil || len(h.udpaddrs) <= 0 {
-		log.Errorf("nil dst-addr(%v) or dns(%v)", addr, h.udpaddrs)
+		log.E("nil dst-addr(%v) or dns(%v)", addr, h.udpaddrs)
 		return false
 	}
 	for _, dnsaddr := range h.udpaddrs {
@@ -26,7 +26,7 @@ func (h *resolver) isUdpDnsIpPort(addr *net.UDPAddr) bool {
 
 func (h *resolver) isUdpDnsPort(addr *net.UDPAddr) bool {
 	if addr == nil || len(h.udpaddrs) <= 0 {
-		log.Errorf("nil dst-addr(%v) or dns(%v)", addr, h.udpaddrs)
+		log.E("nil dst-addr(%v) or dns(%v)", addr, h.udpaddrs)
 		return false
 	}
 	// isn't h.fakedns.Port always expected to be 53?
@@ -55,7 +55,7 @@ func (h *resolver) isUdpDns(addr *net.UDPAddr) bool {
 
 func (h *resolver) isTcpDnsIpPort(addr *net.TCPAddr) bool {
 	if addr == nil || len(h.tcpaddrs) <= 0 {
-		log.Errorf("nil dst-addr(%v) or dns(%v)", addr, h.tcpaddrs)
+		log.E("nil dst-addr(%v) or dns(%v)", addr, h.tcpaddrs)
 		return false
 	}
 	for _, dnsaddr := range h.tcpaddrs {
@@ -68,7 +68,7 @@ func (h *resolver) isTcpDnsIpPort(addr *net.TCPAddr) bool {
 
 func (h *resolver) isTcpDnsPort(addr *net.TCPAddr) bool {
 	if addr == nil || len(h.tcpaddrs) <= 0 {
-		log.Errorf("nil dst-addr(%v) or dns(%v)", addr, h.tcpaddrs)
+		log.E("nil dst-addr(%v) or dns(%v)", addr, h.tcpaddrs)
 		return false
 	}
 	// isn't h.fakedns.Port always expected to be 53?
@@ -127,7 +127,7 @@ func (r *resolver) fakeTcpAddr(csvaddr string) {
 	count := 0
 	for _, a := range addrs {
 		if tcpaddr, err := net.ResolveTCPAddr("tcp", a); err != nil {
-			log.Warnf("not valid fake tcpaddr(%s): %v", a, err)
+			log.W("not valid fake tcpaddr(%s): %v", a, err)
 		} else if tcpaddr != nil {
 			tcpaddrs = append(tcpaddrs, tcpaddr)
 			count += 1
@@ -142,7 +142,7 @@ func (r *resolver) fakeUdpAddr(csvaddr string) {
 	count := 0
 	for _, a := range addrs {
 		if udpaddr, err := net.ResolveUDPAddr("udp", a); err != nil {
-			log.Warnf("not valid fake udpaddr(%s): %v", a, err)
+			log.W("not valid fake udpaddr(%s): %v", a, err)
 		} else if udpaddr != nil {
 			udpaddrs = append(udpaddrs, udpaddr)
 			count += 1

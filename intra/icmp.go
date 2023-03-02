@@ -87,7 +87,7 @@ func (h *icmpHandler) onFlow(source *net.UDPAddr, target *net.UDPAddr, realips, 
 	}
 
 	if block {
-		log.Infof("t.icmp.egress: firewalled src(%s:%s) -> dst(%s:%s)",
+		log.I("t.icmp.egress: firewalled src(%s:%s) -> dst(%s:%s)",
 			source.Network(), src, target.Network(), dst)
 		// sleep for a while to avoid busy conns
 		time.Sleep(blocktime)
@@ -102,24 +102,24 @@ func (h *icmpHandler) Ping(source *net.UDPAddr, target *net.UDPAddr, msg []byte,
 
 	// flow is alg/nat-aware, do not change target or any addrs
 	if h.onFlow(source, target, realips, domains, blocklists) {
-		log.Errorf("t.icmp.connect: firewalled")
+		log.E("t.icmp.connect: firewalled")
 		return false
 	}
 
 	target.IP = oneRealIp(realips, ipx4)
 	c, err := h.dialer.Dial(target.Network(), target.String())
 	if err != nil {
-		log.Errorf("t.icmp.connect: dail err %v", err)
+		log.E("t.icmp.connect: dail err %v", err)
 		c.Close()
 		return false
 	}
 	c.SetDeadline(time.Now().Add(h.timeout))
 	if _, err = c.Write(msg); err != nil {
-		log.Errorf("t.icmp.egress:  write(%v) ping; err %v", target, err)
+		log.E("t.icmp.egress:  write(%v) ping; err %v", target, err)
 		c.Close()
 		return false
 	}
-	log.Errorf("t.icmp.egress: writeTo(%v) ping; done %d", target, len(msg))
+	log.E("t.icmp.egress: writeTo(%v) ping; done %d", target, len(msg))
 
 	go h.fetch(c, pong)
 
@@ -135,14 +135,14 @@ func (h *icmpHandler) fetch(c net.Conn, pong netstack.Pong) {
 	for {
 		c.SetDeadline(time.Now().Add(h.timeout))
 		if n, err := c.Read(b); err != nil {
-			log.Errorf("t.icmp.ingress: read(%v <- %v) ping err %v", src, dst, err)
+			log.E("t.icmp.ingress: read(%v <- %v) ping err %v", src, dst, err)
 			break
 		} else if err = pong(b[:n]); err != nil {
 			if err != unix.ENETUNREACH {
-				log.Errorf("t.icmp.ingress: write(%v <- %v) pong err %v", src, dst, err)
+				log.E("t.icmp.ingress: write(%v <- %v) pong err %v", src, dst, err)
 			}
 			break
 		}
 	}
-	log.Infof("t.icmp.egress: ReadFrom(%v <- %v) ping; done %d", src, dst)
+	log.I("t.icmp.egress: ReadFrom(%v <- %v) ping; done %d", src, dst)
 }

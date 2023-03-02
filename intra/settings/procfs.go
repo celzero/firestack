@@ -154,7 +154,7 @@ func trim(s string) string {
 func decToInt(n string) int {
 	d, err := strconv.ParseInt(n, 10, 64)
 	if err != nil {
-		log.Errorf("Error while parsing %s to int: %s", n, err)
+		log.E("Error while parsing %s to int: %s", n, err)
 	}
 	return int(d)
 }
@@ -162,7 +162,7 @@ func decToInt(n string) int {
 func hexToInt(h string) int {
 	d, err := strconv.ParseInt(h, 16, 64)
 	if err != nil {
-		log.Errorf("Error while parsing %s to int: %s", h, err)
+		log.E("Error while parsing %s to int: %s", h, err)
 	}
 	return int(d)
 }
@@ -171,17 +171,17 @@ func hexToInt2(h string) (uint, uint) {
 	if len(h) > 16 {
 		d, err := strconv.ParseUint(h[:16], 16, 64)
 		if err != nil {
-			log.Errorf("Error while parsing %s to int: %s", h[:16], err)
+			log.E("Error while parsing %s to int: %s", h[:16], err)
 		}
 		d2, err := strconv.ParseUint(h[16:], 16, 64)
 		if err != nil {
-			log.Errorf("Error while parsing %s to int: %s", h[16:], err)
+			log.E("Error while parsing %s to int: %s", h[16:], err)
 		}
 		return uint(d), uint(d2)
 	}
 	d, err := strconv.ParseUint(h, 16, 64)
 	if err != nil {
-		log.Errorf("Error while parsing %s to int: %s", h[:16], err)
+		log.E("Error while parsing %s to int: %s", h[:16], err)
 	}
 	return uint(d), 0
 
@@ -242,7 +242,7 @@ func ParseProcNet(protocol string) ([]ProcNetEntry, error) {
 		line := trim(scanner.Text())
 		m := parser.FindStringSubmatch(line)
 		if m == nil {
-			log.Warnf("Could not parse netstat line from %s: %s", filename, line)
+			log.W("Could not parse netstat line from %s: %s", filename, line)
 			continue
 		}
 
@@ -341,7 +341,7 @@ func findProcNetEntryForProtocol(protocol string, srcIP net.IP, srcPort int, dst
 
 	entries, err := ParseProcNet(protocol)
 	if err != nil {
-		log.Warnf("Error while searching for %s netstat entry: %s", protocol, err)
+		log.W("Error while searching for %s netstat entry: %s", protocol, err)
 		return nil
 	}
 

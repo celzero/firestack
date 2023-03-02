@@ -74,11 +74,11 @@ func ProcessInputPackets(tunnel Tunnel, tun *os.File) {
 	for tunnel.IsConnected() {
 		len, err := tun.Read(buffer)
 		if err != nil {
-			log.Warnf("Failed to read packet from TUN: %v", err)
+			log.W("Failed to read packet from TUN: %v", err)
 			continue
 		}
 		if len == 0 {
-			log.Infof("Read EOF from TUN")
+			log.I("Read EOF from TUN")
 			continue
 		}
 		tunnel.Write(buffer)

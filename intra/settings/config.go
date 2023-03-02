@@ -160,7 +160,7 @@ func NewDNSOptions(ip string, port string) (*DNSOptions, error) {
 			IPPort: ipp.String(),
 		}, nil
 	}
-	log.Warnf("dnsopt(%s:%s); err(%v)", ip, port, err)
+	log.W("dnsopt(%s:%s); err(%v)", ip, port, err)
 	return nil, err
 }
 
@@ -177,13 +177,13 @@ func NewDNSOptionsFromNetIp(ipp netip.AddrPort) (*DNSOptions, error) {
 func NewAuthProxyOptions(username string, password string, ip string, port string) *ProxyOptions {
 	ipp, err := addrport(ip, port)
 	if err != nil {
-		log.Warnf("proxyopt(%s:%s); ipport invalid(%v)", ip, port, err)
+		log.W("proxyopt(%s:%s); ipport invalid(%v)", ip, port, err)
 		return nil
 	}
 	if len(username) <= 0 || len(password) <= 0 {
 		username = ""
 		password = ""
-		log.Warnf("proxyopt; empty user(%s)/pwd(%d)", username, len(password))
+		log.W("proxyopt; empty user(%s)/pwd(%d)", username, len(password))
 	}
 	auth := proxy.Auth{
 		User:     username,

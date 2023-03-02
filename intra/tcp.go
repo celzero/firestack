@@ -114,7 +114,7 @@ func (h *tcpHandler) handleUpload(local core.TCPConn, remote split.DuplexConn, u
 	ci := conn2str(local, remote)
 	// io.copy does remote.ReadFrom(local)
 	bytes, err := io.Copy(remote, local)
-	log.Debugf("t.tcp handle-upload(%d) done(%v) b/w %s", bytes, err, ci)
+	log.D("t.tcp handle-upload(%d) done(%v) b/w %s", bytes, err, ci)
 	local.CloseRead()
 	remote.CloseWrite()
 	upload <- bytes
@@ -131,7 +131,7 @@ func conn2str(a net.Conn, b net.Conn) string {
 func (h *tcpHandler) handleDownload(local core.TCPConn, remote split.DuplexConn) (bytes int64, err error) {
 	ci := conn2str(local, remote)
 	bytes, err = io.Copy(local, remote)
-	log.Debugf("t.tcp handle-download(%d) done(%v) b/w %s", bytes, err, ci)
+	log.D("t.tcp handle-download(%d) done(%v) b/w %s", bytes, err, ci)
 	local.CloseWrite()
 	remote.CloseRead()
 	return
@@ -188,7 +188,7 @@ func (h *tcpHandler) onFlow(localaddr *net.TCPAddr, target *net.TCPAddr, realips
 	}
 
 	if len(realips) <= 0 || len(domains) <= 0 {
-		log.Debugf("onFlow: no realips(%s) or domains(%s), for src=%s dst=%s", realips, domains, localaddr, target)
+		log.D("onFlow: no realips(%s) or domains(%s), for src=%s dst=%s", realips, domains, localaddr, target)
 	}
 
 	// Implict: BlockModeFilter or BlockModeFilterProc
@@ -210,7 +210,7 @@ func (h *tcpHandler) onFlow(localaddr *net.TCPAddr, target *net.TCPAddr, realips
 	}
 
 	if block {
-		log.Infof("firewalled connection from %s:%s to %s:%s",
+		log.I("firewalled connection from %s:%s to %s:%s",
 			localaddr.Network(), src, target.Network(), dst)
 		// sleep for a while to avoid busy conns
 		time.Sleep(blocktime)
@@ -242,7 +242,7 @@ func (h *tcpHandler) OnNewConn(conn *netstack.GTCPConn, _, dst *net.TCPAddr) {
 func (h *tcpHandler) Handle(conn net.Conn, target *net.TCPAddr) error {
 	localaddr, err := tcpaddr(conn)
 	if err != nil {
-		log.Errorf("conn has invalid local-addr(%s); %v", conn.LocalAddr(), err)
+		log.E("conn has invalid local-addr(%s); %v", conn.LocalAddr(), err)
 		return err
 	}
 
@@ -306,14 +306,14 @@ func (h *tcpHandler) Handle(conn net.Conn, target *net.TCPAddr) error {
 	}
 
 	if err != nil {
-		log.Warnf("tcp: err dialing to(%v): %v", target, err)
+		log.W("tcp: err dialing to(%v): %v", target, err)
 		return err
 	}
 	summary.Synack = int32(time.Since(start).Seconds() * 1000)
 
 	go h.forward(conn, c, &summary)
 
-	log.Infof("tcp: new proxy conn(%s) from(%s) to target(%s)", target.Network(), conn.LocalAddr(), target)
+	log.I("tcp: new proxy conn(%s) from(%s) to target(%s)", target.Network(), conn.LocalAddr(), target)
 	return nil
 }
 
@@ -326,7 +326,7 @@ func (h *tcpHandler) SetProxyOptions(po *settings.ProxyOptions) error {
 	var err error
 	if po == nil {
 		h.proxy = nil
-		log.Warnf("tcp: err proxying to(%v): %v", po, err)
+		log.W("tcp: err proxying to(%v): %v", po, err)
 		return fmt.Errorf("tcp: proxyopts nil")
 	}
 	if h.socks5Proxy() {
@@ -345,7 +345,7 @@ func (h *tcpHandler) SetProxyOptions(po *settings.ProxyOptions) error {
 		err = fmt.Errorf("tcp: proxy mode not set")
 	}
 	if err != nil {
-		log.Warnf("tcp: err proxying to(%v): %v", po, err)
+		log.W("tcp: err proxying to(%v): %v", po, err)
 		h.proxy = nil
 		return err
 	}
@@ -361,7 +361,7 @@ func maybeUndoNat64(pt ipn.NAT64, ip net.IP) net.IP {
 		ipx4 = pt.X64(ipn.Local464Resolver, ip) // ipx4 may be nil
 		if len(ipx4) < net.IPv4len {            // no nat?
 			ipx4 = ip // reassign the actual ip
-			log.Warnf("t.tcp.handle: No local nat64 to ip4(%v) for ip6(%v)", ipx4, ip)
+			log.W("t.tcp.handle: No local nat64 to ip4(%v) for ip6(%v)", ipx4, ip)
 		}
 	}
 	return ipx4
@@ -402,7 +402,7 @@ func undoAlg(r dnsx.Resolver, algip net.IP) (realips, domains, blocklists string
 		realips = gw.X(dst)
 		blocklists = gw.RDNSBL(dst)
 	} else {
-		log.Debugf("t.tcp.handle: no gw(%t) or alg-ip(%s)", gw == nil, algip)
+		log.D("t.tcp.handle: no gw(%t) or alg-ip(%s)", gw == nil, algip)
 	}
 	return
 }

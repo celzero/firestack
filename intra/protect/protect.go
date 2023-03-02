@@ -87,7 +87,7 @@ func makeControl(p Protector) func(string, string, syscall.RawConn) error {
 		src := p.UIP(network)
 		ipaddr, _ := netip.AddrFromSlice(src)
 		origaddr, err := netip.ParseAddrPort(address)
-		log.Warnf("control: net(%s), orig(%s/%w), bind(%s)", network, origaddr, err, ipaddr)
+		log.W("control: net(%s), orig(%s/%w), bind(%s)", network, origaddr, err, ipaddr)
 		if err != nil {
 			return err
 		}
@@ -108,7 +108,7 @@ func makeControl(p Protector) func(string, string, syscall.RawConn) error {
 				err = syscall.Bind(int(fd), bind4)
 			}
 			if err != nil {
-				log.Errorf("protect: fail to bind ip(%s) to socket %v", ipaddr, err)
+				log.E("protect: fail to bind ip(%s) to socket %v", ipaddr, err)
 			}
 		})
 	}

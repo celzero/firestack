@@ -44,7 +44,7 @@ func NewTCPForwarder(s *stack.Stack, h GTCPConnHandler) *tcp.Forwarder {
 		// the passive-handshake (SYN) may not successful for a non-existent route (say, ipv6)
 		endpoint, err := request.CreateEndpoint(waitQueue)
 		if err != nil {
-			log.Errorf("ns.tcp.forwarder: data src(%v) => dst(%v); err(%v)", src, dst, err)
+			log.E("ns.tcp.forwarder: data src(%v) => dst(%v); err(%v)", src, dst, err)
 			// prevent potential half-open TCP connection leak.
 			// hopefully doesn't break happy-eyeballs datatracker.ietf.org/doc/html/rfc8305#section-5
 			// ie, apps that expect network-unreachable ICMP msgs instead of TCP RSTs?
@@ -54,7 +54,7 @@ func NewTCPForwarder(s *stack.Stack, h GTCPConnHandler) *tcp.Forwarder {
 		}
 
 		request.Complete(false)
-		log.Verbosef("ns.tcp.forwarder: data src(%v) => dst(%v)", src, dst)
+		log.V("ns.tcp.forwarder: data src(%v) => dst(%v)", src, dst)
 
 		// read/writes are routed using 5-tuple to the same conn (endpoint)
 		// demuxer.handlePacket -> find matching endpoint -> queue-packet -> send/recv conn (ep)

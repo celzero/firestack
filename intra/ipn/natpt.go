@@ -78,19 +78,19 @@ func (n *natPt) IsNat64(id string, ip []byte) bool {
 
 func (n *natPt) X64(id string, ip6 []byte) []byte {
 	if len(ip6) != net.IPv6len {
-		log.Debugf("nat64: ip6(%v) len(%d) != 16", ip6, len(ip6))
+		log.D("nat64: ip6(%v) len(%d) != 16", ip6, len(ip6))
 		return nil
 	}
 
 	prefixes := n.nat64PrefixForResolver(id)
 	if len(prefixes) <= 0 {
-		log.Debugf("nat64: no prefix64 found for resolver(%s)", ip6, id)
+		log.D("nat64: no prefix64 found for resolver(%s)", ip6, id)
 		return nil
 	}
 	if x, ok := matchNat64(prefixes, ip6); ok {
 		return n.xAddr(x, ip6)
 	} else {
-		log.Debugf("nat64: no matching prefix64 for ip(%v) in id(%s/%d)", ip6, id, len(prefixes))
+		log.D("nat64: no matching prefix64 for ip(%v) in id(%s/%d)", ip6, id, len(prefixes))
 	}
 	return nil
 }
@@ -104,7 +104,7 @@ func (n *natPt) ResetNat64Prefix(ip6prefix string) bool {
 			return true
 		}
 	}
-	log.Warnf("natpt: could not add underlay nat64 prefix: %s; err %v", ip6prefix, err)
+	log.W("natpt: could not add underlay nat64 prefix: %s; err %v", ip6prefix, err)
 	return false
 }
 

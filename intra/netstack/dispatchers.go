@@ -175,9 +175,9 @@ func newReadVDispatcher(fd int, e *endpoint) (linkDispatcher, error) {
 
 // dispatch reads one packet from the file descriptor and dispatches it.
 func (d *readVDispatcher) dispatch() (bool, tcpip.Error) {
-	log.Verbosef("ns.dispatchers.dispatch: resume")
+	log.V("ns.dispatchers.dispatch: resume")
 	n, err := rawfile.BlockingReadvUntilStopped(d.efd, d.fd, d.buf.nextIovecs())
-	log.Verbosef("ns.dispatchers.dispatch: got(%d bytes), err(%v)", n, err)
+	log.V("ns.dispatchers.dispatch: got(%d bytes), err(%v)", n, err)
 
 	if n <= 0 || err != nil {
 		return false, err
@@ -202,7 +202,7 @@ func (d *readVDispatcher) dispatch() (bool, tcpip.Error) {
 		// IP version information is at the first octet, so pulling up 1 byte.
 		h, ok := pkt.Data().PullUp(1)
 		if !ok {
-			log.Verbosef("ns.dispatchers.dispatch: no data!")
+			log.V("ns.dispatchers.dispatch: no data!")
 			pkt.DecRef()
 			return true, nil
 		}
@@ -212,13 +212,13 @@ func (d *readVDispatcher) dispatch() (bool, tcpip.Error) {
 		case header.IPv6Version:
 			p = header.IPv6ProtocolNumber
 		default:
-			log.Verbosef("ns.dispatchers.dispatch: unknown proto!")
+			log.V("ns.dispatchers.dispatch: unknown proto!")
 			pkt.DecRef()
 			return true, nil
 		}
 	}
 
-	log.Verbosef("ns.dispatchers.dispatch (from-tun) proto(%d) for pkt-id(%d)", p, pkt.Hash)
+	log.V("ns.dispatchers.dispatch (from-tun) proto(%d) for pkt-id(%d)", p, pkt.Hash)
 
 	go func() {
 		d.e.InjectInbound(p, pkt)

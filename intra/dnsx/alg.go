@@ -111,7 +111,7 @@ func NewDNSGateway(inner Transport, outer RdnsResolver) (t *dnsgateway) {
 	}
 	// initial transport must be set before starting the gateway
 	t.WithTransport(inner)
-	log.Infof("alg: setup %s@%s / %s", inner.ID(), inner.GetAddr(), inner.Type())
+	log.I("alg: setup %s@%s / %s", inner.ID(), inner.GetAddr(), inner.Type())
 	return
 }
 
@@ -175,7 +175,7 @@ func (t *dnsgateway) querySecondary(network string, q []byte, out chan<- secans,
 	// check if the query must be upstreamed to get answer r
 	if r == nil {
 		if r, err = t.secondary.Query(network, q, result.summary); err != nil {
-			log.Debugf("alg: skip; sec transport %s err %v", t.secondary.ID(), err)
+			log.D("alg: skip; sec transport %s err %v", t.secondary.ID(), err)
 			return
 		}
 	}
@@ -222,7 +222,7 @@ func (t *dnsgateway) Query(network string, q []byte, summary *Summary) (r []byte
 	r, err = t.Transport.Query(network, q, innersummary)
 	resch <- r
 	if err != nil {
-		log.Debugf("alg: abort; qerr %v", err)
+		log.D("alg: abort; qerr %v", err)
 		return
 	}
 
@@ -234,7 +234,7 @@ func (t *dnsgateway) Query(network string, q []byte, summary *Summary) (r []byte
 	ansin := &dns.Msg{}
 	err = ansin.Unpack(r)
 	if err != nil {
-		log.Debugf("alg: abort; ans err %v", err)
+		log.D("alg: abort; ans err %v", err)
 		return nil, err
 	}
 
@@ -248,7 +248,7 @@ func (t *dnsgateway) Query(network string, q []byte, summary *Summary) (r []byte
 	rgood := xdns.HasRcodeSuccess(ansin)
 	ans0000 := xdns.AQuadAUnspecified(ansin)
 	if !hasans || !hasq || !rgood || ans0000 {
-		log.Debugf("alg: skip; query(n:%s / a:%d) hasq(%t) hasans(%t) rgood(%t), ans0000(%t)", qname, len(ansin.Answer), hasq, hasans, rgood, ans0000)
+		log.D("alg: skip; query(n:%s / a:%d) hasq(%t) hasans(%t) rgood(%t), ans0000(%t)", qname, len(ansin.Answer), hasq, hasans, rgood, ans0000)
 		return
 	}
 
@@ -324,9 +324,9 @@ func (t *dnsgateway) Query(network string, q []byte, summary *Summary) (r []byte
 		substok6 = xdns.SubstAAAARecords( /*out*/ ansout, algip6s, algttl) || substok6
 	}
 
-	log.Debugf("alg: %s a6(a %d / h %d / s %t) : a4(a %d / h %d / s %t)", qname, len(a6), len(ip6hints), substok6, len(a4), len(ip4hints), substok4)
+	log.D("alg: %s a6(a %d / h %d / s %t) : a4(a %d / h %d / s %t)", qname, len(a6), len(ip6hints), substok6, len(a4), len(ip4hints), substok4)
 	if !substok4 && !substok6 {
-		log.Debugf("alg: skip; err ips subst %s", qname)
+		log.D("alg: skip; err ips subst %s", qname)
 		return r, errCannotSubstAlg
 	}
 
@@ -345,7 +345,7 @@ func (t *dnsgateway) Query(network string, q []byte, summary *Summary) (r []byte
 		ttl: time.Now().Add(ttl2m),
 	}
 
-	log.Debugf("alg: ok; domains %s ips %s => subst %s", targets, realip, algips)
+	log.D("alg: ok; domains %s ips %s => subst %s", targets, realip, algips)
 
 	if rout, err := ansout.Pack(); err == nil {
 		if t.registerMultiLocked(qname, x) {
@@ -355,7 +355,7 @@ func (t *dnsgateway) Query(network string, q []byte, summary *Summary) (r []byte
 			return r, errCannotRegisterAlg
 		}
 	} else {
-		log.Warnf("alg: unpacking err(%v)", err)
+		log.W("alg: unpacking err(%v)", err)
 		return r, err
 	}
 }
@@ -476,7 +476,7 @@ func (t *dnsgateway) take4Locked(q string, idx int) (*netip.Addr, bool) {
 				break
 			}
 			if d := time.Since(ent.ttl); d > 0 {
-				log.Infof("alg: reuse stale alg %s for %s", kx, k)
+				log.I("alg: reuse stale alg %s for %s", kx, k)
 				delete(t.alg, kx)
 				delete(t.nat, *ent.algip)
 				return ent.algip, true
@@ -491,7 +491,7 @@ func (t *dnsgateway) take4Locked(q string, idx int) (*netip.Addr, bool) {
 		genip := netip.AddrFrom4(b4).Unmap()
 		return &genip, genip.IsValid()
 	} else {
-		log.Warnf("alg: no more IP4s (%v)", t.octets)
+		log.W("alg: no more IP4s (%v)", t.octets)
 	}
 	return nil, false
 }
@@ -535,7 +535,7 @@ func (t *dnsgateway) take6Locked(q string, idx int) (*netip.Addr, bool) {
 		genip := netip.AddrFrom16(b16)
 		return &genip, genip.IsValid()
 	} else {
-		log.Warnf("alg: no more IP6s (%x)", t.hexes)
+		log.W("alg: no more IP6s (%x)", t.hexes)
 	}
 	return nil, false
 }
@@ -548,7 +548,7 @@ func (t *dnsgateway) WithTransport(inner Transport) bool {
 	}
 	inneraddr := inner.GetAddr()
 
-	log.Infof("alg: processing transport %s@%s / %s", inner.ID(), inneraddr, inner.Type())
+	log.I("alg: processing transport %s@%s / %s", inner.ID(), inneraddr, inner.Type())
 
 	t.tranMu.Lock()
 	defer t.tranMu.Unlock()
@@ -566,25 +566,25 @@ func (t *dnsgateway) WithTransport(inner Transport) bool {
 		for _, dom := range RdnsDomains {
 			if strings.Contains(inneraddr, dom) {
 				if blkfree == nil {
-					log.Warnf("alg: rdns.BlockFree preferred primary missing %s", inner.GetAddr())
+					log.W("alg: rdns.BlockFree preferred primary missing %s", inner.GetAddr())
 					t.Transport = nil
 					t.secondary = nil
 					return false
 				} else {
-					log.Infof("alg: primary for preferred rdns %s / sec %s", blkfree.GetAddr(), inner.GetAddr())
+					log.I("alg: primary for preferred rdns %s / sec %s", blkfree.GetAddr(), inner.GetAddr())
 					t.Transport = NewCachingTransport(blkfree, ttl2m)
 					t.secondary = NewDefaultCachingTransport(inner)
 					return true
 				}
 			}
 		}
-		log.Infof("alg: primary preferred for %s / sec nil", inner.GetAddr())
+		log.I("alg: primary preferred for %s / sec nil", inner.GetAddr())
 		// use the preferred transport as primary
 		t.Transport = NewCachingTransport(inner, ttl2m)
 		// and disable the secondary
 		t.secondary = nil
 	} else {
-		log.Infof("alg: sec set %s / primary %s", inner.GetAddr(), t.GetAddr())
+		log.I("alg: sec set %s / primary %s", inner.GetAddr(), t.GetAddr())
 		// any other transport is secondary
 		t.secondary = NewDefaultCachingTransport(inner)
 	}
@@ -607,7 +607,7 @@ func (t *dnsgateway) WithoutTransport(goner Transport) (ok bool) {
 	if t.secondary != nil && CT+goner.ID() == t.secondary.ID() {
 		t.secondary = nil
 	}
-	log.Infof("alg: %s RemoveTransport %s / %s; Done? %t", goner.GetAddr(), goner.Type(), goner.ID(), ok)
+	log.I("alg: %s RemoveTransport %s / %s; Done? %t", goner.GetAddr(), goner.Type(), goner.ID(), ok)
 	return ok
 }
 
@@ -625,7 +625,7 @@ func (t *dnsgateway) X(algip []byte) (ips string) {
 			ips = strings.Join(s, ",")
 		} // else: algip isn't really an alg ip, nothing to do
 	} else {
-		log.Warnf("alg: invalid algip(%s)", algip)
+		log.W("alg: invalid algip(%s)", algip)
 	}
 
 	return ips
@@ -641,7 +641,7 @@ func (t *dnsgateway) PTR(algip []byte) (domains string) {
 			domains = strings.Join(d, ",")
 		} // else: algip isn't really an alg ip, nothing to do
 	} else {
-		log.Warnf("alg: invalid algip(%s)", algip)
+		log.W("alg: invalid algip(%s)", algip)
 	}
 	return domains
 }
@@ -653,7 +653,7 @@ func (t *dnsgateway) RDNSBL(algip []byte) (blocklists string) {
 	if fip, ok := netip.AddrFromSlice(algip); ok {
 		blocklists = t.rdnsbl(&fip)
 	} else {
-		log.Warnf("alg: invalid algip(%s)", algip)
+		log.W("alg: invalid algip(%s)", algip)
 	}
 	return blocklists
 }

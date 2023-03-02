@@ -489,7 +489,7 @@ func SubstAAAARecords(out *dns.Msg, subip6s []*netip.Addr, ttl int) bool {
 				if aaaanew := MakeAAAARecord(name, ip6, ttl); aaaanew != nil {
 					rrs = append(rrs, aaaanew)
 				} else {
-					log.Debugf("dnsutil: subst AAAA rec fail for %s %s %d", name, ip6, ttl)
+					log.D("dnsutil: subst AAAA rec fail for %s %s %d", name, ip6, ttl)
 				}
 			}
 		default:
@@ -519,7 +519,7 @@ func SubstARecords(out *dns.Msg, subip4s []*netip.Addr, ttl int) bool {
 				if anew := MakeARecord(name, ip4, ttl); anew != nil {
 					rrs = append(rrs, anew)
 				} else {
-					log.Debugf("dnsutil: subst A rec fail for %s %s %d", name, ip4, ttl)
+					log.D("dnsutil: subst A rec fail for %s %s %d", name, ip4, ttl)
 				}
 			}
 		default:
@@ -602,7 +602,7 @@ func IPHints(msg *dns.Msg, x dns.SVCBKey) []*netip.Addr {
 					if v, err := netip.ParseAddr(ipstr); err == nil {
 						ips = append(ips, &v)
 					} else {
-						log.Warnf("svcb: could not parse iphint %v", ipstr)
+						log.W("svcb: could not parse iphint %v", ipstr)
 					}
 				}
 			}
@@ -617,7 +617,7 @@ func IPHints(msg *dns.Msg, x dns.SVCBKey) []*netip.Addr {
 					if v, err := netip.ParseAddr(ipstr); err == nil {
 						ips = append(ips, &v)
 					} else {
-						log.Warnf("https: could not parse iphint %v", ipstr)
+						log.W("https: could not parse iphint %v", ipstr)
 					}
 				}
 			}
@@ -757,7 +757,7 @@ func ToIp6Hint(answer dns.RR, prefix *net.IPNet) dns.RR {
 	} else if header.Rrtype == dns.TypeSVCB {
 		kv = answer.(*dns.SVCB).Value
 	} else {
-		log.Warnf("toIp6Hint: Not a svcb/https record/1")
+		log.W("toIp6Hint: Not a svcb/https record/1")
 		return nil
 	}
 
@@ -787,7 +787,7 @@ func ToIp6Hint(answer dns.RR, prefix *net.IPNet) dns.RR {
 	for _, x := range hint4 {
 		ip4 := net.ParseIP(x)
 		if ip4 == nil {
-			log.Warnf("dnsutil: invalid https/svcb ipv4hint %s", x)
+			log.W("dnsutil: invalid https/svcb ipv4hint %s", x)
 			continue
 		}
 		hint6.Hint = append(hint6.Hint, ip4to6(prefix, ip4))
@@ -815,7 +815,7 @@ func ToIp6Hint(answer dns.RR, prefix *net.IPNet) dns.RR {
 		return trec
 	} else {
 		// should never happen
-		log.Errorf("toIp6Hint: Not a svcb/https record/2")
+		log.E("toIp6Hint: Not a svcb/https record/2")
 		return nil
 	}
 }
@@ -856,7 +856,7 @@ func AQuadAUnspecified(msg *dns.Msg) bool {
 func Servfail(q []byte) []byte {
 	msg := &dns.Msg{}
 	if err := msg.Unpack(q); err != nil {
-		log.Warnf("Error reading q for servfail: %v", err)
+		log.W("Error reading q for servfail: %v", err)
 		return nil
 	}
 	msg.Response = true
@@ -865,7 +865,7 @@ func Servfail(q []byte) []byte {
 	msg.Extra = nil
 	b, err := msg.Pack()
 	if err != nil {
-		log.Warnf("Error constructing servfail: %v", err)
+		log.W("Error constructing servfail: %v", err)
 	}
 	return b
 }

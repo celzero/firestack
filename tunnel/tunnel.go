@@ -62,25 +62,25 @@ func (t *gtunnel) Mtu() int {
 
 func (t *gtunnel) Disconnect() {
 	if !t.IsConnected() {
-		log.Infof("tun: cannot disconnect an unconnected fd")
+		log.I("tun: cannot disconnect an unconnected fd")
 		return
 	}
 	// close netstack
 	t.endpoint.Attach(nil)
 	t.stack.Close()
-	log.Infof("tun: netstack closed")
+	log.I("tun: netstack closed")
 	// close tun fd
 	if err := syscall.Close(t.fdref); err != nil {
-		log.Errorf("tun: close(fd) fail, err(%v)", err)
+		log.E("tun: close(fd) fail, err(%v)", err)
 	} else {
-		log.Infof("tun: fd closed %d", t.fdref)
+		log.I("tun: fd closed %d", t.fdref)
 	}
 	// close pcap if any
 	if t.pcapio != nil {
 		if err := t.pcapio.Close(); err != nil {
-			log.Errorf("tun: close(pcap) fail, err(%v)", err)
+			log.E("tun: close(pcap) fail, err(%v)", err)
 		} else {
-			log.Infof("tun: pcap closed")
+			log.I("tun: pcap closed")
 		}
 	}
 	t.pcapio = nil
@@ -111,7 +111,7 @@ func NewGTunnel(fd int, fpcap string, l3 string, mtu int, tcph netstack.GTCPConn
 	if len(fpcap) > 0 {
 		// if fdpcap is 0, 1, or 2 then pcap is written to stdout
 		if endpoint, pcapio, err = netstack.PcapOf(endpoint, fpcap); err != nil {
-			log.Errorf("tun: pcap(%s) err(%v)", fpcap, err)
+			log.E("tun: pcap(%s) err(%v)", fpcap, err)
 			return
 		}
 	}

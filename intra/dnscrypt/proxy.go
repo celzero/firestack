@@ -68,12 +68,12 @@ func exchangeWithTCPServer(serverInfo *ServerInfo, sharedKey *[32]byte, encrypte
 	var pc net.Conn
 	pc, err := net.DialTCP("tcp", nil, upstreamAddr)
 	if err != nil {
-		log.Errorf("failed to dial %s upstream because %v", serverInfo.String(), err)
+		log.E("failed to dial %s upstream because %v", serverInfo.String(), err)
 		return nil, err
 	}
 	defer pc.Close()
 	if err := pc.SetDeadline(time.Now().Add(serverInfo.Timeout)); err != nil {
-		log.Errorf("failed to set timeout because %v", err)
+		log.E("failed to set timeout because %v", err)
 		return nil, err
 	}
 	if serverInfo.RelayTCPAddr != nil {
@@ -81,16 +81,16 @@ func exchangeWithTCPServer(serverInfo *ServerInfo, sharedKey *[32]byte, encrypte
 	}
 	encryptedQuery, err = xdns.PrefixWithSize(encryptedQuery)
 	if err != nil {
-		log.Errorf("failed prefix(encrypted-query) from %s because %v", serverInfo.String(), err)
+		log.E("failed prefix(encrypted-query) from %s because %v", serverInfo.String(), err)
 		return nil, err
 	}
 	if _, err := pc.Write(encryptedQuery); err != nil {
-		log.Errorf("failed to write to remote-addr at %s because %v", serverInfo.String(), err)
+		log.E("failed to write to remote-addr at %s because %v", serverInfo.String(), err)
 		return nil, err
 	}
 	encryptedResponse, err := xdns.ReadPrefixed(&pc)
 	if err != nil {
-		log.Errorf("failed to read(encrypted-response) from %s because %v", serverInfo.String(), err)
+		log.E("failed to read(encrypted-response) from %s because %v", serverInfo.String(), err)
 		return nil, err
 	}
 	return Decrypt(serverInfo, sharedKey, encryptedResponse, clientNonce)
@@ -112,7 +112,7 @@ func query(q []byte, si *ServerInfo, trunc bool) (r []byte, qerr error) {
 
 func queryServer(packet []byte, serverInfo *ServerInfo, truncate bool) (response []byte, qerr error) {
 	if len(packet) < xdns.MinDNSPacketSize {
-		log.Warnf("DNS query size too short, cannot process dnscrypt query.")
+		log.W("DNS query size too short, cannot process dnscrypt query.")
 		qerr = dnsx.NewBadQueryError(fmt.Errorf("dnscrypt query size too short"))
 		return
 	}
@@ -128,13 +128,13 @@ func queryServer(packet []byte, serverInfo *ServerInfo, truncate bool) (response
 	saction := state.action
 	sr := state.response
 	if err != nil || saction == ActionDrop {
-		log.Errorf("ActionDrop or err on request %w", err)
+		log.E("ActionDrop or err on request %w", err)
 		qerr = dnsx.NewBadQueryError(err)
 		return
 	}
 	if saction == ActionSynth {
 		if sr != nil {
-			log.Debugf("send intercepted synth response")
+			log.D("send intercepted synth response")
 			response, err = sr.PackBuffer(response)
 			// XXX: when the query is blocked and pack-buffer fails
 			// doh falls back to forwarding the query instead.
@@ -143,7 +143,7 @@ func queryServer(packet []byte, serverInfo *ServerInfo, truncate bool) (response
 			}
 			return
 		}
-		log.Warnf("missing synth response, forwarding query...")
+		log.W("missing synth response, forwarding query...")
 	}
 	if len(query) < xdns.MinDNSPacketSize {
 		err = errors.New("dns query size too short, drop dnscrypt query")
@@ -166,7 +166,7 @@ func queryServer(packet []byte, serverInfo *ServerInfo, truncate bool) (response
 		sharedKey, encryptedQuery, clientNonce, err := Encrypt(serverInfo, query)
 
 		if err != nil {
-			log.Warnf("Encryption failure with dnscrypt query to %s.", serverInfo.String())
+			log.W("Encryption failure with dnscrypt query to %s.", serverInfo.String())
 			qerr = dnsx.NewInternalQueryError(err)
 			return
 		}
@@ -174,7 +174,7 @@ func queryServer(packet []byte, serverInfo *ServerInfo, truncate bool) (response
 		response, err = exchangeWithTCPServer(serverInfo, sharedKey, encryptedQuery, clientNonce)
 
 		if err != nil {
-			log.Warnf("dnscrypt query exchange with %s failed: %v", serverInfo.String(), err)
+			log.W("dnscrypt query exchange with %s failed: %v", serverInfo.String(), err)
 			qerr = dnsx.NewSendFailedQueryError(err)
 			return
 		}
@@ -188,7 +188,7 @@ func queryServer(packet []byte, serverInfo *ServerInfo, truncate bool) (response
 	}
 
 	if len(response) < xdns.MinDNSPacketSize || len(response) > xdns.MaxDNSPacketSize {
-		log.Errorf("response packet size from %s too small or too large", serverInfo.String())
+		log.E("response packet size from %s too small or too large", serverInfo.String())
 		qerr = dnsx.NewBadResponseQueryError(errors.New("response packet size too small or too big"))
 		return
 	}
@@ -196,7 +196,7 @@ func queryServer(packet []byte, serverInfo *ServerInfo, truncate bool) (response
 	response, err = intercept.HandleResponse(response, truncate)
 
 	if err != nil {
-		log.Errorf("failed to intercept %s response %w", serverInfo.String(), err)
+		log.E("failed to intercept %s response %w", serverInfo.String(), err)
 		qerr = dnsx.NewBadResponseQueryError(err)
 		return
 	}
@@ -265,7 +265,7 @@ func (proxy *Proxy) refreshOne(uid string) bool {
 		return false
 	}
 	if err := proxy.serversInfo.refreshServer(proxy, r.name, r.stamp); err != nil {
-		log.Errorf("dnscrypt: refresh failed %s: %v", r.name, err)
+		log.E("dnscrypt: refresh failed %s: %v", r.name, err)
 		return false
 	}
 	return true
@@ -303,7 +303,7 @@ func (proxy *Proxy) Start() (string, error) {
 			for {
 				select {
 				case <-ctx.Done():
-					log.Infof("cert refresh go rountine stopped.")
+					log.I("cert refresh go rountine stopped.")
 					return
 				default:
 					delay := proxy.certRefreshDelay

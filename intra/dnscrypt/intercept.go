@@ -82,7 +82,7 @@ func (ic *Intercept) HandleRequest(packet []byte, needsEDNS0Padding bool) ([]byt
 	if err != nil {
 		return packet, err
 	}
-	log.Debugf("Handling query for [%v]", qName)
+	log.D("Handling query for [%v]", qName)
 	state.qName = qName
 	state.question = &msg
 
@@ -116,10 +116,10 @@ func (ic *Intercept) HandleResponse(packet []byte, truncate bool) ([]byte, error
 	if err := msg.Unpack(packet); err != nil {
 		// HasTCFlag is always false because currently transport is TCP only
 		if len(packet) >= xdns.MinDNSPacketSize && xdns.HasTCFlag(packet) {
-			log.Warnf("has-tc-flag, retry with tcp, ignore err: %w", err)
+			log.W("has-tc-flag, retry with tcp, ignore err: %w", err)
 			err = nil
 		}
-		log.Errorf("has-tc-flag not set, intercept-handle-response err: %w", err)
+		log.E("has-tc-flag not set, intercept-handle-response err: %w", err)
 		return packet, err
 	}
 
@@ -127,7 +127,7 @@ func (ic *Intercept) HandleResponse(packet []byte, truncate bool) ([]byte, error
 
 	packet2, err := msg.PackBuffer(packet)
 	if err != nil {
-		log.Errorf("intercept-handle-response err for pack-buffer: %w", err)
+		log.E("intercept-handle-response err for pack-buffer: %w", err)
 		return packet, err
 	}
 

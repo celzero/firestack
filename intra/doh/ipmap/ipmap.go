@@ -71,7 +71,7 @@ func (m *ipMap) Get(hostname string) *IPSet {
 	s.Add(hostname)
 
 	if s.Empty() {
-		log.Warnf("Empty ips for %s", hostname)
+		log.W("Empty ips for %s", hostname)
 		return s
 	}
 
@@ -134,7 +134,7 @@ func (s *IPSet) Add(hostname string) {
 	// Don't hold the ipMap lock during blocking I/O.
 	resolved, err := s.r.LookupIPAddr(context.TODO(), hostname)
 	if err != nil {
-		log.Warnf("Failed to resolve %s: %v", hostname, err)
+		log.W("Failed to resolve %s: %v", hostname, err)
 	}
 	s.Lock()
 	for _, addr := range resolved {

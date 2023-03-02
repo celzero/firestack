@@ -43,7 +43,7 @@ func NewGUDPConn(s *stack.Stack, r *udp.ForwarderRequest, src, dst *net.UDPAddr)
 	waitQueue := new(waiter.Queue)
 	// use gonet.DialUDP instead?
 	if endpoint, err := r.CreateEndpoint(waitQueue); err != nil {
-		log.Errorf("ns.udp.forwarder: MAKE endpoint for %v => %v; err(%v)", src, dst, err)
+		log.E("ns.udp.forwarder: MAKE endpoint for %v => %v; err(%v)", src, dst, err)
 		return nil
 	} else {
 		return &GUDPConn{
@@ -92,7 +92,7 @@ func NewUDPForwarder(s *stack.Stack, h GUDPConnHandler, mtu uint32) *udp.Forward
 		// TODO: on stack.close, mop these goroutines up; just too many of them
 		// hanging around with failing dns queries (esp with happy-eyeballs)
 		go func() {
-			log.Verbosef("ns.udp.forwarder: NEW src(%v) => dst(%v)", src, dst)
+			log.V("ns.udp.forwarder: NEW src(%v) => dst(%v)", src, dst)
 
 			if ok := h.OnNewConn(gc, src, dst); !ok {
 				return
@@ -117,15 +117,15 @@ func NewUDPForwarder(s *stack.Stack, h GUDPConnHandler, mtu uint32) *udp.Forward
 					l := gc.LocalAddr()
 					r := gc.RemoteAddr()
 					if who.IP.String() != l.IP.String() {
-						log.Warnf("ns.udp.forwarder: MISMATCH expected-src(%v) => actual(l:%v)", who, l)
+						log.W("ns.udp.forwarder: MISMATCH expected-src(%v) => actual(l:%v)", who, l)
 					}
-					log.Verbosef("ns.udp.forwarder: DATA src(%v) => dst(l:%v / r:%v)", who, l, r)
+					log.V("ns.udp.forwarder: DATA src(%v) => dst(l:%v / r:%v)", who, l, r)
 					if errh := h.HandleData(gc, data[:n], r); errh != nil {
 						break
 					}
 				} else {
 					// TODO: handle temporary errors?
-					log.Debugf("ns.udp.forwarder: DONE err(%v)", err)
+					log.D("ns.udp.forwarder: DONE err(%v)", err)
 					break
 				}
 			}
@@ -155,7 +155,7 @@ func (g *GUDPConn) RemoteAddr() *net.UDPAddr {
 // data should be sent to addr.
 func (g *GUDPConn) ReceiveTo(_ []byte, addr *net.UDPAddr) error {
 	// no-op; forwarder.HandlePacket takes care of this
-	log.Warnf("ns.udp.rcv: addr(%v); no-op", addr)
+	log.W("ns.udp.rcv: addr(%v); no-op", addr)
 	return nil
 }
 
@@ -166,7 +166,7 @@ func (g *GUDPConn) WriteFrom(data []byte, addr *net.UDPAddr) (int, error) {
 	// addr: 10.111.222.3:17711; g.LocalAddr(g.udp.remote): 10.111.222.3:17711; g.RemoteAddr(g.udp.local): 10.111.222.1:53
 	// ep(state 3 / info &{2048 17 {53 10.111.222.3 17711 10.111.222.1} 1 10.111.222.3 1} / stats &{{{1}} {{0}} {{{0}} {{0}} {{0}} {{0}}} {{{0}} {{0}} {{0}}} {{{0}} {{0}}} {{{0}} {{0}} {{0}}}})
 	// 3: status:datagram-connected / {2048=>proto, 17=>transport, {53=>local-port localip 17711=>remote-port remoteip}=>endpoint-id, 1=>bind-nic-id, ip=>bind-addr, 1=>registered-nic-id}
-	log.Verbosef("ns.udp.writeFrom: from(%v) / ep(state %v / info %v / stats %v)", addr, g.ep.State(), g.ep.Info(), g.ep.Stats())
+	log.V("ns.udp.writeFrom: from(%v) / ep(state %v / info %v / stats %v)", addr, g.ep.State(), g.ep.Info(), g.ep.Stats())
 	return g.gudp.Write(data)
 
 }

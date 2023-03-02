@@ -157,7 +157,7 @@ func NewResolver(fakeaddrs string, tunmode *settings.TunMode, defaultdns Transpo
 	}
 	ok1 := r.Add(defaultdns)
 	ok2 := r.Add(NewDNSGateway(defaultdns, r))
-	log.Infof("dns: setup defaultdns set? %t, gateway set? %t", ok1, ok2)
+	log.I("dns: setup defaultdns set? %t, gateway set? %t", ok1, ok2)
 	r.loadaddrs(fakeaddrs)
 	return r
 }
@@ -271,7 +271,7 @@ func (r *resolver) Add(t Transport) (ok bool) {
 
 		// these IDs are reserved for internal use
 		if isReserved(t.ID()) {
-			log.Infof("dns: updating reserved transport %s@%s", t.ID(), t.GetAddr())
+			log.I("dns: updating reserved transport %s@%s", t.ID(), t.GetAddr())
 		}
 
 		ct := NewCachingTransport(t, ttl10m)
@@ -287,17 +287,17 @@ func (r *resolver) Add(t Transport) (ok bool) {
 		r.pool[ct.ID()] = ctonet
 		r.Unlock()
 
-		log.Infof("dns: add transport %s@%s", t.ID(), t.GetAddr())
+		log.I("dns: add transport %s@%s", t.ID(), t.GetAddr())
 
 		// if resetting default transport, update underlying transport for alg
 		if gw := r.Gateway(); t.ID() == Preferred && gw != nil {
 			gw.WithTransport(t)
 		} else {
-			log.Errorf("dns: no gw %v / not preffered %s@%s", gw, t.ID(), t.GetAddr())
+			log.E("dns: no gw %v / not preffered %s@%s", gw, t.ID(), t.GetAddr())
 		}
 		return true
 	default:
-		log.Errorf("dns: unknown transport(%s) type: %s", t.ID(), t.Type())
+		log.E("dns: unknown transport(%s) type: %s", t.ID(), t.Type())
 	}
 	return false
 }
@@ -345,7 +345,7 @@ func (r *resolver) Remove(id string) (ok bool) {
 
 	// these IDs are reserved for internal use
 	if isReserved(id) {
-		log.Infof("dns: removing reserved transport %s", id)
+		log.I("dns: removing reserved transport %s", id)
 	}
 
 	ctid := CT + id
@@ -373,9 +373,9 @@ func (r *resolver) Remove(id string) (ok bool) {
 
 	ok = ok1 || ok2
 	if ok {
-		log.Infof("dns: remove(%t) transport %s@%s", ok, t.ID(), t.GetAddr())
+		log.I("dns: remove(%t) transport %s@%s", ok, t.ID(), t.GetAddr())
 	} else {
-		log.Infof("dns: remove(%t) transport %s", ok, id)
+		log.I("dns: remove(%t) transport %s", ok, id)
 	}
 	return
 }
@@ -400,7 +400,7 @@ func (r *resolver) Forward(q []byte) ([]byte, error) {
 
 	msg, err := unpack(q)
 	if err != nil {
-		log.Warnf("dns: not a dns packet %v", err)
+		log.W("dns: not a dns packet %v", err)
 		summary.Latency = time.Since(starttime).Seconds()
 		summary.Status = BadQuery
 		return nil, err
@@ -412,7 +412,7 @@ func (r *resolver) Forward(q []byte) ([]byte, error) {
 	summary.QType = qtype(msg)
 	id := r.requiresSystem(qname)
 	if len(id) > 0 {
-		log.Infof("transport (udp): suggest system-dns %s for %s", id, qname)
+		log.I("transport (udp): suggest system-dns %s for %s", id, qname)
 	}
 	id = r.listener.OnQuery(qname, id)
 	t, onet := r.determineTransports(id)
@@ -440,7 +440,7 @@ func (r *resolver) Forward(q []byte) ([]byte, error) {
 	algerr := isAlgErr(err)
 
 	if algerr {
-		log.Debugf("transport (udp): alg error %s for %s", err, qname)
+		log.D("transport (udp): alg error %s for %s", err, qname)
 	}
 	// in the case of an alg transport, if there's no-alg,
 	// err is set which should be ignored if res2 is not nil
@@ -472,7 +472,7 @@ func (r *resolver) Forward(q []byte) ([]byte, error) {
 			return d64, nil
 		}
 	} else {
-		log.Warnf("dns64: missing onetransport for %s", t.ID())
+		log.W("dns64: missing onetransport for %s", t.ID())
 	}
 
 	return ans1.Pack()
@@ -514,7 +514,7 @@ func (r *resolver) forwardQuery(q []byte, c io.Writer) error {
 
 	msg, err := unpack(q)
 	if err != nil {
-		log.Warnf("not a dns packet %v", err)
+		log.W("not a dns packet %v", err)
 		summary.Latency = time.Since(starttime).Seconds()
 		summary.Status = BadQuery
 		return err
@@ -526,7 +526,7 @@ func (r *resolver) forwardQuery(q []byte, c io.Writer) error {
 	summary.QType = qtype(msg)
 	id := r.requiresSystem(qname)
 	if len(id) > 0 {
-		log.Infof("transport (udp): suggest system-dns %s for %s", id, qname)
+		log.I("transport (udp): suggest system-dns %s for %s", id, qname)
 	}
 	id = r.listener.OnQuery(qname, id)
 	// retrieve transport
@@ -556,7 +556,7 @@ func (r *resolver) forwardQuery(q []byte, c io.Writer) error {
 	algerr := isAlgErr(err)
 
 	if algerr {
-		log.Debugf("transport (tcp): alg error %s for %s", err, qname)
+		log.D("transport (tcp): alg error %s for %s", err, qname)
 	}
 	// in the case of an alg transport, if there's no-alg,
 	// err is set which should be ignored if res2 is not nil
@@ -600,7 +600,7 @@ func (r *resolver) forwardQuery(q []byte, c io.Writer) error {
 			resp = d64
 		}
 	} else {
-		log.Warnf("dns64: missing onetransport for %s", t.ID())
+		log.W("dns64: missing onetransport for %s", t.ID())
 	}
 
 	n, err := writeto(c, resp, rlen)
@@ -619,7 +619,7 @@ func (r *resolver) forwardQuery(q []byte, c io.Writer) error {
 // and close the writer if there was an error.
 func (r *resolver) forwardQueryAndCheck(q []byte, c io.WriteCloser) {
 	if err := r.forwardQuery(q, c); err != nil {
-		log.Warnf("Query forwarding failed: %v", err)
+		log.W("Query forwarding failed: %v", err)
 		c.Close()
 	}
 }
@@ -633,27 +633,27 @@ func (r *resolver) accept(c io.ReadWriteCloser) {
 	for {
 		n, err := c.Read(qlbuf)
 		if n == 0 {
-			log.Debugf("TCP query socket clean shutdown")
+			log.D("TCP query socket clean shutdown")
 			break
 		}
 		if err != nil {
-			log.Warnf("Error reading from TCP query socket: %v", err)
+			log.W("Error reading from TCP query socket: %v", err)
 			break
 		}
 		// TODO: inform the listener?
 		if n < 2 {
-			log.Warnf("Incomplete query length")
+			log.W("Incomplete query length")
 			break
 		}
 		qlen := binary.BigEndian.Uint16(qlbuf)
 		q := make([]byte, qlen)
 		n, err = c.Read(q)
 		if err != nil {
-			log.Warnf("Error reading query: %v", err)
+			log.W("Error reading query: %v", err)
 			break
 		}
 		if n != int(qlen) {
-			log.Warnf("Incomplete query: %d < %d", n, qlen)
+			log.W("Incomplete query: %d < %d", n, qlen)
 			break
 		}
 		go r.forwardQueryAndCheck(q, c)

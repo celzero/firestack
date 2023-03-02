@@ -154,7 +154,7 @@ func (h *udpHandler) fetchUDPInput(conn core.UDPConn, nat *tracker) {
 
 	for {
 		if nat.errcount > maxconnerr {
-			log.Debugf("t.udp.ingress: too many errors (%v), closing", nat.errcount)
+			log.D("t.udp.ingress: too many errors (%v), closing", nat.errcount)
 			return
 		}
 
@@ -169,14 +169,14 @@ func (h *udpHandler) fetchUDPInput(conn core.UDPConn, nat *tracker) {
 		// first, as it denotes a connected socket which netstack also uses
 		case net.Conn:
 			logaddr = nc2str(conn, c, nat)
-			log.Debugf("t.udp.ingress: read (c) remote for %s", logaddr)
+			log.D("t.udp.ingress: read (c) remote for %s", logaddr)
 
 			c.SetDeadline(time.Now().Add(h.timeout)) // extend deadline
 			// c is already dialed-in to some addr in udpHandler.Connect
 			n, err = c.Read(buf)
 		case net.PacketConn:
 			logaddr = pc2str(conn, c, nat)
-			log.Debugf("t.udp.ingress: read (pc) remote for %s", logaddr)
+			log.D("t.udp.ingress: read (pc) remote for %s", logaddr)
 
 			c.SetDeadline(time.Now().Add(h.timeout)) // extend deadline
 			// reads a packet from t.conn copying it to buf
@@ -189,10 +189,10 @@ func (h *udpHandler) fetchUDPInput(conn core.UDPConn, nat *tracker) {
 		// ref: github.com/miekg/dns/blob/f8a185d39/server.go#L521
 		if neterr, ok := err.(net.Error); ok && neterr.Temporary() {
 			nat.errcount += 1
-			log.Infof("t.udp.ingress: %s temp err#%d(%v)", logaddr, nat.errcount, err)
+			log.I("t.udp.ingress: %s temp err#%d(%v)", logaddr, nat.errcount, err)
 			continue
 		} else if err != nil {
-			log.Infof("t.udp.ingress: %s err(%v)", logaddr, err)
+			log.I("t.udp.ingress: %s err(%v)", logaddr, err)
 			return
 		} else {
 			nat.errcount = 0
@@ -206,12 +206,12 @@ func (h *udpHandler) fetchUDPInput(conn core.UDPConn, nat *tracker) {
 			udpaddr = nat.ip
 		}
 
-		log.Debugf("t.udp.ingress: data(%d) from remote(pc?%v/masq:%v) | addrs: %s", n, addr, udpaddr, logaddr)
+		log.D("t.udp.ingress: data(%d) from remote(pc?%v/masq:%v) | addrs: %s", n, addr, udpaddr, logaddr)
 
 		nat.download += int64(n)
 		// writes data to conn (tun) with udpaddr as source
 		if _, err = conn.WriteFrom(buf[:n], udpaddr); err != nil {
-			log.Warnf("t.udp.ingress: failed to write udp data to tun (%s) from %s", logaddr, udpaddr)
+			log.W("t.udp.ingress: failed to write udp data to tun (%s) from %s", logaddr, udpaddr)
 		}
 	}
 }
@@ -228,7 +228,7 @@ func (h *udpHandler) dnsOverride(conn core.UDPConn, addr *net.UDPAddr, query []b
 		_, err = conn.WriteFrom(resp, addr)
 	}
 	if err != nil {
-		log.Warnf("t.udp.dns: query failed %v", err)
+		log.W("t.udp.dns: query failed %v", err)
 	}
 	return true // handled
 }
@@ -271,7 +271,7 @@ func (h *udpHandler) blockConnAddr(source *net.UDPAddr, target *net.UDPAddr, rea
 	}
 
 	if block {
-		log.Infof("t.udp.egress: firewalled src(%s:%s) -> dst(%s:%s)",
+		log.I("t.udp.egress: firewalled src(%s:%s) -> dst(%s:%s)",
 			source.Network(), source.String(), target.Network(), target.String())
 		// sleep for a while to avoid busy conns
 		time.Sleep(blocktime)
@@ -330,7 +330,7 @@ func (h *udpHandler) Connect(conn core.UDPConn, target *net.UDPAddr) error {
 	}
 
 	if err != nil {
-		log.Errorf("t.udp.connect: failed to bind addr(%s); err(%v)", target, err)
+		log.E("t.udp.connect: failed to bind addr(%s); err(%v)", target, err)
 		return err
 	}
 
@@ -350,7 +350,7 @@ func (h *udpHandler) Connect(conn core.UDPConn, target *net.UDPAddr) error {
 
 	go h.fetchUDPInput(conn, nat)
 
-	log.Infof("t.udp.connect: (proxy? %t) %v -> %v", h.proxymode(), laddr, target)
+	log.I("t.udp.connect: (proxy? %t) %v -> %v", h.proxymode(), laddr, target)
 	return nil
 }
 
@@ -365,7 +365,7 @@ func (h *udpHandler) ReceiveTo(conn core.UDPConn, data []byte, addr *net.UDPAddr
 	raddr := addr
 
 	if h.dnsOverride(conn, addr, data) {
-		log.Debugf("t.udp.egress: dns-override for dstaddr(%v) <- src(l:%v r:%v)", raddr, nsladdr, nsraddr)
+		log.D("t.udp.egress: dns-override for dstaddr(%v) <- src(l:%v r:%v)", raddr, nsladdr, nsraddr)
 		return nil
 	}
 
@@ -374,7 +374,7 @@ func (h *udpHandler) ReceiveTo(conn core.UDPConn, data []byte, addr *net.UDPAddr
 	h.RUnlock()
 
 	if !ok1 {
-		log.Warnf("t.udp.egress: no nat(%v -> %v [%v])", nsladdr, raddr, nsraddr)
+		log.W("t.udp.egress: no nat(%v -> %v [%v])", nsladdr, raddr, nsraddr)
 		return fmt.Errorf("conn %v -> %v [%v] does not exist", nsladdr, raddr, nsraddr)
 	}
 
@@ -422,20 +422,20 @@ func (h *udpHandler) ReceiveTo(conn core.UDPConn, data []byte, addr *net.UDPAddr
 	if neterr, ok := err.(net.Error); ok && neterr.Temporary() {
 		nat.errcount += 1
 		if nat.errcount > maxconnerr {
-			log.Warnf("t.udp.egress: too many errors(%d) for conn(l:%v -> r:%v [%v])", nat.errcount, nsladdr, raddr, nsraddr)
+			log.W("t.udp.egress: too many errors(%d) for conn(l:%v -> r:%v [%v])", nat.errcount, nsladdr, raddr, nsraddr)
 			return err
 		} else {
-			log.Warnf("t.udp.egress: temporary error(%v) for conn(l:%v -> r:%v [%v])", err, nsladdr, raddr, nsraddr)
+			log.W("t.udp.egress: temporary error(%v) for conn(l:%v -> r:%v [%v])", err, nsladdr, raddr, nsraddr)
 			return nil
 		}
 	} else if err != nil {
-		log.Infof("t.udp.egress: end splice (%v -> %v [%v]), forward udp err(%v)", conn.LocalAddr(), raddr, nsraddr, err)
+		log.I("t.udp.egress: end splice (%v -> %v [%v]), forward udp err(%v)", conn.LocalAddr(), raddr, nsraddr, err)
 		return err
 	} else {
 		nat.errcount = 0
 	}
 
-	log.Infof("t.udp.egress: conn(%v -> %v [%v]) / data(%d)", nsladdr, raddr, nsraddr, len(data))
+	log.I("t.udp.egress: conn(%v -> %v [%v]) / data(%d)", nsladdr, raddr, nsraddr, len(data))
 	return nil
 }
 
@@ -479,7 +479,7 @@ func (h *udpHandler) SetProxyOptions(po *settings.ProxyOptions) error {
 	if po == nil {
 		h.proxy = nil
 		err = fmt.Errorf("udp: proxyopts nil")
-		log.Warnf("udp: err proxying to(%v): %v", po, err)
+		log.W("udp: err proxying to(%v): %v", po, err)
 		return err
 	}
 
@@ -498,7 +498,7 @@ func (h *udpHandler) SetProxyOptions(po *settings.ProxyOptions) error {
 	}
 	if err != nil {
 		h.proxy = nil
-		log.Warnf("udp: err proxying to(%v): %v", po, err)
+		log.W("udp: err proxying to(%v): %v", po, err)
 		return err
 	}
 	h.proxy = fproxy

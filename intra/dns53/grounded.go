@@ -30,7 +30,7 @@ func NewGroundedTransport() (t dnsx.Transport) {
 		ipport: "127.0.0.3:53",
 		status: dnsx.Start,
 	}
-	log.Infof("grounded(%s) setup: %s", t.ID(), t.GetAddr())
+	log.I("grounded(%s) setup: %s", t.ID(), t.GetAddr())
 	return
 }
 

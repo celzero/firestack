@@ -45,37 +45,37 @@ func SetLevel(level LogLevel) {
 	}
 }
 
-func Verbosef(msg string, args ...interface{}) {
+func V(msg string, args ...interface{}) {
 	if logger != nil {
 		logger.Verbosef("V "+msg, args...)
 	}
 }
 
-func Debugf(msg string, args ...interface{}) {
+func D(msg string, args ...interface{}) {
 	if logger != nil {
 		logger.Debugf("D "+msg, args...)
 	}
 }
 
-func Infof(msg string, args ...interface{}) {
+func I(msg string, args ...interface{}) {
 	if logger != nil {
 		logger.Infof("I "+msg, args...)
 	}
 }
 
-func Warnf(msg string, args ...interface{}) {
+func W(msg string, args ...interface{}) {
 	if logger != nil {
 		logger.Warnf("W "+msg, args...)
 	}
 }
 
-func Errorf(msg string, args ...interface{}) {
+func E(msg string, args ...interface{}) {
 	if logger != nil {
 		logger.Errorf("E "+msg, args...)
 	}
 }
 
-func Fatalf(msg string, args ...interface{}) {
+func Wtf(msg string, args ...interface{}) {
 	if logger != nil {
 		logger.Fatalf("F "+msg, args...)
 	}

@@ -113,7 +113,7 @@ func (t *intratunnel) SetSystemDNS(ippcsv string) int {
 	ipports := strings.Split(ippcsv, ",")
 	d := t.resolver.RemoveSystemDNS()
 	if len(ipports) <= 0 {
-		log.Infof("removed %d system dns(es)", d)
+		log.I("removed %d system dns(es)", d)
 		return 0
 	}
 	n := 0
@@ -123,13 +123,13 @@ func (t *intratunnel) SetSystemDNS(ippcsv string) int {
 				t.resolver.AddSystemDNS(sdns)
 				n += 1
 			} else {
-				log.Warnf("make system dns %s; err(%v)", ipport, err)
+				log.W("make system dns %s; err(%v)", ipport, err)
 			}
 		} else {
-			log.Warnf("invalid system dns %s; err(%v)", ipport, err)
+			log.W("invalid system dns %s; err(%v)", ipport, err)
 		}
 	}
-	log.Infof("added %d system dns(es) from %s", n, ipports)
+	log.I("added %d system dns(es) from %s", n, ipports)
 	return n
 }
 

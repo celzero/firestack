@@ -27,7 +27,7 @@ func (r *resolver) blockQ(t Transport, msg *dns.Msg) (ans *dns.Msg, blocklists s
 	ans, blocklists, err = r.applyBlocklists(msg)
 	if err != nil {
 		// block skipped because err is set
-		log.Debugf("wall: skip local for %s block for %s with err %s", qname, blocklists, err)
+		log.D("wall: skip local for %s block for %s with err %s", qname, blocklists, err)
 	}
 	return
 }
@@ -63,13 +63,13 @@ func (r *resolver) blockA(t Transport, q *dns.Msg, ans *dns.Msg, blocklistStamp 
 	if len(blocklistStamp) > 0 && br != nil {
 		blocklistNames, err = br.StampToNames(blocklistStamp)
 		if err != nil {
-			log.Errorf("wall: could not resolve blocklist-stamp(%s) for %s, err: %v", blocklistStamp, qname, err)
+			log.E("wall: could not resolve blocklist-stamp(%s) for %s, err: %v", blocklistStamp, qname, err)
 			return
 		}
-		log.Debugf("wall: for %s blocklists %s", qname, blocklistNames)
+		log.D("wall: for %s blocklists %s", qname, blocklistNames)
 		return
 	} else {
-		log.Debugf("wall: no block for %s; blocklist-stamp? (%d) / rdnsr? (%t)", qname, len(blocklistStamp), br != nil)
+		log.D("wall: no block for %s; blocklist-stamp? (%d) / rdnsr? (%t)", qname, len(blocklistStamp), br != nil)
 	}
 
 	// skip local blocks for alg and blockfree
@@ -84,23 +84,23 @@ func (r *resolver) blockA(t Transport, q *dns.Msg, ans *dns.Msg, blocklistStamp 
 	}
 
 	if !b.OnDeviceBlock() {
-		log.Debugf("wall: no local block for %s", qname)
+		log.D("wall: no local block for %s", qname)
 		return
 	}
 
 	if blocklistNames, err = b.blockAnswer(ans); err != nil {
-		log.Debugf("wall: response for %s not blocked %v", qname, err)
+		log.D("wall: response for %s not blocked %v", qname, err)
 		return
 	}
 
 	if len(blocklistNames) <= 0 {
-		log.Debugf("wall: query %s not blocked blocklist empty", qname)
+		log.D("wall: query %s not blocked blocklist empty", qname)
 		return
 	}
 
 	finalans, err = xdns.RefusedResponseFromMessage(q)
 	if err != nil {
-		log.Warnf("wall: could not pack %s blocked dns ans %v", qname, err)
+		log.W("wall: could not pack %s blocked dns ans %v", qname, err)
 		return
 	}
 

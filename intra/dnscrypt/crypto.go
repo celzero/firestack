@@ -67,7 +67,7 @@ func ComputeSharedKey(cryptoConstruction xdns.CryptoConstruction, secretKey *[32
 		var err error
 		sharedKey, err = xsecretbox.SharedKey(*secretKey, *serverPk)
 		if err != nil {
-			log.Warnf("[%v] Weak public key", providerName)
+			log.W("[%v] Weak public key", providerName)
 		}
 	} else {
 		box.Precompute(&sharedKey, serverPk, secretKey)

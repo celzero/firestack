@@ -108,7 +108,7 @@ func setupIcmpHandler(s *stack.Stack, ep stack.LinkEndpoint, handler GICMPHandle
 			pout.PushBack(packet)
 			_, err := ep.WritePackets(pout)
 			if err != nil {
-				log.Errorf("icmp: err writing default reply to tun: %v", err)
+				log.E("icmp: err writing default reply to tun: %v", err)
 				return false
 			}
 		}
@@ -204,7 +204,7 @@ func setupIcmpHandler(s *stack.Stack, ep stack.LinkEndpoint, handler GICMPHandle
 			var pout stack.PacketBufferList
 			pout.PushBack(packet)
 			if _, err := ep.WritePackets(pout); err != nil {
-				log.Errorf("icmp: err writing default echo pkt to tun %v", err)
+				log.E("icmp: err writing default echo pkt to tun %v", err)
 				return false
 			}
 		}

@@ -94,7 +94,7 @@ func (serversInfo *ServersInfo) getOne() (serverInfo *ServerInfo) {
 		}
 		i++
 	}
-	log.Debugf("Using candidate [%s]", (*serverInfo).Name)
+	log.D("Using candidate [%s]", (*serverInfo).Name)
 
 	return serverInfo
 }
@@ -128,14 +128,14 @@ func (serversInfo *ServersInfo) registerServer(name string, stamp stamps.ServerS
 }
 
 func (serversInfo *ServersInfo) refresh(proxy *Proxy) ([]string, error) {
-	log.Debugf("Refreshing certificates")
+	log.D("Refreshing certificates")
 	var liveServers []string
 	var err error
 	for _, registeredServer := range serversInfo.registeredServers {
 		if err = serversInfo.refreshServer(proxy, registeredServer.name, registeredServer.stamp); err == nil {
 			liveServers = append(liveServers, registeredServer.name)
 		} else {
-			log.Errorf("%s not a live server? %w", registeredServer.stamp, err)
+			log.E("%s not a live server? %w", registeredServer.stamp, err)
 		}
 	}
 	return liveServers, err
@@ -173,7 +173,7 @@ func fetchDNSCryptServerInfo(proxy *Proxy, name string, stamp stamps.ServerStamp
 		if err != nil || len(serverPk) != ed25519.PublicKeySize {
 			return ServerInfo{}, fmt.Errorf("unsupported public key for [%s]: [%s]", name, stamp.ServerPk)
 		}
-		log.Warnf("Public key [%s] shouldn't be hex-encoded any more", string(stamp.ServerPk))
+		log.W("Public key [%s] shouldn't be hex-encoded any more", string(stamp.ServerPk))
 		stamp.ServerPk = serverPk
 	}
 
@@ -213,7 +213,7 @@ func fetchDoHServerInfo(proxy *Proxy, name string, stamp stamps.ServerStamp) (Se
 func route(proxy *Proxy, name string) (*net.TCPAddr, error) {
 	relayNames := proxy.routes
 	if relayNames == nil {
-		log.Infof("dnscrypt: No relay routes found.")
+		log.I("dnscrypt: No relay routes found.")
 		return nil, nil
 	}
 

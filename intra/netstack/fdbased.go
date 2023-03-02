@@ -322,7 +322,7 @@ func (e *endpoint) WritePackets(pkts stack.PacketBufferList) (int, tcpip.Error) 
 		if len(batch)+numIovecs > rawfile.MaxIovs {
 			// writes in to fd, up to len(batch) not cap(batch)
 			if err := rawfile.NonBlockingWriteIovec(fd, batch); err != nil {
-				log.Warnf("ns.e.WritePackets (to tun): err(%v), sent(%d)/total(%d)", err, written, total)
+				log.W("ns.e.WritePackets (to tun): err(%v), sent(%d)/total(%d)", err, written, total)
 				return written, err
 			}
 			// mark processed packets as written
@@ -339,13 +339,13 @@ func (e *endpoint) WritePackets(pkts stack.PacketBufferList) (int, tcpip.Error) 
 	}
 	if len(batch) > 0 {
 		if err := rawfile.NonBlockingWriteIovec(fd, batch); err != nil {
-			log.Warnf("ns.e.WritePackets (to tun): err(%v), sent(%d)/total(%d)", err, packets, total)
+			log.W("ns.e.WritePackets (to tun): err(%v), sent(%d)/total(%d)", err, packets, total)
 			return written, err
 		}
 		written += packets
 	}
 
-	log.Infof("ns.e.WritePackets (to tun): written(%d)/total(%d)", written, total)
+	log.I("ns.e.WritePackets (to tun): written(%d)/total(%d)", written, total)
 	return written, nil
 }
 
@@ -370,17 +370,17 @@ func (e *endpoint) ARPHardwareType() header.ARPHardwareType {
 
 // Unused: InjectInbound ingresses a netstack-inbound packet.
 func (e *endpoint) InjectInbound(protocol tcpip.NetworkProtocolNumber, pkt *stack.PacketBuffer) {
-	log.Debugf("ns.e.inject-inbound(from-tun) %d pkt(%v)", protocol, pkt.Hash)
+	log.D("ns.e.inject-inbound(from-tun) %d pkt(%v)", protocol, pkt.Hash)
 	if e.IsAttached() {
 		e.dispatcher.DeliverNetworkPacket(protocol, pkt)
 	} else {
-		log.Warnf("ns.e.inject-inbound(from-tun) %d pkt(%v) dropped: endpoint not attached", protocol, pkt.Hash)
+		log.W("ns.e.inject-inbound(from-tun) %d pkt(%v) dropped: endpoint not attached", protocol, pkt.Hash)
 	}
 }
 
 // Unused: InjectOutobund implements stack.InjectableEndpoint.InjectOutbound.
 // InjectOutbound egresses a tun-inbound packet.
 func (e *endpoint) InjectOutbound(dest tcpip.Address, packet []byte) tcpip.Error {
-	log.Debugf("ns.e.inject-outbound(to-tun) to dst(%v)", dest)
+	log.D("ns.e.inject-outbound(to-tun) to dst(%v)", dest)
 	return rawfile.NonBlockingWrite(e.fds[0].fd, packet)
 }

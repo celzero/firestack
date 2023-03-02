@@ -87,7 +87,7 @@ func LogLevel(level int) {
 	case log.ERROR:
 		dlvl = log.ERROR
 	default:
-		log.Warnf("tun2socks: unknown log-level(%d), using warn", l)
+		log.W("tun2socks: unknown log-level(%d), using warn", l)
 	}
 	log.SetLevel(dlvl)
 	settings.Debug = dbg
@@ -99,7 +99,7 @@ func PreferredEngine(w int) {
 	case settings.Ns6:
 	case settings.Ns46:
 	default:
-		log.Warnf("tun2socks: engine(%d) unknown, using default", w)
+		log.W("tun2socks: engine(%d) unknown, using default", w)
 		w = settings.Ns46
 	}
 	engine = w

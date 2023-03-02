@@ -87,7 +87,7 @@ func (d *dns64) init() {
 	err1 := d.ofOverlay()
 	err2 := d.ofLocal464()
 	if err1 != nil || err2 != nil {
-		log.Warnf("dns64: err reg underlay(%v) / local(%v)", err1, err2)
+		log.W("dns64: err reg underlay(%v) / local(%v)", err1, err2)
 	}
 }
 
@@ -102,7 +102,7 @@ func (d *dns64) register(id string) {
 	d.Lock()
 	defer d.Unlock()
 	if l, ok := d.ip64[id]; ok {
-		log.Warnf("dns64: overwrite existing ip64(%v) for resolver(%s)", l, id)
+		log.W("dns64: overwrite existing ip64(%v) for resolver(%s)", l, id)
 	}
 	d.ip64[id] = make([]*net.IPNet, 0)
 	d.uniqIP64[id] = make(map[string]struct{})
@@ -114,14 +114,14 @@ func (d *dns64) AddResolver(id string, r Resolver) bool {
 
 	b, err := r.Exchange(arpa64)
 	if err != nil {
-		log.Warnf("dns64: could not query resolver %s", id)
+		log.W("dns64: could not query resolver %s", id)
 		return false
 	}
 
 	ans := &dns.Msg{}
 	err = ans.Unpack(b)
 	if err != nil {
-		log.Warnf("dns64: invalid response from resolver %s", id)
+		log.W("dns64: invalid response from resolver %s", id)
 	}
 
 	ips := make([]net.IP, 0)
@@ -153,7 +153,7 @@ func (d *dns64) eval(id string, force64 bool, og []byte, r Resolver) []byte {
 	d.RUnlock()
 
 	if !ok {
-		log.Debugf("dns64: no resolver id(%s) registered", id)
+		log.D("dns64: no resolver id(%s) registered", id)
 	}
 
 	if len(ip64) <= 0 {
@@ -162,7 +162,7 @@ func (d *dns64) eval(id string, force64 bool, og []byte, r Resolver) []byte {
 				ip64 = d.ip64[Local464Resolver]
 			}
 		}
-		log.Debugf("dns64: attempt underlay/local464 resolver ip64 w len(%d)", len(ip64))
+		log.D("dns64: attempt underlay/local464 resolver ip64 w len(%d)", len(ip64))
 	}
 
 	ansin := &dns.Msg{}
@@ -175,14 +175,14 @@ func (d *dns64) eval(id string, force64 bool, og []byte, r Resolver) []byte {
 	if err != nil || !hasq6 || (hasans6 && !force64) {
 		// nb: has-aaaa-answer should cover for cases where
 		// the response is blocked by dnsx.BraveDNS
-		log.Debugf("dns64: no-op q(%s), err(%v), q6(%t), ans6(%t), force64(%t)", qname, err, hasq6, hasans6, force64)
+		log.D("dns64: no-op q(%s), err(%v), q6(%t), ans6(%t), force64(%t)", qname, err, hasq6, hasans6, force64)
 		return og
 	}
 
 	ans4, err := d.query64(ansin, r)
 	rgood := xdns.HasRcodeSuccess(ans4)
 	if err != nil || ans4 == nil || len(ans4.Answer) <= 0 || xdns.AQuadAUnspecified(ans4) {
-		log.Warnf("dns64: query(n:%s / a:%d) to resolver(%s) rgood(%t), err(%v)", qname, len(ans4.Answer), id, rgood, err)
+		log.W("dns64: query(n:%s / a:%d) to resolver(%s) rgood(%t), err(%v)", qname, len(ans4.Answer), id, rgood, err)
 		return og
 	}
 
@@ -198,12 +198,12 @@ func (d *dns64) eval(id string, force64 bool, og []byte, r Resolver) []byte {
 			}
 		}
 	}
-	log.Debugf("dns64: translated response(%v)", rr64)
+	log.D("dns64: translated response(%v)", rr64)
 
 	if len(rr64) <= 0 {
 		// may be there were no A records in ans4; or,
 		// xdns.ToQuadA failed for every A ans4 record
-		log.Warnf("dns64: no rr64 translations done")
+		log.W("dns64: no rr64 translations done")
 		return og
 	}
 
@@ -212,7 +212,7 @@ func (d *dns64) eval(id string, force64 bool, og []byte, r Resolver) []byte {
 	if r, err := ans64.Pack(); err == nil {
 		return r
 	} else {
-		log.Warnf("dns64: unpacking ans64 err(%v)", err)
+		log.W("dns64: unpacking ans64 err(%v)", err)
 		return og
 	}
 }
@@ -225,7 +225,7 @@ func (d *dns64) query64(msg6 *dns.Msg, r Resolver) (*dns.Msg, error) {
 	}
 
 	a4, err := r.Exchange(q4)
-	log.Debugf("dns64: upstream q(%s) / a(%d) / e(%v) / e-not-nil(%t)", xdns.QName(msg4), len(a4), err, err != nil)
+	log.D("dns64: upstream q(%s) / a(%d) / e(%v) / e-not-nil(%t)", xdns.QName(msg4), len(a4), err, err != nil)
 	if len(a4) <= 0 {
 		return nil, err
 	}
@@ -240,7 +240,7 @@ func (d *dns64) query64(msg6 *dns.Msg, r Resolver) (*dns.Msg, error) {
 
 func (d *dns64) ofOverlay() error {
 	ips, err := net.DefaultResolver.LookupIP(context.Background(), "ip6", Rfc7050WKN)
-	log.Infof("dns64: ipv4only.arpa w underlying network resolver")
+	log.I("dns64: ipv4only.arpa w underlying network resolver")
 
 	if err != nil {
 		return err
@@ -267,12 +267,12 @@ func (d *dns64) ofLocal464() error {
 func (d *dns64) add(serverid string, nat64 []net.IP) error {
 
 	if len(nat64) <= 0 {
-		log.Warnf("dns64: no nat64 ips for %s", serverid)
+		log.W("dns64: no nat64 ips for %s", serverid)
 		return errEmpty
 	}
 
 	for _, ipv6 := range nat64 {
-		log.Debugf("dns64: id(%s); add? nat64 ip(%s / %d)", serverid, ipv6, len(ipv6))
+		log.D("dns64: id(%s); add? nat64 ip(%s / %d)", serverid, ipv6, len(ipv6))
 		if len(ipv6) != net.IPv6len {
 			continue
 		}
@@ -293,7 +293,7 @@ func (d *dns64) add(serverid string, nat64 []net.IP) error {
 		}
 
 		if endByte <= 0 {
-			log.Infof("dns64: id(%s), e(%d); no valid ipv4only.arpa in ans6(%v)", serverid, endByte, ipv6)
+			log.I("dns64: id(%s), e(%d); no valid ipv4only.arpa in ans6(%v)", serverid, endByte, ipv6)
 			continue
 		}
 
@@ -314,7 +314,7 @@ func (d *dns64) add(serverid string, nat64 []net.IP) error {
 	d.RUnlock()
 
 	if len(ip64) == 0 {
-		log.Infof("dns64: id(%s) has zero nat64 prefixes", serverid)
+		log.I("dns64: id(%s) has zero nat64 prefixes", serverid)
 		return errEmpty
 	} else {
 		return nil
@@ -328,7 +328,7 @@ func (d *dns64) addNat64Prefix(id string, ipxx *net.IPNet) error {
 	ip64, ok1 := d.ip64[id]
 	uniq, ok2 := d.uniqIP64[id]
 	if !ok1 || !ok2 {
-		log.Warnf("dns64: no server found server(%s)", id)
+		log.W("dns64: no server found server(%s)", id)
 		return errNoSuchServer
 	}
 
@@ -337,9 +337,9 @@ func (d *dns64) addNat64Prefix(id string, ipxx *net.IPNet) error {
 	if !exists {
 		ip64 = append(ip64, ipxx)
 		uniq[ipxx.String()] = emptyStruct
-		log.Infof("dns64: add ipnet [%s] for server(%s)", ipxx, id)
+		log.I("dns64: add ipnet [%s] for server(%s)", ipxx, id)
 	} else {
-		log.Debugf("dns64: prefix6(%v) for server(%s) exists!", id, ipxx)
+		log.D("dns64: prefix6(%v) for server(%s) exists!", id, ipxx)
 	}
 	// nil / empty lists are valid values in map[string][]*net.IP
 	d.ip64[id] = ip64

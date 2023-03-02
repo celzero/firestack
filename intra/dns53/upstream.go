@@ -40,7 +40,7 @@ func NewTransport(id, ip, port string) (t dnsx.Transport, err error) {
 		ipport: do.IPPort,
 		status: dnsx.Start,
 	}
-	log.Infof("dns53(%s) setup: %s", id, do.IPPort)
+	log.I("dns53(%s) setup: %s", id, do.IPPort)
 	return
 }
 
@@ -55,7 +55,7 @@ func NewTransportFrom(id string, ipp netip.AddrPort) (t dnsx.Transport, err erro
 		ipport: do.IPPort,
 		status: dnsx.Start,
 	}
-	log.Infof("dns53(%s) setup: %s", id, do.IPPort)
+	log.I("dns53(%s) setup: %s", id, do.IPPort)
 	return
 }
 
@@ -83,7 +83,7 @@ func (t *transport) sendRequest(network string, q []byte) (response []byte, bloc
 
 	defer func() {
 		if qerr != nil {
-			log.Infof("dnsproxy query fail: %v %v %v", qerr, qerr.Error(), qerr.Unwrap())
+			log.I("dnsproxy query fail: %v %v %v", qerr, qerr.Error(), qerr.Unwrap())
 		}
 		if conn != nil {
 			conn.Close()
@@ -180,7 +180,7 @@ func (t *transport) Query(network string, q []byte, summary *dnsx.Summary) (r []
 	if qerr != nil {
 		err = qerr.Unwrap()
 		status = qerr.Status()
-		log.Warnf("dns53 err(%v) / size(%d)", err, len(response))
+		log.W("dns53 err(%v) / size(%d)", err, len(response))
 	}
 	ans := xdns.AsMsg(response)
 	t.status = status

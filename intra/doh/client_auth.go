@@ -52,12 +52,12 @@ type clientAuthWrapper struct {
 func (ca *clientAuthWrapper) GetClientCertificate(
 	info *tls.CertificateRequestInfo) (*tls.Certificate, error) {
 	if ca.signer == nil {
-		log.Warnf("Client certificate requested but not supported")
+		log.W("Client certificate requested but not supported")
 		return &tls.Certificate{}, nil
 	}
 	cert := ca.signer.GetClientCertificate()
 	if cert == nil {
-		log.Warnf("Unable to fetch client certificate")
+		log.W("Unable to fetch client certificate")
 		return &tls.Certificate{}, nil
 	}
 	chain := [][]byte{cert}
@@ -67,13 +67,13 @@ func (ca *clientAuthWrapper) GetClientCertificate(
 	}
 	leaf, err := x509.ParseCertificate(cert)
 	if err != nil {
-		log.Warnf("Unable to parse client certificate: %v", err)
+		log.W("Unable to parse client certificate: %v", err)
 		return &tls.Certificate{}, nil
 	}
 	_, isECDSA := leaf.PublicKey.(*ecdsa.PublicKey)
 	if !isECDSA {
 		// RSA-PSS and RSA-SSA both need explicit signature generation support.
-		log.Warnf("Only ECDSA client certificates are supported")
+		log.W("Only ECDSA client certificates are supported")
 		return &tls.Certificate{}, nil
 	}
 	return &tls.Certificate{
@@ -91,7 +91,7 @@ func (ca *clientAuthWrapper) Public() crypto.PublicKey {
 	cert := ca.signer.GetClientCertificate()
 	leaf, err := x509.ParseCertificate(cert)
 	if err != nil {
-		log.Warnf("Unable to parse client certificate: %v", err)
+		log.W("Unable to parse client certificate: %v", err)
 		return nil
 	}
 	return leaf.PublicKey

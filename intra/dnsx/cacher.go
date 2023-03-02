@@ -74,11 +74,11 @@ func NewCachingTransport(t Transport, ttl time.Duration) Transport {
 
 	// is type casting is a better way to do this?
 	if strings.HasPrefix(t.GetAddr(), addrprefix) {
-		log.Infof("caching(%s) no-op: %s", t.ID(), t.GetAddr())
+		log.I("caching(%s) no-op: %s", t.ID(), t.GetAddr())
 		return t
 	}
 	if strings.HasPrefix(t.GetAddr(), algprefix) {
-		log.Warnf("caching(%s) no-op for alg: %s", t.ID(), t.GetAddr())
+		log.W("caching(%s) no-op for alg: %s", t.ID(), t.GetAddr())
 		return t
 	}
 	ct := &ctransport{
@@ -92,7 +92,7 @@ func NewCachingTransport(t Transport, ttl time.Duration) Transport {
 		bumps:     defbumps,
 		size:      defsize,
 	}
-	log.Infof("caching(%s) setup: %s; opts: %s", ct.ID(), ct.GetAddr(), ct.str())
+	log.I("caching(%s) setup: %s; opts: %s", ct.ID(), ct.GetAddr(), ct.str())
 	return ct
 }
 
