@@ -18,8 +18,8 @@ ls -ltr $ANDROID_HOME/platforms/
 ls -ltr $ANDROID_HOME/ndk/
 
 # download from go.dev/dl
-curl -Lso go.tar.gz https://go.dev/dl/go1.19.3.linux-amd64.tar.gz
-echo "74b9640724fd4e6bb0ed2a1bc44ae813a03f1e72a4c76253e2d5c015494430ba go.tar.gz" | sha256sum -c -
+curl -Lso go.tar.gz https://go.dev/dl/go1.20.1.linux-amd64.tar.gz
+echo "000a5b1fca4f75895f78befeb2eecf10bfff3c428597f3f1e69133b63b911b02 go.tar.gz" | sha256sum -c -
 
 # HOME=/home/jitpack
 # PWD=/home/jitpack/build
