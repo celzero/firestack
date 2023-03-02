@@ -38,7 +38,8 @@ import (
 type LogLevel uint8
 
 const (
-	DEBUG LogLevel = iota
+	VERBOSE LogLevel = iota
+	DEBUG
 	INFO
 	WARN
 	ERROR
@@ -49,11 +50,12 @@ const defaultLevel = WARN
 
 type Logger interface {
 	SetLevel(level LogLevel)
-	Debugf(msg string, args ...interface{})
-	Infof(msg string, args ...interface{})
-	Warnf(msg string, args ...interface{})
-	Errorf(msg string, args ...interface{})
-	Fatalf(msg string, args ...interface{})
+	Verbosef(msg string, args ...any)
+	Debugf(msg string, args ...any)
+	Infof(msg string, args ...any)
+	Warnf(msg string, args ...any)
+	Errorf(msg string, args ...any)
+	Fatalf(msg string, args ...any)
 }
 
 // based on github.com/eycorsican/go-tun2socks/blob/301549c43/common/log/simple/logger.go
@@ -74,34 +76,40 @@ func (l *simpleLogger) SetLevel(level LogLevel) {
 	l.level = level
 }
 
-func (l *simpleLogger) Debugf(msg string, args ...interface{}) {
+func (l *simpleLogger) Verbosef(msg string, args ...any) {
+	if l.level <= VERBOSE {
+		l.output(msg, args...)
+	}
+}
+
+func (l *simpleLogger) Debugf(msg string, args ...any) {
 	if l.level <= DEBUG {
 		l.output(msg, args...)
 	}
 }
 
-func (l *simpleLogger) Infof(msg string, args ...interface{}) {
+func (l *simpleLogger) Infof(msg string, args ...any) {
 	if l.level <= INFO {
 		l.output(msg, args...)
 	}
 }
 
-func (l *simpleLogger) Warnf(msg string, args ...interface{}) {
+func (l *simpleLogger) Warnf(msg string, args ...any) {
 	if l.level <= WARN {
 		l.output(msg, args...)
 	}
 }
 
-func (l *simpleLogger) Errorf(msg string, args ...interface{}) {
+func (l *simpleLogger) Errorf(msg string, args ...any) {
 	if l.level <= ERROR {
 		l.output(msg, args...)
 	}
 }
 
-func (l *simpleLogger) Fatalf(msg string, args ...interface{}) {
+func (l *simpleLogger) Fatalf(msg string, args ...any) {
 	golog.Fatalf(msg, args...)
 }
 
-func (l *simpleLogger) output(msg string, args ...interface{}) {
+func (l *simpleLogger) output(msg string, args ...any) {
 	golog.Printf(msg, args...)
 }

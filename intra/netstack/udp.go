@@ -92,7 +92,7 @@ func NewUDPForwarder(s *stack.Stack, h GUDPConnHandler, mtu uint32) *udp.Forward
 		// TODO: on stack.close, mop these goroutines up; just too many of them
 		// hanging around with failing dns queries (esp with happy-eyeballs)
 		go func() {
-			log.Debugf("ns.udp.forwarder: NEW src(%v) => dst(%v)", src, dst)
+			log.Verbosef("ns.udp.forwarder: NEW src(%v) => dst(%v)", src, dst)
 
 			if ok := h.OnNewConn(gc, src, dst); !ok {
 				return
@@ -119,7 +119,7 @@ func NewUDPForwarder(s *stack.Stack, h GUDPConnHandler, mtu uint32) *udp.Forward
 					if who.IP.String() != l.IP.String() {
 						log.Warnf("ns.udp.forwarder: MISMATCH expected-src(%v) => actual(l:%v)", who, l)
 					}
-					log.Debugf("ns.udp.forwarder: DATA src(%v) => dst(l:%v / r:%v)", who, l, r)
+					log.Verbosef("ns.udp.forwarder: DATA src(%v) => dst(l:%v / r:%v)", who, l, r)
 					if errh := h.HandleData(gc, data[:n], r); errh != nil {
 						break
 					}
@@ -166,7 +166,7 @@ func (g *GUDPConn) WriteFrom(data []byte, addr *net.UDPAddr) (int, error) {
 	// addr: 10.111.222.3:17711; g.LocalAddr(g.udp.remote): 10.111.222.3:17711; g.RemoteAddr(g.udp.local): 10.111.222.1:53
 	// ep(state 3 / info &{2048 17 {53 10.111.222.3 17711 10.111.222.1} 1 10.111.222.3 1} / stats &{{{1}} {{0}} {{{0}} {{0}} {{0}} {{0}}} {{{0}} {{0}} {{0}}} {{{0}} {{0}}} {{{0}} {{0}} {{0}}}})
 	// 3: status:datagram-connected / {2048=>proto, 17=>transport, {53=>local-port localip 17711=>remote-port remoteip}=>endpoint-id, 1=>bind-nic-id, ip=>bind-addr, 1=>registered-nic-id}
-	log.Debugf("ns.udp.writeFrom: from(%v) / ep(state %v / info %v / stats %v)", addr, g.ep.State(), g.ep.Info(), g.ep.Stats())
+	log.Verbosef("ns.udp.writeFrom: from(%v) / ep(state %v / info %v / stats %v)", addr, g.ep.State(), g.ep.Info(), g.ep.Stats())
 	return g.gudp.Write(data)
 
 }

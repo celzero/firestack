@@ -54,7 +54,7 @@ func NewTCPForwarder(s *stack.Stack, h GTCPConnHandler) *tcp.Forwarder {
 		}
 
 		request.Complete(false)
-		log.Debugf("ns.tcp.forwarder: data src(%v) => dst(%v)", src, dst)
+		log.Verbosef("ns.tcp.forwarder: data src(%v) => dst(%v)", src, dst)
 
 		// read/writes are routed using 5-tuple to the same conn (endpoint)
 		// demuxer.handlePacket -> find matching endpoint -> queue-packet -> send/recv conn (ep)
