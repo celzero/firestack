@@ -8,6 +8,7 @@ package dnsx
 
 import (
 	"errors"
+	"math/rand"
 	"strconv"
 	"strings"
 	"sync"
@@ -68,6 +69,9 @@ func NewCachingTransport(t Transport, ttl time.Duration) Transport {
 	if t == nil {
 		return nil
 	}
+
+	rand.Seed(time.Now().UnixNano())
+
 	// is type casting is a better way to do this?
 	if strings.HasPrefix(t.GetAddr(), addrprefix) {
 		log.Infof("caching(%s) no-op: %s", t.ID(), t.GetAddr())
@@ -138,7 +142,8 @@ func (t *ctransport) freshLocked(key string) (v *cres, ok bool) {
 	if v, ok = t.cache[key]; !ok {
 		return
 	}
-	return v, time.Since(v.expiry) < 0
+	r80 := rand.Intn(1000) < 700 // 70% chance of reusing from the cache
+	return v, r80 && time.Since(v.expiry) < 0
 }
 
 func (t *ctransport) putLocked(key string, response []byte, s *Summary) (ok bool) {
@@ -183,7 +188,7 @@ func (t *ctransport) getLocked(q *dns.Msg, v *cres) (r []byte, s *Summary, err e
 	if v.bumps < t.bumps {
 		v.bumps = v.bumps + 1
 		n := time.Duration(v.bumps) * t.halflife
-		// if the expiry time is already n duration in the future, don't bump
+		// if the expiry time is already n duration in the future, don't incr ttl
 		if time.Since(v.expiry.Add(-n)) < 0 {
 			v.expiry = v.expiry.Add(n)
 		}
