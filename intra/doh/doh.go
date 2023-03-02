@@ -400,6 +400,8 @@ func (t *transport) Query(_ string, q []byte, summary *dnsx.Summary) (r []byte, 
 	}
 	ans := xdns.AsMsg(response)
 	t.status = status
+	summary.ID = t.ID()
+	summary.Type = t.Type()
 	summary.Latency = elapsed.Seconds()
 	summary.RData = xdns.GetInterestingRData(ans)
 	summary.RCode = xdns.Rcode(ans)

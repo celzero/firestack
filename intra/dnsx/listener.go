@@ -32,11 +32,16 @@ func (s *Summary) FillInto(other *Summary) {
 	if s.Latency != 0 {
 		other.Latency = s.Latency
 	}
-	if len(s.QName) != 0 {
+
+	// query portions are only filled in if they are empty
+	if len(other.QName) == 0 {
 		other.QName = s.QName
 	}
 	// dns.TypeNone = 0
-	other.QType = s.QType
+	if other.QType == 0 {
+		other.QType = s.QType
+	}
+
 	if len(s.RData) != 0 {
 		other.RData = s.RData
 	}

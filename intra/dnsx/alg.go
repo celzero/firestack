@@ -239,6 +239,10 @@ func (t *dnsgateway) Query(network string, q []byte, summary *Summary) (r []byte
 	}
 
 	qname, _ := xdns.NormalizeQName(xdns.QName(ansin))
+
+	summary.QName = qname
+	summary.QType = qtype(ansin)
+
 	hasq := xdns.HasAQuadAQuestion(ansin) || xdns.HasSVCBQuestion(ansin)
 	hasans := xdns.HasAnyAnswer(ansin)
 	rgood := xdns.HasRcodeSuccess(ansin)
