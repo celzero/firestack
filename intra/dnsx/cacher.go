@@ -63,7 +63,7 @@ type cres struct {
 type ctransport struct {
 	sync.RWMutex               // protects the barrier
 	Transport                  // the underlying transport
-	store        []*cache      // coalesce requests for the same query
+	store        []*cache      // cache buckets
 	ipport       string        // a fake ip:port
 	status       int           // status of this transport
 	ttl          time.Duration // lifetime duration of a cached dns entry
@@ -135,7 +135,7 @@ func (cb *cache) scrub() {
 	defer cb.mu.Unlock()
 
 	// scrub the cache if it's getting too big
-	if len(cb.c) > cb.size*75/100 {
+	if len(cb.c) < cb.size*75/100 {
 		return
 	}
 
