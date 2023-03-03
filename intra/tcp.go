@@ -26,6 +26,7 @@
 package intra
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -112,9 +113,11 @@ func NewTCPHandler(resolver dnsx.Resolver, pt ipn.NatPt, blocker protect.Blocker
 // TODO: Propagate TCP RST using local.Abort(), on appropriate errors.
 func (h *tcpHandler) handleUpload(local core.TCPConn, remote split.DuplexConn, upload chan int64) {
 	ci := conn2str(local, remote)
+
 	// io.copy does remote.ReadFrom(local)
 	bytes, err := io.Copy(remote, local)
 	log.D("t.tcp handle-upload(%d) done(%v) b/w %s", bytes, err, ci)
+
 	local.CloseRead()
 	remote.CloseWrite()
 	upload <- bytes
@@ -130,8 +133,10 @@ func conn2str(a net.Conn, b net.Conn) string {
 
 func (h *tcpHandler) handleDownload(local core.TCPConn, remote split.DuplexConn) (bytes int64, err error) {
 	ci := conn2str(local, remote)
+
 	bytes, err = io.Copy(local, remote)
 	log.D("t.tcp handle-download(%d) done(%v) b/w %s", bytes, err, ci)
+
 	local.CloseWrite()
 	remote.CloseRead()
 	return
@@ -141,11 +146,15 @@ func (h *tcpHandler) forward(local net.Conn, remote split.DuplexConn, summary *T
 	localtcp := local.(core.TCPConn)
 	upload := make(chan int64)
 	start := time.Now()
+
 	go h.handleUpload(localtcp, remote, upload)
+
 	download, _ := h.handleDownload(localtcp, remote)
+
 	summary.DownloadBytes = download
 	summary.UploadBytes = <-upload
 	summary.Duration = int32(time.Since(start).Seconds())
+
 	h.listener.OnTCPSocketClosed(summary)
 }
 
@@ -173,6 +182,7 @@ func (h *tcpHandler) dnsOverride(conn net.Conn, addr *net.TCPAddr) bool {
 	// addr with zone information removed; see: netip.ParseAddrPort which h.resolver relies on
 	addr2 := &net.TCPAddr{IP: addr.IP, Port: addr.Port}
 	if h.resolver.IsDnsAddr(dnsx.NetTypeTCP, addr2.String()) {
+		// conn closed by the resolver
 		h.resolver.Serve(conn)
 		return true
 	}
@@ -287,7 +297,7 @@ func (h *tcpHandler) Handle(conn net.Conn, target *net.TCPAddr) error {
 			case *socks5.Client:
 				c = uc.TCPConn
 			default:
-				err = fmt.Errorf("Proxy dialer failed to make a tcp conn")
+				err = errors.New("t.tcp: could not create tcp conn")
 			}
 		}
 	} else if summary.ServerPort == 443 {
