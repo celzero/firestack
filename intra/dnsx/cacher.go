@@ -107,6 +107,10 @@ func NewCachingTransport(t Transport, ttl time.Duration) Transport {
 	return ct
 }
 
+func (cr *cres) str() string {
+	return "bumps=" + strconv.Itoa(cr.bumps) + " ;expiry=" + cr.expiry.String() + " ;s=" + cr.s.str()
+}
+
 func (t *ctransport) str() string {
 	return "ttl=" + t.ttl.String() + ";bumps=" + strconv.Itoa(t.bumps) + ";size=" + strconv.Itoa(t.size)
 }
@@ -249,7 +253,7 @@ func (cb *cache) putLocked(key string, response []byte, s *Summary) (kch chan st
 
 func asResponseLocked(q *dns.Msg, v *cres) (r []byte, s *Summary, err error) {
 	a := v.ans
-
+	log.D("cache hit %s", v.str())
 	if a != nil {
 		a.Id = q.Id
 		// dns 0x20 may mangle the question section, so preserve it

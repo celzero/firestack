@@ -6,6 +6,8 @@
 
 package dnsx
 
+import "fmt"
+
 // Summary is a summary of a DNS transaction, reported when it is complete.
 type Summary struct {
 	Type        string  // dnscrypt, dns53, doh
@@ -20,6 +22,11 @@ type Summary struct {
 	RelayServer string
 	Status      int
 	Blocklists  string // csv separated list of blocklists names, if any.
+}
+
+func (s *Summary) str() string {
+	return fmt.Sprintf("type: %s, id: %s, latency: %f, qname: %s, rdata: %s, rcode: %d, rttl: %d, server: %s, relay: %s, status: %d, blocklists: %s",
+		s.Type, s.ID, s.Latency, s.QName, s.RData, s.RCode, s.RTtl, s.Server, s.RelayServer, s.Status, s.Blocklists)
 }
 
 func (s *Summary) FillInto(other *Summary) {
