@@ -185,8 +185,7 @@ func (h *udpHandler) fetchUDPInput(conn core.UDPConn, nat *tracker) {
 			err = errors.New("failed to read from proxy udp conn")
 		}
 
-		// is err recoverable?
-		// ref: github.com/miekg/dns/blob/f8a185d39/server.go#L521
+		// is err recoverable? github.com/miekg/dns/blob/f8a185d39/server.go#L521
 		if neterr, ok := err.(net.Error); ok && neterr.Temporary() {
 			nat.errcount += 1
 			log.I("t.udp.ingress: %s temp err#%d(%v)", logaddr, nat.errcount, err)
@@ -212,6 +211,8 @@ func (h *udpHandler) fetchUDPInput(conn core.UDPConn, nat *tracker) {
 		// writes data to conn (tun) with udpaddr as source
 		if _, err = conn.WriteFrom(buf[:n], udpaddr); err != nil {
 			log.W("t.udp.ingress: failed to write udp data to tun (%s) from %s", logaddr, udpaddr)
+			nat.errcount += 1
+			// TODO: return from here?
 		}
 	}
 }

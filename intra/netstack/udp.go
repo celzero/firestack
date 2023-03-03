@@ -95,6 +95,7 @@ func NewUDPForwarder(s *stack.Stack, h GUDPConnHandler, mtu uint32) *udp.Forward
 			log.V("ns.udp.forwarder: NEW src(%v) => dst(%v)", src, dst)
 
 			if ok := h.OnNewConn(gc, src, dst); !ok {
+				gc.Close()
 				return
 			}
 
@@ -110,7 +111,6 @@ func NewUDPForwarder(s *stack.Stack, h GUDPConnHandler, mtu uint32) *udp.Forward
 				// addr is gc.gudp.RemoteAddr() ie gc.LocalAddr()
 				// github.com/google/gvisor/blob/be6ffa78e/pkg/tcpip/transport/udp/endpoint.go#L298
 				if n, addr, err := gc.gudp.ReadFrom(q); err == nil {
-					data := append([]byte{}, q[:n]...)
 					// who(10.111.222.3:17711)
 					// dst(l:10.111.222.3:17711 / r:10.111.222.1:53)
 					who := addr.(*net.UDPAddr)
@@ -120,7 +120,8 @@ func NewUDPForwarder(s *stack.Stack, h GUDPConnHandler, mtu uint32) *udp.Forward
 						log.W("ns.udp.forwarder: MISMATCH expected-src(%v) => actual(l:%v)", who, l)
 					}
 					log.V("ns.udp.forwarder: DATA src(%v) => dst(l:%v / r:%v)", who, l, r)
-					if errh := h.HandleData(gc, data[:n], r); errh != nil {
+					if errh := h.HandleData(gc, q[:n], r); errh != nil {
+						gc.Close()
 						break
 					}
 				} else {
@@ -168,7 +169,6 @@ func (g *GUDPConn) WriteFrom(data []byte, addr *net.UDPAddr) (int, error) {
 	// 3: status:datagram-connected / {2048=>proto, 17=>transport, {53=>local-port localip 17711=>remote-port remoteip}=>endpoint-id, 1=>bind-nic-id, ip=>bind-addr, 1=>registered-nic-id}
 	log.V("ns.udp.writeFrom: from(%v) / ep(state %v / info %v / stats %v)", addr, g.ep.State(), g.ep.Info(), g.ep.Stats())
 	return g.gudp.Write(data)
-
 }
 
 // Close closes the connection.
