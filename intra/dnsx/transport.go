@@ -489,7 +489,11 @@ func (r *resolver) determineTransports(id string) (Transport, *oneTransport) {
 	defer r.RUnlock()
 
 	if id == Alg {
-		return r.transports[Alg], r.pool[Preferred]
+		// if no firewall is setup, alg isn't possible
+		if r.tunmode.BlockMode == settings.BlockModeNone {
+			return r.transports[CT+Default], r.pool[CT+Default]
+		}
+		return r.transports[Alg], r.pool[CT+Preferred]
 	}
 	if t, ok := r.transports[id]; ok {
 		if onet, ok := r.pool[id]; ok {
