@@ -165,7 +165,8 @@ func (cb *cache) fresh(key string) (v *cres, ok bool) {
 		return
 	}
 
-	if v.bumps < cb.bumps {
+	alive := time.Since(v.expiry) > 0
+	if alive && v.bumps < cb.bumps {
 		v.bumps = v.bumps + 1
 		n := time.Duration(v.bumps) * cb.halflife
 		// if the expiry time is already n duration in the future, don't incr ttl
@@ -174,8 +175,8 @@ func (cb *cache) fresh(key string) (v *cres, ok bool) {
 		}
 	}
 
-	r80 := rand.Intn(1000) < 700 // 70% chance of reusing from the cache
-	return v, r80 && time.Since(v.expiry) < 0
+	r75 := rand.Intn(1000) < 750 // 75% chance of reusing from the cache
+	return v, r75 && alive
 }
 
 func (cb *cache) put(key string, response []byte, s *Summary) (ok bool) {
