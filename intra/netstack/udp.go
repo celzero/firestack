@@ -91,47 +91,51 @@ func NewUDPForwarder(s *stack.Stack, h GUDPConnHandler, mtu uint32) *udp.Forward
 
 		// TODO: on stack.close, mop these goroutines up; just too many of them
 		// hanging around with failing dns queries (esp with happy-eyeballs)
-		go func() {
-			log.V("ns.udp.forwarder: NEW src(%v) => dst(%v)", src, dst)
-
-			if ok := h.OnNewConn(gc, src, dst); !ok {
-				gc.Close()
-				return
-			}
-
-			// assign a big enough buffer since netstack does assemble fragmented packets
-			// which could go as big as max-packet-size (65K?)
-			// also: github.com/cloudflare/slirpnetstack/blob/41e49c3294/proxy.go#L73
-			// and: github.com/cloudflare/slirpnetstack/blob/41e49c3294/proxy.go#L114
-			// max: github.com/google/gvisor/blob/be6ffa78/pkg/tcpip/transport/udp/protocol.go#L43
-			// though, we never expect to exceed mtu, so we can use a smaller buffer?
-			q := make([]byte, K64)
-			for {
-				gc.gudp.SetDeadline(time.Now().Add(readDeadline))
-				// addr is gc.gudp.RemoteAddr() ie gc.LocalAddr()
-				// github.com/google/gvisor/blob/be6ffa78e/pkg/tcpip/transport/udp/endpoint.go#L298
-				if n, addr, err := gc.gudp.ReadFrom(q); err == nil {
-					// who(10.111.222.3:17711)
-					// dst(l:10.111.222.3:17711 / r:10.111.222.1:53)
-					who := addr.(*net.UDPAddr)
-					l := gc.LocalAddr()
-					r := gc.RemoteAddr()
-					if who.IP.String() != l.IP.String() {
-						log.W("ns.udp.forwarder: MISMATCH expected-src(%v) => actual(l:%v)", who, l)
-					}
-					log.V("ns.udp.forwarder: DATA src(%v) => dst(l:%v / r:%v)", who, l, r)
-					if errh := h.HandleData(gc, q[:n], r); errh != nil {
-						gc.Close()
-						break
-					}
-				} else {
-					// TODO: handle temporary errors?
-					log.D("ns.udp.forwarder: DONE err(%v)", err)
-					break
-				}
-			}
-		}()
+		go loop(h, gc, src, dst)
 	})
+}
+
+func loop(h GUDPConnHandler, gc *GUDPConn, src, dst *net.UDPAddr) {
+	log.V("ns.udp.forwarder: NEW src(%v) => dst(%v)", src, dst)
+
+	if ok := h.OnNewConn(gc, src, dst); !ok {
+		gc.Close()
+		return
+	}
+
+	// assign a big enough buffer since netstack does assemble fragmented packets
+	// which could go as big as max-packet-size (65K?)
+	// also: github.com/cloudflare/slirpnetstack/blob/41e49c3294/proxy.go#L73
+	// and: github.com/cloudflare/slirpnetstack/blob/41e49c3294/proxy.go#L114
+	// max: github.com/google/gvisor/blob/be6ffa78/pkg/tcpip/transport/udp/protocol.go#L43
+	// though, we never expect to exceed mtu, so we can use a smaller buffer?
+	q := core.NewBytes(K64)
+	defer core.FreeBytes(q)
+	for {
+		gc.gudp.SetDeadline(time.Now().Add(readDeadline))
+		// addr is gc.gudp.RemoteAddr() ie gc.LocalAddr()
+		// github.com/google/gvisor/blob/be6ffa78e/pkg/tcpip/transport/udp/endpoint.go#L298
+		if n, addr, err := gc.gudp.ReadFrom(q); err == nil {
+			// who(10.111.222.3:17711)
+			// dst(l:10.111.222.3:17711 / r:10.111.222.1:53)
+			who := addr.(*net.UDPAddr)
+			l := gc.LocalAddr()
+			r := gc.RemoteAddr()
+			if who.IP.String() != l.IP.String() {
+				log.W("ns.udp.forwarder: MISMATCH expected-src(%v) => actual(l:%v)", who, l)
+			}
+
+			log.V("ns.udp.forwarder: DATA src(%v) => dst(l:%v / r:%v)", who, l, r)
+			if errh := h.HandleData(gc, q[:n], r); errh != nil {
+				gc.Close()
+				break
+			}
+		} else {
+			// TODO: handle temporary errors?
+			log.D("ns.udp.forwarder: DONE err(%v)", err)
+			break
+		}
+	}
 }
 
 func (g *GUDPConn) LocalAddr() *net.UDPAddr {
