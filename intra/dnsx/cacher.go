@@ -310,6 +310,7 @@ func (t *ctransport) Query(network string, q []byte, summary *Summary) ([]byte, 
 				kch, _ := cb.putLocked(key, response, summary)
 				go t.cleanup(cb, kch)
 			} else if v != nil {
+				start = time.Now() // reset start time
 				// use stale cache response on error
 				response, s, err = asResponseLocked(msg, v)
 			}
