@@ -189,7 +189,7 @@ func (cb *cache) freshLocked(key string) (v *cres, ok bool) {
 		return
 	}
 
-	alive := time.Since(v.expiry) > 0
+	alive := time.Since(v.expiry) <= 0
 	if alive && v.bumps < cb.bumps {
 		v.bumps = v.bumps + 1
 		n := time.Duration(v.bumps) * cb.halflife
@@ -223,7 +223,7 @@ func (cb *cache) putLocked(key string, response []byte, s *Summary) (kch chan st
 	cb.mu.Lock()
 	defer cb.mu.Unlock()
 
-	if len(cb.c) > cb.size {
+	if len(cb.c) >= cb.size {
 		ok = false
 		return
 	}
