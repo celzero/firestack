@@ -43,13 +43,14 @@ var (
 )
 
 type cache struct {
-	c         map[string]*cres // query -> response
-	mu        *sync.RWMutex    // protects the cache
-	ttl       time.Duration    // how long to cache the valid dns response
-	halflife  time.Duration    // how much to increment ttl on each read
-	bumps     int              // max bumps before we stop bumping a response
-	size      int              // max size of the cache
-	scrubtime time.Time        // last time cache was scrubbed / purged
+	c         map[string]*cres       // query -> response
+	mu        *sync.RWMutex          // protects the cache
+	ttl       time.Duration          // how long to cache the valid dns response
+	halflife  time.Duration          // how much to increment ttl on each read
+	bumps     int                    // max bumps before we stop bumping a response
+	size      int                    // max size of the cache
+	scrubtime time.Time              // last time cache was scrubbed / purged
+	qbarrier  map[string]*sync.Mutex // coalesce requests for the same query
 }
 
 type cres struct {
@@ -130,7 +131,27 @@ func (*ctransport) ckey(q *dns.Msg) (string, uint8, bool) {
 	return qname + ":" + qtyp, hash(qname), true
 }
 
-func (cb *cache) scrub() {
+func (t *ctransport) cleanup(cb *cache, kch <-chan string) {
+	var keys []string
+	for k := range kch {
+		keys = append(keys, k)
+	}
+	if len(keys) == 0 {
+		return
+	}
+
+	t.Lock()
+	for _, k := range keys {
+		delete(cb.qbarrier, k)
+	}
+	t.Unlock()
+
+	log.I("cache(%d) cleaned up: %d", len(keys))
+}
+
+func (cb *cache) scrub(kch chan<- string) {
+	defer close(kch)
+
 	cb.mu.Lock()
 	defer cb.mu.Unlock()
 
@@ -145,19 +166,22 @@ func (cb *cache) scrub() {
 	}
 	cb.scrubtime = now
 
-	i := 0
+	i, j := 0, 0
 	for k, v := range cb.c {
+		i++
 		if time.Since(v.expiry) > 0 {
 			delete(cb.c, k)
+			kch <- k
+			j++
 		}
-		i++
 		if i > maxscrubs {
 			break
 		}
 	}
+	log.I("cache(%d) scrub: %d/%d", j, i)
 }
 
-func (cb *cache) fresh(key string) (v *cres, ok bool) {
+func (cb *cache) freshLocked(key string) (v *cres, ok bool) {
 	cb.mu.RLock()
 	defer cb.mu.RUnlock()
 
@@ -179,25 +203,29 @@ func (cb *cache) fresh(key string) (v *cres, ok bool) {
 	return v, r75 && alive
 }
 
-func (cb *cache) put(key string, response []byte, s *Summary) (ok bool) {
+func (cb *cache) putLocked(key string, response []byte, s *Summary) (kch chan string, ok bool) {
 	if len(response) <= 0 {
-		return false
+		ok = false
+		return
 	}
 
 	ans := xdns.AsMsg(response)
 	// only cache successful responses
 	// TODO: implement negative caching
 	if !xdns.HasRcodeSuccess(ans) || xdns.HasTCFlag(response) {
-		return false
+		ok = false
+		return
 	}
+
+	kch = make(chan string) // unbuffered
+	go cb.scrub(kch)
 
 	cb.mu.Lock()
 	defer cb.mu.Unlock()
 
-	go cb.scrub()
-
 	if len(cb.c) > cb.size {
-		return false
+		ok = false
+		return
 	}
 
 	ansttl := time.Duration(xdns.RTtl(ans)) * time.Second
@@ -215,11 +243,11 @@ func (cb *cache) put(key string, response []byte, s *Summary) (ok bool) {
 		bumps:  0,
 	}
 
-	return true
+	ok = true
+	return
 }
 
-func asResponse(q *dns.Msg, v *cres) (r []byte, s *Summary, err error) {
-	// TODO: needs read lock?
+func asResponseLocked(q *dns.Msg, v *cres) (r []byte, s *Summary, err error) {
 	a := v.ans
 
 	if a != nil {
@@ -249,6 +277,7 @@ func (t *ctransport) Query(network string, q []byte, summary *Summary) ([]byte, 
 	var s *Summary
 	var err error
 	var cb *cache
+	var ba *sync.Mutex
 
 	msg := xdns.AsMsg(q)
 
@@ -260,23 +289,34 @@ func (t *ctransport) Query(network string, q []byte, summary *Summary) ([]byte, 
 			cb = &cache{
 				c:        make(map[string]*cres),
 				mu:       &sync.RWMutex{},
+				size:     t.size,
 				ttl:      t.ttl,
 				bumps:    t.bumps,
 				halflife: t.halflife,
+				qbarrier: make(map[string]*sync.Mutex),
 			}
 			t.store[h] = cb
 		}
+		if ba = cb.qbarrier[key]; ba == nil {
+			ba = &sync.Mutex{}
+			cb.qbarrier[key] = ba
+		}
 		t.Unlock()
 
-		if v, ok := cb.fresh(key); !ok {
-			if response, err = t.Transport.Query(network, q, summary); err == nil {
-				cb.put(key, response, summary)
+		ba.Lock() // per query-name lock
+		if v, ok := cb.freshLocked(key); !ok {
+			response, err = t.Transport.Query(network, q, summary) // locked
+			if err == nil {
+				kch, _ := cb.putLocked(key, response, summary)
+				go t.cleanup(cb, kch)
 			} else if v != nil {
-				response, s, err = asResponse(msg, v)
+				// use stale cache response on error
+				response, s, err = asResponseLocked(msg, v)
 			}
 		} else {
-			response, s, err = asResponse(msg, v)
+			response, s, err = asResponseLocked(msg, v)
 		}
+		ba.Unlock()
 	} else {
 		err = errMissingQueryName
 	}
