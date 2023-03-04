@@ -319,15 +319,24 @@ func (h *udpHandler) Connect(conn core.UDPConn, target *net.UDPAddr) error {
 		// TODO: target can be nil: What happens then?
 		// TODO: target can unspecified on netstack... handle approp in receiveTo?
 		// deprecated: github.com/golang/go/issues/25104
-		c, err = h.proxy.Dial(target.Network(), target.String())
-		laddr = c.(net.Conn).LocalAddr()
+		if c, err = h.proxy.Dial(target.Network(), target.String()); c != nil {
+			if tc, ok := c.(net.Conn); ok {
+				laddr = tc.LocalAddr()
+			}
+		}
 	} else if h.symnat {
-		c, err = h.dialer.Dial(target.Network(), target.String())
-		laddr = c.(net.Conn).LocalAddr()
+		if c, err = h.dialer.Dial(target.Network(), target.String()); c != nil {
+			if tc, ok := c.(net.Conn); ok {
+				laddr = tc.LocalAddr()
+			}
+		}
 	} else {
 		bindaddr := &net.UDPAddr{IP: nil, Port: 0}
-		c, err = h.config.ListenPacket(context.TODO(), bindaddr.Network(), bindaddr.String())
-		laddr = c.(net.PacketConn).LocalAddr()
+		if c, err = h.config.ListenPacket(context.TODO(), bindaddr.Network(), bindaddr.String()); c != nil {
+			if tc, ok := c.(net.PacketConn); ok {
+				laddr = tc.LocalAddr()
+			}
+		}
 	}
 
 	if err != nil {
