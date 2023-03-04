@@ -53,6 +53,7 @@ type cache struct {
 	size      int                    // max size of the cache
 	scrubtime time.Time              // last time cache was scrubbed / purged
 	qbarrier  map[string]*sync.Mutex // coalesce requests for the same query
+	qmu       sync.RWMutex           // protects qbarrier
 }
 
 type cres struct {
@@ -64,7 +65,7 @@ type cres struct {
 
 // TODO: Keep a context here so that queries can be canceled.
 type ctransport struct {
-	sync.RWMutex               // protects the barrier
+	sync.RWMutex               // protects store
 	Transport                  // the underlying transport
 	store        []*cache      // cache buckets
 	ipport       string        // a fake ip:port
@@ -137,7 +138,7 @@ func (*ctransport) ckey(q *dns.Msg) (string, uint8, bool) {
 	return qname + keysep + qtyp, hash(qname), true
 }
 
-func (t *ctransport) cleanup(cb *cache, kch <-chan string) {
+func (cb *cache) scrubQBarrier(kch <-chan string) {
 	var keys []string
 	for k := range kch {
 		keys = append(keys, k)
@@ -146,16 +147,16 @@ func (t *ctransport) cleanup(cb *cache, kch <-chan string) {
 		return
 	}
 
-	t.Lock()
+	cb.qmu.Lock()
 	for _, k := range keys {
 		delete(cb.qbarrier, k)
 	}
-	t.Unlock()
+	cb.qmu.Unlock()
 
 	log.I("cache(%d) cleaned up: %d", len(keys))
 }
 
-func (cb *cache) scrub(kch chan<- string) {
+func (cb *cache) scrubCache(kch chan<- string) {
 	defer close(kch)
 
 	cb.mu.Lock()
@@ -209,8 +210,7 @@ func (cb *cache) freshLocked(key string) (v *cres, ok bool) {
 	return v, r75 && alive
 }
 
-func (cb *cache) putLocked(key string, response []byte, s *Summary) (kch chan string, ok bool) {
-	kch = make(chan string)
+func (cb *cache) putLocked(key string, response []byte, s *Summary) (ok bool) {
 	ok = false
 
 	if len(response) <= 0 {
@@ -228,7 +228,9 @@ func (cb *cache) putLocked(key string, response []byte, s *Summary) (kch chan st
 		return
 	}
 
-	go cb.scrub(kch)
+	kch := make(chan string)
+	go cb.scrubCache(kch)
+	go cb.scrubQBarrier(kch)
 
 	cb.mu.Lock()
 	defer cb.mu.Unlock()
@@ -306,24 +308,27 @@ func (t *ctransport) Query(network string, q []byte, summary *Summary) ([]byte, 
 			}
 			t.store[h] = cb
 		}
+		t.Unlock()
+
+		cb.qmu.Lock()
 		if ba = cb.qbarrier[key]; ba == nil {
 			ba = &sync.Mutex{}
 			cb.qbarrier[key] = ba
 		}
-		t.Unlock()
+		cb.qmu.Unlock()
 
 		ba.Lock() // per query-name lock
 		if v, ok := cb.freshLocked(key); !ok {
 			response, err = t.Transport.Query(network, q, summary) // locked
 			if err == nil {
-				kch, _ := cb.putLocked(key, response, summary)
-				go t.cleanup(cb, kch)
+				cb.putLocked(key, response, summary)
 			} else if v != nil {
 				start = time.Now() // reset start time
 				// use stale cache response on error
 				response, s, err = asResponseLocked(msg, v)
 			}
 		} else {
+			start = time.Now() // reset start time
 			response, s, err = asResponseLocked(msg, v)
 		}
 		ba.Unlock()
