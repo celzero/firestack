@@ -36,6 +36,8 @@ const (
 	maxscrubs = defsize / 4 // 25% of the cache
 	// prefix for cached transport addresses
 	addrprefix = "cached."
+	// separator qname, qtype cache-key
+	keysep = ":"
 )
 
 var (
@@ -132,7 +134,7 @@ func (*ctransport) ckey(q *dns.Msg) (string, uint8, bool) {
 	}
 	qtyp := strconv.Itoa(int(xdns.QType(q)))
 
-	return qname + ":" + qtyp, hash(qname), true
+	return qname + keysep + qtyp, hash(qname), true
 }
 
 func (t *ctransport) cleanup(cb *cache, kch <-chan string) {
@@ -203,13 +205,19 @@ func (cb *cache) freshLocked(key string) (v *cres, ok bool) {
 		}
 	}
 
-	r75 := rand.Intn(1000) < 750 // 75% chance of reusing from the cache
+	r75 := rand.Intn(99999) < 75000 // 75% chance of reusing from the cache
 	return v, r75 && alive
 }
 
 func (cb *cache) putLocked(key string, response []byte, s *Summary) (kch chan string, ok bool) {
+	kch = make(chan string)
+	ok = false
+
 	if len(response) <= 0 {
-		ok = false
+		return
+	}
+	// do not cache .onion addresses
+	if strings.Contains(key, ".onion"+keysep) {
 		return
 	}
 
@@ -217,18 +225,15 @@ func (cb *cache) putLocked(key string, response []byte, s *Summary) (kch chan st
 	// only cache successful responses
 	// TODO: implement negative caching
 	if !xdns.HasRcodeSuccess(ans) || xdns.HasTCFlag(response) {
-		ok = false
 		return
 	}
 
-	kch = make(chan string) // unbuffered
 	go cb.scrub(kch)
 
 	cb.mu.Lock()
 	defer cb.mu.Unlock()
 
 	if len(cb.c) >= cb.size {
-		ok = false
 		return
 	}
 
