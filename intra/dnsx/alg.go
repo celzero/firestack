@@ -145,7 +145,7 @@ func (t *dnsgateway) querySecondary(network string, q []byte, out chan<- secans,
 	// check if the question is blocked
 	if msg = xdns.AsMsg(q); msg == nil {
 		return // not a valid dns message
-	} else if ok := xdns.HasAQuadAQuestion(msg) || xdns.HasSVCBQuestion(msg); !ok {
+	} else if ok := xdns.HasAQuadAQuestion(msg) || xdns.HasHTTPQuestion(msg) || xdns.HasSVCBQuestion(msg); !ok {
 		return // not a dns question we care about
 	} else if ans1, blocklists, err := t.rdns.blockQ( /*maybe nil*/ t.secondary, msg); err == nil {
 		// if err !is nil, then the question is blocked
@@ -243,7 +243,7 @@ func (t *dnsgateway) Query(network string, q []byte, summary *Summary) (r []byte
 	summary.QName = qname
 	summary.QType = qtype(ansin)
 
-	hasq := xdns.HasAQuadAQuestion(ansin) || xdns.HasSVCBQuestion(ansin)
+	hasq := xdns.HasAQuadAQuestion(ansin) || xdns.HasSVCBQuestion(ansin) || xdns.HasHTTPQuestion(ansin)
 	hasans := xdns.HasAnyAnswer(ansin)
 	rgood := xdns.HasRcodeSuccess(ansin)
 	ans0000 := xdns.AQuadAUnspecified(ansin)

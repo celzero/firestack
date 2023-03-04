@@ -298,7 +298,7 @@ func (r *resolver) Add(t Transport) (ok bool) {
 		if gw := r.Gateway(); t.ID() == Preferred && gw != nil {
 			gw.WithTransport(t)
 		} else {
-			log.E("dns: no gw %v / not preffered %s@%s", gw, t.ID(), t.GetAddr())
+			log.D("dns: no gw? %t / not preffered %s@%s", gw == nil, t.ID(), t.GetAddr())
 		}
 		return true
 	default:

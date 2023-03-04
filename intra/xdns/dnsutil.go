@@ -402,26 +402,10 @@ func RefusedResponseFromMessage(srcMsg *dns.Msg) (dstMsg *dns.Msg, err error) {
 			dstMsg.Answer = []dns.RR{rr}
 			sendHInfoResponse = false
 		}
-	} else if IsSVCBQuestion(&question) {
-		rrh := new(dns.HTTPS)
-		rrh.Hdr = dns.RR_Header{
-			Name:   question.Name,
-			Rrtype: dns.TypeHTTPS,
-			Class:  dns.ClassINET,
-			Ttl:    ttl,
-		}
-		// TODO: instead use a self-referential "."?
-		// some random 63-char string
-		rrh.Target = fakedomain
-		rra := new(dns.A)
-		rra.Hdr = dns.RR_Header{
-			Name:   fakedomain,
-			Rrtype: dns.TypeA,
-			Class:  dns.ClassINET,
-			Ttl:    ttl,
-		}
-		rra.A = ip4.To4()
-		dstMsg.Answer = []dns.RR{rrh, rra}
+	} else if IsSVCBQuestion(&question) || IsHTTPQuestion(&question) {
+		// NODATA response datatracker.ietf.org/doc/draft-ietf-dnsop-svcb-https/11 pg 37
+		// prefetch.net/blog/2016/09/28/the-subtleties-between-the-nxdomain-noerror-and-nodata-dns-response-codes/
+		dstMsg.Answer = nil
 		sendHInfoResponse = false
 	}
 
@@ -557,6 +541,11 @@ func SubstSVCBRecordIPs(out *dns.Msg, x dns.SVCBKey, subiphints []*netip.Addr, t
 				}
 			}
 		case *dns.HTTPS:
+			if rec.Priority == 0 || len(rec.Target) > 1 {
+				// no kv pairs to process for https records when pri is 0
+				// datatracker.ietf.org/doc/draft-ietf-dnsop-svcb-https/ section 1.2
+				continue
+			}
 			for j, kv := range rec.Value {
 				k := kv.Key()
 				// replace with a single ip hint
@@ -576,15 +565,21 @@ func SubstSVCBRecordIPs(out *dns.Msg, x dns.SVCBKey, subiphints []*netip.Addr, t
 			}
 		}
 	}
+	if i > 0 {
+		// datatracker.ietf.org/doc/draft-ietf-dnsop-svcb-https/11 pg 16 sec 4.2
+		// remove additional records, as they may further have svcb or a / aaaa records
+		out.Extra = nil
+	}
 	return i > 0
 }
 
 func IPHints(msg *dns.Msg, x dns.SVCBKey) []*netip.Addr {
-	if !HasSVCBQuestion(msg) {
+	if !HasSVCBQuestion(msg) || !HasHTTPQuestion(msg) {
 		return nil
 	}
+
 	// extract ip hints from https / svcb records
-	// https://tools.ietf.org/html/draft-ietf-dnsop-svcb-https-02#section-8.1
+	// tools.ietf.org/html/draft-ietf-dnsop-svcb-https-02#section-8.1
 	ips := []*netip.Addr{}
 	for _, answer := range msg.Answer {
 		if !(answer.Header().Rrtype == dns.TypeHTTPS) && !(answer.Header().Rrtype == dns.TypeSVCB) {
@@ -665,7 +660,11 @@ func HasAQuestion(msg *dns.Msg) bool {
 }
 
 func IsSVCBQuestion(q *dns.Question) bool {
-	return q.Qclass == dns.ClassINET && (q.Qtype == dns.TypeHTTPS || q.Qtype == dns.TypeSVCB)
+	return q.Qtype == dns.TypeSVCB
+}
+
+func IsHTTPQuestion(q *dns.Question) bool {
+	return q.Qtype == dns.TypeHTTPS
 }
 
 func HasAQuadAQuestion(msg *dns.Msg) bool {
@@ -673,8 +672,21 @@ func HasAQuadAQuestion(msg *dns.Msg) bool {
 }
 
 func HasSVCBQuestion(msg *dns.Msg) bool {
-	q := msg.Question[0]
-	return IsSVCBQuestion(&q)
+	if len(msg.Question) <= 0 {
+		return false
+	} else {
+		q := msg.Question[0]
+		return IsSVCBQuestion(&q)
+	}
+}
+
+func HasHTTPQuestion(msg *dns.Msg) bool {
+	if len(msg.Question) <= 0 {
+		return false
+	} else {
+		q := msg.Question[0]
+		return IsHTTPQuestion(&q)
+	}
 }
 
 func MakeARecord(name string, ip4 string, expiry int) dns.RR {
