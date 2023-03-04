@@ -84,6 +84,7 @@ type TransportMult interface {
 	Transport
 }
 
+// Adapter to keep gomobile happy as it doesn't support exporting net.Conn
 type Conn interface {
 	Read(b []byte) (n int, err error)
 	Write(b []byte) (n int, err error)
@@ -208,6 +209,7 @@ func (r *resolver) SetRdnsLocal(b BraveDNS) error {
 	return nil
 }
 
+// Implements RdnsResolver
 func (r *resolver) SetRdnsRemote(b BraveDNS) error {
 	if b == nil {
 		r.rdnsr = nil
@@ -219,6 +221,7 @@ func (r *resolver) SetRdnsRemote(b BraveDNS) error {
 	return nil
 }
 
+// Implements RdnsResolver
 func (r *resolver) BlockFreeTransport() Transport {
 	r.RLock()
 	defer r.RUnlock()
@@ -226,10 +229,12 @@ func (r *resolver) BlockFreeTransport() Transport {
 	return r.transports[BlockFree]
 }
 
+// Implements RdnsResolver
 func (r *resolver) GetRdnsLocal() BraveDNS {
 	return r.rdnsl
 }
 
+// Implements RdnsResolver
 func (r *resolver) GetRdnsRemote() BraveDNS {
 	return r.rdnsr
 }
@@ -500,6 +505,10 @@ func (r *resolver) determineTransports(id string) (Transport, *oneTransport) {
 			return t, onet
 		}
 	}
+	// if none of the reserved transports are available, use the default
+	if isReserved(id) {
+		return r.transports[CT+Default], r.pool[CT+Default]
+	}
 
 	return nil, nil
 }
@@ -666,7 +675,7 @@ func (r *resolver) accept(c io.ReadWriteCloser) {
 }
 
 func isReserved(id string) (ok bool) {
-	return id == Alg || id == DcProxy || id == BlockAll || id == Preferred || id == BlockFree
+	return id == Alg || id == DcProxy || id == BlockAll || id == Preferred || id == BlockFree || id == System
 }
 
 func unpack(q []byte) (*dns.Msg, error) {
