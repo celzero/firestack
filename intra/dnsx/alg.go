@@ -50,12 +50,14 @@ type Gateway interface {
 	PTR(algip []byte) (domaincsv string)
 	// given an alg ip, retrieve its blocklists as csv, if any
 	RDNSBL(algip []byte) (blocklistcsv string)
+	// send translated response to client
+	Translate(bool)
 	// set Transport as the underlying upstream DNS for alg queries
-	WithTransport(Transport) bool
+	withTransport(Transport) bool
 	// unset Transport as the underlying upstream DNS for alg queries
-	WithoutTransport(Transport) bool
+	withoutTransport(Transport) bool
 	// clear obj state
-	Stop()
+	stop()
 }
 
 type secans struct {
@@ -90,8 +92,10 @@ type dnsgateway struct {
 	Gateway                          // dns alg interface
 	tranMu       sync.RWMutex        // locks for Transport assignments
 	secondary    Transport           // secondary transport for alg queries
+	mod          bool                // modify real ip to alg ip
 	alg          map[string]*ans     // domain+type -> ans
 	nat          map[netip.Addr]*ans // algip -> ans
+	px           map[netip.Addr]*ans // realip -> ans
 	rdns         RdnsResolver        // local and remote rdns blocks
 	octets       []uint8             // ip4 octets, 100.x.y.z
 	hexes        []uint16            // ip6 hex, 64:ff9b:1:da19:0100.x.y.z
@@ -110,12 +114,18 @@ func NewDNSGateway(inner Transport, outer RdnsResolver) (t *dnsgateway) {
 		hexes:  []uint16{0x64, 0xff9b, 0x1, 0xda19, 0x100, 0x0, 0x0, 0x0},
 	}
 	// initial transport must be set before starting the gateway
-	t.WithTransport(inner)
+	t.withTransport(inner)
 	log.I("alg: setup %s@%s / %s", inner.ID(), inner.GetAddr(), inner.Type())
 	return
 }
 
-func (t *dnsgateway) Stop() {
+func (t *dnsgateway) Translate(yes bool) {
+	log.I("alg: translate? %t", yes)
+	t.mod = yes
+}
+
+// Implements Gateway
+func (t *dnsgateway) stop() {
 	t.Lock()
 	defer t.Unlock()
 
@@ -350,7 +360,12 @@ func (t *dnsgateway) Query(network string, q []byte, summary *Summary) (r []byte
 	if rout, err := ansout.Pack(); err == nil {
 		if t.registerMultiLocked(qname, x) {
 			t.withAlgSummaryIfNeededLocked(algips, summary)
-			return rout, nil
+			// if mod is set, send modified answer
+			if t.mod {
+				return rout, nil
+			} else {
+				return r, nil
+			}
 		} else {
 			return r, errCannotRegisterAlg
 		}
@@ -395,10 +410,11 @@ func netip2csv(ips []*netip.Addr) (csv string) {
 }
 
 func (t *dnsgateway) withAlgSummaryIfNeededLocked(algips []*netip.Addr, s *Summary) {
-	// convert algips to ipcsv
-	ipcsv := netip2csv(algips)
+	if settings.Debug && t.mod {
 
-	if settings.Debug {
+		// convert algips to ipcsv
+		ipcsv := netip2csv(algips)
+
 		if len(s.RData) > 0 {
 			s.RData = ipcsv + "," + s.RData
 		} else {
@@ -422,14 +438,19 @@ func (am *ansMulti) ansViewLocked(i int) *ans {
 
 func (t *dnsgateway) registerMultiLocked(q string, am *ansMulti) bool {
 	for i := range am.algip {
-		if ok := t.registerLocked(q, i, am.ansViewLocked(i)); !ok {
+		if ok := t.registerNatLocked(q, i, am.ansViewLocked(i)); !ok {
+			return false
+		}
+	}
+	for i := range am.realip {
+		if ok := t.registerPxLocked(q, i, am.ansViewLocked(i)); !ok {
 			return false
 		}
 	}
 	return true
 }
 
-func (t *dnsgateway) registerLocked(q string, idx int, x *ans) bool {
+func (t *dnsgateway) registerNatLocked(q string, idx int, x *ans) bool {
 	ip := x.algip
 	var k string
 	if ip.Is4() {
@@ -441,6 +462,12 @@ func (t *dnsgateway) registerLocked(q string, idx int, x *ans) bool {
 	}
 	t.alg[k] = x
 	t.nat[*ip] = x
+	return true
+}
+
+func (t *dnsgateway) registerPxLocked(q string, idx int, x *ans) bool {
+	ip := x.realip[idx]
+	t.px[*ip] = x
 	return true
 }
 
@@ -541,7 +568,7 @@ func (t *dnsgateway) take6Locked(q string, idx int) (*netip.Addr, bool) {
 }
 
 // Implements Gateway
-func (t *dnsgateway) WithTransport(inner Transport) bool {
+func (t *dnsgateway) withTransport(inner Transport) bool {
 	blkfree := t.rdns.BlockFreeTransport()
 	if inner == nil {
 		return false
@@ -563,28 +590,19 @@ func (t *dnsgateway) WithTransport(inner Transport) bool {
 		// if preferred transport is a rdns transport, use BlockFree as the primary
 		// that's because a rdns transport can be a filtering dns server whereas
 		// alg works best with a non-filtering dns server (which BlockFree is)
-		for _, dom := range RdnsDomains {
-			if strings.Contains(inneraddr, dom) {
-				if blkfree == nil {
-					log.W("alg: rdns.BlockFree preferred primary missing %s", inner.GetAddr())
-					t.Transport = nil
-					t.secondary = nil
-					return false
-				} else {
-					log.I("alg: primary for preferred rdns %s / sec %s", blkfree.GetAddr(), inner.GetAddr())
-					t.Transport = NewCachingTransport(blkfree, ttl2m)
-					t.secondary = NewDefaultCachingTransport(inner)
-					return true
-				}
-			}
+		if blkfree == nil {
+			log.W("alg: primary BlockFree missing %s", inner.GetAddr())
+			t.Transport = nil
+			t.secondary = nil
+			return false
+		} else {
+			log.I("alg: primary set preferred %s / sec %s", blkfree.GetAddr(), inner.GetAddr())
+			t.Transport = NewCachingTransport(blkfree, ttl2m)
+			t.secondary = NewDefaultCachingTransport(inner)
+			return true
 		}
-		log.I("alg: primary preferred for %s / sec nil", inner.GetAddr())
-		// use the preferred transport as primary
-		t.Transport = NewCachingTransport(inner, ttl2m)
-		// and disable the secondary
-		t.secondary = nil
 	} else {
-		log.I("alg: sec set %s / primary %s", inner.GetAddr(), t.GetAddr())
+		log.I("alg: sec set %s / existing primary %s", inner.GetAddr(), t.GetAddr())
 		// any other transport is secondary
 		t.secondary = NewDefaultCachingTransport(inner)
 	}
@@ -592,7 +610,7 @@ func (t *dnsgateway) WithTransport(inner Transport) bool {
 }
 
 // Implements Gateway
-func (t *dnsgateway) WithoutTransport(goner Transport) (ok bool) {
+func (t *dnsgateway) withoutTransport(goner Transport) (ok bool) {
 	if goner == nil || len(goner.ID()) == 0 {
 		return
 	}
@@ -664,6 +682,8 @@ func (t *dnsgateway) x(algip *netip.Addr) (realip []*netip.Addr) {
 	unmapped := algip.Unmap()
 	if ans, ok := t.nat[unmapped]; ok {
 		realip = append(ans.realip, ans.secondaryips...)
+	} else if ans, ok := t.px[unmapped]; ok {
+		realip = append(ans.realip, ans.secondaryips...)
 	}
 	return
 }
@@ -673,6 +693,8 @@ func (t *dnsgateway) ptr(algip *netip.Addr) (domains []string) {
 	// alg ips are always unmappped; see take4Locked
 	unmapped := algip.Unmap()
 	if ans, ok := t.nat[unmapped]; ok {
+		domains = ans.domain
+	} else if ans, ok := t.px[unmapped]; ok {
 		domains = ans.domain
 	}
 	return
@@ -684,6 +706,8 @@ func (t *dnsgateway) rdnsbl(algip *netip.Addr) (bcsv string) {
 	unmapped := algip.Unmap()
 	if ans, ok := t.nat[unmapped]; ok {
 		bcsv = ans.blocklists
+	} else if ans, ok := t.px[unmapped]; ok {
+		bcsv = ans.blocklists
 	}
-	return bcsv
+	return
 }

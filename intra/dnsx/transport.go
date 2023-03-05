@@ -296,7 +296,7 @@ func (r *resolver) Add(t Transport) (ok bool) {
 
 		// if resetting default transport, update underlying transport for alg
 		if gw := r.Gateway(); t.ID() == Preferred && gw != nil {
-			gw.WithTransport(t)
+			gw.withTransport(t)
 		} else {
 			log.D("dns: no gw? %t / not preffered %s@%s", gw == nil, t.ID(), t.GetAddr())
 		}
@@ -373,7 +373,7 @@ func (r *resolver) Remove(id string) (ok bool) {
 		tm.Remove(ctid)
 	}
 	if gw := r.Gateway(); gw != nil {
-		gw.WithoutTransport(t)
+		gw.withoutTransport(t)
 	}
 
 	ok = ok1 || ok2
@@ -717,7 +717,7 @@ func (r *resolver) Start() (string, error) {
 
 func (r *resolver) Stop() error {
 	if gw := r.Gateway(); gw != nil {
-		gw.Stop()
+		gw.stop()
 	}
 	if dc, err := r.DcProxy(); err == nil {
 		return dc.Stop()
