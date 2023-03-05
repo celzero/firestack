@@ -222,14 +222,6 @@ func (r *resolver) SetRdnsRemote(b BraveDNS) error {
 }
 
 // Implements RdnsResolver
-func (r *resolver) BlockFreeTransport() Transport {
-	r.RLock()
-	defer r.RUnlock()
-
-	return r.transports[BlockFree]
-}
-
-// Implements RdnsResolver
 func (r *resolver) GetRdnsLocal() BraveDNS {
 	return r.rdnsl
 }
@@ -295,10 +287,10 @@ func (r *resolver) Add(t Transport) (ok bool) {
 		log.I("dns: add transport %s@%s", t.ID(), t.GetAddr())
 
 		// if resetting default transport, update underlying transport for alg
-		if gw := r.Gateway(); t.ID() == Preferred && gw != nil {
+		if gw := r.Gateway(); (t.ID() == Preferred || t.ID() == BlockFree) && gw != nil {
 			gw.withTransport(t)
 		} else {
-			log.D("dns: no gw? %t / not preffered %s@%s", gw == nil, t.ID(), t.GetAddr())
+			log.D("dns: no gw? %t / not blkfree/preffered %s@%s", gw == nil, t.ID(), t.GetAddr())
 		}
 		return true
 	default:

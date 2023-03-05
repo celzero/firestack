@@ -569,8 +569,8 @@ func (t *dnsgateway) take6Locked(q string, idx int) (*netip.Addr, bool) {
 
 // Implements Gateway
 func (t *dnsgateway) withTransport(inner Transport) bool {
-	blkfree := t.rdns.BlockFreeTransport()
 	if inner == nil {
+		log.W("alg: inner missing (%t)", inner == nil)
 		return false
 	}
 	inneraddr := inner.GetAddr()
@@ -586,21 +586,15 @@ func (t *dnsgateway) withTransport(inner Transport) bool {
 		if t.Transport == nil || t.Transport.ID() == Default {
 			t.Transport = NewCachingTransport(inner, ttl2m)
 		} // else: no-op
-	} else if inner.ID() == Preferred {
-		// if preferred transport is a rdns transport, use BlockFree as the primary
-		// that's because a rdns transport can be a filtering dns server whereas
+	} else if inner.ID() == BlockFree {
 		// alg works best with a non-filtering dns server (which BlockFree is)
-		if blkfree == nil {
-			log.W("alg: primary BlockFree missing %s", inner.GetAddr())
-			t.Transport = nil
-			t.secondary = nil
-			return false
-		} else {
-			log.I("alg: primary set preferred %s / sec %s", blkfree.GetAddr(), inner.GetAddr())
-			t.Transport = NewCachingTransport(blkfree, ttl2m)
-			t.secondary = NewDefaultCachingTransport(inner)
-			return true
-		}
+		log.W("alg: set BlockFree as primary %s", inner.GetAddr())
+		t.Transport = NewCachingTransport(inner, ttl2m)
+		return true
+	} else if inner.ID() == Preferred {
+		log.I("alg: set Preferred as secondary %s", inner.GetAddr())
+		t.secondary = NewDefaultCachingTransport(inner)
+		return true
 	} else {
 		log.I("alg: sec set %s / existing primary %s", inner.GetAddr(), t.GetAddr())
 		// any other transport is secondary

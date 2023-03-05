@@ -62,8 +62,6 @@ type RdnsResolver interface {
 	GetRdnsRemote() BraveDNS
 	blockQ(Transport, *dns.Msg) (*dns.Msg, string, error)
 	blockA(Transport, *dns.Msg, *dns.Msg, string) (*dns.Msg, string)
-	// may be nil
-	BlockFreeTransport() Transport
 }
 
 type BraveDNS interface {
