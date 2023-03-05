@@ -98,6 +98,8 @@ type Mult interface {
 	Remove(id string) bool
 	// Start starts a multi-transport, returns number of live-servers and errors if any.
 	Start() (string, error)
+	// Get returns a transport from this multi-transport.
+	Get(id string) (Transport, error)
 	// Stop stops this multi-transport.
 	Stop() error
 	// Refresh re-registers transports and returns a csv of active ones.
@@ -338,6 +340,14 @@ func (r *resolver) registerSystemDns64(ur ipn.Resolver) (ok bool) {
 	return r.natpt.AddResolver(ipn.UnderlayResolver, ur)
 }
 
+func (r *resolver) Get(id string) (Transport, error) {
+	if t, _ := r.determineTransports(id); t == nil {
+		return nil, errNoSuchTransport
+	} else {
+		return t, nil
+	}
+}
+
 func (r *resolver) Remove(id string) (ok bool) {
 
 	// these IDs are reserved for internal use
@@ -492,11 +502,13 @@ func (r *resolver) determineTransports(id string) (Transport, *oneTransport) {
 		}
 		return r.transports[Alg], r.pool[CT+Preferred]
 	}
+
 	if t, ok := r.transports[id]; ok {
 		if onet, ok := r.pool[id]; ok {
 			return t, onet
 		}
 	}
+
 	// if none of the reserved transports are available, use the default
 	if isReserved(id) {
 		return r.transports[CT+Default], r.pool[CT+Default]
