@@ -105,10 +105,12 @@ type dnsgateway struct {
 func NewDNSGateway(inner Transport, outer RdnsResolver) (t *dnsgateway) {
 	alg := make(map[string]*ans)
 	nat := make(map[netip.Addr]*ans)
+	px := make(map[netip.Addr]*ans)
 
 	t = &dnsgateway{
 		alg:    alg,
 		nat:    nat,
+		px:     px,
 		rdns:   outer,
 		octets: []uint8{100, 64, 0, 1},
 		hexes:  []uint16{0x64, 0xff9b, 0x1, 0xda19, 0x100, 0x0, 0x0, 0x0},
@@ -443,7 +445,8 @@ func (t *dnsgateway) registerMultiLocked(q string, am *ansMulti) bool {
 		}
 	}
 	for i := range am.realip {
-		if ok := t.registerPxLocked(q, i, am.ansViewLocked(i)); !ok {
+		// index is always 0 since algip is inconsequential for px
+		if ok := t.registerPxLocked(q, i, am.ansViewLocked(0)); !ok {
 			return false
 		}
 	}
