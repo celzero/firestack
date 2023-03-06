@@ -345,7 +345,7 @@ func (e *endpoint) WritePackets(pkts stack.PacketBufferList) (int, tcpip.Error) 
 		written += packets
 	}
 
-	log.I("ns.e.WritePackets (to tun): written(%d)/total(%d)", written, total)
+	log.V("ns.e.WritePackets (to tun): written(%d)/total(%d)", written, total)
 	return written, nil
 }
 
@@ -370,7 +370,7 @@ func (e *endpoint) ARPHardwareType() header.ARPHardwareType {
 
 // Unused: InjectInbound ingresses a netstack-inbound packet.
 func (e *endpoint) InjectInbound(protocol tcpip.NetworkProtocolNumber, pkt *stack.PacketBuffer) {
-	log.D("ns.e.inject-inbound(from-tun) %d pkt(%v)", protocol, pkt.Hash)
+	log.V("ns.e.inject-inbound(from-tun) %d pkt(%v)", protocol, pkt.Hash)
 	if e.IsAttached() {
 		e.dispatcher.DeliverNetworkPacket(protocol, pkt)
 	} else {
@@ -381,6 +381,6 @@ func (e *endpoint) InjectInbound(protocol tcpip.NetworkProtocolNumber, pkt *stac
 // Unused: InjectOutobund implements stack.InjectableEndpoint.InjectOutbound.
 // InjectOutbound egresses a tun-inbound packet.
 func (e *endpoint) InjectOutbound(dest tcpip.Address, packet []byte) tcpip.Error {
-	log.D("ns.e.inject-outbound(to-tun) to dst(%v)", dest)
+	log.V("ns.e.inject-outbound(to-tun) to dst(%v)", dest)
 	return rawfile.NonBlockingWrite(e.fds[0].fd, packet)
 }
