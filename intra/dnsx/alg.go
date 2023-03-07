@@ -233,15 +233,16 @@ func (t *dnsgateway) Query(network string, q []byte, summary *Summary) (r []byte
 
 	r, err = t.Transport.Query(network, q, innersummary)
 	resch <- r
-	if err != nil {
-		log.D("alg: abort; qerr %v", err)
-		return
-	}
 
 	// override relevant values in summary
 	innersummary.FillInto(summary)
 	summary.ID = t.ID()
 	summary.Type = t.Type()
+
+	if err != nil {
+		log.D("alg: abort; qerr %v", err)
+		return
+	}
 
 	ansin := &dns.Msg{}
 	err = ansin.Unpack(r)
