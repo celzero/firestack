@@ -413,7 +413,6 @@ func netip2csv(ips []*netip.Addr) (csv string) {
 
 func (t *dnsgateway) withAlgSummaryIfNeededLocked(algips []*netip.Addr, s *Summary) {
 	if settings.Debug && t.mod {
-
 		// convert algips to ipcsv
 		ipcsv := netip2csv(algips)
 
@@ -422,7 +421,11 @@ func (t *dnsgateway) withAlgSummaryIfNeededLocked(algips []*netip.Addr, s *Summa
 		} else {
 			s.RData = ipcsv
 		}
-		s.Server = t.GetAddr()
+		if len(s.Server) > 0 {
+			s.Server = algprefix + s.Server
+		} else {
+			s.Server = algprefix + t.GetAddr()
+		}
 	}
 }
 
