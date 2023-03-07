@@ -649,28 +649,54 @@ func AAAAAnswer(msg *dns.Msg) []*netip.Addr {
 	return a6
 }
 
+// whether the qtype code is a aaaa qtype
+func IsAAAAQType(qtype uint16) bool {
+	return qtype == dns.TypeAAAA
+}
+
+// whether the qtype code is a A qtype
+func IsAQType(qtype uint16) bool {
+	return qtype == dns.TypeA
+}
+
+// whether the qtype code is a https qtype
+func IsHTTPSQType(qtype uint16) bool {
+	return qtype == dns.TypeHTTPS
+}
+
+// whether the qtype code is a svcb qtype
+func IsSVCBQType(qtype uint16) bool {
+	return qtype == dns.TypeSVCB
+}
+
+// whether the given msg (ans/query) has a AAAA question section
 func HasAAAAQuestion(msg *dns.Msg) bool {
 	q := msg.Question[0]
-	return q.Qclass == dns.ClassINET && q.Qtype == dns.TypeAAAA
+	return q.Qclass == dns.ClassINET && IsAAAAQType(q.Qtype)
 }
 
+// whether the given msg (ans/query) has a A question section
 func HasAQuestion(msg *dns.Msg) bool {
 	q := msg.Question[0]
-	return q.Qclass == dns.ClassINET && q.Qtype == dns.TypeA
+	return q.Qclass == dns.ClassINET && IsAQType(q.Qtype)
 }
 
+// whether question q is a svcb question
 func IsSVCBQuestion(q *dns.Question) bool {
-	return q.Qtype == dns.TypeSVCB
+	return IsSVCBQType(q.Qtype)
 }
 
+// whether question q is a https question
 func IsHTTPQuestion(q *dns.Question) bool {
-	return q.Qtype == dns.TypeHTTPS
+	return IsHTTPSQType(q.Qtype)
 }
 
+// whether the given msg (ans/query) has a a/aaaa question section
 func HasAQuadAQuestion(msg *dns.Msg) bool {
 	return HasAAAAQuestion(msg) || HasAQuestion(msg)
 }
 
+// whether the given msg (ans/query) has a svcb question section
 func HasSVCBQuestion(msg *dns.Msg) bool {
 	if len(msg.Question) <= 0 {
 		return false
@@ -680,6 +706,7 @@ func HasSVCBQuestion(msg *dns.Msg) bool {
 	}
 }
 
+// whether the given msg (ans/query) has a https question section
 func HasHTTPQuestion(msg *dns.Msg) bool {
 	if len(msg.Question) <= 0 {
 		return false

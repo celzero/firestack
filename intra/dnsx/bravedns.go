@@ -248,7 +248,7 @@ func (brave *bravedns) blockQuery(msg *dns.Msg) (r string, err error) {
 	// err when incoming name != ascii, ignore
 	qname, _ := xdns.NormalizeQName(msg.Question[0].Name)
 	qtype := msg.Question[0].Qtype
-	if qtype != dns.TypeAAAA && qtype != dns.TypeA {
+	if !(xdns.IsAAAAQType(qtype) || xdns.IsAQType(qtype) || xdns.IsSVCBQType(qtype) || xdns.IsHTTPSQType(qtype)) {
 		err = fmt.Errorf("unsupported dns query type %v", qtype)
 		return
 	}
