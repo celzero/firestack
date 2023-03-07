@@ -87,7 +87,7 @@ func LogLevel(level int) {
 	case log.ERROR:
 		dlvl = log.ERROR
 	default:
-		log.W("tun2socks: unknown log-level(%d), using warn", l)
+		log.W("tun: unknown log-level(%d), using warn", l)
 	}
 	log.SetLevel(dlvl)
 	settings.Debug = dbg

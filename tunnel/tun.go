@@ -30,9 +30,15 @@ import (
 	"golang.org/x/sys/unix"
 )
 
+var (
+	errOpenTunFd    = errors.New("failed to open tun fd")
+	errMissingTunFd = errors.New("missing tun fd")
+	errInvalidTunFd = errors.New("invalid tun fd")
+)
+
 func Dup(fd int) (int, error) {
 	if fd < 0 {
-		return -1, errors.New("not a valid tun fd")
+		return -1, errInvalidTunFd
 	}
 
 	// Make a copy of `fd` so that os.File's finalizer doesn't close `fd`
@@ -51,7 +57,7 @@ func Dup(fd int) (int, error) {
 // separately closed.  (UNIX only.)
 func MakeTunFile(fd int) (*os.File, error) {
 	if fd < 0 {
-		return nil, errors.New("Must provide a valid TUN file descriptor")
+		return nil, errMissingTunFd
 	}
 
 	// Make a copy of `fd` so that os.File's finalizer doesn't close `fd`.
@@ -63,7 +69,7 @@ func MakeTunFile(fd int) (*os.File, error) {
 	// java-land gives up its ownership of fd
 	file := os.NewFile(uintptr(newfd), "")
 	if file == nil {
-		return nil, errors.New("Failed to open TUN file descriptor")
+		return nil, errOpenTunFd
 	}
 	return file, nil
 }
@@ -74,11 +80,11 @@ func ProcessInputPackets(tunnel Tunnel, tun *os.File) {
 	for tunnel.IsConnected() {
 		len, err := tun.Read(buffer)
 		if err != nil {
-			log.W("Failed to read packet from TUN: %v", err)
+			log.W("tun: ailed to read packet from TUN: %v", err)
 			continue
 		}
 		if len == 0 {
-			log.I("Read EOF from TUN")
+			log.I("tun: read EOF from TUN")
 			continue
 		}
 		tunnel.Write(buffer)
