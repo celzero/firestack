@@ -111,7 +111,7 @@ func NewUDPHandler(resolver dnsx.Resolver, pt ipn.NAT64, blocker protect.Blocker
 	// RFC 4787 REQ-5 requires a timeout no shorter than 5 minutes.
 	udptimeout, _ := time.ParseDuration("5m")
 	c := protect.MakeListenConfig2(blocker)
-	d := protect.MakeDialer2(blocker)
+	d := protect.MakeNsDialer(blocker)
 	h := &udpHandler{
 		timeout:  udptimeout,
 		udpConns: make(map[core.UDPConn]*tracker, 8),

@@ -97,7 +97,7 @@ type TCPListener interface {
 // `listener` is provided with a summary of each socket when it is closed.
 func NewTCPHandler(resolver dnsx.Resolver, pt ipn.NatPt, blocker protect.Blocker,
 	tunMode *settings.TunMode, listener TCPListener) TCPHandler {
-	d := protect.MakeDialer2(blocker)
+	d := protect.MakeNsDialer(blocker)
 	h := &tcpHandler{
 		resolver: resolver,
 		dialer:   d,

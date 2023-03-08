@@ -46,6 +46,17 @@ type Blocker interface {
 	// BlockAlg is called on a new ALG connection setup; return true to block the connection;
 	// false otherwise.
 	BlockAlg(p int32, uid int, src string, dst string, realips, domains, blocklists string) bool
+	// Flow is called on a new connection setup; return "proxyid,connid" to forward the connection
+	// to a pre-registered proxy; "Base" to allow the connection; "Block" to block the connection.
+	// "connid" is used to uniquely identify a connection across all proxies, and a summary of the
+	// connection is sent back to a pre-registered listener.
+	// protocol is 6 for TCP, 17 for UDP, 1 for ICMP.
+	// uid is -1 in case owner-uid of the connection couldn't be determined.
+	// src and dst are string'd representation of net.TCPAddr and net.UDPAddr.
+	// origdsts is a comma-separated list of original source IPs, this may be same as dst.
+	// domains is a comma-separated list of domain names associated with origsrcs, if any.
+	// blocklists is a comma-separated list of blocklist names, if any.
+	Flow(protocol int32, uid int, src string, dst string, origdsts, domains, blocklists string) string
 	// Calls in to javaland asking it to bind fd to any internet-capable IPv4 interface.
 	Bind4(fd int)
 	// Calls in to javaland asking it to bind fd to any internet-capable IPv6 interface.
@@ -58,7 +69,7 @@ type Protector interface {
 	UIP(n string) []byte
 }
 
-func makeControl2(b Blocker) func(string, string, syscall.RawConn) error {
+func networkBinder(b Blocker) func(string, string, syscall.RawConn) error {
 	return func(network, address string, c syscall.RawConn) (err error) {
 		return c.Control(func(fd uintptr) {
 			sock := int(fd)
@@ -82,7 +93,7 @@ func makeControl2(b Blocker) func(string, string, syscall.RawConn) error {
 	}
 }
 
-func makeControl(p Protector) func(string, string, syscall.RawConn) error {
+func ipBinder(p Protector) func(string, string, syscall.RawConn) error {
 	return func(network, address string, c syscall.RawConn) (err error) {
 		src := p.UIP(network)
 		ipaddr, _ := netip.AddrFromSlice(src)
@@ -117,10 +128,10 @@ func makeControl(p Protector) func(string, string, syscall.RawConn) error {
 // Creates a dialer that binds to a particular ip.
 func MakeDialer(p Protector) *net.Dialer {
 	if p == nil {
-		return MakeDialer3()
+		return MakeDefaultDialer()
 	}
 	d := &net.Dialer{
-		Control: makeControl(p),
+		Control: ipBinder(p),
 	}
 	return d
 }
@@ -128,20 +139,20 @@ func MakeDialer(p Protector) *net.Dialer {
 // Creates a listener that binds to a particular ip.
 func MakeListenConfig(p Protector) *net.ListenConfig {
 	if p == nil {
-		return MakeListenConfig3()
+		return MakeDefaultListenConfig()
 	}
 	return &net.ListenConfig{
-		Control: makeControl(p),
+		Control: ipBinder(p),
 	}
 }
 
 // Creates a dialer that can bind to any active interface,
-func MakeDialer2(b Blocker) *net.Dialer {
+func MakeNsDialer(b Blocker) *net.Dialer {
 	if b == nil {
-		return MakeDialer3()
+		return MakeDefaultDialer()
 	}
 	d := &net.Dialer{
-		Control: makeControl2(b),
+		Control: networkBinder(b),
 	}
 	return d
 }
@@ -149,19 +160,19 @@ func MakeDialer2(b Blocker) *net.Dialer {
 // Creates a listener that can bind to any active interface.
 func MakeListenConfig2(b Blocker) *net.ListenConfig {
 	if b == nil {
-		return MakeListenConfig3()
+		return MakeDefaultListenConfig()
 	}
 	return &net.ListenConfig{
-		Control: makeControl2(b),
+		Control: networkBinder(b),
 	}
 }
 
 // Creates a plain old dialer
-func MakeDialer3() *net.Dialer {
+func MakeDefaultDialer() *net.Dialer {
 	return &net.Dialer{}
 }
 
 // Creates a plain old listener
-func MakeListenConfig3() *net.ListenConfig {
+func MakeDefaultListenConfig() *net.ListenConfig {
 	return &net.ListenConfig{}
 }
