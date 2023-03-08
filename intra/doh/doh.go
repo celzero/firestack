@@ -341,7 +341,7 @@ func (t *transport) sendRequest(id uint16, q []byte) (response []byte, hostname 
 	elapsed = time.Since(start)
 
 	if err != nil {
-		qerr = dnsx.NewBadResponseQueryError(err)
+		qerr = dnsx.NewSendFailedQueryError(err)
 		return
 	}
 	httpResponse.Body.Close()
