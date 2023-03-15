@@ -45,7 +45,7 @@ func NewICMPHandler(resolver dnsx.Resolver, pt ipn.NAT64, blocker protect.Blocke
 	tunMode *settings.TunMode) ICMPHandler {
 	udptimeout, _ := time.ParseDuration("30s")
 	c := protect.MakeListenConfig2(blocker)
-	d := protect.MakeDialer2(blocker)
+	d := protect.MakeNsDialer(blocker)
 	h := &icmpHandler{
 		timeout:  udptimeout,
 		udpConns: make(map[core.UDPConn]*tracker, 8),

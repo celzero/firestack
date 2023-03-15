@@ -8,6 +8,7 @@ package settings
 import (
 	"errors"
 	"net/netip"
+	"net/url"
 	"strconv"
 
 	"github.com/celzero/firestack/intra/log"
@@ -37,15 +38,6 @@ const BlockModeSink int = 2
 // BlockModeFilterProc determines owner-uid of a tcp/udp connection
 // from procfs before filtering
 const BlockModeFilterProc int = 3
-
-// ProxyModeNone forwards no packet.
-const ProxyModeNone int = 0
-
-// ProxyModeSOCKS5 forwards packets to a SOCKS5 endpoint.
-const ProxyModeSOCKS5 int = 1
-
-// ProxyModeHTTPS forwards packets to a HTTPS proxy.
-const ProxyModeHTTPS int = 2
 
 // PtModeAuto does not enforce (but may still use) 6to4 protocol translation.
 const PtModeAuto int = 0
@@ -86,8 +78,6 @@ type TunMode struct {
 	DNSMode int
 	// BlockMode instructs change in firewall behaviour.
 	BlockMode int
-	// ProxyMode determines where the traffic is forwarded to.
-	ProxyMode int
 	// PtMode determines overrides 6to4 translation heuristics.
 	PtMode int
 }
@@ -97,17 +87,10 @@ type DNSOptions struct {
 	IPPort string
 }
 
-// ProxyOptions define https or socks5 proxy options
-type ProxyOptions struct {
-	Auth   *proxy.Auth
-	IPPort string
-}
-
-// SetMode re-assigns d to DNSMode, b to BlockMode, and p to ProxyMode
-func (t *TunMode) SetMode(d int, b int, p int, pt int) {
+// SetMode re-assigns d to DNSMode, and b to BlockMode
+func (t *TunMode) SetMode(d int, b int, pt int) {
 	t.DNSMode = d
 	t.BlockMode = b
-	t.ProxyMode = p
 	t.PtMode = pt
 }
 
@@ -119,7 +102,6 @@ func NewTunMode(d int, b int, p int, pt int) *TunMode {
 	return &TunMode{
 		DNSMode:   d,
 		BlockMode: b,
-		ProxyMode: p,
 		PtMode:    pt,
 	}
 }
@@ -133,7 +115,6 @@ func DefaultTunMode() *TunMode {
 	return &TunMode{
 		DNSMode:   DNSModeIP,
 		BlockMode: BlockModeNone,
-		ProxyMode: ProxyModeNone,
 		PtMode:    PtModeAuto,
 	}
 }
@@ -173,37 +154,67 @@ func NewDNSOptionsFromNetIp(ipp netip.AddrPort) (*DNSOptions, error) {
 	}, nil
 }
 
+func (d *DNSOptions) String() string {
+	return d.IPPort
+}
+
+// ProxyOptions define https or socks5 proxy options
+type ProxyOptions struct {
+	Auth   *proxy.Auth
+	IPPort string
+	Scheme string // http, https, socks5
+}
+
 // NewAuthProxyOptions returns a new ProxyOptions object with authentication object.
-func NewAuthProxyOptions(username string, password string, ip string, port string) *ProxyOptions {
+func NewAuthProxyOptions(scheme, username, password, ip, port string) *ProxyOptions {
+	var ippstr string
 	ipp, err := addrport(ip, port)
 	if err != nil {
-		log.W("proxyopt(%s:%s); ipport invalid(%v)", ip, port, err)
-		return nil
+		log.I("proxyopt(%s:%s); ipport is url?(%v)", ip, port, err)
+		if len(ip) > 0 {
+			// port is discarded, and expected to be in ip
+			ippstr = ip
+		} else {
+			return nil
+		}
+	} else {
+		ippstr = ipp.String()
 	}
 	if len(username) <= 0 || len(password) <= 0 {
 		username = ""
 		password = ""
 		log.W("proxyopt; empty user(%s)/pwd(%d)", username, len(password))
 	}
+	if len(scheme) <= 0 {
+		scheme = "http"
+	}
+	// todo: query unescape username and password?
 	auth := proxy.Auth{
 		User:     username,
 		Password: password,
 	}
 	return &ProxyOptions{
 		Auth:   &auth,
-		IPPort: ipp.String(),
+		IPPort: ippstr,
+		Scheme: scheme,
 	}
 }
 
 // NewProxyOptions returns a new ProxyOptions object.
 func NewProxyOptions(ip string, port string) *ProxyOptions {
-	return NewAuthProxyOptions("" /*user*/, "" /*password*/, ip, port)
-}
-
-func (d *DNSOptions) String() string {
-	return d.IPPort
+	return NewAuthProxyOptions("" /*scheme*/, "" /*user*/, "" /*password*/, ip, port)
 }
 
 func (p *ProxyOptions) String() string {
 	return p.Auth.User + "," + p.Auth.Password + "," + p.IPPort
+}
+
+func (p *ProxyOptions) AsUrl() string {
+	if len(p.Auth.User) > 0 && len(p.Auth.Password) > 0 {
+		// superuser.com/a/532530
+		usr := url.QueryEscape(p.Auth.User)
+		pwd := url.QueryEscape(p.Auth.Password)
+		return p.Scheme + "://" + usr + ":" + pwd + "@" + p.IPPort
+	}
+	return p.Scheme + "://" + p.IPPort
 }

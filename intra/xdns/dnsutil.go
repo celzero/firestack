@@ -180,10 +180,24 @@ func GetInterestingRData(msg *dns.Msg) string {
 		case *dns.RRSIG:
 			return r.SignerName
 		case *dns.SVCB:
-			// already handled
+			// if no hints, simply dump the entire kv list
+			if len(ip4s) <= 0 || len(ip6s) <= 0 {
+				if len(ipcsv) > 0 {
+					ipcsv += "," + r.String()
+				} else {
+					ipcsv += r.String()
+				}
+			}
 			continue
 		case *dns.HTTPS:
-			// already handled
+			// if no hints, simply dump the entire kv list
+			if len(ip4s) <= 0 || len(ip6s) <= 0 {
+				if len(ipcsv) > 0 {
+					ipcsv += "," + r.String()
+				} else {
+					ipcsv += r.String()
+				}
+			}
 			continue
 		case *dns.NSEC:
 			return r.NextDomain

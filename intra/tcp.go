@@ -34,9 +34,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/txthinking/socks5"
-	"golang.org/x/net/proxy"
-
 	"github.com/celzero/firestack/intra/dnsx"
 	"github.com/celzero/firestack/intra/log"
 
@@ -52,36 +49,35 @@ const (
 	blocktime = 25 * time.Second
 )
 
+var (
+	errTcpFirewalled = errors.New("tcp: ground conn, firewalled")
+	errTcpNoProxy    = errors.New("tcp: ground conn, no proxy")
+	errTcpSetupConn  = errors.New("tcp: could not create tcp conn")
+)
+
 // TCPHandler is a core TCP handler that also supports DOH and splitting control.
 type TCPHandler interface {
-	core.TCPConnHandler
 	netstack.GTCPConnHandler
-
-	SetAlwaysSplitHTTPS(bool)
-	blockConn(localConn *net.TCPAddr, target *net.TCPAddr) bool
-	dnsOverride(net.Conn, *net.TCPAddr) bool
-	SetProxyOptions(*settings.ProxyOptions) error
 }
 
 type tcpHandler struct {
 	TCPHandler
-	resolver         dnsx.Resolver
-	alwaysSplitHTTPS bool
-	dialer           *net.Dialer
-	blocker          protect.Blocker
-	tunMode          *settings.TunMode
-	listener         TCPListener
-	proxy            proxy.Dialer
-	pt               ipn.NatPt
+	resolver dnsx.Resolver
+	dialer   *net.Dialer
+	blocker  protect.Blocker
+	tunMode  *settings.TunMode
+	listener TCPListener
+	pt       ipn.NatPt
 }
 
 // TCPSocketSummary provides information about each TCP socket, reported when it is closed.
 type TCPSocketSummary struct {
-	DownloadBytes int64 // Total bytes downloaded.
-	UploadBytes   int64 // Total bytes uploaded.
-	Duration      int32 // Duration in seconds.
-	ServerPort    int16 // The server port.  All values except 53, 80, 443, and 0 are set to -1.
-	Synack        int32 // TCP handshake latency (ms)
+	ID            string // Unique ID for this socket.
+	DownloadBytes int64  // Total bytes downloaded.
+	UploadBytes   int64  // Total bytes uploaded.
+	Duration      int32  // Duration in seconds.
+	ServerPort    int16  // The server port.  All values except 53, 80, 443, and 0 are set to -1.
+	Synack        int32  // TCP handshake latency (ms)
 	// Retry is non-nil if retry was possible.  Retry.Split is non-zero if a retry occurred.
 	Retry *split.RetryStats
 }
@@ -116,7 +112,7 @@ func (h *tcpHandler) handleUpload(local core.TCPConn, remote split.DuplexConn, u
 
 	// io.copy does remote.ReadFrom(local)
 	bytes, err := io.Copy(remote, local)
-	log.D("t.tcp handle-upload(%d) done(%v) b/w %s", bytes, err, ci)
+	log.D("tcp: handle-upload(%d) done(%v) b/w %s", bytes, err, ci)
 
 	local.CloseRead()
 	remote.CloseWrite()
@@ -135,7 +131,7 @@ func (h *tcpHandler) handleDownload(local core.TCPConn, remote split.DuplexConn)
 	ci := conn2str(local, remote)
 
 	bytes, err = io.Copy(local, remote)
-	log.D("t.tcp handle-download(%d) done(%v) b/w %s", bytes, err, ci)
+	log.D("tcp: handle-download(%d) done(%v) b/w %s", bytes, err, ci)
 
 	local.CloseWrite()
 	remote.CloseRead()
@@ -189,12 +185,12 @@ func (h *tcpHandler) dnsOverride(conn net.Conn, addr *net.TCPAddr) bool {
 	return false
 }
 
-func (h *tcpHandler) onFlow(localaddr *net.TCPAddr, target *net.TCPAddr, realips, domains, blocklists string) (block bool) {
+func (h *tcpHandler) onFlow(localaddr *net.TCPAddr, target *net.TCPAddr, realips, domains, blocklists string) string {
 	// BlockModeNone returns false, BlockModeSink returns true
 	if h.tunMode.BlockMode == settings.BlockModeSink {
-		return true
+		return ipn.Block
 	} else if h.tunMode.BlockMode == settings.BlockModeNone {
-		return false
+		return ipn.Base
 	}
 
 	if len(realips) <= 0 || len(domains) <= 0 {
@@ -213,47 +209,20 @@ func (h *tcpHandler) onFlow(localaddr *net.TCPAddr, target *net.TCPAddr, realips
 	var proto int32 = 6 // tcp
 	src := localaddr.String()
 	dst := target.String()
-	if len(realips) > 0 && len(domains) > 0 {
-		block = h.blocker.BlockAlg(proto, uid, src, dst, realips, domains, blocklists)
-	} else {
-		block = h.blocker.Block(proto, uid, src, dst)
+	res := h.blocker.Flow(proto, uid, src, dst, realips, domains, blocklists)
+
+	if len(res) <= 0 {
+		log.W("tcp: empty flow from kt; using base")
+		res = ipn.Base
 	}
 
-	if block {
-		log.I("firewalled connection from %s:%s to %s:%s",
-			localaddr.Network(), src, target.Network(), dst)
-		// sleep for a while to avoid busy conns
-		time.Sleep(blocktime)
-	}
-
-	return
+	return res
 }
 
-// TODO: move these to settings pkg
-func (h *tcpHandler) socks5Proxy() bool {
-	return h.tunMode.ProxyMode == settings.ProxyModeSOCKS5
-}
-
-func (h *tcpHandler) httpsProxy() bool {
-	return h.tunMode.ProxyMode == settings.ProxyModeHTTPS
-}
-
-func (h *tcpHandler) hasProxy() bool {
-	return h.proxy != nil
-}
-
-func (h *tcpHandler) OnNewConn(conn *netstack.GTCPConn, _, dst *net.TCPAddr) {
-	if err := h.Handle(conn, dst); err != nil {
-		conn.Close()
-	}
-}
-
-// TODO: Request upstream to make `conn` a `core.TCPConn` so we can avoid a type assertion.
-func (h *tcpHandler) Handle(conn net.Conn, target *net.TCPAddr) error {
-	localaddr, err := tcpaddr(conn)
-	if err != nil {
-		log.E("conn has invalid local-addr(%s); %v", conn.LocalAddr(), err)
-		return err
+func (h *tcpHandler) Connect(localaddr, target *net.TCPAddr) string {
+	if localaddr == nil || target == nil {
+		log.E("tcp: nil addr %v -> %v", localaddr, target)
+		return ""
 	}
 
 	// alg happens before nat64, and so, alg has no knowledge of nat-ed ips
@@ -263,103 +232,80 @@ func (h *tcpHandler) Handle(conn net.Conn, target *net.TCPAddr) error {
 
 	// flow/dns-override are nat-aware, as in, they can deal with
 	// nat-ed ips just fine, and so, use target as-is instead of ipx4
-	if h.onFlow(localaddr, target, realips, domains, blocklists) {
-		// an error here results in a core.tcpConn.Abort
-		return fmt.Errorf("tcp connection firewalled")
+	res := h.onFlow(localaddr, target, realips, domains, blocklists)
+
+	pid, _ := splitPidCid(res)
+	if pid == ipn.Block {
+		log.I("tcp: conn firewalled from %s -> %s (dom: %s/ real: %s)", localaddr, target, domains, realips)
+		return ""
 	}
+
+	return res
+}
+
+func (h *tcpHandler) Proxy(conn *netstack.GTCPConn, _, dst *net.TCPAddr, decision string) {
+	if err := h.Handle(conn, dst, decision); err != nil {
+		conn.Close()
+	}
+}
+
+// TODO: Request upstream to make `conn` a `core.TCPConn` so we can avoid a type assertion.
+func (h *tcpHandler) Handle(conn net.Conn, target *net.TCPAddr, decision string) error {
+	var px ipn.Proxy
+	var err error
 	if h.dnsOverride(conn, target) {
 		return nil
 	}
 
+	pid, cid := splitPidCid(decision)
+	if px, err = h.pt.GetProxy(pid); err != nil {
+		return err
+	}
+
+	// alg happens before nat64, and so, alg has no knowledge of nat-ed ips
+	// ipx4 is un-nated (but same as target.IP when no nat64 is involved)
+	ipx4 := maybeUndoNat64(h.pt, target.IP)
+	realips, _, _ := undoAlg(h.resolver, ipx4)
 	// dialers must connect to un-nated ips; overwrite target.IP with ipx4
 	// but ipx4 might itself be an alg ip; so check if there's a real-ip to connect to
 	target.IP = oneRealIp(realips, ipx4)
 
 	var summary TCPSocketSummary
 	summary.ServerPort = filteredPort(target)
+	summary.ID = cid // may be an empty string
 	start := time.Now()
 	var c split.DuplexConn
 
-	// TODO: Cancel dialing if c is closed
 	// Ref: stackoverflow.com/questions/63656117
 	// Ref: stackoverflow.com/questions/40328025
-	if p := h.proxy; (h.socks5Proxy() || h.httpsProxy()) && p != nil {
-		var generic net.Conn
-		// deprecated: github.com/golang/go/issues/25104
-		generic, err = p.Dial(target.Network(), target.String())
-		if generic != nil {
-			switch uc := generic.(type) {
-			// if p is golang/x/net/proxy, then underlying-conn is simply uc
-			case *net.TCPConn:
-				c = uc
-			// if p is txthinking/socks5, then underlying-conn is uc.TCPConn
-			// github.com/txthinking/socks5/blob/39268fae/client.go#L15
-			case *socks5.Client:
-				c = uc.TCPConn
-			default:
-				err = errors.New("t.tcp: could not create tcp conn")
-			}
-		}
-	} else if summary.ServerPort == 443 {
-		if h.alwaysSplitHTTPS {
-			c, err = split.DialWithSplit(h.dialer, target)
-		} else {
-			summary.Retry = &split.RetryStats{}
-			c, err = split.DialWithSplitRetry(h.dialer, target, summary.Retry)
-		}
-	} else {
-		var generic net.Conn
-		generic, err = h.dialer.Dial(target.Network(), target.String())
-		if generic != nil {
-			c = generic.(*net.TCPConn)
+	// deprecated: github.com/golang/go/issues/25104
+	if generic, err := px.Dial(target.Network(), target.String()); err == nil {
+		switch uc := generic.(type) {
+		// underlying conn must specifically be a tcp-conn
+		case *net.TCPConn:
+			c = uc
+		default:
+			err = errTcpSetupConn
 		}
 	}
 
 	if err != nil {
-		log.W("tcp: err dialing to(%v): %v", target, err)
+		log.W("tcp: err dialing dst(%v): %v", target, err)
 		return err
 	}
+
+	// split client-hello if server-port is 443
+	if px.ID() == ipn.Base {
+		if summary.ServerPort == 443 {
+			c, err = split.From(c)
+		}
+	}
+
 	summary.Synack = int32(time.Since(start).Seconds() * 1000)
 
 	go h.forward(conn, c, &summary)
 
-	log.I("tcp: new proxy conn(%s) from(%s) to target(%s)", target.Network(), conn.LocalAddr(), target)
-	return nil
-}
-
-func (h *tcpHandler) SetAlwaysSplitHTTPS(s bool) {
-	h.alwaysSplitHTTPS = s
-}
-
-func (h *tcpHandler) SetProxyOptions(po *settings.ProxyOptions) error {
-	var fproxy proxy.Dialer
-	var err error
-	if po == nil {
-		h.proxy = nil
-		log.W("tcp: err proxying to(%v): %v", po, err)
-		return fmt.Errorf("tcp: proxyopts nil")
-	}
-	if h.socks5Proxy() {
-		// x.net.proxy doesn't yet support udp
-		// https://github.com/golang/net/blob/62affa334/internal/socks/socks.go#L233
-		// if po.Auth.User and po.Auth.Password are empty strings, the upstream
-		// socks5 server may throw err when dialing with golang/net/x/proxy;
-		// although, txthinking/socks5 deals gracefully with empty auth strings
-		// fproxy, err = proxy.SOCKS5("udp", po.IPPort, po.Auth, proxy.Direct)
-		udptimeoutsec := 5 * 60                    // 5m
-		tcptimeoutsec := (2 * 60 * 60) + (40 * 60) // 2h40m
-		fproxy, err = socks5.NewClient(po.IPPort, po.Auth.User, po.Auth.Password, tcptimeoutsec, udptimeoutsec)
-	} else if h.httpsProxy() {
-		err = fmt.Errorf("tcp: http-proxy not supported")
-	} else {
-		err = fmt.Errorf("tcp: proxy mode not set")
-	}
-	if err != nil {
-		log.W("tcp: err proxying to(%v): %v", po, err)
-		h.proxy = nil
-		return err
-	}
-	h.proxy = fproxy
+	log.I("tcp: new conn src(%s) -> dst(%s)", conn.LocalAddr(), target)
 	return nil
 }
 
@@ -371,7 +317,7 @@ func maybeUndoNat64(pt ipn.NAT64, ip net.IP) net.IP {
 		ipx4 = pt.X64(ipn.Local464Resolver, ip) // ipx4 may be nil
 		if len(ipx4) < net.IPv4len {            // no nat?
 			ipx4 = ip // reassign the actual ip
-			log.W("t.tcp.handle: No local nat64 to ip4(%v) for ip6(%v)", ipx4, ip)
+			log.W("tcp: handle: No local nat64 to ip4(%v) for ip6(%v)", ipx4, ip)
 		}
 	}
 	return ipx4
@@ -420,11 +366,22 @@ func undoAlg(r dnsx.Resolver, algip net.IP) (realips, domains, blocklists string
 func tcpaddr(conn net.Conn) (*net.TCPAddr, error) {
 	localtcp, ok1 := conn.(core.TCPConn)
 	if !ok1 {
-		return nil, fmt.Errorf("t.tcp Handle: non-tcp-conn(%v)", conn)
+		return nil, fmt.Errorf("tcp: non-tcp-conn(%v)", conn)
 	}
 	localaddr, ok2 := localtcp.LocalAddr().(*net.TCPAddr)
 	if !ok2 {
-		return nil, fmt.Errorf("t.tcp Handle: non-tcp-addr(%v)", localtcp.LocalAddr())
+		return nil, fmt.Errorf("tcp: non-tcp-addr(%v)", localtcp.LocalAddr())
 	}
 	return localaddr, nil
+}
+
+func splitPidCid(decision string) (pid, cid string) {
+	ids := strings.Split(decision, ",")
+	if len(ids) >= 1 {
+		pid = ids[0]
+	}
+	if len(ids) >= 2 {
+		cid = ids[1]
+	}
+	return
 }

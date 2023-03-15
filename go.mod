@@ -18,7 +18,9 @@ require (
 
 require (
 	github.com/crazy-max/xgo v0.17.0
+	github.com/elazarl/goproxy v0.0.0-20221015165544-a0805db90819
 	github.com/txthinking/socks5 v0.0.0-20220615051428-39268faee3e6
+	github.com/txthinking/x v0.0.0-20210326105829-476fab902fbe
 	golang.org/x/mobile v0.0.0-20220518205345-8578da9835fd
 	gvisor.dev/gvisor v0.0.0-20220701225953-3108ea2a69b2
 )
@@ -29,7 +31,6 @@ require (
 	github.com/google/btree v1.0.1 // indirect
 	github.com/patrickmn/go-cache v2.1.0+incompatible // indirect
 	github.com/txthinking/runnergroup v0.0.0-20210608031112-152c7c4432bf // indirect
-	github.com/txthinking/x v0.0.0-20210326105829-476fab902fbe // indirect
 	golang.org/x/mod v0.5.1 // indirect
 	golang.org/x/time v0.0.0-20191024005414-555d28b269f0 // indirect
 	golang.org/x/tools v0.1.9 // indirect

@@ -32,6 +32,10 @@ type splitter struct {
 	used bool // Initially false.  Becomes true after the first write.
 }
 
+func From(c net.Conn) (DuplexConn, error) {
+	return &splitter{TCPConn: c.(*net.TCPConn)}, nil
+}
+
 // DialWithSplit returns a TCP connection that always splits the initial upstream segment.
 // Like net.Conn, it is intended for two-threaded use, with one thread calling
 // Read and CloseRead, and another calling Write, ReadFrom, and CloseWrite.

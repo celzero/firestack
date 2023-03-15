@@ -29,6 +29,7 @@ import (
 	"syscall"
 
 	"github.com/celzero/firestack/intra/log"
+	"github.com/txthinking/x"
 )
 
 // Blocker provides answers to filter network traffic.
@@ -146,7 +147,7 @@ func MakeListenConfig(p Protector) *net.ListenConfig {
 	}
 }
 
-// Creates a dialer that can bind to any active interface,
+// Creates a dialer that can bind to any active interface.
 func MakeNsDialer(b Blocker) *net.Dialer {
 	if b == nil {
 		return MakeDefaultDialer()
@@ -155,6 +156,22 @@ func MakeNsDialer(b Blocker) *net.Dialer {
 		Control: networkBinder(b),
 	}
 	return d
+}
+
+// Creates a XDial that can bind to any active interface.
+func MakeNsXDial(b Blocker) x.Dialer {
+	if b != nil {
+		d := &net.Dialer{
+			Control: networkBinder(b),
+		}
+		return &XDial{
+			Dialer: d,
+		}
+	} else {
+		return &XDial{
+			Dialer: MakeDefaultDialer(),
+		}
+	}
 }
 
 // Creates a listener that can bind to any active interface.

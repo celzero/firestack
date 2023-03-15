@@ -46,18 +46,14 @@ type Listener interface {
 // Tunnel represents an Intra session.
 type Tunnel interface {
 	tunnel.Tunnel
-	// Add the DNSTransport (default: nil).
+	// Get the resolver
 	GetResolver() dnsx.Resolver
 	// Add system dns
 	SetSystemDNS(ippcsv string) int
-	// Set DNSMode, BlockMode, ProxyMode, PtMode.
-	SetTunMode(int, int, int, int)
-	// When set to true, Intra will pre-emptively split all HTTPS connections.
-	SetAlwaysSplitHTTPS(bool)
-	// StartTCPProxy starts tcp and udp forwarding proxy as dictated by current TunMode.
-	StartProxy(uname string, pwd string, ip string, port string) error
-	// GetTCPProxyOptions returns "uname,pwd,ip,port" csv
-	GetProxyOptions() string
+	// Set DNSMode, BlockMode, PtMode.
+	SetTunMode(int, int, int)
+	// Get the proxies
+	GetProxies() ipn.Proxies
 }
 
 type intratunnel struct {
@@ -74,6 +70,9 @@ func NewTunnel(fakedns string, defaultdns dnsx.Transport, fd int, fpcap string, 
 	tunmode := settings.DefaultTunMode()
 
 	natpt := ipn.NewNatPt(l3, tunmode)
+	natpt.AddProxy(ipn.NewBaseProxy(blocker))
+	natpt.AddProxy(ipn.NewGroundProxy())
+
 	resolver := dnsx.NewResolver(fakedns, tunmode, defaultdns, listener, natpt)
 	resolver.Add(NewGroundedTransport())
 	resolver.Add(newDNSCryptTransport())
@@ -109,6 +108,10 @@ func (t *intratunnel) GetResolver() dnsx.Resolver {
 	return t.resolver
 }
 
+func (t *intratunnel) GetProxies() ipn.Proxies {
+	return t.natpt
+}
+
 func (t *intratunnel) SetSystemDNS(ippcsv string) int {
 	ipports := strings.Split(ippcsv, ",")
 	d := t.resolver.RemoveSystemDNS()
@@ -133,29 +136,6 @@ func (t *intratunnel) SetSystemDNS(ippcsv string) int {
 	return n
 }
 
-func (t *intratunnel) SetTunMode(dnsmode int, blockmode int, proxymode int, ptmode int) {
-	t.tunmode.SetMode(dnsmode, blockmode, proxymode, ptmode)
-}
-
-func (t *intratunnel) SetAlwaysSplitHTTPS(s bool) {
-	t.tcp.SetAlwaysSplitHTTPS(s)
-}
-
-func (t *intratunnel) StartProxy(uname string, pwd string, ip string, port string) (err error) {
-	p := settings.NewAuthProxyOptions(uname, pwd, ip, port)
-	if err = t.tcp.SetProxyOptions(p); err != nil {
-		t.proxyOptions = nil
-		return
-	}
-	t.proxyOptions = p
-	if err = t.udp.SetProxyOptions(p); err != nil {
-		// TODO: unset tcp proxy, or leave that upto the client?
-		t.proxyOptions = nil
-		return
-	}
-	return
-}
-
-func (t *intratunnel) GetProxyOptions() string {
-	return t.proxyOptions.String()
+func (t *intratunnel) SetTunMode(dnsmode int, blockmode int, ptmode int) {
+	t.tunmode.SetMode(dnsmode, blockmode, ptmode)
 }

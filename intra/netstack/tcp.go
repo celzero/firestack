@@ -23,7 +23,8 @@ const rcvwnd = 0
 const maxInFlight = 128
 
 type GTCPConnHandler interface {
-	OnNewConn(conn *GTCPConn, src, dst *net.TCPAddr)
+	Connect(src, dst *net.TCPAddr) string
+	Proxy(conn *GTCPConn, src, dst *net.TCPAddr, d string)
 }
 
 func setupTcpHandler(s *stack.Stack, _ stack.LinkEndpoint, h GTCPConnHandler) {
@@ -34,13 +35,19 @@ func setupTcpHandler(s *stack.Stack, _ stack.LinkEndpoint, h GTCPConnHandler) {
 // ref: github.com/google/gvisor/blob/e89e736f1/pkg/tcpip/adapters/gonet/gonet_test.go#L189
 func NewTCPForwarder(s *stack.Stack, h GTCPConnHandler) *tcp.Forwarder {
 	return tcp.NewForwarder(s, rcvwnd, maxInFlight, func(request *tcp.ForwarderRequest) {
+		var decision string
 		id := request.ID()
 		// src 10.111.222.1:38312
 		src := remoteTCPAddr(id)
 		// dst 213.188.195.179:80
 		dst := localTCPAddr(id)
-		waitQueue := new(waiter.Queue)
 
+		if decision = h.Connect(src, dst); len(decision) <= 0 {
+			log.I("ns.tcp.forwarder: drop conn src(%v) => dst(%v)", src, dst)
+			return
+		}
+
+		waitQueue := new(waiter.Queue)
 		// the passive-handshake (SYN) may not successful for a non-existent route (say, ipv6)
 		endpoint, err := request.CreateEndpoint(waitQueue)
 		if err != nil {
@@ -54,13 +61,13 @@ func NewTCPForwarder(s *stack.Stack, h GTCPConnHandler) *tcp.Forwarder {
 		}
 
 		request.Complete(false)
-		log.V("ns.tcp.forwarder: data src(%v) => dst(%v)", src, dst)
+		log.V("ns.tcp.forwarder: proxy src(%v) => dst(%v)", src, dst)
 
 		// read/writes are routed using 5-tuple to the same conn (endpoint)
 		// demuxer.handlePacket -> find matching endpoint -> queue-packet -> send/recv conn (ep)
 		// ref: github.com/google/gvisor/blob/be6ffa7/pkg/tcpip/stack/transport_demuxer.go#L180
 		gtcp := NewGTCPConn(waitQueue, endpoint, src, dst)
-		go h.OnNewConn(gtcp, src, dst)
+		go h.Proxy(gtcp, src, dst, decision)
 	})
 }
 

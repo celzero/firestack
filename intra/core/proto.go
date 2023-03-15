@@ -5,23 +5,7 @@ import (
 	"time"
 )
 
-// from: github.com/eycorsican/go-tun2socks/blob/301549c435/core/handler.go
 // from: github.com/eycorsican/go-tun2socks/blob/301549c435/core/conn.go#LL3C9-L3C9
-
-// TCPConnHandler handles TCP connections comming from TUN.
-type TCPConnHandler interface {
-	// Handle handles the conn for target.
-	Handle(conn net.Conn, target *net.TCPAddr) error
-}
-
-// UDPConnHandler handles UDP connections comming from TUN.
-type UDPConnHandler interface {
-	// Connect connects the proxy server. Note that target can be nil.
-	Connect(conn UDPConn, target *net.UDPAddr) error
-
-	// ReceiveTo will be called when data arrives from TUN.
-	ReceiveTo(conn UDPConn, data []byte, addr *net.UDPAddr) error
-}
 
 // TCPConn abstracts a TCP connection comming from TUN. This connection
 // should be handled by a registered TCP proxy handler. It's important

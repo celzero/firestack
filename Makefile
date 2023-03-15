@@ -14,7 +14,7 @@ ANDROID_BUILD_CMD=env PATH=$(GOBIN):$(PATH) $(GOMOBILE) bind -v -a -ldflags '-w 
 
 $(BUILDDIR)/intra/tun2socks.aar: $(GOMOBILE)
 	mkdir -p $(BUILDDIR)/intra
-	$(ANDROID_BUILD_CMD) -o $@ $(IMPORT_PATH)/intra $(IMPORT_PATH)/intra/android $(IMPORT_PATH)/intra/ipn $(IMPORT_PATH)/intra/doh $(IMPORT_PATH)/intra/dns53 $(IMPORT_PATH)/intra/split $(IMPORT_PATH)/intra/protect $(IMPORT_PATH)/intra/settings $(IMPORT_PATH)/intra/dnscrypt $(IMPORT_PATH)/intra/dnsx $(IMPORT_PATH)/intra/xdns
+	$(ANDROID_BUILD_CMD) -o $@ $(IMPORT_PATH)/intra $(IMPORT_PATH)/intra/android $(IMPORT_PATH)/intra/doh $(IMPORT_PATH)/intra/dns53 $(IMPORT_PATH)/intra/split $(IMPORT_PATH)/intra/protect $(IMPORT_PATH)/intra/settings $(IMPORT_PATH)/intra/dnscrypt $(IMPORT_PATH)/intra/dnsx $(IMPORT_PATH)/intra/xdns
 
 $(BUILDDIR)/android/tun2socks.aar: $(GOMOBILE)
 	mkdir -p $(BUILDDIR)/android

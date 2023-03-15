@@ -26,18 +26,14 @@
 package intra
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"net"
 	"sync"
 	"time"
 
-	"golang.org/x/net/proxy"
-
 	"github.com/celzero/firestack/intra/dnsx"
 	"github.com/celzero/firestack/intra/log"
-	"github.com/txthinking/socks5"
 
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/ipn"
@@ -53,9 +49,10 @@ const (
 
 // UDPSocketSummary describes a non-DNS UDP association, reported when it is discarded.
 type UDPSocketSummary struct {
-	UploadBytes   int64 // Amount uploaded (bytes)
-	DownloadBytes int64 // Amount downloaded (bytes)
-	Duration      int32 // How long the socket was open (seconds)
+	ID            string // Unique ID for this socket.
+	UploadBytes   int64  // Amount uploaded (bytes).
+	DownloadBytes int64  // Amount downloaded (bytes).
+	Duration      int32  // How long the socket was open (seconds).
 }
 
 // UDPListener is notified when a non-DNS UDP association is discarded.
@@ -64,24 +61,22 @@ type UDPListener interface {
 }
 
 type tracker struct {
-	conn     interface{} // net.Conn and net.PacketConn
-	start    time.Time
+	id       string       // unique identifier for this connection
+	conn     any          // net.Conn and net.PacketConn
+	start    time.Time    // creation time
 	upload   int64        // Non-DNS upload bytes
 	download int64        // Non-DNS download bytes
 	errcount int          // conn splice err count
 	ip       *net.UDPAddr // masked addr
 }
 
-func makeTracker(conn interface{}) *tracker {
-	return &tracker{conn, time.Now(), 0, 0, 0, nil}
+func makeTracker(id string, conn any) *tracker {
+	return &tracker{id, conn, time.Now(), 0, 0, 0, nil}
 }
 
 // UDPHandler adds DOH support to the base UDPConnHandler interface.
 type UDPHandler interface {
-	core.UDPConnHandler
 	netstack.GUDPConnHandler
-	blockConn(localudp core.UDPConn, target *net.UDPAddr) bool
-	SetProxyOptions(*settings.ProxyOptions) error
 }
 
 type udpHandler struct {
@@ -96,9 +91,7 @@ type udpHandler struct {
 	blocker  protect.Blocker
 	tunMode  *settings.TunMode
 	listener UDPListener
-	proxy    proxy.Dialer
-	pt       ipn.NAT64
-	symnat   bool
+	pt       ipn.NatPt
 }
 
 // NewUDPHandler makes a UDP handler with Intra-style DNS redirection:
@@ -106,7 +99,7 @@ type udpHandler struct {
 // `timeout` controls the effective NAT mapping lifetime.
 // `config` is used to bind new external UDP ports.
 // `listener` receives a summary about each UDP binding when it expires.
-func NewUDPHandler(resolver dnsx.Resolver, pt ipn.NAT64, blocker protect.Blocker,
+func NewUDPHandler(resolver dnsx.Resolver, pt ipn.NatPt, blocker protect.Blocker,
 	tunMode *settings.TunMode, listener UDPListener) UDPHandler {
 	// RFC 4787 REQ-5 requires a timeout no shorter than 5 minutes.
 	udptimeout, _ := time.ParseDuration("5m")
@@ -122,7 +115,6 @@ func NewUDPHandler(resolver dnsx.Resolver, pt ipn.NAT64, blocker protect.Blocker
 		dialer:   d,
 		listener: listener,
 		pt:       pt,
-		symnat:   true,
 	}
 
 	return h
@@ -154,7 +146,7 @@ func (h *udpHandler) fetchUDPInput(conn core.UDPConn, nat *tracker) {
 
 	for {
 		if nat.errcount > maxconnerr {
-			log.D("t.udp.ingress: too many errors (%v), closing", nat.errcount)
+			log.D("udp: ingress: too many errors (%v), closing", nat.errcount)
 			return
 		}
 
@@ -169,14 +161,14 @@ func (h *udpHandler) fetchUDPInput(conn core.UDPConn, nat *tracker) {
 		// first, as it denotes a connected socket which netstack also uses
 		case net.Conn:
 			logaddr = nc2str(conn, c, nat)
-			log.D("t.udp.ingress: read (c) remote for %s", logaddr)
+			log.D("udp: ingress: read (c) remote for %s", logaddr)
 
 			c.SetDeadline(time.Now().Add(h.timeout)) // extend deadline
 			// c is already dialed-in to some addr in udpHandler.Connect
 			n, err = c.Read(buf)
 		case net.PacketConn:
 			logaddr = pc2str(conn, c, nat)
-			log.D("t.udp.ingress: read (pc) remote for %s", logaddr)
+			log.D("udp: ingress: read (pc) remote for %s", logaddr)
 
 			c.SetDeadline(time.Now().Add(h.timeout)) // extend deadline
 			// reads a packet from t.conn copying it to buf
@@ -188,10 +180,10 @@ func (h *udpHandler) fetchUDPInput(conn core.UDPConn, nat *tracker) {
 		// is err recoverable? github.com/miekg/dns/blob/f8a185d39/server.go#L521
 		if neterr, ok := err.(net.Error); ok && neterr.Temporary() {
 			nat.errcount += 1
-			log.I("t.udp.ingress: %s temp err#%d(%v)", logaddr, nat.errcount, err)
+			log.I("udp: ingress: %s temp err#%d(%v)", logaddr, nat.errcount, err)
 			continue
 		} else if err != nil {
-			log.I("t.udp.ingress: %s err(%v)", logaddr, err)
+			log.I("udp: ingress: %s err(%v)", logaddr, err)
 			return
 		} else {
 			nat.errcount = 0
@@ -205,12 +197,12 @@ func (h *udpHandler) fetchUDPInput(conn core.UDPConn, nat *tracker) {
 			udpaddr = nat.ip
 		}
 
-		log.D("t.udp.ingress: data(%d) from remote(pc?%v/masq:%v) | addrs: %s", n, addr, udpaddr, logaddr)
+		log.D("udp: ingress: data(%d) from remote(pc?%v/masq:%v) | addrs: %s", n, addr, udpaddr, logaddr)
 
 		nat.download += int64(n)
 		// writes data to conn (tun) with udpaddr as source
 		if _, err = conn.WriteFrom(buf[:n], udpaddr); err != nil {
-			log.W("t.udp.ingress: failed to write udp data to tun (%s) from %s", logaddr, udpaddr)
+			log.W("udp: ingress: failed to write udp data to tun (%s) from %s", logaddr, udpaddr)
 			nat.errcount += 1
 			// TODO: return from here?
 		}
@@ -229,7 +221,7 @@ func (h *udpHandler) dnsOverride(conn core.UDPConn, addr *net.UDPAddr, query []b
 		_, err = conn.WriteFrom(resp, addr)
 	}
 	if err != nil {
-		log.W("t.udp.dns: query failed %v", err)
+		log.W("udp: dns: query failed %v", err)
 	}
 	return true // handled
 }
@@ -240,20 +232,23 @@ func (h *udpHandler) isDns(addr *net.UDPAddr) bool {
 	return h.resolver.IsDnsAddr(dnsx.NetTypeUDP, addr2.String())
 }
 
-func (h *udpHandler) onFlow(localudp core.UDPConn, target *net.UDPAddr, realips, domains, blocklists string) (block bool) {
+func (h *udpHandler) onFlow(localudp core.UDPConn, target *net.UDPAddr, realips, domains, blocklists string) string {
 	// BlockModeNone returns false, BlockModeSink returns true
 	if h.tunMode.BlockMode == settings.BlockModeSink {
-		return true
+		return ipn.Block
 	}
 	if h.tunMode.BlockMode == settings.BlockModeNone {
-		return false
+		return ipn.Base
 	}
-	// Implict: BlockModeFilter or BlockModeFilterProc
-	localaddr := localudp.LocalAddr()
-	return h.blockConnAddr(localaddr, target, realips, domains, blocklists)
-}
 
-func (h *udpHandler) blockConnAddr(source *net.UDPAddr, target *net.UDPAddr, realips, domains, blocklists string) (block bool) {
+	source := localudp.LocalAddr()
+	src := source.String()
+	dst := target.String()
+	if len(realips) <= 0 || len(domains) <= 0 {
+		log.D("onFlow: no realips(%s) or domains(%s), for src=%s dst=%s", realips, domains, src, dst)
+	}
+
+	// Implict: BlockModeFilter or BlockModeFilterProc
 	uid := -1
 	if h.tunMode.BlockMode == settings.BlockModeFilterProc {
 		procEntry := settings.FindProcNetEntry("udp", source.IP, source.Port, target.IP, target.Port)
@@ -263,95 +258,70 @@ func (h *udpHandler) blockConnAddr(source *net.UDPAddr, target *net.UDPAddr, rea
 	}
 
 	var proto int32 = 17 // udp
-	src := source.String()
-	dst := target.String()
-	if len(realips) > 0 && len(domains) > 0 {
-		block = h.blocker.BlockAlg(proto, uid, src, dst, realips, domains, blocklists)
-	} else {
-		block = h.blocker.Block(proto, uid, src, dst)
+	res := h.blocker.Flow(proto, uid, src, dst, realips, domains, blocklists)
+
+	if len(res) <= 0 {
+		log.W("tcp: empty flow from kt; using base")
+		res = ipn.Base
 	}
 
-	if block {
-		log.I("t.udp.egress: firewalled src(%s:%s) -> dst(%s:%s)",
-			source.Network(), source.String(), target.Network(), target.String())
-		// sleep for a while to avoid busy conns
-		time.Sleep(blocktime)
-	}
-
-	return
+	return res
 }
 
 func (h *udpHandler) OnNewConn(conn *netstack.GUDPConn, _, dst *net.UDPAddr) bool {
-	if err := h.Connect(conn, dst); err != nil {
-		return false
-	}
-	return true
+	return h.Connect(conn, dst)
 }
 
 // Connect connects the proxy server.
 // Note, target may be nil in lwip (deprecated) while it may be unspecified in netstack
-func (h *udpHandler) Connect(conn core.UDPConn, target *net.UDPAddr) error {
-	ipx4 := maybeUndoNat64(h.pt, target.IP)
+func (h *udpHandler) Connect(conn core.UDPConn, target *net.UDPAddr) bool {
+	var px ipn.Proxy
+	var c net.Conn
+	var err error
 
+	ipx4 := maybeUndoNat64(h.pt, target.IP)
 	realips, domains, blocklists := undoAlg(h.resolver, ipx4)
 
 	// flow is alg/nat-aware, do not change target or any addrs
-	if h.onFlow(conn, target, realips, domains, blocklists) {
-		// an error here results in a core.udpConn.Close
-		return fmt.Errorf("t.udp.connect: firewalled")
+	res := h.onFlow(conn, target, realips, domains, blocklists)
+
+	localaddr := conn.LocalAddr()
+	pid, cid := splitPidCid(res)
+	if pid == ipn.Block {
+		log.I("udp: conn firewalled from %s -> %s (dom: %s/ real: %s)", localaddr, target, domains, realips)
+		return false // disconnect
 	}
 
 	if h.isDns(target) {
-		return nil // no need to connect as target is a fake dns server
+		return true // connect
 	}
 
-	// TODO: fake-dns-ips shouldn't be un-nated / un-alg'd
+	if px, err = h.pt.GetProxy(pid); err != nil {
+		log.W("udp: failed to get proxy for %s: %v", pid, err)
+		return false // disconnect
+	}
+
+	// note: fake-dns-ips shouldn't be un-nated / un-alg'd
 	// alg happens before nat64, and so, alg has no knowledge of nat-ed ips
 	// ipx4 is un-nated (and same as target.IP when no nat64 is involved)
 	// but ipx4 might itself be an alg ip; so check if there's a real-ip to connect to
 	// ie, must send to un-nated ips; overwrite target.IP with ipx4
 	target.IP = oneRealIp(realips, ipx4)
 
-	var c any
-	var laddr net.Addr
-	var err error
-	if h.proxymode() {
-		// TODO: target can be nil: What happens then?
-		// TODO: target can unspecified on netstack... handle approp in receiveTo?
-		// deprecated: github.com/golang/go/issues/25104
-		if c, err = h.proxy.Dial(target.Network(), target.String()); c != nil {
-			if tc, ok := c.(net.Conn); ok {
-				laddr = tc.LocalAddr()
-			}
-		}
-	} else if h.symnat {
-		if c, err = h.dialer.Dial(target.Network(), target.String()); c != nil {
-			if tc, ok := c.(net.Conn); ok {
-				laddr = tc.LocalAddr()
-			}
-		}
-	} else {
-		bindaddr := &net.UDPAddr{IP: nil, Port: 0}
-		if c, err = h.config.ListenPacket(context.TODO(), bindaddr.Network(), bindaddr.String()); c != nil {
-			if tc, ok := c.(net.PacketConn); ok {
-				laddr = tc.LocalAddr()
-			}
-		}
+	// deprecated: github.com/golang/go/issues/25104
+	if c, err = px.Dial(target.Network(), target.String()); err != nil {
+		log.E("udp: connect: failed to bind addr(%s); err(%v)", target, err)
+		return false // disconnect
 	}
 
-	if err != nil {
-		log.E("t.udp.connect: failed to bind addr(%s); err(%v)", target, err)
-		return err
-	}
+	nat := makeTracker(cid, c)
 
-	nat := makeTracker(c)
-
-	if h.proxymode() {
-		nat.ip = &net.UDPAddr{
-			IP:   target.IP,
-			Port: target.Port,
-			Zone: target.Zone,
-		}
+	// the actual ip the client sees data is from
+	// unused in netstack
+	nat.ip = &net.UDPAddr{
+		IP:   target.IP,
+		Port: target.Port,
+		Zone: target.Zone,
 	}
 
 	h.Lock()
@@ -360,8 +330,8 @@ func (h *udpHandler) Connect(conn core.UDPConn, target *net.UDPAddr) error {
 
 	go h.fetchUDPInput(conn, nat)
 
-	log.I("t.udp.connect: (proxy? %t) %v -> %v", h.proxymode(), laddr, target)
-	return nil
+	log.I("udp: connect: (proxy? %s@%s) %v -> %v", px.ID(), px.GetAddr(), c.LocalAddr(), target)
+	return true // connect
 }
 
 func (h *udpHandler) HandleData(conn *netstack.GUDPConn, data []byte, addr *net.UDPAddr) error {
@@ -375,7 +345,7 @@ func (h *udpHandler) ReceiveTo(conn core.UDPConn, data []byte, addr *net.UDPAddr
 	raddr := addr
 
 	if h.dnsOverride(conn, addr, data) {
-		log.D("t.udp.egress: dns-override for dstaddr(%v) <- src(l:%v r:%v)", raddr, nsladdr, nsraddr)
+		log.D("udp: egress: dns-override for dstaddr(%v) <- src(l:%v r:%v)", raddr, nsladdr, nsraddr)
 		return nil
 	}
 
@@ -384,7 +354,7 @@ func (h *udpHandler) ReceiveTo(conn core.UDPConn, data []byte, addr *net.UDPAddr
 	h.RUnlock()
 
 	if !ok1 {
-		log.W("t.udp.egress: no nat(%v -> %v [%v])", nsladdr, raddr, nsraddr)
+		log.W("udp: egress: no nat(%v -> %v [%v])", nsladdr, raddr, nsraddr)
 		return fmt.Errorf("conn %v -> %v [%v] does not exist", nsladdr, raddr, nsraddr)
 	}
 
@@ -402,9 +372,6 @@ func (h *udpHandler) ReceiveTo(conn core.UDPConn, data []byte, addr *net.UDPAddr
 	// alg happens before nat64, and so, alg has no knowledge of nat-ed ips
 	// ipx4 is un-nated (and equal to target.IP when no nat64 is involved)
 	realips, _, _ := undoAlg(h.resolver, ipx4)
-
-	// TODO: should onFlow be called from ReceiveTo?
-
 	// but ipx4 might itself be an alg ip; so check if there's a real-ip to connect to
 	addr.IP = oneRealIp(realips, ipx4)
 
@@ -418,13 +385,13 @@ func (h *udpHandler) ReceiveTo(conn core.UDPConn, data []byte, addr *net.UDPAddr
 		c.SetDeadline(time.Now().Add(h.timeout))
 		// c is already dialed-in to some addr in udpHandler.Connect
 		_, err = c.Write(data)
-	case net.PacketConn:
+	case net.PacketConn: // unused
 		// Update deadline.
 		c.SetDeadline(time.Now().Add(h.timeout))
 		// writes packet payload, data, to addr
 		_, err = c.WriteTo(data, addr)
 	default:
-		err = errors.New("t.udp.egress: unknown conn type")
+		err = errors.New("udp: egress: unknown conn type")
 	}
 
 	// is err recoverable?
@@ -432,20 +399,20 @@ func (h *udpHandler) ReceiveTo(conn core.UDPConn, data []byte, addr *net.UDPAddr
 	if neterr, ok := err.(net.Error); ok && neterr.Temporary() {
 		nat.errcount += 1
 		if nat.errcount > maxconnerr {
-			log.W("t.udp.egress: too many errors(%d) for conn(l:%v -> r:%v [%v])", nat.errcount, nsladdr, raddr, nsraddr)
+			log.W("udp: egress: too many errors(%d) for conn(l:%v -> r:%v [%v])", nat.errcount, nsladdr, raddr, nsraddr)
 			return err
 		} else {
-			log.W("t.udp.egress: temporary error(%v) for conn(l:%v -> r:%v [%v])", err, nsladdr, raddr, nsraddr)
+			log.W("udp: egress: temporary error(%v) for conn(l:%v -> r:%v [%v])", err, nsladdr, raddr, nsraddr)
 			return nil
 		}
 	} else if err != nil {
-		log.I("t.udp.egress: end splice (%v -> %v [%v]), forward udp err(%v)", conn.LocalAddr(), raddr, nsraddr, err)
+		log.I("udp: egress: end splice (%v -> %v [%v]), forward udp err(%v)", conn.LocalAddr(), raddr, nsraddr, err)
 		return err
 	} else {
 		nat.errcount = 0
 	}
 
-	log.I("t.udp.egress: conn(%v -> %v [%v]) / data(%d)", nsladdr, raddr, nsraddr, len(data))
+	log.I("udp: egress: conn(%v -> %v [%v]) / data(%d)", nsladdr, raddr, nsraddr, len(data))
 	return nil
 }
 
@@ -457,7 +424,7 @@ func (h *udpHandler) Close(conn core.UDPConn) {
 
 	if t, ok := h.udpConns[conn]; ok {
 		switch c := t.conn.(type) {
-		case net.PacketConn:
+		case net.PacketConn: // unused
 			c.Close()
 		case net.Conn:
 			c.Close()
@@ -465,56 +432,7 @@ func (h *udpHandler) Close(conn core.UDPConn) {
 		}
 		// TODO: Cancel any outstanding DoH queries.
 		duration := int32(time.Since(t.start).Seconds())
-		h.listener.OnUDPSocketClosed(&UDPSocketSummary{t.upload, t.download, duration})
+		h.listener.OnUDPSocketClosed(&UDPSocketSummary{t.id, t.upload, t.download, duration})
 		delete(h.udpConns, conn)
 	}
-}
-
-// TODO: move these to settings pkg
-func (h *udpHandler) socks5Proxy() bool {
-	return h.tunMode.ProxyMode == settings.ProxyModeSOCKS5
-}
-
-func (h *udpHandler) httpsProxy() bool {
-	return h.tunMode.ProxyMode == settings.ProxyModeHTTPS
-}
-
-func (h *udpHandler) hasProxy() bool {
-	return h.proxy != nil
-}
-
-func (h *udpHandler) SetProxyOptions(po *settings.ProxyOptions) error {
-	var fproxy proxy.Dialer
-	var err error
-	if po == nil {
-		h.proxy = nil
-		err = fmt.Errorf("udp: proxyopts nil")
-		log.W("udp: err proxying to(%v): %v", po, err)
-		return err
-	}
-
-	// TODO: merge this code which is similar between tcp.go/udp.go
-	if h.socks5Proxy() {
-		// x.net.proxy doesn't yet support udp
-		// https://github.com/golang/net/blob/62affa334/internal/socks/socks.go#L233
-		// fproxy, err = proxy.SOCKS5("udp", po.IPPort, po.Auth, proxy.Direct)
-		udptimeoutsec := 5 * 60                    // 5m
-		tcptimeoutsec := (2 * 60 * 60) + (40 * 60) // 2h40m
-		fproxy, err = socks5.NewClient(po.IPPort, po.Auth.User, po.Auth.Password, tcptimeoutsec, udptimeoutsec)
-	} else if h.httpsProxy() {
-		err = fmt.Errorf("udp: http-proxy not supported")
-	} else {
-		err = errors.New("udp: proxy mode not set")
-	}
-	if err != nil {
-		h.proxy = nil
-		log.W("udp: err proxying to(%v): %v", po, err)
-		return err
-	}
-	h.proxy = fproxy
-	return nil
-}
-
-func (h *udpHandler) proxymode() bool {
-	return h.hasProxy() && (h.socks5Proxy() || h.httpsProxy())
 }

@@ -30,6 +30,8 @@ import (
 
 // datatracker.ietf.org/doc/html/rfc8305#section-7
 type natPt struct {
+	protect.Protector
+	Proxies
 	*nat64
 	*dns64
 	l3      string
@@ -40,12 +42,14 @@ type natPt struct {
 
 type NatPt interface {
 	protect.Protector
+	Proxies
 	DNS64
 	NAT64
 }
 
 func NewNatPt(l3 string, tunmode *settings.TunMode) NatPt {
 	return &natPt{
+		Proxies: NewProxifier(),
 		nat64:   newNat64(),
 		dns64:   newDns64(),
 		l3:      l3,
@@ -93,6 +97,10 @@ func (n *natPt) X64(id string, ip6 []byte) []byte {
 		log.D("nat64: no matching prefix64 for ip(%v) in id(%s/%d)", ip6, id, len(prefixes))
 	}
 	return nil
+}
+
+func (h *natPt) AddResolver(id string, f Resolver) bool {
+	return h.dns64.AddResolver(id, f)
 }
 
 func (n *natPt) ResetNat64Prefix(ip6prefix string) bool {
