@@ -28,7 +28,7 @@ func NewBaseProxy(b protect.Blocker) Proxy {
 	return h
 }
 
-func (h *base) Dial(network, addr string) (c net.Conn, err error) {
+func (h *base) Dial(network, addr string) (c Conn, err error) {
 	if c, err = h.dialer.Dial(network, addr); err != nil {
 		h.status = TKO
 	}

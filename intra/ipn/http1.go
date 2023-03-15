@@ -48,7 +48,7 @@ func NewHTTPProxy(id string, b protect.Blocker, po *settings.ProxyOptions) (Prox
 	return h, nil
 }
 
-func (h *http1) Dial(network, addr string) (c net.Conn, err error) {
+func (h *http1) Dial(network, addr string) (c Conn, err error) {
 	if c, err = h.dialfn(network, addr); err != nil {
 		log.W("proxy: http1 dial %s -> %s; err %v", h.GetAddr(), addr, err)
 		h.status = TKO

@@ -10,8 +10,6 @@ import (
 	"errors"
 	"strings"
 	"sync"
-
-	"golang.org/x/net/proxy"
 )
 
 const (
@@ -40,9 +38,23 @@ var (
 	tcptimeoutsec = (2 * 60 * 60) + (40 * 60) // 2h40m
 )
 
+// type checks
+var _ Proxy = (*base)(nil)
+var _ Proxy = (*socks5)(nil)
+var _ Proxy = (*http1)(nil)
+var _ Proxy = (*ground)(nil)
+
+// Adapter to keep gomobile happy as it can't export net.Conn
+type Conn interface {
+	Read(b []byte) (n int, err error)
+	Write(b []byte) (n int, err error)
+	Close() error
+}
+
 type Proxy interface {
 	// Dial creates a new connection to the given address.
-	proxy.Dialer
+	// gomobile cannot export proxy.Dialer (net.Conn)
+	Dial(network, addr string) (Conn, error)
 	// ID returns the ID of this proxy.
 	ID() string
 	// Type returns the type of this proxy.

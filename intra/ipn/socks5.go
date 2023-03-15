@@ -7,8 +7,6 @@
 package ipn
 
 import (
-	"net"
-
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
 	"github.com/celzero/firestack/intra/settings"
@@ -56,7 +54,7 @@ func NewSocks5Proxy(id string, b protect.Blocker, po *settings.ProxyOptions) (Pr
 	return h, nil
 }
 
-func (h *socks5) Dial(network, addr string) (c net.Conn, err error) {
+func (h *socks5) Dial(network, addr string) (c Conn, err error) {
 	if c, err = h.dailer.Dial(network, addr); err == nil {
 		// in txthinking/socks5, an underlying-conn is actually a net.TCPConn
 		// github.com/txthinking/socks5/blob/39268fae/client.go#L15

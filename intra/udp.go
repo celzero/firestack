@@ -276,6 +276,8 @@ func (h *udpHandler) OnNewConn(conn *netstack.GUDPConn, _, dst *net.UDPAddr) boo
 // Note, target may be nil in lwip (deprecated) while it may be unspecified in netstack
 func (h *udpHandler) Connect(conn core.UDPConn, target *net.UDPAddr) bool {
 	var px ipn.Proxy
+	var pc ipn.Conn
+	var ok bool
 	var c net.Conn
 	var err error
 
@@ -309,8 +311,13 @@ func (h *udpHandler) Connect(conn core.UDPConn, target *net.UDPAddr) bool {
 	target.IP = oneRealIp(realips, ipx4)
 
 	// deprecated: github.com/golang/go/issues/25104
-	if c, err = px.Dial(target.Network(), target.String()); err != nil {
+	if pc, err = px.Dial(target.Network(), target.String()); err != nil {
 		log.E("udp: connect: failed to bind addr(%s); err(%v)", target, err)
+		return false // disconnect
+	}
+
+	if c, ok = pc.(net.Conn); !ok {
+		log.E("udp: connect: proxy(%s) does not implement net.Conn(%s)", px.ID(), target)
 		return false // disconnect
 	}
 

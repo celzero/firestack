@@ -252,6 +252,7 @@ func (h *tcpHandler) Proxy(conn *netstack.GTCPConn, _, dst *net.TCPAddr, decisio
 // TODO: Request upstream to make `conn` a `core.TCPConn` so we can avoid a type assertion.
 func (h *tcpHandler) Handle(conn net.Conn, target *net.TCPAddr, decision string) error {
 	var px ipn.Proxy
+	var pc ipn.Conn
 	var err error
 	if h.dnsOverride(conn, target) {
 		return nil
@@ -279,8 +280,8 @@ func (h *tcpHandler) Handle(conn net.Conn, target *net.TCPAddr, decision string)
 	// Ref: stackoverflow.com/questions/63656117
 	// Ref: stackoverflow.com/questions/40328025
 	// deprecated: github.com/golang/go/issues/25104
-	if generic, err := px.Dial(target.Network(), target.String()); err == nil {
-		switch uc := generic.(type) {
+	if pc, err = px.Dial(target.Network(), target.String()); err == nil {
+		switch uc := pc.(type) {
 		// underlying conn must specifically be a tcp-conn
 		case *net.TCPConn:
 			c = uc
@@ -297,7 +298,7 @@ func (h *tcpHandler) Handle(conn net.Conn, target *net.TCPAddr, decision string)
 	// split client-hello if server-port is 443
 	if px.ID() == ipn.Base {
 		if summary.ServerPort == 443 {
-			c, err = split.From(c)
+			c = split.From(c)
 		}
 	}
 

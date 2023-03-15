@@ -32,8 +32,8 @@ type splitter struct {
 	used bool // Initially false.  Becomes true after the first write.
 }
 
-func From(c net.Conn) (DuplexConn, error) {
-	return &splitter{TCPConn: c.(*net.TCPConn)}, nil
+func From(c net.Conn) DuplexConn {
+	return &splitter{TCPConn: c.(*net.TCPConn)}
 }
 
 // DialWithSplit returns a TCP connection that always splits the initial upstream segment.

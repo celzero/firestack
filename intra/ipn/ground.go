@@ -6,10 +6,6 @@
 
 package ipn
 
-import (
-	"net"
-)
-
 type ground struct {
 	Proxy
 	addr string
@@ -22,7 +18,7 @@ func NewGroundProxy() Proxy {
 	return h
 }
 
-func (h *ground) Dial(network, addr string) (c net.Conn, err error) {
+func (h *ground) Dial(network, addr string) (c Conn, err error) {
 	return nil, errProxyNotFound
 }
 
