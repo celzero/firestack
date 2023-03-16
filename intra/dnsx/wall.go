@@ -63,7 +63,7 @@ func (r *resolver) blockA(t Transport, q *dns.Msg, ans *dns.Msg, blocklistStamp 
 	if len(blocklistStamp) > 0 && br != nil {
 		blocklistNames, err = br.StampToNames(blocklistStamp)
 		if err != nil {
-			log.E("wall: could not resolve blocklist-stamp(%s) for %s, err: %v", blocklistStamp, qname, err)
+			log.D("wall: could not resolve blocklist-stamp(%s) for %s, err: %v", blocklistStamp, qname, err)
 			return
 		}
 		log.D("wall: for %s blocklists %s", qname, blocklistNames)

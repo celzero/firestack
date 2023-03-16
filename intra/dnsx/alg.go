@@ -276,6 +276,9 @@ func (t *dnsgateway) Query(network string, q []byte, summary *Summary) (r []byte
 	// fetch secondary ips before lock
 	secres := <-secch
 
+	// inform kt of secondary blocklists, if any
+	summary.Blocklists = secres.summary.Blocklists
+
 	t.Lock()
 	defer t.Unlock()
 
