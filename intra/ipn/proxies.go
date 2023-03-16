@@ -10,6 +10,8 @@ import (
 	"errors"
 	"strings"
 	"sync"
+
+	"github.com/celzero/firestack/intra/protect"
 )
 
 const (
@@ -29,7 +31,8 @@ const (
 )
 
 var (
-	// err proxy not found
+	errProxyScheme     = errors.New("unsupported proxy scheme")
+	errProxyAdd        = errors.New("add proxy failed")
 	errProxyNotFound   = errors.New("proxy not found")
 	errMissingProxyOpt = errors.New("proxyopts nil")
 	errNoProxyConn     = errors.New("not a tcp/udp proxy conn")
@@ -69,7 +72,7 @@ type Proxy interface {
 
 type Proxies interface {
 	// Add adds a proxy to this multi-transport.
-	AddProxy(t Proxy) bool
+	AddProxy(id, url string) (Proxy, error)
 	// Remove removes a transport from this multi-transport.
 	RemoveProxy(id string) bool
 	// Get returns a transport from this multi-transport.
@@ -83,16 +86,21 @@ type Proxies interface {
 type proxifier struct {
 	Proxies
 	sync.RWMutex
-	p map[string]Proxy
+	p   map[string]Proxy
+	ctl protect.Controller
 }
 
-func NewProxifier() Proxies {
-	return &proxifier{
-		p: make(map[string]Proxy),
+func NewProxifier(c protect.Controller) Proxies {
+	pxr := &proxifier{
+		p:   make(map[string]Proxy),
+		ctl: c,
 	}
+	pxr.add(NewBaseProxy(c))
+	pxr.add(NewGroundProxy())
+	return pxr
 }
 
-func (px *proxifier) AddProxy(p Proxy) bool {
+func (px *proxifier) add(p Proxy) bool {
 	px.Lock()
 	defer px.Unlock()
 

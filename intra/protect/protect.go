@@ -32,21 +32,8 @@ import (
 	"github.com/txthinking/x"
 )
 
-// Blocker provides answers to filter network traffic.
-type Blocker interface {
-	// Block is called on a new connection setup; return true to block the connection;
-	// false otherwise.
-	// source and target are string'd representation of net.TCPAddr and net.UDPAddr
-	// depending on the protocol. Note: IPv4 and IPv6 have very different string
-	// representations: stackoverflow.com/a/48519490
-	// uid is -1 in case owner-uid of the connection couldn't be determined
-	// todo: returns a string "rdnsblockstamp,proxyid" instead of bool
-	// where, rdnsblockstamp can be "", or "1:b64-blockstamp"
-	// and, proxyid can be "allow", "block", or "proxyid"
-	Block(protocol int32, uid int, source string, target string) bool
-	// BlockAlg is called on a new ALG connection setup; return true to block the connection;
-	// false otherwise.
-	BlockAlg(p int32, uid int, src string, dst string, realips, domains, blocklists string) bool
+// Controller provides answers to filter network traffic.
+type Controller interface {
 	// Flow is called on a new connection setup; return "proxyid,connid" to forward the connection
 	// to a pre-registered proxy; "Base" to allow the connection; "Block" to block the connection.
 	// "connid" is used to uniquely identify a connection across all proxies, and a summary of the
@@ -70,7 +57,7 @@ type Protector interface {
 	UIP(n string) []byte
 }
 
-func networkBinder(b Blocker) func(string, string, syscall.RawConn) error {
+func networkBinder(ctl Controller) func(string, string, syscall.RawConn) error {
 	return func(network, address string, c syscall.RawConn) (err error) {
 		return c.Control(func(fd uintptr) {
 			sock := int(fd)
@@ -78,7 +65,7 @@ func networkBinder(b Blocker) func(string, string, syscall.RawConn) error {
 			case "tcp6":
 				fallthrough
 			case "udp6":
-				b.Bind6(sock)
+				ctl.Bind6(sock)
 			case "tcp4":
 				fallthrough
 			case "udp4":
@@ -86,7 +73,7 @@ func networkBinder(b Blocker) func(string, string, syscall.RawConn) error {
 			case "tcp":
 				fallthrough
 			case "udp":
-				b.Bind4(sock)
+				ctl.Bind4(sock)
 			default:
 				// no-op
 			}
@@ -148,21 +135,21 @@ func MakeListenConfig(p Protector) *net.ListenConfig {
 }
 
 // Creates a dialer that can bind to any active interface.
-func MakeNsDialer(b Blocker) *net.Dialer {
-	if b == nil {
+func MakeNsDialer(c Controller) *net.Dialer {
+	if c == nil {
 		return MakeDefaultDialer()
 	}
 	d := &net.Dialer{
-		Control: networkBinder(b),
+		Control: networkBinder(c),
 	}
 	return d
 }
 
 // Creates a XDial that can bind to any active interface.
-func MakeNsXDial(b Blocker) x.Dialer {
-	if b != nil {
+func MakeNsXDial(c Controller) x.Dialer {
+	if c != nil {
 		d := &net.Dialer{
-			Control: networkBinder(b),
+			Control: networkBinder(c),
 		}
 		return &XDial{
 			Dialer: d,
@@ -175,12 +162,12 @@ func MakeNsXDial(b Blocker) x.Dialer {
 }
 
 // Creates a listener that can bind to any active interface.
-func MakeListenConfig2(b Blocker) *net.ListenConfig {
-	if b == nil {
+func MakeListenConfig2(c Controller) *net.ListenConfig {
+	if c == nil {
 		return MakeDefaultListenConfig()
 	}
 	return &net.ListenConfig{
-		Control: networkBinder(b),
+		Control: networkBinder(c),
 	}
 }
 

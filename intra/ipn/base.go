@@ -19,10 +19,10 @@ type base struct {
 	status int
 }
 
-func NewBaseProxy(b protect.Blocker) Proxy {
+func NewBaseProxy(c protect.Controller) Proxy {
 	h := &base{
 		addr:   "127.3.4.5:6890",
-		dialer: protect.MakeNsDialer(b),
+		dialer: protect.MakeNsDialer(c),
 		status: TOK,
 	}
 	return h

@@ -88,7 +88,7 @@ type udpHandler struct {
 	udpConns map[core.UDPConn]*tracker
 	config   *net.ListenConfig
 	dialer   *net.Dialer
-	blocker  protect.Blocker
+	ctl      protect.Controller
 	tunMode  *settings.TunMode
 	listener UDPListener
 	pt       ipn.NatPt
@@ -99,17 +99,17 @@ type udpHandler struct {
 // `timeout` controls the effective NAT mapping lifetime.
 // `config` is used to bind new external UDP ports.
 // `listener` receives a summary about each UDP binding when it expires.
-func NewUDPHandler(resolver dnsx.Resolver, pt ipn.NatPt, blocker protect.Blocker,
+func NewUDPHandler(resolver dnsx.Resolver, pt ipn.NatPt, ctl protect.Controller,
 	tunMode *settings.TunMode, listener UDPListener) UDPHandler {
 	// RFC 4787 REQ-5 requires a timeout no shorter than 5 minutes.
 	udptimeout, _ := time.ParseDuration("5m")
-	c := protect.MakeListenConfig2(blocker)
-	d := protect.MakeNsDialer(blocker)
+	c := protect.MakeListenConfig2(ctl)
+	d := protect.MakeNsDialer(ctl)
 	h := &udpHandler{
 		timeout:  udptimeout,
 		udpConns: make(map[core.UDPConn]*tracker, 8),
 		resolver: resolver,
-		blocker:  blocker,
+		ctl:      ctl,
 		tunMode:  tunMode,
 		config:   c,
 		dialer:   d,
@@ -258,7 +258,7 @@ func (h *udpHandler) onFlow(localudp core.UDPConn, target *net.UDPAddr, realips,
 	}
 
 	var proto int32 = 17 // udp
-	res := h.blocker.Flow(proto, uid, src, dst, realips, domains, blocklists)
+	res := h.ctl.Flow(proto, uid, src, dst, realips, domains, blocklists)
 
 	if len(res) <= 0 {
 		log.W("tcp: empty flow from kt; using base")

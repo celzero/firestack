@@ -23,7 +23,7 @@ type http1 struct {
 	status int
 }
 
-func NewHTTPProxy(id string, b protect.Blocker, po *settings.ProxyOptions) (Proxy, error) {
+func NewHTTPProxy(id string, c protect.Controller, po *settings.ProxyOptions) (Proxy, error) {
 	var err error
 	if po == nil {
 		log.W("proxy: err setting up http1(%v): %v", po, err)
@@ -31,7 +31,7 @@ func NewHTTPProxy(id string, b protect.Blocker, po *settings.ProxyOptions) (Prox
 	}
 
 	hp := tx.NewProxyHttpServer()
-	hp.Tr.Dial = protect.MakeNsDialer(b).Dial
+	hp.Tr.Dial = protect.MakeNsDialer(c).Dial
 	hp.Verbose = settings.Debug
 	dialfn := hp.NewConnectDialToProxy(po.AsUrl())
 

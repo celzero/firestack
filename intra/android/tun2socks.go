@@ -56,12 +56,12 @@ func init() {
 // `fakedns` is the DNS server that the system believes it is using, in "host:port" style.
 //  The port is normally 53.
 // `dohdns` is the default fallback DoH transport.  It must not be `nil`.
-// `blocker` is a kotlin object that implements firewall rules.
+// `ctl` is a kotlin object that implements the firewall.
 // `listener` will be provided with a summary of each TCP and UDP socket when it is closed.
 //
 // Throws an exception if the TUN file descriptor cannot be opened, or if the tunnel fails to
 // connect.
-func ConnectIntraTunnel(fd int, fpcap string, mtu int, fakedns string, dohdns dnsx.Transport, blocker protect.Blocker, listener intra.Listener) (t intra.Tunnel, err error) {
+func ConnectIntraTunnel(fd int, fpcap string, mtu int, fakedns string, dohdns dnsx.Transport, ctl protect.Controller, listener intra.Listener) (t intra.Tunnel, err error) {
 	l3 := settings.L3(engine)
 
 	var dupfd int
@@ -70,7 +70,7 @@ func ConnectIntraTunnel(fd int, fpcap string, mtu int, fakedns string, dohdns dn
 		return
 	}
 
-	return intra.NewTunnel(fakedns, dohdns, dupfd, fpcap, l3, mtu, blocker, listener)
+	return intra.NewTunnel(fakedns, dohdns, dupfd, fpcap, l3, mtu, ctl, listener)
 }
 
 func LogLevel(level int) {

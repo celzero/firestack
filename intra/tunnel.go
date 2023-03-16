@@ -66,20 +66,18 @@ type intratunnel struct {
 	resolver     dnsx.Resolver
 }
 
-func NewTunnel(fakedns string, defaultdns dnsx.Transport, fd int, fpcap string, l3 string, mtu int, blocker protect.Blocker, listener Listener) (Tunnel, error) {
+func NewTunnel(fakedns string, defaultdns dnsx.Transport, fd int, fpcap string, l3 string, mtu int, ctl protect.Controller, listener Listener) (Tunnel, error) {
 	tunmode := settings.DefaultTunMode()
 
-	natpt := ipn.NewNatPt(l3, tunmode)
-	natpt.AddProxy(ipn.NewBaseProxy(blocker))
-	natpt.AddProxy(ipn.NewGroundProxy())
+	natpt := ipn.NewNatPt(l3, ctl, tunmode)
 
 	resolver := dnsx.NewResolver(fakedns, tunmode, defaultdns, listener, natpt)
 	resolver.Add(NewGroundedTransport())
 	resolver.Add(newDNSCryptTransport())
 
-	tcph := NewTCPHandler(resolver, natpt, blocker, tunmode, listener)
-	udph := NewUDPHandler(resolver, natpt, blocker, tunmode, listener)
-	icmph := NewICMPHandler(resolver, natpt, blocker, tunmode)
+	tcph := NewTCPHandler(resolver, natpt, ctl, tunmode, listener)
+	udph := NewUDPHandler(resolver, natpt, ctl, tunmode, listener)
+	icmph := NewICMPHandler(resolver, natpt, ctl, tunmode)
 	t, err := tunnel.NewGTunnel(fd, fpcap, l3, mtu, tcph, udph, icmph)
 
 	if err != nil {

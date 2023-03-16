@@ -4,22 +4,20 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
-package intra
+package ipn
 
 import (
 	"net/url"
 
-	"github.com/celzero/firestack/intra/ipn"
-	"github.com/celzero/firestack/intra/protect"
 	"github.com/celzero/firestack/intra/settings"
 )
 
-func AddSocks5Proxy(b protect.Blocker, id, user, pwd, ip, port string) (p ipn.Proxy, err error) {
+func (pxr *proxifier) NewSocks5Proxy(id, user, pwd, ip, port string) (p Proxy, err error) {
 	opts := settings.NewAuthProxyOptions("socks5", user, pwd, ip, port)
-	return ipn.NewSocks5Proxy(id, b, opts)
+	return NewSocks5Proxy(id, pxr.ctl, opts)
 }
 
-func AddHttpProxy(b protect.Blocker, id, rawurl string) (p ipn.Proxy, err error) {
+func (pxr *proxifier) AddProxy(id, rawurl string) (p Proxy, err error) {
 	var strurl string
 	var usr string
 	var pwd string
@@ -38,5 +36,23 @@ func AddHttpProxy(b protect.Blocker, id, rawurl string) (p ipn.Proxy, err error)
 
 	opts := settings.NewAuthProxyOptions(u.Scheme, usr, pwd, strurl, u.Port())
 
-	return ipn.NewHTTPProxy(id, b, opts)
+	var proxy Proxy
+	switch u.Scheme {
+	case "socks5":
+		proxy, err = NewSocks5Proxy(id, pxr.ctl, opts)
+	case "http":
+		fallthrough
+	case "https":
+		proxy, err = NewHTTPProxy(id, pxr.ctl, opts)
+	default:
+		return nil, errProxyScheme
+	}
+
+	if err != nil {
+		return nil, err
+	} else if ok := pxr.add(proxy); !ok {
+		return nil, errProxyScheme
+	}
+
+	return proxy, nil
 }

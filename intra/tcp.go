@@ -64,7 +64,7 @@ type tcpHandler struct {
 	TCPHandler
 	resolver dnsx.Resolver
 	dialer   *net.Dialer
-	blocker  protect.Blocker
+	ctl      protect.Controller
 	tunMode  *settings.TunMode
 	listener TCPListener
 	pt       ipn.NatPt
@@ -91,13 +91,13 @@ type TCPListener interface {
 // Connections to `fakedns` are redirected to DOH.
 // All other traffic is forwarded using `dialer`.
 // `listener` is provided with a summary of each socket when it is closed.
-func NewTCPHandler(resolver dnsx.Resolver, pt ipn.NatPt, blocker protect.Blocker,
+func NewTCPHandler(resolver dnsx.Resolver, pt ipn.NatPt, ctl protect.Controller,
 	tunMode *settings.TunMode, listener TCPListener) TCPHandler {
-	d := protect.MakeNsDialer(blocker)
+	d := protect.MakeNsDialer(ctl)
 	h := &tcpHandler{
 		resolver: resolver,
 		dialer:   d,
-		blocker:  blocker,
+		ctl:      ctl,
 		tunMode:  tunMode,
 		listener: listener,
 		pt:       pt,
@@ -209,7 +209,7 @@ func (h *tcpHandler) onFlow(localaddr *net.TCPAddr, target *net.TCPAddr, realips
 	var proto int32 = 6 // tcp
 	src := localaddr.String()
 	dst := target.String()
-	res := h.blocker.Flow(proto, uid, src, dst, realips, domains, blocklists)
+	res := h.ctl.Flow(proto, uid, src, dst, realips, domains, blocklists)
 
 	if len(res) <= 0 {
 		log.W("tcp: empty flow from kt; using base")

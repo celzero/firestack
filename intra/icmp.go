@@ -36,21 +36,21 @@ type icmpHandler struct {
 	udpConns map[core.UDPConn]*tracker
 	config   *net.ListenConfig
 	dialer   *net.Dialer
-	blocker  protect.Blocker
+	ctl      protect.Controller
 	tunMode  *settings.TunMode
 	pt       ipn.NAT64
 }
 
-func NewICMPHandler(resolver dnsx.Resolver, pt ipn.NAT64, blocker protect.Blocker,
+func NewICMPHandler(resolver dnsx.Resolver, pt ipn.NAT64, ctl protect.Controller,
 	tunMode *settings.TunMode) ICMPHandler {
 	udptimeout, _ := time.ParseDuration("30s")
-	c := protect.MakeListenConfig2(blocker)
-	d := protect.MakeNsDialer(blocker)
+	c := protect.MakeListenConfig2(ctl)
+	d := protect.MakeNsDialer(ctl)
 	h := &icmpHandler{
 		timeout:  udptimeout,
 		udpConns: make(map[core.UDPConn]*tracker, 8),
 		resolver: resolver,
-		blocker:  blocker,
+		ctl:      ctl,
 		tunMode:  tunMode,
 		config:   c,
 		dialer:   d,
@@ -80,13 +80,12 @@ func (h *icmpHandler) onFlow(source *net.UDPAddr, target *net.UDPAddr, realips, 
 	var proto int32 = 1 // icmp
 	src := source.String()
 	dst := target.String()
-	if len(realips) > 0 && len(domains) > 0 {
-		block = h.blocker.BlockAlg(proto, uid, src, dst, realips, domains, blocklists)
-	} else {
-		block = h.blocker.Block(proto, uid, src, dst)
-	}
+	// todo: handle forwarding icmp to appropriate proxy?
+	res := h.ctl.Flow(proto, uid, src, dst, realips, domains, blocklists)
 
-	if block {
+	pid, _ := splitPidCid(res)
+	block = pid == ipn.Block
+	if res == ipn.Block {
 		log.I("t.icmp.egress: firewalled src(%s:%s) -> dst(%s:%s)",
 			source.Network(), src, target.Network(), dst)
 		// sleep for a while to avoid busy conns

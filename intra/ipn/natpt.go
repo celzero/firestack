@@ -47,9 +47,9 @@ type NatPt interface {
 	NAT64
 }
 
-func NewNatPt(l3 string, tunmode *settings.TunMode) NatPt {
+func NewNatPt(l3 string, ctl protect.Controller, tunmode *settings.TunMode) NatPt {
 	return &natPt{
-		Proxies: NewProxifier(),
+		Proxies: NewProxifier(ctl),
 		nat64:   newNat64(),
 		dns64:   newDns64(),
 		l3:      l3,
