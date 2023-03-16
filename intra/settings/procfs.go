@@ -114,23 +114,22 @@ func (p *ProcNetEntry) Same(q *ProcNetEntry) bool {
 	dst1 := p.DstIP.Unmap()
 	dst2 := q.DstIP.Unmap()
 
+	if src1.Is6() && !src2.Is6() {
+		return false
+	}
+	if dst1.Is6() && !dst2.Is6() {
+		return false
+	}
+
+	zeroip := zeroip4
+	if src1.Is6() {
+		zeroip = zeroip6
+	}
+
 	// github.com/M66B/NetGuard/blob/1fe3a04ae/app/src/main/jni/netguard/ip.c#L393
 	skipSrcIP := false
 	skipDstIP := false
 	skipDstPort := false
-
-	var zeroip netip.Addr = zeroip4
-	if src1.Is6() || dst1.Is6() {
-		if src2.Is4() || dst2.Is4() {
-			return false
-		}
-		zeroip = zeroip6
-	} else {
-		if src2.Is6() || dst2.Is6() {
-			return false
-		}
-	}
-
 	if zeroip.Compare(src1) == 0 || zeroip.Compare(src2) == 0 {
 		skipSrcIP = true
 	}
@@ -188,31 +187,34 @@ func hexToInt2(h string) (uint, uint) {
 }
 
 func hexToIP(h string) netip.Addr {
-	n, m := hexToInt2(h)
+	hi, lo := hexToInt2(h)
 	var ip net.IP
-	if m != 0 {
-		mmsb := uint32(m >> 32)
-		v4IPv6 := false
-		ip = make(net.IP, 16)
+	if lo != 0 {
+		lomsb := uint32(lo >> 32)
+		himsb := uint32(hi >> 32)
 
+		// see: netip.Unmap
 		// stackoverflow.com/questions/22751035
-		if n == 0 && mmsb == 0 {
-			v4IPv6 = true // ipv4 in ipv6
-		}
-		// TODO: Check if this depends on machine endianness?
-		binary.LittleEndian.PutUint32(ip, uint32(n>>32))
-		binary.LittleEndian.PutUint32(ip[4:], uint32(n))
-		if v4IPv6 {
-			// github.com/golang/go/blob/2bed2797/src/net/ip.go#L195-L196
-			// 0000 0000 0000 0000 1111 1111 1111 1111
-			binary.BigEndian.PutUint32(ip[8:], uint32(0xffff))
+		// hi: 0000 0000 0000 0000 0000 0000 0000 0000
+		// lo: 0000 0000 0000 0000 wwww xxxx yyyy zzzz
+		if hi == 0 && lomsb == 0 {
+			ip = make(net.IP, 4) // v4in6
+			binary.LittleEndian.PutUint32(ip, uint32(lo))
 		} else {
-			binary.LittleEndian.PutUint32(ip[8:], mmsb)
+			ip = make(net.IP, 16)
+			// ip addresses are stored in network byte order
+			binary.LittleEndian.PutUint32(ip, himsb)
+			binary.LittleEndian.PutUint32(ip[4:], uint32(hi))
+			// if v4in6: github.com/golang/go/blob/2bed2797/src/net/ip.go#L195-L196
+			// mark: 0000 0000 0000 0000 1111 1111 1111 1111
+			// mark := uint32(0xffff)
+			// binary.BigEndian.PutUint32(ip[8:], mark)
+			binary.LittleEndian.PutUint32(ip[8:], lomsb)
+			binary.LittleEndian.PutUint32(ip[12:], uint32(lo))
 		}
-		binary.LittleEndian.PutUint32(ip[12:], uint32(m))
 	} else {
 		ip = make(net.IP, 4)
-		binary.LittleEndian.PutUint32(ip, uint32(n))
+		binary.LittleEndian.PutUint32(ip, uint32(hi))
 	}
 	return toUnmappedAddr(ip)
 }
