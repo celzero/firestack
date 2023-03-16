@@ -176,6 +176,8 @@ func NewNetstack(l3 string) (s *stack.Stack) {
 
 	// TODO: setup stack otps?
 	// github.com/xjasonlyu/tun2socks/blob/31468620e/core/option/option.go#L69
+	sack := tcpip.TCPSACKEnabled(true)
+	s.SetTransportProtocolOption(tcp.ProtocolNumber, &sack)
 	log.I("netstack: new L3(%s)", l3)
 	return
 }
