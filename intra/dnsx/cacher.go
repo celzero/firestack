@@ -196,18 +196,19 @@ func (cb *cache) freshLocked(key string) (v *cres, ok bool) {
 		return
 	}
 
+	recent := v.bumps <= 0
 	alive := time.Since(v.expiry) <= 0
 	if alive && v.bumps < cb.bumps {
-		v.bumps = v.bumps + 1
 		n := time.Duration(v.bumps) * cb.halflife
 		// if the expiry time is already n duration in the future, don't incr ttl
 		if time.Since(v.expiry.Add(-n)) < 0 {
 			v.expiry = v.expiry.Add(n)
+			v.bumps = v.bumps + 1
 		}
 	}
 
 	r75 := rand.Intn(99999) < 75000 // 75% chance of reusing from the cache
-	return v, r75 && alive
+	return v, (r75 || recent) && alive
 }
 
 func (cb *cache) putLocked(key string, response []byte, s *Summary) (ok bool) {
