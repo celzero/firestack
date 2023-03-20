@@ -54,6 +54,7 @@ const (
 	wgnic = 999
 )
 
+// unused
 type wgifc struct {
 	id         string        // name of the wg interface
 	privkey    string        // private key
@@ -64,6 +65,7 @@ type wgifc struct {
 	mtu        int           // preferred mtu
 }
 
+// unused
 type wgpeerc struct {
 	psk        string          // preshared key
 	pubkey     string          // public key
@@ -124,6 +126,9 @@ func wgIfConfigOf(txt string) (ifaddrs, dnsaddrs []*netip.Addr, mtu int, err err
 		line := r.Text()
 		if len(line) <= 0 {
 			// Blank line means terminate operation.
+			if (len(ifaddrs) <= 0) || (len(dnsaddrs) <= 0) || (mtu <= 0) {
+				err = errProxyConfig
+			}
 			return
 		}
 		k, v, ok := strings.Cut(line, "=")
@@ -152,11 +157,18 @@ func wgIfConfigOf(txt string) (ifaddrs, dnsaddrs []*netip.Addr, mtu int, err err
 			}
 		}
 	}
+	if err == nil && (len(ifaddrs) <= 0) || (len(dnsaddrs) <= 0) || (mtu <= 0) {
+		err = errProxyConfig
+	}
 	return
 }
 
 func bindWgSockets(wgdev *device.Device, ctl protect.Controller) bool {
 	var ok4, ok6 bool
+
+	// ref: github.com/WireGuard/wireguard-go/blob/1417a47c8/conn/bind_std.go#L130
+	// bind: github.com/WireGuard/wireguard-android/blob/713947e432/tunnel/tools/libwg-go/api-android.go#L180
+	// protect: https://github.com/WireGuard/wireguard-android/blob/713947e432/tunnel/src/main/java/com/wireguard/android/backend/GoBackend.java#L316
 	bind := wgdev.Bind().(conn.PeekLookAtSocketFd)
 	if bind == nil {
 		log.E("proxy: wg: bind: failed to get wg socket")
@@ -182,9 +194,6 @@ func bindWgSockets(wgdev *device.Device, ctl protect.Controller) bool {
 
 // ref: github.com/WireGuard/wireguard-android/blob/713947e432/tunnel/tools/libwg-go/api-android.go#L76
 func NewWgProxy(id string, ctl protect.Controller, txt string) (w WgProxy, err error) {
-	// TODO: support ctl; ref: github.com/WireGuard/wireguard-go/blob/1417a47c8/conn/bind_std.go#L130
-	// bind: github.com/WireGuard/wireguard-android/blob/713947e432/tunnel/tools/libwg-go/api-android.go#L180
-	// protect: https://github.com/WireGuard/wireguard-android/blob/713947e432/tunnel/src/main/java/com/wireguard/android/backend/GoBackend.java#L316
 	ifaddrs, dnsaddrs, mtu, err := wgIfConfigOf(txt)
 	if err != nil {
 		return nil, err
@@ -201,6 +210,7 @@ func NewWgProxy(id string, ctl protect.Controller, txt string) (w WgProxy, err e
 		return nil, err
 	}
 
+	// github.com/WireGuard/wireguard-android/blob/713947e432/tunnel/tools/libwg-go/api-android.go#L99
 	wgdev.DisableSomeRoamingForBrokenMobileSemantics()
 
 	err = wgdev.Up()
@@ -216,10 +226,11 @@ func NewWgProxy(id string, ctl protect.Controller, txt string) (w WgProxy, err e
 		wgdev,
 	}
 
+	log.D("proxy: wg: new %s for cfg %s", id, txt)
+
 	return
 }
 
-// TODO: controller
 func makeWgTun(id string, ifaddrs, dnsaddrs []*netip.Addr, mtu int) (*wgtun, error) {
 	opts := stack.Options{
 		NetworkProtocols:   []stack.NetworkProtocolFactory{ipv4.NewProtocol, ipv6.NewProtocol},
@@ -274,6 +285,7 @@ func makeWgTun(id string, ifaddrs, dnsaddrs []*netip.Addr, mtu int) (*wgtun, err
 		s.AddRoute(tcpip.Route{Destination: header.IPv6EmptySubnet, NIC: wgnic})
 	}
 
+	// commence the wireguard state machine
 	t.events <- tun.EventUp
 
 	return t, nil
@@ -315,15 +327,17 @@ func (tun *wgtun) Write(bufs [][]byte, offset int) (int, error) {
 		}
 
 		pkb := stack.NewPacketBuffer(stack.PacketBufferOptions{Payload: bufferv2.MakeWithData(pkt)})
+		defer pkb.DecRef()
 		switch pkt[0] >> 4 {
 		case 4: // IPv4
-			tun.ep.InjectInbound(header.IPv4ProtocolNumber, pkb)
+			tun.ep.InjectInbound(header.IPv4ProtocolNumber, pkb) // write to ep
 		case 6: // IPv6
-			tun.ep.InjectInbound(header.IPv6ProtocolNumber, pkb)
+			tun.ep.InjectInbound(header.IPv6ProtocolNumber, pkb) // write to ep
 		default:
 			return 0, syscall.EAFNOSUPPORT
 		}
 	}
+
 	return len(bufs), nil
 }
 
