@@ -52,6 +52,7 @@ var (
 var _ Proxy = (*base)(nil)
 var _ Proxy = (*socks5)(nil)
 var _ Proxy = (*http1)(nil)
+var _ Proxy = (*wgproxy)(nil)
 var _ Proxy = (*ground)(nil)
 
 // Adapter to keep gomobile happy as it can't export net.Conn
@@ -112,6 +113,7 @@ func (px *proxifier) add(p Proxy) bool {
 	defer px.Unlock()
 
 	if pp, ok := px.p[p.ID()]; ok {
+		// new proxy, invoke Stop on old proxy
 		if pp != p {
 			go pp.Stop()
 		}

@@ -47,6 +47,8 @@ func NewHTTPProxy(id string, c protect.Controller, po *settings.ProxyOptions) (P
 		opts:   po,
 	}
 
+	log.D("proxy: http1: created %s with opts(%s)", h.ID(), po)
+
 	return h, nil
 }
 

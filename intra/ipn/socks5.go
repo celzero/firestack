@@ -52,6 +52,8 @@ func NewSocks5Proxy(id string, ctl protect.Controller, po *settings.ProxyOptions
 		opts:   po,
 	}
 
+	log.D("proxy: socks5: created %s with opts(%s)", h.ID(), po)
+
 	return h, nil
 }
 
