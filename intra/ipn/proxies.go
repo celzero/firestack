@@ -16,26 +16,32 @@ import (
 
 const (
 	// IDs for default proxies
-	Block    = "Block"    // proxy that blocks all traffic
-	Base     = "Base"     // proxy that does not proxy traffic
-	Grounded = "Grounded" // proxy that blocks all traffic
+	Block    = "Block"       // proxy that blocks all traffic
+	Base     = "Base"        // proxy that does not proxy traffic
+	Grounded = "Grounded"    // proxy that blocks all traffic
+	OrbotS5  = "OrbotSocks5" // Orbot: Tor-as-a-SOCKS5 proxy
+	OrbotH1  = "OrbotHttp1"  // Orbot: Tor-as-a-HTTP/1.1 proxy
 
 	// type of proxies
 	SOCKS5 = "socks5" // SOCKS5 proxy
 	HTTP1  = "http1"  // HTTP/1.1 proxy
+	WG     = "wg"     // WireGuard-as-a-proxy
 	NOOP   = "noop"   // No proxy
 
 	// status of proxies
-	TOK = 0
-	TKO = -1
+	TOK = 0  // proxy OK
+	TKO = -1 // proxy not OK
+	END = -2 // proxy stopped
 )
 
 var (
 	errProxyScheme     = errors.New("unsupported proxy scheme")
-	errProxyAdd        = errors.New("add proxy failed")
+	errUnexpectedProxy = errors.New("unexpected proxy type")
+	errAddProxy        = errors.New("add proxy failed")
 	errProxyNotFound   = errors.New("proxy not found")
 	errMissingProxyOpt = errors.New("proxyopts nil")
 	errNoProxyConn     = errors.New("not a tcp/udp proxy conn")
+	errProxyStopped    = errors.New("proxy stopped")
 
 	udptimeoutsec = 5 * 60                    // 5m
 	tcptimeoutsec = (2 * 60 * 60) + (40 * 60) // 2h40m
@@ -105,7 +111,9 @@ func (px *proxifier) add(p Proxy) bool {
 	defer px.Unlock()
 
 	if pp, ok := px.p[p.ID()]; ok {
-		go pp.Stop()
+		if pp != p {
+			go pp.Stop()
+		}
 	}
 
 	px.p[p.ID()] = p

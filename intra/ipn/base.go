@@ -29,6 +29,10 @@ func NewBaseProxy(c protect.Controller) Proxy {
 }
 
 func (h *base) Dial(network, addr string) (c Conn, err error) {
+	if h.status == END {
+		return nil, errProxyStopped
+	}
+
 	if c, err = h.dialer.Dial(network, addr); err != nil {
 		h.status = TKO
 	}
@@ -53,5 +57,6 @@ func (h *base) Status() int {
 }
 
 func (h *base) Stop() error {
+	h.status = END
 	return nil
 }

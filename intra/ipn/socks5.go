@@ -49,12 +49,17 @@ func NewSocks5Proxy(id string, ctl protect.Controller, po *settings.ProxyOptions
 	h := &socks5{
 		dailer: fproxy,
 		id:     id,
+		opts:   po,
 	}
 
 	return h, nil
 }
 
 func (h *socks5) Dial(network, addr string) (c Conn, err error) {
+	if h.status == END {
+		return nil, errProxyStopped
+	}
+
 	if c, err = h.dailer.Dial(network, addr); err == nil {
 		// in txthinking/socks5, an underlying-conn is actually a net.TCPConn
 		// github.com/txthinking/socks5/blob/39268fae/client.go#L15
@@ -77,6 +82,9 @@ func (h *socks5) Dial(network, addr string) (c Conn, err error) {
 			err = errNoProxyConn
 			h.status = TKO
 		}
+	} else {
+		log.W("proxy: socks5 dial failed %s -> %s: %v", h.GetAddr(), addr, err)
+		h.status = TKO
 	}
 	return
 }
@@ -98,5 +106,6 @@ func (h *socks5) Status() int {
 }
 
 func (h *socks5) Stop() error {
+	h.status = END
 	return nil
 }

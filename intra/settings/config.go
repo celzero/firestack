@@ -172,7 +172,7 @@ func NewAuthProxyOptions(scheme, username, password, ip, port string) *ProxyOpti
 	if err != nil {
 		log.I("proxyopt(%s:%s); ipport is url?(%v)", ip, port, err)
 		if len(ip) > 0 {
-			// port is discarded, and expected to be in ip
+			// port is discarded, and expected to be in ip/url
 			ippstr = ip
 		} else {
 			return nil

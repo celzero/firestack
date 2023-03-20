@@ -11,9 +11,9 @@ require (
 	github.com/k-sone/critbitgo v1.4.0
 	github.com/miekg/dns v1.1.49
 	github.com/songgao/water v0.0.0-20200317203138-2b4b6d7c09d8 // indirect
-	golang.org/x/crypto v0.0.0-20201016220609-9e8e0b390897
-	golang.org/x/net v0.0.0-20211015210444-4f30a5c0130f
-	golang.org/x/sys v0.0.0-20211019181941-9d821ace8654
+	golang.org/x/crypto v0.6.0
+	golang.org/x/net v0.7.0
+	golang.org/x/sys v0.5.1-0.20230222185716-a3b23cc77e89
 )
 
 require (
@@ -22,7 +22,8 @@ require (
 	github.com/txthinking/socks5 v0.0.0-20220615051428-39268faee3e6
 	github.com/txthinking/x v0.0.0-20210326105829-476fab902fbe
 	golang.org/x/mobile v0.0.0-20220518205345-8578da9835fd
-	gvisor.dev/gvisor v0.0.0-20220701225953-3108ea2a69b2
+	golang.zx2c4.com/wireguard v0.0.0-20230317141804-7f511c3bb16d
+	gvisor.dev/gvisor v0.0.0-20221203005347-703fd9b7fbc0
 )
 
 require (
@@ -31,8 +32,9 @@ require (
 	github.com/google/btree v1.0.1 // indirect
 	github.com/patrickmn/go-cache v2.1.0+incompatible // indirect
 	github.com/txthinking/runnergroup v0.0.0-20210608031112-152c7c4432bf // indirect
-	golang.org/x/mod v0.5.1 // indirect
+	golang.org/x/mod v0.6.0-dev // indirect
 	golang.org/x/time v0.0.0-20191024005414-555d28b269f0 // indirect
 	golang.org/x/tools v0.1.9 // indirect
 	golang.org/x/xerrors v0.0.0-20200804184101-5ec99f83aff1 // indirect
+	golang.zx2c4.com/wintun v0.0.0-20230126152724-0fa3db229ce2 // indirect
 )

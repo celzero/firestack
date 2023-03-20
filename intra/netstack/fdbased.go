@@ -35,6 +35,7 @@ import (
 
 	"github.com/celzero/firestack/intra/log"
 	"golang.org/x/sys/unix"
+	"gvisor.dev/gvisor/pkg/bufferv2"
 	"gvisor.dev/gvisor/pkg/sync"
 	"gvisor.dev/gvisor/pkg/tcpip"
 	"gvisor.dev/gvisor/pkg/tcpip/header"
@@ -291,7 +292,7 @@ func (e *endpoint) Wait() {
 }
 
 // AddHeader implements stack.LinkEndpoint.AddHeader.
-func (e *endpoint) AddHeader(pkt *stack.PacketBuffer) {
+func (e *endpoint) AddHeader(pkt stack.PacketBufferPtr) {
 	if e.hdrSize > 0 {
 		// Add ethernet header if needed.
 		eth := header.Ethernet(pkt.LinkHeader().Push(header.EthernetMinimumSize))
@@ -317,7 +318,7 @@ func (e *endpoint) WritePackets(pkts stack.PacketBufferList) (int, tcpip.Error) 
 	packets, written := 0, 0
 	total := pkts.Len()
 	for _, pkt := range pkts.AsSlice() {
-		views := pkt.Slices()
+		views := pkt.AsSlices()
 		numIovecs := len(views)
 		if len(batch)+numIovecs > rawfile.MaxIovs {
 			// writes in to fd, up to len(batch) not cap(batch)
@@ -369,7 +370,7 @@ func (e *endpoint) ARPHardwareType() header.ARPHardwareType {
 }
 
 // Unused: InjectInbound ingresses a netstack-inbound packet.
-func (e *endpoint) InjectInbound(protocol tcpip.NetworkProtocolNumber, pkt *stack.PacketBuffer) {
+func (e *endpoint) InjectInbound(protocol tcpip.NetworkProtocolNumber, pkt stack.PacketBufferPtr) {
 	log.V("ns.e.inject-inbound(from-tun) %d pkt(%v)", protocol, pkt.Hash)
 	if e.IsAttached() {
 		e.dispatcher.DeliverNetworkPacket(protocol, pkt)
@@ -380,7 +381,7 @@ func (e *endpoint) InjectInbound(protocol tcpip.NetworkProtocolNumber, pkt *stac
 
 // Unused: InjectOutobund implements stack.InjectableEndpoint.InjectOutbound.
 // InjectOutbound egresses a tun-inbound packet.
-func (e *endpoint) InjectOutbound(dest tcpip.Address, packet []byte) tcpip.Error {
+func (e *endpoint) InjectOutbound(dest tcpip.Address, packet *bufferv2.View) tcpip.Error {
 	log.V("ns.e.inject-outbound(to-tun) to dst(%v)", dest)
-	return rawfile.NonBlockingWrite(e.fds[0].fd, packet)
+	return rawfile.NonBlockingWrite(e.fds[0].fd, packet.AsSlice())
 }

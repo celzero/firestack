@@ -33,6 +33,7 @@ func NewHTTPProxy(id string, c protect.Controller, po *settings.ProxyOptions) (P
 	hp := tx.NewProxyHttpServer()
 	hp.Tr.Dial = protect.MakeNsDialer(c).Dial
 	hp.Verbose = settings.Debug
+	// todo: use user-preferred dns transport to dial urls?
 	dialfn := hp.NewConnectDialToProxy(po.AsUrl())
 
 	if err != nil {
@@ -43,12 +44,17 @@ func NewHTTPProxy(id string, c protect.Controller, po *settings.ProxyOptions) (P
 	h := &http1{
 		dialfn: dialfn,
 		id:     id,
+		opts:   po,
 	}
 
 	return h, nil
 }
 
 func (h *http1) Dial(network, addr string) (c Conn, err error) {
+	if h.status == END {
+		return nil, errProxyStopped
+	}
+
 	if c, err = h.dialfn(network, addr); err != nil {
 		log.W("proxy: http1 dial %s -> %s; err %v", h.GetAddr(), addr, err)
 		h.status = TKO
@@ -74,5 +80,6 @@ func (h *http1) Status() int {
 }
 
 func (h *http1) Stop() error {
+	h.status = END
 	return nil
 }
