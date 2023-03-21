@@ -175,7 +175,6 @@ func wgIfConfigOf(txtptr *string) (ifaddrs, dnsaddrs []*netip.Addr, mtu int, err
 	return
 }
 
-// unused; see: core:wgconn.go
 func bindWgSockets(wgdev *device.Device, ctl protect.Controller) bool {
 	var ok4, ok6 bool
 
@@ -218,7 +217,7 @@ func NewWgProxy(id string, ctl protect.Controller, cfg string) (w WgProxy, err e
 		return nil, err
 	}
 
-	wgdev := device.NewDevice(wgtun, core.NewBind(ctl), wglogger())
+	wgdev := device.NewDevice(wgtun, core.NewBind(), wglogger())
 
 	err = wgdev.IpcSet(uapicfg)
 	if err != nil {
@@ -234,14 +233,15 @@ func NewWgProxy(id string, ctl protect.Controller, cfg string) (w WgProxy, err e
 	}
 
 	// nb: call after StdNetBind conn has been "Open"ed
-	// bindWgSockets(wgdev, ctl)
+	// not needed for core.NewBind2; see: core:wgconn2.go
+	bindok := bindWgSockets(wgdev, ctl)
 
 	w = &wgproxy{
 		wgtun,
 		wgdev,
 	}
 
-	log.D("proxy: wg: new %s for cfg %s", id, cfg)
+	log.D("proxy: wg: new %s for cfg %s / bound? %t", id, cfg, bindok)
 
 	return
 }
