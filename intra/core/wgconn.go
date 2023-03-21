@@ -22,9 +22,11 @@ import (
 	"sync"
 	"syscall"
 
+	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
 	"golang.org/x/net/ipv4"
 	"golang.org/x/net/ipv6"
+	"golang.org/x/sys/unix"
 	"golang.zx2c4.com/wireguard/conn"
 )
 
@@ -365,7 +367,29 @@ func asEndpoint(ap netip.AddrPort) *StdNetEndpoint {
 	return e
 }
 
-// TODO: github.com/WireGuard/wireguard-go/blob/1417a47c8/conn/mark_unix.go
-func (s *StdNetBind) SetMark(mark uint32) error {
+// from: github.com/WireGuard/wireguard-go/blob/1417a47c8/conn/mark_unix.go
+func (s *StdNetBind) SetMark(mark uint32) (err error) {
+	var operr error
+	var raw4, raw6 syscall.RawConn
+	fwmarkIoctl := 36 /* unix.SO_MARK */
+	if s.ipv4 != nil {
+		if raw4, err = s.ipv4.SyscallConn(); err == nil {
+			if err = raw4.Control(func(fd uintptr) {
+				operr = unix.SetsockoptInt(int(fd), unix.SOL_SOCKET, fwmarkIoctl, int(mark))
+			}); err == nil {
+				err = operr
+			}
+		} // else: return err
+	}
+	if err == nil && s.ipv6 != nil {
+		if raw6, err = s.ipv6.SyscallConn(); err == nil {
+			if err = raw6.Control(func(fd uintptr) {
+				operr = unix.SetsockoptInt(int(fd), unix.SOL_SOCKET, fwmarkIoctl, int(mark))
+			}); err == nil {
+				err = operr
+			}
+		} // else: return err
+	}
+	log.W("wg: failed to set mark on socket: %v", err)
 	return nil
 }
