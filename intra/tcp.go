@@ -36,6 +36,7 @@ import (
 
 	"github.com/celzero/firestack/intra/dnsx"
 	"github.com/celzero/firestack/intra/log"
+	"gvisor.dev/gvisor/pkg/tcpip/adapters/gonet"
 
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/ipn"
@@ -107,7 +108,7 @@ func NewTCPHandler(resolver dnsx.Resolver, pt ipn.NatPt, ctl protect.Controller,
 }
 
 // TODO: Propagate TCP RST using local.Abort(), on appropriate errors.
-func (h *tcpHandler) handleUpload(local core.TCPConn, remote split.DuplexConn, upload chan int64) {
+func (h *tcpHandler) handleUpload(local core.TCPConn, remote core.TCPConn, upload chan int64) {
 	ci := conn2str(local, remote)
 
 	// io.copy does remote.ReadFrom(local)
@@ -127,7 +128,7 @@ func conn2str(a net.Conn, b net.Conn) string {
 	return fmt.Sprintf("a(%v->%v) => b(%v<-%v)", al, ar, bl, br)
 }
 
-func (h *tcpHandler) handleDownload(local core.TCPConn, remote split.DuplexConn) (bytes int64, err error) {
+func (h *tcpHandler) handleDownload(local core.TCPConn, remote core.TCPConn) (bytes int64, err error) {
 	ci := conn2str(local, remote)
 
 	bytes, err = io.Copy(local, remote)
@@ -138,14 +139,15 @@ func (h *tcpHandler) handleDownload(local core.TCPConn, remote split.DuplexConn)
 	return
 }
 
-func (h *tcpHandler) forward(local net.Conn, remote split.DuplexConn, summary *TCPSocketSummary) {
-	localtcp := local.(core.TCPConn)
+func (h *tcpHandler) forward(local net.Conn, remote net.Conn, summary *TCPSocketSummary) {
+	localtcp := local.(core.TCPConn)   // conforms to net.TCPConn
+	remotetcp := remote.(core.TCPConn) // conforms to net.TCPConn
 	upload := make(chan int64)
 	start := time.Now()
 
-	go h.handleUpload(localtcp, remote, upload)
+	go h.handleUpload(localtcp, remotetcp, upload)
 
-	download, _ := h.handleDownload(localtcp, remote)
+	download, _ := h.handleDownload(localtcp, remotetcp)
 
 	summary.DownloadBytes = download
 	summary.UploadBytes = <-upload
@@ -275,7 +277,7 @@ func (h *tcpHandler) Handle(conn net.Conn, target *net.TCPAddr, decision string)
 	summary.ServerPort = filteredPort(target)
 	summary.ID = cid // may be an empty string
 	start := time.Now()
-	var c split.DuplexConn
+	var c net.Conn
 
 	// Ref: stackoverflow.com/questions/63656117
 	// Ref: stackoverflow.com/questions/40328025
@@ -284,6 +286,8 @@ func (h *tcpHandler) Handle(conn net.Conn, target *net.TCPAddr, decision string)
 		switch uc := pc.(type) {
 		// underlying conn must specifically be a tcp-conn
 		case *net.TCPConn:
+			c = uc
+		case *gonet.TCPConn:
 			c = uc
 		default:
 			err = errTcpSetupConn

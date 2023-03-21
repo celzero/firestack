@@ -19,23 +19,6 @@ import (
 // in the lwIP thread when they are called, that is, they are holding
 // the lwipMutex.
 type TCPConn interface {
-	// Sent will be called when sent data has been acknowledged by peer.
-	Sent(len uint16) error
-
-	// Receive will be called when data arrives from TUN.
-	Receive(data []byte) error
-
-	// Err will be called when a fatal error has occurred on the connection.
-	// The corresponding pcb is already freed when this callback is called
-	Err(err error)
-
-	// LocalClosed will be called when lwIP receives a FIN segment on a
-	// connection.
-	LocalClosed() error
-
-	// Poll will be periodically called by TCP timers.
-	Poll() error
-
 	// RemoteAddr returns the destination network address.
 	RemoteAddr() net.Addr
 
@@ -62,9 +45,6 @@ type TCPConn interface {
 	// CloseRead closes the reading side. That means we can no longer
 	// read more from TUN.
 	CloseRead() error
-
-	// Abort aborts the connection by sending a RST segment.
-	Abort()
 
 	SetDeadline(t time.Time) error
 	SetReadDeadline(t time.Time) error

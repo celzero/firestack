@@ -407,6 +407,8 @@ func (h *wgtun) Dial(network, address string) (c Conn, err error) {
 	} else {
 		h.status = TOK
 	}
+
+	log.I("wg: dial: %s %s; err %v", network, address, err)
 	return
 }
 
