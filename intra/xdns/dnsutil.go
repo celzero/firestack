@@ -34,6 +34,19 @@ func AsMsg(packet []byte) *dns.Msg {
 	return msg
 }
 
+func RequestFromResponse(msg *dns.Msg) *dns.Msg {
+	req := &dns.Msg{
+		Compress: true,
+	}
+	req.SetQuestion(QName(msg), QType(msg))
+	req.RecursionDesired = true
+	req.CheckingDisabled = false
+	req.AuthenticatedData = false
+	req.Authoritative = false
+	req.Id = msg.Id
+	return req
+}
+
 func Request4FromResponse6(msg6 *dns.Msg) *dns.Msg {
 	msg4 := &dns.Msg{
 		Compress: true,

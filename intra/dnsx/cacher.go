@@ -89,11 +89,11 @@ func NewCachingTransport(t Transport, ttl time.Duration) Transport {
 
 	// is type casting is a better way to do this?
 	if strings.HasPrefix(t.GetAddr(), addrprefix) {
-		log.I("caching(%s) no-op: %s", t.ID(), t.GetAddr())
+		log.I("cache: (%s) no-op: %s", t.ID(), t.GetAddr())
 		return t
 	}
 	if strings.HasPrefix(t.GetAddr(), algprefix) {
-		log.W("caching(%s) no-op for alg: %s", t.ID(), t.GetAddr())
+		log.W("cache: (%s) no-op for alg: %s", t.ID(), t.GetAddr())
 		return t
 	}
 	ct := &ctransport{
@@ -106,7 +106,7 @@ func NewCachingTransport(t Transport, ttl time.Duration) Transport {
 		bumps:     defbumps,
 		size:      defsize,
 	}
-	log.I("caching(%s) setup: %s; opts: %s", ct.ID(), ct.GetAddr(), ct.str())
+	log.I("cache: (%s) setup: %s; opts: %s", ct.ID(), ct.GetAddr(), ct.str())
 	return ct
 }
 
@@ -138,7 +138,20 @@ func (*ctransport) ckey(q *dns.Msg) (string, uint8, bool) {
 	return qname + keysep + qtyp, hash(qname), true
 }
 
-func (cb *cache) scrubQBarrier(kch <-chan string) {
+func (cb *cache) refreshCache(t Transport, crch <-chan *cres) {
+	net := "udp" // todo: change to tcp if the response is truncated
+
+	for cr := range crch {
+		// refresh the cache entry
+		req := xdns.RequestFromResponse(cr.ans)
+		if q, err := req.Pack(); err == nil {
+			log.I("cache: prefetch refresh: %s", cr.str())
+			go t.Query(net, q, cr.s)
+		}
+	}
+}
+
+func (cb *cache) purgeQBarrier(kch <-chan string) {
 	var keys []string
 	for k := range kch {
 		keys = append(keys, k)
@@ -153,11 +166,12 @@ func (cb *cache) scrubQBarrier(kch <-chan string) {
 	}
 	cb.qmu.Unlock()
 
-	log.I("cache(%d) cleaned up: %d", len(keys))
+	log.I("cache: cleaned up: %d", len(keys))
 }
 
-func (cb *cache) scrubCache(kch chan<- string) {
+func (cb *cache) scrubCache(kch chan<- string, nch chan<- *cres) {
 	defer close(kch)
+	defer close(nch)
 
 	cb.mu.Lock()
 	defer cb.mu.Unlock()
@@ -176,7 +190,10 @@ func (cb *cache) scrubCache(kch chan<- string) {
 	i, j := 0, 0
 	for k, v := range cb.c {
 		i++
-		if time.Since(v.expiry) > 0 {
+		if v.bumps >= (cb.bumps * 3 / 4) {
+			v.bumps = 0
+			nch <- v
+		} else if time.Since(v.expiry) > 0 {
 			delete(cb.c, k)
 			kch <- k
 			j++
@@ -185,7 +202,7 @@ func (cb *cache) scrubCache(kch chan<- string) {
 			break
 		}
 	}
-	log.I("cache(%d) scrub: %d/%d", j, i)
+	log.I("cache: scrub: %d/%d", j, i)
 }
 
 func (cb *cache) freshLocked(key string) (v *cres, ok bool) {
@@ -211,7 +228,7 @@ func (cb *cache) freshLocked(key string) (v *cres, ok bool) {
 	return v, (r75 || recent) && alive
 }
 
-func (cb *cache) putLocked(key string, response []byte, s *Summary) (ok bool) {
+func (cb *cache) putLocked(t Transport, key string, response []byte, s *Summary) (ok bool) {
 	ok = false
 
 	if len(response) <= 0 {
@@ -229,9 +246,11 @@ func (cb *cache) putLocked(key string, response []byte, s *Summary) (ok bool) {
 		return
 	}
 
-	kch := make(chan string)
-	go cb.scrubCache(kch)
-	go cb.scrubQBarrier(kch)
+	kch := make(chan string) // delete
+	crch := make(chan *cres) // renew
+	go cb.scrubCache(kch, crch)
+	go cb.purgeQBarrier(kch)
+	go cb.refreshCache(t, crch)
 
 	cb.mu.Lock()
 	defer cb.mu.Unlock()
@@ -261,7 +280,7 @@ func (cb *cache) putLocked(key string, response []byte, s *Summary) (ok bool) {
 
 func asResponseLocked(q *dns.Msg, v *cres) (r []byte, s *Summary, err error) {
 	a := v.ans
-	log.D("cache hit %s", v.str())
+	log.D("cache: hit %s", v.str())
 	if a != nil {
 		a.Id = q.Id
 		// dns 0x20 may mangle the question section, so preserve it
@@ -322,7 +341,7 @@ func (t *ctransport) Query(network string, q []byte, summary *Summary) ([]byte, 
 		if v, ok := cb.freshLocked(key); !ok {
 			response, err = t.Transport.Query(network, q, summary) // locked
 			if err == nil {
-				cb.putLocked(key, response, summary)
+				cb.putLocked(t, key, response, summary)
 			} else if v != nil {
 				start = time.Now() // reset start time
 				// use stale cache response on error
