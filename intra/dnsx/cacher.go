@@ -183,7 +183,7 @@ func (cb *cache) scrubCache(kch chan<- string, vch chan<- *cres) {
 	cb.scrubtime = now
 
 	// scrub the cache if it's getting too big
-	highload := len(cb.c) < cb.size*75/100
+	highload := len(cb.c) >= cb.size*75/100
 
 	i, j, m := 0, 0, 0
 	for k, v := range cb.c {
