@@ -26,13 +26,14 @@ func (pxr *proxifier) AddProxy(id, txt string) (p Proxy, err error) {
 		if p, _ = pxr.GetProxy(id); p != nil {
 			if wgp, ok := p.(WgProxy); ok {
 				log.I("proxy: updating wg %s/%s", p.ID(), p.GetAddr())
-				wgp.IpcSet(txt)
+				err = wgp.IpcSet(txt)
 				return
 			} else {
 				return nil, errUnexpectedProxy
 			}
 		} else {
-			p, err = NewWgProxy(id, pxr.ctl, txt)
+			// txt is both wg ifconfig and peercfg
+			p, err = NewWgProxy(id, pxr.ctl, txt, txt)
 		}
 	} else {
 		var strurl string
@@ -61,7 +62,7 @@ func (pxr *proxifier) AddProxy(id, txt string) (p Proxy, err error) {
 		case "https":
 			p, err = NewHTTPProxy(id, pxr.ctl, opts)
 		case "wg":
-			err = fmt.Errorf("proxy: id must be prefixed with %s in %s for %s", WG, id, txt)
+			err = fmt.Errorf("proxy: id must be prefixed with %s in %s for [%s]", WG, id, txt)
 			fallthrough
 		default:
 			return nil, errProxyScheme

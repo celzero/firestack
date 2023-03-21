@@ -137,7 +137,7 @@ func wgIfConfigOf(txt string) (ifaddrs, dnsaddrs []*netip.Addr, mtu int, err err
 			return
 		}
 		k = strings.ToLower(strings.TrimSpace(k))
-		v = strings.ToLower(strings.TrimSpace(k))
+		v = strings.ToLower(strings.TrimSpace(v))
 
 		var ip netip.Addr
 		// process interface config; Address, DNS, ListenPort, MTU
@@ -199,8 +199,8 @@ func bindWgSockets(wgdev *device.Device, ctl protect.Controller) bool {
 }
 
 // ref: github.com/WireGuard/wireguard-android/blob/713947e432/tunnel/tools/libwg-go/api-android.go#L76
-func NewWgProxy(id string, ctl protect.Controller, txt string) (w WgProxy, err error) {
-	ifaddrs, dnsaddrs, mtu, err := wgIfConfigOf(txt)
+func NewWgProxy(id string, ctl protect.Controller, ifcfg, peercfg string) (w WgProxy, err error) {
+	ifaddrs, dnsaddrs, mtu, err := wgIfConfigOf(ifcfg)
 	if err != nil {
 		return nil, err
 	}
@@ -211,7 +211,11 @@ func NewWgProxy(id string, ctl protect.Controller, txt string) (w WgProxy, err e
 	}
 
 	wgdev := device.NewDevice(wgtun, conn.NewDefaultBind(), wglogger())
-	err = wgdev.IpcSet(txt)
+
+	if len(peercfg) <= 0 {
+		peercfg = ifcfg
+	}
+	err = wgdev.IpcSet(peercfg)
 	if err != nil {
 		return nil, err
 	}
@@ -232,7 +236,7 @@ func NewWgProxy(id string, ctl protect.Controller, txt string) (w WgProxy, err e
 		wgdev,
 	}
 
-	log.D("proxy: wg: new %s for cfg %s", id, txt)
+	log.D("proxy: wg: new %s for cfg %s", id, ifcfg)
 
 	return
 }
