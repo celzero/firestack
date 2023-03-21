@@ -162,7 +162,7 @@ func MakeNsXDial(c Controller) x.Dialer {
 }
 
 // Creates a listener that can bind to any active interface.
-func MakeListenConfig2(c Controller) *net.ListenConfig {
+func MakeNsListenConfig(c Controller) *net.ListenConfig {
 	if c == nil {
 		return MakeDefaultListenConfig()
 	}

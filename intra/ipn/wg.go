@@ -26,6 +26,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
 	"github.com/celzero/firestack/intra/settings"
@@ -174,6 +175,7 @@ func wgIfConfigOf(txtptr *string) (ifaddrs, dnsaddrs []*netip.Addr, mtu int, err
 	return
 }
 
+// unused; see: core:wgconn.go
 func bindWgSockets(wgdev *device.Device, ctl protect.Controller) bool {
 	var ok4, ok6 bool
 
@@ -216,7 +218,7 @@ func NewWgProxy(id string, ctl protect.Controller, cfg string) (w WgProxy, err e
 		return nil, err
 	}
 
-	wgdev := device.NewDevice(wgtun, conn.NewDefaultBind(), wglogger())
+	wgdev := device.NewDevice(wgtun, core.NewBind(ctl), wglogger())
 
 	err = wgdev.IpcSet(uapicfg)
 	if err != nil {
@@ -232,7 +234,7 @@ func NewWgProxy(id string, ctl protect.Controller, cfg string) (w WgProxy, err e
 	}
 
 	// nb: call after StdNetBind conn has been "Open"ed
-	bindWgSockets(wgdev, ctl)
+	// bindWgSockets(wgdev, ctl)
 
 	w = &wgproxy{
 		wgtun,

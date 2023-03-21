@@ -44,7 +44,7 @@ type icmpHandler struct {
 func NewICMPHandler(resolver dnsx.Resolver, pt ipn.NAT64, ctl protect.Controller,
 	tunMode *settings.TunMode) ICMPHandler {
 	udptimeout, _ := time.ParseDuration("30s")
-	c := protect.MakeListenConfig2(ctl)
+	c := protect.MakeNsListenConfig(ctl)
 	d := protect.MakeNsDialer(ctl)
 	h := &icmpHandler{
 		timeout:  udptimeout,
