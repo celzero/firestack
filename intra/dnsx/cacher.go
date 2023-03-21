@@ -169,17 +169,12 @@ func (cb *cache) purgeQBarrier(kch <-chan string) {
 	log.I("cache: cleaned up: %d", len(keys))
 }
 
-func (cb *cache) scrubCache(kch chan<- string, nch chan<- *cres) {
+func (cb *cache) scrubCache(kch chan<- string, vch chan<- *cres) {
 	defer close(kch)
-	defer close(nch)
+	defer close(vch)
 
 	cb.mu.Lock()
 	defer cb.mu.Unlock()
-
-	// scrub the cache if it's getting too big
-	if len(cb.c) < cb.size*75/100 {
-		return
-	}
 
 	now := time.Now()
 	if now.Sub(cb.scrubtime) < scrubgap {
@@ -187,13 +182,20 @@ func (cb *cache) scrubCache(kch chan<- string, nch chan<- *cres) {
 	}
 	cb.scrubtime = now
 
-	i, j := 0, 0
+	// scrub the cache if it's getting too big
+	highload := len(cb.c) < cb.size*75/100
+
+	i, j, m := 0, 0, 0
 	for k, v := range cb.c {
 		i++
 		if v.bumps >= (cb.bumps * 3 / 4) {
-			v.bumps = 0
-			nch <- v
-		} else if time.Since(v.expiry) > 0 {
+			// bump it to the highest to invalidate cached entry
+			v.bumps = cb.bumps
+			vch <- v
+			m++
+		} else if highload && time.Since(v.expiry) > 0 {
+			// evict expired entries on high load, otherwise keep them
+			// around for use in cases where transport errors out
 			delete(cb.c, k)
 			kch <- k
 			j++
@@ -202,7 +204,7 @@ func (cb *cache) scrubCache(kch chan<- string, nch chan<- *cres) {
 			break
 		}
 	}
-	log.I("cache: scrub: %d/%d", j, i)
+	log.I("cache: del: %d; ref: %d; tot: %d / high? %t", j, m, i, highload)
 }
 
 func (cb *cache) freshLocked(key string) (v *cres, ok bool) {
@@ -247,10 +249,10 @@ func (cb *cache) putLocked(t Transport, key string, response []byte, s *Summary)
 	}
 
 	kch := make(chan string) // delete
-	crch := make(chan *cres) // renew
-	go cb.scrubCache(kch, crch)
+	vch := make(chan *cres)  // renew
+	go cb.scrubCache(kch, vch)
 	go cb.purgeQBarrier(kch)
-	go cb.refreshCache(t, crch)
+	go cb.refreshCache(t, vch)
 
 	cb.mu.Lock()
 	defer cb.mu.Unlock()
