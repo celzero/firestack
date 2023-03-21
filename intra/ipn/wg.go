@@ -136,22 +136,28 @@ func wgIfConfigOf(txt string) (ifaddrs, dnsaddrs []*netip.Addr, mtu int, err err
 			err = fmt.Errorf("proxy: wg: failed to parse line %q", line)
 			return
 		}
+		k = strings.ToLower(strings.TrimSpace(k))
+		v = strings.ToLower(strings.TrimSpace(k))
 
 		var ip netip.Addr
 		// process interface config; Address, DNS, ListenPort, MTU
 		// github.com/WireGuard/wireguard-android/blob/713947e432/tunnel/src/main/java/com/wireguard/config/Interface.java#L232
 		switch k {
-		case "Address":
+		case "address":
 			if ip, err = netip.ParseAddr(v); err != nil {
-				return
+				var ipnet netip.Prefix
+				if ipnet, err = netip.ParsePrefix(v); err != nil {
+					return
+				}
+				ip = ipnet.Addr()
 			}
 			ifaddrs = append(ifaddrs, &ip)
-		case "DNS":
+		case "dns":
 			if ip, err = netip.ParseAddr(v); err != nil {
 				return
 			}
 			dnsaddrs = append(dnsaddrs, &ip)
-		case "MTU":
+		case "mtu":
 			if mtu, err = strconv.Atoi(v); err != nil {
 				return
 			}
