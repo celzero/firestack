@@ -530,11 +530,12 @@ var protoSplitter = regexp.MustCompile(`^(tcp|udp|ping)(4|6)?$`)
 
 func (tnet *wgtun) DialContext(ctx context.Context, network, address string) (net.Conn, error) {
 	if ctx == nil {
-		panic("nil context")
+		ctx = context.Background()
 	}
 	var acceptV4, acceptV6 bool
 	matches := protoSplitter.FindStringSubmatch(network)
 	if matches == nil {
+		log.W("wg: dail: unknown network %q", network)
 		return nil, &net.OpError{Op: "dial", Err: net.UnknownNetworkError(network)}
 	} else if len(matches[2]) == 0 {
 		acceptV4 = true
@@ -552,15 +553,18 @@ func (tnet *wgtun) DialContext(ctx context.Context, network, address string) (ne
 		var err error
 		host, sport, err = net.SplitHostPort(address)
 		if err != nil {
+			log.W("wg: dail: invalid address %q: %v", address, err)
 			return nil, &net.OpError{Op: "dial", Err: err}
 		}
 		port, err = strconv.Atoi(sport)
 		if err != nil || port < 0 || port > 65535 {
+			log.W("wg: dail: invalid port %q: %v", sport, err)
 			return nil, &net.OpError{Op: "dial", Err: errNumericPort}
 		}
 	}
 	allAddr, err := tnet.LookupContextHost(ctx, host)
 	if err != nil {
+		log.W("wg: dail: lookup failed %q: %v", host, err)
 		return nil, &net.OpError{Op: "dial", Err: err}
 	}
 	var addrs []netip.AddrPort
@@ -571,6 +575,7 @@ func (tnet *wgtun) DialContext(ctx context.Context, network, address string) (ne
 		}
 	}
 	if len(addrs) == 0 && len(allAddr) != 0 {
+		log.W("wg: dail: no suitable address for %q / %v", host, allAddr)
 		return nil, &net.OpError{Op: "dial", Err: errNoSuitableAddress}
 	}
 
@@ -584,6 +589,7 @@ func (tnet *wgtun) DialContext(ctx context.Context, network, address string) (ne
 			} else if err == context.DeadlineExceeded {
 				err = errTimeout
 			}
+			log.W("wg: dail: context done: %v", err)
 			return nil, &net.OpError{Op: "dial", Err: err}
 		default:
 		}
@@ -623,6 +629,7 @@ func (tnet *wgtun) DialContext(ctx context.Context, network, address string) (ne
 	if firstErr == nil {
 		firstErr = &net.OpError{Op: "dial", Err: errMissingAddress}
 	}
+	log.W("wg: dail: failed: %v", firstErr)
 	return nil, firstErr
 }
 
