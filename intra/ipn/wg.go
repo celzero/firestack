@@ -120,7 +120,9 @@ func wglogger() *device.Logger {
 	return device.NewLogger(lvl, tag)
 }
 
-func wgIfConfigOf(txt string) (ifaddrs, dnsaddrs []*netip.Addr, mtu int, err error) {
+func wgIfConfigOf(txtptr *string) (ifaddrs, dnsaddrs []*netip.Addr, mtu int, err error) {
+	txt := *txtptr
+	pcfg := strings.Builder{}
 	r := bufio.NewScanner(strings.NewReader(txt))
 	for r.Scan() {
 		line := r.Text()
@@ -161,8 +163,11 @@ func wgIfConfigOf(txt string) (ifaddrs, dnsaddrs []*netip.Addr, mtu int, err err
 			if mtu, err = strconv.Atoi(v); err != nil {
 				return
 			}
+		default:
+			pcfg.WriteString(line + "\n")
 		}
 	}
+	*txtptr = pcfg.String()
 	if err == nil && (len(ifaddrs) <= 0) || (len(dnsaddrs) <= 0) || (mtu <= 0) {
 		err = errProxyConfig
 	}
@@ -199,8 +204,9 @@ func bindWgSockets(wgdev *device.Device, ctl protect.Controller) bool {
 }
 
 // ref: github.com/WireGuard/wireguard-android/blob/713947e432/tunnel/tools/libwg-go/api-android.go#L76
-func NewWgProxy(id string, ctl protect.Controller, ifcfg, peercfg string) (w WgProxy, err error) {
-	ifaddrs, dnsaddrs, mtu, err := wgIfConfigOf(ifcfg)
+func NewWgProxy(id string, ctl protect.Controller, cfg string) (w WgProxy, err error) {
+	ifaddrs, dnsaddrs, mtu, err := wgIfConfigOf(&cfg)
+	uapicfg := cfg
 	if err != nil {
 		return nil, err
 	}
@@ -212,10 +218,7 @@ func NewWgProxy(id string, ctl protect.Controller, ifcfg, peercfg string) (w WgP
 
 	wgdev := device.NewDevice(wgtun, conn.NewDefaultBind(), wglogger())
 
-	if len(peercfg) <= 0 {
-		peercfg = ifcfg
-	}
-	err = wgdev.IpcSet(peercfg)
+	err = wgdev.IpcSet(uapicfg)
 	if err != nil {
 		return nil, err
 	}
@@ -236,7 +239,7 @@ func NewWgProxy(id string, ctl protect.Controller, ifcfg, peercfg string) (w WgP
 		wgdev,
 	}
 
-	log.D("proxy: wg: new %s for cfg %s", id, ifcfg)
+	log.D("proxy: wg: new %s for cfg %s", id, cfg)
 
 	return
 }

@@ -33,7 +33,7 @@ func (pxr *proxifier) AddProxy(id, txt string) (p Proxy, err error) {
 			}
 		} else {
 			// txt is both wg ifconfig and peercfg
-			p, err = NewWgProxy(id, pxr.ctl, txt, txt)
+			p, err = NewWgProxy(id, pxr.ctl, txt)
 		}
 	} else {
 		var strurl string
