@@ -58,10 +58,11 @@ func (h *http1) Dial(network, addr string) (c Conn, err error) {
 	}
 
 	if c, err = h.dialfn(network, addr); err != nil {
-		log.W("proxy: http1 dial %s -> %s; err %v", h.GetAddr(), addr, err)
 		h.status = TKO
+	} else {
+		h.status = TOK
 	}
-	h.status = TOK
+	log.I("proxy: base: dial(%s) from %s to %s; err? %v", h.GetAddr(), network, addr, err)
 	return
 }
 
@@ -83,5 +84,6 @@ func (h *http1) Status() int {
 
 func (h *http1) Stop() error {
 	h.status = END
+	log.I("proxy: http1: stopped %s", h.id)
 	return nil
 }

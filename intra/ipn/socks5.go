@@ -88,6 +88,7 @@ func (h *socks5) Dial(network, addr string) (c Conn, err error) {
 	} else {
 		h.status = TKO
 	}
+	log.I("proxy: socks5: dial(%s) from %s to %s; err? %v", h.GetAddr(), network, addr, err)
 	return
 }
 
@@ -109,5 +110,6 @@ func (h *socks5) Status() int {
 
 func (h *socks5) Stop() error {
 	h.status = END
+	log.I("proxy: socks5: stopped %s", h.id)
 	return nil
 }

@@ -9,6 +9,7 @@ package ipn
 import (
 	"net"
 
+	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
 )
 
@@ -35,8 +36,10 @@ func (h *base) Dial(network, addr string) (c Conn, err error) {
 
 	if c, err = h.dialer.Dial(network, addr); err != nil {
 		h.status = TKO
+	} else {
+		h.status = TOK
 	}
-	h.status = TOK
+	log.I("proxy: base: dial(%s) to %s; err? %v", network, addr, err)
 	return
 }
 
@@ -58,5 +61,6 @@ func (h *base) Status() int {
 
 func (h *base) Stop() error {
 	h.status = END
+	log.I("proxy: base: stopped")
 	return nil
 }
