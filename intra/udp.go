@@ -137,12 +137,14 @@ func pc2str(conn core.UDPConn, c net.PacketConn, nat *tracker) string {
 
 // fetchUDPInput reads from nat.conn to masqurade-write it to core.UDPConn
 func (h *udpHandler) fetchUDPInput(conn core.UDPConn, nat *tracker) {
-	buf := core.NewBytes(core.BufSize)
+	defer h.Close(conn)
 
-	defer func() {
-		h.Close(conn)
-		core.FreeBytes(buf)
-	}()
+	if ok := conn.Ready(); !ok {
+		return
+	}
+
+	buf := core.NewBytes(core.BufSize)
+	defer core.FreeBytes(buf)
 
 	for {
 		if nat.errcount > maxconnerr {
@@ -166,7 +168,7 @@ func (h *udpHandler) fetchUDPInput(conn core.UDPConn, nat *tracker) {
 			c.SetDeadline(time.Now().Add(h.timeout)) // extend deadline
 			// c is already dialed-in to some addr in udpHandler.Connect
 			n, err = c.Read(buf)
-		case net.PacketConn:
+		case net.PacketConn: // unused
 			logaddr = pc2str(conn, c, nat)
 			log.D("udp: ingress: read (pc) remote for %s", logaddr)
 
@@ -268,8 +270,8 @@ func (h *udpHandler) onFlow(localudp core.UDPConn, target *net.UDPAddr, realips,
 	return res
 }
 
-func (h *udpHandler) OnNewConn(conn *netstack.GUDPConn, _, dst *net.UDPAddr) bool {
-	return h.Connect(conn, dst)
+func (h *udpHandler) OnNewConn(gconn *netstack.GUDPConn, _, dst *net.UDPAddr) bool {
+	return h.Connect(gconn, dst)
 }
 
 // Connect connects the proxy server.
@@ -338,6 +340,7 @@ func (h *udpHandler) Connect(conn core.UDPConn, target *net.UDPAddr) bool {
 	go h.fetchUDPInput(conn, nat)
 
 	log.I("udp: connect: (proxy? %s@%s) %v -> %v", px.ID(), px.GetAddr(), c.LocalAddr(), target)
+
 	return true // connect
 }
 

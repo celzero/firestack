@@ -58,6 +58,9 @@ type UDPConn interface {
 	LocalAddr() *net.UDPAddr
 	RemoteAddr() *net.UDPAddr
 
+	// Wait for the underlying connection to be ready.
+	Ready() bool
+
 	// ReceiveTo will be called when data arrives from TUN, and the received
 	// data should be sent to addr.
 	ReceiveTo(data []byte, addr *net.UDPAddr) error

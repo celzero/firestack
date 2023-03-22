@@ -6,7 +6,9 @@
 package netstack
 
 import (
+	"errors"
 	"net"
+	"sync"
 	"time"
 
 	"github.com/celzero/firestack/intra/core"
@@ -23,35 +25,35 @@ import (
 const readDeadline = 30 * time.Second // FIXME: Udp.Timeout
 const K64 = core.BufSize              // 64K bytes
 
-var _ core.UDPConn = (*GUDPConn)(nil)
+var (
+	ErrNoEndpoint = errors.New("udp not connected to any endpoint")
+)
 
 type GUDPConnHandler interface {
 	OnNewConn(conn *GUDPConn, src, dst *net.UDPAddr) bool
 	HandleData(conn *GUDPConn, data []byte, addr *net.UDPAddr) error
 }
 
+var _ core.UDPConn = (*GUDPConn)(nil)
+
 type GUDPConn struct {
-	core.UDPConn
 	ep   tcpip.Endpoint
 	gudp *gonet.UDPConn
 	src  *net.UDPAddr
 	dst  *net.UDPAddr
+	wg   *sync.WaitGroup // waits for endpoint to be ready
 }
 
 // ref: github.com/google/gvisor/blob/e89e736f1/pkg/tcpip/adapters/gonet/gonet_test.go#L373
-func NewGUDPConn(s *stack.Stack, r *udp.ForwarderRequest, src, dst *net.UDPAddr) *GUDPConn {
-	waitQueue := new(waiter.Queue)
-	// use gonet.DialUDP instead?
-	if endpoint, err := r.CreateEndpoint(waitQueue); err != nil {
-		log.E("ns.udp.forwarder: MAKE endpoint for %v => %v; err(%v)", src, dst, err)
-		return nil
-	} else {
-		return &GUDPConn{
-			ep:   endpoint,
-			gudp: gonet.NewUDPConn(s, waitQueue, endpoint),
-			src:  src,
-			dst:  dst,
-		}
+func MakeGUDPConn(s *stack.Stack, r *udp.ForwarderRequest, src, dst *net.UDPAddr) *GUDPConn {
+	wg := &sync.WaitGroup{}
+	wg.Add(1)
+	return &GUDPConn{
+		ep:   nil,
+		gudp: nil,
+		src:  src,
+		dst:  dst,
+		wg:   wg,
 	}
 }
 
@@ -82,10 +84,12 @@ func NewUDPForwarder(s *stack.Stack, h GUDPConnHandler, mtu uint32) *udp.Forward
 		// multiple dst in the unconnected udp case.
 		dst := localUDPAddr(id)
 
-		gc := NewGUDPConn(s, request, src, dst)
+		gc := MakeGUDPConn(s, request, src, dst)
 
-		// gc is nil when udp is a bound but unconnected socket
-		if gc == nil {
+		if ok := h.OnNewConn(gc, src, dst); !ok {
+			return
+		} else if err := gc.Connect(s, request); err != nil {
+			log.E("ns.udp.forwarder: CONNECT endpoint for %v => %v; err(%v)", src, dst, err)
 			return
 		}
 
@@ -97,11 +101,6 @@ func NewUDPForwarder(s *stack.Stack, h GUDPConnHandler, mtu uint32) *udp.Forward
 
 func loop(h GUDPConnHandler, gc *GUDPConn, src, dst *net.UDPAddr) {
 	log.V("ns.udp.forwarder: NEW src(%v) => dst(%v)", src, dst)
-
-	if ok := h.OnNewConn(gc, src, dst); !ok {
-		gc.Close()
-		return
-	}
 
 	// assign a big enough buffer since netstack does assemble fragmented packets
 	// which could go as big as max-packet-size (65K?)
@@ -138,8 +137,31 @@ func loop(h GUDPConnHandler, gc *GUDPConn, src, dst *net.UDPAddr) {
 	}
 }
 
+func (g *GUDPConn) Ready() bool {
+	g.wg.Wait()
+	return g.ok()
+}
+
+func (g *GUDPConn) ok() bool {
+	return g.ep != nil && g.gudp != nil
+}
+
+func (g *GUDPConn) Connect(s *stack.Stack, r *udp.ForwarderRequest) tcpip.Error {
+	defer g.wg.Done()
+
+	waitQueue := new(waiter.Queue)
+	// use gonet.DialUDP instead?
+	if endpoint, err := r.CreateEndpoint(waitQueue); err != nil {
+		return err
+	} else {
+		g.ep = endpoint
+		g.gudp = gonet.NewUDPConn(s, waitQueue, endpoint)
+	}
+	return nil
+}
+
 func (g *GUDPConn) LocalAddr() *net.UDPAddr {
-	if g.gudp != nil && g.gudp.RemoteAddr() != nil {
+	if g.ok() && g.gudp.RemoteAddr() != nil {
 		if addr, ok := g.gudp.RemoteAddr().(*net.UDPAddr); ok {
 			return addr
 		}
@@ -148,7 +170,7 @@ func (g *GUDPConn) LocalAddr() *net.UDPAddr {
 }
 
 func (g *GUDPConn) RemoteAddr() *net.UDPAddr {
-	if g.gudp != nil && g.gudp.LocalAddr() != nil {
+	if g.ok() && g.gudp.LocalAddr() != nil {
 		if addr, ok := g.gudp.LocalAddr().(*net.UDPAddr); ok {
 			return addr
 		}
@@ -167,6 +189,9 @@ func (g *GUDPConn) ReceiveTo(_ []byte, addr *net.UDPAddr) error {
 // WriteFrom writes data to TUN, addr will be set as source address of
 // UDP packets that output to TUN.
 func (g *GUDPConn) WriteFrom(data []byte, addr *net.UDPAddr) (int, error) {
+	if !g.ok() {
+		return 0, ErrNoEndpoint
+	}
 	// nb: write-deadlines set by intra.udp
 	// addr: 10.111.222.3:17711; g.LocalAddr(g.udp.remote): 10.111.222.3:17711; g.RemoteAddr(g.udp.local): 10.111.222.1:53
 	// ep(state 3 / info &{2048 17 {53 10.111.222.3 17711 10.111.222.1} 1 10.111.222.3 1} / stats &{{{1}} {{0}} {{{0}} {{0}} {{0}} {{0}}} {{{0}} {{0}} {{0}}} {{{0}} {{0}}} {{{0}} {{0}} {{0}}}})
@@ -177,6 +202,9 @@ func (g *GUDPConn) WriteFrom(data []byte, addr *net.UDPAddr) (int, error) {
 
 // Close closes the connection.
 func (g *GUDPConn) Close() error {
-	g.ep.Close()
-	return g.gudp.Close()
+	if g.ok() {
+		g.ep.Close()
+		return g.gudp.Close()
+	}
+	return nil
 }

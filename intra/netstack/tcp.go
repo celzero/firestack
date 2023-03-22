@@ -10,6 +10,7 @@ import (
 	"net"
 	"time"
 
+	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/log"
 	"gvisor.dev/gvisor/pkg/tcpip"
 	"gvisor.dev/gvisor/pkg/tcpip/adapters/gonet"
@@ -22,9 +23,22 @@ import (
 const rcvwnd = 0
 const maxInFlight = 128
 
+var (
+	errNoOp = errors.New("unimpl for gtcpconn")
+)
+
 type GTCPConnHandler interface {
 	Connect(src, dst *net.TCPAddr) string
 	Proxy(conn *GTCPConn, src, dst *net.TCPAddr, d string)
+}
+
+var _ core.TCPConn = (*GTCPConn)(nil)
+
+type GTCPConn struct {
+	*gonet.TCPConn
+	ep  tcpip.Endpoint
+	src *net.TCPAddr
+	dst *net.TCPAddr
 }
 
 func setupTcpHandler(s *stack.Stack, _ stack.LinkEndpoint, h GTCPConnHandler) {
@@ -71,13 +85,6 @@ func NewTCPForwarder(s *stack.Stack, h GTCPConnHandler) *tcp.Forwarder {
 	})
 }
 
-type GTCPConn struct {
-	*gonet.TCPConn
-	ep  tcpip.Endpoint
-	src *net.TCPAddr
-	dst *net.TCPAddr
-}
-
 func NewGTCPConn(wq *waiter.Queue, ep tcpip.Endpoint, src, dst *net.TCPAddr) *GTCPConn {
 	// set sock-opts? github.com/xjasonlyu/tun2socks/blob/31468620e/core/tcp.go#L82
 	return &GTCPConn{gonet.NewTCPConn(wq, ep), ep, src, dst}
@@ -107,13 +114,13 @@ func (g *GTCPConn) RemoteAddr() net.Addr {
 // Sent will be called when sent data has been acknowledged by peer.
 func (tcp *GTCPConn) Sent(len uint16) error {
 	// no-op
-	return errors.New("unimpl for gtcpconn")
+	return errNoOp
 }
 
 // Receive will be called when data arrives from TUN.
 func (tcp *GTCPConn) Receive(data []byte) error {
 	// no-op
-	return errors.New("unimpl for gtcpconn")
+	return errNoOp
 }
 
 // Err will be called when a fatal error has occurred on the connection.
