@@ -26,7 +26,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/celzero/firestack/intra/core"
+	"github.com/celzero/firestack/intra/ipn/wg"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
 	"github.com/celzero/firestack/intra/settings"
@@ -89,6 +89,7 @@ type wgtun struct {
 }
 
 var _ WgProxy = (*wgproxy)(nil)
+var _ Proxy = (*wgproxy)(nil)
 
 type wgproxy struct {
 	*wgtun
@@ -217,7 +218,7 @@ func NewWgProxy(id string, ctl protect.Controller, cfg string) (w WgProxy, err e
 		return nil, err
 	}
 
-	wgdev := device.NewDevice(wgtun, core.NewBind(), wglogger())
+	wgdev := device.NewDevice(wgtun, wg.NewBind(), wglogger())
 
 	err = wgdev.IpcSet(uapicfg)
 	if err != nil {
@@ -233,7 +234,7 @@ func NewWgProxy(id string, ctl protect.Controller, cfg string) (w WgProxy, err e
 	}
 
 	// nb: call after StdNetBind conn has been "Open"ed
-	// not needed for core.NewBind2; see: core:wgconn2.go
+	// not needed for wg.NewBind2; see: wg:wgconn2.go
 	bindok := bindWgSockets(wgdev, ctl)
 
 	w = &wgproxy{
@@ -430,5 +431,6 @@ func (h *wgtun) Status() int {
 
 func (h *wgtun) Stop() error {
 	h.status = END
+	log.I("proxy: wg: stopped %s", h.id)
 	return h.Close()
 }
