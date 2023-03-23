@@ -74,10 +74,10 @@ type tcpHandler struct {
 // TCPSocketSummary provides information about each TCP socket, reported when it is closed.
 type TCPSocketSummary struct {
 	ID            string // Unique ID for this socket.
+	PID           string // Proxy ID that handled this socket.
 	DownloadBytes int64  // Total bytes downloaded.
 	UploadBytes   int64  // Total bytes uploaded.
 	Duration      int32  // Duration in seconds.
-	ServerPort    int16  // The server port.  All values except 53, 80, 443, and 0 are set to -1.
 	Synack        int32  // TCP handshake latency (ms)
 	// Retry is non-nil if retry was possible.  Retry.Split is non-zero if a retry occurred.
 	Retry *split.RetryStats
@@ -221,10 +221,14 @@ func (h *tcpHandler) onFlow(localaddr *net.TCPAddr, target *net.TCPAddr, realips
 	return res
 }
 
-func (h *tcpHandler) Connect(localaddr, target *net.TCPAddr) string {
-	if localaddr == nil || target == nil {
-		log.E("tcp: nil addr %v -> %v", localaddr, target)
-		return ""
+func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target *net.TCPAddr) {
+	rst := true // tear down conn
+	ack := !rst // send synack
+
+	if src == nil || target == nil {
+		log.E("tcp: nil addr %v -> %v", src, target)
+		gconn.Connect(rst) // fin
+		return
 	}
 
 	// alg happens before nat64, and so, alg has no knowledge of nat-ed ips
@@ -234,48 +238,48 @@ func (h *tcpHandler) Connect(localaddr, target *net.TCPAddr) string {
 
 	// flow/dns-override are nat-aware, as in, they can deal with
 	// nat-ed ips just fine, and so, use target as-is instead of ipx4
-	res := h.onFlow(localaddr, target, realips, domains, blocklists)
+	res := h.onFlow(src, target, realips, domains, blocklists)
 
-	pid, _ := splitPidCid(res)
+	pid, cid := splitPidCid(res)
 	if pid == ipn.Block {
-		log.I("tcp: conn firewalled from %s -> %s (dom: %s/ real: %s)", localaddr, target, domains, realips)
-		return ""
+		log.I("tcp: gconn firewalled from %s -> %s (dom: %s/ real: %s)", src, target, domains, realips)
+		gconn.Connect(rst) // fin
+		return
 	}
 
-	return res
-}
-
-func (h *tcpHandler) Proxy(conn *netstack.GTCPConn, _, dst *net.TCPAddr, decision string) {
-	if err := h.Handle(conn, dst, decision); err != nil {
-		conn.Close()
-	}
-}
-
-// TODO: Request upstream to make `conn` a `core.TCPConn` so we can avoid a type assertion.
-func (h *tcpHandler) Handle(conn net.Conn, target *net.TCPAddr, decision string) error {
-	var px ipn.Proxy
-	var pc ipn.Conn
-	var err error
-	if h.dnsOverride(conn, target) {
-		return nil
+	// handshake
+	if open := gconn.Connect(ack); !open {
+		log.E("tcp: gconn closed; no handshake %s -> %s", src, target)
+		return
 	}
 
-	pid, cid := splitPidCid(decision)
-	if px, err = h.pt.GetProxy(pid); err != nil {
-		return err
-	}
-
-	// alg happens before nat64, and so, alg has no knowledge of nat-ed ips
-	// ipx4 is un-nated (but same as target.IP when no nat64 is involved)
-	ipx4 := maybeUndoNat64(h.pt, target.IP)
-	realips, _, _ := undoAlg(h.resolver, ipx4)
 	// dialers must connect to un-nated ips; overwrite target.IP with ipx4
 	// but ipx4 might itself be an alg ip; so check if there's a real-ip to connect to
 	target.IP = oneRealIp(realips, ipx4)
 
+	if err := h.Handle(gconn, target, pid, cid); err != nil {
+		log.E("tcp: proxy(%s -> %s) err: %v", src, target, err)
+		gconn.Close()
+	}
+}
+
+// TODO: Request upstream to make `conn` a `core.TCPConn` so we can avoid a type assertion.
+func (h *tcpHandler) Handle(conn net.Conn, target *net.TCPAddr, pid, cid string) error {
+	var px ipn.Proxy
+	var pc ipn.Conn
+	var err error
+
+	if h.dnsOverride(conn, target) {
+		return nil
+	}
+
+	if px, err = h.pt.GetProxy(pid); err != nil {
+		return err
+	}
+
 	var summary TCPSocketSummary
-	summary.ServerPort = filteredPort(target)
 	summary.ID = cid // may be an empty string
+	summary.PID = pid
 	start := time.Now()
 	var c net.Conn
 
@@ -295,13 +299,13 @@ func (h *tcpHandler) Handle(conn net.Conn, target *net.TCPAddr, decision string)
 	}
 
 	if err != nil {
-		log.W("tcp: err dialing dst(%v): %v", target, err)
+		log.W("tcp: err dialing proxy(%s) to dst(%v): %v", px.ID(), target, err)
 		return err
 	}
 
 	// split client-hello if server-port is 443
 	if px.ID() == ipn.Base {
-		if summary.ServerPort == 443 {
+		if port := filteredPort(target); port == 443 {
 			c = split.From(c)
 		}
 	}
@@ -310,7 +314,7 @@ func (h *tcpHandler) Handle(conn net.Conn, target *net.TCPAddr, decision string)
 
 	go h.forward(conn, c, &summary)
 
-	log.I("tcp: new conn src(%s) -> dst(%s)", conn.LocalAddr(), target)
+	log.I("tcp: new conn via proxy(%s); src(%s) -> dst(%s)", px.ID(), conn.LocalAddr(), target)
 	return nil
 }
 

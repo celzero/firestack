@@ -50,6 +50,7 @@ const (
 // UDPSocketSummary describes a non-DNS UDP association, reported when it is discarded.
 type UDPSocketSummary struct {
 	ID            string // Unique ID for this socket.
+	PID           string // Proxy ID that handled this socket.
 	UploadBytes   int64  // Amount uploaded (bytes).
 	DownloadBytes int64  // Amount downloaded (bytes).
 	Duration      int32  // How long the socket was open (seconds).
@@ -62,16 +63,27 @@ type UDPListener interface {
 
 type tracker struct {
 	id       string       // unique identifier for this connection
+	pid      string       // proxy id
 	conn     any          // net.Conn and net.PacketConn
 	start    time.Time    // creation time
 	upload   int64        // Non-DNS upload bytes
 	download int64        // Non-DNS download bytes
-	errcount int          // conn splice err count
+	errcount int16        // conn splice err count
 	ip       *net.UDPAddr // masked addr
 }
 
-func makeTracker(id string, conn any) *tracker {
-	return &tracker{id, conn, time.Now(), 0, 0, 0, nil}
+func makeTracker(cid, pid string, conn any) *tracker {
+	return &tracker{cid, pid, conn, time.Now(), 0, 0, 0, nil}
+}
+
+func (t *tracker) AsSummary() *UDPSocketSummary {
+	return &UDPSocketSummary{
+		ID:            t.id, // may be empty
+		PID:           t.pid,
+		UploadBytes:   t.upload,
+		DownloadBytes: t.download,
+		Duration:      int32(time.Since(t.start).Seconds()),
+	}
 }
 
 // UDPHandler adds DOH support to the base UDPConnHandler interface.
@@ -204,7 +216,7 @@ func (h *udpHandler) fetchUDPInput(conn core.UDPConn, nat *tracker) {
 		nat.download += int64(n)
 		// writes data to conn (tun) with udpaddr as source
 		if _, err = conn.WriteFrom(buf[:n], udpaddr); err != nil {
-			log.W("udp: ingress: failed to write udp data to tun (%s) from %s", logaddr, udpaddr)
+			log.W("udp: ingress: failed write to tun (%s) from %s; err %v", logaddr, udpaddr, err)
 			nat.errcount += 1
 			// TODO: return from here?
 		}
@@ -323,7 +335,7 @@ func (h *udpHandler) Connect(conn core.UDPConn, target *net.UDPAddr) bool {
 		return false // disconnect
 	}
 
-	nat := makeTracker(cid, c)
+	nat := makeTracker(cid, pid, c)
 
 	// the actual ip the client sees data is from
 	// unused in netstack
@@ -441,8 +453,7 @@ func (h *udpHandler) Close(conn core.UDPConn) {
 		default:
 		}
 		// TODO: Cancel any outstanding DoH queries.
-		duration := int32(time.Since(t.start).Seconds())
-		h.listener.OnUDPSocketClosed(&UDPSocketSummary{t.id, t.upload, t.download, duration})
+		h.listener.OnUDPSocketClosed(t.AsSummary())
 		delete(h.udpConns, conn)
 	}
 }

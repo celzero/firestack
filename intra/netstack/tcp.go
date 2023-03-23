@@ -28,8 +28,7 @@ var (
 )
 
 type GTCPConnHandler interface {
-	Connect(src, dst *net.TCPAddr) string
-	Proxy(conn *GTCPConn, src, dst *net.TCPAddr, d string)
+	Proxy(conn *GTCPConn, src, dst *net.TCPAddr)
 }
 
 var _ core.TCPConn = (*GTCPConn)(nil)
@@ -39,6 +38,7 @@ type GTCPConn struct {
 	ep  tcpip.Endpoint
 	src *net.TCPAddr
 	dst *net.TCPAddr
+	req *tcp.ForwarderRequest
 }
 
 func setupTcpHandler(s *stack.Stack, _ stack.LinkEndpoint, h GTCPConnHandler) {
@@ -49,66 +49,87 @@ func setupTcpHandler(s *stack.Stack, _ stack.LinkEndpoint, h GTCPConnHandler) {
 // ref: github.com/google/gvisor/blob/e89e736f1/pkg/tcpip/adapters/gonet/gonet_test.go#L189
 func NewTCPForwarder(s *stack.Stack, h GTCPConnHandler) *tcp.Forwarder {
 	return tcp.NewForwarder(s, rcvwnd, maxInFlight, func(request *tcp.ForwarderRequest) {
-		var decision string
 		id := request.ID()
 		// src 10.111.222.1:38312
 		src := remoteTCPAddr(id)
 		// dst 213.188.195.179:80
 		dst := localTCPAddr(id)
 
-		if decision = h.Connect(src, dst); len(decision) <= 0 {
-			log.I("ns.tcp.forwarder: drop conn src(%v) => dst(%v)", src, dst)
-			return
-		}
-
-		waitQueue := new(waiter.Queue)
-		// the passive-handshake (SYN) may not successful for a non-existent route (say, ipv6)
-		endpoint, err := request.CreateEndpoint(waitQueue)
-		if err != nil {
-			log.E("ns.tcp.forwarder: data src(%v) => dst(%v); err(%v)", src, dst, err)
-			// prevent potential half-open TCP connection leak.
-			// hopefully doesn't break happy-eyeballs datatracker.ietf.org/doc/html/rfc8305#section-5
-			// ie, apps that expect network-unreachable ICMP msgs instead of TCP RSTs?
-			// TCP RST here is indistinguishable to an app from being firewalled.
-			request.Complete(true)
-			return
-		}
-
-		request.Complete(false)
-		log.V("ns.tcp.forwarder: proxy src(%v) => dst(%v)", src, dst)
-
 		// read/writes are routed using 5-tuple to the same conn (endpoint)
 		// demuxer.handlePacket -> find matching endpoint -> queue-packet -> send/recv conn (ep)
 		// ref: github.com/google/gvisor/blob/be6ffa7/pkg/tcpip/stack/transport_demuxer.go#L180
-		gtcp := NewGTCPConn(waitQueue, endpoint, src, dst)
-		go h.Proxy(gtcp, src, dst, decision)
+		gtcp := MakeGTCPConn(request, src, dst)
+		go h.Proxy(gtcp, src, dst)
 	})
 }
 
-func NewGTCPConn(wq *waiter.Queue, ep tcpip.Endpoint, src, dst *net.TCPAddr) *GTCPConn {
+func MakeGTCPConn(req *tcp.ForwarderRequest, src, dst *net.TCPAddr) *GTCPConn {
 	// set sock-opts? github.com/xjasonlyu/tun2socks/blob/31468620e/core/tcp.go#L82
-	return &GTCPConn{gonet.NewTCPConn(wq, ep), ep, src, dst}
+	return &GTCPConn{
+		TCPConn: nil,
+		ep:      nil,
+		src:     src,
+		dst:     dst,
+		req:     req,
+	}
+}
+
+func (g *GTCPConn) ok() bool {
+	return g.TCPConn != nil
+}
+
+func (g *GTCPConn) Connect(rst bool) (open bool) {
+	if rst {
+		g.req.Complete(rst)
+		return false // closed
+	}
+
+	if g.ok() { // already setup
+		return true // open
+	}
+
+	wq := new(waiter.Queue)
+	// the passive-handshake (SYN) may not successful for a non-existent route (say, ipv6)
+	if ep, err := g.req.CreateEndpoint(wq); err != nil {
+		log.E("ns.tcp.forwarder: data src(%v) => dst(%v); err(%v)", g.LocalAddr(), g.RemoteAddr(), err)
+		// prevent potential half-open TCP connection leak.
+		// hopefully doesn't break happy-eyeballs datatracker.ietf.org/doc/html/rfc8305#section-5
+		// ie, apps that expect network-unreachable ICMP msgs instead of TCP RSTs?
+		// TCP RST here is indi stinguishable to an app from being firewalled.
+		rst = true
+	} else {
+		g.ep = ep
+		g.TCPConn = gonet.NewTCPConn(wq, ep)
+		rst = false
+	}
+	g.req.Complete(rst)
+	log.V("ns.tcp.forwarder: proxy src(%v) => dst(%v); fin? %t", g.LocalAddr(), g.RemoteAddr(), rst)
+	return !rst // open or closed
 }
 
 // gonet conn local and remote addresses may be nil
 // ref: github.com/tailscale/tailscale/blob/8c5c87be2/wgengine/netstack/netstack.go#L768-L775
 // and: github.com/google/gvisor/blob/ffabadf0/pkg/tcpip/transport/tcp/endpoint.go#L2759
 func (g *GTCPConn) LocalAddr() net.Addr {
+	if !g.ok() {
+		return g.src
+	}
 	// client local addr is remote to the gonet adapter
 	if addr := g.TCPConn.RemoteAddr(); addr != nil {
 		return addr
-	} else {
-		return g.src
 	}
+	return g.src
 }
 
 func (g *GTCPConn) RemoteAddr() net.Addr {
+	if !g.ok() {
+		return g.dst
+	}
 	// client remote addr is local to the gonet adapter
 	if addr := g.TCPConn.LocalAddr(); addr != nil {
 		return addr
-	} else {
-		return g.dst
 	}
+	return g.dst
 }
 
 // Sent will be called when sent data has been acknowledged by peer.
