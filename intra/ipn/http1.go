@@ -62,7 +62,7 @@ func (h *http1) Dial(network, addr string) (c Conn, err error) {
 	} else {
 		h.status = TOK
 	}
-	log.I("proxy: base: dial(%s) from %s to %s; err? %v", h.GetAddr(), network, addr, err)
+	log.I("proxy: base: dial(%s) from %s to %s; err? %v", network, h.GetAddr(), addr, err)
 	return
 }
 

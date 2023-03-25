@@ -76,19 +76,19 @@ func (h *socks5) Dial(network, addr string) (c Conn, err error) {
 				err = errNoProxyConn
 			}
 		} else {
-			log.W("proxy: socks5 conn not a tx.Client %s -> %s", h.GetAddr(), addr)
+			log.W("proxy: socks5 conn not a tx.Client(%s) %s -> %s", network, h.GetAddr(), addr)
 			c = nil
 			err = errNoProxyConn
 		}
 	} else {
-		log.W("proxy: socks5 dial failed %s -> %s: %v", h.GetAddr(), addr, err)
+		log.W("proxy: socks5 dial(%s) failed %s -> %s: %v", network, h.GetAddr(), addr, err)
 	}
 	if err == nil {
+		log.I("proxy: socks5: dial(%s) from %s -> %s", network, h.GetAddr(), addr)
 		h.status = TOK
 	} else {
 		h.status = TKO
 	}
-	log.I("proxy: socks5: dial(%s) from %s to %s; err? %v", h.GetAddr(), network, addr, err)
 	return
 }
 
