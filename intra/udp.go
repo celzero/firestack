@@ -289,10 +289,10 @@ func (h *udpHandler) OnNewConn(gconn *netstack.GUDPConn, _, dst *net.UDPAddr) bo
 // Connect connects the proxy server.
 // Note, target may be nil in lwip (deprecated) while it may be unspecified in netstack
 func (h *udpHandler) Connect(conn core.UDPConn, target *net.UDPAddr) bool {
+	allow := true
+	drop := !allow
 	var px ipn.Proxy
 	var pc ipn.Conn
-	var ok bool
-	var c net.Conn
 	var err error
 
 	ipx4 := maybeUndoNat64(h.pt, target.IP)
@@ -305,16 +305,16 @@ func (h *udpHandler) Connect(conn core.UDPConn, target *net.UDPAddr) bool {
 	pid, cid := splitPidCid(res)
 	if pid == ipn.Block {
 		log.I("udp: conn firewalled from %s -> %s (dom: %s/ real: %s)", localaddr, target, domains, realips)
-		return false // disconnect
+		return drop // disconnect
 	}
 
 	if h.isDns(target) {
-		return true // connect
+		return allow // connect
 	}
 
 	if px, err = h.pt.GetProxy(pid); err != nil {
 		log.W("udp: failed to get proxy for %s: %v", pid, err)
-		return false // disconnect
+		return drop // disconnect
 	}
 
 	// note: fake-dns-ips shouldn't be un-nated / un-alg'd
@@ -327,17 +327,19 @@ func (h *udpHandler) Connect(conn core.UDPConn, target *net.UDPAddr) bool {
 	// deprecated: github.com/golang/go/issues/25104
 	if pc, err = px.Dial(target.Network(), target.String()); err != nil {
 		log.E("udp: connect: failed to bind addr(%s); err(%v)", target, err)
-		return false // disconnect
+		return drop // disconnect
 	}
 
+	var ok bool
+	var c net.Conn
 	if c, ok = pc.(net.Conn); !ok {
 		log.E("udp: connect: proxy(%s) does not implement net.Conn(%s)", px.ID(), target)
-		return false // disconnect
+		return drop // disconnect
 	}
 
 	nat := makeTracker(cid, pid, c)
 
-	// the actual ip the client sees data is from
+	// the actual ip the client sees data from
 	// unused in netstack
 	nat.ip = &net.UDPAddr{
 		IP:   target.IP,
@@ -353,7 +355,7 @@ func (h *udpHandler) Connect(conn core.UDPConn, target *net.UDPAddr) bool {
 
 	log.I("udp: connect: (proxy? %s@%s) %v -> %v", px.ID(), px.GetAddr(), c.LocalAddr(), target)
 
-	return true // connect
+	return allow // connect
 }
 
 func (h *udpHandler) HandleData(conn *netstack.GUDPConn, data []byte, addr *net.UDPAddr) error {
