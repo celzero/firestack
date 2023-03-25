@@ -11,7 +11,7 @@
 //
 //     Copyright (C) 2017-2023 WireGuard LLC. All Rights Reserved.
 
-package wg
+package ipn
 
 import (
 	"crypto/rand"
