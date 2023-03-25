@@ -10,6 +10,7 @@ import (
 	"net/netip"
 	"net/url"
 	"strconv"
+	"strings"
 
 	"github.com/celzero/firestack/intra/log"
 	"golang.org/x/net/proxy"
@@ -119,22 +120,24 @@ func DefaultTunMode() *TunMode {
 	}
 }
 
-func addrport(ip string, port string) (*netip.AddrPort, error) {
+// Parse ip and port; where ip can be either ip:port or ip
+func addrport(ip string, port string) (ipp netip.AddrPort, err error) {
 	var ipaddr netip.Addr
 	var p int
-	var err error
 	if ipaddr, err = netip.ParseAddr(ip); err == nil {
 		if p, err = strconv.Atoi(port); err == nil {
-			ipp := netip.AddrPortFrom(ipaddr, uint16(p))
-			return &ipp, nil
+			ipp = netip.AddrPortFrom(ipaddr, uint16(p))
+			return ipp, nil
 		}
+	} else if ipp, err = netip.ParseAddrPort(ip); err == nil {
+		return ipp, nil
 	}
-	return nil, err
+	return ipp, err
 }
 
 // NewDNSOptions returns a new DNSOpitons object.
 func NewDNSOptions(ip string, port string) (*DNSOptions, error) {
-	var ipp *netip.AddrPort
+	var ipp netip.AddrPort
 	var err error
 	if ipp, err = addrport(ip, port); err == nil {
 		return &DNSOptions{
@@ -168,9 +171,10 @@ type ProxyOptions struct {
 // NewAuthProxyOptions returns a new ProxyOptions object with authentication object.
 func NewAuthProxyOptions(scheme, username, password, ip, port string) *ProxyOptions {
 	var ippstr string
+	ip = strings.TrimSuffix(ip, "/")
 	ipp, err := addrport(ip, port)
 	if err != nil {
-		log.I("proxyopt(%s:%s); ipport is url?(%v)", ip, port, err)
+		log.I("proxyopt: ipport(%s:%s) is url?(%v)", ip, port, err)
 		if len(ip) > 0 {
 			// port is discarded, and expected to be in ip/url
 			ippstr = ip
@@ -183,7 +187,7 @@ func NewAuthProxyOptions(scheme, username, password, ip, port string) *ProxyOpti
 	if len(username) <= 0 || len(password) <= 0 {
 		username = ""
 		password = ""
-		log.W("proxyopt; empty user(%s)/pwd(%d)", username, len(password))
+		log.W("proxyopt: empty user(%s)/pwd(%d)", username, len(password))
 	}
 	if len(scheme) <= 0 {
 		scheme = "http"
