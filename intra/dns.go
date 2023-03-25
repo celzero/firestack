@@ -42,13 +42,13 @@ func newDNSCryptTransport() (p dnsx.TransportMult) {
 // `protector` is the socket protector to use for all external network activity.
 // `auth` will provide a client certificate if required by the TLS server.
 // `listener` will be notified after each DNS query succeeds or fails.
-func NewDoHTransport(id, url string, ips string, auth doh.ClientAuth) (dnsx.Transport, error) {
+func NewDoHTransport(id, url string, ips string) (dnsx.Transport, error) {
 	split := []string{}
 	if len(ips) > 0 {
 		split = strings.Split(ips, ",")
 	}
 	dialer := protect.MakeDialer(nil)
-	return doh.NewTransport(id, url, split, dialer, auth)
+	return doh.NewTransport(id, url, split, dialer)
 }
 
 func NewDNSCryptTransport(r dnsx.Resolver, id, stamp string) (d dnsx.Transport, err error) {

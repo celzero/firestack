@@ -121,7 +121,9 @@ func (t *transport) dial(network, addr string) (net.Conn, error) {
 //   timeout but will not mutate it otherwise.
 // `auth` will provide a client certificate if required by the TLS server.
 // `listener` will receive the status of each DNS query when it is complete.
-func NewTransport(id, rawurl string, addrs []string, dialer *net.Dialer, auth ClientAuth) (dnsx.Transport, error) {
+func NewTransport(id, rawurl string, addrs []string, dialer *net.Dialer) (dnsx.Transport, error) {
+	// TODO: client auth
+	var auth ClientAuth
 	if dialer == nil {
 		dialer = &net.Dialer{}
 	}
