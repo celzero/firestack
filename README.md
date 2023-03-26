@@ -1,12 +1,8 @@
 # Firestack
 
-A userspace TCP/UDP firewall and DNS client for Android.
+A userspace TCP/UDP connection monitor, firewall, DNS resolver, and [WireGuard](https://github.com/wireguard/wireguard-go) client for Android.
 
-Firestack is not yet stable and the APIs are still in flux.
-
-Firestack is built specifically for [RethinkDNS](https://github.com/celzero/rethink-app). [go-tun2socks](https://github.com/eycorsican/go-tun2socks) provides
-a golang SOCKS-like interface over the tun-device. It does so by wrapping [badvpn's tun2socks](https://github.com/ambrop72/badvpn) in cgo, which in turn
-relies on [LwIP](https://www.nongnu.org/lwip/2_1_x/index.html), a light-weight, single-threaded userspace TCP/IP stack underneath the covers.
+Firestack is built specifically for [Rethink DNS + Firewall](https://github.com/celzero/rethink-app). [gVisor/netstack](https://github.com/google/gvisor/tree/go/pkg/tcpip) provides a SOCKS-like interface (similar to [badvpn's tun2socks](https://github.com/ambrop72/badvpn)) for TCP and UDP connections over a tun-device.
 
 Firestack is a hard-fork of Google's [outline-go-tun2socks](https://github.com/Jigsaw-Code/outline-go-tun2socks) project.
 
@@ -34,8 +30,7 @@ your [Android builds via jitpack.io](https://jitpack.io/#celzero/firestack) ([re
 
 The APIs aren't stable and hence left undocumented, but you can look at
 RethinkDNS ([GoVpnAdapter](https://github.com/celzero/rethink-app/blob/982849564/app/src/main/java/com/celzero/bravedns/net/go/GoVpnAdapter.java#L164-L232),
- [BraveVpnService](https://github.com/celzero/rethink-app/blob/982849564/app/src/main/java/com/celzero/bravedns/service/BraveVPNService.kt#L130-L137)) to
-see how to integrate with Firestack on Android.
+ [BraveVpnService](https://github.com/celzero/rethink-app/blob/982849564/app/src/main/java/com/celzero/bravedns/service/BraveVPNService.kt#L130-L137)) to see how to integrate with Firestack on Android.
 
 ## Build
 
