@@ -188,7 +188,7 @@ func (cb *cache) scrubCache(kch chan<- string, vch chan<- *cres) {
 	i, j, m := 0, 0, 0
 	for k, v := range cb.c {
 		i++
-		if v.bumps >= (cb.bumps * 3 / 4) {
+		if v.bumps >= (cb.bumps / 2) {
 			// bump it to the highest to invalidate cached entry
 			v.bumps = cb.bumps
 			vch <- v
