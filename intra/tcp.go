@@ -51,9 +51,10 @@ const (
 )
 
 var (
-	errTcpFirewalled = errors.New("tcp: ground conn, firewalled")
-	errTcpNoProxy    = errors.New("tcp: ground conn, no proxy")
-	errTcpSetupConn  = errors.New("tcp: could not create tcp conn")
+	errTcpFirewalled = errors.New("tcp: firewalled")
+	errTcpNoProxy    = errors.New("tcp: no proxy")
+	errTcpSetupConn  = errors.New("tcp: could not create conn")
+	errTcpHandshake  = errors.New("tcp: handshake failed")
 )
 
 // TCPHandler is a core TCP handler that also supports DOH and splitting control.
@@ -79,6 +80,7 @@ type TCPSocketSummary struct {
 	UploadBytes   int64  // Total bytes uploaded.
 	Duration      int32  // Duration in seconds.
 	Synack        int32  // TCP handshake latency (ms)
+	Msg           string // Message to be logged.
 	// Retry is non-nil if retry was possible.  Retry.Split is non-zero if a retry occurred.
 	Retry *split.RetryStats
 }
@@ -147,13 +149,16 @@ func (h *tcpHandler) forward(local net.Conn, remote net.Conn, summary *TCPSocket
 
 	go h.handleUpload(localtcp, remotetcp, upload)
 
-	download, _ := h.handleDownload(localtcp, remotetcp)
+	download, err := h.handleDownload(localtcp, remotetcp)
 
 	summary.DownloadBytes = download
 	summary.UploadBytes = <-upload
+	if err != nil {
+		summary.Msg = err.Error()
+	}
 	summary.Duration = int32(time.Since(start).Seconds())
 
-	h.listener.OnTCPSocketClosed(summary)
+	h.sendNotif(summary)
 }
 
 func filteredPort(addr net.Addr) int16 {
@@ -174,6 +179,12 @@ func filteredPort(addr net.Addr) int16 {
 		return 53
 	}
 	return -1
+}
+
+func (h *tcpHandler) sendNotif(summary *TCPSocketSummary) {
+	if h.listener != nil && summary != nil && len(summary.ID) > 0 {
+		go h.listener.OnTCPSocketClosed(summary)
+	}
 }
 
 func (h *tcpHandler) dnsOverride(conn net.Conn, addr *net.TCPAddr) bool {
@@ -221,13 +232,20 @@ func (h *tcpHandler) onFlow(localaddr *net.TCPAddr, target *net.TCPAddr, realips
 	return res
 }
 
-func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target *net.TCPAddr) {
-	rst := true // tear down conn
-	ack := !rst // send synack
+func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target *net.TCPAddr) (open bool) {
+	const rst bool = true // tear down conn
+	const ack bool = !rst // send synack
+	s := &TCPSocketSummary{}
+
+	defer func() {
+		if !open {
+			h.sendNotif(s)
+		} // else conn has been proxied, sendNotif is called by h.forward()
+	}()
 
 	if src == nil || target == nil {
 		log.E("tcp: nil addr %v -> %v", src, target)
-		gconn.Connect(rst) // fin
+		open = gconn.Connect(rst) // fin
 		return
 	}
 
@@ -241,15 +259,19 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target *net.TCPAddr) {
 	res := h.onFlow(src, target, realips, domains, blocklists)
 
 	pid, cid := splitPidCid(res)
+	s.ID = cid
+	s.PID = pid
 	if pid == ipn.Block {
 		log.I("tcp: gconn firewalled from %s -> %s (dom: %s/ real: %s)", src, target, domains, realips)
-		gconn.Connect(rst) // fin
+		open = gconn.Connect(rst) // fin
+		s.Msg = errTcpFirewalled.Error()
 		return
 	}
 
 	// handshake
-	if open := gconn.Connect(ack); !open {
+	if open = gconn.Connect(ack); !open {
 		log.E("tcp: gconn closed; no handshake %s -> %s", src, target)
+		s.Msg = errTcpHandshake.Error()
 		return
 	}
 
@@ -257,14 +279,17 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target *net.TCPAddr) {
 	// but ipx4 might itself be an alg ip; so check if there's a real-ip to connect to
 	target.IP = oneRealIp(realips, ipx4)
 
-	if err := h.Handle(gconn, target, pid, cid); err != nil {
+	if err := h.Handle(gconn, target, s); err != nil {
 		log.E("tcp: proxy(%s -> %s) err: %v", src, target, err)
+		open = false
 		gconn.Close()
+		s.Msg = err.Error()
 	}
+	return
 }
 
 // TODO: Request upstream to make `conn` a `core.TCPConn` so we can avoid a type assertion.
-func (h *tcpHandler) Handle(conn net.Conn, target *net.TCPAddr, pid, cid string) error {
+func (h *tcpHandler) Handle(conn net.Conn, target *net.TCPAddr, summary *TCPSocketSummary) error {
 	var px ipn.Proxy
 	var pc ipn.Conn
 	var err error
@@ -273,13 +298,13 @@ func (h *tcpHandler) Handle(conn net.Conn, target *net.TCPAddr, pid, cid string)
 		return nil
 	}
 
+	pid := summary.PID
+	summary.Msg = noerr
+
 	if px, err = h.pt.GetProxy(pid); err != nil {
 		return err
 	}
 
-	var summary TCPSocketSummary
-	summary.ID = cid // may be an empty string
-	summary.PID = pid
 	start := time.Now()
 	var c net.Conn
 
@@ -312,7 +337,7 @@ func (h *tcpHandler) Handle(conn net.Conn, target *net.TCPAddr, pid, cid string)
 
 	summary.Synack = int32(time.Since(start).Seconds() * 1000)
 
-	go h.forward(conn, c, &summary)
+	go h.forward(conn, c, summary)
 
 	log.I("tcp: new conn via proxy(%s); src(%s) -> dst(%s)", px.ID(), conn.LocalAddr(), target)
 	return nil

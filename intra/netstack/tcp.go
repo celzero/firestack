@@ -28,7 +28,7 @@ var (
 )
 
 type GTCPConnHandler interface {
-	Proxy(conn *GTCPConn, src, dst *net.TCPAddr)
+	Proxy(conn *GTCPConn, src, dst *net.TCPAddr) bool
 }
 
 var _ core.TCPConn = (*GTCPConn)(nil)
