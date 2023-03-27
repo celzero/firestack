@@ -219,13 +219,14 @@ func (cb *cache) freshLocked(key string) (v *cres, ok bool) {
 
 	recent := v.bumps <= 1
 	alive := time.Since(v.expiry) <= 0
-	if alive && v.bumps < cb.bumps {
+	if v.bumps < cb.bumps {
 		n := time.Duration(v.bumps) * cb.halflife
 		// if the expiry time is already n duration in the future, don't incr ttl
-		if time.Since(v.expiry.Add(-n)) < 0 {
+		// or if the entry is already expired, don't incr ttl
+		if alive && time.Since(v.expiry.Add(-n)) < 0 {
 			v.expiry = v.expiry.Add(n)
-			v.bumps = v.bumps + 1
 		}
+		v.bumps += 1
 	}
 
 	r75 := rand.Intn(99999) < 75000 // 75% chance of reusing from the cache
