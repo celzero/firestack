@@ -189,7 +189,9 @@ func (cb *cache) scrubCache(kch chan<- string, vch chan<- *cres) {
 	for k, v := range cb.c {
 		i++
 		if v.bumps >= (cb.bumps / 2) {
-			// bump it to the highest to invalidate cached entry
+			// invalidate cached entry
+			v.expiry = time.Now()
+			// bump it to the highest to keep its freshness locked
 			v.bumps = cb.bumps
 			vch <- v
 			m++
