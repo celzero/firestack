@@ -217,7 +217,7 @@ func (cb *cache) freshLocked(key string) (v *cres, ok bool) {
 		return
 	}
 
-	recent := v.bumps <= 0
+	recent := v.bumps <= 1
 	alive := time.Since(v.expiry) <= 0
 	if alive && v.bumps < cb.bumps {
 		n := time.Duration(v.bumps) * cb.halflife
