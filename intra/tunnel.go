@@ -40,6 +40,7 @@ import (
 type Listener interface {
 	UDPListener
 	TCPListener
+	ICMPListener
 	dnsx.Listener
 }
 
@@ -77,7 +78,7 @@ func NewTunnel(fakedns string, defaultdns dnsx.Transport, fd int, fpcap string, 
 
 	tcph := NewTCPHandler(resolver, natpt, ctl, tunmode, listener)
 	udph := NewUDPHandler(resolver, natpt, ctl, tunmode, listener)
-	icmph := NewICMPHandler(resolver, natpt, ctl, tunmode)
+	icmph := NewICMPHandler(resolver, natpt, ctl, tunmode, listener)
 	t, err := tunnel.NewGTunnel(fd, fpcap, l3, mtu, tcph, udph, icmph)
 
 	if err != nil {
