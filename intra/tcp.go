@@ -203,6 +203,7 @@ func (h *tcpHandler) onFlow(localaddr *net.TCPAddr, target *net.TCPAddr, realips
 	if h.tunMode.BlockMode == settings.BlockModeSink {
 		return ipn.Block
 	} else if h.tunMode.BlockMode == settings.BlockModeNone {
+		// todo: block-mode none should call into ctl.Flow to determine upstream proxy
 		return ipn.Base
 	}
 

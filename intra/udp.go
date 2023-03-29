@@ -266,6 +266,7 @@ func (h *udpHandler) onFlow(localudp core.UDPConn, target *net.UDPAddr, realips,
 	if h.tunMode.BlockMode == settings.BlockModeSink {
 		return ipn.Block
 	}
+	// todo: block-mode none should call into ctl.Flow to determine upstream proxy
 	if h.tunMode.BlockMode == settings.BlockModeNone {
 		return ipn.Base
 	}
