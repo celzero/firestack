@@ -32,7 +32,8 @@ func setupIcmpHandler(s *stack.Stack, ep stack.LinkEndpoint, handler GICMPHandle
 		l4bytes := packet.TransportHeader().Slice()
 		icmpin := header.ICMPv4(l4bytes)
 		if icmpin.Type() != header.ICMPv4Echo {
-			// let netstack handles other msgs except echo / ping
+			// netstack handles other msgs except echo / ping
+			log.D("icmp: v4 type %v passthrough", icmpin.Type())
 			return false
 		}
 
@@ -59,6 +60,7 @@ func setupIcmpHandler(s *stack.Stack, ep stack.LinkEndpoint, handler GICMPHandle
 		datalen := len(data)
 
 		l3 := packet.NetworkHeader().View()
+		log.D("icmp: v4 type %v/%v sz [%v]; src -> dst %v", icmpin.Type(), icmpin.Code(), datalen, src, dst)
 		if !handler.Ping(src, dst, data, func(reply []byte) error {
 			// sendICMP: github.com/google/gvisor/blob/8035cf9ed/pkg/tcpip/transport/tcp/testing/context/context.go#L404
 			// parseICMP: github.com/google/gvisor/blob/8035cf9ed/pkg/tcpip/header/parse/parse.go#L194
@@ -71,12 +73,12 @@ func setupIcmpHandler(s *stack.Stack, ep stack.LinkEndpoint, handler GICMPHandle
 				icmpunreach := header.ICMPv4(d)
 				copy(icmpunreach[:ICMPv4HeaderSize], reply)
 				copy(icmpunreach[header.ICMPv4MinimumErrorPayloadSize:], req)
+				log.D("icmp: v4 unreachable %v/%v sz[%d] from %v <- %v", icmpunreach.Type(), icmpunreach.Code(), len(icmpunreach), src, dst)
 				icmpout = icmpunreach
 			}
 
 			x := make([]byte, ep.MTU())
 			res := bufferv2.MakeWithData(x)
-
 			if len(icmpout) != datalen {
 				ip := header.IPv4(l3.AsSlice())
 				l3len := ip.TotalLength()
@@ -93,9 +95,12 @@ func setupIcmpHandler(s *stack.Stack, ep stack.LinkEndpoint, handler GICMPHandle
 			respkt := stack.NewPacketBuffer(stack.PacketBufferOptions{Payload: res})
 			defer respkt.DecRef()
 
+			log.D("icmp: v4 response: type %v/%v sz[%d] from %v <- %v", icmpout.Type(), icmpout.Code(), res.Size(), src, dst)
+
 			var pout stack.PacketBufferList
 			pout.PushBack(respkt)
 			if _, err := ep.WritePackets(pout); err != nil {
+				log.E("icmp: err writing upstream res [%v <- %v] to tun %v", src, dst, err)
 				return fmt.Errorf("err writing upstream res to tun: %v", err)
 			}
 
@@ -126,7 +131,8 @@ func setupIcmpHandler(s *stack.Stack, ep stack.LinkEndpoint, handler GICMPHandle
 		l4bytes := packet.TransportHeader().Slice()
 		icmpin := header.ICMPv6(l4bytes)
 		if icmpin.Type() != header.ICMPv6EchoRequest {
-			// let netstack handles other msgs except echo / ping
+			log.D("icmp: v6 type %v/%v passthrough", icmpin.Type(), icmpin.Code())
+			// netstack handles other msgs except echo / ping
 			return false
 		}
 
@@ -153,6 +159,7 @@ func setupIcmpHandler(s *stack.Stack, ep stack.LinkEndpoint, handler GICMPHandle
 		dlen := len(data)
 
 		l3 := packet.NetworkHeader().View()
+		log.D("icmp: v6 type %v/%v sz[%d] from %v -> %v", icmpin.Type(), icmpin.Code(), dlen, src, dst)
 		if !handler.Ping(src, dst, data, func(reply []byte) error {
 			icmpout := header.ICMPv6(reply)
 			if icmpout.Type() == header.ICMPv6DstUnreachable {
@@ -160,12 +167,12 @@ func setupIcmpHandler(s *stack.Stack, ep stack.LinkEndpoint, handler GICMPHandle
 				icmpunreach := header.ICMPv6(d)
 				copy(icmpunreach[:header.ICMPv6HeaderSize], reply)
 				copy(icmpunreach[header.ICMPv6DstUnreachableMinimumSize:], req)
+				log.D("icmp: v6 unreachable %v/%v sz[%d] from %v <- %v", icmpunreach.Type(), icmpunreach.Code(), len(icmpunreach), src, dst)
 				icmpout = icmpunreach
 			}
 
 			x := make([]byte, ep.MTU())
 			res := bufferv2.MakeWithData(x)
-
 			if len(icmpout) != dlen {
 				ip := header.IPv6(l3.AsSlice())
 				ip.SetPayloadLength(uint16(len(icmpout)))
@@ -184,35 +191,40 @@ func setupIcmpHandler(s *stack.Stack, ep stack.LinkEndpoint, handler GICMPHandle
 				Dst:    id.LocalAddress,  // dst
 			}))
 
+			log.D("icmp: v6 response: type %v/%v sz[%d] from %v <- %v", icmpout.Type(), icmpout.Code(), res.Size(), src, dst)
+
 			respkt := stack.NewPacketBuffer(stack.PacketBufferOptions{Payload: res})
 			defer respkt.DecRef()
 
 			var pout stack.PacketBufferList
 			pout.PushBack(respkt)
 			if _, err := ep.WritePackets(pout); err != nil {
-				return fmt.Errorf("err writing upstream res to tun %v", err)
+				log.E("icmp: err writing upstream res [%v <- %v] to tun %v", src, dst, err)
+				return fmt.Errorf("icmp: err writing upstream res to tun %v", err)
 			}
 
 			if icmpout.Type() == header.ICMPv6DstUnreachable {
 				return unix.ENETUNREACH
 			}
-
 			return nil
 		}) {
 			icmpin.SetType(header.ICMPv6EchoReply)
 			icmpin.SetChecksum(0)
+			dst := id.LocalAddress
+			src := id.RemoteAddress
 			icmpin.SetChecksum(header.ICMPv6Checksum(header.ICMPv6ChecksumParams{
 				Header:      icmpin,
-				Src:         id.LocalAddress,  // dst
-				Dst:         id.RemoteAddress, // src
+				Src:         dst, // from dst
+				Dst:         src, // to src
 				PayloadCsum: packet.Data().Checksum(),
 				PayloadLen:  packet.Data().Size(),
 			}))
 
+			log.D("icmp: v6 default response: type %v/%v sz[%d] from %v <- %v", icmpin.Type(), icmpin.Code(), len(icmpin), src, dst)
 			var pout stack.PacketBufferList
 			pout.PushBack(packet)
 			if _, err := ep.WritePackets(pout); err != nil {
-				log.E("icmp: err writing default echo pkt to tun %v", err)
+				log.E("icmp: err writing default echo pkt to tun [%v <- %v] %v", src, dst, err)
 				return false
 			}
 		}
