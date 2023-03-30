@@ -197,7 +197,8 @@ func (h *icmpHandler) fetch(c net.Conn, pong netstack.Pong, summary *ICMPSummary
 			break
 		}
 	}
-	log.I("t.icmp.egress: ReadFrom(%v <- %v) ping; done %d", src, dst)
+	elapsed := time.Since(summary.start)
+	log.I("t.icmp.ingress: ReadFrom(%v <- %v) ping; done in %v", src, dst, elapsed)
 }
 
 func (h *icmpHandler) sendNotif(s *ICMPSummary) {
