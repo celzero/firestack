@@ -379,7 +379,7 @@ func (t *transport) sendRequest(id uint16, q []byte) (response []byte, hostname 
 
 func (t *transport) rdnsBlockstamp(res *http.Response) (blocklistStamp string) {
 	blocklistStamp = res.Header.Get(xdns.GetBlocklistStampHeaderKey())
-	log.D("doh: header", res.Header, "st", blocklistStamp)
+	log.D("doh: stamp %s; header %v", res.Header, blocklistStamp)
 	return
 }
 
