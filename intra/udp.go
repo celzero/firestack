@@ -59,6 +59,7 @@ var (
 type UDPSocketSummary struct {
 	ID            string // Unique ID for this socket.
 	PID           string // Proxy ID that handled this socket.
+	UID           string // UID that owns this socket.
 	UploadBytes   int64  // Amount uploaded (bytes).
 	DownloadBytes int64  // Amount downloaded (bytes).
 	Duration      int32  // How long the socket was open (seconds).
@@ -73,6 +74,7 @@ type UDPListener interface {
 type tracker struct {
 	id       string       // unique identifier for this connection
 	pid      string       // proxy id
+	uid      string       // uid that created this connection
 	conn     any          // net.Conn and net.PacketConn
 	start    time.Time    // creation time
 	upload   int64        // Non-DNS upload bytes
@@ -82,8 +84,8 @@ type tracker struct {
 	ip       *net.UDPAddr // masked addr
 }
 
-func makeTracker(cid, pid string, conn any) *tracker {
-	return &tracker{cid, pid, conn, time.Now(), 0, 0, 0, noerr, nil}
+func makeTracker(cid, pid, uid string, conn any) *tracker {
+	return &tracker{cid, pid, uid, conn, time.Now(), 0, 0, 0, noerr, nil}
 }
 
 func (t *tracker) FillSummary(s *UDPSocketSummary) {
@@ -94,6 +96,7 @@ func (t *tracker) FillSummary(s *UDPSocketSummary) {
 		s.Msg = noerr
 	}
 	s.PID = t.pid
+	s.UID = t.uid
 	s.UploadBytes = t.upload
 	s.DownloadBytes = t.download
 	s.Duration = int32(time.Since(t.start).Seconds())
@@ -108,15 +111,16 @@ type udpHandler struct {
 	UDPHandler
 	sync.RWMutex
 
-	resolver dnsx.Resolver
-	timeout  time.Duration
-	udpConns map[core.UDPConn]*tracker
-	config   *net.ListenConfig
-	dialer   *net.Dialer
-	ctl      protect.Controller
-	tunMode  *settings.TunMode
-	listener UDPListener
-	pt       ipn.NatPt
+	resolver  dnsx.Resolver
+	timeout   time.Duration
+	udpConns  map[core.UDPConn]*tracker
+	config    *net.ListenConfig
+	dialer    *net.Dialer
+	ctl       protect.Controller
+	tunMode   *settings.TunMode
+	listener  UDPListener
+	pt        ipn.NatPt
+	fwtracker *core.ExpMap
 }
 
 // NewUDPHandler makes a UDP handler with Intra-style DNS redirection:
@@ -131,15 +135,16 @@ func NewUDPHandler(resolver dnsx.Resolver, pt ipn.NatPt, ctl protect.Controller,
 	c := protect.MakeNsListenConfig(ctl)
 	d := protect.MakeNsDialer(ctl)
 	h := &udpHandler{
-		timeout:  udptimeout,
-		udpConns: make(map[core.UDPConn]*tracker, 8),
-		resolver: resolver,
-		ctl:      ctl,
-		tunMode:  tunMode,
-		config:   c,
-		dialer:   d,
-		listener: listener,
-		pt:       pt,
+		timeout:   udptimeout,
+		udpConns:  make(map[core.UDPConn]*tracker, 8),
+		resolver:  resolver,
+		ctl:       ctl,
+		tunMode:   tunMode,
+		config:    c,
+		dialer:    d,
+		listener:  listener,
+		pt:        pt,
+		fwtracker: core.NewExpiringMap(),
 	}
 
 	return h
@@ -299,8 +304,9 @@ func (h *udpHandler) onFlow(localudp core.UDPConn, target *net.UDPAddr, realips,
 }
 
 func (h *udpHandler) OnNewConn(gconn *netstack.GUDPConn, _, dst *net.UDPAddr) bool {
-	if cid, err := h.Connect(gconn, dst); err != nil {
-		h.sendNotif(cid, err.Error(), nil)
+	if decision, err := h.Connect(gconn, dst); err != nil {
+		pid, cid, uid := splitPidCidUid(decision)
+		h.sendNotif(cid, pid, uid, err.Error(), 0, 0, 0)
 		return false
 	}
 	return true
@@ -308,31 +314,35 @@ func (h *udpHandler) OnNewConn(gconn *netstack.GUDPConn, _, dst *net.UDPAddr) bo
 
 // Connect connects the proxy server.
 // Note, target may be nil in lwip (deprecated) while it may be unspecified in netstack
-func (h *udpHandler) Connect(conn core.UDPConn, target *net.UDPAddr) (cid string, err error) {
+func (h *udpHandler) Connect(conn core.UDPConn, target *net.UDPAddr) (res string, err error) {
 	var px ipn.Proxy
 	var pc ipn.Conn
-	var pid string
 
 	ipx4 := maybeUndoNat64(h.pt, target.IP)
 	realips, domains, blocklists := undoAlg(h.resolver, ipx4)
 
 	// flow is alg/nat-aware, do not change target or any addrs
-	res := h.onFlow(conn, target, realips, domains, blocklists)
+	res = h.onFlow(conn, target, realips, domains, blocklists)
 
 	localaddr := conn.LocalAddr()
-	pid, cid = splitPidCid(res)
+	pid, cid, uid := splitPidCidUid(res)
 	if pid == ipn.Block {
-		log.I("udp: conn firewalled from %s -> %s (dom: %s/ real: %s)", localaddr, target, domains, realips)
-		return cid, errUdpFirewalled // disconnect
+		var secs uint32
+		if secs = stall(h.fwtracker, uid, target); secs > 0 {
+			waittime := time.Duration(secs) * time.Second
+			time.Sleep(waittime)
+		}
+		log.I("udp: conn firewalled from %s -> %s (dom: %s/ real: %s); stall? %ds", localaddr, target, domains, realips, secs)
+		return res, errUdpFirewalled // disconnect
 	}
 
 	if h.isDns(target) {
-		return cid, nil // connect
+		return res, nil // connect
 	}
 
 	if px, err = h.pt.GetProxy(pid); err != nil {
 		log.W("udp: failed to get proxy for %s: %v", pid, err)
-		return cid, errUdpNoProxy // disconnect
+		return res, errUdpNoProxy // disconnect
 	}
 
 	// note: fake-dns-ips shouldn't be un-nated / un-alg'd
@@ -345,17 +355,17 @@ func (h *udpHandler) Connect(conn core.UDPConn, target *net.UDPAddr) (cid string
 	// deprecated: github.com/golang/go/issues/25104
 	if pc, err = px.Dial(target.Network(), target.String()); err != nil {
 		log.E("udp: connect: failed to bind addr(%s); err(%v)", target, err)
-		return cid, err // disconnect
+		return res, err // disconnect
 	}
 
 	var ok bool
 	var c net.Conn
 	if c, ok = pc.(net.Conn); !ok {
 		log.E("udp: connect: proxy(%s) does not implement net.Conn(%s)", px.ID(), target)
-		return cid, errUdpSetupConn // disconnect
+		return res, errUdpSetupConn // disconnect
 	}
 
-	nat := makeTracker(cid, pid, c)
+	nat := makeTracker(cid, pid, uid, c)
 
 	// the actual ip the client sees data from
 	// unused in netstack
@@ -373,7 +383,7 @@ func (h *udpHandler) Connect(conn core.UDPConn, target *net.UDPAddr) (cid string
 
 	log.I("udp: connect: (proxy? %s@%s) %v -> %v", px.ID(), px.GetAddr(), c.LocalAddr(), target)
 
-	return cid, nil // connect
+	return res, nil // connect
 }
 
 func (h *udpHandler) HandleData(conn *netstack.GUDPConn, data []byte, addr *net.UDPAddr) error {
@@ -473,24 +483,24 @@ func (h *udpHandler) Close(conn core.UDPConn) {
 		default:
 		}
 		// TODO: Cancel any outstanding DoH queries.
-		h.sendNotif(t.id, t.msg, t)
+		elapsed := int32(time.Since(t.start).Seconds())
+		h.sendNotif(t.id, t.pid, t.uid, t.msg, t.upload, t.download, elapsed)
 		delete(h.udpConns, conn)
 	}
 }
 
-func (h *udpHandler) sendNotif(cid, msg string, t *tracker) {
+func (h *udpHandler) sendNotif(cid, pid, uid, msg string, up, down int64, elapsed int32) {
 	if h.listener == nil {
 		return
 	}
-	s := &UDPSocketSummary{}
-	if t != nil {
-		t.FillSummary(s)
-	} else {
-		s.ID = cid
-		s.Msg = msg
+	s := &UDPSocketSummary{
+		ID:            cid,
+		PID:           pid,
+		UID:           uid,
+		Msg:           msg,
+		UploadBytes:   up,
+		DownloadBytes: down,
+		Duration:      elapsed,
 	}
-	// send notification to the listener iff connection ID is set
-	if len(s.ID) > 0 {
-		go h.listener.OnUDPSocketClosed(s)
-	}
+	go h.listener.OnUDPSocketClosed(s)
 }

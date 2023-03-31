@@ -94,7 +94,7 @@ func (h *icmpHandler) onFlow(source *net.UDPAddr, target *net.UDPAddr, realips, 
 	// todo: handle forwarding icmp to appropriate proxy?
 	res := h.ctl.Flow(proto, uid, src, dst, realips, domains, blocklists)
 
-	pid, cid = splitPidCid(res)
+	pid, cid, _ = splitPidCidUid(res)
 	block = pid == ipn.Block
 	return
 }

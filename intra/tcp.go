@@ -64,18 +64,20 @@ type TCPHandler interface {
 
 type tcpHandler struct {
 	TCPHandler
-	resolver dnsx.Resolver
-	dialer   *net.Dialer
-	ctl      protect.Controller
-	tunMode  *settings.TunMode
-	listener TCPListener
-	pt       ipn.NatPt
+	resolver  dnsx.Resolver
+	dialer    *net.Dialer
+	ctl       protect.Controller
+	tunMode   *settings.TunMode
+	listener  TCPListener
+	pt        ipn.NatPt
+	fwtracker *core.ExpMap
 }
 
 // TCPSocketSummary provides information about each TCP socket, reported when it is closed.
 type TCPSocketSummary struct {
 	ID            string // Unique ID for this socket.
 	PID           string // Proxy ID that handled this socket.
+	UID           string // UID of the app that owns this socket.
 	DownloadBytes int64  // Total bytes downloaded.
 	UploadBytes   int64  // Total bytes uploaded.
 	Duration      int32  // Duration in seconds.
@@ -98,12 +100,13 @@ func NewTCPHandler(resolver dnsx.Resolver, pt ipn.NatPt, ctl protect.Controller,
 	tunMode *settings.TunMode, listener TCPListener) TCPHandler {
 	d := protect.MakeNsDialer(ctl)
 	h := &tcpHandler{
-		resolver: resolver,
-		dialer:   d,
-		ctl:      ctl,
-		tunMode:  tunMode,
-		listener: listener,
-		pt:       pt,
+		resolver:  resolver,
+		dialer:    d,
+		ctl:       ctl,
+		tunMode:   tunMode,
+		listener:  listener,
+		pt:        pt,
+		fwtracker: core.NewExpiringMap(),
 	}
 
 	return h
@@ -259,11 +262,17 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target *net.TCPAddr) (
 	// nat-ed ips just fine, and so, use target as-is instead of ipx4
 	res := h.onFlow(src, target, realips, domains, blocklists)
 
-	pid, cid := splitPidCid(res)
+	pid, cid, uid := splitPidCidUid(res)
 	s.ID = cid
 	s.PID = pid
+	s.UID = uid
 	if pid == ipn.Block {
-		log.I("tcp: gconn firewalled from %s -> %s (dom: %s/ real: %s)", src, target, domains, realips)
+		var secs uint32
+		if secs = stall(h.fwtracker, uid, target); secs > 0 {
+			waittime := time.Duration(secs) * time.Second
+			time.Sleep(waittime)
+		}
+		log.I("tcp: gconn firewalled from %s -> %s (dom: %s/ real: %s); stall? %ds", src, target, domains, realips, secs)
 		open = gconn.Connect(rst) // fin
 		s.Msg = errTcpFirewalled.Error()
 		return
@@ -344,6 +353,28 @@ func (h *tcpHandler) Handle(conn net.Conn, target *net.TCPAddr, summary *TCPSock
 	return nil
 }
 
+func stall(m *core.ExpMap, uid string, target net.Addr) (secs uint32) {
+	k := uid + target.String()
+
+	if n := m.Get(k); n <= 0 {
+		secs = n // no stall
+	} else if n > 30 {
+		secs = 30 // max up to 30s
+	} else if n < 5 {
+		secs = 5 // min up to 5s
+	} else {
+		secs = n
+	}
+	if secs > 0 {
+		// track uid->target for the next 15s
+		m.Set(k, 15*time.Second)
+	} else {
+		// track uid->target for the next 30s
+		m.Set(k, 30*time.Second)
+	}
+	return
+}
+
 func maybeUndoNat64(pt ipn.NAT64, ip net.IP) net.IP {
 	ipx4 := ip
 	// TODO: need the actual ID of the transport that did nat64
@@ -398,25 +429,16 @@ func undoAlg(r dnsx.Resolver, algip net.IP) (realips, domains, blocklists string
 	return
 }
 
-func tcpaddr(conn net.Conn) (*net.TCPAddr, error) {
-	localtcp, ok1 := conn.(core.TCPConn)
-	if !ok1 {
-		return nil, fmt.Errorf("tcp: non-tcp-conn(%v)", conn)
-	}
-	localaddr, ok2 := localtcp.LocalAddr().(*net.TCPAddr)
-	if !ok2 {
-		return nil, fmt.Errorf("tcp: non-tcp-addr(%v)", localtcp.LocalAddr())
-	}
-	return localaddr, nil
-}
-
-func splitPidCid(decision string) (pid, cid string) {
+func splitPidCidUid(decision string) (pid, cid, uid string) {
 	ids := strings.Split(decision, ",")
 	if len(ids) >= 1 {
 		pid = ids[0]
 	}
 	if len(ids) >= 2 {
 		cid = ids[1]
+	}
+	if len(ids) >= 3 {
+		uid = ids[2]
 	}
 	return
 }
