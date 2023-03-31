@@ -30,18 +30,20 @@ var (
 )
 
 type GUDPConnHandler interface {
-	OnNewConn(conn *GUDPConn, src, dst *net.UDPAddr) bool
+	OnNewConn(conn *GUDPConn, src, dst *net.UDPAddr)
 	HandleData(conn *GUDPConn, data []byte, addr *net.UDPAddr) error
 }
 
 var _ core.UDPConn = (*GUDPConn)(nil)
 
 type GUDPConn struct {
-	ep   tcpip.Endpoint
-	gudp *gonet.UDPConn
-	src  *net.UDPAddr
-	dst  *net.UDPAddr
-	wg   *sync.WaitGroup // waits for endpoint to be ready
+	ep    tcpip.Endpoint
+	gudp  *gonet.UDPConn
+	src   *net.UDPAddr
+	dst   *net.UDPAddr
+	wg    *sync.WaitGroup // waits for endpoint to be ready
+	stack *stack.Stack
+	req   *udp.ForwarderRequest
 }
 
 // ref: github.com/google/gvisor/blob/e89e736f1/pkg/tcpip/adapters/gonet/gonet_test.go#L373
@@ -49,11 +51,13 @@ func MakeGUDPConn(s *stack.Stack, r *udp.ForwarderRequest, src, dst *net.UDPAddr
 	wg := &sync.WaitGroup{}
 	wg.Add(1)
 	return &GUDPConn{
-		ep:   nil,
-		gudp: nil,
-		src:  src,
-		dst:  dst,
-		wg:   wg,
+		ep:    nil,
+		gudp:  nil,
+		src:   src,
+		dst:   dst,
+		wg:    wg,
+		stack: s,
+		req:   r,
 	}
 }
 
@@ -86,16 +90,13 @@ func NewUDPForwarder(s *stack.Stack, h GUDPConnHandler, mtu uint32) *udp.Forward
 
 		gc := MakeGUDPConn(s, request, src, dst)
 
-		if ok := h.OnNewConn(gc, src, dst); !ok {
-			return
-		} else if err := gc.Connect(s, request); err != nil {
-			log.E("ns.udp.forwarder: CONNECT endpoint for %v => %v; err(%v)", src, dst, err)
-			return
-		}
+		h.OnNewConn(gc, src, dst)
 
 		// TODO: on stack.close, mop these goroutines up; just too many of them
 		// hanging around with failing dns queries (esp with happy-eyeballs)
-		go loop(h, gc, src, dst)
+		if gc.ok() {
+			go loop(h, gc, src, dst)
+		} // else: connection refused / failed
 	})
 }
 
@@ -146,16 +147,21 @@ func (g *GUDPConn) ok() bool {
 	return g.ep != nil && g.gudp != nil
 }
 
-func (g *GUDPConn) Connect(s *stack.Stack, r *udp.ForwarderRequest) tcpip.Error {
+func (g *GUDPConn) Connect(fin bool) tcpip.Error {
 	defer g.wg.Done()
+
+	if fin {
+		return &tcpip.ErrHostUnreachable{}
+	}
 
 	waitQueue := new(waiter.Queue)
 	// use gonet.DialUDP instead?
-	if endpoint, err := r.CreateEndpoint(waitQueue); err != nil {
+	if endpoint, err := g.req.CreateEndpoint(waitQueue); err != nil {
+		log.E("ns.udp.forwarder: CONNECT endpoint for %v => %v; err(%v)", g.src, g.dst, err)
 		return err
 	} else {
 		g.ep = endpoint
-		g.gudp = gonet.NewUDPConn(s, waitQueue, endpoint)
+		g.gudp = gonet.NewUDPConn(g.stack, waitQueue, endpoint)
 	}
 	return nil
 }

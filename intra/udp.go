@@ -303,13 +303,16 @@ func (h *udpHandler) onFlow(localudp core.UDPConn, target *net.UDPAddr, realips,
 	return res
 }
 
-func (h *udpHandler) OnNewConn(gconn *netstack.GUDPConn, _, dst *net.UDPAddr) bool {
-	if decision, err := h.Connect(gconn, dst); err != nil {
+func (h *udpHandler) OnNewConn(gconn *netstack.GUDPConn, _, dst *net.UDPAddr) {
+	finish := true // disconnect
+	decision, err := h.Connect(gconn, dst)
+	if err != nil {
 		pid, cid, uid := splitPidCidUid(decision)
-		h.sendNotif(cid, pid, uid, err.Error(), 0, 0, 0)
-		return false
+		h.sendNotif(pid, cid, uid, err.Error(), 0, 0, 0)
+	} else {
+		finish = false // connect
 	}
-	return true
+	gconn.Connect(finish)
 }
 
 // Connect connects the proxy server.
