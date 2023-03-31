@@ -325,25 +325,36 @@ func (t *dnsgateway) Query(network string, q []byte, summary *Summary) (r []byte
 
 	substok4 := false
 	substok6 := false
+	// substituions needn't happen when no alg ips to begin with
+	mustsubst := false
 	ansout := ansin
 	// TODO: substitute ips in additional section
 	if len(algip4hints) > 0 {
 		substok4 = xdns.SubstSVCBRecordIPs( /*out*/ ansout, dns.SVCB_IPV4HINT, algip4hints, algttl) || substok4
+		mustsubst = true
 	}
 	if len(algip6hints) > 0 {
 		substok6 = xdns.SubstSVCBRecordIPs( /*out*/ ansout, dns.SVCB_IPV6HINT, algip6hints, algttl) || substok6
+		mustsubst = true
 	}
 	if len(algip4s) > 0 {
 		substok4 = xdns.SubstARecords( /*out*/ ansout, algip4s, algttl) || substok4
+		mustsubst = true
 	}
 	if len(algip6s) > 0 {
 		substok6 = xdns.SubstAAAARecords( /*out*/ ansout, algip6s, algttl) || substok6
+		mustsubst = true
 	}
 
 	log.D("alg: %s a6(a %d / h %d / s %t) : a4(a %d / h %d / s %t)", qname, len(a6), len(ip6hints), substok6, len(a4), len(ip4hints), substok4)
 	if !substok4 && !substok6 {
-		log.D("alg: skip; err ips subst %s", qname)
-		return r, errCannotSubstAlg
+		if mustsubst {
+			err = errCannotSubstAlg
+		} else {
+			err = nil
+		}
+		log.D("alg: skip; err(%v); ips subst %s", err, qname)
+		return r, err // nil if no alg ips
 	}
 
 	algips = append(algips, algip4s...)
