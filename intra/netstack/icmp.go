@@ -64,7 +64,7 @@ func setupIcmpHandler(s *stack.Stack, ep stack.LinkEndpoint, handler GICMPHandle
 		if !handler.Ping(src, dst, data, func(reply []byte) error {
 			// sendICMP: github.com/google/gvisor/blob/8035cf9ed/pkg/tcpip/transport/tcp/testing/context/context.go#L404
 			// parseICMP: github.com/google/gvisor/blob/8035cf9ed/pkg/tcpip/header/parse/parse.go#L194
-			// makeICMP: https://github.com/google/gvisor/blob/8035cf9ed/pkg/tcpip/tests/integration/iptables_test.go#L2100
+			// makeICMP: github.com/google/gvisor/blob/8035cf9ed/pkg/tcpip/tests/integration/iptables_test.go#L2100
 			// Allocate a buffer data and headers.
 			icmpout := header.ICMPv4(reply)
 			if icmpout.Type() == header.ICMPv4DstUnreachable {
