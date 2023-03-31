@@ -22,7 +22,7 @@ type val struct {
 }
 
 type ExpMap struct {
-	sync.RWMutex
+	sync.Mutex
 	m        map[string]*val
 	lastreap time.Time
 }
@@ -36,10 +36,10 @@ func NewExpiringMap() *ExpMap {
 }
 
 func (m *ExpMap) Get(key string) uint32 {
-	m.RLock()
-	v, ok := m.m[key]
-	m.RUnlock()
+	m.Lock()
+	defer m.Unlock()
 
+	v, ok := m.m[key]
 	if !ok {
 		return 0
 	}
@@ -80,8 +80,8 @@ func (m *ExpMap) Delete(key string) {
 }
 
 func (m *ExpMap) Len() int {
-	m.RLock()
-	defer m.RUnlock()
+	m.Lock()
+	defer m.Unlock()
 
 	return len(m.m)
 }
