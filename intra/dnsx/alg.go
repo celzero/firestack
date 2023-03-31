@@ -262,7 +262,7 @@ func (t *dnsgateway) Query(network string, q []byte, summary *Summary) (r []byte
 	ans0000 := xdns.AQuadAUnspecified(ansin)
 	if !hasans || !hasq || !rgood || ans0000 {
 		log.D("alg: skip; query(n:%s / a:%d) hasq(%t) hasans(%t) rgood(%t), ans0000(%t)", qname, len(ansin.Answer), hasq, hasans, rgood, ans0000)
-		return
+		return // equivalent to return r, nil
 	}
 
 	a6 := xdns.AAAAAnswer(ansin)
@@ -279,6 +279,13 @@ func (t *dnsgateway) Query(network string, q []byte, summary *Summary) (r []byte
 	// inform kt of secondary blocklists, if any
 	summary.Blocklists = secres.summary.Blocklists
 
+	defer func() {
+		if isAlgErr(err) && !t.mod {
+			log.D("alg: no mod; supress err %v", err)
+			// ignore alg errors if no modification is desired
+			err = nil
+		}
+	}()
 	t.Lock()
 	defer t.Unlock()
 
