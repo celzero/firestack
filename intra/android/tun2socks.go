@@ -35,11 +35,9 @@ import (
 	"github.com/celzero/firestack/intra/log"
 )
 
-var engine int = settings.Ns46
-
 func init() {
 	// Conserve memory by increasing garbage collection frequency.
-	debug.SetGCPercent(10)
+	debug.SetGCPercent(30)
 	log.SetLevel(log.WARN)
 }
 
@@ -53,6 +51,7 @@ func init() {
 // `fpcap` is the absolute filepath to which a PCAP file will be written to.
 //  If `fpcap` is -1, no PCAP file will be written.
 // `mtu` is the MTU of the TUN device.
+// `engine` Network protocol to use. Must be one of settings.NS4, settings.NS6, or settings.NS46
 // `fakedns` is the DNS server that the system believes it is using, in "host:port" style.
 //  The port is normally 53.
 // `dohdns` is the default fallback DoH transport.  It must not be `nil`.
@@ -61,8 +60,8 @@ func init() {
 //
 // Throws an exception if the TUN file descriptor cannot be opened, or if the tunnel fails to
 // connect.
-func ConnectIntraTunnel(fd int, fpcap string, mtu int, fakedns string, dohdns dnsx.Transport, ctl protect.Controller, listener intra.Listener) (t intra.Tunnel, err error) {
-	l3 := settings.L3(engine)
+func ConnectIntraTunnel(fd int, fpcap string, mtu, engine int, fakedns string, dohdns dnsx.Transport, ctl protect.Controller, listener intra.Listener) (t intra.Tunnel, err error) {
+	l3 := settings.L3(preferredEngine(engine))
 
 	var dupfd int
 	dupfd, err = tunnel.Dup(fd)
@@ -77,6 +76,9 @@ func LogLevel(level int) {
 	dbg := false
 	dlvl := log.WARN
 	switch l := log.LogLevel(level); l {
+	case log.VERBOSE:
+		dlvl = log.VERBOSE
+		dbg = true
 	case log.DEBUG:
 		dlvl = log.DEBUG
 		dbg = true
@@ -93,7 +95,7 @@ func LogLevel(level int) {
 	settings.Debug = dbg
 }
 
-func PreferredEngine(w int) {
+func preferredEngine(w int) int {
 	switch w {
 	case settings.Ns4:
 	case settings.Ns6:
@@ -102,5 +104,5 @@ func PreferredEngine(w int) {
 		log.W("tun2socks: engine(%d) unknown, using default", w)
 		w = settings.Ns46
 	}
-	engine = w
+	return w
 }
