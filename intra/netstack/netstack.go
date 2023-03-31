@@ -74,6 +74,11 @@ func Up(s *stack.Stack, ep stack.LinkEndpoint, h GConnHandler) error {
 		return e(nerr)
 	}
 
+	sack := tcpip.TCPSACKEnabled(true)
+	_ = s.SetTransportProtocolOption(tcp.ProtocolNumber, &sack)
+	// TODO: other stack otps?
+	// github.com/xjasonlyu/tun2socks/blob/31468620e/core/option/option.go#L69
+
 	setupTcpHandler(s, ep, h.TCP())
 	setupUdpHandler(s, ep, h.UDP())
 	setupIcmpHandler(s, ep, h.ICMP())
@@ -129,6 +134,7 @@ func NewNetstack(l3 string) (s *stack.Stack) {
 		})
 		s.SetNICForwarding(nic, ipv4.ProtocolNumber, false)
 		s.SetNICForwarding(nic, ipv6.ProtocolNumber, false)
+		log.I("netstack: new stack4 and stack6 for %s", l3)
 	case settings.IP6:
 		o := stack.Options{
 			NetworkProtocols: []stack.NetworkProtocolFactory{
@@ -148,6 +154,7 @@ func NewNetstack(l3 string) (s *stack.Stack) {
 			},
 		})
 		s.SetNICForwarding(nic, ipv6.ProtocolNumber, false)
+		log.I("netstack: new stack6 for %s", l3)
 	case settings.IP4:
 		fallthrough
 	default:
@@ -169,13 +176,8 @@ func NewNetstack(l3 string) (s *stack.Stack) {
 			},
 		})
 		s.SetNICForwarding(nic, ipv4.ProtocolNumber, false)
+		log.I("netstack: new stack4 for %s", l3)
 	}
 
-	// TODO: setup stack otps?
-	// github.com/xjasonlyu/tun2socks/blob/31468620e/core/option/option.go#L69
-	sack := tcpip.TCPSACKEnabled(true)
-	s.SetTransportProtocolOption(tcp.ProtocolNumber, &sack)
-
-	log.I("netstack: new L3(%s)", l3)
 	return
 }
