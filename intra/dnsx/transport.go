@@ -48,6 +48,9 @@ const (
 	NetTypeTCP = "tcp"
 
 	ttl10m = 10 * time.Minute // 10m ttl
+
+	// pseudo transport ID to tag dns64 responses
+	d64prefix = "d64."
 )
 
 var (
@@ -476,6 +479,7 @@ func (r *resolver) Forward(q []byte) ([]byte, error) {
 	if onet != nil {
 		d64 := r.natpt.D64(t.ID(), res2, onet)
 		if len(d64) >= xdns.MinDNSPacketSize {
+			r.withDNS64SummaryIfNeeded(d64, summary)
 			return d64, nil
 		}
 	} else {
@@ -489,6 +493,27 @@ func (r *resolver) Serve(x Conn) {
 	if c, ok := x.(io.ReadWriteCloser); ok {
 		r.accept(c)
 	}
+}
+
+func (r *resolver) withDNS64SummaryIfNeeded(d64 []byte, s *Summary) {
+	if !settings.Debug {
+		return
+	}
+	msg, err := unpack(d64)
+	if err != nil {
+		return // should not happen
+	}
+	// append dns64 rdata to summary
+	rdata := xdns.GetInterestingRData(msg)
+	if len(s.RData) > 0 {
+		s.RData = rdata + "," + s.RData
+	} else {
+		s.RData = rdata
+	}
+	if len(s.Server) > 0 {
+		s.Server = d64prefix + s.Server
+	}
+
 }
 
 func (r *resolver) determineTransports(id string) (Transport, *oneTransport) {
