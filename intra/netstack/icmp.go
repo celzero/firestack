@@ -100,8 +100,8 @@ func setupIcmpHandler(s *stack.Stack, ep stack.LinkEndpoint, handler GICMPHandle
 			var pout stack.PacketBufferList
 			pout.PushBack(respkt)
 			if _, err := ep.WritePackets(pout); err != nil {
-				log.E("icmp: err writing upstream res [%v <- %v] to tun %v", src, dst, err)
-				return fmt.Errorf("err writing upstream res to tun: %v", err)
+				log.E("icmp: v4 err writing upstream res [%v <- %v] to tun %v", src, dst, err)
+				return fmt.Errorf("icmp: v4 err writing upstream res to tun: %v", err)
 			}
 
 			if icmpout.Type() == header.ICMPv4DstUnreachable {
@@ -118,7 +118,7 @@ func setupIcmpHandler(s *stack.Stack, ep stack.LinkEndpoint, handler GICMPHandle
 			pout.PushBack(packet)
 			_, err := ep.WritePackets(pout)
 			if err != nil {
-				log.E("icmp: err writing default reply to tun: %v", err)
+				log.E("icmp: v4 err writing default reply to tun: %v", err)
 				return false
 			}
 		}
@@ -199,8 +199,8 @@ func setupIcmpHandler(s *stack.Stack, ep stack.LinkEndpoint, handler GICMPHandle
 			var pout stack.PacketBufferList
 			pout.PushBack(respkt)
 			if _, err := ep.WritePackets(pout); err != nil {
-				log.E("icmp: err writing upstream res [%v <- %v] to tun %v", src, dst, err)
-				return fmt.Errorf("icmp: err writing upstream res to tun %v", err)
+				log.E("icmp: v6 err writing upstream res [%v <- %v] to tun %v", src, dst, err)
+				return fmt.Errorf("icmp: v6 err writing upstream res to tun %v", err)
 			}
 
 			if icmpout.Type() == header.ICMPv6DstUnreachable {
@@ -224,7 +224,7 @@ func setupIcmpHandler(s *stack.Stack, ep stack.LinkEndpoint, handler GICMPHandle
 			var pout stack.PacketBufferList
 			pout.PushBack(packet)
 			if _, err := ep.WritePackets(pout); err != nil {
-				log.E("icmp: err writing default echo pkt to tun [%v <- %v] %v", src, dst, err)
+				log.E("icmp: v6 err writing default echo pkt to tun [%v <- %v] %v", src, dst, err)
 				return false
 			}
 		}

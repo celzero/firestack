@@ -379,7 +379,11 @@ func maybeUndoNat64(pt ipn.NAT64, ip net.IP) net.IP {
 		if len(ipx4) < net.IPv4len {            // no nat?
 			ipx4 = ip // reassign the actual ip
 			log.W("tcp: handle: No local nat64 to ip4(%v) for ip6(%v)", ipx4, ip)
+		} else {
+			log.I("tcp: handle: nat64 to ip4(%v) from ip6(%v)", ipx4, ip)
 		}
+	} else {
+		log.D("tcp: handle: No local nat64 to for ip(%v)", ip)
 	}
 	return ipx4
 }
@@ -419,7 +423,7 @@ func undoAlg(r dnsx.Resolver, algip net.IP) (realips, domains, blocklists string
 		realips = gw.X(dst)
 		blocklists = gw.RDNSBL(dst)
 	} else {
-		log.D("t.tcp.handle: no gw(%t) or alg-ip(%s)", gw == nil, algip)
+		log.D("tcp: handle: no gw(%t) or alg-ip(%s)", gw == nil, algip)
 	}
 	return
 }

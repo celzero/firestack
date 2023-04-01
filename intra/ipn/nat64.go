@@ -38,7 +38,7 @@ func ip6to4(prefix64 *net.IPNet, ip6 net.IP) net.IP {
 	startByte := bitmask / 8
 
 	if startByte+net.IPv4len > len(ip6) {
-		log.W("too long: cannot convert ip64(%v) / prefix64(%v) to ip4", ip6, prefix64)
+		log.W("natpt: too long; cannot convert ip64(%v) / prefix64(%v) to ip4", ip6, prefix64)
 		return nil
 	}
 

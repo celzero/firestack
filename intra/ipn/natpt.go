@@ -82,7 +82,7 @@ func (n *natPt) IsNat64(id string, ip []byte) bool {
 
 func (n *natPt) X64(id string, ip6 []byte) []byte {
 	if len(ip6) != net.IPv6len {
-		log.D("nat64: ip6(%v) len(%d) != 16", ip6, len(ip6))
+		log.D("natpt: ip6(%v) len(%d) != 16", ip6, len(ip6))
 		return nil
 	}
 
@@ -94,7 +94,7 @@ func (n *natPt) X64(id string, ip6 []byte) []byte {
 	if x, ok := matchNat64(prefixes, ip6); ok {
 		return n.xAddr(x, ip6)
 	} else {
-		log.D("nat64: no matching prefix64 for ip(%v) in id(%s/%d)", ip6, id, len(prefixes))
+		log.D("natpt: no matching prefix64 for ip(%v) in id(%s/%d)", ip6, id, len(prefixes))
 	}
 	return nil
 }

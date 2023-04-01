@@ -153,7 +153,7 @@ func (d *dns64) eval(id string, force64 bool, og []byte, r Resolver) []byte {
 	d.RUnlock()
 
 	if !ok {
-		log.D("dns64: no resolver id(%s) registered", id)
+		log.V("dns64: no resolver id(%s) registered", id)
 	}
 
 	if len(ip64) <= 0 {
@@ -198,13 +198,14 @@ func (d *dns64) eval(id string, force64 bool, og []byte, r Resolver) []byte {
 			}
 		}
 	}
-	log.D("dns64: translated response(%v)", rr64)
 
 	if len(rr64) <= 0 {
 		// may be there were no A records in ans4; or,
 		// xdns.ToQuadA failed for every A ans4 record
 		log.W("dns64: no rr64 translations done")
 		return og
+	} else {
+		log.D("dns64: translated response(%v)", rr64)
 	}
 
 	ans64 := xdns.EmptyResponseFromMessage(ansin)
