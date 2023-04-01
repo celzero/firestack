@@ -59,7 +59,7 @@ func (m *ExpMap) Set(key string, expiry time.Duration) uint32 {
 	defer m.Unlock()
 
 	v, ok := m.m[key]
-	if ok {
+	if ok && n.After(v.expiry) {
 		v.expiry = n
 	} else {
 		v = &val{
