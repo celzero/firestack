@@ -198,7 +198,7 @@ func GetInterestingRData(msg *dns.Msg) string {
 				if len(ipcsv) > 0 {
 					ipcsv += "," + r.String()
 				} else {
-					ipcsv += r.String()
+					return r.String()
 				}
 			}
 			continue
@@ -208,7 +208,7 @@ func GetInterestingRData(msg *dns.Msg) string {
 				if len(ipcsv) > 0 {
 					ipcsv += "," + r.String()
 				} else {
-					ipcsv += r.String()
+					return r.String()
 				}
 			}
 			continue
@@ -221,9 +221,17 @@ func GetInterestingRData(msg *dns.Msg) string {
 		case *dns.TLSA:
 			return r.Certificate
 		case *dns.OPT:
-			return r.String()
+			if len(ipcsv) > 0 {
+				ipcsv += "," + r.String()
+			} else {
+				return r.String()
+			}
 		case *dns.APL:
-			return r.String()
+			if len(ipcsv) > 0 {
+				ipcsv += "," + r.String()
+			} else {
+				return r.String()
+			}
 		case *dns.SSHFP:
 			return r.FingerPrint
 		case *dns.DNAME:
@@ -239,10 +247,17 @@ func GetInterestingRData(msg *dns.Msg) string {
 		case *dns.SMIMEA:
 			return r.Certificate
 		case *dns.NINFO:
+			var str string
 			if len(r.ZSData) > 0 {
-				return r.ZSData[0]
+				str = r.ZSData[0]
+			} else {
+				str = r.String()
 			}
-			return r.String()
+			if len(ipcsv) > 0 {
+				ipcsv += "," + str
+			} else {
+				return str
+			}
 		case *dns.RKEY:
 			return r.PublicKey
 		case *dns.TKEY:
@@ -258,16 +273,27 @@ func GetInterestingRData(msg *dns.Msg) string {
 		case *dns.OPENPGPKEY:
 			return r.PublicKey
 		case *dns.SPF:
+			var str string
 			if len(r.Txt) > 0 {
 				return r.Txt[0]
+			} else {
+				str = r.String()
 			}
-			return r.String()
+			if len(ipcsv) > 0 {
+				ipcsv += "," + str
+			} else {
+				return str
+			}
 		case *dns.NSAPPTR:
 			return r.Ptr
 		case *dns.TALINK:
 			return r.NextName
 		case *dns.CSYNC:
-			return r.String()
+			if len(ipcsv) > 0 {
+				ipcsv += "," + r.String()
+			} else {
+				return r.String()
+			}
 		case *dns.ZONEMD:
 			return r.Digest
 		default:
