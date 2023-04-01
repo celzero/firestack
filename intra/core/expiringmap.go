@@ -14,6 +14,7 @@ import (
 var (
 	reapthreshold = 5 * time.Minute
 	maxreapiter   = 100
+	sizethreshold = 500
 )
 
 type val struct {
@@ -22,9 +23,9 @@ type val struct {
 }
 
 type ExpMap struct {
-	sync.Mutex
-	m        map[string]*val
-	lastreap time.Time
+	sync.Mutex // guards ExpMap.
+	m          map[string]*val
+	lastreap   time.Time
 }
 
 func NewExpiringMap() *ExpMap {
@@ -95,6 +96,13 @@ func (m *ExpMap) Clear() {
 
 func (m *ExpMap) reaper() {
 	m.Lock()
+	defer m.Unlock()
+
+	l := len(m.m)
+	if l < sizethreshold {
+		return
+	}
+
 	treap := m.lastreap.Add(reapthreshold)
 	// if last reap was reap-threshold minutes ago...
 	if time.Since(treap) > 0 {
@@ -111,5 +119,4 @@ func (m *ExpMap) reaper() {
 			}
 		}
 	}
-	m.Unlock()
 }
