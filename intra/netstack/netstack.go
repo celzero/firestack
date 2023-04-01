@@ -59,6 +59,19 @@ func PcapOf(south stack.LinkEndpoint, nom string) (stack.LinkEndpoint, io.Closer
 // ref: github.com/brewlin/net-protocol/blob/ec64e5f899/internal/endpoint/endpoint.go#L20
 func Up(s *stack.Stack, ep stack.LinkEndpoint, h GConnHandler) error {
 	var nic tcpip.NICID = settings.NICID
+
+	// TODO: setup protocol opts?
+	// github.com/google/gvisor/blob/ef9e8d91/test/benchmarks/tcp/tcp_proxy.go#L233
+	sack := tcpip.TCPSACKEnabled(true)
+	_ = s.SetTransportProtocolOption(tcp.ProtocolNumber, &sack)
+
+	// TODO: other stack otps?
+	// github.com/xjasonlyu/tun2socks/blob/31468620e/core/option/option.go#L69
+
+	setupTcpHandler(s, ep, h.TCP())
+	setupUdpHandler(s, ep, h.UDP())
+	setupIcmpHandler(s, ep, h.ICMP())
+
 	// creates a fake nic and attaches netstack to it
 	if nerr := s.CreateNIC(nic, ep); nerr != nil {
 		return e(nerr)
@@ -74,17 +87,6 @@ func Up(s *stack.Stack, ep stack.LinkEndpoint, h GConnHandler) error {
 		return e(nerr)
 	}
 
-	sack := tcpip.TCPSACKEnabled(true)
-	_ = s.SetTransportProtocolOption(tcp.ProtocolNumber, &sack)
-	// TODO: other stack otps?
-	// github.com/xjasonlyu/tun2socks/blob/31468620e/core/option/option.go#L69
-
-	setupTcpHandler(s, ep, h.TCP())
-	setupUdpHandler(s, ep, h.UDP())
-	setupIcmpHandler(s, ep, h.ICMP())
-
-	// TODO: setup protocol opts?
-	// github.com/google/gvisor/blob/ef9e8d91/test/benchmarks/tcp/tcp_proxy.go#L233
 	log.I("netstack: up(%d)!", nic)
 
 	return nil
