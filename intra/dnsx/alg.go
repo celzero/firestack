@@ -33,6 +33,10 @@ const (
 )
 
 var (
+	// 100.64.x.x
+	rfc6598  = []uint8{100, 64, 0, 1}
+	rfc8215a = []uint16{0x64, 0xff9b, 0x1, 0xda19, 0x100, 0x0, 0x0, 0x0}
+
 	errNoTransportAlg    = errors.New("no alg transport")
 	errNotAvailableAlg   = errors.New("no valid alg ips")
 	errCannotRegisterAlg = errors.New("cannot register alg ip")
@@ -112,8 +116,8 @@ func NewDNSGateway(inner Transport, outer RdnsResolver) (t *dnsgateway) {
 		nat:    nat,
 		px:     px,
 		rdns:   outer,
-		octets: []uint8{100, 64, 0, 1},
-		hexes:  []uint16{0x64, 0xff9b, 0x1, 0xda19, 0x100, 0x0, 0x0, 0x0},
+		octets: rfc6598,
+		hexes:  rfc8215a,
 	}
 	// initial transport must be set before starting the gateway
 	t.withTransport(inner)
@@ -133,8 +137,8 @@ func (t *dnsgateway) stop() {
 
 	t.alg = make(map[string]*ans)
 	t.nat = make(map[netip.Addr]*ans)
-	t.octets = []uint8{100, 64, 0, 1}
-	t.hexes = []uint16{0x64, 0xff9b, 0x1, 0xda19, 0x100, 0x0, 0x0, 0x0}
+	t.octets = rfc6598
+	t.hexes = rfc8215a
 }
 
 func (t *dnsgateway) querySecondary(network string, q []byte, out chan<- secans, in <-chan []byte, timeout time.Duration) {
@@ -286,6 +290,7 @@ func (t *dnsgateway) Query(network string, q []byte, summary *Summary) (r []byte
 			err = nil
 		}
 	}()
+
 	t.Lock()
 	defer t.Unlock()
 
