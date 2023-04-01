@@ -357,21 +357,16 @@ func stall(m *core.ExpMap, uid string, target net.Addr) (secs uint32) {
 	k := uid + target.String()
 
 	if n := m.Get(k); n <= 0 {
-		secs = n // no stall
+		secs = 0 // no stall
 	} else if n > 30 {
 		secs = 30 // max up to 30s
-	} else if n < 5 {
-		secs = 5 // min up to 5s
 	} else {
 		secs = n
 	}
-	if secs > 0 {
-		// track uid->target for the next 15s
-		m.Set(k, 15*time.Second)
-	} else {
-		// track uid->target for the next 30s
-		m.Set(k, 30*time.Second)
-	}
+	// track uid->target for n secs, or 30s if n is 0
+	life30s := ((29 + secs) % 30) + 1
+	newlife := time.Duration(life30s) * time.Second
+	m.Set(k, newlife)
 	return
 }
 
