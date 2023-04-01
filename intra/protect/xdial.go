@@ -22,15 +22,25 @@ func (d *XDial) Dial(network, addr string) (net.Conn, error) {
 func (d *XDial) DialTCP(network string, laddr, raddr *net.TCPAddr) (*net.TCPConn, error) {
 	// grab a mutex if mutating LocalAddr
 	// d.Dialer.LocalAddr = laddr
-	c, err := d.Dialer.Dial(network, raddr.String())
-	// d.Dialer.LocalAddr = nil
-	return c.(*net.TCPConn), err
+	if c, err := d.Dialer.Dial(network, raddr.String()); err != nil {
+		return nil, err
+	} else if tc, ok := c.(*net.TCPConn); ok {
+		// d.Dialer.LocalAddr = nil
+		return tc, nil
+	} else {
+		return nil, net.ErrWriteToConnected
+	}
 }
 
 func (d *XDial) DialUDP(network string, laddr, raddr *net.UDPAddr) (*net.UDPConn, error) {
 	// grab a mutex if mutating LocalAddr
 	// d.Dialer.LocalAddr = laddr
-	c, err := d.Dialer.Dial(network, raddr.String())
-	// d.Dialer.LocalAddr = nil
-	return c.(*net.UDPConn), err
+	if c, err := d.Dialer.Dial(network, raddr.String()); err != nil {
+		return nil, err
+	} else if uc, ok := c.(*net.UDPConn); ok {
+		// d.Dialer.LocalAddr = nil
+		return uc, nil
+	} else {
+		return nil, net.ErrWriteToConnected
+	}
 }
