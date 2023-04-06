@@ -99,6 +99,10 @@ func (h *icmpHandler) onFlow(source *net.UDPAddr, target *net.UDPAddr, realips, 
 	return
 }
 
+func (h *icmpHandler) PingOnce(src, dst *net.UDPAddr, msg []byte) bool {
+	return h.Ping(src, dst, msg, nil /*no pong*/)
+}
+
 // to send icmp pings, root access is required; and so,
 // send "unprivileged" icmp pings via udp reqs; which do
 // work on Vanilla Android, because ping_group_range is
@@ -164,12 +168,17 @@ func (h *icmpHandler) Ping(source *net.UDPAddr, target *net.UDPAddr, msg []byte,
 	}
 	log.I("t.icmp.egress: writeTo(%v) ping; done %d", target, len(msg))
 
-	go h.fetch(uc, pong, summary)
-
-	return true // allowed
+	if pong == nil {
+		// single ping, block until done
+		return h.fetch(uc, nil, summary)
+	} else {
+		// multi ping, non-blocking
+		go h.fetch(uc, pong, summary)
+		return true
+	}
 }
 
-func (h *icmpHandler) fetch(c net.Conn, pong netstack.Pong, summary *ICMPSummary) {
+func (h *icmpHandler) fetch(c net.Conn, pong netstack.Pong, summary *ICMPSummary) (success bool) {
 	var err error
 	var n int
 
@@ -189,16 +198,26 @@ func (h *icmpHandler) fetch(c net.Conn, pong netstack.Pong, summary *ICMPSummary
 		c.SetDeadline(time.Now().Add(h.timeout))
 		if n, err = c.Read(b); err != nil {
 			log.E("t.icmp.ingress: read(%v <- %v) ping err %v", src, dst, err)
-			break
-		} else if err = pong(b[:n]); err != nil {
-			if err != unix.ENETUNREACH {
-				log.E("t.icmp.ingress: write(%v <- %v) pong err %v", src, dst, err)
+			success = false
+			break // on error, stop
+		} else if pong != nil { // process multiple pings
+			if err = pong(b[:n]); err != nil {
+				if err != unix.ENETUNREACH {
+					log.E("t.icmp.ingress: write(%v <- %v) pong err %v", src, dst, err)
+				}
+				break // on error, stop
+			} else {
+				success = true
+				continue // on success, continue
 			}
+		} else { // just the first ping
+			success = true
 			break
 		}
 	}
 	elapsed := time.Since(summary.start)
-	log.I("t.icmp.ingress: ReadFrom(%v <- %v) ping; done in %v", src, dst, elapsed)
+	log.I("t.icmp.ingress: ReadFrom(%v <- %v) ping; done in %v; ok? %s", src, dst, elapsed, success)
+	return
 }
 
 func (h *icmpHandler) sendNotif(s *ICMPSummary) {

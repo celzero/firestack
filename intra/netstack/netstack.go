@@ -24,6 +24,9 @@ import (
 	"gvisor.dev/gvisor/pkg/tcpip/transport/udp"
 )
 
+// use netstack's built-in ip-tables rules to trap and handle icmp packets
+const useIPTablesForICMP = true
+
 // ref: github.com/google/gvisor/blob/91f58d2cc/pkg/tcpip/sample/tun_tcp_echo/main.go#L102
 func NewEndpoint(dev int, mtu int) (stack.LinkEndpoint, error) {
 	var endpoint stack.LinkEndpoint
@@ -70,7 +73,11 @@ func Up(s *stack.Stack, ep stack.LinkEndpoint, h GConnHandler) error {
 
 	setupTcpHandler(s, ep, h.TCP())
 	setupUdpHandler(s, ep, h.UDP())
-	setupIcmpHandler(s, ep, h.ICMP())
+	if useIPTablesForICMP {
+		setupIcmpHandlerV2(s, ep, h.ICMP())
+	} else {
+		setupIcmpHandler(s, ep, h.ICMP())
+	}
 
 	// creates a fake nic and attaches netstack to it
 	if nerr := s.CreateNIC(nic, ep); nerr != nil {

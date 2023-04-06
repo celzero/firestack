@@ -21,7 +21,10 @@ import (
 
 type Pong func(reply []byte) error
 type GICMPHandler interface {
-	Ping(source *net.UDPAddr, destination *net.UDPAddr, payload []byte, pong Pong) bool
+	// Multi ping handler
+	Ping(source *net.UDPAddr, destination *net.UDPAddr, msg []byte, pong Pong) bool
+	// Single ping handler
+	PingOnce(source *net.UDPAddr, destination *net.UDPAddr, msg []byte) bool
 }
 
 // ref: github.com/SagerNet/LibSagerNetCore/blob/632d6b892e/gvisor/icmp.go
