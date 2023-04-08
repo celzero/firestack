@@ -174,7 +174,7 @@ func isIcmpEcho(pkt stack.PacketBufferPtr) (y4, y6 bool) {
 		icmpin := header.ICMPv4(l4bytes)
 		src := udpaddr(netHeader.SourceAddress(), icmpin.SourcePort())
 		dst := udpaddr(netHeader.DestinationAddress(), icmpin.DestinationPort())
-		log.D("icmpv2: ICMPv6 %v -> %v", src, dst)
+		log.D("icmpv2: ICMPv4 %v -> %v", src, dst)
 		switch icmpin.Type() {
 		case header.ICMPv4Echo:
 			y4 = true
@@ -264,7 +264,7 @@ func (tr *icmpv2) sendEchoResponse(src, dst *net.UDPAddr, pkt stack.PacketBuffer
 		// Assert type to get network header bytes.
 		ipv4Header, ok := netHeader.(header.IPv4)
 		if !ok {
-			errstr := "icmpv2: could not assert network header as IPv4 header"
+			errstr := "icmpv2: ICMPv4; could not cast network header"
 			log.W(errstr)
 			return errors.New(errstr)
 		}
@@ -296,7 +296,7 @@ func (tr *icmpv2) sendEchoResponse(src, dst *net.UDPAddr, pkt stack.PacketBuffer
 		// Assert type to get network header bytes.
 		ipv6Header, ok := netHeader.(header.IPv6)
 		if !ok {
-			errstr := "icmpv2: could not assert network header as IPv6 header"
+			errstr := "icmpv2: ICMPv6; could not cast network header"
 			log.W(errstr)
 			return errors.New(errstr)
 		}
@@ -341,7 +341,7 @@ func (tr *icmpv2) sendUnreachable(src, dst *net.UDPAddr, pkt stack.PacketBufferP
 		l4payload := l4.Payload()
 		ipv4Header, ok := netHeader.(header.IPv4)
 		if !ok {
-			errstr := "icmpv2: ICMPv4 unreachable: could not cat network header"
+			errstr := "icmpv2: ICMPv4 unreachable; could not cast network header"
 			log.W(errstr)
 			return errors.New(errstr)
 		}
@@ -371,7 +371,7 @@ func (tr *icmpv2) sendUnreachable(src, dst *net.UDPAddr, pkt stack.PacketBufferP
 		l4payload := l4.Payload()
 		ipv6Header, ok := netHeader.(header.IPv6)
 		if !ok {
-			errstr := "icmpv2: ICMPv6 unreachable: could not cast network header"
+			errstr := "icmpv2: ICMPv6 unreachable; could not cast network header"
 			log.W(errstr)
 			return errors.New(errstr)
 		}
