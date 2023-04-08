@@ -37,14 +37,18 @@ func NewExpiringMap() *ExpMap {
 }
 
 func (m *ExpMap) Get(key string) uint32 {
+	n := time.Now()
+
 	m.Lock()
 	defer m.Unlock()
 
 	v, ok := m.m[key]
 	if !ok {
-		return 0
-	}
-	if time.Now().After(v.expiry) {
+		v = &val{
+			expiry: n,
+		}
+		m.m[key] = v
+	} else if n.After(v.expiry) {
 		v.hits = 0
 	} else {
 		v.hits += 1
