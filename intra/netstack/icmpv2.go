@@ -35,6 +35,16 @@ import (
 	"gvisor.dev/gvisor/pkg/tcpip/transport/icmp"
 )
 
+// from: github.com/voiceflow/telepresence/blob/720d328be4/pkg/vif/icmp/packet.go#L31
+
+const (
+	NetworkUnreachable = iota
+	HostUnreachable
+	ProtocolUnreachable
+	PortUnreachable
+	// ...
+)
+
 // from: github.com/sandialabs/wiretap/blob/3ba102719/src/transport/icmp/icmp.go#L1
 
 type icmpv2 struct {
@@ -130,15 +140,14 @@ func (tr *icmpv2) trap() {
 func (tr *icmpv2) serve() {
 	for {
 		pkt := <-tr.msgs
-		go func() {
-			tr.handleMessage(pkt)
-			pkt.DecRef()
-		}()
+		go tr.handleMessage(pkt.Clone())
 	}
 }
 
 // handleICMPMessage parses ICMP packets and proxies them if possible.
 func (tr *icmpv2) handleMessage(pkt stack.PacketBufferPtr) {
+	defer pkt.DecRef()
+
 	// Parse ICMP packet type.
 	netHeader := pkt.Network()
 	l4bytes := netHeader.Payload()
@@ -173,7 +182,11 @@ func (tr *icmpv2) handleMessage(pkt stack.PacketBufferPtr) {
 // handleICMPEcho tries to send ICMP echo requests to the true destination however it can.
 // If successful, it sends an echo response to the peer.
 func (tr *icmpv2) handleEcho(src, dst *net.UDPAddr, pkt stack.PacketBufferPtr) {
-	if ok := tr.h.PingOnce(src, dst, tr.pkt2bytes(pkt)); ok {
+	var ok bool
+	if ok = tr.h.PingOnce(src, dst, tr.pkt2bytes(pkt)); !ok {
+		log.W("icmpv2: ICMP echo ping failed for %v -> %v", src, dst)
+		tr.sendUnreachable(dst, src, pkt)
+	} else {
 		tr.sendEchoResponse(src, dst, pkt)
 	}
 }
@@ -186,18 +199,20 @@ func (tr *icmpv2) sendEchoResponse(src, dst *net.UDPAddr, pkt stack.PacketBuffer
 
 	netHeader := pkt.Network()
 
-	isip4 := !is4(netHeader.DestinationAddress().String())
+	isip4 := is4(netHeader.DestinationAddress().String())
 
 	if isip4 {
-		transHeader := header.ICMPv4(netHeader.Payload())
-		// Create ICMP response and marshal it.
+		l4 := header.ICMPv4(netHeader.Payload())
+		// Create ICMP response and marshal it
+		typ := netipv4.ICMPTypeEchoReply
 		response, err = (&neticmp.Message{
-			Type: netipv4.ICMPTypeEchoReply,
-			Code: 0,
+			Type: typ,
+			// TODO: get the code from the response packet?
+			Code: 0, // Echo reply
 			Body: &neticmp.Echo{
-				ID:   int(transHeader.Ident()),
-				Seq:  int(transHeader.Sequence()),
-				Data: transHeader.Payload(),
+				ID:   int(l4.Ident()),
+				Seq:  int(l4.Sequence()),
+				Data: l4.Payload(),
 			},
 		}).Marshal(nil)
 		if err != nil {
@@ -213,22 +228,23 @@ func (tr *icmpv2) sendEchoResponse(src, dst *net.UDPAddr, pkt stack.PacketBuffer
 			return errors.New(errstr)
 		}
 		// Swap source and destination addresses from original request.
-		tmp := ipv4Header.DestinationAddress()
+		srcaddr := ipv4Header.DestinationAddress()
 		ipv4Header.SetDestinationAddress(ipv4Header.SourceAddress())
-		ipv4Header.SetSourceAddress(tmp)
+		ipv4Header.SetSourceAddress(srcaddr)
 		ipHeader = ipv4Header
 	} else {
-		transHeader := header.ICMPv6(netHeader.Payload())
+		l4 := header.ICMPv6(netHeader.Payload())
 		srcip := asip(netHeader.DestinationAddress().String())
 		dstip := asip(netHeader.SourceAddress().String())
-		// Create ICMP response and marshal it.
+		typ := netipv6.ICMPTypeEchoReply
 		response, err = (&neticmp.Message{
-			Type: netipv6.ICMPTypeEchoReply,
-			Code: 0,
+			Type: typ,
+			// TODO: get the code from the response packet?
+			Code: 0, // Echo reply
 			Body: &neticmp.Echo{
-				ID:   int(transHeader.Ident()),
-				Seq:  int(transHeader.Sequence()),
-				Data: transHeader.Payload(),
+				ID:   int(l4.Ident()),
+				Seq:  int(l4.Sequence()),
+				Data: l4.Payload(),
 			},
 		}).Marshal(neticmp.IPv6PseudoHeader(srcip, dstip))
 		if err != nil {
@@ -255,7 +271,104 @@ func (tr *icmpv2) sendEchoResponse(src, dst *net.UDPAddr, pkt stack.PacketBuffer
 	respkt := stack.NewPacketBuffer(stack.PacketBufferOptions{Payload: payload})
 	defer respkt.DecRef()
 
-	log.D("icmp: response: type %v/%v sz[%d] from %v <- %v", len(res), src, dst)
+	log.D("icmpv2: response: type %v/%v sz[%d] from %v <- %v", len(res), src, dst)
+
+	var pout stack.PacketBufferList
+	pout.PushBack(respkt)
+	if _, err := tr.ep.WritePackets(pout); err != nil {
+		log.E("icmpv2: err writing upstream res [%v <- %v] to tun %v", src, dst, err)
+		return fmt.Errorf("icmpv2: err writing upstream res to tun: %v", err)
+	}
+	return nil
+}
+
+// ref: stackoverflow.com/a/26949038, stackoverflow.com/a/27087317
+// and: archive.is/F2HB2
+func (tr *icmpv2) sendUnreachable(src, dst *net.UDPAddr, pkt stack.PacketBufferPtr) error {
+	var err error
+	var icmpLayer []byte
+	var ipLayer []byte
+
+	const code = NetworkUnreachable
+	netHeader := pkt.Network()
+
+	isip4 := !is4(netHeader.DestinationAddress().String())
+
+	if isip4 {
+		l4 := header.ICMPv4(netHeader.Payload())
+		l4.SetChecksum(0)
+		l4payload := l4.Payload()
+		ipv4Header, ok := netHeader.(header.IPv4)
+		if !ok {
+			errstr := "icmpv2: ICMPv4 unreachable: could not cat network header"
+			log.W(errstr)
+			return errors.New(errstr)
+		}
+		icmpLayer, err = (&neticmp.Message{
+			Type: netipv4.ICMPTypeDestinationUnreachable,
+			Code: NetworkUnreachable,
+			Body: &neticmp.DstUnreach{
+				Data: append(ipv4Header, l4[:len(l4)-len(l4payload)]...),
+			},
+		}).Marshal(nil)
+
+		// include header + 64 bits of original payload
+		// origSz := origHdr.HeaderLen() + 8
+		// if origSz > len(icmpLayer) {
+		//	origSz = len(icmpLayer)
+		// }
+		// icmpLayer = icmpLayer[:origSz]
+		// checksum
+		// Swap source and destination addresses from original request.
+		srcaddr := ipv4Header.DestinationAddress()
+		ipv4Header.SetDestinationAddress(ipv4Header.SourceAddress())
+		ipv4Header.SetSourceAddress(srcaddr)
+		ipLayer = ipv4Header
+	} else {
+		l4 := header.ICMPv6(netHeader.Payload())
+		l4.SetChecksum(0)
+		l4payload := l4.Payload()
+		ipv6Header, ok := netHeader.(header.IPv6)
+		if !ok {
+			errstr := "icmpv2: ICMPv6 unreachable: could not cast network header"
+			log.W(errstr)
+			return errors.New(errstr)
+		}
+		icmpLayer, err = (&neticmp.Message{
+			Type: netipv6.ICMPTypeDestinationUnreachable,
+			Code: code,
+			Body: &neticmp.DstUnreach{
+				Data: append(ipv6Header, l4[:len(l4)-len(l4payload)]...),
+			},
+		}).Marshal(nil)
+
+		// const IPv6MinMTU = 1280 // From RFC 2460, section 5
+		// const HeaderLen = 8     // in bits, same for both IPv4 and IPv6
+		// include as much of invoking packet as possible without the ICMPv6 packet
+		// exceeding the minimum IPv6 MTU
+		// origSz := origHdr.HeaderLen() + origHdr.PayloadLen()
+		// if HeaderLen+origSz > IPv6MinMTU {
+		//	origSz = IPv6MinMTU - HeaderLen
+		// }
+		// icmpLayer = icmpLayer[:origSz]
+		// checksum
+		srcaddr := ipv6Header.DestinationAddress()
+		ipv6Header.SetDestinationAddress(ipv6Header.SourceAddress())
+		ipv6Header.SetSourceAddress(srcaddr)
+		ipLayer = ipv6Header
+	}
+
+	if err != nil {
+		log.W("icmpv2: failed to marshal response:", err)
+		return err
+	}
+
+	res := append(ipLayer, icmpLayer...)
+	payload := bufferv2.MakeWithData(res)
+	respkt := stack.NewPacketBuffer(stack.PacketBufferOptions{Payload: payload})
+	defer respkt.DecRef()
+
+	log.D("icmpv2: response: type %v/%v sz[%d] from %v <- %v", len(res), src, dst)
 
 	var pout stack.PacketBufferList
 	pout.PushBack(respkt)
