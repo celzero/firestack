@@ -68,6 +68,15 @@ func Up(s *stack.Stack, ep stack.LinkEndpoint, h GConnHandler) error {
 	sack := tcpip.TCPSACKEnabled(true)
 	_ = s.SetTransportProtocolOption(tcp.ProtocolNumber, &sack)
 
+	// from: github.com/telepresenceio/telepresence/blob/ab7dda7d55/pkg/vif/stack.go#L232
+	// Enable Receive Buffer Auto-Tuning, see: github.com/google/gvisor/issues/1666
+	bufauto := tcpip.TCPModerateReceiveBufferOption(true)
+	s.SetTransportProtocolOption(tcp.ProtocolNumber, &bufauto)
+
+	ttl := tcpip.DefaultTTLOption(64)
+	s.SetNetworkProtocolOption(ipv4.ProtocolNumber, &ttl)
+	s.SetNetworkProtocolOption(ipv6.ProtocolNumber, &ttl)
+
 	// TODO: other stack otps?
 	// github.com/xjasonlyu/tun2socks/blob/31468620e/core/option/option.go#L69
 
@@ -110,6 +119,7 @@ func e(err tcpip.Error) error {
 // github.com/FlowerWrong/tun2socks/blob/1045a49618/cmd/netstack/main.go
 // github.com/zen-of-proxy/go-tun2io/blob/c08b329b8/tun2io/util.go
 // github.com/WireGuard/wireguard-go/blob/42c9af4/tun/netstack/tun.go
+// github.com/telepresenceio/telepresence/pull/2709
 func NewNetstack(l3 string) (s *stack.Stack) {
 	var nic tcpip.NICID = settings.NICID
 	switch l3 {
@@ -120,10 +130,10 @@ func NewNetstack(l3 string) (s *stack.Stack) {
 				ipv6.NewProtocol,
 			},
 			TransportProtocols: []stack.TransportProtocolFactory{
-				tcp.NewProtocol,
-				udp.NewProtocol,
 				icmp.NewProtocol4,
 				icmp.NewProtocol6,
+				tcp.NewProtocol,
+				udp.NewProtocol,
 			},
 			// HandleLocal if the packets must be forwarded to another nic within this stack, or
 			// to let this stack forward packets to the OS' network stack.
@@ -150,9 +160,9 @@ func NewNetstack(l3 string) (s *stack.Stack) {
 				ipv6.NewProtocol,
 			},
 			TransportProtocols: []stack.TransportProtocolFactory{
+				icmp.NewProtocol6,
 				tcp.NewProtocol,
 				udp.NewProtocol,
-				icmp.NewProtocol6,
 			},
 		}
 		s = stack.New(o)
@@ -172,9 +182,9 @@ func NewNetstack(l3 string) (s *stack.Stack) {
 				ipv4.NewProtocol,
 			},
 			TransportProtocols: []stack.TransportProtocolFactory{
+				icmp.NewProtocol4,
 				tcp.NewProtocol,
 				udp.NewProtocol,
-				icmp.NewProtocol4,
 			},
 		}
 		s = stack.New(o)
