@@ -23,7 +23,7 @@ require (
 	github.com/txthinking/x v0.0.0-20210326105829-476fab902fbe
 	golang.org/x/mobile v0.0.0-20220518205345-8578da9835fd
 	golang.zx2c4.com/wireguard v0.0.0-20230317141804-7f511c3bb16d
-	gvisor.dev/gvisor v0.0.0-20221203005347-703fd9b7fbc0
+	gvisor.dev/gvisor v0.0.0-20230407213733-b6e172e0e152
 )
 
 require (
@@ -32,9 +32,9 @@ require (
 	github.com/google/btree v1.0.1 // indirect
 	github.com/patrickmn/go-cache v2.1.0+incompatible // indirect
 	github.com/txthinking/runnergroup v0.0.0-20210608031112-152c7c4432bf // indirect
-	golang.org/x/mod v0.6.0-dev // indirect
-	golang.org/x/time v0.0.0-20191024005414-555d28b269f0 // indirect
-	golang.org/x/tools v0.1.9 // indirect
-	golang.org/x/xerrors v0.0.0-20200804184101-5ec99f83aff1 // indirect
+	golang.org/x/mod v0.7.0 // indirect
+	golang.org/x/time v0.0.0-20220210224613-90d013bbcef8 // indirect
+	golang.org/x/tools v0.5.0 // indirect
+	golang.org/x/xerrors v0.0.0-20220907171357-04be3eba64a2 // indirect
 	golang.zx2c4.com/wintun v0.0.0-20230126152724-0fa3db229ce2 // indirect
 )
