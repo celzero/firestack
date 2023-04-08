@@ -29,7 +29,7 @@ import (
 const useIPTablesForICMP = false
 
 // enable forwarding of packets on the interface
-const nicfwd = true
+const nicfwd = false
 
 // ref: github.com/google/gvisor/blob/91f58d2cc/pkg/tcpip/sample/tun_tcp_echo/main.go#L102
 func NewEndpoint(dev int, mtu int) (stack.LinkEndpoint, error) {
