@@ -29,6 +29,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math/rand"
 	"net"
 	"net/netip"
 	"strings"
@@ -360,6 +361,8 @@ func stall(m *core.ExpMap, uid string, target net.Addr) (secs uint32) {
 		secs = 0 // no stall
 	} else if n > 30 {
 		secs = 30 // max up to 30s
+	} else if n < 5 {
+		secs = (rand.Uint32() % 5) + 1 // up to 5s
 	} else {
 		secs = n
 	}
