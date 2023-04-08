@@ -16,6 +16,7 @@ import (
 	"gvisor.dev/gvisor/pkg/tcpip"
 	"gvisor.dev/gvisor/pkg/tcpip/header"
 	"gvisor.dev/gvisor/pkg/tcpip/link/sniffer"
+	"gvisor.dev/gvisor/pkg/tcpip/network/arp"
 	"gvisor.dev/gvisor/pkg/tcpip/network/ipv4"
 	"gvisor.dev/gvisor/pkg/tcpip/network/ipv6"
 	"gvisor.dev/gvisor/pkg/tcpip/stack"
@@ -26,6 +27,9 @@ import (
 
 // use netstack's built-in ip-tables rules to trap and handle icmp packets
 const useIPTablesForICMP = false
+
+// enable forwarding of packets on the interface
+const nicfwd = true
 
 // ref: github.com/google/gvisor/blob/91f58d2cc/pkg/tcpip/sample/tun_tcp_echo/main.go#L102
 func NewEndpoint(dev int, mtu int) (stack.LinkEndpoint, error) {
@@ -129,6 +133,7 @@ func NewNetstack(l3 string) (s *stack.Stack) {
 			NetworkProtocols: []stack.NetworkProtocolFactory{
 				ipv4.NewProtocol,
 				ipv6.NewProtocol,
+				arp.NewProtocol, // unused
 			},
 			TransportProtocols: []stack.TransportProtocolFactory{
 				icmp.NewProtocol4,
@@ -152,13 +157,14 @@ func NewNetstack(l3 string) (s *stack.Stack) {
 				NIC:         nic,
 			},
 		})
-		s.SetNICForwarding(nic, ipv4.ProtocolNumber, false)
-		s.SetNICForwarding(nic, ipv6.ProtocolNumber, false)
+		s.SetNICForwarding(nic, ipv4.ProtocolNumber, nicfwd)
+		s.SetNICForwarding(nic, ipv6.ProtocolNumber, nicfwd)
 		log.I("netstack: new stack4 and stack6 for %s", l3)
 	case settings.IP6:
 		o := stack.Options{
 			NetworkProtocols: []stack.NetworkProtocolFactory{
 				ipv6.NewProtocol,
+				arp.NewProtocol, // unused
 			},
 			TransportProtocols: []stack.TransportProtocolFactory{
 				icmp.NewProtocol6,
@@ -173,7 +179,7 @@ func NewNetstack(l3 string) (s *stack.Stack) {
 				NIC:         nic,
 			},
 		})
-		s.SetNICForwarding(nic, ipv6.ProtocolNumber, false)
+		s.SetNICForwarding(nic, ipv6.ProtocolNumber, nicfwd)
 		log.I("netstack: new stack6 for %s", l3)
 	case settings.IP4:
 		fallthrough
@@ -181,6 +187,7 @@ func NewNetstack(l3 string) (s *stack.Stack) {
 		o := stack.Options{
 			NetworkProtocols: []stack.NetworkProtocolFactory{
 				ipv4.NewProtocol,
+				arp.NewProtocol, // unused
 			},
 			TransportProtocols: []stack.TransportProtocolFactory{
 				icmp.NewProtocol4,
@@ -195,7 +202,7 @@ func NewNetstack(l3 string) (s *stack.Stack) {
 				NIC:         nic,
 			},
 		})
-		s.SetNICForwarding(nic, ipv4.ProtocolNumber, false)
+		s.SetNICForwarding(nic, ipv4.ProtocolNumber, nicfwd)
 		log.I("netstack: new stack4 for %s", l3)
 	}
 
