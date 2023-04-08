@@ -45,7 +45,7 @@ const (
 	// ...
 )
 
-// from: github.com/sandialabs/wiretap/blob/3ba102719/src/transport/icmp/icmp.go#L1
+// from: github.com/sandialabs/wiretap/blob/3ba102719/src/transport/icmp/icmp.go
 
 type icmpv2 struct {
 	*preroutingMatch
@@ -59,15 +59,25 @@ type icmpv2 struct {
 // preroutingMatch matches packets in the prerouting stage and clones:
 // packet into channel for processing.
 type preroutingMatch struct {
-	msgs chan stack.PacketBufferPtr
+	msgs4 chan stack.PacketBufferPtr
+	msgs6 chan stack.PacketBufferPtr
 }
 
 // When a new ICMP message hits the prerouting stage, the packet is cloned
 // to the ICMP handler and dropped here.
 func (m preroutingMatch) Match(hook stack.Hook, packet stack.PacketBufferPtr, inputInterfaceName, outputInterfaceName string) (matches bool, hotdrop bool) {
 	if hook == stack.Prerouting {
-		m.msgs <- packet
-		return false, true
+		// only drop if the packet is an ICMP echo request.
+		m4, m6 := isIcmpEcho(packet)
+		if m4 {
+			m.msgs4 <- packet.Clone()
+			return false, true
+		} else if m6 {
+			m.msgs6 <- packet.Clone()
+			return false, true
+		} else {
+			log.D("icmpv2: not an echo request; let netstack handle it...")
+		}
 	}
 
 	return false, false
@@ -88,7 +98,8 @@ func setupIcmpHandlerV2(s *stack.Stack, ep stack.LinkEndpoint, icmpHandler GICMP
 	}
 
 	match := preroutingMatch{
-		msgs: make(chan stack.PacketBufferPtr),
+		msgs4: make(chan stack.PacketBufferPtr),
+		msgs6: make(chan stack.PacketBufferPtr),
 	}
 
 	rule4 := stack.Rule{
@@ -117,7 +128,8 @@ func setupIcmpHandlerV2(s *stack.Stack, ep stack.LinkEndpoint, icmpHandler GICMP
 	}
 
 	tr.trap()
-	go tr.serve()
+	go tr.serve4()
+	go tr.serve6()
 
 	log.D("Transport: ICMP listener up")
 }
@@ -137,17 +149,22 @@ func (tr *icmpv2) trap() {
 	tr.s.IPTables().ReplaceTable(tid, table4, for6)
 }
 
-func (tr *icmpv2) serve() {
+func (tr *icmpv2) serve4() {
 	for {
-		pkt := <-tr.msgs
-		go tr.handleMessage(pkt.Clone())
+		pkt := <-tr.msgs4
+		go tr.handleEcho4(pkt)
+	}
+}
+
+func (tr *icmpv2) serve6() {
+	for {
+		pkt := <-tr.msgs6
+		go tr.handleEcho6(pkt)
 	}
 }
 
 // handleICMPMessage parses ICMP packets and proxies them if possible.
-func (tr *icmpv2) handleMessage(pkt stack.PacketBufferPtr) {
-	defer pkt.DecRef()
-
+func isIcmpEcho(pkt stack.PacketBufferPtr) (y4, y6 bool) {
 	// Parse ICMP packet type.
 	netHeader := pkt.Network()
 	l4bytes := netHeader.Payload()
@@ -160,7 +177,7 @@ func (tr *icmpv2) handleMessage(pkt stack.PacketBufferPtr) {
 		log.D("icmpv2: ICMPv6 %v -> %v", src, dst)
 		switch icmpin.Type() {
 		case header.ICMPv4Echo:
-			tr.handleEcho(src, dst, pkt)
+			y4 = true
 		default:
 			log.W("icmpv2: ICMPv4 type unimplemented: %s", icmpin.Type())
 		}
@@ -171,12 +188,36 @@ func (tr *icmpv2) handleMessage(pkt stack.PacketBufferPtr) {
 		log.D("icmpv2: ICMPv6 %v -> %v", src, dst)
 		switch icmpin.Type() {
 		case header.ICMPv6EchoRequest:
-			tr.handleEcho(src, dst, pkt)
+			y6 = true
 		default:
 			log.W("icmpv2: ICMPv6 type not implemented: %s", icmpin.Type())
 		}
 	}
+	return
+}
 
+func (tr *icmpv2) handleEcho4(pkt stack.PacketBufferPtr) {
+	defer pkt.DecRef()
+
+	netHeader := pkt.Network()
+	l4bytes := netHeader.Payload()
+
+	icmpin := header.ICMPv4(l4bytes)
+	src := udpaddr(netHeader.SourceAddress(), icmpin.SourcePort())
+	dst := udpaddr(netHeader.DestinationAddress(), icmpin.DestinationPort())
+	tr.handleEcho(src, dst, pkt)
+}
+
+func (tr icmpv2) handleEcho6(pkt stack.PacketBufferPtr) {
+	defer pkt.DecRef()
+
+	netHeader := pkt.Network()
+	l4bytes := netHeader.Payload()
+
+	icmpin := header.ICMPv6(l4bytes)
+	src := udpaddr(netHeader.SourceAddress(), icmpin.SourcePort())
+	dst := udpaddr(netHeader.DestinationAddress(), icmpin.DestinationPort())
+	tr.handleEcho(src, dst, pkt)
 }
 
 // handleICMPEcho tries to send ICMP echo requests to the true destination however it can.
