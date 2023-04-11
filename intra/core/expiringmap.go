@@ -91,11 +91,13 @@ func (m *ExpMap) Len() int {
 	return len(m.m)
 }
 
-func (m *ExpMap) Clear() {
+func (m *ExpMap) Clear() int {
 	m.Lock()
 	defer m.Unlock()
 
+	l := len(m.m)
 	m.m = make(map[string]*val)
+	return l
 }
 
 func (m *ExpMap) reaper() {
@@ -107,20 +109,22 @@ func (m *ExpMap) reaper() {
 		return
 	}
 
+	now := time.Now()
 	treap := m.lastreap.Add(reapthreshold)
 	// if last reap was reap-threshold minutes ago...
-	if time.Since(treap) > 0 {
-		m.lastreap = time.Now()
-		// reap up to maxreapiter entries
-		i := 0
-		for k, v := range m.m {
-			i += 1
-			if time.Since(v.expiry) > 0 {
-				delete(m.m, k)
-			}
-			if i > maxreapiter {
-				break
-			}
+	if now.Sub(treap) <= 0 {
+		return
+	}
+	m.lastreap = now
+	// reap up to maxreapiter entries
+	i := 0
+	for k, v := range m.m {
+		i += 1
+		if now.Sub(v.expiry) > 0 {
+			delete(m.m, k)
+		}
+		if i > maxreapiter {
+			break
 		}
 	}
 }
