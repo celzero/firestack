@@ -190,8 +190,8 @@ func (h *icmpHandler) fetch(c net.Conn, pong netstack.Pong, summary *ICMPSummary
 		h.sendNotif(summary)
 	}()
 
-	b := core.NewBytes(core.BufSize)
-	defer core.FreeBytes(b)
+	b := core.Alloc()
+	defer core.Recycle(b)
 	src := c.LocalAddr()
 	dst := c.RemoteAddr()
 	for {

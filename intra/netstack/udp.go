@@ -23,7 +23,6 @@ import (
 )
 
 const readDeadline = 30 * time.Second // FIXME: Udp.Timeout
-const K64 = core.BufSize              // 64K bytes
 
 var (
 	ErrNoEndpoint = errors.New("udp not connected to any endpoint")
@@ -109,8 +108,8 @@ func loop(h GUDPConnHandler, gc *GUDPConn, src, dst *net.UDPAddr) {
 	// and: github.com/cloudflare/slirpnetstack/blob/41e49c3294/proxy.go#L114
 	// max: github.com/google/gvisor/blob/be6ffa78/pkg/tcpip/transport/udp/protocol.go#L43
 	// though, we never expect to exceed mtu, so we can use a smaller buffer?
-	q := core.NewBytes(K64)
-	defer core.FreeBytes(q)
+	q := core.Alloc()
+	defer core.Recycle(q)
 	for {
 		gc.gudp.SetDeadline(time.Now().Add(readDeadline))
 		// addr is gc.gudp.RemoteAddr() ie gc.LocalAddr()

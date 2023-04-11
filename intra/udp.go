@@ -173,8 +173,8 @@ func (h *udpHandler) fetchUDPInput(conn core.UDPConn, nat *tracker) {
 		return
 	}
 
-	buf := core.NewBytes(core.BufSize)
-	defer core.FreeBytes(buf)
+	buf := core.Alloc()
+	defer core.Recycle(buf)
 
 	var err error
 	for {

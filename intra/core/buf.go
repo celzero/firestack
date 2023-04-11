@@ -14,30 +14,41 @@ import (
 
 var slab *sync.Pool
 
-const BufSize = 64 * 1024
+const BufSize = 4 * 1024 // in bytes
 
 func SetSlabAllocator(p *sync.Pool) {
 	slab = p
 }
 
-func NewBytes(size int) []byte {
+func AllocRegion(size int) []byte {
 	if size <= BufSize {
-		return slab.Get().([]byte)
+		ptr := slab.Get().(*[]byte)
+		return *ptr
 	} else {
 		return make([]byte, size)
 	}
 }
 
-func FreeBytes(b []byte) {
+func Alloc() []byte {
+	return AllocRegion(BufSize)
+}
+
+// github.com/v2fly/v2ray-core/blob/0c5abc7e53a/common/bytespool/pool.go#L63
+func Recycle(b []byte) bool {
+	sz := cap(b)
+	b = b[0:sz]
 	if len(b) >= BufSize {
-		slab.Put(b)
+		slab.Put(&b)
+		return true
 	}
+	return false
 }
 
 func init() {
 	SetSlabAllocator(&sync.Pool{
-		New: func() interface{} {
-			return make([]byte, BufSize)
+		New: func() any {
+			b := make([]byte, BufSize)
+			return &b
 		},
 	})
 }
