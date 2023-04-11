@@ -43,8 +43,8 @@ import (
 )
 
 const (
-	// arbitrary threshold of temporary errs before connection is closed
-	maxconnerr = 7
+	// arbitrary threshold of temporary errs before udp socket is closed
+	maxconnerr = 3
 	noerr      = "no error"
 )
 
