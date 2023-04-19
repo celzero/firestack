@@ -151,6 +151,17 @@ func (cb *cache) refreshCache(t Transport, crch <-chan *cres) {
 	}
 }
 
+func (cb *cache) queryBarrier(key string) (ba *sync.Mutex) {
+	cb.qmu.Lock()
+	defer cb.qmu.Unlock()
+
+	if ba = cb.qbarrier[key]; ba == nil {
+		ba = &sync.Mutex{}
+		cb.qbarrier[key] = ba
+	}
+	return
+}
+
 func (cb *cache) purgeQBarrier(kch <-chan string) {
 	var keys []string
 	for k := range kch {
@@ -209,7 +220,7 @@ func (cb *cache) scrubCache(kch chan<- string, vch chan<- *cres) {
 	log.I("cache: del: %d; ref: %d; tot: %d / high? %t", j, m, i, highload)
 }
 
-func (cb *cache) freshLocked(key string) (v *cres, ok bool) {
+func (cb *cache) fresh(key string) (v *cres, ok bool) {
 	cb.mu.RLock()
 	defer cb.mu.RUnlock()
 
@@ -233,7 +244,7 @@ func (cb *cache) freshLocked(key string) (v *cres, ok bool) {
 	return v, (r75 || recent) && alive
 }
 
-func (cb *cache) putLocked(t Transport, key string, response []byte, s *Summary) (ok bool) {
+func (cb *cache) put(t Transport, key string, response []byte, s *Summary) (ok bool) {
 	ok = false
 
 	if len(response) <= 0 {
@@ -283,7 +294,7 @@ func (cb *cache) putLocked(t Transport, key string, response []byte, s *Summary)
 	return
 }
 
-func asResponseLocked(q *dns.Msg, v *cres) (r []byte, s *Summary, err error) {
+func asResponse(q *dns.Msg, v *cres) (r []byte, s *Summary, err error) {
 	a := v.ans
 	log.D("cache: hit %s", v.str())
 	if a != nil {
@@ -308,16 +319,53 @@ func (t *ctransport) Type() string {
 	return t.Transport.Type()
 }
 
+func (t *ctransport) fetch(network string, q []byte, msg *dns.Msg, summary *Summary, cb *cache, key string) ([]byte, error) {
+	start := time.Now()
+
+	sendRequest := func() ([]byte, error) {
+		ba := cb.queryBarrier(key)
+
+		ba.Lock() // per query-name lock
+		r, err := t.Transport.Query(network, q, summary)
+		ba.Unlock()
+		if err == nil && len(r) > 0 {
+			cb.put(t, key, r, summary)
+		}
+		return r, err
+	}
+
+	if v, ok := cb.fresh(key); v != nil {
+		if !ok { // not fresh, fetch in the background
+			go sendRequest()
+		} else {
+			log.D("cache: hit %s, but stale? %t", v.str(), ok)
+		}
+
+		r, s, err := asResponse(msg, v) // return cached response, may be stale
+
+		if s != nil { // nil when response is not from cache
+			summary.Latency = time.Since(start).Seconds()
+			summary.RData = s.RData
+			summary.RCode = s.RCode
+			summary.RTtl = s.RTtl
+			summary.Blocklists = s.Blocklists
+			summary.Server = t.GetAddr()
+		}
+
+		return r, err
+	} else {
+		r, err := sendRequest()
+		return r, err
+	}
+}
+
 func (t *ctransport) Query(network string, q []byte, summary *Summary) ([]byte, error) {
 	var response []byte
-	var s *Summary
 	var err error
 	var cb *cache
-	var ba *sync.Mutex
 
 	msg := xdns.AsMsg(q)
 
-	start := time.Now()
 	if key, h, ok := t.ckey(msg); ok {
 		t.Lock()
 		cb = t.store[h]
@@ -335,32 +383,11 @@ func (t *ctransport) Query(network string, q []byte, summary *Summary) ([]byte, 
 		}
 		t.Unlock()
 
-		cb.qmu.Lock()
-		if ba = cb.qbarrier[key]; ba == nil {
-			ba = &sync.Mutex{}
-			cb.qbarrier[key] = ba
-		}
-		cb.qmu.Unlock()
+		response, err = t.fetch(network, q, msg, summary, cb, key)
 
-		ba.Lock() // per query-name lock
-		if v, ok := cb.freshLocked(key); !ok {
-			response, err = t.Transport.Query(network, q, summary) // locked
-			if err == nil {
-				cb.putLocked(t, key, response, summary)
-			} else if v != nil {
-				start = time.Now() // reset start time
-				// use stale cache response on error
-				response, s, err = asResponseLocked(msg, v)
-			}
-		} else {
-			start = time.Now() // reset start time
-			response, s, err = asResponseLocked(msg, v)
-		}
-		ba.Unlock()
 	} else {
 		err = errMissingQueryName
 	}
-	elapsed := time.Since(start)
 
 	if err != nil {
 		t.status = BadResponse
@@ -368,15 +395,6 @@ func (t *ctransport) Query(network string, q []byte, summary *Summary) ([]byte, 
 		t.status = Complete
 	}
 	summary.Status = t.Status()
-
-	if s != nil { // nil when response is not from cache
-		summary.Latency = elapsed.Seconds()
-		summary.RData = s.RData
-		summary.RCode = s.RCode
-		summary.RTtl = s.RTtl
-		summary.Blocklists = s.Blocklists
-		summary.Server = t.GetAddr()
-	}
 
 	return response, err
 }
