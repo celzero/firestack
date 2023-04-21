@@ -54,6 +54,7 @@ type cache struct {
 	scrubtime time.Time              // last time cache was scrubbed / purged
 	qbarrier  map[string]*sync.Mutex // coalesce requests for the same query
 	qmu       sync.RWMutex           // protects qbarrier
+	bgRefresh bool                   // background refresh of cache
 }
 
 type cres struct {
@@ -139,6 +140,9 @@ func (*ctransport) ckey(q *dns.Msg) (string, uint8, bool) {
 }
 
 func (cb *cache) refreshCache(t Transport, crch <-chan *cres) {
+	if !cb.bgRefresh {
+		return
+	}
 	net := "udp" // todo: change to tcp if the response is truncated
 
 	for cr := range crch {
@@ -296,7 +300,6 @@ func (cb *cache) put(t Transport, key string, response []byte, s *Summary) (ok b
 
 func asResponse(q *dns.Msg, v *cres) (r []byte, s *Summary, err error) {
 	a := v.ans
-	log.D("cache: hit %s", v.str())
 	if a != nil {
 		a.Id = q.Id
 		// dns 0x20 may mangle the question section, so preserve it
@@ -322,28 +325,27 @@ func (t *ctransport) Type() string {
 func (t *ctransport) fetch(network string, q []byte, msg *dns.Msg, summary *Summary, cb *cache, key string) ([]byte, error) {
 	start := time.Now()
 
-	sendRequest := func() ([]byte, error) {
+	sendRequest := func() (r []byte, err error) {
 		ba := cb.queryBarrier(key)
 
 		ba.Lock() // per query-name lock
-		r, err := t.Transport.Query(network, q, summary)
+		r, err = t.Transport.Query(network, q, summary)
 		ba.Unlock()
 		if err == nil && len(r) > 0 {
 			cb.put(t, key, r, summary)
 		}
-		return r, err
+		return
 	}
 
 	if v, ok := cb.fresh(key); v != nil {
 		if !ok { // not fresh, fetch in the background
 			go sendRequest()
-		} else {
-			log.D("cache: hit %s, but stale? %t", v.str(), ok)
 		}
+		log.D("cache: hit %s, but stale? %t", v.str(), ok)
 
 		r, s, err := asResponse(msg, v) // return cached response, may be stale
 
-		if s != nil { // nil when response is not from cache
+		if s != nil {
 			summary.Latency = time.Since(start).Seconds()
 			summary.RData = s.RData
 			summary.RCode = s.RCode
@@ -371,13 +373,14 @@ func (t *ctransport) Query(network string, q []byte, summary *Summary) ([]byte, 
 		cb = t.store[h]
 		if cb == nil {
 			cb = &cache{
-				c:        make(map[string]*cres),
-				mu:       &sync.RWMutex{},
-				size:     t.size,
-				ttl:      t.ttl,
-				bumps:    t.bumps,
-				halflife: t.halflife,
-				qbarrier: make(map[string]*sync.Mutex),
+				c:         make(map[string]*cres),
+				mu:        &sync.RWMutex{},
+				size:      t.size,
+				ttl:       t.ttl,
+				bumps:     t.bumps,
+				halflife:  t.halflife,
+				qbarrier:  make(map[string]*sync.Mutex),
+				bgRefresh: false,
 			}
 			t.store[h] = cb
 		}
