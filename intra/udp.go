@@ -331,7 +331,11 @@ func (h *udpHandler) Connect(conn core.UDPConn, target *net.UDPAddr) (res string
 	pid, cid, uid := splitPidCidUid(res)
 	if pid == ipn.Block {
 		var secs uint32
-		if secs = stall(h.fwtracker, uid, target); secs > 0 {
+		k := uid + target.String()
+		if len(domains) > 0 {
+			k = uid + domains
+		}
+		if secs = stall(h.fwtracker, k); secs > 0 {
 			waittime := time.Duration(secs) * time.Second
 			time.Sleep(waittime)
 		}
