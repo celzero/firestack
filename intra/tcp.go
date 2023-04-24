@@ -269,7 +269,11 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target *net.TCPAddr) (
 	s.UID = uid
 	if pid == ipn.Block {
 		var secs uint32
-		if secs = stall(h.fwtracker, uid, target); secs > 0 {
+		k := uid + target.String()
+		if len(domains) > 0 {
+			k = uid + domains[0]
+		}
+		if secs = stall(h.fwtracker, k); secs > 0 {
 			waittime := time.Duration(secs) * time.Second
 			time.Sleep(waittime)
 		}
@@ -354,9 +358,7 @@ func (h *tcpHandler) Handle(conn net.Conn, target *net.TCPAddr, summary *TCPSock
 	return nil
 }
 
-func stall(m *core.ExpMap, uid string, target net.Addr) (secs uint32) {
-	k := uid + target.String()
-
+func stall(m *core.ExpMap, k string) (secs uint32) {
 	if n := m.Get(k); n <= 0 {
 		secs = 0 // no stall
 	} else if n > 30 {

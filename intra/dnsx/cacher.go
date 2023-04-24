@@ -305,7 +305,8 @@ func asResponse(q *dns.Msg, v *cres) (r []byte, s *Summary, err error) {
 		// dns 0x20 may mangle the question section, so preserve it
 		// github.com/jedisct1/edgedns#correct-support-for-the-dns0x20-extension
 		a.Question = q.Question
-		s = v.s // copy the summary
+		// TODO: copy the summary instead of passing the ptr
+		s = v.s
 		r, err = a.Pack()
 	} else {
 		err = errCacheResponseEmpty
