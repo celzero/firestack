@@ -60,8 +60,8 @@ type RdnsResolver interface {
 	GetRdnsLocal() BraveDNS
 	SetRdnsRemote(BraveDNS) error
 	GetRdnsRemote() BraveDNS
-	blockQ(Transport, *dns.Msg) (*dns.Msg, string, error)
-	blockA(Transport, *dns.Msg, *dns.Msg, string) (*dns.Msg, string)
+	blockQ(Transport, Transport, *dns.Msg) (*dns.Msg, string, error)
+	blockA(Transport, Transport, *dns.Msg, *dns.Msg, string) (*dns.Msg, string)
 }
 
 type BraveDNS interface {

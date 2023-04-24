@@ -63,6 +63,6 @@ func (s *Summary) FillInto(other *Summary) {
 
 // Listener receives Summaries.
 type Listener interface {
-	OnQuery(domain string, suggested string) string
+	OnQuery(domain string, qtyp int, suggested string) string
 	OnResponse(*Summary)
 }

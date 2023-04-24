@@ -60,6 +60,10 @@ type Gateway interface {
 	withTransport(Transport) bool
 	// unset Transport as the underlying upstream DNS for alg queries
 	withoutTransport(Transport) bool
+	// Query using transport t
+	q1(t Transport, mod bool, network string, q []byte, s *Summary) (r []byte, err error)
+	// Query using t1 as primary transport and t2 as secondary
+	q2(t1 Transport, t2 Transport, mod bool, network string, q []byte, s *Summary) (r []byte, err error)
 	// clear obj state
 	stop()
 }
@@ -141,7 +145,7 @@ func (t *dnsgateway) stop() {
 	t.hexes = rfc8215a
 }
 
-func (t *dnsgateway) querySecondary(network string, q []byte, out chan<- secans, in <-chan []byte, timeout time.Duration) {
+func (t *dnsgateway) querySecondary(t2 Transport, network string, q []byte, out chan<- secans, in <-chan []byte, timeout time.Duration) {
 	var r []byte
 	var msg *dns.Msg
 	var err error
@@ -163,7 +167,7 @@ func (t *dnsgateway) querySecondary(network string, q []byte, out chan<- secans,
 		return // not a valid dns message
 	} else if ok := xdns.HasAQuadAQuestion(msg) || xdns.HasHTTPQuestion(msg) || xdns.HasSVCBQuestion(msg); !ok {
 		return // not a dns question we care about
-	} else if ans1, blocklists, err := t.rdns.blockQ( /*maybe nil*/ t.secondary, msg); err == nil {
+	} else if ans1, blocklists, err := t.rdns.blockQ( /*maybe nil*/ t2, nil, msg); err == nil {
 		// if err !is nil, then the question is blocked
 		result.ips = append(result.ips, xdns.AAnswer(ans1)...)
 		result.ips = append(result.ips, xdns.AAAAAnswer(ans1)...)
@@ -173,7 +177,7 @@ func (t *dnsgateway) querySecondary(network string, q []byte, out chan<- secans,
 	}
 
 	// no secondary transport; check if there's already an answer to work with
-	if t.secondary == nil {
+	if t2 == nil {
 		ticker := time.NewTicker(timeout)
 		select {
 		case r = <-in:
@@ -190,8 +194,8 @@ func (t *dnsgateway) querySecondary(network string, q []byte, out chan<- secans,
 
 	// check if the query must be upstreamed to get answer r
 	if r == nil {
-		if r, err = t.secondary.Query(network, q, result.summary); err != nil {
-			log.D("alg: skip; sec transport %s err %v", t.secondary.ID(), err)
+		if r, err = t2.Query(network, q, result.summary); err != nil {
+			log.D("alg: skip; sec transport %s err %v", t2.ID(), err)
 			return
 		}
 	}
@@ -200,7 +204,7 @@ func (t *dnsgateway) querySecondary(network string, q []byte, out chan<- secans,
 	if ans2 := xdns.AsMsg(r); ans2 == nil {
 		// not a valid dns answer
 		return
-	} else if ans3, blocklistnames := t.rdns.blockA(t.secondary, msg, ans2, result.summary.Blocklists); ans3 != nil {
+	} else if ans3, blocklistnames := t.rdns.blockA(t2, nil, msg, ans2, result.summary.Blocklists); ans3 != nil {
 		// if ans3 is not nil, then the answer is blocked
 		if len(blocklistnames) > 0 {
 			result.summary.Blocklists = blocklistnames
@@ -224,18 +228,28 @@ func (t *dnsgateway) querySecondary(network string, q []byte, out chan<- secans,
 	}
 }
 
+// Implements Transport
 func (t *dnsgateway) Query(network string, q []byte, summary *Summary) (r []byte, err error) {
-	if t.Transport == nil {
+	return t.q2(t.Transport, t.secondary, t.mod, network, q, summary)
+}
+
+// Implements Gateway
+func (t *dnsgateway) q1(t1 Transport, mod bool, network string, q []byte, summary *Summary) (r []byte, err error) {
+	return t.q2(t1, nil, mod, network, q, summary)
+}
+
+// Implements Gateway
+func (t *dnsgateway) q2(t1, t2 Transport, mod bool, network string, q []byte, summary *Summary) (r []byte, err error) {
+	if t1 == nil {
 		return nil, errNoTransportAlg
 	}
-
 	secch := make(chan secans, 1)
 	resch := make(chan []byte, 1)
 	innersummary := &Summary{}
 	// todo: use context?
-	go t.querySecondary(network, q, secch, resch, timeout)
+	go t.querySecondary(t2, network, q, secch, resch, timeout)
 
-	r, err = t.Transport.Query(network, q, innersummary)
+	r, err = t1.Query(network, q, innersummary)
 	resch <- r
 
 	// override relevant values in summary
@@ -284,7 +298,7 @@ func (t *dnsgateway) Query(network string, q []byte, summary *Summary) (r []byte
 	summary.Blocklists = secres.summary.Blocklists
 
 	defer func() {
-		if isAlgErr(err) && !t.mod {
+		if isAlgErr(err) && !mod {
 			log.D("alg: no mod; supress err %v", err)
 			// ignore alg errors if no modification is desired
 			err = nil
@@ -388,9 +402,9 @@ func (t *dnsgateway) Query(network string, q []byte, summary *Summary) (r []byte
 
 	if rout, err := ansout.Pack(); err == nil {
 		if t.registerMultiLocked(qname, x) {
-			t.withAlgSummaryIfNeededLocked(algips, summary)
+			t.withAlgSummaryIfNeededLocked(algips, mod, summary)
 			// if mod is set, send modified answer
-			if t.mod {
+			if mod {
 				return rout, nil
 			} else {
 				return r, nil
@@ -438,8 +452,8 @@ func netip2csv(ips []*netip.Addr) (csv string) {
 	return
 }
 
-func (t *dnsgateway) withAlgSummaryIfNeededLocked(algips []*netip.Addr, s *Summary) {
-	if settings.Debug && t.mod {
+func (t *dnsgateway) withAlgSummaryIfNeededLocked(algips []*netip.Addr, mod bool, s *Summary) {
+	if settings.Debug && mod {
 		// convert algips to ipcsv
 		ipcsv := netip2csv(algips)
 

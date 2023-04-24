@@ -398,6 +398,7 @@ func (r *resolver) IsDnsAddr(network, ipport string) bool {
 }
 
 func (r *resolver) Forward(q []byte) ([]byte, error) {
+	var gw Gateway
 	starttime := time.Now()
 	summary := &Summary{
 		QName:  invalidQname,
@@ -418,22 +419,34 @@ func (r *resolver) Forward(q []byte) ([]byte, error) {
 
 	// figure out transport to use
 	qname := qname(msg)
+	qtyp := qtype(msg)
 	summary.QName = qname
-	summary.QType = qtype(msg)
+	summary.QType = qtyp
 	id := r.requiresSystem(qname)
+	sid := ""
 	if len(id) > 0 {
 		log.I("transport (udp): suggest system-dns %s for %s", id, qname)
 	}
-	id = r.listener.OnQuery(qname, id)
+	pref := r.listener.OnQuery(qname, qtyp, id)
+	id, sid, _ = preferencesFrom(pref)
 	t, onet := r.determineTransports(id)
 	if t == nil || onet == nil {
 		summary.Latency = time.Since(starttime).Seconds()
 		summary.Status = TransportError
 		return nil, errNoSuchTransport
 	}
+	var t2 Transport
+	if len(sid) > 0 {
+		t2, _ = r.determineTransports(sid)
+	}
+	if t.ID() == Alg {
+		gw = nil // transport implicitly implements Gateway
+	} else {
+		gw = r.Gateway()
+	}
 
 	// block skipped if the transport is alg/block-free
-	res1, blocklists, err := r.blockQ(t, msg)
+	res1, blocklists, err := r.blockQ(t, t2, msg)
 	if err == nil {
 		b, e := res1.Pack()
 		summary.Latency = time.Since(starttime).Seconds()
@@ -443,18 +456,26 @@ func (r *resolver) Forward(q []byte) ([]byte, error) {
 		return b, e
 	}
 
-	// query the transport
 	summary.Type = t.Type()
 	summary.ID = t.ID()
-	res2, err := t.Query(NetTypeUDP, q, summary)
-	algerr := isAlgErr(err)
+	var res2 []byte
+	// query explicitly via the gateway gw, if present;
+	// or use transport t, which could be Gateway's impl of Transport
+	if gw == nil {
+		res2, err = t.Query(NetTypeUDP, q, summary)
+	} else if t2 == nil {
+		res2, err = gw.q1(t, false /*don't translate*/, NetTypeUDP, q, summary)
+	} else { // with t2 as the secondary transport
+		res2, err = gw.q2(t, t2, false /*don't translate*/, NetTypeUDP, q, summary)
+	}
 
+	algerr := isAlgErr(err) // not set when translate is off
 	if algerr {
 		log.D("transport (udp): alg error %s for %s", err, qname)
 	}
 	// in the case of an alg transport, if there's no-alg,
 	// err is set which should be ignored if res2 is not nil
-	if err != nil && algerr {
+	if err != nil && !algerr {
 		// summary latency, ips, response, status already set by transport t
 		return res2, err
 	}
@@ -464,8 +485,7 @@ func (r *resolver) Forward(q []byte) ([]byte, error) {
 		return res2, err
 	}
 
-	// block response if needed
-	ans2, blocklistnames := r.blockA(t, msg, ans1, summary.Blocklists)
+	ans2, blocklistnames := r.blockA(t, t2, msg, ans1, summary.Blocklists)
 	if len(blocklistnames) > 0 {
 		// summary latency, response, status, ips already set by transport t
 		summary.Blocklists = blocklistnames
@@ -544,6 +564,7 @@ func (r *resolver) determineTransports(id string) (Transport, *oneTransport) {
 
 // Perform a query using the transport, and send the response to the writer.
 func (r *resolver) forwardQuery(q []byte, c io.Writer) error {
+	var gw Gateway
 	starttime := time.Now()
 	summary := &Summary{
 		QName:  invalidQname,
@@ -564,13 +585,16 @@ func (r *resolver) forwardQuery(q []byte, c io.Writer) error {
 
 	// figure out transport to use
 	qname := qname(msg)
+	qtyp := qtype(msg)
 	summary.QName = qname
-	summary.QType = qtype(msg)
+	summary.QType = qtyp
 	id := r.requiresSystem(qname)
+	sid := ""
 	if len(id) > 0 {
 		log.I("transport (udp): suggest system-dns %s for %s", id, qname)
 	}
-	id = r.listener.OnQuery(qname, id)
+	pref := r.listener.OnQuery(qname, qtyp, id)
+	id, sid, _ = preferencesFrom(pref)
 	// retrieve transport
 	t, onet := r.determineTransports(id)
 	if t == nil || onet == nil {
@@ -578,9 +602,18 @@ func (r *resolver) forwardQuery(q []byte, c io.Writer) error {
 		summary.Status = TransportError
 		return errNoSuchTransport
 	}
+	var t2 Transport = nil
+	if len(sid) > 0 {
+		t2, _ = r.determineTransports(sid)
+	}
+	if t.ID() == Alg {
+		gw = nil // transport implicitly implements Gateway
+	} else {
+		gw = r.Gateway()
+	}
 
 	// block query if needed (skipped for alg/block-free)
-	res1, blocklists, err := r.blockQ(t, msg)
+	res1, blocklists, err := r.blockQ(t, t2, msg)
 	if err == nil {
 		b, e := res1.Pack()
 		summary.Latency = time.Since(starttime).Seconds()
@@ -591,12 +624,20 @@ func (r *resolver) forwardQuery(q []byte, c io.Writer) error {
 		return e
 	}
 
-	// query the transport
 	summary.Type = t.Type()
 	summary.ID = t.ID()
-	res2, err := t.Query(NetTypeTCP, q, summary)
-	algerr := isAlgErr(err)
+	var res2 []byte
+	// query explicitly via the gateway gw, if present;
+	// or use transport t, which could be Gateway's impl of Transport
+	if gw == nil {
+		res2, err = t.Query(NetTypeTCP, q, summary)
+	} else if t2 == nil {
+		res2, err = gw.q1(t, false /*don't translate*/, NetTypeTCP, q, summary)
+	} else { // with t2 as the secondary transport
+		res2, err = gw.q2(t, t2, false /*don't translate*/, NetTypeTCP, q, summary)
+	}
 
+	algerr := isAlgErr(err) // not set when translate is off
 	if algerr {
 		log.D("transport (tcp): alg error %s for %s", err, qname)
 	}
@@ -612,7 +653,7 @@ func (r *resolver) forwardQuery(q []byte, c io.Writer) error {
 		return qerr
 	}
 
-	ans2, blocklistnames := r.blockA(t, msg, ans1, summary.Blocklists)
+	ans2, blocklistnames := r.blockA(t, t2, msg, ans1, summary.Blocklists)
 	// overwrite response when blocked
 	if len(blocklistnames) > 0 {
 		// summary latency, response, status, ips already set by transport t
@@ -786,6 +827,21 @@ func (r *resolver) LiveTransports() string {
 		}
 	}
 	return trimcsv(s)
+}
+
+func preferencesFrom(s string) (id1, id2, ips string) {
+	x := strings.Split(s, ",")
+	l := len(x)
+	if l <= 0 { // cannot happen
+		// no-op
+	} else if l == 1 {
+		id1 = x[0]
+	} else if l == 2 {
+		id1, id2 = x[0], x[1]
+	} else if l >= 3 {
+		id1, id2, ips = x[0], x[1], x[2]
+	}
+	return
 }
 
 func map2csv(ts map[string]Transport) string {
