@@ -20,7 +20,6 @@ import (
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/settings"
 	"github.com/celzero/firestack/intra/xdns"
-	"github.com/k-sone/critbitgo"
 	"github.com/miekg/dns"
 )
 
@@ -140,7 +139,7 @@ type resolver struct {
 	systemdns    []Transport
 	transports   map[string]Transport
 	pool         map[string]*oneTransport
-	localdomains *critbitgo.Trie
+	localdomains CritBit
 	rdnsl        BraveDNS
 	rdnsr        BraveDNS
 	natpt        ipn.DNS64
@@ -159,7 +158,7 @@ func NewResolver(fakeaddrs string, tunmode *settings.TunMode, defaultdns Transpo
 		transports:   make(map[string]Transport),
 		pool:         make(map[string]*oneTransport),
 		tunmode:      tunmode,
-		localdomains: UndelegatedDomainsTrie(),
+		localdomains: newUndelegatedDomainsTrie(),
 	}
 	ok1 := r.Add(defaultdns)
 	ok2 := r.Add(NewDNSGateway(defaultdns, r))

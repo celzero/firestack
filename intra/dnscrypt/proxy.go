@@ -32,14 +32,12 @@ import (
 
 	clocksmith "github.com/jedisct1/go-clocksmith"
 	stamps "github.com/jedisct1/go-dnsstamps"
-	"github.com/k-sone/critbitgo"
 	"golang.org/x/crypto/curve25519"
 )
 
 type Proxy struct {
 	dnsx.TransportMult
 	sync.RWMutex
-	undelegatedSet               *critbitgo.Trie
 	proxyPublicKey               [32]byte
 	proxySecretKey               [32]byte
 	serversInfo                  ServersInfo
@@ -462,7 +460,6 @@ func NewProxy() *Proxy {
 	return &Proxy{
 		routes:                       nil,
 		registeredServers:            make(map[string]RegisteredServer),
-		undelegatedSet:               dnsx.UndelegatedDomainsTrie(),
 		certRefreshDelay:             time.Duration(240) * time.Minute,
 		certRefreshDelayAfterFailure: time.Duration(10 * time.Second),
 		certIgnoreTimestamp:          false,

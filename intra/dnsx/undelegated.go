@@ -6,11 +6,6 @@
 
 package dnsx
 
-import (
-	"github.com/celzero/firestack/intra/xdns"
-	"github.com/k-sone/critbitgo"
-)
-
 var undelegatedSet = []string{
 	"0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.ip6.arpa",
 	"0.in-addr.arpa",
@@ -158,25 +153,17 @@ var undelegatedSet = []string{
 	"zghjccbob3n0",
 }
 
-func UndelegatedDomainsTrie() *critbitgo.Trie {
-	t := critbitgo.NewTrie()
+func newUndelegatedDomainsTrie() CritBit {
+	t := NewCritBit()
 	for _, domain := range undelegatedSet {
-		pattern := xdns.StringReverse(domain)
-		t.Insert([]byte(pattern), true)
+		t.Set(domain)
 	}
 	return t
 }
 
 func (r *resolver) requiresSystem(qname string) (id string) {
-	rev := xdns.StringReverse(qname)
-	match, _, ok := r.localdomains.LongestPrefix([]byte(rev))
-	if ok {
-		return System
+	if r.localdomains.Has(qname) {
+		id = System
 	}
-	// full match (ipvonly.arpa), or match upto a tld (.arpa)
-	if len(match) == len(rev) || rev[len(match)] == '.' {
-		return System
-	} else {
-		return ""
-	}
+	return
 }
