@@ -212,18 +212,19 @@ func (cb *cache) scrubCache(kch chan<- string, vch chan<- *cres) {
 	i, j, m := 0, 0, 0
 	for k, v := range cb.c {
 		i++
-		if v.bumps >= (cb.bumps / 2) {
+		if cb.bgRefresh && v.bumps >= (cb.bumps/2) {
 			// invalidate cached entry
 			v.expiry = time.Now()
 			// bump it to the highest to keep its freshness locked
 			v.bumps = cb.bumps
-			vch <- v
+			// TODO: vch <- v.copy()?
+			vch <- v // renew
 			m++
 		} else if highload && time.Since(v.expiry) > 0 {
 			// evict expired entries on high load, otherwise keep them
 			// around for use in cases where transport errors out
 			delete(cb.c, k)
-			kch <- k
+			kch <- k // delete its barrier
 			j++
 		}
 		if i > maxscrubs {
