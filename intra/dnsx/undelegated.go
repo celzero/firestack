@@ -156,13 +156,13 @@ var undelegatedSet = []string{
 func newUndelegatedDomainsTrie() CritBit {
 	t := NewCritBit()
 	for _, domain := range undelegatedSet {
-		t.Set(domain)
+		t.Add(domain)
 	}
 	return t
 }
 
 func (r *resolver) requiresSystem(qname string) (id string) {
-	if r.localdomains.Has(qname) {
+	if r.localdomains.HasAny(qname) {
 		id = System
 	}
 	return

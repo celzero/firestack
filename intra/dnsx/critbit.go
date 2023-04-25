@@ -13,10 +13,25 @@ import (
 	"github.com/k-sone/critbitgo"
 )
 
+// A CritBit is a thread-safe trie that supports insertion, deletion, and prefix matching.
 type CritBit interface {
-	Set(string) bool
-	Del(string) bool
-	Has(string) bool
+	// Adds k to the trie. Returns true if k was not already in the trie.
+	Add(k string) bool
+	// Sets k to v in the trie, overwriting any previous value.
+	Set(k, v string)
+	// Deletes k from the trie. Returns true if k was in the trie.
+	Del(k string) bool
+	// Gets the value of k from the trie or "" if k is not in the trie.
+	Get(k string) string
+	// Returns true if k is in the trie.
+	Has(k string) bool
+	// Returns the value of the longest prefix of k in the trie or "".
+	GetAny(prefix string) string
+	// Returns true if any key in the trie has the prefix.
+	HasAny(prefix string) bool
+	// Clears the trie.
+	Clear()
+	// Returns the number of keys in the trie.
 	Len() int
 }
 
@@ -33,34 +48,76 @@ func reversed(s string) (b []byte) {
 	return []byte(xdns.StringReverse(s))
 }
 
-func (c *critbit) Set(s string) bool {
+func (c *critbit) Add(k string) bool {
 	c.Lock()
 	defer c.Unlock()
 
-	return c.t.Insert(reversed(s), true)
+	return c.t.Insert(reversed(k), "")
 }
 
-func (c *critbit) Del(s string) bool {
+func (c *critbit) Set(k string, v string) {
 	c.Lock()
 	defer c.Unlock()
 
-	_, ok := c.t.Delete(reversed(s))
+	c.t.Set(reversed(k), v)
+}
+
+func (c *critbit) Del(k string) bool {
+	c.Lock()
+	defer c.Unlock()
+
+	_, ok := c.t.Delete(reversed(k))
 	return ok
 }
 
-func (c *critbit) Has(s string) bool {
+func (c *critbit) Has(k string) bool {
 	c.RLock()
 	defer c.RUnlock()
 
-	rev := reversed(s)
-	if match, _, ok := c.t.LongestPrefix(rev); ok {
-		return true
+	return c.t.Contains(reversed(k))
+}
+
+func (c *critbit) HasAny(prefix string) bool {
+	return c.get(prefix) != nil
+}
+
+func (c *critbit) Get(k string) (v string) {
+	s, ok := c.t.Get(reversed(k))
+	if ok {
+		v = s.(string)
+	}
+	return
+}
+
+func (c *critbit) GetAny(prefix string) (v string) {
+	if s := c.get(prefix); s != nil {
+		v = *s
+	}
+	return
+}
+
+func (c *critbit) get(str string) *string {
+	c.RLock()
+	defer c.RUnlock()
+
+	rev := reversed(str)
+	var s string
+	if match, v, ok := c.t.LongestPrefix(rev); ok {
+		s = v.(string)
 	} else if len(match) == len(rev) || rev[len(match)] == '.' {
 		// full match (ipvonly.arpa), or match upto a tld (.arpa)
-		return true
+		s = v.(string)
 	} else {
-		return false
+		return nil
 	}
+	return &s
+}
+
+func (c *critbit) Clear() {
+	c.Lock()
+	defer c.Unlock()
+
+	c.t.Clear()
 }
 
 func (c *critbit) Len() int {
