@@ -29,6 +29,12 @@ func (s *Summary) str() string {
 		s.Type, s.ID, s.Latency, s.QName, s.RData, s.RCode, s.RTtl, s.Server, s.RelayServer, s.Status, s.Blocklists)
 }
 
+func (s *Summary) Copy() *Summary {
+	clone := new(Summary)
+	*clone = *s
+	return clone
+}
+
 func (s *Summary) FillInto(other *Summary) {
 	if len(s.Type) != 0 {
 		other.Type = s.Type
