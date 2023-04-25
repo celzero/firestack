@@ -111,6 +111,15 @@ func NewCachingTransport(t Transport, ttl time.Duration) Transport {
 	return ct
 }
 
+func (c *cres) copy() *cres {
+	return &cres{
+		ans:    c.ans.Copy(),
+		s:      c.s.Copy(),
+		expiry: c.expiry,
+		bumps:  c.bumps,
+	}
+}
+
 func (cr *cres) str() string {
 	return "bumps=" + strconv.Itoa(cr.bumps) + " ;expiry=" + cr.expiry.String() + " ;s=" + cr.s.str()
 }
@@ -224,7 +233,7 @@ func (cb *cache) scrubCache(kch chan<- string, vch chan<- *cres) {
 	log.I("cache: del: %d; ref: %d; tot: %d / high? %t", j, m, i, highload)
 }
 
-func (cb *cache) fresh(key string) (v *cres, ok bool) {
+func (cb *cache) freshCopy(key string) (v *cres, ok bool) {
 	cb.mu.RLock()
 	defer cb.mu.RUnlock()
 
@@ -245,7 +254,7 @@ func (cb *cache) fresh(key string) (v *cres, ok bool) {
 	}
 
 	r75 := rand.Intn(99999) < 75000 // 75% chance of reusing from the cache
-	return v, (r75 || recent) && alive
+	return v.copy(), (r75 || recent) && alive
 }
 
 func (cb *cache) put(t Transport, key string, response []byte, s *Summary) (ok bool) {
@@ -305,7 +314,6 @@ func asResponse(q *dns.Msg, v *cres) (r []byte, s *Summary, err error) {
 		// dns 0x20 may mangle the question section, so preserve it
 		// github.com/jedisct1/edgedns#correct-support-for-the-dns0x20-extension
 		a.Question = q.Question
-		// TODO: copy the summary instead of passing the ptr
 		s = v.s
 		r, err = a.Pack()
 	} else {
@@ -338,7 +346,7 @@ func (t *ctransport) fetch(network string, q []byte, msg *dns.Msg, summary *Summ
 		return
 	}
 
-	if v, ok := cb.fresh(key); v != nil {
+	if v, ok := cb.freshCopy(key); v != nil {
 		if !ok { // not fresh, fetch in the background
 			go sendRequest()
 		}
