@@ -29,6 +29,8 @@ type CritBit interface {
 	GetAny(prefix string) string
 	// Returns true if any key in the trie has the prefix.
 	HasAny(prefix string) bool
+	// Deletes all keys in the trie with the prefix. Returns the number of keys deleted.
+	DelAll(prefix string) int32
 	// Clears the trie.
 	Clear()
 	// Returns the number of keys in the trie.
@@ -75,6 +77,26 @@ func (c *critbit) Has(k string) bool {
 	defer c.RUnlock()
 
 	return c.t.Contains(reversed(k))
+}
+
+func (c *critbit) DelAll(prefix string) (n int32) {
+	c.Lock()
+	defer c.Unlock()
+
+	keys := make(chan []byte)
+	defer close(keys)
+
+	c.t.Allprefixed(reversed(prefix), func(k []byte, v any) bool {
+		keys <- k
+		return true
+	})
+
+	for k := range keys {
+		if _, ok := c.t.Delete(k); ok {
+			n++
+		}
+	}
+	return
 }
 
 func (c *critbit) HasAny(prefix string) bool {
