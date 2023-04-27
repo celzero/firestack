@@ -83,15 +83,13 @@ func (c *critbit) DelAll(prefix string) (n int32) {
 	c.Lock()
 	defer c.Unlock()
 
-	keys := make(chan []byte)
-	defer close(keys)
-
+	keys := make([][]byte, 10)
 	c.t.Allprefixed(reversed(prefix), func(k []byte, v any) bool {
-		keys <- k
+		keys = append(keys, k)
 		return true
 	})
 
-	for k := range keys {
+	for _, k := range keys {
 		if _, ok := c.t.Delete(k); ok {
 			n++
 		}
