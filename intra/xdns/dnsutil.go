@@ -120,6 +120,19 @@ func Rcode(msg *dns.Msg) int {
 	return dns.RcodeFormatError
 }
 
+func WithTtl(msg *dns.Msg, secs uint32) (ok bool) {
+	if msg == nil || len(msg.Answer) <= 0 {
+		return ok
+	}
+	for _, a := range msg.Answer {
+		if a.Header().Ttl > 0 {
+			a.Header().Ttl = secs
+			ok = true
+		}
+	}
+	return ok
+}
+
 func RTtl(msg *dns.Msg) int {
 	maxttl := uint32(0)
 	if msg == nil || len(msg.Answer) <= 0 {

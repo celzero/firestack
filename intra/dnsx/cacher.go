@@ -32,6 +32,8 @@ const (
 	defbuckets = 128
 	// min duration between scrubs
 	scrubgap = 5 * time.Minute
+	// ttl for expired response
+	stalettl = 15 // seconds
 	// how many entries to scrub at a time per cache bucket
 	maxscrubs = defsize / 4 // 25% of the cache
 	// prefix for cached transport addresses
@@ -276,8 +278,8 @@ func (cb *cache) put(t Transport, key string, response []byte, s *Summary) (ok b
 		return
 	}
 
-	kch := make(chan string) // delete
-	vch := make(chan *cres)  // renew
+	kch := make(chan string) // delete expired entries
+	vch := make(chan *cres)  // renew freq entries
 	go cb.scrubCache(kch, vch)
 	go cb.purgeQBarrier(kch)
 	go cb.refreshCache(t, vch)
@@ -308,13 +310,17 @@ func (cb *cache) put(t Transport, key string, response []byte, s *Summary) (ok b
 	return
 }
 
-func asResponse(q *dns.Msg, v *cres) (r []byte, s *Summary, err error) {
+func asResponse(q *dns.Msg, v *cres, fresh bool) (r []byte, s *Summary, err error) {
 	a := v.ans
 	if a != nil {
 		a.Id = q.Id
 		// dns 0x20 may mangle the question section, so preserve it
 		// github.com/jedisct1/edgedns#correct-support-for-the-dns0x20-extension
 		a.Question = q.Question
+		// if the v is not fresh, set the ttl to the minimum
+		if !fresh {
+			xdns.WithTtl(a, stalettl)
+		}
 		s = v.s
 		r, err = a.Pack()
 	} else {
@@ -353,7 +359,7 @@ func (t *ctransport) fetch(network string, q []byte, msg *dns.Msg, summary *Summ
 		}
 		log.D("cache: hit %s, but stale? %t", v.str(), ok)
 
-		r, s, err := asResponse(msg, v) // return cached response, may be stale
+		r, s, err := asResponse(msg, v, ok) // return cached response, may be stale
 
 		if s != nil {
 			summary.Latency = time.Since(start).Seconds()
