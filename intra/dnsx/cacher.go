@@ -177,7 +177,7 @@ func (cb *cache) queryBarrier(key string) (ba *sync.Mutex) {
 	return
 }
 
-func (cb *cache) purgeQBarrier(kch <-chan string) {
+func (cb *cache) purgeQueryBarrier(kch <-chan string) {
 	var keys []string
 	for k := range kch {
 		keys = append(keys, k)
@@ -278,14 +278,16 @@ func (cb *cache) put(t Transport, key string, response []byte, s *Summary) (ok b
 		return
 	}
 
-	kch := make(chan string) // delete expired entries
-	vch := make(chan *cres)  // renew freq entries
-	go cb.scrubCache(kch, vch)
-	go cb.purgeQBarrier(kch)
-	go cb.refreshCache(t, vch)
-
 	cb.mu.Lock()
 	defer cb.mu.Unlock()
+
+	if rand.Intn(99999) < 33000 { // 33% of the time
+		kch := make(chan string) // delete expired entries
+		vch := make(chan *cres)  // renew freq entries
+		go cb.scrubCache(kch, vch)
+		go cb.purgeQueryBarrier(kch)
+		go cb.refreshCache(t, vch)
+	}
 
 	if len(cb.c) >= cb.size {
 		return
