@@ -343,32 +343,35 @@ func (t *ctransport) Type() string {
 func (t *ctransport) fetch(network string, q []byte, msg *dns.Msg, summary *Summary, cb *cache, key string) (r []byte, err error) {
 	start := time.Now()
 
-	sendRequest := func() (r []byte, err error) {
+	sendRequest := func(s *Summary) (r []byte, err error) {
 		ba := cb.queryBarrier(key)
-		actualsummary := new(Summary)
+		if s == nil {
+			s = summary
+		}
 
-		actualsummary.ID = t.Transport.ID()
-		actualsummary.Type = t.Transport.Type()
+		s.ID = t.Transport.ID()
+		s.Type = t.Transport.Type()
 
 		ba.Lock() // per query-name lock
-		r, err = t.Transport.Query(network, q, actualsummary)
+		r, err = t.Transport.Query(network, q, s)
 		ba.Unlock()
 
-		actualsummary.Latency = time.Since(start).Seconds()
+		s.Latency = time.Since(start).Seconds()
 
 		if err == nil && len(r) > 0 {
-			cb.put(t, key, r, actualsummary)
+			cb.put(t, key, r, s)
 		}
 
 		return
 	}
 
-	var cachedsummary *Summary
 	if v, ok := cb.freshCopy(key); v != nil {
+		var cachedsummary *Summary
 		log.D("cache: hit %s, but stale? %t", v.str(), ok)
 		r, cachedsummary, err = asResponse(msg, v, ok) // return cached response, may be stale
 		if !ok {                                       // not fresh, fetch in the background
-			go sendRequest()
+			discard := new(Summary)
+			go sendRequest(discard)
 		}
 		// change summary fields to reflect cached response
 		if cachedsummary != nil {
@@ -381,7 +384,7 @@ func (t *ctransport) fetch(network string, q []byte, msg *dns.Msg, summary *Summ
 			summary.Blocklists = cachedsummary.Blocklists
 		}
 	} else {
-		r, err = sendRequest() // summary is filled by underlying transport
+		r, err = sendRequest(nil) // summary is filled by underlying transport
 	}
 
 	summary.Latency = time.Since(start).Seconds()
