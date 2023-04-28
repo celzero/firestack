@@ -61,7 +61,7 @@ type Gateway interface {
 	// unset Transport as the underlying upstream DNS for alg queries
 	withoutTransport(Transport) bool
 	// Query using t1 as primary transport and t2 as secondary
-	q(t1 Transport, t2 Transport, mod bool, network string, q []byte, s *Summary) (r []byte, err error)
+	q(t1 Transport, t2 Transport, network string, q []byte, s *Summary) (r []byte, err error)
 	// clear obj state
 	stop()
 }
@@ -228,7 +228,7 @@ func (t *dnsgateway) querySecondary(t2 Transport, network string, q []byte, out 
 
 // Implements Transport
 func (t *dnsgateway) Query(network string, q []byte, summary *Summary) (r []byte, err error) {
-	r, err = t.q(t.Transport, t.secondary, t.mod, network, q, summary)
+	r, err = t.q(t.Transport, t.secondary, network, q, summary)
 	// change the summary to reflect the use of alg gateway
 	summary.ID = t.ID()
 	summary.Type = t.Type()
@@ -236,13 +236,14 @@ func (t *dnsgateway) Query(network string, q []byte, summary *Summary) (r []byte
 }
 
 // Implements Gateway
-func (t *dnsgateway) q(t1, t2 Transport, mod bool, network string, q []byte, summary *Summary) (r []byte, err error) {
+func (t *dnsgateway) q(t1, t2 Transport, network string, q []byte, summary *Summary) (r []byte, err error) {
 	if t1 == nil {
 		return nil, errNoTransportAlg
 	}
+	mod := t.mod
 	secch := make(chan secans, 1)
 	resch := make(chan []byte, 1)
-	innersummary := &Summary{}
+	innersummary := new(Summary)
 	// todo: use context?
 	go t.querySecondary(t2, network, q, secch, resch, timeout)
 
@@ -397,9 +398,9 @@ func (t *dnsgateway) q(t1, t2 Transport, mod bool, network string, q []byte, sum
 
 	if rout, err := ansout.Pack(); err == nil {
 		if t.registerMultiLocked(qname, x) {
-			t.withAlgSummaryIfNeededLocked(algips, mod, summary)
 			// if mod is set, send modified answer
 			if mod {
+				withAlgSummaryIfNeeded(algips, summary)
 				return rout, nil
 			} else {
 				return r, nil
@@ -447,8 +448,8 @@ func netip2csv(ips []*netip.Addr) (csv string) {
 	return
 }
 
-func (t *dnsgateway) withAlgSummaryIfNeededLocked(algips []*netip.Addr, mod bool, s *Summary) {
-	if settings.Debug && mod {
+func withAlgSummaryIfNeeded(algips []*netip.Addr, s *Summary) {
+	if settings.Debug {
 		// convert algips to ipcsv
 		ipcsv := netip2csv(algips)
 
@@ -460,7 +461,7 @@ func (t *dnsgateway) withAlgSummaryIfNeededLocked(algips []*netip.Addr, mod bool
 		if len(s.Server) > 0 {
 			s.Server = algprefix + s.Server
 		} else {
-			s.Server = algprefix + t.GetAddr()
+			s.Server = algprefix + NoTransport
 		}
 	}
 }
@@ -630,15 +631,15 @@ func (t *dnsgateway) withTransport(inner Transport) bool {
 		} // else: no-op
 	} else if inner.ID() == BlockFree {
 		// alg works best with a non-filtering dns server (which BlockFree is)
-		log.W("alg: set BlockFree as primary %s", inner.GetAddr())
+		log.W("alg: set BlockFree as primary %s", inneraddr)
 		t.Transport = NewCachingTransport(inner, ttl2m)
 		return true
 	} else if inner.ID() == Preferred {
-		log.I("alg: set Preferred as secondary %s", inner.GetAddr())
+		log.I("alg: set Preferred as secondary %s", inneraddr)
 		t.secondary = NewDefaultCachingTransport(inner)
 		return true
 	} else {
-		log.I("alg: sec set %s / existing primary %s", inner.GetAddr(), t.GetAddr())
+		log.I("alg: sec set %s / existing primary %s", inneraddr, t.GetAddr())
 		// any other transport is secondary
 		t.secondary = NewDefaultCachingTransport(inner)
 	}
