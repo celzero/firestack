@@ -496,6 +496,7 @@ func (r *resolver) Forward(q []byte) ([]byte, error) {
 
 	// override resp with dns64 if needed
 	if onet != nil {
+		// d64 is same as res2 when dns64 is not needed
 		d64 := r.natpt.D64(t.ID(), res2, onet)
 		if len(d64) >= xdns.MinDNSPacketSize {
 			r.withDNS64SummaryIfNeeded(d64, summary)
@@ -523,11 +524,12 @@ func (r *resolver) withDNS64SummaryIfNeeded(d64 []byte, s *Summary) {
 		return // should not happen
 	}
 	// append dns64 rdata to summary
-	rdata := xdns.GetInterestingRData(msg)
-	if len(s.RData) > 0 {
-		s.RData = rdata + "," + s.RData
-	} else {
-		s.RData = rdata
+	if rdata := xdns.GetInterestingRData(msg); len(rdata) > 0 {
+		if len(s.RData) > 0 {
+			s.RData = rdata + "," + s.RData
+		} else {
+			s.RData = rdata
+		}
 	}
 	if len(s.Server) > 0 {
 		s.Server = d64prefix + s.Server
@@ -834,11 +836,11 @@ func preferencesFrom(s string) (id1, id2, ips string) {
 	if l <= 0 { // cannot happen
 		// no-op
 	} else if l == 1 {
-		id1 = x[0]
+		id1 = x[0] // id for transport t1
 	} else if l == 2 {
-		id1, id2 = x[0], x[1]
+		id1, id2 = x[0], x[1] // ids for transport t1, t2
 	} else if l >= 3 {
-		id1, id2, ips = x[0], x[1], x[2]
+		id1, id2, ips = x[0], x[1], x[2] // ids for transport t1, t2; preferred IP
 	}
 	return
 }
