@@ -70,7 +70,6 @@ type cres struct {
 type ctransport struct {
 	sync.RWMutex               // protects store
 	Transport                  // the underlying transport
-	listener     Listener      // the client listener
 	store        []*cache      // cache buckets
 	ipport       string        // a fake ip:port
 	status       int           // status of this transport
@@ -80,11 +79,11 @@ type ctransport struct {
 	size         int           // max size of a cache bucket
 }
 
-func NewDefaultCachingTransport(t Transport, l Listener) (ct Transport) {
-	return NewCachingTransport(t, l, defttl)
+func NewDefaultCachingTransport(t Transport) (ct Transport) {
+	return NewCachingTransport(t, defttl)
 }
 
-func NewCachingTransport(t Transport, l Listener, ttl time.Duration) Transport {
+func NewCachingTransport(t Transport, ttl time.Duration) Transport {
 	if t == nil {
 		return nil
 	}
@@ -102,7 +101,6 @@ func NewCachingTransport(t Transport, l Listener, ttl time.Duration) Transport {
 	}
 	ct := &ctransport{
 		Transport: t,
-		listener:  l,
 		store:     make([]*cache, defbuckets),
 		ipport:    "[fdaa:cac::ed:3]:53",
 		status:    Start,
@@ -345,42 +343,48 @@ func (t *ctransport) Type() string {
 func (t *ctransport) fetch(network string, q []byte, msg *dns.Msg, summary *Summary, cb *cache, key string) (r []byte, err error) {
 	start := time.Now()
 
-	sendRequest := func(inform bool) (r []byte, err error) {
+	sendRequest := func() (r []byte, err error) {
 		ba := cb.queryBarrier(key)
 		actualsummary := new(Summary)
+
+		actualsummary.ID = t.Transport.ID()
+		actualsummary.Type = t.Transport.Type()
 
 		ba.Lock() // per query-name lock
 		r, err = t.Transport.Query(network, q, actualsummary)
 		ba.Unlock()
+
+		actualsummary.Latency = time.Since(start).Seconds()
+
 		if err == nil && len(r) > 0 {
 			cb.put(t, key, r, actualsummary)
 		}
-		if inform {
-			go t.listener.OnResponse(actualsummary)
-		}
+
 		return
 	}
 
 	var cachedsummary *Summary
 	if v, ok := cb.freshCopy(key); v != nil {
-		if !ok { // not fresh, fetch in the background
-			go sendRequest(true)
-		}
 		log.D("cache: hit %s, but stale? %t", v.str(), ok)
 		r, cachedsummary, err = asResponse(msg, v, ok) // return cached response, may be stale
+		if !ok {                                       // not fresh, fetch in the background
+			go sendRequest()
+		}
+		// change summary fields to reflect cached response
+		if cachedsummary != nil {
+			summary.ID = t.ID()
+			summary.Type = t.Type()
+			summary.Server = t.GetAddr()
+			summary.RData = cachedsummary.RData
+			summary.RCode = cachedsummary.RCode
+			summary.RTtl = cachedsummary.RTtl
+			summary.Blocklists = cachedsummary.Blocklists
+		}
 	} else {
-		r, err = sendRequest(false)
+		r, err = sendRequest() // summary is filled by underlying transport
 	}
 
-	if cachedsummary != nil { // reflect summary as response is from the cache
-		summary.Latency = time.Since(start).Seconds()
-		summary.RData = cachedsummary.RData
-		summary.RCode = cachedsummary.RCode
-		summary.RTtl = cachedsummary.RTtl
-		summary.Blocklists = cachedsummary.Blocklists
-		summary.ID = t.ID()
-		summary.Server = t.GetAddr()
-	}
+	summary.Latency = time.Since(start).Seconds()
 	if err != nil {
 		t.status = BadResponse
 	} else {
@@ -419,7 +423,7 @@ func (t *ctransport) Query(network string, q []byte, summary *Summary) ([]byte, 
 		response, err = t.fetch(network, q, msg, summary, cb, key)
 
 	} else {
-		err = errMissingQueryName
+		err = errMissingQueryName // not really a transport error
 	}
 
 	return response, err

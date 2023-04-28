@@ -96,7 +96,6 @@ type dnsgateway struct {
 	sync.RWMutex                     // locks alg, nat, octets, hexes
 	Transport                        // primary transport for alg queries
 	Gateway                          // dns alg interface
-	listener     Listener            // client listener
 	tranMu       sync.RWMutex        // locks for Transport assignments
 	secondary    Transport           // secondary transport for alg queries
 	mod          bool                // modify real ip to alg ip
@@ -109,19 +108,18 @@ type dnsgateway struct {
 }
 
 // NewDNSGateway returns a DNS ALG, ready for use.
-func NewDNSGateway(inner Transport, l Listener, outer RdnsResolver) (t *dnsgateway) {
+func NewDNSGateway(inner Transport, outer RdnsResolver) (t *dnsgateway) {
 	alg := make(map[string]*ans)
 	nat := make(map[netip.Addr]*ans)
 	px := make(map[netip.Addr]*ans)
 
 	t = &dnsgateway{
-		listener: l,
-		alg:      alg,
-		nat:      nat,
-		px:       px,
-		rdns:     outer,
-		octets:   rfc6598,
-		hexes:    rfc8215a,
+		alg:    alg,
+		nat:    nat,
+		px:     px,
+		rdns:   outer,
+		octets: rfc6598,
+		hexes:  rfc8215a,
 	}
 	// initial transport must be set before starting the gateway
 	t.withTransport(inner)
@@ -628,21 +626,21 @@ func (t *dnsgateway) withTransport(inner Transport) bool {
 		// default transport is primary only when no other transport is set
 		// or if the current primary is also the default
 		if t.Transport == nil || t.Transport.ID() == Default {
-			t.Transport = NewCachingTransport(inner, t.listener, ttl2m)
+			t.Transport = NewCachingTransport(inner, ttl2m)
 		} // else: no-op
 	} else if inner.ID() == BlockFree {
 		// alg works best with a non-filtering dns server (which BlockFree is)
 		log.W("alg: set BlockFree as primary %s", inner.GetAddr())
-		t.Transport = NewCachingTransport(inner, t.listener, ttl2m)
+		t.Transport = NewCachingTransport(inner, ttl2m)
 		return true
 	} else if inner.ID() == Preferred {
 		log.I("alg: set Preferred as secondary %s", inner.GetAddr())
-		t.secondary = NewDefaultCachingTransport(inner, t.listener)
+		t.secondary = NewDefaultCachingTransport(inner)
 		return true
 	} else {
 		log.I("alg: sec set %s / existing primary %s", inner.GetAddr(), t.GetAddr())
 		// any other transport is secondary
-		t.secondary = NewDefaultCachingTransport(inner, t.listener)
+		t.secondary = NewDefaultCachingTransport(inner)
 	}
 	return true
 }

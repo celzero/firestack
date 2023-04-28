@@ -161,7 +161,7 @@ func NewResolver(fakeaddrs string, tunmode *settings.TunMode, defaultdns Transpo
 		localdomains: newUndelegatedDomainsTrie(),
 	}
 	ok1 := r.Add(defaultdns)
-	ok2 := r.Add(NewDNSGateway(defaultdns, r.listener, r))
+	ok2 := r.Add(NewDNSGateway(defaultdns, r))
 	log.I("dns: setup defaultdns set? %t, gateway set? %t", ok1, ok2)
 	r.loadaddrs(fakeaddrs)
 	return r
@@ -275,7 +275,7 @@ func (r *resolver) Add(t Transport) (ok bool) {
 			log.I("dns: updating reserved transport %s@%s", t.ID(), t.GetAddr())
 		}
 
-		ct := NewCachingTransport(t, r.listener, ttl10m)
+		ct := NewCachingTransport(t, ttl10m)
 		onet := &oneTransport{t: t}
 		ctonet := &oneTransport{t: ct}
 
