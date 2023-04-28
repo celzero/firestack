@@ -60,10 +60,8 @@ type Gateway interface {
 	withTransport(Transport) bool
 	// unset Transport as the underlying upstream DNS for alg queries
 	withoutTransport(Transport) bool
-	// Query using transport t
-	q1(t Transport, mod bool, network string, q []byte, s *Summary) (r []byte, err error)
 	// Query using t1 as primary transport and t2 as secondary
-	q2(t1 Transport, t2 Transport, mod bool, network string, q []byte, s *Summary) (r []byte, err error)
+	q(t1 Transport, t2 Transport, mod bool, network string, q []byte, s *Summary) (r []byte, err error)
 	// clear obj state
 	stop()
 }
@@ -230,16 +228,15 @@ func (t *dnsgateway) querySecondary(t2 Transport, network string, q []byte, out 
 
 // Implements Transport
 func (t *dnsgateway) Query(network string, q []byte, summary *Summary) (r []byte, err error) {
-	return t.q2(t.Transport, t.secondary, t.mod, network, q, summary)
+	r, err = t.q(t.Transport, t.secondary, t.mod, network, q, summary)
+	// change the summary to reflect the use of alg gateway
+	summary.ID = t.ID()
+	summary.Type = t.Type()
+	return
 }
 
 // Implements Gateway
-func (t *dnsgateway) q1(t1 Transport, mod bool, network string, q []byte, summary *Summary) (r []byte, err error) {
-	return t.q2(t1, nil, mod, network, q, summary)
-}
-
-// Implements Gateway
-func (t *dnsgateway) q2(t1, t2 Transport, mod bool, network string, q []byte, summary *Summary) (r []byte, err error) {
+func (t *dnsgateway) q(t1, t2 Transport, mod bool, network string, q []byte, summary *Summary) (r []byte, err error) {
 	if t1 == nil {
 		return nil, errNoTransportAlg
 	}
@@ -254,8 +251,6 @@ func (t *dnsgateway) q2(t1, t2 Transport, mod bool, network string, q []byte, su
 
 	// override relevant values in summary
 	innersummary.FillInto(summary)
-	summary.ID = t.ID()
-	summary.Type = t.Type()
 
 	if err != nil {
 		log.D("alg: abort; qerr %v", err)

@@ -462,10 +462,8 @@ func (r *resolver) Forward(q []byte) ([]byte, error) {
 	// or use transport t, which could be Gateway's impl of Transport
 	if gw == nil {
 		res2, err = t.Query(NetTypeUDP, q, summary)
-	} else if t2 == nil {
-		res2, err = gw.q1(t, false /*don't translate*/, NetTypeUDP, q, summary)
-	} else { // with t2 as the secondary transport
-		res2, err = gw.q2(t, t2, false /*don't translate*/, NetTypeUDP, q, summary)
+	} else { // with t2 as the secondary transport, which could be nil
+		res2, err = gw.q(t, t2, false /*don't translate*/, NetTypeUDP, q, summary)
 	}
 
 	algerr := isAlgErr(err) // not set when translate is off
@@ -632,10 +630,8 @@ func (r *resolver) forwardQuery(q []byte, c io.Writer) error {
 	// or use transport t, which could be Gateway's impl of Transport
 	if gw == nil {
 		res2, err = t.Query(NetTypeTCP, q, summary)
-	} else if t2 == nil {
-		res2, err = gw.q1(t, false /*don't translate*/, NetTypeTCP, q, summary)
-	} else { // with t2 as the secondary transport
-		res2, err = gw.q2(t, t2, false /*don't translate*/, NetTypeTCP, q, summary)
+	} else { // with t2 as the secondary transport, which could be nil
+		res2, err = gw.q(t, t2, false /*don't translate*/, NetTypeTCP, q, summary)
 	}
 
 	algerr := isAlgErr(err) // not set when translate is off
