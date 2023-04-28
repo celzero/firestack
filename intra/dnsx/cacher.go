@@ -366,13 +366,12 @@ func (t *ctransport) fetch(network string, q []byte, msg *dns.Msg, summary *Summ
 	}
 
 	if v, ok := cb.freshCopy(key); v != nil {
-		var cachedsummary *Summary
 		log.D("cache: hit %s, but stale? %t", v.str(), ok)
-		r, cachedsummary, err = asResponse(msg, v, ok) // return cached response, may be stale
-		if !ok {                                       // not fresh, fetch in the background
-			discard := new(Summary)
-			go sendRequest(discard)
+		if !ok { // not fresh, fetch in the background
+			go sendRequest(new(Summary))
 		}
+		var cachedsummary *Summary
+		r, cachedsummary, err = asResponse(msg, v, ok) // return cached response, may be stale
 		// change summary fields to reflect cached response
 		if cachedsummary != nil {
 			summary.ID = t.ID()

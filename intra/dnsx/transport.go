@@ -466,7 +466,7 @@ func (r *resolver) Forward(q []byte) ([]byte, error) {
 		res2, err = gw.q(t, t2, NetTypeUDP, q, summary)
 	}
 
-	algerr := isAlgErr(err) // not set when translate is off
+	algerr := isAlgErr(err) // not set when gw.translate is off
 	if algerr {
 		log.D("transport (udp): alg error %s for %s", err, qname)
 	}
@@ -634,7 +634,7 @@ func (r *resolver) forwardQuery(q []byte, c io.Writer) error {
 		res2, err = gw.q(t, t2, NetTypeTCP, q, summary)
 	}
 
-	algerr := isAlgErr(err) // not set when translate is off
+	algerr := isAlgErr(err) // not set when gw.translate is off
 	if algerr {
 		log.D("transport (tcp): alg error %s for %s", err, qname)
 	}
