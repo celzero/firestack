@@ -13,8 +13,8 @@ import (
 	"github.com/k-sone/critbitgo"
 )
 
-// A CritBit is a thread-safe trie that supports insertion, deletion, and prefix matching.
-type CritBit interface {
+// A RadixTree is a thread-safe trie that supports insertion, deletion, and prefix matching.
+type RadixTree interface {
 	// Adds k to the trie. Returns true if k was not already in the trie.
 	Add(k string) bool
 	// Sets k to v in the trie, overwriting any previous value.
@@ -37,34 +37,34 @@ type CritBit interface {
 	Len() int
 }
 
-type critbit struct {
+type radix struct {
 	sync.RWMutex
 	t *critbitgo.Trie
 }
 
-func NewCritBit() CritBit {
-	return &critbit{t: critbitgo.NewTrie()}
+func NewRadixTree() RadixTree {
+	return &radix{t: critbitgo.NewTrie()}
 }
 
 func reversed(s string) (b []byte) {
 	return []byte(xdns.StringReverse(s))
 }
 
-func (c *critbit) Add(k string) bool {
+func (c *radix) Add(k string) bool {
 	c.Lock()
 	defer c.Unlock()
 
 	return c.t.Insert(reversed(k), "")
 }
 
-func (c *critbit) Set(k string, v string) {
+func (c *radix) Set(k string, v string) {
 	c.Lock()
 	defer c.Unlock()
 
 	c.t.Set(reversed(k), v)
 }
 
-func (c *critbit) Del(k string) bool {
+func (c *radix) Del(k string) bool {
 	c.Lock()
 	defer c.Unlock()
 
@@ -72,14 +72,14 @@ func (c *critbit) Del(k string) bool {
 	return ok
 }
 
-func (c *critbit) Has(k string) bool {
+func (c *radix) Has(k string) bool {
 	c.RLock()
 	defer c.RUnlock()
 
 	return c.t.Contains(reversed(k))
 }
 
-func (c *critbit) DelAll(prefix string) (n int32) {
+func (c *radix) DelAll(prefix string) (n int32) {
 	c.Lock()
 	defer c.Unlock()
 
@@ -97,11 +97,11 @@ func (c *critbit) DelAll(prefix string) (n int32) {
 	return
 }
 
-func (c *critbit) HasAny(prefix string) bool {
+func (c *radix) HasAny(prefix string) bool {
 	return c.get(prefix) != nil
 }
 
-func (c *critbit) Get(k string) (v string) {
+func (c *radix) Get(k string) (v string) {
 	s, ok := c.t.Get(reversed(k))
 	if ok {
 		v = s.(string)
@@ -109,14 +109,14 @@ func (c *critbit) Get(k string) (v string) {
 	return
 }
 
-func (c *critbit) GetAny(prefix string) (v string) {
+func (c *radix) GetAny(prefix string) (v string) {
 	if s := c.get(prefix); s != nil {
 		v = *s
 	}
 	return
 }
 
-func (c *critbit) get(str string) *string {
+func (c *radix) get(str string) *string {
 	c.RLock()
 	defer c.RUnlock()
 
@@ -133,14 +133,14 @@ func (c *critbit) get(str string) *string {
 	return &s
 }
 
-func (c *critbit) Clear() {
+func (c *radix) Clear() {
 	c.Lock()
 	defer c.Unlock()
 
 	c.t.Clear()
 }
 
-func (c *critbit) Len() int {
+func (c *radix) Len() int {
 	c.RLock()
 	defer c.RUnlock()
 

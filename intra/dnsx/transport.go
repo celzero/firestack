@@ -139,7 +139,7 @@ type resolver struct {
 	systemdns    []Transport
 	transports   map[string]Transport
 	pool         map[string]*oneTransport
-	localdomains CritBit
+	localdomains RadixTree
 	rdnsl        BraveDNS
 	rdnsr        BraveDNS
 	natpt        ipn.DNS64

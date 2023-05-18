@@ -153,8 +153,8 @@ var undelegatedSet = []string{
 	"zghjccbob3n0",
 }
 
-func newUndelegatedDomainsTrie() CritBit {
-	t := NewCritBit()
+func newUndelegatedDomainsTrie() RadixTree {
+	t := NewRadixTree()
 	for _, domain := range undelegatedSet {
 		t.Add(domain)
 	}
@@ -162,7 +162,7 @@ func newUndelegatedDomainsTrie() CritBit {
 }
 
 func (r *resolver) requiresSystem(qname string) (id string) {
-	if r.localdomains.HasAny(qname) {
+	if ok := r.localdomains.HasAny(qname); ok {
 		id = System
 	}
 	return
