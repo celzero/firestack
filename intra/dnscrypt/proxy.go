@@ -55,8 +55,48 @@ type Proxy struct {
 }
 
 var (
-	errNoCert = errors.New("dnscrypt: error refreshing cert")
+	errNoCert          = errors.New("dnscrypt: error refreshing cert")
+	errQueryTooShort   = errors.New("dnscrypt: query size too short")
+	errQueryTooLarge   = errors.New("dnscrypt: query size too large")
+	errNoServers       = errors.New("dnscrypt: server info nil, drop query")
+	errNoDoh           = errors.New("dnscrypt: dns-over-https not supported")
+	errUnknownProto    = errors.New("dnscrypt: unknown protocol")
+	errInvalidResponse = errors.New("dnscrypt: response too large or too small")
 )
+
+func exchangeWithUDPServer(serverInfo *ServerInfo, sharedKey *[32]byte, encryptedQuery []byte, clientNonce []byte) ([]byte, error) {
+	upstreamAddr := serverInfo.UDPAddr
+	if serverInfo.RelayUDPAddr != nil {
+		upstreamAddr = serverInfo.RelayUDPAddr
+	}
+
+	var err error
+	var pc net.Conn
+	if pc, err = net.DialUDP("udp", nil, upstreamAddr); err != nil {
+		return nil, err
+	}
+
+	defer pc.Close()
+	if err = pc.SetDeadline(time.Now().Add(serverInfo.Timeout)); err != nil {
+		return nil, err
+	}
+	if serverInfo.RelayUDPAddr != nil {
+		prepareForRelay(serverInfo.UDPAddr.IP, serverInfo.UDPAddr.Port, &encryptedQuery)
+	}
+	encryptedResponse := make([]byte, xdns.MaxDNSPacketSize)
+	for tries := 2; tries > 0; tries-- {
+		if _, err := pc.Write(encryptedQuery); err != nil {
+			return nil, err
+		}
+		length, err := pc.Read(encryptedResponse)
+		if err == nil {
+			encryptedResponse = encryptedResponse[:length]
+			break
+		}
+		log.D("dnscrypt: timeout; retrying [%v]", serverInfo.Name)
+	}
+	return Decrypt(serverInfo, sharedKey, encryptedResponse, clientNonce)
+}
 
 func exchangeWithTCPServer(serverInfo *ServerInfo, sharedKey *[32]byte, encryptedQuery []byte, clientNonce []byte) ([]byte, error) {
 	upstreamAddr := serverInfo.TCPAddr
@@ -66,12 +106,12 @@ func exchangeWithTCPServer(serverInfo *ServerInfo, sharedKey *[32]byte, encrypte
 	var pc net.Conn
 	pc, err := net.DialTCP("tcp", nil, upstreamAddr)
 	if err != nil {
-		log.E("failed to dial %s upstream because %v", serverInfo.String(), err)
+		log.E("dnscrypt: dialing %s err: %v", serverInfo.String(), err)
 		return nil, err
 	}
 	defer pc.Close()
 	if err := pc.SetDeadline(time.Now().Add(serverInfo.Timeout)); err != nil {
-		log.E("failed to set timeout because %v", err)
+		log.E("dnscrypt: err conn timeout: %v", err)
 		return nil, err
 	}
 	if serverInfo.RelayTCPAddr != nil {
@@ -79,16 +119,16 @@ func exchangeWithTCPServer(serverInfo *ServerInfo, sharedKey *[32]byte, encrypte
 	}
 	encryptedQuery, err = xdns.PrefixWithSize(encryptedQuery)
 	if err != nil {
-		log.E("failed prefix(encrypted-query) from %s because %v", serverInfo.String(), err)
+		log.E("dnscrypt: prefix(encrypted-query) %s err: %v", serverInfo.String(), err)
 		return nil, err
 	}
 	if _, err := pc.Write(encryptedQuery); err != nil {
-		log.E("failed to write to remote-addr at %s because %v", serverInfo.String(), err)
+		log.E("dnscrypt: err write to remote: %v", serverInfo.String(), err)
 		return nil, err
 	}
 	encryptedResponse, err := xdns.ReadPrefixed(&pc)
 	if err != nil {
-		log.E("failed to read(encrypted-response) from %s because %v", serverInfo.String(), err)
+		log.E("dnscrypt: read(encrypted-response) %s err %v", serverInfo.String(), err)
 		return nil, err
 	}
 	return Decrypt(serverInfo, sharedKey, encryptedResponse, clientNonce)
@@ -108,10 +148,9 @@ func query(q []byte, si *ServerInfo, trunc bool) (r []byte, qerr error) {
 	return queryServer(q, si, trunc)
 }
 
-func queryServer(packet []byte, serverInfo *ServerInfo, truncate bool) (response []byte, qerr error) {
+func queryServer(packet []byte, serverInfo *ServerInfo, useudp bool) (response []byte, qerr error) {
 	if len(packet) < xdns.MinDNSPacketSize {
-		log.W("DNS query size too short, cannot process dnscrypt query.")
-		qerr = dnsx.NewBadQueryError(fmt.Errorf("dnscrypt query size too short"))
+		qerr = dnsx.NewBadQueryError(errQueryTooShort)
 		return
 	}
 
@@ -126,13 +165,13 @@ func queryServer(packet []byte, serverInfo *ServerInfo, truncate bool) (response
 	saction := state.action
 	sr := state.response
 	if err != nil || saction == ActionDrop {
-		log.E("ActionDrop or err on request %w", err)
+		log.E("dnscrypt: ActionDrop %v", err)
 		qerr = dnsx.NewBadQueryError(err)
 		return
 	}
 	if saction == ActionSynth {
 		if sr != nil {
-			log.D("send intercepted synth response")
+			log.D("dnscrypt: send synth response")
 			response, err = sr.PackBuffer(response)
 			// XXX: when the query is blocked and pack-buffer fails
 			// doh falls back to forwarding the query instead.
@@ -141,22 +180,19 @@ func queryServer(packet []byte, serverInfo *ServerInfo, truncate bool) (response
 			}
 			return
 		}
-		log.W("missing synth response, forwarding query...")
+		log.D("dnscrypt: no synth; forward query [udp? %t]...", useudp)
 	}
 	if len(query) < xdns.MinDNSPacketSize {
-		err = errors.New("dns query size too short, drop dnscrypt query")
-		qerr = dnsx.NewBadQueryError(err)
+		qerr = dnsx.NewBadQueryError(errQueryTooShort)
 		return
 	}
 	if len(query) > xdns.MaxDNSPacketSize {
-		err = errors.New("dns query size too large, drop dnscrypt query")
-		qerr = dnsx.NewBadQueryError(err)
+		qerr = dnsx.NewBadQueryError(errQueryTooLarge)
 		return
 	}
 
 	if serverInfo == nil {
-		err = errors.New("server-info nil, drop dnscrypt query")
-		qerr = dnsx.NewInternalQueryError(err)
+		qerr = dnsx.NewInternalQueryError(errNoServers)
 		return
 	}
 
@@ -164,37 +200,44 @@ func queryServer(packet []byte, serverInfo *ServerInfo, truncate bool) (response
 		sharedKey, encryptedQuery, clientNonce, err := Encrypt(serverInfo, query)
 
 		if err != nil {
-			log.W("Encryption failure with dnscrypt query to %s.", serverInfo.String())
+			log.W("dnscrypt: enc fail forwarding to %s", serverInfo.String())
 			qerr = dnsx.NewInternalQueryError(err)
 			return
 		}
 
-		response, err = exchangeWithTCPServer(serverInfo, sharedKey, encryptedQuery, clientNonce)
+		if useudp {
+			response, err = exchangeWithUDPServer(serverInfo, sharedKey, encryptedQuery, clientNonce)
+		}
+		// if udp errored out, try over tcp; or use tcp if udp is disabled
+		if useudp && err != nil || !useudp {
+			useudp = false // switched to tcp
+			response, err = exchangeWithTCPServer(serverInfo, sharedKey, encryptedQuery, clientNonce)
+		}
 
 		if err != nil {
-			log.W("dnscrypt query exchange with %s failed: %v", serverInfo.String(), err)
+			log.W("dnscrypt: querying [udp? %t] %s failed: %v", serverInfo.String(), useudp, err)
 			qerr = dnsx.NewSendFailedQueryError(err)
 			return
 		}
 	} else if serverInfo.Proto == stamps.StampProtoTypeDoH {
 		// FIXME: implement
-		qerr = dnsx.NewSendFailedQueryError(errors.New("doh not supported with dnscrypt proxy"))
+		qerr = dnsx.NewSendFailedQueryError(errNoDoh)
 		return
 	} else {
-		qerr = dnsx.NewTransportQueryError(fmt.Errorf("dnscrypt: unknown protocol"))
+		qerr = dnsx.NewTransportQueryError(errUnknownProto)
 		return
 	}
 
 	if len(response) < xdns.MinDNSPacketSize || len(response) > xdns.MaxDNSPacketSize {
-		log.E("response packet size from %s too small or too large", serverInfo.String())
-		qerr = dnsx.NewBadResponseQueryError(errors.New("response packet size too small or too big"))
+		log.E("dnscrypt: response from %s too small or too large", serverInfo.String())
+		qerr = dnsx.NewBadResponseQueryError(errInvalidResponse)
 		return
 	}
 
-	response, err = intercept.HandleResponse(response, truncate)
+	response, err = intercept.HandleResponse(response, useudp)
 
 	if err != nil {
-		log.E("failed to intercept %s response %w", serverInfo.String(), err)
+		log.E("dnscrypt: err intercept response for %s: %w", serverInfo.String(), err)
 		qerr = dnsx.NewBadResponseQueryError(err)
 		return
 	}
@@ -301,7 +344,7 @@ func (proxy *Proxy) Start() (string, error) {
 			for {
 				select {
 				case <-ctx.Done():
-					log.I("cert refresh go rountine stopped.")
+					log.I("dnscrypt: cert refresh stopped")
 					return
 				default:
 					delay := proxy.certRefreshDelay

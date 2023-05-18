@@ -53,7 +53,9 @@ type ServerInfo struct {
 	Timeout            time.Duration
 	URL                *url.URL
 	HostName           string
+	UDPAddr            *net.UDPAddr
 	TCPAddr            *net.TCPAddr
+	RelayUDPAddr       *net.UDPAddr
 	RelayTCPAddr       *net.TCPAddr
 	status             int
 }
@@ -177,11 +179,20 @@ func fetchDNSCryptServerInfo(proxy *Proxy, name string, stamp stamps.ServerStamp
 		stamp.ServerPk = serverPk
 	}
 
-	relayTCPAddr, err := route(proxy, name)
+	relayUDPAddr, relayTCPAddr, err := route(proxy, name)
 	if err != nil {
 		return ServerInfo{}, err
 	}
+	// note: relays are not used to fetch certs due to multiple issues reported by users
 	certInfo, relayTCPAddr, err := FetchCurrentDNSCryptCert(proxy, &name, stamp.ServerPk, stamp.ServerAddrStr, stamp.ProviderName, relayTCPAddr)
+	if err != nil {
+		return ServerInfo{}, err
+	}
+	// iff tcp relay is unset, unset udp relay too
+	if relayTCPAddr == nil {
+		relayUDPAddr = nil
+	}
+	remoteUDPAddr, err := net.ResolveUDPAddr("udp", stamp.ServerAddrStr)
 	if err != nil {
 		return ServerInfo{}, err
 	}
@@ -200,8 +211,10 @@ func fetchDNSCryptServerInfo(proxy *Proxy, name string, stamp stamps.ServerStamp
 		HostName:           stamp.ProviderName,
 		Name:               name,
 		Timeout:            proxy.timeout,
+		UDPAddr:            remoteUDPAddr,
 		TCPAddr:            remoteTCPAddr,
 		RelayTCPAddr:       relayTCPAddr,
+		RelayUDPAddr:       relayUDPAddr,
 	}, nil
 }
 
@@ -210,11 +223,11 @@ func fetchDoHServerInfo(proxy *Proxy, name string, stamp stamps.ServerStamp) (Se
 	return ServerInfo{}, errors.New("unsupported protocol")
 }
 
-func route(proxy *Proxy, name string) (*net.TCPAddr, error) {
+func route(proxy *Proxy, name string) (udpaddr *net.UDPAddr, tcpaddr *net.TCPAddr, err error) {
 	relayNames := proxy.routes
 	if relayNames == nil {
 		log.I("dnscrypt: No relay routes found.")
-		return nil, nil
+		return
 	}
 
 	var relayName string
@@ -224,7 +237,8 @@ func route(proxy *Proxy, name string) (*net.TCPAddr, error) {
 	}
 	var relayCandidateStamp *stamps.ServerStamp
 	if len(relayName) == 0 {
-		return nil, fmt.Errorf("route declared for [%v] but an empty relay list", name)
+		err = fmt.Errorf("route declared for [%v] but an empty relay list", name)
+		return
 	} else if relayStamp, err := stamps.NewServerStampFromString(relayName); err == nil {
 		relayCandidateStamp = &relayStamp
 	} else if _, err := net.ResolveTCPAddr("tcp", relayName); err == nil {
@@ -234,17 +248,19 @@ func route(proxy *Proxy, name string) (*net.TCPAddr, error) {
 		}
 	}
 	if relayCandidateStamp == nil {
-		return nil, fmt.Errorf("undefined relay [%v] for server [%v]", relayName, name)
+		err = fmt.Errorf("undefined relay [%v] for server [%v]", relayName, name)
+		return
 	}
 	if relayCandidateStamp.Proto == stamps.StampProtoTypeDNSCrypt ||
 		relayCandidateStamp.Proto == stamps.StampProtoTypeDNSCryptRelay {
-		relayTCPAddr, err := net.ResolveTCPAddr("tcp", relayCandidateStamp.ServerAddrStr)
-		if err != nil {
-			return nil, err
+		tcpaddr, err = net.ResolveTCPAddr("tcp", relayCandidateStamp.ServerAddrStr)
+		if err == nil {
+			udpaddr, err = net.ResolveUDPAddr("udp", relayCandidateStamp.ServerAddrStr)
 		}
-		return relayTCPAddr, nil
+	} else {
+		err = fmt.Errorf("invalid relay [%v] for server [%v]", relayName, name)
 	}
-	return nil, fmt.Errorf("invalid relay [%v] for server [%v]", relayName, name)
+	return
 }
 
 // NewServersInfo returns a new servers-info object
