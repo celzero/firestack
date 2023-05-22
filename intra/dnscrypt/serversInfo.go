@@ -42,7 +42,6 @@ var _ dnsx.Transport = &(ServerInfo{})
 
 type ServerInfo struct {
 	dnsx.Transport
-	networktype        string
 	Proto              stamps.StampProtoType
 	MagicQuery         [8]byte
 	ClientPubKey       *[32]byte
@@ -201,7 +200,6 @@ func fetchDNSCryptServerInfo(proxy *Proxy, name string, stamp stamps.ServerStamp
 		return ServerInfo{}, err
 	}
 	return ServerInfo{
-		networktype:        proxy.mainProto,
 		Proto:              stamps.StampProtoTypeDNSCrypt,
 		MagicQuery:         certInfo.MagicQuery,
 		ClientPubKey:       &proxy.proxyPublicKey,

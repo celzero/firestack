@@ -17,8 +17,6 @@ package dnscrypt
 import (
 	"bytes"
 	crypto_rand "crypto/rand"
-	"errors"
-	"math/rand"
 
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/xdns"
@@ -51,13 +49,15 @@ func pad(packet []byte, minSize int) []byte {
 func unpad(packet []byte) ([]byte, error) {
 	for i := len(packet); ; {
 		if i == 0 {
-			return nil, errors.New("invalid padding (short packet)")
+			// invalid padding, short packet
+			return nil, errIncorrectPad
 		}
 		i--
 		if packet[i] == 0x80 {
 			return packet[:i], nil
 		} else if packet[i] != 0x00 {
-			return nil, errors.New("invalid padding (delimiter not found)")
+			// invalid padding, delimiter not found
+			return nil, errIncorrectPad
 		}
 	}
 }
@@ -75,33 +75,42 @@ func ComputeSharedKey(cryptoConstruction xdns.CryptoConstruction, secretKey *[32
 	return
 }
 
-func Encrypt(serverInfo *ServerInfo, packet []byte) (sharedKey *[32]byte, encrypted []byte, clientNonce []byte, err error) {
-	nonce, clientNonce := make([]byte, NonceSize), make([]byte, HalfNonceSize)
+func Encrypt(
+	serverInfo *ServerInfo,
+	packet []byte,
+	useudp bool,
+) (sharedKey *[32]byte, encrypted []byte, clientNonce []byte, err error) {
+	nonce := make([]byte, NonceSize)
+	clientNonce = make([]byte, HalfNonceSize)
 	crypto_rand.Read(clientNonce)
 	copy(nonce, clientNonce)
+
 	var publicKey *[PublicKeySize]byte
 
 	sharedKey = &serverInfo.SharedKey
 	publicKey = serverInfo.ClientPubKey
-	proto := serverInfo.networktype
 
-	minQuestionSize := QueryOverhead + len(packet)
-	var xpad [1]byte
-	rand.Read(xpad[:])
-	minQuestionSize += int(xpad[0])
-	paddedLength := xdns.Min(xdns.MaxDNSUDPPacketSize, (xdns.Max(minQuestionSize, QueryOverhead)+1+63) & ^63)
-
-	// was: serverInfo.RelayUDAddr
-	if serverInfo.RelayTCPAddr != nil && proto == "tcp" {
+	paddedLength := xdns.MaxDNSUDPSafePacketSize
+	if !useudp && serverInfo.RelayTCPAddr != nil {
 		paddedLength = xdns.MaxDNSPacketSize
+	} else {
+		minQuestionSize := QueryOverhead + len(packet)
+		if !useudp { // random pad if tcp without relay
+			var xpad [1]byte
+			crypto_rand.Read(xpad[:])
+			minQuestionSize += int(xpad[0])
+		}
+		paddedLength = xdns.Min(xdns.MaxDNSUDPPacketSize, (xdns.Max(minQuestionSize, QueryOverhead)+1+63) & ^63)
 	}
 	if QueryOverhead+len(packet)+1 > paddedLength {
-		err = errors.New("question too large; cannot be padded")
+		err = errQueryTooLarge
 		return
 	}
+
 	encrypted = append(serverInfo.MagicQuery[:], publicKey[:]...)
 	encrypted = append(encrypted, nonce[:HalfNonceSize]...)
 	padded := pad(packet, paddedLength-QueryOverhead)
+
 	if serverInfo.CryptoConstruction == xdns.XChacha20Poly1305 {
 		encrypted = xsecretbox.Seal(encrypted, nonce, padded, sharedKey[:])
 	} else {
@@ -118,12 +127,13 @@ func Decrypt(serverInfo *ServerInfo, sharedKey *[32]byte, encrypted []byte, nonc
 	if len(encrypted) < responseHeaderLen+TagSize+int(xdns.MinDNSPacketSize) ||
 		len(encrypted) > responseHeaderLen+TagSize+int(xdns.MaxDNSPacketSize) ||
 		!bytes.Equal(encrypted[:serverMagicLen], xdns.ServerMagic[:]) {
-		return encrypted, errors.New("invalid message size or prefix")
+		return encrypted, errInvalidResponse
 	}
 	serverNonce := encrypted[serverMagicLen:responseHeaderLen]
 	if !bytes.Equal(nonce[:HalfNonceSize], serverNonce[:HalfNonceSize]) {
-		return encrypted, errors.New("unexpected nonce")
+		return encrypted, errNonceUnexpected
 	}
+
 	var packet []byte
 	var err error
 	if serverInfo.CryptoConstruction == xdns.XChacha20Poly1305 {
@@ -134,15 +144,17 @@ func Decrypt(serverInfo *ServerInfo, sharedKey *[32]byte, encrypted []byte, nonc
 		var ok bool
 		packet, ok = secretbox.Open(nil, encrypted[responseHeaderLen:], &xsalsaServerNonce, sharedKey)
 		if !ok {
-			err = errors.New("incorrect tag")
+			err = errIncorrectTag
 		}
 	}
+
 	if err != nil {
 		return encrypted, err
 	}
+
 	packet, err = unpad(packet)
 	if err != nil || len(packet) < xdns.MinDNSPacketSize {
-		return encrypted, errors.New("incorrect padding")
+		return encrypted, errIncorrectPad
 	}
 	return packet, nil
 }

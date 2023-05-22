@@ -45,7 +45,6 @@ type Proxy struct {
 	certRefreshDelay             time.Duration
 	certRefreshDelayAfterFailure time.Duration
 	certIgnoreTimestamp          bool
-	mainProto                    string
 	registeredServers            map[string]RegisteredServer
 	routes                       []string
 	liveServers                  []string
@@ -62,6 +61,9 @@ var (
 	errNoDoh           = errors.New("dnscrypt: dns-over-https not supported")
 	errUnknownProto    = errors.New("dnscrypt: unknown protocol")
 	errInvalidResponse = errors.New("dnscrypt: response too large or too small")
+	errNonceUnexpected = errors.New("dnscrypt: unexpected nonce")
+	errIncorrectTag    = errors.New("dnscrypt: incorrect tag")
+	errIncorrectPad    = errors.New("dnscrypt: incorrect padding")
 )
 
 func exchangeWithUDPServer(serverInfo *ServerInfo, sharedKey *[32]byte, encryptedQuery []byte, clientNonce []byte) ([]byte, error) {
@@ -83,6 +85,7 @@ func exchangeWithUDPServer(serverInfo *ServerInfo, sharedKey *[32]byte, encrypte
 	if serverInfo.RelayUDPAddr != nil {
 		prepareForRelay(serverInfo.UDPAddr.IP, serverInfo.UDPAddr.Port, &encryptedQuery)
 	}
+	// TODO: use a pool
 	encryptedResponse := make([]byte, xdns.MaxDNSPacketSize)
 	for tries := 2; tries > 0; tries-- {
 		if _, err := pc.Write(encryptedQuery); err != nil {
@@ -92,8 +95,11 @@ func exchangeWithUDPServer(serverInfo *ServerInfo, sharedKey *[32]byte, encrypte
 		if err == nil {
 			encryptedResponse = encryptedResponse[:length]
 			break
+		} else if tries <= 0 {
+			log.E("dnscrypt: [%s] err; [%v]", serverInfo.Name, err)
+			return nil, err
 		}
-		log.D("dnscrypt: timeout; retrying [%v]", serverInfo.Name)
+		log.D("dnscrypt: [%s] err; retrying [%v]", serverInfo.Name, err)
 	}
 	return Decrypt(serverInfo, sharedKey, encryptedResponse, clientNonce)
 }
@@ -197,7 +203,7 @@ func queryServer(packet []byte, serverInfo *ServerInfo, useudp bool) (response [
 	}
 
 	if serverInfo.Proto == stamps.StampProtoTypeDNSCrypt {
-		sharedKey, encryptedQuery, clientNonce, err := Encrypt(serverInfo, query)
+		sharedKey, encryptedQuery, clientNonce, err := Encrypt(serverInfo, query, useudp)
 
 		if err != nil {
 			log.W("dnscrypt: enc fail forwarding to %s", serverInfo.String())
@@ -507,7 +513,6 @@ func NewProxy() *Proxy {
 		certRefreshDelayAfterFailure: time.Duration(10 * time.Second),
 		certIgnoreTimestamp:          false,
 		timeout:                      time.Duration(20000) * time.Millisecond,
-		mainProto:                    "tcp",
 		serversInfo:                  NewServersInfo(),
 		liveServers:                  nil,
 		lastStatus:                   dnsx.Start,
