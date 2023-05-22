@@ -146,6 +146,15 @@ func (g *GUDPConn) ok() bool {
 	return g.ep != nil && g.gudp != nil
 }
 
+func (g *GUDPConn) StatefulTeardown() (fin bool) {
+	if g.ok() {
+		return g.Close() == nil
+	}
+
+	g.Connect(false)        // establish circuit
+	return g.Close() == nil // then fin
+}
+
 func (g *GUDPConn) Connect(fin bool) tcpip.Error {
 	defer g.wg.Done()
 
@@ -153,14 +162,14 @@ func (g *GUDPConn) Connect(fin bool) tcpip.Error {
 		return &tcpip.ErrHostUnreachable{}
 	}
 
-	waitQueue := new(waiter.Queue)
+	wq := new(waiter.Queue)
 	// use gonet.DialUDP instead?
-	if endpoint, err := g.req.CreateEndpoint(waitQueue); err != nil {
+	if endpoint, err := g.req.CreateEndpoint(wq); err != nil {
 		log.E("ns.udp.forwarder: CONNECT endpoint for %v => %v; err(%v)", g.src, g.dst, err)
 		return err
 	} else {
 		g.ep = endpoint
-		g.gudp = gonet.NewUDPConn(g.stack, waitQueue, endpoint)
+		g.gudp = gonet.NewUDPConn(g.stack, wq, endpoint)
 	}
 	return nil
 }

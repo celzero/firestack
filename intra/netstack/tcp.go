@@ -78,6 +78,15 @@ func (g *GTCPConn) ok() bool {
 	return g.TCPConn != nil
 }
 
+func (g *GTCPConn) StatefulTeardown() (rst bool) {
+	if g.ok() {
+		return g.Close() == nil
+	}
+	g.synack()           // establish circuit
+	g.req.Complete(true) // then rst
+	return true
+}
+
 func (g *GTCPConn) Connect(rst bool) (open bool) {
 	if rst {
 		g.req.Complete(rst)
@@ -88,6 +97,14 @@ func (g *GTCPConn) Connect(rst bool) (open bool) {
 		return true // open
 	}
 
+	rst = g.synack()
+	g.req.Complete(rst)
+
+	log.V("ns.tcp.forwarder: proxy src(%v) => dst(%v); fin? %t", g.LocalAddr(), g.RemoteAddr(), rst)
+	return !rst // open or closed
+}
+
+func (g *GTCPConn) synack() (rst bool) {
 	wq := new(waiter.Queue)
 	// the passive-handshake (SYN) may not successful for a non-existent route (say, ipv6)
 	if ep, err := g.req.CreateEndpoint(wq); err != nil {
@@ -95,16 +112,13 @@ func (g *GTCPConn) Connect(rst bool) (open bool) {
 		// prevent potential half-open TCP connection leak.
 		// hopefully doesn't break happy-eyeballs datatracker.ietf.org/doc/html/rfc8305#section-5
 		// ie, apps that expect network-unreachable ICMP msgs instead of TCP RSTs?
-		// TCP RST here is indi stinguishable to an app from being firewalled.
-		rst = true
+		// TCP RST here is indistinguishable to an app from being firewalled.
+		return true
 	} else {
 		g.ep = ep
 		g.TCPConn = gonet.NewTCPConn(wq, ep)
-		rst = false
+		return false
 	}
-	g.req.Complete(rst)
-	log.V("ns.tcp.forwarder: proxy src(%v) => dst(%v); fin? %t", g.LocalAddr(), g.RemoteAddr(), rst)
-	return !rst // open or closed
 }
 
 // gonet conn local and remote addresses may be nil
