@@ -37,7 +37,7 @@ import (
 
 func init() {
 	// Conserve memory by increasing garbage collection frequency.
-	debug.SetGCPercent(30)
+	debug.SetGCPercent(10)
 	log.SetLevel(log.WARN)
 }
 
@@ -46,14 +46,20 @@ func init() {
 // server; all other data flows directly to its destination.
 //
 // `fd` is the TUN device.  The IntraTunnel acquires an additional reference to it, which
-//  is released by IntraTunnel.Disconnect(), so the caller must close `fd` _and_ call
-//  Disconnect() in order to close the TUN device.
+//
+//	is released by IntraTunnel.Disconnect(), so the caller must close `fd` _and_ call
+//	Disconnect() in order to close the TUN device.
+//
 // `fpcap` is the absolute filepath to which a PCAP file will be written to.
-//  If `fpcap` is -1, no PCAP file will be written.
+//
+//	If `fpcap` is -1, no PCAP file will be written.
+//
 // `mtu` is the MTU of the TUN device.
 // `engine` Network protocol to use. Must be one of settings.NS4, settings.NS6, or settings.NS46
 // `fakedns` is the DNS server that the system believes it is using, in "host:port" style.
-//  The port is normally 53.
+//
+//	The port is normally 53.
+//
 // `dohdns` is the default fallback DoH transport.  It must not be `nil`.
 // `ctl` is a kotlin object that implements the firewall.
 // `listener` will be provided with a summary of each TCP and UDP socket when it is closed.
