@@ -345,7 +345,7 @@ func (t *ctransport) fetch(network string, q []byte, msg *dns.Msg, summary *Summ
 
 	sendRequest := func(s *Summary) (r []byte, err error) {
 		ba := cb.queryBarrier(key)
-		if s == nil {
+		if s == nil { // sync caller when s is not set
 			s = summary
 		}
 
@@ -357,6 +357,7 @@ func (t *ctransport) fetch(network string, q []byte, msg *dns.Msg, summary *Summ
 		ba.Unlock()
 
 		s.Latency = time.Since(start).Seconds()
+		t.status = s.Status
 
 		if err == nil && len(r) > 0 {
 			cb.put(t, key, r, s)
@@ -365,7 +366,14 @@ func (t *ctransport) fetch(network string, q []byte, msg *dns.Msg, summary *Summ
 		return
 	}
 
-	if v, ok := cb.freshCopy(key); v != nil {
+	// check if underlying transport can connect fine, if not treat cache
+	// as stale regardless of its freshness. this avoids scenario when there's
+	// no network connectivity but cache returns proper responses to queries,
+	// which results in confused apps that think there's network connectivity,
+	// that is, these confused apps go bezerk resulting in battery drain.
+	tok := t.status != SendFailed
+
+	if v, ok := cb.freshCopy(key); tok && v != nil {
 		log.D("cache: hit %s, but stale? %t", v.str(), ok)
 		if !ok { // not fresh, fetch in the background
 			go sendRequest(new(Summary))
@@ -387,13 +395,6 @@ func (t *ctransport) fetch(network string, q []byte, msg *dns.Msg, summary *Summ
 	}
 
 	summary.Latency = time.Since(start).Seconds()
-	if err != nil {
-		t.status = BadResponse
-	} else {
-		t.status = Complete
-	}
-	summary.Status = t.Status()
-
 	return
 }
 
