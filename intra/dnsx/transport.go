@@ -33,6 +33,7 @@ const (
 
 	// special singleton DNS transports (IDs)
 	System    = "System"    // network/os provided dns
+	Local     = "mdns"      // mdns
 	Default   = "Default"   // default (fallback) dns
 	Preferred = "Preferred" // user preferred dns, primary for alg
 	BlockFree = "BlockFree" // no local blocks; if not set, default is used
@@ -421,7 +422,7 @@ func (r *resolver) Forward(q []byte) ([]byte, error) {
 	qtyp := qtype(msg)
 	summary.QName = qname
 	summary.QType = qtyp
-	id := r.requiresSystem(qname)
+	id := r.requiresSystemOrLocal(qname)
 	sid := ""
 	if len(id) > 0 {
 		log.I("transport (udp): suggest system-dns %s for %s", id, qname)
@@ -587,7 +588,7 @@ func (r *resolver) forwardQuery(q []byte, c io.Writer) error {
 	qtyp := qtype(msg)
 	summary.QName = qname
 	summary.QType = qtyp
-	id := r.requiresSystem(qname)
+	id := r.requiresSystemOrLocal(qname)
 	sid := ""
 	if len(id) > 0 {
 		log.I("transport (udp): suggest system-dns %s for %s", id, qname)

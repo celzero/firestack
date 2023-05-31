@@ -29,6 +29,10 @@ func NewGroundedTransport() (d dnsx.Transport) {
 	return dns53.NewGroundedTransport()
 }
 
+func NewMDNSTransport(protos string) (d dnsx.Transport) {
+	return dns53.NewMDNSTransport(protos)
+}
+
 func newDNSCryptTransport() (p dnsx.TransportMult) {
 	p = dnscrypt.NewProxy()
 	return
@@ -36,9 +40,13 @@ func newDNSCryptTransport() (p dnsx.TransportMult) {
 
 // NewDoHTransport returns a DNSTransport that connects to the specified DoH server.
 // `url` is the URL of a DoH server (no template, POST-only).  If it is nonempty, it
-//   overrides `udpdns` and `tcpdns`.
+//
+//	overrides `udpdns` and `tcpdns`.
+//
 // `ips` is an optional comma-separated list of IP addresses for the server.  (This
-//   wrapper is required because gomobile cannot make bindings for []string.)
+//
+//	wrapper is required because gomobile cannot make bindings for []string.)
+//
 // `protector` is the socket protector to use for all external network activity.
 // `auth` will provide a client certificate if required by the TLS server.
 // `listener` will be notified after each DNS query succeeds or fails.

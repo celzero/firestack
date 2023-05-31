@@ -5,6 +5,8 @@
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 package dnsx
 
+import "errors"
+
 const (
 	// Start: Transaction started
 	Start = iota
@@ -23,6 +25,8 @@ const (
 	// TransportError: Transport has issues
 	TransportError
 )
+
+var noerr = errors.New("no underlying error")
 
 type QueryError struct {
 	status int
@@ -46,6 +50,9 @@ func (e *QueryError) SendFailed() bool {
 }
 
 func newQueryError(no int, err error) *QueryError {
+	if err == nil {
+		err = noerr
+	}
 	return &QueryError{no, err}
 }
 

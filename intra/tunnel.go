@@ -74,6 +74,7 @@ func NewTunnel(fakedns string, defaultdns dnsx.Transport, fd int, fpcap string, 
 
 	resolver := dnsx.NewResolver(fakedns, tunmode, defaultdns, listener, natpt)
 	resolver.Add(NewGroundedTransport())
+	resolver.Add(NewMDNSTransport(l3))
 	resolver.Add(newDNSCryptTransport())
 
 	tcph := NewTCPHandler(resolver, natpt, ctl, tunmode, listener)

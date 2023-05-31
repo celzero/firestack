@@ -6,6 +6,12 @@
 
 package dnsx
 
+import (
+	"strings"
+
+	"github.com/celzero/firestack/intra/xdns"
+)
+
 var undelegatedSet = []string{
 	"0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.ip6.arpa",
 	"0.in-addr.arpa",
@@ -161,8 +167,10 @@ func newUndelegatedDomainsTrie() RadixTree {
 	return t
 }
 
-func (r *resolver) requiresSystem(qname string) (id string) {
-	if ok := r.localdomains.HasAny(qname); ok {
+func (r *resolver) requiresSystemOrLocal(qname string) (id string) {
+	if strings.HasSuffix(qname, ".local") || xdns.IsMDNSQuery(qname) {
+		id = Local
+	} else if r.localdomains.HasAny(qname) {
 		id = System
 	}
 	return

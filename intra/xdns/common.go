@@ -53,6 +53,28 @@ var (
 	fakedomain = "MTE1LDI1MiwxNjMsMjI4LDg5LDI0NSwxOTIsNzEsNiwyNTQsNjMsOTEsMjE1LDY.lan"
 )
 
+const (
+	mdnsip4  = "224.0.0.251"
+	mdnsip6  = "ff02::fb"
+	mdnsPort = 5353
+
+	arpa4suffix = "254.169.in-addr.arpa"
+	// "8.e.f.ip6.arpa.", "9.e.f.ip6.arpa.", "a.e.f.ip6.arpa.", and "b.e.f.ip6.arpa."
+	arpa6suffix = "e.f.ip6.arpa"
+	localsuffix = "local"
+)
+
+var (
+	MDNSAddr4 = &net.UDPAddr{
+		IP:   net.ParseIP(mdnsip4),
+		Port: mdnsPort,
+	}
+	MDNSAddr6 = &net.UDPAddr{
+		IP:   net.ParseIP(mdnsip6),
+		Port: mdnsPort,
+	}
+)
+
 var (
 	errMassivePkt     = errors.New("packet too large")
 	errRdnsUrlMissing = errors.New("url missing")

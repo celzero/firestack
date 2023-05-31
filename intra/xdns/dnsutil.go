@@ -980,6 +980,38 @@ func GetBlocklistStampHeaderKey() string {
 	return http.CanonicalHeaderKey(blocklistHeaderKey)
 }
 
+func IsMDNSQuery(qname string) bool {
+	svc, _ := extractMDNSDomain(qname)
+	// todo: check if tld is valid (local, arpa4, arpa6)
+	return len(svc) > 0
+}
+
+func ExtractMDNSDomain(msg *dns.Msg) (svc, tld string) {
+	svc = QName(msg) // ex: _http._tcp.local.
+	return extractMDNSDomain(svc)
+}
+
+func extractMDNSDomain(qname string) (svc, tld string) {
+	tld = ""
+	// rfc6762 sec 4; 254.169.in-addr.arpa
+	tldarpa4 := strings.LastIndex(svc, arpa4suffix)
+	tldarpa6 := strings.LastIndex(svc, arpa6suffix)
+	tldlocal := strings.LastIndex(svc, localsuffix)
+	if tldlocal > 0 {
+		svc = svc[:tldlocal]
+		tld = localsuffix
+	} else if tldarpa4 > 0 {
+		svc = svc[:tldarpa4]
+		tld = arpa4suffix
+	} else if tldarpa6 > 0 {
+		// 1.1.1.1.a.e.f.ip6.arpa. -> a.e.f.ip6.arpa
+		tld = svc[tldarpa6-2:tldarpa6] + arpa6suffix
+		// 1.1.1.1.a.e.f.ip6.arpa. -> 1.1.1.1
+		svc = svc[:tldarpa6-3]
+	}
+	return
+}
+
 func netips2str(addrs []*netip.Addr) []string {
 	var str []string
 	for _, x := range addrs {
