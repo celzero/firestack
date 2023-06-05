@@ -17,6 +17,7 @@ import (
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/base64"
+	"encoding/hex"
 	"errors"
 	"fmt"
 
@@ -38,8 +39,14 @@ type Key interface {
 	IsZero() bool
 	// Base64 returns the key as a base64-encoded string.
 	Base64() string
+	// Hex returns the key as a hex-encoded string.
+	Hex() string
 	// Mult returns the key multiplied by the basepoint (curve25519).
 	Mult() Key
+}
+
+func (k *eckey) Hex() string {
+	return hex.EncodeToString(k[:])
 }
 
 func (k *eckey) Base64() string {
