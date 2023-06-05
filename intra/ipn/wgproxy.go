@@ -53,6 +53,8 @@ const (
 	eventssize = 16
 	// wgnic is the id of the WireGuard network interface.
 	wgnic = 999
+	// missing wg interface address.
+	noaddr = ""
 )
 
 // unused
@@ -77,7 +79,7 @@ type wgpeerc struct {
 
 type wgtun struct {
 	id             string
-	addrs          []*netip.Addr
+	addrs          []*netip.Prefix
 	status         int
 	ep             *channel.Endpoint
 	stack          *stack.Stack
@@ -122,7 +124,7 @@ func wglogger() *device.Logger {
 	return device.NewLogger(lvl, tag)
 }
 
-func wgIfConfigOf(txtptr *string) (ifaddrs, dnsaddrs []*netip.Addr, mtu int, err error) {
+func wgIfConfigOf(txtptr *string) (ifaddrs []*netip.Prefix, dnsaddrs []*netip.Addr, mtu int, err error) {
 	txt := *txtptr
 	pcfg := strings.Builder{}
 	r := bufio.NewScanner(strings.NewReader(txt))
@@ -151,15 +153,19 @@ func wgIfConfigOf(txtptr *string) (ifaddrs, dnsaddrs []*netip.Addr, mtu int, err
 			// may be a csv: "172.1.0.2/32, 2000:db8::2/128"
 			vv := strings.Split(v, ",")
 			for _, str := range vv {
+				var ipnet netip.Prefix
 				str = strings.TrimSpace(str)
 				if ip, err = netip.ParseAddr(str); err != nil {
-					var ipnet netip.Prefix
 					if ipnet, err = netip.ParsePrefix(str); err != nil {
 						return
 					}
-					ip = ipnet.Addr()
+					ifaddrs = append(ifaddrs, &ipnet)
+				} else { // add prefix to address
+					if ipnet, err = ip.Prefix(ip.BitLen()); err != nil {
+						return
+					}
+					ifaddrs = append(ifaddrs, &ipnet)
 				}
-				ifaddrs = append(ifaddrs, &ip)
 			}
 		case "dns":
 			var ip netip.Addr
@@ -261,7 +267,7 @@ func NewWgProxy(id string, ctl protect.Controller, cfg string) (w WgProxy, err e
 	return
 }
 
-func makeWgTun(id string, ifaddrs, dnsaddrs []*netip.Addr, mtu int) (*wgtun, error) {
+func makeWgTun(id string, ifaddrs []*netip.Prefix, dnsaddrs []*netip.Addr, mtu int) (*wgtun, error) {
 	opts := stack.Options{
 		NetworkProtocols:   []stack.NetworkProtocolFactory{ipv4.NewProtocol, ipv6.NewProtocol},
 		TransportProtocols: []stack.TransportProtocolFactory{tcp.NewProtocol, udp.NewProtocol, icmp.NewProtocol6, icmp.NewProtocol4},
@@ -291,16 +297,28 @@ func makeWgTun(id string, ifaddrs, dnsaddrs []*netip.Addr, mtu int) (*wgtun, err
 		return nil, fmt.Errorf("wg: create nic: %v", err)
 	}
 
-	for _, ip := range ifaddrs {
+	processed := make(map[string]bool)
+	for _, ipnet := range ifaddrs {
+		ip := ipnet.Addr()
+		if processed[ipnet.String()] {
+			log.W("proxy: wg: skipping duplicate ip %v for ifaddr %v", ip, ipnet)
+			continue
+		}
+		processed[ipnet.String()] = true
+
 		var protoid tcpip.NetworkProtocolNumber
 		if ip.Is4() {
 			protoid = ipv4.ProtocolNumber
 		} else if ip.Is6() {
 			protoid = ipv6.ProtocolNumber
 		}
+		ap := tcpip.AddressWithPrefix{
+			Address:   tcpip.Address(ip.AsSlice()),
+			PrefixLen: ipnet.Bits(),
+		}
 		protoaddr := tcpip.ProtocolAddress{
 			Protocol:          protoid,
-			AddressWithPrefix: tcpip.Address(ip.AsSlice()).WithPrefix(),
+			AddressWithPrefix: ap,
 		}
 		if err := s.AddProtocolAddress(wgnic, protoaddr, stack.AddressProperties{}); err != nil {
 			return nil, fmt.Errorf("wg: add addr(%v): %v", ip, err)
@@ -432,6 +450,9 @@ func (h *wgtun) ID() string {
 }
 
 func (h *wgtun) GetAddr() string {
+	if len(h.addrs) == 0 {
+		return noaddr
+	}
 	return h.addrs[0].String()
 }
 
