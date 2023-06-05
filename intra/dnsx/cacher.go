@@ -343,9 +343,13 @@ func (t *ctransport) Type() string {
 func (t *ctransport) fetch(network string, q []byte, msg *dns.Msg, summary *Summary, cb *cache, key string) (r []byte, err error) {
 	start := time.Now()
 
-	sendRequest := func(s *Summary) (r []byte, err error) {
+	sendRequest := func(async bool) (r []byte, err error) {
 		ba := cb.queryBarrier(key)
-		if s == nil { // sync caller when s is not set
+
+		var s *Summary
+		if async {
+			s = new(Summary)
+		} else {
 			s = summary
 		}
 
@@ -357,7 +361,6 @@ func (t *ctransport) fetch(network string, q []byte, msg *dns.Msg, summary *Summ
 		ba.Unlock()
 
 		s.Latency = time.Since(start).Seconds()
-		t.status = s.Status
 
 		if err == nil && len(r) > 0 {
 			cb.put(t, key, r, s)
@@ -371,17 +374,18 @@ func (t *ctransport) fetch(network string, q []byte, msg *dns.Msg, summary *Summ
 	// no network connectivity but cache returns proper responses to queries,
 	// which results in confused apps that think there's network connectivity,
 	// that is, these confused apps go bezerk resulting in battery drain.
-	tok := t.status != SendFailed
+	tok := t.Status() != SendFailed
 
 	if v, ok := cb.freshCopy(key); tok && v != nil {
-		log.D("cache: hit %s, but stale? %t", v.str(), ok)
-		if !ok { // not fresh, fetch in the background
-			go sendRequest(new(Summary))
-		}
 		var cachedsummary *Summary
+
+		log.D("cache: hit %s, but stale? %t", v.str(), ok)
 		r, cachedsummary, err = asResponse(msg, v, ok) // return cached response, may be stale
-		// change summary fields to reflect cached response
 		if cachedsummary != nil {
+			if !ok { // not fresh, fetch in the background
+				go sendRequest(true)
+			}
+			// change summary fields to reflect cached response
 			summary.ID = t.ID()
 			summary.Type = t.Type()
 			summary.Server = t.GetAddr()
@@ -389,13 +393,13 @@ func (t *ctransport) fetch(network string, q []byte, msg *dns.Msg, summary *Summ
 			summary.RCode = cachedsummary.RCode
 			summary.RTtl = cachedsummary.RTtl
 			summary.Blocklists = cachedsummary.Blocklists
+			summary.Latency = time.Since(start).Seconds()
+			return
+		} else {
+			log.W("cache: hit %s, but empty? %v", v.str(), err)
 		}
-	} else {
-		r, err = sendRequest(nil) // summary is filled by underlying transport
 	}
-
-	summary.Latency = time.Since(start).Seconds()
-	return
+	return sendRequest(false) // summary is filled by underlying transport
 }
 
 func (t *ctransport) Query(network string, q []byte, summary *Summary) ([]byte, error) {
@@ -437,5 +441,5 @@ func (t *ctransport) GetAddr() string {
 }
 
 func (t *ctransport) Status() int {
-	return t.status
+	return t.Transport.Status()
 }
