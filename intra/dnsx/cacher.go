@@ -389,6 +389,7 @@ func (t *ctransport) fetch(network string, q []byte, msg *dns.Msg, summary *Summ
 			summary.ID = t.ID()
 			summary.Type = t.Type()
 			summary.Server = t.GetAddr()
+			summary.Status = cachedsummary.Status
 			summary.RData = cachedsummary.RData
 			summary.RCode = cachedsummary.RCode
 			summary.RTtl = cachedsummary.RTtl
