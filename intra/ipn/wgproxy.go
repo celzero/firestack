@@ -143,24 +143,34 @@ func wgIfConfigOf(txtptr *string) (ifaddrs, dnsaddrs []*netip.Addr, mtu int, err
 		k = strings.ToLower(strings.TrimSpace(k))
 		v = strings.ToLower(strings.TrimSpace(v))
 
-		var ip netip.Addr
 		// process interface config; Address, DNS, ListenPort, MTU
 		// github.com/WireGuard/wireguard-android/blob/713947e432/tunnel/src/main/java/com/wireguard/config/Interface.java#L232
 		switch k {
 		case "address":
-			if ip, err = netip.ParseAddr(v); err != nil {
-				var ipnet netip.Prefix
-				if ipnet, err = netip.ParsePrefix(v); err != nil {
+			var ip netip.Addr
+			// may be a csv: "172.1.0.2/32, 2000:db8::2/128"
+			vv := strings.Split(v, ",")
+			for _, str := range vv {
+				str = strings.Trim(str, " ")
+				if ip, err = netip.ParseAddr(str); err != nil {
+					var ipnet netip.Prefix
+					if ipnet, err = netip.ParsePrefix(str); err != nil {
+						return
+					}
+					ip = ipnet.Addr()
+				}
+				ifaddrs = append(ifaddrs, &ip)
+			}
+		case "dns":
+			var ip netip.Addr
+			vv := strings.Split(v, ",")
+			for _, str := range vv {
+				str = strings.Trim(str, " ")
+				if ip, err = netip.ParseAddr(str); err != nil {
 					return
 				}
-				ip = ipnet.Addr()
+				dnsaddrs = append(dnsaddrs, &ip)
 			}
-			ifaddrs = append(ifaddrs, &ip)
-		case "dns":
-			if ip, err = netip.ParseAddr(v); err != nil {
-				return
-			}
-			dnsaddrs = append(dnsaddrs, &ip)
 		case "mtu":
 			if mtu, err = strconv.Atoi(v); err != nil {
 				return
