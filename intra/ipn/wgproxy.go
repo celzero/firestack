@@ -151,7 +151,7 @@ func wgIfConfigOf(txtptr *string) (ifaddrs, dnsaddrs []*netip.Addr, mtu int, err
 			// may be a csv: "172.1.0.2/32, 2000:db8::2/128"
 			vv := strings.Split(v, ",")
 			for _, str := range vv {
-				str = strings.Trim(str, " ")
+				str = strings.TrimSpace(str)
 				if ip, err = netip.ParseAddr(str); err != nil {
 					var ipnet netip.Prefix
 					if ipnet, err = netip.ParsePrefix(str); err != nil {
@@ -165,7 +165,7 @@ func wgIfConfigOf(txtptr *string) (ifaddrs, dnsaddrs []*netip.Addr, mtu int, err
 			var ip netip.Addr
 			vv := strings.Split(v, ",")
 			for _, str := range vv {
-				str = strings.Trim(str, " ")
+				str = strings.TrimSpace(str)
 				if ip, err = netip.ParseAddr(str); err != nil {
 					return
 				}
@@ -220,11 +220,13 @@ func NewWgProxy(id string, ctl protect.Controller, cfg string) (w WgProxy, err e
 	ifaddrs, dnsaddrs, mtu, err := wgIfConfigOf(&cfg)
 	uapicfg := cfg
 	if err != nil {
+		log.E("proxy: wg: failed to get addrs from config %v", err)
 		return nil, err
 	}
 
 	wgtun, err := makeWgTun(id, ifaddrs, dnsaddrs, mtu)
 	if err != nil {
+		log.E("proxy: wg: failed to create tun %v", err)
 		return nil, err
 	}
 
@@ -232,6 +234,7 @@ func NewWgProxy(id string, ctl protect.Controller, cfg string) (w WgProxy, err e
 
 	err = wgdev.IpcSet(uapicfg)
 	if err != nil {
+		log.E("proxy: wg: failed to ipc-set config %s, %v", uapicfg, err)
 		return nil, err
 	}
 
@@ -240,6 +243,7 @@ func NewWgProxy(id string, ctl protect.Controller, cfg string) (w WgProxy, err e
 
 	err = wgdev.Up()
 	if err != nil {
+		log.E("proxy: wg: failed init %v", err)
 		return nil, err
 	}
 
