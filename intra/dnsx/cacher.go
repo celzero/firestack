@@ -244,7 +244,7 @@ func (cb *cache) freshCopy(key string) (v *cres, ok bool) {
 		return
 	}
 
-	recent := v.bumps <= 1
+	recent := v.bumps <= 2
 	alive := time.Since(v.expiry) <= 0
 	if v.bumps < cb.bumps {
 		n := time.Duration(v.bumps) * cb.halflife
@@ -256,8 +256,8 @@ func (cb *cache) freshCopy(key string) (v *cres, ok bool) {
 		v.bumps += 1
 	}
 
-	r75 := rand.Intn(99999) < 75000 // 75% chance of reusing from the cache
-	return v.copy(), (r75 || recent) && alive
+	r50 := rand.Intn(99999) < 50000 // 50% chance of reusing from the cache
+	return v.copy(), (r50 || recent) && alive
 }
 
 func (cb *cache) put(t Transport, key string, response []byte, s *Summary) (ok bool) {
