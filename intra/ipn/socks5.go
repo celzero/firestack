@@ -34,7 +34,7 @@ func NewSocks5Proxy(id string, ctl protect.Controller, po *settings.ProxyOptions
 	tx.Dial = protect.MakeNsXDial(ctl)
 
 	// x.net.proxy doesn't yet support udp
-	// https://github.com/golang/net/blob/62affa334/internal/socks/socks.go#L233
+	// github.com/golang/net/blob/62affa334/internal/socks/socks.go#L233
 	// if po.Auth.User and po.Auth.Password are empty strings, the upstream
 	// socks5 server may throw err when dialing with golang/net/x/proxy;
 	// although, txthinking/socks5 deals gracefully with empty auth strings

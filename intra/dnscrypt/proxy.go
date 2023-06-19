@@ -509,10 +509,10 @@ func NewProxy() *Proxy {
 	return &Proxy{
 		routes:                       nil,
 		registeredServers:            make(map[string]RegisteredServer),
-		certRefreshDelay:             time.Duration(240) * time.Minute,
-		certRefreshDelayAfterFailure: time.Duration(10 * time.Second),
+		certRefreshDelay:             240 * time.Minute,
+		certRefreshDelayAfterFailure: 10 * time.Second,
 		certIgnoreTimestamp:          false,
-		timeout:                      time.Duration(20000) * time.Millisecond,
+		timeout:                      20000 * time.Millisecond,
 		serversInfo:                  NewServersInfo(),
 		liveServers:                  nil,
 		lastStatus:                   dnsx.Start,

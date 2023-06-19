@@ -9,6 +9,7 @@ package dnsx
 import (
 	"encoding/binary"
 	"errors"
+	"hash/fnv"
 	"net/netip"
 	"strconv"
 	"strings"
@@ -29,7 +30,7 @@ const (
 	key4        = ":a"
 	key6        = ":aaaa"
 	NoTransport = "NoTransport"
-	maxiter     = 1000 // max number alg/nat evict iterations
+	maxiter     = 100 // max number alg/nat evict iterations
 )
 
 var (
@@ -105,6 +106,7 @@ type dnsgateway struct {
 	rdns         RdnsResolver        // local and remote rdns blocks
 	octets       []uint8             // ip4 octets, 100.x.y.z
 	hexes        []uint16            // ip6 hex, 64:ff9b:1:da19:0100.x.y.z
+	chash        bool                // use consistent hashing to generae alg ips
 }
 
 // NewDNSGateway returns a DNS ALG, ready for use.
@@ -120,6 +122,7 @@ func NewDNSGateway(inner Transport, outer RdnsResolver) (t *dnsgateway) {
 		rdns:   outer,
 		octets: rfc6598,
 		hexes:  rfc8215a,
+		chash:  true,
 	}
 	// initial transport must be set before starting the gateway
 	t.withTransport(inner)
@@ -493,6 +496,7 @@ func (t *dnsgateway) registerMultiLocked(q string, am *ansMulti) bool {
 	return true
 }
 
+// register mapping from qname -> algip+realip (alg) and algip -> qname+realip (nat)
 func (t *dnsgateway) registerNatLocked(q string, idx int, x *ans) bool {
 	ip := x.algip
 	var k string
@@ -508,6 +512,7 @@ func (t *dnsgateway) registerNatLocked(q string, idx int, x *ans) bool {
 	return true
 }
 
+// register mapping from realip -> algip+qname (px)
 func (t *dnsgateway) registerPxLocked(q string, idx int, x *ans) bool {
 	ip := x.realip[idx]
 	t.px[*ip] = x
@@ -526,6 +531,20 @@ func (t *dnsgateway) take4Locked(q string, idx int) (*netip.Addr, bool) {
 			delete(t.alg, k)
 			delete(t.nat, *ip)
 		}
+	}
+
+	if t.chash {
+		for i := 0; i < maxiter; i++ {
+			genip := gen4Locked(k, i)
+			if !genip.IsGlobalUnicast() {
+				continue
+			}
+			if _, taken := t.nat[genip]; !taken {
+				return &genip, genip.IsValid()
+			}
+		}
+		log.W("alg: gen: no more IP4s (%v)", q)
+		return nil, false
 	}
 
 	gen := true
@@ -566,6 +585,20 @@ func (t *dnsgateway) take4Locked(q string, idx int) (*netip.Addr, bool) {
 	return nil, false
 }
 
+func gen4Locked(k string, hop int) netip.Addr {
+	s := strconv.Itoa(hop) + k
+	v18 := hash18(s)
+	// 100.64.y.z/14 2m+ ip4s
+	b4 := [4]byte{
+		rfc6598[0],                     // 100
+		rfc6598[1] | uint8(v18>>16)<<6, // 64 | msb 2 bits
+		uint8((v18 >> 8) & 0xff),       // extract next 8 bits
+		uint8(v18 & 0xff),              // extract last 8 bits
+	}
+
+	return netip.AddrFrom4(b4).Unmap()
+}
+
 func (t *dnsgateway) take6Locked(q string, idx int) (*netip.Addr, bool) {
 	k := q + key6 + strconv.Itoa(idx)
 	if ans, ok := t.alg[k]; ok {
@@ -578,6 +611,17 @@ func (t *dnsgateway) take6Locked(q string, idx int) (*netip.Addr, bool) {
 			delete(t.alg, k)
 			delete(t.nat, *ip)
 		}
+	}
+
+	if t.chash {
+		for i := 0; i < maxiter; i++ {
+			genip := gen6Locked(k, i)
+			if _, taken := t.nat[genip]; !taken {
+				return &genip, genip.IsValid()
+			}
+		}
+		log.W("alg: gen: no more IP6s (%v)", q)
+		return nil, false
 	}
 
 	gen := true
@@ -608,6 +652,28 @@ func (t *dnsgateway) take6Locked(q string, idx int) (*netip.Addr, bool) {
 		log.W("alg: no more IP6s (%x)", t.hexes)
 	}
 	return nil, false
+}
+
+func gen6Locked(k string, hop int) netip.Addr {
+	s := strconv.Itoa(hop) + k
+	v48 := hash48(s)
+	// 64:ff9b:1:da19:0100.x.y.z: 281 trillion ip6s
+	a16 := [8]uint16{
+		rfc8215a[0],                  // 64
+		rfc8215a[1],                  // ff9b
+		rfc8215a[2],                  // 1
+		rfc8215a[3],                  // da19
+		rfc8215a[4],                  // 0100
+		uint16((v48 >> 32) & 0xffff), // extract the top 16 bits
+		uint16((v48 >> 16) & 0xffff), // extract the mid 16 bits
+		uint16(v48 & 0xffff),         // extract the last 16 bits
+	}
+	b16 := [16]byte{}
+	for i, hx := range a16 {
+		i = i * 2
+		binary.BigEndian.PutUint16(b16[i:i+2], hx)
+	}
+	return netip.AddrFrom16(b16)
 }
 
 // Implements Gateway
@@ -747,4 +813,20 @@ func (t *dnsgateway) rdnsbl(algip *netip.Addr) (bcsv string) {
 		bcsv = ans.blocklists
 	}
 	return
+}
+
+// xor fold fnv to 18 bits: www.isthe.com/chongo/tech/comp/fnv
+func hash18(s string) uint32 {
+	h := fnv.New64a()
+	h.Write([]byte(s))
+	v64 := h.Sum64()
+	return (uint32(v64>>18) ^ uint32(v64)) & 0x3FFFF // 18 bits
+}
+
+// xor fold fnv to 48 bits: www.isthe.com/chongo/tech/comp/fnv
+func hash48(s string) uint64 {
+	h := fnv.New64a()
+	h.Write([]byte(s))
+	v64 := h.Sum64()
+	return (uint64(v64>>48) ^ uint64(v64)) & 0xFFFFFFFFFFFF // 48 bits
 }
