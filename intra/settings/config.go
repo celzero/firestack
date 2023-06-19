@@ -185,9 +185,7 @@ func NewAuthProxyOptions(scheme, username, password, ip, port string) *ProxyOpti
 		ippstr = ipp.String()
 	}
 	if len(username) <= 0 || len(password) <= 0 {
-		username = ""
-		password = ""
-		log.W("proxyopt: empty user(%s)/pwd(%d)", username, len(password))
+		log.I("proxyopt: no user(%s) and/or pwd(%d)", username, len(password))
 	}
 	if len(scheme) <= 0 {
 		scheme = "http"
@@ -219,6 +217,9 @@ func (p *ProxyOptions) AsUrl() string {
 		usr := url.QueryEscape(p.Auth.User)
 		pwd := url.QueryEscape(p.Auth.Password)
 		return p.Scheme + "://" + usr + ":" + pwd + "@" + p.IPPort
+	} else if len(p.Auth.User) > 0 {
+		usr := url.QueryEscape(p.Auth.User)
+		return p.Scheme + "://" + usr + "@" + p.IPPort
 	}
 	return p.Scheme + "://" + p.IPPort
 }
