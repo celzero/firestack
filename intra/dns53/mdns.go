@@ -256,7 +256,10 @@ func newUnderlyingTransport(oneshot, v4, v6 bool) (*client, error) {
 		}
 	}
 
-	if (uconn4 == nil && uconn6 == nil) || (oneshot && (mconn4 == nil && mconn6 == nil)) {
+	has4 := v4 && uconn4 != nil && (oneshot || mconn4 != nil)
+	has6 := v6 && uconn6 != nil && (oneshot || mconn6 != nil)
+	if !has4 && !has6 {
+		log.E("mdns: oneshot? %t with no4? %t / no6? %t", oneshot, has4, has6)
 		return nil, errBindFail
 	}
 
