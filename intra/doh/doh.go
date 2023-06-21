@@ -39,8 +39,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/celzero/firestack/intra/core/ipmap"
 	"github.com/celzero/firestack/intra/dnsx"
-	"github.com/celzero/firestack/intra/doh/ipmap"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/split"
 	"github.com/celzero/firestack/intra/xdns"
@@ -116,9 +116,13 @@ func (t *transport) dial(network, addr string) (net.Conn, error) {
 // This is a POST-only DoH implementation, so the DoH template should be a URL.
 // `rawurl` is the DoH template in string form.
 // `addrs` is a list of domains or IP addresses to use as fallback, if the hostname
-//   lookup fails or returns non-working addresses.
+//
+//	lookup fails or returns non-working addresses.
+//
 // `dialer` is the dialer that the transport will use.  The transport will modify the dialer's
-//   timeout but will not mutate it otherwise.
+//
+//	timeout but will not mutate it otherwise.
+//
 // `auth` will provide a client certificate if required by the TLS server.
 // `listener` will receive the status of each DNS query when it is complete.
 func NewTransport(id, rawurl string, addrs []string, dialer *net.Dialer) (dnsx.Transport, error) {

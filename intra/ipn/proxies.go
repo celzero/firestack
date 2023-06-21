@@ -26,6 +26,7 @@ const (
 	SOCKS5 = "socks5" // SOCKS5 proxy
 	HTTP1  = "http1"  // HTTP/1.1 proxy
 	WG     = "wg"     // WireGuard-as-a-proxy
+	PIPH2  = "piph2"  // PIP: HTTP/2 proxy
 	NOOP   = "noop"   // No proxy
 
 	// status of proxies

@@ -165,11 +165,12 @@ func (d *DNSOptions) String() string {
 type ProxyOptions struct {
 	Auth   *proxy.Auth
 	IPPort string
-	Scheme string // http, https, socks5
+	Scheme string   // http, https, socks5, pip
+	Addrs  []string // list of ips if ipport is a url; may be nil
 }
 
 // NewAuthProxyOptions returns a new ProxyOptions object with authentication object.
-func NewAuthProxyOptions(scheme, username, password, ip, port string) *ProxyOptions {
+func NewAuthProxyOptions(scheme, username, password, ip, port string, addrs []string) *ProxyOptions {
 	var ippstr string
 	ip = strings.TrimSuffix(ip, "/")
 	ipp, err := addrport(ip, port)
@@ -199,19 +200,20 @@ func NewAuthProxyOptions(scheme, username, password, ip, port string) *ProxyOpti
 		Auth:   &auth,
 		IPPort: ippstr,
 		Scheme: scheme,
+		Addrs:  addrs,
 	}
 }
 
 // NewProxyOptions returns a new ProxyOptions object.
 func NewProxyOptions(ip string, port string) *ProxyOptions {
-	return NewAuthProxyOptions("" /*scheme*/, "" /*user*/, "" /*password*/, ip, port)
+	return NewAuthProxyOptions("" /*scheme*/, "" /*user*/, "" /*password*/, ip, port /*addrs*/, nil)
 }
 
 func (p *ProxyOptions) String() string {
 	return p.Auth.User + "," + p.Auth.Password + "," + p.IPPort
 }
 
-func (p *ProxyOptions) AsUrl() string {
+func (p *ProxyOptions) FullUrl() string {
 	if len(p.Auth.User) > 0 && len(p.Auth.Password) > 0 {
 		// superuser.com/a/532530
 		usr := url.QueryEscape(p.Auth.User)
@@ -221,5 +223,9 @@ func (p *ProxyOptions) AsUrl() string {
 		usr := url.QueryEscape(p.Auth.User)
 		return p.Scheme + "://" + usr + "@" + p.IPPort
 	}
+	return p.Url()
+}
+
+func (p *ProxyOptions) Url() string {
 	return p.Scheme + "://" + p.IPPort
 }

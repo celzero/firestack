@@ -16,7 +16,7 @@ import (
 )
 
 func (pxr *proxifier) NewSocks5Proxy(id, user, pwd, ip, port string) (p Proxy, err error) {
-	opts := settings.NewAuthProxyOptions("socks5", user, pwd, ip, port)
+	opts := settings.NewAuthProxyOptions("socks5", user, pwd, ip, port, nil)
 	return NewSocks5Proxy(id, pxr.ctl, opts)
 }
 
@@ -40,9 +40,9 @@ func (pxr *proxifier) AddProxy(id, txt string) (p Proxy, err error) {
 		var strurl string
 		var usr string
 		var pwd string
-
+		var u *url.URL
 		// scheme://usr:pwd@domain.tld:8080/p/a/t/h?q&u=e&r=y
-		u, err := url.Parse(txt)
+		u, err = url.Parse(txt)
 		if err != nil {
 			return nil, err
 		}
@@ -51,9 +51,9 @@ func (pxr *proxifier) AddProxy(id, txt string) (p Proxy, err error) {
 			usr = u.User.Username()    // usr
 			pwd, _ = u.User.Password() // pwd
 		}
-		strurl = u.Host + u.RequestURI() // domain.tld:8080/p/a/t/h?q&u=e&r=y
-
-		opts := settings.NewAuthProxyOptions(u.Scheme, usr, pwd, strurl, u.Port())
+		strurl = u.Host + u.RequestURI() // domain.tld:8080/p/a/t/h?q&u=e&r=y#f,r
+		addrs := strings.Split(u.Fragment, ",")
+		opts := settings.NewAuthProxyOptions(u.Scheme, usr, pwd, strurl, u.Port(), addrs)
 
 		switch u.Scheme {
 		case "socks5":
@@ -62,11 +62,12 @@ func (pxr *proxifier) AddProxy(id, txt string) (p Proxy, err error) {
 			fallthrough
 		case "https":
 			p, err = NewHTTPProxy(id, pxr.ctl, opts)
+		case "piph2":
+			p, err = NewPipProxy(id, pxr.ctl, opts)
 		case "wg":
 			err = fmt.Errorf("proxy: id must be prefixed with %s in %s for [%s]", WG, id, txt)
-			fallthrough
 		default:
-			return nil, errProxyScheme
+			err = errProxyScheme
 		}
 	}
 
