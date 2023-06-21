@@ -11,7 +11,6 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
-	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -120,13 +119,13 @@ func (t *piph2) dial(network, addr string) (net.Conn, error) {
 }
 
 func NewPipProxy(id string, ctl protect.Controller, po *settings.ProxyOptions) (Proxy, error) {
-	rawurl := po.Url()
-	parsedurl, err := url.Parse(rawurl)
+	parsedurl, err := url.Parse(po.Url())
 	if err != nil {
 		return nil, err
 	}
+	// may be "piph2"
 	if parsedurl.Scheme != "https" {
-		return nil, fmt.Errorf("bad scheme: %s", parsedurl.Scheme)
+		parsedurl.Scheme = "https"
 	}
 	portStr := parsedurl.Port()
 	var port int
@@ -142,7 +141,7 @@ func NewPipProxy(id string, ctl protect.Controller, po *settings.ProxyOptions) (
 	dialer := protect.MakeNsDialer(ctl)
 	t := &piph2{
 		id:       id,
-		url:      rawurl,
+		url:      parsedurl.String(),
 		hostname: parsedurl.Hostname(),
 		port:     port,
 		dialer:   dialer,
