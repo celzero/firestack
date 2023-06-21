@@ -587,13 +587,13 @@ func (t *dnsgateway) take4Locked(q string, idx int) (*netip.Addr, bool) {
 
 func gen4Locked(k string, hop int) netip.Addr {
 	s := strconv.Itoa(hop) + k
-	v18 := hash18(s)
-	// 100.64.y.z/14 2m+ ip4s
+	v22 := hash22(s)
+	// 100.64.y.z/15 2m+ ip4s
 	b4 := [4]byte{
-		rfc6598[0],                     // 100
-		rfc6598[1] | uint8(v18>>16)<<6, // 64 | msb 2 bits
-		uint8((v18 >> 8) & 0xff),       // extract next 8 bits
-		uint8(v18 & 0xff),              // extract last 8 bits
+		rfc6598[0],                  // 100
+		rfc6598[1] + uint8(v22>>16), // 64 + int(6bits)
+		uint8((v22 >> 8) & 0xff),    // extract next 8 bits
+		uint8(v22 & 0xff),           // extract last 8 bits
 	}
 
 	return netip.AddrFrom4(b4).Unmap()
@@ -816,11 +816,11 @@ func (t *dnsgateway) rdnsbl(algip *netip.Addr) (bcsv string) {
 }
 
 // xor fold fnv to 18 bits: www.isthe.com/chongo/tech/comp/fnv
-func hash18(s string) uint32 {
+func hash22(s string) uint32 {
 	h := fnv.New64a()
 	h.Write([]byte(s))
 	v64 := h.Sum64()
-	return (uint32(v64>>18) ^ uint32(v64)) & 0x3FFFF // 18 bits
+	return (uint32(v64>>22) ^ uint32(v64)) & 0x3FFFFF // 22 bits
 }
 
 // xor fold fnv to 48 bits: www.isthe.com/chongo/tech/comp/fnv
