@@ -215,15 +215,21 @@ func (t *piph2) Dial(network, addr string) (Conn, error) {
 		url.Path += "/"
 	}
 	url.Path += ipp.Addr().String() + "/" + strconv.Itoa(int(ipp.Port())) + "/" + network
+
 	// ref: github.com/ginuerzh/gost/blob/1c62376e0880e/http2.go#L221
 	readable, writable := io.Pipe()
+
 	req, err := http.NewRequest(http.MethodPost, url.String(), readable)
 	if err != nil {
+		log.E("piph2: req err: %v", err)
 		t.status = TKO
+		closeAll(readable, writable)
 		return nil, err
 	}
 	msg, err := hexnonce(ipp)
 	if err != nil {
+		log.E("piph2: nonce err: %v", err)
+		closeAll(readable, writable)
 		return nil, err
 	}
 	req.Header.Set("User-Agent", "")
@@ -234,8 +240,18 @@ func (t *piph2) Dial(network, addr string) (Conn, error) {
 	res, err := t.client.Do(req)
 
 	if err != nil {
+		log.E("piph2: send err: %v", err)
 		t.status = TKO
+		closeAll(readable, writable)
 		return nil, err
+	}
+
+	if res.StatusCode != http.StatusOK {
+		log.E("piph2: recv bad status: %v", res.Status)
+		res.Body.Close()
+		t.status = TKO
+		closeAll(readable, writable)
+		return nil, errNoProxyResponse
 	}
 
 	t.status = TOK
@@ -243,6 +259,11 @@ func (t *piph2) Dial(network, addr string) (Conn, error) {
 		r: res.Body,
 		w: writable,
 	}, nil
+}
+
+func closeAll(c1, c2 io.Closer) {
+	c1.Close()
+	c2.Close()
 }
 
 func hmac256(m, k []byte) []byte {
