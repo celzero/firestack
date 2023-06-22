@@ -227,11 +227,11 @@ func (t *piph2) Dial(network, addr string) (Conn, error) {
 	if t.status == END {
 		return nil, errProxyStopped
 	}
-
 	if network != "tcp" {
 		return nil, errUnexpectedProxy
 	}
-	url, err := url.Parse(t.url)
+
+	u, err := url.Parse(t.url)
 	if err != nil {
 		return nil, err
 	}
@@ -240,14 +240,16 @@ func (t *piph2) Dial(network, addr string) (Conn, error) {
 		return nil, err
 	}
 
-	if !strings.HasSuffix(url.Path, "/") {
-		url.Path += "/"
+	if !strings.HasSuffix(u.Path, "/") {
+		u.Path += "/"
 	}
-	url.Path += ipp.Addr().String() + "/" + strconv.Itoa(int(ipp.Port())) + "/" + network
+	u.Path += ipp.Addr().String() + "/" + strconv.Itoa(int(ipp.Port())) + "/" + network
 
 	// ref: github.com/ginuerzh/gost/blob/1c62376e0880e/http2.go#L221
 	// and: github.com/golang/go/issues/17227#issuecomment-249424243
 	readable, writable := io.Pipe()
+	// multipart? stackoverflow.com/questions/39761910
+	// mpw := multipart.NewWriter(writable)
 	incomingch := make(chan io.ReadCloser, 1)
 	oconn := &pipconn{
 		rch: incomingch,
@@ -255,7 +257,8 @@ func (t *piph2) Dial(network, addr string) (Conn, error) {
 	}
 
 	// github.com/golang/go/issues/26574
-	req, err := http.NewRequest(http.MethodPut, url.String(), ioutil.NopCloser(readable))
+	req, err := http.NewRequest(http.MethodPut, u.String(), ioutil.NopCloser(readable))
+
 	if err != nil {
 		log.E("piph2: req err: %v", err)
 		t.status = TKO
@@ -271,57 +274,63 @@ func (t *piph2) Dial(network, addr string) (Conn, error) {
 
 	trace := httptrace.ClientTrace{
 		GetConn: func(hostPort string) {
-			log.V("piph2: GetConn(%s)", hostPort)
+			log.V("piph2: %s GetConn(%s)", u.Path, hostPort)
 		},
 		GotConn: func(info httptrace.GotConnInfo) {
-			log.D("piph2: GotConn(%v)", info)
 			if info.Conn == nil {
 				return
 			}
+			log.D("piph2: GotConn(%v)", info.Conn.LocalAddr(), info.Conn.RemoteAddr())
 			oconn.laddr = info.Conn.LocalAddr()
 			oconn.raddr = info.Conn.RemoteAddr()
 		},
 		PutIdleConn: func(err error) {
-			log.V("piph2: PutIdleConn(%v)", err)
+			log.V("piph2: %s PutIdleConn(%v)", u.Path, err)
 		},
 		GotFirstResponseByte: func() {
-			log.V("piph2: GotFirstResponseByte()")
+			log.V("piph2: %s GotFirstResponseByte()", u.Path)
 		},
 		Got100Continue: func() {
-			log.V("piph2: %s Got100Continue()")
+			log.V("piph2: %s Got100Continue()", u.Path)
 		},
 		Got1xxResponse: func(code int, header textproto.MIMEHeader) error {
-			log.V("piph2: Got1xxResponse(%d, %v)", code, header)
+			log.V("piph2: %s Got1xxResponse(%d, %v)", u.Path, code, header)
 			return nil
 		},
 		DNSStart: func(info httptrace.DNSStartInfo) {
-			log.V("piph2: DNSStart(%v)", info)
+			log.V("piph2: %s DNSStart(%v)", u.Path, info)
 		},
 		DNSDone: func(info httptrace.DNSDoneInfo) {
-			log.V("piph2: DNSDone(%v)", info)
+			log.V("piph2: %s DNSDone(%v)", u.Path, info)
 		},
 		ConnectStart: func(network, addr string) {
-			log.V("piph2: ConnectStart(%s, %s)", network, addr)
+			log.V("piph2: %s ConnectStart(%s, %s)", u.Path, network, addr)
 		},
 		ConnectDone: func(network, addr string, err error) {
-			log.V("piph2: ConnectDone(%s, %s, %v)", network, addr, err)
+			log.V("piph2: %s ConnectDone(%s, %s, %v)", u.Path, network, addr, err)
 		},
 		TLSHandshakeStart: func() {
-			log.V("piph2: TLSHandshakeStart()")
+			log.V("piph2: %s TLSHandshakeStart()", u.Path)
 		},
 		TLSHandshakeDone: func(state tls.ConnectionState, err error) {
-			log.V("piph2: TLSHandshakeDone(%v, %v)", state, err)
+			log.V("piph2: %s TLSHandshakeDone(%v, %v)", u.Path, state, err)
 		},
 		WroteHeaders: func() {
-			log.V("piph2: WroteHeaders()")
+			log.V("piph2: %s WroteHeaders()", u.Path)
 		},
 		WroteRequest: func(info httptrace.WroteRequestInfo) {
-			log.V("piph2: WroteRequest(%v)", info)
+			log.V("piph2: %s WroteRequest(%v)", u.Path, info)
 		},
 	}
 	req = req.WithContext(httptrace.WithClientTrace(req.Context(), &trace))
 
-	log.D("piph2: req %s", url.String())
+	log.D("piph2: req %s", u.String())
+	req.ContentLength = -1 // infinite length?
+	req.Close = false      // allow keep-alive
+	req.GetBody = func() (io.ReadCloser, error) {
+		log.V("piph2: %s GetBody()", u.Path)
+		return io.NopCloser(readable), nil
+	}
 	req.Header.Set("User-Agent", "")
 	// sse? community.cloudflare.com/t/184219
 	// pack binary data into utf-8?
@@ -337,12 +346,12 @@ func (t *piph2) Dial(network, addr string) (Conn, error) {
 	go func() {
 		res, err := t.client.Do(req)
 		if err != nil {
-			log.E("piph2: send err: %v", err)
+			log.E("piph2: %s send err: %v", u.Path, err)
 			t.status = TKO
 			incomingch <- nil
 			closePipe(readable, writable)
 		} else if res.StatusCode != http.StatusOK {
-			log.E("piph2: recv bad status: %v", res.Status)
+			log.E("piph2: %s recv bad status: %v", u.Path, res.Status)
 			res.Body.Close()
 			t.status = TKO
 			incomingch <- nil
@@ -350,7 +359,7 @@ func (t *piph2) Dial(network, addr string) (Conn, error) {
 		} else {
 			t.status = TOK
 			incomingch <- res.Body
-			log.D("piph2: duplex %s", url.String())
+			log.D("piph2: duplex %s", u.String())
 		}
 	}()
 
