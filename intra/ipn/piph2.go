@@ -12,6 +12,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"io"
+	"io/ioutil"
 	"net"
 	"net/http"
 	"net/netip"
@@ -158,6 +159,7 @@ func NewPipProxy(id string, ctl protect.Controller, po *settings.ProxyOptions) (
 	}
 
 	// Override the dial function.
+	// h2 is duplex: github.com/golang/go/issues/19653#issuecomment-341539160
 	t.client.Transport = &http.Transport{
 		Dial:                  t.dial,
 		ForceAttemptHTTP2:     true,
@@ -217,9 +219,10 @@ func (t *piph2) Dial(network, addr string) (Conn, error) {
 	url.Path += ipp.Addr().String() + "/" + strconv.Itoa(int(ipp.Port())) + "/" + network
 
 	// ref: github.com/ginuerzh/gost/blob/1c62376e0880e/http2.go#L221
+	// and: github.com/golang/go/issues/17227#issuecomment-249424243
 	readable, writable := io.Pipe()
-
-	req, err := http.NewRequest(http.MethodPost, url.String(), readable)
+	// github.com/golang/go/issues/26574
+	req, err := http.NewRequest(http.MethodPut, url.String(), ioutil.NopCloser(readable))
 	if err != nil {
 		log.E("piph2: req err: %v", err)
 		t.status = TKO
@@ -233,7 +236,14 @@ func (t *piph2) Dial(network, addr string) (Conn, error) {
 		return nil, err
 	}
 	req.Header.Set("User-Agent", "")
+	// sse? community.cloudflare.com/t/184219
+	// pack binary data into utf-8?
+	// stackoverflow.com/a/31661586
+	// go.dev/play/p/NPsulbF2y9X
+	// req.Header.Set("Content-Type", "text/event-stream")
 	req.Header.Set("Content-Type", "application/octet-stream")
+	req.Header.Set("Cache-Control", "no-cache")
+	req.Header.Set("Connection", "keep-alive")
 	req.Header.Set("x-nile-pip-claim", t.claim(msg))
 	req.Header.Set("x-nile-pip-msg", msg)
 
