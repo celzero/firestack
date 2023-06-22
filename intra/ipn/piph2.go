@@ -235,6 +235,8 @@ func (t *piph2) Dial(network, addr string) (Conn, error) {
 		closeAll(readable, writable)
 		return nil, err
 	}
+
+	log.D("piph2: req %s", url.String())
 	req.Header.Set("User-Agent", "")
 	// sse? community.cloudflare.com/t/184219
 	// pack binary data into utf-8?
@@ -264,6 +266,8 @@ func (t *piph2) Dial(network, addr string) (Conn, error) {
 		return nil, errNoProxyResponse
 	}
 
+	log.D("piph2: duplex %s", url.String())
+
 	t.status = TOK
 	return &pipconn{
 		r: res.Body,
@@ -271,9 +275,10 @@ func (t *piph2) Dial(network, addr string) (Conn, error) {
 	}, nil
 }
 
-func closeAll(c1, c2 io.Closer) {
-	c1.Close()
-	c2.Close()
+func closeAll(c ...io.Closer) {
+	for _, x := range c {
+		x.Close()
+	}
 }
 
 func hmac256(m, k []byte) []byte {
