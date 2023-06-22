@@ -24,6 +24,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/core/ipmap"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
@@ -51,11 +52,13 @@ type piph2 struct {
 }
 
 type pipconn struct {
-	Conn
-	rch <-chan io.ReadCloser
-	ok  bool
-	r   io.ReadCloser
-	w   io.WriteCloser
+	core.TCPConn
+	rch   <-chan io.ReadCloser
+	ok    bool
+	r     io.ReadCloser
+	w     io.WriteCloser
+	laddr net.Addr
+	raddr net.Addr
 }
 
 func (c *pipconn) Read(b []byte) (int, error) {
@@ -77,14 +80,29 @@ func (c *pipconn) Write(b []byte) (int, error) {
 }
 
 func (c *pipconn) Close() (err error) {
-	if c.r != nil {
-		c.r.Close()
-	}
-	if c.w != nil {
-		err = c.w.Close()
-	}
-	return
+	c.CloseRead()
+	return c.CloseWrite()
 }
+
+func (c *pipconn) CloseRead() error {
+	if c.r != nil {
+		return c.r.Close()
+	}
+	return nil
+}
+
+func (c *pipconn) CloseWrite() error {
+	if c.w != nil {
+		return c.w.Close()
+	}
+	return nil
+}
+
+func (c *pipconn) LocalAddr() net.Addr           { return c.laddr }
+func (c *pipconn) RemoteAddr() net.Addr          { return c.raddr }
+func (c *pipconn) SetDeadline(t time.Time) error { return nil }
+func SetReadDeadline(t time.Time) error          { return nil }
+func SetWriteDeadline(t time.Time) error         { return nil }
 
 func (t *piph2) dial(network, addr string) (net.Conn, error) {
 	log.D("piph2: dialing %s", addr)
@@ -230,18 +248,24 @@ func (t *piph2) Dial(network, addr string) (Conn, error) {
 	// ref: github.com/ginuerzh/gost/blob/1c62376e0880e/http2.go#L221
 	// and: github.com/golang/go/issues/17227#issuecomment-249424243
 	readable, writable := io.Pipe()
+	incomingch := make(chan io.ReadCloser, 1)
+	oconn := &pipconn{
+		rch: incomingch,
+		w:   writable,
+	}
+
 	// github.com/golang/go/issues/26574
 	req, err := http.NewRequest(http.MethodPut, url.String(), ioutil.NopCloser(readable))
 	if err != nil {
 		log.E("piph2: req err: %v", err)
 		t.status = TKO
-		closeAll(readable, writable)
+		closePipe(readable, writable)
 		return nil, err
 	}
 	msg, err := hexnonce(ipp)
 	if err != nil {
 		log.E("piph2: nonce err: %v", err)
-		closeAll(readable, writable)
+		closePipe(readable, writable)
 		return nil, err
 	}
 
@@ -254,7 +278,8 @@ func (t *piph2) Dial(network, addr string) (Conn, error) {
 			if info.Conn == nil {
 				return
 			}
-			// conn = info.Conn
+			oconn.laddr = info.Conn.LocalAddr()
+			oconn.raddr = info.Conn.RemoteAddr()
 		},
 		PutIdleConn: func(err error) {
 			log.V("piph2: PutIdleConn(%v)", err)
@@ -309,35 +334,31 @@ func (t *piph2) Dial(network, addr string) (Conn, error) {
 	req.Header.Set("x-nile-pip-claim", t.claim(msg))
 	req.Header.Set("x-nile-pip-msg", msg)
 
-	incomingch := make(chan io.ReadCloser, 1)
 	go func() {
 		res, err := t.client.Do(req)
-		incomingch <- res.Body
 		if err != nil {
 			log.E("piph2: send err: %v", err)
 			t.status = TKO
 			incomingch <- nil
-			closeAll(readable, writable)
-			// return nil, err
+			closePipe(readable, writable)
 		} else if res.StatusCode != http.StatusOK {
 			log.E("piph2: recv bad status: %v", res.Status)
 			res.Body.Close()
 			t.status = TKO
 			incomingch <- nil
-			closeAll(readable, writable)
-			// return nil, errNoProxyResponse
+			closePipe(readable, writable)
+		} else {
+			t.status = TOK
+			incomingch <- res.Body
+			log.D("piph2: duplex %s", url.String())
 		}
-		log.D("piph2: duplex %s", url.String())
 	}()
 
 	t.status = TOK
-	return &pipconn{
-		rch: incomingch,
-		w:   writable,
-	}, nil
+	return oconn, nil
 }
 
-func closeAll(c ...io.Closer) {
+func closePipe(c ...io.Closer) {
 	for _, x := range c {
 		x.Close()
 	}

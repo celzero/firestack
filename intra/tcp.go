@@ -333,6 +333,8 @@ func (h *tcpHandler) Handle(conn net.Conn, target *net.TCPAddr, summary *TCPSock
 			c = uc
 		case *gonet.TCPConn:
 			c = uc
+		case core.TCPConn:
+			c = uc
 		default:
 			err = errTcpSetupConn
 		}
