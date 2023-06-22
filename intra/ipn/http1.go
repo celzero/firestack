@@ -31,8 +31,9 @@ func NewHTTPProxy(id string, c protect.Controller, po *settings.ProxyOptions) (P
 	}
 
 	hp := tx.NewProxyHttpServer()
-	hp.Tr.Dial = protect.MakeNsDialer(c).Dial
-	hp.Tr.DialContext = protect.MakeNsDialer(c).DialContext
+	nsd := protect.MakeNsDialer(c)
+	hp.Tr.Dial = nsd.Dial
+	hp.Tr.DialContext = nsd.DialContext
 	hp.Verbose = settings.Debug
 	// todo: use user-preferred dns transport to dial urls?
 	dialfn := hp.NewConnectDialToProxy(po.FullUrl())

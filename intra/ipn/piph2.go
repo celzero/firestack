@@ -10,12 +10,15 @@ import (
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/tls"
 	"encoding/hex"
 	"io"
 	"io/ioutil"
 	"net"
 	"net/http"
+	"net/http/httptrace"
 	"net/netip"
+	"net/textproto"
 	"net/url"
 	"strconv"
 	"strings"
@@ -49,11 +52,17 @@ type piph2 struct {
 
 type pipconn struct {
 	Conn
-	r io.ReadCloser
-	w io.WriteCloser
+	rch <-chan io.ReadCloser
+	ok  bool
+	r   io.ReadCloser
+	w   io.WriteCloser
 }
 
 func (c *pipconn) Read(b []byte) (int, error) {
+	if !c.ok {
+		c.r = <-c.rch // nil on error
+		c.ok = true
+	}
 	if c.r == nil {
 		return 0, io.EOF
 	}
@@ -236,6 +245,57 @@ func (t *piph2) Dial(network, addr string) (Conn, error) {
 		return nil, err
 	}
 
+	trace := httptrace.ClientTrace{
+		GetConn: func(hostPort string) {
+			log.V("piph2: GetConn(%s)", hostPort)
+		},
+		GotConn: func(info httptrace.GotConnInfo) {
+			log.D("piph2: GotConn(%v)", info)
+			if info.Conn == nil {
+				return
+			}
+			// conn = info.Conn
+		},
+		PutIdleConn: func(err error) {
+			log.V("piph2: PutIdleConn(%v)", err)
+		},
+		GotFirstResponseByte: func() {
+			log.V("piph2: GotFirstResponseByte()")
+		},
+		Got100Continue: func() {
+			log.V("piph2: %s Got100Continue()")
+		},
+		Got1xxResponse: func(code int, header textproto.MIMEHeader) error {
+			log.V("piph2: Got1xxResponse(%d, %v)", code, header)
+			return nil
+		},
+		DNSStart: func(info httptrace.DNSStartInfo) {
+			log.V("piph2: DNSStart(%v)", info)
+		},
+		DNSDone: func(info httptrace.DNSDoneInfo) {
+			log.V("piph2: DNSDone(%v)", info)
+		},
+		ConnectStart: func(network, addr string) {
+			log.V("piph2: ConnectStart(%s, %s)", network, addr)
+		},
+		ConnectDone: func(network, addr string, err error) {
+			log.V("piph2: ConnectDone(%s, %s, %v)", network, addr, err)
+		},
+		TLSHandshakeStart: func() {
+			log.V("piph2: TLSHandshakeStart()")
+		},
+		TLSHandshakeDone: func(state tls.ConnectionState, err error) {
+			log.V("piph2: TLSHandshakeDone(%v, %v)", state, err)
+		},
+		WroteHeaders: func() {
+			log.V("piph2: WroteHeaders()")
+		},
+		WroteRequest: func(info httptrace.WroteRequestInfo) {
+			log.V("piph2: WroteRequest(%v)", info)
+		},
+	}
+	req = req.WithContext(httptrace.WithClientTrace(req.Context(), &trace))
+
 	log.D("piph2: req %s", url.String())
 	req.Header.Set("User-Agent", "")
 	// sse? community.cloudflare.com/t/184219
@@ -249,29 +309,31 @@ func (t *piph2) Dial(network, addr string) (Conn, error) {
 	req.Header.Set("x-nile-pip-claim", t.claim(msg))
 	req.Header.Set("x-nile-pip-msg", msg)
 
-	res, err := t.client.Do(req)
-
-	if err != nil {
-		log.E("piph2: send err: %v", err)
-		t.status = TKO
-		closeAll(readable, writable)
-		return nil, err
-	}
-
-	if res.StatusCode != http.StatusOK {
-		log.E("piph2: recv bad status: %v", res.Status)
-		res.Body.Close()
-		t.status = TKO
-		closeAll(readable, writable)
-		return nil, errNoProxyResponse
-	}
-
-	log.D("piph2: duplex %s", url.String())
+	incomingch := make(chan io.ReadCloser, 1)
+	go func() {
+		res, err := t.client.Do(req)
+		incomingch <- res.Body
+		if err != nil {
+			log.E("piph2: send err: %v", err)
+			t.status = TKO
+			incomingch <- nil
+			closeAll(readable, writable)
+			// return nil, err
+		} else if res.StatusCode != http.StatusOK {
+			log.E("piph2: recv bad status: %v", res.Status)
+			res.Body.Close()
+			t.status = TKO
+			incomingch <- nil
+			closeAll(readable, writable)
+			// return nil, errNoProxyResponse
+		}
+		log.D("piph2: duplex %s", url.String())
+	}()
 
 	t.status = TOK
 	return &pipconn{
-		r: res.Body,
-		w: writable,
+		rch: incomingch,
+		w:   writable,
 	}, nil
 }
 
