@@ -13,7 +13,6 @@ import (
 	"crypto/tls"
 	"encoding/hex"
 	"io"
-	"io/ioutil"
 	"net"
 	"net/http"
 	"net/http/httptrace"
@@ -33,8 +32,8 @@ import (
 )
 
 const (
-	tlsHandshakeTimeout   time.Duration = 3 * time.Second
-	responseHeaderTimeout time.Duration = 3 * time.Second
+	tlsHandshakeTimeout   time.Duration = 10 * time.Second
+	responseHeaderTimeout time.Duration = 10 * time.Second
 )
 
 type piph2 struct {
@@ -53,6 +52,7 @@ type piph2 struct {
 
 type pipconn struct {
 	core.TCPConn
+	id    string
 	rch   <-chan io.ReadCloser
 	ok    bool
 	r     io.ReadCloser
@@ -62,24 +62,29 @@ type pipconn struct {
 }
 
 func (c *pipconn) Read(b []byte) (int, error) {
+	log.V("piph2: read(%v/%s) waiting?(%t)", len(b), c.id, c.ok)
 	if !c.ok {
 		c.r = <-c.rch // nil on error
 		c.ok = true
 	}
 	if c.r == nil {
+		log.E("piph2: read(%v/%s) not ok", len(b), c.id)
 		return 0, io.EOF
 	}
 	return c.r.Read(b)
 }
 
 func (c *pipconn) Write(b []byte) (int, error) {
+	log.V("piph2: write(%v/%s) read-waiting?(%t)", len(b), c.id, c.ok)
 	if c.w == nil {
+		log.E("piph2: write(%v/%s) not ok", len(b), c.id)
 		return 0, io.EOF
 	}
 	return c.w.Write(b)
 }
 
 func (c *pipconn) Close() (err error) {
+	log.D("piph2: close(%s); waiting?(%t)", c.id, c.ok)
 	c.CloseRead()
 	return c.CloseWrite()
 }
@@ -218,6 +223,9 @@ func (t *piph2) Status() int {
 }
 
 func (t *piph2) claim(msg string) string {
+	if len(t.token) == 0 || len(t.sig) == 0 {
+		return ""
+	}
 	// hmac msg keyed by token's sig
 	msgmac := hmac256(hex2byte(msg), hex2byte(t.sig))
 	return t.token + ":" + t.sig + ":" + byte2hex(msgmac)
@@ -252,12 +260,14 @@ func (t *piph2) Dial(network, addr string) (Conn, error) {
 	// mpw := multipart.NewWriter(writable)
 	incomingch := make(chan io.ReadCloser, 1)
 	oconn := &pipconn{
-		rch: incomingch,
-		w:   writable,
+		rch:   incomingch,
+		w:     writable,
+		id:    u.Path,
+		raddr: net.TCPAddrFromAddrPort(ipp),
 	}
 
 	// github.com/golang/go/issues/26574
-	req, err := http.NewRequest(http.MethodPut, u.String(), ioutil.NopCloser(readable))
+	req, err := http.NewRequest(http.MethodPut, u.String(), io.NopCloser(readable))
 
 	if err != nil {
 		log.E("piph2: req err: %v", err)
@@ -280,9 +290,8 @@ func (t *piph2) Dial(network, addr string) (Conn, error) {
 			if info.Conn == nil {
 				return
 			}
-			log.D("piph2: GotConn(%v)", info.Conn.LocalAddr(), info.Conn.RemoteAddr())
+			log.D("piph2: GotConn([%v -> %v] (via %v))", info.Conn.LocalAddr(), ipp.Addr().String(), info.Conn.RemoteAddr())
 			oconn.laddr = info.Conn.LocalAddr()
-			oconn.raddr = info.Conn.RemoteAddr()
 		},
 		PutIdleConn: func(err error) {
 			log.V("piph2: %s PutIdleConn(%v)", u.Path, err)
@@ -327,6 +336,7 @@ func (t *piph2) Dial(network, addr string) (Conn, error) {
 	log.D("piph2: req %s", u.String())
 	req.ContentLength = -1 // infinite length?
 	req.Close = false      // allow keep-alive
+	// github.com/stripe/stripe-go/pull/711
 	req.GetBody = func() (io.ReadCloser, error) {
 		log.V("piph2: %s GetBody()", u.Path)
 		return io.NopCloser(readable), nil
@@ -346,20 +356,20 @@ func (t *piph2) Dial(network, addr string) (Conn, error) {
 	go func() {
 		res, err := t.client.Do(req)
 		if err != nil {
-			log.E("piph2: %s send err: %v", u.Path, err)
+			log.E("piph2: path(%s) send err: %v", u.Path, err)
 			t.status = TKO
 			incomingch <- nil
 			closePipe(readable, writable)
 		} else if res.StatusCode != http.StatusOK {
-			log.E("piph2: %s recv bad status: %v", u.Path, res.Status)
+			log.E("piph2: path(%s) recv bad: %v", u.Path, res.Status)
 			res.Body.Close()
 			t.status = TKO
 			incomingch <- nil
 			closePipe(readable, writable)
 		} else {
+			log.D("piph2: duplex %s", u.String())
 			t.status = TOK
 			incomingch <- res.Body
-			log.D("piph2: duplex %s", u.String())
 		}
 	}()
 
