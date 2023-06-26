@@ -7,6 +7,7 @@
 package ipn
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
@@ -21,6 +22,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/celzero/firestack/intra/core"
@@ -29,9 +31,11 @@ import (
 	"github.com/celzero/firestack/intra/protect"
 	"github.com/celzero/firestack/intra/settings"
 	"github.com/celzero/firestack/intra/split"
+	"golang.org/x/net/http2"
 )
 
 const (
+	h2only                              = true
 	tlsHandshakeTimeout   time.Duration = 10 * time.Second
 	responseHeaderTimeout time.Duration = 10 * time.Second
 )
@@ -56,7 +60,9 @@ type pipconn struct {
 	rch   <-chan io.ReadCloser
 	ok    bool
 	r     io.ReadCloser
+	rmu   *sync.Mutex
 	w     io.WriteCloser
+	wmu   *sync.Mutex
 	laddr net.Addr
 	raddr net.Addr
 }
@@ -71,6 +77,9 @@ func (c *pipconn) Read(b []byte) (int, error) {
 		log.E("piph2: read(%v/%s) not ok", len(b), c.id)
 		return 0, io.EOF
 	}
+	// github.com/posener/h2conn/blob/13e7df33ed1/conn.go
+	c.rmu.Lock()
+	defer c.rmu.Unlock()
 	return c.r.Read(b)
 }
 
@@ -80,6 +89,9 @@ func (c *pipconn) Write(b []byte) (int, error) {
 		log.E("piph2: write(%v/%s) not ok", len(b), c.id)
 		return 0, io.EOF
 	}
+	// github.com/posener/h2conn/blob/13e7df33ed1/conn.go
+	c.wmu.Lock()
+	defer c.wmu.Unlock()
 	return c.w.Write(b)
 }
 
@@ -90,6 +102,9 @@ func (c *pipconn) Close() (err error) {
 }
 
 func (c *pipconn) CloseRead() error {
+	c.rmu.Lock()
+	defer c.rmu.Unlock()
+
 	if c.r != nil {
 		return c.r.Close()
 	}
@@ -97,6 +112,9 @@ func (c *pipconn) CloseRead() error {
 }
 
 func (c *pipconn) CloseWrite() error {
+	c.wmu.Lock()
+	defer c.wmu.Unlock()
+
 	if c.w != nil {
 		return c.w.Close()
 	}
@@ -108,6 +126,38 @@ func (c *pipconn) RemoteAddr() net.Addr          { return c.raddr }
 func (c *pipconn) SetDeadline(t time.Time) error { return nil }
 func SetReadDeadline(t time.Time) error          { return nil }
 func SetWriteDeadline(t time.Time) error         { return nil }
+
+func (t *piph2) dialtls(network, addr string, cfg *tls.Config) (net.Conn, error) {
+	rawConn, err := t.dial(network, addr)
+	if err != nil {
+		return nil, err
+	}
+
+	colonPos := strings.LastIndex(addr, ":")
+	if colonPos == -1 {
+		colonPos = len(addr)
+	}
+	hostname := addr[:colonPos]
+
+	if cfg == nil {
+		cfg = &tls.Config{ServerName: hostname}
+	} else if cfg.ServerName == "" {
+		// If no ServerName is set, infer the ServerName
+		// from the hostname we're connecting to.
+		// Make a copy to avoid polluting argument or default.
+		c := cfg.Clone()
+		c.ServerName = hostname
+		cfg = c
+	}
+
+	conn := tls.Client(rawConn, cfg)
+	if err := conn.HandshakeContext(context.Background()); err != nil {
+		log.D("piph2: dialtls(%s) handshake error: %v", addr, err)
+		rawConn.Close()
+		return nil, err
+	}
+	return conn, nil
+}
 
 func (t *piph2) dial(network, addr string) (net.Conn, error) {
 	log.D("piph2: dialing %s", addr)
@@ -124,7 +174,6 @@ func (t *piph2) dial(network, addr string) (net.Conn, error) {
 		return &net.TCPAddr{IP: ip, Port: port}
 	}
 
-	// TODO: Improve IP fallback strategy with parallelism and Happy Eyeballs.
 	var conn net.Conn
 	ips := t.ips.Get(domain)
 	confirmed := ips.Confirmed()
@@ -192,11 +241,17 @@ func NewPipProxy(id string, ctl protect.Controller, po *settings.ProxyOptions) (
 
 	// Override the dial function.
 	// h2 is duplex: github.com/golang/go/issues/19653#issuecomment-341539160
-	t.client.Transport = &http.Transport{
-		Dial:                  t.dial,
-		ForceAttemptHTTP2:     true,
-		TLSHandshakeTimeout:   tlsHandshakeTimeout,
-		ResponseHeaderTimeout: responseHeaderTimeout,
+	if h2only {
+		t.client.Transport = &http2.Transport{
+			DialTLS: t.dialtls,
+		}
+	} else {
+		t.client.Transport = &http.Transport{
+			Dial:                  t.dial,
+			ForceAttemptHTTP2:     true,
+			TLSHandshakeTimeout:   tlsHandshakeTimeout,
+			ResponseHeaderTimeout: responseHeaderTimeout,
+		}
 	}
 	return t, nil
 }
@@ -368,6 +423,8 @@ func (t *piph2) Dial(network, addr string) (Conn, error) {
 			closePipe(readable, writable)
 		} else {
 			log.D("piph2: duplex %s", u.String())
+			// github.com/posener/h2conn/blob/13e7df33ed1/client.go
+			res.Request = req
 			t.status = TOK
 			incomingch <- res.Body
 		}
