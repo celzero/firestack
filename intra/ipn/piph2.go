@@ -42,29 +42,29 @@ const (
 
 type piph2 struct {
 	Proxy
-	id       string
-	url      string
-	hostname string
-	port     int
-	ips      ipmap.IPMap
-	token    string // hex, client token
-	sig      string // hex, authorizer signed client token
-	client   http.Client
-	dialer   *net.Dialer
-	status   int
+	id       string      // some unique identifier
+	url      string      // h2 proxy url
+	hostname string      // h2 proxy hostname
+	port     int         // h2 proxy port
+	ips      ipmap.IPMap // h2 proxy working ips
+	token    string      // hex, client token
+	sig      string      // hex, authorizer signed client token
+	client   http.Client // h2 client, see h2only
+	dialer   *net.Dialer // h2 dialer
+	status   int         // proxy status: TOK, TKO, END
 }
 
 type pipconn struct {
 	core.TCPConn
-	id    string
-	rch   <-chan io.ReadCloser
-	ok    bool
-	r     io.ReadCloser
-	rmu   *sync.Mutex
-	w     io.WriteCloser
-	wmu   *sync.Mutex
-	laddr net.Addr
-	raddr net.Addr
+	id    string               // some identifier
+	rch   <-chan io.ReadCloser // reader provider
+	ok    bool                 // r is ok to read from
+	r     io.ReadCloser        // reader, nil until ok is true
+	rmu   *sync.Mutex          // rmu protects r
+	w     io.WriteCloser       // writer
+	wmu   *sync.Mutex          // wmu protects w
+	laddr net.Addr             // local address, may be nil
+	raddr net.Addr             // remote address
 }
 
 func (c *pipconn) Read(b []byte) (int, error) {
@@ -315,10 +315,12 @@ func (t *piph2) Dial(network, addr string) (Conn, error) {
 	// mpw := multipart.NewWriter(writable)
 	incomingch := make(chan io.ReadCloser, 1)
 	oconn := &pipconn{
+		id:    u.Path,
 		rch:   incomingch,
 		w:     writable,
-		id:    u.Path,
 		raddr: net.TCPAddrFromAddrPort(ipp),
+		wmu:   new(sync.Mutex),
+		rmu:   new(sync.Mutex),
 	}
 
 	// github.com/golang/go/issues/26574
