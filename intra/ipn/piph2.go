@@ -35,7 +35,7 @@ import (
 )
 
 const (
-	h2only                              = true
+	trType                              = "h2"
 	tlsHandshakeTimeout   time.Duration = 10 * time.Second
 	responseHeaderTimeout time.Duration = 10 * time.Second
 )
@@ -49,7 +49,7 @@ type piph2 struct {
 	ips      ipmap.IPMap // h2 proxy working ips
 	token    string      // hex, client token
 	sig      string      // hex, authorizer signed client token
-	client   http.Client // h2 client, see h2only
+	client   http.Client // h2 client, see trType
 	dialer   *net.Dialer // h2 dialer
 	status   int         // proxy status: TOK, TKO, END
 }
@@ -68,7 +68,11 @@ type pipconn struct {
 }
 
 func (c *pipconn) Read(b []byte) (int, error) {
-	log.V("piph2: read(%v/%s) waiting?(%t)", len(b), c.id, c.ok)
+	// github.com/posener/h2conn/blob/13e7df33ed1/conn.go
+	c.rmu.Lock()
+	defer c.rmu.Unlock()
+
+	log.V("piph2: read(%v/%s) waiting?(%t)", len(b), c.id, !c.ok)
 	if !c.ok {
 		c.r = <-c.rch // nil on error
 		c.ok = true
@@ -77,14 +81,11 @@ func (c *pipconn) Read(b []byte) (int, error) {
 		log.E("piph2: read(%v/%s) not ok", len(b), c.id)
 		return 0, io.EOF
 	}
-	// github.com/posener/h2conn/blob/13e7df33ed1/conn.go
-	c.rmu.Lock()
-	defer c.rmu.Unlock()
 	return c.r.Read(b)
 }
 
 func (c *pipconn) Write(b []byte) (int, error) {
-	log.V("piph2: write(%v/%s) read-waiting?(%t)", len(b), c.id, c.ok)
+	log.V("piph2: write(%v/%s) read-waiting?(%t)", len(b), c.id, !c.ok)
 	if c.w == nil {
 		log.E("piph2: write(%v/%s) not ok", len(b), c.id)
 		return 0, io.EOF
@@ -241,7 +242,7 @@ func NewPipProxy(id string, ctl protect.Controller, po *settings.ProxyOptions) (
 
 	// Override the dial function.
 	// h2 is duplex: github.com/golang/go/issues/19653#issuecomment-341539160
-	if h2only {
+	if trType == "h2" {
 		t.client.Transport = &http2.Transport{
 			DialTLS: t.dialtls,
 		}
