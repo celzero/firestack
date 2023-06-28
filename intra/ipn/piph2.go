@@ -22,7 +22,6 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/celzero/firestack/intra/core"
@@ -54,24 +53,19 @@ type piph2 struct {
 	status   int         // proxy status: TOK, TKO, END
 }
 
+// github.com/posener/h2conn/blob/13e7df33ed1/conn.go
 type pipconn struct {
 	core.TCPConn
 	id    string               // some identifier
 	rch   <-chan io.ReadCloser // reader provider
 	ok    bool                 // r is ok to read from
 	r     io.ReadCloser        // reader, nil until ok is true
-	rmu   *sync.Mutex          // rmu protects r
 	w     io.WriteCloser       // writer
-	wmu   *sync.Mutex          // wmu protects w
 	laddr net.Addr             // local address, may be nil
 	raddr net.Addr             // remote address
 }
 
 func (c *pipconn) Read(b []byte) (int, error) {
-	// github.com/posener/h2conn/blob/13e7df33ed1/conn.go
-	c.rmu.Lock()
-	defer c.rmu.Unlock()
-
 	log.V("piph2: read(%v/%s) waiting?(%t)", len(b), c.id, !c.ok)
 	if !c.ok {
 		c.r = <-c.rch // nil on error
@@ -90,9 +84,6 @@ func (c *pipconn) Write(b []byte) (int, error) {
 		log.E("piph2: write(%v/%s) not ok", len(b), c.id)
 		return 0, io.EOF
 	}
-	// github.com/posener/h2conn/blob/13e7df33ed1/conn.go
-	c.wmu.Lock()
-	defer c.wmu.Unlock()
 	return c.w.Write(b)
 }
 
@@ -103,9 +94,6 @@ func (c *pipconn) Close() (err error) {
 }
 
 func (c *pipconn) CloseRead() error {
-	c.rmu.Lock()
-	defer c.rmu.Unlock()
-
 	if c.r != nil {
 		return c.r.Close()
 	}
@@ -113,9 +101,6 @@ func (c *pipconn) CloseRead() error {
 }
 
 func (c *pipconn) CloseWrite() error {
-	c.wmu.Lock()
-	defer c.wmu.Unlock()
-
 	if c.w != nil {
 		return c.w.Close()
 	}
@@ -143,9 +128,6 @@ func (t *piph2) dialtls(network, addr string, cfg *tls.Config) (net.Conn, error)
 	if cfg == nil {
 		cfg = &tls.Config{ServerName: hostname}
 	} else if cfg.ServerName == "" {
-		// If no ServerName is set, infer the ServerName
-		// from the hostname we're connecting to.
-		// Make a copy to avoid polluting argument or default.
 		c := cfg.Clone()
 		c.ServerName = hostname
 		cfg = c
@@ -236,11 +218,9 @@ func NewPipProxy(id string, ctl protect.Controller, po *settings.ProxyOptions) (
 
 	ipset := t.ips.Of(t.hostname, po.Addrs) // po.Addrs may be nil or empty
 	if ipset.Empty() {
-		// IPs instead resolved just-in-time with ipmap.Get in transport.dial
 		log.W("piph2: zero bootstrap ips %s", t.hostname)
 	}
 
-	// Override the dial function.
 	// h2 is duplex: github.com/golang/go/issues/19653#issuecomment-341539160
 	if trType == "h2" {
 		t.client.Transport = &http2.Transport{
@@ -320,8 +300,6 @@ func (t *piph2) Dial(network, addr string) (Conn, error) {
 		rch:   incomingch,
 		w:     writable,
 		raddr: net.TCPAddrFromAddrPort(ipp),
-		wmu:   new(sync.Mutex),
-		rmu:   new(sync.Mutex),
 	}
 
 	// github.com/golang/go/issues/26574
