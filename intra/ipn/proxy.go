@@ -64,6 +64,8 @@ func (pxr *proxifier) AddProxy(id, txt string) (p Proxy, err error) {
 			p, err = NewHTTPProxy(id, pxr.ctl, opts)
 		case "piph2":
 			p, err = NewPipProxy(id, pxr.ctl, opts)
+		case "pipws":
+			p, err = NewPipWsProxy(id, pxr.ctl, opts)
 		case "wg":
 			err = fmt.Errorf("proxy: id must be prefixed with %s in %s for [%s]", WG, id, txt)
 		default:
