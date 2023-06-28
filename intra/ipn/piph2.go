@@ -35,6 +35,7 @@ import (
 
 const (
 	trType                              = "h2"
+	claimprefix                         = "pip_"
 	tlsHandshakeTimeout   time.Duration = 10 * time.Second
 	responseHeaderTimeout time.Duration = 10 * time.Second
 )
@@ -264,7 +265,7 @@ func (t *piph2) claim(msg string) string {
 	}
 	// hmac msg keyed by token's sig
 	msgmac := hmac256(hex2byte(msg), hex2byte(t.sig))
-	return t.token + ":" + t.sig + ":" + byte2hex(msgmac)
+	return claimprefix + t.token + ":" + t.sig + ":" + byte2hex(msgmac)
 }
 
 func (t *piph2) Dial(network, addr string) (Conn, error) {
