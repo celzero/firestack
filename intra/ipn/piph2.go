@@ -391,6 +391,7 @@ func (t *piph2) Dial(network, addr string) (Conn, error) {
 	req.Header.Set("x-nile-pip-msg", msg)
 
 	go func() {
+		// fixme: currently, this hangs forever when upstream is cloudflare
 		res, err := t.client.Do(req)
 		if err != nil {
 			log.E("piph2: path(%s) send err: %v", u.Path, err)

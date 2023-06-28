@@ -104,9 +104,10 @@ func (t *pipws) wsconn(rurl, msg string) (c net.Conn, res *http.Response, err er
 	log.D("connecting to %s", rurl)
 
 	ws, res, err = websocket.Dial(ctx, rurl, &websocket.DialOptions{
-		CompressionMode: websocket.CompressionNoContextTakeover,
-		HTTPClient:      &t.client,
-		HTTPHeader:      hdrs,
+		// compression does not work with Workers
+		// CompressionMode: websocket.CompressionNoContextTakeover,
+		HTTPClient: &t.client,
+		HTTPHeader: hdrs,
 	})
 	if err != nil {
 		log.E("websocket: %v\n", err)
