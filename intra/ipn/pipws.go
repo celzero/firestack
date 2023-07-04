@@ -54,7 +54,7 @@ func (c *pipwsconn) CloseRead() error  { return c.Close() }
 func (c *pipwsconn) CloseWrite() error { return c.Close() }
 
 func (t *pipws) dial(network, addr string) (net.Conn, error) {
-	log.D("piph2: dialing %s", addr)
+	log.D("pipws: dialing %s", addr)
 	domain, portStr, err := net.SplitHostPort(addr)
 	if err != nil {
 		return nil, err
@@ -73,20 +73,20 @@ func (t *pipws) dial(network, addr string) (net.Conn, error) {
 	confirmed := ips.Confirmed()
 	if confirmed != nil {
 		if conn, err = split.DialWithSplitRetry(t.dialer, tcpaddr(confirmed), nil); err == nil {
-			log.I("piph2: confirmed IP %s worked", confirmed.String())
+			log.I("pipws: confirmed IP %s worked", confirmed.String())
 			return conn, nil
 		}
-		log.D("piph2: confirmed IP %s failed with err %v", confirmed.String(), err)
+		log.D("pipws: confirmed IP %s failed with err %v", confirmed.String(), err)
 		ips.Disconfirm(confirmed)
 	}
 
-	log.D("piph2: trying all IPs")
+	log.D("pipws: trying all IPs")
 	for _, ip := range ips.GetAll() {
 		if ip.Equal(confirmed) {
 			continue
 		}
 		if conn, err = split.DialWithSplitRetry(t.dialer, tcpaddr(ip), nil); err == nil {
-			log.I("piph2: found working IP: %s", ip.String())
+			log.I("pipws: found working IP: %s", ip.String())
 			return conn, nil
 		}
 	}
@@ -96,10 +96,14 @@ func (t *pipws) dial(network, addr string) (net.Conn, error) {
 func (t *pipws) wsconn(rurl, msg string) (c net.Conn, res *http.Response, err error) {
 	var ws *websocket.Conn
 	ctx := context.Background()
+	msgmac := t.claim(msg)
 	hdrs := http.Header{}
 	hdrs.Set("User-Agent", "")
-	hdrs.Set("X-Nile-Pip-Claim", t.claim(msg))
-	hdrs.Set("X-Nile-Pip-Msg", msg)
+	if msgmac != nil {
+		hdrs.Set("x-nile-pip-claim", msgmac[0])
+		hdrs.Set("x-nile-pip-mac", msgmac[1])
+		hdrs.Set("x-nile-pip-msg", msg)
+	}
 
 	log.D("connecting to %s", rurl)
 
@@ -186,13 +190,14 @@ func (t *pipws) Status() int {
 	return t.status
 }
 
-func (t *pipws) claim(msg string) string {
+// Scenario 4: privacypass.github.io/protocol
+func (t *pipws) claim(msg string) []string {
 	if len(t.token) == 0 || len(t.sig) == 0 {
-		return ""
+		return nil
 	}
 	// hmac msg keyed by token's sig
 	msgmac := hmac256(hex2byte(msg), hex2byte(t.sig))
-	return claimprefix + t.token + ":" + t.sig + ":" + byte2hex(msgmac)
+	return []string{t.token, byte2hex(msgmac)}
 }
 
 func (t *pipws) Dial(network, addr string) (Conn, error) {
