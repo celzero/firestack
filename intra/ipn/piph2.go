@@ -30,12 +30,12 @@ import (
 	"github.com/celzero/firestack/intra/protect"
 	"github.com/celzero/firestack/intra/settings"
 	"github.com/celzero/firestack/intra/split"
+	"github.com/quic-go/quic-go/http3"
 	"golang.org/x/net/http2"
 )
 
 const (
-	trType                              = "h2"
-	claimprefix                         = "pip_"
+	trType                              = "h3"
 	tlsHandshakeTimeout   time.Duration = 10 * time.Second
 	responseHeaderTimeout time.Duration = 10 * time.Second
 )
@@ -59,6 +59,7 @@ type pipconn struct {
 	core.TCPConn
 	id    string               // some identifier
 	rch   <-chan io.ReadCloser // reader provider
+	wch   chan<- int64         // first write len(data)
 	ok    bool                 // r is ok to read from
 	r     io.ReadCloser        // reader, nil until ok is true
 	w     io.WriteCloser       // writer
@@ -80,6 +81,7 @@ func (c *pipconn) Read(b []byte) (int, error) {
 }
 
 func (c *pipconn) Write(b []byte) (int, error) {
+	c.wch <- int64(len(b))
 	log.V("piph2: write(%v/%s) read-waiting?(%t)", len(b), c.id, !c.ok)
 	if c.w == nil {
 		log.E("piph2: write(%v/%s) not ok", len(b), c.id)
@@ -222,8 +224,10 @@ func NewPipProxy(id string, ctl protect.Controller, po *settings.ProxyOptions) (
 		log.W("piph2: zero bootstrap ips %s", t.hostname)
 	}
 
-	// h2 is duplex: github.com/golang/go/issues/19653#issuecomment-341539160
-	if trType == "h2" {
+	if trType == "h3" {
+		t.client.Transport = &http3.RoundTripper{}
+	} else if trType == "h2" {
+		// h2 is duplex: github.com/golang/go/issues/19653#issuecomment-341539160
 		t.client.Transport = &http2.Transport{
 			DialTLS: t.dialtls,
 		}
@@ -259,13 +263,14 @@ func (t *piph2) Status() int {
 	return t.status
 }
 
-func (t *piph2) claim(msg string) string {
+// Scenario 4: privacypass.github.io/protocol
+func (t *piph2) claim(msg string) []string {
 	if len(t.token) == 0 || len(t.sig) == 0 {
-		return ""
+		return nil
 	}
 	// hmac msg keyed by token's sig
 	msgmac := hmac256(hex2byte(msg), hex2byte(t.sig))
-	return claimprefix + t.token + ":" + t.sig + ":" + byte2hex(msgmac)
+	return []string{t.token, byte2hex(msgmac)}
 }
 
 func (t *piph2) Dial(network, addr string) (Conn, error) {
@@ -295,10 +300,12 @@ func (t *piph2) Dial(network, addr string) (Conn, error) {
 	readable, writable := io.Pipe()
 	// multipart? stackoverflow.com/questions/39761910
 	// mpw := multipart.NewWriter(writable)
-	incomingch := make(chan io.ReadCloser, 1)
+	incomingCh := make(chan io.ReadCloser, 1)
+	wlenCh := make(chan int64, 1)
 	oconn := &pipconn{
 		id:    u.Path,
-		rch:   incomingch,
+		rch:   incomingCh,
+		wch:   wlenCh,
 		w:     writable,
 		raddr: net.TCPAddrFromAddrPort(ipp),
 	}
@@ -371,8 +378,9 @@ func (t *piph2) Dial(network, addr string) (Conn, error) {
 	req = req.WithContext(httptrace.WithClientTrace(req.Context(), &trace))
 
 	log.D("piph2: req %s", u.String())
-	req.ContentLength = -1 // infinite length?
-	req.Close = false      // allow keep-alive
+	// infinite length? doesn't work with cloudflare
+	// req.ContentLength = -1
+	req.Close = false // allow keep-alive
 	// github.com/stripe/stripe-go/pull/711
 	req.GetBody = func() (io.ReadCloser, error) {
 		log.V("piph2: %s GetBody()", u.Path)
@@ -384,32 +392,37 @@ func (t *piph2) Dial(network, addr string) (Conn, error) {
 	// stackoverflow.com/a/31661586
 	// go.dev/play/p/NPsulbF2y9X
 	// req.Header.Set("Content-Type", "text/event-stream")
+	msgmac := t.claim(msg)
 	req.Header.Set("Content-Type", "application/octet-stream")
 	req.Header.Set("Cache-Control", "no-cache")
 	req.Header.Set("Connection", "keep-alive")
-	req.Header.Set("x-nile-pip-claim", t.claim(msg))
-	req.Header.Set("x-nile-pip-msg", msg)
+	if msgmac != nil {
+		req.Header.Set("x-nile-pip-claim", msgmac[0])
+		req.Header.Set("x-nile-pip-mac", msgmac[1])
+		req.Header.Set("x-nile-pip-msg", msg)
+	}
 
 	go func() {
 		// fixme: currently, this hangs forever when upstream is cloudflare
+		req.ContentLength = <-wlenCh
 		res, err := t.client.Do(req)
 		if err != nil {
 			log.E("piph2: path(%s) send err: %v", u.Path, err)
 			t.status = TKO
-			incomingch <- nil
+			incomingCh <- nil
 			closePipe(readable, writable)
 		} else if res.StatusCode != http.StatusOK {
 			log.E("piph2: path(%s) recv bad: %v", u.Path, res.Status)
 			res.Body.Close()
 			t.status = TKO
-			incomingch <- nil
+			incomingCh <- nil
 			closePipe(readable, writable)
 		} else {
 			log.D("piph2: duplex %s", u.String())
 			// github.com/posener/h2conn/blob/13e7df33ed1/client.go
 			res.Request = req
 			t.status = TOK
-			incomingch <- res.Body
+			incomingCh <- res.Body
 		}
 	}()
 
