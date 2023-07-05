@@ -9,6 +9,7 @@ package dnsx
 import (
 	"net"
 	"net/netip"
+	"strings"
 	"sync"
 
 	"github.com/celzero/firestack/intra/log"
@@ -17,10 +18,12 @@ import (
 
 // A IpTree is a thread-safe trie that supports insertion, deletion, and route matching IP CIDRs.
 type IpTree interface {
-	// Adds cidr route to the trie.
-	Add(cidr string) error
+	// Adds value v to the cidr route in the trie.
+	Add(cidr string, v string) error
 	// Sets cidr route to v in the trie, overwriting any previous value.
 	Set(cidr, v string) error
+	// Removes value v, if found, from the trie.
+	Esc(cidr string, v string) bool
 	// Deletes cidr route from the trie. Returns true if cidr was in the trie.
 	Del(cidr string) bool
 	// Gets the value of cidr from the trie or "" if cidr is not in the trie.
@@ -48,13 +51,24 @@ func NewIpTree() IpTree {
 	return &iptree{t: critbitgo.NewNet()}
 }
 
-func (c *iptree) Add(cidr string) error {
-	r := ip2cidr(cidr)
-
-	c.Lock()
-	defer c.Unlock()
-
-	return c.t.Add(r, "")
+func (c *iptree) Add(cidr string, v string) error {
+	if x, err := c.Get(cidr); err != nil {
+		return err
+	} else if len(v) == 0 || x == v {
+		return nil
+	} else if len(x) == 0 {
+		return c.Set(cidr, v)
+	} else if strings.Contains(x, v) {
+		cur := strings.Split(x, ",")
+		for _, val := range cur {
+			if val == v {
+				return nil
+			}
+		}
+		return c.Set(cidr, x+","+v)
+	} else {
+		return c.Set(cidr, x+","+v)
+	}
 }
 
 func (c *iptree) Set(cidr string, v string) error {
@@ -74,6 +88,31 @@ func (c *iptree) Del(cidr string) bool {
 
 	_, ok, err := c.t.Delete(r)
 	return ok && err == nil
+}
+
+func (c *iptree) Esc(cidr string, v string) bool {
+	if x, err := c.Get(cidr); err != nil {
+		return false
+	} else if len(x) == 0 || len(v) == 0 {
+		return false
+	} else if x == v {
+		return c.Del(cidr)
+	} else if strings.Contains(x, v) {
+		// remove all occurences of v in csv x
+		old := strings.Split(x, ",")
+		cur := make([]string, 0, len(old))
+		for _, val := range old {
+			if val != v {
+				cur = append(cur, val)
+			}
+		}
+		if len(cur) == 0 {
+			return c.Del(cidr)
+		}
+		return c.Set(cidr, strings.Join(cur, ",")) == nil
+	} else {
+		return false
+	}
 }
 
 func (c *iptree) Has(cidr string) (bool, error) {
