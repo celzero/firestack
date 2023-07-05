@@ -151,21 +151,31 @@ func (c *iptree) DelAll(cidr string) (n int32) {
 func (c *iptree) HasAny(cidr string) (bool, error) {
 	r := ip2cidr(cidr)
 
+	c.RLock()
+	defer c.RUnlock()
+
 	m, _, err := c.t.Match(r)
 	return m != nil, err
 }
 
 func (c *iptree) Get(cidr string) (v string, err error) {
 	r := ip2cidr(cidr)
+
+	c.RLock()
+	defer c.RUnlock()
+
 	s, ok, err := c.t.Get(r)
 	if ok && err == nil {
-		v, ok = s.(string)
+		v, _ = s.(string)
 	}
 	return
 }
 
 func (c *iptree) GetAny(cidr string) (rv string, err error) {
 	r := ip2cidr(cidr)
+
+	c.RLock()
+	defer c.RUnlock()
 
 	if m, v, err := c.t.Match(r); err != nil {
 		return "", err
