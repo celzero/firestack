@@ -12,6 +12,11 @@ set -eux
 # gitlab.com/fdroid/fdroiddata/-/blob/81c14003f/metadata/com.tailscale.ipn.yml
 # gitlab.com/fdroid/fdroiddata/-/blob/d6c5315a/metadata/org.calyxinstitute.vpn.yml
 
+# defaults
+PACK="${PACK:-aar}"
+FOUT="${FOUT:-firestack.aar}"
+BOUT="${QDOH:-build/intra/tun2socks.aar}"
+
 # debug
 printenv
 ls -ltr $ANDROID_HOME/platforms/
