@@ -46,6 +46,7 @@ var (
 	errProxyStopped    = errors.New("proxy stopped")
 	errProxyConfig     = errors.New("invalid proxy config")
 	errNoProxyResponse = errors.New("no response from proxy")
+	errNoSig           = errors.New("auth missing sig")
 
 	udptimeoutsec = 5 * 60                    // 5m
 	tcptimeoutsec = (2 * 60 * 60) + (40 * 60) // 2h40m

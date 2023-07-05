@@ -24,14 +24,20 @@ import (
 
 const delim = ":"
 
-var fixedmsg []byte = []byte("pip-v0-golang-circl-msg-rsa-pss-384")
+// "pip-v0-golang-circl-msg-rsa-pss-384" 35 bytes
+var fixedmsg []byte = []byte{
+	112, 105, 112, 45, 118, 48, 45, 103, 111, 108, 97, 110, 103, 45, 99, 105, 114, 99, 108, 45, 109, 115, 103, 45, 114, 115, 97, 45, 112, 115, 115, 45, 51, 56, 52,
+}
 
 type (
 	Message []byte
 )
 
 type PipKey interface {
-	// RandMsg() []byte
+	// Generates blindMsg:blindingFactor:salt
+	Blind() (string, error)
+	// Returns msg:sig for a finalized blind-signature
+	Finalize(blindSig string) string
 }
 
 //	{
@@ -123,17 +129,17 @@ func (k *pipkey) Blind() (string, error) {
 	return byte2hex(blindMsg) + delim + byte2hex(r) + delim + byte2hex(salt), nil
 }
 
-func (k *pipkey) Finalize(blindSig string) bool {
+func (k *pipkey) Finalize(blindSig string) string {
 	blindsigbytes := hex2byte(blindSig)
 	sigbytes, err := k.rsavp1state.Finalize(blindsigbytes)
 	if err != nil {
 		log.E("pipkey: finalize: %v", err)
-		return false
+		return ""
 	}
 	err = k.rsavp1.Verify(fixedmsg, sigbytes)
 	if err != nil {
 		log.E("pipkey: verify: %v", err)
-		return false
+		return ""
 	}
-	return true
+	return byte2hex(fixedmsg) + delim + byte2hex(sigbytes)
 }

@@ -37,7 +37,8 @@ type pipws struct {
 	port     int         // h2 proxy port
 	ips      ipmap.IPMap // h2 proxy working ips
 	token    string      // hex, client token
-	sig      string      // hex, authorizer signed client token
+	toksig   string      // hex, authorizer (rdns) signed client token
+	rsasig   string      // hex, authorizer unblinded signature
 	client   http.Client // h2 client
 	dialer   *net.Dialer // h2 dialer
 	status   int         // proxy status: TOK, TKO, END
@@ -143,6 +144,14 @@ func NewPipWsProxy(id string, ctl protect.Controller, po *settings.ProxyOptions)
 		port = 443
 	}
 
+	splitpath := strings.Split(parsedurl.Path, "/")
+	// todo: check if the len(rsasig) is 64/128 hex chars?
+	if len(splitpath) < 3 {
+		return nil, errNoSig
+	}
+	if splitpath[1] != "ws" {
+		return nil, errProxyConfig
+	}
 	dialer := protect.MakeNsDialer(ctl)
 	t := &pipws{
 		id:       id,
@@ -151,7 +160,8 @@ func NewPipWsProxy(id string, ctl protect.Controller, po *settings.ProxyOptions)
 		port:     port,
 		dialer:   dialer,
 		token:    po.Auth.User,
-		sig:      po.Auth.Password,
+		toksig:   po.Auth.Password,
+		rsasig:   splitpath[2],
 		ips:      ipmap.NewIPMap(dialer.Resolver),
 		status:   TOK,
 	}
@@ -192,11 +202,11 @@ func (t *pipws) Status() int {
 
 // Scenario 4: privacypass.github.io/protocol
 func (t *pipws) claim(msg string) []string {
-	if len(t.token) == 0 || len(t.sig) == 0 {
+	if len(t.token) == 0 || len(t.toksig) == 0 {
 		return nil
 	}
 	// hmac msg keyed by token's sig
-	msgmac := hmac256(hex2byte(msg), hex2byte(t.sig))
+	msgmac := hmac256(hex2byte(msg), hex2byte(t.toksig))
 	return []string{t.token, byte2hex(msgmac)}
 }
 
