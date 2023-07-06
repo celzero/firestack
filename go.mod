@@ -20,7 +20,6 @@ require (
 	github.com/cloudflare/circl v1.3.3
 	github.com/crazy-max/xgo v0.17.0
 	github.com/elazarl/goproxy v0.0.0-20221015165544-a0805db90819
-	github.com/quic-go/quic-go v0.36.1
 	github.com/txthinking/socks5 v0.0.0-20220615051428-39268faee3e6
 	github.com/txthinking/x v0.0.0-20210326105829-476fab902fbe
 	golang.org/x/mobile v0.0.0-20220518205345-8578da9835fd

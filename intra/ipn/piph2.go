@@ -30,7 +30,6 @@ import (
 	"github.com/celzero/firestack/intra/protect"
 	"github.com/celzero/firestack/intra/settings"
 	"github.com/celzero/firestack/intra/split"
-	"github.com/quic-go/quic-go/http3"
 	"golang.org/x/net/http2"
 )
 
@@ -239,7 +238,12 @@ func NewPipProxy(id string, ctl protect.Controller, po *settings.ProxyOptions) (
 	}
 
 	if trType == "h3" {
-		t.client.Transport = &http3.RoundTripper{}
+		// 	github.com/quic-go/quic-go v0.36.1
+		// t.client.Transport = &http3.RoundTripper{}
+		log.W("piph2: h3 not supported yet")
+		t.client.Transport = &http2.Transport{
+			DialTLS: t.dialtls,
+		}
 	} else if trType == "h2" {
 		// h2 is duplex: github.com/golang/go/issues/19653#issuecomment-341539160
 		t.client.Transport = &http2.Transport{
