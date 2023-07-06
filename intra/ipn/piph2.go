@@ -333,7 +333,7 @@ func (t *piph2) Dial(network, addr string) (Conn, error) {
 		closePipe(readable, writable)
 		return nil, err
 	}
-	msg, err := hexnonce(ipp)
+	msg := hexurl(u.Path)
 	if err != nil {
 		log.E("piph2: nonce err: %v", err)
 		closePipe(readable, writable)
@@ -413,7 +413,8 @@ func (t *piph2) Dial(network, addr string) (Conn, error) {
 	if msgmac != nil {
 		req.Header.Set("x-nile-pip-claim", msgmac[0])
 		req.Header.Set("x-nile-pip-mac", msgmac[1])
-		req.Header.Set("x-nile-pip-msg", msg)
+		// msg is implicitly hex(sha256(url.Path))
+		// req.Header.Set("x-nile-pip-msg", msg)
 	}
 
 	go func() {
@@ -460,7 +461,7 @@ func hmac256(m, k []byte) []byte {
 	return mac.Sum(nil)
 }
 
-func hexnonce(ipport netip.AddrPort) (n string, err error) {
+func hexipp(ipport netip.AddrPort) (n string, err error) {
 	nonce := make([]byte, 16)
 	if _, err := rand.Read(nonce); err == nil {
 		nonce = append(nonce, ipport.Addr().AsSlice()...)
@@ -469,6 +470,11 @@ func hexnonce(ipport netip.AddrPort) (n string, err error) {
 		log.E("piph2: hexnonce: err %v", err)
 	}
 	return
+}
+
+func hexurl(p string) string {
+	digest := sha256.Sum256([]byte(p))
+	return hex.EncodeToString(digest[:])
 }
 
 func hex2byte(s string) []byte {

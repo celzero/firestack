@@ -103,7 +103,8 @@ func (t *pipws) wsconn(rurl, msg string) (c net.Conn, res *http.Response, err er
 	if msgmac != nil {
 		hdrs.Set("x-nile-pip-claim", msgmac[0])
 		hdrs.Set("x-nile-pip-mac", msgmac[1])
-		hdrs.Set("x-nile-pip-msg", msg)
+		// msg is implicitly hex(sha256(url.Path))
+		// hdrs.Set("x-nile-pip-msg", msg)
 	}
 
 	log.D("connecting to %s", rurl)
@@ -232,7 +233,7 @@ func (t *pipws) Dial(network, addr string) (Conn, error) {
 	}
 	u.Path += ipp.Addr().String() + "/" + strconv.Itoa(int(ipp.Port())) + "/" + network
 
-	msg, err := hexnonce(ipp)
+	msg := hexurl(u.Path)
 	if err != nil {
 		log.E("pipws: nonce err: %v", err)
 		return nil, err
