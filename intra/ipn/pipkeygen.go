@@ -142,6 +142,7 @@ func (k *pipkey) Blind() (string, error) {
 
 	k.blindMsg = blindMsg
 	k.id = hmac256(k.blindMsg, k.pubkey.N.Bytes())
+	k.rsavp1state = verifierState
 
 	return byte2hex(k.id) +
 		delim + byte2hex(blindMsg) +
