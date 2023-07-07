@@ -24,11 +24,6 @@ import (
 
 const delim = ":"
 
-// "pip-v0-golang-circl-msg-rsa-pss-384" 35 bytes
-var fixedmsg []byte = []byte{
-	112, 105, 112, 45, 118, 48, 45, 103, 111, 108, 97, 110, 103, 45, 99, 105, 114, 99, 108, 45, 109, 115, 103, 45, 114, 115, 97, 45, 112, 115, 115, 45, 51, 56, 52,
-}
-
 type (
 	Message []byte
 )
@@ -61,12 +56,13 @@ type pipkey struct {
 	pubkey      *rsa.PublicKey
 	rsavp1      *blindrsa.RSAVerifier
 	rsavp1state blindsign.VerifierState
+	msg         []byte
 	blindMsg    []byte
 	hasher      crypto.Hash
 	when        time.Time
 }
 
-func NewPipKey(pubjwk string, existingState string) (PipKey, error) {
+func NewPipKey(pubjwk string, msgOrExistingState string) (PipKey, error) {
 	jwk := &pubKeyJwk{}
 	pubbytes := []byte(pubjwk)
 	json.Unmarshal(pubbytes, jwk)
@@ -96,13 +92,24 @@ func NewPipKey(pubjwk string, existingState string) (PipKey, error) {
 		hasher: hfn,
 		when:   time.Now(),
 	}
-	if existingState != "" {
+	if msgOrExistingState != "" {
 		// blindMsg + delim + r + delim + salt
-		parts := strings.Split(existingState, delim)
-		k.blindMsg = hex2byte(parts[0])
-		r := hex2byte(parts[1])
-		salt := hex2byte(parts[2])
-		if bmsg, state, err := k.rsavp1.FixedBlind(fixedmsg, r, salt); err != nil {
+		parts := strings.Split(msgOrExistingState, delim)
+		if len(parts) == 1 {
+			// if there's only one part, it's the message
+			k.msg = hex2byte(parts[0])
+			return k, nil
+		}
+		if len(parts) != 4 {
+			// if there's more than one part, it's the state
+			// and so we at least 4 parts
+			return nil, blindrsa.ErrInvalidMessageLength
+		}
+		k.msg = hex2byte(parts[0])
+		k.blindMsg = hex2byte(parts[1])
+		r := hex2byte(parts[2])
+		salt := hex2byte(parts[3])
+		if bmsg, state, err := k.rsavp1.FixedBlind(k.msg, r, salt); err != nil {
 			return nil, err
 		} else {
 			k.rsavp1state = state
@@ -119,14 +126,14 @@ func (k *pipkey) Blind() (string, error) {
 		log.E("pipkey: blind: already blinded")
 		return "", blindrsa.ErrInvalidBlind
 	}
-	blindMsg, verifierState, err := k.rsavp1.Blind(rand.Reader, fixedmsg)
+	blindMsg, verifierState, err := k.rsavp1.Blind(rand.Reader, k.msg)
 	if err != nil {
 		log.E("pipkey: blind: %v", err)
 		return "", err
 	}
 	r := verifierState.CopyBlind()
 	salt := verifierState.CopySalt()
-	return byte2hex(blindMsg) + delim + byte2hex(r) + delim + byte2hex(salt), nil
+	return byte2hex(k.msg) + delim + byte2hex(blindMsg) + delim + byte2hex(r) + delim + byte2hex(salt), nil
 }
 
 func (k *pipkey) Finalize(blindSig string) string {
@@ -136,10 +143,10 @@ func (k *pipkey) Finalize(blindSig string) string {
 		log.E("pipkey: finalize: %v", err)
 		return ""
 	}
-	err = k.rsavp1.Verify(fixedmsg, sigbytes)
+	err = k.rsavp1.Verify(k.msg, sigbytes)
 	if err != nil {
 		log.E("pipkey: verify: %v", err)
 		return ""
 	}
-	return byte2hex(fixedmsg) + delim + byte2hex(sigbytes)
+	return byte2hex(sigbytes)
 }
