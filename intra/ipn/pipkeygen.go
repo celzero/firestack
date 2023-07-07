@@ -52,8 +52,9 @@ type pipkey struct {
 	pubkey      *rsa.PublicKey
 	rsavp1      *blindrsa.RSAVerifier
 	rsavp1state blindsign.VerifierState
-	msg         []byte
-	blindMsg    []byte
+	id          []byte // 64 bytes id derived from blindMsg
+	msg         []byte // 32 bytes random msg specific to this key
+	blindMsg    []byte // 32 bytes blindMsg derived from msg, r, salt
 	hasher      crypto.Hash
 	when        time.Time
 }
@@ -97,15 +98,16 @@ func NewPipKey(pubjwk string, msgOrExistingState string) (PipKey, error) {
 			k.msg = hex2byte(parts[0])
 			return k, nil
 		}
-		if len(parts) != 4 {
+		if len(parts) != 5 {
 			// if there's more than one part, it's the state
 			// and so we at least 4 parts
 			return nil, blindrsa.ErrInvalidMessageLength
 		}
-		k.msg = hex2byte(parts[0])
+		k.id = hex2byte(parts[0])
 		k.blindMsg = hex2byte(parts[1])
 		r := hex2byte(parts[2])
 		salt := hex2byte(parts[3])
+		k.msg = hex2byte(parts[4])
 		if bmsg, state, err := k.rsavp1.FixedBlind(k.msg, r, salt); err != nil {
 			return nil, err
 		} else {
@@ -128,14 +130,24 @@ func (k *pipkey) Blind() (string, error) {
 		log.E("pipkey: blind: already blinded")
 		return "", blindrsa.ErrInvalidBlind
 	}
+
 	blindMsg, verifierState, err := k.rsavp1.Blind(rand.Reader, k.msg)
 	if err != nil {
 		log.E("pipkey: blind: %v", err)
 		return "", err
 	}
+
 	r := verifierState.CopyBlind()
 	salt := verifierState.CopySalt()
-	return byte2hex(k.msg) + delim + byte2hex(blindMsg) + delim + byte2hex(r) + delim + byte2hex(salt), nil
+
+	k.blindMsg = blindMsg
+	k.id = hmac256(k.blindMsg, k.pubkey.N.Bytes())
+
+	return byte2hex(k.id) +
+		delim + byte2hex(blindMsg) +
+		delim + byte2hex(r) +
+		delim + byte2hex(salt) +
+		delim + byte2hex(k.msg), nil
 }
 
 func (k *pipkey) Finalize(blindSig string) string {
