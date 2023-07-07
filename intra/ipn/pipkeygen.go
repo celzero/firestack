@@ -28,7 +28,7 @@ type PipKey interface {
 	// Generates blindMsg:blindingFactor:salt
 	Blind() (string, error)
 	// Returns msg:sig for a finalized blind-signature
-	Finalize(blindSig string) string
+	Finalize(blindSig string) (string, error)
 }
 
 //	{
@@ -151,17 +151,25 @@ func (k *pipkey) Blind() (string, error) {
 		delim + byte2hex(k.msg), nil
 }
 
-func (k *pipkey) Finalize(blindSig string) string {
+func (k *pipkey) Finalize(blindSig string) (msgsig string, err error) {
+	if k.rsavp1state == nil {
+		log.E("pipkey: finalize: not blinded")
+		err = blindrsa.ErrInvalidBlind
+		return
+	}
+	var sigbytes []byte
 	blindsigbytes := hex2byte(blindSig)
-	sigbytes, err := k.rsavp1state.Finalize(blindsigbytes)
+	sigbytes, err = k.rsavp1state.Finalize(blindsigbytes)
 	if err != nil {
 		log.E("pipkey: finalize: %v", err)
-		return ""
+		return
 	}
 	err = k.rsavp1.Verify(k.msg, sigbytes)
 	if err != nil {
 		log.E("pipkey: verify: %v", err)
-		return ""
+		return
 	}
-	return byte2hex(sigbytes)
+
+	msgsig = byte2hex(k.msg) + delim + byte2hex(sigbytes)
+	return
 }
