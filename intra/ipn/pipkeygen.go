@@ -24,10 +24,6 @@ import (
 
 const delim = ":"
 
-type (
-	Message []byte
-)
-
 type PipKey interface {
 	// Generates blindMsg:blindingFactor:salt
 	Blind() (string, error)
@@ -97,6 +93,7 @@ func NewPipKey(pubjwk string, msgOrExistingState string) (PipKey, error) {
 		parts := strings.Split(msgOrExistingState, delim)
 		if len(parts) == 1 {
 			// if there's only one part, it's the message
+			// todo: check if len(msg bytes) == 32
 			k.msg = hex2byte(parts[0])
 			return k, nil
 		}
@@ -116,6 +113,11 @@ func NewPipKey(pubjwk string, msgOrExistingState string) (PipKey, error) {
 			if !bytes.Equal(k.blindMsg, bmsg) {
 				return nil, blindrsa.ErrInvalidBlind
 			}
+		}
+	} else {
+		k.msg = make([]byte, 32)
+		if _, err := rand.Read(k.msg); err != nil {
+			return nil, err
 		}
 	}
 	return k, nil
