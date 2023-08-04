@@ -159,8 +159,9 @@ func (cb *cache) refreshCache(t Transport, crch <-chan *cres) {
 	for cr := range crch {
 		// refresh the cache entry
 		req := xdns.RequestFromResponse(cr.ans)
+		qname := xdns.QName(req)
 		if q, err := req.Pack(); err == nil {
-			log.I("cache: prefetch refresh: %s", cr.str())
+			log.I("cache: prefetch refresh(%s): %s", qname, cr.str())
 			go t.Query(net, q, cr.s)
 		}
 	}
@@ -301,12 +302,15 @@ func (cb *cache) put(t Transport, key string, response []byte, s *Summary) (ok b
 		ansttl = ansttl + cb.halflife
 	}
 	exp := time.Now().Add(ansttl)
-	cb.c[key] = &cres{
+	v := &cres{
 		ans:    ans,
 		s:      s,
 		expiry: exp,
 		bumps:  0,
 	}
+	cb.c[key] = v
+
+	log.D("cache: put(%s): %s", key, v.str())
 
 	ok = true
 	return
@@ -379,7 +383,7 @@ func (t *ctransport) fetch(network string, q []byte, msg *dns.Msg, summary *Summ
 	if v, ok := cb.freshCopy(key); tok && v != nil {
 		var cachedsummary *Summary
 
-		log.D("cache: hit %s, but stale? %t", v.str(), ok)
+		log.D("cache: hit(%s): %s, but stale? %t", key, v.str(), ok)
 		r, cachedsummary, err = asResponse(msg, v, ok) // return cached response, may be stale
 		if cachedsummary != nil {
 			if !ok { // not fresh, fetch in the background
@@ -397,7 +401,7 @@ func (t *ctransport) fetch(network string, q []byte, msg *dns.Msg, summary *Summ
 			summary.Latency = time.Since(start).Seconds()
 			return
 		} else {
-			log.W("cache: hit %s, but empty? %v", v.str(), err)
+			log.W("cache: hit(%s) %s, but empty? %v", key, v.str(), err)
 		}
 	}
 	return sendRequest(false) // summary is filled by underlying transport
