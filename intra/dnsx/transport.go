@@ -676,9 +676,10 @@ func (r *resolver) forwardQuery(q []byte, c io.Writer) error {
 	// override resp with dns64 if needed
 	if onet != nil {
 		d64 := r.natpt.D64(t.ID(), res2, onet)
-		rlen = len(resp)
-		if rlen > xdns.MinDNSPacketSize {
+		if len(d64) > xdns.MinDNSPacketSize {
+			r.withDNS64SummaryIfNeeded(d64, summary)
 			resp = d64
+			rlen = len(d64)
 		}
 	} else {
 		log.W("dns64: missing onetransport for %s", t.ID())
