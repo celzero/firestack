@@ -23,8 +23,12 @@ import (
 )
 
 const delim = ":"
+const msgsize = 32
+const tokensize = 32
 
 type PipKey interface {
+	// Generates a 32 byte randomized token (auths dataplane ops)
+	Token() string
 	// Generates blindMsg:blindingFactor:salt
 	Blind() (string, error)
 	// Returns msg:sig for a finalized blind-signature
@@ -117,7 +121,7 @@ func NewPipKey(pubjwk string, msgOrExistingState string) (PipKey, error) {
 			}
 		}
 	} else {
-		k.msg = make([]byte, 32)
+		k.msg = make([]byte, msgsize)
 		if _, err := rand.Read(k.msg); err != nil {
 			return nil, err
 		}
@@ -151,7 +155,7 @@ func (k *pipkey) Blind() (string, error) {
 		delim + byte2hex(k.msg), nil
 }
 
-func (k *pipkey) Finalize(blindSig string) (msgsig string, err error) {
+func (k *pipkey) Finalize(blindSig string) (msgsighash string, err error) {
 	if k.rsavp1state == nil {
 		log.E("pipkey: finalize: not blinded")
 		err = blindrsa.ErrInvalidBlind
@@ -169,7 +173,20 @@ func (k *pipkey) Finalize(blindSig string) (msgsig string, err error) {
 		log.E("pipkey: verify: %v", err)
 		return
 	}
+	hashedsigbytes := sha256sum(sigbytes)
 
-	msgsig = byte2hex(k.msg) + delim + byte2hex(sigbytes)
+	msgsighash = byte2hex(k.msg) +
+		delim + byte2hex(sigbytes) +
+		delim + byte2hex(hashedsigbytes)
 	return
+}
+
+func (k *pipkey) Token() string {
+	nonce := make([]byte, tokensize)
+	_, err := rand.Read(nonce)
+	if err != nil {
+		log.W("pipkey: no token; err: %v", err)
+		return ""
+	}
+	return byte2hex(nonce)
 }

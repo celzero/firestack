@@ -465,6 +465,11 @@ func hmac256(m, k []byte) []byte {
 	return mac.Sum(nil)
 }
 
+func sha256sum(m []byte) []byte {
+	digest := sha256.Sum256(m)
+	return digest[:]
+}
+
 func hexipp(ipport netip.AddrPort) (n string, err error) {
 	nonce := make([]byte, 16)
 	if _, err := rand.Read(nonce); err == nil {
