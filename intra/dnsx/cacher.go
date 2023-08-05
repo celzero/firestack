@@ -43,7 +43,8 @@ const (
 )
 
 var (
-	errCacheResponseEmpty = errors.New("empty cache response")
+	errCacheResponseEmpty    = errors.New("empty cache response")
+	errCacheResponseMismatch = errors.New("cache response mismatch")
 )
 
 type cache struct {
@@ -135,7 +136,7 @@ func hash(s string) uint8 {
 	return uint8(h.Sum32() % defbuckets)
 }
 
-func (*ctransport) ckey(q *dns.Msg) (string, uint8, bool) {
+func mkcachekey(q *dns.Msg) (string, uint8, bool) {
 	if q == nil {
 		return "", 0, false
 	}
@@ -234,14 +235,10 @@ func (cb *cache) freshCopy(key string) (v *cres, ok bool) {
 	return v.copy(), (r50 || recent) && alive
 }
 
-func (cb *cache) put(key string, response []byte, s *Summary) (ok bool) {
+func (cb *cache) put(response []byte, s *Summary) (ok bool) {
 	ok = false
 
 	if len(response) <= 0 {
-		return
-	}
-	// do not cache .onion addresses
-	if strings.Contains(key, ".onion"+keysep) {
 		return
 	}
 
@@ -252,6 +249,11 @@ func (cb *cache) put(key string, response []byte, s *Summary) (ok bool) {
 		return
 	}
 
+	key, _, ok := mkcachekey(ans)
+	// do not cache .onion addresses
+	if !ok || strings.Contains(key, ".onion"+keysep) {
+		return
+	}
 	cb.mu.Lock()
 	defer cb.mu.Unlock()
 
@@ -289,20 +291,28 @@ func (cb *cache) put(key string, response []byte, s *Summary) (ok bool) {
 
 func asResponse(q *dns.Msg, v *cres, fresh bool) (r []byte, s *Summary, err error) {
 	a := v.ans
-	if a != nil {
-		a.Id = q.Id
-		// dns 0x20 may mangle the question section, so preserve it
-		// github.com/jedisct1/edgedns#correct-support-for-the-dns0x20-extension
-		a.Question = q.Question
-		// if the v is not fresh, set the ttl to the minimum
-		if !fresh {
-			xdns.WithTtl(a, stalettl)
-		}
-		s = v.s
-		r, err = a.Pack()
-	} else {
+	if a == nil {
 		err = errCacheResponseEmpty
+		return
 	}
+	aname, _ := xdns.NormalizeQName(xdns.QName(q))
+	qname, _ := xdns.NormalizeQName(xdns.QName(a))
+	if aname != qname {
+		log.E("cache: asResponse: qname mismatch: a(%s) != q(%s)", aname, qname)
+		err = errCacheResponseMismatch
+		return
+	}
+
+	a.Id = q.Id
+	// dns 0x20 may mangle the question section, so preserve it
+	// github.com/jedisct1/edgedns#correct-support-for-the-dns0x20-extension
+	a.Question = q.Question
+	// if the v is not fresh, set the ttl to the minimum
+	if !fresh {
+		xdns.WithTtl(a, stalettl)
+	}
+	s = v.s
+	r, err = a.Pack()
 	return
 }
 
@@ -338,7 +348,7 @@ func (t *ctransport) fetch(network string, q []byte, msg *dns.Msg, summary *Summ
 		s.Latency = time.Since(start).Seconds()
 
 		if err == nil && len(r) > 0 {
-			cb.put(key, r, s)
+			cb.put(r, s)
 		}
 
 		return
@@ -356,7 +366,20 @@ func (t *ctransport) fetch(network string, q []byte, msg *dns.Msg, summary *Summ
 
 		log.D("cache: hit(%s): %s, but stale? %t", key, v.str(), isfresh)
 		r, cachedsummary, err = asResponse(msg, v, isfresh) // return cached response, may be stale
-		if cachedsummary != nil {
+		if err != nil {
+			log.W("cache: hit(%s) %s, but err? %v", key, v.str(), err)
+			if err == errCacheResponseMismatch {
+				// FIXME: this is a hack to fix the issue where the cache
+				// returns a response that does not match the query.
+				cb.mu.Lock()
+				delete(cb.c, key) // del the corrupted entry
+				cb.mu.Unlock()
+				cb.qmu.Lock()
+				delete(cb.qbarrier, key) // del corresponding query-barrier
+				cb.qmu.Unlock()
+			}
+			// fallthrough to sendRequest
+		} else if cachedsummary != nil {
 			if !isfresh { // not fresh, fetch in the background
 				go sendRequest(true)
 			}
@@ -371,9 +394,7 @@ func (t *ctransport) fetch(network string, q []byte, msg *dns.Msg, summary *Summ
 			summary.Blocklists = cachedsummary.Blocklists
 			summary.Latency = time.Since(start).Seconds()
 			return
-		} else {
-			log.W("cache: hit(%s) %s, but empty? %v", key, v.str(), err)
-		}
+		} // else: fallthrough to sendRequest
 	}
 	return sendRequest(false) // summary is filled by underlying transport
 }
@@ -385,7 +406,7 @@ func (t *ctransport) Query(network string, q []byte, summary *Summary) ([]byte, 
 
 	msg := xdns.AsMsg(q)
 
-	if key, h, ok := t.ckey(msg); ok {
+	if key, h, ok := mkcachekey(msg); ok {
 		t.Lock()
 		cb = t.store[h]
 		if cb == nil {
