@@ -59,12 +59,11 @@ type Tunnel interface {
 
 type intratunnel struct {
 	tunnel.Tunnel
-	tcp          TCPHandler
-	udp          UDPHandler
-	tunmode      *settings.TunMode
-	proxyOptions *settings.ProxyOptions
-	natpt        ipn.NatPt
-	resolver     dnsx.Resolver
+	tcp      TCPHandler
+	udp      UDPHandler
+	tunmode  *settings.TunMode
+	natpt    ipn.NatPt
+	resolver dnsx.Resolver
 }
 
 func NewTunnel(fakedns string, defaultdns dnsx.Transport, fd int, fpcap string, l3 string, mtu int, ctl protect.Controller, listener Listener) (Tunnel, error) {
