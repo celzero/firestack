@@ -24,9 +24,9 @@ type grounded struct {
 }
 
 // NewGroundedTransport returns a DNS transport that blocks all DNS queries.
-func NewGroundedTransport() (t dnsx.Transport) {
+func NewGroundedTransport(id string) (t dnsx.Transport) {
 	t = &grounded{
-		id:     dnsx.BlockAll,
+		id:     id, // typically, dnsx.BlockAll
 		ipport: "127.0.0.3:53",
 		status: dnsx.Start,
 	}

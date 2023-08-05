@@ -25,8 +25,12 @@ func newDNSProxy(id string, ipp netip.AddrPort) (d dnsx.Transport, err error) {
 	return dns53.NewTransportFrom(id, ipp)
 }
 
-func NewGroundedTransport() (d dnsx.Transport) {
-	return dns53.NewGroundedTransport()
+func NewGroundedTransport(id string) (d dnsx.Transport) {
+	return dns53.NewGroundedTransport(id)
+}
+
+func newBlockAllTransport() (d dnsx.Transport) {
+	return dns53.NewGroundedTransport(dnsx.BlockAll)
 }
 
 func NewMDNSTransport(protos string) (d dnsx.Transport) {
