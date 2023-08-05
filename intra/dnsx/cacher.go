@@ -56,7 +56,6 @@ type cache struct {
 	scrubtime time.Time              // last time cache was scrubbed / purged
 	qbarrier  map[string]*sync.Mutex // coalesce requests for the same query
 	qmu       sync.RWMutex           // protects qbarrier
-	bgRefresh bool                   // background refresh of cache
 }
 
 type cres struct {
@@ -150,23 +149,6 @@ func (*ctransport) ckey(q *dns.Msg) (string, uint8, bool) {
 	return qname + keysep + qtyp, hash(qname), true
 }
 
-func (cb *cache) refreshCache(t Transport, crch <-chan *cres) {
-	if !cb.bgRefresh {
-		return
-	}
-	net := "udp" // todo: change to tcp if the response is truncated
-
-	for cr := range crch {
-		// refresh the cache entry
-		req := xdns.RequestFromResponse(cr.ans)
-		qname := xdns.QName(req)
-		if q, err := req.Pack(); err == nil {
-			log.I("cache: prefetch refresh(%s): %s", qname, cr.str())
-			go t.Query(net, q, cr.s)
-		}
-	}
-}
-
 func (cb *cache) queryBarrier(key string) (ba *sync.Mutex) {
 	cb.qmu.Lock()
 	defer cb.qmu.Unlock()
@@ -196,9 +178,8 @@ func (cb *cache) purgeQueryBarrier(kch <-chan string) {
 	log.I("cache: cleaned up: %d", len(keys))
 }
 
-func (cb *cache) scrubCache(kch chan<- string, vch chan<- *cres) {
+func (cb *cache) scrubCache(kch chan<- string) {
 	defer close(kch)
-	defer close(vch)
 
 	cb.mu.Lock()
 	defer cb.mu.Unlock()
@@ -215,15 +196,7 @@ func (cb *cache) scrubCache(kch chan<- string, vch chan<- *cres) {
 	i, j, m := 0, 0, 0
 	for k, v := range cb.c {
 		i++
-		if cb.bgRefresh && v.bumps >= (cb.bumps/2) {
-			// invalidate cached entry
-			v.expiry = time.Now()
-			// bump it to the highest to keep its freshness locked
-			v.bumps = cb.bumps
-			// TODO: vch <- v.copy()?
-			vch <- v // renew
-			m++
-		} else if highload && time.Since(v.expiry) > 0 {
+		if highload && time.Since(v.expiry) > 0 {
 			// evict expired entries on high load, otherwise keep them
 			// around for use in cases where transport errors out
 			delete(cb.c, k)
@@ -261,7 +234,7 @@ func (cb *cache) freshCopy(key string) (v *cres, ok bool) {
 	return v.copy(), (r50 || recent) && alive
 }
 
-func (cb *cache) put(t Transport, key string, response []byte, s *Summary) (ok bool) {
+func (cb *cache) put(key string, response []byte, s *Summary) (ok bool) {
 	ok = false
 
 	if len(response) <= 0 {
@@ -284,10 +257,8 @@ func (cb *cache) put(t Transport, key string, response []byte, s *Summary) (ok b
 
 	if rand.Intn(99999) < 33000 { // 33% of the time
 		kch := make(chan string) // delete expired entries
-		vch := make(chan *cres)  // renew freq entries
-		go cb.scrubCache(kch, vch)
+		go cb.scrubCache(kch)
 		go cb.purgeQueryBarrier(kch)
-		go cb.refreshCache(t, vch)
 	}
 
 	if len(cb.c) >= cb.size {
@@ -367,7 +338,7 @@ func (t *ctransport) fetch(network string, q []byte, msg *dns.Msg, summary *Summ
 		s.Latency = time.Since(start).Seconds()
 
 		if err == nil && len(r) > 0 {
-			cb.put(t, key, r, s)
+			cb.put(key, r, s)
 		}
 
 		return
@@ -380,13 +351,13 @@ func (t *ctransport) fetch(network string, q []byte, msg *dns.Msg, summary *Summ
 	// that is, these confused apps go bezerk resulting in battery drain.
 	tok := t.Status() != SendFailed
 
-	if v, ok := cb.freshCopy(key); tok && v != nil {
+	if v, isfresh := cb.freshCopy(key); tok && v != nil {
 		var cachedsummary *Summary
 
-		log.D("cache: hit(%s): %s, but stale? %t", key, v.str(), ok)
-		r, cachedsummary, err = asResponse(msg, v, ok) // return cached response, may be stale
+		log.D("cache: hit(%s): %s, but stale? %t", key, v.str(), isfresh)
+		r, cachedsummary, err = asResponse(msg, v, isfresh) // return cached response, may be stale
 		if cachedsummary != nil {
-			if !ok { // not fresh, fetch in the background
+			if !isfresh { // not fresh, fetch in the background
 				go sendRequest(true)
 			}
 			// change summary fields to reflect cached response
@@ -419,14 +390,13 @@ func (t *ctransport) Query(network string, q []byte, summary *Summary) ([]byte, 
 		cb = t.store[h]
 		if cb == nil {
 			cb = &cache{
-				c:         make(map[string]*cres),
-				mu:        &sync.RWMutex{},
-				size:      t.size,
-				ttl:       t.ttl,
-				bumps:     t.bumps,
-				halflife:  t.halflife,
-				qbarrier:  make(map[string]*sync.Mutex),
-				bgRefresh: false,
+				c:        make(map[string]*cres),
+				mu:       &sync.RWMutex{},
+				size:     t.size,
+				ttl:      t.ttl,
+				bumps:    t.bumps,
+				halflife: t.halflife,
+				qbarrier: make(map[string]*sync.Mutex),
 			}
 			t.store[h] = cb
 		}
