@@ -165,6 +165,7 @@ func GetInterestingRData(msg *dns.Msg) string {
 	}
 	if len(data) > 0 {
 		ipcsv += strings.Join(data, ",")
+		log.D("dnsutil: RData: %s", ipcsv)
 	}
 	for _, a := range msg.Answer {
 		switch r := a.(type) {
@@ -213,6 +214,8 @@ func GetInterestingRData(msg *dns.Msg) string {
 				} else {
 					return r.String()
 				}
+			} else {
+				log.D("dnsutil: RData: ignored svcb(%s) for ipcsv", r.String(), ipcsv)
 			}
 			continue
 		case *dns.HTTPS:
@@ -223,6 +226,8 @@ func GetInterestingRData(msg *dns.Msg) string {
 				} else {
 					return r.String()
 				}
+			} else {
+				log.D("dnsutil: RData: ignored https(%s) for ipcsv", r.String(), ipcsv)
 			}
 			continue
 		case *dns.NSEC:
@@ -641,6 +646,7 @@ func SubstSVCBRecordIPs(out *dns.Msg, x dns.SVCBKey, subiphints []*netip.Addr, t
 
 func IPHints(msg *dns.Msg, x dns.SVCBKey) []*netip.Addr {
 	if !HasSVCBQuestion(msg) || !HasHTTPQuestion(msg) {
+		log.V("dnsutil: svcb/https: no record in\n", msg.String())
 		return nil
 	}
 
@@ -654,6 +660,7 @@ func IPHints(msg *dns.Msg, x dns.SVCBKey) []*netip.Addr {
 		switch rec := answer.(type) {
 		case *dns.SVCB:
 			for _, kv := range rec.Value {
+				log.V("dnsutil: svcb: current k(%v)/v(%v)", kv.Key(), kv.String())
 				if kv.Key() != x {
 					continue
 				}
@@ -663,12 +670,13 @@ func IPHints(msg *dns.Msg, x dns.SVCBKey) []*netip.Addr {
 					if v, err := netip.ParseAddr(ipstr); err == nil {
 						ips = append(ips, &v)
 					} else {
-						log.W("svcb: could not parse iphint %v", ipstr)
+						log.W("dnsutil: svcb: could not parse iphint %v", ipstr)
 					}
 				}
 			}
 		case *dns.HTTPS:
 			for _, kv := range rec.Value {
+				log.V("dnsutil: https: current k(%v)/v(%v)", kv.Key(), kv.String())
 				if kv.Key() != x {
 					continue
 				}
@@ -678,12 +686,13 @@ func IPHints(msg *dns.Msg, x dns.SVCBKey) []*netip.Addr {
 					if v, err := netip.ParseAddr(ipstr); err == nil {
 						ips = append(ips, &v)
 					} else {
-						log.W("https: could not parse iphint %v", ipstr)
+						log.W("dnsutil: https: could not parse iphint %v", ipstr)
 					}
 				}
 			}
 		}
 	}
+	log.D("dnsutil: svcb/https: ip hints %v from %d answers", ips, len(msg.Answer))
 	return ips
 }
 
@@ -862,7 +871,7 @@ func ToIp6Hint(answer dns.RR, prefix *net.IPNet) dns.RR {
 	} else if header.Rrtype == dns.TypeSVCB {
 		kv = answer.(*dns.SVCB).Value
 	} else {
-		log.W("toIp6Hint: Not a svcb/https record/1")
+		log.W("dnsutil: toIp6Hint: Not a svcb/https record/1")
 		return nil
 	}
 
@@ -920,7 +929,7 @@ func ToIp6Hint(answer dns.RR, prefix *net.IPNet) dns.RR {
 		return trec
 	} else {
 		// should never happen
-		log.E("toIp6Hint: Not a svcb/https record/2")
+		log.E("dnsutil: toIp6Hint: Not a svcb/https record/2")
 		return nil
 	}
 }
@@ -961,7 +970,7 @@ func AQuadAUnspecified(msg *dns.Msg) bool {
 func Servfail(q []byte) []byte {
 	msg := &dns.Msg{}
 	if err := msg.Unpack(q); err != nil {
-		log.W("Error reading q for servfail: %v", err)
+		log.W("dnsutil: servfail: error reading q: %v", err)
 		return nil
 	}
 	msg.Response = true
@@ -970,7 +979,7 @@ func Servfail(q []byte) []byte {
 	msg.Extra = nil
 	b, err := msg.Pack()
 	if err != nil {
-		log.W("Error constructing servfail: %v", err)
+		log.W("dnsutil: servfail: ctor error: %v", err)
 	}
 	return b
 }
