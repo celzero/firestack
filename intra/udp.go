@@ -217,7 +217,7 @@ func (h *udpHandler) fetchUDPInput(conn core.UDPConn, nat *tracker) {
 		}
 
 		// is err recoverable? github.com/miekg/dns/blob/f8a185d39/server.go#L521
-		if neterr, ok := err.(net.Error); ok && neterr.Temporary() {
+		if neterr, ok := err.(net.Error); ok && neterr.Temporary() && !neterr.Timeout() {
 			nat.errcount += 1
 			log.I("udp: ingress: %s temp err#%d(%v)", logaddr, nat.errcount, err)
 			continue
@@ -225,8 +225,6 @@ func (h *udpHandler) fetchUDPInput(conn core.UDPConn, nat *tracker) {
 			log.I("udp: ingress: %s err(%v)", logaddr, err)
 			nat.msg = err.Error()
 			return
-		} else {
-			nat.errcount = 0
 		}
 
 		var udpaddr *net.UDPAddr
@@ -483,6 +481,7 @@ func (h *udpHandler) ReceiveTo(conn core.UDPConn, data []byte, addr *net.UDPAddr
 }
 
 func (h *udpHandler) Close(conn core.UDPConn) {
+	log.V("udp: closing conn [%v -> %v]", conn.LocalAddr(), conn.RemoteAddr())
 	conn.Close()
 
 	h.Lock()
