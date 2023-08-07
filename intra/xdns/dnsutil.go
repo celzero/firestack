@@ -16,6 +16,7 @@ package xdns
 
 import (
 	"errors"
+	"fmt"
 	"net"
 	"net/http"
 	"net/netip"
@@ -212,8 +213,8 @@ func GetInterestingRData(msg *dns.Msg) string {
 				if len(ipcsv) > 0 {
 					ipcsv += "," + r.String()
 				} else {
-					log.D("dnsutil: RData: svcb(%s)", r.String())
-					return r.String()
+					log.V("dnsutil: RData: svcb(%s)", r.String())
+					return svcbstr(r)
 				}
 			} else {
 				log.D("dnsutil: RData: ignored svcb(%s) for ipcsv(%s)", r.String(), ipcsv)
@@ -225,8 +226,8 @@ func GetInterestingRData(msg *dns.Msg) string {
 				if len(ipcsv) > 0 {
 					ipcsv += "," + r.String()
 				} else {
-					log.D("dnsutil: RData: https(%s)", r.String())
-					return r.String()
+					log.V("dnsutil: RData: https(%s)", r.String())
+					return httpsstr(r)
 				}
 			} else {
 				log.D("dnsutil: RData: ignored https(%s) for ipcsv", r.String(), ipcsv)
@@ -588,6 +589,26 @@ func SubstARecords(out *dns.Msg, subip4s []*netip.Addr, ttl int) bool {
 		out.Answer = rrs
 	}
 	return len(touched) > 0
+}
+
+func svcbstr(r *dns.SVCB) string {
+	s := ""
+	for _, kv := range r.Value {
+		k := kv.Key().String()
+		v := kv.String()
+		s += fmt.Sprintf("%s=%s ", k, v)
+	}
+	return s
+}
+
+func httpsstr(r *dns.HTTPS) string {
+	s := ""
+	for _, kv := range r.Value {
+		k := kv.Key().String()
+		v := kv.String()
+		s += fmt.Sprintf("%s=%s ", k, v)
+	}
+	return strings.TrimSpace(s)
 }
 
 func SubstSVCBRecordIPs(out *dns.Msg, x dns.SVCBKey, subiphints []*netip.Addr, ttl int) bool {
