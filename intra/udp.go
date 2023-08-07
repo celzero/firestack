@@ -314,7 +314,7 @@ func (h *udpHandler) OnNewConn(gconn *netstack.GUDPConn, _, dst *net.UDPAddr) {
 	decision, err := h.Connect(gconn, dst)
 	if err != nil {
 		pid, cid, uid := splitPidCidUid(decision)
-		h.sendNotif(pid, cid, uid, err.Error(), 0, 0, 0)
+		h.sendNotif(cid, pid, uid, err.Error(), 0, 0, 0)
 	} else {
 		finish = false // connect
 	}
