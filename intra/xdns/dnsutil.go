@@ -209,7 +209,7 @@ func GetInterestingRData(msg *dns.Msg) string {
 			return r.SignerName
 		case *dns.SVCB:
 			// if no hints, simply dump the entire kv list
-			if len(ip4s) <= 0 || len(ip6s) <= 0 {
+			if len(ip4s) <= 0 && len(ip6s) <= 0 {
 				if len(ipcsv) > 0 {
 					ipcsv += "," + r.String()
 				} else {
@@ -222,7 +222,7 @@ func GetInterestingRData(msg *dns.Msg) string {
 			continue
 		case *dns.HTTPS:
 			// if no hints, simply dump the entire kv list
-			if len(ip4s) <= 0 || len(ip6s) <= 0 {
+			if len(ip4s) <= 0 && len(ip6s) <= 0 {
 				if len(ipcsv) > 0 {
 					ipcsv += "," + r.String()
 				} else {
@@ -230,7 +230,7 @@ func GetInterestingRData(msg *dns.Msg) string {
 					return httpsstr(r)
 				}
 			} else {
-				log.D("dnsutil: RData: ignored https(%s) for ipcsv", r.String(), ipcsv)
+				log.D("dnsutil: RData: ignored https(%s) for ipcsv(%s)", r.String(), ipcsv)
 			}
 			continue
 		case *dns.NSEC:
