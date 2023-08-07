@@ -67,6 +67,11 @@ type UDPSocketSummary struct {
 	Msg           string // Error message, if any.
 }
 
+func (s *UDPSocketSummary) str() string {
+	return fmt.Sprintf("udp-summary: id:%s pid:%s uid:%s up:%d down:%d dur:%d msg:%s",
+		s.ID, s.PID, s.UID, s.UploadBytes, s.DownloadBytes, s.Duration, s.Msg)
+}
+
 // UDPListener is notified when a non-DNS UDP association is discarded.
 type UDPListener interface {
 	OnUDPSocketClosed(*UDPSocketSummary)
@@ -506,9 +511,6 @@ func (h *udpHandler) Close(conn core.UDPConn) {
 		}
 		// TODO: Cancel any outstanding DoH queries.
 		elapsed := int32(time.Since(t.start).Seconds())
-
-		log.V("udp: close: conn(%v -> %v [%v]) / down(%d) up(%d) / elapsed(%d)", conn.LocalAddr(), t.ip, conn.RemoteAddr(), t.download, t.upload, elapsed)
-
 		h.sendNotif(t.id, t.pid, t.uid, t.msg, t.upload, t.download, elapsed)
 		delete(h.udpConns, conn)
 	}
@@ -516,6 +518,7 @@ func (h *udpHandler) Close(conn core.UDPConn) {
 
 func (h *udpHandler) sendNotif(cid, pid, uid, msg string, up, down int64, elapsed int32) {
 	if h.listener == nil {
+		log.V("udp: sendNotif(false): no listener")
 		return
 	}
 	s := &UDPSocketSummary{
@@ -527,5 +530,6 @@ func (h *udpHandler) sendNotif(cid, pid, uid, msg string, up, down int64, elapse
 		DownloadBytes: down,
 		Duration:      elapsed,
 	}
+	log.V("udp: sendNotif(true): %s", s.str())
 	go h.listener.OnUDPSocketClosed(s)
 }

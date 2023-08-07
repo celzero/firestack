@@ -88,6 +88,11 @@ type TCPSocketSummary struct {
 	Retry *split.RetryStats
 }
 
+func (s *TCPSocketSummary) str() string {
+	return fmt.Sprintf("tcp-summary: id=%s pid=%s uid=%s down=%d up=%d dur=%d synack=%d retry=%v msg=%s",
+		s.ID, s.PID, s.UID, s.DownloadBytes, s.UploadBytes, s.Duration, s.Synack, s.Retry, s.Msg)
+}
+
 // TCPListener is notified when a socket closes.
 type TCPListener interface {
 	OnTCPSocketClosed(*TCPSocketSummary)
@@ -186,7 +191,11 @@ func filteredPort(addr net.Addr) int16 {
 }
 
 func (h *tcpHandler) sendNotif(summary *TCPSocketSummary) {
-	if h.listener != nil && summary != nil && len(summary.ID) > 0 {
+	ok1 := h.listener != nil
+	ok2 := summary != nil
+	ok3 := len(summary.ID) > 0
+	log.V("tcp: sendNotif(%t,%t,%t): %s", ok1, ok2, ok3, summary.str())
+	if ok1 && ok2 && ok3 {
 		go h.listener.OnTCPSocketClosed(summary)
 	}
 }
