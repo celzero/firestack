@@ -24,7 +24,7 @@ mvn install:install-file \
     -DartifactId=${ARTIFACT} \
     -Dclassifier=${CLASSFULL} \
     -Dsources=${SOURCES}
-
+# usage: docs.gradle.org/current/userguide/dependency_management.html
 mvn -X install:install-file \
     -Dfile=${FOUTARM} \
     -Dpackaging=${PACK} \

@@ -251,12 +251,6 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target *net.TCPAddr) (
 	const ack bool = !rst // send synack
 	s := &TCPSocketSummary{}
 
-	defer func() {
-		if !open {
-			h.sendNotif(s)
-		} // else conn has been proxied, sendNotif is called by h.forward()
-	}()
-
 	if src == nil || target == nil {
 		log.E("tcp: nil addr %v -> %v", src, target)
 		open = gconn.Connect(rst) // fin
@@ -276,6 +270,13 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target *net.TCPAddr) (
 	s.ID = cid
 	s.PID = pid
 	s.UID = uid
+
+	defer func() {
+		if !open {
+			h.sendNotif(s)
+		} // else conn has been proxied, sendNotif is called by h.forward()
+	}()
+
 	if pid == ipn.Block {
 		var secs uint32
 		k := uid + target.String()
@@ -316,19 +317,11 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target *net.TCPAddr) (
 func (h *tcpHandler) Handle(conn net.Conn, target *net.TCPAddr, summary *TCPSocketSummary) (err error) {
 	var px ipn.Proxy
 	var pc ipn.Conn
-	forwarded := false
-
-	defer func() {
-		if !forwarded {
-			h.sendNotif(summary)
-		}
-	}()
 
 	pid := summary.PID
 	summary.Msg = noerr
 
 	if h.dnsOverride(conn, target) {
-		forwarded = true // do not send notif
 		return nil
 	}
 
@@ -370,7 +363,6 @@ func (h *tcpHandler) Handle(conn net.Conn, target *net.TCPAddr, summary *TCPSock
 	summary.Synack = int32(time.Since(start).Seconds() * 1000)
 
 	go h.forward(conn, c, summary)
-	forwarded = true
 
 	log.I("tcp: new conn via proxy(%s); src(%s) -> dst(%s)", px.ID(), conn.LocalAddr(), target)
 	return nil
