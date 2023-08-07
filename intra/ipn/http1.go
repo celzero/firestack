@@ -32,6 +32,8 @@ func NewHTTPProxy(id string, c protect.Controller, po *settings.ProxyOptions) (P
 
 	hp := tx.NewProxyHttpServer()
 	nsd := protect.MakeNsDialer(c)
+	// unset the default connect dialer and use dialfn instead
+	hp.ConnectDial = nil
 	hp.Tr.Dial = nsd.Dial
 	hp.Tr.DialContext = nsd.DialContext
 	hp.Verbose = settings.Debug
