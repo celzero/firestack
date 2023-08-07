@@ -123,7 +123,7 @@ func (c *cres) copy() *cres {
 }
 
 func (cr *cres) str() string {
-	return "bumps=" + strconv.Itoa(cr.bumps) + " ;expiry=" + cr.expiry.String() + " ;s=" + cr.s.str()
+	return "bumps=" + strconv.Itoa(cr.bumps) + "; expiry=" + cr.expiry.String() + "; s=" + cr.s.str()
 }
 
 func (t *ctransport) str() string {
@@ -328,7 +328,7 @@ func (t *ctransport) Type() string {
 func (t *ctransport) fetch(network string, q []byte, msg *dns.Msg, summary *Summary, cb *cache, key string) (r []byte, err error) {
 	start := time.Now()
 
-	sendRequest := func(async bool) (r []byte, err error) {
+	sendRequest := func(async bool) ([]byte, error) {
 		ba := cb.queryBarrier(key)
 
 		var s *Summary
@@ -342,16 +342,16 @@ func (t *ctransport) fetch(network string, q []byte, msg *dns.Msg, summary *Summ
 		s.Type = t.Transport.Type()
 
 		ba.Lock() // per query-name lock
-		r, err = t.Transport.Query(network, q, s)
+		ans, qerr := t.Transport.Query(network, q, s)
 		ba.Unlock()
 
 		s.Latency = time.Since(start).Seconds()
 
-		if err == nil && len(r) > 0 {
-			cb.put(r, s)
+		if qerr == nil && len(ans) > 0 {
+			cb.put(ans, s)
 		}
 
-		return
+		return ans, qerr
 	}
 
 	// check if underlying transport can connect fine, if not treat cache
