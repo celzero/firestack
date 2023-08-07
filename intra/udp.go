@@ -241,8 +241,9 @@ func (h *udpHandler) fetchUDPInput(conn core.UDPConn, nat *tracker) {
 		// writes data to conn (tun) with udpaddr as source
 		if _, err = conn.WriteFrom(buf[:n], udpaddr); err != nil {
 			log.W("udp: ingress: failed write to tun (%s) from %s; err %v", logaddr, udpaddr, err)
-			nat.errcount += 1
-			// TODO: return from here?
+			// for half-open: nat.errcount += 1 and continue
+			// otherwise: return and close conn
+			return
 		}
 	}
 }
