@@ -16,6 +16,11 @@ set -eux
 PACK="${PACK:-aar}"
 FOUT="${FOUT:-firestack.aar}"
 BOUT="${QDOH:-build/intra/tun2socks.aar}"
+CLASSFULL="${CLASSFULL:-full}"
+CLASSARM="${CLASSARM:-arm64}"
+FOUTARM="${FOUTARM:-firestack-arm.aar}"
+BOUTARM="${BOUTARM:-build/intra/tun2socks-arm.aar}"
+SOURCES="${SOURCES:-build/intra/tun2socks-sources.jar}"
 
 # debug
 printenv
