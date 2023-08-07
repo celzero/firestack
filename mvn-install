@@ -30,6 +30,7 @@ mvn -X install:install-file \
     -Dpackaging=${PACK} \
     -Dversion=${VERSION} \
     -DgroupId=${GROUP} \
-    -DartifactId=${ARTIFACTID} \
+    -DartifactId=${ARTIFACT} \
     -Dclassifier=${CLASSARM} \
     -Dsources=${SOURCES}
+
