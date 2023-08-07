@@ -44,8 +44,9 @@ go env
 # git checkout -b "$VERSION"
 
 # gomobile aar
-make clean && make intra
+make clean && make intra && make intrarm
 
 # rename
 mv ./"$BOUT" ./"$FOUT"
+mv ./"$BOUTARM" ./"$FOUTARM"
 

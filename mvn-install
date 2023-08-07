@@ -14,9 +14,22 @@ set -eux
 # repo: jitpack.io/com/github/$GROUP/$ARTIFACT/$VERSION/
 # logs: jitpack.io/com/github/$GROUP/$ARTIFACT/$VERSION/build.log
 
+# from: github.com/ignoramous/outline-go-tun2socks/tree/jpac2
+# maven.apache.org/plugins/maven-install-plugin/examples/installing-secondary-artifacts.html
 mvn install:install-file \
     -Dfile=${FOUT} \
     -Dpackaging=${PACK} \
     -Dversion=${VERSION} \
     -DgroupId=${GROUP} \
-    -DartifactId=${ARTIFACT}
+    -DartifactId=${ARTIFACT} \
+    -Dclassifier=${CLASSFULL} \
+    -Dsources=${SOURCES}
+
+mvn -X install:install-file \
+    -Dfile=${FOUTARM} \
+    -Dpackaging=${PACK} \
+    -Dversion=${VERSION} \
+    -DgroupId=${GROUP} \
+    -DartifactId=${ARTIFACTID} \
+    -Dclassifier=${CLASSARM} \
+    -Dsources=${SOURCES}

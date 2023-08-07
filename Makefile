@@ -11,10 +11,15 @@ WINDOWS_BUILDDIR=$(BUILDDIR)/windows
 LINUX_BUILDDIR=$(BUILDDIR)/linux
 
 ANDROID_BUILD_CMD=env PATH=$(GOBIN):$(PATH) $(GOMOBILE) bind -v -a -ldflags '-w -s' -androidapi 23 -target=android -tags='android' -work
+ANDROID_ARM64_BUILD_CMD=env PATH=$(GOBIN):$(PATH) $(GOMOBILE) bind -v -a -ldflags '-w -s' -androidapi 23 -target=android/arm64 -tags='android' -work
 
 $(BUILDDIR)/intra/tun2socks.aar: $(GOMOBILE)
 	mkdir -p $(BUILDDIR)/intra
 	$(ANDROID_BUILD_CMD) -o $@ $(IMPORT_PATH)/intra $(IMPORT_PATH)/intra/android $(IMPORT_PATH)/intra/ipn $(IMPORT_PATH)/intra/protect $(IMPORT_PATH)/intra/settings $(IMPORT_PATH)/intra/dnsx
+
+$(BUILDDIR)/intra/tun2socks-arm.aar: $(GOMOBILE)
+	mkdir -p $(BUILDDIR)/intra
+	$(ANDROID_ARM64_BUILD_CMD) -o $@ $(IMPORT_PATH)/intra $(IMPORT_PATH)/intra/android $(IMPORT_PATH)/intra/ipn $(IMPORT_PATH)/intra/protect $(IMPORT_PATH)/intra/settings $(IMPORT_PATH)/intra/dnsx
 
 $(BUILDDIR)/android/tun2socks.aar: $(GOMOBILE)
 	mkdir -p $(BUILDDIR)/android
@@ -50,6 +55,8 @@ all: android intra linux apple windows
 android: $(BUILDDIR)/android/tun2socks.aar
 
 intra: $(BUILDDIR)/intra/tun2socks.aar
+
+intrarm: $(BUILDDIR)/intra/tun2socks-arm.aar
 
 apple: $(BUILDDIR)/apple/Tun2socks.xcframework
 

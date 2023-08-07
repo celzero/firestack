@@ -2,8 +2,13 @@ jdk:
   - openjdk14
 env:
   PACK: "aar"
+  CLASSFULL: "full"
+  CLASSARM: "arm64"
   FOUT: "firestack.aar"
+  FOUTARM: "firestack-arm.aar"
   BOUT: "build/intra/tun2socks.aar"
+  BOUTARM: "build/intra/tun2socks-arm.aar"
+  SOURCES: "build/intra/tun2socks-sources.jar"
 before_install:
    - yes | $ANDROID_HOME/tools/bin/sdkmanager "platforms;android-33"
    - yes | $ANDROID_HOME/tools/bin/sdkmanager "build-tools;33.0.0"
