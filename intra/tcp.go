@@ -304,17 +304,24 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target *net.TCPAddr) (
 }
 
 // TODO: Request upstream to make `conn` a `core.TCPConn` so we can avoid a type assertion.
-func (h *tcpHandler) Handle(conn net.Conn, target *net.TCPAddr, summary *TCPSocketSummary) error {
+func (h *tcpHandler) Handle(conn net.Conn, target *net.TCPAddr, summary *TCPSocketSummary) (err error) {
 	var px ipn.Proxy
 	var pc ipn.Conn
-	var err error
+	forwarded := false
 
-	if h.dnsOverride(conn, target) {
-		return nil
-	}
+	defer func() {
+		if !forwarded {
+			h.sendNotif(summary)
+		}
+	}()
 
 	pid := summary.PID
 	summary.Msg = noerr
+
+	if h.dnsOverride(conn, target) {
+		forwarded = true // do not send notif
+		return nil
+	}
 
 	if px, err = h.pt.GetProxy(pid); err != nil {
 		return err
@@ -323,9 +330,8 @@ func (h *tcpHandler) Handle(conn net.Conn, target *net.TCPAddr, summary *TCPSock
 	start := time.Now()
 	var c net.Conn
 
-	// Ref: stackoverflow.com/questions/63656117
-	// Ref: stackoverflow.com/questions/40328025
-	// deprecated: github.com/golang/go/issues/25104
+	// ref: stackoverflow.com/questions/63656117
+	// ref: stackoverflow.com/questions/40328025
 	if pc, err = px.Dial(target.Network(), target.String()); err == nil {
 		switch uc := pc.(type) {
 		// underlying conn must specifically be a tcp-conn
@@ -355,6 +361,7 @@ func (h *tcpHandler) Handle(conn net.Conn, target *net.TCPAddr, summary *TCPSock
 	summary.Synack = int32(time.Since(start).Seconds() * 1000)
 
 	go h.forward(conn, c, summary)
+	forwarded = true
 
 	log.I("tcp: new conn via proxy(%s); src(%s) -> dst(%s)", px.ID(), conn.LocalAddr(), target)
 	return nil

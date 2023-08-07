@@ -46,6 +46,7 @@ const (
 	// arbitrary threshold of temporary errs before udp socket is closed
 	maxconnerr = 3
 	noerr      = "no error"
+	yeserr     = "error"
 )
 
 var (
@@ -280,7 +281,7 @@ func (h *udpHandler) onFlow(localudp core.UDPConn, target *net.UDPAddr, realips,
 	src := source.String()
 	dst := target.String()
 	if len(realips) <= 0 || len(domains) <= 0 {
-		log.D("onFlow: no realips(%s) or domains(%s), for src=%s dst=%s", realips, domains, src, dst)
+		log.D("udp: onFlow: no realips(%s) or domains(%s), for src=%s dst=%s", realips, domains, src, dst)
 	}
 
 	// Implict: BlockModeFilter or BlockModeFilterProc
@@ -296,7 +297,7 @@ func (h *udpHandler) onFlow(localudp core.UDPConn, target *net.UDPAddr, realips,
 	res := h.ctl.Flow(proto, uid, src, dst, realips, domains, blocklists)
 
 	if len(res) <= 0 {
-		log.W("tcp: empty flow from kt; using base")
+		log.W("udp: empty flow from kt; using base")
 		res = ipn.Base
 	}
 
@@ -320,6 +321,7 @@ func (h *udpHandler) OnNewConn(gconn *netstack.GUDPConn, _, dst *net.UDPAddr) {
 func (h *udpHandler) Connect(conn core.UDPConn, target *net.UDPAddr) (res string, err error) {
 	var px ipn.Proxy
 	var pc ipn.Conn
+	forwarded := false
 
 	ipx4 := maybeUndoNat64(h.pt, target.IP)
 	realips, domains, blocklists := undoAlg(h.resolver, ipx4)
@@ -329,6 +331,17 @@ func (h *udpHandler) Connect(conn core.UDPConn, target *net.UDPAddr) (res string
 
 	localaddr := conn.LocalAddr()
 	pid, cid, uid := splitPidCidUid(res)
+
+	defer func() {
+		if !forwarded {
+			msg := yeserr
+			if err != nil {
+				msg = err.Error()
+			}
+			h.sendNotif(cid, pid, uid, msg, 0, 0, 0)
+		}
+	}()
+
 	if pid == ipn.Block {
 		var secs uint32
 		k := uid + target.String()
@@ -344,7 +357,8 @@ func (h *udpHandler) Connect(conn core.UDPConn, target *net.UDPAddr) (res string
 	}
 
 	if h.isDns(target) {
-		return res, nil // connect
+		forwarded = true // do not send notif
+		return res, nil  // connect
 	}
 
 	if px, err = h.pt.GetProxy(pid); err != nil {
@@ -386,6 +400,7 @@ func (h *udpHandler) Connect(conn core.UDPConn, target *net.UDPAddr) (res string
 	h.udpConns[conn] = nat
 	h.Unlock()
 
+	forwarded = true
 	go h.fetchUDPInput(conn, nat)
 
 	log.I("udp: connect: (proxy? %s@%s) %v -> %v", px.ID(), px.GetAddr(), c.LocalAddr(), target)
@@ -491,6 +506,9 @@ func (h *udpHandler) Close(conn core.UDPConn) {
 		}
 		// TODO: Cancel any outstanding DoH queries.
 		elapsed := int32(time.Since(t.start).Seconds())
+
+		log.V("udp: close: conn(%v -> %v [%v]) / down(%d) up(%d) / elapsed(%d)", conn.LocalAddr(), t.ip, conn.RemoteAddr(), t.download, t.upload, elapsed)
+
 		h.sendNotif(t.id, t.pid, t.uid, t.msg, t.upload, t.download, elapsed)
 		delete(h.udpConns, conn)
 	}
