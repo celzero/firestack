@@ -109,6 +109,13 @@ func (w *wgproxy) Close() error {
 	return w.wgtun.Close()
 }
 
+// Stop implements ipn.Proxy
+func (h *wgproxy) Stop() error {
+	h.status = END
+	log.I("proxy: wg: stopped %s", h.id)
+	return h.Close()
+}
+
 type WgProxy interface {
 	Proxy
 	tun.Device
@@ -411,6 +418,7 @@ func (tun *wgtun) Close() error {
 		close(tun.events)
 	}
 
+	tun.stack.Close()
 	tun.ep.Close()
 
 	if tun.incomingPacket != nil {
@@ -464,8 +472,4 @@ func (h *wgtun) Status() int {
 	return h.status
 }
 
-func (h *wgtun) Stop() error {
-	h.status = END
-	log.I("proxy: wg: stopped %s", h.id)
-	return h.Close()
-}
+// func Stop() error is impl by wgproxy
