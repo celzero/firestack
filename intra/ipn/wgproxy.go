@@ -24,7 +24,6 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
-	"time"
 
 	"github.com/celzero/firestack/intra/ipn/wg"
 	"github.com/celzero/firestack/intra/log"
@@ -56,26 +55,6 @@ const (
 	// missing wg interface address.
 	noaddr = ""
 )
-
-// unused
-type wgifc struct {
-	id         string        // name of the wg interface
-	privkey    string        // private key
-	pubkey     string        // public key
-	ifaddrs    []*netip.Addr // wg interface addresses
-	dnsaddrs   []*netip.Addr // wg interface dns addresses
-	listenport int           // listen for incoming conns
-	mtu        int           // preferred mtu
-}
-
-// unused
-type wgpeerc struct {
-	psk        string          // preshared key
-	pubkey     string          // public key
-	keepalive  time.Duration   // keepalive interval in seconds
-	endpoint   *netip.AddrPort // remote endpoint
-	allowedips []*netip.Addr   // allowed ips
-}
 
 type wgtun struct {
 	id             string
