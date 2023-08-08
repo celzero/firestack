@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
 )
 
@@ -109,6 +110,8 @@ func NewProxifier(c protect.Controller) Proxies {
 	}
 	pxr.add(NewBaseProxy(c))
 	pxr.add(NewGroundProxy())
+	log.I("proxy: new")
+
 	return pxr
 }
 
@@ -134,6 +137,7 @@ func (px *proxifier) RemoveProxy(id string) bool {
 	if p, ok := px.p[id]; ok {
 		go p.Stop()
 		delete(px.p, id)
+		log.I("proxy: removed %s", id)
 		return true
 	}
 	return false
@@ -157,10 +161,13 @@ func (px *proxifier) StopProxies() error {
 	px.Lock()
 	defer px.Unlock()
 
+	l := len(px.p)
 	for _, p := range px.p {
 		go p.Stop()
 	}
 	px.p = make(map[string]Proxy)
+
+	log.I("proxy: all(%d) stopped and removed", l)
 	return nil
 }
 
