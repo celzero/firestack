@@ -89,10 +89,9 @@ func (w *wgproxy) Close() error {
 }
 
 // Stop implements ipn.Proxy
-func (h *wgproxy) Stop() error {
-	h.status = END
-	log.I("proxy: wg: stopped %s", h.id)
-	return h.Close()
+func (w *wgproxy) Stop() error {
+	log.I("proxy: wg(%s): stopping; status(%s)", w.id, w.status)
+	return w.Close()
 }
 
 type WgProxy interface {
@@ -226,7 +225,8 @@ func NewWgProxy(id string, ctl protect.Controller, cfg string) (w WgProxy, err e
 
 	err = wgdev.IpcSet(uapicfg)
 	if err != nil {
-		log.E("proxy: wg: failed to ipc-set config %s, %v", uapicfg, err)
+		log.E("proxy: wg: failed to ipc-set %v", err)
+		log.V("proxy: wg: failed config %s", uapicfg) // prints private-key
 		return nil, err
 	}
 
@@ -248,7 +248,8 @@ func NewWgProxy(id string, ctl protect.Controller, cfg string) (w WgProxy, err e
 		wgdev,
 	}
 
-	log.D("proxy: wg: new %s for cfg %s / bound? %t", id, cfg, bindok)
+	log.D("proxy: wg: new %s / bound? %t", id, bindok)
+	log.V("proxy: wg: cfg %s", cfg) // prints private-key
 
 	return
 }
@@ -404,6 +405,7 @@ func (tun *wgtun) Close() error {
 		close(tun.incomingPacket)
 	}
 
+	log.I("proxy: wg: tun: closed")
 	return nil
 }
 
