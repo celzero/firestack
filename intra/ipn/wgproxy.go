@@ -391,12 +391,19 @@ func (tun *wgtun) WriteNotify() {
 }
 
 func (tun *wgtun) Close() error {
+	// TODO: move this to wgproxy.Close()?
+	// should work: go.dev/play/p/HeU5EvzAjnv
+	if tun.status == END {
+		log.W("proxy: wg: tun: already closed?")
+		return errProxyStopped
+	}
+
 	tun.status = END
 	tun.stack.RemoveNIC(wgnic)
 
-	if tun.events != nil {
-		close(tun.events)
-	}
+	// if tun.events != nil {
+	// panics; is it closed by device.Device.Close()?
+	// close(tun.events) }
 
 	tun.stack.Close()
 	tun.ep.Close()
