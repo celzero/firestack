@@ -120,5 +120,6 @@ func NewGTunnel(fd int, fpcap string, l3 string, mtu int, tcph netstack.GTCPConn
 		return nil, err
 	}
 
+	log.I("tun: new netstack up; fd(%d), pcap(%t), l3(%s), mtu(%d)", fd, len(fpcap) > 0, l3, mtu)
 	return &gtunnel{endpoint, stack, fd, pcapio, mtu}, nil
 }

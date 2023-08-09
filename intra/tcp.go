@@ -115,6 +115,7 @@ func NewTCPHandler(resolver dnsx.Resolver, pt ipn.NatPt, ctl protect.Controller,
 		fwtracker: core.NewExpiringMap(),
 	}
 
+	log.I("tcp: new handler created")
 	return h
 }
 

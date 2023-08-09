@@ -153,6 +153,7 @@ func NewUDPHandler(resolver dnsx.Resolver, pt ipn.NatPt, ctl protect.Controller,
 		fwtracker: core.NewExpiringMap(),
 	}
 
+	log.I("udp: new handler created")
 	return h
 }
 

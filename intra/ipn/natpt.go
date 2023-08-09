@@ -48,6 +48,7 @@ type NatPt interface {
 }
 
 func NewNatPt(l3 string, ctl protect.Controller, tunmode *settings.TunMode) NatPt {
+	log.I("natpt: new; l3(%s)", l3)
 	return &natPt{
 		Proxies: NewProxifier(ctl),
 		nat64:   newNat64(),

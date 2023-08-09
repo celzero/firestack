@@ -63,6 +63,7 @@ func NewICMPHandler(resolver dnsx.Resolver, pt ipn.NatPt, ctl protect.Controller
 		listener: listener,
 	}
 
+	log.I("icmp: new handler created")
 	return h
 }
 

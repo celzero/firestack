@@ -82,6 +82,7 @@ func NewTunnel(fakedns string, defaultdns dnsx.Transport, fd int, fpcap string, 
 	t, err := tunnel.NewGTunnel(fd, fpcap, l3, mtu, tcph, udph, icmph)
 
 	if err != nil {
+		log.I("tun: <<<new>>>; err(%v)", err)
 		return nil, err
 	}
 
@@ -94,6 +95,7 @@ func NewTunnel(fakedns string, defaultdns dnsx.Transport, fd int, fpcap string, 
 		resolver: resolver,
 	}
 
+	log.I("tun: <<<new>>>; ok")
 	resolver.Start()
 	return gt, nil
 }
