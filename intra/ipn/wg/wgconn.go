@@ -79,7 +79,8 @@ func (e StdNetEndpoint) SrcToString() string {
 }
 
 func (s *StdNetBind) listenNet(network string, port int) (*net.UDPConn, int, error) {
-	conn, err := net.ListenUDP(network, &net.UDPAddr{Port: port})
+	saddr := &net.UDPAddr{Port: port}
+	conn, err := net.ListenUDP(network, saddr)
 	if err != nil {
 		return nil, 0, err
 	}
