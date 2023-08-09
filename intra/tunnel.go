@@ -99,7 +99,9 @@ func NewTunnel(fakedns string, defaultdns dnsx.Transport, fd int, fpcap string, 
 }
 
 func (t *intratunnel) Disconnect() {
-	t.resolver.Stop()
+	err0 := t.resolver.Stop()
+	err1 := t.natpt.StopProxies()
+	log.I("tun: resolver.stop(%v); proxies.stop(%v)", err0, err1)
 	t.Tunnel.Disconnect()
 }
 
