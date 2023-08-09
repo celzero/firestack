@@ -84,13 +84,15 @@ func (w *wgproxy) BatchSize() int {
 
 // Close implements WgProxy
 func (w *wgproxy) Close() error {
+	// is wgtun.Close() called by device.Close()
+	// return w.wgtun.Close()
 	w.Device.Close()
-	return w.wgtun.Close()
+	return nil
 }
 
 // Stop implements ipn.Proxy
 func (w *wgproxy) Stop() error {
-	log.I("proxy: wg(%s): stopping; status(%s)", w.id, w.status)
+	log.I("proxy: wg: stopping(%s); status(%d)", w.id, w.status)
 	return w.Close()
 }
 
@@ -405,8 +407,10 @@ func (tun *wgtun) Close() error {
 	// panics; is it closed by device.Device.Close()?
 	// close(tun.events) }
 
+	// stack closes the endpoint, too via nic.go#remove?
+	// tun.ep.Close()
+
 	tun.stack.Close()
-	tun.ep.Close()
 
 	if tun.incomingPacket != nil {
 		close(tun.incomingPacket)
