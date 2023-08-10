@@ -228,7 +228,6 @@ func NewWgProxy(id string, ctl protect.Controller, cfg string) (w WgProxy, err e
 	err = wgdev.IpcSet(uapicfg)
 	if err != nil {
 		log.E("proxy: wg: failed to ipc-set %v", err)
-		log.V("proxy: wg: failed config %s", uapicfg) // prints private-key
 		return nil, err
 	}
 
@@ -251,7 +250,6 @@ func NewWgProxy(id string, ctl protect.Controller, cfg string) (w WgProxy, err e
 	}
 
 	log.D("proxy: wg: new %s / bound? %t", id, bindok)
-	log.V("proxy: wg: cfg %s", cfg) // prints private-key
 
 	return
 }
