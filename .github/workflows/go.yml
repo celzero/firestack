@@ -33,5 +33,5 @@ jobs:
       if: success()
       with:
         name: firestack-aar-${{ github.sha }}
-        path: build/intra/*.aar
+        path: *.aar
         if-no-files-found: error
