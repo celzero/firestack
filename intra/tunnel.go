@@ -82,7 +82,7 @@ func NewTunnel(fakedns string, defaultdns dnsx.Transport, fd int, fpcap string, 
 	t, err := tunnel.NewGTunnel(fd, fpcap, l3, mtu, tcph, udph, icmph)
 
 	if err != nil {
-		log.I("tun: <<<new>>>; err(%v)", err)
+		log.I("tun: <<< new >>>; err(%v)", err)
 		return nil, err
 	}
 
@@ -103,7 +103,7 @@ func NewTunnel(fakedns string, defaultdns dnsx.Transport, fd int, fpcap string, 
 func (t *intratunnel) Disconnect() {
 	err0 := t.resolver.Stop()
 	err1 := t.natpt.StopProxies()
-	log.I("tun: resolver.stop(%v); proxies.stop(%v)", err0, err1)
+	log.I("tun: <<< disconnect >>>; err0(%v); err1(%v)", err0, err1)
 	t.Tunnel.Disconnect()
 }
 
