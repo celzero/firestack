@@ -28,10 +28,11 @@ jobs:
         # go test -v -race -bench=. -benchtime=100ms ./...
         echo "::notice::success"
 
+      # github.com/actions/upload-artifact
     - name: Upload artifacts
       uses: actions/upload-artifact@v3
       if: success()
       with:
         name: firestack-aar-${{ github.sha }}
-        path: *.aar
+        path: firestack*.aar
         if-no-files-found: error
