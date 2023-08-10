@@ -15,11 +15,11 @@ set -eux
 # defaults
 PACK="${PACK:-aar}"
 FOUT="${FOUT:-firestack.aar}"
-BOUT="${QDOH:-build/intra/tun2socks.aar}"
-CLASSFULL="${CLASSFULL:-full}"
-CLASSARM="${CLASSARM:-arm64}"
+BOUT="${BOUT:-build/intra/tun2socks.aar}"
 FOUTARM="${FOUTARM:-firestack-arm.aar}"
 BOUTARM="${BOUTARM:-build/intra/tun2socks-arm.aar}"
+CLASSFULL="${CLASSFULL:-full}"
+CLASSARM="${CLASSARM:-arm64}"
 SOURCES="${SOURCES:-build/intra/tun2socks-sources.jar}"
 
 # debug
@@ -55,3 +55,5 @@ make clean && make intra && make intrarm
 mv ./"$BOUT" ./"$FOUT"
 mv ./"$BOUTARM" ./"$FOUTARM"
 
+# ls cwd
+ls -ltr
