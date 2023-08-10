@@ -8,6 +8,7 @@ package dns53
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"net"
 	"net/netip"
@@ -15,11 +16,16 @@ import (
 
 	"github.com/celzero/firestack/intra/dnsx"
 	"github.com/celzero/firestack/intra/log"
+	"github.com/celzero/firestack/intra/protect"
 	"github.com/celzero/firestack/intra/settings"
 	"github.com/celzero/firestack/intra/xdns"
+	"github.com/miekg/dns"
 )
 
+var errQueryParse = errors.New("dns53: could not parse query")
+
 const timeout = 10 * time.Second
+const usemeikgclient = true
 
 // TODO: Keep a context here so that queries can be canceled.
 type transport struct {
@@ -27,6 +33,8 @@ type transport struct {
 	id     string
 	ipport string
 	status int
+	mcudp  *dns.Client
+	mctcp  *dns.Client
 }
 
 // NewTransport returns a DNS transport, ready for use.
@@ -35,13 +43,35 @@ func NewTransport(id, ip, port string) (t dnsx.Transport, err error) {
 	if err != nil {
 		return
 	}
-	t = &transport{
+
+	return newTransportOpts(id, do)
+}
+
+func newTransportOpts(id string, do *settings.DNSOptions) (dnsx.Transport, error) {
+	tx := &transport{
 		id:     id,
 		ipport: do.IPPort,
 		status: dnsx.Start,
 	}
+	d := protect.MakeNsDialer(nil)
+	if usemeikgclient {
+		tx.mcudp = &dns.Client{
+			Net:            "udp",
+			Dialer:         d,
+			Timeout:        timeout,
+			SingleInflight: true,
+			// TODO: set it to MTU?
+			// UDPSize:        dns.DefaultMsgSize,
+		}
+		tx.mctcp = &dns.Client{
+			Net:            "tcp",
+			Dialer:         d,
+			Timeout:        timeout,
+			SingleInflight: true,
+		}
+	}
 	log.I("dns53: (%s) setup: %s", id, do.IPPort)
-	return
+	return tx, nil
 }
 
 // NewTransport returns a DNS transport, ready for use.
@@ -50,24 +80,24 @@ func NewTransportFrom(id string, ipp netip.AddrPort) (t dnsx.Transport, err erro
 	if err != nil {
 		return
 	}
-	t = &transport{
-		id:     id,
-		ipport: do.IPPort,
-		status: dnsx.Start,
-	}
-	log.I("dns53: (%s) setup: %s", id, do.IPPort)
-	return
+
+	return newTransportOpts(id, do)
 }
 
 // Given a raw DNS query (including the query ID), this function sends the
 // query.  If the query is successful, it returns the response and a nil qerr.  Otherwise,
 // it returns a SERVFAIL response and a qerr with a status value indicating the cause.
-func (t *transport) doQuery(network string, q []byte) (response []byte, blocklists string, elapsed time.Duration, qerr *dnsx.QueryError) {
+func (t *transport) doQuery(network string, q []byte) (response []byte, elapsed time.Duration, qerr *dnsx.QueryError) {
 	if len(q) < 2 {
-		qerr = dnsx.NewBadQueryError(fmt.Errorf("query length is %d", len(q)))
+		qerr = dnsx.NewBadQueryError(fmt.Errorf("dns53: query length is %d", len(q)))
 		return
 	}
-	response, blocklists, elapsed, qerr = t.sendRequest(network, q)
+
+	if usemeikgclient {
+		response, elapsed, qerr = t.sendRequest2(network, q)
+	} else {
+		response, elapsed, qerr = t.sendRequest(network, q)
+	}
 
 	if qerr != nil { // only on send-request errors
 		response = xdns.Servfail(q)
@@ -76,7 +106,33 @@ func (t *transport) doQuery(network string, q []byte) (response []byte, blocklis
 	return
 }
 
-func (t *transport) sendRequest(network string, q []byte) (response []byte, blocklists string, elapsed time.Duration, qerr *dnsx.QueryError) {
+func (t *transport) sendRequest2(network string, q []byte) (response []byte, elapsed time.Duration, qerr *dnsx.QueryError) {
+	var ans *dns.Msg
+	var err error
+	msg := xdns.AsMsg(q)
+	if msg == nil {
+		qerr = dnsx.NewBadQueryError(errQueryParse)
+		return
+	}
+	// TODO: conn pooling using t.mc[tcp|udp].Dial + ExchangeWithConn
+	if network == dnsx.NetTypeUDP {
+		ans, elapsed, err = t.mcudp.Exchange(msg, t.ipport)
+	} else {
+		ans, elapsed, err = t.mctcp.Exchange(msg, t.ipport)
+	}
+	if err != nil {
+		qerr = dnsx.NewTransportQueryError(err)
+		return
+	}
+	response, err = ans.Pack()
+	if err != nil {
+		qerr = dnsx.NewBadResponseQueryError(err)
+		return
+	}
+	return
+}
+
+func (t *transport) sendRequest(network string, q []byte) (response []byte, elapsed time.Duration, qerr *dnsx.QueryError) {
 	var conn net.Conn
 	var dialError error
 	start := time.Now()
@@ -174,7 +230,7 @@ func (t *transport) sendRequest(network string, q []byte) (response []byte, bloc
 
 func (t *transport) Query(network string, q []byte, summary *dnsx.Summary) (r []byte, err error) {
 
-	response, blocklists, elapsed, qerr := t.doQuery(network, q)
+	response, elapsed, qerr := t.doQuery(network, q)
 
 	status := dnsx.Complete
 	if qerr != nil {
@@ -191,7 +247,6 @@ func (t *transport) Query(network string, q []byte, summary *dnsx.Summary) (r []
 	summary.RTtl = xdns.RTtl(ans)
 	summary.Server = t.GetAddr()
 	summary.Status = status
-	summary.Blocklists = blocklists
 
 	return response, err
 }
