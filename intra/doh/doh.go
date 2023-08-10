@@ -89,12 +89,12 @@ func (t *transport) dial(network, addr string) (net.Conn, error) {
 	ips := t.ips.Get(domain)
 	confirmed := ips.Confirmed()
 	if confirmed != nil {
-		log.D("doh: trying confirmed IP %s for addr %s", confirmed.String(), addr)
+		log.D("doh: trying IP %s for addr %s", confirmed.String(), addr)
 		if conn, err = split.DialWithSplitRetry(t.dialer, tcpaddr(confirmed), nil); err == nil {
 			log.I("doh: confirmed IP %s worked", confirmed.String())
 			return conn, nil
 		}
-		log.D("doh: confirmed IP %s failed with err %v", confirmed.String(), err)
+		log.D("doh: IP %s failed with err %v", confirmed.String(), err)
 		ips.Disconfirm(confirmed)
 	}
 
@@ -252,13 +252,13 @@ func (t *transport) sendRequest(id uint16, q []byte) (response []byte, hostname 
 		if qerr == nil {
 			return
 		}
-		log.I("doh: %d Query failed: %v", id, qerr)
+		log.I("doh: %d query failed: %v", id, qerr)
 		if server != nil {
-			log.D("doh: %d Disconfirming %s", id, server.IP.String())
+			log.D("doh: %d disconfirming %s", id, server.IP.String())
 			t.ips.Get(hostname).Disconfirm(server.IP)
 		}
 		if conn != nil {
-			log.I("doh: %d Closing failing DoH socket", id)
+			log.I("doh: %d close failing DoH socket", id)
 			conn.Close()
 		}
 	}()
@@ -276,10 +276,10 @@ func (t *transport) sendRequest(id uint16, q []byte) (response []byte, hostname 
 	// reading the variables it has set.
 	trace := httptrace.ClientTrace{
 		GetConn: func(hostPort string) {
-			log.V("doh: %d GetConn(%s)", id, hostPort)
+			log.V("doh: %d get-conn(%s)", id, hostPort)
 		},
 		GotConn: func(info httptrace.GotConnInfo) {
-			log.D("doh: %d GotConn(%v)", id, info)
+			log.D("doh: %d got-conn(%v)", id, info)
 			if info.Conn == nil {
 				return
 			}
@@ -288,42 +288,42 @@ func (t *transport) sendRequest(id uint16, q []byte) (response []byte, hostname 
 			server = conn.RemoteAddr().(*net.TCPAddr)
 		},
 		PutIdleConn: func(err error) {
-			log.V("doh: %d PutIdleConn(%v)", id, err)
+			log.V("doh: %d put-idle-conn(%v)", id, err)
 		},
 		GotFirstResponseByte: func() {
-			log.V("doh: %d GotFirstResponseByte()", id)
+			log.V("doh: %d first-byte()", id)
 		},
 		Got100Continue: func() {
-			log.V("doh: %d Got100Continue()", id)
+			log.V("doh: %d 100-continue()", id)
 		},
 		Got1xxResponse: func(code int, header textproto.MIMEHeader) error {
-			log.V("doh: %d Got1xxResponse(%d, %v)", id, code, header)
+			log.V("doh: %d 1xx-response(%d, %v)", id, code, header)
 			return nil
 		},
 		DNSStart: func(info httptrace.DNSStartInfo) {
-			log.V("doh: %d DNSStart(%v)", id, info)
+			log.V("doh: %d dns-start(%v)", id, info)
 		},
 		DNSDone: func(info httptrace.DNSDoneInfo) {
-			log.V("doh: %d, DNSDone(%v)", id, info)
+			log.V("doh: %d, dns-done(%v)", id, info)
 		},
 		ConnectStart: func(network, addr string) {
 			start = time.Now() // re...start
-			log.V("doh: %d ConnectStart(%s, %s)", id, network, addr)
+			log.V("doh: %d connect-start(%s, %s)", id, network, addr)
 		},
 		ConnectDone: func(network, addr string, err error) {
-			log.V("doh: %d ConnectDone(%s, %s, %v)", id, network, addr, err)
+			log.V("doh: %d connect-done(%s, %s, %v)", id, network, addr, err)
 		},
 		TLSHandshakeStart: func() {
-			log.V("doh: %d TLSHandshakeStart()", id)
+			log.V("doh: %d handshake-start()", id)
 		},
 		TLSHandshakeDone: func(state tls.ConnectionState, err error) {
-			log.V("doh: %d TLSHandshakeDone(%v, %v)", id, state, err)
+			log.V("doh: %d handshake-done(%v, %v)", id, state, err)
 		},
 		WroteHeaders: func() {
-			log.V("doh: %d WroteHeaders()", id)
+			log.V("doh: %d wrote-headers()", id)
 		},
 		WroteRequest: func(info httptrace.WroteRequestInfo) {
-			log.V("doh: %d WroteRequest(%v)", id, info)
+			log.V("doh: %d wrote-req(%v)", id, info)
 		},
 	}
 	req = req.WithContext(httptrace.WithClientTrace(req.Context(), &trace))
@@ -333,7 +333,7 @@ func (t *transport) sendRequest(id uint16, q []byte) (response []byte, hostname 
 	req.Header.Set("Accept", mimetype)
 	req.Header.Set("User-Agent", "")
 
-	log.D("doh: %d Sending query", id)
+	log.D("doh: %d sending query", id)
 	httpResponse, err := t.client.Do(req)
 
 	if err != nil {
@@ -342,7 +342,7 @@ func (t *transport) sendRequest(id uint16, q []byte) (response []byte, hostname 
 		return
 	}
 
-	log.D("doh: %d Got response", id)
+	log.D("doh: %d got response", id)
 	response, err = ioutil.ReadAll(httpResponse.Body)
 	elapsed = time.Since(start)
 
@@ -351,7 +351,7 @@ func (t *transport) sendRequest(id uint16, q []byte) (response []byte, hostname 
 		return
 	}
 	httpResponse.Body.Close()
-	log.D("doh: %d Closed response", id)
+	log.D("doh: %d closed response", id)
 
 	// Update the hostname, which could have changed due to a redirect.
 	hostname = httpResponse.Request.URL.Hostname()
@@ -361,7 +361,7 @@ func (t *transport) sendRequest(id uint16, q []byte) (response []byte, hostname 
 		req.Write(reqBuf)
 		respBuf := new(bytes.Buffer)
 		httpResponse.Write(respBuf)
-		log.D("doh: %d request: %s\nresponse: %s", id, reqBuf.String(), respBuf.String())
+		log.D("doh: %d req: %s\nres: %s", id, reqBuf.String(), respBuf.String())
 
 		qerr = dnsx.NewTransportQueryError(fmt.Errorf("http-status: %d", httpResponse.StatusCode))
 		return
@@ -383,7 +383,7 @@ func (t *transport) sendRequest(id uint16, q []byte) (response []byte, hostname 
 
 func (t *transport) rdnsBlockstamp(res *http.Response) (blocklistStamp string) {
 	blocklistStamp = res.Header.Get(xdns.GetBlocklistStampHeaderKey())
-	log.D("doh: stamp %s; header %v", res.Header, blocklistStamp)
+	log.V("doh: stamp %s; header %v", res.Header, blocklistStamp)
 	return
 }
 
