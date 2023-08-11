@@ -24,7 +24,7 @@ import (
 
 var errQueryParse = errors.New("dns53: could not parse query")
 
-const timeout = 10 * time.Second
+const timeout = 5 * time.Second
 const usemeikgclient = true
 
 // TODO: Keep a context here so that queries can be canceled.
