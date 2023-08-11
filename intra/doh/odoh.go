@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/celzero/firestack/intra/dnsx"
+	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/xdns"
 	"github.com/cloudflare/odoh-go"
 	"github.com/miekg/dns"
@@ -23,6 +24,8 @@ const odohmimetype = "application/oblivious-dns-message"
 var errNoOdohCfgResponse = errors.New("no odoh config response")
 var errZeroOdohCfgs = errors.New("no odoh configs found")
 
+// targets:  github.com/DNSCrypt/dnscrypt-resolvers/blob/master/v3/odoh-servers.md
+// endpoints:  github.com/DNSCrypt/dnscrypt-resolvers/blob/master/v3/odoh-relays.md
 func (d *transport) doOdoh(q []byte) (res []byte, elapsed time.Duration, qerr *dnsx.QueryError) {
 	start := time.Now()
 	defer func() {
@@ -31,6 +34,7 @@ func (d *transport) doOdoh(q []byte) (res []byte, elapsed time.Duration, qerr *d
 
 	odohmsg, odohctx, err := d.buildTargetQuery(q)
 	if err != nil {
+		log.W("odoh: build target query err: %v", err)
 		qerr = dnsx.NewBadQueryError(err)
 		return
 	}
@@ -116,6 +120,7 @@ func (d *transport) refreshTargetKey() (ocfg *odoh.ObliviousDoHConfig, exp time.
 
 	cres := xdns.AsMsg(cr)
 	if cres == nil || len(cres.Answer) <= 0 {
+		log.W("odoh: no config answer")
 		err = errNoOdohCfgResponse
 		return
 	}
@@ -128,6 +133,7 @@ func (d *transport) refreshTargetKey() (ocfg *odoh.ObliviousDoHConfig, exp time.
 		ttlsec := time.Duration(rec.Header().Ttl) * time.Second
 		for _, kv := range https.Value {
 			if kv.Key() != 32769 {
+				log.D("odoh: not a odoh https record; next")
 				continue
 			}
 			var ocfgs odoh.ObliviousDoHConfigs
@@ -142,9 +148,13 @@ func (d *transport) refreshTargetKey() (ocfg *odoh.ObliviousDoHConfig, exp time.
 				ocfg = &ocfgs.Configs[0]
 				exp = time.Now().Add(ttlsec)
 				return
-			} // else: continue
+			} else {
+				log.D("odoh: not a svcblocal value; next")
+			}
 		}
 	}
+
+	log.W("odoh: no valid cfg in https/svcb records %d", len(cres.Answer))
 	err = errNoOdohCfgResponse
 	return
 }

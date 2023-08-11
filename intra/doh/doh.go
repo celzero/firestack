@@ -157,6 +157,7 @@ func newTransport(id, rawurl, target string, addrs []string, dialer *net.Dialer)
 	}
 	// use of "http" is an indication to turn-off TLS verification
 	if parsedurl.Scheme == "http" {
+		log.I("doh: disabling tls verification for %s", rawurl)
 		parsedurl.Scheme = "https"
 		skipTLSVerify = true
 	}
@@ -185,6 +186,7 @@ func newTransport(id, rawurl, target string, addrs []string, dialer *net.Dialer)
 		status:   dnsx.Start,
 	}
 	if len(target) > 0 {
+		log.I("doh: ODOH for %s -> %s", t.url, target)
 		t.typ = dnsx.ODOH
 		u, err := url.Parse(target)
 		if err != nil {
@@ -219,6 +221,8 @@ func newTransport(id, rawurl, target string, addrs []string, dialer *net.Dialer)
 		ResponseHeaderTimeout: 20 * time.Second, // Same value as Android DNS-over-TLS
 		TLSClientConfig:       tlsconfig,
 	}
+
+	log.I("doh: new transport(%s): %s", t.typ, t.url)
 	return t, nil
 }
 
