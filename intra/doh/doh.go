@@ -141,6 +141,9 @@ func NewTransport(id, rawurl string, addrs []string, dialer *net.Dialer) (dnsx.T
 		parsedurl.Scheme = "https"
 		skipTLSVerify = true
 	}
+	if parsedurl.Scheme != "https" {
+		return nil, fmt.Errorf("unsupported scheme %s", parsedurl.Scheme)
+	}
 	// Resolve the hostname and put those addresses first.
 	portStr := parsedurl.Port()
 	var port int

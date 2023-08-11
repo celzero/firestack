@@ -63,6 +63,10 @@ func NewDoHTransport(id, url string, ips string) (dnsx.Transport, error) {
 	return doh.NewTransport(id, url, split, dialer)
 }
 
+func NewDoTTransport(id, url string) (dnsx.Transport, error) {
+	return dns53.NewTLSTransport(id, url)
+}
+
 func NewDNSCryptTransport(r dnsx.Resolver, id, stamp string) (d dnsx.Transport, err error) {
 	var tm dnsx.TransportMult
 	if tm, err = r.DcProxy(); err == nil {
