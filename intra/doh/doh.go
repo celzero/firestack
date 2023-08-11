@@ -33,7 +33,6 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptrace"
-	"net/textproto"
 	"net/url"
 	"strconv"
 	"sync"
@@ -44,20 +43,36 @@ import (
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/split"
 	"github.com/celzero/firestack/intra/xdns"
+	"github.com/cloudflare/odoh-go"
 )
 
 // If the server sends an invalid reply, we start a "servfail hangover"
 // of this duration, during which all queries are rejected.
 // This rate-limits queries to misconfigured servers (e.g. wrong URL).
 const hangoverDuration = 10 * time.Second
+const tcpTimeout time.Duration = 3 * time.Second
+const dohmimetype = "application/dns-message"
+const tlsport = 443
+
+var errInHangover = errors.New("forwarder is in servfail hangover")
+
+type odohtransport struct {
+	omu              sync.RWMutex // protects odohConfig
+	odohtargetname   string       // target hostname
+	odohtargetpath   string       // target path
+	odohConfig       *odoh.ObliviousDoHConfig
+	odohConfigExpiry time.Time
+}
 
 // TODO: Keep a context here so that queries can be canceled.
 type transport struct {
+	*odohtransport // stackoverflow.com/a/28505394
 	dnsx.Transport
 	id                 string
-	url                string
-	hostname           string
-	port               int
+	typ                string // dnsx.DOH / dnsx.ODOH
+	url                string // endpoint URL
+	hostname           string // endpoint hostname
+	port               int    // endpoint port
 	ips                ipmap.IPMap
 	client             http.Client
 	dialer             *net.Dialer
@@ -65,9 +80,6 @@ type transport struct {
 	hangoverLock       sync.RWMutex
 	hangoverExpiration time.Time
 }
-
-// Wait up to three seconds for the TCP handshake to complete.
-const tcpTimeout time.Duration = 3 * time.Second
 
 func (t *transport) dial(network, addr string) (net.Conn, error) {
 	log.D("doh: dialing %s", addr)
@@ -101,8 +113,7 @@ func (t *transport) dial(network, addr string) (net.Conn, error) {
 	log.D("doh: trying all IPs")
 	for _, ip := range ips.GetAll() {
 		if ip.Equal(confirmed) {
-			// Don't try this IP twice.
-			continue
+			continue // don't try this IP again
 		}
 		if conn, err = split.DialWithSplitRetry(t.dialer, tcpaddr(ip), nil); err == nil {
 			log.I("doh: found working IP: %s", ip.String())
@@ -126,6 +137,14 @@ func (t *transport) dial(network, addr string) (net.Conn, error) {
 // `auth` will provide a client certificate if required by the TLS server.
 // `listener` will receive the status of each DNS query when it is complete.
 func NewTransport(id, rawurl string, addrs []string, dialer *net.Dialer) (dnsx.Transport, error) {
+	return newTransport(id, rawurl, "", addrs, dialer)
+}
+
+func NewOdohTransport(id, endpoint, target string, addrs []string, dailer *net.Dialer) (dnsx.Transport, error) {
+	return newTransport(id, endpoint, target, addrs, dailer)
+}
+
+func newTransport(id, rawurl, target string, addrs []string, dialer *net.Dialer) (*transport, error) {
 	// TODO: client auth
 	var auth ClientAuth
 	skipTLSVerify := false
@@ -153,10 +172,11 @@ func NewTransport(id, rawurl string, addrs []string, dialer *net.Dialer) (dnsx.T
 			return nil, err
 		}
 	} else {
-		port = 443
+		port = tlsport
 	}
 	t := &transport{
 		id:       id,
+		typ:      dnsx.DOH,
 		url:      parsedurl.String(),
 		hostname: parsedurl.Hostname(),
 		port:     port,
@@ -164,7 +184,15 @@ func NewTransport(id, rawurl string, addrs []string, dialer *net.Dialer) (dnsx.T
 		ips:      ipmap.NewIPMap(dialer.Resolver),
 		status:   dnsx.Start,
 	}
-
+	if len(target) > 0 {
+		t.typ = dnsx.ODOH
+		u, err := url.Parse(target)
+		if err != nil {
+			return nil, err
+		}
+		t.odohtargetname = u.Hostname()
+		t.odohtargetpath = u.Path
+	}
 	ipset := t.ips.Of(t.hostname, addrs)
 	if ipset.Empty() {
 		// IPs instead resolved just-in-time with ipmap.Get in transport.dial
@@ -200,20 +228,18 @@ func NewTransport(id, rawurl string, addrs []string, dialer *net.Dialer) (dnsx.T
 // Independent of the query's success or failure, this function also returns the
 // address of the server on a best-effort basis, or nil if the address could not
 // be determined.
-func (t *transport) doQuery(q []byte) (response []byte, blocklists string, server *net.TCPAddr, elapsed time.Duration, qerr *dnsx.QueryError) {
-
+func (t *transport) doDoh(q []byte) (response []byte, blocklists string, elapsed time.Duration, qerr *dnsx.QueryError) {
 	start := time.Now()
 	t.hangoverLock.RLock()
 	inHangover := time.Now().Before(t.hangoverExpiration)
 	t.hangoverLock.RUnlock()
 	if inHangover {
 		response = xdns.Servfail(q)
-		qerr = dnsx.NewTransportQueryError(errors.New("forwarder is in servfail hangover"))
 		elapsed = time.Since(start)
+		qerr = dnsx.NewTransportQueryError(errInHangover)
 		return
 	}
 
-	// Add padding to the raw query
 	q, err := AddEdnsPadding(q)
 	if err != nil {
 		elapsed = time.Since(start)
@@ -225,58 +251,57 @@ func (t *transport) doQuery(q []byte) (response []byte, blocklists string, serve
 	id := binary.BigEndian.Uint16(q)
 	binary.BigEndian.PutUint16(q, 0)
 
-	var hostname string
-	response, hostname, server, blocklists, elapsed, qerr = t.sendRequest(id, q)
+	response, blocklists, elapsed, qerr = t.send(q)
 
 	// restore dns query id
 	binary.BigEndian.PutUint16(q, id)
 
-	if qerr != nil { // only on send-request errors
-		if !qerr.SendFailed() {
-			t.hangoverLock.Lock()
-			t.hangoverExpiration = time.Now().Add(hangoverDuration)
-			t.hangoverLock.Unlock()
-		}
-		response = xdns.Servfail(q)
-	} else if server != nil {
-		// Record a working IP address for this server
-		t.ips.Get(hostname).Confirm(server.IP)
-	}
-
 	return
 }
 
-func (t *transport) sendRequest(id uint16, q []byte) (response []byte, hostname string, server *net.TCPAddr, blocklists string, elapsed time.Duration, qerr *dnsx.QueryError) {
-	hostname = t.hostname
-
-	// The connection used for this request.  If the request fails, we will close
-	// this socket, in case it is no longer functioning.
+func (t *transport) send(q []byte) (ans []byte, blocklists string, elapsed time.Duration, qerr *dnsx.QueryError) {
+	var server *net.TCPAddr
 	var conn net.Conn
 	start := time.Now()
+	hostname := t.hostname
 
 	// Error cleanup function.  If the query fails, this function will close the
 	// underlying socket and disconfirm the server IP.  Empirically, sockets often
 	// become unresponsive after a network change, causing timeouts on all requests.
 	defer func() {
-		if qerr == nil {
+		elapsed = time.Since(start)
+
+		if qerr == nil && server != nil {
+			// record a working IP address for this server
+			t.ips.Get(hostname).Confirm(server.IP)
 			return
 		}
-		log.I("doh: %d query failed: %v", id, qerr)
-		if server != nil {
-			log.D("doh: %d disconfirming %s", id, server.IP.String())
-			t.ips.Get(hostname).Disconfirm(server.IP)
-		}
-		if conn != nil {
-			log.I("doh: %d close failing DoH socket", id)
-			conn.Close()
+		if qerr != nil {
+			ans = xdns.Servfail(q) // override response
+
+			if !qerr.SendFailed() { // hangover only on send-request errs
+				t.hangoverLock.Lock()
+				t.hangoverExpiration = time.Now().Add(hangoverDuration)
+				t.hangoverLock.Unlock()
+			}
+			if server != nil {
+				log.D("doh: disconfirming %s", server.IP.String())
+				t.ips.Get(hostname).Disconfirm(server.IP)
+			}
+			if conn != nil {
+				log.I("doh: close failing doh conn")
+				conn.Close()
+			}
 		}
 	}()
 
-	req, err := http.NewRequest(http.MethodPost, t.url, bytes.NewBuffer(q))
+	req, err := t.asDohRequest(q)
 	if err != nil {
-		elapsed = time.Since(start)
 		qerr = dnsx.NewInternalQueryError(err)
 		return
+	}
+	if t.typ == dnsx.ODOH {
+		t.customizeForOdoh(req)
 	}
 
 	// Add a trace to the request in order to expose the server's IP address.
@@ -284,11 +309,8 @@ func (t *transport) sendRequest(id uint16, q []byte) (response []byte, hostname 
 	// GotConn runs before client.Do() returns, so there is no data race when
 	// reading the variables it has set.
 	trace := httptrace.ClientTrace{
-		GetConn: func(hostPort string) {
-			log.V("doh: %d get-conn(%s)", id, hostPort)
-		},
 		GotConn: func(info httptrace.GotConnInfo) {
-			log.D("doh: %d got-conn(%v)", id, info)
+			log.V("doh: got-conn(%v)", info)
 			if info.Conn == nil {
 				return
 			}
@@ -296,97 +318,48 @@ func (t *transport) sendRequest(id uint16, q []byte) (response []byte, hostname 
 			// info.Conn is a DuplexConn, so RemoteAddr is actually a TCPAddr.
 			server = conn.RemoteAddr().(*net.TCPAddr)
 		},
-		PutIdleConn: func(err error) {
-			log.V("doh: %d put-idle-conn(%v)", id, err)
-		},
-		GotFirstResponseByte: func() {
-			log.V("doh: %d first-byte()", id)
-		},
-		Got100Continue: func() {
-			log.V("doh: %d 100-continue()", id)
-		},
-		Got1xxResponse: func(code int, header textproto.MIMEHeader) error {
-			log.V("doh: %d 1xx-response(%d, %v)", id, code, header)
-			return nil
-		},
-		DNSStart: func(info httptrace.DNSStartInfo) {
-			log.V("doh: %d dns-start(%v)", id, info)
-		},
-		DNSDone: func(info httptrace.DNSDoneInfo) {
-			log.V("doh: %d, dns-done(%v)", id, info)
-		},
 		ConnectStart: func(network, addr string) {
 			start = time.Now() // re...start
-			log.V("doh: %d connect-start(%s, %s)", id, network, addr)
-		},
-		ConnectDone: func(network, addr string, err error) {
-			log.V("doh: %d connect-done(%s, %s, %v)", id, network, addr, err)
-		},
-		TLSHandshakeStart: func() {
-			log.V("doh: %d handshake-start()", id)
-		},
-		TLSHandshakeDone: func(state tls.ConnectionState, err error) {
-			log.V("doh: %d handshake-done(%v, %v)", id, state, err)
-		},
-		WroteHeaders: func() {
-			log.V("doh: %d wrote-headers()", id)
+			log.V("doh: connect-start(%s, %s)", network, addr)
 		},
 		WroteRequest: func(info httptrace.WroteRequestInfo) {
-			log.V("doh: %d wrote-req(%v)", id, info)
+			log.V("doh: wrote-req(%v)", info)
 		},
 	}
 	req = req.WithContext(httptrace.WithClientTrace(req.Context(), &trace))
 
-	const mimetype = "application/dns-message"
-	req.Header.Set("Content-Type", mimetype)
-	req.Header.Set("Accept", mimetype)
-	req.Header.Set("User-Agent", "")
-
-	log.D("doh: %d sending query", id)
+	log.V("doh: sending query")
 	httpResponse, err := t.client.Do(req)
 
 	if err != nil {
-		elapsed = time.Since(start)
 		qerr = dnsx.NewSendFailedQueryError(err)
 		return
 	}
 
-	log.D("doh: %d got response", id)
-	response, err = ioutil.ReadAll(httpResponse.Body)
-	elapsed = time.Since(start)
+	// todo: check if content-type is [doh|odoh] mime type
+	log.V("doh: got response")
+	ans, err = ioutil.ReadAll(httpResponse.Body)
 
 	if err != nil {
 		qerr = dnsx.NewSendFailedQueryError(err)
 		return
 	}
 	httpResponse.Body.Close()
-	log.D("doh: %d closed response", id)
+	log.V("doh: closed response")
 
 	// Update the hostname, which could have changed due to a redirect.
 	hostname = httpResponse.Request.URL.Hostname()
 
 	if httpResponse.StatusCode != http.StatusOK {
-		reqBuf := new(bytes.Buffer)
-		req.Write(reqBuf)
-		respBuf := new(bytes.Buffer)
-		httpResponse.Write(respBuf)
-		log.D("doh: %d req: %s\nres: %s", id, reqBuf.String(), respBuf.String())
-
 		qerr = dnsx.NewTransportQueryError(fmt.Errorf("http-status: %d", httpResponse.StatusCode))
 		return
 	}
-
-	if len(response) >= 2 {
-		if binary.BigEndian.Uint16(response) == 0 {
-			binary.BigEndian.PutUint16(response, id)
-			blocklists = t.rdnsBlockstamp(httpResponse)
-		} else {
-			qerr = dnsx.NewBadResponseQueryError(errors.New("nonzero response ID"))
-		}
-	} else {
-		qerr = dnsx.NewBadResponseQueryError(fmt.Errorf("response length is %d", len(response)))
+	if len(ans) < 2 {
+		qerr = dnsx.NewBadResponseQueryError(fmt.Errorf("response length is %d", len(ans)))
+		return
 	}
 
+	blocklists = t.rdnsBlockstamp(httpResponse)
 	return
 }
 
@@ -396,24 +369,42 @@ func (t *transport) rdnsBlockstamp(res *http.Response) (blocklistStamp string) {
 	return
 }
 
+func (t *transport) asDohRequest(q []byte) (req *http.Request, err error) {
+	req, err = http.NewRequest(http.MethodPost, t.url, bytes.NewBuffer(q))
+	if err != nil {
+		return
+	}
+	req.Header.Set("Content-Type", dohmimetype)
+	req.Header.Set("Accept", dohmimetype)
+	req.Header.Set("User-Agent", "")
+	return
+}
+
 func (t *transport) ID() string {
 	return t.id
 }
 
 func (t *transport) Type() string {
-	return dnsx.DOH
+	return t.typ
 }
 
 func (t *transport) Query(_ string, q []byte, summary *dnsx.Summary) (r []byte, err error) {
 
-	response, blocklists, _, elapsed, qerr := t.doQuery(q)
+	var blocklists string
+	var elapsed time.Duration
+	var qerr *dnsx.QueryError
+	if t.typ == dnsx.DOH {
+		r, blocklists, elapsed, qerr = t.doDoh(q)
+	} else {
+		r, elapsed, qerr = t.doOdoh(q)
+	}
 
 	status := dnsx.Complete
 	if qerr != nil {
 		status = qerr.Status()
 		err = qerr.Unwrap()
 	}
-	ans := xdns.AsMsg(response)
+	ans := xdns.AsMsg(r)
 	t.status = status
 
 	summary.Latency = elapsed.Seconds()
@@ -424,7 +415,7 @@ func (t *transport) Query(_ string, q []byte, summary *dnsx.Summary) (r []byte, 
 	summary.Status = status
 	summary.Blocklists = blocklists
 
-	return response, err
+	return r, err
 }
 
 func (t *transport) GetAddr() string {

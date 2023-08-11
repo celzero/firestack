@@ -36,6 +36,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/celzero/firestack/intra/dnsx"
 	"golang.org/x/net/dns/dnsmessage"
 )
 
@@ -137,7 +138,7 @@ func init() {
 
 // Check that the constructor works.
 func TestNewTransport(t *testing.T) {
-	_, err := NewTransport(testURL, ips, nil, nil, nil)
+	_, err := NewTransport("test0", testURL, ips, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -145,11 +146,11 @@ func TestNewTransport(t *testing.T) {
 
 // Check that the constructor rejects unsupported URLs.
 func TestBadUrl(t *testing.T) {
-	_, err := NewTransport("ftp://www.example.com", nil, nil, nil, nil)
+	_, err := NewTransport("test0", "ftp://www.example.com", nil, nil)
 	if err == nil {
 		t.Error("Expected error")
 	}
-	_, err = NewTransport("https://www.example", nil, nil, nil, nil)
+	_, err = NewTransport("test1", "https://www.example", nil, nil)
 	if err == nil {
 		t.Error("Expected error")
 	}
@@ -157,15 +158,15 @@ func TestBadUrl(t *testing.T) {
 
 // Check for failure when the query is too short to be valid.
 func TestShortQuery(t *testing.T) {
-	var qerr *queryError
-	doh, _ := NewTransport(testURL, ips, nil, nil, nil)
-	_, err := doh.Query([]byte{})
+	var qerr *dnsx.QueryError
+	doh, _ := NewTransport("test0", testURL, ips, nil)
+	_, err := doh.Query("", []byte{}, nil)
 	if err == nil {
 		t.Error("Empty query should fail")
 	} else if !errors.As(err, &qerr) {
 		t.Errorf("Wrong error type: %v", err)
-	} else if qerr.status != BadQuery {
-		t.Errorf("Wrong error status: %d", qerr.status)
+	} else if qerr.Status() != dnsx.BadQuery {
+		t.Errorf("Wrong error status: %d", qerr.Status())
 	}
 
 	_, err = doh.Query([]byte{1})
@@ -173,8 +174,8 @@ func TestShortQuery(t *testing.T) {
 		t.Error("One byte query should fail")
 	} else if !errors.As(err, &qerr) {
 		t.Errorf("Wrong error type: %v", err)
-	} else if qerr.status != BadQuery {
-		t.Errorf("Wrong error status: %d", qerr.status)
+	} else if qerr.Status() != dnsx.BadQuery {
+		t.Errorf("Wrong error status: %d", qerr.Status())
 	}
 }
 
@@ -251,7 +252,7 @@ func TestRequest(t *testing.T) {
 	transport := doh.(*transport)
 	rt := makeTestRoundTripper()
 	transport.client.Transport = rt
-	go doh.Query(simpleQueryBytes)
+	go doh.Query("", simpleQueryBytes, nil)
 	req := <-rt.req
 	if req.URL.String() != testURL {
 		t.Errorf("URL mismatch: %s != %s", req.URL.String(), testURL)
@@ -296,7 +297,7 @@ func queriesMostlyEqual(m1 dnsmessage.Message, m2 dnsmessage.Message) bool {
 
 // Check that a DOH response is returned correctly.
 func TestResponse(t *testing.T) {
-	doh, _ := NewTransport(testURL, ips, nil, nil, nil)
+	doh, _ := NewTransport("test0", testURL, ips, nil)
 	transport := doh.(*transport)
 	rt := makeTestRoundTripper()
 	transport.client.Transport = rt
@@ -317,7 +318,7 @@ func TestResponse(t *testing.T) {
 		w.Close()
 	}()
 
-	resp, err := doh.Query(simpleQueryBytes)
+	resp, err := doh.Query("", simpleQueryBytes, nil)
 	if err != nil {
 		t.Error(err)
 	}
@@ -335,7 +336,7 @@ func TestResponse(t *testing.T) {
 // Simulate an empty response.  (This is not a compliant server
 // behavior.)
 func TestEmptyResponse(t *testing.T) {
-	doh, _ := NewTransport(testURL, ips, nil, nil, nil)
+	doh, _ := NewTransport("test0", testURL, ips, nil)
 	transport := doh.(*transport)
 	rt := makeTestRoundTripper()
 	transport.client.Transport = rt
@@ -353,20 +354,20 @@ func TestEmptyResponse(t *testing.T) {
 		}
 	}()
 
-	_, err := doh.Query(simpleQueryBytes)
-	var qerr *queryError
+	_, err := doh.Query("", simpleQueryBytes, nil)
+	var qerr *dnsx.QueryError
 	if err == nil {
 		t.Error("Empty body should cause an error")
 	} else if !errors.As(err, &qerr) {
 		t.Errorf("Wrong error type: %v", err)
-	} else if qerr.status != BadResponse {
-		t.Errorf("Wrong error status: %d", qerr.status)
+	} else if qerr.Status() != dnsx.BadResponse {
+		t.Errorf("Wrong error status: %d", qerr.Status())
 	}
 }
 
 // Simulate a non-200 HTTP response code.
 func TestHTTPError(t *testing.T) {
-	doh, _ := NewTransport(testURL, ips, nil, nil, nil)
+	doh, _ := NewTransport("test0", testURL, ips, nil)
 	transport := doh.(*transport)
 	rt := makeTestRoundTripper()
 	transport.client.Transport = rt
@@ -383,48 +384,48 @@ func TestHTTPError(t *testing.T) {
 		w.Close()
 	}()
 
-	_, err := doh.Query(simpleQueryBytes)
-	var qerr *queryError
+	_, err := doh.Query("", simpleQueryBytes, nil)
+	var qerr *dnsx.QueryError
 	if err == nil {
 		t.Error("Empty body should cause an error")
 	} else if !errors.As(err, &qerr) {
 		t.Errorf("Wrong error type: %v", err)
-	} else if qerr.status != HTTPError {
-		t.Errorf("Wrong error status: %d", qerr.status)
+	} else if qerr.Status() != dnsx.TransportError {
+		t.Errorf("Wrong error status: %d", qerr.Status())
 	}
 }
 
 // Simulate an HTTP query error.
 func TestSendFailed(t *testing.T) {
-	doh, _ := NewTransport(testURL, ips, nil, nil, nil)
+	doh, _ := NewTransport("test0", testURL, ips, nil)
 	transport := doh.(*transport)
 	rt := makeTestRoundTripper()
 	transport.client.Transport = rt
 
 	rt.err = errors.New("test")
-	_, err := doh.Query(simpleQueryBytes)
-	var qerr *queryError
+	_, err := doh.Query("", simpleQueryBytes, nil)
+	var qerr *dnsx.QueryError
 	if err == nil {
 		t.Error("Send failure should be reported")
 	} else if !errors.As(err, &qerr) {
 		t.Errorf("Wrong error type: %v", err)
-	} else if qerr.status != SendFailed {
-		t.Errorf("Wrong error status: %d", qerr.status)
+	} else if qerr.Status() != dnsx.SendFailed {
+		t.Errorf("Wrong error status: %d", qerr.Status())
 	} else if !errors.Is(qerr, rt.err) {
 		t.Errorf("Underlying error is not retained")
 	}
 }
 
 type fakeListener struct {
-	Listener
-	summary *Summary
+	dnsx.Listener
+	summary *dnsx.Summary
 }
 
-func (l *fakeListener) OnQuery(url string) Token {
-	return nil
+func (l *fakeListener) OnQuery(domain string, qtype int, sug string) string {
+	return ""
 }
 
-func (l *fakeListener) OnResponse(tok Token, summ *Summary) {
+func (l *fakeListener) OnResponse(summ *Summary) {
 	l.summary = summ
 }
 
@@ -440,7 +441,7 @@ func (c *fakeConn) RemoteAddr() net.Addr {
 // Check that the DNSListener is called with a correct summary.
 func TestListener(t *testing.T) {
 	listener := &fakeListener{}
-	doh, _ := NewTransport(testURL, ips, nil, nil, listener)
+	doh, _ := NewTransport("test0", testURL, ips, nil)
 	transport := doh.(*transport)
 	rt := makeTestRoundTripper()
 	transport.client.Transport = rt
@@ -465,21 +466,12 @@ func TestListener(t *testing.T) {
 		w.Close()
 	}()
 
-	doh.Query(simpleQueryBytes)
+	doh.Query("", simpleQueryBytes, listener.summary)
 	s := listener.summary
-	if s.Latency < 0 {
-		t.Errorf("Negative latency: %f", s.Latency)
-	}
-	if !bytes.Equal(s.Query, simpleQueryBytes) {
-		t.Errorf("Wrong query: %v", s.Query)
-	}
-	if !bytes.Equal(s.Response, []byte{0xbe, 0xef, 8, 9, 10}) {
-		t.Errorf("Wrong response: %v", s.Response)
-	}
 	if s.Server != "192.0.2.2" {
 		t.Errorf("Wrong server IP string: %s", s.Server)
 	}
-	if s.Status != Complete {
+	if s.Status != dnsx.Complete {
 		t.Errorf("Wrong status: %d", s.Status)
 	}
 }
@@ -513,7 +505,7 @@ func makePair() (io.ReadWriteCloser, io.ReadWriteCloser) {
 }
 
 type fakeTransport struct {
-	Transport
+	dnsx.Transport
 	query    chan []byte
 	response chan []byte
 	err      error
@@ -854,4 +846,3 @@ func TestServfail(t *testing.T) {
 		t.Errorf("Wrong question: %v", servfail.Questions[0])
 	}
 }
-

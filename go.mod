@@ -1,6 +1,6 @@
 module github.com/celzero/firestack
 
-go 1.21
+go 1.19
 
 require (
 	github.com/Jigsaw-Code/getsni v0.0.0-20190807203514-efe2dbf35d1f
@@ -18,8 +18,10 @@ require (
 
 require (
 	github.com/cloudflare/circl v1.3.3
+	github.com/cloudflare/odoh-go v1.0.0
 	github.com/crazy-max/xgo v0.17.0
 	github.com/elazarl/goproxy v0.0.0-20221015165544-a0805db90819
+	github.com/sirupsen/logrus v1.8.1
 	github.com/txthinking/socks5 v0.0.0-20220615051428-39268faee3e6
 	github.com/txthinking/x v0.0.0-20210326105829-476fab902fbe
 	golang.org/x/mobile v0.0.0-20220518205345-8578da9835fd
@@ -30,8 +32,11 @@ require (
 )
 
 require (
+	git.schwanenlied.me/yawning/x448.git v0.0.0-20170617130356-01b048fb03d6 // indirect
 	github.com/aead/chacha20 v0.0.0-20180709150244-8b13a72661da // indirect
 	github.com/aead/poly1305 v0.0.0-20180717145839-3fee0db0b635 // indirect
+	github.com/cisco/go-hpke v0.0.0-20210215210317-01c430f1f302 // indirect
+	github.com/cisco/go-tls-syntax v0.0.0-20200617162716-46b0cfb76b9b // indirect
 	github.com/go-task/slim-sprig v0.0.0-20230315185526-52ccab3ef572 // indirect
 	github.com/golang/mock v1.6.0 // indirect
 	github.com/google/btree v1.0.1 // indirect

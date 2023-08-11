@@ -29,6 +29,7 @@ const (
 	DNSCrypt = "DNSCrypt"
 	DNS53    = "DNS"
 	DOT      = "DNS-over-TLS"
+	ODOH     = "Oblivious DNS-over-HTTPS"
 
 	CT = "Cache" // cached transport prefix
 

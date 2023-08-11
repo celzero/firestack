@@ -63,6 +63,15 @@ func NewDoHTransport(id, url string, ips string) (dnsx.Transport, error) {
 	return doh.NewTransport(id, url, split, dialer)
 }
 
+func NewODoHTransport(id, proxy, resolver string, proxyips string) (dnsx.Transport, error) {
+	split := []string{}
+	if len(proxyips) > 0 {
+		split = strings.Split(proxyips, ",")
+	}
+	dialer := protect.MakeDialer(nil)
+	return doh.NewOdohTransport(id, proxy, resolver, split, dialer)
+}
+
 func NewDoTTransport(id, url string) (dnsx.Transport, error) {
 	return dns53.NewTLSTransport(id, url)
 }
