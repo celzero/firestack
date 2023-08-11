@@ -38,6 +38,7 @@ func NewTLSTransport(id, rawurl string) (t dnsx.Transport, err error) {
 		return
 	}
 	if parsedurl.Scheme != "tls" {
+		log.I("dot: disabling tls verification for %s", rawurl)
 		tlscfg.InsecureSkipVerify = true
 	}
 	parsedurl.Scheme = ""

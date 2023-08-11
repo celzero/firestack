@@ -168,7 +168,7 @@ func (h *tcpHandler) forward(local net.Conn, remote net.Conn, summary *TCPSocket
 	}
 	summary.Duration = int32(time.Since(start).Seconds())
 
-	h.sendNotif(summary)
+	go h.sendNotif(summary)
 }
 
 func filteredPort(addr net.Addr) int16 {
@@ -191,13 +191,18 @@ func filteredPort(addr net.Addr) int16 {
 	return -1
 }
 
+// must always be called from a goroutine
 func (h *tcpHandler) sendNotif(summary *TCPSocketSummary) {
 	ok1 := h.listener != nil
 	ok2 := summary != nil
 	ok3 := len(summary.ID) > 0
 	log.V("tcp: sendNotif(%t,%t,%t): %s", ok1, ok2, ok3, summary.str())
 	if ok1 && ok2 && ok3 {
-		go h.listener.OnTCPSocketClosed(summary)
+		// sleep a bit to avoid scenario where kotlin-land
+		// hasn't yet had the chance to persist info about
+		// this conn (cid) to meaninfully process its summary
+		time.Sleep(1 * time.Second)
+		h.listener.OnTCPSocketClosed(summary)
 	}
 }
 
@@ -274,7 +279,7 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target *net.TCPAddr) (
 
 	defer func() {
 		if !open {
-			h.sendNotif(s)
+			go h.sendNotif(s)
 		} // else conn has been proxied, sendNotif is called by h.forward()
 	}()
 

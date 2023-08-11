@@ -314,7 +314,7 @@ func (h *udpHandler) OnNewConn(gconn *netstack.GUDPConn, _, dst *net.UDPAddr) {
 	decision, err := h.Connect(gconn, dst)
 	if err != nil {
 		pid, cid, uid := splitPidCidUid(decision)
-		h.sendNotif(cid, pid, uid, err.Error(), 0, 0, 0)
+		go h.sendNotif(cid, pid, uid, err.Error(), 0, 0, 0)
 	} else {
 		finish = false // connect
 	}
@@ -499,11 +499,12 @@ func (h *udpHandler) Close(conn core.UDPConn) {
 		}
 		// TODO: Cancel any outstanding DoH queries.
 		elapsed := int32(time.Since(t.start).Seconds())
-		h.sendNotif(t.id, t.pid, t.uid, t.msg, t.upload, t.download, elapsed)
+		go h.sendNotif(t.id, t.pid, t.uid, t.msg, t.upload, t.download, elapsed)
 		delete(h.udpConns, conn)
 	}
 }
 
+// must always be called as a goroutine
 func (h *udpHandler) sendNotif(cid, pid, uid, msg string, up, down int64, elapsed int32) {
 	if h.listener == nil {
 		log.V("udp: sendNotif(false): no listener")
@@ -518,6 +519,11 @@ func (h *udpHandler) sendNotif(cid, pid, uid, msg string, up, down int64, elapse
 		DownloadBytes: down,
 		Duration:      elapsed,
 	}
+	// sleep a bit to avoid scenario where kotlin-land
+	// hasn't yet had the chance to persist info about
+	// this conn (cid) to meaninfully process its summary
+	time.Sleep(1 * time.Second)
 	log.V("udp: sendNotif(true): %s", s.str())
-	go h.listener.OnUDPSocketClosed(s)
+	h.listener.OnUDPSocketClosed(s)
+
 }
