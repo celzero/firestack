@@ -128,6 +128,7 @@ func (t *transport) dial(network, addr string) (net.Conn, error) {
 func NewTransport(id, rawurl string, addrs []string, dialer *net.Dialer) (dnsx.Transport, error) {
 	// TODO: client auth
 	var auth ClientAuth
+	skipTLSVerify := false
 	if dialer == nil {
 		dialer = &net.Dialer{}
 	}
@@ -135,8 +136,10 @@ func NewTransport(id, rawurl string, addrs []string, dialer *net.Dialer) (dnsx.T
 	if err != nil {
 		return nil, err
 	}
-	if parsedurl.Scheme != "https" {
-		return nil, fmt.Errorf("bad scheme: %s", parsedurl.Scheme)
+	// use of "http" is an indication to turn-off TLS verification
+	if parsedurl.Scheme == "http" {
+		parsedurl.Scheme = "https"
+		skipTLSVerify = true
 	}
 	// Resolve the hostname and put those addresses first.
 	portStr := parsedurl.Port()
@@ -151,7 +154,7 @@ func NewTransport(id, rawurl string, addrs []string, dialer *net.Dialer) (dnsx.T
 	}
 	t := &transport{
 		id:       id,
-		url:      rawurl,
+		url:      parsedurl.String(),
 		hostname: parsedurl.Hostname(),
 		port:     port,
 		dialer:   dialer,
@@ -172,8 +175,11 @@ func NewTransport(id, rawurl string, addrs []string, dialer *net.Dialer) (dnsx.T
 		tlsconfig = &tls.Config{
 			GetClientCertificate: signer.GetClientCertificate,
 		}
+	} else {
+		tlsconfig = &tls.Config{
+			InsecureSkipVerify: skipTLSVerify,
+		}
 	}
-
 	// Override the dial function.
 	t.client.Transport = &http.Transport{
 		Dial:                  t.dial,
