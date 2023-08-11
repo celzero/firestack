@@ -116,10 +116,19 @@ func (t *transport) sendRequest2(network string, q []byte) (response []byte, ela
 	}
 	// TODO: conn pooling using t.mc[tcp|udp].Dial + ExchangeWithConn
 	if network == dnsx.NetTypeUDP {
-		ans, elapsed, err = t.mcudp.Exchange(msg, t.ipport)
-	} else {
+		if udpconn, udperr := t.mcudp.Dial(t.ipport); udperr == nil {
+			ans, elapsed, err = t.mcudp.ExchangeWithConn(msg, udpconn)
+		} else {
+			// if udp is unrechable, try tcp
+			// github.com/celzero/rethink-app/issues/839
+			network = dnsx.NetTypeTCP
+			log.D("dns53: udp(%s) dial err: %v; try tcp", t.id, err)
+		}
+	}
+	if network == dnsx.NetTypeTCP {
 		ans, elapsed, err = t.mctcp.Exchange(msg, t.ipport)
 	}
+
 	if err != nil {
 		qerr = dnsx.NewTransportQueryError(err)
 		return
