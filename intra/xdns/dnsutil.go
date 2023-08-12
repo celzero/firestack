@@ -670,7 +670,7 @@ func SubstSVCBRecordIPs(out *dns.Msg, x dns.SVCBKey, subiphints []*netip.Addr, t
 func IPHints(msg *dns.Msg, x dns.SVCBKey) []*netip.Addr {
 	qname, _ := NormalizeQName(QName(msg))
 	if !HasSVCBQuestion(msg) && !HasHTTPQuestion(msg) {
-		log.V("dnsutil: svcb/https(%s): no record(%d) in\n%v", qname, len(msg.Answer), msg.String())
+		log.V("dnsutil: svcb/https(%s): no record(%d)", qname, len(msg.Answer))
 		return nil
 	}
 
