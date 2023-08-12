@@ -213,8 +213,12 @@ func (p *ProxyOptions) String() string {
 	return p.Auth.User + "," + p.Auth.Password + "," + p.IPPort
 }
 
+func (p *ProxyOptions) HasAuth() bool {
+	return len(p.Auth.User) > 0 && len(p.Auth.Password) > 0
+}
+
 func (p *ProxyOptions) FullUrl() string {
-	if len(p.Auth.User) > 0 && len(p.Auth.Password) > 0 {
+	if p.HasAuth() {
 		// superuser.com/a/532530
 		usr := url.QueryEscape(p.Auth.User)
 		pwd := url.QueryEscape(p.Auth.Password)

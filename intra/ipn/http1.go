@@ -7,17 +7,18 @@
 package ipn
 
 import (
-	"net"
+	"net/url"
 
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
 	"github.com/celzero/firestack/intra/settings"
-	tx "github.com/elazarl/goproxy"
+	tx "github.com/mwitkow/go-http-dialer"
+	"golang.org/x/net/proxy"
 )
 
 type http1 struct {
 	Proxy
-	dialfn func(network, addr string) (net.Conn, error)
+	dialer proxy.Dialer
 	id     string
 	opts   *settings.ProxyOptions
 	status int
@@ -26,27 +27,32 @@ type http1 struct {
 func NewHTTPProxy(id string, c protect.Controller, po *settings.ProxyOptions) (Proxy, error) {
 	var err error
 	if po == nil {
-		log.W("proxy: err setting up http1(%v): %v", po, err)
+		log.W("proxy: err setting up http1 w(%v): %v", po, err)
 		return nil, errMissingProxyOpt
 	}
 
-	hp := tx.NewProxyHttpServer()
-	nsd := protect.MakeNsDialer(c)
-	// unset the default connect dialer and use dialfn instead
-	hp.ConnectDial = nil
-	hp.Tr.Dial = nsd.Dial
-	hp.Tr.DialContext = nsd.DialContext
-	hp.Verbose = settings.Debug
-	// todo: use user-preferred dns transport to dial urls?
-	dialfn := hp.NewConnectDialToProxy(po.FullUrl())
+	u, err := url.Parse(po.Url())
+	if err != nil {
+		log.W("proxy: http1: err proxy opts(%v): %v", po, err)
+		return nil, errProxyScheme
+	}
+
+	var hp *tx.HttpTunnel
+	optdialer := tx.WithDialer(protect.MakeNsDialer(c))
+	if po.HasAuth() {
+		optauth := tx.WithProxyAuth(tx.AuthBasic(po.Auth.User, po.Auth.Password))
+		hp = tx.New(u, optdialer, optauth)
+	} else {
+		hp = tx.New(u, optdialer)
+	}
 
 	if err != nil {
-		log.W("proxy: err creating up http1(%v): %v", po, err)
+		log.W("proxy: http1: err creating w(%v): %v", po, err)
 		return nil, err
 	}
 
 	h := &http1{
-		dialfn: dialfn,
+		dialer: hp,
 		id:     id,
 		opts:   po,
 	}
@@ -61,12 +67,12 @@ func (h *http1) Dial(network, addr string) (c Conn, err error) {
 		return nil, errProxyStopped
 	}
 
-	if c, err = h.dialfn(network, addr); err != nil {
+	if c, err = h.dialer.Dial(network, addr); err != nil {
 		h.status = TKO
 	} else {
 		h.status = TOK
 	}
-	log.I("proxy: base: dial(%s) from %s to %s; err? %v", network, h.GetAddr(), addr, err)
+	log.I("proxy: http1: dial(%s) from %s to %s; err? %v", network, h.GetAddr(), addr, err)
 	return
 }
 

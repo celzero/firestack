@@ -1,6 +1,6 @@
 module github.com/celzero/firestack
 
-go 1.19
+go 1.21
 
 require (
 	github.com/Jigsaw-Code/getsni v0.0.0-20190807203514-efe2dbf35d1f
@@ -20,7 +20,7 @@ require (
 	github.com/cloudflare/circl v1.3.3
 	github.com/cloudflare/odoh-go v1.0.0
 	github.com/crazy-max/xgo v0.17.0
-	github.com/elazarl/goproxy v0.0.0-20221015165544-a0805db90819
+	github.com/mwitkow/go-http-dialer v0.0.0-20161116154839-378f744fb2b8
 	github.com/sirupsen/logrus v1.8.1
 	github.com/txthinking/socks5 v0.0.0-20220615051428-39268faee3e6
 	github.com/txthinking/x v0.0.0-20210326105829-476fab902fbe
