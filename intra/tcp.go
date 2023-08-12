@@ -53,7 +53,6 @@ const (
 
 var (
 	errTcpFirewalled = errors.New("tcp: firewalled")
-	errTcpNoProxy    = errors.New("tcp: no proxy")
 	errTcpSetupConn  = errors.New("tcp: could not create conn")
 	errTcpHandshake  = errors.New("tcp: handshake failed")
 )

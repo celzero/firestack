@@ -52,7 +52,6 @@ const (
 var (
 	errUdpRead       = errors.New("udp: remote read fail")
 	errUdpFirewalled = errors.New("udp: firewalled")
-	errUdpNoProxy    = errors.New("udp: no proxy")
 	errUdpSetupConn  = errors.New("udp: could not create conn")
 )
 
@@ -356,7 +355,7 @@ func (h *udpHandler) Connect(conn core.UDPConn, target *net.UDPAddr) (res string
 
 	if px, err = h.pt.GetProxy(pid); err != nil {
 		log.W("udp: failed to get proxy for %s: %v", pid, err)
-		return res, errUdpNoProxy // disconnect
+		return res, err // disconnect
 	}
 
 	// note: fake-dns-ips shouldn't be un-nated / un-alg'd
