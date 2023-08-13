@@ -135,8 +135,9 @@ type udpHandler struct {
 // `listener` receives a summary about each UDP binding when it expires.
 func NewUDPHandler(resolver dnsx.Resolver, pt ipn.NatPt, ctl protect.Controller,
 	tunMode *settings.TunMode, listener UDPListener) UDPHandler {
-	// RFC 4787 REQ-5 requires a timeout no shorter than 5 minutes.
-	udptimeout, _ := time.ParseDuration("5m")
+	// RFC 4787 REQ-5 requires a timeout no shorter than 5 minutes; but most
+	// routers do not keep udp mappings for that long (usually just for 30s)
+	udptimeout, _ := time.ParseDuration("2m")
 	c := protect.MakeNsListenConfig(ctl)
 	d := protect.MakeNsDialer(ctl)
 	h := &udpHandler{
@@ -285,7 +286,7 @@ func (h *udpHandler) onFlow(localudp core.UDPConn, target *net.UDPAddr, realips,
 	src := source.String()
 	dst := target.String()
 	if len(realips) <= 0 || len(domains) <= 0 {
-		log.D("udp: onFlow: no realips(%s) or domains(%s), for src=%s dst=%s", realips, domains, src, dst)
+		log.V("udp: onFlow: no realips(%s) or domains(%s), for src=%s dst=%s", realips, domains, src, dst)
 	}
 
 	// Implict: BlockModeFilter or BlockModeFilterProc
@@ -524,5 +525,4 @@ func (h *udpHandler) sendNotif(cid, pid, uid, msg string, up, down int64, elapse
 	time.Sleep(1 * time.Second)
 	log.V("udp: sendNotif(true): %s", s.str())
 	h.listener.OnUDPSocketClosed(s)
-
 }
