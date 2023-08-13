@@ -669,10 +669,9 @@ func (r *resolver) forwardQuery(q []byte, c io.Writer) error {
 		summary.Status = BadResponse
 		return qerr
 	}
-	rlen := len(resp)
-	if rlen > xdns.MaxDNSPacketSize {
+	if len(resp) > xdns.MaxDNSPacketSize {
 		summary.Status = BadResponse
-		return fmt.Errorf("oversize response: %d", rlen)
+		return fmt.Errorf("dns: tcp: oversize response: %d", len(resp))
 	}
 
 	// override resp with dns64 if needed
@@ -681,12 +680,12 @@ func (r *resolver) forwardQuery(q []byte, c io.Writer) error {
 		if len(d64) > xdns.MinDNSPacketSize {
 			r.withDNS64SummaryIfNeeded(d64, summary)
 			resp = d64
-			rlen = len(d64)
 		}
 	} else {
-		log.W("dns64: missing onetransport for %s", t.ID())
+		log.W("dns: dns64: missing onetransport for %s", t.ID())
 	}
 
+	rlen := len(resp)
 	n, err := writeto(c, resp, rlen)
 	if err != nil {
 		summary.Status = InternalError
@@ -694,7 +693,7 @@ func (r *resolver) forwardQuery(q []byte, c io.Writer) error {
 	}
 	if n != rlen {
 		summary.Status = InternalError
-		return fmt.Errorf("incomplete response write: %d < %d", n, rlen)
+		return fmt.Errorf("dns: incomplete write: n(%d) != r(%d)", n, rlen)
 	}
 	return qerr
 }
@@ -771,12 +770,14 @@ func (r *resolver) loadaddrs(csvaddr string) {
 }
 
 func writeto(w io.Writer, b []byte, l int) (int, error) {
-	rlbuf := make([]byte, l+2)
+	prependsz := 2
+	rlbuf := make([]byte, l+prependsz)
 	binary.BigEndian.PutUint16(rlbuf, uint16(l))
-	copy(rlbuf[2:], b)
+	copy(rlbuf[prependsz:], b)
 	// Use a combined write to ensure atomicity.
 	// Otherwise, writes from two responses could be interleaved.
-	return w.Write(rlbuf)
+	n, err := w.Write(rlbuf)
+	return max(0, n-prependsz), err
 }
 
 func (r *resolver) Start() (string, error) {
