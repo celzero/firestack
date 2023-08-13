@@ -245,7 +245,7 @@ func (cb *cache) put(response []byte, s *Summary) (ok bool) {
 	ans := xdns.AsMsg(response)
 	// only cache successful responses
 	// TODO: implement negative caching
-	if !xdns.HasRcodeSuccess(ans) || xdns.HasTCFlag(response) {
+	if ans == nil || !xdns.HasRcodeSuccess(ans) || xdns.HasTCFlag(response) {
 		return
 	}
 
