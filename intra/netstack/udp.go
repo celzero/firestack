@@ -132,6 +132,7 @@ func loop(h GUDPConnHandler, gc *GUDPConn, src, dst *net.UDPAddr) {
 		} else {
 			// TODO: handle temporary errors?
 			log.D("ns.udp.forwarder: DONE err(%v)", err)
+			// leave gc open?
 			break
 		}
 	}

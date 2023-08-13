@@ -427,7 +427,7 @@ func (r *resolver) Forward(q []byte) ([]byte, error) {
 	id := r.requiresSystemOrLocal(qname)
 	sid := ""
 	if len(id) > 0 {
-		log.I("transport (udp): suggest system-dns %s for %s", id, qname)
+		log.I("dns: udp: suggest system-dns %s for %s", id, qname)
 	}
 	pref := r.listener.OnQuery(qname, qtyp, id)
 	id, sid, _ = preferencesFrom(pref)
@@ -471,7 +471,7 @@ func (r *resolver) Forward(q []byte) ([]byte, error) {
 
 	algerr := isAlgErr(err) // not set when gw.translate is off
 	if algerr {
-		log.D("transport (udp): alg error %s for %s", err, qname)
+		log.D("dns: udp: alg error %s for %s", err, qname)
 	}
 	// in the case of an alg transport, if there's no-alg,
 	// err is set which should be ignored if res2 is not nil
@@ -504,7 +504,7 @@ func (r *resolver) Forward(q []byte) ([]byte, error) {
 			return d64, nil
 		}
 	} else {
-		log.W("dns64: missing onetransport for %s", t.ID())
+		log.W("dns: dns64: missing onetransport for %s", t.ID())
 	}
 
 	return ans1.Pack()
@@ -579,7 +579,7 @@ func (r *resolver) forwardQuery(q []byte, c io.Writer) error {
 
 	msg, err := unpack(q)
 	if err != nil {
-		log.W("not a dns packet %v", err)
+		log.W("dns: not a valid packet %v", err)
 		summary.Latency = time.Since(starttime).Seconds()
 		summary.Status = BadQuery
 		return err
@@ -593,7 +593,7 @@ func (r *resolver) forwardQuery(q []byte, c io.Writer) error {
 	id := r.requiresSystemOrLocal(qname)
 	sid := ""
 	if len(id) > 0 {
-		log.I("transport (udp): suggest system-dns %s for %s", id, qname)
+		log.I("dns: tcp: suggest system-dns %s for %s", id, qname)
 	}
 	pref := r.listener.OnQuery(qname, qtyp, id)
 	id, sid, _ = preferencesFrom(pref)
@@ -639,7 +639,7 @@ func (r *resolver) forwardQuery(q []byte, c io.Writer) error {
 
 	algerr := isAlgErr(err) // not set when gw.translate is off
 	if algerr {
-		log.D("transport (tcp): alg error %s for %s", err, qname)
+		log.D("dns: tcp: alg error %s for %s", err, qname)
 	}
 	// in the case of an alg transport, if there's no-alg,
 	// err is set which should be ignored if res2 is not nil
@@ -676,6 +676,7 @@ func (r *resolver) forwardQuery(q []byte, c io.Writer) error {
 
 	// override resp with dns64 if needed
 	if onet != nil {
+		// d64 is same as res2 if dns64 is not needed
 		d64 := r.natpt.D64(t.ID(), res2, onet)
 		if len(d64) > xdns.MinDNSPacketSize {
 			r.withDNS64SummaryIfNeeded(d64, summary)
@@ -702,7 +703,7 @@ func (r *resolver) forwardQuery(q []byte, c io.Writer) error {
 // and close the writer if there was an error.
 func (r *resolver) forwardQueryAndCheck(q []byte, c io.WriteCloser) {
 	if err := r.forwardQuery(q, c); err != nil {
-		log.W("Query forwarding failed: %v", err)
+		log.W("dns: query forwarding err: %v", err)
 		c.Close()
 	}
 }
@@ -716,27 +717,27 @@ func (r *resolver) accept(c io.ReadWriteCloser) {
 	for {
 		n, err := c.Read(qlbuf)
 		if n == 0 {
-			log.D("TCP query socket clean shutdown")
+			log.D("dns: tcp: query socket shutdown")
 			break
 		}
 		if err != nil {
-			log.W("Error reading from TCP query socket: %v", err)
+			log.W("dns: tcp: err reading from socket: %v", err)
 			break
 		}
 		// TODO: inform the listener?
 		if n < 2 {
-			log.W("Incomplete query length")
+			log.W("dns: tcp: incomplete query length")
 			break
 		}
 		qlen := binary.BigEndian.Uint16(qlbuf)
 		q := make([]byte, qlen)
 		n, err = c.Read(q)
 		if err != nil {
-			log.W("Error reading query: %v", err)
+			log.W("dns: tcp: err reading query: %v", err)
 			break
 		}
 		if n != int(qlen) {
-			log.W("Incomplete query: %d < %d", n, qlen)
+			log.W("dns: tcp: incomplete query: %d < %d", n, qlen)
 			break
 		}
 		go r.forwardQueryAndCheck(q, c)
