@@ -251,15 +251,20 @@ func (t *transport) doDoh(q []byte) (response []byte, blocklists string, elapsed
 		return
 	}
 
-	// zero out the query ID.
+	// zero out the query id
 	id := binary.BigEndian.Uint16(q)
 	binary.BigEndian.PutUint16(q, 0)
 
 	response, blocklists, elapsed, qerr = t.send(q)
 
 	// restore dns query id
-	binary.BigEndian.PutUint16(q, id)
-
+	if qerr == nil {
+		zeroid := binary.BigEndian.Uint16(response)
+		if zeroid != 0 {
+			log.W("doh: ans qid not zero %d; origid: %d", zeroid, id)
+		}
+		binary.BigEndian.PutUint16(response, id)
+	}
 	return
 }
 
