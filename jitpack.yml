@@ -10,9 +10,9 @@ env:
   BOUTARM: "build/intra/tun2socks-arm.aar"
   SOURCES: "build/intra/tun2socks-sources.jar"
 before_install:
-   - yes | $ANDROID_HOME/tools/bin/sdkmanager "platforms;android-33"
-   - yes | $ANDROID_HOME/tools/bin/sdkmanager "build-tools;33.0.0"
-   - yes | $ANDROID_HOME/tools/bin/sdkmanager --install "ndk;23.1.7779620"
+#   - yes | $ANDROID_HOME/tools/bin/sdkmanager "platforms;android-33"
+#   - yes | $ANDROID_HOME/tools/bin/sdkmanager "build-tools;33.0.0"
+#   - yes | $ANDROID_HOME/tools/bin/sdkmanager --install "ndk;23.1.7779620"
    - ./make-aar
 install:
   - ./mvn-install
