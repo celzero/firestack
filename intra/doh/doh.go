@@ -29,7 +29,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptrace"
@@ -347,7 +347,7 @@ func (t *transport) send(q []byte) (ans []byte, blocklists string, elapsed time.
 
 	// todo: check if content-type is [doh|odoh] mime type
 	log.V("doh: got response")
-	ans, err = ioutil.ReadAll(httpResponse.Body)
+	ans, err = io.ReadAll(httpResponse.Body)
 
 	if err != nil {
 		qerr = dnsx.NewSendFailedQueryError(err)

@@ -12,8 +12,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/ioutil"
 	"net/url"
+	"os"
 	"runtime"
 	"strconv"
 	"strings"
@@ -367,7 +367,7 @@ func NewBraveDNSLocal(t string, rank string,
 }
 
 func load(blacklistconfigjson string) ([]string, map[string]string, error) {
-	data, err := ioutil.ReadFile(blacklistconfigjson)
+	data, err := os.ReadFile(blacklistconfigjson)
 	if err != nil {
 		return nil, nil, err
 	}
