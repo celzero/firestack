@@ -364,7 +364,7 @@ func (t *ctransport) fetch(network string, q []byte, msg *dns.Msg, summary *Summ
 	if v, isfresh := cb.freshCopy(key); tok && v != nil {
 		var cachedsummary *Summary
 
-		log.D("cache: hit(%s): %s, but stale? %t", key, v.str(), isfresh)
+		log.D("cache: hit(%s): %s, but stale? %t", key, v.str(), !isfresh)
 		r, cachedsummary, err = asResponse(msg, v, isfresh) // return cached response, may be stale
 		if err != nil {
 			log.W("cache: hit(%s) %s, but err? %v", key, v.str(), err)
