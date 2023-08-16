@@ -335,11 +335,13 @@ func (h *tcpHandler) Handle(conn net.Conn, target *net.TCPAddr, summary *TCPSock
 	}
 
 	start := time.Now()
+	var end time.Time
 	var c net.Conn
 
 	// ref: stackoverflow.com/questions/63656117
 	// ref: stackoverflow.com/questions/40328025
 	if pc, err = px.Dial(target.Network(), target.String()); err == nil {
+		end = time.Now()
 		switch uc := pc.(type) {
 		// underlying conn must specifically be a tcp-conn
 		case *net.TCPConn:
@@ -361,7 +363,13 @@ func (h *tcpHandler) Handle(conn net.Conn, target *net.TCPAddr, summary *TCPSock
 	// split client-hello if server-port is 443
 	if px.ID() == ipn.Base {
 		if port := filteredPort(target); port == 443 {
-			c = split.From(c)
+			timeout := split.CalcTimeout(start, end)
+			tcpconn, ok := c.(*net.TCPConn)
+			if !ok {
+				log.W("tcp: err spliting; ipn.Base must return a net.TCPConn")
+				return errTcpSetupConn
+			}
+			c = split.RetryingConn(dialFor(px), target, timeout, tcpconn)
 		}
 	}
 
@@ -371,6 +379,19 @@ func (h *tcpHandler) Handle(conn net.Conn, target *net.TCPAddr, summary *TCPSock
 
 	log.I("tcp: new conn via proxy(%s); src(%s) -> dst(%s)", px.ID(), conn.LocalAddr(), target)
 	return nil
+}
+
+func dialFor(px ipn.Proxy) split.RetryTCPDialFn {
+	return func(network, addr string) (net.Conn, error) {
+		if ipnconn, err := px.Dial(network, addr); err != nil {
+			return nil, err
+		} else if tcpconn, ok := ipnconn.(*net.TCPConn); !ok {
+			log.W("tcp: err retry; proxy-dialer(%s) must a net.TCPConn", px.ID())
+			return nil, errTcpSetupConn
+		} else {
+			return tcpconn, nil
+		}
+	}
 }
 
 func stall(m *core.ExpMap, k string) (secs uint32) {

@@ -33,16 +33,19 @@ type RetryStats struct {
 	Timeout bool   // True if the retry was caused by a timeout.
 }
 
+// RetryTCPDialFn creates a TCP connection to the given address,
+// that is, the resulting net.Conn must be a *net.TCPConn.
+type RetryTCPDialFn func(string, string) (net.Conn, error)
+
 // retrier implements the DuplexConn interface.
 type retrier struct {
 	// mutex is a lock that guards `conn`, `hello`, and `retryCompleteFlag`.
 	// These fields must not be modified except under this lock.
 	// After retryCompletedFlag is closed, these values will not be modified
 	// again so locking is no longer required for reads.
-	mutex   sync.Mutex
-	dialer  *net.Dialer
-	network string
-	addr    *net.TCPAddr
+	mutex sync.Mutex
+	dial  RetryTCPDialFn
+	addr  *net.TCPAddr
 	// conn is the current underlying connection.  It is only modified by the reader
 	// thread, so the reader functions may access it without acquiring a lock.
 	conn *net.TCPConn
@@ -69,10 +72,10 @@ type retrier struct {
 // starts in the "open" state and transitions to "closed" when close() is called.
 // It is implemented as a channel over which no data is ever sent.
 // Some advantages of this implementation:
-//  - The language enforces the one-way transition.
-//  - Nonblocking and blocking access are both straightforward.
-//  - Checking the status of a closed flag should be extremely fast (although currently
-//    it's not optimized: https://github.com/golang/go/issues/32529)
+//   - The language enforces the one-way transition.
+//   - Nonblocking and blocking access are both straightforward.
+//   - Checking the status of a closed flag should be extremely fast (although currently
+//     it's not optimized: https://github.com/golang/go/issues/32529)
 func closed(c chan struct{}) bool {
 	select {
 	case <-c:
@@ -98,7 +101,7 @@ func (r *retrier) retryCompleted() bool {
 // Given timestamps immediately before and after a successful socket connection
 // (i.e. the time the SYN was sent and the time the SYNACK was received), this
 // function returns a reasonable timeout for replies to a hello sent on this socket.
-func timeout(before, after time.Time) time.Duration {
+func CalcTimeout(before, after time.Time) time.Duration {
 	// These values were chosen to have a <1% false positive rate based on test data.
 	// False positives trigger an unnecessary retry, which can make connections slower, so they are
 	// worth avoiding.  However, overly long timeouts make retry slower and less useful.
@@ -109,6 +112,19 @@ func timeout(before, after time.Time) time.Duration {
 // DefaultTimeout is the value that will cause DialWithSplitRetry to use the system's
 // default TCP timeout (typically 2-3 minutes).
 const DefaultTimeout time.Duration = 0
+
+func RetryingConn(d RetryTCPDialFn, addr *net.TCPAddr, timeout time.Duration, tcpconn *net.TCPConn) DuplexConn {
+	return &retrier{
+		dial:              d,
+		addr:              addr,
+		conn:              tcpconn,
+		timeout:           timeout,
+		retryCompleteFlag: make(chan struct{}),
+		readCloseFlag:     make(chan struct{}),
+		writeCloseFlag:    make(chan struct{}),
+		stats:             &RetryStats{},
+	}
+}
 
 // DialWithSplitRetry returns a TCP connection that transparently retries by
 // splitting the initial upstream segment if the socket closes without receiving a
@@ -131,11 +147,12 @@ func DialWithSplitRetry(dialer *net.Dialer, addr *net.TCPAddr, stats *RetryStats
 		stats = &RetryStats{}
 	}
 
+	// TODO: safer typecast
 	r := &retrier{
-		dialer:            dialer,
+		dial:              dialer.Dial,
 		addr:              addr,
 		conn:              conn.(*net.TCPConn),
-		timeout:           timeout(before, after),
+		timeout:           CalcTimeout(before, after),
 		retryCompleteFlag: make(chan struct{}),
 		readCloseFlag:     make(chan struct{}),
 		writeCloseFlag:    make(chan struct{}),
@@ -174,9 +191,10 @@ func (r *retrier) Read(buf []byte) (n int, err error) {
 func (r *retrier) retry(buf []byte) (n int, err error) {
 	r.conn.Close()
 	var newConn net.Conn
-	if newConn, err = r.dialer.Dial(r.addr.Network(), r.addr.String()); err != nil {
+	if newConn, err = r.dial(r.addr.Network(), r.addr.String()); err != nil {
 		return
 	}
+	// TODO: safer typecast
 	r.conn = newConn.(*net.TCPConn)
 	first, second := splitHello(r.hello)
 	r.stats.Split = int16(len(first))
