@@ -99,7 +99,7 @@ type dnsgateway struct {
 	Gateway                          // dns alg interface
 	tranMu       sync.RWMutex        // locks for Transport assignments
 	secondary    Transport           // secondary transport for alg queries
-	mod          bool                // modify real ip to alg ip
+	mod          bool                // modify realip to algip
 	alg          map[string]*ans     // domain+type -> ans
 	nat          map[netip.Addr]*ans // algip -> ans
 	px           map[netip.Addr]*ans // realip -> ans
@@ -737,7 +737,7 @@ func (t *dnsgateway) X(algip []byte) (ips string) {
 	defer t.RUnlock()
 
 	if fip, ok := netip.AddrFromSlice(algip); ok {
-		rip := t.x(&fip)
+		rip := t.xLocked(&fip)
 		if len(rip) > 0 {
 			var s []string
 			for _, r := range rip {
@@ -757,7 +757,7 @@ func (t *dnsgateway) PTR(algip []byte) (domains string) {
 	defer t.RUnlock()
 
 	if fip, ok := netip.AddrFromSlice(algip); ok {
-		d := t.ptr(&fip)
+		d := t.ptrLocked(&fip)
 		if len(d) > 0 {
 			domains = strings.Join(d, ",")
 		} // else: algip isn't really an alg ip, nothing to do
@@ -772,44 +772,44 @@ func (t *dnsgateway) RDNSBL(algip []byte) (blocklists string) {
 	defer t.RUnlock()
 
 	if fip, ok := netip.AddrFromSlice(algip); ok {
-		blocklists = t.rdnsbl(&fip)
+		blocklists = t.rdnsblLocked(&fip)
 	} else {
 		log.W("alg: invalid algip(%s)", algip)
 	}
 	return blocklists
 }
 
-// locked
-func (t *dnsgateway) x(algip *netip.Addr) (realip []*netip.Addr) {
+func (t *dnsgateway) xLocked(algip *netip.Addr) (realip []*netip.Addr) {
 	// alg ips are always unmappped; see take4Locked
 	unmapped := algip.Unmap()
 	if ans, ok := t.nat[unmapped]; ok {
 		realip = append(ans.realip, ans.secondaryips...)
-	} else if ans, ok := t.px[unmapped]; ok {
+	} else if ans, ok := t.px[unmapped]; !t.mod && ok {
+		// translate from realip only if not in mod mode
 		realip = append(ans.realip, ans.secondaryips...)
 	}
 	return
 }
 
-// locked
-func (t *dnsgateway) ptr(algip *netip.Addr) (domains []string) {
+func (t *dnsgateway) ptrLocked(algip *netip.Addr) (domains []string) {
 	// alg ips are always unmappped; see take4Locked
 	unmapped := algip.Unmap()
 	if ans, ok := t.nat[unmapped]; ok {
 		domains = ans.domain
-	} else if ans, ok := t.px[unmapped]; ok {
+	} else if ans, ok := t.px[unmapped]; !t.mod && ok {
+		// translate from realip only if not in mod mode
 		domains = ans.domain
 	}
 	return
 }
 
-// locked
-func (t *dnsgateway) rdnsbl(algip *netip.Addr) (bcsv string) {
+func (t *dnsgateway) rdnsblLocked(algip *netip.Addr) (bcsv string) {
 	// alg ips are always unmappped; see take4Locked
 	unmapped := algip.Unmap()
 	if ans, ok := t.nat[unmapped]; ok {
 		bcsv = ans.blocklists
-	} else if ans, ok := t.px[unmapped]; ok {
+	} else if ans, ok := t.px[unmapped]; !t.mod && ok {
+		// translate from realip only if not in mod mode
 		bcsv = ans.blocklists
 	}
 	return
