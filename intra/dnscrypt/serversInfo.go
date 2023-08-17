@@ -25,6 +25,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/dnsx"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/xdns"
@@ -57,6 +58,7 @@ type ServerInfo struct {
 	RelayUDPAddr       *net.UDPAddr
 	RelayTCPAddr       *net.TCPAddr
 	status             int
+	est                core.P2QuantileEstimator
 }
 
 type ServersInfo struct {
@@ -213,6 +215,7 @@ func fetchDNSCryptServerInfo(proxy *Proxy, name string, stamp stamps.ServerStamp
 		TCPAddr:            remoteTCPAddr,
 		RelayTCPAddr:       relayTCPAddr,
 		RelayUDPAddr:       relayUDPAddr,
+		est:                core.NewP50Estimator(),
 	}, nil
 }
 
@@ -297,7 +300,18 @@ func (s *ServerInfo) Query(proto string, q []byte, summary *dnsx.Summary) (r []b
 	cantruncate := proto == dnsx.NetTypeUDP
 	r, err = resolve(q, s, summary, cantruncate)
 	s.status = summary.Status
+	if s.est != nil {
+		s.est.Add(summary.Latency)
+	}
 	return
+}
+
+func (s *ServerInfo) P50() int64 {
+	if s.est != nil {
+		return s.est.Get()
+	} else {
+		return 0
+	}
 }
 
 func (s *ServerInfo) GetAddr() string {

@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/settings"
 	"github.com/celzero/firestack/intra/xdns"
@@ -107,6 +108,7 @@ type dnsgateway struct {
 	octets       []uint8             // ip4 octets, 100.x.y.z
 	hexes        []uint16            // ip6 hex, 64:ff9b:1:da19:0100.x.y.z
 	chash        bool                // use consistent hashing to generae alg ips
+	est          core.P2QuantileEstimator
 }
 
 // NewDNSGateway returns a DNS ALG, ready for use.
@@ -123,6 +125,7 @@ func NewDNSGateway(inner Transport, outer RdnsResolver) (t *dnsgateway) {
 		octets: rfc6598,
 		hexes:  rfc8215a,
 		chash:  true,
+		est:    core.NewP50Estimator(),
 	}
 	// initial transport must be set before starting the gateway
 	t.withTransport(inner)
@@ -270,6 +273,7 @@ func (t *dnsgateway) q(t1, t2 Transport, network string, q []byte, summary *Summ
 
 	qname, _ := xdns.NormalizeQName(xdns.QName(ansin))
 
+	t.est.Add(summary.Latency)
 	summary.QName = qname
 	summary.QType = qtype(ansin)
 
@@ -419,6 +423,16 @@ func (t *dnsgateway) q(t1, t2 Transport, network string, q []byte, summary *Summ
 
 func (t *dnsgateway) ID() string {
 	return Alg
+}
+
+func (t *dnsgateway) P50() int64 {
+	if t.Transport != nil {
+		return t.Transport.P50()
+	} else if t.secondary != nil {
+		return t.secondary.P50()
+	} else {
+		return t.est.Get()
+	}
 }
 
 func (t *dnsgateway) Type() string {

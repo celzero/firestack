@@ -68,6 +68,10 @@ func (t *grounded) Type() string {
 	return dnsx.DNS53
 }
 
+func (t *grounded) P50() int64 {
+	return 0
+}
+
 func (t *grounded) GetAddr() string {
 	return t.ipport
 }

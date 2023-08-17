@@ -38,6 +38,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/core/ipmap"
 	"github.com/celzero/firestack/intra/dnsx"
 	"github.com/celzero/firestack/intra/log"
@@ -77,6 +78,7 @@ type transport struct {
 	client             http.Client
 	dialer             *net.Dialer
 	status             int
+	est                core.P2QuantileEstimator
 	hangoverLock       sync.RWMutex
 	hangoverExpiration time.Time
 }
@@ -184,6 +186,7 @@ func newTransport(id, rawurl, target string, addrs []string, dialer *net.Dialer)
 		dialer:   dialer,
 		ips:      ipmap.NewIPMap(dialer.Resolver),
 		status:   dnsx.Start,
+		est:      core.NewP50Estimator(),
 	}
 	if len(target) > 0 {
 		log.I("doh: ODOH for %s -> %s", t.url, target)
@@ -416,6 +419,7 @@ func (t *transport) Query(_ string, q []byte, summary *dnsx.Summary) (r []byte, 
 	ans := xdns.AsMsg(r)
 	t.status = status
 
+	t.est.Add(elapsed.Seconds())
 	summary.Latency = elapsed.Seconds()
 	summary.RData = xdns.GetInterestingRData(ans)
 	summary.RCode = xdns.Rcode(ans)
@@ -425,6 +429,10 @@ func (t *transport) Query(_ string, q []byte, summary *dnsx.Summary) (r []byte, 
 	summary.Blocklists = blocklists
 
 	return r, err
+}
+
+func (t *transport) P50() int64 {
+	return t.est.Get()
 }
 
 func (t *transport) GetAddr() string {

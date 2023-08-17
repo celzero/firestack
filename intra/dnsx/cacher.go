@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/xdns"
 	"github.com/miekg/dns"
@@ -77,6 +78,7 @@ type ctransport struct {
 	halflife     time.Duration // increment ttl on each read
 	bumps        int           // max bumps in lifetime of a cached response
 	size         int           // max size of a cache bucket
+	est          core.P2QuantileEstimator
 }
 
 func NewDefaultCachingTransport(t Transport) (ct Transport) {
@@ -108,6 +110,7 @@ func NewCachingTransport(t Transport, ttl time.Duration) Transport {
 		halflife:  ttl / 2,
 		bumps:     defbumps,
 		size:      defsize,
+		est:       core.NewP50Estimator(),
 	}
 	log.I("cache: (%s) setup: %s; opts: %s", ct.ID(), ct.GetAddr(), ct.str())
 	return ct
@@ -346,6 +349,7 @@ func (t *ctransport) fetch(network string, q []byte, msg *dns.Msg, summary *Summ
 		ba.Unlock()
 
 		s.Latency = time.Since(start).Seconds()
+		t.est.Add(s.Latency)
 
 		if qerr == nil && len(ans) > 0 {
 			cb.put(ans, s)
@@ -393,6 +397,7 @@ func (t *ctransport) fetch(network string, q []byte, msg *dns.Msg, summary *Summ
 			summary.RTtl = cachedsummary.RTtl
 			summary.Blocklists = cachedsummary.Blocklists
 			summary.Latency = time.Since(start).Seconds()
+			t.est.Add(summary.Latency)
 			return
 		} // else: fallthrough to sendRequest
 	}
@@ -430,6 +435,10 @@ func (t *ctransport) Query(network string, q []byte, summary *Summary) ([]byte, 
 	}
 
 	return response, err
+}
+
+func (t *ctransport) P50() int64 {
+	return t.est.Get()
 }
 
 func (t *ctransport) GetAddr() string {

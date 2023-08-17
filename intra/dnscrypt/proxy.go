@@ -26,6 +26,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/dnsx"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/xdns"
@@ -51,6 +52,7 @@ type Proxy struct {
 	sigterm                      context.CancelFunc
 	lastStatus                   int
 	lastAddr                     string
+	est                          core.P2QuantileEstimator
 }
 
 var (
@@ -480,6 +482,10 @@ func (proxy *Proxy) AddAll(serverscsv string) (int, error) {
 	return len(servers), nil
 }
 
+func (p *Proxy) P50() int64 {
+	return p.est.Get()
+}
+
 func (p *Proxy) ID() string {
 	return dnsx.DcProxy
 }
@@ -493,6 +499,7 @@ func (p *Proxy) Query(network string, q []byte, summary *dnsx.Summary) (r []byte
 	r, err = resolve(q, p.serversInfo.getOne(), summary, cantruncate)
 	p.lastStatus = summary.Status
 	p.lastAddr = summary.Server
+	p.est.Add(summary.Latency)
 	return
 }
 
@@ -517,6 +524,7 @@ func NewProxy() *Proxy {
 		liveServers:                  nil,
 		lastStatus:                   dnsx.Start,
 		lastAddr:                     "",
+		est:                          core.NewP50Estimator(),
 	}
 }
 

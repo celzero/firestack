@@ -39,6 +39,7 @@ type dnssd struct {
 	use4   bool
 	use6   bool
 	status int
+	est    core.P2QuantileEstimator
 }
 
 // NewMDNSTransport returns a DNS transport that sends all DNS queries to mDNS endpoint.
@@ -140,6 +141,7 @@ func (t *dnssd) Query(_ string, q []byte, summary *dnsx.Summary) (r []byte, err 
 	summary.RTtl = xdns.RTtl(ans)
 	summary.Status = t.Status()
 	summary.Blocklists = ""
+	t.est.Add(summary.Latency)
 
 	if qerr != nil {
 		return
@@ -154,6 +156,10 @@ func (t *dnssd) ID() string {
 
 func (t *dnssd) Type() string {
 	return dnsx.DNS53
+}
+
+func (t *dnssd) P50() int64 {
+	return t.est.Get()
 }
 
 func (t *dnssd) GetAddr() string {

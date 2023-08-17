@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"time"
 
+	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/dnsx"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
@@ -28,6 +29,7 @@ type dot struct {
 	url    string
 	status int
 	c      *dns.Client
+	est    core.P2QuantileEstimator
 }
 
 // NewTransport returns a DNS transport, ready for use.
@@ -46,6 +48,7 @@ func NewTLSTransport(id, rawurl string) (t dnsx.Transport, err error) {
 		id:     id,
 		url:    parsedurl.String(),
 		status: dnsx.Start,
+		est:    core.NewP50Estimator(),
 	}
 	d := protect.MakeNsDialer(nil)
 	tx.c = &dns.Client{
@@ -118,6 +121,7 @@ func (t *dot) Query(network string, q []byte, summary *dnsx.Summary) (r []byte, 
 	summary.RTtl = xdns.RTtl(ans)
 	summary.Server = t.GetAddr()
 	summary.Status = status
+	t.est.Add(summary.Latency)
 
 	return response, err
 }
@@ -128,6 +132,10 @@ func (t *dot) ID() string {
 
 func (t *dot) Type() string {
 	return dnsx.DOT
+}
+
+func (t *dot) P50() int64 {
+	return t.est.Get()
 }
 
 func (t *dot) GetAddr() string {

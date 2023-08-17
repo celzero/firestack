@@ -14,6 +14,7 @@ import (
 	"net/netip"
 	"time"
 
+	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/dnsx"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
@@ -35,6 +36,7 @@ type transport struct {
 	status int
 	mcudp  *dns.Client
 	mctcp  *dns.Client
+	est    core.P2QuantileEstimator
 }
 
 // NewTransport returns a DNS transport, ready for use.
@@ -52,6 +54,7 @@ func newTransportOpts(id string, do *settings.DNSOptions) (dnsx.Transport, error
 		id:     id,
 		ipport: do.IPPort,
 		status: dnsx.Start,
+		est:    core.NewP50Estimator(),
 	}
 	d := protect.MakeNsDialer(nil)
 	if usemeikgclient {
@@ -256,6 +259,7 @@ func (t *transport) Query(network string, q []byte, summary *dnsx.Summary) (r []
 	summary.RTtl = xdns.RTtl(ans)
 	summary.Server = t.GetAddr()
 	summary.Status = status
+	t.est.Add(summary.Latency)
 
 	return response, err
 }
@@ -266,6 +270,10 @@ func (t *transport) ID() string {
 
 func (t *transport) Type() string {
 	return dnsx.DNS53
+}
+
+func (t *transport) P50() int64 {
+	return t.est.Get()
 }
 
 func (t *transport) GetAddr() string {
