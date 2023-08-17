@@ -89,13 +89,6 @@ type TransportMult interface {
 	Transport
 }
 
-// Adapter to keep gomobile happy as it doesn't support exporting net.Conn
-type Conn interface {
-	Read(b []byte) (n int, err error)
-	Write(b []byte) (n int, err error)
-	Close() error
-}
-
 type Mult interface {
 	// Add adds a transport to this multi-transport.
 	Add(t Transport) bool
@@ -130,7 +123,7 @@ type Resolver interface {
 
 	IsDnsAddr(network, ipport string) bool
 	Forward(q []byte) ([]byte, error)
-	Serve(conn Conn)
+	Serve(conn ipn.Conn)
 }
 
 type resolver struct {
@@ -510,7 +503,7 @@ func (r *resolver) Forward(q []byte) ([]byte, error) {
 	return ans1.Pack()
 }
 
-func (r *resolver) Serve(x Conn) {
+func (r *resolver) Serve(x ipn.Conn) {
 	if c, ok := x.(io.ReadWriteCloser); ok {
 		r.accept(c)
 	}
