@@ -179,8 +179,8 @@ func (one *oneTransport) Exchange(q []byte) (r []byte, err error) {
 	if err1 != nil {
 		return ans1, err1
 	}
-	// for doh, dns ans is never truncated
-	if one.t.Type() == DOH {
+	// for odoh/dot/doh, dns ans is never truncated
+	if one.t.Type() == DOH || one.t.Type() == ODOH || one.t.Type() == DOT {
 		return ans1, err1
 	}
 
