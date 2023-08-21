@@ -97,7 +97,7 @@ func (serversInfo *ServersInfo) getOne() (serverInfo *ServerInfo) {
 		}
 		i++
 	}
-	log.D("Using candidate [%s]", (*serverInfo).Name)
+	log.D("dnscrypt: candidate [%s]", (*serverInfo).Name)
 
 	return serverInfo
 }
@@ -131,14 +131,14 @@ func (serversInfo *ServersInfo) registerServer(name string, stamp stamps.ServerS
 }
 
 func (serversInfo *ServersInfo) refresh(proxy *Proxy) ([]string, error) {
-	log.D("Refreshing certificates")
+	log.D("dnscrypt: refreshing certificates")
 	var liveServers []string
 	var err error
 	for _, registeredServer := range serversInfo.registeredServers {
 		if err = serversInfo.refreshServer(proxy, registeredServer.name, registeredServer.stamp); err == nil {
 			liveServers = append(liveServers, registeredServer.name)
 		} else {
-			log.E("%s not a live server? %w", registeredServer.stamp, err)
+			log.E("dnscrypt: %s not a live server? %w", registeredServer.stamp, err)
 		}
 	}
 	return liveServers, err
@@ -176,7 +176,7 @@ func fetchDNSCryptServerInfo(proxy *Proxy, name string, stamp stamps.ServerStamp
 		if err != nil || len(serverPk) != ed25519.PublicKeySize {
 			return ServerInfo{}, fmt.Errorf("unsupported public key for [%s]: [%s]", name, stamp.ServerPk)
 		}
-		log.W("Public key [%s] shouldn't be hex-encoded any more", string(stamp.ServerPk))
+		log.W("dnscrypt: public key [%s] shouldn't be hex-encoded any more", string(stamp.ServerPk))
 		stamp.ServerPk = serverPk
 	}
 

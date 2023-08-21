@@ -88,9 +88,11 @@ func exchangeWithUDPServer(serverInfo *ServerInfo, sharedKey *[32]byte, encrypte
 		prepareForRelay(serverInfo.UDPAddr.IP, serverInfo.UDPAddr.Port, &encryptedQuery)
 	}
 	// TODO: use a pool
-	encryptedResponse := make([]byte, xdns.MaxDNSPacketSize)
+	encryptedResponse := core.AllocRegion(xdns.MaxDNSUDPPacketSize)
+	defer core.Recycle(encryptedResponse)
 	for tries := 2; tries > 0; tries-- {
 		if _, err := pc.Write(encryptedQuery); err != nil {
+			log.E("dnscrypt: [%s] write err; [%v]", serverInfo.Name, err)
 			return nil, err
 		}
 		length, err := pc.Read(encryptedResponse)
@@ -98,10 +100,10 @@ func exchangeWithUDPServer(serverInfo *ServerInfo, sharedKey *[32]byte, encrypte
 			encryptedResponse = encryptedResponse[:length]
 			break
 		} else if tries <= 0 {
-			log.E("dnscrypt: [%s] err; [%v]", serverInfo.Name, err)
+			log.E("dnscrypt: [%s] read err; [%v]", serverInfo.Name, err)
 			return nil, err
 		}
-		log.D("dnscrypt: [%s] err; retrying [%v]", serverInfo.Name, err)
+		log.D("dnscrypt: [%s] read err; retrying [%v]", serverInfo.Name, err)
 	}
 	return Decrypt(serverInfo, sharedKey, encryptedResponse, clientNonce)
 }
@@ -217,7 +219,7 @@ func queryServer(packet []byte, serverInfo *ServerInfo, useudp bool) (response [
 			response, err = exchangeWithUDPServer(serverInfo, sharedKey, encryptedQuery, clientNonce)
 		}
 		// if udp errored out, try over tcp; or use tcp if udp is disabled
-		if useudp && err != nil || !useudp {
+		if (useudp && err != nil) || !useudp {
 			useudp = false // switched to tcp
 			response, err = exchangeWithTCPServer(serverInfo, sharedKey, encryptedQuery, clientNonce)
 		}
