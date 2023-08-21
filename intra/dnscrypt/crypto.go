@@ -67,7 +67,7 @@ func ComputeSharedKey(cryptoConstruction xdns.CryptoConstruction, secretKey *[32
 		var err error
 		sharedKey, err = xsecretbox.SharedKey(*secretKey, *serverPk)
 		if err != nil {
-			log.W("[%v] Weak public key", providerName)
+			log.W("dnscrypt: [%v] Weak public key", providerName)
 		}
 	} else {
 		box.Precompute(&sharedKey, serverPk, secretKey)
@@ -100,7 +100,7 @@ func Encrypt(
 			crypto_rand.Read(xpad[:])
 			minQuestionSize += int(xpad[0])
 		}
-		paddedLength = xdns.Min(xdns.MaxDNSUDPPacketSize, (xdns.Max(minQuestionSize, QueryOverhead)+1+63) & ^63)
+		paddedLength = xdns.Min(paddedLength, (xdns.Max(minQuestionSize, QueryOverhead)+1+63) & ^63)
 	}
 	if QueryOverhead+len(packet)+1 > paddedLength {
 		err = errQueryTooLarge
