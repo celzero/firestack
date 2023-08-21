@@ -15,6 +15,7 @@ package dns53
 
 import (
 	"errors"
+	"fmt"
 	"net"
 	"strings"
 	"sync/atomic"
@@ -29,7 +30,7 @@ import (
 )
 
 var (
-	errNoProtos = errors.New("Must enable at least one of IPv4 and IPv6 querying")
+	errNoProtos = errors.New("enable at least one of IPv4 and IPv6 querying")
 	errBindFail = errors.New("failed to bind to udp port")
 )
 
@@ -51,7 +52,7 @@ func NewMDNSTransport(protos string) (t dnsx.Transport) {
 		ipport: "224.0.0.251:5353", // ip6: ff02::fb:5353
 		status: dnsx.Start,
 	}
-	log.I("mdns(%s) setup: %s", protos)
+	log.I("mdns: setup: %s", protos)
 	return
 }
 
@@ -89,14 +90,14 @@ func (t *dnssd) oneshotQuery(msg *dns.Msg) (*dns.Msg, *dnsx.QueryError) {
 		// sec 5.4 rfc6762 multicast flooding
 		unicastonly: true,
 	}
-	log.D("mdns query: %s.%s", qctx.svc, qctx.tld)
+	log.D("mdns: query: %s.%s", qctx.svc, qctx.tld)
 
 	if c, err := newUnderlyingTransport(true, t.use4, t.use6); err != nil {
 		log.E("mdns: underlying transport: %s", err)
 		return nil, dnsx.NewTransportQueryError(err)
 	} else {
 		defer c.Close()
-		if qerr := c.query(qctx); err != nil {
+		if qerr := c.query(qctx); qerr != nil {
 			return nil, qerr
 		} else {
 			log.D("mdns: awaiting response %s.%s", qctx.svc, qctx.tld)
@@ -334,21 +335,27 @@ func (c *client) query(qctx *qcontext) *dnsx.QueryError {
 	}
 
 	if err := c.send(q); err != nil {
+		log.E("mdns: failed to send query: %v", err)
 		return err
 	}
 
 	timeup := time.After(qctx.timeout)
 	defer close(qctx.ansch)
+
+	qname := fmt.Sprintf("%s.%s.", qctx.svc, qctx.tld)
 loop:
 	for {
 		select {
 		case msg := <-c.msgCh:
 			var r *dnssdanswer
-			for _, ans := range append(msg.Answer, msg.Extra...) {
+			xxlans := append(msg.Answer, msg.Extra...)
+			for _, ans := range xxlans {
+				ansname := ans.Header().Name
 				// expect answers only for the service name client queried for
-				if c.oneshot && !strings.Contains(ans.Header().Name, qctx.svc) {
+				if c.oneshot && !strings.Contains(ansname, qctx.svc) {
 					continue
 				}
+				log.D("mdns: processing %d ans for %s", ansname, qname)
 				switch rr := ans.(type) {
 				case *dns.PTR:
 					// Create new entry for this
@@ -373,13 +380,16 @@ loop:
 					r = c.track(rr.Hdr.Name)
 					r.ip6 = &rr.AAAA
 					r.ans = msg
+				default:
+					log.I("mdns: ignoring %s for %s", rr, r.name)
 				}
 			}
 
 			if r == nil { // no valid answers
+				log.D("mdns: no valid answers for %s", qname)
 				continue
-			} else if c.oneshot && r.hasip() || // recieved v4 / v6 ips
-				!c.oneshot && r.hasip() && r.hassvc() { // v4 / v6 ips and srv
+			} else if (c.oneshot && r.hasip()) || // recieved v4 / v6 ips
+				(!c.oneshot && r.hasip() && r.hassvc()) { // v4 / v6 ips and srv
 				if !r.captured {
 					r.captured = true
 					log.D("mdns: sent ans for %s", r.name)
@@ -394,9 +404,12 @@ loop:
 				m.RecursionDesired = false
 				if err := c.send(m); err != nil {
 					log.E("mdns: failed to ptr query %s: %v", r.name, err)
+				} else {
+					log.D("mdns: sent ptr query for %s", r.name)
 				}
 			}
 		case <-timeup:
+			log.W("mdns: timeout for %s", qname)
 			break loop
 		}
 	}
@@ -405,17 +418,23 @@ loop:
 
 func (c *client) send(q *dns.Msg) *dnsx.QueryError {
 	if buf, err := q.Pack(); err != nil {
+		log.W("mdns: failed to pack query: %v", err)
 		return dnsx.NewBadQueryError(err)
 	} else {
+		qname := xdns.QName(q)
 		if c.unicast4 != nil {
+			setDeadline(c.unicast4)
 			if _, err = c.unicast4.WriteToUDP(buf, xdns.MDNSAddr4); err != nil {
 				return dnsx.NewSendFailedQueryError(err)
 			}
+			log.D("mdns: sent query4 %s", qname)
 		}
 		if c.unicast6 != nil {
+			setDeadline(c.unicast6)
 			if _, err = c.unicast6.WriteToUDP(buf, xdns.MDNSAddr6); err != nil {
 				return dnsx.NewSendFailedQueryError(err)
 			}
+			log.D("mdns: sent query6 %s", qname)
 		}
 	}
 	return nil
@@ -431,6 +450,7 @@ func (c *client) recv(conn *net.UDPConn) {
 	defer core.Recycle(buf)
 
 	for atomic.LoadInt32(&c.closed) == 0 {
+		setDeadline(conn)
 		n, err := conn.Read(buf)
 
 		if atomic.LoadInt32(&c.closed) == 1 {
@@ -469,4 +489,11 @@ func (c *client) track(name string) (se *dnssdanswer) {
 // alias is used to setup an alias between two tracked entries
 func (c *client) alias(src, dst string) {
 	c.tracker[dst] = c.track(src)
+}
+
+func setDeadline(c *net.UDPConn) error {
+	if c != nil {
+		return c.SetDeadline(time.Now().Add(timeout))
+	}
+	return errBindFail
 }
