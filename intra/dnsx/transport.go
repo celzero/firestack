@@ -422,7 +422,7 @@ func (r *resolver) Forward(q []byte) ([]byte, error) {
 	id := r.requiresSystemOrLocal(qname)
 	sid := ""
 	if len(id) > 0 {
-		log.I("dns: udp: suggest system-dns %s for %s", id, qname)
+		log.I("dns: udp: suggest dns(%s) for %s", id, qname)
 	}
 	pref := r.listener.OnQuery(qname, qtyp, id)
 	id, sid, _ = preferencesFrom(pref)
@@ -436,6 +436,7 @@ func (r *resolver) Forward(q []byte) ([]byte, error) {
 	if len(sid) > 0 {
 		t2, _ = r.determineTransports(sid)
 	}
+
 	if t.ID() == Alg {
 		gw = nil // transport implicitly implements Gateway
 	} else {

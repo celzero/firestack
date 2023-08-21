@@ -126,7 +126,7 @@ func (c *cres) copy() *cres {
 }
 
 func (cr *cres) str() string {
-	return "bumps=" + strconv.Itoa(cr.bumps) + "; expiry=" + cr.expiry.String() + "; s=" + cr.s.str()
+	return "bumps=" + strconv.Itoa(cr.bumps) + "; expiry=" + cr.expiry.String() + "; s=" + cr.s.Str()
 }
 
 func (t *ctransport) str() string {

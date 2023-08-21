@@ -24,7 +24,7 @@ type Summary struct {
 	Blocklists  string // csv separated list of blocklists names, if any.
 }
 
-func (s *Summary) str() string {
+func (s *Summary) Str() string {
 	return fmt.Sprintf("type: %s, id: %s, latency: %f, qname: %s, rdata: %s, rcode: %d, rttl: %d, server: %s, relay: %s, status: %d, blocklists: %s",
 		s.Type, s.ID, s.Latency, s.QName, s.RData, s.RCode, s.RTtl, s.Server, s.RelayServer, s.Status, s.Blocklists)
 }

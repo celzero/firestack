@@ -90,33 +90,43 @@ func (t *dnssd) oneshotQuery(msg *dns.Msg) (*dns.Msg, *dnsx.QueryError) {
 		// sec 5.4 rfc6762 multicast flooding
 		unicastonly: true,
 	}
-	log.D("mdns: query: %s.%s", qctx.svc, qctx.tld)
 
-	if c, err := newUnderlyingTransport(true, t.use4, t.use6); err != nil {
+	var c *client
+	var err error
+	qname := fmt.Sprintf("%s.%s", service, tld)
+	log.D("mdns: query: %s", qname)
+
+	if c, err = t.newClient(true); err != nil {
 		log.E("mdns: underlying transport: %s", err)
 		return nil, dnsx.NewTransportQueryError(err)
-	} else {
-		defer c.Close()
-		if qerr := c.query(qctx); qerr != nil {
-			return nil, qerr
-		} else {
-			log.D("mdns: awaiting response %s.%s", qctx.svc, qctx.tld)
-			// return the first response
-			for res := range resch {
-				if res.ans != nil {
-					log.I("mdns: ans(%s) 4(%s) 6(%s)", res.name, res.ip4, res.ip6)
-					return res.ans, nil
-				}
-			}
-		}
-		return nil, dnsx.NewNoResponseQueryError(nil)
 	}
+	defer c.Close()
+	if qerr := c.query(qctx); qerr != nil {
+		log.E("mdns: query(%s): %v", qname, qerr.Unwrap())
+		return nil, qerr
+	}
+	log.D("mdns: awaiting response %s", qname)
+	// return the first response from channel qctx.ansch (same as resch)
+	for res := range resch {
+		if res != nil && res.ans != nil {
+			log.I("mdns: q(%s) ans(%s) 4(%s) 6(%s)", qname, res.name, res.ip4, res.ip6)
+			return res.ans, nil
+		} else {
+			log.D("mdns: q(%s); ans missing for %v", qname, res)
+		}
+	}
+	log.I("mdns: no response for %s", qname)
+	return nil, dnsx.NewNoResponseQueryError(nil)
 }
 
 func (t *dnssd) Query(_ string, q []byte, summary *dnsx.Summary) (r []byte, err error) {
 	summary.ID = t.ID()
 	summary.Type = t.Type()
 	summary.Server = t.GetAddr()
+
+	defer func() {
+		log.D("mdns: err: %v; summary: %s", err, summary.Str())
+	}()
 
 	start := time.Now()
 
@@ -173,7 +183,7 @@ func (t *dnssd) Status() int {
 
 // from: github.com/hashicorp/mdns/blob/5b0ab6d61/client.go
 
-// dnssdanswer is returned after we query for a service
+// dnssdanswer is returned after dnssd / mdns query
 type dnssdanswer struct {
 	ans      *dns.Msg
 	name     string
@@ -185,7 +195,7 @@ type dnssdanswer struct {
 	captured bool
 }
 
-// done is used to check if we have all the info we need
+// done checks if we have all the info we need
 func (s *dnssdanswer) hasip() bool {
 	return (s.ip4 != nil || s.ip6 != nil)
 }
@@ -194,7 +204,7 @@ func (s *dnssdanswer) hassvc() bool {
 	return s.port != 0 && len(s.txt) > 0
 }
 
-// qcontext is used to customize how a Lookup is performed
+// qcontext customizes how a mdns lookup is performed
 type qcontext struct {
 	svc         string              // Service to query for, ex: _foobar._tcp
 	tld         string              // If blank, assumes "local"
@@ -224,10 +234,9 @@ type client struct {
 	closedCh chan struct{}
 }
 
-// NewClient creates a new mdns Client that can be used to query
-// for records
-func newUnderlyingTransport(oneshot, v4, v6 bool) (*client, error) {
-	if !v4 && !v6 {
+// newClient creates a new mdns unicast and multicast client
+func (t *dnssd) newClient(oneshot bool) (*client, error) {
+	if !t.use4 && !t.use6 {
 		return nil, errNoProtos
 	}
 
@@ -237,7 +246,7 @@ func newUnderlyingTransport(oneshot, v4, v6 bool) (*client, error) {
 	var mconn6 *net.UDPConn
 	var err error
 
-	if v4 {
+	if t.use4 {
 		uconn4, err = net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4zero, Port: 0})
 		if err != nil {
 			log.E("mdns: failed to bind to unicast4 port: %v", err)
@@ -250,7 +259,7 @@ func newUnderlyingTransport(oneshot, v4, v6 bool) (*client, error) {
 		}
 	}
 
-	if v6 {
+	if t.use6 {
 		uconn6, err = net.ListenUDP("udp6", &net.UDPAddr{IP: net.IPv6zero, Port: 0})
 		if err != nil {
 			log.E("mdns: failed to bind to unicast6 port: %v", err)
@@ -263,16 +272,16 @@ func newUnderlyingTransport(oneshot, v4, v6 bool) (*client, error) {
 		}
 	}
 
-	has4 := v4 && uconn4 != nil && (oneshot || mconn4 != nil)
-	has6 := v6 && uconn6 != nil && (oneshot || mconn6 != nil)
+	has4 := t.use4 && uconn4 != nil && (oneshot || mconn4 != nil)
+	has6 := t.use6 && uconn6 != nil && (oneshot || mconn6 != nil)
 	if !has4 && !has6 {
 		log.E("mdns: oneshot? %t with no4? %t / no6? %t", oneshot, has4, has6)
 		return nil, errBindFail
 	}
 
 	c := &client{
-		use4:       v4,
-		use6:       v6,
+		use4:       t.use4,
+		use6:       t.use6,
 		multicast4: mconn4, // nil if oneshot
 		multicast6: mconn6, // nil if oneshot
 		unicast4:   uconn4,
@@ -285,7 +294,7 @@ func newUnderlyingTransport(oneshot, v4, v6 bool) (*client, error) {
 	return c, nil
 }
 
-// Close is used to cleanup the client
+// Close cleanups the client
 func (c *client) Close() error {
 	if !atomic.CompareAndSwapInt32(&c.closed, 0, 1) {
 		return nil // already closed
@@ -333,16 +342,17 @@ func (c *client) query(qctx *qcontext) *dnsx.QueryError {
 	if !c.oneshot && qctx.unicastonly {
 		q.Question[0].Qclass |= 1 << 15
 	}
-
+	qname := fmt.Sprintf("%s.%s.", qctx.svc, qctx.tld)
 	if err := c.send(q); err != nil {
-		log.E("mdns: failed to send query: %v", err)
+		log.E("mdns: failed to send query(%s): %v", qname, err)
 		return err
+	} else {
+		log.D("mdns: waiting for answers for %s", qname)
 	}
 
+	total := 0
 	timeup := time.After(qctx.timeout)
 	defer close(qctx.ansch)
-
-	qname := fmt.Sprintf("%s.%s.", qctx.svc, qctx.tld)
 loop:
 	for {
 		select {
@@ -358,10 +368,10 @@ loop:
 				log.D("mdns: processing %d ans for %s", ansname, qname)
 				switch rr := ans.(type) {
 				case *dns.PTR:
-					// Create new entry for this
+					// create new entry for this
 					r = c.track(rr.Ptr)
 				case *dns.SRV:
-					// Check for a target mismatch
+					// check for a target mismatch
 					if rr.Target != rr.Hdr.Name {
 						c.alias(rr.Hdr.Name, rr.Target)
 					}
@@ -394,6 +404,7 @@ loop:
 					r.captured = true
 					log.D("mdns: sent ans for %s", r.name)
 					qctx.ansch <- r
+					total += 1
 				} else { // discard duplicates
 					log.D("mdns: duplicate ans for %s", r.name)
 					continue
@@ -413,9 +424,11 @@ loop:
 			break loop
 		}
 	}
+	log.D("mdns: done: got answers %d for %s", total, qname)
 	return nil
 }
 
+// send writes q to approp unicast mdns address
 func (c *client) send(q *dns.Msg) *dnsx.QueryError {
 	if buf, err := q.Pack(); err != nil {
 		log.W("mdns: failed to pack query: %v", err)
@@ -440,7 +453,7 @@ func (c *client) send(q *dns.Msg) *dnsx.QueryError {
 	return nil
 }
 
-// recv is used to receive until we get a shutdown
+// recv forwards bytes to msgCh read from conn until error or shutdown
 func (c *client) recv(conn *net.UDPConn) {
 	if conn == nil {
 		return
@@ -474,7 +487,7 @@ func (c *client) recv(conn *net.UDPConn) {
 	}
 }
 
-// track is used to mark a name as being tracked by this client
+// track marks a name as being tracked by this client
 func (c *client) track(name string) (se *dnssdanswer) {
 	if se, ok := c.tracker[name]; ok {
 		return se
@@ -486,7 +499,7 @@ func (c *client) track(name string) (se *dnssdanswer) {
 	return
 }
 
-// alias is used to setup an alias between two tracked entries
+// alias sets up mapping between two tracked entries
 func (c *client) alias(src, dst string) {
 	c.tracker[dst] = c.track(src)
 }
