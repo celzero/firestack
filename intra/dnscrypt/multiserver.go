@@ -60,12 +60,15 @@ var (
 	errQueryTooShort   = errors.New("dnscrypt: query size too short")
 	errQueryTooLarge   = errors.New("dnscrypt: query size too large")
 	errNoServers       = errors.New("dnscrypt: server info nil, drop query")
+	errNothing         = errors.New("dnscrypt: specify at least one resolver endpoint")
 	errNoDoh           = errors.New("dnscrypt: dns-over-https not supported")
+	errNoRoute         = errors.New("dnscrypt: specify atleast one route")
 	errUnknownProto    = errors.New("dnscrypt: unknown protocol")
 	errInvalidResponse = errors.New("dnscrypt: response too large or too small")
 	errNonceUnexpected = errors.New("dnscrypt: unexpected nonce")
 	errIncorrectTag    = errors.New("dnscrypt: incorrect tag")
 	errIncorrectPad    = errors.New("dnscrypt: incorrect padding")
+	errStarted         = errors.New("dnscrypt: already started")
 )
 
 func exchangeWithUDPServer(serverInfo *ServerInfo, sharedKey *[32]byte, encryptedQuery []byte, clientNonce []byte) ([]byte, error) {
@@ -92,7 +95,7 @@ func exchangeWithUDPServer(serverInfo *ServerInfo, sharedKey *[32]byte, encrypte
 	defer core.Recycle(encryptedResponse)
 	for tries := 2; tries > 0; tries-- {
 		if _, err := pc.Write(encryptedQuery); err != nil {
-			log.E("dnscrypt: [%s] write err; [%v]", serverInfo.Name, err)
+			log.E("dnscrypt: udp: [%s] write err; [%v]", serverInfo.Name, err)
 			return nil, err
 		}
 		length, err := pc.Read(encryptedResponse)
@@ -100,10 +103,10 @@ func exchangeWithUDPServer(serverInfo *ServerInfo, sharedKey *[32]byte, encrypte
 			encryptedResponse = encryptedResponse[:length]
 			break
 		} else if tries <= 0 {
-			log.E("dnscrypt: [%s] read err; [%v]", serverInfo.Name, err)
+			log.E("dnscrypt: udp: [%s] read err; quit [%v]", serverInfo.Name, err)
 			return nil, err
 		}
-		log.D("dnscrypt: [%s] read err; retrying [%v]", serverInfo.Name, err)
+		log.D("dnscrypt: udp: [%s] read err; retry [%v]", serverInfo.Name, err)
 	}
 	return Decrypt(serverInfo, sharedKey, encryptedResponse, clientNonce)
 }
@@ -116,12 +119,12 @@ func exchangeWithTCPServer(serverInfo *ServerInfo, sharedKey *[32]byte, encrypte
 	var pc net.Conn
 	pc, err := net.DialTCP("tcp", nil, upstreamAddr)
 	if err != nil {
-		log.E("dnscrypt: dialing %s err: %v", serverInfo.String(), err)
+		log.E("dnscrypt: tcp: dialing %s err: %v", serverInfo.String(), err)
 		return nil, err
 	}
 	defer pc.Close()
 	if err := pc.SetDeadline(time.Now().Add(serverInfo.Timeout)); err != nil {
-		log.E("dnscrypt: err conn timeout: %v", err)
+		log.E("dnscrypt: tcp: err deadline: %v", err)
 		return nil, err
 	}
 	if serverInfo.RelayTCPAddr != nil {
@@ -129,16 +132,16 @@ func exchangeWithTCPServer(serverInfo *ServerInfo, sharedKey *[32]byte, encrypte
 	}
 	encryptedQuery, err = xdns.PrefixWithSize(encryptedQuery)
 	if err != nil {
-		log.E("dnscrypt: prefix(encrypted-query) %s err: %v", serverInfo.String(), err)
+		log.E("dnscrypt: tcp: prefix(q) %s err: %v", serverInfo.String(), err)
 		return nil, err
 	}
 	if _, err := pc.Write(encryptedQuery); err != nil {
-		log.E("dnscrypt: err write to remote: %v", serverInfo.String(), err)
+		log.E("dnscrypt: tcp: err write: %v", serverInfo.String(), err)
 		return nil, err
 	}
 	encryptedResponse, err := xdns.ReadPrefixed(&pc)
 	if err != nil {
-		log.E("dnscrypt: read(encrypted-response) %s err %v", serverInfo.String(), err)
+		log.E("dnscrypt: tcp: read(enc) %s err %v", serverInfo.String(), err)
 		return nil, err
 	}
 	return Decrypt(serverInfo, sharedKey, encryptedResponse, clientNonce)
@@ -218,14 +221,18 @@ func queryServer(packet []byte, serverInfo *ServerInfo, useudp bool) (response [
 		if useudp {
 			response, err = exchangeWithUDPServer(serverInfo, sharedKey, encryptedQuery, clientNonce)
 		}
+		tcpfallback := useudp && err != nil
+		if tcpfallback {
+			log.D("dnscrypt: udp failed, trying tcp")
+		}
 		// if udp errored out, try over tcp; or use tcp if udp is disabled
-		if (useudp && err != nil) || !useudp {
+		if tcpfallback || !useudp {
 			useudp = false // switched to tcp
 			response, err = exchangeWithTCPServer(serverInfo, sharedKey, encryptedQuery, clientNonce)
 		}
 
 		if err != nil {
-			log.W("dnscrypt: querying [udp? %t] %s failed: %v", serverInfo.String(), useudp, err)
+			log.W("dnscrypt: querying [udp? %t] failed: %v", serverInfo.String(), useudp, err)
 			qerr = dnsx.NewSendFailedQueryError(err)
 			return
 		}
@@ -340,7 +347,7 @@ func (proxy *Proxy) Refresh() (string, error) {
 
 func (proxy *Proxy) Start() (string, error) {
 	if proxy.sigterm != nil {
-		return "", fmt.Errorf("proxy already started")
+		return "", errStarted
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	proxy.sigterm = cancel
@@ -384,7 +391,7 @@ func (proxy *Proxy) Stop() error {
 
 func (proxy *Proxy) AddGateways(routescsv string) (int, error) {
 	if len(routescsv) <= 0 {
-		return 0, fmt.Errorf("specify atleast one dnscrypt route")
+		return 0, errNoRoute
 	}
 
 	proxy.Lock()
@@ -398,7 +405,7 @@ func (proxy *Proxy) AddGateways(routescsv string) (int, error) {
 
 func (proxy *Proxy) RemoveGateways(routescsv string) (int, error) {
 	if len(routescsv) <= 0 {
-		return 0, fmt.Errorf("specify atleast one dnscrypt route")
+		return 0, errNoRoute
 	}
 
 	proxy.Lock()
@@ -428,7 +435,7 @@ func (proxy *Proxy) Remove(uid string) bool {
 
 func (proxy *Proxy) RemoveAll(servernamescsv string) (int, error) {
 	if len(servernamescsv) <= 0 {
-		return 0, fmt.Errorf("specify at least one dnscrypt resolver endpoint")
+		return 0, errNothing
 	}
 
 	servernames := strings.Split(servernamescsv, ",")
@@ -449,11 +456,11 @@ func (proxy *Proxy) addOne(uid, rawstamp string) (string, error) {
 
 	stamp, err := stamps.NewServerStampFromString(rawstamp)
 	if err != nil {
-		return uid, fmt.Errorf("stamp error for [%s] def: [%v]", rawstamp, err)
+		return uid, fmt.Errorf("dnscrypt: stamp error for [%s] def: [%v]", rawstamp, err)
 	}
 	if stamp.Proto == stamps.StampProtoTypeDoH {
 		// TODO: Implement doh
-		return uid, fmt.Errorf("DoH with DNSCrypt client not supported %s", rawstamp)
+		return uid, fmt.Errorf("dnscrypt: doh not supported %s", rawstamp)
 	}
 	proxy.registeredServers[uid] = RegisteredServer{name: uid, stamp: stamp}
 	return uid, nil
@@ -467,13 +474,13 @@ func (proxy *Proxy) Add(t dnsx.Transport) bool {
 // AddAll registers additional dnscrypt servers
 func (proxy *Proxy) AddAll(serverscsv string) (int, error) {
 	if len(serverscsv) <= 0 {
-		return 0, fmt.Errorf("specify at least one dnscrypt resolver endpoint")
+		return 0, errNothing
 	}
 
 	servers := strings.Split(serverscsv, ",")
 	for i, serverStampPair := range servers {
 		if len(serverStampPair) == 0 {
-			return i, fmt.Errorf("missing stamp for [%s]", serverStampPair)
+			return i, fmt.Errorf("dnscrypt: missing stamp for [%s]", serverStampPair)
 		}
 		serverStamp := strings.Split(serverStampPair, "#")
 		uid := serverStamp[0]
