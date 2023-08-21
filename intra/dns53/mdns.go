@@ -318,7 +318,7 @@ func (c *client) query(qctx *qcontext) *dnsx.QueryError {
 		go c.recv(c.unicast4)
 		go c.recv(c.multicast4)
 	}
-	if !c.oneshot && c.use6 {
+	if c.use6 {
 		go c.recv(c.unicast6)
 		go c.recv(c.multicast6)
 	}
