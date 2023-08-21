@@ -77,7 +77,7 @@ type Transport interface {
 	// ID, or an error if no response was received.  The error may be accompanied
 	// by a SERVFAIL response if appropriate.
 	Query(network string, q []byte, summary *Summary) ([]byte, error)
-	// Median round-trip time for this transport, in seconds.
+	// Median round-trip time for this transport, in millis.
 	P50() int64
 	// Return the server host address used to initialize this transport.
 	GetAddr() string

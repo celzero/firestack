@@ -391,8 +391,10 @@ func (t *dnsgateway) q(t1, t2 Transport, network string, q []byte, summary *Summ
 	algips = append(algips, algip4hints...)
 	algips = append(algips, algip6hints...)
 	x := &ansMulti{
-		algip:        algips,
-		realip:       realip,
+		algip:  algips,
+		realip: realip,
+		// may be empty on timeout errors, or
+		// or same as realips if t2 is nil
 		secondaryips: secres.ips,
 		domain:       targets,
 		qname:        qname,
