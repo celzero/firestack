@@ -90,18 +90,20 @@ func Encrypt(
 	sharedKey = &serverInfo.SharedKey
 	publicKey = serverInfo.ClientPubKey
 
-	paddedLength := xdns.MaxDNSUDPSafePacketSize
-	if !useudp && serverInfo.RelayTCPAddr != nil {
+	var paddedLength int
+	if useudp { // using udp
+		paddedLength = xdns.MaxDNSUDPSafePacketSize
+	} else if serverInfo.RelayTCPAddr != nil { // tcp, with relay
 		paddedLength = xdns.MaxDNSPacketSize
-	} else {
+	} else { // tcp, without relay
 		minQuestionSize := QueryOverhead + len(packet)
-		if !useudp { // random pad if tcp without relay
-			var xpad [1]byte
-			crypto_rand.Read(xpad[:])
-			minQuestionSize += int(xpad[0])
-		}
-		paddedLength = xdns.Min(paddedLength, (xdns.Max(minQuestionSize, QueryOverhead)+1+63) & ^63)
+		// random pad if tcp without relay
+		var xpad [1]byte
+		crypto_rand.Read(xpad[:])
+		minQuestionSize += int(xpad[0])
+		paddedLength = xdns.Min(xdns.MaxDNSUDPPacketSize, (xdns.Max(minQuestionSize, QueryOverhead)+1+63) & ^63)
 	}
+
 	if QueryOverhead+len(packet)+1 > paddedLength {
 		err = errQueryTooLarge
 		return
