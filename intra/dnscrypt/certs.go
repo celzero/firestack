@@ -59,13 +59,13 @@ func FetchCurrentDNSCryptCert(proxy *Proxy, serverName *string, pk ed25519.Publi
 	query.SetQuestion(providerName, dns.TypeTXT)
 	var relayForCerts bool = true
 	if !strings.HasPrefix(providerName, "2.dnscrypt-cert.") {
-		log.W("[%v] is not v2, ('%v' doesn't start with '2.dnscrypt-cert.')", *serverName, providerName)
+		log.W("dnscrypt: [%v] is not v2, ('%v' doesn't start with '2.dnscrypt-cert.')", *serverName, providerName)
 		relayForCerts = false
 	}
-	log.I("[%v] Fetching DNSCrypt certificate for [%s] over [%v] at [%v]", *serverName, providerName, "udp", serverAddress)
+	log.I("dnscrypt: [%v] Fetching DNSCrypt certificate for [%s] over [%v] at [%v]", *serverName, providerName, "udp", serverAddress)
 	in, rtt, relayTCPAddr, err := dnsExchange(proxy, &query, serverAddress, relayTCPAddr, serverName, relayForCerts)
 	if err != nil {
-		log.W("[%s] TIMEOUT %v", *serverName, err)
+		log.W("dnscrypt: [%s] TIMEOUT %v", *serverName, err)
 		return CertInfo{}, nil, err
 	}
 	now := uint32(time.Now().Unix())
@@ -75,18 +75,18 @@ func FetchCurrentDNSCryptCert(proxy *Proxy, serverName *string, pk ed25519.Publi
 	for _, answerRr := range in.Answer {
 		var txt string
 		if t, ok := answerRr.(*dns.TXT); !ok {
-			log.I("[%v] Extra record of type [%v] found in certificate", *serverName, answerRr.Header().Rrtype)
+			log.I("dnscrypt: [%v] Extra record of type [%v] found in certificate", *serverName, answerRr.Header().Rrtype)
 			continue
 		} else {
 			txt = strings.Join(t.Txt, "")
 		}
 		binCert := packTxtString(txt)
 		if len(binCert) < 124 {
-			log.W("[%v] Certificate too short", *serverName)
+			log.W("dnscrypt: [%v] Certificate too short", *serverName)
 			continue
 		}
 		if !bytes.Equal(binCert[:4], xdns.CertMagic[:4]) {
-			log.W("[%v] Invalid cert magic", *serverName)
+			log.W("dnscrypt: [%v] Invalid cert magic", *serverName)
 			continue
 		}
 		cryptoConstruction := xdns.CryptoConstruction(0)
@@ -96,32 +96,32 @@ func FetchCurrentDNSCryptCert(proxy *Proxy, serverName *string, pk ed25519.Publi
 		case 0x0002:
 			cryptoConstruction = xdns.XChacha20Poly1305
 		default:
-			log.W("[%v] Unsupported crypto construction", *serverName)
+			log.W("dnscrypt: [%v] Unsupported crypto construction", *serverName)
 			continue
 		}
 		signature := binCert[8:72]
 		signed := binCert[72:]
 		if !ed25519.Verify(pk, signed, signature) {
-			log.W("[%v] Incorrect signature for provider name: [%v]", *serverName, providerName)
+			log.W("dnscrypt: [%v] Incorrect signature for provider name: [%v]", *serverName, providerName)
 			continue
 		}
 		serial := binary.BigEndian.Uint32(binCert[112:116])
 		tsBegin := binary.BigEndian.Uint32(binCert[116:120])
 		tsEnd := binary.BigEndian.Uint32(binCert[120:124])
 		if tsBegin >= tsEnd {
-			log.W("[%v] certificate ends before it starts (%v >= %v)", *serverName, tsBegin, tsEnd)
+			log.W("dnscrypt: [%v] certificate ends before it starts (%v >= %v)", *serverName, tsBegin, tsEnd)
 			continue
 		}
 		ttl := tsEnd - tsBegin
 		if ttl > 86400*7 {
-			log.I("[%v] the key validity period for this server is excessively long (%d days), significantly reducing reliability and forward security.", *serverName, ttl/86400)
+			log.I("dnscrypt: [%v] the key validity period for this server is excessively long (%d days), significantly reducing reliability and forward security.", *serverName, ttl/86400)
 			daysLeft := (tsEnd - now) / 86400
 			if daysLeft < 1 {
-				log.W("[%v] certificate will expire today -- Switch to a different resolver as soon as possible", *serverName)
+				log.W("dnscrypt: [%v] certificate will expire today -- Switch to a different resolver as soon as possible", *serverName)
 			} else if daysLeft <= 7 {
-				log.W("[%v] certificate is about to expire -- if you don't manage this server, tell the server operator about it", *serverName)
+				log.W("dnscrypt: [%v] certificate is about to expire -- if you don't manage this server, tell the server operator about it", *serverName)
 			} else if daysLeft <= 30 {
-				log.I("[%v] certificate will expire in %d days", *serverName, daysLeft)
+				log.I("dnscrypt: [%v] certificate will expire in %d days", *serverName, daysLeft)
 			}
 			certInfo.ForwardSecurity = false
 		} else {
@@ -129,24 +129,24 @@ func FetchCurrentDNSCryptCert(proxy *Proxy, serverName *string, pk ed25519.Publi
 		}
 		if !proxy.certIgnoreTimestamp {
 			if now > tsEnd || now < tsBegin {
-				log.W("[%v] Certificate not valid at the current date (now: %v is not in [%v..%v])", *serverName, now, tsBegin, tsEnd)
+				log.W("dnscrypt: [%v] Certificate not valid at the current date (now: %v is not in [%v..%v])", *serverName, now, tsBegin, tsEnd)
 				continue
 			}
 		}
 		if serial < highestSerial {
-			log.W("[%v] Superseded by a previous certificate", *serverName)
+			log.W("dnscrypt: [%v] Superseded by a previous certificate", *serverName)
 			continue
 		}
 		if serial == highestSerial {
 			if cryptoConstruction < certInfo.CryptoConstruction {
-				log.W("[%v] Keeping the previous, preferred crypto construction", *serverName)
+				log.W("dnscrypt: [%v] Keeping the previous, preferred crypto construction", *serverName)
 				continue
 			} else {
-				log.W("[%v] Upgrading the construction from %v to %v", *serverName, certInfo.CryptoConstruction, cryptoConstruction)
+				log.W("dnscrypt: [%v] Upgrading the construction from %v to %v", *serverName, certInfo.CryptoConstruction, cryptoConstruction)
 			}
 		}
 		if cryptoConstruction != xdns.XChacha20Poly1305 && cryptoConstruction != xdns.XSalsa20Poly1305 {
-			log.W("[%v] Cryptographic construction %v not supported", *serverName, cryptoConstruction)
+			log.W("dnscrypt: [%v] Cryptographic construction %v not supported", *serverName, cryptoConstruction)
 			continue
 		}
 		var serverPk [32]byte
@@ -157,14 +157,14 @@ func FetchCurrentDNSCryptCert(proxy *Proxy, serverName *string, pk ed25519.Publi
 		certInfo.CryptoConstruction = cryptoConstruction
 		copy(certInfo.ServerPk[:], serverPk[:])
 		copy(certInfo.MagicQuery[:], binCert[104:112])
-		log.I("[%s] OK (DNSCrypt) - rtt: %dms%s", *serverName, rtt.Nanoseconds()/1000000, certCountStr)
+		log.I("dnscrypt: [%s] OK (DNSCrypt) - rtt: %dms%s", *serverName, rtt.Nanoseconds()/1000000, certCountStr)
 		certCountStr = " - additional certificate"
 	}
 	if certInfo.CryptoConstruction == xdns.UndefinedConstruction {
-		return certInfo, nil, errors.New("No useable certificate found")
+		return certInfo, nil, errors.New("no useable cert found")
 	}
 	if relayTCPAddr == nil {
-		log.W("relays for %v not supported.", *serverName)
+		log.W("dnscrypt: relays for %v not supported.", *serverName)
 	}
 	return certInfo, relayTCPAddr, nil
 }
@@ -247,11 +247,11 @@ func dnsExchange(proxy *Proxy, query *dns.Msg, serverAddress string,
 		}
 	}
 	if bestOption != nil {
-		log.D("Certificate retrieval for [%v] succeeded via relay?", *serverName, relayForCerts)
+		log.D("dnscrypt: cert retrieval for [%v] succeeded via relay?", *serverName, relayForCerts)
 		return bestOption.response, bestOption.rtt, relayTCPAddr, nil
 	}
 
-	log.I("no certificate, ignoring server: [%v] relay: [%v] proto: [%v]", *serverName, relayTCPAddr, proto)
+	log.I("dnscrypt: no cert, ignoring server: [%v] relay: [%v] proto: [%v]", *serverName, relayTCPAddr, proto)
 
 	if err == nil {
 		err = errors.New("unable to reach server to fetch certs")
@@ -269,7 +269,7 @@ func _dnsExchange(proxy *Proxy, proto string, query *dns.Msg, serverAddress stri
 		if relayForCerts {
 			// FIXME: udp relays do not support fetching certs over relays, and
 			// doing so leaks client's identity to the actual dns-crypt server!
-			log.W("relay will not be used when fetching certs over udp")
+			log.W("dnscrypt: relay will not be used when fetching certs over udp")
 		}
 		qNameLen, padding := len(query.Question[0].Name), 0
 		if qNameLen < paddedLen {
