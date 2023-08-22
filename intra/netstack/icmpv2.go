@@ -26,7 +26,7 @@ import (
 	netipv4 "golang.org/x/net/ipv4"
 	netipv6 "golang.org/x/net/ipv6"
 
-	"gvisor.dev/gvisor/pkg/bufferv2"
+	"gvisor.dev/gvisor/pkg/buffer"
 	"gvisor.dev/gvisor/pkg/tcpip"
 	"gvisor.dev/gvisor/pkg/tcpip/header"
 	"gvisor.dev/gvisor/pkg/tcpip/network/ipv4"
@@ -308,7 +308,7 @@ func (tr *icmpv2) sendEchoResponse(src, dst *net.UDPAddr, pkt stack.PacketBuffer
 	}
 
 	res := append(ipHeader, response...)
-	payload := bufferv2.MakeWithData(res)
+	payload := buffer.MakeWithData(res)
 	respkt := stack.NewPacketBuffer(stack.PacketBufferOptions{Payload: payload})
 	defer respkt.DecRef()
 
@@ -405,7 +405,7 @@ func (tr *icmpv2) sendUnreachable(src, dst *net.UDPAddr, pkt stack.PacketBufferP
 	}
 
 	res := append(ipLayer, icmpLayer...)
-	payload := bufferv2.MakeWithData(res)
+	payload := buffer.MakeWithData(res)
 	respkt := stack.NewPacketBuffer(stack.PacketBufferOptions{Payload: payload})
 	defer respkt.DecRef()
 
@@ -439,7 +439,7 @@ func udpaddr(addr tcpip.Address, port uint16) *net.UDPAddr {
 func (tr *icmpv2) pkt2bytes(pkt stack.PacketBufferPtr) []byte {
 	// return pkt.Network().Payload()
 	r := make([]byte, tr.ep.MTU())
-	din := bufferv2.MakeWithData(r)
+	din := buffer.MakeWithData(r)
 	din.Append(pkt.TransportHeader().View())
 	l7 := pkt.Data().ToBuffer()
 	din.Merge(&l7)

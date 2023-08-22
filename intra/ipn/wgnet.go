@@ -639,14 +639,17 @@ func (tnet *wgtun) DialContext(ctx context.Context, network, address string) (ne
 
 func fullAddrFrom(ipport netip.AddrPort) (tcpip.FullAddress, tcpip.NetworkProtocolNumber) {
 	var protoNumber tcpip.NetworkProtocolNumber
+	var nsdaddr tcpip.Address
 	if ipport.Addr().Is4() {
 		protoNumber = ipv4.ProtocolNumber
+		nsdaddr = tcpip.AddrFrom4(ipport.Addr().As4())
 	} else {
 		protoNumber = ipv6.ProtocolNumber
+		nsdaddr = tcpip.AddrFrom16(ipport.Addr().As16())
 	}
 	return tcpip.FullAddress{
 		NIC:  wgnic,
-		Addr: tcpip.Address(ipport.Addr().AsSlice()),
+		Addr: nsdaddr,
 		Port: ipport.Port(),
 	}, protoNumber
 }
@@ -924,7 +927,7 @@ func (pc *PingConn) ReadFrom(p []byte) (n int, addr net.Addr, err error) {
 		return 0, nil, fmt.Errorf("ping read: %s", tcpipErr)
 	}
 
-	remoteAddr, _ := netip.AddrFromSlice([]byte(res.RemoteAddr.Addr))
+	remoteAddr, _ := netip.AddrFromSlice(res.RemoteAddr.Addr.AsSlice())
 	return res.Count, &PingAddr{remoteAddr}, nil
 }
 

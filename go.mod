@@ -27,7 +27,7 @@ require (
 	golang.org/x/mobile v0.0.0-20220518205345-8578da9835fd
 	golang.org/x/text v0.9.0
 	golang.zx2c4.com/wireguard v0.0.0-20230317141804-7f511c3bb16d
-	gvisor.dev/gvisor v0.0.0-20230407213733-b6e172e0e152
+	gvisor.dev/gvisor v0.0.0-20230822173101-a882c1c402f3
 	nhooyr.io/websocket v1.8.7
 )
 
@@ -48,8 +48,8 @@ require (
 	github.com/quic-go/qtls-go1-19 v0.3.2 // indirect
 	github.com/quic-go/qtls-go1-20 v0.2.2 // indirect
 	github.com/txthinking/runnergroup v0.0.0-20210608031112-152c7c4432bf // indirect
-	golang.org/x/exp v0.0.0-20221205204356-47842c84f3db // indirect
-	golang.org/x/mod v0.10.0 // indirect
+	golang.org/x/exp v0.0.0-20230725093048-515e97ebf090 // indirect
+	golang.org/x/mod v0.11.0 // indirect
 	golang.org/x/time v0.0.0-20220210224613-90d013bbcef8 // indirect
 	golang.org/x/tools v0.9.1 // indirect
 	golang.org/x/xerrors v0.0.0-20220907171357-04be3eba64a2 // indirect

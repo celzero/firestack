@@ -35,7 +35,7 @@ import (
 
 	"github.com/celzero/firestack/intra/log"
 	"golang.org/x/sys/unix"
-	"gvisor.dev/gvisor/pkg/bufferv2"
+	"gvisor.dev/gvisor/pkg/buffer"
 	"gvisor.dev/gvisor/pkg/sync"
 	"gvisor.dev/gvisor/pkg/tcpip"
 	"gvisor.dev/gvisor/pkg/tcpip/header"
@@ -304,6 +304,19 @@ func (e *endpoint) AddHeader(pkt stack.PacketBufferPtr) {
 	}
 }
 
+func (e *endpoint) parseHeader(pkt stack.PacketBufferPtr) bool {
+	_, ok := pkt.LinkHeader().Consume(e.hdrSize)
+	return ok
+}
+
+// ParseHeader implements stack.LinkEndpoint.ParseHeader.
+func (e *endpoint) ParseHeader(pkt stack.PacketBufferPtr) bool {
+	if e.hdrSize > 0 {
+		return e.parseHeader(pkt)
+	}
+	return true
+}
+
 // writePackets writes outbound packets to the file descriptor. If it is not
 // currently writable, the packet is dropped.
 // Way more simplified than og impl, ref: github.com/google/gvisor/issues/7125
@@ -381,7 +394,7 @@ func (e *endpoint) InjectInbound(protocol tcpip.NetworkProtocolNumber, pkt stack
 
 // Unused: InjectOutobund implements stack.InjectableEndpoint.InjectOutbound.
 // InjectOutbound egresses a tun-inbound packet.
-func (e *endpoint) InjectOutbound(dest tcpip.Address, packet *bufferv2.View) tcpip.Error {
+func (e *endpoint) InjectOutbound(dest tcpip.Address, packet *buffer.View) tcpip.Error {
 	log.V("ns.e.inject-outbound(to-tun) to dst(%v)", dest)
 	return rawfile.NonBlockingWrite(e.fds[0].fd, packet.AsSlice())
 }

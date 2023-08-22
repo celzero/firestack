@@ -12,7 +12,7 @@ import (
 
 	"github.com/celzero/firestack/intra/log"
 	"golang.org/x/sys/unix"
-	"gvisor.dev/gvisor/pkg/bufferv2"
+	"gvisor.dev/gvisor/pkg/buffer"
 	"gvisor.dev/gvisor/pkg/tcpip/checksum"
 	"gvisor.dev/gvisor/pkg/tcpip/header"
 	"gvisor.dev/gvisor/pkg/tcpip/stack"
@@ -44,7 +44,7 @@ func setupIcmpHandler(s *stack.Stack, ep stack.LinkEndpoint, handler GICMPHandle
 		dst := localUDPAddr(id)
 
 		b := make([]byte, ep.MTU())
-		din8 := bufferv2.MakeWithData(b)
+		din8 := buffer.MakeWithData(b)
 		din8.Append(packet.NetworkHeader().View())
 		l4 := packet.TransportHeader().View()
 		if l4.Size() > 8 {
@@ -55,7 +55,7 @@ func setupIcmpHandler(s *stack.Stack, ep stack.LinkEndpoint, handler GICMPHandle
 
 		// github.com/google/gvisor/blob/9b4a7aa00/pkg/tcpip/network/ipv6/icmp.go#L1180
 		r := make([]byte, ep.MTU())
-		din := bufferv2.MakeWithData(r)
+		din := buffer.MakeWithData(r)
 		din.Append(packet.TransportHeader().View())
 		l7 := packet.Data().ToBuffer()
 		din.Merge(&l7)
@@ -81,18 +81,18 @@ func setupIcmpHandler(s *stack.Stack, ep stack.LinkEndpoint, handler GICMPHandle
 			}
 
 			x := make([]byte, ep.MTU())
-			res := bufferv2.MakeWithData(x)
+			res := buffer.MakeWithData(x)
 			if len(icmpout) != datalen {
 				ip := header.IPv4(l3.AsSlice())
 				l3len := ip.TotalLength()
 				ip.SetTotalLength(uint16(l3.Size() + len(reply)))
 				ip.SetChecksum(^checksum.Combine(^ip.Checksum(), checksum.Combine(ip.TotalLength(), ^l3len)))
-				payloadview := bufferv2.NewViewWithData(ip.Payload())
+				payloadview := buffer.NewViewWithData(ip.Payload())
 				res.Append(payloadview)
 			} else {
 				res.Append(l3)
 			}
-			icmpoutview := bufferv2.NewViewWithData(icmpout.Payload())
+			icmpoutview := buffer.NewViewWithData(icmpout.Payload())
 			res.Append(icmpoutview)
 
 			respkt := stack.NewPacketBuffer(stack.PacketBufferOptions{Payload: res})
@@ -143,7 +143,7 @@ func setupIcmpHandler(s *stack.Stack, ep stack.LinkEndpoint, handler GICMPHandle
 		dst := localUDPAddr(id)
 
 		b := make([]byte, ep.MTU())
-		din8 := bufferv2.MakeWithData(b)
+		din8 := buffer.MakeWithData(b)
 		din8.Append(packet.NetworkHeader().View())
 		l4 := packet.TransportHeader().View()
 		if l4.Size() > 8 {
@@ -154,7 +154,7 @@ func setupIcmpHandler(s *stack.Stack, ep stack.LinkEndpoint, handler GICMPHandle
 
 		// github.com/google/gvisor/blob/9b4a7aa00/pkg/tcpip/network/ipv6/icmp.go#L1180
 		r := make([]byte, ep.MTU())
-		din := bufferv2.MakeWithData(r)
+		din := buffer.MakeWithData(r)
 		din.Append(packet.TransportHeader().View())
 		l7 := packet.Data().ToBuffer()
 		din.Merge(&l7)
@@ -175,16 +175,16 @@ func setupIcmpHandler(s *stack.Stack, ep stack.LinkEndpoint, handler GICMPHandle
 			}
 
 			x := make([]byte, ep.MTU())
-			res := bufferv2.MakeWithData(x)
+			res := buffer.MakeWithData(x)
 			if len(icmpout) != dlen {
 				ip := header.IPv6(l3.AsSlice())
 				ip.SetPayloadLength(uint16(len(icmpout)))
-				payloadview := bufferv2.NewViewWithData(ip.Payload())
+				payloadview := buffer.NewViewWithData(ip.Payload())
 				res.Append(payloadview)
 			} else {
 				res.Append(l3)
 			}
-			icmpoutview := bufferv2.NewViewWithData(icmpout)
+			icmpoutview := buffer.NewViewWithData(icmpout)
 			res.Append(icmpoutview)
 
 			icmpout.SetChecksum(0)

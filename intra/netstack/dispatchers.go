@@ -29,7 +29,7 @@ import (
 
 	"github.com/celzero/firestack/intra/log"
 	"golang.org/x/sys/unix"
-	"gvisor.dev/gvisor/pkg/bufferv2"
+	"gvisor.dev/gvisor/pkg/buffer"
 	"gvisor.dev/gvisor/pkg/tcpip"
 	"gvisor.dev/gvisor/pkg/tcpip/header"
 	"gvisor.dev/gvisor/pkg/tcpip/link/rawfile"
@@ -43,7 +43,7 @@ type iovecBuffer struct {
 	// buffer is the actual buffer that holds the packet contents. Some contents
 	// are reused across calls to pullBuffer if number of requested bytes is
 	// smaller than the number of bytes allocated in the buffer.
-	buffer bufferv2.Buffer
+	buffer buffer.Buffer
 
 	// iovecs are initialized with base pointers/len of the corresponding
 	// entries in the views defined above, except when GSO is enabled
@@ -80,12 +80,12 @@ func newIovecBuffer(sizes []int) *iovecBuffer {
 func (b *iovecBuffer) nextIovecs() []unix.Iovec {
 	vnetHdrOff := 0
 
-	var buf bufferv2.Buffer
+	var buf buffer.Buffer
 	for i, size := range b.sizes {
 		if i > b.pulledIndex {
 			break
 		}
-		v := bufferv2.NewViewSize(size)
+		v := buffer.NewViewSize(size)
 		buf.Append(v)
 		b.iovecs[i+vnetHdrOff] = unix.Iovec{Base: v.BasePtr()}
 		b.iovecs[i+vnetHdrOff].SetLen(v.Size())
@@ -101,8 +101,8 @@ func (b *iovecBuffer) nextIovecs() []unix.Iovec {
 // that holds the storage, and updates pulledIndex to indicate which part
 // of b.buffer's storage must be reallocated during the next call to
 // nextIovecs.
-func (b *iovecBuffer) pullBuffer(n int) bufferv2.Buffer {
-	var pulled bufferv2.Buffer
+func (b *iovecBuffer) pullBuffer(n int) buffer.Buffer {
+	var pulled buffer.Buffer
 	c := 0
 	// Remove the used views from the buffer.
 	pulled = b.buffer.Clone()

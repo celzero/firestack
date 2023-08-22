@@ -9,6 +9,7 @@ package netstack
 import (
 	"net"
 
+	"gvisor.dev/gvisor/pkg/tcpip"
 	"gvisor.dev/gvisor/pkg/tcpip/stack"
 )
 
@@ -51,28 +52,33 @@ func (g *gconnhandler) ICMP() GICMPHandler {
 
 func remoteTCPAddr(id stack.TransportEndpointID) *net.TCPAddr {
 	return &net.TCPAddr{
-		IP:   net.IP(id.RemoteAddress),
+		IP:   nsaddr2ip(id.RemoteAddress),
 		Port: int(id.RemotePort),
 	}
 }
 
 func localTCPAddr(id stack.TransportEndpointID) *net.TCPAddr {
 	return &net.TCPAddr{
-		IP:   net.IP(id.LocalAddress),
+		IP:   nsaddr2ip(id.LocalAddress),
 		Port: int(id.LocalPort),
 	}
 }
 
 func remoteUDPAddr(id stack.TransportEndpointID) *net.UDPAddr {
 	return &net.UDPAddr{
-		IP:   net.IP(id.RemoteAddress),
+		IP:   nsaddr2ip(id.RemoteAddress),
 		Port: int(id.RemotePort),
 	}
 }
 
 func localUDPAddr(id stack.TransportEndpointID) *net.UDPAddr {
 	return &net.UDPAddr{
-		IP:   net.IP(id.LocalAddress),
+		IP:   nsaddr2ip(id.LocalAddress),
 		Port: int(id.LocalPort),
 	}
+}
+
+func nsaddr2ip(addr tcpip.Address) net.IP {
+	b := addr.AsSlice()
+	return net.IP(b)
 }

@@ -33,7 +33,7 @@ import (
 	"golang.zx2c4.com/wireguard/device"
 	"golang.zx2c4.com/wireguard/tun"
 
-	"gvisor.dev/gvisor/pkg/bufferv2"
+	"gvisor.dev/gvisor/pkg/buffer"
 	"gvisor.dev/gvisor/pkg/tcpip"
 	"gvisor.dev/gvisor/pkg/tcpip/header"
 	"gvisor.dev/gvisor/pkg/tcpip/link/channel"
@@ -63,7 +63,7 @@ type wgtun struct {
 	ep             *channel.Endpoint
 	stack          *stack.Stack
 	events         chan tun.Event
-	incomingPacket chan *bufferv2.View
+	incomingPacket chan *buffer.View
 	mtu            int
 	dnsaddrs       []*netip.Addr
 	hasV4, hasV6   bool
@@ -274,7 +274,7 @@ func makeWgTun(id string, ifaddrs []*netip.Prefix, dnsaddrs []*netip.Addr, mtu i
 		ep:             ep,
 		stack:          s,
 		events:         make(chan tun.Event, eventssize),
-		incomingPacket: make(chan *bufferv2.View),
+		incomingPacket: make(chan *buffer.View),
 		dnsaddrs:       dnsaddrs,
 		mtu:            int(tunmtu),
 	}
@@ -295,13 +295,16 @@ func makeWgTun(id string, ifaddrs []*netip.Prefix, dnsaddrs []*netip.Addr, mtu i
 		processed[ipnet.String()] = true
 
 		var protoid tcpip.NetworkProtocolNumber
+		var nsaddr tcpip.Address
 		if ip.Is4() {
 			protoid = ipv4.ProtocolNumber
+			nsaddr = tcpip.AddrFrom4(ip.As4())
 		} else if ip.Is6() {
 			protoid = ipv6.ProtocolNumber
+			nsaddr = tcpip.AddrFrom16(ip.As16())
 		}
 		ap := tcpip.AddressWithPrefix{
-			Address:   tcpip.Address(ip.AsSlice()),
+			Address:   nsaddr,
 			PrefixLen: ipnet.Bits(),
 		}
 		protoaddr := tcpip.ProtocolAddress{
@@ -363,7 +366,7 @@ func (tun *wgtun) Write(bufs [][]byte, offset int) (int, error) {
 			continue
 		}
 
-		pkb := stack.NewPacketBuffer(stack.PacketBufferOptions{Payload: bufferv2.MakeWithData(pkt)})
+		pkb := stack.NewPacketBuffer(stack.PacketBufferOptions{Payload: buffer.MakeWithData(pkt)})
 		defer pkb.DecRef()
 		switch pkt[0] >> 4 {
 		case 4: // IPv4
