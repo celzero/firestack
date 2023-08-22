@@ -9,46 +9,55 @@ package core
 // from: github.com/eycorsican/go-tun2socks/blob/301549c435/core/buffer_pool.go
 
 import (
+	"strconv"
 	"sync"
 )
 
-var slab *sync.Pool
+var slabs map[string]*sync.Pool // read-only after init
 
-const BufSize = 4 * 1024 // in bytes
-
-func SetSlabAllocator(p *sync.Pool) {
-	slab = p
-}
+const b4096 = 4 * 1024 // in bytes
 
 func AllocRegion(size int) []byte {
-	if size <= BufSize {
-		ptr := slab.Get().(*[]byte)
-		return *ptr
-	} else {
-		return make([]byte, size)
+	if size <= b4096 {
+		if slab := slabfor(b4096); slab != nil {
+			ptr := slab.Get().(*[]byte)
+			return *ptr
+		}
 	}
+	return make([]byte, size)
 }
 
 func Alloc() []byte {
-	return AllocRegion(BufSize)
+	return AllocRegion(b4096)
 }
 
 // github.com/v2fly/v2ray-core/blob/0c5abc7e53a/common/bytespool/pool.go#L63
 func Recycle(b []byte) bool {
 	sz := cap(b)
 	b = b[0:sz]
-	if len(b) >= BufSize {
-		slab.Put(&b)
-		return true
+	if len(b) >= b4096 {
+		if slab := slabfor(b4096); slab != nil {
+			slab.Put(&b)
+			return true
+		}
 	}
 	return false
 }
 
 func init() {
-	SetSlabAllocator(&sync.Pool{
+	slabs = make(map[string]*sync.Pool)
+	slabs[k(b4096)] = &sync.Pool{
 		New: func() any {
-			b := make([]byte, BufSize)
+			b := make([]byte, b4096)
 			return &b
 		},
-	})
+	}
+}
+
+func slabfor(size int) *sync.Pool {
+	return slabs[k(size)]
+}
+
+func k(i int) string {
+	return strconv.Itoa(i)
 }
