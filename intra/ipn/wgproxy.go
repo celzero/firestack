@@ -249,11 +249,12 @@ func NewWgProxy(id string, ctl protect.Controller, cfg string) (w WgProxy, err e
 		wgdev,
 	}
 
-	log.D("proxy: wg: new %s / bound? %t", id, bindok)
+	log.D("proxy: wg: new %s / bound? %t; addr(%v) / v4(%t)/v6(%t)", id, bindok, wgtun.GetAddr(), wgtun.hasV4, wgtun.hasV6)
 
 	return
 }
 
+// ref: github.com/WireGuard/wireguard-go/blob/713947e432/tun/netstack/tun.go#L54
 func makeWgTun(id string, ifaddrs []*netip.Prefix, dnsaddrs []*netip.Addr, mtu int) (*wgtun, error) {
 	opts := stack.Options{
 		NetworkProtocols:   []stack.NetworkProtocolFactory{ipv4.NewProtocol, ipv6.NewProtocol},
@@ -312,6 +313,7 @@ func makeWgTun(id string, ifaddrs []*netip.Prefix, dnsaddrs []*netip.Addr, mtu i
 		}
 		t.hasV4 = t.hasV4 || ip.Is4()
 		t.hasV6 = t.hasV6 || ip.Is6()
+		log.D("proxy: wg: added addr(%v) / v4(%t)/v6(%t)", ip, ip.Is4(), ip.Is6())
 	}
 	if t.hasV4 {
 		s.AddRoute(tcpip.Route{Destination: header.IPv4EmptySubnet, NIC: wgnic})

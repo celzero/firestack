@@ -667,7 +667,7 @@ func ipportFrom(addr any) (ipp netip.AddrPort) {
 			ipp = netip.AddrPortFrom(ip, 0)
 		}
 	default:
-		log.W("ns.wg: ipportFrom: unknown type: %T", addr)
+		log.W("wg: ipportFrom: unknown type: %T", addr)
 	}
 	return ipp
 }
