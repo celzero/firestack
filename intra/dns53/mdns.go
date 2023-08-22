@@ -100,9 +100,10 @@ func (t *dnssd) oneshotQuery(msg *dns.Msg) (*dns.Msg, *dnsx.QueryError) {
 		log.E("mdns: underlying transport: %s", err)
 		return nil, dnsx.NewTransportQueryError(err)
 	}
-	defer c.Close()
+	// xxx: defer c.Close()
 	if qerr := c.query(qctx); qerr != nil {
 		log.E("mdns: query(%s): %v", qname, qerr.Unwrap())
+		c.Close()
 		return nil, qerr
 	}
 	log.D("mdns: awaiting response %s", qname)
@@ -110,12 +111,14 @@ func (t *dnssd) oneshotQuery(msg *dns.Msg) (*dns.Msg, *dnsx.QueryError) {
 	for res := range resch {
 		if res != nil && res.ans != nil {
 			log.I("mdns: q(%s) ans(%s) 4(%s) 6(%s)", qname, res.name, res.ip4, res.ip6)
+			c.Close()
 			return res.ans, nil
 		} else {
 			log.D("mdns: q(%s); ans missing for %v", qname, res)
 		}
 	}
 	log.I("mdns: no response for %s", qname)
+	c.Close()
 	return nil, dnsx.NewNoResponseQueryError(nil)
 }
 
