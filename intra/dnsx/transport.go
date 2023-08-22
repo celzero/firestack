@@ -118,10 +118,8 @@ type Resolver interface {
 	// special purpose pre-defined transports
 	// Gateway implements a DNS ALG transport
 	Gateway() Gateway
-	// DcProxy implements a DNSCrypt multi-transport
-	DcProxy() (TransportMult, error)
-	// BlockAll implements a DNS transport that blocks all queries
-	BlockAll() Transport
+	// GetMult returns multi-transport, if available
+	GetMult(id string) (TransportMult, error)
 
 	IsDnsAddr(network, ipport string) bool
 	Forward(q []byte) ([]byte, error)
@@ -157,6 +155,7 @@ func NewResolver(fakeaddrs string, tunmode *settings.TunMode, defaultdns Transpo
 		pool:         make(map[string]*oneTransport),
 		tunmode:      tunmode,
 		localdomains: newUndelegatedDomainsTrie(),
+		systemdns:    make([]Transport, 0),
 	}
 	ok1 := r.Add(defaultdns)
 	ok2 := r.Add(NewDNSGateway(defaultdns, r))
@@ -245,7 +244,7 @@ func (r *resolver) RemoveSystemDNS() int {
 	defer r.Remove(System)
 	r.Lock()
 	d := len(r.systemdns)
-	r.systemdns = nil
+	r.systemdns = make([]Transport, 0)
 	r.Unlock()
 
 	return d
@@ -301,11 +300,11 @@ func (r *resolver) Add(t Transport) (ok bool) {
 	return false
 }
 
-func (r *resolver) DcProxy() (TransportMult, error) {
+func (r *resolver) GetMult(id string) (TransportMult, error) {
 	r.RLock()
 	defer r.RUnlock()
 
-	if t, ok := r.transports[DcProxy]; ok {
+	if t, ok := r.transports[id]; ok {
 		if tm, ok := t.(TransportMult); ok {
 			return tm, nil
 		}
@@ -314,14 +313,8 @@ func (r *resolver) DcProxy() (TransportMult, error) {
 	return nil, errNoSuchTransport
 }
 
-func (r *resolver) BlockAll() Transport {
-	r.RLock()
-	defer r.RUnlock()
-
-	if t, ok := r.transports[BlockAll]; ok {
-		return t
-	}
-	return nil
+func (r *resolver) dcProxy() (TransportMult, error) {
+	return r.GetMult(DcProxy)
 }
 
 func (r *resolver) addSystemDnsIfAbsent(t Transport) (ok bool) {
@@ -370,7 +363,7 @@ func (r *resolver) Remove(id string) (ok bool) {
 	}
 	r.Unlock()
 
-	if tm, err := r.DcProxy(); err == nil {
+	if tm, err := r.dcProxy(); err == nil {
 		tm.Remove(id)
 		tm.Remove(ctid)
 	}
@@ -778,7 +771,7 @@ func writeto(w io.Writer, b []byte, l int) (int, error) {
 }
 
 func (r *resolver) Start() (string, error) {
-	if dc, err := r.DcProxy(); err == nil {
+	if dc, err := r.dcProxy(); err == nil {
 		return dc.Start()
 	}
 	return "", ErrNoDcProxy
@@ -788,7 +781,7 @@ func (r *resolver) Stop() error {
 	if gw := r.Gateway(); gw != nil {
 		gw.stop()
 	}
-	if dc, err := r.DcProxy(); err == nil {
+	if dc, err := r.dcProxy(); err == nil {
 		return dc.Stop()
 	}
 	// nothing to stop / no error
@@ -809,7 +802,7 @@ func (r *resolver) refresh() {
 func (r *resolver) Refresh() (string, error) {
 	go r.refresh()
 	s := map2csv(r.transports)
-	if dc, err := r.DcProxy(); err == nil {
+	if dc, err := r.dcProxy(); err == nil {
 		if x, err := dc.Refresh(); err == nil {
 			s += "," + x
 		}
@@ -819,7 +812,7 @@ func (r *resolver) Refresh() (string, error) {
 
 func (r *resolver) LiveTransports() string {
 	s := map2csv(r.transports)
-	if dc, err := r.DcProxy(); err == nil {
+	if dc, err := r.dcProxy(); err == nil {
 		x := dc.LiveTransports()
 		if len(x) > 0 {
 			s += x

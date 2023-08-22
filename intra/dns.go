@@ -78,7 +78,7 @@ func NewDoTTransport(id, url string) (dnsx.Transport, error) {
 
 func NewDNSCryptTransport(r dnsx.Resolver, id, stamp string) (d dnsx.Transport, err error) {
 	var tm dnsx.TransportMult
-	if tm, err = r.DcProxy(); err == nil {
+	if tm, err = r.GetMult(dnsx.DcProxy); err == nil {
 		if p, ok := tm.(*dnscrypt.Proxy); ok {
 			return dnscrypt.NewTransport(p, id, stamp)
 		} else {
@@ -89,7 +89,7 @@ func NewDNSCryptTransport(r dnsx.Resolver, id, stamp string) (d dnsx.Transport, 
 }
 
 func NewDNSCryptRelay(r dnsx.Resolver, stamp string) (dnsx.Transport, error) {
-	if tm, err := r.DcProxy(); err == nil {
+	if tm, err := r.GetMult(dnsx.DcProxy); err == nil {
 		if p, ok := tm.(*dnscrypt.Proxy); ok {
 			return dnscrypt.NewRelayTransport(p, stamp)
 		} else {
