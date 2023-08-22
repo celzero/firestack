@@ -275,7 +275,7 @@ func makeWgTun(id string, ifaddrs []*netip.Prefix, dnsaddrs []*netip.Addr, mtu i
 		events:         make(chan tun.Event, eventssize),
 		incomingPacket: make(chan *bufferv2.View),
 		dnsaddrs:       dnsaddrs,
-		mtu:            mtu,
+		mtu:            int(tunmtu),
 	}
 	// see WriteNotify below
 	ep.AddNotify(t)
