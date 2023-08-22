@@ -82,6 +82,7 @@ func (t *dnssd) oneshotQuery(msg *dns.Msg) (*dns.Msg, *dnsx.QueryError) {
 	service, tld := xdns.ExtractMDNSDomain(msg)
 	resch := make(chan *dnssdanswer)
 	qctx := &qcontext{
+		msg:   msg,
 		svc:   service,
 		tld:   tld,
 		ansch: resch,
@@ -102,7 +103,7 @@ func (t *dnssd) oneshotQuery(msg *dns.Msg) (*dns.Msg, *dnsx.QueryError) {
 	}
 	// xxx: defer c.Close()
 	if qerr := c.query(qctx); qerr != nil {
-		log.E("mdns: query(%s): %v", qname, qerr.Unwrap())
+		log.E("mdns: query(%s): %v", qname, qerr)
 		c.Close()
 		return nil, qerr
 	}
