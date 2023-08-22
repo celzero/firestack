@@ -14,6 +14,11 @@ type fakeProtector struct {
 	fds []int32
 }
 
+// Implements Protector.
+func (p *fakeProtector) UIP(n string) []byte {
+	return net.IPv4(127, 0, 0, 1)
+}
+
 func (p *fakeProtector) Protect(fd int32) bool {
 	p.mu.Lock()
 	p.fds = append(p.fds, fd)

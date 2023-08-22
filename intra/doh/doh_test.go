@@ -37,6 +37,7 @@ import (
 	"testing"
 
 	"github.com/celzero/firestack/intra/dnsx"
+	"github.com/celzero/firestack/intra/xdns"
 	"golang.org/x/net/dns/dnsmessage"
 )
 
@@ -198,11 +199,11 @@ func TestQueryIntegration(t *testing.T) {
 
 	testQuery := func(queryData []byte) {
 
-		doh, err := NewTransport(testURL, ips, nil, nil, nil)
+		doh, err := NewTransport("test", testURL, ips, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
-		resp, err2 := doh.Query(queryData)
+		resp, err2 := doh.Query(dnsx.NetTypeUDP, queryData, nil)
 		if err2 != nil {
 			t.Fatal(err2)
 		}
@@ -425,7 +426,7 @@ func (l *fakeListener) OnQuery(domain string, qtype int, sug string) string {
 	return ""
 }
 
-func (l *fakeListener) OnResponse(summ *Summary) {
+func (l *fakeListener) OnResponse(summ *dnsx.Summary) {
 	l.summary = summ
 }
 
@@ -824,10 +825,7 @@ func TestAddEdnsPaddingCompressedPaddedQuery(t *testing.T) {
 }
 
 func TestServfail(t *testing.T) {
-	sf, err := Servfail(simpleQueryBytes)
-	if err != nil {
-		t.Fatal(err)
-	}
+	sf := xdns.Servfail(simpleQueryBytes)
 	servfail := mustUnpack(sf)
 	expectedHeader := dnsmessage.Header{
 		ID:                 0xbeef,
