@@ -17,27 +17,31 @@ var slabs map[string]*sync.Pool // read-only after init
 
 const b4096 = 4 * 1024 // in bytes
 
-func AllocRegion(size int) []byte {
+// pointers to slices: archive.is/BhHuQ
+// deal only in pointers to byte-array
+// github.com/golang/example/blob/9fd7daa/slog-handler-guide/README.md#speed
+func AllocRegion(size int) *[]byte {
 	if size <= b4096 {
 		if slab := slabfor(b4096); slab != nil {
 			ptr := slab.Get().(*[]byte)
-			return *ptr
+			return ptr
 		}
 	}
-	return make([]byte, size)
+	b := make([]byte, size)
+	return &b
 }
 
-func Alloc() []byte {
+func Alloc() *[]byte {
 	return AllocRegion(b4096)
 }
 
 // github.com/v2fly/v2ray-core/blob/0c5abc7e53a/common/bytespool/pool.go#L63
-func Recycle(b []byte) bool {
-	sz := cap(b)
-	b = b[0:sz]
-	if len(b) >= b4096 {
+func Recycle(b *[]byte) bool {
+	sz := cap(*b)
+	*b = (*b)[:0]
+	if sz >= b4096 {
 		if slab := slabfor(b4096); slab != nil {
-			slab.Put(&b)
+			slab.Put(b)
 			return true
 		}
 	}

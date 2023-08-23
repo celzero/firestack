@@ -180,8 +180,13 @@ func (h *udpHandler) fetchUDPInput(conn core.UDPConn, nat *tracker) {
 		return
 	}
 
-	buf := core.Alloc()
-	defer core.Recycle(buf)
+	bptr := core.Alloc()
+	buf := *bptr
+	buf = buf[:cap(buf)]
+	defer func() {
+		*bptr = buf
+		core.Recycle(bptr)
+	}()
 
 	var err error
 	for {

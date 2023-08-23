@@ -108,8 +108,13 @@ func loop(h GUDPConnHandler, gc *GUDPConn, src, dst *net.UDPAddr) {
 	// and: github.com/cloudflare/slirpnetstack/blob/41e49c3294/proxy.go#L114
 	// max: github.com/google/gvisor/blob/be6ffa78/pkg/tcpip/transport/udp/protocol.go#L43
 	// though, we never expect to exceed mtu, so we can use a smaller buffer?
-	q := core.Alloc()
-	defer core.Recycle(q)
+	bptr := core.Alloc()
+	q := *bptr
+	q = q[:cap(q)]
+	defer func() {
+		*bptr = q
+		core.Recycle(bptr)
+	}()
 	for {
 		gc.gudp.SetDeadline(time.Now().Add(readDeadline))
 		// addr is gc.gudp.RemoteAddr() ie gc.LocalAddr()

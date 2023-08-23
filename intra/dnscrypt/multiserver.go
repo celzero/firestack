@@ -91,8 +91,12 @@ func exchangeWithUDPServer(serverInfo *ServerInfo, sharedKey *[32]byte, encrypte
 		prepareForRelay(serverInfo.UDPAddr.IP, serverInfo.UDPAddr.Port, &encryptedQuery)
 	}
 	// TODO: use a pool
-	encryptedResponse := core.AllocRegion(xdns.MaxDNSUDPPacketSize)
-	defer core.Recycle(encryptedResponse)
+	bptr := core.AllocRegion(xdns.MaxDNSUDPPacketSize)
+	encryptedResponse := (*bptr)[:xdns.MaxDNSUDPPacketSize]
+	defer func() {
+		*bptr = encryptedResponse
+		core.Recycle(bptr)
+	}()
 	for tries := 2; tries > 0; tries-- {
 		if _, err := pc.Write(encryptedQuery); err != nil {
 			log.E("dnscrypt: udp: [%s] write err; [%v]", serverInfo.Name, err)
