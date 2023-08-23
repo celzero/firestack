@@ -43,6 +43,8 @@ func setupIcmpHandler(s *stack.Stack, ep stack.LinkEndpoint, handler GICMPHandle
 		src := remoteUDPAddr(id)
 		dst := localUDPAddr(id)
 
+		log.D("icmp: v4 type %v src %v dst %v", icmpin.Type(), src, dst)
+
 		b := make([]byte, ep.MTU())
 		din8 := buffer.MakeWithData(b)
 		din8.Append(packet.NetworkHeader().View())
@@ -141,6 +143,8 @@ func setupIcmpHandler(s *stack.Stack, ep stack.LinkEndpoint, handler GICMPHandle
 
 		src := remoteUDPAddr(id)
 		dst := localUDPAddr(id)
+
+		log.D("icmp: v4 type %v src %v dst %v", icmpin.Type(), src, dst)
 
 		b := make([]byte, ep.MTU())
 		din8 := buffer.MakeWithData(b)
