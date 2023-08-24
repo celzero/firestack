@@ -589,7 +589,7 @@ func (tnet *wgtun) DialContext(ctx context.Context, network, address string) (ne
 			} else if err == context.DeadlineExceeded {
 				err = errTimeout
 			}
-			log.W("wg: dail: context done: %v", err)
+			log.W("wg: dail: %v; context done: %v", addr, err)
 			return nil, &net.OpError{Op: "dial", Err: err}
 		default:
 		}
@@ -622,6 +622,7 @@ func (tnet *wgtun) DialContext(ctx context.Context, network, address string) (ne
 		if err == nil {
 			return c, nil
 		}
+		log.I("wg: dial: %v err %v", addr, err)
 		if firstErr == nil {
 			firstErr = err
 		}
@@ -629,7 +630,7 @@ func (tnet *wgtun) DialContext(ctx context.Context, network, address string) (ne
 	if firstErr == nil {
 		firstErr = &net.OpError{Op: "dial", Err: errMissingAddress}
 	}
-	log.W("wg: dail: failed: %v", firstErr)
+	log.W("wg: dail: %v failed: %v", addrs, firstErr)
 	return nil, firstErr
 }
 

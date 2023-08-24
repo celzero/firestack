@@ -54,6 +54,8 @@ const (
 	wgnic = 999
 	// missing wg interface address.
 	noaddr = ""
+	// min mtu for ipv6
+	minmtu6 = uint32(1280)
 )
 
 type wgtun struct {
@@ -87,6 +89,7 @@ func (w *wgproxy) Close() error {
 	// is wgtun.Close() called by device.Close()
 	// return w.wgtun.Close()
 	w.Device.Close()
+	// TODO: <-w.Device.Wait()
 	return nil
 }
 
@@ -102,9 +105,9 @@ type WgProxy interface {
 	IpcSet(txt string) error
 }
 
-func wglogger() *device.Logger {
+func wglogger(id string) *device.Logger {
 	lvl := device.LogLevelError
-	tag := WG
+	tag := WG + id
 	if settings.Debug {
 		lvl = device.LogLevelVerbose
 	}
@@ -223,7 +226,7 @@ func NewWgProxy(id string, ctl protect.Controller, cfg string) (w WgProxy, err e
 		return nil, err
 	}
 
-	wgdev := device.NewDevice(wgtun, wg.NewBind(), wglogger())
+	wgdev := device.NewDevice(wgtun, wg.NewBind(), wglogger(id))
 
 	err = wgdev.IpcSet(uapicfg)
 	if err != nil {
@@ -254,7 +257,7 @@ func NewWgProxy(id string, ctl protect.Controller, cfg string) (w WgProxy, err e
 	return
 }
 
-// ref: github.com/WireGuard/wireguard-go/blob/713947e432/tun/netstack/tun.go#L54
+// ref: github.com/WireGuard/wireguard-go/blob/469159ecf7/tun/netstack/tun.go#L54
 func makeWgTun(id string, ifaddrs []*netip.Prefix, dnsaddrs []*netip.Addr, mtu int) (*wgtun, error) {
 	opts := stack.Options{
 		NetworkProtocols:   []stack.NetworkProtocolFactory{ipv4.NewProtocol, ipv6.NewProtocol},
@@ -262,7 +265,7 @@ func makeWgTun(id string, ifaddrs []*netip.Prefix, dnsaddrs []*netip.Addr, mtu i
 		HandleLocal:        true,
 	}
 	// uint32(mtu) - 80 is the maximum payload size of a WireGuard packet.
-	tunmtu := uint32(mtu) - 80 // 80 is the overhead of the WireGuard header
+	tunmtu := min(minmtu6, uint32(mtu)-80) // 80 is the overhead of the WireGuard header
 
 	s := stack.New(opts)
 	sackEnabledOpt := tcpip.TCPSACKEnabled(true)
@@ -348,13 +351,17 @@ func (tun *wgtun) Events() <-chan tun.Event {
 func (tun *wgtun) Read(buf [][]byte, sizes []int, offset int) (int, error) {
 	view, ok := <-tun.incomingPacket
 	if !ok {
+		log.W("wg: tun: read closed")
 		return 0, os.ErrClosed
 	}
 
 	n, err := view.Read(buf[0][offset:])
 	if err != nil {
+		log.W("wg: tun: read(%d): %v", n, err)
 		return 0, err
 	}
+
+	log.D("wg: tun: read(%d)", n)
 	sizes[0] = n
 	return 1, nil
 }
@@ -363,19 +370,26 @@ func (tun *wgtun) Write(bufs [][]byte, offset int) (int, error) {
 	for _, buf := range bufs {
 		pkt := buf[offset:]
 		if len(pkt) == 0 {
+			log.D("wg: tun: write: empty packet")
 			continue
 		}
 
-		pkb := stack.NewPacketBuffer(stack.PacketBufferOptions{Payload: buffer.MakeWithData(pkt)})
+		sz := len(pkt)
+		b := buffer.MakeWithData(pkt)
+		pko := stack.PacketBufferOptions{Payload: b}
+		pkb := stack.NewPacketBuffer(pko)
 		defer pkb.DecRef()
-		switch pkt[0] >> 4 {
+		protoid := pkt[0] >> 4
+		switch protoid {
 		case 4: // IPv4
 			tun.ep.InjectInbound(header.IPv4ProtocolNumber, pkb) // write to ep
 		case 6: // IPv6
 			tun.ep.InjectInbound(header.IPv6ProtocolNumber, pkb) // write to ep
 		default:
+			log.W("wg: tun: write: unknown proto %d; discard %d", protoid, sz)
 			return 0, syscall.EAFNOSUPPORT
 		}
+		log.V("wg: tun: write: size %d; proto %d", sz, protoid)
 	}
 
 	return len(bufs), nil
@@ -392,6 +406,7 @@ func (tun *wgtun) WriteNotify() {
 	view := pkt.ToView()
 	pkt.DecRef()
 
+	log.V("wg: tun: write: notify sz(%d)", view.Size())
 	tun.incomingPacket <- view
 }
 
@@ -403,6 +418,7 @@ func (tun *wgtun) Close() error {
 		return errProxyStopped
 	}
 
+	log.D("proxy: wg: tun: closing...")
 	tun.status = END
 	tun.stack.RemoveNIC(wgnic)
 
@@ -410,14 +426,16 @@ func (tun *wgtun) Close() error {
 	// panics; is it closed by device.Device.Close()?
 	// close(tun.events) }
 
-	// stack closes the endpoint, too via nic.go#remove?
-	// tun.ep.Close()
-
-	tun.stack.Close()
-
 	if tun.incomingPacket != nil {
 		close(tun.incomingPacket)
 	}
+
+	// stack closes the endpoint, too via nic.go#remove?
+	// tun.ep.Close()
+	tun.stack.Close()
+	// wait for stack to close?
+	// github.com/tailscale/tailscale/blob/836f932e/wgengine/netstack/netstack.go#L223
+	// TODO: tun.stack.Wait()
 
 	log.I("proxy: wg: tun: closed")
 	return nil

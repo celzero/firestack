@@ -30,7 +30,6 @@ const maxbindtries = 10
 // StdNetBind is meant to be a temporary solution on platforms for which
 // the sticky socket / source caching behavior has not yet been implemented.
 // It uses the Go's net package to implement networking.
-// See LinuxSocketBind for a proper implementation on the Linux platform.
 type StdNetBind struct {
 	mu         sync.Mutex // protects following fields
 	ipv4       *net.UDPConn
@@ -82,6 +81,7 @@ func (s *StdNetBind) listenNet(network string, port int) (*net.UDPConn, int, err
 	saddr := &net.UDPAddr{Port: port}
 	conn, err := net.ListenUDP(network, saddr)
 	if err != nil {
+		log.E("wg: bind: listen(%v); err: %v", saddr, err)
 		return nil, 0, err
 	}
 
@@ -105,6 +105,7 @@ func (bind *StdNetBind) Open(uport uint16) ([]conn.ReceiveFunc, uint16, error) {
 	var tries int
 
 	if bind.ipv4 != nil || bind.ipv6 != nil {
+		log.W("wg: bind: already open")
 		return nil, 0, conn.ErrBindAlreadyOpen
 	}
 
@@ -115,21 +116,27 @@ again:
 	var ipv4, ipv6 *net.UDPConn
 
 	ipv4, port, err = bind.listenNet("udp4", port)
-	if err != nil && !errors.Is(err, syscall.EAFNOSUPPORT) {
+	no4 := errors.Is(err, syscall.EAFNOSUPPORT)
+	log.D("wg: bind: listen4(%d); no4? %t err? %v", port, no4, err)
+	if err != nil && !no4 {
 		return nil, 0, err
 	}
 
 	// Listen on the same port as we're using for ipv4.
 	ipv6, port, err = bind.listenNet("udp6", port)
-	if uport == 0 && errors.Is(err, syscall.EADDRINUSE) && tries < maxbindtries {
+	busy := errors.Is(err, syscall.EADDRINUSE)
+	no6 := errors.Is(err, syscall.EAFNOSUPPORT)
+	log.D("wg: bind: listen6(%d); busy? %t no6? %t err? %v", port, busy, no6, err)
+	if uport == 0 && busy && tries < maxbindtries {
 		ipv4.Close()
 		tries++
 		goto again
 	}
-	if err != nil && !errors.Is(err, syscall.EAFNOSUPPORT) {
+	if err != nil && !no6 {
 		ipv4.Close()
 		return nil, 0, err
 	}
+
 	var fns []conn.ReceiveFunc
 	if ipv4 != nil {
 		fns = append(fns, bind.makeReceiveFn(ipv4))
@@ -139,6 +146,8 @@ again:
 		fns = append(fns, bind.makeReceiveFn(ipv6))
 		bind.ipv6 = ipv6
 	}
+
+	log.I("wg: bind: opened port(%d) for v4? %t v6? %t", port, ipv4 != nil, ipv6 != nil)
 	if len(fns) == 0 {
 		return nil, 0, syscall.EAFNOSUPPORT
 	}
@@ -160,6 +169,8 @@ func (bind *StdNetBind) Close() error {
 	}
 	bind.blackhole4 = false
 	bind.blackhole6 = false
+
+	log.I("wg: bind: close; err4? %v err6? %v", err1, err2)
 	if err1 != nil {
 		return err1
 	}
@@ -180,14 +191,16 @@ func (s *StdNetBind) makeReceiveFn(uc *net.UDPConn) conn.ReceiveFunc {
 			sizes[i] = n
 			eps[i] = asEndpoint(addr)
 		}
+
+		log.V("wg: bind: recvFrom(%v): %d / err? %v", addr, n, err)
 		return numMsgs, err
 	}
 }
 
 func (bind *StdNetBind) Send(buf [][]byte, endpoint conn.Endpoint) error {
-	var err error
 	nend, ok := endpoint.(StdNetEndpoint)
 	if !ok {
+		log.E("wg: bind: send: wrong endpoint type: %T", endpoint)
 		return conn.ErrWrongEndpointType
 	}
 	addrPort := netip.AddrPort(nend)
@@ -195,19 +208,26 @@ func (bind *StdNetBind) Send(buf [][]byte, endpoint conn.Endpoint) error {
 	bind.mu.Lock()
 	blackhole := bind.blackhole4
 	uc := bind.ipv4
+	noconn := uc == nil
 	if addrPort.Addr().Is6() {
 		blackhole = bind.blackhole6
 		uc = bind.ipv6
+		noconn = uc == nil
 	}
 	bind.mu.Unlock()
+
+	log.V("wg: bind: send: addr(%v) blackhole? %t; conn? %t", addrPort, blackhole, noconn)
 
 	if blackhole {
 		return nil
 	}
-	if uc == nil {
+	if noconn {
 		return syscall.EAFNOSUPPORT
 	}
-	_, err = uc.WriteToUDPAddrPort(buf[0], addrPort)
+
+	n, err := uc.WriteToUDPAddrPort(buf[0], addrPort)
+
+	log.V("wg: bind: send: addr(%v) n(%d); err? %v", addrPort, n, err)
 	return err
 }
 
@@ -238,7 +258,7 @@ func (s *StdNetBind) SetMark(mark uint32) (err error) {
 			}
 		} // else: return err
 	}
-	log.W("wg: failed to set mark on socket: %v", err)
+	log.I("wg: bind: set mark; err? %v", err)
 	return nil
 }
 
@@ -246,28 +266,34 @@ func (s *StdNetBind) SetMark(mark uint32) (err error) {
 func (s *StdNetBind) PeekLookAtSocketFd4() (fd int, err error) {
 	sysconn, err := s.ipv4.SyscallConn()
 	if err != nil {
+		log.W("wg: bind: peek4: syscall conn; err? %v", err)
 		return -1, err
 	}
 	err = sysconn.Control(func(f uintptr) {
 		fd = int(f)
 	})
 	if err != nil {
+		log.W("wg: bind: control4: syscall conn; err? %v", err)
 		return -1, err
 	}
+	log.D("wg: bind: peek4: fd(%d)", fd)
 	return
 }
 
 func (s *StdNetBind) PeekLookAtSocketFd6() (fd int, err error) {
 	sysconn, err := s.ipv6.SyscallConn()
 	if err != nil {
+		log.W("wg: bind: peek6: syscall conn; err? %v", err)
 		return -1, err
 	}
 	err = sysconn.Control(func(f uintptr) {
 		fd = int(f)
 	})
 	if err != nil {
+		log.W("wg: bind: control6: syscall conn; err? %v", err)
 		return -1, err
 	}
+	log.D("wg: bind: peek6: fd(%d)", fd)
 	return
 }
 
