@@ -79,6 +79,13 @@ type wgproxy struct {
 	*device.Device
 }
 
+type WgProxy interface {
+	Proxy
+	tun.Device
+	canUpdate(txt string) bool
+	IpcSet(txt string) error
+}
+
 // BatchSize implements WgProxy
 func (w *wgproxy) BatchSize() int {
 	return w.wgtun.BatchSize()
@@ -99,10 +106,61 @@ func (w *wgproxy) Stop() error {
 	return w.Close()
 }
 
-type WgProxy interface {
-	Proxy
-	tun.Device
-	IpcSet(txt string) error
+func (w *wgproxy) canUpdate(txt string) bool {
+	if w.status == END {
+		log.W("proxy: wg: !canUpdate(%s): END; status(%d)", w.id, w.status)
+		return false
+	}
+
+	// str copy: go.dev/play/p/eO814kGGNtO
+	cptxt := txt
+	ifaddrs, dnsaddrs, mtu, err := wgIfConfigOf(&cptxt)
+	if err != nil {
+		log.W("proxy: wg: !canUpdate(%s): err: %v", w.id, err)
+		return false
+	}
+
+	if len(ifaddrs) != len(w.addrs) {
+		log.D("proxy: wg: !canUpdate(%s): len(ifaddrs) %d != %d", w.id, len(ifaddrs), len(w.addrs))
+		return false
+	}
+	if w.mtu != mtu {
+		log.D("proxy: wg: !canUpdate(%s): mtu %d != %d", w.id, mtu, w.mtu)
+		return false
+	}
+	if len(w.dnsaddrs) != len(dnsaddrs) {
+		log.D("proxy: wg: !canUpdate(%s): len(dnsaddrs) %d != %d", w.id, len(dnsaddrs), len(w.dnsaddrs))
+		return false
+	}
+	for _, indnsaddr := range dnsaddrs {
+		var dnsok bool
+		for _, a := range w.dnsaddrs {
+			if indnsaddr.Compare(*a) == 0 {
+				dnsok = true
+				break
+			}
+		}
+		if !dnsok {
+			log.D("proxy: wg: !canUpdate(%s): new dnsaddrs (%s) != (%s)", w.id, dnsaddrs, w.dnsaddrs)
+			return false
+		}
+	}
+	for _, inifaddr := range ifaddrs {
+		var ipok bool
+		for _, a := range w.addrs {
+			if inifaddr.Masked() == a.Masked() {
+				if inifaddr.Addr().Compare(a.Addr()) == 0 {
+					ipok = true
+					break
+				}
+			}
+		}
+		if !ipok {
+			log.D("proxy: wg: !canUpdate(%s): new ifaddrs (%s) != (%s)", w.id, ifaddrs, w.addrs)
+			return false
+		}
+	}
+	return true
 }
 
 func wglogger(id string) *device.Logger {
@@ -252,7 +310,7 @@ func NewWgProxy(id string, ctl protect.Controller, cfg string) (w WgProxy, err e
 		wgdev,
 	}
 
-	log.D("proxy: wg: new %s / bound? %t; addr(%v) / v4(%t)/v6(%t)", id, bindok, wgtun.GetAddr(), wgtun.hasV4, wgtun.hasV6)
+	log.D("proxy: wg: new %s / bound? %t; addrs(%v) mtu(%d) / v4(%t) v6(%t)", id, bindok, ifaddrs, mtu, wgtun.hasV4, wgtun.hasV6)
 
 	return
 }
@@ -361,7 +419,7 @@ func (tun *wgtun) Read(buf [][]byte, sizes []int, offset int) (int, error) {
 		return 0, err
 	}
 
-	log.D("wg: tun: read(%d)", n)
+	log.V("wg: tun: read(%d)", n)
 	sizes[0] = n
 	return 1, nil
 }
@@ -389,7 +447,7 @@ func (tun *wgtun) Write(bufs [][]byte, offset int) (int, error) {
 			log.W("wg: tun: write: unknown proto %d; discard %d", protoid, sz)
 			return 0, syscall.EAFNOSUPPORT
 		}
-		log.V("wg: tun: write: size %d; proto %d", sz, protoid)
+		log.V("wg: tun: write: sz(%d); proto %d", sz, protoid)
 	}
 
 	return len(bufs), nil
@@ -456,13 +514,16 @@ func (h *wgtun) Dial(network, address string) (c Conn, err error) {
 		return nil, errProxyStopped
 	}
 
+	log.D("wg: dial: start %s %s", network, address)
+
 	if c, err = h.DialContext(context.Background(), network, address); err != nil {
 		h.status = TKO
 	} else {
 		h.status = TOK
 	}
 
-	log.I("wg: dial: %s %s; err %v", network, address, err)
+	log.I("wg: dial: end %s %s; err %v", network, address, err)
+
 	return
 }
 
