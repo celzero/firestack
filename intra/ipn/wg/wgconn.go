@@ -19,6 +19,7 @@ import (
 	"net/netip"
 	"sync"
 	"syscall"
+	"time"
 
 	"github.com/celzero/firestack/intra/log"
 	"golang.org/x/sys/unix"
@@ -26,6 +27,7 @@ import (
 )
 
 const maxbindtries = 10
+const wgtimeout = 15 * time.Second
 
 // StdNetBind is meant to be a temporary solution on platforms for which
 // the sticky socket / source caching behavior has not yet been implemented.
@@ -139,12 +141,12 @@ again:
 
 	var fns []conn.ReceiveFunc
 	if ipv4 != nil {
-		fns = append(fns, bind.makeReceiveFn(ipv4))
 		bind.ipv4 = ipv4
+		fns = append(fns, bind.makeReceiveFn(ipv4))
 	}
 	if ipv6 != nil {
-		fns = append(fns, bind.makeReceiveFn(ipv6))
 		bind.ipv6 = ipv6
+		fns = append(fns, bind.makeReceiveFn(ipv6))
 	}
 
 	log.I("wg: bind: opened port(%d) for v4? %t v6? %t", port, ipv4 != nil, ipv6 != nil)
@@ -182,6 +184,7 @@ func (s *StdNetBind) makeReceiveFn(uc *net.UDPConn) conn.ReceiveFunc {
 		numMsgs := 0
 		b := bufs[0]
 
+		uc.SetDeadline(time.Now().Add(wgtimeout))
 		n, addr, err := uc.ReadFromUDPAddrPort(b)
 		if err == nil {
 			numMsgs++
@@ -203,6 +206,7 @@ func (bind *StdNetBind) Send(buf [][]byte, endpoint conn.Endpoint) error {
 		log.E("wg: bind: send: wrong endpoint type: %T", endpoint)
 		return conn.ErrWrongEndpointType
 	}
+	// the peer endpoint
 	addrPort := netip.AddrPort(nend)
 
 	bind.mu.Lock()
@@ -216,7 +220,7 @@ func (bind *StdNetBind) Send(buf [][]byte, endpoint conn.Endpoint) error {
 	}
 	bind.mu.Unlock()
 
-	log.V("wg: bind: send: addr(%v) blackhole? %t; conn? %t", addrPort, blackhole, noconn)
+	log.V("wg: bind: send: addr(%v) blackhole? %t; noconn? %t", addrPort, blackhole, noconn)
 
 	if blackhole {
 		return nil
@@ -225,6 +229,7 @@ func (bind *StdNetBind) Send(buf [][]byte, endpoint conn.Endpoint) error {
 		return syscall.EAFNOSUPPORT
 	}
 
+	uc.SetDeadline(time.Now().Add(wgtimeout))
 	n, err := uc.WriteToUDPAddrPort(buf[0], addrPort)
 
 	log.V("wg: bind: send: addr(%v) n(%d); err? %v", addrPort, n, err)
