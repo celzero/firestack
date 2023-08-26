@@ -164,12 +164,15 @@ func (w *wgproxy) canUpdate(txt string) bool {
 }
 
 func wglogger(id string) *device.Logger {
-	lvl := device.LogLevelError
 	tag := WG + id
-	if settings.Debug {
-		lvl = device.LogLevelVerbose
+	logger := &device.Logger{
+		Verbosef: log.Of(tag, log.N),
+		Errorf:   log.Of(tag, log.E),
 	}
-	return device.NewLogger(lvl, tag)
+	if settings.Debug {
+		logger.Verbosef = log.Of(tag, log.V)
+	}
+	return logger
 }
 
 func wgIfConfigOf(txtptr *string) (ifaddrs []*netip.Prefix, dnsaddrs []*netip.Addr, mtu int, err error) {
