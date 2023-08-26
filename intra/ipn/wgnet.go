@@ -648,6 +648,7 @@ func fullAddrFrom(ipport netip.AddrPort) (tcpip.FullAddress, tcpip.NetworkProtoc
 		protoNumber = ipv6.ProtocolNumber
 		nsdaddr = tcpip.AddrFrom16(ipport.Addr().As16())
 	}
+	log.V("wg: dial: translate ipp: %v -> %v", ipport, nsdaddr)
 	return tcpip.FullAddress{
 		NIC:  wgnic,
 		Addr: nsdaddr,
@@ -656,23 +657,33 @@ func fullAddrFrom(ipport netip.AddrPort) (tcpip.FullAddress, tcpip.NetworkProtoc
 }
 
 func ipportFrom(addr any) (ipp netip.AddrPort) {
+	var err error
 	switch addr := addr.(type) {
 	case *net.TCPAddr:
-		ip, _ := netip.AddrFromSlice(addr.IP)
-		ipp = netip.AddrPortFrom(ip, uint16(addr.Port))
-	case *net.UDPAddr:
-		ip, _ := netip.AddrFromSlice(addr.IP)
-		ipp = netip.AddrPortFrom(ip, uint16(addr.Port))
-	case string:
-		if strings.Contains(addr, ":") {
-			ipp, _ = netip.ParseAddrPort(addr)
+		if ip, ok := netip.AddrFromSlice(addr.IP); ok {
+			ipp = netip.AddrPortFrom(ip, uint16(addr.Port))
 		} else {
-			ip, _ := netip.ParseAddr(addr)
-			ipp = netip.AddrPortFrom(ip, 0)
+			log.W("wg: dial: invalid tcp addr: %v", addr)
+		}
+	case *net.UDPAddr:
+		if ip, ok := netip.AddrFromSlice(addr.IP); ok {
+			ipp = netip.AddrPortFrom(ip, uint16(addr.Port))
+		} else {
+			log.W("wg: dial: invalid udp addr: %v", addr)
+		}
+	case string:
+		// may error if addr is an IP addr without port
+		if ipp, err = netip.ParseAddrPort(addr); err != nil {
+			if ip, err2 := netip.ParseAddr(addr); err == nil {
+				ipp = netip.AddrPortFrom(ip, 0)
+			} else {
+				log.W("wg: dial: addr: %v; err1: %v / err2: %v", addr, err, err2)
+			}
 		}
 	default:
-		log.W("wg: ipportFrom: unknown type: %T", addr)
+		log.W("wg: dial: unknown addr type: %T %v", addr, addr)
 	}
+	log.V("wg: dial: translate addr: %v -> %v", addr, ipp)
 	return ipp
 }
 
