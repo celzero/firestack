@@ -64,3 +64,5 @@ func (h *base) Stop() error {
 	log.I("proxy: base: stopped")
 	return nil
 }
+
+func (h *base) Refresh() error { return nil }

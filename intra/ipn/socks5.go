@@ -113,3 +113,5 @@ func (h *socks5) Stop() error {
 	log.I("proxy: socks5: stopped %s", h.id)
 	return nil
 }
+
+func (h *socks5) Refresh() error { return nil }

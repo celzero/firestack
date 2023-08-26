@@ -97,3 +97,5 @@ func (h *http1) Stop() error {
 	log.I("proxy: http1: stopped %s", h.id)
 	return nil
 }
+
+func (h *http1) Refresh() error { return nil }

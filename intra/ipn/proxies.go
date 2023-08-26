@@ -81,6 +81,8 @@ type Proxy interface {
 	Status() int
 	// Stop stops this proxy.
 	Stop() error
+	// Refresh re-registers this proxy.
+	Refresh() error
 }
 
 type Proxies interface {
@@ -177,6 +179,10 @@ func (px *proxifier) RefreshProxies() (string, error) {
 
 	var active []string
 	for _, p := range px.p {
+		if err := p.Refresh(); err != nil {
+			log.E("proxy: refresh (%s/%s/%s) failed: %v", p.ID(), p.Type(), p.GetAddr(), err)
+			continue
+		}
 		active = append(active, p.ID())
 	}
 	return strings.Join(active, ","), nil

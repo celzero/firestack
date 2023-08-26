@@ -41,3 +41,5 @@ func (h *ground) Status() int {
 func (h *ground) Stop() error {
 	return nil
 }
+
+func (h *ground) Refresh() error { return nil }

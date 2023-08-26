@@ -104,6 +104,18 @@ func (w *wgproxy) Stop() error {
 	return w.Close()
 }
 
+func (w *wgproxy) Refresh() (err error) {
+	if err = w.Device.Down(); err != nil {
+		log.E("proxy: wg: !refresh(%s): down: %v", w.id, err)
+		return
+	}
+	if err = w.Device.Up(); err != nil {
+		log.E("proxy: wg: !refresh(%s): up: %v", w.id, err)
+		return
+	}
+	return
+}
+
 func (w *wgproxy) canUpdate(txt string) bool {
 	if w.status == END {
 		log.W("proxy: wg: !canUpdate(%s): END; status(%d)", w.id, w.status)

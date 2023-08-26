@@ -281,6 +281,8 @@ func (t *piph2) Status() int {
 	return t.status
 }
 
+func (h *piph2) Refresh() error { return nil }
+
 // Scenario 4: privacypass.github.io/protocol
 func (t *piph2) claim(msg string) []string {
 	if len(t.token) == 0 || len(t.toksig) == 0 {
