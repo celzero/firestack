@@ -34,6 +34,8 @@ package log
 // based on: github.com/eycorsican/go-tun2socks/blob/301549c43/common/log/log.go#L5
 var logger Logger
 
+type LogFn func(string, ...any)
+
 func RegisterLogger(l Logger) bool {
 	logger = l
 	return true
@@ -45,37 +47,48 @@ func SetLevel(level LogLevel) {
 	}
 }
 
-func V(msg string, args ...interface{}) {
+func Of(tag string, l LogFn) LogFn {
+	if l != nil {
+		return func(msg string, args ...any) {
+			l(tag+" "+msg, args...)
+		}
+	}
+	return N
+}
+
+func N(_ string, _ ...any) {}
+
+func V(msg string, args ...any) {
 	if logger != nil {
 		logger.Verbosef("V "+msg, args...)
 	}
 }
 
-func D(msg string, args ...interface{}) {
+func D(msg string, args ...any) {
 	if logger != nil {
 		logger.Debugf("D "+msg, args...)
 	}
 }
 
-func I(msg string, args ...interface{}) {
+func I(msg string, args ...any) {
 	if logger != nil {
 		logger.Infof("I "+msg, args...)
 	}
 }
 
-func W(msg string, args ...interface{}) {
+func W(msg string, args ...any) {
 	if logger != nil {
 		logger.Warnf("W "+msg, args...)
 	}
 }
 
-func E(msg string, args ...interface{}) {
+func E(msg string, args ...any) {
 	if logger != nil {
 		logger.Errorf("E "+msg, args...)
 	}
 }
 
-func Wtf(msg string, args ...interface{}) {
+func Wtf(msg string, args ...any) {
 	if logger != nil {
 		logger.Fatalf("F "+msg, args...)
 	}
