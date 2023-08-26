@@ -29,13 +29,10 @@ func (pxr *proxifier) AddProxy(id, txt string) (p Proxy, err error) {
 				_, _, _, _ = wgIfConfigOf(&txt) // removes wg ifconfig from txt
 				err = wgp.IpcSet(txt)
 				return
-			} else {
-				return nil, errUnexpectedProxy
-			}
-		} else {
-			// txt is both wg ifconfig and peercfg
-			p, err = NewWgProxy(id, pxr.ctl, txt)
+			} // else: create anew
 		}
+		// txt is both wg ifconfig and peercfg
+		p, err = NewWgProxy(id, pxr.ctl, txt)
 	} else {
 		var strurl string
 		var usr string
