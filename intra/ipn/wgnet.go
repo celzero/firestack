@@ -26,7 +26,6 @@ import (
 	"net"
 	"net/netip"
 	"os"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -526,27 +525,28 @@ func partialDeadline(now, deadline time.Time, addrsRemaining int) (time.Time, er
 // generic dialer
 // --------------------------------------------------------------------
 
-var protoSplitter = regexp.MustCompile(`^(tcp|udp|ping)(4|6)?$`)
-
 func (tnet *wgtun) DialContext(ctx context.Context, network, address string) (net.Conn, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
+
 	var acceptV4, acceptV6 bool
-	matches := protoSplitter.FindStringSubmatch(network)
-	if matches == nil {
-		log.W("wg: dail: unknown network %q", network)
-		return nil, &net.OpError{Op: "dial", Err: net.UnknownNetworkError(network)}
-	} else if len(matches[2]) == 0 {
+	switch network {
+	case "tcp", "udp", "ping":
 		acceptV4 = true
 		acceptV6 = true
-	} else {
-		acceptV4 = matches[2][0] == '4'
-		acceptV6 = !acceptV4
+	case "tcp4", "udp4", "ping4":
+		acceptV4 = true
+	case "tcp6", "udp6", "ping6":
+		acceptV6 = true
+	default:
+		log.W("wg: dail: unknown network %q", network)
+		return nil, &net.OpError{Op: "dial", Err: net.UnknownNetworkError(network)}
 	}
+
 	var host string
 	var port int
-	if matches[1] == "ping" {
+	if network == "ping" || network == "ping4" || network == "ping6" {
 		host = address
 	} else {
 		var sport string
@@ -562,11 +562,13 @@ func (tnet *wgtun) DialContext(ctx context.Context, network, address string) (ne
 			return nil, &net.OpError{Op: "dial", Err: errNumericPort}
 		}
 	}
+
 	allAddr, err := tnet.LookupContextHost(ctx, host)
 	if err != nil {
 		log.W("wg: dail: lookup failed %q: %v", host, err)
 		return nil, &net.OpError{Op: "dial", Err: err}
 	}
+
 	var addrs []netip.AddrPort
 	for _, addr := range allAddr {
 		ip, err := netip.ParseAddr(addr)
@@ -611,18 +613,18 @@ func (tnet *wgtun) DialContext(ctx context.Context, network, address string) (ne
 		}
 
 		var c net.Conn
-		switch matches[1] {
-		case "tcp":
+		switch network {
+		case "tcp", "tcp4", "tcp6":
 			c, err = tnet.DialContextTCPAddrPort(dialCtx, addr)
-		case "udp":
+		case "udp", "udp4", "udp6":
 			c, err = tnet.DialUDPAddrPort(netip.AddrPort{}, addr)
-		case "ping":
+		case "ping", "ping4", "ping6":
 			c, err = tnet.DialPingAddr(netip.Addr{}, addr.Addr())
 		}
 		if err == nil {
 			return c, nil
 		}
-		log.I("wg: dial: %v err %v", addr, err)
+		log.I("wg: dial: %s: %v err %v", network, addr, err)
 		if firstErr == nil {
 			firstErr = err
 		}
@@ -630,7 +632,7 @@ func (tnet *wgtun) DialContext(ctx context.Context, network, address string) (ne
 	if firstErr == nil {
 		firstErr = &net.OpError{Op: "dial", Err: errMissingAddress}
 	}
-	log.W("wg: dail: %v failed: %v", addrs, firstErr)
+	log.W("wg: dail: %s: %v failed: %v", network, addrs, firstErr)
 	return nil, firstErr
 }
 
