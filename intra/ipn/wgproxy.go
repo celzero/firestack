@@ -93,10 +93,8 @@ func (w *wgproxy) BatchSize() int {
 
 // Close implements WgProxy
 func (w *wgproxy) Close() error {
-	// is wgtun.Close() called by device.Close()
-	// return w.wgtun.Close()
+	// w.wgtun.Close() called by device.Close()?
 	w.Device.Close()
-	// TODO: <-w.Device.Wait()
 	return nil
 }
 
