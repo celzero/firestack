@@ -23,7 +23,7 @@ func (h *ground) Dial(network, addr string) (c Conn, err error) {
 }
 
 func (h *ground) ID() string {
-	return Grounded
+	return Block
 }
 
 func (h *ground) Type() string {
