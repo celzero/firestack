@@ -163,6 +163,7 @@ func (t *dnsgateway) querySecondary(t2 Transport, network string, q []byte, out 
 		out <- result
 	}()
 	defer func() {
+		// race against the timeout
 		out <- result
 	}()
 
@@ -464,7 +465,7 @@ func netip2csv(ips []*netip.Addr) (csv string) {
 		}
 		csv += ip.String()
 	}
-	return
+	return strings.TrimSuffix(csv, ",")
 }
 
 func withAlgSummaryIfNeeded(algips []*netip.Addr, s *Summary) {
@@ -473,7 +474,7 @@ func withAlgSummaryIfNeeded(algips []*netip.Addr, s *Summary) {
 		ipcsv := netip2csv(algips)
 
 		if len(s.RData) > 0 {
-			s.RData = ipcsv + "," + s.RData
+			s.RData = s.RData + "," + ipcsv
 		} else {
 			s.RData = ipcsv
 		}

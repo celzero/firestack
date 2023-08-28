@@ -516,7 +516,7 @@ func (r *resolver) withDNS64SummaryIfNeeded(d64 []byte, s *Summary) {
 	// append dns64 rdata to summary
 	if rdata := xdns.GetInterestingRData(msg); len(rdata) > 0 {
 		if len(s.RData) > 0 {
-			s.RData = rdata + "," + s.RData
+			s.RData = s.RData + "," + rdata
 		} else {
 			s.RData = rdata
 		}

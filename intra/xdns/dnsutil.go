@@ -322,7 +322,7 @@ func GetInterestingRData(msg *dns.Msg) string {
 			continue
 		}
 	}
-	return ipcsv
+	return strings.TrimSuffix(ipcsv, ",")
 }
 
 func Targets(msg *dns.Msg) []string {
