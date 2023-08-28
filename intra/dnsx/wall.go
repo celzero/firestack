@@ -24,10 +24,11 @@ func (r *resolver) blockQ(t, t2 Transport, msg *dns.Msg) (ans *dns.Msg, blocklis
 	b := r.rdnsl
 
 	if b == nil || !b.OnDeviceBlock() {
+		log.D("wall: no local blocker; letting through %s", qname)
 		return nil, "", errNoRdns
 	}
 	// OnDeviceBlock() is true; enforce blocklists
-	ans, blocklists, err = r.applyBlocklists(msg)
+	ans, blocklists, err = r.applyBlocklists(b, msg)
 	if err != nil {
 		// block skipped because err is set
 		log.D("wall: skip local for %s block for %s with err %s", qname, blocklists, err)
@@ -35,12 +36,7 @@ func (r *resolver) blockQ(t, t2 Transport, msg *dns.Msg) (ans *dns.Msg, blocklis
 	return
 }
 
-func (r *resolver) applyBlocklists(q *dns.Msg) (ans *dns.Msg, blocklists string, err error) {
-	b := r.rdnsl
-	if b == nil {
-		return nil, "", errNoRdns
-	}
-
+func (r *resolver) applyBlocklists(b BraveDNS, q *dns.Msg) (ans *dns.Msg, blocklists string, err error) {
 	blocklists, err = b.blockQuery(q)
 	if err != nil {
 		return
@@ -51,7 +47,6 @@ func (r *resolver) applyBlocklists(q *dns.Msg) (ans *dns.Msg, blocklists string,
 	}
 
 	ans, err = xdns.RefusedResponseFromMessage(q)
-
 	return
 }
 
@@ -86,6 +81,7 @@ func (r *resolver) blockA(t, t2 Transport, q *dns.Msg, ans *dns.Msg, blocklistSt
 	// local block resolution, if any
 	b := r.rdnsl
 	if b == nil {
+		log.D("wall: no local blocker; letting through %s", qname)
 		return nil, ""
 	}
 
