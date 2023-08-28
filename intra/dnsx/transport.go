@@ -445,6 +445,8 @@ func (r *resolver) Forward(q []byte) ([]byte, error) {
 		summary.Blocklists = blocklists
 		summary.RData = xdns.GetInterestingRData(res1)
 		return b, e
+	} else {
+		log.V("dns: udp: query NOT blocked %s; why? %v", qname, err)
 	}
 
 	summary.Type = t.Type()
@@ -460,7 +462,7 @@ func (r *resolver) Forward(q []byte) ([]byte, error) {
 
 	algerr := isAlgErr(err) // not set when gw.translate is off
 	if algerr {
-		log.D("dns: udp: alg error %s for %s", err, qname)
+		log.W("dns: udp: alg error %s for %s", err, qname)
 	}
 	// in the case of an alg transport, if there's no-alg,
 	// err is set which should be ignored if res2 is not nil
@@ -473,27 +475,32 @@ func (r *resolver) Forward(q []byte) ([]byte, error) {
 		summary.Status = BadResponse
 		return res2, err
 	}
-
+	answerblocked := false
 	ans2, blocklistnames := r.blockA(t, t2, msg, ans1, summary.Blocklists)
 	if len(blocklistnames) > 0 {
 		// summary latency, response, status, ips already set by transport t
 		summary.Blocklists = blocklistnames
 	}
+
 	// overwrite response when blocked
 	if ans2 != nil {
 		ans1 = ans2
+		answerblocked = true
+	} else {
+		log.V("dns: udp: answer NOT blocked %s", qname)
 	}
 
-	// override resp with dns64 if needed
 	if onet != nil {
-		// d64 is same as res2 when dns64 is not needed
-		d64 := r.natpt.D64(t.ID(), res2, onet)
-		if len(d64) >= xdns.MinDNSPacketSize {
-			r.withDNS64SummaryIfNeeded(d64, summary)
-			return d64, nil
-		}
+		if !answerblocked {
+			// d64 is same as res2 when dns64 is not needed
+			d64 := r.natpt.D64(t.ID(), res2, onet)
+			if len(d64) >= xdns.MinDNSPacketSize {
+				r.withDNS64SummaryIfNeeded(d64, summary)
+				return d64, nil
+			}
+		} // else: answer is blocked, no dns64
 	} else {
-		log.W("dns: dns64: missing onetransport for %s", t.ID())
+		log.D("dns: dns64: missing onetransport for %s", t.ID())
 	}
 
 	return ans1.Pack()
@@ -613,6 +620,8 @@ func (r *resolver) forwardQuery(q []byte, c io.Writer) error {
 		summary.RData = xdns.GetInterestingRData(res1)
 		writeto(c, b, len(b))
 		return e
+	} else {
+		log.V("dns: tcp: query NOT blocked %s; why? %v", qname, err)
 	}
 
 	summary.Type = t.Type()
@@ -628,7 +637,7 @@ func (r *resolver) forwardQuery(q []byte, c io.Writer) error {
 
 	algerr := isAlgErr(err) // not set when gw.translate is off
 	if algerr {
-		log.D("dns: tcp: alg error %s for %s", err, qname)
+		log.W("dns: tcp: alg error %s for %s", err, qname)
 	}
 	// in the case of an alg transport, if there's no-alg,
 	// err is set which should be ignored if res2 is not nil
@@ -642,6 +651,7 @@ func (r *resolver) forwardQuery(q []byte, c io.Writer) error {
 		return qerr
 	}
 
+	answerblocked := false
 	ans2, blocklistnames := r.blockA(t, t2, msg, ans1, summary.Blocklists)
 	// overwrite response when blocked
 	if len(blocklistnames) > 0 {
@@ -651,6 +661,9 @@ func (r *resolver) forwardQuery(q []byte, c io.Writer) error {
 	// overwrite response when blocked
 	if ans2 != nil {
 		ans1 = ans2
+		answerblocked = true
+	} else {
+		log.V("dns: tcp: answer NOT blocked %s", qname)
 	}
 
 	resp, qerr := ans1.Pack()
@@ -663,16 +676,18 @@ func (r *resolver) forwardQuery(q []byte, c io.Writer) error {
 		return fmt.Errorf("dns: tcp: oversize response: %d", len(resp))
 	}
 
-	// override resp with dns64 if needed
+	// override original resp with dns64 if needed
 	if onet != nil {
-		// d64 is same as res2 if dns64 is not needed
-		d64 := r.natpt.D64(t.ID(), res2, onet)
-		if len(d64) > xdns.MinDNSPacketSize {
-			r.withDNS64SummaryIfNeeded(d64, summary)
-			resp = d64
-		}
+		if !answerblocked {
+			// d64 is same as res2 if dns64 is not needed
+			d64 := r.natpt.D64(t.ID(), res2, onet)
+			if len(d64) > xdns.MinDNSPacketSize {
+				r.withDNS64SummaryIfNeeded(d64, summary)
+				resp = d64
+			}
+		} // else answer is blocked, no dns64
 	} else {
-		log.W("dns: dns64: missing onetransport for %s", t.ID())
+		log.D("dns: dns64: missing onetransport for %s", t.ID())
 	}
 
 	rlen := len(resp)
