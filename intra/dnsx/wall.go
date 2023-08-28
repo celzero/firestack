@@ -24,14 +24,14 @@ func (r *resolver) blockQ(t, t2 Transport, msg *dns.Msg) (ans *dns.Msg, blocklis
 	b := r.rdnsl
 
 	if b == nil || !b.OnDeviceBlock() {
-		log.D("wall: no local blocker; letting through %s", qname)
+		log.V("wall: no local blockerQ; letting through %s", qname)
 		return nil, "", errNoRdns
 	}
 	// OnDeviceBlock() is true; enforce blocklists
 	ans, blocklists, err = r.applyBlocklists(b, msg)
 	if err != nil {
 		// block skipped because err is set
-		log.D("wall: skip local for %s block for %s with err %s", qname, blocklists, err)
+		log.D("wall: skip local for %s blockQ for %s with err %s", qname, blocklists, err)
 	}
 	return
 }
@@ -60,14 +60,15 @@ func (r *resolver) blockA(t, t2 Transport, q *dns.Msg, ans *dns.Msg, blocklistSt
 	// remote block resolution, if any
 	if len(blocklistStamp) > 0 && br != nil {
 		blocklistNames, err = br.StampToNames(blocklistStamp)
-		if err != nil {
-			log.D("wall: could not resolve blocklist-stamp(%s) for %s, err: %v", blocklistStamp, qname, err)
+		if err == nil {
+			log.D("wall: for %s blocklists %s", qname, blocklistNames)
 			return
+		} else {
+			log.D("wall: could not resolve blocklist-stamp(%s) for %s, err: %v", blocklistStamp, qname, err)
+			// continue to local block resolution
 		}
-		log.D("wall: for %s blocklists %s", qname, blocklistNames)
-		return
 	} else {
-		log.D("wall: no block for %s; blocklist-stamp? (%d) / rdnsr? (%t)", qname, len(blocklistStamp), br != nil)
+		log.D("wall: no blockA for %s; blocklist-stamp? (%d) / rdnsr? (%t)", qname, len(blocklistStamp), br != nil)
 	}
 
 	// skip local blocks for alg and blockfree
@@ -81,28 +82,28 @@ func (r *resolver) blockA(t, t2 Transport, q *dns.Msg, ans *dns.Msg, blocklistSt
 	// local block resolution, if any
 	b := r.rdnsl
 	if b == nil {
-		log.D("wall: no local blocker; letting through %s", qname)
+		log.V("wall: no local blockerA; letting through %s", qname)
 		return nil, ""
 	}
 
 	if !b.OnDeviceBlock() {
-		log.D("wall: no local block for %s", qname)
+		log.D("wall: no local blockA for %s", qname)
 		return
 	}
 
 	if blocklistNames, err = b.blockAnswer(ans); err != nil {
-		log.D("wall: response for %s not blocked %v", qname, err)
+		log.D("wall: answer for %s not blocked %v", qname, err)
 		return
 	}
 
 	if len(blocklistNames) <= 0 {
-		log.D("wall: query %s not blocked blocklist empty", qname)
+		log.D("wall: answer %s not blocked blocklist empty", qname)
 		return
 	}
 
 	finalans, err = xdns.RefusedResponseFromMessage(q)
 	if err != nil {
-		log.W("wall: could not pack %s blocked dns ans %v", qname, err)
+		log.W("wall: could not pack %s blocked dns answer %v", qname, err)
 		return
 	}
 
