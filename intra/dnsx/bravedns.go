@@ -65,9 +65,7 @@ type RdnsResolver interface {
 }
 
 type BraveDNS interface {
-
-	// Mode
-	OnDeviceBlock() bool
+	OnDeviceBlock() bool // Mode
 
 	SetStamp(string) error
 
@@ -81,10 +79,6 @@ type BraveDNS interface {
 
 	// Returns comma-separated blocklist ids given a valid blockstamp
 	StampToFlags(s string) (string, error)
-
-	BlockRequest([]byte) (string, error)
-
-	BlockResponse([]byte) (string, error)
 
 	blockQuery(*dns.Msg) (string, error)
 	blockAnswer(*dns.Msg) (string, error)
@@ -118,10 +112,10 @@ func (brave *bravedns) GetStamp() (s string, err error) {
 		return
 	}
 	if len(brave.stamp) <= 0 {
-		err = errNoStamps
-		return
+		s = ""
+	} else {
+		s = brave.stamp
 	}
-	s = brave.stamp
 	return
 }
 
@@ -129,11 +123,14 @@ func (brave *bravedns) SetStamp(stamp string) error {
 	if !brave.OnDeviceBlock() {
 		return errRemote
 	}
-	// validate
-	if _, err := brave.StampToNames(stamp); err != nil {
-		return err
+	if len(stamp) <= 0 {
+		brave.stamp = ""
+	} else {
+		if _, err := brave.StampToNames(stamp); err != nil { // validate
+			return err
+		}
+		brave.stamp = stamp
 	}
-	brave.stamp = stamp
 	return nil
 }
 
@@ -176,10 +173,6 @@ func (brave *bravedns) StampToFlags(stamp string) (string, error) {
 	}
 
 	return strings.Join(blocklistids[:], ","), nil
-}
-
-func (brave *bravedns) flagstotag(stamp string) (string, error) {
-	return brave.StampToNames(stamp)
 }
 
 func (brave *bravedns) StampToNames(stamp string) (string, error) {
@@ -231,20 +224,16 @@ func (brave *bravedns) flagsToNames(flagstr []string) (v []string) {
 	return
 }
 
-func (brave *bravedns) BlockRequest(q []byte) (r string, err error) {
-	msg := &dns.Msg{}
-	if err = msg.Unpack(q); err != nil {
-		return
-	}
-	return brave.blockQuery(msg)
-}
-
 func (brave *bravedns) blockQuery(msg *dns.Msg) (r string, err error) {
 	if len(msg.Question) != 1 {
 		err = errTooManyQuestions
 		return
 	}
 	stamp, err := brave.GetStamp()
+	if len(stamp) <= 0 {
+		err = errNoStamps
+		return
+	}
 	if err != nil {
 		return
 	}
@@ -265,20 +254,16 @@ func (brave *bravedns) blockQuery(msg *dns.Msg) (r string, err error) {
 	return
 }
 
-func (brave *bravedns) BlockResponse(q []byte) (r string, err error) {
-	msg := &dns.Msg{}
-	if err = msg.Unpack(q); err != nil {
-		return
-	}
-	return brave.blockAnswer(msg)
-}
-
 func (brave *bravedns) blockAnswer(msg *dns.Msg) (r string, err error) {
 	if len(msg.Answer) <= 1 {
 		err = errNotEnoughAnswers
 		return
 	}
 	stamp, err := brave.GetStamp()
+	if len(stamp) <= 0 {
+		err = errNoStamps
+		return
+	}
 	if err != nil {
 		return
 	}
@@ -491,11 +476,12 @@ func (brave *bravedns) flagstoinfo(flags []uint16) ([]*listinfo, error) {
 	// for all blocklist flags excluding the header
 	// figure out the blocklist-ids
 	for i := 1; i < len(flags); i++ {
-		// 16 blocklists are represented by one flag
-		// that is, one bit per blocklist
+		// 16 blocklists are represented by one flag; ie,
+		// one bit per blocklist; flag[0] is the header.
 		var flag = uint16(flags[i])
 		// get the index of the current flag in the header
 		var index = tagIndices[i-1]
+		// b1000,0000,0000,0000; 1<<15
 		mask = 0x8000
 		// for each of the 16 bits in the flag
 		// capture the set bits and calculate
@@ -545,10 +531,10 @@ func (brave *bravedns) flagtostamp(fl []uint16) ([]uint16, error) {
 		databit := *h >> (15 - hindex)
 		dataindex := brave.countSetBits(hmask) + 1
 		datafound := (databit & 0x1) == 1
-		if !datafound {
-			// log too verbose
-			// log.Debugf("!!flag not found: len(res) %d / dataindex %d / found? %t\n", len(res), dataindex, datafound)
-		}
+		// if !datafound {
+		// log too verbose
+		// log.Debugf("!!flag not found: len(res) %d / dataindex %d / found? %t\n", len(res), dataindex, datafound)
+		// }
 		if datafound {
 			// upsert, as in 'n' is updated in-place
 			n = res[dataindex]
