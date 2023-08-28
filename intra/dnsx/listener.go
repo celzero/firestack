@@ -10,7 +10,7 @@ import "fmt"
 
 // Summary is a summary of a DNS transaction, reported when it is complete.
 type Summary struct {
-	Type        string  // dnscrypt, dns53, doh
+	Type        string  // dnscrypt, dns53, doh, odoh, dot
 	ID          string  // transport id
 	Latency     float64 // Response (or failure) latency in seconds
 	QName       string  // query domain

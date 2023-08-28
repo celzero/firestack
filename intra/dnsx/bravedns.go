@@ -126,6 +126,9 @@ func (brave *bravedns) GetStamp() (s string, err error) {
 }
 
 func (brave *bravedns) SetStamp(stamp string) error {
+	if !brave.OnDeviceBlock() {
+		return errRemote
+	}
 	// validate
 	if _, err := brave.StampToNames(stamp); err != nil {
 		return err
