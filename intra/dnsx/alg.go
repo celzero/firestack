@@ -174,8 +174,10 @@ func (t *dnsgateway) querySecondary(t2 Transport, network string, q []byte, out 
 		return // not a dns question we care about
 	} else if ans1, blocklists, err := t.rdns.blockQ( /*maybe nil*/ t2, nil, msg); err == nil {
 		// if err !is nil, then the question is blocked
-		result.ips = append(result.ips, xdns.AAnswer(ans1)...)
-		result.ips = append(result.ips, xdns.AAAAAnswer(ans1)...)
+		if ans1 != nil && len(ans1.Answer) > 0 {
+			result.ips = append(result.ips, xdns.AAnswer(ans1)...)
+			result.ips = append(result.ips, xdns.AAAAAnswer(ans1)...)
+		} // noop: for HTTP/SVCB, the answer is always empty
 		result.summary.Blocklists = blocklists
 		result.summary.Status = Complete
 		return
@@ -209,13 +211,17 @@ func (t *dnsgateway) querySecondary(t2 Transport, network string, q []byte, out 
 	if ans2 := xdns.AsMsg(r); ans2 == nil {
 		// not a valid dns answer
 		return
-	} else if ans3, blocklistnames := t.rdns.blockA(t2, nil, msg, ans2, result.summary.Blocklists); ans3 != nil {
-		// if ans3 is not nil, then the answer is blocked
+	} else if ans3, blocklistnames := t.rdns.blockA( /*may be nil*/ t2, nil, msg, ans2, result.summary.Blocklists); ans3 != nil {
+		// if ans3 is not nil, then the ans2/r is blocked
 		if len(blocklistnames) > 0 {
 			result.summary.Blocklists = blocklistnames
 		}
-		result.ips = append(result.ips, xdns.AAnswer(ans3)...)
-		result.ips = append(result.ips, xdns.AAAAAnswer(ans3)...)
+		// a blocked answer (ans3) has A, AAAA, or HTTPS/SVCB records
+		// see: xdns.RefusedResponseFromMessage
+		if len(ans3.Answer) > 0 {
+			result.ips = append(result.ips, xdns.AAnswer(ans3)...)
+			result.ips = append(result.ips, xdns.AAAAAnswer(ans3)...)
+		} // noop: for HTTPS/SVCB, the answer section is empty
 		return
 	} else {
 		if len(blocklistnames) > 0 {
