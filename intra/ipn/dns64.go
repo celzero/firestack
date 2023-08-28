@@ -176,14 +176,14 @@ func (d *dns64) eval(id string, force64 bool, og []byte, r Resolver) []byte {
 		// nb: has-aaaa-answer should cover for cases where
 		// the response is blocked by dnsx.BraveDNS
 		log.D("dns64: no-op q(%s), err(%v), q6(%t), ans6(%t), force64(%t)", qname, err, hasq6, hasans6, force64)
-		return og
+		return nil
 	}
 
 	ans4, err := d.query64(ansin, r)
 	rgood := xdns.HasRcodeSuccess(ans4)
 	if err != nil || ans4 == nil || len(ans4.Answer) <= 0 || xdns.AQuadAUnspecified(ans4) {
 		log.W("dns64: query(n:%s / a:%d) to resolver(%s) rgood(%t), err(%v)", qname, len(ans4.Answer), id, rgood, err)
-		return og
+		return nil
 	}
 
 	rr64 := make([]dns.RR, 0)
@@ -203,7 +203,7 @@ func (d *dns64) eval(id string, force64 bool, og []byte, r Resolver) []byte {
 		// may be there were no A records in ans4; or,
 		// xdns.ToQuadA failed for every A ans4 record
 		log.W("dns64: no rr64 translations done")
-		return og
+		return nil
 	} else {
 		log.D("dns64: translated response(%v)", rr64)
 	}
@@ -214,7 +214,7 @@ func (d *dns64) eval(id string, force64 bool, og []byte, r Resolver) []byte {
 		return r
 	} else {
 		log.W("dns64: unpacking ans64 err(%v)", err)
-		return og
+		return nil
 	}
 }
 

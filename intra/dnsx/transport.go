@@ -492,12 +492,11 @@ func (r *resolver) Forward(q []byte) ([]byte, error) {
 
 	if onet != nil {
 		if !answerblocked {
-			// d64 is same as res2 when dns64 is not needed
 			d64 := r.natpt.D64(t.ID(), res2, onet)
 			if len(d64) >= xdns.MinDNSPacketSize {
 				r.withDNS64SummaryIfNeeded(d64, summary)
 				return d64, nil
-			}
+			} // else: d64 is nil on no D64 or error
 		} // else: answer is blocked, no dns64
 	} else {
 		log.D("dns: dns64: missing onetransport for %s", t.ID())
@@ -679,12 +678,11 @@ func (r *resolver) forwardQuery(q []byte, c io.Writer) error {
 	// override original resp with dns64 if needed
 	if onet != nil {
 		if !answerblocked {
-			// d64 is same as res2 if dns64 is not needed
 			d64 := r.natpt.D64(t.ID(), res2, onet)
 			if len(d64) > xdns.MinDNSPacketSize {
 				r.withDNS64SummaryIfNeeded(d64, summary)
 				resp = d64
-			}
+			} // else: d64 is nil on no D64 or error
 		} // else answer is blocked, no dns64
 	} else {
 		log.D("dns: dns64: missing onetransport for %s", t.ID())
