@@ -92,6 +92,14 @@ func (s *TCPSocketSummary) str() string {
 		s.ID, s.PID, s.UID, s.DownloadBytes, s.UploadBytes, s.Duration, s.Synack, s.Retry, s.Msg)
 }
 
+func (s *TCPSocketSummary) WithErrors(err ...error) {
+	for _, e := range err {
+		if e != nil {
+			s.Msg += e.Error() + "; "
+		}
+	}
+}
+
 // TCPListener is notified when a socket closes.
 type TCPListener interface {
 	OnTCPSocketClosed(*TCPSocketSummary)
@@ -119,7 +127,7 @@ func NewTCPHandler(resolver dnsx.Resolver, pt ipn.NatPt, ctl protect.Controller,
 }
 
 // TODO: Propagate TCP RST using local.Abort(), on appropriate errors.
-func (h *tcpHandler) handleUpload(local core.TCPConn, remote core.TCPConn, upload chan int64) {
+func (h *tcpHandler) handleUpload(local core.TCPConn, remote core.TCPConn, uploadch chan int64, errch chan error) {
 	ci := conn2str(local, remote)
 
 	// io.copy does remote.ReadFrom(local)
@@ -128,7 +136,8 @@ func (h *tcpHandler) handleUpload(local core.TCPConn, remote core.TCPConn, uploa
 
 	local.CloseRead()
 	remote.CloseWrite()
-	upload <- bytes
+	uploadch <- bytes
+	errch <- err
 }
 
 func conn2str(a net.Conn, b net.Conn) string {
@@ -153,18 +162,16 @@ func (h *tcpHandler) handleDownload(local core.TCPConn, remote core.TCPConn) (by
 func (h *tcpHandler) forward(local net.Conn, remote net.Conn, summary *TCPSocketSummary) {
 	localtcp := local.(core.TCPConn)   // conforms to net.TCPConn
 	remotetcp := remote.(core.TCPConn) // conforms to net.TCPConn
-	upload := make(chan int64)
+	uploadch := make(chan int64)
+	errch := make(chan error)
 	start := time.Now()
 
-	go h.handleUpload(localtcp, remotetcp, upload)
-
+	go h.handleUpload(localtcp, remotetcp, uploadch, errch)
 	download, err := h.handleDownload(localtcp, remotetcp)
 
+	summary.WithErrors(err, <-errch)
 	summary.DownloadBytes = download
-	summary.UploadBytes = <-upload
-	if err != nil {
-		summary.Msg = err.Error()
-	}
+	summary.UploadBytes = <-uploadch
 	summary.Duration = int32(time.Since(start).Seconds())
 
 	go h.sendNotif(summary)
@@ -254,6 +261,7 @@ func (h *tcpHandler) onFlow(localaddr *net.TCPAddr, target *net.TCPAddr, realips
 func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target *net.TCPAddr) (open bool) {
 	const rst bool = true // tear down conn
 	const ack bool = !rst // send synack
+	var err error
 	s := &TCPSocketSummary{}
 
 	if src == nil || target == nil {
@@ -277,6 +285,7 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target *net.TCPAddr) (
 	s.UID = uid
 
 	defer func() {
+		s.WithErrors(err)
 		if !open {
 			go h.sendNotif(s)
 		} // else conn has been proxied, sendNotif is called by h.forward()
@@ -294,14 +303,14 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target *net.TCPAddr) (
 		}
 		log.I("tcp: gconn firewalled from %s -> %s (dom: %s/ real: %s); stall? %ds", src, target, domains, realips, secs)
 		open = gconn.Connect(rst) // fin
-		s.Msg = errTcpFirewalled.Error()
+		err = errTcpFirewalled
 		return
 	}
 
 	// handshake
 	if open = gconn.Connect(ack); !open {
 		log.E("tcp: gconn closed; no handshake %s -> %s", src, target)
-		s.Msg = errTcpHandshake.Error()
+		err = errTcpHandshake
 		return
 	}
 
@@ -309,11 +318,10 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target *net.TCPAddr) (
 	// but ipx4 might itself be an alg ip; so check if there's a real-ip to connect to
 	target.IP = oneRealIp(realips, ipx4)
 
-	if err := h.Handle(gconn, target, s); err != nil {
+	if err = h.Handle(gconn, target, s); err != nil {
 		log.E("tcp: proxy(%s -> %s) err: %v", src, target, err)
 		open = false
 		gconn.Close()
-		s.Msg = err.Error()
 	}
 	return
 }
@@ -325,6 +333,8 @@ func (h *tcpHandler) Handle(conn net.Conn, target *net.TCPAddr, summary *TCPSock
 
 	pid := summary.PID
 	summary.Msg = noerr
+
+	defer summary.WithErrors(err)
 
 	if h.dnsOverride(conn, target) {
 		return nil
