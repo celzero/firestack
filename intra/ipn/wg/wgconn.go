@@ -27,11 +27,8 @@ import (
 )
 
 const maxbindtries = 10
-const wgtimeout = 15 * time.Second
+const wgtimeout = 60 * time.Second
 
-// StdNetBind is meant to be a temporary solution on platforms for which
-// the sticky socket / source caching behavior has not yet been implemented.
-// It uses the Go's net package to implement networking.
 type StdNetBind struct {
 	mu         sync.Mutex // protects following fields
 	ipv4       *net.UDPConn
@@ -180,6 +177,7 @@ func (bind *StdNetBind) Close() error {
 }
 
 func (s *StdNetBind) makeReceiveFn(uc *net.UDPConn) conn.ReceiveFunc {
+	// github.com/WireGuard/wireguard-go/blob/469159ecf/device/device.go#L531
 	return func(bufs [][]byte, sizes []int, eps []conn.Endpoint) (n int, err error) {
 		numMsgs := 0
 		b := bufs[0]
