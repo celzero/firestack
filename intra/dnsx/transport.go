@@ -444,6 +444,7 @@ func (r *resolver) Forward(q []byte) ([]byte, error) {
 		summary.Status = Complete
 		summary.Blocklists = blocklists
 		summary.RData = xdns.GetInterestingRData(res1)
+		log.V("dns: udp: query blocked %s by %s", qname, blocklists)
 		return b, e
 	} else {
 		log.V("dns: udp: query NOT blocked %s; why? %v", qname, err)
@@ -478,8 +479,11 @@ func (r *resolver) Forward(q []byte) ([]byte, error) {
 	answerblocked := false
 	ans2, blocklistnames := r.blockA(t, t2, msg, ans1, summary.Blocklists)
 	if len(blocklistnames) > 0 {
-		// summary latency, response, status, ips already set by transport t
+		// summary latency, response, status, ips also set by transport t
+		summary.Status = Complete
 		summary.Blocklists = blocklistnames
+		summary.RData = xdns.GetInterestingRData(ans2)
+		log.V("dns: udp: answer blocked %s by %s", qname, blocklistnames)
 	}
 
 	// overwrite response when blocked
@@ -618,6 +622,7 @@ func (r *resolver) forwardQuery(q []byte, c io.Writer) error {
 		summary.Blocklists = blocklists
 		summary.RData = xdns.GetInterestingRData(res1)
 		writeto(c, b, len(b))
+		log.V("dns: udp: query blocked %s by %s", qname, blocklists)
 		return e
 	} else {
 		log.V("dns: tcp: query NOT blocked %s; why? %v", qname, err)
@@ -654,8 +659,11 @@ func (r *resolver) forwardQuery(q []byte, c io.Writer) error {
 	ans2, blocklistnames := r.blockA(t, t2, msg, ans1, summary.Blocklists)
 	// overwrite response when blocked
 	if len(blocklistnames) > 0 {
-		// summary latency, response, status, ips already set by transport t
+		// summary latency, response, status, ips also set by transport t
+		summary.Status = Complete
 		summary.Blocklists = blocklistnames
+		summary.RData = xdns.GetInterestingRData(ans2)
+		log.V("dns: tcp: answer blocked %s by %s", qname, blocklistnames)
 	}
 	// overwrite response when blocked
 	if ans2 != nil {
