@@ -444,6 +444,7 @@ func RefusedResponseFromMessage(srcMsg *dns.Msg) (dstMsg *dns.Msg, err error) {
 
 	questions := srcMsg.Question
 	if len(questions) == 0 {
+		log.W("dnsutil: no q in msg", srcMsg)
 		return
 	}
 
