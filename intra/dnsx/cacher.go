@@ -387,15 +387,8 @@ func (t *ctransport) fetch(network string, q []byte, msg *dns.Msg, summary *Summ
 			if !isfresh { // not fresh, fetch in the background
 				go sendRequest(true)
 			}
-			// change summary fields to reflect cached response
-			summary.ID = t.ID()
-			summary.Type = t.Type()
-			summary.Server = t.GetAddr()
-			summary.Status = cachedsummary.Status
-			summary.RData = cachedsummary.RData
-			summary.RCode = cachedsummary.RCode
-			summary.RTtl = cachedsummary.RTtl
-			summary.Blocklists = cachedsummary.Blocklists
+			// change summary fields to reflect cached response, except for latency
+			cachedsummary.FillInto(summary)
 			summary.Latency = time.Since(start).Seconds()
 			t.est.Add(summary.Latency)
 			return
