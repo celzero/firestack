@@ -126,8 +126,13 @@ func NewTCPHandler(resolver dnsx.Resolver, pt ipn.NatPt, ctl protect.Controller,
 	return h
 }
 
+type ioinfo struct {
+	bytes int64
+	err   error
+}
+
 // TODO: Propagate TCP RST using local.Abort(), on appropriate errors.
-func (h *tcpHandler) handleUpload(local core.TCPConn, remote core.TCPConn, uploadch chan int64, errch chan error) {
+func (h *tcpHandler) handleUpload(local core.TCPConn, remote core.TCPConn, ioch chan<- ioinfo) {
 	ci := conn2str(local, remote)
 
 	// io.copy does remote.ReadFrom(local)
@@ -136,8 +141,7 @@ func (h *tcpHandler) handleUpload(local core.TCPConn, remote core.TCPConn, uploa
 
 	local.CloseRead()
 	remote.CloseWrite()
-	uploadch <- bytes
-	errch <- err
+	ioch <- ioinfo{bytes, err}
 }
 
 func conn2str(a net.Conn, b net.Conn) string {
@@ -162,16 +166,17 @@ func (h *tcpHandler) handleDownload(local core.TCPConn, remote core.TCPConn) (by
 func (h *tcpHandler) forward(local net.Conn, remote net.Conn, summary *TCPSocketSummary) {
 	localtcp := local.(core.TCPConn)   // conforms to net.TCPConn
 	remotetcp := remote.(core.TCPConn) // conforms to net.TCPConn
-	uploadch := make(chan int64)
-	errch := make(chan error)
+	ioch := make(chan ioinfo)
 	start := time.Now()
 
-	go h.handleUpload(localtcp, remotetcp, uploadch, errch)
+	go h.handleUpload(localtcp, remotetcp, ioch)
 	download, err := h.handleDownload(localtcp, remotetcp)
 
-	summary.WithErrors(err, <-errch)
+	ioi := <-ioch
+
+	summary.WithErrors(err, ioi.err)
 	summary.DownloadBytes = download
-	summary.UploadBytes = <-uploadch
+	summary.UploadBytes = ioi.bytes
 	summary.Duration = int32(time.Since(start).Seconds())
 
 	go h.sendNotif(summary)
