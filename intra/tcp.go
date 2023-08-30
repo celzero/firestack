@@ -93,10 +93,14 @@ func (s *TCPSocketSummary) str() string {
 }
 
 func (s *TCPSocketSummary) WithErrors(err ...error) {
+	s.Msg = ""
 	for _, e := range err {
 		if e != nil {
 			s.Msg += e.Error() + "; "
 		}
+	}
+	if len(s.Msg) <= 0 {
+		s.Msg = noerr
 	}
 }
 
@@ -337,7 +341,6 @@ func (h *tcpHandler) Handle(conn net.Conn, target *net.TCPAddr, summary *TCPSock
 	var pc ipn.Conn
 
 	pid := summary.PID
-	summary.Msg = noerr
 
 	defer summary.WithErrors(err)
 
@@ -388,7 +391,7 @@ func (h *tcpHandler) Handle(conn net.Conn, target *net.TCPAddr, summary *TCPSock
 		}
 	}
 
-	summary.Synack = int32(time.Since(start).Seconds() * 1000)
+	summary.Synack = int32(end.Sub(start).Seconds() * 1000)
 
 	go h.forward(conn, c, summary)
 
