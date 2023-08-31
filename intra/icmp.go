@@ -23,6 +23,8 @@ import (
 	"github.com/celzero/firestack/intra/settings"
 )
 
+var icmptimeout = 10 * time.Second
+
 type ICMPHandler interface {
 	netstack.GICMPHandler
 }
@@ -53,7 +55,6 @@ type ICMPSummary struct {
 
 func NewICMPHandler(resolver dnsx.Resolver, pt ipn.NatPt, ctl protect.Controller,
 	tunMode *settings.TunMode, listener ICMPListener) ICMPHandler {
-	icmptimeout, _ := time.ParseDuration("30s")
 	h := &icmpHandler{
 		timeout:  icmptimeout,
 		resolver: resolver,
@@ -135,7 +136,7 @@ func (h *icmpHandler) Ping(source *net.UDPAddr, target *net.UDPAddr, msg []byte,
 		}
 		if !open {
 			close(c)
-			h.sendNotif(summary)
+			go h.sendNotif(summary)
 		}
 	}()
 
@@ -188,7 +189,7 @@ func (h *icmpHandler) fetch(c net.Conn, pong netstack.Pong, summary *ICMPSummary
 		if err != nil {
 			summary.Msg = err.Error()
 		}
-		h.sendNotif(summary)
+		go h.sendNotif(summary)
 	}()
 
 	bptr := core.Alloc()
@@ -205,7 +206,7 @@ func (h *icmpHandler) fetch(c net.Conn, pong netstack.Pong, summary *ICMPSummary
 		c.SetDeadline(time.Now().Add(h.timeout))
 		if n, err = c.Read(b); err != nil {
 			log.E("t.icmp.ingress: read(%v <- %v) ping err %v", src, dst, err)
-			success = false
+			success = success || false
 			break // on error, stop
 		} else if pong != nil { // process multiple pings
 			if err = pong(b[:n]); err != nil {
@@ -223,7 +224,7 @@ func (h *icmpHandler) fetch(c net.Conn, pong netstack.Pong, summary *ICMPSummary
 		}
 	}
 	elapsed := time.Since(summary.start)
-	log.I("t.icmp.ingress: ReadFrom(%v <- %v) ping; done in %v; ok? %s", src, dst, elapsed, success)
+	log.I("t.icmp.ingress: ReadFrom(%v <- %v) ping; done in %v; ok? %t", src, dst, elapsed, success)
 	return
 }
 
