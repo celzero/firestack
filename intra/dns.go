@@ -25,21 +25,21 @@ func newDNSProxy(id string, ipp netip.AddrPort) (d dnsx.Transport, err error) {
 	return dns53.NewTransportFrom(id, ipp)
 }
 
-func NewGroundedTransport(id string) (d dnsx.Transport) {
-	return dns53.NewGroundedTransport(id)
-}
-
 func newBlockAllTransport() (d dnsx.Transport) {
 	return dns53.NewGroundedTransport(dnsx.BlockAll)
-}
-
-func NewMDNSTransport(protos string) (d dnsx.Transport) {
-	return dns53.NewMDNSTransport(protos)
 }
 
 func newDNSCryptTransport() (p dnsx.TransportMult) {
 	p = dnscrypt.NewProxy()
 	return
+}
+
+func NewGroundedTransport(id string) (d dnsx.Transport) {
+	return dns53.NewGroundedTransport(id)
+}
+
+func NewMDNSTransport(protos string) (d dnsx.Transport) {
+	return dns53.NewMDNSTransport(protos)
 }
 
 // NewDoHTransport returns a DNSTransport that connects to the specified DoH server.

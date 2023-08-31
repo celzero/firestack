@@ -28,7 +28,6 @@ import (
 
 	"github.com/celzero/firestack/intra"
 	"github.com/celzero/firestack/intra/dnsx"
-	"github.com/celzero/firestack/intra/protect"
 	"github.com/celzero/firestack/intra/settings"
 	"github.com/celzero/firestack/tunnel"
 
@@ -41,13 +40,10 @@ func init() {
 	log.SetLevel(log.WARN)
 }
 
-// ConnectIntraTunnel reads packets from a TUN device and applies the Intra routing
-// rules.  Currently, this only consists of redirecting DNS packets to a specified
-// server; all other data flows directly to its destination.
-//
+// Connect reads packets from a TUN device.
 // `fd` is the TUN device.  The IntraTunnel acquires an additional reference to it, which
 //
-//	is released by IntraTunnel.Disconnect(), so the caller must close `fd` _and_ call
+//	is released by Disconnect(), so the caller must close `fd` _and_ call
 //	Disconnect() in order to close the TUN device.
 //
 // `fpcap` is the absolute filepath to which a PCAP file will be written to.
@@ -55,19 +51,16 @@ func init() {
 //	If `fpcap` is -1, no PCAP file will be written.
 //
 // `mtu` is the MTU of the TUN device.
-// `engine` Network protocol to use. Must be one of settings.NS4, settings.NS6, or settings.NS46
+// `engine` IP protocols to route: one of settings.Ns4, settings.Ns6, settings.Ns46.
 // `fakedns` is the DNS server that the system believes it is using, in "host:port" style.
 //
-//	The port is normally 53.
-//
-// `dohdns` is the default fallback DoH transport.  It must not be `nil`.
-// `ctl` is a kotlin object that implements the firewall.
-// `listener` will be provided with a summary of each TCP and UDP socket when it is closed.
+// `bdg` is a kotlin object that implements the Bridge interface.
 //
 // Throws an exception if the TUN file descriptor cannot be opened, or if the tunnel fails to
 // connect.
-func ConnectIntraTunnel(fd int, fpcap string, mtu, engine int, fakedns string, dohdns dnsx.Transport, ctl protect.Controller, listener intra.Listener) (t intra.Tunnel, err error) {
-	l3 := settings.L3(preferredEngine(engine))
+func Connect(fd, mtu, engine int, fpcap, fakedns string, dns dnsx.Transport, bdg intra.Bridge) (t intra.Tunnel, err error) {
+	tunmode := settings.DefaultTunMode()
+	tunmode.IpMode = engine
 
 	var dupfd int
 	dupfd, err = tunnel.Dup(fd)
@@ -75,7 +68,7 @@ func ConnectIntraTunnel(fd int, fpcap string, mtu, engine int, fakedns string, d
 		return
 	}
 
-	return intra.NewTunnel(fakedns, dohdns, dupfd, fpcap, l3, mtu, ctl, listener)
+	return intra.NewTunnel(dupfd, mtu, fpcap, fakedns, dns, tunmode, bdg)
 }
 
 func LogLevel(level int) {
@@ -99,16 +92,4 @@ func LogLevel(level int) {
 	}
 	log.SetLevel(dlvl)
 	settings.Debug = dbg
-}
-
-func preferredEngine(w int) int {
-	switch w {
-	case settings.Ns4:
-	case settings.Ns6:
-	case settings.Ns46:
-	default:
-		log.W("tun2socks: engine(%d) unknown, using default", w)
-		w = settings.Ns46
-	}
-	return w
 }

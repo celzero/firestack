@@ -147,7 +147,7 @@ type oneTransport struct {
 	t Transport
 }
 
-func NewResolver(fakeaddrs string, tunmode *settings.TunMode, defaultdns Transport, l Listener, pt ipn.DNS64) Resolver {
+func NewResolver(fakeaddrs string, defaultdns Transport, tunmode *settings.TunMode, l Listener, pt ipn.DNS64) Resolver {
 	r := &resolver{
 		listener:     l,
 		natpt:        pt,
@@ -159,7 +159,8 @@ func NewResolver(fakeaddrs string, tunmode *settings.TunMode, defaultdns Transpo
 	}
 	ok1 := r.Add(defaultdns)
 	ok2 := r.Add(NewDNSGateway(defaultdns, r))
-	log.I("dns: setup defaultdns set? %t, gateway set? %t", ok1, ok2)
+
+	log.I("dns: new! default? %t, gw? %t", ok1, ok2)
 	r.loadaddrs(fakeaddrs)
 	return r
 }

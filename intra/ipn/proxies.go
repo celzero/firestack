@@ -16,12 +16,12 @@ import (
 )
 
 const (
+	// nb: Base proxies are Catch-All / fallback proxies
 	// IDs for default proxies
-	Block    = "Block"       // proxy that blocks all traffic
-	Base     = "Base"        // proxy that does not proxy traffic
-	Grounded = "Grounded"    // proxy that blocks all traffic
-	OrbotS5  = "OrbotSocks5" // Orbot: Tor-as-a-SOCKS5 proxy
-	OrbotH1  = "OrbotHttp1"  // Orbot: Tor-as-a-HTTP/1.1 proxy
+	Block   = "Block"       // proxy that blocks all traffic
+	Base    = "Base"        // proxy that does not proxy traffic
+	OrbotS5 = "OrbotSocks5" // Orbot: Base Tor-as-a-SOCKS5 proxy
+	OrbotH1 = "OrbotHttp1"  // Orbot: Base Tor-as-a-HTTP/1.1 proxy
 
 	// type of proxies
 	SOCKS5 = "socks5" // SOCKS5 proxy
@@ -29,7 +29,7 @@ const (
 	WG     = "wg"     // WireGuard-as-a-proxy
 	PIPH2  = "piph2"  // PIP: HTTP/2 proxy
 	PIPWS  = "pipws"  // PIP: WebSockets proxy
-	NOOP   = "noop"   // No proxy
+	NOOP   = "noop"   // No proxy, ex: Base, Block
 
 	// status of proxies
 	TOK = 0  // proxy OK

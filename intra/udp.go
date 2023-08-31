@@ -125,6 +125,7 @@ type udpHandler struct {
 	tunMode   *settings.TunMode
 	listener  UDPListener
 	pt        ipn.NatPt
+	prox      ipn.Proxies
 	fwtracker *core.ExpMap
 }
 
@@ -133,7 +134,7 @@ type udpHandler struct {
 // `timeout` controls the effective NAT mapping lifetime.
 // `config` is used to bind new external UDP ports.
 // `listener` receives a summary about each UDP binding when it expires.
-func NewUDPHandler(resolver dnsx.Resolver, pt ipn.NatPt, ctl protect.Controller,
+func NewUDPHandler(resolver dnsx.Resolver, pt ipn.NatPt, prox ipn.Proxies, ctl protect.Controller,
 	tunMode *settings.TunMode, listener UDPListener) UDPHandler {
 	// RFC 4787 REQ-5 requires a timeout no shorter than 5 minutes; but most
 	// routers do not keep udp mappings for that long (usually just for 30s)
@@ -150,6 +151,7 @@ func NewUDPHandler(resolver dnsx.Resolver, pt ipn.NatPt, ctl protect.Controller,
 		dialer:    d,
 		listener:  listener,
 		pt:        pt,
+		prox:      prox,
 		fwtracker: core.NewExpiringMap(),
 	}
 
@@ -359,7 +361,7 @@ func (h *udpHandler) Connect(conn core.UDPConn, target *net.UDPAddr) (res string
 		return res, nil // connect
 	}
 
-	if px, err = h.pt.GetProxy(pid); err != nil {
+	if px, err = h.prox.GetProxy(pid); err != nil {
 		log.W("udp: failed to get proxy for %s: %v", pid, err)
 		return res, err // disconnect
 	}

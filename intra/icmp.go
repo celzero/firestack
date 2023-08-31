@@ -42,6 +42,7 @@ type icmpHandler struct {
 	ctl      protect.Controller
 	tunMode  *settings.TunMode
 	pt       ipn.NatPt
+	prox     ipn.Proxies
 	listener ICMPListener
 }
 
@@ -53,7 +54,7 @@ type ICMPSummary struct {
 	start    time.Time
 }
 
-func NewICMPHandler(resolver dnsx.Resolver, pt ipn.NatPt, ctl protect.Controller,
+func NewICMPHandler(resolver dnsx.Resolver, pt ipn.NatPt, prox ipn.Proxies, ctl protect.Controller,
 	tunMode *settings.TunMode, listener ICMPListener) ICMPHandler {
 	h := &icmpHandler{
 		timeout:  icmptimeout,
@@ -61,6 +62,7 @@ func NewICMPHandler(resolver dnsx.Resolver, pt ipn.NatPt, ctl protect.Controller
 		ctl:      ctl,
 		tunMode:  tunMode,
 		pt:       pt,
+		prox:     prox,
 		listener: listener,
 	}
 
@@ -148,7 +150,7 @@ func (h *icmpHandler) Ping(source *net.UDPAddr, target *net.UDPAddr, msg []byte,
 		return false // denied
 	}
 
-	if pc, err = h.pt.GetProxy(pid); err != nil {
+	if pc, err = h.prox.GetProxy(pid); err != nil {
 		log.E("t.icmp.egress: no proxy(%s); err %v", pid, err)
 		return false // denied
 	}

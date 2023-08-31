@@ -62,13 +62,14 @@ const NICID = 0x01
 
 var Debug bool = false
 
-func L3(w int) string {
-	switch w {
+func (tm *TunMode) L3() string {
+	switch tm.IpMode {
 	case Ns46:
 		return IP46
 	case Ns6:
 		return IP6
 	default:
+		log.W("settings: engine unknown(%d)", tm.IpMode)
 		return IP4
 	}
 }
@@ -81,6 +82,8 @@ type TunMode struct {
 	BlockMode int
 	// PtMode determines overrides 6to4 translation heuristics.
 	PtMode int
+	// Ns4, Ns6, or Ns46
+	IpMode int
 }
 
 // DNSOptions define https or socks5 proxy options
@@ -88,22 +91,25 @@ type DNSOptions struct {
 	IPPort string
 }
 
-// SetMode re-assigns d to DNSMode, and b to BlockMode
-func (t *TunMode) SetMode(d int, b int, pt int) {
+// SetMode re-assigns d to DNSMode, b to BlockMode, pt to NatPtMode, p to IpMode.
+func (t *TunMode) SetMode(d, b, pt, p int) {
 	t.DNSMode = d
 	t.BlockMode = b
 	t.PtMode = pt
+	t.IpMode = p
 }
 
 // NewTunMode returns a new TunMode object.
 // `d` sets dns-mode.
 // `b` sets block-mode.
-// `p` sets proxy-mode.
-func NewTunMode(d int, b int, p int, pt int) *TunMode {
+// `pt` sets natpt-mode.
+// `p` sets ip-mode.
+func NewTunMode(d, b, pt, p int) *TunMode {
 	return &TunMode{
 		DNSMode:   d,
 		BlockMode: b,
 		PtMode:    pt,
+		IpMode:    p,
 	}
 }
 
@@ -117,6 +123,7 @@ func DefaultTunMode() *TunMode {
 		DNSMode:   DNSModeIP,
 		BlockMode: BlockModeNone,
 		PtMode:    PtModeAuto,
+		IpMode:    Ns4,
 	}
 }
 

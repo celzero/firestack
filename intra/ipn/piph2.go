@@ -210,7 +210,7 @@ func NewPipProxy(id string, ctl protect.Controller, po *settings.ProxyOptions) (
 		return nil, errNoSig
 	}
 	trType := splitpath[1]
-	if trType != "h2" || trType != "h3" {
+	if trType != "h2" && trType != "h3" {
 		return nil, errProxyConfig
 	}
 	rsasig := splitpath[2]

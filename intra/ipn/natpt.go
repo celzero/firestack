@@ -31,10 +31,8 @@ import (
 // datatracker.ietf.org/doc/html/rfc8305#section-7
 type natPt struct {
 	protect.Protector
-	Proxies
 	*nat64
 	*dns64
-	l3      string
 	tunmode *settings.TunMode
 	ip4s    []net.IP
 	ip6s    []net.IP
@@ -42,18 +40,15 @@ type natPt struct {
 
 type NatPt interface {
 	protect.Protector
-	Proxies
 	DNS64
 	NAT64
 }
 
-func NewNatPt(l3 string, ctl protect.Controller, tunmode *settings.TunMode) NatPt {
-	log.I("natpt: new; l3(%s)", l3)
+func NewNatPt(tunmode *settings.TunMode) NatPt {
+	log.I("natpt: new; mode(%s)", tunmode)
 	return &natPt{
-		Proxies: NewProxifier(ctl),
 		nat64:   newNat64(),
 		dns64:   newDns64(),
-		l3:      l3,
 		tunmode: tunmode,
 		ip4s:    nil,
 		ip6s:    nil,
@@ -61,14 +56,7 @@ func NewNatPt(l3 string, ctl protect.Controller, tunmode *settings.TunMode) NatP
 }
 
 func (pt *natPt) D64(id string, ans6 []byte, f Resolver) []byte {
-	if pt.can64() {
-		return pt.dns64.eval(id, pt.force64(), ans6, f)
-	}
-	return ans6
-}
-
-func (pt *natPt) can64() bool {
-	return settings.IP6 == pt.l3 || pt.force64()
+	return pt.dns64.eval(id, pt.force64(), ans6, f)
 }
 
 func (pt *natPt) force64() bool {

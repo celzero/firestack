@@ -70,6 +70,7 @@ type tcpHandler struct {
 	tunMode   *settings.TunMode
 	listener  TCPListener
 	pt        ipn.NatPt
+	prox      ipn.Proxies
 	fwtracker *core.ExpMap
 }
 
@@ -113,7 +114,7 @@ type TCPListener interface {
 // Connections to `fakedns` are redirected to DOH.
 // All other traffic is forwarded using `dialer`.
 // `listener` is provided with a summary of each socket when it is closed.
-func NewTCPHandler(resolver dnsx.Resolver, pt ipn.NatPt, ctl protect.Controller,
+func NewTCPHandler(resolver dnsx.Resolver, pt ipn.NatPt, prox ipn.Proxies, ctl protect.Controller,
 	tunMode *settings.TunMode, listener TCPListener) TCPHandler {
 	d := protect.MakeNsDialer(ctl)
 	h := &tcpHandler{
@@ -123,6 +124,7 @@ func NewTCPHandler(resolver dnsx.Resolver, pt ipn.NatPt, ctl protect.Controller,
 		tunMode:   tunMode,
 		listener:  listener,
 		pt:        pt,
+		prox:      prox,
 		fwtracker: core.NewExpiringMap(),
 	}
 
@@ -348,7 +350,7 @@ func (h *tcpHandler) Handle(conn net.Conn, target *net.TCPAddr, summary *TCPSock
 		return nil
 	}
 
-	if px, err = h.pt.GetProxy(pid); err != nil {
+	if px, err = h.prox.GetProxy(pid); err != nil {
 		return err
 	}
 
