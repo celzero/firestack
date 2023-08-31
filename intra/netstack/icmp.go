@@ -28,9 +28,11 @@ type GICMPHandler interface {
 }
 
 // ref: github.com/SagerNet/LibSagerNetCore/blob/632d6b892e/gvisor/icmp.go
-func setupIcmpHandler(s *stack.Stack, ep stack.LinkEndpoint, handler GICMPHandler) {
+func setupIcmpHandler(nstk *stack.Stack, ep stack.LinkEndpoint, handler GICMPHandler) {
 	// ICMPv4
-	s.SetTransportProtocolHandler(icmp.ProtocolNumber4, func(id stack.TransportEndpointID, packet stack.PacketBufferPtr) bool {
+	nstk.SetTransportProtocolHandler(icmp.ProtocolNumber4, func(id stack.TransportEndpointID, packet stack.PacketBufferPtr) bool {
+		log.V("icmp: v4 packet? %v", packet)
+
 		// ref: github.com/google/gvisor/blob/acf460d0d735/pkg/tcpip/stack/conntrack.go#L933
 		l4bytes := packet.TransportHeader().Slice()
 		icmpin := header.ICMPv4(l4bytes)
@@ -45,7 +47,7 @@ func setupIcmpHandler(s *stack.Stack, ep stack.LinkEndpoint, handler GICMPHandle
 
 		log.D("icmp: v4 type %v src %v dst %v", icmpin.Type(), src, dst)
 
-		b := make([]byte, ep.MTU())
+		b := make([]byte, 0, ep.MTU())
 		din8 := buffer.MakeWithData(b)
 		din8.Append(packet.NetworkHeader().View())
 		l4 := packet.TransportHeader().View()
@@ -56,7 +58,7 @@ func setupIcmpHandler(s *stack.Stack, ep stack.LinkEndpoint, handler GICMPHandle
 		req := din8.Flatten()
 
 		// github.com/google/gvisor/blob/9b4a7aa00/pkg/tcpip/network/ipv6/icmp.go#L1180
-		r := make([]byte, ep.MTU())
+		r := make([]byte, 0, ep.MTU())
 		din := buffer.MakeWithData(r)
 		din.Append(packet.TransportHeader().View())
 		l7 := packet.Data().ToBuffer()
@@ -65,8 +67,9 @@ func setupIcmpHandler(s *stack.Stack, ep stack.LinkEndpoint, handler GICMPHandle
 		datalen := len(data)
 
 		l3 := packet.NetworkHeader().View()
-		log.D("icmp: v4 type %v/%v sz [%v]; src -> dst %v", icmpin.Type(), icmpin.Code(), datalen, src, dst)
+		log.D("icmp: v4 type %v/%v sz [%v]; src(%v) -> dst(%v)", icmpin.Type(), icmpin.Code(), datalen, src, dst)
 		if !handler.Ping(src, dst, data, func(reply []byte) error {
+			log.V("icmp: v4 reply %v", reply)
 			// sendICMP: github.com/google/gvisor/blob/8035cf9ed/pkg/tcpip/transport/tcp/testing/context/context.go#L404
 			// parseICMP: github.com/google/gvisor/blob/8035cf9ed/pkg/tcpip/header/parse/parse.go#L194
 			// makeICMP: github.com/google/gvisor/blob/8035cf9ed/pkg/tcpip/tests/integration/iptables_test.go#L2100
@@ -82,7 +85,7 @@ func setupIcmpHandler(s *stack.Stack, ep stack.LinkEndpoint, handler GICMPHandle
 				icmpout = icmpunreach
 			}
 
-			x := make([]byte, ep.MTU())
+			x := make([]byte, 0, ep.MTU())
 			res := buffer.MakeWithData(x)
 			if len(icmpout) != datalen {
 				ip := header.IPv4(l3.AsSlice())
@@ -132,7 +135,9 @@ func setupIcmpHandler(s *stack.Stack, ep stack.LinkEndpoint, handler GICMPHandle
 	})
 
 	// ICMPv6
-	s.SetTransportProtocolHandler(icmp.ProtocolNumber6, func(id stack.TransportEndpointID, packet stack.PacketBufferPtr) bool {
+	nstk.SetTransportProtocolHandler(icmp.ProtocolNumber6, func(id stack.TransportEndpointID, packet stack.PacketBufferPtr) bool {
+		log.V("icmp: v6 packet? %v", packet)
+
 		l4bytes := packet.TransportHeader().Slice()
 		icmpin := header.ICMPv6(l4bytes)
 		if icmpin.Type() != header.ICMPv6EchoRequest {
@@ -144,9 +149,9 @@ func setupIcmpHandler(s *stack.Stack, ep stack.LinkEndpoint, handler GICMPHandle
 		src := remoteUDPAddr(id)
 		dst := localUDPAddr(id)
 
-		log.D("icmp: v4 type %v src %v dst %v", icmpin.Type(), src, dst)
+		log.D("icmp: v6 type %v src %v dst %v", icmpin.Type(), src, dst)
 
-		b := make([]byte, ep.MTU())
+		b := make([]byte, 0, ep.MTU())
 		din8 := buffer.MakeWithData(b)
 		din8.Append(packet.NetworkHeader().View())
 		l4 := packet.TransportHeader().View()
@@ -157,7 +162,7 @@ func setupIcmpHandler(s *stack.Stack, ep stack.LinkEndpoint, handler GICMPHandle
 		req := din8.Flatten()
 
 		// github.com/google/gvisor/blob/9b4a7aa00/pkg/tcpip/network/ipv6/icmp.go#L1180
-		r := make([]byte, ep.MTU())
+		r := make([]byte, 0, ep.MTU())
 		din := buffer.MakeWithData(r)
 		din.Append(packet.TransportHeader().View())
 		l7 := packet.Data().ToBuffer()
@@ -168,6 +173,8 @@ func setupIcmpHandler(s *stack.Stack, ep stack.LinkEndpoint, handler GICMPHandle
 		l3 := packet.NetworkHeader().View()
 		log.D("icmp: v6 type %v/%v sz[%d] from %v -> %v", icmpin.Type(), icmpin.Code(), dlen, src, dst)
 		if !handler.Ping(src, dst, data, func(reply []byte) error {
+			log.V("icmp: v4 reply %v", reply)
+
 			icmpout := header.ICMPv6(reply)
 			if icmpout.Type() == header.ICMPv6DstUnreachable {
 				d := make([]byte, len(req)+header.ICMPv6DstUnreachableMinimumSize)
@@ -178,7 +185,7 @@ func setupIcmpHandler(s *stack.Stack, ep stack.LinkEndpoint, handler GICMPHandle
 				icmpout = icmpunreach
 			}
 
-			x := make([]byte, ep.MTU())
+			x := make([]byte, 0, ep.MTU())
 			res := buffer.MakeWithData(x)
 			if len(icmpout) != dlen {
 				ip := header.IPv6(l3.AsSlice())
