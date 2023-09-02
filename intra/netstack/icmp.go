@@ -29,9 +29,18 @@ type GICMPHandler interface {
 
 // ref: github.com/SagerNet/LibSagerNetCore/blob/632d6b892e/gvisor/icmp.go
 func setupIcmpHandler(nstk *stack.Stack, ep stack.LinkEndpoint, handler GICMPHandler) {
+	// remove default handlers
+	nstk.SetTransportProtocolHandler(icmp.ProtocolNumber4, nil)
+	nstk.SetTransportProtocolHandler(icmp.ProtocolNumber6, nil)
+
 	// ICMPv4
 	nstk.SetTransportProtocolHandler(icmp.ProtocolNumber4, func(id stack.TransportEndpointID, packet stack.PacketBufferPtr) bool {
 		log.V("icmp: v4 packet? %v", packet)
+
+		if !ep.IsAttached() {
+			log.D("icmp: endpoint not attached")
+			return false
+		}
 
 		// ref: github.com/google/gvisor/blob/acf460d0d735/pkg/tcpip/stack/conntrack.go#L933
 		l4bytes := packet.TransportHeader().Slice()
@@ -137,6 +146,11 @@ func setupIcmpHandler(nstk *stack.Stack, ep stack.LinkEndpoint, handler GICMPHan
 	// ICMPv6
 	nstk.SetTransportProtocolHandler(icmp.ProtocolNumber6, func(id stack.TransportEndpointID, packet stack.PacketBufferPtr) bool {
 		log.V("icmp: v6 packet? %v", packet)
+
+		if !ep.IsAttached() {
+			log.D("icmp: endpoint not attached")
+			return false
+		}
 
 		l4bytes := packet.TransportHeader().Slice()
 		icmpin := header.ICMPv6(l4bytes)
