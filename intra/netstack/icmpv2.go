@@ -131,7 +131,7 @@ func setupIcmpHandlerV2(s *stack.Stack, ep stack.LinkEndpoint, icmpHandler GICMP
 	go tr.serve4()
 	go tr.serve6()
 
-	log.D("Transport: ICMP listener up")
+	log.D("icmpv2: listeners up")
 }
 
 func (tr *icmpv2) trap() {
@@ -150,17 +150,19 @@ func (tr *icmpv2) trap() {
 }
 
 func (tr *icmpv2) serve4() {
-	for {
+	for tr.ep.IsAttached() {
 		pkt := <-tr.msgs4
 		go tr.handleEcho4(pkt)
 	}
+	log.I("icmpv2: serve4: stop; ep detached")
 }
 
 func (tr *icmpv2) serve6() {
-	for {
+	for tr.ep.IsAttached() {
 		pkt := <-tr.msgs6
 		go tr.handleEcho6(pkt)
 	}
+	log.I("icmpv2: serve6: stop; ep detached")
 }
 
 // handleICMPMessage parses ICMP packets and proxies them if possible.
