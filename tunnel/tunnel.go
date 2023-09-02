@@ -56,13 +56,12 @@ const invalidfd = -1
 var errStackMissing = errors.New("tun: netstack not initialized")
 
 type gtunnel struct {
-	endpoint stack.LinkEndpoint
-	stack    *stack.Stack
-	l3       string
-	hdl      netstack.GConnHandler
-	fdref    int
-	pcapio   io.Closer
-	mtu      int
+	endpoint stack.LinkEndpoint    // wires up tun fd to netstack
+	stack    *stack.Stack          // a tcpip stack
+	hdl      netstack.GConnHandler // tcp, udp, and icmp handlers
+	mtu      int                   // mtu of the tun device
+	fdref    int                   // the tun device
+	pcapio   io.Closer             // closes pcap output, if any
 }
 
 func (t *gtunnel) Mtu() int {
@@ -123,7 +122,9 @@ func (t *gtunnel) Write([]byte) (int, error) {
 
 func NewGTunnel(fd, mtu int, fpcap, l3 string, tcph netstack.GTCPConnHandler, udph netstack.GUDPConnHandler, icmph netstack.GICMPHandler) (t Tunnel, err error) {
 	var endpoint stack.LinkEndpoint
+
 	hdl := netstack.NewGConnHandler(tcph, udph, icmph)
+
 	stack := netstack.NewNetstack(settings.IP46) // force dual stack
 	netstack.Route(stack, l3)
 
@@ -146,7 +147,7 @@ func NewGTunnel(fd, mtu int, fpcap, l3 string, tcph netstack.GTCPConnHandler, ud
 	}
 
 	log.I("tun: new netstack up; fd(%d), pcap(%t), l3(%v), mtu(%d)", fd, len(fpcap) > 0, l3, mtu)
-	return &gtunnel{endpoint, stack, l3, hdl, fd, pcapio, mtu}, nil
+	return &gtunnel{endpoint, stack, hdl, mtu, fd, pcapio}, nil
 }
 
 func (t *gtunnel) SetLink(fd, mtu int, fpcap string) error {
@@ -174,7 +175,7 @@ func (t *gtunnel) SetLink(fd, mtu int, fpcap string) error {
 		return err
 	}
 
-	log.I("tun: new link; fd(%d), pcap(%t), l3(%v), mtu(%d)", fd, len(fpcap) > 0, t.l3, mtu)
+	log.I("tun: new link; fd(%d), pcap(%t), mtu(%d)", fd, len(fpcap) > 0, mtu)
 	t.endpoint = ep
 	t.mtu = mtu
 	t.pcapio = pcapio

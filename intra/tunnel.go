@@ -64,10 +64,12 @@ type Tunnel interface {
 	SetTunMode(dnsmode, blockmode, ptmode int)
 	// Get proxies.
 	GetProxies() ipn.Proxies
+	// Creates a new link for fd and mtu.
+	SetLink(fd, mtu int, pcap string) error
+	// Sets new default routes for the given engine.
+	SetRoute(engine int) error
 	// Reset the tunnel with new tundevice, mtu, engine, pcap file.
 	// Reset(fd, mtu, engine int, pcap string) error
-	SetLink(fd, mtu int, pcap string) error
-	SetRoute(engine int) error
 }
 
 type intratunnel struct {
