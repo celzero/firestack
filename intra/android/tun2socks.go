@@ -29,7 +29,6 @@ import (
 	"github.com/celzero/firestack/intra"
 	"github.com/celzero/firestack/intra/dnsx"
 	"github.com/celzero/firestack/intra/settings"
-	"github.com/celzero/firestack/tunnel"
 
 	"github.com/celzero/firestack/intra/log"
 )
@@ -52,7 +51,7 @@ func init() {
 //
 // `mtu` is the MTU of the TUN device.
 // `engine` IP protocols to route: one of settings.Ns4, settings.Ns6, settings.Ns46.
-// `fakedns` is the DNS server that the system believes it is using, in "host:port" style.
+// `fakedns` are the DNS servers that the system believes it is using, in "host:port" style.
 //
 // `bdg` is a kotlin object that implements the Bridge interface.
 //
@@ -61,14 +60,7 @@ func init() {
 func Connect(fd, mtu, engine int, fpcap, fakedns string, dns dnsx.Transport, bdg intra.Bridge) (t intra.Tunnel, err error) {
 	tunmode := settings.DefaultTunMode()
 	tunmode.IpMode = engine
-
-	var dupfd int
-	dupfd, err = tunnel.Dup(fd)
-	if err != nil {
-		return
-	}
-
-	return intra.NewTunnel(dupfd, mtu, fpcap, fakedns, dns, tunmode, bdg)
+	return intra.NewTunnel(fd, mtu, fpcap, fakedns, dns, tunmode, bdg)
 }
 
 func LogLevel(level int) {

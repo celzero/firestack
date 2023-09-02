@@ -7,19 +7,19 @@
 // This file incorporates work covered by the following copyright and
 // permission notice:
 //
-//     Copyright 2019 The Outline Authors
+//	Copyright 2019 The Outline Authors
 //
-//     Licensed under the Apache License, Version 2.0 (the "License");
-//     you may not use this file except in compliance with the License.
-//     You may obtain a copy of the License at
+//	Licensed under the Apache License, Version 2.0 (the "License");
+//	you may not use this file except in compliance with the License.
+//	You may obtain a copy of the License at
 //
-//          http://www.apache.org/licenses/LICENSE-2.0
+//	     http://www.apache.org/licenses/LICENSE-2.0
 //
-//     Unless required by applicable law or agreed to in writing, software
-//     distributed under the License is distributed on an "AS IS" BASIS,
-//     WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-//     See the License for the specific language governing permissions and
-//     limitations under the License.
+//	Unless required by applicable law or agreed to in writing, software
+//	distributed under the License is distributed on an "AS IS" BASIS,
+//	WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+//	See the License for the specific language governing permissions and
+//	limitations under the License.
 package tunnel
 
 import (
@@ -33,23 +33,7 @@ import (
 var (
 	errOpenTunFd    = errors.New("failed to open tun fd")
 	errMissingTunFd = errors.New("missing tun fd")
-	errInvalidTunFd = errors.New("invalid tun fd")
 )
-
-func Dup(fd int) (int, error) {
-	if fd < 0 {
-		return -1, errInvalidTunFd
-	}
-
-	// Make a copy of `fd` so that os.File's finalizer doesn't close `fd`
-	newfd, err := unix.Dup(fd)
-	if err != nil {
-		return -1, err
-	}
-
-	// java-land gives up its ownership of fd
-	return newfd, nil
-}
 
 // MakeTunFile returns an os.File object from a TUN file descriptor `fd`.
 // The returned os.File holds a separate reference to the underlying file,

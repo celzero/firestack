@@ -44,14 +44,16 @@ type Tunnel interface {
 	// Write writes input data to the TUN interface.
 	Write(data []byte) (int, error)
 	// Update fd and mtu
-	NewLink(fd, mtu int, pcap string) error
+	SetLink(fd, mtu int, pcap string) error
 	// New route
-	NewRoute(l3 string)
+	NewRoute(l3 string) error
 }
 
 // netstack
 
 const invalidfd = -1
+
+var errStackMissing = errors.New("tun: netstack not initialized")
 
 type gtunnel struct {
 	endpoint stack.LinkEndpoint
@@ -68,15 +70,21 @@ func (t *gtunnel) Mtu() int {
 }
 
 func (t *gtunnel) closeStack() {
+	if t.stack == nil {
+		log.I("tun: stack already closed")
+		return
+	}
 	t.stack.Close()
+	t.stack = nil
 }
 
 func (t *gtunnel) closeEndpoint() {
-	if !t.IsConnected() {
-		log.I("tun: cannot disconnect an unconnected fd")
+	if t.endpoint == nil {
+		log.I("tun: endpoint already closed")
+		return
 	}
 
-	// close netstack
+	// close endpoint
 	t.endpoint.Attach(nil)
 	// close tun fd
 	if err := syscall.Close(t.fdref); err != nil {
@@ -92,6 +100,7 @@ func (t *gtunnel) closeEndpoint() {
 			log.I("tun: pcap closed")
 		}
 	}
+	t.endpoint = nil
 	t.pcapio = nil
 	t.fdref = invalidfd
 }
@@ -140,7 +149,11 @@ func NewGTunnel(fd, mtu int, fpcap, l3 string, tcph netstack.GTCPConnHandler, ud
 	return &gtunnel{endpoint, stack, l3, hdl, fd, pcapio, mtu}, nil
 }
 
-func (t *gtunnel) NewLink(fd, mtu int, fpcap string) error {
+func (t *gtunnel) SetLink(fd, mtu int, fpcap string) error {
+	if t.stack == nil {
+		return errStackMissing
+	}
+
 	t.closeEndpoint() // detach previous endpoint
 
 	ep, err := netstack.NewEndpoint(fd, mtu)
@@ -169,7 +182,12 @@ func (t *gtunnel) NewLink(fd, mtu int, fpcap string) error {
 	return nil
 }
 
-func (t *gtunnel) NewRoute(l3 string) {
+func (t *gtunnel) NewRoute(l3 string) error {
+	if t.stack == nil {
+		return errStackMissing
+	}
+
 	netstack.Route(t.stack, l3)
 	log.I("tun: new route; l3(%v)", l3)
+	return nil
 }
