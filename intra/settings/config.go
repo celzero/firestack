@@ -171,7 +171,7 @@ func (d *DNSOptions) String() string {
 // ProxyOptions define https or socks5 proxy options
 type ProxyOptions struct {
 	Auth   *proxy.Auth
-	IPPort string
+	IPPort string   // may be a url or ip:port
 	Scheme string   // http, https, socks5, pip
 	Addrs  []string // list of ips if ipport is a url; may be nil
 }
