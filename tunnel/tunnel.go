@@ -30,6 +30,7 @@ import (
 
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/netstack"
+	"github.com/celzero/firestack/intra/settings"
 	"gvisor.dev/gvisor/pkg/tcpip/stack"
 )
 
@@ -42,6 +43,10 @@ type Tunnel interface {
 	Disconnect()
 	// Write writes input data to the TUN interface.
 	Write(data []byte) (int, error)
+	// Update fd and mtu
+	NewLink(fd, mtu int, pcap string) error
+	// New route
+	NewRoute(l3 string)
 }
 
 // netstack
@@ -51,6 +56,8 @@ const invalidfd = -1
 type gtunnel struct {
 	endpoint stack.LinkEndpoint
 	stack    *stack.Stack
+	l3       string
+	hdl      netstack.GConnHandler
 	fdref    int
 	pcapio   io.Closer
 	mtu      int
@@ -60,15 +67,17 @@ func (t *gtunnel) Mtu() int {
 	return t.mtu
 }
 
-func (t *gtunnel) Disconnect() {
+func (t *gtunnel) closeStack() {
+	t.stack.Close()
+}
+
+func (t *gtunnel) closeEndpoint() {
 	if !t.IsConnected() {
 		log.I("tun: cannot disconnect an unconnected fd")
-		return
 	}
+
 	// close netstack
 	t.endpoint.Attach(nil)
-	t.stack.Close()
-	log.I("tun: netstack closed")
 	// close tun fd
 	if err := syscall.Close(t.fdref); err != nil {
 		log.E("tun: close(fd) fail, err(%v)", err)
@@ -87,6 +96,12 @@ func (t *gtunnel) Disconnect() {
 	t.fdref = invalidfd
 }
 
+func (t *gtunnel) Disconnect() {
+	t.closeEndpoint()
+	t.closeStack()
+	log.I("tun: netstack closed")
+}
+
 func (t *gtunnel) IsConnected() bool {
 	// TODO: check t.endpoint.IsAttached()?
 	return t.fdref != invalidfd
@@ -97,10 +112,11 @@ func (t *gtunnel) Write([]byte) (int, error) {
 	return 0, errors.New("no write() on netstack")
 }
 
-func NewGTunnel(fd int, fpcap string, l3 string, mtu int, tcph netstack.GTCPConnHandler, udph netstack.GUDPConnHandler, icmph netstack.GICMPHandler) (t Tunnel, err error) {
+func NewGTunnel(fd, mtu int, fpcap, l3 string, tcph netstack.GTCPConnHandler, udph netstack.GUDPConnHandler, icmph netstack.GICMPHandler) (t Tunnel, err error) {
 	var endpoint stack.LinkEndpoint
 	hdl := netstack.NewGConnHandler(tcph, udph, icmph)
-	stack := netstack.NewNetstack(l3)
+	stack := netstack.NewNetstack(settings.IP46) // force dual stack
+	netstack.Route(stack, l3)
 
 	endpoint, err = netstack.NewEndpoint(fd, mtu)
 	if err != nil {
@@ -121,5 +137,39 @@ func NewGTunnel(fd int, fpcap string, l3 string, mtu int, tcph netstack.GTCPConn
 	}
 
 	log.I("tun: new netstack up; fd(%d), pcap(%t), l3(%v), mtu(%d)", fd, len(fpcap) > 0, l3, mtu)
-	return &gtunnel{endpoint, stack, fd, pcapio, mtu}, nil
+	return &gtunnel{endpoint, stack, l3, hdl, fd, pcapio, mtu}, nil
+}
+
+func (t *gtunnel) NewLink(fd, mtu int, fpcap string) error {
+	t.closeEndpoint() // detach previous endpoint
+
+	ep, err := netstack.NewEndpoint(fd, mtu)
+	if err != nil {
+		return err
+	}
+
+	var pcapio io.Closer // may be nil
+	if len(fpcap) > 0 {
+		// if fdpcap is 0, 1, or 2 then pcap is written to stdout
+		if ep, pcapio, err = netstack.PcapOf(ep, fpcap); err != nil {
+			log.E("tun: pcap(%s) err(%v)", fpcap, err)
+			return err
+		}
+	}
+
+	if err = netstack.Up(t.stack, ep, t.hdl); err != nil { // attach new endpoint
+		return err
+	}
+
+	log.I("tun: new link; fd(%d), pcap(%t), l3(%v), mtu(%d)", fd, len(fpcap) > 0, t.l3, mtu)
+	t.endpoint = ep
+	t.mtu = mtu
+	t.pcapio = pcapio
+	t.fdref = fd
+	return nil
+}
+
+func (t *gtunnel) NewRoute(l3 string) {
+	netstack.Route(t.stack, l3)
+	log.I("tun: new route; l3(%v)", l3)
 }

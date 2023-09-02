@@ -41,7 +41,7 @@ type GTCPConn struct {
 	req *tcp.ForwarderRequest
 }
 
-func setupTcpHandler(s *stack.Stack, _ stack.LinkEndpoint, h GTCPConnHandler) {
+func setupTcpHandler(s *stack.Stack, h GTCPConnHandler) {
 	s.SetTransportProtocolHandler(tcp.ProtocolNumber, NewTCPForwarder(s, h).HandlePacket)
 }
 

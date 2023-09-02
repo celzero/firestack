@@ -67,6 +67,15 @@ func PcapOf(south stack.LinkEndpoint, nom string) (stack.LinkEndpoint, io.Closer
 func Up(s *stack.Stack, ep stack.LinkEndpoint, h GConnHandler) error {
 	var nic tcpip.NICID = settings.NICID
 
+	newnic := false
+	// also closes its link endpoints, if any
+	if ferr := s.RemoveNIC(nic); ferr != nil {
+		_, newnic = ferr.(*tcpip.ErrUnknownNICID)
+		log.I("netstack: remove nic? %t; err(%v)", newnic, ferr)
+	} else {
+		log.I("netstack: removed nic(%d)", nic)
+	}
+
 	// TODO: setup protocol opts?
 	// github.com/google/gvisor/blob/ef9e8d91/test/benchmarks/tcp/tcp_proxy.go#L233
 	sack := tcpip.TCPSACKEnabled(true)
@@ -84,13 +93,16 @@ func Up(s *stack.Stack, ep stack.LinkEndpoint, h GConnHandler) error {
 	// TODO: other stack otps?
 	// github.com/xjasonlyu/tun2socks/blob/31468620e/core/option/option.go#L69
 
-	setupTcpHandler(s, ep, h.TCP())
-	setupUdpHandler(s, ep, h.UDP())
 	if useIPTablesForICMP {
 		// TODO: untested
 		setupIcmpHandlerV2(s, ep, h.ICMP())
 	} else {
 		setupIcmpHandler(s, ep, h.ICMP())
+	}
+
+	if newnic {
+		setupTcpHandler(s, h.TCP())
+		setupUdpHandler(s, h.UDP())
 	}
 
 	// creates a fake nic and attaches netstack to it
@@ -118,6 +130,38 @@ func e(err tcpip.Error) error {
 		return errors.New(err.String())
 	}
 	return nil
+}
+
+func Route(s *stack.Stack, l3 string) {
+	switch l3 {
+	case settings.IP46:
+		s.SetRouteTable([]tcpip.Route{
+			{
+				Destination: header.IPv4EmptySubnet,
+				NIC:         settings.NICID,
+			},
+			{
+				Destination: header.IPv6EmptySubnet,
+				NIC:         settings.NICID,
+			},
+		})
+	case settings.IP6:
+		s.SetRouteTable([]tcpip.Route{
+			{
+				Destination: header.IPv6EmptySubnet,
+				NIC:         settings.NICID,
+			},
+		})
+	case settings.IP4:
+		fallthrough
+	default:
+		s.SetRouteTable([]tcpip.Route{
+			{
+				Destination: header.IPv4EmptySubnet,
+				NIC:         settings.NICID,
+			},
+		})
+	}
 }
 
 // also: github.com/google/gvisor/blob/adbdac747/runsc/boot/loader.go#L1132

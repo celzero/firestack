@@ -60,8 +60,8 @@ func MakeGUDPConn(s *stack.Stack, r *udp.ForwarderRequest, src, dst *net.UDPAddr
 	}
 }
 
-func setupUdpHandler(s *stack.Stack, ep stack.LinkEndpoint, h GUDPConnHandler) {
-	s.SetTransportProtocolHandler(udp.ProtocolNumber, NewUDPForwarder(s, h, ep.MTU()).HandlePacket)
+func setupUdpHandler(s *stack.Stack, h GUDPConnHandler) {
+	s.SetTransportProtocolHandler(udp.ProtocolNumber, NewUDPForwarder(s, h).HandlePacket)
 }
 
 // Perhaps udp conns shouldn't be closed as eagerly as its tcp counterpart
@@ -75,7 +75,7 @@ func setupUdpHandler(s *stack.Stack, ep stack.LinkEndpoint, h GUDPConnHandler) {
 // via: github.com/google/gvisor/blob/be6ffa7/pkg/tcpip/adapters/gonet/gonet.go#L315
 // fin: github.com/google/gvisor/blob/be6ffa7/pkg/tcpip/transport/udp/endpoint.go#L220
 // but: github.com/google/gvisor/blob/be6ffa7/pkg/tcpip/transport/udp/endpoint.go#L180
-func NewUDPForwarder(s *stack.Stack, h GUDPConnHandler, mtu uint32) *udp.Forwarder {
+func NewUDPForwarder(s *stack.Stack, h GUDPConnHandler) *udp.Forwarder {
 	return udp.NewForwarder(s, func(request *udp.ForwarderRequest) {
 		id := request.ID()
 
@@ -108,6 +108,7 @@ func loop(h GUDPConnHandler, gc *GUDPConn, src, dst *net.UDPAddr) {
 	// and: github.com/cloudflare/slirpnetstack/blob/41e49c3294/proxy.go#L114
 	// max: github.com/google/gvisor/blob/be6ffa78/pkg/tcpip/transport/udp/protocol.go#L43
 	// though, we never expect to exceed mtu, so we can use a smaller buffer?
+	// TODO: MTU
 	bptr := core.Alloc()
 	q := *bptr
 	q = q[:cap(q)]
