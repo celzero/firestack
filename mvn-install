@@ -22,15 +22,14 @@ mvn install:install-file \
     -Dversion=${VERSION} \
     -DgroupId=${GROUP} \
     -DartifactId=${ARTIFACT} \
-    -Dclassifier=${CLASSFULL} \
     -Dsources=${SOURCES}
+#    -Dclassifier=${CLASSFULL} \
 # usage: docs.gradle.org/current/userguide/dependency_management.html
-mvn -X install:install-file \
-    -Dfile=${FOUTARM} \
-    -Dpackaging=${PACK} \
-    -Dversion=${VERSION} \
-    -DgroupId=${GROUP} \
-    -DartifactId=${ARTIFACT} \
-    -Dclassifier=${CLASSARM} \
-    -Dsources=${SOURCES}
-
+# mvn -X install:install-file \
+#    -Dfile=${FOUTARM} \
+#    -Dpackaging=${PACK} \
+#    -Dversion=${VERSION} \
+#    -DgroupId=${GROUP} \
+#    -DartifactId=${ARTIFACT} \
+#    -Dclassifier=${CLASSARM} \
+#    -Dsources=${SOURCES}
