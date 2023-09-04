@@ -26,6 +26,8 @@ package tunnel
 import (
 	"errors"
 	"io"
+	"os"
+	"sync"
 	"syscall"
 
 	"github.com/celzero/firestack/intra/log"
@@ -44,9 +46,11 @@ type Tunnel interface {
 	// Write writes input data to the TUN interface.
 	Write(data []byte) (int, error)
 	// Update fd and mtu
-	SetLink(fd, mtu int, pcap string) error
+	SetLink(fd, mtu int) error
 	// New route
 	NewRoute(l3 string) error
+	// Set or unset the pcap sink
+	SetPcap(fpcap string) error
 }
 
 // netstack
@@ -61,11 +65,62 @@ type gtunnel struct {
 	hdl      netstack.GConnHandler // tcp, udp, and icmp handlers
 	mtu      int                   // mtu of the tun device
 	fdref    int                   // the tun device
-	pcapio   io.Closer             // closes pcap output, if any
+	pcapio   *pcapsink             // pcap output, if any
+}
+
+type pcapsink struct {
+	sync.RWMutex
+	sink io.WriteCloser
+}
+
+func (p *pcapsink) Write(b []byte) (int, error) {
+	p.RLock()
+	defer p.RUnlock()
+
+	if p.sink == nil {
+		return len(b), nil // no op
+	}
+	return p.sink.Write(b)
+}
+
+func (p *pcapsink) Close() error {
+	p.log(false)       // detach
+	err := p.file(nil) // detach
+	return err
+}
+
+func (p *pcapsink) file(w io.WriteCloser) (err error) {
+	p.Lock()
+	defer p.Unlock()
+
+	if p.sink != nil {
+		err = p.sink.Close()
+	}
+	y := w != nil
+	p.sink = w
+	netstack.FilePcap(y)
+	return
+}
+
+func (p *pcapsink) log(y bool) bool {
+	return netstack.LogPcap(y)
 }
 
 func (t *gtunnel) Mtu() int {
 	return t.mtu
+}
+
+func (t *gtunnel) closePcap() {
+	if t.pcapio == nil {
+		log.I("tun: pcap already closed")
+		return
+	}
+
+	if err := t.pcapio.Close(); err != nil {
+		log.E("tun: close(pcap) fail, err(%v)", err)
+	} else {
+		log.I("tun: pcap closed")
+	}
 }
 
 func (t *gtunnel) closeStack() {
@@ -75,6 +130,7 @@ func (t *gtunnel) closeStack() {
 	}
 	t.stack.Close()
 	t.stack = nil
+	log.I("tun: netstack closed")
 }
 
 func (t *gtunnel) closeEndpoint() {
@@ -91,21 +147,14 @@ func (t *gtunnel) closeEndpoint() {
 	} else {
 		log.I("tun: fd closed %d", t.fdref)
 	}
-	// close pcap if any
-	if t.pcapio != nil {
-		if err := t.pcapio.Close(); err != nil {
-			log.E("tun: close(pcap) fail, err(%v)", err)
-		} else {
-			log.I("tun: pcap closed")
-		}
-	}
 	t.endpoint = nil
-	t.pcapio = nil
 	t.fdref = invalidfd
+	log.I("tun: endpoint closed")
 }
 
 func (t *gtunnel) Disconnect() {
 	t.closeEndpoint()
+	t.closePcap()
 	t.closeStack()
 	log.I("tun: netstack closed")
 }
@@ -128,57 +177,68 @@ func NewGTunnel(fd, mtu int, fpcap, l3 string, tcph netstack.GTCPConnHandler, ud
 	stack := netstack.NewNetstack(settings.IP46) // force dual stack
 	netstack.Route(stack, l3)
 
-	endpoint, err = netstack.NewEndpoint(fd, mtu)
+	sink := &pcapsink{}
+
+	endpoint, err = netstack.NewEndpoint(fd, mtu, sink)
 	if err != nil {
 		return
 	}
 
-	var pcapio io.Closer // may be nil
+	if err = netstack.Up(stack, endpoint, hdl); err != nil {
+		return
+	}
+
+	t = &gtunnel{endpoint, stack, hdl, mtu, fd, sink}
+
+	var ignored error
 	if len(fpcap) > 0 {
-		// if fdpcap is 0, 1, or 2 then pcap is written to stdout
-		if endpoint, pcapio, err = netstack.PcapOf(endpoint, fpcap); err != nil {
-			log.E("tun: pcap(%s) err(%v)", fpcap, err)
-			return
-		}
+		ignored = t.SetPcap(fpcap)
 	}
 
-	if err := netstack.Up(stack, endpoint, hdl); err != nil {
-		return nil, err
-	}
-
-	log.I("tun: new netstack up; fd(%d), pcap(%t), l3(%v), mtu(%d)", fd, len(fpcap) > 0, l3, mtu)
-	return &gtunnel{endpoint, stack, hdl, mtu, fd, pcapio}, nil
+	log.I("tun: new netstack up; fd(%d), pcap-err?(%v), l3(%v), mtu(%d)", fd, ignored, l3, mtu)
+	return
 }
 
-func (t *gtunnel) SetLink(fd, mtu int, fpcap string) error {
+func (t *gtunnel) SetPcap(fpcap string) error {
+	ignored := t.pcapio.Close() // close any existing pcap sink
+
+	if len(fpcap) == 0 {
+		log.I("netstack: pcap closed (ignored-err? %v)", ignored)
+		return nil // nothing to do
+	} else if len(fpcap) == 1 {
+		// if fdpcap is 0, 1, or 2 then pcap is written to stdout
+		ok := t.pcapio.log(true)
+		log.I("netstack: pcap(%s)/log(%t)", fpcap, ok)
+		return nil
+	} else if fout, err := os.OpenFile(fpcap, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0600); err == nil {
+		ignored = t.pcapio.file(fout) // attach
+		log.I("netstack: pcap(%s)/file(%v) (ignored-err? %v)", fpcap, fout, ignored)
+		return nil
+	} else {
+		log.E("netstack: pcap(%s); (err? %v)", fpcap, err)
+		return err
+	}
+}
+
+func (t *gtunnel) SetLink(fd, mtu int) error {
 	if t.stack == nil {
 		return errStackMissing
 	}
 
 	t.closeEndpoint() // detach previous endpoint
 
-	ep, err := netstack.NewEndpoint(fd, mtu)
+	ep, err := netstack.NewEndpoint(fd, mtu, t.pcapio)
 	if err != nil {
 		return err
-	}
-
-	var pcapio io.Closer // may be nil
-	if len(fpcap) > 0 {
-		// if fdpcap is 0, 1, or 2 then pcap is written to stdout
-		if ep, pcapio, err = netstack.PcapOf(ep, fpcap); err != nil {
-			log.E("tun: pcap(%s) err(%v)", fpcap, err)
-			return err
-		}
 	}
 
 	if err = netstack.Up(t.stack, ep, t.hdl); err != nil { // attach new endpoint
 		return err
 	}
 
-	log.I("tun: new link; fd(%d), pcap(%t), mtu(%d)", fd, len(fpcap) > 0, mtu)
+	log.I("tun: new link; fd(%d), mtu(%d)", fd, mtu)
 	t.endpoint = ep
 	t.mtu = mtu
-	t.pcapio = pcapio
 	t.fdref = fd
 	return nil
 }

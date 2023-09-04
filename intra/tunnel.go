@@ -65,9 +65,11 @@ type Tunnel interface {
 	// Get proxies.
 	GetProxies() ipn.Proxies
 	// Creates a new link for fd and mtu.
-	SetLink(fd, mtu int, pcap string) error
+	SetLink(fd, mtu int) error
 	// Sets new default routes for the given engine.
 	SetRoute(engine int) error
+	// Sets pcap output.
+	SetPcap(fpcap string) error
 	// Reset the tunnel with new tundevice, mtu, engine, pcap file.
 	// Reset(fd, mtu, engine int, pcap string) error
 }
@@ -169,7 +171,20 @@ func (t *intratunnel) Reset(fd, mtu, engine int, fpcap string) error {
 	return nil
 }
 
-func (t *intratunnel) SetLink(fd, mtu int, pcap string) error {
+func (t *intratunnel) SetPcap(fpcap string) error {
+	t.clomu.RLock()
+	closed := t.closed
+	t.clomu.RUnlock()
+
+	if closed {
+		log.W("tun: <<< set pcap >>>; already closed")
+		return errClosed
+	}
+
+	return t.Tunnel.SetPcap(fpcap)
+}
+
+func (t *intratunnel) SetLink(fd, mtu int) error {
 	t.clomu.RLock()
 	closed := t.closed
 	t.clomu.RUnlock()
@@ -179,7 +194,7 @@ func (t *intratunnel) SetLink(fd, mtu int, pcap string) error {
 		return errClosed
 	}
 
-	return t.Tunnel.SetLink(fd, mtu, pcap)
+	return t.Tunnel.SetLink(fd, mtu)
 }
 
 func (t *intratunnel) SetRoute(engine int) error {

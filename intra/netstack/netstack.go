@@ -7,9 +7,7 @@ package netstack
 
 import (
 	"errors"
-	"fmt"
 	"io"
-	"os"
 
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/settings"
@@ -35,19 +33,26 @@ const nicfwd = false
 var errInvalidTunFd = errors.New("invalid tun fd")
 
 // ref: github.com/google/gvisor/blob/91f58d2cc/pkg/tcpip/sample/tun_tcp_echo/main.go#L102
-func NewEndpoint(fd int, mtu int) (stack.LinkEndpoint, error) {
+func NewEndpoint(fd, mtu int, sink io.WriteCloser) (stack.LinkEndpoint, error) {
 	dev, err := dup(fd)
 	if err != nil {
 		return nil, err
 	}
-	var endpoint stack.LinkEndpoint
+	umtu := uint32(mtu)
 	opt := Options{
 		FDs: []int{dev},
-		MTU: uint32(mtu),
+		MTU: umtu,
 	}
-	endpoint, _ = NewFdbasedInjectableEndpoint(&opt)
-	log.I("netstack: new endpoint(fd:%d / mtu:%d)", dev, mtu)
-	return endpoint, nil
+
+	if fdep, err1 := NewFdbasedInjectableEndpoint(&opt); err1 != nil {
+		log.E("netstack: new endpoint(fd:%d / mtu:%d); err? %v", dev, mtu, err1)
+		return fdep, err1
+	} else {
+		// ref: github.com/google/gvisor/blob/aeabb785278/pkg/tcpip/link/sniffer/sniffer.go#L111-L131
+		ep, err2 := sniffer.NewWithWriter(fdep, sink, umtu)
+		log.I("netstack: new endpoint(fd:%d / mtu:%d); err? %v", dev, mtu, err2)
+		return ep, err2
+	}
 }
 
 func dup(fd int) (int, error) {
@@ -65,24 +70,24 @@ func dup(fd int) (int, error) {
 	return newfd, nil
 }
 
-// ref: github.com/google/gvisor/blob/aeabb785278/pkg/tcpip/link/sniffer/sniffer.go#L111-L131
-func PcapOf(south stack.LinkEndpoint, nom string) (stack.LinkEndpoint, io.Closer, error) {
-	if len(nom) == 1 {
-		// 0, 1, 2 are for stdin, stdout, stderr; log packets to stdout
-		log.I("netstack: pcap stdout(%s)", nom)
-		nom = "rdnspcap"
-		return sniffer.NewWithPrefix(south, nom), nil, nil
-	} else if len(nom) > 1 {
-		if fout, err := os.OpenFile(nom, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0600); err != nil {
-			return nil, fout, err
-		} else {
-			mtu := south.MTU()
-			ep, err := sniffer.NewWithWriter(south, fout, mtu)
-			log.I("netstack: pcap(%s)/file(%v)/mtu(%d)/err(%v)", nom, fout, mtu, err)
-			return ep, fout, err
-		}
+func LogPcap(y bool) (ok bool) {
+	if y {
+		ok = sniffer.LogPackets.CompareAndSwap(0, 1)
+	} else {
+		ok = sniffer.LogPackets.CompareAndSwap(1, 0)
 	}
-	return nil, nil, fmt.Errorf("netstack: pcap: invalid file name %s", nom)
+	log.I("netstack: pcap stdout(%t): done?(%t)", y, ok)
+	return
+}
+
+func FilePcap(y bool) (ok bool) {
+	if y {
+		ok = sniffer.LogPacketsToPCAP.CompareAndSwap(0, 1)
+	} else {
+		ok = sniffer.LogPacketsToPCAP.CompareAndSwap(1, 0)
+	}
+	log.I("netstack: pcap sink?(%t); done?(%t)", y, ok)
+	return
 }
 
 // ref: github.com/brewlin/net-protocol/blob/ec64e5f899/internal/endpoint/endpoint.go#L20
