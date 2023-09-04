@@ -173,6 +173,9 @@ func newReadVDispatcher(fd int, e *endpoint) (linkDispatcher, error) {
 	return d, nil
 }
 
+const abort = false // abort indicates that the dispatcher should stop.
+const cont = true   // cont indicates that the dispatcher should continue delivering packets despite an error.
+
 // dispatch reads one packet from the file descriptor and dispatches it.
 func (d *readVDispatcher) dispatch() (bool, tcpip.Error) {
 	log.V("ns.dispatchers.dispatch: resume")
@@ -180,7 +183,7 @@ func (d *readVDispatcher) dispatch() (bool, tcpip.Error) {
 	log.V("ns.dispatchers.dispatch: got(%d bytes), err(%v)", n, err)
 
 	if n <= 0 || err != nil {
-		return false, err
+		return abort, err
 	}
 
 	pkt := stack.NewPacketBuffer(stack.PacketBufferOptions{
@@ -193,7 +196,7 @@ func (d *readVDispatcher) dispatch() (bool, tcpip.Error) {
 		hdr, ok := pkt.LinkHeader().Consume(d.e.hdrSize)
 		if !ok {
 			pkt.DecRef()
-			return false, nil
+			return abort, nil
 		}
 		p = header.Ethernet(hdr).Type()
 	} else {
@@ -204,7 +207,7 @@ func (d *readVDispatcher) dispatch() (bool, tcpip.Error) {
 		if !ok {
 			log.V("ns.dispatchers.dispatch: no data!")
 			pkt.DecRef()
-			return true, nil
+			return cont, nil
 		}
 		switch header.IPVersion(h) {
 		case header.IPv4Version:
@@ -214,7 +217,7 @@ func (d *readVDispatcher) dispatch() (bool, tcpip.Error) {
 		default:
 			log.V("ns.dispatchers.dispatch: unknown proto!")
 			pkt.DecRef()
-			return true, nil
+			return cont, nil
 		}
 	}
 
@@ -224,5 +227,5 @@ func (d *readVDispatcher) dispatch() (bool, tcpip.Error) {
 		d.e.InjectInbound(p, pkt)
 		pkt.DecRef()
 	}()
-	return true, nil
+	return cont, nil
 }
