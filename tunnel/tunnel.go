@@ -76,13 +76,16 @@ type pcapsink struct {
 }
 
 func (p *pcapsink) Write(b []byte) (int, error) {
+	go p.writeAsync(b)
+	return len(b), nil
+}
+
+func (p *pcapsink) writeAsync(b []byte) {
 	p.RLock()
 	defer p.RUnlock()
-
-	if p.sink == nil {
-		return len(b), nil // no op
-	}
-	return p.sink.Write(b)
+	if p.sink != nil {
+		p.sink.Write(b)
+	} // else: no op
 }
 
 func (p *pcapsink) Close() error {
