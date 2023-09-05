@@ -11,7 +11,6 @@ import (
 
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/settings"
-	"golang.org/x/sys/unix"
 	"gvisor.dev/gvisor/pkg/tcpip"
 	"gvisor.dev/gvisor/pkg/tcpip/header"
 	"gvisor.dev/gvisor/pkg/tcpip/link/sniffer"
@@ -30,14 +29,8 @@ const useIPTablesForICMP = false
 // enable forwarding of packets on the interface
 const nicfwd = false
 
-var errInvalidTunFd = errors.New("invalid tun fd")
-
 // ref: github.com/google/gvisor/blob/91f58d2cc/pkg/tcpip/sample/tun_tcp_echo/main.go#L102
-func NewEndpoint(fd, mtu int, sink io.WriteCloser) (stack.LinkEndpoint, error) {
-	dev, err := dup(fd)
-	if err != nil {
-		return nil, err
-	}
+func NewEndpoint(dev, mtu int, sink io.WriteCloser) (stack.LinkEndpoint, error) {
 	umtu := uint32(mtu)
 	opt := Options{
 		FDs: []int{dev},
@@ -53,21 +46,6 @@ func NewEndpoint(fd, mtu int, sink io.WriteCloser) (stack.LinkEndpoint, error) {
 		log.I("netstack: new endpoint(fd:%d / mtu:%d); err? %v", dev, mtu, err2)
 		return ep, err2
 	}
-}
-
-func dup(fd int) (int, error) {
-	if fd < 0 {
-		return -1, errInvalidTunFd
-	}
-
-	// Make a copy of `fd` so that os.File's finalizer doesn't close `fd`
-	newfd, err := unix.Dup(fd)
-	if err != nil {
-		return -1, err
-	}
-
-	// java-land gives up its ownership of fd
-	return newfd, nil
 }
 
 func LogPcap(y bool) (ok bool) {

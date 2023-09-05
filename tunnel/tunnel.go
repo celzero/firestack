@@ -33,6 +33,7 @@ import (
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/netstack"
 	"github.com/celzero/firestack/intra/settings"
+	"golang.org/x/sys/unix"
 	"gvisor.dev/gvisor/pkg/tcpip/stack"
 )
 
@@ -58,6 +59,7 @@ type Tunnel interface {
 const invalidfd = -1
 
 var errStackMissing = errors.New("tun: netstack not initialized")
+var errInvalidTunFd = errors.New("invalid tun fd")
 
 type gtunnel struct {
 	endpoint stack.LinkEndpoint    // wires up tun fd to netstack
@@ -156,7 +158,6 @@ func (t *gtunnel) Disconnect() {
 	t.closeEndpoint()
 	t.closePcap()
 	t.closeStack()
-	log.I("tun: netstack closed")
 }
 
 func (t *gtunnel) IsConnected() bool {
@@ -179,7 +180,11 @@ func NewGTunnel(fd, mtu int, fpcap, l3 string, tcph netstack.GTCPConnHandler, ud
 
 	sink := &pcapsink{}
 
-	endpoint, err = netstack.NewEndpoint(fd, mtu, sink)
+	dupfd, err := dup(fd) // tunnel will own dupfd
+	if err != nil {
+		return nil, err
+	}
+	endpoint, err = netstack.NewEndpoint(dupfd, mtu, sink)
 	if err != nil {
 		return
 	}
@@ -188,14 +193,14 @@ func NewGTunnel(fd, mtu int, fpcap, l3 string, tcph netstack.GTCPConnHandler, ud
 		return
 	}
 
-	t = &gtunnel{endpoint, stack, hdl, mtu, fd, sink}
+	t = &gtunnel{endpoint, stack, hdl, mtu, dupfd, sink}
 
 	var ignored error
 	if len(fpcap) > 0 {
 		ignored = t.SetPcap(fpcap)
 	}
 
-	log.I("tun: new netstack up; fd(%d), pcap-err?(%v), l3(%v), mtu(%d)", fd, ignored, l3, mtu)
+	log.I("tun: new netstack up; fd(%d), pcap-err?(%v), l3(%v), mtu(%d)", dupfd, ignored, l3, mtu)
 	return
 }
 
@@ -227,7 +232,11 @@ func (t *gtunnel) SetLink(fd, mtu int) error {
 
 	t.closeEndpoint() // detach previous endpoint
 
-	ep, err := netstack.NewEndpoint(fd, mtu, t.pcapio)
+	dupfd, err := dup(fd) // tunnel will own dupfd
+	if err != nil {
+		return err
+	}
+	ep, err := netstack.NewEndpoint(dupfd, mtu, t.pcapio)
 	if err != nil {
 		return err
 	}
@@ -236,7 +245,7 @@ func (t *gtunnel) SetLink(fd, mtu int) error {
 		return err
 	}
 
-	log.I("tun: new link; fd(%d), mtu(%d)", fd, mtu)
+	log.I("tun: new link; fd(%d), mtu(%d)", dupfd, mtu)
 	t.endpoint = ep
 	t.mtu = mtu
 	t.fdref = fd
@@ -251,4 +260,19 @@ func (t *gtunnel) NewRoute(l3 string) error {
 	netstack.Route(t.stack, l3)
 	log.I("tun: new route; l3(%v)", l3)
 	return nil
+}
+
+func dup(fd int) (int, error) {
+	if fd < 0 {
+		return -1, errInvalidTunFd
+	}
+
+	// Make a copy of `fd` so that os.File's finalizer doesn't close `fd`
+	newfd, err := unix.Dup(fd)
+	if err != nil {
+		return -1, err
+	}
+
+	// java-land gives up its ownership of fd
+	return newfd, nil
 }
