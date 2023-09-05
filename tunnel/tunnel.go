@@ -173,13 +173,13 @@ func (t *gtunnel) Write([]byte) (int, error) {
 	return 0, errors.New("no write() on netstack")
 }
 
-func NewGTunnel(fd, mtu int, fpcap, l3 string, tcph netstack.GTCPConnHandler, udph netstack.GUDPConnHandler, icmph netstack.GICMPHandler) (t Tunnel, err error) {
+func NewGTunnel(fd, mtu int, l3 string, tcph netstack.GTCPConnHandler, udph netstack.GUDPConnHandler, icmph netstack.GICMPHandler) (t Tunnel, err error) {
 	var endpoint stack.LinkEndpoint
 
 	hdl := netstack.NewGConnHandler(tcph, udph, icmph)
 
 	stack := netstack.NewNetstack(settings.IP46) // force dual stack
-	netstack.Route(stack, l3)
+	netstack.Route(stack, l3)                    // set routes as per preference
 
 	sink := &pcapsink{}
 
@@ -198,12 +198,7 @@ func NewGTunnel(fd, mtu int, fpcap, l3 string, tcph netstack.GTCPConnHandler, ud
 
 	t = &gtunnel{endpoint, stack, hdl, mtu, dupfd, sink}
 
-	var ignored error
-	if len(fpcap) > 0 {
-		ignored = t.SetPcap(fpcap)
-	}
-
-	log.I("tun: new netstack up; fd(%d), pcap-err?(%v), l3(%v), mtu(%d)", dupfd, ignored, l3, mtu)
+	log.I("tun: new netstack up; fd(%d), l3(%v), mtu(%d)", dupfd, l3, mtu)
 	return
 }
 
@@ -270,12 +265,12 @@ func dup(fd int) (int, error) {
 		return -1, errInvalidTunFd
 	}
 
-	// Make a copy of `fd` so that os.File's finalizer doesn't close `fd`
+	// copy fd so that golang apis don't close fd
 	newfd, err := unix.Dup(fd)
 	if err != nil {
 		return -1, err
 	}
 
-	// java-land gives up its ownership of fd
+	// kt-land gives up its ownership of fd
 	return newfd, nil
 }

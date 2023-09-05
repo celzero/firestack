@@ -58,17 +58,22 @@ type Tunnel interface {
 	tunnel.Tunnel
 	// Get the resolver.
 	GetResolver() dnsx.Resolver
-	// Add system dns.
+	// Add one or more system dns as csv string.
 	SetSystemDNS(ippcsv string) int
-	// Set DNSMode, BlockMode, PtMode.
+	// Set DNSMode, BlockMode, PtMode. These are the enum constants
+	// defined in package settings.
 	SetTunMode(dnsmode, blockmode, ptmode int)
 	// Get proxies.
 	GetProxies() ipn.Proxies
-	// Creates a new link for fd and mtu.
+	// Creates a new link using fd (tun device) and mtu.
 	SetLink(fd, mtu int) error
-	// Sets new default routes for the given engine.
+	// Sets new default routes for the given engine, where engine is
+	// one of the constants (Ns4, Ns6, Ns46) defined in package settings.
 	SetRoute(engine int) error
-	// Sets pcap output.
+	// Sets pcap output to fpcap which is the absolute filepath
+	// to which a PCAP file will be written to.
+	// If len(fpcap) is 0, no PCAP file will be written.
+	// If len(fpcap) is 1, PCAP be written to stdout.
 	SetPcap(fpcap string) error
 	// Reset the tunnel with new tundevice, mtu, engine, pcap file.
 	// Reset(fd, mtu, engine int, pcap string) error
@@ -87,7 +92,7 @@ type intratunnel struct {
 	closed   bool
 }
 
-func NewTunnel(fd, mtu int, fpcap, fakedns string, dns dnsx.Transport, tunmode *settings.TunMode, bdg Bridge) (Tunnel, error) {
+func NewTunnel(fd, mtu int, fakedns string, dns dnsx.Transport, tunmode *settings.TunMode, bdg Bridge) (Tunnel, error) {
 	l3 := tunmode.L3()
 
 	natpt := ipn.NewNatPt(tunmode)
@@ -102,7 +107,7 @@ func NewTunnel(fd, mtu int, fpcap, fakedns string, dns dnsx.Transport, tunmode *
 	udph := NewUDPHandler(resolver, natpt, proxies, bdg, tunmode, bdg)
 	icmph := NewICMPHandler(resolver, natpt, proxies, bdg, tunmode, bdg)
 
-	gt, err := tunnel.NewGTunnel(fd, mtu, fpcap, l3, tcph, udph, icmph)
+	gt, err := tunnel.NewGTunnel(fd, mtu, l3, tcph, udph, icmph)
 
 	if err != nil {
 		log.I("tun: <<< new >>>; err(%v)", err)
@@ -143,7 +148,7 @@ func (t *intratunnel) Disconnect() {
 }
 
 // unused
-func (t *intratunnel) Reset(fd, mtu, engine int, fpcap string) error {
+func (t *intratunnel) Reset(fd, mtu, engine int) error {
 	t.clomu.RLock()
 	closed := t.closed
 	t.clomu.RUnlock()
@@ -156,7 +161,7 @@ func (t *intratunnel) Reset(fd, mtu, engine int, fpcap string) error {
 	t.tunmode.SetMode(t.tunmode.DNSMode, t.tunmode.BlockMode, t.tunmode.PtMode, engine)
 	l3 := t.tunmode.L3()
 
-	gt, err := tunnel.NewGTunnel(fd, mtu, fpcap, l3, t.tcp, t.udp, t.icmp)
+	gt, err := tunnel.NewGTunnel(fd, mtu, l3, t.tcp, t.udp, t.icmp)
 	if err != nil {
 		log.I("tun: <<< reset >>>; err?(%v)", err)
 		return err

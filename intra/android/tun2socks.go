@@ -45,10 +45,6 @@ func init() {
 //	is released by Disconnect(), so the caller must close `fd` _and_ call
 //	Disconnect() in order to close the TUN device.
 //
-// `fpcap` is the absolute filepath to which a PCAP file will be written to.
-//
-//	If `fpcap` is -1, no PCAP file will be written.
-//
 // `mtu` is the MTU of the TUN device.
 // `engine` IP protocols to route: one of settings.Ns4, settings.Ns6, settings.Ns46.
 // `fakedns` are the DNS servers that the system believes it is using, in "host:port" style.
@@ -57,10 +53,10 @@ func init() {
 //
 // Throws an exception if the TUN file descriptor cannot be opened, or if the tunnel fails to
 // connect.
-func Connect(fd, mtu, engine int, fpcap, fakedns string, dns dnsx.Transport, bdg intra.Bridge) (t intra.Tunnel, err error) {
+func Connect(fd, mtu, engine int, fakedns string, dns dnsx.Transport, bdg intra.Bridge) (t intra.Tunnel, err error) {
 	tunmode := settings.DefaultTunMode()
 	tunmode.IpMode = engine
-	return intra.NewTunnel(fd, mtu, fpcap, fakedns, dns, tunmode, bdg)
+	return intra.NewTunnel(fd, mtu, fakedns, dns, tunmode, bdg)
 }
 
 func LogLevel(level int) {
