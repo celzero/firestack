@@ -26,6 +26,7 @@ package netstack
 
 import (
 	"fmt"
+	"syscall"
 
 	"github.com/celzero/firestack/intra/log"
 	"golang.org/x/sys/unix"
@@ -158,6 +159,8 @@ type readVDispatcher struct {
 	buf *iovecBuffer
 }
 
+var _ linkDispatcher = (*readVDispatcher)(nil)
+
 func newReadVDispatcher(fd int, e *endpoint) (linkDispatcher, error) {
 	stopFd, err := newStopFd()
 	if err != nil {
@@ -171,6 +174,13 @@ func newReadVDispatcher(fd int, e *endpoint) (linkDispatcher, error) {
 
 	d.buf = newIovecBuffer(BufConfig)
 	return d, nil
+}
+
+func (d *readVDispatcher) stop() {
+	d.stopFd.stop()
+	// TODO: should close tun fd before stopFd?
+	err := syscall.Close(d.fd)
+	log.I("ns.dispatchers.stop: fds closed event(%d) tun(%d); err? %v", d.efd, d.fd, err)
 }
 
 const abort = false // abort indicates that the dispatcher should stop.

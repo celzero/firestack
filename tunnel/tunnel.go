@@ -28,7 +28,6 @@ import (
 	"io"
 	"os"
 	"sync"
-	"syscall"
 
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/netstack"
@@ -56,23 +55,20 @@ type Tunnel interface {
 
 // netstack
 
-const invalidfd = -1
-
 var errStackMissing = errors.New("tun: netstack not initialized")
 var errInvalidTunFd = errors.New("invalid tun fd")
+var errNoWriter = errors.New("no write() on netstack")
 
 type gtunnel struct {
-	endpoint stack.LinkEndpoint    // wires up tun fd to netstack
-	stack    *stack.Stack          // a tcpip stack
-	hdl      netstack.GConnHandler // tcp, udp, and icmp handlers
-	mtu      int                   // mtu of the tun device
-	fdref    int                   // the tun device
-	pcapio   *pcapsink             // pcap output, if any
+	stack  *stack.Stack          // a tcpip stack
+	hdl    netstack.GConnHandler // tcp, udp, and icmp handlers
+	mtu    int                   // mtu of the tun device
+	pcapio *pcapsink             // pcap output, if any
 }
 
 type pcapsink struct {
-	sync.RWMutex
-	sink io.WriteCloser
+	sync.RWMutex // protects sink
+	sink         io.WriteCloser
 }
 
 func (p *pcapsink) Write(b []byte) (int, error) {
@@ -82,9 +78,10 @@ func (p *pcapsink) Write(b []byte) (int, error) {
 
 func (p *pcapsink) writeAsync(b []byte) {
 	p.RLock()
+	w := p.sink
 	defer p.RUnlock()
-	if p.sink != nil {
-		p.sink.Write(b)
+	if w != nil {
+		w.Write(b)
 	} // else: no op
 }
 
@@ -94,15 +91,16 @@ func (p *pcapsink) Close() error {
 	return err
 }
 
-func (p *pcapsink) file(w io.WriteCloser) (err error) {
+func (p *pcapsink) file(f io.WriteCloser) (err error) {
 	p.Lock()
+	w := p.sink
+	p.sink = f
 	defer p.Unlock()
 
-	if p.sink != nil {
-		err = p.sink.Close()
+	if w != nil {
+		err = w.Close()
 	}
-	y := w != nil
-	p.sink = w
+	y := f != nil
 	netstack.FilePcap(y)
 	return
 }
@@ -115,17 +113,25 @@ func (t *gtunnel) Mtu() int {
 	return t.mtu
 }
 
+func (t *gtunnel) closeHandlers() {
+	if t.hdl == nil {
+		log.I("tun: handlers already closed")
+		return
+	}
+	err := t.hdl.Close()
+	t.hdl = nil
+	log.I("tun: handlers closed; err? %v", err)
+}
+
 func (t *gtunnel) closePcap() {
 	if t.pcapio == nil {
 		log.I("tun: pcap already closed")
 		return
 	}
 
-	if err := t.pcapio.Close(); err != nil {
-		log.E("tun: close(pcap) fail, err(%v)", err)
-	} else {
-		log.I("tun: pcap closed")
-	}
+	err := t.pcapio.Close()
+	t.pcapio = nil
+	log.I("tun: pcap closed; err? %v", err)
 }
 
 func (t *gtunnel) closeStack() {
@@ -133,44 +139,24 @@ func (t *gtunnel) closeStack() {
 		log.I("tun: stack already closed")
 		return
 	}
-	t.stack.Close()
+	t.stack.Destroy()
 	t.stack = nil
 	log.I("tun: netstack closed")
 }
 
-func (t *gtunnel) closeEndpoint() {
-	if t.endpoint == nil {
-		log.I("tun: endpoint already closed")
-		return
-	}
-
-	// close endpoint
-	t.endpoint.Attach(nil)
-	// close tun fd
-	if err := syscall.Close(t.fdref); err != nil {
-		log.E("tun: close(fd) fail, err(%v)", err)
-	} else {
-		log.I("tun: fd closed %d", t.fdref)
-	}
-	t.endpoint = nil
-	t.fdref = invalidfd
-	log.I("tun: endpoint closed")
-}
-
 func (t *gtunnel) Disconnect() {
-	t.closeEndpoint()
+	t.closeHandlers()
 	t.closePcap()
 	t.closeStack()
 }
 
 func (t *gtunnel) IsConnected() bool {
-	// TODO: check t.endpoint.IsAttached()?
-	return t.fdref != invalidfd
+	return t.stack != nil && t.stack.CheckNIC(settings.NICID)
 }
 
 func (t *gtunnel) Write([]byte) (int, error) {
 	// May be: t.endpoint.WritePackets()
-	return 0, errors.New("no write() on netstack")
+	return 0, errNoWriter
 }
 
 func NewGTunnel(fd, mtu int, l3 string, tcph netstack.GTCPConnHandler, udph netstack.GUDPConnHandler, icmph netstack.GICMPHandler) (t Tunnel, err error) {
@@ -196,7 +182,7 @@ func NewGTunnel(fd, mtu int, l3 string, tcph netstack.GTCPConnHandler, udph nets
 		return
 	}
 
-	t = &gtunnel{endpoint, stack, hdl, mtu, dupfd, sink}
+	t = &gtunnel{stack, hdl, mtu, sink}
 
 	log.I("tun: new netstack up; fd(%d), l3(%v), mtu(%d)", dupfd, l3, mtu)
 	return
@@ -228,8 +214,6 @@ func (t *gtunnel) SetLink(fd, mtu int) error {
 		return errStackMissing
 	}
 
-	t.closeEndpoint() // detach previous endpoint
-
 	dupfd, err := dup(fd) // tunnel will own dupfd
 	if err != nil {
 		return err
@@ -244,9 +228,7 @@ func (t *gtunnel) SetLink(fd, mtu int) error {
 	}
 
 	log.I("tun: new link; fd(%d), mtu(%d)", dupfd, mtu)
-	t.endpoint = ep
 	t.mtu = mtu
-	t.fdref = dupfd
 	return nil
 }
 

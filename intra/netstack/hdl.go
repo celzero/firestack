@@ -17,6 +17,7 @@ type GConnHandler interface {
 	TCP() GTCPConnHandler
 	UDP() GUDPConnHandler
 	ICMP() GICMPHandler
+	Close() error
 }
 
 type gconnhandler struct {
@@ -44,6 +45,26 @@ func (g *gconnhandler) UDP() GUDPConnHandler {
 
 func (g *gconnhandler) ICMP() GICMPHandler {
 	return g.icmp
+}
+
+func (g *gconnhandler) Close() error {
+	var firsterr error
+	if g.tcp != nil {
+		if err := g.tcp.End(); err != nil {
+			firsterr = err
+		}
+	}
+	if g.udp != nil {
+		if err := g.udp.End(); err != nil && firsterr == nil {
+			firsterr = err
+		}
+	}
+	if g.icmp != nil {
+		if err := g.icmp.End(); err != nil && firsterr == nil {
+			firsterr = err
+		}
+	}
+	return firsterr
 }
 
 // src/dst addrs are flipped

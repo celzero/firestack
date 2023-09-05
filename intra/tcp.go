@@ -269,6 +269,12 @@ func (h *tcpHandler) onFlow(localaddr *net.TCPAddr, target *net.TCPAddr, realips
 	return res
 }
 
+func (h *tcpHandler) End() error {
+	// TODO: stub
+	return nil
+}
+
+// Proxy implements netstack.GTCPConnHandler
 func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target *net.TCPAddr) (open bool) {
 	const rst bool = true // tear down conn
 	const ack bool = !rst // send synack

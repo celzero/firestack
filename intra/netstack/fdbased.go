@@ -76,8 +76,11 @@ type endpoint struct {
 	// caps holds the endpoint capabilities.
 	caps stack.LinkEndpointCapabilities
 
+	// dispatches packets from the link FD (tun device)
+	// to the network stack.
 	inboundDispatchers []linkDispatcher
-	dispatcher         stack.NetworkDispatcher
+	// the nic this endpoint is attached to.
+	dispatcher stack.NetworkDispatcher
 
 	// wg keeps track of running goroutines.
 	wg sync.WaitGroup
@@ -236,6 +239,8 @@ func createInboundDispatcher(e *endpoint, fd int, fID int32) (linkDispatcher, er
 // Attach launches the goroutine that reads packets from the file descriptor and
 // dispatches them via the provided dispatcher.
 func (e *endpoint) Attach(dispatcher stack.NetworkDispatcher) {
+	// Attach is called when the NIC is being created and then enabled.
+	// stack.CreateNIC -> nic.newNIC -> ep.Attach
 	// nil means the NIC is being removed.
 	if dispatcher == nil && e.dispatcher != nil {
 		for _, dispatcher := range e.inboundDispatchers {
@@ -378,6 +383,7 @@ func (e *endpoint) dispatchLoop(inboundDispatcher linkDispatcher) tcpip.Error {
 	for {
 		cont, err := inboundDispatcher.dispatch()
 		if err != nil || !cont {
+			log.I("ns.e.dispatchLoop: exit; err(%v)", err)
 			return err
 		}
 	}

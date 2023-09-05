@@ -103,11 +103,19 @@ func (h *icmpHandler) onFlow(source *net.UDPAddr, target *net.UDPAddr, realips, 
 	return
 }
 
+// End implements netstack.GICMPHandler.
+func (h *icmpHandler) End() error {
+	// TODO: stub
+	return nil
+}
+
+// PingOnce implements netstack.GICMPHandler.
 func (h *icmpHandler) PingOnce(src, dst *net.UDPAddr, msg []byte) bool {
 	return h.Ping(src, dst, msg, nil /*no pong*/)
 }
 
-// to send icmp pings, root access is required; and so,
+// Ping implements netstack.GICMPHandler.
+// Nb: to send icmp pings, root access is required; and so,
 // send "unprivileged" icmp pings via udp reqs; which do
 // work on Vanilla Android, because ping_group_range is
 // set to 0 2147483647

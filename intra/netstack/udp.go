@@ -31,6 +31,7 @@ var (
 type GUDPConnHandler interface {
 	OnNewConn(conn *GUDPConn, src, dst *net.UDPAddr)
 	HandleData(conn *GUDPConn, data []byte, addr *net.UDPAddr) error
+	End() error
 }
 
 var _ core.UDPConn = (*GUDPConn)(nil)

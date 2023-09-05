@@ -110,7 +110,7 @@ func Up(s *stack.Stack, ep stack.LinkEndpoint, h GConnHandler) error {
 		setupUdpHandler(s, h.UDP())
 	}
 
-	// creates a fake nic and attaches netstack to it
+	// creates and enables a fake nic and attaches netstack to it
 	if nerr := s.CreateNIC(nic, ep); nerr != nil {
 		return e(nerr)
 	}

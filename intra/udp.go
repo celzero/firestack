@@ -316,6 +316,7 @@ func (h *udpHandler) onFlow(localudp core.UDPConn, target *net.UDPAddr, realips,
 	return res
 }
 
+// OnNewConn implements netstack.GUDPConnHandler
 func (h *udpHandler) OnNewConn(gconn *netstack.GUDPConn, _, dst *net.UDPAddr) {
 	finish := true // disconnect
 	decision, err := h.Connect(gconn, dst)
@@ -407,8 +408,14 @@ func (h *udpHandler) Connect(conn core.UDPConn, target *net.UDPAddr) (res string
 	return res, nil // connect
 }
 
+// HandleData implements netstack.GUDPConnHandler
 func (h *udpHandler) HandleData(conn *netstack.GUDPConn, data []byte, addr *net.UDPAddr) error {
 	return h.ReceiveTo(conn, data, addr)
+}
+
+func (h *udpHandler) End() error {
+	// TODO: stub
+	return nil
 }
 
 // ReceiveTo is called when data arrives from conn (tun).

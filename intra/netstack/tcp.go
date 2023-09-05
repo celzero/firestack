@@ -29,6 +29,7 @@ var (
 
 type GTCPConnHandler interface {
 	Proxy(conn *GTCPConn, src, dst *net.TCPAddr) bool
+	End() error
 }
 
 var _ core.TCPConn = (*GTCPConn)(nil)
