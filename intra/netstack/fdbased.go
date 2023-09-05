@@ -40,6 +40,7 @@ import (
 	"gvisor.dev/gvisor/pkg/tcpip"
 	"gvisor.dev/gvisor/pkg/tcpip/header"
 	"gvisor.dev/gvisor/pkg/tcpip/link/rawfile"
+	"gvisor.dev/gvisor/pkg/tcpip/link/sniffer"
 	"gvisor.dev/gvisor/pkg/tcpip/stack"
 )
 
@@ -317,6 +318,13 @@ func (e *endpoint) ParseHeader(pkt stack.PacketBufferPtr) bool {
 	return true
 }
 
+func (e *endpoint) logPacketIfNeeded(dir sniffer.Direction, pkt stack.PacketBufferPtr) {
+	protocol := pkt.NetworkProtocolNumber
+	if sniffer.LogPackets.Load() == 1 {
+		sniffer.LogPacket("rdnspcap", dir, protocol, pkt)
+	}
+}
+
 // writePackets writes outbound packets to the file descriptor. If it is not
 // currently writable, the packet is dropped.
 // Way more simplified than og impl, ref: github.com/google/gvisor/issues/7125
@@ -331,6 +339,7 @@ func (e *endpoint) WritePackets(pkts stack.PacketBufferList) (int, tcpip.Error) 
 	packets, written := 0, 0
 	total := pkts.Len()
 	for _, pkt := range pkts.AsSlice() {
+		e.logPacketIfNeeded(sniffer.DirectionSend, pkt)
 		views := pkt.AsSlices()
 		numIovecs := len(views)
 		if len(batch)+numIovecs > rawfile.MaxIovs {
@@ -382,10 +391,11 @@ func (e *endpoint) ARPHardwareType() header.ARPHardwareType {
 	return header.ARPHardwareNone
 }
 
-// Unused: InjectInbound ingresses a netstack-inbound packet.
+// InjectInbound ingresses a netstack-inbound packet.
 func (e *endpoint) InjectInbound(protocol tcpip.NetworkProtocolNumber, pkt stack.PacketBufferPtr) {
-	log.V("ns.e.inject-inbound(from-tun) %d pkt(%v)", protocol, pkt.Hash)
+	log.V("ns.e.inject-inbound(from-tun) %d", protocol)
 	if e.IsAttached() {
+		e.logPacketIfNeeded(sniffer.DirectionRecv, pkt)
 		e.dispatcher.DeliverNetworkPacket(protocol, pkt)
 	} else {
 		log.W("ns.e.inject-inbound(from-tun) %d pkt(%v) dropped: endpoint not attached", protocol, pkt.Hash)
@@ -396,5 +406,6 @@ func (e *endpoint) InjectInbound(protocol tcpip.NetworkProtocolNumber, pkt stack
 // InjectOutbound egresses a tun-inbound packet.
 func (e *endpoint) InjectOutbound(dest tcpip.Address, packet *buffer.View) tcpip.Error {
 	log.V("ns.e.inject-outbound(to-tun) to dst(%v)", dest)
+	// TODO: e.logPacketIfNeeded(sniffer.DirectionSend, packet)
 	return rawfile.NonBlockingWrite(e.fds[0].fd, packet.AsSlice())
 }

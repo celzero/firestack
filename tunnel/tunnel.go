@@ -209,19 +209,19 @@ func (t *gtunnel) SetPcap(fpcap string) error {
 
 	if len(fpcap) == 0 {
 		log.I("netstack: pcap closed (ignored-err? %v)", ignored)
-		return nil // nothing to do
+		return nil // nothing else to do; pcap is closed
 	} else if len(fpcap) == 1 {
 		// if fdpcap is 0, 1, or 2 then pcap is written to stdout
 		ok := t.pcapio.log(true)
 		log.I("netstack: pcap(%s)/log(%t)", fpcap, ok)
-		return nil
+		return nil // fdbased will write to stdout
 	} else if fout, err := os.OpenFile(fpcap, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0600); err == nil {
 		ignored = t.pcapio.file(fout) // attach
 		log.I("netstack: pcap(%s)/file(%v) (ignored-err? %v)", fpcap, fout, ignored)
-		return nil
+		return nil // sniffer will write to fout
 	} else {
 		log.E("netstack: pcap(%s); (err? %v)", fpcap, err)
-		return err
+		return err // no pcap
 	}
 }
 
