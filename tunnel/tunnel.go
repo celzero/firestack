@@ -248,7 +248,7 @@ func (t *gtunnel) SetLink(fd, mtu int) error {
 	log.I("tun: new link; fd(%d), mtu(%d)", dupfd, mtu)
 	t.endpoint = ep
 	t.mtu = mtu
-	t.fdref = fd
+	t.fdref = dupfd
 	return nil
 }
 

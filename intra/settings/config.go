@@ -69,7 +69,7 @@ func (tm *TunMode) L3() string {
 	case Ns6:
 		return IP6
 	default:
-		log.W("settings: engine unknown(%d)", tm.IpMode)
+		log.W("settings: engine default(%d)", tm.IpMode)
 		return IP4
 	}
 }
