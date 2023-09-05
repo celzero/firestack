@@ -7,7 +7,6 @@
 package ipn
 
 type ground struct {
-	Proxy
 	addr string
 }
 

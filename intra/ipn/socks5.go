@@ -15,7 +15,6 @@ import (
 )
 
 type socks5 struct {
-	Proxy
 	dailer proxy.Dialer
 	id     string
 	opts   *settings.ProxyOptions

@@ -39,7 +39,6 @@ const (
 )
 
 type piph2 struct {
-	Proxy
 	id       string      // some unique identifier
 	url      string      // h2 proxy url
 	hostname string      // h2 proxy hostname

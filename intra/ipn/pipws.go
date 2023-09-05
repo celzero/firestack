@@ -30,17 +30,16 @@ const (
 )
 
 type pipws struct {
-	Proxy
 	id       string      // some unique identifier
-	url      string      // h2 proxy url
-	hostname string      // h2 proxy hostname
-	port     int         // h2 proxy port
-	ips      ipmap.IPMap // h2 proxy working ips
+	url      string      // ws proxy url
+	hostname string      // ws proxy hostname
+	port     int         // ws proxy port
+	ips      ipmap.IPMap // ws proxy working ips
 	token    string      // hex, client token
 	toksig   string      // hex, authorizer (rdns) signed client token
 	rsasig   string      // hex, authorizer unblinded signature
-	client   http.Client // h2 client
-	dialer   *net.Dialer // h2 dialer
+	client   http.Client // ws client
+	dialer   *net.Dialer // ws dialer
 	status   int         // proxy status: TOK, TKO, END
 }
 

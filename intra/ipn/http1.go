@@ -17,7 +17,6 @@ import (
 )
 
 type http1 struct {
-	Proxy
 	dialer proxy.Dialer
 	id     string
 	opts   *settings.ProxyOptions

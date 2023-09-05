@@ -59,6 +59,8 @@ var _ Proxy = (*socks5)(nil)
 var _ Proxy = (*http1)(nil)
 var _ Proxy = (*wgproxy)(nil)
 var _ Proxy = (*ground)(nil)
+var _ Proxy = (*pipws)(nil)
+var _ Proxy = (*piph2)(nil)
 
 // Adapter to keep gomobile happy as it can't export net.Conn
 type Conn interface {

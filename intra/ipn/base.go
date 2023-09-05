@@ -14,7 +14,6 @@ import (
 )
 
 type base struct {
-	Proxy
 	dialer *net.Dialer
 	addr   string
 	status int

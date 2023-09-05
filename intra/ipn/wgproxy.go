@@ -72,7 +72,6 @@ type wgtun struct {
 }
 
 var _ WgProxy = (*wgproxy)(nil)
-var _ Proxy = (*wgproxy)(nil)
 
 type wgproxy struct {
 	*wgtun
