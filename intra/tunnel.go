@@ -65,8 +65,6 @@ type Tunnel interface {
 	SetTunMode(dnsmode, blockmode, ptmode int)
 	// Get proxies.
 	GetProxies() ipn.Proxies
-	// Creates a new link using fd (tun device) and mtu.
-	SetLink(fd, mtu int) error
 	// Sets new default routes for the given engine, where engine is
 	// one of the constants (Ns4, Ns6, Ns46) defined in package settings.
 	SetRoute(engine int) error
@@ -132,13 +130,14 @@ func NewTunnel(fd, mtu int, fakedns string, dns dnsx.Transport, tunmode *setting
 
 func (t *intratunnel) Disconnect() {
 	t.clomu.Lock()
-	if t.closed {
-		log.W("tun: <<< disconnect >>>; already closed")
-		t.clomu.Unlock()
-		return
-	}
+	closed := t.closed
 	t.closed = true
 	t.clomu.Unlock()
+
+	if closed {
+		log.W("tun: <<< disconnect >>>; already closed")
+		return
+	}
 
 	err0 := t.resolver.Stop()
 	err1 := t.proxies.StopProxies()
@@ -176,32 +175,6 @@ func (t *intratunnel) Reset(fd, mtu, engine int) error {
 	return nil
 }
 
-func (t *intratunnel) SetPcap(fpcap string) error {
-	t.clomu.RLock()
-	closed := t.closed
-	t.clomu.RUnlock()
-
-	if closed {
-		log.W("tun: <<< set pcap >>>; already closed")
-		return errClosed
-	}
-
-	return t.Tunnel.SetPcap(fpcap)
-}
-
-func (t *intratunnel) SetLink(fd, mtu int) error {
-	t.clomu.RLock()
-	closed := t.closed
-	t.clomu.RUnlock()
-
-	if closed {
-		log.W("tun: <<< set link >>>; already closed")
-		return errClosed
-	}
-
-	return t.Tunnel.SetLink(fd, mtu)
-}
-
 func (t *intratunnel) SetRoute(engine int) error {
 	t.clomu.RLock()
 	closed := t.closed
@@ -213,7 +186,7 @@ func (t *intratunnel) SetRoute(engine int) error {
 	}
 
 	t.tunmode.SetMode(t.tunmode.DNSMode, t.tunmode.BlockMode, t.tunmode.PtMode, engine)
-	return t.Tunnel.NewRoute(t.tunmode.L3())
+	return t.Tunnel.SetRoute(engine)
 }
 
 func (t *intratunnel) GetResolver() dnsx.Resolver {

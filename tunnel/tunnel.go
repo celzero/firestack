@@ -45,10 +45,10 @@ type Tunnel interface {
 	Disconnect()
 	// Write writes input data to the TUN interface.
 	Write(data []byte) (int, error)
-	// Update fd and mtu
+	// Creates a new link using fd (tun device) and mtu.
 	SetLink(fd, mtu int) error
 	// New route
-	NewRoute(l3 string) error
+	SetRoute(engine int) error
 	// Set or unset the pcap sink
 	SetPcap(fpcap string) error
 }
@@ -189,6 +189,9 @@ func NewGTunnel(fd, mtu int, l3 string, tcph netstack.GTCPConnHandler, udph nets
 }
 
 func (t *gtunnel) SetPcap(fpcap string) error {
+	if t.stack == nil || t.pcapio == nil {
+		return errStackMissing
+	}
 	ignored := t.pcapio.Close() // close any existing pcap sink
 
 	if len(fpcap) == 0 {
@@ -232,11 +235,11 @@ func (t *gtunnel) SetLink(fd, mtu int) error {
 	return nil
 }
 
-func (t *gtunnel) NewRoute(l3 string) error {
+func (t *gtunnel) SetRoute(engine int) error {
 	if t.stack == nil {
 		return errStackMissing
 	}
-
+	l3 := settings.L3(engine)
 	netstack.Route(t.stack, l3)
 	log.I("tun: new route; l3(%v)", l3)
 	return nil

@@ -63,13 +63,16 @@ const NICID = 0x01
 var Debug bool = false
 
 func (tm *TunMode) L3() string {
-	switch tm.IpMode {
+	return L3(tm.IpMode)
+}
+
+func L3(engine int) string {
+	switch engine {
 	case Ns46:
 		return IP46
 	case Ns6:
 		return IP6
 	default:
-		log.W("settings: engine default(%d)", tm.IpMode)
 		return IP4
 	}
 }
