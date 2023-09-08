@@ -51,6 +51,11 @@ const (
 	blocktime = 25 * time.Second
 )
 
+const (
+	TCPOK = iota
+	TCPEND
+)
+
 var (
 	errTcpFirewalled = errors.New("tcp: firewalled")
 	errTcpSetupConn  = errors.New("tcp: could not create conn")
@@ -72,6 +77,7 @@ type tcpHandler struct {
 	pt        ipn.NatPt
 	prox      ipn.Proxies
 	fwtracker *core.ExpMap
+	status    int
 }
 
 // TCPSocketSummary provides information about each TCP socket, reported when it is closed.
@@ -126,6 +132,7 @@ func NewTCPHandler(resolver dnsx.Resolver, pt ipn.NatPt, prox ipn.Proxies, ctl p
 		pt:        pt,
 		prox:      prox,
 		fwtracker: core.NewExpiringMap(),
+		status:    TCPOK,
 	}
 
 	log.I("tcp: new handler created")
@@ -170,6 +177,11 @@ func (h *tcpHandler) handleDownload(local core.TCPConn, remote core.TCPConn) (by
 }
 
 func (h *tcpHandler) forward(local net.Conn, remote net.Conn, summary *TCPSocketSummary) {
+	if h.status == TCPEND {
+		log.D("tcp: forward(%v, %v): end", local, remote)
+		return
+	}
+
 	localtcp := local.(core.TCPConn)   // conforms to net.TCPConn
 	remotetcp := remote.(core.TCPConn) // conforms to net.TCPConn
 	ioch := make(chan ioinfo)
@@ -210,16 +222,19 @@ func filteredPort(addr net.Addr) int16 {
 
 // must always be called from a goroutine
 func (h *tcpHandler) sendNotif(summary *TCPSocketSummary) {
-	ok1 := h.listener != nil
+	// sleep a bit to avoid scenario where kotlin-land
+	// hasn't yet had the chance to persist info about
+	// this conn (cid) to meaninfully process its summary
+	time.Sleep(1 * time.Second)
+	l := h.listener
+
+	ok0 := h.status != TCPEND
+	ok1 := l != nil
 	ok2 := summary != nil
 	ok3 := len(summary.ID) > 0
-	log.V("tcp: sendNotif(%t,%t,%t): %s", ok1, ok2, ok3, summary.str())
-	if ok1 && ok2 && ok3 {
-		// sleep a bit to avoid scenario where kotlin-land
-		// hasn't yet had the chance to persist info about
-		// this conn (cid) to meaninfully process its summary
-		time.Sleep(1 * time.Second)
-		h.listener.OnTCPSocketClosed(summary)
+	log.V("tcp: sendNotif(%t, %t,%t,%t): %s", ok0, ok1, ok2, ok3, summary.str())
+	if ok0 && ok1 && ok2 && ok3 {
+		l.OnTCPSocketClosed(summary)
 	}
 }
 
@@ -270,12 +285,17 @@ func (h *tcpHandler) onFlow(localaddr *net.TCPAddr, target *net.TCPAddr, realips
 }
 
 func (h *tcpHandler) End() error {
-	// TODO: stub
+	h.status = TCPEND
 	return nil
 }
 
 // Proxy implements netstack.GTCPConnHandler
 func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target *net.TCPAddr) (open bool) {
+	if h.status == TCPEND {
+		log.D("tcp: proxy: end")
+		return
+	}
+
 	const rst bool = true // tear down conn
 	const ack bool = !rst // send synack
 	var err error

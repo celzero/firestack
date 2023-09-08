@@ -23,6 +23,11 @@ import (
 	"github.com/celzero/firestack/intra/settings"
 )
 
+const (
+	ICMPOK = iota
+	ICMPEND
+)
+
 var icmptimeout = 10 * time.Second
 
 type ICMPHandler interface {
@@ -44,6 +49,7 @@ type icmpHandler struct {
 	pt       ipn.NatPt
 	prox     ipn.Proxies
 	listener ICMPListener
+	status   int
 }
 
 type ICMPSummary struct {
@@ -64,6 +70,7 @@ func NewICMPHandler(resolver dnsx.Resolver, pt ipn.NatPt, prox ipn.Proxies, ctl 
 		pt:       pt,
 		prox:     prox,
 		listener: listener,
+		status:   ICMPOK,
 	}
 
 	log.I("icmp: new handler created")
@@ -105,7 +112,7 @@ func (h *icmpHandler) onFlow(source *net.UDPAddr, target *net.UDPAddr, realips, 
 
 // End implements netstack.GICMPHandler.
 func (h *icmpHandler) End() error {
-	// TODO: stub
+	h.status = ICMPEND
 	return nil
 }
 
@@ -124,6 +131,10 @@ func (h *icmpHandler) PingOnce(src, dst *net.UDPAddr, msg []byte) bool {
 // see: sturmflut.github.io/linux/ubuntu/2015/01/17/unprivileged-icmp-sockets-on-linux/
 // ex: github.com/prometheus-community/pro-bing/blob/0bacb2d5e/ping.go#L703
 func (h *icmpHandler) Ping(source *net.UDPAddr, target *net.UDPAddr, msg []byte, pong netstack.Pong) (open bool) {
+	if h.status == ICMPEND {
+		log.D("icmp: handler ended")
+		return
+	}
 	var c ipn.Conn
 	var pc ipn.Proxy
 	var err error
@@ -213,6 +224,11 @@ func (h *icmpHandler) fetch(c net.Conn, pong netstack.Pong, summary *ICMPSummary
 	src := c.LocalAddr()
 	dst := c.RemoteAddr()
 	for {
+		if h.status == ICMPEND {
+			log.D("icmp: handler ended")
+			return
+		}
+
 		c.SetDeadline(time.Now().Add(h.timeout))
 		if n, err = c.Read(b); err != nil {
 			log.E("t.icmp.ingress: read(%v <- %v) ping err %v", src, dst, err)
@@ -239,11 +255,12 @@ func (h *icmpHandler) fetch(c net.Conn, pong netstack.Pong, summary *ICMPSummary
 }
 
 func (h *icmpHandler) sendNotif(s *ICMPSummary) {
-	if h.listener == nil {
+	l := h.listener
+	if l == nil || s == nil || h.status == ICMPEND {
 		return
 	}
 	s.Duration = int32(time.Since(s.start).Seconds())
-	h.listener.OnICMPClosed(s)
+	l.OnICMPClosed(s)
 }
 
 func close(c ipn.Conn) {

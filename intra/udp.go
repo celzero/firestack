@@ -49,10 +49,16 @@ const (
 	yeserr     = "error"
 )
 
+const (
+	UDPOK = iota
+	UDPEND
+)
+
 var (
 	errUdpRead       = errors.New("udp: remote read fail")
 	errUdpFirewalled = errors.New("udp: firewalled")
 	errUdpSetupConn  = errors.New("udp: could not create conn")
+	errUdpEnd        = errors.New("udp: end")
 )
 
 // UDPSocketSummary describes a non-DNS UDP association, reported when it is discarded.
@@ -127,6 +133,7 @@ type udpHandler struct {
 	pt        ipn.NatPt
 	prox      ipn.Proxies
 	fwtracker *core.ExpMap
+	status    int
 }
 
 // NewUDPHandler makes a UDP handler with Intra-style DNS redirection:
@@ -153,6 +160,7 @@ func NewUDPHandler(resolver dnsx.Resolver, pt ipn.NatPt, prox ipn.Proxies, ctl p
 		pt:        pt,
 		prox:      prox,
 		fwtracker: core.NewExpiringMap(),
+		status:    UDPOK,
 	}
 
 	log.I("udp: new handler created")
@@ -192,6 +200,11 @@ func (h *udpHandler) fetchUDPInput(conn core.UDPConn, nat *tracker) {
 
 	var err error
 	for {
+		if h.status == UDPEND {
+			log.D("udp: ingress: end", h.status)
+			nat.msg = errUdpEnd.Error()
+			return
+		}
 		if nat.errcount > maxconnerr {
 			log.D("udp: ingress: too many errors (%v); latest(%v), closing", nat.errcount, err)
 			nat.msg = err.Error()
@@ -332,6 +345,11 @@ func (h *udpHandler) OnNewConn(gconn *netstack.GUDPConn, _, dst *net.UDPAddr) {
 // Connect connects the proxy server.
 // Note, target may be nil in lwip (deprecated) while it may be unspecified in netstack
 func (h *udpHandler) Connect(conn core.UDPConn, target *net.UDPAddr) (res string, err error) {
+	if h.status == UDPEND {
+		log.D("udp: connect: end")
+		return "", errUdpEnd
+	}
+
 	var px ipn.Proxy
 	var pc ipn.Conn
 
@@ -410,11 +428,15 @@ func (h *udpHandler) Connect(conn core.UDPConn, target *net.UDPAddr) (res string
 
 // HandleData implements netstack.GUDPConnHandler
 func (h *udpHandler) HandleData(conn *netstack.GUDPConn, data []byte, addr *net.UDPAddr) error {
+	if h.status == UDPEND {
+		log.D("udp: handle-data: end")
+		return errUdpEnd
+	}
 	return h.ReceiveTo(conn, data, addr)
 }
 
 func (h *udpHandler) End() error {
-	// TODO: stub
+	h.status = UDPEND
 	return nil
 }
 
@@ -520,23 +542,28 @@ func (h *udpHandler) Close(conn core.UDPConn) {
 
 // must always be called as a goroutine
 func (h *udpHandler) sendNotif(cid, pid, uid, msg string, up, down int64, elapsed int32) {
-	if h.listener == nil {
-		log.V("udp: sendNotif(false): no listener")
-		return
-	}
-	s := &UDPSocketSummary{
-		ID:            cid,
-		PID:           pid,
-		UID:           uid,
-		Msg:           msg,
-		UploadBytes:   up,
-		DownloadBytes: down,
-		Duration:      elapsed,
-	}
 	// sleep a bit to avoid scenario where kotlin-land
 	// hasn't yet had the chance to persist info about
 	// this conn (cid) to meaninfully process its summary
 	time.Sleep(1 * time.Second)
-	log.V("udp: sendNotif(true): %s", s.str())
-	h.listener.OnUDPSocketClosed(s)
+
+	l := h.listener
+	ok0 := h.status != UDPEND
+	ok1 := l != nil
+	if ok0 && ok1 {
+		s := &UDPSocketSummary{
+			ID:            cid,
+			PID:           pid,
+			UID:           uid,
+			Msg:           msg,
+			UploadBytes:   up,
+			DownloadBytes: down,
+			Duration:      elapsed,
+		}
+		log.V("udp: sendNotif(true): %s", s.str())
+		l.OnUDPSocketClosed(s)
+		return
+	} else {
+		log.V("udp: sendNotif(%t, %t): no listener", ok0, ok1)
+	}
 }
