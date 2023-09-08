@@ -77,7 +77,7 @@ type Tunnel interface {
 	// Reset(fd, mtu, engine int, pcap string) error
 }
 
-type intratunnel struct {
+type rtunnel struct {
 	tunnel.Tunnel
 	tcp      TCPHandler
 	udp      UDPHandler
@@ -112,7 +112,7 @@ func NewTunnel(fd, mtu int, fakedns string, dns dnsx.Transport, tunmode *setting
 		return nil, err
 	}
 
-	t := &intratunnel{
+	t := &rtunnel{
 		Tunnel:   gt,
 		tunmode:  tunmode,
 		udp:      udph,
@@ -128,7 +128,7 @@ func NewTunnel(fd, mtu int, fakedns string, dns dnsx.Transport, tunmode *setting
 	return t, nil
 }
 
-func (t *intratunnel) Disconnect() {
+func (t *rtunnel) Disconnect() {
 	t.clomu.Lock()
 	closed := t.closed
 	t.closed = true
@@ -147,7 +147,7 @@ func (t *intratunnel) Disconnect() {
 }
 
 // unused
-func (t *intratunnel) Reset(fd, mtu, engine int) error {
+func (t *rtunnel) Reset(fd, mtu, engine int) error {
 	t.clomu.RLock()
 	closed := t.closed
 	t.clomu.RUnlock()
@@ -175,7 +175,7 @@ func (t *intratunnel) Reset(fd, mtu, engine int) error {
 	return nil
 }
 
-func (t *intratunnel) SetRoute(engine int) error {
+func (t *rtunnel) SetRoute(engine int) error {
 	t.clomu.RLock()
 	closed := t.closed
 	t.clomu.RUnlock()
@@ -189,15 +189,15 @@ func (t *intratunnel) SetRoute(engine int) error {
 	return t.Tunnel.SetRoute(engine)
 }
 
-func (t *intratunnel) GetResolver() dnsx.Resolver {
+func (t *rtunnel) GetResolver() dnsx.Resolver {
 	return t.resolver
 }
 
-func (t *intratunnel) GetProxies() ipn.Proxies {
+func (t *rtunnel) GetProxies() ipn.Proxies {
 	return t.proxies
 }
 
-func (t *intratunnel) SetSystemDNS(ippcsv string) int {
+func (t *rtunnel) SetSystemDNS(ippcsv string) int {
 	ipports := strings.Split(ippcsv, ",")
 	d := t.resolver.RemoveSystemDNS()
 	if len(ipports) <= 0 {
@@ -221,6 +221,6 @@ func (t *intratunnel) SetSystemDNS(ippcsv string) int {
 	return n
 }
 
-func (t *intratunnel) SetTunMode(dnsmode, blockmode, ptmode int) {
+func (t *rtunnel) SetTunMode(dnsmode, blockmode, ptmode int) {
 	t.tunmode.SetMode(dnsmode, blockmode, ptmode, t.tunmode.IpMode)
 }

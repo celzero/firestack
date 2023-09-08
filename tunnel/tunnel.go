@@ -114,33 +114,35 @@ func (t *gtunnel) Mtu() int {
 }
 
 func (t *gtunnel) closeHandlers() {
-	if t.hdl == nil {
+	hdl := t.hdl
+	t.hdl = nil
+	if hdl == nil {
 		log.I("tun: handlers already closed")
 		return
 	}
-	err := t.hdl.Close()
-	t.hdl = nil
+	err := hdl.Close()
 	log.I("tun: handlers closed; err? %v", err)
 }
 
 func (t *gtunnel) closePcap() {
-	if t.pcapio == nil {
+	p := t.pcapio
+	t.pcapio = nil
+	if p == nil {
 		log.I("tun: pcap already closed")
 		return
 	}
-
-	err := t.pcapio.Close()
-	t.pcapio = nil
+	err := p.Close()
 	log.I("tun: pcap closed; err? %v", err)
 }
 
 func (t *gtunnel) closeStack() {
-	if t.stack == nil {
+	s := t.stack
+	t.stack = nil
+	if s == nil {
 		log.I("tun: stack already closed")
 		return
 	}
-	t.stack.Destroy()
-	t.stack = nil
+	s.Destroy()
 	log.I("tun: netstack closed")
 }
 
@@ -151,7 +153,8 @@ func (t *gtunnel) Disconnect() {
 }
 
 func (t *gtunnel) IsConnected() bool {
-	return t.stack != nil && t.stack.CheckNIC(settings.NICID)
+	s := t.stack
+	return s != nil && s.CheckNIC(settings.NICID)
 }
 
 func (t *gtunnel) Write([]byte) (int, error) {
@@ -160,8 +163,6 @@ func (t *gtunnel) Write([]byte) (int, error) {
 }
 
 func NewGTunnel(fd, mtu int, l3 string, tcph netstack.GTCPConnHandler, udph netstack.GUDPConnHandler, icmph netstack.GICMPHandler) (t Tunnel, err error) {
-	var endpoint stack.LinkEndpoint
-
 	hdl := netstack.NewGConnHandler(tcph, udph, icmph)
 
 	stack := netstack.NewNetstack(settings.IP46) // force dual stack
@@ -169,41 +170,34 @@ func NewGTunnel(fd, mtu int, l3 string, tcph netstack.GTCPConnHandler, udph nets
 
 	sink := &pcapsink{}
 
-	dupfd, err := dup(fd) // tunnel will own dupfd
+	t = &gtunnel{stack, hdl, mtu, sink}
+
+	err = t.SetLink(fd, mtu) // creates endpoint / brings up nic
 	if err != nil {
 		return nil, err
 	}
-	endpoint, err = netstack.NewEndpoint(dupfd, mtu, sink)
-	if err != nil {
-		return
-	}
 
-	if err = netstack.Up(stack, endpoint, hdl); err != nil {
-		return
-	}
-
-	t = &gtunnel{stack, hdl, mtu, sink}
-
-	log.I("tun: new netstack up; fd(%d), l3(%v), mtu(%d)", dupfd, l3, mtu)
+	log.I("tun: new netstack up; fd(%d), l3(%v), mtu(%d)", fd, l3, mtu)
 	return
 }
 
 func (t *gtunnel) SetPcap(fpcap string) error {
-	if t.stack == nil || t.pcapio == nil {
+	pcap := t.pcapio
+	if pcap == nil {
 		return errStackMissing
 	}
-	ignored := t.pcapio.Close() // close any existing pcap sink
+	ignored := pcap.Close() // close any existing pcap sink
 
 	if len(fpcap) == 0 {
 		log.I("netstack: pcap closed (ignored-err? %v)", ignored)
 		return nil // nothing else to do; pcap is closed
 	} else if len(fpcap) == 1 {
 		// if fdpcap is 0, 1, or 2 then pcap is written to stdout
-		ok := t.pcapio.log(true)
+		ok := pcap.log(true)
 		log.I("netstack: pcap(%s)/log(%t)", fpcap, ok)
 		return nil // fdbased will write to stdout
 	} else if fout, err := os.OpenFile(fpcap, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0600); err == nil {
-		ignored = t.pcapio.file(fout) // attach
+		ignored = pcap.file(fout) // attach
 		log.I("netstack: pcap(%s)/file(%v) (ignored-err? %v)", fpcap, fout, ignored)
 		return nil // sniffer will write to fout
 	} else {
@@ -213,7 +207,11 @@ func (t *gtunnel) SetPcap(fpcap string) error {
 }
 
 func (t *gtunnel) SetLink(fd, mtu int) error {
-	if t.stack == nil {
+	s := t.stack
+	hdl := t.hdl
+	pcap := t.pcapio
+	if s == nil || hdl == nil || pcap == nil {
+		log.W("tun: link not set; stack? %t, hdl? %v, pcap? %v", s != nil, hdl != nil, pcap != nil)
 		return errStackMissing
 	}
 
@@ -221,12 +219,12 @@ func (t *gtunnel) SetLink(fd, mtu int) error {
 	if err != nil {
 		return err
 	}
-	ep, err := netstack.NewEndpoint(dupfd, mtu, t.pcapio)
+	ep, err := netstack.NewEndpoint(dupfd, mtu, pcap)
 	if err != nil {
 		return err
 	}
 
-	if err = netstack.Up(t.stack, ep, t.hdl); err != nil { // attach new endpoint
+	if err = netstack.Up(s, ep, hdl); err != nil { // attach new endpoint
 		return err
 	}
 
@@ -236,11 +234,12 @@ func (t *gtunnel) SetLink(fd, mtu int) error {
 }
 
 func (t *gtunnel) SetRoute(engine int) error {
-	if t.stack == nil {
+	s := t.stack
+	if s == nil {
 		return errStackMissing
 	}
 	l3 := settings.L3(engine)
-	netstack.Route(t.stack, l3)
+	netstack.Route(s, l3)
 	log.I("tun: new route; l3(%v)", l3)
 	return nil
 }
