@@ -344,7 +344,7 @@ func (c *client) query(qctx *qcontext) *dnsx.QueryError {
 		log.E("mdns: failed to send query(%s): %v", qname, err)
 		return err
 	} else {
-		log.D("mdns: waiting for answers for %s", qname)
+		log.D("mdns: waiting for answers to %s", qname)
 	}
 
 	total := 0
@@ -389,14 +389,14 @@ loop:
 					disco.ip6 = &rr.AAAA
 					disco.ans = msg
 				default:
-					log.I("mdns: ignoring %s for %s", rr, disco.name)
+					log.I("mdns: ignoring ans %s to %s", rr, disco.name)
 				}
 			}
 
 			if disco == nil { // no valid answers
 				log.D("mdns: no valid answers for %s", qname)
 				continue
-			} else if (c.oneshot && disco.hasip()) || // recieved v4 / v6 ips
+			} else if (c.oneshot && disco.hasip()) || // oneshot + recieved v4 / v6 ips
 				(!c.oneshot && disco.hasip() && disco.hassvc()) { // v4 / v6 ips and srv
 				if !disco.captured {
 					disco.captured = true
@@ -416,6 +416,8 @@ loop:
 				} else {
 					log.D("mdns: sent ptr query for %s", disco.name)
 				}
+			} else {
+				log.D("mdns: waiting for ip / port for %s", disco.name)
 			}
 		case <-timeup:
 			log.W("mdns: timeout for %s", qname)
@@ -457,19 +459,19 @@ func (c *client) recv(conn *net.UDPConn) {
 		return
 	}
 
-	bptr := core.Alloc()
-	buf := *bptr
+	buf := *core.Alloc()
 	buf = buf[:cap(buf)]
 	defer func() {
-		*bptr = buf
-		core.Recycle(bptr)
+		core.Recycle(&buf)
 	}()
 
+	raddr := conn.RemoteAddr()
 	for atomic.LoadInt32(&c.closed) == 0 {
 		setDeadline(conn)
 		n, err := conn.Read(buf)
 
 		if atomic.LoadInt32(&c.closed) == 1 {
+			log.D("mdns: recv-from %s closed; bytes(%d), err(%v)", raddr, n, err)
 			return
 		}
 
@@ -484,7 +486,9 @@ func (c *client) recv(conn *net.UDPConn) {
 		}
 		select {
 		case c.msgCh <- msg:
+			log.V("mdns: recv-from %s sent; bytes(%d)", raddr, n)
 		case <-c.closedCh:
+			log.V("mdns: recv-from %s closed; bytes(%d)", raddr, n)
 			return
 		}
 	}
