@@ -78,6 +78,8 @@ var (
 var (
 	errMassivePkt     = errors.New("packet too large")
 	errRdnsUrlMissing = errors.New("url missing")
+	errNoAns          = errors.New("no answer record")
+	errNotAscii       = errors.New("name not ASCII string")
 )
 
 func PrefixWithSize(packet []byte) ([]byte, error) {

@@ -107,6 +107,14 @@ func QName(msg *dns.Msg) string {
 	return ""
 }
 
+func AName(ans dns.RR) (string, error) {
+	if ans != nil {
+		n := ans.Header().Name
+		return NormalizeQName(n)
+	}
+	return "", errNoAns
+}
+
 func QType(msg *dns.Msg) uint16 {
 	if msg != nil && len(msg.Question) > 0 {
 		return msg.Question[0].Qtype
@@ -374,7 +382,7 @@ func NormalizeQName(str string) (string, error) {
 	for i := 0; i < strLen; i++ {
 		c := str[i]
 		if c >= utf8.RuneSelf {
-			return str, errors.New("query name is not an ASCII string")
+			return str, errNotAscii
 		}
 		hasUpper = hasUpper || ('A' <= c && c <= 'Z')
 	}

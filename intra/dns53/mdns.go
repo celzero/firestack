@@ -35,11 +35,11 @@ var (
 )
 
 type dnssd struct {
-	id     string
-	ipport string
-	use4   bool
-	use6   bool
-	status int
+	id     string // ID of this transport
+	ipport string // IP:Port queries are sent to (v4)
+	use4   bool   // Use IPv4
+	use6   bool   // Use IPv6
+	status int    // Status of this transport
 	est    core.P2QuantileEstimator
 }
 
@@ -58,9 +58,7 @@ func NewMDNSTransport(protos string) (t dnsx.Transport) {
 
 func use4(l3 string) bool {
 	switch l3 {
-	case settings.IP4:
-		return true
-	case settings.IP46:
+	case settings.IP4, settings.IP46:
 		return true
 	default:
 		return false
@@ -69,9 +67,7 @@ func use4(l3 string) bool {
 
 func use6(l3 string) bool {
 	switch l3 {
-	case settings.IP6:
-		return true
-	case settings.IP46:
+	case settings.IP6, settings.IP46:
 		return true
 	default:
 		return false
@@ -207,7 +203,7 @@ func (s *dnssdanswer) hassvc() bool {
 
 // qcontext customizes how a mdns lookup is performed
 type qcontext struct {
-	svc         string              // Service to query for, ex: _foobar._tcp
+	svc         string              // Service to query for, ex: _foobar._tcp, normalized to lower case
 	tld         string              // If blank, assumes "local"
 	msg         *dns.Msg            // If not nil, use this message instead of building one
 	timeout     time.Duration       // Lookup timeout, default 1 second
@@ -361,9 +357,10 @@ loop:
 			var r *dnssdanswer
 			xxlans := append(msg.Answer, msg.Extra...)
 			for _, ans := range xxlans {
-				ansname := ans.Header().Name
+				ansname, aerr := xdns.AName(ans)
 				// expect answers only for the service name client queried for
-				if c.oneshot && !strings.Contains(ansname, qctx.svc) {
+				if (aerr != nil) || (c.oneshot && !strings.Contains(ansname, qctx.svc)) {
+					log.V("mdns: ignoring %d ans for %s svc; err? %v", ansname, qctx.svc, aerr)
 					continue
 				}
 				log.D("mdns: processing %d ans for %s", ansname, qname)
