@@ -354,7 +354,7 @@ loop:
 	for {
 		select {
 		case msg := <-c.msgCh:
-			var r *dnssdanswer
+			var disco *dnssdanswer
 			xxlans := append(msg.Answer, msg.Extra...)
 			for _, ans := range xxlans {
 				ansname, aerr := xdns.AName(ans)
@@ -367,54 +367,54 @@ loop:
 				switch rr := ans.(type) {
 				case *dns.PTR:
 					// create new entry for this
-					r = c.track(rr.Ptr)
+					disco = c.track(rr.Ptr)
 				case *dns.SRV:
 					// check for a target mismatch
 					if rr.Target != rr.Hdr.Name {
 						c.alias(rr.Hdr.Name, rr.Target)
 					}
-					r = c.track(rr.Hdr.Name)
-					r.target = rr.Target
-					r.port = int(rr.Port)
+					disco = c.track(rr.Hdr.Name)
+					disco.target = rr.Target
+					disco.port = int(rr.Port)
 				case *dns.TXT:
-					r = c.track(rr.Hdr.Name)
-					r.txt = rr.Txt
+					disco = c.track(rr.Hdr.Name)
+					disco.txt = rr.Txt
 					// todo: r.ans = ans ?
 				case *dns.A:
-					r = c.track(rr.Hdr.Name)
-					r.ip4 = &rr.A
-					r.ans = msg
+					disco = c.track(rr.Hdr.Name)
+					disco.ip4 = &rr.A
+					disco.ans = msg
 				case *dns.AAAA:
-					r = c.track(rr.Hdr.Name)
-					r.ip6 = &rr.AAAA
-					r.ans = msg
+					disco = c.track(rr.Hdr.Name)
+					disco.ip6 = &rr.AAAA
+					disco.ans = msg
 				default:
-					log.I("mdns: ignoring %s for %s", rr, r.name)
+					log.I("mdns: ignoring %s for %s", rr, disco.name)
 				}
 			}
 
-			if r == nil { // no valid answers
+			if disco == nil { // no valid answers
 				log.D("mdns: no valid answers for %s", qname)
 				continue
-			} else if (c.oneshot && r.hasip()) || // recieved v4 / v6 ips
-				(!c.oneshot && r.hasip() && r.hassvc()) { // v4 / v6 ips and srv
-				if !r.captured {
-					r.captured = true
-					log.D("mdns: sent ans for %s", r.name)
-					qctx.ansch <- r
+			} else if (c.oneshot && disco.hasip()) || // recieved v4 / v6 ips
+				(!c.oneshot && disco.hasip() && disco.hassvc()) { // v4 / v6 ips and srv
+				if !disco.captured {
+					disco.captured = true
+					log.D("mdns: sent ans for %s", disco.name)
+					qctx.ansch <- disco
 					total += 1
 				} else { // discard duplicates
-					log.D("mdns: duplicate ans for %s", r.name)
+					log.D("mdns: duplicate ans for %s", disco.name)
 					continue
 				}
 			} else if !c.oneshot { // fire off a node specific query
 				m := new(dns.Msg)
-				m.SetQuestion(r.name, dns.TypePTR)
+				m.SetQuestion(disco.name, dns.TypePTR)
 				m.RecursionDesired = false
 				if err := c.send(m); err != nil {
-					log.E("mdns: failed to ptr query %s: %v", r.name, err)
+					log.E("mdns: failed to ptr query %s: %v", disco.name, err)
 				} else {
-					log.D("mdns: sent ptr query for %s", r.name)
+					log.D("mdns: sent ptr query for %s", disco.name)
 				}
 			}
 		case <-timeup:
@@ -490,21 +490,30 @@ func (c *client) recv(conn *net.UDPConn) {
 	}
 }
 
-// track marks a name as being tracked by this client
+// track marks a name as being tracked by this client;
+// name is NOT normalized
 func (c *client) track(name string) (se *dnssdanswer) {
 	if se, ok := c.tracker[name]; ok {
+		log.V("mdns: already tracking %s with %v", name, se)
 		return se
 	}
 	se = &dnssdanswer{
 		name: name,
 	}
 	c.tracker[name] = se
+	log.V("mdns: started tracking %s with %v", name, se)
 	return
 }
 
-// alias sets up mapping between two tracked entries
+// alias sets up mapping between two tracked entries;
+// src and dst are NOT normalized
 func (c *client) alias(src, dst string) {
-	c.tracker[dst] = c.track(src)
+	if se, ok := c.tracker[dst]; ok {
+		log.V("mdns: discarding tracked %v for %s; aliased to %s", se, dst, src)
+	}
+	se := c.track(src)
+	log.V("mdns: alias tracking %s <-> %s with %v", src, dst, se)
+	c.tracker[dst] = se
 }
 
 func setDeadline(c *net.UDPConn) error {
