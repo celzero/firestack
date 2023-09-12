@@ -225,6 +225,7 @@ func (t *gtunnel) SetLink(fd, mtu int) error {
 	if err != nil {
 		return err
 	}
+	// NewEndpoint takes ownership of dupfd; closes it on errors
 	ep, err := netstack.NewEndpoint(dupfd, mtu, pcap)
 	if err != nil {
 		return err

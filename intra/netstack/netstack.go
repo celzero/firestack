@@ -8,6 +8,7 @@ package netstack
 import (
 	"errors"
 	"io"
+	"syscall"
 
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/settings"
@@ -30,22 +31,25 @@ const useIPTablesForICMP = false
 const nicfwd = false
 
 // ref: github.com/google/gvisor/blob/91f58d2cc/pkg/tcpip/sample/tun_tcp_echo/main.go#L102
-func NewEndpoint(dev, mtu int, sink io.WriteCloser) (stack.LinkEndpoint, error) {
+func NewEndpoint(dev, mtu int, sink io.WriteCloser) (ep stack.LinkEndpoint, error) {
+	defer func() {
+		if err != nil {
+			syscall.Close(dev)
+		}
+		log.E("netstack: new endpoint(fd:%d / mtu:%d); err? %v", dev, mtu, err)
+	}()
+
 	umtu := uint32(mtu)
 	opt := Options{
 		FDs: []int{dev},
 		MTU: umtu,
 	}
 
-	if fdep, err1 := NewFdbasedInjectableEndpoint(&opt); err1 != nil {
-		log.E("netstack: new endpoint(fd:%d / mtu:%d); err? %v", dev, mtu, err1)
-		return fdep, err1
-	} else {
-		// ref: github.com/google/gvisor/blob/aeabb785278/pkg/tcpip/link/sniffer/sniffer.go#L111-L131
-		ep, err2 := sniffer.NewWithWriter(fdep, sink, umtu)
-		log.I("netstack: new endpoint(fd:%d / mtu:%d); err? %v", dev, mtu, err2)
-		return ep, err2
+	if ep, err = NewFdbasedInjectableEndpoint(&opt); err != nil {
+		return nil, err
 	}
+	// ref: github.com/google/gvisor/blob/aeabb785278/pkg/tcpip/link/sniffer/sniffer.go#L111-L131
+	return sniffer.NewWithWriter(ep, sink, umtu)
 }
 
 func LogPcap(y bool) (ok bool) {
