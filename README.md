@@ -38,11 +38,10 @@ RethinkDNS ([GoVpnAdapter](https://github.com/celzero/rethink-app/blob/982849564
 
 - macOS host (iOS, macOS)
 - make
-- Go >= 1.18
+- Go >= 1.20
 - A C compiler (e.g.: clang, gcc)
 
-Firestack APIs are available only on Android builds for now. iOS and Linux
-support will come by fall 2022.
+Firestack APIs are available only on Android builds for now. iOS and Linux support planned but nothing concrete yet.
 
 ### Android
 
@@ -75,19 +74,7 @@ We build binaries for Linux and Windows from source without any custom integrati
 ## Make
 
 ```
-# iOS and macOS: This will create build/apple/Tun2socks.xcframework
-make clean && make apple
-
-# Linux: This will create build/linux/tun2socks
-make clean && make linux
-
-# For Windows: This will create build/windows/tun2socks.exe
-make clean && make windows
-
-# For Android: This will create build/android/{tun2socks.aar,tun2socks-sources.jar}
-make clean && make android
-
-# For Intra: This will create build/intra/{tun2socks.aar,tun2socks-sources.jar}
+# creates build/intra/{tun2socks.aar,tun2socks-sources.jar}
 make clean && make intra
 
 ```
