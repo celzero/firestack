@@ -31,7 +31,7 @@ const useIPTablesForICMP = false
 const nicfwd = false
 
 // ref: github.com/google/gvisor/blob/91f58d2cc/pkg/tcpip/sample/tun_tcp_echo/main.go#L102
-func NewEndpoint(dev, mtu int, sink io.WriteCloser) (ep stack.LinkEndpoint, error) {
+func NewEndpoint(dev, mtu int, sink io.WriteCloser) (ep stack.LinkEndpoint, err error) {
 	defer func() {
 		if err != nil {
 			syscall.Close(dev)

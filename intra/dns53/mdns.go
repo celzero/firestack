@@ -502,7 +502,7 @@ func (c *client) recv(conn *net.UDPConn) {
 }
 
 func (c *client) untrack(name string) {
-	log.V("mdns: stopped tracking %s with %v", name, se)
+	log.V("mdns: stopped tracking %s", name)
 	delete(c.tracker, name)
 }
 
