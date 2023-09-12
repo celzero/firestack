@@ -408,11 +408,12 @@ loop:
 				(!c.oneshot && disco.hasip() && disco.hassvc()) { // v4 / v6 ips and srv
 				if !disco.captured {
 					disco.captured = true
-					log.D("mdns: sent ans for %s", disco.name)
+					log.D("mdns: q: %s; sent ans %s", qname, disco)
 					qctx.ansch <- disco
+					c.untrack(disco.name)
 					total += 1
 				} else { // discard duplicates
-					log.D("mdns: duplicate ans for %s", disco.name)
+					log.D("mdns: q: %s; duplicate ans %s", qname, disco)
 					continue
 				}
 			} else if !c.oneshot { // fire off a node specific query
@@ -498,6 +499,11 @@ func (c *client) recv(conn *net.UDPConn) {
 			return
 		}
 	}
+}
+
+func (c *client) untrack(name string) {
+	log.V("mdns: stopped tracking %s with %v", name, se)
+	delete(c.tracker, name)
 }
 
 // track marks a name as being tracked by this client;
