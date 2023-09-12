@@ -346,7 +346,7 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target *net.TCPAddr) (
 
 	// handshake
 	if open = gconn.Connect(ack); !open {
-		log.E("tcp: gconn closed; no handshake %s -> %s", src, target)
+		log.E("tcp: gconn closed; no route %s -> %s", src, target)
 		err = errTcpHandshake
 		return
 	}

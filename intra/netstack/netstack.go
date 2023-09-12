@@ -125,7 +125,7 @@ func Up(s *stack.Stack, ep stack.LinkEndpoint, h GConnHandler) error {
 		return e(nerr)
 	}
 
-	log.I("netstack: up(%d)!", nic)
+	log.I("netstack: up(%d) w routes(%s)!", nic, s.GetRouteTable())
 
 	return nil
 }
