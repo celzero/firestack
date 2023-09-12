@@ -333,13 +333,16 @@ func (h *udpHandler) onFlow(localudp core.UDPConn, target *net.UDPAddr, realips,
 func (h *udpHandler) OnNewConn(gconn *netstack.GUDPConn, _, dst *net.UDPAddr) {
 	finish := true // disconnect
 	decision, err := h.Connect(gconn, dst)
+	pid, cid, uid := splitPidCidUid(decision)
 	if err != nil {
-		pid, cid, uid := splitPidCidUid(decision)
 		go h.sendNotif(cid, pid, uid, err.Error(), 0, 0, 0)
 	} else {
 		finish = false // connect
 	}
-	gconn.Connect(finish)
+	nerr := gconn.Connect(finish)
+	if nerr != nil { // may happen for ex when netstack has no route to dst
+		go h.sendNotif(cid, pid, uid, nerr.String(), 0, 0, 0)
+	}
 }
 
 // Connect connects the proxy server.
@@ -550,7 +553,8 @@ func (h *udpHandler) sendNotif(cid, pid, uid, msg string, up, down int64, elapse
 	l := h.listener
 	ok0 := h.status != UDPEND
 	ok1 := l != nil
-	if ok0 && ok1 {
+	ok2 := len(cid) > 0
+	if ok0 && ok1 && ok2 {
 		s := &UDPSocketSummary{
 			ID:            cid,
 			PID:           pid,
@@ -564,6 +568,6 @@ func (h *udpHandler) sendNotif(cid, pid, uid, msg string, up, down int64, elapse
 		l.OnUDPSocketClosed(s)
 		return
 	} else {
-		log.V("udp: sendNotif(%t, %t): no listener", ok0, ok1)
+		log.V("udp: sendNotif(%t, %t, %t): no listener", ok0, ok1, ok2)
 	}
 }

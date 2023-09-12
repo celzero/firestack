@@ -173,6 +173,7 @@ func (g *GUDPConn) Connect(fin bool) tcpip.Error {
 	wq := new(waiter.Queue)
 	// use gonet.DialUDP instead?
 	if endpoint, err := g.req.CreateEndpoint(wq); err != nil {
+		// ex: CONNECT endpoint for [fd66:f83a:c650::1]:15753 => [fd66:f83a:c650::3]:53; err(no route to host)
 		log.E("ns.udp.forwarder: CONNECT endpoint for %v => %v; err(%v)", g.src, g.dst, err)
 		return err
 	} else {
