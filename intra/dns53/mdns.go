@@ -49,7 +49,7 @@ func NewMDNSTransport(protos string) (t dnsx.Transport) {
 		id:     dnsx.Local,
 		use4:   use4(protos),
 		use6:   use6(protos),
-		ipport: "224.0.0.251:5353", // ip6: ff02::fb:5353
+		ipport: xdns.MDNSAddr4.String(), // ip6: ff02::fb:5353
 		status: dnsx.Start,
 	}
 	log.I("mdns: setup: %s", protos)
@@ -76,7 +76,7 @@ func use6(l3 string) bool {
 
 func (t *dnssd) oneshotQuery(msg *dns.Msg) (*dns.Msg, *dnsx.QueryError) {
 	service, tld := xdns.ExtractMDNSDomain(msg)
-	resch := make(chan *dnssdanswer)
+	resch := make(chan *dnssdanswer, 32)
 	qctx := &qcontext{
 		msg:   msg,
 		svc:   service,
@@ -208,7 +208,7 @@ type qcontext struct {
 	tld         string              // If blank, assumes "local"
 	msg         *dns.Msg            // If not nil, use this message instead of building one
 	timeout     time.Duration       // Lookup timeout, default 1 second
-	ansch       chan<- *dnssdanswer // Entries Channel
+	ansch       chan<- *dnssdanswer // answers acc, must be non-blocking (buffered)
 	unicastonly bool                // Unicast response desired, as per 5.4 in RFC
 }
 
@@ -352,14 +352,19 @@ func (c *client) query(qctx *qcontext) *dnsx.QueryError {
 }
 
 func (c *client) listen(qctx *qcontext) {
+	timesup := time.After(qctx.timeout)
 	qname := fmt.Sprintf("%s.%s.", qctx.svc, qctx.tld)
 	total := 0
-	timeup := time.After(qctx.timeout)
 	defer close(qctx.ansch)
 loop:
 	for {
 		select {
-		case msg := <-c.msgCh:
+		case msg, ok := <-c.msgCh:
+			if !ok {
+				// stackoverflow.com/a/13666733
+				log.W("mdns: msg channel for %s closed", qname)
+				break loop
+			}
 			var disco *dnssdanswer
 			xxlans := append(msg.Answer, msg.Extra...)
 			for _, ans := range xxlans {
@@ -428,7 +433,7 @@ loop:
 			} else {
 				log.D("mdns: waiting for ip / port for %s", disco.name)
 			}
-		case <-timeup:
+		case <-timesup:
 			log.W("mdns: timeout for %s", qname)
 			break loop
 		}
@@ -494,8 +499,8 @@ func (c *client) recv(conn *net.UDPConn) {
 		select {
 		case c.msgCh <- msg:
 			log.V("mdns: recv-from(%v); sent; bytes(%d)", raddr, n)
-		case <-c.closedCh:
-			log.V("mdns: recv-from(%v); closed; bytes(%d)", raddr, n)
+		case _, ok := <-c.closedCh:
+			log.V("mdns: recv-from(%v); closed; ch(%t); bytes(%d)", raddr, ok, n)
 			return
 		}
 	}
