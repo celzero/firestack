@@ -185,8 +185,8 @@ type dnssdanswer struct {
 	ans      *dns.Msg
 	name     string
 	target   string
-	ip4      *net.IP
-	ip6      *net.IP
+	ip4      net.IP
+	ip6      net.IP
 	port     int
 	txt      []string
 	captured bool
@@ -382,11 +382,13 @@ loop:
 					// todo: r.ans = ans ?
 				case *dns.A:
 					disco = c.track(rr.Hdr.Name)
-					disco.ip4 = &rr.A
+					// todo: append to ip4?
+					disco.ip4 = rr.A
 					disco.ans = msg
 				case *dns.AAAA:
 					disco = c.track(rr.Hdr.Name)
-					disco.ip6 = &rr.AAAA
+					// todo: append to ip6?
+					disco.ip6 = rr.AAAA
 					disco.ans = msg
 				default:
 					log.I("mdns: ignoring ans %s to %s", rr, disco.name)
