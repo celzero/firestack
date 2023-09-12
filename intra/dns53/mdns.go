@@ -227,7 +227,7 @@ type client struct {
 
 	oneshot bool
 
-	closed   int32
+	closed   atomic.Int32
 	closedCh chan struct{}
 }
 
@@ -293,7 +293,7 @@ func (t *dnssd) newClient(oneshot bool) (*client, error) {
 
 // Close cleanups the client
 func (c *client) Close() error {
-	if !atomic.CompareAndSwapInt32(&c.closed, 0, 1) {
+	if !c.closed.CompareAndSwap(0, 1) {
 		return nil // already closed
 	}
 
@@ -467,30 +467,29 @@ func (c *client) recv(conn *net.UDPConn) {
 		core.Recycle(&buf)
 	}()
 
-	raddr := conn.RemoteAddr()
-	for atomic.LoadInt32(&c.closed) == 0 {
+	for c.closed.Load() == 0 {
 		setDeadline(conn)
-		n, err := conn.Read(buf)
+		n, raddr, err := conn.ReadFrom(buf)
 
-		if atomic.LoadInt32(&c.closed) == 1 {
-			log.D("mdns: recv-from %s closed; bytes(%d), err(%v)", raddr, n, err)
+		if c.closed.Load() == 1 {
+			log.W("mdns: recv-from(%v); closed; bytes(%d), err(%v)", raddr, n, err)
 			return
 		}
 
 		if err != nil {
-			log.E("mdns: failed to read packet: %v", err)
+			log.E("mdns: read failed: %v", err)
 			continue
 		}
 		msg := new(dns.Msg)
 		if err := msg.Unpack(buf[:n]); err != nil {
-			log.E("mdns: failed to unpack packet: %v", err)
+			log.E("mdns: unpack failed: %v", err)
 			continue
 		}
 		select {
 		case c.msgCh <- msg:
-			log.V("mdns: recv-from %s sent; bytes(%d)", raddr, n)
+			log.V("mdns: recv-from(%v); sent; bytes(%d)", raddr, n)
 		case <-c.closedCh:
-			log.V("mdns: recv-from %s closed; bytes(%d)", raddr, n)
+			log.V("mdns: recv-from(%v); closed; bytes(%d)", raddr, n)
 			return
 		}
 	}
