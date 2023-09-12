@@ -107,6 +107,7 @@ func (t *dnssd) oneshotQuery(msg *dns.Msg) (*dns.Msg, *dnsx.QueryError) {
 	for res := range resch {
 		if res != nil && res.ans != nil {
 			log.I("mdns: q(%s) ans(%s) 4(%s) 6(%s)", qname, res.name, res.ip4, res.ip6)
+			// todo: multiple answers?
 			return res.ans, nil
 		} else {
 			log.D("mdns: q(%s); ans missing for %v", qname, res)
@@ -339,14 +340,19 @@ func (c *client) query(qctx *qcontext) *dnsx.QueryError {
 	if !c.oneshot && qctx.unicastonly {
 		q.Question[0].Qclass |= 1 << 15
 	}
-	qname := fmt.Sprintf("%s.%s.", qctx.svc, qctx.tld)
 	if err := c.send(q); err != nil {
-		log.E("mdns: failed to send query(%s): %v", qname, err)
+		log.E("mdns: failed to send query(%s): %v", qctx.svc, err)
 		return err
-	} else {
-		log.D("mdns: waiting for answers to %s", qname)
 	}
 
+	go c.listen(qctx)
+
+	log.D("mdns: waiting for answers to %s", qctx.svc)
+	return nil
+}
+
+func (c *client) listen(qctx *qcontext) {
+	qname := fmt.Sprintf("%s.%s.", qctx.svc, qctx.tld)
 	total := 0
 	timeup := time.After(qctx.timeout)
 	defer close(qctx.ansch)
@@ -360,10 +366,10 @@ loop:
 				ansname, aerr := xdns.AName(ans)
 				// expect answers only for the service name client queried for
 				if (aerr != nil) || (c.oneshot && !strings.Contains(ansname, qctx.svc)) {
-					log.V("mdns: ignoring %d ans for %s svc; err? %v", ansname, qctx.svc, aerr)
+					log.V("mdns: ignoring %s ans for %s svc; err? %v", ansname, qctx.svc, aerr)
 					continue
 				}
-				log.D("mdns: processing %d ans for %s", ansname, qname)
+				log.D("mdns: processing %s ans for %s", ansname, qname)
 				switch rr := ans.(type) {
 				case *dns.PTR:
 					// create new entry for this
@@ -427,7 +433,6 @@ loop:
 		}
 	}
 	log.D("mdns: done: got answers %d for %s", total, qname)
-	return nil
 }
 
 // send writes q to approp unicast mdns address
