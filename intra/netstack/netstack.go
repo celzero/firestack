@@ -72,6 +72,8 @@ func FilePcap(y bool) (ok bool) {
 func Up(s *stack.Stack, ep stack.LinkEndpoint, h GConnHandler) error {
 	var nic tcpip.NICID = settings.NICID
 
+	// fetch existing routes before adding removing nic, which wipes out routes
+	existingroutes := s.GetRouteTable()
 	newnic := false
 	// also closes its link endpoints, if any
 	if ferr := s.RemoveNIC(nic); ferr != nil {
@@ -125,7 +127,15 @@ func Up(s *stack.Stack, ep stack.LinkEndpoint, h GConnHandler) error {
 		return e(nerr)
 	}
 
-	log.I("netstack: up(%d) w routes(%s)!", nic, s.GetRouteTable())
+	s.SetNICForwarding(nic, ipv4.ProtocolNumber, nicfwd)
+	s.SetNICForwarding(nic, ipv6.ProtocolNumber, nicfwd)
+	// use existing routes if the nic is being recycled
+	if !newnic && len(existingroutes) > 0 {
+		s.SetRouteTable(existingroutes)
+		log.I("netstack: up(%d)! existing routes? %s", nic, s.GetRouteTable())
+	} else {
+		log.I("netstack: up(%d)! new? %t; routes? %s", nic, newnic, s.GetRouteTable())
+	}
 
 	return nil
 }
@@ -174,86 +184,26 @@ func Route(s *stack.Stack, l3 string) {
 // github.com/zen-of-proxy/go-tun2io/blob/c08b329b8/tun2io/util.go
 // github.com/WireGuard/wireguard-go/blob/42c9af4/tun/netstack/tun.go
 // github.com/telepresenceio/telepresence/pull/2709
-func NewNetstack(l3 string) (s *stack.Stack) {
-	var nic tcpip.NICID = settings.NICID
-	switch l3 {
-	case settings.IP46:
-		o := stack.Options{
-			NetworkProtocols: []stack.NetworkProtocolFactory{
-				ipv4.NewProtocol,
-				ipv6.NewProtocol,
-				arp.NewProtocol, // unused
-			},
-			TransportProtocols: []stack.TransportProtocolFactory{
-				icmp.NewProtocol4,
-				icmp.NewProtocol6,
-				tcp.NewProtocol,
-				udp.NewProtocol,
-			},
-			// HandleLocal if the packets must be forwarded to another nic within this stack, or
-			// to let this stack forward packets to the OS' network stack.
-			// also: github.com/Jigsaw-Code/outline-go-tun2socks/blob/5416729062/tunnel/tunnel.go#L45
-			// HandleLocal: true,
-		}
-		s = stack.New(o)
-		s.SetRouteTable([]tcpip.Route{
-			{
-				Destination: header.IPv4EmptySubnet,
-				NIC:         nic,
-			},
-			{
-				Destination: header.IPv6EmptySubnet,
-				NIC:         nic,
-			},
-		})
-		s.SetNICForwarding(nic, ipv4.ProtocolNumber, nicfwd)
-		s.SetNICForwarding(nic, ipv6.ProtocolNumber, nicfwd)
-		log.I("netstack: new stack4 and stack6 for %s", l3)
-	case settings.IP6:
-		o := stack.Options{
-			NetworkProtocols: []stack.NetworkProtocolFactory{
-				ipv6.NewProtocol,
-				arp.NewProtocol, // unused
-			},
-			TransportProtocols: []stack.TransportProtocolFactory{
-				icmp.NewProtocol6,
-				tcp.NewProtocol,
-				udp.NewProtocol,
-			},
-		}
-		s = stack.New(o)
-		s.SetRouteTable([]tcpip.Route{
-			{
-				Destination: header.IPv6EmptySubnet,
-				NIC:         nic,
-			},
-		})
-		s.SetNICForwarding(nic, ipv6.ProtocolNumber, nicfwd)
-		log.I("netstack: new stack6 for %s", l3)
-	case settings.IP4:
-		fallthrough
-	default:
-		o := stack.Options{
-			NetworkProtocols: []stack.NetworkProtocolFactory{
-				ipv4.NewProtocol,
-				arp.NewProtocol, // unused
-			},
-			TransportProtocols: []stack.TransportProtocolFactory{
-				icmp.NewProtocol4,
-				tcp.NewProtocol,
-				udp.NewProtocol,
-			},
-		}
-		s = stack.New(o)
-		s.SetRouteTable([]tcpip.Route{
-			{
-				Destination: header.IPv4EmptySubnet,
-				NIC:         nic,
-			},
-		})
-		s.SetNICForwarding(nic, ipv4.ProtocolNumber, nicfwd)
-		log.I("netstack: new stack4 for %s", l3)
+func NewNetstack() (s *stack.Stack) {
+	o := stack.Options{
+		NetworkProtocols: []stack.NetworkProtocolFactory{
+			ipv4.NewProtocol,
+			ipv6.NewProtocol,
+			arp.NewProtocol, // unused
+		},
+		TransportProtocols: []stack.TransportProtocolFactory{
+			icmp.NewProtocol4,
+			icmp.NewProtocol6,
+			tcp.NewProtocol,
+			udp.NewProtocol,
+		},
+		// HandleLocal if the packets must be forwarded to another nic within this stack, or
+		// to let this stack forward packets to the OS' network stack.
+		// also: github.com/Jigsaw-Code/outline-go-tun2socks/blob/5416729062/tunnel/tunnel.go#L45
+		// HandleLocal: true,
 	}
 
+	s = stack.New(o)
+	log.I("netstack: new stack4 and stack6")
 	return
 }

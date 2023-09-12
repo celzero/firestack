@@ -105,7 +105,7 @@ func NewTunnel(fd, mtu int, fakedns string, dns dnsx.Transport, tunmode *setting
 	udph := NewUDPHandler(resolver, natpt, proxies, bdg, tunmode, bdg)
 	icmph := NewICMPHandler(resolver, natpt, proxies, bdg, tunmode, bdg)
 
-	gt, err := tunnel.NewGTunnel(fd, mtu, l3, tcph, udph, icmph)
+	gt, err := tunnel.NewGTunnel(fd, mtu, tunmode.IpMode, tcph, udph, icmph)
 
 	if err != nil {
 		log.I("tun: <<< new >>>; err(%v)", err)
@@ -158,9 +158,8 @@ func (t *rtunnel) Reset(fd, mtu, engine int) error {
 	}
 
 	t.tunmode.SetMode(t.tunmode.DNSMode, t.tunmode.BlockMode, t.tunmode.PtMode, engine)
-	l3 := t.tunmode.L3()
 
-	gt, err := tunnel.NewGTunnel(fd, mtu, l3, t.tcp, t.udp, t.icmp)
+	gt, err := tunnel.NewGTunnel(fd, mtu, t.tunmode.IpMode, t.tcp, t.udp, t.icmp)
 	if err != nil {
 		log.I("tun: <<< reset >>>; err?(%v)", err)
 		return err
