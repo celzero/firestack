@@ -9,6 +9,7 @@ package dns53
 import (
 	"crypto/tls"
 	"fmt"
+	"net"
 	"net/url"
 	"time"
 
@@ -21,12 +22,14 @@ import (
 )
 
 const dottimeout = 7 * time.Second
+const dotport = "853"
 
 // TODO: Keep a context here so that queries can be canceled.
 type dot struct {
 	dnsx.Transport
 	id     string
 	url    string
+	addr   string
 	status int
 	c      *dns.Client
 	est    core.P2QuantileEstimator
@@ -35,6 +38,7 @@ type dot struct {
 // NewTransport returns a DNS transport, ready for use.
 func NewTLSTransport(id, rawurl string) (t dnsx.Transport, err error) {
 	tlscfg := &tls.Config{}
+	// rawurl is either tls:host[:port] or tls://host[:port] or host[:port]
 	parsedurl, err := url.Parse(rawurl)
 	if err != nil {
 		return
@@ -43,10 +47,10 @@ func NewTLSTransport(id, rawurl string) (t dnsx.Transport, err error) {
 		log.I("dot: disabling tls verification for %s", rawurl)
 		tlscfg.InsecureSkipVerify = true
 	}
-	parsedurl.Scheme = ""
 	tx := &dot{
 		id:     id,
-		url:    parsedurl.String(),
+		url:    rawurl,
+		addr:   url2addr(rawurl),
 		status: dnsx.Start,
 		est:    core.NewP50Estimator(),
 	}
@@ -88,7 +92,7 @@ func (t *dot) sendRequest(q []byte) (response []byte, elapsed time.Duration, qer
 	}
 
 	// FIXME: conn pooling using t.c.Dial + ExchangeWithConn
-	ans, elapsed, err = t.c.Exchange(msg, t.url)
+	ans, elapsed, err = t.c.Exchange(msg, t.addr)
 
 	if err != nil {
 		qerr = dnsx.NewTransportQueryError(err)
@@ -144,4 +148,19 @@ func (t *dot) GetAddr() string {
 
 func (t *dot) Status() int {
 	return t.status
+}
+
+func url2addr(url string) string {
+	// url is of type "tls://host:port" or "tls:host:port" or "host:port" or "host"
+	if len(url) > 6 && url[:6] == "tls://" {
+		url = url[6:]
+	}
+	if len(url) > 4 && url[:4] == "tls:" {
+		url = url[4:]
+	}
+	// add port 853 if not present
+	if _, _, err := net.SplitHostPort(url); err != nil {
+		url = net.JoinHostPort(url, dotport)
+	}
+	return url
 }
