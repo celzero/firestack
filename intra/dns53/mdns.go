@@ -91,7 +91,7 @@ func (t *dnssd) oneshotQuery(msg *dns.Msg) (*dns.Msg, *dnsx.QueryError) {
 	var c *client
 	var err error
 	qname := fmt.Sprintf("%s.%s", service, tld)
-	log.D("mdns: query: %s", qname)
+	log.D("mdns: oquery: %s", qname)
 
 	if c, err = t.newClient(true); err != nil {
 		log.E("mdns: underlying transport: %s", err)
@@ -99,21 +99,21 @@ func (t *dnssd) oneshotQuery(msg *dns.Msg) (*dns.Msg, *dnsx.QueryError) {
 	}
 	defer c.Close()
 	if qerr := c.query(qctx); qerr != nil {
-		log.E("mdns: query(%s): %v", qname, qerr)
+		log.E("mdns: oquery(%s): %v", qname, qerr)
 		return nil, qerr
 	}
-	log.D("mdns: awaiting response %s", qname)
+	log.D("mdns: oquery: awaiting response %s", qname)
 	// return the first response from channel qctx.ansch (same as resch)
 	for res := range resch {
 		if res != nil && res.ans != nil {
-			log.I("mdns: q(%s) ans(%s) 4(%s) 6(%s)", qname, res.name, res.ip4, res.ip6)
+			log.I("mdns: oquery: q(%s) ans(%s) 4(%s) 6(%s)", qname, res.name, res.ip4, res.ip6)
 			// todo: multiple answers?
 			return res.ans, nil
 		} else {
-			log.D("mdns: q(%s); ans missing for %v", qname, res)
+			log.D("mdns: oquery: q(%s); ans missing for %v", qname, res)
 		}
 	}
-	log.I("mdns: no response for %s", qname)
+	log.I("mdns: oquery: no response for %s", qname)
 	return nil, dnsx.NewNoResponseQueryError(nil)
 }
 
@@ -247,12 +247,12 @@ func (t *dnssd) newClient(oneshot bool) (*client, error) {
 	if t.use4 {
 		uconn4, err = net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4zero, Port: 0})
 		if err != nil {
-			log.E("mdns: failed to bind to unicast4 port: %v", err)
+			log.E("mdns: new-client: unicast4 bind fail: %v", err)
 		}
 		if !oneshot {
 			mconn4, err = net.ListenMulticastUDP("udp4", nil, xdns.MDNSAddr4)
 			if err != nil {
-				log.E("mdns: failed to bind to multicast4 port: %v", err)
+				log.E("mdns: new-client: multicast4 bind fail: %v", err)
 			}
 		}
 	}
@@ -260,12 +260,12 @@ func (t *dnssd) newClient(oneshot bool) (*client, error) {
 	if t.use6 {
 		uconn6, err = net.ListenUDP("udp6", &net.UDPAddr{IP: net.IPv6zero, Port: 0})
 		if err != nil {
-			log.E("mdns: failed to bind to unicast6 port: %v", err)
+			log.E("mdns: new-client: unicast6 bind fail: %v", err)
 		}
 		if !oneshot {
 			mconn6, err = net.ListenMulticastUDP("udp6", nil, xdns.MDNSAddr6)
 			if err != nil {
-				log.E("mdns: failed to bind to multicast6 port: %v", err)
+				log.E("mdns: new-client: multicast6 bind fail: %v", err)
 			}
 		}
 	}
@@ -273,7 +273,7 @@ func (t *dnssd) newClient(oneshot bool) (*client, error) {
 	has4 := t.use4 && uconn4 != nil && (oneshot || mconn4 != nil)
 	has6 := t.use6 && uconn6 != nil && (oneshot || mconn6 != nil)
 	if !has4 && !has6 {
-		log.E("mdns: oneshot? %t with no4? %t / no6? %t", oneshot, has4, has6)
+		log.E("mdns: new-client: oneshot? %t with no4? %t / no6? %t", oneshot, has4, has6)
 		return nil, errBindFail
 	}
 
@@ -341,13 +341,13 @@ func (c *client) query(qctx *qcontext) *dnsx.QueryError {
 		q.Question[0].Qclass |= 1 << 15
 	}
 	if err := c.send(q); err != nil {
-		log.E("mdns: failed to send query(%s): %v", qctx.svc, err)
+		log.E("mdns: query: send query(%s) fail: err(%v)", qctx.svc, err)
 		return err
 	}
 
 	go c.listen(qctx)
 
-	log.D("mdns: waiting for answers to %s", qctx.svc)
+	log.D("mdns: query: waiting for ans to %s", qctx.svc)
 	return nil
 }
 
@@ -362,7 +362,7 @@ loop:
 		case msg, ok := <-c.msgCh:
 			if !ok {
 				// stackoverflow.com/a/13666733
-				log.W("mdns: msg channel for %s closed", qname)
+				log.W("mdns: listen: msg channel for %s closed", qname)
 				break loop
 			}
 			var disco *dnssdanswer
@@ -371,10 +371,10 @@ loop:
 				ansname, aerr := xdns.AName(ans)
 				// expect answers only for the service name client queried for
 				if (aerr != nil) || (c.oneshot && !strings.Contains(ansname, qctx.svc)) {
-					log.V("mdns: ignoring %s ans for %s svc; err? %v", ansname, qctx.svc, aerr)
+					log.V("mdns: listen: ignoring %s ans for %s svc; err? %v", ansname, qctx.svc, aerr)
 					continue
 				}
-				log.D("mdns: processing %s ans for %s", ansname, qname)
+				log.D("mdns: listen: processing %s ans for %s", ansname, qname)
 				switch rr := ans.(type) {
 				case *dns.PTR:
 					// create new entry for this
@@ -402,23 +402,23 @@ loop:
 					disco.ip6 = rr.AAAA
 					disco.ans = msg
 				default:
-					log.I("mdns: ignoring ans %s to %s", rr, disco.name)
+					log.I("mdns: listen: ignoring ans %s to %s", rr, disco.name)
 				}
 			}
 
 			if disco == nil { // no valid answers
-				log.D("mdns: no valid answers for %s; len? %d", qname, len(xxlans))
+				log.D("mdns: listen: no valid answers for %s; len? %d", qname, len(xxlans))
 				continue
 			} else if (c.oneshot && disco.hasip()) || // oneshot + recieved v4 / v6 ips
 				(!c.oneshot && disco.hasip() && disco.hassvc()) { // v4 / v6 ips and srv
 				if !disco.captured {
 					disco.captured = true
-					log.D("mdns: q: %s; sent ans %s", qname, disco)
+					log.D("mdns: listen: q: %s; sent ans %s", qname, disco)
 					qctx.ansch <- disco
 					c.untrack(disco.name)
 					total += 1
 				} else { // discard duplicates
-					log.D("mdns: q: %s; duplicate ans %s", qname, disco)
+					log.D("mdns: listen: q: %s; duplicate ans %s", qname, disco)
 					continue
 				}
 			} else if !c.oneshot { // fire off a node specific query
@@ -426,25 +426,25 @@ loop:
 				m.SetQuestion(disco.name, dns.TypePTR)
 				m.RecursionDesired = false
 				if err := c.send(m); err != nil {
-					log.E("mdns: failed to ptr query %s: %v", disco.name, err)
+					log.E("mdns: listen: failed to ptr query %s: %v", disco.name, err)
 				} else {
-					log.D("mdns: sent ptr query for %s", disco.name)
+					log.D("mdns: listen: sent ptr query for %s", disco.name)
 				}
 			} else {
-				log.D("mdns: waiting for ip / port for %s", disco.name)
+				log.D("mdns: listen: waiting for ip / port for %s", disco.name)
 			}
 		case <-timesup:
-			log.W("mdns: timeout for %s", qname)
+			log.W("mdns: listen: timeout for %s", qname)
 			break loop
 		}
 	}
-	log.D("mdns: done: got answers %d for %s", total, qname)
+	log.D("mdns: listen: done; got answers %d for %s", total, qname)
 }
 
 // send writes q to approp unicast mdns address
 func (c *client) send(q *dns.Msg) *dnsx.QueryError {
 	if buf, err := q.Pack(); err != nil {
-		log.W("mdns: failed to pack query: %v", err)
+		log.W("mdns: send: failed to pack query: %v", err)
 		return dnsx.NewBadQueryError(err)
 	} else {
 		qname := xdns.QName(q)
@@ -453,14 +453,14 @@ func (c *client) send(q *dns.Msg) *dnsx.QueryError {
 			if _, err = c.unicast4.WriteToUDP(buf, xdns.MDNSAddr4); err != nil {
 				return dnsx.NewSendFailedQueryError(err)
 			}
-			log.D("mdns: sent query4 %s", qname)
+			log.D("mdns: send: sent query4 %s", qname)
 		}
 		if c.unicast6 != nil {
 			setDeadline(c.unicast6)
 			if _, err = c.unicast6.WriteToUDP(buf, xdns.MDNSAddr6); err != nil {
 				return dnsx.NewSendFailedQueryError(err)
 			}
-			log.D("mdns: sent query6 %s", qname)
+			log.D("mdns: send: sent query6 %s", qname)
 		}
 	}
 	return nil
@@ -478,36 +478,37 @@ func (c *client) recv(conn *net.UDPConn) {
 		core.Recycle(&buf)
 	}()
 
+	raddr := conn.RemoteAddr()
 	for c.closed.Load() == 0 {
 		setDeadline(conn)
-		n, raddr, err := conn.ReadFrom(buf)
+		n, err := conn.Read(buf)
 
 		if c.closed.Load() == 1 {
-			log.W("mdns: recv-from(%v); closed; bytes(%d), err(%v)", raddr, n, err)
+			log.W("mdns: recv: from(%v); closed; bytes(%d), err(%v)", raddr, n, err)
 			return
 		}
 
 		if err != nil {
-			log.E("mdns: read failed: %v", err)
+			log.E("mdns: recv: read failed: %v", err)
 			continue
 		}
 		msg := new(dns.Msg)
 		if err := msg.Unpack(buf[:n]); err != nil {
-			log.E("mdns: unpack failed: %v", err)
+			log.E("mdns: recv: unpack failed: %v", err)
 			continue
 		}
 		select {
 		case c.msgCh <- msg:
-			log.V("mdns: recv-from(%v); sent; bytes(%d)", raddr, n)
+			log.V("mdns: recv: from(%v); sent; bytes(%d)", raddr, n)
 		case _, ok := <-c.closedCh:
-			log.V("mdns: recv-from(%v); closed; ch(%t); bytes(%d)", raddr, ok, n)
+			log.V("mdns: recv: from(%v); closed; ch(%t); bytes(%d)", raddr, ok, n)
 			return
 		}
 	}
 }
 
 func (c *client) untrack(name string) {
-	log.V("mdns: stopped tracking %s", name)
+	log.V("mdns: tracker: rmv %s", name)
 	delete(c.tracker, name)
 }
 
@@ -515,14 +516,14 @@ func (c *client) untrack(name string) {
 // name is NOT normalized
 func (c *client) track(name string) (se *dnssdanswer) {
 	if se, ok := c.tracker[name]; ok {
-		log.V("mdns: already tracking %s with %v", name, se)
+		log.V("mdns: tracker: exists %s with %v", name, se)
 		return se
 	}
 	se = &dnssdanswer{
 		name: name,
 	}
 	c.tracker[name] = se
-	log.V("mdns: started tracking %s with %v", name, se)
+	log.V("mdns: tracker: start %s with %v", name, se)
 	return
 }
 
@@ -530,10 +531,10 @@ func (c *client) track(name string) (se *dnssdanswer) {
 // src and dst are NOT normalized
 func (c *client) alias(src, dst string) {
 	if se, ok := c.tracker[dst]; ok {
-		log.V("mdns: discarding tracked %v for %s; aliased to %s", se, dst, src)
+		log.V("mdns: tracker: discard %v for %s; aliased to %s", se, dst, src)
 	}
 	se := c.track(src)
-	log.V("mdns: alias tracking %s <-> %s with %v", src, dst, se)
+	log.V("mdns: tracker: alias %s <-> %s with %v", src, dst, se)
 	c.tracker[dst] = se
 }
 
