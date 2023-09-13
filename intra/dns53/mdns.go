@@ -30,8 +30,9 @@ import (
 )
 
 var (
-	errNoProtos = errors.New("enable at least one of IPv4 and IPv6 querying")
-	errBindFail = errors.New("failed to bind to udp port")
+	errNoProtos     = errors.New("enable at least one of IPv4 and IPv6 querying")
+	errBindFail     = errors.New("failed to bind to udp port")
+	errNoMdnsAnswer = errors.New("no mdns answer")
 )
 
 type dnssd struct {
@@ -114,7 +115,7 @@ func (t *dnssd) oneshotQuery(msg *dns.Msg) (*dns.Msg, *dnsx.QueryError) {
 		}
 	}
 	log.I("mdns: oquery: no response for %s", qname)
-	return nil, dnsx.NewNoResponseQueryError(nil)
+	return nil, dnsx.NewNoResponseQueryError(errNoMdnsAnswer)
 }
 
 func (t *dnssd) Query(_ string, q []byte, summary *dnsx.Summary) (r []byte, err error) {
