@@ -258,11 +258,7 @@ func (r *resolver) Add(t Transport) (ok bool) {
 	}
 
 	switch t.Type() {
-	case DNS53:
-		fallthrough
-	case DNSCrypt:
-		fallthrough
-	case DOH:
+	case DNS53, DNSCrypt, DOH, DOT, ODOH:
 		// DNSCrypt transports are also registered with DcProxy
 		// Alg transports are also registered with Gateway
 		// Remove cleans those up
