@@ -255,16 +255,6 @@ func newTransport(typ, id, rawurl, target string, addrs []string, dialer *net.Di
 // be determined.
 func (t *transport) doDoh(q []byte) (response []byte, blocklists string, elapsed time.Duration, qerr *dnsx.QueryError) {
 	start := time.Now()
-	t.hangoverLock.RLock()
-	inHangover := time.Now().Before(t.hangoverExpiration)
-	t.hangoverLock.RUnlock()
-	if inHangover {
-		response = xdns.Servfail(q)
-		elapsed = time.Since(start)
-		qerr = dnsx.NewTransportQueryError(errInHangover)
-		return
-	}
-
 	q, err := AddEdnsPadding(q)
 	if err != nil {
 		elapsed = time.Since(start)
@@ -278,6 +268,7 @@ func (t *transport) doDoh(q []byte) (response []byte, blocklists string, elapsed
 
 	req, err := t.asDohRequest(q)
 	if err != nil {
+		elapsed = time.Since(start)
 		qerr = dnsx.NewInternalQueryError(err)
 		return
 	}
@@ -298,9 +289,18 @@ func (t *transport) doDoh(q []byte) (response []byte, blocklists string, elapsed
 }
 
 func (t *transport) send(req *http.Request) (ans []byte, blocklists string, elapsed time.Duration, qerr *dnsx.QueryError) {
+	t.hangoverLock.RLock()
+	inHangover := time.Now().Before(t.hangoverExpiration)
+	t.hangoverLock.RUnlock()
+	if inHangover {
+		qerr = dnsx.NewTransportQueryError(errInHangover)
+		return
+	}
+
 	var server *net.TCPAddr
 	var conn net.Conn
 	start := time.Now()
+	// either t.hostname or t.odohtargetname or t.odohproxy
 	hostname := req.URL.Hostname()
 
 	// Error cleanup function.  If the query fails, this function will close the
