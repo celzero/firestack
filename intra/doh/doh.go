@@ -157,13 +157,21 @@ func newTransport(id, rawurl, target string, addrs []string, dialer *net.Dialer)
 	if err != nil {
 		return nil, err
 	}
+	isodoh := len(target) > 0
 	// use of "http" is an indication to turn-off TLS verification
+	// for, odoh rawurl represents a proxy, which can operate on http
 	if parsedurl.Scheme == "http" {
-		log.I("doh: disabling tls verification for %s", rawurl)
-		parsedurl.Scheme = "https"
-		skipTLSVerify = true
+		// target is set when the transport is odoh:
+		// preserve the scheme, as odoh does not require tls
+		if !isodoh {
+			log.I("doh: disabling tls verification for %s", rawurl)
+			parsedurl.Scheme = "https"
+			skipTLSVerify = true
+		} else {
+			log.I("odoh: using plain http for proxy %s", rawurl)
+		}
 	}
-	if parsedurl.Scheme != "https" {
+	if !isodoh && parsedurl.Scheme != "https" {
 		return nil, fmt.Errorf("unsupported scheme %s", parsedurl.Scheme)
 	}
 	if len(parsedurl.Hostname()) == 0 {
