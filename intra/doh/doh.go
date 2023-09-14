@@ -416,14 +416,16 @@ func (t *transport) Type() string {
 }
 
 func (t *transport) Query(_ string, q []byte, summary *dnsx.Summary) (r []byte, err error) {
-
 	var blocklists string
 	var elapsed time.Duration
 	var qerr *dnsx.QueryError
 	if t.typ == dnsx.DOH {
 		r, blocklists, elapsed, qerr = t.doDoh(q)
+		summary.Server = t.hostname
 	} else {
 		r, elapsed, qerr = t.doOdoh(q)
+		summary.Server = t.odohtargetname
+		summary.RelayServer = t.odohproxy
 	}
 
 	status := dnsx.Complete
@@ -439,7 +441,6 @@ func (t *transport) Query(_ string, q []byte, summary *dnsx.Summary) (r []byte, 
 	summary.RData = xdns.GetInterestingRData(ans)
 	summary.RCode = xdns.Rcode(ans)
 	summary.RTtl = xdns.RTtl(ans)
-	summary.Server = t.GetAddr()
 	summary.Status = status
 	summary.Blocklists = blocklists
 
@@ -451,7 +452,10 @@ func (t *transport) P50() int64 {
 }
 
 func (t *transport) GetAddr() string {
-	return t.hostname
+	if t.typ == dnsx.DOH {
+		return t.hostname
+	}
+	return t.odohtargetname
 }
 
 func (t *transport) Status() int {
