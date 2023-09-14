@@ -301,7 +301,7 @@ func (t *transport) send(req *http.Request) (ans []byte, blocklists string, elap
 	var server *net.TCPAddr
 	var conn net.Conn
 	start := time.Now()
-	hostname := t.hostname
+	hostname := req.URL.Hostname()
 
 	// Error cleanup function.  If the query fails, this function will close the
 	// underlying socket and disconfirm the server IP.  Empirically, sockets often
