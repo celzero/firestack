@@ -143,7 +143,7 @@ func (t *dot) P50() int64 {
 }
 
 func (t *dot) GetAddr() string {
-	return t.url
+	return t.addr
 }
 
 func (t *dot) Status() int {
