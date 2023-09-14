@@ -35,12 +35,11 @@ func (d *transport) doOdoh(q []byte) (res []byte, elapsed time.Duration, qerr *d
 	}
 
 	oq := odohmsg.Marshal()
-	req, err := d.asDohRequest(oq)
+	req, err := d.asOdohRequest(oq)
 	if err != nil {
 		qerr = dnsx.NewInternalQueryError(err)
 		return
 	}
-	d.customizeForOdoh(req)
 
 	res, _, elapsed, qerr = d.send(req)
 	log.V("odoh: send; elapsed: %s; err? %v", elapsed, qerr)
@@ -65,13 +64,19 @@ func (d *transport) doOdoh(q []byte) (res []byte, elapsed time.Duration, qerr *d
 	return
 }
 
-func (t *transport) customizeForOdoh(req *http.Request) {
+func (d *transport) asOdohRequest(q []byte) (req *http.Request, err error) {
+	req, err = http.NewRequest(http.MethodPost, d.odohproxy, bytes.NewBuffer(q))
+	if err != nil {
+		return
+	}
+	req.Header.Set("user-agent", "")
 	req.Header.Set("content-type", odohmimetype)
 	req.Header.Add("accept", odohmimetype)
 	query := req.URL.Query()
-	query.Add("targethost", t.odohtargetname)
-	query.Add("targetpath", t.odohtargetpath)
+	query.Add("targethost", d.odohtargetname)
+	query.Add("targetpath", d.odohtargetpath)
 	req.URL.RawQuery = query.Encode()
+	return
 }
 
 func (d *transport) buildTargetQuery(q []byte) (m odoh.ObliviousDNSMessage, ctx odoh.QueryContext, err error) {
@@ -122,13 +127,14 @@ func (d *transport) refreshTargetKey() (ocfg *odoh.ObliviousDoHConfig, exp time.
 		return
 	}
 
-	req, err := d.asDohRequest(cq)
+	// doh query for odoh-config is sent to odohconfigdns
+	req, err := d.asDohRequest(cq, odohconfigdns)
 	if err != nil {
 		return
 	}
 	cr, _, t1, qerr := d.send(req)
 
-	log.D("odoh: refresh-target: got config; elapsed: %dms; err? %v", t1.Milliseconds(), qerr)
+	log.D("odoh: refresh-target: %s; elapsed: %dms; err? %v", d.odohtargetname, t1.Milliseconds(), qerr)
 	if qerr != nil {
 		err = qerr.Unwrap()
 		return
@@ -149,6 +155,7 @@ func (d *transport) refreshTargetKey() (ocfg *odoh.ObliviousDoHConfig, exp time.
 		}
 		ttlsec := time.Duration(rec.Header().Ttl) * time.Second
 		for _, kv := range https.Value {
+			// up until draft-06, the key was 0x8001
 			if kv.Key() != 32769 {
 				log.D("odoh: refresh-target: unexpected https record key; next")
 				continue
@@ -166,7 +173,7 @@ func (d *transport) refreshTargetKey() (ocfg *odoh.ObliviousDoHConfig, exp time.
 				}
 				ocfg = &ocfgs.Configs[0]
 				exp = time.Now().Add(ttlsec)
-				log.V("odoh: refresh-target: got config; config: %v; expiring: %s", ocfg, exp)
+				log.V("odoh: refresh-target: %s; %v; expiring: %s", d.odohtargetname, ocfg, exp)
 				return
 			} else {
 				log.D("odoh: refresh-target: not a svcblocal value; next")
@@ -174,7 +181,8 @@ func (d *transport) refreshTargetKey() (ocfg *odoh.ObliviousDoHConfig, exp time.
 		}
 	}
 
-	log.W("odoh: no valid cfg in https/svcb records %d", len(cres.Answer))
+	log.W("odoh: refresh-target: no config in https/svcb %d", len(cres.Answer))
+	log.V("odoh: refresh-target: dns ans %v", cres.Answer)
 	err = errNoOdohCfgResponse
 	return
 }

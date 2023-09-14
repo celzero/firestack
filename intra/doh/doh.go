@@ -288,7 +288,7 @@ func (t *transport) doDoh(q []byte) (response []byte, blocklists string, elapsed
 	id := binary.BigEndian.Uint16(q)
 	binary.BigEndian.PutUint16(q, 0)
 
-	req, err := t.asDohRequest(q)
+	req, err := t.asDohRequest(q, t.url)
 	if err != nil {
 		qerr = dnsx.NewInternalQueryError(err)
 		return
@@ -386,7 +386,8 @@ func (t *transport) send(req *http.Request) (ans []byte, blocklists string, elap
 	httpResponse.Body.Close()
 	log.V("doh: closed response")
 
-	// Update the hostname, which could have changed due to a redirect.
+	// update the hostname, which could have changed due to a redirect
+	// or when t.url / t.hostname are overriden in asDohRequest
 	hostname = httpResponse.Request.URL.Hostname()
 
 	if httpResponse.StatusCode != http.StatusOK {
@@ -408,14 +409,17 @@ func (t *transport) rdnsBlockstamp(res *http.Response) (blocklistStamp string) {
 	return
 }
 
-func (t *transport) asDohRequest(q []byte) (req *http.Request, err error) {
-	req, err = http.NewRequest(http.MethodPost, t.url, bytes.NewBuffer(q))
+func (t *transport) asDohRequest(q []byte, opturl string) (req *http.Request, err error) {
+	if len(opturl) <= 0 {
+		opturl = t.url
+	}
+	req, err = http.NewRequest(http.MethodPost, opturl, bytes.NewBuffer(q))
 	if err != nil {
 		return
 	}
-	req.Header.Set("Content-Type", dohmimetype)
-	req.Header.Set("Accept", dohmimetype)
-	req.Header.Set("User-Agent", "")
+	req.Header.Set("content-type", dohmimetype)
+	req.Header.Set("accept", dohmimetype)
+	req.Header.Set("user-agent", "")
 	return
 }
 
