@@ -59,10 +59,12 @@ var errInHangover = errors.New("forwarder is in servfail hangover")
 
 type odohtransport struct {
 	omu              sync.RWMutex // protects odohConfig
+	odohproxy        string       // proxy url
 	odohtargetname   string       // target hostname
 	odohtargetpath   string       // target path
 	odohConfig       *odoh.ObliviousDoHConfig
 	odohConfigExpiry time.Time
+	preferWK         bool // prefer .well-known over svcb/https probe
 }
 
 // TODO: Keep a context here so that queries can be canceled.
@@ -201,7 +203,9 @@ func newTransport(id, rawurl, target string, addrs []string, dialer *net.Dialer)
 		est:      core.NewP50Estimator(),
 	}
 	if len(target) > 0 {
-		log.I("doh: ODOH for %s -> %s", t.url, target)
+		proxy := t.url
+
+		log.I("doh: ODOH for %s -> %s", proxy, target)
 		t.odohtransport = &odohtransport{}
 		t.typ = dnsx.ODOH
 		u, err := url.Parse(target)
@@ -216,8 +220,13 @@ func newTransport(id, rawurl, target string, addrs []string, dialer *net.Dialer)
 		if len(h) == 0 {
 			return nil, fmt.Errorf("no hostname in %s", target)
 		}
+		t.odohproxy = proxy
 		t.odohtargetname = h
-		t.odohtargetpath = p
+		if len(p) > 1 { // should not be "" or "/"
+			t.odohtargetpath = p
+		} else {
+			t.odohtargetpath = odohtargetpath
+		}
 	}
 	ipset := t.ips.Of(t.hostname, addrs)
 	if ipset.Empty() {
