@@ -52,6 +52,7 @@ func NewMDNSTransport(protos string) (t dnsx.Transport) {
 		use6:   use6(protos),
 		ipport: xdns.MDNSAddr4.String(), // ip6: ff02::fb:5353
 		status: dnsx.Start,
+		est:    core.NewP50Estimator(),
 	}
 	log.I("mdns: setup: %s", protos)
 	return
