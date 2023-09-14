@@ -194,9 +194,10 @@ func newTransport(id, rawurl, target string, addrs []string, dialer *net.Dialer)
 	}
 	if len(target) > 0 {
 		log.I("doh: ODOH for %s -> %s", t.url, target)
+		t.odohtransport = &odohtransport{}
 		t.typ = dnsx.ODOH
 		u, err := url.Parse(target)
-		if u == nil || err != nil {
+		if err != nil {
 			return nil, fmt.Errorf("cannot parse target %s -> %s; err? %v", target, u, err)
 		}
 		if u.Scheme != "https" {
