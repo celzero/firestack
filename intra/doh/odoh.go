@@ -38,6 +38,8 @@ var errZeroOdohCfgs = errors.New("no odoh configs found")
 // targets:  github.com/DNSCrypt/dnscrypt-resolvers/blob/master/v3/odoh-servers.md
 // endpoints:  github.com/DNSCrypt/dnscrypt-resolvers/blob/master/v3/odoh-relays.md
 func (d *transport) doOdoh(q []byte) (res []byte, elapsed time.Duration, qerr *dnsx.QueryError) {
+	viaproxy := len(d.odohproxy) > 0
+
 	odohmsg, odohctx, err := d.buildTargetQuery(q)
 	if err != nil {
 		log.W("odoh: build target query err: %v", err)
@@ -53,7 +55,7 @@ func (d *transport) doOdoh(q []byte) (res []byte, elapsed time.Duration, qerr *d
 	}
 
 	res, _, elapsed, qerr = d.send(req)
-	log.V("odoh: send; elapsed: %s; err? %v", elapsed, qerr)
+	log.V("odoh: send; proxy? %t, elapsed: %s; err? %v", viaproxy, elapsed, qerr)
 	if qerr != nil {
 		res = xdns.Servfail(q) // servfail on the original query
 		return
@@ -76,17 +78,26 @@ func (d *transport) doOdoh(q []byte) (res []byte, elapsed time.Duration, qerr *d
 }
 
 func (d *transport) asOdohRequest(q []byte) (req *http.Request, err error) {
-	req, err = http.NewRequest(http.MethodPost, d.odohproxy, bytes.NewBuffer(q))
-	if err != nil {
-		return
+	viaproxy := len(d.odohproxy) > 0
+	// ref: github.com/cloudflare/odoh-client-go/blob/8d45d054d3/commands/request.go#L53
+	if viaproxy {
+		req, err = http.NewRequest(http.MethodPost, d.odohproxy, bytes.NewBuffer(q))
+		if err != nil {
+			return
+		}
+		query := req.URL.Query()
+		query.Add("targethost", d.odohtargetname)
+		query.Add("targetpath", d.odohtargetpath)
+		req.URL.RawQuery = query.Encode()
+	} else {
+		req, err = http.NewRequest(http.MethodPost, d.odohTargetUrl(), bytes.NewBuffer(q))
+		if err != nil {
+			return
+		}
 	}
 	req.Header.Set("user-agent", "")
 	req.Header.Set("content-type", odohmimetype)
 	req.Header.Add("accept", odohmimetype)
-	query := req.URL.Query()
-	query.Add("targethost", d.odohtargetname)
-	query.Add("targetpath", d.odohtargetpath)
-	req.URL.RawQuery = query.Encode()
 	return
 }
 
@@ -149,13 +160,8 @@ func (d *transport) refresh() (cfg *odoh.ObliviousDoHConfig, exp time.Time, err 
 func (d *transport) refreshTargetKeyWellKnown() (ocfg *odoh.ObliviousDoHConfig, exp time.Time, err error) {
 	var req *http.Request
 	var resp *http.Response
-	u := new(url.URL)
-	u.Scheme = odohtargetscheme
-	u.Path = odohconfigwkpath
-	u.Host = d.odohtargetname
-	wurl := u.String()
 
-	req, err = http.NewRequest(http.MethodGet, wurl, nil)
+	req, err = http.NewRequest(http.MethodGet, d.odohConfigUrl(), nil)
 	if err != nil {
 		return
 	}
@@ -193,7 +199,7 @@ func (d *transport) refreshTargetKeyDNS() (ocfg *odoh.ObliviousDoHConfig, exp ti
 	}
 
 	// doh query for odoh-config is sent to odohconfigdns
-	req, err := d.asDohRequest(cq, odohconfigdns)
+	req, err := d.asDohRequest(cq)
 	if err != nil {
 		return
 	}
@@ -250,4 +256,20 @@ func (d *transport) refreshTargetKeyDNS() (ocfg *odoh.ObliviousDoHConfig, exp ti
 	log.V("odoh: refresh-target: dns ans %v", cres.Answer)
 	err = errNoOdohCfgResponse
 	return
+}
+
+func (d *transport) odohTargetUrl() string {
+	u := new(url.URL)
+	u.Scheme = odohtargetscheme
+	u.Path = d.odohtargetpath
+	u.Host = d.odohtargetname
+	return u.String()
+}
+
+func (d *transport) odohConfigUrl() string {
+	u := new(url.URL)
+	u.Scheme = odohtargetscheme
+	u.Path = odohconfigwkpath
+	u.Host = d.odohtargetname
+	return u.String()
 }

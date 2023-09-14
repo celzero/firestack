@@ -53,7 +53,6 @@ import (
 const hangoverDuration = 10 * time.Second
 const tcpTimeout time.Duration = 3 * time.Second
 const dohmimetype = "application/dns-message"
-const tlsport = 443
 
 var errInHangover = errors.New("forwarder is in servfail hangover")
 
@@ -75,7 +74,6 @@ type transport struct {
 	typ                string // dnsx.DOH / dnsx.ODOH
 	url                string // endpoint URL
 	hostname           string // endpoint hostname
-	port               int    // endpoint port
 	ips                ipmap.IPMap
 	client             http.Client
 	dialer             *net.Dialer
@@ -141,97 +139,87 @@ func (t *transport) dial(network, addr string) (net.Conn, error) {
 // `auth` will provide a client certificate if required by the TLS server.
 // `listener` will receive the status of each DNS query when it is complete.
 func NewTransport(id, rawurl string, addrs []string, dialer *net.Dialer) (dnsx.Transport, error) {
-	return newTransport(id, rawurl, "", addrs, dialer)
+	return newTransport(dnsx.DOH, id, rawurl, "", addrs, dialer)
 }
 
 func NewOdohTransport(id, endpoint, target string, addrs []string, dailer *net.Dialer) (dnsx.Transport, error) {
-	return newTransport(id, endpoint, target, addrs, dailer)
+	return newTransport(dnsx.ODOH, id, endpoint, target, addrs, dailer)
 }
 
-func newTransport(id, rawurl, target string, addrs []string, dialer *net.Dialer) (*transport, error) {
+func newTransport(typ, id, rawurl, target string, addrs []string, dialer *net.Dialer) (*transport, error) {
 	// TODO: client auth
 	var auth ClientAuth
 	skipTLSVerify := false
+	isodoh := typ == dnsx.ODOH
+
 	if dialer == nil {
 		dialer = &net.Dialer{}
 	}
-	parsedurl, err := url.Parse(rawurl)
-	if err != nil {
-		return nil, err
-	}
-	isodoh := len(target) > 0
-	// use of "http" is an indication to turn-off TLS verification
-	// for, odoh rawurl represents a proxy, which can operate on http
-	if parsedurl.Scheme == "http" {
-		// target is set when the transport is odoh:
-		// preserve the scheme, as odoh does not require tls
-		if !isodoh {
-			log.I("doh: disabling tls verification for %s", rawurl)
-			parsedurl.Scheme = "https"
-			skipTLSVerify = true
-		} else {
-			log.I("odoh: using plain http for proxy %s", rawurl)
-		}
-	}
-	if !isodoh && parsedurl.Scheme != "https" {
-		return nil, fmt.Errorf("unsupported scheme %s", parsedurl.Scheme)
-	}
-	if len(parsedurl.Hostname()) == 0 {
-		return nil, fmt.Errorf("no hostname in %s", rawurl)
-	}
 
-	// Resolve the hostname and put those addresses first.
-	portStr := parsedurl.Port()
-	var port int
-	if len(portStr) > 0 {
-		port, err = strconv.Atoi(portStr)
+	t := &transport{
+		id:     id,
+		typ:    typ,
+		dialer: dialer,
+		ips:    ipmap.NewIPMap(dialer.Resolver),
+		status: dnsx.Start,
+		est:    core.NewP50Estimator(),
+	}
+	if !isodoh {
+		parsedurl, err := url.Parse(rawurl)
 		if err != nil {
 			return nil, err
 		}
+		// use of "http" is an indication to turn-off TLS verification
+		// for, odoh rawurl represents a proxy, which can operate on http
+		if parsedurl.Scheme == "http" {
+			log.I("doh: disabling tls verification for %s", rawurl)
+			parsedurl.Scheme = "https"
+			skipTLSVerify = true
+		}
+		if parsedurl.Scheme != "https" {
+			return nil, fmt.Errorf("unsupported scheme %s", parsedurl.Scheme)
+		}
+		// for odoh, rawurl represents a proxy, which is optional
+		if len(parsedurl.Hostname()) == 0 {
+			return nil, fmt.Errorf("no hostname in %s", rawurl)
+		}
+		t.url = parsedurl.String()
+		t.hostname = parsedurl.Hostname()
+		// addrs are pre-determined ip addresses for url / hostname
+		_ = t.ips.Of(t.hostname, addrs)
 	} else {
-		port = tlsport
-	}
-	t := &transport{
-		id:       id,
-		typ:      dnsx.DOH,
-		url:      parsedurl.String(),
-		hostname: parsedurl.Hostname(),
-		port:     port,
-		dialer:   dialer,
-		ips:      ipmap.NewIPMap(dialer.Resolver),
-		status:   dnsx.Start,
-		est:      core.NewP50Estimator(),
-	}
-	if len(target) > 0 {
-		proxy := t.url
-
-		log.I("doh: ODOH for %s -> %s", proxy, target)
 		t.odohtransport = &odohtransport{}
-		t.typ = dnsx.ODOH
-		u, err := url.Parse(target)
+
+		proxy := rawurl         // may be empty
+		rawurl := odohconfigdns // never empty
+
+		parsedurl, err := url.Parse(rawurl)
 		if err != nil {
-			return nil, fmt.Errorf("cannot parse target %s -> %s; err? %v", target, u, err)
+			return nil, err
 		}
-		if u.Scheme != "https" {
-			return nil, fmt.Errorf("unsupported scheme %s", u.Scheme)
+		targeturl, err := url.Parse(target)
+		if err != nil {
+			return nil, err
 		}
-		h := u.Hostname()
-		p := u.Path
-		if len(h) == 0 {
-			return nil, fmt.Errorf("no hostname in %s", target)
+		proxyurl, _ := url.Parse(proxy)
+
+		// addrs are proxy addresses if proxy is not empty, otherwise target addresses
+		if proxyurl != nil && proxyurl.Hostname() != "" {
+			_ = t.ips.Of(proxyurl.Hostname(), addrs)
+			t.odohproxy = proxy
+		} else if targeturl != nil && targeturl.Hostname() != "" {
+			_ = t.ips.Of(targeturl.Hostname(), addrs)
 		}
-		t.odohproxy = proxy
-		t.odohtargetname = h
-		if len(p) > 1 { // should not be "" or "/"
-			t.odohtargetpath = p
+
+		t.url = parsedurl.String()
+		t.hostname = parsedurl.Hostname()
+		t.odohtargetname = targeturl.Hostname()
+		if len(targeturl.Path) > 1 { // should not be "" or "/"
+			t.odohtargetpath = targeturl.Path
 		} else {
-			t.odohtargetpath = odohtargetpath
+			t.odohtargetpath = odohtargetpath // default: "/dns-query"
 		}
-	}
-	ipset := t.ips.Of(t.hostname, addrs)
-	if ipset.Empty() {
-		// IPs instead resolved just-in-time with ipmap.Get in transport.dial
-		log.W("doh: zero bootstrap ips %s", t.hostname)
+		log.I("doh: ODOH for %s -> %s", proxy, target)
 	}
 
 	// Supply a client certificate during TLS handshakes.
@@ -288,7 +276,7 @@ func (t *transport) doDoh(q []byte) (response []byte, blocklists string, elapsed
 	id := binary.BigEndian.Uint16(q)
 	binary.BigEndian.PutUint16(q, 0)
 
-	req, err := t.asDohRequest(q, t.url)
+	req, err := t.asDohRequest(q)
 	if err != nil {
 		qerr = dnsx.NewInternalQueryError(err)
 		return
@@ -387,7 +375,6 @@ func (t *transport) send(req *http.Request) (ans []byte, blocklists string, elap
 	log.V("doh: closed response")
 
 	// update the hostname, which could have changed due to a redirect
-	// or when t.url / t.hostname are overriden in asDohRequest
 	hostname = httpResponse.Request.URL.Hostname()
 
 	if httpResponse.StatusCode != http.StatusOK {
@@ -409,11 +396,8 @@ func (t *transport) rdnsBlockstamp(res *http.Response) (blocklistStamp string) {
 	return
 }
 
-func (t *transport) asDohRequest(q []byte, opturl string) (req *http.Request, err error) {
-	if len(opturl) <= 0 {
-		opturl = t.url
-	}
-	req, err = http.NewRequest(http.MethodPost, opturl, bytes.NewBuffer(q))
+func (t *transport) asDohRequest(q []byte) (req *http.Request, err error) {
+	req, err = http.NewRequest(http.MethodPost, t.url, bytes.NewBuffer(q))
 	if err != nil {
 		return
 	}
