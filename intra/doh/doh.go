@@ -271,20 +271,28 @@ func (t *transport) doDoh(q []byte) (response []byte, blocklists string, elapsed
 	id := binary.BigEndian.Uint16(q)
 	binary.BigEndian.PutUint16(q, 0)
 
-	response, blocklists, elapsed, qerr = t.send(q)
+	req, err := t.asDohRequest(q)
+	if err != nil {
+		qerr = dnsx.NewInternalQueryError(err)
+		return
+	}
 
-	// restore dns query id
-	if qerr == nil {
+	response, blocklists, elapsed, qerr = t.send(req)
+
+	if qerr == nil { // restore dns query id
 		zeroid := binary.BigEndian.Uint16(response)
 		if zeroid != 0 {
 			log.W("doh: ans qid not zero %d; origid: %d", zeroid, id)
 		}
 		binary.BigEndian.PutUint16(response, id)
+	} else { // override response with servfail
+		response = xdns.Servfail(q)
 	}
+
 	return
 }
 
-func (t *transport) send(q []byte) (ans []byte, blocklists string, elapsed time.Duration, qerr *dnsx.QueryError) {
+func (t *transport) send(req *http.Request) (ans []byte, blocklists string, elapsed time.Duration, qerr *dnsx.QueryError) {
 	var server *net.TCPAddr
 	var conn net.Conn
 	start := time.Now()
@@ -302,8 +310,6 @@ func (t *transport) send(q []byte) (ans []byte, blocklists string, elapsed time.
 			return
 		}
 		if qerr != nil {
-			ans = xdns.Servfail(q) // override response
-
 			if !qerr.SendFailed() { // hangover only on send-request errs
 				t.hangoverLock.Lock()
 				t.hangoverExpiration = time.Now().Add(hangoverDuration)
@@ -319,15 +325,6 @@ func (t *transport) send(q []byte) (ans []byte, blocklists string, elapsed time.
 			}
 		}
 	}()
-
-	req, err := t.asDohRequest(q)
-	if err != nil {
-		qerr = dnsx.NewInternalQueryError(err)
-		return
-	}
-	if t.typ == dnsx.ODOH {
-		t.customizeForOdoh(req)
-	}
 
 	// Add a trace to the request in order to expose the server's IP address.
 	// Only GotConn performs any action; the other methods just provide debug logs.

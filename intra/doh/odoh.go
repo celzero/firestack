@@ -27,11 +27,6 @@ var errZeroOdohCfgs = errors.New("no odoh configs found")
 // targets:  github.com/DNSCrypt/dnscrypt-resolvers/blob/master/v3/odoh-servers.md
 // endpoints:  github.com/DNSCrypt/dnscrypt-resolvers/blob/master/v3/odoh-relays.md
 func (d *transport) doOdoh(q []byte) (res []byte, elapsed time.Duration, qerr *dnsx.QueryError) {
-	start := time.Now()
-	defer func() {
-		elapsed = time.Since(start)
-	}()
-
 	odohmsg, odohctx, err := d.buildTargetQuery(q)
 	if err != nil {
 		log.W("odoh: build target query err: %v", err)
@@ -40,8 +35,17 @@ func (d *transport) doOdoh(q []byte) (res []byte, elapsed time.Duration, qerr *d
 	}
 
 	oq := odohmsg.Marshal()
-	res, _, elapsed, qerr = d.send(oq)
+	req, err := d.asDohRequest(oq)
+	if err != nil {
+		qerr = dnsx.NewInternalQueryError(err)
+		return
+	}
+	d.customizeForOdoh(req)
+
+	res, _, elapsed, qerr = d.send(req)
+	log.V("odoh: send; elapsed: %s; err? %v", elapsed, qerr)
 	if qerr != nil {
+		res = xdns.Servfail(q) // servfail on the original query
 		return
 	}
 
@@ -56,6 +60,8 @@ func (d *transport) doOdoh(q []byte) (res []byte, elapsed time.Duration, qerr *d
 		qerr = dnsx.NewInternalQueryError(err)
 		return
 	}
+
+	log.V("odoh: success; res: %d", len(res))
 	return
 }
 
@@ -80,6 +86,7 @@ func (d *transport) buildTargetQuery(q []byte) (m odoh.ObliviousDNSMessage, ctx 
 	key := ocfg.Contents
 	pad := computePaddingSize(len(q), PaddingBlockSize)
 	oq := odoh.CreateObliviousDNSQuery(q, uint16(pad))
+	log.V("odoh: build-target: odoh qlen %d", len(oq.DnsMessage)+len(oq.Padding))
 	return key.EncryptQuery(oq)
 }
 
@@ -91,6 +98,7 @@ func (d *transport) fetchTargetConfig() (*odoh.ObliviousDoHConfig, error) {
 	d.omu.RUnlock()
 
 	if ok1 && ok2 { // return cached config
+		log.V("odoh: fetch-target: using cached config")
 		return d.odohConfig, nil
 	}
 	cfg, exp, err := d.refreshTargetKey()
@@ -100,6 +108,8 @@ func (d *transport) fetchTargetConfig() (*odoh.ObliviousDoHConfig, error) {
 	d.omu.Lock()
 	d.odohConfig, d.odohConfigExpiry = cfg, exp
 	d.omu.Unlock()
+
+	log.V("odoh: fetch-target: using refereshed config; expiring: %s", exp)
 	return cfg, nil
 }
 
@@ -112,7 +122,13 @@ func (d *transport) refreshTargetKey() (ocfg *odoh.ObliviousDoHConfig, exp time.
 		return
 	}
 
-	cr, _, _, qerr := d.send(cq)
+	req, err := d.asDohRequest(cq)
+	if err != nil {
+		return
+	}
+	cr, _, t1, qerr := d.send(req)
+
+	log.D("odoh: refresh-target: got config; elapsed: %dms; err? %v", t1.Milliseconds(), qerr)
 	if qerr != nil {
 		err = qerr.Unwrap()
 		return
@@ -120,7 +136,7 @@ func (d *transport) refreshTargetKey() (ocfg *odoh.ObliviousDoHConfig, exp time.
 
 	cres := xdns.AsMsg(cr)
 	if cres == nil || len(cres.Answer) <= 0 {
-		log.W("odoh: no config answer")
+		log.W("odoh: refresh-target: no config ans")
 		err = errNoOdohCfgResponse
 		return
 	}
@@ -128,28 +144,32 @@ func (d *transport) refreshTargetKey() (ocfg *odoh.ObliviousDoHConfig, exp time.
 	for _, rec := range cres.Answer {
 		https, ok := rec.(*dns.HTTPS)
 		if !ok {
+			log.V("odoh: refresh-target: config not a https record; next")
 			continue
 		}
 		ttlsec := time.Duration(rec.Header().Ttl) * time.Second
 		for _, kv := range https.Value {
 			if kv.Key() != 32769 {
-				log.D("odoh: not a odoh https record; next")
+				log.D("odoh: refresh-target: unexpected https record key; next")
 				continue
 			}
 			var ocfgs odoh.ObliviousDoHConfigs
 			if svcblocal, ok := kv.(*dns.SVCBLocal); ok {
 				ocfgs, err = odoh.UnmarshalObliviousDoHConfigs(svcblocal.Data)
 				if err != nil {
+					log.W("odoh: refresh-target: unmarshal config err: %v", err)
 					return
 				} else if len(ocfgs.Configs) <= 0 {
+					log.W("odoh: refresh-target: no configs found")
 					err = errZeroOdohCfgs
 					return
 				}
 				ocfg = &ocfgs.Configs[0]
 				exp = time.Now().Add(ttlsec)
+				log.V("odoh: refresh-target: got config; config: %v; expiring: %s", ocfg, exp)
 				return
 			} else {
-				log.D("odoh: not a svcblocal value; next")
+				log.D("odoh: refresh-target: not a svcblocal value; next")
 			}
 		}
 	}
