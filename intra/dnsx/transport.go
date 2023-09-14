@@ -427,7 +427,7 @@ func (r *resolver) Forward(q []byte) ([]byte, error) {
 		t2, _ = r.determineTransports(sid)
 	}
 
-	if t.ID() == Alg {
+	if t.ID() == Alg { // also: Local?
 		gw = nil // transport implicitly implements Gateway
 	} else {
 		gw = r.Gateway()
@@ -538,6 +538,10 @@ func (r *resolver) determineTransports(id string) (Transport, *oneTransport) {
 	r.RLock()
 	defer r.RUnlock()
 
+	if id == Local { // mdns never cached
+		return r.transports[Local], r.pool[Local]
+	}
+
 	if id == Alg {
 		// if no firewall is setup, alg isn't possible
 		if r.tunmode.BlockMode == settings.BlockModeNone {
@@ -604,7 +608,7 @@ func (r *resolver) forwardQuery(q []byte, c io.Writer) error {
 	if len(sid) > 0 {
 		t2, _ = r.determineTransports(sid)
 	}
-	if t.ID() == Alg {
+	if t.ID() == Alg { // also: Local?
 		gw = nil // transport implicitly implements Gateway
 	} else {
 		gw = r.Gateway()
