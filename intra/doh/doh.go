@@ -166,6 +166,10 @@ func newTransport(id, rawurl, target string, addrs []string, dialer *net.Dialer)
 	if parsedurl.Scheme != "https" {
 		return nil, fmt.Errorf("unsupported scheme %s", parsedurl.Scheme)
 	}
+	if len(parsedurl.Hostname()) == 0 {
+		return nil, fmt.Errorf("no hostname in %s", rawurl)
+	}
+
 	// Resolve the hostname and put those addresses first.
 	portStr := parsedurl.Port()
 	var port int
@@ -192,11 +196,19 @@ func newTransport(id, rawurl, target string, addrs []string, dialer *net.Dialer)
 		log.I("doh: ODOH for %s -> %s", t.url, target)
 		t.typ = dnsx.ODOH
 		u, err := url.Parse(target)
-		if err != nil {
-			return nil, err
+		if u == nil || err != nil {
+			return nil, fmt.Errorf("cannot parse target %s -> %s; err? %v", target, u, err)
 		}
-		t.odohtargetname = u.Hostname()
-		t.odohtargetpath = u.Path
+		if u.Scheme != "https" {
+			return nil, fmt.Errorf("unsupported scheme %s", u.Scheme)
+		}
+		h := u.Hostname()
+		p := u.Path
+		if len(h) == 0 {
+			return nil, fmt.Errorf("no hostname in %s", target)
+		}
+		t.odohtargetname = h
+		t.odohtargetpath = p
 	}
 	ipset := t.ips.Of(t.hostname, addrs)
 	if ipset.Empty() {
