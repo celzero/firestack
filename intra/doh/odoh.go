@@ -6,8 +6,11 @@
 package doh
 
 import (
+	"bytes"
 	"errors"
+	"io"
 	"net/http"
+	"net/url"
 	"time"
 
 	"github.com/celzero/firestack/intra/dnsx"
@@ -18,8 +21,16 @@ import (
 )
 
 // adopted from: github.com/folbricht/routedns/pull/118
+// and: https://github.com/cloudflare/odoh-client/blob/4762219808/commands/request.go
 
+// constants from: https://github.com/cloudflare/odoh-client-go/blob/8d45d054d3/commands/common.go#L4
 const odohmimetype = "application/oblivious-dns-message"
+const odohconfigdns = "https://1.1.1.1/dns-query"
+const odohtargetscheme = "https"
+const odohconfigwkpath = "/.well-known/odohconfigs"
+const odohtargetpath = "/dns-query"
+const odohproxypath = "/proxy" // dns-query in latest spec
+const odohttlsec = 3600        // 1 hour
 
 var errNoOdohCfgResponse = errors.New("no odoh config response")
 var errZeroOdohCfgs = errors.New("no odoh configs found")
@@ -96,29 +107,83 @@ func (d *transport) buildTargetQuery(q []byte) (m odoh.ObliviousDNSMessage, ctx 
 }
 
 // Get the current (cached) target config or refresh it if expired.
-func (d *transport) fetchTargetConfig() (*odoh.ObliviousDoHConfig, error) {
+func (d *transport) fetchTargetConfig() (cfg *odoh.ObliviousDoHConfig, err error) {
 	d.omu.RLock()
 	ok1 := d.odohConfig != nil
 	ok2 := time.Now().Before(d.odohConfigExpiry)
 	d.omu.RUnlock()
 
 	if ok1 && ok2 { // return cached config
-		log.V("odoh: fetch-target: using cached config")
+		log.V("odoh: fetch-target: using cached config for %s", d.odohtargetname)
 		return d.odohConfig, nil
 	}
-	cfg, exp, err := d.refreshTargetKey()
-	if err != nil {
-		return nil, err
-	}
+
+	var exp time.Time
+	cfg, exp, err = d.refresh()
 	d.omu.Lock()
 	d.odohConfig, d.odohConfigExpiry = cfg, exp
 	d.omu.Unlock()
 
-	log.V("odoh: fetch-target: using refereshed config; expiring: %s", exp)
-	return cfg, nil
+	log.V("odoh: fetch-target: using refereshed config for %s; expiring: %s", d.odohtargetname, exp)
+	return
 }
 
-func (d *transport) refreshTargetKey() (ocfg *odoh.ObliviousDoHConfig, exp time.Time, err error) {
+func (d *transport) refresh() (cfg *odoh.ObliviousDoHConfig, exp time.Time, err error) {
+	first := d.refreshTargetKeyDNS
+	second := d.refreshTargetKeyWellKnown
+	if d.preferWK {
+		first = d.refreshTargetKeyWellKnown
+		second = d.refreshTargetKeyDNS
+	}
+
+	if cfg, exp, err = first(); err != nil {
+		d.preferWK = !d.preferWK
+		if cfg, exp, err = second(); err != nil {
+			return
+		}
+	}
+	log.V("odoh: fetch-target: %s; expiring: %s", d.odohtargetname, exp)
+	return
+}
+
+func (d *transport) refreshTargetKeyWellKnown() (ocfg *odoh.ObliviousDoHConfig, exp time.Time, err error) {
+	var req *http.Request
+	var resp *http.Response
+	u := new(url.URL)
+	u.Scheme = odohtargetscheme
+	u.Path = odohconfigwkpath
+	u.Host = d.odohtargetname
+	wurl := u.String()
+
+	req, err = http.NewRequest(http.MethodGet, wurl, nil)
+	if err != nil {
+		return
+	}
+	resp, err = d.client.Do(req)
+	if err != nil {
+		return
+	}
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return
+	}
+
+	ocfgs, err := odoh.UnmarshalObliviousDoHConfigs(bodyBytes)
+	if err != nil {
+		log.W("odoh: refresh-target-wk: unmarshal config err: %v", err)
+		return
+	} else if len(ocfgs.Configs) <= 0 {
+		log.W("odoh: refresh-target-wk: no configs found")
+		err = errZeroOdohCfgs
+		return
+	}
+	ocfg = &ocfgs.Configs[0]
+	exp = time.Now().Add(odohttlsec * time.Second)
+	log.V("odoh: refresh-target-wk: %s; %v; expiring: %s", d.odohtargetname, ocfg, exp)
+	return
+}
+
+func (d *transport) refreshTargetKeyDNS() (ocfg *odoh.ObliviousDoHConfig, exp time.Time, err error) {
 	var cq []byte
 	cmsg := new(dns.Msg)
 	cmsg.SetQuestion(dns.Fqdn(d.odohtargetname), dns.TypeHTTPS)
