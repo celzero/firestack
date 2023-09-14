@@ -333,11 +333,11 @@ func (t *transport) send(req *http.Request) (ans []byte, blocklists string, elap
 				t.hangoverLock.Unlock()
 			}
 			if server != nil {
-				log.D("doh: disconfirming %s", server.IP.String())
+				log.D("doh: disconfirming %s, %s", hostname, server.IP)
 				t.ips.Get(hostname).Disconfirm(server.IP)
 			}
 			if conn != nil {
-				log.I("doh: close failing doh conn")
+				log.I("doh: close failing doh conn to %s", hostname)
 				conn.Close()
 			}
 		}
