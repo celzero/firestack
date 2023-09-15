@@ -73,8 +73,6 @@ type Tunnel interface {
 	// If len(fpcap) is 0, no PCAP file will be written.
 	// If len(fpcap) is 1, PCAP be written to stdout.
 	SetPcap(fpcap string) error
-	// Reset the tunnel with new tundevice, mtu, engine, pcap file.
-	// Reset(fd, mtu, engine int, pcap string) error
 }
 
 type rtunnel struct {
@@ -144,34 +142,6 @@ func (t *rtunnel) Disconnect() {
 	log.I("tun: <<< disconnect >>>; err0(%v); err1(%v)", err0, err1)
 
 	t.Tunnel.Disconnect()
-}
-
-// unused
-func (t *rtunnel) Reset(fd, mtu, engine int) error {
-	t.clomu.RLock()
-	closed := t.closed
-	t.clomu.RUnlock()
-
-	if closed {
-		log.W("tun: <<< reset >>>; already closed")
-		return errClosed
-	}
-
-	t.tunmode.SetMode(t.tunmode.DNSMode, t.tunmode.BlockMode, t.tunmode.PtMode, engine)
-
-	gt, err := tunnel.NewGTunnel(fd, mtu, t.tunmode.IpMode, t.tcp, t.udp, t.icmp)
-	if err != nil {
-		log.I("tun: <<< reset >>>; err?(%v)", err)
-		return err
-	}
-	if prevgt := t.Tunnel; prevgt != nil {
-		go prevgt.Disconnect()
-		log.I("tun: <<< reset >>>; disconnecting prev tunnel")
-	}
-	t.Tunnel = gt
-
-	log.I("tun: <<< reset >>>; ok")
-	return nil
 }
 
 func (t *rtunnel) SetRoute(engine int) error {
