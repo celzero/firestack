@@ -225,14 +225,14 @@ func (h *udpHandler) fetchUDPInput(conn core.UDPConn, nat *tracker) {
 
 			c.SetDeadline(time.Now().Add(h.timeout)) // extend deadline
 			// c is already dialed-in to some addr in udpHandler.Connect
-			n, err = c.Read(buf)
+			n, err = c.Read(buf[:])
 		case net.PacketConn: // unused
 			logaddr = pc2str(conn, c, nat)
 			log.D("udp: ingress: read (pc) remote for %s", logaddr)
 
 			c.SetDeadline(time.Now().Add(h.timeout)) // extend deadline
 			// reads a packet from t.conn copying it to buf
-			n, addr, err = c.ReadFrom(buf)
+			n, addr, err = c.ReadFrom(buf[:])
 		default:
 			err = errUdpRead
 		}

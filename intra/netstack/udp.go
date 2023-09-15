@@ -121,7 +121,7 @@ func loop(h GUDPConnHandler, gc *GUDPConn, src, dst *net.UDPAddr) {
 		gc.gudp.SetDeadline(time.Now().Add(readDeadline))
 		// addr is gc.gudp.RemoteAddr() ie gc.LocalAddr()
 		// github.com/google/gvisor/blob/be6ffa78e/pkg/tcpip/transport/udp/endpoint.go#L298
-		if n, addr, err := gc.gudp.ReadFrom(q); err == nil {
+		if n, addr, err := gc.gudp.ReadFrom(q[:]); err == nil {
 			// who(10.111.222.3:17711)
 			// dst(l:10.111.222.3:17711 / r:10.111.222.1:53)
 			who := addr.(*net.UDPAddr)
