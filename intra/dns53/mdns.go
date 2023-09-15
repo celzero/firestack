@@ -78,6 +78,8 @@ func use6(l3 string) bool {
 
 func (t *dnssd) oneshotQuery(msg *dns.Msg) (*dns.Msg, *dnsx.QueryError) {
 	service, tld := xdns.ExtractMDNSDomain(msg)
+	// always buffered; otherwise c.listen may block on writes into ansch / resch.
+	// go.dev/play/p/gzwnGAFlTDV
 	resch := make(chan *dnssdanswer, 32)
 	qctx := &qcontext{
 		msg:   msg,
@@ -499,6 +501,10 @@ func (c *client) recv(conn *net.UDPConn) {
 			log.E("mdns: recv: unpack failed: %v", err)
 			continue
 		}
+		// ideally, the writer would close the channel, but in this
+		// case there are potentially 4 writers (2 unicast, 2 multicast)
+		// so we rely on client.Close and the closedCh to signal
+		// the wrtier to stop; also see: go.dev/play/p/gzwnGAFlTDV
 		select {
 		case c.msgCh <- msg:
 			log.V("mdns: recv: from(%v); sent; bytes(%d)", raddr, n)
