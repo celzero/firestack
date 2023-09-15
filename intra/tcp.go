@@ -433,6 +433,9 @@ func dialFor(px ipn.Proxy) split.RetryTCPDialFn {
 			return nil, err
 		} else if tcpconn, ok := ipnconn.(*net.TCPConn); !ok {
 			log.W("tcp: err retry; proxy-dialer(%s) must a net.TCPConn", px.ID())
+			if ipnconn != nil {
+				ipnconn.Close()
+			}
 			return nil, errTcpSetupConn
 		} else {
 			return tcpconn, nil
