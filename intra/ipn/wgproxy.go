@@ -55,7 +55,7 @@ const (
 	// missing wg interface address.
 	noaddr = ""
 	// min mtu for ipv6
-	minmtu6 = uint32(1280)
+	minmtu6 = 1280
 )
 
 type wgtun struct {
@@ -335,12 +335,12 @@ func makeWgTun(id string, ifaddrs []*netip.Prefix, dnsaddrs []*netip.Addr, mtu i
 		HandleLocal:        true,
 	}
 	// uint32(mtu) - 80 is the maximum payload size of a WireGuard packet.
-	tunmtu := min(minmtu6, uint32(mtu)-80) // 80 is the overhead of the WireGuard header
+	tunmtu := max(minmtu6, mtu-80) // 80 is the overhead of the WireGuard header
 
 	s := stack.New(opts)
 	sackEnabledOpt := tcpip.TCPSACKEnabled(true)
 	s.SetTransportProtocolOption(tcp.ProtocolNumber, &sackEnabledOpt)
-	ep := channel.New(epsize, tunmtu, "")
+	ep := channel.New(epsize, uint32(tunmtu), "")
 	t := &wgtun{
 		id:             id,
 		addrs:          ifaddrs,
@@ -349,7 +349,7 @@ func makeWgTun(id string, ifaddrs []*netip.Prefix, dnsaddrs []*netip.Addr, mtu i
 		events:         make(chan tun.Event, eventssize),
 		incomingPacket: make(chan *buffer.View),
 		dnsaddrs:       dnsaddrs,
-		mtu:            int(tunmtu),
+		mtu:            tunmtu,
 	}
 	// see WriteNotify below
 	ep.AddNotify(t)
