@@ -500,12 +500,12 @@ func (tun *wgtun) Close() error {
 		close(tun.incomingPacket)
 	}
 
+	// github.com/tailscale/tailscale/blob/836f932e/wgengine/netstack/netstack.go#L223
+
 	// stack closes the endpoint, too via nic.go#remove?
 	// tun.ep.Close()
-	tun.stack.Close()
-	// wait for stack to close?
-	// github.com/tailscale/tailscale/blob/836f932e/wgengine/netstack/netstack.go#L223
-	// TODO: tun.stack.Wait()
+	// destroy waits for the stack to close
+	tun.stack.Destroy()
 
 	log.I("proxy: wg: tun: closed")
 	return nil
