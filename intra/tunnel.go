@@ -33,6 +33,7 @@ import (
 	"github.com/celzero/firestack/intra/ipn"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
+	"github.com/celzero/firestack/intra/rnet"
 	"github.com/celzero/firestack/intra/settings"
 	"github.com/celzero/firestack/tunnel"
 )
@@ -84,6 +85,7 @@ type rtunnel struct {
 	natpt    ipn.NatPt
 	proxies  ipn.Proxies
 	resolver dnsx.Resolver
+	services rnet.Services
 	clomu    sync.RWMutex
 	closed   bool
 }
@@ -93,6 +95,7 @@ func NewTunnel(fd, mtu int, fakedns string, dns dnsx.Transport, tunmode *setting
 
 	natpt := ipn.NewNatPt(tunmode)
 	proxies := ipn.NewProxifier(bdg)
+	services := rnet.NewServices(proxies, bdg)
 
 	resolver := dnsx.NewResolver(fakedns, dns, tunmode, bdg, natpt)
 	resolver.Add(newBlockAllTransport())
@@ -119,6 +122,7 @@ func NewTunnel(fd, mtu int, fakedns string, dns dnsx.Transport, tunmode *setting
 		natpt:    natpt,
 		proxies:  proxies,
 		resolver: resolver,
+		services: services,
 	}
 
 	log.I("tun: <<< new >>>; ok")
@@ -164,6 +168,10 @@ func (t *rtunnel) GetResolver() dnsx.Resolver {
 
 func (t *rtunnel) GetProxies() ipn.Proxies {
 	return t.proxies
+}
+
+func (t *rtunnel) GetServices() rnet.Services {
+	return t.services
 }
 
 func (t *rtunnel) SetSystemDNS(ippcsv string) int {
