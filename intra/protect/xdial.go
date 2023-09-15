@@ -8,11 +8,13 @@ package protect
 
 import (
 	"net"
+
+	"golang.org/x/net/proxy"
 )
 
 // XDial confirms to x.Dialer interface but discards local-addresses
 type XDial struct {
-	*net.Dialer
+	proxy.Dialer
 }
 
 func (d *XDial) Dial(network, addr string) (net.Conn, error) {
@@ -28,6 +30,9 @@ func (d *XDial) DialTCP(network string, laddr, raddr *net.TCPAddr) (*net.TCPConn
 		// d.Dialer.LocalAddr = nil
 		return tc, nil
 	} else {
+		if tc != nil {
+			tc.Close()
+		}
 		return nil, net.ErrWriteToConnected
 	}
 }
@@ -41,6 +46,9 @@ func (d *XDial) DialUDP(network string, laddr, raddr *net.UDPAddr) (*net.UDPConn
 		// d.Dialer.LocalAddr = nil
 		return uc, nil
 	} else {
+		if uc != nil {
+			uc.Close()
+		}
 		return nil, net.ErrWriteToConnected
 	}
 }
