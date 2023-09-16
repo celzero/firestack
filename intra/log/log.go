@@ -32,18 +32,18 @@
 package log
 
 // based on: github.com/eycorsican/go-tun2socks/blob/301549c43/common/log/log.go#L5
-var logger Logger
+var Glogger Logger
 
 type LogFn func(string, ...any)
 
 func RegisterLogger(l Logger) bool {
-	logger = l
+	Glogger = l
 	return true
 }
 
 func SetLevel(level LogLevel) {
-	if logger != nil {
-		logger.SetLevel(level)
+	if Glogger != nil {
+		Glogger.SetLevel(level)
 	}
 }
 
@@ -59,37 +59,37 @@ func Of(tag string, l LogFn) LogFn {
 func N(_ string, _ ...any) {}
 
 func V(msg string, args ...any) {
-	if logger != nil {
-		logger.Verbosef("V "+msg, args...)
+	if Glogger != nil {
+		Glogger.Verbosef("V "+msg, args...)
 	}
 }
 
 func D(msg string, args ...any) {
-	if logger != nil {
-		logger.Debugf("D "+msg, args...)
+	if Glogger != nil {
+		Glogger.Debugf("D "+msg, args...)
 	}
 }
 
 func I(msg string, args ...any) {
-	if logger != nil {
-		logger.Infof("I "+msg, args...)
+	if Glogger != nil {
+		Glogger.Infof("I "+msg, args...)
 	}
 }
 
 func W(msg string, args ...any) {
-	if logger != nil {
-		logger.Warnf("W "+msg, args...)
+	if Glogger != nil {
+		Glogger.Warnf("W "+msg, args...)
 	}
 }
 
 func E(msg string, args ...any) {
-	if logger != nil {
-		logger.Errorf("E "+msg, args...)
+	if Glogger != nil {
+		Glogger.Errorf("E "+msg, args...)
 	}
 }
 
 func Wtf(msg string, args ...any) {
-	if logger != nil {
-		logger.Fatalf("F "+msg, args...)
+	if Glogger != nil {
+		Glogger.Fatalf("F "+msg, args...)
 	}
 }
