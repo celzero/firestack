@@ -51,7 +51,6 @@ import (
 // of this duration, during which all queries are rejected.
 // This rate-limits queries to misconfigured servers (e.g. wrong URL).
 const hangoverDuration = 10 * time.Second
-const tcpTimeout time.Duration = 3 * time.Second
 const dohmimetype = "application/dns-message"
 
 var errInHangover = errors.New("forwarder is in servfail hangover")
@@ -206,10 +205,10 @@ func newTransport(typ, id, rawurl, target string, addrs []string, dialer *net.Di
 		// addrs are proxy addresses if proxy is not empty, otherwise target addresses
 		if proxyurl != nil && proxyurl.Hostname() != "" {
 			_ = t.ips.Of(proxyurl.Hostname(), addrs)
-			t.odohproxy = proxy
 			if len(proxyurl.Path) <= 1 { // should not be "" or "/"
-				t.odohproxy += odohproxypath
+				proxyurl.Path = odohproxypath
 			}
+			t.odohproxy = proxyurl.String()
 		} else if targeturl != nil && targeturl.Hostname() != "" {
 			_ = t.ips.Of(targeturl.Hostname(), addrs)
 		}
@@ -241,7 +240,7 @@ func newTransport(typ, id, rawurl, target string, addrs []string, dialer *net.Di
 	t.client.Transport = &http.Transport{
 		Dial:                  t.dial,
 		ForceAttemptHTTP2:     true,
-		TLSHandshakeTimeout:   tcpTimeout,
+		TLSHandshakeTimeout:   3 * time.Second,
 		ResponseHeaderTimeout: 20 * time.Second, // Same value as Android DNS-over-TLS
 		TLSClientConfig:       tlsconfig,
 	}
