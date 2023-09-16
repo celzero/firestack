@@ -7,31 +7,32 @@
 // This file incorporates work covered by the following copyright and
 // permission notice:
 //
-//    MIT License
+//	MIT License
 //
-//    Copyright (c) 2018 eycorsican
+//	Copyright (c) 2018 eycorsican
 //
-//    Permission is hereby granted, free of charge, to any person obtaining a copy
-//    of this software and associated documentation files (the "Software"), to deal
-//    in the Software without restriction, including without limitation the rights
-//    to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-//    copies of the Software, and to permit persons to whom the Software is
-//    furnished to do so, subject to the following conditions:
+//	Permission is hereby granted, free of charge, to any person obtaining a copy
+//	of this software and associated documentation files (the "Software"), to deal
+//	in the Software without restriction, including without limitation the rights
+//	to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+//	copies of the Software, and to permit persons to whom the Software is
+//	furnished to do so, subject to the following conditions:
 //
-//    The above copyright notice and this permission notice shall be included in all
-//    copies or substantial portions of the Software.
+//	The above copyright notice and this permission notice shall be included in all
+//	copies or substantial portions of the Software.
 //
-//    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-//    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-//    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-//    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-//    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-//    SOFTWARE.
+//	THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+//	IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+//	FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+//	AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+//	LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+//	OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+//	SOFTWARE.
 package log
 
 import (
 	golog "log"
+	"strings"
 )
 
 // based on: github.com/eycorsican/go-tun2socks/blob/301549c43/common/log/logger.go
@@ -46,7 +47,7 @@ const (
 	NONE
 )
 
-const defaultLevel = WARN
+const defaultLevel = INFO
 
 type Logger interface {
 	SetLevel(level LogLevel)
@@ -62,6 +63,7 @@ type Logger interface {
 type simpleLogger struct {
 	Logger
 	level LogLevel
+	tag   string
 }
 
 var _ = RegisterLogger(NewSimpleLogger())
@@ -69,6 +71,22 @@ var _ = RegisterLogger(NewSimpleLogger())
 func NewSimpleLogger() Logger {
 	return &simpleLogger{
 		level: defaultLevel,
+	}
+}
+
+func NewLogger(tag string) Logger {
+	if len(tag) <= 0 {
+		return NewSimpleLogger()
+	}
+	if !strings.HasSuffix(tag, "/") {
+		tag += "/"
+	}
+	if !strings.HasSuffix(tag, " ") {
+		tag += " "
+	}
+	return &simpleLogger{
+		level: defaultLevel,
+		tag:   tag,
 	}
 }
 
@@ -111,5 +129,9 @@ func (l *simpleLogger) Fatalf(msg string, args ...any) {
 }
 
 func (l *simpleLogger) output(msg string, args ...any) {
-	golog.Printf(msg, args...)
+	if len(l.tag) <= 0 {
+		golog.Printf(msg, args...)
+	} else {
+		golog.Printf(l.tag+msg, args...)
+	}
 }
