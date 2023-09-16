@@ -8,6 +8,7 @@ package ipn
 
 import (
 	"fmt"
+	"net"
 	"net/url"
 	"strings"
 
@@ -78,4 +79,20 @@ func (pxr *proxifier) AddProxy(id, txt string) (p Proxy, err error) {
 
 	log.I("proxy: added %s/%s/%s", p.ID(), p.Type(), p.GetAddr())
 	return
+}
+
+func AsDialFn(px Proxy) func(string, string) (net.Conn, error) {
+	return func(network, addr string) (net.Conn, error) {
+		if ipnconn, err := px.Dial(network, addr); err != nil {
+			return nil, err
+		} else if tcpconn, ok := ipnconn.(*net.TCPConn); !ok {
+			log.W("tcp: err retry; proxy-dialer(%s) must a net.TCPConn", px.ID())
+			if ipnconn != nil {
+				ipnconn.Close()
+			}
+			return nil, errNoProxyResponse
+		} else {
+			return tcpconn, nil
+		}
+	}
 }

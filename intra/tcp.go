@@ -415,7 +415,7 @@ func (h *tcpHandler) Handle(conn net.Conn, target *net.TCPAddr, summary *TCPSock
 				log.W("tcp: err spliting; ipn.Base must return a net.TCPConn")
 				return errTcpSetupConn
 			}
-			c = split.RetryingConn(dialFor(px), target, timeout, tcpconn)
+			c = split.RetryingConn(ipn.AsDialFn(px), target, timeout, tcpconn)
 		}
 	}
 
@@ -425,22 +425,6 @@ func (h *tcpHandler) Handle(conn net.Conn, target *net.TCPAddr, summary *TCPSock
 
 	log.I("tcp: new conn via proxy(%s); src(%s) -> dst(%s)", px.ID(), conn.LocalAddr(), target)
 	return nil
-}
-
-func dialFor(px ipn.Proxy) split.RetryTCPDialFn {
-	return func(network, addr string) (net.Conn, error) {
-		if ipnconn, err := px.Dial(network, addr); err != nil {
-			return nil, err
-		} else if tcpconn, ok := ipnconn.(*net.TCPConn); !ok {
-			log.W("tcp: err retry; proxy-dialer(%s) must a net.TCPConn", px.ID())
-			if ipnconn != nil {
-				ipnconn.Close()
-			}
-			return nil, errTcpSetupConn
-		} else {
-			return tcpconn, nil
-		}
-	}
 }
 
 func stall(m *core.ExpMap, k string) (secs uint32) {
