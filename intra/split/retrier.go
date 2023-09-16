@@ -33,9 +33,9 @@ type RetryStats struct {
 	Timeout bool   // True if the retry was caused by a timeout.
 }
 
-// RetryTCPDialFn creates a TCP connection to the given address,
-// that is, the resulting net.Conn must be a *net.TCPConn.
-type RetryTCPDialFn func(string, string) (net.Conn, error)
+// TCPDialFn creates a connection to the given address,
+// the resulting net.Conn must be a *net.TCPConn.
+type TCPDialFn func(string, string) (net.Conn, error)
 
 // retrier implements the DuplexConn interface.
 type retrier struct {
@@ -44,7 +44,7 @@ type retrier struct {
 	// After retryCompletedFlag is closed, these values will not be modified
 	// again so locking is no longer required for reads.
 	mutex sync.Mutex
-	dial  RetryTCPDialFn
+	dial  TCPDialFn
 	addr  *net.TCPAddr
 	// conn is the current underlying connection.  It is only modified by the reader
 	// thread, so the reader functions may access it without acquiring a lock.
@@ -113,7 +113,7 @@ func CalcTimeout(before, after time.Time) time.Duration {
 // default TCP timeout (typically 2-3 minutes).
 const DefaultTimeout time.Duration = 0
 
-func RetryingConn(d RetryTCPDialFn, addr *net.TCPAddr, timeout time.Duration, tcpconn *net.TCPConn) DuplexConn {
+func RetryingConn(d TCPDialFn, addr *net.TCPAddr, timeout time.Duration, tcpconn *net.TCPConn) DuplexConn {
 	return &retrier{
 		dial:              d,
 		addr:              addr,
