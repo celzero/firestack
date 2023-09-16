@@ -97,12 +97,7 @@ func NewServices(proxies ipn.Proxies, ctl protect.Controller) Services {
 }
 
 func (s *services) AddServer(id, url string) (svc Server, err error) {
-	s.Lock()
-	defer s.Unlock()
-
-	if _, ok := s.servers[id]; ok {
-		return nil, errSvcRunning
-	}
+	s.RemoveServer(id)
 
 	switch id {
 	case SVCSOCKS5, PXSOCKS5:
@@ -113,17 +108,22 @@ func (s *services) AddServer(id, url string) (svc Server, err error) {
 		return nil, errors.ErrUnsupported
 	}
 
+	if err != nil {
+		return nil, err
+	}
+
+	s.Lock()
 	s.servers[id] = svc
+	s.Unlock()
+
 	return svc, nil
 }
 
 func (s *services) Bridge(serverid, proxyid string) error {
-	s.Lock()
-	defer s.Unlock()
+	svc, err := s.GetServer(serverid)
 
-	svc, ok := s.servers[serverid]
-	if !ok {
-		return errNoServer
+	if err != nil {
+		return err
 	}
 	// remove existing bridge, if any
 	if len(proxyid) <= 0 {
@@ -135,16 +135,14 @@ func (s *services) Bridge(serverid, proxyid string) error {
 	}
 	svcstr := fmt.Sprintf("%s/%s [%d] at %s", serverid, svc.Type(), svc.Status(), svc.GetAddr())
 	pxstr := fmt.Sprintf("%s/%s [%d] at %s", proxyid, px.Type(), px.Status(), px.GetAddr())
-	log.I("svc: bridge %s with %s", svcstr, pxstr)
+	log.I("svc: bridge: %s with %s", svcstr, pxstr)
 
 	return svc.Hop(px)
 }
 
 func (s *services) RemoveServer(id string) bool {
-	s.Lock()
-	defer s.Unlock()
-
-	if _, ok := s.servers[id]; ok {
+	if svc, err := s.GetServer(id); err == nil {
+		go svc.Stop()
 		delete(s.servers, id)
 		return true
 	}
@@ -195,8 +193,8 @@ func (s *services) RemoveAll() int {
 	n := s.StopServers()
 
 	s.Lock()
-	defer s.Unlock()
-
 	clear(s.servers)
+	s.Unlock()
+
 	return n
 }
