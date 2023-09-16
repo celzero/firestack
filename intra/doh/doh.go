@@ -207,6 +207,9 @@ func newTransport(typ, id, rawurl, target string, addrs []string, dialer *net.Di
 		if proxyurl != nil && proxyurl.Hostname() != "" {
 			_ = t.ips.Of(proxyurl.Hostname(), addrs)
 			t.odohproxy = proxy
+			if len(proxyurl.Path) <= 1 { // should not be "" or "/"
+				t.odohproxy += odohproxypath
+			}
 		} else if targeturl != nil && targeturl.Hostname() != "" {
 			_ = t.ips.Of(targeturl.Hostname(), addrs)
 		}
@@ -377,8 +380,14 @@ func (t *transport) send(req *http.Request) (ans []byte, blocklists string, elap
 	// update the hostname, which could have changed due to a redirect
 	hostname = httpResponse.Request.URL.Hostname()
 
-	if httpResponse.StatusCode != http.StatusOK {
-		qerr = dnsx.NewTransportQueryError(fmt.Errorf("http-status: %d", httpResponse.StatusCode))
+	sc := httpResponse.StatusCode
+	if sc != http.StatusOK {
+		// 4xx
+		if sc >= http.StatusBadRequest && sc < http.StatusInternalServerError {
+			qerr = dnsx.NewClientQueryError(fmt.Errorf("http-status: %d", sc))
+		} else {
+			qerr = dnsx.NewTransportQueryError(fmt.Errorf("http-status: %d", sc))
+		}
 		return
 	}
 	if len(ans) < 2 {

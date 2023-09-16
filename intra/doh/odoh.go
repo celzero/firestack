@@ -21,16 +21,16 @@ import (
 )
 
 // adopted from: github.com/folbricht/routedns/pull/118
-// and: https://github.com/cloudflare/odoh-client/blob/4762219808/commands/request.go
+// and: github.com/cloudflare/odoh-client/blob/4762219808/commands/request.go
 
-// constants from: https://github.com/cloudflare/odoh-client-go/blob/8d45d054d3/commands/common.go#L4
+// constants from: github.com/cloudflare/odoh-client-go/blob/8d45d054d3/commands/common.go#L4
 const odohmimetype = "application/oblivious-dns-message"
 const odohconfigdns = "https://1.1.1.1/dns-query"
 const odohtargetscheme = "https"
 const odohconfigwkpath = "/.well-known/odohconfigs"
 const odohtargetpath = "/dns-query"
 const odohproxypath = "/proxy" // dns-query in latest spec
-const odohttlsec = 3600        // 1 hour
+const odohttlsec = 3600        // 1hr
 
 var errNoOdohCfgResponse = errors.New("no odoh config response")
 var errZeroOdohCfgs = errors.New("no odoh configs found")
@@ -57,6 +57,17 @@ func (d *transport) doOdoh(q []byte) (res []byte, elapsed time.Duration, qerr *d
 	res, _, elapsed, qerr = d.send(req)
 	log.V("odoh: send; proxy? %t, elapsed: %s; err? %v", viaproxy, elapsed, qerr)
 	if qerr != nil {
+		// datatracker.ietf.org/doc/rfc9230 section 4.3 and section 7
+		// 401 authorization error on hpke failure
+		// 400 bad request on padding or other failures
+		// these are "transport errors", in which case we should retry
+		// but for now, invalidate cached odoh config, if any
+		if qerr.Status() == dnsx.ClientError {
+			d.omu.Lock()
+			d.odohConfig = nil
+			d.odohConfigExpiry = time.Now()
+			d.omu.Unlock()
+		}
 		res = xdns.Servfail(q) // servfail on the original query
 		return
 	}
@@ -132,7 +143,7 @@ func (d *transport) fetchTargetConfig() (cfg *odoh.ObliviousDoHConfig, err error
 	var exp time.Time
 	cfg, exp, err = d.refresh()
 	d.omu.Lock()
-	d.odohConfig, d.odohConfigExpiry = cfg, exp
+	d.odohConfig, d.odohConfigExpiry = cfg, exp // may be nil, 0 on error
 	d.omu.Unlock()
 
 	log.V("odoh: fetch-target: using refereshed config for %s; expiring: %s", d.odohtargetname, exp)

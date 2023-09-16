@@ -24,6 +24,8 @@ const (
 	InternalError
 	// TransportError: Transport has issues
 	TransportError
+	// ClientError: Client has issues
+	ClientError
 )
 
 var noerr = errors.New("no underlying error")
@@ -76,6 +78,12 @@ func NewBadResponseQueryError(err error) *QueryError {
 	return newQueryError(BadResponse, err)
 }
 
+// with http, for 5xx errors
 func NewTransportQueryError(err error) *QueryError {
 	return newQueryError(TransportError, err)
+}
+
+// with http, for 4xx errors
+func NewClientQueryError(err error) *QueryError {
+	return newQueryError(ClientError, err)
 }
