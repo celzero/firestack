@@ -26,12 +26,11 @@ type socks5 struct {
 	*tx.Server
 	id     string
 	url    string
-	ctl    protect.Controller
-	hdl    *handler
+	hdl    *socks5handler
 	status int
 }
 
-type handler struct {
+type socks5handler struct {
 	*tx.DefaultHandle
 	px ipn.Proxy
 }
@@ -54,7 +53,7 @@ func newSocks5Server(id, x string, ctl protect.Controller) (Server, error) {
 	}
 	// unused in our case; usage: github.com/txthinking/brook/issues/988
 	remoteip := ""
-	hdl := &handler{
+	hdl := &socks5handler{
 		DefaultHandle: &tx.DefaultHandle{},
 	}
 	server, _ := tx.NewClassicServer(host, remoteip, usr, pwd, tcptimeoutsec, udptimeoutsec)
@@ -65,7 +64,6 @@ func newSocks5Server(id, x string, ctl protect.Controller) (Server, error) {
 		Server: server,
 		id:     id,
 		url:    host,
-		ctl:    ctl,
 		hdl:    hdl,
 		status: SOK,
 	}, nil
