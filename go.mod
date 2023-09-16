@@ -18,7 +18,7 @@ require (
 require (
 	github.com/cloudflare/circl v1.3.3
 	github.com/cloudflare/odoh-go v1.0.0
-	github.com/crazy-max/xgo v0.17.0
+	github.com/elazarl/goproxy v0.0.0-20230808193330-2592e75ae04a
 	github.com/mwitkow/go-http-dialer v0.0.0-20161116154839-378f744fb2b8
 	github.com/txthinking/socks5 v0.0.0-20220615051428-39268faee3e6
 	github.com/txthinking/x v0.0.0-20210326105829-476fab902fbe

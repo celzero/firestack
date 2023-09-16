@@ -19,9 +19,9 @@ import (
 const (
 	// type of services
 	SVCSOCKS5 = "svcsocks5" // SOCKS5
-	SVCHTTP1  = "svchttp1"  // HTTP/1.1
+	SVCHTTP   = "svchttp"   // HTTP
 	PXSOCKS5  = "pxsocks5"  // SOCKS5 with forwarding proxy
-	PXHTTP1   = "pxhttp1"   // HTTP/1.1 with forwarding proxy
+	PXHTTP    = "pxhttp"    // HTTP with forwarding proxy
 
 	// status of proxies
 	SOK = 0  // svc OK
@@ -102,8 +102,8 @@ func (s *services) AddServer(id, url string) (svc Server, err error) {
 	switch id {
 	case SVCSOCKS5, PXSOCKS5:
 		svc, err = newSocks5Server(id, url, s.ctl)
-	case SVCHTTP1, PXHTTP1:
-		fallthrough
+	case SVCHTTP, PXHTTP:
+		svc, err = newHttpServer(id, url, s.ctl)
 	default:
 		return nil, errors.ErrUnsupported
 	}
