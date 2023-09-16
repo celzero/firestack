@@ -156,7 +156,7 @@ func (t *dnssd) Query(_ string, q []byte, summary *dnsx.Summary) (r []byte, err 
 	summary.Blocklists = ""
 	t.est.Add(summary.Latency)
 
-	if qerr != nil {
+	if qerr != nil || ans == nil {
 		return
 	}
 
