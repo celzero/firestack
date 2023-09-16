@@ -35,7 +35,10 @@ type P2QuantileEstimator interface {
 }
 
 func NewP50Estimator() P2QuantileEstimator {
-	return NewP2QuantileEstimator(31, 0.5)
+	// calibrate: go.dev/play/p/Ry1i61XqzgB
+	// 31 worked best amid wild latency fluctuations
+	// using 11 for lower overhead; 5 is the default
+	return NewP2QuantileEstimator(11, 0.5)
 }
 
 func NewP2QuantileEstimator(samples int, probability float64) P2QuantileEstimator {
@@ -144,14 +147,25 @@ func (est *p2) Add(x float64) {
 }
 
 func (est *p2) parabolic(i int, d float64) float64 {
-	return est.q[i] +
-		(d/(float64(est.n[i+1])-float64(est.n[i-1])))*
-			(((float64(est.n[i])-float64(est.n[i-1])+d)*(est.q[i+1]-est.q[i])/(float64(est.n[i+1])-float64(est.n[i])))+
-				((float64(est.n[i+1])-float64(est.n[i])-d)*(est.q[i]-est.q[i-1])/(float64(est.n[i])-float64(est.n[i-1]))))
+	qi := est.q[i]
+	qij := est.q[i+1]
+	qih := est.q[i-1]
+	ni := float64(est.n[i])
+	nij := float64(est.n[i+1])
+	nih := float64(est.n[i-1])
+	return qi +
+		(d/(nij-nih))*
+			(((ni-nih+d)*(qij-qi)/(nij-ni))+
+				((nij-ni-d)*(qi-qih)/(ni-nih)))
 }
 
 func (est *p2) linear(i int, d int) float64 {
-	return est.q[i] + (float64(d)*(est.q[i+d]-est.q[i]))/(float64(est.n[i+d])-float64(est.n[i]))
+	df := float64(d)
+	qi := est.q[i]
+	qd := est.q[i+d]
+	ni := float64(est.n[i])
+	nd := float64(est.n[i+d])
+	return qi + (df*(qd-qi))/(nd-ni)
 }
 
 func (est *p2) Get() int64 {
