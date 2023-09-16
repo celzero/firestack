@@ -75,10 +75,11 @@ func (h *socks5) Hop(p ipn.Proxy) error {
 		return nil
 	}
 	if h.status == END {
-		log.D("svcsocks5: dialer: %s not running", h.ID())
+		log.D("svcsocks5: hop: %s not running", h.ID())
 		return errServerEnd
 	}
 	h.hdl.px = p
+	log.D("svchttp: hop: %s set to %s", h.ID(), p.GetAddr())
 	return nil
 }
 
@@ -106,6 +107,7 @@ func (h *socks5) Stop() error {
 func (h *socks5) Refresh() error {
 	h.status = SOK
 	err1 := h.Stop()
+	time.Sleep(3 * time.Second) // arbitrary wait
 	err2 := h.Start()
 
 	log.I("svcsocks5: %s refreshed; errs? %v; %v", h.ID(), err1, err2)
