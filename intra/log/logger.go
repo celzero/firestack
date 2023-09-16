@@ -51,6 +51,7 @@ const defaultLevel = INFO
 
 type Logger interface {
 	SetLevel(level LogLevel)
+	Printf(msg string, args ...any)
 	Verbosef(msg string, args ...any)
 	Debugf(msg string, args ...any)
 	Infof(msg string, args ...any)
@@ -92,6 +93,10 @@ func NewLogger(tag string) Logger {
 
 func (l *simpleLogger) SetLevel(level LogLevel) {
 	l.level = level
+}
+
+func (l *simpleLogger) Printf(msg string, args ...any) {
+	l.Debugf(msg, args...)
 }
 
 func (l *simpleLogger) Verbosef(msg string, args ...any) {
