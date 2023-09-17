@@ -150,7 +150,6 @@ func (h *httpx) Stop() error {
 }
 
 func (h *httpx) Refresh() error {
-	h.status = SOK
 	err1 := h.Stop()
 	time.Sleep(3 * time.Second) // arbitrary wait
 	err2 := h.Start()
