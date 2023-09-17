@@ -14,6 +14,8 @@ github.com/bazelbuild/rules_go v0.38.1/go.mod h1:TMHmtfpvyfsxaqfL9WnahCsXMWDMICT
 github.com/bwesterb/go-ristretto v1.2.3/go.mod h1:fUIoIZaG73pV5biE2Blr2xEzDoMj7NFEuV9ekS419A0=
 github.com/celzero/gotrie v0.0.0-20230504134204-aede3d946190 h1:2fbpG8+EzGf7ziEy7QzQQtU0EI14eXivrTLs4eUq7jQ=
 github.com/celzero/gotrie v0.0.0-20230504134204-aede3d946190/go.mod h1:FFmXMJnccyCwRVyXHfZQ9GHaen96aFx2AlbzXz55kbU=
+github.com/celzero/gotrie v0.0.0-20230917211527-72316250c788 h1:I2Y2IyJFK9Hvg78vmgsECbijifHKZE6Lz6Yf99HRmbc=
+github.com/celzero/gotrie v0.0.0-20230917211527-72316250c788/go.mod h1:FFmXMJnccyCwRVyXHfZQ9GHaen96aFx2AlbzXz55kbU=
 github.com/cenkalti/backoff v2.2.1+incompatible/go.mod h1:90ReRw6GdpyfrHakVjL/QHaoyV4aDUVVkXQJJJ3NXXM=
 github.com/cilium/ebpf v0.9.3/go.mod h1:w27N4UjpaQ9X/DGrSugxUG+H+NhgntDuPb5lCzxCn8A=
 github.com/cisco/go-hpke v0.0.0-20210215210317-01c430f1f302 h1:unAbn7dpE8eeUfWRaOPl1qTfffhIcCNuKQuECGNGWtk=
