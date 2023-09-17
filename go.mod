@@ -4,7 +4,7 @@ go 1.21
 
 require (
 	github.com/Jigsaw-Code/getsni v0.0.0-20190807203514-efe2dbf35d1f
-	github.com/celzero/gotrie v0.0.0-20230917211527-72316250c788
+	github.com/celzero/gotrie v0.0.0-20230917212449-b7676e32e214
 	github.com/jedisct1/go-clocksmith v0.0.0-20190707124905-73e087c7979c
 	github.com/jedisct1/go-dnsstamps v0.0.0-20200621175006-302248eecc94
 	github.com/jedisct1/xsecretbox v0.0.0-20190909160646-b731c21297f9

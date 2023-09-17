@@ -325,7 +325,7 @@ func NewBraveDNSLocal(t string, rank string,
 		return nil, errTrieArgs
 	}
 
-	err, trie := trie.Build(t, rank, conf, filetagjson)
+	ft, err := trie.Build(t, rank, conf, filetagjson)
 
 	if err != nil {
 		return nil, err
@@ -342,7 +342,7 @@ func NewBraveDNSLocal(t string, rank string,
 
 	// docs.pi-hole.net/ftldns/blockingmode/
 	b := &bravedns{
-		trie: &trie,
+		trie: ft,
 		// pos/index/value ->subgroup:vname
 		flags: flags,
 		// uname -> subgroup:vname
