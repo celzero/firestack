@@ -6,7 +6,18 @@ Firestack is built specifically for [Rethink DNS + Firewall](https://github.com/
 
 Firestack is a hard-fork of Google's [outline-go-tun2socks](https://github.com/Jigsaw-Code/outline-go-tun2socks) project.
 
+## DNS
+
+Firestack supports DNS over HTTPS, DNS over TLS, Oblivious DNS over HTTPS, DNSCrypt v3, and plain old DNS upstreams.
+
+## WireGuard
+
+Firestack runs WireGuard in userspace. When running *multiple* WireGuard tunnels at once, only TCP and UDP are forwarded to the tunnels; but otherwise
+ICMP and DNS are as well. ARP / IGMP / SCTP / RTP and other IP protocols are *not* forwarded to WireGuard tunnels.
+
 ## Releases
+
+[![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/celzero/firestack/badge)](https://securityscorecards.dev/viewer/?uri=github.com/celzero/firestack)
 
 Firestack is released as an Android Library (`aar`) and can be integrated into
 your [Android builds via jitpack.io](https://jitpack.io/#celzero/firestack) ([ref](https://github.com/celzero/rethink-app/commit/a6e2abca7)).
@@ -33,6 +44,8 @@ RethinkDNS ([GoVpnAdapter](https://github.com/celzero/rethink-app/blob/982849564
  [BraveVpnService](https://github.com/celzero/rethink-app/blob/982849564/app/src/main/java/com/celzero/bravedns/service/BraveVPNService.kt#L130-L137)) to see how to integrate with Firestack on Android.
 
 ## Build
+
+Firestack only supports Android. Instructions for other platforms are left as-is, but they may or may not work.
 
 ### Prerequisites
 
