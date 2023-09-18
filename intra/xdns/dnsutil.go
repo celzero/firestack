@@ -160,7 +160,7 @@ func RTtl(msg *dns.Msg) int {
 
 func GetInterestingRData(msg *dns.Msg) string {
 	if msg == nil {
-		return ""
+		return "--"
 	}
 	var ipcsv string
 	ip4s := IPHints(msg, dns.SVCB_IPV4HINT)
@@ -330,7 +330,11 @@ func GetInterestingRData(msg *dns.Msg) string {
 			continue
 		}
 	}
-	return strings.TrimSuffix(ipcsv, ",")
+	if len(ipcsv) > 0 {
+		return strings.TrimSuffix(ipcsv, ",")
+	} else {
+		return "--"
+	}
 }
 
 func Targets(msg *dns.Msg) []string {
