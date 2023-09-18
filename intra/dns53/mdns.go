@@ -232,8 +232,7 @@ type client struct {
 
 	oneshot bool
 
-	closed   atomic.Int32
-	closedCh chan struct{}
+	closed atomic.Int32
 }
 
 // newClient creates a new mdns unicast and multicast client
@@ -290,7 +289,6 @@ func (t *dnssd) newClient(oneshot bool) (*client, error) {
 		unicast6:   uconn6,
 		tracker:    make(map[string]*dnssdanswer),
 		msgCh:      make(chan *dns.Msg, 32),
-		closedCh:   make(chan struct{}),
 		oneshot:    oneshot,
 	}
 	return c, nil
@@ -303,10 +301,6 @@ func (c *client) Close() error {
 	}
 
 	log.I("mdns: closing client %v", *c)
-
-	c.closedCh <- struct{}{}
-	defer close(c.closedCh)
-	defer close(c.msgCh)
 
 	closeudp(c.unicast4)
 	closeudp(c.unicast6)
@@ -501,15 +495,16 @@ func (c *client) recv(conn *net.UDPConn) {
 			log.E("mdns: recv: unpack failed: %v", err)
 			continue
 		}
+
+		timesup := time.After(timeout)
 		// ideally, the writer would close the channel, but in this
 		// case there are potentially 4 writers (2 unicast, 2 multicast)
-		// so we rely on client.Close and the closedCh to signal
-		// the wrtier to stop; also see: go.dev/play/p/gzwnGAFlTDV
+		// also see: go.dev/play/p/gzwnGAFlTDV
 		select {
 		case c.msgCh <- msg:
 			log.V("mdns: recv: from(%v); sent; bytes(%d)", raddr, n)
-		case _, ok := <-c.closedCh:
-			log.V("mdns: recv: from(%v); closed; ch(%t); bytes(%d)", raddr, ok, n)
+		case <-timesup:
+			log.V("mdns: recv: from(%v); timeout ch; bytes(%d)", raddr, n)
 			return
 		}
 	}
