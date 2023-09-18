@@ -56,9 +56,9 @@ var (
 )
 
 type RdnsResolver interface {
-	SetRdnsLocal(BraveDNS) error
+	SetRdnsLocal(trie, rank, conf, filetag string) error
 	GetRdnsLocal() BraveDNS
-	SetRdnsRemote(BraveDNS) error
+	SetRdnsRemote(filetag string) error
 	GetRdnsRemote() BraveDNS
 	blockQ(Transport, Transport, *dns.Msg) (*dns.Msg, string, error)
 	blockA(Transport, Transport, *dns.Msg, *dns.Msg, string) (*dns.Msg, string)
@@ -82,11 +82,11 @@ type BraveDNS interface {
 
 	blockQuery(*dns.Msg) (string, error)
 	blockAnswer(*dns.Msg) (string, error)
+	trie() *trie.FrozenTrie
 }
 
 type bravedns struct {
 	BraveDNS
-	trie *trie.FrozenTrie
 	// value -> group:name
 	flags []string
 	// uname -> group:name
@@ -95,6 +95,11 @@ type bravedns struct {
 	stamp string
 
 	bitsSetTable256 []int
+}
+
+type bravednslocal struct {
+	*bravedns
+	ftrie *trie.FrozenTrie
 }
 
 type listinfo struct {
@@ -224,9 +229,17 @@ func (brave *bravedns) flagsToNames(flagstr []string) (v []string) {
 	return
 }
 
+func (brave *bravedns) trie() *trie.FrozenTrie      { return nil }
+func (brave *bravednslocal) trie() *trie.FrozenTrie { return brave.ftrie }
+
 func (brave *bravedns) blockQuery(msg *dns.Msg) (r string, err error) {
 	if len(msg.Question) != 1 {
 		err = errTooManyQuestions
+		return
+	}
+	ftrie := brave.trie()
+	if ftrie == nil {
+		err = errRdnsRemoteIncorrect
 		return
 	}
 	stamp, err := brave.GetStamp()
@@ -244,7 +257,7 @@ func (brave *bravedns) blockQuery(msg *dns.Msg) (r string, err error) {
 		err = fmt.Errorf("unsupported dns query type %v", qtype)
 		return
 	}
-	block, lists := brave.trie.DNlookup(qname, stamp)
+	block, lists := ftrie.DNlookup(qname, stamp)
 	// TODO: handle empty lists as err?
 	if block {
 		r = strings.Join(brave.keyToNames(lists), ",")
@@ -257,6 +270,11 @@ func (brave *bravedns) blockQuery(msg *dns.Msg) (r string, err error) {
 func (brave *bravedns) blockAnswer(msg *dns.Msg) (r string, err error) {
 	if len(msg.Answer) <= 1 {
 		err = errNotEnoughAnswers
+		return
+	}
+	ftrie := brave.trie()
+	if ftrie == nil {
+		err = errRdnsRemoteIncorrect
 		return
 	}
 	stamp, err := brave.GetStamp()
@@ -293,7 +311,7 @@ func (brave *bravedns) blockAnswer(msg *dns.Msg) (r string, err error) {
 
 		// ignore err when incoming name != ascii
 		target, _ = xdns.NormalizeQName(target)
-		block, lists := brave.trie.DNlookup(target, stamp)
+		block, lists := ftrie.DNlookup(target, stamp)
 		if block { // TODO: handle empty lists as err?
 			r = strings.Join(brave.keyToNames(lists), ",")
 			return
@@ -304,7 +322,7 @@ func (brave *bravedns) blockAnswer(msg *dns.Msg) (r string, err error) {
 	return
 }
 
-func NewBraveDNSRemote(filetagjson string) (BraveDNS, error) {
+func newBraveDNSRemote(filetagjson string) (*bravedns, error) {
 	flags, tags, err := load(filetagjson)
 	if err != nil {
 		return nil, err
@@ -318,8 +336,8 @@ func NewBraveDNSRemote(filetagjson string) (BraveDNS, error) {
 	return b, nil
 }
 
-func NewBraveDNSLocal(t string, rank string,
-	conf string, filetagjson string) (BraveDNS, error) {
+func newBraveDNSLocal(t string, rank string,
+	conf string, filetagjson string) (*bravednslocal, error) {
 
 	if len(t) <= 0 || len(rank) <= 0 || len(conf) <= 0 || len(filetagjson) <= 0 {
 		return nil, errTrieArgs
@@ -342,7 +360,6 @@ func NewBraveDNSLocal(t string, rank string,
 
 	// docs.pi-hole.net/ftldns/blockingmode/
 	b := &bravedns{
-		trie: ft,
 		// pos/index/value ->subgroup:vname
 		flags: flags,
 		// uname -> subgroup:vname
@@ -351,7 +368,12 @@ func NewBraveDNSLocal(t string, rank string,
 	}
 	b.initBitSetTable()
 
-	return b, nil
+	blocal := &bravednslocal{
+		bravedns: b,
+		ftrie:    ft,
+	}
+
+	return blocal, nil
 }
 
 func load(blacklistconfigjson string) ([]string, map[string]string, error) {

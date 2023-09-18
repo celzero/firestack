@@ -136,8 +136,8 @@ type resolver struct {
 	transports   map[string]Transport
 	pool         map[string]*oneTransport
 	localdomains RadixTree
-	rdnsl        BraveDNS
-	rdnsr        BraveDNS
+	rdnsl        *bravednslocal
+	rdnsr        *bravedns
 	natpt        ipn.DNS64
 	listener     Listener
 }
@@ -200,32 +200,37 @@ func (one *oneTransport) Exchange(q []byte) (r []byte, err error) {
 }
 
 // Implements RdnsResolver
-func (r *resolver) SetRdnsLocal(b BraveDNS) error {
-	if b == nil {
+func (r *resolver) SetRdnsLocal(t, rd, conf, filetag string) error {
+	if len(t) <= 0 || len(rd) <= 0 {
+		log.I("transport: unset rdns local")
 		r.rdnsl = nil
-	} else if b.OnDeviceBlock() {
-		r.rdnsl = b
-	} else {
-		return errRdnsLocalIncorrect
+		return nil
 	}
-	return nil
+	blocal, err := newBraveDNSLocal(t, rd, conf, filetag)
+	r.rdnsl = blocal
+	return err
 }
 
 // Implements RdnsResolver
-func (r *resolver) SetRdnsRemote(b BraveDNS) error {
-	if b == nil {
+func (r *resolver) SetRdnsRemote(filetag string) error {
+	if len(filetag) <= 0 {
+		log.I("transport: unset rdns remote")
 		r.rdnsr = nil
-	} else if !b.OnDeviceBlock() {
-		r.rdnsr = b
-	} else {
-		return errRdnsRemoteIncorrect
+		return nil
 	}
-	return nil
+	bremote, err := newBraveDNSRemote(filetag)
+	r.rdnsr = bremote
+	return err
 }
 
 // Implements RdnsResolver
 func (r *resolver) GetRdnsLocal() BraveDNS {
-	return r.rdnsl
+	blocal := r.rdnsl
+	if blocal != nil {
+		// a non-ftrie version for across the jni boundary
+		return blocal.bravedns
+	}
+	return nil
 }
 
 // Implements RdnsResolver
