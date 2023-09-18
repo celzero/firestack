@@ -136,8 +136,8 @@ type resolver struct {
 	transports   map[string]Transport
 	pool         map[string]*oneTransport
 	localdomains RadixTree
-	rdnsl        *bravednslocal
-	rdnsr        *bravedns
+	rdnsl        *rethinkdnslocal
+	rdnsr        *rethinkdns
 	natpt        ipn.DNS64
 	listener     Listener
 }
@@ -206,8 +206,8 @@ func (r *resolver) SetRdnsLocal(t, rd, conf, filetag string) error {
 		r.rdnsl = nil
 		return nil
 	}
-	blocal, err := newBraveDNSLocal(t, rd, conf, filetag)
-	r.rdnsl = blocal
+	rlocal, err := newRDNSLocal(t, rd, conf, filetag)
+	r.rdnsl = rlocal
 	return err
 }
 
@@ -218,23 +218,23 @@ func (r *resolver) SetRdnsRemote(filetag string) error {
 		r.rdnsr = nil
 		return nil
 	}
-	bremote, err := newBraveDNSRemote(filetag)
-	r.rdnsr = bremote
+	rremote, err := newRDNSRemote(filetag)
+	r.rdnsr = rremote
 	return err
 }
 
 // Implements RdnsResolver
-func (r *resolver) GetRdnsLocal() BraveDNS {
-	blocal := r.rdnsl
-	if blocal != nil {
+func (r *resolver) GetRdnsLocal() RDNS {
+	rlocal := r.rdnsl
+	if rlocal != nil {
 		// a non-ftrie version for across the jni boundary
-		return blocal.bravedns
+		return rlocal.rethinkdns
 	}
 	return nil
 }
 
 // Implements RdnsResolver
-func (r *resolver) GetRdnsRemote() BraveDNS {
+func (r *resolver) GetRdnsRemote() RDNS {
 	return r.rdnsr
 }
 

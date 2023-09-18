@@ -36,7 +36,7 @@ func (r *resolver) blockQ(t, t2 Transport, msg *dns.Msg) (ans *dns.Msg, blocklis
 	return
 }
 
-func (r *resolver) applyBlocklists(b BraveDNS, q *dns.Msg) (ans *dns.Msg, blocklists string, err error) {
+func (r *resolver) applyBlocklists(b RDNS, q *dns.Msg) (ans *dns.Msg, blocklists string, err error) {
 	blocklists, err = b.blockQuery(q)
 	if err != nil {
 		return

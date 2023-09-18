@@ -174,7 +174,7 @@ func (d *dns64) eval(id string, force64 bool, og []byte, r Resolver) []byte {
 	// treat as if v6 answer missing if enforcing 6to4
 	if err != nil || !hasq6 || (hasans6 && !force64) {
 		// nb: has-aaaa-answer should cover for cases where
-		// the response is blocked by dnsx.BraveDNS
+		// the response is blocked by dnsx.RDNS
 		log.D("dns64: no-op q(%s), err(%v), q6(%t), ans6(%t), force64(%t)", qname, err, hasq6, hasans6, force64)
 		return nil
 	}

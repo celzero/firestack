@@ -57,14 +57,14 @@ var (
 
 type RdnsResolver interface {
 	SetRdnsLocal(trie, rank, conf, filetag string) error
-	GetRdnsLocal() BraveDNS
+	GetRdnsLocal() RDNS
 	SetRdnsRemote(filetag string) error
-	GetRdnsRemote() BraveDNS
+	GetRdnsRemote() RDNS
 	blockQ(Transport, Transport, *dns.Msg) (*dns.Msg, string, error)
 	blockA(Transport, Transport, *dns.Msg, *dns.Msg, string) (*dns.Msg, string)
 }
 
-type BraveDNS interface {
+type RDNS interface {
 	OnDeviceBlock() bool // Mode
 
 	SetStamp(string) error
@@ -85,20 +85,18 @@ type BraveDNS interface {
 	trie() *trie.FrozenTrie
 }
 
-type bravedns struct {
-	BraveDNS
+type rethinkdns struct {
+	RDNS
 	// value -> group:name
 	flags []string
 	// uname -> group:name
 	tags  map[string]string
 	mode  int
 	stamp string
-
-	bitsSetTable256 []int
 }
 
-type bravednslocal struct {
-	*bravedns
+type rethinkdnslocal struct {
+	*rethinkdns
 	ftrie *trie.FrozenTrie
 }
 
@@ -107,40 +105,40 @@ type listinfo struct {
 	name string
 }
 
-func (brave *bravedns) OnDeviceBlock() bool {
-	return brave.mode == localBlock
+func (r *rethinkdns) OnDeviceBlock() bool {
+	return r.mode == localBlock
 }
 
-func (brave *bravedns) GetStamp() (s string, err error) {
-	if !brave.OnDeviceBlock() {
+func (r *rethinkdns) GetStamp() (s string, err error) {
+	if !r.OnDeviceBlock() {
 		err = errRemote
 		return
 	}
-	if len(brave.stamp) <= 0 {
+	if len(r.stamp) <= 0 {
 		s = ""
 	} else {
-		s = brave.stamp
+		s = r.stamp
 	}
 	return
 }
 
-func (brave *bravedns) SetStamp(stamp string) error {
-	if !brave.OnDeviceBlock() {
+func (r *rethinkdns) SetStamp(stamp string) error {
+	if !r.OnDeviceBlock() {
 		return errRemote
 	}
 	if len(stamp) <= 0 {
-		brave.stamp = ""
+		r.stamp = ""
 	} else {
-		if _, err := brave.StampToNames(stamp); err != nil { // validate
+		if _, err := r.StampToNames(stamp); err != nil { // validate
 			return err
 		}
-		brave.stamp = stamp
+		r.stamp = stamp
 	}
 	return nil
 }
 
 // Returns blockstamp given comma-separated blocklist ids
-func (brave *bravedns) FlagsToStamp(flagscsv string) (string, error) {
+func (r *rethinkdns) FlagsToStamp(flagscsv string) (string, error) {
 	fstr := strings.Split(flagscsv, ",")
 	if len(fstr) <= 0 {
 		return "", errMissingCsv
@@ -158,7 +156,7 @@ func (brave *bravedns) FlagsToStamp(flagscsv string) (string, error) {
 		flags[i] = uint16(val)
 	}
 
-	if stamp, err := brave.flagtostamp(flags); err != nil {
+	if stamp, err := r.flagtostamp(flags); err != nil {
 		return "", err
 	} else {
 		return encode(ver1, stamp)
@@ -166,8 +164,8 @@ func (brave *bravedns) FlagsToStamp(flagscsv string) (string, error) {
 }
 
 // Returns comma-separated blocklist ids, given a stamp of form version:base64
-func (brave *bravedns) StampToFlags(stamp string) (string, error) {
-	blocklists, err := brave.stampToBlocklist(stamp)
+func (r *rethinkdns) StampToFlags(stamp string) (string, error) {
+	blocklists, err := r.stampToBlocklist(stamp)
 	if err != nil {
 		return "", err
 	}
@@ -180,9 +178,8 @@ func (brave *bravedns) StampToFlags(stamp string) (string, error) {
 	return strings.Join(blocklistids[:], ","), nil
 }
 
-func (brave *bravedns) StampToNames(stamp string) (string, error) {
-
-	blocklists, err := brave.stampToBlocklist(stamp)
+func (r *rethinkdns) StampToNames(stamp string) (string, error) {
+	blocklists, err := r.stampToBlocklist(stamp)
 	if err != nil {
 		return "", err
 	}
@@ -195,22 +192,22 @@ func (brave *bravedns) StampToNames(stamp string) (string, error) {
 	return strings.Join(blocklistnames[:], ","), nil
 }
 
-func (brave *bravedns) stampToBlocklist(stamp string) ([]*listinfo, error) {
+func (r *rethinkdns) stampToBlocklist(stamp string) ([]*listinfo, error) {
 	if len(stamp) <= 0 {
 		return nil, errNoStamps
 	}
 
 	s := strings.Split(stamp, verseperator)
 	if len(s) > 1 {
-		return brave.decode(s[1], s[0])
+		return r.decode(s[1], s[0])
 	} else {
-		return brave.decode(stamp, "0")
+		return r.decode(stamp, "0")
 	}
 }
 
-func (brave *bravedns) keyToNames(list []string) (v []string) {
+func (r *rethinkdns) keyToNames(list []string) (v []string) {
 	for _, l := range list {
-		x := brave.tags[l]
+		x := r.tags[l]
 		if len(x) > 0 { // TODO: else err?
 			v = append(v, x)
 		}
@@ -218,10 +215,10 @@ func (brave *bravedns) keyToNames(list []string) (v []string) {
 	return
 }
 
-func (brave *bravedns) flagsToNames(flagstr []string) (v []string) {
+func (r *rethinkdns) flagsToNames(flagstr []string) (v []string) {
 	for _, entry := range flagstr {
-		if i, err := strconv.Atoi(entry); err == nil && i < len(brave.flags) {
-			v = append(v, brave.flags[i])
+		if i, err := strconv.Atoi(entry); err == nil && i < len(r.flags) {
+			v = append(v, r.flags[i])
 		} else {
 			continue
 		}
@@ -229,20 +226,20 @@ func (brave *bravedns) flagsToNames(flagstr []string) (v []string) {
 	return
 }
 
-func (brave *bravedns) trie() *trie.FrozenTrie      { return nil }
-func (brave *bravednslocal) trie() *trie.FrozenTrie { return brave.ftrie }
+func (r *rethinkdns) trie() *trie.FrozenTrie      { return nil }
+func (r *rethinkdnslocal) trie() *trie.FrozenTrie { return r.ftrie }
 
-func (brave *bravedns) blockQuery(msg *dns.Msg) (r string, err error) {
+func (r *rethinkdns) blockQuery(msg *dns.Msg) (blocklists string, err error) {
 	if len(msg.Question) != 1 {
 		err = errTooManyQuestions
 		return
 	}
-	ftrie := brave.trie()
+	ftrie := r.trie()
 	if ftrie == nil {
 		err = errRdnsRemoteIncorrect
 		return
 	}
-	stamp, err := brave.GetStamp()
+	stamp, err := r.GetStamp()
 	if len(stamp) <= 0 {
 		err = errNoStamps
 		return
@@ -260,24 +257,24 @@ func (brave *bravedns) blockQuery(msg *dns.Msg) (r string, err error) {
 	block, lists := ftrie.DNlookup(qname, stamp)
 	// TODO: handle empty lists as err?
 	if block {
-		r = strings.Join(brave.keyToNames(lists), ",")
+		blocklists = strings.Join(r.keyToNames(lists), ",")
 		return
 	}
 	err = fmt.Errorf("%v name not in blocklist %s [%t]", qname, stamp, block)
 	return
 }
 
-func (brave *bravedns) blockAnswer(msg *dns.Msg) (r string, err error) {
+func (r *rethinkdns) blockAnswer(msg *dns.Msg) (blocklists string, err error) {
 	if len(msg.Answer) <= 1 {
 		err = errNotEnoughAnswers
 		return
 	}
-	ftrie := brave.trie()
+	ftrie := r.trie()
 	if ftrie == nil {
 		err = errRdnsRemoteIncorrect
 		return
 	}
-	stamp, err := brave.GetStamp()
+	stamp, err := r.GetStamp()
 	if len(stamp) <= 0 {
 		err = errNoStamps
 		return
@@ -290,16 +287,16 @@ func (brave *bravedns) blockAnswer(msg *dns.Msg) (r string, err error) {
 	// adopted from: github.com/DNSCrypt/dnscrypt-proxy/blob/6e8628f79/dnscrypt-proxy/plugin_block_name.go#L178
 	for _, a := range msg.Answer {
 		var target string
-		switch r := a.(type) {
+		switch rr := a.(type) {
 		case *dns.CNAME:
-			target = r.Target
+			target = rr.Target
 		case *dns.SVCB:
-			if r.Priority == 0 {
-				target = r.Target
+			if rr.Priority == 0 {
+				target = rr.Target
 			}
 		case *dns.HTTPS:
-			if r.Priority == 0 {
-				target = r.Target
+			if rr.Priority == 0 {
+				target = rr.Target
 			}
 		default:
 			// no-op
@@ -313,7 +310,7 @@ func (brave *bravedns) blockAnswer(msg *dns.Msg) (r string, err error) {
 		target, _ = xdns.NormalizeQName(target)
 		block, lists := ftrie.DNlookup(target, stamp)
 		if block { // TODO: handle empty lists as err?
-			r = strings.Join(brave.keyToNames(lists), ",")
+			blocklists = strings.Join(r.keyToNames(lists), ",")
 			return
 		}
 	}
@@ -322,22 +319,21 @@ func (brave *bravedns) blockAnswer(msg *dns.Msg) (r string, err error) {
 	return
 }
 
-func newBraveDNSRemote(filetagjson string) (*bravedns, error) {
+func newRDNSRemote(filetagjson string) (*rethinkdns, error) {
 	flags, tags, err := load(filetagjson)
 	if err != nil {
 		return nil, err
 	}
-	b := &bravedns{
+	b := &rethinkdns{
 		flags: flags,
 		tags:  tags,
 		mode:  remoteBlock,
 	}
-	b.initBitSetTable()
 	return b, nil
 }
 
-func newBraveDNSLocal(t string, rank string,
-	conf string, filetagjson string) (*bravednslocal, error) {
+func newRDNSLocal(t string, rank string,
+	conf string, filetagjson string) (*rethinkdnslocal, error) {
 
 	if len(t) <= 0 || len(rank) <= 0 || len(conf) <= 0 || len(filetagjson) <= 0 {
 		return nil, errTrieArgs
@@ -359,18 +355,17 @@ func newBraveDNSLocal(t string, rank string,
 	runtime.GC()
 
 	// docs.pi-hole.net/ftldns/blockingmode/
-	b := &bravedns{
+	b := &rethinkdns{
 		// pos/index/value ->subgroup:vname
 		flags: flags,
 		// uname -> subgroup:vname
 		tags: tags,
 		mode: localBlock,
 	}
-	b.initBitSetTable()
 
-	blocal := &bravednslocal{
-		bravedns: b,
-		ftrie:    ft,
+	blocal := &rethinkdnslocal{
+		rethinkdns: b,
+		ftrie:      ft,
 	}
 
 	return blocal, nil
@@ -426,7 +421,7 @@ func load(blacklistconfigjson string) ([]string, map[string]string, error) {
 	return rflags, fdata, nil
 }
 
-func (brave *bravedns) decode(stamp string, ver string) (info []*listinfo, err error) {
+func (r *rethinkdns) decode(stamp string, ver string) (info []*listinfo, err error) {
 	haspad := strings.Contains(stamp, "=")
 	decoder := b64.RawStdEncoding
 	if haspad {
@@ -461,10 +456,10 @@ func (brave *bravedns) decode(stamp string, ver string) (info []*listinfo, err e
 		return
 	}
 
-	return brave.flagstoinfo(u16)
+	return r.flagstoinfo(u16)
 }
 
-func (brave *bravedns) flagstoinfo(flags []uint16) ([]*listinfo, error) {
+func (r *rethinkdns) flagstoinfo(flags []uint16) ([]*listinfo, error) {
 	// flags has to be an array of 16-bit integers.
 
 	// first index always contains the header
@@ -514,7 +509,7 @@ func (brave *bravedns) flagstoinfo(flags []uint16) ([]*listinfo, error) {
 			}
 			if (flag & mask) == mask {
 				pos := (index * 16) + j
-				if pos >= len(brave.flags) {
+				if pos >= len(r.flags) {
 					// github.com/celzero/firestack/issues/5
 					// sliently ignore scenarios where stamp encode many
 					// more blocklsts than what's currently loaded
@@ -522,7 +517,7 @@ func (brave *bravedns) flagstoinfo(flags []uint16) ([]*listinfo, error) {
 				}
 				// from the decimal value which is its
 				// blocklist-id, fetch its metadata
-				values = append(values, &listinfo{pos, brave.flags[pos]})
+				values = append(values, &listinfo{pos, r.flags[pos]})
 			}
 			mask = mask >> 1
 		}
@@ -530,13 +525,14 @@ func (brave *bravedns) flagstoinfo(flags []uint16) ([]*listinfo, error) {
 	return values, nil
 }
 
-func (brave *bravedns) flagtostamp(fl []uint16) ([]uint16, error) {
+func (r *rethinkdns) flagtostamp(fl []uint16) ([]uint16, error) {
 	const u1 = uint16(1)
 	res := []uint16{0}
 
+	w := trie.W
 	for _, val := range fl {
-		hindex := uint16(val / 16)
-		pos := uint16(val % 16)
+		hindex := uint16(val / uint16(w))
+		pos := uint16(val % uint16(w))
 
 		h := &res[0]
 		n := uint16(0)
@@ -549,9 +545,9 @@ func (brave *bravedns) flagtostamp(fl []uint16) ([]uint16, error) {
 			continue
 		}
 
-		hmask := *h & maskLsb[16-hindex]
+		hmask := *h & trie.MaskBottom[w][uint16(w)-hindex]
 		databit := *h >> (15 - hindex)
-		dataindex := brave.countSetBits(hmask) + 1
+		dataindex := r.countSetBits(hmask) + 1
 		datafound := (databit & 0x1) == 1
 		// if !datafound {
 		// log too verbose
@@ -623,35 +619,6 @@ func uinttobytes(u16 []uint16) []byte {
 }
 
 // return the count of set bits in n
-func (b *bravedns) countSetBits(n uint16) int {
-	return (b.bitsSetTable256[n&0xff] + b.bitsSetTable256[(n>>8)&0xff])
-}
-
-// initialise the lookup table
-func (b *bravedns) initBitSetTable() {
-	b.bitsSetTable256 = make([]int, 256)
-	b.bitsSetTable256[0] = 0
-	for i := 0; i < 256; i++ {
-		b.bitsSetTable256[i] = (i & 1) + b.bitsSetTable256[(i/2)]
-	}
-}
-
-var maskLsb = []uint16{
-	0xffff,
-	0xfffe,
-	0xfffc,
-	0xfff8,
-	0xfff0,
-	0xffe0,
-	0xffc0,
-	0xff80,
-	0xff00,
-	0xfe00,
-	0xfc00,
-	0xf800,
-	0xf000,
-	0xe000,
-	0xc000,
-	0x8000,
-	0x0000,
+func (r *rethinkdns) countSetBits(n uint16) int {
+	return (trie.BitsSetTable256[n&0xff] + trie.BitsSetTable256[(n>>8)&0xff])
 }
