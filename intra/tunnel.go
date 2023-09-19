@@ -79,11 +79,7 @@ type Tunnel interface {
 
 type rtunnel struct {
 	tunnel.Tunnel
-	tcp      TCPHandler
-	udp      UDPHandler
-	icmp     ICMPHandler
 	tunmode  *settings.TunMode
-	natpt    dnsx.NatPt
 	proxies  ipn.Proxies
 	resolver dnsx.Resolver
 	services rnet.Services
@@ -117,10 +113,6 @@ func NewTunnel(fd, mtu int, fakedns string, dns dnsx.Transport, tunmode *setting
 	t := &rtunnel{
 		Tunnel:   gt,
 		tunmode:  tunmode,
-		udp:      udph,
-		tcp:      tcph,
-		icmp:     icmph,
-		natpt:    natpt,
 		proxies:  proxies,
 		resolver: resolver,
 		services: services,
