@@ -4,18 +4,13 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
-package ipn
+package x64
 
 import (
 	"net"
 
 	"github.com/celzero/firestack/intra/log"
 )
-
-type NAT64 interface {
-	IsNat64(id string, ip []byte) bool
-	X64(id string, ip []byte) []byte
-}
 
 type nat64 struct {
 }

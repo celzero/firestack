@@ -74,7 +74,7 @@ type tcpHandler struct {
 	ctl       protect.Controller
 	tunMode   *settings.TunMode
 	listener  TCPListener
-	pt        ipn.NatPt
+	pt        dnsx.NatPt
 	prox      ipn.Proxies
 	fwtracker *core.ExpMap
 	status    int
@@ -120,7 +120,7 @@ type TCPListener interface {
 // Connections to `fakedns` are redirected to DOH.
 // All other traffic is forwarded using `dialer`.
 // `listener` is provided with a summary of each socket when it is closed.
-func NewTCPHandler(resolver dnsx.Resolver, pt ipn.NatPt, prox ipn.Proxies, ctl protect.Controller,
+func NewTCPHandler(resolver dnsx.Resolver, pt dnsx.NatPt, prox ipn.Proxies, ctl protect.Controller,
 	tunMode *settings.TunMode, listener TCPListener) TCPHandler {
 	d := protect.MakeNsDialer(ctl)
 	h := &tcpHandler{
@@ -444,13 +444,13 @@ func stall(m *core.ExpMap, k string) (secs uint32) {
 	return
 }
 
-func maybeUndoNat64(pt ipn.NAT64, ip net.IP) net.IP {
+func maybeUndoNat64(pt dnsx.NAT64, ip net.IP) net.IP {
 	ipx4 := ip
 	// TODO: need the actual ID of the transport that did nat64
-	if pt.IsNat64(ipn.Local464Resolver, ip) { // un-nat64, when dns64 done by local464-resolver
+	if pt.IsNat64(dnsx.Local464Resolver, ip) { // un-nat64, when dns64 done by local464-resolver
 		// TODO: check if the network this process binds to has ipv4 connectivity
-		ipx4 = pt.X64(ipn.Local464Resolver, ip) // ipx4 may be nil
-		if len(ipx4) < net.IPv4len {            // no nat?
+		ipx4 = pt.X64(dnsx.Local464Resolver, ip) // ipx4 may be nil
+		if len(ipx4) < net.IPv4len {             // no nat?
 			ipx4 = ip // reassign the actual ip
 			log.W("dns64: handle: No local nat64 to ip4(%v) for ip6(%v)", ipx4, ip)
 		} else {

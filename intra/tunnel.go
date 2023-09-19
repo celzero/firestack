@@ -35,6 +35,7 @@ import (
 	"github.com/celzero/firestack/intra/protect"
 	"github.com/celzero/firestack/intra/rnet"
 	"github.com/celzero/firestack/intra/settings"
+	"github.com/celzero/firestack/intra/x64"
 	"github.com/celzero/firestack/tunnel"
 )
 
@@ -82,7 +83,7 @@ type rtunnel struct {
 	udp      UDPHandler
 	icmp     ICMPHandler
 	tunmode  *settings.TunMode
-	natpt    ipn.NatPt
+	natpt    dnsx.NatPt
 	proxies  ipn.Proxies
 	resolver dnsx.Resolver
 	services rnet.Services
@@ -93,7 +94,7 @@ type rtunnel struct {
 func NewTunnel(fd, mtu int, fakedns string, dns dnsx.Transport, tunmode *settings.TunMode, bdg Bridge) (Tunnel, error) {
 	l3 := tunmode.L3()
 
-	natpt := ipn.NewNatPt(tunmode)
+	natpt := x64.NewNatPt(tunmode)
 	proxies := ipn.NewProxifier(bdg)
 	services := rnet.NewServices(proxies, bdg)
 

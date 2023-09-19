@@ -4,11 +4,12 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
-package ipn
+package x64
 
 import (
 	"net"
 
+	"github.com/celzero/firestack/intra/dnsx"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
 	"github.com/celzero/firestack/intra/settings"
@@ -38,13 +39,7 @@ type natPt struct {
 	ip6s    []net.IP
 }
 
-type NatPt interface {
-	protect.Protector
-	DNS64
-	NAT64
-}
-
-func NewNatPt(tunmode *settings.TunMode) NatPt {
+func NewNatPt(tunmode *settings.TunMode) dnsx.NatPt {
 	log.I("natpt: new; mode(%s)", tunmode)
 	return &natPt{
 		nat64:   newNat64(),
@@ -55,7 +50,7 @@ func NewNatPt(tunmode *settings.TunMode) NatPt {
 	}
 }
 
-func (pt *natPt) D64(id string, ans6 []byte, f Resolver) []byte {
+func (pt *natPt) D64(id string, ans6 []byte, f dnsx.Transport) []byte {
 	return pt.dns64.eval(id, pt.force64(), ans6, f)
 }
 
@@ -88,7 +83,7 @@ func (n *natPt) X64(id string, ip6 []byte) []byte {
 	return nil
 }
 
-func (h *natPt) AddResolver(id string, f Resolver) bool {
+func (h *natPt) AddResolver(id string, f dnsx.Transport) bool {
 	return h.dns64.AddResolver(id, f)
 }
 
@@ -96,8 +91,8 @@ func (n *natPt) ResetNat64Prefix(ip6prefix string) bool {
 	var err error
 	var ipnet *net.IPNet
 	if _, ipnet, err = net.ParseCIDR(ip6prefix); err == nil {
-		n.dns64.register(UnderlayResolver) // wipe the slate clean
-		if err = n.dns64.addNat64Prefix(UnderlayResolver, ipnet); err == nil {
+		n.dns64.register(dnsx.UnderlayResolver) // wipe the slate clean
+		if err = n.dns64.addNat64Prefix(dnsx.UnderlayResolver, ipnet); err == nil {
 			return true
 		}
 	}
@@ -108,9 +103,7 @@ func (n *natPt) ResetNat64Prefix(ip6prefix string) bool {
 // Returns the first matching local-interface net.IP for the network
 func (n *natPt) UIP(network string) []byte {
 	switch network {
-	case "tcp6":
-		fallthrough
-	case "udp6":
+	case "tcp6", "udp6":
 		if len(n.ip6s) > 0 {
 			return n.ip6s[0]
 		}

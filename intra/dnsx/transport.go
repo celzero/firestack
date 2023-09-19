@@ -134,25 +134,18 @@ type resolver struct {
 	udpaddrs     []*net.UDPAddr
 	systemdns    []Transport
 	transports   map[string]Transport
-	pool         map[string]*oneTransport
 	localdomains RadixTree
 	rdnsl        *rethinkdnslocal
 	rdnsr        *rethinkdns
-	natpt        ipn.DNS64
+	natpt        DNS64
 	listener     Listener
 }
 
-type oneTransport struct {
-	ipn.Resolver
-	t Transport
-}
-
-func NewResolver(fakeaddrs string, defaultdns Transport, tunmode *settings.TunMode, l Listener, pt ipn.DNS64) Resolver {
+func NewResolver(fakeaddrs string, defaultdns Transport, tunmode *settings.TunMode, l Listener, pt DNS64) Resolver {
 	r := &resolver{
 		listener:     l,
 		natpt:        pt,
 		transports:   make(map[string]Transport),
-		pool:         make(map[string]*oneTransport),
 		tunmode:      tunmode,
 		localdomains: newUndelegatedDomainsTrie(),
 		systemdns:    make([]Transport, 0),
@@ -173,30 +166,6 @@ func (r *resolver) Gateway() Gateway {
 		return gw.(Gateway)
 	}
 	return nil
-}
-
-// Implements ipn.Exchange
-func (one *oneTransport) Exchange(q []byte) (r []byte, err error) {
-	ans1, err1 := one.t.Query(NetTypeUDP, q, &Summary{})
-	if err1 != nil {
-		return ans1, err1
-	}
-	// for odoh/dot/doh, dns ans is never truncated
-	if one.t.Type() == DOH || one.t.Type() == ODOH || one.t.Type() == DOT {
-		return ans1, err1
-	}
-
-	msg1 := &dns.Msg{}
-	err1 = msg1.Unpack(ans1)
-	if err != nil {
-		return ans1, err1
-	}
-	if !msg1.Truncated {
-		return ans1, err1
-	}
-
-	// else if: returned response is truncated dns ans, retry over tcp
-	return one.t.Query(NetTypeTCP, q, &Summary{})
 }
 
 // Implements RdnsResolver
@@ -275,16 +244,10 @@ func (r *resolver) Add(t Transport) (ok bool) {
 		}
 
 		ct := NewCachingTransport(t, ttl10m)
-		onet := &oneTransport{t: t}
-		ctonet := &oneTransport{t: ct}
 
 		r.Lock()
-		// regular transports
-		r.transports[t.ID()] = t
-		r.pool[t.ID()] = onet
-		// cached transports
-		r.transports[ct.ID()] = ct
-		r.pool[ct.ID()] = ctonet
+		r.transports[t.ID()] = t   // regular
+		r.transports[ct.ID()] = ct // cached
 		r.Unlock()
 
 		log.I("dns: add transport %s@%s", t.ID(), t.GetAddr())
@@ -324,19 +287,18 @@ func (r *resolver) addSystemDnsIfAbsent(t Transport) (ok bool) {
 	_, ok = r.transports[t.ID()]
 	r.RUnlock()
 	if !ok {
-		// r.Add before r.registerSystemDns64, since r.pool must be populated
 		ok = r.Add(t)
-		go r.registerSystemDns64(r.pool[t.ID()])
+		go r.registerSystemDns64(t)
 	}
 	return ok
 }
 
-func (r *resolver) registerSystemDns64(ur ipn.Resolver) (ok bool) {
-	return r.natpt.AddResolver(ipn.UnderlayResolver, ur)
+func (r *resolver) registerSystemDns64(ur Transport) (ok bool) {
+	return r.natpt.AddResolver(UnderlayResolver, ur)
 }
 
 func (r *resolver) Get(id string) (Transport, error) {
-	if t, _ := r.determineTransports(id); t == nil {
+	if t := r.determineTransports(id); t == nil {
 		return nil, errNoSuchTransport
 	} else {
 		return t, nil
@@ -358,10 +320,6 @@ func (r *resolver) Remove(id string) (ok bool) {
 	if t, ok1 = r.transports[id]; ok1 {
 		delete(r.transports, id)
 		delete(r.transports, ctid)
-	}
-	if _, ok2 = r.pool[id]; ok2 {
-		delete(r.pool, id)
-		delete(r.pool, ctid)
 	}
 	r.Unlock()
 
@@ -421,15 +379,15 @@ func (r *resolver) Forward(q []byte) ([]byte, error) {
 	}
 	pref := r.listener.OnQuery(qname, qtyp, id)
 	id, sid, _ = preferencesFrom(pref)
-	t, onet := r.determineTransports(id)
-	if t == nil || onet == nil {
+	t := r.determineTransports(id)
+	if t == nil {
 		summary.Latency = time.Since(starttime).Seconds()
 		summary.Status = TransportError
 		return nil, errNoSuchTransport
 	}
 	var t2 Transport
 	if len(sid) > 0 {
-		t2, _ = r.determineTransports(sid)
+		t2 = r.determineTransports(sid)
 	}
 
 	if t.ID() == Alg { // also: Local?
@@ -496,17 +454,13 @@ func (r *resolver) Forward(q []byte) ([]byte, error) {
 		log.V("dns: udp: answer NOT blocked %s", qname)
 	}
 
-	if onet != nil {
-		if !answerblocked {
-			d64 := r.natpt.D64(t.ID(), res2, onet)
-			if len(d64) >= xdns.MinDNSPacketSize {
-				r.withDNS64SummaryIfNeeded(d64, summary)
-				return d64, nil
-			} // else: d64 is nil on no D64 or error
-		} // else: answer is blocked, no dns64
-	} else {
-		log.D("dns: dns64: missing onetransport for %s", t.ID())
-	}
+	if !answerblocked {
+		d64 := r.natpt.D64(t.ID(), res2, t)
+		if len(d64) >= xdns.MinDNSPacketSize {
+			r.withDNS64SummaryIfNeeded(d64, summary)
+			return d64, nil
+		} // else: d64 is nil on no D64 or error
+	} // else: answer is blocked, no dns64
 
 	return ans1.Pack()
 }
@@ -539,34 +493,32 @@ func (r *resolver) withDNS64SummaryIfNeeded(d64 []byte, s *Summary) {
 
 }
 
-func (r *resolver) determineTransports(id string) (Transport, *oneTransport) {
+func (r *resolver) determineTransports(id string) Transport {
 	r.RLock()
 	defer r.RUnlock()
 
 	if id == Local { // mdns never cached
-		return r.transports[Local], r.pool[Local]
+		return r.transports[Local]
 	}
 
 	if id == Alg {
 		// if no firewall is setup, alg isn't possible
 		if r.tunmode.BlockMode == settings.BlockModeNone {
-			return r.transports[CT+Default], r.pool[CT+Default]
+			return r.transports[CT+Default]
 		}
-		return r.transports[Alg], r.pool[CT+Preferred]
+		return r.transports[Alg]
 	}
 
 	if t, ok := r.transports[id]; ok {
-		if onet, ok := r.pool[id]; ok {
-			return t, onet
-		}
+		return t
 	}
 
 	// if none of the reserved transports are available, use the default
 	if isReserved(id) {
-		return r.transports[CT+Default], r.pool[CT+Default]
+		return r.transports[CT+Default]
 	}
 
-	return nil, nil
+	return nil
 }
 
 // Perform a query using the transport, and send the response to the writer.
@@ -603,15 +555,15 @@ func (r *resolver) forwardQuery(q []byte, c io.Writer) error {
 	pref := r.listener.OnQuery(qname, qtyp, id)
 	id, sid, _ = preferencesFrom(pref)
 	// retrieve transport
-	t, onet := r.determineTransports(id)
-	if t == nil || onet == nil {
+	t := r.determineTransports(id)
+	if t == nil {
 		summary.Latency = time.Since(starttime).Seconds()
 		summary.Status = TransportError
 		return errNoSuchTransport
 	}
 	var t2 Transport = nil
 	if len(sid) > 0 {
-		t2, _ = r.determineTransports(sid)
+		t2 = r.determineTransports(sid)
 	}
 	if t.ID() == Alg { // also: Local?
 		gw = nil // transport implicitly implements Gateway
@@ -690,18 +642,13 @@ func (r *resolver) forwardQuery(q []byte, c io.Writer) error {
 	}
 
 	// override original resp with dns64 if needed
-	if onet != nil {
-		if !answerblocked {
-			d64 := r.natpt.D64(t.ID(), res2, onet)
-			if len(d64) > xdns.MinDNSPacketSize {
-				r.withDNS64SummaryIfNeeded(d64, summary)
-				resp = d64
-			} // else: d64 is nil on no D64 or error
-		} // else answer is blocked, no dns64
-	} else {
-		log.D("dns: dns64: missing onetransport for %s", t.ID())
-	}
-
+	if !answerblocked {
+		d64 := r.natpt.D64(t.ID(), res2, t)
+		if len(d64) > xdns.MinDNSPacketSize {
+			r.withDNS64SummaryIfNeeded(d64, summary)
+			resp = d64
+		} // else: d64 is nil on no D64 or error
+	} // else answer is blocked, no dns64
 	rlen := len(resp)
 	n, err := writeto(c, resp, rlen)
 	if err != nil {

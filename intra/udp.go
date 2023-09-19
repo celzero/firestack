@@ -130,7 +130,7 @@ type udpHandler struct {
 	ctl       protect.Controller
 	tunMode   *settings.TunMode
 	listener  UDPListener
-	pt        ipn.NatPt
+	pt        dnsx.NatPt
 	prox      ipn.Proxies
 	fwtracker *core.ExpMap
 	status    int
@@ -141,7 +141,7 @@ type udpHandler struct {
 // `timeout` controls the effective NAT mapping lifetime.
 // `config` is used to bind new external UDP ports.
 // `listener` receives a summary about each UDP binding when it expires.
-func NewUDPHandler(resolver dnsx.Resolver, pt ipn.NatPt, prox ipn.Proxies, ctl protect.Controller,
+func NewUDPHandler(resolver dnsx.Resolver, pt dnsx.NatPt, prox ipn.Proxies, ctl protect.Controller,
 	tunMode *settings.TunMode, listener UDPListener) UDPHandler {
 	// RFC 4787 REQ-5 requires a timeout no shorter than 5 minutes; but most
 	// routers do not keep udp mappings for that long (usually just for 30s)

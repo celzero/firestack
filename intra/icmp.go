@@ -46,7 +46,7 @@ type icmpHandler struct {
 	timeout  time.Duration
 	ctl      protect.Controller
 	tunMode  *settings.TunMode
-	pt       ipn.NatPt
+	pt       dnsx.NatPt
 	prox     ipn.Proxies
 	listener ICMPListener
 	status   int
@@ -60,7 +60,7 @@ type ICMPSummary struct {
 	start    time.Time
 }
 
-func NewICMPHandler(resolver dnsx.Resolver, pt ipn.NatPt, prox ipn.Proxies, ctl protect.Controller,
+func NewICMPHandler(resolver dnsx.Resolver, pt dnsx.NatPt, prox ipn.Proxies, ctl protect.Controller,
 	tunMode *settings.TunMode, listener ICMPListener) ICMPHandler {
 	h := &icmpHandler{
 		timeout:  icmptimeout,

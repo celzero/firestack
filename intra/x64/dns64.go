@@ -13,7 +13,7 @@
 //    Frank Denis <j at pureftpd dot org>
 
 // adopted from: github.com/DNSCrypt/dnscrypt-proxy/blob/df3fb0c9/dnscrypt-proxy/plugin_dns64.go
-package ipn
+package x64
 
 import (
 	"context"
@@ -21,16 +21,11 @@ import (
 	"net"
 	"sync"
 
+	"github.com/celzero/firestack/intra/dnsx"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/xdns"
 	"github.com/miekg/dns"
 )
-
-// ref: datatracker.ietf.org/doc/html/rfc8880
-const Rfc7050WKN = "ipv4only.arpa."
-const UnderlayResolver = "__underlay"
-const OverlayResolver = "__overlay"
-const Local464Resolver = "__local464"
 
 var (
 	rfc7050WKA1 = net.IPv4(192, 0, 0, 170)
@@ -55,16 +50,6 @@ var (
 
 	arpa64 = question()
 )
-
-type Resolver interface {
-	Exchange([]byte) ([]byte, error)
-}
-
-type DNS64 interface {
-	AddResolver(id string, f Resolver) bool
-	ResetNat64Prefix(ip6prefix string) bool
-	D64(id string, ans6 []byte, f Resolver) []byte
-}
 
 type dns64 struct {
 	sync.RWMutex
@@ -93,7 +78,7 @@ func (d *dns64) init() {
 
 func question() (b []byte) {
 	msg := new(dns.Msg)
-	msg.SetQuestion(Rfc7050WKN, dns.TypeAAAA)
+	msg.SetQuestion(dnsx.Rfc7050WKN, dns.TypeAAAA)
 	b, _ = msg.Pack()
 	return
 }
@@ -108,20 +93,34 @@ func (d *dns64) register(id string) {
 	d.uniqIP64[id] = make(map[string]struct{})
 }
 
-func (d *dns64) AddResolver(id string, r Resolver) bool {
+func (d *dns64) AddResolver(id string, r dnsx.Transport) bool {
 
 	d.register(id)
 
-	b, err := r.Exchange(arpa64)
+	discarded := new(dnsx.Summary)
+	b, err := r.Query(dnsx.NetTypeUDP, arpa64, discarded)
 	if err != nil {
-		log.W("dns64: could not query resolver %s", id)
+		log.W("dns64: udp: could not query resolver %s", id)
 		return false
 	}
 
 	ans := &dns.Msg{}
 	err = ans.Unpack(b)
 	if err != nil {
-		log.W("dns64: invalid response from resolver %s", id)
+		return false
+	} else if ans.Truncated { // should never be the case for DOH, ODOH, DOT
+		// else if: returned response is truncated dns ans, retry over tcp
+		b, err = r.Query(dnsx.NetTypeTCP, arpa64, discarded)
+		if err != nil {
+			log.W("dns64: tcp: could not query resolver %s", id)
+			return false
+		}
+		ans = &dns.Msg{}
+		err = ans.Unpack(b)
+		if err != nil {
+			log.W("dns64: tcp: invalid response from resolver %s", id)
+			return false
+		}
 	}
 
 	ips := make([]net.IP, 0)
@@ -147,7 +146,7 @@ func (d *dns64) RemoveResolver(id string) {
 
 // TODO: handle svcb/https ipv4hint/ipv6hint
 // datatracker.ietf.org/doc/html/draft-ietf-dnsop-svcb-https-10#section-7.4
-func (d *dns64) eval(id string, force64 bool, og []byte, r Resolver) []byte {
+func (d *dns64) eval(id string, force64 bool, og []byte, r dnsx.Transport) []byte {
 	d.RLock()
 	ip64, ok := d.ip64[id]
 	d.RUnlock()
@@ -157,9 +156,9 @@ func (d *dns64) eval(id string, force64 bool, og []byte, r Resolver) []byte {
 	}
 
 	if len(ip64) <= 0 {
-		if ip64 = d.ip64[UnderlayResolver]; len(ip64) <= 0 {
-			if ip64 = d.ip64[OverlayResolver]; len(ip64) <= 0 {
-				ip64 = d.ip64[Local464Resolver]
+		if ip64 = d.ip64[dnsx.UnderlayResolver]; len(ip64) <= 0 {
+			if ip64 = d.ip64[dnsx.OverlayResolver]; len(ip64) <= 0 {
+				ip64 = d.ip64[dnsx.Local464Resolver]
 			}
 		}
 		log.D("dns64: attempt underlay/local464 resolver ip64 w len(%d)", len(ip64))
@@ -218,29 +217,38 @@ func (d *dns64) eval(id string, force64 bool, og []byte, r Resolver) []byte {
 	}
 }
 
-func (d *dns64) query64(msg6 *dns.Msg, r Resolver) (*dns.Msg, error) {
+func (d *dns64) query64(msg6 *dns.Msg, r dnsx.Transport) (*dns.Msg, error) {
 	msg4 := xdns.Request4FromResponse6(msg6)
 	q4, err := msg4.Pack()
 	if err != nil {
 		return nil, err
 	}
 
-	a4, err := r.Exchange(q4)
-	log.D("dns64: upstream q(%s) / a(%d) / e(%v) / e-not-nil(%t)", xdns.QName(msg4), len(a4), err, err != nil)
+	discarded := new(dnsx.Summary)
+	a4, err := r.Query(dnsx.NetTypeUDP, q4, discarded)
+	log.D("dns64: udp: upstream q(%s) / a(%d) / e(%v) / e-not-nil(%t)", xdns.QName(msg4), len(a4), err, err != nil)
 	if len(a4) <= 0 {
 		return nil, err
 	}
 
 	res := &dns.Msg{}
-	if err := res.Unpack(a4); err != nil {
+	if err = res.Unpack(a4); err != nil {
 		return nil, err
+	} else if res.Truncated { // should never be the case for DOH, ODOH, DOT
+		// else if: returned response is truncated dns ans, retry over tcp
+		a4, err = r.Query(dnsx.NetTypeTCP, q4, discarded)
+		log.D("dns64: tcp: upstream q(%s) / a(%d) / e(%v) / e-not-nil(%t)", xdns.QName(msg4), len(a4), err, err != nil)
+		if len(a4) <= 0 {
+			return nil, err
+		}
+		res = &dns.Msg{}
+		err = res.Unpack(a4)
 	}
-
-	return res, nil
+	return res, err
 }
 
 func (d *dns64) ofOverlay() error {
-	ips, err := net.DefaultResolver.LookupIP(context.Background(), "ip6", Rfc7050WKN)
+	ips, err := net.DefaultResolver.LookupIP(context.Background(), "ip6", dnsx.Rfc7050WKN)
 	log.I("dns64: ipv4only.arpa w underlying network resolver")
 
 	if err != nil {
@@ -251,18 +259,18 @@ func (d *dns64) ofOverlay() error {
 		return errNotFound
 	}
 
-	d.register(OverlayResolver)
-	return d.add(OverlayResolver, ips)
+	d.register(dnsx.OverlayResolver)
+	return d.add(dnsx.OverlayResolver, ips)
 }
 
 func (d *dns64) ofLocal464() error {
-	d.register(Local464Resolver)
+	d.register(dnsx.Local464Resolver)
 	// send a copy of localip64 as d.add mutates its entries in-place
 	// this addr64, hopefully, isn't used by any other dns world-wide
 	localip64 := []net.IP{
 		net.ParseIP("64:ff9b:1:fffe::192.0.0.170"),
 	}
-	return d.add(Local464Resolver, localip64)
+	return d.add(dnsx.Local464Resolver, localip64)
 }
 
 func (d *dns64) add(serverid string, nat64 []net.IP) error {
