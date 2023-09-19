@@ -81,11 +81,9 @@ type RDNS interface {
 
 	blockQuery(*dns.Msg) (string, error)
 	blockAnswer(*dns.Msg) (string, error)
-	trie() *trie.FrozenTrie
 }
 
 type rethinkdns struct {
-	RDNS
 	// value -> group:name
 	flags []string
 	// uname -> group:name
@@ -98,6 +96,9 @@ type rethinkdnslocal struct {
 	*rethinkdns
 	ftrie *trie.FrozenTrie
 }
+
+var _ RDNS = (*rethinkdnslocal)(nil)
+var _ RDNS = (*rethinkdns)(nil)
 
 type listinfo struct {
 	pos  int
