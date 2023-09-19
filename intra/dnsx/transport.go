@@ -56,14 +56,12 @@ const (
 )
 
 var (
-	ErrNoDcProxy           = errors.New("no dnscrypt-proxy")
-	errNoSuchTransport     = errors.New("missing transport")
-	errBlockFreeTransport  = errors.New("block free transport")
-	errNoRdns              = errors.New("no rdns")
-	errRdnsLocalIncorrect  = errors.New("rdns local is not remote")
-	errRdnsRemoteIncorrect = errors.New("rdns remote is not local")
-	errTransportNotMult    = errors.New("not a multi-transport")
-	errMissingQueryName    = errors.New("no query name")
+	ErrNoDcProxy          = errors.New("no dnscrypt-proxy")
+	errNoSuchTransport    = errors.New("missing transport")
+	errBlockFreeTransport = errors.New("block free transport")
+	errNoRdns             = errors.New("no rdns")
+	errTransportNotMult   = errors.New("not a multi-transport")
+	errMissingQueryName   = errors.New("no query name")
 )
 
 // Transport represents a DNS query transport.  This interface is exported by gobind,

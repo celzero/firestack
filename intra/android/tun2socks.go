@@ -34,9 +34,10 @@ import (
 )
 
 func init() {
-	// Conserve memory by increasing garbage collection frequency.
+	// increase garbage collection frequency: archive.is/WQBf7
 	debug.SetGCPercent(10)
-	log.SetLevel(log.WARN)
+	debug.SetMemoryLimit(1024 * 1024 * 1024 * 2) // 2GB
+	log.SetLevel(log.INFO)
 }
 
 // Connect reads packets from a TUN device.

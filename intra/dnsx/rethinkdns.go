@@ -49,7 +49,6 @@ var (
 	errNoStamps         = errors.New("no stamp set")
 	errMissingCsv       = errors.New("zero comma-separated flags")
 	errFlagsMismatch    = errors.New("flagcsv does not match loaded flags")
-	errTooManyQuestions = errors.New("one question too many")
 	errNotEnoughAnswers = errors.New("req at least two answers")
 	errTrieArgs         = errors.New("missing data, unable to build blocklist")
 	errNoBlocklistMatch = errors.New("no blocklist applies")
@@ -226,19 +225,15 @@ func (r *rethinkdns) flagsToNames(flagstr []string) (v []string) {
 	return
 }
 
-func (r *rethinkdns) trie() *trie.FrozenTrie      { return nil }
-func (r *rethinkdnslocal) trie() *trie.FrozenTrie { return r.ftrie }
+func (r *rethinkdns) blockQuery(*dns.Msg) (b string, err error)  { err = errRemote; return }
+func (r *rethinkdns) blockAnswer(*dns.Msg) (b string, err error) { err = errRemote; return }
 
-func (r *rethinkdns) blockQuery(msg *dns.Msg) (blocklists string, err error) {
-	if len(msg.Question) != 1 {
-		err = errTooManyQuestions
+func (r *rethinkdnslocal) blockQuery(msg *dns.Msg) (blocklists string, err error) {
+	if len(msg.Question) <= 0 {
+		err = errMissingQueryName
 		return
 	}
-	ftrie := r.trie()
-	if ftrie == nil {
-		err = errRdnsRemoteIncorrect
-		return
-	}
+
 	stamp, err := r.GetStamp()
 	if len(stamp) <= 0 {
 		err = errNoStamps
@@ -247,31 +242,28 @@ func (r *rethinkdns) blockQuery(msg *dns.Msg) (blocklists string, err error) {
 	if err != nil {
 		return
 	}
-	// err when incoming name != ascii, ignore
-	qname, _ := xdns.NormalizeQName(msg.Question[0].Name)
-	qtype := msg.Question[0].Qtype
-	if !(xdns.IsAAAAQType(qtype) || xdns.IsAQType(qtype) || xdns.IsSVCBQType(qtype) || xdns.IsHTTPSQType(qtype)) {
-		err = fmt.Errorf("unsupported dns query type %v", qtype)
-		return
+	for _, quest := range msg.Question {
+		// err when incoming name != ascii, ignore
+		qname, _ := xdns.NormalizeQName(quest.Name)
+		qtype := msg.Question[0].Qtype
+		if !(xdns.IsAAAAQType(qtype) || xdns.IsAQType(qtype) || xdns.IsSVCBQType(qtype) || xdns.IsHTTPSQType(qtype)) {
+			err = fmt.Errorf("unsupported dns query type %v", qtype)
+			return
+		}
+		block, lists := r.ftrie.DNlookup(qname, stamp)
+		// TODO: handle empty lists as err?
+		if block {
+			blocklists = strings.Join(r.keyToNames(lists), ",")
+			return
+		}
 	}
-	block, lists := ftrie.DNlookup(qname, stamp)
-	// TODO: handle empty lists as err?
-	if block {
-		blocklists = strings.Join(r.keyToNames(lists), ",")
-		return
-	}
-	err = fmt.Errorf("%v name not in blocklist %s [%t]", qname, stamp, block)
+	err = errNoBlocklistMatch
 	return
 }
 
-func (r *rethinkdns) blockAnswer(msg *dns.Msg) (blocklists string, err error) {
+func (r *rethinkdnslocal) blockAnswer(msg *dns.Msg) (blocklists string, err error) {
 	if len(msg.Answer) <= 1 {
 		err = errNotEnoughAnswers
-		return
-	}
-	ftrie := r.trie()
-	if ftrie == nil {
-		err = errRdnsRemoteIncorrect
 		return
 	}
 	stamp, err := r.GetStamp()
@@ -308,7 +300,7 @@ func (r *rethinkdns) blockAnswer(msg *dns.Msg) (blocklists string, err error) {
 
 		// ignore err when incoming name != ascii
 		target, _ = xdns.NormalizeQName(target)
-		block, lists := ftrie.DNlookup(target, stamp)
+		block, lists := r.ftrie.DNlookup(target, stamp)
 		if block { // TODO: handle empty lists as err?
 			blocklists = strings.Join(r.keyToNames(lists), ",")
 			return
