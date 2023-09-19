@@ -83,7 +83,7 @@ func (n *natPt) X64(id string, ip6 []byte) []byte {
 	return nil
 }
 
-func (h *natPt) AddResolver(id string, f dnsx.Transport) bool {
+func (h *natPt) Add64(id string, f dnsx.Transport) bool {
 	return h.dns64.AddResolver(id, f)
 }
 
