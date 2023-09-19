@@ -103,9 +103,9 @@ func NewTunnel(fd, mtu int, fakedns string, dns dnsx.Transport, tunmode *setting
 	resolver.Add(newDNSCryptTransport())
 	resolver.Add(NewMDNSTransport(l3))
 
-	tcph := NewTCPHandler(resolver, natpt, proxies, bdg, tunmode, bdg)
-	udph := NewUDPHandler(resolver, natpt, proxies, bdg, tunmode, bdg)
-	icmph := NewICMPHandler(resolver, natpt, proxies, bdg, tunmode, bdg)
+	tcph := NewTCPHandler(resolver, proxies, bdg, tunmode, bdg)
+	udph := NewUDPHandler(resolver, proxies, bdg, tunmode, bdg)
+	icmph := NewICMPHandler(resolver, proxies, bdg, tunmode, bdg)
 
 	gt, err := tunnel.NewGTunnel(fd, mtu, tunmode.IpMode, tcph, udph, icmph)
 

@@ -46,7 +46,6 @@ type icmpHandler struct {
 	timeout  time.Duration
 	ctl      protect.Controller
 	tunMode  *settings.TunMode
-	pt       dnsx.NatPt
 	prox     ipn.Proxies
 	listener ICMPListener
 	status   int
@@ -60,14 +59,13 @@ type ICMPSummary struct {
 	start    time.Time
 }
 
-func NewICMPHandler(resolver dnsx.Resolver, pt dnsx.NatPt, prox ipn.Proxies, ctl protect.Controller,
+func NewICMPHandler(resolver dnsx.Resolver, prox ipn.Proxies, ctl protect.Controller,
 	tunMode *settings.TunMode, listener ICMPListener) ICMPHandler {
 	h := &icmpHandler{
 		timeout:  icmptimeout,
 		resolver: resolver,
 		ctl:      ctl,
 		tunMode:  tunMode,
-		pt:       pt,
 		prox:     prox,
 		listener: listener,
 		status:   ICMPOK,
@@ -139,7 +137,7 @@ func (h *icmpHandler) Ping(source *net.UDPAddr, target *net.UDPAddr, msg []byte,
 	var pc ipn.Proxy
 	var err error
 
-	ipx4 := maybeUndoNat64(h.pt, target.IP)
+	ipx4 := maybeUndoNat64(h.resolver, target.IP)
 	realips, domains, blocklists := undoAlg(h.resolver, ipx4)
 
 	// flow is alg/nat-aware, do not change target or any addrs

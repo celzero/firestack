@@ -18,7 +18,7 @@ type NatPt interface {
 }
 
 type DNS64 interface {
-	AddResolver(id string, f Transport) bool
+	Add64(id string, f Transport) bool
 	ResetNat64Prefix(ip6prefix string) bool
 	D64(id string, ans6 []byte, f Transport) []byte
 }

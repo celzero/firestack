@@ -85,12 +85,6 @@ type Transport interface {
 	Status() int
 }
 
-// TransportMult is a hybrid: transport and a multi-transport.
-type TransportMult interface {
-	Mult
-	Transport
-}
-
 type Mult interface {
 	// Add adds a transport to this multi-transport.
 	Add(t Transport) bool
@@ -108,9 +102,16 @@ type Mult interface {
 	LiveTransports() string
 }
 
+// TransportMult is a hybrid: transport and a multi-transport.
+type TransportMult interface {
+	Mult
+	Transport
+}
+
 type Resolver interface {
 	Mult
 	RdnsResolver
+	NatPt
 
 	AddSystemDNS(t Transport) bool
 	RemoveSystemDNS() int
@@ -128,7 +129,7 @@ type Resolver interface {
 
 type resolver struct {
 	sync.RWMutex
-	Resolver
+	NatPt
 	tunmode      *settings.TunMode
 	tcpaddrs     []*net.TCPAddr
 	udpaddrs     []*net.UDPAddr
@@ -137,14 +138,15 @@ type resolver struct {
 	localdomains RadixTree
 	rdnsl        *rethinkdnslocal
 	rdnsr        *rethinkdns
-	natpt        DNS64
 	listener     Listener
 }
 
-func NewResolver(fakeaddrs string, defaultdns Transport, tunmode *settings.TunMode, l Listener, pt DNS64) Resolver {
+var _ Resolver = (*resolver)(nil)
+
+func NewResolver(fakeaddrs string, defaultdns Transport, tunmode *settings.TunMode, l Listener, pt NatPt) Resolver {
 	r := &resolver{
+		NatPt:        pt,
 		listener:     l,
-		natpt:        pt,
 		transports:   make(map[string]Transport),
 		tunmode:      tunmode,
 		localdomains: newUndelegatedDomainsTrie(),
@@ -294,7 +296,7 @@ func (r *resolver) addSystemDnsIfAbsent(t Transport) (ok bool) {
 }
 
 func (r *resolver) registerSystemDns64(ur Transport) (ok bool) {
-	return r.natpt.AddResolver(UnderlayResolver, ur)
+	return r.Add64(UnderlayResolver, ur)
 }
 
 func (r *resolver) Get(id string) (Transport, error) {
@@ -455,7 +457,7 @@ func (r *resolver) Forward(q []byte) ([]byte, error) {
 	}
 
 	if !answerblocked {
-		d64 := r.natpt.D64(t.ID(), res2, t)
+		d64 := r.D64(t.ID(), res2, t)
 		if len(d64) >= xdns.MinDNSPacketSize {
 			r.withDNS64SummaryIfNeeded(d64, summary)
 			return d64, nil
@@ -643,7 +645,7 @@ func (r *resolver) forwardQuery(q []byte, c io.Writer) error {
 
 	// override original resp with dns64 if needed
 	if !answerblocked {
-		d64 := r.natpt.D64(t.ID(), res2, t)
+		d64 := r.D64(t.ID(), res2, t)
 		if len(d64) > xdns.MinDNSPacketSize {
 			r.withDNS64SummaryIfNeeded(d64, summary)
 			resp = d64

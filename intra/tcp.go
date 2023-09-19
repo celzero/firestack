@@ -74,7 +74,6 @@ type tcpHandler struct {
 	ctl       protect.Controller
 	tunMode   *settings.TunMode
 	listener  TCPListener
-	pt        dnsx.NatPt
 	prox      ipn.Proxies
 	fwtracker *core.ExpMap
 	status    int
@@ -120,7 +119,7 @@ type TCPListener interface {
 // Connections to `fakedns` are redirected to DOH.
 // All other traffic is forwarded using `dialer`.
 // `listener` is provided with a summary of each socket when it is closed.
-func NewTCPHandler(resolver dnsx.Resolver, pt dnsx.NatPt, prox ipn.Proxies, ctl protect.Controller,
+func NewTCPHandler(resolver dnsx.Resolver, prox ipn.Proxies, ctl protect.Controller,
 	tunMode *settings.TunMode, listener TCPListener) TCPHandler {
 	d := protect.MakeNsDialer(ctl)
 	h := &tcpHandler{
@@ -129,7 +128,6 @@ func NewTCPHandler(resolver dnsx.Resolver, pt dnsx.NatPt, prox ipn.Proxies, ctl 
 		ctl:       ctl,
 		tunMode:   tunMode,
 		listener:  listener,
-		pt:        pt,
 		prox:      prox,
 		fwtracker: core.NewExpiringMap(),
 		status:    TCPOK,
@@ -309,7 +307,7 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target *net.TCPAddr) (
 
 	// alg happens before nat64, and so, alg has no knowledge of nat-ed ips
 	// ipx4 is un-nated (but same as target.IP when no nat64 is involved)
-	ipx4 := maybeUndoNat64(h.pt, target.IP)
+	ipx4 := maybeUndoNat64(h.resolver, target.IP)
 	realips, domains, blocklists := undoAlg(h.resolver, ipx4)
 
 	// flow/dns-override are nat-aware, as in, they can deal with
