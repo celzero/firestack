@@ -8,11 +8,9 @@ package ipn
 
 import (
 	"errors"
-	"io"
 	"strings"
 	"sync"
 
-	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
 )
@@ -64,15 +62,10 @@ var _ Proxy = (*ground)(nil)
 var _ Proxy = (*pipws)(nil)
 var _ Proxy = (*piph2)(nil)
 
-// adopted types
-type Conn = io.ReadWriteCloser
-
-var _ Conn = (core.Conn)(nil)
-
 type Proxy interface {
 	// Dial creates a new connection to the given address.
 	// gomobile cannot export proxy.Dialer (net.Conn)
-	Dial(network, addr string) (io.ReadWriteCloser, error)
+	Dial(network, addr string) (protect.Conn, error)
 	// ID returns the ID of this proxy.
 	ID() string
 	// Type returns the type of this proxy.

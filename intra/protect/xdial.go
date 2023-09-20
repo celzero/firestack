@@ -12,6 +12,18 @@ import (
 	"golang.org/x/net/proxy"
 )
 
+// Adapter to keep gomobile happy as it can't export net.Conn
+type Conn interface {
+	// Read reads data coming from remote.
+	Read(data []byte) (int, error)
+
+	// Write writes data to remote.
+	Write(data []byte) (int, error)
+
+	// Close closes the connection.
+	Close() error
+}
+
 // XDial confirms to x.Dialer interface but discards local-addresses
 type XDial struct {
 	proxy.Dialer

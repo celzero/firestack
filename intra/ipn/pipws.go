@@ -43,7 +43,7 @@ type pipws struct {
 	status   int         // proxy status: TOK, TKO, END
 }
 
-var _ core.TCPConn = &pipwsconn{}
+var _ core.TCPConn = (*pipwsconn)(nil)
 
 // pipwsconn minimally adapts net.Conn to the core.TCPConn interface
 type pipwsconn struct {
@@ -212,7 +212,7 @@ func (t *pipws) claim(msg string) []string {
 	return []string{t.token, byte2hex(msgmac)}
 }
 
-func (t *pipws) Dial(network, addr string) (Conn, error) {
+func (t *pipws) Dial(network, addr string) (protect.Conn, error) {
 	if t.status == END {
 		return nil, errProxyStopped
 	}

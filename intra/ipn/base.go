@@ -28,7 +28,7 @@ func NewBaseProxy(c protect.Controller) Proxy {
 	return h
 }
 
-func (h *base) Dial(network, addr string) (c Conn, err error) {
+func (h *base) Dial(network, addr string) (c protect.Conn, err error) {
 	if h.status == END {
 		return nil, errProxyStopped
 	}

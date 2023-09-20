@@ -16,8 +16,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/log"
+	"github.com/celzero/firestack/intra/protect"
 	"github.com/celzero/firestack/intra/settings"
 	"github.com/celzero/firestack/intra/xdns"
 	"github.com/miekg/dns"
@@ -64,11 +64,7 @@ var (
 	errMissingQueryName   = errors.New("no query name")
 )
 
-// core.Conn isn't exported; using io.ReadWriteCloser is a hack
-// to make gobind happy; type assert Conn is indeed a core.Conn
-type Conn = io.ReadWriteCloser
-
-var _ Conn = (core.Conn)(nil)
+type Conn = protect.Conn
 
 // Transport represents a DNS query transport.  This interface is exported by gobind,
 // so it has to be very simple.

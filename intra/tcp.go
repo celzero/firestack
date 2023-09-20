@@ -364,7 +364,7 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target *net.TCPAddr) (
 // TODO: Request upstream to make `conn` a `core.TCPConn` so we can avoid a type assertion.
 func (h *tcpHandler) Handle(conn net.Conn, target *net.TCPAddr, summary *TCPSocketSummary) (err error) {
 	var px ipn.Proxy
-	var pc ipn.Conn
+	var pc protect.Conn
 
 	pid := summary.PID
 

@@ -7,6 +7,7 @@
 package intra
 
 import (
+	"io"
 	"net"
 	"sync"
 	"time"
@@ -133,7 +134,7 @@ func (h *icmpHandler) Ping(source *net.UDPAddr, target *net.UDPAddr, msg []byte,
 		log.D("icmp: handler ended")
 		return
 	}
-	var c ipn.Conn
+	var c protect.Conn
 	var pc ipn.Proxy
 	var err error
 
@@ -261,7 +262,7 @@ func (h *icmpHandler) sendNotif(s *ICMPSummary) {
 	l.OnICMPClosed(s)
 }
 
-func close(c ipn.Conn) {
+func close(c io.Closer) {
 	if c != nil {
 		c.Close()
 	}

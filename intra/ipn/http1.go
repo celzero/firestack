@@ -61,7 +61,7 @@ func NewHTTPProxy(id string, c protect.Controller, po *settings.ProxyOptions) (P
 	return h, nil
 }
 
-func (h *http1) Dial(network, addr string) (c Conn, err error) {
+func (h *http1) Dial(network, addr string) (c protect.Conn, err error) {
 	if h.status == END {
 		return nil, errProxyStopped
 	}

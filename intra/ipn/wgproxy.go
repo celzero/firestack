@@ -521,7 +521,7 @@ func (tun *wgtun) BatchSize() int {
 
 // implements Proxy
 
-func (h *wgtun) Dial(network, address string) (c Conn, err error) {
+func (h *wgtun) Dial(network, address string) (c protect.Conn, err error) {
 	if h.status == END {
 		return nil, errProxyStopped
 	}

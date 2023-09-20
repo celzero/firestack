@@ -56,7 +56,7 @@ func NewSocks5Proxy(id string, ctl protect.Controller, po *settings.ProxyOptions
 	return h, nil
 }
 
-func (h *socks5) Dial(network, addr string) (c Conn, err error) {
+func (h *socks5) Dial(network, addr string) (c protect.Conn, err error) {
 	if h.status == END {
 		return nil, errProxyStopped
 	}

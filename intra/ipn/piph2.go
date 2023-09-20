@@ -292,7 +292,7 @@ func (t *piph2) claim(msg string) []string {
 	return []string{t.token, byte2hex(msgmac)}
 }
 
-func (t *piph2) Dial(network, addr string) (Conn, error) {
+func (t *piph2) Dial(network, addr string) (protect.Conn, error) {
 	if t.status == END {
 		return nil, errProxyStopped
 	}

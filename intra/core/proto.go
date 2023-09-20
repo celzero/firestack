@@ -7,27 +7,25 @@
 package core
 
 import (
-	"io"
 	"net"
 	"time"
 )
 
 // from: github.com/eycorsican/go-tun2socks/blob/301549c435/core/conn.go#LL3C9-L3C9
 
-// Adapter to keep gomobile happy as it can't export net.Conn
-type Conn interface {
-	io.ReadWriteCloser
-}
-
 // TCPConn abstracts a TCP connection comming from TUN. This connection
 // should be handled by a registered TCP proxy handler.
 type TCPConn interface {
-	Conn
 	// RemoteAddr returns the destination network address.
 	RemoteAddr() net.Addr
 
 	// LocalAddr returns the local client network address.
 	LocalAddr() net.Addr
+
+	// confirms to protect.Conn
+	Write(data []byte) (int, error)
+	Read(data []byte) (int, error)
+	Close() error
 
 	// CloseWrite closes the writing side by sending a FIN
 	// segment to local peer. That means we can write no further
@@ -46,13 +44,16 @@ type TCPConn interface {
 // TCPConn abstracts a UDP connection comming from TUN. This connection
 // should be handled by a registered UDP proxy handler.
 type UDPConn interface {
-	Conn
 	// LocalAddr returns the local client network address.
 	LocalAddr() *net.UDPAddr
 	RemoteAddr() *net.UDPAddr
 
 	// Wait for the underlying connection to be ready.
 	Ready() bool
+
+	// confirms to protect.Conn
+	Write(data []byte) (int, error)
+	Read(data []byte) (int, error)
 
 	// ReceiveTo will be called when data arrives from remote, and the received
 	// data should be sent to addr.

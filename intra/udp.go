@@ -352,7 +352,7 @@ func (h *udpHandler) Connect(conn core.UDPConn, target *net.UDPAddr) (res string
 	}
 
 	var px ipn.Proxy
-	var pc ipn.Conn
+	var pc protect.Conn
 
 	ipx4 := maybeUndoNat64(h.resolver, target.IP)
 	realips, domains, blocklists := undoAlg(h.resolver, ipx4)
