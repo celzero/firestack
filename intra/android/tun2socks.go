@@ -35,8 +35,8 @@ import (
 
 func init() {
 	// increase garbage collection frequency: archive.is/WQBf7
-	debug.SetGCPercent(10)
-	debug.SetMemoryLimit(1024 * 1024 * 1024 * 2) // 2GB
+	debug.SetGCPercent(50)
+	debug.SetMemoryLimit(1024 * 1024 * 1024 * 4) // 4GB
 	log.SetLevel(log.INFO)
 }
 
