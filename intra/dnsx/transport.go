@@ -363,7 +363,7 @@ func (r *resolver) Forward(q []byte) ([]byte, error) {
 
 	msg, err := unpack(q)
 	if err != nil {
-		log.W("dns: not a dns packet %v", err)
+		log.W("dns: udp: not a dns packet %v", err)
 		summary.Latency = time.Since(starttime).Seconds()
 		summary.Status = BadQuery
 		return nil, err
@@ -438,31 +438,34 @@ func (r *resolver) Forward(q []byte) ([]byte, error) {
 		summary.Status = BadResponse
 		return res2, err
 	}
-	answerblocked := false
+
 	ans2, blocklistnames := r.blockA(t, t2, msg, ans1, summary.Blocklists)
-	if len(blocklistnames) > 0 {
-		// summary latency, response, status, ips also set by transport t
-		summary.Status = Complete
-		summary.Blocklists = blocklistnames
-		summary.RData = xdns.GetInterestingRData(ans2)
-		log.V("dns: udp: answer blocked %s by %s", qname, blocklistnames)
-	}
 
-	// overwrite response when blocked
-	if ans2 != nil {
+	isnewans := ans2 != nil
+	if isnewans {
+		// overwrite if new answer
 		ans1 = ans2
-		answerblocked = true
-	} else {
-		log.V("dns: udp: answer NOT blocked %s", qname)
+		res2, _ = ans2.Pack()
+		// summary latency, response, status, ips also set by transport t
+		summary.RData = xdns.GetInterestingRData(ans2)
+		summary.RCode = xdns.Rcode(ans2)
+		summary.RTtl = xdns.RTtl(ans2)
+		summary.Status = Complete
 	}
-
-	if !answerblocked {
+	hasblocklists := len(blocklistnames) > 0
+	if hasblocklists {
+		summary.Blocklists = blocklistnames
+	}
+	ansblocked := xdns.AQuadAUnspecified(ans1)
+	if !ansblocked {
 		d64 := r.D64(t.ID(), res2, t)
 		if len(d64) >= xdns.MinDNSPacketSize {
 			r.withDNS64SummaryIfNeeded(d64, summary)
 			return d64, nil
 		} // else: d64 is nil on no D64 or error
 	} // else: answer is blocked, no dns64
+
+	log.V("dns: udp: query %s; new-ans? %t, blocklists? %t, blocked? %t", qname, isnewans, hasblocklists, ansblocked)
 
 	return ans1.Pack()
 }
@@ -613,44 +616,41 @@ func (r *resolver) forwardQuery(q []byte, c io.Writer) error {
 		return qerr
 	}
 
-	answerblocked := false
 	ans2, blocklistnames := r.blockA(t, t2, msg, ans1, summary.Blocklists)
-	// overwrite response when blocked
-	if len(blocklistnames) > 0 {
-		// summary latency, response, status, ips also set by transport t
-		summary.Status = Complete
-		summary.Blocklists = blocklistnames
-		summary.RData = xdns.GetInterestingRData(ans2)
-		log.V("dns: tcp: answer blocked %s by %s", qname, blocklistnames)
-	}
-	// overwrite response when blocked
-	if ans2 != nil {
+
+	isnewans := ans2 != nil
+	if isnewans {
+		// overwrite if new answer
 		ans1 = ans2
-		answerblocked = true
-	} else {
-		log.V("dns: tcp: answer NOT blocked %s", qname)
+		res2, qerr = ans2.Pack()
+		if qerr != nil {
+			summary.Status = BadResponse
+			return qerr
+		}
+		// summary latency, response, status, ips also set by transport t
+		summary.RData = xdns.GetInterestingRData(ans2)
+		summary.RCode = xdns.Rcode(ans2)
+		summary.RTtl = xdns.RTtl(ans2)
+		summary.Status = Complete
 	}
-
-	resp, qerr := ans1.Pack()
-	if qerr != nil {
-		summary.Status = BadResponse
-		return qerr
+	hasblocklists := len(blocklistnames) > 0
+	if hasblocklists {
+		summary.Blocklists = blocklistnames
 	}
-	if len(resp) > xdns.MaxDNSPacketSize {
-		summary.Status = BadResponse
-		return fmt.Errorf("dns: tcp: oversize response: %d", len(resp))
-	}
-
+	ansblocked := xdns.AQuadAUnspecified(ans1)
 	// override original resp with dns64 if needed
-	if !answerblocked {
+	if !ansblocked {
 		d64 := r.D64(t.ID(), res2, t)
 		if len(d64) > xdns.MinDNSPacketSize {
 			r.withDNS64SummaryIfNeeded(d64, summary)
-			resp = d64
+			res2 = d64
 		} // else: d64 is nil on no D64 or error
 	} // else answer is blocked, no dns64
-	rlen := len(resp)
-	n, err := writeto(c, resp, rlen)
+
+	log.V("dns: tcp: query %s; new-ans? %t, blocklists? %t, blocked? %t", qname, isnewans, hasblocklists, ansblocked)
+
+	rlen := len(res2)
+	n, err := writeto(c, res2, rlen)
 	if err != nil {
 		summary.Status = InternalError
 		return err
