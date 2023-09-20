@@ -103,7 +103,7 @@ func (t *transport) dial(network, addr string) (net.Conn, error) {
 	confirmed := ips.Confirmed()
 	if confirmed != nil {
 		log.D("doh: trying IP %s for addr %s", confirmed.String(), addr)
-		if conn, err = split.DialWithSplitRetry(t.dialer, tcpaddr(confirmed), nil); err == nil {
+		if conn, err = split.DialWithSplitRetry(t.dialer.Dial, tcpaddr(confirmed), nil); err == nil {
 			log.I("doh: confirmed IP %s worked", confirmed.String())
 			return conn, nil
 		}
@@ -116,7 +116,7 @@ func (t *transport) dial(network, addr string) (net.Conn, error) {
 		if ip.Equal(confirmed) {
 			continue // don't try this IP again
 		}
-		if conn, err = split.DialWithSplitRetry(t.dialer, tcpaddr(ip), nil); err == nil {
+		if conn, err = split.DialWithSplitRetry(t.dialer.Dial, tcpaddr(ip), nil); err == nil {
 			log.I("doh: found working IP: %s", ip.String())
 			return conn, nil
 		}

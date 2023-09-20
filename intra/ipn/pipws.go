@@ -72,7 +72,7 @@ func (t *pipws) dial(network, addr string) (net.Conn, error) {
 	ips := t.ips.Get(domain)
 	confirmed := ips.Confirmed()
 	if confirmed != nil {
-		if conn, err = split.DialWithSplitRetry(t.dialer, tcpaddr(confirmed), nil); err == nil {
+		if conn, err = split.DialWithSplitRetry(t.dialer.Dial, tcpaddr(confirmed), nil); err == nil {
 			log.I("pipws: confirmed IP %s worked", confirmed.String())
 			return conn, nil
 		}
@@ -85,7 +85,7 @@ func (t *pipws) dial(network, addr string) (net.Conn, error) {
 		if ip.Equal(confirmed) {
 			continue
 		}
-		if conn, err = split.DialWithSplitRetry(t.dialer, tcpaddr(ip), nil); err == nil {
+		if conn, err = split.DialWithSplitRetry(t.dialer.Dial, tcpaddr(ip), nil); err == nil {
 			log.I("pipws: found working IP: %s", ip.String())
 			return conn, nil
 		}

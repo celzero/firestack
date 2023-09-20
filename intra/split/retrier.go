@@ -133,9 +133,9 @@ func RetryingConn(d TCPDialFn, addr *net.TCPAddr, timeout time.Duration, tcpconn
 // `dialer` will be used to establish the connection.
 // `addr` is the destination.
 // If `stats` is non-nil, it will be populated with retry-related information.
-func DialWithSplitRetry(dialer *net.Dialer, addr *net.TCPAddr, stats *RetryStats) (DuplexConn, error) {
+func DialWithSplitRetry(dial TCPDialFn, addr *net.TCPAddr, stats *RetryStats) (DuplexConn, error) {
 	before := time.Now()
-	conn, err := dialer.Dial(addr.Network(), addr.String())
+	conn, err := dial(addr.Network(), addr.String())
 	if err != nil {
 		return nil, err
 	}
@@ -149,7 +149,7 @@ func DialWithSplitRetry(dialer *net.Dialer, addr *net.TCPAddr, stats *RetryStats
 
 	// TODO: safer typecast
 	r := &retrier{
-		dial:              dialer.Dial,
+		dial:              dial,
 		addr:              addr,
 		conn:              conn.(*net.TCPConn),
 		timeout:           CalcTimeout(before, after),

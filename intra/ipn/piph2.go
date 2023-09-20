@@ -162,7 +162,7 @@ func (t *piph2) dial(network, addr string) (net.Conn, error) {
 	ips := t.ips.Get(domain)
 	confirmed := ips.Confirmed()
 	if confirmed != nil {
-		if conn, err = split.DialWithSplitRetry(t.dialer, tcpaddr(confirmed), nil); err == nil {
+		if conn, err = split.DialWithSplitRetry(t.dialer.Dial, tcpaddr(confirmed), nil); err == nil {
 			log.I("piph2: confirmed IP %s worked", confirmed.String())
 			return conn, nil
 		}
@@ -176,7 +176,7 @@ func (t *piph2) dial(network, addr string) (net.Conn, error) {
 			// Don't try this IP twice.
 			continue
 		}
-		if conn, err = split.DialWithSplitRetry(t.dialer, tcpaddr(ip), nil); err == nil {
+		if conn, err = split.DialWithSplitRetry(t.dialer.Dial, tcpaddr(ip), nil); err == nil {
 			log.I("piph2: found working IP: %s", ip.String())
 			return conn, nil
 		}
