@@ -8,6 +8,7 @@ package ipn
 
 import (
 	"errors"
+	"io"
 	"strings"
 	"sync"
 
@@ -64,12 +65,14 @@ var _ Proxy = (*pipws)(nil)
 var _ Proxy = (*piph2)(nil)
 
 // adopted types
-type Conn = core.Conn
+type Conn = io.ReadWriteCloser
+
+var _ Conn = (core.Conn)(nil)
 
 type Proxy interface {
 	// Dial creates a new connection to the given address.
 	// gomobile cannot export proxy.Dialer (net.Conn)
-	Dial(network, addr string) (Conn, error)
+	Dial(network, addr string) (io.ReadWriteCloser, error)
 	// ID returns the ID of this proxy.
 	ID() string
 	// Type returns the type of this proxy.

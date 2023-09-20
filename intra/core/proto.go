@@ -7,6 +7,7 @@
 package core
 
 import (
+	"io"
 	"net"
 	"time"
 )
@@ -15,14 +16,7 @@ import (
 
 // Adapter to keep gomobile happy as it can't export net.Conn
 type Conn interface {
-	// Read reads data coming from remote.
-	Read(data []byte) (int, error)
-
-	// Write writes data to remote.
-	Write(data []byte) (int, error)
-
-	// Close closes the connection.
-	Close() error
+	io.ReadWriteCloser
 }
 
 // TCPConn abstracts a TCP connection comming from TUN. This connection

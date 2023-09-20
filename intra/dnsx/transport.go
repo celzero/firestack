@@ -64,6 +64,12 @@ var (
 	errMissingQueryName   = errors.New("no query name")
 )
 
+// core.Conn isn't exported; using io.ReadWriteCloser is a hack
+// to make gobind happy; type assert Conn is indeed a core.Conn
+type Conn = io.ReadWriteCloser
+
+var _ Conn = (core.Conn)(nil)
+
 // Transport represents a DNS query transport.  This interface is exported by gobind,
 // so it has to be very simple.
 type Transport interface {
@@ -122,7 +128,7 @@ type Resolver interface {
 
 	IsDnsAddr(network, ipport string) bool
 	Forward(q []byte) ([]byte, error)
-	Serve(conn core.Conn)
+	Serve(conn Conn)
 }
 
 type resolver struct {
@@ -465,10 +471,8 @@ func (r *resolver) Forward(q []byte) ([]byte, error) {
 	return ans1.Pack()
 }
 
-func (r *resolver) Serve(x core.Conn) {
-	if c, ok := x.(io.ReadWriteCloser); ok {
-		r.accept(c)
-	}
+func (r *resolver) Serve(c Conn) {
+	r.accept(c)
 }
 
 func (r *resolver) withDNS64SummaryIfNeeded(d64 []byte, s *Summary) {
