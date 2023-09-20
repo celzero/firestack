@@ -105,6 +105,55 @@ type listinfo struct {
 	name string
 }
 
+func newRDNSRemote(filetagjson string) (*rethinkdns, error) {
+	flags, tags, err := load(filetagjson)
+	if err != nil {
+		return nil, err
+	}
+	r := &rethinkdns{
+		flags: flags,
+		tags:  tags,
+		mode:  remoteBlock,
+	}
+	return r, nil
+}
+
+func newRDNSLocal(t string, rank string,
+	conf string, filetagjson string) (*rethinkdnslocal, error) {
+
+	if len(t) <= 0 || len(rank) <= 0 || len(conf) <= 0 || len(filetagjson) <= 0 {
+		return nil, errTrieArgs
+	}
+
+	ft, err := trie.Build(t, rank, conf, filetagjson)
+	if err != nil {
+		return nil, err
+	}
+
+	flags, tags, err := load(filetagjson)
+	if err != nil {
+		return nil, err
+	}
+
+	// TODO: find a better place
+	runtime.GC()
+
+	// docs.pi-hole.net/ftldns/blockingmode/
+	r := &rethinkdns{
+		// pos/index/value ->subgroup:vname
+		flags: flags,
+		// uname -> subgroup:vname
+		tags: tags,
+		mode: localBlock,
+	}
+	rlocal := &rethinkdnslocal{
+		rethinkdns: r,
+		ftrie:      ft,
+	}
+
+	return rlocal, nil
+}
+
 func (r *rethinkdns) OnDeviceBlock() bool {
 	return r.mode == localBlock
 }
@@ -310,58 +359,6 @@ func (r *rethinkdnslocal) blockAnswer(msg *dns.Msg) (blocklists string, err erro
 
 	err = fmt.Errorf("answers not in blocklist %s", stamp)
 	return
-}
-
-func newRDNSRemote(filetagjson string) (*rethinkdns, error) {
-	flags, tags, err := load(filetagjson)
-	if err != nil {
-		return nil, err
-	}
-	b := &rethinkdns{
-		flags: flags,
-		tags:  tags,
-		mode:  remoteBlock,
-	}
-	return b, nil
-}
-
-func newRDNSLocal(t string, rank string,
-	conf string, filetagjson string) (*rethinkdnslocal, error) {
-
-	if len(t) <= 0 || len(rank) <= 0 || len(conf) <= 0 || len(filetagjson) <= 0 {
-		return nil, errTrieArgs
-	}
-
-	ft, err := trie.Build(t, rank, conf, filetagjson)
-
-	if err != nil {
-		return nil, err
-	}
-
-	flags, tags, err := load(filetagjson)
-
-	if err != nil {
-		return nil, err
-	}
-
-	// TODO: find a better place
-	runtime.GC()
-
-	// docs.pi-hole.net/ftldns/blockingmode/
-	b := &rethinkdns{
-		// pos/index/value ->subgroup:vname
-		flags: flags,
-		// uname -> subgroup:vname
-		tags: tags,
-		mode: localBlock,
-	}
-
-	blocal := &rethinkdnslocal{
-		rethinkdns: b,
-		ftrie:      ft,
-	}
-
-	return blocal, nil
 }
 
 func load(blacklistconfigjson string) ([]string, map[string]string, error) {

@@ -13,29 +13,27 @@ import (
 
 // from: github.com/eycorsican/go-tun2socks/blob/301549c435/core/conn.go#LL3C9-L3C9
 
+// Adapter to keep gomobile happy as it can't export net.Conn
+type Conn interface {
+	// Read reads data coming from remote.
+	Read(data []byte) (int, error)
+
+	// Write writes data to remote.
+	Write(data []byte) (int, error)
+
+	// Close closes the connection.
+	Close() error
+}
+
 // TCPConn abstracts a TCP connection comming from TUN. This connection
-// should be handled by a registered TCP proxy handler. It's important
-// to note that callback members are called from lwIP, they are already
-// in the lwIP thread when they are called, that is, they are holding
-// the lwipMutex.
+// should be handled by a registered TCP proxy handler.
 type TCPConn interface {
+	Conn
 	// RemoteAddr returns the destination network address.
 	RemoteAddr() net.Addr
 
 	// LocalAddr returns the local client network address.
 	LocalAddr() net.Addr
-
-	// Read reads data comming from TUN, note that it reads from an
-	// underlying pipe that the writer writes in the lwip thread,
-	// write op blocks until previous written data is consumed, one
-	// should read out all data as soon as possible.
-	Read(data []byte) (int, error)
-
-	// Write writes data to TUN.
-	Write(data []byte) (int, error)
-
-	// Close closes the connection.
-	Close() error
 
 	// CloseWrite closes the writing side by sending a FIN
 	// segment to local peer. That means we can write no further
@@ -54,6 +52,7 @@ type TCPConn interface {
 // TCPConn abstracts a UDP connection comming from TUN. This connection
 // should be handled by a registered UDP proxy handler.
 type UDPConn interface {
+	Conn
 	// LocalAddr returns the local client network address.
 	LocalAddr() *net.UDPAddr
 	RemoteAddr() *net.UDPAddr
@@ -61,12 +60,11 @@ type UDPConn interface {
 	// Wait for the underlying connection to be ready.
 	Ready() bool
 
-	// ReceiveTo will be called when data arrives from TUN, and the received
+	// ReceiveTo will be called when data arrives from remote, and the received
 	// data should be sent to addr.
 	ReceiveTo(data []byte, addr *net.UDPAddr) error
 
-	// WriteFrom writes data to TUN, addr will be set as source address of
-	// UDP packets that output to TUN.
+	// WriteFrom writes data to remote, addr will be set as source address.
 	WriteFrom(data []byte, addr *net.UDPAddr) (int, error)
 
 	// Close closes the connection.

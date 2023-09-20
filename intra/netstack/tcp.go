@@ -130,7 +130,7 @@ func (g *GTCPConn) LocalAddr() net.Addr {
 		return g.src
 	}
 	// client local addr is remote to the gonet adapter
-	if addr := g.TCPConn.RemoteAddr(); addr != nil {
+	if addr := g.RemoteAddr(); addr != nil {
 		return addr
 	}
 	return g.src
@@ -141,7 +141,7 @@ func (g *GTCPConn) RemoteAddr() net.Addr {
 		return g.dst
 	}
 	// client remote addr is local to the gonet adapter
-	if addr := g.TCPConn.LocalAddr(); addr != nil {
+	if addr := g.LocalAddr(); addr != nil {
 		return addr
 	}
 	return g.dst
@@ -181,11 +181,11 @@ func (tcp *GTCPConn) Poll() error {
 // Abort aborts the connection by sending a RST segment.
 func (tcp *GTCPConn) Abort() {
 	tcp.ep.Abort()
-	tcp.TCPConn.Close()
+	tcp.Close()
 }
 
 func (g GTCPConn) Close() error {
 	g.ep.Close()
-	g.TCPConn.SetDeadline(time.Now().Add(-1))
-	return g.TCPConn.Close()
+	g.SetDeadline(time.Now().Add(-1))
+	return g.Close()
 }

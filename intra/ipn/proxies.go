@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
 )
@@ -62,12 +63,8 @@ var _ Proxy = (*ground)(nil)
 var _ Proxy = (*pipws)(nil)
 var _ Proxy = (*piph2)(nil)
 
-// Adapter to keep gomobile happy as it can't export net.Conn
-type Conn interface {
-	Read(b []byte) (n int, err error)
-	Write(b []byte) (n int, err error)
-	Close() error
-}
+// adopted types
+type Conn = core.Conn
 
 type Proxy interface {
 	// Dial creates a new connection to the given address.

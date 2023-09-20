@@ -37,8 +37,8 @@ type GUDPConnHandler interface {
 var _ core.UDPConn = (*GUDPConn)(nil)
 
 type GUDPConn struct {
+	*gonet.UDPConn
 	ep    tcpip.Endpoint
-	gudp  *gonet.UDPConn
 	src   *net.UDPAddr
 	dst   *net.UDPAddr
 	wg    *sync.WaitGroup // waits for endpoint to be ready
@@ -52,7 +52,6 @@ func MakeGUDPConn(s *stack.Stack, r *udp.ForwarderRequest, src, dst *net.UDPAddr
 	wg.Add(1)
 	return &GUDPConn{
 		ep:    nil,
-		gudp:  nil,
 		src:   src,
 		dst:   dst,
 		wg:    wg,
@@ -118,10 +117,10 @@ func loop(h GUDPConnHandler, gc *GUDPConn, src, dst *net.UDPAddr) {
 		core.Recycle(bptr)
 	}()
 	for {
-		gc.gudp.SetDeadline(time.Now().Add(readDeadline))
-		// addr is gc.gudp.RemoteAddr() ie gc.LocalAddr()
+		gc.SetDeadline(time.Now().Add(readDeadline))
+		// addr is gc.RemoteAddr() ie gc.LocalAddr()
 		// github.com/google/gvisor/blob/be6ffa78e/pkg/tcpip/transport/udp/endpoint.go#L298
-		if n, addr, err := gc.gudp.ReadFrom(q[:]); err == nil {
+		if n, addr, err := gc.ReadFrom(q[:]); err == nil {
 			// who(10.111.222.3:17711)
 			// dst(l:10.111.222.3:17711 / r:10.111.222.1:53)
 			who := addr.(*net.UDPAddr)
@@ -151,7 +150,7 @@ func (g *GUDPConn) Ready() bool {
 }
 
 func (g *GUDPConn) ok() bool {
-	return g.ep != nil && g.gudp != nil
+	return g.ep != nil && g.UDPConn != nil
 }
 
 func (g *GUDPConn) StatefulTeardown() (fin bool) {
@@ -178,27 +177,29 @@ func (g *GUDPConn) Connect(fin bool) tcpip.Error {
 		return err
 	} else {
 		g.ep = endpoint
-		g.gudp = gonet.NewUDPConn(g.stack, wq, endpoint)
+		g.UDPConn = gonet.NewUDPConn(g.stack, wq, endpoint)
 	}
 	return nil
 }
 
-func (g *GUDPConn) LocalAddr() *net.UDPAddr {
-	if g.ok() && g.gudp.RemoteAddr() != nil {
-		if addr, ok := g.gudp.RemoteAddr().(*net.UDPAddr); ok {
-			return addr
-		}
+func (g *GUDPConn) LocalAddr() (addr *net.UDPAddr) {
+	if g.ok() {
+		addr = g.RemoteAddr()
 	}
-	return g.src
+	if addr == nil { // remoteaddr may be nil, even if g.ok()
+		addr = g.src
+	}
+	return
 }
 
-func (g *GUDPConn) RemoteAddr() *net.UDPAddr {
-	if g.ok() && g.gudp.LocalAddr() != nil {
-		if addr, ok := g.gudp.LocalAddr().(*net.UDPAddr); ok {
-			return addr
-		}
+func (g *GUDPConn) RemoteAddr() (addr *net.UDPAddr) {
+	if g.ok() {
+		addr = g.LocalAddr()
 	}
-	return g.dst
+	if addr == nil { // localaddr may be nil, even if g.ok()
+		addr = g.dst
+	}
+	return
 }
 
 // ReceiveTo will be called when data arrives from TUN, and the received
@@ -220,14 +221,28 @@ func (g *GUDPConn) WriteFrom(data []byte, addr *net.UDPAddr) (int, error) {
 	// ep(state 3 / info &{2048 17 {53 10.111.222.3 17711 10.111.222.1} 1 10.111.222.3 1} / stats &{{{1}} {{0}} {{{0}} {{0}} {{0}} {{0}}} {{{0}} {{0}} {{0}}} {{{0}} {{0}}} {{{0}} {{0}} {{0}}}})
 	// 3: status:datagram-connected / {2048=>proto, 17=>transport, {53=>local-port localip 17711=>remote-port remoteip}=>endpoint-id, 1=>bind-nic-id, ip=>bind-addr, 1=>registered-nic-id}
 	log.V("ns.udp.writeFrom: from(%v) / ep(state %v / info %v / stats %v)", addr, g.ep.State(), g.ep.Info(), g.ep.Stats())
-	return g.gudp.Write(data)
+	return g.Write(data)
+}
+
+func (g *GUDPConn) Write(data []byte) (int, error) {
+	if !g.ok() {
+		return 0, ErrNoEndpoint
+	}
+	return g.Write(data)
+}
+
+func (g *GUDPConn) Read(data []byte) (int, error) {
+	if !g.ok() {
+		return 0, ErrNoEndpoint
+	}
+	return g.Read(data)
 }
 
 // Close closes the connection.
 func (g *GUDPConn) Close() error {
 	if g.ok() {
 		g.ep.Close()
-		return g.gudp.Close()
+		return g.Close()
 	}
 	return nil
 }

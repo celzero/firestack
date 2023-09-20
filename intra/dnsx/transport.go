@@ -16,7 +16,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/celzero/firestack/intra/ipn"
+	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/settings"
 	"github.com/celzero/firestack/intra/xdns"
@@ -122,7 +122,7 @@ type Resolver interface {
 
 	IsDnsAddr(network, ipport string) bool
 	Forward(q []byte) ([]byte, error)
-	Serve(conn ipn.Conn)
+	Serve(conn core.Conn)
 }
 
 type resolver struct {
@@ -465,7 +465,7 @@ func (r *resolver) Forward(q []byte) ([]byte, error) {
 	return ans1.Pack()
 }
 
-func (r *resolver) Serve(x ipn.Conn) {
+func (r *resolver) Serve(x core.Conn) {
 	if c, ok := x.(io.ReadWriteCloser); ok {
 		r.accept(c)
 	}
