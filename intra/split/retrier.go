@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/Jigsaw-Code/getsni"
+	"github.com/celzero/firestack/intra/protect"
 )
 
 type RetryStats struct {
@@ -33,10 +34,6 @@ type RetryStats struct {
 	Timeout bool   // True if the retry was caused by a timeout.
 }
 
-// TCPDialFn creates a connection to the given address,
-// the resulting net.Conn must be a *net.TCPConn.
-type TCPDialFn func(string, string) (net.Conn, error)
-
 // retrier implements the DuplexConn interface.
 type retrier struct {
 	// mutex is a lock that guards `conn`, `hello`, and `retryCompleteFlag`.
@@ -44,7 +41,7 @@ type retrier struct {
 	// After retryCompletedFlag is closed, these values will not be modified
 	// again so locking is no longer required for reads.
 	mutex sync.Mutex
-	dial  TCPDialFn
+	dial  *protect.RDial
 	addr  *net.TCPAddr
 	// conn is the current underlying connection.  It is only modified by the reader
 	// thread, so the reader functions may access it without acquiring a lock.
@@ -113,11 +110,11 @@ func CalcTimeout(before, after time.Time) time.Duration {
 // default TCP timeout (typically 2-3 minutes).
 const DefaultTimeout time.Duration = 0
 
-func RetryingConn(d TCPDialFn, addr *net.TCPAddr, timeout time.Duration, tcpconn *net.TCPConn) DuplexConn {
+func RetryingConn(d *protect.RDial, addr *net.TCPAddr, timeout time.Duration, firstconn *net.TCPConn) DuplexConn {
 	return &retrier{
 		dial:              d,
 		addr:              addr,
-		conn:              tcpconn,
+		conn:              firstconn,
 		timeout:           timeout,
 		retryCompleteFlag: make(chan struct{}),
 		readCloseFlag:     make(chan struct{}),
@@ -132,31 +129,23 @@ func RetryingConn(d TCPDialFn, addr *net.TCPAddr, timeout time.Duration, tcpconn
 // Read and CloseRead, and another calling Write, ReadFrom, and CloseWrite.
 // `dialer` will be used to establish the connection.
 // `addr` is the destination.
-// If `stats` is non-nil, it will be populated with retry-related information.
-func DialWithSplitRetry(dial TCPDialFn, addr *net.TCPAddr, stats *RetryStats) (DuplexConn, error) {
+func DialWithSplitRetry(dial *protect.RDial, addr *net.TCPAddr) (DuplexConn, error) {
 	before := time.Now()
-	conn, err := dial(addr.Network(), addr.String())
+	conn, err := dial.DialTCP(addr.Network(), nil, addr)
 	if err != nil {
 		return nil, err
 	}
 	after := time.Now()
 
-	if stats == nil {
-		// This is a dummy stats object that will be written but never read.  Its purpose
-		// is to avoid the need for nil checks at each point where stats are updated.
-		stats = &RetryStats{}
-	}
-
-	// TODO: safer typecast
 	r := &retrier{
 		dial:              dial,
 		addr:              addr,
-		conn:              conn.(*net.TCPConn),
+		conn:              conn,
 		timeout:           CalcTimeout(before, after),
 		retryCompleteFlag: make(chan struct{}),
 		readCloseFlag:     make(chan struct{}),
 		writeCloseFlag:    make(chan struct{}),
-		stats:             stats,
+		stats:             &RetryStats{},
 	}
 
 	return r, nil
@@ -190,12 +179,11 @@ func (r *retrier) Read(buf []byte) (n int, err error) {
 
 func (r *retrier) retry(buf []byte) (n int, err error) {
 	r.conn.Close()
-	var newConn net.Conn
-	if newConn, err = r.dial(r.addr.Network(), r.addr.String()); err != nil {
+	var newConn *net.TCPConn
+	if newConn, err = r.dial.DialTCP(r.addr.Network(), nil, r.addr); err != nil {
 		return
 	}
-	// TODO: safer typecast
-	r.conn = newConn.(*net.TCPConn)
+	r.conn = newConn
 	first, second := splitHello(r.hello)
 	r.stats.Split = int16(len(first))
 	if _, err = r.conn.Write(first); err != nil {

@@ -20,6 +20,8 @@ import (
 	"net"
 	"testing"
 	"time"
+
+	"github.com/celzero/firestack/intra/protect"
 )
 
 type setup struct {
@@ -46,8 +48,8 @@ func makeSetup(t *testing.T) *setup {
 		t.Error("Server isn't TCP?")
 	}
 	var stats RetryStats
-	d := &net.Dialer{}
-	clientSide, err := DialWithSplitRetry(d.Dial, serverAddr, &stats)
+	d := protect.MakeNsRDial(nil)
+	clientSide, err := DialWithSplitRetry(d, serverAddr)
 	if err != nil {
 		t.Error(err)
 	}

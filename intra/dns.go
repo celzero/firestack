@@ -54,21 +54,21 @@ func NewMDNSTransport(protos string) (d dnsx.Transport) {
 // `protector` is the socket protector to use for all external network activity.
 // `auth` will provide a client certificate if required by the TLS server.
 // `listener` will be notified after each DNS query succeeds or fails.
-func NewDoHTransport(id, url string, ips string) (dnsx.Transport, error) {
+func NewDoHTransport(id, url, ips string) (dnsx.Transport, error) {
 	split := []string{}
 	if len(ips) > 0 {
 		split = strings.Split(ips, ",")
 	}
-	dialer := protect.MakeDialer(nil)
+	dialer := protect.MakeNsRDial(nil)
 	return doh.NewTransport(id, url, split, dialer)
 }
 
-func NewODoHTransport(id, proxy, resolver string, proxyips string) (dnsx.Transport, error) {
+func NewODoHTransport(id, proxy, resolver, proxyips string) (dnsx.Transport, error) {
 	split := []string{}
 	if len(proxyips) > 0 {
 		split = strings.Split(proxyips, ",")
 	}
-	dialer := protect.MakeDialer(nil)
+	dialer := protect.MakeNsRDial(nil)
 	return doh.NewOdohTransport(id, proxy, resolver, split, dialer)
 }
 

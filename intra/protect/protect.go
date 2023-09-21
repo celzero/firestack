@@ -29,7 +29,6 @@ import (
 	"syscall"
 
 	"github.com/celzero/firestack/intra/log"
-	"github.com/txthinking/x"
 )
 
 // Controller provides answers to filter network traffic.
@@ -146,16 +145,16 @@ func MakeNsDialer(c Controller) *net.Dialer {
 }
 
 // Creates a XDial that can bind to any active interface.
-func MakeNsXDial(c Controller) x.Dialer {
+func MakeNsRDial(c Controller) *RDial {
 	if c != nil {
 		d := &net.Dialer{
 			Control: networkBinder(c),
 		}
-		return &XDial{
+		return &RDial{
 			Dialer: d,
 		}
 	} else {
-		return &XDial{
+		return &RDial{
 			Dialer: MakeDefaultDialer(),
 		}
 	}

@@ -34,14 +34,13 @@ import (
 	"net/http"
 	"net/http/httptrace"
 	"net/url"
-	"strconv"
 	"sync"
 	"time"
 
 	"github.com/celzero/firestack/intra/core"
-	"github.com/celzero/firestack/intra/core/ipmap"
 	"github.com/celzero/firestack/intra/dnsx"
 	"github.com/celzero/firestack/intra/log"
+	"github.com/celzero/firestack/intra/protect"
 	"github.com/celzero/firestack/intra/split"
 	"github.com/celzero/firestack/intra/xdns"
 	"github.com/cloudflare/odoh-go"
@@ -73,9 +72,8 @@ type transport struct {
 	typ                string // dnsx.DOH / dnsx.ODOH
 	url                string // endpoint URL
 	hostname           string // endpoint hostname
-	ips                ipmap.IPMap
 	client             http.Client
-	dialer             *net.Dialer
+	dialer             *protect.RDial
 	status             int
 	est                core.P2QuantileEstimator
 	hangoverLock       sync.RWMutex
@@ -83,45 +81,7 @@ type transport struct {
 }
 
 func (t *transport) dial(network, addr string) (net.Conn, error) {
-	log.D("doh: dialing %s", addr)
-	domain, portStr, err := net.SplitHostPort(addr)
-	if err != nil {
-		return nil, err
-	}
-	port, err := strconv.Atoi(portStr)
-	if err != nil {
-		return nil, err
-	}
-
-	tcpaddr := func(ip net.IP) *net.TCPAddr {
-		return &net.TCPAddr{IP: ip, Port: port}
-	}
-
-	// TODO: Improve IP fallback strategy with parallelism and Happy Eyeballs.
-	var conn net.Conn
-	ips := t.ips.Get(domain)
-	confirmed := ips.Confirmed()
-	if confirmed != nil {
-		log.D("doh: trying IP %s for addr %s", confirmed.String(), addr)
-		if conn, err = split.DialWithSplitRetry(t.dialer.Dial, tcpaddr(confirmed), nil); err == nil {
-			log.I("doh: confirmed IP %s worked", confirmed.String())
-			return conn, nil
-		}
-		log.D("doh: IP %s failed with err %v", confirmed.String(), err)
-		ips.Disconfirm(confirmed)
-	}
-
-	log.D("doh: trying all IPs")
-	for _, ip := range ips.GetAll() {
-		if ip.Equal(confirmed) {
-			continue // don't try this IP again
-		}
-		if conn, err = split.DialWithSplitRetry(t.dialer.Dial, tcpaddr(ip), nil); err == nil {
-			log.I("doh: found working IP: %s", ip.String())
-			return conn, nil
-		}
-	}
-	return nil, err
+	return split.ReDial(t.dialer, network, addr)
 }
 
 // NewTransport returns a DoH DNSTransport, ready for use.
@@ -137,29 +97,28 @@ func (t *transport) dial(network, addr string) (net.Conn, error) {
 //
 // `auth` will provide a client certificate if required by the TLS server.
 // `listener` will receive the status of each DNS query when it is complete.
-func NewTransport(id, rawurl string, addrs []string, dialer *net.Dialer) (dnsx.Transport, error) {
+func NewTransport(id, rawurl string, addrs []string, dialer *protect.RDial) (dnsx.Transport, error) {
 	return newTransport(dnsx.DOH, id, rawurl, "", addrs, dialer)
 }
 
-func NewOdohTransport(id, endpoint, target string, addrs []string, dailer *net.Dialer) (dnsx.Transport, error) {
+func NewOdohTransport(id, endpoint, target string, addrs []string, dailer *protect.RDial) (dnsx.Transport, error) {
 	return newTransport(dnsx.ODOH, id, endpoint, target, addrs, dailer)
 }
 
-func newTransport(typ, id, rawurl, target string, addrs []string, dialer *net.Dialer) (*transport, error) {
+func newTransport(typ, id, rawurl, target string, addrs []string, dialer *protect.RDial) (*transport, error) {
 	// TODO: client auth
 	var auth ClientAuth
 	skipTLSVerify := false
 	isodoh := typ == dnsx.ODOH
 
 	if dialer == nil {
-		dialer = &net.Dialer{}
+		return nil, errors.ErrUnsupported
 	}
 
 	t := &transport{
 		id:     id,
 		typ:    typ,
 		dialer: dialer,
-		ips:    ipmap.NewIPMap(dialer.Resolver),
 		status: dnsx.Start,
 		est:    core.NewP50Estimator(),
 	}
@@ -185,7 +144,7 @@ func newTransport(typ, id, rawurl, target string, addrs []string, dialer *net.Di
 		t.url = parsedurl.String()
 		t.hostname = parsedurl.Hostname()
 		// addrs are pre-determined ip addresses for url / hostname
-		_ = t.ips.Of(t.hostname, addrs)
+		split.Renew(t.hostname, addrs)
 	} else {
 		t.odohtransport = &odohtransport{}
 
@@ -204,13 +163,13 @@ func newTransport(typ, id, rawurl, target string, addrs []string, dialer *net.Di
 
 		// addrs are proxy addresses if proxy is not empty, otherwise target addresses
 		if proxyurl != nil && proxyurl.Hostname() != "" {
-			_ = t.ips.Of(proxyurl.Hostname(), addrs)
+			split.Renew(proxyurl.Hostname(), addrs)
 			if len(proxyurl.Path) <= 1 { // should not be "" or "/"
 				proxyurl.Path = odohproxypath
 			}
 			t.odohproxy = proxyurl.String()
 		} else if targeturl != nil && targeturl.Hostname() != "" {
-			_ = t.ips.Of(targeturl.Hostname(), addrs)
+			split.Renew(targeturl.Hostname(), addrs)
 		}
 
 		t.url = parsedurl.String()
@@ -313,7 +272,7 @@ func (t *transport) send(req *http.Request) (ans []byte, blocklists string, elap
 
 		if qerr == nil && server != nil {
 			// record a working IP address for this server
-			t.ips.Get(hostname).Confirm(server.IP)
+			split.Confirm(hostname, server.IP)
 			return
 		}
 		if qerr != nil {
@@ -324,7 +283,7 @@ func (t *transport) send(req *http.Request) (ans []byte, blocklists string, elap
 			}
 			if server != nil {
 				log.D("doh: disconfirming %s, %s", hostname, server.IP)
-				t.ips.Get(hostname).Disconfirm(server.IP)
+				split.Disconfirm(hostname, server.IP)
 			}
 			if conn != nil {
 				log.I("doh: close failing doh conn to %s", hostname)

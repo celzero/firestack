@@ -25,7 +25,6 @@ import (
 	"time"
 
 	"github.com/celzero/firestack/intra/core"
-	"github.com/celzero/firestack/intra/core/ipmap"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
 	"github.com/celzero/firestack/intra/settings"
@@ -39,17 +38,16 @@ const (
 )
 
 type piph2 struct {
-	id       string      // some unique identifier
-	url      string      // h2 proxy url
-	hostname string      // h2 proxy hostname
-	port     int         // h2 proxy port
-	ips      ipmap.IPMap // h2 proxy working ips
-	token    string      // hex, client token
-	toksig   string      // hex, authorizer signed client token
-	rsasig   string      // hex, authorizer unblinded signature
-	client   http.Client // h2 client, see trType
-	dialer   *net.Dialer // h2 dialer
-	status   int         // proxy status: TOK, TKO, END
+	id       string         // some unique identifier
+	url      string         // h2 proxy url
+	hostname string         // h2 proxy hostname
+	port     int            // h2 proxy port
+	token    string         // hex, client token
+	toksig   string         // hex, authorizer signed client token
+	rsasig   string         // hex, authorizer unblinded signature
+	client   http.Client    // h2 client, see trType
+	dialer   *protect.RDial // h2 dialer
+	status   int            // proxy status: TOK, TKO, END
 }
 
 // github.com/posener/h2conn/blob/13e7df33ed1/conn.go
@@ -144,44 +142,7 @@ func (t *piph2) dialtls(network, addr string, cfg *tls.Config) (net.Conn, error)
 }
 
 func (t *piph2) dial(network, addr string) (net.Conn, error) {
-	log.D("piph2: dialing %s", addr)
-	domain, portStr, err := net.SplitHostPort(addr)
-	if err != nil {
-		return nil, err
-	}
-	port, err := strconv.Atoi(portStr)
-	if err != nil {
-		return nil, err
-	}
-
-	tcpaddr := func(ip net.IP) *net.TCPAddr {
-		return &net.TCPAddr{IP: ip, Port: port}
-	}
-
-	var conn net.Conn
-	ips := t.ips.Get(domain)
-	confirmed := ips.Confirmed()
-	if confirmed != nil {
-		if conn, err = split.DialWithSplitRetry(t.dialer.Dial, tcpaddr(confirmed), nil); err == nil {
-			log.I("piph2: confirmed IP %s worked", confirmed.String())
-			return conn, nil
-		}
-		log.D("piph2: confirmed IP %s failed with err %v", confirmed.String(), err)
-		ips.Disconfirm(confirmed)
-	}
-
-	log.D("piph2: trying all IPs")
-	for _, ip := range ips.GetAll() {
-		if ip.Equal(confirmed) {
-			// Don't try this IP twice.
-			continue
-		}
-		if conn, err = split.DialWithSplitRetry(t.dialer.Dial, tcpaddr(ip), nil); err == nil {
-			log.I("piph2: found working IP: %s", ip.String())
-			return conn, nil
-		}
-	}
-	return nil, err
+	return split.ReDial(t.dialer, network, addr)
 }
 
 func NewPipProxy(id string, ctl protect.Controller, po *settings.ProxyOptions) (Proxy, error) {
@@ -217,7 +178,7 @@ func NewPipProxy(id string, ctl protect.Controller, po *settings.ProxyOptions) (
 	if len(rsasig) == 0 {
 		return nil, errNoSig
 	}
-	dialer := protect.MakeNsDialer(ctl)
+	dialer := protect.MakeNsRDial(ctl)
 	t := &piph2{
 		id:       id,
 		url:      parsedurl.String(),
@@ -227,12 +188,11 @@ func NewPipProxy(id string, ctl protect.Controller, po *settings.ProxyOptions) (
 		token:    po.Auth.User,
 		toksig:   po.Auth.Password,
 		rsasig:   rsasig,
-		ips:      ipmap.NewIPMap(dialer.Resolver),
 		status:   TOK,
 	}
 
-	ipset := t.ips.Of(t.hostname, po.Addrs) // po.Addrs may be nil or empty
-	if ipset.Empty() {
+	ok := split.Renew(t.hostname, po.Addrs) // po.Addrs may be nil or empty
+	if !ok {
 		log.W("piph2: zero bootstrap ips %s", t.hostname)
 	}
 

@@ -48,8 +48,8 @@ var (
 )
 
 var (
-	ip4        = net.ParseIP("0.0.0.0")
-	ip6        = net.ParseIP("::")
+	ip4zero    = net.ParseIP("0.0.0.0")
+	ip6zero    = net.ParseIP("::")
 	fakedomain = "MTE1LDI1MiwxNjMsMjI4LDg5LDI0NSwxOTIsNzEsNiwyNTQsNjMsOTEsMjE1LDY.lan"
 )
 
@@ -79,6 +79,7 @@ var (
 	errMassivePkt     = errors.New("packet too large")
 	errRdnsUrlMissing = errors.New("url missing")
 	errNoAns          = errors.New("no answer record")
+	errNoDns          = errors.New("nil dns msg")
 	errNotAscii       = errors.New("name not ASCII string")
 )
 

@@ -413,7 +413,7 @@ func (h *tcpHandler) Handle(conn net.Conn, target *net.TCPAddr, summary *TCPSock
 				log.W("tcp: err spliting; ipn.Base must return a net.TCPConn")
 				return errTcpSetupConn
 			}
-			c = split.RetryingConn(ipn.AsDialFn(px), target, timeout, tcpconn)
+			c = split.RetryingConn(ipn.AsRDial(px), target, timeout, tcpconn)
 		}
 	}
 

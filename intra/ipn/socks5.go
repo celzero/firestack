@@ -30,7 +30,7 @@ func NewSocks5Proxy(id string, ctl protect.Controller, po *settings.ProxyOptions
 	}
 
 	// replace with a network namespace aware dialer
-	tx.Dial = protect.MakeNsXDial(ctl)
+	tx.Dial = protect.MakeNsRDial(ctl)
 
 	// x.net.proxy doesn't yet support udp
 	// github.com/golang/net/blob/62affa334/internal/socks/socks.go#L233

@@ -63,9 +63,7 @@ var _ Proxy = (*pipws)(nil)
 var _ Proxy = (*piph2)(nil)
 
 type Proxy interface {
-	// Dial creates a new connection to the given address.
-	// gomobile cannot export proxy.Dialer (net.Conn)
-	Dial(network, addr string) (protect.Conn, error)
+	protect.RDialer
 	// ID returns the ID of this proxy.
 	ID() string
 	// Type returns the type of this proxy.
