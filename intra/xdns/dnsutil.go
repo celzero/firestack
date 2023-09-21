@@ -15,7 +15,6 @@
 package xdns
 
 import (
-	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -30,6 +29,7 @@ import (
 func AsMsg(packet []byte) *dns.Msg {
 	msg := &dns.Msg{}
 	if err := msg.Unpack(packet); err != nil {
+		log.D("dnsutil: failed to unpack msg: %v", err)
 		return nil
 	}
 	return msg
@@ -448,7 +448,7 @@ func BlockResponseFromMessage(q []byte) (*dns.Msg, error) {
 
 func RefusedResponseFromMessage(srcMsg *dns.Msg) (dstMsg *dns.Msg, err error) {
 	if srcMsg == nil {
-		return nil, errors.New("empty source dns message")
+		return nil, errNoDns
 	}
 	dstMsg = EmptyResponseFromMessage(srcMsg)
 	dstMsg.Rcode = dns.RcodeSuccess
@@ -456,7 +456,7 @@ func RefusedResponseFromMessage(srcMsg *dns.Msg) (dstMsg *dns.Msg, err error) {
 
 	questions := srcMsg.Question
 	if len(questions) == 0 {
-		log.W("dnsutil: no q in msg", srcMsg)
+		log.W("dnsutil: no q in msg %s", srcMsg)
 		return
 	}
 
@@ -471,7 +471,7 @@ func RefusedResponseFromMessage(srcMsg *dns.Msg) (dstMsg *dns.Msg, err error) {
 			Class:  dns.ClassINET,
 			Ttl:    ttl,
 		}
-		rr.A = ip4.To4()
+		rr.A = ip4zero.To4()
 		if rr.A != nil {
 			dstMsg.Answer = []dns.RR{rr}
 			sendHInfoResponse = false
@@ -484,7 +484,7 @@ func RefusedResponseFromMessage(srcMsg *dns.Msg) (dstMsg *dns.Msg, err error) {
 			Class:  dns.ClassINET,
 			Ttl:    ttl,
 		}
-		rr.AAAA = ip6.To16()
+		rr.AAAA = ip6zero.To16()
 		if rr.AAAA != nil {
 			dstMsg.Answer = []dns.RR{rr}
 			sendHInfoResponse = false
