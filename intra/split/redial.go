@@ -61,24 +61,28 @@ func ReDial(dialer *protect.RDial, network, addr string) (net.Conn, error) {
 	ips := ipm.Get(domain)
 	confirmed := ips.Confirmed()
 	if confirmed != nil {
-		log.D("redial: trying IP %s for addr %s", confirmed.String(), addr)
+		log.D("redial: trying IP %s for addr %s", confirmed, addr)
 		if conn, err = DialWithSplitRetry(dialer, tcpaddr(confirmed, port)); err == nil {
-			log.I("redial: confirmed IP %s worked", confirmed.String())
+			log.I("redial: confirmed IP %s worked for %s", confirmed, addr)
 			return conn, nil
 		}
-		log.D("redial: IP %s failed with err %v", confirmed.String(), err)
+		log.D("redial: IP %s for %s failed with err %v", confirmed, addr, err)
 		ips.Disconfirm(confirmed)
 	}
 
-	log.D("redial: trying all IPs")
-	for _, ip := range ips.GetAll() {
+	allips := ips.GetAll()
+	log.D("redial: trying all IPs %d for %s", len(allips), addr)
+	for _, ip := range allips {
 		if ip.Equal(confirmed) {
 			continue // don't try this IP again
 		}
 		if conn, err = DialWithSplitRetry(dialer, tcpaddr(ip, port)); err == nil {
-			log.I("redial: found working IP: %s", ip.String())
+			go ips.Confirm(ip)
+			log.I("redial: found working IP %s for %s", ip, addr)
 			return conn, nil
 		}
 	}
+	log.W("redial: all IPs %d failed for %s", len(allips), addr)
+	Renew(domain, nil)
 	return nil, err
 }
