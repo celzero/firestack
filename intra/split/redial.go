@@ -82,7 +82,7 @@ func ReDial(dialer *protect.RDial, network, addr string) (net.Conn, error) {
 			return conn, nil
 		}
 	}
-	log.W("redial: all IPs %d failed for %s", len(allips), addr)
-	Renew(domain, nil)
+	log.W("redial: renew %s", addr)
+	Renew(domain, ips.Seed())
 	return nil, err
 }

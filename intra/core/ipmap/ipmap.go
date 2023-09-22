@@ -131,6 +131,12 @@ func (s *IPSet) addLocked(ip net.IP) {
 	}
 }
 
+func (s *IPSet) Seed() []string {
+	s.RLock()
+	defer s.RLock()
+	return s.seed
+}
+
 // Add one or more IP addresses to the set.
 // The hostname can be a domain name or an IP address.
 func (s *IPSet) Add(hostname string) {
