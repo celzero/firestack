@@ -71,7 +71,7 @@ func (m *ipMap) Get(hostname string) *IPSet {
 	s.Add(hostname)
 
 	if s.Empty() {
-		log.W("Empty ips for %s", hostname)
+		log.W("ipmap: zero ips for %s", hostname)
 		return s
 	}
 
@@ -90,17 +90,10 @@ func (m *ipMap) Get(hostname string) *IPSet {
 	return s
 }
 
-// IPSet represents an unordered collection of IP addresses for a single host.
-// One IP can be marked as confirmed to be working correctly.
-type IPSet struct {
-	sync.RWMutex
-	ips       []net.IP      // All known IPs for the server.
-	confirmed net.IP        // IP address confirmed to be working
-	r         *net.Resolver // Resolver to use for hostname resolution
-	seed      []string      // Bootstrap IPs
-}
-
 func (m *ipMap) Of(hostname string, ips []string) *IPSet {
+	if len(ips) <= 0 {
+		ips = []string{}
+	}
 	s := &IPSet{r: m.r, seed: ips}
 	s.bootstrap()
 
@@ -111,8 +104,18 @@ func (m *ipMap) Of(hostname string, ips []string) *IPSet {
 	return s
 }
 
+// IPSet represents an unordered collection of IP addresses for a single host.
+// One IP can be marked as confirmed to be working correctly.
+type IPSet struct {
+	sync.RWMutex               // Protects this struct.
+	ips          []net.IP      // All known IPs for the server.
+	confirmed    net.IP        // IP address confirmed to be working.
+	r            *net.Resolver // Resolver to use for hostname resolution.
+	seed         []string      // Bootstrap IPs; may be nil.
+}
+
 // Reports whether ip is in the set.  Must be called under RLock.
-func (s *IPSet) has(ip net.IP) bool {
+func (s *IPSet) hasLocked(ip net.IP) bool {
 	for _, oldIP := range s.ips {
 		if oldIP.Equal(ip) {
 			return true
@@ -122,8 +125,8 @@ func (s *IPSet) has(ip net.IP) bool {
 }
 
 // Adds an IP to the set if it is not present.  Must be called under Lock.
-func (s *IPSet) add(ip net.IP) {
-	if ip != nil && !s.has(ip) {
+func (s *IPSet) addLocked(ip net.IP) {
+	if ip != nil && !s.hasLocked(ip) {
 		s.ips = append(s.ips, ip)
 	}
 }
@@ -134,21 +137,20 @@ func (s *IPSet) Add(hostname string) {
 	// Don't hold the ipMap lock during blocking I/O.
 	resolved, err := s.r.LookupIPAddr(context.TODO(), hostname)
 	if err != nil {
-		log.W("Failed to resolve %s: %v", hostname, err)
+		log.W("ipmap: err resolving %s: %v", hostname, err)
 	}
 	s.Lock()
 	for _, addr := range resolved {
-		s.add(addr.IP)
+		s.addLocked(addr.IP)
 	}
 	s.Unlock()
-	s.bootstrap()
 }
 
 // Adds one or more IP addresses to the set.
 func (s *IPSet) bootstrap() {
 	s.Lock()
 	for _, ip := range s.seed {
-		s.add(net.ParseIP(ip))
+		s.addLocked(net.ParseIP(ip))
 	}
 	s.Unlock()
 }
@@ -188,7 +190,7 @@ func (s *IPSet) Confirm(ip net.IP) {
 	}
 	s.Lock()
 	// Add is O(N)
-	s.add(ip)
+	s.addLocked(ip)
 	s.confirmed = ip
 	s.Unlock()
 }
