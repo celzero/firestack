@@ -8,6 +8,7 @@ package split
 
 import (
 	"net"
+	"net/netip"
 	"strconv"
 
 	"github.com/celzero/firestack/intra/core/ipmap"
@@ -18,8 +19,8 @@ import (
 var osdialer = &net.Dialer{}
 var ipm ipmap.IPMap = ipmap.NewIPMap(osdialer.Resolver)
 
-func tcpaddr(ip net.IP, port int) *net.TCPAddr {
-	return &net.TCPAddr{IP: ip, Port: port}
+func tcpaddr(ip netip.Addr, port int) *net.TCPAddr {
+	return &net.TCPAddr{IP: ip.AsSlice(), Port: port}
 }
 
 func Renew(hostname string, addrs []string) bool {
@@ -27,21 +28,25 @@ func Renew(hostname string, addrs []string) bool {
 	return ips != nil && !ips.Empty()
 }
 
-func Confirm(hostname string, ip net.IP) bool {
+func Confirm(hostname string, addr net.Addr) bool {
 	ips := ipm.Get(hostname)
 	if ips != nil {
-		ips.Confirm(ip)
-		return true
-	}
+		if ip, err := netip.ParseAddr(addr.String()); err == nil {
+			ips.Confirm(ip)
+			return true
+		} // not ok
+	} // not ok
 	return false
 }
 
-func Disconfirm(hostname string, ip net.IP) bool {
+func Disconfirm(hostname string, ip net.Addr) bool {
 	ips := ipm.Get(hostname)
 	if ips != nil {
-		ips.Disconfirm(ip)
-		return true
-	}
+		if ip, err := netip.ParseAddr(ip.String()); err == nil {
+			ips.Disconfirm(ip)
+			return true
+		} // not ok
+	} // not ok
 	return false
 }
 
@@ -60,21 +65,21 @@ func ReDial(dialer *protect.RDial, network, addr string) (net.Conn, error) {
 	var conn net.Conn
 	ips := ipm.Get(domain)
 	confirmed := ips.Confirmed()
-	if confirmed != nil {
+	if confirmed.IsValid() {
 		log.D("redial: trying IP %s for addr %s", confirmed, addr)
 		if conn, err = DialWithSplitRetry(dialer, tcpaddr(confirmed, port)); err == nil {
 			log.I("redial: confirmed IP %s worked for %s", confirmed, addr)
 			return conn, nil
 		}
 		log.D("redial: IP %s for %s failed with err %v", confirmed, addr, err)
-		ips.Disconfirm(confirmed)
 	}
 
 	allips := ips.GetAll()
 	log.D("redial: trying all IPs %d for %s", len(allips), addr)
 	for _, ip := range allips {
-		if ip.Equal(confirmed) {
-			continue // don't try this IP again
+		// confirmed already tried above
+		if ip.Compare(confirmed) == 0 || !ip.IsValid() {
+			continue
 		}
 		if conn, err = DialWithSplitRetry(dialer, tcpaddr(ip, port)); err == nil {
 			go ips.Confirm(ip)

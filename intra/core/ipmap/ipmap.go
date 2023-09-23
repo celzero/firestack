@@ -27,10 +27,14 @@ import (
 	"context"
 	"math/rand"
 	"net"
+	"net/netip"
 	"sync"
 
 	"github.com/celzero/firestack/intra/log"
 )
+
+var zeroaddr = netip.Addr{}
+var gresolver = net.DefaultResolver
 
 // IPMap maps hostnames to IPSets.
 type IPMap interface {
@@ -47,6 +51,9 @@ type IPMap interface {
 // NewIPMap returns a fresh IPMap.
 // `r` will be used to resolve any hostnames passed to `Get` or `Add`.
 func NewIPMap(r *net.Resolver) IPMap {
+	if r == nil {
+		r = gresolver
+	}
 	return &ipMap{
 		m: make(map[string]*IPSet),
 		r: r,
@@ -71,7 +78,7 @@ func (m *ipMap) Get(hostname string) *IPSet {
 	s.Add(hostname)
 
 	if s.Empty() {
-		log.W("ipmap: zero ips for %s", hostname)
+		log.W("ipmap: Get: zero ips for %s", hostname)
 		return s
 	}
 
@@ -108,16 +115,16 @@ func (m *ipMap) Of(hostname string, ips []string) *IPSet {
 // One IP can be marked as confirmed to be working correctly.
 type IPSet struct {
 	sync.RWMutex               // Protects this struct.
-	ips          []net.IP      // All known IPs for the server.
-	confirmed    net.IP        // IP address confirmed to be working.
+	ips          []netip.Addr  // All known IPs for the server.
+	confirmed    netip.Addr    // IP address confirmed to be working.
 	r            *net.Resolver // Resolver to use for hostname resolution.
 	seed         []string      // Bootstrap IPs; may be nil.
 }
 
 // Reports whether ip is in the set.  Must be called under RLock.
-func (s *IPSet) hasLocked(ip net.IP) bool {
+func (s *IPSet) hasLocked(ip netip.Addr) bool {
 	for _, oldIP := range s.ips {
-		if oldIP.Equal(ip) {
+		if oldIP.Compare(ip) == 0 {
 			return true
 		}
 	}
@@ -125,8 +132,8 @@ func (s *IPSet) hasLocked(ip net.IP) bool {
 }
 
 // Adds an IP to the set if it is not present.  Must be called under Lock.
-func (s *IPSet) addLocked(ip net.IP) {
-	if ip != nil && !s.hasLocked(ip) {
+func (s *IPSet) addLocked(ip netip.Addr) {
+	if !ip.IsUnspecified() && ip.IsValid() && !s.hasLocked(ip) {
 		s.ips = append(s.ips, ip)
 	}
 }
@@ -140,14 +147,20 @@ func (s *IPSet) Seed() []string {
 // Add one or more IP addresses to the set.
 // The hostname can be a domain name or an IP address.
 func (s *IPSet) Add(hostname string) {
+	r := s.r
+	if r == nil {
+		log.W("ipmap: Add: resolver not set")
+		return
+	}
 	// Don't hold the ipMap lock during blocking I/O.
-	resolved, err := s.r.LookupIPAddr(context.TODO(), hostname)
+	resolved, err := r.LookupNetIP(context.TODO(), "ip", hostname)
 	if err != nil {
-		log.W("ipmap: err resolving %s: %v", hostname, err)
+		log.W("ipmap: Add: err resolving %s: %v", hostname, err)
+		return
 	}
 	s.Lock()
 	for _, addr := range resolved {
-		s.addLocked(addr.IP)
+		s.addLocked(addr)
 	}
 	s.Unlock()
 }
@@ -155,8 +168,10 @@ func (s *IPSet) Add(hostname string) {
 // Adds one or more IP addresses to the set.
 func (s *IPSet) bootstrap() {
 	s.Lock()
-	for _, ip := range s.seed {
-		s.addLocked(net.ParseIP(ip))
+	for _, ipstr := range s.seed {
+		if ip, err := netip.ParseAddr(ipstr); err == nil {
+			s.addLocked(ip)
+		}
 	}
 	s.Unlock()
 }
@@ -170,9 +185,10 @@ func (s *IPSet) Empty() bool {
 
 // GetAll returns a copy of the IP set as a slice in random order.
 // The slice is owned by the caller, but the elements are owned by the set.
-func (s *IPSet) GetAll() []net.IP {
+func (s *IPSet) GetAll() []netip.Addr {
 	s.RLock()
-	c := append([]net.IP{}, s.ips...)
+	c := make([]netip.Addr, 0, len(s.ips))
+	c = append(c, s.ips...)
 	s.RUnlock()
 	rand.Shuffle(len(c), func(i, j int) {
 		c[i], c[j] = c[j], c[i]
@@ -181,16 +197,16 @@ func (s *IPSet) GetAll() []net.IP {
 }
 
 // Confirmed returns the confirmed IP address, or nil if there is no such address.
-func (s *IPSet) Confirmed() net.IP {
+func (s *IPSet) Confirmed() netip.Addr {
 	s.RLock()
 	defer s.RUnlock()
 	return s.confirmed
 }
 
 // Confirm marks ip as the confirmed address.
-func (s *IPSet) Confirm(ip net.IP) {
+func (s *IPSet) Confirm(ip netip.Addr) {
 	// Optimization: Skip setting if it hasn't changed.
-	if ip.Equal(s.Confirmed()) {
+	if ip.Compare(s.Confirmed()) == 0 {
 		// This is the common case.
 		return
 	}
@@ -203,10 +219,10 @@ func (s *IPSet) Confirm(ip net.IP) {
 
 // Disconfirm sets the confirmed address to nil if the current confirmed address
 // is the provided ip.
-func (s *IPSet) Disconfirm(ip net.IP) {
+func (s *IPSet) Disconfirm(ip netip.Addr) {
 	s.Lock()
-	if ip.Equal(s.confirmed) {
-		s.confirmed = nil
+	if ip.Compare(s.confirmed) == 0 {
+		s.confirmed = zeroaddr
 	}
 	s.Unlock()
 }
