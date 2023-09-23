@@ -44,7 +44,7 @@ type dnsExchangeResponse struct {
 	err      error
 }
 
-func FetchCurrentDNSCryptCert(proxy *Proxy, serverName *string, pk ed25519.PublicKey,
+func FetchCurrentDNSCryptCert(proxy *DcMulti, serverName *string, pk ed25519.PublicKey,
 	serverAddress string, providerName string, relayTCPAddr *net.TCPAddr) (CertInfo, *net.TCPAddr, error) {
 	if len(pk) != ed25519.PublicKeySize {
 		return CertInfo{}, nil, errors.New("invalid public key length")
@@ -204,7 +204,7 @@ func packTxtString(s string) []byte {
 	return msg
 }
 
-func dnsExchange(proxy *Proxy, query *dns.Msg, serverAddress string,
+func dnsExchange(proxy *DcMulti, query *dns.Msg, serverAddress string,
 	relayTCPAddr *net.TCPAddr, serverName *string, relayForCerts bool) (*dns.Msg, time.Duration, *net.TCPAddr, error) {
 
 	// always use udp to fetch certs since most servers like adguard, cleanbrowsing
@@ -260,7 +260,7 @@ func dnsExchange(proxy *Proxy, query *dns.Msg, serverAddress string,
 	return nil, 0, nil, err
 }
 
-func _dnsExchange(proxy *Proxy, proto string, query *dns.Msg, serverAddress string,
+func _dnsExchange(proxy *DcMulti, proto string, query *dns.Msg, serverAddress string,
 	relayTCPAddr *net.TCPAddr, paddedLen int, relayForCerts bool) dnsExchangeResponse {
 	var packet []byte
 	var rtt time.Duration

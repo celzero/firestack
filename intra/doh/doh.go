@@ -39,6 +39,7 @@ import (
 
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/dnsx"
+	"github.com/celzero/firestack/intra/ipn"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
 	"github.com/celzero/firestack/intra/split"
@@ -66,19 +67,22 @@ type odohtransport struct {
 
 // TODO: Keep a context here so that queries can be canceled.
 type transport struct {
-	*odohtransport // stackoverflow.com/a/28505394
-	dnsx.Transport
+	*odohtransport     // stackoverflow.com/a/28505394
 	id                 string
 	typ                string // dnsx.DOH / dnsx.ODOH
 	url                string // endpoint URL
 	hostname           string // endpoint hostname
 	client             http.Client
+	clientpool         map[string]*http.Client
 	dialer             *protect.RDial
+	proxies            ipn.Proxies
 	status             int
 	est                core.P2QuantileEstimator
 	hangoverLock       sync.RWMutex
 	hangoverExpiration time.Time
 }
+
+var _ dnsx.Transport = (*transport)(nil)
 
 func (t *transport) dial(network, addr string) (net.Conn, error) {
 	return split.ReDial(t.dialer, network, addr)
@@ -91,36 +95,32 @@ func (t *transport) dial(network, addr string) (net.Conn, error) {
 //
 //	lookup fails or returns non-working addresses.
 //
-// `dialer` is the dialer that the transport will use.  The transport will modify the dialer's
-//
 //	timeout but will not mutate it otherwise.
 //
 // `auth` will provide a client certificate if required by the TLS server.
 // `listener` will receive the status of each DNS query when it is complete.
-func NewTransport(id, rawurl string, addrs []string, dialer *protect.RDial) (dnsx.Transport, error) {
-	return newTransport(dnsx.DOH, id, rawurl, "", addrs, dialer)
+func NewTransport(id, rawurl string, addrs []string, px ipn.Proxies) (dnsx.Transport, error) {
+	return newTransport(dnsx.DOH, id, rawurl, "", addrs, px)
 }
 
-func NewOdohTransport(id, endpoint, target string, addrs []string, dailer *protect.RDial) (dnsx.Transport, error) {
-	return newTransport(dnsx.ODOH, id, endpoint, target, addrs, dailer)
+func NewOdohTransport(id, endpoint, target string, addrs []string, px ipn.Proxies) (dnsx.Transport, error) {
+	return newTransport(dnsx.ODOH, id, endpoint, target, addrs, px)
 }
 
-func newTransport(typ, id, rawurl, target string, addrs []string, dialer *protect.RDial) (*transport, error) {
+func newTransport(typ, id, rawurl, target string, addrs []string, px ipn.Proxies) (*transport, error) {
 	// TODO: client auth
 	var auth ClientAuth
 	skipTLSVerify := false
 	isodoh := typ == dnsx.ODOH
 
-	if dialer == nil {
-		return nil, errors.ErrUnsupported
-	}
-
 	t := &transport{
-		id:     id,
-		typ:    typ,
-		dialer: dialer,
-		status: dnsx.Start,
-		est:    core.NewP50Estimator(),
+		id:         id,
+		typ:        typ,
+		dialer:     protect.MakeNsRDial(nil),
+		proxies:    px,
+		status:     dnsx.Start,
+		clientpool: make(map[string]*http.Client),
+		est:        core.NewP50Estimator(),
 	}
 	if !isodoh {
 		parsedurl, err := url.Parse(rawurl)
@@ -214,7 +214,7 @@ func newTransport(typ, id, rawurl, target string, addrs []string, dialer *protec
 // Independent of the query's success or failure, this function also returns the
 // address of the server on a best-effort basis, or nil if the address could not
 // be determined.
-func (t *transport) doDoh(q []byte) (response []byte, blocklists string, elapsed time.Duration, qerr *dnsx.QueryError) {
+func (t *transport) doDoh(pid string, q []byte) (response []byte, blocklists string, elapsed time.Duration, qerr *dnsx.QueryError) {
 	start := time.Now()
 	q, err := AddEdnsPadding(q)
 	if err != nil {
@@ -234,7 +234,7 @@ func (t *transport) doDoh(q []byte) (response []byte, blocklists string, elapsed
 		return
 	}
 
-	response, blocklists, elapsed, qerr = t.send(req)
+	response, blocklists, elapsed, qerr = t.send(pid, req)
 
 	if qerr == nil { // restore dns query id
 		zeroid := binary.BigEndian.Uint16(response)
@@ -249,7 +249,20 @@ func (t *transport) doDoh(q []byte) (response []byte, blocklists string, elapsed
 	return
 }
 
-func (t *transport) send(req *http.Request) (ans []byte, blocklists string, elapsed time.Duration, qerr *dnsx.QueryError) {
+func (t *transport) fetch(pid string, req *http.Request) (res *http.Response, err error) {
+	noproxy := len(pid) == 0 || pid == dnsx.NetNoProxy
+	if noproxy {
+		return t.client.Do(req)
+	}
+	px, err := t.proxies.GetProxy(pid)
+	if err != nil {
+		err = dnsx.NewTransportQueryError(err)
+		return
+	}
+	return px.Fetch(req)
+}
+
+func (t *transport) send(pid string, req *http.Request) (ans []byte, blocklists string, elapsed time.Duration, qerr *dnsx.QueryError) {
 	t.hangoverLock.RLock()
 	inHangover := time.Now().Before(t.hangoverExpiration)
 	t.hangoverLock.RUnlock()
@@ -258,7 +271,7 @@ func (t *transport) send(req *http.Request) (ans []byte, blocklists string, elap
 		return
 	}
 
-	var server *net.TCPAddr
+	var server net.Addr
 	var conn net.Conn
 	start := time.Now()
 	// either t.hostname or t.odohtargetname or t.odohproxy
@@ -272,7 +285,7 @@ func (t *transport) send(req *http.Request) (ans []byte, blocklists string, elap
 
 		if qerr == nil && server != nil {
 			// record a working IP address for this server
-			split.Confirm(hostname, server.IP)
+			split.Confirm(hostname, server)
 			return
 		}
 		if qerr != nil {
@@ -282,8 +295,8 @@ func (t *transport) send(req *http.Request) (ans []byte, blocklists string, elap
 				t.hangoverLock.Unlock()
 			}
 			if server != nil {
-				log.D("doh: disconfirming %s, %s", hostname, server.IP)
-				split.Disconfirm(hostname, server.IP)
+				log.D("doh: disconfirming %s, %s", hostname, server)
+				split.Disconfirm(hostname, server)
 			}
 			if conn != nil {
 				log.I("doh: close failing doh conn to %s", hostname)
@@ -304,7 +317,7 @@ func (t *transport) send(req *http.Request) (ans []byte, blocklists string, elap
 			}
 			conn = info.Conn
 			// info.Conn is a DuplexConn, so RemoteAddr is actually a TCPAddr.
-			server = conn.RemoteAddr().(*net.TCPAddr)
+			server = conn.RemoteAddr()
 		},
 		ConnectStart: func(network, addr string) {
 			start = time.Now() // re...start
@@ -317,7 +330,8 @@ func (t *transport) send(req *http.Request) (ans []byte, blocklists string, elap
 	req = req.WithContext(httptrace.WithClientTrace(req.Context(), &trace))
 
 	log.V("doh: sending query")
-	httpResponse, err := t.client.Do(req)
+
+	httpResponse, err := t.fetch(pid, req)
 
 	if err != nil {
 		qerr = dnsx.NewSendFailedQueryError(err)
@@ -382,15 +396,17 @@ func (t *transport) Type() string {
 	return t.typ
 }
 
-func (t *transport) Query(_ string, q []byte, summary *dnsx.Summary) (r []byte, err error) {
+func (t *transport) Query(network string, q []byte, summary *dnsx.Summary) (r []byte, err error) {
 	var blocklists string
 	var elapsed time.Duration
 	var qerr *dnsx.QueryError
+
+	_, pid := dnsx.Net2ProxyID(network)
 	if t.typ == dnsx.DOH {
-		r, blocklists, elapsed, qerr = t.doDoh(q)
+		r, blocklists, elapsed, qerr = t.doDoh(pid, q)
 		summary.Server = t.hostname
 	} else {
-		r, elapsed, qerr = t.doOdoh(q)
+		r, elapsed, qerr = t.doOdoh(pid, q)
 		summary.Server = t.odohtargetname
 		summary.RelayServer = t.odohproxy
 	}
@@ -410,6 +426,9 @@ func (t *transport) Query(_ string, q []byte, summary *dnsx.Summary) (r []byte, 
 	summary.RTtl = xdns.RTtl(ans)
 	summary.Status = status
 	summary.Blocklists = blocklists
+	if len(pid) > 0 && pid != dnsx.NetNoProxy {
+		summary.RelayServer = dnsx.SummaryProxyLabel + pid
+	}
 
 	return r, err
 }

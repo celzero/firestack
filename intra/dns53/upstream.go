@@ -16,6 +16,7 @@ import (
 
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/dnsx"
+	"github.com/celzero/firestack/intra/ipn"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
 	"github.com/celzero/firestack/intra/settings"
@@ -30,32 +31,36 @@ const usemeikgclient = true
 
 // TODO: Keep a context here so that queries can be canceled.
 type transport struct {
-	dnsx.Transport
-	id     string
-	ipport string
-	status int
-	mcudp  *dns.Client
-	mctcp  *dns.Client
-	est    core.P2QuantileEstimator
+	id      string
+	ipport  string
+	status  int
+	mcudp   *dns.Client
+	mctcp   *dns.Client
+	proxies ipn.Proxies // may be nil; esp for id == dnsx.System
+	est     core.P2QuantileEstimator
 }
 
+var _ dnsx.Transport = (*transport)(nil)
+
 // NewTransport returns a DNS transport, ready for use.
-func NewTransport(id, ip, port string) (t dnsx.Transport, err error) {
+func NewTransport(id, ip, port string, px ipn.Proxies) (t dnsx.Transport, err error) {
 	do, err := settings.NewDNSOptions(ip, port)
 	if err != nil {
 		return
 	}
 
-	return newTransportOpts(id, do)
+	return newTransport(id, do, px)
 }
 
-func newTransportOpts(id string, do *settings.DNSOptions) (dnsx.Transport, error) {
+func newTransport(id string, do *settings.DNSOptions, px ipn.Proxies) (dnsx.Transport, error) {
 	tx := &transport{
-		id:     id,
-		ipport: do.IPPort,
-		status: dnsx.Start,
-		est:    core.NewP50Estimator(),
+		id:      id,
+		ipport:  do.IPPort,
+		status:  dnsx.Start,
+		proxies: px,
+		est:     core.NewP50Estimator(),
 	}
+	// todo: with controller
 	d := protect.MakeNsDialer(nil)
 	if usemeikgclient {
 		tx.mcudp = &dns.Client{
@@ -84,22 +89,22 @@ func NewTransportFrom(id string, ipp netip.AddrPort) (t dnsx.Transport, err erro
 		return
 	}
 
-	return newTransportOpts(id, do)
+	return newTransport(id, do, nil)
 }
 
 // Given a raw DNS query (including the query ID), this function sends the
 // query.  If the query is successful, it returns the response and a nil qerr.  Otherwise,
 // it returns a SERVFAIL response and a qerr with a status value indicating the cause.
-func (t *transport) doQuery(network string, q []byte) (response []byte, elapsed time.Duration, qerr *dnsx.QueryError) {
+func (t *transport) doQuery(network, pid string, q []byte) (response []byte, elapsed time.Duration, qerr *dnsx.QueryError) {
 	if len(q) < 2 {
 		qerr = dnsx.NewBadQueryError(fmt.Errorf("dns53: query length is %d", len(q)))
 		return
 	}
 
 	if usemeikgclient {
-		response, elapsed, qerr = t.sendRequest2(network, q)
+		response, elapsed, qerr = t.sendRequest2(network, pid, q)
 	} else {
-		response, elapsed, qerr = t.sendRequest(network, q)
+		response, elapsed, qerr = t.sendRequest(network, pid, q)
 	}
 
 	if qerr != nil { // only on send-request errors
@@ -109,7 +114,7 @@ func (t *transport) doQuery(network string, q []byte) (response []byte, elapsed 
 	return
 }
 
-func (t *transport) sendRequest2(network string, q []byte) (response []byte, elapsed time.Duration, qerr *dnsx.QueryError) {
+func (t *transport) sendRequest2(network, pid string, q []byte) (response []byte, elapsed time.Duration, qerr *dnsx.QueryError) {
 	var ans *dns.Msg
 	var err error
 	msg := xdns.AsMsg(q)
@@ -117,19 +122,41 @@ func (t *transport) sendRequest2(network string, q []byte) (response []byte, ela
 		qerr = dnsx.NewBadQueryError(errQueryParse)
 		return
 	}
-	// TODO: conn pooling using t.mc[tcp|udp].Dial + ExchangeWithConn
-	if network == dnsx.NetTypeUDP {
-		if udpconn, udperr := t.mcudp.Dial(t.ipport); udperr == nil {
-			ans, elapsed, err = t.mcudp.ExchangeWithConn(msg, udpconn)
-		} else {
-			// if udp is unrechable, try tcp
-			// github.com/celzero/rethink-app/issues/839
-			network = dnsx.NetTypeTCP
-			log.D("dns53: udp(%s) dial err: %v; try tcp", t.id, err)
+
+	noproxy := len(pid) == 0 || pid == dnsx.NetNoProxy
+	if noproxy {
+		// TODO: conn pooling using t.mc[tcp|udp].Dial + ExchangeWithConn
+		if network == dnsx.NetTypeUDP {
+			if udpconn, udperr := t.mcudp.Dial(t.ipport); udperr == nil {
+				ans, elapsed, err = t.mcudp.ExchangeWithConn(msg, udpconn)
+				udpconn.Close()
+			} else {
+				// if udp is unrechable, try tcp
+				// github.com/celzero/rethink-app/issues/839
+				network = dnsx.NetTypeTCP
+				log.D("dns53: udp(%s) dial err: %v; try tcp", t.id, err)
+			}
 		}
-	}
-	if network == dnsx.NetTypeTCP {
-		ans, elapsed, err = t.mctcp.Exchange(msg, t.ipport)
+		if network == dnsx.NetTypeTCP {
+			ans, elapsed, err = t.mctcp.Exchange(msg, t.ipport)
+		}
+	} else {
+		var px ipn.Proxy
+		var pxconn net.Conn
+		px, err = t.proxies.GetProxy(pid)
+		if err == nil {
+			dialer := ipn.AsRDial(px)
+			pxconn, err = dialer.Dial(network, t.ipport)
+		}
+		if err == nil {
+			conn := &dns.Conn{Conn: pxconn}
+			if network == dnsx.NetTypeTCP {
+				ans, elapsed, err = t.mctcp.ExchangeWithConn(msg, conn)
+			} else {
+				ans, elapsed, err = t.mcudp.ExchangeWithConn(msg, conn)
+			}
+			conn.Close()
+		}
 	}
 
 	if err != nil {
@@ -144,7 +171,7 @@ func (t *transport) sendRequest2(network string, q []byte) (response []byte, ela
 	return
 }
 
-func (t *transport) sendRequest(network string, q []byte) (response []byte, elapsed time.Duration, qerr *dnsx.QueryError) {
+func (t *transport) sendRequest(network, pid string, q []byte) (response []byte, elapsed time.Duration, qerr *dnsx.QueryError) {
 	var conn net.Conn
 	var dialError error
 	start := time.Now()
@@ -242,7 +269,8 @@ func (t *transport) sendRequest(network string, q []byte) (response []byte, elap
 
 func (t *transport) Query(network string, q []byte, summary *dnsx.Summary) (r []byte, err error) {
 
-	response, elapsed, qerr := t.doQuery(network, q)
+	proto, pid := dnsx.Net2ProxyID(network)
+	response, elapsed, qerr := t.doQuery(proto, pid, q)
 
 	status := dnsx.Complete
 	if qerr != nil {
@@ -258,6 +286,9 @@ func (t *transport) Query(network string, q []byte, summary *dnsx.Summary) (r []
 	summary.RCode = xdns.Rcode(ans)
 	summary.RTtl = xdns.RTtl(ans)
 	summary.Server = t.GetAddr()
+	if len(pid) > 0 && pid != dnsx.NetNoProxy {
+		summary.RelayServer = dnsx.SummaryProxyLabel + pid
+	}
 	summary.Status = status
 	t.est.Add(summary.Latency)
 

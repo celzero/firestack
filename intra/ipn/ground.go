@@ -6,7 +6,11 @@
 
 package ipn
 
-import "github.com/celzero/firestack/intra/protect"
+import (
+	"net/http"
+
+	"github.com/celzero/firestack/intra/protect"
+)
 
 type ground struct {
 	addr string
@@ -20,7 +24,15 @@ func NewGroundProxy() Proxy {
 }
 
 func (h *ground) Dial(network, addr string) (c protect.Conn, err error) {
-	return nil, errProxyNotFound
+	return nil, errNoProxyResponse
+}
+
+func (h *ground) asRDial() *protect.RDial {
+	return &protect.RDial{}
+}
+
+func (h *ground) Fetch(req *http.Request) (*http.Response, error) {
+	return nil, errNoProxyResponse
 }
 
 func (h *ground) ID() string {

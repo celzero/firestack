@@ -7,6 +7,7 @@
 package ipn
 
 import (
+	"net/http"
 	"net/url"
 
 	"github.com/celzero/firestack/intra/log"
@@ -17,6 +18,8 @@ import (
 )
 
 type http1 struct {
+	hc     *http.Client   // exported http client
+	rd     *protect.RDial // exported rdial
 	dialer proxy.Dialer
 	id     string
 	opts   *settings.ProxyOptions
@@ -36,8 +39,9 @@ func NewHTTPProxy(id string, c protect.Controller, po *settings.ProxyOptions) (P
 		return nil, errProxyScheme
 	}
 
+	d := protect.MakeNsDialer(c)
 	var hp *tx.HttpTunnel
-	optdialer := tx.WithDialer(protect.MakeNsDialer(c))
+	optdialer := tx.WithDialer(d)
 	if po.HasAuth() {
 		optauth := tx.WithProxyAuth(tx.AuthBasic(po.Auth.User, po.Auth.Password))
 		hp = tx.New(u, optdialer, optauth)
@@ -55,6 +59,8 @@ func NewHTTPProxy(id string, c protect.Controller, po *settings.ProxyOptions) (P
 		id:     id,
 		opts:   po,
 	}
+	h.rd = newRDial(h)
+	h.hc = newHTTPClient(h.rd)
 
 	log.D("proxy: http1: created %s with opts(%s)", h.ID(), po)
 
@@ -73,6 +79,19 @@ func (h *http1) Dial(network, addr string) (c protect.Conn, err error) {
 	}
 	log.I("proxy: http1: dial(%s) from %s to %s; err? %v", network, h.GetAddr(), addr, err)
 	return
+}
+
+func (h *http1) Fetch(req *http.Request) (*http.Response, error) {
+	stopped := h.status == END
+	log.V("proxy: http1: %d; fetch(%s) from %s; ok? %t", h.id, req.URL, !stopped)
+	if stopped {
+		return nil, errProxyStopped
+	}
+	return h.hc.Do(req)
+}
+
+func (h *http1) asRDial() *protect.RDial {
+	return h.rd
 }
 
 func (h *http1) ID() string {

@@ -15,6 +15,7 @@ import (
 
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/dnsx"
+	"github.com/celzero/firestack/intra/ipn"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
 	"github.com/celzero/firestack/intra/xdns"
@@ -24,19 +25,20 @@ import (
 const dottimeout = 7 * time.Second
 const dotport = "853"
 
-// TODO: Keep a context here so that queries can be canceled.
 type dot struct {
-	dnsx.Transport
-	id     string
-	url    string
-	addr   string
-	status int
-	c      *dns.Client
-	est    core.P2QuantileEstimator
+	id      string
+	url     string
+	addr    string
+	status  int
+	c       *dns.Client
+	proxies ipn.Proxies
+	est     core.P2QuantileEstimator
 }
 
+var _ dnsx.Transport = (*dot)(nil)
+
 // NewTransport returns a DNS transport, ready for use.
-func NewTLSTransport(id, rawurl string) (t dnsx.Transport, err error) {
+func NewTLSTransport(id, rawurl string, px ipn.Proxies) (t dnsx.Transport, err error) {
 	tlscfg := &tls.Config{}
 	// rawurl is either tls:host[:port] or tls://host[:port] or host[:port]
 	parsedurl, err := url.Parse(rawurl)
@@ -47,17 +49,19 @@ func NewTLSTransport(id, rawurl string) (t dnsx.Transport, err error) {
 		log.I("dot: disabling tls verification for %s", rawurl)
 		tlscfg.InsecureSkipVerify = true
 	}
+	// todo: with controller
+	dialer := protect.MakeNsDialer(nil)
 	tx := &dot{
-		id:     id,
-		url:    rawurl,
-		addr:   url2addr(rawurl),
-		status: dnsx.Start,
-		est:    core.NewP50Estimator(),
+		id:      id,
+		url:     rawurl,
+		addr:    url2addr(rawurl),
+		status:  dnsx.Start,
+		proxies: px,
+		est:     core.NewP50Estimator(),
 	}
-	d := protect.MakeNsDialer(nil)
 	tx.c = &dns.Client{
 		Net:            "tcp-tls",
-		Dialer:         d,
+		Dialer:         dialer,
 		Timeout:        dottimeout,
 		SingleInflight: true,
 		TLSConfig:      tlscfg,
@@ -66,13 +70,13 @@ func NewTLSTransport(id, rawurl string) (t dnsx.Transport, err error) {
 	return tx, nil
 }
 
-func (t *dot) doQuery(network string, q []byte) (response []byte, elapsed time.Duration, qerr *dnsx.QueryError) {
+func (t *dot) doQuery(pid string, q []byte) (response []byte, elapsed time.Duration, qerr *dnsx.QueryError) {
 	if len(q) < 2 {
 		qerr = dnsx.NewBadQueryError(fmt.Errorf("err len(query) %d", len(q)))
 		return
 	}
 
-	response, elapsed, qerr = t.sendRequest(q)
+	response, elapsed, qerr = t.sendRequest(pid, q)
 
 	if qerr != nil { // only on send-request errors
 		response = xdns.Servfail(q)
@@ -81,7 +85,7 @@ func (t *dot) doQuery(network string, q []byte) (response []byte, elapsed time.D
 	return
 }
 
-func (t *dot) sendRequest(q []byte) (response []byte, elapsed time.Duration, qerr *dnsx.QueryError) {
+func (t *dot) sendRequest(pid string, q []byte) (response []byte, elapsed time.Duration, qerr *dnsx.QueryError) {
 	var ans *dns.Msg
 	var err error
 
@@ -91,8 +95,24 @@ func (t *dot) sendRequest(q []byte) (response []byte, elapsed time.Duration, qer
 		return
 	}
 
-	// FIXME: conn pooling using t.c.Dial + ExchangeWithConn
-	ans, elapsed, err = t.c.Exchange(msg, t.addr)
+	noproxy := len(pid) == 0 || pid == dnsx.NetNoProxy
+	if noproxy {
+		// FIXME: conn pooling using t.c.Dial + ExchangeWithConn
+		ans, elapsed, err = t.c.Exchange(msg, t.addr)
+	} else {
+		var px ipn.Proxy
+		var pxconn net.Conn
+		px, err = t.proxies.GetProxy(pid)
+		if err == nil {
+			dialer := ipn.AsRDial(px)
+			pxconn, err = dialer.Dial("tcp", t.addr)
+		}
+		if err == nil {
+			conn := &dns.Conn{Conn: pxconn}
+			ans, elapsed, err = t.c.ExchangeWithConn(msg, conn)
+			conn.Close()
+		} // fallthrough
+	}
 
 	if err != nil {
 		qerr = dnsx.NewTransportQueryError(err)
@@ -108,7 +128,9 @@ func (t *dot) sendRequest(q []byte) (response []byte, elapsed time.Duration, qer
 
 func (t *dot) Query(network string, q []byte, summary *dnsx.Summary) (r []byte, err error) {
 
-	response, elapsed, qerr := t.doQuery(network, q)
+	_, pid := dnsx.Net2ProxyID(network)
+
+	response, elapsed, qerr := t.doQuery(pid, q)
 
 	status := dnsx.Complete
 	if qerr != nil {
@@ -124,6 +146,9 @@ func (t *dot) Query(network string, q []byte, summary *dnsx.Summary) (r []byte, 
 	summary.RCode = xdns.Rcode(ans)
 	summary.RTtl = xdns.RTtl(ans)
 	summary.Server = t.GetAddr()
+	if len(pid) > 0 && pid != dnsx.NetNoProxy {
+		summary.RelayServer = dnsx.SummaryProxyLabel + pid
+	}
 	summary.Status = status
 	t.est.Add(summary.Latency)
 

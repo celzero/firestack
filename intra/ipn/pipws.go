@@ -38,6 +38,8 @@ type pipws struct {
 	rsasig   string         // hex, authorizer unblinded signature
 	client   http.Client    // ws client
 	dialer   *protect.RDial // ws dialer
+	hc       *http.Client   // exported http client
+	rd       *protect.RDial // exported dialer
 	status   int            // proxy status: TOK, TKO, END
 }
 
@@ -126,6 +128,8 @@ func NewPipWsProxy(id string, ctl protect.Controller, po *settings.ProxyOptions)
 		rsasig:   splitpath[2],
 		status:   TOK,
 	}
+	t.rd = newRDial(t)
+	t.hc = newHTTPClient(t.rd)
 
 	ok := split.Renew(t.hostname, po.Addrs) // po.Addrs may be nil or empty
 	if !ok {
@@ -218,4 +222,17 @@ func (t *pipws) Dial(network, addr string) (protect.Conn, error) {
 
 	t.status = TOK
 	return c, nil
+}
+
+func (h *pipws) Fetch(req *http.Request) (*http.Response, error) {
+	stopped := h.Status() == END
+	log.V("pipws: %d; fetch %s; ok? %t", h.id, req.URL, !stopped)
+	if stopped {
+		return nil, errProxyStopped
+	}
+	return h.hc.Do(req)
+}
+
+func (h *pipws) asRDial() *protect.RDial {
+	return h.rd
 }

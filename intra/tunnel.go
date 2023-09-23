@@ -96,7 +96,7 @@ func NewTunnel(fd, mtu int, fakedns string, dns dnsx.Transport, tunmode *setting
 
 	resolver := dnsx.NewResolver(fakedns, dns, tunmode, bdg, natpt)
 	resolver.Add(newBlockAllTransport())
-	resolver.Add(newDNSCryptTransport())
+	resolver.Add(newDNSCryptTransport(proxies))
 	resolver.Add(NewMDNSTransport(l3))
 
 	tcph := NewTCPHandler(resolver, proxies, bdg, tunmode, bdg)
@@ -178,7 +178,7 @@ func (t *rtunnel) SetSystemDNS(ippcsv string) int {
 	n := 0
 	for _, ipport := range ipports {
 		if ipp, err := netip.ParseAddrPort(ipport); err == nil {
-			if sdns, err := newDNSProxy(dnsx.System, ipp); err == nil {
+			if sdns, err := newSystemDNSProxy(ipp); err == nil {
 				t.resolver.AddSystemDNS(sdns)
 				n += 1
 			} else {

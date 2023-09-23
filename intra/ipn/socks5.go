@@ -7,6 +7,8 @@
 package ipn
 
 import (
+	"net/http"
+
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
 	"github.com/celzero/firestack/intra/settings"
@@ -18,6 +20,8 @@ type socks5 struct {
 	dailer proxy.Dialer
 	id     string
 	opts   *settings.ProxyOptions
+	rd     *protect.RDial
+	hc     *http.Client
 	status int
 }
 
@@ -31,7 +35,6 @@ func NewSocks5Proxy(id string, ctl protect.Controller, po *settings.ProxyOptions
 
 	// replace with a network namespace aware dialer
 	tx.Dial = protect.MakeNsRDial(ctl)
-
 	// x.net.proxy doesn't yet support udp
 	// github.com/golang/net/blob/62affa334/internal/socks/socks.go#L233
 	// if po.Auth.User and po.Auth.Password are empty strings, the upstream
@@ -50,6 +53,8 @@ func NewSocks5Proxy(id string, ctl protect.Controller, po *settings.ProxyOptions
 		id:     id,
 		opts:   po,
 	}
+	h.rd = newRDial(h)
+	h.hc = newHTTPClient(h.rd)
 
 	log.D("proxy: socks5: created %s with opts(%s)", h.ID(), po)
 
@@ -89,6 +94,19 @@ func (h *socks5) Dial(network, addr string) (c protect.Conn, err error) {
 		h.status = TKO
 	}
 	return
+}
+
+func (h *socks5) asRDial() *protect.RDial {
+	return h.rd
+}
+
+func (h *socks5) Fetch(req *http.Request) (*http.Response, error) {
+	stopped := h.status == END
+	log.V("proxy: socks5: %d; fetch(%s); ok? %t", h.id, req.URL, stopped)
+	if stopped {
+		return nil, errProxyStopped
+	}
+	return h.hc.Do(req)
 }
 
 func (h *socks5) ID() string {

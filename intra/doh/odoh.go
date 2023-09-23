@@ -37,7 +37,7 @@ var errZeroOdohCfgs = errors.New("no odoh configs found")
 
 // targets:  github.com/DNSCrypt/dnscrypt-resolvers/blob/master/v3/odoh-servers.md
 // endpoints:  github.com/DNSCrypt/dnscrypt-resolvers/blob/master/v3/odoh-relays.md
-func (d *transport) doOdoh(q []byte) (res []byte, elapsed time.Duration, qerr *dnsx.QueryError) {
+func (d *transport) doOdoh(pid string, q []byte) (res []byte, elapsed time.Duration, qerr *dnsx.QueryError) {
 	viaproxy := len(d.odohproxy) > 0
 
 	odohmsg, odohctx, err := d.buildTargetQuery(q)
@@ -54,7 +54,7 @@ func (d *transport) doOdoh(q []byte) (res []byte, elapsed time.Duration, qerr *d
 		return
 	}
 
-	res, _, elapsed, qerr = d.send(req)
+	res, _, elapsed, qerr = d.send(pid, req)
 	log.V("odoh: send; proxy? %t, elapsed: %s; err? %v", viaproxy, elapsed, qerr)
 	if qerr != nil {
 		// datatracker.ietf.org/doc/rfc9230 section 4.3 and section 7
@@ -214,7 +214,7 @@ func (d *transport) refreshTargetKeyDNS() (ocfg *odoh.ObliviousDoHConfig, exp ti
 	if err != nil {
 		return
 	}
-	cr, _, t1, qerr := d.send(req)
+	cr, _, t1, qerr := d.send(dnsx.NetNoProxy, req)
 
 	log.D("odoh: refresh-target: %s; elapsed: %dms; err? %v", d.odohtargetname, t1.Milliseconds(), qerr)
 	if qerr != nil {

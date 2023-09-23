@@ -14,23 +14,23 @@ import (
 	"github.com/celzero/firestack/intra/dnscrypt"
 	"github.com/celzero/firestack/intra/dnsx"
 	"github.com/celzero/firestack/intra/doh"
-	"github.com/celzero/firestack/intra/protect"
+	"github.com/celzero/firestack/intra/ipn"
 )
 
-func NewDNSProxy(id, ip, port string) (d dnsx.Transport, err error) {
-	return dns53.NewTransport(id, ip, port)
+func NewDNSProxy(id, ip, port string, px ipn.Proxies) (d dnsx.Transport, err error) {
+	return dns53.NewTransport(id, ip, port, px)
 }
 
-func newDNSProxy(id string, ipp netip.AddrPort) (d dnsx.Transport, err error) {
-	return dns53.NewTransportFrom(id, ipp)
+func newSystemDNSProxy(ipp netip.AddrPort) (d dnsx.Transport, err error) {
+	return dns53.NewTransportFrom(dnsx.System, ipp)
 }
 
 func newBlockAllTransport() (d dnsx.Transport) {
 	return dns53.NewGroundedTransport(dnsx.BlockAll)
 }
 
-func newDNSCryptTransport() (p dnsx.TransportMult) {
-	p = dnscrypt.NewProxy()
+func newDNSCryptTransport(px ipn.Proxies) (p dnsx.TransportMult) {
+	p = dnscrypt.DcMult(px)
 	return
 }
 
@@ -43,43 +43,32 @@ func NewMDNSTransport(protos string) (d dnsx.Transport) {
 }
 
 // NewDoHTransport returns a DNSTransport that connects to the specified DoH server.
-// `url` is the URL of a DoH server (no template, POST-only).  If it is nonempty, it
-//
-//	overrides `udpdns` and `tcpdns`.
-//
-// `ips` is an optional comma-separated list of IP addresses for the server.  (This
-//
-//	wrapper is required because gomobile cannot make bindings for []string.)
-//
-// `protector` is the socket protector to use for all external network activity.
-// `auth` will provide a client certificate if required by the TLS server.
-// `listener` will be notified after each DNS query succeeds or fails.
-func NewDoHTransport(id, url, ips string) (dnsx.Transport, error) {
+// `url` is the URL of a DoH server (no template, POST-only).
+func NewDoHTransport(id, url, ips string, px ipn.Proxies) (dnsx.Transport, error) {
 	split := []string{}
 	if len(ips) > 0 {
 		split = strings.Split(ips, ",")
 	}
-	dialer := protect.MakeNsRDial(nil)
-	return doh.NewTransport(id, url, split, dialer)
+	return doh.NewTransport(id, url, split, px)
 }
 
-func NewODoHTransport(id, proxy, resolver, proxyips string) (dnsx.Transport, error) {
+func NewODoHTransport(id, proxy, resolver, proxyips string, px ipn.Proxies) (dnsx.Transport, error) {
 	split := []string{}
 	if len(proxyips) > 0 {
 		split = strings.Split(proxyips, ",")
 	}
-	dialer := protect.MakeNsRDial(nil)
-	return doh.NewOdohTransport(id, proxy, resolver, split, dialer)
+	return doh.NewOdohTransport(id, proxy, resolver, split, px)
 }
 
-func NewDoTTransport(id, url string) (dnsx.Transport, error) {
-	return dns53.NewTLSTransport(id, url)
+func NewDoTTransport(id, url string, px ipn.Proxies) (dnsx.Transport, error) {
+	return dns53.NewTLSTransport(id, url, px)
 }
 
-func NewDNSCryptTransport(r dnsx.Resolver, id, stamp string) (d dnsx.Transport, err error) {
+func NewDNSCryptTransport(id, stamp string, r dnsx.Resolver) (d dnsx.Transport, err error) {
 	var tm dnsx.TransportMult
 	if tm, err = r.GetMult(dnsx.DcProxy); err == nil {
-		if p, ok := tm.(*dnscrypt.Proxy); ok {
+		// todo: unexpose DcMulti, cast to TransportMult
+		if p, ok := tm.(*dnscrypt.DcMulti); ok {
 			return dnscrypt.NewTransport(p, id, stamp)
 		} else {
 			err = dnsx.ErrNoDcProxy
@@ -90,7 +79,7 @@ func NewDNSCryptTransport(r dnsx.Resolver, id, stamp string) (d dnsx.Transport, 
 
 func NewDNSCryptRelay(r dnsx.Resolver, stamp string) (dnsx.Transport, error) {
 	if tm, err := r.GetMult(dnsx.DcProxy); err == nil {
-		if p, ok := tm.(*dnscrypt.Proxy); ok {
+		if p, ok := tm.(*dnscrypt.DcMulti); ok {
 			return dnscrypt.NewRelayTransport(p, stamp)
 		} else {
 			return nil, dnsx.ErrNoDcProxy

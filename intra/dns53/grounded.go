@@ -17,11 +17,12 @@ import (
 
 // TODO: Keep a context here so that queries can be canceled.
 type grounded struct {
-	dnsx.Transport
 	id     string
 	ipport string
 	status int
 }
+
+var _ dnsx.Transport = (*grounded)(nil)
 
 // NewGroundedTransport returns a DNS transport that blocks all DNS queries.
 func NewGroundedTransport(id string) (t dnsx.Transport) {

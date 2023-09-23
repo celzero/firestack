@@ -8,6 +8,8 @@ package dnsx
 
 import "fmt"
 
+const SummaryProxyLabel = "proxy:"
+
 // Summary is a summary of a DNS transaction, reported when it is complete.
 type Summary struct {
 	Type        string  // dnscrypt, dns53, doh, odoh, dot
@@ -19,7 +21,7 @@ type Summary struct {
 	RCode       int     // response code
 	RTtl        int     // response ttl
 	Server      string
-	RelayServer string
+	RelayServer string // hop, if any; proxy or a relay server
 	Status      int
 	Blocklists  string // csv separated list of blocklists names, if any.
 }

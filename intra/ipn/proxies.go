@@ -8,6 +8,7 @@ package ipn
 
 import (
 	"errors"
+	"net/http"
 	"strings"
 	"sync"
 
@@ -68,6 +69,9 @@ type Proxy interface {
 	ID() string
 	// Type returns the type of this proxy.
 	Type() string
+	// Fetch response for this request over HTTP.
+	Fetch(req *http.Request) (*http.Response, error)
+	asRDial() *protect.RDial
 	// GetAddr returns the address of this proxy.
 	GetAddr() string
 	// Status returns the status of this proxy.

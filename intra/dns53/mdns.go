@@ -44,6 +44,8 @@ type dnssd struct {
 	est    core.P2QuantileEstimator
 }
 
+var _ dnsx.Transport = (*dnssd)(nil)
+
 // NewMDNSTransport returns a DNS transport that sends all DNS queries to mDNS endpoint.
 func NewMDNSTransport(protos string) (t dnsx.Transport) {
 	t = &dnssd{

@@ -19,6 +19,7 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"net/http"
 	"net/netip"
 	"os"
 	"strconv"
@@ -76,6 +77,8 @@ var _ WgProxy = (*wgproxy)(nil)
 type wgproxy struct {
 	*wgtun
 	*device.Device
+	hc *http.Client   // exported http client
+	rd *protect.RDial // exported rdialer
 }
 
 type WgProxy interface {
@@ -113,6 +116,19 @@ func (w *wgproxy) Refresh() (err error) {
 		return
 	}
 	return
+}
+
+func (h *wgproxy) Fetch(req *http.Request) (resp *http.Response, err error) {
+	stopped := h.status == END
+	log.V("wg: %d; fetch: %s; ok? %t", h.id, req.URL, !stopped)
+	if stopped {
+		return nil, errProxyStopped
+	}
+	return h.hc.Do(req)
+}
+
+func (h *wgproxy) asRDial() *protect.RDial {
+	return h.rd
 }
 
 func (w *wgproxy) canUpdate(txt string) bool {
@@ -282,7 +298,7 @@ func bindWgSockets(wgdev *device.Device, ctl protect.Controller) bool {
 }
 
 // ref: github.com/WireGuard/wireguard-android/blob/713947e432/tunnel/tools/libwg-go/api-android.go#L76
-func NewWgProxy(id string, ctl protect.Controller, cfg string) (w WgProxy, err error) {
+func NewWgProxy(id string, ctl protect.Controller, cfg string) (WgProxy, error) {
 	ifaddrs, dnsaddrs, mtu, err := wgIfConfigOf(&cfg)
 	uapicfg := cfg
 	if err != nil {
@@ -317,14 +333,18 @@ func NewWgProxy(id string, ctl protect.Controller, cfg string) (w WgProxy, err e
 	// not needed for wg.NewBind2; see: wg:wgconn2.go
 	bindok := bindWgSockets(wgdev, ctl)
 
-	w = &wgproxy{
+	w := &wgproxy{
 		wgtun,
 		wgdev,
+		nil,
+		nil,
 	}
+	w.rd = newRDial(w)
+	w.hc = newHTTPClient(w.rd)
 
 	log.D("proxy: wg: new %s / bound? %t; addrs(%v) mtu(%d) / v4(%t) v6(%t)", id, bindok, ifaddrs, mtu, wgtun.hasV4, wgtun.hasV6)
 
-	return
+	return w, nil
 }
 
 // ref: github.com/WireGuard/wireguard-go/blob/469159ecf7/tun/netstack/tun.go#L54
@@ -351,6 +371,7 @@ func makeWgTun(id string, ifaddrs []*netip.Prefix, dnsaddrs []*netip.Addr, mtu i
 		dnsaddrs:       dnsaddrs,
 		mtu:            tunmtu,
 	}
+
 	// see WriteNotify below
 	ep.AddNotify(t)
 
@@ -558,4 +579,4 @@ func (h *wgtun) Status() int {
 	return h.status
 }
 
-// func Stop() error is impl by wgproxy
+// func Stop(), Fetch(), asRDial() is impl by wgproxy

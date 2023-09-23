@@ -49,6 +49,9 @@ const (
 	NetTypeUDP = "udp"
 	NetTypeTCP = "tcp"
 
+	// preferred forwarding network, if any
+	NetNoProxy = "noproxy"
+
 	ttl10m = 10 * time.Minute // 10m ttl
 
 	// pseudo transport ID to tag dns64 responses
@@ -820,4 +823,19 @@ func map2csv(ts map[string]Transport) string {
 
 func trimcsv(s string) string {
 	return strings.Trim(s, ",")
+}
+
+func Net2ProxyID(network string) (proto, pid string) {
+	x := strings.Split(network, ":")
+	if len(x) <= 0 {
+		// some sane defaults though this should never happen
+		return NetTypeUDP, NetNoProxy
+	}
+	if len(x) <= 1 {
+		proto = x[0]
+	}
+	if len(x) <= 2 {
+		pid = x[1]
+	}
+	return
 }
