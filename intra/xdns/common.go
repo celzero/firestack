@@ -83,6 +83,21 @@ var (
 	errNotAscii       = errors.New("name not ASCII string")
 )
 
+func Net2ProxyID(network string) (proto, pid string) {
+	x := strings.Split(network, ":")
+	if len(x) <= 0 {
+		// some sane defaults though this should never happen
+		return
+	}
+	if len(x) <= 1 {
+		proto = x[0]
+	}
+	if len(x) <= 2 {
+		pid = x[1]
+	}
+	return
+}
+
 func PrefixWithSize(packet []byte) ([]byte, error) {
 	packetLen := len(packet)
 	if packetLen > MaxMTU {

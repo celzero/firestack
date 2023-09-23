@@ -269,7 +269,7 @@ func (t *transport) sendRequest(network, pid string, q []byte) (response []byte,
 
 func (t *transport) Query(network string, q []byte, summary *dnsx.Summary) (r []byte, err error) {
 
-	proto, pid := dnsx.Net2ProxyID(network)
+	proto, pid := xdns.Net2ProxyID(network)
 	response, elapsed, qerr := t.doQuery(proto, pid, q)
 
 	status := dnsx.Complete

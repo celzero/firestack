@@ -276,7 +276,7 @@ func query(pid string, packet []byte, serverInfo *ServerInfo, useudp bool) (resp
 func resolve(network string, data []byte, serverinfo *ServerInfo, s *dnsx.Summary) (response []byte, err error) {
 	before := time.Now()
 
-	proto, pid := dnsx.Net2ProxyID(network)
+	proto, pid := xdns.Net2ProxyID(network)
 	useudp := proto == dnsx.NetTypeUDP
 
 	response, err = query(pid, data, serverinfo, useudp)

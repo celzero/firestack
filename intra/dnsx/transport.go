@@ -824,18 +824,3 @@ func map2csv(ts map[string]Transport) string {
 func trimcsv(s string) string {
 	return strings.Trim(s, ",")
 }
-
-func Net2ProxyID(network string) (proto, pid string) {
-	x := strings.Split(network, ":")
-	if len(x) <= 0 {
-		// some sane defaults though this should never happen
-		return NetTypeUDP, NetNoProxy
-	}
-	if len(x) <= 1 {
-		proto = x[0]
-	}
-	if len(x) <= 2 {
-		pid = x[1]
-	}
-	return
-}

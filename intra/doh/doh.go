@@ -401,7 +401,7 @@ func (t *transport) Query(network string, q []byte, summary *dnsx.Summary) (r []
 	var elapsed time.Duration
 	var qerr *dnsx.QueryError
 
-	_, pid := dnsx.Net2ProxyID(network)
+	_, pid := xdns.Net2ProxyID(network)
 	if t.typ == dnsx.DOH {
 		r, blocklists, elapsed, qerr = t.doDoh(pid, q)
 		summary.Server = t.hostname

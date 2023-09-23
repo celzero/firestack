@@ -128,7 +128,7 @@ func (t *dot) sendRequest(pid string, q []byte) (response []byte, elapsed time.D
 
 func (t *dot) Query(network string, q []byte, summary *dnsx.Summary) (r []byte, err error) {
 
-	_, pid := dnsx.Net2ProxyID(network)
+	_, pid := xdns.Net2ProxyID(network)
 
 	response, elapsed, qerr := t.doQuery(pid, q)
 
