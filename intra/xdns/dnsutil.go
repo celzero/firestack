@@ -338,7 +338,7 @@ func GetInterestingRData(msg *dns.Msg) string {
 }
 
 func Targets(msg *dns.Msg) []string {
-	touched := make(map[string]interface{})
+	touched := make(map[string]any)
 	var targets []string
 	if qname, err := NormalizeQName(QName(msg)); err == nil {
 		targets = append(targets, qname)
@@ -546,7 +546,7 @@ func HasAAAAAnswer(msg *dns.Msg) bool {
 
 func SubstAAAARecords(out *dns.Msg, subip6s []*netip.Addr, ttl int) bool {
 	// substitute ips in any a / aaaa records
-	touched := make(map[string]interface{})
+	touched := make(map[string]any)
 	rrs := make([]dns.RR, 0)
 	ip6 := subip6s[0].String()
 	for _, answer := range out.Answer {
@@ -576,7 +576,7 @@ func SubstAAAARecords(out *dns.Msg, subip6s []*netip.Addr, ttl int) bool {
 
 func SubstARecords(out *dns.Msg, subip4s []*netip.Addr, ttl int) bool {
 	// substitute ips in any a / aaaa records
-	touched := make(map[string]interface{})
+	touched := make(map[string]any)
 	rrs := make([]dns.RR, 0)
 	ip4 := subip4s[0].Unmap().String()
 	for _, answer := range out.Answer {

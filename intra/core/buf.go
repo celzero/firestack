@@ -81,7 +81,7 @@ func slabof(sz int) (p *sync.Pool) {
 
 func newpool(size int) *sync.Pool {
 	return &sync.Pool{
-		New: func() interface{} {
+		New: func() any {
 			b := make([]byte, 0, size)
 			return &b
 		},

@@ -367,7 +367,7 @@ func load(blacklistconfigjson string) ([]string, map[string]string, error) {
 		return nil, nil, err
 	}
 
-	var obj map[string]interface{}
+	var obj map[string]any
 	err = json.Unmarshal(data, &obj)
 	if err != nil {
 		return nil, nil, err
@@ -390,7 +390,7 @@ func load(blacklistconfigjson string) ([]string, map[string]string, error) {
 	//    ...
 	// }
 	for key := range obj {
-		indata := obj[key].(map[string]interface{})
+		indata := obj[key].(map[string]any)
 		index := int(indata["value"].(float64))
 		name := indata["vname"].(string)
 		subgroup := indata["subg"].(string)

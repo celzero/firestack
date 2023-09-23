@@ -270,7 +270,7 @@ func cleanupPool() {
 	}
 	cache.lastcleanup = time.Now()
 
-	cache.pool.Range(func(k, v interface{}) bool {
+	cache.pool.Range(func(k, v any) bool {
 		if e, ok := v.(*ProcNetEntry); ok {
 			if invalidProcNetEntry(e) {
 				deleteProcNetEntryFromPool(e)
