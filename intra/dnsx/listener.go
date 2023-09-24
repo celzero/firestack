@@ -26,6 +26,15 @@ type Summary struct {
 	Blocklists  string // csv separated list of blocklists names, if any.
 }
 
+type Options struct {
+	// pid is the proxy to use for this query.
+	pid string
+	// csv of ips to answer for this query.
+	ips string
+	// csv of transports ids to use for this query.
+	tid string
+}
+
 func (s *Summary) Str() string {
 	return fmt.Sprintf("type: %s, id: %s, latency: %f, qname: %s, rdata: %s, rcode: %d, rttl: %d, server: %s, relay: %s, status: %d, blocklists: %s",
 		s.Type, s.ID, s.Latency, s.QName, s.RData, s.RCode, s.RTtl, s.Server, s.RelayServer, s.Status, s.Blocklists)
@@ -71,6 +80,6 @@ func (s *Summary) FillInto(other *Summary) {
 
 // Listener receives Summaries.
 type Listener interface {
-	OnQuery(domain string, qtyp int, suggested string) string
+	OnQuery(domain string, qtyp int, suggested string) *Options
 	OnResponse(*Summary)
 }

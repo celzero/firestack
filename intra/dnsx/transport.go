@@ -60,6 +60,7 @@ const (
 
 var (
 	ErrNoDcProxy          = errors.New("no dnscrypt-proxy")
+	ErrNoProxyProvider    = errors.New("no proxy provider")
 	errNoSuchTransport    = errors.New("missing transport")
 	errBlockFreeTransport = errors.New("block free transport")
 	errNoRdns             = errors.New("no rdns")
@@ -378,12 +379,12 @@ func (r *resolver) Forward(q []byte) ([]byte, error) {
 	summary.QName = qname
 	summary.QType = qtyp
 	id := r.requiresSystemOrLocal(qname)
-	sid := ""
+	var sid, pid string
 	if len(id) > 0 {
 		log.I("dns: udp: suggest dns(%s) for %s", id, qname)
 	}
 	pref := r.listener.OnQuery(qname, qtyp, id)
-	id, sid, _ = preferencesFrom(pref)
+	id, sid, pid, _ = preferencesFrom(pref)
 	t := r.determineTransports(id)
 	if t == nil {
 		summary.Latency = time.Since(starttime).Seconds()
@@ -418,12 +419,17 @@ func (r *resolver) Forward(q []byte) ([]byte, error) {
 	summary.Type = t.Type()
 	summary.ID = t.ID()
 	var res2 []byte
+
+	netid := NetTypeUDP
+	if r.allowProxy(t, t2) {
+		netid = xdns.NetAndProxyID(netid, pid)
+	}
 	// query explicitly via the gateway gw, if present;
 	// or use transport t, which could be Gateway's impl of Transport
 	if gw == nil {
-		res2, err = t.Query(NetTypeUDP, q, summary)
+		res2, err = t.Query(netid, q, summary)
 	} else { // with t2 as the secondary transport, which could be nil
-		res2, err = gw.q(t, t2, NetTypeUDP, q, summary)
+		res2, err = gw.q(t, t2, netid, q, summary)
 	}
 
 	algerr := isAlgErr(err) // not set when gw.translate is off
@@ -461,7 +467,7 @@ func (r *resolver) Forward(q []byte) ([]byte, error) {
 	}
 	ansblocked := xdns.AQuadAUnspecified(ans1)
 	if !ansblocked {
-		d64 := r.D64(t.ID(), res2, t)
+		d64 := r.D64(t.ID(), res2, t) // d64 is disabled by default
 		if len(d64) >= xdns.MinDNSPacketSize {
 			r.withDNS64SummaryIfNeeded(d64, summary)
 			return d64, nil
@@ -554,12 +560,12 @@ func (r *resolver) forwardQuery(q []byte, c io.Writer) error {
 	summary.QName = qname
 	summary.QType = qtyp
 	id := r.requiresSystemOrLocal(qname)
-	sid := ""
+	var sid, pid string
 	if len(id) > 0 {
 		log.I("dns: tcp: suggest system-dns %s for %s", id, qname)
 	}
 	pref := r.listener.OnQuery(qname, qtyp, id)
-	id, sid, _ = preferencesFrom(pref)
+	id, sid, pid, _ = preferencesFrom(pref)
 	// retrieve transport
 	t := r.determineTransports(id)
 	if t == nil {
@@ -595,12 +601,16 @@ func (r *resolver) forwardQuery(q []byte, c io.Writer) error {
 	summary.Type = t.Type()
 	summary.ID = t.ID()
 	var res2 []byte
+	netid := NetTypeTCP
+	if r.allowProxy(t, t2) {
+		netid = xdns.NetAndProxyID(netid, pid)
+	}
 	// query explicitly via the gateway gw, if present;
 	// or use transport t, which could be Gateway's impl of Transport
 	if gw == nil {
-		res2, err = t.Query(NetTypeTCP, q, summary)
+		res2, err = t.Query(netid, q, summary)
 	} else { // with t2 as the secondary transport, which could be nil
-		res2, err = gw.q(t, t2, NetTypeTCP, q, summary)
+		res2, err = gw.q(t, t2, netid, q, summary)
 	}
 
 	algerr := isAlgErr(err) // not set when gw.translate is off
@@ -643,7 +653,7 @@ func (r *resolver) forwardQuery(q []byte, c io.Writer) error {
 	ansblocked := xdns.AQuadAUnspecified(ans1)
 	// override original resp with dns64 if needed
 	if !ansblocked {
-		d64 := r.D64(t.ID(), res2, t)
+		d64 := r.D64(t.ID(), res2, t) // d64 is disabled by default
 		if len(d64) > xdns.MinDNSPacketSize {
 			r.withDNS64SummaryIfNeeded(d64, summary)
 			res2 = d64
@@ -713,6 +723,20 @@ func (r *resolver) accept(c io.ReadWriteCloser) {
 
 func isReserved(id string) (ok bool) {
 	return id == Alg || id == DcProxy || id == BlockAll || id == Preferred || id == BlockFree || id == System
+}
+
+func (r *resolver) allowProxy(ts ...Transport) bool {
+	allow := true
+	deny := false
+	for _, t := range ts {
+		if t == nil {
+			continue
+		}
+		if t.ID() == Default {
+			return deny
+		}
+	}
+	return allow
 }
 
 func unpack(q []byte) (*dns.Msg, error) {
@@ -798,8 +822,8 @@ func (r *resolver) LiveTransports() string {
 	return trimcsv(s)
 }
 
-func preferencesFrom(s string) (id1, id2, ips string) {
-	x := strings.Split(s, ",")
+func preferencesFrom(s *Options) (id1, id2, pid, ips string) {
+	x := strings.Split(s.tid, ",")
 	l := len(x)
 	if l <= 0 { // cannot happen
 		// no-op
@@ -807,9 +831,13 @@ func preferencesFrom(s string) (id1, id2, ips string) {
 		id1 = x[0] // id for transport t1
 	} else if l == 2 {
 		id1, id2 = x[0], x[1] // ids for transport t1, t2
-	} else if l >= 3 {
-		id1, id2, ips = x[0], x[1], x[2] // ids for transport t1, t2; preferred IP
 	}
+	if len(s.pid) > 0 {
+		pid = s.pid // id for proxy
+	} else {
+		pid = NetNoProxy
+	}
+	ips = s.ips // comma-separated list of IPs
 	return
 }
 
