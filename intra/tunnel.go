@@ -97,7 +97,7 @@ func NewTunnel(fd, mtu int, fakedns string, dns dnsx.Transport, tunmode *setting
 	resolver := dnsx.NewResolver(fakedns, dns, tunmode, bdg, natpt)
 	resolver.Add(newBlockAllTransport())
 	resolver.Add(newDNSCryptTransport(proxies))
-	resolver.Add(NewMDNSTransport(l3))
+	resolver.Add(newMDNSTransport(l3))
 
 	tcph := NewTCPHandler(resolver, proxies, bdg, tunmode, bdg)
 	udph := NewUDPHandler(resolver, proxies, bdg, tunmode, bdg)
