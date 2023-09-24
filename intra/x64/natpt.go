@@ -51,11 +51,18 @@ func NewNatPt(tunmode *settings.TunMode) dnsx.NatPt {
 }
 
 func (pt *natPt) D64(id string, ans6 []byte, f dnsx.Transport) []byte {
-	return pt.dns64.eval(id, pt.force64(), ans6, f)
+	if pt.do64() {
+		return pt.dns64.eval(id, pt.force64(), ans6, f)
+	}
+	return nil
 }
 
 func (pt *natPt) force64() bool {
 	return pt.tunmode.PtMode == settings.PtModeForce64
+}
+
+func (pt *natPt) do64() bool {
+	return pt.tunmode.PtMode != settings.PtModeNo46
 }
 
 func (n *natPt) IsNat64(id string, ip []byte) bool {

@@ -47,7 +47,7 @@ const PtModeAuto int = 0
 const PtModeForce64 int = 1
 
 // Android implements 464Xlat out-of-the-box, so this zero userspace impl
-const PtModeMaybe46 int = 2
+const PtModeNo46 int = 2
 
 // msb to lsb: ipv6, ipv4, lwip(1) or netstack(0)
 const Ns4 = 0b010  // 2
@@ -125,7 +125,7 @@ func DefaultTunMode() *TunMode {
 	return &TunMode{
 		DNSMode:   DNSModeIP,
 		BlockMode: BlockModeNone,
-		PtMode:    PtModeAuto,
+		PtMode:    PtModeNo46,
 		IpMode:    Ns4,
 	}
 }
