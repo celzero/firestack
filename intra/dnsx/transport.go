@@ -732,7 +732,7 @@ func (r *resolver) allowProxy(ts ...Transport) bool {
 		if t == nil {
 			continue
 		}
-		if t.ID() == Default {
+		if t.ID() == Default || t.ID() == System || t.ID() == Local {
 			return deny
 		}
 	}
