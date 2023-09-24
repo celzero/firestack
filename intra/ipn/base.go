@@ -23,7 +23,7 @@ type base struct {
 }
 
 func NewBaseProxy(c protect.Controller) Proxy {
-	d := protect.MakeNsDialer(c)
+	d := protect.MakeNsDialer(Base, c)
 	h := &base{
 		addr:   "127.3.4.5:6890",
 		dialer: d,

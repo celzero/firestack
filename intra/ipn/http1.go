@@ -39,7 +39,7 @@ func NewHTTPProxy(id string, c protect.Controller, po *settings.ProxyOptions) (P
 		return nil, errProxyScheme
 	}
 
-	d := protect.MakeNsDialer(c)
+	d := protect.MakeNsDialer(id, c)
 	var hp *tx.HttpTunnel
 	optdialer := tx.WithDialer(d)
 	if po.HasAuth() {

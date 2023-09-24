@@ -328,7 +328,11 @@ func (s *ServerInfo) dialtcp(pid string, addr *net.TCPAddr) (net.Conn, error) {
 }
 
 func (s *ServerInfo) dialpx(pid, proto string, addr string) (net.Conn, error) {
-	px, err := s.proxies.GetProxy(pid)
+	pxs := s.proxies
+	if pxs == nil {
+		return nil, dnsx.ErrNoProxyProvider
+	}
+	px, err := pxs.GetProxy(pid)
 	if err != nil {
 		return nil, err
 	}

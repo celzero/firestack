@@ -145,8 +145,8 @@ func NewUDPHandler(resolver dnsx.Resolver, prox ipn.Proxies, ctl protect.Control
 	// RFC 4787 REQ-5 requires a timeout no shorter than 5 minutes; but most
 	// routers do not keep udp mappings for that long (usually just for 30s)
 	udptimeout, _ := time.ParseDuration("2m")
-	c := protect.MakeNsListenConfig(ctl)
-	d := protect.MakeNsDialer(ctl)
+	c := protect.MakeNsListenConfig("udphl", ctl)
+	d := protect.MakeNsDialer("udph", ctl)
 	h := &udpHandler{
 		timeout:   udptimeout,
 		udpConns:  make(map[core.UDPConn]*tracker, 8),

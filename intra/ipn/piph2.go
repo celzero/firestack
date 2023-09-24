@@ -180,7 +180,7 @@ func NewPipProxy(id string, ctl protect.Controller, po *settings.ProxyOptions) (
 	if len(rsasig) == 0 {
 		return nil, errNoSig
 	}
-	dialer := protect.MakeNsRDial(ctl)
+	dialer := protect.MakeNsRDial(id, ctl)
 	t := &piph2{
 		id:       id,
 		url:      parsedurl.String(),

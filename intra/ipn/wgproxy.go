@@ -268,7 +268,7 @@ func wgIfConfigOf(txtptr *string) (ifaddrs []*netip.Prefix, dnsaddrs []*netip.Ad
 	return
 }
 
-func bindWgSockets(wgdev *device.Device, ctl protect.Controller) bool {
+func bindWgSockets(id string, wgdev *device.Device, ctl protect.Controller) bool {
 	var ok4, ok6 bool
 
 	// ref: github.com/WireGuard/wireguard-go/blob/1417a47c8/conn/bind_std.go#L130
@@ -283,14 +283,14 @@ func bindWgSockets(wgdev *device.Device, ctl protect.Controller) bool {
 	if fd4, err := bind.PeekLookAtSocketFd4(); err != nil {
 		log.W("proxy: wg: bind4: failed to get wg4 socket %v", err)
 	} else {
-		ctl.Bind4(fd4)
+		ctl.Bind4(id, fd4)
 		ok4 = true
 	}
 
 	if fd6, err := bind.PeekLookAtSocketFd6(); err != nil {
 		log.W("proxy: wg: bind6: failed to get wg6 socket %v", err)
 	} else {
-		ctl.Bind6(fd6)
+		ctl.Bind6(id, fd6)
 		ok6 = true
 	}
 
@@ -331,7 +331,7 @@ func NewWgProxy(id string, ctl protect.Controller, cfg string) (WgProxy, error) 
 
 	// nb: call after StdNetBind conn has been "Open"ed
 	// not needed for wg.NewBind2; see: wg:wgconn2.go
-	bindok := bindWgSockets(wgdev, ctl)
+	bindok := bindWgSockets(id, wgdev, ctl)
 
 	w := &wgproxy{
 		wgtun,

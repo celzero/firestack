@@ -116,7 +116,7 @@ func NewPipWsProxy(id string, ctl protect.Controller, po *settings.ProxyOptions)
 	if splitpath[1] != "ws" {
 		return nil, errProxyConfig
 	}
-	dialer := protect.MakeNsRDial(ctl)
+	dialer := protect.MakeNsRDial(id, ctl)
 	t := &pipws{
 		id:       id,
 		url:      parsedurl.String(),

@@ -61,7 +61,7 @@ func newTransport(id string, do *settings.DNSOptions, px ipn.Proxies) (dnsx.Tran
 		est:     core.NewP50Estimator(),
 	}
 	// todo: with controller
-	d := protect.MakeNsDialer(nil)
+	d := protect.MakeNsDialer(id, nil)
 	if usemeikgclient {
 		tx.mcudp = &dns.Client{
 			Net:            "udp",
@@ -123,6 +123,7 @@ func (t *transport) sendRequest2(network, pid string, q []byte) (response []byte
 		return
 	}
 
+	hasproxy := t.proxies != nil
 	noproxy := len(pid) == 0 || pid == dnsx.NetNoProxy
 	if noproxy {
 		// TODO: conn pooling using t.mc[tcp|udp].Dial + ExchangeWithConn
@@ -140,7 +141,7 @@ func (t *transport) sendRequest2(network, pid string, q []byte) (response []byte
 		if network == dnsx.NetTypeTCP {
 			ans, elapsed, err = t.mctcp.Exchange(msg, t.ipport)
 		}
-	} else {
+	} else if hasproxy {
 		var px ipn.Proxy
 		var pxconn net.Conn
 		px, err = t.proxies.GetProxy(pid)
@@ -157,6 +158,8 @@ func (t *transport) sendRequest2(network, pid string, q []byte) (response []byte
 			}
 			conn.Close()
 		}
+	} else {
+		err = dnsx.ErrNoProxyProvider
 	}
 
 	if err != nil {

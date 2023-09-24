@@ -48,7 +48,7 @@ func makeSetup(t *testing.T) *setup {
 		t.Error("Server isn't TCP?")
 	}
 	var stats RetryStats
-	d := protect.MakeNsRDial(nil)
+	d := protect.MakeNsRDial("rtest", nil)
 	clientSide, err := DialWithSplitRetry(d, serverAddr)
 	if err != nil {
 		t.Error(err)

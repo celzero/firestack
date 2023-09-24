@@ -47,7 +47,7 @@ func newHttpServer(id, x string, ctl protect.Controller) (Server, error) {
 		usr = u.User.Username()    // may be empty
 		pwd, _ = u.User.Password() // may be empty
 	}
-	dialer := protect.MakeNsDialer(ctl)
+	dialer := protect.MakeNsDialer(id, ctl)
 	hdl := &httpxhandler{
 		AuthHandler: &AuthHandler{usr: usr, pwd: pwd},
 	}

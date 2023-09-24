@@ -50,7 +50,7 @@ func NewTLSTransport(id, rawurl string, px ipn.Proxies) (t dnsx.Transport, err e
 		tlscfg.InsecureSkipVerify = true
 	}
 	// todo: with controller
-	dialer := protect.MakeNsDialer(nil)
+	dialer := protect.MakeNsDialer(id, nil)
 	tx := &dot{
 		id:      id,
 		url:     rawurl,
@@ -95,11 +95,12 @@ func (t *dot) sendRequest(pid string, q []byte) (response []byte, elapsed time.D
 		return
 	}
 
+	hasproxy := t.proxies != nil
 	noproxy := len(pid) == 0 || pid == dnsx.NetNoProxy
 	if noproxy {
 		// FIXME: conn pooling using t.c.Dial + ExchangeWithConn
 		ans, elapsed, err = t.c.Exchange(msg, t.addr)
-	} else {
+	} else if hasproxy {
 		var px ipn.Proxy
 		var pxconn net.Conn
 		px, err = t.proxies.GetProxy(pid)
@@ -112,6 +113,8 @@ func (t *dot) sendRequest(pid string, q []byte) (response []byte, elapsed time.D
 			ans, elapsed, err = t.c.ExchangeWithConn(msg, conn)
 			conn.Close()
 		} // fallthrough
+	} else {
+		err = dnsx.ErrNoProxyProvider
 	}
 
 	if err != nil {

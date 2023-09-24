@@ -121,7 +121,7 @@ type TCPListener interface {
 // `listener` is provided with a summary of each socket when it is closed.
 func NewTCPHandler(resolver dnsx.Resolver, prox ipn.Proxies, ctl protect.Controller,
 	tunMode *settings.TunMode, listener TCPListener) TCPHandler {
-	d := protect.MakeNsDialer(ctl)
+	d := protect.MakeNsDialer("tcph", ctl)
 	h := &tcpHandler{
 		resolver:  resolver,
 		dialer:    d,

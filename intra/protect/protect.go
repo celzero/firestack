@@ -43,12 +43,12 @@ type Controller interface {
 	// origdsts is a comma-separated list of original source IPs, this may be same as dst.
 	// domains is a comma-separated list of domain names associated with origsrcs, if any.
 	// blocklists is a comma-separated list of blocklist names, if any.
-	Flow(protocol int32, uid int, src string, dst string, origdsts, domains, blocklists string) string
+	Flow(protocol int32, uid int, src, dst, origdsts, domains, blocklists string) string
 	// Calls in to javaland asking it to bind fd to any internet-capable IPv4 interface.
-	Bind4(fd int)
+	Bind4(who string, fd int)
 	// Calls in to javaland asking it to bind fd to any internet-capable IPv6 interface.
 	// also: github.com/lwip-tcpip/lwip/blob/239918c/src/core/ipv6/ip6.c#L68
-	Bind6(fd int)
+	Bind6(who string, fd int)
 }
 
 type Protector interface {
@@ -56,7 +56,7 @@ type Protector interface {
 	UIP(n string) []byte
 }
 
-func networkBinder(ctl Controller) func(string, string, syscall.RawConn) error {
+func networkBinder(who string, ctl Controller) func(string, string, syscall.RawConn) error {
 	return func(network, address string, c syscall.RawConn) (err error) {
 		return c.Control(func(fd uintptr) {
 			sock := int(fd)
@@ -64,7 +64,7 @@ func networkBinder(ctl Controller) func(string, string, syscall.RawConn) error {
 			case "tcp6":
 				fallthrough
 			case "udp6":
-				ctl.Bind6(sock)
+				ctl.Bind6(who, sock)
 			case "tcp4":
 				fallthrough
 			case "udp4":
@@ -72,7 +72,7 @@ func networkBinder(ctl Controller) func(string, string, syscall.RawConn) error {
 			case "tcp":
 				fallthrough
 			case "udp":
-				ctl.Bind4(sock)
+				ctl.Bind4(who, sock)
 			default:
 				// no-op
 			}
@@ -134,21 +134,21 @@ func MakeListenConfig(p Protector) *net.ListenConfig {
 }
 
 // Creates a dialer that can bind to any active interface.
-func MakeNsDialer(c Controller) *net.Dialer {
+func MakeNsDialer(who string, c Controller) *net.Dialer {
 	if c == nil {
 		return MakeDefaultDialer()
 	}
 	d := &net.Dialer{
-		Control: networkBinder(c),
+		Control: networkBinder(who, c),
 	}
 	return d
 }
 
-// Creates a XDial that can bind to any active interface.
-func MakeNsRDial(c Controller) *RDial {
+// Creates a RDial that can bind to any active interface.
+func MakeNsRDial(who string, c Controller) *RDial {
 	if c != nil {
 		d := &net.Dialer{
-			Control: networkBinder(c),
+			Control: networkBinder(who, c),
 		}
 		return &RDial{
 			Dialer: d,
@@ -161,12 +161,12 @@ func MakeNsRDial(c Controller) *RDial {
 }
 
 // Creates a listener that can bind to any active interface.
-func MakeNsListenConfig(c Controller) *net.ListenConfig {
+func MakeNsListenConfig(who string, c Controller) *net.ListenConfig {
 	if c == nil {
 		return MakeDefaultListenConfig()
 	}
 	return &net.ListenConfig{
-		Control: networkBinder(c),
+		Control: networkBinder(who, c),
 	}
 }
 

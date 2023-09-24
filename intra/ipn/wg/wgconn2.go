@@ -48,7 +48,7 @@ type StdNetBind2 struct {
 
 func NewBind2(ctl protect.Controller) conn.Bind {
 	return &StdNetBind2{
-		lc: protect.MakeNsListenConfig(ctl),
+		lc: protect.MakeNsListenConfig("wgbind2", ctl),
 
 		udpAddrPool: sync.Pool{
 			New: func() any {

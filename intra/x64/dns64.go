@@ -94,7 +94,6 @@ func (d *dns64) register(id string) {
 }
 
 func (d *dns64) AddResolver(id string, r dnsx.Transport) bool {
-
 	d.register(id)
 
 	discarded := new(dnsx.Summary)

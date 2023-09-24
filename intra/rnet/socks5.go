@@ -40,7 +40,7 @@ func newSocks5Server(id, x string, ctl protect.Controller) (Server, error) {
 	var usr string
 	var pwd string
 
-	tx.Dial = protect.MakeNsRDial(ctl)
+	tx.Dial = protect.MakeNsRDial(id, ctl)
 
 	u, err := url.Parse(x)
 	if err != nil {

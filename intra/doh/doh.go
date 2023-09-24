@@ -88,21 +88,21 @@ func (t *transport) dial(network, addr string) (net.Conn, error) {
 	return split.ReDial(t.dialer, network, addr)
 }
 
-// NewTransport returns a DoH DNSTransport, ready for use.
-// This is a POST-only DoH implementation, so the DoH template should be a URL.
+// NewTransport returns a POST-only DoH transport.
+// `id` identifies this transport.
 // `rawurl` is the DoH template in string form.
-// `addrs` is a list of domains or IP addresses to use as fallback, if the hostname
-//
-//	lookup fails or returns non-working addresses.
-//
-//	timeout but will not mutate it otherwise.
-//
-// `auth` will provide a client certificate if required by the TLS server.
-// `listener` will receive the status of each DNS query when it is complete.
+// `addrs` is a list of IP addresses to bootstrap dialers.
+// `px` is the proxy provider, may be nil (eg for id == dnsx.Default)
 func NewTransport(id, rawurl string, addrs []string, px ipn.Proxies) (dnsx.Transport, error) {
 	return newTransport(dnsx.DOH, id, rawurl, "", addrs, px)
 }
 
+// NewTransport returns a POST-only Oblivious DoH transport.
+// `id` identifies this transport.
+// `endpoint` is the ODoH proxy that liasons with the target.
+// `target` is the ODoH resolver.
+// `addrs` is a list of IP addresses to bootstrap endpoint dialers.
+// `px` is the proxy provider, never nil.
 func NewOdohTransport(id, endpoint, target string, addrs []string, px ipn.Proxies) (dnsx.Transport, error) {
 	return newTransport(dnsx.ODOH, id, endpoint, target, addrs, px)
 }
@@ -116,8 +116,8 @@ func newTransport(typ, id, rawurl, target string, addrs []string, px ipn.Proxies
 	t := &transport{
 		id:         id,
 		typ:        typ,
-		dialer:     protect.MakeNsRDial(nil),
-		proxies:    px,
+		dialer:     protect.MakeNsRDial(id, nil),
+		proxies:    px, // may be nil
 		status:     dnsx.Start,
 		clientpool: make(map[string]*http.Client),
 		est:        core.NewP50Estimator(),
@@ -249,10 +249,19 @@ func (t *transport) doDoh(pid string, q []byte) (response []byte, blocklists str
 	return
 }
 
+func (t *transport) bypassProxy() bool {
+	return t.id == dnsx.Default
+}
+
 func (t *transport) fetch(pid string, req *http.Request) (res *http.Response, err error) {
+	hasproxy := t.proxies == nil
 	noproxy := len(pid) == 0 || pid == dnsx.NetNoProxy
-	if noproxy {
+	if noproxy || t.bypassProxy() {
 		return t.client.Do(req)
+	}
+	if !hasproxy {
+		err = dnsx.ErrNoProxyProvider
+		return
 	}
 	px, err := t.proxies.GetProxy(pid)
 	if err != nil {
