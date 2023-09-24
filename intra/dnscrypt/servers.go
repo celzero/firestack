@@ -20,10 +20,8 @@ import (
 	"fmt"
 	"math/rand"
 	"net"
-	"net/url"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/dnsx"
@@ -47,16 +45,15 @@ type ServerInfo struct {
 	ServerPk           [32]byte
 	SharedKey          [32]byte
 	CryptoConstruction xdns.CryptoConstruction
-	Name               string
-	Timeout            time.Duration
-	URL                *url.URL
+	Name               string // id of the server
 	HostName           string
 	UDPAddr            *net.UDPAddr
 	TCPAddr            *net.TCPAddr
 	RelayUDPAddr       *net.UDPAddr
 	RelayTCPAddr       *net.TCPAddr
 	status             int
-	proxies            ipn.Proxies
+	proxies            ipn.Proxies // proxy-provider, may be nil
+	relay              ipn.Proxy   // proxy relay to use, may be nil
 	est                core.P2QuantileEstimator
 }
 
@@ -197,7 +194,12 @@ func fetchDNSCryptServerInfo(proxy *DcMulti, name string, stamp stamps.ServerSta
 	if err != nil {
 		return ServerInfo{}, err
 	}
-	return ServerInfo{
+	px := proxy.proxies
+	var relay ipn.Proxy
+	if px != nil {
+		relay, _ = px.GetProxy(name)
+	}
+	si := ServerInfo{
 		Proto:              stamps.StampProtoTypeDNSCrypt,
 		MagicQuery:         certInfo.MagicQuery,
 		ClientPubKey:       &proxy.proxyPublicKey,
@@ -206,14 +208,16 @@ func fetchDNSCryptServerInfo(proxy *DcMulti, name string, stamp stamps.ServerSta
 		CryptoConstruction: certInfo.CryptoConstruction,
 		HostName:           stamp.ProviderName,
 		Name:               name,
-		Timeout:            proxy.timeout,
 		UDPAddr:            remoteUDPAddr,
 		TCPAddr:            remoteTCPAddr,
 		RelayTCPAddr:       relayTCPAddr,
 		RelayUDPAddr:       relayUDPAddr,
-		proxies:            proxy.proxies,
+		proxies:            px,
+		relay:              relay,
 		est:                core.NewP50Estimator(),
-	}, nil
+	}
+	log.I("dnscrypt: (%s) setup: %s; relay? %t", name, si.HostName, relay != nil)
+	return si, nil
 }
 
 func fetchDoHServerInfo(proxy *DcMulti, name string, stamp stamps.ServerStamp) (ServerInfo, error) {
@@ -312,30 +316,37 @@ func (s *ServerInfo) Status() int {
 }
 
 func (s *ServerInfo) dialudp(pid string, addr *net.UDPAddr) (net.Conn, error) {
-	noproxy := len(pid) <= 0 || pid == dnsx.NetNoProxy
-	if noproxy {
-		return net.DialUDP("udp", nil, addr)
+	userelay := s.relay != nil
+	useproxy := len(pid) != 0 && pid != dnsx.NetNoProxy
+	if userelay || useproxy {
+		return s.dialpx(pid, "udp", addr.String())
 	}
-	return s.dialpx(pid, "udp", addr.String())
+	return net.DialUDP("udp", nil, addr)
 }
 
 func (s *ServerInfo) dialtcp(pid string, addr *net.TCPAddr) (net.Conn, error) {
-	noproxy := len(pid) <= 0 || pid == dnsx.NetNoProxy
-	if noproxy {
-		return net.DialTCP("tcp", nil, addr)
+	userelay := s.relay != nil
+	useproxy := len(pid) != 0 && pid != dnsx.NetNoProxy
+	if userelay || useproxy {
+		return s.dialpx(pid, "tcp", addr.String())
 	}
-	return s.dialpx(pid, "tcp", addr.String())
+	return net.DialTCP("tcp", nil, addr)
 }
 
 func (s *ServerInfo) dialpx(pid, proto string, addr string) (net.Conn, error) {
+	relay := s.relay
+	if relay != nil {
+		dialer := ipn.AsRDial(relay)
+		return dialer.Dial(proto, addr)
+	}
 	pxs := s.proxies
 	if pxs == nil {
 		return nil, dnsx.ErrNoProxyProvider
 	}
 	px, err := pxs.GetProxy(pid)
-	if err != nil {
-		return nil, err
+	if err == nil {
+		dialer := ipn.AsRDial(px)
+		return dialer.Dial(proto, addr)
 	}
-	dialer := ipn.AsRDial(px)
-	return dialer.Dial(proto, addr)
+	return nil, err
 }

@@ -233,6 +233,10 @@ func (h *pipws) Fetch(req *http.Request) (*http.Response, error) {
 	return h.hc.Do(req)
 }
 
-func (h *pipws) asRDial() *protect.RDial {
+func (h *pipws) getDialer() *protect.RDial {
 	return h.rd
+}
+
+func (h *pipws) DNS() string {
+	return NoDNS
 }

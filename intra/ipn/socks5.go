@@ -96,8 +96,12 @@ func (h *socks5) Dial(network, addr string) (c protect.Conn, err error) {
 	return
 }
 
-func (h *socks5) asRDial() *protect.RDial {
+func (h *socks5) getDialer() *protect.RDial {
 	return h.rd
+}
+
+func (h *socks5) DNS() string {
+	return NoDNS
 }
 
 func (h *socks5) Fetch(req *http.Request) (*http.Response, error) {

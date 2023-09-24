@@ -426,8 +426,12 @@ func (h *piph2) Fetch(req *http.Request) (*http.Response, error) {
 	return h.hc.Do(req)
 }
 
-func (h *piph2) asRDial() *protect.RDial {
+func (h *piph2) getDialer() *protect.RDial {
 	return h.rd
+}
+
+func (h *piph2) DNS() string {
+	return NoDNS
 }
 
 func closePipe(c ...io.Closer) {

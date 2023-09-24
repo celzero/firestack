@@ -48,8 +48,12 @@ func (h *base) Dial(network, addr string) (c protect.Conn, err error) {
 	return
 }
 
-func (h *base) asRDial() *protect.RDial {
+func (h *base) getDialer() *protect.RDial {
 	return h.rd
+}
+
+func (h *base) DNS() string {
+	return NoDNS
 }
 
 func (h *base) Fetch(req *http.Request) (*http.Response, error) {

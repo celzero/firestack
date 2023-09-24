@@ -61,6 +61,7 @@ const (
 var (
 	ErrNoDcProxy          = errors.New("no dnscrypt-proxy")
 	ErrNoProxyProvider    = errors.New("no proxy provider")
+	ErrNoProxyDNS         = errors.New("no proxy dns")
 	errNoSuchTransport    = errors.New("missing transport")
 	errBlockFreeTransport = errors.New("block free transport")
 	errNoRdns             = errors.New("no rdns")

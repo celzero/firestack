@@ -27,12 +27,16 @@ func (h *ground) Dial(network, addr string) (c protect.Conn, err error) {
 	return nil, errNoProxyResponse
 }
 
-func (h *ground) asRDial() *protect.RDial {
+func (h *ground) getDialer() *protect.RDial {
 	return &protect.RDial{}
 }
 
 func (h *ground) Fetch(req *http.Request) (*http.Response, error) {
 	return nil, errNoProxyResponse
+}
+
+func (h *ground) DNS() string {
+	return NoDNS
 }
 
 func (h *ground) ID() string {

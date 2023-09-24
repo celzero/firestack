@@ -7,6 +7,7 @@
 package intra
 
 import (
+	"net"
 	"net/netip"
 	"strings"
 
@@ -22,7 +23,7 @@ func NewDNSProxy(t Tunnel, id, ip, port string) (d dnsx.Transport, err error) {
 }
 
 func newSystemDNSProxy(ipp netip.AddrPort) (d dnsx.Transport, err error) {
-	return dns53.NewTransportFrom(dnsx.System, ipp)
+	return dns53.NewTransportFrom(dnsx.System, ipp, nil)
 }
 
 func newBlockAllTransport() (d dnsx.Transport) {
@@ -38,12 +39,33 @@ func newMDNSTransport(protos string) (d dnsx.Transport) {
 	return dns53.NewMDNSTransport(protos)
 }
 
-func NewDefaultDoH(id, url, ips string) (dnsx.Transport, error) {
+func NewDefaultDoH(url, ips string) (dnsx.Transport, error) {
 	split := []string{}
 	if len(ips) > 0 {
 		split = strings.Split(ips, ",")
 	}
-	return doh.NewTransport(id, url, split, nil)
+	return doh.NewTransport(dnsx.Default, url, split, nil)
+}
+
+func NewProxyDNS(t Tunnel, p ipn.Proxy) (d dnsx.Transport, err error) {
+	ipcsv := p.DNS()
+	if len(ipcsv) == 0 {
+		return nil, dnsx.ErrNoProxyDNS
+	}
+	ips := []string{}
+	if len(ipcsv) > 0 {
+		ips = strings.Split(ipcsv, ",")
+	}
+	ipport, err := netip.ParseAddrPort(ips[0])
+	if err != nil {
+		ips[0] = net.JoinHostPort(ips[0], dns53.Port)
+		ipport, err = netip.ParseAddrPort(ips[0])
+	}
+	// todo: may be stamp or url
+	if err != nil {
+		return nil, err
+	}
+	return dns53.NewTransportFrom(p.ID(), ipport, t.GetProxies())
 }
 
 // NewDoHTransport returns a DNSTransport that connects to the specified DoH server.

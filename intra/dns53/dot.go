@@ -22,16 +22,14 @@ import (
 	"github.com/miekg/dns"
 )
 
-const dottimeout = 7 * time.Second
-const dotport = "853"
-
 type dot struct {
 	id      string
 	url     string
 	addr    string
 	status  int
 	c       *dns.Client
-	proxies ipn.Proxies
+	proxies ipn.Proxies // may be nil
+	relay   ipn.Proxy   // may be nil
 	est     core.P2QuantileEstimator
 }
 
@@ -49,6 +47,10 @@ func NewTLSTransport(id, rawurl string, px ipn.Proxies) (t dnsx.Transport, err e
 		log.I("dot: disabling tls verification for %s", rawurl)
 		tlscfg.InsecureSkipVerify = true
 	}
+	var relay ipn.Proxy
+	if px != nil {
+		relay, _ = px.GetProxy(id)
+	}
 	// todo: with controller
 	dialer := protect.MakeNsDialer(id, nil)
 	tx := &dot{
@@ -57,6 +59,7 @@ func NewTLSTransport(id, rawurl string, px ipn.Proxies) (t dnsx.Transport, err e
 		addr:    url2addr(rawurl),
 		status:  dnsx.Start,
 		proxies: px,
+		relay:   relay,
 		est:     core.NewP50Estimator(),
 	}
 	tx.c = &dns.Client{
@@ -66,7 +69,7 @@ func NewTLSTransport(id, rawurl string, px ipn.Proxies) (t dnsx.Transport, err e
 		SingleInflight: true,
 		TLSConfig:      tlscfg,
 	}
-	log.I("dot: (%s) setup: %s", id, rawurl)
+	log.I("dot: (%s) setup: %s; relay? %t", id, rawurl, relay != nil)
 	return tx, nil
 }
 
@@ -81,7 +84,28 @@ func (t *dot) doQuery(pid string, q []byte) (response []byte, elapsed time.Durat
 	if qerr != nil { // only on send-request errors
 		response = xdns.Servfail(q)
 	}
+	return
+}
 
+func (t *dot) pxdial(pid string) (conn *dns.Conn, err error) {
+	var px ipn.Proxy
+	if t.relay != nil { // relay takes precedence
+		px = t.relay
+	} else if t.proxies != nil { // use proxy, if specified
+		px, err = t.proxies.GetProxy(pid)
+	} else {
+		err = dnsx.ErrNoProxyProvider
+	}
+	if err != nil {
+		return
+	}
+	log.V("dot: pxdial: (%s) using relay/proxy %s at %s", t.id, px.ID(), px.GetAddr())
+	dialer := ipn.AsRDial(px)
+	pxconn, err := dialer.Dial("tcp", t.addr) // dot is always tcp
+	if err != nil {
+		return
+	}
+	conn = &dns.Conn{Conn: pxconn}
 	return
 }
 
@@ -95,27 +119,20 @@ func (t *dot) sendRequest(pid string, q []byte) (response []byte, elapsed time.D
 		return
 	}
 
-	hasproxy := t.proxies != nil
-	noproxy := len(pid) == 0 || pid == dnsx.NetNoProxy
-	if noproxy {
-		// FIXME: conn pooling using t.c.Dial + ExchangeWithConn
-		ans, elapsed, err = t.c.Exchange(msg, t.addr)
-	} else if hasproxy {
-		var px ipn.Proxy
-		var pxconn net.Conn
-		px, err = t.proxies.GetProxy(pid)
-		if err == nil {
-			dialer := ipn.AsRDial(px)
-			pxconn, err = dialer.Dial("tcp", t.addr)
-		}
-		if err == nil {
-			conn := &dns.Conn{Conn: pxconn}
-			ans, elapsed, err = t.c.ExchangeWithConn(msg, conn)
-			conn.Close()
-		} // fallthrough
+	var conn *dns.Conn
+	userelay := t.relay != nil
+	useproxy := len(pid) != 0 && pid != dnsx.NetNoProxy
+	if useproxy || userelay {
+		conn, err = t.pxdial(pid)
 	} else {
-		err = dnsx.ErrNoProxyProvider
+		conn, err = t.c.Dial(t.addr)
 	}
+
+	if err == nil {
+		// FIXME: conn pooling using t.c.Dial + ExchangeWithConn
+		ans, elapsed, err = t.c.ExchangeWithConn(msg, conn)
+		conn.Close()
+	} // fallthrough
 
 	if err != nil {
 		qerr = dnsx.NewTransportQueryError(err)
@@ -149,7 +166,9 @@ func (t *dot) Query(network string, q []byte, summary *dnsx.Summary) (r []byte, 
 	summary.RCode = xdns.Rcode(ans)
 	summary.RTtl = xdns.RTtl(ans)
 	summary.Server = t.GetAddr()
-	if len(pid) > 0 && pid != dnsx.NetNoProxy {
+	if t.relay != nil {
+		summary.RelayServer = dnsx.SummaryProxyLabel + t.relay.ID()
+	} else if len(pid) > 0 && pid != dnsx.NetNoProxy {
 		summary.RelayServer = dnsx.SummaryProxyLabel + pid
 	}
 	summary.Status = status
@@ -188,7 +207,7 @@ func url2addr(url string) string {
 	}
 	// add port 853 if not present
 	if _, _, err := net.SplitHostPort(url); err != nil {
-		url = net.JoinHostPort(url, dotport)
+		url = net.JoinHostPort(url, DotPort)
 	}
 	return url
 }

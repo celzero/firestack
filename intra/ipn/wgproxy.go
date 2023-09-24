@@ -127,7 +127,7 @@ func (h *wgproxy) Fetch(req *http.Request) (resp *http.Response, err error) {
 	return h.hc.Do(req)
 }
 
-func (h *wgproxy) asRDial() *protect.RDial {
+func (h *wgproxy) getDialer() *protect.RDial {
 	return h.rd
 }
 
@@ -579,4 +579,19 @@ func (h *wgtun) Status() int {
 	return h.status
 }
 
-// func Stop(), Fetch(), asRDial() is impl by wgproxy
+func (h *wgtun) DNS() string {
+	var s string
+	for _, dns := range h.dnsaddrs {
+		if dns == nil || dns.IsUnspecified() || !dns.IsValid() {
+			continue
+		}
+		// may be private, link local, etc
+		s += dns.Unmap().String() + ","
+	}
+	if len(s) > 0 {
+		return strings.TrimRight(s, ",")
+	}
+	return NoDNS
+}
+
+// func Stop(), Fetch(), getDialer() is impl by wgproxy

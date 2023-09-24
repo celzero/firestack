@@ -42,7 +42,6 @@ type DcMulti struct {
 	proxyPublicKey               [32]byte
 	proxySecretKey               [32]byte
 	serversInfo                  ServersInfo
-	timeout                      time.Duration
 	certRefreshDelay             time.Duration
 	certRefreshDelayAfterFailure time.Duration
 	certIgnoreTimestamp          bool
@@ -57,6 +56,7 @@ type DcMulti struct {
 }
 
 var _ dnsx.TransportMult = (*DcMulti)(nil)
+var timeout20s = 20000 * time.Millisecond
 
 var (
 	errNoCert          = errors.New("dnscrypt: error refreshing cert")
@@ -81,9 +81,13 @@ func exchangeWithUDPServer(pid string, serverInfo *ServerInfo, sharedKey *[32]by
 	}
 
 	pc, err := serverInfo.dialudp(pid, upstreamAddr)
+	if err != nil {
+		log.E("dnscrypt: udp: dialing %s err: %v", serverInfo, err)
+		return nil, err
+	}
 
 	defer pc.Close()
-	if err = pc.SetDeadline(time.Now().Add(serverInfo.Timeout)); err != nil {
+	if err = pc.SetDeadline(time.Now().Add(timeout20s)); err != nil {
 		return nil, err
 	}
 	if serverInfo.RelayUDPAddr != nil {
@@ -121,13 +125,12 @@ func exchangeWithTCPServer(pid string, serverInfo *ServerInfo, sharedKey *[32]by
 	}
 
 	pc, err := serverInfo.dialtcp(pid, upstreamAddr)
-
 	if err != nil {
 		log.E("dnscrypt: tcp: dialing %s err: %v", serverInfo, err)
 		return nil, err
 	}
 	defer pc.Close()
-	if err := pc.SetDeadline(time.Now().Add(serverInfo.Timeout)); err != nil {
+	if err := pc.SetDeadline(time.Now().Add(timeout20s)); err != nil {
 		log.E("dnscrypt: tcp: err deadline: %v", err)
 		return nil, err
 	}
@@ -273,13 +276,13 @@ func query(pid string, packet []byte, serverInfo *ServerInfo, useudp bool) (resp
 }
 
 // resolve resolves incoming DNS query, data
-func resolve(network string, data []byte, serverinfo *ServerInfo, s *dnsx.Summary) (response []byte, err error) {
+func resolve(network string, data []byte, si *ServerInfo, s *dnsx.Summary) (response []byte, err error) {
 	before := time.Now()
 
 	proto, pid := xdns.Net2ProxyID(network)
 	useudp := proto == dnsx.NetTypeUDP
 
-	response, err = query(pid, data, serverinfo, useudp)
+	response, err = query(pid, data, si, useudp)
 
 	after := time.Now()
 
@@ -287,11 +290,11 @@ func resolve(network string, data []byte, serverinfo *ServerInfo, s *dnsx.Summar
 	status := dnsx.Complete
 
 	var resolver string
-	var relay string
-	if serverinfo != nil {
-		resolver = serverinfo.HostName
-		if serverinfo.RelayTCPAddr != nil {
-			relay = serverinfo.RelayTCPAddr.IP.String()
+	var anonrelay string
+	if si != nil {
+		resolver = si.HostName
+		if si.RelayTCPAddr != nil {
+			anonrelay = si.RelayTCPAddr.IP.String()
 		}
 	}
 
@@ -308,12 +311,18 @@ func resolve(network string, data []byte, serverinfo *ServerInfo, s *dnsx.Summar
 	s.RCode = xdns.Rcode(ans)
 	s.RTtl = xdns.RTtl(ans)
 	s.Server = resolver
-	s.RelayServer = relay
+	s.RelayServer = anonrelay
 	s.Status = status
 
-	hasproxy := len(pid) > 0 && pid != dnsx.NetNoProxy
-	if hasproxy && len(relay) <= 0 {
-		s.RelayServer = dnsx.SummaryProxyLabel + pid
+	noAnonRelay := len(anonrelay) <= 0
+	if noAnonRelay {
+		hasrelay := si.relay != nil
+		hasproxyid := len(pid) > 0 && pid != dnsx.NetNoProxy
+		if hasrelay {
+			s.RelayServer = dnsx.SummaryProxyLabel + si.relay.ID()
+		} else if hasproxyid {
+			s.RelayServer = dnsx.SummaryProxyLabel + pid
+		}
 	}
 
 	return response, err
@@ -542,7 +551,6 @@ func DcMult(px ipn.Proxies) *DcMulti {
 		certRefreshDelay:             240 * time.Minute,
 		certRefreshDelayAfterFailure: 10 * time.Second,
 		certIgnoreTimestamp:          false,
-		timeout:                      20000 * time.Millisecond,
 		serversInfo:                  NewServersInfo(),
 		liveServers:                  nil,
 		lastStatus:                   dnsx.Start,

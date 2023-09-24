@@ -32,6 +32,9 @@ const (
 	PIPWS  = "pipws"  // PIP: WebSockets proxy
 	NOOP   = "noop"   // No proxy, ex: Base, Block
 
+	// DNS addrs, urls, or stamps
+	NoDNS = "" // no DNS
+
 	// status of proxies
 	TOK = 0  // proxy OK
 	TKO = -1 // proxy not OK
@@ -71,9 +74,12 @@ type Proxy interface {
 	Type() string
 	// Fetch response for this request over HTTP.
 	Fetch(req *http.Request) (*http.Response, error)
-	asRDial() *protect.RDial
+	// getDialer returns the dialer for this proxy.
+	getDialer() *protect.RDial
 	// GetAddr returns the address of this proxy.
 	GetAddr() string
+	// DNS returns the ip:port or doh/dot url or dnscrypt stamp for this proxy.
+	DNS() string
 	// Status returns the status of this proxy.
 	Status() int
 	// Stop stops this proxy.

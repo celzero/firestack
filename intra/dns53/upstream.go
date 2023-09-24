@@ -24,10 +24,15 @@ import (
 	"github.com/miekg/dns"
 )
 
-var errQueryParse = errors.New("dns53: could not parse query")
+const (
+	Port           = "53"
+	DotPort        = "853"
+	timeout        = 5 * time.Second
+	dottimeout     = 8 * time.Second
+	usemeikgclient = true
+)
 
-const timeout = 5 * time.Second
-const usemeikgclient = true
+var errQueryParse = errors.New("dns53: err parse query")
 
 // TODO: Keep a context here so that queries can be canceled.
 type transport struct {
@@ -37,6 +42,7 @@ type transport struct {
 	mcudp   *dns.Client
 	mctcp   *dns.Client
 	proxies ipn.Proxies // may be nil; esp for id == dnsx.System
+	relay   ipn.Proxy   // may be nil
 	est     core.P2QuantileEstimator
 }
 
@@ -53,11 +59,13 @@ func NewTransport(id, ip, port string, px ipn.Proxies) (t dnsx.Transport, err er
 }
 
 func newTransport(id string, do *settings.DNSOptions, px ipn.Proxies) (dnsx.Transport, error) {
+	relay, _ := px.GetProxy(id)
 	tx := &transport{
 		id:      id,
 		ipport:  do.IPPort,
 		status:  dnsx.Start,
 		proxies: px,
+		relay:   relay,
 		est:     core.NewP50Estimator(),
 	}
 	// todo: with controller
@@ -78,18 +86,18 @@ func newTransport(id string, do *settings.DNSOptions, px ipn.Proxies) (dnsx.Tran
 			SingleInflight: true,
 		}
 	}
-	log.I("dns53: (%s) setup: %s", id, do.IPPort)
+	log.I("dns53: (%s) setup: %s; relay? %t", id, do.IPPort, relay != nil)
 	return tx, nil
 }
 
 // NewTransport returns a DNS transport, ready for use.
-func NewTransportFrom(id string, ipp netip.AddrPort) (t dnsx.Transport, err error) {
+func NewTransportFrom(id string, ipp netip.AddrPort, px ipn.Proxies) (t dnsx.Transport, err error) {
 	do, err := settings.NewDNSOptionsFromNetIp(ipp)
 	if err != nil {
 		return
 	}
 
-	return newTransport(id, do, nil)
+	return newTransport(id, do, px)
 }
 
 // Given a raw DNS query (including the query ID), this function sends the
@@ -114,6 +122,36 @@ func (t *transport) doQuery(network, pid string, q []byte) (response []byte, ela
 	return
 }
 
+func (t *transport) pxdial(network, pid string) (conn *dns.Conn, err error) {
+	var px ipn.Proxy
+	if t.relay != nil { // relay takes precedence
+		px = t.relay
+	} else if t.proxies != nil { // use proxy, if specified
+		px, err = t.proxies.GetProxy(pid)
+	} else {
+		err = dnsx.ErrNoProxyProvider
+	}
+	if err != nil {
+		return
+	}
+	log.V("dns53: pxdial: (%s) using %s relay/proxy %s at %s", t.id, network, px.ID(), px.GetAddr())
+	dialer := ipn.AsRDial(px)
+	pxconn, err := dialer.Dial(network, t.ipport)
+	if err != nil {
+		return
+	}
+	conn = &dns.Conn{Conn: pxconn}
+	return
+}
+
+func (t *transport) dial(network string) (*dns.Conn, error) {
+	if network == dnsx.NetTypeUDP {
+		return t.mcudp.Dial(t.ipport)
+	} else {
+		return t.mctcp.Dial(t.ipport)
+	}
+}
+
 func (t *transport) sendRequest2(network, pid string, q []byte) (response []byte, elapsed time.Duration, qerr *dnsx.QueryError) {
 	var ans *dns.Msg
 	var err error
@@ -123,43 +161,34 @@ func (t *transport) sendRequest2(network, pid string, q []byte) (response []byte
 		return
 	}
 
-	hasproxy := t.proxies != nil
-	noproxy := len(pid) == 0 || pid == dnsx.NetNoProxy
-	if noproxy {
-		// TODO: conn pooling using t.mc[tcp|udp].Dial + ExchangeWithConn
-		if network == dnsx.NetTypeUDP {
-			if udpconn, udperr := t.mcudp.Dial(t.ipport); udperr == nil {
-				ans, elapsed, err = t.mcudp.ExchangeWithConn(msg, udpconn)
-				udpconn.Close()
-			} else {
-				// if udp is unrechable, try tcp
-				// github.com/celzero/rethink-app/issues/839
-				network = dnsx.NetTypeTCP
-				log.D("dns53: udp(%s) dial err: %v; try tcp", t.id, err)
-			}
-		}
-		if network == dnsx.NetTypeTCP {
-			ans, elapsed, err = t.mctcp.Exchange(msg, t.ipport)
-		}
-	} else if hasproxy {
-		var px ipn.Proxy
-		var pxconn net.Conn
-		px, err = t.proxies.GetProxy(pid)
-		if err == nil {
-			dialer := ipn.AsRDial(px)
-			pxconn, err = dialer.Dial(network, t.ipport)
-		}
-		if err == nil {
-			conn := &dns.Conn{Conn: pxconn}
-			if network == dnsx.NetTypeTCP {
-				ans, elapsed, err = t.mctcp.ExchangeWithConn(msg, conn)
-			} else {
-				ans, elapsed, err = t.mcudp.ExchangeWithConn(msg, conn)
-			}
-			conn.Close()
+	var conn *dns.Conn
+	useudp := network == dnsx.NetTypeUDP
+	userelay := t.relay != nil
+	useproxy := len(pid) != 0 && pid != dnsx.NetNoProxy
+
+	// if udp is unreachable, try tcp: github.com/celzero/rethink-app/issues/839
+	// note that some proxies do not support udp (eg pipws, piph2)
+	if userelay || useproxy {
+		conn, err = t.pxdial(network, pid)
+		if err != nil && useudp {
+			network = dnsx.NetTypeTCP
+			conn, err = t.pxdial(network, pid)
 		}
 	} else {
-		err = dnsx.ErrNoProxyProvider
+		conn, err = t.dial(network)
+		if err != nil && useudp {
+			network = dnsx.NetTypeTCP
+			conn, err = t.dial(network)
+		}
+	}
+	if err == nil {
+		// TODO: conn pooling w/ ExchangeWithConn
+		if network == dnsx.NetTypeTCP {
+			ans, elapsed, err = t.mctcp.ExchangeWithConn(msg, conn)
+		} else {
+			ans, elapsed, err = t.mcudp.ExchangeWithConn(msg, conn)
+		}
+		conn.Close()
 	}
 
 	if err != nil {
@@ -289,7 +318,9 @@ func (t *transport) Query(network string, q []byte, summary *dnsx.Summary) (r []
 	summary.RCode = xdns.Rcode(ans)
 	summary.RTtl = xdns.RTtl(ans)
 	summary.Server = t.GetAddr()
-	if len(pid) > 0 && pid != dnsx.NetNoProxy {
+	if t.relay != nil {
+		summary.RelayServer = dnsx.SummaryProxyLabel + t.relay.ID()
+	} else if len(pid) > 0 && pid != dnsx.NetNoProxy {
 		summary.RelayServer = dnsx.SummaryProxyLabel + pid
 	}
 	summary.Status = status

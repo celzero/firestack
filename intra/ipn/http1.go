@@ -90,8 +90,12 @@ func (h *http1) Fetch(req *http.Request) (*http.Response, error) {
 	return h.hc.Do(req)
 }
 
-func (h *http1) asRDial() *protect.RDial {
+func (h *http1) getDialer() *protect.RDial {
 	return h.rd
+}
+
+func (h *http1) DNS() string {
+	return NoDNS
 }
 
 func (h *http1) ID() string {

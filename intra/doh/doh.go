@@ -75,7 +75,8 @@ type transport struct {
 	client             http.Client
 	clientpool         map[string]*http.Client
 	dialer             *protect.RDial
-	proxies            ipn.Proxies
+	proxies            ipn.Proxies // proxy provider, may be nil
+	relay              ipn.Proxy   // dial doh via relay, may be nil
 	status             int
 	est                core.P2QuantileEstimator
 	hangoverLock       sync.RWMutex
@@ -113,11 +114,17 @@ func newTransport(typ, id, rawurl, target string, addrs []string, px ipn.Proxies
 	skipTLSVerify := false
 	isodoh := typ == dnsx.ODOH
 
+	var relay ipn.Proxy
+	if px != nil {
+		relay, _ = px.GetProxy(id)
+	}
+
 	t := &transport{
 		id:         id,
 		typ:        typ,
 		dialer:     protect.MakeNsRDial(id, nil),
-		proxies:    px, // may be nil
+		proxies:    px,    // may be nil
+		relay:      relay, // may be nil
 		status:     dnsx.Start,
 		clientpool: make(map[string]*http.Client),
 		est:        core.NewP50Estimator(),
@@ -204,7 +211,7 @@ func newTransport(typ, id, rawurl, target string, addrs []string, px ipn.Proxies
 		TLSClientConfig:       tlsconfig,
 	}
 
-	log.I("doh: new transport(%s): %s", t.typ, t.url)
+	log.I("doh: new transport(%s): %s; relay? %t", t.typ, t.url, relay != nil)
 	return t, nil
 }
 
@@ -245,30 +252,35 @@ func (t *transport) doDoh(pid string, q []byte) (response []byte, blocklists str
 	} else { // override response with servfail
 		response = xdns.Servfail(q)
 	}
-
 	return
 }
 
 func (t *transport) bypassProxy() bool {
-	return t.id == dnsx.Default
+	return t.id == dnsx.Default || t.id == dnsx.System
 }
 
 func (t *transport) fetch(pid string, req *http.Request) (res *http.Response, err error) {
-	hasproxy := t.proxies == nil
-	noproxy := len(pid) == 0 || pid == dnsx.NetNoProxy
-	if noproxy || t.bypassProxy() {
+	if t.bypassProxy() {
 		return t.client.Do(req)
 	}
-	if !hasproxy {
-		err = dnsx.ErrNoProxyProvider
-		return
+	userelay := t.relay != nil
+	hasproxy := t.proxies != nil
+	useproxy := len(pid) != 0 && pid != dnsx.NetNoProxy
+	if userelay || useproxy {
+		var px ipn.Proxy
+		if userelay { // relay takes precedence
+			px = t.relay
+		} else if hasproxy { // use proxy as specified
+			px, err = t.proxies.GetProxy(pid)
+		} else {
+			err = dnsx.ErrNoProxyProvider
+		}
+		if err != nil {
+			return
+		}
+		return px.Fetch(req)
 	}
-	px, err := t.proxies.GetProxy(pid)
-	if err != nil {
-		err = dnsx.NewTransportQueryError(err)
-		return
-	}
-	return px.Fetch(req)
+	return t.client.Do(req)
 }
 
 func (t *transport) send(pid string, req *http.Request) (ans []byte, blocklists string, elapsed time.Duration, qerr *dnsx.QueryError) {
@@ -435,7 +447,9 @@ func (t *transport) Query(network string, q []byte, summary *dnsx.Summary) (r []
 	summary.RTtl = xdns.RTtl(ans)
 	summary.Status = status
 	summary.Blocklists = blocklists
-	if len(pid) > 0 && pid != dnsx.NetNoProxy {
+	if t.relay != nil {
+		summary.RelayServer = dnsx.SummaryProxyLabel + t.relay.ID()
+	} else if len(pid) > 0 && pid != dnsx.NetNoProxy {
 		summary.RelayServer = dnsx.SummaryProxyLabel + pid
 	}
 
