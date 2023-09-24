@@ -98,6 +98,13 @@ func Net2ProxyID(network string) (proto, pid string) {
 	return
 }
 
+func NetAndProxyID(proto, pid string) string {
+	if len(pid) > 0 {
+		return fmt.Sprintf("%s:%s", proto, pid)
+	}
+	return proto
+}
+
 func PrefixWithSize(packet []byte) ([]byte, error) {
 	packetLen := len(packet)
 	if packetLen > MaxMTU {
