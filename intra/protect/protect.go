@@ -67,21 +67,21 @@ type Protector interface {
 
 func networkBinder(who string, ctl Controller) func(string, string, syscall.RawConn) error {
 	return func(network, address string, c syscall.RawConn) (err error) {
+		dst, err := netip.ParseAddrPort(address)
+		log.D("control: net(%s), orig(%s/%w), bind(%s)", network, dst, err, who)
 		return c.Control(func(fd uintptr) {
 			sock := int(fd)
 			switch network {
-			case "tcp6":
-				fallthrough
-			case "udp6":
+			case "tcp6", "udp6":
 				ctl.Bind6(who, sock)
-			case "tcp4":
-				fallthrough
-			case "udp4":
-				fallthrough
-			case "tcp":
-				fallthrough
-			case "udp":
+			case "tcp4", "udp4":
 				ctl.Bind4(who, sock)
+			case "tcp", "udp":
+				if dst.Addr().Is6() {
+					ctl.Bind6(who, sock)
+				} else {
+					ctl.Bind4(who, sock)
+				}
 			default:
 				// no-op
 			}
@@ -94,25 +94,40 @@ func ipBinder(p Protector) func(string, string, syscall.RawConn) error {
 		src := p.UIP(network)
 		ipaddr, _ := netip.AddrFromSlice(src)
 		origaddr, err := netip.ParseAddrPort(address)
-		log.W("control: net(%s), orig(%s/%w), bind(%s)", network, origaddr, err, ipaddr)
+		origport := int(origaddr.Port())
+		log.D("control: net(%s), orig(%s/%w), bind(%s)", network, origaddr, err, ipaddr)
 		if err != nil {
 			return err
 		}
+
+		bind6 := func(fd uintptr) error {
+			sc := &syscall.SockaddrInet6{Addr: ipaddr.As16(), Port: origport}
+			return syscall.Bind(int(fd), sc)
+		}
+		bind4 := func(fd uintptr) error {
+			sc := &syscall.SockaddrInet4{Addr: ipaddr.As4(), Port: origport}
+			return syscall.Bind(int(fd), sc)
+		}
+
 		return c.Control(func(fd uintptr) {
 			if origaddr.Addr().IsUnspecified() {
 				return
 			}
-			port := int(origaddr.Port())
+
 			switch network {
-			case "tcp6":
-				fallthrough
-			case "udp6":
+			case "tcp6", "udp6":
 				// TODO: zone := origaddr.Addr().Zone()
-				bind6 := &syscall.SockaddrInet6{Addr: ipaddr.As16(), Port: port}
-				err = syscall.Bind(int(fd), bind6)
+				err = bind6(fd)
+			case "tcp4", "udp4":
+				err = bind4(fd)
+			case "tcp", "udp":
+				if origaddr.Addr().Is6() {
+					err = bind6(fd)
+				} else {
+					err = bind4(fd)
+				}
 			default:
-				bind4 := &syscall.SockaddrInet4{Addr: ipaddr.As4(), Port: port}
-				err = syscall.Bind(int(fd), bind4)
+				// no-op
 			}
 			if err != nil {
 				log.E("protect: fail to bind ip(%s) to socket %v", ipaddr, err)
