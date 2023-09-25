@@ -290,14 +290,14 @@ func (h *udpHandler) isDns(addr *net.UDPAddr) bool {
 	return h.resolver.IsDnsAddr(dnsx.NetTypeUDP, addr2.String())
 }
 
-func (h *udpHandler) onFlow(localudp core.UDPConn, target *net.UDPAddr, realips, domains, blocklists string) string {
+func (h *udpHandler) onFlow(localudp core.UDPConn, target *net.UDPAddr, realips, domains, blocklists string) *protect.Options {
 	// BlockModeNone returns false, BlockModeSink returns true
 	if h.tunMode.BlockMode == settings.BlockModeSink {
-		return ipn.Block
+		return optionsBlock
 	}
 	// todo: block-mode none should call into ctl.Flow to determine upstream proxy
 	if h.tunMode.BlockMode == settings.BlockModeNone {
-		return ipn.Base
+		return optionsBase
 	}
 
 	source := localudp.LocalAddr()
@@ -319,9 +319,9 @@ func (h *udpHandler) onFlow(localudp core.UDPConn, target *net.UDPAddr, realips,
 	var proto int32 = 17 // udp
 	res := h.ctl.Flow(proto, uid, src, dst, realips, domains, blocklists)
 
-	if len(res) <= 0 {
+	if len(res.PID) <= 0 {
 		log.W("udp: empty flow from kt; using base")
-		res = ipn.Base
+		res.PID = ipn.Base
 	}
 
 	return res
@@ -345,10 +345,10 @@ func (h *udpHandler) OnNewConn(gconn *netstack.GUDPConn, _, dst *net.UDPAddr) {
 
 // Connect connects the proxy server.
 // Note, target may be nil in lwip (deprecated) while it may be unspecified in netstack
-func (h *udpHandler) Connect(conn core.UDPConn, target *net.UDPAddr) (res string, err error) {
+func (h *udpHandler) Connect(conn core.UDPConn, target *net.UDPAddr) (res *protect.Options, err error) {
 	if h.status == UDPEND {
 		log.D("udp: connect: end")
-		return "", errUdpEnd
+		return nil, errUdpEnd
 	}
 
 	var px ipn.Proxy

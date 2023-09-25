@@ -247,13 +247,16 @@ func (h *tcpHandler) dnsOverride(conn net.Conn, addr *net.TCPAddr) bool {
 	return false
 }
 
-func (h *tcpHandler) onFlow(localaddr *net.TCPAddr, target *net.TCPAddr, realips, domains, blocklists string) string {
+var optionsBlock = &protect.Options{PID: ipn.Block}
+var optionsBase = &protect.Options{PID: ipn.Base}
+
+func (h *tcpHandler) onFlow(localaddr *net.TCPAddr, target *net.TCPAddr, realips, domains, blocklists string) *protect.Options {
 	// BlockModeNone returns false, BlockModeSink returns true
 	if h.tunMode.BlockMode == settings.BlockModeSink {
-		return ipn.Block
+		return optionsBlock
 	} else if h.tunMode.BlockMode == settings.BlockModeNone {
 		// todo: block-mode none should call into ctl.Flow to determine upstream proxy
-		return ipn.Base
+		return optionsBase
 	}
 
 	if len(realips) <= 0 || len(domains) <= 0 {
@@ -274,9 +277,9 @@ func (h *tcpHandler) onFlow(localaddr *net.TCPAddr, target *net.TCPAddr, realips
 	dst := target.String()
 	res := h.ctl.Flow(proto, uid, src, dst, realips, domains, blocklists)
 
-	if len(res) <= 0 {
+	if len(res.PID) <= 0 {
 		log.W("tcp: empty flow from kt; using base")
-		res = ipn.Base
+		res.PID = ipn.Base
 	}
 
 	return res
@@ -500,16 +503,9 @@ func undoAlg(r dnsx.Resolver, algip net.IP) (realips, domains, blocklists string
 	return
 }
 
-func splitPidCidUid(decision string) (pid, cid, uid string) {
-	ids := strings.Split(decision, ",")
-	if len(ids) >= 1 {
-		pid = ids[0]
+func splitPidCidUid(decision *protect.Options) (pid, cid, uid string) {
+	if decision == nil {
+		return
 	}
-	if len(ids) >= 2 {
-		cid = ids[1]
-	}
-	if len(ids) >= 3 {
-		uid = ids[2]
-	}
-	return
+	return decision.PID, decision.CID, decision.UID
 }
