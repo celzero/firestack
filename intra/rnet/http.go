@@ -117,7 +117,7 @@ func (h *httpx) Hop(p ipn.Proxy) error {
 		return errServerEnd
 	}
 	h.hdl.px = p
-	h.ProxyHttpServer.Tr.Dial = ipn.AsRDial(p).Dial
+	h.ProxyHttpServer.Tr.Dial = p.Dialer().Dial
 	log.D("svchttp: hop: %s set to %s", h.ID(), p.GetAddr())
 	return nil
 }

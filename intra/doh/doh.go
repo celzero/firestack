@@ -278,7 +278,7 @@ func (t *transport) fetch(pid string, req *http.Request) (res *http.Response, er
 		if err != nil {
 			return
 		}
-		return px.Fetch(req)
+		return ipn.Fetch(px, req)
 	}
 	return t.client.Do(req)
 }

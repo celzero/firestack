@@ -224,7 +224,7 @@ func (t *pipws) Dial(network, addr string) (protect.Conn, error) {
 	return c, nil
 }
 
-func (h *pipws) Fetch(req *http.Request) (*http.Response, error) {
+func (h *pipws) fetch(req *http.Request) (*http.Response, error) {
 	stopped := h.Status() == END
 	log.V("pipws: %d; fetch %s; ok? %t", h.id, req.URL, !stopped)
 	if stopped {
@@ -233,7 +233,7 @@ func (h *pipws) Fetch(req *http.Request) (*http.Response, error) {
 	return h.hc.Do(req)
 }
 
-func (h *pipws) getDialer() *protect.RDial {
+func (h *pipws) Dialer() *protect.RDial {
 	return h.rd
 }
 

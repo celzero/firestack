@@ -96,7 +96,7 @@ func (h *socks5) Dial(network, addr string) (c protect.Conn, err error) {
 	return
 }
 
-func (h *socks5) getDialer() *protect.RDial {
+func (h *socks5) Dialer() *protect.RDial {
 	return h.rd
 }
 
@@ -104,7 +104,7 @@ func (h *socks5) DNS() string {
 	return NoDNS
 }
 
-func (h *socks5) Fetch(req *http.Request) (*http.Response, error) {
+func (h *socks5) fetch(req *http.Request) (*http.Response, error) {
 	stopped := h.status == END
 	log.V("proxy: socks5: %d; fetch(%s); ok? %t", h.id, req.URL, stopped)
 	if stopped {

@@ -48,7 +48,7 @@ func (h *base) Dial(network, addr string) (c protect.Conn, err error) {
 	return
 }
 
-func (h *base) getDialer() *protect.RDial {
+func (h *base) Dialer() *protect.RDial {
 	return h.rd
 }
 
@@ -56,7 +56,7 @@ func (h *base) DNS() string {
 	return NoDNS
 }
 
-func (h *base) Fetch(req *http.Request) (*http.Response, error) {
+func (h *base) fetch(req *http.Request) (*http.Response, error) {
 	stopped := h.status == END
 	log.V("proxy: base: fetch(%s); ok? %t", req.URL, !stopped)
 	if stopped {

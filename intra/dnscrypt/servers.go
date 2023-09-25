@@ -336,8 +336,7 @@ func (s *ServerInfo) dialtcp(pid string, addr *net.TCPAddr) (net.Conn, error) {
 func (s *ServerInfo) dialpx(pid, proto string, addr string) (net.Conn, error) {
 	relay := s.relay
 	if relay != nil {
-		dialer := ipn.AsRDial(relay)
-		return dialer.Dial(proto, addr)
+		return relay.Dialer().Dial(proto, addr)
 	}
 	pxs := s.proxies
 	if pxs == nil {
@@ -345,8 +344,7 @@ func (s *ServerInfo) dialpx(pid, proto string, addr string) (net.Conn, error) {
 	}
 	px, err := pxs.GetProxy(pid)
 	if err == nil {
-		dialer := ipn.AsRDial(px)
-		return dialer.Dial(proto, addr)
+		return px.Dialer().Dial(proto, addr)
 	}
 	return nil, err
 }

@@ -82,11 +82,8 @@ func (pxr *proxifier) AddProxy(id, txt string) (p Proxy, err error) {
 	return
 }
 
-// Adapter for protect.RDialer interface, but with the caveat that
-// not all Proxy instances implement DialTCP and DialUDP, but are
-// guaranteed to implement Dial.
-func AsRDial(px Proxy) *protect.RDial {
-	return px.getDialer()
+func Fetch(p Proxy, req *http.Request) (*http.Response, error) {
+	return p.fetch(req)
 }
 
 func newRDial(p Proxy) *protect.RDial {

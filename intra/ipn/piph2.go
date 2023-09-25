@@ -418,7 +418,7 @@ func (t *piph2) Dial(network, addr string) (protect.Conn, error) {
 	return oconn, nil
 }
 
-func (h *piph2) Fetch(req *http.Request) (*http.Response, error) {
+func (h *piph2) fetch(req *http.Request) (*http.Response, error) {
 	stopped := h.status == END
 	if stopped {
 		return nil, errProxyStopped
@@ -426,7 +426,7 @@ func (h *piph2) Fetch(req *http.Request) (*http.Response, error) {
 	return h.hc.Do(req)
 }
 
-func (h *piph2) getDialer() *protect.RDial {
+func (h *piph2) Dialer() *protect.RDial {
 	return h.rd
 }
 

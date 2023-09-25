@@ -135,8 +135,7 @@ func (t *transport) pxdial(network, pid string) (conn *dns.Conn, err error) {
 		return
 	}
 	log.V("dns53: pxdial: (%s) using %s relay/proxy %s at %s", t.id, network, px.ID(), px.GetAddr())
-	dialer := ipn.AsRDial(px)
-	pxconn, err := dialer.Dial(network, t.ipport)
+	pxconn, err := px.Dialer().Dial(network, t.ipport)
 	if err != nil {
 		return
 	}

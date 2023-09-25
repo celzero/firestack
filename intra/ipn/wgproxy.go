@@ -118,7 +118,7 @@ func (w *wgproxy) Refresh() (err error) {
 	return
 }
 
-func (h *wgproxy) Fetch(req *http.Request) (resp *http.Response, err error) {
+func (h *wgproxy) fetch(req *http.Request) (resp *http.Response, err error) {
 	stopped := h.status == END
 	log.V("wg: %d; fetch: %s; ok? %t", h.id, req.URL, !stopped)
 	if stopped {
@@ -127,7 +127,7 @@ func (h *wgproxy) Fetch(req *http.Request) (resp *http.Response, err error) {
 	return h.hc.Do(req)
 }
 
-func (h *wgproxy) getDialer() *protect.RDial {
+func (h *wgproxy) Dialer() *protect.RDial {
 	return h.rd
 }
 

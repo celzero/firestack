@@ -100,8 +100,7 @@ func (t *dot) pxdial(pid string) (conn *dns.Conn, err error) {
 		return
 	}
 	log.V("dot: pxdial: (%s) using relay/proxy %s at %s", t.id, px.ID(), px.GetAddr())
-	dialer := ipn.AsRDial(px)
-	pxconn, err := dialer.Dial("tcp", t.addr) // dot is always tcp
+	pxconn, err := px.Dialer().Dial("tcp", t.addr) // dot is always tcp
 	if err != nil {
 		return
 	}

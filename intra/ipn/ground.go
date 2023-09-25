@@ -27,11 +27,11 @@ func (h *ground) Dial(network, addr string) (c protect.Conn, err error) {
 	return nil, errNoProxyResponse
 }
 
-func (h *ground) getDialer() *protect.RDial {
+func (h *ground) Dialer() *protect.RDial {
 	return &protect.RDial{}
 }
 
-func (h *ground) Fetch(req *http.Request) (*http.Response, error) {
+func (h *ground) fetch(req *http.Request) (*http.Response, error) {
 	return nil, errNoProxyResponse
 }
 

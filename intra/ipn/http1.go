@@ -81,7 +81,7 @@ func (h *http1) Dial(network, addr string) (c protect.Conn, err error) {
 	return
 }
 
-func (h *http1) Fetch(req *http.Request) (*http.Response, error) {
+func (h *http1) fetch(req *http.Request) (*http.Response, error) {
 	stopped := h.status == END
 	log.V("proxy: http1: %d; fetch(%s) from %s; ok? %t", h.id, req.URL, !stopped)
 	if stopped {
@@ -90,7 +90,7 @@ func (h *http1) Fetch(req *http.Request) (*http.Response, error) {
 	return h.hc.Do(req)
 }
 
-func (h *http1) getDialer() *protect.RDial {
+func (h *http1) Dialer() *protect.RDial {
 	return h.rd
 }
 

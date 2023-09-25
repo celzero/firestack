@@ -67,15 +67,19 @@ var _ Proxy = (*pipws)(nil)
 var _ Proxy = (*piph2)(nil)
 
 type Proxy interface {
-	protect.RDialer
 	// ID returns the ID of this proxy.
 	ID() string
 	// Type returns the type of this proxy.
 	Type() string
-	// Fetch response for this request over HTTP.
-	Fetch(req *http.Request) (*http.Response, error)
-	// getDialer returns the dialer for this proxy.
-	getDialer() *protect.RDial
+	// Dial returns a connection to this proxy.
+	Dial(network string, addr string) (protect.Conn, error)
+	// fetch response for this request over HTTP.
+	fetch(req *http.Request) (*http.Response, error)
+	// Dialer returns the dialer for this proxy, which is an
+	// adapter for protect.RDialer interface, but with the caveat that
+	// not all Proxy instances implement DialTCP and DialUDP, though are
+	// guaranteed to implement Dial.
+	Dialer() *protect.RDial
 	// GetAddr returns the address of this proxy.
 	GetAddr() string
 	// DNS returns the ip:port or doh/dot url or dnscrypt stamp for this proxy.
@@ -87,6 +91,8 @@ type Proxy interface {
 	// Refresh re-registers this proxy.
 	Refresh() error
 }
+
+var _ protect.RDialer = (Proxy)(nil)
 
 type Proxies interface {
 	// Add adds a proxy to this multi-transport.
