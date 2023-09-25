@@ -94,26 +94,21 @@ func ipBinder(p Protector) func(string, string, syscall.RawConn) error {
 		src := p.UIP(network)
 		ipaddr, _ := netip.AddrFromSlice(src)
 		origaddr, err := netip.ParseAddrPort(address)
-		origport := int(origaddr.Port())
-		log.D("control: net(%s), orig(%s/%w), bind(%s)", network, origaddr, err, ipaddr)
+		log.D("control: net(%s), orig(%s/%w), bindto(%s)", network, origaddr, err, ipaddr)
 		if err != nil {
 			return err
 		}
 
 		bind6 := func(fd uintptr) error {
-			sc := &syscall.SockaddrInet6{Addr: ipaddr.As16(), Port: origport}
+			sc := &syscall.SockaddrInet6{Addr: ipaddr.As16()}
 			return syscall.Bind(int(fd), sc)
 		}
 		bind4 := func(fd uintptr) error {
-			sc := &syscall.SockaddrInet4{Addr: ipaddr.As4(), Port: origport}
+			sc := &syscall.SockaddrInet4{Addr: ipaddr.As4()}
 			return syscall.Bind(int(fd), sc)
 		}
 
 		return c.Control(func(fd uintptr) {
-			if origaddr.Addr().IsUnspecified() {
-				return
-			}
-
 			switch network {
 			case "tcp6", "udp6":
 				// TODO: zone := origaddr.Addr().Zone()

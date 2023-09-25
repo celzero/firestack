@@ -116,6 +116,9 @@ func (s *services) AddServer(id, url string) (svc Server, err error) {
 	s.servers[id] = svc
 	s.Unlock()
 
+	// if the server has a namesake proxy, bridge them
+	go s.Bridge(id, id)
+
 	return svc, nil
 }
 
