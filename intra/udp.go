@@ -61,6 +61,8 @@ var (
 	errUdpEnd        = errors.New("udp: end")
 )
 
+var notimetrack int32 = -1
+
 // UDPSocketSummary describes a non-DNS UDP association, reported when it is discarded.
 type UDPSocketSummary struct {
 	ID            string // Unique ID for this socket.
@@ -99,18 +101,8 @@ func makeTracker(cid, pid, uid string, conn any) *tracker {
 	return &tracker{cid, pid, uid, conn, time.Now(), 0, 0, 0, noerr, nil}
 }
 
-func (t *tracker) FillSummary(s *UDPSocketSummary) {
-	s.ID = t.id
-	if len(t.msg) > 0 {
-		s.Msg = t.msg
-	} else {
-		s.Msg = noerr
-	}
-	s.PID = t.pid
-	s.UID = t.uid
-	s.UploadBytes = t.upload
-	s.DownloadBytes = t.download
-	s.Duration = int32(time.Since(t.start).Seconds())
+func (t *tracker) elapsed() int32 {
+	return int32(time.Since(t.start).Seconds())
 }
 
 // UDPHandler adds DOH support to the base UDPConnHandler interface.
@@ -182,7 +174,10 @@ func pc2str(conn core.UDPConn, c net.PacketConn, nat *tracker) string {
 
 // fetchUDPInput reads from nat.conn to masqurade-write it to core.UDPConn
 func (h *udpHandler) fetchUDPInput(conn core.UDPConn, nat *tracker) {
-	defer h.Close(conn)
+	elapsed := notimetrack
+	defer func() {
+		h.Close(conn, elapsed)
+	}()
 
 	if ok := conn.Ready(); !ok {
 		return
@@ -258,8 +253,10 @@ func (h *udpHandler) fetchUDPInput(conn core.UDPConn, nat *tracker) {
 
 		nat.download += int64(n)
 		// writes data to conn (tun) with udpaddr as source
-		if _, err = conn.WriteFrom(buf[:n], udpaddr); err != nil {
-			log.W("udp: ingress: failed write to tun (%s) from %s; err %v", logaddr, udpaddr, err)
+		_, err = conn.WriteFrom(buf[:n], udpaddr)
+		elapsed = nat.elapsed() // track time since last write
+		if err != nil {
+			log.W("udp: ingress: failed write to tun (%s) from %s; err %v; %dsecs", logaddr, udpaddr, err, elapsed)
 			// for half-open: nat.errcount += 1 and continue
 			// otherwise: return and close conn
 			return
@@ -272,7 +269,7 @@ func (h *udpHandler) dnsOverride(conn core.UDPConn, addr *net.UDPAddr, query []b
 		return false
 	}
 	// conn was only used for this DNS query, so it's unlikely to be used again.
-	defer h.Close(conn)
+	defer h.Close(conn, notimetrack)
 
 	resp, err := h.resolver.Forward(query)
 	if resp != nil {
@@ -519,7 +516,7 @@ func (h *udpHandler) ReceiveTo(conn core.UDPConn, data []byte, addr *net.UDPAddr
 	return nil
 }
 
-func (h *udpHandler) Close(conn core.UDPConn) {
+func (h *udpHandler) Close(conn core.UDPConn, secs int32) {
 	log.V("udp: closing conn [%v -> %v]", conn.LocalAddr(), conn.RemoteAddr())
 	conn.Close()
 
@@ -534,8 +531,12 @@ func (h *udpHandler) Close(conn core.UDPConn) {
 			c.Close()
 		default:
 		}
+
+		elapsed := secs
+		if elapsed == notimetrack {
+			elapsed = t.elapsed()
+		}
 		// TODO: Cancel any outstanding DoH queries.
-		elapsed := int32(time.Since(t.start).Seconds())
 		go h.sendNotif(t.id, t.pid, t.uid, t.msg, t.upload, t.download, elapsed)
 		delete(h.udpConns, conn)
 	}
