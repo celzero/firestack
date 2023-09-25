@@ -306,7 +306,7 @@ func (r *resolver) registerSystemDns64(ur Transport) (ok bool) {
 }
 
 func (r *resolver) Get(id string) (Transport, error) {
-	if t := r.determineTransports(id); t == nil {
+	if t := r.determineTransport(id); t == nil {
 		return nil, errNoSuchTransport
 	} else {
 		return t, nil
@@ -387,7 +387,7 @@ func (r *resolver) Forward(q []byte) ([]byte, error) {
 	}
 	pref := r.listener.OnQuery(qname, qtyp, id)
 	id, sid, pid, _ = preferencesFrom(pref)
-	t := r.determineTransports(id)
+	t := r.determineTransport(id)
 	if t == nil {
 		summary.Latency = time.Since(starttime).Seconds()
 		summary.Status = TransportError
@@ -395,7 +395,7 @@ func (r *resolver) Forward(q []byte) ([]byte, error) {
 	}
 	var t2 Transport
 	if len(sid) > 0 {
-		t2 = r.determineTransports(sid)
+		t2 = r.determineTransport(sid)
 	}
 
 	if t.ID() == Alg { // also: Local?
@@ -507,7 +507,7 @@ func (r *resolver) withDNS64SummaryIfNeeded(d64 []byte, s *Summary) {
 
 }
 
-func (r *resolver) determineTransports(id string) Transport {
+func (r *resolver) determineTransport(id string) Transport {
 	r.RLock()
 	defer r.RUnlock()
 
@@ -569,7 +569,7 @@ func (r *resolver) forwardQuery(q []byte, c io.Writer) error {
 	pref := r.listener.OnQuery(qname, qtyp, id)
 	id, sid, pid, _ = preferencesFrom(pref)
 	// retrieve transport
-	t := r.determineTransports(id)
+	t := r.determineTransport(id)
 	if t == nil {
 		summary.Latency = time.Since(starttime).Seconds()
 		summary.Status = TransportError
@@ -577,7 +577,7 @@ func (r *resolver) forwardQuery(q []byte, c io.Writer) error {
 	}
 	var t2 Transport = nil
 	if len(sid) > 0 {
-		t2 = r.determineTransports(sid)
+		t2 = r.determineTransport(sid)
 	}
 	if t.ID() == Alg { // also: Local?
 		gw = nil // transport implicitly implements Gateway
@@ -832,6 +832,9 @@ func preferencesFrom(s *Options) (id1, id2, pid, ips string) {
 	} else if l == 1 {
 		id1 = x[0] // id for transport t1
 	} else if l == 2 {
+		id1, id2 = x[0], x[1] // ids for transport t1, t2
+	} else {
+		log.W("dns: pref: too many tids; upto 2, got %d", l)
 		id1, id2 = x[0], x[1] // ids for transport t1, t2
 	}
 	if len(s.PID) > 0 {
