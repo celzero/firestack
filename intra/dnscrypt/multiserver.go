@@ -575,13 +575,13 @@ func NewTransport(p *DcMulti, id, serverstamp string) (dnsx.Transport, error) {
 	}
 }
 
-func NewRelayTransport(p *DcMulti, relaystamp string) (dnsx.Transport, error) {
+func AddRelayTransport(p *DcMulti, relaystamp string) error {
 	if p == nil {
-		return nil, dnsx.ErrNoDcProxy
+		return dnsx.ErrNoDcProxy
 	}
 	if _, err := p.AddGateways(relaystamp); err == nil {
-		return p, nil
+		return nil
 	} else {
-		return nil, err
+		return err
 	}
 }

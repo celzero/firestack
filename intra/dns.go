@@ -18,8 +18,13 @@ import (
 	"github.com/celzero/firestack/intra/ipn"
 )
 
-func NewDNSProxy(t Tunnel, id, ip, port string) (d dnsx.Transport, err error) {
-	return dns53.NewTransport(id, ip, port, t.GetProxies())
+func AddDNSProxy(t Tunnel, id, ip, port string) error {
+	r := t.GetResolver()
+	if dns, err := dns53.NewTransport(id, ip, port, t.GetProxies()); err != nil {
+		return err
+	} else {
+		return addDNSTransport(r, dns)
+	}
 }
 
 func newSystemDNSProxy(ipp netip.AddrPort) (d dnsx.Transport, err error) {
@@ -39,18 +44,23 @@ func newMDNSTransport(protos string) (d dnsx.Transport) {
 	return dns53.NewMDNSTransport(protos)
 }
 
-func NewDefaultDoH(url, ips string) (dnsx.Transport, error) {
+func NewDefaultTransport(dohurl, ips string) (dnsx.Transport, error) {
+	if len(dohurl) <= 0 {
+		return dns53.NewGroundedTransport(dnsx.BlockAll), nil
+	}
 	split := []string{}
 	if len(ips) > 0 {
 		split = strings.Split(ips, ",")
 	}
-	return doh.NewTransport(dnsx.Default, url, split, nil)
+	return doh.NewTransport(dnsx.Default, dohurl, split, nil)
 }
 
-func NewProxyDNS(t Tunnel, p ipn.Proxy) (d dnsx.Transport, err error) {
+func AddProxyDNS(t Tunnel, p ipn.Proxy) error {
+	pxr := t.GetProxies()
+	r := t.GetResolver()
 	ipcsv := p.DNS()
 	if len(ipcsv) == 0 {
-		return nil, dnsx.ErrNoProxyDNS
+		return dnsx.ErrNoProxyDNS
 	}
 	ips := []string{}
 	if len(ipcsv) > 0 {
@@ -63,56 +73,94 @@ func NewProxyDNS(t Tunnel, p ipn.Proxy) (d dnsx.Transport, err error) {
 	}
 	// todo: may be stamp or url
 	if err != nil {
-		return nil, err
+		return err
 	}
-	return dns53.NewTransportFrom(p.ID(), ipport, t.GetProxies())
+	// register transport with the resolver
+	if dns, err := dns53.NewTransportFrom(p.ID(), ipport, pxr); err != nil {
+		return err
+	} else {
+		return addDNSTransport(r, dns)
+	}
 }
 
-// NewDoHTransport returns a DNSTransport that connects to the specified DoH server.
+// SetDoHTransport returns a DNSTransport that connects to the specified DoH server.
 // `url` is the URL of a DoH server (no template, POST-only).
-func NewDoHTransport(t Tunnel, id, url, ips string) (dnsx.Transport, error) {
+func AddDoHTransport(t Tunnel, id, url, ips string) error {
+	pxr := t.GetProxies()
+	r := t.GetResolver()
 	split := []string{}
 	if len(ips) > 0 {
 		split = strings.Split(ips, ",")
 	}
-	return doh.NewTransport(id, url, split, t.GetProxies())
+	if dns, err := doh.NewTransport(id, url, split, pxr); err != nil {
+		return err
+	} else {
+		return addDNSTransport(r, dns)
+	}
 }
 
-func NewODoHTransport(t Tunnel, id, endpoint, resolver, epips string) (dnsx.Transport, error) {
+func AddODoHTransport(t Tunnel, id, endpoint, resolver, epips string) error {
+	pxr := t.GetProxies()
+	r := t.GetResolver()
 	split := []string{}
 	if len(epips) > 0 {
 		split = strings.Split(epips, ",")
 	}
-	return doh.NewOdohTransport(id, endpoint, resolver, split, t.GetProxies())
-}
-
-func NewDoTTransport(t Tunnel, id, url string) (dnsx.Transport, error) {
-	return dns53.NewTLSTransport(id, url, t.GetProxies())
-}
-
-func NewDNSCryptTransport(t Tunnel, id, stamp string) (d dnsx.Transport, err error) {
-	r := t.GetResolver()
-	var tm dnsx.TransportMult
-	if tm, err = r.GetMult(dnsx.DcProxy); err == nil {
-		// todo: unexpose DcMulti, cast to TransportMult
-		if p, ok := tm.(*dnscrypt.DcMulti); ok {
-			return dnscrypt.NewTransport(p, id, stamp)
-		} else {
-			err = dnsx.ErrNoDcProxy
-		}
+	if dns, err := doh.NewOdohTransport(id, endpoint, resolver, split, pxr); err != nil {
+		return err
+	} else {
+		return addDNSTransport(r, dns)
 	}
-	return nil, err
 }
 
-func NewDNSCryptRelay(t Tunnel, stamp string) (dnsx.Transport, error) {
+func AddDoTTransport(t Tunnel, id, url string) error {
+	pxr := t.GetProxies()
 	r := t.GetResolver()
-	if tm, err := r.GetMult(dnsx.DcProxy); err == nil {
-		if p, ok := tm.(*dnscrypt.DcMulti); ok {
-			return dnscrypt.NewRelayTransport(p, stamp)
+	if dns, err := dns53.NewTLSTransport(id, url, pxr); err != nil {
+		return err
+	} else {
+		return addDNSTransport(r, dns)
+	}
+}
+
+func AddDNSCryptTransport(t Tunnel, id, stamp string) (err error) {
+	r := t.GetResolver()
+
+	var tm dnsx.TransportMult
+	if tm, err = r.GetMult(dnsx.DcProxy); err != nil {
+		return err
+	}
+	// todo: unexpose DcMulti, cast to TransportMult
+	if p, ok := tm.(*dnscrypt.DcMulti); ok {
+		if dns, err := dnscrypt.NewTransport(p, id, stamp); err != nil {
+			return err
 		} else {
-			return nil, dnsx.ErrNoDcProxy
+			return addDNSTransport(r, dns)
 		}
 	} else {
-		return nil, err
+		return dnsx.ErrNoDcProxy
 	}
+}
+
+func AddDNSCryptRelay(t Tunnel, stamp string) error {
+	var tm dnsx.TransportMult
+	var err error
+	r := t.GetResolver()
+	if tm, err = r.GetMult(dnsx.DcProxy); err != nil {
+		return err
+	}
+	if p, ok := tm.(*dnscrypt.DcMulti); ok {
+		// relay transports are not added to the resolver
+		return dnscrypt.AddRelayTransport(p, stamp)
+	} else {
+		return dnsx.ErrNoDcProxy
+	}
+
+}
+
+func addDNSTransport(r dnsx.Resolver, t dnsx.Transport) error {
+	if !r.Add(t) {
+		return dnsx.ErrAddFailed
+	}
+	return nil
 }
