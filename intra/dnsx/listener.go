@@ -28,11 +28,11 @@ type Summary struct {
 
 type Options struct {
 	// pid is the proxy to use for this query.
-	pid string
+	PID string
 	// csv of ips to answer for this query.
-	ips string
+	IPs string
 	// csv of transports ids to use for this query.
-	tid string
+	TIDs string
 }
 
 func (s *Summary) Str() string {

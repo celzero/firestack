@@ -825,7 +825,7 @@ func (r *resolver) LiveTransports() string {
 }
 
 func preferencesFrom(s *Options) (id1, id2, pid, ips string) {
-	x := strings.Split(s.tid, ",")
+	x := strings.Split(s.TIDs, ",")
 	l := len(x)
 	if l <= 0 { // cannot happen
 		// no-op
@@ -834,12 +834,12 @@ func preferencesFrom(s *Options) (id1, id2, pid, ips string) {
 	} else if l == 2 {
 		id1, id2 = x[0], x[1] // ids for transport t1, t2
 	}
-	if len(s.pid) > 0 {
-		pid = s.pid // id for proxy
+	if len(s.PID) > 0 {
+		pid = s.PID // id for proxy
 	} else {
 		pid = NetNoProxy
 	}
-	ips = s.ips // comma-separated list of IPs
+	ips = s.IPs // comma-separated list of IPs
 	return
 }
 
