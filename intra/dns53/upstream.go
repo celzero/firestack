@@ -59,13 +59,16 @@ func NewTransport(id, ip, port string, px ipn.Proxies) (t dnsx.Transport, err er
 }
 
 func newTransport(id string, do *settings.DNSOptions, px ipn.Proxies) (dnsx.Transport, error) {
-	relay, _ := px.GetProxy(id)
+	var relay ipn.Proxy
+	if px != nil {
+		relay, _ = px.GetProxy(id)
+	}
 	tx := &transport{
 		id:      id,
 		ipport:  do.IPPort,
 		status:  dnsx.Start,
-		proxies: px,
-		relay:   relay,
+		proxies: px,    // may be nil; see above
+		relay:   relay, // may be nil
 		est:     core.NewP50Estimator(),
 	}
 	// todo: with controller
