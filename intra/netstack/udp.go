@@ -221,28 +221,28 @@ func (g *GUDPConn) WriteFrom(data []byte, addr *net.UDPAddr) (int, error) {
 	// ep(state 3 / info &{2048 17 {53 10.111.222.3 17711 10.111.222.1} 1 10.111.222.3 1} / stats &{{{1}} {{0}} {{{0}} {{0}} {{0}} {{0}}} {{{0}} {{0}} {{0}}} {{{0}} {{0}}} {{{0}} {{0}} {{0}}}})
 	// 3: status:datagram-connected / {2048=>proto, 17=>transport, {53=>local-port localip 17711=>remote-port remoteip}=>endpoint-id, 1=>bind-nic-id, ip=>bind-addr, 1=>registered-nic-id}
 	log.V("ns.udp.writeFrom: from(%v) / ep(state %v / info %v / stats %v)", addr, g.ep.State(), g.ep.Info(), g.ep.Stats())
-	return g.Write(data)
+	return g.UDPConn.Write(data)
 }
 
 func (g *GUDPConn) Write(data []byte) (int, error) {
 	if !g.ok() {
 		return 0, ErrNoEndpoint
 	}
-	return g.Write(data)
+	return g.UDPConn.Write(data)
 }
 
 func (g *GUDPConn) Read(data []byte) (int, error) {
 	if !g.ok() {
 		return 0, ErrNoEndpoint
 	}
-	return g.Read(data)
+	return g.UDPConn.Read(data)
 }
 
 // Close closes the connection.
 func (g *GUDPConn) Close() error {
 	if g.ok() {
 		g.ep.Close()
-		return g.Close()
+		return g.UDPConn.Close()
 	}
 	return nil
 }

@@ -181,11 +181,11 @@ func (tcp *GTCPConn) Poll() error {
 // Abort aborts the connection by sending a RST segment.
 func (tcp *GTCPConn) Abort() {
 	tcp.ep.Abort()
-	tcp.Close()
+	tcp.TCPConn.Close()
 }
 
 func (g GTCPConn) Close() error {
 	g.ep.Close()
-	g.SetDeadline(time.Now().Add(-1))
-	return g.Close()
+	g.TCPConn.SetDeadline(time.Now().Add(-1))
+	return g.TCPConn.Close()
 }
