@@ -130,7 +130,7 @@ func (g *GTCPConn) LocalAddr() net.Addr {
 		return g.src
 	}
 	// client local addr is remote to the gonet adapter
-	if addr := g.RemoteAddr(); addr != nil {
+	if addr := g.TCPConn.RemoteAddr(); addr != nil {
 		return addr
 	}
 	return g.src
@@ -141,7 +141,7 @@ func (g *GTCPConn) RemoteAddr() net.Addr {
 		return g.dst
 	}
 	// client remote addr is local to the gonet adapter
-	if addr := g.LocalAddr(); addr != nil {
+	if addr := g.TCPConn.LocalAddr(); addr != nil {
 		return addr
 	}
 	return g.dst

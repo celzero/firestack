@@ -184,7 +184,7 @@ func (g *GUDPConn) Connect(fin bool) tcpip.Error {
 
 func (g *GUDPConn) LocalAddr() (addr *net.UDPAddr) {
 	if g.ok() {
-		addr = g.RemoteAddr()
+		addr, _ = g.UDPConn.RemoteAddr().(*net.UDPAddr)
 	}
 	if addr == nil { // remoteaddr may be nil, even if g.ok()
 		addr = g.src
@@ -194,7 +194,7 @@ func (g *GUDPConn) LocalAddr() (addr *net.UDPAddr) {
 
 func (g *GUDPConn) RemoteAddr() (addr *net.UDPAddr) {
 	if g.ok() {
-		addr = g.LocalAddr()
+		addr, _ = g.UDPConn.LocalAddr().(*net.UDPAddr)
 	}
 	if addr == nil { // localaddr may be nil, even if g.ok()
 		addr = g.dst
