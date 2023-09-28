@@ -447,10 +447,13 @@ func (t *transport) Query(network string, q []byte, summary *dnsx.Summary) (r []
 	summary.RTtl = xdns.RTtl(ans)
 	summary.Status = status
 	summary.Blocklists = blocklists
-	if t.relay != nil {
-		summary.RelayServer = dnsx.SummaryProxyLabel + t.relay.ID()
-	} else if len(pid) > 0 && pid != dnsx.NetNoProxy {
-		summary.RelayServer = dnsx.SummaryProxyLabel + pid
+	noOdohRelay := len(summary.RelayServer) <= 0
+	if noOdohRelay {
+		if t.relay != nil {
+			summary.RelayServer = t.relay.GetAddr()
+		} else if len(pid) > 0 && pid != dnsx.NetNoProxy {
+			summary.RelayServer = dnsx.SummaryProxyLabel + pid
+		}
 	}
 
 	return r, err
