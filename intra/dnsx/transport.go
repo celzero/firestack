@@ -50,9 +50,9 @@ const (
 	NetTypeTCP = "tcp"
 
 	// preferred forwarding network, if any
-	NetNoProxy = "noproxy"
-
-	ttl10m = 10 * time.Minute // 10m ttl
+	// ipn.Base is treated as a no-proxy
+	NetNoProxy = "Base"
+	ttl10m     = 10 * time.Minute
 
 	// pseudo transport ID to tag dns64 responses
 	d64prefix = "d64."

@@ -20,7 +20,7 @@ const (
 	// nb: Base proxies are Catch-All / fallback proxies
 	// IDs for default proxies
 	Block   = "Block"       // proxy that blocks all traffic
-	Base    = "Base"        // proxy that does not proxy traffic
+	Base    = "Base"        // proxy that does not proxy traffic; in sync with dnsx.NetNoProxy
 	OrbotS5 = "OrbotSocks5" // Orbot: Base Tor-as-a-SOCKS5 proxy
 	OrbotH1 = "OrbotHttp1"  // Orbot: Base Tor-as-a-HTTP/1.1 proxy
 
