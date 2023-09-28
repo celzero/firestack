@@ -31,31 +31,11 @@ import (
 	"github.com/celzero/firestack/intra/log"
 )
 
-type Options struct {
-	// PID is the ID of the proxy to forward the connection to.
-	PID string
-	// CID is the ID of this connection.
-	CID string
-	// UID is the ID of the app which owns this connection.
-	UID string
-}
-
 // Controller provides answers to filter network traffic.
 type Controller interface {
-	// Flow is called on a new connection setup; return "proxyid,connid" to forward the connection
-	// to a pre-registered proxy; "Base" to allow the connection; "Block" to block the connection.
-	// "connid" is used to uniquely identify a connection across all proxies, and a summary of the
-	// connection is sent back to a pre-registered listener.
-	// protocol is 6 for TCP, 17 for UDP, 1 for ICMP.
-	// uid is -1 in case owner-uid of the connection couldn't be determined.
-	// src and dst are string'd representation of net.TCPAddr and net.UDPAddr.
-	// origdsts is a comma-separated list of original source IPs, this may be same as dst.
-	// domains is a comma-separated list of domain names associated with origsrcs, if any.
-	// blocklists is a comma-separated list of blocklist names, if any.
-	Flow(protocol int32, uid int, src, dst, origdsts, domains, blocklists string) *Options
-	// Calls in to javaland asking it to bind fd to any internet-capable IPv4 interface.
+	// Bind4 binds fd to any internet-capable IPv4 interface.
 	Bind4(who string, fd int)
-	// Calls in to javaland asking it to bind fd to any internet-capable IPv6 interface.
+	// Bind6 binds fd to any internet-capable IPv6 interface.
 	// also: github.com/lwip-tcpip/lwip/blob/239918c/src/core/ipv6/ip6.c#L68
 	Bind6(who string, fd int)
 }

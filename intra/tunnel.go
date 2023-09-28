@@ -49,10 +49,9 @@ type Bridge interface {
 // Listener receives usage statistics when a UDP or TCP socket is closed,
 // or a DNS query is completed.
 type Listener interface {
-	UDPListener
-	TCPListener
-	ICMPListener
+	SocketListener
 	dnsx.Listener
+	rnet.Listener
 }
 
 // Tunnel represents an Intra session.
@@ -92,16 +91,16 @@ func NewTunnel(fd, mtu int, fakedns string, dns dnsx.Transport, tunmode *setting
 
 	natpt := x64.NewNatPt(tunmode)
 	proxies := ipn.NewProxifier(bdg)
-	services := rnet.NewServices(proxies, bdg)
+	services := rnet.NewServices(proxies, bdg, bdg)
 
 	resolver := dnsx.NewResolver(fakedns, dns, tunmode, bdg, natpt)
 	resolver.Add(newBlockAllTransport())
 	resolver.Add(newDNSCryptTransport(proxies))
 	resolver.Add(newMDNSTransport(l3))
 
-	tcph := NewTCPHandler(resolver, proxies, bdg, tunmode, bdg)
-	udph := NewUDPHandler(resolver, proxies, bdg, tunmode, bdg)
-	icmph := NewICMPHandler(resolver, proxies, bdg, tunmode, bdg)
+	tcph := NewTCPHandler(resolver, proxies, tunmode, bdg, bdg)
+	udph := NewUDPHandler(resolver, proxies, tunmode, bdg, bdg)
+	icmph := NewICMPHandler(resolver, proxies, tunmode, bdg)
 
 	gt, err := tunnel.NewGTunnel(fd, mtu, tunmode.IpMode, tcph, udph, icmph)
 

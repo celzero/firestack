@@ -824,8 +824,8 @@ func (r *resolver) LiveTransports() string {
 	return trimcsv(s)
 }
 
-func preferencesFrom(s *Options) (id1, id2, pid, ips string) {
-	x := strings.Split(s.TIDs, ",")
+func preferencesFrom(s *NsOpts) (id1, id2, pid, ips string) {
+	x := strings.Split(s.TIDCSV, ",")
 	l := len(x)
 	if l <= 0 { // cannot happen
 		// no-op
@@ -842,7 +842,7 @@ func preferencesFrom(s *Options) (id1, id2, pid, ips string) {
 	} else {
 		pid = NetNoProxy
 	}
-	ips = s.IPs // comma-separated list of IPs
+	ips = s.IPCSV // comma-separated list of IPs
 	return
 }
 

@@ -45,8 +45,6 @@ import (
 const (
 	// arbitrary threshold of temporary errs before udp socket is closed
 	maxconnerr = 3
-	noerr      = "no error"
-	yeserr     = "error"
 )
 
 const (
@@ -63,27 +61,6 @@ var (
 
 var notimetrack int32 = -1
 
-// UDPSocketSummary describes a non-DNS UDP association, reported when it is discarded.
-type UDPSocketSummary struct {
-	ID            string // Unique ID for this socket.
-	PID           string // Proxy ID that handled this socket.
-	UID           string // UID that owns this socket.
-	UploadBytes   int64  // Amount uploaded (bytes).
-	DownloadBytes int64  // Amount downloaded (bytes).
-	Duration      int32  // How long the socket was open (seconds).
-	Msg           string // Error message, if any.
-}
-
-func (s *UDPSocketSummary) str() string {
-	return fmt.Sprintf("udp-summary: id:%s pid:%s uid:%s up:%d down:%d dur:%d msg:%s",
-		s.ID, s.PID, s.UID, s.UploadBytes, s.DownloadBytes, s.Duration, s.Msg)
-}
-
-// UDPListener is notified when a non-DNS UDP association is discarded.
-type UDPListener interface {
-	OnUDPSocketClosed(*UDPSocketSummary)
-}
-
 type tracker struct {
 	id       string       // unique identifier for this connection
 	pid      string       // proxy id
@@ -98,7 +75,7 @@ type tracker struct {
 }
 
 func makeTracker(cid, pid, uid string, conn any) *tracker {
-	return &tracker{cid, pid, uid, conn, time.Now(), 0, 0, 0, noerr, nil}
+	return &tracker{cid, pid, uid, conn, time.Now(), 0, 0, 0, noerr.Error(), nil}
 }
 
 func (t *tracker) elapsed() int32 {
@@ -119,9 +96,8 @@ type udpHandler struct {
 	udpConns  map[core.UDPConn]*tracker
 	config    *net.ListenConfig
 	dialer    *net.Dialer
-	ctl       protect.Controller
 	tunMode   *settings.TunMode
-	listener  UDPListener
+	listener  SocketListener
 	prox      ipn.Proxies
 	fwtracker *core.ExpMap
 	status    int
@@ -132,8 +108,7 @@ type udpHandler struct {
 // `timeout` controls the effective NAT mapping lifetime.
 // `config` is used to bind new external UDP ports.
 // `listener` receives a summary about each UDP binding when it expires.
-func NewUDPHandler(resolver dnsx.Resolver, prox ipn.Proxies, ctl protect.Controller,
-	tunMode *settings.TunMode, listener UDPListener) UDPHandler {
+func NewUDPHandler(resolver dnsx.Resolver, prox ipn.Proxies, tunMode *settings.TunMode, ctl protect.Controller, listener SocketListener) UDPHandler {
 	// RFC 4787 REQ-5 requires a timeout no shorter than 5 minutes; but most
 	// routers do not keep udp mappings for that long (usually just for 30s)
 	udptimeout, _ := time.ParseDuration("2m")
@@ -143,7 +118,6 @@ func NewUDPHandler(resolver dnsx.Resolver, prox ipn.Proxies, ctl protect.Control
 		timeout:   udptimeout,
 		udpConns:  make(map[core.UDPConn]*tracker, 8),
 		resolver:  resolver,
-		ctl:       ctl,
 		tunMode:   tunMode,
 		config:    c,
 		dialer:    d,
@@ -251,10 +225,9 @@ func (h *udpHandler) fetchUDPInput(conn core.UDPConn, nat *tracker) {
 
 		log.D("udp: ingress: data(%d) from remote(pc?%v/masq:%v) | addrs: %s", n, addr, udpaddr, logaddr)
 
-		nat.download += int64(n)
-		// writes data to conn (tun) with udpaddr as source
-		_, err = conn.WriteFrom(buf[:n], udpaddr)
-		elapsed = nat.elapsed() // track time since last write
+		_, err = conn.WriteFrom(buf[:n], udpaddr) // writes buf to conn (tun) with udpaddr as src
+		elapsed = nat.elapsed()                   // track time since last write
+		nat.download += int64(n)                  // track data downloaded
 		if err != nil {
 			log.W("udp: ingress: failed write to tun (%s) from %s; err %v; %dsecs", logaddr, udpaddr, err, elapsed)
 			// for half-open: nat.errcount += 1 and continue
@@ -287,12 +260,12 @@ func (h *udpHandler) isDns(addr *net.UDPAddr) bool {
 	return h.resolver.IsDnsAddr(dnsx.NetTypeUDP, addr2.String())
 }
 
-func (h *udpHandler) onFlow(localudp core.UDPConn, target *net.UDPAddr, realips, domains, blocklists string) *protect.Options {
+func (h *udpHandler) onFlow(localudp core.UDPConn, target *net.UDPAddr, realips, domains, blocklists string) *Mark {
 	// BlockModeNone returns false, BlockModeSink returns true
 	if h.tunMode.BlockMode == settings.BlockModeSink {
 		return optionsBlock
 	}
-	// todo: block-mode none should call into ctl.Flow to determine upstream proxy
+	// todo: block-mode none should call into listener.Flow to determine upstream proxy
 	if h.tunMode.BlockMode == settings.BlockModeNone {
 		return optionsBase
 	}
@@ -314,7 +287,7 @@ func (h *udpHandler) onFlow(localudp core.UDPConn, target *net.UDPAddr, realips,
 	}
 
 	var proto int32 = 17 // udp
-	res := h.ctl.Flow(proto, uid, src, dst, realips, domains, blocklists)
+	res := h.listener.Flow(proto, uid, src, dst, realips, domains, blocklists)
 
 	if len(res.PID) <= 0 {
 		log.W("udp: empty flow from kt; using base")
@@ -342,7 +315,7 @@ func (h *udpHandler) OnNewConn(gconn *netstack.GUDPConn, _, dst *net.UDPAddr) {
 
 // Connect connects the proxy server.
 // Note, target may be nil in lwip (deprecated) while it may be unspecified in netstack
-func (h *udpHandler) Connect(conn core.UDPConn, target *net.UDPAddr) (res *protect.Options, err error) {
+func (h *udpHandler) Connect(conn core.UDPConn, target *net.UDPAddr) (res *Mark, err error) {
 	if h.status == UDPEND {
 		log.D("udp: connect: end")
 		return nil, errUdpEnd
@@ -554,17 +527,18 @@ func (h *udpHandler) sendNotif(cid, pid, uid, msg string, up, down int64, elapse
 	ok1 := l != nil
 	ok2 := len(cid) > 0
 	if ok0 && ok1 && ok2 {
-		s := &UDPSocketSummary{
-			ID:            cid,
-			PID:           pid,
-			UID:           uid,
-			Msg:           msg,
-			UploadBytes:   up,
-			DownloadBytes: down,
-			Duration:      elapsed,
+		s := &SocketSummary{
+			Proto:    ProtoTypeUDP,
+			ID:       cid,
+			PID:      pid,
+			UID:      uid,
+			Msg:      msg,
+			Tx:       up,
+			Rx:       down,
+			Duration: elapsed,
 		}
 		log.V("udp: sendNotif(true): %s", s.str())
-		l.OnUDPSocketClosed(s)
+		l.OnSocketClosed(s)
 		return
 	} else {
 		log.V("udp: sendNotif(%t, %t, %t): no listener", ok0, ok1, ok2)

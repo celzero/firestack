@@ -26,13 +26,13 @@ type Summary struct {
 	Blocklists  string // csv separated list of blocklists names, if any.
 }
 
-type Options struct {
+type NsOpts struct {
 	// pid is the proxy to use for this query.
 	PID string
 	// csv of ips to answer for this query.
-	IPs string
+	IPCSV string
 	// csv of transports ids to use for this query.
-	TIDs string
+	TIDCSV string
 }
 
 func (s *Summary) Str() string {
@@ -80,6 +80,6 @@ func (s *Summary) FillInto(other *Summary) {
 
 // Listener receives Summaries.
 type Listener interface {
-	OnQuery(domain string, qtyp int, suggested string) *Options
+	OnQuery(domain string, qtyp int, suggested string) *NsOpts
 	OnResponse(*Summary)
 }

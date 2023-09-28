@@ -36,6 +36,7 @@ var (
 	errNotTcp     = errors.New("not tcp conn")
 	errServerEnd  = errors.New("server stopped")
 	errProxyEnd   = errors.New("proxy stopped")
+	errBlocked    = errors.New("blocked")
 
 	udptimeoutsec = 5 * 60                    // 5m
 	tcptimeoutsec = (2 * 60 * 60) + (40 * 60) // 2h40m
@@ -83,16 +84,18 @@ var _ Server = (*socks5)(nil)
 
 type services struct {
 	sync.RWMutex
-	servers map[string]Server
-	proxies ipn.Proxies
-	ctl     protect.Controller
+	servers  map[string]Server
+	proxies  ipn.Proxies
+	listener Listener
+	ctl      protect.Controller
 }
 
-func NewServices(proxies ipn.Proxies, ctl protect.Controller) Services {
+func NewServices(proxies ipn.Proxies, ctl protect.Controller, listener Listener) Services {
 	return &services{
-		servers: make(map[string]Server),
-		ctl:     ctl,
-		proxies: proxies,
+		servers:  make(map[string]Server),
+		ctl:      ctl,
+		proxies:  proxies,
+		listener: listener,
 	}
 }
 
@@ -101,9 +104,9 @@ func (s *services) AddServer(id, url string) (svc Server, err error) {
 
 	switch id {
 	case SVCSOCKS5, PXSOCKS5:
-		svc, err = newSocks5Server(id, url, s.ctl)
+		svc, err = newSocks5Server(id, url, s.ctl, s.listener)
 	case SVCHTTP, PXHTTP:
-		svc, err = newHttpServer(id, url, s.ctl)
+		svc, err = newHttpServer(id, url, s.ctl, s.listener)
 	default:
 		return nil, errors.ErrUnsupported
 	}

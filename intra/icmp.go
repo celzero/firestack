@@ -20,7 +20,6 @@ import (
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/ipn"
 	"github.com/celzero/firestack/intra/netstack"
-	"github.com/celzero/firestack/intra/protect"
 	"github.com/celzero/firestack/intra/settings"
 )
 
@@ -35,37 +34,22 @@ type ICMPHandler interface {
 	netstack.GICMPHandler
 }
 
-type ICMPListener interface {
-	OnICMPClosed(*ICMPSummary)
-}
-
 type icmpHandler struct {
 	ICMPHandler
 	sync.RWMutex
 
 	resolver dnsx.Resolver
 	timeout  time.Duration
-	ctl      protect.Controller
 	tunMode  *settings.TunMode
 	prox     ipn.Proxies
-	listener ICMPListener
+	listener Listener
 	status   int
 }
 
-type ICMPSummary struct {
-	ID       string // Unique ID for this socket.
-	PID      string // Proxy ID that handled this socket.
-	Duration int32  // How long the socket was open (seconds).
-	Msg      string // Error message, if any.
-	start    time.Time
-}
-
-func NewICMPHandler(resolver dnsx.Resolver, prox ipn.Proxies, ctl protect.Controller,
-	tunMode *settings.TunMode, listener ICMPListener) ICMPHandler {
+func NewICMPHandler(resolver dnsx.Resolver, prox ipn.Proxies, tunMode *settings.TunMode, listener Listener) ICMPHandler {
 	h := &icmpHandler{
 		timeout:  icmptimeout,
 		resolver: resolver,
-		ctl:      ctl,
 		tunMode:  tunMode,
 		prox:     prox,
 		listener: listener,
@@ -83,7 +67,7 @@ func (h *icmpHandler) onFlow(source *net.UDPAddr, target *net.UDPAddr, realips, 
 		block = true
 		return
 	}
-	// todo: block-mode none should call into ctl.Flow to determine upstream proxy
+	// todo: block-mode none should call into listener.Flow to determine upstream proxy
 	if h.tunMode.BlockMode == settings.BlockModeNone {
 		pid = ipn.Base
 		block = false
@@ -102,7 +86,7 @@ func (h *icmpHandler) onFlow(source *net.UDPAddr, target *net.UDPAddr, realips, 
 	src := source.String()
 	dst := target.String()
 	// todo: handle forwarding icmp to appropriate proxy?
-	res := h.ctl.Flow(proto, uid, src, dst, realips, domains, blocklists)
+	res := h.listener.Flow(proto, uid, src, dst, realips, domains, blocklists)
 
 	pid, cid, _ = splitPidCidUid(res)
 	block = pid == ipn.Block
@@ -134,7 +118,6 @@ func (h *icmpHandler) Ping(source *net.UDPAddr, target *net.UDPAddr, msg []byte,
 		log.D("icmp: handler ended")
 		return
 	}
-	var c protect.Conn
 	var pc ipn.Proxy
 	var err error
 
@@ -143,19 +126,11 @@ func (h *icmpHandler) Ping(source *net.UDPAddr, target *net.UDPAddr, msg []byte,
 
 	// flow is alg/nat-aware, do not change target or any addrs
 	pid, cid, block := h.onFlow(source, target, realips, domains, blocklists)
-	summary := &ICMPSummary{
-		ID:    cid,
-		PID:   pid,
-		Msg:   noerr,
-		start: time.Now(),
-	}
+	summary := icmpSummary(cid, pid)
 
 	defer func() {
-		if err != nil {
-			summary.Msg = err.Error()
-		}
 		if !open {
-			close(c)
+			summary.done(err)
 			go h.sendNotif(summary)
 		}
 	}()
@@ -174,15 +149,13 @@ func (h *icmpHandler) Ping(source *net.UDPAddr, target *net.UDPAddr, msg []byte,
 	}
 
 	target.IP = oneRealIp(realips, ipx4)
-	if c, err = pc.Dial(target.Network(), target.String()); err != nil {
+	uc, err := pc.Dialer().Dial(target.Network(), target.String())
+	if err != nil {
 		log.E("t.icmp.egress: dail(%s) err %v", target.Network(), err)
 		return false // denied
 	}
-	uc, ok := c.(net.Conn)
-	if !ok {
-		log.E("t.icmp.egress: not a net.Conn")
-		return false // denied
-	}
+	defer close(uc)
+
 	uc.SetDeadline(time.Now().Add(h.timeout))
 	if _, err = uc.Write(msg); err != nil {
 		log.E("t.icmp.egress:  write(%v) ping; err %v", target, err)
@@ -200,15 +173,13 @@ func (h *icmpHandler) Ping(source *net.UDPAddr, target *net.UDPAddr, msg []byte,
 	}
 }
 
-func (h *icmpHandler) fetch(c net.Conn, pong netstack.Pong, summary *ICMPSummary) (success bool) {
+func (h *icmpHandler) fetch(c net.Conn, pong netstack.Pong, summary *SocketSummary) (success bool) {
 	var err error
 	var n int
 
 	defer func() {
 		close(c)
-		if err != nil {
-			summary.Msg = err.Error()
-		}
+		summary.done(err)
 		go h.sendNotif(summary)
 	}()
 
@@ -248,18 +219,16 @@ func (h *icmpHandler) fetch(c net.Conn, pong netstack.Pong, summary *ICMPSummary
 			break
 		}
 	}
-	elapsed := time.Since(summary.start)
-	log.I("t.icmp.ingress: ReadFrom(%v <- %v) ping; done in %v; ok? %t", src, dst, elapsed, success)
+	log.I("t.icmp.ingress: ReadFrom(%v <- %v) ping done; ok? %t", src, dst, success)
 	return
 }
 
-func (h *icmpHandler) sendNotif(s *ICMPSummary) {
+func (h *icmpHandler) sendNotif(s *SocketSummary) {
 	l := h.listener
 	if l == nil || s == nil || h.status == ICMPEND {
 		return
 	}
-	s.Duration = int32(time.Since(s.start).Seconds())
-	l.OnICMPClosed(s)
+	l.OnSocketClosed(s)
 }
 
 func close(c io.Closer) {

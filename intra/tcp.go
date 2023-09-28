@@ -71,61 +71,22 @@ type tcpHandler struct {
 	TCPHandler
 	resolver  dnsx.Resolver
 	dialer    *net.Dialer
-	ctl       protect.Controller
 	tunMode   *settings.TunMode
-	listener  TCPListener
+	listener  SocketListener
 	prox      ipn.Proxies
 	fwtracker *core.ExpMap
 	status    int
-}
-
-// TCPSocketSummary provides information about each TCP socket, reported when it is closed.
-type TCPSocketSummary struct {
-	ID            string // Unique ID for this socket.
-	PID           string // Proxy ID that handled this socket.
-	UID           string // UID of the app that owns this socket.
-	DownloadBytes int64  // Total bytes downloaded.
-	UploadBytes   int64  // Total bytes uploaded.
-	Duration      int32  // Duration in seconds.
-	Synack        int32  // TCP handshake latency (ms)
-	Msg           string // Message to be logged.
-	// Retry is non-nil if retry was possible.  Retry.Split is non-zero if a retry occurred.
-	Retry *split.RetryStats
-}
-
-func (s *TCPSocketSummary) str() string {
-	return fmt.Sprintf("tcp-summary: id=%s pid=%s uid=%s down=%d up=%d dur=%d synack=%d retry=%v msg=%s",
-		s.ID, s.PID, s.UID, s.DownloadBytes, s.UploadBytes, s.Duration, s.Synack, s.Retry, s.Msg)
-}
-
-func (s *TCPSocketSummary) WithErrors(err ...error) {
-	s.Msg = ""
-	for _, e := range err {
-		if e != nil {
-			s.Msg += e.Error() + "; "
-		}
-	}
-	if len(s.Msg) <= 0 {
-		s.Msg = noerr
-	}
-}
-
-// TCPListener is notified when a socket closes.
-type TCPListener interface {
-	OnTCPSocketClosed(*TCPSocketSummary)
 }
 
 // NewTCPHandler returns a TCP forwarder with Intra-style behavior.
 // Connections to `fakedns` are redirected to DOH.
 // All other traffic is forwarded using `dialer`.
 // `listener` is provided with a summary of each socket when it is closed.
-func NewTCPHandler(resolver dnsx.Resolver, prox ipn.Proxies, ctl protect.Controller,
-	tunMode *settings.TunMode, listener TCPListener) TCPHandler {
+func NewTCPHandler(resolver dnsx.Resolver, prox ipn.Proxies, tunMode *settings.TunMode, ctl protect.Controller, listener SocketListener) TCPHandler {
 	d := protect.MakeNsDialer("tcph", ctl)
 	h := &tcpHandler{
 		resolver:  resolver,
 		dialer:    d,
-		ctl:       ctl,
 		tunMode:   tunMode,
 		listener:  listener,
 		prox:      prox,
@@ -174,7 +135,7 @@ func (h *tcpHandler) handleDownload(local core.TCPConn, remote core.TCPConn) (by
 	return
 }
 
-func (h *tcpHandler) forward(local net.Conn, remote net.Conn, summary *TCPSocketSummary) {
+func (h *tcpHandler) forward(local net.Conn, remote net.Conn, summary *SocketSummary) {
 	if h.status == TCPEND {
 		log.D("tcp: forward(%v, %v): end", local, remote)
 		return
@@ -183,18 +144,16 @@ func (h *tcpHandler) forward(local net.Conn, remote net.Conn, summary *TCPSocket
 	localtcp := local.(core.TCPConn)   // conforms to net.TCPConn
 	remotetcp := remote.(core.TCPConn) // conforms to net.TCPConn
 	ioch := make(chan ioinfo)
-	start := time.Now()
 
 	go h.handleUpload(localtcp, remotetcp, ioch)
 	download, err := h.handleDownload(localtcp, remotetcp)
 
 	ioi := <-ioch
 
-	summary.WithErrors(err, ioi.err)
-	summary.DownloadBytes = download
-	summary.UploadBytes = ioi.bytes
-	summary.Duration = int32(time.Since(start).Seconds())
+	summary.Rx = download
+	summary.Tx = ioi.bytes
 
+	summary.done(err, ioi.err)
 	go h.sendNotif(summary)
 }
 
@@ -219,7 +178,7 @@ func filteredPort(addr net.Addr) int16 {
 }
 
 // must always be called from a goroutine
-func (h *tcpHandler) sendNotif(summary *TCPSocketSummary) {
+func (h *tcpHandler) sendNotif(summary *SocketSummary) {
 	// sleep a bit to avoid scenario where kotlin-land
 	// hasn't yet had the chance to persist info about
 	// this conn (cid) to meaninfully process its summary
@@ -232,7 +191,7 @@ func (h *tcpHandler) sendNotif(summary *TCPSocketSummary) {
 	ok3 := len(summary.ID) > 0
 	log.V("tcp: sendNotif(%t, %t,%t,%t): %s", ok0, ok1, ok2, ok3, summary.str())
 	if ok0 && ok1 && ok2 && ok3 {
-		l.OnTCPSocketClosed(summary)
+		l.OnSocketClosed(summary)
 	}
 }
 
@@ -247,15 +206,12 @@ func (h *tcpHandler) dnsOverride(conn net.Conn, addr *net.TCPAddr) bool {
 	return false
 }
 
-var optionsBlock = &protect.Options{PID: ipn.Block}
-var optionsBase = &protect.Options{PID: ipn.Base}
-
-func (h *tcpHandler) onFlow(localaddr *net.TCPAddr, target *net.TCPAddr, realips, domains, blocklists string) *protect.Options {
+func (h *tcpHandler) onFlow(localaddr *net.TCPAddr, target *net.TCPAddr, realips, domains, blocklists string) *Mark {
 	// BlockModeNone returns false, BlockModeSink returns true
 	if h.tunMode.BlockMode == settings.BlockModeSink {
 		return optionsBlock
 	} else if h.tunMode.BlockMode == settings.BlockModeNone {
-		// todo: block-mode none should call into ctl.Flow to determine upstream proxy
+		// todo: block-mode none should call into listener.Flow to determine upstream proxy
 		return optionsBase
 	}
 
@@ -275,7 +231,7 @@ func (h *tcpHandler) onFlow(localaddr *net.TCPAddr, target *net.TCPAddr, realips
 	var proto int32 = 6 // tcp
 	src := localaddr.String()
 	dst := target.String()
-	res := h.ctl.Flow(proto, uid, src, dst, realips, domains, blocklists)
+	res := h.listener.Flow(proto, uid, src, dst, realips, domains, blocklists)
 
 	if len(res.PID) <= 0 {
 		log.W("tcp: empty flow from kt; using base")
@@ -300,7 +256,6 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target *net.TCPAddr) (
 	const rst bool = true // tear down conn
 	const ack bool = !rst // send synack
 	var err error
-	s := &TCPSocketSummary{}
 
 	if src == nil || target == nil {
 		log.E("tcp: nil addr %v -> %v", src, target)
@@ -318,13 +273,11 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target *net.TCPAddr) (
 	res := h.onFlow(src, target, realips, domains, blocklists)
 
 	pid, cid, uid := splitPidCidUid(res)
-	s.ID = cid
-	s.PID = pid
-	s.UID = uid
+	s := tcpSummary(cid, pid, uid)
 
 	defer func() {
-		s.WithErrors(err)
 		if !open {
+			s.done(err)
 			go h.sendNotif(s)
 		} // else conn has been proxied, sendNotif is called by h.forward()
 	}()
@@ -365,13 +318,11 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target *net.TCPAddr) (
 }
 
 // TODO: Request upstream to make `conn` a `core.TCPConn` so we can avoid a type assertion.
-func (h *tcpHandler) Handle(conn net.Conn, target *net.TCPAddr, summary *TCPSocketSummary) (err error) {
+func (h *tcpHandler) Handle(conn net.Conn, target *net.TCPAddr, summary *SocketSummary) (err error) {
 	var px ipn.Proxy
 	var pc protect.Conn
 
 	pid := summary.PID
-
-	defer summary.WithErrors(err)
 
 	if h.dnsOverride(conn, target) {
 		return nil
@@ -420,7 +371,7 @@ func (h *tcpHandler) Handle(conn net.Conn, target *net.TCPAddr, summary *TCPSock
 		}
 	}
 
-	summary.Synack = int32(end.Sub(start).Seconds() * 1000)
+	summary.Rtt = int32(end.Sub(start).Seconds() * 1000)
 
 	go h.forward(conn, c, summary)
 
@@ -503,7 +454,7 @@ func undoAlg(r dnsx.Resolver, algip net.IP) (realips, domains, blocklists string
 	return
 }
 
-func splitPidCidUid(decision *protect.Options) (pid, cid, uid string) {
+func splitPidCidUid(decision *Mark) (pid, cid, uid string) {
 	if decision == nil {
 		return
 	}
