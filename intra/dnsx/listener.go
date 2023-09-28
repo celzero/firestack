@@ -78,8 +78,8 @@ func (s *Summary) FillInto(other *Summary) {
 	other.Blocklists = s.Blocklists
 }
 
-// Listener receives Summaries.
-type Listener interface {
+// DNSListener receives Summaries.
+type DNSListener interface {
 	OnQuery(domain string, qtyp int, suggested string) *NsOpts
 	OnResponse(*Summary)
 }

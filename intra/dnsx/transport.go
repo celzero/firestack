@@ -144,12 +144,12 @@ type resolver struct {
 	localdomains RadixTree
 	rdnsl        *rethinkdnslocal
 	rdnsr        *rethinkdns
-	listener     Listener
+	listener     DNSListener
 }
 
 var _ Resolver = (*resolver)(nil)
 
-func NewResolver(fakeaddrs string, defaultdns Transport, tunmode *settings.TunMode, l Listener, pt NatPt) Resolver {
+func NewResolver(fakeaddrs string, defaultdns Transport, tunmode *settings.TunMode, l DNSListener, pt NatPt) Resolver {
 	r := &resolver{
 		NatPt:        pt,
 		listener:     l,

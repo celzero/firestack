@@ -86,11 +86,11 @@ type services struct {
 	sync.RWMutex
 	servers  map[string]Server
 	proxies  ipn.Proxies
-	listener Listener
+	listener ServerListener
 	ctl      protect.Controller
 }
 
-func NewServices(proxies ipn.Proxies, ctl protect.Controller, listener Listener) Services {
+func NewServices(proxies ipn.Proxies, ctl protect.Controller, listener ServerListener) Services {
 	return &services{
 		servers:  make(map[string]Server),
 		ctl:      ctl,

@@ -59,8 +59,8 @@ func serverSummary(typ, sid, pid, cid string) *ServerSummary {
 	}
 }
 
-// Listener receives Server events.
-type Listener interface {
+// ServerListener receives Server events.
+type ServerListener interface {
 	// Route decides how to forward an incoming connection over service (sid).
 	Route(sid, pid, network, sipport, dipport string) *Tab
 	// OnComplete reports summary after a connection closes.

@@ -30,7 +30,7 @@ type socks5 struct {
 	rdial     *protect.RDial
 	hdl       *socks5handler
 	summaries map[*tx.UDPExchange]*ServerSummary
-	listener  Listener
+	listener  ServerListener
 	status    int
 }
 
@@ -39,7 +39,7 @@ type socks5handler struct {
 	px ipn.Proxy
 }
 
-func newSocks5Server(id, x string, ctl protect.Controller, listener Listener) (Server, error) {
+func newSocks5Server(id, x string, ctl protect.Controller, listener ServerListener) (Server, error) {
 	var host string
 	var usr string
 	var pwd string

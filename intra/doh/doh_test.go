@@ -418,7 +418,7 @@ func TestSendFailed(t *testing.T) {
 }
 
 type fakeListener struct {
-	dnsx.Listener
+	dnsx.DNSListener
 	summary *dnsx.Summary
 }
 

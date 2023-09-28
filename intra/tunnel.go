@@ -50,8 +50,8 @@ type Bridge interface {
 // or a DNS query is completed.
 type Listener interface {
 	SocketListener
-	dnsx.Listener
-	rnet.Listener
+	dnsx.DNSListener
+	rnet.ServerListener
 }
 
 // Tunnel represents an Intra session.

@@ -28,7 +28,7 @@ type httpx struct {
 	dialer   *net.Dialer
 	svc      *http.Server
 	hdl      *httpxhandle
-	listener Listener
+	listener ServerListener
 	usetls   bool
 	status   int
 }
@@ -38,7 +38,7 @@ type httpxhandle struct {
 	px ipn.Proxy
 }
 
-func newHttpServer(id, x string, ctl protect.Controller, listener Listener) (Server, error) {
+func newHttpServer(id, x string, ctl protect.Controller, listener ServerListener) (Server, error) {
 	var host string
 	var usr string
 	var pwd string
