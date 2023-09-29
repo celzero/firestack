@@ -86,14 +86,15 @@ type rtunnel struct {
 	closed   bool
 }
 
-func NewTunnel(fd, mtu int, fakedns string, dns dnsx.Transport, tunmode *settings.TunMode, bdg Bridge) (Tunnel, error) {
+func NewTunnel(fd, mtu int, fakedns string, tunmode *settings.TunMode, bdg Bridge) (Tunnel, error) {
 	l3 := tunmode.L3()
 
 	natpt := x64.NewNatPt(tunmode)
 	proxies := ipn.NewProxifier(bdg)
 	services := rnet.NewServices(proxies, bdg, bdg)
 
-	resolver := dnsx.NewResolver(fakedns, dns, tunmode, bdg, natpt)
+	resolver := dnsx.NewResolver(fakedns, tunmode, bdg, natpt)
+	resolver.Add(newGroundedDefaultTransport())
 	resolver.Add(newBlockAllTransport())
 	resolver.Add(newDNSCryptTransport(proxies))
 	resolver.Add(newMDNSTransport(l3))

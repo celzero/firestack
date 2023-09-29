@@ -150,7 +150,7 @@ type resolver struct {
 
 var _ Resolver = (*resolver)(nil)
 
-func NewResolver(fakeaddrs string, defaultdns Transport, tunmode *settings.TunMode, l DNSListener, pt NatPt) Resolver {
+func NewResolver(fakeaddrs string, tunmode *settings.TunMode, l DNSListener, pt NatPt) Resolver {
 	r := &resolver{
 		NatPt:        pt,
 		listener:     l,
@@ -159,10 +159,9 @@ func NewResolver(fakeaddrs string, defaultdns Transport, tunmode *settings.TunMo
 		localdomains: newUndelegatedDomainsTrie(),
 		systemdns:    make([]Transport, 0),
 	}
-	ok1 := r.Add(defaultdns)
 	r.gateway = NewDNSGateway(r)
 
-	log.I("dns: new! default? %t, gw? %t", ok1, r.gateway != nil)
+	log.I("dns: new! gw? %t", r.gateway != nil)
 	r.loadaddrs(fakeaddrs)
 	return r
 }

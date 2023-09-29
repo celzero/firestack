@@ -27,7 +27,6 @@ import (
 	"runtime/debug"
 
 	"github.com/celzero/firestack/intra"
-	"github.com/celzero/firestack/intra/dnsx"
 	"github.com/celzero/firestack/intra/settings"
 
 	"github.com/celzero/firestack/intra/log"
@@ -54,10 +53,10 @@ func init() {
 //
 // Throws an exception if the TUN file descriptor cannot be opened, or if the tunnel fails to
 // connect.
-func Connect(fd, mtu, engine int, fakedns string, dns dnsx.Transport, bdg intra.Bridge) (t intra.Tunnel, err error) {
+func Connect(fd, mtu, engine int, fakedns string, bdg intra.Bridge) (t intra.Tunnel, err error) {
 	tunmode := settings.DefaultTunMode()
 	tunmode.IpMode = engine
-	return intra.NewTunnel(fd, mtu, fakedns, dns, tunmode, bdg)
+	return intra.NewTunnel(fd, mtu, fakedns, tunmode, bdg)
 }
 
 func LogLevel(level int) {
