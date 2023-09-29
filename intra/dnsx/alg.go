@@ -10,6 +10,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"hash/fnv"
+	"net"
 	"net/netip"
 	"strconv"
 	"strings"
@@ -70,7 +71,7 @@ type secans struct {
 
 type ans struct {
 	algip        *netip.Addr   // generated answer
-	realip       []*netip.Addr // all ip answers
+	realips      []*netip.Addr // all ip answers
 	secondaryips []*netip.Addr // all ip answers from secondary
 	domain       []string      // all domain names in an answer (incl qname)
 	qname        string        // the query domain name
@@ -97,14 +98,14 @@ type dnsgateway struct {
 	nat          map[netip.Addr]*ans // algip -> ans
 	ptr          map[netip.Addr]*ans // realip -> ans
 	rdns         RdnsResolver        // local and remote rdns blocks
-	dns64        DNS64               // dns64 block
+	dns64        NatPt               // dns64/nat64
 	octets       []uint8             // ip4 octets, 100.x.y.z
 	hexes        []uint16            // ip6 hex, 64:ff9b:1:da19:0100.x.y.z
 	chash        bool                // use consistent hashing to generae alg ips
 }
 
 // NewDNSGateway returns a DNS ALG, ready for use.
-func NewDNSGateway(outer RdnsResolver, dns64 DNS64) (t *dnsgateway) {
+func NewDNSGateway(outer RdnsResolver, dns64 NatPt) (t *dnsgateway) {
 	alg := make(map[string]*ans)
 	nat := make(map[netip.Addr]*ans)
 	px := make(map[netip.Addr]*ans)
@@ -456,7 +457,7 @@ func withAlgSummaryIfNeeded(algips []*netip.Addr, s *Summary) {
 func (am *ansMulti) ansViewLocked(i int) *ans {
 	return &ans{
 		algip:        am.algip[i],
-		realip:       am.realip,
+		realips:      am.realip,
 		secondaryips: am.secondaryips,
 		domain:       am.domain,
 		qname:        am.qname,
@@ -498,7 +499,7 @@ func (t *dnsgateway) registerNatLocked(q string, idx int, x *ans) bool {
 
 // register mapping from realip -> algip+qname (px)
 func (t *dnsgateway) registerPxLocked(q string, idx int, x *ans) bool {
-	ip := x.realip[idx]
+	ip := x.realips[idx]
 	t.ptr[*ip] = x
 	return true
 }
@@ -707,16 +708,41 @@ func (t *dnsgateway) RDNSBL(algip []byte) (blocklists string) {
 	return blocklists
 }
 
-func (t *dnsgateway) xLocked(algip *netip.Addr) (realip []*netip.Addr) {
+func (t *dnsgateway) xLocked(algip *netip.Addr) (realips []*netip.Addr) {
 	// alg ips are always unmappped; see take4Locked
 	unmapped := algip.Unmap()
 	if ans, ok := t.nat[unmapped]; ok {
-		realip = append(ans.realip, ans.secondaryips...)
+		realips = append(ans.realips, ans.secondaryips...)
 	} else if ans, ok := t.ptr[unmapped]; !t.mod && ok {
 		// translate from realip only if not in mod mode
-		realip = append(ans.realip, ans.secondaryips...)
+		realips = append(ans.realips, ans.secondaryips...)
 	}
+	t.maybeUndoNat64(realips) // modifies / NATs realip in-place
 	return
+}
+
+func (t *dnsgateway) maybeUndoNat64(realips []*netip.Addr) {
+	for _, nip := range realips {
+		if !nip.Unmap().Is6() || nip.IsUnspecified() {
+			continue
+		}
+		ip := nip.Unmap().AsSlice()
+		// TODO: need the actual ID of the transport that did nat64
+		if t.dns64.IsNat64(Local464Resolver, ip) { // un-nat64, when dns64 done by local464-resolver
+			log.V("dns64: maybeUndoNat64: No local nat64 to for ip(%v)", nip)
+			continue
+		}
+		// TODO: check if the network this process binds to has ipv4 connectivity
+		ipx4 := t.dns64.X64(Local464Resolver, ip) // ipx4 may be nil
+		if len(ipx4) < net.IPv4len {              // no nat?
+			log.D("alg: dns64: maybeUndoNat64: No local nat64 to ip4(%v) for ip6(%v)", ipx4, nip)
+			continue
+		}
+		log.I("alg: dns64: maybeUndoNat64: nat64 to ip4(%v) from ip6(%v)", ipx4, nip)
+		if nipx4, ok := netip.AddrFromSlice(ipx4); ok {
+			*nip = nipx4.Unmap() // overwrite ip6 with ip4: go.dev/play/p/QYiK6V_Yj4-
+		}
+	}
 }
 
 func (t *dnsgateway) ptrLocked(algip *netip.Addr) (domains []string) {

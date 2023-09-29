@@ -325,7 +325,6 @@ func (h *udpHandler) Connect(conn core.UDPConn, target *net.UDPAddr) (res *Mark,
 	var pc protect.Conn
 
 	realips, domains, blocklists := undoAlg(h.resolver, target.IP)
-	ipx4 := maybeUndoNat64(h.resolver, realips, target.IP)
 
 	// flow is alg/nat-aware, do not change target or any addrs
 	res = h.onFlow(conn, target, realips, domains, blocklists)
@@ -357,11 +356,7 @@ func (h *udpHandler) Connect(conn core.UDPConn, target *net.UDPAddr) (res *Mark,
 	}
 
 	// note: fake-dns-ips shouldn't be un-nated / un-alg'd
-	// alg happens before nat64, and so, alg has no knowledge of nat-ed ips
-	// ipx4 is un-nated (and same as target.IP when no nat64 is involved)
-	// but ipx4 might itself be an alg ip; so check if there's a real-ip to connect to
-	// ie, must send to un-nated ips; overwrite target.IP with ipx4
-	target.IP = oneRealIp(realips, ipx4)
+	target.IP = oneRealIp(realips, target.IP)
 
 	// deprecated: github.com/golang/go/issues/25104
 	if pc, err = px.Dial(target.Network(), target.String()); err != nil {
@@ -439,13 +434,9 @@ func (h *udpHandler) ReceiveTo(conn core.UDPConn, data []byte, addr *net.UDPAddr
 		Zone: addr.Zone,
 	}
 
-	// send data to un-nated ips; overwrite target.IP with ipx4
-	// alg happens before nat64, and so, alg has no knowledge of nat-ed ips
-	// ipx4 is un-nated (and equal to target.IP when no nat64 is involved)
 	realips, _, _ := undoAlg(h.resolver, addr.IP)
-	ipx4 := maybeUndoNat64(h.resolver, realips, addr.IP)
-	// but ipx4 might itself be an alg ip; so check if there's a real-ip to connect to
-	addr.IP = oneRealIp(realips, ipx4)
+	// check if there's a real-ip to connect to
+	addr.IP = oneRealIp(realips, addr.IP)
 
 	nat.upload += int64(len(data))
 

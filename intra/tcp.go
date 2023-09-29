@@ -264,9 +264,8 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target *net.TCPAddr) (
 	}
 
 	// alg happens after nat64, and so, alg knows nat-ed ips
-	// ipx4 is un-nated (but same as target.IP when no nat64 is involved)
+	// that is, realips are un-nated
 	realips, domains, blocklists := undoAlg(h.resolver, target.IP)
-	ipx4 := maybeUndoNat64(h.resolver, realips, target.IP)
 
 	// flow/dns-override are nat-aware, as in, they can deal with
 	// nat-ed ips just fine, and so, use target as-is instead of ipx4
@@ -305,9 +304,8 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target *net.TCPAddr) (
 		return
 	}
 
-	// dialers must connect to un-nated ips; overwrite target.IP with ipx4
-	// but ipx4 might itself be an alg ip; so check if there's a real-ip to connect to
-	target.IP = oneRealIp(realips, ipx4)
+	// pick any one realip to connect to
+	target.IP = oneRealIp(realips, target.IP)
 
 	if err = h.Handle(gconn, target, s); err != nil {
 		log.E("tcp: proxy(%s -> %s) err: %v", src, target, err)
@@ -395,39 +393,6 @@ func stall(m *core.ExpMap, k string) (secs uint32) {
 	newlife := time.Duration(life30s) * time.Second
 	m.Set(k, newlife)
 	return
-}
-
-func maybeUndoNat64(pt dnsx.NAT64, ipscsv string, defaultip net.IP) net.IP {
-	maybe64 := make([]netip.Addr, 0, 0)
-	if ips := strings.Split(ipscsv, ","); len(ips) > 0 {
-		for _, v := range ips {
-			// len may be zero when ipscsv is "," or ""
-			if len(v) > 0 {
-				ip, err := netip.ParseAddr(v)
-				ip = ip.Unmap()
-				if err == nil && ip.Is6() && !ip.IsUnspecified() {
-					maybe64 = append(maybe64, ip)
-				}
-			}
-		}
-	}
-	for _, nip := range maybe64 {
-		ip := nip.AsSlice()
-		// TODO: need the actual ID of the transport that did nat64
-		if pt.IsNat64(dnsx.Local464Resolver, ip) { // un-nat64, when dns64 done by local464-resolver
-			// TODO: check if the network this process binds to has ipv4 connectivity
-			ipx4 := pt.X64(dnsx.Local464Resolver, ip) // ipx4 may be nil
-			if len(ipx4) < net.IPv4len {              // no nat?
-				log.D("dns64: maybeUndoNat64: No local nat64 to ip4(%v) for ip6(%v)", ipx4, nip)
-			} else {
-				log.I("dns64: maybeUndoNat64: nat64 to ip4(%v) from ip6(%v)", ipx4, nip)
-				return ipx4
-			}
-		} else {
-			log.V("dns64: maybeUndoNat64: No local nat64 to for ip(%v)", nip)
-		}
-	}
-	return defaultip
 }
 
 func netipFrom(ip net.IP) *netip.Addr {
