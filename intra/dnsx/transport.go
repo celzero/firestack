@@ -378,7 +378,7 @@ func (r *resolver) Forward(q []byte) ([]byte, error) {
 		return nil, errNoSuchTransport
 	}
 	var t2 Transport
-	if r.useSecondary(id, sid) {
+	if len(sid) > 0 {
 		t2 = r.determineTransport(sid)
 	}
 
@@ -402,10 +402,7 @@ func (r *resolver) Forward(q []byte) ([]byte, error) {
 	summary.ID = t.ID()
 	var res2 []byte
 
-	netid := NetTypeUDP
-	if r.allowProxy(t, t2) {
-		netid = xdns.NetAndProxyID(netid, pid)
-	}
+	netid := xdns.NetAndProxyID(NetTypeUDP, pid)
 
 	// with t2 as the secondary transport, which could be nil
 	res2, err = gw.q(t, t2, netid, q, summary)
@@ -452,10 +449,6 @@ func (r *resolver) Forward(q []byte) ([]byte, error) {
 
 func (r *resolver) Serve(c Conn) {
 	r.accept(c)
-}
-
-func (r *resolver) useSecondary(id, _ string) bool {
-	return id != Local
 }
 
 func (r *resolver) determineTransport(id string) Transport {
@@ -533,7 +526,7 @@ func (r *resolver) forwardQuery(q []byte, c io.Writer) error {
 		return errNoSuchTransport
 	}
 	var t2 Transport = nil
-	if r.useSecondary(id, sid) {
+	if len(sid) > 0 {
 		t2 = r.determineTransport(sid)
 	}
 
@@ -557,10 +550,7 @@ func (r *resolver) forwardQuery(q []byte, c io.Writer) error {
 	summary.Type = t.Type()
 	summary.ID = t.ID()
 	var res2 []byte
-	netid := NetTypeTCP
-	if r.allowProxy(t, t2) {
-		netid = xdns.NetAndProxyID(netid, pid)
-	}
+	netid := xdns.NetAndProxyID(NetTypeTCP, pid)
 
 	// with t2 as secondary transport, which may be nil
 	res2, err = gw.q(t, t2, netid, q, summary)
@@ -669,14 +659,20 @@ func isReserved(id string) (ok bool) {
 	return id == Alg || id == DcProxy || id == BlockAll || id == Preferred || id == BlockFree || id == System
 }
 
-func (r *resolver) allowProxy(ts ...Transport) bool {
+func overrideTransports(ids ...string) string {
+	for _, t := range ids {
+		if t == Local {
+			return Local
+		}
+	}
+	return ""
+}
+
+func allowProxy(ids ...string) bool {
 	allow := true
 	deny := false
-	for _, t := range ts {
-		if t == nil {
-			continue
-		}
-		if t.ID() == Default || t.ID() == System || t.ID() == Local {
+	for _, t := range ids {
+		if t == Default || t == System || t == Local {
 			return deny
 		}
 	}
@@ -779,7 +775,12 @@ func preferencesFrom(s *NsOpts) (id1, id2, pid, ips string) {
 		log.W("dns: pref: too many tids; upto 2, got %d", l)
 		id1, id2 = x[0], x[1] // ids for transport t1, t2
 	}
-	if len(s.PID) > 0 {
+	if sup := overrideTransports(id1, id2); len(sup) > 0 && l >= 2 {
+		log.D("dns: pref: %s overrides transports %s, %s", sup, id1, id2)
+		id1 = sup
+		id2 = ""
+	}
+	if len(s.PID) > 0 && allowProxy(id1, id2) {
 		pid = s.PID // id for proxy
 	} else {
 		pid = NetNoProxy
