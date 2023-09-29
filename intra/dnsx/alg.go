@@ -16,7 +16,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/settings"
 	"github.com/celzero/firestack/intra/xdns"
@@ -58,10 +57,6 @@ type Gateway interface {
 	RDNSBL(algip []byte) (blocklistcsv string)
 	// send translated response to client
 	Translate(bool)
-	// set Transport as the underlying upstream DNS for alg queries
-	withTransport(Transport) bool
-	// unset Transport as the underlying upstream DNS for alg queries
-	withoutTransport(Transport) bool
 	// Query using t1 as primary transport and t2 as secondary
 	q(t1 Transport, t2 Transport, network string, q []byte, s *Summary) (r []byte, err error)
 	// clear obj state
@@ -96,23 +91,19 @@ type ansMulti struct {
 // TODO: Keep a context here so that queries can be canceled.
 type dnsgateway struct {
 	sync.RWMutex                     // locks alg, nat, octets, hexes
-	Transport                        // primary transport for alg queries
 	Gateway                          // dns alg interface
-	tranMu       sync.RWMutex        // locks for Transport assignments
-	secondary    Transport           // secondary transport for alg queries
 	mod          bool                // modify realip to algip
 	alg          map[string]*ans     // domain+type -> ans
 	nat          map[netip.Addr]*ans // algip -> ans
-	px           map[netip.Addr]*ans // realip -> ans
+	ptr          map[netip.Addr]*ans // realip -> ans
 	rdns         RdnsResolver        // local and remote rdns blocks
 	octets       []uint8             // ip4 octets, 100.x.y.z
 	hexes        []uint16            // ip6 hex, 64:ff9b:1:da19:0100.x.y.z
 	chash        bool                // use consistent hashing to generae alg ips
-	est          core.P2QuantileEstimator
 }
 
 // NewDNSGateway returns a DNS ALG, ready for use.
-func NewDNSGateway(inner Transport, outer RdnsResolver) (t *dnsgateway) {
+func NewDNSGateway(outer RdnsResolver) (t *dnsgateway) {
 	alg := make(map[string]*ans)
 	nat := make(map[netip.Addr]*ans)
 	px := make(map[netip.Addr]*ans)
@@ -120,16 +111,13 @@ func NewDNSGateway(inner Transport, outer RdnsResolver) (t *dnsgateway) {
 	t = &dnsgateway{
 		alg:    alg,
 		nat:    nat,
-		px:     px,
+		ptr:    px,
 		rdns:   outer,
 		octets: rfc6598,
 		hexes:  rfc8215a,
 		chash:  true,
-		est:    core.NewP50Estimator(),
 	}
-	// initial transport must be set before starting the gateway
-	t.withTransport(inner)
-	log.I("alg: setup %s@%s / %s", inner.ID(), inner.GetAddr(), inner.Type())
+	log.I("alg: setup done")
 	return
 }
 
@@ -239,15 +227,6 @@ func (t *dnsgateway) querySecondary(t2 Transport, network string, q []byte, out 
 	}
 }
 
-// Implements Transport
-func (t *dnsgateway) Query(network string, q []byte, summary *Summary) (r []byte, err error) {
-	r, err = t.q(t.Transport, t.secondary, network, q, summary)
-	// change the summary to reflect the use of alg gateway
-	summary.ID = t.ID()
-	summary.Type = t.Type()
-	return
-}
-
 // Implements Gateway
 func (t *dnsgateway) q(t1, t2 Transport, network string, q []byte, summary *Summary) (r []byte, err error) {
 	if t1 == nil {
@@ -280,7 +259,6 @@ func (t *dnsgateway) q(t1, t2 Transport, network string, q []byte, summary *Summ
 
 	qname, _ := xdns.NormalizeQName(xdns.QName(ansin))
 
-	t.est.Add(summary.Latency)
 	summary.QName = qname
 	summary.QType = qtype(ansin)
 
@@ -430,40 +408,6 @@ func (t *dnsgateway) q(t1, t2 Transport, network string, q []byte, summary *Summ
 	}
 }
 
-func (t *dnsgateway) ID() string {
-	return Alg
-}
-
-func (t *dnsgateway) P50() int64 {
-	if t.Transport != nil {
-		return t.Transport.P50()
-	} else if t.secondary != nil {
-		return t.secondary.P50()
-	} else {
-		return t.est.Get()
-	}
-}
-
-func (t *dnsgateway) Type() string {
-	if t.Transport != nil {
-		return t.Transport.Type()
-	} else if t.secondary != nil {
-		return t.secondary.Type()
-	} else {
-		return NoTransport
-	}
-}
-
-func (t *dnsgateway) GetAddr() string {
-	if t.Transport != nil {
-		return algprefix + t.Transport.GetAddr()
-	} else if t.secondary != nil {
-		return algprefix + t.secondary.GetAddr()
-	} else {
-		return NoTransport
-	}
-}
-
 func netip2csv(ips []*netip.Addr) (csv string) {
 	for i, ip := range ips {
 		if i > 0 {
@@ -538,7 +482,7 @@ func (t *dnsgateway) registerNatLocked(q string, idx int, x *ans) bool {
 // register mapping from realip -> algip+qname (px)
 func (t *dnsgateway) registerPxLocked(q string, idx int, x *ans) bool {
 	ip := x.realip[idx]
-	t.px[*ip] = x
+	t.ptr[*ip] = x
 	return true
 }
 
@@ -699,62 +643,6 @@ func gen6Locked(k string, hop int) netip.Addr {
 	return netip.AddrFrom16(b16)
 }
 
-// Implements Gateway
-func (t *dnsgateway) withTransport(inner Transport) bool {
-	if inner == nil {
-		log.W("alg: inner missing (%t)", inner == nil)
-		return false
-	}
-	inneraddr := inner.GetAddr()
-
-	log.I("alg: processing transport %s@%s / %s", inner.ID(), inneraddr, inner.Type())
-
-	t.tranMu.Lock()
-	defer t.tranMu.Unlock()
-
-	if inner.ID() == Default {
-		// default transport is primary only when no other transport is set
-		// or if the current primary is also the default
-		if t.Transport == nil || t.Transport.ID() == Default {
-			t.Transport = NewCachingTransport(inner, ttl2m)
-		} // else: no-op
-	} else if inner.ID() == BlockFree {
-		// alg works best with a non-filtering dns server (which BlockFree is)
-		log.W("alg: set BlockFree as primary %s", inneraddr)
-		t.Transport = NewCachingTransport(inner, ttl2m)
-		return true
-	} else if inner.ID() == Preferred {
-		log.I("alg: set Preferred as secondary %s", inneraddr)
-		t.secondary = NewDefaultCachingTransport(inner)
-		return true
-	} else {
-		log.I("alg: sec set %s / existing primary %s", inneraddr, t.GetAddr())
-		// any other transport is secondary
-		t.secondary = NewDefaultCachingTransport(inner)
-	}
-	return true
-}
-
-// Implements Gateway
-func (t *dnsgateway) withoutTransport(goner Transport) (ok bool) {
-	if goner == nil || len(goner.ID()) == 0 {
-		return
-	}
-
-	t.tranMu.Lock()
-	defer t.tranMu.Unlock()
-
-	// pimary and secondary are caching transports; and could be the same transport too
-	if t.Transport != nil && CT+goner.ID() == t.Transport.ID() {
-		t.Transport = nil
-	}
-	if t.secondary != nil && CT+goner.ID() == t.secondary.ID() {
-		t.secondary = nil
-	}
-	log.I("alg: %s RemoveTransport %s / %s; Done? %t", goner.GetAddr(), goner.Type(), goner.ID(), ok)
-	return ok
-}
-
 func (t *dnsgateway) X(algip []byte) (ips string) {
 	t.RLock()
 	defer t.RUnlock()
@@ -807,7 +695,7 @@ func (t *dnsgateway) xLocked(algip *netip.Addr) (realip []*netip.Addr) {
 	unmapped := algip.Unmap()
 	if ans, ok := t.nat[unmapped]; ok {
 		realip = append(ans.realip, ans.secondaryips...)
-	} else if ans, ok := t.px[unmapped]; !t.mod && ok {
+	} else if ans, ok := t.ptr[unmapped]; !t.mod && ok {
 		// translate from realip only if not in mod mode
 		realip = append(ans.realip, ans.secondaryips...)
 	}
@@ -819,7 +707,7 @@ func (t *dnsgateway) ptrLocked(algip *netip.Addr) (domains []string) {
 	unmapped := algip.Unmap()
 	if ans, ok := t.nat[unmapped]; ok {
 		domains = ans.domain
-	} else if ans, ok := t.px[unmapped]; !t.mod && ok {
+	} else if ans, ok := t.ptr[unmapped]; !t.mod && ok {
 		// translate from realip only if not in mod mode
 		domains = ans.domain
 	}
@@ -831,7 +719,7 @@ func (t *dnsgateway) rdnsblLocked(algip *netip.Addr) (bcsv string) {
 	unmapped := algip.Unmap()
 	if ans, ok := t.nat[unmapped]; ok {
 		bcsv = ans.blocklists
-	} else if ans, ok := t.px[unmapped]; !t.mod && ok {
+	} else if ans, ok := t.ptr[unmapped]; !t.mod && ok {
 		// translate from realip only if not in mod mode
 		bcsv = ans.blocklists
 	}

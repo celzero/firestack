@@ -141,6 +141,7 @@ type resolver struct {
 	udpaddrs     []*net.UDPAddr
 	systemdns    []Transport
 	transports   map[string]Transport
+	gateway      Gateway
 	localdomains RadixTree
 	rdnsl        *rethinkdnslocal
 	rdnsr        *rethinkdns
@@ -159,21 +160,15 @@ func NewResolver(fakeaddrs string, defaultdns Transport, tunmode *settings.TunMo
 		systemdns:    make([]Transport, 0),
 	}
 	ok1 := r.Add(defaultdns)
-	ok2 := r.Add(NewDNSGateway(defaultdns, r))
+	r.gateway = NewDNSGateway(r)
 
-	log.I("dns: new! default? %t, gw? %t", ok1, ok2)
+	log.I("dns: new! default? %t, gw? %t", ok1, r.gateway != nil)
 	r.loadaddrs(fakeaddrs)
 	return r
 }
 
 func (r *resolver) Gateway() Gateway {
-	r.RLock()
-	defer r.RUnlock()
-
-	if gw, ok := r.transports[Alg]; ok {
-		return gw.(Gateway)
-	}
-	return nil
+	return r.gateway
 }
 
 // Implements RdnsResolver
@@ -260,12 +255,6 @@ func (r *resolver) Add(t Transport) (ok bool) {
 
 		log.I("dns: add transport %s@%s", t.ID(), t.GetAddr())
 
-		// if resetting default transport, update underlying transport for alg
-		if gw := r.Gateway(); (t.ID() == Preferred || t.ID() == BlockFree) && gw != nil {
-			gw.withTransport(t)
-		} else {
-			log.D("dns: no gw? %t / not blkfree/preffered %s@%s", gw == nil, t.ID(), t.GetAddr())
-		}
 		return true
 	default:
 		log.E("dns: unknown transport(%s) type: %s", t.ID(), t.Type())
@@ -335,9 +324,6 @@ func (r *resolver) Remove(id string) (ok bool) {
 		tm.Remove(id)
 		tm.Remove(ctid)
 	}
-	if gw := r.Gateway(); gw != nil {
-		gw.withoutTransport(t)
-	}
 
 	ok = ok1 || ok2
 	if ok {
@@ -356,7 +342,6 @@ func (r *resolver) IsDnsAddr(network, ipport string) bool {
 }
 
 func (r *resolver) Forward(q []byte) ([]byte, error) {
-	var gw Gateway
 	starttime := time.Now()
 	summary := &Summary{
 		QName:  invalidQname,
@@ -394,15 +379,11 @@ func (r *resolver) Forward(q []byte) ([]byte, error) {
 		return nil, errNoSuchTransport
 	}
 	var t2 Transport
-	if len(sid) > 0 {
+	if r.useSecondary(id, sid) {
 		t2 = r.determineTransport(sid)
 	}
 
-	if t.ID() == Alg { // also: Local?
-		gw = nil // transport implicitly implements Gateway
-	} else {
-		gw = r.Gateway()
-	}
+	gw := r.Gateway()
 
 	// block skipped if the transport is alg/block-free
 	res1, blocklists, err := r.blockQ(t, t2, msg)
@@ -426,13 +407,9 @@ func (r *resolver) Forward(q []byte) ([]byte, error) {
 	if r.allowProxy(t, t2) {
 		netid = xdns.NetAndProxyID(netid, pid)
 	}
-	// query explicitly via the gateway gw, if present;
-	// or use transport t, which could be Gateway's impl of Transport
-	if gw == nil {
-		res2, err = t.Query(netid, q, summary)
-	} else { // with t2 as the secondary transport, which could be nil
-		res2, err = gw.q(t, t2, netid, q, summary)
-	}
+
+	// with t2 as the secondary transport, which could be nil
+	res2, err = gw.q(t, t2, netid, q, summary)
 
 	algerr := isAlgErr(err) // not set when gw.translate is off
 	if algerr {
@@ -507,6 +484,11 @@ func (r *resolver) withDNS64SummaryIfNeeded(d64 []byte, s *Summary) {
 
 }
 
+func (r *resolver) useSecondary(id, _ string) bool {
+	return id != Local
+}
+
+// administrator password: Admin@123
 func (r *resolver) determineTransport(id string) Transport {
 	r.RLock()
 	defer r.RUnlock()
@@ -520,7 +502,14 @@ func (r *resolver) determineTransport(id string) Transport {
 		if r.tunmode.BlockMode == settings.BlockModeNone {
 			return r.transports[CT+Default]
 		}
-		return r.transports[Alg]
+		t, ok := r.transports[CT+BlockFree]
+		if !ok {
+			t, ok = r.transports[CT+Preferred]
+		}
+		if !ok {
+			t = r.transports[CT+Default]
+		}
+		return t
 	}
 
 	if t, ok := r.transports[id]; ok {
@@ -537,7 +526,6 @@ func (r *resolver) determineTransport(id string) Transport {
 
 // Perform a query using the transport, and send the response to the writer.
 func (r *resolver) forwardQuery(q []byte, c io.Writer) error {
-	var gw Gateway
 	starttime := time.Now()
 	summary := &Summary{
 		QName:  invalidQname,
@@ -576,14 +564,11 @@ func (r *resolver) forwardQuery(q []byte, c io.Writer) error {
 		return errNoSuchTransport
 	}
 	var t2 Transport = nil
-	if len(sid) > 0 {
+	if r.useSecondary(id, sid) {
 		t2 = r.determineTransport(sid)
 	}
-	if t.ID() == Alg { // also: Local?
-		gw = nil // transport implicitly implements Gateway
-	} else {
-		gw = r.Gateway()
-	}
+
+	gw := r.Gateway()
 
 	// block query if needed (skipped for alg/block-free)
 	res1, blocklists, err := r.blockQ(t, t2, msg)
@@ -607,13 +592,9 @@ func (r *resolver) forwardQuery(q []byte, c io.Writer) error {
 	if r.allowProxy(t, t2) {
 		netid = xdns.NetAndProxyID(netid, pid)
 	}
-	// query explicitly via the gateway gw, if present;
-	// or use transport t, which could be Gateway's impl of Transport
-	if gw == nil {
-		res2, err = t.Query(netid, q, summary)
-	} else { // with t2 as the secondary transport, which could be nil
-		res2, err = gw.q(t, t2, netid, q, summary)
-	}
+
+	// with t2 as secondary transport, which may be nil
+	res2, err = gw.q(t, t2, netid, q, summary)
 
 	algerr := isAlgErr(err) // not set when gw.translate is off
 	if algerr {
