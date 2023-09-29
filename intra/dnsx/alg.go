@@ -97,13 +97,14 @@ type dnsgateway struct {
 	nat          map[netip.Addr]*ans // algip -> ans
 	ptr          map[netip.Addr]*ans // realip -> ans
 	rdns         RdnsResolver        // local and remote rdns blocks
+	dns64        DNS64               // dns64 block
 	octets       []uint8             // ip4 octets, 100.x.y.z
 	hexes        []uint16            // ip6 hex, 64:ff9b:1:da19:0100.x.y.z
 	chash        bool                // use consistent hashing to generae alg ips
 }
 
 // NewDNSGateway returns a DNS ALG, ready for use.
-func NewDNSGateway(outer RdnsResolver) (t *dnsgateway) {
+func NewDNSGateway(outer RdnsResolver, dns64 DNS64) (t *dnsgateway) {
 	alg := make(map[string]*ans)
 	nat := make(map[netip.Addr]*ans)
 	px := make(map[netip.Addr]*ans)
@@ -113,6 +114,7 @@ func NewDNSGateway(outer RdnsResolver) (t *dnsgateway) {
 		nat:    nat,
 		ptr:    px,
 		rdns:   outer,
+		dns64:  dns64,
 		octets: rfc6598,
 		hexes:  rfc8215a,
 		chash:  true,
@@ -262,11 +264,26 @@ func (t *dnsgateway) q(t1, t2 Transport, network string, q []byte, summary *Summ
 	summary.QName = qname
 	summary.QType = qtype(ansin)
 
-	hasq := xdns.HasAQuadAQuestion(ansin) || xdns.HasSVCBQuestion(ansin) || xdns.HasHTTPQuestion(ansin)
+	hasaaaaq := xdns.HasAAAAQuestion(ansin)
 	hasans := xdns.HasAnyAnswer(ansin)
+	if !hasans && hasaaaaq {
+		// override original resp with dns64 if needed
+		d64 := t.dns64.D64(t1.ID(), r, t1) // d64 is disabled by default
+		if len(d64) > xdns.MinDNSPacketSize {
+			if settings.Debug {
+				summary.Server = d64prefix + summary.Server
+			}
+			ans64 := new(dns.Msg)
+			_ = ans64.Unpack(d64)
+			ansin = ans64
+		} // else: d64 is nil on no D64 or error
+	} // else answer is blocked, no dns64
+
+	hasq := hasaaaaq || xdns.HasAQuestion(ansin) || xdns.HasSVCBQuestion(ansin) || xdns.HasHTTPQuestion(ansin)
+	hasans = xdns.HasAnyAnswer(ansin)
 	rgood := xdns.HasRcodeSuccess(ansin)
 	ans0000 := xdns.AQuadAUnspecified(ansin)
-	if !hasans || !hasq || !rgood || ans0000 {
+	if !hasq || !hasans || !rgood || ans0000 {
 		log.D("alg: skip; query(n:%s / a:%d) hasq(%t) hasans(%t) rgood(%t), ans0000(%t)", qname, len(ansin.Answer), hasq, hasans, rgood, ans0000)
 		return // equivalent to return r, nil
 	}

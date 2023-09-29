@@ -324,8 +324,8 @@ func (h *udpHandler) Connect(conn core.UDPConn, target *net.UDPAddr) (res *Mark,
 	var px ipn.Proxy
 	var pc protect.Conn
 
-	ipx4 := maybeUndoNat64(h.resolver, target.IP)
-	realips, domains, blocklists := undoAlg(h.resolver, ipx4)
+	realips, domains, blocklists := undoAlg(h.resolver, target.IP)
+	ipx4 := maybeUndoNat64(h.resolver, realips, target.IP)
 
 	// flow is alg/nat-aware, do not change target or any addrs
 	res = h.onFlow(conn, target, realips, domains, blocklists)
@@ -431,8 +431,6 @@ func (h *udpHandler) ReceiveTo(conn core.UDPConn, data []byte, addr *net.UDPAddr
 		return fmt.Errorf("conn %v -> %v [%v] does not exist", nsladdr, raddr, nsraddr)
 	}
 
-	ipx4 := maybeUndoNat64(h.resolver, addr.IP)
-
 	// unused in netstack as it only supports connected udp
 	// that is, udpconn.writeFrom(data, addr) isn't supported
 	nat.ip = &net.UDPAddr{
@@ -444,7 +442,8 @@ func (h *udpHandler) ReceiveTo(conn core.UDPConn, data []byte, addr *net.UDPAddr
 	// send data to un-nated ips; overwrite target.IP with ipx4
 	// alg happens before nat64, and so, alg has no knowledge of nat-ed ips
 	// ipx4 is un-nated (and equal to target.IP when no nat64 is involved)
-	realips, _, _ := undoAlg(h.resolver, ipx4)
+	realips, _, _ := undoAlg(h.resolver, addr.IP)
+	ipx4 := maybeUndoNat64(h.resolver, realips, addr.IP)
 	// but ipx4 might itself be an alg ip; so check if there's a real-ip to connect to
 	addr.IP = oneRealIp(realips, ipx4)
 

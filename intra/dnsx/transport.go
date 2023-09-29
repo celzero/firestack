@@ -159,7 +159,7 @@ func NewResolver(fakeaddrs string, tunmode *settings.TunMode, l DNSListener, pt 
 		localdomains: newUndelegatedDomainsTrie(),
 		systemdns:    make([]Transport, 0),
 	}
-	r.gateway = NewDNSGateway(r)
+	r.gateway = NewDNSGateway(r, pt)
 
 	log.I("dns: new! gw? %t", r.gateway != nil)
 	r.loadaddrs(fakeaddrs)
@@ -444,13 +444,6 @@ func (r *resolver) Forward(q []byte) ([]byte, error) {
 		summary.Blocklists = blocklistnames
 	}
 	ansblocked := xdns.AQuadAUnspecified(ans1)
-	if !ansblocked {
-		d64 := r.D64(t.ID(), res2, t) // d64 is disabled by default
-		if len(d64) >= xdns.MinDNSPacketSize {
-			r.withDNS64SummaryIfNeeded(d64, summary)
-			return d64, nil
-		} // else: d64 is nil on no D64 or error
-	} // else: answer is blocked, no dns64
 
 	log.V("dns: udp: query %s; new-ans? %t, blocklists? %t, blocked? %t", qname, isnewans, hasblocklists, ansblocked)
 
@@ -461,33 +454,10 @@ func (r *resolver) Serve(c Conn) {
 	r.accept(c)
 }
 
-func (r *resolver) withDNS64SummaryIfNeeded(d64 []byte, s *Summary) {
-	if !settings.Debug {
-		return
-	}
-	msg, err := unpack(d64)
-	if err != nil {
-		return // should not happen
-	}
-	// append dns64 rdata to summary
-	if rdata := xdns.GetInterestingRData(msg); len(rdata) > 0 {
-		if len(s.RData) > 0 {
-			s.RData = s.RData + "," + rdata
-		} else {
-			s.RData = rdata
-		}
-	}
-	if len(s.Server) > 0 {
-		s.Server = d64prefix + s.Server
-	}
-
-}
-
 func (r *resolver) useSecondary(id, _ string) bool {
 	return id != Local
 }
 
-// administrator password: Admin@123
 func (r *resolver) determineTransport(id string) Transport {
 	r.RLock()
 	defer r.RUnlock()
@@ -633,14 +603,6 @@ func (r *resolver) forwardQuery(q []byte, c io.Writer) error {
 		summary.Blocklists = blocklistnames
 	}
 	ansblocked := xdns.AQuadAUnspecified(ans1)
-	// override original resp with dns64 if needed
-	if !ansblocked {
-		d64 := r.D64(t.ID(), res2, t) // d64 is disabled by default
-		if len(d64) > xdns.MinDNSPacketSize {
-			r.withDNS64SummaryIfNeeded(d64, summary)
-			res2 = d64
-		} // else: d64 is nil on no D64 or error
-	} // else answer is blocked, no dns64
 
 	log.V("dns: tcp: query %s; new-ans? %t, blocklists? %t, blocked? %t", qname, isnewans, hasblocklists, ansblocked)
 

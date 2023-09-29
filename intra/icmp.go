@@ -121,8 +121,8 @@ func (h *icmpHandler) Ping(source *net.UDPAddr, target *net.UDPAddr, msg []byte,
 	var pc ipn.Proxy
 	var err error
 
-	ipx4 := maybeUndoNat64(h.resolver, target.IP)
-	realips, domains, blocklists := undoAlg(h.resolver, ipx4)
+	realips, domains, blocklists := undoAlg(h.resolver, target.IP)
+	ipx4 := maybeUndoNat64(h.resolver, realips, target.IP)
 
 	// flow is alg/nat-aware, do not change target or any addrs
 	pid, cid, block := h.onFlow(source, target, realips, domains, blocklists)
