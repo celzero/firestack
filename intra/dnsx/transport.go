@@ -478,7 +478,7 @@ func (r *resolver) Forward(q []byte) ([]byte, error) {
 
 	log.V("dns: udp: query %s; new-ans? %t, blocklists? %t, blocked? %t", qname, isnewans, hasblocklists, ansblocked)
 
-	return ans1.Pack()
+	return res2, nil
 }
 
 func (r *resolver) Serve(c Conn) {
