@@ -7,10 +7,8 @@
 package dns53
 
 import (
-	"encoding/binary"
 	"errors"
 	"fmt"
-	"net"
 	"net/netip"
 	"time"
 
@@ -25,11 +23,10 @@ import (
 )
 
 const (
-	Port           = "53"
-	DotPort        = "853"
-	timeout        = 5 * time.Second
-	dottimeout     = 8 * time.Second
-	usemeikgclient = true
+	Port       = "53"
+	DotPort    = "853"
+	timeout    = 5 * time.Second
+	dottimeout = 8 * time.Second
 )
 
 var errQueryParse = errors.New("dns53: err parse query")
@@ -73,21 +70,20 @@ func newTransport(id string, do *settings.DNSOptions, px ipn.Proxies) (dnsx.Tran
 	}
 	// todo: with controller
 	d := protect.MakeNsDialer(id, nil)
-	if usemeikgclient {
-		tx.mcudp = &dns.Client{
-			Net:            "udp",
-			Dialer:         d,
-			Timeout:        timeout,
-			SingleInflight: true,
-			// TODO: set it to MTU?
-			// UDPSize:        dns.DefaultMsgSize,
-		}
-		tx.mctcp = &dns.Client{
-			Net:            "tcp",
-			Dialer:         d,
-			Timeout:        timeout,
-			SingleInflight: true,
-		}
+	tx.mcudp = &dns.Client{
+		Net:            "udp",
+		Dialer:         d,
+		Timeout:        timeout,
+		SingleInflight: true,
+		// TODO: set it to MTU? or no more than 512 bytes?
+		// ref: github.com/miekg/dns/blob/b3dfea071/server.go#L207
+		// UDPSize:        dns.DefaultMsgSize,
+	}
+	tx.mctcp = &dns.Client{
+		Net:            "tcp",
+		Dialer:         d,
+		Timeout:        timeout,
+		SingleInflight: true,
 	}
 	log.I("dns53: (%s) setup: %s; relay? %t", id, do.IPPort, relay != nil)
 	return tx, nil
@@ -112,11 +108,7 @@ func (t *transport) doQuery(network, pid string, q []byte) (response []byte, ela
 		return
 	}
 
-	if usemeikgclient {
-		response, elapsed, qerr = t.sendRequest2(network, pid, q)
-	} else {
-		response, elapsed, qerr = t.sendRequest(network, pid, q)
-	}
+	response, elapsed, qerr = t.send(network, pid, q)
 
 	if qerr != nil { // only on send-request errors
 		response = xdns.Servfail(q)
@@ -154,7 +146,8 @@ func (t *transport) dial(network string) (*dns.Conn, error) {
 	}
 }
 
-func (t *transport) sendRequest2(network, pid string, q []byte) (response []byte, elapsed time.Duration, qerr *dnsx.QueryError) {
+// ref: github.com/celzero/midway/blob/77ede02c/midway/server.go#L179
+func (t *transport) send(network, pid string, q []byte) (response []byte, elapsed time.Duration, qerr *dnsx.QueryError) {
 	var ans *dns.Msg
 	var err error
 	msg := xdns.AsMsg(q)
@@ -202,102 +195,6 @@ func (t *transport) sendRequest2(network, pid string, q []byte) (response []byte
 		qerr = dnsx.NewBadResponseQueryError(err)
 		return
 	}
-	return
-}
-
-func (t *transport) sendRequest(network, pid string, q []byte) (response []byte, elapsed time.Duration, qerr *dnsx.QueryError) {
-	var conn net.Conn
-	var dialError error
-	start := time.Now()
-
-	defer func() {
-		if qerr != nil {
-			log.I("dns53: query fail: %v %v %v", qerr, qerr.Error(), qerr.Unwrap())
-		}
-		if conn != nil {
-			conn.Close()
-		}
-	}()
-
-	conn, dialError = net.Dial(network, t.ipport)
-	if dialError != nil {
-		elapsed = time.Since(start)
-		qerr = dnsx.NewSendFailedQueryError(dialError)
-		return
-	}
-
-	if network == dnsx.NetTypeTCP {
-		// for tcp, prefix the len(q) in the first two bytes
-		if q, dialError = xdns.PrefixWithSize(q); dialError != nil {
-			elapsed = time.Since(start)
-			qerr = dnsx.NewSendFailedQueryError(dialError)
-			return
-		}
-	}
-
-	conn.SetDeadline(time.Now().Add(timeout)) // extend deadline
-	_, err := conn.Write(q)
-	if err != nil {
-		elapsed = time.Since(start)
-		qerr = dnsx.NewSendFailedQueryError(err)
-		return
-	}
-
-	conn.SetDeadline(time.Now().Add(timeout)) // extend deadline
-	// TODO: use miekg/dns udp/tcp stub resolver impl instead
-	// ref: github.com/celzero/midway/blob/77ede02c/midway/server.go#L179
-	// udp size is expected no more than 512 bytes?
-	// ref: github.com/miekg/dns/blob/b3dfea071/server.go#L207
-
-	if network == dnsx.NetTypeTCP {
-		// TODO: replace xdns.ReadPrefixed impl
-		// for tcp, read the len(response) which is sent in the first 2 bytes
-		// see: github.com/miekg/dns/blob/b3dfea071/server.go#L662
-		b := make([]byte, 2)
-		n, err := conn.Read(b)
-		if err != nil || n < 2 {
-			elapsed = time.Since(start)
-			qerr = dnsx.NewBadResponseQueryError(err)
-			return
-		}
-		l := binary.BigEndian.Uint16(b)
-		if int(l) < xdns.MinDNSPacketSize {
-			elapsed = time.Since(start)
-			qerr = dnsx.NewBadResponseQueryError(fmt.Errorf("tcp: too small a response %d", l))
-			return
-		}
-
-		b = make([]byte, l)
-		for {
-			conn.SetDeadline(time.Now().Add(timeout)) // extend deadline
-			_, err = conn.Read(b)
-			if err != nil {
-				elapsed = time.Since(start)
-				qerr = dnsx.NewTransportQueryError(fmt.Errorf("failed read %d/%d", len(response), l))
-				return
-			}
-			response = append(response, b...)
-			rem := int(l) - len(response)
-			if rem <= 0 {
-				break
-			}
-			b = b[:rem]
-		}
-	} else {
-		b := make([]byte, xdns.MaxDNSUDPSafePacketSize)
-		conn.SetDeadline(time.Now().Add(timeout)) // extend deadline
-		n, err := conn.Read(b)
-		elapsed = time.Since(start)
-		if err != nil {
-			qerr = dnsx.NewBadResponseQueryError(err)
-			return
-		}
-		if n < xdns.MinDNSPacketSize {
-			qerr = dnsx.NewBadResponseQueryError(fmt.Errorf("udp: too small a response %d", n))
-		}
-		response = b[:n]
-	}
-
 	return
 }
 
