@@ -112,6 +112,12 @@ func TestGeneric(tester *testing.T) {
 	ko(tester, err)
 	fmt.Println("fcase4 ok?", stamp4 == v1case4, "\t\t", ustamp4, stamp4)
 	fmt.Println("-------------------------------------------------")
+
+	err = b.SetStamp(v1case2a) // v1case2 is its base64 representation
+	ko(tester, err)
+	gstamp0, err := b.GetStamp() // always returns as base64
+	ko(tester, err)
+	fmt.Println("gcase0 ok?", gstamp0 == v1case2, "\t\t", gstamp0)
 }
 
 func load1() ([]string, map[string]string) {

@@ -615,7 +615,7 @@ func (r *rethinkdns) normalizeStamp(s string) (string, error) {
 	}
 	colonidx := strings.Index(s, colonsep)
 	hyphenidx := strings.Index(s, hyphensep)
-	isb32 := hyphenidx >= 0 && hyphenidx < colonidx
+	isb32 := hyphenidx >= 0 && (hyphenidx < colonidx || colonidx < 0)
 	if !isb32 {
 		return s, nil
 	}
