@@ -181,7 +181,8 @@ func (t *pipws) Dial(network, addr string) (protect.Conn, error) {
 	if t.status == END {
 		return nil, errProxyStopped
 	}
-	if network != "tcp" {
+	// tcp, tcp4, tcp6
+	if !strings.Contains(network, "tcp") {
 		return nil, errUnexpectedProxy
 	}
 
