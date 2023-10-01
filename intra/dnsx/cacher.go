@@ -49,15 +49,13 @@ var (
 )
 
 type cache struct {
-	c         map[string]*cres       // query -> response
-	mu        *sync.RWMutex          // protects the cache
-	ttl       time.Duration          // how long to cache the valid dns response
-	halflife  time.Duration          // how much to increment ttl on each read
-	bumps     int                    // max bumps before we stop bumping a response
-	size      int                    // max size of the cache
-	scrubtime time.Time              // last time cache was scrubbed / purged
-	qbarrier  map[string]*sync.Mutex // coalesce requests for the same query
-	qmu       sync.RWMutex           // protects qbarrier
+	c         map[string]*cres // query -> response
+	mu        *sync.RWMutex    // protects the cache
+	ttl       time.Duration    // how long to cache the valid dns response
+	halflife  time.Duration    // how much to increment ttl on each read
+	bumps     int              // max bumps before we stop bumping a response
+	size      int              // max size of the cache
+	scrubtime time.Time        // last time cache was scrubbed / purged
 }
 
 type cres struct {
@@ -78,6 +76,7 @@ type ctransport struct {
 	halflife     time.Duration // increment ttl on each read
 	bumps        int           // max bumps in lifetime of a cached response
 	size         int           // max size of a cache bucket
+	reqbarrier   *core.Barrier // coalesce requests for the same query
 	est          core.P2QuantileEstimator
 }
 
@@ -90,8 +89,6 @@ func NewCachingTransport(t Transport, ttl time.Duration) Transport {
 		return nil
 	}
 
-	rand.Seed(time.Now().UnixNano())
-
 	// is type casting is a better way to do this?
 	if strings.HasPrefix(t.GetAddr(), addrprefix) {
 		log.I("cache: (%s) no-op: %s", t.ID(), t.GetAddr())
@@ -102,15 +99,16 @@ func NewCachingTransport(t Transport, ttl time.Duration) Transport {
 		return t
 	}
 	ct := &ctransport{
-		Transport: t,
-		store:     make([]*cache, defbuckets),
-		ipport:    "[fdaa:cac::ed:3]:53",
-		status:    Start,
-		ttl:       ttl,
-		halflife:  ttl / 2,
-		bumps:     defbumps,
-		size:      defsize,
-		est:       core.NewP50Estimator(),
+		Transport:  t,
+		store:      make([]*cache, defbuckets),
+		ipport:     "[fdaa:cac::ed:3]:53",
+		status:     Start,
+		ttl:        ttl,
+		halflife:   ttl / 2,
+		bumps:      defbumps,
+		size:       defsize,
+		reqbarrier: core.NewBarrier(),
+		est:        core.NewP50Estimator(),
 	}
 	log.I("cache: (%s) setup: %s; opts: %s", ct.ID(), ct.GetAddr(), ct.str())
 	return ct
@@ -153,38 +151,7 @@ func mkcachekey(q *dns.Msg) (string, uint8, bool) {
 	return qname + keysep + qtyp, hash(qname), true
 }
 
-func (cb *cache) queryBarrier(key string) (ba *sync.Mutex) {
-	cb.qmu.Lock()
-	defer cb.qmu.Unlock()
-
-	if ba = cb.qbarrier[key]; ba == nil {
-		ba = &sync.Mutex{}
-		cb.qbarrier[key] = ba
-	}
-	return
-}
-
-func (cb *cache) purgeQueryBarrier(kch <-chan string) {
-	var keys []string
-	for k := range kch {
-		keys = append(keys, k)
-	}
-	if len(keys) == 0 {
-		return
-	}
-
-	cb.qmu.Lock()
-	for _, k := range keys {
-		delete(cb.qbarrier, k)
-	}
-	cb.qmu.Unlock()
-
-	log.I("cache: cleaned up: %d", len(keys))
-}
-
-func (cb *cache) scrubCache(kch chan<- string) {
-	defer close(kch)
-
+func (cb *cache) scrubCache() {
 	cb.mu.Lock()
 	defer cb.mu.Unlock()
 
@@ -204,7 +171,6 @@ func (cb *cache) scrubCache(kch chan<- string) {
 			// evict expired entries on high load, otherwise keep them
 			// around for use in cases where transport errors out
 			delete(cb.c, k)
-			kch <- k // delete its barrier
 			j++
 		}
 		if i > maxscrubs {
@@ -261,9 +227,7 @@ func (cb *cache) put(response []byte, s *Summary) (ok bool) {
 	defer cb.mu.Unlock()
 
 	if rand.Intn(99999) < 33000 { // 33% of the time
-		kch := make(chan string) // delete expired entries
-		go cb.scrubCache(kch)
-		go cb.purgeQueryBarrier(kch)
+		go cb.scrubCache()
 	}
 
 	if len(cb.c) >= cb.size {
@@ -329,11 +293,7 @@ func (t *ctransport) Type() string {
 }
 
 func (t *ctransport) fetch(network string, q []byte, msg *dns.Msg, summary *Summary, cb *cache, key string) (r []byte, err error) {
-	start := time.Now()
-
 	sendRequest := func(async bool) ([]byte, error) {
-		ba := cb.queryBarrier(key)
-
 		var s *Summary
 		if async {
 			s = new(Summary)
@@ -344,18 +304,22 @@ func (t *ctransport) fetch(network string, q []byte, msg *dns.Msg, summary *Summ
 		s.ID = t.Transport.ID()
 		s.Type = t.Transport.Type()
 
-		ba.Lock() // per query-name lock
-		ans, qerr := t.Transport.Query(network, q, s)
-		ba.Unlock()
+		rv := t.reqbarrier.Do(key, func() (any, error) {
+			return t.Transport.Query(network, q, s)
+		})
+		ans, ok := rv.Val.([]byte)
+		if !ok || rv.Err != nil {
+			return nil, rv.Err
+		}
 
-		s.Latency = time.Since(start).Seconds()
+		s.Latency = rv.Dur.Seconds()
 		t.est.Add(s.Latency)
 
-		if qerr == nil && len(ans) > 0 {
+		if len(ans) > 0 {
 			cb.put(ans, s)
 		}
 
-		return ans, qerr
+		return ans, nil
 	}
 
 	// check if underlying transport can connect fine, if not treat cache
@@ -378,9 +342,6 @@ func (t *ctransport) fetch(network string, q []byte, msg *dns.Msg, summary *Summ
 				cb.mu.Lock()
 				delete(cb.c, key) // del the corrupted entry
 				cb.mu.Unlock()
-				cb.qmu.Lock()
-				delete(cb.qbarrier, key) // del corresponding query-barrier
-				cb.qmu.Unlock()
 			}
 			// fallthrough to sendRequest
 		} else if cachedsummary != nil {
@@ -389,8 +350,8 @@ func (t *ctransport) fetch(network string, q []byte, msg *dns.Msg, summary *Summ
 			}
 			// change summary fields to reflect cached response, except for latency
 			cachedsummary.FillInto(summary)
-			summary.Latency = time.Since(start).Seconds()
-			t.est.Add(summary.Latency)
+			summary.Latency = 0 // don't use cached latency
+			t.est.Add(0)        // however, update the estimator
 			return
 		} // else: fallthrough to sendRequest
 	}
@@ -415,7 +376,6 @@ func (t *ctransport) Query(network string, q []byte, summary *Summary) ([]byte, 
 				ttl:      t.ttl,
 				bumps:    t.bumps,
 				halflife: t.halflife,
-				qbarrier: make(map[string]*sync.Mutex),
 			}
 			t.store[h] = cb
 		}
