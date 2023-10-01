@@ -7,6 +7,7 @@
 package dnsx
 
 import (
+	b32 "encoding/base32"
 	b64 "encoding/base64"
 	"encoding/binary"
 	"encoding/json"
@@ -26,22 +27,25 @@ import (
 )
 
 const (
-	localBlock   = 0
-	remoteBlock  = 1
-	verseperator = ":"
+	localBlock  = 0
+	remoteBlock = 1
+
+	// blocklist stamp separator for base64 encoding
+	colonsep = ":"
+	// blocklist stamp separator for base32 encoding
+	hyphensep = "-"
 )
 
+// supported blocklist stamp versions: 0 or 1
 const (
 	ver1 = "1"
 	ver0 = "0"
 )
 
-var (
-	RdnsDomains = []string{
-		"bravedns.com",
-		"rethinkdns.com",
-		"nile.workers.dev",
-	}
+// encoding type, base32 or base64
+const (
+	EB32 = iota
+	EB64
 )
 
 var (
@@ -70,13 +74,13 @@ type RDNS interface {
 
 	GetStamp() (string, error)
 
-	// BlocklistsStampToNames returns csv separated group:names of blocklists in the given stamp
-	StampToNames(stamp string) (string, error)
+	// Returns csv group:names of blocklists in the given stamp s.
+	StampToNames(s string) (string, error)
 
-	// Returns a blockstamp for given blocklist ids, if valid
-	FlagsToStamp(csv string) (string, error)
+	// Returns a blockstamp for given csv blocklist-ids, if valid.
+	FlagsToStamp(csv string, enctyp int) (string, error)
 
-	// Returns comma-separated blocklist ids given a valid blockstamp
+	// Returns csv blocklist-ids given a valid blockstamp s.
 	StampToFlags(s string) (string, error)
 
 	blockQuery(*dns.Msg) (string, error)
@@ -138,7 +142,7 @@ func newRDNSLocal(t string, rank string,
 	// TODO: find a better place
 	runtime.GC()
 
-	// docs.pi-hole.net/ftldns/blockingmode/
+	// docs.pi-hole.net/ftldns/blockingmode
 	r := &rethinkdns{
 		// pos/index/value ->subgroup:vname
 		flags: flags,
@@ -178,16 +182,18 @@ func (r *rethinkdns) SetStamp(stamp string) error {
 	if len(stamp) <= 0 {
 		r.stamp = ""
 	} else {
-		if _, err := r.StampToNames(stamp); err != nil { // validate
+		// normalize also validates the stamp
+		if nm, err := r.normalizeStamp(stamp); err != nil {
 			return err
+		} else {
+			r.stamp = nm
 		}
-		r.stamp = stamp
 	}
 	return nil
 }
 
 // Returns blockstamp given comma-separated blocklist ids
-func (r *rethinkdns) FlagsToStamp(flagscsv string) (string, error) {
+func (r *rethinkdns) FlagsToStamp(flagscsv string, enctyp int) (string, error) {
 	fstr := strings.Split(flagscsv, ",")
 	if len(fstr) <= 0 {
 		return "", errMissingCsv
@@ -208,7 +214,7 @@ func (r *rethinkdns) FlagsToStamp(flagscsv string) (string, error) {
 	if stamp, err := r.flagtostamp(flags); err != nil {
 		return "", err
 	} else {
-		return encode(ver1, stamp)
+		return encode(ver1, stamp, enctyp)
 	}
 }
 
@@ -246,11 +252,21 @@ func (r *rethinkdns) stampToBlocklist(stamp string) ([]*listinfo, error) {
 		return nil, errNoStamps
 	}
 
-	s := strings.Split(stamp, verseperator)
+	// b64 -> 1:YAYBACABEDAgAA== / b32 -> 1-madacabaaeidaiaa
+	colonidx := strings.Index(stamp, colonsep)
+	hyphenidx := strings.Index(stamp, hyphensep)
+	isb32 := hyphenidx >= 0 && (hyphenidx < colonidx || colonidx < 0)
+	versep := colonsep
+	enctyp := EB64
+	if isb32 {
+		versep = hyphensep
+		enctyp = EB32
+	}
+	s := strings.Split(stamp, versep)
 	if len(s) > 1 {
-		return r.decode(s[1], s[0])
+		return r.decode(s[1], s[0], enctyp)
 	} else {
-		return r.decode(stamp, "0")
+		return r.decode(stamp, "0", enctyp)
 	}
 }
 
@@ -285,11 +301,11 @@ func (r *rethinkdnslocal) blockQuery(msg *dns.Msg) (blocklists string, err error
 	}
 
 	stamp, err := r.GetStamp()
-	if len(stamp) <= 0 {
-		err = errNoStamps
+	if err != nil {
 		return
 	}
-	if err != nil {
+	if len(stamp) <= 0 {
+		err = errNoStamps
 		return
 	}
 	for _, quest := range msg.Question {
@@ -317,11 +333,11 @@ func (r *rethinkdnslocal) blockAnswer(msg *dns.Msg) (blocklists string, err erro
 		return
 	}
 	stamp, err := r.GetStamp()
-	if len(stamp) <= 0 {
-		err = errNoStamps
+	if err != nil {
 		return
 	}
-	if err != nil {
+	if len(stamp) <= 0 {
+		err = errNoStamps
 		return
 	}
 
@@ -361,8 +377,8 @@ func (r *rethinkdnslocal) blockAnswer(msg *dns.Msg) (blocklists string, err erro
 	return
 }
 
-func load(blacklistconfigjson string) ([]string, map[string]string, error) {
-	data, err := os.ReadFile(blacklistconfigjson)
+func load(configjson string) ([]string, map[string]string, error) {
+	data, err := os.ReadFile(configjson)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -411,11 +427,13 @@ func load(blacklistconfigjson string) ([]string, map[string]string, error) {
 	return rflags, fdata, nil
 }
 
-func (r *rethinkdns) decode(stamp string, ver string) (info []*listinfo, err error) {
+func (r *rethinkdns) decode(stamp string, ver string, enctyp int) (info []*listinfo, err error) {
 	haspad := strings.Contains(stamp, "=")
 	decoder := b64.RawStdEncoding
+	decoder32 := b32.StdEncoding.WithPadding(b32.NoPadding)
 	if haspad {
 		decoder = b64.StdEncoding
+		decoder32 = b32.StdEncoding.WithPadding(b32.StdPadding)
 	}
 	if ver == ver0 {
 		stamp, err = url.QueryUnescape(stamp)
@@ -431,7 +449,12 @@ func (r *rethinkdns) decode(stamp string, ver string) (info []*listinfo, err err
 		return nil, err
 	}
 
-	buf, err := decoder.DecodeString(stamp)
+	var buf []byte
+	if enctyp == EB32 {
+		buf, err = decoder32.DecodeString(strings.ToUpper(stamp))
+	} else {
+		buf, err = decoder.DecodeString(stamp)
+	}
 	if err != nil {
 		return
 	}
@@ -515,6 +538,7 @@ func (r *rethinkdns) flagstoinfo(flags []uint16) ([]*listinfo, error) {
 	return values, nil
 }
 
+// convert int flags (blocklist-ids) to a packed uint16 stamp
 func (r *rethinkdns) flagtostamp(fl []uint16) ([]uint16, error) {
 	const u1 = uint16(1)
 	res := []uint16{0}
@@ -549,9 +573,9 @@ func (r *rethinkdns) flagtostamp(fl []uint16) ([]uint16, error) {
 			n |= u1 << (15 - pos)
 			res[dataindex] = n
 		} else {
-			// insert 'n' between res[:dataindex] and r[dataindex:]
 			*h |= u1 << (15 - hindex)
 			n |= u1 << (15 - pos)
+			// insert 'n' between res[:dataindex] and r[dataindex:]
 			nxt := append([]uint16{}, res[:dataindex]...)
 			nxt = append(nxt, n)
 			if dataindex < len(res) {
@@ -566,15 +590,36 @@ func (r *rethinkdns) flagtostamp(fl []uint16) ([]uint16, error) {
 	return res, nil
 }
 
-func encode(ver string, bin []uint16) (string, error) {
+func encode(ver string, u16 []uint16, enctyp int) (string, error) {
 	if ver != ver1 {
-		return "", fmt.Errorf("version %s unsupported / len(input): %d", ver, len(bin))
+		return "", fmt.Errorf("version %s unsupported / len(input): %d", ver, len(u16))
 	}
 
-	bytes := uinttobytes(bin)
+	buf := uinttobytes(u16)
+	if enctyp == EB32 {
+		out := b32.StdEncoding.WithPadding(b32.NoPadding).EncodeToString(buf)
+		return ver + hyphensep + strings.ToLower(out), nil
+	}
 	// decode may recv padded or unpadded stamps, but always encode with pad
 	// as FrozenTrie.DNLookup expects only padded b64url for ver1
-	return ver + verseperator + b64.URLEncoding.EncodeToString(bytes), nil
+	return ver + colonsep + b64.URLEncoding.EncodeToString(buf), nil
+}
+
+// normalizeStamp stamp to base64url padded format if its base32
+func (r *rethinkdns) normalizeStamp(s string) (string, error) {
+	// b64 -> 1:YAYBACABEDAgAA== / b32 -> 1-madacabaaeidaiaa
+	// b32 -> b64
+	flagscsv, err := r.StampToFlags(s) // validate stamp
+	if err != nil {
+		return "", err
+	}
+	colonidx := strings.Index(s, colonsep)
+	hyphenidx := strings.Index(s, hyphensep)
+	isb32 := hyphenidx >= 0 && hyphenidx < colonidx
+	if !isb32 {
+		return s, nil
+	}
+	return r.FlagsToStamp(flagscsv, EB64) // encode as b64
 }
 
 func stringtobyte(str string) []byte {

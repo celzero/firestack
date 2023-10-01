@@ -4,8 +4,6 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
-//go:build ignore
-
 package dnsx
 
 import (
@@ -14,13 +12,14 @@ import (
 )
 
 const (
-	v0case0 = "6b%2Bg67y%2Bz7%2Fvv7%2Fvv7ztlaDvgIDkhIDnhYTogKA%3D"
-	v0case1 = "77%2Bg77%2B%2F77%2B%2F77%2B%2F77%2B%2F77%2B%2F77%2B%2F77%2B%2F77%2B%2F77%2B%2F77%2B%2F77%2Bg"
-	v1case0 = "1:ENz_PwDwfwD___j_YKE=" // same as fcase0
-	v1case1 = "1:4J8-v_8D___8_2DVAPAAQURxIIA="
-	v1case2 = "1:4P___________________________-D_"
-	v1case3 = "1:ENz_PwDw_wP___j_YKk="     // same as fcase3
-	v1case4 = "1:MNz_PwDw_wP___j_BABgqQ==" // same as fcase4
+	v0case0  = "6b%2Bg67y%2Bz7%2Fvv7%2Fvv7ztlaDvgIDkhIDnhYTogKA%3D"
+	v0case1  = "77%2Bg77%2B%2F77%2B%2F77%2B%2F77%2B%2F77%2B%2F77%2B%2F77%2B%2F77%2B%2F77%2B%2F77%2B%2F77%2Bg"
+	v1case0  = "1:ENz_PwDwfwD___j_YKE=" // same as fcase0
+	v1case1  = "1:4J8-v_8D___8_2DVAPAAQURxIIA="
+	v1case2  = "1:4P___________________________-D_"
+	v1case2a = "1-4d7777777777777777777777777777777776b7y"
+	v1case3  = "1:ENz_PwDw_wP___j_YKk="     // same as fcase3
+	v1case4  = "1:MNz_PwDw_wP___j_BABgqQ==" // same as fcase4
 )
 
 var (
@@ -37,73 +36,79 @@ var (
 
 func TestGeneric(tester *testing.T) {
 	r, f := load1()
-	b := bravedns{
+	b := &rethinkdns{
 		flags: r,
 		tags:  f,
 	}
-	b.initBitSetTable()
 
 	// decode v0 to blocklist-info
-	_, err := b.decode(v0case0, ver0)
+	_, err := b.decode(v0case0, ver0, EB64)
 	ok("v0case0", err)
-	_, err = b.decode(v0case1, ver0)
+	_, err = b.decode(v0case1, ver0, EB64)
 	ok("v0case1", err)
 	fmt.Println("-------------------------------------------------")
 
 	// blockstamp to flags (csv)
 	f0, err := b.StampToFlags(v1case0)
 	ko(tester, err)
-	s0, err := b.FlagsToStamp(f0)
+	s0, err := b.FlagsToStamp(f0, EB64)
 	ko(tester, err)
 	fmt.Println("case0; ok?", s0 == v1case0, "\t\t", f0, s0)
 	fmt.Println("-------------------------------------------------")
 
 	f1, err := b.StampToFlags(v1case1)
 	ko(tester, err)
-	s1, err := b.FlagsToStamp(f1)
+	s1, err := b.FlagsToStamp(f1, EB64)
 	ko(tester, err)
 	fmt.Println("case1; ok?", s1 == v1case1, "\t\t", f1, s1)
 	fmt.Println("-------------------------------------------------")
 
 	f2, err := b.StampToFlags(v1case2)
 	ko(tester, err)
-	s2, err := b.FlagsToStamp(f2)
+	f2a, err := b.StampToFlags(v1case2a)
 	ko(tester, err)
-	fmt.Println("case2; ok?", s2 == v1case2, "\t\t", f2, s2)
+	s2, err := b.FlagsToStamp(f2, EB64)
+	ko(tester, err)
+	s21, err := b.FlagsToStamp(f2, EB32)
+	ko(tester, err)
+	s2a, err := b.FlagsToStamp(f2a, EB64)
+	ko(tester, err)
+
+	fmt.Println("case2/2a; ok?", s2 == v1case2, s21 == v1case2a, s2a == v1case2, "\t\t", f2, s2)
 	fmt.Println("-------------------------------------------------")
 
 	f3, err := b.StampToFlags(v1case3)
 	ko(tester, err)
-	s3, err := b.FlagsToStamp(f3)
+	s3, err := b.FlagsToStamp(f3, EB64)
 	ko(tester, err)
 	fmt.Println("case3; ok?", s3 == v1case3, "\t\t", f3, s3)
 	fmt.Println("-------------------------------------------------")
 
 	f4, err := b.StampToFlags(v1case4)
 	ko(tester, err)
-	s4, err := b.FlagsToStamp(f4)
+	s4, err := b.FlagsToStamp(f4, EB64)
 	ko(tester, err)
-	fmt.Println("case3; ok?", s4 == v1case4, "\t\t", f4, s4)
+	fmt.Println("case4; ok?", s4 == v1case4, "\t\t", f4, s4)
 	fmt.Println("-------------------------------------------------")
 
 	// flag to blockstamp test
 	ustamp0, err := b.flagtostamp(fcase0)
 	ko(tester, err)
-	stamp0, err := encode(ver1, ustamp0)
+	stamp0, err := encode(ver1, ustamp0, EB64)
 	ko(tester, err)
 	fmt.Println("fcase0; ok?", stamp0 == v1case0, "\t\t", ustamp0, stamp0)
 	fmt.Println("-------------------------------------------------")
 
 	ustamp3, err := b.flagtostamp(fcase3)
 	ko(tester, err)
-	stamp3, err := encode(ver1, ustamp3)
+	stamp3, err := encode(ver1, ustamp3, EB64)
 	ko(tester, err)
 	fmt.Println("fcase3 ok?", stamp3 == v1case3, "\t\t", ustamp3, stamp3)
 	fmt.Println("-------------------------------------------------")
 
 	ustamp4, err := b.flagtostamp(fcase4)
 	ko(tester, err)
-	stamp4, err := encode(ver1, ustamp4)
+	stamp4, err := encode(ver1, ustamp4, EB64)
 	ko(tester, err)
 	fmt.Println("fcase4 ok?", stamp4 == v1case4, "\t\t", ustamp4, stamp4)
 	fmt.Println("-------------------------------------------------")
