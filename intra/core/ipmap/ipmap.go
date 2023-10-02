@@ -34,7 +34,7 @@ import (
 )
 
 var zeroaddr = netip.Addr{}
-var gresolver = net.DefaultResolver
+var tresolver = net.DefaultResolver
 
 // IPMap maps hostnames to IPSets.
 type IPMap interface {
@@ -42,6 +42,7 @@ type IPMap interface {
 	// discovered by resolving it.  Subsequent calls to Get return the
 	// same IPSet.
 	Get(hostname string) *IPSet
+	GetAny(hostname string) *IPSet
 
 	// Of creates an IPSet for this hostname bootstrapped with given IPs.
 	// Subsequent calls to Of return a new, overriden IPSet.
@@ -51,8 +52,8 @@ type IPMap interface {
 // NewIPMap returns a fresh IPMap.
 // `r` will be used to resolve any hostnames passed to `Get` or `Add`.
 func NewIPMap(r *net.Resolver) IPMap {
-	if r == nil {
-		r = gresolver
+	if r == nil { // for tests
+		r = tresolver
 	}
 	return &ipMap{
 		m: make(map[string]*IPSet),
@@ -67,11 +68,21 @@ type ipMap struct {
 }
 
 func (m *ipMap) Get(hostname string) *IPSet {
+	return m.get(hostname, false)
+}
+
+func (m *ipMap) GetAny(hostname string) *IPSet {
+	return m.get(hostname, true)
+}
+
+func (m *ipMap) get(hostname string, emptyok bool) *IPSet {
 	m.RLock()
 	s := m.m[hostname]
 	m.RUnlock()
-	if s != nil && !s.Empty() {
-		return s
+	if s != nil {
+		if emptyok || !s.Empty() {
+			return s
+		}
 	}
 
 	s = &IPSet{r: m.r}

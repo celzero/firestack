@@ -29,7 +29,7 @@ func Renew(hostname string, addrs []string) bool {
 }
 
 func Confirm(hostname string, addr net.Addr) bool {
-	ips := ipm.Get(hostname)
+	ips := ipm.GetAny(hostname)
 	if ips != nil {
 		if ip, err := netip.ParseAddr(addr.String()); err == nil {
 			ips.Confirm(ip)
@@ -40,7 +40,7 @@ func Confirm(hostname string, addr net.Addr) bool {
 }
 
 func Disconfirm(hostname string, ip net.Addr) bool {
-	ips := ipm.Get(hostname)
+	ips := ipm.GetAny(hostname)
 	if ips != nil {
 		if ip, err := netip.ParseAddr(ip.String()); err == nil {
 			ips.Disconfirm(ip)
