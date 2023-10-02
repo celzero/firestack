@@ -47,6 +47,9 @@ func (s *Summary) Copy() *Summary {
 }
 
 func (s *Summary) FillInto(other *Summary) {
+	if other == nil || s == other {
+		return
+	}
 	if len(s.Type) != 0 {
 		other.Type = s.Type
 	}

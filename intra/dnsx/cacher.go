@@ -292,6 +292,11 @@ func (t *ctransport) Type() string {
 	return t.Transport.Type()
 }
 
+type anssummary struct {
+	ans []byte
+	s   *Summary
+}
+
 func (t *ctransport) fetch(network string, q []byte, msg *dns.Msg, summary *Summary, cb *cache, key string) (r []byte, err error) {
 	sendRequest := func(async bool) ([]byte, error) {
 		var s *Summary
@@ -305,21 +310,19 @@ func (t *ctransport) fetch(network string, q []byte, msg *dns.Msg, summary *Summ
 		s.Type = t.Transport.Type()
 
 		rv := t.reqbarrier.Do(key, func() (any, error) {
-			return t.Transport.Query(network, q, s)
+			ans, err := t.Transport.Query(network, q, s)
+			cb.put(ans, s)
+			return &anssummary{ans, s}, err
 		})
-		ans, ok := rv.Val.([]byte)
+
+		asmm, ok := rv.Val.(anssummary)
 		if !ok || rv.Err != nil {
 			return nil, rv.Err
 		}
 
-		s.Latency = rv.Dur.Seconds()
-		t.est.Add(s.Latency)
+		asmm.s.FillInto(s) // bares.s may be equal to s
 
-		if len(ans) > 0 {
-			cb.put(ans, s)
-		}
-
-		return ans, nil
+		return asmm.ans, nil
 	}
 
 	// check if underlying transport can connect fine, if not treat cache
