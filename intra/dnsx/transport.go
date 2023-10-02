@@ -455,7 +455,7 @@ func (r *resolver) determineTransport(id string) Transport {
 	r.RLock()
 	defer r.RUnlock()
 
-	if id == Local { // mdns never cached
+	if id == Local || id == CT+Local { // mdns never cached
 		return r.transports[Local]
 	}
 
@@ -766,6 +766,7 @@ func preferencesFrom(s *NsOpts) (id1, id2, pid, ips string) {
 	x := strings.Split(s.TIDCSV, ",")
 	l := len(x)
 	if l <= 0 { // cannot happen
+		log.W("dns: pref: no tids")
 		// no-op
 	} else if l == 1 {
 		id1 = x[0] // id for transport t1
