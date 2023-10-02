@@ -268,7 +268,7 @@ func (t *piph2) Dial(network, addr string) (protect.Conn, error) {
 	if err != nil {
 		return nil, err
 	}
-	ipp, err := netip.ParseAddrPort(addr)
+	domain, port, err := net.SplitHostPort(addr)
 	if err != nil {
 		return nil, err
 	}
@@ -276,7 +276,7 @@ func (t *piph2) Dial(network, addr string) (protect.Conn, error) {
 	if !strings.HasSuffix(u.Path, "/") {
 		u.Path += "/"
 	}
-	u.Path += ipp.Addr().String() + "/" + strconv.Itoa(int(ipp.Port())) + "/" + network
+	u.Path += domain + "/" + port + "/" + network
 
 	// ref: github.com/ginuerzh/gost/blob/1c62376e0880e/http2.go#L221
 	// and: github.com/golang/go/issues/17227#issuecomment-249424243
@@ -286,11 +286,10 @@ func (t *piph2) Dial(network, addr string) (protect.Conn, error) {
 	incomingCh := make(chan io.ReadCloser, 1)
 	wlenCh := make(chan int64, 1)
 	oconn := &pipconn{
-		id:    u.Path,
-		rch:   incomingCh,
-		wch:   wlenCh,
-		w:     writable,
-		raddr: net.TCPAddrFromAddrPort(ipp),
+		id:  u.Path,
+		rch: incomingCh,
+		wch: wlenCh,
+		w:   writable,
 	}
 
 	// github.com/golang/go/issues/26574
@@ -317,8 +316,9 @@ func (t *piph2) Dial(network, addr string) (protect.Conn, error) {
 			if info.Conn == nil {
 				return
 			}
-			log.D("piph2: GotConn([%v -> %v] (via %v))", info.Conn.LocalAddr(), ipp.Addr().String(), info.Conn.RemoteAddr())
 			oconn.laddr = info.Conn.LocalAddr()
+			oconn.raddr = info.Conn.RemoteAddr()
+			log.D("piph2: GotConn([%v -> %v] (via %v))", oconn.laddr, addr, oconn.raddr)
 		},
 		PutIdleConn: func(err error) {
 			log.V("piph2: %s PutIdleConn(%v)", u.Path, err)

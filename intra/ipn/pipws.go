@@ -10,7 +10,6 @@ import (
 	"context"
 	"net"
 	"net/http"
-	"net/netip"
 	"net/url"
 	"strconv"
 	"strings"
@@ -190,15 +189,14 @@ func (t *pipws) Dial(network, addr string) (protect.Conn, error) {
 	if err != nil {
 		return nil, err
 	}
-	ipp, err := netip.ParseAddrPort(addr)
+	domain, port, err := net.SplitHostPort(addr)
 	if err != nil {
 		return nil, err
 	}
-
 	if !strings.HasSuffix(u.Path, "/") {
 		u.Path += "/"
 	}
-	u.Path += ipp.Addr().String() + "/" + strconv.Itoa(int(ipp.Port())) + "/" + network
+	u.Path += domain + "/" + port + "/" + network
 
 	msg := hexurl(u.Path)
 	if err != nil {
