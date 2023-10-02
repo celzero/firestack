@@ -71,6 +71,7 @@ func ReDial(dialer *protect.RDial, network, addr string) (net.Conn, error) {
 			log.I("redial: confirmed IP %s worked for %s", confirmed, addr)
 			return conn, nil
 		}
+		go ips.Disconfirm(confirmed)
 		log.D("redial: IP %s for %s failed with err %v", confirmed, addr, err)
 	}
 
