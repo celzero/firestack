@@ -34,7 +34,7 @@ var errQueryParse = errors.New("dns53: err parse query")
 // TODO: Keep a context here so that queries can be canceled.
 type transport struct {
 	id      string
-	ipport  string
+	addr    string
 	status  int
 	mcudp   *dns.Client
 	mctcp   *dns.Client
@@ -44,6 +44,14 @@ type transport struct {
 }
 
 var _ dnsx.Transport = (*transport)(nil)
+
+func NewTransportFromHostname(id, hostname string, px ipn.Proxies) (t dnsx.Transport, err error) {
+	do, err := settings.NewDNSOptionsFromHostname(hostname)
+	if err != nil {
+		return
+	}
+	return newTransport(id, do, px)
+}
 
 // NewTransport returns a DNS transport, ready for use.
 func NewTransport(id, ip, port string, px ipn.Proxies) (t dnsx.Transport, err error) {
@@ -62,7 +70,7 @@ func newTransport(id string, do *settings.DNSOptions, px ipn.Proxies) (dnsx.Tran
 	}
 	tx := &transport{
 		id:      id,
-		ipport:  do.IPPort,
+		addr:    do.IPPort, // may be host:port or ip:port
 		status:  dnsx.Start,
 		proxies: px,    // may be nil; see above
 		relay:   relay, // may be nil
@@ -130,7 +138,7 @@ func (t *transport) pxdial(network, pid string) (conn *dns.Conn, err error) {
 		return
 	}
 	log.V("dns53: pxdial: (%s) using %s relay/proxy %s at %s", t.id, network, px.ID(), px.GetAddr())
-	pxconn, err := px.Dialer().Dial(network, t.ipport)
+	pxconn, err := px.Dialer().Dial(network, t.addr)
 	if err != nil {
 		return
 	}
@@ -140,9 +148,9 @@ func (t *transport) pxdial(network, pid string) (conn *dns.Conn, err error) {
 
 func (t *transport) dial(network string) (*dns.Conn, error) {
 	if network == dnsx.NetTypeUDP {
-		return t.mcudp.Dial(t.ipport)
+		return t.mcudp.Dial(t.addr)
 	} else {
-		return t.mctcp.Dial(t.ipport)
+		return t.mctcp.Dial(t.addr)
 	}
 }
 
@@ -190,6 +198,7 @@ func (t *transport) send(network, pid string, q []byte) (response []byte, elapse
 		qerr = dnsx.NewTransportQueryError(err)
 		return
 	}
+
 	response, err = ans.Pack()
 	if err != nil {
 		qerr = dnsx.NewBadResponseQueryError(err)
@@ -199,7 +208,6 @@ func (t *transport) send(network, pid string, q []byte) (response []byte, elapse
 }
 
 func (t *transport) Query(network string, q []byte, summary *dnsx.Summary) (r []byte, err error) {
-
 	proto, pid := xdns.Net2ProxyID(network)
 	response, elapsed, qerr := t.doQuery(proto, pid, q)
 
@@ -241,7 +249,7 @@ func (t *transport) P50() int64 {
 }
 
 func (t *transport) GetAddr() string {
-	return t.ipport
+	return t.addr
 }
 
 func (t *transport) Status() int {

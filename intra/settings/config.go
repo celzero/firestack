@@ -7,6 +7,7 @@ package settings
 
 import (
 	"errors"
+	"net"
 	"net/netip"
 	"net/url"
 	"strconv"
@@ -154,7 +155,7 @@ func NewDNSOptions(ip string, port string) (*DNSOptions, error) {
 			IPPort: ipp.String(),
 		}, nil
 	}
-	log.W("dnsopt(%s:%s); err(%v)", ip, port, err)
+	log.D("dnsopt(%s:%s); err(%v)", ip, port, err)
 	return nil, err
 }
 
@@ -164,6 +165,19 @@ func NewDNSOptionsFromNetIp(ipp netip.AddrPort) (*DNSOptions, error) {
 	}
 	return &DNSOptions{
 		IPPort: ipp.String(),
+	}, nil
+}
+
+func NewDNSOptionsFromHostname(hostname string) (*DNSOptions, error) {
+	domain, port, err := net.SplitHostPort(hostname)
+	if err != nil {
+		return nil, err
+	}
+	if len(port) == 0 {
+		port = "53"
+	}
+	return &DNSOptions{
+		IPPort: net.JoinHostPort(domain, port),
 	}, nil
 }
 
