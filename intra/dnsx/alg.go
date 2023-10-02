@@ -240,6 +240,7 @@ func (t *dnsgateway) q(t1, t2 Transport, network string, q []byte, summary *Summ
 	resch := make(chan []byte, 1)
 	innersummary := new(Summary)
 	// todo: use context?
+	// t2 may be nil
 	go t.querySecondary(t2, network, q, secch, resch, timeout)
 
 	r, err = t1.Query(network, q, innersummary)
@@ -278,10 +279,9 @@ func (t *dnsgateway) q(t1, t2 Transport, network string, q []byte, summary *Summ
 			_ = ans64.Unpack(d64)
 			ansin = ans64
 		} // else: d64 is nil on no D64 or error
-	} // else answer is blocked, no dns64
+	} // else: no d64; not AAAA question or AAAA answer already exists
 
 	hasq := hasaaaaq || xdns.HasAQuestion(ansin) || xdns.HasSVCBQuestion(ansin) || xdns.HasHTTPQuestion(ansin)
-	hasans = xdns.HasAnyAnswer(ansin)
 	rgood := xdns.HasRcodeSuccess(ansin)
 	ans0000 := xdns.AQuadAUnspecified(ansin)
 	if !hasq || !hasans || !rgood || ans0000 {
