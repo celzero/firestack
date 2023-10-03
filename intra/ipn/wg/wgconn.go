@@ -17,6 +17,7 @@ import (
 	"errors"
 	"net"
 	"net/netip"
+	"strconv"
 	"sync"
 	"syscall"
 	"time"
@@ -28,6 +29,10 @@ import (
 
 const maxbindtries = 10
 const wgtimeout = 60 * time.Second
+
+var (
+	errInvalidEndpoint = errors.New("wg: bind: no endpoint")
+)
 
 type StdNetBind struct {
 	mu         sync.Mutex // protects following fields
@@ -49,11 +54,28 @@ var (
 )
 
 func (*StdNetBind) ParseEndpoint(s string) (conn.Endpoint, error) {
-	e, err := netip.ParseAddrPort(s)
-	return asEndpoint(e), err
+	d := new(Multihost)
+	host, portstr, err := net.SplitHostPort(s)
+	if err != nil {
+		log.E("wg: bind: not a valid endpoint in(%s); err: %v", s, err)
+		return nil, err
+	}
+	d.With([]string{host}) // resolves host if needed
+	ips := d.Addrs()
+	if len(ips) <= 0 {
+		log.E("wg: bind: not a valid endpoint in(%s); out(%s, %s)", s, d.Names(), d.Addrs())
+		return nil, errInvalidEndpoint
+	}
+	port, err := strconv.Atoi(portstr)
+	if err != nil {
+		log.E("wg: bind: not a valid port in(%s); err: %v", s, err)
+		return nil, err
+	}
+	ipport := netip.AddrPortFrom(ips[0], uint16(port))
+	return asEndpoint(ipport), nil
 }
 
-func (StdNetEndpoint) ClearSrc() {}
+func (StdNetEndpoint) ClearSrc() {} // not supported
 
 func (e StdNetEndpoint) DstIP() netip.Addr {
 	return (netip.AddrPort)(e).Addr()
