@@ -18,6 +18,7 @@ import (
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
 	"github.com/celzero/firestack/intra/settings"
+	"github.com/celzero/firestack/intra/split"
 	"github.com/celzero/firestack/intra/xdns"
 	"github.com/miekg/dns"
 )
@@ -36,8 +37,8 @@ type transport struct {
 	id      string
 	addr    string
 	status  int
-	mcudp   *dns.Client
-	mctcp   *dns.Client
+	client  *dns.Client
+	dialer  *protect.RDial
 	proxies ipn.Proxies // may be nil; esp for id == dnsx.System
 	relay   ipn.Proxy   // may be nil
 	est     core.P2QuantileEstimator
@@ -68,28 +69,25 @@ func newTransport(id string, do *settings.DNSOptions, px ipn.Proxies) (dnsx.Tran
 	if px != nil {
 		relay, _ = px.GetProxy(id)
 	}
+	// todo: with controller
+	d := protect.MakeNsRDial(id, nil)
 	tx := &transport{
 		id:      id,
 		addr:    do.IPPort, // may be host:port or ip:port
 		status:  dnsx.Start,
+		dialer:  d,
 		proxies: px,    // may be nil; see above
 		relay:   relay, // may be nil
 		est:     core.NewP50Estimator(),
 	}
-	// todo: with controller
-	d := protect.MakeNsDialer(id, nil)
-	tx.mcudp = &dns.Client{
+	tx.client = &dns.Client{
 		Net:     "udp",
-		Dialer:  d,
 		Timeout: timeout,
+		// instead using custom dialer rdial
+		// Dialer:  d,
 		// TODO: set it to MTU? or no more than 512 bytes?
 		// ref: github.com/miekg/dns/blob/b3dfea071/server.go#L207
 		// UDPSize:        dns.DefaultMsgSize,
-	}
-	tx.mctcp = &dns.Client{
-		Net:     "tcp",
-		Dialer:  d,
-		Timeout: timeout,
 	}
 	log.I("dns53: (%s) setup: %s; relay? %t", id, do.IPPort, relay != nil)
 	return tx, nil
@@ -145,10 +143,10 @@ func (t *transport) pxdial(network, pid string) (conn *dns.Conn, err error) {
 }
 
 func (t *transport) dial(network string) (*dns.Conn, error) {
-	if network == dnsx.NetTypeUDP {
-		return t.mcudp.Dial(t.addr)
+	if c, err := split.Dial(t.dialer, network, t.addr); err == nil {
+		return &dns.Conn{Conn: c}, nil
 	} else {
-		return t.mctcp.Dial(t.addr)
+		return nil, err
 	}
 }
 
@@ -184,11 +182,7 @@ func (t *transport) send(network, pid string, q []byte) (response []byte, elapse
 	}
 	if err == nil {
 		// TODO: conn pooling w/ ExchangeWithConn
-		if network == dnsx.NetTypeTCP {
-			ans, elapsed, err = t.mctcp.ExchangeWithConn(msg, conn)
-		} else {
-			ans, elapsed, err = t.mcudp.ExchangeWithConn(msg, conn)
-		}
+		ans, elapsed, err = t.client.ExchangeWithConn(msg, conn)
 		conn.Close()
 	}
 
