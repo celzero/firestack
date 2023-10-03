@@ -568,14 +568,25 @@ func (h *wgtun) Status() int {
 
 func (h *wgtun) DNS() string {
 	var s string
-	for _, dns := range h.dnsaddrs {
-		if dns == nil || dns.IsUnspecified() || !dns.IsValid() {
+	// prefer hostnames over IPs:
+	// hostnames may resolve to different IPs on different networks;
+	// tunnel could use hostnames to implement "refresh"
+	for _, hostname := range h.dns.Names() {
+		s += hostname + ","
+	}
+	if len(s) > 0 {
+		log.D("wg: dns hostnames: %s", s)
+		return strings.TrimRight(s, ",")
+	}
+	for _, dns := range h.dns.Addrs() {
+		if dns.IsUnspecified() || !dns.IsValid() {
 			continue
 		}
 		// may be private, link local, etc
 		s += dns.Unmap().String() + ","
 	}
 	if len(s) > 0 {
+		log.D("wg: dns ipaddrs: %s", s)
 		return strings.TrimRight(s, ",")
 	}
 	return NoDNS
