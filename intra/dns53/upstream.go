@@ -79,19 +79,17 @@ func newTransport(id string, do *settings.DNSOptions, px ipn.Proxies) (dnsx.Tran
 	// todo: with controller
 	d := protect.MakeNsDialer(id, nil)
 	tx.mcudp = &dns.Client{
-		Net:            "udp",
-		Dialer:         d,
-		Timeout:        timeout,
-		SingleInflight: true,
+		Net:     "udp",
+		Dialer:  d,
+		Timeout: timeout,
 		// TODO: set it to MTU? or no more than 512 bytes?
 		// ref: github.com/miekg/dns/blob/b3dfea071/server.go#L207
 		// UDPSize:        dns.DefaultMsgSize,
 	}
 	tx.mctcp = &dns.Client{
-		Net:            "tcp",
-		Dialer:         d,
-		Timeout:        timeout,
-		SingleInflight: true,
+		Net:     "tcp",
+		Dialer:  d,
+		Timeout: timeout,
 	}
 	log.I("dns53: (%s) setup: %s; relay? %t", id, do.IPPort, relay != nil)
 	return tx, nil
