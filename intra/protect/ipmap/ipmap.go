@@ -36,6 +36,10 @@ import (
 var zeroaddr = netip.Addr{}
 var tresolver = net.DefaultResolver
 
+type Resolver interface {
+	LookupNetIP(ctx context.Context, network, host string) ([]netip.Addr, error)
+}
+
 // IPMap maps hostnames to IPSets.
 type IPMap interface {
 	// Get creates an IPSet for this hostname populated with the IPs
@@ -43,28 +47,38 @@ type IPMap interface {
 	// same IPSet.
 	Get(hostname string) *IPSet
 	GetAny(hostname string) *IPSet
-
 	// Of creates an IPSet for this hostname bootstrapped with given IPs.
 	// Subsequent calls to Of return a new, overriden IPSet.
 	Of(hostname string, ips []string) *IPSet
 }
 
+type ipMap struct {
+	sync.RWMutex
+	m map[string]*IPSet
+	r Resolver // always the default system resolver
+}
+
+// IPSet represents an unordered collection of IP addresses for a single host.
+// One IP can be marked as confirmed to be working correctly.
+type IPSet struct {
+	sync.RWMutex              // Protects this struct.
+	ips          []netip.Addr // All known IPs for the server.
+	confirmed    netip.Addr   // IP address confirmed to be working.
+	r            Resolver     // Resolver to use for hostname resolution.
+	seed         []string     // Bootstrap IPs; may be nil.
+}
+
 // NewIPMap returns a fresh IPMap.
-// `r` will be used to resolve any hostnames passed to `Get` or `Add`.
-func NewIPMap(r *net.Resolver) IPMap {
-	if r == nil { // for tests
-		r = tresolver
-	}
+// `r` will be used to resolve any hostnames passed to Get or Add.
+func NewIPMap() IPMap {
+	return NewIPMapFor(tresolver)
+}
+
+func NewIPMapFor(r Resolver) IPMap {
 	return &ipMap{
 		m: make(map[string]*IPSet),
 		r: r,
 	}
-}
-
-type ipMap struct {
-	sync.RWMutex
-	m map[string]*IPSet
-	r *net.Resolver
 }
 
 func (m *ipMap) Get(hostname string) *IPSet {
@@ -122,16 +136,6 @@ func (m *ipMap) Of(hostname string, ips []string) *IPSet {
 	return s
 }
 
-// IPSet represents an unordered collection of IP addresses for a single host.
-// One IP can be marked as confirmed to be working correctly.
-type IPSet struct {
-	sync.RWMutex               // Protects this struct.
-	ips          []netip.Addr  // All known IPs for the server.
-	confirmed    netip.Addr    // IP address confirmed to be working.
-	r            *net.Resolver // Resolver to use for hostname resolution.
-	seed         []string      // Bootstrap IPs; may be nil.
-}
-
 // Reports whether ip is in the set.  Must be called under RLock.
 func (s *IPSet) hasLocked(ip netip.Addr) bool {
 	for _, oldIP := range s.ips {
@@ -163,8 +167,9 @@ func (s *IPSet) Add(hostname string) {
 		log.W("ipmap: Add: resolver not set")
 		return
 	}
+	ctx := context.Background()
 	// Don't hold the ipMap lock during blocking I/O.
-	resolved, err := r.LookupNetIP(context.TODO(), "ip", hostname)
+	resolved, err := s.r.LookupNetIP(ctx, "ip", hostname)
 	if err != nil {
 		log.W("ipmap: Add: err resolving %s: %v", hostname, err)
 		return

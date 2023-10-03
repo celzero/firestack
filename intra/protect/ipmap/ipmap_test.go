@@ -24,7 +24,7 @@ import (
 )
 
 func TestGetTwice(t *testing.T) {
-	m := NewIPMap(nil)
+	m := NewIPMap()
 	a := m.Get("example")
 	b := m.Get("example")
 	if a == b {
@@ -33,7 +33,7 @@ func TestGetTwice(t *testing.T) {
 }
 
 func TestGetInvalid(t *testing.T) {
-	m := NewIPMap(nil)
+	m := NewIPMap()
 	s := m.Get("example")
 	if !s.Empty() {
 		t.Error("Invalid name should result in an empty set")
@@ -44,7 +44,7 @@ func TestGetInvalid(t *testing.T) {
 }
 
 func TestGetDomain(t *testing.T) {
-	m := NewIPMap(nil)
+	m := NewIPMap()
 	s := m.Get("www.google.com")
 	if s.Empty() {
 		t.Error("Google lookup failed")
@@ -59,7 +59,7 @@ func TestGetDomain(t *testing.T) {
 }
 
 func TestGetIP(t *testing.T) {
-	m := NewIPMap(nil)
+	m := NewIPMap()
 	s := m.Get("192.0.2.1")
 	if s.Empty() {
 		t.Error("IP parsing failed")
@@ -74,7 +74,7 @@ func TestGetIP(t *testing.T) {
 }
 
 func TestAddDomain(t *testing.T) {
-	m := NewIPMap(nil)
+	m := NewIPMap()
 	s := m.Get("example")
 	s.Add("www.google.com")
 	if s.Empty() {
@@ -89,7 +89,7 @@ func TestAddDomain(t *testing.T) {
 	}
 }
 func TestAddIP(t *testing.T) {
-	m := NewIPMap(nil)
+	m := NewIPMap()
 	s := m.Get("example")
 	s.Add("192.0.2.1")
 	ips := s.GetAll()
@@ -102,7 +102,7 @@ func TestAddIP(t *testing.T) {
 }
 
 func TestConfirmed(t *testing.T) {
-	m := NewIPMap(nil)
+	m := NewIPMap()
 	s := m.Get("www.google.com")
 	if s.Confirmed().IsValid() {
 		t.Error("Confirmed should start out nil")
@@ -121,7 +121,7 @@ func TestConfirmed(t *testing.T) {
 }
 
 func TestConfirmNew(t *testing.T) {
-	m := NewIPMap(nil)
+	m := NewIPMap()
 	s := m.Get("example")
 	s.Add("192.0.2.1")
 	// Confirm a new address.
@@ -136,7 +136,7 @@ func TestConfirmNew(t *testing.T) {
 }
 
 func TestDisconfirmMismatch(t *testing.T) {
-	m := NewIPMap(nil)
+	m := NewIPMap()
 	s := m.Get("www.google.com")
 	ips := s.GetAll()
 	s.Confirm(ips[0])
@@ -163,7 +163,7 @@ func TestResolver(t *testing.T) {
 			return nil, errors.New("Fake dialer")
 		},
 	}
-	m := NewIPMap(resolver)
+	m := NewIPMapFor(resolver)
 	s := m.Get("www.google.com")
 	if !s.Empty() {
 		t.Error("Google lookup should have failed due to fake dialer")

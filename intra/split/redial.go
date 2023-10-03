@@ -12,13 +12,12 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/celzero/firestack/intra/core/ipmap"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
+	"github.com/celzero/firestack/intra/protect/ipmap"
 )
 
-var osdialer = &net.Dialer{}
-var ipm ipmap.IPMap = ipmap.NewIPMap(osdialer.Resolver)
+var ipm ipmap.IPMap = ipmap.NewIPMap()
 
 func tcpaddr(ip netip.Addr, port int) *net.TCPAddr {
 	return &net.TCPAddr{IP: ip.AsSlice(), Port: port}
