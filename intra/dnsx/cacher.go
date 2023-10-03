@@ -318,13 +318,13 @@ func (t *ctransport) fetch(network string, q []byte, msg *dns.Msg, summary *Summ
 		})
 
 		asmm, ok := rv.Val.(anssummary)
-		if !ok || rv.Err != nil {
-			return nil, rv.Err
+		if !ok {
+			return nil, errCacheResponseMismatch
 		}
-
+		// fill summary regardless of rv.Err
 		asmm.s.FillInto(s) // bares.s may be equal to s
 
-		return asmm.ans, nil
+		return asmm.ans, rv.Err
 	}
 
 	// check if underlying transport can connect fine, if not treat cache
