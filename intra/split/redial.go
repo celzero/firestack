@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/netip"
 	"strconv"
+	"time"
 
 	"github.com/celzero/firestack/intra/core/ipmap"
 	"github.com/celzero/firestack/intra/log"
@@ -51,6 +52,7 @@ func Disconfirm(hostname string, ip net.Addr) bool {
 }
 
 func ReDial(dialer *protect.RDial, network, addr string) (net.Conn, error) {
+	start := time.Now()
 	log.D("redial: dialing %s", addr)
 	domain, portStr, err := net.SplitHostPort(addr)
 	if err != nil {
@@ -88,7 +90,9 @@ func ReDial(dialer *protect.RDial, network, addr string) (net.Conn, error) {
 			return conn, nil
 		}
 	}
-	log.W("redial: renew %s", addr)
-	Renew(domain, ips.Seed())
-	return nil, err
+
+	log.W("redial: dur: %ss; renew %s", time.Since(start).Seconds(), addr)
+	go Renew(domain, ips.Seed())
+
+	return dialer.Dial(network, addr)
 }
