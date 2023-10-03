@@ -25,8 +25,6 @@ package intra
 
 import (
 	"errors"
-	"net/netip"
-	"strings"
 	"sync"
 
 	"github.com/celzero/firestack/intra/dnsx"
@@ -59,8 +57,6 @@ type Tunnel interface {
 	tunnel.Tunnel
 	// Get the resolver.
 	GetResolver() dnsx.Resolver
-	// Add one or more system dns as csv string.
-	SetSystemDNS(ippcsv string) int
 	// Set DNSMode, BlockMode, PtMode. These are the enum constants
 	// defined in package settings.
 	SetTunMode(dnsmode, blockmode, ptmode int)
@@ -166,30 +162,6 @@ func (t *rtunnel) GetProxies() ipn.Proxies {
 
 func (t *rtunnel) GetServices() rnet.Services {
 	return t.services
-}
-
-func (t *rtunnel) SetSystemDNS(ippcsv string) int {
-	ipports := strings.Split(ippcsv, ",")
-	d := t.resolver.RemoveSystemDNS()
-	if len(ipports) <= 0 {
-		log.I("dns: removed %d system dns(es)", d)
-		return 0
-	}
-	n := 0
-	for _, ipport := range ipports {
-		if ipp, err := netip.ParseAddrPort(ipport); err == nil {
-			if sdns, err := newSystemDNSProxy(ipp); err == nil {
-				t.resolver.AddSystemDNS(sdns)
-				n += 1
-			} else {
-				log.W("dns: make system dns %s; err(%v)", ipport, err)
-			}
-		} else {
-			log.W("dns: invalid system dns %s; err(%v)", ipport, err)
-		}
-	}
-	log.I("dns: added %d system dns(es) from %s", n, ipports)
-	return n
 }
 
 func (t *rtunnel) SetTunMode(dnsmode, blockmode, ptmode int) {

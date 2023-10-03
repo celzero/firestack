@@ -16,6 +16,7 @@ import (
 	"github.com/celzero/firestack/intra/dnsx"
 	"github.com/celzero/firestack/intra/doh"
 	"github.com/celzero/firestack/intra/ipn"
+	"github.com/celzero/firestack/intra/log"
 )
 
 func AddDNSProxy(t Tunnel, id, ip, port string) error {
@@ -29,6 +30,31 @@ func AddDNSProxy(t Tunnel, id, ip, port string) error {
 
 func newSystemDNSProxy(ipp netip.AddrPort) (d dnsx.Transport, err error) {
 	return dns53.NewTransportFrom(dnsx.System, ipp, nil)
+}
+
+func SetSystemDNS(t Tunnel, ippcsv string) int {
+	r := t.GetResolver()
+	d := r.RemoveSystemDNS()
+	ipports := strings.Split(ippcsv, ",")
+	if len(ipports) <= 0 {
+		log.I("dns: removed %d system dns(es)", d)
+		return 0
+	}
+	n := 0
+	for _, ipport := range ipports {
+		if ipp, err := netip.ParseAddrPort(ipport); err == nil {
+			if sdns, err := newSystemDNSProxy(ipp); err == nil {
+				r.AddSystemDNS(sdns)
+				n += 1
+			} else {
+				log.W("dns: new system dns %s; err(%v)", ipport, err)
+			}
+		} else {
+			log.W("dns: invalid system dns %s; err(%v)", ipport, err)
+		}
+	}
+	log.I("dns: new %d system dns(es) from %s", n, ipports)
+	return n
 }
 
 func newBlockAllTransport() (d dnsx.Transport) {
