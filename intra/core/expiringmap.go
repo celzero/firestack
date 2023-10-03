@@ -96,7 +96,7 @@ func (m *ExpMap) Clear() int {
 	defer m.Unlock()
 
 	l := len(m.m)
-	m.m = make(map[string]*val)
+	clear(m.m)
 	return l
 }
 
