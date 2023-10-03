@@ -573,10 +573,17 @@ func (tnet *wgtun) DialContext(ctx context.Context, network, address string) (ne
 		}
 	}
 
-	allAddr, err := tnet.LookupContextHost(ctx, host)
-	if err != nil {
-		log.W("wg: dail: lookup failed %q: %v", host, err)
-		return nil, &net.OpError{Op: "dial", Err: err}
+	rv := tnet.reqbarrier.Do(host, func() (any, error) {
+		return tnet.LookupContextHost(ctx, host)
+	})
+	if rv.Err != nil {
+		log.W("wg: dail: lookup failed %q: %v", host, rv.Err)
+		return nil, &net.OpError{Op: "dial", Err: rv.Err}
+	}
+	allAddr, vok := rv.Val.([]string)
+	if !vok {
+		log.W("wg: dail: cast failed %q for val: %v", host, rv.Val)
+		return nil, &net.OpError{Op: "dial", Err: errInvalidDNSResponse}
 	}
 
 	var addrs []netip.AddrPort
@@ -623,6 +630,7 @@ func (tnet *wgtun) DialContext(ctx context.Context, network, address string) (ne
 		}
 
 		var c net.Conn
+		var err error
 		switch network {
 		case "tcp", "tcp4", "tcp6":
 			c, err = tnet.DialContextTCPAddrPort(dialCtx, addr)
