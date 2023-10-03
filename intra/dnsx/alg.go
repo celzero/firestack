@@ -282,6 +282,7 @@ func (t *dnsgateway) q(t1, t2 Transport, network string, q []byte, summary *Summ
 	} // else: no d64; not AAAA question or AAAA answer already exists
 
 	hasq := hasaaaaq || xdns.HasAQuestion(ansin) || xdns.HasSVCBQuestion(ansin) || xdns.HasHTTPQuestion(ansin)
+	hasans = xdns.HasAnyAnswer(ansin) // recheck after d64
 	rgood := xdns.HasRcodeSuccess(ansin)
 	ans0000 := xdns.AQuadAUnspecified(ansin)
 	if !hasq || !hasans || !rgood || ans0000 {
