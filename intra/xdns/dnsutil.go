@@ -1042,12 +1042,15 @@ func ExtractMDNSDomain(msg *dns.Msg) (svc, tld string) {
 }
 
 func extractMDNSDomain(qname string) (svc, tld string) {
+	// ref: go.dev/play/p/kqdF0nbJj2B
+	// qname is assumed normalized (lower-case, without fqdn trailing dot)
+	// example.local. -> example.local
 	// rfc6762 sec 4; 254.169.in-addr.arpa
 	tldarpa4 := strings.LastIndex(qname, arpa4suffix)
 	tldarpa6 := strings.LastIndex(qname, arpa6suffix)
 	tldlocal := strings.LastIndex(qname, localsuffix)
-	if tldlocal > 0 {
-		svc = qname[:tldlocal-1] // remove trailing dot
+	if tldlocal == len(qname)-len(localsuffix) {
+		svc = qname[:tldlocal-1] // remove trailing dot; example. -> example
 		tld = localsuffix
 	} else if tldarpa4 > 0 {
 		svc = qname[:tldarpa4-1] // remove trailing dot
