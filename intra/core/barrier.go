@@ -31,9 +31,9 @@ type V struct {
 // Barrier represents a class of work and forms a namespace in
 // which units of work can be executed with duplicate suppression.
 type Barrier struct {
-	sync.Mutex               // protects m
-	m          map[string]*V // lazily initialized
-	ttl        time.Duration // time-to-live for completed Vs
+	mu  sync.Mutex    // protects m
+	m   map[string]*V // caches in-flight and completed Vs
+	ttl time.Duration // time-to-live for completed Vs in m
 }
 
 func NewBarrier(ttl time.Duration) *Barrier {
@@ -67,17 +67,17 @@ func (ba *Barrier) addLocked(k string) *V {
 // time. If a duplicate comes in, the duplicate caller waits for the
 // original to complete and receives the same results.
 func (ba *Barrier) Do(k string, me func() (any, error)) *V {
-	ba.Lock()
+	ba.mu.Lock()
 	c, ok := ba.getLocked(k)
 	if ok {
-		ba.Unlock()
+		ba.mu.Unlock()
 
 		c.N.Add(1)
 		c.wg.Wait() // wait for the in-flight req to complete
 		return c
 	}
 	c = ba.addLocked(k)
-	ba.Unlock()
+	ba.mu.Unlock()
 
 	c.Val, c.Err = me()
 
