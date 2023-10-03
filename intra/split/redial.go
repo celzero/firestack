@@ -29,6 +29,14 @@ func Renew(hostname string, addrs []string) bool {
 	return ips != nil && !ips.Empty()
 }
 
+func For(hostname string) []netip.Addr {
+	ipset := ipm.Get(hostname)
+	if ipset != nil {
+		return ipset.GetAll()
+	}
+	return nil
+}
+
 func Confirm(hostname string, addr net.Addr) bool {
 	ips := ipm.GetAny(hostname)
 	if ips != nil {

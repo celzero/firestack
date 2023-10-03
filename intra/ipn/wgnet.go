@@ -58,6 +58,12 @@ var (
 	errNumericPort                  = errors.New("port must be numeric")
 	errNoSuitableAddress            = errors.New("no suitable address found")
 	errMissingAddress               = errors.New("missing address")
+	errMissingWgDNS                 = &net.DNSConfigError{Err: errors.New("no DNS addrs")}
+)
+
+const (
+	wgdnstimeout = time.Second * 5
+	wgbarrierttl = time.Second * 30
 )
 
 func (net *wgtun) LookupHost(host string) (addrs []string, err error) {
@@ -315,6 +321,10 @@ func skipToAnswer(p *dnsmessage.Parser, qtype dnsmessage.Type) error {
 func (tnet *wgtun) tryOneName(ctx context.Context, name string, qtype dnsmessage.Type) (dnsmessage.Parser, string, error) {
 	var lastErr error
 
+	dnsaddrs := tnet.dns.Addrs()
+	if len(dnsaddrs) == 0 {
+		return dnsmessage.Parser{}, "", errMissingWgDNS
+	}
 	n, err := dnsmessage.NewName(name)
 	if err != nil {
 		return dnsmessage.Parser{}, "", errCannotMarshalDNSMessage
@@ -326,8 +336,8 @@ func (tnet *wgtun) tryOneName(ctx context.Context, name string, qtype dnsmessage
 	}
 
 	for i := 0; i < 2; i++ {
-		for _, server := range tnet.dnsaddrs {
-			p, h, err := tnet.exchange(ctx, *server, q, time.Second*5)
+		for _, server := range dnsaddrs {
+			p, h, err := tnet.exchange(ctx, server, q, wgdnstimeout)
 			if err != nil {
 				dnsErr := &net.DNSError{
 					Err:    err.Error(),
