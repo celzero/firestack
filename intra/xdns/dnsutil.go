@@ -49,6 +49,9 @@ func RequestFromResponse(msg *dns.Msg) *dns.Msg {
 }
 
 func Request4FromResponse6(msg6 *dns.Msg) *dns.Msg {
+	if !HasAnyQuestion(msg6) {
+		return nil
+	}
 	msg4 := &dns.Msg{
 		Compress: true,
 	}
@@ -62,12 +65,18 @@ func Request4FromResponse6(msg6 *dns.Msg) *dns.Msg {
 }
 
 func Request4FromRequest6(msg6 *dns.Msg) *dns.Msg {
+	if !HasAnyQuestion(msg6) {
+		return nil
+	}
 	msg4 := msg6.Copy()
 	msg4.SetQuestion(QName(msg6), dns.TypeA)
 	return msg4
 }
 
 func EmptyResponseFromMessage(srcMsg *dns.Msg) *dns.Msg {
+	if !HasAnyQuestion(srcMsg) {
+		return nil
+	}
 	dstMsg := dns.Msg{
 		MsgHdr:   srcMsg.MsgHdr,
 		Compress: true,
@@ -87,21 +96,27 @@ func EmptyResponseFromMessage(srcMsg *dns.Msg) *dns.Msg {
 }
 
 func TruncatedResponse(packet []byte) ([]byte, error) {
-	srcMsg := dns.Msg{}
+	if len(packet) <= 0 {
+		return nil, errNoAns
+	}
+	srcMsg := &dns.Msg{}
 	if err := srcMsg.Unpack(packet); err != nil {
 		return nil, err
 	}
-	dstMsg := EmptyResponseFromMessage(&srcMsg)
+	dstMsg := EmptyResponseFromMessage(srcMsg) // may be nil
 	dstMsg.Truncated = true
 	return dstMsg.Pack()
 }
 
 func HasTCFlag(packet []byte) bool {
+	if len(packet) < 2 {
+		return false
+	}
 	return packet[2]&2 == 2
 }
 
 func QName(msg *dns.Msg) string {
-	if msg != nil && len(msg.Question) > 0 {
+	if HasAnyQuestion(msg) {
 		return msg.Question[0].Name
 	}
 	return ""
@@ -109,14 +124,16 @@ func QName(msg *dns.Msg) string {
 
 func AName(ans dns.RR) (string, error) {
 	if ans != nil {
-		n := ans.Header().Name
-		return NormalizeQName(n)
+		if ah := ans.Header(); ah != nil {
+			n := ah.Name
+			return NormalizeQName(n)
+		}
 	}
 	return "", errNoAns
 }
 
 func QType(msg *dns.Msg) uint16 {
-	if msg != nil && len(msg.Question) > 0 {
+	if HasAnyQuestion(msg) {
 		return msg.Question[0].Qtype
 	}
 	return dns.TypeNone
@@ -130,7 +147,7 @@ func Rcode(msg *dns.Msg) int {
 }
 
 func WithTtl(msg *dns.Msg, secs uint32) (ok bool) {
-	if msg == nil || len(msg.Answer) <= 0 {
+	if !HasAnyAnswer(msg) {
 		return ok
 	}
 	for _, a := range msg.Answer {
@@ -144,9 +161,10 @@ func WithTtl(msg *dns.Msg, secs uint32) (ok bool) {
 
 func RTtl(msg *dns.Msg) int {
 	maxttl := uint32(0)
-	if msg == nil || len(msg.Answer) <= 0 {
+	if !HasAnyAnswer(msg) {
 		return int(maxttl)
 	}
+
 	for _, a := range msg.Answer {
 		if a.Header().Ttl > 0 {
 			ttl := a.Header().Ttl
@@ -337,9 +355,11 @@ func GetInterestingRData(msg *dns.Msg) string {
 	}
 }
 
-func Targets(msg *dns.Msg) []string {
+func Targets(msg *dns.Msg) (targets []string) {
+	if msg == nil {
+		return targets
+	}
 	touched := make(map[string]any)
-	var targets []string
 	if qname, err := NormalizeQName(QName(msg)); err == nil {
 		targets = append(targets, qname)
 		touched[qname] = nil
@@ -406,6 +426,9 @@ func NormalizeQName(str string) (string, error) {
 }
 
 func RemoveEDNS0Options(msg *dns.Msg) bool {
+	if msg == nil {
+		return false
+	}
 	edns0 := msg.IsEdns0()
 	if edns0 == nil {
 		return false
@@ -415,6 +438,9 @@ func RemoveEDNS0Options(msg *dns.Msg) bool {
 }
 
 func AddEDNS0PaddingIfNoneFound(msg *dns.Msg, unpaddedPacket []byte, paddingLen int) ([]byte, error) {
+	if msg == nil || paddingLen <= 0 {
+		return unpaddedPacket, nil
+	}
 	edns0 := msg.IsEdns0()
 	if edns0 == nil {
 		msg.SetEdns0(uint16(MaxDNSPacketSize), false)
@@ -450,7 +476,7 @@ func RefusedResponseFromMessage(srcMsg *dns.Msg) (dstMsg *dns.Msg, err error) {
 	if srcMsg == nil {
 		return nil, errNoDns
 	}
-	dstMsg = EmptyResponseFromMessage(srcMsg)
+	dstMsg = EmptyResponseFromMessage(srcMsg) // may be nil
 	dstMsg.Rcode = dns.RcodeSuccess
 	ttl := BlockTTL
 
@@ -545,6 +571,9 @@ func HasAAAAAnswer(msg *dns.Msg) bool {
 }
 
 func SubstAAAARecords(out *dns.Msg, subip6s []*netip.Addr, ttl int) bool {
+	if out == nil || len(subip6s) == 0 {
+		return false
+	}
 	// substitute ips in any a / aaaa records
 	touched := make(map[string]any)
 	rrs := make([]dns.RR, 0)
@@ -575,6 +604,9 @@ func SubstAAAARecords(out *dns.Msg, subip6s []*netip.Addr, ttl int) bool {
 }
 
 func SubstARecords(out *dns.Msg, subip4s []*netip.Addr, ttl int) bool {
+	if out == nil || len(subip4s) == 0 {
+		return false
+	}
 	// substitute ips in any a / aaaa records
 	touched := make(map[string]any)
 	rrs := make([]dns.RR, 0)
@@ -604,8 +636,10 @@ func SubstARecords(out *dns.Msg, subip4s []*netip.Addr, ttl int) bool {
 	return len(touched) > 0
 }
 
-func svcbstr(r *dns.SVCB) string {
-	s := ""
+func svcbstr(r *dns.SVCB) (s string) {
+	if r == nil {
+		return
+	}
 	for _, kv := range r.Value {
 		k := kv.Key().String()
 		v := kv.String()
@@ -614,8 +648,10 @@ func svcbstr(r *dns.SVCB) string {
 	return s
 }
 
-func httpsstr(r *dns.HTTPS) string {
-	s := ""
+func httpsstr(r *dns.HTTPS) (s string) {
+	if r == nil {
+		return
+	}
 	for _, kv := range r.Value {
 		k := kv.Key().String()
 		v := kv.String()
@@ -625,6 +661,9 @@ func httpsstr(r *dns.HTTPS) string {
 }
 
 func SubstSVCBRecordIPs(out *dns.Msg, x dns.SVCBKey, subiphints []*netip.Addr, ttl int) bool {
+	if out == nil || len(subiphints) == 0 {
+		return false
+	}
 	// substitute ip hints in https / svcb records
 	i := 0
 	for _, answer := range out.Answer {
@@ -681,6 +720,9 @@ func SubstSVCBRecordIPs(out *dns.Msg, x dns.SVCBKey, subiphints []*netip.Addr, t
 }
 
 func IPHints(msg *dns.Msg, x dns.SVCBKey) []*netip.Addr {
+	if msg == nil {
+		return nil
+	}
 	qname, _ := NormalizeQName(QName(msg))
 	if !HasSVCBQuestion(msg) && !HasHTTPQuestion(msg) {
 		log.V("dnsutil: svcb/https(%s): no record(%d)", qname, len(msg.Answer))
@@ -735,6 +777,9 @@ func IPHints(msg *dns.Msg, x dns.SVCBKey) []*netip.Addr {
 
 func AAnswer(msg *dns.Msg) []*netip.Addr {
 	a4 := []*netip.Addr{}
+	if msg == nil {
+		return a4
+	}
 	for _, answer := range msg.Answer {
 		if answer.Header().Rrtype == dns.TypeA {
 			if rec, ok := answer.(*dns.A); ok {
@@ -749,6 +794,9 @@ func AAnswer(msg *dns.Msg) []*netip.Addr {
 
 func AAAAAnswer(msg *dns.Msg) []*netip.Addr {
 	a6 := []*netip.Addr{}
+	if msg == nil {
+		return a6
+	}
 	for _, answer := range msg.Answer {
 		if answer.Header().Rrtype == dns.TypeAAAA {
 			if rec, ok := answer.(*dns.AAAA); ok {
@@ -781,26 +829,36 @@ func IsSVCBQType(qtype uint16) bool {
 	return qtype == dns.TypeSVCB
 }
 
+func HasAnyQuestion(msg *dns.Msg) bool {
+	return msg != nil && len(msg.Question) > 0
+}
+
 // whether the given msg (ans/query) has a AAAA question section
 func HasAAAAQuestion(msg *dns.Msg) bool {
+	if !HasAnyQuestion(msg) {
+		return false
+	}
 	q := msg.Question[0]
 	return q.Qclass == dns.ClassINET && IsAAAAQType(q.Qtype)
 }
 
 // whether the given msg (ans/query) has a A question section
 func HasAQuestion(msg *dns.Msg) bool {
+	if !HasAnyQuestion(msg) {
+		return false
+	}
 	q := msg.Question[0]
 	return q.Qclass == dns.ClassINET && IsAQType(q.Qtype)
 }
 
 // whether question q is a svcb question
 func IsSVCBQuestion(q *dns.Question) bool {
-	return IsSVCBQType(q.Qtype)
+	return q != nil && IsSVCBQType(q.Qtype)
 }
 
 // whether question q is a https question
 func IsHTTPQuestion(q *dns.Question) bool {
-	return IsHTTPSQType(q.Qtype)
+	return q != nil && IsHTTPSQType(q.Qtype)
 }
 
 // whether the given msg (ans/query) has a a/aaaa question section
@@ -810,7 +868,7 @@ func HasAQuadAQuestion(msg *dns.Msg) bool {
 
 // whether the given msg (ans/query) has a svcb question section
 func HasSVCBQuestion(msg *dns.Msg) (ok bool) {
-	if len(msg.Question) <= 0 {
+	if !HasAnyQuestion(msg) {
 		return false
 	} else {
 		q := msg.Question[0]
@@ -822,7 +880,7 @@ func HasSVCBQuestion(msg *dns.Msg) (ok bool) {
 
 // whether the given msg (ans/query) has a https question section
 func HasHTTPQuestion(msg *dns.Msg) (ok bool) {
-	if len(msg.Question) <= 0 {
+	if !HasAnyQuestion(msg) {
 		return false
 	} else {
 		q := msg.Question[0]
@@ -876,9 +934,9 @@ func MakeAAAARecord(name string, ip6 string, expiry int) dns.RR {
 	return rec
 }
 
-func MaybeToQuadA(answer dns.RR, prefix *net.IPNet) dns.RR {
+func MaybeToQuadA(answer dns.RR, prefix *net.IPNet, minttl uint32) dns.RR {
 	header := answer.Header()
-	if header.Rrtype != dns.TypeA {
+	if prefix == nil || header.Rrtype != dns.TypeA {
 		return answer
 	}
 	ipv4 := answer.(*dns.A).A.To4()
@@ -886,10 +944,7 @@ func MaybeToQuadA(answer dns.RR, prefix *net.IPNet) dns.RR {
 	if ipv4 == nil {
 		return nil
 	}
-	ttl := uint32(300) // 5 minutes
-	if ttl > header.Ttl {
-		ttl = header.Ttl
-	}
+	ttl := min(minttl, header.Ttl)
 
 	ipv6 := ip4to6(prefix, ipv4)
 
@@ -906,13 +961,18 @@ func MaybeToQuadA(answer dns.RR, prefix *net.IPNet) dns.RR {
 
 func ToIp6Hint(answer dns.RR, prefix *net.IPNet) dns.RR {
 	header := answer.Header()
+	if prefix == nil {
+		log.W("dnsutil: toIp6Hint: prefix missing?")
+		return nil
+	}
 	var kv []dns.SVCBKeyValue
-	if header.Rrtype == dns.TypeHTTPS {
+	switch header.Rrtype {
+	case dns.TypeHTTPS:
 		kv = answer.(*dns.HTTPS).Value
-	} else if header.Rrtype == dns.TypeSVCB {
+	case dns.TypeSVCB:
 		kv = answer.(*dns.SVCB).Value
-	} else {
-		log.W("dnsutil: toIp6Hint: Not a svcb/https record/1")
+	default:
+		log.W("dnsutil: toIp6Hint: not a svcb/https record/1")
 		return nil
 	}
 
@@ -970,13 +1030,16 @@ func ToIp6Hint(answer dns.RR, prefix *net.IPNet) dns.RR {
 		return trec
 	} else {
 		// should never happen
-		log.E("dnsutil: toIp6Hint: Not a svcb/https record/2")
+		log.E("dnsutil: toIp6Hint: not a svcb/https record/2")
 		return nil
 	}
 }
 
 func ip4to6(prefix6 *net.IPNet, ip4 net.IP) net.IP {
 	ip6 := make(net.IP, net.IPv6len)
+	if prefix6 == nil || len(ip4) <= 0 {
+		return ip6 // all zeros?
+	}
 	copy(ip6, prefix6.IP)
 	n, _ := prefix6.Mask.Size()
 	ipShift := n / 8
@@ -991,6 +1054,9 @@ func ip4to6(prefix6 *net.IPNet, ip4 net.IP) net.IP {
 }
 
 func AQuadAUnspecified(msg *dns.Msg) bool {
+	if msg == nil {
+		return false
+	}
 	ans := msg.Answer
 	for _, rr := range ans {
 		switch v := rr.(type) {
@@ -1037,6 +1103,9 @@ func IsMDNSQuery(qname string) bool {
 }
 
 func ExtractMDNSDomain(msg *dns.Msg) (svc, tld string) {
+	if !HasAnyQuestion(msg) {
+		return
+	}
 	svc, _ = NormalizeQName(QName(msg)) // ex: _http._tcp.local.
 	return extractMDNSDomain(svc)
 }

@@ -108,12 +108,12 @@ type dnsgateway struct {
 func NewDNSGateway(outer RdnsResolver, dns64 NatPt) (t *dnsgateway) {
 	alg := make(map[string]*ans)
 	nat := make(map[netip.Addr]*ans)
-	px := make(map[netip.Addr]*ans)
+	ptr := make(map[netip.Addr]*ans)
 
 	t = &dnsgateway{
 		alg:    alg,
 		nat:    nat,
-		ptr:    px,
+		ptr:    ptr,
 		rdns:   outer,
 		dns64:  dns64,
 		octets: rfc6598,
@@ -400,7 +400,7 @@ func (t *dnsgateway) q(t1, t2 Transport, network string, q []byte, summary *Summ
 		// may be empty on timeout errors, or
 		// or same as realips if t2 is nil
 		secondaryips: secres.ips,
-		domain:       targets,
+		domain:       targets, // may be nil
 		qname:        qname,
 		blocklists:   secres.summary.Blocklists,
 		// qname->realip valid for next ttl seconds
@@ -474,8 +474,8 @@ func (t *dnsgateway) registerMultiLocked(q string, am *ansMulti) bool {
 		}
 	}
 	for i := range am.realip {
-		// index is always 0 since algip is inconsequential for px
-		if ok := t.registerPxLocked(q, i, am.ansViewLocked(0)); !ok {
+		// index is always 0 since algip is inconsequential for ptr
+		if ok := t.registerPtrLocked(q, i, am.ansViewLocked(0)); !ok {
 			return false
 		}
 	}
@@ -498,8 +498,8 @@ func (t *dnsgateway) registerNatLocked(q string, idx int, x *ans) bool {
 	return true
 }
 
-// register mapping from realip -> algip+qname (px)
-func (t *dnsgateway) registerPxLocked(q string, idx int, x *ans) bool {
+// register mapping from realip -> algip+qname (ptr)
+func (t *dnsgateway) registerPtrLocked(q string, idx int, x *ans) bool {
 	ip := x.realips[idx]
 	t.ptr[*ip] = x
 	return true

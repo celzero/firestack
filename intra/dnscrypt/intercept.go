@@ -197,7 +197,7 @@ func (ic *Intercept) blockUnqualified(msg *dns.Msg) error {
 	if strings.IndexByte(state.qName, '.') >= 0 {
 		return nil
 	}
-	synth := xdns.EmptyResponseFromMessage(msg)
+	synth := xdns.EmptyResponseFromMessage(msg) // may be nil
 	synth.Rcode = dns.RcodeNameError
 	state.response = synth
 	state.action = ActionSynth

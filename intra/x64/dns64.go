@@ -40,6 +40,8 @@ var (
 	_, rfc6052WKP, _ = net.ParseCIDR("64:ff9b::/96")
 	_, rfc8215WKP, _ = net.ParseCIDR("64:ff9b:1:fffe::/96")
 
+	ttl64 = uint32(180)
+
 	ipv6bits = 8 * net.IPv6len
 
 	errEmpty        = errors.New("missing DNS64 IPv6 prefixes")
@@ -192,7 +194,7 @@ func (d *dns64) eval(id string, force64 bool, og []byte, r dnsx.Transport) []byt
 			continue
 		} else {
 			for _, ipnet := range ip64 {
-				if rec := xdns.MaybeToQuadA(answer, ipnet); rec != nil {
+				if rec := xdns.MaybeToQuadA(answer, ipnet, ttl64); rec != nil {
 					rr64 = append(rr64, rec)
 				}
 			}
@@ -208,7 +210,7 @@ func (d *dns64) eval(id string, force64 bool, og []byte, r dnsx.Transport) []byt
 		log.D("dns64: translated response(%v)", rr64)
 	}
 
-	ans64 := xdns.EmptyResponseFromMessage(ansin)
+	ans64 := xdns.EmptyResponseFromMessage(ansin) // may be nil
 	ans64.Answer = append(ans64.Answer, rr64...)
 	if r, err := ans64.Pack(); err == nil {
 		return r
@@ -219,7 +221,7 @@ func (d *dns64) eval(id string, force64 bool, og []byte, r dnsx.Transport) []byt
 }
 
 func (d *dns64) query64(msg6 *dns.Msg, r dnsx.Transport) (*dns.Msg, error) {
-	msg4 := xdns.Request4FromResponse6(msg6)
+	msg4 := xdns.Request4FromResponse6(msg6) // may be nil
 	q4, err := msg4.Pack()
 	if err != nil {
 		return nil, err
