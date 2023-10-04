@@ -317,7 +317,7 @@ func (t *ctransport) fetch(network string, q []byte, msg *dns.Msg, summary *Summ
 			return &anssummary{ans, s}, err
 		})
 
-		asmm, ok := rv.Val.(anssummary)
+		asmm, ok := rv.Val.(*anssummary)
 		if !ok {
 			return nil, errCacheResponseMismatch
 		}
