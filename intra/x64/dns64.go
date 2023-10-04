@@ -183,8 +183,8 @@ func (d *dns64) eval(id string, force64 bool, og []byte, r dnsx.Transport) []byt
 	rgood := xdns.HasRcodeSuccess(ans4)
 	hasans := xdns.HasAnyAnswer(ans4)
 	ans0000 := xdns.AQuadAUnspecified(ans4)
-	if err != nil || hasans || ans0000 {
-		log.W("dns64: query(n:%s / a? %t) to resolver(%s), code(good? %t / blocked? %t), err(%v)", qname, hasans, id, rgood, ans0000, err)
+	if err != nil || !hasans || ans0000 {
+		log.W("dns64: skip: query(n:%s / a? %t) to resolver(%s), code(good? %t / blocked? %t), err(%v)", qname, hasans, id, rgood, ans0000, err)
 		return nil
 	}
 
