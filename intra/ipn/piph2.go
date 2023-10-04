@@ -144,7 +144,7 @@ func (t *piph2) dialtls(network, addr string, cfg *tls.Config) (net.Conn, error)
 }
 
 func (t *piph2) dial(network, addr string) (net.Conn, error) {
-	return split.ReDial(t.dialer, network, addr)
+	return split.SplitDial(t.dialer, network, addr)
 }
 
 func NewPipProxy(id string, ctl protect.Controller, po *settings.ProxyOptions) (Proxy, error) {

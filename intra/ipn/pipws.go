@@ -53,7 +53,7 @@ func (c *pipwsconn) CloseRead() error  { return c.Close() }
 func (c *pipwsconn) CloseWrite() error { return c.Close() }
 
 func (t *pipws) dial(network, addr string) (net.Conn, error) {
-	return split.ReDial(t.dialer, network, addr)
+	return split.SplitDial(t.dialer, network, addr)
 }
 
 func (t *pipws) wsconn(rurl, msg string) (c net.Conn, res *http.Response, err error) {

@@ -86,7 +86,7 @@ type transport struct {
 var _ dnsx.Transport = (*transport)(nil)
 
 func (t *transport) dial(network, addr string) (net.Conn, error) {
-	return split.ReDial(t.dialer, network, addr)
+	return split.SplitDial(t.dialer, network, addr)
 }
 
 // NewTransport returns a POST-only DoH transport.

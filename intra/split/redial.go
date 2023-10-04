@@ -17,7 +17,7 @@ import (
 	"github.com/celzero/firestack/intra/protect/ipmap"
 )
 
-type establishConnFunc func(*protect.RDial, string, netip.Addr, int) (net.Conn, error)
+type connectFunc func(*protect.RDial, string, netip.Addr, int) (net.Conn, error)
 
 var ipm ipmap.IPMap = ipmap.NewIPMap()
 
@@ -67,7 +67,7 @@ func Disconfirm(hostname string, ip net.Addr) bool {
 	return false
 }
 
-func dial(d *protect.RDial, proto string, ip netip.Addr, port int) (net.Conn, error) {
+func connect(d *protect.RDial, proto string, ip netip.Addr, port int) (net.Conn, error) {
 	switch proto {
 	case "tcp", "tcp4", "tcp6":
 		return d.DialTCP(proto, nil, tcpaddr(ip, port))
@@ -78,7 +78,7 @@ func dial(d *protect.RDial, proto string, ip netip.Addr, port int) (net.Conn, er
 	}
 }
 
-func splitdial(d *protect.RDial, proto string, ip netip.Addr, port int) (net.Conn, error) {
+func splitconnect(d *protect.RDial, proto string, ip netip.Addr, port int) (net.Conn, error) {
 	switch proto {
 	case "tcp", "tcp4", "tcp6":
 		if conn, err := DialWithSplitRetry(d, tcpaddr(ip, port)); err == nil {
@@ -97,11 +97,7 @@ func splitdial(d *protect.RDial, proto string, ip netip.Addr, port int) (net.Con
 	return nil, net.UnknownNetworkError(proto)
 }
 
-func Dial(d *protect.RDial, network, addr string) (net.Conn, error) {
-	return commondial(d, network, addr, dial)
-}
-
-func commondial(d *protect.RDial, network, addr string, connect establishConnFunc) (net.Conn, error) {
+func commondial(d *protect.RDial, network, addr string, connect connectFunc) (net.Conn, error) {
 	start := time.Now()
 
 	log.D("commondial: dialing %s", addr)
@@ -147,6 +143,10 @@ func commondial(d *protect.RDial, network, addr string, connect establishConnFun
 	return d.Dial(network, addr)
 }
 
-func ReDial(d *protect.RDial, network, addr string) (net.Conn, error) {
-	return commondial(d, network, addr, splitdial)
+func SplitDial(d *protect.RDial, network, addr string) (net.Conn, error) {
+	return commondial(d, network, addr, splitconnect)
+}
+
+func Dial(d *protect.RDial, network, addr string) (net.Conn, error) {
+	return commondial(d, network, addr, connect)
 }
