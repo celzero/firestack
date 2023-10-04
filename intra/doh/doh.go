@@ -27,7 +27,6 @@ import (
 	"bytes"
 	"crypto/tls"
 	"encoding/binary"
-	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -47,13 +46,7 @@ import (
 	"github.com/cloudflare/odoh-go"
 )
 
-// If the server sends an invalid reply, we start a "servfail hangover"
-// of this duration, during which all queries are rejected.
-// This rate-limits queries to misconfigured servers (e.g. wrong URL).
-const hangoverDuration = 10 * time.Second
 const dohmimetype = "application/dns-message"
-
-var errInHangover = errors.New("forwarder is in servfail hangover")
 
 type odohtransport struct {
 	omu              sync.RWMutex // protects odohConfig
@@ -67,20 +60,18 @@ type odohtransport struct {
 
 // TODO: Keep a context here so that queries can be canceled.
 type transport struct {
-	*odohtransport     // stackoverflow.com/a/28505394
-	id                 string
-	typ                string // dnsx.DOH / dnsx.ODOH
-	url                string // endpoint URL
-	hostname           string // endpoint hostname
-	client             http.Client
-	clientpool         map[string]*http.Client
-	dialer             *protect.RDial
-	proxies            ipn.Proxies // proxy provider, may be nil
-	relay              ipn.Proxy   // dial doh via relay, may be nil
-	status             int
-	est                core.P2QuantileEstimator
-	hangoverLock       sync.RWMutex
-	hangoverExpiration time.Time
+	*odohtransport // stackoverflow.com/a/28505394
+	id             string
+	typ            string // dnsx.DOH / dnsx.ODOH
+	url            string // endpoint URL
+	hostname       string // endpoint hostname
+	client         http.Client
+	clientpool     map[string]*http.Client
+	dialer         *protect.RDial
+	proxies        ipn.Proxies // proxy provider, may be nil
+	relay          ipn.Proxy   // dial doh via relay, may be nil
+	status         int
+	est            core.P2QuantileEstimator
 }
 
 var _ dnsx.Transport = (*transport)(nil)
@@ -284,14 +275,6 @@ func (t *transport) fetch(pid string, req *http.Request) (res *http.Response, er
 }
 
 func (t *transport) send(pid string, req *http.Request) (ans []byte, blocklists string, elapsed time.Duration, qerr *dnsx.QueryError) {
-	t.hangoverLock.RLock()
-	inHangover := time.Now().Before(t.hangoverExpiration)
-	t.hangoverLock.RUnlock()
-	if inHangover {
-		qerr = dnsx.NewTransportQueryError(errInHangover)
-		return
-	}
-
 	var server net.Addr
 	var conn net.Conn
 	start := time.Now()
@@ -310,11 +293,6 @@ func (t *transport) send(pid string, req *http.Request) (ans []byte, blocklists 
 			return
 		}
 		if qerr != nil {
-			if !qerr.SendFailed() { // hangover only on send-request errs
-				t.hangoverLock.Lock()
-				t.hangoverExpiration = time.Now().Add(hangoverDuration)
-				t.hangoverLock.Unlock()
-			}
 			if server != nil {
 				log.D("doh: disconfirming %s, %s", hostname, server)
 				split.Disconfirm(hostname, server)
