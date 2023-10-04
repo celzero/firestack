@@ -1049,7 +1049,7 @@ func extractMDNSDomain(qname string) (svc, tld string) {
 	tldarpa4 := strings.LastIndex(qname, arpa4suffix)
 	tldarpa6 := strings.LastIndex(qname, arpa6suffix)
 	tldlocal := strings.LastIndex(qname, localsuffix)
-	if tldlocal == len(qname)-len(localsuffix) {
+	if tldlocal > 0 && tldlocal == len(qname)-len(localsuffix) {
 		svc = qname[:tldlocal-1] // remove trailing dot; example. -> example
 		tld = localsuffix
 	} else if tldarpa4 > 0 {
