@@ -478,8 +478,7 @@ func (r *resolver) determineTransport(id string) Transport {
 		return t
 	}
 
-	// if none of the reserved transports are available, use the default
-	if isReserved(id) {
+	if useFallback(id) {
 		return r.transports[CT+Default]
 	}
 
@@ -655,8 +654,24 @@ func (r *resolver) accept(c io.ReadWriteCloser) {
 	// TODO: Cancel outstanding queries.
 }
 
-func isReserved(id string) (ok bool) {
-	return id == Alg || id == DcProxy || id == BlockAll || id == Preferred || id == BlockFree || id == System
+func isReserved(id string) bool {
+	switch id {
+	case Default, System, Local, Alg, DcProxy, BlockAll, Preferred, BlockFree:
+		return true
+	case CT + Default, CT + System, CT + Local, CT + Alg, CT + DcProxy, CT + BlockAll, CT + Preferred, CT + BlockFree:
+		return true
+	}
+	return false
+}
+
+func useFallback(id string) bool {
+	switch id {
+	case System, Local, Alg, Preferred, BlockFree:
+		return true
+	case CT + System, CT + Local, CT + Alg, CT + Preferred, CT + BlockFree:
+		return true
+	}
+	return false
 }
 
 func overrideTransports(ids ...string) string {
