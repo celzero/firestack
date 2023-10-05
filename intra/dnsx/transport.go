@@ -671,8 +671,11 @@ func overrideTransports(ids ...string) string {
 func allowProxy(ids ...string) bool {
 	allow := true
 	deny := false
-	for _, t := range ids {
-		if t == Default || t == System || t == Local {
+	for _, id := range ids {
+		switch id {
+		case Default, System, Local:
+			return deny
+		case CT + Default, CT + System, CT + Local:
 			return deny
 		}
 	}
