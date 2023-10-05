@@ -90,10 +90,10 @@ func NewTunnel(fd, mtu int, fakedns string, tunmode *settings.TunMode, bdg Bridg
 	services := rnet.NewServices(proxies, bdg, bdg)
 
 	resolver := dnsx.NewResolver(fakedns, tunmode, bdg, natpt)
-	resolver.Add(newGroundedDefaultTransport())
-	resolver.Add(newBlockAllTransport())
-	resolver.Add(newDNSCryptTransport(proxies))
-	resolver.Add(newMDNSTransport(l3))
+	resolver.Add(newGroundedDefaultTransport()) // may be overridden
+	resolver.Add(newBlockAllTransport())        // fixed
+	resolver.Add(newDNSCryptTransport(proxies)) // fixed
+	resolver.Add(newMDNSTransport(l3))          // fixed
 
 	tcph := NewTCPHandler(resolver, proxies, tunmode, bdg, bdg)
 	udph := NewUDPHandler(resolver, proxies, tunmode, bdg, bdg)

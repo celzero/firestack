@@ -84,7 +84,7 @@ type TunMode struct {
 	DNSMode int
 	// BlockMode instructs change in firewall behaviour.
 	BlockMode int
-	// PtMode determines overrides 6to4 translation heuristics.
+	// PtMode determines 6to4 translation heuristics.
 	PtMode int
 	// Ns4, Ns6, or Ns46
 	IpMode int
