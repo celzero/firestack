@@ -272,11 +272,10 @@ func (t *dnsgateway) q(t1, t2 Transport, network string, q []byte, summary *Summ
 		// override original resp with dns64 if needed
 		d64 := t.dns64.D64(t1.ID(), r, t1) // d64 is disabled by default
 		if len(d64) > xdns.MinDNSPacketSize {
-			if settings.Debug {
-				summary.Server = d64prefix + summary.Server
-			}
 			ans64 := new(dns.Msg)
 			_ = ans64.Unpack(d64)
+
+			withDNS64Summary(ans64, summary)
 			ansin = ans64
 			r = d64
 		} // else: d64 is nil on no D64 or error
@@ -436,6 +435,15 @@ func netip2csv(ips []*netip.Addr) (csv string) {
 		csv += ip.String()
 	}
 	return strings.TrimSuffix(csv, ",")
+}
+
+func withDNS64Summary(ans64 *dns.Msg, s *Summary) {
+	s.RCode = xdns.Rcode(ans64)
+	s.RData = xdns.GetInterestingRData(ans64)
+	s.RTtl = xdns.RTtl(ans64)
+	if settings.Debug {
+		s.Server = d64prefix + s.Server
+	}
 }
 
 func withAlgSummaryIfNeeded(algips []*netip.Addr, s *Summary) {
