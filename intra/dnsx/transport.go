@@ -263,9 +263,10 @@ func (r *resolver) Add(t Transport) (ok bool) {
 
 func (r *resolver) GetMult(id string) (TransportMult, error) {
 	r.RLock()
+	t, ok := r.transports[id]
 	defer r.RUnlock()
 
-	if t, ok := r.transports[id]; ok {
+	if ok {
 		if tm, ok := t.(TransportMult); ok {
 			return tm, nil
 		}
@@ -452,34 +453,39 @@ func (r *resolver) Serve(c Conn) {
 }
 
 func (r *resolver) determineTransport(id string) Transport {
-	r.RLock()
-	defer r.RUnlock()
-
-	if id == Local || id == CT+Local { // mdns never cached
-		return r.transports[Local]
+	if len(id) <= 0 {
+		return nil
 	}
 
-	if id == Alg {
+	var id0, id1 string
+	if id == Local || id == CT+Local { // mdns never cached
+		id0 = Local
+	} else if id == Alg {
 		// if no firewall is setup, alg isn't possible
 		if r.tunmode.BlockMode == settings.BlockModeNone {
-			return r.transports[CT+Default]
+			id0 = CT + Default
 		}
-		t, ok := r.transports[CT+BlockFree]
-		if !ok {
-			t, ok = r.transports[CT+Preferred]
-		}
-		if !ok {
-			t = r.transports[CT+Default]
-		}
-		return t
+		id0 = CT + BlockFree
+		id1 = CT + Preferred
+	} else {
+		id0 = id
 	}
 
-	if t, ok := r.transports[id]; ok {
-		return t
+	var t0, t1, tf Transport
+	r.RLock()
+	t0 = r.transports[id0]
+	if len(id1) > 0 {
+		t1 = r.transports[id1]
 	}
+	tf = r.transports[CT+Default]
+	r.RUnlock()
 
-	if useFallback(id) {
-		return r.transports[CT+Default]
+	if t0 != nil {
+		return t0
+	} else if t1 != nil {
+		return t1
+	} else if useFallback(id0) {
+		return tf
 	}
 
 	return nil
@@ -703,7 +709,9 @@ func skipBlock(tr ...Transport) bool {
 			continue
 		}
 		switch t.ID() {
-		case BlockFree, Alg, CT + BlockFree, CT + Alg:
+		case BlockFree, Alg:
+			return true
+		case CT + BlockFree, CT + Alg:
 			return true
 		}
 	}
