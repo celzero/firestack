@@ -134,8 +134,8 @@ func (t *dnsgateway) stop() {
 	t.Lock()
 	defer t.Unlock()
 
-	t.alg = make(map[string]*ans)
-	t.nat = make(map[netip.Addr]*ans)
+	clear(t.alg)
+	clear(t.nat)
 	t.octets = rfc6598
 	t.hexes = rfc8215a
 }
