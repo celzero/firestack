@@ -25,7 +25,7 @@ func (r *resolver) blockQ(t, t2 Transport, msg *dns.Msg) (ans *dns.Msg, blocklis
 		return nil, "", errNoRdns
 	}
 	// OnDeviceBlock() is true; enforce blocklists
-	ans, blocklists, err = r.applyBlocklists(b, msg)
+	ans, blocklists, err = applyBlocklists(b, msg)
 	if err != nil {
 		// block skipped because err is set
 		log.D("wall: skip local for %s blockQ for %s with err %s", qname, blocklists, err)
@@ -33,7 +33,7 @@ func (r *resolver) blockQ(t, t2 Transport, msg *dns.Msg) (ans *dns.Msg, blocklis
 	return
 }
 
-func (r *resolver) applyBlocklists(b RDNS, q *dns.Msg) (ans *dns.Msg, blocklists string, err error) {
+func applyBlocklists(b RDNS, q *dns.Msg) (ans *dns.Msg, blocklists string, err error) {
 	blocklists, err = b.blockQuery(q)
 	if err != nil {
 		return
