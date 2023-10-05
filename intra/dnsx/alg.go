@@ -408,7 +408,7 @@ func (t *dnsgateway) q(t1, t2 Transport, network string, q []byte, summary *Summ
 		ttl: time.Now().Add(ttl2m),
 	}
 
-	log.D("alg: ok; domains %s ips %s => subst %s", targets, realip, algips)
+	log.D("alg: ok; domains %s ips %s => subst %s; mod? %t", targets, realip, algips, mod)
 
 	if rout, err := ansout.Pack(); err == nil {
 		if t.registerMultiLocked(qname, x) {
