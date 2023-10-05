@@ -13,10 +13,7 @@ import (
 )
 
 func (r *resolver) blockQ(t, t2 Transport, msg *dns.Msg) (ans *dns.Msg, blocklists string, err error) {
-	if t != nil && (t.ID() == Alg || t.ID() == BlockFree) {
-		return nil, "", errBlockFreeTransport
-	}
-	if t2 != nil && t2.ID() == BlockFree {
+	if skipBlock(t, t2) {
 		return nil, "", errBlockFreeTransport
 	}
 
@@ -57,30 +54,23 @@ func (r *resolver) blockA(t, t2 Transport, q *dns.Msg, ans *dns.Msg, blocklistSt
 	var err error
 	qname := xdns.QName(q)
 
-	// remote block resolution, if any
-	if len(blocklistStamp) > 0 && br != nil {
+	if len(blocklistStamp) > 0 && br != nil { // remote block resolution, if any
 		blocklistNames, err = br.StampToNames(blocklistStamp)
 		if err == nil {
 			log.D("wall: for %s blocklists %s", qname, blocklistNames)
 			return
 		} else {
 			log.D("wall: could not resolve blocklist-stamp(%s) for %s, err: %v", blocklistStamp, qname, err)
-			// continue to local block resolution
-		}
+		} // continue to local block resolution
 	} else {
 		log.D("wall: no blockA for %s; blocklist-stamp? (%d) / rdnsr? (%t)", qname, len(blocklistStamp), br != nil)
 	}
 
-	// skip local blocks for alg and blockfree
-	if t != nil && (t.ID() == Alg || t.ID() == BlockFree) {
-		return
-	}
-	if t2 != nil && t2.ID() == BlockFree {
-		return
+	if skipBlock(t, t2) {
+		return // skip local blocks for alg and blockfree
 	}
 
-	// local block resolution, if any
-	b := r.rdnsl
+	b := r.rdnsl // local block resolution, if any
 	if b == nil {
 		log.V("wall: no local blockerA; letting through %s", qname)
 		return nil, ""

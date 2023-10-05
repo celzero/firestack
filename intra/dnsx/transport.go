@@ -679,6 +679,19 @@ func allowProxy(ids ...string) bool {
 	return allow
 }
 
+func skipBlock(tr ...Transport) bool {
+	for _, t := range tr {
+		if t == nil {
+			continue
+		}
+		switch t.ID() {
+		case BlockFree, Alg, CT + BlockFree, CT + Alg:
+			return true
+		}
+	}
+	return false
+}
+
 func unpack(q []byte) (*dns.Msg, error) {
 	msg := &dns.Msg{}
 	err := msg.Unpack(q)
