@@ -278,6 +278,7 @@ func (t *dnsgateway) q(t1, t2 Transport, network string, q []byte, summary *Summ
 			ans64 := new(dns.Msg)
 			_ = ans64.Unpack(d64)
 			ansin = ans64
+			r = d64
 		} // else: d64 is nil on no D64 or error
 	} // else: no d64; not AAAA question or AAAA answer already exists
 
