@@ -738,12 +738,8 @@ func (t *dnsgateway) maybeUndoNat64(realips []*netip.Addr) (unnat []*netip.Addr)
 			continue
 		}
 		ip := nip.Unmap().AsSlice()
-		// TODO: need the actual ID of the transport that did nat64
-		if t.dns64.IsNat64(Local464Resolver, ip) { // un-nat64, when dns64 done by local464-resolver
-			log.V("dns64: maybeUndoNat64: No local nat64 to for ip(%v)", nip)
-			continue
-		}
-		// TODO: check if the network this process binds to has ipv4 connectivity
+		// TODO: use the actual ID of the transport that did nat64
+		// TODO: check if the active network has ipv4 connectivity
 		ipx4 := net.IP(t.dns64.X64(Local464Resolver, ip)) // ipx4 may be nil
 		if len(ipx4) < net.IPv4len {                      // no nat?
 			log.D("alg: dns64: maybeUndoNat64: No local nat64 to ip4(%v) for ip6(%v)", ipx4, nip)
