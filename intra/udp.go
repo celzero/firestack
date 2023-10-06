@@ -493,9 +493,11 @@ func (h *udpHandler) Close(conn core.UDPConn, secs int32) {
 	conn.Close()
 
 	h.Lock()
+	t, ok := h.udpConns[conn]
+	delete(h.udpConns, conn)
 	defer h.Unlock()
 
-	if t, ok := h.udpConns[conn]; ok {
+	if ok {
 		switch c := t.conn.(type) {
 		case net.PacketConn: // unused
 			c.Close()
@@ -510,7 +512,6 @@ func (h *udpHandler) Close(conn core.UDPConn, secs int32) {
 		}
 		// TODO: Cancel any outstanding DoH queries.
 		go h.sendNotif(t.id, t.pid, t.uid, t.msg, t.upload, t.download, elapsed)
-		delete(h.udpConns, conn)
 	}
 }
 
