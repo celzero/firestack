@@ -299,18 +299,27 @@ func (h *udpHandler) onFlow(localudp core.UDPConn, target *net.UDPAddr, realips,
 
 // OnNewConn implements netstack.GUDPConnHandler
 func (h *udpHandler) OnNewConn(gconn *netstack.GUDPConn, _, dst *net.UDPAddr) {
-	finish := true // disconnect
+	finish := true    // disconnect
+	forward := false  // connect
+	var errmsg string // terminal error msg from h.Connect() or gconn, if any
+
 	decision, err := h.Connect(gconn, dst)
 	pid, cid, uid := splitPidCidUid(decision)
+
+	defer func() {
+		if len(errmsg) > 0 { // msg is only set on errors
+			go h.sendNotif(cid, pid, uid, errmsg, 0, 0, 0)
+		}
+	}()
+
 	if err != nil {
-		go h.sendNotif(cid, pid, uid, err.Error(), 0, 0, 0)
-	} else {
-		finish = false // connect
+		errmsg = err.Error()
+		gconn.Connect(finish)
+		return
 	}
-	nerr := gconn.Connect(finish)
-	if nerr != nil { // may happen for ex when netstack has no route to dst
-		go h.sendNotif(cid, pid, uid, nerr.String(), 0, 0, 0)
-	}
+	// err here may happen for ex when netstack has no route to dst
+	nerr := gconn.Connect(forward)
+	errmsg = nerr.String()
 }
 
 // Connect connects the proxy server.
