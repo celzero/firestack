@@ -134,7 +134,7 @@ func (t *dot) sendRequest(pid string, q []byte) (response []byte, elapsed time.D
 	} // fallthrough
 
 	if err != nil {
-		qerr = dnsx.NewTransportQueryError(err)
+		qerr = dnsx.NewSendFailedQueryError(err)
 		return
 	}
 	response, err = ans.Pack()

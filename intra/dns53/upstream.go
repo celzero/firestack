@@ -187,7 +187,7 @@ func (t *transport) send(network, pid string, q []byte) (response []byte, elapse
 	}
 
 	if err != nil {
-		qerr = dnsx.NewTransportQueryError(err)
+		qerr = dnsx.NewSendFailedQueryError(err)
 		return
 	}
 
