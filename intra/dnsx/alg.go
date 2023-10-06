@@ -728,8 +728,12 @@ func (t *dnsgateway) xLocked(algip *netip.Addr) []*netip.Addr {
 		// translate from realip only if not in mod mode
 		realips = append(ans.realips, ans.secondaryips...)
 	}
-	log.D("alg: xLocked: algip(%v) -> realips(%v)", unmapped, realips)
-	return t.maybeUndoNat64(realips) // modifies / NATs realip in-place
+	unnated := t.maybeUndoNat64(realips) // modifies / NATs realip in-place
+	log.D("alg: dns64: algip(%v) -> realips(%v) -> unnated(%v)", unmapped, realips, unnated)
+	if len(unnated) > 0 {
+		return unnated
+	}
+	return realips
 }
 
 func (t *dnsgateway) maybeUndoNat64(realips []*netip.Addr) (unnat []*netip.Addr) {
@@ -737,11 +741,10 @@ func (t *dnsgateway) maybeUndoNat64(realips []*netip.Addr) (unnat []*netip.Addr)
 		if !nip.Unmap().Is6() || nip.IsUnspecified() {
 			continue
 		}
-		ip := nip.Unmap().AsSlice()
 		// TODO: use the actual ID of the transport that did nat64
 		// TODO: check if the active network has ipv4 connectivity
-		ipx4 := net.IP(t.dns64.X64(Local464Resolver, ip)) // ipx4 may be nil
-		if len(ipx4) < net.IPv4len {                      // no nat?
+		ipx4 := net.IP(t.dns64.X64(Local464Resolver, nip.Unmap().AsSlice())) // ipx4 may be nil
+		if len(ipx4) < net.IPv4len {                                         // no nat?
 			log.D("alg: dns64: maybeUndoNat64: No local nat64 to ip4(%v) for ip6(%v)", ipx4, nip)
 			continue
 		}
