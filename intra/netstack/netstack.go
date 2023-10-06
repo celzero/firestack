@@ -36,7 +36,7 @@ func NewEndpoint(dev, mtu int, sink io.WriteCloser) (ep stack.LinkEndpoint, err 
 		if err != nil {
 			syscall.Close(dev)
 		}
-		log.E("netstack: new endpoint(fd:%d / mtu:%d); err? %v", dev, mtu, err)
+		log.I("netstack: new endpoint(fd:%d / mtu:%d); err? %v", dev, mtu, err)
 	}()
 
 	umtu := uint32(mtu)
