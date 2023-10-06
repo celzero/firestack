@@ -318,8 +318,9 @@ func (h *udpHandler) OnNewConn(gconn *netstack.GUDPConn, _, dst *net.UDPAddr) {
 		return
 	}
 	// err here may happen for ex when netstack has no route to dst
-	nerr := gconn.Connect(forward)
-	errmsg = nerr.String()
+	if nerr := gconn.Connect(forward); nerr != nil {
+		errmsg = nerr.String()
+	}
 }
 
 // Connect connects the proxy server.
