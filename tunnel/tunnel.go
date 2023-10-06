@@ -81,7 +81,8 @@ func (p *pcapsink) Write(b []byte) (int, error) {
 func (p *pcapsink) writeAsync(b []byte) {
 	p.RLock()
 	w := p.sink
-	defer p.RUnlock()
+	p.RUnlock()
+
 	if w != nil {
 		w.Write(b)
 	} // else: no op
@@ -97,7 +98,7 @@ func (p *pcapsink) file(f io.WriteCloser) (err error) {
 	p.Lock()
 	w := p.sink
 	p.sink = f
-	defer p.Unlock()
+	p.Unlock()
 
 	if w != nil {
 		err = w.Close()
