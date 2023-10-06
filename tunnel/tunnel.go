@@ -62,6 +62,7 @@ var errInvalidTunFd = errors.New("invalid tun fd")
 var errNoWriter = errors.New("no write() on netstack")
 
 type gtunnel struct {
+	mu     *sync.RWMutex         // protects all fields
 	stack  *stack.Stack          // a tcpip stack
 	hdl    netstack.GConnHandler // tcp, udp, and icmp handlers
 	mtu    int                   // mtu of the tun device
@@ -117,8 +118,11 @@ func (t *gtunnel) Mtu() int {
 }
 
 func (t *gtunnel) closeHandlers() {
+	t.mu.Lock()
 	hdl := t.hdl
 	t.hdl = nil
+	t.mu.Unlock()
+
 	if hdl == nil {
 		log.I("tun: handlers already closed")
 		return
@@ -128,8 +132,11 @@ func (t *gtunnel) closeHandlers() {
 }
 
 func (t *gtunnel) closePcap() {
+	t.mu.Lock()
 	p := t.pcapio
 	t.pcapio = nil
+	t.mu.Unlock()
+
 	if p == nil {
 		log.I("tun: pcap already closed")
 		return
@@ -139,8 +146,11 @@ func (t *gtunnel) closePcap() {
 }
 
 func (t *gtunnel) closeStack() {
+	t.mu.Lock()
 	s := t.stack
 	t.stack = nil
+	t.mu.Unlock()
+
 	if s == nil {
 		log.I("tun: stack already closed")
 		return
@@ -156,7 +166,10 @@ func (t *gtunnel) Disconnect() {
 }
 
 func (t *gtunnel) IsConnected() bool {
+	t.mu.RLock()
 	s := t.stack
+	t.mu.RUnlock()
+
 	return s != nil && s.CheckNIC(settings.NICID)
 }
 
@@ -169,8 +182,8 @@ func NewGTunnel(fd, mtu, engine int, tcph netstack.GTCPConnHandler, udph netstac
 	hdl := netstack.NewGConnHandler(tcph, udph, icmph)
 	stack := netstack.NewNetstack() // always dual-stack
 	sink := &pcapsink{}
-
-	t = &gtunnel{stack, hdl, mtu, sink}
+	mu := &sync.RWMutex{}
+	t = &gtunnel{mu, stack, hdl, mtu, sink}
 
 	err = t.setLinkAndRoutes(fd, mtu, engine) // creates endpoint / brings up nic
 	if err != nil {
@@ -182,7 +195,10 @@ func NewGTunnel(fd, mtu, engine int, tcph netstack.GTCPConnHandler, udph netstac
 }
 
 func (t *gtunnel) SetPcap(fpcap string) error {
+	t.mu.RLock()
 	pcap := t.pcapio
+	t.mu.RUnlock()
+
 	if pcap == nil {
 		return errStackMissing
 	}
@@ -242,7 +258,10 @@ func (t *gtunnel) SetLink(fd, mtu int) error {
 }
 
 func (t *gtunnel) SetRoute(engine int) error {
+	t.mu.RLock()
 	s := t.stack
+	t.mu.RUnlock()
+
 	if s == nil {
 		return errStackMissing
 	}
