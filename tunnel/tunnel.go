@@ -230,9 +230,12 @@ func (t *gtunnel) setLinkAndRoutes(fd, mtu, engine int) (err error) {
 }
 
 func (t *gtunnel) SetLink(fd, mtu int) error {
+	t.mu.RLock()
 	s := t.stack
 	hdl := t.hdl
 	pcap := t.pcapio
+	t.mu.RUnlock()
+
 	if s == nil || hdl == nil || pcap == nil {
 		log.W("tun: link not set; stack? %t, hdl? %v, pcap? %v", s != nil, hdl != nil, pcap != nil)
 		return errStackMissing
