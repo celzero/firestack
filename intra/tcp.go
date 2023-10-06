@@ -189,7 +189,7 @@ func (h *tcpHandler) sendNotif(summary *SocketSummary) {
 	ok1 := l != nil
 	ok2 := summary != nil
 	ok3 := len(summary.ID) > 0
-	log.V("tcp: sendNotif(%t, %t,%t,%t): %s", ok0, ok1, ok2, ok3, summary.str())
+	log.V("tcp: sendNotif(%t,%t,%t,%t): %s", ok0, ok1, ok2, ok3, summary.str())
 	if ok0 && ok1 && ok2 && ok3 {
 		l.OnSocketClosed(summary)
 	}

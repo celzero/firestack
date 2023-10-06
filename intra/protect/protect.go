@@ -48,7 +48,7 @@ type Protector interface {
 func networkBinder(who string, ctl Controller) func(string, string, syscall.RawConn) error {
 	return func(network, address string, c syscall.RawConn) (err error) {
 		dst, err := netip.ParseAddrPort(address)
-		log.D("control: net(%s), orig(%s/%w), bind(%s)", network, dst, err, who)
+		log.D("control: net(%s), dst(%s), err(%v), id(%s)", network, dst, err, who)
 		return c.Control(func(fd uintptr) {
 			sock := int(fd)
 			switch network {
