@@ -718,7 +718,8 @@ func (t *dnsgateway) RDNSBL(algip []byte) (blocklists string) {
 	return blocklists
 }
 
-func (t *dnsgateway) xLocked(algip *netip.Addr) (realips []*netip.Addr) {
+func (t *dnsgateway) xLocked(algip *netip.Addr) []*netip.Addr {
+	var realips []*netip.Addr
 	// alg ips are always unmappped; see take4Locked
 	unmapped := algip.Unmap()
 	if ans, ok := t.nat[unmapped]; ok {
@@ -727,11 +728,11 @@ func (t *dnsgateway) xLocked(algip *netip.Addr) (realips []*netip.Addr) {
 		// translate from realip only if not in mod mode
 		realips = append(ans.realips, ans.secondaryips...)
 	}
-	t.maybeUndoNat64(realips) // modifies / NATs realip in-place
-	return
+	log.D("alg: xLocked: algip(%v) -> realips(%v)", unmapped, realips)
+	return t.maybeUndoNat64(realips) // modifies / NATs realip in-place
 }
 
-func (t *dnsgateway) maybeUndoNat64(realips []*netip.Addr) {
+func (t *dnsgateway) maybeUndoNat64(realips []*netip.Addr) (unnat []*netip.Addr) {
 	for _, nip := range realips {
 		if !nip.Unmap().Is6() || nip.IsUnspecified() {
 			continue
@@ -743,16 +744,18 @@ func (t *dnsgateway) maybeUndoNat64(realips []*netip.Addr) {
 			continue
 		}
 		// TODO: check if the network this process binds to has ipv4 connectivity
-		ipx4 := t.dns64.X64(Local464Resolver, ip) // ipx4 may be nil
-		if len(ipx4) < net.IPv4len {              // no nat?
+		ipx4 := net.IP(t.dns64.X64(Local464Resolver, ip)) // ipx4 may be nil
+		if len(ipx4) < net.IPv4len {                      // no nat?
 			log.D("alg: dns64: maybeUndoNat64: No local nat64 to ip4(%v) for ip6(%v)", ipx4, nip)
 			continue
 		}
 		log.I("alg: dns64: maybeUndoNat64: nat64 to ip4(%v) from ip6(%v)", ipx4, nip)
 		if nipx4, ok := netip.AddrFromSlice(ipx4); ok {
-			*nip = nipx4.Unmap() // overwrite ip6 with ip4: go.dev/play/p/QYiK6V_Yj4-
+			unmapped4 := nipx4.Unmap()
+			unnat = append(unnat, &unmapped4)
 		}
 	}
+	return
 }
 
 func (t *dnsgateway) ptrLocked(algip *netip.Addr) (domains []string) {
