@@ -134,7 +134,7 @@ type Resolver interface {
 }
 
 type resolver struct {
-	sync.RWMutex
+	sync.RWMutex // protects transports
 	NatPt
 	tunmode      *settings.TunMode
 	tcpaddrs     []*net.TCPAddr
@@ -145,6 +145,7 @@ type resolver struct {
 	localdomains RadixTree
 	rdnsl        *rethinkdnslocal
 	rdnsr        *rethinkdns
+	rmu          sync.RWMutex // protects rdnsr and rdnsl
 	listener     DNSListener
 }
 
@@ -168,45 +169,6 @@ func NewResolver(fakeaddrs string, tunmode *settings.TunMode, l DNSListener, pt 
 
 func (r *resolver) Gateway() Gateway {
 	return r.gateway
-}
-
-// Implements RdnsResolver
-func (r *resolver) SetRdnsLocal(t, rd, conf, filetag string) error {
-	if len(t) <= 0 || len(rd) <= 0 {
-		log.I("transport: unset rdns local")
-		r.rdnsl = nil
-		return nil
-	}
-	rlocal, err := newRDNSLocal(t, rd, conf, filetag)
-	r.rdnsl = rlocal
-	return err
-}
-
-// Implements RdnsResolver
-func (r *resolver) SetRdnsRemote(filetag string) error {
-	if len(filetag) <= 0 {
-		log.I("transport: unset rdns remote")
-		r.rdnsr = nil
-		return nil
-	}
-	rremote, err := newRDNSRemote(filetag)
-	r.rdnsr = rremote
-	return err
-}
-
-// Implements RdnsResolver
-func (r *resolver) GetRdnsLocal() RDNS {
-	rlocal := r.rdnsl
-	if rlocal != nil {
-		// a non-ftrie version for across the jni boundary
-		return rlocal.rethinkdns
-	}
-	return nil
-}
-
-// Implements RdnsResolver
-func (r *resolver) GetRdnsRemote() RDNS {
-	return r.rdnsr
 }
 
 func (r *resolver) AddSystemDNS(t Transport) bool {

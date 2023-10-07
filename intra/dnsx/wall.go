@@ -12,13 +12,79 @@ import (
 	"github.com/miekg/dns"
 )
 
+func (r *resolver) setRdnsLocal(rlocal *rethinkdnslocal) {
+	r.rmu.Lock()
+	defer r.rmu.Unlock()
+	// rlocal can be nil
+	r.rdnsl = rlocal
+}
+
+func (r *resolver) setRdnsRemote(rremote *rethinkdns) {
+	r.rmu.Lock()
+	defer r.rmu.Unlock()
+	// rremote can be nil
+	r.rdnsr = rremote
+}
+
+func (r *resolver) getRdnsLocal() *rethinkdnslocal {
+	r.rmu.RLock()
+	defer r.rmu.RUnlock()
+	return r.rdnsl
+}
+
+func (r *resolver) getRdnsRemote() *rethinkdns {
+	r.rmu.RLock()
+	defer r.rmu.RUnlock()
+	return r.rdnsr
+}
+
+// Implements RdnsResolver
+func (r *resolver) SetRdnsLocal(t, rd, conf, filetag string) error {
+	if len(t) <= 0 || len(rd) <= 0 {
+		log.I("transport: unset rdns local")
+		r.setRdnsLocal(nil)
+		return nil
+	}
+	rlocal, err := newRDNSLocal(t, rd, conf, filetag)
+	r.setRdnsLocal(rlocal)
+	return err
+}
+
+// Implements RdnsResolver
+func (r *resolver) SetRdnsRemote(filetag string) error {
+	if len(filetag) <= 0 {
+		log.I("transport: unset rdns remote")
+		r.setRdnsRemote(nil)
+		return nil
+	}
+	rremote, err := newRDNSRemote(filetag)
+	r.setRdnsRemote(rremote)
+	return err
+}
+
+// Implements RdnsResolver
+func (r *resolver) GetRdnsLocal() RDNS {
+	rlocal := r.getRdnsLocal()
+
+	if rlocal != nil {
+		// a non-ftrie version for across the jni boundary
+		return rlocal.rethinkdns
+	}
+	return nil
+}
+
+// Implements RdnsResolver
+func (r *resolver) GetRdnsRemote() RDNS {
+	return r.getRdnsRemote()
+}
+
 func (r *resolver) blockQ(t, t2 Transport, msg *dns.Msg) (ans *dns.Msg, blocklists string, err error) {
 	if skipBlock(t, t2) {
 		return nil, "", errBlockFreeTransport
 	}
 
 	qname := xdns.QName(msg)
-	b := r.rdnsl
+	b := r.getRdnsLocal()
 
 	if b == nil || !b.OnDeviceBlock() {
 		log.V("wall: no local blockerQ; letting through %s", qname)
@@ -50,7 +116,9 @@ func applyBlocklists(b RDNS, q *dns.Msg) (ans *dns.Msg, blocklists string, err e
 // answer
 
 func (r *resolver) blockA(t, t2 Transport, q *dns.Msg, ans *dns.Msg, blocklistStamp string) (finalans *dns.Msg, blocklistNames string) {
-	br := r.rdnsr
+	br := r.getRdnsRemote()
+	b := r.getRdnsLocal()
+
 	var err error
 	qname := xdns.QName(q)
 
@@ -70,7 +138,7 @@ func (r *resolver) blockA(t, t2 Transport, q *dns.Msg, ans *dns.Msg, blocklistSt
 		return // skip local blocks for alg and blockfree
 	}
 
-	b := r.rdnsl // local block resolution, if any
+	// local block resolution, if any
 	if b == nil {
 		log.V("wall: no local blockerA; letting through %s", qname)
 		return nil, ""
