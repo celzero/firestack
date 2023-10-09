@@ -70,6 +70,12 @@ func D(msg string, args ...any) {
 	}
 }
 
+func P(msg string, args ...any) {
+	if Glogger != nil {
+		Glogger.Piif("P "+msg, args...)
+	}
+}
+
 func I(msg string, args ...any) {
 	if Glogger != nil {
 		Glogger.Infof("I "+msg, args...)

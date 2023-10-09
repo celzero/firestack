@@ -54,6 +54,7 @@ type Logger interface {
 	Printf(msg string, args ...any)
 	Verbosef(msg string, args ...any)
 	Debugf(msg string, args ...any)
+	Piif(msg string, args ...any)
 	Infof(msg string, args ...any)
 	Warnf(msg string, args ...any)
 	Errorf(msg string, args ...any)
@@ -106,6 +107,12 @@ func (l *simpleLogger) Verbosef(msg string, args ...any) {
 }
 
 func (l *simpleLogger) Debugf(msg string, args ...any) {
+	if l.level <= DEBUG {
+		l.output(msg, args...)
+	}
+}
+
+func (l *simpleLogger) Piif(msg string, args ...any) {
 	if l.level <= DEBUG {
 		l.output(msg, args...)
 	}
