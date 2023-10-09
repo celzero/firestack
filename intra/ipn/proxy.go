@@ -35,7 +35,7 @@ func (pxr *proxifier) AddProxy(id, txt string) (p Proxy, err error) {
 					log.W("proxy: err0 updating wg(%s); %v", id, err0)
 					return nil, err0
 				} else {
-					log.V("proxy: updating wg(%s) ifaddrs(%v), dns(%v), mtu(%d); err? %v", id, ifaddrs, dnsh, mtu, err0)
+					log.V("proxy: updating wg(%s); ifaddrs(%v), dns(%v), mtu(%d)", id, ifaddrs, dnsh, mtu)
 				}
 
 				err1 := wgp.IpcSet(txt)
@@ -44,7 +44,7 @@ func (pxr *proxifier) AddProxy(id, txt string) (p Proxy, err error) {
 					return nil, err1
 				} else {
 					// sensitive log: peercfg contains private key
-					log.P("proxy: updating wg(%s) peercfg(%s); err? %v", id, txt, err1)
+					log.P("proxy: updating wg(%s) peercfg(%s)", id, txt)
 				}
 
 				err2 := wgp.Refresh()
