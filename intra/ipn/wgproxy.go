@@ -181,7 +181,7 @@ func (w *wgproxy) canUpdate(txt string) bool {
 }
 
 func wglogger(id string) *device.Logger {
-	tag := WG + id
+	tag := WG + ":" + id
 	logger := &device.Logger{
 		Verbosef: log.Of(tag, log.N),
 		Errorf:   log.Of(tag, log.E),
@@ -320,10 +320,10 @@ func NewWgProxy(id string, ctl protect.Controller, cfg string) (WgProxy, error) 
 	bindok := bindWgSockets(id, wgdev, ctl)
 
 	w := &wgproxy{
-		wgtun,
-		wgdev,
-		nil,
-		nil,
+		wgtun, // stack
+		wgdev, // device
+		nil,   // rdial
+		nil,   // http-client
 	}
 	w.rd = newRDial(w)
 	w.hc = newHTTPClient(w.rd)

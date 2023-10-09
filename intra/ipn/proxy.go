@@ -27,9 +27,31 @@ func (pxr *proxifier) AddProxy(id, txt string) (p Proxy, err error) {
 	if strings.HasPrefix(id, WG) {
 		if p, _ = pxr.GetProxy(id); p != nil {
 			if wgp, ok := p.(WgProxy); ok && wgp.canUpdate(txt) {
-				log.I("proxy: updating wg %s/%s", p.ID(), p.GetAddr())
-				_, _, _, _ = wgIfConfigOf(&txt) // removes wg ifconfig from txt
-				err = wgp.IpcSet(txt)
+				id := p.ID()
+				log.I("proxy: updating wg %s/%s", id, p.GetAddr())
+
+				ifaddrs, dnsh, mtu, err0 := wgIfConfigOf(&txt) // removes wg ifconfig from txt
+				if err0 != nil {
+					log.W("proxy: err0 updating wg(%s); %v", id, err0)
+					return nil, err0
+				} else {
+					log.V("proxy: updating wg(%s) ifaddrs(%v), dns(%v), mtu(%d); err? %v", id, ifaddrs, dnsh, mtu, err0)
+				}
+
+				err1 := wgp.IpcSet(txt)
+				if err1 != nil {
+					log.W("proxy: err1 updating wg(%s); %v", id, err1)
+					return nil, err1
+				} else {
+					// sensitive log: peercfg contains private key
+					log.P("proxy: updating wg(%s) peercfg(%s); err? %v", id, txt, err1)
+				}
+
+				err2 := wgp.Refresh()
+				if err2 != nil {
+					log.W("proxy: err2 updating wg(%s); %v", id, err2)
+					return nil, err2
+				}
 				return
 			} // else: create anew
 		}
