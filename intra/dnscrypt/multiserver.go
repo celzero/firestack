@@ -30,6 +30,7 @@ import (
 	"github.com/celzero/firestack/intra/dnsx"
 	"github.com/celzero/firestack/intra/ipn"
 	"github.com/celzero/firestack/intra/log"
+	"github.com/celzero/firestack/intra/protect"
 	"github.com/celzero/firestack/intra/xdns"
 
 	clocksmith "github.com/jedisct1/go-clocksmith"
@@ -52,6 +53,7 @@ type DcMulti struct {
 	sigterm                      context.CancelFunc
 	lastStatus                   int
 	lastAddr                     string
+	ctl                          protect.Controller
 	est                          core.P2QuantileEstimator
 }
 
@@ -403,6 +405,7 @@ func (proxy *DcMulti) Stop() error {
 		proxy.sigterm()
 	}
 	proxy.sigterm = nil
+	proxy.ctl = nil // a bridge in to client "freed" here
 	return nil
 }
 
@@ -542,7 +545,7 @@ func (p *DcMulti) Status() int {
 }
 
 // DcMult creates a dnscrypt proxy
-func DcMult(px ipn.Proxies) *DcMulti {
+func NewDcMult(px ipn.Proxies, ctl protect.Controller) *DcMulti {
 	return &DcMulti{
 		routes:                       nil,
 		registeredServers:            make(map[string]RegisteredServer),
@@ -554,6 +557,7 @@ func DcMult(px ipn.Proxies) *DcMulti {
 		lastStatus:                   dnsx.Start,
 		proxies:                      px,
 		lastAddr:                     "",
+		ctl:                          ctl,
 		est:                          core.NewP50Estimator(),
 	}
 }

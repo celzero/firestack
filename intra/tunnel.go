@@ -70,11 +70,14 @@ type Tunnel interface {
 	// If len(fpcap) is 0, no PCAP file will be written.
 	// If len(fpcap) is 1, PCAP be written to stdout.
 	SetPcap(fpcap string) error
+	// A bridge to the client code.
+	getBridge() Bridge
 }
 
 type rtunnel struct {
 	tunnel.Tunnel
 	tunmode  *settings.TunMode
+	bridge   Bridge
 	proxies  ipn.Proxies
 	resolver dnsx.Resolver
 	services rnet.Services
@@ -90,10 +93,10 @@ func NewTunnel(fd, mtu int, fakedns string, tunmode *settings.TunMode, bdg Bridg
 	services := rnet.NewServices(proxies, bdg, bdg)
 
 	resolver := dnsx.NewResolver(fakedns, tunmode, bdg, natpt)
-	resolver.Add(newGroundedDefaultTransport()) // may be overridden
-	resolver.Add(newBlockAllTransport())        // fixed
-	resolver.Add(newDNSCryptTransport(proxies)) // fixed
-	resolver.Add(newMDNSTransport(l3))          // fixed
+	resolver.Add(newGroundedDefaultTransport())      // may be overridden
+	resolver.Add(newBlockAllTransport())             // fixed
+	resolver.Add(newDNSCryptTransport(proxies, bdg)) // fixed
+	resolver.Add(newMDNSTransport(l3))               // fixed
 
 	tcph := NewTCPHandler(resolver, proxies, tunmode, bdg, bdg)
 	udph := NewUDPHandler(resolver, proxies, tunmode, bdg, bdg)
@@ -109,6 +112,7 @@ func NewTunnel(fd, mtu int, fakedns string, tunmode *settings.TunMode, bdg Bridg
 	t := &rtunnel{
 		Tunnel:   gt,
 		tunmode:  tunmode,
+		bridge:   bdg,
 		proxies:  proxies,
 		resolver: resolver,
 		services: services,
@@ -117,6 +121,10 @@ func NewTunnel(fd, mtu int, fakedns string, tunmode *settings.TunMode, bdg Bridg
 	log.I("tun: <<< new >>>; ok")
 	resolver.Start()
 	return t, nil
+}
+
+func (t *rtunnel) getBridge() Bridge {
+	return t.bridge // may return nil, esp after Disconnect()
 }
 
 func (t *rtunnel) Disconnect() {
@@ -133,6 +141,7 @@ func (t *rtunnel) Disconnect() {
 	err0 := t.resolver.Stop()
 	err1 := t.proxies.StopProxies()
 	n := t.services.StopServers()
+	t.bridge = nil // "free" ref to the client
 	log.I("tun: <<< disconnect >>>; err0(%v); err1(%v); svc(%d)", err0, err1, n)
 
 	t.Tunnel.Disconnect()

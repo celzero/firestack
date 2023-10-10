@@ -27,6 +27,7 @@ import (
 	"github.com/celzero/firestack/intra/dnsx"
 	"github.com/celzero/firestack/intra/ipn"
 	"github.com/celzero/firestack/intra/log"
+	"github.com/celzero/firestack/intra/protect"
 	"github.com/celzero/firestack/intra/xdns"
 
 	stamps "github.com/jedisct1/go-dnsstamps"
@@ -54,6 +55,7 @@ type ServerInfo struct {
 	status             int
 	proxies            ipn.Proxies // proxy-provider, may be nil
 	relay              ipn.Proxy   // proxy relay to use, may be nil
+	dialer             *protect.RDial
 	est                core.P2QuantileEstimator
 }
 
@@ -199,6 +201,7 @@ func fetchDNSCryptServerInfo(proxy *DcMulti, name string, stamp stamps.ServerSta
 	if px != nil {
 		relay, _ = px.GetProxy(name)
 	}
+	dialer := protect.MakeNsRDial(name, proxy.ctl)
 	si := ServerInfo{
 		Proto:              stamps.StampProtoTypeDNSCrypt,
 		MagicQuery:         certInfo.MagicQuery,
@@ -214,6 +217,7 @@ func fetchDNSCryptServerInfo(proxy *DcMulti, name string, stamp stamps.ServerSta
 		RelayUDPAddr:       relayUDPAddr,
 		proxies:            px,
 		relay:              relay,
+		dialer:             dialer,
 		est:                core.NewP50Estimator(),
 	}
 	log.I("dnscrypt: (%s) setup: %s; relay? %t", name, si.HostName, relay != nil)
@@ -321,7 +325,7 @@ func (s *ServerInfo) dialudp(pid string, addr *net.UDPAddr) (net.Conn, error) {
 	if userelay || useproxy {
 		return s.dialpx(pid, "udp", addr.String())
 	}
-	return net.DialUDP("udp", nil, addr)
+	return s.dialer.DialUDP("udp", nil, addr)
 }
 
 func (s *ServerInfo) dialtcp(pid string, addr *net.TCPAddr) (net.Conn, error) {
@@ -330,7 +334,7 @@ func (s *ServerInfo) dialtcp(pid string, addr *net.TCPAddr) (net.Conn, error) {
 	if userelay || useproxy {
 		return s.dialpx(pid, "tcp", addr.String())
 	}
-	return net.DialTCP("tcp", nil, addr)
+	return s.dialer.DialTCP("tcp", nil, addr)
 }
 
 func (s *ServerInfo) dialpx(pid, proto string, addr string) (net.Conn, error) {

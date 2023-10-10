@@ -21,15 +21,18 @@ import (
 
 func AddDNSProxy(t Tunnel, id, ip, port string) error {
 	r := t.GetResolver()
-	if dns, err := dns53.NewTransport(id, ip, port, t.GetProxies()); err != nil {
+	p := t.GetProxies()
+	g := t.getBridge()
+	if dns, err := dns53.NewTransport(id, ip, port, p, g); err != nil {
 		return err
 	} else {
 		return addDNSTransport(r, dns)
 	}
 }
 
-func newSystemDNSProxy(ipp netip.AddrPort) (d dnsx.Transport, err error) {
-	return dns53.NewTransportFrom(dnsx.System, ipp, nil)
+func newSystemDNSProxy(t Tunnel, ipp netip.AddrPort) (d dnsx.Transport, err error) {
+	g := t.getBridge()
+	return dns53.NewTransportFrom(dnsx.System, ipp, nil, g)
 }
 
 func SetSystemDNS(t Tunnel, ippcsv string) int {
@@ -43,7 +46,7 @@ func SetSystemDNS(t Tunnel, ippcsv string) int {
 	n := 0
 	for _, ipport := range ipports {
 		if ipp, err := netip.ParseAddrPort(ipport); err == nil {
-			if sdns, err := newSystemDNSProxy(ipp); err == nil {
+			if sdns, err := newSystemDNSProxy(t, ipp); err == nil {
 				r.AddSystemDNS(sdns)
 				n += 1
 			} else {
@@ -65,8 +68,8 @@ func newGroundedDefaultTransport() (d dnsx.Transport) {
 	return dns53.NewGroundedTransport(dnsx.Default)
 }
 
-func newDNSCryptTransport(px ipn.Proxies) (p dnsx.TransportMult) {
-	p = dnscrypt.DcMult(px)
+func newDNSCryptTransport(px ipn.Proxies, bdg Bridge) (p dnsx.TransportMult) {
+	p = dnscrypt.NewDcMult(px, bdg)
 	return
 }
 
@@ -82,12 +85,13 @@ func NewDefaultTransport(dohurl, ips string) (dnsx.Transport, error) {
 	if len(ips) > 0 {
 		split = strings.Split(ips, ",")
 	}
-	return doh.NewTransport(dnsx.Default, dohurl, split, nil)
+	return doh.NewTransport(dnsx.Default, dohurl, split, nil, nil)
 }
 
 func AddProxyDNS(t Tunnel, p ipn.Proxy) error {
 	pxr := t.GetProxies()
 	r := t.GetResolver()
+	g := t.getBridge()
 	ipcsv := p.DNS()
 	if len(ipcsv) == 0 {
 		return dnsx.ErrNoProxyDNS
@@ -106,7 +110,7 @@ func AddProxyDNS(t Tunnel, p ipn.Proxy) error {
 		return err
 	}
 	// register transport with the resolver
-	if dns, err := dns53.NewTransportFrom(p.ID(), ipport, pxr); err != nil {
+	if dns, err := dns53.NewTransportFrom(p.ID(), ipport, pxr, g); err != nil {
 		return err
 	} else {
 		return addDNSTransport(r, dns)
@@ -118,11 +122,12 @@ func AddProxyDNS(t Tunnel, p ipn.Proxy) error {
 func AddDoHTransport(t Tunnel, id, url, ips string) error {
 	pxr := t.GetProxies()
 	r := t.GetResolver()
+	g := t.getBridge()
 	split := []string{}
 	if len(ips) > 0 {
 		split = strings.Split(ips, ",")
 	}
-	if dns, err := doh.NewTransport(id, url, split, pxr); err != nil {
+	if dns, err := doh.NewTransport(id, url, split, pxr, g); err != nil {
 		return err
 	} else {
 		return addDNSTransport(r, dns)
@@ -132,11 +137,12 @@ func AddDoHTransport(t Tunnel, id, url, ips string) error {
 func AddODoHTransport(t Tunnel, id, endpoint, resolver, epips string) error {
 	pxr := t.GetProxies()
 	r := t.GetResolver()
+	g := t.getBridge()
 	split := []string{}
 	if len(epips) > 0 {
 		split = strings.Split(epips, ",")
 	}
-	if dns, err := doh.NewOdohTransport(id, endpoint, resolver, split, pxr); err != nil {
+	if dns, err := doh.NewOdohTransport(id, endpoint, resolver, split, pxr, g); err != nil {
 		return err
 	} else {
 		return addDNSTransport(r, dns)
@@ -146,7 +152,8 @@ func AddODoHTransport(t Tunnel, id, endpoint, resolver, epips string) error {
 func AddDoTTransport(t Tunnel, id, url string) error {
 	pxr := t.GetProxies()
 	r := t.GetResolver()
-	if dns, err := dns53.NewTLSTransport(id, url, pxr); err != nil {
+	g := t.getBridge()
+	if dns, err := dns53.NewTLSTransport(id, url, pxr, g); err != nil {
 		return err
 	} else {
 		return addDNSTransport(r, dns)

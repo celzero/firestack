@@ -36,7 +36,7 @@ type dot struct {
 var _ dnsx.Transport = (*dot)(nil)
 
 // NewTransport returns a DNS transport, ready for use.
-func NewTLSTransport(id, rawurl string, px ipn.Proxies) (t dnsx.Transport, err error) {
+func NewTLSTransport(id, rawurl string, px ipn.Proxies, ctl protect.Controller) (t dnsx.Transport, err error) {
 	tlscfg := &tls.Config{}
 	// rawurl is either tls:host[:port] or tls://host[:port] or host[:port]
 	parsedurl, err := url.Parse(rawurl)
@@ -51,8 +51,7 @@ func NewTLSTransport(id, rawurl string, px ipn.Proxies) (t dnsx.Transport, err e
 	if px != nil {
 		relay, _ = px.GetProxy(id)
 	}
-	// todo: with controller
-	dialer := protect.MakeNsDialer(id, nil)
+	dialer := protect.MakeNsDialer(id, ctl)
 	tx := &dot{
 		id:      id,
 		url:     rawurl,

@@ -46,31 +46,30 @@ type transport struct {
 
 var _ dnsx.Transport = (*transport)(nil)
 
-func NewTransportFromHostname(id, hostname string, px ipn.Proxies) (t dnsx.Transport, err error) {
+func NewTransportFromHostname(id, hostname string, px ipn.Proxies, ctl protect.Controller) (t dnsx.Transport, err error) {
 	do, err := settings.NewDNSOptionsFromHostname(hostname)
 	if err != nil {
 		return
 	}
-	return newTransport(id, do, px)
+	return newTransport(id, do, px, ctl)
 }
 
 // NewTransport returns a DNS transport, ready for use.
-func NewTransport(id, ip, port string, px ipn.Proxies) (t dnsx.Transport, err error) {
+func NewTransport(id, ip, port string, px ipn.Proxies, ctl protect.Controller) (t dnsx.Transport, err error) {
 	do, err := settings.NewDNSOptions(ip, port)
 	if err != nil {
 		return
 	}
 
-	return newTransport(id, do, px)
+	return newTransport(id, do, px, ctl)
 }
 
-func newTransport(id string, do *settings.DNSOptions, px ipn.Proxies) (dnsx.Transport, error) {
+func newTransport(id string, do *settings.DNSOptions, px ipn.Proxies, ctl protect.Controller) (dnsx.Transport, error) {
 	var relay ipn.Proxy
 	if px != nil {
 		relay, _ = px.GetProxy(id)
 	}
-	// todo: with controller
-	d := protect.MakeNsRDial(id, nil)
+	d := protect.MakeNsRDial(id, ctl)
 	tx := &transport{
 		id:      id,
 		addr:    do.IPPort, // may be host:port or ip:port
@@ -94,13 +93,13 @@ func newTransport(id string, do *settings.DNSOptions, px ipn.Proxies) (dnsx.Tran
 }
 
 // NewTransport returns a DNS transport, ready for use.
-func NewTransportFrom(id string, ipp netip.AddrPort, px ipn.Proxies) (t dnsx.Transport, err error) {
+func NewTransportFrom(id string, ipp netip.AddrPort, px ipn.Proxies, ctl protect.Controller) (t dnsx.Transport, err error) {
 	do, err := settings.NewDNSOptionsFromNetIp(ipp)
 	if err != nil {
 		return
 	}
 
-	return newTransport(id, do, px)
+	return newTransport(id, do, px, ctl)
 }
 
 // Given a raw DNS query (including the query ID), this function sends the
