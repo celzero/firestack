@@ -118,6 +118,8 @@ func (w *wgproxy) Refresh() (err error) {
 		log.E("proxy: wg: !refresh(%s): up: %v", w.id, err)
 		return
 	}
+	// not required since wgconn:NewBind() is namespace aware
+	// bindok := bindWgSockets(w.ID(), w.wgdev, w.ctl)
 	log.I("proxy: wg: refresh(%s) done; len(dns): %d", w.id, n)
 	return
 }
@@ -298,7 +300,7 @@ func NewWgProxy(id string, ctl protect.Controller, cfg string) (WgProxy, error) 
 		return nil, err
 	}
 
-	wgdev := device.NewDevice(wgtun, wg.NewBind(), wglogger(id))
+	wgdev := device.NewDevice(wgtun, wg.NewBind(id, ctl), wglogger(id))
 
 	err = wgdev.IpcSet(uapicfg)
 	if err != nil {
@@ -316,8 +318,8 @@ func NewWgProxy(id string, ctl protect.Controller, cfg string) (WgProxy, error) 
 	}
 
 	// nb: call after StdNetBind conn has been "Open"ed
-	// not needed for wg.NewBind2; see: wg:wgconn2.go
-	bindok := bindWgSockets(id, wgdev, ctl)
+	// not needed for wg.NewBind; see: wg:wgconn.go
+	// bindok := bindWgSockets(id, wgdev, ctl)
 
 	w := &wgproxy{
 		wgtun, // stack
@@ -328,7 +330,7 @@ func NewWgProxy(id string, ctl protect.Controller, cfg string) (WgProxy, error) 
 	w.rd = newRDial(w)
 	w.hc = newHTTPClient(w.rd)
 
-	log.D("proxy: wg: new %s / bound? %t; addrs(%v) mtu(%d) / v4(%t) v6(%t)", id, bindok, ifaddrs, mtu, wgtun.hasV4, wgtun.hasV6)
+	log.D("proxy: wg: new %s; addrs(%v) mtu(%d) / v4(%t) v6(%t)", id, ifaddrs, mtu, wgtun.hasV4, wgtun.hasV6)
 
 	return w, nil
 }

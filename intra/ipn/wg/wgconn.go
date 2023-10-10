@@ -14,6 +14,7 @@
 package wg
 
 import (
+	"context"
 	"errors"
 	"net"
 	"net/netip"
@@ -23,6 +24,7 @@ import (
 	"time"
 
 	"github.com/celzero/firestack/intra/log"
+	"github.com/celzero/firestack/intra/protect"
 	"golang.org/x/sys/unix"
 	"golang.zx2c4.com/wireguard/conn"
 )
@@ -35,6 +37,7 @@ var (
 )
 
 type StdNetBind struct {
+	d          *net.ListenConfig
 	mu         sync.Mutex // protects following fields
 	ipv4       *net.UDPConn
 	ipv6       *net.UDPConn
@@ -42,8 +45,9 @@ type StdNetBind struct {
 	blackhole6 bool
 }
 
-func NewBind() conn.Bind {
-	return &StdNetBind{}
+func NewBind(id string, ctl protect.Controller) conn.Bind {
+	dialer := protect.MakeNsListenConfig(id, ctl)
+	return &StdNetBind{d: dialer}
 }
 
 type StdNetEndpoint netip.AddrPort
@@ -99,10 +103,11 @@ func (e StdNetEndpoint) SrcToString() string {
 }
 
 func (s *StdNetBind) listenNet(network string, port int) (*net.UDPConn, int, error) {
-	saddr := &net.UDPAddr{Port: port}
-	conn, err := net.ListenUDP(network, saddr)
+	ctx := context.Background()
+	saddr := ":" + strconv.Itoa(port)
+	conn, err := s.d.ListenPacket(ctx, network, saddr)
 	if err != nil {
-		log.E("wg: bind: listen(%v); err: %v", saddr, err)
+		log.E("wg: bind: %s: listen(%v); err: %v", network, saddr, err)
 		return nil, 0, err
 	}
 
@@ -115,7 +120,8 @@ func (s *StdNetBind) listenNet(network string, port int) (*net.UDPConn, int, err
 	if err != nil {
 		return nil, 0, err
 	}
-	return conn, uaddr.Port, nil
+	// typecast is safe, because "network" is always udp[4|6]; see: Open
+	return conn.(*net.UDPConn), uaddr.Port, nil
 }
 
 func (bind *StdNetBind) Open(uport uint16) ([]conn.ReceiveFunc, uint16, error) {
