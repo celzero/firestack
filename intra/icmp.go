@@ -150,7 +150,7 @@ func (h *icmpHandler) Ping(source *net.UDPAddr, target *net.UDPAddr, msg []byte,
 	target.IP = oneRealIp(realips, target.IP)
 	uc, err := pc.Dialer().Dial(target.Network(), target.String())
 	if err != nil {
-		log.E("t.icmp.egress: dail(%s) err %v", target.Network(), err)
+		log.E("t.icmp.egress: dial(%s) err %v", target.Network(), err)
 		return false // denied
 	}
 	defer close(uc)

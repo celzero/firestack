@@ -17,7 +17,7 @@ import (
 )
 
 type socks5 struct {
-	dailer proxy.Dialer
+	dialer proxy.Dialer
 	id     string
 	opts   *settings.ProxyOptions
 	rd     *protect.RDial
@@ -49,7 +49,7 @@ func NewSocks5Proxy(id string, ctl protect.Controller, po *settings.ProxyOptions
 	}
 
 	h := &socks5{
-		dailer: fproxy,
+		dialer: fproxy,
 		id:     id,
 		opts:   po,
 	}
@@ -66,7 +66,7 @@ func (h *socks5) Dial(network, addr string) (c protect.Conn, err error) {
 		return nil, errProxyStopped
 	}
 
-	if c, err = h.dailer.Dial(network, addr); err == nil {
+	if c, err = h.dialer.Dial(network, addr); err == nil {
 		// in txthinking/socks5, an underlying-conn is actually a net.TCPConn
 		// github.com/txthinking/socks5/blob/39268fae/client.go#L15
 		if uc, ok := c.(*tx.Client); ok {

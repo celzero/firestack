@@ -550,7 +550,7 @@ func (tnet *wgtun) DialContext(ctx context.Context, network, address string) (ne
 	case "tcp6", "udp6", "ping6":
 		acceptV6 = true
 	default:
-		log.W("wg: dail: unknown network %q", network)
+		log.W("wg: dial: unknown network %q", network)
 		return nil, &net.OpError{Op: "dial", Err: net.UnknownNetworkError(network)}
 	}
 
@@ -563,12 +563,12 @@ func (tnet *wgtun) DialContext(ctx context.Context, network, address string) (ne
 		var err error
 		host, sport, err = net.SplitHostPort(address)
 		if err != nil {
-			log.W("wg: dail: invalid address %q: %v", address, err)
+			log.W("wg: dial: invalid address %q: %v", address, err)
 			return nil, &net.OpError{Op: "dial", Err: err}
 		}
 		port, err = strconv.Atoi(sport)
 		if err != nil || port < 0 || port > 65535 {
-			log.W("wg: dail: invalid port %q: %v", sport, err)
+			log.W("wg: dial: invalid port %q: %v", sport, err)
 			return nil, &net.OpError{Op: "dial", Err: errNumericPort}
 		}
 	}
@@ -577,12 +577,12 @@ func (tnet *wgtun) DialContext(ctx context.Context, network, address string) (ne
 		return tnet.LookupContextHost(ctx, host)
 	})
 	if rv.Err != nil {
-		log.W("wg: dail: lookup failed %q: %v", host, rv.Err)
+		log.W("wg: dial: lookup failed %q: %v", host, rv.Err)
 		return nil, &net.OpError{Op: "dial", Err: rv.Err}
 	}
 	allAddr, vok := rv.Val.([]string)
 	if !vok {
-		log.W("wg: dail: cast failed %q for val: %v", host, rv.Val)
+		log.W("wg: dial: cast failed %q for val: %v", host, rv.Val)
 		return nil, &net.OpError{Op: "dial", Err: errInvalidDNSResponse}
 	}
 
@@ -594,7 +594,7 @@ func (tnet *wgtun) DialContext(ctx context.Context, network, address string) (ne
 		}
 	}
 	if len(addrs) == 0 && len(allAddr) != 0 {
-		log.W("wg: dail: no suitable address for %q / %v", host, allAddr)
+		log.W("wg: dial: no suitable address for %q / %v", host, allAddr)
 		return nil, &net.OpError{Op: "dial", Err: errNoSuitableAddress}
 	}
 
@@ -608,7 +608,7 @@ func (tnet *wgtun) DialContext(ctx context.Context, network, address string) (ne
 			} else if err == context.DeadlineExceeded {
 				err = errTimeout
 			}
-			log.W("wg: dail: %v; context done: %v", addr, err)
+			log.W("wg: dial: %v; context done: %v", addr, err)
 			return nil, &net.OpError{Op: "dial", Err: err}
 		default:
 		}
@@ -650,7 +650,7 @@ func (tnet *wgtun) DialContext(ctx context.Context, network, address string) (ne
 	if firstErr == nil {
 		firstErr = &net.OpError{Op: "dial", Err: errMissingAddress}
 	}
-	log.W("wg: dail: %s: %v failed: %v", network, addrs, firstErr)
+	log.W("wg: dial: %s: %v failed: %v", network, addrs, firstErr)
 	return nil, firstErr
 }
 
