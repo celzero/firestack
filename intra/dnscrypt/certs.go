@@ -292,7 +292,7 @@ func _dnsExchange(proxy *DcMulti, proto string, query *dns.Msg, serverAddress st
 			return dnsExchangeResponse{err: err}
 		}
 		now := time.Now()
-		pc, err := net.DialUDP("udp", nil, upstreamAddr)
+		pc, err := proxy.dialer.DialUDP("udp", nil, upstreamAddr)
 		if err != nil {
 			return dnsExchangeResponse{err: err}
 		}
@@ -331,7 +331,7 @@ func _dnsExchange(proxy *DcMulti, proto string, query *dns.Msg, serverAddress st
 		*/
 		now := time.Now()
 		var pc net.Conn
-		pc, err = net.DialTCP("tcp", nil, upstreamAddr)
+		pc, err = proxy.dialer.DialTCP("tcp", nil, upstreamAddr)
 		if err != nil {
 			return dnsExchangeResponse{err: err}
 		}

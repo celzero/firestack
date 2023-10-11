@@ -54,6 +54,7 @@ type DcMulti struct {
 	lastStatus                   int
 	lastAddr                     string
 	ctl                          protect.Controller
+	dialer                       *protect.RDial
 	est                          core.P2QuantileEstimator
 }
 
@@ -558,6 +559,7 @@ func NewDcMult(px ipn.Proxies, ctl protect.Controller) *DcMulti {
 		proxies:                      px,
 		lastAddr:                     "",
 		ctl:                          ctl,
+		dialer:                       protect.MakeNsRDial(dnsx.DcProxy, ctl),
 		est:                          core.NewP50Estimator(),
 	}
 }
