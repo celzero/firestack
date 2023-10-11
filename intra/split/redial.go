@@ -110,6 +110,11 @@ func commondial(d *protect.RDial, network, addr string, connect connectFunc) (ne
 	if err != nil {
 		return nil, err
 	}
+	// cannot dial into a wildcard address
+	// while, listen is unsupported
+	if len(domain) == 0 {
+		return nil, net.InvalidAddrError(addr)
+	}
 	port, err := strconv.Atoi(portstr)
 	if err != nil {
 		return nil, err
