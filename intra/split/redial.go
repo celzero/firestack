@@ -50,6 +50,12 @@ func For(hostname string) []netip.Addr {
 	return nil
 }
 
+func Mapper(m ipmap.IPMapper) {
+	log.I("split: mapper ok? %t", m != nil)
+	// usually set just the once
+	ipm.With(m)
+}
+
 func Confirm(hostname string, addr net.Addr) bool {
 	ips := ipm.GetAny(hostname)
 	if ips != nil {

@@ -98,6 +98,8 @@ func NewTunnel(fd, mtu int, fakedns string, tunmode *settings.TunMode, bdg Bridg
 	resolver.Add(newDNSCryptTransport(proxies, bdg)) // fixed
 	resolver.Add(newMDNSTransport(l3))               // fixed
 
+	addIPMapper(resolver) // namespace aware resolver for pkg split
+
 	tcph := NewTCPHandler(resolver, proxies, tunmode, bdg, bdg)
 	udph := NewUDPHandler(resolver, proxies, tunmode, bdg, bdg)
 	icmph := NewICMPHandler(resolver, proxies, tunmode, bdg)
