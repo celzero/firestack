@@ -39,8 +39,8 @@ var errNoUDP = errors.New("not a udp dialer")
 
 // RDial discards local-addresses
 type RDial struct {
-	Dialer  proxy.Dialer
-	RDialer RDialer
+	Dialer  proxy.Dialer // may be nil
+	RDialer RDialer      // may be nil
 }
 
 func (d *RDial) dial(network, addr string) (Conn, error) {
