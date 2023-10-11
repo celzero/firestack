@@ -52,7 +52,7 @@ func (h *Multihost) With(domainsOrIps []string) {
 			if resolvedips := split.For(dip); len(resolvedips) > 0 {
 				h.addrs = append(h.addrs, resolvedips...)
 			} else {
-				log.W("proxy: wg: multihost: err add %q", dip)
+				log.W("proxy: wg: multihost: no ips for %q", dip)
 			}
 		} else { // may be ip
 			h.addrs = append(h.addrs, ip)

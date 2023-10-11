@@ -399,7 +399,7 @@ func makeWgTun(id string, ifaddrs []netip.Prefix, dnsm *wg.Multihost, mtu int) (
 		}
 		t.hasV4 = t.hasV4 || ip.Is4()
 		t.hasV6 = t.hasV6 || ip.Is6()
-		log.D("proxy: wg: added addr(%v) / v4(%t)/v6(%t)", ip, ip.Is4(), ip.Is6())
+		log.D("proxy: wg: added ifaddr(%v)", ip)
 	}
 	if t.hasV4 {
 		s.AddRoute(tcpip.Route{Destination: header.IPv4EmptySubnet, NIC: wgnic})
