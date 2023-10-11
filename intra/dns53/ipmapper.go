@@ -38,7 +38,7 @@ func str2ip(host string) (netip.Addr, error) {
 	return netip.ParseAddr(host)
 }
 
-func (m *ipmapper) LookupNetIP(ctx context.Context, network, host string) (_ []netip.Addr, err error) {
+func (m *ipmapper) LookupNetIP(ctx context.Context, network, host string) ([]netip.Addr, error) {
 	if len(host) <= 0 {
 		return nil, errNoHost
 	}

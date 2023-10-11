@@ -206,6 +206,7 @@ func (r *resolver) Add(t Transport) (ok bool) {
 		// Alg transports are also registered with Gateway
 		// Remove cleans those up
 		r.Remove(t.ID())
+		r.Remove(CT + t.ID())
 
 		// these IDs are reserved for internal use
 		if isReserved(t.ID()) {
