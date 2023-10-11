@@ -83,6 +83,6 @@ func (s *Summary) FillInto(other *Summary) {
 
 // DNSListener receives Summaries.
 type DNSListener interface {
-	OnQuery(domain string, qtyp int, suggested string) *NsOpts
+	OnQuery(domain string, qtyp int) *NsOpts
 	OnResponse(*Summary)
 }

@@ -10,9 +10,7 @@ import (
 	"context"
 	"errors"
 	"net/netip"
-	"time"
 
-	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/dnsx"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/split"
@@ -23,27 +21,16 @@ import (
 var (
 	errNoHost = errors.New("no hostname")
 	errNoAns  = errors.New("no answer")
-	errNoIps  = errors.New("no ips")
 	errNoNet  = errors.New("unknown network")
-	errBaAns  = errors.New("barrier: invalid answer")
-
-	ttl5s = 5 * time.Second
 )
 
 type ipmapper struct {
 	id string
 	r  dnsx.Resolver
-	l  dnsx.DNSListener
-	ba *core.Barrier
 }
 
-type anssummary struct {
-	ans []byte
-	s   *dnsx.Summary
-}
-
-func AddIPMapper(r dnsx.Resolver, l dnsx.DNSListener) {
-	m := &ipmapper{dnsx.IpMapper, r, l, core.NewBarrier(ttl5s)}
+func AddIPMapper(r dnsx.Resolver) {
+	m := &ipmapper{dnsx.IpMapper, r}
 	split.Mapper(m)
 }
 
@@ -78,65 +65,13 @@ func (m *ipmapper) LookupNetIP(ctx context.Context, network, host string) (_ []n
 		return nil, errors.Join(err4, err6)
 	}
 
-	ssu4 := &dnsx.Summary{
-		QName:  host,
-		QType:  int(dns.TypeA),
-		Status: dnsx.Start,
-	}
-	ssu6 := &dnsx.Summary{
-		QName:  host,
-		QType:  int(dns.TypeAAAA),
-		Status: dnsx.Start,
-	}
-
-	defer func() {
-		if err != nil && !errors.Is(err, errNoIps) {
-			log.W("ipmapper: lookup(%s), err: %v", host, err)
-			ssu4.RCode = dns.RcodeServerFailure
-			ssu4.RData = xdns.GetInterestingRData(nil)
-			ssu4.Status = dnsx.SendFailed
-			ssu4.ID = m.id
-			ssu6.RCode = dns.RcodeServerFailure
-			ssu6.RData = xdns.GetInterestingRData(nil)
-			ssu6.Status = dnsx.SendFailed
-			ssu6.ID = m.id
-		}
-		go m.l.OnResponse(ssu4)
-		go m.l.OnResponse(ssu6)
-	}()
-
-	// TODO: m.l.OnQuery() to determine transport with suggested_id?
-	tr, errtr := m.determineTransport()
-	if errtr != nil {
-		return nil, errtr
-	}
-
-	rv4 := m.ba.Do(host+":4", func() (any, error) {
-		ans, err := tr.Query(dnsx.NetTypeUDP, q4, ssu4)
-		return &anssummary{ans, ssu4}, err
-
-	})
-	rv6 := m.ba.Do(host+":6", func() (any, error) {
-		ans, err := tr.Query(dnsx.NetTypeUDP, q6, ssu6)
-		return &anssummary{ans, ssu6}, err
-	})
-
-	asmm4, ok4 := rv4.Val.(*anssummary)
-	asmm6, ok6 := rv4.Val.(*anssummary)
-	if !ok4 || !ok6 {
-		return nil, errBaAns
-	}
-	// fill summary regardless of rv.Err
-	asmm4.s.FillInto(ssu4) // asmm4.s may be equal to ssu4
-	asmm6.s.FillInto(ssu6) // asmm6.s may be equal to ssu6
-
-	r4, err4 := asmm4.ans, rv4.Err
-	r6, err6 := asmm6.ans, rv6.Err
+	r4, lerr4 := m.r.LocalLookup(q4)
+	r6, lerr6 := m.r.LocalLookup(q6)
 
 	if len(r4) <= 0 && len(r6) <= 0 {
-		return nil, errors.Join(errNoAns, err4, err6)
-	} else if err4 != nil && err6 != nil {
-		return nil, errors.Join(err4, err6)
+		return nil, errors.Join(errNoAns, lerr4, lerr6)
+	} else if lerr4 != nil && lerr6 != nil {
+		return nil, errors.Join(lerr4, lerr6)
 	}
 
 	ips := make([]netip.Addr, 0, len(r4)+len(r6))
@@ -144,24 +79,7 @@ func (m *ipmapper) LookupNetIP(ctx context.Context, network, host string) (_ []n
 	ip6 := addrs(r6)
 	ips = append(ips, ip4...)
 	ips = append(ips, ip6...)
-	if len(ips) <= 0 {
-		return nil, errNoIps
-	}
 	return ips, nil
-}
-
-func (m *ipmapper) determineTransport() (tr dnsx.Transport, err error) {
-	dtr, derr := m.r.Get(dnsx.Default)
-	if derr == nil && dtr.ID() != dnsx.BlockAll {
-		tr = dtr
-	} else {
-		str, serr := m.r.Get(dnsx.System)
-		if serr != nil {
-			return nil, errors.Join(serr, derr)
-		}
-		tr = str
-	}
-	return
 }
 
 func addrs(a []byte) []netip.Addr {

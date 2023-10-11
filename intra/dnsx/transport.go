@@ -130,7 +130,11 @@ type Resolver interface {
 	GetMult(id string) (TransportMult, error)
 
 	IsDnsAddr(network, ipport string) bool
+	// Lookup performs resolution on System or Default DNSes
+	LocalLookup(q []byte) ([]byte, error)
+	// Forward performs resolution on any DNS transport
 	Forward(q []byte) ([]byte, error)
+	// Serve reads DNS query from conn and writes DNS answer to conn
 	Serve(conn Conn)
 }
 
@@ -304,7 +308,15 @@ func (r *resolver) IsDnsAddr(network, ipport string) bool {
 	return r.isDns(network, ipport)
 }
 
+func (r *resolver) LocalLookup(q []byte) ([]byte, error) {
+	return r.forward(q, System)
+}
+
 func (r *resolver) Forward(q []byte) ([]byte, error) {
+	return r.forward(q)
+}
+
+func (r *resolver) forward(q []byte, chosenids ...string) ([]byte, error) {
 	starttime := time.Now()
 	summary := &Summary{
 		QName:  invalidQname,
@@ -328,13 +340,8 @@ func (r *resolver) Forward(q []byte) ([]byte, error) {
 	qtyp := qtype(msg)
 	summary.QName = qname
 	summary.QType = qtyp
-	id := r.requiresSystemOrLocal(qname)
-	var sid, pid string
-	if len(id) > 0 {
-		log.I("dns: udp: suggest dns(%s) for %s", id, qname)
-	}
-	pref := r.listener.OnQuery(qname, qtyp, id)
-	id, sid, pid, _ = preferencesFrom(pref)
+	pref := r.listener.OnQuery(qname, qtyp)
+	id, sid, pid, _ := r.preferencesFrom(qname, pref, chosenids...)
 	t := r.determineTransport(id)
 	if t == nil {
 		summary.Latency = time.Since(starttime).Seconds()
@@ -479,13 +486,8 @@ func (r *resolver) forwardQuery(q []byte, c io.Writer) error {
 	qtyp := qtype(msg)
 	summary.QName = qname
 	summary.QType = qtyp
-	id := r.requiresSystemOrLocal(qname)
-	var sid, pid string
-	if len(id) > 0 {
-		log.I("dns: tcp: suggest system-dns %s for %s", id, qname)
-	}
-	pref := r.listener.OnQuery(qname, qtyp, id)
-	id, sid, pid, _ = preferencesFrom(pref)
+	pref := r.listener.OnQuery(qname, qtyp)
+	id, sid, pid, _ := r.preferencesFrom(qname, pref)
 	// retrieve transport
 	t := r.determineTransport(id)
 	if t == nil {
@@ -643,13 +645,21 @@ func useFallback(id string) bool {
 	return false
 }
 
-func overrideTransports(ids ...string) string {
+func isTransportID(match string, ids ...string) bool {
 	for _, t := range ids {
-		if t == Local {
-			return Local
+		if t == match {
+			return true
 		}
 	}
-	return ""
+	return false
+}
+
+func isAnyBlockAll(ids ...string) bool {
+	return isTransportID(BlockAll, ids...)
+}
+
+func isAnyLocal(ids ...string) bool {
+	return isTransportID(Local, ids...)
 }
 
 func allowProxy(ids ...string) bool {
@@ -764,11 +774,11 @@ func (r *resolver) LiveTransports() string {
 	return trimcsv(s)
 }
 
-func preferencesFrom(s *NsOpts) (id1, id2, pid, ips string) {
+func (r *resolver) preferencesFrom(qname string, s *NsOpts, chosenids ...string) (id1, id2, pid, ips string) {
 	x := strings.Split(s.TIDCSV, ",")
 	l := len(x)
 	if l <= 0 { // cannot happen
-		log.W("dns: pref: no tids")
+		log.W("dns: pref: no tids for %s", qname)
 		// no-op
 	} else if l == 1 {
 		id1 = x[0] // id for transport t1
@@ -778,10 +788,28 @@ func preferencesFrom(s *NsOpts) (id1, id2, pid, ips string) {
 		log.W("dns: pref: too many tids; upto 2, got %d", l)
 		id1, id2 = x[0], x[1] // ids for transport t1, t2
 	}
-	if sup := overrideTransports(id1, id2); len(sup) > 0 && l >= 2 {
-		log.D("dns: pref: %s overrides transports %s, %s", sup, id1, id2)
-		id1 = sup
+
+	if isAnyBlockAll(id1, id2) { // just one transport, BlockAll, if set
+		id1 = BlockAll
 		id2 = ""
+	} else {
+		if reqid := r.requiresSystemOrLocal(qname); len(reqid) > 0 { // use requested transport, if any
+			log.D("dns: pref: use suggested tr(%s) for %s", reqid, qname)
+			id1 = reqid
+			id2 = ""
+		} else if len(chosenids) > 0 {
+			if len(chosenids[0]) > 0 {
+				id1 = chosenids[0]
+			}
+			if len(chosenids) > 1 && len(chosenids[1]) > 0 {
+				id2 = chosenids[1]
+			}
+			log.D("dns: pref: use chosen tr(%s, %s) for %s", id1, id2, qname)
+		}
+		if isAnyLocal(id1, id2) { // just one transport, Local, if set
+			id1 = Local
+			id2 = ""
+		}
 	}
 	if len(s.PID) > 0 && allowProxy(id1, id2) {
 		pid = s.PID // id for proxy
