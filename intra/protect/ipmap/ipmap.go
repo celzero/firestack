@@ -114,25 +114,13 @@ func (m *ipMap) get(hostname string, emptyok bool) *IPSet {
 		}
 	}
 
-	s = &IPSet{r: m.r}
-	s.Add(hostname)
-
-	if s.Empty() {
-		log.W("ipmap: Get: zero ips for %s", hostname)
-		return s
+	s = m.Of(hostname, nil)
+	if !emptyok {
+		s.Add(hostname)
+		if s.Empty() {
+			log.W("ipmap: Get: zero ips for %s", hostname)
+		}
 	}
-
-	m.Lock()
-	s2 := m.m[hostname]
-	if s2 == nil || s2.Empty() {
-		m.m[hostname] = s
-	} else {
-		// Another pending call to Get populated m[hostname]
-		// while we were building s.  Use that one to ensure
-		// consistency.
-		s = s2
-	}
-	m.Unlock()
 
 	return s
 }
