@@ -106,20 +106,12 @@ func ipConnect(d *protect.RDial, proto string, ip netip.Addr, port int) (net.Con
 func splitIpConnect(d *protect.RDial, proto string, ip netip.Addr, port int) (net.Conn, error) {
 	switch proto {
 	case "tcp", "tcp4", "tcp6":
-		if conn, err := DialWithSplitRetry(d, tcpaddr(ip, port)); err == nil {
-			log.D("redial: tcp: confirmed IP %s worked for %s", ip)
-			return conn, nil
-		}
+		return DialWithSplitRetry(d, tcpaddr(ip, port))
 	case "udp", "udp4", "udp6":
-		if conn, err := d.DialUDP(proto, nil, udpaddr(ip, port)); err == nil {
-			log.D("redial: udp: confirmed IP %s worked for %s", ip)
-			return conn, nil
-		}
+		return d.DialUDP(proto, nil, udpaddr(ip, port))
 	default:
-		log.I("redial: unknown network %s", proto)
 		return d.Dial(proto, addr(ip, port))
 	}
-	return nil, net.UnknownNetworkError(proto)
 }
 
 func commondial(d *protect.RDial, network, addr string, connect connectFunc) (net.Conn, error) {
