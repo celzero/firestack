@@ -38,6 +38,8 @@ type Controller interface {
 	// Bind6 binds fd to any internet-capable IPv6 interface.
 	// also: github.com/lwip-tcpip/lwip/blob/239918c/src/core/ipv6/ip6.c#L68
 	Bind6(who string, fd int)
+	// Protect marks fd as protected.
+	Protect(who string, fd int)
 }
 
 type Protector interface {
@@ -46,9 +48,9 @@ type Protector interface {
 }
 
 func networkBinder(who string, ctl Controller) func(string, string, syscall.RawConn) error {
-	return func(network, address string, c syscall.RawConn) (err error) {
-		dst, err := netip.ParseAddrPort(address)
-		log.D("control: net(%s), dst(%s), err(%v), id(%s)", network, dst, err, who)
+	return func(network, addr string, c syscall.RawConn) (err error) {
+		// addr may be a wildcard aka ":<port>", in which case dst is a zero address.
+		log.D("control: %s: %s(%s); err? %v", who, network, addr, err)
 		return c.Control(func(fd uintptr) {
 			sock := int(fd)
 			switch network {
@@ -56,28 +58,21 @@ func networkBinder(who string, ctl Controller) func(string, string, syscall.RawC
 				ctl.Bind6(who, sock)
 			case "tcp4", "udp4":
 				ctl.Bind4(who, sock)
-			case "tcp", "udp":
-				if dst.Addr().Is6() {
-					ctl.Bind6(who, sock)
-				} else {
-					ctl.Bind4(who, sock)
-				}
+			case "tcp", "udp": // unexpected dual-stack socket
+				fallthrough // Control usually qualifies protocol family for the fd
 			default:
-				// no-op
+				ctl.Protect(who, sock)
 			}
 		})
 	}
 }
 
 func ipBinder(p Protector) func(string, string, syscall.RawConn) error {
-	return func(network, address string, c syscall.RawConn) (err error) {
+	return func(network, addr string, c syscall.RawConn) (err error) {
 		src := p.UIP(network)
 		ipaddr, _ := netip.AddrFromSlice(src)
-		origaddr, err := netip.ParseAddrPort(address)
-		log.D("control: net(%s), orig(%s/%w), bindto(%s)", network, origaddr, err, ipaddr)
-		if err != nil {
-			return err
-		}
+		origaddr, perr := netip.ParseAddrPort(addr)
+		log.D("control: %s(%s/%w), bindto(%s); err? %v", network, addr, origaddr, ipaddr, perr)
 
 		bind6 := func(fd uintptr) error {
 			sc := &syscall.SockaddrInet6{Addr: ipaddr.As16()}
@@ -95,14 +90,11 @@ func ipBinder(p Protector) func(string, string, syscall.RawConn) error {
 				err = bind6(fd)
 			case "tcp4", "udp4":
 				err = bind4(fd)
-			case "tcp", "udp":
-				if origaddr.Addr().Is6() {
-					err = bind6(fd)
-				} else {
-					err = bind4(fd)
-				}
+			case "tcp", "udp": // unexpected dual-stack socket?
+				fallthrough // see: networkBinder
 			default:
 				// no-op
+				// protect fd?
 			}
 			if err != nil {
 				log.E("protect: fail to bind ip(%s) to socket %v", ipaddr, err)
