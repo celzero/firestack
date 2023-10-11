@@ -168,11 +168,15 @@ func AddODoHTransport(t Tunnel, id, endpoint, resolver, epips string) error {
 	}
 }
 
-func AddDoTTransport(t Tunnel, id, url string) error {
+func AddDoTTransport(t Tunnel, id, url, ips string) error {
 	pxr := t.GetProxies()
 	r := t.GetResolver()
 	g := t.getBridge()
-	if dns, err := dns53.NewTLSTransport(id, url, pxr, g); err != nil {
+	split := []string{}
+	if len(ips) > 0 {
+		split = strings.Split(ips, ",")
+	}
+	if dns, err := dns53.NewTLSTransport(id, url, split, pxr, g); err != nil {
 		return err
 	} else {
 		return addDNSTransport(r, dns)
