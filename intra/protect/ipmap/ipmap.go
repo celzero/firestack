@@ -34,14 +34,14 @@ import (
 )
 
 var zeroaddr = netip.Addr{}
-var tresolver = net.DefaultResolver
 
-type Resolver interface {
+type IPMapper interface {
 	LookupNetIP(ctx context.Context, network, host string) ([]netip.Addr, error)
 }
 
 // IPMap maps hostnames to IPSets.
 type IPMap interface {
+	IPMapper
 	// Get creates an IPSet for this hostname populated with the IPs
 	// discovered by resolving it.  Subsequent calls to Get return the
 	// same IPSet.
@@ -50,12 +50,14 @@ type IPMap interface {
 	// Of creates an IPSet for this hostname bootstrapped with given IPs.
 	// Subsequent calls to Of return a new, overriden IPSet.
 	Of(hostname string, ips []string) *IPSet
+	// With sets the default resolver to use for hostname resolution.
+	With(r IPMapper)
 }
 
 type ipMap struct {
 	sync.RWMutex
 	m map[string]*IPSet
-	r Resolver // always the default system resolver
+	r IPMapper // always the default system resolver
 }
 
 // IPSet represents an unordered collection of IP addresses for a single host.
@@ -64,21 +66,34 @@ type IPSet struct {
 	sync.RWMutex              // Protects this struct.
 	ips          []netip.Addr // All known IPs for the server.
 	confirmed    netip.Addr   // IP address confirmed to be working.
-	r            Resolver     // Resolver to use for hostname resolution.
+	r            IPMapper     // Resolver to use for hostname resolution.
 	seed         []string     // Bootstrap IPs; may be nil.
 }
 
-// NewIPMap returns a fresh IPMap.
-// `r` will be used to resolve any hostnames passed to Get or Add.
 func NewIPMap() IPMap {
-	return NewIPMapFor(tresolver)
+	return NewIPMapFor(nil)
 }
 
-func NewIPMapFor(r Resolver) IPMap {
+// NewIPMapFor returns a fresh IPMap with r as its nameserver.
+func NewIPMapFor(r IPMapper) IPMap {
 	return &ipMap{
 		m: make(map[string]*IPSet),
 		r: r,
 	}
+}
+
+func (m *ipMap) With(r IPMapper) {
+	log.I("ipmap: new resolver")
+	m.r = r // may be nil
+}
+
+// Implements IPMapper.
+func (m *ipMap) LookupNetIP(ctx context.Context, network, host string) ([]netip.Addr, error) {
+	r := m.r
+	if r == nil {
+		return nil, &net.DNSError{Err: "no resolver", Name: host}
+	}
+	return m.r.LookupNetIP(ctx, network, host)
 }
 
 func (m *ipMap) Get(hostname string) *IPSet {
@@ -126,7 +141,7 @@ func (m *ipMap) Of(hostname string, ips []string) *IPSet {
 	if len(ips) <= 0 {
 		ips = []string{}
 	}
-	s := &IPSet{r: m.r, seed: ips}
+	s := &IPSet{r: m, seed: ips}
 	s.bootstrap()
 
 	m.Lock()
@@ -149,7 +164,8 @@ func (s *IPSet) hasLocked(ip netip.Addr) bool {
 // Adds an IP to the set if it is not present.  Must be called under Lock.
 func (s *IPSet) addLocked(ip netip.Addr) {
 	if !ip.IsUnspecified() && ip.IsValid() && !s.hasLocked(ip) {
-		s.ips = append(s.ips, ip)
+		// always unmapped; github.com/golang/go/issues/53607
+		s.ips = append(s.ips, ip.Unmap())
 	}
 }
 
@@ -162,11 +178,6 @@ func (s *IPSet) Seed() []string {
 // Add one or more IP addresses to the set.
 // The hostname can be a domain name or an IP address.
 func (s *IPSet) Add(hostname string) {
-	r := s.r
-	if r == nil {
-		log.W("ipmap: Add: resolver not set")
-		return
-	}
 	ctx := context.Background()
 	// Don't hold the ipMap lock during blocking I/O.
 	resolved, err := s.r.LookupNetIP(ctx, "ip", hostname)
