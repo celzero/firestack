@@ -591,6 +591,7 @@ func gen4Locked(k string, hop int) netip.Addr {
 		uint8(v22 & 0xff),           // extract last 8 bits
 	}
 
+	// why unmap? github.com/golang/go/issues/53607
 	return netip.AddrFrom4(b4).Unmap()
 }
 

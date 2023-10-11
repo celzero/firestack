@@ -109,6 +109,7 @@ func (p *ProcNetEntry) Same(q *ProcNetEntry) bool {
 		return false
 	}
 
+	// unmap: github.com/golang/go/issues/53607
 	src1 := p.SrcIP.Unmap()
 	src2 := q.SrcIP.Unmap()
 	dst1 := p.DstIP.Unmap()
