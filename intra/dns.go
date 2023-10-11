@@ -19,8 +19,8 @@ import (
 	"github.com/celzero/firestack/intra/log"
 )
 
-func addIPMapper(r dnsx.Resolver) {
-	dns53.AddIPMapper(r)
+func addIPMapper(r dnsx.Resolver, l dnsx.DNSListener) {
+	dns53.AddIPMapper(r, l)
 }
 
 func AddDNSProxy(t Tunnel, id, ip, port string) error {

@@ -42,6 +42,7 @@ const (
 	BlockAll  = "BlockAll"  // all blocks
 	Alg       = "Alg"       // dns application-level gateway
 	DcProxy   = "DcProxy"   // dnscrypt.Proxy as a transport
+	IpMapper  = "IpMapper"  // dns resolver for dns resolvers
 
 	invalidQname = "invalid.query"
 

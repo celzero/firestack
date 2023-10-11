@@ -10,7 +10,9 @@ import (
 	"context"
 	"errors"
 	"net/netip"
+	"time"
 
+	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/dnsx"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/split"
@@ -22,32 +24,74 @@ var (
 	errNoHost = errors.New("no hostname")
 	errNoAns  = errors.New("no answer")
 	errNoIps  = errors.New("no ips")
+	ttl5s     = 5 * time.Second
 )
 
 type ipmapper struct {
-	r dnsx.Resolver
+	id string
+	r  dnsx.Resolver
+	l  dnsx.DNSListener
+	ba *core.Barrier
 }
 
-func AddIPMapper(r dnsx.Resolver) {
-	m := &ipmapper{r}
+func AddIPMapper(r dnsx.Resolver, l dnsx.DNSListener) {
+	m := &ipmapper{dnsx.IpMapper, r, l, core.NewBarrier(ttl5s)}
 	split.Mapper(m)
 }
 
-func (m *ipmapper) LookupNetIP(ctx context.Context, network, host string) ([]netip.Addr, error) {
+func (m *ipmapper) LookupNetIP(ctx context.Context, network, host string) (_ []netip.Addr, err error) {
 	if len(host) <= 0 {
 		return nil, errNoHost
 	}
 
-	q4, err4 := query(host, dns.TypeA)
-	q6, err6 := query(host, dns.TypeAAAA)
+	q4, err4 := dnsmsg(host, dns.TypeA)
+	q6, err6 := dnsmsg(host, dns.TypeAAAA)
 	if err4 != nil || err6 != nil {
 		return nil, errors.Join(err4, err6)
 	}
-	r4, err4 := m.r.Forward(q4)
-	r6, err6 := m.r.Forward(q6)
+
+	ssu4 := &dnsx.Summary{
+		QName:  host,
+		QType:  int(dns.TypeA),
+		Status: dnsx.Start,
+	}
+	ssu6 := &dnsx.Summary{
+		QName:  host,
+		QType:  int(dns.TypeAAAA),
+		Status: dnsx.Start,
+	}
+
+	defer func() {
+		if err != nil && !errors.Is(err, errNoIps) {
+			log.W("ipmapper: lookup(%s), err: %v", host, err)
+			ssu4.RCode = dns.RcodeServerFailure
+			ssu4.RData = xdns.GetInterestingRData(nil)
+			ssu4.Status = dnsx.SendFailed
+			ssu4.ID = m.id
+			ssu6.RCode = dns.RcodeServerFailure
+			ssu6.RData = xdns.GetInterestingRData(nil)
+			ssu6.Status = dnsx.SendFailed
+			ssu6.ID = m.id
+		}
+		go m.l.OnResponse(ssu4)
+		go m.l.OnResponse(ssu6)
+	}()
+
+	// TODO: m.l.OnQuery() to determine transport with suggested_id?
+	tr, errtr := m.determineTransport()
+	if errtr != nil {
+		return nil, errtr
+	}
+
+	r4, err4 := tr.Query(dnsx.NetTypeUDP, q4, ssu4)
+	r6, err6 := tr.Query(dnsx.NetTypeUDP, q6, ssu6)
+
 	if len(r4) <= 0 && len(r6) <= 0 {
 		return nil, errors.Join(errNoAns, err4, err6)
+	} else if err4 != nil && err6 != nil {
+		return nil, errors.Join(err4, err6)
 	}
+
 	ips := make([]netip.Addr, 0, len(r4)+len(r6))
 	ip4 := addrs(r4)
 	ip6 := addrs(r6)
@@ -57,6 +101,20 @@ func (m *ipmapper) LookupNetIP(ctx context.Context, network, host string) ([]net
 		return nil, errNoIps
 	}
 	return ips, nil
+}
+
+func (m *ipmapper) determineTransport() (tr dnsx.Transport, err error) {
+	dtr, derr := m.r.Get(dnsx.Default)
+	if derr == nil && dtr.ID() != dnsx.BlockAll {
+		tr = dtr
+	} else {
+		str, serr := m.r.Get(dnsx.System)
+		if serr != nil {
+			return nil, errors.Join(serr, derr)
+		}
+		tr = str
+	}
+	return
 }
 
 func addrs(a []byte) []netip.Addr {
@@ -82,7 +140,7 @@ func addrs(a []byte) []netip.Addr {
 	return ips
 }
 
-func query(host string, qtype uint16) ([]byte, error) {
+func dnsmsg(host string, qtype uint16) ([]byte, error) {
 	msg := dns.Msg{
 		MsgHdr: dns.MsgHdr{
 			RecursionDesired: true,
