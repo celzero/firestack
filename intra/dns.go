@@ -92,6 +92,15 @@ func NewDefaultTransport(dohurl, ips string) (dnsx.Transport, error) {
 	return doh.NewTransport(dnsx.Default, dohurl, split, nil, nil)
 }
 
+func AddDefaultTransport(t Tunnel, dohurl, ips string) error {
+	r := t.GetResolver()
+	if dns, err := NewDefaultTransport(dohurl, ips); err != nil {
+		return err
+	} else {
+		return addDNSTransport(r, dns)
+	}
+}
+
 func AddProxyDNS(t Tunnel, p ipn.Proxy) error {
 	pxr := t.GetProxies()
 	r := t.GetResolver()
