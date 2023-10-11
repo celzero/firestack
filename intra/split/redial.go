@@ -38,6 +38,9 @@ func udpaddr(ip netip.Addr, port int) *net.UDPAddr {
 }
 
 func Renew(hostname string, addrs []string) bool {
+	if len(hostname) <= 0 {
+		return false
+	}
 	ips := ipm.Of(hostname, addrs)
 	return ips != nil && !ips.Empty()
 }
@@ -78,7 +81,18 @@ func Disconfirm(hostname string, ip net.Addr) bool {
 	return false
 }
 
-func connect(d *protect.RDial, proto string, ip netip.Addr, port int) (net.Conn, error) {
+func filter(ips []netip.Addr, exclude netip.Addr) []netip.Addr {
+	filtered := make([]netip.Addr, 0, len(ips))
+	for _, ip := range ips {
+		if ip.Compare(exclude) == 0 || !ip.IsValid() {
+			continue
+		}
+		filtered = append(filtered, ip)
+	}
+	return filtered
+}
+
+func ipConnect(d *protect.RDial, proto string, ip netip.Addr, port int) (net.Conn, error) {
 	switch proto {
 	case "tcp", "tcp4", "tcp6":
 		return d.DialTCP(proto, nil, tcpaddr(ip, port))
@@ -89,7 +103,7 @@ func connect(d *protect.RDial, proto string, ip netip.Addr, port int) (net.Conn,
 	}
 }
 
-func splitconnect(d *protect.RDial, proto string, ip netip.Addr, port int) (net.Conn, error) {
+func splitIpConnect(d *protect.RDial, proto string, ip netip.Addr, port int) (net.Conn, error) {
 	switch proto {
 	case "tcp", "tcp4", "tcp6":
 		if conn, err := DialWithSplitRetry(d, tcpaddr(ip, port)); err == nil {
@@ -137,13 +151,14 @@ func commondial(d *protect.RDial, network, addr string, connect connectFunc) (ne
 		log.D("redial: commondial: confirmed IP %s for %s failed with err %v", confirmed, addr, err)
 	}
 
-	allips := ips.GetAll()
+	allips := filter(ips.GetAll(), confirmed)
+	if len(allips) <= 0 {
+		log.D("redial: commondial: renew IPs for %s", addr)
+		Renew(domain, ips.Seed())
+		allips = filter(ips.GetAll(), confirmed)
+	}
 	log.D("redial: commondial: trying all IPs %d for %s", len(allips), addr)
 	for _, ip := range allips {
-		// confirmed already tried above
-		if ip.Compare(confirmed) == 0 || !ip.IsValid() {
-			continue
-		}
 		if conn, err = connect(d, network, ip, port); err == nil {
 			ips.Confirm(ip)
 			log.I("redial: commondial: found working IP %s for %s", ip, addr)
@@ -152,20 +167,15 @@ func commondial(d *protect.RDial, network, addr string, connect connectFunc) (ne
 	}
 
 	dur := time.Since(start).Seconds()
-	log.W("redial: commondial: duration: %ss; renew %s", dur, addr)
-
-	if ok := Renew(domain, ips.Seed()); ok && dur < 5 {
-		log.I("redial: commondfial: renewed %s", domain)
-		return commondial(d, network, addr, connect)
-	}
-
-	return nil, net.UnknownNetworkError(network)
+	log.D("redial: commondial: duration: %ss; failed %s", dur, addr)
+	// xxx: return nil, net.UnknownNetworkError(network)?
+	return d.Dial(network, addr)
 }
 
 func SplitDial(d *protect.RDial, network, addr string) (net.Conn, error) {
-	return commondial(d, network, addr, splitconnect)
+	return commondial(d, network, addr, splitIpConnect)
 }
 
 func Dial(d *protect.RDial, network, addr string) (net.Conn, error) {
-	return commondial(d, network, addr, connect)
+	return commondial(d, network, addr, ipConnect)
 }
