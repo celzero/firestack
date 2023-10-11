@@ -24,7 +24,9 @@ var (
 	errNoHost = errors.New("no hostname")
 	errNoAns  = errors.New("no answer")
 	errNoIps  = errors.New("no ips")
-	ttl5s     = 5 * time.Second
+	errNoNet  = errors.New("unknown network")
+
+	ttl5s = 5 * time.Second
 )
 
 type ipmapper struct {
@@ -39,13 +41,33 @@ func AddIPMapper(r dnsx.Resolver, l dnsx.DNSListener) {
 	split.Mapper(m)
 }
 
+func str2ip(host string) (netip.Addr, error) {
+	return netip.ParseAddr(host)
+}
+
 func (m *ipmapper) LookupNetIP(ctx context.Context, network, host string) (_ []netip.Addr, err error) {
 	if len(host) <= 0 {
 		return nil, errNoHost
 	}
+	// no lookups when host is already an IP
+	if ip, err := str2ip(host); err == nil {
+		return []netip.Addr{ip}, nil
+	}
 
-	q4, err4 := dnsmsg(host, dns.TypeA)
-	q6, err6 := dnsmsg(host, dns.TypeAAAA)
+	var q4, q6 []byte
+	var err4, err6 error
+	switch network {
+	case "ip":
+		q4, err4 = dnsmsg(host, dns.TypeA)
+		q6, err6 = dnsmsg(host, dns.TypeAAAA)
+	case "ip4":
+		q4, err4 = dnsmsg(host, dns.TypeA)
+	case "ip6":
+		q6, err6 = dnsmsg(host, dns.TypeAAAA)
+	default:
+		return nil, errNoNet
+	}
+
 	if err4 != nil || err6 != nil {
 		return nil, errors.Join(err4, err6)
 	}
