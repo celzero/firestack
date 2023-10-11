@@ -790,28 +790,27 @@ func (r *resolver) preferencesFrom(qname string, s *NsOpts, chosenids ...string)
 		id1, id2 = x[0], x[1] // ids for transport t1, t2
 	}
 
-	if isAnyBlockAll(id1, id2) { // just one transport, BlockAll, if set
+	if len(chosenids) > 0 { // chosen ID overrides all
+		if len(chosenids[0]) > 0 {
+			id1 = chosenids[0]
+		}
+		if len(chosenids) > 1 && len(chosenids[1]) > 0 {
+			id2 = chosenids[1]
+		}
+		log.D("dns: pref: use chosen tr(%s, %s) for %s", id1, id2, qname)
+	} else if isAnyBlockAll(id1, id2) { // just one transport, BlockAll, if set
 		id1 = BlockAll
 		id2 = ""
-	} else {
-		if reqid := r.requiresSystemOrLocal(qname); len(reqid) > 0 { // use requested transport, if any
-			log.D("dns: pref: use suggested tr(%s) for %s", reqid, qname)
-			id1 = reqid
-			id2 = ""
-		} else if len(chosenids) > 0 {
-			if len(chosenids[0]) > 0 {
-				id1 = chosenids[0]
-			}
-			if len(chosenids) > 1 && len(chosenids[1]) > 0 {
-				id2 = chosenids[1]
-			}
-			log.D("dns: pref: use chosen tr(%s, %s) for %s", id1, id2, qname)
-		}
-		if isAnyLocal(id1, id2) { // just one transport, Local, if set
-			id1 = Local
-			id2 = ""
-		}
+	} else if reqid := r.requiresSystemOrLocal(qname); len(reqid) > 0 { // use approp transport given a qname
+		log.D("dns: pref: use suggested tr(%s) for %s", reqid, qname)
+		id1 = reqid
+		id2 = ""
 	}
+	if isAnyLocal(id1, id2) { // use one transport, Local, if set
+		id1 = Local
+		id2 = ""
+	}
+
 	if len(s.PID) > 0 && allowProxy(id1, id2) {
 		pid = s.PID // id for proxy
 	} else {
