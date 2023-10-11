@@ -25,6 +25,7 @@ var (
 	errNoAns  = errors.New("no answer")
 	errNoIps  = errors.New("no ips")
 	errNoNet  = errors.New("unknown network")
+	errBaAns  = errors.New("barrier: invalid answer")
 
 	ttl5s = 5 * time.Second
 )
@@ -34,6 +35,11 @@ type ipmapper struct {
 	r  dnsx.Resolver
 	l  dnsx.DNSListener
 	ba *core.Barrier
+}
+
+type anssummary struct {
+	ans []byte
+	s   *dnsx.Summary
 }
 
 func AddIPMapper(r dnsx.Resolver, l dnsx.DNSListener) {
@@ -105,8 +111,27 @@ func (m *ipmapper) LookupNetIP(ctx context.Context, network, host string) (_ []n
 		return nil, errtr
 	}
 
-	r4, err4 := tr.Query(dnsx.NetTypeUDP, q4, ssu4)
-	r6, err6 := tr.Query(dnsx.NetTypeUDP, q6, ssu6)
+	rv4 := m.ba.Do(host+":4", func() (any, error) {
+		ans, err := tr.Query(dnsx.NetTypeUDP, q4, ssu4)
+		return &anssummary{ans, ssu4}, err
+
+	})
+	rv6 := m.ba.Do(host+":6", func() (any, error) {
+		ans, err := tr.Query(dnsx.NetTypeUDP, q6, ssu6)
+		return &anssummary{ans, ssu6}, err
+	})
+
+	asmm4, ok4 := rv4.Val.(*anssummary)
+	asmm6, ok6 := rv4.Val.(*anssummary)
+	if !ok4 || !ok6 {
+		return nil, errBaAns
+	}
+	// fill summary regardless of rv.Err
+	asmm4.s.FillInto(ssu4) // asmm4.s may be equal to ssu4
+	asmm6.s.FillInto(ssu6) // asmm6.s may be equal to ssu6
+
+	r4, err4 := asmm4.ans, rv4.Err
+	r6, err6 := asmm6.ans, rv6.Err
 
 	if len(r4) <= 0 && len(r6) <= 0 {
 		return nil, errors.Join(errNoAns, err4, err6)

@@ -322,7 +322,7 @@ func (t *ctransport) fetch(network string, q []byte, msg *dns.Msg, summary *Summ
 			return nil, errCacheResponseMismatch
 		}
 		// fill summary regardless of rv.Err
-		asmm.s.FillInto(s) // bares.s may be equal to s
+		asmm.s.FillInto(s) // asmm.s may be equal to s
 
 		return asmm.ans, rv.Err
 	}
