@@ -154,9 +154,12 @@ func commondial(d *protect.RDial, network, addr string, connect connectFunc) (ne
 	dur := time.Since(start).Seconds()
 	log.W("redial: commondial: duration: %ss; renew %s", dur, addr)
 
-	go Renew(domain, ips.Seed())
+	if ok := Renew(domain, ips.Seed()); ok && dur < 5 {
+		log.I("redial: commondfial: renewed %s", domain)
+		return commondial(d, network, addr, connect)
+	}
 
-	return d.Dial(network, addr)
+	return nil, net.UnknownNetworkError(network)
 }
 
 func SplitDial(d *protect.RDial, network, addr string) (net.Conn, error) {
