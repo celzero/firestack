@@ -63,7 +63,7 @@ var (
 
 const (
 	wgdnstimeout = time.Second * 5
-	wgbarrierttl = time.Second * 30
+	wgbarrierttl = time.Second * 10
 )
 
 func (net *wgtun) LookupHost(host string) (addrs []string, err error) {

@@ -36,7 +36,7 @@ const (
 	// ttl for expired response
 	stalettl = 15 // seconds
 	// ttl for response from requests that were barriered
-	ttl30s = 30 * time.Second
+	ttl10s = 10 * time.Second
 	// how many entries to scrub at a time per cache bucket
 	maxscrubs = defsize / 4 // 25% of the cache
 	// prefix for cached transport addresses
@@ -109,7 +109,7 @@ func NewCachingTransport(t Transport, ttl time.Duration) Transport {
 		halflife:   ttl / 2,
 		bumps:      defbumps,
 		size:       defsize,
-		reqbarrier: core.NewBarrier(ttl30s),
+		reqbarrier: core.NewBarrier(ttl10s),
 		est:        core.NewP50Estimator(),
 	}
 	log.I("cache: (%s) setup: %s; opts: %s", ct.ID(), ct.GetAddr(), ct.str())
