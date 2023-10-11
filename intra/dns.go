@@ -19,8 +19,8 @@ import (
 	"github.com/celzero/firestack/intra/log"
 )
 
-func addIPMapper(r dnsx.Resolver, l dnsx.DNSListener) {
-	dns53.AddIPMapper(r, l)
+func addIPMapper(r dnsx.Resolver) {
+	dns53.AddIPMapper(r)
 }
 
 func AddDNSProxy(t Tunnel, id, ip, port string) error {
@@ -86,7 +86,7 @@ func newMDNSTransport(protos string) (d dnsx.Transport) {
 	return dns53.NewMDNSTransport(protos)
 }
 
-func NewDefaultTransport(dohurl, ips string) (dnsx.Transport, error) {
+func newDefaultTransport(dohurl, ips string, g Bridge) (dnsx.Transport, error) {
 	if len(dohurl) <= 0 {
 		return dns53.NewGroundedTransport(dnsx.BlockAll), nil
 	}
@@ -94,12 +94,13 @@ func NewDefaultTransport(dohurl, ips string) (dnsx.Transport, error) {
 	if len(ips) > 0 {
 		split = strings.Split(ips, ",")
 	}
-	return doh.NewTransport(dnsx.Default, dohurl, split, nil, nil)
+	return doh.NewTransport(dnsx.Default, dohurl, split, nil, g)
 }
 
 func AddDefaultTransport(t Tunnel, dohurl, ips string) error {
 	r := t.GetResolver()
-	if dns, err := NewDefaultTransport(dohurl, ips); err != nil {
+	g := t.getBridge()
+	if dns, err := newDefaultTransport(dohurl, ips, g); err != nil {
 		return err
 	} else {
 		return addDNSTransport(r, dns)
