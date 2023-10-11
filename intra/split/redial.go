@@ -24,11 +24,16 @@ var ipm ipmap.IPMap = ipmap.NewIPMap()
 func addr(ip netip.Addr, port int) string {
 	return net.JoinHostPort(ip.String(), strconv.Itoa(port))
 }
+
 func tcpaddr(ip netip.Addr, port int) *net.TCPAddr {
+	// ip must never be a wildcard address and must be unmapped
+	// go.dev/play/p/UopgKYEMJtw
 	return &net.TCPAddr{IP: ip.AsSlice(), Port: port}
 }
 
 func udpaddr(ip netip.Addr, port int) *net.UDPAddr {
+	// ip must never be a wildcard address and must be unmapped
+	// go.dev/play/p/UopgKYEMJtw
 	return &net.UDPAddr{IP: ip.AsSlice(), Port: port}
 }
 
@@ -100,7 +105,7 @@ func splitconnect(d *protect.RDial, proto string, ip netip.Addr, port int) (net.
 func commondial(d *protect.RDial, network, addr string, connect connectFunc) (net.Conn, error) {
 	start := time.Now()
 
-	log.D("commondial: dialing %s", addr)
+	log.D("redial: commondial: dialing %s", addr)
 	domain, portstr, err := net.SplitHostPort(addr)
 	if err != nil {
 		return nil, err
@@ -118,11 +123,11 @@ func commondial(d *protect.RDial, network, addr string, connect connectFunc) (ne
 			return conn, nil
 		}
 		ips.Disconfirm(confirmed)
-		log.D("commondial: confirmed IP %s for %s failed with err %v", confirmed, addr, err)
+		log.D("redial: commondial: confirmed IP %s for %s failed with err %v", confirmed, addr, err)
 	}
 
 	allips := ips.GetAll()
-	log.D("redial: trying all IPs %d for %s", len(allips), addr)
+	log.D("redial: commondial: trying all IPs %d for %s", len(allips), addr)
 	for _, ip := range allips {
 		// confirmed already tried above
 		if ip.Compare(confirmed) == 0 || !ip.IsValid() {
@@ -130,13 +135,13 @@ func commondial(d *protect.RDial, network, addr string, connect connectFunc) (ne
 		}
 		if conn, err = connect(d, network, ip, port); err == nil {
 			ips.Confirm(ip)
-			log.I("commondial: found working IP %s for %s", ip, addr)
+			log.I("redial: commondial: found working IP %s for %s", ip, addr)
 			return conn, nil
 		}
 	}
 
 	dur := time.Since(start).Seconds()
-	log.W("commondial: duration: %ss; renew %s", dur, addr)
+	log.W("redial: commondial: duration: %ss; renew %s", dur, addr)
 
 	go Renew(domain, ips.Seed())
 
