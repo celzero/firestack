@@ -124,3 +124,14 @@ func newHTTPClient(d *protect.RDial) *http.Client {
 	}
 	return c
 }
+
+func newHTTP1Client(d *protect.RDial) *http.Client {
+	c := &http.Client{}
+	c.Transport = &http.Transport{
+		Dial:                  d.Dial,
+		ForceAttemptHTTP2:     false,
+		TLSHandshakeTimeout:   tlsHandshakeTimeout,
+		ResponseHeaderTimeout: responseHeaderTimeout,
+	}
+	return c
+}

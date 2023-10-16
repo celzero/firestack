@@ -54,7 +54,7 @@ func NewSocks5Proxy(id string, ctl protect.Controller, po *settings.ProxyOptions
 		opts:   po,
 	}
 	h.rd = newRDial(h)
-	h.hc = newHTTPClient(h.rd)
+	h.hc = newHTTP1Client(h.rd)
 
 	log.D("proxy: socks5: created %s with opts(%s)", h.ID(), po)
 
@@ -106,7 +106,7 @@ func (h *socks5) DNS() string {
 
 func (h *socks5) fetch(req *http.Request) (*http.Response, error) {
 	stopped := h.status == END
-	log.V("proxy: socks5: %d; fetch(%s); ok? %t", h.id, req.URL, stopped)
+	log.V("proxy: socks5: %s; fetch(%s); ok? %t", h.id, req.URL, !stopped)
 	if stopped {
 		return nil, errProxyStopped
 	}
