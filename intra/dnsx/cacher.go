@@ -46,6 +46,7 @@ const (
 )
 
 var (
+	errNoQuestion            = errors.New("no question")
 	errCacheResponseEmpty    = errors.New("empty cache response")
 	errCacheResponseMismatch = errors.New("cache response mismatch")
 )
@@ -259,6 +260,10 @@ func (cb *cache) put(response []byte, s *Summary) (ok bool) {
 }
 
 func asResponse(q *dns.Msg, v *cres, fresh bool) (r []byte, s *Summary, err error) {
+	if q == nil {
+		err = errNoQuestion
+		return
+	}
 	a := v.ans
 	if a == nil {
 		err = errCacheResponseEmpty
@@ -294,37 +299,34 @@ func (t *ctransport) Type() string {
 	return t.Transport.Type()
 }
 
-type anssummary struct {
-	ans []byte
-	s   *Summary
-}
-
 func (t *ctransport) fetch(network string, q []byte, msg *dns.Msg, summary *Summary, cb *cache, key string) (r []byte, err error) {
 	sendRequest := func(async bool) ([]byte, error) {
-		var s *Summary
+		var finalsumm *Summary
 		if async {
-			s = new(Summary)
+			finalsumm = new(Summary)
 		} else {
-			s = summary
+			finalsumm = summary
 		}
 
-		s.ID = t.Transport.ID()
-		s.Type = t.Transport.Type()
+		finalsumm.ID = t.Transport.ID()
+		finalsumm.Type = t.Transport.Type()
 
 		rv := t.reqbarrier.Do(key, func() (any, error) {
-			ans, err := t.Transport.Query(network, q, s)
-			cb.put(ans, s)
-			return &anssummary{ans, s}, err
+			ans, err := t.Transport.Query(network, q, finalsumm)
+			cb.put(ans, finalsumm)
+			return &cres{ans: xdns.AsMsg(ans), s: finalsumm}, err
 		})
 
-		asmm, ok := rv.Val.(*anssummary)
+		cachedres, ok := rv.Val.(*cres)
 		if !ok {
 			return nil, errCacheResponseMismatch
 		}
-		// fill summary regardless of rv.Err
-		asmm.s.FillInto(s) // asmm.s may be equal to s
 
-		return asmm.ans, rv.Err
+		finalres, origsumm, finalerr := asResponse(msg, cachedres, true)
+		// fill summary regardless of errors
+		origsumm.FillInto(finalsumm) // origsumm may be equal to s
+
+		return finalres, errors.Join(rv.Err, finalerr)
 	}
 
 	// check if underlying transport can connect fine, if not treat cache
