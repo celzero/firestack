@@ -40,11 +40,11 @@ import (
 	"gvisor.dev/gvisor/pkg/tcpip/adapters/gonet"
 
 	"github.com/celzero/firestack/intra/core"
+	"github.com/celzero/firestack/intra/dialers"
 	"github.com/celzero/firestack/intra/ipn"
 	"github.com/celzero/firestack/intra/netstack"
 	"github.com/celzero/firestack/intra/protect"
 	"github.com/celzero/firestack/intra/settings"
-	"github.com/celzero/firestack/intra/split"
 )
 
 const (
@@ -59,7 +59,6 @@ const (
 var (
 	errTcpFirewalled = errors.New("tcp: firewalled")
 	errTcpSetupConn  = errors.New("tcp: could not create conn")
-	errTcpHandshake  = errors.New("tcp: handshake failed")
 )
 
 // TCPHandler is a core TCP handler that also supports DOH and splitting control.
@@ -359,13 +358,13 @@ func (h *tcpHandler) Handle(conn net.Conn, target *net.TCPAddr, summary *SocketS
 	// split client-hello if server-port is 443
 	if px.ID() == ipn.Base {
 		if port := filteredPort(target); port == 443 {
-			timeout := split.CalcTimeout(start, end)
+			timeout := dialers.CalcTimeout(start, end)
 			tcpconn, ok := c.(*net.TCPConn)
 			if !ok {
 				log.W("tcp: err spliting; ipn.Base must return a net.TCPConn")
 				return errTcpSetupConn
 			}
-			c = split.RetryingConn(px.Dialer(), target, timeout, tcpconn)
+			c = dialers.RetryingConn(px.Dialer(), target, timeout, tcpconn)
 		}
 	}
 

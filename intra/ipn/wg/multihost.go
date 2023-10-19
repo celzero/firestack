@@ -10,8 +10,8 @@ import (
 	"net/netip"
 	"strings"
 
+	"github.com/celzero/firestack/intra/dialers"
 	"github.com/celzero/firestack/intra/log"
-	"github.com/celzero/firestack/intra/split"
 )
 
 // Multihost is a list of hostnames and/or ip addresses for one endpoint.
@@ -49,7 +49,7 @@ func (h *Multihost) With(domainsOrIps []string) {
 		dip = strings.TrimSpace(dip)                     // hostname or ip
 		if ip, err := netip.ParseAddr(dip); err != nil { // may be hostname
 			h.names = append(h.names, dip) // add hostname regardless of resolution
-			if resolvedips := split.For(dip); len(resolvedips) > 0 {
+			if resolvedips := dialers.For(dip); len(resolvedips) > 0 {
 				h.addrs = append(h.addrs, resolvedips...)
 			} else {
 				log.W("proxy: wg: multihost: no ips for %q", dip)

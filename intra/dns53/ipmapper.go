@@ -11,9 +11,9 @@ import (
 	"errors"
 	"net/netip"
 
+	"github.com/celzero/firestack/intra/dialers"
 	"github.com/celzero/firestack/intra/dnsx"
 	"github.com/celzero/firestack/intra/log"
-	"github.com/celzero/firestack/intra/split"
 	"github.com/celzero/firestack/intra/xdns"
 	"github.com/miekg/dns"
 )
@@ -31,7 +31,7 @@ type ipmapper struct {
 
 func AddIPMapper(r dnsx.Resolver) {
 	m := &ipmapper{dnsx.IpMapper, r}
-	split.Mapper(m)
+	dialers.Mapper(m)
 }
 
 func str2ip(host string) (netip.Addr, error) {

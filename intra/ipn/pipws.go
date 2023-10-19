@@ -16,10 +16,10 @@ import (
 	"time"
 
 	"github.com/celzero/firestack/intra/core"
+	"github.com/celzero/firestack/intra/dialers"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
 	"github.com/celzero/firestack/intra/settings"
-	"github.com/celzero/firestack/intra/split"
 	"nhooyr.io/websocket"
 )
 
@@ -53,7 +53,7 @@ func (c *pipwsconn) CloseRead() error  { return c.Close() }
 func (c *pipwsconn) CloseWrite() error { return c.Close() }
 
 func (t *pipws) dial(network, addr string) (net.Conn, error) {
-	return split.SplitDial(t.proxydialer, network, addr)
+	return dialers.SplitDial(t.proxydialer, network, addr)
 }
 
 func (t *pipws) wsconn(rurl, msg string) (c net.Conn, res *http.Response, err error) {
@@ -130,7 +130,7 @@ func NewPipWsProxy(id string, ctl protect.Controller, po *settings.ProxyOptions)
 	t.rd = newRDial(t)
 	t.hc = newHTTPClient(t.rd)
 
-	ok := split.Renew(t.hostname, po.Addrs) // po.Addrs may be nil or empty
+	ok := dialers.Renew(t.hostname, po.Addrs) // po.Addrs may be nil or empty
 	if !ok {
 		log.W("pipws: zero bootstrap ips %s", t.hostname)
 	}

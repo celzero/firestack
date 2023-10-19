@@ -9,10 +9,10 @@ package ipn
 import (
 	"net/http"
 
+	"github.com/celzero/firestack/intra/dialers"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
 	"github.com/celzero/firestack/intra/settings"
-	"github.com/celzero/firestack/intra/split"
 	tx "github.com/txthinking/socks5"
 )
 
@@ -66,7 +66,7 @@ func (h *socks5) Dial(network, addr string) (c protect.Conn, err error) {
 	}
 
 	// tx.Client.Dial does not support dialing hostnames
-	if c, err = split.ProxyDial(h.proxydialer, network, addr); err == nil {
+	if c, err = dialers.ProxyDial(h.proxydialer, network, addr); err == nil {
 		// in txthinking/socks5, an underlying-conn is actually a net.TCPConn
 		// github.com/txthinking/socks5/blob/39268fae/client.go#L15
 		if uc, ok := c.(*tx.Client); ok {

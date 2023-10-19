@@ -4,7 +4,7 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
-package split
+package dialers
 
 import (
 	"net"
@@ -49,7 +49,7 @@ func For(hostname string) []netip.Addr {
 }
 
 func Mapper(m ipmap.IPMapper) {
-	log.I("split: mapper ok? %t", m != nil)
+	log.I("dialers: ips: mapper ok? %t", m != nil)
 	// usually set just the once
 	ipm.With(m)
 }

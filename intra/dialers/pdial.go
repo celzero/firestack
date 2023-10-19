@@ -4,21 +4,21 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
-package split
+package dialers
 
 import (
-	"crypto/tls"
 	"net"
 	"net/netip"
 	"strconv"
 	"time"
 
 	"github.com/celzero/firestack/intra/log"
+	"golang.org/x/net/proxy"
 )
 
-type tlsConnectFunc func(*tls.Dialer, string, netip.Addr, int) (net.Conn, error)
+type proxyConnectFunc func(proxy.Dialer, string, netip.Addr, int) (net.Conn, error)
 
-func tlsConnect(d *tls.Dialer, proto string, ip netip.Addr, port int) (net.Conn, error) {
+func proxyConnect(d proxy.Dialer, proto string, ip netip.Addr, port int) (net.Conn, error) {
 	switch proto {
 	case "tcp", "tcp4", "tcp6":
 		fallthrough
@@ -29,10 +29,10 @@ func tlsConnect(d *tls.Dialer, proto string, ip netip.Addr, port int) (net.Conn,
 	}
 }
 
-func tlsdial(d *tls.Dialer, network, addr string, connect tlsConnectFunc) (net.Conn, error) {
+func proxydial(d proxy.Dialer, network, addr string, connect proxyConnectFunc) (net.Conn, error) {
 	start := time.Now()
 
-	log.D("tlsdial: dialing %s", addr)
+	log.D("pdial: dialing %s", addr)
 	domain, portstr, err := net.SplitHostPort(addr)
 	if err != nil {
 		return nil, err
@@ -55,30 +55,31 @@ func tlsdial(d *tls.Dialer, network, addr string, connect tlsConnectFunc) (net.C
 			return conn, nil
 		}
 		ips.Disconfirm(confirmed)
-		log.D("tlsdial: confirmed IP %s for %s failed with err %v", confirmed, addr, err)
+		log.D("pdial: confirmed IP %s for %s failed with err %v", confirmed, addr, err)
 	}
 
 	allips := filter(ips.GetAll(), confirmed)
 	if len(allips) <= 0 {
-		log.D("tlsdial: renew IPs for %s", addr)
+		log.D("ndial: renew IPs for %s", addr)
 		Renew(domain, ips.Seed())
 		allips = filter(ips.GetAll(), confirmed)
 	}
-	log.D("tlsdial: trying all IPs %d for %s", len(allips), addr)
+	log.D("pdial: trying all IPs %d for %s", len(allips), addr)
 	for _, ip := range allips {
 		if conn, err = connect(d, network, ip, port); err == nil {
 			ips.Confirm(ip)
-			log.I("tlsdial: found working IP %s for %s", ip, addr)
+			log.I("pdial: found working IP %s for %s", ip, addr)
 			return conn, nil
 		}
 	}
 
 	dur := time.Since(start).Seconds()
-	log.D("tlsdial: duration: %ss; failed %s", dur, addr)
+	log.D("pdial: duration: %ss; failed %s", dur, addr)
 
+	// for example, socks5 proxy does not support dialing hostnames
 	return nil, errNoIps
 }
 
-func TlsDial(d *tls.Dialer, network, addr string) (net.Conn, error) {
-	return tlsdial(d, network, addr, tlsConnect)
+func ProxyDial(d proxy.Dialer, network, addr string) (net.Conn, error) {
+	return proxydial(d, network, addr, proxyConnect)
 }

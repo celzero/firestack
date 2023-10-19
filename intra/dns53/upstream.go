@@ -13,12 +13,12 @@ import (
 	"time"
 
 	"github.com/celzero/firestack/intra/core"
+	"github.com/celzero/firestack/intra/dialers"
 	"github.com/celzero/firestack/intra/dnsx"
 	"github.com/celzero/firestack/intra/ipn"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
 	"github.com/celzero/firestack/intra/settings"
-	"github.com/celzero/firestack/intra/split"
 	"github.com/celzero/firestack/intra/xdns"
 	"github.com/miekg/dns"
 )
@@ -142,7 +142,7 @@ func (t *transport) pxdial(network, pid string) (conn *dns.Conn, err error) {
 }
 
 func (t *transport) dial(network string) (*dns.Conn, error) {
-	if c, err := split.Dial(t.dialer, network, t.addr); err == nil {
+	if c, err := dialers.Dial(t.dialer, network, t.addr); err == nil {
 		return &dns.Conn{Conn: c}, nil
 	} else {
 		return nil, err

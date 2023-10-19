@@ -27,6 +27,9 @@ import (
 )
 
 func AsMsg(packet []byte) *dns.Msg {
+	if len(packet) < MinDNSPacketSize {
+		return nil
+	}
 	msg := &dns.Msg{}
 	if err := msg.Unpack(packet); err != nil {
 		log.D("dnsutil: failed to unpack msg: %v", err)

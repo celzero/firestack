@@ -25,10 +25,10 @@ import (
 	"time"
 
 	"github.com/celzero/firestack/intra/core"
+	"github.com/celzero/firestack/intra/dialers"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
 	"github.com/celzero/firestack/intra/settings"
-	"github.com/celzero/firestack/intra/split"
 	"golang.org/x/net/http2"
 )
 
@@ -144,7 +144,7 @@ func (t *piph2) dialtls(network, addr string, cfg *tls.Config) (net.Conn, error)
 }
 
 func (t *piph2) dial(network, addr string) (net.Conn, error) {
-	return split.SplitDial(t.proxydialer, network, addr)
+	return dialers.SplitDial(t.proxydialer, network, addr)
 }
 
 func NewPipProxy(id string, ctl protect.Controller, po *settings.ProxyOptions) (Proxy, error) {
@@ -195,7 +195,7 @@ func NewPipProxy(id string, ctl protect.Controller, po *settings.ProxyOptions) (
 	t.rd = newRDial(t)
 	t.hc = newHTTPClient(t.rd)
 
-	ok := split.Renew(t.hostname, po.Addrs) // po.Addrs may be nil or empty
+	ok := dialers.Renew(t.hostname, po.Addrs) // po.Addrs may be nil or empty
 	if !ok {
 		log.W("piph2: zero bootstrap ips %s", t.hostname)
 	}

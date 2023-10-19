@@ -21,7 +21,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/celzero/firestack/intra/split"
+	"github.com/celzero/firestack/intra/dialers"
 )
 
 // code adopted from github.com/mwitkow/go-http-dialer/blob/378f744fb2/dialer.go#L1
@@ -36,7 +36,7 @@ func New(proxyUrl *url.URL, opts ...opt) *HttpTunnel {
 	for _, opt := range opts {
 		opt(t)
 	}
-	split.Renew(t.hostname, nil)
+	dialers.Renew(t.hostname, nil)
 	return t
 }
 
@@ -95,7 +95,7 @@ func (t *HttpTunnel) parseProxyUrl(proxyUrl *url.URL) {
 }
 
 func (t *HttpTunnel) dialProxy() (net.Conn, error) {
-	return split.ProxyDial(t.parentDialer, "tcp", t.proxyAddr)
+	return dialers.ProxyDial(t.parentDialer, "tcp", t.proxyAddr)
 }
 
 // Dial is an implementation of net.Dialer, and returns a TCP connection handle to the host that HTTP CONNECT reached.

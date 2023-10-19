@@ -37,11 +37,11 @@ import (
 	"time"
 
 	"github.com/celzero/firestack/intra/core"
+	"github.com/celzero/firestack/intra/dialers"
 	"github.com/celzero/firestack/intra/dnsx"
 	"github.com/celzero/firestack/intra/ipn"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
-	"github.com/celzero/firestack/intra/split"
 	"github.com/celzero/firestack/intra/xdns"
 	"github.com/cloudflare/odoh-go"
 )
@@ -77,7 +77,7 @@ type transport struct {
 var _ dnsx.Transport = (*transport)(nil)
 
 func (t *transport) dial(network, addr string) (net.Conn, error) {
-	return split.SplitDial(t.dialer, network, addr)
+	return dialers.SplitDial(t.dialer, network, addr)
 }
 
 // NewTransport returns a POST-only DoH transport.
@@ -142,7 +142,7 @@ func newTransport(typ, id, rawurl, target string, addrs []string, px ipn.Proxies
 		t.url = parsedurl.String()
 		t.hostname = parsedurl.Hostname()
 		// addrs are pre-determined ip addresses for url / hostname
-		split.Renew(t.hostname, addrs)
+		dialers.Renew(t.hostname, addrs)
 	} else {
 		t.odohtransport = &odohtransport{}
 
@@ -161,13 +161,13 @@ func newTransport(typ, id, rawurl, target string, addrs []string, px ipn.Proxies
 
 		// addrs are proxy addresses if proxy is not empty, otherwise target addresses
 		if proxyurl != nil && proxyurl.Hostname() != "" {
-			split.Renew(proxyurl.Hostname(), addrs)
+			dialers.Renew(proxyurl.Hostname(), addrs)
 			if len(proxyurl.Path) <= 1 { // should not be "" or "/"
 				proxyurl.Path = odohproxypath
 			}
 			t.odohproxy = proxyurl.String()
 		} else if targeturl != nil && targeturl.Hostname() != "" {
-			split.Renew(targeturl.Hostname(), addrs)
+			dialers.Renew(targeturl.Hostname(), addrs)
 		}
 
 		t.url = parsedurl.String()
@@ -289,13 +289,13 @@ func (t *transport) send(pid string, req *http.Request) (ans []byte, blocklists 
 
 		if qerr == nil && server != nil {
 			// record a working IP address for this server
-			split.Confirm(hostname, server)
+			dialers.Confirm(hostname, server)
 			return
 		}
 		if qerr != nil {
 			if server != nil {
 				log.D("doh: disconfirming %s, %s", hostname, server)
-				split.Disconfirm(hostname, server)
+				dialers.Disconfirm(hostname, server)
 			}
 			if conn != nil {
 				log.I("doh: close failing doh conn to %s", hostname)

@@ -72,7 +72,7 @@ func (h *http1) Dial(network, addr string) (c protect.Conn, err error) {
 		return nil, errProxyStopped
 	}
 
-	// split.ProxyDial not needed, because
+	// dialers.ProxyDial not needed, because
 	// tx.HttpTunnel.Dial() supports dialing into hostnames
 	if c, err = h.proxydialer.Dial(network, addr); err != nil {
 		h.status = TKO

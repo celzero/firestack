@@ -55,6 +55,9 @@ const Ns4 = 0b010  // 2
 const Ns46 = 0b110 // 6
 const Ns6 = 0b100  // 4
 
+const RouteNormal = 0
+const RouteWithin = 1
+
 const IP4 = "4"
 const IP46 = "46"
 const IP6 = "6"
@@ -78,7 +81,7 @@ func L3(engine int) string {
 	}
 }
 
-// TunMode specifies blocking and dns modes
+// TunMode specifies dns, firewall, xlat, and ip modes
 type TunMode struct {
 	// DNSMode specifies the kind of DNS traffic to be trapped and routed to DoH servers
 	DNSMode int
@@ -88,6 +91,8 @@ type TunMode struct {
 	PtMode int
 	// Ns4, Ns6, or Ns46
 	IpMode int
+	// RouteMode determines if Rethink routes its traffic back into the tunnel.
+	RouteMode int
 }
 
 // DNSOptions define https or socks5 proxy options
@@ -95,12 +100,14 @@ type DNSOptions struct {
 	IPPort string
 }
 
-// SetMode re-assigns d to DNSMode, b to BlockMode, pt to NatPtMode, p to IpMode.
-func (t *TunMode) SetMode(d, b, pt, p int) {
+// SetMode re-assigns d to DNSMode, b to BlockMode,
+// pt to NatPtMode, p to IpMode, rm to RouteMode.
+func (t *TunMode) SetMode(d, b, pt, p, rm int) {
 	t.DNSMode = d
 	t.BlockMode = b
 	t.PtMode = pt
 	t.IpMode = p
+	t.RouteMode = rm
 }
 
 // NewTunMode returns a new TunMode object.
@@ -108,12 +115,14 @@ func (t *TunMode) SetMode(d, b, pt, p int) {
 // `b` sets block-mode.
 // `pt` sets natpt-mode.
 // `p` sets ip-mode.
-func NewTunMode(d, b, pt, p int) *TunMode {
+// `rm` sets route-mode.
+func NewTunMode(d, b, pt, p, rm int) *TunMode {
 	return &TunMode{
 		DNSMode:   d,
 		BlockMode: b,
 		PtMode:    pt,
 		IpMode:    p,
+		RouteMode: rm,
 	}
 }
 
@@ -128,6 +137,7 @@ func DefaultTunMode() *TunMode {
 		BlockMode: BlockModeNone,
 		PtMode:    PtModeNo46,
 		IpMode:    Ns4,
+		RouteMode: RouteNormal,
 	}
 }
 

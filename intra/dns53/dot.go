@@ -14,11 +14,11 @@ import (
 	"time"
 
 	"github.com/celzero/firestack/intra/core"
+	"github.com/celzero/firestack/intra/dialers"
 	"github.com/celzero/firestack/intra/dnsx"
 	"github.com/celzero/firestack/intra/ipn"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
-	"github.com/celzero/firestack/intra/split"
 	"github.com/celzero/firestack/intra/xdns"
 	"github.com/miekg/dns"
 )
@@ -55,7 +55,7 @@ func NewTLSTransport(id, rawurl string, addrs []string, px ipn.Proxies, ctl prot
 	dialer := protect.MakeNsDialer(id, ctl)
 	hostname := parsedurl.Hostname()
 	// addrs are pre-determined ip addresses for url / hostname
-	split.Renew(hostname, addrs)
+	dialers.Renew(hostname, addrs)
 	tx := &dot{
 		id:      id,
 		url:     rawurl,
@@ -95,7 +95,7 @@ func (t *dot) tlsdial() (*dns.Conn, error) {
 		NetDialer: t.c.Dialer,
 		Config:    t.c.TLSConfig,
 	}
-	c, err := split.TlsDial(tlsDialer, "tcp", t.addr) // dot-tls
+	c, err := dialers.TlsDial(tlsDialer, "tcp", t.addr) // dot-tls
 	c.SetDeadline(time.Now().Add(dottimeout))
 	return &dns.Conn{Conn: c, UDPSize: t.c.UDPSize}, err
 }

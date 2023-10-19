@@ -22,7 +22,7 @@ import (
 	"net"
 	"os"
 
-	"github.com/celzero/firestack/intra/split"
+	"github.com/celzero/firestack/intra/dialers"
 )
 
 func main() {
@@ -66,7 +66,7 @@ func main() {
 	}
 
 	log.Println("Trying split connection")
-	splitConn, err := split.DialWithSplit(&net.Dialer{}, addr)
+	splitConn, err := dialers.DialWithSplit(&net.Dialer{}, addr)
 	if err != nil {
 		log.Fatalf("Could not establish a splitting socket: %v", err)
 	}
