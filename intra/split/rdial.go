@@ -14,72 +14,9 @@ import (
 
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
-	"github.com/celzero/firestack/intra/protect/ipmap"
 )
 
 type connectFunc func(*protect.RDial, string, netip.Addr, int) (net.Conn, error)
-
-var ipm ipmap.IPMap = ipmap.NewIPMap()
-
-func addr(ip netip.Addr, port int) string {
-	return net.JoinHostPort(ip.String(), strconv.Itoa(port))
-}
-
-func tcpaddr(ip netip.Addr, port int) *net.TCPAddr {
-	// ip must never be a wildcard address and must be unmapped
-	// go.dev/play/p/UopgKYEMJtw
-	return &net.TCPAddr{IP: ip.AsSlice(), Port: port}
-}
-
-func udpaddr(ip netip.Addr, port int) *net.UDPAddr {
-	// ip must never be a wildcard address and must be unmapped
-	// go.dev/play/p/UopgKYEMJtw
-	return &net.UDPAddr{IP: ip.AsSlice(), Port: port}
-}
-
-func Renew(hostname string, addrs []string) bool {
-	if len(hostname) <= 0 {
-		return false
-	}
-	ips := ipm.Of(hostname, addrs)
-	return ips != nil && !ips.Empty()
-}
-
-func For(hostname string) []netip.Addr {
-	ipset := ipm.Get(hostname)
-	if ipset != nil {
-		return ipset.GetAll()
-	}
-	return nil
-}
-
-func Mapper(m ipmap.IPMapper) {
-	log.I("split: mapper ok? %t", m != nil)
-	// usually set just the once
-	ipm.With(m)
-}
-
-func Confirm(hostname string, addr net.Addr) bool {
-	ips := ipm.GetAny(hostname)
-	if ips != nil {
-		if ip, err := netip.ParseAddr(addr.String()); err == nil {
-			ips.Confirm(ip)
-			return true
-		} // not ok
-	} // not ok
-	return false
-}
-
-func Disconfirm(hostname string, ip net.Addr) bool {
-	ips := ipm.GetAny(hostname)
-	if ips != nil {
-		if ip, err := netip.ParseAddr(ip.String()); err == nil {
-			ips.Disconfirm(ip)
-			return true
-		} // not ok
-	} // not ok
-	return false
-}
 
 func filter(ips []netip.Addr, exclude netip.Addr) []netip.Addr {
 	filtered := make([]netip.Addr, 0, len(ips))
@@ -160,7 +97,7 @@ func commondial(d *protect.RDial, network, addr string, connect connectFunc) (ne
 
 	dur := time.Since(start).Seconds()
 	log.D("redial: commondial: duration: %ss; failed %s", dur, addr)
-	// xxx: return nil, net.UnknownNetworkError(network)?
+	// xxx: return nil, errNoIps
 	return d.Dial(network, addr)
 }
 

@@ -12,21 +12,20 @@ import (
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
 	"github.com/celzero/firestack/intra/settings"
+	"github.com/celzero/firestack/intra/split"
 	tx "github.com/txthinking/socks5"
-	"golang.org/x/net/proxy"
 )
 
 type socks5 struct {
-	dialer proxy.Dialer
-	id     string
-	opts   *settings.ProxyOptions
-	rd     *protect.RDial
-	hc     *http.Client
-	status int
+	proxydialer *tx.Client
+	id          string
+	opts        *settings.ProxyOptions
+	rd          *protect.RDial
+	hc          *http.Client
+	status      int
 }
 
 func NewSocks5Proxy(id string, ctl protect.Controller, po *settings.ProxyOptions) (Proxy, error) {
-	var fproxy proxy.Dialer
 	var err error
 	if po == nil {
 		log.W("proxy: err setting up socks5(%v): %v", po, err)
@@ -41,7 +40,7 @@ func NewSocks5Proxy(id string, ctl protect.Controller, po *settings.ProxyOptions
 	// socks5 server may throw err when dialing with golang/net/x/proxy;
 	// although, txthinking/socks5 deals gracefully with empty auth strings
 	// fproxy, err = proxy.SOCKS5("udp", po.IPPort, po.Auth, proxy.Direct)
-	fproxy, err = tx.NewClient(po.IPPort, po.Auth.User, po.Auth.Password, tcptimeoutsec, udptimeoutsec)
+	fproxy, err := tx.NewClient(po.IPPort, po.Auth.User, po.Auth.Password, tcptimeoutsec, udptimeoutsec)
 
 	if err != nil {
 		log.W("proxy: err creating socks5(%v): %v", po, err)
@@ -49,9 +48,9 @@ func NewSocks5Proxy(id string, ctl protect.Controller, po *settings.ProxyOptions
 	}
 
 	h := &socks5{
-		dialer: fproxy,
-		id:     id,
-		opts:   po,
+		proxydialer: fproxy,
+		id:          id,
+		opts:        po,
 	}
 	h.rd = newRDial(h)
 	h.hc = newHTTP1Client(h.rd)
@@ -66,7 +65,8 @@ func (h *socks5) Dial(network, addr string) (c protect.Conn, err error) {
 		return nil, errProxyStopped
 	}
 
-	if c, err = h.dialer.Dial(network, addr); err == nil {
+	// tx.Client.Dial does not support dialing hostnames
+	if c, err = split.ProxyDial(h.proxydialer, network, addr); err == nil {
 		// in txthinking/socks5, an underlying-conn is actually a net.TCPConn
 		// github.com/txthinking/socks5/blob/39268fae/client.go#L15
 		if uc, ok := c.(*tx.Client); ok {

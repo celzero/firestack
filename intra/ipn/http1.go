@@ -10,20 +10,20 @@ import (
 	"net/http"
 	"net/url"
 
+	tx "github.com/celzero/firestack/intra/ipn/h1"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
 	"github.com/celzero/firestack/intra/settings"
-	tx "github.com/mwitkow/go-http-dialer"
 	"golang.org/x/net/proxy"
 )
 
 type http1 struct {
-	hc     *http.Client   // exported http client
-	rd     *protect.RDial // exported rdial
-	dialer proxy.Dialer
-	id     string
-	opts   *settings.ProxyOptions
-	status int
+	hc          *http.Client   // exported http client
+	rd          *protect.RDial // exported rdial
+	proxydialer proxy.Dialer
+	id          string
+	opts        *settings.ProxyOptions
+	status      int
 }
 
 func NewHTTPProxy(id string, c protect.Controller, po *settings.ProxyOptions) (Proxy, error) {
@@ -55,9 +55,9 @@ func NewHTTPProxy(id string, c protect.Controller, po *settings.ProxyOptions) (P
 	}
 
 	h := &http1{
-		dialer: hp,
-		id:     id,
-		opts:   po,
+		proxydialer: hp,
+		id:          id,
+		opts:        po,
 	}
 	h.rd = newRDial(h)
 	h.hc = newHTTPClient(h.rd)
@@ -72,7 +72,9 @@ func (h *http1) Dial(network, addr string) (c protect.Conn, err error) {
 		return nil, errProxyStopped
 	}
 
-	if c, err = h.dialer.Dial(network, addr); err != nil {
+	// split.ProxyDial not needed, because
+	// tx.HttpTunnel.Dial() supports dialing into hostnames
+	if c, err = h.proxydialer.Dial(network, addr); err != nil {
 		h.status = TKO
 	} else {
 		h.status = TOK

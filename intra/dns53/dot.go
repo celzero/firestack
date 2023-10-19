@@ -90,6 +90,15 @@ func (t *dot) doQuery(pid string, q []byte) (response []byte, elapsed time.Durat
 	return
 }
 
+func (t *dot) tlsdial() (*dns.Conn, error) {
+	tlsDialer := &tls.Dialer{
+		NetDialer: t.c.Dialer,
+		Config:    t.c.TLSConfig,
+	}
+	c, err := split.TlsDial(tlsDialer, "tcp", t.addr) // dot-tls
+	return &dns.Conn{Conn: c, UDPSize: t.c.UDPSize}, err
+}
+
 func (t *dot) pxdial(pid string) (conn *dns.Conn, err error) {
 	var px ipn.Proxy
 	if t.relay != nil { // relay takes precedence
@@ -127,7 +136,8 @@ func (t *dot) sendRequest(pid string, q []byte) (response []byte, elapsed time.D
 	if useproxy || userelay {
 		conn, err = t.pxdial(pid)
 	} else {
-		conn, err = t.c.Dial(t.addr)
+		// ref dns.Client.Dial
+		conn, err = t.tlsdial()
 	}
 
 	if err == nil {

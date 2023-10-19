@@ -28,18 +28,18 @@ const (
 )
 
 type pipws struct {
-	id       string         // some unique identifier
-	url      string         // ws proxy url
-	hostname string         // ws proxy hostname
-	port     int            // ws proxy port
-	token    string         // hex, client token
-	toksig   string         // hex, authorizer (rdns) signed client token
-	rsasig   string         // hex, authorizer unblinded signature
-	client   http.Client    // ws client
-	dialer   *protect.RDial // ws dialer
-	hc       *http.Client   // exported http client
-	rd       *protect.RDial // exported dialer
-	status   int            // proxy status: TOK, TKO, END
+	id          string         // some unique identifier
+	url         string         // ws proxy url
+	hostname    string         // ws proxy hostname
+	port        int            // ws proxy port
+	token       string         // hex, client token
+	toksig      string         // hex, authorizer (rdns) signed client token
+	rsasig      string         // hex, authorizer unblinded signature
+	client      http.Client    // ws client
+	proxydialer *protect.RDial // ws dialer
+	hc          *http.Client   // exported http client
+	rd          *protect.RDial // exported dialer
+	status      int            // proxy status: TOK, TKO, END
 }
 
 var _ core.TCPConn = (*pipwsconn)(nil)
@@ -53,7 +53,7 @@ func (c *pipwsconn) CloseRead() error  { return c.Close() }
 func (c *pipwsconn) CloseWrite() error { return c.Close() }
 
 func (t *pipws) dial(network, addr string) (net.Conn, error) {
-	return split.SplitDial(t.dialer, network, addr)
+	return split.SplitDial(t.proxydialer, network, addr)
 }
 
 func (t *pipws) wsconn(rurl, msg string) (c net.Conn, res *http.Response, err error) {
@@ -117,15 +117,15 @@ func NewPipWsProxy(id string, ctl protect.Controller, po *settings.ProxyOptions)
 	}
 	dialer := protect.MakeNsRDial(id, ctl)
 	t := &pipws{
-		id:       id,
-		url:      parsedurl.String(),
-		hostname: parsedurl.Hostname(),
-		port:     port,
-		dialer:   dialer,
-		token:    po.Auth.User,
-		toksig:   po.Auth.Password,
-		rsasig:   splitpath[2],
-		status:   TOK,
+		id:          id,
+		url:         parsedurl.String(),
+		hostname:    parsedurl.Hostname(),
+		port:        port,
+		proxydialer: dialer,
+		token:       po.Auth.User,
+		toksig:      po.Auth.Password,
+		rsasig:      splitpath[2],
+		status:      TOK,
 	}
 	t.rd = newRDial(t)
 	t.hc = newHTTPClient(t.rd)
