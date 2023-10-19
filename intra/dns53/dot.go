@@ -96,8 +96,11 @@ func (t *dot) tlsdial() (*dns.Conn, error) {
 		Config:    t.c.TLSConfig,
 	}
 	c, err := dialers.TlsDial(tlsDialer, "tcp", t.addr) // dot-tls
-	c.SetDeadline(time.Now().Add(dottimeout))
-	return &dns.Conn{Conn: c, UDPSize: t.c.UDPSize}, err
+	if c != nil {
+		c.SetDeadline(time.Now().Add(dottimeout))
+		return &dns.Conn{Conn: c, UDPSize: t.c.UDPSize}, err
+	}
+	return nil, err
 }
 
 func (t *dot) pxdial(pid string) (conn *dns.Conn, err error) {
@@ -160,7 +163,8 @@ func (t *dot) sendRequest(pid string, q []byte) (response []byte, elapsed time.D
 	return
 }
 
-func (t *dot) Query(network string, q []byte, summary *dnsx.Summary) (r []byte, err error) {
+func (t *dot) Query(network string, q []byte, smm *dnsx.Summary) ([]byte, error) {
+	var err error
 
 	_, pid := xdns.Net2ProxyID(network)
 
@@ -175,18 +179,20 @@ func (t *dot) Query(network string, q []byte, summary *dnsx.Summary) (r []byte, 
 	ans := xdns.AsMsg(response)
 	t.status = status
 
-	summary.Latency = elapsed.Seconds()
-	summary.RData = xdns.GetInterestingRData(ans)
-	summary.RCode = xdns.Rcode(ans)
-	summary.RTtl = xdns.RTtl(ans)
-	summary.Server = t.GetAddr()
+	smm.Latency = elapsed.Seconds()
+	smm.RData = xdns.GetInterestingRData(ans)
+	smm.RCode = xdns.Rcode(ans)
+	smm.RTtl = xdns.RTtl(ans)
+	smm.Server = t.GetAddr()
 	if t.relay != nil {
-		summary.RelayServer = t.relay.GetAddr()
+		smm.RelayServer = t.relay.GetAddr()
 	} else if len(pid) > 0 && pid != dnsx.NetNoProxy {
-		summary.RelayServer = dnsx.SummaryProxyLabel + pid
+		smm.RelayServer = dnsx.SummaryProxyLabel + pid
 	}
-	summary.Status = status
-	t.est.Add(summary.Latency)
+	smm.Status = status
+	t.est.Add(smm.Latency)
+
+	log.V("dot: len(res): %d, data: %s, via: %s, err? %v", len(response), smm.RData, smm.RelayServer, err)
 
 	return response, err
 }
