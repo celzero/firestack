@@ -96,6 +96,7 @@ func (t *dot) tlsdial() (*dns.Conn, error) {
 		Config:    t.c.TLSConfig,
 	}
 	c, err := split.TlsDial(tlsDialer, "tcp", t.addr) // dot-tls
+	c.SetDeadline(time.Now().Add(dottimeout))
 	return &dns.Conn{Conn: c, UDPSize: t.c.UDPSize}, err
 }
 
@@ -116,6 +117,7 @@ func (t *dot) pxdial(pid string) (conn *dns.Conn, err error) {
 	if err != nil {
 		return
 	}
+	pxconn.SetDeadline(time.Now().Add(dottimeout))
 	conn = &dns.Conn{Conn: pxconn}
 	return
 }
