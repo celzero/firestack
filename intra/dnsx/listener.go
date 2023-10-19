@@ -46,6 +46,7 @@ func (s *Summary) Copy() *Summary {
 	return clone
 }
 
+// FillInto copies non-zero values into other.
 func (s *Summary) FillInto(other *Summary) {
 	if other == nil || s == other {
 		return
