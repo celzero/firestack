@@ -19,6 +19,11 @@ import (
 	"time"
 )
 
+const (
+	Anew = iota
+	Shared
+)
+
 // V is an in-flight or completed Barrier.Do V
 type V struct {
 	wg  sync.WaitGroup
@@ -66,7 +71,7 @@ func (ba *Barrier) addLocked(k string) *V {
 // sure that only one execution is in-flight for a given key at a
 // time. If a duplicate comes in, the duplicate caller waits for the
 // original to complete and receives the same results.
-func (ba *Barrier) Do(k string, me func() (any, error)) *V {
+func (ba *Barrier) Do(k string, me func() (any, error)) (*V, int) {
 	ba.mu.Lock()
 	c, ok := ba.getLocked(k)
 	if ok {
@@ -74,7 +79,7 @@ func (ba *Barrier) Do(k string, me func() (any, error)) *V {
 
 		c.N.Add(1)
 		c.wg.Wait() // wait for the in-flight req to complete
-		return c
+		return c, Shared
 	}
 	c = ba.addLocked(k)
 	ba.mu.Unlock()
@@ -82,5 +87,5 @@ func (ba *Barrier) Do(k string, me func() (any, error)) *V {
 	c.Val, c.Err = me()
 
 	c.wg.Done() // unblock all waiters
-	return c
+	return c, Anew
 }

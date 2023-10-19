@@ -300,18 +300,11 @@ func (t *ctransport) Type() string {
 }
 
 func (t *ctransport) fetch(network string, q []byte, msg *dns.Msg, summary *Summary, cb *cache, key string) (r []byte, err error) {
-	sendRequest := func(async bool) ([]byte, error) {
-		var finalsumm *Summary
-		if async {
-			finalsumm = new(Summary)
-		} else {
-			finalsumm = summary
-		}
-
+	sendRequest := func(finalsumm *Summary) ([]byte, error) {
 		finalsumm.ID = t.Transport.ID()
 		finalsumm.Type = t.Transport.Type()
 
-		rv := t.reqbarrier.Do(key, func() (any, error) {
+		rv, st := t.reqbarrier.Do(key, func() (any, error) {
 			ans, err := t.Transport.Query(network, q, finalsumm)
 			cb.put(ans, finalsumm)
 			return &cres{ans: xdns.AsMsg(ans), s: finalsumm}, err
@@ -322,9 +315,14 @@ func (t *ctransport) fetch(network string, q []byte, msg *dns.Msg, summary *Summ
 			return nil, errCacheResponseMismatch
 		}
 
+		// if rv is "shared", then use this req's summary over the "shared" one
+		if st == core.Shared {
+			cachedres.s = finalsumm
+		}
+
 		finalres, origsumm, finalerr := asResponse(msg, cachedres, true)
 		// fill summary regardless of errors
-		origsumm.FillInto(finalsumm) // origsumm may be equal to s
+		origsumm.FillInto(finalsumm) // origsumm may be equal to finalsumm
 
 		return finalres, errors.Join(rv.Err, finalerr)
 	}
@@ -353,7 +351,7 @@ func (t *ctransport) fetch(network string, q []byte, msg *dns.Msg, summary *Summ
 			// fallthrough to sendRequest
 		} else if cachedsummary != nil {
 			if !isfresh { // not fresh, fetch in the background
-				go sendRequest(true)
+				go sendRequest(new(Summary))
 			}
 			// change summary fields to reflect cached response, except for latency
 			cachedsummary.FillInto(summary)
@@ -362,7 +360,8 @@ func (t *ctransport) fetch(network string, q []byte, msg *dns.Msg, summary *Summ
 			return
 		} // else: fallthrough to sendRequest
 	}
-	return sendRequest(false) // summary is filled by underlying transport
+
+	return sendRequest(summary) // summary is filled by underlying transport
 }
 
 func (t *ctransport) Query(network string, q []byte, summary *Summary) ([]byte, error) {

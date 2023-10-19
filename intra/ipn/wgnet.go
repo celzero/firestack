@@ -573,7 +573,7 @@ func (tnet *wgtun) DialContext(ctx context.Context, network, address string) (ne
 		}
 	}
 
-	rv := tnet.reqbarrier.Do(host, func() (any, error) {
+	rv, _ := tnet.reqbarrier.Do(host, func() (any, error) {
 		return tnet.LookupContextHost(ctx, host)
 	})
 	if rv.Err != nil {
