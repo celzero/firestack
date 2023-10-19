@@ -71,10 +71,11 @@ func tlsdial(d *tls.Dialer, network, addr string, connect tlsConnectFunc) (net.C
 			log.I("tlsdial: found working IP %s for %s", ip, addr)
 			return conn, nil
 		}
+		log.W("tlsdial: IP %s for %s failed with err %v", ip, addr, err)
 	}
 
 	dur := time.Since(start).Seconds()
-	log.D("tlsdial: duration: %ss; failed %s", dur, addr)
+	log.D("tlsdial: duration: %ds; failed %s", dur*1000, addr)
 
 	return nil, errNoIps
 }

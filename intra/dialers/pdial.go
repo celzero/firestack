@@ -35,15 +35,18 @@ func proxydial(d proxy.Dialer, network, addr string, connect proxyConnectFunc) (
 	log.D("pdial: dialing %s", addr)
 	domain, portstr, err := net.SplitHostPort(addr)
 	if err != nil {
+		log.E("pdial: split host port failed with err %v", err)
 		return nil, err
 	}
 	// cannot dial into a wildcard address
 	// while, listen is unsupported
 	if len(domain) == 0 {
+		log.E("pdial: no domain")
 		return nil, net.InvalidAddrError(addr)
 	}
 	port, err := strconv.Atoi(portstr)
 	if err != nil {
+		log.E("pdial: no port")
 		return nil, err
 	}
 	// TODO: Improve IP fallback strategy with parallelism and Happy Eyeballs.
@@ -60,17 +63,18 @@ func proxydial(d proxy.Dialer, network, addr string, connect proxyConnectFunc) (
 
 	allips := filter(ips.GetAll(), confirmed)
 	if len(allips) <= 0 {
-		log.D("ndial: renew IPs for %s", addr)
+		log.D("pdial: renew IPs for %s", addr)
 		Renew(domain, ips.Seed())
 		allips = filter(ips.GetAll(), confirmed)
 	}
-	log.D("pdial: trying all IPs %d for %s", len(allips), addr)
+	log.D("pdial: trying all %d IPs for %s", len(allips), addr)
 	for _, ip := range allips {
 		if conn, err = connect(d, network, ip, port); err == nil {
 			ips.Confirm(ip)
 			log.I("pdial: found working IP %s for %s", ip, addr)
 			return conn, nil
 		}
+		log.W("pdial: IP %s for %s failed with err %v", ip, addr, err)
 	}
 
 	dur := time.Since(start).Seconds()

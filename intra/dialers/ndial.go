@@ -31,7 +31,7 @@ func netConnect(d *net.Dialer, proto string, ip netip.Addr, port int) (net.Conn,
 func netdial(d *net.Dialer, network, addr string, connect netConnectFunc) (net.Conn, error) {
 	start := time.Now()
 
-	log.D("ndial: netdial: dialing %s", addr)
+	log.D("ndial: dialing %s", addr)
 	domain, portstr, err := net.SplitHostPort(addr)
 	if err != nil {
 		return nil, err
@@ -54,26 +54,27 @@ func netdial(d *net.Dialer, network, addr string, connect netConnectFunc) (net.C
 			return conn, nil
 		}
 		ips.Disconfirm(confirmed)
-		log.D("ndial: netdial: confirmed IP %s for %s failed with err %v", confirmed, addr, err)
+		log.D("ndial: confirmed IP %s for %s failed with err %v", confirmed, addr, err)
 	}
 
 	allips := filter(ips.GetAll(), confirmed)
 	if len(allips) <= 0 {
-		log.D("ndial: netdial: renew IPs for %s", addr)
+		log.D("ndial: renew IPs for %s", addr)
 		Renew(domain, ips.Seed())
 		allips = filter(ips.GetAll(), confirmed)
 	}
-	log.D("ndial: netdial: trying all IPs %d for %s", len(allips), addr)
+	log.D("ndial: trying all IPs %d for %s", len(allips), addr)
 	for _, ip := range allips {
 		if conn, err = connect(d, network, ip, port); err == nil {
 			ips.Confirm(ip)
-			log.I("ndial: netdial: found working IP %s for %s", ip, addr)
+			log.I("ndial: found working IP %s for %s", ip, addr)
 			return conn, nil
 		}
+		log.W("ndial: IP %s for %s failed with err %v", ip, addr, err)
 	}
 
 	dur := time.Since(start).Seconds()
-	log.D("ndial: netdial: duration: %ss; failed %s", dur, addr)
+	log.D("ndial: duration: %ds; failed %s", dur*1000, addr)
 	// xxx: return nil, errNoIps?
 	return d.Dial(network, addr)
 }
