@@ -287,16 +287,22 @@ func (t *transport) send(pid string, req *http.Request) (ans []byte, blocklists 
 	defer func() {
 		elapsed = time.Since(start)
 
-		if qerr == nil && server != nil {
-			// record a working IP address for this server
-			dialers.Confirm(hostname, server)
-			return
-		}
-		if qerr != nil {
-			if server != nil {
+		// server addr would be of relay / proxy (ex: 127.0.0.1:9050) if used
+		usedrelay := t.relay != nil
+		usedproxy := len(pid) > 0 && pid != dnsx.NetNoProxy
+		hasserveraddr := server != nil && !usedrelay && !usedproxy
+
+		if hasserveraddr {
+			if qerr == nil {
+				// record a working IP address for this server
+				dialers.Confirm(hostname, server)
+				return
+			} else {
 				log.D("doh: disconfirming %s, %s", hostname, server)
 				dialers.Disconfirm(hostname, server)
 			}
+		}
+		if qerr != nil {
 			if conn != nil {
 				log.I("doh: close failing doh conn to %s", hostname)
 				conn.Close()
@@ -316,6 +322,7 @@ func (t *transport) send(pid string, req *http.Request) (ans []byte, blocklists 
 			}
 			conn = info.Conn
 			// info.Conn is a DuplexConn, so RemoteAddr is actually a TCPAddr.
+			// if the conn is proxied, then RemoteAddr is that of the proxy
 			server = conn.RemoteAddr()
 		},
 		ConnectStart: func(network, addr string) {
