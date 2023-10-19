@@ -198,7 +198,7 @@ func (t *transport) send(network, pid string, q []byte) (response []byte, elapse
 	return
 }
 
-func (t *transport) Query(network string, q []byte, summary *dnsx.Summary) (r []byte, err error) {
+func (t *transport) Query(network string, q []byte, smm *dnsx.Summary) (r []byte, err error) {
 	proto, pid := xdns.Net2ProxyID(network)
 	response, elapsed, qerr := t.doQuery(proto, pid, q)
 
@@ -211,18 +211,20 @@ func (t *transport) Query(network string, q []byte, summary *dnsx.Summary) (r []
 	ans := xdns.AsMsg(response)
 	t.status = status
 
-	summary.Latency = elapsed.Seconds()
-	summary.RData = xdns.GetInterestingRData(ans)
-	summary.RCode = xdns.Rcode(ans)
-	summary.RTtl = xdns.RTtl(ans)
-	summary.Server = t.GetAddr()
+	smm.Latency = elapsed.Seconds()
+	smm.RData = xdns.GetInterestingRData(ans)
+	smm.RCode = xdns.Rcode(ans)
+	smm.RTtl = xdns.RTtl(ans)
+	smm.Server = t.GetAddr()
 	if t.relay != nil {
-		summary.RelayServer = t.relay.GetAddr()
+		smm.RelayServer = t.relay.GetAddr()
 	} else if len(pid) > 0 && pid != dnsx.NetNoProxy {
-		summary.RelayServer = dnsx.SummaryProxyLabel + pid
+		smm.RelayServer = dnsx.SummaryProxyLabel + pid
 	}
-	summary.Status = status
-	t.est.Add(summary.Latency)
+	smm.Status = status
+	t.est.Add(smm.Latency)
+
+	log.V("dns53: len(res): %d, data: %s, via: %s, err? %v", len(response), smm.RData, smm.RelayServer, err)
 
 	return response, err
 }

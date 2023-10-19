@@ -279,7 +279,7 @@ func query(pid string, packet []byte, serverInfo *ServerInfo, useudp bool) (resp
 }
 
 // resolve resolves incoming DNS query, data
-func resolve(network string, data []byte, si *ServerInfo, s *dnsx.Summary) (response []byte, err error) {
+func resolve(network string, data []byte, si *ServerInfo, smm *dnsx.Summary) (response []byte, err error) {
 	before := time.Now()
 
 	proto, pid := xdns.Net2ProxyID(network)
@@ -309,22 +309,24 @@ func resolve(network string, data []byte, si *ServerInfo, s *dnsx.Summary) (resp
 
 	ans := xdns.AsMsg(response)
 
-	s.Latency = latency.Seconds()
-	s.RData = xdns.GetInterestingRData(ans)
-	s.RCode = xdns.Rcode(ans)
-	s.RTtl = xdns.RTtl(ans)
-	s.Server = resolver
-	s.RelayServer = anonrelay
-	s.Status = status
+	smm.Latency = latency.Seconds()
+	smm.RData = xdns.GetInterestingRData(ans)
+	smm.RCode = xdns.Rcode(ans)
+	smm.RTtl = xdns.RTtl(ans)
+	smm.Server = resolver
+	smm.RelayServer = anonrelay
+	smm.Status = status
 
 	noAnonRelay := len(anonrelay) <= 0
 	if noAnonRelay {
 		if si.relay != nil {
-			s.RelayServer = si.relay.GetAddr()
+			smm.RelayServer = si.relay.GetAddr()
 		} else if len(pid) > 0 && pid != dnsx.NetNoProxy {
-			s.RelayServer = dnsx.SummaryProxyLabel + pid
+			smm.RelayServer = dnsx.SummaryProxyLabel + pid
 		}
 	}
+
+	log.V("dnscrypt: len(res): %d, data: %s, via: %s, err? %v", len(response), smm.RData, smm.RelayServer, err)
 
 	return response, err
 }

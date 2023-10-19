@@ -202,7 +202,7 @@ func newTransport(typ, id, rawurl, target string, addrs []string, px ipn.Proxies
 		TLSClientConfig:       tlsconfig,
 	}
 
-	log.I("doh: new transport(%s): %s; relay? %t", t.typ, t.url, relay != nil)
+	log.I("doh: new transport(%s): %s; relay? %t; addrs? %v", t.typ, t.url, relay != nil, addrs)
 	return t, nil
 }
 
@@ -395,7 +395,7 @@ func (t *transport) Type() string {
 	return t.typ
 }
 
-func (t *transport) Query(network string, q []byte, summary *dnsx.Summary) (r []byte, err error) {
+func (t *transport) Query(network string, q []byte, smm *dnsx.Summary) (r []byte, err error) {
 	var blocklists string
 	var elapsed time.Duration
 	var qerr *dnsx.QueryError
@@ -403,11 +403,11 @@ func (t *transport) Query(network string, q []byte, summary *dnsx.Summary) (r []
 	_, pid := xdns.Net2ProxyID(network)
 	if t.typ == dnsx.DOH {
 		r, blocklists, elapsed, qerr = t.doDoh(pid, q)
-		summary.Server = t.hostname
+		smm.Server = t.hostname
 	} else {
 		r, elapsed, qerr = t.doOdoh(pid, q)
-		summary.Server = t.odohtargetname
-		summary.RelayServer = t.odohproxy
+		smm.Server = t.odohtargetname
+		smm.RelayServer = t.odohproxy
 	}
 
 	status := dnsx.Complete
@@ -419,21 +419,21 @@ func (t *transport) Query(network string, q []byte, summary *dnsx.Summary) (r []
 	t.status = status
 
 	t.est.Add(elapsed.Seconds())
-	summary.Latency = elapsed.Seconds()
-	summary.RData = xdns.GetInterestingRData(ans)
-	summary.RCode = xdns.Rcode(ans)
-	summary.RTtl = xdns.RTtl(ans)
-	summary.Status = status
-	summary.Blocklists = blocklists
-	noOdohRelay := len(summary.RelayServer) <= 0
+	smm.Latency = elapsed.Seconds()
+	smm.RData = xdns.GetInterestingRData(ans)
+	smm.RCode = xdns.Rcode(ans)
+	smm.RTtl = xdns.RTtl(ans)
+	smm.Status = status
+	smm.Blocklists = blocklists
+	noOdohRelay := len(smm.RelayServer) <= 0
 	if noOdohRelay {
 		if t.relay != nil {
-			summary.RelayServer = t.relay.GetAddr()
+			smm.RelayServer = t.relay.GetAddr()
 		} else if len(pid) > 0 && pid != dnsx.NetNoProxy {
-			summary.RelayServer = dnsx.SummaryProxyLabel + pid
+			smm.RelayServer = dnsx.SummaryProxyLabel + pid
 		}
 	}
-
+	log.V("doh: len(res): %d, data: %s, via: %s, err? %v", len(r), smm.RData, smm.RelayServer, err)
 	return r, err
 }
 
