@@ -38,8 +38,7 @@ func proxydial(d proxy.Dialer, network, addr string, connect proxyConnectFunc) (
 		log.E("pdial: split host port failed with err %v", err)
 		return nil, err
 	}
-	// cannot dial into a wildcard address
-	// while, listen is unsupported
+	// cannot dial into a wildcard address; listen is unsupported
 	if len(domain) == 0 {
 		log.E("pdial: no domain")
 		return nil, net.InvalidAddrError(addr)
@@ -54,31 +53,34 @@ func proxydial(d proxy.Dialer, network, addr string, connect proxyConnectFunc) (
 	ips := ipm.Get(domain)
 	confirmed := ips.Confirmed()
 	if confirmed.IsValid() {
-		if conn, err := connect(d, network, confirmed, port); err == nil {
+		if conn, err = connect(d, network, confirmed, port); err == nil {
+			log.V("pdial: found working ip %s for %s", confirmed, addr)
 			return conn, nil
 		}
 		ips.Disconfirm(confirmed)
-		log.D("pdial: confirmed IP %s for %s failed with err %v", confirmed, addr, err)
+		log.D("pdial: confirmed ip %s for %s failed with err %v", confirmed, addr, err)
 	}
 
 	allips := filter(ips.GetAll(), confirmed)
 	if len(allips) <= 0 {
-		log.D("pdial: renew IPs for %s", addr)
-		Renew(domain, ips.Seed())
-		allips = filter(ips.GetAll(), confirmed)
+		var ok bool
+		if ok = Renew(domain, ips.Seed()); ok {
+			allips = filter(ips.GetAll(), confirmed)
+		}
+		log.D("pdial: renew ips for %s; ok? %t", addr, ok)
 	}
-	log.D("pdial: trying all %d IPs for %s", len(allips), addr)
+	log.D("pdial: trying all %d ips for %s", len(allips), addr)
 	for _, ip := range allips {
 		if conn, err = connect(d, network, ip, port); err == nil {
 			ips.Confirm(ip)
-			log.I("pdial: found working IP %s for %s", ip, addr)
+			log.I("pdial: found working ip %s for %s", ip, addr)
 			return conn, nil
 		}
-		log.W("pdial: IP %s for %s failed with err %v", ip, addr, err)
+		log.W("pdial: ip %s for %s failed with err %v", ip, addr, err)
 	}
 
 	dur := time.Since(start).Seconds()
-	log.D("pdial: duration: %ss; failed %s", dur, addr)
+	log.D("pdial: duration: %ds; failed %s", dur*1000, addr)
 
 	// for example, socks5 proxy does not support dialing hostnames
 	return nil, errNoIps

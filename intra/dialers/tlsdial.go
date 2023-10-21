@@ -52,26 +52,27 @@ func tlsdial(d *tls.Dialer, network, addr string, connect tlsConnectFunc) (net.C
 	confirmed := ips.Confirmed()
 	if confirmed.IsValid() {
 		if conn, err := connect(d, network, confirmed, port); err == nil {
+			log.V("tlsdial: found working ip %s for %s", confirmed, addr)
 			return conn, nil
 		}
 		ips.Disconfirm(confirmed)
-		log.D("tlsdial: confirmed IP %s for %s failed with err %v", confirmed, addr, err)
+		log.D("tlsdial: confirmed ip %s for %s failed with err %v", confirmed, addr, err)
 	}
 
 	allips := filter(ips.GetAll(), confirmed)
 	if len(allips) <= 0 {
-		log.D("tlsdial: renew IPs for %s", addr)
+		log.D("tlsdial: renew ips for %s", addr)
 		Renew(domain, ips.Seed())
 		allips = filter(ips.GetAll(), confirmed)
 	}
-	log.D("tlsdial: trying all IPs %d for %s", len(allips), addr)
+	log.D("tlsdial: trying all ips %d for %s", len(allips), addr)
 	for _, ip := range allips {
 		if conn, err = connect(d, network, ip, port); err == nil {
 			ips.Confirm(ip)
-			log.I("tlsdial: found working IP %s for %s", ip, addr)
+			log.I("tlsdial: found working ip %s for %s", ip, addr)
 			return conn, nil
 		}
-		log.W("tlsdial: IP %s for %s failed with err %v", ip, addr, err)
+		log.W("tlsdial: ip %s for %s failed with err %v", ip, addr, err)
 	}
 
 	dur := time.Since(start).Seconds()
