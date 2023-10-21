@@ -39,14 +39,23 @@ var _ core.TCPConn = (*socks5tcpconn)(nil)
 var _ core.UDPConn = (*socks5udpconn)(nil)
 
 func (c *socks5tcpconn) CloseRead() error {
-	return c.Close()
+	if c.Client != nil && c.Client.TCPConn != nil {
+		return c.Client.TCPConn.CloseRead()
+	}
+	return errNoProxyConn
 }
 
 func (c *socks5tcpconn) CloseWrite() error {
-	return c.Close()
+	if c.Client != nil && c.Client.TCPConn != nil {
+		return c.Client.TCPConn.CloseWrite()
+	}
+	return errNoProxyConn
 }
 
 func (c *socks5udpconn) Ready() bool {
+	// a client udpconn is always negotiated over tcp, and so
+	// it contains a tcpconn and a udpconn, and is considered ready
+	// when udpconn is non-nil. ref: tx.Client.Dial
 	return c.Client != nil && c.Client.UDPConn != nil
 }
 
