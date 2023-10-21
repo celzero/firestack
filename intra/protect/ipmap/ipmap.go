@@ -43,9 +43,11 @@ type IPMapper interface {
 type IPMap interface {
 	IPMapper
 	// Get creates an IPSet for this hostname populated with the IPs
-	// discovered by resolving it.  Subsequent calls to Get return the
-	// same IPSet.
+	// discovered by resolving it. Subsequent calls to Get return the
+	// same IPSet. Never returns nil.
 	Get(hostname string) *IPSet
+	// GetAny creates an IPSet for this hostname, which may be empty.
+	// Subsequent calls to GetAny return the same IPSet. Never returns nil.
 	GetAny(hostname string) *IPSet
 	// Of creates an IPSet for this hostname bootstrapped with given IPs.
 	// Subsequent calls to Of return a new, overriden IPSet.
@@ -108,28 +110,28 @@ func (m *ipMap) get(hostname string, emptyok bool) *IPSet {
 	m.RLock()
 	s := m.m[hostname]
 	m.RUnlock()
-	if s != nil {
-		if emptyok || !s.Empty() {
-			return s
-		}
+
+	if s == nil {
+		s = m.Of(hostname, nil)
 	}
 
-	s = m.Of(hostname, nil)
-	if !emptyok {
-		s.Add(hostname)
-		if s.Empty() {
-			log.W("ipmap: Get: zero ips for %s", hostname)
-		}
+	if emptyok || !s.Empty() {
+		return s
+	}
+
+	s.Add(hostname)
+	if s.Empty() {
+		log.W("ipmap: Get: zero ips for %s", hostname)
 	}
 
 	return s
 }
 
 func (m *ipMap) Of(hostname string, ips []string) *IPSet {
-	if len(ips) <= 0 {
+	if ips == nil {
 		ips = []string{}
 	}
-	s := &IPSet{r: m, seed: ips}
+	s := &IPSet{r: m, seed: ips, confirmed: zeroaddr}
 	s.bootstrap()
 
 	m.Lock()
@@ -202,9 +204,13 @@ func (s *IPSet) Empty() bool {
 // The slice is owned by the caller, but the elements are owned by the set.
 func (s *IPSet) GetAll() []netip.Addr {
 	s.RLock()
+	if len(s.ips) <= 0 {
+		return nil
+	}
 	c := make([]netip.Addr, 0, len(s.ips))
 	c = append(c, s.ips...)
 	s.RUnlock()
+
 	rand.Shuffle(len(c), func(i, j int) {
 		c[i], c[j] = c[j], c[i]
 	})
