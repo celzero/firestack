@@ -56,6 +56,8 @@ func NewTLSTransport(id, rawurl string, addrs []string, px ipn.Proxies, ctl prot
 	hostname := parsedurl.Hostname()
 	// addrs are pre-determined ip addresses for url / hostname
 	dialers.Renew(hostname, addrs)
+	// add sni to tls config
+	tlscfg.ServerName = hostname
 	tx := &dot{
 		id:      id,
 		url:     rawurl,

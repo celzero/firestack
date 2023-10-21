@@ -16,15 +16,22 @@ import (
 	"github.com/celzero/firestack/intra/log"
 )
 
-type tlsConnectFunc func(*tls.Dialer, string, netip.Addr, int) (net.Conn, error)
+type tlsConnectFunc func(*tls.Dialer, string, string, netip.Addr, int) (net.Conn, error)
 
-func tlsConnect(d *tls.Dialer, proto string, ip netip.Addr, port int) (net.Conn, error) {
+func tlsConnect(d *tls.Dialer, proto, sni string, ip netip.Addr, port int) (net.Conn, error) {
 	switch proto {
 	case "tcp", "tcp4", "tcp6":
 		fallthrough
 	case "udp", "udp4", "udp6":
 		fallthrough
 	default:
+		if d.Config == nil {
+			d.Config = &tls.Config{
+				ServerName: sni,
+			}
+		} else if len(d.Config.ServerName) <= 0 {
+			d.Config.ServerName = sni
+		}
 		return d.Dial(proto, addr(ip, port))
 	}
 }
@@ -51,7 +58,7 @@ func tlsdial(d *tls.Dialer, network, addr string, connect tlsConnectFunc) (net.C
 	ips := ipm.Get(domain)
 	confirmed := ips.Confirmed()
 	if confirmed.IsValid() {
-		if conn, err := connect(d, network, confirmed, port); err == nil {
+		if conn, err := connect(d, network, domain, confirmed, port); err == nil {
 			log.V("tlsdial: found working ip %s for %s", confirmed, addr)
 			return conn, nil
 		}
@@ -67,7 +74,7 @@ func tlsdial(d *tls.Dialer, network, addr string, connect tlsConnectFunc) (net.C
 	}
 	log.D("tlsdial: trying all ips %d for %s", len(allips), addr)
 	for _, ip := range allips {
-		if conn, err = connect(d, network, ip, port); err == nil {
+		if conn, err = connect(d, network, domain, ip, port); err == nil {
 			ips.Confirm(ip)
 			log.I("tlsdial: found working ip %s for %s", ip, addr)
 			return conn, nil
