@@ -45,8 +45,8 @@ type TCPConn interface {
 // should be handled by a registered UDP proxy handler.
 type UDPConn interface {
 	// LocalAddr returns the local client network address.
-	LocalAddr() *net.UDPAddr
-	RemoteAddr() *net.UDPAddr
+	LocalAddr() net.Addr
+	RemoteAddr() net.Addr
 
 	// Wait for the underlying connection to be ready.
 	Ready() bool

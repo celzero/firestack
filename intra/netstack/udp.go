@@ -30,7 +30,7 @@ var (
 
 type GUDPConnHandler interface {
 	OnNewConn(conn *GUDPConn, src, dst *net.UDPAddr)
-	HandleData(conn *GUDPConn, data []byte, addr *net.UDPAddr) error
+	HandleData(conn *GUDPConn, data []byte, addr net.Addr) error
 	End() error
 }
 
@@ -126,7 +126,7 @@ func loop(h GUDPConnHandler, gc *GUDPConn, src, dst *net.UDPAddr) {
 			who := addr.(*net.UDPAddr)
 			l := gc.LocalAddr()
 			r := gc.RemoteAddr()
-			if who.IP.String() != l.IP.String() {
+			if who.String() != l.String() {
 				log.W("ns.udp.forwarder: MISMATCH expected-src(%v) => actual(l:%v)", who, l)
 			}
 
@@ -182,9 +182,9 @@ func (g *GUDPConn) Connect(fin bool) tcpip.Error {
 	return nil
 }
 
-func (g *GUDPConn) LocalAddr() (addr *net.UDPAddr) {
+func (g *GUDPConn) LocalAddr() (addr net.Addr) {
 	if g.ok() {
-		addr, _ = g.UDPConn.RemoteAddr().(*net.UDPAddr)
+		addr = g.UDPConn.RemoteAddr()
 	}
 	if addr == nil { // remoteaddr may be nil, even if g.ok()
 		addr = g.src
@@ -192,9 +192,9 @@ func (g *GUDPConn) LocalAddr() (addr *net.UDPAddr) {
 	return
 }
 
-func (g *GUDPConn) RemoteAddr() (addr *net.UDPAddr) {
+func (g *GUDPConn) RemoteAddr() (addr net.Addr) {
 	if g.ok() {
-		addr, _ = g.UDPConn.LocalAddr().(*net.UDPAddr)
+		addr = g.UDPConn.LocalAddr()
 	}
 	if addr == nil { // localaddr may be nil, even if g.ok()
 		addr = g.dst

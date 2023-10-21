@@ -29,6 +29,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"strconv"
 	"sync"
 	"time"
 
@@ -280,7 +281,13 @@ func (h *udpHandler) onFlow(localudp core.UDPConn, target *net.UDPAddr, realips,
 	// Implict: BlockModeFilter or BlockModeFilterProc
 	uid := -1
 	if h.tunMode.BlockMode == settings.BlockModeFilterProc {
-		procEntry := settings.FindProcNetEntry("udp", source.IP, source.Port, target.IP, target.Port)
+		srcaddr, err := udpAddrFrom(source)
+		if err != nil {
+			log.W("udp: onFlow: failed parsing src addr %s; err %v", src, err)
+			return optionsBlock
+		}
+
+		procEntry := settings.FindProcNetEntry("udp", srcaddr.IP, srcaddr.Port, target.IP, target.Port)
 		if procEntry != nil {
 			uid = procEntry.UserID
 		}
@@ -295,6 +302,34 @@ func (h *udpHandler) onFlow(localudp core.UDPConn, target *net.UDPAddr, realips,
 	}
 
 	return res
+}
+
+func ipportFromAddr(addr string) (ip net.IP, port int, err error) {
+	var ipstr, portstr string
+	ipstr, portstr, err = net.SplitHostPort(addr)
+	if err != nil {
+		return
+	}
+	ip = net.ParseIP(ipstr)
+	port, err = strconv.Atoi(portstr)
+	return ip, port, err
+}
+
+func udpAddrFrom(addr net.Addr) (*net.UDPAddr, error) {
+	if addr == nil {
+		return nil, &net.AddrError{Err: "nil addr", Addr: "<nil>"}
+	}
+	if r, ok := addr.(*net.UDPAddr); ok {
+		return r, nil
+	}
+	ip, port, err := ipportFromAddr(addr.String())
+	if err != nil {
+		return nil, err
+	}
+	return &net.UDPAddr{
+		IP:   ip,
+		Port: port,
+	}, nil
 }
 
 // OnNewConn implements netstack.GUDPConnHandler
@@ -403,12 +438,17 @@ func (h *udpHandler) Connect(conn core.UDPConn, target *net.UDPAddr) (res *Mark,
 }
 
 // HandleData implements netstack.GUDPConnHandler
-func (h *udpHandler) HandleData(conn *netstack.GUDPConn, data []byte, addr *net.UDPAddr) error {
+func (h *udpHandler) HandleData(conn *netstack.GUDPConn, data []byte, addr net.Addr) error {
 	if h.status == UDPEND {
 		log.D("udp: handle-data: end")
 		return errUdpEnd
 	}
-	return h.ReceiveTo(conn, data, addr)
+	dst, err := udpAddrFrom(addr)
+	if err != nil {
+		log.E("udp: handle-data: failed to parse dst(%s); err(%v)", addr, err)
+		return err
+	}
+	return h.ReceiveTo(conn, data, dst)
 }
 
 func (h *udpHandler) End() error {
