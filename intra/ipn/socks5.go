@@ -111,7 +111,6 @@ func (h *socks5) Dial(network, addr string) (c protect.Conn, err error) {
 		return nil, errProxyStopped
 	}
 
-	log.D("proxy: socks5: %d dial(%s) from %s -> %s", h.ID(), network, h.GetAddr(), addr)
 	// tx.Client.Dial does not support dialing hostnames
 	if c, err = dialers.ProxyDial(h.proxydialer, network, addr); err == nil {
 		// in txthinking/socks5, an underlying-conn is actually a net.TCPConn
