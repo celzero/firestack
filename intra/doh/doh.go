@@ -66,7 +66,6 @@ type transport struct {
 	url            string // endpoint URL
 	hostname       string // endpoint hostname
 	client         http.Client
-	clientpool     map[string]*http.Client
 	dialer         *protect.RDial
 	proxies        ipn.Proxies // proxy provider, may be nil
 	relay          ipn.Proxy   // dial doh via relay, may be nil
@@ -111,14 +110,13 @@ func newTransport(typ, id, rawurl, target string, addrs []string, px ipn.Proxies
 	}
 
 	t := &transport{
-		id:         id,
-		typ:        typ,
-		dialer:     protect.MakeNsRDial(id, ctl), // ctl may be nil
-		proxies:    px,                           // may be nil
-		relay:      relay,                        // may be nil
-		status:     dnsx.Start,
-		clientpool: make(map[string]*http.Client),
-		est:        core.NewP50Estimator(),
+		id:      id,
+		typ:     typ,
+		dialer:  protect.MakeNsRDial(id, ctl), // ctl may be nil
+		proxies: px,                           // may be nil
+		relay:   relay,                        // may be nil
+		status:  dnsx.Start,
+		est:     core.NewP50Estimator(),
 	}
 	if !isodoh {
 		parsedurl, err := url.Parse(rawurl)
@@ -187,10 +185,12 @@ func newTransport(typ, id, rawurl, target string, addrs []string, px ipn.Proxies
 		signer := newClientAuthWrapper(auth)
 		tlsconfig = &tls.Config{
 			GetClientCertificate: signer.GetClientCertificate,
+			ServerName:           t.hostname,
 		}
 	} else {
 		tlsconfig = &tls.Config{
 			InsecureSkipVerify: skipTLSVerify,
+			ServerName:         t.hostname,
 		}
 	}
 	// Override the dial function.
