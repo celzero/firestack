@@ -40,7 +40,6 @@ import (
 	"gvisor.dev/gvisor/pkg/tcpip/adapters/gonet"
 
 	"github.com/celzero/firestack/intra/core"
-	"github.com/celzero/firestack/intra/dialers"
 	"github.com/celzero/firestack/intra/ipn"
 	"github.com/celzero/firestack/intra/netstack"
 	"github.com/celzero/firestack/intra/protect"
@@ -353,19 +352,6 @@ func (h *tcpHandler) Handle(conn net.Conn, target *net.TCPAddr, summary *SocketS
 	if err != nil {
 		log.W("tcp: err dialing proxy(%s) to dst(%v): %v", px.ID(), target, err)
 		return err
-	}
-
-	// split client-hello if server-port is 443
-	if px.ID() == ipn.Base {
-		if port := filteredPort(target); port == 443 {
-			timeout := dialers.CalcTimeout(start, end)
-			tcpconn, ok := c.(*net.TCPConn)
-			if !ok {
-				log.W("tcp: err spliting; ipn.Base must return a net.TCPConn")
-				return errTcpSetupConn
-			}
-			c = dialers.RetryingConn(px.Dialer(), target, timeout, tcpconn)
-		}
 	}
 
 	summary.Rtt = int32(end.Sub(start).Seconds() * 1000)
