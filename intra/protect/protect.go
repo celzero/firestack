@@ -47,6 +47,7 @@ type Protector interface {
 	UIP(n string) []byte
 }
 
+// returns true if addr is a global unicast address; and yn on error.
 func maybeGlobalUnicast(addr string, yn bool) bool {
 	if ipport, err := netip.ParseAddrPort(addr); err == nil {
 		return ipport.Addr().IsGlobalUnicast()
@@ -56,10 +57,11 @@ func maybeGlobalUnicast(addr string, yn bool) bool {
 	return yn
 }
 
-func networkBinder(who string, ctl Controller) func(string, string, syscall.RawConn) error {
+// Binds a socket to a particular network interface.
+func ifbind(who string, ctl Controller) func(string, string, syscall.RawConn) error {
 	return func(network, addr string, c syscall.RawConn) (err error) {
 		// addr may be a wildcard aka ":<port>", in which case dst is a zero address.
-		log.D("control: %s: %s(%s); err? %v", who, network, addr, err)
+		log.D("control: netbinder: %s: %s(%s); err? %v", who, network, addr, err)
 		return c.Control(func(fd uintptr) {
 			sock := int(fd)
 			if !maybeGlobalUnicast(addr, true) {
@@ -80,12 +82,13 @@ func networkBinder(who string, ctl Controller) func(string, string, syscall.RawC
 	}
 }
 
-func ipBinder(p Protector) func(string, string, syscall.RawConn) error {
+// unused: Binds a socket to a local ip.
+func ipbind(p Protector) func(string, string, syscall.RawConn) error {
 	return func(network, addr string, c syscall.RawConn) (err error) {
 		src := p.UIP(network)
 		ipaddr, _ := netip.AddrFromSlice(src)
 		origaddr, perr := netip.ParseAddrPort(addr)
-		log.D("control: %s(%s/%w), bindto(%s); err? %v", network, addr, origaddr, ipaddr, perr)
+		log.D("control: ipbinder: %s(%s/%w), bindto(%s); err? %v", network, addr, origaddr, ipaddr, perr)
 
 		if !maybeGlobalUnicast(addr, true) {
 			// todo: protect fd?
@@ -121,34 +124,34 @@ func ipBinder(p Protector) func(string, string, syscall.RawConn) error {
 	}
 }
 
-// Creates a dialer that binds to a particular ip.
+// unused: Creates a dialer that binds to a particular ip.
 func MakeDialer(p Protector) *net.Dialer {
 	if p == nil {
-		return MakeDefaultDialer()
+		return netdialer()
 	}
 	d := &net.Dialer{
-		Control: ipBinder(p),
+		Control: ipbind(p),
 	}
 	return d
 }
 
-// Creates a listener that binds to a particular ip.
+// unused: Creates a listener that binds to a particular ip.
 func MakeListenConfig(p Protector) *net.ListenConfig {
 	if p == nil {
-		return MakeDefaultListenConfig()
+		return netlistener()
 	}
 	return &net.ListenConfig{
-		Control: ipBinder(p),
+		Control: ipbind(p),
 	}
 }
 
-// Creates a dialer that can bind to any active interface.
+// Creates a net.Dialer that can bind to any active interface.
 func MakeNsDialer(who string, c Controller) *net.Dialer {
 	if c == nil {
-		return MakeDefaultDialer()
+		return netdialer()
 	}
 	d := &net.Dialer{
-		Control: networkBinder(who, c),
+		Control: ifbind(who, c),
 	}
 	return d
 }
@@ -163,19 +166,19 @@ func MakeNsRDial(who string, c Controller) *RDial {
 // Creates a listener that can bind to any active interface.
 func MakeNsListenConfig(who string, c Controller) *net.ListenConfig {
 	if c == nil {
-		return MakeDefaultListenConfig()
+		return netlistener()
 	}
 	return &net.ListenConfig{
-		Control: networkBinder(who, c),
+		Control: ifbind(who, c),
 	}
 }
 
 // Creates a plain old dialer
-func MakeDefaultDialer() *net.Dialer {
+func netdialer() *net.Dialer {
 	return &net.Dialer{}
 }
 
 // Creates a plain old listener
-func MakeDefaultListenConfig() *net.ListenConfig {
+func netlistener() *net.ListenConfig {
 	return &net.ListenConfig{}
 }
