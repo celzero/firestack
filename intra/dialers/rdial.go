@@ -43,7 +43,10 @@ func ipConnect(d *protect.RDial, proto string, ip netip.Addr, port int) (net.Con
 func splitIpConnect(d *protect.RDial, proto string, ip netip.Addr, port int) (net.Conn, error) {
 	switch proto {
 	case "tcp", "tcp4", "tcp6":
-		return DialWithSplitRetry(d, tcpaddr(ip, port))
+		if port == 443 { // split tls client-hello for https requests
+			return DialWithSplitRetry(d, tcpaddr(ip, port))
+		}
+		return d.DialTCP(proto, nil, tcpaddr(ip, port))
 	case "udp", "udp4", "udp6":
 		return d.DialUDP(proto, nil, udpaddr(ip, port))
 	default:
