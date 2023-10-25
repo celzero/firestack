@@ -50,17 +50,19 @@ func proxydial(d proxy.Dialer, network, addr string, connect proxyConnectFunc) (
 	}
 	// TODO: Improve IP fallback strategy with parallelism and Happy Eyeballs.
 	var conn net.Conn
+	s1 := time.Now()
 	ips := ipm.Get(domain)
 	confirmed := ips.Confirmed()
 	if confirmed.IsValid() {
 		if conn, err = connect(d, network, confirmed, port); err == nil {
-			log.V("pdial: found working ip %s for %s", confirmed, addr)
+			log.V("pdial: found working ip %s for %s; duration: %s", confirmed, addr, time.Since(s1))
 			return conn, nil
 		}
 		ips.Disconfirm(confirmed)
 		log.D("pdial: confirmed ip %s for %s failed with err %v", confirmed, addr, err)
 	}
 
+	s2 := time.Now()
 	allips := filter(ips.GetAll(), confirmed)
 	if len(allips) <= 0 {
 		var ok bool
@@ -69,11 +71,13 @@ func proxydial(d proxy.Dialer, network, addr string, connect proxyConnectFunc) (
 		}
 		log.D("pdial: renew ips for %s; ok? %t", addr, ok)
 	}
-	log.D("pdial: trying all %d ips for %s", len(allips), addr)
-	for _, ip := range allips {
+	log.D("pdial: trying all %d ips for %s; duration: %s", len(allips), addr, time.Since(s2))
+
+	s3 := time.Now()
+	for i, ip := range allips {
 		if conn, err = connect(d, network, ip, port); err == nil {
 			ips.Confirm(ip)
-			log.I("pdial: found working ip %s for %s", ip, addr)
+			log.I("pdial: found working ip%d %s for %s; duration: %s to %s", i, ip, addr, e3, time.Since(s3))
 			return conn, nil
 		}
 		log.W("pdial: ip %s for %s failed with err %v", ip, addr, err)
