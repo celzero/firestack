@@ -113,13 +113,12 @@ func (h *socks5) Dial(network, addr string) (c protect.Conn, err error) {
 
 	// tx.Client.Dial does not support dialing hostnames
 	if c, err = dialers.ProxyDial(h.proxydialer, network, addr); err == nil {
-		// in txthinking/socks5, an underlying-conn is actually a net.TCPConn
 		// github.com/txthinking/socks5/blob/39268fae/client.go#L15
 		if uc, ok := c.(*tx.Client); ok {
-			if uc.TCPConn != nil {
-				c = &socks5tcpconn{uc}
-			} else if uc.UDPConn != nil {
+			if uc.UDPConn != nil { // a udp conn will always have an embedded tcp conn
 				c = &socks5udpconn{uc}
+			} else if uc.TCPConn != nil { // a tcp conn will never also have a udp conn
+				c = &socks5tcpconn{uc}
 			} else {
 				log.W("proxy: socks5: %s conn not tcp nor udp %s -> %s", h.ID(), h.GetAddr(), addr)
 				c = nil
