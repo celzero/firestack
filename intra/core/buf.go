@@ -15,11 +15,13 @@ import (
 
 var slabs map[string]*sync.Pool // read-only after init
 
+// min capacity of a given slab
+const B32768 = 32 * 1024 // in bytes
 const B16384 = 16 * 1024 // in bytes
 const B8192 = 8 * 1024   // in bytes
 const B4096 = 4 * 1024   // in bytes
 const B2048 = 2 * 1024   // in bytes
-const BMAX = 32 * 1024   // in bytes
+const BMAX = 64 * 1024   // in bytes
 
 // pointers to slices: archive.is/BhHuQ
 // deal only in pointers to byte-array
@@ -57,6 +59,8 @@ func init() {
 	slabs[k(B4096)] = newpool(B4096)
 	slabs[k(B8192)] = newpool(B8192)
 	slabs[k(B16384)] = newpool(B16384)
+	slabs[k(B32768)] = newpool(B32768)
+	slabs[k(BMAX)] = newpool(BMAX)
 }
 
 func slabfor(b *[]byte) *sync.Pool {
@@ -67,13 +71,17 @@ func slabfor(b *[]byte) *sync.Pool {
 func slabof(sz int) (p *sync.Pool) {
 	if sz > BMAX {
 		// do not store larger regions
-	} else if sz >= B16384 {
+	} else if sz >= BMAX { // min 64k
+		p = slabs[k(BMAX)]
+	} else if sz >= B32768 { // min 32k
+		p = slabs[k(B32768)]
+	} else if sz >= B16384 { // min 16k
 		p = slabs[k(B16384)]
-	} else if sz >= B8192 {
+	} else if sz >= B8192 { // min 8k
 		p = slabs[k(B8192)]
-	} else if sz >= B4096 {
+	} else if sz >= B4096 { // min 4k
 		p = slabs[k(B4096)]
-	} else {
+	} else { // min 2k
 		p = slabs[k(B2048)]
 	}
 	return
