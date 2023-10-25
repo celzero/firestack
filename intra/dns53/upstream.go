@@ -162,7 +162,7 @@ func (t *transport) send(network, pid string, q []byte) (response []byte, elapse
 	var conn *dns.Conn
 	useudp := network == dnsx.NetTypeUDP
 	userelay := t.relay != nil
-	useproxy := len(pid) != 0 && pid != dnsx.NetNoProxy
+	useproxy := len(pid) != 0 // pid == dnsx.NetNoProxy => ipn.Base
 
 	// if udp is unreachable, try tcp: github.com/celzero/rethink-app/issues/839
 	// note that some proxies do not support udp (eg pipws, piph2)

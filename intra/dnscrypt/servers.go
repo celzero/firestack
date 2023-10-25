@@ -321,7 +321,7 @@ func (s *ServerInfo) Status() int {
 
 func (s *ServerInfo) dialudp(pid string, addr *net.UDPAddr) (net.Conn, error) {
 	userelay := s.relay != nil
-	useproxy := len(pid) != 0 && pid != dnsx.NetNoProxy
+	useproxy := len(pid) != 0 // pid == dnsx.NetNoProxy => ipn.Base
 	if userelay || useproxy {
 		return s.dialpx(pid, "udp", addr.String())
 	}
@@ -330,7 +330,7 @@ func (s *ServerInfo) dialudp(pid string, addr *net.UDPAddr) (net.Conn, error) {
 
 func (s *ServerInfo) dialtcp(pid string, addr *net.TCPAddr) (net.Conn, error) {
 	userelay := s.relay != nil
-	useproxy := len(pid) != 0 && pid != dnsx.NetNoProxy
+	useproxy := len(pid) != 0 // pid == dnsx.NetNoProxy => ipn.Base
 	if userelay || useproxy {
 		return s.dialpx(pid, "tcp", addr.String())
 	}

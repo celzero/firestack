@@ -117,6 +117,7 @@ func (t *dot) pxdial(pid string) (conn *dns.Conn, err error) {
 	if err != nil {
 		return
 	}
+
 	log.V("dot: pxdial: (%s) using relay/proxy %s at %s", t.id, px.ID(), px.GetAddr())
 	pxconn, err := px.Dialer().Dial("tcp", t.addr) // dot is always tcp
 	if err != nil {
@@ -146,7 +147,7 @@ func (t *dot) sendRequest(pid string, q []byte) (response []byte, elapsed time.D
 
 	var conn *dns.Conn
 	userelay := t.relay != nil
-	useproxy := len(pid) != 0 && pid != dnsx.NetNoProxy
+	useproxy := len(pid) != 0 // pid == dnsx.NetNoProxy => ipn.Base
 	if useproxy || userelay {
 		conn, err = t.pxdial(pid)
 	} else {
