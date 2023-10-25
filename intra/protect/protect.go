@@ -47,12 +47,25 @@ type Protector interface {
 	UIP(n string) []byte
 }
 
+func maybeGlobalUnicast(addr string, yn bool) bool {
+	if ipport, err := netip.ParseAddrPort(addr); err == nil {
+		return ipport.Addr().IsGlobalUnicast()
+	} else if ip, err := netip.ParseAddr(addr); err == nil {
+		return ip.IsGlobalUnicast()
+	} // ignore addr; it may be a wildcard or just hostname
+	return yn
+}
+
 func networkBinder(who string, ctl Controller) func(string, string, syscall.RawConn) error {
 	return func(network, addr string, c syscall.RawConn) (err error) {
 		// addr may be a wildcard aka ":<port>", in which case dst is a zero address.
 		log.D("control: %s: %s(%s); err? %v", who, network, addr, err)
 		return c.Control(func(fd uintptr) {
 			sock := int(fd)
+			if !maybeGlobalUnicast(addr, true) {
+				ctl.Protect(who, sock)
+				return
+			}
 			switch network {
 			case "tcp6", "udp6":
 				ctl.Bind6(who, sock)
@@ -73,6 +86,11 @@ func ipBinder(p Protector) func(string, string, syscall.RawConn) error {
 		ipaddr, _ := netip.AddrFromSlice(src)
 		origaddr, perr := netip.ParseAddrPort(addr)
 		log.D("control: %s(%s/%w), bindto(%s); err? %v", network, addr, origaddr, ipaddr, perr)
+
+		if !maybeGlobalUnicast(addr, true) {
+			// todo: protect fd?
+			return nil
+		}
 
 		bind6 := func(fd uintptr) error {
 			sc := &syscall.SockaddrInet6{Addr: ipaddr.As16()}
