@@ -77,7 +77,7 @@ func proxydial(d proxy.Dialer, network, addr string, connect proxyConnectFunc) (
 	for i, ip := range allips {
 		if conn, err = connect(d, network, ip, port); err == nil {
 			ips.Confirm(ip)
-			log.I("pdial: found working ip%d %s for %s; duration: %s to %s", i, ip, addr, time.Since(s3))
+			log.I("pdial: found working ip%d %s for %s; duration: %s", i, ip, addr, time.Since(s3))
 			return conn, nil
 		}
 		log.W("pdial: ip %s for %s failed with err %v", ip, addr, err)
