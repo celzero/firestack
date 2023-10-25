@@ -99,10 +99,7 @@ func Net2ProxyID(network string) (proto, pid string) {
 }
 
 func NetAndProxyID(proto, pid string) string {
-	if len(pid) > 0 {
-		return fmt.Sprintf("%s:%s", proto, pid)
-	}
-	return proto
+	return fmt.Sprintf("%s:%s", proto, pid)
 }
 
 func PrefixWithSize(packet []byte) ([]byte, error) {

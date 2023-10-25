@@ -213,6 +213,9 @@ func NewAuthProxyOptions(scheme, username, password, ip, port string, addrs []st
 		if len(ip) > 0 {
 			// port is discarded, and expected to be in ip/url
 			ippstr = ip
+		} else if len(port) > 0 {
+			// incoming ip,port is a wildcard address
+			ippstr = ":" + port
 		} else {
 			return nil
 		}
@@ -232,7 +235,7 @@ func NewAuthProxyOptions(scheme, username, password, ip, port string, addrs []st
 	}
 	return &ProxyOptions{
 		Auth:   &auth,
-		IPPort: ippstr,
+		IPPort: ippstr, // mmay be ip:port, url, or :port
 		Scheme: scheme,
 		Addrs:  addrs,
 	}
