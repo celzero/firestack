@@ -57,8 +57,8 @@ type Tunnel interface {
 	tunnel.Tunnel
 	// Get the resolver.
 	GetResolver() dnsx.Resolver
-	// Set DNSMode, BlockMode, PtMode, RouteMode.
-	SetTunMode(dnsmode, blockmode, ptmode, routemode int)
+	// Set DNSMode, BlockMode, PtMode.
+	SetTunMode(dnsmode, blockmode, ptmode int)
 	// Get proxies.
 	GetProxies() ipn.Proxies
 	// Sets new default routes for the given engine, where engine is
@@ -159,7 +159,7 @@ func (t *rtunnel) SetRoute(engine int) error {
 		return errClosed
 	}
 
-	t.tunmode.SetMode(t.tunmode.DNSMode, t.tunmode.BlockMode, t.tunmode.PtMode, engine, t.tunmode.RouteMode)
+	t.tunmode.SetMode(t.tunmode.DNSMode, t.tunmode.BlockMode, t.tunmode.PtMode, engine)
 	return t.Tunnel.SetRoute(engine)
 }
 
@@ -175,6 +175,6 @@ func (t *rtunnel) GetServices() rnet.Services {
 	return t.services
 }
 
-func (t *rtunnel) SetTunMode(dnsmode, blockmode, ptmode, rmode int) {
-	t.tunmode.SetMode(dnsmode, blockmode, ptmode, t.tunmode.IpMode, rmode)
+func (t *rtunnel) SetTunMode(dnsmode, blockmode, ptmode int) {
+	t.tunmode.SetMode(dnsmode, blockmode, ptmode, t.tunmode.IpMode)
 }
