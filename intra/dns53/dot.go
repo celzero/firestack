@@ -123,16 +123,22 @@ func (t *dot) pxdial(pid string) (conn *dns.Conn, err error) {
 	if err != nil {
 		return
 	}
-	pxconn.SetDeadline(time.Now().Add(dottimeout))
-	t.addtls(pxconn)
+	// higher timeout for proxy
+	pxconn.SetDeadline(time.Now().Add(dottimeout * 3))
+	pxconn, err = t.addtls(pxconn)
+	if err != nil {
+		pxconn.Close()
+		return
+	}
 	conn = &dns.Conn{Conn: pxconn}
 	return
 }
 
 // perform tls handshake
-func (t *dot) addtls(c net.Conn) {
+func (t *dot) addtls(c net.Conn) (net.Conn, error) {
 	tlsconn := tls.Client(c, t.c.TLSConfig)
-	tlsconn.Handshake()
+	err := tlsconn.Handshake()
+	return tlsconn, err
 }
 
 func (t *dot) sendRequest(pid string, q []byte) (response []byte, elapsed time.Duration, qerr *dnsx.QueryError) {
