@@ -22,16 +22,18 @@ const (
 	// IDs for default proxies
 	Block   = "Block"       // proxy that blocks all traffic
 	Base    = "Base"        // proxy that does not proxy traffic; in sync with dnsx.NetNoProxy
+	Exit    = "Exit"        // proxy that always connects to the Internet (exit node)
 	OrbotS5 = "OrbotSocks5" // Orbot: Base Tor-as-a-SOCKS5 proxy
 	OrbotH1 = "OrbotHttp1"  // Orbot: Base Tor-as-a-HTTP/1.1 proxy
 
 	// type of proxies
-	SOCKS5 = "socks5" // SOCKS5 proxy
-	HTTP1  = "http1"  // HTTP/1.1 proxy
-	WG     = "wg"     // WireGuard-as-a-proxy
-	PIPH2  = "piph2"  // PIP: HTTP/2 proxy
-	PIPWS  = "pipws"  // PIP: WebSockets proxy
-	NOOP   = "noop"   // No proxy, ex: Base, Block
+	SOCKS5   = "socks5" // SOCKS5 proxy
+	HTTP1    = "http1"  // HTTP/1.1 proxy
+	WG       = "wg"     // WireGuard-as-a-proxy
+	PIPH2    = "piph2"  // PIP: HTTP/2 proxy
+	PIPWS    = "pipws"  // PIP: WebSockets proxy
+	NOOP     = "noop"   // No proxy, ex: Base, Block
+	INTERNET = "net"    // egress network, ex: Exit
 
 	// DNS addrs, urls, or stamps
 	NoDNS = "" // no DNS
@@ -125,8 +127,9 @@ func NewProxifier(c protect.Controller) Proxies {
 		p:   make(map[string]Proxy),
 		ctl: c,
 	}
-	pxr.add(NewBaseProxy(c))
-	pxr.add(NewGroundProxy())
+	pxr.add(NewExitProxy(c))  // fixed
+	pxr.add(NewBaseProxy(c))  // fixed
+	pxr.add(NewGroundProxy()) // fixed
 	log.I("proxy: new")
 
 	return pxr
