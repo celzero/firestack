@@ -32,11 +32,6 @@ import (
 	"golang.org/x/net/http2"
 )
 
-const (
-	tlsHandshakeTimeout   time.Duration = 10 * time.Second
-	responseHeaderTimeout time.Duration = 10 * time.Second
-)
-
 type piph2 struct {
 	id          string         // some unique identifier
 	url         string         // h2 proxy url

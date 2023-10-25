@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
@@ -55,6 +56,11 @@ var (
 
 	udptimeoutsec = 5 * 60                    // 5m
 	tcptimeoutsec = (2 * 60 * 60) + (40 * 60) // 2h40m
+)
+
+const (
+	tlsHandshakeTimeout   time.Duration = 30 * time.Second // some proxies take a long time to handshake
+	responseHeaderTimeout time.Duration = 60 * time.Second
 )
 
 // type checks
