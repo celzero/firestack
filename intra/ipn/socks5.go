@@ -111,7 +111,8 @@ func (h *socks5) Dial(network, addr string) (c protect.Conn, err error) {
 		return nil, errProxyStopped
 	}
 
-	// tx.Client.Dial does not support dialing hostnames
+	// todo: tx.Client can only dial in to ip:port and not host:port even for server addr
+	// tx.Client.Dial does not support dialing into client addr as hostnames
 	if c, err = dialers.ProxyDial(h.proxydialer, network, addr); err == nil {
 		// github.com/txthinking/socks5/blob/39268fae/client.go#L15
 		if uc, ok := c.(*tx.Client); ok {
