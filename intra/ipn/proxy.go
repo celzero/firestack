@@ -117,7 +117,7 @@ func newRDial(p Proxy) *protect.RDial {
 func newHTTPClient(d *protect.RDial) *http.Client {
 	c := &http.Client{}
 	c.Transport = &http.Transport{
-		DialTLS:               d.Dial,
+		Dial:                  d.Dial,
 		ForceAttemptHTTP2:     true,
 		TLSHandshakeTimeout:   tlsHandshakeTimeout,
 		ResponseHeaderTimeout: responseHeaderTimeout,
@@ -131,8 +131,8 @@ func newHTTP1Client(d *protect.RDial) *http.Client {
 		// DialTLS to force the underlying http.Transport to leave
 		// the dialed connection by d.Dial alone, since it isn't really
 		// dialing into remote, but into a socks5 server.
-		// github.com/golang/go/blob/983d90e11/src/net/http/transport.go#L1621-1627
-		DialTLS:               d.Dial,
+		// github.com/golang/go/blob/983d90e11/src/net/http/transport.go#L1621-L1627
+		Dial:                  d.Dial,
 		ForceAttemptHTTP2:     false,
 		TLSHandshakeTimeout:   tlsHandshakeTimeout,
 		ResponseHeaderTimeout: responseHeaderTimeout,
