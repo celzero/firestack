@@ -7,27 +7,27 @@
 package ipn
 
 import (
-	"net"
 	"net/http"
 
+	"github.com/celzero/firestack/intra/dialers"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
 )
 
 type base struct {
-	rd     *protect.RDial
-	hc     *http.Client
-	dialer *net.Dialer
-	addr   string
-	status int
+	rd       *protect.RDial // this proxy as a RDial
+	hc       *http.Client   // this proxy as a http.Client
+	outbound *protect.RDial // outbound dialer
+	addr     string
+	status   int
 }
 
 func NewBaseProxy(c protect.Controller) Proxy {
-	d := protect.MakeNsDialer(Base, c)
+	d := protect.MakeNsRDial(Base, c)
 	h := &base{
-		addr:   "127.3.4.5:6890",
-		dialer: d,
-		status: TOK,
+		addr:     "127.3.4.5:6890",
+		outbound: d,
+		status:   TOK,
 	}
 	h.rd = newRDial(h)
 	h.hc = newHTTPClient(h.rd)
@@ -39,7 +39,7 @@ func (h *base) Dial(network, addr string) (c protect.Conn, err error) {
 		return nil, errProxyStopped
 	}
 
-	if c, err = h.dialer.Dial(network, addr); err != nil {
+	if c, err = dialers.SplitDial(h.outbound, network, addr); err != nil {
 		h.status = TKO
 	} else {
 		h.status = TOK
