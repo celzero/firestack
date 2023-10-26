@@ -66,6 +66,9 @@ type transport struct {
 	url            string // endpoint URL
 	hostname       string // endpoint hostname
 	client         http.Client
+	tlsconfig      *tls.Config
+	pxcmu          sync.RWMutex // protects pxclients
+	pxclients      map[string]*proxytransport
 	dialer         *protect.RDial
 	proxies        ipn.Proxies // proxy provider, may be nil
 	relay          ipn.Proxy   // dial doh via relay, may be nil
@@ -110,13 +113,14 @@ func newTransport(typ, id, rawurl, target string, addrs []string, px ipn.Proxies
 	}
 
 	t := &transport{
-		id:      id,
-		typ:     typ,
-		dialer:  protect.MakeNsRDial(id, ctl), // ctl may be nil
-		proxies: px,                           // may be nil
-		relay:   relay,                        // may be nil
-		status:  dnsx.Start,
-		est:     core.NewP50Estimator(),
+		id:        id,
+		typ:       typ,
+		dialer:    protect.MakeNsRDial(id, ctl), // ctl may be nil
+		proxies:   px,                           // may be nil
+		relay:     relay,                        // may be nil
+		status:    dnsx.Start,
+		pxclients: make(map[string]*proxytransport),
+		est:       core.NewP50Estimator(),
 	}
 	if !isodoh {
 		parsedurl, err := url.Parse(rawurl)
@@ -180,15 +184,14 @@ func newTransport(typ, id, rawurl, target string, addrs []string, px ipn.Proxies
 	}
 
 	// Supply a client certificate during TLS handshakes.
-	var tlsconfig *tls.Config
 	if auth != nil {
 		signer := newClientAuthWrapper(auth)
-		tlsconfig = &tls.Config{
+		t.tlsconfig = &tls.Config{
 			GetClientCertificate: signer.GetClientCertificate,
 			ServerName:           t.hostname,
 		}
 	} else {
-		tlsconfig = &tls.Config{
+		t.tlsconfig = &tls.Config{
 			InsecureSkipVerify: skipTLSVerify,
 			ServerName:         t.hostname,
 		}
@@ -199,11 +202,43 @@ func newTransport(typ, id, rawurl, target string, addrs []string, px ipn.Proxies
 		ForceAttemptHTTP2:     true,
 		TLSHandshakeTimeout:   3 * time.Second,
 		ResponseHeaderTimeout: 20 * time.Second, // Same value as Android DNS-over-TLS
-		TLSClientConfig:       tlsconfig,
+		TLSClientConfig:       t.tlsconfig.Clone(),
 	}
 
 	log.I("doh: new transport(%s): %s; relay? %t; addrs? %v", t.typ, t.url, relay != nil, addrs)
 	return t, nil
+}
+
+type proxytransport struct {
+	p ipn.Proxy
+	c *http.Client
+}
+
+func (t *transport) httpClientFor(p ipn.Proxy) (*http.Client, error) {
+	t.pxcmu.RLock()
+	pxtr, ok := t.pxclients[p.ID()]
+	t.pxcmu.RUnlock()
+
+	same := pxtr.p == p
+	if ok && same {
+		return pxtr.c, nil
+	}
+
+	t.pxcmu.Lock()
+	client := &http.Client{
+		// higher timeouts for proxies
+		Transport: &http.Transport{
+			Dial:                  p.Dialer().Dial,
+			ForceAttemptHTTP2:     true,
+			TLSHandshakeTimeout:   10 * time.Second,
+			ResponseHeaderTimeout: 30 * time.Second,
+			TLSClientConfig:       t.tlsconfig.Clone(),
+		},
+	}
+	t.pxclients[p.ID()] = &proxytransport{p: p, c: client}
+	t.pxcmu.Unlock()
+
+	return client, nil
 }
 
 // Given a raw DNS query (including the query ID), this function sends the
@@ -257,6 +292,8 @@ func (t *transport) fetch(pid string, req *http.Request) (res *http.Response, er
 	userelay := t.relay != nil
 	hasproxy := t.proxies != nil
 	useproxy := len(pid) != 0 // if pid == dnsx.NetNoProxy, then px is ipn.Base
+
+	client := &t.client
 	if userelay || useproxy {
 		var px ipn.Proxy
 		if userelay { // relay takes precedence
@@ -269,9 +306,13 @@ func (t *transport) fetch(pid string, req *http.Request) (res *http.Response, er
 		if err != nil {
 			return
 		}
-		return ipn.Fetch(px, req)
+		// or: ipn.Fetch(px, req)
+		client, err = t.httpClientFor(px)
+		if err != nil {
+			return
+		}
 	}
-	return t.client.Do(req)
+	return client.Do(req)
 }
 
 func (t *transport) send(pid string, req *http.Request) (ans []byte, blocklists string, elapsed time.Duration, qerr *dnsx.QueryError) {
