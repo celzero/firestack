@@ -389,7 +389,7 @@ func (h *socks5) udphandle(s *tx.Server, addr *net.UDPAddr, pkt *tx.Datagram) (e
 	s.UDPExchanges.Set(src+dst, egress, -1)
 
 	go func(ue *tx.UDPExchange, dst string) {
-		b := *core.AllocRegion(core.B16384)
+		b := *core.Alloc()
 		b = b[:cap(b)]
 		defer func() {
 			delete(h.summaries, ue)
