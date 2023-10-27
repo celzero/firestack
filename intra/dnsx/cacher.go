@@ -126,6 +126,10 @@ func (c *cres) copy() *cres {
 	}
 }
 
+func (cr *cres) String() string {
+	return cr.str()
+}
+
 func (cr *cres) str() string {
 	return "bumps=" + strconv.Itoa(cr.bumps) + "; expiry=" + cr.expiry.String() + "; s=" + cr.s.Str()
 }
@@ -300,31 +304,26 @@ func (t *ctransport) Type() string {
 }
 
 func (t *ctransport) fetch(network string, q []byte, msg *dns.Msg, summary *Summary, cb *cache, key string) (r []byte, err error) {
-	sendRequest := func(finalsumm *Summary) ([]byte, error) {
-		finalsumm.ID = t.Transport.ID()
-		finalsumm.Type = t.Transport.Type()
+	sendRequest := func(fsmm *Summary) ([]byte, error) {
+		fsmm.ID = t.Transport.ID()
+		fsmm.Type = t.Transport.Type()
 
-		rv, st := t.reqbarrier.Do(key, func() (any, error) {
-			ans, err := t.Transport.Query(network, q, finalsumm)
-			cb.put(ans, finalsumm)
-			return &cres{ans: xdns.AsMsg(ans), s: finalsumm}, err
+		v, _ := t.reqbarrier.Do(key, func() (any, error) {
+			ans, err := t.Transport.Query(network, q, fsmm)
+			cb.put(ans, fsmm)
+			return ans, err
 		})
 
-		cachedres, ok := rv.Val.(*cres)
-		if !ok {
-			return nil, errCacheResponseMismatch
+		cachedres, fresh := cb.freshCopy(key) // expect always fresh
+		if !fresh {
+			log.W("cache: barrier: stale(%s): barrier: %s (cache: %s)", key, v, cachedres)
 		}
 
-		// if rv is "shared", then use this req's summary over the "shared" one
-		if st == core.Shared {
-			cachedres.s = finalsumm
-		}
-
-		finalres, origsumm, finalerr := asResponse(msg, cachedres, true)
+		finalres, cachedsmm, finalerr := asResponse(msg, cachedres, true)
 		// fill summary regardless of errors
-		origsumm.FillInto(finalsumm) // origsumm may be equal to finalsumm
+		cachedsmm.FillInto(fsmm) // cachedsmm may be equal to finalsumm
 
-		return finalres, errors.Join(rv.Err, finalerr)
+		return finalres, errors.Join(v.Err, finalerr)
 	}
 
 	// check if underlying transport can connect fine, if not treat cache

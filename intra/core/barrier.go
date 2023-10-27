@@ -14,6 +14,7 @@
 package core
 
 import (
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -31,6 +32,10 @@ type V struct {
 	Val any
 	Err error
 	N   atomic.Uint32
+}
+
+func (v *V) String() string {
+	return fmt.Sprintf("v: %s // n: %d; exp: %s // err: %s", v.Val, v.N.Load(), v.exp, v.Err)
 }
 
 // Barrier represents a class of work and forms a namespace in
