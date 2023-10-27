@@ -211,23 +211,22 @@ func (cb *cache) freshCopy(key string) (v *cres, ok bool) {
 	return v.copy(), (r50 || recent) && alive
 }
 
-func (cb *cache) put(response []byte, s *Summary) (ok bool) {
+func (cb *cache) put(key string, val []byte, s *Summary) (ok bool) {
 	ok = false
 
-	if len(response) <= 0 {
+	if len(val) <= 0 {
 		return
 	}
 
-	ans := xdns.AsMsg(response)
+	ans := xdns.AsMsg(val)
 	// only cache successful responses
 	// TODO: implement negative caching
-	if ans == nil || !xdns.HasRcodeSuccess(ans) || xdns.HasTCFlag(response) {
+	if ans == nil || !xdns.HasRcodeSuccess(ans) || xdns.HasTCFlag(val) {
 		return
 	}
 
-	key, _, ok := mkcachekey(ans)
 	// do not cache .onion addresses
-	if !ok || strings.Contains(key, ".onion"+keysep) {
+	if strings.Contains(key, ".onion"+keysep) {
 		return
 	}
 	cb.mu.Lock()
@@ -238,7 +237,7 @@ func (cb *cache) put(response []byte, s *Summary) (ok bool) {
 	}
 
 	if len(cb.c) >= cb.size {
-		return
+		log.W("cache: put: cache overflow %d > %d", len(cb.c), cb.size)
 	}
 
 	ansttl := time.Duration(xdns.RTtl(ans)) * time.Second
@@ -264,11 +263,13 @@ func (cb *cache) put(response []byte, s *Summary) (ok bool) {
 }
 
 func asResponse(q *dns.Msg, v *cres, fresh bool) (r []byte, s *Summary, err error) {
+	s = v.s // v must never be nil
+	a := v.ans
+
 	if q == nil {
 		err = errNoQuestion
 		return
 	}
-	a := v.ans
 	if a == nil {
 		err = errCacheResponseEmpty
 		return
@@ -285,11 +286,9 @@ func asResponse(q *dns.Msg, v *cres, fresh bool) (r []byte, s *Summary, err erro
 	// dns 0x20 may mangle the question section, so preserve it
 	// github.com/jedisct1/edgedns#correct-support-for-the-dns0x20-extension
 	a.Question = q.Question
-	// if the v is not fresh, set the ttl to the minimum
-	if !fresh {
+	if !fresh { // if the v is not fresh, set the ttl to the minimum
 		xdns.WithTtl(a, stalettl)
 	}
-	s = v.s
 	r, err = a.Pack()
 	return
 }
@@ -310,13 +309,20 @@ func (t *ctransport) fetch(network string, q []byte, msg *dns.Msg, summary *Summ
 
 		v, _ := t.reqbarrier.Do(key, func() (any, error) {
 			ans, err := t.Transport.Query(network, q, fsmm)
-			cb.put(ans, fsmm)
+			cb.put(key, ans, fsmm)
 			return ans, err
 		})
 
 		cachedres, fresh := cb.freshCopy(key) // expect always fresh
-		if !fresh {
-			log.W("cache: barrier: stale(%s): barrier: %s (cache: %s)", key, v, cachedres)
+		if cachedres == nil {
+			cachedres = &cres{}
+			cachedres.s = fsmm
+			if b, ok := v.Val.([]byte); ok {
+				cachedres.ans = xdns.AsMsg(b) // may return nil
+			}
+			log.W("cache: barrier: empty(%s); %s", key, cachedres)
+		} else if !fresh {
+			log.W("cache: barrier: stale(%s); barrier: %s (cache: %s)", key, v, cachedres)
 		}
 
 		finalres, cachedsmm, finalerr := asResponse(msg, cachedres, true)
