@@ -26,9 +26,9 @@ import (
 
 // code adopted from github.com/mwitkow/go-http-dialer/blob/378f744fb2/dialer.go#L1
 
-type opt func(*HttpTunnel)
+type Opt func(*HttpTunnel)
 
-func New(proxyUrl *url.URL, opts ...opt) *HttpTunnel {
+func New(proxyUrl *url.URL, opts ...Opt) *HttpTunnel {
 	t := &HttpTunnel{
 		parentDialer: &net.Dialer{},
 	}
@@ -41,28 +41,28 @@ func New(proxyUrl *url.URL, opts ...opt) *HttpTunnel {
 }
 
 // WithTls sets the tls.Config to be used (e.g. CA certs) when connecting to an HTTP proxy over TLS.
-func WithTls(tlsConfig *tls.Config) opt {
+func WithTls(tlsConfig *tls.Config) Opt {
 	return func(t *HttpTunnel) {
 		t.tlsConfig = tlsConfig
 	}
 }
 
 // WithDialer allows the customization of the underlying net.Dialer used for establishing TCP connections to the proxy.
-func WithDialer(dialer *net.Dialer) opt {
+func WithDialer(dialer *net.Dialer) Opt {
 	return func(t *HttpTunnel) {
 		t.parentDialer = dialer
 	}
 }
 
 // WithConnectionTimeout customizes the underlying net.Dialer.Timeout.
-func WithConnectionTimeout(timeout time.Duration) opt {
+func WithConnectionTimeout(timeout time.Duration) Opt {
 	return func(t *HttpTunnel) {
 		t.parentDialer.Timeout = timeout
 	}
 }
 
 // WithProxyAuth allows you to add ProxyAuthorization to calls.
-func WithProxyAuth(auth ProxyAuthorization) opt {
+func WithProxyAuth(auth ProxyAuthorization) Opt {
 	return func(t *HttpTunnel) {
 		t.auth = auth
 	}
@@ -95,7 +95,14 @@ func (t *HttpTunnel) parseProxyUrl(proxyUrl *url.URL) {
 }
 
 func (t *HttpTunnel) dialProxy() (net.Conn, error) {
-	return dialers.ProxyDial(t.parentDialer, "tcp", t.proxyAddr)
+	if !t.isTls {
+		return dialers.ProxyDial(t.parentDialer, "tcp", t.proxyAddr)
+	}
+	td := &tls.Dialer{
+		NetDialer: t.parentDialer,
+		Config:    t.tlsConfig.Clone(),
+	}
+	return dialers.TlsDial(td, "tcp", t.proxyAddr)
 }
 
 // Dial is an implementation of net.Dialer, and returns a TCP connection handle to the host that HTTP CONNECT reached.

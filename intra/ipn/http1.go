@@ -7,6 +7,7 @@
 package ipn
 
 import (
+	"crypto/tls"
 	"net/http"
 	"net/url"
 
@@ -40,14 +41,22 @@ func NewHTTPProxy(id string, c protect.Controller, po *settings.ProxyOptions) (P
 	}
 
 	d := protect.MakeNsDialer(id, c)
-	var hp *tx.HttpTunnel
+
+	opts := make([]tx.Opt, 0)
 	optdialer := tx.WithDialer(d)
+	opts = append(opts, optdialer)
+	if po.Scheme == "https" && len(po.Host) > 0 {
+		opttls := tx.WithTls(&tls.Config{
+			ServerName: po.Host,
+		})
+		opts = append(opts, opttls)
+	}
 	if po.HasAuth() {
 		optauth := tx.WithProxyAuth(tx.AuthBasic(po.Auth.User, po.Auth.Password))
-		hp = tx.New(u, optdialer, optauth)
-	} else {
-		hp = tx.New(u, optdialer)
+		opts = append(opts, optauth)
 	}
+
+	hp := tx.New(u, opts...)
 
 	if err != nil {
 		log.W("proxy: http1: err creating w(%v): %v", po, err)
