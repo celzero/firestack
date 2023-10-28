@@ -40,10 +40,15 @@ func ipConnect(d *protect.RDial, proto string, ip netip.Addr, port int) (net.Con
 	}
 }
 
+func doSplit(port int) bool {
+	// HTTPS or DoT
+	return port == 443 || port == 853
+}
+
 func splitIpConnect(d *protect.RDial, proto string, ip netip.Addr, port int) (net.Conn, error) {
 	switch proto {
 	case "tcp", "tcp4", "tcp6":
-		if port == 443 { // split tls client-hello for https requests
+		if doSplit(port) { // split tls client-hello for https requests
 			return DialWithSplitRetry(d, tcpaddr(ip, port))
 		}
 		return d.DialTCP(proto, nil, tcpaddr(ip, port))
