@@ -7,6 +7,7 @@
 package dialers
 
 import (
+	"errors"
 	"net"
 	"net/netip"
 	"strconv"
@@ -92,4 +93,19 @@ func proxydial(d proxy.Dialer, network, addr string, connect proxyConnectFunc) (
 
 func ProxyDial(d proxy.Dialer, network, addr string) (net.Conn, error) {
 	return proxydial(d, network, addr, proxyConnect)
+}
+
+func ProxyDials(dd []proxy.Dialer, network, addr string) (c net.Conn, err error) {
+	tot := len(dd)
+	for i, d := range dd {
+		c, err = proxydial(d, network, addr, proxyConnect)
+		if err != nil {
+			log.W("pdial: trying %s dialer of %d / %d to %s", network, i, tot, addr)
+			err = errors.Join(err)
+		} else {
+			err = nil
+			return
+		}
+	}
+	return
 }
