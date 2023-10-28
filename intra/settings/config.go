@@ -189,6 +189,9 @@ func (d *DNSOptions) String() string {
 // ProxyOptions define https or socks5 proxy options
 type ProxyOptions struct {
 	Auth   *proxy.Auth
+	IP     string   // just the ip
+	Host   string   // just the hostname (no port)
+	Port   string   // just the port number
 	IPPort string   // may be a url or ip:port
 	Scheme string   // http, https, socks5, pip
 	Addrs  []string // list of ips if ipport is a url; may be nil
@@ -197,6 +200,8 @@ type ProxyOptions struct {
 // NewAuthProxyOptions returns a new ProxyOptions object with authentication object.
 func NewAuthProxyOptions(scheme, username, password, ip, port string, addrs []string) *ProxyOptions {
 	var ippstr string
+	var ipstr string
+	var host string
 	ip = strings.TrimSuffix(ip, "/")
 	ipp, err := addrport(ip, port)
 	if err != nil {
@@ -204,6 +209,7 @@ func NewAuthProxyOptions(scheme, username, password, ip, port string, addrs []st
 		if len(ip) > 0 {
 			// port is discarded, and expected to be in ip/url
 			ippstr = ip
+			host, port, _ = net.SplitHostPort(ip)
 		} else if len(port) > 0 {
 			// incoming ip,port is a wildcard address
 			ippstr = ":" + port
@@ -212,6 +218,7 @@ func NewAuthProxyOptions(scheme, username, password, ip, port string, addrs []st
 		}
 	} else {
 		ippstr = ipp.String()
+		ipstr = ipp.Addr().String()
 	}
 	if len(username) <= 0 || len(password) <= 0 {
 		log.I("proxyopt: no user(%s) and/or pwd(%d)", username, len(password))
@@ -226,7 +233,10 @@ func NewAuthProxyOptions(scheme, username, password, ip, port string, addrs []st
 	}
 	return &ProxyOptions{
 		Auth:   &auth,
-		IPPort: ippstr, // mmay be ip:port, url, or :port
+		Host:   host,   // may be empty or hostname (without port)
+		IP:     ipstr,  // may be empty or ipaddr
+		Port:   port,   // port number
+		IPPort: ippstr, // mmay be ip4:port, [ip::6]:port, host:port, or :port
 		Scheme: scheme,
 		Addrs:  addrs,
 	}
