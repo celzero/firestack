@@ -310,26 +310,22 @@ func (t *ctransport) fetch(network string, q []byte, msg *dns.Msg, summary *Summ
 		v, _ := t.reqbarrier.Do(key, func() (any, error) {
 			ans, err := t.Transport.Query(network, q, fsmm)
 			cb.put(key, ans, fsmm)
-			return ans, err
+			return &cres{ans: xdns.AsMsg(ans), s: fsmm.Copy()}, err
 		})
 
 		cachedres, fresh := cb.freshCopy(key) // expect always fresh
 		if cachedres == nil {
-			cachedres = &cres{}
-			cachedres.s = fsmm
-			if b, ok := v.Val.([]byte); ok {
-				cachedres.ans = xdns.AsMsg(b) // may return nil
-			}
+			cachedres = v.Val.(*cres)
 			log.W("cache: barrier: empty(%s); %s", key, cachedres)
 		} else if !fresh {
 			log.W("cache: barrier: stale(%s); barrier: %s (cache: %s)", key, v, cachedres)
 		}
 
-		finalres, cachedsmm, finalerr := asResponse(msg, cachedres, true)
+		fres, cachedsmm, ferr := asResponse(msg, cachedres, true)
 		// fill summary regardless of errors
 		cachedsmm.FillInto(fsmm) // cachedsmm may be equal to finalsumm
 
-		return finalres, errors.Join(v.Err, finalerr)
+		return fres, errors.Join(v.Err, ferr)
 	}
 
 	// check if underlying transport can connect fine, if not treat cache
