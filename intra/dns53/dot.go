@@ -29,6 +29,7 @@ type dot struct {
 	addr    string
 	status  int
 	c       *dns.Client
+	rd      *protect.RDial
 	proxies ipn.Proxies // may be nil
 	relay   ipn.Proxy   // may be nil
 	est     core.P2QuantileEstimator
@@ -53,6 +54,7 @@ func NewTLSTransport(id, rawurl string, addrs []string, px ipn.Proxies, ctl prot
 		relay, _ = px.GetProxy(id)
 	}
 	dialer := protect.MakeNsDialer(id, ctl)
+	rd := protect.MakeNsRDial(id, ctl)
 	hostname := parsedurl.Hostname()
 	// addrs are pre-determined ip addresses for url / hostname
 	dialers.Renew(hostname, addrs)
@@ -64,6 +66,7 @@ func NewTLSTransport(id, rawurl string, addrs []string, px ipn.Proxies, ctl prot
 		addr:    url2addr(rawurl),
 		status:  dnsx.Start,
 		proxies: px,
+		rd:      rd,
 		relay:   relay,
 		est:     core.NewP50Estimator(),
 	}
@@ -93,11 +96,8 @@ func (t *dot) doQuery(pid string, q []byte) (response []byte, elapsed time.Durat
 }
 
 func (t *dot) tlsdial() (*dns.Conn, error) {
-	tlsDialer := &tls.Dialer{
-		NetDialer: t.c.Dialer,
-		Config:    t.c.TLSConfig,
-	}
-	c, err := dialers.TlsDial(tlsDialer, "tcp", t.addr) // dot-tls
+	c, err := dialers.SplitDialWithTls(t.rd, t.c.TLSConfig, "tcp", t.addr)
+	// or: c, err := dialers.TlsDial(tlsDialer, "tcp", t.addr)
 	if c != nil {
 		c.SetDeadline(time.Now().Add(dottimeout))
 		return &dns.Conn{Conn: c, UDPSize: t.c.UDPSize}, err
