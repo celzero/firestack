@@ -7,6 +7,7 @@
 package dialers
 
 import (
+	"crypto/tls"
 	"net"
 	"net/netip"
 	"strconv"
@@ -117,4 +118,14 @@ func SplitDial(d *protect.RDial, network, addr string) (net.Conn, error) {
 
 func Dial(d *protect.RDial, network, addr string) (net.Conn, error) {
 	return commondial(d, network, addr, ipConnect)
+}
+
+func SplitDialWithTls(d *protect.RDial, cfg *tls.Config, network, addr string) (net.Conn, error) {
+	c, err := commondial(d, network, addr, splitIpConnect)
+	if err != nil {
+		return c, err
+	}
+	tlsconn := tls.Client(c, cfg)
+	err = tlsconn.Handshake()
+	return tlsconn, err
 }
