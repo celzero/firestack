@@ -23,6 +23,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/celzero/firestack/intra/ipn/multihost"
+
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
 	"golang.org/x/sys/unix"
@@ -58,7 +60,7 @@ var (
 )
 
 func (*StdNetBind) ParseEndpoint(s string) (conn.Endpoint, error) {
-	d := new(Multihost)
+	d := new(multihost.MH)
 	host, portstr, err := net.SplitHostPort(s)
 	if err != nil {
 		log.E("wg: bind: not a valid endpoint in(%s); err: %v", s, err)

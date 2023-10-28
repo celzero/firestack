@@ -7,24 +7,29 @@
 package ipn
 
 import (
+	"errors"
 	"net"
 	"net/http"
+	"net/netip"
+	"strconv"
 
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/dialers"
+	"github.com/celzero/firestack/intra/ipn/multihost"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
 	"github.com/celzero/firestack/intra/settings"
 	tx "github.com/txthinking/socks5"
+	"golang.org/x/net/proxy"
 )
 
 type socks5 struct {
-	proxydialer *tx.Client
-	id          string
-	opts        *settings.ProxyOptions
-	rd          *protect.RDial
-	hc          *http.Client
-	status      int
+	dialers []proxy.Dialer         // outbound dialers connecting unto upstream proxy
+	id      string                 // unique identifier
+	opts    *settings.ProxyOptions // connect options
+	rd      *protect.RDial         // this transport as a dialer
+	hc      *http.Client           // this transport as a http client
+	status  int                    // status of this transport
 }
 
 type socks5tcpconn struct {
@@ -80,28 +85,42 @@ func NewSocks5Proxy(id string, ctl protect.Controller, po *settings.ProxyOptions
 
 	// replace with a network namespace aware dialer
 	tx.Dial = protect.MakeNsRDial(id, ctl)
+
+	portnumber, _ := strconv.Atoi(po.Port)
+	mh := new(multihost.MH)
+	mh.With([]string{po.Host}) // resolves if ip is name
+
+	var clients []proxy.Dialer
 	// x.net.proxy doesn't yet support udp
 	// github.com/golang/net/blob/62affa334/internal/socks/socks.go#L233
 	// if po.Auth.User and po.Auth.Password are empty strings, the upstream
 	// socks5 server may throw err when dialing with golang/net/x/proxy;
 	// although, txthinking/socks5 deals gracefully with empty auth strings
 	// fproxy, err = proxy.SOCKS5("udp", po.IPPort, po.Auth, proxy.Direct)
-	fproxy, err := tx.NewClient(po.IPPort, po.Auth.User, po.Auth.Password, tcptimeoutsec, udptimeoutsec)
+	for _, ip := range mh.Addrs() {
+		ipport := netip.AddrPortFrom(ip, uint16(portnumber))
+		c, cerr := tx.NewClient(ipport.String(), po.Auth.User, po.Auth.Password, tcptimeoutsec, udptimeoutsec)
+		if cerr != nil {
+			err = errors.Join(err, cerr)
+		} else {
+			clients = append(clients, c)
+		}
+	}
 
-	if err != nil {
-		log.W("proxy: err creating socks5(%v): %v", po, err)
+	if len(clients) == 0 && err != nil {
+		log.W("proxy: err creating socks5 for %v (opts: %v): %v", mh, po, err)
 		return nil, err
 	}
 
 	h := &socks5{
-		proxydialer: fproxy,
-		id:          id,
-		opts:        po,
+		dialers: clients,
+		id:      id,
+		opts:    po,
 	}
 	h.rd = newRDial(h)
 	h.hc = newHTTP1Client(h.rd)
 
-	log.D("proxy: socks5: created %s with opts(%s)", h.ID(), po)
+	log.D("proxy: socks5: created %s with clients(%d), opts(%s)", h.ID(), len(clients), po)
 
 	return h, nil
 }
@@ -113,7 +132,7 @@ func (h *socks5) Dial(network, addr string) (c protect.Conn, err error) {
 
 	// todo: tx.Client can only dial in to ip:port and not host:port even for server addr
 	// tx.Client.Dial does not support dialing into client addr as hostnames
-	if c, err = dialers.ProxyDial(h.proxydialer, network, addr); err == nil {
+	if c, err = dialers.ProxyDials(h.dialers, network, addr); err == nil {
 		// github.com/txthinking/socks5/blob/39268fae/client.go#L15
 		if uc, ok := c.(*tx.Client); ok {
 			if uc.UDPConn != nil { // a udp conn will always have an embedded tcp conn

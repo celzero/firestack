@@ -4,7 +4,7 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
-package wg
+package multihost
 
 import (
 	"net/netip"
@@ -14,35 +14,35 @@ import (
 	"github.com/celzero/firestack/intra/log"
 )
 
-// Multihost is a list of hostnames and/or ip addresses for one endpoint.
-type Multihost struct {
+// MH is a list of hostnames and/or ip addresses for one endpoint.
+type MH struct {
 	names []string
 	addrs []netip.Addr
 }
 
-func (h *Multihost) Names() []string {
+func (h *MH) Names() []string {
 	return h.names
 }
 
-func (h *Multihost) Addrs() []netip.Addr {
+func (h *MH) Addrs() []netip.Addr {
 	return h.addrs
 }
 
-func (h *Multihost) Len() int {
+func (h *MH) Len() int {
 	// names may exist without addrs and vice versa
 	return max(len(h.addrs), len(h.names))
 }
 
-func (h *Multihost) addrlen() int {
+func (h *MH) addrlen() int {
 	return len(h.addrs)
 }
 
-func (h *Multihost) Refresh() int {
+func (h *MH) Refresh() int {
 	h.With(h.names)
 	return h.Len()
 }
 
-func (h *Multihost) With(domainsOrIps []string) {
+func (h *MH) With(domainsOrIps []string) {
 	h.names = make([]string, 0)
 	h.addrs = make([]netip.Addr, 0)
 	for _, dip := range domainsOrIps {
@@ -60,7 +60,7 @@ func (h *Multihost) With(domainsOrIps []string) {
 	}
 }
 
-func (h *Multihost) EqualAddrs(other *Multihost) bool {
+func (h *MH) EqualAddrs(other *MH) bool {
 	if (other == nil) || (h.addrlen() != other.addrlen()) {
 		return false
 	}

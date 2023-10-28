@@ -27,6 +27,7 @@ import (
 	"syscall"
 
 	"github.com/celzero/firestack/intra/core"
+	"github.com/celzero/firestack/intra/ipn/multihost"
 	"github.com/celzero/firestack/intra/ipn/wg"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
@@ -69,7 +70,7 @@ type wgtun struct {
 	incomingPacket chan *buffer.View // pipes ep writes to wg
 	events         chan tun.Event    // wg specific tun (interface) events
 	mtu            int               // mtu of this interface
-	dns            *wg.Multihost     // dns resolver for this interface
+	dns            *multihost.MH     // dns resolver for this interface
 	reqbarrier     *core.Barrier     // request barrier for dns lookups
 	hasV4, hasV6   bool              // interface has ipv4/ipv6 routes?
 }
@@ -194,11 +195,11 @@ func wglogger(id string) *device.Logger {
 	return logger
 }
 
-func wgIfConfigOf(txtptr *string) (ifaddrs []netip.Prefix, dnsh *wg.Multihost, mtu int, err error) {
+func wgIfConfigOf(txtptr *string) (ifaddrs []netip.Prefix, dnsh *multihost.MH, mtu int, err error) {
 	txt := *txtptr
 	pcfg := strings.Builder{}
 	r := bufio.NewScanner(strings.NewReader(txt))
-	dnsh = new(wg.Multihost)
+	dnsh = new(multihost.MH)
 	for r.Scan() {
 		line := r.Text()
 		if len(line) <= 0 {
@@ -336,7 +337,7 @@ func NewWgProxy(id string, ctl protect.Controller, cfg string) (WgProxy, error) 
 }
 
 // ref: github.com/WireGuard/wireguard-go/blob/469159ecf7/tun/netstack/tun.go#L54
-func makeWgTun(id string, ifaddrs []netip.Prefix, dnsm *wg.Multihost, mtu int) (*wgtun, error) {
+func makeWgTun(id string, ifaddrs []netip.Prefix, dnsm *multihost.MH, mtu int) (*wgtun, error) {
 	opts := stack.Options{
 		NetworkProtocols:   []stack.NetworkProtocolFactory{ipv4.NewProtocol, ipv6.NewProtocol},
 		TransportProtocols: []stack.TransportProtocolFactory{tcp.NewProtocol, udp.NewProtocol, icmp.NewProtocol6, icmp.NewProtocol4},
