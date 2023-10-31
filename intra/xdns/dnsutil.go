@@ -728,7 +728,7 @@ func IPHints(msg *dns.Msg, x dns.SVCBKey) []*netip.Addr {
 	}
 	qname, _ := NormalizeQName(QName(msg))
 	if !HasSVCBQuestion(msg) && !HasHTTPQuestion(msg) {
-		log.V("dnsutil: svcb/https(%s): no record(%d)", qname, len(msg.Answer))
+		log.N("dnsutil: svcb/https(%s): no record(%d)", qname, len(msg.Answer))
 		return nil
 	}
 
@@ -876,7 +876,7 @@ func HasSVCBQuestion(msg *dns.Msg) (ok bool) {
 	} else {
 		q := msg.Question[0]
 		ok = IsSVCBQuestion(&q)
-		log.V("dnsutil: svcb: %v ok? %t", q, ok)
+		log.N("dnsutil: svcb: %v ok? %t", q, ok)
 	}
 	return
 }
@@ -888,7 +888,7 @@ func HasHTTPQuestion(msg *dns.Msg) (ok bool) {
 	} else {
 		q := msg.Question[0]
 		ok = IsHTTPQuestion(&q)
-		log.V("dnsutil: https: %v ok? %t", q, ok)
+		log.N("dnsutil: https: %v ok? %t", q, ok)
 	}
 	return
 }
