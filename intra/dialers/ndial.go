@@ -74,8 +74,8 @@ func netdial(d *net.Dialer, network, addr string, connect netConnectFunc) (net.C
 		log.W("ndial: ip %s for %s failed with err %v", ip, addr, err)
 	}
 
-	dur := time.Since(start).Seconds()
-	log.D("ndial: duration: %ds; failed %s", dur*1000, addr)
+	dur := time.Since(start)
+	log.D("ndial: duration: %s; failed %s", dur, addr)
 	// xxx: return nil, errNoIps?
 	return d.Dial(network, addr)
 }

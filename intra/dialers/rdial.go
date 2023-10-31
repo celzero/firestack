@@ -106,8 +106,8 @@ func commondial(d *protect.RDial, network, addr string, connect connectFunc) (ne
 		log.W("rdial: commondial: ip %s for %s failed with err %v", ip, addr, err)
 	}
 
-	dur := time.Since(start).Seconds()
-	log.D("rdial: commondial: duration: %ds; failed %s", dur*1000, addr)
+	dur := time.Since(start)
+	log.D("rdial: commondial: duration: %s; failed %s", dur, addr)
 	// xxx: return nil, errNoIps
 	return d.Dial(network, addr)
 }

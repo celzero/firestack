@@ -84,8 +84,8 @@ func proxydial(d proxy.Dialer, network, addr string, connect proxyConnectFunc) (
 		log.W("pdial: ip %s for %s failed with err %v", ip, addr, err)
 	}
 
-	dur := time.Since(start).Seconds()
-	log.D("pdial: duration: %ds; failed %s", dur*1000, addr)
+	dur := time.Since(start)
+	log.D("pdial: duration: %s; failed %s", dur, addr)
 
 	// for example, socks5 proxy does not support dialing hostnames
 	return nil, errNoIps
