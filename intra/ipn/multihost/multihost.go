@@ -20,6 +20,14 @@ type MH struct {
 	addrs []netip.Addr
 }
 
+func (h *MH) straddrs() []string {
+	a := append([]string{}, h.names...)
+	for _, ip := range h.addrs {
+		a = append(a, ip.String())
+	}
+	return a
+}
+
 func (h *MH) Names() []string {
 	return h.names
 }
@@ -38,26 +46,38 @@ func (h *MH) addrlen() int {
 }
 
 func (h *MH) Refresh() int {
-	h.With(h.names)
-	return h.Len()
+	totips := 0
+	if len(h.names) > 0 { // resolve ip from domain names
+		h.With(h.names)
+		totips = len(h.addrs)
+	}
+	if totips <= 0 { // re-add existing ips, if any
+		h.With(h.straddrs())
+	}
+	return len(h.addrs)
 }
 
-func (h *MH) With(domainsOrIps []string) {
+func (h *MH) With(domainsOrIps []string) int {
 	h.names = make([]string, 0)
 	h.addrs = make([]netip.Addr, 0)
 	for _, dip := range domainsOrIps {
+		if len(dip) <= 0 {
+			continue
+		}
 		dip = strings.TrimSpace(dip)                     // hostname or ip
 		if ip, err := netip.ParseAddr(dip); err != nil { // may be hostname
 			h.names = append(h.names, dip) // add hostname regardless of resolution
 			if resolvedips := dialers.For(dip); len(resolvedips) > 0 {
 				h.addrs = append(h.addrs, resolvedips...)
 			} else {
-				log.W("proxy: wg: multihost: no ips for %q", dip)
+				log.W("multihost: no ips for %q", dip)
 			}
 		} else { // may be ip
 			h.addrs = append(h.addrs, ip)
 		}
 	}
+	log.D("multihost: with %s => %s", h.names, h.addrs)
+	return h.Len()
 }
 
 func (h *MH) EqualAddrs(other *MH) bool {
