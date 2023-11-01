@@ -149,6 +149,10 @@ func (t *transport) dial(network string) (*dns.Conn, error) {
 	}
 }
 
+func (t *transport) bypassProxy() bool {
+	return t.id == dnsx.Default || t.id == dnsx.System
+}
+
 // ref: github.com/celzero/midway/blob/77ede02c/midway/server.go#L179
 func (t *transport) send(network, pid string, q []byte) (response []byte, elapsed time.Duration, qerr *dnsx.QueryError) {
 	var ans *dns.Msg
@@ -160,9 +164,11 @@ func (t *transport) send(network, pid string, q []byte) (response []byte, elapse
 	}
 
 	var conn *dns.Conn
+
 	useudp := network == dnsx.NetTypeUDP
-	userelay := t.relay != nil
-	useproxy := len(pid) != 0 // pid == dnsx.NetNoProxy => ipn.Base
+	bypass := t.bypassProxy()
+	userelay := !bypass && t.relay != nil
+	useproxy := !bypass && len(pid) != 0 // pid == dnsx.NetNoProxy => ipn.Base
 
 	// if udp is unreachable, try tcp: github.com/celzero/rethink-app/issues/839
 	// note that some proxies do not support udp (eg pipws, piph2)
