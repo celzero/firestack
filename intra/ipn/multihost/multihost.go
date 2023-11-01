@@ -21,7 +21,7 @@ type MH struct {
 }
 
 func (h *MH) straddrs() []string {
-	a := append([]string{}, h.names...)
+	a := make([]string, len(h.addrs))
 	for _, ip := range h.addrs {
 		a = append(a, ip.String())
 	}
