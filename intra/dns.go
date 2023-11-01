@@ -34,14 +34,16 @@ func AddDNSProxy(t Tunnel, id, ip, port string) error {
 	}
 }
 
-func newSystemDNSProxy(g Bridge, ipp netip.AddrPort) (d dnsx.Transport, err error) {
-	return dns53.NewTransportFrom(dnsx.System, ipp, nil, g)
+func newSystemDNSProxy(g Bridge, p ipn.Proxies, ipp netip.AddrPort) (d dnsx.Transport, err error) {
+	return dns53.NewTransportFrom(dnsx.System, ipp, p, g)
 }
 
 func SetSystemDNS(t Tunnel, ippcsv string) int {
 	r := t.GetResolver()
 	g := t.getBridge()
 	d := r.RemoveSystemDNS()
+	p := t.GetProxies()
+
 	ipports := strings.Split(ippcsv, ",")
 	if len(ipports) <= 0 {
 		log.I("dns: removed %d system dns(es)", d)
@@ -50,7 +52,7 @@ func SetSystemDNS(t Tunnel, ippcsv string) int {
 	n := 0
 	for _, ipport := range ipports {
 		if ipp, err := netip.ParseAddrPort(ipport); err == nil {
-			if sdns, err := newSystemDNSProxy(g, ipp); err == nil {
+			if sdns, err := newSystemDNSProxy(g, p, ipp); err == nil {
 				r.AddSystemDNS(sdns)
 				n += 1
 			} else {
@@ -64,8 +66,8 @@ func SetSystemDNS(t Tunnel, ippcsv string) int {
 	return n
 }
 
-func newSystemTransport(g Bridge) (d dnsx.Transport) {
-	d, _ = newSystemDNSProxy(g, netip.AddrPortFrom(netip.AddrFrom4([4]byte{127, 0, 0, 1}), 53))
+func newSystemTransport(g Bridge, p ipn.Proxies) (d dnsx.Transport) {
+	d, _ = newSystemDNSProxy(g, p, netip.AddrPortFrom(netip.AddrFrom4([4]byte{127, 0, 0, 1}), 53))
 	return
 }
 

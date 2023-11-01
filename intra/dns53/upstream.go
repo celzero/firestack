@@ -39,7 +39,7 @@ type transport struct {
 	status  int
 	client  *dns.Client
 	dialer  *protect.RDial
-	proxies ipn.Proxies // may be nil; esp for id == dnsx.System
+	proxies ipn.Proxies // should never be nil
 	relay   ipn.Proxy   // may be nil
 	est     core.P2QuantileEstimator
 }
@@ -66,9 +66,12 @@ func NewTransport(id, ip, port string, px ipn.Proxies, ctl protect.Controller) (
 
 func newTransport(id string, do *settings.DNSOptions, px ipn.Proxies, ctl protect.Controller) (dnsx.Transport, error) {
 	var relay ipn.Proxy
-	if px != nil {
-		relay, _ = px.GetProxy(id)
+	// cannot be nil, see: ipn.Exit which the only proxy guaranteed to be connected to the internet;
+	// ex: ipn.Base routed back within the tunnel (rethink's traffic routed back into rethink).
+	if px == nil {
+		return nil, dnsx.ErrNoProxyProvider
 	}
+	relay, _ = px.GetProxy(id)
 	d := protect.MakeNsRDial(id, ctl)
 	tx := &transport{
 		id:      id,
@@ -149,10 +152,6 @@ func (t *transport) dial(network string) (*dns.Conn, error) {
 	}
 }
 
-func (t *transport) bypassProxy() bool {
-	return t.id == dnsx.Default || t.id == dnsx.System
-}
-
 // ref: github.com/celzero/midway/blob/77ede02c/midway/server.go#L179
 func (t *transport) send(network, pid string, q []byte) (response []byte, elapsed time.Duration, qerr *dnsx.QueryError) {
 	var ans *dns.Msg
@@ -166,9 +165,8 @@ func (t *transport) send(network, pid string, q []byte) (response []byte, elapse
 	var conn *dns.Conn
 
 	useudp := network == dnsx.NetTypeUDP
-	bypass := t.bypassProxy()
-	userelay := !bypass && t.relay != nil
-	useproxy := !bypass && len(pid) != 0 // pid == dnsx.NetNoProxy => ipn.Base
+	userelay := t.relay != nil
+	useproxy := len(pid) != 0 // pid == dnsx.NetNoProxy => ipn.Base
 
 	// if udp is unreachable, try tcp: github.com/celzero/rethink-app/issues/839
 	// note that some proxies do not support udp (eg pipws, piph2)
