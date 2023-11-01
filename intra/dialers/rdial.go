@@ -120,8 +120,8 @@ func Dial(d *protect.RDial, network, addr string) (net.Conn, error) {
 	return commondial(d, network, addr, ipConnect)
 }
 
-func SplitDialWithTls(d *protect.RDial, cfg *tls.Config, network, addr string) (net.Conn, error) {
-	c, err := commondial(d, network, addr, splitIpConnect)
+func SplitDialWithTls(d *protect.RDial, cfg *tls.Config, addr string) (net.Conn, error) {
+	c, err := commondial(d, "tcp", addr, splitIpConnect)
 	if err != nil {
 		return c, err
 	}

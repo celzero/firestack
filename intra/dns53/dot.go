@@ -96,7 +96,7 @@ func (t *dot) doQuery(pid string, q []byte) (response []byte, elapsed time.Durat
 }
 
 func (t *dot) tlsdial() (*dns.Conn, error) {
-	c, err := dialers.SplitDialWithTls(t.rd, t.c.TLSConfig, "tcp", t.addr)
+	c, err := dialers.SplitDialWithTls(t.rd, t.c.TLSConfig, t.addr)
 	// or: c, err := dialers.TlsDial(tlsDialer, "tcp", t.addr)
 	if c != nil {
 		c.SetDeadline(time.Now().Add(dottimeout))
