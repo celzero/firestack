@@ -44,6 +44,7 @@ func (m *ipmapper) LookupNetIP(ctx context.Context, network, host string) ([]net
 	}
 	// no lookups when host is already an IP
 	if ip, err := str2ip(host); err == nil {
+		log.V("ipmapper: lookup: no-op; host %s is ipaddr", host)
 		return []netip.Addr{ip}, nil
 	}
 
@@ -62,16 +63,22 @@ func (m *ipmapper) LookupNetIP(ctx context.Context, network, host string) ([]net
 	}
 
 	if err4 != nil || err6 != nil {
-		return nil, errors.Join(err4, err6)
+		errs := errors.Join(err4, err6)
+		log.E("ipmapper: lookup: query err", errs)
+		return nil, errs
 	}
 
 	r4, lerr4 := m.r.LocalLookup(q4)
 	r6, lerr6 := m.r.LocalLookup(q6)
 
 	if len(r4) <= 0 && len(r6) <= 0 {
-		return nil, errors.Join(errNoAns, lerr4, lerr6)
+		errs := errors.Join(errNoAns, lerr4, lerr6)
+		log.E("ipmapper: lookup: no answers, err", errs)
+		return nil, errs
 	} else if lerr4 != nil && lerr6 != nil {
-		return nil, errors.Join(lerr4, lerr6)
+		errs := errors.Join(lerr4, lerr6)
+		log.E("ipmapper: lookup: err", errs)
+		return nil, errs
 	}
 
 	ips := make([]netip.Addr, 0, len(r4)+len(r6))
@@ -79,6 +86,8 @@ func (m *ipmapper) LookupNetIP(ctx context.Context, network, host string) ([]net
 	ip6 := addrs(r6)
 	ips = append(ips, ip4...)
 	ips = append(ips, ip6...)
+
+	log.D("ipmapper: host %s => ips %s", host, ips)
 	return ips, nil
 }
 

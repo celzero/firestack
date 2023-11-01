@@ -814,6 +814,7 @@ func (r *resolver) preferencesFrom(qname string, s *NsOpts, chosenids ...string)
 	if len(s.PID) > 0 && allowProxy(id1, id2) {
 		pid = s.PID // id for proxy
 	} else {
+		log.V("dns: bypass proxy %s for %s, %s", s.PID, id1, id2)
 		pid = NetNoProxy
 	}
 	ips = s.IPCSV // comma-separated list of IPs
