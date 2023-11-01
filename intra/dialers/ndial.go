@@ -76,8 +76,8 @@ func netdial(d *net.Dialer, network, addr string, connect netConnectFunc) (net.C
 
 	dur := time.Since(start)
 	log.D("ndial: duration: %s; failed %s", dur, addr)
-	// xxx: return nil, errNoIps?
-	return d.Dial(network, addr)
+
+	return nil, errNoIps
 }
 
 func NetDial(d *net.Dialer, network, addr string) (net.Conn, error) {

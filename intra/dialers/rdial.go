@@ -108,8 +108,8 @@ func commondial(d *protect.RDial, network, addr string, connect connectFunc) (ne
 
 	dur := time.Since(start)
 	log.D("rdial: commondial: duration: %s; failed %s", dur, addr)
-	// xxx: return nil, errNoIps
-	return d.Dial(network, addr)
+
+	return nil, errNoIps
 }
 
 func SplitDial(d *protect.RDial, network, addr string) (net.Conn, error) {
