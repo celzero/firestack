@@ -42,6 +42,8 @@ type socks5udpconn struct {
 
 var _ core.TCPConn = (*socks5tcpconn)(nil)
 var _ core.UDPConn = (*socks5udpconn)(nil)
+var _ net.Conn = (*socks5tcpconn)(nil) // needed by golang/http transport
+var _ net.Conn = (*socks5udpconn)(nil)
 
 func (c *socks5tcpconn) CloseRead() error {
 	if c.Client != nil && c.Client.TCPConn != nil {
@@ -141,12 +143,18 @@ func (h *socks5) Dial(network, addr string) (c protect.Conn, err error) {
 				c = &socks5tcpconn{uc}
 			} else {
 				log.W("proxy: socks5: %s conn not tcp nor udp %s -> %s", h.ID(), h.GetAddr(), addr)
-				c = nil
+				if c != nil {
+					c.Close()
+					c = nil
+				}
 				err = errNoProxyConn
 			}
 		} else {
 			log.W("proxy: socks5: %s conn not a tx.Client(%s) %s -> %s", h.ID(), network, h.GetAddr(), addr)
-			c = nil
+			if c != nil {
+				c.Close()
+				c = nil
+			}
 			err = errNoProxyConn
 		}
 	} else {
