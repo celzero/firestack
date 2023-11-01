@@ -92,7 +92,7 @@ func NewTunnel(fd, mtu int, fakedns string, tunmode *settings.TunMode, bdg Bridg
 	services := rnet.NewServices(proxies, bdg, bdg)
 
 	resolver := dnsx.NewResolver(fakedns, tunmode, bdg, natpt)
-	resolver.Add(newSystemTransport(bdg))            // may be overridden, may be nil
+	resolver.Add(newSystemTransport(bdg, proxies))   // may be overridden, may be nil
 	resolver.Add(newGroundedDefaultTransport())      // may be overridden
 	resolver.Add(newBlockAllTransport())             // fixed
 	resolver.Add(newDNSCryptTransport(proxies, bdg)) // fixed
