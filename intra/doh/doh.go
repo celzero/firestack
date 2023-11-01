@@ -281,14 +281,7 @@ func (t *transport) doDoh(pid string, q []byte) (response []byte, blocklists str
 	return
 }
 
-func (t *transport) bypassProxy() bool {
-	return t.id == dnsx.Default || t.id == dnsx.System
-}
-
 func (t *transport) fetch(pid string, req *http.Request) (res *http.Response, err error) {
-	if t.bypassProxy() {
-		return t.client.Do(req)
-	}
 	userelay := t.relay != nil
 	hasproxy := t.proxies != nil
 	useproxy := len(pid) != 0 // if pid == dnsx.NetNoProxy, then px is ipn.Base
