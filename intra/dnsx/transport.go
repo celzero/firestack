@@ -34,6 +34,7 @@ const (
 	CT = "Cache" // cached transport prefix
 
 	// special singleton DNS transports (IDs)
+	Goos      = "Goos"      // Go determined default resolver
 	System    = "System"    // network/os provided dns
 	Local     = "mdns"      // mdns
 	Default   = "Default"   // default (fallback) dns
@@ -310,7 +311,7 @@ func (r *resolver) IsDnsAddr(network, ipport string) bool {
 }
 
 func (r *resolver) LocalLookup(q []byte) ([]byte, error) {
-	return r.forward(q, System)
+	return r.forward(q, Goos)
 }
 
 func (r *resolver) Forward(q []byte) ([]byte, error) {
@@ -434,10 +435,17 @@ func (r *resolver) determineTransport(id string) Transport {
 	} else if id == Alg {
 		// if no firewall is setup, alg isn't possible
 		if r.tunmode.BlockMode == settings.BlockModeNone {
-			id0 = CT + Default
+			id0 = CT + Preferred
+		} else {
+			id0 = CT + BlockFree
+			id1 = CT + Preferred
 		}
-		id0 = CT + BlockFree
-		id1 = CT + Preferred
+	} else if id == System {
+		id0 = System
+		// fallback on Goos if System is unavailable
+		// but unlike "System", "Goos" does not support
+		// other than A / AAAA queries
+		id1 = Goos
 	} else {
 		id0 = id
 	}
@@ -628,9 +636,9 @@ func (r *resolver) accept(c io.ReadWriteCloser) {
 
 func isReserved(id string) bool {
 	switch id {
-	case Default, System, Local, Alg, DcProxy, BlockAll, Preferred, BlockFree:
+	case Default, Goos, System, Local, Alg, DcProxy, BlockAll, Preferred, BlockFree:
 		return true
-	case CT + Default, CT + System, CT + Local, CT + Alg, CT + DcProxy, CT + BlockAll, CT + Preferred, CT + BlockFree:
+	case CT + Default, CT + Goos, CT + System, CT + Local, CT + Alg, CT + DcProxy, CT + BlockAll, CT + Preferred, CT + BlockFree:
 		return true
 	}
 	return false
@@ -668,9 +676,9 @@ func allowProxy(ids ...string) bool {
 	deny := false
 	for _, id := range ids {
 		switch id {
-		case Default, System, Local:
+		case Default, System, Local, Goos:
 			return deny
-		case CT + Default, CT + System, CT + Local:
+		case CT + Default, CT + System, CT + Local, CT + Goos:
 			return deny
 		}
 	}
@@ -801,7 +809,7 @@ func (r *resolver) preferencesFrom(qname string, s *NsOpts, chosenids ...string)
 	} else if isAnyBlockAll(id1, id2) { // just one transport, BlockAll, if set
 		id1 = BlockAll
 		id2 = ""
-	} else if reqid := r.requiresSystemOrLocal(qname); len(reqid) > 0 { // use approp transport given a qname
+	} else if reqid := r.requiresGoosOrLocal(qname); len(reqid) > 0 { // use approp transport given a qname
 		log.D("dns: pref: use suggested tr(%s) for %s", reqid, qname)
 		id1 = reqid
 		id2 = ""

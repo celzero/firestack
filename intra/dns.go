@@ -66,8 +66,8 @@ func SetSystemDNS(t Tunnel, ippcsv string) int {
 	return n
 }
 
-func newSystemTransport(g Bridge, p ipn.Proxies) (d dnsx.Transport) {
-	d, _ = newSystemDNSProxy(g, p, netip.AddrPortFrom(netip.AddrFrom4([4]byte{127, 0, 0, 1}), 53))
+func newGoosTransport(g Bridge, p ipn.Proxies) (d dnsx.Transport) {
+	d, _ = dns53.NewGoosTransport(p, g)
 	return
 }
 

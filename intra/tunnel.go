@@ -92,13 +92,13 @@ func NewTunnel(fd, mtu int, fakedns string, tunmode *settings.TunMode, bdg Bridg
 	services := rnet.NewServices(proxies, bdg, bdg)
 
 	resolver := dnsx.NewResolver(fakedns, tunmode, bdg, natpt)
-	resolver.Add(newSystemTransport(bdg, proxies))   // may be overridden, may be nil
 	resolver.Add(newGroundedDefaultTransport())      // may be overridden
+	resolver.Add(newGoosTransport(bdg, proxies))     // os-resolver; fixed
 	resolver.Add(newBlockAllTransport())             // fixed
 	resolver.Add(newDNSCryptTransport(proxies, bdg)) // fixed
 	resolver.Add(newMDNSTransport(l3))               // fixed
 
-	addIPMapper(resolver) // namespace aware resolver for pkg split
+	addIPMapper(resolver) // namespace aware os-resolver for pkg dialers
 
 	tcph := NewTCPHandler(resolver, proxies, tunmode, bdg, bdg)
 	udph := NewUDPHandler(resolver, proxies, tunmode, bdg, bdg)

@@ -30,9 +30,10 @@ import (
 )
 
 var (
-	errNoProtos     = errors.New("enable at least one of IPv4 and IPv6 querying")
-	errBindFail     = errors.New("failed to bind to udp port")
-	errNoMdnsAnswer = errors.New("no mdns answer")
+	errNoProtos        = errors.New("enable at least one of IPv4 and IPv6 querying")
+	errBindFail        = errors.New("failed to bind to udp port")
+	errNoMdnsAnswer    = errors.New("no mdns answer")
+	errUnexpectedProxy = errors.New("proxy not supported")
 )
 
 type dnssd struct {
