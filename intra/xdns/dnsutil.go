@@ -541,6 +541,67 @@ func RefusedResponseFromMessage(srcMsg *dns.Msg) (dstMsg *dns.Msg, err error) {
 	return
 }
 
+func AQuadAForQuery(q *dns.Msg, ips ...netip.Addr) (a *dns.Msg, err error) {
+	if q == nil {
+		return nil, errNoDns
+	}
+	a = EmptyResponseFromMessage(q) // may be nil
+	if a == nil {
+		return nil, errNoDns
+	}
+	a.Rcode = dns.RcodeSuccess
+	ttl := AnsTTL
+
+	questions := q.Question
+	if len(questions) == 0 {
+		log.W("dnsutil: no q in msg %s", q)
+		return
+	}
+
+	hasanswers := false
+	question := questions[0]
+
+	for _, ip := range ips {
+		ipun := ip.Unmap()
+		is4 := ipun.Is4()
+		is6 := ip.Is6()
+
+		if question.Qtype == dns.TypeA && is4 {
+			rr := new(dns.A)
+			rr.Hdr = dns.RR_Header{
+				Name:   question.Name,
+				Rrtype: dns.TypeA,
+				Class:  dns.ClassINET,
+				Ttl:    ttl,
+			}
+			rr.A = ipun.AsSlice()
+			if len(rr.A) > 0 {
+				hasanswers = true
+				a.Answer = append(a.Answer, rr)
+			}
+		} else if question.Qtype == dns.TypeAAAA && is6 {
+			rr := new(dns.AAAA)
+			rr.Hdr = dns.RR_Header{
+				Name:   question.Name,
+				Rrtype: dns.TypeAAAA,
+				Class:  dns.ClassINET,
+				Ttl:    ttl,
+			}
+			rr.AAAA = ip.AsSlice()
+			if len(rr.AAAA) > 0 {
+				hasanswers = true
+				a.Answer = append(a.Answer, rr)
+			}
+		}
+	}
+	if !hasanswers {
+		log.E("dnsutil: unexpected q %d(%s) for ans(%s)", question.Qtype, question.Name, ips)
+		return nil, errNoAns
+	}
+
+	return
+}
+
 func HasRcodeSuccess(msg *dns.Msg) bool {
 	return msg != nil && msg.Rcode == dns.RcodeSuccess
 }
