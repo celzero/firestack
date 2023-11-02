@@ -88,11 +88,11 @@ func (m *ipmapper) LookupNetIP(ctx context.Context, network, host string) ([]net
 
 	if len(r4) <= 0 && len(r6) <= 0 {
 		errs := errors.Join(errNoAns, lerr4, lerr6)
-		log.E("ipmapper: lookup: no answers, err %v", errs)
+		log.E("ipmapper: lookup: no answers for %s, err %v", host, errs)
 		return nil, errs
 	} else if lerr4 != nil && lerr6 != nil {
 		errs := errors.Join(lerr4, lerr6)
-		log.E("ipmapper: lookup: err %v", errs)
+		log.E("ipmapper: lookup: %s: err %v", host, errs)
 		return nil, errs
 	}
 
