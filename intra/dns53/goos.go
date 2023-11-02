@@ -51,10 +51,10 @@ func NewGoosTransport(px ipn.Proxies, ctl protect.Controller) (t dnsx.Transport,
 	}
 	// NetNoProxy => ipn.Base
 	tx.r = &net.Resolver{
-		PreferGo: true,
+		PreferGo: false,
 		Dial:     tx.pxdial,
 	}
-	log.I("dns53: goosr setup done")
+	log.I("dns53: goosr: setup done")
 	return tx, nil
 }
 
@@ -63,7 +63,7 @@ func NewGoosTransport(px ipn.Proxies, ctl protect.Controller) (t dnsx.Transport,
 // it returns a SERVFAIL response and a qerr with a status value indicating the cause.
 func (t *goosr) doQuery(network, pid string, q []byte) (response []byte, elapsed time.Duration, qerr *dnsx.QueryError) {
 	if len(q) < 2 {
-		qerr = dnsx.NewBadQueryError(fmt.Errorf("dns53: query length is %d", len(q)))
+		qerr = dnsx.NewBadQueryError(fmt.Errorf("dns53: goosr: query length is %d", len(q)))
 		return
 	}
 
@@ -82,7 +82,7 @@ func (t *goosr) pxdial(ctx context.Context, network, addr string) (conn net.Conn
 	if err != nil {
 		return
 	}
-	log.V("goos: pxdial: using %s proxy for %s:%s => %s", t.pid, network, px.GetAddr(), addr)
+	log.V("dns53: goosr: pxdial: using %s proxy for %s:%s => %s", t.pid, network, px.GetAddr(), addr)
 	return px.Dialer().Dial(network, addr)
 }
 
@@ -157,7 +157,7 @@ func (t *goosr) Query(network string, q []byte, smm *dnsx.Summary) (r []byte, er
 	if qerr != nil {
 		err = qerr.Unwrap()
 		status = qerr.Status()
-		log.W("dns53: err(%v) / size(%d)", err, len(response))
+		log.W("dns53: goosr: err(%v) / size(%d)", err, len(response))
 	}
 	ans := xdns.AsMsg(response)
 	t.status = status
@@ -170,7 +170,7 @@ func (t *goosr) Query(network string, q []byte, smm *dnsx.Summary) (r []byte, er
 	smm.Status = status
 	t.est.Add(smm.Latency)
 
-	log.V("dns53: len(res): %d, data: %s, via: %s, err? %v", len(response), smm.RData, smm.RelayServer, err)
+	log.V("dns53: goosr: len(res): %d, data: %s, via: %s, err? %v", len(response), smm.RData, smm.RelayServer, err)
 
 	return response, err
 }
