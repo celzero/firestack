@@ -10,13 +10,17 @@ import (
 	"context"
 	"errors"
 	"net/netip"
+	"time"
 
+	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/dialers"
 	"github.com/celzero/firestack/intra/dnsx"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/xdns"
 	"github.com/miekg/dns"
 )
+
+const battl = 5 * time.Second
 
 var (
 	errNoHost = errors.New("no hostname")
@@ -27,10 +31,11 @@ var (
 type ipmapper struct {
 	id string
 	r  dnsx.Resolver
+	ba core.Barrier
 }
 
 func AddIPMapper(r dnsx.Resolver) {
-	m := &ipmapper{dnsx.IpMapper, r}
+	m := &ipmapper{dnsx.IpMapper, r, *core.NewBarrier(battl)}
 	dialers.Mapper(m)
 }
 
@@ -64,20 +69,30 @@ func (m *ipmapper) LookupNetIP(ctx context.Context, network, host string) ([]net
 
 	if err4 != nil || err6 != nil {
 		errs := errors.Join(err4, err6)
-		log.E("ipmapper: lookup: query err", errs)
+		log.E("ipmapper: lookup: query err %v", errs)
 		return nil, errs
 	}
 
-	r4, lerr4 := m.r.LocalLookup(q4)
-	r6, lerr6 := m.r.LocalLookup(q6)
+	val4, _ := m.ba.Do(key(host, "ip4"), func() (any, error) {
+		return m.r.LocalLookup(q4)
+	})
+	val6, _ := m.ba.Do(key(host, "ip6"), func() (any, error) {
+		return m.r.LocalLookup(q6)
+	})
+
+	r4, _ := val4.Val.([]byte)
+	r6, _ := val6.Val.([]byte)
+
+	lerr4 := val4.Err
+	lerr6 := val6.Err
 
 	if len(r4) <= 0 && len(r6) <= 0 {
 		errs := errors.Join(errNoAns, lerr4, lerr6)
-		log.E("ipmapper: lookup: no answers, err", errs)
+		log.E("ipmapper: lookup: no answers, err %v", errs)
 		return nil, errs
 	} else if lerr4 != nil && lerr6 != nil {
 		errs := errors.Join(lerr4, lerr6)
-		log.E("ipmapper: lookup: err", errs)
+		log.E("ipmapper: lookup: err %v", errs)
 		return nil, errs
 	}
 
@@ -87,8 +102,12 @@ func (m *ipmapper) LookupNetIP(ctx context.Context, network, host string) ([]net
 	ips = append(ips, ip4...)
 	ips = append(ips, ip6...)
 
-	log.D("ipmapper: host %s => ips %s", host, ips)
+	log.D("ipmapper: host %s => ips %s; err4: %v, err6: %v", host, ips, lerr4, lerr6)
 	return ips, nil
+}
+
+func key(name string, typ string) string {
+	return name + ":" + typ
 }
 
 func addrs(a []byte) []netip.Addr {
@@ -97,8 +116,8 @@ func addrs(a []byte) []netip.Addr {
 		return nil
 	}
 	ips := make([]netip.Addr, 0, len(msg.Answer))
-	for _, rr := range msg.Answer {
-		switch rr := rr.(type) {
+	for _, a := range msg.Answer {
+		switch rr := a.(type) {
 		case *dns.A:
 			if ip4, ok := netip.AddrFromSlice(rr.A); ok {
 				ips = append(ips, ip4.Unmap())
