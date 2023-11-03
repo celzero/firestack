@@ -311,7 +311,9 @@ func (r *resolver) IsDnsAddr(network, ipport string) bool {
 }
 
 func (r *resolver) LocalLookup(q []byte) ([]byte, error) {
-	return r.forward(q, Goos)
+	// TODO: undo alg and dns64
+	res, err := r.forward(q, CT+Goos)
+	return res, err
 }
 
 func (r *resolver) Forward(q []byte) ([]byte, error) {
@@ -440,12 +442,17 @@ func (r *resolver) determineTransport(id string) Transport {
 			id0 = CT + BlockFree
 			id1 = CT + Preferred
 		}
-	} else if id == System {
-		id0 = System
+	} else if id == System || id == CT+System {
 		// fallback on Goos if System is unavailable
 		// but unlike "System", "Goos" does not support
 		// other than A / AAAA queries
-		id1 = Goos
+		if id == CT+System {
+			id0 = CT + System
+			id1 = CT + Goos
+		} else {
+			id0 = System
+			id1 = Goos
+		}
 	} else {
 		id0 = id
 	}
