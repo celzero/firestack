@@ -47,6 +47,35 @@ func (e *QueryError) Status() int {
 	return e.status
 }
 
+func (e *QueryError) strstatus() string {
+	switch e.status {
+	case Start:
+		return "Start"
+	case Complete:
+		return "Complete"
+	case SendFailed:
+		return "SendFailed"
+	case NoResponse:
+		return "NoResponse"
+	case BadQuery:
+		return "BadQuery"
+	case BadResponse:
+		return "BadResponse"
+	case InternalError:
+		return "InternalError"
+	case TransportError:
+		return "TransportError"
+	case ClientError:
+		return "ClientError"
+	default:
+		return "Unknown"
+	}
+}
+
+func (e *QueryError) String() string {
+	return e.strstatus() + ":" + e.Error()
+}
+
 func (e *QueryError) SendFailed() bool {
 	return e.status == SendFailed
 }
