@@ -26,8 +26,9 @@ import (
 type goosr struct {
 	status  int
 	r       *net.Resolver
+	rcgo    *net.Resolver
 	dialer  *protect.RDial
-	pid     string      // only supported proxy
+	pid     string      // the only supported proxy is ipn.Base
 	proxies ipn.Proxies // should never be nil
 	est     core.P2QuantileEstimator
 }
@@ -46,11 +47,14 @@ func NewGoosTransport(px ipn.Proxies, ctl protect.Controller) (t dnsx.Transport,
 		status:  dnsx.Start,
 		dialer:  d,
 		proxies: px,
-		pid:     dnsx.NetNoProxy,
+		pid:     dnsx.NetNoProxy, // NetNoProxy => ipn.Base
 		est:     core.NewP50Estimator(),
 	}
-	// NetNoProxy => ipn.Base
 	tx.r = &net.Resolver{
+		PreferGo: true,
+		Dial:     tx.pxdial,
+	}
+	tx.rcgo = &net.Resolver{
 		PreferGo: false,
 		Dial:     tx.pxdial,
 	}
@@ -58,9 +62,6 @@ func NewGoosTransport(px ipn.Proxies, ctl protect.Controller) (t dnsx.Transport,
 	return tx, nil
 }
 
-// Given a raw DNS query (including the query ID), this function sends the
-// query.  If the query is successful, it returns the response and a nil qerr.  Otherwise,
-// it returns a SERVFAIL response and a qerr with a status value indicating the cause.
 func (t *goosr) doQuery(network, pid string, q []byte) (response []byte, elapsed time.Duration, qerr *dnsx.QueryError) {
 	if len(q) < 2 {
 		qerr = dnsx.NewBadQueryError(fmt.Errorf("dns53: goosr: query length is %d", len(q)))
@@ -128,7 +129,11 @@ func (t *goosr) send(network, pid string, q []byte) (response []byte, elapsed ti
 			response = xdns.Servfail(q)
 			err = errQueryParse
 		} else {
-			if ips, err = t.r.LookupNetIP(bgctx, network, host); err == nil {
+			if ips, err = t.r.LookupNetIP(bgctx, "ip", host); err == nil {
+				log.D("dns53: goosr: go resolver for %s => %s", host, ips)
+				ans, err = xdns.AQuadAForQuery(msg, ips...)
+			} else if ips, err = t.rcgo.LookupNetIP(bgctx, "ip", host); err == nil {
+				log.D("dns53: goosr: cgo resolver for %s => %s", host, ips)
 				ans, err = xdns.AQuadAForQuery(msg, ips...)
 			}
 		}
