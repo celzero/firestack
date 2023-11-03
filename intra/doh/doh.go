@@ -304,6 +304,9 @@ func (t *transport) fetch(pid string, req *http.Request) (res *http.Response, er
 		if err != nil {
 			return
 		}
+		log.V("doh: using proxy %s:%s for %s", px.ID(), px.GetAddr(), req.URL)
+	} else {
+		log.V("doh: no proxy %s for %s", pid, req.URL)
 	}
 	return client.Do(req)
 }
