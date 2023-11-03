@@ -466,14 +466,14 @@ func (h *udpHandler) ReceiveTo(conn core.UDPConn, data []byte, addr *net.UDPAddr
 	nat, ok1 := h.udpConns[conn]
 	h.RUnlock()
 
+	if h.dnsOverride(conn, addr, data) {
+		log.D("udp: egress: dns-override for dstaddr(%v) <- src(l:%v r:%v)", raddr, nsladdr, nsraddr)
+		return nil
+	}
+
 	if !ok1 {
 		log.W("udp: egress: no nat(%v -> %v [%v])", nsladdr, raddr, nsraddr)
 		return fmt.Errorf("conn %v -> %v [%v] does not exist", nsladdr, raddr, nsraddr)
-	}
-
-	if nat.pid != ipn.Exit && h.dnsOverride(conn, addr, data) {
-		log.D("udp: egress: dns-override for dstaddr(%v) <- src(l:%v r:%v)", raddr, nsladdr, nsraddr)
-		return nil
 	}
 
 	// unused in netstack as it only supports connected udp

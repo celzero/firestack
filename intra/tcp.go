@@ -300,7 +300,7 @@ func (h *tcpHandler) Handle(conn net.Conn, target *net.TCPAddr, summary *SocketS
 
 	pid := summary.PID
 
-	if pid != ipn.Exit && h.dnsOverride(conn, target) {
+	if h.dnsOverride(conn, target) {
 		return nil
 	}
 
