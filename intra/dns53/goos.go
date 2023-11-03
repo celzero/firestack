@@ -113,7 +113,8 @@ func (t *goosr) send(network, pid string, q []byte) (response []byte, elapsed ti
 		return
 	}
 
-	if ip, err = str2ip(host); err != nil {
+	if ip, err = str2ip(host); err == nil {
+		log.V("dns53: goosr: no-op; host %s is ipaddr", host)
 		ans, err = xdns.AQuadAForQuery(msg, ip)
 	} else {
 		bgctx := context.Background()
@@ -141,14 +142,12 @@ func (t *goosr) send(network, pid string, q []byte) (response []byte, elapsed ti
 
 	elapsed = time.Since(start)
 	if err != nil {
-		log.W("dns53: goosr: send err(%v) / size(%d)", err, len(response))
 		qerr = dnsx.NewSendFailedQueryError(err)
 		return
 	}
 
 	response, err = ans.Pack()
 	if err != nil {
-		log.W("dns53: goosr: res err(%v) / size(%d)", err, len(response))
 		qerr = dnsx.NewBadResponseQueryError(err)
 		return
 	}
@@ -164,7 +163,7 @@ func (t *goosr) Query(network string, q []byte, smm *dnsx.Summary) (r []byte, er
 	if qerr != nil {
 		err = qerr.Unwrap()
 		status = qerr.Status()
-		log.W("dns53: goosr: err(%v) / size(%d)", err, len(response))
+		log.W("dns53: goosr: err(%v) / size(%d)", qerr, len(response))
 	}
 	ans := xdns.AsMsg(response)
 	t.status = status
