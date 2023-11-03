@@ -77,11 +77,11 @@ func (t *goosr) doQuery(network, pid string, q []byte) (response []byte, elapsed
 }
 
 func (t *goosr) pxdial(ctx context.Context, network, addr string) (conn net.Conn, err error) {
-	var px ipn.Proxy
-	px, err = t.proxies.GetProxy(t.pid)
+	px, err := t.proxies.GetProxy(t.pid)
 	if err != nil {
-		return
+		return nil, err
 	}
+	// addr must be ip:port
 	log.V("dns53: goosr: pxdial: using %s proxy for %s:%s => %s", t.pid, network, px.GetAddr(), addr)
 	return px.Dialer().Dial(network, addr)
 }
@@ -136,12 +136,14 @@ func (t *goosr) send(network, pid string, q []byte) (response []byte, elapsed ti
 
 	elapsed = time.Since(start)
 	if err != nil {
+		log.W("dns53: goosr: send err(%v) / size(%d)", err, len(response))
 		qerr = dnsx.NewSendFailedQueryError(err)
 		return
 	}
 
 	response, err = ans.Pack()
 	if err != nil {
+		log.W("dns53: goosr: res err(%v) / size(%d)", err, len(response))
 		qerr = dnsx.NewBadResponseQueryError(err)
 		return
 	}
