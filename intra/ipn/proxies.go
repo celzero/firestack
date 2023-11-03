@@ -20,9 +20,9 @@ import (
 const (
 	// nb: Base proxies are Catch-All / fallback proxies
 	// IDs for default proxies
-	Block   = "Block"       // proxy that blocks all traffic
-	Base    = "Base"        // proxy that does not proxy traffic; in sync with dnsx.NetNoProxy
-	Exit    = "Exit"        // proxy that always connects to the Internet (exit node)
+	Block   = "Block"       // blocks all traffic
+	Base    = "Base"        // does not proxy traffic; in sync w dnsx.NetNoProxy
+	Exit    = "Exit"        // always connects to the Internet (exit node); in sync w dnsx.NetExitProxy
 	OrbotS5 = "OrbotSocks5" // Orbot: Base Tor-as-a-SOCKS5 proxy
 	OrbotH1 = "OrbotHttp1"  // Orbot: Base Tor-as-a-HTTP/1.1 proxy
 

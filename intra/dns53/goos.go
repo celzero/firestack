@@ -28,7 +28,7 @@ type goosr struct {
 	r       *net.Resolver
 	rcgo    *net.Resolver
 	dialer  *protect.RDial
-	pid     string      // the only supported proxy is ipn.Base
+	pid     string      // the only supported proxy is ipn.Exit
 	proxies ipn.Proxies // should never be nil
 	est     core.P2QuantileEstimator
 }
@@ -38,7 +38,9 @@ var _ dnsx.Transport = (*transport)(nil)
 // NewGoosTransport returns the default Go DNS resolver
 func NewGoosTransport(px ipn.Proxies, ctl protect.Controller) (t dnsx.Transport, err error) {
 	// cannot be nil, see: ipn.Exit which the only proxy guaranteed to be connected to the internet;
-	// ex: ipn.Base routed back within the tunnel (rethink's traffic routed back into rethink).
+	// ex: ipn.Base routed back within the tunnel (rethink's traffic routed back into rethink)
+	// but it doesn't work for goos because the traffic to localhost:53 is routed back in as if
+	// the destination is vpn's own "fake" dns (typically, at 10.111.222.3)
 	if px == nil {
 		return nil, dnsx.ErrNoProxyProvider
 	}
@@ -47,34 +49,19 @@ func NewGoosTransport(px ipn.Proxies, ctl protect.Controller) (t dnsx.Transport,
 		status:  dnsx.Start,
 		dialer:  d,
 		proxies: px,
-		pid:     dnsx.NetNoProxy, // NetNoProxy => ipn.Base
+		pid:     dnsx.NetExitProxy, // NetExitProxy => ipn.Exit
 		est:     core.NewP50Estimator(),
 	}
 	tx.r = &net.Resolver{
 		PreferGo: true,
-		Dial:     tx.pxdial,
+		Dial:     tx.pxdial, // dials in to ipn.Exit, always
 	}
 	tx.rcgo = &net.Resolver{
 		PreferGo: false,
-		Dial:     tx.pxdial,
+		Dial:     tx.pxdial, // dials in to ipn.Exit, always
 	}
 	log.I("dns53: goosr: setup done")
 	return tx, nil
-}
-
-func (t *goosr) doQuery(network, pid string, q []byte) (response []byte, elapsed time.Duration, qerr *dnsx.QueryError) {
-	if len(q) < 2 {
-		qerr = dnsx.NewBadQueryError(fmt.Errorf("dns53: goosr: query length is %d", len(q)))
-		return
-	}
-
-	response, elapsed, qerr = t.send(network, pid, q)
-
-	if qerr != nil { // only on send-request errors
-		response = xdns.Servfail(q)
-	}
-
-	return
 }
 
 func (t *goosr) pxdial(ctx context.Context, network, addr string) (conn net.Conn, err error) {
@@ -91,7 +78,22 @@ func (t *goosr) dial(ctx context.Context, network, addr string) (net.Conn, error
 	return t.dialer.Dial(network, addr)
 }
 
-func (t *goosr) send(network, pid string, q []byte) (response []byte, elapsed time.Duration, qerr *dnsx.QueryError) {
+func (t *goosr) doQuery(q []byte) (response []byte, elapsed time.Duration, qerr *dnsx.QueryError) {
+	if len(q) < 2 {
+		qerr = dnsx.NewBadQueryError(fmt.Errorf("dns53: goosr: query length is %d", len(q)))
+		return
+	}
+
+	response, elapsed, qerr = t.send(q)
+
+	if qerr != nil { // only on send-request errors
+		response = xdns.Servfail(q)
+	}
+
+	return
+}
+
+func (t *goosr) send(q []byte) (response []byte, elapsed time.Duration, qerr *dnsx.QueryError) {
 	var ans *dns.Msg
 	var err error
 	var ip netip.Addr
@@ -118,14 +120,9 @@ func (t *goosr) send(network, pid string, q []byte) (response []byte, elapsed ti
 		ans, err = xdns.AQuadAForQuery(msg, ip)
 	} else {
 		bgctx := context.Background()
-		// pid == dnsx.NetNoProxy => ipn.Base => t.pid
-		useproxy := len(pid) != 0 && pid != t.pid
 		aquadaq := xdns.HasAQuadAQuestion(msg)
 
-		if useproxy {
-			response = xdns.Servfail(q)
-			err = errUnexpectedProxy
-		} else if !aquadaq { // TODO: support queries other than A/AAAA
+		if !aquadaq { // TODO: support queries other than A/AAAA
 			log.E("dns53: goosr: not A/AAAA query type for %s", host)
 			response = xdns.Servfail(q)
 			err = errQueryParse
@@ -155,9 +152,8 @@ func (t *goosr) send(network, pid string, q []byte) (response []byte, elapsed ti
 	return
 }
 
-func (t *goosr) Query(network string, q []byte, smm *dnsx.Summary) (r []byte, err error) {
-	proto, pid := xdns.Net2ProxyID(network)
-	response, elapsed, qerr := t.doQuery(proto, pid, q)
+func (t *goosr) Query(_ string, q []byte, smm *dnsx.Summary) (r []byte, err error) {
+	response, elapsed, qerr := t.doQuery(q)
 
 	status := dnsx.Complete
 	if qerr != nil {
@@ -194,7 +190,7 @@ func (t *goosr) P50() int64 {
 }
 
 func (t *goosr) GetAddr() string {
-	return "127.0.0.52:53" // dummy
+	return "localhost:53" // dummy
 }
 
 func (t *goosr) Status() int {

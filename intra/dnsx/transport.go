@@ -52,7 +52,8 @@ const (
 	NetTypeTCP = "tcp"
 	// preferred forwarding network, if any
 	// ipn.Base is treated as a no-proxy
-	NetNoProxy = "Base"
+	NetNoProxy   = "Base"
+	NetExitProxy = "Exit" // same as ipn.Exit
 
 	ttl10m = 10 * time.Minute
 
