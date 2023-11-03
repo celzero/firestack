@@ -155,26 +155,6 @@ func (h *tcpHandler) forward(local net.Conn, remote net.Conn, summary *SocketSum
 	go h.sendNotif(summary)
 }
 
-func filteredPort(addr net.Addr) int16 {
-	_, port, err := net.SplitHostPort(addr.String())
-	if err != nil {
-		return -1
-	}
-	if port == "80" {
-		return 80
-	}
-	if port == "443" {
-		return 443
-	}
-	if port == "0" {
-		return 0
-	}
-	if port == "53" {
-		return 53
-	}
-	return -1
-}
-
 // must always be called from a goroutine
 func (h *tcpHandler) sendNotif(summary *SocketSummary) {
 	// sleep a bit to avoid scenario where kotlin-land
@@ -320,7 +300,7 @@ func (h *tcpHandler) Handle(conn net.Conn, target *net.TCPAddr, summary *SocketS
 
 	pid := summary.PID
 
-	if h.dnsOverride(conn, target) {
+	if pid != ipn.Exit && h.dnsOverride(conn, target) {
 		return nil
 	}
 
@@ -420,6 +400,7 @@ func undoAlg(r dnsx.Resolver, algip net.IP) (realips, domains, blocklists string
 	return
 }
 
+// returns proxy-id, conn-id, user-id
 func splitPidCidUid(decision *Mark) (pid, cid, uid string) {
 	if decision == nil {
 		return
