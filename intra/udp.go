@@ -387,7 +387,7 @@ func (h *udpHandler) Connect(conn core.UDPConn, target *net.UDPAddr) (res *Mark,
 			waittime := time.Duration(secs) * time.Second
 			time.Sleep(waittime)
 		}
-		log.I("udp: conn firewalled from %s -> %s (dom: %s/ real: %s); stall? %ds", localaddr, target, domains, realips, secs)
+		log.I("udp: %s conn firewalled from %s -> %s (dom: %s + %s/ real: %s); stall? %ds for uid %s", cid, localaddr, target, domains, probableDomains, realips, secs, uid)
 		return res, errUdpFirewalled // disconnect
 	}
 
@@ -407,14 +407,14 @@ func (h *udpHandler) Connect(conn core.UDPConn, target *net.UDPAddr) (res *Mark,
 
 	// deprecated: github.com/golang/go/issues/25104
 	if pc, err = px.Dial(target.Network(), target.String()); err != nil {
-		log.E("udp: connect: failed to bind addr(%s); err(%v)", target, err)
+		log.E("udp: connect: %s failed to bind addr(%s); for uid %s w err(%v)", cid, target, uid, err)
 		return res, err // disconnect
 	}
 
 	var ok bool
 	var c net.Conn
 	if c, ok = pc.(net.Conn); !ok {
-		log.E("udp: connect: proxy(%s) does not implement net.Conn(%s)", px.ID(), target)
+		log.E("udp: connect: %s proxy(%s) does not implement net.Conn(%s) for uid %s", cid, px.ID(), target, uid)
 		return res, errUdpSetupConn // disconnect
 	}
 
@@ -434,7 +434,7 @@ func (h *udpHandler) Connect(conn core.UDPConn, target *net.UDPAddr) (res *Mark,
 
 	go h.fetchUDPInput(conn, nat)
 
-	log.I("udp: connect: (proxy? %s@%s) %v -> %v", px.ID(), px.GetAddr(), c.LocalAddr(), target)
+	log.I("udp: connect: %s (proxy? %s@%s) %v -> %v for uid %s", cid, px.ID(), px.GetAddr(), c.LocalAddr(), target, uid)
 
 	return res, nil // connect
 }
@@ -513,20 +513,20 @@ func (h *udpHandler) ReceiveTo(conn core.UDPConn, data []byte, addr *net.UDPAddr
 	if neterr, ok := err.(net.Error); ok && neterr.Temporary() {
 		nat.errcount += 1
 		if nat.errcount > maxconnerr {
-			log.W("udp: egress: too many errors(%d) for conn(l:%v -> r:%v [%v])", nat.errcount, nsladdr, raddr, nsraddr)
+			log.W("udp: egress: too many errors(%d) for conn(l:%v -> r:%v [%v]) for uid %s", nat.errcount, nsladdr, raddr, nsraddr, nat.uid)
 			return err
 		} else {
-			log.W("udp: egress: temporary error(%v) for conn(l:%v -> r:%v [%v])", err, nsladdr, raddr, nsraddr)
+			log.W("udp: egress: temporary error(%v) for conn(l:%v -> r:%v [%v]) for uid %s", err, nsladdr, raddr, nsraddr, nat.uid)
 			return nil
 		}
 	} else if err != nil {
-		log.I("udp: egress: end splice (%v -> %v [%v]), forward udp err(%v)", conn.LocalAddr(), raddr, nsraddr, err)
+		log.I("udp: egress: end splice (%v -> %v [%v]), forward udp for uid %s w err(%v)", conn.LocalAddr(), raddr, nsraddr, nat.uid, err)
 		return err
 	} else {
 		nat.errcount = 0
 	}
 
-	log.I("udp: egress: conn(%v -> %v [%v]) / data(%d)", nsladdr, raddr, nsraddr, len(data))
+	log.I("udp: egress: conn(%v -> %v [%v]) / data(%d) for uid %s", nsladdr, raddr, nsraddr, len(data), nat.uid)
 	return nil
 }
 
