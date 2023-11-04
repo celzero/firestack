@@ -10,6 +10,7 @@ import (
 	"context"
 	"errors"
 	"net/netip"
+	"strings"
 	"time"
 
 	"github.com/celzero/firestack/intra/core"
@@ -110,11 +111,14 @@ func (m *ipmapper) undoAlg(ip64 []netip.Addr) []netip.Addr {
 	realips := make([]string, 0, len(ip64))
 	ips := make([]netip.Addr, 0, len(ip64))
 	for _, x := range ip64 {
+		var csv string
 		if gw := m.r.Gateway(); x.IsValid() && gw != nil {
-			realips = append(realips, gw.X(x.AsSlice()))
-		} else {
-			log.W("ipmapper: undoAlg: no gw(%t) or alg-ip(%s)", gw == nil, x)
+			if csv = gw.X(x.AsSlice()); len(csv) > 0 {
+				realips = append(realips, strings.Split(csv, ",")...)
+				continue
+			}
 		}
+		log.W("ipmapper: undoAlg: no algip => realip? (%s => %s)", x, csv)
 	}
 	for _, x := range realips {
 		if ip, err := str2ip(x); err == nil {
