@@ -261,7 +261,7 @@ func (h *udpHandler) isDns(addr *net.UDPAddr) bool {
 	return h.resolver.IsDnsAddr(dnsx.NetTypeUDP, addr2.String())
 }
 
-func (h *udpHandler) onFlow(localudp core.UDPConn, target *net.UDPAddr, realips, domains, blocklists string) *Mark {
+func (h *udpHandler) onFlow(localudp core.UDPConn, target *net.UDPAddr, realips, domains, probableDomains, blocklists string) *Mark {
 	// BlockModeNone returns false, BlockModeSink returns true
 	if h.tunMode.BlockMode == settings.BlockModeSink {
 		return optionsBlock
@@ -275,7 +275,7 @@ func (h *udpHandler) onFlow(localudp core.UDPConn, target *net.UDPAddr, realips,
 	src := source.String()
 	dst := target.String()
 	if len(realips) <= 0 || len(domains) <= 0 {
-		log.V("udp: onFlow: no realips(%s) or domains(%s), for src=%s dst=%s", realips, domains, src, dst)
+		log.V("udp: onFlow: no realips(%s) or domains(%s + %s), for src=%s dst=%s", realips, domains, probableDomains, src, dst)
 	}
 
 	// Implict: BlockModeFilter or BlockModeFilterProc
@@ -294,7 +294,7 @@ func (h *udpHandler) onFlow(localudp core.UDPConn, target *net.UDPAddr, realips,
 	}
 
 	var proto int32 = 17 // udp
-	res := h.listener.Flow(proto, uid, src, dst, realips, domains, blocklists)
+	res := h.listener.Flow(proto, uid, src, dst, realips, domains, probableDomains, blocklists)
 
 	if len(res.PID) <= 0 {
 		log.W("udp: empty flow from kt; using base")
@@ -369,10 +369,10 @@ func (h *udpHandler) Connect(conn core.UDPConn, target *net.UDPAddr) (res *Mark,
 	var px ipn.Proxy
 	var pc protect.Conn
 
-	realips, domains, blocklists := undoAlg(h.resolver, target.IP)
+	realips, domains, probableDomains, blocklists := undoAlg(h.resolver, target.IP)
 
 	// flow is alg/nat-aware, do not change target or any addrs
-	res = h.onFlow(conn, target, realips, domains, blocklists)
+	res = h.onFlow(conn, target, realips, domains, probableDomains, blocklists)
 
 	localaddr := conn.LocalAddr()
 	pid, cid, uid := splitPidCidUid(res)
@@ -380,7 +380,7 @@ func (h *udpHandler) Connect(conn core.UDPConn, target *net.UDPAddr) (res *Mark,
 	if pid == ipn.Block {
 		var secs uint32
 		k := uid + target.String()
-		if len(domains) > 0 {
+		if len(domains) > 0 { // probableDomains are not reliable for firewalling
 			k = uid + domains
 		}
 		if secs = stall(h.fwtracker, k); secs > 0 {
@@ -484,7 +484,7 @@ func (h *udpHandler) ReceiveTo(conn core.UDPConn, data []byte, addr *net.UDPAddr
 		Zone: addr.Zone,
 	}
 
-	realips, _, _ := undoAlg(h.resolver, addr.IP)
+	realips, _, _, _ := undoAlg(h.resolver, addr.IP)
 	// check if there's a real-ip to connect to
 	addr.IP = oneRealIp(realips, addr.IP)
 

@@ -102,8 +102,9 @@ type SocketListener interface {
 	// src and dst are string'd representation of net.TCPAddr and net.UDPAddr.
 	// origdsts is a comma-separated list of original source IPs, this may be same as dst.
 	// domains is a comma-separated list of domain names associated with origsrcs, if any.
+	// probableDomains is a comma-separated list of probable domain names associated with origsrcs, if any.
 	// blocklists is a comma-separated list of blocklist names, if any.
-	Flow(protocol int32, uid int, src, dst, origdsts, domains, blocklists string) *Mark
+	Flow(protocol int32, uid int, src, dst, origdsts, domains, probableDomains, blocklists string) *Mark
 	// OnSocketClosed reports summary after a socket closes.
 	OnSocketClosed(*SocketSummary)
 }

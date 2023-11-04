@@ -184,7 +184,7 @@ func (h *tcpHandler) dnsOverride(conn net.Conn, addr *net.TCPAddr) bool {
 	return false
 }
 
-func (h *tcpHandler) onFlow(localaddr *net.TCPAddr, target *net.TCPAddr, realips, domains, blocklists string) *Mark {
+func (h *tcpHandler) onFlow(localaddr *net.TCPAddr, target *net.TCPAddr, realips, domains, probableDomains, blocklists string) *Mark {
 	// BlockModeNone returns false, BlockModeSink returns true
 	if h.tunMode.BlockMode == settings.BlockModeSink {
 		return optionsBlock
@@ -194,7 +194,7 @@ func (h *tcpHandler) onFlow(localaddr *net.TCPAddr, target *net.TCPAddr, realips
 	}
 
 	if len(realips) <= 0 || len(domains) <= 0 {
-		log.D("onFlow: no realips(%s) or domains(%s), for src=%s dst=%s", realips, domains, localaddr, target)
+		log.D("onFlow: no realips(%s) or domains(%s + %s), for src=%s dst=%s", realips, domains, probableDomains, localaddr, target)
 	}
 
 	// Implict: BlockModeFilter or BlockModeFilterProc
@@ -209,7 +209,7 @@ func (h *tcpHandler) onFlow(localaddr *net.TCPAddr, target *net.TCPAddr, realips
 	var proto int32 = 6 // tcp
 	src := localaddr.String()
 	dst := target.String()
-	res := h.listener.Flow(proto, uid, src, dst, realips, domains, blocklists)
+	res := h.listener.Flow(proto, uid, src, dst, realips, domains, probableDomains, blocklists)
 
 	if len(res.PID) <= 0 {
 		log.W("tcp: empty flow from kt; using base")
@@ -243,11 +243,11 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target *net.TCPAddr) (
 
 	// alg happens after nat64, and so, alg knows nat-ed ips
 	// that is, realips are un-nated
-	realips, domains, blocklists := undoAlg(h.resolver, target.IP)
+	realips, domains, probableDomains, blocklists := undoAlg(h.resolver, target.IP)
 
 	// flow/dns-override are nat-aware, as in, they can deal with
 	// nat-ed ips just fine, and so, use target as-is instead of ipx4
-	res := h.onFlow(src, target, realips, domains, blocklists)
+	res := h.onFlow(src, target, realips, domains, probableDomains, blocklists)
 
 	pid, cid, uid := splitPidCidUid(res)
 	s := tcpSummary(cid, pid, uid)
@@ -262,7 +262,7 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target *net.TCPAddr) (
 	if pid == ipn.Block {
 		var secs uint32
 		k := uid + target.String()
-		if len(domains) > 0 {
+		if len(domains) > 0 { // probableDomains are not reliable to use for firewalling
 			k = uid + domains
 		}
 		if secs = stall(h.fwtracker, k); secs > 0 {
@@ -387,11 +387,15 @@ func oneRealIp(realips string, dstip net.IP) net.IP {
 	return dstip
 }
 
-func undoAlg(r dnsx.Resolver, algip net.IP) (realips, domains, blocklists string) {
+func undoAlg(r dnsx.Resolver, algip net.IP) (realips, domains, probableDomains, blocklists string) {
+	force := true // force PTR resolution
 	dstip := netipFrom(algip)
 	if gw := r.Gateway(); dstip.IsValid() && gw != nil {
 		dst := dstip.AsSlice()
-		domains = gw.PTR(dst)
+		domains = gw.PTR(dst, !force)
+		if len(domains) <= 0 {
+			probableDomains = gw.PTR(dst, force)
+		}
 		realips = gw.X(dst)
 		blocklists = gw.RDNSBL(dst)
 	} else {

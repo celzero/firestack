@@ -60,7 +60,7 @@ func NewICMPHandler(resolver dnsx.Resolver, prox ipn.Proxies, tunMode *settings.
 	return h
 }
 
-func (h *icmpHandler) onFlow(source *net.UDPAddr, target *net.UDPAddr, realips, domains, blocklists string) (pid, cid string, block bool) {
+func (h *icmpHandler) onFlow(source *net.UDPAddr, target *net.UDPAddr, realips, domains, probableDomains, blocklists string) (pid, cid string, block bool) {
 	// BlockModeNone returns false, BlockModeSink returns true
 	if h.tunMode.BlockMode == settings.BlockModeSink {
 		pid = ipn.Block
@@ -86,7 +86,7 @@ func (h *icmpHandler) onFlow(source *net.UDPAddr, target *net.UDPAddr, realips, 
 	src := source.String()
 	dst := target.String()
 	// todo: handle forwarding icmp to appropriate proxy?
-	res := h.listener.Flow(proto, uid, src, dst, realips, domains, blocklists)
+	res := h.listener.Flow(proto, uid, src, dst, realips, domains, probableDomains, blocklists)
 
 	pid, cid, _ = splitPidCidUid(res)
 	block = pid == ipn.Block
@@ -121,10 +121,10 @@ func (h *icmpHandler) Ping(source *net.UDPAddr, target *net.UDPAddr, msg []byte,
 	var pc ipn.Proxy
 	var err error
 
-	realips, domains, blocklists := undoAlg(h.resolver, target.IP)
+	realips, domains, probableDomains, blocklists := undoAlg(h.resolver, target.IP)
 
 	// flow is alg/nat-aware, do not change target or any addrs
-	pid, cid, block := h.onFlow(source, target, realips, domains, blocklists)
+	pid, cid, block := h.onFlow(source, target, realips, domains, probableDomains, blocklists)
 	summary := icmpSummary(cid, pid)
 
 	defer func() {
