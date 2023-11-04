@@ -102,12 +102,12 @@ type ioinfo struct {
 }
 
 // TODO: Propagate TCP RST using local.Abort(), on appropriate errors.
-func (h *tcpHandler) handleUpload(local core.TCPConn, remote core.TCPConn, ioch chan<- ioinfo) {
+func (h *tcpHandler) handleUpload(cid string, local core.TCPConn, remote core.TCPConn, ioch chan<- ioinfo) {
 	ci := conn2str(local, remote)
 
 	// io.copy does remote.ReadFrom(local)
 	bytes, err := io.Copy(remote, local)
-	log.D("tcp: handle-upload(%d) done(%v) b/w %s", bytes, err, ci)
+	log.D("tcp: %s handle-upload(%d) done(%v) b/w %s", cid, bytes, err, ci)
 
 	local.CloseRead()
 	remote.CloseWrite()
@@ -122,11 +122,11 @@ func conn2str(a net.Conn, b net.Conn) string {
 	return fmt.Sprintf("a(%v->%v) => b(%v<-%v)", al, ar, bl, br)
 }
 
-func (h *tcpHandler) handleDownload(local core.TCPConn, remote core.TCPConn) (bytes int64, err error) {
+func (h *tcpHandler) handleDownload(cid string, local core.TCPConn, remote core.TCPConn) (bytes int64, err error) {
 	ci := conn2str(local, remote)
 
 	bytes, err = io.Copy(local, remote)
-	log.D("tcp: handle-download(%d) done(%v) b/w %s", bytes, err, ci)
+	log.D("tcp: %s handle-download(%d) done(%v) b/w %s", cid, bytes, err, ci)
 
 	local.CloseWrite()
 	remote.CloseRead()
@@ -134,8 +134,9 @@ func (h *tcpHandler) handleDownload(local core.TCPConn, remote core.TCPConn) (by
 }
 
 func (h *tcpHandler) forward(local net.Conn, remote net.Conn, summary *SocketSummary) {
+	cid := summary.ID
 	if h.status == TCPEND {
-		log.D("tcp: forward(%v, %v): end", local, remote)
+		log.D("tcp: %s forward(%v, %v): end", cid, local, remote)
 		return
 	}
 
@@ -143,8 +144,8 @@ func (h *tcpHandler) forward(local net.Conn, remote net.Conn, summary *SocketSum
 	remotetcp := remote.(core.TCPConn) // conforms to net.TCPConn
 	ioch := make(chan ioinfo)
 
-	go h.handleUpload(localtcp, remotetcp, ioch)
-	download, err := h.handleDownload(localtcp, remotetcp)
+	go h.handleUpload(cid, localtcp, remotetcp, ioch)
+	download, err := h.handleDownload(cid, localtcp, remotetcp)
 
 	ioi := <-ioch
 
@@ -269,7 +270,7 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target *net.TCPAddr) (
 			waittime := time.Duration(secs) * time.Second
 			time.Sleep(waittime)
 		}
-		log.I("tcp: gconn firewalled from %s -> %s (dom: %s/ real: %s); stall? %ds", src, target, domains, realips, secs)
+		log.I("tcp: gconn %s firewalled from %s -> %s (dom: %s + %s/ real: %s) for %s; stall? %ds", cid, src, target, domains, probableDomains, realips, uid, secs)
 		open = gconn.Connect(rst) // fin
 		err = errTcpFirewalled
 		return
@@ -277,7 +278,7 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target *net.TCPAddr) (
 
 	// handshake
 	if open = gconn.Connect(ack); !open {
-		err = fmt.Errorf("tcp: no route %s -> %s", src, target)
+		err = fmt.Errorf("tcp: %s no route %s -> %s for %s", cid, src, target, uid)
 		log.E("%v", err)
 		return
 	}
@@ -286,7 +287,7 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target *net.TCPAddr) (
 	target.IP = oneRealIp(realips, target.IP)
 
 	if err = h.Handle(gconn, target, s); err != nil {
-		log.E("tcp: proxy(%s -> %s) err: %v", src, target, err)
+		log.E("tcp: %s proxy(%s -> %s) for %s; err: %v", cid, src, target, uid, err)
 		open = false
 		gconn.Close()
 	}
@@ -300,6 +301,7 @@ func (h *tcpHandler) Handle(conn net.Conn, target *net.TCPAddr, summary *SocketS
 
 	pid := summary.PID
 	uid := summary.UID
+	cid := summary.ID
 
 	// requests coming from rethink itself are not overriden
 	// but instead sent out as-is via the proxy
@@ -333,7 +335,7 @@ func (h *tcpHandler) Handle(conn net.Conn, target *net.TCPAddr, summary *SocketS
 	}
 
 	if err != nil {
-		log.W("tcp: err dialing proxy(%s) to dst(%v): %v", px.ID(), target, err)
+		log.W("tcp: err dialing %s proxy(%s) to dst(%v) for %s: %v", cid, px.ID(), target, uid, err)
 		return err
 	}
 
@@ -341,7 +343,7 @@ func (h *tcpHandler) Handle(conn net.Conn, target *net.TCPAddr, summary *SocketS
 
 	go h.forward(conn, c, summary)
 
-	log.I("tcp: new conn via proxy(%s); src(%s) -> dst(%s)", px.ID(), conn.LocalAddr(), target)
+	log.I("tcp: new conn %s via proxy(%s); src(%s) -> dst(%s) for %s", cid, px.ID(), conn.LocalAddr(), target, uid)
 	return nil
 }
 
