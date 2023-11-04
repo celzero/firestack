@@ -50,11 +50,11 @@ func isAlgErr(err error) bool {
 }
 
 type Gateway interface {
-	// given an alg ip, retrieve its actual ips as csv, if any
+	// given an alg or real ip, retrieves assoc real ips as csv, if any
 	X(algip []byte) (realipcsv string)
-	// given an alg ip, retrieve its dns names as csv, if any
-	PTR(algip []byte) (domaincsv string)
-	// given an alg ip, retrieve its blocklists as csv, if any
+	// given an alg or real ip, retrieves assoc dns names as csv, if any
+	PTR(algip []byte, force bool) (domaincsv string)
+	// given an alg or real ip, retrieve assoc blocklists as csv, if any
 	RDNSBL(algip []byte) (blocklistcsv string)
 	// send translated response to client
 	Translate(bool)
@@ -235,7 +235,7 @@ func (t *dnsgateway) q(t1, t2 Transport, network string, q []byte, summary *Summ
 	if t1 == nil {
 		return nil, errNoTransportAlg
 	}
-	mod := t.mod
+	mod := t.mod // allow alg?
 	secch := make(chan secans, 1)
 	resch := make(chan []byte, 1)
 	innersummary := new(Summary)
@@ -677,7 +677,7 @@ func (t *dnsgateway) X(algip []byte) (ips string) {
 	defer t.RUnlock()
 
 	if fip, ok := netip.AddrFromSlice(algip); ok {
-		rip := t.xLocked(&fip)
+		rip := t.xLocked(&fip, !t.mod)
 		if len(rip) > 0 {
 			var s []string
 			for _, r := range rip {
@@ -692,12 +692,12 @@ func (t *dnsgateway) X(algip []byte) (ips string) {
 	return ips
 }
 
-func (t *dnsgateway) PTR(algip []byte) (domains string) {
+func (t *dnsgateway) PTR(algip []byte, force bool) (domains string) {
 	t.RLock()
 	defer t.RUnlock()
 
 	if fip, ok := netip.AddrFromSlice(algip); ok {
-		d := t.ptrLocked(&fip)
+		d := t.ptrLocked(&fip, (!t.mod || force))
 		if len(d) > 0 {
 			domains = strings.Join(d, ",")
 		} // else: algip isn't really an alg ip, nothing to do
@@ -712,20 +712,20 @@ func (t *dnsgateway) RDNSBL(algip []byte) (blocklists string) {
 	defer t.RUnlock()
 
 	if fip, ok := netip.AddrFromSlice(algip); ok {
-		blocklists = t.rdnsblLocked(&fip)
+		blocklists = t.rdnsblLocked(&fip, !t.mod)
 	} else {
 		log.W("alg: invalid algip(%s)", algip)
 	}
 	return blocklists
 }
 
-func (t *dnsgateway) xLocked(algip *netip.Addr) []*netip.Addr {
+func (t *dnsgateway) xLocked(algip *netip.Addr, useptr bool) []*netip.Addr {
 	var realips []*netip.Addr
 	// alg ips are always unmappped; see take4Locked
 	unmapped := algip.Unmap()
 	if ans, ok := t.nat[unmapped]; ok {
 		realips = append(ans.realips, ans.secondaryips...)
-	} else if ans, ok := t.ptr[unmapped]; !t.mod && ok {
+	} else if ans, ok := t.ptr[unmapped]; useptr && ok {
 		// translate from realip only if not in mod mode
 		realips = append(ans.realips, ans.secondaryips...)
 	}
@@ -749,7 +749,7 @@ func (t *dnsgateway) maybeUndoNat64(realips []*netip.Addr) (unnat []*netip.Addr)
 			log.D("alg: dns64: maybeUndoNat64: No local nat64 to ip4(%v) for ip6(%v)", ipx4, nip)
 			continue
 		}
-		log.I("alg: dns64: maybeUndoNat64: nat64 to ip4(%v) from ip6(%v)", ipx4, nip)
+		log.D("alg: dns64: maybeUndoNat64: nat64 to ip4(%v) from ip6(%v)", ipx4, nip)
 		if nipx4, ok := netip.AddrFromSlice(ipx4); ok {
 			unmapped4 := nipx4.Unmap()
 			unnat = append(unnat, &unmapped4)
@@ -758,24 +758,24 @@ func (t *dnsgateway) maybeUndoNat64(realips []*netip.Addr) (unnat []*netip.Addr)
 	return
 }
 
-func (t *dnsgateway) ptrLocked(algip *netip.Addr) (domains []string) {
+func (t *dnsgateway) ptrLocked(algip *netip.Addr, useptr bool) (domains []string) {
 	// alg ips are always unmappped; see take4Locked
 	unmapped := algip.Unmap()
 	if ans, ok := t.nat[unmapped]; ok {
 		domains = ans.domain
-	} else if ans, ok := t.ptr[unmapped]; !t.mod && ok {
+	} else if ans, ok := t.ptr[unmapped]; useptr && ok {
 		// translate from realip only if not in mod mode
 		domains = ans.domain
 	}
 	return
 }
 
-func (t *dnsgateway) rdnsblLocked(algip *netip.Addr) (bcsv string) {
+func (t *dnsgateway) rdnsblLocked(algip *netip.Addr, useptr bool) (bcsv string) {
 	// alg ips are always unmappped; see take4Locked
 	unmapped := algip.Unmap()
 	if ans, ok := t.nat[unmapped]; ok {
 		bcsv = ans.blocklists
-	} else if ans, ok := t.ptr[unmapped]; !t.mod && ok {
+	} else if ans, ok := t.ptr[unmapped]; useptr && ok {
 		// translate from realip only if not in mod mode
 		bcsv = ans.blocklists
 	}
