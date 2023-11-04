@@ -312,7 +312,7 @@ func (r *resolver) IsDnsAddr(network, ipport string) bool {
 }
 
 func (r *resolver) LocalLookup(q []byte) ([]byte, error) {
-	return r.forward(q, CT+Goos) // incl dns64 and/or alg
+	return r.forward(q, CT+Default) // incl dns64 and/or alg
 }
 
 func (r *resolver) Forward(q []byte) ([]byte, error) {
