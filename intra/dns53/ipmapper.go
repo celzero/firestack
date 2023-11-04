@@ -97,13 +97,34 @@ func (m *ipmapper) LookupNetIP(ctx context.Context, network, host string) ([]net
 	}
 
 	ips := make([]netip.Addr, 0, len(r4)+len(r6))
-	ip4 := addrs(r4)
-	ip6 := addrs(r6)
+	ip4 := m.undoAlg(addrs(r4))
+	ip6 := m.undoAlg(addrs(r6))
 	ips = append(ips, ip4...)
 	ips = append(ips, ip6...)
 
 	log.D("ipmapper: host %s => ips %s; err4: %v, err6: %v", host, ips, lerr4, lerr6)
 	return ips, nil
+}
+
+func (m *ipmapper) undoAlg(ip64 []netip.Addr) []netip.Addr {
+	realips := make([]string, 0, len(ip64))
+	ips := make([]netip.Addr, 0, len(ip64))
+	for _, x := range ip64 {
+		if gw := m.r.Gateway(); x.IsValid() && gw != nil {
+			realips = append(realips, gw.X(x.AsSlice()))
+		} else {
+			log.W("ipmapper: undoAlg: no gw(%t) or alg-ip(%s)", gw == nil, x)
+		}
+	}
+	for _, x := range realips {
+		if ip, err := str2ip(x); err == nil {
+			ips = append(ips, ip)
+		} else {
+			log.W("ipmapper: undoAlg: str2ip %s err: %v", x, err)
+		}
+	}
+	log.D("ipmapper: undoAlg: %v => %v", ip64, ips)
+	return ips
 }
 
 func key(name string, typ string) string {
