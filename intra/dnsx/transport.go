@@ -312,9 +312,7 @@ func (r *resolver) IsDnsAddr(network, ipport string) bool {
 }
 
 func (r *resolver) LocalLookup(q []byte) ([]byte, error) {
-	// TODO: undo alg and dns64
-	res, err := r.forward(q, CT+Goos)
-	return res, err
+	return r.forward(q, CT+Goos) // incl dns64 and/or alg
 }
 
 func (r *resolver) Forward(q []byte) ([]byte, error) {
@@ -679,18 +677,21 @@ func isAnyLocal(ids ...string) bool {
 	return isTransportID(Local, ids...)
 }
 
-func allowProxy(ids ...string) bool {
-	allow := true
-	deny := false
+func overrideProxyIfNeeded(pid string, ids ...string) string {
 	for _, id := range ids {
 		switch id {
-		case Default, System, Local, Goos:
-			return deny
-		case CT + Default, CT + System, CT + Local, CT + Goos:
-			return deny
+		// note: Goos is anyway hard-coded to use NetExitProxy
+		case Default, Goos: // exit
+			return NetExitProxy
+		case CT + Default, CT + Goos: // exit
+			return NetExitProxy
+		case System, Local: // base
+			return NetNoProxy
+		case CT + System, CT + Local: // base
+			return NetNoProxy
 		}
 	}
-	return allow
+	return pid // as-is
 }
 
 func skipBlock(tr ...Transport) bool {
@@ -827,10 +828,9 @@ func (r *resolver) preferencesFrom(qname string, s *NsOpts, chosenids ...string)
 		id2 = ""
 	}
 
-	if len(s.PID) > 0 && allowProxy(id1, id2) {
-		pid = s.PID // id for proxy
+	if len(s.PID) > 0 {
+		pid = overrideProxyIfNeeded(s.PID, id1, id2)
 	} else {
-		log.V("dns: bypass proxy %s for %s, %s", s.PID, id1, id2)
 		pid = NetNoProxy
 	}
 	ips = s.IPCSV // comma-separated list of IPs
