@@ -7,7 +7,6 @@
 package intra
 
 import (
-	"net"
 	"net/netip"
 	"strings"
 
@@ -51,7 +50,7 @@ func SetSystemDNS(t Tunnel, ippcsv string) int {
 	}
 	n := 0
 	for _, ipport := range ipports {
-		if ipp, err := netip.ParseAddrPort(ipport); err == nil {
+		if ipp, err := dnsIPPort(ipport); err == nil {
 			if sdns, err := newSystemDNSProxy(g, p, ipp); err == nil {
 				r.AddSystemDNS(sdns)
 				n += 1
@@ -88,21 +87,29 @@ func newMDNSTransport(protos string) (d dnsx.Transport) {
 	return dns53.NewMDNSTransport(protos)
 }
 
-func newDefaultTransport(dohurl, ips string, g Bridge) (dnsx.Transport, error) {
-	if len(dohurl) <= 0 {
+func newDefaultTransport(ipOrUrl, ips string, p ipn.Proxies, g Bridge) (dnsx.Transport, error) {
+	if len(ipOrUrl) <= 0 {
 		return dns53.NewGroundedTransport(dnsx.BlockAll), nil
+	}
+	if len(ips) <= 0 {
+		if ipp, err := dnsIPPort(ipOrUrl); err != nil {
+			return nil, err
+		} else {
+			return dns53.NewTransportFrom(dnsx.Default, ipp, p, g)
+		}
 	}
 	split := []string{}
 	if len(ips) > 0 {
 		split = strings.Split(ips, ",")
 	}
-	return doh.NewTransport(dnsx.Default, dohurl, split, nil, g)
+	return doh.NewTransport(dnsx.Default, ipOrUrl, split, p, g)
 }
 
-func AddDefaultTransport(t Tunnel, dohurl, ips string) error {
+func AddDefaultTransport(t Tunnel, ippOrUrl, ips string) error {
 	r := t.GetResolver()
 	g := t.getBridge()
-	if dns, err := newDefaultTransport(dohurl, ips, g); err != nil {
+	p := t.GetProxies()
+	if dns, err := newDefaultTransport(ippOrUrl, ips, p, g); err != nil {
 		return err
 	} else {
 		return addDNSTransport(r, dns)
@@ -121,11 +128,7 @@ func AddProxyDNS(t Tunnel, p ipn.Proxy) error {
 	if len(ipcsv) > 0 {
 		ips = strings.Split(ipcsv, ",")
 	}
-	ipport, err := netip.ParseAddrPort(ips[0])
-	if err != nil {
-		ips[0] = net.JoinHostPort(ips[0], dns53.Port)
-		ipport, err = netip.ParseAddrPort(ips[0])
-	}
+	ipport, err := dnsIPPort(ips[0])
 	// todo: may be stamp or url
 	if err != nil {
 		return err
@@ -225,4 +228,14 @@ func addDNSTransport(r dnsx.Resolver, t dnsx.Transport) error {
 		return dnsx.ErrAddFailed
 	}
 	return nil
+}
+
+func dnsIPPort(s string) (ipp netip.AddrPort, err error) {
+	var ip netip.Addr
+	if ipp, err = netip.ParseAddrPort(s); err != nil {
+		if ip, err = netip.ParseAddr(s); err == nil {
+			ipp = netip.AddrPortFrom(ip, dns53.PortU16)
+		}
+	}
+	return
 }

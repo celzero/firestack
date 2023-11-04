@@ -25,6 +25,7 @@ import (
 
 const (
 	Port       = "53"
+	PortU16    = uint16(53)
 	DotPort    = "853"
 	timeout    = 5 * time.Second
 	dottimeout = 8 * time.Second
