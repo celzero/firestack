@@ -391,7 +391,9 @@ func (h *udpHandler) Connect(conn core.UDPConn, target *net.UDPAddr) (res *Mark,
 		return res, errUdpFirewalled // disconnect
 	}
 
-	if pid != ipn.Exit && h.isDns(target) {
+	// non-rethink dns requests are re-routed and hence
+	// NAT/proxy dialing is unnecessary.
+	if uid != protect.UidSelf && h.isDns(target) {
 		return res, nil // connect
 	}
 
@@ -466,13 +468,12 @@ func (h *udpHandler) ReceiveTo(conn core.UDPConn, data []byte, addr *net.UDPAddr
 	nat, ok1 := h.udpConns[conn]
 	h.RUnlock()
 
-	if h.dnsOverride(conn, addr, data) {
-		log.D("udp: egress: dns-override for dstaddr(%v) <- src(l:%v r:%v)", raddr, nsladdr, nsraddr)
-		return nil
-	}
-
-	if !ok1 {
-		log.W("udp: egress: no nat(%v -> %v [%v])", nsladdr, raddr, nsraddr)
+	if !ok1 { // if NAT conn doesn't exist then check if its a DNS request and handle it
+		if h.dnsOverride(conn, addr, data) {
+			log.D("udp: egress: dns-override for dstaddr(%v) <- src(l:%v r:%v) for uid %s", raddr, nsladdr, nsraddr, nat.uid)
+			return nil
+		}
+		log.W("udp: egress: closed? no nat(%v -> %v [%v])", nsladdr, raddr, nsraddr)
 		return fmt.Errorf("conn %v -> %v [%v] does not exist", nsladdr, raddr, nsraddr)
 	}
 

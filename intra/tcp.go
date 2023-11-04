@@ -299,8 +299,11 @@ func (h *tcpHandler) Handle(conn net.Conn, target *net.TCPAddr, summary *SocketS
 	var pc protect.Conn
 
 	pid := summary.PID
+	uid := summary.UID
 
-	if h.dnsOverride(conn, target) {
+	// requests coming from rethink itself are not overriden
+	// but instead sent out as-is via the proxy
+	if uid != protect.UidSelf && h.dnsOverride(conn, target) {
 		return nil
 	}
 

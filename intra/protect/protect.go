@@ -31,6 +31,8 @@ import (
 	"github.com/celzero/firestack/intra/log"
 )
 
+const UidSelf = "rethink"
+
 // Controller provides answers to filter network traffic.
 type Controller interface {
 	// Bind4 binds fd to any internet-capable IPv4 interface.
