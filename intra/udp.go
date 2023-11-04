@@ -470,7 +470,7 @@ func (h *udpHandler) ReceiveTo(conn core.UDPConn, data []byte, addr *net.UDPAddr
 
 	if !ok1 { // if NAT conn doesn't exist then check if its a DNS request and handle it
 		if h.dnsOverride(conn, addr, data) {
-			log.D("udp: egress: dns-override for dstaddr(%v) <- src(l:%v r:%v) for uid %s", raddr, nsladdr, nsraddr, nat.uid)
+			log.D("udp: egress: dns-override for dstaddr(%v) <- src(l:%v r:%v)", raddr, nsladdr, nsraddr)
 			return nil
 		}
 		log.W("udp: egress: closed? no nat(%v -> %v [%v])", nsladdr, raddr, nsraddr)
