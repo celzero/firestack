@@ -39,7 +39,7 @@ func AllocRegion(size int) *[]byte {
 
 // Alloc returns a truncated byte slice of size 4096
 func Alloc() *[]byte {
-	return AllocRegion(B4096)
+	return AllocRegion(BMAX)
 }
 
 // Recycle returns the byte slices to the pool
