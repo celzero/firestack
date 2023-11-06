@@ -39,7 +39,7 @@ func init() {
 	log.SetLevel(log.INFO)
 }
 
-// Connect reads packets from a TUN device.
+// Connect creates firestack-administered tunnel.
 // `fd` is the TUN device.  The IntraTunnel acquires an additional reference to it, which
 //
 //	is released by Disconnect(), so the caller must close `fd` _and_ call
@@ -48,15 +48,14 @@ func init() {
 // `mtu` is the MTU of the TUN device.
 // `engine` IP protocols to route: one of settings.Ns4, settings.Ns6, settings.Ns46.
 // `fakedns` are the DNS servers that the system believes it is using, in "host:port" style.
-//
 // `bdg` is a kotlin object that implements the Bridge interface.
-//
+// `dtr` is a kotlin object that implements the DefaultDNS interface.
 // Throws an exception if the TUN file descriptor cannot be opened, or if the tunnel fails to
 // connect.
-func Connect(fd, mtu, engine int, fakedns string, bdg intra.Bridge) (t intra.Tunnel, err error) {
+func Connect(fd, mtu, engine int, fakedns string, dtr intra.DefaultDNS, bdg intra.Bridge) (t intra.Tunnel, err error) {
 	tunmode := settings.DefaultTunMode()
 	tunmode.IpMode = engine
-	return intra.NewTunnel(fd, mtu, fakedns, tunmode, bdg)
+	return intra.NewTunnel(fd, mtu, fakedns, tunmode, dtr, bdg)
 }
 
 func LogLevel(level int) {

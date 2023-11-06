@@ -16,6 +16,7 @@ import (
 	"github.com/celzero/firestack/intra/doh"
 	"github.com/celzero/firestack/intra/ipn"
 	"github.com/celzero/firestack/intra/log"
+	"github.com/celzero/firestack/intra/xdns"
 )
 
 func addIPMapper(r dnsx.Resolver) {
@@ -50,7 +51,7 @@ func SetSystemDNS(t Tunnel, ippcsv string) int {
 	}
 	n := 0
 	for _, ipport := range ipports {
-		if ipp, err := dnsIPPort(ipport); err == nil {
+		if ipp, err := xdns.DnsIPPort(ipport); err == nil {
 			if sdns, err := newSystemDNSProxy(g, p, ipp); err == nil {
 				r.AddSystemDNS(sdns)
 				n += 1
@@ -74,10 +75,6 @@ func newBlockAllTransport() (d dnsx.Transport) {
 	return dns53.NewGroundedTransport(dnsx.BlockAll)
 }
 
-func newGroundedDefaultTransport() (d dnsx.Transport) {
-	return dns53.NewGroundedTransport(dnsx.Default)
-}
-
 func newDNSCryptTransport(px ipn.Proxies, bdg Bridge) (p dnsx.TransportMult) {
 	p = dnscrypt.NewDcMult(px, bdg)
 	return
@@ -87,33 +84,17 @@ func newMDNSTransport(protos string) (d dnsx.Transport) {
 	return dns53.NewMDNSTransport(protos)
 }
 
-func newDefaultTransport(ipOrUrl, ips string, p ipn.Proxies, g Bridge) (dnsx.Transport, error) {
-	if len(ipOrUrl) <= 0 {
-		return dns53.NewGroundedTransport(dnsx.BlockAll), nil
-	}
-	if len(ips) <= 0 {
-		if ipp, err := dnsIPPort(ipOrUrl); err != nil {
-			return nil, err
-		} else {
-			return dns53.NewTransportFrom(dnsx.Default, ipp, p, g)
-		}
-	}
-	split := []string{}
-	if len(ips) > 0 {
-		split = strings.Split(ips, ",")
-	}
-	return doh.NewTransport(dnsx.Default, ipOrUrl, split, p, g)
-}
-
-func AddDefaultTransport(t Tunnel, ippOrUrl, ips string) error {
+func AddDefaultTransport(t Tunnel, typ, ippOrUrl, ips string) error {
 	r := t.GetResolver()
-	g := t.getBridge()
-	p := t.GetProxies()
-	if dns, err := newDefaultTransport(ippOrUrl, ips, p, g); err != nil {
+	tr, err := r.Get(dnsx.Default)
+	if err != nil {
 		return err
-	} else {
-		return addDNSTransport(r, dns)
 	}
+	defaultransport, ok := tr.(DefaultDNS)
+	if !ok {
+		return dnsx.ErrNotDefaultTransport
+	}
+	return defaultransport.reinit(typ, ippOrUrl, ips)
 }
 
 func AddProxyDNS(t Tunnel, p ipn.Proxy) error {
@@ -128,7 +109,7 @@ func AddProxyDNS(t Tunnel, p ipn.Proxy) error {
 	if len(ipcsv) > 0 {
 		ips = strings.Split(ipcsv, ",")
 	}
-	ipport, err := dnsIPPort(ips[0])
+	ipport, err := xdns.DnsIPPort(ips[0])
 	// todo: may be stamp or url
 	if err != nil {
 		return err
@@ -228,14 +209,4 @@ func addDNSTransport(r dnsx.Resolver, t dnsx.Transport) error {
 		return dnsx.ErrAddFailed
 	}
 	return nil
-}
-
-func dnsIPPort(s string) (ipp netip.AddrPort, err error) {
-	var ip netip.Addr
-	if ipp, err = netip.ParseAddrPort(s); err != nil {
-		if ip, err = netip.ParseAddr(s); err == nil {
-			ipp = netip.AddrPortFrom(ip, dns53.PortU16)
-		}
-	}
-	return
 }

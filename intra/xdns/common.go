@@ -19,6 +19,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/netip"
 	"net/url"
 	"strings"
 )
@@ -51,6 +52,7 @@ var (
 var (
 	ip4zero    = net.ParseIP("0.0.0.0")
 	ip6zero    = net.ParseIP("::")
+	dnsport    = uint16(53)
 	fakedomain = "MTE1LDI1MiwxNjMsMjI4LDg5LDI0NSwxOTIsNzEsNiwyNTQsNjMsOTEsMjE1LDY.lan"
 )
 
@@ -249,4 +251,14 @@ func GetBlocklistStampFromURL(rawurl string) (string, error) {
 	   }
 	   return "", errors.New("first two path positions missing stamp")
 	*/
+}
+
+func DnsIPPort(s string) (ipp netip.AddrPort, err error) {
+	var ip netip.Addr
+	if ipp, err = netip.ParseAddrPort(s); err != nil {
+		if ip, err = netip.ParseAddr(s); err == nil {
+			ipp = netip.AddrPortFrom(ip, dnsport)
+		}
+	}
+	return
 }

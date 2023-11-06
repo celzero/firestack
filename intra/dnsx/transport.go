@@ -62,15 +62,16 @@ const (
 )
 
 var (
-	ErrNoDcProxy          = errors.New("no dnscrypt-proxy")
-	ErrNoProxyProvider    = errors.New("no proxy provider")
-	ErrNoProxyDNS         = errors.New("no proxy dns")
-	ErrAddFailed          = errors.New("add failed")
-	errNoSuchTransport    = errors.New("missing transport")
-	errBlockFreeTransport = errors.New("block free transport")
-	errNoRdns             = errors.New("no rdns")
-	errTransportNotMult   = errors.New("not a multi-transport")
-	errMissingQueryName   = errors.New("no query name")
+	ErrNotDefaultTransport = errors.New("not a default transport")
+	ErrNoDcProxy           = errors.New("no dnscrypt-proxy")
+	ErrNoProxyProvider     = errors.New("no proxy provider")
+	ErrNoProxyDNS          = errors.New("no proxy dns")
+	ErrAddFailed           = errors.New("add failed")
+	errNoSuchTransport     = errors.New("missing transport")
+	errBlockFreeTransport  = errors.New("block free transport")
+	errNoRdns              = errors.New("no rdns")
+	errTransportNotMult    = errors.New("not a multi-transport")
+	errMissingQueryName    = errors.New("no query name")
 )
 
 type Conn = protect.Conn
@@ -158,7 +159,7 @@ type resolver struct {
 
 var _ Resolver = (*resolver)(nil)
 
-func NewResolver(fakeaddrs string, tunmode *settings.TunMode, l DNSListener, pt NatPt) Resolver {
+func NewResolver(fakeaddrs string, tunmode *settings.TunMode, dtr Transport, l DNSListener, pt NatPt) Resolver {
 	r := &resolver{
 		NatPt:        pt,
 		listener:     l,
@@ -168,9 +169,18 @@ func NewResolver(fakeaddrs string, tunmode *settings.TunMode, l DNSListener, pt 
 		systemdns:    make([]Transport, 0),
 	}
 	r.gateway = NewDNSGateway(r, pt)
-
-	log.I("dns: new! gw? %t", r.gateway != nil)
 	r.loadaddrs(fakeaddrs)
+	if dtr.ID() != Default {
+		log.W("dns: not default; ignoring", dtr.ID(), dtr.GetAddr())
+	} else {
+		dct := NewCachingTransport(dtr, ttl10m)
+		r.Lock()
+		r.transports[dtr.ID()] = dtr // regular
+		r.transports[dct.ID()] = dct // cached
+		r.Unlock()
+	}
+	log.I("dns: new! gw? %t; default? %s", r.gateway != nil, dtr.GetAddr())
+
 	return r
 }
 
@@ -199,6 +209,10 @@ func (r *resolver) RemoveSystemDNS() int {
 // Implements Resolver
 func (r *resolver) Add(t Transport) (ok bool) {
 	if t == nil {
+		return false
+	}
+	if t.ID() == Default {
+		log.W("dns: cannot re-add default transport; ignoring: ", t.GetAddr())
 		return false
 	}
 
@@ -700,9 +714,9 @@ func skipBlock(tr ...Transport) bool {
 			continue
 		}
 		switch t.ID() {
-		case BlockFree, Alg:
+		case Default, BlockFree, Alg:
 			return true
-		case CT + BlockFree, CT + Alg:
+		case CT + Default, CT + BlockFree, CT + Alg:
 			return true
 		}
 	}
