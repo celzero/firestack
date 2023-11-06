@@ -40,9 +40,9 @@ const (
 	// how many entries to scrub at a time per cache bucket
 	maxscrubs = defsize / 4 // 25% of the cache
 	// prefix for cached transport addresses
-	addrprefix = "cached."
+	cacheAddrPrefix = "cached."
 	// separator qname, qtype cache-key
-	keysep = ":"
+	cacheKeySep = ":"
 )
 
 var (
@@ -93,7 +93,7 @@ func NewCachingTransport(t Transport, ttl time.Duration) Transport {
 	}
 
 	// is type casting is a better way to do this?
-	if strings.HasPrefix(t.GetAddr(), addrprefix) {
+	if strings.HasPrefix(t.GetAddr(), cacheAddrPrefix) {
 		log.I("cache: (%s) no-op: %s", t.ID(), t.GetAddr())
 		return t
 	}
@@ -155,7 +155,7 @@ func mkcachekey(q *dns.Msg) (string, uint8, bool) {
 	}
 	qtyp := strconv.Itoa(int(xdns.QType(q)))
 
-	return qname + keysep + qtyp, hash(qname), true
+	return qname + cacheKeySep + qtyp, hash(qname), true
 }
 
 func (cb *cache) scrubCache() {
@@ -226,7 +226,7 @@ func (cb *cache) put(key string, val []byte, s *Summary) (ok bool) {
 	}
 
 	// do not cache .onion addresses
-	if strings.Contains(key, ".onion"+keysep) {
+	if strings.Contains(key, ".onion"+cacheKeySep) {
 		return
 	}
 	cb.mu.Lock()
@@ -318,7 +318,7 @@ func (t *ctransport) fetch(network string, q []byte, msg *dns.Msg, summary *Summ
 			cachedres = v.Val.(*cres)
 			log.W("cache: barrier: empty(%s); %s", key, cachedres)
 		} else if !fresh {
-			log.W("cache: barrier: stale(%s); barrier: %s (cache: %s)", key, v, cachedres)
+			log.W("cache: barrier: stale(%s); barrier: %s (cache: %s)", key, v.String(), cachedres.String())
 		}
 
 		fres, cachedsmm, ferr := asResponse(msg, cachedres, true)
@@ -402,7 +402,7 @@ func (t *ctransport) P50() int64 {
 }
 
 func (t *ctransport) GetAddr() string {
-	return addrprefix + t.Transport.GetAddr()
+	return cacheAddrPrefix + t.Transport.GetAddr()
 }
 
 func (t *ctransport) Status() int {
