@@ -133,7 +133,7 @@ type Resolver interface {
 	GetMult(id string) (TransportMult, error)
 
 	IsDnsAddr(network, ipport string) bool
-	// Lookup performs resolution on System or Default DNSes
+	// Lookup performs resolution on Default DNSes
 	LocalLookup(q []byte) ([]byte, error)
 	// Forward performs resolution on any DNS transport
 	Forward(q []byte) ([]byte, error)
