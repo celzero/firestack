@@ -223,7 +223,7 @@ func (t *transport) Query(network string, q []byte, smm *dnsx.Summary) (r []byte
 	smm.Server = t.GetAddr()
 	if t.relay != nil {
 		smm.RelayServer = t.relay.GetAddr()
-	} else if len(pid) > 0 && pid != dnsx.NetNoProxy {
+	} else if !dnsx.IsLocalProxy(pid) {
 		smm.RelayServer = dnsx.SummaryProxyLabel + pid
 	}
 	smm.Status = status

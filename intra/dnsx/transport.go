@@ -654,96 +654,6 @@ func (r *resolver) accept(c io.ReadWriteCloser) {
 	// TODO: Cancel outstanding queries.
 }
 
-func isReserved(id string) bool {
-	switch id {
-	case Default, Goos, System, Local, Alg, DcProxy, BlockAll, Preferred, BlockFree:
-		return true
-	case CT + Default, CT + Goos, CT + System, CT + Local, CT + Alg, CT + DcProxy, CT + BlockAll, CT + Preferred, CT + BlockFree:
-		return true
-	}
-	return false
-}
-
-func useFallback(id string) bool {
-	switch id {
-	case System, Local, Alg, Preferred, BlockFree:
-		return true
-	case CT + System, CT + Local, CT + Alg, CT + Preferred, CT + BlockFree:
-		return true
-	}
-	return false
-}
-
-func isTransportID(match string, ids ...string) bool {
-	for _, t := range ids {
-		if t == match {
-			return true
-		}
-	}
-	return false
-}
-
-func isAnyBlockAll(ids ...string) bool {
-	return isTransportID(BlockAll, ids...)
-}
-
-func isAnyLocal(ids ...string) bool {
-	return isTransportID(Local, ids...)
-}
-
-func overrideProxyIfNeeded(pid string, ids ...string) string {
-	for _, id := range ids {
-		switch id {
-		// note: Goos is anyway hard-coded to use NetExitProxy
-		case Default, Goos: // exit
-			return NetExitProxy
-		case CT + Default, CT + Goos: // exit
-			return NetExitProxy
-		case System, Local: // base
-			return NetNoProxy
-		case CT + System, CT + Local: // base
-			return NetNoProxy
-		}
-	}
-	return pid // as-is
-}
-
-func skipBlock(tr ...Transport) bool {
-	for _, t := range tr {
-		if t == nil {
-			continue
-		}
-		switch t.ID() {
-		case Default, BlockFree, Alg:
-			return true
-		case CT + Default, CT + BlockFree, CT + Alg:
-			return true
-		}
-	}
-	return false
-}
-
-func unpack(q []byte) (*dns.Msg, error) {
-	msg := &dns.Msg{}
-	err := msg.Unpack(q)
-	return msg, err
-}
-
-func qname(msg *dns.Msg) string {
-	n := xdns.QName(msg)
-	n, _ = xdns.NormalizeQName(n)
-	return n
-}
-
-func qtype(msg *dns.Msg) int {
-	return int(xdns.QType(msg))
-}
-
-func (r *resolver) loadaddrs(csvaddr string) {
-	r.fakeTcpAddr(csvaddr)
-	r.fakeUdpAddr(csvaddr)
-}
-
 func writeto(w io.Writer, b []byte, l int) (int, error) {
 	prependsz := 2
 	rlbuf := make([]byte, l+prependsz)
@@ -849,6 +759,100 @@ func (r *resolver) preferencesFrom(qname string, s *NsOpts, chosenids ...string)
 	}
 	ips = s.IPCSV // comma-separated list of IPs
 	return
+}
+
+func IsLocalProxy(pid string) bool {
+	return len(pid) <= 0 || pid == NetNoProxy || pid == NetExitProxy
+}
+
+func isReserved(id string) bool {
+	switch id {
+	case Default, Goos, System, Local, Alg, DcProxy, BlockAll, Preferred, BlockFree:
+		return true
+	case CT + Default, CT + Goos, CT + System, CT + Local, CT + Alg, CT + DcProxy, CT + BlockAll, CT + Preferred, CT + BlockFree:
+		return true
+	}
+	return false
+}
+
+func useFallback(id string) bool {
+	switch id {
+	case System, Local, Alg, Preferred, BlockFree:
+		return true
+	case CT + System, CT + Local, CT + Alg, CT + Preferred, CT + BlockFree:
+		return true
+	}
+	return false
+}
+
+func isTransportID(match string, ids ...string) bool {
+	for _, t := range ids {
+		if t == match {
+			return true
+		}
+	}
+	return false
+}
+
+func isAnyBlockAll(ids ...string) bool {
+	return isTransportID(BlockAll, ids...)
+}
+
+func isAnyLocal(ids ...string) bool {
+	return isTransportID(Local, ids...)
+}
+
+func overrideProxyIfNeeded(pid string, ids ...string) string {
+	for _, id := range ids {
+		switch id {
+		// note: Goos is anyway hard-coded to use NetExitProxy
+		case Default, Goos: // exit
+			return NetExitProxy
+		case CT + Default, CT + Goos: // exit
+			return NetExitProxy
+		case System, Local: // base
+			return NetNoProxy
+		case CT + System, CT + Local: // base
+			return NetNoProxy
+		}
+	}
+	return pid // as-is
+}
+
+func skipBlock(tr ...Transport) bool {
+	for _, t := range tr {
+		if t == nil {
+			continue
+		}
+		switch t.ID() {
+		case Default, BlockFree, Alg:
+			return true
+		case CT + Default, CT + BlockFree, CT + Alg:
+			return true
+		}
+	}
+	return false
+}
+
+func unpack(q []byte) (*dns.Msg, error) {
+	msg := &dns.Msg{}
+	err := msg.Unpack(q)
+	return msg, err
+}
+
+func qname(msg *dns.Msg) string {
+	n := xdns.QName(msg)
+	n, _ = xdns.NormalizeQName(n)
+	return n
+}
+
+func qtype(msg *dns.Msg) int {
+	return int(xdns.QType(msg))
+}
+
+func (r *resolver) loadaddrs(csvaddr string) {
+	r.fakeTcpAddr(csvaddr)
+	r.fakeUdpAddr(csvaddr)
 }
 
 func map2csv(ts map[string]Transport) string {

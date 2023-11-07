@@ -202,7 +202,7 @@ func (t *dot) Query(network string, q []byte, smm *dnsx.Summary) ([]byte, error)
 	smm.Server = t.GetAddr()
 	if t.relay != nil {
 		smm.RelayServer = t.relay.GetAddr()
-	} else if len(pid) > 0 && pid != dnsx.NetNoProxy {
+	} else if !dnsx.IsLocalProxy(pid) {
 		smm.RelayServer = dnsx.SummaryProxyLabel + pid
 	}
 	smm.Status = status
