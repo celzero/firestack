@@ -8,19 +8,21 @@ package intra
 
 import (
 	"errors"
-	"net/netip"
+	"net/url"
 	"strings"
 
+	"github.com/celzero/firestack/intra/dialers"
 	"github.com/celzero/firestack/intra/dns53"
 	"github.com/celzero/firestack/intra/dnsx"
 	"github.com/celzero/firestack/intra/doh"
 	"github.com/celzero/firestack/intra/ipn"
 	"github.com/celzero/firestack/intra/log"
-	"github.com/celzero/firestack/intra/xdns"
+	"github.com/celzero/firestack/intra/protect"
 )
 
 const (
 	defaultAddrPrefix = "d."
+	bootid            = dnsx.BlockFree
 )
 
 var (
@@ -37,73 +39,72 @@ type DefaultDNS interface {
 }
 
 type bootstrap struct {
-	dnsx.Transport                  // the underlying transport
-	proxies        ipn.Proxies      // never nil if underlying transport is set
-	bridge         Bridge           // never nil if underlying transport is set
-	typ            string           // DOH or DNS53
-	ipports        []netip.AddrPort // never empty
-	url            string           // may be empty
+	dnsx.Transport             // the underlying transport
+	proxies        ipn.Proxies // never nil if underlying transport is set
+	bridge         Bridge      // never nil if underlying transport is set
+	typ            string      // DOH or DNS53
+	ipports        string      // never empty
+	url            string      // never empty
+	hostname       string      // never empty
 }
 
-func NewDefaultDNS(typ, ippOrUrl, ips string) (DefaultDNS, error) {
-	if len(ippOrUrl) <= 0 {
-		return nil, dnsx.ErrNotDefaultTransport
-	}
-
+func NewDefaultDNS(typ, url, ips string) (DefaultDNS, error) {
 	b := new(bootstrap)
-	if err := b.reinit(typ, ippOrUrl, ips); err != nil {
+
+	if err := b.reinit(typ, url, ips); err != nil {
 		return nil, err
 	}
 
-	log.I("dns: default: %s done with %s %s", typ, ippOrUrl, ips)
+	log.I("dns: default: %s new %s %s %s", typ, url, b.hostname, ips)
 
 	return b, nil
 }
 
-func newDefaultDohTransport(url string, ipp []netip.AddrPort, p ipn.Proxies, g Bridge) (dnsx.Transport, error) {
-	ips := ipport2ipstr(ipp)
+func newDefaultDohTransport(url string, ipcsv string, p ipn.Proxies, g Bridge) (dnsx.Transport, error) {
+	ips := strings.Split(ipcsv, ",")
 	if len(url) > 0 && len(ips) > 0 {
-		return doh.NewTransport(dnsx.BlockFree, url, ips, p, g)
+		return doh.NewTransport(bootid, url, ips, p, g)
 	}
 	return nil, errCannotStart
 }
 
-func newDefaultTransport(ipp []netip.AddrPort, p ipn.Proxies, g Bridge) (dnsx.Transport, error) {
-	if len(ipp) > 0 {
-		return dns53.NewTransportFrom(dnsx.BlockFree, ipp[0], p, g)
+func newDefaultTransport(ipcsv string, p ipn.Proxies, g Bridge) (dnsx.Transport, error) {
+	if len(ipcsv) > 0 {
+		specialHostname := protect.UidSelf
+		return dns53.NewTransportFromHostname(bootid, specialHostname, ipcsv, p, g)
 	}
 	return nil, errCannotStart
 }
 
-func (b *bootstrap) reinit(typ, ippOrUrl, ips string) error {
+func (b *bootstrap) reinit(typ, u, ipcsv string) error {
+	if len(ipcsv) <= 0 {
+		log.E("dns: default: reinit: empty url %s / ips %s", u, ipcsv)
+		return dnsx.ErrNotDefaultTransport
+	}
+	if typ != dnsx.DOH || b.typ != dnsx.DNS53 {
+		log.E("dns: default: reinit: unknown type %s", b.typ)
+		return dnsx.ErrNotDefaultTransport
+	}
+	if len(u) <= 0 {
+		u = protect.UidSelf
+	}
+	b.url = u // may be localhost or protect.UidSelf; see: ipmap.LookupNetIP
 	b.typ = typ
-	b.ipports = make([]netip.AddrPort, 0)
-	if b.typ == dnsx.DOH {
-		b.url = ippOrUrl
-		for _, x := range strings.Split(ips, ",") {
-			ipport, err := xdns.DnsIPPort(x)
-			if err != nil {
-				log.W("dns: default: ignoring invalid ipport %s; err %v", x, err)
-				continue
-			}
-			b.ipports = append(b.ipports, ipport)
-		}
-	} else if b.typ == dnsx.DNS53 {
-		if ipport, err := xdns.DnsIPPort(ippOrUrl); err != nil {
-			log.E("dns: default: invalid ipport %s; err %v", ippOrUrl, err)
-			return err
-		} else {
-			b.ipports = append(b.ipports, ipport)
-		}
-	} else {
-		log.E("dns: default: unknown type %s", b.typ)
+	b.ipports = ipcsv
+	ips := strings.Split(ipcsv, ",")
+	if len(ips) <= 0 {
+		log.E("dns: default: reinit: zero valid ipports in %s (url? %s)", ipcsv, b.url)
 		return dnsx.ErrNotDefaultTransport
 	}
 
-	if len(b.ipports) <= 0 {
-		log.E("dns: default: zero valid ipports in %s (url? %s)", ips, b.url)
-		return dnsx.ErrNotDefaultTransport
+	b.hostname = b.url // may be a special name like protect.UidSelf
+	if parsed, err := url.Parse(b.url); err == nil {
+		b.hostname = parsed.Hostname()
 	}
+	// hydrate ipmap with the new ips against incoming hostname
+	ok := dialers.Renew(b.hostname, ips)
+
+	log.I("dns: default: %s reinit %s %s w/ %s; resolved? %t", typ, b.url, b.hostname, ips, ok)
 
 	// if proxies and bridges are set, restart to create new transport
 	if b.proxies != nil && b.bridge != nil {
@@ -143,7 +144,7 @@ func (t *bootstrap) kickstart(px ipn.Proxies, g Bridge) error {
 		return err
 	}
 
-	log.I("dns: default: %s with %s", t.typ, t.Transport.GetAddr())
+	log.I("dns: default: start; %s with %s[%s]", t.typ, t.hostname, t.Transport.GetAddr())
 	return nil
 }
 
@@ -172,7 +173,10 @@ func (t *bootstrap) P50() int64 {
 }
 
 func (t *bootstrap) GetAddr() string {
-	return defaultAddrPrefix + t.ipports[0].String()
+	if t.Transport != nil {
+		return defaultAddrPrefix + t.Transport.GetAddr()
+	}
+	return ""
 }
 
 func (t *bootstrap) Status() int {
@@ -180,14 +184,4 @@ func (t *bootstrap) Status() int {
 		return dnsx.ClientError
 	}
 	return t.Transport.Status()
-}
-
-func ipport2ipstr(ipp []netip.AddrPort) []string {
-	ipstr := make([]string, 0, len(ipp))
-	for _, x := range ipp {
-		if x.IsValid() {
-			ipstr = append(ipstr, x.Addr().String())
-		}
-	}
-	return ipstr
 }
