@@ -92,7 +92,27 @@ type TunMode struct {
 
 // DNSOptions define https or socks5 proxy options
 type DNSOptions struct {
-	IPPort string
+	ipp      string
+	hostport string
+	hostips  string
+}
+
+func (d *DNSOptions) String() string {
+	return d.Addr()
+}
+
+func (d *DNSOptions) Addr() string {
+	if len(d.ipp) > 0 {
+		return d.ipp
+	}
+	if len(d.hostport) > 0 {
+		return d.hostport
+	}
+	return ""
+}
+
+func (d *DNSOptions) ResolvedAddrs() string {
+	return d.hostips
 }
 
 // SetMode re-assigns d to DNSMode, b to BlockMode,
@@ -138,7 +158,7 @@ func addrport(ip string, port string) (ipp netip.AddrPort, err error) {
 	var p int
 	if ipaddr, err = netip.ParseAddr(ip); err == nil {
 		if p, err = strconv.Atoi(port); err == nil {
-			ipp = netip.AddrPortFrom(ipaddr, uint16(p))
+			ipp = netip.AddrPortFrom(ipaddr.Unmap(), uint16(p))
 			return ipp, nil
 		}
 	} else if ipp, err = netip.ParseAddrPort(ip); err == nil {
@@ -153,7 +173,7 @@ func NewDNSOptions(ip string, port string) (*DNSOptions, error) {
 	var err error
 	if ipp, err = addrport(ip, port); err == nil {
 		return &DNSOptions{
-			IPPort: ipp.String(),
+			ipp: ipp.String(),
 		}, nil
 	}
 	log.D("dnsopt(%s:%s); err(%v)", ip, port, err)
@@ -165,11 +185,11 @@ func NewDNSOptionsFromNetIp(ipp netip.AddrPort) (*DNSOptions, error) {
 		return nil, errors.New("dnsopt: empty ipport")
 	}
 	return &DNSOptions{
-		IPPort: ipp.String(),
+		ipp: ipp.String(),
 	}, nil
 }
 
-func NewDNSOptionsFromHostname(hostname string) (*DNSOptions, error) {
+func NewDNSOptionsFromHostname(hostname, ipcsv string) (*DNSOptions, error) {
 	domain, port, err := net.SplitHostPort(hostname)
 	if err != nil {
 		return nil, err
@@ -177,13 +197,11 @@ func NewDNSOptionsFromHostname(hostname string) (*DNSOptions, error) {
 	if len(port) == 0 {
 		port = "53"
 	}
-	return &DNSOptions{
-		IPPort: net.JoinHostPort(domain, port),
-	}, nil
-}
 
-func (d *DNSOptions) String() string {
-	return d.IPPort
+	return &DNSOptions{
+		hostport: net.JoinHostPort(domain, port),
+		hostips:  ipcsv,
+	}, nil
 }
 
 // ProxyOptions define https or socks5 proxy options

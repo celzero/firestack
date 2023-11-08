@@ -76,7 +76,7 @@ func newTransport(id string, do *settings.DNSOptions, px ipn.Proxies, ctl protec
 	d := protect.MakeNsRDial(id, ctl)
 	tx := &transport{
 		id:      id,
-		addr:    do.IPPort, // may be host:port or ip:port
+		addr:    do.Addr(), // may be host:port or ip:port
 		status:  dnsx.Start,
 		dialer:  d,
 		proxies: px,    // may be nil; see above
