@@ -8,6 +8,7 @@ package dialers
 
 import (
 	"crypto/tls"
+	"errors"
 	"net"
 	"net/netip"
 	"strconv"
@@ -77,8 +78,9 @@ func commondial(d *protect.RDial, network, addr string, connect connectFunc) (ne
 	if err != nil {
 		return nil, err
 	}
-	// TODO: Improve IP fallback strategy with parallelism and Happy Eyeballs.
+
 	var conn net.Conn
+	var errs error
 	ips := ipm.Get(domain)
 	confirmed := ips.Confirmed()
 	if confirmed.IsValid() {
@@ -86,15 +88,18 @@ func commondial(d *protect.RDial, network, addr string, connect connectFunc) (ne
 			log.V("rdial: commondial: found working ip %s for %s", confirmed, addr)
 			return conn, nil
 		}
+		errs = errors.Join(errs, err)
 		ips.Disconfirm(confirmed)
 		log.D("rdial: commondial: confirmed ip %s for %s failed with err %v", confirmed, addr, err)
 	}
 
 	allips := filter(ips.GetAll(), confirmed)
 	if len(allips) <= 0 {
-		log.D("rdial: commondial: renew ips for %s", addr)
-		Renew(domain, ips.Seed())
-		allips = filter(ips.GetAll(), confirmed)
+		var ok bool
+		if ok = Renew(domain, ips.Seed()); ok {
+			allips = filter(ips.GetAll(), confirmed)
+		}
+		log.D("rdial: renew ips for %s; ok? %t", addr, ok)
 	}
 	log.D("rdial: commondial: trying all ips %d for %s", len(allips), addr)
 	for _, ip := range allips {
@@ -103,13 +108,14 @@ func commondial(d *protect.RDial, network, addr string, connect connectFunc) (ne
 			log.I("redial: commondial: found working ip %s for %s", ip, addr)
 			return conn, nil
 		}
+		errs = errors.Join(errs, err)
 		log.W("rdial: commondial: ip %s for %s failed with err %v", ip, addr, err)
 	}
 
 	dur := time.Since(start)
 	log.D("rdial: commondial: duration: %s; failed %s", dur, addr)
 
-	return nil, errNoIps
+	return nil, errors.Join(errs, errNoIps)
 }
 
 func SplitDial(d *protect.RDial, network, addr string) (net.Conn, error) {

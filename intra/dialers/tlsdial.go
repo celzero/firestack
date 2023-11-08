@@ -8,6 +8,7 @@ package dialers
 
 import (
 	"crypto/tls"
+	"errors"
 	"net"
 	"net/netip"
 	"strconv"
@@ -53,8 +54,8 @@ func tlsdial(d *tls.Dialer, network, addr string, connect tlsConnectFunc) (net.C
 	if err != nil {
 		return nil, err
 	}
-	// TODO: Improve IP fallback strategy with parallelism and Happy Eyeballs.
 	var conn net.Conn
+	var errs error
 	ips := ipm.Get(domain)
 	confirmed := ips.Confirmed()
 	if confirmed.IsValid() {
@@ -62,15 +63,18 @@ func tlsdial(d *tls.Dialer, network, addr string, connect tlsConnectFunc) (net.C
 			log.V("tlsdial: found working ip %s for %s", confirmed, addr)
 			return conn, nil
 		}
+		errs = errors.Join(errs, err)
 		ips.Disconfirm(confirmed)
 		log.D("tlsdial: confirmed ip %s for %s failed with err %v", confirmed, addr, err)
 	}
 
 	allips := filter(ips.GetAll(), confirmed)
 	if len(allips) <= 0 {
-		log.D("tlsdial: renew ips for %s", addr)
-		Renew(domain, ips.Seed())
-		allips = filter(ips.GetAll(), confirmed)
+		var ok bool
+		if ok = Renew(domain, ips.Seed()); ok {
+			allips = filter(ips.GetAll(), confirmed)
+		}
+		log.D("tlsdial: renew ips for %s; ok? %t", addr, ok)
 	}
 	log.D("tlsdial: trying all ips %d for %s", len(allips), addr)
 	for _, ip := range allips {
@@ -79,13 +83,14 @@ func tlsdial(d *tls.Dialer, network, addr string, connect tlsConnectFunc) (net.C
 			log.I("tlsdial: found working ip %s for %s", ip, addr)
 			return conn, nil
 		}
+		errs = errors.Join(errs, err)
 		log.W("tlsdial: ip %s for %s failed with err %v", ip, addr, err)
 	}
 
 	dur := time.Since(start)
 	log.D("tlsdial: duration: %s; failed %s", dur, addr)
 
-	return nil, errNoIps
+	return nil, errors.Join(errs, errNoIps)
 }
 
 func TlsDial(d *tls.Dialer, network, addr string) (net.Conn, error) {

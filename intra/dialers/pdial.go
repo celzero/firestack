@@ -49,8 +49,9 @@ func proxydial(d proxy.Dialer, network, addr string, connect proxyConnectFunc) (
 		log.E("pdial: no port")
 		return nil, err
 	}
-	// TODO: Improve IP fallback strategy with parallelism and Happy Eyeballs.
+
 	var conn net.Conn
+	var errs error
 	s1 := time.Now()
 	ips := ipm.Get(domain)
 	confirmed := ips.Confirmed()
@@ -59,6 +60,7 @@ func proxydial(d proxy.Dialer, network, addr string, connect proxyConnectFunc) (
 			log.V("pdial: found working ip %s for %s; duration: %s", confirmed, addr, time.Since(s1))
 			return conn, nil
 		}
+		errs = errors.Join(errs, err)
 		ips.Disconfirm(confirmed)
 		log.D("pdial: confirmed ip %s for %s failed with err %v", confirmed, addr, err)
 	}
@@ -81,6 +83,7 @@ func proxydial(d proxy.Dialer, network, addr string, connect proxyConnectFunc) (
 			log.I("pdial: found working ip%d %s for %s; duration: %s", i, ip, addr, time.Since(s3))
 			return conn, nil
 		}
+		errs = errors.Join(errs, err)
 		log.W("pdial: ip %s for %s failed with err %v", ip, addr, err)
 	}
 
@@ -88,7 +91,7 @@ func proxydial(d proxy.Dialer, network, addr string, connect proxyConnectFunc) (
 	log.D("pdial: duration: %s; failed %s", dur, addr)
 
 	// for example, socks5 proxy does not support dialing hostnames
-	return nil, errNoIps
+	return nil, errors.Join(errs, errNoIps)
 }
 
 func ProxyDial(d proxy.Dialer, network, addr string) (net.Conn, error) {

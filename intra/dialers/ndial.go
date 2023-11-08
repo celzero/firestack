@@ -7,6 +7,7 @@
 package dialers
 
 import (
+	"errors"
 	"net"
 	"net/netip"
 	"strconv"
@@ -45,8 +46,9 @@ func netdial(d *net.Dialer, network, addr string, connect netConnectFunc) (net.C
 	if err != nil {
 		return nil, err
 	}
-	// TODO: Improve IP fallback strategy with parallelism and Happy Eyeballs.
+
 	var conn net.Conn
+	var errs error
 	ips := ipm.Get(domain)
 	confirmed := ips.Confirmed()
 	if confirmed.IsValid() {
@@ -54,15 +56,18 @@ func netdial(d *net.Dialer, network, addr string, connect netConnectFunc) (net.C
 			log.V("ndial: found working ip %s for %s", confirmed, addr)
 			return conn, nil
 		}
+		errs = errors.Join(errs, err)
 		ips.Disconfirm(confirmed)
 		log.D("ndial: confirmed ip %s for %s failed with err %v", confirmed, addr, err)
 	}
 
 	allips := filter(ips.GetAll(), confirmed)
 	if len(allips) <= 0 {
-		log.D("ndial: renew ips for %s", addr)
-		Renew(domain, ips.Seed())
-		allips = filter(ips.GetAll(), confirmed)
+		var ok bool
+		if ok = Renew(domain, ips.Seed()); ok {
+			allips = filter(ips.GetAll(), confirmed)
+		}
+		log.D("ndial: renew ips for %s; ok? %t", addr, ok)
 	}
 	log.D("ndial: trying all ips %d for %s", len(allips), addr)
 	for _, ip := range allips {
@@ -71,13 +76,14 @@ func netdial(d *net.Dialer, network, addr string, connect netConnectFunc) (net.C
 			log.I("ndial: found working ip %s for %s", ip, addr)
 			return conn, nil
 		}
+		errs = errors.Join(errs, err)
 		log.W("ndial: ip %s for %s failed with err %v", ip, addr, err)
 	}
 
 	dur := time.Since(start)
 	log.D("ndial: duration: %s; failed %s", dur, addr)
 
-	return nil, errNoIps
+	return nil, errors.Join(errs, errNoIps)
 }
 
 func NetDial(d *net.Dialer, network, addr string) (net.Conn, error) {
