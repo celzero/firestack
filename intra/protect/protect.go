@@ -31,6 +31,7 @@ import (
 	"github.com/celzero/firestack/intra/log"
 )
 
+// See: ipmap.LookupNetIP
 const UidSelf = "rethink"
 
 // Controller provides answers to filter network traffic.

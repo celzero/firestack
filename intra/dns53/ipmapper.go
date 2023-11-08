@@ -17,6 +17,7 @@ import (
 	"github.com/celzero/firestack/intra/dialers"
 	"github.com/celzero/firestack/intra/dnsx"
 	"github.com/celzero/firestack/intra/log"
+	"github.com/celzero/firestack/intra/protect"
 	"github.com/celzero/firestack/intra/xdns"
 	"github.com/miekg/dns"
 )
@@ -27,6 +28,9 @@ var (
 	errNoHost = errors.New("no hostname")
 	errNoAns  = errors.New("no answer")
 	errNoNet  = errors.New("unknown network")
+
+	loopback4 = netip.AddrFrom4([4]byte{127, 0, 0, 1})
+	loopback6 = netip.IPv6Loopback()
 )
 
 type ipmapper struct {
@@ -47,6 +51,12 @@ func str2ip(host string) (netip.Addr, error) {
 func (m *ipmapper) LookupNetIP(ctx context.Context, network, host string) ([]netip.Addr, error) {
 	if len(host) <= 0 {
 		return nil, errNoHost
+	}
+	if host == protect.UidSelf { // represents system resolver with seeded ips
+		return nil, nil
+	}
+	if host == "localhost" || host == "localhost." {
+		return []netip.Addr{loopback4, loopback6}, nil
 	}
 	// no lookups when host is already an IP
 	if ip, err := str2ip(host); err == nil {

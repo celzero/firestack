@@ -92,6 +92,12 @@ func (m *ipMap) With(r IPMapper) {
 // Implements IPMapper.
 func (m *ipMap) LookupNetIP(ctx context.Context, network, host string) ([]netip.Addr, error) {
 	r := m.r
+	if host == "localhost" || host == "localhost." {
+		return []netip.Addr{netip.IPv6Loopback()}, nil
+	}
+	if host == "rethink" { // == protect.UidSelf
+		return nil, nil
+	}
 	if r == nil {
 		return nil, &net.DNSError{Err: "no resolver", Name: host}
 	}
@@ -169,14 +175,13 @@ func (s *IPSet) Seed() []string {
 // The hostname can be a domain name or an IP address.
 func (s *IPSet) Add(hostname string) {
 	ctx := context.Background()
-	// Don't hold the ipMap lock during blocking I/O.
 	resolved, err := s.r.LookupNetIP(ctx, "ip", hostname)
 	if err != nil {
 		log.W("ipmap: Add: err resolving %s: %v", hostname, err)
 		return
 	}
 	s.Lock()
-	for _, addr := range resolved {
+	for _, addr := range resolved { // resolved may be nil
 		s.addLocked(addr)
 	}
 	s.Unlock()
