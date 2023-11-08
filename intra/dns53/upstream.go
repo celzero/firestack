@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"net/netip"
+	"strings"
 	"time"
 
 	"github.com/celzero/firestack/intra/core"
@@ -47,8 +48,8 @@ type transport struct {
 
 var _ dnsx.Transport = (*transport)(nil)
 
-func NewTransportFromHostname(id, hostname string, px ipn.Proxies, ctl protect.Controller) (t dnsx.Transport, err error) {
-	do, err := settings.NewDNSOptionsFromHostname(hostname)
+func NewTransportFromHostname(id, hostname string, ipcsv string, px ipn.Proxies, ctl protect.Controller) (t dnsx.Transport, err error) {
+	do, err := settings.NewDNSOptionsFromHostname(hostname, ipcsv)
 	if err != nil {
 		return
 	}
@@ -83,6 +84,13 @@ func newTransport(id string, do *settings.DNSOptions, px ipn.Proxies, ctl protec
 		relay:   relay, // may be nil
 		est:     core.NewP50Estimator(),
 	}
+	ipcsv := do.ResolvedAddrs()
+	hasips := len(ipcsv) > 0
+	if hasips {
+		ips := strings.Split(ipcsv, ",")
+		dialers.Renew(do.Addr(), ips)
+		log.I("dns53: (%s) pre-resolved %s to %s", id, do.Addr(), ipcsv)
+	}
 	tx.client = &dns.Client{
 		Net:     "udp",
 		Timeout: timeout,
@@ -92,7 +100,7 @@ func newTransport(id string, do *settings.DNSOptions, px ipn.Proxies, ctl protec
 		// ref: github.com/miekg/dns/blob/b3dfea071/server.go#L207
 		// UDPSize:        dns.DefaultMsgSize,
 	}
-	log.I("dns53: (%s) setup: %s; relay? %t", id, do.IPPort, relay != nil)
+	log.I("dns53: (%s) setup: %s; pre-ips? %t; relay? %t", id, do.Addr(), hasips, relay != nil)
 	return tx, nil
 }
 
