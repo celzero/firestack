@@ -360,7 +360,7 @@ func (h *udpHandler) OnNewConn(gconn *netstack.GUDPConn, _, dst *net.UDPAddr) {
 
 // Connect connects the proxy server.
 // Note, target may be nil in lwip (deprecated) while it may be unspecified in netstack
-func (h *udpHandler) Connect(conn core.UDPConn, target *net.UDPAddr) (res *Mark, err error) {
+func (h *udpHandler) Connect(src core.UDPConn, target *net.UDPAddr) (res *Mark, err error) {
 	if h.status == UDPEND {
 		log.D("udp: connect: end")
 		return nil, errUdpEnd
@@ -372,9 +372,9 @@ func (h *udpHandler) Connect(conn core.UDPConn, target *net.UDPAddr) (res *Mark,
 	realips, domains, probableDomains, blocklists := undoAlg(h.resolver, target.IP)
 
 	// flow is alg/nat-aware, do not change target or any addrs
-	res = h.onFlow(conn, target, realips, domains, probableDomains, blocklists)
+	res = h.onFlow(src, target, realips, domains, probableDomains, blocklists)
 
-	localaddr := conn.LocalAddr()
+	localaddr := src.LocalAddr()
 	pid, cid, uid := splitPidCidUid(res)
 
 	if pid == ipn.Block {
@@ -402,23 +402,30 @@ func (h *udpHandler) Connect(conn core.UDPConn, target *net.UDPAddr) (res *Mark,
 		return res, err // disconnect
 	}
 
+	var errs error
 	// note: fake-dns-ips shouldn't be un-nated / un-alg'd
-	target.IP = oneRealIp(realips, target.IP)
+	for i, dstip := range makeIPs(realips, target.IP) {
+		target.IP = dstip
+		if pc, err = px.Dial(target.Network(), target.String()); err == nil {
+			errs = nil // reset errs
+			break
+		} // else try the next realip
+		log.W("udp: connect: #%s: %s failed to bind addr(%s); for uid %s w err(%v)", i, cid, target, uid, err)
+		errs = errors.Join(errs, err)
+	}
 
-	// deprecated: github.com/golang/go/issues/25104
-	if pc, err = px.Dial(target.Network(), target.String()); err != nil {
-		log.E("udp: connect: %s failed to bind addr(%s); for uid %s w err(%v)", cid, target, uid, err)
-		return res, err // disconnect
+	if errs != nil {
+		return res, errs // disconnect
 	}
 
 	var ok bool
-	var c net.Conn
-	if c, ok = pc.(net.Conn); !ok {
+	var dst net.Conn
+	if dst, ok = pc.(net.Conn); !ok {
 		log.E("udp: connect: %s proxy(%s) does not implement net.Conn(%s) for uid %s", cid, px.ID(), target, uid)
 		return res, errUdpSetupConn // disconnect
 	}
 
-	nat := makeTracker(cid, pid, uid, c)
+	nat := makeTracker(cid, pid, uid, dst)
 
 	// the actual ip the client sees data from
 	// unused in netstack
@@ -429,18 +436,18 @@ func (h *udpHandler) Connect(conn core.UDPConn, target *net.UDPAddr) (res *Mark,
 	}
 
 	h.Lock()
-	h.udpConns[conn] = nat
+	h.udpConns[src] = nat
 	h.Unlock()
 
-	go h.fetchUDPInput(conn, nat)
+	go h.fetchUDPInput(src, nat)
 
-	log.I("udp: connect: %s (proxy? %s@%s) %v -> %v for uid %s", cid, px.ID(), px.GetAddr(), c.LocalAddr(), target, uid)
+	log.I("udp: connect: %s (proxy? %s@%s) %v -> %v for uid %s", cid, px.ID(), px.GetAddr(), dst.LocalAddr(), target, uid)
 
 	return res, nil // connect
 }
 
 // HandleData implements netstack.GUDPConnHandler
-func (h *udpHandler) HandleData(conn *netstack.GUDPConn, data []byte, addr net.Addr) error {
+func (h *udpHandler) HandleData(src *netstack.GUDPConn, data []byte, addr net.Addr) error {
 	if h.status == UDPEND {
 		log.D("udp: handle-data: end")
 		return errUdpEnd
@@ -450,7 +457,7 @@ func (h *udpHandler) HandleData(conn *netstack.GUDPConn, data []byte, addr net.A
 		log.E("udp: handle-data: failed to parse dst(%s); err(%v)", addr, err)
 		return err
 	}
-	return h.ReceiveTo(conn, data, dst)
+	return h.ReceiveTo(src, data, dst)
 }
 
 func (h *udpHandler) End() error {
@@ -485,25 +492,20 @@ func (h *udpHandler) ReceiveTo(conn core.UDPConn, data []byte, addr *net.UDPAddr
 		Zone: addr.Zone,
 	}
 
-	realips, _, _, _ := undoAlg(h.resolver, addr.IP)
-	// check if there's a real-ip to connect to
-	addr.IP = oneRealIp(realips, addr.IP)
-
 	nat.upload += int64(len(data))
 
 	switch c := nat.conn.(type) {
 	// net.UDPConn is both net.Conn and net.PacketConn; check net.Conn
 	// first, as it denotes a connected socket which netstack also uses
 	case net.Conn:
-		// Update deadline.
 		c.SetDeadline(time.Now().Add(h.timeout))
 		// c is already dialed-in to some addr in udpHandler.Connect
 		_, err = c.Write(data)
 	case net.PacketConn: // unused
-		// Update deadline.
 		c.SetDeadline(time.Now().Add(h.timeout))
-		// writes packet payload, data, to addr
-		_, err = c.WriteTo(data, addr)
+		// realips, _, _, _ := undoAlg(h.resolver, addr.IP)
+		// addr.IP = oneRealIp(realips, addr.IP)
+		_, err = c.WriteTo(data, addr) // writes packet payload, data, to addr
 	default:
 		err = errUdpSetupConn
 	}

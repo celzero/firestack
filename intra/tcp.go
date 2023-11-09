@@ -227,9 +227,11 @@ func (h *tcpHandler) End() error {
 
 // Proxy implements netstack.GTCPConnHandler
 func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target *net.TCPAddr) (open bool) {
+	allow := true
+	deny := false
 	if h.status == TCPEND {
 		log.D("tcp: proxy: end")
-		return
+		return deny
 	}
 
 	const rst bool = true // tear down conn
@@ -238,8 +240,7 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target *net.TCPAddr) (
 
 	if src == nil || target == nil {
 		log.E("tcp: nil addr %v -> %v", src, target)
-		open = gconn.Connect(rst) // fin
-		return
+		return gconn.Connect(rst) // fin
 	}
 
 	// alg happens after nat64, and so, alg knows nat-ed ips
@@ -255,6 +256,7 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target *net.TCPAddr) (
 
 	defer func() {
 		if !open {
+			gconn.Close()
 			s.done(err)
 			go h.sendNotif(s)
 		} // else conn has been proxied, sendNotif is called by h.forward()
@@ -271,51 +273,44 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target *net.TCPAddr) (
 			time.Sleep(waittime)
 		}
 		log.I("tcp: gconn %s firewalled from %s -> %s (dom: %s + %s/ real: %s) for %s; stall? %ds", cid, src, target, domains, probableDomains, realips, uid, secs)
-		open = gconn.Connect(rst) // fin
 		err = errTcpFirewalled
-		return
+		return gconn.Connect(rst) // fin
 	}
 
 	// handshake
 	if open = gconn.Connect(ack); !open {
 		err = fmt.Errorf("tcp: %s no route %s -> %s for %s", cid, src, target, uid)
 		log.E("%v", err)
-		return
+		return deny // == open
 	}
 
-	// pick any one realip to connect to
-	target.IP = oneRealIp(realips, target.IP)
-
-	if err = h.Handle(gconn, target, s); err != nil {
-		log.E("tcp: %s proxy(%s -> %s) for %s; err: %v", cid, src, target, uid, err)
-		open = false
-		gconn.Close()
-	}
-	return
-}
-
-// TODO: Request upstream to make `conn` a `core.TCPConn` so we can avoid a type assertion.
-func (h *tcpHandler) Handle(conn net.Conn, target *net.TCPAddr, summary *SocketSummary) (err error) {
 	var px ipn.Proxy
-	var pc protect.Conn
-
-	pid := summary.PID
-	uid := summary.UID
-	cid := summary.ID
+	if px, err = h.prox.GetProxy(pid); err != nil {
+		return deny
+	}
 
 	// requests coming from rethink itself are not overriden
-	// but instead sent out as-is via the proxy
-	if uid != protect.UidSelf && h.dnsOverride(conn, target) {
-		return nil
+	// but instead sent out to the dns transport
+	if uid != protect.UidSelf && h.dnsOverride(gconn, target) {
+		return allow
 	}
 
-	if px, err = h.prox.GetProxy(pid); err != nil {
-		return err
+	// pick all realips to connect to
+	for _, dstip := range makeIPs(realips, target.IP) {
+		target.IP = dstip
+		if err = h.Handle(px, gconn, target, s); err == nil {
+			return allow
+		} // else try he next realip
 	}
+	return deny
+}
+
+func (h *tcpHandler) Handle(px ipn.Proxy, src net.Conn, target *net.TCPAddr, smm *SocketSummary) (err error) {
+	var pc protect.Conn
 
 	start := time.Now()
 	var end time.Time
-	var c net.Conn
+	var dst net.Conn
 
 	// ref: stackoverflow.com/questions/63656117
 	// ref: stackoverflow.com/questions/40328025
@@ -324,27 +319,27 @@ func (h *tcpHandler) Handle(conn net.Conn, target *net.TCPAddr, summary *SocketS
 		switch uc := pc.(type) {
 		// underlying conn must specifically be a tcp-conn
 		case *net.TCPConn:
-			c = uc
+			dst = uc
 		case *gonet.TCPConn:
-			c = uc
+			dst = uc
 		case core.TCPConn:
-			c = uc
+			dst = uc
 		default:
 			err = errTcpSetupConn
 		}
 	}
 
 	if err != nil {
-		log.W("tcp: err dialing %s proxy(%s) to dst(%v) for %s: %v", cid, px.ID(), target, uid, err)
+		log.W("tcp: err dialing %s proxy(%s) to dst(%v) for %s: %v", smm.ID, px.ID(), target, smm.UID, err)
 		return err
 	}
 
-	summary.Rtt = int32(end.Sub(start).Seconds() * 1000)
+	smm.Rtt = int32(end.Sub(start).Seconds() * 1000)
 
-	go h.forward(conn, c, summary)
+	go h.forward(src, dst, smm)
 
-	log.I("tcp: new conn %s via proxy(%s); src(%s) -> dst(%s) for %s", cid, px.ID(), conn.LocalAddr(), target, uid)
-	return nil
+	log.I("tcp: new conn %s via proxy(%s); src(%s) -> dst(%s) for %s", smm.ID, px.ID(), src.LocalAddr(), target, smm.UID)
+	return nil // handled; takes ownership of src
 }
 
 // TODO: move this to ipn.Ground
@@ -390,6 +385,27 @@ func oneRealIp(realips string, dstip net.IP) net.IP {
 		}
 	}
 	return dstip
+}
+
+func makeIPs(realips string, dstip net.IP) []net.IP {
+	ips := strings.Split(realips, ",")
+	r := make([]net.IP, 0, len(ips))
+	// override alg-ip with the first real-ip
+	for _, v := range ips { // may contain unspecifed ip
+		// len may be zero when realips is "," or ""
+		if len(v) > 0 {
+			ip := net.ParseIP(v)
+			if !ip.IsUnspecified() {
+				r = append(r, ip)
+			}
+		}
+	}
+
+	if len(r) > 0 {
+		return r
+	}
+
+	return []net.IP{dstip}
 }
 
 func undoAlg(r dnsx.Resolver, algip net.IP) (realips, domains, probableDomains, blocklists string) {
