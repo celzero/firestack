@@ -107,6 +107,7 @@ func newTransport(typ, id, rawurl, target string, addrs []string, px ipn.Proxies
 	skipTLSVerify := false
 	isodoh := typ == dnsx.ODOH
 
+	var renewed bool
 	var relay ipn.Proxy
 	if px != nil {
 		relay, _ = px.GetProxy(id)
@@ -144,7 +145,7 @@ func newTransport(typ, id, rawurl, target string, addrs []string, px ipn.Proxies
 		t.url = parsedurl.String()
 		t.hostname = parsedurl.Hostname()
 		// addrs are pre-determined ip addresses for url / hostname
-		dialers.Renew(t.hostname, addrs)
+		renewed = dialers.Renew(t.hostname, addrs)
 	} else {
 		t.odohtransport = &odohtransport{}
 
@@ -163,13 +164,13 @@ func newTransport(typ, id, rawurl, target string, addrs []string, px ipn.Proxies
 
 		// addrs are proxy addresses if proxy is not empty, otherwise target addresses
 		if proxyurl != nil && proxyurl.Hostname() != "" {
-			dialers.Renew(proxyurl.Hostname(), addrs)
+			renewed = dialers.Renew(proxyurl.Hostname(), addrs)
 			if len(proxyurl.Path) <= 1 { // should not be "" or "/"
 				proxyurl.Path = odohproxypath
 			}
 			t.odohproxy = proxyurl.String()
 		} else if targeturl != nil && targeturl.Hostname() != "" {
-			dialers.Renew(targeturl.Hostname(), addrs)
+			renewed = dialers.Renew(targeturl.Hostname(), addrs)
 		}
 
 		t.url = parsedurl.String()
@@ -205,7 +206,7 @@ func newTransport(typ, id, rawurl, target string, addrs []string, px ipn.Proxies
 		TLSClientConfig:       t.tlsconfig.Clone(),
 	}
 
-	log.I("doh: new transport(%s): %s; relay? %t; addrs? %v", t.typ, t.url, relay != nil, addrs)
+	log.I("doh: new transport(%s): %s; relay? %t; addrs? %v; resolved? %t", t.typ, t.url, relay != nil, addrs, renewed)
 	return t, nil
 }
 

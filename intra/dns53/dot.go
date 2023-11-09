@@ -57,7 +57,7 @@ func NewTLSTransport(id, rawurl string, addrs []string, px ipn.Proxies, ctl prot
 	rd := protect.MakeNsRDial(id, ctl)
 	hostname := parsedurl.Hostname()
 	// addrs are pre-determined ip addresses for url / hostname
-	dialers.Renew(hostname, addrs)
+	ok := dialers.Renew(hostname, addrs)
 	// add sni to tls config
 	tlscfg.ServerName = hostname
 	tx := &dot{
@@ -77,7 +77,7 @@ func NewTLSTransport(id, rawurl string, addrs []string, px ipn.Proxies, ctl prot
 		SingleInflight: true,
 		TLSConfig:      tlscfg,
 	}
-	log.I("dot: (%s) setup: %s; relay? %t", id, rawurl, relay != nil)
+	log.I("dot: (%s) setup: %s; relay? %t; resolved? %t", id, rawurl, relay != nil, ok)
 	return tx, nil
 }
 

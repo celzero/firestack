@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/celzero/firestack/intra/dialers"
+	"github.com/celzero/firestack/intra/log"
 )
 
 // code adopted from github.com/mwitkow/go-http-dialer/blob/378f744fb2/dialer.go#L1
@@ -36,7 +37,8 @@ func New(proxyUrl *url.URL, opts ...Opt) *HttpTunnel {
 	for _, opt := range opts {
 		opt(t)
 	}
-	dialers.Renew(t.hostname, nil)
+	ok := dialers.Renew(t.hostname, nil)
+	log.I("http: new dialer for %s; resolved? %t", t.hostname, ok)
 	return t
 }
 
