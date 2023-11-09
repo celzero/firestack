@@ -81,7 +81,7 @@ func (b *bootstrap) reinit(typ, u, ipcsv string) error {
 		log.E("dns: default: reinit: empty url %s / ips %s", u, ipcsv)
 		return dnsx.ErrNotDefaultTransport
 	}
-	if typ != dnsx.DOH || b.typ != dnsx.DNS53 {
+	if typ != dnsx.DOH && b.typ != dnsx.DNS53 {
 		log.E("dns: default: reinit: unknown type %s", b.typ)
 		return dnsx.ErrNotDefaultTransport
 	}
