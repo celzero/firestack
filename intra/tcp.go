@@ -298,14 +298,14 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target *net.TCPAddr) (
 	// pick all realips to connect to
 	for _, dstip := range makeIPs(realips, target.IP) {
 		target.IP = dstip
-		if err = h.Handle(px, gconn, target, s); err == nil {
+		if err = h.handle(px, gconn, target, s); err == nil {
 			return allow
-		} // else try he next realip
+		} // else try the next realip
 	}
 	return deny
 }
 
-func (h *tcpHandler) Handle(px ipn.Proxy, src net.Conn, target *net.TCPAddr, smm *SocketSummary) (err error) {
+func (h *tcpHandler) handle(px ipn.Proxy, src net.Conn, target *net.TCPAddr, smm *SocketSummary) (err error) {
 	var pc protect.Conn
 
 	start := time.Now()

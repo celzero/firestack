@@ -118,7 +118,7 @@ func (h *icmpHandler) Ping(source *net.UDPAddr, target *net.UDPAddr, msg []byte,
 		log.D("icmp: handler ended")
 		return
 	}
-	var pc ipn.Proxy
+	var px ipn.Proxy
 	var err error
 
 	realips, domains, probableDomains, blocklists := undoAlg(h.resolver, target.IP)
@@ -142,13 +142,13 @@ func (h *icmpHandler) Ping(source *net.UDPAddr, target *net.UDPAddr, msg []byte,
 		return false // denied
 	}
 
-	if pc, err = h.prox.GetProxy(pid); err != nil {
+	if px, err = h.prox.GetProxy(pid); err != nil {
 		log.E("t.icmp.egress: no proxy(%s); err %v", pid, err)
 		return false // denied
 	}
 
 	target.IP = oneRealIp(realips, target.IP)
-	uc, err := pc.Dialer().Dial(target.Network(), target.String())
+	uc, err := px.Dialer().Dial(target.Network(), target.String())
 	if err != nil {
 		log.E("t.icmp.egress: dial(%s) err %v", target.Network(), err)
 		return false // denied
