@@ -76,20 +76,20 @@ func newDefaultTransport(ipcsv string, p ipn.Proxies, g Bridge) (dnsx.Transport,
 	return nil, errCannotStart
 }
 
-func (b *bootstrap) reinit(typ, u, ipcsv string) error {
+func (b *bootstrap) reinit(trtype, u, ipcsv string) error {
 	if len(ipcsv) <= 0 {
 		log.E("dns: default: reinit: empty url %s / ips %s", u, ipcsv)
 		return dnsx.ErrNotDefaultTransport
 	}
-	if typ != dnsx.DOH && b.typ != dnsx.DNS53 {
-		log.E("dns: default: reinit: unknown type %s", b.typ)
+	if trtype != dnsx.DOH && trtype != dnsx.DNS53 {
+		log.E("dns: default: reinit: unknown type %s", trtype)
 		return dnsx.ErrNotDefaultTransport
 	}
 	if len(u) <= 0 {
 		u = protect.UidSelf
 	}
 	b.url = u // may be localhost or protect.UidSelf; see: ipmap.LookupNetIP
-	b.typ = typ
+	b.typ = trtype
 	b.ipports = ipcsv
 	ips := strings.Split(ipcsv, ",")
 	if len(ips) <= 0 {
@@ -104,7 +104,7 @@ func (b *bootstrap) reinit(typ, u, ipcsv string) error {
 	// hydrate ipmap with the new ips against incoming hostname
 	ok := dialers.Renew(b.hostname, ips)
 
-	log.I("dns: default: %s reinit %s %s w/ %s; resolved? %t", typ, b.url, b.hostname, ips, ok)
+	log.I("dns: default: %s reinit %s %s w/ %s; resolved? %t", trtype, b.url, b.hostname, ips, ok)
 
 	// if proxies and bridges are set, restart to create new transport
 	if b.proxies != nil && b.bridge != nil {
