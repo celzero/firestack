@@ -40,7 +40,7 @@ type natPt struct {
 }
 
 func NewNatPt(tunmode *settings.TunMode) dnsx.NatPt {
-	log.I("natpt: new; mode(%s)", tunmode)
+	log.I("natpt: new; mode(%v)", tunmode)
 	return &natPt{
 		nat64:   newNat64(),
 		dns64:   newDns64(),
