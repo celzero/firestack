@@ -17,6 +17,10 @@ import (
 	"golang.org/x/net/proxy"
 )
 
+var (
+	errDnsOptArg = errors.New("dnsopt: invalid arg")
+)
+
 // TODO: These modes could be covered by bit-flags instead.
 
 // DNSModeNone does not redirect DNS queries sent to the tunnel.
@@ -63,10 +67,6 @@ const NICID = 0x01
 
 var Debug bool = false
 
-func (tm *TunMode) L3() string {
-	return L3(tm.IpMode)
-}
-
 func L3(engine int) string {
 	switch engine {
 	case Ns46:
@@ -90,29 +90,8 @@ type TunMode struct {
 	IpMode int
 }
 
-// DNSOptions define https or socks5 proxy options
-type DNSOptions struct {
-	ipp      string
-	hostport string
-	hostips  string
-}
-
-func (d *DNSOptions) String() string {
-	return d.Addr()
-}
-
-func (d *DNSOptions) Addr() string {
-	if len(d.ipp) > 0 {
-		return d.ipp
-	}
-	if len(d.hostport) > 0 {
-		return d.hostport
-	}
-	return ""
-}
-
-func (d *DNSOptions) ResolvedAddrs() string {
-	return d.hostips
+func (tm *TunMode) L3() string {
+	return L3(tm.IpMode)
 }
 
 // SetMode re-assigns d to DNSMode, b to BlockMode,
@@ -150,6 +129,31 @@ func DefaultTunMode() *TunMode {
 		PtMode:    PtModeNo46,
 		IpMode:    Ns4,
 	}
+}
+
+// DNSOptions define https or socks5 proxy options
+type DNSOptions struct {
+	ipp      string
+	hostport string
+	hostips  string
+}
+
+func (d *DNSOptions) String() string {
+	return d.Addr()
+}
+
+func (d *DNSOptions) Addr() string {
+	if len(d.ipp) > 0 {
+		return d.ipp
+	}
+	if len(d.hostport) > 0 {
+		return d.hostport
+	}
+	return ""
+}
+
+func (d *DNSOptions) ResolvedAddrs() string {
+	return d.hostips
 }
 
 // Parse ip and port; where ip can be either ip:port or ip
@@ -194,9 +198,13 @@ func NewDNSOptionsFromNetIp(ipp netip.AddrPort) (*DNSOptions, error) {
 }
 
 func NewDNSOptionsFromHostname(hostname, ipcsv string) (*DNSOptions, error) {
-	domain, port, err := net.SplitHostPort(hostname)
-	if err != nil {
-		return nil, err
+	if len(hostname) <= 0 {
+		return nil, errDnsOptArg
+	}
+
+	domain, port, _ := net.SplitHostPort(hostname)
+	if len(domain) <= 0 {
+		domain = hostname
 	}
 	if len(port) == 0 {
 		port = "53"
@@ -204,7 +212,7 @@ func NewDNSOptionsFromHostname(hostname, ipcsv string) (*DNSOptions, error) {
 
 	return &DNSOptions{
 		hostport: net.JoinHostPort(domain, port),
-		hostips:  ipcsv,
+		hostips:  ipcsv, // may be empty
 	}, nil
 }
 
