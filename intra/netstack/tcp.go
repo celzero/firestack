@@ -148,43 +148,49 @@ func (g *GTCPConn) RemoteAddr() net.Addr {
 }
 
 // Sent will be called when sent data has been acknowledged by peer.
-func (tcp *GTCPConn) Sent(len uint16) error {
+func (*GTCPConn) Sent(len uint16) error {
 	// no-op
 	return errNoOp
 }
 
 // Receive will be called when data arrives from TUN.
-func (tcp *GTCPConn) Receive(data []byte) error {
+func (*GTCPConn) Receive(data []byte) error {
 	// no-op
 	return errNoOp
 }
 
 // Err will be called when a fatal error has occurred on the connection.
 // The corresponding pcb is already freed when this callback is called
-func (tcp *GTCPConn) Err(err error) {
+func (*GTCPConn) Err(err error) {
 	// no-op
 }
 
 // LocalClosed will be called when underlying stack
 // receives a FIN segment on a connection.
-func (tcp *GTCPConn) LocalClosed() error {
+func (*GTCPConn) LocalClosed() error {
 	// no-op
 	return nil
 }
 
 // Poll will be periodically called by TCP timers.
-func (tcp *GTCPConn) Poll() error {
+func (*GTCPConn) Poll() error {
 	// no-op
 	return nil
 }
 
 // Abort aborts the connection by sending a RST segment.
-func (tcp *GTCPConn) Abort() {
-	tcp.ep.Abort()
-	tcp.TCPConn.Close()
+func (g *GTCPConn) Abort() {
+	if !g.ok() {
+		return
+	}
+	g.ep.Abort()
+	g.TCPConn.Close()
 }
 
 func (g GTCPConn) Close() error {
+	if !g.ok() {
+		return nil
+	}
 	g.ep.Close()
 	g.TCPConn.SetDeadline(time.Now().Add(-1))
 	return g.TCPConn.Close()
