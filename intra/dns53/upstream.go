@@ -9,6 +9,7 @@ package dns53
 import (
 	"errors"
 	"fmt"
+	"net"
 	"net/netip"
 	"strings"
 	"time"
@@ -58,7 +59,8 @@ func NewTransportFromHostname(id, hostname string, ipcsv string, px ipn.Proxies,
 
 // NewTransport returns a DNS transport, ready for use.
 func NewTransport(id, ip, port string, px ipn.Proxies, ctl protect.Controller) (t dnsx.Transport, err error) {
-	do, err := settings.NewDNSOptions(ip, port)
+	ipport := net.JoinHostPort(ip, port)
+	do, err := settings.NewDNSOptions(ipport)
 	if err != nil {
 		return
 	}

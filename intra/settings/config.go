@@ -168,9 +168,13 @@ func addrport(ip string, port string) (ipp netip.AddrPort, err error) {
 }
 
 // NewDNSOptions returns a new DNSOpitons object.
-func NewDNSOptions(ip string, port string) (*DNSOptions, error) {
+func NewDNSOptions(ipport string) (*DNSOptions, error) {
 	var ipp netip.AddrPort
 	var err error
+	ip, port, err := net.SplitHostPort(ipport)
+	if err != nil {
+		return nil, err
+	}
 	if ipp, err = addrport(ip, port); err == nil {
 		return &DNSOptions{
 			ipp: ipp.String(),
