@@ -7,7 +7,6 @@
 package intra
 
 import (
-	"net/netip"
 	"strings"
 
 	"github.com/celzero/firestack/intra/dns53"
@@ -16,6 +15,7 @@ import (
 	"github.com/celzero/firestack/intra/doh"
 	"github.com/celzero/firestack/intra/ipn"
 	"github.com/celzero/firestack/intra/log"
+	"github.com/celzero/firestack/intra/protect"
 	"github.com/celzero/firestack/intra/xdns"
 )
 
@@ -34,35 +34,31 @@ func AddDNSProxy(t Tunnel, id, ip, port string) error {
 	}
 }
 
-func newSystemDNSProxy(g Bridge, p ipn.Proxies, ipp netip.AddrPort) (d dnsx.Transport, err error) {
-	return dns53.NewTransportFrom(dnsx.System, ipp, p, g)
+func newSystemDNSProxy(g Bridge, p ipn.Proxies, ipcsv string) (d dnsx.Transport, err error) {
+	specialHostname := protect.UidSelf // never resolved by ipmap:LookupNetIP
+	return dns53.NewTransportFromHostname(dnsx.System, specialHostname, ipcsv, p, g)
 }
 
-func SetSystemDNS(t Tunnel, ippcsv string) int {
+func SetSystemDNS(t Tunnel, ipcsv string) int {
 	r := t.GetResolver()
 	g := t.getBridge()
-	d := r.RemoveSystemDNS()
 	p := t.GetProxies()
 
-	ipports := strings.Split(ippcsv, ",")
-	if len(ipports) <= 0 {
-		log.I("dns: removed %d system dns(es)", d)
+	// remove all system dns transports
+	c := r.RemoveSystemDNS()
+
+	if len(ipcsv) <= 0 {
+		log.I("dns: removed %d system dns(es)", c)
 		return 0
 	}
 	n := 0
-	for _, ipport := range ipports {
-		if ipp, err := xdns.DnsIPPort(ipport); err == nil {
-			if sdns, err := newSystemDNSProxy(g, p, ipp); err == nil {
-				r.AddSystemDNS(sdns)
-				n += 1
-			} else {
-				log.W("dns: new system dns %s; err(%v)", ipport, err)
-			}
-		} else {
-			log.W("dns: invalid system dns %s; err(%v)", ipport, err)
-		}
+
+	if sdns, err := newSystemDNSProxy(g, p, ipcsv); err == nil {
+		r.AddSystemDNS(sdns)
+		n += 1
 	}
-	log.I("dns: new %d system dns(es) from %s", n, ipports)
+
+	log.I("dns: new %d system dns(es) from %s", n, ipcsv)
 	return n
 }
 
@@ -94,6 +90,7 @@ func AddDefaultTransport(t Tunnel, typ, ippOrUrl, ips string) error {
 	if !ok {
 		return dnsx.ErrNotDefaultTransport
 	}
+	// on error, default transport remains unchanged
 	return defaultransport.reinit(typ, ippOrUrl, ips)
 }
 
