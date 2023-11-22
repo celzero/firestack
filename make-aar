@@ -42,6 +42,7 @@ export GO_COMPILED="$GOPATH/bin"
 export PATH="$GO_LANG:$GO_COMPILED:$PATH"
 
 # go debug
+go version
 go env
 
 # checkout tagged branch?
