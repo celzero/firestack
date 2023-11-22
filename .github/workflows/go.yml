@@ -28,6 +28,12 @@ jobs:
         # go test -v -race -bench=. -benchtime=100ms ./...
         echo "::notice::success"
 
+    - name: Static check
+      run: |
+        go vet ./...
+        go install go.uber.org/nilaway/cmd/nilaway@latest
+        nilway ./...
+
       # github.com/actions/upload-artifact
     - name: Upload artifacts
       uses: actions/upload-artifact@v3
