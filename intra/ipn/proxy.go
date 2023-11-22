@@ -74,6 +74,7 @@ func (pxr *proxifier) AddProxy(id, txt string) (p Proxy, err error) {
 		}
 		strurl = u.Host + u.RequestURI() // domain.tld:8080/p/a/t/h?q&u=e&r=y#f,r
 		addrs := strings.Split(u.Fragment, ",")
+		// opts may be nil
 		opts := settings.NewAuthProxyOptions(u.Scheme, usr, pwd, strurl, u.Port(), addrs)
 
 		switch u.Scheme {
@@ -96,6 +97,8 @@ func (pxr *proxifier) AddProxy(id, txt string) (p Proxy, err error) {
 
 	if err != nil {
 		return nil, err
+	} else if p == nil {
+		return nil, errAddProxy
 	} else if ok := pxr.add(p); !ok {
 		return nil, errAddProxy
 	}

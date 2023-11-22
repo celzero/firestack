@@ -400,9 +400,10 @@ func (e *endpoint) ARPHardwareType() header.ARPHardwareType {
 // InjectInbound ingresses a netstack-inbound packet.
 func (e *endpoint) InjectInbound(protocol tcpip.NetworkProtocolNumber, pkt stack.PacketBufferPtr) {
 	log.V("ns.e.inject-inbound(from-tun) %d", protocol)
-	if e.IsAttached() {
+	d := e.dispatcher
+	if d != nil {
 		e.logPacketIfNeeded(sniffer.DirectionRecv, pkt)
-		e.dispatcher.DeliverNetworkPacket(protocol, pkt)
+		d.DeliverNetworkPacket(protocol, pkt)
 	} else {
 		log.W("ns.e.inject-inbound(from-tun) %d pkt(%v) dropped: endpoint not attached", protocol, pkt.Hash)
 	}

@@ -36,11 +36,11 @@ var (
 type ipmapper struct {
 	id string
 	r  dnsx.Resolver
-	ba core.Barrier
+	ba *core.Barrier
 }
 
 func AddIPMapper(r dnsx.Resolver) {
-	m := &ipmapper{dnsx.IpMapper, r, *core.NewBarrier(battl)}
+	m := &ipmapper{dnsx.IpMapper, r, core.NewBarrier(battl)}
 	dialers.Mapper(m)
 }
 
@@ -52,7 +52,7 @@ func (m *ipmapper) LookupNetIP(ctx context.Context, network, host string) ([]net
 	if len(host) <= 0 {
 		return nil, errNoHost
 	}
-	if host == protect.UidSelf { // represents system resolver with seeded ips
+	if protect.NeverResolve(host) {
 		return nil, nil
 	}
 	if host == "localhost" || host == "localhost." {
@@ -91,19 +91,31 @@ func (m *ipmapper) LookupNetIP(ctx context.Context, network, host string) ([]net
 		return m.r.LocalLookup(q6)
 	})
 
-	r4, _ := val4.Val.([]byte)
-	r6, _ := val6.Val.([]byte)
-
-	lerr4 := val4.Err
-	lerr6 := val6.Err
-
-	if len(r4) <= 0 && len(r6) <= 0 {
-		errs := errors.Join(errNoAns, lerr4, lerr6)
-		log.E("ipmapper: lookup: no answers for %s, err %v", host, errs)
-		return nil, errs
-	} else if lerr4 != nil && lerr6 != nil {
+	var noval4, noval6 bool
+	var r4, r6 []byte
+	var lerr4, lerr6 error
+	if val4 == nil {
+		noval4 = true
+	} else {
+		r4, noval4 = val4.Val.([]byte)
+		lerr4 = val4.Err // may be nil
+	}
+	if val6 == nil {
+		noval6 = true
+	} else {
+		r6, noval6 = val6.Val.([]byte)
+		lerr6 = val6.Err // may be nil
+	}
+	if noval4 && noval6 { // typecast failed or no answer
+		log.E("ipmapper: lookup: no answers for %s", host)
+		return nil, errNoAns
+	} else if lerr4 != nil && lerr6 != nil { // all errors
 		errs := errors.Join(lerr4, lerr6)
 		log.E("ipmapper: lookup: %s: err %v", host, errs)
+		return nil, errs
+	} else if len(r4) <= 0 && len(r6) <= 0 { // empty answer
+		errs := errors.Join(errNoAns, lerr4, lerr6)
+		log.E("ipmapper: lookup: no answers for %s, err %v", host, errs)
 		return nil, errs
 	}
 

@@ -15,6 +15,7 @@ import (
 	"bufio"
 	"crypto/tls"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/url"
@@ -127,29 +128,35 @@ func (t *HttpTunnel) Dial(network string, address string) (net.Conn, error) {
 	}
 	resp, err := t.doRoundtrip(conn, req)
 	if err != nil {
-		conn.Close()
+		clos(conn)
 		return nil, err
 	}
 	// Retry request with auth, if available.
 	if resp.StatusCode == http.StatusProxyAuthRequired && t.auth != nil {
 		responseHdr, err := t.performAuthChallengeResponse(resp)
 		if err != nil {
-			conn.Close()
+			clos(conn)
 			return nil, err
 		}
 		req.Header.Set(hdrProxyAuthResp, t.auth.Type()+" "+responseHdr)
 		resp, err = t.doRoundtrip(conn, req)
 		if err != nil {
-			conn.Close()
+			clos(conn)
 			return nil, err
 		}
 	}
 
 	if resp.StatusCode != 200 {
-		conn.Close()
+		clos(conn)
 		return nil, fmt.Errorf("http1: tunnel: failed proxying %d: %s", resp.StatusCode, resp.Status)
 	}
 	return conn, nil
+}
+
+func clos(c io.Closer) {
+	if c != nil {
+		c.Close()
+	}
 }
 
 func (t *HttpTunnel) doRoundtrip(conn net.Conn, req *http.Request) (*http.Response, error) {
@@ -168,6 +175,9 @@ func (t *HttpTunnel) performAuthChallengeResponse(resp *http.Response) (string, 
 		return "", fmt.Errorf("http1: tunnel: expected '%v' Proxy authentication, got: '%v'", t.auth.Type(), respAuthHdr)
 	}
 	splits := strings.SplitN(respAuthHdr, " ", 2)
+	if len(splits) <= 1 {
+		return "", fmt.Errorf("http1: tunnel: malformed Proxy-Authenticate header: '%v'", respAuthHdr)
+	}
 	challenge := splits[1]
 	return t.auth.ChallengeResponse(challenge), nil
 }

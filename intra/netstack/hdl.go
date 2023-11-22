@@ -7,6 +7,7 @@
 package netstack
 
 import (
+	"errors"
 	"net"
 
 	"gvisor.dev/gvisor/pkg/tcpip"
@@ -48,23 +49,20 @@ func (g *gconnhandler) ICMP() GICMPHandler {
 }
 
 func (g *gconnhandler) Close() error {
-	var firsterr error
+	var errs error
 	if g.tcp != nil {
-		if err := g.tcp.End(); err != nil {
-			firsterr = err
-		}
+		err := g.tcp.End()
+		errs = errors.Join(errs, err)
 	}
 	if g.udp != nil {
-		if err := g.udp.End(); err != nil && firsterr == nil {
-			firsterr = err
-		}
+		err := g.udp.End()
+		errs = errors.Join(errs, err)
 	}
 	if g.icmp != nil {
-		if err := g.icmp.End(); err != nil && firsterr == nil {
-			firsterr = err
-		}
+		err := g.icmp.End()
+		errs = errors.Join(errs, err)
 	}
-	return firsterr
+	return errs
 }
 
 // src/dst addrs are flipped

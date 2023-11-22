@@ -88,6 +88,10 @@ func (t *pipws) wsconn(rurl, msg string) (c net.Conn, res *http.Response, err er
 }
 
 func NewPipWsProxy(id string, ctl protect.Controller, po *settings.ProxyOptions) (Proxy, error) {
+	if po == nil {
+		return nil, errMissingProxyOpt
+	}
+
 	parsedurl, err := url.Parse(po.Url())
 	if err != nil {
 		return nil, err

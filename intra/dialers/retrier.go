@@ -162,7 +162,8 @@ func (r *retrier) Read(buf []byte) (n int, err error) {
 		r.mutex.Lock()
 		if err != nil {
 			var neterr net.Error
-			if errors.As(err, &neterr) {
+			ok := errors.As(err, &neterr)
+			if ok && neterr != nil {
 				r.stats.Timeout = neterr.Timeout()
 			}
 			// Read failed.  Retry.

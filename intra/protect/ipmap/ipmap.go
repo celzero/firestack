@@ -49,9 +49,9 @@ type IPMap interface {
 	// GetAny creates an IPSet for this hostname, which may be empty.
 	// Subsequent calls to GetAny return the same IPSet. Never returns nil.
 	GetAny(hostname string) *IPSet
-	// Of creates an IPSet for this hostname bootstrapped with given IPs.
-	// Subsequent calls to Of return a new, overriden IPSet.
-	Of(hostname string, ips []string) *IPSet
+	// MakeIPSet creates an IPSet for this hostname bootstrapped with given IPs.
+	// Subsequent calls to MakeIPSet return a new, overriden IPSet.
+	MakeIPSet(hostname string, ips []string) *IPSet
 	// With sets the default resolver to use for hostname resolution.
 	With(r IPMapper)
 }
@@ -101,7 +101,7 @@ func (m *ipMap) LookupNetIP(ctx context.Context, network, host string) ([]netip.
 	if r == nil {
 		return nil, &net.DNSError{Err: "no resolver", Name: host}
 	}
-	return m.r.LookupNetIP(ctx, network, host)
+	return r.LookupNetIP(ctx, network, host)
 }
 
 func (m *ipMap) Get(hostname string) *IPSet {
@@ -118,7 +118,7 @@ func (m *ipMap) get(hostname string, emptyok bool) *IPSet {
 	m.RUnlock()
 
 	if s == nil {
-		s = m.Of(hostname, nil)
+		s = m.MakeIPSet(hostname, nil)
 	}
 
 	if emptyok || !s.Empty() {
@@ -133,7 +133,7 @@ func (m *ipMap) get(hostname string, emptyok bool) *IPSet {
 	return s
 }
 
-func (m *ipMap) Of(hostname string, ips []string) *IPSet {
+func (m *ipMap) MakeIPSet(hostname string, ips []string) *IPSet {
 	if ips == nil {
 		ips = []string{}
 	}
@@ -174,8 +174,12 @@ func (s *IPSet) Seed() []string {
 // Add one or more IP addresses to the set.
 // The hostname can be a domain name or an IP address.
 func (s *IPSet) Add(hostname string) {
-	ctx := context.Background()
-	resolved, err := s.r.LookupNetIP(ctx, "ip", hostname)
+	r := s.r
+	if r == nil {
+		log.W("ipmap: Add: resolver missing")
+		return
+	}
+	resolved, err := r.LookupNetIP(context.Background(), "ip", hostname)
 	if err != nil {
 		log.W("ipmap: Add: err resolving %s: %v", hostname, err)
 		return

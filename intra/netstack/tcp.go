@@ -180,18 +180,25 @@ func (*GTCPConn) Poll() error {
 
 // Abort aborts the connection by sending a RST segment.
 func (g *GTCPConn) Abort() {
-	if !g.ok() {
-		return
+	ep := g.ep
+	c := g.TCPConn
+	if ep != nil {
+		ep.Abort()
 	}
-	g.ep.Abort()
-	g.TCPConn.Close()
+	if c != nil {
+		c.Close()
+	}
 }
 
 func (g GTCPConn) Close() error {
-	if !g.ok() {
-		return nil
+	ep := g.ep
+	c := g.TCPConn
+	if ep != nil {
+		ep.Abort()
 	}
-	g.ep.Close()
-	g.TCPConn.SetDeadline(time.Now().Add(-1))
-	return g.TCPConn.Close()
+	if c != nil {
+		c.SetDeadline(time.Now().Add(-1))
+		return c.Close()
+	}
+	return nil
 }

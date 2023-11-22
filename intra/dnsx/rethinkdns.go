@@ -544,9 +544,10 @@ func (r *rethinkdns) flagtostamp(fl []uint16) ([]uint16, error) {
 	res := []uint16{0}
 
 	w := trie.W
+	uw := uint16(w)
 	for _, val := range fl {
-		hindex := uint16(val / uint16(w))
-		pos := uint16(val % uint16(w))
+		hindex := val / uw
+		pos := val % uw
 
 		h := &res[0]
 		n := uint16(0)
@@ -559,7 +560,12 @@ func (r *rethinkdns) flagtostamp(fl []uint16) ([]uint16, error) {
 			continue
 		}
 
-		hmask := *h & trie.MaskBottom[w][uint16(w)-hindex]
+		mm := int(uw - hindex)
+		ww := trie.MaskBottom[w]
+		if mm < 0 || len(ww) <= 0 || mm >= len(ww) {
+			continue // should not happen
+		}
+		hmask := *h & ww[mm]
 		databit := *h >> (15 - hindex)
 		dataindex := r.countSetBits(hmask) + 1
 		datafound := (databit & 0x1) == 1

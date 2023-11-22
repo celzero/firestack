@@ -22,11 +22,9 @@ import (
 	"sync"
 	"syscall"
 
-	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
 	"golang.org/x/net/ipv4"
 	"golang.org/x/net/ipv6"
-	"golang.org/x/sys/unix"
 	"golang.zx2c4.com/wireguard/conn"
 )
 
@@ -138,12 +136,21 @@ func (s *StdNetBind2) listenNet(network string, port int) (*net.UDPConn, int, er
 	if err != nil {
 		return nil, 0, err
 	}
+	if conn == nil {
+		return nil, 0, errNoListen
+	}
 
 	// Retrieve port.
 	caddr := conn.LocalAddr()
+	if caddr == nil {
+		return nil, 0, errNoLocalAddr
+	}
 	src, err := net.ResolveUDPAddr(caddr.Network(), caddr.String())
 	if err != nil {
 		return nil, 0, err
+	}
+	if src == nil {
+		return nil, 0, errNoLocalAddr
 	}
 	return conn.(*net.UDPConn), src.Port, nil
 }
@@ -369,27 +376,6 @@ func asEndpoint2(ap netip.AddrPort) *StdNetEndpoint2 {
 
 // from: github.com/WireGuard/wireguard-go/blob/1417a47c8/conn/mark_unix.go
 func (s *StdNetBind2) SetMark(mark uint32) (err error) {
-	var operr error
-	var raw4, raw6 syscall.RawConn
-	fwmarkIoctl := 36 /* unix.SO_MARK */
-	if s.ipv4 != nil {
-		if raw4, err = s.ipv4.SyscallConn(); err == nil {
-			if err = raw4.Control(func(fd uintptr) {
-				operr = unix.SetsockoptInt(int(fd), unix.SOL_SOCKET, fwmarkIoctl, int(mark))
-			}); err == nil {
-				err = operr
-			}
-		} // else: return err
-	}
-	if err == nil && s.ipv6 != nil {
-		if raw6, err = s.ipv6.SyscallConn(); err == nil {
-			if err = raw6.Control(func(fd uintptr) {
-				operr = unix.SetsockoptInt(int(fd), unix.SOL_SOCKET, fwmarkIoctl, int(mark))
-			}); err == nil {
-				err = operr
-			}
-		} // else: return err
-	}
-	log.W("wg: failed to set mark on socket: %v", err)
+	// no-op for now
 	return nil
 }

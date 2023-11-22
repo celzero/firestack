@@ -34,6 +34,11 @@ func setupIcmpHandler(nstk *stack.Stack, ep stack.LinkEndpoint, handler GICMPHan
 	nstk.SetTransportProtocolHandler(icmp.ProtocolNumber4, nil)
 	nstk.SetTransportProtocolHandler(icmp.ProtocolNumber6, nil)
 
+	if handler == nil {
+		log.E("icmp: no handler")
+		return
+	}
+
 	// ICMPv4
 	nstk.SetTransportProtocolHandler(icmp.ProtocolNumber4, func(id stack.TransportEndpointID, packet stack.PacketBufferPtr) bool {
 		log.V("icmp: v4 packet? %v", packet)

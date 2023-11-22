@@ -28,7 +28,7 @@ const (
 	ClientError
 )
 
-var noerr = errors.New("no underlying error")
+var noerr = errors.New("no error")
 
 type QueryError struct {
 	status int
@@ -36,11 +36,14 @@ type QueryError struct {
 }
 
 func (e *QueryError) Error() string {
+	if e.err == nil {
+		return ""
+	}
 	return e.err.Error()
 }
 
 func (e *QueryError) Unwrap() error {
-	return e.err
+	return e.err // may be nil and that's how it should be
 }
 
 func (e *QueryError) Status() int {
@@ -81,10 +84,7 @@ func (e *QueryError) SendFailed() bool {
 }
 
 func newQueryError(no int, err error) *QueryError {
-	if err == nil {
-		err = noerr
-	}
-	return &QueryError{no, err}
+	return &QueryError{no, err} // err may be nil
 }
 
 func NewSendFailedQueryError(err error) *QueryError {

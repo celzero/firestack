@@ -87,12 +87,12 @@ func (serversInfo *ServersInfo) getOne() (serverInfo *ServerInfo) {
 	i := 0
 	for _, si := range serversInfo.inner {
 		if i == candidate {
+			log.V("dnscrypt: candidate [%v]", si) // may be nil?
 			serverInfo = si
 			break
 		}
 		i++
 	}
-	log.D("dnscrypt: candidate [%s]", (*serverInfo).Name)
 
 	return serverInfo
 }

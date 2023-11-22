@@ -143,8 +143,12 @@ func (t *bootstrap) kickstart(px ipn.Proxies, g Bridge) error {
 		log.E("dns: default: start; err %v", err)
 		return err
 	}
+	if tr == nil {
+		log.W("dns: default: start; nil transport %s[%s]", t.typ, t.hostname)
+		return nil
+	}
 
-	log.I("dns: default: start; %s with %s[%s]", t.typ, t.hostname, t.Transport.GetAddr())
+	log.I("dns: default: start; %s with %s[%s]", t.typ, t.hostname, t.GetAddr())
 	return nil
 }
 

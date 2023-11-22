@@ -78,8 +78,8 @@ func (ba *Barrier) addLocked(k string) *V {
 // original to complete and receives the same results.
 func (ba *Barrier) Do(k string, me func() (any, error)) (*V, int) {
 	ba.mu.Lock()
-	c, ok := ba.getLocked(k)
-	if ok {
+	c, _ := ba.getLocked(k)
+	if c != nil {
 		ba.mu.Unlock()
 
 		c.N.Add(1)

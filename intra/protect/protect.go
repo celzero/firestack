@@ -31,8 +31,14 @@ import (
 	"github.com/celzero/firestack/intra/log"
 )
 
-// See: ipmap.LookupNetIP
+// See: ipmap.LookupNetIP; UidSelf -> dnsx.Default; UidSystem -> dnsx.System
 const UidSelf = "rethink"
+const UidSystem = "system"
+
+// never resolve system/default resolver; expected to have seeded ips
+func NeverResolve(hostname string) bool {
+	return hostname == UidSelf || hostname == UidSystem
+}
 
 // Controller provides answers to filter network traffic.
 type Controller interface {

@@ -117,26 +117,26 @@ func Up(s *stack.Stack, ep stack.LinkEndpoint, h GConnHandler) error {
 	}
 
 	// creates and enables a fake nic and attaches netstack to it
-	if nerr := s.CreateNIC(nic, ep); nerr != nil {
-		return e(nerr)
+	if nerr := e(s.CreateNIC(nic, ep)); nerr != nil {
+		return nerr
 	}
 	// ref: github.com/xjasonlyu/tun2socks/blob/31468620e/core/stack.go#L80
 	// allow spoofing packets tuples
-	if nerr := s.SetSpoofing(nic, true); nerr != nil {
-		return e(nerr)
+	if nerr := e(s.SetSpoofing(nic, true)); nerr != nil {
+		return nerr
 	}
 	// ref: github.com/xjasonlyu/tun2socks/blob/31468620e/core/stack.go#L94
 	// allow all packets sent to our fake nic through to netstack
-	if nerr := s.SetPromiscuousMode(nic, true); nerr != nil {
-		return e(nerr)
+	if nerr := e(s.SetPromiscuousMode(nic, true)); nerr != nil {
+		return nerr
 	}
 
 	s.SetNICForwarding(nic, ipv4.ProtocolNumber, nicfwd)
 	s.SetNICForwarding(nic, ipv6.ProtocolNumber, nicfwd)
 	// use existing routes if the nic is being recycled
 	if !newnic && len(existingroutes) > 0 {
+		log.I("netstack: up(%d)! existing routes? %s; new routes: %s", nic, s.GetRouteTable(), existingroutes)
 		s.SetRouteTable(existingroutes)
-		log.I("netstack: up(%d)! existing routes? %s", nic, s.GetRouteTable())
 	} else {
 		log.I("netstack: up(%d)! new? %t; routes? %s", nic, newnic, s.GetRouteTable())
 	}

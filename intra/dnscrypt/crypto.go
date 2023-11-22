@@ -48,15 +48,13 @@ func pad(packet []byte, minSize int) []byte {
 
 func unpad(packet []byte) ([]byte, error) {
 	for i := len(packet); ; {
-		if i == 0 {
-			// invalid padding, short packet
+		if i == 0 { // short packet
 			return nil, errIncorrectPad
 		}
 		i--
 		if packet[i] == 0x80 {
 			return packet[:i], nil
-		} else if packet[i] != 0x00 {
-			// invalid padding, delimiter not found
+		} else if packet[i] != 0x00 { // delimiter not found
 			return nil, errIncorrectPad
 		}
 	}
@@ -152,6 +150,9 @@ func Decrypt(serverInfo *ServerInfo, sharedKey *[32]byte, encrypted []byte, nonc
 
 	if err != nil {
 		return encrypted, err
+	}
+	if len(packet) <= 0 {
+		return encrypted, errInvalidResponse
 	}
 
 	packet, err = unpad(packet)

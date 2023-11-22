@@ -67,8 +67,7 @@ func (pt *natPt) do64() bool {
 
 func (n *natPt) IsNat64(id string, ip []byte) bool {
 	prefixes := n.nat64PrefixForResolver(id)
-	_, ok := matchNat64(prefixes, ip)
-	return ok
+	return matchNat64(prefixes, ip) != nil
 }
 
 func (n *natPt) X64(id string, rawip6 []byte) []byte {
@@ -83,7 +82,7 @@ func (n *natPt) X64(id string, rawip6 []byte) []byte {
 		log.D("natpt: no prefix64 found for resolver(%s)", ip6, id)
 		return nil
 	}
-	if x, ok := matchNat64(prefixes, ip6); ok {
+	if x := matchNat64(prefixes, ip6); x != nil {
 		return n.xAddr(x, ip6)
 	} else {
 		log.D("natpt: no matching prefix64 for ip(%v) in id(%s/%d)", ip6, id, len(prefixes))
@@ -132,11 +131,11 @@ func (n *natPt) nat64PrefixForResolver(id string) []*net.IPNet {
 	}
 }
 
-func matchNat64(nets []*net.IPNet, ip net.IP) (*net.IPNet, bool) {
+func matchNat64(nets []*net.IPNet, ip net.IP) *net.IPNet {
 	for _, p := range nets {
 		if p.Contains(ip) {
-			return p, true
+			return p
 		}
 	}
-	return nil, false
+	return nil
 }

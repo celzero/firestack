@@ -439,9 +439,16 @@ func (h *socks5) udphandle(s *tx.Server, addr *net.UDPAddr, pkt *tx.Datagram) (e
 
 func (h *socks5) Connect(r *tx.Request, w *net.TCPConn) (cid string, rc *net.TCPConn, err error) {
 	log.D("svcsocks5: tcp: %s; dial", h.ID(), r.Address())
+	raddr := w.RemoteAddr()
+	if raddr == nil {
+		log.W("svcsocks5: tcp: %s; err no remote addr", h.ID())
+		h.status = SKO
+		err = errNoAddr
+		return
+	}
 
 	var tc net.Conn // egress
-	cid, tc, err = h.dial("tcp", w.RemoteAddr().String(), r.Address())
+	cid, tc, err = h.dial("tcp", raddr.String(), r.Address())
 	if err != nil {
 		h.status = SKO
 
@@ -466,8 +473,15 @@ func (h *socks5) Connect(r *tx.Request, w *net.TCPConn) (cid string, rc *net.TCP
 		err = errNotTcp
 		return
 	}
+	laddr := rc.LocalAddr()
+	if laddr == nil {
+		log.W("svcsocks5: tcp: %s; err no local addr", cid, laddr)
+		h.status = SKO
+		err = errNoAddr
+		return
+	}
 
-	a, addr, port, perr := tx.ParseAddress(rc.LocalAddr().String())
+	a, addr, port, perr := tx.ParseAddress(laddr.String())
 	if perr != nil {
 		log.W("svcsocks5: tcp: %s; parse-addr err? %v", cid, err)
 		var p *tx.Reply

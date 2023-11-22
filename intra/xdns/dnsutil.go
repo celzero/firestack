@@ -107,6 +107,9 @@ func TruncatedResponse(packet []byte) ([]byte, error) {
 		return nil, err
 	}
 	dstMsg := EmptyResponseFromMessage(srcMsg) // may be nil
+	if dstMsg == nil {
+		return nil, errNoAns
+	}
 	dstMsg.Truncated = true
 	return dstMsg.Pack()
 }
@@ -164,7 +167,7 @@ func WithTtl(msg *dns.Msg, secs uint32) (ok bool) {
 
 func RTtl(msg *dns.Msg) int {
 	maxttl := uint32(0)
-	if !HasAnyAnswer(msg) {
+	if msg == nil || !HasAnyAnswer(msg) {
 		return int(maxttl)
 	}
 
@@ -365,7 +368,7 @@ func Targets(msg *dns.Msg) (targets []string) {
 	touched := make(map[string]any)
 	if qname, err := NormalizeQName(QName(msg)); err == nil {
 		targets = append(targets, qname)
-		touched[qname] = nil
+		touched[qname] = struct{}{}
 	}
 	for _, a := range msg.Answer {
 		var target string
@@ -392,7 +395,7 @@ func Targets(msg *dns.Msg) (targets []string) {
 		} else if target, err := NormalizeQName(target); err == nil {
 			if _, ok := touched[target]; !ok {
 				targets = append(targets, target)
-				touched[target] = nil
+				touched[target] = struct{}{}
 			}
 		}
 	}
@@ -480,6 +483,9 @@ func RefusedResponseFromMessage(srcMsg *dns.Msg) (dstMsg *dns.Msg, err error) {
 		return nil, errNoDns
 	}
 	dstMsg = EmptyResponseFromMessage(srcMsg) // may be nil
+	if dstMsg == nil {
+		return nil, errNoDns
+	}
 	dstMsg.Rcode = dns.RcodeSuccess
 	ttl := BlockTTL
 
@@ -649,7 +655,7 @@ func SubstAAAARecords(out *dns.Msg, subip6s []*netip.Addr, ttl int) bool {
 			if _, ok := touched[rec.Hdr.Name]; !ok {
 				name := rec.Hdr.Name
 				// fixme: use different ips for different names
-				touched[rec.Hdr.Name] = nil
+				touched[rec.Hdr.Name] = struct{}{}
 				if aaaanew := MakeAAAARecord(name, ip6, ttl); aaaanew != nil {
 					rrs = append(rrs, aaaanew)
 				} else {
@@ -682,7 +688,7 @@ func SubstARecords(out *dns.Msg, subip4s []*netip.Addr, ttl int) bool {
 			if _, ok := touched[rec.Hdr.Name]; !ok {
 				name := rec.Hdr.Name
 				// fixme: use different ips for different names
-				touched[rec.Hdr.Name] = nil
+				touched[rec.Hdr.Name] = struct{}{}
 				if anew := MakeARecord(name, ip4, ttl); anew != nil {
 					rrs = append(rrs, anew)
 				} else {
@@ -1001,11 +1007,14 @@ func MakeAAAARecord(name string, ip6 string, expiry int) dns.RR {
 func MaybeToQuadA(answer dns.RR, prefix *net.IPNet, minttl uint32) dns.RR {
 	header := answer.Header()
 	if prefix == nil || header.Rrtype != dns.TypeA {
-		return answer
+		return nil
 	}
-	ipv4 := answer.(*dns.A).A.To4()
-	// TODO: refuse to translate bogons
-	if ipv4 == nil {
+	ipxx, aok := answer.(*dns.A)
+	if !aok || ipxx == nil || ipxx.A == nil {
+		return nil
+	}
+	ipv4 := ipxx.A.To4()
+	if ipv4 == nil { // TODO: do not translate bogons?
 		return nil
 	}
 	ttl := min(minttl, header.Ttl)

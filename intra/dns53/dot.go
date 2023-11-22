@@ -9,6 +9,7 @@ package dns53
 import (
 	"crypto/tls"
 	"fmt"
+	"io"
 	"net"
 	"net/url"
 	"time"
@@ -110,12 +111,12 @@ func (t *dot) pxdial(pid string) (conn *dns.Conn, err error) {
 	if t.relay != nil { // relay takes precedence
 		px = t.relay
 	} else if t.proxies != nil { // use proxy, if specified
-		px, err = t.proxies.GetProxy(pid)
-	} else {
-		err = dnsx.ErrNoProxyProvider
+		if px, err = t.proxies.GetProxy(pid); err != nil {
+			return
+		}
 	}
-	if err != nil {
-		return
+	if px == nil {
+		return nil, dnsx.ErrNoProxyProvider
 	}
 
 	log.V("dot: pxdial: (%s) using relay/proxy %s at %s", t.id, px.ID(), px.GetAddr())
@@ -127,11 +128,17 @@ func (t *dot) pxdial(pid string) (conn *dns.Conn, err error) {
 	pxconn.SetDeadline(time.Now().Add(dottimeout * 3))
 	pxconn, err = t.addtls(pxconn)
 	if err != nil {
-		pxconn.Close()
+		clos(pxconn)
 		return
 	}
 	conn = &dns.Conn{Conn: pxconn}
 	return
+}
+
+func clos(c io.Closer) {
+	if c != nil {
+		c.Close()
+	}
 }
 
 // perform tls handshake
@@ -164,7 +171,7 @@ func (t *dot) sendRequest(pid string, q []byte) (response []byte, elapsed time.D
 	if err == nil {
 		// FIXME: conn pooling using t.c.Dial + ExchangeWithConn
 		ans, elapsed, err = t.c.ExchangeWithConn(msg, conn)
-		conn.Close()
+		clos(conn)
 	} // fallthrough
 
 	if err != nil {

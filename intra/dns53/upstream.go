@@ -88,14 +88,12 @@ func newTransport(id string, do *settings.DNSOptions, px ipn.Proxies, ctl protec
 	}
 	ipcsv := do.ResolvedAddrs()
 	hasips := len(ipcsv) > 0
-	if hasips {
-		ips := strings.Split(ipcsv, ",")
-		ok := dialers.Renew(do.Addr(), ips)
-		log.I("dns53: (%s) pre-resolved %s to %s; ok? %t", id, do.Addr(), ipcsv, ok)
-	}
+	ips := strings.Split(ipcsv, ",") // may be nil or empty
+	ok := dialers.Renew(do.Addr(), ips)
+	log.I("dns53: (%s) pre-resolved %s to %s; ok? %t", id, do.Addr(), ipcsv, ok)
 	tx.client = &dns.Client{
-		Net:     "udp",
-		Timeout: timeout,
+		Net:     "udp",   // default transport type
+		Timeout: timeout, // default timeout
 		// instead using custom dialer rdial
 		// Dialer:  d,
 		// TODO: set it to MTU? or no more than 512 bytes?
@@ -139,16 +137,19 @@ func (t *transport) pxdial(network, pid string) (conn *dns.Conn, err error) {
 	if t.relay != nil { // relay takes precedence
 		px = t.relay
 	} else if t.proxies != nil { // use proxy, if specified
-		px, err = t.proxies.GetProxy(pid)
-	} else {
-		err = dnsx.ErrNoProxyProvider
+		if px, err = t.proxies.GetProxy(pid); err != nil {
+			return
+		}
 	}
-	if err != nil {
-		return
+	if px == nil {
+		return nil, dnsx.ErrNoProxyProvider
 	}
 	log.V("dns53: pxdial: (%s) using %s relay/proxy %s at %s", t.id, network, px.ID(), px.GetAddr())
-	pxconn, err := dialers.Dial(px.Dialer(), network, t.addr)
+	pxconn, err := dialers.Dial(px.Dialer(), network, t.addr) // resolves t.addr if necessary
 	if err != nil {
+		return
+	} else if pxconn == nil {
+		err = errNoNet
 		return
 	}
 	conn = &dns.Conn{Conn: pxconn}

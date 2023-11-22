@@ -292,13 +292,13 @@ func (t *transport) fetch(pid string, req *http.Request) (res *http.Response, er
 		var px ipn.Proxy
 		if userelay { // relay takes precedence
 			px = t.relay
-		} else if hasproxy { // use proxy as specified
-			px, err = t.proxies.GetProxy(pid)
-		} else {
-			err = dnsx.ErrNoProxyProvider
+		} else if hasproxy { // use proxy, if specified
+			if px, err = t.proxies.GetProxy(pid); err != nil {
+				return
+			}
 		}
-		if err != nil {
-			return
+		if px == nil {
+			return nil, dnsx.ErrNoProxyProvider
 		}
 		// or: ipn.Fetch(px, req)
 		client, err = t.httpClientFor(px)
@@ -377,7 +377,7 @@ func (t *transport) send(pid string, req *http.Request) (ans []byte, blocklists 
 
 	httpResponse, err := t.fetch(pid, req)
 
-	if err != nil {
+	if err != nil || httpResponse == nil {
 		qerr = dnsx.NewSendFailedQueryError(err)
 		return
 	}
@@ -416,6 +416,9 @@ func (t *transport) send(pid string, req *http.Request) (ans []byte, blocklists 
 }
 
 func (t *transport) rdnsBlockstamp(res *http.Response) (blocklistStamp string) {
+	if res == nil { // should not be nil
+		return
+	}
 	blocklistStamp = res.Header.Get(xdns.GetBlocklistStampHeaderKey())
 	log.V("doh: stamp %s; header %v", res.Header, blocklistStamp)
 	return

@@ -35,7 +35,7 @@ func AddDNSProxy(t Tunnel, id, ip, port string) error {
 }
 
 func newSystemDNSProxy(g Bridge, p ipn.Proxies, ipcsv string) (d dnsx.Transport, err error) {
-	specialHostname := protect.UidSelf // never resolved by ipmap:LookupNetIP
+	specialHostname := protect.UidSystem // never resolved by ipmap:LookupNetIP
 	return dns53.NewTransportFromHostname(dnsx.System, specialHostname, ipcsv, p, g)
 }
 
@@ -98,18 +98,25 @@ func AddProxyDNS(t Tunnel, p ipn.Proxy) error {
 	pxr := t.GetProxies()
 	r := t.GetResolver()
 	g := t.getBridge()
-	ipcsv := p.DNS()
-	if len(ipcsv) == 0 {
+	ipOrHostCsv := p.DNS()
+	if len(ipOrHostCsv) == 0 {
 		return dnsx.ErrNoProxyDNS
 	}
-	ips := []string{}
-	if len(ipcsv) > 0 {
-		ips = strings.Split(ipcsv, ",")
+	ipsOrHost := []string{}
+	if len(ipOrHostCsv) > 0 {
+		ipsOrHost = strings.Split(ipOrHostCsv, ",")
 	}
-	ipport, err := xdns.DnsIPPort(ips[0])
-	// todo: may be stamp or url
-	if err != nil {
-		return err
+	if len(ipsOrHost) == 0 {
+		return dnsx.ErrNoProxyDNS
+	}
+	ipport, err := xdns.DnsIPPort(ipsOrHost[0])
+	hostname := ipsOrHost[0] // could be multiple hostnames, but choose the first
+	if err != nil {          // use hostname
+		if dns, err := dns53.NewTransportFromHostname(p.ID(), hostname, "", pxr, g); err != nil {
+			return err
+		} else {
+			return addDNSTransport(r, dns)
+		}
 	}
 	// register transport with the resolver
 	if dns, err := dns53.NewTransportFrom(p.ID(), ipport, pxr, g); err != nil {

@@ -139,7 +139,7 @@ func (px *proxifier) add(p Proxy) bool {
 	px.Lock()
 	defer px.Unlock()
 
-	if pp, ok := px.p[p.ID()]; ok {
+	if pp := px.p[p.ID()]; pp != nil {
 		// new proxy, invoke Stop on old proxy
 		if pp != p {
 			go pp.Stop()

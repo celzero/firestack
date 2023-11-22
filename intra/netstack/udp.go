@@ -220,7 +220,8 @@ func (g *GUDPConn) WriteFrom(data []byte, addr *net.UDPAddr) (int, error) {
 	// addr: 10.111.222.3:17711; g.LocalAddr(g.udp.remote): 10.111.222.3:17711; g.RemoteAddr(g.udp.local): 10.111.222.1:53
 	// ep(state 3 / info &{2048 17 {53 10.111.222.3 17711 10.111.222.1} 1 10.111.222.3 1} / stats &{{{1}} {{0}} {{{0}} {{0}} {{0}} {{0}}} {{{0}} {{0}} {{0}}} {{{0}} {{0}}} {{{0}} {{0}} {{0}}}})
 	// 3: status:datagram-connected / {2048=>proto, 17=>transport, {53=>local-port localip 17711=>remote-port remoteip}=>endpoint-id, 1=>bind-nic-id, ip=>bind-addr, 1=>registered-nic-id}
-	log.V("ns.udp.writeFrom: from(%v) / ep(state %v / info %v / stats %v)", addr, g.ep.State(), g.ep.Info(), g.ep.Stats())
+	// g.ep may be nil: log.V("ns.udp.writeFrom: from(%v) / ep(state %v / info %v / stats %v)", addr, g.ep.State(), g.ep.Info(), g.ep.Stats())
+	log.V("ns.udp.writeFrom: from(%v)", addr)
 	return g.UDPConn.Write(data)
 }
 
@@ -240,9 +241,14 @@ func (g *GUDPConn) Read(data []byte) (int, error) {
 
 // Close closes the connection.
 func (g *GUDPConn) Close() error {
-	if g.ok() {
-		g.ep.Close()
-		return g.UDPConn.Close()
+	ep := g.ep
+	c := g.UDPConn
+	if ep != nil {
+		ep.Abort()
+	}
+	if c != nil {
+		c.SetDeadline(time.Now().Add(-1))
+		return c.Close()
 	}
 	return nil
 }

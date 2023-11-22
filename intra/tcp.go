@@ -378,7 +378,7 @@ func oneRealIp(realips string, dstip net.IP) net.IP {
 			// len may be zero when realips is "," or ""
 			if len(v) > 0 {
 				ip := net.ParseIP(v)
-				if !ip.IsUnspecified() {
+				if len(ip) > 0 && !ip.IsUnspecified() {
 					return ip
 				}
 			}
@@ -395,7 +395,7 @@ func makeIPs(realips string, dstip net.IP) []net.IP {
 		// len may be zero when realips is "," or ""
 		if len(v) > 0 {
 			ip := net.ParseIP(v)
-			if !ip.IsUnspecified() {
+			if len(ip) > 0 && !ip.IsUnspecified() {
 				r = append(r, ip)
 			}
 		}

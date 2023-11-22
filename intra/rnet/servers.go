@@ -34,6 +34,7 @@ var (
 	errSvcRunning = errors.New("service is running")
 	errNotUdp     = errors.New("not udp conn")
 	errNotTcp     = errors.New("not tcp conn")
+	errNoAddr     = errors.New("no address")
 	errServerEnd  = errors.New("server stopped")
 	errProxyEnd   = errors.New("proxy stopped")
 	errBlocked    = errors.New("blocked")

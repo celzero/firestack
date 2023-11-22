@@ -36,6 +36,9 @@ const wgtimeout = 60 * time.Second
 
 var (
 	errInvalidEndpoint = errors.New("wg: bind: no endpoint")
+	errNoLocalAddr     = errors.New("wg: bind: no local address")
+	errNoRawConn       = errors.New("wg: bind: no raw conn")
+	errNoListen        = errors.New("wg: bind: listen failed")
 )
 
 type StdNetBind struct {
@@ -112,15 +115,24 @@ func (s *StdNetBind) listenNet(network string, port int) (*net.UDPConn, int, err
 		log.E("wg: bind: %s: listen(%v); err: %v", network, saddr, err)
 		return nil, 0, err
 	}
+	if conn == nil {
+		log.E("wg: bind: %s: listen(%v); conn nil", network, saddr)
+		return nil, 0, errNoListen
+	}
 
-	// Retrieve port.
 	laddr := conn.LocalAddr()
+	if laddr == nil {
+		return nil, 0, errNoLocalAddr
+	}
 	uaddr, err := net.ResolveUDPAddr(
 		laddr.Network(),
 		laddr.String(),
 	)
 	if err != nil {
 		return nil, 0, err
+	}
+	if uaddr == nil {
+		return nil, 0, errNoLocalAddr
 	}
 	// typecast is safe, because "network" is always udp[4|6]; see: Open
 	return conn.(*net.UDPConn), uaddr.Port, nil
@@ -248,9 +260,15 @@ func (bind *StdNetBind) Send(buf [][]byte, endpoint conn.Endpoint) error {
 	}
 	bind.mu.Unlock()
 
-	log.V("wg: bind: send: addr(%v) blackhole? %t; noconn? %t", addrPort, blackhole, noconn)
+	var data []byte
+	if len(buf) > 0 && len(buf[0]) > 0 {
+		data = buf[0]
+	}
+	bufok := len(data) > 0
 
-	if blackhole {
+	log.V("wg: bind: send: addr(%v) blackhole? %t; noconn? %t; nobuf? %t", addrPort, blackhole, noconn, bufok)
+
+	if blackhole || !bufok {
 		return nil
 	}
 	if noconn {
@@ -258,7 +276,7 @@ func (bind *StdNetBind) Send(buf [][]byte, endpoint conn.Endpoint) error {
 	}
 
 	uc.SetDeadline(time.Now().Add(wgtimeout))
-	n, err := uc.WriteToUDPAddrPort(buf[0], addrPort)
+	n, err := uc.WriteToUDPAddrPort(data, addrPort)
 
 	log.V("wg: bind: send: addr(%v) n(%d); err? %v", addrPort, n, err)
 	return err
@@ -275,6 +293,10 @@ func (s *StdNetBind) SetMark(mark uint32) (err error) {
 	fwmarkIoctl := 36 /* unix.SO_MARK */
 	if s.ipv4 != nil {
 		if raw4, err = s.ipv4.SyscallConn(); err == nil {
+			if raw4 == nil {
+				log.W("wg: bind: setmark4: raw conn nil")
+				return errNoRawConn
+			}
 			if err = raw4.Control(func(fd uintptr) {
 				operr = unix.SetsockoptInt(int(fd), unix.SOL_SOCKET, fwmarkIoctl, int(mark))
 			}); err == nil {
@@ -284,6 +306,10 @@ func (s *StdNetBind) SetMark(mark uint32) (err error) {
 	}
 	if err == nil && s.ipv6 != nil {
 		if raw6, err = s.ipv6.SyscallConn(); err == nil {
+			if raw6 == nil {
+				log.W("wg: bind: setmark6: raw conn nil")
+				return errNoRawConn
+			}
 			if err = raw6.Control(func(fd uintptr) {
 				operr = unix.SetsockoptInt(int(fd), unix.SOL_SOCKET, fwmarkIoctl, int(mark))
 			}); err == nil {
@@ -297,12 +323,16 @@ func (s *StdNetBind) SetMark(mark uint32) (err error) {
 
 // from: github.com/WireGuard/wireguard-go/1417a47c8/conn/boundif_android.go
 func (s *StdNetBind) PeekLookAtSocketFd4() (fd int, err error) {
-	sysconn, err := s.ipv4.SyscallConn()
+	raw4, err := s.ipv4.SyscallConn()
 	if err != nil {
 		log.W("wg: bind: peek4: syscall conn; err? %v", err)
 		return -1, err
 	}
-	err = sysconn.Control(func(f uintptr) {
+	if raw4 == nil {
+		log.W("wg: bind: peek4: raw conn nil")
+		return -1, errNoRawConn
+	}
+	err = raw4.Control(func(f uintptr) {
 		fd = int(f)
 	})
 	if err != nil {
@@ -314,12 +344,16 @@ func (s *StdNetBind) PeekLookAtSocketFd4() (fd int, err error) {
 }
 
 func (s *StdNetBind) PeekLookAtSocketFd6() (fd int, err error) {
-	sysconn, err := s.ipv6.SyscallConn()
+	raw6, err := s.ipv6.SyscallConn()
 	if err != nil {
 		log.W("wg: bind: peek6: syscall conn; err? %v", err)
 		return -1, err
 	}
-	err = sysconn.Control(func(f uintptr) {
+	if raw6 == nil {
+		log.W("wg: bind: peek6: raw conn nil")
+		return -1, errNoRawConn
+	}
+	err = raw6.Control(func(f uintptr) {
 		fd = int(f)
 	})
 	if err != nil {

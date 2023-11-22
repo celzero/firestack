@@ -76,7 +76,7 @@ type tracker struct {
 }
 
 func makeTracker(cid, pid, uid string, conn any) *tracker {
-	return &tracker{cid, pid, uid, conn, time.Now(), 0, 0, 0, noerr.Error(), nil}
+	return &tracker{cid, pid, uid, conn, time.Now(), 0, 0, 0, NoErr.Error(), nil}
 }
 
 func (t *tracker) elapsed() int32 {
@@ -175,7 +175,9 @@ func (h *udpHandler) fetchUDPInput(conn core.UDPConn, nat *tracker) {
 		}
 		if nat.errcount > maxconnerr {
 			log.D("udp: ingress: too many errors (%v); latest(%v), closing", nat.errcount, err)
-			nat.msg = err.Error()
+			if err != nil {
+				nat.msg = err.Error()
+			}
 			return
 		}
 

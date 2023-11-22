@@ -167,7 +167,7 @@ func prepareForRelay(ip net.IP, port int, eq *[]byte) {
 	*eq = relayedQuery
 }
 
-func query(pid string, packet []byte, serverInfo *ServerInfo, useudp bool) (response []byte, qerr error) {
+func query(pid string, packet []byte, serverInfo *ServerInfo, useudp bool) (response []byte, qerr *dnsx.QueryError) {
 	if len(packet) < xdns.MinDNSPacketSize {
 		qerr = dnsx.NewBadQueryError(errQueryTooShort)
 		return
@@ -280,12 +280,15 @@ func query(pid string, packet []byte, serverInfo *ServerInfo, useudp bool) (resp
 
 // resolve resolves incoming DNS query, data
 func resolve(network string, data []byte, si *ServerInfo, smm *dnsx.Summary) (response []byte, err error) {
+	var qerr *dnsx.QueryError
+
 	before := time.Now()
 
 	proto, pid := xdns.Net2ProxyID(network)
 	useudp := proto == dnsx.NetTypeUDP
 
-	response, err = query(pid, data, si, useudp)
+	// si may be nil
+	response, qerr = query(pid, data, si, useudp)
 
 	after := time.Now()
 
@@ -301,8 +304,7 @@ func resolve(network string, data []byte, si *ServerInfo, smm *dnsx.Summary) (re
 		}
 	}
 
-	var qerr *dnsx.QueryError
-	if errors.As(err, &qerr) {
+	if qerr != nil {
 		status = qerr.Status()
 		err = qerr.Unwrap()
 	}
@@ -318,7 +320,7 @@ func resolve(network string, data []byte, si *ServerInfo, smm *dnsx.Summary) (re
 	smm.Status = status
 
 	noAnonRelay := len(anonrelay) <= 0
-	if noAnonRelay {
+	if si != nil && noAnonRelay {
 		if si.relay != nil {
 			smm.RelayServer = si.relay.GetAddr()
 		} else if !dnsx.IsLocalProxy(pid) {
@@ -511,6 +513,9 @@ func (proxy *DcMulti) AddAll(serverscsv string) (int, error) {
 			return i, fmt.Errorf("dnscrypt: missing stamp for [%s]", serverStampPair)
 		}
 		serverStamp := strings.Split(serverStampPair, "#")
+		if len(serverStamp) < 2 {
+			return i, fmt.Errorf("dnscrypt: invalid stamp for [%s]", serverStampPair)
+		}
 		uid := serverStamp[0]
 		if uid, err := proxy.addOne(uid, serverStamp[1]); err != nil {
 			return i, fmt.Errorf("dnscrypt: error adding [%s]: %v", uid, err)

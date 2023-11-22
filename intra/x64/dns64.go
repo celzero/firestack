@@ -44,8 +44,10 @@ var (
 
 	ipv6bits = 8 * net.IPv6len
 
-	errEmpty        = errors.New("missing DNS64 IPv6 prefixes")
-	errNotFound     = errors.New("resolver did not send DNS64 IPv6 prefixes")
+	errQuery        = errors.New("invalid dns64 query")
+	errAns          = errors.New("invalid dns64 answer")
+	errEmpty        = errors.New("missing dns64 IPv6 prefixes")
+	errNotFound     = errors.New("resolver did not send dns64 ipv6 prefixes")
 	errNoSuchServer = errors.New("resolver not registered")
 
 	emptyStruct = struct{}{}
@@ -183,7 +185,7 @@ func (d *dns64) eval(id string, force64 bool, og []byte, r dnsx.Transport) []byt
 	rgood := xdns.HasRcodeSuccess(ans4)
 	hasans := xdns.HasAnyAnswer(ans4)
 	ans0000 := xdns.AQuadAUnspecified(ans4)
-	if err != nil || !hasans || ans0000 {
+	if err != nil || ans4 == nil || !hasans || ans0000 {
 		log.W("dns64: skip: query(n:%s / a? %t) to resolver(%s), code(good? %t / blocked? %t), err(%v)", qname, hasans, id, rgood, ans0000, err)
 		return nil
 	}
@@ -211,6 +213,10 @@ func (d *dns64) eval(id string, force64 bool, og []byte, r dnsx.Transport) []byt
 	}
 
 	ans64 := xdns.EmptyResponseFromMessage(ansin) // may be nil
+	if ans64 == nil {
+		log.W("dns64: err synth ans64 for q %s", qname)
+		return nil
+	}
 	ans64.Answer = append(ans64.Answer, rr64...)
 	if r, err := ans64.Pack(); err == nil {
 		return r
@@ -222,6 +228,9 @@ func (d *dns64) eval(id string, force64 bool, og []byte, r dnsx.Transport) []byt
 
 func (d *dns64) query64(msg6 *dns.Msg, r dnsx.Transport) (*dns.Msg, error) {
 	msg4 := xdns.Request4FromResponse6(msg6) // may be nil
+	if msg4 == nil {
+		return nil, errQuery
+	}
 	q4, err := msg4.Pack()
 	if err != nil {
 		return nil, err
@@ -230,8 +239,10 @@ func (d *dns64) query64(msg6 *dns.Msg, r dnsx.Transport) (*dns.Msg, error) {
 	discarded := new(dnsx.Summary)
 	a4, err := r.Query(dnsx.NetTypeUDP, q4, discarded)
 	log.D("dns64: udp: upstream q(%s) / a(%d) / e(%v) / e-not-nil(%t)", xdns.QName(msg4), len(a4), err, err != nil)
-	if len(a4) <= 0 {
+	if err != nil {
 		return nil, err
+	} else if len(a4) <= 0 {
+		return nil, errAns
 	}
 
 	res := &dns.Msg{}
@@ -241,11 +252,14 @@ func (d *dns64) query64(msg6 *dns.Msg, r dnsx.Transport) (*dns.Msg, error) {
 		// else if: returned response is truncated dns ans, retry over tcp
 		a4, err = r.Query(dnsx.NetTypeTCP, q4, discarded)
 		log.D("dns64: tcp: upstream q(%s) / a(%d) / e(%v) / e-not-nil(%t)", xdns.QName(msg4), len(a4), err, err != nil)
-		if len(a4) <= 0 {
+		if err != nil {
 			return nil, err
+		} else if len(a4) <= 0 {
+			return nil, errAns
+		} else {
+			res = &dns.Msg{}
+			err = res.Unpack(a4)
 		}
-		res = &dns.Msg{}
-		err = res.Unpack(a4)
 	}
 	return res, err
 }

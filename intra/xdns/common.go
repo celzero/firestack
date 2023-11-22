@@ -50,8 +50,8 @@ var (
 )
 
 var (
-	ip4zero    = net.ParseIP("0.0.0.0")
-	ip6zero    = net.ParseIP("::")
+	ip4zero    = net.IPv4zero
+	ip6zero    = net.IPv6unspecified
 	dnsport    = uint16(53)
 	fakedomain = "MTE1LDI1MiwxNjMsMjI4LDg5LDI0NSwxOTIsNzEsNiwyNTQsNjMsOTEsMjE1LDY.lan"
 )

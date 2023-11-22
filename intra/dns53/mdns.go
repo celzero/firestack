@@ -238,6 +238,10 @@ type client struct {
 	closed atomic.Int32
 }
 
+func (c *client) str() string {
+	return fmt.Sprintf("use4/6? %t/%t; oneshot? %t; tracked %d; closed %d", c.use4, c.use6, c.oneshot, len(c.tracker), c.closed.Load())
+}
+
 // newClient creates a new mdns unicast and multicast client
 func (t *dnssd) newClient(oneshot bool) (*client, error) {
 	if !t.use4 && !t.use6 {
@@ -303,7 +307,7 @@ func (c *client) Close() error {
 		return nil // already closed
 	}
 
-	log.I("mdns: closing client %v", *c)
+	log.I("mdns: closing client %v", c.str())
 
 	closeudp(c.unicast4)
 	closeudp(c.unicast6)
@@ -403,7 +407,11 @@ loop:
 					disco.ip6 = rr.AAAA
 					disco.ans = msg
 				default:
-					log.I("mdns: listen: ignoring ans %s to %s", rr, disco.name)
+					who := qname
+					if disco != nil {
+						who += " -> (disco name) " + disco.name
+					}
+					log.I("mdns: listen: ignoring ans %s to %s", rr, who)
 				}
 			}
 

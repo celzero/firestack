@@ -176,7 +176,11 @@ func NewResolver(fakeaddrs string, tunmode *settings.TunMode, dtr Transport, l D
 		dct := NewCachingTransport(dtr, ttl10m)
 		r.Lock()
 		r.transports[dtr.ID()] = dtr // regular
-		r.transports[dct.ID()] = dct // cached
+		if dct != nil {
+			r.transports[dct.ID()] = dct // cached
+		} else {
+			log.W("dns: no caching transport for %s", dtr.ID())
+		}
 		r.Unlock()
 	}
 	log.I("dns: new! gw? %t; default? %s", r.gateway != nil, dtr.GetAddr())
@@ -232,11 +236,13 @@ func (r *resolver) Add(t Transport) (ok bool) {
 		ct := NewCachingTransport(t, ttl10m)
 
 		r.Lock()
-		r.transports[t.ID()] = t   // regular
-		r.transports[ct.ID()] = ct // cached
+		r.transports[t.ID()] = t // regular
+		if ct != nil {
+			r.transports[ct.ID()] = ct // cached
+		}
 		r.Unlock()
 
-		log.I("dns: add transport %s@%s", t.ID(), t.GetAddr())
+		log.I("dns: add transport %s@%s; cache? %t", t.ID(), t.GetAddr(), ct != nil)
 
 		return true
 	default:
@@ -294,27 +300,19 @@ func (r *resolver) Remove(id string) (ok bool) {
 	}
 
 	ctid := CT + id
-	var ok1, ok2 bool
-	var t Transport
 
 	r.Lock()
-	if t, ok1 = r.transports[id]; ok1 {
-		delete(r.transports, id)
-		delete(r.transports, ctid)
-	}
+	delete(r.transports, id)
+	delete(r.transports, ctid)
 	r.Unlock()
+
+	log.I("dns: removed transport %s", id)
 
 	if tm, err := r.dcProxy(); err == nil {
 		tm.Remove(id)
 		tm.Remove(ctid)
 	}
 
-	ok = ok1 || ok2
-	if ok {
-		log.I("dns: remove(%t) transport %s@%s", ok, t.ID(), t.GetAddr())
-	} else {
-		log.I("dns: remove(%t) transport %s", ok, id)
-	}
 	return
 }
 
@@ -717,9 +715,21 @@ func (r *resolver) LiveTransports() string {
 }
 
 func (r *resolver) preferencesFrom(qname string, s *NsOpts, chosenids ...string) (id1, id2, pid, ips string) {
-	x := strings.Split(s.TIDCSV, ",")
+	var x []string
+	if s == nil { // should never happen; but it has during testing
+		log.W("dns: pref: no ns opts for %s", qname)
+		x = nil
+	} else {
+		x = strings.Split(s.TIDCSV, ",")
+		if len(s.PID) > 0 {
+			pid = overrideProxyIfNeeded(s.PID, id1, id2)
+		} else {
+			pid = NetNoProxy
+		}
+		ips = s.IPCSV // comma-separated list of IPs
+	}
 	l := len(x)
-	if l <= 0 { // cannot happen
+	if x == nil || l <= 0 { // x may be nil
 		log.W("dns: pref: no tids for %s", qname)
 		// no-op
 	} else if l == 1 {
@@ -751,13 +761,6 @@ func (r *resolver) preferencesFrom(qname string, s *NsOpts, chosenids ...string)
 		id1 = Local
 		id2 = ""
 	}
-
-	if len(s.PID) > 0 {
-		pid = overrideProxyIfNeeded(s.PID, id1, id2)
-	} else {
-		pid = NetNoProxy
-	}
-	ips = s.IPCSV // comma-separated list of IPs
 	return
 }
 

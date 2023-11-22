@@ -32,8 +32,12 @@ const odohtargetpath = "/dns-query"
 const odohproxypath = "/proxy" // dns-query in latest spec
 const odohttlsec = 3600        // 1hr
 
-var errNoOdohCfgResponse = errors.New("no odoh config response")
-var errZeroOdohCfgs = errors.New("no odoh configs found")
+var (
+	noOdohQuery          = errors.New("no odoh request")
+	noOdohCfgQuery       = errors.New("no odoh config request")
+	errNoOdohCfgResponse = errors.New("no odoh config response")
+	errZeroOdohCfgs      = errors.New("no odoh configs found")
+)
 
 // targets:  github.com/DNSCrypt/dnscrypt-resolvers/blob/master/v3/odoh-servers.md
 // endpoints:  github.com/DNSCrypt/dnscrypt-resolvers/blob/master/v3/odoh-relays.md
@@ -96,7 +100,14 @@ func (d *transport) asOdohRequest(q []byte) (req *http.Request, err error) {
 		if err != nil {
 			return
 		}
+		if req == nil || req.URL == nil {
+			err = noOdohQuery
+			return
+		}
 		query := req.URL.Query()
+		if query == nil {
+			query = make(url.Values)
+		}
 		query.Add("targethost", d.odohtargetname)
 		query.Add("targetpath", d.odohtargetpath)
 		req.URL.RawQuery = query.Encode()
@@ -176,8 +187,16 @@ func (d *transport) refreshTargetKeyWellKnown() (ocfg *odoh.ObliviousDoHConfig, 
 	if err != nil {
 		return
 	}
+	if req == nil {
+		err = noOdohCfgQuery
+		return
+	}
 	resp, err = d.client.Do(req)
 	if err != nil {
+		return
+	}
+	if resp == nil || resp.Body == nil {
+		err = errNoOdohCfgResponse
 		return
 	}
 	bodyBytes, err := io.ReadAll(resp.Body)

@@ -90,17 +90,11 @@ func (c *pipconn) Close() (err error) {
 }
 
 func (c *pipconn) CloseRead() error {
-	if c.r != nil {
-		return c.r.Close()
-	}
-	return nil
+	return clos(c.r)
 }
 
 func (c *pipconn) CloseWrite() error {
-	if c.w != nil {
-		return c.w.Close()
-	}
-	return nil
+	return clos(c.w)
 }
 
 func (c *pipconn) LocalAddr() net.Addr           { return c.laddr }
@@ -124,18 +118,25 @@ func (t *piph2) dialtls(network, addr string, cfg *tls.Config) (net.Conn, error)
 	if cfg == nil {
 		cfg = &tls.Config{ServerName: hostname}
 	} else if cfg.ServerName == "" {
-		c := cfg.Clone()
-		c.ServerName = hostname
-		cfg = c
+		if cfg = cfg.Clone(); cfg != nil {
+			cfg.ServerName = hostname
+		}
 	}
 
 	conn := tls.Client(rawConn, cfg)
 	if err := conn.HandshakeContext(context.Background()); err != nil {
 		log.D("piph2: dialtls(%s) handshake error: %v", addr, err)
-		rawConn.Close()
+		clos(rawConn)
 		return nil, err
 	}
 	return conn, nil
+}
+
+func clos(c io.Closer) error {
+	if c != nil {
+		return c.Close()
+	}
+	return nil
 }
 
 func (t *piph2) dial(network, addr string) (net.Conn, error) {
@@ -143,6 +144,10 @@ func (t *piph2) dial(network, addr string) (net.Conn, error) {
 }
 
 func NewPipProxy(id string, ctl protect.Controller, po *settings.ProxyOptions) (Proxy, error) {
+	if po == nil {
+		return nil, errMissingProxyOpt
+	}
+
 	parsedurl, err := url.Parse(po.Url())
 	if err != nil {
 		return nil, err
@@ -389,14 +394,14 @@ func (t *piph2) Dial(network, addr string) (protect.Conn, error) {
 		// github.com/golang/go/issues/32728
 		req.ContentLength = <-wlenCh
 		res, err := t.client.Do(req)
-		if err != nil {
+		if err != nil || res == nil {
 			log.E("piph2: path(%s) send err: %v", u.Path, err)
 			t.status = TKO
 			incomingCh <- nil
 			closePipe(readable, writable)
 		} else if res.StatusCode != http.StatusOK {
 			log.E("piph2: path(%s) recv bad: %v", u.Path, res.Status)
-			res.Body.Close()
+			clos(res.Body)
 			t.status = TKO
 			incomingCh <- nil
 			closePipe(readable, writable)
@@ -431,7 +436,7 @@ func (h *piph2) DNS() string {
 
 func closePipe(c ...io.Closer) {
 	for _, x := range c {
-		x.Close()
+		clos(x)
 	}
 }
 

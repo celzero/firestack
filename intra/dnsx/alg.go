@@ -185,17 +185,16 @@ func (t *dnsgateway) querySecondary(t2 Transport, network string, q []byte, out 
 			ticker.Stop()
 			return
 		}
-		if len(r) == 0 {
-			return
-		}
-	}
-
-	// check if the query must be upstreamed to get answer r
-	if r == nil {
+	} else { // query secondary to get answer for q
 		if r, err = t2.Query(network, q, result.summary); err != nil {
 			log.D("alg: skip; sec transport %s err %v", t2.ID(), err)
 			return
 		}
+	}
+
+	if len(r) == 0 {
+		log.W("alg: skip; no primary or sec ans")
+		return
 	}
 
 	// check if answer r is blocked
