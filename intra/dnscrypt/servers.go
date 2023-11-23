@@ -20,10 +20,13 @@ import (
 	"fmt"
 	"math/rand"
 	"net"
+	"net/netip"
+	"strconv"
 	"strings"
 	"sync"
 
 	"github.com/celzero/firestack/intra/core"
+	"github.com/celzero/firestack/intra/dialers"
 	"github.com/celzero/firestack/intra/dnsx"
 	"github.com/celzero/firestack/intra/ipn"
 	"github.com/celzero/firestack/intra/log"
@@ -232,7 +235,7 @@ func fetchDoHServerInfo(proxy *DcMulti, name string, stamp stamps.ServerStamp) (
 func route(proxy *DcMulti, name string) (udpaddr *net.UDPAddr, tcpaddr *net.TCPAddr, err error) {
 	relayNames := proxy.routes
 	if relayNames == nil {
-		log.I("dnscrypt: No relay routes found.")
+		err = errors.New("dnscrypt: no relay routes")
 		return
 	}
 
@@ -243,30 +246,45 @@ func route(proxy *DcMulti, name string) (udpaddr *net.UDPAddr, tcpaddr *net.TCPA
 	}
 	var relayCandidateStamp *stamps.ServerStamp
 	if len(relayName) == 0 {
-		err = fmt.Errorf("route declared for [%v] but an empty relay list", name)
+		err = fmt.Errorf("route declared for [%s] but no relays", name)
 		return
 	} else if relayStamp, err := stamps.NewServerStampFromString(relayName); err == nil {
 		relayCandidateStamp = &relayStamp
-	} else if _, err := net.ResolveTCPAddr("tcp", relayName); err == nil {
+	} else {
 		relayCandidateStamp = &stamps.ServerStamp{
-			ServerAddrStr: relayName,
+			ServerAddrStr: relayName, // may be a hostname or ip-address
 			Proto:         stamps.StampProtoTypeDNSCryptRelay,
 		}
 	}
-	if relayCandidateStamp == nil {
-		err = fmt.Errorf("undefined relay [%v] for server [%v]", relayName, name)
-		return
-	}
+
+	s, p := hostport(relayCandidateStamp.ServerAddrStr)
 	if relayCandidateStamp.Proto == stamps.StampProtoTypeDNSCrypt ||
 		relayCandidateStamp.Proto == stamps.StampProtoTypeDNSCryptRelay {
-		tcpaddr, err = net.ResolveTCPAddr("tcp", relayCandidateStamp.ServerAddrStr)
-		if err == nil {
-			udpaddr, err = net.ResolveUDPAddr("udp", relayCandidateStamp.ServerAddrStr)
+		if ips := dialers.For(s); len(ips) > 0 {
+			ipp := netip.AddrPortFrom(ips[0], p)
+			tcpaddr = net.TCPAddrFromAddrPort(ipp)
+			udpaddr = net.UDPAddrFromAddrPort(ipp)
+		} else {
+			err = fmt.Errorf("zero ips for relay [%s@%s] for server [%s]", relayName, s, name)
 		}
 	} else {
-		err = fmt.Errorf("invalid relay [%v] for server [%v]", relayName, name)
+		err = fmt.Errorf("invalid relay [%s] for server [%s]", relayName, name)
 	}
 	return
+}
+
+func hostport(x string) (string, uint16) {
+	s, port, err := net.SplitHostPort(x)
+	if err != nil || len(port) <= 0 {
+		log.W("dnscrypt: host-port og(%s); err? %v", x, err)
+		s = x
+		port = "443" // use default port
+	}
+	p, err := strconv.Atoi(port)
+	if err != nil {
+		p = 443 // use default port
+	}
+	return s, uint16(p)
 }
 
 func (s *ServerInfo) String() string {

@@ -22,6 +22,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/celzero/firestack/intra/dialers"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/miekg/dns"
 	"golang.org/x/crypto/ed25519"
@@ -287,12 +288,9 @@ func _dnsExchange(proxy *DcMulti, proto string, query *dns.Msg, serverAddress st
 		if err != nil {
 			return dnsExchangeResponse{err: err}
 		}
-		upstreamAddr, err := net.ResolveUDPAddr("udp", serverAddress)
-		if err != nil {
-			return dnsExchangeResponse{err: err}
-		}
+
 		now := time.Now()
-		pc, err := proxy.dialer.DialUDP("udp", nil, upstreamAddr)
+		pc, err := dialers.Dial(proxy.dialer, "udp", serverAddress)
 		if err != nil {
 			return dnsExchangeResponse{err: err}
 		}
@@ -315,11 +313,6 @@ func _dnsExchange(proxy *DcMulti, proto string, query *dns.Msg, serverAddress st
 		if err != nil {
 			return dnsExchangeResponse{err: err}
 		}
-		tcpAddr, err := net.ResolveTCPAddr("tcp", serverAddress)
-		if err != nil {
-			return dnsExchangeResponse{err: err}
-		}
-		upstreamAddr := tcpAddr
 		// FIXME: for time-being, tcp validation is used only
 		// when relay addresses are nil. Uncomment the code
 		// below when udp transport for dnscrypt-proxy is ready.
@@ -331,7 +324,7 @@ func _dnsExchange(proxy *DcMulti, proto string, query *dns.Msg, serverAddress st
 		*/
 		now := time.Now()
 		var pc net.Conn
-		pc, err = proxy.dialer.DialTCP("tcp", nil, upstreamAddr)
+		pc, err = dialers.Dial(proxy.dialer, "tcp", serverAddress)
 		if err != nil {
 			return dnsExchangeResponse{err: err}
 		}
