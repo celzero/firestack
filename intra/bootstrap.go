@@ -18,6 +18,7 @@ import (
 	"github.com/celzero/firestack/intra/ipn"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
+	"github.com/celzero/firestack/intra/xdns"
 )
 
 const (
@@ -43,8 +44,8 @@ type bootstrap struct {
 	proxies        ipn.Proxies // never nil if underlying transport is set
 	bridge         Bridge      // never nil if underlying transport is set
 	typ            string      // DOH or DNS53
-	ipports        string      // never empty
-	url            string      // never empty
+	ipports        string      // never empty for DNS53
+	url            string      // never empty for DOH
 	hostname       string      // never empty
 }
 
@@ -76,35 +77,40 @@ func newDefaultTransport(ipcsv string, p ipn.Proxies, g Bridge) (dnsx.Transport,
 	return nil, errCannotStart
 }
 
-func (b *bootstrap) reinit(trtype, u, ipcsv string) error {
-	if len(ipcsv) <= 0 {
-		log.E("dns: default: reinit: empty url %s / ips %s", u, ipcsv)
-		return dnsx.ErrNotDefaultTransport
-	}
-	if trtype != dnsx.DOH && trtype != dnsx.DNS53 {
-		log.E("dns: default: reinit: unknown type %s", trtype)
-		return dnsx.ErrNotDefaultTransport
-	}
-	if len(u) <= 0 {
-		u = protect.UidSelf
-	}
-	b.url = u // may be localhost or protect.UidSelf; see: ipmap.LookupNetIP
-	b.typ = trtype
-	b.ipports = ipcsv
-	ips := strings.Split(ipcsv, ",")
-	if len(ips) <= 0 {
-		log.E("dns: default: reinit: zero valid ipports in %s (url? %s)", ipcsv, b.url)
+func (b *bootstrap) reinit(trtype, ippOrUrl, ipcsv string) error {
+	if len(ippOrUrl) <= 0 {
+		log.E("dns: default: reinit: empty url %s! ips? %s", ippOrUrl, ipcsv)
 		return dnsx.ErrNotDefaultTransport
 	}
 
-	b.hostname = b.url // may be a special name like protect.UidSelf
-	if parsed, err := url.Parse(b.url); err == nil {
+	if parsed, err := url.Parse(ippOrUrl); err == nil { // ippOrUrl is a url?
+		if trtype != dnsx.DOH {
+			log.E("dns: default: reinit: url %s for %s", ippOrUrl, trtype)
+			return dnsx.ErrNotDefaultTransport
+		}
+		b.url = ippOrUrl
 		b.hostname = parsed.Hostname()
+		b.ipports = ipcsv // may be empty
+		b.typ = dnsx.DOH
+	} else { // ippOrUrl is an ipport?
+		if trtype != dnsx.DNS53 {
+			log.E("dns: default: reinit: ipport %s for %s", ippOrUrl, trtype)
+			return dnsx.ErrNotDefaultTransport
+		}
+		if ipport, err := xdns.DnsIPPort(ippOrUrl); err == nil {
+			b.url = ""
+			b.hostname = protect.UidSelf
+			b.ipports = ipport.String()
+			b.typ = dnsx.DNS53
+		} else {
+			return err
+		}
 	}
-	// hydrate ipmap with the new ips against incoming hostname
-	ok := dialers.Renew(b.hostname, ips)
 
-	log.I("dns: default: %s reinit %s %s w/ %s; resolved? %t", trtype, b.url, b.hostname, ips, ok)
+	// hydrate ipmap with the new ips against incoming hostname
+	ok := dialers.Renew(b.hostname, strings.Split(ipcsv, ","))
+
+	log.I("dns: default: %s reinit %s %s w/ %s; resolved? %t", trtype, b.url, b.hostname, ipcsv, ok)
 
 	// if proxies and bridges are set, restart to create new transport
 	if b.proxies != nil && b.bridge != nil {
