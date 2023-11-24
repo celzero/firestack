@@ -83,9 +83,10 @@ func (b *bootstrap) reinit(trtype, ippOrUrl, ipcsv string) error {
 		return dnsx.ErrNotDefaultTransport
 	}
 
+	// note: plain ip4 address is a valid url; ex: 1.2.3.4
 	if parsed, err := url.Parse(ippOrUrl); err == nil { // ippOrUrl is a url?
 		if trtype != dnsx.DOH {
-			log.E("dns: default: reinit: url %s for %s", ippOrUrl, trtype)
+			log.E("dns: default: reinit: url %s; %s != %s", ippOrUrl, trtype, dnsx.DOH)
 			return dnsx.ErrNotDefaultTransport
 		}
 		b.url = ippOrUrl
@@ -94,7 +95,7 @@ func (b *bootstrap) reinit(trtype, ippOrUrl, ipcsv string) error {
 		b.typ = dnsx.DOH
 	} else { // ippOrUrl is an ipport?
 		if trtype != dnsx.DNS53 {
-			log.E("dns: default: reinit: ipport %s for %s", ippOrUrl, trtype)
+			log.E("dns: default: reinit: ipport %s; %s != %s", ippOrUrl, trtype, dnsx.DNS53)
 			return dnsx.ErrNotDefaultTransport
 		}
 		ips := strings.Split(ippOrUrl, ",")
@@ -130,9 +131,6 @@ func (t *bootstrap) recreate() error {
 }
 
 func (t *bootstrap) kickstart(px ipn.Proxies, g Bridge) error {
-	if t.Transport != nil {
-		return errAlreadyStarted
-	}
 	if px == nil || g == nil {
 		return errCannotStart
 	}
@@ -150,7 +148,12 @@ func (t *bootstrap) kickstart(px ipn.Proxies, g Bridge) error {
 		err = errDefaultTransportType
 	}
 
-	t.Transport = tr // override previous transport; may be nil
+	if t.Transport != nil {
+		log.I("dns: default: removing %s %s[%s]", t.typ, t.GetAddr())
+	}
+
+	// always override previous transport with (new) tr; even if nil
+	t.Transport = tr
 	if err != nil {
 		log.E("dns: default: start; err %v", err)
 		return err
