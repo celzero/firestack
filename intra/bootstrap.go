@@ -97,10 +97,16 @@ func (b *bootstrap) reinit(trtype, ippOrUrl, ipcsv string) error {
 			log.E("dns: default: reinit: ipport %s for %s", ippOrUrl, trtype)
 			return dnsx.ErrNotDefaultTransport
 		}
-		if ipport, err := xdns.DnsIPPort(ippOrUrl); err == nil {
+		ips := strings.Split(ippOrUrl, ",")
+		if len(ips) <= 0 {
+			log.E("dns: default: reinit: empty ipport %s", ippOrUrl)
+			return dnsx.ErrNotDefaultTransport
+		}
+		// todo: tests just the first ipport; test all?
+		if _, err := xdns.DnsIPPort(ips[0]); err == nil {
 			b.url = ""
 			b.hostname = protect.UidSelf
-			b.ipports = ipport.String()
+			b.ipports = ippOrUrl
 			b.typ = dnsx.DNS53
 		} else {
 			return err
@@ -108,7 +114,7 @@ func (b *bootstrap) reinit(trtype, ippOrUrl, ipcsv string) error {
 	}
 
 	// hydrate ipmap with the new ips against incoming hostname
-	ok := dialers.Renew(b.hostname, strings.Split(ipcsv, ","))
+	ok := dialers.Renew(b.hostname, strings.Split(b.ipports, ","))
 
 	log.I("dns: default: %s reinit %s %s w/ %s; resolved? %t", trtype, b.url, b.hostname, ipcsv, ok)
 
