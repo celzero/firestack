@@ -60,7 +60,7 @@ func unpad(packet []byte) ([]byte, error) {
 	}
 }
 
-func ComputeSharedKey(cryptoConstruction xdns.CryptoConstruction, secretKey *[32]byte, serverPk *[32]byte, providerName *string) (sharedKey [32]byte) {
+func computeSharedKey(cryptoConstruction xdns.CryptoConstruction, secretKey *[32]byte, serverPk *[32]byte, providerName *string) (sharedKey [32]byte) {
 	if cryptoConstruction == xdns.XChacha20Poly1305 {
 		var err error
 		sharedKey, err = xsecretbox.SharedKey(*secretKey, *serverPk)
@@ -73,8 +73,8 @@ func ComputeSharedKey(cryptoConstruction xdns.CryptoConstruction, secretKey *[32
 	return
 }
 
-func Encrypt(
-	serverInfo *ServerInfo,
+func encrypt(
+	serverInfo *serverinfo,
 	packet []byte,
 	useudp bool,
 ) (sharedKey *[32]byte, encrypted []byte, clientNonce []byte, err error) {
@@ -121,7 +121,7 @@ func Encrypt(
 	return
 }
 
-func Decrypt(serverInfo *ServerInfo, sharedKey *[32]byte, encrypted []byte, nonce []byte) ([]byte, error) {
+func decrypt(serverInfo *serverinfo, sharedKey *[32]byte, encrypted []byte, nonce []byte) ([]byte, error) {
 	serverMagicLen := len(xdns.ServerMagic)
 	responseHeaderLen := serverMagicLen + NonceSize
 	if len(encrypted) < responseHeaderLen+TagSize+int(xdns.MinDNSPacketSize) ||

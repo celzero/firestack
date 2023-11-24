@@ -37,12 +37,12 @@ import (
 	"golang.org/x/crypto/ed25519"
 )
 
-type RegisteredServer struct {
+type registeredserver struct {
 	name  string
 	stamp stamps.ServerStamp
 }
 
-type ServerInfo struct {
+type serverinfo struct {
 	Proto              stamps.StampProtoType
 	MagicQuery         [8]byte
 	ClientPubKey       *[32]byte
@@ -62,23 +62,23 @@ type ServerInfo struct {
 	est                core.P2QuantileEstimator
 }
 
-var _ dnsx.Transport = (*ServerInfo)(nil)
+var _ dnsx.Transport = (*serverinfo)(nil)
 
 type ServersInfo struct {
 	sync.RWMutex
-	inner             map[string]*ServerInfo
-	registeredServers map[string]RegisteredServer
+	inner             map[string]*serverinfo
+	registeredServers map[string]registeredserver
 }
 
-// NewServersInfo returns a new servers-info object
-func NewServersInfo() ServersInfo {
+// newServersInfo returns a new servers-info object
+func newServersInfo() ServersInfo {
 	return ServersInfo{
-		registeredServers: make(map[string]RegisteredServer),
-		inner:             make(map[string]*ServerInfo),
+		registeredServers: make(map[string]registeredserver),
+		inner:             make(map[string]*serverinfo),
 	}
 }
 
-func (serversInfo *ServersInfo) getOne() (serverInfo *ServerInfo) {
+func (serversInfo *ServersInfo) getOne() (serverInfo *serverinfo) {
 	serversInfo.RLock()
 	defer serversInfo.RUnlock()
 
@@ -100,7 +100,7 @@ func (serversInfo *ServersInfo) getOne() (serverInfo *ServerInfo) {
 	return serverInfo
 }
 
-func (serversInfo *ServersInfo) get(name string) *ServerInfo {
+func (serversInfo *ServersInfo) get(name string) *serverinfo {
 	serversInfo.RLock()
 	defer serversInfo.RUnlock()
 	serversCount := len(name)
@@ -121,7 +121,7 @@ func (serversInfo *ServersInfo) unregisterServer(name string) (int, error) {
 }
 
 func (serversInfo *ServersInfo) registerServer(name string, stamp stamps.ServerStamp) {
-	newRegisteredServer := RegisteredServer{name: name, stamp: stamp}
+	newRegisteredServer := registeredserver{name: name, stamp: stamp}
 	serversInfo.Lock()
 	defer serversInfo.Unlock()
 
@@ -153,51 +153,55 @@ func (serversInfo *ServersInfo) refreshServer(proxy *DcMulti, name string, stamp
 
 	serversInfo.Lock()
 	serversInfo.inner[name] = &newServer
-	serversInfo.registeredServers[name] = RegisteredServer{name: name, stamp: stamp}
+	serversInfo.registeredServers[name] = registeredserver{name: name, stamp: stamp}
 	serversInfo.Unlock()
 
 	return nil
 }
 
-func fetchServerInfo(proxy *DcMulti, name string, stamp stamps.ServerStamp) (ServerInfo, error) {
+func fetchServerInfo(proxy *DcMulti, name string, stamp stamps.ServerStamp) (serverinfo, error) {
 	if stamp.Proto == stamps.StampProtoTypeDNSCrypt {
 		return fetchDNSCryptServerInfo(proxy, name, stamp)
 	} else if stamp.Proto == stamps.StampProtoTypeDoH {
 		return fetchDoHServerInfo(proxy, name, stamp)
 	}
-	return ServerInfo{}, errors.New("unsupported protocol")
+	return serverinfo{}, errors.New("unsupported protocol")
 }
 
-func fetchDNSCryptServerInfo(proxy *DcMulti, name string, stamp stamps.ServerStamp) (ServerInfo, error) {
+func fetchDNSCryptServerInfo(proxy *DcMulti, name string, stamp stamps.ServerStamp) (serverinfo, error) {
 	if len(stamp.ServerPk) != ed25519.PublicKeySize {
 		serverPk, err := hex.DecodeString(strings.Replace(string(stamp.ServerPk), ":", "", -1))
 		if err != nil || len(serverPk) != ed25519.PublicKeySize {
-			return ServerInfo{}, fmt.Errorf("unsupported public key for [%s]: [%s]", name, stamp.ServerPk)
+			return serverinfo{}, fmt.Errorf("unsupported public key for [%s]: [%s]", name, stamp.ServerPk)
 		}
 		log.W("dnscrypt: public key [%s] shouldn't be hex-encoded any more", string(stamp.ServerPk))
 		stamp.ServerPk = serverPk
 	}
 
-	relayUDPAddr, relayTCPAddr, err := route(proxy, name)
+	// relayudpaddr and relaytcpaddr may be nil, even if err == nil
+	relayudpaddr, relaytcpaddr, err := route(proxy, name)
 	if err != nil {
-		return ServerInfo{}, err
-	}
-	// note: relays are not used to fetch certs due to multiple issues reported by users
-	certInfo, relayTCPAddr, err := FetchCurrentDNSCryptCert(proxy, &name, stamp.ServerPk, stamp.ServerAddrStr, stamp.ProviderName, relayTCPAddr)
-	if err != nil {
-		return ServerInfo{}, err
+		return serverinfo{}, err
 	}
 	// iff tcp relay is unset, unset udp relay too
-	if relayTCPAddr == nil {
-		relayUDPAddr = nil
+	if relaytcpaddr == nil {
+		relayudpaddr = nil
 	}
-	remoteUDPAddr, err := net.ResolveUDPAddr("udp", stamp.ServerAddrStr)
+	// note: relays are not used to fetch certs due to multiple issues reported by users
+	certInfo, err := fetchCurrentDNSCryptCert(proxy, &name, stamp.ServerPk, stamp.ServerAddrStr, stamp.ProviderName)
 	if err != nil {
-		return ServerInfo{}, err
+		return serverinfo{}, err
 	}
-	remoteTCPAddr, err := net.ResolveTCPAddr("tcp", stamp.ServerAddrStr)
-	if err != nil {
-		return ServerInfo{}, err
+	var tcpaddr *net.TCPAddr
+	var udpaddr *net.UDPAddr
+	s, p := hostport(stamp.ServerAddrStr)
+	if ips := dialers.For(s); len(ips) > 0 {
+		ipp := netip.AddrPortFrom(ips[0], p)
+		tcpaddr = net.TCPAddrFromAddrPort(ipp)
+		udpaddr = net.UDPAddrFromAddrPort(ipp)
+	}
+	if udpaddr == nil || tcpaddr == nil {
+		return serverinfo{}, errNoServers
 	}
 	px := proxy.proxies
 	var relay ipn.Proxy
@@ -205,7 +209,7 @@ func fetchDNSCryptServerInfo(proxy *DcMulti, name string, stamp stamps.ServerSta
 		relay, _ = px.GetProxy(name)
 	}
 	dialer := protect.MakeNsRDial(name, proxy.ctl)
-	si := ServerInfo{
+	si := serverinfo{
 		Proto:              stamps.StampProtoTypeDNSCrypt,
 		MagicQuery:         certInfo.MagicQuery,
 		ClientPubKey:       &proxy.proxyPublicKey,
@@ -214,10 +218,10 @@ func fetchDNSCryptServerInfo(proxy *DcMulti, name string, stamp stamps.ServerSta
 		CryptoConstruction: certInfo.CryptoConstruction,
 		HostName:           stamp.ProviderName,
 		Name:               name,
-		UDPAddr:            remoteUDPAddr,
-		TCPAddr:            remoteTCPAddr,
-		RelayTCPAddr:       relayTCPAddr,
-		RelayUDPAddr:       relayUDPAddr,
+		UDPAddr:            udpaddr,
+		TCPAddr:            tcpaddr,
+		RelayTCPAddr:       relaytcpaddr,
+		RelayUDPAddr:       relayudpaddr,
 		proxies:            px,
 		relay:              relay,
 		dialer:             dialer,
@@ -227,15 +231,14 @@ func fetchDNSCryptServerInfo(proxy *DcMulti, name string, stamp stamps.ServerSta
 	return si, nil
 }
 
-func fetchDoHServerInfo(proxy *DcMulti, name string, stamp stamps.ServerStamp) (ServerInfo, error) {
+func fetchDoHServerInfo(proxy *DcMulti, name string, stamp stamps.ServerStamp) (serverinfo, error) {
 	// FIXME: custom ip-address, user-certs, and cert-pinning not supported
-	return ServerInfo{}, errors.New("unsupported protocol")
+	return serverinfo{}, errors.New("unsupported protocol")
 }
 
 func route(proxy *DcMulti, name string) (udpaddr *net.UDPAddr, tcpaddr *net.TCPAddr, err error) {
 	relayNames := proxy.routes
-	if relayNames == nil {
-		err = errors.New("dnscrypt: no relay routes")
+	if relayNames == nil { // no err, no relays
 		return
 	}
 
@@ -287,7 +290,7 @@ func hostport(x string) (string, uint16) {
 	return s, uint16(p)
 }
 
-func (s *ServerInfo) String() string {
+func (s *serverinfo) String() string {
 	serverid := s.ID()
 	servername := s.GetAddr()
 	serveraddr := "notcp"
@@ -302,15 +305,15 @@ func (s *ServerInfo) String() string {
 	return serverid + ":" + servername + "/" + serveraddr + "<=>" + relayaddr
 }
 
-func (s *ServerInfo) ID() string {
+func (s *serverinfo) ID() string {
 	return s.Name
 }
 
-func (s *ServerInfo) Type() string {
+func (s *serverinfo) Type() string {
 	return dnsx.DNSCrypt
 }
 
-func (s *ServerInfo) Query(network string, q []byte, summary *dnsx.Summary) (r []byte, err error) {
+func (s *serverinfo) Query(network string, q []byte, summary *dnsx.Summary) (r []byte, err error) {
 	r, err = resolve(network, q, s, summary)
 	s.status = summary.Status
 
@@ -321,7 +324,7 @@ func (s *ServerInfo) Query(network string, q []byte, summary *dnsx.Summary) (r [
 	return
 }
 
-func (s *ServerInfo) P50() int64 {
+func (s *serverinfo) P50() int64 {
 	if s.est != nil {
 		return s.est.Get()
 	} else {
@@ -329,15 +332,15 @@ func (s *ServerInfo) P50() int64 {
 	}
 }
 
-func (s *ServerInfo) GetAddr() string {
+func (s *serverinfo) GetAddr() string {
 	return s.HostName
 }
 
-func (s *ServerInfo) Status() int {
+func (s *serverinfo) Status() int {
 	return s.status
 }
 
-func (s *ServerInfo) dialudp(pid string, addr *net.UDPAddr) (net.Conn, error) {
+func (s *serverinfo) dialudp(pid string, addr *net.UDPAddr) (net.Conn, error) {
 	userelay := s.relay != nil
 	useproxy := len(pid) != 0 // pid == dnsx.NetNoProxy => ipn.Base
 	if userelay || useproxy {
@@ -346,7 +349,7 @@ func (s *ServerInfo) dialudp(pid string, addr *net.UDPAddr) (net.Conn, error) {
 	return s.dialer.DialUDP("udp", nil, addr)
 }
 
-func (s *ServerInfo) dialtcp(pid string, addr *net.TCPAddr) (net.Conn, error) {
+func (s *serverinfo) dialtcp(pid string, addr *net.TCPAddr) (net.Conn, error) {
 	userelay := s.relay != nil
 	useproxy := len(pid) != 0 // pid == dnsx.NetNoProxy => ipn.Base
 	if userelay || useproxy {
@@ -355,7 +358,7 @@ func (s *ServerInfo) dialtcp(pid string, addr *net.TCPAddr) (net.Conn, error) {
 	return s.dialer.DialTCP("tcp", nil, addr)
 }
 
-func (s *ServerInfo) dialpx(pid, proto string, addr string) (net.Conn, error) {
+func (s *serverinfo) dialpx(pid, proto string, addr string) (net.Conn, error) {
 	relay := s.relay
 	if relay != nil {
 		return relay.Dialer().Dial(proto, addr)

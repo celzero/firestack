@@ -30,7 +30,7 @@ import (
 	"github.com/celzero/firestack/intra/xdns"
 )
 
-type CertInfo struct {
+type certinfo struct {
 	ServerPk           [32]byte
 	SharedKey          [32]byte
 	MagicQuery         [xdns.ClientMagicLen]byte
@@ -45,10 +45,9 @@ type dnsExchangeResponse struct {
 	err      error
 }
 
-func FetchCurrentDNSCryptCert(proxy *DcMulti, serverName *string, pk ed25519.PublicKey,
-	serverAddress string, providerName string, relayTCPAddr *net.TCPAddr) (CertInfo, *net.TCPAddr, error) {
+func fetchCurrentDNSCryptCert(proxy *DcMulti, serverName *string, pk ed25519.PublicKey, serverAddress string, providerName string) (certinfo, error) {
 	if len(pk) != ed25519.PublicKeySize {
-		return CertInfo{}, nil, errors.New("invalid public key length")
+		return certinfo{}, errors.New("invalid public key length")
 	}
 	if !strings.HasSuffix(providerName, ".") {
 		providerName = providerName + "."
@@ -58,19 +57,17 @@ func FetchCurrentDNSCryptCert(proxy *DcMulti, serverName *string, pk ed25519.Pub
 	}
 	query := dns.Msg{}
 	query.SetQuestion(providerName, dns.TypeTXT)
-	var relayForCerts bool = true
 	if !strings.HasPrefix(providerName, "2.dnscrypt-cert.") {
 		log.W("dnscrypt: [%v] is not v2, ('%v' doesn't start with '2.dnscrypt-cert.')", *serverName, providerName)
-		relayForCerts = false
 	}
 	log.I("dnscrypt: [%v] Fetching DNSCrypt certificate for [%s] over [%v] at [%v]", *serverName, providerName, "udp", serverAddress)
-	in, rtt, relayTCPAddr, err := dnsExchange(proxy, &query, serverAddress, relayTCPAddr, serverName, relayForCerts)
+	in, rtt, err := dnsExchange(proxy, &query, serverAddress, serverName)
 	if err != nil {
 		log.W("dnscrypt: [%s] TIMEOUT %v", *serverName, err)
-		return CertInfo{}, nil, err
+		return certinfo{}, err
 	}
 	now := uint32(time.Now().Unix())
-	certInfo := CertInfo{CryptoConstruction: xdns.UndefinedConstruction}
+	certInfo := certinfo{CryptoConstruction: xdns.UndefinedConstruction}
 	highestSerial := uint32(0)
 	var certCountStr string
 	for _, answerRr := range in.Answer {
@@ -152,7 +149,7 @@ func FetchCurrentDNSCryptCert(proxy *DcMulti, serverName *string, pk ed25519.Pub
 		}
 		var serverPk [32]byte
 		copy(serverPk[:], binCert[72:104])
-		sharedKey := ComputeSharedKey(cryptoConstruction, &proxy.proxySecretKey, &serverPk, &providerName)
+		sharedKey := computeSharedKey(cryptoConstruction, &proxy.proxySecretKey, &serverPk, &providerName)
 		certInfo.SharedKey = sharedKey
 		highestSerial = serial
 		certInfo.CryptoConstruction = cryptoConstruction
@@ -162,12 +159,9 @@ func FetchCurrentDNSCryptCert(proxy *DcMulti, serverName *string, pk ed25519.Pub
 		certCountStr = " - additional certificate"
 	}
 	if certInfo.CryptoConstruction == xdns.UndefinedConstruction {
-		return certInfo, nil, errors.New("no useable cert found")
+		return certInfo, errors.New("no useable cert found")
 	}
-	if relayTCPAddr == nil {
-		log.W("dnscrypt: relays for %v not supported.", *serverName)
-	}
-	return certInfo, relayTCPAddr, nil
+	return certInfo, nil
 }
 
 func isDigit(b byte) bool { return b >= '0' && b <= '9' }
@@ -205,8 +199,7 @@ func packTxtString(s string) []byte {
 	return msg
 }
 
-func dnsExchange(proxy *DcMulti, query *dns.Msg, serverAddress string,
-	relayTCPAddr *net.TCPAddr, serverName *string, relayForCerts bool) (*dns.Msg, time.Duration, *net.TCPAddr, error) {
+func dnsExchange(proxy *DcMulti, query *dns.Msg, serverAddress string, serverName *string) (*dns.Msg, time.Duration, error) {
 
 	// always use udp to fetch certs since most servers like adguard, cleanbrowsing
 	// don't support fetching certs over tcp
@@ -223,7 +216,7 @@ func dnsExchange(proxy *DcMulti, query *dns.Msg, serverAddress string,
 		queryCopy := query.Copy()
 		queryCopy.Id += uint16(options)
 		go func(query *dns.Msg, delay time.Duration) {
-			option := _dnsExchange(proxy, proto, query, serverAddress, relayTCPAddr, minsz, relayForCerts)
+			option := _dnsExchange(proxy, proto, query, serverAddress, minsz)
 			option.priority = 0
 			channel <- option
 			time.Sleep(delay)
@@ -248,30 +241,27 @@ func dnsExchange(proxy *DcMulti, query *dns.Msg, serverAddress string,
 		}
 	}
 	if bestOption != nil {
-		log.D("dnscrypt: cert retrieval for [%v] succeeded via relay?", *serverName, relayForCerts)
-		return bestOption.response, bestOption.rtt, relayTCPAddr, nil
+		log.D("dnscrypt: cert retrieval for [%v] succeeded via relay?", *serverName)
+		return bestOption.response, bestOption.rtt, nil
 	}
 
-	log.I("dnscrypt: no cert, ignoring server: [%v] relay: [%v] proto: [%v]", *serverName, relayTCPAddr, proto)
+	log.I("dnscrypt: no cert, ignoring server: [%v] proto: [%v]", *serverName, proto)
 
 	if err == nil {
 		err = errors.New("unable to reach server to fetch certs")
 	}
 
-	return nil, 0, nil, err
+	return nil, 0, err
 }
 
-func _dnsExchange(proxy *DcMulti, proto string, query *dns.Msg, serverAddress string,
-	relayTCPAddr *net.TCPAddr, paddedLen int, relayForCerts bool) dnsExchangeResponse {
+func _dnsExchange(proxy *DcMulti, proto string, query *dns.Msg, serverAddress string, paddedLen int) dnsExchangeResponse {
 	var packet []byte
 	var rtt time.Duration
 
 	if proto == "udp" {
-		if relayForCerts {
-			// FIXME: udp relays do not support fetching certs over relays, and
-			// doing so leaks client's identity to the actual dns-crypt server!
-			log.W("dnscrypt: relay will not be used when fetching certs over udp")
-		}
+		// FIXME: udp relays do not support fetching certs over relays, and
+		// doing so leaks client's identity to the actual dns-crypt server!
+		log.V("dnscrypt: relay will not be used when fetching certs over udp")
 		qNameLen, padding := len(query.Question[0].Name), 0
 		if qNameLen < paddedLen {
 			padding = paddedLen - qNameLen

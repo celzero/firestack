@@ -36,26 +36,11 @@ const (
 	ReturnCodeSynth
 )
 
-type ReturnCode int
-
-var ReturnCodeToString = map[ReturnCode]string{
-	ReturnCodePass:  "PASS",
-	ReturnCodeSynth: "SYNTH",
+type intercept struct {
+	state *interceptstate
 }
 
-type Plugin interface {
-	HandleRequest([]byte, bool) ([]byte, error)
-	HandleResponse([]byte, bool) ([]byte, error)
-	getSetPayloadSize(*dns.Msg) error
-	blockUnqualified(*dns.Msg) error
-}
-
-type Intercept struct {
-	Plugin
-	state *InterceptState
-}
-
-type InterceptState struct {
+type interceptstate struct {
 	originalMaxPayloadSize           int
 	maxUnencryptedUDPSafePayloadSize int
 	maxPayloadSize                   int
@@ -69,7 +54,7 @@ type InterceptState struct {
 }
 
 // HandleRequest changes the incoming DNS question either to add padding to it or synthesize a pre-determined answer.
-func (ic *Intercept) HandleRequest(packet []byte, needsEDNS0Padding bool) ([]byte, error) {
+func (ic *intercept) handleRequest(packet []byte, needsEDNS0Padding bool) ([]byte, error) {
 	msg := dns.Msg{}
 	state := ic.state
 	if err := msg.Unpack(packet); err != nil {
@@ -109,8 +94,8 @@ func (ic *Intercept) HandleRequest(packet []byte, needsEDNS0Padding bool) ([]byt
 	return packet2, nil
 }
 
-// HandleResponse
-func (ic *Intercept) HandleResponse(packet []byte, truncate bool) ([]byte, error) {
+// handleResponse
+func (ic *intercept) handleResponse(packet []byte, truncate bool) ([]byte, error) {
 	state := ic.state
 	msg := dns.Msg{Compress: true}
 	if err := msg.Unpack(packet); err != nil {
@@ -139,7 +124,7 @@ func (ic *Intercept) HandleResponse(packet []byte, truncate bool) ([]byte, error
 }
 
 // GetSetPayloadSize adjusts the maximum payload size advertised in queries sent to upstream servers.
-func (ic *Intercept) getSetPayloadSize(msg *dns.Msg) error {
+func (ic *intercept) getSetPayloadSize(msg *dns.Msg) error {
 	state := ic.state
 
 	if state.action != ActionContinue {
@@ -182,7 +167,7 @@ func (ic *Intercept) getSetPayloadSize(msg *dns.Msg) error {
 }
 
 // BlockUnqualified blocks unqualified DNS names.
-func (ic *Intercept) blockUnqualified(msg *dns.Msg) error {
+func (ic *intercept) blockUnqualified(msg *dns.Msg) error {
 	state := ic.state
 
 	if state.action != ActionContinue {
@@ -209,14 +194,14 @@ func (ic *Intercept) blockUnqualified(msg *dns.Msg) error {
 	return nil
 }
 
-func NewIntercept() *Intercept {
-	return &Intercept{
-		state: NewInterceptState(),
+func newIntercept() *intercept {
+	return &intercept{
+		state: newInterceptState(),
 	}
 }
 
-func NewInterceptState() *InterceptState {
-	return &InterceptState{
+func newInterceptState() *interceptstate {
+	return &interceptstate{
 		action:                           ActionContinue,
 		returnCode:                       ReturnCodePass,
 		maxPayloadSize:                   xdns.MaxDNSUDPPacketSize - ResponseOverhead,

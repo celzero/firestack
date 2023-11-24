@@ -46,7 +46,7 @@ type DcMulti struct {
 	certRefreshDelay             time.Duration
 	certRefreshDelayAfterFailure time.Duration
 	certIgnoreTimestamp          bool
-	registeredServers            map[string]RegisteredServer
+	registeredServers            map[string]registeredserver
 	routes                       []string
 	liveServers                  []string
 	proxies                      ipn.Proxies
@@ -77,7 +77,7 @@ var (
 	errStarted         = errors.New("dnscrypt: already started")
 )
 
-func exchangeWithUDPServer(pid string, serverInfo *ServerInfo, sharedKey *[32]byte, encryptedQuery []byte, clientNonce []byte) ([]byte, error) {
+func udpExchange(pid string, serverInfo *serverinfo, sharedKey *[32]byte, encryptedQuery []byte, clientNonce []byte) ([]byte, error) {
 	upstreamAddr := serverInfo.UDPAddr
 	if serverInfo.RelayUDPAddr != nil {
 		upstreamAddr = serverInfo.RelayUDPAddr
@@ -118,10 +118,10 @@ func exchangeWithUDPServer(pid string, serverInfo *ServerInfo, sharedKey *[32]by
 		}
 		log.D("dnscrypt: udp: [%s] read err; retry [%v]", serverInfo.Name, err)
 	}
-	return Decrypt(serverInfo, sharedKey, encryptedResponse, clientNonce)
+	return decrypt(serverInfo, sharedKey, encryptedResponse, clientNonce)
 }
 
-func exchangeWithTCPServer(pid string, serverInfo *ServerInfo, sharedKey *[32]byte, encryptedQuery []byte, clientNonce []byte) ([]byte, error) {
+func tcpExchange(pid string, serverInfo *serverinfo, sharedKey *[32]byte, encryptedQuery []byte, clientNonce []byte) ([]byte, error) {
 	upstreamAddr := serverInfo.TCPAddr
 	if serverInfo.RelayTCPAddr != nil {
 		upstreamAddr = serverInfo.RelayTCPAddr
@@ -154,7 +154,7 @@ func exchangeWithTCPServer(pid string, serverInfo *ServerInfo, sharedKey *[32]by
 		log.E("dnscrypt: tcp: read(enc) %s err %v", serverInfo, err)
 		return nil, err
 	}
-	return Decrypt(serverInfo, sharedKey, encryptedResponse, clientNonce)
+	return decrypt(serverInfo, sharedKey, encryptedResponse, clientNonce)
 }
 
 func prepareForRelay(ip net.IP, port int, eq *[]byte) {
@@ -167,18 +167,18 @@ func prepareForRelay(ip net.IP, port int, eq *[]byte) {
 	*eq = relayedQuery
 }
 
-func query(pid string, packet []byte, serverInfo *ServerInfo, useudp bool) (response []byte, qerr *dnsx.QueryError) {
+func query(pid string, packet []byte, serverInfo *serverinfo, useudp bool) (response []byte, qerr *dnsx.QueryError) {
 	if len(packet) < xdns.MinDNSPacketSize {
 		qerr = dnsx.NewBadQueryError(errQueryTooShort)
 		return
 	}
 
-	intercept := NewIntercept()
+	intercept := newIntercept()
 	// serverName := "-"
 	// needsEDNS0Padding = (serverInfo.Proto == stamps.StampProtoTypeDoH || serverInfo.Proto == stamps.StampProtoTypeTLS)
 	needsEDNS0Padding := false
 
-	query, err := intercept.HandleRequest(packet, needsEDNS0Padding)
+	query, err := intercept.handleRequest(packet, needsEDNS0Padding)
 	state := intercept.state
 
 	saction := state.action
@@ -216,7 +216,7 @@ func query(pid string, packet []byte, serverInfo *ServerInfo, useudp bool) (resp
 	}
 
 	if serverInfo.Proto == stamps.StampProtoTypeDNSCrypt {
-		sharedKey, encryptedQuery, clientNonce, err := Encrypt(serverInfo, query, useudp)
+		sharedKey, encryptedQuery, clientNonce, err := encrypt(serverInfo, query, useudp)
 
 		if err != nil {
 			log.W("dnscrypt: enc fail forwarding to %s", serverInfo)
@@ -225,7 +225,7 @@ func query(pid string, packet []byte, serverInfo *ServerInfo, useudp bool) (resp
 		}
 
 		if useudp {
-			response, err = exchangeWithUDPServer(pid, serverInfo, sharedKey, encryptedQuery, clientNonce)
+			response, err = udpExchange(pid, serverInfo, sharedKey, encryptedQuery, clientNonce)
 		}
 		tcpfallback := useudp && err != nil
 		if tcpfallback {
@@ -234,7 +234,7 @@ func query(pid string, packet []byte, serverInfo *ServerInfo, useudp bool) (resp
 		// if udp errored out, try over tcp; or use tcp if udp is disabled
 		if tcpfallback || !useudp {
 			useudp = false // switched to tcp
-			response, err = exchangeWithTCPServer(pid, serverInfo, sharedKey, encryptedQuery, clientNonce)
+			response, err = tcpExchange(pid, serverInfo, sharedKey, encryptedQuery, clientNonce)
 		}
 
 		if err != nil {
@@ -257,7 +257,7 @@ func query(pid string, packet []byte, serverInfo *ServerInfo, useudp bool) (resp
 		return
 	}
 
-	response, err = intercept.HandleResponse(response, useudp)
+	response, err = intercept.handleResponse(response, useudp)
 
 	if err != nil {
 		log.E("dnscrypt: err intercept response for %s: %w", serverInfo, err)
@@ -279,7 +279,7 @@ func query(pid string, packet []byte, serverInfo *ServerInfo, useudp bool) (resp
 }
 
 // resolve resolves incoming DNS query, data
-func resolve(network string, data []byte, si *ServerInfo, smm *dnsx.Summary) (response []byte, err error) {
+func resolve(network string, data []byte, si *serverinfo, smm *dnsx.Summary) (response []byte, err error) {
 	var qerr *dnsx.QueryError
 
 	before := time.Now()
@@ -487,7 +487,7 @@ func (proxy *DcMulti) addOne(uid, rawstamp string) (string, error) {
 		// TODO: Implement doh
 		return uid, fmt.Errorf("dnscrypt: doh not supported %s", rawstamp)
 	}
-	proxy.registeredServers[uid] = RegisteredServer{name: uid, stamp: stamp}
+	proxy.registeredServers[uid] = registeredserver{name: uid, stamp: stamp}
 	return uid, nil
 }
 
@@ -556,11 +556,11 @@ func (p *DcMulti) Status() int {
 func NewDcMult(px ipn.Proxies, ctl protect.Controller) *DcMulti {
 	return &DcMulti{
 		routes:                       nil,
-		registeredServers:            make(map[string]RegisteredServer),
+		registeredServers:            make(map[string]registeredserver),
 		certRefreshDelay:             240 * time.Minute,
 		certRefreshDelayAfterFailure: 10 * time.Second,
 		certIgnoreTimestamp:          false,
-		serversInfo:                  NewServersInfo(),
+		serversInfo:                  newServersInfo(),
 		liveServers:                  nil,
 		lastStatus:                   dnsx.Start,
 		proxies:                      px,
