@@ -309,16 +309,23 @@ func (t *ctransport) fetch(network string, q []byte, msg *dns.Msg, summary *Summ
 
 		v, _ := t.reqbarrier.Do(key, func() (any, error) {
 			ans, err := t.Transport.Query(network, q, fsmm)
+			// cb.put no-ops when len(ans) is 0
 			cb.put(key, ans, fsmm)
+			// cres.ans may be nil
 			return &cres{ans: xdns.AsMsg(ans), s: fsmm.Copy()}, err
 		})
 
-		cachedres, fresh := cb.freshCopy(key) // expect always fresh
-		if cachedres == nil {
-			cachedres = v.Val.(*cres)
-			log.W("cache: barrier: empty(%s); %s", key, cachedres)
-		} else if !fresh {
+		cachedres, fresh := cb.freshCopy(key) // always prefer value from cache
+		if cachedres == nil {                 // use barrier response
+			var ok bool
+			cachedres, ok = v.Val.(*cres) // never nil, even on errs; but cres.ans may be nil
+			log.W("cache: barrier: empty(%s); %s; typecast? %t", key, cachedres, ok)
+		} else if !fresh { // expect fresh values, except on verrs
 			log.W("cache: barrier: stale(%s); barrier: %s (cache: %s)", key, v.String(), cachedres.String())
+		}
+
+		if cachedres == nil { // nil iff typecast above fails
+			return nil, errCacheResponseEmpty
 		}
 
 		fres, cachedsmm, ferr := asResponse(msg, cachedres, true)
