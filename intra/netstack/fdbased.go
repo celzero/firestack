@@ -58,6 +58,7 @@ type fdInfo struct {
 }
 
 type endpoint struct {
+	sync.RWMutex
 	// fds is the set of file descriptors each identifying one inbound/outbound
 	// channel. The endpoint will dispatch from all inbound channels as well as
 	// hash outbound packets to specific channels based on the packet hash.
@@ -216,11 +217,11 @@ func NewFdbasedInjectableEndpoint(opts *Options) (stack.LinkEndpoint, error) {
 
 		e.fds = append(e.fds, fdInfo{fd: fd})
 
-		inboundDispatcher, err := createInboundDispatcher(e, fd, fid)
+		d, err := createInboundDispatcher(e, fd, fid)
 		if err != nil {
 			return nil, fmt.Errorf("createInboundDispatcher(...) = %v", err)
 		}
-		e.inboundDispatchers = append(e.inboundDispatchers, inboundDispatcher)
+		e.inboundDispatchers = append(e.inboundDispatchers, d)
 	}
 
 	return e, nil
@@ -229,22 +230,25 @@ func NewFdbasedInjectableEndpoint(opts *Options) (stack.LinkEndpoint, error) {
 func createInboundDispatcher(e *endpoint, fd int, fID int32) (linkDispatcher, error) {
 	// By default use the readv() dispatcher as it works with all kinds of
 	// FDs (tap/tun/unix domain sockets and af_packet).
-	inboundDispatcher, err := newReadVDispatcher(fd, e)
+	d, err := newReadVDispatcher(fd, e)
 	if err != nil {
 		return nil, fmt.Errorf("newReadVDispatcher(%d, %+v) = %v", fd, e, err)
 	}
-	return inboundDispatcher, nil
+	return d, nil
 }
 
 // Attach launches the goroutine that reads packets from the file descriptor and
 // dispatches them via the provided dispatcher.
 func (e *endpoint) Attach(dispatcher stack.NetworkDispatcher) {
+	e.Lock()
+	defer e.Unlock()
+
 	// Attach is called when the NIC is being created and then enabled.
 	// stack.CreateNIC -> nic.newNIC -> ep.Attach
 	// nil means the NIC is being removed.
 	if dispatcher == nil && e.dispatcher != nil {
-		for _, dispatcher := range e.inboundDispatchers {
-			dispatcher.stop()
+		for _, d := range e.inboundDispatchers {
+			d.stop()
 		}
 		e.Wait()
 		e.dispatcher = nil
@@ -262,11 +266,15 @@ func (e *endpoint) Attach(dispatcher stack.NetworkDispatcher) {
 				e.wg.Done()
 			}(i)
 		}
+		return
 	}
 }
 
 // IsAttached implements stack.LinkEndpoint.IsAttached.
 func (e *endpoint) IsAttached() bool {
+	e.RLock()
+	defer e.RUnlock()
+
 	return e.dispatcher != nil
 }
 
@@ -379,9 +387,9 @@ func (e *endpoint) WritePackets(pkts stack.PacketBufferList) (int, tcpip.Error) 
 
 // dispatchLoop reads packets from the file descriptor in a loop and dispatches
 // them to the network stack.
-func (e *endpoint) dispatchLoop(inboundDispatcher linkDispatcher) tcpip.Error {
+func (e *endpoint) dispatchLoop(inbound linkDispatcher) tcpip.Error {
 	for {
-		cont, err := inboundDispatcher.dispatch()
+		cont, err := inbound.dispatch()
 		if err != nil || !cont {
 			log.I("ns.e.dispatchLoop: exit; err(%v)", err)
 			return err
@@ -400,7 +408,7 @@ func (e *endpoint) ARPHardwareType() header.ARPHardwareType {
 // InjectInbound ingresses a netstack-inbound packet.
 func (e *endpoint) InjectInbound(protocol tcpip.NetworkProtocolNumber, pkt stack.PacketBufferPtr) {
 	log.V("ns.e.inject-inbound(from-tun) %d", protocol)
-	d := e.dispatcher
+	d := e.dispatcher // TODO: read lock?
 	if d != nil {
 		e.logPacketIfNeeded(sniffer.DirectionRecv, pkt)
 		d.DeliverNetworkPacket(protocol, pkt)
