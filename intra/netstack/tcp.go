@@ -50,6 +50,10 @@ func setupTcpHandler(s *stack.Stack, h GTCPConnHandler) {
 // ref: github.com/google/gvisor/blob/e89e736f1/pkg/tcpip/adapters/gonet/gonet_test.go#L189
 func NewTCPForwarder(s *stack.Stack, h GTCPConnHandler) *tcp.Forwarder {
 	return tcp.NewForwarder(s, rcvwnd, maxInFlight, func(request *tcp.ForwarderRequest) {
+		if request == nil {
+			log.E("ns.tcp.forwarder: nil request")
+			return
+		}
 		id := request.ID()
 		// src 10.111.222.1:38312
 		src := remoteTCPAddr(id)

@@ -77,6 +77,10 @@ func setupUdpHandler(s *stack.Stack, h GUDPConnHandler) {
 // but: github.com/google/gvisor/blob/be6ffa7/pkg/tcpip/transport/udp/endpoint.go#L180
 func NewUDPForwarder(s *stack.Stack, h GUDPConnHandler) *udp.Forwarder {
 	return udp.NewForwarder(s, func(request *udp.ForwarderRequest) {
+		if request == nil {
+			log.E("ns.udp.forwarder: nil request")
+			return
+		}
 		id := request.ID()
 
 		// src 10.111.222.1:20716; same as endpoint.GetRemoteAddress
@@ -154,11 +158,10 @@ func (g *GUDPConn) ok() bool {
 }
 
 func (g *GUDPConn) StatefulTeardown() (fin bool) {
-	if g.ok() {
-		return g.Close() == nil
+	if !g.ok() {
+		g.Connect(false) // establish circuit
 	}
 
-	g.Connect(false)        // establish circuit
 	return g.Close() == nil // then fin
 }
 
