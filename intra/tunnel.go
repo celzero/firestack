@@ -56,11 +56,11 @@ type Listener interface {
 type Tunnel interface {
 	tunnel.Tunnel
 	// Get the resolver.
-	GetResolver() dnsx.Resolver
-	// Set DNSMode, BlockMode, PtMode.
-	SetTunMode(dnsmode, blockmode, ptmode int)
+	GetResolver() (dnsx.Resolver, error)
 	// Get proxies.
-	GetProxies() ipn.Proxies
+	GetProxies() (ipn.Proxies, error)
+	// A bridge to the client code.
+	getBridge() Bridge
 	// Sets new default routes for the given engine, where engine is
 	// one of the constants (Ns4, Ns6, Ns46) defined in package settings.
 	SetRoute(engine int) error
@@ -69,8 +69,8 @@ type Tunnel interface {
 	// If len(fpcap) is 0, no PCAP file will be written.
 	// If len(fpcap) is 1, PCAP be written to stdout.
 	SetPcap(fpcap string) error
-	// A bridge to the client code.
-	getBridge() Bridge
+	// Set DNSMode, BlockMode, PtMode.
+	SetTunMode(dnsmode, blockmode, ptmode int)
 }
 
 type rtunnel struct {
@@ -167,16 +167,43 @@ func (t *rtunnel) SetRoute(engine int) error {
 	return t.Tunnel.SetRoute(engine)
 }
 
-func (t *rtunnel) GetResolver() dnsx.Resolver {
-	return t.resolver
+func (t *rtunnel) GetResolver() (dnsx.Resolver, error) {
+	t.clomu.RLock()
+	closed := t.closed
+	t.clomu.RUnlock()
+
+	if closed || t.resolver == nil {
+		log.W("tun: <<< get resolver >>>; already closed? %t / %t", closed, t.resolver == nil)
+		return nil, errClosed
+	}
+
+	return t.resolver, nil
 }
 
-func (t *rtunnel) GetProxies() ipn.Proxies {
-	return t.proxies
+func (t *rtunnel) GetProxies() (ipn.Proxies, error) {
+	t.clomu.RLock()
+	closed := t.closed
+	t.clomu.RUnlock()
+
+	if closed || t.proxies == nil {
+		log.W("tun: <<< get proxies >>>; already closed; %t / %t", closed, t.proxies == nil)
+		return nil, errClosed
+	}
+
+	return t.proxies, nil
 }
 
-func (t *rtunnel) GetServices() rnet.Services {
-	return t.services
+func (t *rtunnel) GetServices() (rnet.Services, error) {
+	t.clomu.RLock()
+	closed := t.closed
+	t.clomu.RUnlock()
+
+	if closed || t.proxies == nil {
+		log.W("tun: <<< get svc >>>; already closed; %t / %t", closed, t.services == nil)
+		return nil, errClosed
+	}
+
+	return t.services, nil
 }
 
 func (t *rtunnel) SetTunMode(dnsmode, blockmode, ptmode int) {
