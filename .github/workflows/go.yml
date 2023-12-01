@@ -19,10 +19,7 @@ jobs:
 
     - name: Build
       run: |
-        ./make-aar
-        # go vet ./... fails: archive.is/XcDl6
-        go install go.uber.org/nilaway/cmd/nilaway@latest
-        nilaway ./...
+        ./make-aar nogo
       shell: bash
 
     - name: Test
@@ -30,6 +27,13 @@ jobs:
       run: |
         # go test -v -race -bench=. -benchtime=100ms ./...
         echo "::notice::success"
+
+    - name: Vet
+      run: |
+        # go vet ./... fails: archive.is/XcDl6
+        go install go.uber.org/nilaway/cmd/nilaway@latest
+        go run nilaway ./...
+      shell: bash
 
       # github.com/actions/upload-artifact
     - name: Upload artifacts
