@@ -79,13 +79,19 @@ func Up(s *stack.Stack, ep stack.LinkEndpoint, h GConnHandler) error {
 	// fetch existing routes before adding removing nic, which wipes out routes
 	existingroutes := s.GetRouteTable()
 	newnic := false
-	// also closes its link endpoints, if any
+	// also closes its netstack protos (ip4, ip6), closes link-endpoint (ep), if any
 	if ferr := s.RemoveNIC(nic); ferr != nil {
 		_, newnic = ferr.(*tcpip.ErrUnknownNICID)
 		log.I("netstack: remove nic? %t; err(%v)", newnic, ferr)
 	} else {
 		log.I("netstack: removed nic(%d)", nic)
 	}
+
+	// TODO? Pause and resume?
+	// if newnic {
+	//	s.Pause()
+	//	defer s.Resume()
+	// }
 
 	// TODO: setup protocol opts?
 	// github.com/google/gvisor/blob/ef9e8d91/test/benchmarks/tcp/tcp_proxy.go#L233
@@ -116,7 +122,8 @@ func Up(s *stack.Stack, ep stack.LinkEndpoint, h GConnHandler) error {
 		setupUdpHandler(s, h.UDP())
 	}
 
-	// creates and enables a fake nic and attaches netstack to it
+	// creates and enables a fake nic for netstack s
+	// netstack protos (ip4, ip6) enabled and ep is attached to nic
 	if nerr := e(s.CreateNIC(nic, ep)); nerr != nil {
 		return nerr
 	}
@@ -152,6 +159,9 @@ func e(err tcpip.Error) error {
 }
 
 func Route(s *stack.Stack, l3 string) {
+	// TODO? s.Pause()
+	// defer s.Resume()
+
 	switch l3 {
 	case settings.IP46:
 		s.SetRouteTable([]tcpip.Route{
