@@ -17,6 +17,11 @@ jobs:
     - name: Checkout
       uses: actions/checkout@v3
 
+    - name: Setup go1.21+
+      uses: actions/setup-go@v4
+      with:
+        go-version: '>=1.21'
+
     - name: Build
       run: |
         ./make-aar nogo
