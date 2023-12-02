@@ -22,24 +22,28 @@ BOUTARM="${BOUTARM:-build/intra/tun2socks-arm.aar}"
 CLASSARM="${CLASSARM:-arm64}"
 SOURCES="${SOURCES:-build/intra/tun2socks-sources.jar}"
 
+ARG1="${1:-go}"
+
 # debug
 printenv
 ls -ltr $ANDROID_HOME/**
 
-# download from go.dev/dl
-curl -Lso go.tar.gz https://go.dev/dl/go1.21.4.linux-amd64.tar.gz
-echo "73cac0215254d0c7d1241fa40837851f3b9a8a742d0b54714cbdfb3feaf8f0af go.tar.gz" | sha256sum -c -
+if [ "$ARG1" = "go" ]; then
+  # download from go.dev/dl
+  curl -Lso go.tar.gz https://go.dev/dl/go1.21.4.linux-amd64.tar.gz
+  echo "73cac0215254d0c7d1241fa40837851f3b9a8a742d0b54714cbdfb3feaf8f0af go.tar.gz" | sha256sum -c -
 
-# HOME=/home/jitpack
-# PWD=/home/jitpack/build
-# setup go, /opt isn't writeable
-export GOPATH="$HOME/golang"
-mkdir -p $GOPATH
-# golang in pwd confuses "go mod", as firestack source is in the same dir
-tar -C $GOPATH -xzf go.tar.gz
-export GO_LANG="$GOPATH/go/bin"
-export GO_COMPILED="$GOPATH/bin"
-export PATH="$GO_LANG:$GO_COMPILED:$PATH"
+  # HOME=/home/jitpack
+  # PWD=/home/jitpack/build
+  # setup go, /opt isn't writeable
+  export GOPATH="$HOME/golang"
+  mkdir -p $GOPATH
+  # golang in pwd confuses "go mod", as firestack source is in the same dir
+  tar -C $GOPATH -xzf go.tar.gz
+  export GO_LANG="$GOPATH/go/bin"
+  export GO_COMPILED="$GOPATH/bin"
+  export PATH="$GO_LANG:$GO_COMPILED:$PATH"
+fi
 
 # go debug
 go version
