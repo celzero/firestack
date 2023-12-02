@@ -6,7 +6,7 @@
 package netstack
 
 import (
-	"errors"
+	"io"
 	"net"
 	"time"
 
@@ -22,10 +22,6 @@ import (
 // ref: github.com/tailscale/tailscale/blob/cfb5bd0559/wgengine/netstack/netstack.go#L236-L237
 const rcvwnd = 0
 const maxInFlight = 128
-
-var (
-	errNoOp = errors.New("unimpl for gtcpconn")
-)
 
 type GTCPConnHandler interface {
 	Proxy(conn *GTCPConn, src, dst *net.TCPAddr) bool
@@ -85,11 +81,12 @@ func (g *GTCPConn) ok() bool {
 
 func (g *GTCPConn) StatefulTeardown() (rst bool) {
 	if g.ok() {
-		return g.Close() == nil
+		g.Close() // g.TCPConn.Close error always nil
+	} else {
+		g.synack()           // establish circuit
+		g.req.Complete(true) // then rst
 	}
-	g.synack()           // establish circuit
-	g.req.Complete(true) // then rst
-	return true
+	return true // always rst
 }
 
 func (g *GTCPConn) Connect(rst bool) (open bool) {
@@ -151,35 +148,52 @@ func (g *GTCPConn) RemoteAddr() net.Addr {
 	return g.dst
 }
 
-// Sent will be called when sent data has been acknowledged by peer.
-func (*GTCPConn) Sent(len uint16) error {
-	// no-op
-	return errNoOp
+func (g *GTCPConn) Write(data []byte) (int, error) {
+	if !g.ok() {
+		return 0, g.netError("write", io.EOF)
+	}
+	return g.TCPConn.Write(data)
+}
+func (g *GTCPConn) Read(data []byte) (int, error) {
+	if !g.ok() {
+		return 0, g.netError("read", io.EOF)
+	}
+	return g.TCPConn.Read(data)
 }
 
-// Receive will be called when data arrives from TUN.
-func (*GTCPConn) Receive(data []byte) error {
-	// no-op
-	return errNoOp
+func (g *GTCPConn) CloseWrite() error {
+	if !g.ok() {
+		return g.netError("close", net.ErrClosed)
+	}
+	return g.TCPConn.CloseWrite()
 }
 
-// Err will be called when a fatal error has occurred on the connection.
-// The corresponding pcb is already freed when this callback is called
-func (*GTCPConn) Err(err error) {
-	// no-op
+func (g *GTCPConn) CloseRead() error {
+	if !g.ok() {
+		return g.netError("close", net.ErrClosed)
+	}
+	return g.TCPConn.CloseRead()
 }
 
-// LocalClosed will be called when underlying stack
-// receives a FIN segment on a connection.
-func (*GTCPConn) LocalClosed() error {
-	// no-op
-	return nil
+func (g *GTCPConn) SetDeadline(t time.Time) error {
+	if g.ok() {
+		return g.TCPConn.SetDeadline(t)
+	}
+	return nil // no-op to confirm with netstack's gonet impl
 }
 
-// Poll will be periodically called by TCP timers.
-func (*GTCPConn) Poll() error {
-	// no-op
-	return nil
+func (g *GTCPConn) SetReadDeadline(t time.Time) error {
+	if g.ok() {
+		return g.TCPConn.SetReadDeadline(t)
+	}
+	return nil // no-op to confirm with netstack's gonet impl
+}
+
+func (g *GTCPConn) SetWriteDeadline(t time.Time) error {
+	if g.ok() {
+		return g.TCPConn.SetWriteDeadline(t)
+	}
+	return nil // no-op to confirm with netstack's gonet impl
 }
 
 // Abort aborts the connection by sending a RST segment.
@@ -202,7 +216,18 @@ func (g GTCPConn) Close() error {
 	}
 	if c != nil {
 		c.SetDeadline(time.Now().Add(-1))
-		return c.Close()
+		return c.Close() // always returns nil; see gonet.TCPConn.Close
 	}
 	return nil
+}
+
+// from: netstack gonet
+func (c *GTCPConn) netError(op string, err error) *net.OpError {
+	return &net.OpError{
+		Op:     op,
+		Net:    "tcp",
+		Source: c.LocalAddr(),
+		Addr:   c.RemoteAddr(),
+		Err:    err,
+	}
 }
