@@ -26,6 +26,7 @@ package netstack
 
 import (
 	"fmt"
+	"sync/atomic"
 	"syscall"
 
 	"github.com/celzero/firestack/intra/log"
@@ -157,6 +158,9 @@ type readVDispatcher struct {
 
 	// buf is the iovec buffer that contains the packet contents.
 	buf *iovecBuffer
+
+	// closed is set to true when fd is closed.
+	closed atomic.Bool
 }
 
 var _ linkDispatcher = (*readVDispatcher)(nil)
@@ -177,8 +181,9 @@ func newReadVDispatcher(fd int, e *endpoint) (linkDispatcher, error) {
 }
 
 func (d *readVDispatcher) stop() {
+	d.closed.Store(true)
 	d.stopFd.stop()
-	// TODO: should close tun fd before stopFd?
+	// TODO? should close tun-fd before stopFd
 	err := syscall.Close(d.fd)
 	log.I("ns.dispatchers.stop: fds closed event(%d) tun(%d); err? %v", d.efd, d.fd, err)
 }
@@ -188,11 +193,24 @@ const cont = true   // cont indicates that the dispatcher should continue delive
 
 // dispatch reads one packet from the file descriptor and dispatches it.
 func (d *readVDispatcher) dispatch() (bool, tcpip.Error) {
-	log.V("ns.dispatchers.dispatch: resume")
-	n, err := rawfile.BlockingReadvUntilStopped(d.efd, d.fd, d.buf.nextIovecs())
-	log.V("ns.dispatchers.dispatch: got(%d bytes), err(%v)", n, err)
+	done := d.closed.Load()
+	log.V("ns.dispatchers.dispatch: resume? %t", done)
+	if done {
+		return abort, new(tcpip.ErrAborted)
+	}
 
+	iov := d.buf.nextIovecs()
+	if len(iov) == 0 {
+		return abort, new(tcpip.ErrBadBuffer)
+	}
+
+	n, err := rawfile.BlockingReadvUntilStopped(d.efd, d.fd, iov)
+
+	log.V("ns.dispatchers.dispatch: got(%d bytes), err(%v)", n, err)
 	if n <= 0 || err != nil {
+		if err == nil {
+			err = new(tcpip.ErrNoSuchFile)
+		}
 		return abort, err
 	}
 
@@ -206,7 +224,7 @@ func (d *readVDispatcher) dispatch() (bool, tcpip.Error) {
 		hdr, ok := pkt.LinkHeader().Consume(d.e.hdrSize)
 		if !ok {
 			pkt.DecRef()
-			return abort, nil
+			return cont, nil
 		}
 		p = header.Ethernet(hdr).Type()
 	} else {
