@@ -212,8 +212,11 @@ func (h *tcpHandler) onFlow(localaddr *net.TCPAddr, target *net.TCPAddr, realips
 	dst := target.String()
 	res := h.listener.Flow(proto, uid, src, dst, realips, domains, probableDomains, blocklists)
 
-	if len(res.PID) <= 0 {
-		log.W("tcp: empty flow from kt; using base")
+	if res == nil {
+		log.W("tcp: onFlow: empty res from kt; using base")
+		return optionsBase
+	} else if len(res.PID) <= 0 {
+		log.W("tcp: onFlow: no pid from kt; using base")
 		res.PID = ipn.Base
 	}
 

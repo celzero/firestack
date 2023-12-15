@@ -25,6 +25,7 @@ package intra
 
 import (
 	"errors"
+	"fmt"
 	"sync"
 
 	"github.com/celzero/firestack/intra/dnsx"
@@ -85,6 +86,9 @@ type rtunnel struct {
 }
 
 func NewTunnel(fd, mtu int, fakedns string, tunmode *settings.TunMode, dtr DefaultDNS, bdg Bridge) (Tunnel, error) {
+	if bdg == nil || dtr == nil {
+		return nil, fmt.Errorf("tun: no bridge? %t or default-dns? %t", bdg == nil, dtr == nil)
+	}
 	l3 := tunmode.L3()
 
 	natpt := x64.NewNatPt(tunmode)
