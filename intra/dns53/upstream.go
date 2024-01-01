@@ -50,6 +50,7 @@ type transport struct {
 var _ dnsx.Transport = (*transport)(nil)
 
 func NewTransportFromHostname(id, hostname string, ipcsv string, px ipn.Proxies, ctl protect.Controller) (t dnsx.Transport, err error) {
+	// ipcsv may contain port, eg: 10.1.1.3:53
 	do, err := settings.NewDNSOptionsFromHostname(hostname, ipcsv)
 	if err != nil {
 		return
@@ -79,7 +80,7 @@ func newTransport(id string, do *settings.DNSOptions, px ipn.Proxies, ctl protec
 	d := protect.MakeNsRDial(id, ctl)
 	tx := &transport{
 		id:      id,
-		addr:    do.Addr(), // may be host:port or ip:port
+		addr:    do.Addr(), // may be hostname:port or ip:port
 		status:  dnsx.Start,
 		dialer:  d,
 		proxies: px,    // may be nil; see above

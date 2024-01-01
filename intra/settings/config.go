@@ -153,7 +153,7 @@ func (d *DNSOptions) Addr() string {
 }
 
 func (d *DNSOptions) ResolvedAddrs() string {
-	return d.hostips
+	return d.hostips // TODO: may be ip:port
 }
 
 // Parse ip and port; where ip can be either ip:port or ip
@@ -212,7 +212,7 @@ func NewDNSOptionsFromHostname(hostname, ipcsv string) (*DNSOptions, error) {
 
 	return &DNSOptions{
 		hostport: net.JoinHostPort(domain, port),
-		hostips:  ipcsv, // may be empty
+		hostips:  ipcsv, // may be empty, and may be ip:port
 	}, nil
 }
 

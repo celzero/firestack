@@ -197,6 +197,15 @@ func (s *IPSet) bootstrap() {
 	for _, ipstr := range s.seed {
 		if ip, err := netip.ParseAddr(ipstr); err == nil {
 			s.addLocked(ip)
+		} else {
+			log.W("ipmap: bootstrap: invalid ipstr %s: %v", ipstr, err)
+			if ipstr2, _, err := net.SplitHostPort(ipstr); err == nil {
+				if ip2, err := netip.ParseAddr(ipstr2); err == nil {
+					s.addLocked(ip2)
+				} else {
+					log.W("ipmap: bootstrap: invalid ipstr2 %s: %v", ipstr2, err)
+				}
+			}
 		}
 	}
 	s.Unlock()
