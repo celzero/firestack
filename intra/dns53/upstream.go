@@ -196,23 +196,23 @@ func (t *transport) send(network, pid string, q []byte) (response []byte, elapse
 			conn, err = t.dial(network)
 		}
 	}
-	if err == nil {
-		// TODO: conn pooling w/ ExchangeWithConn
+
+	if err == nil { // send query
 		ans, elapsed, err = t.client.ExchangeWithConn(msg, conn)
-		conn.Close()
-	}
-
-	if err != nil {
-		qerr = dnsx.NewSendFailedQueryError(err)
+		conn.Close() // TODO: conn pooling w/ ExchangeWithConn
+		if err != nil {
+			qerr = dnsx.NewSendFailedQueryError(err)
+		} else {
+			response, err = ans.Pack()
+			if err != nil { // cannot dial or err packing
+				qerr = dnsx.NewBadResponseQueryError(err)
+			}
+		}
+		return
+	} else {
+		qerr = dnsx.NewClientQueryError(err)
 		return
 	}
-
-	response, err = ans.Pack()
-	if err != nil {
-		qerr = dnsx.NewBadResponseQueryError(err)
-		return
-	}
-	return
 }
 
 func (t *transport) Query(network string, q []byte, smm *dnsx.Summary) (r []byte, err error) {
