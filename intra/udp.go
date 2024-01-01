@@ -299,10 +299,10 @@ func (h *udpHandler) onFlow(localudp core.UDPConn, target *net.UDPAddr, realips,
 	res := h.listener.Flow(proto, uid, src, dst, realips, domains, probableDomains, blocklists)
 
 	if res == nil {
-		log.W("udp: flow: empty res from kt; optbase")
+		log.W("udp: onFlow: empty res from kt; optbase")
 		return optionsBase
 	} else if len(res.PID) <= 0 {
-		log.W("udp: flow: no pid from kt; using base")
+		log.W("udp: onFlow: no pid from kt; using base")
 		res.PID = ipn.Base
 	}
 

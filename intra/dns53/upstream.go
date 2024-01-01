@@ -149,6 +149,7 @@ func (t *transport) pxdial(network, pid string) (conn *dns.Conn, err error) {
 	if err != nil {
 		return
 	} else if pxconn == nil {
+		log.E("dns53: pxdial: (%s) no %s conn for relay/proxy %s at %s", t.id, network, px.ID(), px.GetAddr())
 		err = errNoNet
 		return
 	}
