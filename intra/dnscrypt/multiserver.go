@@ -75,6 +75,7 @@ var (
 	errIncorrectTag    = errors.New("dnscrypt: incorrect tag")
 	errIncorrectPad    = errors.New("dnscrypt: incorrect padding")
 	errStarted         = errors.New("dnscrypt: already started")
+	errNoConn          = errors.New("dnscrypt: no connection")
 )
 
 func udpExchange(pid string, serverInfo *serverinfo, sharedKey *[32]byte, encryptedQuery []byte, clientNonce []byte) ([]byte, error) {

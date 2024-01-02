@@ -64,7 +64,7 @@ func splitIpConnect(d *protect.RDial, proto string, ip netip.Addr, port int) (ne
 func commondial(d *protect.RDial, network, addr string, connect connectFunc) (net.Conn, error) {
 	start := time.Now()
 
-	log.D("rdial: commondial: dialing %s", addr)
+	log.D("rdial: commondial: dialing (host:port) %s", addr)
 	domain, portstr, err := net.SplitHostPort(addr)
 	if err != nil {
 		return nil, err

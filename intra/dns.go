@@ -7,6 +7,7 @@
 package intra
 
 import (
+	"errors"
 	"strings"
 
 	"github.com/celzero/firestack/intra/dns53"
@@ -24,8 +25,11 @@ func addIPMapper(r dnsx.Resolver) {
 }
 
 func AddDNSProxy(t Tunnel, id, ip, port string) error {
-	r, _ := t.GetResolver()
-	p, _ := t.GetProxies()
+	p, perr := t.GetProxies()
+	r, rerr := t.GetResolver()
+	if rerr != nil || perr != nil {
+		return errors.Join(rerr, perr)
+	}
 	g := t.getBridge()
 	if dns, err := dns53.NewTransport(id, ip, port, p, g); err != nil {
 		return err
@@ -40,9 +44,13 @@ func newSystemDNSProxy(g Bridge, p ipn.Proxies, ipcsv string) (d dnsx.Transport,
 }
 
 func SetSystemDNS(t Tunnel, ipcsv string) int {
-	r, _ := t.GetResolver()
+	r, rerr := t.GetResolver()
+	p, perr := t.GetProxies()
 	g := t.getBridge()
-	p, _ := t.GetProxies()
+	if r == nil || p == nil {
+		log.W("dns: cannot set system dns: %v %v", rerr, perr)
+		return 0
+	}
 
 	// remove all system dns transports
 	c := r.RemoveSystemDNS()
@@ -51,6 +59,7 @@ func SetSystemDNS(t Tunnel, ipcsv string) int {
 		log.I("dns: removed %d system dns(es)", c)
 		return 0
 	}
+
 	n := 0
 
 	if sdns, err := newSystemDNSProxy(g, p, ipcsv); err == nil {
@@ -81,7 +90,10 @@ func newMDNSTransport(protos string) (d dnsx.Transport) {
 }
 
 func AddDefaultTransport(t Tunnel, typ, ippOrUrl, ips string) error {
-	r, _ := t.GetResolver()
+	r, rerr := t.GetResolver()
+	if rerr != nil {
+		return rerr
+	}
 	tr, err := r.Get(dnsx.Default)
 	if err != nil {
 		return err
@@ -95,8 +107,11 @@ func AddDefaultTransport(t Tunnel, typ, ippOrUrl, ips string) error {
 }
 
 func AddProxyDNS(t Tunnel, p ipn.Proxy) error {
-	pxr, _ := t.GetProxies()
-	r, _ := t.GetResolver()
+	pxr, perr := t.GetProxies()
+	r, rerr := t.GetResolver()
+	if rerr != nil || perr != nil {
+		return errors.Join(rerr, perr)
+	}
 	g := t.getBridge()
 	ipOrHostCsv := p.DNS()
 	if len(ipOrHostCsv) == 0 {
@@ -129,8 +144,11 @@ func AddProxyDNS(t Tunnel, p ipn.Proxy) error {
 // SetDoHTransport returns a DNSTransport that connects to the specified DoH server.
 // `url` is the URL of a DoH server (no template, POST-only).
 func AddDoHTransport(t Tunnel, id, url, ips string) error {
-	pxr, _ := t.GetProxies()
-	r, _ := t.GetResolver()
+	pxr, perr := t.GetProxies()
+	r, rerr := t.GetResolver()
+	if rerr != nil || perr != nil {
+		return errors.Join(rerr, perr)
+	}
 	g := t.getBridge()
 	split := []string{}
 	if len(ips) > 0 {
@@ -144,8 +162,11 @@ func AddDoHTransport(t Tunnel, id, url, ips string) error {
 }
 
 func AddODoHTransport(t Tunnel, id, endpoint, resolver, epips string) error {
-	pxr, _ := t.GetProxies()
-	r, _ := t.GetResolver()
+	pxr, perr := t.GetProxies()
+	r, rerr := t.GetResolver()
+	if rerr != nil || perr != nil {
+		return errors.Join(rerr, perr)
+	}
 	g := t.getBridge()
 	split := []string{}
 	if len(epips) > 0 {
@@ -159,8 +180,11 @@ func AddODoHTransport(t Tunnel, id, endpoint, resolver, epips string) error {
 }
 
 func AddDoTTransport(t Tunnel, id, url, ips string) error {
-	pxr, _ := t.GetProxies()
-	r, _ := t.GetResolver()
+	pxr, perr := t.GetProxies()
+	r, rerr := t.GetResolver()
+	if rerr != nil || perr != nil {
+		return errors.Join(rerr, perr)
+	}
 	g := t.getBridge()
 	split := []string{}
 	if len(ips) > 0 {
@@ -174,7 +198,10 @@ func AddDoTTransport(t Tunnel, id, url, ips string) error {
 }
 
 func AddDNSCryptTransport(t Tunnel, id, stamp string) (err error) {
-	r, _ := t.GetResolver()
+	r, rerr := t.GetResolver()
+	if rerr != nil {
+		return rerr
+	}
 
 	var tm dnsx.TransportMult
 	if tm, err = r.GetMult(dnsx.DcProxy); err != nil {
@@ -195,7 +222,10 @@ func AddDNSCryptTransport(t Tunnel, id, stamp string) (err error) {
 func AddDNSCryptRelay(t Tunnel, stamp string) error {
 	var tm dnsx.TransportMult
 	var err error
-	r, _ := t.GetResolver()
+	r, rerr := t.GetResolver()
+	if rerr != nil {
+		return rerr
+	}
 	if tm, err = r.GetMult(dnsx.DcProxy); err != nil {
 		return err
 	}

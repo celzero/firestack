@@ -261,8 +261,8 @@ func route(proxy *DcMulti, name string) (udpaddr *net.UDPAddr, tcpaddr *net.TCPA
 	}
 
 	s, p := hostport(relayCandidateStamp.ServerAddrStr)
-	if relayCandidateStamp.Proto == stamps.StampProtoTypeDNSCrypt ||
-		relayCandidateStamp.Proto == stamps.StampProtoTypeDNSCryptRelay {
+	if relayCandidateStamp != nil && (relayCandidateStamp.Proto == stamps.StampProtoTypeDNSCrypt ||
+		relayCandidateStamp.Proto == stamps.StampProtoTypeDNSCryptRelay) {
 		if ips := dialers.For(s); len(ips) > 0 {
 			ipp := netip.AddrPortFrom(ips[0], p)
 			tcpaddr = net.TCPAddrFromAddrPort(ipp)
