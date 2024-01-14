@@ -64,4 +64,9 @@ type UDPConn interface {
 
 	// Close closes the connection.
 	Close() error
+
+	// Implements net.Conn
+	SetDeadline(t time.Time) error
+	SetReadDeadline(t time.Time) error
+	SetWriteDeadline(t time.Time) error
 }
