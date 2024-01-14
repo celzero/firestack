@@ -99,6 +99,9 @@ func (h *icmpHandler) End() error {
 	return nil
 }
 
+// CloseConns implements netstack.GICMPHandler.
+func (h *icmpHandler) CloseConns(cids []string) []string { return nil }
+
 // PingOnce implements netstack.GICMPHandler.
 func (h *icmpHandler) PingOnce(src, dst *net.UDPAddr, msg []byte) bool {
 	return h.Ping(src, dst, msg, nil /*no pong*/)

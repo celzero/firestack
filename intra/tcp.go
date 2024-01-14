@@ -33,6 +33,7 @@ import (
 	"net"
 	"net/netip"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/celzero/firestack/intra/dnsx"
@@ -67,13 +68,15 @@ type TCPHandler interface {
 
 type tcpHandler struct {
 	TCPHandler
-	resolver  dnsx.Resolver
-	dialer    *net.Dialer
-	tunMode   *settings.TunMode
-	listener  SocketListener
-	prox      ipn.Proxies
-	fwtracker *core.ExpMap
-	status    int
+	resolver    dnsx.Resolver
+	dialer      *net.Dialer
+	tunMode     *settings.TunMode
+	listener    SocketListener
+	prox        ipn.Proxies
+	fwtracker   *core.ExpMap
+	status      int
+	ctmu        sync.RWMutex          // protects conntracker
+	conntracker map[string][]net.Conn // conn-id -> conn
 }
 
 // NewTCPHandler returns a TCP forwarder with Intra-style behavior.
@@ -83,13 +86,14 @@ type tcpHandler struct {
 func NewTCPHandler(resolver dnsx.Resolver, prox ipn.Proxies, tunMode *settings.TunMode, ctl protect.Controller, listener SocketListener) TCPHandler {
 	d := protect.MakeNsDialer("tcph", ctl)
 	h := &tcpHandler{
-		resolver:  resolver,
-		dialer:    d,
-		tunMode:   tunMode,
-		listener:  listener,
-		prox:      prox,
-		fwtracker: core.NewExpiringMap(),
-		status:    TCPOK,
+		resolver:    resolver,
+		dialer:      d,
+		tunMode:     tunMode,
+		listener:    listener,
+		prox:        prox,
+		fwtracker:   core.NewExpiringMap(),
+		conntracker: make(map[string][]net.Conn),
+		status:      TCPOK,
 	}
 
 	log.I("tcp: new handler created")
@@ -133,12 +137,40 @@ func (h *tcpHandler) handleDownload(cid string, local core.TCPConn, remote core.
 	return
 }
 
+func (h *tcpHandler) track(cid string, conns ...net.Conn) (n int) {
+	h.ctmu.Lock()
+	defer h.ctmu.Unlock()
+
+	if v, ok := h.conntracker[cid]; !ok {
+		h.conntracker[cid] = conns
+		n = len(conns)
+	} else { // should not happen?
+		h.conntracker[cid] = append(v, conns...)
+		n = len(v) + len(conns)
+	}
+	return n
+}
+
+func (h *tcpHandler) untrack(cid string) {
+	h.ctmu.Lock()
+	defer h.ctmu.Unlock()
+
+	if _, ok := h.conntracker[cid]; !ok {
+		// may have been removed by CloseConns
+		log.W("tcp: untrack(%s): not found", cid)
+	} else {
+		delete(h.conntracker, cid)
+	}
+}
+
 func (h *tcpHandler) forward(local net.Conn, remote net.Conn, summary *SocketSummary) {
 	cid := summary.ID
 	if h.status == TCPEND {
 		log.D("tcp: %s forward(%v, %v): end", cid, local, remote)
 		return
 	}
+
+	h.track(cid, local, remote)
 
 	localtcp := local.(core.TCPConn)   // conforms to net.TCPConn
 	remotetcp := remote.(core.TCPConn) // conforms to net.TCPConn
@@ -151,6 +183,8 @@ func (h *tcpHandler) forward(local net.Conn, remote net.Conn, summary *SocketSum
 
 	summary.Rx = download
 	summary.Tx = ioi.bytes
+
+	h.untrack(cid)
 
 	summary.done(err, ioi.err)
 	go h.sendNotif(summary)
@@ -226,6 +260,25 @@ func (h *tcpHandler) onFlow(localaddr *net.TCPAddr, target *net.TCPAddr, realips
 func (h *tcpHandler) End() error {
 	h.status = TCPEND
 	return nil
+}
+
+func (h *tcpHandler) CloseConns(cids []string) []string {
+	h.ctmu.Lock()
+	defer h.ctmu.Unlock()
+
+	var closed []string
+	for _, cid := range cids {
+		if conns, ok := h.conntracker[cid]; ok {
+			for _, conn := range conns {
+				// expect close to call sendNotif?
+				go conn.Close()
+			}
+			delete(h.conntracker, cid)   // untrack
+			closed = append(closed, cid) // mark
+		}
+	}
+	log.I("tcp: closed (%d/%d): %v", len(closed), len(cids), closed)
+	return closed
 }
 
 // Proxy implements netstack.GTCPConnHandler

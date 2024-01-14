@@ -25,6 +25,7 @@ const maxInFlight = 128
 
 type GTCPConnHandler interface {
 	Proxy(conn *GTCPConn, src, dst *net.TCPAddr) bool
+	CloseConns([]string) []string
 	End() error
 }
 

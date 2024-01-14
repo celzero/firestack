@@ -9,6 +9,7 @@ package netstack
 import (
 	"errors"
 	"net"
+	"strings"
 
 	"gvisor.dev/gvisor/pkg/tcpip"
 	"gvisor.dev/gvisor/pkg/tcpip/stack"
@@ -18,6 +19,7 @@ type GConnHandler interface {
 	TCP() GTCPConnHandler
 	UDP() GUDPConnHandler
 	ICMP() GICMPHandler
+	CloseConns(string) string
 	Close() error
 }
 
@@ -46,6 +48,18 @@ func (g *gconnhandler) UDP() GUDPConnHandler {
 
 func (g *gconnhandler) ICMP() GICMPHandler {
 	return g.icmp
+}
+
+func (g *gconnhandler) CloseConns(csv string) string {
+	cids := strings.Split(csv, ",")
+	t := g.tcp.CloseConns(cids)
+	u := g.udp.CloseConns(cids)
+	i := g.icmp.CloseConns(cids)
+	s := make([]string, 0, len(t)+len(u)+len(i))
+	s = append(s, t...)
+	s = append(s, u...)
+	s = append(s, i...)
+	return strings.Join(s, ",")
 }
 
 func (g *gconnhandler) Close() error {

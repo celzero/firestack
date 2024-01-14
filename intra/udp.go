@@ -92,16 +92,17 @@ type udpHandler struct {
 	UDPHandler
 	sync.RWMutex
 
-	resolver  dnsx.Resolver
-	timeout   time.Duration
-	udpConns  map[core.UDPConn]*tracker
-	config    *net.ListenConfig
-	dialer    *net.Dialer
-	tunMode   *settings.TunMode
-	listener  SocketListener
-	prox      ipn.Proxies
-	fwtracker *core.ExpMap
-	status    int
+	resolver    dnsx.Resolver
+	timeout     time.Duration
+	udpConns    map[core.UDPConn]*tracker // src -> tracker(cid, dst)
+	conntracker map[string]core.UDPConn   // cid -> src
+	config      *net.ListenConfig
+	dialer      *net.Dialer
+	tunMode     *settings.TunMode
+	listener    SocketListener
+	prox        ipn.Proxies
+	fwtracker   *core.ExpMap
+	status      int
 }
 
 // NewUDPHandler makes a UDP handler with Intra-style DNS redirection:
@@ -116,16 +117,17 @@ func NewUDPHandler(resolver dnsx.Resolver, prox ipn.Proxies, tunMode *settings.T
 	c := protect.MakeNsListenConfig("udphl", ctl)
 	d := protect.MakeNsDialer("udph", ctl)
 	h := &udpHandler{
-		timeout:   udptimeout,
-		udpConns:  make(map[core.UDPConn]*tracker, 8),
-		resolver:  resolver,
-		tunMode:   tunMode,
-		config:    c,
-		dialer:    d,
-		listener:  listener,
-		prox:      prox,
-		fwtracker: core.NewExpiringMap(),
-		status:    UDPOK,
+		timeout:     udptimeout,
+		udpConns:    make(map[core.UDPConn]*tracker, 8),
+		resolver:    resolver,
+		tunMode:     tunMode,
+		config:      c,
+		dialer:      d,
+		listener:    listener,
+		prox:        prox,
+		fwtracker:   core.NewExpiringMap(),
+		conntracker: make(map[string]core.UDPConn),
+		status:      UDPOK,
 	}
 
 	log.I("udp: new handler created")
@@ -440,9 +442,7 @@ func (h *udpHandler) Connect(src core.UDPConn, target *net.UDPAddr) (res *Mark, 
 		Zone: target.Zone,
 	}
 
-	h.Lock()
-	h.udpConns[src] = nat
-	h.Unlock()
+	h.track(src, nat)
 
 	go h.fetchUDPInput(src, nat)
 
@@ -476,9 +476,7 @@ func (h *udpHandler) ReceiveTo(conn core.UDPConn, data []byte, addr *net.UDPAddr
 	nsraddr := conn.RemoteAddr()
 	raddr := addr
 
-	h.RLock()
-	nat, ok1 := h.udpConns[conn]
-	h.RUnlock()
+	nat, ok1 := h.probe(conn)
 
 	if !ok1 { // if NAT conn doesn't exist then check if its a DNS request and handle it
 		if h.dnsOverride(conn, addr, data) {
@@ -537,14 +535,50 @@ func (h *udpHandler) ReceiveTo(conn core.UDPConn, data []byte, addr *net.UDPAddr
 	return nil
 }
 
+func (h *udpHandler) CloseConns(cids []string) []string {
+	h.RLock()
+	defer h.RUnlock()
+
+	var closed []string
+	// Close all conns for the given cids
+	for _, cid := range cids {
+		if src, ok := h.conntracker[cid]; ok {
+			go h.Close(src, notimetrack)
+			closed = append(closed, cid)
+		}
+	}
+	log.I("udp: closed %d/%d conns", len(closed), len(cids))
+	return closed
+}
+
+func (h *udpHandler) probe(c core.UDPConn) (t *tracker, ok bool) {
+	h.RLock()
+	defer h.RUnlock()
+	t, ok = h.udpConns[c]
+	return
+}
+
+func (h *udpHandler) track(c core.UDPConn, t *tracker) {
+	h.Lock()
+	h.udpConns[c] = t
+	h.conntracker[t.id] = c
+	h.Unlock()
+}
+
+func (h *udpHandler) untrack(c core.UDPConn, t *tracker) {
+	h.Lock()
+	delete(h.udpConns, c)
+	delete(h.conntracker, t.id)
+	h.Unlock()
+}
+
 func (h *udpHandler) Close(conn core.UDPConn, secs int32) {
 	log.V("udp: closing conn [%v -> %v]", conn.LocalAddr(), conn.RemoteAddr())
 	conn.Close()
 
-	h.Lock()
-	t, ok := h.udpConns[conn]
-	delete(h.udpConns, conn)
-	defer h.Unlock()
+	t, ok := h.probe(conn)
+
+	go h.untrack(conn, t)
 
 	if ok {
 		switch c := t.conn.(type) {

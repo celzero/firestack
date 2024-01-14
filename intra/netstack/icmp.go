@@ -25,6 +25,7 @@ type GICMPHandler interface {
 	Ping(source *net.UDPAddr, destination *net.UDPAddr, msg []byte, pong Pong) bool
 	// Single ping handler
 	PingOnce(source *net.UDPAddr, destination *net.UDPAddr, msg []byte) bool
+	CloseConns([]string) []string
 	End() error
 }
 

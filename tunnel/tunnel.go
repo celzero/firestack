@@ -45,6 +45,8 @@ type Tunnel interface {
 	Disconnect()
 	// Write writes input data to the TUN interface.
 	Write(data []byte) (int, error)
+	// Close connections
+	CloseConns(activecsv string) (closedcsv string)
 	// Creates a new link using fd (tun device) and mtu.
 	SetLink(fd, mtu int) error
 	// internal method that creates the link and updates the routes
@@ -192,6 +194,13 @@ func NewGTunnel(fd, mtu, engine int, tcph netstack.GTCPConnHandler, udph netstac
 
 	log.I("tun: new netstack up; fd(%d), l3(%v), mtu(%d)", fd, engine, mtu)
 	return
+}
+
+func (t *gtunnel) CloseConns(activecsv string) (closedcsv string) {
+	t.mu.Lock()
+	hdl := t.hdl
+	t.mu.Unlock()
+	return hdl.CloseConns(activecsv)
 }
 
 func (t *gtunnel) SetPcap(fpcap string) error {
