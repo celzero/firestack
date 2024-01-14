@@ -36,11 +36,11 @@ const (
 	// special singleton DNS transports (IDs)
 	Goos      = "Goos"      // Go determined default resolver
 	System    = "System"    // network/os provided dns
-	Local     = "mdns"      // mdns
+	Local     = "mdns"      // mdns; never cached!
 	Default   = "Default"   // default (fallback) dns
 	Preferred = "Preferred" // user preferred dns, primary for alg
 	BlockFree = "BlockFree" // no local blocks; if not set, default is used
-	BlockAll  = "BlockAll"  // all blocks
+	BlockAll  = "BlockAll"  // all blocks; never cached!
 	Alg       = "Alg"       // dns application-level gateway
 	DcProxy   = "DcProxy"   // dnscrypt.Proxy as a transport
 	IpMapper  = "IpMapper"  // dns resolver for dns resolvers

@@ -262,7 +262,7 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target *net.TCPAddr) (
 			gconn.Close()
 			s.done(err)
 			go h.sendNotif(s)
-		} // else conn has been proxied, sendNotif is called by h.forward()
+		} // else conn has been proxied, sendNotif called by h.forward()
 	}()
 
 	if pid == ipn.Block {
