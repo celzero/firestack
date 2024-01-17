@@ -37,14 +37,14 @@ var errQueryParse = errors.New("dns53: err parse query")
 
 // TODO: Keep a context here so that queries can be canceled.
 type transport struct {
-	id      string
-	addr    string
-	status  int
-	client  *dns.Client
-	dialer  *protect.RDial
-	proxies ipn.Proxies // should never be nil
-	relay   ipn.Proxy   // may be nil
-	est     core.P2QuantileEstimator
+	id       string
+	addrport string
+	status   int
+	client   *dns.Client
+	dialer   *protect.RDial
+	proxies  ipn.Proxies // should never be nil
+	relay    ipn.Proxy   // may be nil
+	est      core.P2QuantileEstimator
 }
 
 var _ dnsx.Transport = (*transport)(nil)
@@ -79,19 +79,19 @@ func newTransport(id string, do *settings.DNSOptions, px ipn.Proxies, ctl protec
 	relay, _ = px.GetProxy(id)
 	d := protect.MakeNsRDial(id, ctl)
 	tx := &transport{
-		id:      id,
-		addr:    do.Addr(), // may be hostname:port or ip:port
-		status:  dnsx.Start,
-		dialer:  d,
-		proxies: px,    // may be nil; see above
-		relay:   relay, // may be nil
-		est:     core.NewP50Estimator(),
+		id:       id,
+		addrport: do.AddrPort(), // may be hostname:port or ip:port
+		status:   dnsx.Start,
+		dialer:   d,
+		proxies:  px,    // may be nil; see above
+		relay:    relay, // may be nil
+		est:      core.NewP50Estimator(),
 	}
 	ipcsv := do.ResolvedAddrs()
 	hasips := len(ipcsv) > 0
 	ips := strings.Split(ipcsv, ",") // may be nil or empty
-	ok := dialers.Renew(do.Addr(), ips)
-	log.I("dns53: (%s) pre-resolved %s to %s; ok? %t", id, do.Addr(), ipcsv, ok)
+	ok := dialers.Renew(tx.addrport, ips)
+	log.I("dns53: (%s) pre-resolved %s to %s; ok? %t", id, tx.addrport, ipcsv, ok)
 	tx.client = &dns.Client{
 		Net:     "udp",   // default transport type
 		Timeout: timeout, // default timeout
@@ -101,7 +101,7 @@ func newTransport(id string, do *settings.DNSOptions, px ipn.Proxies, ctl protec
 		// ref: github.com/miekg/dns/blob/b3dfea071/server.go#L207
 		// UDPSize:        dns.DefaultMsgSize,
 	}
-	log.I("dns53: (%s) setup: %s; pre-ips? %t; relay? %t", id, do.Addr(), hasips, relay != nil)
+	log.I("dns53: (%s) setup: %s; pre-ips? %t; relay? %t", id, tx.addrport, hasips, relay != nil)
 	return tx, nil
 }
 
@@ -146,7 +146,7 @@ func (t *transport) pxdial(network, pid string) (conn *dns.Conn, err error) {
 		return nil, dnsx.ErrNoProxyProvider
 	}
 	log.V("dns53: pxdial: (%s) using %s relay/proxy %s at %s", t.id, network, px.ID(), px.GetAddr())
-	pxconn, err := dialers.Dial(px.Dialer(), network, t.addr) // resolves t.addr if necessary
+	pxconn, err := dialers.Dial(px.Dialer(), network, t.addrport) // resolves t.addr if necessary
 	if err != nil {
 		return
 	} else if pxconn == nil {
@@ -159,7 +159,7 @@ func (t *transport) pxdial(network, pid string) (conn *dns.Conn, err error) {
 }
 
 func (t *transport) dial(network string) (*dns.Conn, error) {
-	if c, err := dialers.Dial(t.dialer, network, t.addr); err == nil {
+	if c, err := dialers.Dial(t.dialer, network, t.addrport); err == nil {
 		return &dns.Conn{Conn: c}, nil
 	} else {
 		return nil, err
@@ -260,7 +260,7 @@ func (t *transport) P50() int64 {
 }
 
 func (t *transport) GetAddr() string {
-	return t.addr
+	return t.addrport
 }
 
 func (t *transport) Status() int {

@@ -104,36 +104,39 @@ func (m *ipMap) LookupNetIP(ctx context.Context, network, host string) ([]netip.
 	return r.LookupNetIP(ctx, network, host)
 }
 
-func (m *ipMap) Get(hostname string) *IPSet {
-	return m.get(hostname, false)
+func (m *ipMap) Get(hostOrIP string) *IPSet {
+	return m.get(hostOrIP, false)
 }
 
-func (m *ipMap) GetAny(hostname string) *IPSet {
-	return m.get(hostname, true)
+func (m *ipMap) GetAny(hostOrIP string) *IPSet {
+	return m.get(hostOrIP, true)
 }
 
-func (m *ipMap) get(hostname string, emptyok bool) *IPSet {
+func (m *ipMap) get(hostOrIP string, emptyok bool) *IPSet {
+	if host, _, err := net.SplitHostPort(hostOrIP); err == nil {
+		hostOrIP = host
+	}
 	m.RLock()
-	s := m.m[hostname]
+	s := m.m[hostOrIP]
 	m.RUnlock()
 
 	if s == nil {
-		s = m.MakeIPSet(hostname, nil)
+		s = m.MakeIPSet(hostOrIP, nil)
 	}
 
 	if emptyok || !s.Empty() {
 		return s
 	}
 
-	s.Add(hostname)
+	s.Add(hostOrIP)
 	if s.Empty() {
-		log.W("ipmap: Get: zero ips for %s", hostname)
+		log.W("ipmap: Get: zero ips for %s", hostOrIP)
 	}
 
 	return s
 }
 
-func (m *ipMap) MakeIPSet(hostname string, ips []string) *IPSet {
+func (m *ipMap) MakeIPSet(hostOrIP string, ips []string) *IPSet {
 	if ips == nil {
 		ips = []string{}
 	}
@@ -141,7 +144,7 @@ func (m *ipMap) MakeIPSet(hostname string, ips []string) *IPSet {
 	s.bootstrap()
 
 	m.Lock()
-	m.m[hostname] = s
+	m.m[hostOrIP] = s
 	m.Unlock()
 
 	return s
@@ -176,7 +179,7 @@ func (s *IPSet) Seed() []string {
 func (s *IPSet) Add(hostname string) {
 	r := s.r
 	if r == nil {
-		log.W("ipmap: Add: resolver missing")
+		log.W("ipmap: Add: (processing: %s) resolver missing", hostname)
 		return
 	}
 	resolved, err := r.LookupNetIP(context.Background(), "ip", hostname)

@@ -35,13 +35,13 @@ func udpaddr(ip netip.Addr, port int) *net.UDPAddr {
 	return &net.UDPAddr{IP: ip.AsSlice(), Port: port}
 }
 
-func Renew(hostname string, addrs []string) bool {
-	ips := ipm.MakeIPSet(hostname, addrs)
+func Renew(hostOrIP string, addrs []string) bool {
+	ips := ipm.MakeIPSet(hostOrIP, addrs)
 	return !ips.Empty()
 }
 
-func For(hostname string) []netip.Addr {
-	ipset := ipm.Get(hostname)
+func For(hostOrIP string) []netip.Addr {
+	ipset := ipm.Get(hostOrIP)
 	if ipset != nil {
 		return ipset.GetAll()
 	}
@@ -54,8 +54,8 @@ func Mapper(m ipmap.IPMapper) {
 	ipm.With(m)
 }
 
-func Confirm(hostname string, addr net.Addr) bool {
-	ips := ipm.GetAny(hostname)
+func Confirm(hostOrIP string, addr net.Addr) bool {
+	ips := ipm.GetAny(hostOrIP)
 	if ips != nil {
 		if ip, err := netip.ParseAddr(addr.String()); err == nil {
 			ips.Confirm(ip)
@@ -65,8 +65,8 @@ func Confirm(hostname string, addr net.Addr) bool {
 	return false
 }
 
-func Disconfirm(hostname string, ip net.Addr) bool {
-	ips := ipm.GetAny(hostname)
+func Disconfirm(hostOrIP string, ip net.Addr) bool {
+	ips := ipm.GetAny(hostOrIP)
 	if ips != nil {
 		if ip, err := netip.ParseAddr(ip.String()); err == nil {
 			ips.Disconfirm(ip)

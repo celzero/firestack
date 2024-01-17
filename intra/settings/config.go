@@ -139,10 +139,10 @@ type DNSOptions struct {
 }
 
 func (d *DNSOptions) String() string {
-	return d.Addr()
+	return d.AddrPort()
 }
 
-func (d *DNSOptions) Addr() string {
+func (d *DNSOptions) AddrPort() string {
 	if len(d.ipp) > 0 {
 		return d.ipp
 	}
