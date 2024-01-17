@@ -200,7 +200,10 @@ func (t *gtunnel) CloseConns(activecsv string) (closedcsv string) {
 	t.mu.Lock()
 	hdl := t.hdl
 	t.mu.Unlock()
-	return hdl.CloseConns(activecsv)
+	if hdl != nil {
+		closedcsv = hdl.CloseConns(activecsv)
+	}
+	return
 }
 
 func (t *gtunnel) SetPcap(fpcap string) error {

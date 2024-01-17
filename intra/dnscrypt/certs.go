@@ -320,7 +320,10 @@ func _dnsExchange(proxy *DcMulti, proto string, query *dns.Msg, serverAddress st
 		pc, err = dialers.Dial(proxy.dialer, "tcp", serverAddress)
 		if err != nil {
 			return dnsExchangeResponse{err: err}
+		} else if pc == nil {
+			return dnsExchangeResponse{err: errNoConn}
 		}
+
 		defer pc.Close()
 		if err := pc.SetDeadline(time.Now().Add(timeout20s)); err != nil {
 			return dnsExchangeResponse{err: err}

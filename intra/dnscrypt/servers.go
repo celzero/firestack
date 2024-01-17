@@ -253,7 +253,9 @@ func route(proxy *DcMulti, name string) (udpaddr *net.UDPAddr, tcpaddr *net.TCPA
 		return
 	} else if relayStamp, err := stamps.NewServerStampFromString(relayName); err == nil {
 		relayCandidateStamp = &relayStamp
-	} else {
+	}
+
+	if relayCandidateStamp == nil {
 		relayCandidateStamp = &stamps.ServerStamp{
 			ServerAddrStr: relayName, // may be a hostname or ip-address
 			Proto:         stamps.StampProtoTypeDNSCryptRelay,

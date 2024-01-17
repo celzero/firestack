@@ -478,7 +478,7 @@ func (h *udpHandler) ReceiveTo(conn core.UDPConn, data []byte, addr *net.UDPAddr
 
 	nat, ok1 := h.probe(conn)
 
-	if !ok1 { // if NAT conn doesn't exist then check if its a DNS request and handle it
+	if !ok1 || nat == nil { // if NAT conn doesn't exist then check if its a DNS request and handle it
 		if h.dnsOverride(conn, addr, data) {
 			log.D("udp: egress: dns-override for dstaddr(%v) <- src(l:%v r:%v)", raddr, nsladdr, nsraddr)
 			return nil
@@ -568,7 +568,11 @@ func (h *udpHandler) track(c core.UDPConn, t *tracker) {
 func (h *udpHandler) untrack(c core.UDPConn, t *tracker) {
 	h.Lock()
 	delete(h.udpConns, c)
-	delete(h.conntracker, t.id)
+	if t != nil {
+		delete(h.conntracker, t.id)
+	} else {
+		log.W("udp: untrack: not found; conn(%v)", c)
+	}
 	h.Unlock()
 }
 
@@ -578,9 +582,9 @@ func (h *udpHandler) Close(conn core.UDPConn, secs int32) {
 
 	t, ok := h.probe(conn)
 
-	go h.untrack(conn, t)
-
 	if ok {
+		go h.untrack(conn, t)
+
 		switch c := t.conn.(type) {
 		case net.PacketConn: // unused
 			c.Close()
