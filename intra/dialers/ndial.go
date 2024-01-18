@@ -19,6 +19,10 @@ import (
 type netConnectFunc func(*net.Dialer, string, netip.Addr, int) (net.Conn, error)
 
 func netConnect(d *net.Dialer, proto string, ip netip.Addr, port int) (net.Conn, error) {
+	if d == nil {
+		log.E("ndial: netConnect: nil dialer")
+		return nil, errNoDialer
+	}
 	switch proto {
 	case "tcp", "tcp4", "tcp6":
 		fallthrough

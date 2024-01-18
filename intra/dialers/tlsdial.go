@@ -20,6 +20,10 @@ import (
 type tlsConnectFunc func(*tls.Dialer, string, string, netip.Addr, int) (net.Conn, error)
 
 func tlsConnect(d *tls.Dialer, proto, sni string, ip netip.Addr, port int) (net.Conn, error) {
+	if d == nil {
+		log.E("tlsdial: tlsConnect: nil dialer")
+		return nil, errNoDialer
+	}
 	switch proto {
 	case "tcp", "tcp4", "tcp6":
 		fallthrough

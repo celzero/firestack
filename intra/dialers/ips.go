@@ -16,6 +16,7 @@ import (
 )
 
 var errNoIps = net.UnknownNetworkError("no ips")
+var errNoDialer = net.UnknownNetworkError("no dialer")
 
 var ipm ipmap.IPMap = ipmap.NewIPMap()
 

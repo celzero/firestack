@@ -20,6 +20,11 @@ import (
 type proxyConnectFunc func(proxy.Dialer, string, netip.Addr, int) (net.Conn, error)
 
 func proxyConnect(d proxy.Dialer, proto string, ip netip.Addr, port int) (net.Conn, error) {
+	if d == nil {
+		log.E("odial: proxyConnect: nil dialer")
+		return nil, errNoDialer
+	}
+
 	switch proto {
 	case "tcp", "tcp4", "tcp6":
 		fallthrough

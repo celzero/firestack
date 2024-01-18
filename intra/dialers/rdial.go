@@ -32,6 +32,10 @@ func filter(ips []netip.Addr, exclude netip.Addr) []netip.Addr {
 }
 
 func ipConnect(d *protect.RDial, proto string, ip netip.Addr, port int) (net.Conn, error) {
+	if d == nil {
+		log.E("rdial: ipConnect: nil dialer")
+		return nil, errNoDialer
+	}
 	switch proto {
 	case "tcp", "tcp4", "tcp6":
 		return d.DialTCP(proto, nil, tcpaddr(ip, port))
@@ -48,6 +52,10 @@ func doSplit(port int) bool {
 }
 
 func splitIpConnect(d *protect.RDial, proto string, ip netip.Addr, port int) (net.Conn, error) {
+	if d == nil {
+		log.E("rdial: splitIpConnect: nil dialer")
+		return nil, errNoDialer
+	}
 	switch proto {
 	case "tcp", "tcp4", "tcp6":
 		if doSplit(port) { // split tls client-hello for https requests
