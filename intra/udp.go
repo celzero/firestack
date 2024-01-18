@@ -66,7 +66,7 @@ type tracker struct {
 	id       string       // unique identifier for this connection
 	pid      string       // proxy id
 	uid      string       // uid that created this connection
-	conn     any          // net.Conn and net.PacketConn
+	dst      any          // net.Conn or net.PacketConn; may be nil
 	start    time.Time    // creation time
 	upload   int64        // Non-DNS upload bytes
 	download int64        // Non-DNS download bytes
@@ -75,8 +75,16 @@ type tracker struct {
 	ip       *net.UDPAddr // masked addr
 }
 
-func makeTracker(cid, pid, uid string, conn any) *tracker {
-	return &tracker{cid, pid, uid, conn, time.Now(), 0, 0, 0, NoErr.Error(), nil}
+func makeTracker(cid, pid, uid string) *tracker {
+	return &tracker{cid, pid, uid, nil, time.Now(), 0, 0, 0, NoErr.Error(), nil}
+}
+
+func (t *tracker) connected() bool {
+	return t.dst != nil
+}
+
+func (t *tracker) ok() bool {
+	return t.errcount <= maxconnerr
 }
 
 func (t *tracker) elapsed() int32 {
@@ -149,7 +157,7 @@ func pc2str(conn core.UDPConn, c net.PacketConn, nat *tracker) string {
 	return fmt.Sprintf("pc(l:%v [%v] <- r:%v [ / n:%v])", laddr, nsladdr, nsraddr, nat.ip)
 }
 
-// fetchUDPInput reads from nat.conn to masqurade-write it to core.UDPConn
+// fetchUDPInput reads from nat.dst to masqurade-write it to core.UDPConn
 func (h *udpHandler) fetchUDPInput(conn core.UDPConn, nat *tracker) {
 	elapsed := notimetrack
 	defer func() {
@@ -175,7 +183,7 @@ func (h *udpHandler) fetchUDPInput(conn core.UDPConn, nat *tracker) {
 			nat.msg = errUdpEnd.Error()
 			return
 		}
-		if nat.errcount > maxconnerr {
+		if !nat.ok() {
 			log.D("udp: ingress: too many errors (%v); latest(%v), closing", nat.errcount, err)
 			if err != nil {
 				nat.msg = err.Error()
@@ -188,7 +196,7 @@ func (h *udpHandler) fetchUDPInput(conn core.UDPConn, nat *tracker) {
 		var addr net.Addr
 		// FIXME: ReadFrom seems to block for 50mins+ at times:
 		// Cancel the goroutine in such cases and close the conns
-		switch c := nat.conn.(type) {
+		switch c := nat.dst.(type) { // assume nat.connected() == true
 		// net.UDPConn is both net.Conn and net.PacketConn; check net.Conn
 		// first, as it denotes a connected socket which netstack also uses
 		case net.Conn:
@@ -341,72 +349,83 @@ func udpAddrFrom(addr net.Addr) (*net.UDPAddr, error) {
 
 // OnNewConn implements netstack.GUDPConnHandler
 func (h *udpHandler) OnNewConn(gconn *netstack.GUDPConn, _, dst *net.UDPAddr) {
-	finish := true    // disconnect
-	forward := false  // connect
-	var errmsg string // terminal error msg from h.Connect() or gconn, if any
+	finish := true   // disconnect
+	forward := false // connect
 
-	decision, err := h.Connect(gconn, dst)
-	pid, cid, uid := splitPidCidUid(decision)
+	t, err := h.Connect(gconn, dst)
 
-	defer func() {
-		if len(errmsg) > 0 { // msg is only set on errors
-			go h.sendNotif(cid, pid, uid, errmsg, 0, 0, 0)
-		}
-	}()
-
-	if err != nil {
-		errmsg = err.Error()
+	if err != nil { // no nat / tracker t is nil
 		gconn.Connect(finish)
+		go h.Close(gconn, notimetrack)
 		return
 	}
 	// err here may happen for ex when netstack has no route to dst
 	if nerr := gconn.Connect(forward); nerr != nil {
-		errmsg = nerr.String()
+		log.W("udp: on-new-conn: failed to connect %s -> %s; err %v", gconn.LocalAddr(), dst, nerr)
+		t.msg = nerr.String()
+		go h.Close(gconn, notimetrack)
+		return
 	}
 }
 
 // Connect connects the proxy server.
 // Note, target may be nil in lwip (deprecated) while it may be unspecified in netstack
-func (h *udpHandler) Connect(src core.UDPConn, target *net.UDPAddr) (res *Mark, err error) {
+func (h *udpHandler) Connect(src core.UDPConn, target *net.UDPAddr) (nat *tracker, err error) {
 	if h.status == UDPEND {
 		log.D("udp: connect: end")
-		return nil, errUdpEnd
+		return nil, errUdpEnd // disconnect, no nat
 	}
 
 	var px ipn.Proxy
 	var pc protect.Conn
+	var dst net.Conn
 
 	realips, domains, probableDomains, blocklists := undoAlg(h.resolver, target.IP)
 
 	// flow is alg/nat-aware, do not change target or any addrs
-	res = h.onFlow(src, target, realips, domains, probableDomains, blocklists)
+	res := h.onFlow(src, target, realips, domains, probableDomains, blocklists)
+	nat = makeTracker(splitPidCidUid(res))
+	h.track(src, nat)
 
-	localaddr := src.LocalAddr()
-	pid, cid, uid := splitPidCidUid(res)
+	defer func() {
+		if err != nil {
+			nat.msg = err.Error()
+		}
+		if dst != nil {
+			nat.dst = dst
 
-	if pid == ipn.Block {
+			// the actual ip the client sees data from; unused in netstack
+			nat.ip = &net.UDPAddr{
+				IP:   target.IP,
+				Port: target.Port,
+				Zone: target.Zone,
+			}
+		}
+	}()
+
+	if nat.pid == ipn.Block {
 		var secs uint32
-		k := uid + target.String()
+		k := nat.uid + target.String()
 		if len(domains) > 0 { // probableDomains are not reliable for firewalling
-			k = uid + domains
+			k = nat.uid + domains
 		}
 		if secs = stall(h.fwtracker, k); secs > 0 {
 			waittime := time.Duration(secs) * time.Second
 			time.Sleep(waittime)
 		}
-		log.I("udp: %s conn firewalled from %s -> %s (dom: %s + %s/ real: %s); stall? %ds for uid %s", cid, localaddr, target, domains, probableDomains, realips, secs, uid)
-		return res, errUdpFirewalled // disconnect
+		log.I("udp: %s conn firewalled from %s -> %s (dom: %s + %s/ real: %s); stall? %ds for uid %s", nat.id, src.LocalAddr(), target, domains, probableDomains, realips, secs, nat.uid)
+		return nat, errUdpFirewalled // disconnect
 	}
 
 	// non-rethink dns requests are re-routed and hence
 	// NAT/proxy dialing is unnecessary.
-	if uid != protect.UidSelf && h.isDns(target) {
-		return res, nil // connect
+	if nat.uid != protect.UidSelf && h.isDns(target) {
+		return nat, nil // connect, no dst
 	}
 
-	if px, err = h.prox.GetProxy(pid); err != nil {
-		log.W("udp: failed to get proxy for %s: %v", pid, err)
-		return res, err // disconnect
+	if px, err = h.prox.GetProxy(nat.pid); err != nil {
+		log.W("udp: failed to get proxy for %s: %v", nat.pid, err)
+		return nat, err // disconnect
 	}
 
 	var errs error
@@ -417,38 +436,30 @@ func (h *udpHandler) Connect(src core.UDPConn, target *net.UDPAddr) (res *Mark, 
 			errs = nil // reset errs
 			break
 		} // else try the next realip
-		log.W("udp: connect: #%s: %s failed to bind addr(%s); for uid %s w err(%v)", i, cid, target, uid, err)
+		log.W("udp: connect: #%s: %s failed to bind addr(%s); for uid %s w err(%v)", i, nat.id, target, nat.uid, err)
 		errs = errors.Join(errs, err)
 	}
 
 	if errs != nil {
-		return res, errs // disconnect
+		return nat, errs // disconnect
+	}
+	if pc == nil {
+		log.W("udp: connect: %s failed to connect addr(%s); for uid %s", nat.id, target, nat.uid)
+		return nat, errUdpSetupConn // disconnect
 	}
 
 	var ok bool
-	var dst net.Conn
 	if dst, ok = pc.(net.Conn); !ok {
-		log.E("udp: connect: %s proxy(%s) does not implement net.Conn(%s) for uid %s", cid, px.ID(), target, uid)
-		return res, errUdpSetupConn // disconnect
+		pc.Close()
+		log.E("udp: connect: %s proxy(%s) does not impl net.Conn(%s) for uid %s", nat.id, px.ID(), target, nat.uid)
+		return nat, errUdpSetupConn // disconnect
 	}
-
-	nat := makeTracker(cid, pid, uid, dst)
-
-	// the actual ip the client sees data from
-	// unused in netstack
-	nat.ip = &net.UDPAddr{
-		IP:   target.IP,
-		Port: target.Port,
-		Zone: target.Zone,
-	}
-
-	h.track(src, nat)
 
 	go h.fetchUDPInput(src, nat)
 
-	log.I("udp: connect: %s (proxy? %s@%s) %v -> %v for uid %s", cid, px.ID(), px.GetAddr(), dst.LocalAddr(), target, uid)
+	log.I("udp: connect: %s (proxy? %s@%s) %v -> %v for uid %s", nat.id, px.ID(), px.GetAddr(), dst.LocalAddr(), target, nat.uid)
 
-	return res, nil // connect
+	return nat, nil // connect
 }
 
 // HandleData implements netstack.GUDPConnHandler
@@ -476,15 +487,18 @@ func (h *udpHandler) ReceiveTo(conn core.UDPConn, data []byte, addr *net.UDPAddr
 	nsraddr := conn.RemoteAddr()
 	raddr := addr
 
-	nat, ok1 := h.probe(conn)
+	nat, _ := h.probe(conn)
 
-	if !ok1 || nat == nil { // if NAT conn doesn't exist then check if its a DNS request and handle it
-		if h.dnsOverride(conn, addr, data) {
-			log.D("udp: egress: dns-override for dstaddr(%v) <- src(l:%v r:%v)", raddr, nsladdr, nsraddr)
+	if nat == nil { // no nat
+		log.W("udp: egress: no-op; closed? no nat(%v -> %v [%v])", nsladdr, raddr, nsraddr)
+		return fmt.Errorf("udp: egress: nat %v -> %v [%v] does not exist", nsladdr, raddr, nsraddr)
+	}
+	if !nat.connected() { // no nat conn
+		if h.dnsOverride(conn, addr, data) { // if dns request; handle it
+			log.D("udp: egress: dns-op; dstaddr(%v) <- src(l:%v r:%v)", raddr, nsladdr, nsraddr)
 			return nil
 		}
-		log.W("udp: egress: closed? no nat(%v -> %v [%v])", nsladdr, raddr, nsraddr)
-		return fmt.Errorf("conn %v -> %v [%v] does not exist", nsladdr, raddr, nsraddr)
+		return fmt.Errorf("udp: egress: conn %v -> %v [%v] does not exist", nsladdr, raddr, nsraddr)
 	}
 
 	// unused in netstack as it only supports connected udp
@@ -497,7 +511,7 @@ func (h *udpHandler) ReceiveTo(conn core.UDPConn, data []byte, addr *net.UDPAddr
 
 	nat.upload += int64(len(data))
 
-	switch c := nat.conn.(type) {
+	switch c := nat.dst.(type) {
 	// net.UDPConn is both net.Conn and net.PacketConn; check net.Conn
 	// first, as it denotes a connected socket which netstack also uses
 	case net.Conn:
@@ -517,7 +531,7 @@ func (h *udpHandler) ReceiveTo(conn core.UDPConn, data []byte, addr *net.UDPAddr
 	// ref: github.com/miekg/dns/blob/f8a185d39/server.go#L521
 	if neterr, ok := err.(net.Error); ok && neterr.Temporary() {
 		nat.errcount += 1
-		if nat.errcount > maxconnerr {
+		if !nat.ok() {
 			log.W("udp: egress: too many errors(%d) for conn(l:%v -> r:%v [%v]) for uid %s", nat.errcount, nsladdr, raddr, nsraddr, nat.uid)
 			return err
 		} else {
@@ -577,20 +591,26 @@ func (h *udpHandler) untrack(c core.UDPConn, t *tracker) {
 }
 
 func (h *udpHandler) Close(conn core.UDPConn, secs int32) {
+	if conn == nil {
+		log.W("udp: close: nil conn; no-op")
+		return
+	}
+
 	log.V("udp: closing conn [%v -> %v]", conn.LocalAddr(), conn.RemoteAddr())
 	conn.Close()
 
 	t, ok := h.probe(conn)
-
 	if ok {
 		go h.untrack(conn, t)
 
-		switch c := t.conn.(type) {
-		case net.PacketConn: // unused
-			c.Close()
-		case net.Conn:
-			c.Close()
-		default:
+		if t.connected() {
+			switch c := t.dst.(type) {
+			case net.PacketConn: // unused
+				c.Close()
+			case net.Conn:
+				c.Close()
+			default:
+			}
 		}
 
 		elapsed := secs
