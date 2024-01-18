@@ -83,16 +83,17 @@ func (b *bootstrap) reinit(trtype, ippOrUrl, ipcsv string) error {
 		return dnsx.ErrNotDefaultTransport
 	}
 
-	// note: plain ip4 address is a valid url; ex: 1.2.3.4
-	if parsed, err := url.Parse(ippOrUrl); err == nil { // ippOrUrl is a url?
-		if trtype != dnsx.DOH {
-			log.E("dns: default: reinit: url %s; %s != %s", ippOrUrl, trtype, dnsx.DOH)
+	if trtype == dnsx.DOH {
+		// note: plain ip4 address is a valid url; ex: 1.2.3.4
+		if parsed, err := url.Parse(ippOrUrl); err != nil { // ippOrUrl is a url?
+			log.E("dns: default: reinit: not %s url %s", trtype, ippOrUrl)
 			return dnsx.ErrNotDefaultTransport
+		} else {
+			b.url = ippOrUrl
+			b.hostname = parsed.Hostname()
+			b.ipports = ipcsv // may be empty
+			b.typ = dnsx.DOH
 		}
-		b.url = ippOrUrl
-		b.hostname = parsed.Hostname()
-		b.ipports = ipcsv // may be empty
-		b.typ = dnsx.DOH
 	} else { // ippOrUrl is an ipport?
 		if trtype != dnsx.DNS53 {
 			log.E("dns: default: reinit: ipport %s; %s != %s", ippOrUrl, trtype, dnsx.DNS53)
