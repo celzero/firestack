@@ -352,18 +352,19 @@ func (h *udpHandler) OnNewConn(gconn *netstack.GUDPConn, _, dst *net.UDPAddr) {
 	finish := true   // disconnect
 	forward := false // connect
 
-	t, err := h.Connect(gconn, dst)
+	var conn core.UDPConn = gconn // typecast here so h.track/h.probe work
+	t, err := h.Connect(conn, dst)
 
 	if err != nil { // no nat / tracker t is nil
 		gconn.Connect(finish)
-		go h.Close(gconn, notimetrack)
+		h.Close(conn, notimetrack)
 		return
 	}
 	// err here may happen for ex when netstack has no route to dst
 	if nerr := gconn.Connect(forward); nerr != nil {
 		log.W("udp: on-new-conn: failed to connect %s -> %s; err %v", gconn.LocalAddr(), dst, nerr)
 		t.msg = nerr.String()
-		go h.Close(gconn, notimetrack)
+		h.Close(conn, notimetrack)
 		return
 	}
 }
