@@ -101,11 +101,11 @@ func commondial(d *protect.RDial, network, addr string, connect connectFunc) (ne
 		log.D("rdial: commondial: confirmed ip %s for %s failed with err %v", confirmed, addr, err)
 	}
 
-	allips := filter(ips.GetAll(), confirmed)
+	allips := filter(ips.Addrs(), confirmed)
 	if len(allips) <= 0 {
 		var ok bool
 		if ok = Renew(domain, ips.Seed()); ok {
-			allips = filter(ips.GetAll(), confirmed)
+			allips = filter(ips.Addrs(), confirmed)
 		}
 		log.D("rdial: renew ips for %s; ok? %t", addr, ok)
 	}

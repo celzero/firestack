@@ -71,11 +71,11 @@ func proxydial(d proxy.Dialer, network, addr string, connect proxyConnectFunc) (
 	}
 
 	s2 := time.Now()
-	allips := filter(ips.GetAll(), confirmed)
+	allips := filter(ips.Addrs(), confirmed)
 	if len(allips) <= 0 {
 		var ok bool
 		if ok = Renew(domain, ips.Seed()); ok {
-			allips = filter(ips.GetAll(), confirmed)
+			allips = filter(ips.Addrs(), confirmed)
 		}
 		log.D("pdial: renew ips for %s; ok? %t", addr, ok)
 	}

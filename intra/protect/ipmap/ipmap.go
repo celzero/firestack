@@ -45,18 +45,18 @@ type IPMap interface {
 	// Get creates an IPSet for this hostname populated with the IPs
 	// discovered by resolving it. Subsequent calls to Get return the
 	// same IPSet. Never returns nil.
-	Get(hostname string) *IPSet
+	Get(hostOrIP string) *IPSet
 	// GetAny creates an IPSet for this hostname, which may be empty.
 	// Subsequent calls to GetAny return the same IPSet. Never returns nil.
-	GetAny(hostname string) *IPSet
+	GetAny(hostOrIP string) *IPSet
 	// MakeIPSet creates an IPSet for this hostname bootstrapped with given IPs.
 	// Subsequent calls to MakeIPSet return a new, overriden IPSet.
-	MakeIPSet(hostname string, ips []string) *IPSet
+	MakeIPSet(hostOrIP string, ips []string) *IPSet
 	// With sets the default resolver to use for hostname resolution.
 	With(r IPMapper)
 }
 
-type ipMap struct {
+type ipmap struct {
 	sync.RWMutex
 	m map[string]*IPSet
 	r IPMapper // always the default system resolver
@@ -78,19 +78,19 @@ func NewIPMap() IPMap {
 
 // NewIPMapFor returns a fresh IPMap with r as its nameserver.
 func NewIPMapFor(r IPMapper) IPMap {
-	return &ipMap{
+	return &ipmap{
 		m: make(map[string]*IPSet),
 		r: r,
 	}
 }
 
-func (m *ipMap) With(r IPMapper) {
+func (m *ipmap) With(r IPMapper) {
 	log.I("ipmap: new resolver")
 	m.r = r // may be nil
 }
 
 // Implements IPMapper.
-func (m *ipMap) LookupNetIP(ctx context.Context, network, host string) ([]netip.Addr, error) {
+func (m *ipmap) LookupNetIP(ctx context.Context, network, host string) ([]netip.Addr, error) {
 	r := m.r
 	if host == "localhost" || host == "localhost." {
 		return []netip.Addr{netip.IPv6Loopback()}, nil
@@ -104,15 +104,15 @@ func (m *ipMap) LookupNetIP(ctx context.Context, network, host string) ([]netip.
 	return r.LookupNetIP(ctx, network, host)
 }
 
-func (m *ipMap) Get(hostOrIP string) *IPSet {
+func (m *ipmap) Get(hostOrIP string) *IPSet {
 	return m.get(hostOrIP, false)
 }
 
-func (m *ipMap) GetAny(hostOrIP string) *IPSet {
+func (m *ipmap) GetAny(hostOrIP string) *IPSet {
 	return m.get(hostOrIP, true)
 }
 
-func (m *ipMap) get(hostOrIP string, emptyok bool) *IPSet {
+func (m *ipmap) get(hostOrIP string, emptyok bool) *IPSet {
 	if host, _, err := net.SplitHostPort(hostOrIP); err == nil {
 		hostOrIP = host
 	}
@@ -121,14 +121,14 @@ func (m *ipMap) get(hostOrIP string, emptyok bool) *IPSet {
 	m.RUnlock()
 
 	if s == nil {
-		s = m.MakeIPSet(hostOrIP, nil)
+		s = m.makeIPSet(hostOrIP, nil)
 	}
 
 	if emptyok || !s.Empty() {
 		return s
 	}
 
-	s.Add(hostOrIP)
+	s.add(hostOrIP)
 	if s.Empty() {
 		log.W("ipmap: Get: zero ips for %s", hostOrIP)
 	}
@@ -136,7 +136,14 @@ func (m *ipMap) get(hostOrIP string, emptyok bool) *IPSet {
 	return s
 }
 
-func (m *ipMap) MakeIPSet(hostOrIP string, ips []string) *IPSet {
+func (m *ipmap) MakeIPSet(hostOrIP string, ips []string) *IPSet {
+	if host, _, err := net.SplitHostPort(hostOrIP); err == nil {
+		hostOrIP = host
+	}
+	return m.makeIPSet(hostOrIP, ips)
+}
+
+func (m *ipmap) makeIPSet(hostname string, ips []string) *IPSet {
 	if ips == nil {
 		ips = []string{}
 	}
@@ -144,7 +151,7 @@ func (m *ipMap) MakeIPSet(hostOrIP string, ips []string) *IPSet {
 	s.bootstrap()
 
 	m.Lock()
-	m.m[hostOrIP] = s
+	m.m[hostname] = s
 	m.Unlock()
 
 	return s
@@ -174,9 +181,9 @@ func (s *IPSet) Seed() []string {
 	return s.seed
 }
 
-// Add one or more IP addresses to the set.
+// add one or more IP addresses to the set.
 // The hostname can be a domain name or an IP address.
-func (s *IPSet) Add(hostname string) {
+func (s *IPSet) add(hostname string) {
 	r := s.r
 	if r == nil {
 		log.W("ipmap: Add: (processing: %s) resolver missing", hostname)
@@ -221,9 +228,9 @@ func (s *IPSet) Empty() bool {
 	return len(s.ips) == 0
 }
 
-// GetAll returns a copy of the IP set as a slice in random order.
+// Addrs returns a copy of the IP set as a slice in random order.
 // The slice is owned by the caller, but the elements are owned by the set.
-func (s *IPSet) GetAll() []netip.Addr {
+func (s *IPSet) Addrs() []netip.Addr {
 	s.RLock()
 	if len(s.ips) <= 0 {
 		return nil

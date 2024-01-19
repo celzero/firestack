@@ -44,7 +44,7 @@ func Renew(hostOrIP string, addrs []string) bool {
 func For(hostOrIP string) []netip.Addr {
 	ipset := ipm.Get(hostOrIP)
 	if ipset != nil {
-		return ipset.GetAll()
+		return ipset.Addrs()
 	}
 	return nil
 }

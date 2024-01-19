@@ -38,7 +38,7 @@ func TestGetInvalid(t *testing.T) {
 	if !s.Empty() {
 		t.Error("Invalid name should result in an empty set")
 	}
-	if len(s.GetAll()) != 0 {
+	if len(s.Addrs()) != 0 {
 		t.Error("Empty set should be empty")
 	}
 }
@@ -49,7 +49,7 @@ func TestGetDomain(t *testing.T) {
 	if s.Empty() {
 		t.Error("Google lookup failed")
 	}
-	ips := s.GetAll()
+	ips := s.Addrs()
 	if len(ips) == 0 {
 		t.Fatal("IP set is empty")
 	}
@@ -64,7 +64,7 @@ func TestGetIP(t *testing.T) {
 	if s.Empty() {
 		t.Error("IP parsing failed")
 	}
-	ips := s.GetAll()
+	ips := s.Addrs()
 	if len(ips) != 1 {
 		t.Errorf("Wrong IP set size %d", len(ips))
 	}
@@ -76,11 +76,11 @@ func TestGetIP(t *testing.T) {
 func TestAddDomain(t *testing.T) {
 	m := NewIPMap()
 	s := m.Get("example")
-	s.Add("www.google.com")
+	s.add("www.google.com")
 	if s.Empty() {
 		t.Error("Google lookup failed")
 	}
-	ips := s.GetAll()
+	ips := s.Addrs()
 	if len(ips) == 0 {
 		t.Fatal("IP set is empty")
 	}
@@ -91,8 +91,8 @@ func TestAddDomain(t *testing.T) {
 func TestAddIP(t *testing.T) {
 	m := NewIPMap()
 	s := m.Get("example")
-	s.Add("192.0.2.1")
-	ips := s.GetAll()
+	s.add("192.0.2.1")
+	ips := s.Addrs()
 	if len(ips) != 1 {
 		t.Errorf("Wrong IP set size %d", len(ips))
 	}
@@ -108,7 +108,7 @@ func TestConfirmed(t *testing.T) {
 		t.Error("Confirmed should start out nil")
 	}
 
-	ips := s.GetAll()
+	ips := s.Addrs()
 	s.Confirm(ips[0])
 	if ips[0].Compare(s.Confirmed()) != 0 {
 		t.Error("Confirmation failed")
@@ -123,13 +123,13 @@ func TestConfirmed(t *testing.T) {
 func TestConfirmNew(t *testing.T) {
 	m := NewIPMap()
 	s := m.Get("example")
-	s.Add("192.0.2.1")
+	s.add("192.0.2.1")
 	// Confirm a new address.
 	s.Confirm(netip.MustParseAddr("192.0.2.2"))
 	if !s.Confirmed().IsValid() || s.Confirmed().String() != "192.0.2.2" {
 		t.Error("Confirmation failed")
 	}
-	ips := s.GetAll()
+	ips := s.Addrs()
 	if len(ips) != 2 {
 		t.Errorf("New address not added to the set; %v", ips)
 	}
@@ -138,7 +138,7 @@ func TestConfirmNew(t *testing.T) {
 func TestDisconfirmMismatch(t *testing.T) {
 	m := NewIPMap()
 	s := m.Get("www.google.com")
-	ips := s.GetAll()
+	ips := s.Addrs()
 	s.Confirm(ips[0])
 
 	// Make a copy

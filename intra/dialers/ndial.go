@@ -65,11 +65,11 @@ func netdial(d *net.Dialer, network, addr string, connect netConnectFunc) (net.C
 		log.D("ndial: confirmed ip %s for %s failed with err %v", confirmed, addr, err)
 	}
 
-	allips := filter(ips.GetAll(), confirmed)
+	allips := filter(ips.Addrs(), confirmed)
 	if len(allips) <= 0 {
 		var ok bool
 		if ok = Renew(domain, ips.Seed()); ok {
-			allips = filter(ips.GetAll(), confirmed)
+			allips = filter(ips.Addrs(), confirmed)
 		}
 		log.D("ndial: renew ips for %s; ok? %t", addr, ok)
 	}
