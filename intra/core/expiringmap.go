@@ -33,6 +33,7 @@ func NewExpiringMap() *ExpMap {
 		m:        make(map[string]*val),
 		lastreap: time.Now(),
 	}
+	// test: go.dev/play/p/EYq_STKvugb
 	return m
 }
 
@@ -63,14 +64,14 @@ func (m *ExpMap) Set(key string, expiry time.Duration) uint32 {
 	defer m.Unlock()
 
 	v, ok := m.m[key]
-	if ok && n.After(v.expiry) {
-		v.expiry = n
-	} else {
+	if v == nil || !ok { // add new val
 		v = &val{
 			expiry: n,
 		}
 		m.m[key] = v
-	}
+	} else if n.After(v.expiry) { // update expiry
+		v.expiry = n
+	} // else: no change
 
 	go m.reaper()
 
