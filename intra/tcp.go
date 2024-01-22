@@ -307,7 +307,7 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target *net.TCPAddr) (
 	// nat-ed ips just fine, and so, use target as-is instead of ipx4
 	res := h.onFlow(src, target, realips, domains, probableDomains, blocklists)
 
-	pid, cid, uid := splitPidCidUid(res)
+	cid, pid, uid := splitCidPidUid(res)
 	s := tcpSummary(cid, pid, uid)
 
 	defer func() {
@@ -482,9 +482,9 @@ func undoAlg(r dnsx.Resolver, algip net.IP) (realips, domains, probableDomains, 
 }
 
 // returns proxy-id, conn-id, user-id
-func splitPidCidUid(decision *Mark) (pid, cid, uid string) {
+func splitCidPidUid(decision *Mark) (cid, pid, uid string) {
 	if decision == nil {
 		return
 	}
-	return decision.PID, decision.CID, decision.UID
+	return decision.CID, decision.PID, decision.UID
 }

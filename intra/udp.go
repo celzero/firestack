@@ -385,7 +385,7 @@ func (h *udpHandler) Connect(src core.UDPConn, target *net.UDPAddr) (nat *tracke
 
 	// flow is alg/nat-aware, do not change target or any addrs
 	res := h.onFlow(src, target, realips, domains, probableDomains, blocklists)
-	nat = makeTracker(splitPidCidUid(res))
+	nat = makeTracker(splitCidPidUid(res))
 	h.track(src, nat)
 
 	defer func() {
@@ -597,11 +597,14 @@ func (h *udpHandler) Close(conn core.UDPConn, secs int32) {
 		return
 	}
 
-	log.V("udp: closing conn [%v -> %v]", conn.LocalAddr(), conn.RemoteAddr())
+	local := conn.LocalAddr()
+	remote := conn.RemoteAddr()
+	t, _ := h.probe(conn)
 	conn.Close()
 
-	t, ok := h.probe(conn)
-	if ok {
+	log.V("udp: close conn [%v -> %v]; tracked? %t", local, remote, t != nil)
+
+	if t != nil {
 		go h.untrack(conn, t)
 
 		if t.connected() {
