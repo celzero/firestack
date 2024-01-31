@@ -225,7 +225,6 @@ func (t *transport) httpClientFor(p ipn.Proxy) (*http.Client, error) {
 		return pxtr.c, nil
 	}
 
-	t.pxcmu.Lock()
 	client := &http.Client{
 		// higher timeouts for proxies
 		Transport: &http.Transport{
@@ -236,6 +235,8 @@ func (t *transport) httpClientFor(p ipn.Proxy) (*http.Client, error) {
 			TLSClientConfig:       t.tlsconfig.Clone(),
 		},
 	}
+	// last writer wins
+	t.pxcmu.Lock()
 	t.pxclients[p.ID()] = &proxytransport{p: p, c: client}
 	t.pxcmu.Unlock()
 
