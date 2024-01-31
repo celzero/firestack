@@ -229,6 +229,7 @@ func (h *udpHandler) fetchUDPInput(conn core.UDPConn, nat *tracker) {
 			log.W("udp: ingress: failed write to tun (%s) from %s; err %v; %dsecs", logaddr, udpaddr, err, nat.Duration)
 			// for half-open: nat.errcount += 1 and continue
 			// otherwise: return and close conn
+			nat.done(err)
 			return
 		} else {
 			nat.Rx += int64(n) // rcvd (download) so far
