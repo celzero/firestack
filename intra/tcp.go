@@ -174,19 +174,19 @@ func (h *tcpHandler) forward(local net.Conn, remote net.Conn, summary *SocketSum
 
 	localtcp := local.(core.TCPConn)   // conforms to net.TCPConn
 	remotetcp := remote.(core.TCPConn) // conforms to net.TCPConn
-	ioch := make(chan ioinfo)
+	uploadch := make(chan ioinfo)
 
-	go h.handleUpload(cid, localtcp, remotetcp, ioch)
+	go h.handleUpload(cid, localtcp, remotetcp, uploadch)
 	download, err := h.handleDownload(cid, localtcp, remotetcp)
 
-	ioi := <-ioch
+	upload := <-uploadch
 
 	summary.Rx = download
-	summary.Tx = ioi.bytes
+	summary.Tx = upload.bytes
 
 	h.untrack(cid)
 
-	summary.done(err, ioi.err)
+	summary.done(err, upload.err)
 	go h.sendNotif(summary)
 }
 
@@ -337,7 +337,7 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target *net.TCPAddr) (
 	if open = gconn.Connect(ack); !open {
 		err = fmt.Errorf("tcp: %s no route %s -> %s for %s", cid, src, target, uid)
 		log.E("%v", err)
-		return deny // == open
+		return deny // == !open
 	}
 
 	var px ipn.Proxy
