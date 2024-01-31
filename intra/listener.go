@@ -76,8 +76,22 @@ func (s *SocketSummary) str() string {
 		s.ID, s.PID, s.UID, s.Rx, s.Tx, s.Duration, s.Rtt, s.Msg)
 }
 
-func (s *SocketSummary) done(errs ...error) {
+func (s *SocketSummary) elapsed() {
 	s.Duration = int32(time.Since(s.start).Seconds())
+}
+
+func (s *SocketSummary) done(errs ...error) {
+	defer func() {
+		if len(s.Msg) <= 0 {
+			s.Msg = NoErr.Error()
+		}
+	}()
+
+	s.elapsed()
+
+	if len(errs) <= 0 {
+		return
+	}
 
 	err := errors.Join(errs...) // errs may be nil
 	if err != nil {
@@ -86,9 +100,6 @@ func (s *SocketSummary) done(errs ...error) {
 		} else {
 			s.Msg = s.Msg + "; " + err.Error()
 		}
-	}
-	if len(s.Msg) <= 0 {
-		s.Msg = NoErr.Error()
 	}
 }
 
