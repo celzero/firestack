@@ -80,8 +80,9 @@ var _ WgProxy = (*wgproxy)(nil)
 type wgproxy struct {
 	*wgtun
 	*device.Device
-	hc *http.Client   // exported http client
-	rd *protect.RDial // exported rdialer
+	wgep *wg.StdNetBind
+	hc   *http.Client   // exported http client
+	rd   *protect.RDial // exported rdialer
 }
 
 type WgProxy interface {
@@ -109,6 +110,16 @@ func (w *wgproxy) Stop() error {
 	return w.Close()
 }
 
+// GetAddr implements ipn.Proxy
+func (h *wgproxy) GetAddr() string {
+	dst := h.wgep.RemoteAddr()
+	if !dst.IsValid() {
+		return noaddr
+	}
+	return dst.String()
+}
+
+// Refresh implements ipn.Proxy
 func (w *wgproxy) Refresh() (err error) {
 	n := w.dns.Refresh()
 	if err = w.Device.Down(); err != nil {
@@ -247,6 +258,7 @@ func wgIfConfigOf(txtptr *string) (ifaddrs []netip.Prefix, dnsh *multihost.MH, m
 				return
 			}
 		default:
+			log.V("proxy: wg: ifconfig: skipping key %q", k)
 			pcfg.WriteString(line + "\n")
 		}
 	}
@@ -301,7 +313,9 @@ func NewWgProxy(id string, ctl protect.Controller, cfg string) (WgProxy, error) 
 		return nil, err
 	}
 
-	wgdev := device.NewDevice(wgtun, wg.NewBind(id, ctl), wglogger(id))
+	wgep := wg.NewEndpoint(id, ctl)
+
+	wgdev := device.NewDevice(wgtun, wgep, wglogger(id))
 
 	err = wgdev.IpcSet(uapicfg)
 	if err != nil {
@@ -325,6 +339,7 @@ func NewWgProxy(id string, ctl protect.Controller, cfg string) (WgProxy, error) 
 	w := &wgproxy{
 		wgtun, // stack
 		wgdev, // device
+		wgep,  // endpoint
 		nil,   // rdial
 		nil,   // http-client
 	}
@@ -552,13 +567,6 @@ func (h *wgtun) Dial(network, address string) (c protect.Conn, err error) {
 
 func (h *wgtun) ID() string {
 	return h.id
-}
-
-func (h *wgtun) GetAddr() string {
-	if len(h.addrs) == 0 {
-		return noaddr
-	}
-	return h.addrs[0].String()
 }
 
 func (h *wgtun) Type() string {

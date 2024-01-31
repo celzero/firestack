@@ -48,9 +48,11 @@ type StdNetBind struct {
 	ipv6       *net.UDPConn
 	blackhole4 bool
 	blackhole6 bool
+
+	lastSendAddr netip.AddrPort // may be invalid
 }
 
-func NewBind(id string, ctl protect.Controller) conn.Bind {
+func NewEndpoint(id string, ctl protect.Controller) *StdNetBind {
 	dialer := protect.MakeNsListenConfig(id, ctl)
 	return &StdNetBind{d: dialer}
 }
@@ -105,6 +107,10 @@ func (e StdNetEndpoint) DstToString() string {
 
 func (e StdNetEndpoint) SrcToString() string {
 	return ""
+}
+
+func (s *StdNetBind) RemoteAddr() netip.AddrPort {
+	return s.lastSendAddr
 }
 
 func (s *StdNetBind) listenNet(network string, port int) (*net.UDPConn, int, error) {
@@ -274,6 +280,8 @@ func (bind *StdNetBind) Send(buf [][]byte, endpoint conn.Endpoint) error {
 	if noconn {
 		return syscall.EAFNOSUPPORT
 	}
+
+	bind.lastSendAddr = addrPort
 
 	uc.SetDeadline(time.Now().Add(wgtimeout))
 	n, err := uc.WriteToUDPAddrPort(data, addrPort)
