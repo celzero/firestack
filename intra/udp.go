@@ -340,10 +340,16 @@ func (h *udpHandler) OnNewConn(gconn *netstack.GUDPConn, _, dst *net.UDPAddr) {
 	finish := true   // disconnect
 	forward := false // connect
 
-	var conn core.UDPConn = gconn // typecast here so h.track/h.probe work
-	t, err := h.Connect(conn, dst)
+	if h.status == UDPEND {
+		log.D("udp: connect: end")
+		gconn.Connect(finish) // disconnect, no nat
+		return
+	}
 
-	if err != nil { // no nat / tracker t is nil
+	var conn core.UDPConn = gconn  // typecast here so h.track/h.probe work
+	t, err := h.Connect(conn, dst) // t is never nil
+
+	if err != nil { // no nat
 		gconn.Connect(finish)
 		t.done(err)
 		h.Close(conn)
@@ -362,11 +368,6 @@ func (h *udpHandler) OnNewConn(gconn *netstack.GUDPConn, _, dst *net.UDPAddr) {
 // Connect connects the proxy server.
 // Note, target may be nil in lwip (deprecated) while it may be unspecified in netstack
 func (h *udpHandler) Connect(src core.UDPConn, target *net.UDPAddr) (nat *tracker, err error) {
-	if h.status == UDPEND {
-		log.D("udp: connect: end")
-		return nil, errUdpEnd // disconnect, no nat
-	}
-
 	var px ipn.Proxy
 	var pc protect.Conn
 	var dst net.Conn
