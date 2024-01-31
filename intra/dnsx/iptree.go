@@ -19,11 +19,11 @@ import (
 // A IpTree is a thread-safe trie that supports insertion, deletion, and route matching IP CIDRs.
 type IpTree interface {
 	// Adds value v to the cidr route in the trie.
-	Add(cidr string, v string) error
+	Add(cidr, v string) error
 	// Sets cidr route to v in the trie, overwriting any previous value.
 	Set(cidr, v string) error
 	// Removes value v, if found, from the trie.
-	Esc(cidr string, v string) bool
+	Esc(cidr, v string) bool
 	// Deletes cidr route from the trie. Returns true if cidr was in the trie.
 	Del(cidr string) bool
 	// Gets the value of cidr from the trie or "" if cidr is not in the trie.
