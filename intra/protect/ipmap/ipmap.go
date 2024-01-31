@@ -137,6 +137,7 @@ func (m *ipmap) get(hostOrIP string, emptyok bool) *IPSet {
 }
 
 func (m *ipmap) MakeIPSet(hostOrIP string, ips []string) *IPSet {
+	log.D("ipmap: renew: %s / seed: %v", hostOrIP, ips)
 	if host, _, err := net.SplitHostPort(hostOrIP); err == nil {
 		hostOrIP = host
 	}
@@ -144,6 +145,8 @@ func (m *ipmap) MakeIPSet(hostOrIP string, ips []string) *IPSet {
 }
 
 func (m *ipmap) makeIPSet(hostname string, ips []string) *IPSet {
+	log.D("ipmap: makeIPSet: %s, seed: %v", hostname, ips)
+
 	if ips == nil {
 		ips = []string{}
 	}
@@ -169,9 +172,14 @@ func (s *IPSet) hasLocked(ip netip.Addr) bool {
 
 // Adds an IP to the set if it is not present.  Must be called under Lock.
 func (s *IPSet) addLocked(ip netip.Addr) {
-	if !ip.IsUnspecified() && ip.IsValid() && !s.hasLocked(ip) {
+	uns := !ip.IsUnspecified()
+	valip := ip.IsValid()
+	newip := !s.hasLocked(ip)
+	if uns && valip && newip {
 		// always unmapped; github.com/golang/go/issues/53607
 		s.ips = append(s.ips, ip.Unmap())
+	} else {
+		log.W("ipmap: add: invalid ip %s; uns? %t, val? %t, new? %t", ip, uns, valip, newip)
 	}
 }
 
@@ -204,21 +212,18 @@ func (s *IPSet) add(hostname string) {
 // Adds one or more IP addresses to the set.
 func (s *IPSet) bootstrap() {
 	s.Lock()
+	defer s.Unlock()
 	for _, ipstr := range s.seed {
 		if ip, err := netip.ParseAddr(ipstr); err == nil {
 			s.addLocked(ip)
 		} else {
-			log.W("ipmap: bootstrap: invalid ipstr %s: %v", ipstr, err)
-			if ipstr2, _, err := net.SplitHostPort(ipstr); err == nil {
-				if ip2, err := netip.ParseAddr(ipstr2); err == nil {
-					s.addLocked(ip2)
-				} else {
-					log.W("ipmap: bootstrap: invalid ipstr2 %s: %v", ipstr2, err)
-				}
+			if ipport, err2 := netip.ParseAddrPort(ipstr); err2 == nil {
+				s.addLocked(ipport.Addr())
+			} else {
+				log.W("ipmap: seed: invalid ipstr %s: err1 %v / err2 %v", ipstr, err, err2)
 			}
 		}
 	}
-	s.Unlock()
 }
 
 // Empty reports whether the set is empty.
