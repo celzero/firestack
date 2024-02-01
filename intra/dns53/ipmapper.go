@@ -130,26 +130,39 @@ func (m *ipmapper) LookupNetIP(ctx context.Context, network, host string) ([]net
 }
 
 func (m *ipmapper) undoAlg(ip64 []netip.Addr) []netip.Addr {
-	realips := make([]string, 0, len(ip64))
+	gw := m.r.Gateway()
+	if gw != nil {
+		log.D("ipmapper: undoAlg: no-op; no gateway")
+		return ip64
+	}
 	ips := make([]netip.Addr, 0, len(ip64))
+	realips := make([]string, 0, len(ip64))
 	for _, x := range ip64 {
 		var csv string
-		if gw := m.r.Gateway(); x.IsValid() && gw != nil {
+		if x.IsValid() {
 			if csv = gw.X(x.AsSlice()); len(csv) > 0 {
+				// may contain duplicates due to how alg maps domains and ips
 				realips = append(realips, strings.Split(csv, ",")...)
-				continue
+				continue // skip log.W below
 			}
 		}
 		log.W("ipmapper: undoAlg: no algip => realip? (%s => %s)", x, csv)
 	}
+	dups := 0
+	seen := make(map[string]bool) // track duplicates
 	for _, x := range realips {
+		if y, ok := seen[x]; y && ok {
+			dups++
+			continue
+		}
+		seen[x] = true
 		if ip, err := str2ip(x); err == nil {
 			ips = append(ips, ip)
 		} else {
 			log.W("ipmapper: undoAlg: str2ip %s err: %v", x, err)
 		}
 	}
-	log.D("ipmapper: undoAlg: %v => %v", ip64, ips)
+	log.D("ipmapper: undoAlg(%d): %v => %v", dups, ip64, ips)
 	return ips
 }
 
