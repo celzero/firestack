@@ -406,9 +406,9 @@ func (h *udpHandler) Connect(src core.UDPConn, target *net.UDPAddr) (nat *tracke
 		return nat, errUdpFirewalled // disconnect
 	}
 
-	// non-rethink dns requests are re-routed and hence
-	// NAT/proxy dialing is unnecessary.
-	if nat.UID != protect.UidSelf && h.isDns(target) {
+	// // non-rethink dns requests are re-routed to user preferred endpoint
+	// // and hence NAT/proxy dialing is unnecessary.
+	if /*nat.UID != protect.UidSelf &&*/ h.isDns(target) {
 		return nat, nil // connect, no dst
 	}
 

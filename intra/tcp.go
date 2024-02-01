@@ -345,9 +345,9 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target *net.TCPAddr) (
 		return deny
 	}
 
-	// requests coming from rethink itself are not overriden
-	// but instead sent out to the dns transport
-	if uid != protect.UidSelf && h.dnsOverride(gconn, target) {
+	// // requests coming from rethink itself are not overriden
+	// // but instead sent out to the dns transport
+	if /*uid != protect.UidSelf &&*/ h.dnsOverride(gconn, target) {
 		return allow
 	}
 
