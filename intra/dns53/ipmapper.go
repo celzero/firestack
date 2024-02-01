@@ -64,6 +64,8 @@ func (m *ipmapper) LookupNetIP(ctx context.Context, network, host string) ([]net
 		return []netip.Addr{ip}, nil
 	}
 
+	log.V("ipmapper: lookup: host %s on network %s", host, network)
+
 	var q4, q6 []byte
 	var err4, err6 error
 	switch network {
@@ -107,13 +109,14 @@ func (m *ipmapper) LookupNetIP(ctx context.Context, network, host string) ([]net
 		r6, noval6 = val6.Val.([]byte)
 		lerr6 = val6.Err // may be nil
 	}
-	if noval4 && noval6 { // typecast failed or no answer
-		log.E("ipmapper: lookup: no answers for %s", host)
-		return nil, errNoAns
-	} else if lerr4 != nil && lerr6 != nil { // all errors
+
+	if lerr4 != nil && lerr6 != nil { // all errors
 		errs := errors.Join(lerr4, lerr6)
 		log.E("ipmapper: lookup: %s: err %v", host, errs)
 		return nil, errs
+	} else if noval4 && noval6 { // typecast failed or no answer
+		log.E("ipmapper: lookup: no answers for %s; len(4)? %t len(6)? %t", host, len(r4), len(r6))
+		return nil, errNoAns
 	} else if len(r4) <= 0 && len(r6) <= 0 { // empty answer
 		errs := errors.Join(errNoAns, lerr4, lerr6)
 		log.E("ipmapper: lookup: no answers for %s, err %v", host, errs)
