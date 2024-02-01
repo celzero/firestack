@@ -358,6 +358,9 @@ func (r *resolver) forward(q []byte, chosenids ...string) ([]byte, error) {
 	pref := r.listener.OnQuery(qname, qtyp)
 	id, sid, pid, _ := r.preferencesFrom(qname, pref, chosenids...)
 	t := r.determineTransport(id)
+
+	log.V("dns: udp: query %s [prefs:%v]; id? %s, sid? %s, pid? %s", qname, pref, id, sid, pid)
+
 	if t == nil {
 		summary.Latency = time.Since(starttime).Seconds()
 		summary.Status = TransportError
@@ -502,7 +505,7 @@ func (r *resolver) forwardQuery(q []byte, c io.Writer) error {
 
 	msg, err := unpack(q)
 	if err != nil {
-		log.W("dns: not a valid packet %v", err)
+		log.W("dns: tcp: not a valid packet %v", err)
 		summary.Latency = time.Since(starttime).Seconds()
 		summary.Status = BadQuery
 		return err
@@ -515,8 +518,10 @@ func (r *resolver) forwardQuery(q []byte, c io.Writer) error {
 	summary.QType = qtyp
 	pref := r.listener.OnQuery(qname, qtyp)
 	id, sid, pid, _ := r.preferencesFrom(qname, pref)
-	// retrieve transport
 	t := r.determineTransport(id)
+
+	log.V("dns: tcp: query %s [prefs:%v]; id? %s, sid? %s, pid? %s", qname, pref, id, sid, pid)
+
 	if t == nil {
 		summary.Latency = time.Since(starttime).Seconds()
 		summary.Status = TransportError
@@ -538,7 +543,7 @@ func (r *resolver) forwardQuery(q []byte, c io.Writer) error {
 		summary.Blocklists = blocklists
 		summary.RData = xdns.GetInterestingRData(res1)
 		writeto(c, b, len(b))
-		log.V("dns: udp: query blocked %s by %s", qname, blocklists)
+		log.V("dns: tcp: query blocked %s by %s", qname, blocklists)
 		return e
 	} else {
 		log.V("dns: tcp: query NOT blocked %s; why? %v", qname, err)
