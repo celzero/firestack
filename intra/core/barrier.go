@@ -25,6 +25,8 @@ const (
 	Shared
 )
 
+type Work func() (any, error) // Work is the type of the function to memoize
+
 // V is an in-flight or completed Barrier.Do V
 type V struct {
 	wg  sync.WaitGroup
@@ -76,7 +78,7 @@ func (ba *Barrier) addLocked(k string) *V {
 // sure that only one execution is in-flight for a given key at a
 // time. If a duplicate comes in, the duplicate caller waits for the
 // original to complete and receives the same results.
-func (ba *Barrier) Do(k string, me func() (any, error)) (*V, int) {
+func (ba *Barrier) Do(k string, once Work) (*V, int) {
 	ba.mu.Lock()
 	c, _ := ba.getLocked(k)
 	if c != nil {
@@ -89,7 +91,7 @@ func (ba *Barrier) Do(k string, me func() (any, error)) (*V, int) {
 	c = ba.addLocked(k)
 	ba.mu.Unlock()
 
-	c.Val, c.Err = me()
+	c.Val, c.Err = once()
 
 	c.wg.Done() // unblock all waiters
 	return c, Anew

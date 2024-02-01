@@ -27,6 +27,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/log"
 	"gvisor.dev/gvisor/pkg/tcpip"
 	"gvisor.dev/gvisor/pkg/tcpip/adapters/gonet"
@@ -113,9 +114,7 @@ func (tnet *wgtun) DialContext(_ context.Context, network, address string) (net.
 		}
 	}
 
-	rv, _ := tnet.reqbarrier.Do(host, func() (any, error) {
-		return tnet.LookupHost(host)
-	})
+	rv, _ := tnet.reqbarrier.Do(host, resolve(tnet, host))
 	if rv.Err != nil {
 		log.W("wg: dial: lookup failed %q: %v", host, rv.Err)
 		return nil, &net.OpError{Op: "dial", Err: rv.Err}
@@ -163,6 +162,12 @@ func (tnet *wgtun) DialContext(_ context.Context, network, address string) (net.
 	}
 	log.W("wg: dial: %s: %v failed: %v", network, addrs, firstErr)
 	return nil, firstErr
+}
+
+func resolve(tnet *wgtun, host string) core.Work {
+	return func() (any, error) {
+		return tnet.LookupHost(host)
+	}
 }
 
 // --------------------------------------------------------------------

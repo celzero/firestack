@@ -87,12 +87,8 @@ func (m *ipmapper) LookupNetIP(ctx context.Context, network, host string) ([]net
 		return nil, errs
 	}
 
-	val4, _ := m.ba.Do(key(host, "ip4"), func() (any, error) {
-		return m.r.LocalLookup(q4)
-	})
-	val6, _ := m.ba.Do(key(host, "ip6"), func() (any, error) {
-		return m.r.LocalLookup(q6)
-	})
+	val4, _ := m.ba.Do(key(host, "ip4"), resolve(m.r, q4))
+	val6, _ := m.ba.Do(key(host, "ip6"), resolve(m.r, q6))
 
 	var noval4, noval6 bool
 	var r4, r6 []byte
@@ -159,6 +155,12 @@ func (m *ipmapper) undoAlg(ip64 []netip.Addr) []netip.Addr {
 
 func key(name string, typ string) string {
 	return name + ":" + typ
+}
+
+func resolve(r dnsx.Resolver, q []byte) core.Work {
+	return func() (any, error) {
+		return r.LocalLookup(q)
+	}
 }
 
 func addrs(a []byte) []netip.Addr {
