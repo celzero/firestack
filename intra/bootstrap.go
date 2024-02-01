@@ -24,6 +24,7 @@ import (
 const (
 	defaultAddrPrefix = "d."
 	bootid            = dnsx.BlockFree
+	specialHostname   = protect.UidSelf
 )
 
 var (
@@ -71,7 +72,6 @@ func newDefaultDohTransport(url string, ipcsv string, p ipn.Proxies, g Bridge) (
 
 func newDefaultTransport(ipcsv string, p ipn.Proxies, g Bridge) (dnsx.Transport, error) {
 	if len(ipcsv) > 0 {
-		specialHostname := protect.UidSelf
 		return dns53.NewTransportFromHostname(bootid, specialHostname, ipcsv, p, g)
 	}
 	return nil, errCannotStart
@@ -107,7 +107,7 @@ func (b *bootstrap) reinit(trtype, ippOrUrl, ipcsv string) error {
 		// todo: tests just the first ipport; test all?
 		if _, err := xdns.DnsIPPort(ips[0]); err == nil {
 			b.url = ""
-			b.hostname = protect.UidSelf
+			b.hostname = specialHostname
 			b.ipports = ippOrUrl
 			b.typ = dnsx.DNS53
 		} else {
