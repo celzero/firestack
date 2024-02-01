@@ -91,13 +91,7 @@ func (m *ipmap) With(r IPMapper) {
 
 // Implements IPMapper.
 func (m *ipmap) LookupNetIP(ctx context.Context, network, host string) ([]netip.Addr, error) {
-	r := m.r
-	if host == "localhost" || host == "localhost." {
-		return []netip.Addr{netip.IPv6Loopback()}, nil
-	}
-	if host == "rethink" { // == protect.UidSelf
-		return nil, nil
-	}
+	r := m.r // actual ipmapper implementation
 	if r == nil {
 		return nil, &net.DNSError{Err: "no resolver", Name: host}
 	}
