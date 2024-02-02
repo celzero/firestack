@@ -238,9 +238,9 @@ func (h *udpHandler) fetchUDPInput(conn core.UDPConn, nat *tracker) {
 	}
 }
 
-func (h *udpHandler) dnsOverride(conn core.UDPConn, nat *tracker, addr *net.UDPAddr, query []byte) bool {
+func (h *udpHandler) dnsOverride(conn core.UDPConn, addr *net.UDPAddr, query []byte) bool {
 	// dst is nil if dns is to be overriden; see: h.Connect
-	if nat.dst != nil && !h.isDns(addr) {
+	if !h.isDns(addr) {
 		return false
 	}
 	// conn was only used for this DNS query, so it's unlikely to be used again.
@@ -259,7 +259,7 @@ func (h *udpHandler) dnsOverride(conn core.UDPConn, nat *tracker, addr *net.UDPA
 func (h *udpHandler) isDns(addr *net.UDPAddr) bool {
 	// addr with zone information removed; see: netip.ParseAddrPort which h.resolver relies on
 	// addr2 := &net.UDPAddr{IP: addr.IP, Port: addr.Port}
-	return h.resolver.IsDnsAddr(dnsx.NetTypeUDP, addr.String())
+	return h.resolver.IsDnsAddr(addr.String())
 }
 
 func (h *udpHandler) onFlow(localudp core.UDPConn, target *net.UDPAddr, realips, domains, probableDomains, blocklists string) *Mark {
@@ -499,8 +499,8 @@ func (h *udpHandler) ReceiveTo(conn core.UDPConn, data []byte, addr *net.UDPAddr
 		log.W("udp: egress: no-op; closed? no nat(%v -> %v [%v])", nsladdr, raddr, nsraddr)
 		return fmt.Errorf("udp: egress: nat %v -> %v [%v] does not exist", nsladdr, raddr, nsraddr)
 	}
-	if !nat.connected() { // no nat conn
-		if h.dnsOverride(conn, nat, addr, data) { // if dns request; handle it
+	if !nat.connected() { // no nat conn; see h.Connect
+		if h.dnsOverride(conn, addr, data) { // if dns request; handle it
 			log.D("udp: egress: dns-op; dstaddr(%v) <- src(l:%v r:%v)", raddr, nsladdr, nsraddr)
 			return nil
 		}

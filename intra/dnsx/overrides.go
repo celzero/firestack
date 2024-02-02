@@ -1,7 +1,6 @@
 package dnsx
 
 import (
-	"net"
 	"net/netip"
 	"strings"
 
@@ -9,42 +8,19 @@ import (
 	"github.com/celzero/firestack/intra/settings"
 )
 
-// udp
-
-func (h *resolver) isUdpDnsIpPort(addr *net.UDPAddr) bool {
-	if addr == nil || len(h.udpaddrs) <= 0 {
-		log.E("nil dst-addr(%v) or dns(%v)", addr, h.udpaddrs)
-		return false
-	}
-	for _, dnsaddr := range h.udpaddrs {
-		if addr.IP.Equal(dnsaddr.IP) && addr.Port == dnsaddr.Port {
+func (h *resolver) isDnsIpPort(addr netip.AddrPort) bool {
+	for _, dnsaddr := range h.dnsaddrs {
+		if addr.Addr().Compare(dnsaddr.Addr()) == 0 && addr.Port() == dnsaddr.Port() {
 			return true
 		}
 	}
 	return false
 }
 
-func (h *resolver) isUdpDnsPort(addr *net.UDPAddr) bool {
-	if addr == nil || len(h.udpaddrs) <= 0 {
-		log.E("nil dst-addr(%v) or dns(%v)", addr, h.udpaddrs)
-		return false
-	}
+func (h *resolver) isDnsPort(addr netip.AddrPort) bool {
 	// isn't h.fakedns.Port always expected to be 53?
-	for _, dnsaddr := range h.udpaddrs {
-		if addr.Port == dnsaddr.Port {
-			return true
-		}
-	}
-	return false
-}
-
-func (h *resolver) isUdpDns(addr *net.UDPAddr) bool {
-	if h.trapIP() {
-		if yes := h.isUdpDnsIpPort(addr); yes {
-			return true
-		}
-	} else if h.trapPort() {
-		if yes := h.isUdpDnsPort(addr); yes {
+	for _, dnsaddr := range h.dnsaddrs {
+		if addr.Port() == dnsaddr.Port() {
 			return true
 		}
 	}
@@ -53,19 +29,24 @@ func (h *resolver) isUdpDns(addr *net.UDPAddr) bool {
 
 // dns
 
-func (h *resolver) isDns(network, ipport string) bool {
+func (h *resolver) isDns(ipport string) bool {
 	if ipp, err := netip.ParseAddrPort(ipport); err != nil {
 		return false
 	} else {
-		switch network {
-		case NetTypeTCP:
-			fallthrough
-		case NetTypeUDP:
-			addr := &net.UDPAddr{IP: ipp.Addr().AsSlice(), Port: int(ipp.Port())}
-			return h.isUdpDns(addr)
-		default:
+		if !ipp.IsValid() || len(h.dnsaddrs) <= 0 {
+			log.E("missing dst-addr(%v) or dns(%v)", ipp, h.dnsaddrs)
 			return false
 		}
+		if h.trapIP() {
+			if yes := h.isDnsIpPort(ipp); yes {
+				return true
+			}
+		} else if h.trapPort() {
+			if yes := h.isDnsPort(ipp); yes {
+				return true
+			}
+		}
+		return false
 	}
 }
 
@@ -77,33 +58,17 @@ func (h *resolver) trapPort() bool {
 	return h.tunmode.DNSMode == settings.DNSModePort
 }
 
-// TODO: Generics?
-func (r *resolver) fakeTcpAddr(csvaddr string) {
+func (r *resolver) addDnsAddrs(csvaddr string) {
 	addrs := strings.Split(csvaddr, ",")
-	tcpaddrs := make([]*net.TCPAddr, 0, len(addrs))
+	dnsaddrs := make([]netip.AddrPort, 0, len(addrs))
 	count := 0
 	for _, a := range addrs {
-		if tcpaddr, err := net.ResolveTCPAddr("tcp", a); err != nil {
-			log.W("not valid fake tcpaddr(%s): %v", a, err)
-		} else if tcpaddr != nil {
-			tcpaddrs = append(tcpaddrs, tcpaddr)
+		if ipp, err := netip.ParseAddrPort(a); ipp.IsValid() && err == nil {
+			dnsaddrs = append(dnsaddrs, ipp)
 			count += 1
+		} else {
+			log.W("not valid fake udpaddr(%s <=> %s): %v", ipp, a, err)
 		}
 	}
-	r.tcpaddrs = tcpaddrs[:count]
-}
-
-func (r *resolver) fakeUdpAddr(csvaddr string) {
-	addrs := strings.Split(csvaddr, ",")
-	udpaddrs := make([]*net.UDPAddr, 0, len(addrs))
-	count := 0
-	for _, a := range addrs {
-		if udpaddr, err := net.ResolveUDPAddr("udp", a); err != nil {
-			log.W("not valid fake udpaddr(%s): %v", a, err)
-		} else if udpaddr != nil {
-			udpaddrs = append(udpaddrs, udpaddr)
-			count += 1
-		}
-	}
-	r.udpaddrs = udpaddrs[:count]
+	r.dnsaddrs = dnsaddrs[:count]
 }

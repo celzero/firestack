@@ -11,7 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
+	"net/netip"
 	"strings"
 	"sync"
 	"time"
@@ -132,7 +132,7 @@ type Resolver interface {
 	// GetMult returns multi-transport, if available
 	GetMult(id string) (TransportMult, error)
 
-	IsDnsAddr(network, ipport string) bool
+	IsDnsAddr(ipport string) bool
 	// Lookup performs resolution on Default DNSes
 	LocalLookup(q []byte) ([]byte, error)
 	// Forward performs resolution on any DNS transport
@@ -145,8 +145,7 @@ type resolver struct {
 	sync.RWMutex // protects transports
 	NatPt
 	tunmode      *settings.TunMode
-	tcpaddrs     []*net.TCPAddr
-	udpaddrs     []*net.UDPAddr
+	dnsaddrs     []netip.AddrPort
 	systemdns    []Transport
 	transports   map[string]Transport
 	gateway      Gateway
@@ -316,11 +315,11 @@ func (r *resolver) Remove(id string) (ok bool) {
 	return
 }
 
-func (r *resolver) IsDnsAddr(network, ipport string) bool {
+func (r *resolver) IsDnsAddr(ipport string) bool {
 	if len(ipport) <= 0 {
 		return false
 	}
-	return r.isDns(network, ipport)
+	return r.isDns(ipport)
 }
 
 func (r *resolver) LocalLookup(q []byte) ([]byte, error) {
@@ -859,8 +858,7 @@ func qtype(msg *dns.Msg) int {
 }
 
 func (r *resolver) loadaddrs(csvaddr string) {
-	r.fakeTcpAddr(csvaddr)
-	r.fakeUdpAddr(csvaddr)
+	r.addDnsAddrs(csvaddr)
 }
 
 func map2csv(ts map[string]Transport) string {
