@@ -210,8 +210,8 @@ func (h *tcpHandler) sendNotif(summary *SocketSummary) {
 
 func (h *tcpHandler) dnsOverride(conn net.Conn, addr *net.TCPAddr) bool {
 	// addr with zone information removed; see: netip.ParseAddrPort which h.resolver relies on
-	addr2 := &net.TCPAddr{IP: addr.IP, Port: addr.Port}
-	if h.resolver.IsDnsAddr(dnsx.NetTypeTCP, addr2.String()) {
+	// addr2 := &net.TCPAddr{IP: addr.IP, Port: addr.Port}
+	if h.resolver.IsDnsAddr(dnsx.NetTypeTCP, addr.String()) {
 		// conn closed by the resolver
 		h.resolver.Serve(conn)
 		return true
@@ -345,11 +345,11 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target *net.TCPAddr) (
 		return deny
 	}
 
-	// // requests coming from rethink itself are not overriden
-	// // but instead sent out to the dns transport
-	if /*uid != protect.UidSelf &&*/ h.dnsOverride(gconn, target) {
-		return allow
-	}
+	if pid != ipn.Exit { // see udp.go Connect
+		if h.dnsOverride(gconn, target) {
+			return allow
+		} // else not a dns request
+	} // if ipn.Exit then let it connect as-is (aka exit)
 
 	// pick all realips to connect to
 	for _, dstip := range makeIPs(realips, target.IP) {

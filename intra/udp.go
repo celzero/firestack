@@ -238,8 +238,9 @@ func (h *udpHandler) fetchUDPInput(conn core.UDPConn, nat *tracker) {
 	}
 }
 
-func (h *udpHandler) dnsOverride(conn core.UDPConn, addr *net.UDPAddr, query []byte) bool {
-	if !h.isDns(addr) {
+func (h *udpHandler) dnsOverride(conn core.UDPConn, nat *tracker, addr *net.UDPAddr, query []byte) bool {
+	// dst is nil if dns is to be overriden; see: h.Connect
+	if nat.dst != nil && !h.isDns(addr) {
 		return false
 	}
 	// conn was only used for this DNS query, so it's unlikely to be used again.
@@ -257,8 +258,8 @@ func (h *udpHandler) dnsOverride(conn core.UDPConn, addr *net.UDPAddr, query []b
 
 func (h *udpHandler) isDns(addr *net.UDPAddr) bool {
 	// addr with zone information removed; see: netip.ParseAddrPort which h.resolver relies on
-	addr2 := &net.UDPAddr{IP: addr.IP, Port: addr.Port}
-	return h.resolver.IsDnsAddr(dnsx.NetTypeUDP, addr2.String())
+	// addr2 := &net.UDPAddr{IP: addr.IP, Port: addr.Port}
+	return h.resolver.IsDnsAddr(dnsx.NetTypeUDP, addr.String())
 }
 
 func (h *udpHandler) onFlow(localudp core.UDPConn, target *net.UDPAddr, realips, domains, probableDomains, blocklists string) *Mark {
@@ -406,9 +407,25 @@ func (h *udpHandler) Connect(src core.UDPConn, target *net.UDPAddr) (nat *tracke
 		return nat, errUdpFirewalled // disconnect
 	}
 
-	// // non-rethink dns requests are re-routed to user preferred endpoint
-	// // and hence NAT/proxy dialing is unnecessary.
-	if /*nat.UID != protect.UidSelf &&*/ h.isDns(target) {
+	// requests meant for ipn.Exit are always routed to it
+	// and never to whatever is set as DNS upstream.
+	// Ex: If kotlin-land initiates a DNS query (with InetAddress),
+	// it is routed to the tunnel's fake DNS addr, which is trapped by
+	// by h.dnsOverride that forwards it to one of the dnsx Transports.
+	// These dnsx Transports route the query back into the tunnel when
+	// Rethink-within-Rethink routing is enabled. If this dnsx Transport
+	// is forwarding queries to ANY DNS upstream on port 53 (dns53)
+	// (see h.resolver.isDns), then the request again is trapped and
+	// routed back to the dnsx Transport. To avoid this loop, when
+	// Rethink-within-Rethink routing is enabled, kotlin-land
+	// is expected to mark ipn.Base for queries to be trapped and sent
+	// to user-preferred dnsx Transport, and ipn.Exit for queries to be
+	// dialed as an outgoing protected connection. In practice, when
+	// Rethink-within-Rethink routing is enabled and a DNS connection
+	// as seen (with Flow) is owned by Rethink, then expect the conn
+	// to be marked ipn.Base for queries sent to tunnel's fake DNS addr
+	// and ipn.Exit for anywhere else.
+	if nat.PID != ipn.Exit && h.isDns(target) {
 		return nat, nil // connect, no dst
 	}
 
@@ -483,7 +500,7 @@ func (h *udpHandler) ReceiveTo(conn core.UDPConn, data []byte, addr *net.UDPAddr
 		return fmt.Errorf("udp: egress: nat %v -> %v [%v] does not exist", nsladdr, raddr, nsraddr)
 	}
 	if !nat.connected() { // no nat conn
-		if h.dnsOverride(conn, addr, data) { // if dns request; handle it
+		if h.dnsOverride(conn, nat, addr, data) { // if dns request; handle it
 			log.D("udp: egress: dns-op; dstaddr(%v) <- src(l:%v r:%v)", raddr, nsladdr, nsraddr)
 			return nil
 		}
