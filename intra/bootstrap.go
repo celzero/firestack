@@ -11,7 +11,6 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/celzero/firestack/intra/dialers"
 	"github.com/celzero/firestack/intra/dns53"
 	"github.com/celzero/firestack/intra/dnsx"
 	"github.com/celzero/firestack/intra/doh"
@@ -115,10 +114,7 @@ func (b *bootstrap) reinit(trtype, ippOrUrl, ipcsv string) error {
 		}
 	}
 
-	// hydrate ipmap with the new ips against incoming hostname
-	ok := dialers.Renew(b.hostname, strings.Split(b.ipports, ","))
-
-	log.I("dns: default: %s reinit %s %s w/ %s; resolved? %t", trtype, b.url, b.hostname, ipcsv, ok)
+	log.I("dns: default: %s reinit %s %s w/ %s", trtype, b.url, b.hostname, ipcsv)
 
 	// if proxies and bridges are set, restart to create new transport
 	if b.proxies != nil && b.bridge != nil {
