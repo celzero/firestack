@@ -51,48 +51,6 @@ func (h *resolver) isUdpDns(addr *net.UDPAddr) bool {
 	return false
 }
 
-// tcp
-
-func (h *resolver) isTcpDnsIpPort(addr *net.TCPAddr) bool {
-	if addr == nil || len(h.tcpaddrs) <= 0 {
-		log.E("nil dst-addr(%v) or dns(%v)", addr, h.tcpaddrs)
-		return false
-	}
-	for _, dnsaddr := range h.tcpaddrs {
-		if addr.IP.Equal(dnsaddr.IP) && addr.Port == dnsaddr.Port {
-			return true
-		}
-	}
-	return false
-}
-
-func (h *resolver) isTcpDnsPort(addr *net.TCPAddr) bool {
-	if addr == nil || len(h.tcpaddrs) <= 0 {
-		log.E("nil dst-addr(%v) or dns(%v)", addr, h.tcpaddrs)
-		return false
-	}
-	// isn't h.fakedns.Port always expected to be 53?
-	for _, dnsaddr := range h.tcpaddrs {
-		if addr.Port == dnsaddr.Port {
-			return true
-		}
-	}
-	return false
-}
-
-func (h *resolver) isTcpDns(addr *net.TCPAddr) bool {
-	if h.trapIP() {
-		if yes := h.isTcpDnsIpPort(addr); yes {
-			return true
-		}
-	} else if h.trapPort() {
-		if yes := h.isTcpDnsPort(addr); yes {
-			return true
-		}
-	}
-	return false
-}
-
 // dns
 
 func (h *resolver) isDns(network, ipport string) bool {
@@ -101,8 +59,7 @@ func (h *resolver) isDns(network, ipport string) bool {
 	} else {
 		switch network {
 		case NetTypeTCP:
-			addr := &net.TCPAddr{IP: ipp.Addr().AsSlice(), Port: int(ipp.Port())}
-			return h.isTcpDns(addr)
+			fallthrough
 		case NetTypeUDP:
 			addr := &net.UDPAddr{IP: ipp.Addr().AsSlice(), Port: int(ipp.Port())}
 			return h.isUdpDns(addr)
