@@ -62,11 +62,12 @@ type odohtransport struct {
 type transport struct {
 	*odohtransport // stackoverflow.com/a/28505394
 	id             string
-	typ            string // dnsx.DOH / dnsx.ODOH
-	url            string // endpoint URL
-	hostname       string // endpoint hostname
-	client         http.Client
-	tlsconfig      *tls.Config
+	typ            string       // dnsx.DOH / dnsx.ODOH
+	url            string       // endpoint URL
+	hostname       string       // endpoint hostname
+	client         http.Client  // only for use with the endpoint
+	tlsconfig      *tls.Config  // preset tlsconfig for the endpoint
+	wkclient       http.Client  // to fetch well-known odoh configs
 	pxcmu          sync.RWMutex // protects pxclients
 	pxclients      map[string]*proxytransport
 	dialer         *protect.RDial
@@ -181,6 +182,19 @@ func newTransport(typ, id, rawurl, target string, addrs []string, px ipn.Proxies
 		} else {
 			t.odohtargetpath = odohtargetpath // default: "/dns-query"
 		}
+
+		// setup a client to fetch well-known odoh configs
+		// with tlsclientconfig set to nil, so the underlying
+		// transport determines it from the url
+		t.wkclient = http.Client{
+			Transport: &http.Transport{
+				Dial:                  t.dial,
+				ForceAttemptHTTP2:     true,
+				TLSHandshakeTimeout:   3 * time.Second,
+				ResponseHeaderTimeout: 20 * time.Second,
+			},
+		}
+
 		log.I("doh: ODOH for %s -> %s", proxy, target)
 	}
 

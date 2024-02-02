@@ -47,7 +47,7 @@ func (d *transport) doOdoh(pid string, q []byte) (res []byte, elapsed time.Durat
 	odohmsg, odohctx, err := d.buildTargetQuery(q)
 	if err != nil {
 		log.W("odoh: build target query err: %v", err)
-		qerr = dnsx.NewBadQueryError(err)
+		qerr = dnsx.NewInternalQueryError(err)
 		return
 	}
 
@@ -191,7 +191,7 @@ func (d *transport) refreshTargetKeyWellKnown() (ocfg *odoh.ObliviousDoHConfig, 
 		err = noOdohCfgQuery
 		return
 	}
-	resp, err = d.client.Do(req)
+	resp, err = d.wkclient.Do(req)
 	if err != nil {
 		return
 	}
