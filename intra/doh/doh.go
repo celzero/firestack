@@ -229,6 +229,12 @@ type proxytransport struct {
 	c *http.Client
 }
 
+func pxdial(p ipn.Proxy) func(string, string) (net.Conn, error) {
+	return func(network, addr string) (net.Conn, error) {
+		return dialers.SplitDial(p.Dialer(), network, addr)
+	}
+}
+
 func (t *transport) httpClientFor(p ipn.Proxy) (*http.Client, error) {
 	t.pxcmu.RLock()
 	pxtr, ok := t.pxclients[p.ID()]
@@ -242,7 +248,7 @@ func (t *transport) httpClientFor(p ipn.Proxy) (*http.Client, error) {
 	client := &http.Client{
 		// higher timeouts for proxies
 		Transport: &http.Transport{
-			Dial:                  p.Dialer().Dial,
+			Dial:                  pxdial(p),
 			ForceAttemptHTTP2:     true,
 			TLSHandshakeTimeout:   10 * time.Second,
 			ResponseHeaderTimeout: 30 * time.Second,
