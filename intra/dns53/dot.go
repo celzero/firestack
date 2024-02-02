@@ -64,7 +64,7 @@ func NewTLSTransport(id, rawurl string, addrs []string, px ipn.Proxies, ctl prot
 	tx := &dot{
 		id:      id,
 		url:     rawurl,
-		addr:    url2addr(rawurl),
+		addr:    url2addr(rawurl), // may or may not be ipaddr
 		status:  dnsx.Start,
 		proxies: px,
 		rd:      rd,
@@ -120,7 +120,8 @@ func (t *dot) pxdial(pid string) (conn *dns.Conn, err error) {
 	}
 
 	log.V("dot: pxdial: (%s) using relay/proxy %s at %s", t.id, px.ID(), px.GetAddr())
-	pxconn, err := px.Dialer().Dial("tcp", t.addr) // dot is always tcp
+	// dot is always tcp; and t.addr may be ip or hostname
+	pxconn, err := dialers.Dial2(px.Dialer(), "tcp", t.addr)
 	if err != nil {
 		return
 	}
