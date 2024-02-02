@@ -373,12 +373,13 @@ func (h *tcpHandler) handle(px ipn.Proxy, src net.Conn, target *net.TCPAddr, smm
 	if pc, err = px.Dial(target.Network(), target.String()); err == nil {
 		end = time.Now()
 		switch uc := pc.(type) {
-		// underlying conn must specifically be a tcp-conn
 		case *net.TCPConn:
 			dst = uc
 		case *gonet.TCPConn:
 			dst = uc
 		case core.TCPConn:
+			dst = uc
+		case net.Conn:
 			dst = uc
 		default:
 			err = errTcpSetupConn
