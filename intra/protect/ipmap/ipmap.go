@@ -202,13 +202,15 @@ func (s *IPSet) add(hostname string) bool {
 	if err != nil {
 		log.W("ipmap: Add: err resolving %s: %v", hostname, err)
 		return false
+	} else {
+		log.D("ipmap: Add: resolved? %s => %s", hostname, resolved)
 	}
 	s.Lock()
 	for _, addr := range resolved { // resolved may be nil
 		s.addLocked(addr)
 	}
 	s.Unlock()
-	return s.Empty()
+	return !s.Empty()
 }
 
 // Adds one or more IP addresses to the set.
