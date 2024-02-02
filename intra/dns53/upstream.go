@@ -203,7 +203,7 @@ func (t *transport) send(network, pid string, q []byte) (response []byte, elapse
 		}
 	}
 
-	log.V("dns53: send: (%s / %s) using udp? %t / px? %t / relay? %t; err? %v", network, t.id, t.addrport, useudp, useproxy, userelay, err)
+	log.V("dns53: send: (%s / %s) to %s using udp? %t / px? %t / relay? %t; err? %v", network, t.id, t.addrport, useudp, useproxy, userelay, err)
 
 	if err == nil { // send query
 		ans, elapsed, err = t.client.ExchangeWithConn(msg, conn)

@@ -55,7 +55,7 @@ func (m *ipmapper) LookupNetIP(ctx context.Context, network, host string) ([]net
 	if protect.NeverResolve(host) {
 		return nil, nil
 	}
-	if host == "localhost" || host == "localhost." {
+	if host == "localhost." {
 		return []netip.Addr{loopback4, loopback6}, nil
 	}
 	// no lookups when host is already an IP
