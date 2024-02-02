@@ -103,7 +103,7 @@ func (m *ipmap) LookupNetIP(ctx context.Context, network, host string) ([]netip.
 func (m *ipmap) Add(hostname string) *IPSet {
 	s := m.get(hostname)
 	if ok := s.add(hostname); !ok {
-		log.W("ipmap: Get: zero ips for %s", hostname)
+		log.W("ipmap: Add: zero ips for %s", hostname)
 	}
 	return s
 }
@@ -115,6 +115,7 @@ func (m *ipmap) Get(hostOrIP string) *IPSet {
 			log.W("ipmap: Get: zero ips for %s", hostOrIP)
 		}
 	}
+	log.D("ipmap: Get: %s => %s", hostOrIP, s.Addrs())
 	return s
 }
 
@@ -180,7 +181,7 @@ func (s *IPSet) addLocked(ip netip.Addr) {
 		// always unmapped; github.com/golang/go/issues/53607
 		s.ips = append(s.ips, ip.Unmap())
 	} else {
-		log.W("ipmap: add: invalid ip %s; uns? %t, val? %t, new? %t", ip, uns, valip, newip)
+		log.D("ipmap: add: fail %s; uns? %t, val? %t, new? %t", ip, uns, valip, newip)
 	}
 }
 
