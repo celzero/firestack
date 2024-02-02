@@ -363,6 +363,7 @@ func (s *serverinfo) dialtcp(pid string, addr *net.TCPAddr) (net.Conn, error) {
 func (s *serverinfo) dialpx(pid, proto string, addr string) (net.Conn, error) {
 	relay := s.relay
 	if relay != nil {
+		// addr is always ip:port; hence protect.dialers are not needed
 		return relay.Dialer().Dial(proto, addr)
 	}
 	pxs := s.proxies
@@ -371,7 +372,7 @@ func (s *serverinfo) dialpx(pid, proto string, addr string) (net.Conn, error) {
 	}
 	px, err := pxs.GetProxy(pid)
 	if err == nil {
-		return px.Dialer().Dial(proto, addr)
+		return px.Dialer().Dial(proto, addr) // ref comment above
 	}
 	return nil, err
 }
