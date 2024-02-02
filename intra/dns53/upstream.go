@@ -146,7 +146,7 @@ func (t *transport) pxdial(network, pid string) (conn *dns.Conn, err error) {
 		return nil, dnsx.ErrNoProxyProvider
 	}
 	log.V("dns53: pxdial: (%s) using %s relay/proxy %s at %s", t.id, network, px.ID(), px.GetAddr())
-	pxconn, err := dialers.Dial(px.Dialer(), network, t.addrport) // resolves t.addr if necessary
+	pxconn, err := dialers.Dial2(px.Dialer(), network, t.addrport) // resolves t.addrport if necessary
 	if err != nil {
 		return
 	} else if pxconn == nil {
@@ -159,7 +159,10 @@ func (t *transport) pxdial(network, pid string) (conn *dns.Conn, err error) {
 }
 
 func (t *transport) dial(network string) (*dns.Conn, error) {
-	if c, err := dialers.Dial(t.dialer, network, t.addrport); err == nil {
+	// protect.dialers resolves t.addrport, if necessary
+	// dialers.Dial fails to dial into tcp/udp conns w/ proxies like wgproxy
+	// which only dial out to generic net.Conn for UDP and core.TCPConn for tcp
+	if c, err := dialers.Dial2(t.dialer, network, t.addrport); err == nil {
 		return &dns.Conn{Conn: c}, nil
 	} else {
 		return nil, err
@@ -187,16 +190,20 @@ func (t *transport) send(network, pid string, q []byte) (response []byte, elapse
 	if userelay || useproxy {
 		conn, err = t.pxdial(network, pid)
 		if err != nil && useudp {
+			log.E("dns53: send: udp %s pxdial(px? %t / relay? %t) failed %v", t.id, useproxy, userelay, err)
 			network = dnsx.NetTypeTCP
 			conn, err = t.pxdial(network, pid)
 		}
 	} else {
 		conn, err = t.dial(network)
 		if err != nil && useudp {
+			log.E("dns53: send: udp %s dial failed %v", t.id, err)
 			network = dnsx.NetTypeTCP
 			conn, err = t.dial(network)
 		}
 	}
+
+	log.V("dns53: send: (%s / %s) using udp? %t / px? %t / relay? %t; err? %v", network, t.id, t.addrport, useudp, useproxy, userelay, err)
 
 	if err == nil { // send query
 		ans, elapsed, err = t.client.ExchangeWithConn(msg, conn)
