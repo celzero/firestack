@@ -131,7 +131,7 @@ func (m *ipmapper) LookupNetIP(ctx context.Context, network, host string) ([]net
 
 func (m *ipmapper) undoAlg(ip64 []netip.Addr) []netip.Addr {
 	gw := m.r.Gateway()
-	if gw != nil {
+	if gw == nil {
 		log.D("ipmapper: undoAlg: no-op; no gateway")
 		return ip64
 	}
