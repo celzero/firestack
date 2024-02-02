@@ -74,7 +74,7 @@ func clos(c io.Closer) {
 func (d *RDial) DialTCP(network string, laddr, raddr *net.TCPAddr) (*net.TCPConn, error) {
 	// grab a mutex if mutating LocalAddr
 	// d.Dialer.LocalAddr = laddr
-	if c, err := d.dial(network, raddr.String()); err != nil {
+	if c, err := d.Dial(network, raddr.String()); err != nil {
 		return nil, err
 	} else if tc, ok := c.(*net.TCPConn); ok {
 		// d.Dialer.LocalAddr = nil
@@ -89,7 +89,7 @@ func (d *RDial) DialTCP(network string, laddr, raddr *net.TCPAddr) (*net.TCPConn
 func (d *RDial) DialUDP(network string, laddr, raddr *net.UDPAddr) (*net.UDPConn, error) {
 	// grab a mutex if mutating LocalAddr
 	// d.Dialer.LocalAddr = laddr
-	if c, err := d.dial(network, raddr.String()); err != nil {
+	if c, err := d.Dial(network, raddr.String()); err != nil {
 		return nil, err
 	} else if uc, ok := c.(*net.UDPConn); ok {
 		// d.Dialer.LocalAddr = nil
