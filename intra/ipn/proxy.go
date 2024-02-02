@@ -44,7 +44,7 @@ func (pxr *proxifier) AddProxy(id, txt string) (p Proxy, err error) {
 					return nil, err1
 				} else {
 					// sensitive log: peercfg contains private key
-					log.P("proxy: updating wg(%s) peercfg(%s)", id, txt)
+					log.P("proxy: updating wg(%s) len(peercfg(%s))", id, len(txt))
 				}
 
 				err2 := wgp.Refresh()
