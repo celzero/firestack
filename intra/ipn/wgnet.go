@@ -28,6 +28,7 @@ import (
 	"time"
 
 	"github.com/celzero/firestack/intra/core"
+	"github.com/celzero/firestack/intra/dialers"
 	"github.com/celzero/firestack/intra/log"
 	"gvisor.dev/gvisor/pkg/tcpip"
 	"gvisor.dev/gvisor/pkg/tcpip/adapters/gonet"
@@ -61,11 +62,11 @@ var _ core.TCPConn = (*gonet.TCPConn)(nil)
 // intra/udp.go expects dst conns to confirm to core.UDPConn or net.Conn
 var _ net.Conn = (*gonet.UDPConn)(nil)
 
-func (net *wgtun) LookupHost(host string) (addrs []string, err error) {
+func (net *wgtun) LookupHost(host string) (addrs []netip.Addr, err error) {
 	return net.LookupContextHost(context.Background(), host)
 }
 
-func (tnet *wgtun) LookupContextHost(ctx context.Context, host string) ([]string, error) {
+func (tnet *wgtun) LookupContextHost(ctx context.Context, host string) ([]netip.Addr, error) {
 	if host == "" || (!tnet.hasV6 && !tnet.hasV4) {
 		return nil, &net.DNSError{Err: errNoSuchHost.Error(), Name: host, IsNotFound: true}
 	}
@@ -76,10 +77,14 @@ func (tnet *wgtun) LookupContextHost(ctx context.Context, host string) ([]string
 		}
 	}
 	if ip, err := netip.ParseAddr(host[:zlen]); err == nil {
-		return []string{ip.String()}, nil
+		return []netip.Addr{ip}, nil
 	}
 
-	return nil, errMissingWgDNS
+	if ips := dialers.For(host); len(ips) <= 0 {
+		return nil, errMissingWgDNS
+	} else {
+		return ips, nil
+	}
 }
 
 // --------------------------------------------------------------------
@@ -125,21 +130,20 @@ func (tnet *wgtun) DialContext(_ context.Context, network, address string) (net.
 		log.W("wg: dial: lookup failed %q: %v", host, rv.Err)
 		return nil, &net.OpError{Op: "dial", Err: rv.Err}
 	}
-	allAddr, vok := rv.Val.([]string)
+	allAddrs, vok := rv.Val.([]netip.Addr)
 	if !vok {
 		log.W("wg: dial: cast failed %q for val: %v", host, rv.Val)
 		return nil, &net.OpError{Op: "dial", Err: errInvalidDNSResponse}
 	}
 
 	var addrs []netip.AddrPort
-	for _, addr := range allAddr {
-		ip, err := netip.ParseAddr(addr)
-		if err == nil && ((ip.Is4() && acceptV4) || (ip.Is6() && acceptV6)) {
+	for _, ip := range allAddrs {
+		if (ip.Is4() && acceptV4) || (ip.Is6() && acceptV6) {
 			addrs = append(addrs, netip.AddrPortFrom(ip, uint16(port)))
 		}
 	}
-	if len(addrs) == 0 && len(allAddr) != 0 {
-		log.W("wg: dial: no suitable address for %q / %v", host, allAddr)
+	if len(addrs) == 0 && len(allAddrs) != 0 {
+		log.W("wg: dial: no suitable address for %q / %v", host, allAddrs)
 		return nil, &net.OpError{Op: "dial", Err: errNoSuitableAddress}
 	}
 
