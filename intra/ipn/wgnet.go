@@ -48,7 +48,6 @@ var (
 	errNumericPort        = errors.New("port must be numeric")
 	errNoSuitableAddress  = errors.New("no suitable address found")
 	errMissingAddress     = errors.New("missing address")
-	errMissingWgDNS       = &net.DNSConfigError{Err: errors.New("no DNS addrs")}
 )
 
 const (
@@ -67,7 +66,7 @@ func (net *wgtun) LookupHost(host string) (addrs []netip.Addr, err error) {
 }
 
 func (tnet *wgtun) LookupContextHost(ctx context.Context, host string) ([]netip.Addr, error) {
-	if host == "" || (!tnet.hasV6 && !tnet.hasV4) {
+	if len(host) <= 0 || (!tnet.hasV6 && !tnet.hasV4) {
 		return nil, &net.DNSError{Err: errNoSuchHost.Error(), Name: host, IsNotFound: true}
 	}
 	zlen := len(host)
@@ -81,7 +80,8 @@ func (tnet *wgtun) LookupContextHost(ctx context.Context, host string) ([]netip.
 	}
 
 	if ips := dialers.For(host); len(ips) <= 0 {
-		return nil, errMissingWgDNS
+		log.D("wg: dial: lookup failed %q: no ips %v", host, ips)
+		return nil, &net.DNSError{Err: errNoSuchHost.Error(), Name: host, IsNotFound: true}
 	} else {
 		return ips, nil
 	}
