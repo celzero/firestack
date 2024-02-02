@@ -8,6 +8,7 @@ package protect
 
 import (
 	"errors"
+	"io"
 	"net"
 
 	"golang.org/x/net/proxy"
@@ -59,25 +60,28 @@ func (d *RDial) Dial(network, addr string) (net.Conn, error) {
 	} else if cc, ok := c.(net.Conn); ok {
 		return cc, nil
 	} else {
-		if c != nil {
-			c.Close()
-		}
+		clos(c)
 		return nil, errNoConn
+	}
+}
+
+func clos(c io.Closer) {
+	if c != nil {
+		c.Close()
 	}
 }
 
 func (d *RDial) DialTCP(network string, laddr, raddr *net.TCPAddr) (*net.TCPConn, error) {
 	// grab a mutex if mutating LocalAddr
 	// d.Dialer.LocalAddr = laddr
-	if c, err := d.Dial(network, raddr.String()); err != nil {
+	if c, err := d.dial(network, raddr.String()); err != nil {
 		return nil, err
 	} else if tc, ok := c.(*net.TCPConn); ok {
 		// d.Dialer.LocalAddr = nil
 		return tc, nil
 	} else {
-		if tc != nil {
-			tc.Close()
-		}
+		// some proxies like wgproxy do not vend *net.TCPConn
+		clos(c)
 		return nil, errNoTCP
 	}
 }
@@ -85,15 +89,14 @@ func (d *RDial) DialTCP(network string, laddr, raddr *net.TCPAddr) (*net.TCPConn
 func (d *RDial) DialUDP(network string, laddr, raddr *net.UDPAddr) (*net.UDPConn, error) {
 	// grab a mutex if mutating LocalAddr
 	// d.Dialer.LocalAddr = laddr
-	if c, err := d.Dial(network, raddr.String()); err != nil {
+	if c, err := d.dial(network, raddr.String()); err != nil {
 		return nil, err
 	} else if uc, ok := c.(*net.UDPConn); ok {
 		// d.Dialer.LocalAddr = nil
 		return uc, nil
 	} else {
-		if uc != nil {
-			uc.Close()
-		}
+		// some proxies like wgproxy do not vend *net.UDPConn
+		clos(c)
 		return nil, errNoUDP
 	}
 }
