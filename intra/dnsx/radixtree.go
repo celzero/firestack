@@ -122,12 +122,19 @@ func (c *radix) get(str string) *string {
 
 	rev := reversed(str)
 	var s string
-	if match, v, ok := c.t.LongestPrefix(rev); ok {
-		s = v.(string)
+	var ok bool
+	var v any
+	var match []byte
+	if match, v, ok = c.t.LongestPrefix(rev); ok {
+		s, ok = v.(string)
 	} else if len(match) == len(rev) || rev[len(match)] == '.' {
 		// full match (ipvonly.arpa), or match upto a tld (.arpa)
-		s = v.(string)
+		s, ok = v.(string)
 	} else {
+		return nil
+	}
+
+	if !ok {
 		return nil
 	}
 	return &s

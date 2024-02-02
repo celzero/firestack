@@ -354,6 +354,13 @@ func (r *resolver) forward(q []byte, chosenids ...string) ([]byte, error) {
 	qtyp := qtype(msg)
 	summary.QName = qname
 	summary.QType = qtyp
+
+	if len(qname) <= 0 { // unexpected; github.com/celzero/rethink-app/issues/1210
+		summary.Latency = time.Since(starttime).Seconds()
+		summary.Status = BadQuery
+		return nil, errMissingQueryName
+	}
+
 	pref := r.listener.OnQuery(qname, qtyp)
 	id, sid, pid, _ := r.preferencesFrom(qname, pref, chosenids...)
 	t := r.determineTransport(id)
@@ -516,6 +523,13 @@ func (r *resolver) forwardQuery(q []byte, c io.Writer) error {
 	qtyp := qtype(msg)
 	summary.QName = qname
 	summary.QType = qtyp
+
+	if len(qname) <= 0 {
+		summary.Latency = time.Since(starttime).Seconds()
+		summary.Status = BadQuery
+		return errMissingQueryName
+	}
+
 	pref := r.listener.OnQuery(qname, qtyp)
 	id, sid, pid, _ := r.preferencesFrom(qname, pref)
 	t := r.determineTransport(id)
