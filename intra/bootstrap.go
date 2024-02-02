@@ -150,7 +150,7 @@ func (t *bootstrap) kickstart(px ipn.Proxies, g Bridge) error {
 	}
 
 	if t.Transport != nil {
-		log.I("dns: default: removing %s %s[%s]", t.typ, t.GetAddr())
+		log.I("dns: default: removing %s %s[%s]", t.typ, t.hostname, t.GetAddr())
 	}
 
 	// always override previous transport with (new) tr; even if nil
@@ -160,7 +160,7 @@ func (t *bootstrap) kickstart(px ipn.Proxies, g Bridge) error {
 		return err
 	}
 	if tr == nil {
-		log.W("dns: default: start; nil transport %s[%s]", t.typ, t.hostname)
+		log.W("dns: default: start; nil transport %s %s", t.typ, t.hostname)
 		return nil
 	}
 
