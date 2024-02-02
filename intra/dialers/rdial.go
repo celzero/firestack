@@ -31,6 +31,8 @@ func filter(ips []netip.Addr, exclude netip.Addr) []netip.Addr {
 	return filtered
 }
 
+// ipConnect dials into ip:port using the provided dialer and returns a net.Conn
+// net.Conn is guaranteed to be either net.UDPConn or net.TCPConn
 func ipConnect(d *protect.RDial, proto string, ip netip.Addr, port int) (net.Conn, error) {
 	if d == nil {
 		log.E("rdial: ipConnect: nil dialer")
@@ -44,6 +46,16 @@ func ipConnect(d *protect.RDial, proto string, ip netip.Addr, port int) (net.Con
 	default:
 		return d.Dial(proto, addr(ip, port))
 	}
+}
+
+// ipConnect2 dials into ip:port using the provided dialer and returns a net.Conn
+// net.Conn may not be any among net.UDPConn or net.TCPConn or core.UDPConn or core.TCPConn
+func ipConnect2(d *protect.RDial, proto string, ip netip.Addr, port int) (net.Conn, error) {
+	if d == nil {
+		log.E("rdial: ipConnect: nil dialer")
+		return nil, errNoDialer
+	}
+	return d.Dial(proto, addr(ip, port))
 }
 
 func doSplit(port int) bool {
@@ -113,7 +125,7 @@ func commondial(d *protect.RDial, network, addr string, connect connectFunc) (ne
 	for _, ip := range allips {
 		if conn, err = connect(d, network, ip, port); err == nil {
 			ips.Confirm(ip)
-			log.I("redial: commondial: found working ip %s for %s", ip, addr)
+			log.I("rdial: commondial: found working ip %s for %s", ip, addr)
 			return conn, nil
 		}
 		errs = errors.Join(errs, err)
@@ -132,6 +144,10 @@ func SplitDial(d *protect.RDial, network, addr string) (net.Conn, error) {
 
 func Dial(d *protect.RDial, network, addr string) (net.Conn, error) {
 	return commondial(d, network, addr, ipConnect)
+}
+
+func Dial2(d *protect.RDial, network, addr string) (net.Conn, error) {
+	return commondial(d, network, addr, ipConnect2)
 }
 
 func SplitDialWithTls(d *protect.RDial, cfg *tls.Config, addr string) (net.Conn, error) {
