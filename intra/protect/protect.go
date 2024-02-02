@@ -34,6 +34,7 @@ import (
 // See: ipmap.LookupNetIP; UidSelf -> dnsx.Default; UidSystem -> dnsx.System
 const UidSelf = "rethink"
 const UidSystem = "system"
+const Localhost = "localhost"
 
 // never resolve system/default resolver; expected to have seeded ips
 func NeverResolve(hostname string) bool {

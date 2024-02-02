@@ -189,7 +189,7 @@ func (t *goosr) P50() int64 {
 }
 
 func (t *goosr) GetAddr() string {
-	return "localhost:53" // dummy
+	return protect.Localhost + ":53" // dummy
 }
 
 func (t *goosr) Status() int {
