@@ -42,6 +42,8 @@ type IPMapper interface {
 // IPMap maps hostnames to IPSets.
 type IPMap interface {
 	IPMapper
+	// Resolves hostname and adds the resulting IPs to its IPSet.
+	Add(host string) *IPSet
 	// Get creates an IPSet for this hostname populated with the IPs
 	// discovered by resolving it. Subsequent calls to Get return the
 	// same IPSet. Never returns nil.
@@ -98,15 +100,29 @@ func (m *ipmap) LookupNetIP(ctx context.Context, network, host string) ([]netip.
 	return r.LookupNetIP(ctx, network, host)
 }
 
+func (m *ipmap) Add(hostname string) *IPSet {
+	s := m.get(hostname)
+	if ok := s.add(hostname); !ok {
+		log.W("ipmap: Get: zero ips for %s", hostname)
+	}
+	return s
+}
+
 func (m *ipmap) Get(hostOrIP string) *IPSet {
-	return m.get(hostOrIP, false)
+	s := m.get(hostOrIP)
+	if s.Empty() {
+		if ok := s.add(hostOrIP); !ok {
+			log.W("ipmap: Get: zero ips for %s", hostOrIP)
+		}
+	}
+	return s
 }
 
 func (m *ipmap) GetAny(hostOrIP string) *IPSet {
-	return m.get(hostOrIP, true)
+	return m.get(hostOrIP) // may be empty
 }
 
-func (m *ipmap) get(hostOrIP string, emptyok bool) *IPSet {
+func (m *ipmap) get(hostOrIP string) *IPSet {
 	if host, _, err := net.SplitHostPort(hostOrIP); err == nil {
 		hostOrIP = host
 	}
@@ -116,15 +132,6 @@ func (m *ipmap) get(hostOrIP string, emptyok bool) *IPSet {
 
 	if s == nil {
 		s = m.makeIPSet(hostOrIP, nil)
-	}
-
-	if emptyok || !s.Empty() {
-		return s
-	}
-
-	s.add(hostOrIP)
-	if s.Empty() {
-		log.W("ipmap: Get: zero ips for %s", hostOrIP)
 	}
 
 	return s
@@ -185,22 +192,23 @@ func (s *IPSet) Seed() []string {
 
 // add one or more IP addresses to the set.
 // The hostname can be a domain name or an IP address.
-func (s *IPSet) add(hostname string) {
+func (s *IPSet) add(hostname string) bool {
 	r := s.r
 	if r == nil {
 		log.W("ipmap: Add: (processing: %s) resolver missing", hostname)
-		return
+		return false
 	}
 	resolved, err := r.LookupNetIP(context.Background(), "ip", hostname)
 	if err != nil {
 		log.W("ipmap: Add: err resolving %s: %v", hostname, err)
-		return
+		return false
 	}
 	s.Lock()
 	for _, addr := range resolved { // resolved may be nil
 		s.addLocked(addr)
 	}
 	s.Unlock()
+	return s.Empty()
 }
 
 // Adds one or more IP addresses to the set.

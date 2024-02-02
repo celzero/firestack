@@ -37,6 +37,12 @@ func udpaddr(ip netip.Addr, port int) *net.UDPAddr {
 }
 
 func Renew(hostOrIP string, addrs []string) bool {
+	ipm.MakeIPSet(hostOrIP, addrs)
+	ips := ipm.Add(hostOrIP)
+	return !ips.Empty()
+}
+
+func New(hostOrIP string, addrs []string) bool {
 	ips := ipm.MakeIPSet(hostOrIP, addrs)
 	return !ips.Empty()
 }
