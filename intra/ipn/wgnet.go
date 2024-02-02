@@ -55,6 +55,12 @@ const (
 	wgbarrierttl = time.Second * 10
 )
 
+// intra/tcp.go expects dst conns to confirm to core.TCPConn or net.Conn
+var _ core.TCPConn = (*gonet.TCPConn)(nil)
+
+// intra/udp.go expects dst conns to confirm to core.UDPConn or net.Conn
+var _ net.Conn = (*gonet.UDPConn)(nil)
+
 func (net *wgtun) LookupHost(host string) (addrs []string, err error) {
 	return net.LookupContextHost(context.Background(), host)
 }
@@ -137,7 +143,7 @@ func (tnet *wgtun) DialContext(_ context.Context, network, address string) (net.
 		return nil, &net.OpError{Op: "dial", Err: errNoSuitableAddress}
 	}
 
-	var firstErr error
+	var errs error
 	for i, addr := range addrs {
 		var c net.Conn
 		var err error
@@ -153,15 +159,13 @@ func (tnet *wgtun) DialContext(_ context.Context, network, address string) (net.
 			return c, nil
 		}
 		log.I("wg: dial: %s: #%d %v err %v", network, i, addr, err)
-		if firstErr == nil {
-			firstErr = err
-		}
+		errs = errors.Join(errs, err)
 	}
-	if firstErr == nil {
-		firstErr = &net.OpError{Op: "dial", Err: errMissingAddress}
+	if errs == nil {
+		errs = &net.OpError{Op: "dial", Err: errMissingAddress}
 	}
-	log.W("wg: dial: %s: %v failed: %v", network, addrs, firstErr)
-	return nil, firstErr
+	log.W("wg: dial: %s: %v failed: %v", network, addrs, errs)
+	return nil, errs
 }
 
 func resolve(tnet *wgtun, host string) core.Work {
