@@ -27,8 +27,6 @@ func (h *resolver) isDnsPort(addr netip.AddrPort) bool {
 	return false
 }
 
-// dns
-
 func (h *resolver) isDns(ipport string) bool {
 	if ipp, err := netip.ParseAddrPort(ipport); err != nil {
 		return false

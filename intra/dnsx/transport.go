@@ -455,11 +455,12 @@ func (r *resolver) determineTransport(id string) Transport {
 			id0 = CT + BlockFree
 			id1 = CT + Preferred
 		}
-	} else if id == System || id == CT+System {
+	} else if id == System || id == CT+System || id == Goos || id == CT+Goos {
 		// fallback on Goos if System is unavailable
 		// but unlike "System", "Goos" does not support
 		// other than A / AAAA queries
-		if id == CT+System {
+		// cf: undelegated.go:requiresGoosOrLocal()
+		if id == CT+System || id == CT+Goos {
 			id0 = CT + System
 			id1 = CT + Goos
 		} else {

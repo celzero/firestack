@@ -171,7 +171,7 @@ func (r *resolver) requiresGoosOrLocal(qname string) (id string) {
 	if strings.HasSuffix(qname, ".local") || xdns.IsMDNSQuery(qname) {
 		id = Local
 	} else if r.localdomains.HasAny(qname) {
-		id = Goos
+		id = Goos // system is primary; see: transport.go:determineTransports()
 	}
 	return
 }
