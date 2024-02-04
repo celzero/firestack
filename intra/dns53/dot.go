@@ -58,7 +58,7 @@ func NewTLSTransport(id, rawurl string, addrs []string, px ipn.Proxies, ctl prot
 	rd := protect.MakeNsRDial(id, ctl)
 	hostname := parsedurl.Hostname()
 	// addrs are pre-determined ip addresses for url / hostname
-	ok := dialers.Renew(hostname, addrs)
+	_, ok := dialers.Renew(hostname, addrs)
 	// add sni to tls config
 	tlscfg.ServerName = hostname
 	tx := &dot{
@@ -121,7 +121,7 @@ func (t *dot) pxdial(pid string) (conn *dns.Conn, err error) {
 
 	log.V("dot: pxdial: (%s) using relay/proxy %s at %s", t.id, px.ID(), px.GetAddr())
 	// dot is always tcp; and t.addr may be ip or hostname
-	pxconn, err := dialers.Dial2(px.Dialer(), "tcp", t.addr)
+	pxconn, err := px.Dialer().Dial("tcp", t.addr)
 	if err != nil {
 		return
 	}

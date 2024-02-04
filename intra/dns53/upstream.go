@@ -90,7 +90,7 @@ func newTransport(id string, do *settings.DNSOptions, px ipn.Proxies, ctl protec
 	ipcsv := do.ResolvedAddrs()
 	hasips := len(ipcsv) > 0
 	ips := strings.Split(ipcsv, ",") // may be nil or empty
-	ok := dialers.Renew(tx.addrport, ips)
+	_, ok := dialers.Renew(tx.addrport, ips)
 	log.I("dns53: (%s) pre-resolved %s to %s; ok? %t", id, tx.addrport, ipcsv, ok)
 	tx.client = &dns.Client{
 		Net:     "udp",   // default transport type
@@ -146,7 +146,7 @@ func (t *transport) pxdial(network, pid string) (conn *dns.Conn, err error) {
 		return nil, dnsx.ErrNoProxyProvider
 	}
 	log.V("dns53: pxdial: (%s) using %s relay/proxy %s at %s", t.id, network, px.ID(), px.GetAddr())
-	pxconn, err := dialers.Dial2(px.Dialer(), network, t.addrport) // resolves t.addrport if necessary
+	pxconn, err := px.Dialer().Dial(network, t.addrport)
 	if err != nil {
 		return
 	} else if pxconn == nil {
