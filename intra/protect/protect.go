@@ -38,7 +38,7 @@ const Localhost = "localhost"
 
 // never resolve system/default resolver; expected to have seeded ips
 func NeverResolve(hostname string) bool {
-	return hostname == UidSelf || hostname == UidSystem || hostname == Localhost
+	return hostname == UidSelf || hostname == UidSystem
 }
 
 // Controller provides answers to filter network traffic.
