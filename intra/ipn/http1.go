@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 
+	"github.com/celzero/firestack/intra/dialers"
 	tx "github.com/celzero/firestack/intra/ipn/h1"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
@@ -83,7 +84,7 @@ func (h *http1) Dial(network, addr string) (c protect.Conn, err error) {
 
 	// dialers.ProxyDial not needed, because
 	// tx.HttpTunnel.Dial() supports dialing into hostnames
-	if c, err = h.proxydialer.Dial(network, addr); err != nil {
+	if c, err = dialers.ProxyDial(h.proxydialer, network, addr); err != nil {
 		h.status = TKO
 	} else {
 		h.status = TOK
