@@ -77,7 +77,6 @@ func AddEdnsPadding(rawMsg []byte) ([]byte, error) {
 		switch body := additional.Body.(type) {
 		case *dnsmessage.OPTResource:
 			optRes = body
-			break
 		}
 	}
 	if optRes != nil {
