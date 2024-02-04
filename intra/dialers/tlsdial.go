@@ -72,11 +72,13 @@ func tlsdial(d *tls.Dialer, network, addr string, connect tlsConnectFunc) (net.C
 		log.D("tlsdial: confirmed ip %s for %s failed with err %v", confirmed, addr, err)
 	}
 
-	allips := filter(ips.Addrs(), confirmed)
+	ipset := ips.Addrs()
+	allips := filter(ipset, confirmed)
 	if len(allips) <= 0 {
 		var ok bool
-		if ok = Renew(domain, ips.Seed()); ok {
-			allips = filter(ips.Addrs(), confirmed)
+		if ips, ok = Renew(domain, ips.Seed()); ok {
+			ipset = ips.Addrs()
+			allips = filter(ipset, confirmed)
 		}
 		log.D("tlsdial: renew ips for %s; ok? %t", addr, ok)
 	}
@@ -94,7 +96,11 @@ func tlsdial(d *tls.Dialer, network, addr string, connect tlsConnectFunc) (net.C
 	dur := time.Since(start)
 	log.D("tlsdial: duration: %s; failed %s", dur, addr)
 
-	return nil, errors.Join(errs, errNoIps)
+	if len(ipset) <= 0 {
+		errs = errNoIps
+	}
+
+	return nil, errs
 }
 
 func TlsDial(d *tls.Dialer, network, addr string) (net.Conn, error) {

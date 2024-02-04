@@ -32,8 +32,13 @@ type RetryStats struct {
 	Timeout bool  // True if the retry was caused by a timeout.
 }
 
-// retrier implements the DuplexConn interface.
+// retrier implements the DuplexConn interface and must
+// be typecastable to *net.TCPConn (see: xdial.DialTCP)
+// inheritance: go.dev/play/p/mMiQgXsPM7Y
 type retrier struct {
+	// the current underlying connection.  It is only modified by the reader
+	// thread, so the reader functions may access it without acquiring a lock.
+	*net.TCPConn
 	// mutex is a lock that guards `conn`, `hello`, and `retryCompleteFlag`.
 	// These fields must not be modified except under this lock.
 	// After retryCompletedFlag is closed, these values will not be modified
@@ -41,9 +46,6 @@ type retrier struct {
 	mutex sync.Mutex
 	dial  *protect.RDial
 	addr  *net.TCPAddr
-	// conn is the current underlying connection.  It is only modified by the reader
-	// thread, so the reader functions may access it without acquiring a lock.
-	conn *net.TCPConn
 	// External read and write deadlines.  These need to be stored here so that
 	// they can be re-applied in the event of a retry.
 	readDeadline  time.Time
@@ -110,9 +112,9 @@ const DefaultTimeout time.Duration = 0
 
 func RetryingConn(d *protect.RDial, addr *net.TCPAddr, timeout time.Duration, firstconn *net.TCPConn) DuplexConn {
 	return &retrier{
+		TCPConn:           firstconn,
 		dial:              d,
 		addr:              addr,
-		conn:              firstconn,
 		timeout:           timeout,
 		retryCompleteFlag: make(chan struct{}),
 		readCloseFlag:     make(chan struct{}),
@@ -136,9 +138,9 @@ func DialWithSplitRetry(dial *protect.RDial, addr *net.TCPAddr) (DuplexConn, err
 	after := time.Now()
 
 	r := &retrier{
+		TCPConn:           conn,
 		dial:              dial,
 		addr:              addr,
-		conn:              conn,
 		timeout:           CalcTimeout(before, after),
 		retryCompleteFlag: make(chan struct{}),
 		readCloseFlag:     make(chan struct{}),
@@ -151,7 +153,7 @@ func DialWithSplitRetry(dial *protect.RDial, addr *net.TCPAddr) (DuplexConn, err
 
 // Read-related functions.
 func (r *retrier) Read(buf []byte) (n int, err error) {
-	n, err = r.conn.Read(buf)
+	n, err = r.TCPConn.Read(buf)
 	if n == 0 && err == nil {
 		// If no data was read, a nil error doesn't rule out the need for a retry.
 		return
@@ -169,7 +171,7 @@ func (r *retrier) Read(buf []byte) (n int, err error) {
 		}
 		close(r.retryCompleteFlag)
 		// Unset read deadline.
-		r.conn.SetReadDeadline(time.Time{})
+		r.TCPConn.SetReadDeadline(time.Time{})
 		r.hello = nil
 		r.mutex.Unlock()
 	}
@@ -177,18 +179,18 @@ func (r *retrier) Read(buf []byte) (n int, err error) {
 }
 
 func (r *retrier) retry(buf []byte) (n int, err error) {
-	r.conn.Close()
+	r.TCPConn.Close()
 	var newConn *net.TCPConn
 	if newConn, err = r.dial.DialTCP(r.addr.Network(), nil, r.addr); err != nil {
 		return
 	}
-	r.conn = newConn
+	r.TCPConn = newConn
 	first, second := splitHello(r.hello)
 	r.stats.Split = int16(len(first))
-	if _, err = r.conn.Write(first); err != nil {
+	if _, err = r.TCPConn.Write(first); err != nil {
 		return
 	}
-	if _, err = r.conn.Write(second); err != nil {
+	if _, err = r.TCPConn.Write(second); err != nil {
 		return
 	}
 	// While we were creating the new socket, the caller might have called CloseRead
@@ -196,15 +198,15 @@ func (r *retrier) retry(buf []byte) (n int, err error) {
 	// CloseRead and CloseWrite are idempotent, so this is safe even if the user's
 	// action actually affected the new socket.
 	if r.readClosed() {
-		r.conn.CloseRead()
+		r.TCPConn.CloseRead()
 	}
 	if r.writeClosed() {
-		r.conn.CloseWrite()
+		r.TCPConn.CloseWrite()
 	}
 	// The caller might have set read or write deadlines before the retry.
-	r.conn.SetReadDeadline(r.readDeadline)
-	r.conn.SetWriteDeadline(r.writeDeadline)
-	return r.conn.Read(buf)
+	r.TCPConn.SetReadDeadline(r.readDeadline)
+	r.TCPConn.SetWriteDeadline(r.writeDeadline)
+	return r.TCPConn.Read(buf)
 }
 
 func (r *retrier) CloseRead() error {
@@ -213,7 +215,7 @@ func (r *retrier) CloseRead() error {
 	}
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
-	return r.conn.CloseRead()
+	return r.TCPConn.CloseRead()
 }
 
 func splitHello(hello []byte) ([]byte, []byte) {
@@ -245,7 +247,7 @@ func (r *retrier) Write(b []byte) (int, error) {
 		attempted := false
 		r.mutex.Lock()
 		if !r.retryCompleted() {
-			n, err = r.conn.Write(b)
+			n, err = r.TCPConn.Write(b)
 			attempted = true
 			r.hello = append(r.hello, b[:n]...)
 
@@ -253,7 +255,7 @@ func (r *retrier) Write(b []byte) (int, error) {
 			r.stats.Bytes = int32(len(r.hello))
 
 			// We require a response or another write within the specified timeout.
-			r.conn.SetReadDeadline(time.Now().Add(r.timeout))
+			r.TCPConn.SetReadDeadline(time.Now().Add(r.timeout))
 		}
 		r.mutex.Unlock()
 		if attempted {
@@ -264,15 +266,13 @@ func (r *retrier) Write(b []byte) (int, error) {
 			// by the retry procedure.  Block until we have a final socket (which will
 			// already have replayed b[:n]), and retry.
 			<-r.retryCompleteFlag
-			r.mutex.Lock()
-			r.mutex.Unlock()
-			m, err := r.conn.Write(b[n:])
+			m, err := r.TCPConn.Write(b[n:])
 			return n + m, err
 		}
 	}
 
 	// retryCompleted() is true, so r.conn is final and doesn't need locking.
-	return r.conn.Write(b)
+	return r.TCPConn.Write(b)
 }
 
 // Copy one buffer from src to dst, using dst.Write.
@@ -296,7 +296,7 @@ func (r *retrier) ReadFrom(reader io.Reader) (bytes int64, err error) {
 	}
 
 	var b int64
-	b, err = r.conn.ReadFrom(reader)
+	b, err = r.TCPConn.ReadFrom(reader)
 	bytes += b
 	return
 }
@@ -307,7 +307,7 @@ func (r *retrier) CloseWrite() error {
 	}
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
-	return r.conn.CloseWrite()
+	return r.TCPConn.CloseWrite()
 }
 
 func (r *retrier) Close() error {
@@ -323,7 +323,7 @@ func (r *retrier) Close() error {
 func (r *retrier) LocalAddr() net.Addr {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
-	return r.conn.LocalAddr()
+	return r.TCPConn.LocalAddr()
 }
 
 func (r *retrier) RemoteAddr() net.Addr {
@@ -338,7 +338,7 @@ func (r *retrier) SetReadDeadline(t time.Time) error {
 	// is complete.  Retry relies on setting its own read
 	// deadline, and we don't want this to interfere.
 	if r.retryCompleted() {
-		return r.conn.SetReadDeadline(t)
+		return r.TCPConn.SetReadDeadline(t)
 	}
 	return nil
 }
@@ -347,14 +347,11 @@ func (r *retrier) SetWriteDeadline(t time.Time) error {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
 	r.writeDeadline = t
-	return r.conn.SetWriteDeadline(t)
+	return r.TCPConn.SetWriteDeadline(t)
 }
 
 func (r *retrier) SetDeadline(t time.Time) error {
 	e1 := r.SetReadDeadline(t)
 	e2 := r.SetWriteDeadline(t)
-	if e1 != nil {
-		return e1
-	}
-	return e2
+	return errors.Join(e1, e2)
 }

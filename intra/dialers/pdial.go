@@ -71,11 +71,13 @@ func proxydial(d proxy.Dialer, network, addr string, connect proxyConnectFunc) (
 	}
 
 	s2 := time.Now()
-	allips := filter(ips.Addrs(), confirmed)
+	ipset := ips.Addrs()
+	allips := filter(ipset, confirmed)
 	if len(allips) <= 0 {
 		var ok bool
-		if ok = Renew(domain, ips.Seed()); ok {
-			allips = filter(ips.Addrs(), confirmed)
+		if ips, ok = Renew(domain, ips.Seed()); ok {
+			ipset = ips.Addrs()
+			allips = filter(ipset, confirmed)
 		}
 		log.D("pdial: renew ips for %s; ok? %t", addr, ok)
 	}
@@ -95,8 +97,12 @@ func proxydial(d proxy.Dialer, network, addr string, connect proxyConnectFunc) (
 	dur := time.Since(start)
 	log.D("pdial: duration: %s; failed %s", dur, addr)
 
+	if len(ipset) <= 0 {
+		errs = errNoIps
+	}
+
 	// for example, socks5 proxy does not support dialing hostnames
-	return nil, errors.Join(errs, errNoIps)
+	return nil, errs
 }
 
 func ProxyDial(d proxy.Dialer, network, addr string) (net.Conn, error) {

@@ -65,11 +65,13 @@ func netdial(d *net.Dialer, network, addr string, connect netConnectFunc) (net.C
 		log.D("ndial: confirmed ip %s for %s failed with err %v", confirmed, addr, err)
 	}
 
-	allips := filter(ips.Addrs(), confirmed)
+	ipset := ips.Addrs()
+	allips := filter(ipset, confirmed)
 	if len(allips) <= 0 {
 		var ok bool
-		if ok = Renew(domain, ips.Seed()); ok {
-			allips = filter(ips.Addrs(), confirmed)
+		if ips, ok = Renew(domain, ips.Seed()); ok {
+			ipset = ips.Addrs()
+			allips = filter(ipset, confirmed)
 		}
 		log.D("ndial: renew ips for %s; ok? %t", addr, ok)
 	}
@@ -87,7 +89,11 @@ func netdial(d *net.Dialer, network, addr string, connect netConnectFunc) (net.C
 	dur := time.Since(start)
 	log.D("ndial: duration: %s; failed %s", dur, addr)
 
-	return nil, errors.Join(errs, errNoIps)
+	if len(ipset) <= 0 {
+		errs = errNoIps
+	}
+
+	return nil, errs
 }
 
 func NetDial(d *net.Dialer, network, addr string) (net.Conn, error) {

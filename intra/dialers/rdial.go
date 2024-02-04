@@ -113,11 +113,13 @@ func commondial(d *protect.RDial, network, addr string, connect connectFunc) (ne
 		log.D("rdial: commondial: confirmed ip %s for %s failed with err %v", confirmed, addr, err)
 	}
 
-	allips := filter(ips.Addrs(), confirmed)
+	ipset := ips.Addrs()
+	allips := filter(ipset, confirmed)
 	if len(allips) <= 0 {
 		var ok bool
-		if ok = Renew(domain, ips.Seed()); ok {
-			allips = filter(ips.Addrs(), confirmed)
+		if ips, ok = Renew(domain, ips.Seed()); ok {
+			ipset = ips.Addrs()
+			allips = filter(ipset, confirmed)
 		}
 		log.D("rdial: renew ips for %s; ok? %t", addr, ok)
 	}
@@ -135,11 +137,11 @@ func commondial(d *protect.RDial, network, addr string, connect connectFunc) (ne
 	dur := time.Since(start)
 	log.D("rdial: commondial: duration: %s; failed %s", dur, addr)
 
-	return nil, errors.Join(errs, errNoIps)
-}
+	if len(ipset) <= 0 {
+		errs = errNoIps
+	}
 
-func SplitDial(d *protect.RDial, network, addr string) (net.Conn, error) {
-	return commondial(d, network, addr, splitIpConnect)
+	return nil, errs
 }
 
 func Dial(d *protect.RDial, network, addr string) (net.Conn, error) {
@@ -148,6 +150,10 @@ func Dial(d *protect.RDial, network, addr string) (net.Conn, error) {
 
 func Dial2(d *protect.RDial, network, addr string) (net.Conn, error) {
 	return commondial(d, network, addr, ipConnect2)
+}
+
+func SplitDial(d *protect.RDial, network, addr string) (net.Conn, error) {
+	return commondial(d, network, addr, splitIpConnect)
 }
 
 func SplitDialWithTls(d *protect.RDial, cfg *tls.Config, addr string) (net.Conn, error) {
