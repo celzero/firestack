@@ -146,7 +146,7 @@ func newTransport(typ, id, rawurl, target string, addrs []string, px ipn.Proxies
 		t.url = parsedurl.String()
 		t.hostname = parsedurl.Hostname()
 		// addrs are pre-determined ip addresses for url / hostname
-		renewed = dialers.Renew(t.hostname, addrs)
+		_, renewed = dialers.Renew(t.hostname, addrs)
 	} else {
 		t.odohtransport = &odohtransport{}
 
@@ -165,13 +165,13 @@ func newTransport(typ, id, rawurl, target string, addrs []string, px ipn.Proxies
 
 		// addrs are proxy addresses if proxy is not empty, otherwise target addresses
 		if proxyurl != nil && proxyurl.Hostname() != "" {
-			renewed = dialers.Renew(proxyurl.Hostname(), addrs)
+			_, renewed = dialers.Renew(proxyurl.Hostname(), addrs)
 			if len(proxyurl.Path) <= 1 { // should not be "" or "/"
 				proxyurl.Path = odohproxypath
 			}
 			t.odohproxy = proxyurl.String()
 		} else if targeturl != nil && targeturl.Hostname() != "" {
-			renewed = dialers.Renew(targeturl.Hostname(), addrs)
+			_, renewed = dialers.Renew(targeturl.Hostname(), addrs)
 		}
 
 		t.url = parsedurl.String()
@@ -229,12 +229,6 @@ type proxytransport struct {
 	c *http.Client
 }
 
-func pxdial(p ipn.Proxy) func(string, string) (net.Conn, error) {
-	return func(network, addr string) (net.Conn, error) {
-		return dialers.SplitDial(p.Dialer(), network, addr)
-	}
-}
-
 func (t *transport) httpClientFor(p ipn.Proxy) (*http.Client, error) {
 	t.pxcmu.RLock()
 	pxtr, ok := t.pxclients[p.ID()]
@@ -248,7 +242,7 @@ func (t *transport) httpClientFor(p ipn.Proxy) (*http.Client, error) {
 	client := &http.Client{
 		// higher timeouts for proxies
 		Transport: &http.Transport{
-			Dial:                  pxdial(p),
+			Dial:                  p.Dialer().Dial,
 			ForceAttemptHTTP2:     true,
 			TLSHandshakeTimeout:   10 * time.Second,
 			ResponseHeaderTimeout: 30 * time.Second,
@@ -273,6 +267,7 @@ func (t *transport) doDoh(pid string, q []byte) (response []byte, blocklists str
 	start := time.Now()
 	q, err := AddEdnsPadding(q)
 	if err != nil {
+		log.D("doh: failed to add padding: %v", err)
 		elapsed = time.Since(start)
 		qerr = dnsx.NewInternalQueryError(err)
 		return
@@ -284,6 +279,7 @@ func (t *transport) doDoh(pid string, q []byte) (response []byte, blocklists str
 
 	req, err := t.asDohRequest(q)
 	if err != nil {
+		log.D("doh: failed to create request: %v", err)
 		elapsed = time.Since(start)
 		qerr = dnsx.NewInternalQueryError(err)
 		return
@@ -502,7 +498,7 @@ func (t *transport) Query(network string, q []byte, smm *dnsx.Summary) (r []byte
 			smm.RelayServer = dnsx.SummaryProxyLabel + pid
 		}
 	}
-	log.V("doh: len(res): %d, data: %s, via: %s, err? %v", len(r), smm.RData, smm.RelayServer, err)
+	log.V("doh: (p/px %s/%s); len(res): %d, data: %s, via: %s, err? %v", network, pid, len(r), smm.RData, smm.RelayServer, err)
 	return r, err
 }
 
