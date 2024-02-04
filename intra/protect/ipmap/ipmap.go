@@ -43,7 +43,7 @@ type IPMapper interface {
 type IPMap interface {
 	IPMapper
 	// Resolves hostname and adds the resulting IPs to its IPSet.
-	Add(host string) *IPSet
+	Add(hostOrIP string) *IPSet
 	// Get creates an IPSet for this hostname populated with the IPs
 	// discovered by resolving it. Subsequent calls to Get return the
 	// same IPSet. Never returns nil.
@@ -100,10 +100,10 @@ func (m *ipmap) LookupNetIP(ctx context.Context, network, host string) ([]netip.
 	return r.LookupNetIP(ctx, network, host)
 }
 
-func (m *ipmap) Add(hostname string) *IPSet {
-	s := m.get(hostname)
-	if ok := s.add(hostname); !ok {
-		log.W("ipmap: Add: zero ips for %s", hostname)
+func (m *ipmap) Add(hostOrIP string) *IPSet {
+	s := m.get(hostOrIP)
+	if ok := s.add(hostOrIP); !ok {
+		log.W("ipmap: Add: zero ips for %s", hostOrIP)
 	}
 	return s
 }
@@ -193,18 +193,21 @@ func (s *IPSet) Seed() []string {
 
 // add one or more IP addresses to the set.
 // The hostname can be a domain name or an IP address.
-func (s *IPSet) add(hostname string) bool {
+func (s *IPSet) add(hostOrIP string) bool {
+	if host, _, err := net.SplitHostPort(hostOrIP); err == nil {
+		hostOrIP = host
+	}
 	r := s.r
 	if r == nil {
-		log.W("ipmap: Add: (processing: %s) resolver missing", hostname)
+		log.W("ipmap: Add: (processing: %s) resolver missing", hostOrIP)
 		return false
 	}
-	resolved, err := r.LookupNetIP(context.Background(), "ip", hostname)
+	resolved, err := r.LookupNetIP(context.Background(), "ip", hostOrIP)
 	if err != nil {
-		log.W("ipmap: Add: err resolving %s: %v", hostname, err)
+		log.W("ipmap: Add: err resolving %s: %v", hostOrIP, err)
 		return false
 	} else {
-		log.D("ipmap: Add: resolved? %s => %s", hostname, resolved)
+		log.D("ipmap: Add: resolved? %s => %s", hostOrIP, resolved)
 	}
 	s.Lock()
 	for _, addr := range resolved { // resolved may be nil
