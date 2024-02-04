@@ -19,6 +19,7 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"net"
 	"net/http"
 	"net/netip"
 	"os"
@@ -27,6 +28,7 @@ import (
 	"syscall"
 
 	"github.com/celzero/firestack/intra/core"
+	"github.com/celzero/firestack/intra/dialers"
 	"github.com/celzero/firestack/intra/ipn/multihost"
 	"github.com/celzero/firestack/intra/ipn/wg"
 	"github.com/celzero/firestack/intra/log"
@@ -90,6 +92,12 @@ type WgProxy interface {
 	tun.Device
 	canUpdate(txt string) bool
 	IpcSet(txt string) error
+}
+
+// Dial implements WgProxy
+func (h *wgproxy) Dial(network, address string) (c protect.Conn, err error) {
+	// ProxyDial resolves address if needed; then dials into all resolved ips.
+	return dialers.ProxyDial(h.wgtun, network, address)
 }
 
 // BatchSize implements WgProxy
@@ -545,16 +553,16 @@ func (tun *wgtun) BatchSize() int {
 	return 1
 }
 
-// implements Proxy
-
-func (h *wgtun) Dial(network, address string) (c protect.Conn, err error) {
+// Dial implements proxy.Dialer
+func (h *wgtun) Dial(network, address string) (c net.Conn, err error) {
 	if h.status == END {
 		return nil, errProxyStopped
 	}
 
 	log.D("wg: dial: start %s %s", network, address)
 
-	if c, err = h.DialContext(context.Background(), network, address); err != nil {
+	// DialContext resolves addr if needed; then dialing into all resolved ips.
+	if c, err = h.DialContext(context.TODO(), network, address); err != nil {
 		h.status = TKO
 	} else {
 		h.status = TOK
@@ -564,6 +572,8 @@ func (h *wgtun) Dial(network, address string) (c protect.Conn, err error) {
 
 	return
 }
+
+// implements Proxy
 
 func (h *wgtun) ID() string {
 	return h.id
