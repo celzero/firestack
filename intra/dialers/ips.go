@@ -36,17 +36,20 @@ func udpaddr(ip netip.Addr, port int) *net.UDPAddr {
 	return &net.UDPAddr{IP: ip.AsSlice(), Port: port}
 }
 
-func Renew(hostOrIP string, addrs []string) bool {
-	ipm.MakeIPSet(hostOrIP, addrs)
+// Re-seeds and resolves hostOrIP
+func Renew(hostOrIP string, addrs []string) (*ipmap.IPSet, bool) {
+	New(hostOrIP, addrs)
 	ips := ipm.Add(hostOrIP)
-	return !ips.Empty()
+	return ips, !ips.Empty()
 }
 
+// Re-seeds hostOrIP
 func New(hostOrIP string, addrs []string) bool {
 	ips := ipm.MakeIPSet(hostOrIP, addrs)
 	return !ips.Empty()
 }
 
+// Returns addresses for hostOrIP, resolving them if missing
 func For(hostOrIP string) []netip.Addr {
 	ipset := ipm.Get(hostOrIP)
 	if ipset != nil {
@@ -55,6 +58,7 @@ func For(hostOrIP string) []netip.Addr {
 	return nil
 }
 
+// Hostname to IP (a/aaaa) resolver for the network engine
 func Mapper(m ipmap.IPMapper) {
 	log.I("dialers: ips: mapper ok? %t", m != nil)
 	// usually set just the once
