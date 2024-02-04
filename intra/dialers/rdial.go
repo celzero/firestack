@@ -117,7 +117,7 @@ func commondial(d *protect.RDial, network, addr string, connect connectFunc) (ne
 	allips := filter(ipset, confirmed)
 	if len(allips) <= 0 {
 		var ok bool
-		if ips, ok = renew(domain, ips.Seed()); ok {
+		if ips, ok = renew(domain, ips); ok {
 			ipset = ips.Addrs()
 			allips = filter(ipset, confirmed)
 		}

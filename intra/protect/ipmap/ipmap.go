@@ -267,9 +267,7 @@ func (s *IPSet) Confirmed() netip.Addr {
 
 // Confirm marks ip as the confirmed address.
 func (s *IPSet) Confirm(ip netip.Addr) {
-	// Optimization: Skip setting if it hasn't changed.
 	if ip.Compare(s.Confirmed()) == 0 {
-		// This is the common case.
 		return
 	}
 	s.Lock()

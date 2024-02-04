@@ -37,7 +37,8 @@ func udpaddr(ip netip.Addr, port int) *net.UDPAddr {
 }
 
 // Re-seeds and resolves hostOrIP
-func renew(hostOrIP string, addrs []string) (*ipmap.IPSet, bool) {
+func renew(hostOrIP string, existing *ipmap.IPSet) (*ipmap.IPSet, bool) {
+	addrs := existing.Seed()
 	New(hostOrIP, addrs)
 	ips := ipm.Add(hostOrIP)
 	return ips, !ips.Empty()
