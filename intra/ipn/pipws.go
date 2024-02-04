@@ -52,6 +52,7 @@ type pipwsconn struct {
 func (c *pipwsconn) CloseRead() error  { return c.Close() }
 func (c *pipwsconn) CloseWrite() error { return c.Close() }
 
+// connects to the ws proxy at addr over tcp; use by t.client
 func (t *pipws) dial(network, addr string) (net.Conn, error) {
 	return dialers.SplitDial(t.proxydialer, network, addr)
 }
@@ -134,7 +135,7 @@ func NewPipWsProxy(id string, ctl protect.Controller, po *settings.ProxyOptions)
 	t.rd = newRDial(t)
 	t.hc = newHTTPClient(t.rd)
 
-	ok := dialers.Renew(t.hostname, po.Addrs) // po.Addrs may be nil or empty
+	_, ok := dialers.Renew(t.hostname, po.Addrs) // po.Addrs may be nil or empty
 	if !ok {
 		log.W("pipws: zero bootstrap ips %s", t.hostname)
 	}
@@ -180,6 +181,7 @@ func (t *pipws) claim(msg string) []string {
 	return []string{t.token, byte2hex(msgmac)}
 }
 
+// Dial connects to addr via wsconn over this ws proxy
 func (t *pipws) Dial(network, addr string) (protect.Conn, error) {
 	if t.status == END {
 		return nil, errProxyStopped
