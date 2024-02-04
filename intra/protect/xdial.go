@@ -11,6 +11,7 @@ import (
 	"io"
 	"net"
 
+	"github.com/celzero/firestack/intra/log"
 	"golang.org/x/net/proxy"
 )
 
@@ -58,8 +59,10 @@ func (d *RDial) Dial(network, addr string) (net.Conn, error) {
 	if c, err := d.dial(network, addr); err != nil {
 		return nil, err
 	} else if cc, ok := c.(net.Conn); ok {
+		log.D("xdial: Dial: %T is %T", c, cc)
 		return cc, nil
 	} else {
+		log.W("xdial: Dial: %T is not %T (ok? %t); other errs: %v", c, cc, ok, err)
 		clos(c)
 		return nil, errNoConn
 	}
@@ -77,9 +80,11 @@ func (d *RDial) DialTCP(network string, laddr, raddr *net.TCPAddr) (*net.TCPConn
 	if c, err := d.Dial(network, raddr.String()); err != nil {
 		return nil, err
 	} else if tc, ok := c.(*net.TCPConn); ok {
+		log.D("xdial: DialTCP: %T is %T", c, tc)
 		// d.Dialer.LocalAddr = nil
 		return tc, nil
 	} else {
+		log.W("xdial: DialTCP: %T is not %T (ok? %t); other errs: %v", c, tc, ok, err)
 		// some proxies like wgproxy do not vend *net.TCPConn
 		clos(c)
 		return nil, errNoTCP
@@ -95,6 +100,7 @@ func (d *RDial) DialUDP(network string, laddr, raddr *net.UDPAddr) (*net.UDPConn
 		// d.Dialer.LocalAddr = nil
 		return uc, nil
 	} else {
+		log.W("xdial: DialUDP: %T is not %T (ok? %t); other errs: %v", c, uc, ok, err)
 		// some proxies like wgproxy do not vend *net.UDPConn
 		clos(c)
 		return nil, errNoUDP
