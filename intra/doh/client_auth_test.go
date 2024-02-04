@@ -24,7 +24,18 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
+	"log"
+	"net"
 	"testing"
+
+	"github.com/celzero/firestack/intra/dialers"
+	"github.com/celzero/firestack/intra/dnsx"
+	"github.com/celzero/firestack/intra/ipn"
+	ilog "github.com/celzero/firestack/intra/log"
+	"github.com/celzero/firestack/intra/protect"
+	"github.com/celzero/firestack/intra/settings"
+	"github.com/celzero/firestack/intra/xdns"
+	"github.com/miekg/dns"
 )
 
 // PEM encoded test leaf certificate with ECDSA public key.
@@ -335,4 +346,70 @@ func TestNilLoader(t *testing.T) {
 	if err == nil {
 		t.Error("Expected Sign() to fail")
 	}
+}
+
+type fakeCtl struct {
+	protect.Controller
+}
+
+func (*fakeCtl) Bind4(_ string, _ int)   {}
+func (*fakeCtl) Bind6(_ string, _ int)   {}
+func (*fakeCtl) Protect(_ string, _ int) {}
+
+/*
+type fakeBdg struct {
+	protect.Controller
+	intra.Bridge
+}
+
+var (
+	baseNsOpts = &dnsx.NsOpts{PID: ipn.Base, IPCSV: "", TIDCSV: ""}
+	baseMark   = &intra.Mark{PID: ipn.Base, CID: "testcid", UID: protect.UidSelf}
+	baseTab    = &rnet.Tab{CID: "testcid", Block: false}
+)
+
+func (*fakeBdg) Flow(_ int32, _ int, a, b, c, d, e, f string) *intra.Mark { return baseMark }
+func (*fakeBdg) OnSocketClosed(*intra.SocketSummary)                      {}
+
+func (*fakeBdg) OnQuery(_ string, _ int) *dnsx.NsOpts { return baseNsOpts }
+func (*fakeBdg) OnResponse(*dnsx.Summary)             {}
+
+func (*fakeBdg) Route(a, b, c, d, e string) *rnet.Tab { return baseTab }
+func (*fakeBdg) OnComplete(*rnet.ServerSummary)       {}
+*/
+
+func TestDoh(t *testing.T) {
+	resolver := &net.Resolver{}
+	// create a struct that implements protect.Controller interface
+	ctl := &fakeCtl{}
+	// bdg := &fakeBdg{Controller: ctl}
+	pxr := ipn.NewProxifier(ctl)
+	ilog.SetLevel(0)
+	dialers.Mapper(resolver)
+	settings.Debug = true
+	tr, err := NewTransport("test0", "https://8.8.8.8/dns-query", nil, pxr, ctl)
+	if err != nil {
+		t.Fatal(err)
+	}
+	q := aquery("google.com")
+	smm := &dnsx.Summary{}
+	netw := xdns.NetAndProxyID("tcp", ipn.Base)
+	r, err := tr.Query(netw, q, smm)
+	if err != nil {
+		log.Output(2, smm.Str())
+		t.Fatal(err)
+	}
+	if len(r) == 0 {
+		t.Fatal("empty response")
+	}
+	ans := xdns.AsMsg(r)
+	log.Output(10, ans.Answer[0].String())
+}
+
+func aquery(d string) []byte {
+	msg := &dns.Msg{}
+	msg.SetQuestion(dns.Fqdn(d), dns.TypeA)
+	msg.Id = 1234
+	b, _ := msg.Pack()
+	return b
 }

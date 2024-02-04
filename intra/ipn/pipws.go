@@ -135,7 +135,7 @@ func NewPipWsProxy(id string, ctl protect.Controller, po *settings.ProxyOptions)
 	t.rd = newRDial(t)
 	t.hc = newHTTPClient(t.rd)
 
-	_, ok := dialers.Renew(t.hostname, po.Addrs) // po.Addrs may be nil or empty
+	_, ok := dialers.New(t.hostname, po.Addrs) // po.Addrs may be nil or empty
 	if !ok {
 		log.W("pipws: zero bootstrap ips %s", t.hostname)
 	}

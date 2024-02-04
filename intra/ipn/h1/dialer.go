@@ -38,7 +38,7 @@ func New(proxyUrl *url.URL, opts ...Opt) *HttpTunnel {
 	for _, opt := range opts {
 		opt(t)
 	}
-	_, ok := dialers.Renew(t.hostname, nil)
+	_, ok := dialers.New(t.hostname, nil)
 	log.I("http: new dialer for %s; resolved? %t", t.hostname, ok)
 	return t
 }

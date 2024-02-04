@@ -37,16 +37,16 @@ func udpaddr(ip netip.Addr, port int) *net.UDPAddr {
 }
 
 // Re-seeds and resolves hostOrIP
-func Renew(hostOrIP string, addrs []string) (*ipmap.IPSet, bool) {
+func renew(hostOrIP string, addrs []string) (*ipmap.IPSet, bool) {
 	New(hostOrIP, addrs)
 	ips := ipm.Add(hostOrIP)
 	return ips, !ips.Empty()
 }
 
 // Re-seeds hostOrIP
-func New(hostOrIP string, addrs []string) bool {
+func New(hostOrIP string, addrs []string) (*ipmap.IPSet, bool) {
 	ips := ipm.MakeIPSet(hostOrIP, addrs)
-	return !ips.Empty()
+	return ips, !ips.Empty()
 }
 
 // Returns addresses for hostOrIP, resolving them if missing

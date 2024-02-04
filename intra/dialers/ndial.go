@@ -69,7 +69,7 @@ func netdial(d *net.Dialer, network, addr string, connect netConnectFunc) (net.C
 	allips := filter(ipset, confirmed)
 	if len(allips) <= 0 {
 		var ok bool
-		if ips, ok = Renew(domain, ips.Seed()); ok {
+		if ips, ok = renew(domain, ips.Seed()); ok {
 			ipset = ips.Addrs()
 			allips = filter(ipset, confirmed)
 		}

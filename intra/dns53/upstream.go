@@ -90,7 +90,7 @@ func newTransport(id string, do *settings.DNSOptions, px ipn.Proxies, ctl protec
 	ipcsv := do.ResolvedAddrs()
 	hasips := len(ipcsv) > 0
 	ips := strings.Split(ipcsv, ",") // may be nil or empty
-	_, ok := dialers.Renew(tx.addrport, ips)
+	_, ok := dialers.New(tx.addrport, ips)
 	log.I("dns53: (%s) pre-resolved %s to %s; ok? %t", id, tx.addrport, ipcsv, ok)
 	tx.client = &dns.Client{
 		Net:     "udp",   // default transport type
