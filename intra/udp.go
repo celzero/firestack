@@ -442,8 +442,8 @@ func (h *udpHandler) Connect(src core.UDPConn, target *net.UDPAddr) (nat *tracke
 			errs = nil // reset errs
 			break
 		} // else try the next realip
-		log.W("udp: connect: #%s: %s failed to bind addr(%s); for uid %s w err(%v)", i, nat.ID, target, nat.UID, err)
-		errs = errors.Join(errs, err)
+		log.W("udp: connect: #%d: %s failed to bind addr(%s); for uid %s w err(%v)", i, nat.ID, target, nat.UID, err)
+		errs = err // store just the last err; complicates logging
 	}
 
 	if errs != nil {
