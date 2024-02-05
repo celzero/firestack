@@ -740,11 +740,6 @@ func (r *resolver) preferencesFrom(qname string, s *NsOpts, chosenids ...string)
 		x = nil
 	} else {
 		x = strings.Split(s.TIDCSV, ",")
-		if len(s.PID) > 0 {
-			pid = overrideProxyIfNeeded(s.PID, id1, id2)
-		} else {
-			pid = NetNoProxy
-		}
 		ips = s.IPCSV // comma-separated list of IPs
 	}
 	l := len(x)
@@ -779,6 +774,11 @@ func (r *resolver) preferencesFrom(qname string, s *NsOpts, chosenids ...string)
 	if isAnyLocal(id1, id2) { // use one transport, Local, if set
 		id1 = Local
 		id2 = ""
+	}
+	if len(s.PID) > 0 {
+		pid = overrideProxyIfNeeded(s.PID, id1, id2)
+	} else {
+		pid = NetNoProxy
 	}
 	return
 }
