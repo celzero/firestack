@@ -18,6 +18,7 @@ import (
 	"github.com/celzero/firestack/intra/dnsx"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
+	"github.com/celzero/firestack/intra/protect/ipmap"
 	"github.com/celzero/firestack/intra/xdns"
 	"github.com/miekg/dns"
 )
@@ -38,6 +39,8 @@ type ipmapper struct {
 	r  dnsx.Resolver
 	ba *core.Barrier
 }
+
+var _ ipmap.IPMapper = (*ipmapper)(nil)
 
 func AddIPMapper(r dnsx.Resolver) {
 	m := &ipmapper{dnsx.IpMapper, r, core.NewBarrier(battl)}
