@@ -113,6 +113,7 @@ func Fetch(p Proxy, req *http.Request) (*http.Response, error) {
 
 func newRDial(p Proxy) *protect.RDial {
 	return &protect.RDial{
+		Owner:   p.ID(),
 		RDialer: p,
 	}
 }

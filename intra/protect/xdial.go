@@ -41,17 +41,21 @@ var errNoUDP = errors.New("not a udp dialer")
 
 // RDial discards local-addresses
 type RDial struct {
+	Owner   string       // owner tag
 	Dialer  proxy.Dialer // may be nil
 	RDialer RDialer      // may be nil
 }
 
 func (d *RDial) dial(network, addr string) (Conn, error) {
-	if d.Dialer != nil {
+	usedialer := d.Dialer != nil
+	userdialer := d.RDialer != nil
+	if usedialer {
 		return d.Dialer.Dial(network, addr)
 	}
-	if d.RDialer != nil {
+	if userdialer {
 		return d.RDialer.Dial(network, addr)
 	}
+	log.V("xdial: Dial: (r? %t / o: %s) %s %s", userdialer, d.Owner, network, addr)
 	return nil, errNoConn
 }
 
@@ -59,10 +63,9 @@ func (d *RDial) Dial(network, addr string) (net.Conn, error) {
 	if c, err := d.dial(network, addr); err != nil {
 		return nil, err
 	} else if cc, ok := c.(net.Conn); ok {
-		log.D("xdial: Dial: %T is %T", c, cc)
 		return cc, nil
 	} else {
-		log.W("xdial: Dial: %T is not %T (ok? %t); other errs: %v", c, cc, ok, err)
+		log.W("xdial: Dial: (%s) %T is not %T (ok? %t); other errs: %v", d.Owner, c, cc, ok, err)
 		clos(c)
 		return nil, errNoConn
 	}
@@ -80,12 +83,11 @@ func (d *RDial) DialTCP(network string, laddr, raddr *net.TCPAddr) (*net.TCPConn
 	if c, err := d.Dial(network, raddr.String()); err != nil {
 		return nil, err
 	} else if tc, ok := c.(*net.TCPConn); ok {
-		log.D("xdial: DialTCP: %T is %T", c, tc)
 		// d.Dialer.LocalAddr = nil
 		return tc, nil
 	} else {
-		log.W("xdial: DialTCP: %T is not %T (ok? %t); other errs: %v", c, tc, ok, err)
-		// some proxies like wgproxy do not vend *net.TCPConn
+		log.W("xdial: DialTCP: (%s) %T is not %T (ok? %t); other errs: %v", d.Owner, c, tc, ok, err)
+		// some proxies like wgproxy, socks5 do not vend *net.TCPConn
 		clos(c)
 		return nil, errNoTCP
 	}
@@ -100,8 +102,8 @@ func (d *RDial) DialUDP(network string, laddr, raddr *net.UDPAddr) (*net.UDPConn
 		// d.Dialer.LocalAddr = nil
 		return uc, nil
 	} else {
-		log.W("xdial: DialUDP: %T is not %T (ok? %t); other errs: %v", c, uc, ok, err)
-		// some proxies like wgproxy do not vend *net.UDPConn
+		log.W("xdial: DialUDP: (%s) %T is not %T (ok? %t); other errs: %v", d.Owner, c, uc, ok, err)
+		// some proxies like wgproxy, socks5 do not vend *net.UDPConn
 		clos(c)
 		return nil, errNoUDP
 	}

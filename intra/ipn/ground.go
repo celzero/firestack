@@ -28,7 +28,7 @@ func (h *ground) Dial(network, addr string) (c protect.Conn, err error) {
 }
 
 func (h *ground) Dialer() *protect.RDial {
-	return &protect.RDial{}
+	return &protect.RDial{Owner: h.ID()} // no-op dialer
 }
 
 func (h *ground) fetch(req *http.Request) (*http.Response, error) {

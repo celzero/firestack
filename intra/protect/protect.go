@@ -169,6 +169,7 @@ func MakeNsDialer(who string, c Controller) *net.Dialer {
 // Creates a RDial that can bind to any active interface.
 func MakeNsRDial(who string, c Controller) *RDial {
 	return &RDial{
+		Owner:  who,
 		Dialer: MakeNsDialer(who, c),
 	}
 }
