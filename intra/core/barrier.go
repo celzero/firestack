@@ -37,7 +37,7 @@ type V struct {
 }
 
 func (v *V) String() string {
-	return fmt.Sprintf("v: %s // n: %d; exp: %s // err: %s", v.Val, v.N.Load(), v.exp, v.Err)
+	return fmt.Sprintf("v: %s // n: %d; exp: %s // err: %v", v.Val, v.N.Load(), v.exp, v.Err)
 }
 
 // Barrier represents a class of work and forms a namespace in

@@ -177,7 +177,7 @@ func (t *bootstrap) Query(network string, q []byte, summary *dnsx.Summary) ([]by
 	if t.Transport == nil {
 		return nil, errDefaultTransportNotReady
 	}
-	log.V("dns: default: query %s %s", network, len(q))
+	log.V("dns: default: query %s %d", network, len(q))
 	return t.Transport.Query(network, q, summary)
 }
 
