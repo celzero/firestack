@@ -203,12 +203,12 @@ func newTransport(typ, id, rawurl, target string, addrs []string, px ipn.Proxies
 		signer := newClientAuthWrapper(auth)
 		t.tlsconfig = &tls.Config{
 			GetClientCertificate: signer.GetClientCertificate,
-			ServerName:           t.hostname,
+			// ServerName:           t.hostname,
 		}
 	} else {
 		t.tlsconfig = &tls.Config{
 			InsecureSkipVerify: skipTLSVerify,
-			ServerName:         t.hostname,
+			// ServerName:         t.hostname,
 		}
 	}
 	// Override the dial function.
@@ -390,7 +390,7 @@ func (t *transport) send(pid string, req *http.Request) (ans []byte, blocklists 
 	}
 	req = req.WithContext(httptrace.WithClientTrace(req.Context(), &trace))
 
-	log.V("doh: sending query")
+	log.V("doh: sending query to: %s", t.hostname)
 
 	httpResponse, err := t.fetch(pid, req)
 
