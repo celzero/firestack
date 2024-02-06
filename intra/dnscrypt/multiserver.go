@@ -134,9 +134,9 @@ func tcpExchange(pid string, serverInfo *serverinfo, sharedKey *[32]byte, encryp
 		return nil, err
 	}
 	defer pc.Close()
-	if err := pc.SetDeadline(time.Now().Add(timeout20s)); err != nil {
-		log.E("dnscrypt: tcp: err deadline: %v", err)
-		return nil, err
+	if derr := pc.SetDeadline(time.Now().Add(timeout20s)); derr != nil {
+		log.E("dnscrypt: tcp: err deadline: %v", derr)
+		return nil, derr
 	}
 	if serverInfo.RelayTCPAddr != nil {
 		prepareForRelay(serverInfo.TCPAddr.IP, serverInfo.TCPAddr.Port, &encryptedQuery)
@@ -146,9 +146,9 @@ func tcpExchange(pid string, serverInfo *serverinfo, sharedKey *[32]byte, encryp
 		log.E("dnscrypt: tcp: prefix(q) %s err: %v", serverInfo, err)
 		return nil, err
 	}
-	if _, err := pc.Write(encryptedQuery); err != nil {
-		log.E("dnscrypt: tcp: err write: %v", serverInfo, err)
-		return nil, err
+	if _, werr := pc.Write(encryptedQuery); werr != nil {
+		log.E("dnscrypt: tcp: err write: %v", serverInfo, werr)
+		return nil, werr
 	}
 	encryptedResponse, err := xdns.ReadPrefixed(&pc)
 	if err != nil {
@@ -217,11 +217,11 @@ func query(pid string, packet []byte, serverInfo *serverinfo, useudp bool) (resp
 	}
 
 	if serverInfo.Proto == stamps.StampProtoTypeDNSCrypt {
-		sharedKey, encryptedQuery, clientNonce, err := encrypt(serverInfo, query, useudp)
+		sharedKey, encryptedQuery, clientNonce, cerr := encrypt(serverInfo, query, useudp)
 
-		if err != nil {
+		if cerr != nil {
 			log.W("dnscrypt: enc fail forwarding to %s", serverInfo)
-			qerr = dnsx.NewInternalQueryError(err)
+			qerr = dnsx.NewInternalQueryError(cerr)
 			return
 		}
 
@@ -518,7 +518,7 @@ func (proxy *DcMulti) AddAll(serverscsv string) (int, error) {
 			return i, fmt.Errorf("dnscrypt: invalid stamp for [%s]", serverStampPair)
 		}
 		uid := serverStamp[0]
-		if uid, err := proxy.addOne(uid, serverStamp[1]); err != nil {
+		if _, err := proxy.addOne(uid, serverStamp[1]); err != nil {
 			return i, fmt.Errorf("dnscrypt: error adding [%s]: %v", uid, err)
 		}
 	}

@@ -72,13 +72,13 @@ func (ic *intercept) handleRequest(packet []byte, needsEDNS0Padding bool) ([]byt
 	state.question = &msg
 
 	// TODO: Recheck: None of these methods return err
-	if err := ic.blockUnqualified(&msg); err != nil {
+	if berr := ic.blockUnqualified(&msg); berr != nil {
 		state.action = ActionDrop
-		return packet, err
+		return packet, berr
 	}
-	if err := ic.getSetPayloadSize(&msg); err != nil {
+	if serr := ic.getSetPayloadSize(&msg); serr != nil {
 		state.action = ActionDrop
-		return packet, err
+		return packet, serr
 	}
 
 	packet2, err := msg.PackBuffer(packet)

@@ -230,14 +230,14 @@ func dnsExchange(proxy *DcMulti, query *dns.Msg, serverAddress string, serverNam
 	}
 	var bestOption *dnsExchangeResponse
 	for i := 0; i < options; i++ {
-		if dnsExchangeResponse := <-channel; dnsExchangeResponse.err == nil {
-			if bestOption == nil || dnsExchangeResponse.rtt < bestOption.rtt {
-				bestOption = &dnsExchangeResponse
+		if res := <-channel; res.err == nil {
+			if res.rtt < bestOption.rtt {
+				bestOption = &res
 				close(cancelChannel)
 				break
 			}
 		} else {
-			err = dnsExchangeResponse.err
+			err = res.err
 		}
 	}
 	if bestOption != nil {
@@ -288,11 +288,11 @@ func _dnsExchange(proxy *DcMulti, proto string, query *dns.Msg, serverAddress st
 		}
 
 		defer pc.Close()
-		if err := pc.SetDeadline(time.Now().Add(timeout20s)); err != nil {
-			return dnsExchangeResponse{err: err}
+		if derr := pc.SetDeadline(time.Now().Add(timeout20s)); derr != nil {
+			return dnsExchangeResponse{err: derr}
 		}
-		if _, err := pc.Write(binQuery); err != nil {
-			return dnsExchangeResponse{err: err}
+		if _, werr := pc.Write(binQuery); werr != nil {
+			return dnsExchangeResponse{err: werr}
 		}
 		packet = make([]byte, xdns.MaxDNSPacketSize)
 		length, err := pc.Read(packet)
@@ -325,15 +325,15 @@ func _dnsExchange(proxy *DcMulti, proto string, query *dns.Msg, serverAddress st
 		}
 
 		defer pc.Close()
-		if err := pc.SetDeadline(time.Now().Add(timeout20s)); err != nil {
-			return dnsExchangeResponse{err: err}
+		if derr := pc.SetDeadline(time.Now().Add(timeout20s)); derr != nil {
+			return dnsExchangeResponse{err: derr}
 		}
 		binQuery, err = xdns.PrefixWithSize(binQuery)
 		if err != nil {
 			return dnsExchangeResponse{err: err}
 		}
-		if _, err := pc.Write(binQuery); err != nil {
-			return dnsExchangeResponse{err: err}
+		if _, werr := pc.Write(binQuery); werr != nil {
+			return dnsExchangeResponse{err: werr}
 		}
 		packet, err = xdns.ReadPrefixed(&pc)
 		if err != nil {

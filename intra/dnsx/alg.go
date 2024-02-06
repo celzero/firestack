@@ -163,7 +163,7 @@ func (t *dnsgateway) querySecondary(t2 Transport, network string, q []byte, out 
 		return // not a valid dns message
 	} else if ok := xdns.HasAQuadAQuestion(msg) || xdns.HasHTTPQuestion(msg) || xdns.HasSVCBQuestion(msg); !ok {
 		return // not a dns question we care about
-	} else if ans1, blocklists, err := t.rdns.blockQ( /*maybe nil*/ t2, nil, msg); err == nil {
+	} else if ans1, blocklists, err2 := t.rdns.blockQ( /*maybe nil*/ t2, nil, msg); err2 == nil {
 		// if err !is nil, then the question is blocked
 		if ans1 != nil && len(ans1.Answer) > 0 {
 			result.ips = append(result.ips, xdns.AAnswer(ans1)...)

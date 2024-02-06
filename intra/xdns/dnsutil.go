@@ -392,10 +392,10 @@ func Targets(msg *dns.Msg) (targets []string) {
 		}
 		if len(target) <= 0 {
 			continue
-		} else if target, err := NormalizeQName(target); err == nil {
-			if _, ok := touched[target]; !ok {
-				targets = append(targets, target)
-				touched[target] = struct{}{}
+		} else if x, err := NormalizeQName(target); err == nil {
+			if _, ok := touched[x]; !ok {
+				targets = append(targets, x)
+				touched[x] = struct{}{}
 			}
 		}
 	}

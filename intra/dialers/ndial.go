@@ -51,18 +51,18 @@ func netdial(d *net.Dialer, network, addr string, connect netConnectFunc) (net.C
 		return nil, err
 	}
 
-	var conn net.Conn
 	var errs error
 	ips := ipm.Get(domain)
 	confirmed := ips.Confirmed()
 	if confirmed.IsValid() {
-		if conn, err := connect(d, network, confirmed, port); err == nil {
+		if conn, cerr := connect(d, network, confirmed, port); cerr == nil {
 			log.V("ndial: found working ip %s for %s", confirmed, addr)
 			return conn, nil
+		} else {
+			errs = errors.Join(errs, cerr)
+			ips.Disconfirm(confirmed)
+			log.D("ndial: confirmed ip %s for %s failed with err %v", confirmed, addr, cerr)
 		}
-		errs = errors.Join(errs, err)
-		ips.Disconfirm(confirmed)
-		log.D("ndial: confirmed ip %s for %s failed with err %v", confirmed, addr, err)
 	}
 
 	ipset := ips.Addrs()
@@ -77,13 +77,14 @@ func netdial(d *net.Dialer, network, addr string, connect netConnectFunc) (net.C
 	}
 	log.D("ndial: trying all ips %d for %s", len(allips), addr)
 	for _, ip := range allips {
-		if conn, err = connect(d, network, ip, port); err == nil {
+		if conn, err := connect(d, network, ip, port); err == nil {
 			ips.Confirm(ip)
 			log.I("ndial: found working ip %s for %s", ip, addr)
 			return conn, nil
+		} else {
+			errs = errors.Join(errs, err)
+			log.W("ndial: ip %s for %s failed with err %v", ip, addr, err)
 		}
-		errs = errors.Join(errs, err)
-		log.W("ndial: ip %s for %s failed with err %v", ip, addr, err)
 	}
 
 	dur := time.Since(start)

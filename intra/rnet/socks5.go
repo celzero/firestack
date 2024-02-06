@@ -339,13 +339,13 @@ func (h *socks5) udphandle(s *tx.Server, addr *net.UDPAddr, pkt *tx.Datagram) (e
 			return fmt.Errorf("udp addr %s not associated with tcp; ch ok? %t", src, ok)
 		default:
 			// writing to egress conn
-			n, err := egress.RemoteConn.Write(data)
+			n, werr := egress.RemoteConn.Write(data)
 			if ssu != nil {
 				ssu.Tx += n
 			}
-			log.D("svcsocks5: udp: %s; data sent; (err: %v / summary? %t)? client: %s server: %s remote: %s sz: %d", cid, err, ssu != nil, uecaddr, ueladdr, ueraddr, n)
-			if err != nil {
-				return err
+			log.D("svcsocks5: udp: %s; data sent; (err: %v / summary? %t)? client: %s server: %s remote: %s sz: %d", cid, werr, ssu != nil, uecaddr, ueladdr, ueraddr, n)
+			if werr != nil {
+				return werr
 			}
 		}
 		return nil

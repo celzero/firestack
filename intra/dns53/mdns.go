@@ -528,17 +528,17 @@ func (c *client) untrack(name string) {
 
 // track marks a name as being tracked by this client;
 // name is NOT normalized
-func (c *client) track(name string) (se *dnssdanswer) {
-	if se, ok := c.tracker[name]; ok {
-		log.V("mdns: tracker: exists %s with %v", name, se)
-		return se
+func (c *client) track(name string) *dnssdanswer {
+	if tse, ok := c.tracker[name]; ok {
+		log.V("mdns: tracker: exists %s with %v", name, tse)
+		return tse
 	}
-	se = &dnssdanswer{
+	se := &dnssdanswer{
 		name: name,
 	}
 	c.tracker[name] = se
 	log.V("mdns: tracker: start %s with %v", name, se)
-	return
+	return se
 }
 
 // alias sets up mapping between two tracked entries;

@@ -251,7 +251,7 @@ func route(proxy *DcMulti, name string) (udpaddr *net.UDPAddr, tcpaddr *net.TCPA
 	if len(relayName) == 0 {
 		err = fmt.Errorf("route declared for [%s] but no relays", name)
 		return
-	} else if relayStamp, err := stamps.NewServerStampFromString(relayName); err == nil {
+	} else if relayStamp, serr := stamps.NewServerStampFromString(relayName); serr == nil {
 		relayCandidateStamp = &relayStamp
 	}
 

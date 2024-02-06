@@ -308,11 +308,11 @@ func (t *ctransport) fetch(network string, q []byte, msg *dns.Msg, summary *Summ
 		fsmm.Type = t.Transport.Type()
 
 		v, _ := t.reqbarrier.Do(key, func() (any, error) {
-			ans, err := t.Transport.Query(network, q, fsmm)
+			ans, qerr := t.Transport.Query(network, q, fsmm)
 			// cb.put no-ops when len(ans) is 0
 			cb.put(key, ans, fsmm)
 			// cres.ans may be nil
-			return &cres{ans: xdns.AsMsg(ans), s: fsmm.Copy()}, err
+			return &cres{ans: xdns.AsMsg(ans), s: fsmm.Copy()}, qerr
 		})
 
 		cachedres, fresh := cb.freshCopy(key) // always prefer value from cache
