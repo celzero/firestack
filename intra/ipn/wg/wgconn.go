@@ -141,7 +141,8 @@ func (s *StdNetBind) listenNet(network string, port int) (*net.UDPConn, int, err
 		return nil, 0, errNoLocalAddr
 	}
 	// typecast is safe, because "network" is always udp[4|6]; see: Open
-	return conn.(*net.UDPConn), uaddr.Port, nil
+	udpconn, _ := conn.(*net.UDPConn)
+	return udpconn, uaddr.Port, nil
 }
 
 func (bind *StdNetBind) Open(uport uint16) ([]conn.ReceiveFunc, uint16, error) {
@@ -383,12 +384,15 @@ var endpointPool = sync.Pool{
 
 // asEndpoint returns an Endpoint containing ap.
 func asEndpoint(ap netip.AddrPort) conn.Endpoint {
-	m := endpointPool.Get().(map[netip.AddrPort]conn.Endpoint)
-	defer endpointPool.Put(m)
-	e, ok := m[ap]
-	if !ok {
-		e = conn.Endpoint(StdNetEndpoint(ap))
-		m[ap] = e
+	if m, _ := endpointPool.Get().(map[netip.AddrPort]conn.Endpoint); m == nil {
+		return conn.Endpoint(StdNetEndpoint(ap))
+	} else {
+		defer endpointPool.Put(m)
+		e, ok := m[ap]
+		if !ok {
+			e = conn.Endpoint(StdNetEndpoint(ap))
+			m[ap] = e
+		}
+		return e
 	}
-	return e
 }

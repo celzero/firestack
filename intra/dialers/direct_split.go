@@ -44,8 +44,15 @@ func DialWithSplit(d *net.Dialer, addr *net.TCPAddr) (DuplexConn, error) {
 	if err != nil {
 		return nil, err
 	}
-
-	return &splitter{TCPConn: conn.(*net.TCPConn)}, nil
+	if conn == nil {
+		return nil, errNoConn
+	}
+	tcp, _ := conn.(*net.TCPConn)
+	if tcp == nil {
+		conn.Close()
+		return nil, errNotTCP
+	}
+	return From(tcp), nil
 }
 
 // Write-related functions

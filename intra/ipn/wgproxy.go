@@ -283,7 +283,7 @@ func bindWgSockets(id string, wgdev *device.Device, ctl protect.Controller) bool
 	// ref: github.com/WireGuard/wireguard-go/blob/1417a47c8/conn/bind_std.go#L130
 	// bind: github.com/WireGuard/wireguard-android/blob/713947e432/tunnel/tools/libwg-go/api-android.go#L180
 	// protect: https://github.com/WireGuard/wireguard-android/blob/713947e432/tunnel/src/main/java/com/wireguard/android/backend/GoBackend.java#L316
-	bind := wgdev.Bind().(conn.PeekLookAtSocketFd)
+	bind, _ := wgdev.Bind().(conn.PeekLookAtSocketFd)
 	if bind == nil {
 		log.E("proxy: wg: bind: failed to get wg socket")
 		return false

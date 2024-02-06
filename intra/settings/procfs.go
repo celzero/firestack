@@ -315,17 +315,13 @@ func getProcNetEntryFromPool(p *ProcNetEntry) *ProcNetEntry {
 		return nil
 	}
 
-	v, ok1 := cache.pool.Load(p.String())
-	if !ok1 {
+	if v, ok := cache.pool.Load(p.String()); !ok {
 		return nil
-	}
-
-	e, ok2 := v.(*ProcNetEntry)
-	if !ok2 {
+	} else if e, ok := v.(*ProcNetEntry); !ok {
 		return nil
+	} else {
+		return e
 	}
-
-	return e
 }
 
 // findProcNetEntryForProtocol parses /proc/net/* and return the line matching the argument five-tuple

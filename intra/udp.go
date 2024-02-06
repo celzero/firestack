@@ -28,6 +28,7 @@ package intra
 import (
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"strconv"
 	"sync"
@@ -70,6 +71,12 @@ type tracker struct {
 func makeTracker(cid, pid, uid string) *tracker {
 	smm := udpSummary(cid, pid, uid)
 	return &tracker{smm, nil, 0, nil}
+}
+
+func (t *tracker) done(err error) {
+	if t.SocketSummary != nil {
+		t.SocketSummary.done(err)
+	}
 }
 
 func (t *tracker) connected() bool {
@@ -216,7 +223,7 @@ func (h *udpHandler) fetchUDPInput(conn core.UDPConn, nat *tracker) {
 
 		var udpaddr *net.UDPAddr
 		if addr != nil {
-			udpaddr = addr.(*net.UDPAddr)
+			udpaddr, _ = addr.(*net.UDPAddr)
 		} else if nat.ip != nil {
 			// overwrite source-addr as set in t.ip
 			udpaddr = nat.ip
@@ -224,7 +231,12 @@ func (h *udpHandler) fetchUDPInput(conn core.UDPConn, nat *tracker) {
 
 		log.D("udp: ingress: data(%d) from remote(pc?%v/masq:%v) | addrs: %s", n, addr, udpaddr, logaddr)
 
-		n, err = conn.WriteFrom(buf[:n], udpaddr) // writes buf to conn (tun) with udpaddr as src
+		if udpaddr == nil {
+			log.W("udp: ingress: unexpected! %s is not a udpaddr [%s]", addr, logaddr)
+			n, err = conn.Write(buf) // writes buf to conn (tun)
+		} else {
+			n, err = conn.WriteFrom(buf[:n], udpaddr) // writes buf to conn (tun) with udpaddr as src
+		}
 		if err != nil {
 			log.W("udp: ingress: failed write to tun (%s) from %s; err %v; %dsecs", logaddr, udpaddr, err, nat.Duration)
 			// for half-open: nat.errcount += 1 and continue
@@ -352,7 +364,11 @@ func (h *udpHandler) OnNewConn(gconn *netstack.GUDPConn, _, dst *net.UDPAddr) {
 
 	if err != nil { // no nat
 		gconn.Connect(finish)
-		t.done(err)
+		if t != nil { // t is never nil; but nilaway complains
+			t.done(err)
+		} else {
+			log.W("udp: on-new-conn: unexpected nil tracker %s -> %s; err %v", gconn.LocalAddr(), dst, err)
+		}
 		h.Close(conn)
 		return
 	}
@@ -585,15 +601,17 @@ func (h *udpHandler) track(c core.UDPConn, t *tracker) {
 	h.Unlock()
 }
 
-func (h *udpHandler) untrack(c core.UDPConn, t *tracker) {
+func (h *udpHandler) untrack(c core.UDPConn) *tracker {
 	h.Lock()
+	defer h.Unlock()
+	t := h.udpConns[c]
 	delete(h.udpConns, c)
 	if t != nil {
 		delete(h.conntracker, t.ID)
 	} else {
 		log.W("udp: untrack: not found; conn(%v)", c)
 	}
-	h.Unlock()
+	return t // may be nil
 }
 
 func (h *udpHandler) Close(conn core.UDPConn) {
@@ -604,26 +622,26 @@ func (h *udpHandler) Close(conn core.UDPConn) {
 
 	local := conn.LocalAddr()
 	remote := conn.RemoteAddr()
-	t, _ := h.probe(conn)
-	conn.Close()
-
-	log.V("udp: close conn [%v -> %v]; tracked? %t", local, remote, t != nil)
-
+	close(conn)
+	t := h.untrack(conn)
 	if t != nil {
-		go h.untrack(conn, t)
-
-		if t.connected() {
-			switch c := t.dst.(type) {
-			case net.PacketConn: // unused
-				c.Close()
-			case net.Conn:
-				c.Close()
-			default:
-			}
-		}
-
-		// TODO: Cancel any outstanding DoH queries.
+		clos(t.dst)
+		// TODO: Cancel any outstanding dns queries
 		go h.sendNotif(t.SocketSummary)
+	}
+
+	log.D("udp: close conn [%v -> %v]; tracked? %t", local, remote, t != nil)
+}
+
+func clos(c any) {
+	if c == nil {
+		return
+	}
+	switch x := c.(type) {
+	case io.Closer:
+		x.Close()
+	default:
+		log.W("clos: type %T is not %T", c, x)
 	}
 }
 

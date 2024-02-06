@@ -15,8 +15,10 @@ import (
 	"github.com/celzero/firestack/intra/protect/ipmap"
 )
 
+var errNoConn = net.UnknownNetworkError("no connection")
 var errNoIps = net.UnknownNetworkError("no ips")
 var errNoDialer = net.UnknownNetworkError("no dialer")
+var errNotTCP = net.UnknownNetworkError("not a tcp connection")
 
 var ipm ipmap.IPMap = ipmap.NewIPMap()
 

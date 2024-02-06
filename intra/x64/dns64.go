@@ -129,8 +129,9 @@ func (d *dns64) AddResolver(id string, r dnsx.Transport) bool {
 	ips := make([]net.IP, 0)
 	for _, answer := range ans.Answer {
 		if answer.Header().Rrtype == dns.TypeAAAA {
-			ipv6 := answer.(*dns.AAAA).AAAA
-			ips = append(ips, ipv6)
+			if ipv6, ok := answer.(*dns.AAAA); ok {
+				ips = append(ips, ipv6.AAAA)
+			}
 		}
 	}
 

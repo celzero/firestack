@@ -323,7 +323,10 @@ func (h *socks5) udphandle(s *tx.Server, addr *net.UDPAddr, pkt *tx.Datagram) (e
 		if !ok {
 			return fmt.Errorf("udp addr %s not associated with tcp", src)
 		}
-		ch = any.(chan byte)
+		ch, ok = any.(chan byte)
+		if !ok {
+			return fmt.Errorf("udp addr %s not associated with tcp; ch missing", src)
+		}
 	}
 
 	send := func(egress *tx.UDPExchange, data []byte) error {
@@ -353,8 +356,9 @@ func (h *socks5) udphandle(s *tx.Server, addr *net.UDPAddr, pkt *tx.Datagram) (e
 	var egress *tx.UDPExchange
 	iue, ok := s.UDPExchanges.Get(tuple4)
 	if ok {
-		egress = iue.(*tx.UDPExchange)
-		return send(egress, pkt.Data)
+		if egress, ok = iue.(*tx.UDPExchange); ok {
+			return send(egress, pkt.Data)
+		}
 	}
 
 	ssu := serverSummary(h.Type(), h.ID(), h.pid(), cid)

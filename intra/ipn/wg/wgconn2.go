@@ -152,7 +152,9 @@ func (s *StdNetBind2) listenNet(network string, port int) (*net.UDPConn, int, er
 	if src == nil {
 		return nil, 0, errNoLocalAddr
 	}
-	return conn.(*net.UDPConn), src.Port, nil
+	// typecast is safe; see Open
+	udpconn, _ := conn.(*net.UDPConn)
+	return udpconn, src.Port, nil
 }
 
 func (s *StdNetBind2) Open(uport uint16) ([]conn.ReceiveFunc, uint16, error) {
@@ -208,7 +210,10 @@ again:
 
 func (s *StdNetBind2) makeReceiveIPv4(uc *net.UDPConn) conn.ReceiveFunc {
 	return func(bufs [][]byte, sizes []int, eps []conn.Endpoint) (n int, err error) {
-		msgs := s.ipv4MsgsPool.Get().(*[]ipv4.Message)
+		msgs, _ := s.ipv4MsgsPool.Get().(*[]ipv4.Message)
+		if msgs == nil { // unexpected
+			return 0, syscall.ENOMEM
+		}
 		defer s.ipv4MsgsPool.Put(msgs)
 		for i := range bufs {
 			(*msgs)[i].Buffers[0] = bufs[i]
@@ -224,9 +229,10 @@ func (s *StdNetBind2) makeReceiveIPv4(uc *net.UDPConn) conn.ReceiveFunc {
 		for i := 0; i < numMsgs; i++ {
 			msg := &(*msgs)[i]
 			sizes[i] = msg.N
-			addrPort := msg.Addr.(*net.UDPAddr).AddrPort()
-			ep := asEndpoint2(addrPort)
-			eps[i] = ep
+			if udpaddr, ok := msg.Addr.(*net.UDPAddr); ok {
+				ep := asEndpoint2(udpaddr.AddrPort())
+				eps[i] = ep
+			} // else: unexpected
 		}
 		return numMsgs, nil
 	}
@@ -235,6 +241,9 @@ func (s *StdNetBind2) makeReceiveIPv4(uc *net.UDPConn) conn.ReceiveFunc {
 func (s *StdNetBind2) makeReceiveIPv6(uc *net.UDPConn) conn.ReceiveFunc {
 	return func(bufs [][]byte, sizes []int, eps []conn.Endpoint) (n int, err error) {
 		msgs := s.ipv4MsgsPool.Get().(*[]ipv6.Message)
+		if msgs == nil { // unexpected
+			return 0, syscall.ENOMEM
+		}
 		defer s.ipv4MsgsPool.Put(msgs)
 		for i := range bufs {
 			(*msgs)[i].Buffers[0] = bufs[i]
@@ -251,9 +260,10 @@ func (s *StdNetBind2) makeReceiveIPv6(uc *net.UDPConn) conn.ReceiveFunc {
 		for i := 0; i < numMsgs; i++ {
 			msg := &(*msgs)[i]
 			sizes[i] = msg.N
-			addrPort := msg.Addr.(*net.UDPAddr).AddrPort()
-			ep := asEndpoint2(addrPort)
-			eps[i] = ep
+			if udpaddr, ok := msg.Addr.(*net.UDPAddr); ok {
+				ep := asEndpoint2(udpaddr.AddrPort())
+				eps[i] = ep
+			} // else: unexpected
 		}
 		return numMsgs, nil
 	}
@@ -306,18 +316,27 @@ func (s *StdNetBind2) Send(bufs [][]byte, endpoint conn.Endpoint) error {
 }
 
 func (s *StdNetBind2) send4(conn *net.UDPConn, ep conn.Endpoint, bufs [][]byte) error {
-	ua := s.udpAddrPool.Get().(*net.UDPAddr)
+	ua, _ := s.udpAddrPool.Get().(*net.UDPAddr)
+	if ua == nil { // unexpected
+		return syscall.ENOMEM
+	}
+	msgs, _ := s.ipv4MsgsPool.Get().(*[]ipv4.Message)
+	if msgs == nil { // unexpected
+		return syscall.ENOMEM
+	}
+	ne, _ := ep.(*StdNetEndpoint2)
+	if ne == nil { // unexpected
+		return syscall.EINVAL
+	}
 	as4 := ep.DstIP().As4()
 	copy(ua.IP, as4[:])
 	ua.IP = ua.IP[:4]
-	ua.Port = int(ep.(*StdNetEndpoint2).Port())
-	msgs := s.ipv4MsgsPool.Get().(*[]ipv4.Message)
+	ua.Port = int(ne.Port())
 	for i, buf := range bufs {
 		(*msgs)[i].Buffers[0] = buf
 		(*msgs)[i].Addr = ua
 	}
 	var err error
-
 	for i, buf := range bufs {
 		_, _, err = conn.WriteMsgUDP(buf, (*msgs)[i].OOB, ua)
 		if err != nil {
@@ -332,11 +351,21 @@ func (s *StdNetBind2) send4(conn *net.UDPConn, ep conn.Endpoint, bufs [][]byte) 
 
 func (s *StdNetBind2) send6(conn *net.UDPConn, ep conn.Endpoint, bufs [][]byte) error {
 	ua := s.udpAddrPool.Get().(*net.UDPAddr)
+	if ua == nil { // unexpected
+		return syscall.ENOMEM
+	}
+	msgs, _ := s.ipv6MsgsPool.Get().(*[]ipv6.Message)
+	if msgs == nil { // unexpected
+		return syscall.ENOMEM
+	}
+	ne, _ := ep.(*StdNetEndpoint2)
+	if ne == nil { // unexpected
+		return syscall.EINVAL
+	}
 	as16 := ep.DstIP().As16()
 	copy(ua.IP, as16[:])
 	ua.IP = ua.IP[:16]
-	ua.Port = int(ep.(*StdNetEndpoint2).Port())
-	msgs := s.ipv6MsgsPool.Get().(*[]ipv6.Message)
+	ua.Port = int(ne.Port())
 	for i, buf := range bufs {
 		(*msgs)[i].Buffers[0] = buf
 		(*msgs)[i].Addr = ua

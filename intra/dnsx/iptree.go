@@ -184,7 +184,8 @@ func (c *iptree) GetAny(cidr string) (rv string, err error) {
 			rv = m.String()
 		}
 		if v != nil {
-			rv = rv + ":" + v.(string)
+			s, _ := v.(string)
+			rv = rv + ":" + s
 		}
 	}
 	return

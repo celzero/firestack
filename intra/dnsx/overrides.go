@@ -32,7 +32,7 @@ func (h *resolver) isDns(ipport string) bool {
 		return false
 	} else {
 		if !ipp.IsValid() || len(h.dnsaddrs) <= 0 {
-			log.E("missing dst-addr(%v) or dns(%v)", ipp, h.dnsaddrs)
+			log.E("dnsx: missing dst-addr(%v) or dns(%v)", ipp, h.dnsaddrs)
 			return false
 		}
 		if h.trapIP() {
@@ -58,15 +58,22 @@ func (h *resolver) trapPort() bool {
 
 func (r *resolver) addDnsAddrs(csvaddr string) {
 	addrs := strings.Split(csvaddr, ",")
-	dnsaddrs := make([]netip.AddrPort, 0, len(addrs))
-	count := 0
+	dnsaddrs := make([]netip.AddrPort, 0)
+	if len(addrs) <= 0 {
+		log.E("dnsx: missing dnsaddrs(%s)", csvaddr)
+		return
+	}
 	for _, a := range addrs {
 		if ipp, err := netip.ParseAddrPort(a); ipp.IsValid() && err == nil {
 			dnsaddrs = append(dnsaddrs, ipp)
-			count += 1
 		} else {
-			log.W("not valid fake udpaddr(%s <=> %s): %v", ipp, a, err)
+			log.W("dnsx: not valid fake udpaddr(%s <=> %s): %v", ipp, a, err)
 		}
 	}
-	r.dnsaddrs = dnsaddrs[:count]
+	count := len(dnsaddrs)
+	if count <= 0 {
+		log.E("dnsx: no valid dnsaddrs(%s)", csvaddr)
+		return
+	}
+	r.dnsaddrs = dnsaddrs
 }

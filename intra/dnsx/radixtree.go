@@ -104,7 +104,7 @@ func (c *radix) HasAny(prefix string) bool {
 func (c *radix) Get(k string) (v string) {
 	s, ok := c.t.Get(reversed(k))
 	if ok {
-		v = s.(string)
+		v, _ = s.(string)
 	}
 	return
 }

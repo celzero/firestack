@@ -128,7 +128,7 @@ func loop(h GUDPConnHandler, gc *GUDPConn, src, dst *net.UDPAddr) {
 		if n, addr, err := gc.ReadFrom(q[:]); err == nil {
 			// who(10.111.222.3:17711)
 			// dst(l:10.111.222.3:17711 / r:10.111.222.1:53)
-			who := addr.(*net.UDPAddr)
+			who, _ := addr.(*net.UDPAddr)
 			l := gc.LocalAddr()
 			r := gc.RemoteAddr()
 			if who.String() != l.String() {

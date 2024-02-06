@@ -1041,9 +1041,13 @@ func ToIp6Hint(answer dns.RR, prefix *net.IPNet) dns.RR {
 	var kv []dns.SVCBKeyValue
 	switch header.Rrtype {
 	case dns.TypeHTTPS:
-		kv = answer.(*dns.HTTPS).Value
+		if x, ok := answer.(*dns.HTTPS); ok {
+			kv = x.Value
+		}
 	case dns.TypeSVCB:
-		kv = answer.(*dns.SVCB).Value
+		if x, ok := answer.(*dns.SVCB); ok {
+			kv = x.Value
+		}
 	default:
 		log.W("dnsutil: toIp6Hint: not a svcb/https record/1")
 		return nil

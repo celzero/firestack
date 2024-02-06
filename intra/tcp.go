@@ -105,19 +105,6 @@ type ioinfo struct {
 	err   error
 }
 
-// TODO: Propagate TCP RST using local.Abort(), on appropriate errors.
-func (h *tcpHandler) handleUpload(cid string, local core.TCPConn, remote core.TCPConn, ioch chan<- ioinfo) {
-	ci := conn2str(local, remote)
-
-	// io.copy does remote.ReadFrom(local)
-	bytes, err := io.Copy(remote, local)
-	log.D("tcp: %s handle-upload(%d) done(%v) b/w %s", cid, bytes, err, ci)
-
-	local.CloseRead()
-	remote.CloseWrite()
-	ioch <- ioinfo{bytes, err}
-}
-
 func conn2str(a net.Conn, b net.Conn) string {
 	ar := a.RemoteAddr()
 	br := b.RemoteAddr()
@@ -126,14 +113,45 @@ func conn2str(a net.Conn, b net.Conn) string {
 	return fmt.Sprintf("a(%v->%v) => b(%v<-%v)", al, ar, bl, br)
 }
 
-func (h *tcpHandler) handleDownload(cid string, local core.TCPConn, remote core.TCPConn) (bytes int64, err error) {
+func halfclos(c net.Conn, a string) {
+	if c == nil {
+		return
+	}
+	switch x := c.(type) {
+	case core.TCPConn: // net.TCPConn confirms to core.TCPConn
+		if a == "r" {
+			x.CloseRead()
+		} else {
+			x.CloseWrite()
+		}
+	case net.Conn:
+		x.Close()
+	case io.Closer:
+		x.Close()
+	}
+}
+
+// TODO: Propagate TCP RST using local.Abort(), on appropriate errors.
+func (h *tcpHandler) handleUpload(cid string, local net.Conn, remote net.Conn, ioch chan<- ioinfo) {
+	ci := conn2str(local, remote)
+
+	// io.copy does remote.ReadFrom(local)
+	bytes, err := io.Copy(remote, local)
+	log.D("tcp: %s handle-upload(%d) done(%v) b/w %s", cid, bytes, err, ci)
+
+	halfclos(local, "r")
+	halfclos(remote, "w")
+	ioch <- ioinfo{bytes, err}
+}
+
+func (h *tcpHandler) handleDownload(cid string, local net.Conn, remote net.Conn) (bytes int64, err error) {
 	ci := conn2str(local, remote)
 
 	bytes, err = io.Copy(local, remote)
 	log.D("tcp: %s handle-download(%d) done(%v) b/w %s", cid, bytes, err, ci)
 
-	local.CloseWrite()
-	remote.CloseRead()
+	halfclos(local, "w")
+	halfclos(remote, "r")
 	return
 }
 
@@ -172,21 +190,21 @@ func (h *tcpHandler) forward(local net.Conn, remote net.Conn, summary *SocketSum
 
 	h.track(cid, local, remote)
 
-	localtcp := local.(core.TCPConn)   // conforms to net.TCPConn
-	remotetcp := remote.(core.TCPConn) // conforms to net.TCPConn
 	uploadch := make(chan ioinfo)
 
-	go h.handleUpload(cid, localtcp, remotetcp, uploadch)
-	download, err := h.handleDownload(cid, localtcp, remotetcp)
+	var dbytes int64
+	var derr error
+	go h.handleUpload(cid, local, remote, uploadch)
+	dbytes, derr = h.handleDownload(cid, local, remote)
 
 	upload := <-uploadch
 
-	summary.Rx = download
+	summary.Rx = dbytes
 	summary.Tx = upload.bytes
 
 	h.untrack(cid)
 
-	summary.done(err, upload.err)
+	summary.done(derr, upload.err)
 	go h.sendNotif(summary)
 }
 

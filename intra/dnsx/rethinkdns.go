@@ -406,11 +406,12 @@ func load(configjson string) ([]string, map[string]string, error) {
 	//    ...
 	// }
 	for key := range obj {
-		indata := obj[key].(map[string]any)
-		index := int(indata["value"].(float64))
-		name := indata["vname"].(string)
-		subgroup := indata["subg"].(string)
-		group := indata["group"].(string)
+		indata, _ := obj[key].(map[string]any)
+		findex, _ := indata["value"].(float64)
+		index := int(findex)
+		name, _ := indata["vname"].(string)
+		subgroup, _ := indata["subg"].(string)
+		group, _ := indata["group"].(string)
 
 		if len(subgroup) <= 0 {
 			subgroup = group

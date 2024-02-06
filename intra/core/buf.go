@@ -30,8 +30,9 @@ const BMAX = 64 * 1024   // in bytes
 // AllocRegion returns a truncated byte slice at least size big
 func AllocRegion(size int) *[]byte {
 	if slab := slabof(size); slab != nil {
-		ptr := slab.Get().(*[]byte)
-		return ptr
+		if ptr, _ := slab.Get().(*[]byte); ptr != nil {
+			return ptr
+		}
 	}
 	b := make([]byte, 0, size)
 	return &b
