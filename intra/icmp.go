@@ -7,7 +7,6 @@
 package intra
 
 import (
-	"io"
 	"net"
 	"sync"
 	"time"
@@ -156,7 +155,7 @@ func (h *icmpHandler) Ping(source *net.UDPAddr, target *net.UDPAddr, msg []byte,
 		log.E("t.icmp.egress: dial(%s) err %v", target.Network(), err)
 		return false // denied
 	}
-	defer close(uc)
+	defer clos(uc)
 
 	uc.SetDeadline(time.Now().Add(h.timeout))
 	if _, err = uc.Write(msg); err != nil {
@@ -180,7 +179,7 @@ func (h *icmpHandler) fetch(c net.Conn, pong netstack.Pong, summary *SocketSumma
 	var n int
 
 	defer func() {
-		close(c)
+		clos(c)
 		summary.done(err)
 		go h.sendNotif(summary)
 	}()
@@ -231,10 +230,4 @@ func (h *icmpHandler) sendNotif(s *SocketSummary) {
 		return
 	}
 	l.OnSocketClosed(s)
-}
-
-func close(c io.Closer) {
-	if c != nil {
-		c.Close()
-	}
 }

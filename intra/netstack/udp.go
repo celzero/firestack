@@ -131,7 +131,7 @@ func loop(h GUDPConnHandler, gc *GUDPConn, src, dst *net.UDPAddr) {
 			who, _ := addr.(*net.UDPAddr)
 			l := gc.LocalAddr()
 			r := gc.RemoteAddr()
-			if who.String() != l.String() {
+			if who != nil && (who.String() != l.String()) {
 				log.W("ns.udp.forwarder: MISMATCH expected-src(%v) => actual(l:%v)", who, l)
 			}
 

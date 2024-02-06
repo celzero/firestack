@@ -622,7 +622,7 @@ func (h *udpHandler) Close(conn core.UDPConn) {
 
 	local := conn.LocalAddr()
 	remote := conn.RemoteAddr()
-	close(conn)
+	clos(conn)
 	t := h.untrack(conn)
 	if t != nil {
 		clos(t.dst)

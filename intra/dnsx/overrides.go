@@ -70,10 +70,8 @@ func (r *resolver) addDnsAddrs(csvaddr string) {
 			log.W("dnsx: not valid fake udpaddr(%s <=> %s): %v", ipp, a, err)
 		}
 	}
-	count := len(dnsaddrs)
-	if count <= 0 {
+	if len(dnsaddrs) <= 0 {
 		log.E("dnsx: no valid dnsaddrs(%s)", csvaddr)
-		return
 	}
 	r.dnsaddrs = dnsaddrs
 }

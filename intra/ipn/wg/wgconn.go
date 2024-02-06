@@ -38,6 +38,7 @@ var (
 	errInvalidEndpoint = errors.New("wg: bind: no endpoint")
 	errNoLocalAddr     = errors.New("wg: bind: no local address")
 	errNoRawConn       = errors.New("wg: bind: no raw conn")
+	errNotUDP          = errors.New("wg: bind: not a UDP conn")
 	errNoListen        = errors.New("wg: bind: listen failed")
 )
 
@@ -141,8 +142,12 @@ func (s *StdNetBind) listenNet(network string, port int) (*net.UDPConn, int, err
 		return nil, 0, errNoLocalAddr
 	}
 	// typecast is safe, because "network" is always udp[4|6]; see: Open
-	udpconn, _ := conn.(*net.UDPConn)
-	return udpconn, uaddr.Port, nil
+	if udpconn, ok := conn.(*net.UDPConn); ok {
+		return udpconn, uaddr.Port, nil
+	} else {
+		conn.Close()
+		return nil, 0, errNotUDP
+	}
 }
 
 func (bind *StdNetBind) Open(uport uint16) ([]conn.ReceiveFunc, uint16, error) {

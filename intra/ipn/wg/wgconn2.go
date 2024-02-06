@@ -153,8 +153,12 @@ func (s *StdNetBind2) listenNet(network string, port int) (*net.UDPConn, int, er
 		return nil, 0, errNoLocalAddr
 	}
 	// typecast is safe; see Open
-	udpconn, _ := conn.(*net.UDPConn)
-	return udpconn, src.Port, nil
+	if udpconn, ok := conn.(*net.UDPConn); ok {
+		return udpconn, src.Port, nil
+	} else {
+		conn.Close()
+		return nil, 0, errNotUDP
+	}
 }
 
 func (s *StdNetBind2) Open(uport uint16) ([]conn.ReceiveFunc, uint16, error) {

@@ -407,6 +407,9 @@ func load(configjson string) ([]string, map[string]string, error) {
 	// }
 	for key := range obj {
 		indata, _ := obj[key].(map[string]any)
+		if indata == nil { // should not happen
+			continue
+		}
 		findex, _ := indata["value"].(float64)
 		index := int(findex)
 		name, _ := indata["vname"].(string)
