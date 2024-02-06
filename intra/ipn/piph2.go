@@ -302,11 +302,6 @@ func (t *piph2) Dial(network, addr string) (protect.Conn, error) {
 		return nil, err
 	}
 	msg := hexurl(u.Path)
-	if err != nil {
-		log.E("piph2: nonce err: %v", err)
-		closePipe(readable, writable)
-		return nil, err
-	}
 
 	trace := httptrace.ClientTrace{
 		GetConn: func(hostPort string) {

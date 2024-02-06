@@ -205,10 +205,6 @@ func (t *pipws) Dial(network, addr string) (protect.Conn, error) {
 	u.Path += domain + "/" + port + "/" + network
 
 	msg := hexurl(u.Path)
-	if err != nil {
-		log.E("pipws: nonce err: %v", err)
-		return nil, err
-	}
 
 	rurl := u.String()
 	c, res, err := t.wsconn(rurl, msg)

@@ -59,11 +59,6 @@ func NewHTTPProxy(id string, c protect.Controller, po *settings.ProxyOptions) (P
 
 	hp := tx.New(u, opts...)
 
-	if err != nil {
-		log.W("proxy: http1: err creating w(%v): %v", po, err)
-		return nil, err
-	}
-
 	h := &http1{
 		proxydialer: hp,
 		id:          id,

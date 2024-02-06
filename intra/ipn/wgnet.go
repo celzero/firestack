@@ -219,7 +219,7 @@ func ipportFrom(addr any) (ipp netip.AddrPort) {
 	case string:
 		// may error if addr is an IP addr without port
 		if ipp, err = netip.ParseAddrPort(addr); err != nil {
-			if ip, err2 := netip.ParseAddr(addr); err == nil {
+			if ip, err2 := netip.ParseAddr(addr); err2 == nil {
 				ipp = netip.AddrPortFrom(ip, 0)
 			} else {
 				log.W("wg: dial: addr: %v; err1: %v / err2: %v", addr, err, err2)
