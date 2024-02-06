@@ -32,6 +32,7 @@ package log
 
 import (
 	golog "log"
+	"os"
 	"strings"
 )
 
@@ -66,30 +67,34 @@ type simpleLogger struct {
 	Logger
 	level LogLevel
 	tag   string
+	e     *golog.Logger
+	o     *golog.Logger
 }
 
-var _ = RegisterLogger(NewSimpleLogger())
+var _ = RegisterLogger(defaultLogger())
 
-func NewSimpleLogger() Logger {
+var defaultFlags = golog.Ldate | golog.Ltime | golog.Lshortfile
+
+func defaultLogger() *simpleLogger {
 	return &simpleLogger{
 		level: defaultLevel,
+		e:     golog.New(os.Stderr, "", defaultFlags),
+		o:     golog.New(os.Stdout, "", defaultFlags),
 	}
 }
 
 func NewLogger(tag string) Logger {
-	if len(tag) <= 0 {
-		return NewSimpleLogger()
+	l := defaultLogger()
+	if len(tag) <= 0 { // if tag is empty, leave it as is
+		return l
 	}
 	if !strings.HasSuffix(tag, "/") {
-		tag += "/"
+		tag += "/ " // does not end with a /, add a / + space
+	} else if !strings.HasSuffix(tag, " ") {
+		tag += " " // does not end with a space, add space
 	}
-	if !strings.HasSuffix(tag, " ") {
-		tag += " "
-	}
-	return &simpleLogger{
-		level: defaultLevel,
-		tag:   tag,
-	}
+	l.tag = tag
+	return l
 }
 
 func (l *simpleLogger) SetLevel(level LogLevel) {
@@ -102,48 +107,57 @@ func (l *simpleLogger) Printf(msg string, args ...any) {
 
 func (l *simpleLogger) Verbosef(msg string, args ...any) {
 	if l.level <= VERBOSE {
-		l.output(msg, args...)
+		l.out(msg, args...)
 	}
 }
 
 func (l *simpleLogger) Debugf(msg string, args ...any) {
 	if l.level <= DEBUG {
-		l.output(msg, args...)
+		l.out(msg, args...)
 	}
 }
 
 func (l *simpleLogger) Piif(msg string, args ...any) {
 	if l.level <= DEBUG {
-		l.output(msg, args...)
+		l.out(msg, args...)
 	}
 }
 
 func (l *simpleLogger) Infof(msg string, args ...any) {
 	if l.level <= INFO {
-		l.output(msg, args...)
+		l.out(msg, args...)
 	}
 }
 
 func (l *simpleLogger) Warnf(msg string, args ...any) {
 	if l.level <= WARN {
-		l.output(msg, args...)
+		l.err(msg, args...)
 	}
 }
 
 func (l *simpleLogger) Errorf(msg string, args ...any) {
 	if l.level <= ERROR {
-		l.output(msg, args...)
+		l.err(msg, args...)
 	}
 }
 
 func (l *simpleLogger) Fatalf(msg string, args ...any) {
-	golog.Fatalf(msg, args...)
+	l.e.Fatalf(msg, args...)
 }
 
-func (l *simpleLogger) output(msg string, args ...any) {
+// ref: github.com/golang/mobile/blob/c713f31d/internal/mobileinit/mobileinit_android.go#L51
+func (l *simpleLogger) out(msg string, args ...any) {
 	if len(l.tag) <= 0 {
-		golog.Printf(msg, args...)
+		l.o.Printf(msg, args...)
 	} else {
-		golog.Printf(l.tag+msg, args...)
+		l.o.Printf(l.tag+msg, args...)
+	}
+}
+
+func (l *simpleLogger) err(msg string, args ...any) {
+	if len(l.tag) <= 0 {
+		l.e.Printf(msg, args...)
+	} else {
+		l.e.Printf(l.tag+msg, args...)
 	}
 }
