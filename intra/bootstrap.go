@@ -157,7 +157,7 @@ func (t *bootstrap) kickstart(px ipn.Proxies, g Bridge) error {
 	}
 	if tr == nil {
 		log.W("dns: default: start; nil transport %s %s", t.typ, t.hostname)
-		return nil
+		return errCannotStart
 	}
 
 	log.I("dns: default: start; %s with %s[%s]", t.typ, t.hostname, t.GetAddr())
@@ -174,30 +174,34 @@ func (t *bootstrap) Type() string {
 }
 
 func (t *bootstrap) Query(network string, q []byte, summary *dnsx.Summary) ([]byte, error) {
-	if t.Transport == nil {
+	tr := t.Transport
+	if tr == nil {
 		return nil, errDefaultTransportNotReady
 	}
 	log.V("dns: default: query %s %d", network, len(q))
-	return t.Transport.Query(network, q, summary)
+	return tr.Query(network, q, summary)
 }
 
 func (t *bootstrap) P50() int64 {
-	if t.Transport == nil {
+	tr := t.Transport
+	if tr == nil {
 		return 0
 	}
-	return t.Transport.P50()
+	return tr.P50()
 }
 
 func (t *bootstrap) GetAddr() string {
-	if t.Transport != nil {
+	tr := t.Transport
+	if tr != nil {
 		return defaultAddrPrefix + t.Transport.GetAddr()
 	}
 	return ""
 }
 
 func (t *bootstrap) Status() int {
-	if t.Transport == nil {
+	tr := t.Transport
+	if tr == nil {
 		return dnsx.ClientError
 	}
-	return t.Transport.Status()
+	return tr.Status()
 }
