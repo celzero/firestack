@@ -205,11 +205,11 @@ func (w *wgproxy) canUpdate(txt string) bool {
 func wglogger(id string) *device.Logger {
 	tag := WG + ":" + id
 	logger := &device.Logger{
-		Verbosef: log.Of(tag, log.N),
-		Errorf:   log.Of(tag, log.E),
+		Verbosef: log.Of(tag, log.N2),
+		Errorf:   log.Of(tag, log.E2),
 	}
 	if settings.Debug {
-		logger.Verbosef = log.Of(tag, log.V)
+		logger.Verbosef = log.Of(tag, log.V2)
 	}
 	return logger
 }

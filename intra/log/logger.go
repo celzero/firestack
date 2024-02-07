@@ -31,10 +31,32 @@
 package log
 
 import (
+	"fmt"
 	golog "log"
 	"os"
 	"strings"
 )
+
+type Logger interface {
+	SetLevel(level LogLevel)
+	Printf(at int, msg string, args ...any)
+	Verbosef(at int, msg string, args ...any)
+	Debugf(at int, msg string, args ...any)
+	Piif(at int, msg string, args ...any)
+	Infof(at int, msg string, args ...any)
+	Warnf(at int, msg string, args ...any)
+	Errorf(at int, msg string, args ...any)
+	Fatalf(at int, msg string, args ...any)
+}
+
+// based on github.com/eycorsican/go-tun2socks/blob/301549c43/common/log/simple/logger.go
+type simpleLogger struct {
+	Logger
+	level LogLevel
+	tag   string
+	e     *golog.Logger
+	o     *golog.Logger
+}
 
 // based on: github.com/eycorsican/go-tun2socks/blob/301549c43/common/log/logger.go
 type LogLevel uint8
@@ -50,30 +72,9 @@ const (
 
 const defaultLevel = INFO
 
-type Logger interface {
-	SetLevel(level LogLevel)
-	Printf(msg string, args ...any)
-	Verbosef(msg string, args ...any)
-	Debugf(msg string, args ...any)
-	Piif(msg string, args ...any)
-	Infof(msg string, args ...any)
-	Warnf(msg string, args ...any)
-	Errorf(msg string, args ...any)
-	Fatalf(msg string, args ...any)
-}
-
-// based on github.com/eycorsican/go-tun2socks/blob/301549c43/common/log/simple/logger.go
-type simpleLogger struct {
-	Logger
-	level LogLevel
-	tag   string
-	e     *golog.Logger
-	o     *golog.Logger
-}
-
+var defaultFlags = golog.Lshortfile
+var defaultCallerDepth = 2
 var _ = RegisterLogger(defaultLogger())
-
-var defaultFlags = golog.Ldate | golog.Ltime | golog.Lshortfile
 
 func defaultLogger() *simpleLogger {
 	return &simpleLogger{
@@ -101,63 +102,64 @@ func (l *simpleLogger) SetLevel(level LogLevel) {
 	l.level = level
 }
 
-func (l *simpleLogger) Printf(msg string, args ...any) {
-	l.Debugf(msg, args...)
+func (l *simpleLogger) Printf(at int, msg string, args ...any) {
+	l.Debugf(at, msg, args...)
 }
 
-func (l *simpleLogger) Verbosef(msg string, args ...any) {
+func (l *simpleLogger) Verbosef(at int, msg string, args ...any) {
 	if l.level <= VERBOSE {
-		l.out(msg, args...)
+		l.out(at, msg, args...)
 	}
 }
 
-func (l *simpleLogger) Debugf(msg string, args ...any) {
+func (l *simpleLogger) Debugf(at int, msg string, args ...any) {
 	if l.level <= DEBUG {
-		l.out(msg, args...)
+		l.out(at, msg, args...)
 	}
 }
 
-func (l *simpleLogger) Piif(msg string, args ...any) {
+func (l *simpleLogger) Piif(at int, msg string, args ...any) {
 	if l.level <= DEBUG {
-		l.out(msg, args...)
+		l.out(at, msg, args...)
 	}
 }
 
-func (l *simpleLogger) Infof(msg string, args ...any) {
+func (l *simpleLogger) Infof(at int, msg string, args ...any) {
 	if l.level <= INFO {
-		l.out(msg, args...)
+		l.out(at, msg, args...)
 	}
 }
 
-func (l *simpleLogger) Warnf(msg string, args ...any) {
+func (l *simpleLogger) Warnf(at int, msg string, args ...any) {
 	if l.level <= WARN {
-		l.err(msg, args...)
+		l.err(at, msg, args...)
 	}
 }
 
-func (l *simpleLogger) Errorf(msg string, args ...any) {
+func (l *simpleLogger) Errorf(at int, msg string, args ...any) {
 	if l.level <= ERROR {
-		l.err(msg, args...)
+		l.err(at, msg, args...)
 	}
 }
 
-func (l *simpleLogger) Fatalf(msg string, args ...any) {
-	l.e.Fatalf(msg, args...)
+func (l *simpleLogger) Fatalf(at int, msg string, args ...any) {
+	l.err(at, msg, args...)
+	os.Exit(1)
 }
 
 // ref: github.com/golang/mobile/blob/c713f31d/internal/mobileinit/mobileinit_android.go#L51
-func (l *simpleLogger) out(msg string, args ...any) {
-	if len(l.tag) <= 0 {
-		l.o.Printf(msg, args...)
-	} else {
-		l.o.Printf(l.tag+msg, args...)
+func (l *simpleLogger) out(at int, f string, args ...any) {
+	msg := fmt.Sprintf(f, args...)
+	if len(l.tag) > 0 {
+		msg = l.tag + msg
 	}
+	l.o.Output(at, msg)
 }
 
-func (l *simpleLogger) err(msg string, args ...any) {
-	if len(l.tag) <= 0 {
-		l.e.Printf(msg, args...)
-	} else {
-		l.e.Printf(l.tag+msg, args...)
+func (l *simpleLogger) err(at int, f string, args ...any) {
+	msg := fmt.Sprintf(f, args...)
+	if len(l.tag) > 0 {
+		msg = l.tag + msg
 	}
+	l.e.Output(at, msg)
 }
