@@ -144,18 +144,24 @@ func commondial(d *protect.RDial, network, addr string, connect connectFunc) (ne
 	return nil, errs
 }
 
+// Dial dials into addr using the provided dialer and returns a net.Conn,
+// which is guaranteed to be either net.UDPConn or net.TCPConn
 func Dial(d *protect.RDial, network, addr string) (net.Conn, error) {
 	return commondial(d, network, addr, ipConnect)
 }
 
+// Dial2 dials into addr using the provided dialer and returns a net.Conn
 func Dial2(d *protect.RDial, network, addr string) (net.Conn, error) {
 	return commondial(d, network, addr, ipConnect2)
 }
 
+// SplitDial dials into addr using the provided dialer and returns a net.Conn,
+// which is not guaranteed to be either net.UDPConn or net.TCPConn
 func SplitDial(d *protect.RDial, network, addr string) (net.Conn, error) {
 	return commondial(d, network, addr, splitIpConnect)
 }
 
+// SplitDialWithTls dials into addr using the provided dialer and returns a tls.Conn
 func SplitDialWithTls(d *protect.RDial, cfg *tls.Config, addr string) (net.Conn, error) {
 	c, err := commondial(d, "tcp", addr, splitIpConnect)
 	if err != nil {

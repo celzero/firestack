@@ -425,7 +425,7 @@ loop:
 					log.D("mdns: listen: q: %s; sent ans %s", qname, disco)
 					qctx.ansch <- disco
 					c.untrack(disco.name)
-					total += 1
+					total++
 				} else { // discard duplicates
 					log.D("mdns: listen: q: %s; duplicate ans %s", qname, disco)
 					continue

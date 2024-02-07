@@ -30,7 +30,7 @@ type setup struct {
 	clientSide     DuplexConn
 	serverSide     *net.TCPConn
 	serverReceived []byte
-	stats          *RetryStats
+	stats          *retrystats
 }
 
 func makeSetup(t *testing.T) *setup {
@@ -47,7 +47,7 @@ func makeSetup(t *testing.T) *setup {
 	if !ok {
 		t.Error("Server isn't TCP?")
 	}
-	var stats RetryStats
+	var stats retrystats
 	d := protect.MakeNsRDial("rtest", nil)
 	clientSide, err := DialWithSplitRetry(d, serverAddr)
 	if err != nil {

@@ -22,12 +22,14 @@ type val struct {
 	hits   uint32
 }
 
+// ExpMap holds expiring keys and read hits.
 type ExpMap struct {
 	sync.Mutex // guards ExpMap.
 	m          map[string]*val
 	lastreap   time.Time
 }
 
+// NewExpiringMap returns a new ExpMap.
 func NewExpiringMap() *ExpMap {
 	m := &ExpMap{
 		m:        make(map[string]*val),
@@ -37,6 +39,7 @@ func NewExpiringMap() *ExpMap {
 	return m
 }
 
+// Get returns the number of hits for the given key.
 func (m *ExpMap) Get(key string) uint32 {
 	n := time.Now()
 
@@ -52,11 +55,12 @@ func (m *ExpMap) Get(key string) uint32 {
 	} else if n.After(v.expiry) {
 		v.hits = 0
 	} else {
-		v.hits += 1
+		v.hits++
 	}
 	return v.hits
 }
 
+// Set sets the expiry for the given key and returns the number of hits.
 func (m *ExpMap) Set(key string, expiry time.Duration) uint32 {
 	n := time.Now().Add(expiry)
 
@@ -78,6 +82,7 @@ func (m *ExpMap) Set(key string, expiry time.Duration) uint32 {
 	return v.hits
 }
 
+// Delete deletes the given key.
 func (m *ExpMap) Delete(key string) {
 	m.Lock()
 	defer m.Unlock()
@@ -85,6 +90,7 @@ func (m *ExpMap) Delete(key string) {
 	delete(m.m, key)
 }
 
+// Len returns the number of keys, which may or may not have expired.
 func (m *ExpMap) Len() int {
 	m.Lock()
 	defer m.Unlock()
@@ -92,6 +98,7 @@ func (m *ExpMap) Len() int {
 	return len(m.m)
 }
 
+// Clear deletes all keys and returns the number of keys deleted.
 func (m *ExpMap) Clear() int {
 	m.Lock()
 	defer m.Unlock()
@@ -101,6 +108,7 @@ func (m *ExpMap) Clear() int {
 	return l
 }
 
+// reaper deletes expired keys.
 func (m *ExpMap) reaper() {
 	m.Lock()
 	defer m.Unlock()

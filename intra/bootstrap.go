@@ -30,9 +30,9 @@ var (
 	errDefaultTransportType     = errors.New("unknown default transport type")
 	errDefaultTransportNotReady = errors.New("default transport not ready")
 	errCannotStart              = errors.New("missing proxies or controller")
-	errAlreadyStarted           = errors.New("already started")
 )
 
+// DefaultDNS is the resolver used by all dialers.
 type DefaultDNS interface {
 	dnsx.Transport
 	kickstart(px ipn.Proxies, g Bridge) error
@@ -104,13 +104,13 @@ func (b *bootstrap) reinit(trtype, ippOrUrl, ipcsv string) error {
 			return dnsx.ErrNotDefaultTransport
 		}
 		// todo: tests just the first ipport; test all?
-		if _, err := xdns.DnsIPPort(ips[0]); err == nil {
+		if _, err := xdns.DnsIPPort(ips[0]); err != nil {
+			return err
+		} else {
 			b.url = ""
 			b.hostname = specialHostname
 			b.ipports = ippOrUrl
 			b.typ = dnsx.DNS53
-		} else {
-			return err
 		}
 	}
 
@@ -123,58 +123,58 @@ func (b *bootstrap) reinit(trtype, ippOrUrl, ipcsv string) error {
 	return nil
 }
 
-func (t *bootstrap) recreate() error {
-	return t.kickstart(t.proxies, t.bridge)
+func (b *bootstrap) recreate() error {
+	return b.kickstart(b.proxies, b.bridge)
 }
 
-func (t *bootstrap) kickstart(px ipn.Proxies, g Bridge) error {
+func (b *bootstrap) kickstart(px ipn.Proxies, g Bridge) error {
 	if px == nil || g == nil {
 		return errCannotStart
 	}
 
-	t.proxies = px
-	t.bridge = g
+	b.proxies = px
+	b.bridge = g
 	var tr dnsx.Transport
 	var err error
-	switch t.typ {
+	switch b.typ {
 	case dnsx.DNS53:
-		tr, err = newDefaultTransport(t.ipports, px, g)
+		tr, err = newDefaultTransport(b.ipports, px, g)
 	case dnsx.DOH:
-		tr, err = newDefaultDohTransport(t.url, t.ipports, px, g)
+		tr, err = newDefaultDohTransport(b.url, b.ipports, px, g)
 	default:
 		err = errDefaultTransportType
 	}
 
-	if t.Transport != nil {
-		log.I("dns: default: removing %s %s[%s]", t.typ, t.hostname, t.GetAddr())
+	if b.Transport != nil {
+		log.I("dns: default: removing %s %s[%s]", b.typ, b.hostname, b.GetAddr())
 	}
 
 	// always override previous transport with (new) tr; even if nil
-	t.Transport = tr
+	b.Transport = tr
 	if err != nil {
 		log.E("dns: default: start; err %v", err)
 		return err
 	}
 	if tr == nil {
-		log.W("dns: default: start; nil transport %s %s", t.typ, t.hostname)
+		log.W("dns: default: start; nil transport %s %s", b.typ, b.hostname)
 		return errCannotStart
 	}
 
-	log.I("dns: default: start; %s with %s[%s]", t.typ, t.hostname, t.GetAddr())
+	log.I("dns: default: start; %s with %s[%s]", b.typ, b.hostname, b.GetAddr())
 	return nil
 }
 
-func (t *bootstrap) ID() string {
+func (*bootstrap) ID() string {
 	// never assume underlying transport's identity
 	return dnsx.Default
 }
 
-func (t *bootstrap) Type() string {
-	return t.typ // DOH or DNS53
+func (b *bootstrap) Type() string {
+	return b.typ // DOH or DNS53
 }
 
-func (t *bootstrap) Query(network string, q []byte, summary *dnsx.Summary) ([]byte, error) {
-	tr := t.Transport
+func (b *bootstrap) Query(network string, q []byte, summary *dnsx.Summary) ([]byte, error) {
+	tr := b.Transport
 	if tr == nil {
 		return nil, errDefaultTransportNotReady
 	}
@@ -182,24 +182,24 @@ func (t *bootstrap) Query(network string, q []byte, summary *dnsx.Summary) ([]by
 	return tr.Query(network, q, summary)
 }
 
-func (t *bootstrap) P50() int64 {
-	tr := t.Transport
+func (b *bootstrap) P50() int64 {
+	tr := b.Transport
 	if tr == nil {
 		return 0
 	}
 	return tr.P50()
 }
 
-func (t *bootstrap) GetAddr() string {
-	tr := t.Transport
+func (b *bootstrap) GetAddr() string {
+	tr := b.Transport
 	if tr != nil {
-		return defaultAddrPrefix + t.Transport.GetAddr()
+		return defaultAddrPrefix + b.Transport.GetAddr()
 	}
 	return ""
 }
 
-func (t *bootstrap) Status() int {
-	tr := t.Transport
+func (b *bootstrap) Status() int {
+	tr := b.Transport
 	if tr == nil {
 		return dnsx.ClientError
 	}

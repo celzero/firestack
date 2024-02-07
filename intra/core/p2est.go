@@ -25,6 +25,7 @@ type p2 struct {
 	count int       // total sampled so far
 }
 
+// P2QuantileEstimator is an interface for the P2 quantile estimator.
 type P2QuantileEstimator interface {
 	// Add a sample to the estimator.
 	Add(float64)
@@ -34,6 +35,7 @@ type P2QuantileEstimator interface {
 	P() float64
 }
 
+// NewP50Estimator returns a new P50 (median) estimator.
 func NewP50Estimator() P2QuantileEstimator {
 	// calibrate: go.dev/play/p/Ry1i61XqzgB
 	// 31 worked best amid wild latency fluctuations
@@ -41,6 +43,7 @@ func NewP50Estimator() P2QuantileEstimator {
 	return NewP2QuantileEstimator(11, 0.5)
 }
 
+// NewP90Estimator returns a new estimator with percentile p.
 func NewP2QuantileEstimator(samples int, probability float64) P2QuantileEstimator {
 	// total samples, typically 5; higher sample size improves accuracy for
 	// lower percentiles (p50) at the expense of computational cost;
@@ -58,10 +61,12 @@ func NewP2QuantileEstimator(samples int, probability float64) P2QuantileEstimato
 	}
 }
 
+// P returns the percentile, p.
 func (est *p2) P() float64 {
 	return est.p
 }
 
+// Add a sample to the estimator.
 // www.cse.wustl.edu/~jain/papers/ftp/psqr.pdf (p. 1078)
 func (est *p2) Add(x float64) {
 	if est.count < est.u {
@@ -146,6 +151,7 @@ func (est *p2) Add(x float64) {
 	est.count++
 }
 
+// parabolic computes the parabolic estimate.
 func (est *p2) parabolic(i int, d float64) float64 {
 	qi := est.q[i]
 	qij := est.q[i+1]
@@ -159,6 +165,7 @@ func (est *p2) parabolic(i int, d float64) float64 {
 				((nij-ni-d)*(qi-qih)/(ni-nih)))
 }
 
+// linear computes the linear estimate.
 func (est *p2) linear(i int, d int) float64 {
 	df := float64(d)
 	qi := est.q[i]
@@ -168,6 +175,7 @@ func (est *p2) linear(i int, d int) float64 {
 	return qi + (df*(qd-qi))/(nd-ni)
 }
 
+// Get the estimation for p.
 func (est *p2) Get() int64 {
 	c := est.count
 
@@ -182,6 +190,7 @@ func (est *p2) Get() int64 {
 	return int64(ms)
 }
 
+// sign2int returns the sign of the float64 as an int.
 func sign2int(d float64) int {
 	if d < 0 {
 		return -1

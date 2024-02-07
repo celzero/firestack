@@ -38,7 +38,7 @@ type dot struct {
 
 var _ dnsx.Transport = (*dot)(nil)
 
-// NewTransport returns a DNS transport, ready for use.
+// NewTLSTransport returns a DNS over TLS transport, ready for use.
 func NewTLSTransport(id, rawurl string, addrs []string, px ipn.Proxies, ctl protect.Controller) (t dnsx.Transport, err error) {
 	tlscfg := &tls.Config{}
 	// rawurl is either tls:host[:port] or tls://host[:port] or host[:port]
@@ -100,7 +100,7 @@ func (t *dot) tlsdial() (*dns.Conn, error) {
 	c, err := dialers.SplitDialWithTls(t.rd, t.c.TLSConfig, t.addr)
 	// or: c, err := dialers.TlsDial(tlsDialer, "tcp", t.addr)
 	if c != nil {
-		c.SetDeadline(time.Now().Add(dottimeout))
+		_ = c.SetDeadline(time.Now().Add(dottimeout))
 		return &dns.Conn{Conn: c, UDPSize: t.c.UDPSize}, err
 	}
 	return nil, err
@@ -126,7 +126,7 @@ func (t *dot) pxdial(pid string) (conn *dns.Conn, err error) {
 		return
 	}
 	// higher timeout for proxy
-	pxconn.SetDeadline(time.Now().Add(dottimeout * 3))
+	_ = pxconn.SetDeadline(time.Now().Add(dottimeout * 3))
 	pxconn, err = t.addtls(pxconn)
 	if err != nil {
 		clos(pxconn)
@@ -138,7 +138,7 @@ func (t *dot) pxdial(pid string) (conn *dns.Conn, err error) {
 
 func clos(c io.Closer) {
 	if c != nil {
-		c.Close()
+		_ = c.Close()
 	}
 }
 

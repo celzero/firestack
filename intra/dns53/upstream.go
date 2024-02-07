@@ -26,9 +26,9 @@ import (
 )
 
 const (
-	Port       = "53"
-	PortU16    = uint16(53)
-	DotPort    = "853"
+	Port       = "53"       // default DNS port
+	PortU16    = uint16(53) // default DNS port as uint16
+	DotPort    = "853"      // default DNS over TLS port
 	timeout    = 5 * time.Second
 	dottimeout = 8 * time.Second
 )
@@ -49,6 +49,7 @@ type transport struct {
 
 var _ dnsx.Transport = (*transport)(nil)
 
+// NewTransportFromHostname returns a DNS53 transport serving from hostname, ready for use.
 func NewTransportFromHostname(id, hostname string, ipcsv string, px ipn.Proxies, ctl protect.Controller) (t dnsx.Transport, err error) {
 	// ipcsv may contain port, eg: 10.1.1.3:53
 	do, err := settings.NewDNSOptionsFromHostname(hostname, ipcsv)
@@ -58,7 +59,7 @@ func NewTransportFromHostname(id, hostname string, ipcsv string, px ipn.Proxies,
 	return newTransport(id, do, px, ctl)
 }
 
-// NewTransport returns a DNS transport, ready for use.
+// NewTransport returns a DNS53 transport serving from ip & port, ready for use.
 func NewTransport(id, ip, port string, px ipn.Proxies, ctl protect.Controller) (t dnsx.Transport, err error) {
 	ipport := net.JoinHostPort(ip, port)
 	do, err := settings.NewDNSOptions(ipport)
@@ -105,7 +106,7 @@ func newTransport(id string, do *settings.DNSOptions, px ipn.Proxies, ctl protec
 	return tx, nil
 }
 
-// NewTransport returns a DNS transport, ready for use.
+// NewTransportFrom returns a DNS53 transport serving from ipp, ready for use.
 func NewTransportFrom(id string, ipp netip.AddrPort, px ipn.Proxies, ctl protect.Controller) (t dnsx.Transport, err error) {
 	do, err := settings.NewDNSOptionsFromNetIp(ipp)
 	if err != nil {

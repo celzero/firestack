@@ -46,13 +46,13 @@ func renew(hostOrIP string, existing *ipmap.IPSet) (*ipmap.IPSet, bool) {
 	return ips, !ips.Empty()
 }
 
-// Re-seeds hostOrIP
+// New re-seeds hostOrIP with a new set of addresses
 func New(hostOrIP string, addrs []string) (*ipmap.IPSet, bool) {
 	ips := ipm.MakeIPSet(hostOrIP, addrs)
 	return ips, !ips.Empty()
 }
 
-// Returns addresses for hostOrIP, resolving them if missing
+// For returns addresses for hostOrIP, resolving them if missing
 func For(hostOrIP string) []netip.Addr {
 	ipset := ipm.Get(hostOrIP)
 	if ipset != nil {
@@ -61,13 +61,14 @@ func For(hostOrIP string) []netip.Addr {
 	return nil
 }
 
-// Hostname to IP (a/aaaa) resolver for the network engine
+// Mapper is a hostname to IP (a/aaaa) resolver for the network engine
 func Mapper(m ipmap.IPMapper) {
 	log.I("dialers: ips: mapper ok? %t", m != nil)
 	// usually set just the once
 	ipm.With(m)
 }
 
+// Confirm marks addr as preferred for hostOrIP
 func Confirm(hostOrIP string, addr net.Addr) bool {
 	ips := ipm.GetAny(hostOrIP)
 	if ips != nil {
@@ -79,6 +80,7 @@ func Confirm(hostOrIP string, addr net.Addr) bool {
 	return false
 }
 
+// Disconfirm unmarks addr as preferred for hostOrIP
 func Disconfirm(hostOrIP string, ip net.Addr) bool {
 	ips := ipm.GetAny(hostOrIP)
 	if ips != nil {

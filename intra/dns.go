@@ -24,6 +24,7 @@ func addIPMapper(r dnsx.Resolver) {
 	dns53.AddIPMapper(r)
 }
 
+// AddDNSProxy creates and adds a DNS53 transport to the tunnel's resolver.
 func AddDNSProxy(t Tunnel, id, ip, port string) error {
 	p, perr := t.GetProxies()
 	r, rerr := t.GetResolver()
@@ -43,6 +44,7 @@ func newSystemDNSProxy(g Bridge, p ipn.Proxies, ipcsv string) (d dnsx.Transport,
 	return dns53.NewTransportFromHostname(dnsx.System, specialHostname, ipcsv, p, g)
 }
 
+// SetSystemDNS creates and adds a DNS53 transport of the specified IP addresses.
 func SetSystemDNS(t Tunnel, ipcsv string) int {
 	r, rerr := t.GetResolver()
 	p, perr := t.GetProxies()
@@ -64,7 +66,7 @@ func SetSystemDNS(t Tunnel, ipcsv string) int {
 
 	if sdns, err := newSystemDNSProxy(g, p, ipcsv); err == nil {
 		r.AddSystemDNS(sdns)
-		n += 1
+		n++
 	}
 
 	log.I("dns: new %d system dns(es) from %s", n, ipcsv)
@@ -89,6 +91,8 @@ func newMDNSTransport(protos string) (d dnsx.Transport) {
 	return dns53.NewMDNSTransport(protos)
 }
 
+// AddDefaultTransport adds a special default transport to the tunnel's resolver
+// It may be either a DoH or a DNS53 transport.
 func AddDefaultTransport(t Tunnel, typ, ippOrUrl, ips string) error {
 	r, rerr := t.GetResolver()
 	if rerr != nil {
@@ -106,6 +110,7 @@ func AddDefaultTransport(t Tunnel, typ, ippOrUrl, ips string) error {
 	return defaultransport.reinit(typ, ippOrUrl, ips)
 }
 
+// AddProxyDNS creates and adds a DNS53 transport as defined in Proxy's configuration.
 func AddProxyDNS(t Tunnel, p ipn.Proxy) error {
 	pxr, perr := t.GetProxies()
 	r, rerr := t.GetResolver()
@@ -141,7 +146,7 @@ func AddProxyDNS(t Tunnel, p ipn.Proxy) error {
 	}
 }
 
-// SetDoHTransport returns a DNSTransport that connects to the specified DoH server.
+// AddDoHTransport creates and adds a Transport that connects to the specified DoH server.
 // `url` is the URL of a DoH server (no template, POST-only).
 func AddDoHTransport(t Tunnel, id, url, ips string) error {
 	pxr, perr := t.GetProxies()
@@ -161,6 +166,8 @@ func AddDoHTransport(t Tunnel, id, url, ips string) error {
 	}
 }
 
+// AddODoHTransport creates and adds a Transport that connects to the specified ODoH server.
+// `endpoint` is the entry / proxy for the ODoH server, `resolver` is the URL of the target ODoH server.
 func AddODoHTransport(t Tunnel, id, endpoint, resolver, epips string) error {
 	pxr, perr := t.GetProxies()
 	r, rerr := t.GetResolver()
@@ -179,6 +186,7 @@ func AddODoHTransport(t Tunnel, id, endpoint, resolver, epips string) error {
 	}
 }
 
+// AddDoTTransport creates and adds a Transport that connects to the specified DoT server.
 func AddDoTTransport(t Tunnel, id, url, ips string) error {
 	pxr, perr := t.GetProxies()
 	r, rerr := t.GetResolver()
@@ -197,6 +205,7 @@ func AddDoTTransport(t Tunnel, id, url, ips string) error {
 	}
 }
 
+// AddDNSCryptTransport creates and adds a DNSCrypt transport to the tunnel's resolver.
 func AddDNSCryptTransport(t Tunnel, id, stamp string) (err error) {
 	r, rerr := t.GetResolver()
 	if rerr != nil {
@@ -219,6 +228,7 @@ func AddDNSCryptTransport(t Tunnel, id, stamp string) (err error) {
 	}
 }
 
+// AddDNSCryptRelay adds a DNSCrypt relay transport to the tunnel's resolver.
 func AddDNSCryptRelay(t Tunnel, stamp string) error {
 	var tm dnsx.TransportMult
 	var err error

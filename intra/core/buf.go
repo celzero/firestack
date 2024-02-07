@@ -15,13 +15,20 @@ import (
 
 var slabs map[string]*sync.Pool // read-only after init
 
-// min capacity of a given slab
-const B32768 = 32 * 1024 // in bytes
-const B16384 = 16 * 1024 // in bytes
-const B8192 = 8 * 1024   // in bytes
-const B4096 = 4 * 1024   // in bytes
-const B2048 = 2 * 1024   // in bytes
-const BMAX = 64 * 1024   // in bytes
+const (
+	// B32768 is slab of size 32k
+	B32768 = 32 * 1024
+	// B16384 is slab of size 16k
+	B16384 = 16 * 1024
+	// B8192 is slab of size 8k
+	B8192 = 8 * 1024
+	// B4096 is slab of size 4k
+	B4096 = 4 * 1024
+	// B2048 is slab of size 2k; also the min
+	B2048 = 2 * 1024
+	// BMAX is slab of size 64k; also the max
+	BMAX = 64 * 1024
+)
 
 // pointers to slices: archive.is/BhHuQ
 // deal only in pointers to byte-array

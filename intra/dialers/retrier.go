@@ -25,7 +25,7 @@ import (
 	"github.com/celzero/firestack/intra/protect"
 )
 
-type RetryStats struct {
+type retrystats struct {
 	Bytes   int32 // Number of bytes uploaded before the retry.
 	Chunks  int16 // Number of writes before the retry.
 	Split   int16 // Number of bytes in the first retried segment.
@@ -61,7 +61,7 @@ type retrier struct {
 	// Flags indicating whether the caller has called CloseRead and CloseWrite.
 	readCloseFlag  chan struct{}
 	writeCloseFlag chan struct{}
-	stats          *RetryStats
+	stats          *retrystats
 }
 
 // Helper functions for reading flags.
@@ -98,7 +98,7 @@ func (r *retrier) retryCompleted() bool {
 // Given timestamps immediately before and after a successful socket connection
 // (i.e. the time the SYN was sent and the time the SYNACK was received), this
 // function returns a reasonable timeout for replies to a hello sent on this socket.
-func CalcTimeout(before, after time.Time) time.Duration {
+func calcTimeout(before, after time.Time) time.Duration {
 	// These values were chosen to have a <1% false positive rate based on test data.
 	// False positives trigger an unnecessary retry, which can make connections slower, so they are
 	// worth avoiding.  However, overly long timeouts make retry slower and less useful.
@@ -110,7 +110,7 @@ func CalcTimeout(before, after time.Time) time.Duration {
 // default TCP timeout (typically 2-3 minutes).
 const DefaultTimeout time.Duration = 0
 
-func RetryingConn(d *protect.RDial, addr *net.TCPAddr, timeout time.Duration, firstconn *net.TCPConn) DuplexConn {
+func newRetryConn(d *protect.RDial, addr *net.TCPAddr, timeout time.Duration, firstconn *net.TCPConn) DuplexConn {
 	return &retrier{
 		TCPConn:           firstconn,
 		dial:              d,
@@ -119,7 +119,7 @@ func RetryingConn(d *protect.RDial, addr *net.TCPAddr, timeout time.Duration, fi
 		retryCompleteFlag: make(chan struct{}),
 		readCloseFlag:     make(chan struct{}),
 		writeCloseFlag:    make(chan struct{}),
-		stats:             &RetryStats{},
+		stats:             &retrystats{},
 	}
 }
 
@@ -141,11 +141,11 @@ func DialWithSplitRetry(dial *protect.RDial, addr *net.TCPAddr) (DuplexConn, err
 		TCPConn:           conn,
 		dial:              dial,
 		addr:              addr,
-		timeout:           CalcTimeout(before, after),
+		timeout:           calcTimeout(before, after),
 		retryCompleteFlag: make(chan struct{}),
 		readCloseFlag:     make(chan struct{}),
 		writeCloseFlag:    make(chan struct{}),
-		stats:             &RetryStats{},
+		stats:             &retrystats{},
 	}
 
 	return r, nil
@@ -171,7 +171,7 @@ func (r *retrier) Read(buf []byte) (n int, err error) {
 		}
 		close(r.retryCompleteFlag)
 		// Unset read deadline.
-		r.TCPConn.SetReadDeadline(time.Time{})
+		_ = r.TCPConn.SetReadDeadline(time.Time{})
 		r.hello = nil
 		r.mutex.Unlock()
 	}
@@ -179,7 +179,7 @@ func (r *retrier) Read(buf []byte) (n int, err error) {
 }
 
 func (r *retrier) retry(buf []byte) (n int, err error) {
-	r.TCPConn.Close()
+	_ = r.TCPConn.Close()
 	var newConn *net.TCPConn
 	if newConn, err = r.dial.DialTCP(r.addr.Network(), nil, r.addr); err != nil {
 		return
@@ -198,14 +198,14 @@ func (r *retrier) retry(buf []byte) (n int, err error) {
 	// CloseRead and CloseWrite are idempotent, so this is safe even if the user's
 	// action actually affected the new socket.
 	if r.readClosed() {
-		r.TCPConn.CloseRead()
+		_ = r.TCPConn.CloseRead()
 	}
 	if r.writeClosed() {
-		r.TCPConn.CloseWrite()
+		_ = r.TCPConn.CloseWrite()
 	}
 	// The caller might have set read or write deadlines before the retry.
-	r.TCPConn.SetReadDeadline(r.readDeadline)
-	r.TCPConn.SetWriteDeadline(r.writeDeadline)
+	_ = r.TCPConn.SetReadDeadline(r.readDeadline)
+	_ = r.TCPConn.SetWriteDeadline(r.writeDeadline)
 	return r.TCPConn.Read(buf)
 }
 
@@ -223,12 +223,12 @@ func splitHello(hello []byte) ([]byte, []byte) {
 		return hello, hello
 	}
 	const (
-		MIN_SPLIT int = 32
-		MAX_SPLIT int = 64
+		min int = 32
+		max int = 64
 	)
 
 	// Random number in the range [MIN_SPLIT, MAX_SPLIT]
-	s := MIN_SPLIT + rand.Intn(MAX_SPLIT+1-MIN_SPLIT)
+	s := min + rand.Intn(max+1-min)
 	limit := len(hello) / 2
 	if s > limit {
 		s = limit
@@ -255,7 +255,7 @@ func (r *retrier) Write(b []byte) (int, error) {
 			r.stats.Bytes = int32(len(r.hello))
 
 			// We require a response or another write within the specified timeout.
-			r.TCPConn.SetReadDeadline(time.Now().Add(r.timeout))
+			_ = r.TCPConn.SetReadDeadline(time.Now().Add(r.timeout))
 		}
 		r.mutex.Unlock()
 		if attempted {

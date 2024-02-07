@@ -105,10 +105,12 @@ func proxydial(d proxy.Dialer, network, addr string, connect proxyConnectFunc) (
 	return nil, errs
 }
 
+// ProxyDial tries to connect to addr using d
 func ProxyDial(d proxy.Dialer, network, addr string) (net.Conn, error) {
 	return proxydial(d, network, addr, proxyConnect)
 }
 
+// ProxyDials tries to connect to addr using each dialer in dd
 func ProxyDials(dd []proxy.Dialer, network, addr string) (c net.Conn, err error) {
 	tot := len(dd)
 	for i, d := range dd {

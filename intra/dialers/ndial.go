@@ -97,6 +97,7 @@ func netdial(d *net.Dialer, network, addr string, connect netConnectFunc) (net.C
 	return nil, errs
 }
 
+// NetDial connects to the address on the named network using net.Dialer.
 func NetDial(d *net.Dialer, network, addr string) (net.Conn, error) {
 	return netdial(d, network, addr, netConnect)
 }

@@ -21,11 +21,16 @@ import (
 )
 
 const (
+	// Anew is the value returned by Barrier.Do when the function was
+	// executed and its results are stored in the Barrier.
 	Anew = iota
+	// Shared is the value returned by Barrier.Do when the function's
+	// results are already stored in the Barrier.
 	Shared
 )
 
-type Work func() (any, error) // Work is the type of the function to memoize
+// Work is the type of the function to memoize.
+type Work func() (any, error)
 
 // V is an in-flight or completed Barrier.Do V
 type V struct {
@@ -48,6 +53,8 @@ type Barrier struct {
 	ttl time.Duration // time-to-live for completed Vs in m
 }
 
+// NewBarrier returns a new Barrier with the given time-to-live for
+// completed Vs.
 func NewBarrier(ttl time.Duration) *Barrier {
 	return &Barrier{
 		m:   make(map[string]*V),

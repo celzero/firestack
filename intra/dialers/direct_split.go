@@ -32,7 +32,8 @@ type splitter struct {
 	used bool // Initially false.  Becomes true after the first write.
 }
 
-func From(c *net.TCPConn) DuplexConn {
+// split returns a DuplexConn that always splits the initial upstream segment.
+func split(c *net.TCPConn) DuplexConn {
 	return &splitter{TCPConn: c}
 }
 
@@ -49,10 +50,10 @@ func DialWithSplit(d *net.Dialer, addr *net.TCPAddr) (DuplexConn, error) {
 	}
 	tcp, _ := conn.(*net.TCPConn)
 	if tcp == nil {
-		conn.Close()
+		_ = conn.Close()
 		return nil, errNotTCP
 	}
-	return From(tcp), nil
+	return split(tcp), nil
 }
 
 // Write-related functions

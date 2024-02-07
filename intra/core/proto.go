@@ -41,7 +41,7 @@ type TCPConn interface {
 	SetWriteDeadline(t time.Time) error
 }
 
-// TCPConn abstracts a UDP connection comming from TUN. This connection
+// UDPConn abstracts a UDP connection comming from TUN. This connection
 // should be handled by a registered UDP proxy handler.
 type UDPConn interface {
 	// LocalAddr returns the local client network address.
