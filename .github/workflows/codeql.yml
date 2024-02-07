@@ -38,6 +38,12 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
 
+    # must happen before codeql init
+    - name: Setup go1.22+
+      uses: actions/setup-go@v4
+      with:
+        go-version: '>=1.22'
+
     # Initializes the CodeQL tools for scanning.
     - name: Initialize
       uses: github/codeql-action/init@v3
@@ -61,11 +67,6 @@ jobs:
 
     #   If the Autobuild fails above, remove it and uncomment the following three lines.
     #   modify them (or add more) to build your code if your project, please refer to the EXAMPLE below for guidance.
-
-    - name: Setup go1.22+
-      uses: actions/setup-go@v4
-      with:
-        go-version: '>=1.22'
 
     - name: Build
       run: |

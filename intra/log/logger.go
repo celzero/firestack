@@ -39,7 +39,7 @@ import (
 
 type Logger interface {
 	SetLevel(level LogLevel)
-	Printf(at int, msg string, args ...any)
+	Printf(msg string, args ...any)
 	Verbosef(at int, msg string, args ...any)
 	Debugf(at int, msg string, args ...any)
 	Piif(at int, msg string, args ...any)
@@ -102,8 +102,9 @@ func (l *simpleLogger) SetLevel(level LogLevel) {
 	l.level = level
 }
 
-func (l *simpleLogger) Printf(at int, msg string, args ...any) {
-	l.Debugf(at, msg, args...)
+// Printf exists to satisfy rnet/http's Logger interface
+func (l *simpleLogger) Printf(msg string, args ...any) {
+	l.Debugf(defaultCallerDepth, msg, args...)
 }
 
 func (l *simpleLogger) Verbosef(at int, msg string, args ...any) {
