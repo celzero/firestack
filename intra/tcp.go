@@ -113,7 +113,7 @@ func conn2str(a net.Conn, b net.Conn) string {
 	return fmt.Sprintf("a(%v->%v) => b(%v<-%v)", al, ar, bl, br)
 }
 
-func halfclos(c net.Conn, a string) {
+func halfclos(c io.Closer, a string) {
 	if c == nil {
 		return
 	}
@@ -121,11 +121,11 @@ func halfclos(c net.Conn, a string) {
 	case core.TCPConn: // net.TCPConn confirms to core.TCPConn
 		if a == "r" {
 			x.CloseRead()
-		} else {
+		} else if a == "w" {
 			x.CloseWrite()
+		} else { // == "rw"
+			x.Close()
 		}
-	case net.Conn:
-		x.Close()
 	case io.Closer:
 		x.Close()
 	}
