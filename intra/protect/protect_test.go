@@ -41,7 +41,7 @@ func verifyMatch(t *testing.T, conn hasSyscallConn, p *fakeProtector) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rawconn.Control(func(fd uintptr) {
+	_ = rawconn.Control(func(fd uintptr) {
 		if len(p.fds) == 0 {
 			t.Fatalf("No file descriptors")
 		}

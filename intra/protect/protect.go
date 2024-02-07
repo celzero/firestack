@@ -136,34 +136,29 @@ func ipbind(p Protector) func(string, string, syscall.RawConn) error {
 
 // unused: Creates a dialer that binds to a particular ip.
 func MakeDialer(p Protector) *net.Dialer {
-	if p == nil {
-		return netdialer()
+	x := netdialer()
+	if p != nil {
+		x.Control = ipbind(p)
 	}
-	d := &net.Dialer{
-		Control: ipbind(p),
-	}
-	return d
+	return x
 }
 
 // unused: Creates a listener that binds to a particular ip.
 func MakeListenConfig(p Protector) *net.ListenConfig {
-	if p == nil {
-		return netlistener()
+	x := netlistener()
+	if p != nil {
+		x.Control = ipbind(p)
 	}
-	return &net.ListenConfig{
-		Control: ipbind(p),
-	}
+	return x
 }
 
 // Creates a net.Dialer that can bind to any active interface.
 func MakeNsDialer(who string, c Controller) *net.Dialer {
-	if c == nil {
-		return netdialer()
+	x := netdialer()
+	if c != nil {
+		x.Control = ifbind(who, c)
 	}
-	d := &net.Dialer{
-		Control: ifbind(who, c),
-	}
-	return d
+	return x
 }
 
 // Creates a RDial that can bind to any active interface.
@@ -176,12 +171,11 @@ func MakeNsRDial(who string, c Controller) *RDial {
 
 // Creates a listener that can bind to any active interface.
 func MakeNsListenConfig(who string, c Controller) *net.ListenConfig {
-	if c == nil {
-		return netlistener()
+	x := netlistener()
+	if c != nil {
+		x.Control = ifbind(who, c)
 	}
-	return &net.ListenConfig{
-		Control: ifbind(who, c),
-	}
+	return x
 }
 
 // Creates a plain old dialer
