@@ -36,7 +36,6 @@ func init() {
 	// increase garbage collection frequency: archive.is/WQBf7
 	debug.SetGCPercent(50)
 	debug.SetMemoryLimit(1024 * 1024 * 1024 * 4) // 4GB
-	log.SetLevel(log.INFO)
 }
 
 // Connect creates firestack-administered tunnel.
@@ -58,6 +57,7 @@ func Connect(fd, mtu, engine int, fakedns string, dtr intra.DefaultDNS, bdg intr
 	return intra.NewTunnel(fd, mtu, fakedns, tunmode, dtr, bdg)
 }
 
+// Change log level to log.VERBOSE, log.DEBUG, log.INFO, log.WARN, log.ERROR.
 func LogLevel(level int) {
 	dbg := false
 	dlvl := log.WARN
