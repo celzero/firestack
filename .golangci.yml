@@ -1,0 +1,31 @@
+# from: github.com/uber-go/guide/blob/621006f/.golangci.yml
+run:
+  timeout: 5m
+  modules-download-mode: readonly
+  issues-exit-code: 0
+  tests: false
+  show-stats: true
+
+output:
+  print-issued-lines: true
+  uniq-by-line: true
+  sort-results: true
+  print-linter-name: true
+
+cyclop:
+  max-complexity: 5
+  package-average: 0.5
+  skip-tests: true
+
+linters:
+  enable:
+    - errcheck
+    - goimports
+    - golint
+    - govet
+    - staticcheck
+
+issues:
+  exclude-use-default: false
+  max-issues-per-linter: 0
+  max-same-issues: 0
