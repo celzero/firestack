@@ -132,7 +132,7 @@ func halfclos(c io.Closer, a string) {
 }
 
 // TODO: Propagate TCP RST using local.Abort(), on appropriate errors.
-func (h *tcpHandler) handleUpload(cid string, local net.Conn, remote net.Conn, ioch chan<- ioinfo) {
+func (h *tcpHandler) upload(cid string, local net.Conn, remote net.Conn, ioch chan<- ioinfo) {
 	ci := conn2str(local, remote)
 
 	// io.copy does remote.ReadFrom(local)
@@ -144,7 +144,7 @@ func (h *tcpHandler) handleUpload(cid string, local net.Conn, remote net.Conn, i
 	ioch <- ioinfo{bytes, err}
 }
 
-func (h *tcpHandler) handleDownload(cid string, local net.Conn, remote net.Conn) (bytes int64, err error) {
+func (h *tcpHandler) download(cid string, local net.Conn, remote net.Conn) (bytes int64, err error) {
 	ci := conn2str(local, remote)
 
 	bytes, err = io.Copy(local, remote)
@@ -189,20 +189,19 @@ func (h *tcpHandler) forward(local net.Conn, remote net.Conn, summary *SocketSum
 	}
 
 	h.track(cid, local, remote)
+	defer h.untrack(cid)
 
 	uploadch := make(chan ioinfo)
 
 	var dbytes int64
 	var derr error
-	go h.handleUpload(cid, local, remote, uploadch)
-	dbytes, derr = h.handleDownload(cid, local, remote)
+	go h.upload(cid, local, remote, uploadch)
+	dbytes, derr = h.download(cid, local, remote)
 
 	upload := <-uploadch
 
 	summary.Rx = dbytes
 	summary.Tx = upload.bytes
-
-	h.untrack(cid)
 
 	summary.done(derr, upload.err)
 	go h.sendNotif(summary)
