@@ -1,6 +1,6 @@
 module github.com/celzero/firestack
 
-go 1.21
+go 1.22
 
 require (
 	github.com/Jigsaw-Code/getsni v0.0.0-20190807203514-efe2dbf35d1f
