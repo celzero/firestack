@@ -44,6 +44,34 @@ import (
 	"github.com/celzero/firestack/intra/settings"
 )
 
+type tracker struct {
+	*SocketSummary
+	dst      any          // net.Conn or net.PacketConn; may be nil
+	errcount int16        // conn splice err count
+	ip       *net.UDPAddr // masked addr
+}
+
+// UDPHandler adds DOH support to the base UDPConnHandler interface.
+type UDPHandler interface {
+	netstack.GUDPConnHandler
+}
+
+type udpHandler struct {
+	UDPHandler
+	sync.RWMutex
+
+	resolver    dnsx.Resolver
+	udpConns    map[core.UDPConn]*tracker // src -> tracker(cid, dst)
+	conntracker map[string]core.UDPConn   // cid -> src
+	config      *net.ListenConfig
+	dialer      *net.Dialer
+	tunMode     *settings.TunMode
+	listener    SocketListener
+	prox        ipn.Proxies
+	fwtracker   *core.ExpMap
+	status      int
+}
+
 const (
 	// arbitrary threshold of temporary errs before udp socket is closed
 	maxconnerr = 3
@@ -61,12 +89,11 @@ var (
 	errUdpEnd        = errors.New("udp: end")
 )
 
-type tracker struct {
-	*SocketSummary
-	dst      any          // net.Conn or net.PacketConn; may be nil
-	errcount int16        // conn splice err count
-	ip       *net.UDPAddr // masked addr
-}
+var (
+	// RFC 4787 REQ-5 requires a timeout no shorter than 5 minutes; but most
+	// routers do not keep udp mappings for that long (usually just for 30s)
+	udptimeout, _ = time.ParseDuration("2m")
+)
 
 func makeTracker(cid, pid, uid string) *tracker {
 	smm := udpSummary(cid, pid, uid)
@@ -87,41 +114,15 @@ func (t *tracker) ok() bool {
 	return t.errcount <= maxconnerr
 }
 
-// UDPHandler adds DOH support to the base UDPConnHandler interface.
-type UDPHandler interface {
-	netstack.GUDPConnHandler
-}
-
-type udpHandler struct {
-	UDPHandler
-	sync.RWMutex
-
-	resolver    dnsx.Resolver
-	timeout     time.Duration
-	udpConns    map[core.UDPConn]*tracker // src -> tracker(cid, dst)
-	conntracker map[string]core.UDPConn   // cid -> src
-	config      *net.ListenConfig
-	dialer      *net.Dialer
-	tunMode     *settings.TunMode
-	listener    SocketListener
-	prox        ipn.Proxies
-	fwtracker   *core.ExpMap
-	status      int
-}
-
 // NewUDPHandler makes a UDP handler with Intra-style DNS redirection:
 // All packets are routed directly to their destination.
 // `timeout` controls the effective NAT mapping lifetime.
 // `config` is used to bind new external UDP ports.
 // `listener` receives a summary about each UDP binding when it expires.
 func NewUDPHandler(resolver dnsx.Resolver, prox ipn.Proxies, tunMode *settings.TunMode, ctl protect.Controller, listener SocketListener) UDPHandler {
-	// RFC 4787 REQ-5 requires a timeout no shorter than 5 minutes; but most
-	// routers do not keep udp mappings for that long (usually just for 30s)
-	udptimeout, _ := time.ParseDuration("2m")
 	c := protect.MakeNsListenConfig("udphl", ctl)
 	d := protect.MakeNsDialer("udph", ctl)
 	h := &udpHandler{
-		timeout:     udptimeout,
 		udpConns:    make(map[core.UDPConn]*tracker, 8),
 		resolver:    resolver,
 		tunMode:     tunMode,
@@ -196,14 +197,14 @@ func (h *udpHandler) fetchUDPInput(conn core.UDPConn, nat *tracker) {
 			logaddr = nc2str(conn, c, nat)
 			log.D("udp: ingress: read (c) remote for %s", logaddr)
 
-			c.SetDeadline(time.Now().Add(h.timeout)) // extend deadline
+			c.SetDeadline(time.Now().Add(udptimeout)) // extend deadline
 			// c is already dialed-in to some addr in udpHandler.Connect
 			n, err = c.Read(buf[:])
 		case net.PacketConn: // unused
 			logaddr = pc2str(conn, c, nat)
 			log.D("udp: ingress: read (pc) remote for %s", logaddr)
 
-			c.SetDeadline(time.Now().Add(h.timeout)) // extend deadline
+			c.SetDeadline(time.Now().Add(udptimeout)) // extend deadline
 			// reads a packet from t.conn copying it to buf
 			n, addr, err = c.ReadFrom(buf[:])
 		default:
@@ -537,11 +538,11 @@ func (h *udpHandler) ReceiveTo(conn core.UDPConn, data []byte, addr *net.UDPAddr
 	// net.UDPConn is both net.Conn and net.PacketConn; check net.Conn
 	// first, as it denotes a connected socket which netstack also uses
 	case net.Conn:
-		c.SetDeadline(time.Now().Add(h.timeout))
+		c.SetDeadline(time.Now().Add(udptimeout))
 		// c is already dialed-in to some addr in udpHandler.Connect
 		_, err = c.Write(data)
 	case net.PacketConn: // unused
-		c.SetDeadline(time.Now().Add(h.timeout))
+		c.SetDeadline(time.Now().Add(udptimeout))
 		// realips, _, _, _ := undoAlg(h.resolver, addr.IP)
 		// addr.IP = oneRealIp(realips, addr.IP)
 		_, err = c.WriteTo(data, addr) // writes packet payload, data, to addr
