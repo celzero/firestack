@@ -382,13 +382,13 @@ func (h *tcpHandler) handle(px ipn.Proxy, src net.Conn, target *net.TCPAddr, smm
 	var pc protect.Conn
 
 	start := time.Now()
-	var end time.Time
 	var dst net.Conn
 
 	// ref: stackoverflow.com/questions/63656117
 	// ref: stackoverflow.com/questions/40328025
 	if pc, err = px.Dial(target.Network(), target.String()); err == nil {
-		end = time.Now()
+		smm.Rtt = int32(time.Now().Sub(start).Seconds() * 1000)
+
 		switch uc := pc.(type) {
 		case *net.TCPConn:
 			dst = uc
@@ -407,8 +407,6 @@ func (h *tcpHandler) handle(px ipn.Proxy, src net.Conn, target *net.TCPAddr, smm
 		log.W("tcp: err dialing %s proxy(%s) to dst(%v) for %s: %v", smm.ID, px.ID(), target, smm.UID, err)
 		return err
 	}
-
-	smm.Rtt = int32(end.Sub(start).Seconds() * 1000)
 
 	go h.forward(src, dst, smm)
 
