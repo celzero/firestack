@@ -67,22 +67,24 @@ func Of(tag string, l LogFn2) LogFn {
 func N(string, ...any)       {}
 func N2(int, string, ...any) {}
 
-func V2(at int, msg string, args ...any) {
-	if Glogger != nil {
-		Glogger.Verbosef(at, "V "+msg, args...)
-	}
-}
-
 func V(msg string, args ...any) {
-	if Glogger != nil {
-		Glogger.Verbosef(callerDepth, "V "+msg, args...)
-	}
+	V2(callerDepth, msg, args...)
 }
 
 func D(msg string, args ...any) {
-	if Glogger != nil {
-		Glogger.Debugf(callerDepth, "D "+msg, args...)
-	}
+	D2(callerDepth, msg, args...)
+}
+
+func I(msg string, args ...any) {
+	I2(callerDepth, msg, args...)
+}
+
+func W(msg string, args ...any) {
+	W2(callerDepth, msg, args...)
+}
+
+func E(msg string, args ...any) {
+	E2(callerDepth, msg, args...)
 }
 
 func P(msg string, args ...any) {
@@ -91,32 +93,38 @@ func P(msg string, args ...any) {
 	}
 }
 
-func I(msg string, args ...any) {
+func Wtf(msg string, args ...any) {
 	if Glogger != nil {
-		Glogger.Infof(callerDepth, "I "+msg, args...)
+		Glogger.Fatalf(callerDepth, "F "+msg, args...)
 	}
 }
 
-func W(msg string, args ...any) {
+func V2(at int, msg string, args ...any) {
 	if Glogger != nil {
-		Glogger.Warnf(callerDepth, "W "+msg, args...)
+		Glogger.Verbosef(at, "V "+msg, args...)
+	}
+}
+
+func D2(at int, msg string, args ...any) {
+	if Glogger != nil {
+		Glogger.Debugf(at, "D "+msg, args...)
+	}
+}
+
+func I2(at int, msg string, args ...any) {
+	if Glogger != nil {
+		Glogger.Infof(at, "I "+msg, args...)
+	}
+}
+
+func W2(at int, msg string, args ...any) {
+	if Glogger != nil {
+		Glogger.Warnf(at, "W "+msg, args...)
 	}
 }
 
 func E2(at int, msg string, args ...any) {
 	if Glogger != nil {
 		Glogger.Errorf(at, "E "+msg, args...)
-	}
-}
-
-func E(msg string, args ...any) {
-	if Glogger != nil {
-		Glogger.Errorf(callerDepth, "E "+msg, args...)
-	}
-}
-
-func Wtf(msg string, args ...any) {
-	if Glogger != nil {
-		Glogger.Fatalf(callerDepth, "F "+msg, args...)
 	}
 }
