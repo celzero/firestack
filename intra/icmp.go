@@ -22,13 +22,6 @@ import (
 	"github.com/celzero/firestack/intra/settings"
 )
 
-const (
-	ICMPOK = iota
-	ICMPEND
-)
-
-var icmptimeout = 10 * time.Second
-
 type ICMPHandler interface {
 	netstack.GICMPHandler
 }
@@ -38,16 +31,24 @@ type icmpHandler struct {
 	sync.RWMutex
 
 	resolver dnsx.Resolver
-	timeout  time.Duration
 	tunMode  *settings.TunMode
 	prox     ipn.Proxies
 	listener Listener
 	status   int
 }
 
+const (
+	ICMPOK = iota
+	ICMPEND
+)
+
+const (
+	blocktime   = 25 * time.Second
+	icmptimeout = 10 * time.Second
+)
+
 func NewICMPHandler(resolver dnsx.Resolver, prox ipn.Proxies, tunMode *settings.TunMode, listener Listener) ICMPHandler {
 	h := &icmpHandler{
-		timeout:  icmptimeout,
 		resolver: resolver,
 		tunMode:  tunMode,
 		prox:     prox,
@@ -157,7 +158,7 @@ func (h *icmpHandler) Ping(source *net.UDPAddr, target *net.UDPAddr, msg []byte,
 	}
 	defer clos(uc)
 
-	uc.SetDeadline(time.Now().Add(h.timeout))
+	uc.SetDeadline(time.Now().Add(icmptimeout))
 	if _, err = uc.Write(msg); err != nil {
 		log.E("t.icmp.egress:  write(%v) ping; err %v", target, err)
 		return false // denied
@@ -200,7 +201,7 @@ func (h *icmpHandler) fetch(c net.Conn, pong netstack.Pong, summary *SocketSumma
 			return
 		}
 
-		c.SetDeadline(time.Now().Add(h.timeout))
+		c.SetDeadline(time.Now().Add(icmptimeout))
 		if n, err = c.Read(b); err != nil {
 			log.E("t.icmp.ingress: read(%v <- %v) ping err %v", src, dst, err)
 			success = success || false

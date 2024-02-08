@@ -58,6 +58,8 @@ type retrier struct {
 	writeCloseFlag chan struct{}
 }
 
+var _ core.TCPConn = (*retrier)(nil)
+
 // Helper functions for reading flags.
 // In this package, a "flag" is a thread-safe single-use status indicator that
 // starts in the "open" state and transitions to "closed" when close() is called.

@@ -10,7 +10,7 @@ import (
 
 func (h *resolver) isDnsIpPort(addr netip.AddrPort) bool {
 	for _, dnsaddr := range h.dnsaddrs {
-		if addr.Addr().Compare(dnsaddr.Addr()) == 0 && addr.Port() == dnsaddr.Port() {
+		if addr.Compare(dnsaddr) == 0 {
 			return true
 		}
 	}

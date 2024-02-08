@@ -68,23 +68,23 @@ func N(string, ...any)       {}
 func N2(int, string, ...any) {}
 
 func V(msg string, args ...any) {
-	V2(callerDepth, msg, args...)
+	V2(logFnCallerDepth, msg, args...)
 }
 
 func D(msg string, args ...any) {
-	D2(callerDepth, msg, args...)
+	D2(logFnCallerDepth, msg, args...)
 }
 
 func I(msg string, args ...any) {
-	I2(callerDepth, msg, args...)
+	I2(logFnCallerDepth, msg, args...)
 }
 
 func W(msg string, args ...any) {
-	W2(callerDepth, msg, args...)
+	W2(logFnCallerDepth, msg, args...)
 }
 
 func E(msg string, args ...any) {
-	E2(callerDepth, msg, args...)
+	E2(logFnCallerDepth, msg, args...)
 }
 
 func P(msg string, args ...any) {

@@ -47,20 +47,6 @@ import (
 	"github.com/celzero/firestack/intra/settings"
 )
 
-const (
-	blocktime = 25 * time.Second
-)
-
-const (
-	TCPOK = iota
-	TCPEND
-)
-
-var (
-	errTcpFirewalled = errors.New("tcp: firewalled")
-	errTcpSetupConn  = errors.New("tcp: could not create conn")
-)
-
 // TCPHandler is a core TCP handler that also supports DOH and splitting control.
 type TCPHandler interface {
 	netstack.GTCPConnHandler
@@ -78,6 +64,21 @@ type tcpHandler struct {
 	ctmu        sync.RWMutex          // protects conntracker
 	conntracker map[string][]net.Conn // conn-id -> conn
 }
+
+type ioinfo struct {
+	bytes int64
+	err   error
+}
+
+const (
+	TCPOK = iota
+	TCPEND
+)
+
+var (
+	errTcpFirewalled = errors.New("tcp: firewalled")
+	errTcpSetupConn  = errors.New("tcp: could not create conn")
+)
 
 // NewTCPHandler returns a TCP forwarder with Intra-style behavior.
 // Connections to `fakedns` are redirected to DOH.
@@ -98,11 +99,6 @@ func NewTCPHandler(resolver dnsx.Resolver, prox ipn.Proxies, tunMode *settings.T
 
 	log.I("tcp: new handler created")
 	return h
-}
-
-type ioinfo struct {
-	bytes int64
-	err   error
 }
 
 func conn2str(a net.Conn, b net.Conn) string {
@@ -136,19 +132,19 @@ func (h *tcpHandler) upload(cid string, local net.Conn, remote net.Conn, ioch ch
 	ci := conn2str(local, remote)
 
 	// io.copy does remote.ReadFrom(local)
-	bytes, err := io.Copy(remote, local)
-	log.D("tcp: %s handle-upload(%d) done(%v) b/w %s", cid, bytes, err, ci)
+	n, err := io.Copy(remote, local)
+	log.D("tcp: %s upload(%d) done(%v) b/w %s", cid, n, err, ci)
 
 	halfclos(local, "r")
 	halfclos(remote, "w")
-	ioch <- ioinfo{bytes, err}
+	ioch <- ioinfo{n, err}
 }
 
-func (h *tcpHandler) download(cid string, local net.Conn, remote net.Conn) (bytes int64, err error) {
+func (h *tcpHandler) download(cid string, local net.Conn, remote net.Conn) (n int64, err error) {
 	ci := conn2str(local, remote)
 
-	bytes, err = io.Copy(local, remote)
-	log.D("tcp: %s handle-download(%d) done(%v) b/w %s", cid, bytes, err, ci)
+	n, err = io.Copy(local, remote)
+	log.D("tcp: %s download(%d) done(%v) b/w %s", cid, n, err, ci)
 
 	halfclos(local, "w")
 	halfclos(remote, "r")
