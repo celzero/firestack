@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/celzero/firestack/intra/core"
+	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
 )
 
@@ -146,9 +147,11 @@ func (r *retrier) Read(buf []byte) (n int, err error) {
 	}
 
 	if !r.retryCompleted() {
+		var retryerr error
 		// retry only on errors, which may be due to timeout or connection reset
-		if err != nil {
-			if retryerr := r.retryLocked(buf); retryerr == nil {
+		retryNeeded := err != nil
+		if retryNeeded {
+			if retryerr = r.retryLocked(buf); retryerr == nil {
 				n, err = r.TCPConn.Read(buf)
 			} // else, retry failed; return the original error
 		} else {
@@ -156,6 +159,7 @@ func (r *retrier) Read(buf []byte) (n int, err error) {
 			_ = r.TCPConn.SetReadDeadline(r.readDeadline)
 			_ = r.TCPConn.SetWriteDeadline(r.writeDeadline)
 		}
+		log.D("rdial: read retried?(%t) [%s<-%s] %d; read-err? %v, retry-err? %v", retryNeeded, r.TCPConn.LocalAddr(), r.addr, n, err, retryerr)
 		// reset hello and signal that retry is complete
 		r.hello = nil
 		close(r.retryCompleteFlag)
@@ -231,21 +235,19 @@ func (r *retrier) Write(b []byte) (int, error) {
 	// every packet after retry completes, while also ensuring that r.hello is
 	// empty at steady-state.
 	r.mutex.Lock() // lock before write
-
 	n, err := r.TCPConn.Write(b)
-
 	if r.retryCompleted() { // nothing to retry
 		r.mutex.Unlock() // unlock after write
 		return n, err
 	}
-
 	r.hello = append(r.hello, b[:n]...)
 	// require a response or another write within a short timeout.
 	_ = r.TCPConn.SetReadDeadline(time.Now().Add(r.timeout))
-
 	r.mutex.Unlock() // unlock after write
 
-	if err == nil {
+	waitForRetry := err != nil
+	log.D("rdial: write retry?(%t) [%s->%s] %d; write-err? %v", waitForRetry, r.TCPConn.LocalAddr(), r.addr, n, err)
+	if !waitForRetry {
 		return n, nil
 	}
 
@@ -257,6 +259,8 @@ func (r *retrier) Write(b []byte) (int, error) {
 	r.mutex.Lock() // lock before write
 	m, err := r.TCPConn.Write(b[n:])
 	r.mutex.Unlock() // unlock after write
+
+	log.D("rdial: write retried(%t) [%s->%s] %d; write-err? %v", waitForRetry, r.TCPConn.LocalAddr(), r.addr, n+m, err)
 	return n + m, err
 
 }
