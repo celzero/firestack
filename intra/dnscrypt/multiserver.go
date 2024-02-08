@@ -38,6 +38,7 @@ import (
 	"golang.org/x/crypto/curve25519"
 )
 
+// DcMulti is a dnsx.TransportMult supporting dnscrypt servers and relays
 type DcMulti struct {
 	sync.RWMutex
 	proxyPublicKey               [32]byte
@@ -334,7 +335,7 @@ func resolve(network string, data []byte, si *serverinfo, smm *dnsx.Summary) (re
 	return response, err
 }
 
-// LiveServers returns csv of dnscrypt server-names currently in-use
+// LiveTransports returns csv of dnscrypt server-names currently in-use
 func (proxy *DcMulti) LiveTransports() string {
 	if len(proxy.liveServers) <= 0 {
 		return ""
@@ -370,6 +371,7 @@ func (proxy *DcMulti) Refresh() (string, error) {
 	return proxy.LiveTransports(), nil
 }
 
+// Start starts this dnscrypt proxy
 func (proxy *DcMulti) Start() (string, error) {
 	if proxy.sigterm != nil {
 		return "", errStarted
@@ -406,6 +408,7 @@ func (proxy *DcMulti) Start() (string, error) {
 	return proxy.LiveTransports(), err
 }
 
+// Stop stops this dnscrypt proxy
 func (proxy *DcMulti) Stop() error {
 	if proxy.sigterm != nil {
 		proxy.sigterm()
@@ -415,6 +418,7 @@ func (proxy *DcMulti) Stop() error {
 	return nil
 }
 
+// AddGateways adds relay servers
 func (proxy *DcMulti) AddGateways(routescsv string) (int, error) {
 	if len(routescsv) <= 0 {
 		return 0, errNoRoute
@@ -429,6 +433,7 @@ func (proxy *DcMulti) AddGateways(routescsv string) (int, error) {
 	return len(r), nil
 }
 
+// RemoveGateways removes relay servers
 func (proxy *DcMulti) RemoveGateways(routescsv string) (int, error) {
 	if len(routescsv) <= 0 {
 		return 0, errNoRoute
@@ -452,13 +457,15 @@ func (proxy *DcMulti) removeOne(uid string) int {
 	return n
 }
 
+// Remove removes a dnscrypt server / relay, if any
 func (proxy *DcMulti) Remove(uid string) bool {
 	// may be a gateway / relay or a dnscrypt server
 	proxy.removeOne(uid)
-	proxy.RemoveGateways(uid)
+	_, _ = proxy.RemoveGateways(uid)
 	return true
 }
 
+// RemoveAll removes all dnscrypt servers in the csv
 func (proxy *DcMulti) RemoveAll(servernamescsv string) (int, error) {
 	if len(servernamescsv) <= 0 {
 		return 0, errNothing
@@ -492,11 +499,13 @@ func (proxy *DcMulti) addOne(uid, rawstamp string) (string, error) {
 	return uid, nil
 }
 
+// Add implements dnsx.TransportMult
 func (proxy *DcMulti) Add(t dnsx.Transport) bool {
 	// no-op
 	return false
 }
 
+// Get implements dnsx.TransportMult
 func (proxy *DcMulti) Get(id string) (dnsx.Transport, error) {
 	// no-op
 	return nil, errNoServers
@@ -525,18 +534,22 @@ func (proxy *DcMulti) AddAll(serverscsv string) (int, error) {
 	return len(servers), nil
 }
 
+// P50 implements dnsx.TransportMult
 func (p *DcMulti) P50() int64 {
 	return p.est.Get()
 }
 
+// ID implements dnsx.TransportMult
 func (p *DcMulti) ID() string {
 	return dnsx.DcProxy
 }
 
+// Type implements dnsx.TransportMult
 func (p *DcMulti) Type() string {
 	return dnsx.DNSCrypt
 }
 
+// Query implements dnsx.TransportMult
 func (p *DcMulti) Query(network string, q []byte, summary *dnsx.Summary) (r []byte, err error) {
 	r, err = resolve(network, q, p.serversInfo.getOne(), summary)
 	p.lastStatus = summary.Status
@@ -545,15 +558,17 @@ func (p *DcMulti) Query(network string, q []byte, summary *dnsx.Summary) (r []by
 	return
 }
 
+// GetAddr returns the last server address
 func (p *DcMulti) GetAddr() string {
 	return p.lastAddr
 }
 
+// Status implements dnsx.TransportMult
 func (p *DcMulti) Status() int {
 	return p.lastStatus
 }
 
-// DcMult creates a dnscrypt proxy
+// NewDcMult creates a dnscrypt proxy
 func NewDcMult(px ipn.Proxies, ctl protect.Controller) *DcMulti {
 	return &DcMulti{
 		routes:                       nil,
@@ -572,6 +587,7 @@ func NewDcMult(px ipn.Proxies, ctl protect.Controller) *DcMulti {
 	}
 }
 
+// NewTransport creates and adds a dnscrypt transport to p
 func NewTransport(p *DcMulti, id, serverstamp string) (dnsx.Transport, error) {
 	if p == nil {
 		return nil, dnsx.ErrNoDcProxy
@@ -587,6 +603,7 @@ func NewTransport(p *DcMulti, id, serverstamp string) (dnsx.Transport, error) {
 	}
 }
 
+// AddRelayTransport creates and adds a relay server to p
 func AddRelayTransport(p *DcMulti, relaystamp string) error {
 	if p == nil {
 		return dnsx.ErrNoDcProxy

@@ -31,10 +31,14 @@ const (
 	// NonceSize is what the name suggests
 	NonceSize = 24
 	// TagSize is what the name suggests
-	TagSize          = 16
-	HalfNonceSize    = NonceSize / 2
-	PublicKeySize    = 32
-	QueryOverhead    = xdns.ClientMagicLen + PublicKeySize + HalfNonceSize + TagSize
+	TagSize = 16
+	// HalfNonceSize is half of NonceSize
+	HalfNonceSize = NonceSize / 2
+	// PublicKeySize is the size of a public key
+	PublicKeySize = 32
+	// QueryOverhead is the amount of request overhead due to client-magic, public key, nonce, and tag
+	QueryOverhead = xdns.ClientMagicLen + PublicKeySize + HalfNonceSize + TagSize
+	// ResponseOverhead is the amount of answer overhead due to server-magic, nonce, and tag
 	ResponseOverhead = len(xdns.ServerMagic) + NonceSize + TagSize
 )
 
@@ -80,7 +84,9 @@ func encrypt(
 ) (sharedKey *[32]byte, encrypted []byte, clientNonce []byte, err error) {
 	nonce := make([]byte, NonceSize)
 	clientNonce = make([]byte, HalfNonceSize)
-	crypto_rand.Read(clientNonce)
+	if _, err = crypto_rand.Read(clientNonce); err != nil {
+		return
+	}
 	copy(nonce, clientNonce)
 
 	var publicKey *[PublicKeySize]byte
@@ -97,7 +103,9 @@ func encrypt(
 		minQuestionSize := QueryOverhead + len(packet)
 		// random pad if tcp without relay
 		var xpad [1]byte
-		crypto_rand.Read(xpad[:])
+		if _, err = crypto_rand.Read(xpad[:]); err != nil {
+			return
+		}
 		minQuestionSize += int(xpad[0])
 		paddedLength = xdns.Min(xdns.MaxDNSUDPPacketSize, (xdns.Max(minQuestionSize, QueryOverhead)+1+63) & ^63)
 	}

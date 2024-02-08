@@ -472,7 +472,7 @@ func (h *udpHandler) Connect(src core.UDPConn, target *net.UDPAddr) (nat *tracke
 
 	var ok bool
 	if dst, ok = pc.(net.Conn); !ok {
-		pc.Close()
+		_ = pc.Close()
 		log.E("udp: connect: %s proxy(%s) does not impl net.Conn(%s) for uid %s", nat.ID, px.ID(), target, nat.UID)
 		return nat, errUdpSetupConn // disconnect
 	}

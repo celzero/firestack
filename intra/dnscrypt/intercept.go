@@ -25,10 +25,10 @@ import (
 )
 
 const (
-	ActionNone = iota
-	ActionContinue
-	ActionDrop
-	ActionSynth
+	ActionNone     = iota // No action has been taken
+	ActionContinue        // Continue with the request
+	ActionDrop            // Drop the request
+	ActionSynth           // Use synthesized response
 )
 
 const (
