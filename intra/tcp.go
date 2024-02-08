@@ -465,7 +465,7 @@ func makeIPs(realips string, dstip net.IP) []net.IP {
 	ips := strings.Split(realips, ",")
 	r := make([]net.IP, 0, len(ips))
 	// override alg-ip with the first real-ip
-	for _, v := range ips { // may contain unspecifed ip
+	for _, v := range ips { // may contain unspecifed ips
 		// len may be zero when realips is "," or ""
 		if len(v) > 0 {
 			ip := net.ParseIP(v)
@@ -476,6 +476,9 @@ func makeIPs(realips string, dstip net.IP) []net.IP {
 	}
 
 	if len(r) > 0 {
+		rand.Shuffle(len(r), func(i, j int) {
+			r[i], r[j] = r[j], r[i]
+		})
 		return r
 	}
 
