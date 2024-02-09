@@ -144,45 +144,6 @@ func DialWithSplitRetry(dial *protect.RDial, addr *net.TCPAddr) (DuplexConn, err
 	return r, nil
 }
 
-// Read data from r.TCPConn into buf
-func (r *retrier) Read(buf []byte) (n int, err error) {
-	// a retry is only necessary if the previous read returned no data and no error
-	if r.retryCompleted() {
-		return r.conn.Read(buf)
-	}
-
-	r.mutex.Lock()
-	defer r.mutex.Unlock()
-
-	n, err = r.conn.Read(buf)
-	if n == 0 && err == nil { // no data and no error
-		return // nothing yet to retry; on to next read
-	}
-
-	if r.retryCompleted() {
-		return
-	}
-
-	retryNeeded := err != nil
-
-	var retryerr error
-	// retry only on errors, which may be due to timeout or connection reset
-	if retryNeeded {
-		if retryerr = r.retryLocked(buf); retryerr == nil {
-			n, err = r.conn.Read(buf)
-		} // else, retry failed; return the original error
-	} else {
-		// reset deadlines
-		_ = r.conn.SetReadDeadline(r.readDeadline)
-		_ = r.conn.SetWriteDeadline(r.writeDeadline)
-	}
-	log.D("rdial: read retried?(%t) [%s<-%s] %d; read-err? %v, retry-err? %v", retryNeeded, r.conn.LocalAddr(), r.addr, n, err, retryerr)
-	// reset hello and signal that retry is complete
-	r.hello = nil
-	close(r.retryCompleteFlag)
-	return
-}
-
 func (r *retrier) retryLocked(buf []byte) (err error) {
 	_ = r.conn.Close() // close provisional socket
 	var newConn *net.TCPConn
@@ -224,79 +185,71 @@ func (r *retrier) CloseRead() error {
 	return r.conn.CloseRead()
 }
 
-func splitHello(hello []byte) ([]byte, []byte) {
-	if len(hello) == 0 {
-		return hello, hello
+// Read data from r.TCPConn into buf
+func (r *retrier) Read(buf []byte) (n int, err error) {
+	n, err = r.conn.Read(buf)
+	if n == 0 && err == nil { // no data and no error
+		return // nothing yet to retry; on to next read
 	}
-	const (
-		min int = 32
-		max int = 64
-	)
-
-	// Random number in the range [MIN_SPLIT, MAX_SPLIT]
-	s := min + rand.Intn(max+1-min)
-	limit := len(hello) / 2
-	if s > limit {
-		s = limit
+	var retryerr error
+	retryNeeded := err != nil
+	if !r.retryCompleted() {
+		r.mutex.Lock()
+		if retryNeeded {
+			// retry only on errors; may be due to timeout or conn reset
+			if retryerr = r.retryLocked(buf); retryerr == nil {
+				n, err = r.conn.Read(buf)
+			}
+		}
+		log.D("rdial: read: reset; retried?(%t) [%s<-%s] %d; read-err? %v, retry-err? %v", retryNeeded, r.conn.LocalAddr(), r.addr, n, err, retryerr)
+		close(r.retryCompleteFlag)
+		// reset deadlines
+		_ = r.conn.SetReadDeadline(r.readDeadline)
+		_ = r.conn.SetWriteDeadline(r.writeDeadline)
+		// _ = r.conn.SetReadDeadline(time.Time{})
+		// reset hello and signal that retry is complete
+		r.hello = nil
+		r.mutex.Unlock()
 	}
-	return hello[:s], hello[s:]
+	return
 }
 
 // Write data in b to r.TCPConn
 func (r *retrier) Write(b []byte) (int, error) {
-	if r.retryCompleted() {
-		// retryCompleted() is true, so conn is final and doesn't need locking.
-		return r.conn.Write(b)
-	}
-
-	// Double-checked locking pattern. This avoids lock acquisition on
+	// Double-checked locking pattern.  This avoids lock acquisition on
 	// every packet after retry completes, while also ensuring that r.hello is
 	// empty at steady-state.
-	r.mutex.Lock() // lock before write
-	n, err := r.conn.Write(b)
-	if r.retryCompleted() { // nothing to retry
-		r.mutex.Unlock() // unlock after write
-		return n, err
+	if !r.retryCompleted() {
+		n := 0
+		var err error
+		attempted := false
+		r.mutex.Lock()
+		if !r.retryCompleted() { // nothing to retry
+			n, err = r.conn.Write(b)
+			attempted = true
+			r.hello = append(r.hello, b[:n]...)
+			// require a response or another write within a short timeout.
+			_ = r.conn.SetReadDeadline(time.Now().Add(r.timeout))
+		}
+
+		log.D("rdial: write retry?(%t) [%s->%s] %d; write-err? %v", attempted, r.conn.LocalAddr(), r.addr, n, err)
+		r.mutex.Unlock()
+		if attempted {
+			if err == nil {
+				return n, nil
+			}
+			// write error on the provisional socket should be handled
+			// by the retry procedure. Block until we have a final socket (which will
+			// already have replayed b[:n]), and retry.
+			<-r.retryCompleteFlag
+			m, err := r.conn.Write(b[n:])
+			log.D("rdial: write retried(%t) [%s->%s] %d; write-err? %v", attempted, r.conn.LocalAddr(), r.addr, n+m, err)
+			return n + m, err
+		}
 	}
-	r.hello = append(r.hello, b[:n]...)
-	// require a response or another write within a short timeout.
-	_ = r.conn.SetReadDeadline(time.Now().Add(r.timeout))
-	r.mutex.Unlock() // unlock after write
 
-	waitForRetry := err != nil
-	log.D("rdial: write retry?(%t) [%s->%s] %d; write-err? %v", waitForRetry, r.conn.LocalAddr(), r.addr, n, err)
-	if !waitForRetry {
-		return n, nil
-	}
-
-	// write error on the provisional socket should be handled
-	// by the retry procedure. Block until we have a final socket (which will
-	// already have replayed b[:n]), and retry.
-	<-r.retryCompleteFlag
-
-	m, err := r.conn.Write(b[n:])
-
-	log.D("rdial: write retried(%t) [%s->%s] %d; write-err? %v", waitForRetry, r.conn.LocalAddr(), r.addr, n+m, err)
-	return n + m, err
-
-}
-
-// Copy one buffer from src to dst, using dst.Write.
-func copyOnce(dst io.Writer, src io.Reader) (int64, error) {
-	// A buffer large enough to hold any ordinary first write
-	// without introducing extra splitting.
-	buf := *core.Alloc()
-	buf = buf[:cap(buf)]
-	defer func() {
-		core.Recycle(&buf)
-	}()
-
-	n, err := src.Read(buf)
-	if err != nil {
-		return 0, err
-	}
-	n, err = dst.Write(buf[:n])
-	return int64(n), err
+	// retryCompleted() is true, so r.conn is final and doesn't need locking.
+	return r.conn.Write(b)
 }
 
 func (r *retrier) ReadFrom(reader io.Reader) (bytes int64, err error) {
@@ -365,4 +318,40 @@ func (r *retrier) SetDeadline(t time.Time) error {
 	e1 := r.SetReadDeadline(t)
 	e2 := r.SetWriteDeadline(t)
 	return errors.Join(e1, e2)
+}
+
+// Copy one buffer from src to dst, using dst.Write.
+func copyOnce(dst io.Writer, src io.Reader) (int64, error) {
+	// A buffer large enough to hold any ordinary first write
+	// without introducing extra splitting.
+	buf := *core.Alloc()
+	buf = buf[:cap(buf)]
+	defer func() {
+		core.Recycle(&buf)
+	}()
+
+	n, err := src.Read(buf)
+	if err != nil {
+		return 0, err
+	}
+	n, err = dst.Write(buf[:n])
+	return int64(n), err
+}
+
+func splitHello(hello []byte) ([]byte, []byte) {
+	if len(hello) == 0 {
+		return hello, hello
+	}
+	const (
+		min int = 32
+		max int = 64
+	)
+
+	// Random number in the range [MIN_SPLIT, MAX_SPLIT]
+	s := min + rand.Intn(max+1-min)
+	limit := len(hello) / 2
+	if s > limit {
+		s = limit
+	}
+	return hello[:s], hello[s:]
 }
