@@ -159,24 +159,27 @@ func (r *retrier) Read(buf []byte) (n int, err error) {
 		return // nothing yet to retry; on to next read
 	}
 
-	if !r.retryCompleted() {
-		var retryerr error
-		// retry only on errors, which may be due to timeout or connection reset
-		retryNeeded := err != nil
-		if retryNeeded {
-			if retryerr = r.retryLocked(buf); retryerr == nil {
-				n, err = r.conn.Read(buf)
-			} // else, retry failed; return the original error
-		} else {
-			// reset deadlines
-			_ = r.conn.SetReadDeadline(r.readDeadline)
-			_ = r.conn.SetWriteDeadline(r.writeDeadline)
-		}
-		log.D("rdial: read retried?(%t) [%s<-%s] %d; read-err? %v, retry-err? %v", retryNeeded, r.conn.LocalAddr(), r.addr, n, err, retryerr)
-		// reset hello and signal that retry is complete
-		r.hello = nil
-		close(r.retryCompleteFlag)
+	if r.retryCompleted() {
+		return
 	}
+
+	retryNeeded := err != nil
+
+	var retryerr error
+	// retry only on errors, which may be due to timeout or connection reset
+	if retryNeeded {
+		if retryerr = r.retryLocked(buf); retryerr == nil {
+			n, err = r.conn.Read(buf)
+		} // else, retry failed; return the original error
+	} else {
+		// reset deadlines
+		_ = r.conn.SetReadDeadline(r.readDeadline)
+		_ = r.conn.SetWriteDeadline(r.writeDeadline)
+	}
+	log.D("rdial: read retried?(%t) [%s<-%s] %d; read-err? %v, retry-err? %v", retryNeeded, r.conn.LocalAddr(), r.addr, n, err, retryerr)
+	// reset hello and signal that retry is complete
+	r.hello = nil
+	close(r.retryCompleteFlag)
 	return
 }
 
@@ -200,13 +203,15 @@ func (r *retrier) retryLocked(buf []byte) (err error) {
 	// action actually affected the new socket.
 	if r.readClosed() {
 		_ = r.conn.CloseRead()
-	}
-	if r.writeClosed() {
-		_ = r.conn.CloseWrite()
+	} else {
+		_ = r.conn.SetReadDeadline(r.readDeadline)
 	}
 	// caller might have set read or write deadlines before the retry.
-	_ = r.conn.SetReadDeadline(r.readDeadline)
-	_ = r.conn.SetWriteDeadline(r.writeDeadline)
+	if r.writeClosed() {
+		_ = r.conn.CloseWrite()
+	} else {
+		_ = r.conn.SetWriteDeadline(r.writeDeadline)
+	}
 	return
 }
 
