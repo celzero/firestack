@@ -180,7 +180,7 @@ func (h *udpHandler) fetchUDPInput(conn core.UDPConn, nat *tracker) {
 			return
 		}
 		if !nat.ok() {
-			log.D("udp: ingress: too many errors (%v); latest(%v), closing", nat.errcount, err)
+			log.D("udp: ingress: %s too many errors (%v); latest(%v), closing", nat.ID, nat.errcount, err)
 			nat.done(err) // err may be nil
 			return
 		}
@@ -195,14 +195,14 @@ func (h *udpHandler) fetchUDPInput(conn core.UDPConn, nat *tracker) {
 		// first, as it denotes a connected socket which netstack also uses
 		case net.Conn:
 			logaddr = nc2str(conn, c, nat)
-			log.D("udp: ingress: read (c) remote for %s", logaddr)
+			log.D("udp: ingress: %s read (c) remote for %s", nat.ID, logaddr)
 
 			c.SetDeadline(time.Now().Add(udptimeout)) // extend deadline
 			// c is already dialed-in to some addr in udpHandler.Connect
 			n, err = c.Read(buf[:])
 		case net.PacketConn: // unused
 			logaddr = pc2str(conn, c, nat)
-			log.D("udp: ingress: read (pc) remote for %s", logaddr)
+			log.D("udp: ingress: %s read (pc) remote for %s", nat.ID, logaddr)
 
 			c.SetDeadline(time.Now().Add(udptimeout)) // extend deadline
 			// reads a packet from t.conn copying it to buf
@@ -214,10 +214,10 @@ func (h *udpHandler) fetchUDPInput(conn core.UDPConn, nat *tracker) {
 		// is err recoverable? github.com/miekg/dns/blob/f8a185d39/server.go#L521
 		if neterr, ok := err.(net.Error); ok && neterr.Temporary() && !neterr.Timeout() {
 			nat.errcount += 1
-			log.I("udp: ingress: %s temp err#%d(%v)", logaddr, nat.errcount, err)
+			log.I("udp: ingress: %s [%s] temp err#%d(%v)", nat.ID, logaddr, nat.errcount, err)
 			continue
 		} else if err != nil {
-			log.I("udp: ingress: %s err(%v)", logaddr, err)
+			log.I("udp: ingress: %s [%s] err(%v)", nat.ID, logaddr, err)
 			nat.done(err)
 			return
 		}
@@ -230,16 +230,16 @@ func (h *udpHandler) fetchUDPInput(conn core.UDPConn, nat *tracker) {
 			udpaddr = nat.ip
 		}
 
-		log.D("udp: ingress: data(%d) from remote(pc?%v/masq:%v) | addrs: %s", n, addr, udpaddr, logaddr)
+		log.D("udp: ingress: %s data(%d) from remote(pc?%v/masq:%v) | addrs: %s", nat.ID, n, addr, udpaddr, logaddr)
 
 		if udpaddr == nil {
-			log.W("udp: ingress: unexpected! %s is not a udpaddr [%s]", addr, logaddr)
+			log.W("udp: ingress: %s unexpected! %s is not a udpaddr [%s]", nat.ID, addr, logaddr)
 			n, err = conn.Write(buf) // writes buf to conn (tun)
 		} else {
 			n, err = conn.WriteFrom(buf[:n], udpaddr) // writes buf to conn (tun) with udpaddr as src
 		}
 		if err != nil {
-			log.W("udp: ingress: failed write to tun (%s) from %s; err %v; %dsecs", logaddr, udpaddr, err, nat.Duration)
+			log.W("udp: ingress: %s failed write to tun (%s) from %s; err %v; %dsecs", nat.ID, logaddr, udpaddr, err, nat.Duration)
 			// for half-open: nat.errcount += 1 and continue
 			// otherwise: return and close conn
 			nat.done(err)
@@ -321,34 +321,6 @@ func (h *udpHandler) onFlow(localudp core.UDPConn, target *net.UDPAddr, realips,
 	return res
 }
 
-func ipportFromAddr(addr string) (ip net.IP, port int, err error) {
-	var ipstr, portstr string
-	ipstr, portstr, err = net.SplitHostPort(addr)
-	if err != nil {
-		return
-	}
-	ip = net.ParseIP(ipstr)
-	port, err = strconv.Atoi(portstr)
-	return ip, port, err
-}
-
-func udpAddrFrom(addr net.Addr) (*net.UDPAddr, error) {
-	if addr == nil {
-		return nil, &net.AddrError{Err: "nil addr", Addr: "<nil>"}
-	}
-	if r, ok := addr.(*net.UDPAddr); ok {
-		return r, nil
-	}
-	ip, port, err := ipportFromAddr(addr.String())
-	if err != nil {
-		return nil, err
-	}
-	return &net.UDPAddr{
-		IP:   ip,
-		Port: port,
-	}, nil
-}
-
 // OnNewConn implements netstack.GUDPConnHandler
 func (h *udpHandler) OnNewConn(gconn *netstack.GUDPConn, _, dst *net.UDPAddr) {
 	finish := true   // disconnect
@@ -376,7 +348,7 @@ func (h *udpHandler) OnNewConn(gconn *netstack.GUDPConn, _, dst *net.UDPAddr) {
 	// err here may happen for ex when netstack has no route to dst
 	if nerr := gconn.Connect(forward); nerr != nil {
 		err := errors.New(nerr.String())
-		log.W("udp: on-new-conn: failed to connect %s -> %s; err %v", gconn.LocalAddr(), dst, err)
+		log.W("udp: on-new-conn: %s failed to connect %s -> %s; err %v", t.ID, gconn.LocalAddr(), dst, err)
 		t.done(err)
 		h.Close(conn)
 		return
@@ -447,7 +419,7 @@ func (h *udpHandler) Connect(src core.UDPConn, target *net.UDPAddr) (nat *tracke
 	}
 
 	if px, err = h.prox.GetProxy(nat.PID); err != nil {
-		log.W("udp: failed to get proxy for %s: %v", nat.PID, err)
+		log.W("udp: %s failed to get proxy for %s: %v", nat.ID, nat.PID, err)
 		return nat, err // disconnect
 	}
 
@@ -513,15 +485,16 @@ func (h *udpHandler) ReceiveTo(conn core.UDPConn, data []byte, addr *net.UDPAddr
 	nat, _ := h.probe(conn)
 
 	if nat == nil { // no nat
-		log.W("udp: egress: no-op; closed? no nat(%v -> %v [%v])", nsladdr, raddr, nsraddr)
-		return fmt.Errorf("udp: egress: nat %v -> %v [%v] does not exist", nsladdr, raddr, nsraddr)
+		s := fmt.Sprintf("udp: egress: no-op; closed? no nat(%v -> %v [%v])", nsladdr, raddr, nsraddr)
+		log.W(s)
+		return errors.New(s)
 	}
 	if !nat.connected() { // no nat conn; see h.Connect
 		if h.dnsOverride(conn, addr, data) { // if dns request; handle it
-			log.D("udp: egress: dns-op; dstaddr(%v) <- src(l:%v r:%v)", raddr, nsladdr, nsraddr)
+			log.D("udp: egress: %s dns-op; dstaddr(%v) <- src(l:%v r:%v)", nat.ID, raddr, nsladdr, nsraddr)
 			return nil
 		}
-		return fmt.Errorf("udp: egress: conn %v -> %v [%v] does not exist", nsladdr, raddr, nsraddr)
+		return fmt.Errorf("udp: egress: %s conn %v -> %v [%v] does not exist", nat.ID, nsladdr, raddr, nsraddr)
 	}
 
 	// unused in netstack as it only supports connected udp
@@ -555,20 +528,20 @@ func (h *udpHandler) ReceiveTo(conn core.UDPConn, data []byte, addr *net.UDPAddr
 	if neterr, ok := err.(net.Error); ok && neterr.Temporary() {
 		nat.errcount += 1
 		if !nat.ok() {
-			log.W("udp: egress: too many errors(%d) for conn(l:%v -> r:%v [%v]) for uid %s", nat.errcount, nsladdr, raddr, nsraddr, nat.UID)
+			log.W("udp: egress: %s too many errors(%d) for conn(l:%v -> r:%v [%v]) for uid %s", nat.ID, nat.errcount, nsladdr, raddr, nsraddr, nat.UID)
 			return err
 		} else {
-			log.W("udp: egress: temporary error(%v) for conn(l:%v -> r:%v [%v]) for uid %s", err, nsladdr, raddr, nsraddr, nat.UID)
+			log.W("udp: egress: %s temporary error(%v) for conn(l:%v -> r:%v [%v]) for uid %s", nat.ID, err, nsladdr, raddr, nsraddr, nat.UID)
 			return nil
 		}
 	} else if err != nil {
-		log.I("udp: egress: end splice (%v -> %v [%v]), forward udp for uid %s w err(%v)", conn.LocalAddr(), raddr, nsraddr, nat.UID, err)
+		log.I("udp: egress: %s end splice (%v -> %v [%v]), forward udp for uid %s w err(%v)", nat.ID, conn.LocalAddr(), raddr, nsraddr, nat.UID, err)
 		return err
 	} else {
 		nat.errcount = 0
 	}
 
-	log.I("udp: egress: conn(%v -> %v [%v]) / data(%d) for uid %s", nsladdr, raddr, nsraddr, len(data), nat.UID)
+	log.I("udp: egress: %s conn(%v -> %v [%v]) / data(%d) for uid %s", nat.ID, nsladdr, raddr, nsraddr, len(data), nat.UID)
 	return nil
 }
 
@@ -631,7 +604,7 @@ func (h *udpHandler) Close(conn core.UDPConn) {
 		go h.sendNotif(t.SocketSummary)
 	}
 
-	log.D("udp: close conn [%v -> %v]; tracked? %t", local, remote, t != nil)
+	log.D("udp: close conn %s [%v -> %v]; tracked? %t", t.ID, local, remote, t != nil)
 }
 
 func clos(c any) {
@@ -648,6 +621,10 @@ func clos(c any) {
 
 // must always be called as a goroutine
 func (h *udpHandler) sendNotif(s *SocketSummary) {
+	if s == nil { // unlikely
+		log.W("udp: sendNotif: nil summary; no-op")
+		return
+	}
 	// sleep a bit to avoid scenario where kotlin-land
 	// hasn't yet had the chance to persist info about
 	// this conn (cid) to meaninfully process its summary
@@ -658,10 +635,38 @@ func (h *udpHandler) sendNotif(s *SocketSummary) {
 	ok1 := l != nil
 	ok2 := len(s.ID) > 0
 	if ok0 && ok1 && ok2 {
-		log.V("udp: sendNotif(true): %s", s.str())
+		log.V("udp: %s sendNotif(true): %s", s.ID, s.str())
 		l.OnSocketClosed(s) // s.Duration may be uninitialized (zero)
 		return
 	} else {
-		log.V("udp: sendNotif(%t, %t, %t): no listener", ok0, ok1, ok2)
+		log.V("udp: %s sendNotif(%t, %t, %t): no listener", s.ID, ok0, ok1, ok2)
 	}
+}
+
+func ipportFromAddr(addr string) (ip net.IP, port int, err error) {
+	var ipstr, portstr string
+	ipstr, portstr, err = net.SplitHostPort(addr)
+	if err != nil {
+		return
+	}
+	ip = net.ParseIP(ipstr)
+	port, err = strconv.Atoi(portstr)
+	return ip, port, err
+}
+
+func udpAddrFrom(addr net.Addr) (*net.UDPAddr, error) {
+	if addr == nil {
+		return nil, &net.AddrError{Err: "nil addr", Addr: "<nil>"}
+	}
+	if r, ok := addr.(*net.UDPAddr); ok {
+		return r, nil
+	}
+	ip, port, err := ipportFromAddr(addr.String())
+	if err != nil {
+		return nil, err
+	}
+	return &net.UDPAddr{
+		IP:   ip,
+		Port: port,
+	}, nil
 }
