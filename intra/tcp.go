@@ -386,13 +386,13 @@ func (h *tcpHandler) handle(px ipn.Proxy, src net.Conn, target *net.TCPAddr, smm
 		smm.Rtt = int32(time.Now().Sub(start).Seconds() * 1000)
 
 		switch uc := pc.(type) {
-		case *net.TCPConn:
+		case *net.TCPConn: // usual
 			dst = uc
-		case *gonet.TCPConn:
+		case *gonet.TCPConn: // from wgproxy
 			dst = uc
-		case core.TCPConn:
+		case core.TCPConn: // from confirming proxy dialers
 			dst = uc
-		case net.Conn:
+		case net.Conn: // from non-confirming proxy dialers
 			dst = uc
 		default:
 			err = errTcpSetupConn
@@ -404,6 +404,7 @@ func (h *tcpHandler) handle(px ipn.Proxy, src net.Conn, target *net.TCPAddr, smm
 		return err
 	}
 
+	// src is always gonet.TCPConn
 	go h.forward(src, dst, smm)
 
 	log.I("tcp: new conn %s via proxy(%s); src(%s) -> dst(%s) for %s", smm.ID, px.ID(), src.LocalAddr(), target, smm.UID)
