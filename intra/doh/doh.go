@@ -358,6 +358,7 @@ func (t *transport) send(pid string, req *http.Request) (ans []byte, blocklists 
 			}
 		}
 		if qerr != nil {
+			log.E("doh: query failed: %v", qerr)
 			if conn != nil {
 				log.I("doh: close failing doh conn to %s", hostname)
 				conn.Close()
