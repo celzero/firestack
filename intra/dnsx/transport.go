@@ -330,7 +330,7 @@ func (r *resolver) Forward(q []byte) ([]byte, error) {
 	return r.forward(q)
 }
 
-func (r *resolver) forward(q []byte, chosenids ...string) ([]byte, error) {
+func (r *resolver) forward(q []byte, chosenids ...string) (res0 []byte, err0 error) {
 	starttime := time.Now()
 	summary := &Summary{
 		QName:  invalidQname,
@@ -338,6 +338,11 @@ func (r *resolver) forward(q []byte, chosenids ...string) ([]byte, error) {
 	}
 	// always call up to the listener
 	defer func() {
+		if err0 != nil {
+			summary.Msg = err0.Error()
+		} else {
+			summary.Msg = noerr.Error()
+		}
 		go r.listener.OnResponse(summary)
 	}()
 
@@ -499,7 +504,7 @@ func (r *resolver) determineTransport(id string) Transport {
 }
 
 // Perform a query using the transport, and send the response to the writer.
-func (r *resolver) forwardQuery(q []byte, c io.Writer) error {
+func (r *resolver) forwardQuery(q []byte, c io.Writer) (err0 error) {
 	starttime := time.Now()
 	summary := &Summary{
 		QName:  invalidQname,
@@ -507,6 +512,11 @@ func (r *resolver) forwardQuery(q []byte, c io.Writer) error {
 	}
 	// always call up to the listener
 	defer func() {
+		if err0 != nil {
+			summary.Msg = err0.Error()
+		} else {
+			summary.Msg = noerr.Error()
+		}
 		go r.listener.OnResponse(summary)
 	}()
 

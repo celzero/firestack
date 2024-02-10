@@ -24,6 +24,7 @@ type Summary struct {
 	RelayServer string // hop, if any; proxy or a relay server
 	Status      int
 	Blocklists  string // csv separated list of blocklists names, if any.
+	Msg         string // final status message, if any
 }
 
 type NsOpts struct {
