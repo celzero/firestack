@@ -238,6 +238,7 @@ func (h *udpHandler) fetchUDPInput(conn core.UDPConn, nat *tracker) {
 		} else {
 			n, err = conn.WriteFrom(buf[:n], udpaddr) // writes buf to conn (tun) with udpaddr as src
 		}
+		nat.Rx += int64(n) // rcvd (download) so far
 		if err != nil {
 			log.W("udp: ingress: %s failed write to tun (%s) from %s; err %v; %dsecs", nat.ID, logaddr, udpaddr, err, nat.Duration)
 			// for half-open: nat.errcount += 1 and continue
@@ -245,8 +246,7 @@ func (h *udpHandler) fetchUDPInput(conn core.UDPConn, nat *tracker) {
 			nat.done(err)
 			return
 		} else {
-			nat.Rx += int64(n) // rcvd (download) so far
-			nat.elapsed()      // time since last write
+			nat.elapsed() // time since last write
 		}
 	}
 }
@@ -370,8 +370,9 @@ func (h *udpHandler) Connect(src core.UDPConn, target *net.UDPAddr) (nat *tracke
 	h.track(src, nat)
 
 	defer func() {
-		if dst != nil {
+		if dst != nil { // connected
 			nat.dst = dst
+			nat.Target = target.String()
 
 			// the actual ip the client sees data from; unused in netstack
 			nat.ip = &net.UDPAddr{

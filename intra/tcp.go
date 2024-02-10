@@ -328,14 +328,19 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target *net.TCPAddr) (
 			gconn.Close()
 			s.done(err)
 			go h.sendNotif(s)
-		} // else conn has been proxied, sendNotif called by h.forward()
+		} else {
+			// conn proxied; sendNotif called by h.forward()
+			s.Target = target.String()
+		}
 	}()
 
 	if pid == ipn.Block {
 		var secs uint32
-		k := uid + target.String()
+		k := uid
 		if len(domains) > 0 { // probableDomains are not reliable to use for firewalling
-			k = uid + domains
+			k += domains
+		} else {
+			k += target.String()
 		}
 		if secs = stall(h.fwtracker, k); secs > 0 {
 			waittime := time.Duration(secs) * time.Second
