@@ -17,6 +17,8 @@ package dialers
 import (
 	"io"
 	"net"
+
+	"github.com/celzero/firestack/intra/protect"
 )
 
 // DuplexConn represents a bidirectional stream socket.
@@ -40,20 +42,15 @@ func split(c *net.TCPConn) DuplexConn {
 // DialWithSplit returns a TCP connection that always splits the initial upstream segment.
 // Like net.Conn, it is intended for two-threaded use, with one thread calling
 // Read and CloseRead, and another calling Write, ReadFrom, and CloseWrite.
-func DialWithSplit(d *net.Dialer, addr *net.TCPAddr) (DuplexConn, error) {
-	conn, err := d.Dial(addr.Network(), addr.String())
+func DialWithSplit(d *protect.RDial, addr *net.TCPAddr) (DuplexConn, error) {
+	conn, err := d.DialTCP(addr.Network(), nil, addr)
 	if err != nil {
 		return nil, err
 	}
 	if conn == nil {
 		return nil, errNoConn
 	}
-	tcp, _ := conn.(*net.TCPConn)
-	if tcp == nil {
-		_ = conn.Close()
-		return nil, errNotTCP
-	}
-	return split(tcp), nil
+	return split(conn), nil
 }
 
 // Write-related functions
