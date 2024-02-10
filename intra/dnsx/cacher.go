@@ -211,6 +211,8 @@ func (cb *cache) freshCopy(key string) (v *cres, ok bool) {
 	return v.copy(), (r50 || recent) && alive
 }
 
+// put caches val against key, and returns true if the cache was updated.
+// val must be a valid dns packet with successful rcode with no truncation.
 func (cb *cache) put(key string, val []byte, s *Summary) (ok bool) {
 	ok = false
 
@@ -319,7 +321,7 @@ func (t *ctransport) fetch(network string, q []byte, msg *dns.Msg, summary *Summ
 		if cachedres == nil {                 // use barrier response
 			var ok bool
 			cachedres, ok = v.Val.(*cres) // never nil, even on errs; but cres.ans may be nil
-			log.W("cache: barrier: empty(%s); %s; typecast? %t", key, cachedres, ok)
+			log.D("cache: barrier: empty(%s); %s; typecast? %t", key, cachedres, ok)
 		} else if !fresh { // expect fresh values, except on verrs
 			log.W("cache: barrier: stale(%s); barrier: %s (cache: %s)", key, v.String(), cachedres.String())
 		}
