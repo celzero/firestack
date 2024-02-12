@@ -51,6 +51,7 @@ const dohmimetype = "application/dns-message"
 type odohtransport struct {
 	omu              sync.RWMutex // protects odohConfig
 	odohproxy        string       // proxy url
+	odohproxyname    string       // proxy hostname
 	odohtargetname   string       // target hostname
 	odohtargetpath   string       // target path
 	odohConfig       *odoh.ObliviousDoHConfig
@@ -170,6 +171,7 @@ func newTransport(typ, id, rawurl, target string, addrs []string, px ipn.Proxies
 				proxyurl.Path = odohproxypath
 			}
 			t.odohproxy = proxyurl.String()
+			t.odohproxyname = proxyurl.Hostname()
 		} else if targeturl != nil && targeturl.Hostname() != "" {
 			_, renewed = dialers.New(targeturl.Hostname(), addrs)
 		}
@@ -473,7 +475,7 @@ func (t *transport) Query(network string, q []byte, smm *dnsx.Summary) (r []byte
 	} else {
 		r, elapsed, qerr = t.doOdoh(pid, q)
 		smm.Server = t.odohtargetname
-		smm.RelayServer = t.odohproxy
+		smm.RelayServer = t.odohproxyname
 	}
 
 	status := dnsx.Complete
