@@ -109,8 +109,12 @@ func conn2str(a net.Conn, b net.Conn) string {
 	return fmt.Sprintf("a(%v->%v) => b(%v<-%v)", al, ar, bl, br)
 }
 
-func halfclos(c io.Closer, a string) {
+func pclose(c io.Closer, a string) {
 	if c == nil {
+		return
+	}
+	if a == "rw" {
+		c.Close()
 		return
 	}
 	switch x := c.(type) {
@@ -135,8 +139,8 @@ func (h *tcpHandler) upload(cid string, local net.Conn, remote net.Conn, ioch ch
 	n, err := io.Copy(remote, local)
 	log.D("tcp: %s upload(%d) done(%v) b/w %s", cid, n, err, ci)
 
-	halfclos(local, "r")
-	halfclos(remote, "w")
+	pclose(local, "r")
+	pclose(remote, "w")
 	ioch <- ioinfo{n, err}
 }
 
@@ -146,8 +150,8 @@ func (h *tcpHandler) download(cid string, local net.Conn, remote net.Conn) (n in
 	n, err = io.Copy(local, remote)
 	log.D("tcp: %s download(%d) done(%v) b/w %s", cid, n, err, ci)
 
-	halfclos(local, "w")
-	halfclos(remote, "r")
+	pclose(local, "w")
+	pclose(remote, "r")
 	return
 }
 
@@ -284,7 +288,7 @@ func (h *tcpHandler) CloseConns(cids []string) []string {
 		if conns, ok := h.conntracker[cid]; ok {
 			for _, conn := range conns {
 				// expect close to call sendNotif?
-				go conn.Close()
+				go pclose(conn, "rw")
 			}
 			delete(h.conntracker, cid)   // untrack
 			closed = append(closed, cid) // mark
