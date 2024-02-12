@@ -550,8 +550,7 @@ func (h *udpHandler) CloseConns(cids []string) []string {
 	h.RLock()
 	defer h.RUnlock()
 
-	var closed []string
-	// Close all conns for the given cids
+	closed := make([]string, 0, len(cids))
 	for _, cid := range cids {
 		if src, ok := h.conntracker[cid]; ok {
 			go h.Close(src)

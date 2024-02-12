@@ -283,7 +283,7 @@ func (h *tcpHandler) CloseConns(cids []string) []string {
 	h.ctmu.Lock()
 	defer h.ctmu.Unlock()
 
-	var closed []string
+	closed := make([]string, 0, len(cids))
 	for _, cid := range cids {
 		if conns, ok := h.conntracker[cid]; ok {
 			for _, conn := range conns {
