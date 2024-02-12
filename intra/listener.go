@@ -36,7 +36,7 @@ type SocketSummary struct {
 	ID       string    // Unique ID for this socket.
 	PID      string    // Proxy ID that handled this socket.
 	UID      string    // UID of the app that owns this socket (sans ICMP).
-	Target   string    // Remote ip:port, if dialed in.
+	Target   string    // Remote IP, if dialed in.
 	Rx       int64     // Total bytes downloaded (sans ICMP).
 	Tx       int64     // Total bytes uploaded (sans ICMP).
 	Duration int32     // Duration in seconds.

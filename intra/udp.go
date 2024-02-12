@@ -372,7 +372,7 @@ func (h *udpHandler) Connect(src core.UDPConn, target *net.UDPAddr) (nat *tracke
 	defer func() {
 		if dst != nil { // connected
 			nat.dst = dst
-			nat.Target = target.String()
+			nat.Target = target.IP.String()
 
 			// the actual ip the client sees data from; unused in netstack
 			nat.ip = &net.UDPAddr{

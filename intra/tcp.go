@@ -330,7 +330,7 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target *net.TCPAddr) (
 			go h.sendNotif(s)
 		} else {
 			// conn proxied; sendNotif called by h.forward()
-			s.Target = target.String()
+			s.Target = target.IP.String()
 		}
 	}()
 
