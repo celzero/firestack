@@ -595,17 +595,19 @@ func (h *udpHandler) Close(conn core.UDPConn) {
 		return
 	}
 
+	id := "nil"
 	local := conn.LocalAddr()
 	remote := conn.RemoteAddr()
 	clos(conn)
 	t := h.untrack(conn)
 	if t != nil {
+		id = t.ID
 		clos(t.dst)
 		// TODO: Cancel any outstanding dns queries
 		go h.sendNotif(t.SocketSummary)
 	}
 
-	log.D("udp: close conn %s [%v -> %v]; tracked? %t", t.ID, local, remote, t != nil)
+	log.D("udp: close conn %s [%v -> %v]; tracked? %t", id, local, remote, t != nil)
 }
 
 func clos(c any) {

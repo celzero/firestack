@@ -332,6 +332,9 @@ func (e *endpoint) ParseHeader(pkt stack.PacketBufferPtr) bool {
 }
 
 func (e *endpoint) logPacketIfNeeded(dir sniffer.Direction, pkt stack.PacketBufferPtr) {
+	if pkt == nil {
+		return
+	}
 	protocol := pkt.NetworkProtocolNumber
 	if sniffer.LogPackets.Load() == 1 {
 		sniffer.LogPacket("rdnspcap", dir, protocol, pkt)

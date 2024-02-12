@@ -676,7 +676,7 @@ func (t *dnsgateway) X(algip []byte) (ips string) {
 	defer t.RUnlock()
 
 	if fip, ok := netip.AddrFromSlice(algip); ok {
-		rip := t.xLocked(&fip, !t.mod)
+		rip := t.xLocked(fip, !t.mod)
 		if len(rip) > 0 {
 			var s []string
 			for _, r := range rip {
@@ -696,7 +696,7 @@ func (t *dnsgateway) PTR(algip []byte, force bool) (domains string) {
 	defer t.RUnlock()
 
 	if fip, ok := netip.AddrFromSlice(algip); ok {
-		d := t.ptrLocked(&fip, (!t.mod || force))
+		d := t.ptrLocked(fip, (!t.mod || force))
 		if len(d) > 0 {
 			domains = strings.Join(d, ",")
 		} // else: algip isn't really an alg ip, nothing to do
@@ -711,14 +711,14 @@ func (t *dnsgateway) RDNSBL(algip []byte) (blocklists string) {
 	defer t.RUnlock()
 
 	if fip, ok := netip.AddrFromSlice(algip); ok {
-		blocklists = t.rdnsblLocked(&fip, !t.mod)
+		blocklists = t.rdnsblLocked(fip, !t.mod)
 	} else {
 		log.W("alg: invalid algip(%s)", algip)
 	}
 	return blocklists
 }
 
-func (t *dnsgateway) xLocked(algip *netip.Addr, useptr bool) []*netip.Addr {
+func (t *dnsgateway) xLocked(algip netip.Addr, useptr bool) []*netip.Addr {
 	var realips []*netip.Addr
 	// alg ips are always unmappped; see take4Locked
 	unmapped := algip.Unmap()
@@ -757,7 +757,7 @@ func (t *dnsgateway) maybeUndoNat64(realips []*netip.Addr) (unnat []*netip.Addr)
 	return
 }
 
-func (t *dnsgateway) ptrLocked(algip *netip.Addr, useptr bool) (domains []string) {
+func (t *dnsgateway) ptrLocked(algip netip.Addr, useptr bool) (domains []string) {
 	// alg ips are always unmappped; see take4Locked
 	unmapped := algip.Unmap()
 	if ans, ok := t.nat[unmapped]; ok {
@@ -769,7 +769,7 @@ func (t *dnsgateway) ptrLocked(algip *netip.Addr, useptr bool) (domains []string
 	return
 }
 
-func (t *dnsgateway) rdnsblLocked(algip *netip.Addr, useptr bool) (bcsv string) {
+func (t *dnsgateway) rdnsblLocked(algip netip.Addr, useptr bool) (bcsv string) {
 	// alg ips are always unmappped; see take4Locked
 	unmapped := algip.Unmap()
 	if ans, ok := t.nat[unmapped]; ok {

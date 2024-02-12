@@ -175,33 +175,33 @@ func (b *bootstrap) Type() string {
 
 func (b *bootstrap) Query(network string, q []byte, summary *dnsx.Summary) ([]byte, error) {
 	tr := b.Transport
-	if tr == nil {
-		return nil, errDefaultTransportNotReady
+	if tr != nil {
+		log.V("dns: default: query %s %d", network, len(q))
+		return tr.Query(network, q, summary)
 	}
-	log.V("dns: default: query %s %d", network, len(q))
-	return tr.Query(network, q, summary)
+	return nil, errDefaultTransportNotReady
 }
 
 func (b *bootstrap) P50() int64 {
 	tr := b.Transport
-	if tr == nil {
-		return 0
+	if tr != nil {
+		return tr.P50()
 	}
-	return tr.P50()
+	return 0
 }
 
 func (b *bootstrap) GetAddr() string {
 	tr := b.Transport
 	if tr != nil {
-		return defaultAddrPrefix + b.Transport.GetAddr()
+		return defaultAddrPrefix + tr.GetAddr()
 	}
 	return ""
 }
 
 func (b *bootstrap) Status() int {
 	tr := b.Transport
-	if tr == nil {
-		return dnsx.ClientError
+	if tr != nil {
+		return tr.Status()
 	}
-	return tr.Status()
+	return dnsx.ClientError
 }

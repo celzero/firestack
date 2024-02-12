@@ -231,7 +231,9 @@ func dnsExchange(proxy *DcMulti, query *dns.Msg, serverAddress string, serverNam
 	var bestOption *dnsExchangeResponse
 	for i := 0; i < options; i++ {
 		if res := <-channel; res.err == nil {
-			if res.rtt < bestOption.rtt {
+			if bestOption == nil {
+				bestOption = &res
+			} else if res.rtt < bestOption.rtt {
 				bestOption = &res
 				close(cancelChannel)
 				break

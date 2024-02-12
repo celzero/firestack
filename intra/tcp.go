@@ -486,9 +486,9 @@ func makeIPs(realips string, dstip net.IP) []net.IP {
 }
 
 func undoAlg(r dnsx.Resolver, algip net.IP) (realips, domains, probableDomains, blocklists string) {
-	force := true // force PTR resolution
-	dstip := netipFrom(algip)
-	if gw := r.Gateway(); dstip.IsValid() && gw != nil {
+	force := true             // force PTR resolution
+	dstip := netipFrom(algip) // may be nil
+	if gw := r.Gateway(); dstip != nil && dstip.IsValid() && gw != nil {
 		dst := dstip.AsSlice()
 		domains = gw.PTR(dst, !force)
 		if len(domains) <= 0 {
@@ -497,7 +497,7 @@ func undoAlg(r dnsx.Resolver, algip net.IP) (realips, domains, probableDomains, 
 		realips = gw.X(dst)
 		blocklists = gw.RDNSBL(dst)
 	} else {
-		log.D("alg: undoAlg: no gw(%t) or alg-ip(%s)", gw == nil, algip)
+		log.W("alg: undoAlg: no gw(%t) or dst(%v) or alg-ip(%s)", gw == nil, dstip, algip)
 	}
 	return
 }
