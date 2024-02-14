@@ -22,6 +22,8 @@ github.com/celzero/gotrie v0.0.0-20230918114945-06c7fe6a5fe9 h1:YVE+tcRDcBExEOzT
 github.com/celzero/gotrie v0.0.0-20230918114945-06c7fe6a5fe9/go.mod h1:zndDQUpFxXZAXZhfOquUw7KRLjYRgI6GxjnaKijAfGE=
 github.com/celzero/gotrie v0.0.0-20230918150208-e5c2bfa31f40 h1:qReTItRG0pNxYotTEc8zMmYDWiX92qOuqM4qO8eWmjo=
 github.com/celzero/gotrie v0.0.0-20230918150208-e5c2bfa31f40/go.mod h1:zndDQUpFxXZAXZhfOquUw7KRLjYRgI6GxjnaKijAfGE=
+github.com/celzero/gotrie v0.0.0-20240214185511-300735a8f01f h1:rwXlAFp6Qtg4LiF2VMYtr5qdaJlCdWYZiB4ddUBqYNw=
+github.com/celzero/gotrie v0.0.0-20240214185511-300735a8f01f/go.mod h1:zndDQUpFxXZAXZhfOquUw7KRLjYRgI6GxjnaKijAfGE=
 github.com/cenkalti/backoff v2.2.1+incompatible/go.mod h1:90ReRw6GdpyfrHakVjL/QHaoyV4aDUVVkXQJJJ3NXXM=
 github.com/cilium/ebpf v0.9.3/go.mod h1:w27N4UjpaQ9X/DGrSugxUG+H+NhgntDuPb5lCzxCn8A=
 github.com/cisco/go-hpke v0.0.0-20210215210317-01c430f1f302 h1:unAbn7dpE8eeUfWRaOPl1qTfffhIcCNuKQuECGNGWtk=
