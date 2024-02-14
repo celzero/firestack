@@ -192,6 +192,7 @@ func newTransport(typ, id, rawurl, target string, addrs []string, px ipn.Proxies
 			Transport: &http.Transport{
 				Dial:                  t.dial,
 				ForceAttemptHTTP2:     true,
+				IdleConnTimeout:       2 * time.Minute,
 				TLSHandshakeTimeout:   3 * time.Second,
 				ResponseHeaderTimeout: 20 * time.Second,
 			},
@@ -217,6 +218,7 @@ func newTransport(typ, id, rawurl, target string, addrs []string, px ipn.Proxies
 	t.client.Transport = &http.Transport{
 		Dial:                  t.dial,
 		ForceAttemptHTTP2:     true,
+		IdleConnTimeout:       2 * time.Minute,
 		TLSHandshakeTimeout:   3 * time.Second,
 		ResponseHeaderTimeout: 20 * time.Second, // Same value as Android DNS-over-TLS
 		TLSClientConfig:       t.tlsconfig.Clone(),
@@ -246,6 +248,7 @@ func (t *transport) httpClientFor(p ipn.Proxy) (*http.Client, error) {
 		Transport: &http.Transport{
 			Dial:                  p.Dialer().Dial,
 			ForceAttemptHTTP2:     true,
+			IdleConnTimeout:       5 * time.Minute,
 			TLSHandshakeTimeout:   10 * time.Second,
 			ResponseHeaderTimeout: 30 * time.Second,
 			TLSClientConfig:       t.tlsconfig.Clone(),
