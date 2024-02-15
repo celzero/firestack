@@ -30,10 +30,22 @@ type IpTree interface {
 	Get(cidr string) (string, error)
 	// Returns true if the cidr route is in the trie.
 	Has(cidr string) (bool, error)
-	// Returns the route:value of the longest route for cidr in the trie or "".
+	// Returns csv of all routes for cidr in the trie or "".
+	Routes(cidr string) string
+	// Returns csv of values of all routes matching cidr in the trie or "".
+	Values(cidr string) string
+	// Returns the route@csv(value) of all routes for cidr in the trie or "".
 	GetAny(cidr string) (string, error)
 	// Returns true if any route in the trie has the route.
 	HasAny(cidr string) (bool, error)
+	// Removes values like v for cidr from the trie.
+	EscLike(cidr, likev string) int32
+	// Returns csv of all routes with any value like v for cidr from trie.
+	RoutesLike(cidr, likev string) string
+	// Returns csv of all values like v for cidr from trie.
+	ValuesLike(cidr, likev string) string
+	// Returns the longest route for cidr in the trie as "r1@csv(v)|r2@csv(v2)" or "".
+	GetAll(cidr string) (string, error)
 	// Deletes all routes in the trie matching cidr. Returns the number of routes deleted.
 	DelAll(cidr string) int32
 	// Clears the trie.
@@ -47,6 +59,13 @@ type iptree struct {
 	t *critbitgo.Net
 }
 
+const (
+	Vsep   = "," // values separator (csv)
+	Ksep   = "," // key separator (csv)
+	Kdelim = "@" // key@csv(v) delimiter
+	KVsep  = "|" // k1:v1|k2:v2 separator
+)
+
 func NewIpTree() IpTree {
 	return &iptree{t: critbitgo.NewNet()}
 }
@@ -59,15 +78,15 @@ func (c *iptree) Add(cidr string, v string) error {
 	} else if len(x) == 0 {
 		return c.Set(cidr, v)
 	} else if strings.Contains(x, v) {
-		cur := strings.Split(x, ",")
+		cur := strings.Split(x, Vsep)
 		for _, val := range cur {
 			if val == v {
 				return nil
 			}
 		}
-		return c.Set(cidr, x+","+v)
+		return c.Set(cidr, x+Vsep+v)
 	} else {
-		return c.Set(cidr, x+","+v)
+		return c.Set(cidr, x+Vsep+v)
 	}
 }
 
@@ -99,7 +118,7 @@ func (c *iptree) Esc(cidr string, v string) bool {
 		return c.Del(cidr)
 	} else if strings.Contains(x, v) {
 		// remove all occurences of v in csv x
-		old := strings.Split(x, ",")
+		old := strings.Split(x, Vsep)
 		cur := make([]string, 0, len(old))
 		for _, val := range old {
 			if val != v {
@@ -109,7 +128,7 @@ func (c *iptree) Esc(cidr string, v string) bool {
 		if len(cur) == 0 {
 			return c.Del(cidr)
 		}
-		return c.Set(cidr, strings.Join(cur, ",")) == nil
+		return c.Set(cidr, strings.Join(cur, Vsep)) == nil
 	} else {
 		return false
 	}
@@ -134,7 +153,7 @@ func (c *iptree) DelAll(cidr string) (n int32) {
 	c.Lock()
 	defer c.Unlock()
 
-	keys := make([]*net.IPNet, 10)
+	keys := make([]*net.IPNet, 0)
 	c.t.WalkMatch(r, func(k *net.IPNet, v any) bool {
 		keys = append(keys, k)
 		return true
@@ -184,11 +203,143 @@ func (c *iptree) GetAny(cidr string) (rv string, err error) {
 			rv = m.String()
 		}
 		if v != nil {
-			s, _ := v.(string)
-			rv = rv + ":" + s
+			if s, ok := v.(string); ok {
+				rv = rv + Kdelim + s
+			}
 		}
 	}
 	return
+}
+
+func (c *iptree) GetAll(cidr string) (rv string, errs error) {
+	r := ip2cidr(cidr)
+
+	c.RLock()
+	defer c.RUnlock()
+
+	c.t.WalkMatch(r, func(k *net.IPNet, v any) bool {
+		if k == nil {
+			return true // next
+		}
+		rv = rv + k.String()
+		if v != nil {
+			if s, ok := v.(string); ok && len(s) > 0 {
+				rv = rv + Kdelim + s
+			}
+		}
+		rv = rv + KVsep
+		return true // next
+	})
+	return strings.TrimRight(rv, KVsep), nil
+}
+
+func (c *iptree) Routes(cidr string) string {
+	r := ip2cidr(cidr)
+
+	c.RLock()
+	defer c.RUnlock()
+
+	rt := make([]string, 0)
+	c.t.WalkMatch(r, func(k *net.IPNet, v any) bool {
+		if k != nil {
+			rt = append(rt, k.String())
+		}
+		return true // next
+	})
+	return strings.Join(rt, Ksep)
+}
+
+func (c *iptree) Values(cidr string) string {
+	r := ip2cidr(cidr)
+
+	c.RLock()
+	defer c.RUnlock()
+
+	vt := make([]string, 0)
+	c.t.WalkMatch(r, func(k *net.IPNet, v any) bool {
+		if v != nil {
+			if s, ok := v.(string); ok && len(s) > 0 {
+				vt = append(vt, s)
+			}
+		}
+		return true // next
+	})
+	return strings.Join(vt, Vsep)
+}
+
+func (c *iptree) EscLike(cidr, like string) int32 {
+	if x, err := c.Get(cidr); err != nil {
+		return -1 // error
+	} else if len(x) == 0 {
+		return 0
+	} else if len(like) == 0 {
+		return c.DelAll(cidr)
+	} else if x == like {
+		if rmv := c.Del(cidr); rmv {
+			return 1
+		}
+		return 0
+	} else if strings.Contains(x, like) {
+		// remove all occurences of v in csv x
+		old := strings.Split(x, Vsep)
+		cur := make([]string, 0, len(old))
+		n := int32(0)
+		for _, val := range old {
+			if !strings.Contains(val, like) {
+				cur = append(cur, val)
+			} else {
+				n++
+			}
+		}
+		if len(cur) == 0 { // no values left
+			_ = c.Del(cidr)
+		} else if len(cur) != len(old) { // no change; n == 0
+			_ = c.Set(cidr, strings.Join(cur, Vsep))
+		}
+		return n
+	} else {
+		return 0 // not found
+	}
+}
+
+func (c *iptree) RoutesLike(cidr, like string) string {
+	r := ip2cidr(cidr)
+
+	c.RLock()
+	defer c.RUnlock()
+
+	rt := make([]string, 0)
+	c.t.WalkMatch(r, func(k *net.IPNet, v any) bool {
+		if v != nil {
+			if s, ok := v.(string); ok && len(s) > 0 {
+				if strings.Contains(s, like) {
+					rt = append(rt, k.String())
+				}
+			}
+		}
+		return true // next
+	})
+	return strings.Join(rt, Ksep)
+}
+
+func (c *iptree) ValuesLike(cidr, like string) string {
+	r := ip2cidr(cidr)
+
+	c.RLock()
+	defer c.RUnlock()
+
+	vt := make([]string, 0)
+	c.t.WalkMatch(r, func(k *net.IPNet, v any) bool {
+		if v != nil {
+			if s, ok := v.(string); ok && len(s) > 0 {
+				if strings.Contains(s, like) {
+					vt = append(vt, s)
+				}
+			}
+		}
+		return true // next
+	})
+	return strings.Join(vt, Vsep)
 }
 
 func (c *iptree) Clear() {
