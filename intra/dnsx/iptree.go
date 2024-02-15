@@ -7,6 +7,7 @@
 package dnsx
 
 import (
+	"errors"
 	"net"
 	"net/netip"
 	"strings"
@@ -66,6 +67,10 @@ const (
 	KVsep  = "|" // k1:v1|k2:v2 separator
 )
 
+var (
+	errValNotString = errors.New("values must be string")
+)
+
 func NewIpTree() IpTree {
 	return &iptree{t: critbitgo.NewNet()}
 }
@@ -91,7 +96,10 @@ func (c *iptree) Add(cidr string, v string) error {
 }
 
 func (c *iptree) Set(cidr string, v string) error {
-	r := ip2cidr(cidr)
+	r, err := ip2cidr(cidr)
+	if err != nil {
+		return err
+	}
 
 	c.Lock()
 	defer c.Unlock()
@@ -100,7 +108,10 @@ func (c *iptree) Set(cidr string, v string) error {
 }
 
 func (c *iptree) Del(cidr string) bool {
-	r := ip2cidr(cidr)
+	r, err := ip2cidr(cidr)
+	if err != nil {
+		return false
+	}
 
 	c.Lock()
 	defer c.Unlock()
@@ -135,7 +146,10 @@ func (c *iptree) Esc(cidr string, v string) bool {
 }
 
 func (c *iptree) Has(cidr string) (bool, error) {
-	r := ip2cidr(cidr)
+	r, err := ip2cidr(cidr)
+	if err != nil {
+		return false, err
+	}
 
 	c.RLock()
 	defer c.RUnlock()
@@ -145,8 +159,8 @@ func (c *iptree) Has(cidr string) (bool, error) {
 }
 
 func (c *iptree) DelAll(cidr string) (n int32) {
-	r := ip2cidr(cidr)
-	if r == nil {
+	r, err := ip2cidr(cidr)
+	if r == nil || err != nil {
 		return
 	}
 
@@ -168,7 +182,10 @@ func (c *iptree) DelAll(cidr string) (n int32) {
 }
 
 func (c *iptree) HasAny(cidr string) (bool, error) {
-	r := ip2cidr(cidr)
+	r, err := ip2cidr(cidr)
+	if err != nil {
+		return false, err
+	}
 
 	c.RLock()
 	defer c.RUnlock()
@@ -178,20 +195,30 @@ func (c *iptree) HasAny(cidr string) (bool, error) {
 }
 
 func (c *iptree) Get(cidr string) (v string, err error) {
-	r := ip2cidr(cidr)
+	r, err := ip2cidr(cidr)
+	if err != nil {
+		return "", err
+	}
 
 	c.RLock()
 	defer c.RUnlock()
 
 	s, ok, err := c.t.Get(r)
 	if ok && err == nil {
-		v, _ = s.(string)
+		if v, ok = s.(string); !ok {
+			return "", errValNotString
+		}
+	} else {
+		return "", err // may be nil
 	}
 	return
 }
 
 func (c *iptree) GetAny(cidr string) (rv string, err error) {
-	r := ip2cidr(cidr)
+	r, err := ip2cidr(cidr)
+	if err != nil {
+		return "", err
+	}
 
 	c.RLock()
 	defer c.RUnlock()
@@ -212,7 +239,10 @@ func (c *iptree) GetAny(cidr string) (rv string, err error) {
 }
 
 func (c *iptree) GetAll(cidr string) (rv string, errs error) {
-	r := ip2cidr(cidr)
+	r, err := ip2cidr(cidr)
+	if err != nil {
+		return "", err
+	}
 
 	c.RLock()
 	defer c.RUnlock()
@@ -234,7 +264,10 @@ func (c *iptree) GetAll(cidr string) (rv string, errs error) {
 }
 
 func (c *iptree) Routes(cidr string) string {
-	r := ip2cidr(cidr)
+	r, err := ip2cidr(cidr)
+	if err != nil {
+		return ""
+	}
 
 	c.RLock()
 	defer c.RUnlock()
@@ -250,7 +283,10 @@ func (c *iptree) Routes(cidr string) string {
 }
 
 func (c *iptree) Values(cidr string) string {
-	r := ip2cidr(cidr)
+	r, err := ip2cidr(cidr)
+	if err != nil {
+		return ""
+	}
 
 	c.RLock()
 	defer c.RUnlock()
@@ -303,7 +339,10 @@ func (c *iptree) EscLike(cidr, like string) int32 {
 }
 
 func (c *iptree) RoutesLike(cidr, like string) string {
-	r := ip2cidr(cidr)
+	r, err := ip2cidr(cidr)
+	if err != nil {
+		return ""
+	}
 
 	c.RLock()
 	defer c.RUnlock()
@@ -323,7 +362,10 @@ func (c *iptree) RoutesLike(cidr, like string) string {
 }
 
 func (c *iptree) ValuesLike(cidr, like string) string {
-	r := ip2cidr(cidr)
+	r, err := ip2cidr(cidr)
+	if err != nil {
+		return ""
+	}
 
 	c.RLock()
 	defer c.RUnlock()
@@ -356,15 +398,16 @@ func (c *iptree) Len() int {
 	return c.t.Size()
 }
 
-func ip2cidr(ipOrCidr string) *net.IPNet {
-	if _, ipnet, err := net.ParseCIDR(ipOrCidr); err == nil {
-		return ipnet
-	} else if ipaddr, err := netip.ParseAddr(ipOrCidr); err == nil {
+func ip2cidr(ipOrCidr string) (ipnet *net.IPNet, err error) {
+	var ipaddr netip.Addr
+	if _, ipnet, err = net.ParseCIDR(ipOrCidr); err == nil {
+		return
+	} else if ipaddr, err = netip.ParseAddr(ipOrCidr); err == nil {
 		ip := ipaddr.AsSlice()
 		mask := net.CIDRMask(ipaddr.BitLen(), ipaddr.BitLen())
-		return &net.IPNet{IP: ip, Mask: mask}
+		ipnet = &net.IPNet{IP: ip, Mask: mask}
 	} else {
 		log.W("iptree: ip2cidr: %v", err)
 	}
-	return nil
+	return
 }
