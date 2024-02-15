@@ -300,8 +300,8 @@ func (h *tcpHandler) CloseConns(cids []string) []string {
 
 // Proxy implements netstack.GTCPConnHandler
 func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target *net.TCPAddr) (open bool) {
-	allow := true
-	deny := false
+	const allow bool = true
+	const deny bool = !allow
 	if h.status == TCPEND {
 		log.D("tcp: proxy: end")
 		return deny
@@ -313,7 +313,8 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target *net.TCPAddr) (
 
 	if src == nil || target == nil {
 		log.E("tcp: nil addr %v -> %v", src, target)
-		return gconn.Connect(rst) // fin
+		gconn.Connect(rst) // fin
+		return deny
 	}
 
 	// alg happens after nat64, and so, alg knows nat-ed ips
@@ -352,12 +353,13 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target *net.TCPAddr) (
 		}
 		log.I("tcp: gconn %s firewalled from %s -> %s (dom: %s + %s/ real: %s) for %s; stall? %ds", cid, src, target, domains, probableDomains, realips, uid, secs)
 		err = errTcpFirewalled
-		return gconn.Connect(rst) // fin
+		gconn.Connect(rst) // fin
+		return deny
 	}
 
 	// handshake
-	if open = gconn.Connect(ack); !open {
-		err = fmt.Errorf("tcp: %s no route %s -> %s for %s", cid, src, target, uid)
+	if open, err = gconn.Connect(ack); !open {
+		err = fmt.Errorf("tcp: %s connect err %v; %s -> %s for %s", cid, err, src, target, uid)
 		log.E("%v", err)
 		return deny // == !open
 	}
