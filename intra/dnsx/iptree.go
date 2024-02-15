@@ -321,7 +321,7 @@ func (c *iptree) EscLike(cidr, like string) int32 {
 		cur := make([]string, 0, len(old))
 		n := int32(0)
 		for _, val := range old {
-			if !strings.Contains(val, like) {
+			if !strings.HasPrefix(val, like) {
 				cur = append(cur, val)
 			} else {
 				n++
@@ -351,7 +351,7 @@ func (c *iptree) RoutesLike(cidr, like string) string {
 	c.t.WalkMatch(r, func(k *net.IPNet, v any) bool {
 		if v != nil {
 			if s, ok := v.(string); ok && len(s) > 0 {
-				if strings.Contains(s, like) {
+				if strings.HasPrefix(s, like) {
 					rt = append(rt, k.String())
 				}
 			}
@@ -374,7 +374,7 @@ func (c *iptree) ValuesLike(cidr, like string) string {
 	c.t.WalkMatch(r, func(k *net.IPNet, v any) bool {
 		if v != nil {
 			if s, ok := v.(string); ok && len(s) > 0 {
-				if strings.Contains(s, like) {
+				if strings.HasPrefix(s, like) {
 					vt = append(vt, s)
 				}
 			}
