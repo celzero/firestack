@@ -43,8 +43,10 @@ type IpTree interface {
 	EscLike(cidr, likev string) int32
 	// Returns csv of all routes with any value like v for cidr from trie.
 	RoutesLike(cidr, likev string) string
-	// Returns csv of all values like v for cidr from trie.
+	// Returns csv of all routes with values like v for cidr from trie.
 	ValuesLike(cidr, likev string) string
+	// Returns csv of all values like v for cidr from trie.
+	GetLike(cidr, likev string) string
 	// Returns the longest route for cidr in the trie as "r1@csv(v)|r2@csv(v2)" or "".
 	GetAll(cidr string) (string, error)
 	// Deletes all routes in the trie matching cidr. Returns the number of routes deleted.
@@ -335,6 +337,28 @@ func (c *iptree) EscLike(cidr, like string) int32 {
 		return n
 	} else {
 		return 0 // not found
+	}
+}
+
+func (c *iptree) GetLike(cidr, like string) string {
+	if x, err := c.Get(cidr); err != nil {
+		return "" // error
+	} else if len(x) == 0 {
+		return ""
+	} else if len(like) == 0 || x == like {
+		return x // match all
+	} else if strings.Contains(x, like) {
+		// grab all occurences of v in csv x
+		all := strings.Split(x, Vsep)
+		grab := make([]string, 0, len(all))
+		for _, val := range all {
+			if strings.HasPrefix(val, like) {
+				grab = append(grab, val)
+			}
+		}
+		return strings.Join(grab, Vsep)
+	} else {
+		return "" // not found
 	}
 }
 
