@@ -346,8 +346,7 @@ func (h *udpHandler) OnNewConn(gconn *netstack.GUDPConn, _, dst *net.UDPAddr) {
 		return
 	}
 	// err here may happen for ex when netstack has no route to dst
-	if nerr := gconn.Connect(forward); nerr != nil {
-		err := errors.New(nerr.String())
+	if err := gconn.Connect(forward); err != nil {
 		log.W("udp: on-new-conn: %s failed to connect %s -> %s; err %v", t.ID, gconn.LocalAddr(), dst, err)
 		t.done(err)
 		h.Close(conn)
