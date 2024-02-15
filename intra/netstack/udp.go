@@ -38,7 +38,7 @@ type GUDPConnHandler interface {
 var _ core.UDPConn = (*GUDPConn)(nil)
 
 type GUDPConn struct {
-	*gonet.UDPConn
+	conn  *gonet.UDPConn
 	ep    tcpip.Endpoint
 	src   *net.UDPAddr
 	dst   *net.UDPAddr
@@ -122,10 +122,10 @@ func loop(h GUDPConnHandler, gc *GUDPConn, src, dst *net.UDPAddr) {
 		core.Recycle(bptr)
 	}()
 	for {
-		gc.SetDeadline(time.Now().Add(readDeadline))
+		gc.conn.SetDeadline(time.Now().Add(readDeadline))
 		// addr is gc.RemoteAddr() ie gc.LocalAddr()
 		// github.com/google/gvisor/blob/be6ffa78e/pkg/tcpip/transport/udp/endpoint.go#L298
-		if n, addr, err := gc.ReadFrom(q[:]); err == nil {
+		if n, addr, err := gc.conn.ReadFrom(q[:]); err == nil {
 			// who(10.111.222.3:17711)
 			// dst(l:10.111.222.3:17711 / r:10.111.222.1:53)
 			who, _ := addr.(*net.UDPAddr)
@@ -155,7 +155,7 @@ func (g *GUDPConn) Ready() bool {
 }
 
 func (g *GUDPConn) ok() bool {
-	return g.ep != nil && g.UDPConn != nil
+	return g.ep != nil && g.conn != nil
 }
 
 func (g *GUDPConn) StatefulTeardown() (fin bool) {
@@ -166,11 +166,11 @@ func (g *GUDPConn) StatefulTeardown() (fin bool) {
 	return g.Close() == nil // then fin
 }
 
-func (g *GUDPConn) Connect(fin bool) tcpip.Error {
+func (g *GUDPConn) Connect(fin bool) error {
 	defer g.wg.Done()
 
 	if fin {
-		return &tcpip.ErrHostUnreachable{}
+		return e(&tcpip.ErrHostUnreachable{})
 	}
 
 	wq := new(waiter.Queue)
@@ -178,17 +178,17 @@ func (g *GUDPConn) Connect(fin bool) tcpip.Error {
 	if endpoint, err := g.req.CreateEndpoint(wq); err != nil {
 		// ex: CONNECT endpoint for [fd66:f83a:c650::1]:15753 => [fd66:f83a:c650::3]:53; err(no route to host)
 		log.E("ns.udp.forwarder: CONNECT endpoint for %v => %v; err(%v)", g.src, g.dst, err)
-		return err
+		return e(err)
 	} else {
 		g.ep = endpoint
-		g.UDPConn = gonet.NewUDPConn(g.stack, wq, endpoint)
+		g.conn = gonet.NewUDPConn(g.stack, wq, endpoint)
 	}
 	return nil
 }
 
 func (g *GUDPConn) LocalAddr() (addr net.Addr) {
 	if g.ok() {
-		addr = g.UDPConn.RemoteAddr()
+		addr = g.conn.RemoteAddr()
 	}
 	if addr == nil { // remoteaddr may be nil, even if g.ok()
 		addr = g.src
@@ -198,7 +198,7 @@ func (g *GUDPConn) LocalAddr() (addr net.Addr) {
 
 func (g *GUDPConn) RemoteAddr() (addr net.Addr) {
 	if g.ok() {
-		addr = g.UDPConn.LocalAddr()
+		addr = g.conn.LocalAddr()
 	}
 	if addr == nil { // localaddr may be nil, even if g.ok()
 		addr = g.dst
@@ -226,27 +226,48 @@ func (g *GUDPConn) WriteFrom(data []byte, addr *net.UDPAddr) (int, error) {
 	// 3: status:datagram-connected / {2048=>proto, 17=>transport, {53=>local-port localip 17711=>remote-port remoteip}=>endpoint-id, 1=>bind-nic-id, ip=>bind-addr, 1=>registered-nic-id}
 	// g.ep may be nil: log.V("ns.udp.writeFrom: from(%v) / ep(state %v / info %v / stats %v)", addr, g.ep.State(), g.ep.Info(), g.ep.Stats())
 	log.V("ns.udp.writeFrom: from(%v)", addr)
-	return g.UDPConn.Write(data)
+	return g.conn.Write(data)
 }
 
 func (g *GUDPConn) Write(data []byte) (int, error) {
 	if !g.ok() {
 		return 0, ErrNoEndpoint
 	}
-	return g.UDPConn.Write(data)
+	return g.conn.Write(data)
 }
 
 func (g *GUDPConn) Read(data []byte) (int, error) {
 	if !g.ok() {
 		return 0, ErrNoEndpoint
 	}
-	return g.UDPConn.Read(data)
+	return g.conn.Read(data)
+}
+
+func (g *GUDPConn) SetDeadline(t time.Time) error {
+	if !g.ok() {
+		return ErrNoEndpoint
+	}
+	return g.conn.SetDeadline(t)
+}
+
+func (g *GUDPConn) SetReadDeadline(t time.Time) error {
+	if !g.ok() {
+		return ErrNoEndpoint
+	}
+	return g.conn.SetReadDeadline(t)
+}
+
+func (g *GUDPConn) SetWriteDeadline(t time.Time) error {
+	if !g.ok() {
+		return ErrNoEndpoint
+	}
+	return g.conn.SetWriteDeadline(t)
 }
 
 // Close closes the connection.
 func (g *GUDPConn) Close() error {
 	ep := g.ep
-	c := g.UDPConn
+	c := g.conn
 	if ep != nil {
 		ep.Abort()
 	}
