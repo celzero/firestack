@@ -102,6 +102,9 @@ func (c *radix) HasAny(prefix string) bool {
 }
 
 func (c *radix) Get(k string) (v string) {
+	c.RLock()
+	defer c.RUnlock()
+
 	s, ok := c.t.Get(reversed(k))
 	if ok {
 		v, _ = s.(string)
