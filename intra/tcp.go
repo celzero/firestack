@@ -279,12 +279,21 @@ func (h *tcpHandler) onFlow(localaddr *net.TCPAddr, target *net.TCPAddr, realips
 
 func (h *tcpHandler) End() error {
 	h.status = TCPEND
+	h.CloseConns(nil)
 	return nil
 }
 
+// CloseConns closes conns by cids, or all conns if cids is empty.
 func (h *tcpHandler) CloseConns(cids []string) []string {
 	h.ctmu.Lock()
 	defer h.ctmu.Unlock()
+
+	if len(cids) <= 0 {
+		cids = make([]string, 0, len(h.conntracker))
+		for cid := range h.conntracker {
+			cids = append(cids, cid)
+		}
+	}
 
 	closed := make([]string, 0, len(cids))
 	for _, cid := range cids {

@@ -96,6 +96,7 @@ func (h *icmpHandler) onFlow(source *net.UDPAddr, target *net.UDPAddr, realips, 
 // End implements netstack.GICMPHandler.
 func (h *icmpHandler) End() error {
 	h.status = ICMPEND
+	h.CloseConns(nil)
 	return nil
 }
 

@@ -212,7 +212,7 @@ func (h *udpHandler) fetchUDPInput(conn core.UDPConn, nat *tracker) {
 		}
 
 		// is err recoverable? github.com/miekg/dns/blob/f8a185d39/server.go#L521
-		if neterr, ok := err.(net.Error); ok && neterr.Temporary() && !neterr.Timeout() {
+		if neterr, ok := err.(net.Error); ok && neterr.Timeout() {
 			nat.errcount += 1
 			log.I("udp: ingress: %s [%s] temp err#%d(%v)", nat.ID, logaddr, nat.errcount, err)
 			continue
@@ -256,7 +256,7 @@ func (h *udpHandler) dnsOverride(conn core.UDPConn, addr *net.UDPAddr, query []b
 	if !h.isDns(addr) {
 		return false
 	}
-	// conn was only used for this DNS query, so it's unlikely to be used again.
+	// conn perhaps used for this dns query, unlikely to be used again.
 	defer h.Close(conn)
 
 	resp, err := h.resolver.Forward(query)
@@ -450,34 +450,20 @@ func (h *udpHandler) Connect(src core.UDPConn, target *net.UDPAddr) (nat *tracke
 		return nat, errUdpSetupConn // disconnect
 	}
 
-	go h.fetchUDPInput(src, nat)
-
 	log.I("udp: connect: %s (proxy? %s@%s) %v -> %v for uid %s", nat.ID, px.ID(), px.GetAddr(), dst.LocalAddr(), target, nat.UID)
 
 	return nat, nil // connect
 }
 
-// HandleData implements netstack.GUDPConnHandler
-func (h *udpHandler) HandleData(src *netstack.GUDPConn, data []byte, addr net.Addr) error {
-	if h.status == UDPEND {
-		log.D("udp: handle-data: end")
-		return errUdpEnd
-	}
-	dst, err := udpAddrFrom(addr)
-	if err != nil {
-		log.E("udp: handle-data: failed to parse dst(%s); err(%v)", addr, err)
-		return err
-	}
-	return h.ReceiveTo(src, data, dst)
-}
-
 func (h *udpHandler) End() error {
 	h.status = UDPEND
+	h.CloseConns(nil)
 	return nil
 }
 
 // ReceiveTo is called when data arrives from conn (tun).
 func (h *udpHandler) ReceiveTo(conn core.UDPConn, data []byte, addr *net.UDPAddr) (err error) {
+	var next error = nil // ok to recv next packet
 	nsladdr := conn.LocalAddr()
 	nsraddr := conn.RemoteAddr()
 	raddr := addr
@@ -525,14 +511,14 @@ func (h *udpHandler) ReceiveTo(conn core.UDPConn, data []byte, addr *net.UDPAddr
 
 	// is err recoverable?
 	// ref: github.com/miekg/dns/blob/f8a185d39/server.go#L521
-	if neterr, ok := err.(net.Error); ok && neterr.Temporary() {
+	if neterr, ok := err.(net.Error); ok && neterr.Timeout() {
 		nat.errcount += 1
 		if !nat.ok() {
 			log.W("udp: egress: %s too many errors(%d) for conn(l:%v -> r:%v [%v]) for uid %s", nat.ID, nat.errcount, nsladdr, raddr, nsraddr, nat.UID)
 			return err
 		} else {
 			log.W("udp: egress: %s temporary error(%v) for conn(l:%v -> r:%v [%v]) for uid %s", nat.ID, err, nsladdr, raddr, nsraddr, nat.UID)
-			return nil
+			return next
 		}
 	} else if err != nil {
 		log.I("udp: egress: %s end splice (%v -> %v [%v]), forward udp for uid %s w err(%v)", nat.ID, conn.LocalAddr(), raddr, nsraddr, nat.UID, err)
@@ -542,12 +528,20 @@ func (h *udpHandler) ReceiveTo(conn core.UDPConn, data []byte, addr *net.UDPAddr
 	}
 
 	log.I("udp: egress: %s conn(%v -> %v [%v]) / data(%d) for uid %s", nat.ID, nsladdr, raddr, nsraddr, len(data), nat.UID)
-	return nil
+	return next
 }
 
+// CloseConns closes conns by cids, or all conns if cids is empty.
 func (h *udpHandler) CloseConns(cids []string) []string {
 	h.RLock()
 	defer h.RUnlock()
+
+	if len(cids) <= 0 {
+		cids = make([]string, 0, len(h.conntracker))
+		for cid := range h.conntracker {
+			cids = append(cids, cid)
+		}
+	}
 
 	closed := make([]string, 0, len(cids))
 	for _, cid := range cids {
