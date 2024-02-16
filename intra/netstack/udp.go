@@ -92,59 +92,8 @@ func NewUDPForwarder(s *stack.Stack, h GUDPConnHandler) *udp.Forwarder {
 
 		gc := MakeGUDPConn(s, request, src, dst)
 
-		h.OnNewConn(gc, src, dst)
-
-		// TODO: on stack.close, mop these goroutines up; just too many of them
-		// hanging around with failing dns queries (esp with happy-eyeballs)
-		if gc.ok() {
-			go loop(h, gc, src, dst)
-		} // else: connection refused / failed
+		h.Proxy(gc, src, dst)
 	})
-}
-
-func loop(h GUDPConnHandler, gc *GUDPConn, src, dst *net.UDPAddr) {
-	log.V("ns.udp.forwarder: NEW src(%v) => dst(%v)", src, dst)
-
-	// assign a big enough buffer since netstack does assemble fragmented packets
-	// which could go as big as max-packet-size (65K?)
-	// also: github.com/cloudflare/slirpnetstack/blob/41e49c3294/proxy.go#L73
-	// and: github.com/cloudflare/slirpnetstack/blob/41e49c3294/proxy.go#L114
-	// max: github.com/google/gvisor/blob/be6ffa78/pkg/tcpip/transport/udp/protocol.go#L43
-	// though, we never expect to exceed mtu, so we can use a smaller buffer?
-	// TODO: MTU
-	bptr := core.Alloc()
-	q := *bptr
-	q = q[:cap(q)]
-	defer func() {
-		*bptr = q
-		core.Recycle(bptr)
-	}()
-	for {
-		gc.conn.SetDeadline(time.Now().Add(readDeadline))
-		// addr is gc.RemoteAddr() ie gc.LocalAddr()
-		// github.com/google/gvisor/blob/be6ffa78e/pkg/tcpip/transport/udp/endpoint.go#L298
-		if n, addr, err := gc.conn.ReadFrom(q[:]); err == nil {
-			// who(10.111.222.3:17711)
-			// dst(l:10.111.222.3:17711 / r:10.111.222.1:53)
-			who, _ := addr.(*net.UDPAddr)
-			l := gc.LocalAddr()
-			r := gc.RemoteAddr()
-			if who != nil && (who.String() != l.String()) {
-				log.W("ns.udp.forwarder: MISMATCH expected-src(%v) => actual(l:%v)", who, l)
-			}
-
-			log.V("ns.udp.forwarder: DATA src(%v) => dst(l:%v / r:%v)", who, l, r)
-			if errh := h.HandleData(gc, q[:n], r); errh != nil {
-				gc.Close()
-				break
-			}
-		} else {
-			// TODO: handle temporary errors?
-			log.D("ns.udp.forwarder: DONE err(%v)", err)
-			// leave gc open?
-			break
-		}
-	}
 }
 
 func (g *GUDPConn) Ready() bool {

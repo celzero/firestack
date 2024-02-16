@@ -154,8 +154,63 @@ func pc2str(conn core.UDPConn, c net.PacketConn, nat *tracker) string {
 	return fmt.Sprintf("pc(l:%v [%v] <- r:%v [ / n:%v])", laddr, nsladdr, nsraddr, nat.ip)
 }
 
-// fetchUDPInput reads from nat.dst to masqurade-write it to core.UDPConn
-func (h *udpHandler) fetchUDPInput(conn core.UDPConn, nat *tracker) {
+func (h *udpHandler) upload(c core.UDPConn, src, dst *net.UDPAddr) {
+	log.V("udp: upload: NEW src(%v) => dst(%v)", src, dst)
+
+	// assign a big enough buffer since netstack does assemble fragmented packets
+	// which could go as big as max-packet-size (65K?)
+	// also: github.com/cloudflare/slirpnetstack/blob/41e49c3294/proxy.go#L73
+	// and: github.com/cloudflare/slirpnetstack/blob/41e49c3294/proxy.go#L114
+	// max: github.com/google/gvisor/blob/be6ffa78/pkg/tcpip/transport/udp/protocol.go#L43
+	// though, we never expect to exceed mtu, so we can use a smaller buffer?
+	// TODO: MTU
+	bptr := core.Alloc()
+	q := *bptr
+	q = q[:cap(q)]
+	defer func() {
+		*bptr = q
+		core.Recycle(bptr)
+	}()
+	for {
+		if h.status == UDPEND {
+			log.D("udp: handle-data: end")
+			return
+		}
+		c.SetDeadline(time.Now().Add(udptimeout))
+		// for ReadFrom; addr is gc.RemoteAddr() ie gc.LocalAddr()
+		// github.com/google/gvisor/blob/be6ffa78e/pkg/tcpip/transport/udp/endpoint.go#L298
+		if n, err := c.Read(q[:]); err == nil {
+			// if using ReadFrom: who(10.111.222.3:17711)
+			// who, _ := addr.(*net.UDPAddr)
+			// dst(l:10.111.222.3:17711 / r:10.111.222.1:53)
+			l := c.LocalAddr()
+			r := c.RemoteAddr()
+			// if who != nil && (who.String() != l.String())
+			//	log.W("ns.udp.forwarder: MISMATCH expected-src(%v) => actual(l:%v)", who, l)
+
+			log.V("ns.udp.forwarder: DATA src(%v) => dst(l:%v / r:%v)", l, r)
+
+			dst, err := udpAddrFrom(r)
+			if err != nil {
+				log.E("udp: handle-data: failed to parse dst(%s); err(%v)", dst, err)
+				return
+			}
+
+			if errh := h.ReceiveTo(c, q[:n], dst); errh != nil {
+				c.Close()
+				break
+			}
+		} else {
+			// TODO: handle temporary errors?
+			log.D("ns.udp.forwarder: DONE err(%v)", err)
+			// leave gc open?
+			break
+		}
+	}
+}
+
+// download reads from nat.dst to masqurade-write it to core.UDPConn (tun)
+func (h *udpHandler) download(conn core.UDPConn, nat *tracker) {
 	defer func() {
 		h.Close(conn)
 	}()
@@ -321,8 +376,8 @@ func (h *udpHandler) onFlow(localudp core.UDPConn, target *net.UDPAddr, realips,
 	return res
 }
 
-// OnNewConn implements netstack.GUDPConnHandler
-func (h *udpHandler) OnNewConn(gconn *netstack.GUDPConn, _, dst *net.UDPAddr) {
+// Proxy implements netstack.GUDPConnHandler
+func (h *udpHandler) Proxy(gconn *netstack.GUDPConn, src, dst *net.UDPAddr) {
 	finish := true   // disconnect
 	forward := false // connect
 
@@ -351,7 +406,10 @@ func (h *udpHandler) OnNewConn(gconn *netstack.GUDPConn, _, dst *net.UDPAddr) {
 		t.done(err)
 		h.Close(conn)
 		return
-	}
+	} else {
+		go h.download(conn, t)
+		go h.upload(conn, src, dst)
+	} // else: connection refused / failed
 }
 
 // Connect connects the proxy server.
