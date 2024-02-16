@@ -225,12 +225,15 @@ func (h *tcpHandler) sendNotif(summary *SocketSummary) {
 	}
 }
 
-func (h *tcpHandler) dnsOverride(conn net.Conn, addr *net.TCPAddr) bool {
+func (h *tcpHandler) dnsOverride(conn net.Conn, addr *net.TCPAddr, s *SocketSummary) bool {
 	// addr with zone information removed; see: netip.ParseAddrPort which h.resolver relies on
 	// addr2 := &net.TCPAddr{IP: addr.IP, Port: addr.Port}
 	if h.resolver.IsDnsAddr(addr.String()) {
 		// conn closed by the resolver
 		h.resolver.Serve(conn)
+		// note: listener called before conn has been served
+		s.done(nil)
+		go h.sendNotif(s)
 		return true
 	}
 	return false
@@ -370,7 +373,7 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target *net.TCPAddr) (
 	}
 
 	if pid != ipn.Exit { // see udp.go Connect
-		if h.dnsOverride(gconn, target) {
+		if h.dnsOverride(gconn, target, s) {
 			return allow
 		} // else not a dns request
 	} // if ipn.Exit then let it connect as-is (aka exit)
