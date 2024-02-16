@@ -22,16 +22,14 @@ import (
 	"gvisor.dev/gvisor/pkg/waiter"
 )
 
-const readDeadline = 30 * time.Second // FIXME: Udp.Timeout
-
-var (
-	ErrNoEndpoint = errors.New("udp not connected to any endpoint")
-)
+var errMissingEp = errors.New("udp not connected to any endpoint")
 
 type GUDPConnHandler interface {
-	OnNewConn(conn *GUDPConn, src, dst *net.UDPAddr)
-	HandleData(conn *GUDPConn, data []byte, addr net.Addr) error
+	// Proxy proxies data between conn (src) and dst.
+	Proxy(conn *GUDPConn, src, dst *net.UDPAddr)
+	// CloseConns closes conns by ids, or all if ids is empty.
 	CloseConns([]string) []string
+	// End closes the handler and all its connections.
 	End() error
 }
 
@@ -218,7 +216,7 @@ func (g *GUDPConn) ReceiveTo(_ []byte, addr *net.UDPAddr) error {
 // UDP packets that output to TUN.
 func (g *GUDPConn) WriteFrom(data []byte, addr *net.UDPAddr) (int, error) {
 	if !g.ok() {
-		return 0, ErrNoEndpoint
+		return 0, errMissingEp
 	}
 	// nb: write-deadlines set by intra.udp
 	// addr: 10.111.222.3:17711; g.LocalAddr(g.udp.remote): 10.111.222.3:17711; g.RemoteAddr(g.udp.local): 10.111.222.1:53
@@ -231,35 +229,35 @@ func (g *GUDPConn) WriteFrom(data []byte, addr *net.UDPAddr) (int, error) {
 
 func (g *GUDPConn) Write(data []byte) (int, error) {
 	if !g.ok() {
-		return 0, ErrNoEndpoint
+		return 0, errMissingEp
 	}
 	return g.conn.Write(data)
 }
 
 func (g *GUDPConn) Read(data []byte) (int, error) {
 	if !g.ok() {
-		return 0, ErrNoEndpoint
+		return 0, errMissingEp
 	}
 	return g.conn.Read(data)
 }
 
 func (g *GUDPConn) SetDeadline(t time.Time) error {
 	if !g.ok() {
-		return ErrNoEndpoint
+		return errMissingEp
 	}
 	return g.conn.SetDeadline(t)
 }
 
 func (g *GUDPConn) SetReadDeadline(t time.Time) error {
 	if !g.ok() {
-		return ErrNoEndpoint
+		return errMissingEp
 	}
 	return g.conn.SetReadDeadline(t)
 }
 
 func (g *GUDPConn) SetWriteDeadline(t time.Time) error {
 	if !g.ok() {
-		return ErrNoEndpoint
+		return errMissingEp
 	}
 	return g.conn.SetWriteDeadline(t)
 }
