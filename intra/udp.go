@@ -629,12 +629,10 @@ func (h *udpHandler) sendNotif(s *SocketSummary) {
 	ok0 := h.status != UDPEND
 	ok1 := l != nil
 	ok2 := len(s.ID) > 0
-	if ok0 && ok1 && ok2 {
-		log.V("udp: %s sendNotif(true): %s", s.ID, s.str())
+	log.V("udp: end? %t sendNotif(%t,%t): %s", ok0, ok1, ok2, s.str())
+	if ok1 && ok2 {
 		l.OnSocketClosed(s) // s.Duration may be uninitialized (zero)
 		return
-	} else {
-		log.V("udp: %s sendNotif(%t, %t, %t): no listener", s.ID, ok0, ok1, ok2)
 	}
 }
 

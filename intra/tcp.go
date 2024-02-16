@@ -208,20 +208,22 @@ func (h *tcpHandler) forward(local net.Conn, remote net.Conn, summary *SocketSum
 }
 
 // must always be called from a goroutine
-func (h *tcpHandler) sendNotif(summary *SocketSummary) {
+func (h *tcpHandler) sendNotif(s *SocketSummary) {
+	if s == nil { // unlikely
+		return
+	}
 	// sleep a bit to avoid scenario where kotlin-land
 	// hasn't yet had the chance to persist info about
 	// this conn (cid) to meaninfully process its summary
 	time.Sleep(1 * time.Second)
-	l := h.listener
 
+	l := h.listener
 	ok0 := h.status != TCPEND
 	ok1 := l != nil
-	ok2 := summary != nil
-	ok3 := len(summary.ID) > 0
-	log.V("tcp: sendNotif(%t,%t,%t,%t): %s", ok0, ok1, ok2, ok3, summary.str())
-	if ok0 && ok1 && ok2 && ok3 {
-		l.OnSocketClosed(summary)
+	ok2 := len(s.ID) > 0
+	log.V("tcp: end? %t sendNotif(%t,%t): %s", ok0, ok1, ok2, s.str())
+	if ok1 && ok2 {
+		l.OnSocketClosed(s)
 	}
 }
 
