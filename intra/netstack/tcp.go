@@ -24,8 +24,11 @@ const rcvwnd = 0
 const maxInFlight = 128
 
 type GTCPConnHandler interface {
+	// Proxy copies data between src and dst.
 	Proxy(conn *GTCPConn, src, dst *net.TCPAddr) bool
+	// CloseConns closes conns by cids, or all conns if cids is empty.
 	CloseConns([]string) []string
+	// End closes all conns and releases resources.
 	End() error
 }
 
