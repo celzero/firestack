@@ -165,25 +165,24 @@ func (h *udpHandler) Proxy(gconn *netstack.GUDPConn, src, dst *net.UDPAddr) {
 	}
 
 	l := h.listener
-	var local core.UDPConn = gconn            // typecast here so h.track/h.probe work
-	remote, smm, err := h.Connect(local, dst) // dst may be nil; smm is never nil
+	remote, smm, err := h.Connect(gconn, dst) // remote may be nil; smm is never nil
 
 	if err != nil || remote == nil {
 		gconn.Connect(fin)
-		clos(local, remote)
+		clos(remote)
 		if smm != nil { // smm is never nil; but nilaway complains
 			smm.done(err)
 			go sendNotif(l, smm)
 		} else {
-			log.W("udp: on-new-conn: unexpected nil tracker %s -> %s; err %v", gconn.LocalAddr(), dst, err)
+			log.W("udp: on-new-conn: unexpected nil tracker %s -> %s; err %v", src, dst, err)
 		}
 		return
 	}
 
 	// err here may happen for ex when netstack has no route to dst
 	if err := gconn.Connect(ack); err != nil {
-		log.W("udp: on-new-conn: %s failed to connect %s -> %s; err %v", smm.ID, gconn.LocalAddr(), dst, err)
-		clos(local, remote)
+		log.W("udp: on-new-conn: %s failed to connect %s -> %s; err %v", smm.ID, src, dst, err)
+		clos(remote)
 		smm.done(err)
 		go sendNotif(l, smm)
 		return
@@ -197,7 +196,7 @@ func (h *udpHandler) Proxy(gconn *netstack.GUDPConn, src, dst *net.UDPAddr) {
 			}()
 			remote.SetDeadline(time.Now().Add(udptimeout))
 			// TODO: SetDeadline extension needed for reads in forward() / io.Copy?
-			forward(local, remote, cm, l, smm)
+			forward(gconn, remote, cm, l, smm)
 		}()
 	} // else: connection refused / failed
 }
