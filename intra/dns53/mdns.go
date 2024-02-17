@@ -481,10 +481,12 @@ func (c *client) recv(conn *net.UDPConn) {
 		return
 	}
 
-	buf := *core.Alloc()
+	bptr := core.Alloc()
+	buf := *bptr
 	buf = buf[:cap(buf)]
 	defer func() {
-		core.Recycle(&buf)
+		*bptr = buf
+		core.Recycle(bptr)
 	}()
 
 	raddr := conn.RemoteAddr()

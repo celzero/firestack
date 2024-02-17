@@ -224,10 +224,12 @@ type pipefin struct {
 }
 
 func (h *socks5) pipe(r, w net.Conn, finch chan<- pipefin) {
-	bf := *core.Alloc()
+	bptr := core.Alloc()
+	bf := *bptr
 	bf = bf[:cap(bf)]
 	defer func() {
-		core.Recycle(&bf)
+		*bptr = bf
+		core.Recycle(bptr)
 	}()
 	ex := 0
 	laddr := r.LocalAddr()
@@ -393,14 +395,17 @@ func (h *socks5) udphandle(s *tx.Server, addr *net.UDPAddr, pkt *tx.Datagram) (e
 	s.UDPExchanges.Set(src+dst, egress, -1)
 
 	go func(ue *tx.UDPExchange, dst string) {
-		b := *core.Alloc()
+		bptr := core.Alloc()
+		b := *bptr
 		b = b[:cap(b)]
 		defer func() {
 			delete(h.summaries, ue)
 
 			ue.RemoteConn.Close()
 			s.UDPExchanges.Delete(src + dst)
-			core.Recycle(&b)
+
+			*bptr = b
+			core.Recycle(bptr)
 		}()
 
 		ueladdr := ue.RemoteConn.LocalAddr()
@@ -428,7 +433,7 @@ func (h *socks5) udphandle(s *tx.Server, addr *net.UDPAddr, pkt *tx.Datagram) (e
 					log.E("svcsocks5: udp: %s; parse-addr err? %v", cid, err)
 					return
 				}
-				d1 := tx.NewDatagram(a, addr, port, b[0:n])
+				d1 := tx.NewDatagram(a, addr, port, b[:n])
 				// writing to ingress
 				if _, err := s.UDPConn.WriteToUDP(d1.Bytes(), ue.ClientAddr); err != nil {
 					log.E("svcsocks5: udp: %s; write err: %v", cid, err)

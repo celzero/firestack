@@ -324,10 +324,12 @@ func (r *retrier) SetDeadline(t time.Time) error {
 func copyOnce(dst io.Writer, src io.Reader) (int64, error) {
 	// A buffer large enough to hold any ordinary first write
 	// without introducing extra splitting.
-	buf := *core.Alloc()
+	bptr := core.Alloc()
+	buf := *bptr
 	buf = buf[:cap(buf)]
 	defer func() {
-		core.Recycle(&buf)
+		*bptr = buf
+		core.Recycle(bptr)
 	}()
 
 	n, err := src.Read(buf)
