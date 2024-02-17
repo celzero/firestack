@@ -107,12 +107,6 @@ func NewUDPHandler(resolver dnsx.Resolver, prox ipn.Proxies, tunMode *settings.T
 	return h
 }
 
-func (h *udpHandler) isDns(addr *net.UDPAddr) bool {
-	// addr with zone information removed; see: netip.ParseAddrPort which h.resolver relies on
-	// addr2 := &net.UDPAddr{IP: addr.IP, Port: addr.Port}
-	return h.resolver.IsDnsAddr(addr.String())
-}
-
 func (h *udpHandler) onFlow(localudp core.UDPConn, target *net.UDPAddr, realips, domains, probableDomains, blocklists string) *Mark {
 	// BlockModeNone returns false, BlockModeSink returns true
 	if h.tunMode.BlockMode == settings.BlockModeSink {
