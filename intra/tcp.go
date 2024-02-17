@@ -155,7 +155,9 @@ func download(cid string, local net.Conn, remote net.Conn) (n int64, err error) 
 	return
 }
 
-func forward(local net.Conn, remote net.Conn, t core.ConnMapper, smm *SocketSummary) {
+// forward copies data between local and remote, and tracks the connection.
+// It also sends a summary to the listener when done. Always called in a goroutine.
+func forward(local net.Conn, remote net.Conn, t core.ConnMapper, l SocketListener, smm *SocketSummary) {
 	cid := smm.ID
 
 	t.Track(cid, local, remote)
@@ -175,10 +177,11 @@ func forward(local net.Conn, remote net.Conn, t core.ConnMapper, smm *SocketSumm
 	smm.Target = remote.RemoteAddr().String()
 
 	smm.done(derr, upload.err)
+	go sendNotif(l, smm)
 }
 
 // must always be called from a goroutine
-func (h *tcpHandler) sendNotif(s *SocketSummary) {
+func sendNotif(l SocketListener, s *SocketSummary) {
 	if s == nil { // unlikely
 		return
 	}
@@ -187,13 +190,11 @@ func (h *tcpHandler) sendNotif(s *SocketSummary) {
 	// this conn (cid) to meaninfully process its summary
 	time.Sleep(1 * time.Second)
 
-	l := h.listener
-	ok0 := h.status != TCPEND
-	ok1 := l != nil
-	ok2 := len(s.ID) > 0
-	log.V("tcp: end? %t sendNotif(%t,%t): %s", ok0, ok1, ok2, s.str())
+	ok1 := l != nil      // likely due to bugs
+	ok2 := len(s.ID) > 0 // likely due to bugs
+	log.V("intra: end? sendNotif(%t,%t): %s", ok1, ok2, s.str())
 	if ok1 && ok2 {
-		l.OnSocketClosed(s)
+		l.OnSocketClosed(s) // s.Duration may be uninitialized (zero)
 	}
 }
 
@@ -302,7 +303,7 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target *net.TCPAddr) (
 		if !open {
 			gconn.Close()
 			s.done(err)
-			go h.sendNotif(s)
+			go sendNotif(h.listener, s)
 		} // else: conn proxied; sendNotif called by h.forward()
 	}()
 
@@ -384,8 +385,14 @@ func (h *tcpHandler) handle(px ipn.Proxy, src net.Conn, target *net.TCPAddr, smm
 	}
 
 	go func() {
-		forward(src, dst, h.conntracker, smm) // src always *gonet.TCPConn
-		h.sendNotif(smm)
+		cm := h.conntracker
+		l := h.listener
+		defer func() {
+			if r := recover(); r != nil {
+				log.W("tcp: forward: panic %v", r)
+			}
+		}()
+		forward(src, dst, cm, l, smm) // src always *gonet.TCPConn
 	}()
 
 	log.I("tcp: new conn %s via proxy(%s); src(%s) -> dst(%s) for %s", smm.ID, px.ID(), src.LocalAddr(), target, smm.UID)

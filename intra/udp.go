@@ -170,6 +170,7 @@ func (h *udpHandler) Proxy(gconn *netstack.GUDPConn, src, dst *net.UDPAddr) {
 		return
 	}
 
+	l := h.listener
 	var local core.UDPConn = gconn            // typecast here so h.track/h.probe work
 	remote, smm, err := h.Connect(local, dst) // dst may be nil; smm is never nil
 
@@ -178,7 +179,7 @@ func (h *udpHandler) Proxy(gconn *netstack.GUDPConn, src, dst *net.UDPAddr) {
 		clos(local, remote)
 		if smm != nil { // smm is never nil; but nilaway complains
 			smm.done(err)
-			go h.sendNotif(smm)
+			go sendNotif(l, smm)
 		} else {
 			log.W("udp: on-new-conn: unexpected nil tracker %s -> %s; err %v", gconn.LocalAddr(), dst, err)
 		}
@@ -190,14 +191,19 @@ func (h *udpHandler) Proxy(gconn *netstack.GUDPConn, src, dst *net.UDPAddr) {
 		log.W("udp: on-new-conn: %s failed to connect %s -> %s; err %v", smm.ID, gconn.LocalAddr(), dst, err)
 		clos(local, remote)
 		smm.done(err)
-		go h.sendNotif(smm)
+		go sendNotif(l, smm)
 		return
 	} else {
 		go func() {
+			cm := h.conntracker
+			defer func() {
+				if r := recover(); r != nil {
+					log.W("udp: forward: panic %v", r)
+				}
+			}()
 			remote.SetDeadline(time.Now().Add(udptimeout))
 			// TODO: SetDeadline extension needed for reads in forward() / io.Copy?
-			forward(local, remote, h.conntracker, smm)
-			h.sendNotif(smm)
+			forward(local, remote, cm, l, smm)
 		}()
 	} // else: connection refused / failed
 }
@@ -306,28 +312,6 @@ func clos(c ...net.Conn) {
 		if x != nil {
 			x.Close()
 		}
-	}
-}
-
-// must always be called as a goroutine
-func (h *udpHandler) sendNotif(s *SocketSummary) {
-	if s == nil { // unlikely
-		log.W("udp: sendNotif: nil summary; no-op")
-		return
-	}
-	// sleep a bit to avoid scenario where kotlin-land
-	// hasn't yet had the chance to persist info about
-	// this conn (cid) to meaninfully process its summary
-	time.Sleep(1 * time.Second)
-
-	l := h.listener
-	ok0 := h.status != UDPEND
-	ok1 := l != nil
-	ok2 := len(s.ID) > 0
-	log.V("udp: end? %t sendNotif(%t,%t): %s", ok0, ok1, ok2, s.str())
-	if ok1 && ok2 {
-		l.OnSocketClosed(s) // s.Duration may be uninitialized (zero)
-		return
 	}
 }
 
