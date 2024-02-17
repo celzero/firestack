@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
 	"github.com/celzero/firestack/intra/settings"
@@ -138,7 +139,7 @@ type Resolver interface {
 	// Forward performs resolution on any DNS transport
 	Forward(q []byte) ([]byte, error)
 	// Serve reads DNS query from conn and writes DNS answer to conn
-	Serve(conn Conn)
+	Serve(proto string, conn Conn)
 }
 
 type resolver struct {
@@ -348,7 +349,7 @@ func (r *resolver) forward(q []byte, chosenids ...string) (res0 []byte, err0 err
 
 	msg, err := unpack(q)
 	if err != nil {
-		log.W("dns: udp: not a dns packet %v", err)
+		log.W("dns: fwd: not a dns packet %v", err)
 		summary.Latency = time.Since(starttime).Seconds()
 		summary.Status = BadQuery
 		return nil, err
@@ -370,7 +371,7 @@ func (r *resolver) forward(q []byte, chosenids ...string) (res0 []byte, err0 err
 	id, sid, pid, _ := r.preferencesFrom(qname, pref, chosenids...)
 	t := r.determineTransport(id)
 
-	log.V("dns: udp: query %s [prefs:%v]; id? %s, sid? %s, pid? %s", qname, pref, id, sid, pid)
+	log.V("dns: fwd: query %s [prefs:%v]; id? %s, sid? %s, pid? %s", qname, pref, id, sid, pid)
 
 	if t == nil {
 		summary.Latency = time.Since(starttime).Seconds()
@@ -392,10 +393,10 @@ func (r *resolver) forward(q []byte, chosenids ...string) (res0 []byte, err0 err
 		summary.Status = Complete
 		summary.Blocklists = blocklists
 		summary.RData = xdns.GetInterestingRData(res1)
-		log.V("dns: udp: query blocked %s by %s", qname, blocklists)
+		log.V("dns: fwd: query blocked %s by %s", qname, blocklists)
 		return b, e
 	} else {
-		log.V("dns: udp: query NOT blocked %s; why? %v", qname, err)
+		log.V("dns: fwd: query NOT blocked %s; why? %v", qname, err)
 	}
 
 	summary.Type = t.Type()
@@ -409,7 +410,7 @@ func (r *resolver) forward(q []byte, chosenids ...string) (res0 []byte, err0 err
 
 	algerr := isAlgErr(err) // not set when gw.translate is off
 	if algerr {
-		log.W("dns: udp: alg error %s for %s", err, qname)
+		log.W("dns: fwd: alg error %s for %s", err, qname)
 	}
 	// in the case of an alg transport, if there's no-alg,
 	// err is set which should be ignored if res2 is not nil
@@ -429,7 +430,11 @@ func (r *resolver) forward(q []byte, chosenids ...string) (res0 []byte, err0 err
 	if isnewans {
 		// overwrite if new answer
 		ans1 = ans2
-		res2, _ = ans2.Pack()
+		res2, err = ans2.Pack()
+		if err != nil {
+			summary.Status = BadResponse
+			return res2, err
+		}
 		// summary latency, response, status, ips also set by transport t
 		summary.RData = xdns.GetInterestingRData(ans2)
 		summary.RCode = xdns.Rcode(ans2)
@@ -442,13 +447,20 @@ func (r *resolver) forward(q []byte, chosenids ...string) (res0 []byte, err0 err
 	}
 	ansblocked := xdns.AQuadAUnspecified(ans1)
 
-	log.V("dns: udp: query %s; new-ans? %t, blocklists? %t, blocked? %t", qname, isnewans, hasblocklists, ansblocked)
+	log.V("dns: fwd: query %s; new-ans? %t, blocklists? %t, blocked? %t", qname, isnewans, hasblocklists, ansblocked)
 
 	return res2, nil
 }
 
-func (r *resolver) Serve(c Conn) {
-	r.accept(c)
+func (r *resolver) Serve(proto string, c Conn) {
+	switch proto {
+	case NetTypeTCP:
+		r.accept(c)
+	case NetTypeUDP:
+		r.reply(c)
+	default:
+		log.W("dns: unknown proto: %s", proto)
+	}
 }
 
 func (r *resolver) determineTransport(id string) Transport {
@@ -503,144 +515,79 @@ func (r *resolver) determineTransport(id string) Transport {
 	return nil
 }
 
-// Perform a query using the transport, and send the response to the writer.
-func (r *resolver) forwardQuery(q []byte, c io.Writer) (err0 error) {
-	starttime := time.Now()
-	summary := &Summary{
-		QName:  invalidQname,
-		Status: Start,
-	}
-	// always call up to the listener
-	defer func() {
-		if err0 != nil {
-			summary.Msg = err0.Error()
-		} else {
-			summary.Msg = noerr.Error()
-		}
-		go r.listener.OnResponse(summary)
-	}()
+// dnstcp queries the transport and writes answers to w, prefixed by length.
+func (r *resolver) dnstcp(q []byte, w io.WriteCloser) error {
+	ans, err := r.forward(q)
 
-	msg, err := unpack(q)
-	if err != nil {
-		log.W("dns: tcp: not a valid packet %v", err)
-		summary.Latency = time.Since(starttime).Seconds()
-		summary.Status = BadQuery
+	rlen := len(ans)
+	if rlen <= 0 && err != nil {
+		w.Close() // close on client err
 		return err
 	}
 
-	// figure out transport to use
-	qname := qname(msg)
-	qtyp := qtype(msg)
-	summary.QName = qname
-	summary.QType = qtyp
-
-	if len(qname) <= 0 {
-		summary.Latency = time.Since(starttime).Seconds()
-		summary.Status = BadQuery
-		return errMissingQueryName
-	}
-
-	pref := r.listener.OnQuery(qname, qtyp)
-	id, sid, pid, _ := r.preferencesFrom(qname, pref)
-	t := r.determineTransport(id)
-
-	log.V("dns: tcp: query %s [prefs:%v]; id? %s, sid? %s, pid? %s", qname, pref, id, sid, pid)
-
-	if t == nil {
-		summary.Latency = time.Since(starttime).Seconds()
-		summary.Status = TransportError
-		return errNoSuchTransport
-	}
-	var t2 Transport = nil
-	if len(sid) > 0 {
-		t2 = r.determineTransport(sid)
-	}
-
-	gw := r.Gateway()
-
-	// block query if needed (skipped for alg/block-free)
-	res1, blocklists, err := r.blockQ(t, t2, msg)
-	if err == nil {
-		b, e := res1.Pack()
-		summary.Latency = time.Since(starttime).Seconds()
-		summary.Status = Complete
-		summary.Blocklists = blocklists
-		summary.RData = xdns.GetInterestingRData(res1)
-		writeto(c, b, len(b))
-		log.V("dns: tcp: query blocked %s by %s", qname, blocklists)
-		return e
-	} else {
-		log.V("dns: tcp: query NOT blocked %s; why? %v", qname, err)
-	}
-
-	summary.Type = t.Type()
-	summary.ID = t.ID()
-	var res2 []byte
-	netid := xdns.NetAndProxyID(NetTypeTCP, pid)
-
-	// with t2 as secondary transport, which may be nil
-	res2, err = gw.q(t, t2, netid, q, summary)
-
-	algerr := isAlgErr(err) // not set when gw.translate is off
-	if algerr {
-		log.W("dns: tcp: alg error %s for %s", err, qname)
-	}
-	// in the case of an alg transport, if there's no-alg,
-	// err is set which should be ignored if res2 is not nil
-	if err != nil && !algerr {
-		// summary latency, ips, response, status already set by transport t
+	if n, err := writePrefixed(w, ans, rlen); err != nil {
+		w.Close() // close on write back err
 		return err
+	} else if n != rlen {
+		// do not close on incomplete writes
+		return fmt.Errorf("dns: tcp: incomplete write: n(%d) != r(%d)", n, rlen)
 	}
-	ans1, qerr := unpack(res2)
-	if qerr != nil {
-		summary.Status = BadResponse
-		return qerr
-	}
-
-	ans2, blocklistnames := r.blockA(t, t2, msg, ans1, summary.Blocklists)
-
-	isnewans := ans2 != nil
-	if isnewans {
-		// overwrite if new answer
-		ans1 = ans2
-		res2, qerr = ans2.Pack()
-		if qerr != nil {
-			summary.Status = BadResponse
-			return qerr
-		}
-		// summary latency, response, status, ips also set by transport t
-		summary.RData = xdns.GetInterestingRData(ans2)
-		summary.RCode = xdns.Rcode(ans2)
-		summary.RTtl = xdns.RTtl(ans2)
-		summary.Status = Complete
-	}
-	hasblocklists := len(blocklistnames) > 0
-	if hasblocklists {
-		summary.Blocklists = blocklistnames
-	}
-	ansblocked := xdns.AQuadAUnspecified(ans1)
-
-	log.V("dns: tcp: query %s; new-ans? %t, blocklists? %t, blocked? %t", qname, isnewans, hasblocklists, ansblocked)
-
-	rlen := len(res2)
-	n, err := writeto(c, res2, rlen)
-	if err != nil {
-		summary.Status = InternalError
-		return err
-	}
-	if n != rlen {
-		summary.Status = InternalError
-		return fmt.Errorf("dns: incomplete write: n(%d) != r(%d)", n, rlen)
-	}
-	return qerr
+	return nil // ok
 }
 
-// Perform a query using the transport, send the response to the writer,
-// and close the writer if there was an error.
-func (r *resolver) forwardQueryAndCheck(q []byte, c io.WriteCloser) {
-	if err := r.forwardQuery(q, c); err != nil {
-		log.W("dns: query forwarding err: %v", err)
-		c.Close()
+// dnsudp queries the transport and writes answers to w.
+func (r *resolver) dnsudp(q []byte, w io.WriteCloser) error {
+	ans, err := r.forward(q)
+
+	rlen := len(ans)
+	if rlen <= 0 && err != nil {
+		w.Close() // close on client err
+		return err
+	}
+
+	if n, err := w.Write(ans); err != nil {
+		w.Close() // close on write back err
+		return err
+	} else if n != rlen {
+		// do not close on incomplete writes
+		return fmt.Errorf("dns: udp: incomplete write: n(%d) != r(%d)", n, rlen)
+	}
+
+	return nil // ok
+}
+
+// reply DNS-over-UDP from a stub resolver.
+func (r *resolver) reply(c io.ReadWriteCloser) {
+	defer c.Close()
+
+	for {
+		qptr := core.Alloc()
+		q := *qptr
+		q = q[:cap(q)]
+		free := func() {
+			*qptr = q
+			core.Recycle(qptr)
+		}
+
+		switch x := c.(type) {
+		case core.UDPConn:
+			tm := time.Now().Add(ttl2m)
+			_ = x.SetDeadline(tm)
+		}
+
+		n, err := c.Read(q)
+
+		do := func() {
+			_ = r.dnsudp(q[:n], c)
+			free()
+		}
+
+		if err != nil {
+			log.W("dns: udp: err reading query: %v", err)
+			free()
+			break
+		}
+		go do()
 	}
 }
 
@@ -658,38 +605,62 @@ func (r *resolver) accept(c io.ReadWriteCloser) {
 		}
 		if err != nil {
 			log.W("dns: tcp: err reading from socket: %v", err)
-			break
+			break // close on read errs
 		}
 		// TODO: inform the listener?
 		if n < 2 {
 			log.W("dns: tcp: incomplete query length")
-			break
+			break // close on incorrect lengths
 		}
 		qlen := binary.BigEndian.Uint16(qlbuf)
-		q := make([]byte, qlen)
+
+		qptr := core.AllocRegion(int(qlen))
+		q := *qptr
+		q = q[:cap(q)]
+		free := func() {
+			*qptr = q
+			core.Recycle(qptr)
+		}
+
 		n, err = c.Read(q)
 		if err != nil {
 			log.W("dns: tcp: err reading query: %v", err)
-			break
+			free()
+			break // close on read errs
 		}
+		do := func() {
+			_ = r.dnstcp(q[:n], c)
+			free()
+		}
+
 		if n != int(qlen) {
 			log.W("dns: tcp: incomplete query: %d < %d", n, qlen)
-			break
+			free()
+			break // close on incomplete reads
 		}
-		go r.forwardQueryAndCheck(q, c)
+		go do()
 	}
 	// TODO: Cancel outstanding queries.
 }
 
-func writeto(w io.Writer, b []byte, l int) (int, error) {
-	prependsz := 2
-	rlbuf := make([]byte, l+prependsz)
-	binary.BigEndian.PutUint16(rlbuf, uint16(l))
-	copy(rlbuf[prependsz:], b)
-	// Use a combined write to ensure atomicity.
+func writePrefixed(w io.Writer, b []byte, l int) (int, error) {
+	const pre = 2
+	sz := l + pre
+	bptr := core.AllocRegion(sz)
+	buf := *bptr
+	buf = buf[:cap(buf)]
+
+	defer func() {
+		*bptr = buf
+		core.Recycle(bptr)
+	}()
+
+	binary.BigEndian.PutUint16(buf, uint16(l))
+	// Use a combined write (pre+b) to ensure atomicity.
 	// Otherwise, writes from two responses could be interleaved.
-	n, err := w.Write(rlbuf)
-	return max(0, n-prependsz), err
+	copy(buf[pre:], b)
+	n, err := w.Write(buf[:sz])
+	return max(0, n-pre), err
 }
 
 func (r *resolver) Start() (string, error) {

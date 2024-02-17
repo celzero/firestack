@@ -33,7 +33,6 @@ import (
 	"net"
 	"net/netip"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/celzero/firestack/intra/dnsx"
@@ -61,8 +60,7 @@ type tcpHandler struct {
 	prox        ipn.Proxies
 	fwtracker   *core.ExpMap
 	status      int
-	ctmu        sync.RWMutex          // protects conntracker
-	conntracker map[string][]net.Conn // conn-id -> conn
+	conntracker core.ConnMapper // connid -> [local,remote]
 }
 
 type ioinfo struct {
@@ -93,7 +91,7 @@ func NewTCPHandler(resolver dnsx.Resolver, prox ipn.Proxies, tunMode *settings.T
 		listener:    listener,
 		prox:        prox,
 		fwtracker:   core.NewExpiringMap(),
-		conntracker: make(map[string][]net.Conn),
+		conntracker: core.NewConnMap(),
 		status:      TCPOK,
 	}
 
@@ -126,85 +124,57 @@ func pclose(c io.Closer, a string) {
 		} else { // == "rw"
 			x.Close()
 		}
+	case core.UDPConn:
+		x.Close()
 	case io.Closer:
 		x.Close()
 	}
 }
 
 // TODO: Propagate TCP RST using local.Abort(), on appropriate errors.
-func (h *tcpHandler) upload(cid string, local net.Conn, remote net.Conn, ioch chan<- ioinfo) {
+func upload(cid string, local net.Conn, remote net.Conn, ioch chan<- ioinfo) {
 	ci := conn2str(local, remote)
 
 	// io.copy does remote.ReadFrom(local)
 	n, err := io.Copy(remote, local)
-	log.D("tcp: %s upload(%d) done(%v) b/w %s", cid, n, err, ci)
+	log.D("intra: %s upload(%d) done(%v) b/w %s", cid, n, err, ci)
 
 	pclose(local, "r")
 	pclose(remote, "w")
 	ioch <- ioinfo{n, err}
 }
 
-func (h *tcpHandler) download(cid string, local net.Conn, remote net.Conn) (n int64, err error) {
+func download(cid string, local net.Conn, remote net.Conn) (n int64, err error) {
 	ci := conn2str(local, remote)
 
 	n, err = io.Copy(local, remote)
-	log.D("tcp: %s download(%d) done(%v) b/w %s", cid, n, err, ci)
+	log.D("intra: %s download(%d) done(%v) b/w %s", cid, n, err, ci)
 
 	pclose(local, "w")
 	pclose(remote, "r")
 	return
 }
 
-func (h *tcpHandler) track(cid string, conns ...net.Conn) (n int) {
-	h.ctmu.Lock()
-	defer h.ctmu.Unlock()
+func forward(local net.Conn, remote net.Conn, t core.ConnMapper, smm *SocketSummary) {
+	cid := smm.ID
 
-	if v, ok := h.conntracker[cid]; !ok {
-		h.conntracker[cid] = conns
-		n = len(conns)
-	} else { // should not happen?
-		h.conntracker[cid] = append(v, conns...)
-		n = len(v) + len(conns)
-	}
-	return n
-}
-
-func (h *tcpHandler) untrack(cid string) {
-	h.ctmu.Lock()
-	defer h.ctmu.Unlock()
-
-	if _, ok := h.conntracker[cid]; !ok {
-		// may have been removed by CloseConns
-		log.W("tcp: untrack(%s): not found", cid)
-	} else {
-		delete(h.conntracker, cid)
-	}
-}
-
-func (h *tcpHandler) forward(local net.Conn, remote net.Conn, summary *SocketSummary) {
-	cid := summary.ID
-	if h.status == TCPEND {
-		log.D("tcp: %s forward(%v, %v): end", cid, local, remote)
-		return
-	}
-
-	h.track(cid, local, remote)
-	defer h.untrack(cid)
+	t.Track(cid, local, remote)
+	defer t.Untrack(cid)
 
 	uploadch := make(chan ioinfo)
 
 	var dbytes int64
 	var derr error
-	go h.upload(cid, local, remote, uploadch)
-	dbytes, derr = h.download(cid, local, remote)
+	go upload(cid, local, remote, uploadch)
+	dbytes, derr = download(cid, local, remote)
 
 	upload := <-uploadch
 
-	summary.Rx = dbytes
-	summary.Tx = upload.bytes
+	smm.Rx = dbytes
+	smm.Tx = upload.bytes
+	smm.Target = remote.RemoteAddr().String()
 
-	summary.done(derr, upload.err)
-	go h.sendNotif(summary)
+	smm.done(derr, upload.err)
 }
 
 // must always be called from a goroutine
@@ -227,15 +197,12 @@ func (h *tcpHandler) sendNotif(s *SocketSummary) {
 	}
 }
 
-func (h *tcpHandler) dnsOverride(conn net.Conn, addr *net.TCPAddr, s *SocketSummary) bool {
+func dnsOverride(r dnsx.Resolver, proto string, conn net.Conn, addr net.Addr) bool {
 	// addr with zone information removed; see: netip.ParseAddrPort which h.resolver relies on
 	// addr2 := &net.TCPAddr{IP: addr.IP, Port: addr.Port}
-	if h.resolver.IsDnsAddr(addr.String()) {
+	if r.IsDnsAddr(addr.String()) {
 		// conn closed by the resolver
-		h.resolver.Serve(conn)
-		// note: listener called before conn has been served
-		s.done(nil)
-		go h.sendNotif(s)
+		r.Serve(proto, conn)
 		return true
 	}
 	return false
@@ -285,31 +252,20 @@ func (h *tcpHandler) End() error {
 	return nil
 }
 
-// CloseConns closes conns by cids, or all conns if cids is empty.
-func (h *tcpHandler) CloseConns(cids []string) []string {
-	h.ctmu.Lock()
-	defer h.ctmu.Unlock()
-
+func closeconns(cm core.ConnMapper, cids []string) (closed []string) {
 	if len(cids) <= 0 {
-		cids = make([]string, 0, len(h.conntracker))
-		for cid := range h.conntracker {
-			cids = append(cids, cid)
-		}
+		closed = cm.Clear()
+	} else {
+		closed = cm.UntrackBatch(cids)
 	}
 
-	closed := make([]string, 0, len(cids))
-	for _, cid := range cids {
-		if conns, ok := h.conntracker[cid]; ok {
-			for _, conn := range conns {
-				// expect close to call sendNotif?
-				go pclose(conn, "rw")
-			}
-			delete(h.conntracker, cid)   // untrack
-			closed = append(closed, cid) // mark
-		}
-	}
-	log.I("tcp: closed (%d/%d): %v", len(closed), len(cids), closed)
+	log.I("intra: closed %d/%d", len(closed), len(cids))
 	return closed
+}
+
+// CloseConns implements netstack.GTCPConnHandler
+func (h *tcpHandler) CloseConns(cids []string) (closed []string) {
+	return closeconns(h.conntracker, cids)
 }
 
 // Proxy implements netstack.GTCPConnHandler
@@ -347,10 +303,7 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target *net.TCPAddr) (
 			gconn.Close()
 			s.done(err)
 			go h.sendNotif(s)
-		} else {
-			// conn proxied; sendNotif called by h.forward()
-			s.Target = target.IP.String()
-		}
+		} // else: conn proxied; sendNotif called by h.forward()
 	}()
 
 	if pid == ipn.Block {
@@ -384,7 +337,8 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target *net.TCPAddr) (
 	}
 
 	if pid != ipn.Exit { // see udp.go Connect
-		if h.dnsOverride(gconn, target, s) {
+		if dnsOverride(h.resolver, dnsx.NetTypeTCP, gconn, target) {
+			// SocketSummary not sent; dnsx.Summary supercedes it
 			return allow
 		} // else not a dns request
 	} // if ipn.Exit then let it connect as-is (aka exit)
@@ -429,8 +383,10 @@ func (h *tcpHandler) handle(px ipn.Proxy, src net.Conn, target *net.TCPAddr, smm
 		return err
 	}
 
-	// src is always gonet.TCPConn
-	go h.forward(src, dst, smm)
+	go func() {
+		forward(src, dst, h.conntracker, smm) // src always *gonet.TCPConn
+		h.sendNotif(smm)
+	}()
 
 	log.I("tcp: new conn %s via proxy(%s); src(%s) -> dst(%s) for %s", smm.ID, px.ID(), src.LocalAddr(), target, smm.UID)
 	return nil // handled; takes ownership of src
