@@ -326,9 +326,9 @@ func getProcNetEntryFromPool(p *ProcNetEntry) *ProcNetEntry {
 
 // findProcNetEntryForProtocol parses /proc/net/* and return the line matching the argument five-tuple
 // (protocol, source, sport, destination, dport) as NewProcNetEntry.
-func findProcNetEntryForProtocol(protocol string, srcIP net.IP, srcPort int, dstIP net.IP, dstPort int) *ProcNetEntry {
+func findProcNetEntryForProtocol(protocol string, src, dst netip.AddrPort) *ProcNetEntry {
 
-	n := NewProcNetEntry(protocol, toUnmappedAddr(srcIP), srcPort, toUnmappedAddr(dstIP), dstPort, 0, 0)
+	n := NewProcNetEntry(protocol, src.Addr().Unmap(), int(src.Port()), dst.Addr().Unmap(), int(dst.Port()), 0, 0)
 	e := &n // groups.google.com/g/golang-nuts/c/reaIlFdibWU?pli=1
 
 	if f := getProcNetEntryFromPool(e); e.Same(f) {
@@ -360,15 +360,15 @@ func findProcNetEntryForProtocol(protocol string, srcIP net.IP, srcPort int, dst
 }
 
 // FindProcNetEntry searches for netstat entries in v4 and v6 tables.
-func FindProcNetEntry(protocol string, srcIP net.IP, srcPort int, dstIP net.IP, dstPort int) *ProcNetEntry {
-	if entry := findProcNetEntryForProtocol(protocol, srcIP, srcPort, dstIP, dstPort); entry != nil {
+func FindProcNetEntry(protocol string, src, dst netip.AddrPort) *ProcNetEntry {
+	if entry := findProcNetEntryForProtocol(protocol, src, dst); entry != nil {
 		return entry
 	}
 
 	ipv6Suffix := "6"
-	if strings.HasSuffix(protocol, ipv6Suffix) == false {
+	if !strings.HasSuffix(protocol, ipv6Suffix) {
 		otherProtocol := protocol + ipv6Suffix
-		return findProcNetEntryForProtocol(otherProtocol, srcIP, srcPort, dstIP, dstPort)
+		return findProcNetEntryForProtocol(otherProtocol, src, dst)
 	}
 
 	return nil

@@ -8,6 +8,7 @@ package netstack
 import (
 	"io"
 	"net"
+	"net/netip"
 	"time"
 
 	"github.com/celzero/firestack/intra/core"
@@ -25,7 +26,7 @@ const maxInFlight = 128
 
 type GTCPConnHandler interface {
 	// Proxy copies data between src and dst.
-	Proxy(conn *GTCPConn, src, dst *net.TCPAddr) bool
+	Proxy(conn *GTCPConn, src, dst netip.AddrPort) bool
 	// CloseConns closes conns by cids, or all conns if cids is empty.
 	CloseConns([]string) []string
 	// End closes all conns and releases resources.
@@ -37,8 +38,8 @@ var _ core.TCPConn = (*GTCPConn)(nil)
 type GTCPConn struct {
 	conn *gonet.TCPConn
 	ep   tcpip.Endpoint
-	src  *net.TCPAddr
-	dst  *net.TCPAddr
+	src  netip.AddrPort
+	dst  netip.AddrPort
 	req  *tcp.ForwarderRequest
 }
 
@@ -56,9 +57,9 @@ func NewTCPForwarder(s *stack.Stack, h GTCPConnHandler) *tcp.Forwarder {
 		}
 		id := request.ID()
 		// src 10.111.222.1:38312
-		src := remoteTCPAddr(id)
+		src := remoteAddrPort(id)
 		// dst 213.188.195.179:80
-		dst := localTCPAddr(id)
+		dst := localAddrPort(id)
 
 		// read/writes are routed using 5-tuple to the same conn (endpoint)
 		// demuxer.handlePacket -> find matching endpoint -> queue-packet -> send/recv conn (ep)
@@ -68,7 +69,7 @@ func NewTCPForwarder(s *stack.Stack, h GTCPConnHandler) *tcp.Forwarder {
 	})
 }
 
-func MakeGTCPConn(req *tcp.ForwarderRequest, src, dst *net.TCPAddr) *GTCPConn {
+func MakeGTCPConn(req *tcp.ForwarderRequest, src, dst netip.AddrPort) *GTCPConn {
 	// set sock-opts? github.com/xjasonlyu/tun2socks/blob/31468620e/core/tcp.go#L82
 	return &GTCPConn{
 		conn: nil,
@@ -132,24 +133,24 @@ func (g *GTCPConn) synack() (rst bool, err error) {
 // and: github.com/google/gvisor/blob/ffabadf0/pkg/tcpip/transport/tcp/endpoint.go#L2759
 func (g *GTCPConn) LocalAddr() net.Addr {
 	if !g.ok() {
-		return g.src
+		return net.TCPAddrFromAddrPort(g.src)
 	}
 	// client local addr is remote to the gonet adapter
 	if addr := g.conn.RemoteAddr(); addr != nil {
 		return addr
 	}
-	return g.src
+	return net.TCPAddrFromAddrPort(g.src)
 }
 
 func (g *GTCPConn) RemoteAddr() net.Addr {
 	if !g.ok() {
-		return g.dst
+		return net.TCPAddrFromAddrPort(g.dst)
 	}
 	// client remote addr is local to the gonet adapter
 	if addr := g.conn.LocalAddr(); addr != nil {
 		return addr
 	}
-	return g.dst
+	return net.TCPAddrFromAddrPort(g.dst)
 }
 
 func (g *GTCPConn) Write(data []byte) (int, error) {

@@ -8,7 +8,7 @@ package netstack
 
 import (
 	"fmt"
-	"net"
+	"net/netip"
 
 	"github.com/celzero/firestack/intra/log"
 	"golang.org/x/sys/unix"
@@ -22,9 +22,9 @@ import (
 type Pong func(reply []byte) error
 type GICMPHandler interface {
 	// Multi ping handler
-	Ping(source *net.UDPAddr, destination *net.UDPAddr, msg []byte, pong Pong) bool
+	Ping(source, destination netip.AddrPort, msg []byte, pong Pong) bool
 	// Single ping handler
-	PingOnce(source *net.UDPAddr, destination *net.UDPAddr, msg []byte) bool
+	PingOnce(source, destination netip.AddrPort, msg []byte) bool
 	CloseConns([]string) []string
 	End() error
 }
@@ -58,8 +58,8 @@ func setupIcmpHandler(nstk *stack.Stack, ep stack.LinkEndpoint, handler GICMPHan
 			return false
 		}
 
-		src := remoteUDPAddr(id)
-		dst := localUDPAddr(id)
+		src := remoteAddrPort(id)
+		dst := localAddrPort(id)
 
 		log.D("icmp: v4 type %v src %v dst %v", icmpin.Type(), src, dst)
 
@@ -167,8 +167,8 @@ func setupIcmpHandler(nstk *stack.Stack, ep stack.LinkEndpoint, handler GICMPHan
 			return false
 		}
 
-		src := remoteUDPAddr(id)
-		dst := localUDPAddr(id)
+		src := remoteAddrPort(id)
+		dst := localAddrPort(id)
 
 		log.D("icmp: v6 type %v src %v dst %v", icmpin.Type(), src, dst)
 

@@ -8,6 +8,7 @@ package intra
 
 import (
 	"net"
+	"net/netip"
 	"sync"
 	"time"
 
@@ -60,7 +61,7 @@ func NewICMPHandler(resolver dnsx.Resolver, prox ipn.Proxies, tunMode *settings.
 	return h
 }
 
-func (h *icmpHandler) onFlow(source *net.UDPAddr, target *net.UDPAddr, realips, domains, probableDomains, blocklists string) (pid, cid string, block bool) {
+func (h *icmpHandler) onFlow(source, target netip.AddrPort, realips, domains, probableDomains, blocklists string) (pid, cid string, block bool) {
 	// BlockModeNone returns false, BlockModeSink returns true
 	if h.tunMode.BlockMode == settings.BlockModeSink {
 		pid = ipn.Block
@@ -76,7 +77,7 @@ func (h *icmpHandler) onFlow(source *net.UDPAddr, target *net.UDPAddr, realips, 
 
 	uid := -1
 	if h.tunMode.BlockMode == settings.BlockModeFilterProc {
-		procEntry := settings.FindProcNetEntry("icmp", source.IP, source.Port, target.IP, target.Port)
+		procEntry := settings.FindProcNetEntry("icmp", source, target)
 		if procEntry != nil {
 			uid = procEntry.UserID
 		}
@@ -104,7 +105,7 @@ func (h *icmpHandler) End() error {
 func (h *icmpHandler) CloseConns(cids []string) []string { return nil }
 
 // PingOnce implements netstack.GICMPHandler.
-func (h *icmpHandler) PingOnce(src, dst *net.UDPAddr, msg []byte) bool {
+func (h *icmpHandler) PingOnce(src, dst netip.AddrPort, msg []byte) bool {
 	return h.Ping(src, dst, msg, nil /*no pong*/)
 }
 
@@ -117,15 +118,15 @@ func (h *icmpHandler) PingOnce(src, dst *net.UDPAddr, msg []byte) bool {
 // ref: androidxref.com/9.0.0_r3/xref/libcore/luni/src/test/java/libcore/java/net/InetAddressTest.java#265
 // see: sturmflut.github.io/linux/ubuntu/2015/01/17/unprivileged-icmp-sockets-on-linux/
 // ex: github.com/prometheus-community/pro-bing/blob/0bacb2d5e/ping.go#L703
-func (h *icmpHandler) Ping(source *net.UDPAddr, target *net.UDPAddr, msg []byte, pong netstack.Pong) (open bool) {
+func (h *icmpHandler) Ping(source, target netip.AddrPort, msg []byte, pong netstack.Pong) (open bool) {
 	if h.status == ICMPEND {
-		log.D("icmp: handler ended")
+		log.D("t.icmp: handler ended")
 		return
 	}
 	var px ipn.Proxy
 	var err error
 
-	realips, domains, probableDomains, blocklists := undoAlg(h.resolver, target.IP)
+	realips, domains, probableDomains, blocklists := undoAlg(h.resolver, target.Addr())
 
 	// flow is alg/nat-aware, do not change target or any addrs
 	pid, cid, block := h.onFlow(source, target, realips, domains, probableDomains, blocklists)
@@ -139,32 +140,31 @@ func (h *icmpHandler) Ping(source *net.UDPAddr, target *net.UDPAddr, msg []byte,
 	}()
 
 	if block {
-		log.I("t.icmp.egress: firewalled src(%s:%s) -> dst(%s:%s)",
-			source.Network(), source, target.Network(), target)
+		log.I("t.icmp: egress: firewalled %s -> %s", source, target)
 		// sleep for a while to avoid busy conns
 		time.Sleep(blocktime)
 		return false // denied
 	}
 
 	if px, err = h.prox.GetProxy(pid); err != nil {
-		log.E("t.icmp.egress: no proxy(%s); err %v", pid, err)
+		log.E("t.icmp: egress: no proxy(%s); err %v", pid, err)
 		return false // denied
 	}
 
-	target.IP = oneRealIp(realips, target.IP)
-	uc, err := px.Dialer().Dial(target.Network(), target.String())
+	dst := oneRealIp(realips, target)
+	uc, err := px.Dialer().Dial("udp", dst.String())
 	if err != nil {
-		log.E("t.icmp.egress: dial(%s) err %v", target.Network(), err)
+		log.E("t.icmp: egress: dial(%s) err %v", target, err)
 		return false // denied
 	}
 	defer clos(uc)
 
 	uc.SetDeadline(time.Now().Add(icmptimeout))
 	if _, err = uc.Write(msg); err != nil {
-		log.E("t.icmp.egress:  write(%v) ping; err %v", target, err)
+		log.E("t.icmp: egress:  write(%v) ping; err %v", target, err)
 		return false // denied
 	}
-	log.I("t.icmp.egress: writeTo(%v) ping; done %d", target, len(msg))
+	log.I("t.icmp: egress: writeTo(%v) ping; done %d", target, len(msg))
 
 	if pong == nil {
 		// single ping, block until done
@@ -204,13 +204,13 @@ func (h *icmpHandler) fetch(c net.Conn, pong netstack.Pong, summary *SocketSumma
 
 		c.SetDeadline(time.Now().Add(icmptimeout))
 		if n, err = c.Read(b); err != nil {
-			log.E("t.icmp.ingress: read(%v <- %v) ping err %v", src, dst, err)
+			log.E("t.icmp: ingress: read(%v <- %v) ping err %v", src, dst, err)
 			success = success || false
 			break // on error, stop
 		} else if pong != nil { // process multiple pings
 			if err = pong(b[:n]); err != nil {
 				if err != unix.ENETUNREACH {
-					log.E("t.icmp.ingress: write(%v <- %v) pong err %v", src, dst, err)
+					log.E("t.icmp: ingress: write(%v <- %v) pong err %v", src, dst, err)
 				}
 				break // on error, stop
 			} else {
@@ -222,7 +222,7 @@ func (h *icmpHandler) fetch(c net.Conn, pong netstack.Pong, summary *SocketSumma
 			break
 		}
 	}
-	log.I("t.icmp.ingress: ReadFrom(%v <- %v) ping done; ok? %t", src, dst, success)
+	log.I("t.icmp: ingress: ReadFrom(%v <- %v) ping done; ok? %t", src, dst, success)
 	return
 }
 

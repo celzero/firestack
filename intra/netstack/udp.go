@@ -8,6 +8,7 @@ package netstack
 import (
 	"errors"
 	"net"
+	"net/netip"
 	"sync"
 	"time"
 
@@ -26,7 +27,7 @@ var errMissingEp = errors.New("udp not connected to any endpoint")
 
 type GUDPConnHandler interface {
 	// Proxy proxies data between conn (src) and dst.
-	Proxy(conn *GUDPConn, src, dst *net.UDPAddr)
+	Proxy(conn *GUDPConn, src, dst netip.AddrPort) bool
 	// CloseConns closes conns by ids, or all if ids is empty.
 	CloseConns([]string) []string
 	// End closes the handler and all its connections.
@@ -38,15 +39,15 @@ var _ core.UDPConn = (*GUDPConn)(nil)
 type GUDPConn struct {
 	conn  *gonet.UDPConn
 	ep    tcpip.Endpoint
-	src   *net.UDPAddr
-	dst   *net.UDPAddr
+	src   netip.AddrPort
+	dst   netip.AddrPort
 	wg    *sync.WaitGroup // waits for endpoint to be ready
 	stack *stack.Stack
 	req   *udp.ForwarderRequest
 }
 
 // ref: github.com/google/gvisor/blob/e89e736f1/pkg/tcpip/adapters/gonet/gonet_test.go#L373
-func MakeGUDPConn(s *stack.Stack, r *udp.ForwarderRequest, src, dst *net.UDPAddr) *GUDPConn {
+func MakeGUDPConn(s *stack.Stack, r *udp.ForwarderRequest, src, dst netip.AddrPort) *GUDPConn {
 	wg := &sync.WaitGroup{}
 	wg.Add(1)
 	return &GUDPConn{
@@ -83,12 +84,12 @@ func NewUDPForwarder(s *stack.Stack, h GUDPConnHandler) *udp.Forwarder {
 		id := request.ID()
 
 		// src 10.111.222.1:20716; same as endpoint.GetRemoteAddress
-		src := remoteUDPAddr(id)
+		src := remoteAddrPort(id)
 		// dst 10.111.222.3:53; same as endpoint.GetLocalAddress
 		// but it may not always be the true dst (for now it is),
 		// especially if the resulting udp-conn is setup to handle
 		// multiple dst in the unconnected udp case.
-		dst := localUDPAddr(id)
+		dst := localAddrPort(id)
 
 		gc := MakeGUDPConn(s, request, src, dst)
 
@@ -138,7 +139,7 @@ func (g *GUDPConn) LocalAddr() (addr net.Addr) {
 		addr = g.conn.RemoteAddr()
 	}
 	if addr == nil { // remoteaddr may be nil, even if g.ok()
-		addr = g.src
+		addr = net.UDPAddrFromAddrPort(g.src)
 	}
 	return
 }
@@ -148,7 +149,7 @@ func (g *GUDPConn) RemoteAddr() (addr net.Addr) {
 		addr = g.conn.LocalAddr()
 	}
 	if addr == nil { // localaddr may be nil, even if g.ok()
-		addr = g.dst
+		addr = net.UDPAddrFromAddrPort(g.dst)
 	}
 	return
 }

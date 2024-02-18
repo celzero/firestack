@@ -28,7 +28,7 @@ package intra
 import (
 	"errors"
 	"net"
-	"strconv"
+	"net/netip"
 	"sync"
 	"time"
 
@@ -107,7 +107,7 @@ func NewUDPHandler(resolver dnsx.Resolver, prox ipn.Proxies, tunMode *settings.T
 	return h
 }
 
-func (h *udpHandler) onFlow(localudp core.UDPConn, target *net.UDPAddr, realips, domains, probableDomains, blocklists string) *Mark {
+func (h *udpHandler) onFlow(localaddr, target netip.AddrPort, realips, domains, probableDomains, blocklists string) *Mark {
 	// BlockModeNone returns false, BlockModeSink returns true
 	if h.tunMode.BlockMode == settings.BlockModeSink {
 		return optionsBlock
@@ -117,23 +117,16 @@ func (h *udpHandler) onFlow(localudp core.UDPConn, target *net.UDPAddr, realips,
 		return optionsBase
 	}
 
-	source := localudp.LocalAddr()
-	src := source.String()
+	src := localaddr.String()
 	dst := target.String()
 	if len(realips) <= 0 || len(domains) <= 0 {
-		log.V("udp: onFlow: no realips(%s) or domains(%s + %s), for src=%s dst=%s", realips, domains, probableDomains, src, dst)
+		log.V("udp: onFlow: no realips(%s) or domains(%s + %s), for src=%s dst=%s", realips, domains, probableDomains, localaddr, dst)
 	}
 
 	// Implict: BlockModeFilter or BlockModeFilterProc
 	uid := -1
 	if h.tunMode.BlockMode == settings.BlockModeFilterProc {
-		srcaddr, err := udpAddrFrom(source)
-		if err != nil {
-			log.W("udp: onFlow: failed parsing src addr %s; err %v", src, err)
-			return optionsBlock
-		}
-
-		procEntry := settings.FindProcNetEntry("udp", srcaddr.IP, srcaddr.Port, target.IP, target.Port)
+		procEntry := settings.FindProcNetEntry("udp", localaddr, target)
 		if procEntry != nil {
 			uid = procEntry.UserID
 		}
@@ -154,18 +147,18 @@ func (h *udpHandler) onFlow(localudp core.UDPConn, target *net.UDPAddr, realips,
 }
 
 // Proxy implements netstack.GUDPConnHandler
-func (h *udpHandler) Proxy(gconn *netstack.GUDPConn, src, dst *net.UDPAddr) {
+func (h *udpHandler) Proxy(gconn *netstack.GUDPConn, src, dst netip.AddrPort) (ok bool) {
 	const fin = true  // disconnect
 	const ack = false // connect
 
 	if h.status == UDPEND {
 		log.D("udp: connect: end")
 		gconn.Connect(fin) // disconnect, no nat
-		return
+		return             // not ok
 	}
 
 	l := h.listener
-	remote, smm, err := h.Connect(gconn, dst) // remote may be nil; smm is never nil
+	remote, smm, err := h.Connect(gconn, src, dst) // remote may be nil; smm is never nil
 
 	if err != nil || remote == nil {
 		gconn.Connect(fin)
@@ -176,16 +169,14 @@ func (h *udpHandler) Proxy(gconn *netstack.GUDPConn, src, dst *net.UDPAddr) {
 		} else {
 			log.W("udp: on-new-conn: unexpected nil tracker %s -> %s; err %v", src, dst, err)
 		}
-		return
-	}
-
-	// err here may happen for ex when netstack has no route to dst
-	if err := gconn.Connect(ack); err != nil {
+		return // not ok
+	} else if err := gconn.Connect(ack); err != nil {
+		// for ex when netstack has no route to dst
 		log.W("udp: on-new-conn: %s failed to connect %s -> %s; err %v", smm.ID, src, dst, err)
 		clos(remote)
 		smm.done(err)
 		go sendNotif(l, smm)
-		return
+		return // not ok
 	} else {
 		go func() {
 			cm := h.conntracker
@@ -198,16 +189,17 @@ func (h *udpHandler) Proxy(gconn *netstack.GUDPConn, src, dst *net.UDPAddr) {
 			// TODO: SetDeadline extension needed for reads in forward() / io.Copy?
 			forward(gconn, remote, cm, l, smm)
 		}()
+		return true // ok
 	} // else: connection refused / failed
 }
 
 // Connect connects the proxy server.
 // Note, target may be nil in lwip (deprecated) while it is always specified in netstack
-func (h *udpHandler) Connect(src core.UDPConn, target *net.UDPAddr) (dst net.Conn, smm *SocketSummary, err error) {
+func (h *udpHandler) Connect(gconn core.UDPConn, src, target netip.AddrPort) (dst net.Conn, smm *SocketSummary, err error) {
 	var px ipn.Proxy
 	var pc protect.Conn
 
-	realips, domains, probableDomains, blocklists := undoAlg(h.resolver, target.IP)
+	realips, domains, probableDomains, blocklists := undoAlg(h.resolver, target.Addr())
 
 	// flow is alg/nat-aware, do not change target or any addrs
 	res := h.onFlow(src, target, realips, domains, probableDomains, blocklists)
@@ -223,7 +215,7 @@ func (h *udpHandler) Connect(src core.UDPConn, target *net.UDPAddr) (dst net.Con
 			waittime := time.Duration(secs) * time.Second
 			time.Sleep(waittime)
 		}
-		log.I("udp: %s conn firewalled from %s -> %s (dom: %s + %s/ real: %s); stall? %ds for uid %s", res.CID, src.LocalAddr(), target, domains, probableDomains, realips, secs, res.UID)
+		log.I("udp: %s conn firewalled from %s -> %s (dom: %s + %s/ real: %s); stall? %ds for uid %s", res.CID, src, target, domains, probableDomains, realips, secs, res.UID)
 		return nil, smm, errUdpFirewalled // disconnect
 	}
 
@@ -246,7 +238,7 @@ func (h *udpHandler) Connect(src core.UDPConn, target *net.UDPAddr) (dst net.Con
 	// to be marked ipn.Base for queries sent to tunnel's fake DNS addr
 	// and ipn.Exit for anywhere else.
 	if res.PID != ipn.Exit {
-		if dnsOverride(h.resolver, dnsx.NetTypeUDP, src, target) {
+		if dnsOverride(h.resolver, dnsx.NetTypeUDP, gconn, target) {
 			// SocketSummary is not sent to listener; dnsx.Summary is
 			return nil, smm, nil // connect, no dst
 		} // else: not a dns query
@@ -259,13 +251,12 @@ func (h *udpHandler) Connect(src core.UDPConn, target *net.UDPAddr) (dst net.Con
 
 	var errs error
 	// note: fake-dns-ips shouldn't be un-nated / un-alg'd
-	for i, dstip := range makeIPs(realips, target.IP) {
-		target.IP = dstip
-		if pc, err = px.Dial(target.Network(), target.String()); err == nil {
+	for i, dstipp := range makeIPPorts(realips, target, 0) {
+		if pc, err = px.Dial("udp", dstipp.String()); err == nil {
 			errs = nil // reset errs
 			break
 		} // else try the next realip
-		log.W("udp: connect: #%d: %s failed to bind addr(%s); for uid %s w err(%v)", i, res.CID, target, res.UID, err)
+		log.W("udp: connect: #%d: %s failed; addr(%s); for uid %s w err(%v)", i, res.CID, dstipp, res.UID, err)
 		errs = err // store just the last err; complicates logging
 	}
 
@@ -306,32 +297,4 @@ func clos(c ...net.Conn) {
 			x.Close()
 		}
 	}
-}
-
-func ipportFromAddr(addr string) (ip net.IP, port int, err error) {
-	var ipstr, portstr string
-	ipstr, portstr, err = net.SplitHostPort(addr)
-	if err != nil {
-		return
-	}
-	ip = net.ParseIP(ipstr)
-	port, err = strconv.Atoi(portstr)
-	return ip, port, err
-}
-
-func udpAddrFrom(addr net.Addr) (*net.UDPAddr, error) {
-	if addr == nil {
-		return nil, &net.AddrError{Err: "nil addr", Addr: "<nil>"}
-	}
-	if r, ok := addr.(*net.UDPAddr); ok {
-		return r, nil
-	}
-	ip, port, err := ipportFromAddr(addr.String())
-	if err != nil {
-		return nil, err
-	}
-	return &net.UDPAddr{
-		IP:   ip,
-		Port: port,
-	}, nil
 }

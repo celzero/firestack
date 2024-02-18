@@ -198,7 +198,7 @@ func sendNotif(l SocketListener, s *SocketSummary) {
 	}
 }
 
-func dnsOverride(r dnsx.Resolver, proto string, conn net.Conn, addr net.Addr) bool {
+func dnsOverride(r dnsx.Resolver, proto string, conn net.Conn, addr netip.AddrPort) bool {
 	// addr with zone information removed; see: netip.ParseAddrPort which h.resolver relies on
 	// addr2 := &net.TCPAddr{IP: addr.IP, Port: addr.Port}
 	if r.IsDnsAddr(addr.String()) {
@@ -209,7 +209,7 @@ func dnsOverride(r dnsx.Resolver, proto string, conn net.Conn, addr net.Addr) bo
 	return false
 }
 
-func (h *tcpHandler) onFlow(localaddr *net.TCPAddr, target *net.TCPAddr, realips, domains, probableDomains, blocklists string) *Mark {
+func (h *tcpHandler) onFlow(localaddr, target netip.AddrPort, realips, domains, probableDomains, blocklists string) *Mark {
 	// BlockModeNone returns false, BlockModeSink returns true
 	if h.tunMode.BlockMode == settings.BlockModeSink {
 		return optionsBlock
@@ -225,7 +225,7 @@ func (h *tcpHandler) onFlow(localaddr *net.TCPAddr, target *net.TCPAddr, realips
 	// Implict: BlockModeFilter or BlockModeFilterProc
 	uid := -1
 	if h.tunMode.BlockMode == settings.BlockModeFilterProc {
-		procEntry := settings.FindProcNetEntry("tcp", localaddr.IP, localaddr.Port, target.IP, target.Port)
+		procEntry := settings.FindProcNetEntry("tcp", localaddr, target)
 		if procEntry != nil {
 			uid = procEntry.UserID
 		}
@@ -270,7 +270,7 @@ func (h *tcpHandler) CloseConns(cids []string) (closed []string) {
 }
 
 // Proxy implements netstack.GTCPConnHandler
-func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target *net.TCPAddr) (open bool) {
+func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target netip.AddrPort) (open bool) {
 	const allow bool = true
 	const deny bool = !allow
 	if h.status == TCPEND {
@@ -282,7 +282,7 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target *net.TCPAddr) (
 	const ack bool = !rst // send synack
 	var err error
 
-	if src == nil || target == nil {
+	if !src.IsValid() || !target.IsValid() {
 		log.E("tcp: nil addr %v -> %v", src, target)
 		gconn.Connect(rst) // fin
 		return deny
@@ -290,7 +290,7 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target *net.TCPAddr) (
 
 	// alg happens after nat64, and so, alg knows nat-ed ips
 	// that is, realips are un-nated
-	realips, domains, probableDomains, blocklists := undoAlg(h.resolver, target.IP)
+	realips, domains, probableDomains, blocklists := undoAlg(h.resolver, target.Addr())
 
 	// flow/dns-override are nat-aware, as in, they can deal with
 	// nat-ed ips just fine, and so, use target as-is instead of ipx4
@@ -345,16 +345,16 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target *net.TCPAddr) (
 	} // if ipn.Exit then let it connect as-is (aka exit)
 
 	// pick all realips to connect to
-	for _, dstip := range makeIPs(realips, target.IP) {
-		target.IP = dstip
-		if err = h.handle(px, gconn, target, s); err == nil {
+	for i, dstipp := range makeIPPorts(realips, target, 0) {
+		if err = h.handle(px, gconn, dstipp, s); err == nil {
 			return allow
 		} // else try the next realip
+		log.W("tcp: dial: #%d: %s failed; addr(%s); for uid %s w err(%v)", i, cid, dstipp, uid, err)
 	}
 	return deny
 }
 
-func (h *tcpHandler) handle(px ipn.Proxy, src net.Conn, target *net.TCPAddr, smm *SocketSummary) (err error) {
+func (h *tcpHandler) handle(px ipn.Proxy, src net.Conn, target netip.AddrPort, smm *SocketSummary) (err error) {
 	var pc protect.Conn
 
 	start := time.Now()
@@ -362,7 +362,7 @@ func (h *tcpHandler) handle(px ipn.Proxy, src net.Conn, target *net.TCPAddr, smm
 
 	// ref: stackoverflow.com/questions/63656117
 	// ref: stackoverflow.com/questions/40328025
-	if pc, err = px.Dial(target.Network(), target.String()); err == nil {
+	if pc, err = px.Dial("tcp", target.String()); err == nil {
 		smm.Rtt = int32(time.Now().Sub(start).Seconds() * 1000)
 
 		switch uc := pc.(type) {
@@ -425,35 +425,35 @@ func netipFrom(ip net.IP) *netip.Addr {
 	return nil
 }
 
-func oneRealIp(realips string, dstip net.IP) net.IP {
+func oneRealIp(realips string, origipp netip.AddrPort) netip.AddrPort {
 	if len(realips) <= 0 {
-		return dstip
+		return origipp
 	}
-	// override alg-ip with the first real-ip
-	if ips := strings.Split(realips, ","); len(ips) > 0 {
-		for _, v := range ips {
-			// len may be zero when realips is "," or ""
-			if len(v) > 0 {
-				ip := net.ParseIP(v)
-				if len(ip) > 0 && !ip.IsUnspecified() {
-					return ip
-				}
-			}
-		}
+	if first := makeIPPorts(realips, origipp, 1); len(first) > 0 {
+		return first[0]
 	}
-	return dstip
+	return origipp
 }
 
-func makeIPs(realips string, dstip net.IP) []net.IP {
+func makeIPPorts(realips string, origipp netip.AddrPort, cap int) []netip.AddrPort {
 	ips := strings.Split(realips, ",")
-	r := make([]net.IP, 0, len(ips))
+	if len(ips) <= 0 {
+		return []netip.AddrPort{origipp}
+	}
+	if cap <= 0 || cap > len(ips) {
+		cap = len(ips)
+	}
+	r := make([]netip.AddrPort, 0, cap)
 	// override alg-ip with the first real-ip
 	for _, v := range ips { // may contain unspecifed ips
+		if len(r) >= cap {
+			break
+		}
 		// len may be zero when realips is "," or ""
 		if len(v) > 0 {
-			ip := net.ParseIP(v)
-			if len(ip) > 0 && !ip.IsUnspecified() {
-				r = append(r, ip)
+			ip, err := netip.ParseAddr(v)
+			if err == nil && ip.IsValid() && !ip.IsUnspecified() {
+				r = append(r, netip.AddrPortFrom(ip, origipp.Port()))
 			}
 		}
 	}
@@ -465,14 +465,13 @@ func makeIPs(realips string, dstip net.IP) []net.IP {
 		return r
 	}
 
-	return []net.IP{dstip}
+	return []netip.AddrPort{origipp}
 }
 
-func undoAlg(r dnsx.Resolver, algip net.IP) (realips, domains, probableDomains, blocklists string) {
-	force := true             // force PTR resolution
-	dstip := netipFrom(algip) // may be nil
-	if gw := r.Gateway(); dstip != nil && dstip.IsValid() && gw != nil {
-		dst := dstip.AsSlice()
+func undoAlg(r dnsx.Resolver, algip netip.Addr) (realips, domains, probableDomains, blocklists string) {
+	force := true // force PTR resolution
+	if gw := r.Gateway(); algip.IsValid() && gw != nil {
+		dst := algip.AsSlice()
 		domains = gw.PTR(dst, !force)
 		if len(domains) <= 0 {
 			probableDomains = gw.PTR(dst, force)
@@ -480,7 +479,7 @@ func undoAlg(r dnsx.Resolver, algip net.IP) (realips, domains, probableDomains, 
 		realips = gw.X(dst)
 		blocklists = gw.RDNSBL(dst)
 	} else {
-		log.W("alg: undoAlg: no gw(%t) or dst(%v) or alg-ip(%s)", gw == nil, dstip, algip)
+		log.W("alg: undoAlg: no gw(%t) or dst(%v) or alg-ip(%s)", gw == nil, algip, algip)
 	}
 	return
 }

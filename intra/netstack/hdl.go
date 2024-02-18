@@ -9,6 +9,7 @@ package netstack
 import (
 	"errors"
 	"net"
+	"net/netip"
 	"strings"
 
 	"gvisor.dev/gvisor/pkg/tcpip"
@@ -82,6 +83,14 @@ func (g *gconnhandler) Close() error {
 // src/dst addrs are flipped
 // fdbased.Attach -> ... -> nic.DeliverNetworkPacket -> ... -> nic.DeliverTransportPacket:
 // github.com/google/gvisor/blob/be6ffa7/pkg/tcpip/stack/nic.go#L831-L837
+
+func localAddrPort(id stack.TransportEndpointID) netip.AddrPort {
+	return localUDPAddr(id).AddrPort()
+}
+
+func remoteAddrPort(id stack.TransportEndpointID) netip.AddrPort {
+	return remoteUDPAddr(id).AddrPort()
+}
 
 func remoteTCPAddr(id stack.TransportEndpointID) *net.TCPAddr {
 	return &net.TCPAddr{
