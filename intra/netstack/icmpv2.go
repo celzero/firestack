@@ -7,12 +7,11 @@
 // This file incorporates work covered by the following copyright and
 // permission notice:
 //
-//    MIT No Attribution
+//	MIT No Attribution
 //
-//    Copyright 2022 National Technology & Engineering Solutions of Sandia, LLC
-//    (NTESS). Under the terms of Contract DE-NA0003525 with NTESS, the U.S.
-//    Government retains certain rights in this software.
-
+//	Copyright 2022 National Technology & Engineering Solutions of Sandia, LLC
+//	(NTESS). Under the terms of Contract DE-NA0003525 with NTESS, the U.S.
+//	Government retains certain rights in this software.
 package netstack
 
 import (
@@ -174,8 +173,8 @@ func isIcmpEcho(pkt stack.PacketBufferPtr) (y4, y6 bool) {
 	isip4 := is4(netHeader.SourceAddress().String())
 	if isip4 {
 		icmpin := header.ICMPv4(l4bytes)
-		src := udpaddr(netHeader.SourceAddress(), icmpin.SourcePort())
-		dst := udpaddr(netHeader.DestinationAddress(), icmpin.DestinationPort())
+		src := addrport(netHeader.SourceAddress(), icmpin.SourcePort())
+		dst := addrport(netHeader.DestinationAddress(), icmpin.DestinationPort())
 		log.D("icmpv2: ICMPv4 %v -> %v", src, dst)
 		switch icmpin.Type() {
 		case header.ICMPv4Echo:
@@ -185,8 +184,8 @@ func isIcmpEcho(pkt stack.PacketBufferPtr) (y4, y6 bool) {
 		}
 	} else {
 		icmpin := header.ICMPv6(l4bytes)
-		src := udpaddr(netHeader.SourceAddress(), icmpin.SourcePort())
-		dst := udpaddr(netHeader.DestinationAddress(), icmpin.DestinationPort())
+		src := addrport(netHeader.SourceAddress(), icmpin.SourcePort())
+		dst := addrport(netHeader.DestinationAddress(), icmpin.DestinationPort())
 		log.D("icmpv2: ICMPv6 %v -> %v", src, dst)
 		switch icmpin.Type() {
 		case header.ICMPv6EchoRequest:
@@ -205,8 +204,8 @@ func (tr *icmpv2) handleEcho4(pkt stack.PacketBufferPtr) {
 	l4bytes := netHeader.Payload()
 
 	icmpin := header.ICMPv4(l4bytes)
-	src := udpaddr(netHeader.SourceAddress(), icmpin.SourcePort())
-	dst := udpaddr(netHeader.DestinationAddress(), icmpin.DestinationPort())
+	src := addrport(netHeader.SourceAddress(), icmpin.SourcePort())
+	dst := addrport(netHeader.DestinationAddress(), icmpin.DestinationPort())
 	tr.handleEcho(src, dst, pkt)
 }
 
@@ -217,14 +216,14 @@ func (tr icmpv2) handleEcho6(pkt stack.PacketBufferPtr) {
 	l4bytes := netHeader.Payload()
 
 	icmpin := header.ICMPv6(l4bytes)
-	src := udpaddr(netHeader.SourceAddress(), icmpin.SourcePort())
-	dst := udpaddr(netHeader.DestinationAddress(), icmpin.DestinationPort())
+	src := addrport(netHeader.SourceAddress(), icmpin.SourcePort())
+	dst := addrport(netHeader.DestinationAddress(), icmpin.DestinationPort())
 	tr.handleEcho(src, dst, pkt)
 }
 
 // handleICMPEcho tries to send ICMP echo requests to the true destination however it can.
 // If successful, it sends an echo response to the peer.
-func (tr *icmpv2) handleEcho(src, dst *net.UDPAddr, pkt stack.PacketBufferPtr) {
+func (tr *icmpv2) handleEcho(src, dst netip.AddrPort, pkt stack.PacketBufferPtr) {
 	var ok bool
 	if ok = tr.h.PingOnce(src, dst, tr.pkt2bytes(pkt)); !ok {
 		log.W("icmpv2: ICMP echo ping failed for %v -> %v", src, dst)
@@ -235,7 +234,7 @@ func (tr *icmpv2) handleEcho(src, dst *net.UDPAddr, pkt stack.PacketBufferPtr) {
 }
 
 // sendICMPEchoResponse sends an echo response to the peer with a spoofed source address.
-func (tr *icmpv2) sendEchoResponse(src, dst *net.UDPAddr, pkt stack.PacketBufferPtr) error {
+func (tr *icmpv2) sendEchoResponse(src, dst netip.AddrPort, pkt stack.PacketBufferPtr) error {
 	var response []byte
 	var ipHeader []byte
 	var err error
@@ -327,7 +326,7 @@ func (tr *icmpv2) sendEchoResponse(src, dst *net.UDPAddr, pkt stack.PacketBuffer
 
 // ref: stackoverflow.com/a/26949038, stackoverflow.com/a/27087317
 // and: archive.is/F2HB2
-func (tr *icmpv2) sendUnreachable(src, dst *net.UDPAddr, pkt stack.PacketBufferPtr) error {
+func (tr *icmpv2) sendUnreachable(src, dst netip.AddrPort, pkt stack.PacketBufferPtr) error {
 	var err error
 	var icmpLayer []byte
 	var ipLayer []byte
@@ -433,9 +432,9 @@ func asip(addr string) net.IP {
 	return net.ParseIP(addr)
 }
 
-func udpaddr(addr tcpip.Address, port uint16) *net.UDPAddr {
-	ip := net.ParseIP(addr.String())
-	return &net.UDPAddr{IP: ip, Port: int(port)}
+func addrport(addr tcpip.Address, port uint16) netip.AddrPort {
+	ip, _ := netip.AddrFromSlice(addr.AsSlice())
+	return netip.AddrPortFrom(ip, port)
 }
 
 func (tr *icmpv2) pkt2bytes(pkt stack.PacketBufferPtr) []byte {
