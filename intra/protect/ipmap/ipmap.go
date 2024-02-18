@@ -252,9 +252,11 @@ func (s *IPSet) Addrs() []netip.Addr {
 	c = append(c, s.ips...)
 	s.RUnlock()
 
-	rand.Shuffle(len(c), func(i, j int) {
-		c[i], c[j] = c[j], c[i]
-	})
+	if len(c) > 2 {
+		rand.Shuffle(len(c), func(i, j int) {
+			c[i], c[j] = c[j], c[i]
+		})
+	}
 	return c
 }
 
