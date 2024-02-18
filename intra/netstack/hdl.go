@@ -92,20 +92,6 @@ func remoteAddrPort(id stack.TransportEndpointID) netip.AddrPort {
 	return remoteUDPAddr(id).AddrPort()
 }
 
-func remoteTCPAddr(id stack.TransportEndpointID) *net.TCPAddr {
-	return &net.TCPAddr{
-		IP:   nsaddr2ip(id.RemoteAddress),
-		Port: int(id.RemotePort),
-	}
-}
-
-func localTCPAddr(id stack.TransportEndpointID) *net.TCPAddr {
-	return &net.TCPAddr{
-		IP:   nsaddr2ip(id.LocalAddress),
-		Port: int(id.LocalPort),
-	}
-}
-
 func remoteUDPAddr(id stack.TransportEndpointID) *net.UDPAddr {
 	return &net.UDPAddr{
 		IP:   nsaddr2ip(id.RemoteAddress),
