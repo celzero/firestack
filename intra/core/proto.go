@@ -48,19 +48,9 @@ type UDPConn interface {
 	LocalAddr() net.Addr
 	RemoteAddr() net.Addr
 
-	// Wait for the underlying connection to be ready.
-	Ready() bool
-
 	// confirms to protect.Conn
 	Write(data []byte) (int, error)
 	Read(data []byte) (int, error)
-
-	// ReceiveTo will be called when data arrives from remote, and the received
-	// data should be sent to addr.
-	ReceiveTo(data []byte, addr *net.UDPAddr) error
-
-	// WriteFrom writes data to remote, addr will be set as source address.
-	WriteFrom(data []byte, addr *net.UDPAddr) (int, error)
 
 	// Close closes the connection.
 	Close() error

@@ -59,7 +59,7 @@ const (
 var _ core.TCPConn = (*gonet.TCPConn)(nil)
 
 // intra/udp.go expects dst conns to confirm to core.UDPConn or net.Conn
-var _ net.Conn = (*gonet.UDPConn)(nil)
+var _ core.UDPConn = (*gonet.UDPConn)(nil)
 
 func (net *wgtun) LookupHost(host string) (addrs []netip.Addr, err error) {
 	return net.LookupContextHost(context.Background(), host)

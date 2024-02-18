@@ -59,25 +59,6 @@ func (c *socks5tcpconn) CloseWrite() error {
 	return errNoProxyConn
 }
 
-func (c *socks5udpconn) Ready() bool {
-	// a client udpconn is always negotiated over tcp, and so
-	// it contains a tcpconn and a udpconn, and is considered ready
-	// when udpconn is non-nil. ref: tx.Client.Dial
-	return c.Client != nil && c.Client.UDPConn != nil
-}
-
-// WriteFrom writes b to TUN using addr as the source.
-func (c *socks5udpconn) WriteFrom(b []byte, addr *net.UDPAddr) (int, error) {
-	// no-op; intra/udp.go does not require outbound udp to implement TUN specific methods
-	return 0, nil
-}
-
-// ReceiveTo is incoming TUN packet b to be sent to addr.
-func (c *socks5udpconn) ReceiveTo(b []byte, addr *net.UDPAddr) error {
-	// no-op; intra/udp.go does not require outbound udp to implement TUN specific methods
-	return nil
-}
-
 func NewSocks5Proxy(id string, ctl protect.Controller, po *settings.ProxyOptions) (Proxy, error) {
 	var err error
 	if po == nil {

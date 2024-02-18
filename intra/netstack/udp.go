@@ -41,7 +41,6 @@ type GUDPConn struct {
 	ep    tcpip.Endpoint
 	src   netip.AddrPort
 	dst   netip.AddrPort
-	wg    *sync.WaitGroup // waits for endpoint to be ready
 	stack *stack.Stack
 	req   *udp.ForwarderRequest
 }
@@ -54,7 +53,6 @@ func MakeGUDPConn(s *stack.Stack, r *udp.ForwarderRequest, src, dst netip.AddrPo
 		ep:    nil,
 		src:   src,
 		dst:   dst,
-		wg:    wg,
 		stack: s,
 		req:   r,
 	}
@@ -93,13 +91,8 @@ func NewUDPForwarder(s *stack.Stack, h GUDPConnHandler) *udp.Forwarder {
 
 		gc := MakeGUDPConn(s, request, src, dst)
 
-		h.Proxy(gc, src, dst)
+		go h.Proxy(gc, src, dst)
 	})
-}
-
-func (g *GUDPConn) Ready() bool {
-	g.wg.Wait()
-	return g.ok()
 }
 
 func (g *GUDPConn) ok() bool {
@@ -108,15 +101,13 @@ func (g *GUDPConn) ok() bool {
 
 func (g *GUDPConn) StatefulTeardown() (fin bool) {
 	if !g.ok() {
-		g.Connect(false) // establish circuit
+		g.Connect(false) // establish circuit then teardown
 	}
 
 	return g.Close() == nil // then fin
 }
 
 func (g *GUDPConn) Connect(fin bool) error {
-	defer g.wg.Done()
-
 	if fin {
 		return e(&tcpip.ErrHostUnreachable{})
 	}
@@ -154,17 +145,7 @@ func (g *GUDPConn) RemoteAddr() (addr net.Addr) {
 	return
 }
 
-// ReceiveTo will be called when data arrives from TUN, and the received
-// data should be sent to addr.
-func (g *GUDPConn) ReceiveTo(_ []byte, addr *net.UDPAddr) error {
-	// no-op; forwarder.HandlePacket takes care of this
-	log.W("ns.udp.rcv: addr(%v); no-op", addr)
-	return nil
-}
-
-// WriteFrom writes data to TUN, addr will be set as source address of
-// UDP packets that output to TUN.
-func (g *GUDPConn) WriteFrom(data []byte, addr *net.UDPAddr) (int, error) {
+func (g *GUDPConn) Write(data []byte) (int, error) {
 	if !g.ok() {
 		return 0, errMissingEp
 	}
@@ -173,14 +154,6 @@ func (g *GUDPConn) WriteFrom(data []byte, addr *net.UDPAddr) (int, error) {
 	// ep(state 3 / info &{2048 17 {53 10.111.222.3 17711 10.111.222.1} 1 10.111.222.3 1} / stats &{{{1}} {{0}} {{{0}} {{0}} {{0}} {{0}}} {{{0}} {{0}} {{0}}} {{{0}} {{0}}} {{{0}} {{0}} {{0}}}})
 	// 3: status:datagram-connected / {2048=>proto, 17=>transport, {53=>local-port localip 17711=>remote-port remoteip}=>endpoint-id, 1=>bind-nic-id, ip=>bind-addr, 1=>registered-nic-id}
 	// g.ep may be nil: log.V("ns.udp.writeFrom: from(%v) / ep(state %v / info %v / stats %v)", addr, g.ep.State(), g.ep.Info(), g.ep.Stats())
-	log.V("ns.udp.writeFrom: from(%v)", addr)
-	return g.conn.Write(data)
-}
-
-func (g *GUDPConn) Write(data []byte) (int, error) {
-	if !g.ok() {
-		return 0, errMissingEp
-	}
 	return g.conn.Write(data)
 }
 
