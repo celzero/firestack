@@ -52,6 +52,10 @@ type UDPConn interface {
 	Write(data []byte) (int, error)
 	Read(data []byte) (int, error)
 
+	// confirms to net.PacketConn
+	WriteTo(data []byte, addr net.Addr) (int, error)
+	ReadFrom(data []byte) (int, net.Addr, error)
+
 	// Close closes the connection.
 	Close() error
 

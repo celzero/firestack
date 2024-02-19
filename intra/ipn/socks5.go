@@ -24,12 +24,12 @@ import (
 )
 
 type socks5 struct {
-	dialers []proxy.Dialer         // outbound dialers connecting unto upstream proxy
-	id      string                 // unique identifier
-	opts    *settings.ProxyOptions // connect options
-	rd      *protect.RDial         // this transport as a dialer
-	hc      *http.Client           // this transport as a http client
-	status  int                    // status of this transport
+	outbound []proxy.Dialer         // outbound dialers connecting unto upstream proxy
+	id       string                 // unique identifier
+	opts     *settings.ProxyOptions // connect options
+	rd       *protect.RDial         // this transport as a dialer
+	hc       *http.Client           // this transport as a http client
+	status   int                    // status of this transport
 }
 
 type socks5tcpconn struct {
@@ -57,6 +57,22 @@ func (c *socks5tcpconn) CloseWrite() error {
 		return c.Client.TCPConn.CloseWrite()
 	}
 	return errNoProxyConn
+}
+
+// WriteFrom writes b to TUN using addr as the source.
+func (c *socks5udpconn) WriteTo(b []byte, addr net.Addr) (n int, err error) {
+	if c.Client != nil && c.Client.UDPConn != nil {
+		return c.Client.UDPConn.WriteTo(b, addr)
+	}
+	return 0, errNoProxyConn
+}
+
+// ReceiveTo is incoming TUN packet b to be sent to addr.
+func (c *socks5udpconn) ReadFrom(b []byte) (n int, addr net.Addr, err error) {
+	if c.Client != nil && c.Client.UDPConn != nil {
+		return c.Client.UDPConn.ReadFrom(b)
+	}
+	return 0, nil, errNoProxyConn
 }
 
 func NewSocks5Proxy(id string, ctl protect.Controller, po *settings.ProxyOptions) (Proxy, error) {
@@ -96,9 +112,9 @@ func NewSocks5Proxy(id string, ctl protect.Controller, po *settings.ProxyOptions
 	}
 
 	h := &socks5{
-		dialers: clients,
-		id:      id,
-		opts:    po,
+		outbound: clients,
+		id:       id,
+		opts:     po,
 	}
 	h.rd = newRDial(h)
 	h.hc = newHTTP1Client(h.rd)
@@ -108,6 +124,7 @@ func NewSocks5Proxy(id string, ctl protect.Controller, po *settings.ProxyOptions
 	return h, nil
 }
 
+// Dial implements Proxy.
 func (h *socks5) Dial(network, addr string) (c protect.Conn, err error) {
 	if h.status == END {
 		return nil, errProxyStopped
@@ -115,7 +132,7 @@ func (h *socks5) Dial(network, addr string) (c protect.Conn, err error) {
 
 	// todo: tx.Client can only dial in to ip:port and not host:port even for server addr
 	// tx.Client.Dial does not support dialing into client addr as hostnames
-	if c, err = dialers.ProxyDials(h.dialers, network, addr); err == nil {
+	if c, err = dialers.ProxyDials(h.outbound, network, addr); err == nil {
 		// github.com/txthinking/socks5/blob/39268fae/client.go#L15
 		if uc, ok := c.(*tx.Client); ok {
 			if uc.UDPConn != nil { // a udp conn will always have an embedded tcp conn

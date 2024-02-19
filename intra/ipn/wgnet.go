@@ -55,10 +55,10 @@ const (
 	wgbarrierttl = time.Second * 10
 )
 
-// intra/tcp.go expects dst conns to confirm to core.TCPConn or net.Conn
+// intra/tcp.go expects dst conns to confirm to core.TCPConn
 var _ core.TCPConn = (*gonet.TCPConn)(nil)
 
-// intra/udp.go expects dst conns to confirm to core.UDPConn or net.Conn
+// intra/udp.go expects dst conns to confirm to core.UDPConn
 var _ core.UDPConn = (*gonet.UDPConn)(nil)
 
 func (net *wgtun) LookupHost(host string) (addrs []netip.Addr, err error) {

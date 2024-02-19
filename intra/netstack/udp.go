@@ -9,7 +9,6 @@ import (
 	"errors"
 	"net"
 	"net/netip"
-	"sync"
 	"time"
 
 	"github.com/celzero/firestack/intra/core"
@@ -47,8 +46,6 @@ type GUDPConn struct {
 
 // ref: github.com/google/gvisor/blob/e89e736f1/pkg/tcpip/adapters/gonet/gonet_test.go#L373
 func MakeGUDPConn(s *stack.Stack, r *udp.ForwarderRequest, src, dst netip.AddrPort) *GUDPConn {
-	wg := &sync.WaitGroup{}
-	wg.Add(1)
 	return &GUDPConn{
 		ep:    nil,
 		src:   src,
@@ -162,6 +159,20 @@ func (g *GUDPConn) Read(data []byte) (int, error) {
 		return 0, errMissingEp
 	}
 	return g.conn.Read(data)
+}
+
+func (g *GUDPConn) WriteTo(data []byte, addr net.Addr) (int, error) {
+	if !g.ok() {
+		return 0, errMissingEp
+	}
+	return g.conn.WriteTo(data, addr)
+}
+
+func (g *GUDPConn) ReadFrom(data []byte) (int, net.Addr, error) {
+	if !g.ok() {
+		return 0, nil, errMissingEp
+	}
+	return g.conn.ReadFrom(data)
 }
 
 func (g *GUDPConn) SetDeadline(t time.Time) error {
