@@ -162,6 +162,14 @@ func commondial(d *protect.RDial, network, addr string, connect connectFunc) (ne
 	return nil, errs
 }
 
+func Listen(d *protect.RDial, network, local string) (net.PacketConn, error) {
+	if d == nil {
+		log.E("rdial: Announce: nil dialer")
+		return nil, errNoListener
+	}
+	return d.AnnounceUDP(network, local)
+}
+
 // Dial dials into addr using the provided dialer and returns a net.Conn,
 // which is guaranteed to be either net.UDPConn or net.TCPConn
 func Dial(d *protect.RDial, network, addr string) (net.Conn, error) {

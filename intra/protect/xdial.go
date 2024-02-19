@@ -7,6 +7,7 @@
 package protect
 
 import (
+	"context"
 	"errors"
 	"io"
 	"net"
@@ -19,10 +20,17 @@ import (
 type Conn interface {
 	// Read reads data coming from remote.
 	Read(data []byte) (int, error)
-
 	// Write writes data to remote.
 	Write(data []byte) (int, error)
+	// Close closes the connection.
+	Close() error
+}
 
+type PacketConn interface {
+	// ReadFrom reads data from remote.
+	ReadFrom(data []byte) (int, net.Addr, error)
+	// WriteTo writes data to remote.
+	WriteTo(data []byte, addr net.Addr) (int, error)
 	// Close closes the connection.
 	Close() error
 }
@@ -32,19 +40,28 @@ type RDialer interface {
 	// the resulting net.Conn must be a *net.TCPConn if
 	// network is "tcp" or "tcp4" or "tcp6" and must be
 	// a *net.UDPConn if network is "udp" or "udp4" or "udp6".
-	Dial(network string, addr string) (Conn, error)
+	Dial(network, addr string) (Conn, error)
+	// Announce announces the local address. network must be
+	// packet-oriented ("udp" or "udp4" or "udp6").
+	Announce(network, local string) (PacketConn, error)
 }
-
-var errNoConn = errors.New("not a dialer")
-var errNoTCP = errors.New("not a tcp dialer")
-var errNoUDP = errors.New("not a udp dialer")
 
 // RDial discards local-addresses
 type RDial struct {
-	Owner   string       // owner tag
-	Dialer  proxy.Dialer // may be nil
-	RDialer RDialer      // may be nil
+	Owner        string            // owner tag
+	Dialer       proxy.Dialer      // may be nil
+	ListenConfig *net.ListenConfig // may be nil
+	RDialer      RDialer           // may be nil
 }
+
+var (
+	errNoConn    = errors.New("not a dialer")
+	errNoTCP     = errors.New("not a tcp dialer")
+	errNoUDP     = errors.New("not a udp dialer")
+	errNoConnMux = errors.New("not an announcer")
+	errNoUDPMux  = errors.New("not a udp announcer")
+	errAnnounce  = errors.New("cannot announce network")
+)
 
 func (d *RDial) dial(network, addr string) (Conn, error) {
 	usedialer := d.Dialer != nil
@@ -69,6 +86,23 @@ func (d *RDial) Dial(network, addr string) (net.Conn, error) {
 		clos(c)
 		return nil, errNoConn
 	}
+}
+
+func (d *RDial) Announce(network, local string) (PacketConn, error) {
+	if network != "udp" && network != "udp4" && network != "udp6" {
+		return nil, errAnnounce
+	}
+	// todo: check if local is a local address
+	uselistener := d.ListenConfig != nil
+	userdialer := d.RDialer != nil
+	if uselistener {
+		return d.ListenConfig.ListenPacket(context.TODO(), network, local)
+	}
+	if userdialer {
+		return d.RDialer.Announce(network, local)
+	}
+	log.V("xdial: Announce: (r? %t / o: %s) %s %s", userdialer, d.Owner, network, local)
+	return nil, errNoConnMux
 }
 
 func clos(c io.Closer) {
@@ -106,5 +140,17 @@ func (d *RDial) DialUDP(network string, laddr, raddr *net.UDPAddr) (*net.UDPConn
 		// some proxies like wgproxy, socks5 do not vend *net.UDPConn
 		clos(c)
 		return nil, errNoUDP
+	}
+}
+
+func (d *RDial) AnnounceUDP(network, local string) (net.PacketConn, error) {
+	if c, err := d.Announce(network, local); err != nil {
+		return nil, err
+	} else if pc, ok := c.(net.PacketConn); ok {
+		return pc, nil
+	} else {
+		log.W("xdial: AnnounceUDP: (%s) %T is not %T (ok? %t); other errs: %v", d.Owner, c, pc, ok, err)
+		clos(c)
+		return nil, errNoUDPMux
 	}
 }

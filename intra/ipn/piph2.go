@@ -256,6 +256,7 @@ func (t *piph2) claim(msg string) []string {
 	return []string{t.token, byte2hex(msgmac)}
 }
 
+// Dial implements Proxy.
 func (t *piph2) Dial(network, addr string) (protect.Conn, error) {
 	if t.status == END {
 		return nil, errProxyStopped
@@ -411,6 +412,14 @@ func (t *piph2) Dial(network, addr string) (protect.Conn, error) {
 
 	t.status = TOK
 	return oconn, nil
+}
+
+// Announce implements Proxy.
+func (h *piph2) Announce(network, local string) (protect.PacketConn, error) {
+	if h.status == END {
+		return nil, errProxyStopped
+	}
+	return nil, errAnnounceNotSupported
 }
 
 func (h *piph2) fetch(req *http.Request) (*http.Response, error) {

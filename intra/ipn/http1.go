@@ -20,12 +20,12 @@ import (
 )
 
 type http1 struct {
-	hc          *http.Client   // exported http client
-	rd          *protect.RDial // exported rdial
-	proxydialer proxy.Dialer
-	id          string
-	opts        *settings.ProxyOptions
-	status      int
+	hc       *http.Client   // exported http client
+	rd       *protect.RDial // exported rdial
+	outbound proxy.Dialer
+	id       string
+	opts     *settings.ProxyOptions
+	status   int
 }
 
 func NewHTTPProxy(id string, c protect.Controller, po *settings.ProxyOptions) (Proxy, error) {
@@ -60,9 +60,9 @@ func NewHTTPProxy(id string, c protect.Controller, po *settings.ProxyOptions) (P
 	hp := tx.New(u, opts...)
 
 	h := &http1{
-		proxydialer: hp,
-		id:          id,
-		opts:        po,
+		outbound: hp, // does not support udp
+		id:       id,
+		opts:     po,
 	}
 	h.rd = newRDial(h)
 	h.hc = newHTTPClient(h.rd)
@@ -72,6 +72,7 @@ func NewHTTPProxy(id string, c protect.Controller, po *settings.ProxyOptions) (P
 	return h, nil
 }
 
+// Dial implements Proxy.
 func (h *http1) Dial(network, addr string) (c protect.Conn, err error) {
 	if h.status == END {
 		return nil, errProxyStopped
@@ -79,13 +80,21 @@ func (h *http1) Dial(network, addr string) (c protect.Conn, err error) {
 
 	// dialers.ProxyDial not needed, because
 	// tx.HttpTunnel.Dial() supports dialing into hostnames
-	if c, err = dialers.ProxyDial(h.proxydialer, network, addr); err != nil {
+	if c, err = dialers.ProxyDial(h.outbound, network, addr); err != nil {
 		h.status = TKO
 	} else {
 		h.status = TOK
 	}
 	log.I("proxy: http1: dial(%s) from %s to %s; err? %v", network, h.GetAddr(), addr, err)
 	return
+}
+
+// Announce implements Proxy.
+func (h *http1) Announce(network, local string) (protect.PacketConn, error) {
+	if h.status == END {
+		return nil, errProxyStopped
+	}
+	return nil, errAnnounceNotSupported
 }
 
 func (h *http1) fetch(req *http.Request) (*http.Response, error) {

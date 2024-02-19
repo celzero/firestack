@@ -45,16 +45,17 @@ const (
 )
 
 var (
-	errProxyScheme     = errors.New("unsupported proxy scheme")
-	errUnexpectedProxy = errors.New("unexpected proxy type")
-	errAddProxy        = errors.New("add proxy failed")
-	errProxyNotFound   = errors.New("proxy not found")
-	errMissingProxyOpt = errors.New("proxyopts nil")
-	errNoProxyConn     = errors.New("not a tcp/udp proxy conn")
-	errProxyStopped    = errors.New("proxy stopped")
-	errProxyConfig     = errors.New("invalid proxy config")
-	errNoProxyResponse = errors.New("no response from proxy")
-	errNoSig           = errors.New("auth missing sig")
+	errProxyScheme          = errors.New("unsupported proxy scheme")
+	errUnexpectedProxy      = errors.New("unexpected proxy type")
+	errAddProxy             = errors.New("add proxy failed")
+	errProxyNotFound        = errors.New("proxy not found")
+	errMissingProxyOpt      = errors.New("proxyopts nil")
+	errNoProxyConn          = errors.New("not a tcp/udp proxy conn")
+	errAnnounceNotSupported = errors.New("announce not supported")
+	errProxyStopped         = errors.New("proxy stopped")
+	errProxyConfig          = errors.New("invalid proxy config")
+	errNoProxyResponse      = errors.New("no response from proxy")
+	errNoSig                = errors.New("auth missing sig")
 
 	udptimeoutsec = 5 * 60                    // 5m
 	tcptimeoutsec = (2 * 60 * 60) + (40 * 60) // 2h40m
@@ -67,6 +68,7 @@ const (
 
 // type checks
 var _ Proxy = (*base)(nil)
+var _ Proxy = (*exit)(nil)
 var _ Proxy = (*socks5)(nil)
 var _ Proxy = (*http1)(nil)
 var _ Proxy = (*wgproxy)(nil)
@@ -74,13 +76,18 @@ var _ Proxy = (*ground)(nil)
 var _ Proxy = (*pipws)(nil)
 var _ Proxy = (*piph2)(nil)
 
+// Proxy implements the RDialer interface.
+var _ protect.RDialer = (Proxy)(nil)
+
 type Proxy interface {
 	// ID returns the ID of this proxy.
 	ID() string
 	// Type returns the type of this proxy.
 	Type() string
 	// Dial returns a connection to this proxy.
-	Dial(network string, addr string) (protect.Conn, error)
+	Dial(network, addr string) (protect.Conn, error)
+	// Announce returns a packet-oriented udp connection on this proxy.
+	Announce(network, local string) (protect.PacketConn, error)
 	// fetch response for this request over HTTP.
 	fetch(req *http.Request) (*http.Response, error)
 	// Dialer returns the dialer for this proxy, which is an

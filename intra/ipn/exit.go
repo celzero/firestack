@@ -16,11 +16,12 @@ import (
 )
 
 type exit struct {
-	rd       *protect.RDial // this proxy as a RDial
-	hc       *http.Client   // this proxy as a http.Client
-	outbound *net.Dialer    // outbound dialer
-	addr     string
-	status   int
+	rd        *protect.RDial    // this proxy as a RDial
+	hc        *http.Client      // this proxy as a http.Client
+	outbound  *net.Dialer       // outbound dialer
+	listencfg *net.ListenConfig // outbound listener
+	addr      string
+	status    int
 }
 
 func NewExitProxy(c protect.Controller) Proxy {
@@ -28,16 +29,19 @@ func NewExitProxy(c protect.Controller) Proxy {
 		log.W("proxy: exit: missing ctl; probably not what you want")
 	}
 	d := protect.MakeNsDialer(Exit, c)
+	l := protect.MakeNsListenConfig(Exit, c)
 	h := &exit{
-		addr:     "127.0.0.127:1337",
-		outbound: d,
-		status:   TOK,
+		addr:      "127.0.0.127:1337",
+		outbound:  d,
+		listencfg: l,
+		status:    TOK,
 	}
 	h.rd = newRDial(h)
 	h.hc = newHTTPClient(h.rd)
 	return h
 }
 
+// Dial implements Proxy.
 func (h *exit) Dial(network, addr string) (c protect.Conn, err error) {
 	if h.status == END {
 		return nil, errProxyStopped
@@ -51,6 +55,14 @@ func (h *exit) Dial(network, addr string) (c protect.Conn, err error) {
 	}
 	log.I("proxy: exit: dial(%s) to %s; err? %v", network, addr, err)
 	return
+}
+
+// Announce implements Proxy.
+func (h *exit) Announce(network, local string) (protect.PacketConn, error) {
+	if h.status == END {
+		return nil, errProxyStopped
+	}
+	return dialers.NetListen(h.listencfg, network, local)
 }
 
 func (h *exit) Dialer() *protect.RDial {

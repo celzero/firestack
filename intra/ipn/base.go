@@ -34,6 +34,7 @@ func NewBaseProxy(c protect.Controller) Proxy {
 	return h
 }
 
+// Dial implements the Proxy interface.
 func (h *base) Dial(network, addr string) (c protect.Conn, err error) {
 	if h.status == END {
 		return nil, errProxyStopped
@@ -46,6 +47,14 @@ func (h *base) Dial(network, addr string) (c protect.Conn, err error) {
 	}
 	log.I("proxy: base: dial(%s) to %s; err? %v", network, addr, err)
 	return
+}
+
+// Announce implements Proxy.
+func (h *base) Announce(network, local string) (protect.PacketConn, error) {
+	if h.status == END {
+		return nil, errProxyStopped
+	}
+	return dialers.Listen(h.outbound, network, local)
 }
 
 func (h *base) Dialer() *protect.RDial {

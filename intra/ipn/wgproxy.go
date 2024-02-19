@@ -100,6 +100,14 @@ func (h *wgproxy) Dial(network, address string) (c protect.Conn, err error) {
 	return dialers.ProxyDial(h.wgtun, network, address)
 }
 
+// Announce implements Proxy.
+func (h *wgproxy) Announce(network, local string) (protect.PacketConn, error) {
+	if h.status == END {
+		return nil, errProxyStopped
+	}
+	return nil, errAnnounceNotSupported
+}
+
 // BatchSize implements WgProxy
 func (w *wgproxy) BatchSize() int {
 	return w.wgtun.BatchSize()

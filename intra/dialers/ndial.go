@@ -7,6 +7,7 @@
 package dialers
 
 import (
+	"context"
 	"errors"
 	"net"
 	"net/netip"
@@ -100,4 +101,13 @@ func netdial(d *net.Dialer, network, addr string, connect netConnectFunc) (net.C
 // NetDial connects to the address on the named network using net.Dialer.
 func NetDial(d *net.Dialer, network, addr string) (net.Conn, error) {
 	return netdial(d, network, addr, netConnect)
+}
+
+// NetListen listens on local address using net.ListenConfig.
+func NetListen(cfg *net.ListenConfig, network, local string) (net.PacketConn, error) {
+	if cfg == nil {
+		log.E("ndial: NetListen: nil listen config")
+		return nil, errNoListener
+	}
+	return cfg.ListenPacket(context.TODO(), network, local)
 }

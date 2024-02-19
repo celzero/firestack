@@ -23,7 +23,13 @@ func NewGroundProxy() Proxy {
 	return h
 }
 
+// Dial implements Proxy.
 func (h *ground) Dial(network, addr string) (c protect.Conn, err error) {
+	return nil, errNoProxyResponse
+}
+
+// Announce implements Proxy.
+func (h *ground) Announce(network, local string) (protect.PacketConn, error) {
 	return nil, errNoProxyResponse
 }
 

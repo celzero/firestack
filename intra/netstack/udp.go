@@ -27,6 +27,8 @@ var errMissingEp = errors.New("udp not connected to any endpoint")
 type GUDPConnHandler interface {
 	// Proxy proxies data between conn (src) and dst.
 	Proxy(conn *GUDPConn, src, dst netip.AddrPort) bool
+	// ProxyMux proxies data between conn and multiple destinations.
+	ProxyMux(conn *GUDPConn, src netip.AddrPort) bool
 	// CloseConns closes conns by ids, or all if ids is empty.
 	CloseConns([]string) []string
 	// End closes the handler and all its connections.
@@ -88,7 +90,12 @@ func NewUDPForwarder(s *stack.Stack, h GUDPConnHandler) *udp.Forwarder {
 
 		gc := MakeGUDPConn(s, request, src, dst)
 
-		go h.Proxy(gc, src, dst)
+		// if gc is a connected udp socket; proxy it like a stream
+		if !dst.Addr().IsUnspecified() {
+			h.Proxy(gc, src, dst)
+		} else {
+			h.ProxyMux(gc, src)
+		}
 	})
 }
 
