@@ -54,7 +54,6 @@ func NewTLSTransport(id, rawurl string, addrs []string, px ipn.Proxies, ctl prot
 	if px != nil {
 		relay, _ = px.GetProxy(id)
 	}
-	dialer := protect.MakeNsDialer(id, ctl)
 	rd := protect.MakeNsRDial(id, ctl)
 	hostname := parsedurl.Hostname()
 	// addrs are pre-determined ip addresses for url / hostname
@@ -71,9 +70,10 @@ func NewTLSTransport(id, rawurl string, addrs []string, px ipn.Proxies, ctl prot
 		relay:   relay,
 		est:     core.NewP50Estimator(),
 	}
+	// local dialer: protect.MakeNsDialer(id, ctl)
 	tx.c = &dns.Client{
 		Net:            "tcp-tls",
-		Dialer:         dialer,
+		Dialer:         nil, // unused; dialers from px take precedence
 		Timeout:        dottimeout,
 		SingleInflight: true,
 		TLSConfig:      tlscfg,
