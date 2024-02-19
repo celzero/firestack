@@ -53,8 +53,6 @@ type udpHandler struct {
 
 	resolver    dnsx.Resolver
 	conntracker core.ConnMapper // connid -> [local,remote]
-	config      *net.ListenConfig
-	dialer      *net.Dialer
 	tunMode     *settings.TunMode
 	listener    SocketListener
 	prox        ipn.Proxies
@@ -70,7 +68,6 @@ const (
 var (
 	errUdpFirewalled = errors.New("udp: firewalled")
 	errUdpSetupConn  = errors.New("udp: could not create conn")
-	errUdpEnd        = errors.New("udp: end")
 )
 
 var (
@@ -89,13 +86,9 @@ func makeTracker(cid, pid, uid string) *SocketSummary {
 // `config` is used to bind new external UDP ports.
 // `listener` receives a summary about each UDP binding when it expires.
 func NewUDPHandler(resolver dnsx.Resolver, prox ipn.Proxies, tunMode *settings.TunMode, ctl protect.Controller, listener SocketListener) UDPHandler {
-	c := protect.MakeNsListenConfig("udphl", ctl)
-	d := protect.MakeNsDialer("udph", ctl)
 	h := &udpHandler{
 		resolver:    resolver,
 		tunMode:     tunMode,
-		config:      c,
-		dialer:      d,
 		listener:    listener,
 		prox:        prox,
 		fwtracker:   core.NewExpiringMap(),

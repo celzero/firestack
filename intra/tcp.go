@@ -83,10 +83,8 @@ var (
 // All other traffic is forwarded using `dialer`.
 // `listener` is provided with a summary of each socket when it is closed.
 func NewTCPHandler(resolver dnsx.Resolver, prox ipn.Proxies, tunMode *settings.TunMode, ctl protect.Controller, listener SocketListener) TCPHandler {
-	d := protect.MakeNsDialer("tcph", ctl)
 	h := &tcpHandler{
 		resolver:    resolver,
-		dialer:      d,
 		tunMode:     tunMode,
 		listener:    listener,
 		prox:        prox,
