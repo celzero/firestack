@@ -9,6 +9,7 @@ package dialers
 import (
 	"context"
 	"errors"
+	"io"
 	"net"
 	"net/netip"
 	"strconv"
@@ -18,6 +19,8 @@ import (
 )
 
 type netConnectFunc func(*net.Dialer, string, netip.Addr, int) (net.Conn, error)
+
+var errNotUDPConn = errors.New("listener: not a UDPConn")
 
 func netConnect(d *net.Dialer, proto string, ip netip.Addr, port int) (net.Conn, error) {
 	if d == nil {
@@ -103,11 +106,28 @@ func NetDial(d *net.Dialer, network, addr string) (net.Conn, error) {
 	return netdial(d, network, addr, netConnect)
 }
 
-// NetListen listens on local address using net.ListenConfig.
-func NetListen(cfg *net.ListenConfig, network, local string) (net.PacketConn, error) {
+// NetListen listens for UDP on local address using cfg.
+// Returned net.Conn is guaranteed to be a *net.UDPConn.
+func NetListen(cfg *net.ListenConfig, network, local string) (net.Conn, error) {
 	if cfg == nil {
 		log.E("ndial: NetListen: nil listen config")
 		return nil, errNoListener
 	}
-	return cfg.ListenPacket(context.TODO(), network, local)
+	if c, err := cfg.ListenPacket(context.Background(), network, local); err == nil {
+		if conn, ok := c.(*net.UDPConn); ok {
+			return conn, nil
+		} else {
+			log.W("ndial: NetListen: p(%s) %T not a net.UDPConn; src: %s", network, c, local)
+			clos(conn)
+			return nil, errNotUDPConn
+		}
+	} else {
+		return nil, err
+	}
+}
+
+func clos(c io.Closer) {
+	if c != nil {
+		c.Close()
+	}
 }

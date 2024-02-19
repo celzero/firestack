@@ -29,7 +29,7 @@ func (h *ground) Dial(network, addr string) (c protect.Conn, err error) {
 }
 
 // Announce implements Proxy.
-func (h *ground) Announce(network, local string) (protect.PacketConn, error) {
+func (h *ground) Announce(network, local string) (protect.Conn, error) {
 	return nil, errNoProxyResponse
 }
 

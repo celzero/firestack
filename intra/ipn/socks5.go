@@ -168,7 +168,7 @@ func (h *socks5) Dial(network, addr string) (c protect.Conn, err error) {
 }
 
 // Announce implements Proxy.
-func (h *socks5) Announce(network, local string) (protect.PacketConn, error) {
+func (h *socks5) Announce(network, local string) (protect.Conn, error) {
 	if h.status == END {
 		return nil, errProxyStopped
 	}

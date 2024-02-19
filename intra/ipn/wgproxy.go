@@ -101,7 +101,7 @@ func (h *wgproxy) Dial(network, address string) (c protect.Conn, err error) {
 }
 
 // Announce implements Proxy.
-func (h *wgproxy) Announce(network, local string) (protect.PacketConn, error) {
+func (h *wgproxy) Announce(network, local string) (protect.Conn, error) {
 	if h.status == END {
 		return nil, errProxyStopped
 	}

@@ -42,16 +42,20 @@ type RDialer interface {
 	// a *net.UDPConn if network is "udp" or "udp4" or "udp6".
 	Dial(network, addr string) (Conn, error)
 	// Announce announces the local address. network must be
-	// packet-oriented ("udp" or "udp4" or "udp6").
-	Announce(network, local string) (PacketConn, error)
+	// packet-oriented ("udp" or "udp4" or "udp6") conn.
+	// (the returned conn is actually a protect.PacketConn;
+	// protect.Conn is used in signature to make gobind happy
+	// as it does not support exporting interfaces with fns
+	// that return more than 2 values, like ReadFrom does).
+	Announce(network, local string) (Conn, error)
 }
 
 // RDial discards local-addresses
 type RDial struct {
-	Owner        string            // owner tag
-	Dialer       proxy.Dialer      // may be nil
-	ListenConfig *net.ListenConfig // may be nil
-	RDialer      RDialer           // may be nil
+	Owner    string            // owner tag
+	Dialer   proxy.Dialer      // may be nil
+	Listener *net.ListenConfig // may be nil
+	RDialer  RDialer           // may be nil
 }
 
 var (
@@ -88,15 +92,28 @@ func (d *RDial) Dial(network, addr string) (net.Conn, error) {
 	}
 }
 
-func (d *RDial) Announce(network, local string) (PacketConn, error) {
+func (d *RDial) Announce(network, local string) (Conn, error) {
 	if network != "udp" && network != "udp4" && network != "udp6" {
 		return nil, errAnnounce
 	}
 	// todo: check if local is a local address
-	uselistener := d.ListenConfig != nil
+	// diailing (proxy.Dial/net.Dial/etc) on wildcard addresses (ex: ":8080")
+	// is not equivalent to listening/announcing. see: github.com/golang/go/issues/22827
+	uselistener := d.Listener != nil
 	userdialer := d.RDialer != nil
 	if uselistener {
-		return d.ListenConfig.ListenPacket(context.TODO(), network, local)
+		if pc, err := d.Listener.ListenPacket(context.Background(), network, local); err == nil {
+			switch x := pc.(type) {
+			case *net.UDPConn:
+				return x, err
+			default:
+				log.W("xdial: Announce: (%s) %T is not net.UDPConn; other errs: %v", d.Owner, x, err)
+				clos(pc)
+				return nil, errNoUDPMux
+			}
+		} else {
+			return nil, err
+		}
 	}
 	if userdialer {
 		return d.RDialer.Announce(network, local)
@@ -143,13 +160,14 @@ func (d *RDial) DialUDP(network string, laddr, raddr *net.UDPAddr) (*net.UDPConn
 	}
 }
 
-func (d *RDial) AnnounceUDP(network, local string) (net.PacketConn, error) {
+// AnnounceUDP announces the local address. network must be "udp" or "udp4" or "udp6".
+func (d *RDial) AnnounceUDP(network, local string) (*net.UDPConn, error) {
 	if c, err := d.Announce(network, local); err != nil {
 		return nil, err
-	} else if pc, ok := c.(net.PacketConn); ok {
-		return pc, nil
+	} else if uc, ok := c.(*net.UDPConn); ok {
+		return uc, nil
 	} else {
-		log.W("xdial: AnnounceUDP: (%s) %T is not %T (ok? %t); other errs: %v", d.Owner, c, pc, ok, err)
+		log.W("xdial: AnnounceUDP: (%s) %T is not %T (ok? %t); other errs: %v", d.Owner, c, uc, ok, err)
 		clos(c)
 		return nil, errNoUDPMux
 	}
