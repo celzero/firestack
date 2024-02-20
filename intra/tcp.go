@@ -97,38 +97,6 @@ func NewTCPHandler(resolver dnsx.Resolver, prox ipn.Proxies, tunMode *settings.T
 	return h
 }
 
-func conn2str(a net.Conn, b net.Conn) string {
-	ar := a.RemoteAddr()
-	br := b.RemoteAddr()
-	al := a.LocalAddr()
-	bl := b.LocalAddr()
-	return fmt.Sprintf("a(%v->%v) => b(%v<-%v)", al, ar, bl, br)
-}
-
-func pclose(c io.Closer, a string) {
-	if c == nil {
-		return
-	}
-	if a == "rw" {
-		c.Close()
-		return
-	}
-	switch x := c.(type) {
-	case core.TCPConn: // net.TCPConn confirms to core.TCPConn
-		if a == "r" {
-			x.CloseRead()
-		} else if a == "w" {
-			x.CloseWrite()
-		} else { // == "rw"
-			x.Close()
-		}
-	case core.UDPConn:
-		x.Close()
-	case io.Closer:
-		x.Close()
-	}
-}
-
 // TODO: Propagate TCP RST using local.Abort(), on appropriate errors.
 func upload(cid string, local net.Conn, remote net.Conn, ioch chan<- ioinfo) {
 	ci := conn2str(local, remote)
@@ -172,7 +140,7 @@ func forward(local net.Conn, remote net.Conn, t core.ConnMapper, l SocketListene
 
 	smm.Rx = dbytes
 	smm.Tx = upload.bytes
-	smm.Target = remote.RemoteAddr().String()
+	smm.Target = addr2ip(remote.RemoteAddr())
 
 	smm.done(derr, upload.err)
 	go sendNotif(l, smm)
@@ -488,4 +456,56 @@ func splitCidPidUid(decision *Mark) (cid, pid, uid string) {
 		return
 	}
 	return decision.CID, decision.PID, decision.UID
+}
+
+func addr2ip(a net.Addr) string {
+	if a == nil {
+		return ""
+	}
+	switch x := a.(type) {
+	case *net.TCPAddr:
+		return x.IP.String()
+	case *net.UDPAddr:
+		return x.IP.String()
+	case *net.IPAddr:
+		return x.IP.String()
+	case *net.IPNet:
+		return x.IP.String()
+	}
+	if b, err := netip.ParseAddrPort(a.String()); err == nil {
+		return b.Addr().String()
+	}
+	return ""
+}
+
+func conn2str(a net.Conn, b net.Conn) string {
+	ar := a.RemoteAddr()
+	br := b.RemoteAddr()
+	al := a.LocalAddr()
+	bl := b.LocalAddr()
+	return fmt.Sprintf("a(%v->%v) => b(%v<-%v)", al, ar, bl, br)
+}
+
+func pclose(c io.Closer, a string) {
+	if c == nil {
+		return
+	}
+	if a == "rw" {
+		c.Close()
+		return
+	}
+	switch x := c.(type) {
+	case core.TCPConn: // net.TCPConn confirms to core.TCPConn
+		if a == "r" {
+			x.CloseRead()
+		} else if a == "w" {
+			x.CloseWrite()
+		} else { // == "rw"
+			x.Close()
+		}
+	case core.UDPConn:
+		x.Close()
+	case io.Closer:
+		x.Close()
+	}
 }
