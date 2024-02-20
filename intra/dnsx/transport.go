@@ -215,8 +215,8 @@ func (r *resolver) Add(t Transport) (ok bool) {
 	if t == nil {
 		return false
 	}
-	if t.ID() == Default {
-		log.W("dns: cannot re-add default transport; ignoring: ", t.GetAddr())
+	if t.ID() == Default || cachedTransport(t) {
+		log.W("dns: cannot re-add default/cached transports; ignoring: ", t.GetAddr())
 		return false
 	}
 
@@ -695,9 +695,12 @@ func (r *resolver) refresh() {
 	defer r.RUnlock()
 
 	for _, t := range r.transports {
-		// re-adding creates NEW cached transports
-		// which is akin to a cache flush
-		go r.Add(t)
+		// skip cached transports
+		if !cachedTransport(t) {
+			// re-adding creates NEW cached transports
+			// which is akin to a cache flush
+			go r.Add(t)
+		}
 	}
 }
 

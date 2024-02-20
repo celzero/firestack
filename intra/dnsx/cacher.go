@@ -83,6 +83,10 @@ type ctransport struct {
 	est          core.P2QuantileEstimator
 }
 
+func cachedTransport(t Transport) bool {
+	return strings.HasPrefix(t.GetAddr(), cacheAddrPrefix)
+}
+
 func NewDefaultCachingTransport(t Transport) (ct Transport) {
 	return NewCachingTransport(t, defttl)
 }
@@ -93,7 +97,7 @@ func NewCachingTransport(t Transport, ttl time.Duration) Transport {
 	}
 
 	// is type casting is a better way to do this?
-	if strings.HasPrefix(t.GetAddr(), cacheAddrPrefix) {
+	if cachedTransport(t) {
 		log.I("cache: (%s) no-op: %s", t.ID(), t.GetAddr())
 		return t
 	}
