@@ -560,6 +560,8 @@ func (r *resolver) dnsudp(q []byte, w io.WriteCloser) error {
 func (r *resolver) reply(c io.ReadWriteCloser) {
 	defer c.Close()
 
+	start := time.Now()
+	cnt := 0
 	for {
 		qptr := core.Alloc()
 		q := *qptr
@@ -583,11 +585,13 @@ func (r *resolver) reply(c io.ReadWriteCloser) {
 		}
 
 		if err != nil {
-			log.W("dns: udp: err reading query: %v", err)
+			ms := int(time.Since(start).Seconds() * 1000)
+			log.D("dns: udp: done; tot: %d, t: %ds, err: %v", cnt, ms, err)
 			free()
 			break
 		}
 		go do()
+		cnt++
 	}
 }
 
@@ -596,6 +600,8 @@ func (r *resolver) reply(c io.ReadWriteCloser) {
 func (r *resolver) accept(c io.ReadWriteCloser) {
 	defer c.Close()
 
+	start := time.Now()
+	cnt := 0
 	qlbuf := make([]byte, 2)
 	for {
 		n, err := c.Read(qlbuf)
@@ -624,7 +630,7 @@ func (r *resolver) accept(c io.ReadWriteCloser) {
 
 		n, err = c.Read(q)
 		if err != nil {
-			log.W("dns: tcp: err reading query: %v", err)
+			log.D("dns: tcp: done; err: %v", err)
 			free()
 			break // close on read errs
 		}
@@ -639,7 +645,10 @@ func (r *resolver) accept(c io.ReadWriteCloser) {
 			break // close on incomplete reads
 		}
 		go do()
+		cnt++
 	}
+	ms := int(time.Since(start).Seconds() * 1000)
+	log.D("dns: tcp: done; tot: %d, t: %ds", cnt, ms)
 	// TODO: Cancel outstanding queries.
 }
 

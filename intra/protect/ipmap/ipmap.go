@@ -181,7 +181,7 @@ func (s *IPSet) addLocked(ip netip.Addr) {
 		// always unmapped; github.com/golang/go/issues/53607
 		s.ips = append(s.ips, ip.Unmap())
 	} else {
-		log.D("ipmap: add: fail %s; uns? %t, val? %t, new? %t", ip, uns, valip, newip)
+		log.D("ipmap: add: fail %s; !uns? %t, val? %t, !new? %t", ip, uns, valip, newip)
 	}
 }
 
