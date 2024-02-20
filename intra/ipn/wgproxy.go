@@ -518,8 +518,15 @@ func (tun *wgtun) WriteNotify() {
 	view := pkt.ToView()
 	pkt.DecRef()
 
-	log.V("wg: tun: write: notify sz(%d)", view.Size())
-	tun.incomingPacket <- view
+	sz := view.Size()
+	log.V("wg: tun: write: notify sz(%d)", sz)
+
+	select {
+	case tun.incomingPacket <- view:
+	default:
+		e := tun.status == END
+		log.W("wg: tun: write: closed? %t; dropped pkt; sz(%d)", e, sz)
+	}
 }
 
 func (tun *wgtun) Close() error {
