@@ -157,21 +157,14 @@ func (h *udpHandler) Proxy(gconn *netstack.GUDPConn, src, dst netip.AddrPort) (o
 	l := h.listener
 	remote, smm, err := h.Connect(gconn, src, dst) // remote may be nil; smm is never nil
 
-	if err != nil || remote == nil {
+	if err != nil || gerr != nil || remote == nil {
 		clos(gconn, remote)
 		if smm != nil { // smm is never nil; but nilaway complains
 			smm.done(err)
 			go sendNotif(l, smm)
 		} else {
-			log.W("udp: on-new-conn: unexpected nil tracker %s -> %s; err %v", src, dst, err)
+			log.W("udp: on-new-conn: unexpected %s -> %s; netstack err: %v; dst err: %v", src, dst, err, gerr)
 		}
-		return // not ok
-	} else if gerr != nil {
-		// for ex when netstack has no route to dst
-		log.W("udp: on-new-conn: %s failed to connect %s -> %s; err %v", smm.ID, src, dst, err)
-		clos(gconn, remote)
-		smm.done(err)
-		go sendNotif(l, smm)
 		return // not ok
 	} else {
 		go func() {
