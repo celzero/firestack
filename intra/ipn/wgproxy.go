@@ -52,9 +52,9 @@ import (
 
 const (
 	// epsize is the size of the channel endpoint.
-	epsize = 1024
+	epsize = 4096
 	// eventssize is the size of the events channel.
-	eventssize = 16
+	eventssize = 64
 	// wgnic is the id of the WireGuard network interface.
 	wgnic = 999
 	// missing wg interface address.
