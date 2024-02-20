@@ -39,9 +39,10 @@ const (
 	NoDNS = "" // no DNS
 
 	// status of proxies
-	TOK = 0  // proxy OK
-	TKO = -1 // proxy not OK
-	END = -2 // proxy stopped
+	TUP = 0  // proxy UP but not yet OK
+	TOK = -1 // proxy OK
+	TKO = -2 // proxy not OK
+	END = -3 // proxy stopped
 )
 
 var (
