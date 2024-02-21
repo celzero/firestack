@@ -235,7 +235,7 @@ func (h *udpHandler) proxy(gconn net.Conn, src, dst netip.AddrPort) (ok bool) {
 	l := h.listener
 	remote, smm, err := h.Connect(gconn, src, dst) // remote may be nil; smm is never nil
 
-	if err != nil || gerr != nil || remote == nil {
+	if err != nil || gerr != nil {
 		clos(gconn, remote)
 		if smm != nil { // smm is never nil; but nilaway complains
 			smm.done(err)
@@ -244,6 +244,8 @@ func (h *udpHandler) proxy(gconn net.Conn, src, dst netip.AddrPort) (ok bool) {
 			log.W("udp: proxy: unexpected %s -> %s; netstack err: %v; dst err: %v", src, dst, gerr, err)
 		}
 		return // not ok
+	} else if remote == nil { // dnsOverride?
+		return true // ok
 	}
 	go func() {
 		cm := h.conntracker
