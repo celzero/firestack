@@ -293,11 +293,9 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target netip.AddrPort)
 
 	if pid == ipn.Block {
 		var secs uint32
-		k := uid
+		k := uid + target.String()
 		if len(domains) > 0 { // probableDomains are not reliable to use for firewalling
-			k += domains
-		} else {
-			k += target.String()
+			k = uid + domains
 		}
 		if secs = stall(h.fwtracker, k); secs > 0 {
 			waittime := time.Duration(secs) * time.Second

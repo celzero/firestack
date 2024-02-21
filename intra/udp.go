@@ -274,9 +274,8 @@ func (h *udpHandler) Connect(gconn net.Conn, src, target netip.AddrPort) (dst co
 
 	if res.PID == ipn.Block {
 		var secs uint32
-		// UID may be unknown and target may be invalid addr
-		k := res.UID + target.String()
-		if len(domains) > 0 { // probableDomains are not reliable for firewalling
+		k := res.UID + target.String() // UID may be unknown and target may be invalid addr
+		if len(domains) > 0 {          // probableDomains are not reliable for firewalling
 			k = res.UID + domains
 		}
 		if secs = stall(h.fwtracker, k); secs > 0 {
