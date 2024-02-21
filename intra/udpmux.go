@@ -314,6 +314,7 @@ func (c *demuxconn) SetWriteDeadline(t time.Time) error {
 	if d := time.Until(t); d > 0 {
 		c.wto = d
 		c.rt.Reset(d)
+		c.remux.extend(t)
 	} else {
 		c.rt.Stop()
 	}
