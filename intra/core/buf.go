@@ -52,6 +52,7 @@ func Alloc() *[]byte {
 
 // Recycle returns the byte slices to the pool
 func Recycle(b *[]byte) bool {
+	// ref: go.dev/play/p/ywM_j-IvVH6
 	if slab := slabfor(b); slab != nil {
 		*b = (*b)[:0]
 		slab.Put(b)
