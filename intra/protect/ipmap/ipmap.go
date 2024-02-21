@@ -29,6 +29,7 @@ import (
 	"net"
 	"net/netip"
 	"sync"
+	"sync/atomic"
 
 	"github.com/celzero/firestack/intra/log"
 )
@@ -69,7 +70,7 @@ type ipmap struct {
 type IPSet struct {
 	sync.RWMutex              // Protects this struct.
 	ips          []netip.Addr // All known IPs for the server.
-	confirmed    netip.Addr   // IP address confirmed to be working.
+	confirmed    atomic.Value // netip.Addr confirmed to be working.
 	r            IPMapper     // Resolver to use for hostname resolution.
 	seed         []string     // Bootstrap IPs; may be nil.
 }
@@ -152,7 +153,8 @@ func (m *ipmap) makeIPSet(hostname string, ips []string) *IPSet {
 	if ips == nil {
 		ips = []string{}
 	}
-	s := &IPSet{r: m, seed: ips, confirmed: zeroaddr}
+	s := &IPSet{r: m, seed: ips}
+	s.confirmed.Store(zeroaddr)
 	s.bootstrap()
 
 	m.Lock()
@@ -262,9 +264,8 @@ func (s *IPSet) Addrs() []netip.Addr {
 
 // Confirmed returns the confirmed IP address, or nil if there is no such address.
 func (s *IPSet) Confirmed() netip.Addr {
-	s.RLock()
-	defer s.RUnlock()
-	return s.confirmed
+	ip, _ := s.confirmed.Load().(netip.Addr)
+	return ip
 }
 
 // Confirm marks ip as the confirmed address.
@@ -272,19 +273,16 @@ func (s *IPSet) Confirm(ip netip.Addr) {
 	if ip.Compare(s.Confirmed()) == 0 {
 		return
 	}
+	s.confirmed.Store(ip)
 	s.Lock()
-	// Add is O(N)
-	s.addLocked(ip)
-	s.confirmed = ip
+	s.addLocked(ip) // Add is O(N)
 	s.Unlock()
 }
 
 // Disconfirm sets the confirmed address to nil if the current confirmed address
 // is the provided ip.
 func (s *IPSet) Disconfirm(ip netip.Addr) {
-	s.Lock()
-	if ip.Compare(s.confirmed) == 0 {
-		s.confirmed = zeroaddr
+	if ip.Compare(s.Confirmed()) == 0 {
+		s.confirmed.Store(zeroaddr)
 	}
-	s.Unlock()
 }
