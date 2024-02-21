@@ -9,7 +9,6 @@ package intra
 import (
 	"errors"
 	"fmt"
-	"io"
 	"net"
 	"os"
 	"sync"
@@ -255,14 +254,11 @@ func (c *demuxconn) Read(p []byte) (int, error) {
 	case <-c.closed:
 		// todo: drain incomingCh?
 		return 0, net.ErrClosed
-	case b, ok := <-c.incomingCh:
-		if ok {
-			// todo: handle the case where len(b) > len(p)
-			n := copy(p, b)
-			return n, nil
-		}
+	case b := <-c.incomingCh:
+		// todo: handle the case where len(b) > len(p)
+		n := copy(p, b)
+		return n, nil
 	}
-	return 0, io.EOF
 }
 
 // Write implements net.Conn.Write
