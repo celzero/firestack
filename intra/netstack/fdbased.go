@@ -361,7 +361,7 @@ func (e *endpoint) WritePackets(pkts stack.PacketBufferList) (int, tcpip.Error) 
 		if len(batch)+numIovecs > rawfile.MaxIovs {
 			// writes in to fd, up to len(batch) not cap(batch)
 			if err := rawfile.NonBlockingWriteIovec(fd, batch); err != nil {
-				log.W("ns.e.WritePackets (to tun): err(%v), sent(%d)/total(%d)", err, written, total)
+				log.W("ns: WritePackets (to tun): err(%v), sent(%d)/total(%d)", err, written, total)
 				return written, err
 			}
 			// mark processed packets as written
@@ -378,13 +378,13 @@ func (e *endpoint) WritePackets(pkts stack.PacketBufferList) (int, tcpip.Error) 
 	}
 	if len(batch) > 0 {
 		if err := rawfile.NonBlockingWriteIovec(fd, batch); err != nil {
-			log.W("ns.e.WritePackets (to tun): err(%v), sent(%d)/total(%d)", err, packets, total)
+			log.W("ns: WritePackets (to tun): err(%v), sent(%d)/total(%d)", err, packets, total)
 			return written, err
 		}
 		written += packets
 	}
 
-	log.V("ns.e.WritePackets (to tun): written(%d)/total(%d)", written, total)
+	log.V("ns: WritePackets (to tun): written(%d)/total(%d)", written, total)
 	return written, nil
 }
 
@@ -394,7 +394,7 @@ func (e *endpoint) dispatchLoop(inbound linkDispatcher) tcpip.Error {
 	for {
 		cont, err := inbound.dispatch()
 		if err != nil || !cont {
-			log.I("ns.e.dispatchLoop: exit; err(%v)", err)
+			log.I("ns: dispatchLoop: exit; err(%v)", err)
 			return err
 		}
 	}
@@ -410,20 +410,20 @@ func (e *endpoint) ARPHardwareType() header.ARPHardwareType {
 
 // InjectInbound ingresses a netstack-inbound packet.
 func (e *endpoint) InjectInbound(protocol tcpip.NetworkProtocolNumber, pkt stack.PacketBufferPtr) {
-	log.V("ns.e.inject-inbound(from-tun) %d", protocol)
+	log.V("ns: inject-inbound (from tun) %d", protocol)
 	d := e.dispatcher // TODO: read lock?
 	if d != nil {
 		e.logPacketIfNeeded(sniffer.DirectionRecv, pkt)
 		d.DeliverNetworkPacket(protocol, pkt)
 	} else {
-		log.W("ns.e.inject-inbound(from-tun) %d pkt(%v) dropped: endpoint not attached", protocol, pkt.Hash)
+		log.W("ns: inject-inbound (from tun) %d pkt(%v) dropped: endpoint not attached", protocol, pkt.Hash)
 	}
 }
 
 // Unused: InjectOutobund implements stack.InjectableEndpoint.InjectOutbound.
 // InjectOutbound egresses a tun-inbound packet.
 func (e *endpoint) InjectOutbound(dest tcpip.Address, packet *buffer.View) tcpip.Error {
-	log.V("ns.e.inject-outbound(to-tun) to dst(%v)", dest)
+	log.V("ns: inject-outbound (to tun) to dst(%v)", dest)
 	// TODO: e.logPacketIfNeeded(sniffer.DirectionSend, packet)
 	return rawfile.NonBlockingWrite(e.fds[0].fd, packet.AsSlice())
 }

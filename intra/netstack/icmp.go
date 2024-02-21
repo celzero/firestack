@@ -19,13 +19,17 @@ import (
 	"gvisor.dev/gvisor/pkg/tcpip/transport/icmp"
 )
 
+// Pong is a callback function to send a reply to the client
 type Pong func(reply []byte) error
+
 type GICMPHandler interface {
 	// Multi ping handler
 	Ping(source, destination netip.AddrPort, msg []byte, pong Pong) bool
 	// Single ping handler
 	PingOnce(source, destination netip.AddrPort, msg []byte) bool
+	// CloseConns closes all connections
 	CloseConns([]string) []string
+	// End closes the handler and all its connections
 	End() error
 }
 

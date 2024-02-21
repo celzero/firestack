@@ -75,7 +75,7 @@ func setupUdpHandler(s *stack.Stack, h GUDPConnHandler) {
 func NewUDPForwarder(s *stack.Stack, h GUDPConnHandler) *udp.Forwarder {
 	return udp.NewForwarder(s, func(request *udp.ForwarderRequest) {
 		if request == nil {
-			log.E("ns.udp.forwarder: nil request")
+			log.E("ns: forwarder: nil request")
 			return
 		}
 		id := request.ID()
@@ -120,7 +120,7 @@ func (g *GUDPConn) Connect(fin bool) error {
 	// use gonet.DialUDP instead?
 	if endpoint, err := g.req.CreateEndpoint(wq); err != nil {
 		// ex: CONNECT endpoint for [fd66:f83a:c650::1]:15753 => [fd66:f83a:c650::3]:53; err(no route to host)
-		log.E("ns.udp.forwarder: CONNECT endpoint for %v => %v; err(%v)", g.src, g.dst, err)
+		log.E("ns: connect: endpoint for %v => %v; err(%v)", g.src, g.dst, err)
 		return e(err)
 	} else {
 		g.ep = endpoint
@@ -157,7 +157,7 @@ func (g *GUDPConn) Write(data []byte) (int, error) {
 	// addr: 10.111.222.3:17711; g.LocalAddr(g.udp.remote): 10.111.222.3:17711; g.RemoteAddr(g.udp.local): 10.111.222.1:53
 	// ep(state 3 / info &{2048 17 {53 10.111.222.3 17711 10.111.222.1} 1 10.111.222.3 1} / stats &{{{1}} {{0}} {{{0}} {{0}} {{0}} {{0}}} {{{0}} {{0}} {{0}}} {{{0}} {{0}}} {{{0}} {{0}} {{0}}}})
 	// 3: status:datagram-connected / {2048=>proto, 17=>transport, {53=>local-port localip 17711=>remote-port remoteip}=>endpoint-id, 1=>bind-nic-id, ip=>bind-addr, 1=>registered-nic-id}
-	// g.ep may be nil: log.V("ns.udp.writeFrom: from(%v) / ep(state %v / info %v / stats %v)", addr, g.ep.State(), g.ep.Info(), g.ep.Stats())
+	// g.ep may be nil: log.V("ns: writeFrom: from(%v) / ep(state %v / info %v / stats %v)", addr, g.ep.State(), g.ep.Info(), g.ep.Stats())
 	return g.conn.Write(data)
 }
 
