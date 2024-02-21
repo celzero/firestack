@@ -85,10 +85,12 @@ func (g *gconnhandler) Close() error {
 // github.com/google/gvisor/blob/be6ffa7/pkg/tcpip/stack/nic.go#L831-L837
 
 func localAddrPort(id stack.TransportEndpointID) netip.AddrPort {
+	// todo: unmap?
 	return localUDPAddr(id).AddrPort()
 }
 
 func remoteAddrPort(id stack.TransportEndpointID) netip.AddrPort {
+	// todo: unmap?
 	return remoteUDPAddr(id).AddrPort()
 }
 
