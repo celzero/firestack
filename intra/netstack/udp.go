@@ -38,22 +38,20 @@ type GUDPConnHandler interface {
 var _ core.UDPConn = (*GUDPConn)(nil)
 
 type GUDPConn struct {
-	conn  *gonet.UDPConn
-	ep    tcpip.Endpoint
-	src   netip.AddrPort
-	dst   netip.AddrPort
-	stack *stack.Stack
-	req   *udp.ForwarderRequest
+	conn *gonet.UDPConn
+	ep   tcpip.Endpoint
+	src  netip.AddrPort
+	dst  netip.AddrPort
+	req  *udp.ForwarderRequest
 }
 
 // ref: github.com/google/gvisor/blob/e89e736f1/pkg/tcpip/adapters/gonet/gonet_test.go#L373
-func MakeGUDPConn(s *stack.Stack, r *udp.ForwarderRequest, src, dst netip.AddrPort) *GUDPConn {
+func MakeGUDPConn(r *udp.ForwarderRequest, src, dst netip.AddrPort) *GUDPConn {
 	return &GUDPConn{
-		ep:    nil,
-		src:   src,
-		dst:   dst,
-		stack: s,
-		req:   r,
+		ep:  nil,
+		src: src,
+		dst: dst,
+		req: r,
 	}
 }
 
@@ -88,7 +86,7 @@ func NewUDPForwarder(s *stack.Stack, h GUDPConnHandler) *udp.Forwarder {
 		// multiple dst in the unconnected udp case.
 		dst := localAddrPort(id)
 
-		gc := MakeGUDPConn(s, request, src, dst)
+		gc := MakeGUDPConn(request, src, dst)
 
 		// if gc is a connected udp socket; proxy it like a stream
 		if !dst.Addr().IsUnspecified() {
@@ -124,7 +122,7 @@ func (g *GUDPConn) Connect(fin bool) error {
 		return e(err)
 	} else {
 		g.ep = endpoint
-		g.conn = gonet.NewUDPConn(g.stack, wq, endpoint)
+		g.conn = gonet.NewUDPConn(wq, endpoint)
 	}
 	return nil
 }
