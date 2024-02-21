@@ -162,7 +162,7 @@ func (x *muxer) read() {
 		b := make([]byte, rcvsize)
 		n, who, err := x.mxconn.ReadFrom(b)
 
-		x.stats.rx += n
+		x.stats.tx += n // upload
 		if timedout(err) {
 			timeouterrors++
 			if timeouterrors < maxtimeouterrors {
@@ -219,7 +219,7 @@ func (x *muxer) unroute(c *demuxconn) {
 func (x *muxer) sendto(p []byte, addr net.Addr) (int, error) {
 	// on closed(x.doneCh), x.mxconn is closed and writes will fail
 	n, err := x.mxconn.WriteTo(p, addr)
-	x.stats.tx += n
+	x.stats.rx += n // download
 	return n, err
 }
 
