@@ -205,6 +205,10 @@ func (g *GUDPConn) SetWriteDeadline(t time.Time) error {
 
 // Close closes the connection.
 func (g *GUDPConn) Close() error {
+	if !g.ok() {
+		_ = g.Connect(true)
+		return nil
+	}
 	ep := g.ep
 	c := g.conn
 	if ep != nil {
