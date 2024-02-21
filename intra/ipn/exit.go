@@ -47,7 +47,6 @@ func (h *exit) Dial(network, addr string) (c protect.Conn, err error) {
 		return nil, errProxyStopped
 	}
 
-	// todo: split-dial here instead of in ipn.Base and elsewhere?
 	if c, err = dialers.NetDial(h.outbound, network, addr); err != nil {
 		h.status = TKO
 	} else {

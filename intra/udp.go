@@ -66,16 +66,6 @@ type rwext struct {
 	core.UDPConn
 }
 
-func (rw *rwext) Read(b []byte) (n int, err error) {
-	rw.UDPConn.SetDeadline(time.Now().Add(udptimeout))
-	return rw.UDPConn.Read(b)
-}
-
-func (rw *rwext) Write(b []byte) (n int, err error) {
-	rw.UDPConn.SetDeadline(time.Now().Add(udptimeout))
-	return rw.UDPConn.Write(b)
-}
-
 const (
 	UDPOK = iota
 	UDPEND
@@ -91,6 +81,16 @@ var (
 	// routers do not keep udp mappings for that long (usually just for 30s)
 	udptimeout, _ = time.ParseDuration("2m")
 )
+
+func (rw *rwext) Read(b []byte) (n int, err error) {
+	rw.UDPConn.SetDeadline(time.Now().Add(udptimeout))
+	return rw.UDPConn.Read(b)
+}
+
+func (rw *rwext) Write(b []byte) (n int, err error) {
+	rw.UDPConn.SetDeadline(time.Now().Add(udptimeout))
+	return rw.UDPConn.Write(b)
+}
 
 func makeTracker(cid, pid, uid string) *SocketSummary {
 	return udpSummary(cid, pid, uid)
@@ -363,20 +363,4 @@ func (h *udpHandler) End() error {
 // CloseConns implements netstack.GUDPConnHandler
 func (h *udpHandler) CloseConns(cids []string) (closed []string) {
 	return closeconns(h.conntracker, cids)
-}
-
-func clos(c ...net.Conn) {
-	for _, x := range c {
-		if x != nil {
-			x.Close()
-		}
-	}
-}
-
-func ipp(addr net.Addr) (netip.AddrPort, error) {
-	var zeroaddr = netip.AddrPort{}
-	if addr == nil {
-		return zeroaddr, errors.New("nil addr")
-	}
-	return netip.ParseAddrPort(addr.String())
 }

@@ -652,26 +652,6 @@ func (r *resolver) accept(c io.ReadWriteCloser) {
 	// TODO: Cancel outstanding queries.
 }
 
-func writePrefixed(w io.Writer, b []byte, l int) (int, error) {
-	const pre = 2
-	sz := l + pre
-	bptr := core.AllocRegion(sz)
-	buf := *bptr
-	buf = buf[:cap(buf)]
-
-	defer func() {
-		*bptr = buf
-		core.Recycle(bptr)
-	}()
-
-	binary.BigEndian.PutUint16(buf, uint16(l))
-	// Use a combined write (pre+b) to ensure atomicity.
-	// Otherwise, writes from two responses could be interleaved.
-	copy(buf[pre:], b)
-	n, err := w.Write(buf[:sz])
-	return max(0, n-pre), err
-}
-
 func (r *resolver) Start() (string, error) {
 	if dc, err := r.dcProxy(); err == nil {
 		return dc.Start()
@@ -776,6 +756,30 @@ func (r *resolver) preferencesFrom(qname string, s *NsOpts, chosenids ...string)
 	return
 }
 
+func (r *resolver) loadaddrs(csvaddr string) {
+	r.addDnsAddrs(csvaddr)
+}
+
+func writePrefixed(w io.Writer, b []byte, l int) (int, error) {
+	const pre = 2
+	sz := l + pre
+	bptr := core.AllocRegion(sz)
+	buf := *bptr
+	buf = buf[:cap(buf)]
+
+	defer func() {
+		*bptr = buf
+		core.Recycle(bptr)
+	}()
+
+	binary.BigEndian.PutUint16(buf, uint16(l))
+	// Use a combined write (pre+b) to ensure atomicity.
+	// Otherwise, writes from two responses could be interleaved.
+	copy(buf[pre:], b)
+	n, err := w.Write(buf[:sz])
+	return max(0, n-pre), err
+}
+
 func IsLocalProxy(pid string) bool {
 	return len(pid) <= 0 || pid == NetNoProxy || pid == NetExitProxy
 }
@@ -863,10 +867,6 @@ func qname(msg *dns.Msg) string {
 
 func qtype(msg *dns.Msg) int {
 	return int(xdns.QType(msg))
-}
-
-func (r *resolver) loadaddrs(csvaddr string) {
-	r.addDnsAddrs(csvaddr)
 }
 
 func map2csv(ts map[string]Transport) string {
