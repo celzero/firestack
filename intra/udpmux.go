@@ -270,10 +270,8 @@ func (c *demuxconn) Write(p []byte) (n int, err error) {
 	case <-c.closed:
 		return 0, net.ErrClosed
 	default:
+		return c.remux.sendto(p, c.raddr)
 	}
-	// multiple writers so, write deadline is not enforced
-	// on the actual write to the underlying connection
-	return c.remux.sendto(p, c.raddr)
 }
 
 // Close implements net.Conn.Close
