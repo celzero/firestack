@@ -201,9 +201,6 @@ func (x *muxer) route(raddr net.Addr) (*demuxconn, error) {
 		case x.dxconns <- conn:
 			x.stats.dxcount++
 			x.routes[raddr.String()] = conn
-		default: // unlikely, dxconns is never closed or full
-			conn.Close()
-			return nil, errMuxerDone
 		}
 	}
 	return conn, nil
