@@ -25,6 +25,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 
 	"github.com/celzero/firestack/intra/core"
@@ -74,6 +75,7 @@ type wgtun struct {
 	mtu            int               // mtu of this interface
 	dns            *multihost.MH     // dns resolver for this interface
 	reqbarrier     *core.Barrier     // request barrier for dns lookups
+	once           sync.Once         // exec fn exactly once
 	hasV4, hasV6   bool              // interface has ipv4/ipv6 routes?
 }
 
@@ -530,34 +532,37 @@ func (tun *wgtun) WriteNotify() {
 }
 
 func (tun *wgtun) Close() error {
-	// TODO: move this to wgproxy.Close()?
-	// should work: go.dev/play/p/HeU5EvzAjnv
-	if tun.status == END {
-		log.W("proxy: wg: tun: already closed?")
-		return errProxyStopped
-	}
+	var err error
+	tun.once.Do(func() {
+		// TODO: move this to wgproxy.Close()?
+		// should work: go.dev/play/p/HeU5EvzAjnv
+		if tun.status == END {
+			log.W("proxy: wg: tun: already closed?")
+			err = errProxyStopped
+		}
 
-	log.D("proxy: wg: tun: closing...")
-	tun.status = END
-	tun.stack.RemoveNIC(wgnic)
+		log.D("proxy: wg: tun: closing...")
+		tun.status = END
+		tun.stack.RemoveNIC(wgnic)
 
-	// if tun.events != nil {
-	// panics; is it closed by device.Device.Close()?
-	// close(tun.events) }
+		// if tun.events != nil {
+		// panics; is it closed by device.Device.Close()?
+		// close(tun.events) }
 
-	if tun.incomingPacket != nil {
-		close(tun.incomingPacket)
-	}
+		if tun.incomingPacket != nil {
+			close(tun.incomingPacket)
+		}
 
-	// github.com/tailscale/tailscale/blob/836f932e/wgengine/netstack/netstack.go#L223
+		// github.com/tailscale/tailscale/blob/836f932e/wgengine/netstack/netstack.go#L223
 
-	// stack closes the endpoint, too via nic.go#remove?
-	// tun.ep.Close()
-	// destroy waits for the stack to close
-	tun.stack.Destroy()
+		// stack closes the endpoint, too via nic.go#remove?
+		// tun.ep.Close()
+		// destroy waits for the stack to close
+		tun.stack.Destroy()
 
-	log.I("proxy: wg: tun: closed")
-	return nil
+		log.I("proxy: wg: tun: closed")
+	})
+	return err
 }
 
 func (tun *wgtun) MTU() (int, error) {
