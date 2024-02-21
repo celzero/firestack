@@ -220,6 +220,11 @@ func (x *muxer) sendto(p []byte, addr net.Addr) (int, error) {
 }
 
 func (x *muxer) extend(t time.Time) {
+	if t.IsZero() || x.until.IsZero() {
+		x.until = t
+		x.mxconn.SetDeadline(t)
+		return
+	}
 	// extend if t is after existing deadline at x.until
 	if x.until.Before(t) {
 		x.until = t
@@ -304,6 +309,7 @@ func (c *demuxconn) SetReadDeadline(t time.Time) error {
 		c.rt.Reset(d)
 		c.remux.extend(t)
 	} else {
+		c.remux.extend(time.Time{}) // no deadline
 		c.rt.Stop()
 	}
 	return nil
@@ -316,6 +322,7 @@ func (c *demuxconn) SetWriteDeadline(t time.Time) error {
 		c.rt.Reset(d)
 		c.remux.extend(t)
 	} else {
+		c.remux.extend(time.Time{}) // no deadline
 		c.rt.Stop()
 	}
 	// Write deadline of underlying connection should not be changed
