@@ -97,12 +97,30 @@ func NewTCPHandler(resolver dnsx.Resolver, prox ipn.Proxies, tunMode *settings.T
 	return h
 }
 
+// pipe copies data from src to dst, and returns the number of bytes copied.
+// Prefers src.WriteTo(dst) and dst.ReadFrom(src) if available.
+// Otherwise, uses io.CopyBuffer, recycling buffers from global pool.
+func pipe(dst io.Writer, src io.Reader) (int64, error) {
+	if x, ok := src.(io.WriterTo); ok {
+		return x.WriteTo(dst)
+	} else if x, ok := dst.(io.ReaderFrom); ok {
+		return x.ReadFrom(src)
+	}
+	bptr := core.Alloc()
+	b := *bptr
+	b = b[:cap(b)]
+	defer func() {
+		*bptr = b
+		core.Recycle(bptr)
+	}()
+	return io.CopyBuffer(dst, src, b)
+}
+
 // TODO: Propagate TCP RST using local.Abort(), on appropriate errors.
 func upload(cid string, local net.Conn, remote net.Conn, ioch chan<- ioinfo) {
 	ci := conn2str(local, remote)
 
-	// io.copy does remote.ReadFrom(local)
-	n, err := io.Copy(remote, local)
+	n, err := pipe(remote, local)
 	log.D("intra: %s upload(%d) done(%v) b/w %s", cid, n, err, ci)
 
 	pclose(local, "r")
@@ -113,7 +131,7 @@ func upload(cid string, local net.Conn, remote net.Conn, ioch chan<- ioinfo) {
 func download(cid string, local net.Conn, remote net.Conn) (n int64, err error) {
 	ci := conn2str(local, remote)
 
-	n, err = io.Copy(local, remote)
+	n, err = pipe(local, remote)
 	log.D("intra: %s download(%d) done(%v) b/w %s", cid, n, err, ci)
 
 	pclose(local, "w")
