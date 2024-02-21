@@ -69,7 +69,8 @@ type demuxconn struct {
 	raddr net.Addr // remote address connected to
 	laddr net.Addr // local address connected from
 
-	incomingCh chan []byte // incoming data
+	incomingCh chan *slice // incoming data
+	overflowCh chan *slice // overflow data
 
 	closed chan struct{} // close signal
 	once   sync.Once     // close once
@@ -78,6 +79,12 @@ type demuxconn struct {
 	rt  *time.Ticker  // read deadline
 	wto time.Duration // write timeout
 	rto time.Duration // read timeout
+}
+
+// slice is a byte slice v and its recycler free.
+type slice struct {
+	v    []byte
+	free func()
 }
 
 var _ sender = (*muxer)(nil)
@@ -157,8 +164,14 @@ func (x *muxer) read() {
 
 	timeouterrors := 0
 	for {
-		// todo: use a ref counting buffer pool
-		b := make([]byte, rcvsize)
+		bptr := core.AllocRegion(rcvsize)
+		b := *bptr
+		b = b[:cap(b)]
+		free := func() {
+			*bptr = b
+			core.Recycle(bptr)
+		}
+
 		n, who, err := x.mxconn.ReadFrom(b)
 
 		x.stats.tx += n // upload
@@ -180,7 +193,7 @@ func (x *muxer) read() {
 			return
 		} else { // may be existing route or a new route
 			select {
-			case dst.incomingCh <- b[:n]:
+			case dst.incomingCh <- &slice{v: b[:n], free: free}:
 			default: // dst probably closed, but not yet unrouted
 				log.W("udp: read: drop(sz: %d); route to %s closed but yet found?", n, dst.raddr)
 			}
@@ -238,7 +251,8 @@ func (x *muxer) demux(r net.Addr) *demuxconn {
 		remux:      x,
 		laddr:      x.mxconn.LocalAddr(),
 		raddr:      r,
-		incomingCh: make(chan []byte),
+		incomingCh: make(chan *slice),
+		overflowCh: make(chan *slice),
 		closed:     make(chan struct{}),
 		wt:         time.NewTicker(udptimeout),
 		rt:         time.NewTicker(udptimeout),
@@ -254,13 +268,31 @@ func (c *demuxconn) Read(p []byte) (int, error) {
 	case <-c.rt.C:
 		return 0, os.ErrDeadlineExceeded
 	case <-c.closed:
-		// todo: drain incomingCh?
 		return 0, net.ErrClosed
-	case b := <-c.incomingCh:
-		// todo: handle the case where len(b) > len(p)
-		n := copy(p, b)
-		return n, nil
+	case sx := <-c.overflowCh:
+		return c.io(&p, sx)
+	case sx := <-c.incomingCh:
+		return c.io(&p, sx)
 	}
+}
+
+func (c *demuxconn) io(out *[]byte, in *slice) (int, error) {
+	// todo: handle the case where len(b) > len(p)
+	n := copy(*out, in.v)
+	q := len(in.v) - n
+	if q > 0 {
+		ov := &slice{v: in.v[n:], free: in.free}
+		select {
+		case <-c.closed:
+			log.W("udp: demux: read: drop(sz: %d)", q)
+			in.free()
+		case c.overflowCh <- ov:
+		}
+		log.D("udp: demux: read: overflow(sz: %d)", q)
+	} else {
+		in.free()
+	}
+	return n, nil
 }
 
 // Write implements net.Conn.Write
@@ -280,8 +312,20 @@ func (c *demuxconn) Write(p []byte) (n int, err error) {
 func (c *demuxconn) Close() error {
 	c.once.Do(func() {
 		close(c.closed) // sig close
-		close(c.incomingCh)
+		for {
+			select {
+			case sx := <-c.incomingCh:
+				sx.free()
+			case sx := <-c.overflowCh:
+				sx.free()
+			default:
+				c.wt.Stop()
+				c.rt.Stop()
+				return
+			}
+		}
 	})
+
 	return nil
 }
 
