@@ -96,8 +96,8 @@ func (d *RDial) Announce(network, local string) (Conn, error) {
 	if network != "udp" && network != "udp4" && network != "udp6" {
 		return nil, errAnnounce
 	}
-	// todo: check if local is a local address
-	// diailing (proxy.Dial/net.Dial/etc) on wildcard addresses (ex: ":8080")
+	// todo: check if local is a local address or empty (any)
+	// diailing (proxy.Dial/net.Dial/etc) on wildcard addresses (ex: ":8080" or "" or "localhost:1025")
 	// is not equivalent to listening/announcing. see: github.com/golang/go/issues/22827
 	uselistener := d.Listener != nil
 	userdialer := d.RDialer != nil
@@ -107,7 +107,7 @@ func (d *RDial) Announce(network, local string) (Conn, error) {
 			case *net.UDPConn:
 				return x, err
 			default:
-				log.W("xdial: Announce: (%s) %T is not net.UDPConn; other errs: %v", d.Owner, x, err)
+				log.W("xdial: Announce: addr(%s) for owner(%s): failed; %T is not net.UDPConn; other errs: %v", local, d.Owner, x, err)
 				clos(pc)
 				return nil, errNoUDPMux
 			}
