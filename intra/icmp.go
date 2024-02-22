@@ -9,7 +9,6 @@ package intra
 import (
 	"net"
 	"net/netip"
-	"sync"
 	"time"
 
 	"golang.org/x/sys/unix"
@@ -23,14 +22,7 @@ import (
 	"github.com/celzero/firestack/intra/settings"
 )
 
-type ICMPHandler interface {
-	netstack.GICMPHandler
-}
-
 type icmpHandler struct {
-	ICMPHandler
-	sync.RWMutex
-
 	resolver dnsx.Resolver
 	tunMode  *settings.TunMode
 	prox     ipn.Proxies
@@ -48,7 +40,9 @@ const (
 	icmptimeout = 10 * time.Second
 )
 
-func NewICMPHandler(resolver dnsx.Resolver, prox ipn.Proxies, tunMode *settings.TunMode, listener Listener) ICMPHandler {
+var _ netstack.GICMPHandler = (*icmpHandler)(nil)
+
+func NewICMPHandler(resolver dnsx.Resolver, prox ipn.Proxies, tunMode *settings.TunMode, listener Listener) netstack.GICMPHandler {
 	h := &icmpHandler{
 		resolver: resolver,
 		tunMode:  tunMode,

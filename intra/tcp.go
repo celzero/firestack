@@ -43,13 +43,7 @@ import (
 	"github.com/celzero/firestack/intra/settings"
 )
 
-// TCPHandler is a core TCP handler that also supports DOH and splitting control.
-type TCPHandler interface {
-	netstack.GTCPConnHandler
-}
-
 type tcpHandler struct {
-	TCPHandler
 	resolver    dnsx.Resolver
 	tunMode     *settings.TunMode
 	listener    SocketListener
@@ -74,11 +68,13 @@ var (
 	errTcpSetupConn  = errors.New("tcp: could not create conn")
 )
 
+var _ netstack.GTCPConnHandler = (*tcpHandler)(nil)
+
 // NewTCPHandler returns a TCP forwarder with Intra-style behavior.
 // Connections to `fakedns` are redirected to DOH.
 // All other traffic is forwarded using `dialer`.
 // `listener` is provided with a summary of each socket when it is closed.
-func NewTCPHandler(resolver dnsx.Resolver, prox ipn.Proxies, tunMode *settings.TunMode, ctl protect.Controller, listener SocketListener) TCPHandler {
+func NewTCPHandler(resolver dnsx.Resolver, prox ipn.Proxies, tunMode *settings.TunMode, ctl protect.Controller, listener SocketListener) netstack.GTCPConnHandler {
 	h := &tcpHandler{
 		resolver:    resolver,
 		tunMode:     tunMode,

@@ -29,7 +29,6 @@ import (
 	"errors"
 	"net"
 	"net/netip"
-	"sync"
 	"time"
 
 	"github.com/celzero/firestack/intra/dnsx"
@@ -42,15 +41,7 @@ import (
 	"github.com/celzero/firestack/intra/settings"
 )
 
-// UDPHandler adds DOH support to the base UDPConnHandler interface.
-type UDPHandler interface {
-	netstack.GUDPConnHandler
-}
-
 type udpHandler struct {
-	UDPHandler
-	sync.RWMutex
-
 	resolver    dnsx.Resolver
 	conntracker core.ConnMapper // connid -> [local,remote]
 	tunMode     *settings.TunMode
@@ -82,6 +73,8 @@ var (
 	udptimeout, _ = time.ParseDuration("2m")
 )
 
+var _ netstack.GUDPConnHandler = (*udpHandler)(nil)
+
 func (rw *rwext) Read(b []byte) (n int, err error) {
 	rw.UDPConn.SetDeadline(time.Now().Add(udptimeout))
 	return rw.UDPConn.Read(b)
@@ -101,7 +94,7 @@ func makeTracker(cid, pid, uid string) *SocketSummary {
 // `timeout` controls the effective NAT mapping lifetime.
 // `config` is used to bind new external UDP ports.
 // `listener` receives a summary about each UDP binding when it expires.
-func NewUDPHandler(resolver dnsx.Resolver, prox ipn.Proxies, tunMode *settings.TunMode, ctl protect.Controller, listener SocketListener) UDPHandler {
+func NewUDPHandler(resolver dnsx.Resolver, prox ipn.Proxies, tunMode *settings.TunMode, ctl protect.Controller, listener SocketListener) netstack.GUDPConnHandler {
 	h := &udpHandler{
 		resolver:    resolver,
 		tunMode:     tunMode,
