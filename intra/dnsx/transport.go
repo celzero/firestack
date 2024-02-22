@@ -75,8 +75,6 @@ var (
 	errMissingQueryName    = errors.New("no query name")
 )
 
-type Conn = protect.Conn
-
 // Transport represents a DNS query transport.  This interface is exported by gobind,
 // so it has to be very simple.
 type Transport interface {
@@ -139,7 +137,7 @@ type Resolver interface {
 	// Forward performs resolution on any DNS transport
 	Forward(q []byte) ([]byte, error)
 	// Serve reads DNS query from conn and writes DNS answer to conn
-	Serve(proto string, conn Conn)
+	Serve(proto string, conn protect.Conn)
 }
 
 type resolver struct {
@@ -452,7 +450,7 @@ func (r *resolver) forward(q []byte, chosenids ...string) (res0 []byte, err0 err
 	return res2, nil
 }
 
-func (r *resolver) Serve(proto string, c Conn) {
+func (r *resolver) Serve(proto string, c protect.Conn) {
 	switch proto {
 	case NetTypeTCP:
 		r.accept(c)
