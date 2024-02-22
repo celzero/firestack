@@ -19,41 +19,41 @@ import (
 
 // A IpTree is a thread-safe trie that supports insertion, deletion, and route matching IP CIDRs.
 type IpTree interface {
-	// Adds value v to the cidr route in the trie.
+	// Adds value v to the cidr route.
 	Add(cidr, v string) error
-	// Sets cidr route to v in the trie, overwriting any previous value.
+	// Sets cidr route to v, overwriting any previous value.
 	Set(cidr, v string) error
-	// Removes value v, if found, from the trie.
+	// Removes value v, if found.
 	Esc(cidr, v string) bool
-	// Deletes cidr route from the trie. Returns true if cidr was in the trie.
+	// Deletes cidr route. Returns true if cidr was found.
 	Del(cidr string) bool
-	// Gets the value of cidr from the trie or "" if cidr is not in the trie.
+	// Gets the value of cidr or "" if cidr is not found.
 	Get(cidr string) (string, error)
-	// Returns true if the cidr route is in the trie.
+	// Returns true if the cidr route is found.
 	Has(cidr string) (bool, error)
-	// Returns csv of all routes for cidr in the trie or "".
+	// Returns csv of all routes matching cidr or "".
 	Routes(cidr string) string
-	// Returns csv of values of all routes matching cidr in the trie or "".
+	// Returns csv of values of all routes matching cidr or "".
 	Values(cidr string) string
-	// Returns the route@csv(value) of all routes for cidr in the trie or "".
+	// Returns the route@csv(value) of any route matching cidr or "".
 	GetAny(cidr string) (string, error)
-	// Returns true if any route in the trie has the route.
+	// Returns true if any route matches cidr.
 	HasAny(cidr string) (bool, error)
-	// Removes values like v for cidr from the trie.
+	// Removes values like v for cidr.
 	EscLike(cidr, likev string) int32
-	// Returns csv of all routes with any value like v for cidr from trie.
+	// Returns csv of all routes with any value like v matching cidr.
 	RoutesLike(cidr, likev string) string
-	// Returns csv of all routes with values like v for cidr from trie.
+	// Returns csv of all routes with values like v for cidr.
 	ValuesLike(cidr, likev string) string
-	// Returns csv of all values like v for cidr from trie.
+	// Returns csv of all values like v for cidr.
 	GetLike(cidr, likev string) string
-	// Returns the longest route for cidr in the trie as "r1@csv(v)|r2@csv(v2)" or "".
+	// Returns the longest route for cidr as "r1@csv(v)|r2@csv(v2)" or "".
 	GetAll(cidr string) (string, error)
-	// Deletes all routes in the trie matching cidr. Returns the number of routes deleted.
+	// Deletes all routes matching cidr. Returns the number of routes deleted.
 	DelAll(cidr string) int32
 	// Clears the trie.
 	Clear()
-	// Returns the number of routes in the trie.
+	// Returns the number of routes.
 	Len() int
 }
 
