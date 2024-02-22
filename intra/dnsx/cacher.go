@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	x "github.com/celzero/firestack/intra/android/dnsx"
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/xdns"
@@ -63,7 +64,7 @@ type cache struct {
 
 type cres struct {
 	ans    *dns.Msg
-	s      *Summary
+	s      *x.Summary
 	expiry time.Time
 	bumps  int
 }
@@ -217,7 +218,7 @@ func (cb *cache) freshCopy(key string) (v *cres, ok bool) {
 
 // put caches val against key, and returns true if the cache was updated.
 // val must be a valid dns packet with successful rcode with no truncation.
-func (cb *cache) put(key string, val []byte, s *Summary) (ok bool) {
+func (cb *cache) put(key string, val []byte, s *x.Summary) (ok bool) {
 	ok = false
 
 	if len(val) <= 0 {
@@ -268,7 +269,7 @@ func (cb *cache) put(key string, val []byte, s *Summary) (ok bool) {
 	return
 }
 
-func asResponse(q *dns.Msg, v *cres, fresh bool) (r []byte, s *Summary, err error) {
+func asResponse(q *dns.Msg, v *cres, fresh bool) (r []byte, s *x.Summary, err error) {
 	s = v.s // v must never be nil
 	a := v.ans
 
@@ -308,8 +309,8 @@ func (t *ctransport) Type() string {
 	return t.Transport.Type()
 }
 
-func (t *ctransport) fetch(network string, q []byte, msg *dns.Msg, summary *Summary, cb *cache, key string) (r []byte, err error) {
-	sendRequest := func(fsmm *Summary) ([]byte, error) {
+func (t *ctransport) fetch(network string, q []byte, msg *dns.Msg, summary *x.Summary, cb *cache, key string) (r []byte, err error) {
+	sendRequest := func(fsmm *x.Summary) ([]byte, error) {
 		fsmm.ID = t.Transport.ID()
 		fsmm.Type = t.Transport.Type()
 
@@ -349,7 +350,7 @@ func (t *ctransport) fetch(network string, q []byte, msg *dns.Msg, summary *Summ
 	tok := t.Status() != SendFailed
 
 	if v, isfresh := cb.freshCopy(key); tok && v != nil {
-		var cachedsummary *Summary
+		var cachedsummary *x.Summary
 
 		log.D("cache: hit(%s): %s, but stale? %t", key, v.str(), !isfresh)
 		r, cachedsummary, err = asResponse(msg, v, isfresh) // return cached response, may be stale
@@ -365,7 +366,7 @@ func (t *ctransport) fetch(network string, q []byte, msg *dns.Msg, summary *Summ
 			// fallthrough to sendRequest
 		} else if cachedsummary != nil {
 			if !isfresh { // not fresh, fetch in the background
-				go sendRequest(new(Summary))
+				go sendRequest(new(x.Summary))
 			}
 			// change summary fields to reflect cached response, except for latency
 			cachedsummary.FillInto(summary)
@@ -378,7 +379,7 @@ func (t *ctransport) fetch(network string, q []byte, msg *dns.Msg, summary *Summ
 	return sendRequest(summary) // summary is filled by underlying transport
 }
 
-func (t *ctransport) Query(network string, q []byte, summary *Summary) ([]byte, error) {
+func (t *ctransport) Query(network string, q []byte, summary *x.Summary) ([]byte, error) {
 	var response []byte
 	var err error
 	var cb *cache

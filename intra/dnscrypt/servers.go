@@ -25,6 +25,7 @@ import (
 	"strings"
 	"sync"
 
+	x "github.com/celzero/firestack/intra/android/dnsx"
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/dialers"
 	"github.com/celzero/firestack/intra/dnsx"
@@ -206,7 +207,7 @@ func fetchDNSCryptServerInfo(proxy *DcMulti, name string, stamp stamps.ServerSta
 	px := proxy.proxies
 	var relay ipn.Proxy
 	if px != nil {
-		relay, _ = px.GetProxy(name)
+		relay, _ = px.ProxyFor(name)
 	}
 	dialer := protect.MakeNsRDial(name, proxy.ctl)
 	si := serverinfo{
@@ -315,7 +316,7 @@ func (s *serverinfo) Type() string {
 	return dnsx.DNSCrypt
 }
 
-func (s *serverinfo) Query(network string, q []byte, summary *dnsx.Summary) (r []byte, err error) {
+func (s *serverinfo) Query(network string, q []byte, summary *x.Summary) (r []byte, err error) {
 	r, err = resolve(network, q, s, summary)
 	s.status = summary.Status
 
@@ -370,7 +371,7 @@ func (s *serverinfo) dialpx(pid, proto string, addr string) (net.Conn, error) {
 	if pxs == nil {
 		return nil, dnsx.ErrNoProxyProvider
 	}
-	px, err := pxs.GetProxy(pid)
+	px, err := pxs.ProxyFor(pid)
 	if err == nil {
 		return px.Dialer().Dial(proto, addr) // ref comment above
 	}

@@ -15,6 +15,7 @@ import (
 
 	"github.com/celzero/firestack/intra/dnsx"
 	"github.com/celzero/firestack/intra/log"
+	"github.com/celzero/firestack/intra/netstat"
 
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/ipn"
@@ -71,7 +72,7 @@ func (h *icmpHandler) onFlow(source, target netip.AddrPort, realips, domains, pr
 
 	uid := -1
 	if h.tunMode.BlockMode == settings.BlockModeFilterProc {
-		procEntry := settings.FindProcNetEntry("icmp", source, target)
+		procEntry := netstat.FindProcNetEntry("icmp", source, target)
 		if procEntry != nil {
 			uid = procEntry.UserID
 		}
@@ -140,7 +141,7 @@ func (h *icmpHandler) Ping(source, target netip.AddrPort, msg []byte, pong netst
 		return false // denied
 	}
 
-	if px, err = h.prox.GetProxy(pid); err != nil {
+	if px, err = h.prox.ProxyFor(pid); err != nil {
 		log.E("t.icmp: egress: no proxy(%s); err %v", pid, err)
 		return false // denied
 	}

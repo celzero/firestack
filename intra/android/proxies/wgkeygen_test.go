@@ -11,7 +11,7 @@
 //
 //     Copyright (C) 2017-2023 WireGuard LLC. All Rights Reserved.
 
-package ipn
+package android
 
 import (
 	"testing"
@@ -19,7 +19,7 @@ import (
 
 // create a new private key and prints corres pubkey
 func TestGenKeypair(t *testing.T) {
-	sk, _ := NewPrivateKey()
+	sk, _ := NewWgPrivateKey()
 	pk := sk.Mult()
 	t.Log("pub: ", pk.Base64(), "sk: ", sk.Base64())
 }

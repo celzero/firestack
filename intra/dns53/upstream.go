@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	x "github.com/celzero/firestack/intra/android/dnsx"
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/dialers"
 	"github.com/celzero/firestack/intra/dnsx"
@@ -77,7 +78,7 @@ func newTransport(id string, do *settings.DNSOptions, px ipn.Proxies, ctl protec
 	if px == nil {
 		return nil, dnsx.ErrNoProxyProvider
 	}
-	relay, _ = px.GetProxy(id)
+	relay, _ = px.ProxyFor(id)
 	d := protect.MakeNsRDial(id, ctl)
 	tx := &transport{
 		id:       id,
@@ -139,7 +140,7 @@ func (t *transport) pxdial(network, pid string) (conn *dns.Conn, err error) {
 	if t.relay != nil { // relay takes precedence
 		px = t.relay
 	} else if t.proxies != nil { // use proxy, if specified
-		if px, err = t.proxies.GetProxy(pid); err != nil {
+		if px, err = t.proxies.ProxyFor(pid); err != nil {
 			return
 		}
 	}
@@ -226,7 +227,7 @@ func (t *transport) send(network, pid string, q []byte) (response []byte, elapse
 	}
 }
 
-func (t *transport) Query(network string, q []byte, smm *dnsx.Summary) (r []byte, err error) {
+func (t *transport) Query(network string, q []byte, smm *x.Summary) (r []byte, err error) {
 	proto, pid := xdns.Net2ProxyID(network)
 	response, elapsed, qerr := t.doQuery(proto, pid, q)
 
@@ -247,7 +248,7 @@ func (t *transport) Query(network string, q []byte, smm *dnsx.Summary) (r []byte
 	if t.relay != nil {
 		smm.RelayServer = t.relay.GetAddr()
 	} else if !dnsx.IsLocalProxy(pid) {
-		smm.RelayServer = dnsx.SummaryProxyLabel + pid
+		smm.RelayServer = x.SummaryProxyLabel + pid
 	}
 	smm.Status = status
 	t.est.Add(smm.Latency)

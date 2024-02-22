@@ -13,6 +13,7 @@ import (
 	"net/netip"
 	"time"
 
+	x "github.com/celzero/firestack/intra/android/dnsx"
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/dnsx"
 	"github.com/celzero/firestack/intra/ipn"
@@ -64,7 +65,7 @@ func NewGoosTransport(px ipn.Proxies, ctl protect.Controller) (t dnsx.Transport,
 }
 
 func (t *goosr) pxdial(ctx context.Context, network, addr string) (conn net.Conn, err error) {
-	px, err := t.proxies.GetProxy(t.pid)
+	px, err := t.proxies.ProxyFor(t.pid)
 	if err != nil {
 		return nil, err
 	}
@@ -151,7 +152,7 @@ func (t *goosr) send(q []byte) (response []byte, elapsed time.Duration, qerr *dn
 	return
 }
 
-func (t *goosr) Query(_ string, q []byte, smm *dnsx.Summary) (r []byte, err error) {
+func (t *goosr) Query(_ string, q []byte, smm *x.Summary) (r []byte, err error) {
 	response, elapsed, qerr := t.doQuery(q)
 
 	status := dnsx.Complete

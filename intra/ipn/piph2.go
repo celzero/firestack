@@ -190,7 +190,7 @@ func NewPipProxy(id string, ctl protect.Controller, po *settings.ProxyOptions) (
 		token:       po.Auth.User,
 		toksig:      po.Auth.Password,
 		rsasig:      rsasig,
-		status:      TOK,
+		status:      TUP,
 	}
 	t.rd = newRDial(t)
 	t.hc = newHTTPClient(t.rd)
@@ -435,7 +435,7 @@ func (h *piph2) Dialer() *protect.RDial {
 }
 
 func (h *piph2) DNS() string {
-	return NoDNS
+	return nodns
 }
 
 func closePipe(c ...io.Closer) {

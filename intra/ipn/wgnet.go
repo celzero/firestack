@@ -38,10 +38,6 @@ import (
 	"gvisor.dev/gvisor/pkg/waiter"
 )
 
-// --------------------------------------------------------------------
-// dns dialer
-// --------------------------------------------------------------------
-
 var (
 	errNoSuchHost         = errors.New("no such host")
 	errInvalidDNSResponse = errors.New("invalid DNS response")
@@ -60,6 +56,10 @@ var _ core.TCPConn = (*gonet.TCPConn)(nil)
 
 // intra/udp.go expects dst conns to confirm to core.UDPConn
 var _ core.UDPConn = (*gonet.UDPConn)(nil)
+
+// --------------------------------------------------------------------
+// dns dialer
+// --------------------------------------------------------------------
 
 func (net *wgtun) LookupHost(host string) (addrs []netip.Addr, err error) {
 	return net.LookupContextHost(context.Background(), host)

@@ -62,7 +62,7 @@ func (h *base) Dialer() *protect.RDial {
 }
 
 func (h *base) DNS() string {
-	return NoDNS
+	return nodns
 }
 
 func (h *base) fetch(req *http.Request) (*http.Response, error) {

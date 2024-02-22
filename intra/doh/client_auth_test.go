@@ -28,8 +28,8 @@ import (
 	"net"
 	"testing"
 
+	x "github.com/celzero/firestack/intra/android/dnsx"
 	"github.com/celzero/firestack/intra/dialers"
-	"github.com/celzero/firestack/intra/dnsx"
 	"github.com/celzero/firestack/intra/ipn"
 	ilog "github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
@@ -392,7 +392,7 @@ func TestDoh(t *testing.T) {
 		t.Fatal(err)
 	}
 	q := aquery("google.com")
-	smm := &dnsx.Summary{}
+	smm := &x.Summary{}
 	netw := xdns.NetAndProxyID("tcp", ipn.Base)
 	r, err := tr.Query(netw, q, smm)
 	if err != nil {

@@ -11,7 +11,7 @@
 //
 //     Copyright (C) 2017-2023 WireGuard LLC. All Rights Reserved.
 
-package ipn
+package android
 
 import (
 	"crypto/rand"
@@ -32,9 +32,9 @@ type (
 	eckey [klen]byte
 )
 
-var _ Key = (*eckey)(nil)
+var _ WgKey = (*eckey)(nil)
 
-type Key interface {
+type WgKey interface {
 	// IsZero returns true if the key is all zeros.
 	IsZero() bool
 	// Base64 returns the key as a base64-encoded string.
@@ -42,7 +42,7 @@ type Key interface {
 	// Hex returns the key as a hex-encoded string.
 	Hex() string
 	// Mult returns the key multiplied by the basepoint (curve25519).
-	Mult() Key
+	Mult() WgKey
 }
 
 func (k *eckey) Hex() string {
@@ -58,7 +58,7 @@ func (k *eckey) IsZero() bool {
 	return subtle.ConstantTimeCompare(zeros[:], k[:]) == 1
 }
 
-func (k *eckey) Mult() Key {
+func (k *eckey) Mult() WgKey {
 	var p [klen]byte
 	curve25519.ScalarBaseMult(&p, (*[klen]byte)(k))
 	return (*eckey)(&p)
@@ -73,7 +73,7 @@ func newPresharedKey() (*eckey, error) {
 	return (*eckey)(&k), nil
 }
 
-func NewPrivateKey() (Key, error) {
+func NewWgPrivateKey() (WgKey, error) {
 	k, err := newPresharedKey()
 	if err != nil {
 		return nil, err
@@ -96,6 +96,6 @@ func parseKeyBase64(s string) (*eckey, error) {
 	return &key, nil
 }
 
-func NewPrivateKeyOf(b64 string) (Key, error) {
+func NewWgPrivateKeyOf(b64 string) (WgKey, error) {
 	return parseKeyBase64(b64)
 }

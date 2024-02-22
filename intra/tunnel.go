@@ -28,10 +28,12 @@ import (
 	"fmt"
 	"sync"
 
+	b "github.com/celzero/firestack/intra/android"
+	x "github.com/celzero/firestack/intra/android/dnsx"
+	p "github.com/celzero/firestack/intra/android/proxies"
 	"github.com/celzero/firestack/intra/dnsx"
 	"github.com/celzero/firestack/intra/ipn"
 	"github.com/celzero/firestack/intra/log"
-	"github.com/celzero/firestack/intra/protect"
 	"github.com/celzero/firestack/intra/rnet"
 	"github.com/celzero/firestack/intra/settings"
 	"github.com/celzero/firestack/intra/x64"
@@ -42,14 +44,14 @@ var errClosed = errors.New("tunnel closed for business")
 
 type Bridge interface {
 	Listener
-	protect.Controller
+	b.Controller
 }
 
 // Listener receives usage statistics when a UDP or TCP socket is closed,
 // or a DNS query is completed.
 type Listener interface {
 	SocketListener
-	dnsx.DNSListener
+	x.DNSListener
 	rnet.ServerListener
 }
 
@@ -57,9 +59,13 @@ type Listener interface {
 type Tunnel interface {
 	tunnel.Tunnel
 	// Get the resolver.
-	GetResolver() (dnsx.Resolver, error)
+	GetResolver() (x.Resolver, error)
+	// Get the internal resolver.
+	internalResolver() (dnsx.Resolver, error)
 	// Get proxies.
-	GetProxies() (ipn.Proxies, error)
+	GetProxies() (p.Proxies, error)
+	// Get the internal proxies.
+	internalProxies() (ipn.Proxies, error)
 	// A bridge to the client code.
 	getBridge() Bridge
 	// Sets new default routes for the given engine, where engine is
@@ -171,26 +177,34 @@ func (t *rtunnel) SetRoute(engine int) error {
 	return t.Tunnel.SetRoute(engine)
 }
 
-func (t *rtunnel) GetResolver() (dnsx.Resolver, error) {
+func (t *rtunnel) GetResolver() (x.Resolver, error) {
+	return t.internalResolver()
+}
+
+func (t *rtunnel) internalResolver() (dnsx.Resolver, error) {
 	t.clomu.RLock()
 	closed := t.closed
 	t.clomu.RUnlock()
 
 	if closed || t.resolver == nil {
-		log.W("tun: <<< get resolver >>>; already closed? %t / %t", closed, t.resolver == nil)
+		log.W("tun: <<< get internal resolver >>>; already closed? %t / %t", closed, t.resolver == nil)
 		return nil, errClosed
 	}
 
 	return t.resolver, nil
 }
 
-func (t *rtunnel) GetProxies() (ipn.Proxies, error) {
+func (t *rtunnel) GetProxies() (p.Proxies, error) {
+	return t.internalProxies()
+}
+
+func (t *rtunnel) internalProxies() (ipn.Proxies, error) {
 	t.clomu.RLock()
 	closed := t.closed
 	t.clomu.RUnlock()
 
 	if closed || t.proxies == nil {
-		log.W("tun: <<< get proxies >>>; already closed; %t / %t", closed, t.proxies == nil)
+		log.W("tun: <<< get internal proxies >>>; already closed; %t / %t", closed, t.proxies == nil)
 		return nil, errClosed
 	}
 

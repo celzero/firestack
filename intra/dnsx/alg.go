@@ -17,6 +17,7 @@ import (
 	"sync"
 	"time"
 
+	x "github.com/celzero/firestack/intra/android/dnsx"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/settings"
 	"github.com/celzero/firestack/intra/xdns"
@@ -30,7 +31,7 @@ const (
 	algttl      = 15              // 15s ttl for alg dns
 	key4        = ":a"
 	key6        = ":aaaa"
-	NoTransport = "NoTransport"
+	notransport = "NoTransport"
 	maxiter     = 100 // max number alg/nat evict iterations
 )
 
@@ -56,17 +57,17 @@ type Gateway interface {
 	PTR(algip []byte, force bool) (domaincsv string)
 	// given an alg or real ip, retrieve assoc blocklists as csv, if any
 	RDNSBL(algip []byte) (blocklistcsv string)
-	// send translated response to client
-	Translate(bool)
+	// translate overwrites ip answers to alg ip answers
+	translate(yes bool)
 	// Query using t1 as primary transport and t2 as secondary
-	q(t1 Transport, t2 Transport, network string, q []byte, s *Summary) (r []byte, err error)
+	q(t1 Transport, t2 Transport, network string, q []byte, s *x.Summary) (r []byte, err error)
 	// clear obj state
 	stop()
 }
 
 type secans struct {
 	ips     []*netip.Addr
-	summary *Summary
+	summary *x.Summary
 }
 
 type ans struct {
@@ -146,7 +147,7 @@ func (t *dnsgateway) querySecondary(t2 Transport, network string, q []byte, out 
 	var err error
 	result := secans{
 		ips:     []*netip.Addr{},
-		summary: &Summary{},
+		summary: &x.Summary{},
 	}
 
 	go func() {
@@ -230,14 +231,14 @@ func (t *dnsgateway) querySecondary(t2 Transport, network string, q []byte, out 
 }
 
 // Implements Gateway
-func (t *dnsgateway) q(t1, t2 Transport, network string, q []byte, summary *Summary) (r []byte, err error) {
+func (t *dnsgateway) q(t1, t2 Transport, network string, q []byte, summary *x.Summary) (r []byte, err error) {
 	if t1 == nil {
 		return nil, errNoTransportAlg
 	}
 	mod := t.mod // allow alg?
 	secch := make(chan secans, 1)
 	resch := make(chan []byte, 1)
-	innersummary := new(Summary)
+	innersummary := new(x.Summary)
 	// todo: use context?
 	// t2 may be nil
 	go t.querySecondary(t2, network, q, secch, resch, timeout)
@@ -436,7 +437,7 @@ func netip2csv(ips []*netip.Addr) (csv string) {
 	return strings.TrimSuffix(csv, ",")
 }
 
-func withDNS64Summary(ans64 *dns.Msg, s *Summary) {
+func withDNS64Summary(ans64 *dns.Msg, s *x.Summary) {
 	s.RCode = xdns.Rcode(ans64)
 	s.RData = xdns.GetInterestingRData(ans64)
 	s.RTtl = xdns.RTtl(ans64)
@@ -445,7 +446,7 @@ func withDNS64Summary(ans64 *dns.Msg, s *Summary) {
 	}
 }
 
-func withAlgSummaryIfNeeded(algips []*netip.Addr, s *Summary) {
+func withAlgSummaryIfNeeded(algips []*netip.Addr, s *x.Summary) {
 	if settings.Debug {
 		// convert algips to ipcsv
 		ipcsv := netip2csv(algips)
@@ -458,7 +459,7 @@ func withAlgSummaryIfNeeded(algips []*netip.Addr, s *Summary) {
 		if len(s.Server) > 0 {
 			s.Server = algprefix + s.Server
 		} else {
-			s.Server = algprefix + NoTransport
+			s.Server = algprefix + notransport
 		}
 	}
 }

@@ -5,7 +5,7 @@
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 //
 // Code relicensed from opensnitch with permissions from evilsocket.
-package settings
+package netstat
 
 import (
 	"bufio"

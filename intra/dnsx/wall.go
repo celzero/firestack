@@ -7,6 +7,7 @@
 package dnsx
 
 import (
+	x "github.com/celzero/firestack/intra/android/dnsx"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/xdns"
 	"github.com/miekg/dns"
@@ -63,7 +64,7 @@ func (r *resolver) SetRdnsRemote(filetag string) error {
 }
 
 // Implements RdnsResolver
-func (r *resolver) GetRdnsLocal() RDNS {
+func (r *resolver) GetRdnsLocal() x.RDNS {
 	rlocal := r.getRdnsLocal()
 
 	if rlocal != nil {
@@ -74,7 +75,7 @@ func (r *resolver) GetRdnsLocal() RDNS {
 }
 
 // Implements RdnsResolver
-func (r *resolver) GetRdnsRemote() RDNS {
+func (r *resolver) GetRdnsRemote() x.RDNS {
 	return r.getRdnsRemote()
 }
 

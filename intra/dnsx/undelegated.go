@@ -9,6 +9,7 @@ package dnsx
 import (
 	"strings"
 
+	c "github.com/celzero/firestack/intra/android/core"
 	"github.com/celzero/firestack/intra/xdns"
 )
 
@@ -159,8 +160,8 @@ var undelegatedSet = []string{
 	"zghjccbob3n0",
 }
 
-func newUndelegatedDomainsTrie() RadixTree {
-	t := NewRadixTree()
+func newUndelegatedDomainsTrie() c.RadixTree {
+	t := c.NewRadixTree()
 	for _, domain := range undelegatedSet {
 		t.Add(domain)
 	}

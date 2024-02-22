@@ -136,7 +136,7 @@ func (s *services) Bridge(serverid, proxyid string) error {
 	if len(proxyid) <= 0 {
 		return svc.Hop(nil)
 	}
-	px, err := s.proxies.GetProxy(proxyid)
+	px, err := s.proxies.ProxyFor(proxyid)
 	if err != nil {
 		return err
 	}

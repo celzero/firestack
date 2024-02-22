@@ -5,27 +5,22 @@
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 package dnsx
 
-import "errors"
+import (
+	"errors"
+
+	x "github.com/celzero/firestack/intra/android/dnsx"
+)
 
 const (
-	// Start: Transaction started
-	Start = iota
-	// Complete : Transaction completed successfully
-	Complete
-	// SendFailed : Failed to send query
-	SendFailed
-	// NoResponse : Got no response
-	NoResponse
-	// BadQuery : Malformed input
-	BadQuery
-	// BadResponse : Response was invalid
-	BadResponse
-	// InternalError : This should never happen
-	InternalError
-	// TransportError: Transport has issues
-	TransportError
-	// ClientError: Client has issues
-	ClientError
+	Start          = x.Start
+	Complete       = x.Complete
+	SendFailed     = x.SendFailed
+	NoResponse     = x.NoResponse
+	BadQuery       = x.BadQuery
+	BadResponse    = x.BadResponse
+	InternalError  = x.InternalError
+	TransportError = x.TransportError
+	ClientError    = x.ClientError
 )
 
 var noerr = errors.New("no error")

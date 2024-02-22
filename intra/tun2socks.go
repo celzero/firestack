@@ -21,12 +21,11 @@
 //     See the License for the specific language governing permissions and
 //     limitations under the License.
 
-package tun2socks
+package intra
 
 import (
 	"runtime/debug"
 
-	"github.com/celzero/firestack/intra"
 	"github.com/celzero/firestack/intra/settings"
 
 	"github.com/celzero/firestack/intra/log"
@@ -34,7 +33,7 @@ import (
 
 func init() {
 	// increase garbage collection frequency: archive.is/WQBf7
-	debug.SetGCPercent(50)
+	debug.SetGCPercent(10)
 	debug.SetMemoryLimit(1024 * 1024 * 1024 * 4) // 4GB
 }
 
@@ -51,10 +50,10 @@ func init() {
 // `dtr` is a kotlin object that implements the DefaultDNS interface.
 // Throws an exception if the TUN file descriptor cannot be opened, or if the tunnel fails to
 // connect.
-func Connect(fd, mtu, engine int, fakedns string, dtr intra.DefaultDNS, bdg intra.Bridge) (t intra.Tunnel, err error) {
+func Connect(fd, mtu, engine int, fakedns string, dtr DefaultDNS, bdg Bridge) (t Tunnel, err error) {
 	tunmode := settings.DefaultTunMode()
 	tunmode.IpMode = engine
-	return intra.NewTunnel(fd, mtu, fakedns, tunmode, dtr, bdg)
+	return NewTunnel(fd, mtu, fakedns, tunmode, dtr, bdg)
 }
 
 // Change log level to log.VERBOSE, log.DEBUG, log.INFO, log.WARN, log.ERROR.

@@ -4,14 +4,17 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
-package ipn
+package android
 
 import (
 	"bytes"
 	"crypto"
+	"crypto/hmac"
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"math/big"
 	"strings"
@@ -189,4 +192,27 @@ func (k *pipkey) Token() string {
 		return ""
 	}
 	return byte2hex(nonce)
+}
+
+func hex2byte(s string) []byte {
+	b, err := hex.DecodeString(s)
+	if err != nil {
+		log.E("piph2: hex2byte: err %v", err)
+	}
+	return b
+}
+
+func byte2hex(b []byte) string {
+	return hex.EncodeToString(b)
+}
+
+func sha256sum(m []byte) []byte {
+	digest := sha256.Sum256(m)
+	return digest[:]
+}
+
+func hmac256(m, k []byte) []byte {
+	mac := hmac.New(sha256.New, k)
+	mac.Write(m)
+	return mac.Sum(nil)
 }

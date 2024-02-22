@@ -33,6 +33,7 @@ import (
 
 	"github.com/celzero/firestack/intra/dnsx"
 	"github.com/celzero/firestack/intra/log"
+	"github.com/celzero/firestack/intra/netstat"
 
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/ipn"
@@ -131,7 +132,7 @@ func (h *udpHandler) onFlow(localaddr, target netip.AddrPort, realips, domains, 
 	// Implict: BlockModeFilter or BlockModeFilterProc
 	uid := -1
 	if h.tunMode.BlockMode == settings.BlockModeFilterProc {
-		procEntry := settings.FindProcNetEntry("udp", localaddr, target)
+		procEntry := netstat.FindProcNetEntry("udp", localaddr, target)
 		if procEntry != nil {
 			uid = procEntry.UserID
 		}
@@ -304,7 +305,7 @@ func (h *udpHandler) Connect(gconn net.Conn, src, target netip.AddrPort) (dst co
 		} // else: not a dns query
 	} // else: proxy src to dst
 
-	if px, err = h.prox.GetProxy(res.PID); err != nil {
+	if px, err = h.prox.ProxyFor(res.PID); err != nil {
 		log.W("udp: %s failed to get proxy for %s: %v", res.CID, res.PID, err)
 		return nil, smm, err // disconnect
 	}

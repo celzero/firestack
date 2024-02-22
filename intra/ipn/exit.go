@@ -34,7 +34,7 @@ func NewExitProxy(c protect.Controller) Proxy {
 		addr:      "127.0.0.127:1337",
 		outbound:  d,
 		listencfg: l,
-		status:    TOK,
+		status:    TUP,
 	}
 	h.rd = newRDial(h)
 	h.hc = newHTTPClient(h.rd)
@@ -70,7 +70,7 @@ func (h *exit) Dialer() *protect.RDial {
 
 // todo: return system DNS
 func (h *exit) DNS() string {
-	return NoDNS
+	return nodns
 }
 
 func (h *exit) fetch(req *http.Request) (*http.Response, error) {

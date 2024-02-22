@@ -393,6 +393,7 @@ func makeWgTun(id string, ifaddrs []netip.Prefix, dnsm *multihost.MH, mtu int) (
 		dns:            dnsm,
 		reqbarrier:     core.NewBarrier(wgbarrierttl),
 		mtu:            tunmtu,
+		status:         TUP,
 	}
 
 	// see WriteNotify below
@@ -630,7 +631,7 @@ func (h *wgtun) DNS() string {
 		log.D("wg: dns ipaddrs: %s", s)
 		return strings.TrimRight(s, ",")
 	}
-	return NoDNS
+	return nodns
 }
 
 // func Stop(), Fetch(), getDialer() is impl by wgproxy

@@ -28,34 +28,24 @@ import (
 	"net/netip"
 	"syscall"
 
+	b "github.com/celzero/firestack/intra/android"
 	"github.com/celzero/firestack/intra/log"
 )
 
 // See: ipmap.LookupNetIP; UidSelf -> dnsx.Default; UidSystem -> dnsx.System
-const UidSelf = "rethink"
-const UidSystem = "system"
-const Localhost = "localhost"
+const (
+	UidSelf   = b.UidSelf
+	UidSystem = b.UidSystem
+	Localhost = b.Localhost
+)
 
 // never resolve system/default resolver; expected to have seeded ips
 func NeverResolve(hostname string) bool {
 	return hostname == UidSelf || hostname == UidSystem
 }
 
-// Controller provides answers to filter network traffic.
-type Controller interface {
-	// Bind4 binds fd to any internet-capable IPv4 interface.
-	Bind4(who string, fd int)
-	// Bind6 binds fd to any internet-capable IPv6 interface.
-	// also: github.com/lwip-tcpip/lwip/blob/239918c/src/core/ipv6/ip6.c#L68
-	Bind6(who string, fd int)
-	// Protect marks fd as protected.
-	Protect(who string, fd int)
-}
-
-type Protector interface {
-	// Returns ip to bind given a network, n
-	UIP(n string) []byte
-}
+type Controller = b.Controller
+type Protector = b.Protector
 
 // returns true if addr is a global unicast address; and yn on error.
 func maybeGlobalUnicast(addr string, yn bool) bool {

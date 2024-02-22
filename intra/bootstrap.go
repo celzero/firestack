@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"strings"
 
+	x "github.com/celzero/firestack/intra/android/dnsx"
 	"github.com/celzero/firestack/intra/dns53"
 	"github.com/celzero/firestack/intra/dnsx"
 	"github.com/celzero/firestack/intra/doh"
@@ -173,7 +174,7 @@ func (b *bootstrap) Type() string {
 	return b.typ // DOH or DNS53
 }
 
-func (b *bootstrap) Query(network string, q []byte, summary *dnsx.Summary) ([]byte, error) {
+func (b *bootstrap) Query(network string, q []byte, summary *x.Summary) ([]byte, error) {
 	tr := b.Transport
 	if tr != nil {
 		log.V("dns: default: query %s %d", network, len(q))

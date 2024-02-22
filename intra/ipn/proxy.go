@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"strings"
 
+	x "github.com/celzero/firestack/intra/android/proxies"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
 	"github.com/celzero/firestack/intra/settings"
@@ -22,10 +23,14 @@ func (pxr *proxifier) NewSocks5Proxy(id, user, pwd, ip, port string) (p Proxy, e
 	return NewSocks5Proxy(id, pxr.ctl, opts)
 }
 
-func (pxr *proxifier) AddProxy(id, txt string) (p Proxy, err error) {
+func (pxr *proxifier) AddProxy(id, txt string) (x.Proxy, error) {
+	return pxr.addProxy(id, txt)
+}
+
+func (pxr *proxifier) addProxy(id, txt string) (p Proxy, err error) {
 	// wireguard proxies have IDs starting with "wg"
 	if strings.HasPrefix(id, WG) {
-		if p, _ = pxr.GetProxy(id); p != nil {
+		if p, _ = pxr.ProxyFor(id); p != nil {
 			if wgp, ok := p.(WgProxy); ok && wgp.canUpdate(txt) {
 				log.I("proxy: updating wg %s/%s", id, p.GetAddr())
 

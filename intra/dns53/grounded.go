@@ -9,6 +9,7 @@ package dns53
 import (
 	"time"
 
+	x "github.com/celzero/firestack/intra/android/dnsx"
 	"github.com/celzero/firestack/intra/dnsx"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/xdns"
@@ -35,7 +36,7 @@ func NewGroundedTransport(id string) (t dnsx.Transport) {
 	return
 }
 
-func (t *grounded) Query(_ string, q []byte, summary *dnsx.Summary) ([]byte, error) {
+func (t *grounded) Query(_ string, q []byte, summary *x.Summary) ([]byte, error) {
 	var response []byte
 	var ans *dns.Msg
 	var err error

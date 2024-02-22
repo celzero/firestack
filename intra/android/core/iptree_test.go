@@ -39,3 +39,9 @@ func Test192(tst *testing.T) {
 	log.Println("vlike", vlike)
 	log.Println("rlike", rlike)
 }
+
+func ko(tst *testing.T, err error) {
+	if err != nil {
+		tst.Fatal(err)
+	}
+}

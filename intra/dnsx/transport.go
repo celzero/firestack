@@ -16,6 +16,8 @@ import (
 	"sync"
 	"time"
 
+	c "github.com/celzero/firestack/intra/android/core"
+	x "github.com/celzero/firestack/intra/android/dnsx"
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
@@ -26,25 +28,24 @@ import (
 
 const (
 	// DNS transport types
-	DOH      = "DNS-over-HTTPS"
-	DNSCrypt = "DNSCrypt"
-	DNS53    = "DNS"
-	DOT      = "DNS-over-TLS"
-	ODOH     = "Oblivious DNS-over-HTTPS"
+	DOH      = x.DOH
+	DNSCrypt = x.DNSCrypt
+	DNS53    = x.DNS53
+	DOT      = x.DOT
+	ODOH     = x.ODOH
 
-	CT = "Cache" // cached transport prefix
+	CT = x.CT
 
-	// special singleton DNS transports (IDs)
-	Goos      = "Goos"      // Go determined default resolver
-	System    = "System"    // network/os provided dns
-	Local     = "mdns"      // mdns; never cached!
-	Default   = "Default"   // default (fallback) dns
-	Preferred = "Preferred" // user preferred dns, primary for alg
-	BlockFree = "BlockFree" // no local blocks; if not set, default is used
-	BlockAll  = "BlockAll"  // all blocks; never cached!
-	Alg       = "Alg"       // dns application-level gateway
-	DcProxy   = "DcProxy"   // dnscrypt.Proxy as a transport
-	IpMapper  = "IpMapper"  // dns resolver for dns resolvers
+	Goos      = x.Goos
+	System    = x.System
+	Local     = x.Local
+	Default   = x.Default
+	Preferred = x.Preferred
+	BlockFree = x.BlockFree
+	BlockAll  = x.BlockAll
+	Alg       = x.Alg
+	DcProxy   = x.DcProxy
+	IpMapper  = x.IpMapper
 
 	invalidQname = "invalid.query"
 
@@ -78,47 +79,21 @@ var (
 // Transport represents a DNS query transport.  This interface is exported by gobind,
 // so it has to be very simple.
 type Transport interface {
-	// uniquely identifies this transport
-	ID() string
-	// one of DNS53, DOH, DNSCrypt, System
-	Type() string
+	x.DNSTransport
 	// Given a DNS query (including ID), returns a DNS response with matching
 	// ID, or an error if no response was received.  The error may be accompanied
 	// by a SERVFAIL response if appropriate.
-	Query(network string, q []byte, summary *Summary) ([]byte, error)
-	// Median round-trip time for this transport, in millis.
-	P50() int64
-	// Return the server host address used to initialize this transport.
-	GetAddr() string
-	// State of the transport after previous query (see: queryerror.go)
-	Status() int
-}
-
-type Mult interface {
-	// Add adds a transport to this multi-transport.
-	Add(t Transport) bool
-	// Remove removes a transport from this multi-transport.
-	Remove(id string) bool
-	// Start starts a multi-transport, returns number of live-servers and errors if any.
-	Start() (string, error)
-	// Get returns a transport from this multi-transport.
-	Get(id string) (Transport, error)
-	// Stop stops this multi-transport.
-	Stop() error
-	// Refresh re-registers transports and returns a csv of active ones.
-	Refresh() (string, error)
-	// LiveTransports returns a csv of active transports.
-	LiveTransports() string
+	Query(network string, q []byte, summary *x.Summary) ([]byte, error)
 }
 
 // TransportMult is a hybrid: transport and a multi-transport.
 type TransportMult interface {
-	Mult
+	x.DNSTransportMult
 	Transport
 }
 
 type Resolver interface {
-	Mult
+	x.DNSTransportMult
 	RdnsResolver
 	NatPt
 
@@ -148,16 +123,16 @@ type resolver struct {
 	systemdns    []Transport
 	transports   map[string]Transport
 	gateway      Gateway
-	localdomains RadixTree
+	localdomains c.RadixTree
 	rdnsl        *rethinkdnslocal
 	rdnsr        *rethinkdns
 	rmu          sync.RWMutex // protects rdnsr and rdnsl
-	listener     DNSListener
+	listener     x.DNSListener
 }
 
 var _ Resolver = (*resolver)(nil)
 
-func NewResolver(fakeaddrs string, tunmode *settings.TunMode, dtr Transport, l DNSListener, pt NatPt) Resolver {
+func NewResolver(fakeaddrs string, tunmode *settings.TunMode, dtr Transport, l x.DNSListener, pt NatPt) Resolver {
 	r := &resolver{
 		NatPt:        pt,
 		listener:     l,
@@ -190,6 +165,10 @@ func (r *resolver) Gateway() Gateway {
 	return r.gateway
 }
 
+func (r *resolver) Translate(b bool) {
+	r.gateway.translate(b)
+}
+
 func (r *resolver) AddSystemDNS(t Transport) bool {
 	defer r.addSystemDnsIfAbsent(t)
 	r.Lock()
@@ -209,8 +188,12 @@ func (r *resolver) RemoveSystemDNS() int {
 }
 
 // Implements Resolver
-func (r *resolver) Add(t Transport) (ok bool) {
-	if t == nil {
+func (r *resolver) Add(dt x.DNSTransport) (ok bool) {
+	if dt == nil {
+		return false
+	}
+	t, ok := dt.(Transport)
+	if !ok { // unlikely
 		return false
 	}
 	if t.ID() == Default || cachedTransport(t) {
@@ -282,7 +265,7 @@ func (r *resolver) registerSystemDns64(ur Transport) (ok bool) {
 	return r.Add64(UnderlayResolver, ur)
 }
 
-func (r *resolver) Get(id string) (Transport, error) {
+func (r *resolver) Get(id string) (x.DNSTransport, error) {
 	if t := r.determineTransport(id); t == nil {
 		return nil, errNoSuchTransport
 	} else {
@@ -331,7 +314,7 @@ func (r *resolver) Forward(q []byte) ([]byte, error) {
 
 func (r *resolver) forward(q []byte, chosenids ...string) (res0 []byte, err0 error) {
 	starttime := time.Now()
-	summary := &Summary{
+	summary := &x.Summary{
 		QName:  invalidQname,
 		Status: Start,
 	}
@@ -704,7 +687,7 @@ func (r *resolver) LiveTransports() string {
 	return trimcsv(s)
 }
 
-func (r *resolver) preferencesFrom(qname string, s *NsOpts, chosenids ...string) (id1, id2, pid, ips string) {
+func (r *resolver) preferencesFrom(qname string, s *x.NsOpts, chosenids ...string) (id1, id2, pid, ips string) {
 	var x []string
 	if s == nil { // should never happen; but it has during testing
 		log.W("dns: pref: no ns opts for %s", qname)

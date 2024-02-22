@@ -36,6 +36,7 @@ import (
 	"sync"
 	"time"
 
+	x "github.com/celzero/firestack/intra/android/dnsx"
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/dialers"
 	"github.com/celzero/firestack/intra/dnsx"
@@ -112,7 +113,7 @@ func newTransport(typ, id, rawurl, target string, addrs []string, px ipn.Proxies
 	var renewed bool
 	var relay ipn.Proxy
 	if px != nil {
-		relay, _ = px.GetProxy(id)
+		relay, _ = px.ProxyFor(id)
 	}
 
 	t := &transport{
@@ -315,7 +316,7 @@ func (t *transport) fetch(pid string, req *http.Request) (res *http.Response, er
 		if userelay { // relay takes precedence
 			px = t.relay
 		} else if hasproxy { // use proxy, if specified
-			if px, err = t.proxies.GetProxy(pid); err != nil {
+			if px, err = t.proxies.ProxyFor(pid); err != nil {
 				return
 			}
 		}
@@ -466,7 +467,7 @@ func (t *transport) Type() string {
 	return t.typ
 }
 
-func (t *transport) Query(network string, q []byte, smm *dnsx.Summary) (r []byte, err error) {
+func (t *transport) Query(network string, q []byte, smm *x.Summary) (r []byte, err error) {
 	var blocklists string
 	var elapsed time.Duration
 	var qerr *dnsx.QueryError
@@ -501,7 +502,7 @@ func (t *transport) Query(network string, q []byte, smm *dnsx.Summary) (r []byte
 		if t.relay != nil {
 			smm.RelayServer = t.relay.GetAddr()
 		} else if !dnsx.IsLocalProxy(pid) {
-			smm.RelayServer = dnsx.SummaryProxyLabel + pid
+			smm.RelayServer = x.SummaryProxyLabel + pid
 		}
 	}
 	log.V("doh: (p/px %s/%s); len(res): %d, data: %s, via: %s, err? %v", network, pid, len(r), smm.RData, smm.RelayServer, err)

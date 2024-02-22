@@ -42,7 +42,7 @@ func (h *ground) fetch(req *http.Request) (*http.Response, error) {
 }
 
 func (h *ground) DNS() string {
-	return NoDNS
+	return nodns
 }
 
 func (h *ground) ID() string {

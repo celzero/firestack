@@ -34,6 +34,7 @@ import (
 
 	"github.com/celzero/firestack/intra/dnsx"
 	"github.com/celzero/firestack/intra/log"
+	"github.com/celzero/firestack/intra/netstat"
 	"gvisor.dev/gvisor/pkg/tcpip/adapters/gonet"
 
 	"github.com/celzero/firestack/intra/core"
@@ -105,7 +106,7 @@ func (h *tcpHandler) onFlow(localaddr, target netip.AddrPort, realips, domains, 
 	// Implict: BlockModeFilter or BlockModeFilterProc
 	uid := -1
 	if h.tunMode.BlockMode == settings.BlockModeFilterProc {
-		procEntry := settings.FindProcNetEntry("tcp", localaddr, target)
+		procEntry := netstat.FindProcNetEntry("tcp", localaddr, target)
 		if procEntry != nil {
 			uid = procEntry.UserID
 		}
@@ -200,7 +201,7 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target netip.AddrPort)
 	}
 
 	var px ipn.Proxy
-	if px, err = h.prox.GetProxy(pid); err != nil {
+	if px, err = h.prox.ProxyFor(pid); err != nil {
 		return deny
 	}
 

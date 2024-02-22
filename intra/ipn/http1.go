@@ -111,7 +111,7 @@ func (h *http1) Dialer() *protect.RDial {
 }
 
 func (h *http1) DNS() string {
-	return NoDNS
+	return nodns
 }
 
 func (h *http1) ID() string {

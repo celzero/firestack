@@ -26,6 +26,7 @@ import (
 	"sync"
 	"time"
 
+	x "github.com/celzero/firestack/intra/android/dnsx"
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/dnsx"
 	"github.com/celzero/firestack/intra/ipn"
@@ -281,7 +282,7 @@ func query(pid string, packet []byte, serverInfo *serverinfo, useudp bool) (resp
 }
 
 // resolve resolves incoming DNS query, data
-func resolve(network string, data []byte, si *serverinfo, smm *dnsx.Summary) (response []byte, err error) {
+func resolve(network string, data []byte, si *serverinfo, smm *x.Summary) (response []byte, err error) {
 	var qerr *dnsx.QueryError
 
 	before := time.Now()
@@ -326,7 +327,7 @@ func resolve(network string, data []byte, si *serverinfo, smm *dnsx.Summary) (re
 		if si.relay != nil {
 			smm.RelayServer = si.relay.GetAddr()
 		} else if !dnsx.IsLocalProxy(pid) {
-			smm.RelayServer = dnsx.SummaryProxyLabel + pid
+			smm.RelayServer = x.SummaryProxyLabel + pid
 		}
 	}
 
@@ -500,13 +501,13 @@ func (proxy *DcMulti) addOne(uid, rawstamp string) (string, error) {
 }
 
 // Add implements dnsx.TransportMult
-func (proxy *DcMulti) Add(t dnsx.Transport) bool {
+func (proxy *DcMulti) Add(t x.DNSTransport) bool {
 	// no-op
 	return false
 }
 
 // Get implements dnsx.TransportMult
-func (proxy *DcMulti) Get(id string) (dnsx.Transport, error) {
+func (proxy *DcMulti) Get(id string) (x.DNSTransport, error) {
 	// no-op
 	return nil, errNoServers
 }
@@ -550,7 +551,7 @@ func (p *DcMulti) Type() string {
 }
 
 // Query implements dnsx.TransportMult
-func (p *DcMulti) Query(network string, q []byte, summary *dnsx.Summary) (r []byte, err error) {
+func (p *DcMulti) Query(network string, q []byte, summary *x.Summary) (r []byte, err error) {
 	r, err = resolve(network, q, p.serversInfo.getOne(), summary)
 	p.lastStatus = summary.Status
 	p.lastAddr = summary.Server

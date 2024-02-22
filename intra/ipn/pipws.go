@@ -130,7 +130,7 @@ func NewPipWsProxy(id string, ctl protect.Controller, po *settings.ProxyOptions)
 		token:       po.Auth.User,
 		toksig:      po.Auth.Password,
 		rsasig:      splitpath[2],
-		status:      TOK,
+		status:      TUP,
 	}
 	t.rd = newRDial(t)
 	t.hc = newHTTPClient(t.rd)
@@ -247,5 +247,5 @@ func (h *pipws) Dialer() *protect.RDial {
 }
 
 func (h *pipws) DNS() string {
-	return NoDNS
+	return nodns
 }

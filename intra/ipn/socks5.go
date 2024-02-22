@@ -180,7 +180,7 @@ func (h *socks5) Dialer() *protect.RDial {
 }
 
 func (h *socks5) DNS() string {
-	return NoDNS
+	return nodns
 }
 
 func (h *socks5) fetch(req *http.Request) (*http.Response, error) {

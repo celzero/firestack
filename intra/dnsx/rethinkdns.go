@@ -21,6 +21,7 @@ import (
 
 	"github.com/miekg/dns"
 
+	x "github.com/celzero/firestack/intra/android/dnsx"
 	"github.com/celzero/firestack/intra/xdns"
 
 	"github.com/celzero/gotrie/trie"
@@ -59,30 +60,14 @@ var (
 )
 
 type RdnsResolver interface {
-	SetRdnsLocal(trie, rank, conf, filetag string) error
-	GetRdnsLocal() RDNS
-	SetRdnsRemote(filetag string) error
-	GetRdnsRemote() RDNS
+	x.RDNSResolver
 	blockQ(Transport, Transport, *dns.Msg) (*dns.Msg, string, error)
 	blockA(Transport, Transport, *dns.Msg, *dns.Msg, string) (*dns.Msg, string)
 }
 
 type RDNS interface {
+	x.RDNS
 	OnDeviceBlock() bool // Mode
-
-	SetStamp(string) error
-
-	GetStamp() (string, error)
-
-	// Returns csv group:names of blocklists in the given stamp s.
-	StampToNames(s string) (string, error)
-
-	// Returns a blockstamp for given csv blocklist-ids, if valid.
-	FlagsToStamp(csv string, enctyp int) (string, error)
-
-	// Returns csv blocklist-ids given a valid blockstamp s.
-	StampToFlags(s string) (string, error)
-
 	blockQuery(*dns.Msg) (string, error)
 	blockAnswer(*dns.Msg) (string, error)
 }

@@ -13,36 +13,33 @@ import (
 	"sync"
 	"time"
 
+	x "github.com/celzero/firestack/intra/android/proxies"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
 )
 
 const (
-	// nb: Base proxies are Catch-All / fallback proxies
-	// IDs for default proxies
-	Block   = "Block"       // blocks all traffic
-	Base    = "Base"        // does not proxy traffic; in sync w dnsx.NetNoProxy
-	Exit    = "Exit"        // always connects to the Internet (exit node); in sync w dnsx.NetExitProxy
-	OrbotS5 = "OrbotSocks5" // Orbot: Base Tor-as-a-SOCKS5 proxy
-	OrbotH1 = "OrbotHttp1"  // Orbot: Base Tor-as-a-HTTP/1.1 proxy
+	Block   = x.Block
+	Base    = x.Base
+	Exit    = x.Exit
+	OrbotS5 = x.OrbotS5
+	OrbotH1 = x.OrbotH1
 
-	// type of proxies
-	SOCKS5   = "socks5" // SOCKS5 proxy
-	HTTP1    = "http1"  // HTTP/1.1 proxy
-	WG       = "wg"     // WireGuard-as-a-proxy
-	PIPH2    = "piph2"  // PIP: HTTP/2 proxy
-	PIPWS    = "pipws"  // PIP: WebSockets proxy
-	NOOP     = "noop"   // No proxy, ex: Base, Block
-	INTERNET = "net"    // egress network, ex: Exit
+	SOCKS5   = x.SOCKS5
+	HTTP1    = x.HTTP1
+	WG       = x.WG
+	PIPH2    = x.PIPH2
+	PIPWS    = x.PIPWS
+	NOOP     = x.NOOP
+	INTERNET = x.INTERNET
+
+	TUP = x.TUP
+	TOK = x.TOK
+	TKO = x.TKO
+	END = x.END
 
 	// DNS addrs, urls, or stamps
-	NoDNS = "" // no DNS
-
-	// status of proxies
-	TUP = 0  // proxy UP but not yet OK
-	TOK = -1 // proxy OK
-	TKO = -2 // proxy not OK
-	END = -3 // proxy stopped
+	nodns = "" // no DNS
 )
 
 var (
@@ -81,10 +78,7 @@ var _ Proxy = (*piph2)(nil)
 var _ protect.RDialer = (Proxy)(nil)
 
 type Proxy interface {
-	// ID returns the ID of this proxy.
-	ID() string
-	// Type returns the type of this proxy.
-	Type() string
+	x.Proxy
 	// Dial returns a connection to this proxy.
 	Dial(network, addr string) (protect.Conn, error)
 	// Announce returns a packet-oriented udp connection on this proxy.
@@ -96,31 +90,12 @@ type Proxy interface {
 	// not all Proxy instances implement DialTCP and DialUDP, though are
 	// guaranteed to implement Dial.
 	Dialer() *protect.RDial
-	// GetAddr returns the address of this proxy.
-	GetAddr() string
-	// DNS returns the ip:port or doh/dot url or dnscrypt stamp for this proxy.
-	DNS() string
-	// Status returns the status of this proxy.
-	Status() int
-	// Stop stops this proxy.
-	Stop() error
-	// Refresh re-registers this proxy.
-	Refresh() error
 }
 
-var _ protect.RDialer = (Proxy)(nil)
-
 type Proxies interface {
-	// Add adds a proxy to this multi-transport.
-	AddProxy(id, url string) (Proxy, error)
-	// Remove removes a transport from this multi-transport.
-	RemoveProxy(id string) bool
+	x.Proxies
 	// Get returns a transport from this multi-transport.
-	GetProxy(id string) (Proxy, error)
-	// Stop stops all proxies.
-	StopProxies() error
-	// Refresh re-registers proxies and returns a csv of active ones.
-	RefreshProxies() (string, error)
+	ProxyFor(id string) (Proxy, error)
 }
 
 type proxifier struct {
@@ -129,6 +104,8 @@ type proxifier struct {
 	p   map[string]Proxy
 	ctl protect.Controller
 }
+
+var _ protect.RDialer = (Proxy)(nil)
 
 func NewProxifier(c protect.Controller) Proxies {
 	pxr := &proxifier{
@@ -171,7 +148,7 @@ func (px *proxifier) RemoveProxy(id string) bool {
 	return false
 }
 
-func (px *proxifier) GetProxy(id string) (Proxy, error) {
+func (px *proxifier) ProxyFor(id string) (Proxy, error) {
 	if len(id) <= 0 {
 		return nil, errProxyNotFound
 	}
@@ -183,6 +160,10 @@ func (px *proxifier) GetProxy(id string) (Proxy, error) {
 		return p, nil
 	}
 	return nil, errProxyNotFound
+}
+
+func (px *proxifier) GetProxy(id string) (x.Proxy, error) {
+	return px.ProxyFor(id)
 }
 
 func (px *proxifier) StopProxies() error {
