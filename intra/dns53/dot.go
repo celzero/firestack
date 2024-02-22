@@ -188,7 +188,7 @@ func (t *dot) sendRequest(pid string, q []byte) (response []byte, elapsed time.D
 	return
 }
 
-func (t *dot) Query(network string, q []byte, smm *x.Summary) ([]byte, error) {
+func (t *dot) Query(network string, q []byte, smm *x.DNSSummary) ([]byte, error) {
 	var err error
 
 	_, pid := xdns.Net2ProxyID(network)

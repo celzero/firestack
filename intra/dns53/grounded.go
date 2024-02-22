@@ -36,7 +36,7 @@ func NewGroundedTransport(id string) (t dnsx.Transport) {
 	return
 }
 
-func (t *grounded) Query(_ string, q []byte, summary *x.Summary) ([]byte, error) {
+func (t *grounded) Query(_ string, q []byte, summary *x.DNSSummary) ([]byte, error) {
 	var response []byte
 	var ans *dns.Msg
 	var err error

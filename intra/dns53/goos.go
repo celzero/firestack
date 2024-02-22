@@ -152,7 +152,7 @@ func (t *goosr) send(q []byte) (response []byte, elapsed time.Duration, qerr *dn
 	return
 }
 
-func (t *goosr) Query(_ string, q []byte, smm *x.Summary) (r []byte, err error) {
+func (t *goosr) Query(_ string, q []byte, smm *x.DNSSummary) (r []byte, err error) {
 	response, elapsed, qerr := t.doQuery(q)
 
 	status := dnsx.Complete

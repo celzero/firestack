@@ -316,7 +316,7 @@ func (s *serverinfo) Type() string {
 	return dnsx.DNSCrypt
 }
 
-func (s *serverinfo) Query(network string, q []byte, summary *x.Summary) (r []byte, err error) {
+func (s *serverinfo) Query(network string, q []byte, summary *x.DNSSummary) (r []byte, err error) {
 	r, err = resolve(network, q, s, summary)
 	s.status = summary.Status
 

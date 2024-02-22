@@ -125,7 +125,7 @@ func (t *dnssd) oneshotQuery(msg *dns.Msg) (*dns.Msg, *dnsx.QueryError) {
 	return nil, dnsx.NewNoResponseQueryError(errNoMdnsAnswer)
 }
 
-func (t *dnssd) Query(_ string, q []byte, summary *x.Summary) (r []byte, err error) {
+func (t *dnssd) Query(_ string, q []byte, summary *x.DNSSummary) (r []byte, err error) {
 	summary.ID = t.ID()
 	summary.Type = t.Type()
 	summary.Server = t.GetAddr()

@@ -392,7 +392,7 @@ func TestDoh(t *testing.T) {
 		t.Fatal(err)
 	}
 	q := aquery("google.com")
-	smm := &x.Summary{}
+	smm := &x.DNSSummary{}
 	netw := xdns.NetAndProxyID("tcp", ipn.Base)
 	r, err := tr.Query(netw, q, smm)
 	if err != nil {

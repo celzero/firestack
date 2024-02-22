@@ -10,8 +10,8 @@ import "fmt"
 
 const SummaryProxyLabel = "proxy:"
 
-// Summary is a summary of a DNS transaction, reported when it is complete.
-type Summary struct {
+// DNSSummary is a summary of a DNS transaction, reported when it is complete.
+type DNSSummary struct {
 	Type        string  // dnscrypt, dns53, doh, odoh, dot
 	ID          string  // transport id
 	Latency     float64 // Response (or failure) latency in seconds
@@ -36,19 +36,19 @@ type NsOpts struct {
 	TIDCSV string
 }
 
-func (s *Summary) Str() string {
+func (s *DNSSummary) Str() string {
 	return fmt.Sprintf("type: %s, id: %s, latency: %f, qname: %s, rdata: %s, rcode: %d, rttl: %d, server: %s, relay: %s, status: %d, blocklists: %s",
 		s.Type, s.ID, s.Latency, s.QName, s.RData, s.RCode, s.RTtl, s.Server, s.RelayServer, s.Status, s.Blocklists)
 }
 
-func (s *Summary) Copy() *Summary {
-	clone := new(Summary)
+func (s *DNSSummary) Copy() *DNSSummary {
+	clone := new(DNSSummary)
 	*clone = *s
 	return clone
 }
 
 // FillInto copies non-zero values into other.
-func (s *Summary) FillInto(other *Summary) {
+func (s *DNSSummary) FillInto(other *DNSSummary) {
 	if other == nil || s == other {
 		return
 	}
@@ -86,5 +86,5 @@ func (s *Summary) FillInto(other *Summary) {
 // DNSListener receives Summaries.
 type DNSListener interface {
 	OnQuery(domain string, qtyp int) *NsOpts
-	OnResponse(*Summary)
+	OnResponse(*DNSSummary)
 }

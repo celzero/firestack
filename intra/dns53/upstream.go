@@ -227,7 +227,7 @@ func (t *transport) send(network, pid string, q []byte) (response []byte, elapse
 	}
 }
 
-func (t *transport) Query(network string, q []byte, smm *x.Summary) (r []byte, err error) {
+func (t *transport) Query(network string, q []byte, smm *x.DNSSummary) (r []byte, err error) {
 	proto, pid := xdns.Net2ProxyID(network)
 	response, elapsed, qerr := t.doQuery(proto, pid, q)
 

@@ -83,7 +83,7 @@ type Transport interface {
 	// Given a DNS query (including ID), returns a DNS response with matching
 	// ID, or an error if no response was received.  The error may be accompanied
 	// by a SERVFAIL response if appropriate.
-	Query(network string, q []byte, summary *x.Summary) ([]byte, error)
+	Query(network string, q []byte, summary *x.DNSSummary) ([]byte, error)
 }
 
 // TransportMult is a hybrid: transport and a multi-transport.
@@ -314,7 +314,7 @@ func (r *resolver) Forward(q []byte) ([]byte, error) {
 
 func (r *resolver) forward(q []byte, chosenids ...string) (res0 []byte, err0 error) {
 	starttime := time.Now()
-	summary := &x.Summary{
+	summary := &x.DNSSummary{
 		QName:  invalidQname,
 		Status: Start,
 	}

@@ -60,14 +60,14 @@ type Gateway interface {
 	// translate overwrites ip answers to alg ip answers
 	translate(yes bool)
 	// Query using t1 as primary transport and t2 as secondary
-	q(t1 Transport, t2 Transport, network string, q []byte, s *x.Summary) (r []byte, err error)
+	q(t1 Transport, t2 Transport, network string, q []byte, s *x.DNSSummary) (r []byte, err error)
 	// clear obj state
 	stop()
 }
 
 type secans struct {
 	ips     []*netip.Addr
-	summary *x.Summary
+	summary *x.DNSSummary
 }
 
 type ans struct {
@@ -147,7 +147,7 @@ func (t *dnsgateway) querySecondary(t2 Transport, network string, q []byte, out 
 	var err error
 	result := secans{
 		ips:     []*netip.Addr{},
-		summary: &x.Summary{},
+		summary: &x.DNSSummary{},
 	}
 
 	go func() {
@@ -231,14 +231,14 @@ func (t *dnsgateway) querySecondary(t2 Transport, network string, q []byte, out 
 }
 
 // Implements Gateway
-func (t *dnsgateway) q(t1, t2 Transport, network string, q []byte, summary *x.Summary) (r []byte, err error) {
+func (t *dnsgateway) q(t1, t2 Transport, network string, q []byte, summary *x.DNSSummary) (r []byte, err error) {
 	if t1 == nil {
 		return nil, errNoTransportAlg
 	}
 	mod := t.mod // allow alg?
 	secch := make(chan secans, 1)
 	resch := make(chan []byte, 1)
-	innersummary := new(x.Summary)
+	innersummary := new(x.DNSSummary)
 	// todo: use context?
 	// t2 may be nil
 	go t.querySecondary(t2, network, q, secch, resch, timeout)
@@ -437,7 +437,7 @@ func netip2csv(ips []*netip.Addr) (csv string) {
 	return strings.TrimSuffix(csv, ",")
 }
 
-func withDNS64Summary(ans64 *dns.Msg, s *x.Summary) {
+func withDNS64Summary(ans64 *dns.Msg, s *x.DNSSummary) {
 	s.RCode = xdns.Rcode(ans64)
 	s.RData = xdns.GetInterestingRData(ans64)
 	s.RTtl = xdns.RTtl(ans64)
@@ -446,7 +446,7 @@ func withDNS64Summary(ans64 *dns.Msg, s *x.Summary) {
 	}
 }
 
-func withAlgSummaryIfNeeded(algips []*netip.Addr, s *x.Summary) {
+func withAlgSummaryIfNeeded(algips []*netip.Addr, s *x.DNSSummary) {
 	if settings.Debug {
 		// convert algips to ipcsv
 		ipcsv := netip2csv(algips)

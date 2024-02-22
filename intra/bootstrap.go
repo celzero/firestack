@@ -174,7 +174,7 @@ func (b *bootstrap) Type() string {
 	return b.typ // DOH or DNS53
 }
 
-func (b *bootstrap) Query(network string, q []byte, summary *x.Summary) ([]byte, error) {
+func (b *bootstrap) Query(network string, q []byte, summary *x.DNSSummary) ([]byte, error) {
 	tr := b.Transport
 	if tr != nil {
 		log.V("dns: default: query %s %d", network, len(q))

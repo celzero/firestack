@@ -467,7 +467,7 @@ func (t *transport) Type() string {
 	return t.typ
 }
 
-func (t *transport) Query(network string, q []byte, smm *x.Summary) (r []byte, err error) {
+func (t *transport) Query(network string, q []byte, smm *x.DNSSummary) (r []byte, err error) {
 	var blocklists string
 	var elapsed time.Duration
 	var qerr *dnsx.QueryError

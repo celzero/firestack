@@ -101,7 +101,7 @@ func (d *dns64) register(id string) {
 func (d *dns64) AddResolver(id string, r dnsx.Transport) bool {
 	d.register(id)
 
-	discarded := new(x.Summary)
+	discarded := new(x.DNSSummary)
 	b, err := r.Query(dnsx.NetTypeUDP, arpa64, discarded)
 	if err != nil {
 		log.W("dns64: udp: could not query resolver %s", id)
@@ -238,7 +238,7 @@ func (d *dns64) query64(msg6 *dns.Msg, r dnsx.Transport) (*dns.Msg, error) {
 		return nil, err
 	}
 
-	discarded := new(x.Summary)
+	discarded := new(x.DNSSummary)
 	a4, err := r.Query(dnsx.NetTypeUDP, q4, discarded)
 	log.D("dns64: udp: upstream q(%s) / a(%d) / e(%v) / e-not-nil(%t)", xdns.QName(msg4), len(a4), err, err != nil)
 	if err != nil {

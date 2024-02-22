@@ -282,7 +282,7 @@ func query(pid string, packet []byte, serverInfo *serverinfo, useudp bool) (resp
 }
 
 // resolve resolves incoming DNS query, data
-func resolve(network string, data []byte, si *serverinfo, smm *x.Summary) (response []byte, err error) {
+func resolve(network string, data []byte, si *serverinfo, smm *x.DNSSummary) (response []byte, err error) {
 	var qerr *dnsx.QueryError
 
 	before := time.Now()
@@ -551,7 +551,7 @@ func (p *DcMulti) Type() string {
 }
 
 // Query implements dnsx.TransportMult
-func (p *DcMulti) Query(network string, q []byte, summary *x.Summary) (r []byte, err error) {
+func (p *DcMulti) Query(network string, q []byte, summary *x.DNSSummary) (r []byte, err error) {
 	r, err = resolve(network, q, p.serversInfo.getOne(), summary)
 	p.lastStatus = summary.Status
 	p.lastAddr = summary.Server
