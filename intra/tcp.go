@@ -207,7 +207,7 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target netip.AddrPort)
 
 	if pid != ipn.Exit { // see udp.go Connect
 		if dnsOverride(h.resolver, dnsx.NetTypeTCP, gconn, target) {
-			// SocketSummary not sent; dnsx.Summary supercedes it
+			// SocketSummary not sent; x.DNSSummary supercedes it
 			return allow
 		} // else not a dns request
 	} // if ipn.Exit then let it connect as-is (aka exit)

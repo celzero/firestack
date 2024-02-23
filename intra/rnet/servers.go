@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"sync"
 
+	x "github.com/celzero/firestack/intra/backend"
 	"github.com/celzero/firestack/intra/ipn"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
@@ -24,7 +25,8 @@ const (
 	PXHTTP    = "pxhttp"    // HTTP with forwarding proxy
 
 	// status of proxies
-	SOK = 0  // svc OK
+	SUP = 0  // svc UP
+	SOK = 1  // svc OK
 	SKO = -1 // svc not OK
 	END = -2 // svc stopped
 )
@@ -37,6 +39,7 @@ var (
 	errNoAddr     = errors.New("no address")
 	errServerEnd  = errors.New("server stopped")
 	errProxyEnd   = errors.New("proxy stopped")
+	errNotProxy   = errors.New("not a proxy")
 	errBlocked    = errors.New("blocked")
 
 	udptimeoutsec = 5 * 60                    // 5m
@@ -47,7 +50,7 @@ var (
 
 type Server interface {
 	// Sets the proxy as the next hop.
-	Hop(p ipn.Proxy) error
+	Hop(p x.Proxy) error
 	// ID returns the ID of the server.
 	ID() string
 	// Start starts the server.

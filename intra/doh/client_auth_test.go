@@ -28,7 +28,7 @@ import (
 	"net"
 	"testing"
 
-	x "github.com/celzero/firestack/intra/android/dnsx"
+	x "github.com/celzero/firestack/intra/backend"
 	"github.com/celzero/firestack/intra/dialers"
 	"github.com/celzero/firestack/intra/ipn"
 	ilog "github.com/celzero/firestack/intra/log"

@@ -11,7 +11,7 @@ import (
 	"net/url"
 	"strings"
 
-	x "github.com/celzero/firestack/intra/android/dnsx"
+	x "github.com/celzero/firestack/intra/backend"
 	"github.com/celzero/firestack/intra/dns53"
 	"github.com/celzero/firestack/intra/dnsx"
 	"github.com/celzero/firestack/intra/doh"
@@ -35,7 +35,7 @@ var (
 
 // DefaultDNS is the resolver used by all dialers.
 type DefaultDNS interface {
-	dnsx.Transport
+	x.DNSTransport
 	kickstart(px ipn.Proxies, g Bridge) error
 	reinit(typ, ipOrUrl, ips string) error
 }

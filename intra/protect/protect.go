@@ -28,7 +28,7 @@ import (
 	"net/netip"
 	"syscall"
 
-	b "github.com/celzero/firestack/intra/android"
+	b "github.com/celzero/firestack/intra/backend"
 	"github.com/celzero/firestack/intra/log"
 )
 

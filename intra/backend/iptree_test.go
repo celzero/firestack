@@ -1,4 +1,4 @@
-package dnsx
+package backend
 
 import (
 	"log"

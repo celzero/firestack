@@ -21,7 +21,7 @@ import (
 
 	"github.com/miekg/dns"
 
-	x "github.com/celzero/firestack/intra/android/dnsx"
+	x "github.com/celzero/firestack/intra/backend"
 	"github.com/celzero/firestack/intra/xdns"
 
 	"github.com/celzero/gotrie/trie"

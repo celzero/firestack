@@ -300,7 +300,7 @@ func (h *udpHandler) Connect(gconn net.Conn, src, target netip.AddrPort) (dst co
 	// and ipn.Exit for anywhere else.
 	if res.PID != ipn.Exit {
 		if dnsOverride(h.resolver, dnsx.NetTypeUDP, gconn, target) {
-			// SocketSummary is not sent to listener; dnsx.Summary is
+			// SocketSummary is not sent to listener; x.DNSSummary is
 			return nil, smm, nil // connect, no dst
 		} // else: not a dns query
 	} // else: proxy src to dst

@@ -16,8 +16,7 @@ import (
 	"sync"
 	"time"
 
-	c "github.com/celzero/firestack/intra/android/core"
-	x "github.com/celzero/firestack/intra/android/dnsx"
+	x "github.com/celzero/firestack/intra/backend"
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
@@ -123,7 +122,7 @@ type resolver struct {
 	systemdns    []Transport
 	transports   map[string]Transport
 	gateway      Gateway
-	localdomains c.RadixTree
+	localdomains x.RadixTree
 	rdnsl        *rethinkdnslocal
 	rdnsr        *rethinkdns
 	rmu          sync.RWMutex // protects rdnsr and rdnsl
@@ -132,7 +131,7 @@ type resolver struct {
 
 var _ Resolver = (*resolver)(nil)
 
-func NewResolver(fakeaddrs string, tunmode *settings.TunMode, dtr Transport, l x.DNSListener, pt NatPt) Resolver {
+func NewResolver(fakeaddrs string, tunmode *settings.TunMode, dtr x.DNSTransport, l x.DNSListener, pt NatPt) Resolver {
 	r := &resolver{
 		NatPt:        pt,
 		listener:     l,
@@ -145,14 +144,16 @@ func NewResolver(fakeaddrs string, tunmode *settings.TunMode, dtr Transport, l x
 	r.loadaddrs(fakeaddrs)
 	if dtr.ID() != Default {
 		log.W("dns: not default; ignoring", dtr.ID(), dtr.GetAddr())
+	} else if tr, ok := dtr.(Transport); !ok {
+		log.W("dns: not a transport; ignoring", dtr.ID(), dtr.GetAddr())
 	} else {
-		dct := NewCachingTransport(dtr, ttl10m)
+		ctr := NewCachingTransport(tr, ttl10m)
 		r.Lock()
-		r.transports[dtr.ID()] = dtr // regular
-		if dct != nil {
-			r.transports[dct.ID()] = dct // cached
+		r.transports[tr.ID()] = tr // regular
+		if ctr != nil {
+			r.transports[ctr.ID()] = ctr // cached
 		} else {
-			log.W("dns: no caching transport for %s", dtr.ID())
+			log.W("dns: no caching transport for %s", tr.ID())
 		}
 		r.Unlock()
 	}
@@ -348,7 +349,8 @@ func (r *resolver) forward(q []byte, chosenids ...string) (res0 []byte, err0 err
 		return nil, errMissingQueryName
 	}
 
-	pref := r.listener.OnQuery(qname, qtyp)
+	// pref := r.listener.OnQuery(qname, qtyp)
+	pref := new(x.DNSOpts)
 	id, sid, pid, _ := r.preferencesFrom(qname, pref, chosenids...)
 	t := r.determineTransport(id)
 
@@ -687,7 +689,7 @@ func (r *resolver) LiveTransports() string {
 	return trimcsv(s)
 }
 
-func (r *resolver) preferencesFrom(qname string, s *x.NsOpts, chosenids ...string) (id1, id2, pid, ips string) {
+func (r *resolver) preferencesFrom(qname string, s *x.DNSOpts, chosenids ...string) (id1, id2, pid, ips string) {
 	var x []string
 	if s == nil { // should never happen; but it has during testing
 		log.W("dns: pref: no ns opts for %s", qname)

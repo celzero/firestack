@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	x "github.com/celzero/firestack/intra/android/dnsx"
+	x "github.com/celzero/firestack/intra/backend"
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/dialers"
 	"github.com/celzero/firestack/intra/dnsx"

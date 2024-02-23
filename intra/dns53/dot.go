@@ -14,7 +14,7 @@ import (
 	"net/url"
 	"time"
 
-	x "github.com/celzero/firestack/intra/android/dnsx"
+	x "github.com/celzero/firestack/intra/backend"
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/dialers"
 	"github.com/celzero/firestack/intra/dnsx"
@@ -65,7 +65,7 @@ func NewTLSTransport(id, rawurl string, addrs []string, px ipn.Proxies, ctl prot
 		id:      id,
 		url:     rawurl,
 		addr:    url2addr(rawurl), // may or may not be ipaddr
-		status:  dnsx.Start,
+		status:  x.Start,
 		proxies: px,
 		rd:      rd,
 		relay:   relay,

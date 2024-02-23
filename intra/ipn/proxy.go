@@ -12,7 +12,7 @@ import (
 	"net/url"
 	"strings"
 
-	x "github.com/celzero/firestack/intra/android/proxies"
+	x "github.com/celzero/firestack/intra/backend"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
 	"github.com/celzero/firestack/intra/settings"

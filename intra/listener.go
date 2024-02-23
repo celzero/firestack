@@ -24,7 +24,7 @@ var (
 	optionsBlock = &Mark{PID: ipn.Block}
 	optionsBase  = &Mark{PID: ipn.Base}
 
-	noerr = errors.New("no error")
+	errNone = errors.New("no error")
 )
 
 // SocketSummary reports information about each TCP socket
@@ -49,7 +49,7 @@ func icmpSummary(id, pid string) *SocketSummary {
 		ID:    id,
 		PID:   pid,
 		start: time.Now(),
-		Msg:   noerr.Error(),
+		Msg:   errNone.Error(),
 	}
 }
 
@@ -60,7 +60,7 @@ func tcpSummary(id, pid, uid string) *SocketSummary {
 		PID:   pid,
 		UID:   uid,
 		start: time.Now(),
-		Msg:   noerr.Error(),
+		Msg:   errNone.Error(),
 	}
 }
 
@@ -82,7 +82,7 @@ func (s *SocketSummary) elapsed() {
 func (s *SocketSummary) done(errs ...error) {
 	defer func() {
 		if len(s.Msg) <= 0 {
-			s.Msg = noerr.Error()
+			s.Msg = errNone.Error()
 		}
 	}()
 
@@ -94,7 +94,7 @@ func (s *SocketSummary) done(errs ...error) {
 
 	err := errors.Join(errs...) // errs may be nil
 	if err != nil {
-		if s.Msg == noerr.Error() {
+		if s.Msg == errNone.Error() {
 			s.Msg = err.Error()
 		} else {
 			s.Msg = s.Msg + "; " + err.Error()

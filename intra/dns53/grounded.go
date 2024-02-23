@@ -9,7 +9,7 @@ package dns53
 import (
 	"time"
 
-	x "github.com/celzero/firestack/intra/android/dnsx"
+	x "github.com/celzero/firestack/intra/backend"
 	"github.com/celzero/firestack/intra/dnsx"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/xdns"
@@ -46,9 +46,9 @@ func (t *grounded) Query(_ string, q []byte, summary *x.DNSSummary) ([]byte, err
 		response, err = ans.Pack()
 	}
 	if err != nil {
-		t.status = dnsx.BadResponse
+		t.status = x.BadResponse
 	} else {
-		t.status = dnsx.Complete
+		t.status = x.Complete
 	}
 	elapsed := 0 * time.Second
 	summary.Latency = elapsed.Seconds()

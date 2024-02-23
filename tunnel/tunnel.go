@@ -57,24 +57,24 @@ type Tunnel interface {
 	SetPcap(fpcap string) error
 }
 
-// netstack
-
-var errStackMissing = errors.New("tun: netstack not initialized")
-var errInvalidTunFd = errors.New("invalid tun fd")
-var errNoWriter = errors.New("no write() on netstack")
-
 type gtunnel struct {
-	mu     *sync.RWMutex         // protects all fields
 	stack  *stack.Stack          // a tcpip stack
 	hdl    netstack.GConnHandler // tcp, udp, and icmp handlers
 	mtu    int                   // mtu of the tun device
 	pcapio *pcapsink             // pcap output, if any
+	once   *sync.Once
 }
 
 type pcapsink struct {
 	sync.RWMutex // protects sink
 	sink         io.WriteCloser
 }
+
+var (
+	errStackMissing = errors.New("tun: netstack not initialized")
+	errInvalidTunFd = errors.New("invalid tun fd")
+	errNoWriter     = errors.New("no write() on netstack")
+)
 
 func (p *pcapsink) Write(b []byte) (int, error) {
 	go p.writeAsync(b)
@@ -119,58 +119,21 @@ func (t *gtunnel) Mtu() int {
 	return t.mtu
 }
 
-func (t *gtunnel) closeHandlers() {
-	t.mu.Lock()
-	hdl := t.hdl
-	t.hdl = nil
-	t.mu.Unlock()
-
-	if hdl == nil {
-		log.I("tun: handlers already closed")
-		return
-	}
-	err := hdl.Close()
-	log.I("tun: handlers closed; err? %v", err)
-}
-
-func (t *gtunnel) closePcap() {
-	t.mu.Lock()
-	p := t.pcapio
-	t.pcapio = nil
-	t.mu.Unlock()
-
-	if p == nil {
-		log.I("tun: pcap already closed")
-		return
-	}
-	err := p.Close()
-	log.I("tun: pcap closed; err? %v", err)
-}
-
-func (t *gtunnel) closeStack() {
-	t.mu.Lock()
-	s := t.stack
-	t.stack = nil
-	t.mu.Unlock()
-
-	if s == nil {
-		log.I("tun: stack already closed")
-		return
-	}
-	s.Destroy()
-	log.I("tun: netstack closed")
-}
-
 func (t *gtunnel) Disconnect() {
-	t.closeHandlers()
-	t.closePcap()
-	t.closeStack()
+	t.once.Do(func() {
+		s := t.stack
+		p := t.pcapio
+		hdl := t.hdl
+
+		err0 := hdl.Close()
+		err1 := p.Close()
+		s.Destroy()
+		log.I("tun: netstack closed; errs: %v / %v", err0, err1)
+	})
 }
 
 func (t *gtunnel) IsConnected() bool {
-	t.mu.RLock()
 	s := t.stack
-	t.mu.RUnlock()
 
 	return s != nil && s.CheckNIC(settings.NICID)
 }
@@ -183,9 +146,9 @@ func (t *gtunnel) Write([]byte) (int, error) {
 func NewGTunnel(fd, mtu, engine int, tcph netstack.GTCPConnHandler, udph netstack.GUDPConnHandler, icmph netstack.GICMPHandler) (t Tunnel, err error) {
 	hdl := netstack.NewGConnHandler(tcph, udph, icmph)
 	stack := netstack.NewNetstack() // always dual-stack
-	sink := &pcapsink{}
-	mu := &sync.RWMutex{}
-	t = &gtunnel{mu, stack, hdl, mtu, sink}
+	sink := new(pcapsink)
+	once := new(sync.Once)
+	t = &gtunnel{stack, hdl, mtu, sink, once}
 
 	err = t.setLinkAndRoutes(fd, mtu, engine) // creates endpoint / brings up nic
 	if err != nil {
@@ -197,9 +160,7 @@ func NewGTunnel(fd, mtu, engine int, tcph netstack.GTCPConnHandler, udph netstac
 }
 
 func (t *gtunnel) CloseConns(activecsv string) (closedcsv string) {
-	t.mu.Lock()
 	hdl := t.hdl
-	t.mu.Unlock()
 	if hdl != nil {
 		closedcsv = hdl.CloseConns(activecsv)
 	}
@@ -207,9 +168,7 @@ func (t *gtunnel) CloseConns(activecsv string) (closedcsv string) {
 }
 
 func (t *gtunnel) SetPcap(fpcap string) error {
-	t.mu.RLock()
 	pcap := t.pcapio
-	t.mu.RUnlock()
 
 	if pcap == nil {
 		return errStackMissing
@@ -242,11 +201,9 @@ func (t *gtunnel) setLinkAndRoutes(fd, mtu, engine int) (err error) {
 }
 
 func (t *gtunnel) SetLink(fd, mtu int) error {
-	t.mu.RLock()
 	s := t.stack
 	hdl := t.hdl
 	pcap := t.pcapio
-	t.mu.RUnlock()
 
 	if s == nil || hdl == nil || pcap == nil {
 		log.W("tun: link not set; stack? %t, hdl? %v, pcap? %v", s != nil, hdl != nil, pcap != nil)
@@ -273,9 +230,7 @@ func (t *gtunnel) SetLink(fd, mtu int) error {
 }
 
 func (t *gtunnel) SetRoute(engine int) error {
-	t.mu.RLock()
 	s := t.stack
-	t.mu.RUnlock()
 
 	if s == nil {
 		return errStackMissing
@@ -291,7 +246,7 @@ func dup(fd int) (int, error) {
 		return -1, errInvalidTunFd
 	}
 
-	// copy fd so that golang apis don't close fd
+	// copy so golang gc may not close orig fd
 	newfd, err := unix.Dup(fd)
 	if err != nil {
 		return -1, err

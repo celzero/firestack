@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	x "github.com/celzero/firestack/intra/backend"
 	"github.com/celzero/firestack/intra/ipn"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
@@ -245,17 +246,22 @@ func pipetcp(dst, src *net.TCPConn, ssu *ServerSummary, wg *sync.WaitGroup) {
 	wg.Done()
 }
 
-func (h *httpx) Hop(p ipn.Proxy) error {
+func (h *httpx) Hop(p x.Proxy) error {
 	if h.status == END {
 		log.D("svchttp: hop: %s not running", h.ID())
 		return errServerEnd
 	}
-	h.hdl.px = p
 	if p == nil {
+		h.hdl.px = nil
 		h.ProxyHttpServer.Tr.Dial = h.dialer.Dial
+	} else if pp, ok := p.(ipn.Proxy); ok {
+		h.hdl.px = pp
+		h.ProxyHttpServer.Tr.Dial = pp.Dialer().Dial
 	} else {
-		h.ProxyHttpServer.Tr.Dial = p.Dialer().Dial
+		log.E("svchttp: hop: %s; failed: %T not ipn.Proxy", h.ID(), p)
+		return errNotProxy
 	}
+
 	log.D("svchttp: hop: %s over proxy? %t via %s", h.ID(), p != nil, h.GetAddr())
 	return nil
 }

@@ -12,7 +12,7 @@ LINUX_BUILDDIR=$(BUILDDIR)/linux
 
 ANDROID_BUILD_CMD=env PATH=$(GOBIN):$(PATH) $(GOMOBILE) bind -v -a -ldflags '-w -s' -androidapi 23 -target=android -tags='android' -work
 ANDROID_ARM64_BUILD_CMD=env PATH=$(GOBIN):$(PATH) $(GOMOBILE) bind -v -a -ldflags '-w -s' -androidapi 23 -target=android/arm64 -tags='android' -work
-INTRA_BUILD_CMD=$(IMPORT_PATH)/intra $(IMPORT_PATH)/intra/android $(IMPORT_PATH)/intra/rnet $(IMPORT_PATH)/intra/settings $(IMPORT_PATH)/intra/android/dnsx $(IMPORT_PATH)/intra/android/core $(IMPORT_PATH)/intra/android/proxies
+INTRA_BUILD_CMD=$(IMPORT_PATH)/intra $(IMPORT_PATH)/intra/backend $(IMPORT_PATH)/intra/rnet $(IMPORT_PATH)/intra/settings
 
 $(BUILDDIR)/intra/tun2socks.aar: $(GOMOBILE)
 	mkdir -p $(BUILDDIR)/intra

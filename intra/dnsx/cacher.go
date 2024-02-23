@@ -15,7 +15,7 @@ import (
 	"sync"
 	"time"
 
-	x "github.com/celzero/firestack/intra/android/dnsx"
+	x "github.com/celzero/firestack/intra/backend"
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/xdns"
@@ -125,7 +125,7 @@ func NewCachingTransport(t Transport, ttl time.Duration) Transport {
 func (c *cres) copy() *cres {
 	return &cres{
 		ans:    c.ans.Copy(),
-		s:      c.s.Copy(),
+		s:      copySummary(c.s),
 		expiry: c.expiry,
 		bumps:  c.bumps,
 	}
@@ -319,7 +319,7 @@ func (t *ctransport) fetch(network string, q []byte, msg *dns.Msg, summary *x.DN
 			// cb.put no-ops when len(ans) is 0
 			cb.put(key, ans, fsmm)
 			// cres.ans may be nil
-			return &cres{ans: xdns.AsMsg(ans), s: fsmm.Copy()}, qerr
+			return &cres{ans: xdns.AsMsg(ans), s: copySummary(fsmm)}, qerr
 		})
 
 		cachedres, fresh := cb.freshCopy(key) // always prefer value from cache
@@ -337,7 +337,7 @@ func (t *ctransport) fetch(network string, q []byte, msg *dns.Msg, summary *x.DN
 
 		fres, cachedsmm, ferr := asResponse(msg, cachedres, true)
 		// fill summary regardless of errors
-		cachedsmm.FillInto(fsmm) // cachedsmm may be equal to finalsumm
+		fillSummary(cachedsmm, fsmm) // cachedsmm may be equal to finalsumm
 
 		return fres, errors.Join(v.Err, ferr)
 	}
@@ -369,7 +369,7 @@ func (t *ctransport) fetch(network string, q []byte, msg *dns.Msg, summary *x.DN
 				go sendRequest(new(x.DNSSummary))
 			}
 			// change summary fields to reflect cached response, except for latency
-			cachedsummary.FillInto(summary)
+			fillSummary(cachedsummary, summary)
 			summary.Latency = 0 // don't use cached latency
 			t.est.Add(0)        // however, update the estimator
 			return
@@ -421,4 +421,46 @@ func (t *ctransport) GetAddr() string {
 
 func (t *ctransport) Status() int {
 	return t.Transport.Status()
+}
+
+func copySummary(from *x.DNSSummary) (to *x.DNSSummary) {
+	to = new(x.DNSSummary)
+	*to = *from
+	return
+}
+
+// fillSummary copies non-zero values into other.
+func fillSummary(s *x.DNSSummary, other *x.DNSSummary) {
+	if other == nil || s == other {
+		return
+	}
+	if len(s.Type) != 0 {
+		other.Type = s.Type
+	}
+	if len(s.ID) != 0 {
+		other.ID = s.ID
+	}
+	if s.Latency != 0 {
+		other.Latency = s.Latency
+	}
+
+	// query portions are only filled in if they are empty
+	if len(other.QName) == 0 {
+		other.QName = s.QName
+	}
+	// dns.TypeNone = 0
+	if other.QType == 0 {
+		other.QType = s.QType
+	}
+
+	if len(s.RData) != 0 {
+		other.RData = s.RData
+	}
+	// RcodeSuccess = 0
+	other.RCode = s.RCode
+	other.RTtl = s.RTtl
+	other.Server = s.Server
+	other.RelayServer = s.RelayServer
+	other.Status = s.Status
+	other.Blocklists = s.Blocklists
 }

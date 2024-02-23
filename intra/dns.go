@@ -10,6 +10,7 @@ import (
 	"errors"
 	"strings"
 
+	x "github.com/celzero/firestack/intra/backend"
 	"github.com/celzero/firestack/intra/dns53"
 	"github.com/celzero/firestack/intra/dnscrypt"
 	"github.com/celzero/firestack/intra/dnsx"
@@ -111,7 +112,7 @@ func AddDefaultTransport(t Tunnel, typ, ippOrUrl, ips string) error {
 }
 
 // AddProxyDNS creates and adds a DNS53 transport as defined in Proxy's configuration.
-func AddProxyDNS(t Tunnel, p ipn.Proxy) error {
+func AddProxyDNS(t Tunnel, p x.Proxy) error {
 	pxr, perr := t.internalProxies()
 	r, rerr := t.internalResolver()
 	if rerr != nil || perr != nil {
@@ -138,7 +139,7 @@ func AddProxyDNS(t Tunnel, p ipn.Proxy) error {
 			return addDNSTransport(r, dns)
 		}
 	}
-	// register transport with the resolver
+	// register transport with the resolver with same id as the proxy
 	if dns, err := dns53.NewTransportFrom(p.ID(), ipport, pxr, g); err != nil {
 		return err
 	} else {

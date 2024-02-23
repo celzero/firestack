@@ -7,7 +7,7 @@
 package dnsx
 
 import (
-	x "github.com/celzero/firestack/intra/android/dnsx"
+	x "github.com/celzero/firestack/intra/backend"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/xdns"
 	"github.com/miekg/dns"

@@ -8,7 +8,7 @@ package dnsx
 import (
 	"errors"
 
-	x "github.com/celzero/firestack/intra/android/dnsx"
+	x "github.com/celzero/firestack/intra/backend"
 )
 
 const (

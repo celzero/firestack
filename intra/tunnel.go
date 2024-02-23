@@ -27,10 +27,9 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"sync/atomic"
 
-	b "github.com/celzero/firestack/intra/android"
-	x "github.com/celzero/firestack/intra/android/dnsx"
-	p "github.com/celzero/firestack/intra/android/proxies"
+	x "github.com/celzero/firestack/intra/backend"
 	"github.com/celzero/firestack/intra/dnsx"
 	"github.com/celzero/firestack/intra/ipn"
 	"github.com/celzero/firestack/intra/log"
@@ -44,7 +43,7 @@ var errClosed = errors.New("tunnel closed for business")
 
 type Bridge interface {
 	Listener
-	b.Controller
+	x.Controller
 }
 
 // Listener receives usage statistics when a UDP or TCP socket is closed,
@@ -59,11 +58,11 @@ type Listener interface {
 type Tunnel interface {
 	tunnel.Tunnel
 	// Get the resolver.
-	GetResolver() (x.Resolver, error)
+	GetResolver() (x.DNSResolver, error)
 	// Get the internal resolver.
 	internalResolver() (dnsx.Resolver, error)
 	// Get proxies.
-	GetProxies() (p.Proxies, error)
+	GetProxies() (x.Proxies, error)
 	// Get the internal proxies.
 	internalProxies() (ipn.Proxies, error)
 	// A bridge to the client code.
@@ -87,8 +86,8 @@ type rtunnel struct {
 	proxies  ipn.Proxies
 	resolver dnsx.Resolver
 	services rnet.Services
-	clomu    sync.RWMutex
-	closed   bool
+	closed   atomic.Bool
+	once     sync.Once
 }
 
 func NewTunnel(fd, mtu int, fakedns string, tunmode *settings.TunMode, dtr DefaultDNS, bdg Bridge) (Tunnel, error) {
@@ -144,31 +143,25 @@ func (t *rtunnel) getBridge() Bridge {
 }
 
 func (t *rtunnel) Disconnect() {
-	t.clomu.Lock()
-	closed := t.closed
-	t.closed = true
-	t.clomu.Unlock()
-
-	if closed {
-		log.W("tun: <<< disconnect >>>; already closed")
+	if t.closed.Load() {
+		log.I("tun: <<< disconnect >>> already closed")
 		return
 	}
+	t.once.Do(func() {
+		t.closed.Store(true)
 
-	err0 := t.resolver.Stop()
-	err1 := t.proxies.StopProxies()
-	n := t.services.StopServers()
-	t.bridge = nil // "free" ref to the client
-	log.I("tun: <<< disconnect >>>; err0(%v); err1(%v); svc(%d)", err0, err1, n)
+		err0 := t.resolver.Stop()
+		err1 := t.proxies.StopProxies()
+		n := t.services.StopServers()
+		t.bridge = nil // "free" ref to the client
+		log.I("tun: <<< disconnect >>>; err0(%v); err1(%v); svc(%d)", err0, err1, n)
 
-	t.Tunnel.Disconnect()
+		t.Tunnel.Disconnect()
+	})
 }
 
 func (t *rtunnel) SetRoute(engine int) error {
-	t.clomu.RLock()
-	closed := t.closed
-	t.clomu.RUnlock()
-
-	if closed {
+	if t.closed.Load() {
 		log.W("tun: <<< set route >>>; already closed")
 		return errClosed
 	}
@@ -177,34 +170,28 @@ func (t *rtunnel) SetRoute(engine int) error {
 	return t.Tunnel.SetRoute(engine)
 }
 
-func (t *rtunnel) GetResolver() (x.Resolver, error) {
+func (t *rtunnel) GetResolver() (x.DNSResolver, error) {
 	return t.internalResolver()
 }
 
 func (t *rtunnel) internalResolver() (dnsx.Resolver, error) {
-	t.clomu.RLock()
-	closed := t.closed
-	t.clomu.RUnlock()
-
-	if closed || t.resolver == nil {
-		log.W("tun: <<< get internal resolver >>>; already closed? %t / %t", closed, t.resolver == nil)
+	ko := t.closed.Load()
+	if ko || t.resolver == nil {
+		log.W("tun: <<< get internal resolver >>>; already closed? %t / %t", ko, t.resolver == nil)
 		return nil, errClosed
 	}
 
 	return t.resolver, nil
 }
 
-func (t *rtunnel) GetProxies() (p.Proxies, error) {
+func (t *rtunnel) GetProxies() (x.Proxies, error) {
 	return t.internalProxies()
 }
 
 func (t *rtunnel) internalProxies() (ipn.Proxies, error) {
-	t.clomu.RLock()
-	closed := t.closed
-	t.clomu.RUnlock()
-
-	if closed || t.proxies == nil {
-		log.W("tun: <<< get internal proxies >>>; already closed; %t / %t", closed, t.proxies == nil)
+	ko := t.closed.Load()
+	if ko || t.proxies == nil {
+		log.W("tun: <<< get internal proxies >>>; already closed; %t / %t", ko, t.proxies == nil)
 		return nil, errClosed
 	}
 
@@ -212,12 +199,10 @@ func (t *rtunnel) internalProxies() (ipn.Proxies, error) {
 }
 
 func (t *rtunnel) GetServices() (rnet.Services, error) {
-	t.clomu.RLock()
-	closed := t.closed
-	t.clomu.RUnlock()
+	ko := t.closed.Load()
 
-	if closed || t.proxies == nil {
-		log.W("tun: <<< get svc >>>; already closed; %t / %t", closed, t.services == nil)
+	if ko || t.proxies == nil {
+		log.W("tun: <<< get svc >>>; already closed; %t / %t", ko, t.services == nil)
 		return nil, errClosed
 	}
 

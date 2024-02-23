@@ -4,7 +4,7 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
-package android
+package backend
 
 const ( // see dnsx/transport.go
 	// DNS transport types
@@ -27,9 +27,11 @@ const ( // see dnsx/transport.go
 	Alg       = "Alg"       // dns application-level gateway
 	DcProxy   = "DcProxy"   // dnscrypt.Proxy as a transport
 	IpMapper  = "IpMapper"  // dns resolver for dns resolvers
+
+	SummaryProxyLabel = "proxy:"
 )
 
-const ( // see dnsx/queryerror.go
+const ( // from dnsx/queryerror.go
 	// Start: Transaction started
 	Start = iota
 	// Complete : Transaction completed successfully
@@ -111,13 +113,7 @@ type RDNSResolver interface {
 	Translate(bool)
 }
 
-type Resolver interface {
+type DNSResolver interface {
 	DNSTransportMult
 	RDNSResolver
 }
-
-// type DNSListener = dnsx.DNSListener
-
-// type Resolver = dnsx.Resolver
-
-// type RdnsResolver = dnsx.RdnsResolver

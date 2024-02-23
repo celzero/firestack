@@ -9,7 +9,7 @@ package dnsx
 import (
 	"strings"
 
-	c "github.com/celzero/firestack/intra/android/core"
+	c "github.com/celzero/firestack/intra/backend"
 	"github.com/celzero/firestack/intra/xdns"
 )
 

@@ -13,7 +13,7 @@ import (
 	"net/netip"
 	"time"
 
-	x "github.com/celzero/firestack/intra/android/dnsx"
+	x "github.com/celzero/firestack/intra/backend"
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/dnsx"
 	"github.com/celzero/firestack/intra/ipn"
@@ -46,7 +46,7 @@ func NewGoosTransport(px ipn.Proxies, ctl protect.Controller) (t dnsx.Transport,
 	}
 	d := protect.MakeNsRDial(dnsx.Goos, ctl)
 	tx := &goosr{
-		status:  dnsx.Start,
+		status:  x.Start,
 		dialer:  d,
 		proxies: px,
 		pid:     dnsx.NetExitProxy, // NetExitProxy => ipn.Exit

@@ -13,7 +13,7 @@ import (
 	"sync"
 	"time"
 
-	x "github.com/celzero/firestack/intra/android/proxies"
+	x "github.com/celzero/firestack/intra/backend"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
 )
@@ -99,12 +99,12 @@ type Proxies interface {
 }
 
 type proxifier struct {
-	Proxies
 	sync.RWMutex
 	p   map[string]Proxy
 	ctl protect.Controller
 }
 
+var _ Proxies = (*proxifier)(nil)
 var _ protect.RDialer = (Proxy)(nil)
 
 func NewProxifier(c protect.Controller) Proxies {

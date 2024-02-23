@@ -17,7 +17,7 @@ import (
 	"sync"
 	"time"
 
-	x "github.com/celzero/firestack/intra/android/dnsx"
+	x "github.com/celzero/firestack/intra/backend"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/settings"
 	"github.com/celzero/firestack/intra/xdns"
@@ -247,7 +247,7 @@ func (t *dnsgateway) q(t1, t2 Transport, network string, q []byte, summary *x.DN
 	resch <- r
 
 	// override relevant values in summary
-	innersummary.FillInto(summary)
+	fillSummary(innersummary, summary)
 
 	if err != nil {
 		log.D("alg: abort; qerr %v", err)

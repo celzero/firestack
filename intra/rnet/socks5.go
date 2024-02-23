@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"time"
 
+	x "github.com/celzero/firestack/intra/backend"
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/ipn"
 	"github.com/celzero/firestack/intra/log"
@@ -77,17 +78,20 @@ func newSocks5Server(id, x string, ctl protect.Controller, listener ServerListen
 	}, nil
 }
 
-func (h *socks5) Hop(p ipn.Proxy) error {
+func (h *socks5) Hop(p x.Proxy) error {
 	if h.status == END {
 		log.D("svcsocks5: hop: %s not running", h.ID())
 		return errServerEnd
 	}
-
-	h.hdl.px = p
 	if p == nil {
+		h.hdl.px = nil
 		tx.Dial = h.rdial
+	} else if pp, ok := p.(ipn.Proxy); ok {
+		h.hdl.px = pp
+		tx.Dial = pp.Dialer()
 	} else {
-		tx.Dial = p.Dialer()
+		log.E("svcsocks5: hop: %s; failed: %T not ipn.Proxy", h.ID(), p)
+		return errNotProxy
 	}
 	log.D("svcsocks5: hop: %s over proxy? %t via %s", h.ID(), p != nil, h.GetAddr())
 	return nil
