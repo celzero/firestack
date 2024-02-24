@@ -93,7 +93,6 @@ type ansMulti struct {
 // TODO: Keep a context here so that queries can be canceled.
 type dnsgateway struct {
 	sync.RWMutex                     // locks alg, nat, octets, hexes
-	Gateway                          // dns alg interface
 	mod          bool                // modify realip to algip
 	alg          map[string]*ans     // domain+type -> ans
 	nat          map[netip.Addr]*ans // algip -> ans
@@ -104,6 +103,8 @@ type dnsgateway struct {
 	hexes        []uint16            // ip6 hex, 64:ff9b:1:da19:0100.x.y.z
 	chash        bool                // use consistent hashing to generae alg ips
 }
+
+var _ Gateway = (*dnsgateway)(nil)
 
 // NewDNSGateway returns a DNS ALG, ready for use.
 func NewDNSGateway(outer RdnsResolver, dns64 NatPt) (t *dnsgateway) {
@@ -125,7 +126,7 @@ func NewDNSGateway(outer RdnsResolver, dns64 NatPt) (t *dnsgateway) {
 	return
 }
 
-func (t *dnsgateway) Translate(yes bool) {
+func (t *dnsgateway) translate(yes bool) {
 	log.I("alg: translate? %t", yes)
 	t.mod = yes
 }
