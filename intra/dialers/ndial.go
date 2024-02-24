@@ -108,7 +108,7 @@ func NetDial(d *net.Dialer, network, addr string) (net.Conn, error) {
 
 // NetListen listens for UDP on local address using cfg.
 // Returned net.Conn is guaranteed to be a *net.UDPConn.
-func NetListen(cfg *net.ListenConfig, network, local string) (net.Conn, error) {
+func NetListen(cfg *net.ListenConfig, network, local string) (net.PacketConn, error) {
 	if cfg == nil {
 		log.E("ndial: NetListen: nil listen config")
 		return nil, errNoListener

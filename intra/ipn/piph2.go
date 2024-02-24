@@ -415,7 +415,7 @@ func (t *piph2) Dial(network, addr string) (protect.Conn, error) {
 }
 
 // Announce implements Proxy.
-func (h *piph2) Announce(network, local string) (protect.Conn, error) {
+func (h *piph2) Announce(network, local string) (protect.PacketConn, error) {
 	if h.status == END {
 		return nil, errProxyStopped
 	}

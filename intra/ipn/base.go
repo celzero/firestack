@@ -50,7 +50,7 @@ func (h *base) Dial(network, addr string) (c protect.Conn, err error) {
 }
 
 // Announce implements Proxy.
-func (h *base) Announce(network, local string) (protect.Conn, error) {
+func (h *base) Announce(network, local string) (protect.PacketConn, error) {
 	if h.status == END {
 		return nil, errProxyStopped
 	}

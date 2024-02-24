@@ -17,23 +17,9 @@ import (
 )
 
 // Adapter to keep gomobile happy as it can't export net.Conn
-type Conn interface {
-	// Read reads data coming from remote.
-	Read(data []byte) (int, error)
-	// Write writes data to remote.
-	Write(data []byte) (int, error)
-	// Close closes the connection.
-	Close() error
-}
+type Conn = net.Conn
 
-type PacketConn interface {
-	// ReadFrom reads data from remote.
-	ReadFrom(data []byte) (int, net.Addr, error)
-	// WriteTo writes data to remote.
-	WriteTo(data []byte, addr net.Addr) (int, error)
-	// Close closes the connection.
-	Close() error
-}
+type PacketConn = net.PacketConn
 
 type RDialer interface {
 	// Dial creates a connection to the given address,
@@ -47,7 +33,7 @@ type RDialer interface {
 	// protect.Conn is used in signature to make gobind happy
 	// as it does not support exporting interfaces with fns
 	// that return more than 2 values, like ReadFrom does).
-	Announce(network, local string) (Conn, error)
+	Announce(network, local string) (PacketConn, error)
 }
 
 // RDial discards local-addresses
@@ -81,18 +67,15 @@ func (d *RDial) dial(network, addr string) (Conn, error) {
 }
 
 func (d *RDial) Dial(network, addr string) (net.Conn, error) {
-	if c, err := d.dial(network, addr); err != nil {
+	if cc, err := d.dial(network, addr); err != nil {
 		return nil, err
-	} else if cc, ok := c.(net.Conn); ok {
-		return cc, nil
 	} else {
-		log.W("xdial: Dial: (%s) %T is not %T (ok? %t); other errs: %v", d.Owner, c, cc, ok, err)
-		clos(c)
+		clos(cc)
 		return nil, errNoConn
 	}
 }
 
-func (d *RDial) Announce(network, local string) (Conn, error) {
+func (d *RDial) Announce(network, local string) (PacketConn, error) {
 	if network != "udp" && network != "udp4" && network != "udp6" {
 		return nil, errAnnounce
 	}

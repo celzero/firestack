@@ -82,7 +82,7 @@ type Proxy interface {
 	// Dial returns a connection to this proxy.
 	Dial(network, addr string) (protect.Conn, error)
 	// Announce returns a packet-oriented udp connection on this proxy.
-	Announce(network, local string) (protect.Conn, error)
+	Announce(network, local string) (protect.PacketConn, error)
 	// fetch response for this request over HTTP.
 	fetch(req *http.Request) (*http.Response, error)
 	// Dialer returns the dialer for this proxy, which is an

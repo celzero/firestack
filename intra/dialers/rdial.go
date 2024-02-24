@@ -164,7 +164,7 @@ func commondial(d *protect.RDial, network, addr string, connect connectFunc) (ne
 
 // Listen listens on for UDP connections on the local address using d.
 // Returned net.Conn is guaranteed to be a *net.UDPConn.
-func Listen(d *protect.RDial, network, local string) (net.Conn, error) {
+func Listen(d *protect.RDial, network, local string) (net.PacketConn, error) {
 	if d == nil {
 		log.E("rdial: Announce: nil dialer")
 		return nil, errNoListener

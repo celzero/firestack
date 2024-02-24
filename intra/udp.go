@@ -27,6 +27,7 @@ package intra
 
 import (
 	"errors"
+	"io"
 	"net"
 	"net/netip"
 	"time"
@@ -258,7 +259,7 @@ func (h *udpHandler) proxy(gconn net.Conn, src, dst netip.AddrPort) (ok bool) {
 // Note, target may be nil in lwip (deprecated) while it is always specified in netstack
 func (h *udpHandler) Connect(gconn net.Conn, src, target netip.AddrPort) (dst core.UDPConn, smm *SocketSummary, err error) {
 	var px ipn.Proxy
-	var pc protect.Conn
+	var pc io.Closer
 
 	realips, domains, probableDomains, blocklists := undoAlg(h.resolver, target.Addr())
 
@@ -337,8 +338,8 @@ func (h *udpHandler) Connect(gconn net.Conn, src, target netip.AddrPort) (dst co
 	}
 
 	var ok bool
-	if dst, ok = pc.(core.UDPConn); !ok { // todo: typecast to core.UDPConn?
-		_ = pc.Close()
+	if dst, ok = pc.(core.UDPConn); !ok {
+		pclose(pc, "rw")
 		log.E("udp: connect: %s proxy(%s) does not impl core.UDPConn(%s) for uid %s", res.CID, px.ID(), target, res.UID)
 		return nil, smm, errUdpSetupConn // disconnect
 	}

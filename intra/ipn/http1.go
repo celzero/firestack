@@ -90,7 +90,7 @@ func (h *http1) Dial(network, addr string) (c protect.Conn, err error) {
 }
 
 // Announce implements Proxy.
-func (h *http1) Announce(network, local string) (protect.Conn, error) {
+func (h *http1) Announce(network, local string) (protect.PacketConn, error) {
 	if h.status == END {
 		return nil, errProxyStopped
 	}
