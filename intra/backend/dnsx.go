@@ -52,6 +52,11 @@ const ( // from dnsx/queryerror.go
 	ClientError
 )
 
+const ( // from: dnsx/rethinkdns.go
+	EB32 = iota
+	EB64
+)
+
 // DNSTransport exports necessary methods from dnsx.Transport
 type DNSTransport interface {
 	// uniquely identifies this transport
@@ -86,16 +91,12 @@ type DNSTransportMult interface {
 type RDNS interface {
 	// SetStamp sets the rethinkdns blockstamp.
 	SetStamp(string) error
-
 	// GetStamp returns the current rethinkdns blockstamp.
 	GetStamp() (string, error)
-
 	// StampToNames returns csv group:names of blocklists in the given stamp s.
 	StampToNames(s string) (string, error)
-
 	// FlagsToStamp returns a blockstamp for given csv blocklist-ids, if valid.
 	FlagsToStamp(csv string, enctyp int) (string, error)
-
 	// StampToFlags retruns csv blocklist-ids given a valid blockstamp s.
 	StampToFlags(s string) (string, error)
 }
