@@ -349,8 +349,7 @@ func (r *resolver) forward(q []byte, chosenids ...string) (res0 []byte, err0 err
 		return nil, errMissingQueryName
 	}
 
-	// pref := r.listener.OnQuery(qname, qtyp)
-	pref := new(x.DNSOpts)
+	pref := r.listener.OnQuery(qname, qtyp)
 	id, sid, pid, _ := r.preferencesFrom(qname, pref, chosenids...)
 	t := r.determineTransport(id)
 
