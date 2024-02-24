@@ -45,12 +45,12 @@ type RDial struct {
 }
 
 var (
-	errNoConn    = errors.New("not a dialer")
-	errNoTCP     = errors.New("not a tcp dialer")
-	errNoUDP     = errors.New("not a udp dialer")
-	errNoConnMux = errors.New("not an announcer")
-	errNoUDPMux  = errors.New("not a udp announcer")
-	errAnnounce  = errors.New("cannot announce network")
+	errNoDialer    = errors.New("not a dialer")
+	errNoTCP       = errors.New("not a tcp dialer")
+	errNoUDP       = errors.New("not a udp dialer")
+	errNoAnnouncer = errors.New("not an announcer")
+	errNoUDPMux    = errors.New("not a udp announcer")
+	errAnnounce    = errors.New("cannot announce network")
 )
 
 func (d *RDial) dial(network, addr string) (Conn, error) {
@@ -63,15 +63,14 @@ func (d *RDial) dial(network, addr string) (Conn, error) {
 		return d.RDialer.Dial(network, addr)
 	}
 	log.V("xdial: Dial: (r? %t / o: %s) %s %s", userdialer, d.Owner, network, addr)
-	return nil, errNoConn
+	return nil, errNoDialer
 }
 
 func (d *RDial) Dial(network, addr string) (net.Conn, error) {
 	if cc, err := d.dial(network, addr); err != nil {
 		return nil, err
 	} else {
-		clos(cc)
-		return nil, errNoConn
+		return cc, nil
 	}
 }
 
@@ -88,7 +87,7 @@ func (d *RDial) Announce(network, local string) (PacketConn, error) {
 		if pc, err := d.Listener.ListenPacket(context.Background(), network, local); err == nil {
 			switch x := pc.(type) {
 			case *net.UDPConn:
-				return x, err
+				return x, nil
 			default:
 				log.W("xdial: Announce: addr(%s) for owner(%s): failed; %T is not net.UDPConn; other errs: %v", local, d.Owner, x, err)
 				clos(pc)
@@ -102,7 +101,7 @@ func (d *RDial) Announce(network, local string) (PacketConn, error) {
 		return d.RDialer.Announce(network, local)
 	}
 	log.V("xdial: Announce: (r? %t / o: %s) %s %s", userdialer, d.Owner, network, local)
-	return nil, errNoConnMux
+	return nil, errNoAnnouncer
 }
 
 func clos(c io.Closer) {
