@@ -17,19 +17,22 @@ import (
 )
 
 type GConnHandler interface {
-	TCP() GTCPConnHandler
-	UDP() GUDPConnHandler
-	ICMP() GICMPHandler
-	CloseConns(string) string
-	Close() error
+	TCP() GTCPConnHandler         // TCP returns the TCP handler.
+	UDP() GUDPConnHandler         // UDP returns the UDP handler.
+	ICMP() GICMPHandler           // ICMP returns the ICMP handler.
+	CloseConns(csv string) string // CloseConns closes the connections with the given IDs, or all if empty.
+	Close() error                 // Close closes TCP, UDP, ICMP handlers and its resources.
 }
 
 type gconnhandler struct {
-	GConnHandler
 	tcp  GTCPConnHandler
 	udp  GUDPConnHandler
 	icmp GICMPHandler
 }
+
+const allconns = ""
+
+var _ GConnHandler = (*gconnhandler)(nil)
 
 func NewGConnHandler(tcp GTCPConnHandler, udp GUDPConnHandler, icmp GICMPHandler) GConnHandler {
 	return &gconnhandler{
@@ -53,9 +56,19 @@ func (g *gconnhandler) ICMP() GICMPHandler {
 
 func (g *gconnhandler) CloseConns(csv string) string {
 	cids := strings.Split(csv, ",")
-	t := g.tcp.CloseConns(cids)
-	u := g.udp.CloseConns(cids)
-	i := g.icmp.CloseConns(cids)
+
+	var t []string
+	var u []string
+	var i []string
+	if tcp := g.tcp; t != nil {
+		t = tcp.CloseConns(cids)
+	}
+	if udp := g.udp; udp != nil {
+		u = udp.CloseConns(cids)
+	}
+	if icmp := g.icmp; icmp != nil {
+		i = icmp.CloseConns(cids)
+	}
 	s := make([]string, 0, len(t)+len(u)+len(i))
 	s = append(s, t...)
 	s = append(s, u...)
@@ -65,16 +78,17 @@ func (g *gconnhandler) CloseConns(csv string) string {
 
 func (g *gconnhandler) Close() error {
 	var errs error
-	if g.tcp != nil {
-		err := g.tcp.End()
+	g.CloseConns(allconns)
+	if t := g.tcp; t != nil {
+		err := t.End()
 		errs = errors.Join(errs, err)
 	}
-	if g.udp != nil {
-		err := g.udp.End()
+	if u := g.udp; u != nil {
+		err := u.End()
 		errs = errors.Join(errs, err)
 	}
-	if g.icmp != nil {
-		err := g.icmp.End()
+	if i := g.icmp; i != nil {
+		err := i.End()
 		errs = errors.Join(errs, err)
 	}
 	return errs

@@ -198,7 +198,7 @@ func setupIcmpHandler(nstk *stack.Stack, ep stack.LinkEndpoint, handler GICMPHan
 		l3 := packet.NetworkHeader().View()
 		log.D("icmp: v6 type %v/%v sz[%d] from %v -> %v", icmpin.Type(), icmpin.Code(), dlen, src, dst)
 		if !handler.Ping(src, dst, data, func(reply []byte) error {
-			log.V("icmp: v4 reply %v", reply)
+			log.V("icmp: v6 reply %v", reply)
 
 			icmpout := header.ICMPv6(reply)
 			if icmpout.Type() == header.ICMPv6DstUnreachable {
