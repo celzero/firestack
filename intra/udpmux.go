@@ -378,12 +378,3 @@ func timedout(err error) bool {
 	x, ok := err.(net.Error)
 	return ok && x.Timeout()
 }
-
-func closed(c chan struct{}) bool {
-	select {
-	case <-c:
-		return true // closed
-	default:
-		return false // open
-	}
-}

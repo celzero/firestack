@@ -80,7 +80,7 @@ var _ core.TCPConn = (*retrier)(nil)
 //   - Nonblocking and blocking access are both straightforward.
 //   - Checking the status of a closed flag should be extremely fast (although currently
 //     it's not optimized: https://github.com/golang/go/issues/32529)
-func closed(c chan struct{}) bool {
+func closed(c <-chan struct{}) bool {
 	select {
 	case <-c:
 		// The channel has been closed.
