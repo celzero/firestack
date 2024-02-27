@@ -96,9 +96,6 @@ type Resolver interface {
 	RdnsResolver
 	NatPt
 
-	AddSystemDNS(t Transport) bool
-	RemoveSystemDNS() int
-
 	// special purpose pre-defined transports
 	// Gateway implements a DNS ALG transport
 	Gateway() Gateway
@@ -168,17 +165,6 @@ func (r *resolver) Translate(b bool) {
 	r.gateway.translate(b)
 }
 
-func (r *resolver) AddSystemDNS(t Transport) bool {
-	return r.addSystemDnsIfAbsent(t)
-}
-
-func (r *resolver) RemoveSystemDNS() int {
-	if r.Remove(System) {
-		return 1 // removed one
-	}
-	return 0 // none
-}
-
 // Implements Resolver
 func (r *resolver) Add(dt x.DNSTransport) (ok bool) {
 	if dt == nil {
@@ -213,6 +199,9 @@ func (r *resolver) Add(dt x.DNSTransport) (ok bool) {
 		if ct != nil {
 			r.transports[ct.ID()] = ct // cached
 		}
+		if t.ID() == System {
+			go r.registerSystemDns64(t)
+		}
 		r.Unlock()
 
 		log.I("dns: add transport %s@%s; cache? %t", t.ID(), t.GetAddr(), ct != nil)
@@ -240,17 +229,6 @@ func (r *resolver) GetMult(id string) (TransportMult, error) {
 
 func (r *resolver) dcProxy() (TransportMult, error) {
 	return r.GetMult(DcProxy)
-}
-
-func (r *resolver) addSystemDnsIfAbsent(t Transport) (ok bool) {
-	r.RLock()
-	_, ok = r.transports[t.ID()]
-	r.RUnlock()
-	if !ok {
-		ok = r.Add(t)
-		go r.registerSystemDns64(t)
-	}
-	return ok
 }
 
 func (r *resolver) registerSystemDns64(ur Transport) (ok bool) {

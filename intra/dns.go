@@ -50,28 +50,19 @@ func SetSystemDNS(t Tunnel, ipcsv string) int {
 	r, rerr := t.internalResolver()
 	p, perr := t.internalProxies()
 	g := t.getBridge()
-	if r == nil || p == nil {
-		log.W("dns: cannot set system dns: %v %v", rerr, perr)
+	n := len(ipcsv)
+	if r == nil || p == nil || n <= 0 {
+		log.W("dns: cannot set system dns; n: %d, errs: %v %v", n, rerr, perr)
 		return 0
 	}
 
-	// remove all system dns transports
-	c := r.RemoveSystemDNS()
-
-	if len(ipcsv) <= 0 {
-		log.I("dns: removed %d system dns(es)", c)
-		return 0
-	}
-
-	n := 0
-
+	var ok bool
 	if sdns, err := newSystemDNSProxy(g, p, ipcsv); err == nil {
-		r.AddSystemDNS(sdns)
-		n++
+		ok = r.Add(sdns)
 	}
 
-	log.I("dns: new %d system dns(es) from %s", n, ipcsv)
-	return n
+	log.I("dns: new system dns from %s; ok? %t", ipcsv, ok)
+	return 1
 }
 
 func newGoosTransport(g Bridge, p ipn.Proxies) (d dnsx.Transport) {
