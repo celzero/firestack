@@ -533,14 +533,14 @@ func (tun *wgtun) WriteNotify() {
 }
 
 func (tun *wgtun) Close() error {
+	// wgproxy inherits h.status: go.dev/play/p/HeU5EvzAjnv
+	if tun.status == END {
+		log.W("proxy: wg: tun: already closed?")
+		return errProxyStopped
+	}
 	var err error
 	tun.once.Do(func() {
 		// TODO: move this to wgproxy.Close()?
-		// should work: go.dev/play/p/HeU5EvzAjnv
-		if tun.status == END {
-			log.W("proxy: wg: tun: already closed?")
-			err = errProxyStopped
-		}
 
 		log.D("proxy: wg: tun: closing...")
 		tun.status = END
