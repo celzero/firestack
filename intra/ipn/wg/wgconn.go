@@ -42,8 +42,11 @@ var (
 	errNoListen        = errors.New("wg: bind: listen failed")
 )
 
+type rwlistener func(who string, err error)
+
 type StdNetBind struct {
 	d          *net.ListenConfig
+	listener   rwlistener
 	mu         sync.Mutex // protects following fields
 	ipv4       *net.UDPConn
 	ipv6       *net.UDPConn
@@ -53,9 +56,9 @@ type StdNetBind struct {
 	lastSendAddr netip.AddrPort // may be invalid
 }
 
-func NewEndpoint(id string, ctl protect.Controller) *StdNetBind {
+func NewEndpoint(id string, ctl protect.Controller, f rwlistener) *StdNetBind {
 	dialer := protect.MakeNsListenConfig(id, ctl)
-	return &StdNetBind{d: dialer}
+	return &StdNetBind{d: dialer, listener: f}
 }
 
 type StdNetEndpoint netip.AddrPort
@@ -84,6 +87,7 @@ func (*StdNetBind) ParseEndpoint(s string) (conn.Endpoint, error) {
 		return nil, err
 	}
 	ipport := netip.AddrPortFrom(ips[0], uint16(port))
+	log.I("wg: bind: new endpoint %v", ipport)
 	return asEndpoint(ipport), nil
 }
 
@@ -129,6 +133,7 @@ func (s *StdNetBind) listenNet(network string, port int) (*net.UDPConn, int, err
 
 	laddr := conn.LocalAddr()
 	if laddr == nil {
+		log.E("wg: bind: %s: listen(%v); local-addr nil", network, saddr)
 		return nil, 0, errNoLocalAddr
 	}
 	uaddr, err := net.ResolveUDPAddr(
@@ -141,6 +146,7 @@ func (s *StdNetBind) listenNet(network string, port int) (*net.UDPConn, int, err
 	if uaddr == nil {
 		return nil, 0, errNoLocalAddr
 	}
+	log.V("wg: bind: %s: listen(%v); addr(%v)", network, laddr)
 	// typecast is safe, because "network" is always udp[4|6]; see: Open
 	if udpconn, ok := conn.(*net.UDPConn); ok {
 		return udpconn, uaddr.Port, nil
@@ -224,15 +230,16 @@ func (bind *StdNetBind) Close() error {
 	bind.blackhole6 = false
 
 	log.I("wg: bind: close; err4? %v err6? %v", err1, err2)
-	if err1 != nil {
-		return err1
-	}
-	return err2
+	return errors.Join(err1, err2)
 }
 
 func (s *StdNetBind) makeReceiveFn(uc *net.UDPConn) conn.ReceiveFunc {
 	// github.com/WireGuard/wireguard-go/blob/469159ecf/device/device.go#L531
 	return func(bufs [][]byte, sizes []int, eps []conn.Endpoint) (n int, err error) {
+		defer func() {
+			s.listener("r", err)
+		}()
+
 		numMsgs := 0
 		b := bufs[0]
 
@@ -247,12 +254,16 @@ func (s *StdNetBind) makeReceiveFn(uc *net.UDPConn) conn.ReceiveFunc {
 			eps[i] = asEndpoint(addr)
 		}
 
-		log.V("wg: bind: recvFrom(%v): %d / err? %v", addr, n, err)
+		loge(err, "wg: bind: recvFrom(%v): %d / err? %v", addr, n, err)
 		return numMsgs, err
 	}
 }
 
-func (bind *StdNetBind) Send(buf [][]byte, endpoint conn.Endpoint) error {
+func (s *StdNetBind) Send(buf [][]byte, endpoint conn.Endpoint) (err error) {
+	defer func() {
+		s.listener("w", err)
+	}()
+
 	nend, ok := endpoint.(StdNetEndpoint)
 	if !ok {
 		log.E("wg: bind: send: wrong endpoint type: %T", endpoint)
@@ -261,16 +272,16 @@ func (bind *StdNetBind) Send(buf [][]byte, endpoint conn.Endpoint) error {
 	// the peer endpoint
 	addrPort := netip.AddrPort(nend)
 
-	bind.mu.Lock()
-	blackhole := bind.blackhole4
-	uc := bind.ipv4
+	s.mu.Lock()
+	blackhole := s.blackhole4
+	uc := s.ipv4
 	noconn := uc == nil
 	if addrPort.Addr().Is6() {
-		blackhole = bind.blackhole6
-		uc = bind.ipv6
+		blackhole = s.blackhole6
+		uc = s.ipv6
 		noconn = uc == nil
 	}
-	bind.mu.Unlock()
+	s.mu.Unlock()
 
 	var data []byte
 	if len(buf) > 0 && len(buf[0]) > 0 {
@@ -287,12 +298,12 @@ func (bind *StdNetBind) Send(buf [][]byte, endpoint conn.Endpoint) error {
 		return syscall.EAFNOSUPPORT
 	}
 
-	bind.lastSendAddr = addrPort
+	s.lastSendAddr = addrPort
 
 	uc.SetDeadline(time.Now().Add(wgtimeout))
 	n, err := uc.WriteToUDPAddrPort(data, addrPort)
 
-	log.V("wg: bind: send: addr(%v) n(%d); err? %v", addrPort, n, err)
+	loge(err, "wg: bind: send: addr(%v) n(%d); err? %v", addrPort, n, err)
 	return err
 }
 
@@ -400,4 +411,12 @@ func asEndpoint(ap netip.AddrPort) conn.Endpoint {
 		}
 		return e
 	}
+}
+
+func loge(err error, msg string, rest ...any) {
+	l := log.V
+	if err != nil {
+		l = log.W
+	}
+	l(msg, rest...)
 }

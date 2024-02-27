@@ -331,7 +331,7 @@ func NewWgProxy(id string, ctl protect.Controller, cfg string) (WgProxy, error) 
 		return nil, err
 	}
 
-	wgep := wg.NewEndpoint(id, ctl)
+	wgep := wg.NewEndpoint(id, ctl, wgtun.listener)
 
 	wgdev := device.NewDevice(wgtun, wgep, wglogger(id))
 
@@ -585,9 +585,7 @@ func (h *wgtun) Dial(network, address string) (c net.Conn, err error) {
 	// DialContext resolves addr if needed; then dialing into all resolved ips.
 	if c, err = h.DialContext(context.TODO(), network, address); err != nil {
 		h.status = TKO
-	} else {
-		h.status = TOK
-	}
+	} // else: status updated by h.listener
 
 	log.I("wg: dial: end %s %s; err %v", network, address, err)
 
@@ -632,6 +630,17 @@ func (h *wgtun) DNS() string {
 		return strings.TrimRight(s, ",")
 	}
 	return nodns
+}
+
+func (h *wgtun) listener(who string, err error) {
+	if h.status == END {
+		return
+	}
+	if err == nil {
+		h.status = TOK
+	} else {
+		h.status = TKO
+	}
 }
 
 // func Stop(), Fetch(), getDialer() is impl by wgproxy
