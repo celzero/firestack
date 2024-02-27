@@ -119,7 +119,6 @@ type resolver struct {
 	NatPt
 	tunmode      *settings.TunMode
 	dnsaddrs     []netip.AddrPort
-	systemdns    []Transport
 	transports   map[string]Transport
 	gateway      Gateway
 	localdomains x.RadixTree
@@ -138,7 +137,6 @@ func NewResolver(fakeaddrs string, tunmode *settings.TunMode, dtr x.DNSTransport
 		transports:   make(map[string]Transport),
 		tunmode:      tunmode,
 		localdomains: newUndelegatedDomainsTrie(),
-		systemdns:    make([]Transport, 0),
 	}
 	r.gateway = NewDNSGateway(r, pt)
 	r.loadaddrs(fakeaddrs)
@@ -171,21 +169,14 @@ func (r *resolver) Translate(b bool) {
 }
 
 func (r *resolver) AddSystemDNS(t Transport) bool {
-	defer r.addSystemDnsIfAbsent(t)
-	r.Lock()
-	r.systemdns = append(r.systemdns, t)
-	r.Unlock()
-	return true
+	return r.addSystemDnsIfAbsent(t)
 }
 
 func (r *resolver) RemoveSystemDNS() int {
-	defer r.Remove(System)
-	r.Lock()
-	d := len(r.systemdns)
-	r.systemdns = make([]Transport, 0)
-	r.Unlock()
-
-	return d
+	if r.Remove(System) {
+		return 1 // removed one
+	}
+	return 0 // none
 }
 
 // Implements Resolver
