@@ -60,7 +60,7 @@ func fetchCurrentDNSCryptCert(proxy *DcMulti, serverName *string, pk ed25519.Pub
 	if !strings.HasPrefix(providerName, "2.dnscrypt-cert.") {
 		log.W("dnscrypt: [%v] is not v2, ('%v' doesn't start with '2.dnscrypt-cert.')", *serverName, providerName)
 	}
-	log.I("dnscrypt: [%v] Fetching DNSCrypt certificate for [%s] over [%v] at [%v]", *serverName, providerName, "udp", serverAddress)
+	log.I("dnscrypt: [%v] Fetching DNSCrypt certificate for [%s] at [%v]", *serverName, providerName, serverAddress)
 	in, rtt, err := dnsExchange(proxy, &query, serverAddress, serverName)
 	if err != nil {
 		log.W("dnscrypt: [%s] TIMEOUT %v", *serverName, err)
@@ -212,12 +212,14 @@ func dnsExchange(proxy *DcMulti, query *dns.Msg, serverAddress string, serverNam
 	var err error
 	options := 0
 
-	for tries := 0; tries < 6; tries++ {
+	for tries := 0; tries < 4; tries++ {
 		queryCopy := query.Copy()
 		queryCopy.Id += uint16(options)
-		go func(query *dns.Msg, delay time.Duration, i int) {
-			if i >= 3 { // from fourth try, use tcp
+		go func(query *dns.Msg, delay time.Duration) {
+			if proto == "udp" {
 				proto = "tcp"
+			} else {
+				proto = "udp"
 			}
 			option := _dnsExchange(proxy, proto, query, serverAddress, minsz)
 			option.priority = 0
@@ -228,21 +230,27 @@ func dnsExchange(proxy *DcMulti, query *dns.Msg, serverAddress string, serverNam
 				return
 			default:
 			}
-		}(queryCopy, time.Duration(200*tries)*time.Millisecond, tries)
+		}(queryCopy, time.Duration(200*tries)*time.Millisecond)
 		options++
 	}
+	deadline := time.NewTimer(30 * time.Second)
 	var bestOption *dnsExchangeResponse
 	for i := 0; i < options; i++ {
-		if res := <-channel; res.err == nil {
-			if bestOption == nil {
-				bestOption = &res
-			} else if res.rtt < bestOption.rtt {
-				bestOption = &res
-				close(cancelChannel)
-				break
+		select {
+		case res := <-channel:
+			if res.err == nil {
+				if bestOption == nil {
+					bestOption = &res
+				} else if res.rtt < bestOption.rtt {
+					bestOption = &res
+					close(cancelChannel)
+					i = options // break
+				}
+			} else {
+				err = res.err
 			}
-		} else {
-			err = res.err
+		case <-deadline.C:
+			i = options // break
 		}
 	}
 	if bestOption != nil {
@@ -263,10 +271,10 @@ func _dnsExchange(proxy *DcMulti, proto string, query *dns.Msg, serverAddress st
 	var packet []byte
 	var rtt time.Duration
 
+	// FIXME: udp relays do not support fetching certs over relays, and
+	// doing so leaks client's identity to the actual dns-crypt server!
+	log.V("dnscrypt: [%s] relay is not used when fetching certs", proto)
 	if proto == "udp" {
-		// FIXME: udp relays do not support fetching certs over relays, and
-		// doing so leaks client's identity to the actual dns-crypt server!
-		log.V("dnscrypt: relay will not be used when fetching certs over udp")
 		qNameLen, padding := len(query.Question[0].Name), 0
 		if qNameLen < paddedLen {
 			padding = paddedLen - qNameLen
