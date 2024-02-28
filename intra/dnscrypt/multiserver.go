@@ -604,6 +604,7 @@ func NewTransport(p *DcMulti, id, serverstamp string) (dnsx.Transport, error) {
 		if ok := p.refreshOne(id); ok {
 			return p.serversInfo.get(id), nil
 		} else {
+			p.removeOne(id)
 			return nil, errNoCert
 		}
 	} else {
