@@ -241,7 +241,7 @@ func query(pid string, packet []byte, serverInfo *serverinfo, useudp bool) (resp
 		}
 
 		if err != nil {
-			log.W("dnscrypt: querying [udp? %t] failed: %v", serverInfo, useudp, err)
+			log.W("dnscrypt: querying [udp? %t; tcpfallback?: %t] failed: %v", useudp, tcpfallback, err)
 			qerr = dnsx.NewSendFailedQueryError(err)
 			return
 		}
@@ -350,9 +350,10 @@ func (proxy *DcMulti) refreshOne(uid string) bool {
 		return false
 	}
 	if err := proxy.serversInfo.refreshServer(proxy, r.name, r.stamp); err != nil {
-		log.E("dnscrypt: refresh failed %s: %v", r.name, err)
+		log.E("dnscrypt: refresh failed %s: %s; err: %v", r.name, stamp2str(&r.stamp), err)
 		return false
 	}
+	log.D("dnscrypt: refresh success %s: %s", r.name, stamp2str(&r.stamp))
 	return true
 }
 
@@ -567,6 +568,10 @@ func (p *DcMulti) GetAddr() string {
 // Status implements dnsx.TransportMult
 func (p *DcMulti) Status() int {
 	return p.lastStatus
+}
+
+func stamp2str(s *stamps.ServerStamp) string {
+	return fmt.Sprintf("name:%s, addr:%s, path:%s", s.ProviderName, s.ServerAddrStr, s.Path)
 }
 
 // NewDcMult creates a dnscrypt proxy
