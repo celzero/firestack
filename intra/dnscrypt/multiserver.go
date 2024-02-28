@@ -61,7 +61,7 @@ type DcMulti struct {
 }
 
 var _ dnsx.TransportMult = (*DcMulti)(nil)
-var timeout20s = 20000 * time.Millisecond
+var timeout8s = 8000 * time.Millisecond
 
 var (
 	errNoCert          = errors.New("dnscrypt: error refreshing cert")
@@ -93,7 +93,7 @@ func udpExchange(pid string, serverInfo *serverinfo, sharedKey *[32]byte, encryp
 	}
 
 	defer pc.Close()
-	if err = pc.SetDeadline(time.Now().Add(timeout20s)); err != nil {
+	if err = pc.SetDeadline(time.Now().Add(timeout8s)); err != nil {
 		return nil, err
 	}
 	if serverInfo.RelayUDPAddr != nil {
@@ -136,7 +136,7 @@ func tcpExchange(pid string, serverInfo *serverinfo, sharedKey *[32]byte, encryp
 		return nil, err
 	}
 	defer pc.Close()
-	if derr := pc.SetDeadline(time.Now().Add(timeout20s)); derr != nil {
+	if derr := pc.SetDeadline(time.Now().Add(timeout8s)); derr != nil {
 		log.E("dnscrypt: tcp: err deadline: %v", derr)
 		return nil, derr
 	}

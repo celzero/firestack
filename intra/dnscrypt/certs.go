@@ -290,7 +290,7 @@ func _dnsExchange(proxy *DcMulti, proto string, query *dns.Msg, serverAddress st
 		}
 
 		defer pc.Close()
-		if derr := pc.SetDeadline(time.Now().Add(timeout20s)); derr != nil {
+		if derr := pc.SetDeadline(time.Now().Add(timeout8s)); derr != nil {
 			return dnsExchangeResponse{err: derr}
 		}
 		if _, werr := pc.Write(binQuery); werr != nil {
@@ -327,7 +327,7 @@ func _dnsExchange(proxy *DcMulti, proto string, query *dns.Msg, serverAddress st
 		}
 
 		defer pc.Close()
-		if derr := pc.SetDeadline(time.Now().Add(timeout20s)); derr != nil {
+		if derr := pc.SetDeadline(time.Now().Add(timeout8s)); derr != nil {
 			return dnsExchangeResponse{err: derr}
 		}
 		binQuery, err = xdns.PrefixWithSize(binQuery)
