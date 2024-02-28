@@ -142,11 +142,12 @@ func (d *dns64) AddResolver(id string, r dnsx.Transport) bool {
 	return true
 }
 
-func (d *dns64) RemoveResolver(id string) {
+func (d *dns64) RemoveResolver(id string) bool {
 	d.Lock()
 	defer d.Unlock()
 	delete(d.ip64, id)
 	delete(d.uniqIP64, id)
+	return true
 }
 
 // TODO: handle svcb/https ipv4hint/ipv6hint

@@ -94,6 +94,10 @@ func (h *natPt) Add64(id string, f dnsx.Transport) bool {
 	return h.dns64.AddResolver(id, f)
 }
 
+func (h *natPt) Remove64(id string) bool {
+	return h.dns64.RemoveResolver(id)
+}
+
 func (n *natPt) ResetNat64Prefix(ip6prefix string) bool {
 	var err error
 	var ipnet *net.IPNet

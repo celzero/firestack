@@ -186,10 +186,8 @@ func (r *resolver) Add(dt x.DNSTransport) (ok bool) {
 		// Remove cleans those up
 		r.Remove(t.ID())
 		r.Remove(CT + t.ID())
-
-		// these IDs are reserved for internal use
-		if isReserved(t.ID()) {
-			log.I("dns: updating reserved transport %s@%s", t.ID(), t.GetAddr())
+		if t.ID() == System {
+			go r.Remove64(UnderlayResolver)
 		}
 
 		ct := NewCachingTransport(t, ttl10m)
@@ -200,7 +198,7 @@ func (r *resolver) Add(dt x.DNSTransport) (ok bool) {
 			r.transports[ct.ID()] = ct // cached
 		}
 		if t.ID() == System {
-			go r.registerSystemDns64(t)
+			go r.Add64(UnderlayResolver, t)
 		}
 		r.Unlock()
 
@@ -229,10 +227,6 @@ func (r *resolver) GetMult(id string) (TransportMult, error) {
 
 func (r *resolver) dcProxy() (TransportMult, error) {
 	return r.GetMult(DcProxy)
-}
-
-func (r *resolver) registerSystemDns64(ur Transport) (ok bool) {
-	return r.Add64(UnderlayResolver, ur)
 }
 
 func (r *resolver) Get(id string) (x.DNSTransport, error) {
