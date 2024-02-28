@@ -67,7 +67,7 @@ var (
 	errNoCert          = errors.New("dnscrypt: error refreshing cert")
 	errQueryTooShort   = errors.New("dnscrypt: query size too short")
 	errQueryTooLarge   = errors.New("dnscrypt: query size too large")
-	errNoServers       = errors.New("dnscrypt: server info nil, drop query")
+	errNoServers       = errors.New("dnscrypt: server not found")
 	errNothing         = errors.New("dnscrypt: specify at least one resolver endpoint")
 	errNoDoh           = errors.New("dnscrypt: dns-over-https not supported")
 	errNoRoute         = errors.New("dnscrypt: specify atleast one route")
@@ -509,7 +509,9 @@ func (proxy *DcMulti) Add(t x.DNSTransport) bool {
 
 // Get implements dnsx.TransportMult
 func (proxy *DcMulti) Get(id string) (x.DNSTransport, error) {
-	// no-op
+	if t := proxy.serversInfo.get(id); t != nil {
+		return t, nil
+	}
 	return nil, errNoServers
 }
 
