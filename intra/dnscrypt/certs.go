@@ -212,10 +212,13 @@ func dnsExchange(proxy *DcMulti, query *dns.Msg, serverAddress string, serverNam
 	var err error
 	options := 0
 
-	for tries := 0; tries < 3; tries++ {
+	for tries := 0; tries < 6; tries++ {
 		queryCopy := query.Copy()
 		queryCopy.Id += uint16(options)
-		go func(query *dns.Msg, delay time.Duration) {
+		go func(query *dns.Msg, delay time.Duration, i int) {
+			if i >= 3 { // from fourth try, use tcp
+				proto = "tcp"
+			}
 			option := _dnsExchange(proxy, proto, query, serverAddress, minsz)
 			option.priority = 0
 			channel <- option
@@ -225,7 +228,7 @@ func dnsExchange(proxy *DcMulti, query *dns.Msg, serverAddress string, serverNam
 				return
 			default:
 			}
-		}(queryCopy, time.Duration(200*tries)*time.Millisecond)
+		}(queryCopy, time.Duration(200*tries)*time.Millisecond, tries)
 		options++
 	}
 	var bestOption *dnsExchangeResponse
