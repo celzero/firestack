@@ -11,7 +11,6 @@ import (
 
 	"github.com/celzero/firestack/intra/dnsx"
 	"github.com/celzero/firestack/intra/log"
-	"github.com/celzero/firestack/intra/protect"
 	"github.com/celzero/firestack/intra/settings"
 )
 
@@ -31,13 +30,14 @@ import (
 
 // datatracker.ietf.org/doc/html/rfc8305#section-7
 type natPt struct {
-	protect.Protector
 	*nat64
 	*dns64
 	tunmode *settings.TunMode
 	ip4s    []net.IP
 	ip6s    []net.IP
 }
+
+var _ dnsx.NatPt = (*natPt)(nil)
 
 func NewNatPt(tunmode *settings.TunMode) dnsx.NatPt {
 	log.I("natpt: new; mode(%v)", tunmode)
