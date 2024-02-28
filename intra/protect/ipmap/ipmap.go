@@ -178,7 +178,7 @@ func (s *IPSet) hasLocked(ip netip.Addr) bool {
 func (s *IPSet) addLocked(ip netip.Addr) {
 	uns := !ip.IsUnspecified()
 	valip := ip.IsValid()
-	newip := !s.hasLocked(ip)
+	newip := !s.hasLocked(ip.Unmap())
 	if uns && valip && newip {
 		// always unmapped; github.com/golang/go/issues/53607
 		s.ips = append(s.ips, ip.Unmap())
