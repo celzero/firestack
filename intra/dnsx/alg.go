@@ -442,7 +442,7 @@ func withDNS64Summary(ans64 *dns.Msg, s *x.DNSSummary) {
 	s.RData = xdns.GetInterestingRData(ans64)
 	s.RTtl = xdns.RTtl(ans64)
 	if settings.Debug {
-		prefix := IDPrefixFor(AlgDNS64)
+		prefix := PrefixFor(AlgDNS64)
 		s.Server = prefix + s.Server
 	}
 }
@@ -457,7 +457,7 @@ func withAlgSummaryIfNeeded(algips []*netip.Addr, s *x.DNSSummary) {
 		} else {
 			s.RData = ipcsv
 		}
-		prefix := IDPrefixFor(Alg)
+		prefix := PrefixFor(Alg)
 		if len(s.Server) > 0 {
 			s.Server = prefix + s.Server
 		} else {

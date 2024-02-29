@@ -67,6 +67,7 @@ var (
 	selfprefix    = protect.UidSelf + "."
 	systemprefix  = protect.UidSystem + "."
 	algprefix     = "alg."
+	cacheprefix   = "cached."
 	d64prefix     = "64."
 	defaultprefix = "d."
 )
@@ -835,8 +836,10 @@ func trimcsv(s string) string {
 	return strings.Trim(s, ",")
 }
 
-func IDPrefixFor(id string) string {
+func PrefixFor(id string) string {
 	switch id {
+	case CT:
+		return cacheprefix
 	case System, CT + System:
 		return systemprefix
 	case Bootstrap, CT + Bootstrap:
@@ -849,4 +852,8 @@ func IDPrefixFor(id string) string {
 		return defaultprefix
 	}
 	return ""
+}
+
+func cachedTransport(t Transport) bool {
+	return strings.HasSuffix(t.ID(), CT) || strings.HasPrefix(t.GetAddr(), cacheprefix)
 }

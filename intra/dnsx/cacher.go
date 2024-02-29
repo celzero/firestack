@@ -40,8 +40,6 @@ const (
 	ttl10s = 10 * time.Second
 	// how many entries to scrub at a time per cache bucket
 	maxscrubs = defsize / 4 // 25% of the cache
-	// prefix for cached transport addresses
-	cacheAddrPrefix = "cached."
 	// separator qname, qtype cache-key
 	cacheKeySep = ":"
 )
@@ -82,10 +80,6 @@ type ctransport struct {
 	size         int           // max size of a cache bucket
 	reqbarrier   *core.Barrier // coalesce requests for the same query
 	est          core.P2QuantileEstimator
-}
-
-func cachedTransport(t Transport) bool {
-	return strings.HasPrefix(t.GetAddr(), cacheAddrPrefix)
 }
 
 func NewDefaultCachingTransport(t Transport) (ct Transport) {
@@ -416,7 +410,8 @@ func (t *ctransport) P50() int64 {
 }
 
 func (t *ctransport) GetAddr() string {
-	return cacheAddrPrefix + t.Transport.GetAddr()
+	prefix := PrefixFor(CT)
+	return prefix + t.Transport.GetAddr()
 }
 
 func (t *ctransport) Status() int {
