@@ -20,6 +20,8 @@ import (
 
 type connectFunc func(*protect.RDial, string, netip.Addr, int) (net.Conn, error)
 
+const dialRetryTimeout = 1 * time.Minute
+
 func filter(ips []netip.Addr, exclude netip.Addr) []netip.Addr {
 	filtered := make([]netip.Addr, 0, len(ips))
 	for _, ip := range ips {
@@ -143,6 +145,11 @@ func commondial(d *protect.RDial, network, addr string, connect connectFunc) (ne
 	}
 	log.D("rdial: commondial: trying all ips %d for %s", len(allips), addr)
 	for _, ip := range allips {
+		end := time.Since(start)
+		if end > dialRetryTimeout {
+			log.D("rdial: commondial: timeout %s for %s", end, addr)
+			break
+		}
 		if conn, err = connect(d, network, ip, port); err == nil {
 			ips.Confirm(ip)
 			log.I("rdial: commondial: found working ip %s for %s", ip, addr)

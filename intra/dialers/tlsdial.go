@@ -84,6 +84,11 @@ func tlsdial(d *tls.Dialer, network, addr string, connect tlsConnectFunc) (net.C
 	}
 	log.D("tlsdial: trying all ips %d for %s", len(allips), addr)
 	for _, ip := range allips {
+		end := time.Since(start)
+		if end > dialRetryTimeout {
+			log.D("pdial: timeout %s for %s", end, addr)
+			break
+		}
 		if conn, err := connect(d, network, domain, ip, port); err == nil {
 			ips.Confirm(ip)
 			log.I("tlsdial: found working ip %s for %s", ip, addr)

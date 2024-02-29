@@ -81,6 +81,11 @@ func netdial(d *net.Dialer, network, addr string, connect netConnectFunc) (net.C
 	}
 	log.D("ndial: trying all ips %d for %s", len(allips), addr)
 	for _, ip := range allips {
+		end := time.Since(start)
+		if end > dialRetryTimeout {
+			log.D("ndial: timeout %s for %s", end, addr)
+			break
+		}
 		if conn, err := connect(d, network, ip, port); err == nil {
 			ips.Confirm(ip)
 			log.I("ndial: found working ip %s for %s", ip, addr)

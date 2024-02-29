@@ -85,6 +85,11 @@ func proxydial(d proxy.Dialer, network, addr string, connect proxyConnectFunc) (
 
 	s3 := time.Now()
 	for i, ip := range allips {
+		end := time.Since(start)
+		if end > dialRetryTimeout {
+			log.D("pdial: timeout %s for %s", end, addr)
+			break
+		}
 		if conn, err = connect(d, network, ip, port); err == nil {
 			ips.Confirm(ip)
 			log.I("pdial: found working ip%d %s for %s; duration: %s", i, ip, addr, time.Since(s3))
