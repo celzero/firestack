@@ -64,6 +64,8 @@ const (
 	TCPEND
 )
 
+const retrytimeout = 1 * time.Minute
+
 var (
 	errTcpFirewalled = errors.New("tcp: firewalled")
 	errTcpSetupConn  = errors.New("tcp: could not create conn")
@@ -217,7 +219,12 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target netip.AddrPort)
 		if err = h.handle(px, gconn, dstipp, s); err == nil {
 			return allow
 		} // else try the next realip
-		log.W("tcp: dial: #%d: %s failed; addr(%s); for uid %s w err(%v)", i, cid, dstipp, uid, err)
+		end := time.Since(s.start)
+		elapsed := int32(end.Seconds() * 1000)
+		log.W("tcp: dial: #%d: %s failed; addr(%s); for uid %s (%d); w err(%v)", i, cid, dstipp, uid, elapsed, err)
+		if end > retrytimeout {
+			break
+		}
 	}
 	return deny
 }
@@ -231,7 +238,7 @@ func (h *tcpHandler) handle(px ipn.Proxy, src net.Conn, target netip.AddrPort, s
 	// ref: stackoverflow.com/questions/63656117
 	// ref: stackoverflow.com/questions/40328025
 	if pc, err = px.Dial("tcp", target.String()); err == nil {
-		smm.Rtt = int32(time.Now().Sub(start).Seconds() * 1000)
+		smm.Rtt = int32(time.Since(start).Seconds() * 1000)
 
 		switch uc := pc.(type) {
 		case *net.TCPConn: // usual

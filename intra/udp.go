@@ -324,8 +324,13 @@ func (h *udpHandler) Connect(gconn net.Conn, src, target netip.AddrPort) (dst co
 				errs = nil // reset errs
 				break
 			} // else try the next realip
-			log.W("udp: connect: #%d: %s failed; addr(%s); for uid %s w err(%v)", i, res.CID, dstipp, res.UID, err)
 			errs = err // store just the last err; complicates logging
+			end := time.Since(smm.start)
+			elapsed := int32(end.Seconds() * 1000)
+			log.W("udp: connect: #%d: %s failed; addr(%s); for uid %s (%ds) w err(%v)", i, res.CID, dstipp, res.UID, elapsed, err)
+			if end > retrytimeout {
+				break
+			}
 		}
 	}
 
