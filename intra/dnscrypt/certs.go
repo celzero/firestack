@@ -45,6 +45,8 @@ type dnsExchangeResponse struct {
 	err      error
 }
 
+var errCancelled = errors.New("cancelled")
+
 func fetchCurrentDNSCryptCert(proxy *DcMulti, serverName *string, pk ed25519.PublicKey, serverAddress string, providerName string) (certinfo, error) {
 	if len(pk) != ed25519.PublicKeySize {
 		return certinfo{}, errors.New("invalid public key length")
@@ -221,15 +223,16 @@ func dnsExchange(proxy *DcMulti, query *dns.Msg, serverAddress string, serverNam
 			} else {
 				proto = "udp"
 			}
-			option := _dnsExchange(proxy, proto, query, serverAddress, minsz)
-			option.priority = 0
-			channel <- option
+			option := dnsExchangeResponse{err: errCancelled}
 			time.Sleep(delay)
 			select {
 			case <-cancelChannel:
 				return
 			default:
+				option = _dnsExchange(proxy, proto, query, serverAddress, minsz)
 			}
+			option.priority = 0
+			channel <- option
 		}(queryCopy, time.Duration(200*tries)*time.Millisecond)
 		options++
 	}
