@@ -514,10 +514,17 @@ func (t *transport) P50() int64 {
 }
 
 func (t *transport) GetAddr() string {
-	if t.typ == dnsx.DOH {
-		return t.hostname
+	addr := t.hostname
+	if t.typ == dnsx.ODOH {
+		addr = t.odohtargetname
 	}
-	return t.odohtargetname
+
+	// doh transports could be "dnsx.Bootstrap"
+	prefix := dnsx.IDPrefixFor(t.id)
+	if len(prefix) > 0 {
+		addr = prefix + addr
+	}
+	return addr
 }
 
 func (t *transport) Status() int {

@@ -24,6 +24,7 @@ const ( // see dnsx/transport.go
 	Preferred = "Preferred" // user preferred dns, primary for alg
 	BlockFree = "BlockFree" // no local blocks; if not set, default is used
 	BlockAll  = "BlockAll"  // all blocks; never cached!
+	Bootstrap = "Bootstrap" // bootstrap dns; always encapsulted by Default
 	Alg       = "Alg"       // dns application-level gateway
 	DcProxy   = "DcProxy"   // dnscrypt.Proxy as a transport
 	IpMapper  = "IpMapper"  // dns resolver for dns resolvers

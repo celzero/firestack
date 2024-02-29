@@ -39,7 +39,8 @@ var errQueryParse = errors.New("dns53: err parse query")
 // TODO: Keep a context here so that queries can be canceled.
 type transport struct {
 	id       string
-	addrport string
+	addrport string // hostname, ip:port, protect.UidSelf, protect.System
+	lastaddr string // last resolved addr
 	status   int
 	client   *dns.Client
 	dialer   *protect.RDial
@@ -208,6 +209,7 @@ func (t *transport) send(network, pid string, q []byte) (response []byte, elapse
 	log.V("dns53: send: (%s / %s) to %s using udp? %t / px? %t / relay? %t; err? %v", network, t.id, t.addrport, useudp, useproxy, userelay, err)
 
 	if err == nil { // send query
+		t.lastaddr = conn.RemoteAddr().String()
 		ans, elapsed, err = t.client.ExchangeWithConn(msg, conn)
 		clos(conn) // TODO: conn pooling w/ ExchangeWithConn
 		if err != nil {
@@ -271,8 +273,18 @@ func (t *transport) P50() int64 {
 }
 
 func (t *transport) GetAddr() string {
-	// may be protect.UidSelf (for bootstrap/default) or protect.System
-	return t.addrport
+	addr := t.lastaddr
+	if len(addr) == 0 {
+		// may be protect.UidSelf (for bootstrap/default) or protect.System
+		addr = t.addrport
+	}
+
+	prefix := dnsx.IDPrefixFor(t.id)
+	if len(prefix) > 0 {
+		addr = prefix + addr
+	}
+
+	return addr
 }
 
 func (t *transport) Status() int {

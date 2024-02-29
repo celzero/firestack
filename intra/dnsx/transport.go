@@ -41,6 +41,7 @@ const (
 	Default   = x.Default
 	Preferred = x.Preferred
 	BlockFree = x.BlockFree
+	Bootstrap = x.Bootstrap
 	BlockAll  = x.BlockAll
 	Alg       = x.Alg
 	DcProxy   = x.DcProxy
@@ -59,7 +60,15 @@ const (
 	ttl10m = 10 * time.Minute
 
 	// pseudo transport ID to tag dns64 responses
-	d64prefix = "d64."
+	AlgDNS64 = "dns64"
+)
+
+var (
+	selfprefix    = protect.UidSelf + "."
+	systemprefix  = protect.UidSystem + "."
+	algprefix     = "alg."
+	d64prefix     = "64."
+	defaultprefix = "d."
 )
 
 var (
@@ -731,9 +740,9 @@ func IsLocalProxy(pid string) bool {
 
 func isReserved(id string) bool {
 	switch id {
-	case Default, Goos, System, Local, Alg, DcProxy, BlockAll, Preferred, BlockFree:
+	case Default, Goos, System, Local, Alg, DcProxy, BlockAll, Preferred, Bootstrap, BlockFree:
 		return true
-	case CT + Default, CT + Goos, CT + System, CT + Local, CT + Alg, CT + DcProxy, CT + BlockAll, CT + Preferred, CT + BlockFree:
+	case CT + Default, CT + Goos, CT + System, CT + Local, CT + Alg, CT + DcProxy, CT + BlockAll, CT + Bootstrap, CT + Preferred, CT + BlockFree:
 		return true
 	}
 	return false
@@ -789,9 +798,9 @@ func skipBlock(tr ...Transport) bool {
 			continue
 		}
 		switch t.ID() {
-		case Default, BlockFree, Alg:
+		case Default, BlockFree, Alg, Bootstrap:
 			return true
-		case CT + Default, CT + BlockFree, CT + Alg:
+		case CT + Default, CT + BlockFree, CT + Alg, CT + Bootstrap:
 			return true
 		}
 	}
@@ -824,4 +833,20 @@ func map2csv(ts map[string]Transport) string {
 
 func trimcsv(s string) string {
 	return strings.Trim(s, ",")
+}
+
+func IDPrefixFor(id string) string {
+	switch id {
+	case System, CT + System:
+		return systemprefix
+	case Bootstrap, CT + Bootstrap:
+		return selfprefix
+	case Alg, CT + Alg:
+		return algprefix
+	case AlgDNS64, CT + AlgDNS64:
+		return d64prefix
+	case Default, CT + Default:
+		return defaultprefix
+	}
+	return ""
 }

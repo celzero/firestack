@@ -22,9 +22,8 @@ import (
 )
 
 const (
-	defaultAddrPrefix = "d."
-	bootid            = dnsx.BlockFree
-	specialHostname   = protect.UidSelf
+	bootid          = dnsx.Bootstrap
+	specialHostname = protect.UidSelf
 )
 
 var (
@@ -194,7 +193,8 @@ func (b *bootstrap) P50() int64 {
 func (b *bootstrap) GetAddr() string {
 	tr := b.Transport
 	if tr != nil {
-		return defaultAddrPrefix + tr.GetAddr()
+		prefix := dnsx.IDPrefixFor(b.ID())
+		return prefix + tr.GetAddr()
 	}
 	return ""
 }

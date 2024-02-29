@@ -25,7 +25,6 @@ import (
 )
 
 const (
-	algprefix   = "alg."
 	timeout     = 15 * time.Second
 	ttl2m       = 2 * time.Minute // 2m ttl for alg/nat ip
 	algttl      = 15              // 15s ttl for alg dns
@@ -443,7 +442,8 @@ func withDNS64Summary(ans64 *dns.Msg, s *x.DNSSummary) {
 	s.RData = xdns.GetInterestingRData(ans64)
 	s.RTtl = xdns.RTtl(ans64)
 	if settings.Debug {
-		s.Server = d64prefix + s.Server
+		prefix := IDPrefixFor(AlgDNS64)
+		s.Server = prefix + s.Server
 	}
 }
 
@@ -457,10 +457,11 @@ func withAlgSummaryIfNeeded(algips []*netip.Addr, s *x.DNSSummary) {
 		} else {
 			s.RData = ipcsv
 		}
+		prefix := IDPrefixFor(Alg)
 		if len(s.Server) > 0 {
-			s.Server = algprefix + s.Server
+			s.Server = prefix + s.Server
 		} else {
-			s.Server = algprefix + notransport
+			s.Server = prefix + notransport
 		}
 	}
 }
