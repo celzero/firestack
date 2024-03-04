@@ -165,10 +165,13 @@ func (t *transport) dial(network string) (*dns.Conn, error) {
 	// protect.dialers resolves t.addrport, if necessary
 	// dialers.Dial fails to dial into tcp/udp conns w/ proxies like wgproxy
 	// which only dial out to generic net.Conn for UDP and core.TCPConn for tcp
-	if c, err := dialers.Dial2(t.dialer, network, t.addrport); err == nil {
-		return &dns.Conn{Conn: c}, nil
-	} else {
+	c, err := dialers.Dial2(t.dialer, network, t.addrport)
+	if err != nil {
 		return nil, err
+	} else if c == nil {
+		return nil, errNoNet
+	} else {
+		return &dns.Conn{Conn: c}, nil
 	}
 }
 
@@ -209,7 +212,7 @@ func (t *transport) send(network, pid string, q []byte) (response []byte, elapse
 	log.V("dns53: send: (%s / %s) to %s using udp? %t / px? %t / relay? %t; err? %v", network, t.id, t.addrport, useudp, useproxy, userelay, err)
 
 	if err == nil { // send query
-		t.lastaddr = conn.RemoteAddr().String()
+		t.lastaddr = remoteAddrIfAny(conn) // may return empty string
 		ans, elapsed, err = t.client.ExchangeWithConn(msg, conn)
 		clos(conn) // TODO: conn pooling w/ ExchangeWithConn
 		if err != nil {
@@ -289,4 +292,14 @@ func (t *transport) GetAddr() string {
 
 func (t *transport) Status() int {
 	return t.status
+}
+
+func remoteAddrIfAny(conn *dns.Conn) string {
+	if conn == nil || conn.Conn == nil {
+		return ""
+	} else if addr := conn.RemoteAddr(); addr == nil {
+		return ""
+	} else {
+		return addr.String()
+	}
 }
