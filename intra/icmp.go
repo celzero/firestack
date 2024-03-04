@@ -148,8 +148,11 @@ func (h *icmpHandler) Ping(source, target netip.AddrPort, msg []byte, pong netst
 
 	dst := oneRealIp(realips, target)
 	uc, err := px.Dialer().Dial("udp", dst.String())
-	if err != nil {
-		log.E("t.icmp: egress: dial(%s) err %v", target, err)
+	if err != nil || uc == nil { // nilaway: tx.socks5 returns nil conn even if err == nil
+		if err == nil {
+			err = unix.ENETUNREACH
+		}
+		log.E("t.icmp: egress: dial(%s); hasConn? %s(%t); err %v", dst, pid, uc != nil, err)
 		return false // denied
 	}
 	defer clos(uc)

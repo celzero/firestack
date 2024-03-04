@@ -87,8 +87,11 @@ func udpExchange(pid string, serverInfo *serverinfo, sharedKey *[32]byte, encryp
 	}
 
 	pc, err := serverInfo.dialudp(pid, upstreamAddr)
-	if err != nil {
-		log.E("dnscrypt: udp: dialing %s err: %v", serverInfo, err)
+	if err != nil || pc == nil { // nilaway: tx.socks5 returns nil conn even if err == nil
+		if err == nil {
+			err = errNoConn
+		}
+		log.E("dnscrypt: udp: dialing %s; hasConn? %s(%t); err: %v", serverInfo, pid, pc != nil, err)
 		return nil, err
 	}
 
@@ -131,8 +134,11 @@ func tcpExchange(pid string, serverInfo *serverinfo, sharedKey *[32]byte, encryp
 	}
 
 	pc, err := serverInfo.dialtcp(pid, upstreamAddr)
-	if err != nil {
-		log.E("dnscrypt: tcp: dialing %s err: %v", serverInfo, err)
+	if err != nil || pc == nil { // nilaway: tx.socks5 returns nil conn even if err == nil
+		if err == nil {
+			err = errNoConn
+		}
+		log.E("dnscrypt: tcp: dialing %s; hasConn? %s(%t); err: %v", serverInfo, pid, pc != nil, err)
 		return nil, err
 	}
 	defer pc.Close()

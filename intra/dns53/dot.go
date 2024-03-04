@@ -126,6 +126,11 @@ func (t *dot) pxdial(pid string) (conn *dns.Conn, err error) {
 	if err != nil {
 		return
 	}
+	if pxconn == nil { // nilaway: tx.socks5 returns nil conn even if err == nil
+		log.E("dot: pxdial: (%s) no conn for relay/proxy %s at %s", t.id, px.ID(), px.GetAddr())
+		err = errNoNet
+		return
+	}
 	// higher timeout for proxy
 	_ = pxconn.SetDeadline(time.Now().Add(dottimeout * 3))
 	pxconn, err = t.addtls(pxconn)
