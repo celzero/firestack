@@ -21,7 +21,6 @@ import (
 	"errors"
 	"fmt"
 	"net"
-	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -34,7 +33,6 @@ import (
 	"github.com/celzero/firestack/intra/protect"
 	"github.com/celzero/firestack/intra/xdns"
 
-	clocksmith "github.com/jedisct1/go-clocksmith"
 	stamps "github.com/jedisct1/go-dnsstamps"
 	"golang.org/x/crypto/curve25519"
 )
@@ -42,23 +40,26 @@ import (
 // DcMulti is a dnsx.TransportMult supporting dnscrypt servers and relays
 type DcMulti struct {
 	sync.RWMutex
-	proxyPublicKey               [32]byte
-	proxySecretKey               [32]byte
-	serversInfo                  ServersInfo
-	certRefreshDelay             time.Duration
-	certRefreshDelayAfterFailure time.Duration
-	certIgnoreTimestamp          bool
-	registeredServers            map[string]registeredserver
-	routes                       []string
-	liveServers                  []string
-	proxies                      ipn.Proxies
-	sigterm                      context.CancelFunc
-	lastStatus                   int
-	lastAddr                     string
-	ctl                          protect.Controller
-	dialer                       *protect.RDial
-	est                          core.P2QuantileEstimator
+	proxyPublicKey      [32]byte
+	proxySecretKey      [32]byte
+	serversInfo         ServersInfo
+	certIgnoreTimestamp bool
+	registeredServers   map[string]registeredserver
+	routes              []string
+	liveServers         []string
+	proxies             ipn.Proxies
+	sigterm             context.CancelFunc
+	lastStatus          int
+	lastAddr            string
+	ctl                 protect.Controller
+	dialer              *protect.RDial
+	est                 core.P2QuantileEstimator
 }
+
+var (
+	certRefreshDelay             = 240 * time.Minute
+	certRefreshDelayAfterFailure = 10 * time.Second
+)
 
 var _ dnsx.TransportMult = (*DcMulti)(nil)
 var timeout8s = 8000 * time.Millisecond
@@ -379,17 +380,19 @@ func (proxy *DcMulti) Refresh() (string, error) {
 	return proxy.LiveTransports(), nil
 }
 
-// Start starts this dnscrypt proxy
-func (proxy *DcMulti) Start() (string, error) {
+// start starts this dnscrypt proxy
+func (proxy *DcMulti) start() error {
 	if proxy.sigterm != nil {
-		return "", errStarted
+		return errStarted
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	proxy.sigterm = cancel
+
 	if _, err := crypto_rand.Read(proxy.proxySecretKey[:]); err != nil {
-		return "", err
+		return err
 	}
 	curve25519.ScalarBaseMult(&proxy.proxyPublicKey, &proxy.proxySecretKey)
+
 	_, err := proxy.Refresh()
 	if len(proxy.serversInfo.registeredServers) > 0 {
 		go func(ctx context.Context) {
@@ -399,21 +402,22 @@ func (proxy *DcMulti) Start() (string, error) {
 					log.I("dnscrypt: cert refresh stopped")
 					return
 				default:
-					delay := proxy.certRefreshDelay
-					if len(proxy.liveServers) == 0 {
-						delay = proxy.certRefreshDelayAfterFailure
+					hasServers := len(proxy.serversInfo.registeredServers) > 0
+					allDead := len(proxy.liveServers) == 0
+					delay := certRefreshDelay
+					if hasServers && allDead {
+						delay = certRefreshDelayAfterFailure
 					}
-					clocksmith.Sleep(delay)
+					time.Sleep(delay)
 					proxy.liveServers, _ = proxy.serversInfo.refresh(proxy)
-					if len(proxy.liveServers) > 0 {
+					if someAlive := len(proxy.liveServers) > 0; someAlive {
 						proxy.certIgnoreTimestamp = false
 					}
-					runtime.GC()
 				}
 			}
 		}(ctx)
 	}
-	return proxy.LiveTransports(), err
+	return err
 }
 
 // Stop stops this dnscrypt proxy
@@ -584,21 +588,21 @@ func stamp2str(s *stamps.ServerStamp) string {
 
 // NewDcMult creates a dnscrypt proxy
 func NewDcMult(px ipn.Proxies, ctl protect.Controller) *DcMulti {
-	return &DcMulti{
-		routes:                       nil,
-		registeredServers:            make(map[string]registeredserver),
-		certRefreshDelay:             240 * time.Minute,
-		certRefreshDelayAfterFailure: 10 * time.Second,
-		certIgnoreTimestamp:          false,
-		serversInfo:                  newServersInfo(),
-		liveServers:                  nil,
-		lastStatus:                   dnsx.Start,
-		proxies:                      px,
-		lastAddr:                     "",
-		ctl:                          ctl,
-		dialer:                       protect.MakeNsRDial(dnsx.DcProxy, ctl),
-		est:                          core.NewP50Estimator(),
+	dc := &DcMulti{
+		routes:              nil,
+		registeredServers:   make(map[string]registeredserver),
+		certIgnoreTimestamp: false,
+		serversInfo:         newServersInfo(),
+		liveServers:         nil,
+		lastStatus:          dnsx.Start,
+		proxies:             px,
+		lastAddr:            "",
+		ctl:                 ctl,
+		dialer:              protect.MakeNsRDial(dnsx.DcProxy, ctl),
+		est:                 core.NewP50Estimator(),
 	}
+	dc.start()
+	return dc
 }
 
 // NewTransport creates and adds a dnscrypt transport to p

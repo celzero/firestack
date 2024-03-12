@@ -607,13 +607,6 @@ func (r *resolver) accept(c io.ReadWriteCloser) {
 	// TODO: Cancel outstanding queries.
 }
 
-func (r *resolver) Start() (string, error) {
-	if dc, err := r.dcProxy(); err == nil {
-		return dc.Start()
-	}
-	return "", ErrNoDcProxy
-}
-
 func (r *resolver) Stop() error {
 	if gw := r.Gateway(); gw != nil {
 		gw.stop()

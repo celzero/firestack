@@ -134,7 +134,6 @@ func NewTunnel(fd, mtu int, fakedns string, tunmode *settings.TunMode, dtr Defau
 	}
 
 	log.I("tun: <<< new >>>; ok")
-	resolver.Start()
 	return t, nil
 }
 

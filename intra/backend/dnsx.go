@@ -77,8 +77,6 @@ type DNSTransportMult interface {
 	Add(t DNSTransport) bool
 	// Remove removes a transport from this multi-transport.
 	Remove(id string) bool
-	// Start starts a multi-transport, returns number of live-servers and errors if any.
-	Start() (string, error)
 	// Get returns a transport from this multi-transport.
 	Get(id string) (DNSTransport, error)
 	// Stop stops this multi-transport.
