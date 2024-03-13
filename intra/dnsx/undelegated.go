@@ -146,7 +146,7 @@ var undelegatedSet = []string{
 	"mynet",
 	"myrouter",
 	"novalocal",
-	"onion",
+	// "onion", github.com/celzero/rethink-app/issues/1259
 	"openstacklocal",
 	"priv",
 	"private",
