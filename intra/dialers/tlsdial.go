@@ -61,7 +61,7 @@ func tlsdial(d *tls.Dialer, network, addr string, connect tlsConnectFunc) (net.C
 	var errs error
 	ips := ipm.Get(domain)
 	confirmed := ips.Confirmed()
-	if confirmed.IsValid() {
+	if ipok(confirmed) {
 		if conn, cerr := connect(d, network, domain, confirmed, port); cerr == nil {
 			log.V("tlsdial: found working ip %s for %s", confirmed, addr)
 			return conn, nil
@@ -89,13 +89,17 @@ func tlsdial(d *tls.Dialer, network, addr string, connect tlsConnectFunc) (net.C
 			log.D("pdial: timeout %s for %s", end, addr)
 			break
 		}
-		if conn, err := connect(d, network, domain, ip, port); err == nil {
-			ips.Confirm(ip)
-			log.I("tlsdial: found working ip %s for %s", ip, addr)
-			return conn, nil
+		if ipok(ip) {
+			if conn, err := connect(d, network, domain, ip, port); err == nil {
+				ips.Confirm(ip)
+				log.I("tlsdial: found working ip %s for %s", ip, addr)
+				return conn, nil
+			} else {
+				errs = errors.Join(errs, err)
+				log.W("tlsdial: ip %s for %s failed with err %v", ip, addr, err)
+			}
 		} else {
-			errs = errors.Join(errs, err)
-			log.W("tlsdial: ip %s for %s failed with err %v", ip, addr, err)
+			log.D("tlsdial: ip %s for %s is not ok", ip, addr)
 		}
 	}
 

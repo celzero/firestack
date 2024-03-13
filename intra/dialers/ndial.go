@@ -58,7 +58,7 @@ func netdial(d *net.Dialer, network, addr string, connect netConnectFunc) (net.C
 	var errs error
 	ips := ipm.Get(domain)
 	confirmed := ips.Confirmed()
-	if confirmed.IsValid() {
+	if ipok(confirmed) {
 		if conn, cerr := connect(d, network, confirmed, port); cerr == nil {
 			log.V("ndial: found working ip %s for %s", confirmed, addr)
 			return conn, nil
@@ -86,13 +86,17 @@ func netdial(d *net.Dialer, network, addr string, connect netConnectFunc) (net.C
 			log.D("ndial: timeout %s for %s", end, addr)
 			break
 		}
-		if conn, err := connect(d, network, ip, port); err == nil {
-			ips.Confirm(ip)
-			log.I("ndial: found working ip %s for %s", ip, addr)
-			return conn, nil
+		if ipok(ip) {
+			if conn, err := connect(d, network, ip, port); err == nil {
+				ips.Confirm(ip)
+				log.I("ndial: found working ip %s for %s", ip, addr)
+				return conn, nil
+			} else {
+				errs = errors.Join(errs, err)
+				log.W("ndial: ip %s for %s failed with err %v", ip, addr, err)
+			}
 		} else {
-			errs = errors.Join(errs, err)
-			log.W("ndial: ip %s for %s failed with err %v", ip, addr, err)
+			log.D("ndial: ip %s not ok for %s", ip, addr)
 		}
 	}
 

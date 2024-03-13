@@ -262,7 +262,7 @@ func (s *IPSet) Addrs() []netip.Addr {
 	return c
 }
 
-// Confirmed returns the confirmed IP address, or nil if there is no such address.
+// Confirmed returns the confirmed IP address, or zeroaddr if there is no such address.
 func (s *IPSet) Confirmed() netip.Addr {
 	ip, _ := s.confirmed.Load().(netip.Addr)
 	return ip
@@ -279,7 +279,7 @@ func (s *IPSet) Confirm(ip netip.Addr) {
 	s.Unlock()
 }
 
-// Disconfirm sets the confirmed address to nil if the current confirmed address
+// Disconfirm sets the confirmed address to zeroaddr if the current confirmed address
 // is the provided ip.
 func (s *IPSet) Disconfirm(ip netip.Addr) {
 	if ip.Compare(s.Confirmed()) == 0 {

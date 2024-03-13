@@ -60,7 +60,7 @@ func proxydial(d proxy.Dialer, network, addr string, connect proxyConnectFunc) (
 	s1 := time.Now()
 	ips := ipm.Get(domain)
 	confirmed := ips.Confirmed()
-	if confirmed.IsValid() {
+	if ipok(confirmed) {
 		if conn, err = connect(d, network, confirmed, port); err == nil {
 			log.V("pdial: found working ip %s for %s; duration: %s", confirmed, addr, time.Since(s1))
 			return conn, nil
@@ -90,13 +90,17 @@ func proxydial(d proxy.Dialer, network, addr string, connect proxyConnectFunc) (
 			log.D("pdial: timeout %s for %s", end, addr)
 			break
 		}
-		if conn, err = connect(d, network, ip, port); err == nil {
-			ips.Confirm(ip)
-			log.I("pdial: found working ip%d %s for %s; duration: %s", i, ip, addr, time.Since(s3))
-			return conn, nil
+		if ipok(ip) {
+			if conn, err = connect(d, network, ip, port); err == nil {
+				ips.Confirm(ip)
+				log.I("pdial: found working ip%d %s for %s; duration: %s", i, ip, addr, time.Since(s3))
+				return conn, nil
+			}
+			errs = errors.Join(errs, err)
+			log.W("pdial: ip %s for %s failed with err %v", ip, addr, err)
+		} else {
+			log.D("pdial: ip %s not ok for %s", ip, addr)
 		}
-		errs = errors.Join(errs, err)
-		log.W("pdial: ip %s for %s failed with err %v", ip, addr, err)
 	}
 
 	dur := time.Since(start)

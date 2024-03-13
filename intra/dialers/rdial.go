@@ -122,8 +122,8 @@ func commondial(d *protect.RDial, network, addr string, connect connectFunc) (ne
 	var conn net.Conn
 	var errs error
 	ips := ipm.Get(domain)
-	confirmed := ips.Confirmed()
-	if confirmed.IsValid() {
+	confirmed := ips.Confirmed() // may be zeroaddr
+	if ipok(confirmed) {
 		if conn, err = connect(d, network, confirmed, port); err == nil {
 			log.V("rdial: commondial: found working ip %s for %s", confirmed, addr)
 			return conn, nil
@@ -150,13 +150,17 @@ func commondial(d *protect.RDial, network, addr string, connect connectFunc) (ne
 			log.D("rdial: commondial: timeout %s for %s", end, addr)
 			break
 		}
-		if conn, err = connect(d, network, ip, port); err == nil {
-			ips.Confirm(ip)
-			log.I("rdial: commondial: found working ip %s for %s", ip, addr)
-			return conn, nil
+		if ipok(ip) {
+			if conn, err = connect(d, network, ip, port); err == nil {
+				ips.Confirm(ip)
+				log.I("rdial: commondial: found working ip %s for %s", ip, addr)
+				return conn, nil
+			}
+			errs = errors.Join(errs, err)
+			log.W("rdial: commondial: ip %s for %s failed with err %v", ip, addr, err)
+		} else {
+			log.W("rdial: commondial: ip %s not ok for %s", ip, addr)
 		}
-		errs = errors.Join(errs, err)
-		log.W("rdial: commondial: ip %s for %s failed with err %v", ip, addr, err)
 	}
 
 	dur := time.Since(start)
@@ -211,4 +215,8 @@ func SplitDialWithTls(d *protect.RDial, cfg *tls.Config, addr string) (net.Conn,
 	tlsconn := tls.Client(c, cfg)
 	err = tlsconn.Handshake()
 	return tlsconn, err
+}
+
+func ipok(ip netip.Addr) bool {
+	return ip.IsValid() && !ip.IsUnspecified()
 }
