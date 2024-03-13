@@ -87,10 +87,17 @@ func (b *bootstrap) reinit(trtype, ippOrUrl, ipcsv string) error {
 		if parsed, err := url.Parse(ippOrUrl); err != nil { // ippOrUrl is a url?
 			log.E("dns: default: reinit: not %s url %s", trtype, ippOrUrl)
 			return dnsx.ErrNotDefaultTransport
+		} else if len(ipcsv) <= 0 {
+			// if ips are empty, bootstrap will be stuck in a catch-22 where
+			// dialers.New(...) in doh calls back into ipmapper to resolve the hostname
+			// in ippOrUrl, which calls into Default DNS (aka bootstrap) via resolver
+			// to resolve the hostname in ippOrUrl.
+			log.E("dns: default: reinit: doh: empty ips %s", ipcsv)
+			return dnsx.ErrNotDefaultTransport
 		} else {
 			b.url = ippOrUrl
 			b.hostname = parsed.Hostname()
-			b.ipports = ipcsv // may be empty
+			b.ipports = ipcsv // should never be empty
 			b.typ = dnsx.DOH
 		}
 	} else { // ippOrUrl is an ipport?
@@ -109,7 +116,7 @@ func (b *bootstrap) reinit(trtype, ippOrUrl, ipcsv string) error {
 		} else {
 			b.url = ""
 			b.hostname = specialHostname
-			b.ipports = ippOrUrl
+			b.ipports = ippOrUrl // always ipaddrs, should never be empty
 			b.typ = dnsx.DNS53
 		}
 	}
@@ -160,7 +167,7 @@ func (b *bootstrap) kickstart(px ipn.Proxies, g Bridge) error {
 		return errCannotStart
 	}
 
-	log.I("dns: default: start; %s with %s[%s]", b.typ, b.hostname, b.GetAddr())
+	log.I("dns: default: start; %s with %s[%s]; ok? %t", b.typ, b.hostname, b.GetAddr(), len(b.ipports) > 0)
 	return nil
 }
 
