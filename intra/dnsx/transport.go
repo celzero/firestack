@@ -279,7 +279,12 @@ func (r *resolver) IsDnsAddr(ipport string) bool {
 }
 
 func (r *resolver) LocalLookup(q []byte) ([]byte, error) {
-	return r.forward(q, CT+Default) // incl dns64 and/or alg
+	// including dns64 and/or alg
+	if ans, err := r.forward(q, CT+Default); err != nil {
+		return r.forward(q, CT+Goos) // Goos is System; see: determineTransport
+	} else {
+		return ans, nil
+	}
 }
 
 func (r *resolver) Forward(q []byte) ([]byte, error) {
