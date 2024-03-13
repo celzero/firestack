@@ -141,7 +141,7 @@ func (t *dnsgateway) stop() {
 	t.hexes = rfc8215a
 }
 
-func (t *dnsgateway) querySecondary(t2 Transport, network string, q []byte, out chan<- secans, in <-chan []byte, timeout time.Duration) {
+func (t *dnsgateway) querySecondary(t2 Transport, network string, q []byte, out chan<- secans, in <-chan []byte) {
 	var r []byte
 	var msg *dns.Msg
 	var err error
@@ -241,7 +241,7 @@ func (t *dnsgateway) q(t1, t2 Transport, network string, q []byte, summary *x.DN
 	innersummary := new(x.DNSSummary)
 	// todo: use context?
 	// t2 may be nil
-	go t.querySecondary(t2, network, q, secch, resch, timeout)
+	go t.querySecondary(t2, network, q, secch, resch)
 
 	r, err = t1.Query(network, q, innersummary)
 	resch <- r
