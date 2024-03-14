@@ -34,6 +34,8 @@ import (
 	"github.com/celzero/firestack/intra/log"
 )
 
+const maxFailLimit = 4
+
 var zeroaddr = netip.Addr{}
 
 type IPMapper interface {
@@ -73,6 +75,7 @@ type IPSet struct {
 	confirmed    atomic.Value // netip.Addr confirmed to be working.
 	r            IPMapper     // Resolver to use for hostname resolution.
 	seed         []string     // Bootstrap IPs; may be nil.
+	fails        int          // Number of times the confirmed IP has failed.
 }
 
 func NewIPMap() IPMap {
@@ -216,7 +219,11 @@ func (s *IPSet) add(hostOrIP string) bool {
 		s.addLocked(addr)
 	}
 	s.Unlock()
-	return !s.Empty()
+	ok := !s.Empty()
+	if ok {
+		s.fails = 0 // reset fails, since we have a new ips
+	}
+	return ok
 }
 
 // Adds one or more IP addresses to the set.
@@ -279,10 +286,23 @@ func (s *IPSet) Confirm(ip netip.Addr) {
 	s.Unlock()
 }
 
+func (s *IPSet) clear() {
+	s.Lock()
+	defer s.Unlock()
+	s.ips = nil
+	s.confirmed.Store(zeroaddr)
+}
+
 // Disconfirm sets the confirmed address to zeroaddr if the current confirmed address
 // is the provided ip.
 func (s *IPSet) Disconfirm(ip netip.Addr) {
 	if ip.Compare(s.Confirmed()) == 0 {
+		s.fails++
 		s.confirmed.Store(zeroaddr)
+	}
+	if s.fails > len(s.ips) || s.fails > maxFailLimit {
+		// empty out the set, may be refilled by Get()
+		s.clear()
+		s.fails = 0
 	}
 }

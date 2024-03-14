@@ -40,12 +40,19 @@ func udpaddr(ip netip.Addr, port int) *net.UDPAddr {
 	return &net.UDPAddr{IP: ip.AsSlice(), Port: port}
 }
 
-// Re-seeds and resolves hostOrIP
-func renew(hostOrIP string, existing *ipmap.IPSet) (*ipmap.IPSet, bool) {
-	addrs := existing.Seed()
-	New(hostOrIP, addrs)
-	ips := ipm.Add(hostOrIP)
-	return ips, !ips.Empty()
+// Resolves hostOrIP, and re-seeds it if existing is non-empty
+func renew(hostOrIP string, existing *ipmap.IPSet) (cur *ipmap.IPSet, ok bool) {
+	if existing.Empty() {
+		// if empty, discard seed, re-resolve hostOrIP; oft times, ipset is
+		// empty when its ips have been disconfirmed beyond some threshold
+		cur = ipm.Get(hostOrIP)
+	} else {
+		// if non-empty, renew hostOrIP with seed addrs
+		New(hostOrIP, existing.Seed())
+		// then, re-resolve hostOrIP
+		cur = ipm.Add(hostOrIP)
+	}
+	return cur, !cur.Empty()
 }
 
 // New re-seeds hostOrIP with a new set of addresses
