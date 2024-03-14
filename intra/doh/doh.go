@@ -350,7 +350,7 @@ func (t *transport) send(pid string, req *http.Request) (ans []byte, blocklists 
 
 		// server addr would be of relay / proxy (ex: 127.0.0.1:9050) if used
 		usedrelay := t.relay != nil
-		usedproxy := len(pid) > 0 // pid == dnsx.NetNoProxy => ipn.Base
+		usedproxy := len(pid) > 0 && (pid != ipn.Base && pid != ipn.Exit) // pid == dnsx.NetNoProxy => ipn.Base
 		hasserveraddr := server != nil && !usedrelay && !usedproxy
 
 		if hasserveraddr {
