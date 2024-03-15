@@ -632,15 +632,28 @@ func (h *wgtun) DNS() string {
 	return nodns
 }
 
-func (h *wgtun) listener(who string, err error) {
+func (h *wgtun) listener(op string, err error) {
 	if h.status == END {
 		return
 	}
+
 	if err == nil {
 		h.status = TOK
-	} else {
-		h.status = TKO
+		return
 	}
+
+	if op == "r" && timedout(err) && h.status == TUP {
+		// if status is "up" but writes (op == "w") have not yet happened
+		// then reads ("r") are expected to timeout; so ignore them
+		return
+	}
+
+	h.status = TKO
+}
+
+func timedout(err error) bool {
+	x, ok := err.(net.Error)
+	return ok && x.Timeout()
 }
 
 // func Stop(), Fetch(), getDialer() is impl by wgproxy
