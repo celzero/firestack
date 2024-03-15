@@ -4,8 +4,8 @@ GOMOBILE=$(GOBIN)/gomobile
 ELECTRON_PATH=$(IMPORT_PATH)/outline/electron
 XGO=$(GOBIN)/xgo
 IMPORT_PATH=github.com/celzero/firestack
-TUN2SOCKS_VERSION=v1.16.11
-XGO_LDFLAGS='-s -w -X main.version=$(TUN2SOCKS_VERSION)'
+COMMIT_ID=$(git rev-parse --short HEAD)
+XGO_LDFLAGS='-s -w -X main.version=$(COMMIT_ID)'
 
 WINDOWS_BUILDDIR=$(BUILDDIR)/windows
 LINUX_BUILDDIR=$(BUILDDIR)/linux
