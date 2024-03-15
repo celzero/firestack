@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/netip"
 	"strconv"
+	"time"
 
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/dialers"
@@ -29,6 +30,7 @@ type socks5 struct {
 	opts     *settings.ProxyOptions // connect options
 	rd       *protect.RDial         // this transport as a dialer
 	hc       *http.Client           // this transport as a http client
+	lastdial time.Time              // last time this transport attempted a connection
 	status   int                    // status of this transport
 }
 
@@ -130,6 +132,7 @@ func (h *socks5) Dial(network, addr string) (c protect.Conn, err error) {
 		return nil, errProxyStopped
 	}
 
+	h.lastdial = time.Now()
 	// todo: tx.Client can only dial in to ip:port and not host:port even for server addr
 	// tx.Client.Dial does not support dialing into client addr as hostnames
 	if c, err = dialers.ProxyDials(h.outbound, network, addr); err == nil {
@@ -205,6 +208,9 @@ func (h *socks5) GetAddr() string {
 }
 
 func (h *socks5) Status() int {
+	if h.status != END && idling(h.lastdial) {
+		return TZZ
+	}
 	return h.status
 }
 

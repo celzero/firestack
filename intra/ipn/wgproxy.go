@@ -639,16 +639,13 @@ func (h *wgtun) listener(op string, err error) {
 
 	if err == nil {
 		h.status = TOK
-		return
-	}
-
-	if op == "r" && timedout(err) && h.status == TUP {
+	} else if op == "r" && timedout(err) {
 		// if status is "up" but writes (op == "w") have not yet happened
 		// then reads ("r") are expected to timeout; so ignore them
-		return
+		h.status = TZZ
+	} else {
+		h.status = TKO
 	}
-
-	h.status = TKO
 }
 
 func timedout(err error) bool {

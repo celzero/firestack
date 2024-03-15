@@ -33,6 +33,7 @@ const (
 	NOOP     = x.NOOP
 	INTERNET = x.INTERNET
 
+	TZZ = x.TZZ
 	TUP = x.TUP
 	TOK = x.TOK
 	TKO = x.TKO
@@ -62,6 +63,7 @@ var (
 const (
 	tlsHandshakeTimeout   time.Duration = 30 * time.Second // some proxies take a long time to handshake
 	responseHeaderTimeout time.Duration = 60 * time.Second
+	tzzTimeout            time.Duration = 2 * time.Minute // time between new connections before proxies transition to idle
 )
 
 // type checks
@@ -193,4 +195,8 @@ func (px *proxifier) RefreshProxies() (string, error) {
 		active = append(active, p.ID())
 	}
 	return strings.Join(active, ","), nil
+}
+
+func idling(t time.Time) bool {
+	return time.Since(t) > tzzTimeout
 }

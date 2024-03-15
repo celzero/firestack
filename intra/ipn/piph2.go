@@ -44,6 +44,7 @@ type piph2 struct {
 	proxydialer *protect.RDial // h2 dialer
 	hc          *http.Client   // exported http client
 	rd          *protect.RDial // exported dialer
+	lastdial    time.Time      // last dial time
 	status      int            // proxy status: TOK, TKO, END
 }
 
@@ -241,6 +242,9 @@ func (t *piph2) Stop() error {
 }
 
 func (t *piph2) Status() int {
+	if t.status != END && idling(t.lastdial) {
+		return TZZ
+	}
 	return t.status
 }
 
@@ -382,6 +386,7 @@ func (t *piph2) Dial(network, addr string) (protect.Conn, error) {
 		// req.Header.Set("x-nile-pip-msg", msg)
 	}
 
+	t.lastdial = time.Now()
 	go func() {
 		// fixme: currently, this hangs forever when upstream is cloudflare
 		// setting the content-length to the first len(first-write-bytes) works

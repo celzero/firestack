@@ -39,6 +39,7 @@ type pipws struct {
 	proxydialer *protect.RDial // ws dialer
 	hc          *http.Client   // exported http client
 	rd          *protect.RDial // exported dialer
+	lastdial    time.Time      // last dial time
 	status      int            // proxy status: TOK, TKO, END
 }
 
@@ -166,6 +167,9 @@ func (t *pipws) Stop() error {
 }
 
 func (t *pipws) Status() int {
+	if t.status != END && idling(t.lastdial) {
+		return TZZ
+	}
 	return t.status
 }
 
@@ -208,6 +212,7 @@ func (t *pipws) Dial(network, addr string) (protect.Conn, error) {
 
 	rurl := u.String()
 	c, res, err := t.wsconn(rurl, msg)
+	t.lastdial = time.Now()
 	if err != nil {
 		log.E("pipws: req err: %v", err)
 		t.status = TKO

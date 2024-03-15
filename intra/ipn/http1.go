@@ -10,6 +10,7 @@ import (
 	"crypto/tls"
 	"net/http"
 	"net/url"
+	"time"
 
 	"github.com/celzero/firestack/intra/dialers"
 	tx "github.com/celzero/firestack/intra/ipn/h1"
@@ -25,6 +26,7 @@ type http1 struct {
 	outbound proxy.Dialer
 	id       string
 	opts     *settings.ProxyOptions
+	lastdial time.Time
 	status   int
 }
 
@@ -78,6 +80,7 @@ func (h *http1) Dial(network, addr string) (c protect.Conn, err error) {
 		return nil, errProxyStopped
 	}
 
+	h.lastdial = time.Now()
 	// dialers.ProxyDial not needed, because
 	// tx.HttpTunnel.Dial() supports dialing into hostnames
 	if c, err = dialers.ProxyDial(h.outbound, network, addr); err != nil {
@@ -127,6 +130,9 @@ func (h *http1) GetAddr() string {
 }
 
 func (h *http1) Status() int {
+	if h.status != END && idling(h.lastdial) {
+		return TZZ
+	}
 	return h.status
 }
 
