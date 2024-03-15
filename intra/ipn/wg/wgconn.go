@@ -42,9 +42,10 @@ var (
 	errNoListen        = errors.New("wg: bind: listen failed")
 )
 
-type rwlistener func(who string, err error)
+type rwlistener func(op string, err error)
 
 type StdNetBind struct {
+	id         string
 	d          *net.ListenConfig
 	listener   rwlistener
 	mu         sync.Mutex // protects following fields
@@ -58,7 +59,7 @@ type StdNetBind struct {
 
 func NewEndpoint(id string, ctl protect.Controller, f rwlistener) *StdNetBind {
 	dialer := protect.MakeNsListenConfig(id, ctl)
-	return &StdNetBind{d: dialer, listener: f}
+	return &StdNetBind{id: id, d: dialer, listener: f}
 }
 
 type StdNetEndpoint netip.AddrPort
@@ -68,26 +69,26 @@ var (
 	_ conn.Endpoint = StdNetEndpoint{}
 )
 
-func (*StdNetBind) ParseEndpoint(s string) (conn.Endpoint, error) {
+func (e *StdNetBind) ParseEndpoint(s string) (conn.Endpoint, error) {
 	d := new(multihost.MH)
 	host, portstr, err := net.SplitHostPort(s)
 	if err != nil {
-		log.E("wg: bind: not a valid endpoint in(%s); err: %v", s, err)
+		log.E("wg: bind: %s not a valid endpoint in(%s); err: %v", e.id, s, err)
 		return nil, err
 	}
 	d.With([]string{host}) // resolves host if needed
 	ips := d.Addrs()
 	if len(ips) <= 0 {
-		log.E("wg: bind: not a valid endpoint in(%s); out(%s, %s)", s, d.Names(), d.Addrs())
+		log.E("wg: bind: %s not a valid endpoint in(%s); out(%s, %s)", e.id, s, d.Names(), d.Addrs())
 		return nil, errInvalidEndpoint
 	}
 	port, err := strconv.Atoi(portstr)
 	if err != nil {
-		log.E("wg: bind: not a valid port in(%s); err: %v", s, err)
+		log.E("wg: bind: %s not a valid port in(%s); err: %v", e.id, s, err)
 		return nil, err
 	}
 	ipport := netip.AddrPortFrom(ips[0], uint16(port))
-	log.I("wg: bind: new endpoint %v", ipport)
+	log.I("wg: bind: %s new endpoint %v", e.id, ipport)
 	return asEndpoint(ipport), nil
 }
 
@@ -123,17 +124,17 @@ func (s *StdNetBind) listenNet(network string, port int) (*net.UDPConn, int, err
 	saddr := ":" + strconv.Itoa(port)
 	conn, err := s.d.ListenPacket(ctx, network, saddr)
 	if err != nil {
-		log.E("wg: bind: %s: listen(%v); err: %v", network, saddr, err)
+		log.E("wg: bind: %s %s: listen(%v); err: %v", s.id, network, saddr, err)
 		return nil, 0, err
 	}
 	if conn == nil {
-		log.E("wg: bind: %s: listen(%v); conn nil", network, saddr)
+		log.E("wg: bind: %s %s: listen(%v); conn nil", s.id, network, saddr)
 		return nil, 0, errNoListen
 	}
 
 	laddr := conn.LocalAddr()
 	if laddr == nil {
-		log.E("wg: bind: %s: listen(%v); local-addr nil", network, saddr)
+		log.E("wg: bind: %s %s: listen(%v); local-addr nil", s.id, network, saddr)
 		return nil, 0, errNoLocalAddr
 	}
 	uaddr, err := net.ResolveUDPAddr(
@@ -146,7 +147,7 @@ func (s *StdNetBind) listenNet(network string, port int) (*net.UDPConn, int, err
 	if uaddr == nil {
 		return nil, 0, errNoLocalAddr
 	}
-	log.V("wg: bind: %s: listen(%v); addr(%v)", network, laddr)
+	log.V("wg: bind: %s %s: listen(%v); addr(%v)", s.id, network, laddr)
 	// typecast is safe, because "network" is always udp[4|6]; see: Open
 	if udpconn, ok := conn.(*net.UDPConn); ok {
 		return udpconn, uaddr.Port, nil
@@ -164,7 +165,7 @@ func (bind *StdNetBind) Open(uport uint16) ([]conn.ReceiveFunc, uint16, error) {
 	var tries int
 
 	if bind.ipv4 != nil || bind.ipv6 != nil {
-		log.W("wg: bind: already open")
+		log.W("wg: bind: %s already open", bind.id)
 		return nil, 0, conn.ErrBindAlreadyOpen
 	}
 
@@ -185,7 +186,7 @@ again:
 	ipv6, port, err = bind.listenNet("udp6", port)
 	busy := errors.Is(err, syscall.EADDRINUSE)
 	no6 := errors.Is(err, syscall.EAFNOSUPPORT)
-	log.D("wg: bind: listen6(%d); busy? %t no6? %t err? %v", port, busy, no6, err)
+	log.D("wg: bind: %s listen6(%d); busy? %t no6? %t err? %v", bind.id, port, busy, no6, err)
 	if uport == 0 && busy && tries < maxbindtries {
 		ipv4.Close()
 		tries++
@@ -206,7 +207,7 @@ again:
 		fns = append(fns, bind.makeReceiveFn(ipv6))
 	}
 
-	log.I("wg: bind: opened port(%d) for v4? %t v6? %t", port, ipv4 != nil, ipv6 != nil)
+	log.I("wg: bind: %s opened port(%d) for v4? %t v6? %t", bind.id, port, ipv4 != nil, ipv6 != nil)
 	if len(fns) == 0 {
 		return nil, 0, syscall.EAFNOSUPPORT
 	}
@@ -229,7 +230,7 @@ func (bind *StdNetBind) Close() error {
 	bind.blackhole4 = false
 	bind.blackhole6 = false
 
-	log.I("wg: bind: close; err4? %v err6? %v", err1, err2)
+	log.I("wg: bind: %s close; err4? %v err6? %v", bind.id, err1, err2)
 	return errors.Join(err1, err2)
 }
 
@@ -254,7 +255,7 @@ func (s *StdNetBind) makeReceiveFn(uc *net.UDPConn) conn.ReceiveFunc {
 			eps[i] = asEndpoint(addr)
 		}
 
-		loge(err, "wg: bind: recvFrom(%v): %d / err? %v", addr, n, err)
+		loge(err, "wg: bind: %s recvFrom(%v): %d / err? %v", s.id, addr, n, err)
 		return numMsgs, err
 	}
 }
@@ -266,7 +267,7 @@ func (s *StdNetBind) Send(buf [][]byte, endpoint conn.Endpoint) (err error) {
 
 	nend, ok := endpoint.(StdNetEndpoint)
 	if !ok {
-		log.E("wg: bind: send: wrong endpoint type: %T", endpoint)
+		log.E("wg: bind: send: %s wrong endpoint type: %T", s.id, endpoint)
 		return conn.ErrWrongEndpointType
 	}
 	// the peer endpoint
@@ -289,7 +290,7 @@ func (s *StdNetBind) Send(buf [][]byte, endpoint conn.Endpoint) (err error) {
 	}
 	bufok := len(data) > 0
 
-	log.V("wg: bind: send: addr(%v) blackhole? %t; noconn? %t; nobuf? %t", addrPort, blackhole, noconn, bufok)
+	log.V("wg: bind: send: %s addr(%v) blackhole? %t; noconn? %t; nobuf? %t", s.id, addrPort, blackhole, noconn, bufok)
 
 	if blackhole || !bufok {
 		return nil
@@ -303,7 +304,7 @@ func (s *StdNetBind) Send(buf [][]byte, endpoint conn.Endpoint) (err error) {
 	uc.SetDeadline(time.Now().Add(wgtimeout))
 	n, err := uc.WriteToUDPAddrPort(data, addrPort)
 
-	loge(err, "wg: bind: send: addr(%v) n(%d); err? %v", addrPort, n, err)
+	loge(err, "wg: bind: send: %s addr(%v) n(%d); err? %v", s.id, addrPort, n, err)
 	return err
 }
 
@@ -319,7 +320,7 @@ func (s *StdNetBind) SetMark(mark uint32) (err error) {
 	if s.ipv4 != nil {
 		if raw4, err = s.ipv4.SyscallConn(); err == nil {
 			if raw4 == nil {
-				log.W("wg: bind: setmark4: raw conn nil")
+				log.W("wg: bind: %s setmark4: raw conn nil", s.id)
 				return errNoRawConn
 			}
 			if err = raw4.Control(func(fd uintptr) {
@@ -332,7 +333,7 @@ func (s *StdNetBind) SetMark(mark uint32) (err error) {
 	if err == nil && s.ipv6 != nil {
 		if raw6, err = s.ipv6.SyscallConn(); err == nil {
 			if raw6 == nil {
-				log.W("wg: bind: setmark6: raw conn nil")
+				log.W("wg: bind: %s setmark6: raw conn nil", s.id)
 				return errNoRawConn
 			}
 			if err = raw6.Control(func(fd uintptr) {
@@ -342,7 +343,7 @@ func (s *StdNetBind) SetMark(mark uint32) (err error) {
 			}
 		} // else: return err
 	}
-	log.I("wg: bind: set mark; err? %v", err)
+	log.I("wg: bind: %s set mark; err? %v", err, s.id)
 	return nil
 }
 
@@ -350,42 +351,42 @@ func (s *StdNetBind) SetMark(mark uint32) (err error) {
 func (s *StdNetBind) PeekLookAtSocketFd4() (fd int, err error) {
 	raw4, err := s.ipv4.SyscallConn()
 	if err != nil {
-		log.W("wg: bind: peek4: syscall conn; err? %v", err)
+		log.W("wg: bind: peek4: %s syscall conn; err? %v", s.id, err)
 		return -1, err
 	}
 	if raw4 == nil {
-		log.W("wg: bind: peek4: raw conn nil")
+		log.W("wg: bind: peek4: %s raw conn nil", s.id)
 		return -1, errNoRawConn
 	}
 	err = raw4.Control(func(f uintptr) {
 		fd = int(f)
 	})
 	if err != nil {
-		log.W("wg: bind: control4: syscall conn; err? %v", err)
+		log.W("wg: bind: control4: %s syscall conn; err? %v", s.id, err)
 		return -1, err
 	}
-	log.D("wg: bind: peek4: fd(%d)", fd)
+	log.D("wg: bind: peek4: %s fd(%d)", s.id, fd)
 	return
 }
 
 func (s *StdNetBind) PeekLookAtSocketFd6() (fd int, err error) {
 	raw6, err := s.ipv6.SyscallConn()
 	if err != nil {
-		log.W("wg: bind: peek6: syscall conn; err? %v", err)
+		log.W("wg: bind: peek6: %s syscall conn; err? %v", s.id, err)
 		return -1, err
 	}
 	if raw6 == nil {
-		log.W("wg: bind: peek6: raw conn nil")
+		log.W("wg: bind: peek6: %s raw conn nil", s.id)
 		return -1, errNoRawConn
 	}
 	err = raw6.Control(func(f uintptr) {
 		fd = int(f)
 	})
 	if err != nil {
-		log.W("wg: bind: control6: syscall conn; err? %v", err)
+		log.W("wg: bind: control6: %s syscall conn; err? %v", s.id, err)
 		return -1, err
 	}
-	log.D("wg: bind: peek6: fd(%d)", fd)
+	log.D("wg: bind: peek6: %s fd(%d)", s.id, fd)
 	return
 }
 
