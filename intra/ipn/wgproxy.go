@@ -389,7 +389,7 @@ func makeWgTun(id string, ifaddrs []netip.Prefix, dnsm *multihost.MH, mtu int) (
 		ep:             ep,
 		stack:          s,
 		events:         make(chan tun.Event, eventssize),
-		incomingPacket: make(chan *buffer.View),
+		incomingPacket: make(chan *buffer.View, epsize),
 		dns:            dnsm,
 		reqbarrier:     core.NewBarrier(wgbarrierttl),
 		mtu:            tunmtu,
