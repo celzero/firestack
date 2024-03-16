@@ -160,10 +160,10 @@ func (tnet *wgtun) DialContext(_ context.Context, network, address string) (net.
 		case "ping", "ping4", "ping6":
 			c, err = tnet.DialPingAddr(netip.Addr{}, addr.Addr())
 		}
+		log.I("wg: dial: %s: #%d %v", network, i, addr)
 		if err == nil {
 			return c, nil
 		}
-		log.I("wg: dial: %s: #%d %v err %v", network, i, addr, err)
 		errs = errors.Join(errs, err)
 	}
 	if errs == nil {

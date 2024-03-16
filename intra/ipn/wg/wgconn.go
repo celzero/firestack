@@ -147,7 +147,7 @@ func (s *StdNetBind) listenNet(network string, port int) (*net.UDPConn, int, err
 	if uaddr == nil {
 		return nil, 0, errNoLocalAddr
 	}
-	log.V("wg: bind: %s %s: listen(%v); addr(%v)", s.id, network, laddr)
+	log.V("wg: bind: %s %s: listen(%v)", s.id, network, laddr)
 	// typecast is safe, because "network" is always udp[4|6]; see: Open
 	if udpconn, ok := conn.(*net.UDPConn); ok {
 		return udpconn, uaddr.Port, nil
