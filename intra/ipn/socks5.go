@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"time"
 
+	x "github.com/celzero/firestack/intra/backend"
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/dialers"
 	"github.com/celzero/firestack/intra/ipn/multihost"
@@ -201,6 +202,10 @@ func (h *socks5) ID() string {
 
 func (h *socks5) Type() string {
 	return SOCKS5
+}
+
+func (h *socks5) Router() x.Router {
+	return PROXYGATEWAY
 }
 
 func (h *socks5) GetAddr() string {

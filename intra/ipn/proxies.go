@@ -106,8 +106,22 @@ type proxifier struct {
 	ctl protect.Controller
 }
 
+type gw struct{ ok bool }
+
+var _ x.Router = (*gw)(nil)
+
 var _ Proxies = (*proxifier)(nil)
 var _ protect.RDialer = (Proxy)(nil)
+
+// denotes a placeholder Router that routes everything.
+var PROXYGATEWAY = &gw{ok: true}
+
+// denotes a placeholder Router that routes nothing.
+var PROXYNOGATEWAY = &gw{ok: false}
+
+func (w *gw) IP4() bool            { return w.ok }
+func (w *gw) IP6() bool            { return w.ok }
+func (w *gw) Contains(string) bool { return w.ok }
 
 func NewProxifier(c protect.Controller) Proxies {
 	pxr := &proxifier{

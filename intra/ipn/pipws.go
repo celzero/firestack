@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	x "github.com/celzero/firestack/intra/backend"
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/dialers"
 	"github.com/celzero/firestack/intra/log"
@@ -159,6 +160,10 @@ func (t *pipws) Type() string {
 
 func (t *pipws) GetAddr() string {
 	return t.hostname + ":" + strconv.Itoa(t.port)
+}
+
+func (*pipws) Router() x.Router {
+	return PROXYGATEWAY
 }
 
 func (t *pipws) Stop() error {

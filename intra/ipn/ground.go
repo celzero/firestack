@@ -9,6 +9,7 @@ package ipn
 import (
 	"net/http"
 
+	x "github.com/celzero/firestack/intra/backend"
 	"github.com/celzero/firestack/intra/protect"
 )
 
@@ -51,6 +52,10 @@ func (h *ground) ID() string {
 
 func (h *ground) Type() string {
 	return NOOP
+}
+
+func (h *ground) Router() x.Router {
+	return PROXYNOGATEWAY
 }
 
 func (h *ground) GetAddr() string {

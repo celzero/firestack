@@ -37,6 +37,8 @@ type Proxy interface {
 	ID() string
 	// Type returns the type of this proxy.
 	Type() string
+	// Returns routes.
+	Router() Router
 	// GetAddr returns the address of this proxy.
 	GetAddr() string
 	// DNS returns the ip:port or doh/dot url or dnscrypt stamp for this proxy.
@@ -60,4 +62,10 @@ type Proxies interface {
 	StopProxies() error
 	// Refresh re-registers proxies and returns a csv of active ones.
 	RefreshProxies() (string, error)
+}
+
+type Router interface {
+	IP4() bool
+	IP6() bool
+	Contains(ipprefix string) bool
 }

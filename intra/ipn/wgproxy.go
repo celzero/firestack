@@ -28,6 +28,7 @@ import (
 	"sync"
 	"syscall"
 
+	x "github.com/celzero/firestack/intra/backend"
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/dialers"
 	"github.com/celzero/firestack/intra/ipn/multihost"
@@ -67,6 +68,8 @@ const (
 type wgtun struct {
 	id             string            // id
 	addrs          []netip.Prefix    // interface addresses
+	allowed        []netip.Prefix    // allowed ips (peers)
+	remote         *multihost.MH     // remote endpoints
 	status         int               // status of this interface
 	stack          *stack.Stack      // stack fakes tun device for wg
 	ep             *channel.Endpoint // reads and writes packets to/from stack
@@ -175,7 +178,7 @@ func (w *wgproxy) canUpdate(txt string) bool {
 
 	// str copy: go.dev/play/p/eO814kGGNtO
 	cptxt := txt
-	ifaddrs, dnsh, mtu, err := wgIfConfigOf(&cptxt)
+	ifaddrs, _, dnsh, _, mtu, err := wgIfConfigOf(&cptxt)
 	if err != nil {
 		log.W("proxy: wg: !canUpdate(%s): err: %v", w.id, err)
 		return false
@@ -224,11 +227,10 @@ func wglogger(id string) *device.Logger {
 	return logger
 }
 
-func wgIfConfigOf(txtptr *string) (ifaddrs []netip.Prefix, dnsh *multihost.MH, mtu int, err error) {
+func wgIfConfigOf(txtptr *string) (ifaddrs []netip.Prefix, allowedaddrs []netip.Prefix, dnsh, endpointh *multihost.MH, mtu int, err error) {
 	txt := *txtptr
 	pcfg := strings.Builder{}
 	r := bufio.NewScanner(strings.NewReader(txt))
-	dnsh = new(multihost.MH)
 	for r.Scan() {
 		line := r.Text()
 		if len(line) <= 0 {
@@ -250,31 +252,28 @@ func wgIfConfigOf(txtptr *string) (ifaddrs []netip.Prefix, dnsh *multihost.MH, m
 		// github.com/WireGuard/wireguard-android/blob/713947e432/tunnel/src/main/java/com/wireguard/config/Interface.java#L232
 		switch k {
 		case "address":
-			var ip netip.Addr
-			// may be a csv: "172.1.0.2/32, 2000:db8::2/128"
-			vv := strings.Split(v, ",")
-			for _, str := range vv {
-				var ipnet netip.Prefix
-				str = strings.TrimSpace(str)
-				if ip, err = netip.ParseAddr(str); err != nil {
-					if ipnet, err = netip.ParsePrefix(str); err != nil {
-						return
-					}
-					ifaddrs = append(ifaddrs, ipnet)
-				} else { // add prefix to address
-					if ipnet, err = ip.Prefix(ip.BitLen()); err != nil {
-						return
-					}
-					ifaddrs = append(ifaddrs, ipnet)
-				}
+			if ifaddrs, err = loadIPNets(v); err != nil {
+				return
 			}
 		case "dns":
-			vv := strings.Split(v, ",")
-			dnsh.With(vv)
+			dnsh = loadMH(v)
 		case "mtu":
 			if mtu, err = strconv.Atoi(v); err != nil {
 				return
 			}
+		case "allowed_ip":
+			if allowedaddrs, err = loadIPNets(v); err != nil {
+				return
+			}
+			// carry over allowed_ips
+			log.V("proxy: wg: ifconfig: skipping key %q", k)
+			pcfg.WriteString(line + "\n")
+		case "endpoint":
+			// TODO: endpoint could be v4 or v6 or a hostname
+			endpointh = loadMH(v)
+			// carry over endpoints
+			log.V("proxy: wg: ifconfig: skipping key %q", k)
+			pcfg.WriteString(line + "\n")
 		default:
 			log.V("proxy: wg: ifconfig: skipping key %q", k)
 			pcfg.WriteString(line + "\n")
@@ -287,6 +286,35 @@ func wgIfConfigOf(txtptr *string) (ifaddrs []netip.Prefix, dnsh *multihost.MH, m
 	return
 }
 
+func loadMH(v string) *multihost.MH {
+	mh := new(multihost.MH)
+	vv := strings.Split(v, ",")
+	mh.With(vv)
+	return mh
+}
+
+func loadIPNets(v string) (out []netip.Prefix, err error) {
+	var ip netip.Addr
+	// may be a csv: "172.1.0.2/32, 2000:db8::2/128"
+	vv := strings.Split(v, ",")
+	for _, str := range vv {
+		var ipnet netip.Prefix
+		str = strings.TrimSpace(str)
+		if ip, err = netip.ParseAddr(str); err != nil {
+			if ipnet, err = netip.ParsePrefix(str); err != nil {
+				return
+			}
+			out = append(out, ipnet)
+		} else { // add prefix to address
+			if ipnet, err = ip.Prefix(ip.BitLen()); err != nil {
+				return
+			}
+			out = append(out, ipnet)
+		}
+	}
+	return
+}
+
 func bindWgSockets(id string, wgdev *device.Device, ctl protect.Controller) bool {
 	var ok4, ok6 bool
 
@@ -295,19 +323,19 @@ func bindWgSockets(id string, wgdev *device.Device, ctl protect.Controller) bool
 	// protect: https://github.com/WireGuard/wireguard-android/blob/713947e432/tunnel/src/main/java/com/wireguard/android/backend/GoBackend.java#L316
 	bind, _ := wgdev.Bind().(conn.PeekLookAtSocketFd)
 	if bind == nil {
-		log.E("proxy: wg: bind: failed to get wg socket")
+		log.E("proxy: wg: %s bind: failed to get wg socket", id)
 		return false
 	}
 
 	if fd4, err := bind.PeekLookAtSocketFd4(); err != nil {
-		log.W("proxy: wg: bind4: failed to get wg4 socket %v", err)
+		log.W("proxy: wg: %s bind4: failed to get wg4 socket %v", id, err)
 	} else {
 		ctl.Bind4(id, fd4)
 		ok4 = true
 	}
 
 	if fd6, err := bind.PeekLookAtSocketFd6(); err != nil {
-		log.W("proxy: wg: bind6: failed to get wg6 socket %v", err)
+		log.W("proxy: wg: %s bind6: failed to get wg6 socket %v", id, err)
 	} else {
 		ctl.Bind6(id, fd6)
 		ok6 = true
@@ -318,16 +346,16 @@ func bindWgSockets(id string, wgdev *device.Device, ctl protect.Controller) bool
 
 // ref: github.com/WireGuard/wireguard-android/blob/713947e432/tunnel/tools/libwg-go/api-android.go#L76
 func NewWgProxy(id string, ctl protect.Controller, cfg string) (WgProxy, error) {
-	ifaddrs, dnsh, mtu, err := wgIfConfigOf(&cfg)
+	ifaddrs, allowedaddrs, dnsh, endpointh, mtu, err := wgIfConfigOf(&cfg)
 	uapicfg := cfg
 	if err != nil {
-		log.E("proxy: wg: failed to get addrs from config %v", err)
+		log.E("proxy: wg: %s failed to get addrs from config %v", id, err)
 		return nil, err
 	}
 
-	wgtun, err := makeWgTun(id, ifaddrs, dnsh, mtu)
+	wgtun, err := makeWgTun(id, ifaddrs, allowedaddrs, dnsh, endpointh, mtu)
 	if err != nil {
-		log.E("proxy: wg: failed to create tun %v", err)
+		log.E("proxy: wg: %s failed to create tun %v", id, err)
 		return nil, err
 	}
 
@@ -337,7 +365,7 @@ func NewWgProxy(id string, ctl protect.Controller, cfg string) (WgProxy, error) 
 
 	err = wgdev.IpcSet(uapicfg)
 	if err != nil {
-		log.E("proxy: wg: failed to ipc-set %v", err)
+		log.E("proxy: wg: %s failed to ipc-set %v", id, err)
 		return nil, err
 	}
 
@@ -346,7 +374,7 @@ func NewWgProxy(id string, ctl protect.Controller, cfg string) (WgProxy, error) 
 
 	err = wgdev.Up()
 	if err != nil {
-		log.E("proxy: wg: failed init %v", err)
+		log.E("proxy: wg: %s failed init %v", id, err)
 		return nil, err
 	}
 
@@ -370,7 +398,7 @@ func NewWgProxy(id string, ctl protect.Controller, cfg string) (WgProxy, error) 
 }
 
 // ref: github.com/WireGuard/wireguard-go/blob/469159ecf7/tun/netstack/tun.go#L54
-func makeWgTun(id string, ifaddrs []netip.Prefix, dnsm *multihost.MH, mtu int) (*wgtun, error) {
+func makeWgTun(id string, ifaddrs, allowedaddrs []netip.Prefix, dnsm, endpointm *multihost.MH, mtu int) (*wgtun, error) {
 	opts := stack.Options{
 		NetworkProtocols:   []stack.NetworkProtocolFactory{ipv4.NewProtocol, ipv6.NewProtocol},
 		TransportProtocols: []stack.TransportProtocolFactory{tcp.NewProtocol, udp.NewProtocol, icmp.NewProtocol6, icmp.NewProtocol4},
@@ -386,6 +414,8 @@ func makeWgTun(id string, ifaddrs []netip.Prefix, dnsm *multihost.MH, mtu int) (
 	t := &wgtun{
 		id:             id,
 		addrs:          ifaddrs,
+		allowed:        allowedaddrs,
+		remote:         endpointm,
 		ep:             ep,
 		stack:          s,
 		events:         make(chan tun.Event, eventssize),
@@ -400,14 +430,14 @@ func makeWgTun(id string, ifaddrs []netip.Prefix, dnsm *multihost.MH, mtu int) (
 	ep.AddNotify(t)
 
 	if err := s.CreateNIC(wgnic, ep); err != nil {
-		return nil, fmt.Errorf("wg: create nic: %v", err)
+		return nil, fmt.Errorf("wg: %s create nic: %v", t.id, err)
 	}
 
 	processed := make(map[string]bool)
 	for _, ipnet := range ifaddrs {
 		ip := ipnet.Addr()
 		if processed[ipnet.String()] {
-			log.W("proxy: wg: skipping duplicate ip %v for ifaddr %v", ip, ipnet)
+			log.W("proxy: wg: %s skipping duplicate ip %v for ifaddr %v", t.id, ip, ipnet)
 			continue
 		}
 		processed[ipnet.String()] = true
@@ -430,11 +460,11 @@ func makeWgTun(id string, ifaddrs []netip.Prefix, dnsm *multihost.MH, mtu int) (
 			AddressWithPrefix: ap,
 		}
 		if err := s.AddProtocolAddress(wgnic, protoaddr, stack.AddressProperties{}); err != nil {
-			return nil, fmt.Errorf("wg: add addr(%v): %v", ip, err)
+			return nil, fmt.Errorf("wg: %s add addr(%v): %v", t.id, ip, err)
 		}
 		t.hasV4 = t.hasV4 || ip.Is4()
 		t.hasV6 = t.hasV6 || ip.Is6()
-		log.D("proxy: wg: added ifaddr(%v)", ip)
+		log.D("proxy: wg: %s added ifaddr(%v)", t.id, ip)
 	}
 	if t.hasV4 {
 		s.AddRoute(tcpip.Route{Destination: header.IPv4EmptySubnet, NIC: wgnic})
@@ -445,6 +475,8 @@ func makeWgTun(id string, ifaddrs []netip.Prefix, dnsm *multihost.MH, mtu int) (
 
 	// commence the wireguard state machine
 	t.events <- tun.EventUp
+
+	log.I("proxy: wg: %s tun: created; dns[%s]; dst[%s]; mtu[%d]", t.id, dnsm, endpointm, tunmtu)
 
 	return t, nil
 }
@@ -466,17 +498,17 @@ func (tun *wgtun) Events() <-chan tun.Event {
 func (tun *wgtun) Read(buf [][]byte, sizes []int, offset int) (int, error) {
 	view, ok := <-tun.incomingPacket
 	if !ok {
-		log.W("wg: tun: read closed")
+		log.W("wg: %s tun: read closed", tun.id)
 		return 0, os.ErrClosed
 	}
 
 	n, err := view.Read(buf[0][offset:])
 	if err != nil {
-		log.W("wg: tun: read(%d): %v", n, err)
+		log.W("wg: %s tun: read(%d): %v", tun.id, n, err)
 		return 0, err
 	}
 
-	log.V("wg: tun: read(%d)", n)
+	log.V("wg: %s tun: read(%d)", tun.id, n)
 	sizes[0] = n
 	return 1, nil
 }
@@ -485,7 +517,7 @@ func (tun *wgtun) Write(bufs [][]byte, offset int) (int, error) {
 	for _, buf := range bufs {
 		pkt := buf[offset:]
 		if len(pkt) == 0 {
-			log.D("wg: tun: write: empty packet")
+			log.D("wg: %s tun: write: empty packet", tun.id)
 			continue
 		}
 
@@ -501,10 +533,10 @@ func (tun *wgtun) Write(bufs [][]byte, offset int) (int, error) {
 		case 6: // IPv6
 			tun.ep.InjectInbound(header.IPv6ProtocolNumber, pkb) // write to ep
 		default:
-			log.W("wg: tun: write: unknown proto %d; discard %d", protoid, sz)
+			log.W("wg: %s tun: write: unknown proto %d; discard %d", tun.id, protoid, sz)
 			return 0, syscall.EAFNOSUPPORT
 		}
-		log.V("wg: tun: write: sz(%d); proto %d", sz, protoid)
+		log.V("wg: %s tun: write: sz(%d); proto %d", tun.id, sz, protoid)
 	}
 
 	return len(bufs), nil
@@ -522,27 +554,27 @@ func (tun *wgtun) WriteNotify() {
 	pkt.DecRef()
 
 	sz := view.Size()
-	log.V("wg: tun: write: notify sz(%d)", sz)
+	log.V("wg: %s tun: write: notify sz(%d)", tun.id, sz)
 
 	select {
 	case tun.incomingPacket <- view:
 	default:
 		e := tun.status == END
-		log.W("wg: tun: write: closed? %t; dropped pkt; sz(%d)", e, sz)
+		log.W("wg: %s tun: write: closed? %t; dropped pkt; sz(%d)", tun.id, e, sz)
 	}
 }
 
 func (tun *wgtun) Close() error {
 	// wgproxy inherits h.status: go.dev/play/p/HeU5EvzAjnv
 	if tun.status == END {
-		log.W("proxy: wg: tun: already closed?")
+		log.W("proxy: wg: %s tun: already closed?", tun.id)
 		return errProxyStopped
 	}
 	var err error
 	tun.once.Do(func() {
 		// TODO: move this to wgproxy.Close()?
 
-		log.D("proxy: wg: tun: closing...")
+		log.D("proxy: wg: %s tun: closing...", tun.id)
 		tun.status = END
 		tun.stack.RemoveNIC(wgnic)
 
@@ -561,7 +593,7 @@ func (tun *wgtun) Close() error {
 		// destroy waits for the stack to close
 		tun.stack.Destroy()
 
-		log.I("proxy: wg: tun: closed")
+		log.I("proxy: wg: %s tun: closed", tun.id)
 	})
 	return err
 }
@@ -580,14 +612,14 @@ func (h *wgtun) Dial(network, address string) (c net.Conn, err error) {
 		return nil, errProxyStopped
 	}
 
-	log.D("wg: dial: start %s %s", network, address)
+	log.D("wg: %s dial: start %s %s", h.id, network, address)
 
 	// DialContext resolves addr if needed; then dialing into all resolved ips.
 	if c, err = h.DialContext(context.TODO(), network, address); err != nil {
 		h.status = TKO
 	} // else: status updated by h.listener
 
-	log.I("wg: dial: end %s %s; err %v", network, address, err)
+	log.I("wg: %s dial: end %s %s; err %v", h.id, network, address, err)
 
 	return
 }
@@ -600,6 +632,10 @@ func (h *wgtun) ID() string {
 
 func (h *wgtun) Type() string {
 	return WG
+}
+
+func (h *wgtun) Router() x.Router {
+	return h
 }
 
 func (h *wgtun) Status() int {
@@ -615,7 +651,7 @@ func (h *wgtun) DNS() string {
 		s += hostname + ","
 	}
 	if len(s) > 0 {
-		log.D("wg: dns hostnames: %s", s)
+		log.D("wg: %s dns hostnames: %s", h.id, s)
 		return strings.TrimRight(s, ",")
 	}
 	for _, dns := range h.dns.Addrs() {
@@ -626,10 +662,35 @@ func (h *wgtun) DNS() string {
 		s += dns.Unmap().String() + ","
 	}
 	if len(s) > 0 {
-		log.D("wg: dns ipaddrs: %s", s)
+		log.D("wg: %s dns ipaddrs: %s", h.id, s)
 		return strings.TrimRight(s, ",")
 	}
 	return nodns
+}
+
+// Implements Router
+func (h *wgtun) IP4() bool { return h.hasV4 }
+func (h *wgtun) IP6() bool { return h.hasV6 }
+
+func (h *wgtun) Contains(ipprefix string) bool {
+	ip, err1 := netip.ParseAddr(ipprefix)
+	if err1 != nil {
+		if ipnet, err2 := netip.ParsePrefix(ipprefix); err2 != nil {
+			log.W("wg: %s router: contains: invalid ip/prefix %s; errs: [%v, %v]", h.id, ipprefix, err1, err2)
+			return false
+		} else {
+			ip = ipnet.Addr()
+		}
+	}
+
+	for _, r := range h.allowed {
+		y := r.Contains(ip)
+		log.D("wg: %s router: contains: %s in %s? %t", h.id, ip, r, y)
+		if y {
+			return y
+		}
+	}
+	return false
 }
 
 func (h *wgtun) listener(op string, err error) {

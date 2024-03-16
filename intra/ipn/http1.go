@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"time"
 
+	x "github.com/celzero/firestack/intra/backend"
 	"github.com/celzero/firestack/intra/dialers"
 	tx "github.com/celzero/firestack/intra/ipn/h1"
 	"github.com/celzero/firestack/intra/log"
@@ -123,6 +124,10 @@ func (h *http1) ID() string {
 
 func (h *http1) Type() string {
 	return HTTP1
+}
+
+func (*http1) Router() x.Router {
+	return PROXYGATEWAY
 }
 
 func (h *http1) GetAddr() string {

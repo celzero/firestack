@@ -34,7 +34,7 @@ func (pxr *proxifier) addProxy(id, txt string) (p Proxy, err error) {
 			if wgp, ok := p.(WgProxy); ok && wgp.canUpdate(txt) {
 				log.I("proxy: updating wg %s/%s", id, p.GetAddr())
 
-				ifaddrs, dnsh, mtu, err0 := wgIfConfigOf(&txt) // removes wg ifconfig from txt
+				ifaddrs, _, dnsh, _, mtu, err0 := wgIfConfigOf(&txt) // removes wg ifconfig from txt
 				if err0 != nil {
 					log.W("proxy: err0 updating wg(%s); %v", id, err0)
 					return nil, err0

@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 
+	x "github.com/celzero/firestack/intra/backend"
 	"github.com/celzero/firestack/intra/dialers"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
@@ -88,6 +89,10 @@ func (h *exit) ID() string {
 
 func (h *exit) Type() string {
 	return INTERNET
+}
+
+func (*exit) Router() x.Router {
+	return PROXYGATEWAY
 }
 
 func (h *exit) GetAddr() string {

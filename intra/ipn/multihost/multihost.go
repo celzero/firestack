@@ -20,6 +20,10 @@ type MH struct {
 	addrs []netip.Addr
 }
 
+func (h *MH) String() string {
+	return strings.Join(h.straddrs(), ",")
+}
+
 func (h *MH) straddrs() []string {
 	a := make([]string, len(h.addrs))
 	for _, ip := range h.addrs {
