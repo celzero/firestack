@@ -39,6 +39,7 @@ const maxFailLimit = 4
 var zeroaddr = netip.Addr{}
 
 type IPMapper interface {
+	Lookup(q []byte) ([]byte, error)
 	LookupNetIP(ctx context.Context, network, host string) ([]netip.Addr, error)
 }
 
@@ -86,7 +87,7 @@ func NewIPMap() IPMap {
 func NewIPMapFor(r IPMapper) IPMap {
 	return &ipmap{
 		m: make(map[string]*IPSet),
-		r: r,
+		r: r, // may be nil
 	}
 }
 
@@ -96,10 +97,19 @@ func (m *ipmap) With(r IPMapper) {
 }
 
 // Implements IPMapper.
+func (m *ipmap) Lookup(q []byte) ([]byte, error) {
+	r := m.r // actual ipmapper implementation
+	if r == nil {
+		return nil, &net.DNSError{Err: "no resolver", Name: "query", Server: "localhost"}
+	}
+	return r.Lookup(q)
+}
+
+// Implements IPMapper.
 func (m *ipmap) LookupNetIP(ctx context.Context, network, host string) ([]netip.Addr, error) {
 	r := m.r // actual ipmapper implementation
 	if r == nil {
-		return nil, &net.DNSError{Err: "no resolver", Name: host}
+		return nil, &net.DNSError{Err: "no resolver", Name: host, Server: "localhost"}
 	}
 	return r.LookupNetIP(ctx, network, host)
 }

@@ -10,6 +10,7 @@ import (
 	"context"
 	"errors"
 	"net/netip"
+	"strconv"
 	"strings"
 	"time"
 
@@ -51,6 +52,34 @@ func str2ip(host string) (netip.Addr, error) {
 	return netip.ParseAddr(host)
 }
 
+// Implements IPMapper.
+func (m *ipmapper) Lookup(q []byte) ([]byte, error) {
+	msg := xdns.AsMsg(q)
+	if msg == nil {
+		log.W("ipmapper: not a dns query sz(%d)", len(q))
+		return nil, errQueryParse
+	}
+	qname := xdns.QName(msg)
+	if len(qname) <= 0 {
+		log.W("ipmapper: query: no qname")
+		return nil, errNoHost
+	}
+	qtype := xdns.QType(msg)
+
+	v, _ := m.ba.Do(key(qname, strconv.Itoa(int(qtype))), resolve(m.r, q))
+
+	if v.Err != nil || v == nil {
+		log.W("ipmapper: query: noans? %t [err %v] for %s / typ %d", v == nil, v.Err, qname, qtype)
+		return nil, errors.Join(v.Err, errNoAns)
+	} else if val, ok := v.Val.([]byte); !ok {
+		log.W("ipmapper: query: incorrect ans for %s / typ %d", qname, qtype)
+		return nil, errNoAns
+	} else {
+		return val, nil
+	}
+}
+
+// Implements IPMapper.
 func (m *ipmapper) LookupNetIP(ctx context.Context, network, host string) ([]netip.Addr, error) {
 	if len(host) <= 0 {
 		return nil, errNoHost
