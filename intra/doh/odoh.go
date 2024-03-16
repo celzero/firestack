@@ -33,10 +33,10 @@ const odohproxypath = "/proxy" // dns-query in latest spec
 const odohttlsec = 3600        // 1hr
 
 var (
-	noOdohQuery          = errors.New("no odoh request")
-	noOdohCfgQuery       = errors.New("no odoh config request")
-	errNoOdohCfgResponse = errors.New("no odoh config response")
-	errZeroOdohCfgs      = errors.New("no odoh configs found")
+	errMissingOdohQuery       = errors.New("no odoh request")
+	errMissingOdohCfgQuery    = errors.New("no odoh config request")
+	errMissingOdohCfgResponse = errors.New("no odoh config response")
+	errZeroOdohCfgs           = errors.New("no odoh configs found")
 )
 
 // targets:  github.com/DNSCrypt/dnscrypt-resolvers/blob/master/v3/odoh-servers.md
@@ -101,7 +101,7 @@ func (d *transport) asOdohRequest(q []byte) (req *http.Request, err error) {
 			return
 		}
 		if req == nil || req.URL == nil {
-			err = noOdohQuery
+			err = errMissingOdohQuery
 			return
 		}
 		query := req.URL.Query()
@@ -188,7 +188,7 @@ func (d *transport) refreshTargetKeyWellKnown() (ocfg *odoh.ObliviousDoHConfig, 
 		return
 	}
 	if req == nil {
-		err = noOdohCfgQuery
+		err = errMissingOdohCfgQuery
 		return
 	}
 	resp, err = d.wkclient.Do(req)
@@ -196,7 +196,7 @@ func (d *transport) refreshTargetKeyWellKnown() (ocfg *odoh.ObliviousDoHConfig, 
 		return
 	}
 	if resp == nil || resp.Body == nil {
-		err = errNoOdohCfgResponse
+		err = errMissingOdohCfgResponse
 		return
 	}
 	bodyBytes, err := io.ReadAll(resp.Body)
@@ -244,7 +244,7 @@ func (d *transport) refreshTargetKeyDNS() (ocfg *odoh.ObliviousDoHConfig, exp ti
 	cres := xdns.AsMsg(cr)
 	if cres == nil || len(cres.Answer) <= 0 {
 		log.W("odoh: refresh-target: no config ans")
-		err = errNoOdohCfgResponse
+		err = errMissingOdohCfgResponse
 		return
 	}
 
@@ -284,7 +284,7 @@ func (d *transport) refreshTargetKeyDNS() (ocfg *odoh.ObliviousDoHConfig, exp ti
 
 	log.W("odoh: refresh-target: no config in https/svcb %d", len(cres.Answer))
 	log.V("odoh: refresh-target: dns ans %v", cres.Answer)
-	err = errNoOdohCfgResponse
+	err = errMissingOdohCfgResponse
 	return
 }
 
