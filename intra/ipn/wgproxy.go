@@ -192,7 +192,7 @@ func (w *wgproxy) canUpdate(txt string) bool {
 		log.D("proxy: wg: !canUpdate(%s): mtu %d != %d", w.id, mtu, w.mtu)
 		return false
 	}
-	if !dnsh.EqualAddrs(w.dns) {
+	if dnsh != nil && !dnsh.EqualAddrs(w.dns) {
 		log.D("proxy: wg: !canUpdate(%s): new/mismatched dns", w.id)
 		return false
 	}
@@ -235,7 +235,7 @@ func wgIfConfigOf(txtptr *string) (ifaddrs []netip.Prefix, allowedaddrs []netip.
 		line := r.Text()
 		if len(line) <= 0 {
 			// Blank line means terminate operation.
-			if (len(ifaddrs) <= 0) || (dnsh.Len() <= 0) || (mtu <= 0) {
+			if (len(ifaddrs) <= 0) || dnsh == nil || (dnsh.Len() <= 0) || (mtu <= 0) {
 				err = errProxyConfig
 			}
 			return
@@ -415,7 +415,7 @@ func makeWgTun(id string, ifaddrs, allowedaddrs []netip.Prefix, dnsm, endpointm 
 		id:             id,
 		addrs:          ifaddrs,
 		allowed:        allowedaddrs,
-		remote:         endpointm,
+		remote:         endpointm, // may be nil
 		ep:             ep,
 		stack:          s,
 		events:         make(chan tun.Event, eventssize),
