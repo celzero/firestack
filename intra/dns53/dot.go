@@ -215,7 +215,7 @@ func (t *dot) Query(network string, q []byte, smm *x.DNSSummary) ([]byte, error)
 	smm.RTtl = xdns.RTtl(ans)
 	smm.Server = t.GetAddr()
 	if t.relay != nil {
-		smm.RelayServer = t.relay.GetAddr()
+		smm.RelayServer = x.SummaryProxyLabel + t.relay.ID()
 	} else if !dnsx.IsLocalProxy(pid) {
 		smm.RelayServer = x.SummaryProxyLabel + pid
 	}

@@ -86,7 +86,7 @@ func newTransport(id string, do *settings.DNSOptions, px ipn.Proxies, ctl protec
 		addrport: do.AddrPort(), // may be hostname:port or ip:port
 		status:   dnsx.Start,
 		dialer:   d,
-		proxies:  px,    // may be nil; see above
+		proxies:  px,    // never nil; see above
 		relay:    relay, // may be nil
 		est:      core.NewP50Estimator(),
 	}
@@ -251,7 +251,7 @@ func (t *transport) Query(network string, q []byte, smm *x.DNSSummary) (r []byte
 	smm.RTtl = xdns.RTtl(ans)
 	smm.Server = t.GetAddr()
 	if t.relay != nil {
-		smm.RelayServer = t.relay.GetAddr()
+		smm.RelayServer = x.SummaryProxyLabel + t.relay.ID()
 	} else if !dnsx.IsLocalProxy(pid) {
 		smm.RelayServer = x.SummaryProxyLabel + pid
 	}

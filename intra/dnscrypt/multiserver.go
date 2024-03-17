@@ -332,7 +332,7 @@ func resolve(network string, data []byte, si *serverinfo, smm *x.DNSSummary) (re
 	noAnonRelay := len(anonrelay) <= 0
 	if si != nil && noAnonRelay {
 		if si.relay != nil {
-			smm.RelayServer = si.relay.GetAddr()
+			smm.RelayServer = x.SummaryProxyLabel + si.relay.ID()
 		} else if !dnsx.IsLocalProxy(pid) {
 			smm.RelayServer = x.SummaryProxyLabel + pid
 		}
