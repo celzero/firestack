@@ -39,7 +39,9 @@ const maxFailLimit = 4
 var zeroaddr = netip.Addr{}
 
 type IPMapper interface {
-	Lookup(q []byte) ([]byte, error)
+	// net.Resolver does not impl Lookup
+	// IPMapper must confirm to net.Resolver
+	// Lookup(q []byte) ([]byte, error)
 	LookupNetIP(ctx context.Context, network, host string) ([]netip.Addr, error)
 }
 
@@ -96,14 +98,14 @@ func (m *ipmap) With(r IPMapper) {
 	m.r = r // may be nil
 }
 
-// Implements IPMapper.
+/* Implements IPMapper.
 func (m *ipmap) Lookup(q []byte) ([]byte, error) {
 	r := m.r // actual ipmapper implementation
 	if r == nil {
 		return nil, &net.DNSError{Err: "no resolver", Name: "query", Server: "localhost"}
 	}
 	return r.Lookup(q)
-}
+}*/
 
 // Implements IPMapper.
 func (m *ipmap) LookupNetIP(ctx context.Context, network, host string) ([]netip.Addr, error) {
@@ -125,6 +127,7 @@ func (m *ipmap) Add(hostOrIP string) *IPSet {
 func (m *ipmap) Get(hostOrIP string) *IPSet {
 	s := m.get(hostOrIP)
 	if s.Empty() {
+		log.I("ipmap: Get: resolving", hostOrIP)
 		if ok := s.add(hostOrIP); !ok {
 			log.W("ipmap: Get: zero ips for %s", hostOrIP)
 		}
@@ -305,14 +308,16 @@ func (s *IPSet) clear() {
 
 // Disconfirm sets the confirmed address to zeroaddr if the current confirmed address
 // is the provided ip.
-func (s *IPSet) Disconfirm(ip netip.Addr) {
+func (s *IPSet) Disconfirm(ip netip.Addr) (ok bool) {
 	if ip.Compare(s.Confirmed()) == 0 {
 		s.fails++
 		s.confirmed.Store(zeroaddr)
+		ok = true
 	}
 	if s.fails > len(s.ips) || s.fails > maxFailLimit {
 		// empty out the set, may be refilled by Get()
 		s.clear()
 		s.fails = 0
 	}
+	return
 }

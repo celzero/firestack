@@ -94,8 +94,7 @@ func Disconfirm(hostOrIP string, ip net.Addr) bool {
 	ips := ipm.GetAny(hostOrIP)
 	if ips != nil {
 		if ip, err := netip.ParseAddr(ip.String()); err == nil {
-			ips.Disconfirm(ip)
-			return true
+			return ips.Disconfirm(ip)
 		} // not ok
 	} // not ok
 	return false
