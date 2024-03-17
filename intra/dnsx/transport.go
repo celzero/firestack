@@ -185,7 +185,7 @@ func (r *resolver) Add(dt x.DNSTransport) (ok bool) {
 		return false
 	}
 	if t.ID() == Default || cachedTransport(t) {
-		log.W("dns: cannot re-add default/cached transports; ignoring: ", t.GetAddr())
+		log.W("dns: cannot re-add default/cached transports; ignoring: %s", t.GetAddr())
 		return false
 	}
 
@@ -517,7 +517,7 @@ func (r *resolver) dnsudp(q []byte, w io.WriteCloser) error {
 }
 
 // reply DNS-over-UDP from a stub resolver.
-func (r *resolver) reply(c io.ReadWriteCloser) {
+func (r *resolver) reply(c protect.Conn) {
 	defer c.Close()
 
 	start := time.Now()
@@ -531,11 +531,8 @@ func (r *resolver) reply(c io.ReadWriteCloser) {
 			core.Recycle(qptr)
 		}
 
-		switch x := c.(type) {
-		case core.UDPConn:
-			tm := time.Now().Add(ttl2m)
-			_ = x.SetDeadline(tm)
-		}
+		tm := time.Now().Add(ttl2m)
+		_ = c.SetDeadline(tm)
 
 		n, err := c.Read(q)
 
@@ -545,8 +542,8 @@ func (r *resolver) reply(c io.ReadWriteCloser) {
 		}
 
 		if err != nil {
-			ms := int(time.Since(start).Seconds() * 1000)
-			log.D("dns: udp: done; tot: %d, t: %ds, err: %v", cnt, ms, err)
+			secs := int(time.Since(start).Seconds() * 1000)
+			log.D("dns: udp: done; tot: %d, t: %ds, err: %v", cnt, secs, err)
 			free()
 			break
 		}
