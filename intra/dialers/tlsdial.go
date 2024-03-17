@@ -23,7 +23,11 @@ func tlsConnect(d *tls.Dialer, proto, sni string, ip netip.Addr, port int) (net.
 	if d == nil {
 		log.E("tlsdial: tlsConnect: nil dialer")
 		return nil, errNoDialer
+	} else if !ipok(ip) {
+		log.E("tlsdial: tlsConnect: invalid ip", ip)
+		return nil, errNoIps
 	}
+
 	switch proto {
 	case "tcp", "tcp4", "tcp6":
 		fallthrough
@@ -62,6 +66,7 @@ func tlsdial(d *tls.Dialer, network, addr string, connect tlsConnectFunc) (net.C
 	ips := ipm.Get(domain)
 	confirmed := ips.Confirmed()
 	if ipok(confirmed) {
+		log.V("tlsdial: confirmed ip %s for %s", confirmed, addr)
 		if conn, cerr := connect(d, network, domain, confirmed, port); cerr == nil {
 			log.V("tlsdial: found working ip %s for %s", confirmed, addr)
 			return conn, nil
@@ -90,6 +95,7 @@ func tlsdial(d *tls.Dialer, network, addr string, connect tlsConnectFunc) (net.C
 			break
 		}
 		if ipok(ip) {
+			log.V("tlsdial: trying ip %s for %s", ip, addr)
 			if conn, err := connect(d, network, domain, ip, port); err == nil {
 				ips.Confirm(ip)
 				log.I("tlsdial: found working ip %s for %s", ip, addr)

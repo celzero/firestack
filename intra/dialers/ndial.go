@@ -26,7 +26,11 @@ func netConnect(d *net.Dialer, proto string, ip netip.Addr, port int) (net.Conn,
 	if d == nil {
 		log.E("ndial: netConnect: nil dialer")
 		return nil, errNoDialer
+	} else if !ipok(ip) {
+		log.E("ndial: netConnect: invalid ip", ip)
+		return nil, errNoIps
 	}
+
 	switch proto {
 	case "tcp", "tcp4", "tcp6":
 		fallthrough
@@ -59,6 +63,7 @@ func netdial(d *net.Dialer, network, addr string, connect netConnectFunc) (net.C
 	ips := ipm.Get(domain)
 	confirmed := ips.Confirmed()
 	if ipok(confirmed) {
+		log.V("ndial: dialing confirmed ip %s for %s", confirmed, addr)
 		if conn, cerr := connect(d, network, confirmed, port); cerr == nil {
 			log.V("ndial: found working ip %s for %s", confirmed, addr)
 			return conn, nil
@@ -87,6 +92,7 @@ func netdial(d *net.Dialer, network, addr string, connect netConnectFunc) (net.C
 			break
 		}
 		if ipok(ip) {
+			log.V("ndial: dialing ip %s for %s", ip, addr)
 			if conn, err := connect(d, network, ip, port); err == nil {
 				ips.Confirm(ip)
 				log.I("ndial: found working ip %s for %s", ip, addr)

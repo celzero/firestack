@@ -23,6 +23,9 @@ func proxyConnect(d proxy.Dialer, proto string, ip netip.Addr, port int) (net.Co
 	if d == nil {
 		log.E("odial: proxyConnect: nil dialer")
 		return nil, errNoDialer
+	} else if !ipok(ip) {
+		log.E("odial: proxyConnect: invalid ip", ip)
+		return nil, errNoIps
 	}
 
 	switch proto {
@@ -61,6 +64,7 @@ func proxydial(d proxy.Dialer, network, addr string, connect proxyConnectFunc) (
 	ips := ipm.Get(domain)
 	confirmed := ips.Confirmed()
 	if ipok(confirmed) {
+		log.V("pdial: trying confirmed ip %s for %s; duration: %s", confirmed, addr, time.Since(s1))
 		if conn, err = connect(d, network, confirmed, port); err == nil {
 			log.V("pdial: found working ip %s for %s; duration: %s", confirmed, addr, time.Since(s1))
 			return conn, nil
@@ -91,6 +95,7 @@ func proxydial(d proxy.Dialer, network, addr string, connect proxyConnectFunc) (
 			break
 		}
 		if ipok(ip) {
+			log.V("pdial: trying ip%d %s for %s; duration: %s", i, ip, addr, time.Since(s3))
 			if conn, err = connect(d, network, ip, port); err == nil {
 				ips.Confirm(ip)
 				log.I("pdial: found working ip%d %s for %s; duration: %s", i, ip, addr, time.Since(s3))

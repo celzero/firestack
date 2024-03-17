@@ -39,7 +39,11 @@ func ipConnect(d *protect.RDial, proto string, ip netip.Addr, port int) (net.Con
 	if d == nil {
 		log.E("rdial: ipConnect: nil dialer")
 		return nil, errNoDialer
+	} else if !ipok(ip) {
+		log.E("rdial: ipConnect: invalid ip", ip)
+		return nil, errNoIps
 	}
+
 	switch proto {
 	case "tcp", "tcp4", "tcp6":
 		return d.DialTCP(proto, nil, tcpaddr(ip, port))
@@ -54,8 +58,11 @@ func ipConnect(d *protect.RDial, proto string, ip netip.Addr, port int) (net.Con
 // net.Conn may not be any among net.UDPConn or net.TCPConn or core.UDPConn or core.TCPConn
 func ipConnect2(d *protect.RDial, proto string, ip netip.Addr, port int) (net.Conn, error) {
 	if d == nil {
-		log.E("rdial: ipConnect: nil dialer")
+		log.E("rdial: ipConnect2: nil dialer")
 		return nil, errNoDialer
+	} else if !ipok(ip) {
+		log.E("rdial: ipConnect2: invalid ip", ip)
+		return nil, errNoIps
 	}
 	return d.Dial(proto, addr(ip, port))
 }
@@ -69,7 +76,11 @@ func splitIpConnect(d *protect.RDial, proto string, ip netip.Addr, port int) (ne
 	if d == nil {
 		log.E("rdial: splitIpConnect: nil dialer")
 		return nil, errNoDialer
+	} else if !ipok(ip) {
+		log.E("rdial: splitIpConnect: invalid ip", ip)
+		return nil, errNoIps
 	}
+
 	switch proto {
 	case "tcp", "tcp4", "tcp6":
 		if doSplit(port) { // split tls client-hello for https requests
@@ -85,9 +96,13 @@ func splitIpConnect(d *protect.RDial, proto string, ip netip.Addr, port int) (ne
 
 func splitIpConnect2(d *protect.RDial, proto string, ip netip.Addr, port int) (net.Conn, error) {
 	if d == nil {
-		log.E("rdial: splitIpConnect: nil dialer")
+		log.E("rdial: splitIpConnect2: nil dialer")
 		return nil, errNoDialer
+	} else if !ipok(ip) {
+		log.E("rdial: splitIpConnect2: invalid ip", ip)
+		return nil, errNoIps
 	}
+
 	switch proto {
 	case "tcp", "tcp4", "tcp6":
 		if doSplit(port) { // split tls client-hello for https requests
@@ -124,8 +139,9 @@ func commondial(d *protect.RDial, network, addr string, connect connectFunc) (ne
 	ips := ipm.Get(domain)
 	confirmed := ips.Confirmed() // may be zeroaddr
 	if ipok(confirmed) {
+		log.V("rdial: commondial: dialing confirmed ip %s for %s", confirmed, addr)
 		if conn, err = connect(d, network, confirmed, port); err == nil {
-			log.V("rdial: commondial: found working ip %s for %s", confirmed, addr)
+			log.V("rdial: commondial: ip %s works for %s", confirmed, addr)
 			return conn, nil
 		}
 		errs = errors.Join(errs, err)
@@ -152,8 +168,9 @@ func commondial(d *protect.RDial, network, addr string, connect connectFunc) (ne
 		}
 		if ipok(ip) {
 			if conn, err = connect(d, network, ip, port); err == nil {
+				log.V("rdial: commondial: dialing ip %s for %s", ip, addr)
 				ips.Confirm(ip)
-				log.I("rdial: commondial: found working ip %s for %s", ip, addr)
+				log.I("rdial: commondial: ip %s works for %s", ip, addr)
 				return conn, nil
 			}
 			errs = errors.Join(errs, err)
