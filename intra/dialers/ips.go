@@ -45,19 +45,18 @@ func renew(hostOrIP string, existing *ipmap.IPSet) (cur *ipmap.IPSet, ok bool) {
 	if existing.Empty() {
 		// if empty, discard seed, re-resolve hostOrIP; oft times, ipset is
 		// empty when its ips have been disconfirmed beyond some threshold
-		cur = ipm.Get(hostOrIP)
+		cur = ipm.Add(hostOrIP)
+		return cur, !cur.Empty()
 	} else {
 		// if non-empty, renew hostOrIP with seed addrs
-		New(hostOrIP, existing.Seed())
-		// then, re-resolve hostOrIP
-		cur = ipm.Add(hostOrIP)
+		return New(hostOrIP, existing.Seed())
 	}
-	return cur, !cur.Empty()
 }
 
 // New re-seeds hostOrIP with a new set of addresses
 func New(hostOrIP string, addrs []string) (*ipmap.IPSet, bool) {
-	ips := ipm.MakeIPSet(hostOrIP, addrs)
+	ipm.MakeIPSet(hostOrIP, addrs)
+	ips := ipm.Add(hostOrIP)
 	return ips, !ips.Empty()
 }
 
