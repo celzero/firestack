@@ -251,26 +251,26 @@ func wgIfConfigOf(txtptr *string) (ifaddrs []netip.Prefix, allowedaddrs []netip.
 		// process interface config; Address, DNS, ListenPort, MTU
 		// github.com/WireGuard/wireguard-android/blob/713947e432/tunnel/src/main/java/com/wireguard/config/Interface.java#L232
 		switch k {
-		case "address":
-			if ifaddrs, err = loadIPNets(v); err != nil {
+		case "address": // may exist more than once
+			if err = loadIPNets(&ifaddrs, v); err != nil {
 				return
 			}
 		case "dns":
-			dnsh = loadMH(v)
+			loadMH(dnsh, v)
 		case "mtu":
 			if mtu, err = strconv.Atoi(v); err != nil {
 				return
 			}
-		case "allowed_ip":
-			if allowedaddrs, err = loadIPNets(v); err != nil {
+		case "allowed_ip": // may exist more than once
+			if err = loadIPNets(&allowedaddrs, v); err != nil {
 				return
 			}
 			// carry over allowed_ips
 			log.V("proxy: wg: ifconfig: skipping key %q", k)
 			pcfg.WriteString(line + "\n")
-		case "endpoint":
+		case "endpoint": // may exist more than once
 			// TODO: endpoint could be v4 or v6 or a hostname
-			endpointh = loadMH(v)
+			loadMH(endpointh, v)
 			// carry over endpoints
 			log.V("proxy: wg: ifconfig: skipping key %q", k)
 			pcfg.WriteString(line + "\n")
@@ -286,14 +286,15 @@ func wgIfConfigOf(txtptr *string) (ifaddrs []netip.Prefix, allowedaddrs []netip.
 	return
 }
 
-func loadMH(v string) *multihost.MH {
-	mh := new(multihost.MH)
+func loadMH(mh *multihost.MH, v string) {
+	if mh == nil {
+		return
+	}
 	vv := strings.Split(v, ",")
 	mh.With(vv)
-	return mh
 }
 
-func loadIPNets(v string) (out []netip.Prefix, err error) {
+func loadIPNets(out *[]netip.Prefix, v string) (err error) {
 	var ip netip.Addr
 	// may be a csv: "172.1.0.2/32, 2000:db8::2/128"
 	vv := strings.Split(v, ",")
@@ -304,12 +305,12 @@ func loadIPNets(v string) (out []netip.Prefix, err error) {
 			if ipnet, err = netip.ParsePrefix(str); err != nil {
 				return
 			}
-			out = append(out, ipnet)
+			*out = append(*out, ipnet)
 		} else { // add prefix to address
 			if ipnet, err = ip.Prefix(ip.BitLen()); err != nil {
 				return
 			}
-			out = append(out, ipnet)
+			*out = append(*out, ipnet)
 		}
 	}
 	return
