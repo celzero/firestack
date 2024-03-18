@@ -231,6 +231,8 @@ func wgIfConfigOf(txtptr *string) (ifaddrs []netip.Prefix, allowedaddrs []netip.
 	txt := *txtptr
 	pcfg := strings.Builder{}
 	r := bufio.NewScanner(strings.NewReader(txt))
+	dnsh = new(multihost.MH)
+	endpointh = new(multihost.MH)
 	for r.Scan() {
 		line := r.Text()
 		if len(line) <= 0 {
