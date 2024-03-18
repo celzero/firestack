@@ -268,10 +268,12 @@ func (s *IPSet) Empty() bool {
 // The slice is owned by the caller, but the elements are owned by the set.
 func (s *IPSet) Addrs() []netip.Addr {
 	s.RLock()
-	if len(s.ips) <= 0 {
+	sz := len(s.ips)
+	if sz <= 0 {
+		s.RUnlock()
 		return nil
 	}
-	c := make([]netip.Addr, 0, len(s.ips))
+	c := make([]netip.Addr, 0, sz)
 	c = append(c, s.ips...)
 	s.RUnlock()
 
