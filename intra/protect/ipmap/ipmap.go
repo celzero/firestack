@@ -118,7 +118,7 @@ func (m *ipmap) LookupNetIP(ctx context.Context, network, host string) ([]netip.
 
 func (m *ipmap) Add(hostOrIP string) *IPSet {
 	s := m.get(hostOrIP)
-	log.I("ipmap: Add: resolving", hostOrIP)
+	log.I("ipmap: Add: resolving %s", hostOrIP)
 	if ok := s.add(hostOrIP); !ok {
 		log.W("ipmap: Add: zero ips for %s", hostOrIP)
 	}
@@ -128,7 +128,7 @@ func (m *ipmap) Add(hostOrIP string) *IPSet {
 func (m *ipmap) Get(hostOrIP string) *IPSet {
 	s := m.get(hostOrIP)
 	if s.Empty() {
-		log.I("ipmap: Get: resolving", hostOrIP)
+		log.I("ipmap: Get: resolving %s", hostOrIP)
 		if ok := s.add(hostOrIP); !ok {
 			log.W("ipmap: Get: zero ips for %s", hostOrIP)
 		}
