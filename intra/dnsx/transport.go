@@ -656,15 +656,26 @@ func (r *resolver) LiveTransports() string {
 	return trimcsv(s)
 }
 
-func (r *resolver) preferencesFrom(qname string, s *x.DNSOpts, chosenids ...string) (id1, id2, pid, ips string) {
+func (r *resolver) preferencesFrom(qname string, s *x.DNSOpts, chosenids ...string) (id1, id2, pid string, ips []netip.Addr) {
 	var x []string
 	if s == nil { // should never happen; but it has during testing
 		log.W("dns: pref: no ns opts for %s", qname)
 		x = nil
 	} else {
 		x = strings.Split(s.TIDCSV, ",")
-		ips = s.IPCSV // comma-separated list of IPs
+		if y := strings.Split(s.IPCSV, ","); len(y) > 0 {
+			ips = make([]netip.Addr, 0, len(y))
+			for _, a := range y {
+				ip, err := netip.ParseAddr(a)
+				if err != nil || !ip.IsValid() {
+					log.W("dns: pref: skip bad ip %s for %s", a, qname)
+					continue
+				}
+				ips = append(ips, ip)
+			}
+		}
 	}
+
 	l := len(x)
 	if x == nil || l <= 0 { // x may be nil
 		log.W("dns: pref: no tids for %s", qname)
@@ -686,7 +697,7 @@ func (r *resolver) preferencesFrom(qname string, s *x.DNSOpts, chosenids ...stri
 			id2 = chosenids[1]
 		}
 		log.D("dns: pref: use chosen tr(%s, %s) for %s", id1, id2, qname)
-	} else if isAnyBlockAll(id1, id2) { // just one transport, BlockAll, if set
+	} else if isAnyBlockAll(id1, id2) || isAnyIPUnspecified(ips) { // just one transport, BlockAll, if set
 		id1 = BlockAll
 		id2 = ""
 	} else if reqid := r.requiresGoosOrLocal(qname); len(reqid) > 0 { // use approp transport given a qname
@@ -765,6 +776,15 @@ func isTransportID(match string, ids ...string) bool {
 
 func isAnyBlockAll(ids ...string) bool {
 	return isTransportID(BlockAll, ids...)
+}
+
+func isAnyIPUnspecified(ips []netip.Addr) bool {
+	for _, ip := range ips {
+		if ip.IsUnspecified() {
+			return true
+		}
+	}
+	return false
 }
 
 func isAnyLocal(ids ...string) bool {
