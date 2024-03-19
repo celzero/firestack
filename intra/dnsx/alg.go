@@ -59,7 +59,7 @@ type Gateway interface {
 	// translate overwrites ip answers to alg ip answers
 	translate(yes bool)
 	// Query using t1 as primary transport and t2 as secondary and preset as pre-determined ip answers
-	q(t1 Transport, t2 Transport, preset []netip.Addr, network string, q []byte, s *x.DNSSummary) (r []byte, err error)
+	q(t1 Transport, t2 Transport, preset []*netip.Addr, network string, q []byte, s *x.DNSSummary) (r []byte, err error)
 	// clear obj state
 	stop()
 }
@@ -231,7 +231,7 @@ func (t *dnsgateway) querySecondary(t2 Transport, network string, q []byte, out 
 }
 
 // Implements Gateway
-func (t *dnsgateway) q(t1, t2 Transport, preset []netip.Addr, network string, q []byte, summary *x.DNSSummary) (r []byte, err error) {
+func (t *dnsgateway) q(t1, t2 Transport, preset []*netip.Addr, network string, q []byte, summary *x.DNSSummary) (r []byte, err error) {
 	if t1 == nil {
 		return nil, errNoTransportAlg
 	}
@@ -811,9 +811,9 @@ func hash48(s string) uint64 {
 	return (uint64(v64>>48) ^ uint64(v64)) & 0xFFFFFFFFFFFF // 48 bits
 }
 
-func synthesizeOrQuery(ips []netip.Addr, tr Transport, q []byte, network string, smm *x.DNSSummary) ([]byte, error) {
+func synthesizeOrQuery(pre []*netip.Addr, tr Transport, q []byte, network string, smm *x.DNSSummary) ([]byte, error) {
 	// synthesize a response with the given ips
-	if len(ips) == 0 {
+	if len(pre) == 0 {
 		return query(tr, network, q, smm)
 	}
 	msg := xdns.AsMsg(q)
@@ -850,7 +850,7 @@ func synthesizeOrQuery(ips []netip.Addr, tr Transport, q []byte, network string,
 		}
 		var ok4, ok6 bool
 		ttl := int(xdns.AnsTTL)
-		ip4s, ip6s := splitIPFamilies(ips)
+		ip4s, ip6s := splitIPFamilies(pre)
 		if len(ip4s) > 0 {
 			ok4 = xdns.SubstSVCBRecordIPs( /*out*/ ans, dns.SVCB_IPV4HINT, ip4s, ttl)
 		}
@@ -875,14 +875,25 @@ func query(t Transport, network string, q []byte, smm *x.DNSSummary) ([]byte, er
 	return t.Query(network, q, smm)
 }
 
-func splitIPFamilies(ips []netip.Addr) (ip4s, ip6s []*netip.Addr) {
+func splitIPFamilies(ips []*netip.Addr) (ip4s, ip6s []*netip.Addr) {
 	for _, ip := range ips {
-		ip = ip.Unmap()
-		if ip.Is4() {
-			ip4s = append(ip4s, &ip)
-		} else if ip.Is6() {
-			ip6s = append(ip6s, &ip)
+		if ip == nil {
+			continue
 		}
+		*ip = ip.Unmap()
+		if ip.Is4() {
+			ip4s = append(ip4s, ip)
+		} else if ip.Is6() {
+			ip6s = append(ip6s, ip)
+		}
+	}
+	return
+}
+
+// unptr removes pointer from a slice of pointers of type T
+func unptr[t any](p []*t) (v []t) {
+	for _, x := range p {
+		v = append(v, *x)
 	}
 	return
 }

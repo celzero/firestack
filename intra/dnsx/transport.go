@@ -663,7 +663,7 @@ func (r *resolver) LiveTransports() string {
 	return trimcsv(s)
 }
 
-func (r *resolver) preferencesFrom(qname string, qtyp uint16, s *x.DNSOpts, chosenids ...string) (id1, id2, pid string, ips []netip.Addr) {
+func (r *resolver) preferencesFrom(qname string, qtyp uint16, s *x.DNSOpts, chosenids ...string) (id1, id2, pid string, ips []*netip.Addr) {
 	var x []string
 	if s == nil { // should never happen; but it has during testing
 		log.W("dns: pref: no ns opts for %s", qname)
@@ -671,7 +671,7 @@ func (r *resolver) preferencesFrom(qname string, qtyp uint16, s *x.DNSOpts, chos
 	} else {
 		x = strings.Split(s.TIDCSV, ",")
 		if y := strings.Split(s.IPCSV, ","); len(y) > 0 {
-			ips = make([]netip.Addr, 0, len(y))
+			ips = make([]*netip.Addr, 0, len(y))
 			for _, a := range y {
 				ip, err := netip.ParseAddr(a)
 				if err != nil || !ip.IsValid() {
@@ -790,7 +790,7 @@ func isAnyBlockAll(ids ...string) bool {
 	return isTransportID(BlockAll, ids...)
 }
 
-func isAnyIPUnspecified(ips []netip.Addr) bool {
+func isAnyIPUnspecified(ips []*netip.Addr) bool {
 	for _, ip := range ips {
 		if ip.IsUnspecified() {
 			return true
