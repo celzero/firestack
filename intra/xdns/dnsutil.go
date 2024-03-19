@@ -647,17 +647,18 @@ func SubstAAAARecords(out *dns.Msg, subip6s []*netip.Addr, ttl int) bool {
 	// substitute ips in any a / aaaa records
 	touched := make(map[string]any)
 	rrs := make([]dns.RR, 0)
-	ip6 := subip6s[0].String()
+	i := 0
 	for _, answer := range out.Answer {
 		switch rec := answer.(type) {
 		case *dns.AAAA:
 			// one aaaa rec per name
 			if _, ok := touched[rec.Hdr.Name]; !ok {
 				name := rec.Hdr.Name
-				// fixme: use different ips for different names
+				ip6 := subip6s[i].String() // todo: use different ips for different names
 				touched[rec.Hdr.Name] = struct{}{}
 				if aaaanew := MakeAAAARecord(name, ip6, ttl); aaaanew != nil {
 					rrs = append(rrs, aaaanew)
+					i = (i + 1) % len(subip6s)
 				} else {
 					log.D("dnsutil: subst AAAA rec fail for %s %s %d", name, ip6, ttl)
 				}
@@ -680,17 +681,18 @@ func SubstARecords(out *dns.Msg, subip4s []*netip.Addr, ttl int) bool {
 	// substitute ips in any a / aaaa records
 	touched := make(map[string]any)
 	rrs := make([]dns.RR, 0)
-	ip4 := subip4s[0].Unmap().String()
+	i := 0
 	for _, answer := range out.Answer {
 		switch rec := answer.(type) {
 		case *dns.A:
 			// one a rec per name
 			if _, ok := touched[rec.Hdr.Name]; !ok {
 				name := rec.Hdr.Name
-				// fixme: use different ips for different names
+				ip4 := subip4s[i].Unmap().String() // todo: use different ips for different names
 				touched[rec.Hdr.Name] = struct{}{}
 				if anew := MakeARecord(name, ip4, ttl); anew != nil {
 					rrs = append(rrs, anew)
+					i = (i + 1) % len(subip4s)
 				} else {
 					log.D("dnsutil: subst A rec fail for %s %s %d", name, ip4, ttl)
 				}
@@ -747,13 +749,13 @@ func SubstSVCBRecordIPs(out *dns.Msg, x dns.SVCBKey, subiphints []*netip.Addr, t
 						Hint: []net.IP{subiphints[i].AsSlice()},
 					}
 					rec.Hdr.Ttl = uint32(ttl)
-					i += 1
+					i = (i + 1) % len(subiphints)
 				} else if k == x && x == dns.SVCB_IPV4HINT {
 					rec.Value[j] = &dns.SVCBIPv4Hint{
 						Hint: []net.IP{subiphints[i].AsSlice()},
 					}
 					rec.Hdr.Ttl = uint32(ttl)
-					i += 1
+					i = (i + 1) % len(subiphints)
 				}
 			}
 		case *dns.HTTPS:
@@ -770,13 +772,13 @@ func SubstSVCBRecordIPs(out *dns.Msg, x dns.SVCBKey, subiphints []*netip.Addr, t
 						Hint: []net.IP{subiphints[i].AsSlice()},
 					}
 					rec.Hdr.Ttl = uint32(ttl)
-					i += 1
+					i = (i + 1) % len(subiphints)
 				} else if k == x && x == dns.SVCB_IPV4HINT {
 					rec.Value[j] = &dns.SVCBIPv4Hint{
 						Hint: []net.IP{subiphints[i].AsSlice()},
 					}
 					rec.Hdr.Ttl = uint32(ttl)
-					i += 1
+					i = (i + 1) % len(subiphints)
 				}
 			}
 		}
