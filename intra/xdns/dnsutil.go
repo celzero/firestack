@@ -525,9 +525,11 @@ func RefusedResponseFromMessage(srcMsg *dns.Msg) (dstMsg *dns.Msg, err error) {
 			sendHInfoResponse = false
 		}
 	} else if IsSVCBQuestion(&question) || IsHTTPQuestion(&question) {
-		// NODATA response datatracker.ietf.org/doc/draft-ietf-dnsop-svcb-https/11 pg 37
+		// NODATA datatracker.ietf.org/doc/draft-ietf-dnsop-svcb-https/11 pg 37
 		// prefetch.net/blog/2016/09/28/the-subtleties-between-the-nxdomain-noerror-and-nodata-dns-response-codes/
 		dstMsg.Answer = nil
+		// NOEXTRA datatracker.ietf.org/doc/draft-ietf-dnsop-svcb-https/11 pg 16 sec 4.2
+		dstMsg.Extra = nil
 		sendHInfoResponse = false
 	}
 
