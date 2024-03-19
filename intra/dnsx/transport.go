@@ -345,18 +345,19 @@ func (r *resolver) forward(q []byte, chosenids ...string) (res0 []byte, err0 err
 
 	gw := r.Gateway()
 
-	// block skipped if the transport is alg/block-free
-	res1, blocklists, err := r.blockQ(t, t2, msg)
-	if err == nil {
-		b, e := res1.Pack()
-		summary.Latency = time.Since(starttime).Seconds()
-		summary.Status = Complete
-		summary.Blocklists = blocklists
-		summary.RData = xdns.GetInterestingRData(res1)
-		log.V("dns: fwd: query blocked %s by %s", qname, blocklists)
-		return b, e
-	} else {
-		log.V("dns: fwd: query NOT blocked %s; why? %v", qname, err)
+	if !pref.NOBLOCK { // skip if no block is requested or len(ips) > 0
+		res1, blocklists, err := r.blockQ(t, t2, msg) // skips if the t, t2 are alg/block-free
+		if err == nil {
+			b, e := res1.Pack()
+			summary.Latency = time.Since(starttime).Seconds()
+			summary.Status = Complete
+			summary.Blocklists = blocklists
+			summary.RData = xdns.GetInterestingRData(res1)
+			log.V("dns: fwd: query blocked %s by %s", qname, blocklists)
+			return b, e
+		} else {
+			log.V("dns: fwd: query NOT blocked %s; why? %v", qname, err)
+		}
 	}
 
 	summary.Type = t.Type()
@@ -378,36 +379,39 @@ func (r *resolver) forward(q []byte, chosenids ...string) (res0 []byte, err0 err
 		// summary latency, ips, response, status already set by transport t
 		return res2, err
 	}
+
 	ans1, err := unpack(res2)
 	if err != nil {
 		summary.Status = BadResponse
 		return res2, err
 	}
 
-	ans2, blocklistnames := r.blockA(t, t2, msg, ans1, summary.Blocklists)
+	if !pref.NOBLOCK { // skip if no block is requested or len(ips) > 0
+		ans2, blocklistnames := r.blockA(t, t2, msg, ans1, summary.Blocklists)
 
-	isnewans := ans2 != nil
-	if isnewans {
-		// overwrite if new answer
-		ans1 = ans2
-		res2, err = ans2.Pack()
-		if err != nil {
-			summary.Status = BadResponse
-			return res2, err
+		isnewans := ans2 != nil
+		if isnewans {
+			// overwrite if new answer
+			ans1 = ans2
+			res2, err = ans1.Pack()
+			if err != nil {
+				summary.Status = BadResponse
+				return res2, err
+			}
+			// summary latency, response, status, ips also set by transport t
+			summary.RData = xdns.GetInterestingRData(ans2)
+			summary.RCode = xdns.Rcode(ans2)
+			summary.RTtl = xdns.RTtl(ans2)
+			summary.Status = Complete
 		}
-		// summary latency, response, status, ips also set by transport t
-		summary.RData = xdns.GetInterestingRData(ans2)
-		summary.RCode = xdns.Rcode(ans2)
-		summary.RTtl = xdns.RTtl(ans2)
-		summary.Status = Complete
-	}
-	hasblocklists := len(blocklistnames) > 0
-	if hasblocklists {
-		summary.Blocklists = blocklistnames
-	}
-	ansblocked := xdns.AQuadAUnspecified(ans1)
+		hasblocklists := len(blocklistnames) > 0
+		if hasblocklists {
+			summary.Blocklists = blocklistnames
+		}
+		ansblocked := xdns.AQuadAUnspecified(ans1)
 
-	log.V("dns: fwd: query %s; new-ans? %t, blocklists? %t, blocked? %t", qname, isnewans, hasblocklists, ansblocked)
+		log.V("dns: fwd: query %s; new-ans? %t, blocklists? %t, blocked? %t", qname, isnewans, hasblocklists, ansblocked)
+	}
 
 	return res2, nil
 }

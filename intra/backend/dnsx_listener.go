@@ -28,10 +28,12 @@ type DNSSummary struct {
 type DNSOpts struct {
 	// pid is the proxy to use for this query.
 	PID string
-	// csv of ips to answer for this query.
+	// csv of ips to answer for this query; incl unspecified.
 	IPCSV string
 	// csv of transports ids to use for this query.
 	TIDCSV string
+	// bypass on-device blocklists.
+	NOBLOCK bool
 }
 
 func (s *DNSSummary) Str() string {
