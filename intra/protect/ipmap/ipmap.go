@@ -57,9 +57,9 @@ type IPMap interface {
 	// GetAny creates an IPSet for this hostname, which may be empty.
 	// Subsequent calls to GetAny return the same IPSet. Never returns nil.
 	GetAny(hostOrIP string) *IPSet
-	// MakeIPSet creates an IPSet for this hostname bootstrapped with given IPs.
-	// Subsequent calls to MakeIPSet return a new, overriden IPSet.
-	MakeIPSet(hostOrIP string, ips []string) *IPSet
+	// MakeIPSet creates an IPSet for this hostname bootstrapped with given IPs
+	// or IP:Ports. Subsequent calls to MakeIPSet return a new, overriden IPSet.
+	MakeIPSet(hostOrIP string, ipps []string) *IPSet
 	// With sets the default resolver to use for hostname resolution.
 	With(r IPMapper)
 }
@@ -77,7 +77,7 @@ type IPSet struct {
 	ips          []netip.Addr // All known IPs for the server.
 	confirmed    atomic.Value // netip.Addr confirmed to be working.
 	r            IPMapper     // Resolver to use for hostname resolution.
-	seed         []string     // Bootstrap IPs; may be nil.
+	seed         []string     // Bootstrap ips or ip:ports; may be nil.
 	fails        int          // Number of times the confirmed IP has failed.
 }
 
@@ -156,21 +156,21 @@ func (m *ipmap) get(hostOrIP string) *IPSet {
 	return s
 }
 
-func (m *ipmap) MakeIPSet(hostOrIP string, ips []string) *IPSet {
-	log.D("ipmap: renew: %s / seed: %v", hostOrIP, ips)
+func (m *ipmap) MakeIPSet(hostOrIP string, ipps []string) *IPSet {
+	log.D("ipmap: renew: %s / seed: %v", hostOrIP, ipps)
 	if host, _, err := net.SplitHostPort(hostOrIP); err == nil {
 		hostOrIP = host
 	}
-	return m.makeIPSet(hostOrIP, ips)
+	return m.makeIPSet(hostOrIP, ipps)
 }
 
-func (m *ipmap) makeIPSet(hostname string, ips []string) *IPSet {
-	log.D("ipmap: makeIPSet: %s, seed: %v", hostname, ips)
+func (m *ipmap) makeIPSet(hostname string, ipps []string) *IPSet {
+	log.D("ipmap: makeIPSet: %s, seed: %v", hostname, ipps)
 
-	if ips == nil {
-		ips = []string{}
+	if ipps == nil {
+		ipps = []string{}
 	}
-	s := &IPSet{r: m, seed: ips}
+	s := &IPSet{r: m, seed: ipps}
 	s.confirmed.Store(zeroaddr)
 	s.bootstrap()
 
@@ -204,6 +204,7 @@ func (s *IPSet) addLocked(ip netip.Addr) {
 	}
 }
 
+// Returns bootstrap ips or ip:ports.
 func (s *IPSet) Seed() []string {
 	s.RLock()
 	defer s.RLock()

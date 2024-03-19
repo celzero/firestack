@@ -54,9 +54,9 @@ func renew(hostOrIP string, existing *ipmap.IPSet) (cur *ipmap.IPSet, ok bool) {
 	return cur, !cur.Empty()
 }
 
-// New re-seeds hostOrIP with a new set of addresses
-func New(hostOrIP string, addrs []string) (*ipmap.IPSet, bool) {
-	ips := ipm.MakeIPSet(hostOrIP, addrs)
+// New re-seeds hostOrIP with a new set of ips or ip:ports.
+func New(hostOrIP string, ipps []string) (*ipmap.IPSet, bool) {
+	ips := ipm.MakeIPSet(hostOrIP, ipps)
 	return ips, !ips.Empty()
 }
 
