@@ -827,10 +827,10 @@ func synthesizeOrQuery(ips []netip.Addr, tr Transport, q []byte, network string,
 	isHTTPS := (!is4 && !is6) && xdns.IsHTTPSQType(qtyp)
 	isSVCB := (!is4 && !is6) && xdns.IsSVCBQType(qtyp)
 	if is4 || is6 {
-		// synthesize a response with the given ips
-		ans, err := xdns.AQuadAForQuery(msg, ips...)
-		if err != nil {
-			return nil, err
+		// if no ips are of the same family as the question xdns.AQuadAForQuery returns error
+		ans, err := xdns.AQuadAForQuery(msg, unptr(pre)...)
+		if err != nil { // errors on invalid msg, question, or mismatched ips
+			return query(tr, network, q, smm)
 		}
 		withPresetSummary(smm)
 		smm.RCode = xdns.Rcode(ans)
