@@ -121,17 +121,17 @@ func AddProxyDNS(t Tunnel, p x.Proxy) error {
 	if len(ipsOrHost) == 0 {
 		return dnsx.ErrNoProxyDNS
 	}
-	ipport, err := xdns.DnsIPPort(ipsOrHost[0])
-	hostname := ipsOrHost[0] // could be multiple hostnames, but choose the first
-	if err != nil {          // use hostname
+	first := ipsOrHost[0]
+	ipport, err := xdns.DnsIPPort(first)
+	hostname := first // could be multiple hostnames, but choose the first
+	if err != nil {   // use hostname
 		if dns, err := dns53.NewTransportFromHostname(p.ID(), hostname, "", pxr, g); err != nil {
 			return err
 		} else {
 			return addDNSTransport(r, dns)
 		}
-	}
-	// register transport with the resolver with same id as the proxy
-	if dns, err := dns53.NewTransportFrom(p.ID(), ipport, pxr, g); err != nil {
+		// use ipports; register with same id as the proxy p
+	} else if dns, err := dns53.NewTransportFrom(p.ID(), ipport, pxr, g); err != nil {
 		return err
 	} else {
 		return addDNSTransport(r, dns)
