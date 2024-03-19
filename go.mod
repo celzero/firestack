@@ -9,8 +9,8 @@ require (
 	github.com/jedisct1/xsecretbox v0.0.0-20190909160646-b731c21297f9
 	github.com/k-sone/critbitgo v1.4.0
 	github.com/miekg/dns v1.1.49
-	golang.org/x/crypto v0.14.0
-	golang.org/x/sys v0.13.0
+	golang.org/x/crypto v0.18.0
+	golang.org/x/sys v0.17.0
 )
 
 require (
@@ -20,9 +20,9 @@ require (
 	github.com/elazarl/goproxy v0.0.0-20230808193330-2592e75ae04a
 	github.com/txthinking/socks5 v0.0.0-20220615051428-39268faee3e6
 	golang.org/x/mobile v0.0.0-20220518205345-8578da9835fd
-	golang.org/x/net v0.17.0
+	golang.org/x/net v0.20.0
 	golang.zx2c4.com/wireguard v0.0.0-20230317141804-7f511c3bb16d
-	gvisor.dev/gvisor v0.0.0-20240119233241-c9c1d4f9b186
+	gvisor.dev/gvisor v0.0.0-20240306221502-ee1e1f6070e3
 	nhooyr.io/websocket v1.8.7
 )
 
@@ -38,9 +38,9 @@ require (
 	github.com/patrickmn/go-cache v2.1.0+incompatible // indirect
 	github.com/txthinking/runnergroup v0.0.0-20210608031112-152c7c4432bf // indirect
 	github.com/txthinking/x v0.0.0-20210326105829-476fab902fbe // indirect
-	golang.org/x/mod v0.13.0 // indirect
-	golang.org/x/text v0.13.0 // indirect
-	golang.org/x/time v0.3.0 // indirect
-	golang.org/x/tools v0.14.0 // indirect
+	golang.org/x/mod v0.14.0 // indirect
+	golang.org/x/text v0.14.0 // indirect
+	golang.org/x/time v0.5.0 // indirect
+	golang.org/x/tools v0.16.1 // indirect
 	golang.zx2c4.com/wintun v0.0.0-20230126152724-0fa3db229ce2 // indirect
 )
