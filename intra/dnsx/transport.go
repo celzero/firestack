@@ -678,7 +678,21 @@ func (r *resolver) preferencesFrom(qname string, qtyp uint16, s *x.DNSOpts, chos
 					log.W("dns: pref: skip bad ip %s for %s", a, qname)
 					continue
 				}
-				ips = append(ips, ip)
+				ips = append(ips, &ip) // unmap?
+			}
+		}
+		if len(ips) > 0 {
+			ip4s, ip6s := splitIPFamilies(ips)
+			if xdns.IsAQType(qtyp) {
+				ips = ip4s
+			} else if xdns.IsAAAAQType(qtyp) {
+				ips = ip6s
+			} else if xdns.IsHTTPSQType(qtyp) || xdns.IsSVCBQType(qtyp) {
+				// ips are substituted in after answers are received
+				// so qtype checks are not sufficient
+				// see: synthesizeOrQuery
+			} else {
+				ips = nil // mismatch in query type and ip family
 			}
 		}
 	}
