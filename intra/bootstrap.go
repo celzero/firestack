@@ -49,6 +49,9 @@ type bootstrap struct {
 	hostname       string      // never empty
 }
 
+// NewDefaultDNS creates a new DefaultDNS resolver of type typ. For typ DOH,
+// url scheme is http or https; for typ DNS53, url is ipport or csv(ipport).
+// ips is a csv of ipports for typ DOH, and nil for typ DNS53.
 func NewDefaultDNS(typ, url, ips string) (DefaultDNS, error) {
 	b := new(bootstrap)
 
@@ -116,7 +119,7 @@ func (b *bootstrap) reinit(trtype, ippOrUrl, ipcsv string) error {
 		} else {
 			b.url = ""
 			b.hostname = specialHostname
-			b.ipports = ippOrUrl // always ipaddrs, should never be empty
+			b.ipports = ippOrUrl // always ipaddrs or csv(ipaddrs), never empty
 			b.typ = dnsx.DNS53
 		}
 	}
