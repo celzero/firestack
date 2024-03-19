@@ -100,6 +100,7 @@ func (pxr *proxifier) addProxy(id, txt string) (p Proxy, err error) {
 	}
 
 	if err != nil {
+		log.W("proxy: add %s/%s failed; err: %v", id, txt, err)
 		return nil, err
 	} else if p == nil {
 		return nil, errAddProxy

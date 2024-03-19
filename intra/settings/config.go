@@ -235,7 +235,7 @@ func NewAuthProxyOptions(scheme, username, password, ip, port string, addrs []st
 	ip = strings.TrimSuffix(ip, "/")
 	ipp, err := addrport(ip, port)
 	if err != nil {
-		log.I("proxyopt: ipport(%s:%s) is url?(%v)", ip, port, err)
+		log.I("proxyopt: scheme %s; ipport(%s:%s) is url?(%v)", scheme, ip, port, err)
 		if len(ip) > 0 {
 			// port is discarded, and expected to be in ip/url
 			ippstr = ip
