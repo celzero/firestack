@@ -306,8 +306,8 @@ func (e *endpoint) Wait() {
 }
 
 // AddHeader implements stack.LinkEndpoint.AddHeader.
-func (e *endpoint) AddHeader(pkt stack.PacketBufferPtr) {
-	if e.hdrSize > 0 {
+func (e *endpoint) AddHeader(pkt *stack.PacketBuffer) {
+	if e.hdrSize > 0 && pkt != nil {
 		// Add ethernet header if needed.
 		eth := header.Ethernet(pkt.LinkHeader().Push(header.EthernetMinimumSize))
 		eth.Encode(&header.EthernetFields{
@@ -318,20 +318,26 @@ func (e *endpoint) AddHeader(pkt stack.PacketBufferPtr) {
 	}
 }
 
-func (e *endpoint) parseHeader(pkt stack.PacketBufferPtr) bool {
+func (e *endpoint) parseHeader(pkt *stack.PacketBuffer) bool {
+	if pkt == nil {
+		return false
+	}
 	_, ok := pkt.LinkHeader().Consume(e.hdrSize)
 	return ok
 }
 
 // ParseHeader implements stack.LinkEndpoint.ParseHeader.
-func (e *endpoint) ParseHeader(pkt stack.PacketBufferPtr) bool {
+func (e *endpoint) ParseHeader(pkt *stack.PacketBuffer) bool {
+	if pkt == nil {
+		return false
+	}
 	if e.hdrSize > 0 {
 		return e.parseHeader(pkt)
 	}
 	return true
 }
 
-func (e *endpoint) logPacketIfNeeded(dir sniffer.Direction, pkt stack.PacketBufferPtr) {
+func (e *endpoint) logPacketIfNeeded(dir sniffer.Direction, pkt *stack.PacketBuffer) {
 	if pkt == nil {
 		return
 	}
@@ -409,14 +415,14 @@ func (e *endpoint) ARPHardwareType() header.ARPHardwareType {
 }
 
 // InjectInbound ingresses a netstack-inbound packet.
-func (e *endpoint) InjectInbound(protocol tcpip.NetworkProtocolNumber, pkt stack.PacketBufferPtr) {
+func (e *endpoint) InjectInbound(protocol tcpip.NetworkProtocolNumber, pkt *stack.PacketBuffer) {
 	log.V("ns: inject-inbound (from tun) %d", protocol)
 	d := e.dispatcher // TODO: read lock?
-	if d != nil {
+	if d != nil && pkt != nil {
 		e.logPacketIfNeeded(sniffer.DirectionRecv, pkt)
 		d.DeliverNetworkPacket(protocol, pkt)
 	} else {
-		log.W("ns: inject-inbound (from tun) %d pkt(%v) dropped: endpoint not attached", protocol, pkt.Hash)
+		log.W("ns: inject-inbound (from tun) %d pkt?(%t) dropped: endpoint not attached", protocol, pkt != nil)
 	}
 }
 

@@ -7,6 +7,7 @@
 package netstack
 
 import (
+	"errors"
 	"fmt"
 	"net/netip"
 
@@ -33,6 +34,8 @@ type GICMPHandler interface {
 	End() error
 }
 
+var errMissingIcmpPacket = errors.New("icmp: nil packet")
+
 // ref: github.com/SagerNet/LibSagerNetCore/blob/632d6b892e/gvisor/icmp.go
 func setupIcmpHandler(nstk *stack.Stack, ep stack.LinkEndpoint, handler GICMPHandler) {
 	// remove default handlers
@@ -45,9 +48,13 @@ func setupIcmpHandler(nstk *stack.Stack, ep stack.LinkEndpoint, handler GICMPHan
 	}
 
 	// ICMPv4
-	nstk.SetTransportProtocolHandler(icmp.ProtocolNumber4, func(id stack.TransportEndpointID, packet stack.PacketBufferPtr) bool {
+	nstk.SetTransportProtocolHandler(icmp.ProtocolNumber4, func(id stack.TransportEndpointID, packet *stack.PacketBuffer) bool {
 		log.V("icmp: v4 packet? %v", packet)
 
+		if packet == nil {
+			log.E("icmp: v4 nil packet")
+			return false
+		}
 		if !ep.IsAttached() {
 			log.D("icmp: endpoint not attached")
 			return false
@@ -155,9 +162,13 @@ func setupIcmpHandler(nstk *stack.Stack, ep stack.LinkEndpoint, handler GICMPHan
 	})
 
 	// ICMPv6
-	nstk.SetTransportProtocolHandler(icmp.ProtocolNumber6, func(id stack.TransportEndpointID, packet stack.PacketBufferPtr) bool {
+	nstk.SetTransportProtocolHandler(icmp.ProtocolNumber6, func(id stack.TransportEndpointID, packet *stack.PacketBuffer) bool {
 		log.V("icmp: v6 packet? %v", packet)
 
+		if packet == nil {
+			log.E("icmp: v6 nil packet")
+			return false
+		}
 		if !ep.IsAttached() {
 			log.D("icmp: endpoint not attached")
 			return false

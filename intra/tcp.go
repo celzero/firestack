@@ -143,16 +143,28 @@ func (h *tcpHandler) CloseConns(cids []string) (closed []string) {
 
 // Proxy implements netstack.GTCPConnHandler
 func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target netip.AddrPort) (open bool) {
-	const allow bool = true
-	const deny bool = !allow
+	const allow bool = true  // allowed
+	const deny bool = !allow // blocked
+	const rst bool = true    // tear down conn
+	const ack bool = !rst    // send synack
+	var s *SocketSummary
+	var err error
+
+	defer func() {
+		if !open {
+			gconn.Close()
+			if s != nil {
+				s.done(err)
+				go sendNotif(h.listener, s)
+			} // else: summary not created
+		}
+	}()
+
 	if h.status == TCPEND {
 		log.D("tcp: proxy: end")
+		gconn.Connect(rst) // fin
 		return deny
 	}
-
-	const rst bool = true // tear down conn
-	const ack bool = !rst // send synack
-	var err error
 
 	if !src.IsValid() || !target.IsValid() {
 		log.E("tcp: nil addr %v -> %v", src, target)
@@ -169,15 +181,7 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target netip.AddrPort)
 	res := h.onFlow(src, target, realips, domains, probableDomains, blocklists)
 
 	cid, pid, uid := splitCidPidUid(res)
-	s := tcpSummary(cid, pid, uid)
-
-	defer func() {
-		if !open {
-			gconn.Close()
-			s.done(err)
-			go sendNotif(h.listener, s)
-		} // else: conn proxied; sendNotif called by h.forward()
-	}()
+	s = tcpSummary(cid, pid, uid)
 
 	if pid == ipn.Block {
 		var secs uint32

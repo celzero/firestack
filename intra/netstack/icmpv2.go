@@ -58,28 +58,33 @@ type icmpv2 struct {
 // preroutingMatch matches packets in the prerouting stage and clones:
 // packet into channel for processing.
 type preroutingMatch struct {
-	msgs4 chan stack.PacketBufferPtr
-	msgs6 chan stack.PacketBufferPtr
+	msgs4 chan *stack.PacketBuffer
+	msgs6 chan *stack.PacketBuffer
 }
 
 // When a new ICMP message hits the prerouting stage, the packet is cloned
 // to the ICMP handler and dropped here.
-func (m preroutingMatch) Match(hook stack.Hook, packet stack.PacketBufferPtr, inputInterfaceName, outputInterfaceName string) (matches bool, hotdrop bool) {
+func (m preroutingMatch) Match(hook stack.Hook, packet *stack.PacketBuffer, inputInterfaceName, outputInterfaceName string) (matches bool, hotdrop bool) {
+	const ok = true
+	const drop = true
+
+	if packet == nil {
+		return !ok, !drop
+	}
 	if hook == stack.Prerouting {
 		// only drop if the packet is an ICMP echo request.
 		m4, m6 := isIcmpEcho(packet)
 		if m4 {
 			m.msgs4 <- packet.Clone()
-			return false, true
+			return !ok, drop
 		} else if m6 {
 			m.msgs6 <- packet.Clone()
-			return false, true
+			return !ok, drop
 		} else {
 			log.D("icmpv2: not an echo request; let netstack handle it...")
 		}
 	}
-
-	return false, false
+	return !ok, !drop
 }
 
 // handleICMP proxies ICMP messages using whatever means it can with the permissions this binary
@@ -97,8 +102,8 @@ func setupIcmpHandlerV2(s *stack.Stack, ep stack.LinkEndpoint, icmpHandler GICMP
 	}
 
 	match := preroutingMatch{
-		msgs4: make(chan stack.PacketBufferPtr),
-		msgs6: make(chan stack.PacketBufferPtr),
+		msgs4: make(chan *stack.PacketBuffer),
+		msgs6: make(chan *stack.PacketBuffer),
 	}
 
 	rule4 := stack.Rule{
@@ -165,7 +170,11 @@ func (tr *icmpv2) serve6() {
 }
 
 // handleICMPMessage parses ICMP packets and proxies them if possible.
-func isIcmpEcho(pkt stack.PacketBufferPtr) (y4, y6 bool) {
+func isIcmpEcho(pkt *stack.PacketBuffer) (y4, y6 bool) {
+	if pkt == nil {
+		return
+	}
+
 	// Parse ICMP packet type.
 	netHeader := pkt.Network()
 	l4bytes := netHeader.Payload()
@@ -197,7 +206,12 @@ func isIcmpEcho(pkt stack.PacketBufferPtr) (y4, y6 bool) {
 	return
 }
 
-func (tr *icmpv2) handleEcho4(pkt stack.PacketBufferPtr) {
+func (tr *icmpv2) handleEcho4(pkt *stack.PacketBuffer) {
+	if pkt == nil {
+		log.W("icmpv2: echo4 packet nil")
+		return
+	}
+
 	defer pkt.DecRef()
 
 	netHeader := pkt.Network()
@@ -209,7 +223,12 @@ func (tr *icmpv2) handleEcho4(pkt stack.PacketBufferPtr) {
 	tr.handleEcho(src, dst, pkt)
 }
 
-func (tr icmpv2) handleEcho6(pkt stack.PacketBufferPtr) {
+func (tr icmpv2) handleEcho6(pkt *stack.PacketBuffer) {
+	if pkt == nil {
+		log.W("icmpv2: echo6 packet nil")
+		return
+	}
+
 	defer pkt.DecRef()
 
 	netHeader := pkt.Network()
@@ -223,7 +242,12 @@ func (tr icmpv2) handleEcho6(pkt stack.PacketBufferPtr) {
 
 // handleICMPEcho tries to send ICMP echo requests to the true destination however it can.
 // If successful, it sends an echo response to the peer.
-func (tr *icmpv2) handleEcho(src, dst netip.AddrPort, pkt stack.PacketBufferPtr) {
+func (tr *icmpv2) handleEcho(src, dst netip.AddrPort, pkt *stack.PacketBuffer) {
+	if pkt == nil {
+		log.W("icmpv2: ICMP echo request packet is nil")
+		return
+	}
+
 	var ok bool
 	if ok = tr.h.PingOnce(src, dst, tr.pkt2bytes(pkt)); !ok {
 		log.W("icmpv2: ICMP echo ping failed for %v -> %v", src, dst)
@@ -234,7 +258,10 @@ func (tr *icmpv2) handleEcho(src, dst netip.AddrPort, pkt stack.PacketBufferPtr)
 }
 
 // sendICMPEchoResponse sends an echo response to the peer with a spoofed source address.
-func (tr *icmpv2) sendEchoResponse(src, dst netip.AddrPort, pkt stack.PacketBufferPtr) error {
+func (tr *icmpv2) sendEchoResponse(src, dst netip.AddrPort, pkt *stack.PacketBuffer) error {
+	if pkt == nil {
+		return errMissingIcmpPacket
+	}
 	var response []byte
 	var ipHeader []byte
 	var err error
@@ -326,7 +353,10 @@ func (tr *icmpv2) sendEchoResponse(src, dst netip.AddrPort, pkt stack.PacketBuff
 
 // ref: stackoverflow.com/a/26949038, stackoverflow.com/a/27087317
 // and: archive.is/F2HB2
-func (tr *icmpv2) sendUnreachable(src, dst netip.AddrPort, pkt stack.PacketBufferPtr) error {
+func (tr *icmpv2) sendUnreachable(src, dst netip.AddrPort, pkt *stack.PacketBuffer) error {
+	if pkt == nil {
+		return errMissingIcmpPacket
+	}
 	var err error
 	var icmpLayer []byte
 	var ipLayer []byte
@@ -437,7 +467,10 @@ func addrport(addr tcpip.Address, port uint16) netip.AddrPort {
 	return netip.AddrPortFrom(ip, port)
 }
 
-func (tr *icmpv2) pkt2bytes(pkt stack.PacketBufferPtr) []byte {
+func (tr *icmpv2) pkt2bytes(pkt *stack.PacketBuffer) []byte {
+	if pkt == nil {
+		return nil
+	}
 	// return pkt.Network().Payload()
 	r := make([]byte, tr.ep.MTU())
 	din := buffer.MakeWithData(r)
