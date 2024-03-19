@@ -22,6 +22,7 @@ const ( // see dnsx/transport.go
 	Local     = "mdns"      // mdns; never cached!
 	Default   = "Default"   // default (fallback) dns
 	Preferred = "Preferred" // user preferred dns, primary for alg
+	Preset    = "Preset"    // synthesizes answers from presets (ex: IPs)
 	BlockFree = "BlockFree" // no local blocks; if not set, default is used
 	BlockAll  = "BlockAll"  // all blocks; never cached!
 	Bootstrap = "Bootstrap" // bootstrap dns; always encapsulted by Default

@@ -40,6 +40,7 @@ const (
 	Local     = x.Local
 	Default   = x.Default
 	Preferred = x.Preferred
+	Preset    = x.Preset
 	BlockFree = x.BlockFree
 	Bootstrap = x.Bootstrap
 	BlockAll  = x.BlockAll
@@ -328,7 +329,7 @@ func (r *resolver) forward(q []byte, chosenids ...string) (res0 []byte, err0 err
 	}
 
 	pref := r.listener.OnQuery(qname, qtyp)
-	id, sid, pid, _ := r.preferencesFrom(qname, pref, chosenids...)
+	id, sid, pid, presetIPs := r.preferencesFrom(qname, uint16(qtyp), pref, chosenids...)
 	t := r.determineTransport(id)
 
 	log.V("dns: fwd: query %s [prefs:%v]; id? %s, sid? %s, pid? %s", qname, pref, id, sid, pid)
@@ -367,7 +368,7 @@ func (r *resolver) forward(q []byte, chosenids ...string) (res0 []byte, err0 err
 	netid := xdns.NetAndProxyID(NetTypeUDP, pid)
 
 	// with t2 as the secondary transport, which could be nil
-	res2, err = gw.q(t, t2, netid, q, summary)
+	res2, err = gw.q(t, t2, presetIPs, netid, q, summary)
 
 	algerr := isAlgErr(err) // not set when gw.translate is off
 	if algerr {
@@ -660,7 +661,7 @@ func (r *resolver) LiveTransports() string {
 	return trimcsv(s)
 }
 
-func (r *resolver) preferencesFrom(qname string, s *x.DNSOpts, chosenids ...string) (id1, id2, pid string, ips []netip.Addr) {
+func (r *resolver) preferencesFrom(qname string, qtyp uint16, s *x.DNSOpts, chosenids ...string) (id1, id2, pid string, ips []netip.Addr) {
 	var x []string
 	if s == nil { // should never happen; but it has during testing
 		log.W("dns: pref: no ns opts for %s", qname)
@@ -678,6 +679,11 @@ func (r *resolver) preferencesFrom(qname string, s *x.DNSOpts, chosenids ...stri
 				ips = append(ips, ip)
 			}
 		}
+	}
+
+	if len(ips) > 0 { // skip blocks if ips are set (even if unspecified ips)
+		log.D("dns: pref: preset ips (no block) %v for %s", ips, qname)
+		s.NOBLOCK = true
 	}
 
 	l := len(x)

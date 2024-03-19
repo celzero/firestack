@@ -46,6 +46,7 @@ const (
 
 var (
 	errNoQuestion            = errors.New("no question")
+	errNoAnswer              = errors.New("no answer")
 	errCacheResponseEmpty    = errors.New("empty cache response")
 	errCacheResponseMismatch = errors.New("cache response mismatch")
 )

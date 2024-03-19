@@ -58,8 +58,8 @@ type Gateway interface {
 	RDNSBL(algip []byte) (blocklistcsv string)
 	// translate overwrites ip answers to alg ip answers
 	translate(yes bool)
-	// Query using t1 as primary transport and t2 as secondary
-	q(t1 Transport, t2 Transport, network string, q []byte, s *x.DNSSummary) (r []byte, err error)
+	// Query using t1 as primary transport and t2 as secondary and preset as pre-determined ip answers
+	q(t1 Transport, t2 Transport, preset []netip.Addr, network string, q []byte, s *x.DNSSummary) (r []byte, err error)
 	// clear obj state
 	stop()
 }
@@ -231,9 +231,16 @@ func (t *dnsgateway) querySecondary(t2 Transport, network string, q []byte, out 
 }
 
 // Implements Gateway
-func (t *dnsgateway) q(t1, t2 Transport, network string, q []byte, summary *x.DNSSummary) (r []byte, err error) {
+func (t *dnsgateway) q(t1, t2 Transport, preset []netip.Addr, network string, q []byte, summary *x.DNSSummary) (r []byte, err error) {
 	if t1 == nil {
 		return nil, errNoTransportAlg
+	}
+	usepreset := len(preset) > 0
+	// presets override both t1 and t2:
+	// discard t2 as with preset we don't care about additional ips and blocklists;
+	// t1 is not discarded entirely as it is needed to subst ips in https/svcb responses
+	if usepreset {
+		t2 = nil
 	}
 	mod := t.mod // allow alg?
 	secch := make(chan secans, 1)
@@ -243,7 +250,11 @@ func (t *dnsgateway) q(t1, t2 Transport, network string, q []byte, summary *x.DN
 	// t2 may be nil
 	go t.querySecondary(t2, network, q, secch, resch)
 
-	r, err = t1.Query(network, q, innersummary)
+	if usepreset {
+		r, err = synthesizeOrQuery(preset, t1, q, network, innersummary)
+	} else {
+		r, err = query(t1, network, q, innersummary)
+	}
 	resch <- r
 
 	// override relevant values in summary
@@ -798,4 +809,92 @@ func hash48(s string) uint64 {
 	h.Write([]byte(s))
 	v64 := h.Sum64()
 	return (uint64(v64>>48) ^ uint64(v64)) & 0xFFFFFFFFFFFF // 48 bits
+}
+
+func synthesizeOrQuery(ips []netip.Addr, tr Transport, q []byte, network string, smm *x.DNSSummary) ([]byte, error) {
+	// synthesize a response with the given ips
+	if len(ips) == 0 {
+		return query(tr, network, q, smm)
+	}
+	msg := xdns.AsMsg(q)
+	if msg == nil {
+		return nil, errNoQuestion
+	}
+	qname := xdns.QName(msg)
+	qtyp := uint16(qtype(msg))
+	is4 := xdns.IsAQType(qtyp)
+	is6 := !is4 && xdns.IsAAAAQType(qtyp)
+	isHTTPS := (!is4 && !is6) && xdns.IsHTTPSQType(qtyp)
+	isSVCB := (!is4 && !is6) && xdns.IsSVCBQType(qtyp)
+	if is4 || is6 {
+		// synthesize a response with the given ips
+		ans, err := xdns.AQuadAForQuery(msg, ips...)
+		if err != nil {
+			return nil, err
+		}
+		withPresetSummary(smm)
+		smm.RCode = xdns.Rcode(ans)
+		smm.RData = xdns.GetInterestingRData(ans)
+		smm.RTtl = xdns.RTtl(ans)
+
+		log.D("alg: synthesize: q(4? %t / 6? %t) rdata(%s)", qname, is4, is6, smm.RData)
+		return ans.Pack()
+	} else if isHTTPS || isSVCB {
+		r, err := tr.Query(network, q, smm)
+		if err != nil {
+			return r, err
+		}
+		ans := xdns.AsMsg(r)
+		if ans == nil {
+			return r, errNoAnswer
+		}
+		var ok4, ok6 bool
+		ttl := int(xdns.AnsTTL)
+		ip4s, ip6s := splitIPFamilies(ips)
+		if len(ip4s) > 0 {
+			ok4 = xdns.SubstSVCBRecordIPs( /*out*/ ans, dns.SVCB_IPV4HINT, ip4s, ttl)
+		}
+		if len(ip6s) > 0 {
+			ok6 = xdns.SubstSVCBRecordIPs( /*out*/ ans, dns.SVCB_IPV6HINT, ip6s, algttl)
+		}
+
+		withPresetSummary(smm)
+		smm.RCode = xdns.Rcode(ans)
+		smm.RData = xdns.GetInterestingRData(ans)
+		smm.RTtl = xdns.RTtl(ans)
+
+		log.D("alg: synthesize: q(HTTPS? %t); subst4(%t), subst6(%t); rdata(%s)", q, isHTTPS, ok4, ok6, smm.RData)
+
+		return ans.Pack()
+	} else {
+		return query(tr, network, q, smm)
+	}
+}
+
+func query(t Transport, network string, q []byte, smm *x.DNSSummary) ([]byte, error) {
+	return t.Query(network, q, smm)
+}
+
+func splitIPFamilies(ips []netip.Addr) (ip4s, ip6s []*netip.Addr) {
+	for _, ip := range ips {
+		ip = ip.Unmap()
+		if ip.Is4() {
+			ip4s = append(ip4s, &ip)
+		} else if ip.Is6() {
+			ip6s = append(ip6s, &ip)
+		}
+	}
+	return
+}
+
+func withPresetSummary(smm *x.DNSSummary) {
+	// override id and type from whatever was set before
+	smm.ID = Preset
+	smm.Type = Preset
+	// other unset fields
+	smm.Latency = 0
+	smm.Status = Complete
+	smm.Server = Preset
+	smm.Blocklists = ""  // blocklists are not honoured
+	smm.RelayServer = "" // no relay is used
 }
