@@ -34,7 +34,7 @@ var (
 
 var (
 	localip4 = "127.0.0.1"
-	localip6 = "[::1]"
+	localip6 = "::1"
 )
 
 // DefaultDNS is the resolver used by all dialers.
