@@ -56,6 +56,13 @@ func SetSystemDNS(t Tunnel, ipcsv string) int {
 		return 0
 	}
 
+	// if the ipcsv is localhost, use loopback addresses.
+	// this is the case if kotlin-land is unable to determine
+	// DNS servers. This is equivalent to using x.Goos Transport.
+	if strings.HasPrefix(ipcsv, "localhost") {
+		ipcsv = localip4 + "," + localip6
+	}
+
 	var ok bool
 	if sdns, err := newSystemDNSProxy(g, p, ipcsv); err == nil {
 		ok = r.Add(sdns)
