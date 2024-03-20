@@ -136,7 +136,7 @@ func (b *bootstrap) reinit(trtype, ippOrUrl, ipcsv string) error {
 		}
 	}
 
-	log.I("dns: default: %s reinit %s %s w/ %s", trtype, b.url, b.hostname, ipcsv)
+	log.I("dns: default: %s reinit %s %s w/ %s", trtype, b.url, b.hostname, b.ipports)
 
 	// if proxies and bridges are set, restart to create new transport
 	if b.proxies != nil && b.bridge != nil {
