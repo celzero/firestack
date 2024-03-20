@@ -32,6 +32,11 @@ var (
 	errCannotStart              = errors.New("missing proxies or controller")
 )
 
+var (
+	localip4 = "127.0.0.1"
+	localip6 = "[::1]"
+)
+
 // DefaultDNS is the resolver used by all dialers.
 type DefaultDNS interface {
 	x.DNSTransport
@@ -108,13 +113,20 @@ func (b *bootstrap) reinit(trtype, ippOrUrl, ipcsv string) error {
 			log.E("dns: default: reinit: ipport %s; %s != %s", ippOrUrl, trtype, dnsx.DNS53)
 			return dnsx.ErrNotDefaultTransport
 		}
+		// may be set to localhost (in which case it is equivalent to x.Goos)
+		// when no other system resolver could be determined
+		if strings.HasPrefix(ippOrUrl, "localhost") {
+			log.I("dns: default: reinit: loopback %s", ippOrUrl)
+			ippOrUrl = localip4 + "," + localip6 // see also dns53/ipmapper.go
+		}
 		ips := strings.Split(ippOrUrl, ",")
 		if len(ips) <= 0 {
 			log.E("dns: default: reinit: empty ipport %s", ippOrUrl)
 			return dnsx.ErrNotDefaultTransport
 		}
+		first := ips[0]
 		// todo: tests just the first ipport; test all?
-		if _, err := xdns.DnsIPPort(ips[0]); err != nil {
+		if _, err := xdns.DnsIPPort(first); err != nil {
 			return err
 		} else {
 			b.url = ""
