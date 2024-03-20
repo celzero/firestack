@@ -4,7 +4,6 @@ go 1.22
 
 require (
 	github.com/celzero/gotrie v0.0.0-20240214185511-300735a8f01f
-	github.com/jedisct1/go-clocksmith v0.0.0-20190707124905-73e087c7979c
 	github.com/jedisct1/go-dnsstamps v0.0.0-20200621175006-302248eecc94
 	github.com/jedisct1/xsecretbox v0.0.0-20190909160646-b731c21297f9
 	github.com/k-sone/critbitgo v1.4.0
@@ -21,7 +20,7 @@ require (
 	github.com/txthinking/socks5 v0.0.0-20220615051428-39268faee3e6
 	golang.org/x/mobile v0.0.0-20220518205345-8578da9835fd
 	golang.org/x/net v0.20.0
-	golang.zx2c4.com/wireguard v0.0.0-20230317141804-7f511c3bb16d
+	golang.zx2c4.com/wireguard v0.0.0-20231211153847-12269c276173
 	gvisor.dev/gvisor v0.0.0-20240306221502-ee1e1f6070e3
 	nhooyr.io/websocket v1.8.7
 )

@@ -53,6 +53,7 @@ import (
 )
 
 const (
+	// github.com/WireGuard/wireguard-go/blob/12269c276/device/queueconstants_android.go#L14
 	// epsize is the size of the channel endpoint.
 	epsize = 4096
 	// eventssize is the size of the events channel.
