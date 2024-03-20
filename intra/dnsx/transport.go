@@ -332,7 +332,7 @@ func (r *resolver) forward(q []byte, chosenids ...string) (res0 []byte, err0 err
 	id, sid, pid, presetIPs := r.preferencesFrom(qname, uint16(qtyp), pref, chosenids...)
 	t := r.determineTransport(id)
 
-	log.V("dns: fwd: query %s [prefs:%v]; id? %s, sid? %s, pid? %s", qname, pref, id, sid, pid)
+	log.V("dns: fwd: query %s [prefs:%v]; id? %s, sid? %s, pid? %s, ips? %v", qname, pref, id, sid, pid, presetIPs)
 
 	if t == nil {
 		summary.Latency = time.Since(starttime).Seconds()
@@ -392,9 +392,9 @@ func (r *resolver) forward(q []byte, chosenids ...string) (res0 []byte, err0 err
 
 	ans2, blocklistnames := r.blockA(t, t2, msg, ans1, summary.Blocklists)
 
+	isnewans := ans2 != nil
 	// do not block, only add blocklists if NOBLOCK is set
-	isnewans := pref.NOBLOCK || ans2 != nil
-	if isnewans {
+	if !pref.NOBLOCK && isnewans {
 		// overwrite if new answer
 		ans1 = ans2
 		res2, err = ans1.Pack()
