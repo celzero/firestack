@@ -46,6 +46,12 @@ func renew(hostOrIP string, existing *ipmap.IPSet) (cur *ipmap.IPSet, ok bool) {
 		// if empty, discard seed, re-resolve hostOrIP; oft times, ipset is
 		// empty when its ips have been disconfirmed beyond some threshold
 		cur = ipm.Add(hostOrIP)
+		if cur.Empty() {
+			// if still empty, fallback on seed addrs; when hostOrIP is
+			// protect.UidSelf, protect.UidSystem, for example, cur will
+			// always be empty (as they're unresolvable by ipm.Add)
+			return New(hostOrIP, existing.Seed())
+		}
 	} else {
 		// if non-empty, renew hostOrIP with seed addrs
 		New(hostOrIP, existing.Seed())

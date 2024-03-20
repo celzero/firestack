@@ -673,6 +673,9 @@ func (r *resolver) preferencesFrom(qname string, qtyp uint16, s *x.DNSOpts, chos
 		if y := strings.Split(s.IPCSV, ","); len(y) > 0 {
 			ips = make([]*netip.Addr, 0, len(y))
 			for _, a := range y {
+				if len(a) <= 0 {
+					continue
+				}
 				ip, err := netip.ParseAddr(a)
 				if err != nil || !ip.IsValid() {
 					log.W("dns: pref: skip bad ip %s for %s", a, qname)
