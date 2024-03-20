@@ -9,6 +9,7 @@ package backend
 import (
 	"sync"
 
+	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/xdns"
 	"github.com/k-sone/critbitgo"
 )
@@ -124,18 +125,25 @@ func (c *radix) get(str string) *string {
 	defer c.RUnlock()
 
 	rev := reversed(str)
-	var s string
-	var ok bool
-	var v any
+	var v any    // value
+	var s string // string(v)
+	var ok bool  // rev(str) found?
 	var match []byte
+
 	if match, v, ok = c.t.LongestPrefix(rev); ok {
-		s, ok = v.(string)
-	} else if len(match) == len(rev) || rev[len(match)] == '.' {
-		// full match (ipvonly.arpa), or match upto a tld (.arpa)
-		s, ok = v.(string)
-	} else {
+		if ok = len(match) == len(rev); ok {
+			// full match (xyz.ipvonly.arpa); same as c.Get()
+			s, ok = v.(string)
+		} else if ok = len(match) < len(rev) && rev[len(match)-1] == '.'; ok {
+			// partial match upto a subdomain (.ipvonly.arpa); note the trailing dot
+			s, ok = v.(string)
+		}
+		// partial match (ipvonly.arpa) but not a subdomain/wildcard, discard
+	} else { // no match
 		return nil
 	}
+
+	log.V("radix: getAny: partial or full %s => %s; rev %s; match %s; ok? %t", str, s, rev, match, ok)
 
 	if !ok {
 		return nil
