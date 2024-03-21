@@ -147,7 +147,7 @@ func (t *dnsgateway) querySecondary(t2 Transport, network string, q []byte, out 
 	var err error
 	result := secans{
 		ips:     []*netip.Addr{},
-		summary: &x.DNSSummary{},
+		summary: new(x.DNSSummary),
 	}
 
 	go func() {
@@ -497,7 +497,7 @@ func (t *dnsgateway) registerMultiLocked(q string, am *ansMulti) bool {
 	}
 	for i := range am.realip {
 		// index is always 0 since algip is inconsequential for ptr
-		if ok := t.registerPtrLocked(q, i, am.ansViewLocked(0)); !ok {
+		if ok := t.registerPtrLocked(i, am.ansViewLocked(0)); !ok {
 			return false
 		}
 	}
@@ -521,9 +521,9 @@ func (t *dnsgateway) registerNatLocked(q string, idx int, x *ans) bool {
 }
 
 // register mapping from realip -> algip+qname (ptr)
-func (t *dnsgateway) registerPtrLocked(q string, idx int, x *ans) bool {
+func (t *dnsgateway) registerPtrLocked(idx int, x *ans) bool {
 	ip := x.realips[idx]
-	t.ptr[*ip] = x
+	t.ptr[*ip] = x // x contains qname and the algip
 	return true
 }
 

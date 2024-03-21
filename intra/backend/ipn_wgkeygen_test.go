@@ -45,7 +45,7 @@ func TestRadixSearch(t *testing.T) {
 
 	t.Log("v0?: ", v0, "\tv1: ", v1, "\tv2: ", v2, "\tv3?: ", v3)
 
-	w0 := r.GetAny(goog)     // wildgoog
+	w0 := r.GetAny(goog)     // goog if r.Set(goog, "goog") is uncommented; wildgoog otherwise
 	w1 := r.GetAny(wildgoog) // wildgoog
 	w2 := r.GetAny(mailgoog) // mailgoog
 	w3 := r.GetAny(dnsgoog)  // wildgoog
