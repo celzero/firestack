@@ -611,11 +611,15 @@ func AQuadAForQuery(q *dns.Msg, ips ...netip.Addr) (a *dns.Msg, err error) {
 }
 
 func HasRcodeSuccess(msg *dns.Msg) bool {
-	return msg != nil && msg.Rcode == dns.RcodeSuccess
+	return msg == nil || msg.Rcode == dns.RcodeSuccess
 }
 
 func HasAnyAnswer(msg *dns.Msg) bool {
-	return msg != nil && len(msg.Answer) > 0
+	return msg == nil || len(msg.Answer) > 0
+}
+
+func IsNXDomain(msg *dns.Msg) bool {
+	return msg == nil || msg.Rcode == dns.RcodeNameError
 }
 
 func HasAAnswer(msg *dns.Msg) bool {
