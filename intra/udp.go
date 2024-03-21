@@ -87,10 +87,6 @@ func (rw *rwext) Write(b []byte) (n int, err error) {
 	return rw.UDPConn.Write(b)
 }
 
-func makeTracker(cid, pid, uid string) *SocketSummary {
-	return udpSummary(cid, pid, uid)
-}
-
 // NewUDPHandler makes a UDP handler with Intra-style DNS redirection:
 // All packets are routed directly to their destination.
 // `timeout` controls the effective NAT mapping lifetime.
@@ -240,6 +236,7 @@ func (h *udpHandler) proxy(gconn net.Conn, src, dst netip.AddrPort) (ok bool) {
 		}
 		return // not ok
 	} else if remote == nil { // dnsOverride?
+		// no summary for dns queries
 		return true // ok
 	}
 	go func() {
@@ -265,7 +262,8 @@ func (h *udpHandler) Connect(gconn net.Conn, src, target netip.AddrPort) (dst co
 
 	// flow is alg/nat-aware, do not change target or any addrs
 	res := h.onFlow(src, target, realips, domains, probableDomains, blocklists)
-	smm = makeTracker(splitCidPidUid(res))
+	cid, pid, uid := splitCidPidUid(res)
+	smm = udpSummary(cid, pid, uid, target.Addr())
 
 	if res.PID == ipn.Block {
 		var secs uint32
@@ -312,6 +310,7 @@ func (h *udpHandler) Connect(gconn net.Conn, src, target netip.AddrPort) (dst co
 	}
 
 	var errs error
+	var selectedTarget netip.AddrPort
 
 	// unconnected udp socket?
 	if target.Addr().IsUnspecified() || !target.IsValid() {
@@ -320,7 +319,8 @@ func (h *udpHandler) Connect(gconn net.Conn, src, target netip.AddrPort) (dst co
 	} else {
 		// note: fake-dns-ips shouldn't be un-nated / un-alg'd
 		for i, dstipp := range makeIPPorts(realips, target, 0) {
-			if pc, err = px.Dial("udp", dstipp.String()); err == nil {
+			selectedTarget = dstipp
+			if pc, err = px.Dial("udp", selectedTarget.String()); err == nil {
 				errs = nil // reset errs
 				break
 			} // else try the next realip
@@ -338,18 +338,21 @@ func (h *udpHandler) Connect(gconn net.Conn, src, target netip.AddrPort) (dst co
 		return nil, smm, errs // disconnect
 	}
 	if pc == nil {
-		log.W("udp: connect: %s failed to connect addr(%s); for uid %s", res.CID, target, res.UID)
+		log.W("udp: connect: %s failed to connect addr(%s/%s); for uid %s", res.CID, target, selectedTarget, res.UID)
 		return nil, smm, errUdpSetupConn // disconnect
 	}
 
 	var ok bool
 	if dst, ok = pc.(core.UDPConn); !ok {
 		pclose(pc, "rw")
-		log.E("udp: connect: %s proxy(%s) does not impl core.UDPConn(%s) for uid %s", res.CID, px.ID(), target, res.UID)
+		log.E("udp: connect: %s proxy(%s) does not impl core.UDPConn(%s/%s) for uid %s", res.CID, px.ID(), target, selectedTarget, res.UID)
 		return nil, smm, errUdpSetupConn // disconnect
 	}
 
-	log.I("udp: %s (proxy? %s@%s) %v -> %v for uid %s", res.CID, px.ID(), px.GetAddr(), dst.LocalAddr(), target, res.UID)
+	// pc.RemoteAddr may be that of the proxy, not the actual dst
+	// ex: pc.RemoteAddr is 127.0.0.1 for Orbot
+	smm.Target = selectedTarget.Addr().String()
+	log.I("udp: %s (proxy? %s@%s) %v -> %s/%s for uid %s", res.CID, px.ID(), px.GetAddr(), dst.LocalAddr(), target, selectedTarget, res.UID)
 
 	return dst, smm, nil // connect
 }

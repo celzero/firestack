@@ -80,9 +80,10 @@ func forward(local net.Conn, remote net.Conn, t core.ConnMapper, l SocketListene
 
 	upload := <-uploadch
 
+	// remote conn could be dialed in to some proxy; and so,
+	// its remote addr may not be the same as smm.Target
 	smm.Rx = dbytes
 	smm.Tx = upload.bytes
-	smm.Target = addr2ip(remote.RemoteAddr())
 
 	smm.done(derr, upload.err)
 	go sendNotif(l, smm)

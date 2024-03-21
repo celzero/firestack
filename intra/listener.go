@@ -9,6 +9,7 @@ package intra
 import (
 	"errors"
 	"fmt"
+	"net/netip"
 	"time"
 
 	"github.com/celzero/firestack/intra/ipn"
@@ -53,19 +54,20 @@ func icmpSummary(id, pid string) *SocketSummary {
 	}
 }
 
-func tcpSummary(id, pid, uid string) *SocketSummary {
+func tcpSummary(id, pid, uid string, dst netip.Addr) *SocketSummary {
 	return &SocketSummary{
-		Proto: ProtoTypeTCP,
-		ID:    id,
-		PID:   pid,
-		UID:   uid,
-		start: time.Now(),
-		Msg:   errNone.Error(),
+		Proto:  ProtoTypeTCP,
+		ID:     id,
+		PID:    pid,
+		UID:    uid,
+		Target: dst.String(),
+		start:  time.Now(),
+		Msg:    errNone.Error(),
 	}
 }
 
-func udpSummary(id, pid, uid string) *SocketSummary {
-	s := tcpSummary(id, pid, uid)
+func udpSummary(id, pid, uid string, dst netip.Addr) *SocketSummary {
+	s := tcpSummary(id, pid, uid, dst)
 	s.Proto = ProtoTypeUDP
 	return s
 }

@@ -181,7 +181,7 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target netip.AddrPort)
 	res := h.onFlow(src, target, realips, domains, probableDomains, blocklists)
 
 	cid, pid, uid := splitCidPidUid(res)
-	s = tcpSummary(cid, pid, uid)
+	s = tcpSummary(cid, pid, uid, target.Addr())
 
 	if pid == ipn.Block {
 		var secs uint32
@@ -243,6 +243,9 @@ func (h *tcpHandler) handle(px ipn.Proxy, src net.Conn, target netip.AddrPort, s
 	// ref: stackoverflow.com/questions/40328025
 	if pc, err = px.Dial("tcp", target.String()); err == nil {
 		smm.Rtt = int32(time.Since(start).Seconds() * 1000)
+		// pc.RemoteAddr may be that of the proxy, not the actual dst
+		// ex: pc.RemoteAddr is 127.0.0.1 for Orbot
+		smm.Target = target.Addr().String()
 
 		switch uc := pc.(type) {
 		case *net.TCPConn: // usual
