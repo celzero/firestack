@@ -114,7 +114,7 @@ type Resolver interface {
 	GetMult(id string) (TransportMult, error)
 
 	IsDnsAddr(ipport string) bool
-	// Lookup performs resolution on Default DNSes
+	// Lookup performs resolution on Default and/or Goos DNSes
 	LocalLookup(q []byte) ([]byte, error)
 	// Forward performs resolution on any DNS transport
 	Forward(q []byte) ([]byte, error)
@@ -280,12 +280,25 @@ func (r *resolver) IsDnsAddr(ipport string) bool {
 }
 
 func (r *resolver) LocalLookup(q []byte) ([]byte, error) {
-	// including dns64 and/or alg
-	if ans, err := r.forward(q, CT+Default); err != nil {
-		return r.forward(q, CT+Goos) // Goos is System; see: determineTransport
-	} else {
-		return ans, nil
+	defaultIsSystemDNS := false
+	if dtr, _ := r.Get(Default); dtr != nil {
+		// todo: a better way to determine whether Default is SystemDNS
+		// Default is usually SystemDNS if it is of type DNS53
+		defaultIsSystemDNS = dtr.Type() == DNS53
 	}
+
+	// including dns64 and/or alg
+	ans, err := r.forward(q, CT+Default)
+	if defaultIsSystemDNS {
+		return ans, err
+	} // else: retry with Goos/System, if needed
+
+	// msg may be nil
+	if msg := xdns.AsMsg(ans); err != nil || xdns.IsNXDomain(msg) || !xdns.HasRcodeSuccess(msg) {
+		log.I("dns: nxdomain via Default (err? %v); using Goos for %s", err, xdns.QName(msg))
+		return r.forward(q, CT+Goos) // Goos is System; see: determineTransport
+	} // else: rcode success and nil err; do not fallback on Goos/System
+	return ans, nil
 }
 
 func (r *resolver) Forward(q []byte) ([]byte, error) {
