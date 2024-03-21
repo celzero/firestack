@@ -15,7 +15,6 @@ import (
 	"fmt"
 	"net/url"
 	"os"
-	"runtime"
 	"strconv"
 	"strings"
 
@@ -87,13 +86,13 @@ type rethinkdnslocal struct {
 	ftrie *trie.FrozenTrie
 }
 
-var _ RDNS = (*rethinkdnslocal)(nil)
-var _ RDNS = (*rethinkdns)(nil)
-
 type listinfo struct {
 	pos  int
 	name string
 }
+
+var _ RDNS = (*rethinkdnslocal)(nil)
+var _ RDNS = (*rethinkdns)(nil)
 
 func newRDNSRemote(filetagjson string) (*rethinkdns, error) {
 	flags, tags, err := load(filetagjson)
@@ -124,9 +123,6 @@ func newRDNSLocal(t string, rank string,
 	if err != nil {
 		return nil, err
 	}
-
-	// TODO: find a better place
-	runtime.GC()
 
 	// docs.pi-hole.net/ftldns/blockingmode
 	r := &rethinkdns{
