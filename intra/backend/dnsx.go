@@ -105,11 +105,11 @@ type RDNSResolver interface {
 	// SetRdnsLocal sets the local rdns resolver.
 	SetRdnsLocal(trie, rank, conf, filetag string) error
 	// GetRdnsLocal returns the local rdns resolver.
-	GetRdnsLocal() RDNS
+	GetRdnsLocal() (RDNS, error)
 	// SetRdnsRemote sets the remote rdns resolver.
 	SetRdnsRemote(filetag string) error
 	// GetRdnsRemote returns the remote rdns resolver.
-	GetRdnsRemote() RDNS
+	GetRdnsRemote() (RDNS, error)
 	// Translate enables or disables ALG responses
 	Translate(bool)
 }

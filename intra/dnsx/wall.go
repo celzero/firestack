@@ -64,19 +64,24 @@ func (r *resolver) SetRdnsRemote(filetag string) error {
 }
 
 // Implements RdnsResolver
-func (r *resolver) GetRdnsLocal() x.RDNS {
+func (r *resolver) GetRdnsLocal() (x.RDNS, error) {
 	rlocal := r.getRdnsLocal()
 
 	if rlocal != nil {
 		// a non-ftrie version for across the jni boundary
-		return rlocal.rethinkdns
+		return rlocal.rethinkdns, nil
 	}
-	return nil
+	return nil, errNoRdns
 }
 
 // Implements RdnsResolver
-func (r *resolver) GetRdnsRemote() x.RDNS {
-	return r.getRdnsRemote()
+func (r *resolver) GetRdnsRemote() (x.RDNS, error) {
+	rremote := r.getRdnsRemote()
+	if rremote != nil {
+		// a non-ftrie version for across the jni boundary
+		return rremote, nil
+	}
+	return nil, errNoRdns
 }
 
 func (r *resolver) blockQ(t, t2 Transport, msg *dns.Msg) (ans *dns.Msg, blocklists string, err error) {
