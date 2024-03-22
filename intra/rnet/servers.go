@@ -95,6 +95,9 @@ type services struct {
 }
 
 func NewServices(proxies ipn.Proxies, ctl protect.Controller, listener ServerListener) Services {
+	if listener == nil || ctl == nil {
+		return nil
+	}
 	return &services{
 		servers:  make(map[string]Server),
 		ctl:      ctl,

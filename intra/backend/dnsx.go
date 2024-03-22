@@ -118,3 +118,9 @@ type DNSResolver interface {
 	DNSTransportMult
 	RDNSResolver
 }
+
+type ResolverListener interface {
+	OnDNSAdded(id string)
+	OnDNSRemoved(id string)
+	OnDNSStopped()
+}

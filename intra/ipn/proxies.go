@@ -104,29 +104,36 @@ type proxifier struct {
 	sync.RWMutex
 	p   map[string]Proxy
 	ctl protect.Controller
+	obs x.ProxyListener
 }
 
 type gw struct{ ok bool }
 
 var _ x.Router = (*gw)(nil)
+var _ x.Router = (*proxifier)(nil)
 
 var _ Proxies = (*proxifier)(nil)
 var _ protect.RDialer = (Proxy)(nil)
 
-// denotes a placeholder Router that routes everything.
+// PROXYGATEWAY is a Router that routes everything.
 var PROXYGATEWAY = &gw{ok: true}
 
-// denotes a placeholder Router that routes nothing.
+// PROXYNOGATEWAY is a Router that routes nothing.
 var PROXYNOGATEWAY = &gw{ok: false}
 
 func (w *gw) IP4() bool            { return w.ok }
 func (w *gw) IP6() bool            { return w.ok }
 func (w *gw) Contains(string) bool { return w.ok }
 
-func NewProxifier(c protect.Controller) Proxies {
+func NewProxifier(c protect.Controller, o x.ProxyListener) Proxies {
+	if c == nil || o == nil {
+		return nil
+	}
+
 	pxr := &proxifier{
 		p:   make(map[string]Proxy),
 		ctl: c,
+		obs: o,
 	}
 	pxr.add(NewExitProxy(c))  // fixed
 	pxr.add(NewBaseProxy(c))  // fixed
@@ -136,7 +143,7 @@ func NewProxifier(c protect.Controller) Proxies {
 	return pxr
 }
 
-func (px *proxifier) add(p Proxy) bool {
+func (px *proxifier) add(p Proxy) (ok bool) {
 	px.Lock()
 	defer px.Unlock()
 
@@ -148,6 +155,7 @@ func (px *proxifier) add(p Proxy) bool {
 	}
 
 	px.p[p.ID()] = p
+	go px.obs.OnProxyAdded(p.ID())
 	return true
 }
 
@@ -158,6 +166,7 @@ func (px *proxifier) RemoveProxy(id string) bool {
 	if p, ok := px.p[id]; ok {
 		go p.Stop()
 		delete(px.p, id)
+		go px.obs.OnProxyRemoved(id)
 		log.I("proxy: removed %s", id)
 		return true
 	}
@@ -182,6 +191,10 @@ func (px *proxifier) GetProxy(id string) (x.Proxy, error) {
 	return px.ProxyFor(id)
 }
 
+func (px *proxifier) Router() x.Router {
+	return px
+}
+
 func (px *proxifier) StopProxies() error {
 	px.Lock()
 	defer px.Unlock()
@@ -192,6 +205,7 @@ func (px *proxifier) StopProxies() error {
 	}
 	px.p = make(map[string]Proxy)
 
+	go px.obs.OnProxiesStopped()
 	log.I("proxy: all(%d) stopped and removed", l)
 	return nil
 }
@@ -209,6 +223,46 @@ func (px *proxifier) RefreshProxies() (string, error) {
 		active = append(active, p.ID())
 	}
 	return strings.Join(active, ","), nil
+}
+
+// Implements Router.
+func (px *proxifier) IP4() bool {
+	px.RLock()
+	defer px.RUnlock()
+
+	for _, p := range px.p {
+		if r := p.Router(); r != nil && !r.IP4() {
+			return false
+		}
+	}
+	return len(px.p) > 0
+}
+
+// Implements Router.
+func (px *proxifier) IP6() bool {
+	px.RLock()
+	defer px.RUnlock()
+
+	for _, p := range px.p {
+		if r := p.Router(); r != nil && !r.IP6() {
+			return false
+		}
+	}
+
+	return len(px.p) > 0
+}
+
+// Implements Router.
+func (px *proxifier) Contains(ipprefix string) bool {
+	px.RLock()
+	defer px.RUnlock()
+
+	for _, p := range px.p {
+		if r := p.Router(); r != nil && r.Contains(ipprefix) {
+			return true
+		}
+	}
+	return false
 }
 
 func idling(t time.Time) bool {

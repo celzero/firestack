@@ -29,6 +29,14 @@ func (*fakeCtl) Bind4(_ string, _ int)   {}
 func (*fakeCtl) Bind6(_ string, _ int)   {}
 func (*fakeCtl) Protect(_ string, _ int) {}
 
+type fakeObs struct {
+	x.ProxyListener
+}
+
+func (*fakeObs) OnProxyAdded(string)   {}
+func (*fakeObs) OnProxyRemoved(string) {}
+func (*fakeObs) OnProxiesStopped()     {}
+
 /*
 type fakeBdg struct {
 	protect.Controller
@@ -55,8 +63,9 @@ func TestOne(t *testing.T) {
 	resolver := &net.Resolver{}
 	// create a struct that implements protect.Controller interface
 	ctl := &fakeCtl{}
+	obs := &fakeObs{}
 	// bdg := &fakeBdg{Controller: ctl}
-	pxr := ipn.NewProxifier(ctl)
+	pxr := ipn.NewProxifier(ctl, obs)
 	ilog.SetLevel(0)
 	dialers.Mapper(resolver)
 	settings.Debug = true

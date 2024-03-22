@@ -15,19 +15,6 @@ import (
 	"github.com/celzero/firestack/intra/ipn"
 )
 
-const (
-	ProtoTypeUDP  = "udp"
-	ProtoTypeTCP  = "tcp"
-	ProtoTypeICMP = "icmp"
-)
-
-var (
-	optionsBlock = &Mark{PID: ipn.Block}
-	optionsBase  = &Mark{PID: ipn.Base}
-
-	errNone = errors.New("no error")
-)
-
 // SocketSummary reports information about each TCP socket
 // or a non-DNS UDP association, or ICMP echo when it is closed.
 type SocketSummary struct {
@@ -43,6 +30,42 @@ type SocketSummary struct {
 	Rtt      int32     // Round-trip time (ms); (sans ICMP).
 	Msg      string    // Err or other messages, if any.
 }
+
+type SocketListener interface {
+	// Flow is called on a new connection; return "proxyid,connid" to forward the connection
+	// to a pre-registered proxy; "Base" to allow the connection; "Block" to block the connection.
+	// "connid" is used to uniquely identify a connection across all proxies, and a summary of the
+	// connection is sent back to a pre-registered listener.
+	// protocol is 6 for TCP, 17 for UDP, 1 for ICMP.
+	// uid is -1 in case owner-uid of the connection couldn't be determined.
+	// src and dst are string'd representation of net.TCPAddr and net.UDPAddr.
+	// origdsts is a comma-separated list of original source IPs, this may be same as dst.
+	// domains is a comma-separated list of domain names associated with origsrcs, if any.
+	// probableDomains is a comma-separated list of probable domain names associated with origsrcs, if any.
+	// blocklists is a comma-separated list of blocklist names, if any.
+	Flow(protocol int32, uid int, src, dst, origdsts, domains, probableDomains, blocklists string) *Mark
+	// OnSocketClosed reports summary after a socket closes.
+	OnSocketClosed(*SocketSummary)
+}
+
+type Mark struct {
+	PID string // PID of the proxy to forward the socket over.
+	CID string // CID identifies this socket.
+	UID string // UID of the app which owns this socket.
+}
+
+const (
+	ProtoTypeUDP  = "udp"
+	ProtoTypeTCP  = "tcp"
+	ProtoTypeICMP = "icmp"
+)
+
+var (
+	optionsBlock = &Mark{PID: ipn.Block}
+	optionsBase  = &Mark{PID: ipn.Base}
+
+	errNone = errors.New("no error")
+)
 
 func icmpSummary(id, pid string) *SocketSummary {
 	return &SocketSummary{
@@ -102,27 +125,4 @@ func (s *SocketSummary) done(errs ...error) {
 			s.Msg = s.Msg + "; " + err.Error()
 		}
 	}
-}
-
-type SocketListener interface {
-	// Flow is called on a new connection; return "proxyid,connid" to forward the connection
-	// to a pre-registered proxy; "Base" to allow the connection; "Block" to block the connection.
-	// "connid" is used to uniquely identify a connection across all proxies, and a summary of the
-	// connection is sent back to a pre-registered listener.
-	// protocol is 6 for TCP, 17 for UDP, 1 for ICMP.
-	// uid is -1 in case owner-uid of the connection couldn't be determined.
-	// src and dst are string'd representation of net.TCPAddr and net.UDPAddr.
-	// origdsts is a comma-separated list of original source IPs, this may be same as dst.
-	// domains is a comma-separated list of domain names associated with origsrcs, if any.
-	// probableDomains is a comma-separated list of probable domain names associated with origsrcs, if any.
-	// blocklists is a comma-separated list of blocklist names, if any.
-	Flow(protocol int32, uid int, src, dst, origdsts, domains, probableDomains, blocklists string) *Mark
-	// OnSocketClosed reports summary after a socket closes.
-	OnSocketClosed(*SocketSummary)
-}
-
-type Mark struct {
-	PID string // PID of the proxy to forward the socket over.
-	CID string // CID identifies this socket.
-	UID string // UID of the app which owns this socket.
 }

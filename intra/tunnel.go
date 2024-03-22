@@ -52,6 +52,8 @@ type Listener interface {
 	SocketListener
 	x.DNSListener
 	rnet.ServerListener
+	x.ProxyListener
+	x.ResolverListener
 }
 
 // Tunnel represents an Intra session.
@@ -97,8 +99,12 @@ func NewTunnel(fd, mtu int, fakedns string, tunmode *settings.TunMode, dtr Defau
 	l3 := tunmode.L3()
 
 	natpt := x64.NewNatPt(tunmode)
-	proxies := ipn.NewProxifier(bdg)
+	proxies := ipn.NewProxifier(bdg, bdg)
 	services := rnet.NewServices(proxies, bdg, bdg)
+
+	if proxies == nil || services == nil {
+		return nil, fmt.Errorf("tun: no proxies? %t or services? %t", proxies == nil, services == nil)
+	}
 
 	if err := dtr.kickstart(proxies, bdg); err != nil {
 		log.I("tun: <<< new >>>; kickstart err(%v)", err)

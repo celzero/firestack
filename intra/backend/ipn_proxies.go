@@ -58,6 +58,8 @@ type Proxies interface {
 	RemoveProxy(id string) bool
 	// GetProxy returns a transport from this multi-transport.
 	GetProxy(id string) (Proxy, error)
+	// Router returns a lowest common denomination router for this multi-transport.
+	Router() Router
 	// Stop stops all proxies.
 	StopProxies() error
 	// Refresh re-registers proxies and returns a csv of active ones.
@@ -68,4 +70,10 @@ type Router interface {
 	IP4() bool
 	IP6() bool
 	Contains(ipprefix string) bool
+}
+
+type ProxyListener interface {
+	OnProxyAdded(id string)
+	OnProxyRemoved(id string)
+	OnProxiesStopped()
 }

@@ -44,7 +44,7 @@ type StdNetBind2 struct {
 	ipv6MsgsPool sync.Pool
 }
 
-func NewBind2(ctl protect.Controller) conn.Bind {
+func NewEndpoint2(ctl protect.Controller) conn.Bind {
 	return &StdNetBind2{
 		lc: protect.MakeNsListenConfig("wgbind2", ctl),
 
