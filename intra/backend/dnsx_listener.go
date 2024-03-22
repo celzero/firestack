@@ -43,6 +43,7 @@ func (s *DNSSummary) Str() string {
 
 // DNSListener receives Summaries.
 type DNSListener interface {
+	ResolverListener
 	OnQuery(domain string, qtyp int) *DNSOpts
 	OnResponse(*DNSSummary)
 }

@@ -195,8 +195,7 @@ func (r *resolver) Add(dt x.DNSTransport) (ok bool) {
 		// DNSCrypt transports are also registered with DcProxy
 		// Alg transports are also registered with Gateway
 		// Remove cleans those up
-		r.Remove(t.ID())
-		r.Remove(CT + t.ID())
+		r.Remove(t.ID()) // also removes CT
 		if t.ID() == System {
 			go r.Remove64(UnderlayResolver)
 		}
@@ -213,6 +212,7 @@ func (r *resolver) Add(dt x.DNSTransport) (ok bool) {
 		}
 		r.Unlock()
 
+		go r.listener.OnDNSAdded(t.ID())
 		log.I("dns: add transport %s@%s; cache? %t", t.ID(), t.GetAddr(), ct != nil)
 
 		return true
@@ -255,21 +255,29 @@ func (r *resolver) Remove(id string) (ok bool) {
 		log.I("dns: removing reserved transport %s", id)
 	}
 
-	ctid := CT + id
+	_, hasTransport := r.transports[id]
+	if hasTransport {
+		if id == System {
+			go r.Remove64(UnderlayResolver)
+		}
+		r.Lock()
+		delete(r.transports, id)
+		delete(r.transports, CT+id)
+		r.Unlock()
 
-	r.Lock()
-	delete(r.transports, id)
-	delete(r.transports, ctid)
-	r.Unlock()
+		log.I("dns: removed transport %s", id)
 
-	log.I("dns: removed transport %s", id)
+		if tm, err := r.dcProxy(); err == nil {
+			tm.Remove(id)
+			tm.Remove(CT + id)
+		}
 
-	if tm, err := r.dcProxy(); err == nil {
-		tm.Remove(id)
-		tm.Remove(ctid)
+		go r.listener.OnDNSRemoved(id)
+
+		return true
 	}
 
-	return
+	return false
 }
 
 func (r *resolver) IsDnsAddr(ipport string) bool {
@@ -630,6 +638,8 @@ func (r *resolver) accept(c io.ReadWriteCloser) {
 }
 
 func (r *resolver) Stop() error {
+	go r.listener.OnDNSStopped()
+
 	if gw := r.Gateway(); gw != nil {
 		gw.stop()
 	}

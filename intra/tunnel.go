@@ -53,7 +53,6 @@ type Listener interface {
 	x.DNSListener
 	rnet.ServerListener
 	x.ProxyListener
-	x.ResolverListener
 }
 
 // Tunnel represents an Intra session.
