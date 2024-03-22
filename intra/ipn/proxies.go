@@ -231,6 +231,9 @@ func (px *proxifier) IP4() bool {
 	defer px.RUnlock()
 
 	for _, p := range px.p {
+		if local(p.ID()) {
+			continue
+		}
 		if r := p.Router(); r != nil && !r.IP4() {
 			return false
 		}
@@ -244,6 +247,9 @@ func (px *proxifier) IP6() bool {
 	defer px.RUnlock()
 
 	for _, p := range px.p {
+		if local(p.ID()) {
+			continue
+		}
 		if r := p.Router(); r != nil && !r.IP6() {
 			return false
 		}
@@ -258,11 +264,18 @@ func (px *proxifier) Contains(ipprefix string) bool {
 	defer px.RUnlock()
 
 	for _, p := range px.p {
+		if local(p.ID()) {
+			continue
+		}
 		if r := p.Router(); r != nil && r.Contains(ipprefix) {
 			return true
 		}
 	}
 	return false
+}
+
+func local(id string) bool {
+	return id == Base || id == Block || id == Exit
 }
 
 func idling(t time.Time) bool {
