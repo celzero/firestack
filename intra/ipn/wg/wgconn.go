@@ -31,7 +31,7 @@ import (
 	"golang.zx2c4.com/wireguard/conn"
 )
 
-const maxbindtries = 10
+const maxbindtries = 50
 const wgtimeout = 60 * time.Second
 
 var (
@@ -39,6 +39,7 @@ var (
 	errNoLocalAddr     = errors.New("wg: bind: no local address")
 	errNoRawConn       = errors.New("wg: bind: no raw conn")
 	errNotUDP          = errors.New("wg: bind: not a UDP conn")
+	errNoUDPAddr       = errors.New("wg: bind: no UDPAddr")
 	errNoListen        = errors.New("wg: bind: listen failed")
 )
 
@@ -178,7 +179,7 @@ again:
 
 	ipv4, port, err = bind.listenNet("udp4", port)
 	no4 := errors.Is(err, syscall.EAFNOSUPPORT)
-	log.D("wg: bind: %s listen4(%d); no4? %t err? %v", bind.id, port, no4, err)
+	log.D("wg: bind: %s #%d listen4(%d); no4? %t err? %v", bind.id, tries, port, no4, err)
 	if err != nil && !no4 {
 		return nil, 0, err
 	}
@@ -187,7 +188,7 @@ again:
 	ipv6, port, err = bind.listenNet("udp6", port)
 	busy := errors.Is(err, syscall.EADDRINUSE)
 	no6 := errors.Is(err, syscall.EAFNOSUPPORT)
-	log.D("wg: bind: %s listen6(%d); busy? %t no6? %t err? %v", bind.id, port, busy, no6, err)
+	log.D("wg: bind: %s #%d listen6(%d); busy? %t no6? %t err? %v", bind.id, tries, port, busy, no6, err)
 	if uport == 0 && busy && tries < maxbindtries {
 		ipv4.Close()
 		tries++
