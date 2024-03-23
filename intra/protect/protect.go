@@ -47,6 +47,8 @@ func NeverResolve(hostname string) bool {
 type Controller = b.Controller
 type Protector = b.Protector
 
+type ControlFn func(network, addr string, c syscall.RawConn) (err error)
+
 // returns true if addr is a global unicast address; and yn on error.
 func maybeGlobalUnicast(addr string, yn bool) bool {
 	if ipport, err := netip.ParseAddrPort(addr); err == nil {
@@ -165,6 +167,25 @@ func MakeNsListenConfig(who string, c Controller) *net.ListenConfig {
 	x := netlistener()
 	if c != nil {
 		x.Control = ifbind(who, c)
+	}
+	return x
+}
+
+// Creates a listener that can bind to any active interface, with additional control fns.
+func MakeNsListenConfigExt(who string, ctl Controller, ext []ControlFn) *net.ListenConfig {
+	x := netlistener()
+	x.Control = func(network, address string, c syscall.RawConn) error {
+		for _, fn := range ext { // must do prior to ctl.bind
+			if err := fn(network, address, c); err != nil {
+				return err
+			}
+		}
+		if ctl != nil {
+			if err := ifbind(who, ctl)(network, address, c); err != nil {
+				return err
+			}
+		}
+		return nil
 	}
 	return x
 }

@@ -87,6 +87,7 @@ func (e *StdNetBind) ParseEndpoint(s string) (conn.Endpoint, error) {
 		log.E("wg: bind: %s not a valid port in(%s); err: %v", e.id, s, err)
 		return nil, err
 	}
+
 	ipport := netip.AddrPortFrom(ips[0], uint16(port))
 	log.I("wg: bind: %s new endpoint %v", e.id, ipport)
 	return asEndpoint(ipport), nil
@@ -177,7 +178,7 @@ again:
 
 	ipv4, port, err = bind.listenNet("udp4", port)
 	no4 := errors.Is(err, syscall.EAFNOSUPPORT)
-	log.D("wg: bind: listen4(%d); no4? %t err? %v", port, no4, err)
+	log.D("wg: bind: %s listen4(%d); no4? %t err? %v", bind.id, port, no4, err)
 	if err != nil && !no4 {
 		return nil, 0, err
 	}
@@ -390,28 +391,11 @@ func (s *StdNetBind) PeekLookAtSocketFd6() (fd int, err error) {
 	return
 }
 
-// endpointPool contains a re-usable set of mapping from netip.AddrPort to Endpoint.
-// This exists to reduce allocations: Putting a netip.AddrPort in an Endpoint allocates,
-// but Endpoints are immutable, so we can re-use them.
-var endpointPool = sync.Pool{
-	New: func() any {
-		return make(map[netip.AddrPort]conn.Endpoint)
-	},
-}
-
 // asEndpoint returns an Endpoint containing ap.
+// pooling disabled due to data race:
+// github.com/WireGuard/wireguard-go/commit/334b605e726
 func asEndpoint(ap netip.AddrPort) conn.Endpoint {
-	if m, _ := endpointPool.Get().(map[netip.AddrPort]conn.Endpoint); m == nil {
-		return conn.Endpoint(StdNetEndpoint(ap))
-	} else {
-		defer endpointPool.Put(m)
-		e, ok := m[ap]
-		if !ok {
-			e = conn.Endpoint(StdNetEndpoint(ap))
-			m[ap] = e
-		}
-		return e
-	}
+	return StdNetEndpoint(ap)
 }
 
 func loge(err error, msg string, rest ...any) {

@@ -264,6 +264,8 @@ func (px *proxifier) Contains(ipprefix string) bool {
 	defer px.RUnlock()
 
 	for _, p := range px.p {
+		// always present local proxies route either everything or
+		// nothing: not useful for making routing decisions
 		if local(p.ID()) {
 			continue
 		}

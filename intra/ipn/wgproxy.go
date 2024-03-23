@@ -687,6 +687,7 @@ func (h *wgtun) Contains(ipprefix string) bool {
 		}
 	}
 
+	// go.dev/play/p/wdPoNt-cqXZ
 	for _, r := range h.allowed {
 		y := r.Contains(ip)
 		log.D("wg: %s router: contains: %s in %s? %t", h.id, ip, r, y)

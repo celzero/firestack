@@ -31,7 +31,6 @@ package netstack
 
 import (
 	"fmt"
-	"sync/atomic"
 
 	"github.com/celzero/firestack/intra/log"
 	"golang.org/x/sys/unix"
@@ -139,20 +138,6 @@ type Options struct {
 	MaxSyscallHeaderBytes int
 }
 
-// fanoutID is used for AF_PACKET based endpoints to enable PACKET_FANOUT
-// support in the host kernel. This allows us to use multiple FD's to receive
-// from the same underlying NIC. The fanoutID needs to be the same for a given
-// set of FD's that point to the same NIC. Trying to set the PACKET_FANOUT
-// option for an FD with a fanoutID already in use by another FD for a different
-// NIC will return an EINVAL.
-//
-// Since fanoutID must be unique within the network namespace, we start with
-// the PID to avoid collisions. The only way to be sure of avoiding collisions
-// is to run in a new network namespace.
-//
-// Must be accessed using atomic operations.
-var fanoutID int32 = int32(unix.Getpid())
-
 // New creates a new fd-based endpoint.
 //
 // Makes fd non-blocking, but does not take ownership of fd, which must remain
@@ -205,10 +190,6 @@ func NewFdbasedInjectableEndpoint(opts *Options) (stack.LinkEndpoint, error) {
 		}
 	}
 
-	// Increment fanoutID to ensure that we don't re-use the same fanoutID for
-	// the next endpoint.
-	fid := atomic.AddInt32(&fanoutID, 1)
-
 	// Create per channel dispatchers; usually only one.
 	for _, fd := range opts.FDs {
 		if err := unix.SetNonblock(fd, true); err != nil {
@@ -217,7 +198,7 @@ func NewFdbasedInjectableEndpoint(opts *Options) (stack.LinkEndpoint, error) {
 
 		e.fds = append(e.fds, fdInfo{fd: fd})
 
-		d, err := createInboundDispatcher(e, fd, fid)
+		d, err := createInboundDispatcher(e, fd)
 		if err != nil {
 			return nil, fmt.Errorf("createInboundDispatcher(...) = %v", err)
 		}
@@ -227,7 +208,7 @@ func NewFdbasedInjectableEndpoint(opts *Options) (stack.LinkEndpoint, error) {
 	return e, nil
 }
 
-func createInboundDispatcher(e *endpoint, fd int, fID int32) (linkDispatcher, error) {
+func createInboundDispatcher(e *endpoint, fd int) (linkDispatcher, error) {
 	// By default use the readv() dispatcher as it works with all kinds of
 	// FDs (tap/tun/unix domain sockets and af_packet).
 	d, err := newReadVDispatcher(fd, e)
