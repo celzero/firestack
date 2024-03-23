@@ -120,7 +120,7 @@ func (e ErrUDPGSODisabled) Unwrap() error {
 	return e.RetryErr
 }
 
-func NewEndpoint2(id string, ctl protect.Controller, f rwlistener) conn.Bind {
+func NewEndpoint2(id string, ctl protect.Controller, f rwlistener) *StdNetBind2 {
 	return &StdNetBind2{
 		id:       id,
 		ctl:      ctl,

@@ -83,12 +83,17 @@ type wgtun struct {
 	hasV4, hasV6   bool              // interface has ipv4/ipv6 routes?
 }
 
+type wgconn interface {
+	conn.Bind
+	RemoteAddr() netip.AddrPort
+}
+
 var _ WgProxy = (*wgproxy)(nil)
 
 type wgproxy struct {
 	*wgtun
 	*device.Device
-	wgep *wg.StdNetBind
+	wgep wgconn
 	hc   *http.Client   // exported http client
 	rd   *protect.RDial // exported rdialer
 }
@@ -363,7 +368,7 @@ func NewWgProxy(id string, ctl protect.Controller, cfg string) (WgProxy, error) 
 		return nil, err
 	}
 
-	wgep := wg.NewEndpoint(id, ctl, wgtun.listener)
+	wgep := wg.NewEndpoint2(id, ctl, wgtun.listener)
 
 	wgdev := device.NewDevice(wgtun, wgep, wglogger(id))
 
