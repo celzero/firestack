@@ -50,6 +50,8 @@ func (h *MH) Addrs() []netip.Addr {
 }
 
 func (h *MH) Len() int {
+	h.RLock()
+	defer h.RUnlock()
 	// names may exist without addrs and vice versa
 	return max(len(h.addrs), len(h.names))
 }
@@ -58,16 +60,12 @@ func (h *MH) addrlen() int {
 	return len(h.addrs)
 }
 
+// Refresh re-adds the list of IPs, hostnames, and re-resolves the hostname.
 func (h *MH) Refresh() int {
-	totips := 0
-	if len(h.names) > 0 { // resolve ip from domain names
-		h.With(h.names)
-		totips = len(h.addrs)
-	}
-	if totips <= 0 { // re-add existing ips, if any
-		h.With(h.straddrs())
-	}
-	return len(h.addrs)
+	// resolve ip from domain names
+	h.With(h.names)
+	// re-add existing ips, if any
+	return h.Add(h.straddrs())
 }
 
 // Add appends the list of IPs, hostnames, and hostname's IPs as resolved.
