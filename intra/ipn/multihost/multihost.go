@@ -14,11 +14,20 @@ import (
 	"github.com/celzero/firestack/intra/log"
 )
 
+// nooplock is a no-op lock.
+type nooplock struct{}
+
 // MH is a list of hostnames and/or ip addresses for one endpoint.
 type MH struct {
-	names []string
-	addrs []netip.Addr
+	nooplock // todo: replace with sync.RWMutex
+	names    []string
+	addrs    []netip.Addr
 }
+
+func (nooplock) Lock()    {}
+func (nooplock) Unlock()  {}
+func (nooplock) RLock()   {}
+func (nooplock) RUnlock() {}
 
 func (h *MH) String() string {
 	return strings.Join(h.straddrs(), ",")
@@ -61,9 +70,19 @@ func (h *MH) Refresh() int {
 	return len(h.addrs)
 }
 
-func (h *MH) With(domainsOrIps []string) int {
-	h.names = make([]string, 0)
-	h.addrs = make([]netip.Addr, 0)
+// Add appends the list of IPs, hostnames, and hostname's IPs as resolved.
+func (h *MH) Add(domainsOrIps []string) int {
+	if len(domainsOrIps) <= 0 {
+		return 0
+	}
+
+	h.Lock()
+	if h.names == nil {
+		h.names = make([]string, 0)
+	}
+	if h.addrs == nil {
+		h.addrs = make([]netip.Addr, 0)
+	}
 	for _, dip := range domainsOrIps {
 		if len(dip) <= 0 {
 			continue
@@ -80,14 +99,28 @@ func (h *MH) With(domainsOrIps []string) int {
 			h.addrs = append(h.addrs, ip)
 		}
 	}
+	h.Unlock()
+
 	log.D("multihost: with %s => %s", h.names, h.addrs)
 	return h.Len()
+}
+
+// With sets the list of IPs, hostnames, and hostname's IPs as resolved.
+func (h *MH) With(domainsOrIps []string) int {
+	h.Lock()
+	h.names = make([]string, 0)
+	h.addrs = make([]netip.Addr, 0)
+	h.Unlock()
+	return h.Add(domainsOrIps)
 }
 
 func (h *MH) EqualAddrs(other *MH) bool {
 	if (other == nil) || (h.addrlen() != other.addrlen()) {
 		return false
 	}
+
+	h.RLock()
+	defer h.RUnlock()
 	for _, me := range h.addrs {
 		var ok bool
 		for _, them := range other.addrs {

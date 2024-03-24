@@ -243,7 +243,7 @@ func wgIfConfigOf(txtptr *string) (ifaddrs []netip.Prefix, allowedaddrs []netip.
 		line := r.Text()
 		if len(line) <= 0 {
 			// Blank line means terminate operation.
-			if (len(ifaddrs) <= 0) || dnsh == nil || (dnsh.Len() <= 0) || (mtu <= 0) {
+			if (len(ifaddrs) <= 0) || (dnsh.Len() <= 0) || (mtu <= 0) {
 				err = errProxyConfig
 			}
 			return
@@ -263,7 +263,7 @@ func wgIfConfigOf(txtptr *string) (ifaddrs []netip.Prefix, allowedaddrs []netip.
 			if err = loadIPNets(&ifaddrs, v); err != nil {
 				return
 			}
-		case "dns":
+		case "dns": // may exist more than once: github.com/celzero/rethink-app/issues/1298
 			loadMH(dnsh, v)
 		case "mtu":
 			if mtu, err = strconv.Atoi(v); err != nil {
@@ -299,7 +299,7 @@ func loadMH(mh *multihost.MH, v string) {
 		return
 	}
 	vv := strings.Split(v, ",")
-	mh.With(vv)
+	mh.Add(vv)
 }
 
 func loadIPNets(out *[]netip.Prefix, v string) (err error) {
