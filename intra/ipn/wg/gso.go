@@ -26,9 +26,9 @@ import (
 
 // from: github.com/WireGuard/wireguard-go/blob/12269c27/conn/gso_linux.go
 
-const (
-	sizeOfGSOData = 2
-)
+// TODO: GSO/GRO and mmsgs in pkg net: github.com/golang/go/issues/45886
+
+const sizeOfGSOData = 2
 
 // gsoControlSize returns the recommended buffer size for pooling UDP
 // offloading control data.
