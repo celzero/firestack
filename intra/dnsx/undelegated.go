@@ -158,6 +158,7 @@ var undelegatedSet = []string{
 	"wlan_ap",
 	"workgroup",
 	"zghjccbob3n0",
+	"fritz.box", // github.com/celzero/rethink-app/issues/1298
 }
 
 func newUndelegatedDomainsTrie() c.RadixTree {
