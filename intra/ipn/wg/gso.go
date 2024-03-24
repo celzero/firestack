@@ -90,7 +90,7 @@ func supportsUDPOffload(conn *net.UDPConn) (txOffload, rxOffload bool) {
 		rxOffload = errSyscall == nil && opt == 1
 	})
 	if err != nil {
-		log.V("wg: gso: no support; err: %v", err)
+		log.W("wg: gso: no support; err: %v", err)
 		return false, false
 	}
 	log.I("wg: gso: txOffload: %v, rxOffload: %v", txOffload, rxOffload)
@@ -106,7 +106,11 @@ func errShouldDisableUDPGSO(err error) bool {
 		// See:
 		// https://git.kernel.org/pub/scm/docs/man-pages/man-pages.git/tree/man7/udp.7?id=806eabd74910447f21005160e90957bde4db0183#n228
 		// https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/tree/net/ipv4/udp.c?h=v6.2&id=c9c3395d5e3dcc6daee66c6908354d47bf98cb0c#n942
-		return serr.Err == unix.EIO
+		eio := serr.Err == unix.EIO
+		if eio {
+			log.W("wg: gso: EIO: %v", eio)
+		}
+		return eio
 	}
 	return false
 }
