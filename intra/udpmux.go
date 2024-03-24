@@ -43,7 +43,7 @@ type stats struct {
 }
 
 func (s *stats) String() string {
-	return fmt.Sprintf("muxer: tx: %d, rx: %d, conns: %d, dur: %s", s.tx, s.rx, s.dxcount, s.dur)
+	return fmt.Sprintf("mux: tx: %d, rx: %d, conns: %d, dur: %s", s.tx, s.rx, s.dxcount, s.dur)
 }
 
 // muxer muxes multiple connections grouped by remote addr over net.PacketConn
@@ -195,7 +195,7 @@ func (x *muxer) read() {
 			select {
 			case dst.incomingCh <- &slice{v: b[:n], free: free}:
 			default: // dst probably closed, but not yet unrouted
-				log.W("udp: read: drop(sz: %d); route to %s closed but yet found?", n, dst.raddr)
+				log.W("udp: mux: read: drop(sz: %d); route to %s closed but yet found?", n, dst.raddr)
 			}
 		}
 	}
