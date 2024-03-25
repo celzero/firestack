@@ -319,6 +319,12 @@ func (s *StdNetBind2) receiveIP(
 	}()
 
 	msgs := s.getMessages()
+	defer s.putMessages(msgs)
+	if msgs == nil || len(*msgs) <= 0 {
+		log.E("wg: bind2: %s no messages", s.id)
+		return 0, syscall.ENOMEM
+	}
+
 	for i := range bufs {
 		if i >= len(*msgs) { // unlikely as IdealBatchSize is a hard limit
 			log.E("wg: bind2: %s receiveIP: limit: %d; too many messages (%d)", s.id, len(*msgs), len(bufs))
@@ -329,7 +335,6 @@ func (s *StdNetBind2) receiveIP(
 		msg.Buffers[0] = bufs[i]
 		msg.OOB = msg.OOB[:cap(msg.OOB)]
 	}
-	defer s.putMessages(msgs)
 	var numMsgs int
 	if br != nil {
 		if rxOffload {
@@ -504,6 +509,12 @@ func (s *StdNetBind2) Send(bufs [][]byte, endpoint conn.Endpoint) (err error) {
 
 	msgs := s.getMessages() // from msgspool
 	defer s.putMessages(msgs)
+
+	if msgs == nil || len(*msgs) <= 0 {
+		log.E("wg: bind2: %s no messages", s.id)
+		return syscall.ENOMEM
+	}
+
 	ua := s.getUDPAddr() // from udpAddrPool
 	defer s.putUDPAddr(ua)
 
@@ -579,7 +590,7 @@ func (s *StdNetBind2) send(conn *net.UDPConn, pc batchWriter, msgs []ipv6.Messag
 			}
 		}
 	}
-	loge(err, "wg: bind2: %s send: addr(%v) n(%d); err? %v", s.id, n, err)
+	loge(err, "wg: bind2: %s send: n(%d); err? %v", s.id, n, err)
 	return err
 }
 
@@ -695,7 +706,7 @@ func splitCoalescedMessages(msgs []ipv6.Message, firstMsgAt int, getGSO getGSOFu
 }
 
 func msgAddr(msgs *[]ipv6.Message) net.Addr {
-	if len(*msgs) <= 0 {
+	if msgs == nil || len(*msgs) <= 0 {
 		return zeroaddr
 	}
 	return (*msgs)[0].Addr
