@@ -123,10 +123,12 @@ func AddProxyDNS(t Tunnel, p x.Proxy) error {
 	g := t.getBridge()
 	ipOrHostCsv := p.DNS()
 	if len(ipOrHostCsv) == 0 {
+		log.W("dns: no proxy dns for %s @ %s", p.ID(), p.GetAddr())
 		return dnsx.ErrNoProxyDNS
 	}
 	ipsOrHost := strings.Split(ipOrHostCsv, ",")
 	if len(ipsOrHost) == 0 {
+		log.W("dns: no dns for %s @ %s", p.ID(), p.GetAddr())
 		return dnsx.ErrNoProxyDNS
 	}
 	first := ipsOrHost[0]
