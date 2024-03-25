@@ -88,10 +88,10 @@ func (h *MH) Add(domainsOrIps []string) int {
 		dip = strings.TrimSpace(dip)                     // hostname or ip
 		if ip, err := netip.ParseAddr(dip); err != nil { // may be hostname
 			h.names = append(h.names, dip) // add hostname regardless of resolution
-			if resolvedips := dialers.For(dip); len(resolvedips) > 0 {
+			if resolvedips, err := dialers.Resolve(dip); err != nil && len(resolvedips) > 0 {
 				h.addrs = append(h.addrs, resolvedips...)
 			} else {
-				log.W("multihost: no ips for %q", dip)
+				log.W("multihost: no ips for %q; err? %v", dip, err)
 			}
 		} else { // may be ip
 			h.addrs = append(h.addrs, ip)
