@@ -71,11 +71,11 @@ type StdNetEndpoint2 struct {
 }
 
 type batchReader interface {
-	ReadBatch([]ipv6.Message, int) (int, error)
+	ReadBatch(ms []ipv6.Message, flags int) (int, error)
 }
 
 type batchWriter interface {
-	WriteBatch([]ipv6.Message, int) (int, error)
+	WriteBatch(ms []ipv6.Message, flags int) (int, error)
 }
 
 type setGSOFunc func(control *[]byte, gsoSize uint16)
@@ -535,7 +535,7 @@ func (s *StdNetBind2) Send(bufs [][]byte, endpoint conn.Endpoint) (err error) {
 	defer s.putUDPAddr(ua)
 
 	dst := addrport(endpoint, !is6)
-	ua = net.UDPAddrFromAddrPort(dst)
+	*ua = *net.UDPAddrFromAddrPort(dst)
 	s.lastSendAddr = dst
 
 	var retried bool
@@ -602,6 +602,7 @@ func (s *StdNetBind2) send(conn *net.UDPConn, pc batchWriter, msgs []ipv6.Messag
 			}
 			_, _, err = conn.WriteMsgUDP(msg.Buffers[0], msg.OOB, addr)
 			if err != nil {
+				log.E("wg: bind2: %s send: to %v; err %v", s.id, addr, err)
 				break
 			}
 		}
@@ -638,7 +639,7 @@ func coalesceMessages(addr *net.UDPAddr, ep *StdNetEndpoint2, bufs [][]byte, msg
 	}
 	for i, buf := range bufs {
 		if i > 0 {
-			curmsg := msgs[base]
+			curmsg := &msgs[base]
 			msgLen := len(buf)
 			baseLenBefore := len(curmsg.Buffers[0])
 			freeBaseCap := cap(curmsg.Buffers[0]) - baseLenBefore
@@ -668,7 +669,7 @@ func coalesceMessages(addr *net.UDPAddr, ep *StdNetEndpoint2, bufs [][]byte, msg
 		endBatch = false
 		base++
 		gsoSize = len(buf)
-		nextmsg := msgs[base]
+		nextmsg := &msgs[base]
 		setSrcControl(&nextmsg.OOB, ep) // no-op on Android
 		nextmsg.Buffers[0] = buf
 		nextmsg.Addr = addr
