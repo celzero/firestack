@@ -103,7 +103,10 @@ func supportsBatchRw() bool {
 }
 
 // from: github.com/WireGuard/wireguard-go/blob/12269c276/conn/errors_linux.go#
-func errShouldDisableUDPGSO(err error) bool {
+func shouldDisableUDPGSOOnError(err error) bool {
+	if err == nil {
+		return false
+	}
 	var serr *os.SyscallError
 	if errors.As(err, &serr) {
 		// EIO is returned by udp_send_skb() if the device driver does not have

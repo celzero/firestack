@@ -340,6 +340,7 @@ func (s *StdNetBind2) receiveIP(
 		msg.Buffers[0] = bufs[i]
 		msg.OOB = msg.OOB[:cap(msg.OOB)]
 	}
+
 	var numMsgs int
 	if br != nil {
 		if rxOffload {
@@ -543,7 +544,7 @@ retry:
 		err = s.send(c, br, (*msgs)[:n])
 		loge(err, "wg: bind2: %s GSO: send(%d/%d) to %s; err(%v)", s.id, n, len(bufs), ua, err)
 
-		if err != nil && offload && errShouldDisableUDPGSO(err) {
+		if shouldDisableUDPGSOOnError(err) { // err may be nil
 			offload = false
 			s.mu.Lock()
 			if is6 {
