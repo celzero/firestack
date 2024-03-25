@@ -38,7 +38,7 @@ func (h *MH) String() string {
 }
 
 func (h *MH) straddrs() []string {
-	a := make([]string, len(h.addrs))
+	a := make([]string, 0, len(h.addrs))
 	for _, ip := range h.addrs {
 		a = append(a, ip.String())
 	}
