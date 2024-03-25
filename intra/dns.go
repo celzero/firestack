@@ -125,10 +125,7 @@ func AddProxyDNS(t Tunnel, p x.Proxy) error {
 	if len(ipOrHostCsv) == 0 {
 		return dnsx.ErrNoProxyDNS
 	}
-	ipsOrHost := []string{}
-	if len(ipOrHostCsv) > 0 {
-		ipsOrHost = strings.Split(ipOrHostCsv, ",")
-	}
+	ipsOrHost := strings.Split(ipOrHostCsv, ",")
 	if len(ipsOrHost) == 0 {
 		return dnsx.ErrNoProxyDNS
 	}

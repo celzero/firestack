@@ -659,24 +659,30 @@ func (h *wgtun) DNS() string {
 	// prefer hostnames over IPs:
 	// hostnames may resolve to different IPs on different networks;
 	// tunnel could use hostnames to implement "refresh"
-	for _, hostname := range h.dns.Names() {
+	names := h.dns.Names()
+	for _, hostname := range names {
 		s += hostname + ","
 	}
-	if len(s) > 0 {
-		log.D("wg: %s dns hostnames: %s", h.id, s)
+	log.D("wg: %s dns hostnames: (in: %v) out: %s", h.id, names, s)
+	if len(s) > 0 { // return names, if any
 		return strings.TrimRight(s, ",")
 	}
-	for _, dns := range h.dns.Addrs() {
+
+	addrs := h.dns.Addrs()
+	for _, dns := range addrs {
 		if dns.IsUnspecified() || !dns.IsValid() {
 			continue
 		}
 		// may be private, link local, etc
 		s += dns.Unmap().String() + ","
 	}
-	if len(s) > 0 {
-		log.D("wg: %s dns ipaddrs: %s", h.id, s)
+
+	log.D("wg: %s dns ipaddrs: (in: %v) out: %s", h.id, addrs, s)
+	if len(s) > 0 { // return ipaddrs, if any
 		return strings.TrimRight(s, ",")
 	}
+
+	log.W("wg: %s dns: not found (names: %v; addrs: %s)", h.id, names, addrs)
 	return nodns
 }
 

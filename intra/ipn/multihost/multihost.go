@@ -40,6 +40,9 @@ func (h *MH) String() string {
 func (h *MH) straddrs() []string {
 	a := make([]string, 0, len(h.addrs))
 	for _, ip := range h.addrs {
+		if ip.IsUnspecified() || !ip.IsValid() {
+			continue
+		}
 		a = append(a, ip.String())
 	}
 	return a
@@ -86,10 +89,10 @@ func (h *MH) Add(domainsOrIps []string) int {
 		h.addrs = make([]netip.Addr, 0)
 	}
 	for _, dip := range domainsOrIps {
+		dip = h.normalize(dip) // host or ip or host:port or ip:port
 		if len(dip) <= 0 {
 			continue
 		}
-		dip = h.normalize(dip)                           // host or ip or host:port or ip:port
 		if ip, err := netip.ParseAddr(dip); err != nil { // may be hostname
 			h.names = append(h.names, dip) // add hostname regardless of resolution
 			if resolvedips, err := dialers.Resolve(dip); err == nil && len(resolvedips) > 0 {
@@ -106,6 +109,8 @@ func (h *MH) Add(domainsOrIps []string) int {
 	}
 	h.Unlock()
 
+	// TODO: remove dups from h.addrs and h.names
+
 	log.D("multihost: with %s => %s", h.names, h.addrs)
 	return h.Len()
 }
@@ -121,11 +126,10 @@ func (h *MH) With(domainsOrIps []string) int {
 
 func (h *MH) normalize(dip string) string {
 	dip = strings.TrimSpace(dip)
-	hostOrIP, _, err := net.SplitHostPort(dip)
-	if err != nil {
-		return dip
+	if hostOrIP, _, err := net.SplitHostPort(dip); err == nil {
+		return hostOrIP
 	}
-	return hostOrIP
+	return dip
 }
 
 func (h *MH) EqualAddrs(other *MH) bool {
