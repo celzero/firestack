@@ -30,7 +30,7 @@ func pipe(dst io.Writer, src io.Reader) (int64, error) {
 	} else if x, ok := dst.(io.ReaderFrom); ok {
 		return x.ReadFrom(src)
 	}
-	bptr := core.Alloc()
+	bptr := core.AllocRegion(core.BMAX)
 	b := *bptr
 	b = b[:cap(b)]
 	defer func() {
