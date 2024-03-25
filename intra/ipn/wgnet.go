@@ -80,6 +80,7 @@ func (tnet *wgtun) LookupContextHost(ctx context.Context, host string) ([]netip.
 	}
 
 	// TODO: resolve via wireguard's DNS
+	// dialers.For returns from cache (which may be stale)
 	if ips := dialers.For(host); len(ips) <= 0 {
 		log.D("wg: dial: lookup failed %q: no ips %v", host, ips)
 		return nil, &net.DNSError{Err: errNoSuchHost.Error(), Name: host, IsNotFound: true}
@@ -162,8 +163,10 @@ func (tnet *wgtun) DialContext(_ context.Context, network, address string) (net.
 		}
 		log.I("wg: dial: %s: #%d %v", network, i, addr)
 		if err == nil {
+			dialers.Confirm2(host, addr.Addr())
 			return c, nil
 		}
+		dialers.Disconfirm2(host, addr.Addr())
 		errs = errors.Join(errs, err)
 	}
 	if errs == nil {

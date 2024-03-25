@@ -96,23 +96,33 @@ func Clear() {
 
 // Confirm marks addr as preferred for hostOrIP
 func Confirm(hostOrIP string, addr net.Addr) bool {
-	ips := ipm.GetAny(hostOrIP)
-	if ips != nil {
-		if ip, err := netip.ParseAddr(addr.String()); err == nil {
-			ips.Confirm(ip)
-			return true
-		} // not ok
+	if ip, err := netip.ParseAddr(addr.String()); err == nil {
+		return Confirm2(hostOrIP, ip)
 	} // not ok
 	return false
 }
 
-// Disconfirm unmarks addr as preferred for hostOrIP
-func Disconfirm(hostOrIP string, ip net.Addr) bool {
+func Confirm2(hostOrIP string, addr netip.Addr) bool {
 	ips := ipm.GetAny(hostOrIP)
 	if ips != nil {
-		if ip, err := netip.ParseAddr(ip.String()); err == nil {
-			return ips.Disconfirm(ip)
-		} // not ok
+		ips.Confirm(addr)
+	}
+	return ips != nil
+}
+
+// Disconfirm unmarks addr as preferred for hostOrIP
+func Disconfirm(hostOrIP string, ip net.Addr) bool {
+	if ip, err := netip.ParseAddr(ip.String()); err == nil {
+		return Disconfirm2(hostOrIP, ip)
+	} // not ok
+	return false
+}
+
+// Disconfirm2 unmarks addr as preferred for hostOrIP
+func Disconfirm2(hostOrIP string, ip netip.Addr) bool {
+	ips := ipm.GetAny(hostOrIP)
+	if ips != nil {
+		return ips.Disconfirm(ip)
 	} // not ok
 	return false
 }
