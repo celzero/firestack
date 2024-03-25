@@ -150,7 +150,7 @@ func NewEndpoint2(id string, ctl protect.Controller, f rwlistener) *StdNetBind2 
 }
 
 func (e *StdNetBind2) ParseEndpoint(s string) (conn.Endpoint, error) {
-	d := new(multihost.MH)
+	d := multihost.New(e.id + "[" + s + "]")
 	host, portstr, err := net.SplitHostPort(s)
 	if err != nil {
 		log.E("wg: bind2: %s not a valid endpoint in(%s); err: %v", e.id, s, err)
@@ -480,7 +480,7 @@ func (s *StdNetBind2) Close() error {
 	s.ipv6TxOffload = false
 	s.ipv6RxOffload = false
 
-	log.I("wg: bind: %s close; err4? %v err6? %v", s.id, err4, err6)
+	log.I("wg: bind2: %s close; err4? %v err6? %v", s.id, err4, err6)
 
 	return errors.Join(err4, err6)
 }

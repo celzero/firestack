@@ -24,6 +24,7 @@ type nooplock struct{}
 // MH is a list of hostnames and/or ip addresses for one endpoint.
 type MH struct {
 	nooplock // todo: replace with sync.RWMutex
+	id       string
 	names    []string
 	addrs    []netip.Addr
 }
@@ -33,8 +34,13 @@ func (nooplock) Unlock()  {}
 func (nooplock) RLock()   {}
 func (nooplock) RUnlock() {}
 
+// New returns a new multihost with the given id.
+func New(id string) *MH {
+	return &MH{id: id}
+}
+
 func (h *MH) String() string {
-	return strings.Join(h.straddrs(), ",")
+	return h.id + ":" + strings.Join(h.straddrs(), ",")
 }
 
 func (h *MH) straddrs() []string {
@@ -78,6 +84,7 @@ func (h *MH) Refresh() int {
 // Add appends the list of IPs, hostnames, and hostname's IPs as resolved.
 func (h *MH) Add(domainsOrIps []string) int {
 	if len(domainsOrIps) <= 0 {
+		log.W("multihost: %s no domains or ips", h.id)
 		return 0
 	}
 
@@ -101,7 +108,7 @@ func (h *MH) Add(domainsOrIps []string) int {
 				if err == nil { // err may be nil even on zero answers
 					err = errNoIps
 				}
-				log.W("multihost: no ips for %q; err? %v", dip, err)
+				log.W("multihost: %s no ips for %q; err? %v", h.id, dip, err)
 			}
 		} else { // may be ip
 			h.addrs = append(h.addrs, ip)
@@ -111,7 +118,7 @@ func (h *MH) Add(domainsOrIps []string) int {
 
 	// TODO: remove dups from h.addrs and h.names
 
-	log.D("multihost: with %s => %s", h.names, h.addrs)
+	log.D("multihost: %s with %s => %s", h.id, h.names, h.addrs)
 	return h.Len()
 }
 

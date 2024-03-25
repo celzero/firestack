@@ -89,7 +89,7 @@ func NewSocks5Proxy(id string, ctl protect.Controller, po *settings.ProxyOptions
 	tx.Dial = protect.MakeNsRDial(id, ctl)
 
 	portnumber, _ := strconv.Atoi(po.Port)
-	mh := new(multihost.MH)
+	mh := multihost.New(id)
 	mh.With([]string{po.Host, po.IP}) // resolves if ip is name
 
 	var clients []proxy.Dialer

@@ -71,7 +71,7 @@ var (
 )
 
 func (e *StdNetBind) ParseEndpoint(s string) (conn.Endpoint, error) {
-	d := new(multihost.MH)
+	d := multihost.New(e.id + "[" + s + "]")
 	host, portstr, err := net.SplitHostPort(s)
 	if err != nil {
 		log.E("wg: bind: %s not a valid endpoint in(%s); err: %v", e.id, s, err)

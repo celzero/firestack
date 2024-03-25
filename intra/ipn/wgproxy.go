@@ -187,7 +187,7 @@ func (w *wgproxy) canUpdate(txt string) bool {
 
 	// str copy: go.dev/play/p/eO814kGGNtO
 	cptxt := txt
-	ifaddrs, _, dnsh, _, mtu, err := wgIfConfigOf(&cptxt)
+	ifaddrs, _, dnsh, _, mtu, err := wgIfConfigOf(w.id, &cptxt)
 	if err != nil {
 		log.W("proxy: wg: !canUpdate(%s): err: %v", w.id, err)
 		return false
@@ -236,12 +236,12 @@ func wglogger(id string) *device.Logger {
 	return logger
 }
 
-func wgIfConfigOf(txtptr *string) (ifaddrs []netip.Prefix, allowedaddrs []netip.Prefix, dnsh, endpointh *multihost.MH, mtu int, err error) {
+func wgIfConfigOf(id string, txtptr *string) (ifaddrs []netip.Prefix, allowedaddrs []netip.Prefix, dnsh, endpointh *multihost.MH, mtu int, err error) {
 	txt := *txtptr
 	pcfg := strings.Builder{}
 	r := bufio.NewScanner(strings.NewReader(txt))
-	dnsh = new(multihost.MH)
-	endpointh = new(multihost.MH)
+	dnsh = multihost.New(id + "dns")
+	endpointh = multihost.New(id + "endpoint")
 	for r.Scan() {
 		line := r.Text()
 		if len(line) <= 0 {
@@ -253,7 +253,7 @@ func wgIfConfigOf(txtptr *string) (ifaddrs []netip.Prefix, allowedaddrs []netip.
 		}
 		k, v, ok := strings.Cut(line, "=")
 		if !ok {
-			err = fmt.Errorf("proxy: wg: failed to parse line %q", line)
+			err = fmt.Errorf("proxy: wg: %s failed to parse line %q", id, line)
 			return
 		}
 		k = strings.ToLower(strings.TrimSpace(k))
@@ -277,16 +277,16 @@ func wgIfConfigOf(txtptr *string) (ifaddrs []netip.Prefix, allowedaddrs []netip.
 				return
 			}
 			// carry over allowed_ips
-			log.V("proxy: wg: ifconfig: skipping key %q", k)
+			log.V("proxy: wg: %s ifconfig: skipping key %q", id, k)
 			pcfg.WriteString(line + "\n")
 		case "endpoint": // may exist more than once
 			// TODO: endpoint could be v4 or v6 or a hostname
 			loadMH(endpointh, v)
 			// carry over endpoints
-			log.V("proxy: wg: ifconfig: skipping key %q", k)
+			log.V("proxy: wg: %s ifconfig: skipping key %q", id, k)
 			pcfg.WriteString(line + "\n")
 		default:
-			log.V("proxy: wg: ifconfig: skipping key %q", k)
+			log.V("proxy: wg: %s ifconfig: skipping key %q", id, k)
 			pcfg.WriteString(line + "\n")
 		}
 	}
@@ -335,19 +335,19 @@ func bindWgSockets(id string, wgdev *device.Device, ctl protect.Controller) bool
 	// protect: https://github.com/WireGuard/wireguard-android/blob/713947e432/tunnel/src/main/java/com/wireguard/android/backend/GoBackend.java#L316
 	bind, _ := wgdev.Bind().(conn.PeekLookAtSocketFd)
 	if bind == nil {
-		log.E("proxy: wg: %s bind: failed to get wg socket", id)
+		log.E("proxy: wg: %s bindWgSockets: failed to get socket", id)
 		return false
 	}
 
 	if fd4, err := bind.PeekLookAtSocketFd4(); err != nil {
-		log.W("proxy: wg: %s bind4: failed to get wg4 socket %v", id, err)
+		log.W("proxy: wg: %s bindWgSockets4: failed to get wg4 socket %v", id, err)
 	} else {
 		ctl.Bind4(id, fd4)
 		ok4 = true
 	}
 
 	if fd6, err := bind.PeekLookAtSocketFd6(); err != nil {
-		log.W("proxy: wg: %s bind6: failed to get wg6 socket %v", id, err)
+		log.W("proxy: wg: %s bindWgSockets6: failed to get wg6 socket %v", id, err)
 	} else {
 		ctl.Bind6(id, fd6)
 		ok6 = true
@@ -358,7 +358,7 @@ func bindWgSockets(id string, wgdev *device.Device, ctl protect.Controller) bool
 
 // ref: github.com/WireGuard/wireguard-android/blob/713947e432/tunnel/tools/libwg-go/api-android.go#L76
 func NewWgProxy(id string, ctl protect.Controller, cfg string) (WgProxy, error) {
-	ifaddrs, allowedaddrs, dnsh, endpointh, mtu, err := wgIfConfigOf(&cfg)
+	ifaddrs, allowedaddrs, dnsh, endpointh, mtu, err := wgIfConfigOf(id, &cfg)
 	uapicfg := cfg
 	if err != nil {
 		log.E("proxy: wg: %s failed to get addrs from config %v", id, err)
