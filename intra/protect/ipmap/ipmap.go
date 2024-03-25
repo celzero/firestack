@@ -173,7 +173,16 @@ func (m *ipmap) makeIPSet(hostname string, ipps []string) *IPSet {
 	}
 	// TODO: disallow confirm/disconfirm if hostname is an IP address
 	s := &IPSet{r: m, seed: ipps}
-	s.confirmed.Store(zeroaddr)
+	if ip, err := netip.ParseAddr(hostname); err == nil && !ip.IsUnspecified() && ip.IsValid() {
+		log.D("ipmap: makeIPSet: for ipaddr as confirmed %s", ip)
+		s.confirmed.Store(ip)
+		s.Lock()
+		s.addLocked(ip)
+		s.Unlock()
+	} else {
+		s.confirmed.Store(zeroaddr)
+	}
+
 	s.bootstrap()
 
 	m.Lock()
@@ -244,20 +253,27 @@ func (s *IPSet) add(hostOrIP string) bool {
 }
 
 // Adds one or more IP addresses to the set.
-func (s *IPSet) bootstrap() {
+func (s *IPSet) bootstrap() (n int) {
 	s.Lock()
 	defer s.Unlock()
+
 	for _, ipstr := range s.seed {
+		if len(ipstr) <= 0 {
+			continue
+		}
 		if ip, err := netip.ParseAddr(ipstr); err == nil {
 			s.addLocked(ip)
+			n += 1
 		} else {
 			if ipport, err2 := netip.ParseAddrPort(ipstr); err2 == nil {
 				s.addLocked(ipport.Addr())
+				n += 1
 			} else {
 				log.W("ipmap: seed: invalid ipstr %s: err1 %v / err2 %v", ipstr, err, err2)
 			}
 		}
 	}
+	return n
 }
 
 // Empty reports whether the set is empty.
