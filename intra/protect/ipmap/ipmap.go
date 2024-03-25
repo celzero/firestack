@@ -171,6 +171,7 @@ func (m *ipmap) makeIPSet(hostname string, ipps []string) *IPSet {
 	if ipps == nil {
 		ipps = []string{}
 	}
+	// TODO: disallow confirm/disconfirm if hostname is an IP address
 	s := &IPSet{r: m, seed: ipps}
 	s.confirmed.Store(zeroaddr)
 	s.bootstrap()
