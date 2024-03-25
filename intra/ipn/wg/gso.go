@@ -81,7 +81,11 @@ func setGSOSize(control *[]byte, gsoSize uint16) {
 func supportsUDPOffload(conn *net.UDPConn) (txOffload, rxOffload bool) {
 	rc, err := conn.SyscallConn()
 	if err != nil {
-		log.D("wg: gso: syscall err: %v", err)
+		log.W("wg: gso: syscall err: %v", err)
+		return
+	}
+	if rc == nil {
+		log.W("wg: gso: syscall conn nil")
 		return
 	}
 	err = rc.Control(func(fd uintptr) {
@@ -114,7 +118,7 @@ func shouldDisableUDPGSOOnError(err error) bool {
 		// See:
 		// https://git.kernel.org/pub/scm/docs/man-pages/man-pages.git/tree/man7/udp.7?id=806eabd74910447f21005160e90957bde4db0183#n228
 		// https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/tree/net/ipv4/udp.c?h=v6.2&id=c9c3395d5e3dcc6daee66c6908354d47bf98cb0c#n942
-		eio := serr.Err == unix.EIO
+		eio := serr != nil && serr.Err == unix.EIO
 		if eio {
 			log.W("wg: gso: EIO: %v", eio)
 		}
