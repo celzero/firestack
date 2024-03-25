@@ -16,6 +16,10 @@ import (
 var slabs map[string]*sync.Pool // read-only after init
 
 const (
+	// BMAX is slab of size 64k; also the max
+	BMAX = 64 * 1024
+	// B65536 is slab of size 64k
+	B65536 = BMAX
 	// B32768 is slab of size 32k
 	B32768 = 32 * 1024
 	// B16384 is slab of size 16k
@@ -26,8 +30,6 @@ const (
 	B4096 = 4 * 1024
 	// B2048 is slab of size 2k; also the min
 	B2048 = 2 * 1024
-	// BMAX is slab of size 64k; also the max
-	BMAX = 64 * 1024
 )
 
 // pointers to slices: archive.is/BhHuQ
