@@ -7,6 +7,7 @@
 package dialers
 
 import (
+	"context"
 	"net"
 	"net/netip"
 	"strconv"
@@ -66,7 +67,9 @@ func New(hostOrIP string, ipps []string) (*ipmap.IPSet, bool) {
 	return ips, !ips.Empty()
 }
 
-// For returns addresses for hostOrIP, resolving them if missing
+// For returns addresses for hostOrIP from cache, resolving them if missing.
+// Underlying cache relies on Disconfirm() to remove unreachable IP addrs;
+// if not called, these entries may go stale. Use Resolve() to bypass cache.
 func For(hostOrIP string) []netip.Addr {
 	ipset := ipm.Get(hostOrIP)
 	if ipset != nil {
@@ -75,7 +78,12 @@ func For(hostOrIP string) []netip.Addr {
 	return nil
 }
 
-// Mapper is a hostname to IP (a/aaaa) resolver for the network engine
+// Resolve always resolves hostname to IP addresses, bypassing cache.
+func Resolve(hostname string) ([]netip.Addr, error) {
+	return ipm.LookupNetIP(context.Background(), "ip", hostname)
+}
+
+// Mapper is a hostname to IP (a/aaaa) resolver for the network engine; may be nil.
 func Mapper(m ipmap.IPMapper) {
 	log.I("dialers: ips: mapper ok? %t", m != nil)
 	// usually set once per tunnel disconnect/reconnect
