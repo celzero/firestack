@@ -318,9 +318,14 @@ func (s *StdNetBind2) receiveIP(
 		s.listener("r", err)
 	}()
 
+	if conn == nil && br == nil {
+		log.E("wg: bind2: %s receiveIP: no conns hasbatch? %t; hasconn? %t", s.id, br != nil, conn != nil)
+		return 0, syscall.EINVAL
+	}
+
 	msgs := s.getMessages()
 	defer s.putMessages(msgs)
-	if msgs == nil || len(*msgs) <= 0 {
+	if msgs == nil || len(*msgs) <= 0 { // unlikely
 		log.E("wg: bind2: %s no messages", s.id)
 		return 0, syscall.ENOMEM
 	}
@@ -389,14 +394,22 @@ func (s *StdNetBind2) receiveIP(
 }
 
 func (s *StdNetBind2) makeReceiveIPv4() conn.ReceiveFunc {
+	// assign on stack to avoid closure related nil checks
+	rawc := s.ipv4PC
+	c := s.ipv4
+	offload := s.ipv4RxOffload
 	return func(bufs [][]byte, sizes []int, eps []conn.Endpoint) (n int, err error) {
-		return s.receiveIP(s.ipv4PC, s.ipv4, s.ipv4RxOffload, bufs, sizes, eps)
+		return s.receiveIP(rawc, c, offload, bufs, sizes, eps)
 	}
 }
 
 func (s *StdNetBind2) makeReceiveIPv6() conn.ReceiveFunc {
+	// assign on stack to avoid closure related nil checks
+	rawc := s.ipv6PC
+	c := s.ipv6
+	offload := s.ipv6RxOffload
 	return func(bufs [][]byte, sizes []int, eps []conn.Endpoint) (n int, err error) {
-		return s.receiveIP(s.ipv6PC, s.ipv6, s.ipv6RxOffload, bufs, sizes, eps)
+		return s.receiveIP(rawc, c, offload, bufs, sizes, eps)
 	}
 }
 
