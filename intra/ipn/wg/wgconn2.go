@@ -461,13 +461,15 @@ func (s *StdNetBind2) Close() error {
 	defer s.mu.Unlock()
 
 	var err4, err6 error
-	if s.ipv4 != nil {
-		err4 = s.ipv4.Close()
+	c4 := s.ipv4
+	c6 := s.ipv6
+	if c4 != nil {
+		err4 = c4.Close()
 		s.ipv4 = nil
 		s.ipv4PC = nil
 	}
-	if s.ipv6 != nil {
-		err6 = s.ipv6.Close()
+	if c6 != nil {
+		err6 = c6.Close()
 		s.ipv6 = nil
 		s.ipv6PC = nil
 	}
