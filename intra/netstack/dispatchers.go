@@ -183,7 +183,7 @@ func newReadVDispatcher(fd int, e *endpoint) (linkDispatcher, error) {
 func (d *readVDispatcher) stop() {
 	d.closed.Store(true)
 	d.stopFd.stop()
-	// TODO? should close tun-fd before stopFd
+	// TODO: should close tun-fd before stopFd?
 	err := syscall.Close(d.fd)
 	log.I("ns: stop: fds closed event(%d) tun(%d); err? %v", d.efd, d.fd, err)
 }
@@ -194,7 +194,7 @@ const cont = true   // cont indicates that the dispatcher should continue delive
 // dispatch reads one packet from the file descriptor and dispatches it.
 func (d *readVDispatcher) dispatch() (bool, tcpip.Error) {
 	done := d.closed.Load()
-	log.V("ns: dispatch: resume? %t", done)
+	log.V("ns: dispatch: done? %t", done)
 	if done {
 		return abort, new(tcpip.ErrAborted)
 	}
@@ -233,7 +233,7 @@ func (d *readVDispatcher) dispatch() (bool, tcpip.Error) {
 		// IP version information is at the first octet, so pulling up 1 byte.
 		h, ok := pkt.Data().PullUp(1)
 		if !ok {
-			log.V("ns: dispatch: no data!")
+			log.W("ns: dispatch: no data!")
 			pkt.DecRef()
 			return cont, nil
 		}
@@ -243,7 +243,7 @@ func (d *readVDispatcher) dispatch() (bool, tcpip.Error) {
 		case header.IPv6Version:
 			p = header.IPv6ProtocolNumber
 		default:
-			log.V("ns: dispatch: unknown proto!")
+			log.W("ns: dispatch: unknown proto!")
 			pkt.DecRef()
 			return cont, nil
 		}
