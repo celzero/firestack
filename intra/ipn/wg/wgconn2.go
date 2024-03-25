@@ -275,10 +275,12 @@ again:
 		return nil, 0, err
 	}
 
+	canBatch := supportsBatchRw()
+
 	var fns []conn.ReceiveFunc
 	if v4conn != nil {
 		s.ipv4TxOffload, s.ipv4RxOffload = supportsUDPOffload(v4conn)
-		if runtime.GOOS == "linux" || runtime.GOOS == "android" {
+		if canBatch {
 			s.ipv4PC = ipv4.NewPacketConn(v4conn)
 		}
 		s.ipv4 = v4conn
@@ -286,13 +288,14 @@ again:
 	}
 	if v6conn != nil {
 		s.ipv6TxOffload, s.ipv6RxOffload = supportsUDPOffload(v6conn)
-		if runtime.GOOS == "linux" || runtime.GOOS == "android" {
+		if canBatch {
 			s.ipv6PC = ipv6.NewPacketConn(v6conn)
 		}
 		s.ipv6 = v6conn
 		fns = append(fns, s.makeReceiveIPv6())
 	}
 
+	log.I("wg: bind2: %s supports batch read/write? %t; has4? %t; has6 %t", s.id, canBatch, s.ipv4PC != nil, s.ipv6PC != nil)
 	log.I("wg: bind2: %s opened port(%d) for v4? %t / v6? %t", s.id, port, v4conn != nil, v6conn != nil)
 
 	if len(fns) == 0 {
@@ -328,7 +331,7 @@ func (s *StdNetBind2) receiveIP(
 	}
 	defer s.putMessages(msgs)
 	var numMsgs int
-	if runtime.GOOS == "linux" || runtime.GOOS == "android" {
+	if br != nil {
 		if rxOffload {
 			readAt := len(*msgs) - (IdealBatchSize / udpSegmentMaxDatagrams)
 			numMsgs, err = br.ReadBatch((*msgs)[readAt:], 0)
@@ -481,7 +484,7 @@ func (s *StdNetBind2) Send(bufs [][]byte, endpoint conn.Endpoint) (err error) {
 	blackhole := s.blackhole4
 	c := s.ipv4
 	offload := s.ipv4TxOffload
-	br := batchWriter(s.ipv4PC)
+	var br batchWriter = s.ipv4PC
 	is6 := false
 	if endpoint.DstIP().Is6() {
 		blackhole = s.blackhole6
@@ -555,7 +558,7 @@ retry:
 func (s *StdNetBind2) send(conn *net.UDPConn, pc batchWriter, msgs []ipv6.Message) (err error) {
 	var n, start int
 
-	if runtime.GOOS == "linux" || runtime.GOOS == "android" {
+	if pc != nil {
 		for {
 			n, err = pc.WriteBatch(msgs[start:], 0)
 			if err != nil || n == len(msgs[start:]) {

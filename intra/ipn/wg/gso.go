@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"runtime"
 	"unsafe"
 
 	"github.com/celzero/firestack/intra/log"
@@ -95,6 +96,10 @@ func supportsUDPOffload(conn *net.UDPConn) (txOffload, rxOffload bool) {
 	}
 	log.I("wg: gso: txOffload: %v, rxOffload: %v", txOffload, rxOffload)
 	return txOffload, rxOffload
+}
+
+func supportsBatchRw() bool {
+	return runtime.GOOS == "linux" || runtime.GOOS == "android"
 }
 
 // from: github.com/WireGuard/wireguard-go/blob/12269c276/conn/errors_linux.go#
