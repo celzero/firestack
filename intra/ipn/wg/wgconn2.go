@@ -347,13 +347,13 @@ func (s *StdNetBind2) receiveIP(
 			readAt := len(*msgs) - (IdealBatchSize / udpSegmentMaxDatagrams)
 			numMsgs, err = br.ReadBatch((*msgs)[readAt:], 0)
 			waddr := msgAddr(msgs)
-			loge(err, "wg: bind2: %s GRO: readAt(%d) addr(%s) numMsgs(%d) err(%v)", s.id, readAt, waddr, numMsgs, err)
+			loge(err, "wg: bind2: %s GRO: readAt(%d) addr(%v) numMsgs(%d) err(%v)", s.id, readAt, waddr, numMsgs, err)
 			if err != nil {
 				return 0, err
 			}
 
 			numMsgs, err = splitCoalescedMessages(*msgs, readAt, getGSOSize)
-			loge(err, "wg: bind2: %s GRO: splitCoalescedMessages(at: %d; from: %s) numMsgs(%d) err(%v)", s.id, readAt, waddr, numMsgs, err)
+			loge(err, "wg: bind2: %s GRO: splitCoalescedMessages(at: %d; from: %v) numMsgs(%d) err(%v)", s.id, readAt, waddr, numMsgs, err)
 			if err != nil {
 				return 0, err
 			}
@@ -383,7 +383,7 @@ func (s *StdNetBind2) receiveIP(
 		}
 		uaddr, ok := msg.Addr.(*net.UDPAddr)
 		if !ok { // unlikely
-			log.E("wg: bind2: %s invalid addr type %T %s", s.id, msg.Addr, msg.Addr)
+			log.E("wg: bind2: %s invalid addr type %T %v", s.id, msg.Addr, msg.Addr)
 			continue
 		}
 		ep := &StdNetEndpoint2{AddrPort: uaddr.AddrPort()} // TODO: remove allocation
