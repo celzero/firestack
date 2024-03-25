@@ -7,12 +7,15 @@
 package multihost
 
 import (
+	"errors"
 	"net/netip"
 	"strings"
 
 	"github.com/celzero/firestack/intra/dialers"
 	"github.com/celzero/firestack/intra/log"
 )
+
+var errNoIps error = errors.New("multihost: no ips")
 
 // nooplock is a no-op lock.
 type nooplock struct{}
@@ -88,9 +91,12 @@ func (h *MH) Add(domainsOrIps []string) int {
 		dip = strings.TrimSpace(dip)                     // hostname or ip
 		if ip, err := netip.ParseAddr(dip); err != nil { // may be hostname
 			h.names = append(h.names, dip) // add hostname regardless of resolution
-			if resolvedips, err := dialers.Resolve(dip); err != nil && len(resolvedips) > 0 {
+			if resolvedips, err := dialers.Resolve(dip); err == nil && len(resolvedips) > 0 {
 				h.addrs = append(h.addrs, resolvedips...)
 			} else {
+				if err == nil { // err may be nil even on zero answers
+					err = errNoIps
+				}
 				log.W("multihost: no ips for %q; err? %v", dip, err)
 			}
 		} else { // may be ip
