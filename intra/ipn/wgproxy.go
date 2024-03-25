@@ -149,6 +149,9 @@ func (h *wgproxy) GetAddr() string {
 // Refresh implements ipn.Proxy
 func (w *wgproxy) Refresh() (err error) {
 	n := w.dns.Refresh()
+	if peers := w.remote; peers != nil {
+		peers.Refresh() // peers are also refreshed by w.Device.Up()
+	}
 	if err = w.Device.Down(); err != nil {
 		log.E("proxy: wg: !refresh(%s): down: %v", w.id, err)
 		return
