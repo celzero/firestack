@@ -8,6 +8,7 @@ package multihost
 
 import (
 	"errors"
+	"net"
 	"net/netip"
 	"strings"
 
@@ -88,7 +89,7 @@ func (h *MH) Add(domainsOrIps []string) int {
 		if len(dip) <= 0 {
 			continue
 		}
-		dip = strings.TrimSpace(dip)                     // hostname or ip
+		dip = h.normalize(dip)                           // host or ip or host:port or ip:port
 		if ip, err := netip.ParseAddr(dip); err != nil { // may be hostname
 			h.names = append(h.names, dip) // add hostname regardless of resolution
 			if resolvedips, err := dialers.Resolve(dip); err == nil && len(resolvedips) > 0 {
@@ -116,6 +117,15 @@ func (h *MH) With(domainsOrIps []string) int {
 	h.addrs = make([]netip.Addr, 0)
 	h.Unlock()
 	return h.Add(domainsOrIps)
+}
+
+func (h *MH) normalize(dip string) string {
+	dip = strings.TrimSpace(dip)
+	hostOrIP, _, err := net.SplitHostPort(dip)
+	if err != nil {
+		return dip
+	}
+	return hostOrIP
 }
 
 func (h *MH) EqualAddrs(other *MH) bool {

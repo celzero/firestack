@@ -302,7 +302,7 @@ func loadMH(mh *multihost.MH, v string) {
 		return
 	}
 	vv := strings.Split(v, ",")
-	mh.Add(vv)
+	mh.Add(vv) // vv may be host:port, ip:port, host, or ip
 }
 
 func loadIPNets(out *[]netip.Prefix, v string) (err error) {
