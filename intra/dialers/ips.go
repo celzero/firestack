@@ -78,8 +78,12 @@ func For(hostOrIP string) []netip.Addr {
 // Mapper is a hostname to IP (a/aaaa) resolver for the network engine
 func Mapper(m ipmap.IPMapper) {
 	log.I("dialers: ips: mapper ok? %t", m != nil)
-	// usually set just the once
+	// usually set once per tunnel disconnect/reconnect
 	ipm.With(m)
+}
+
+func Clear() {
+	ipm.Clear()
 }
 
 // Confirm marks addr as preferred for hostOrIP

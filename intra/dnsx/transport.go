@@ -18,6 +18,7 @@ import (
 
 	x "github.com/celzero/firestack/intra/backend"
 	"github.com/celzero/firestack/intra/core"
+	"github.com/celzero/firestack/intra/dialers"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
 	"github.com/celzero/firestack/intra/settings"
@@ -666,6 +667,7 @@ func (r *resolver) refresh() {
 
 func (r *resolver) Refresh() (string, error) {
 	go r.refresh()
+	go dialers.Clear()
 	s := map2csv(r.transports)
 	if dc, err := r.dcProxy(); err == nil {
 		if x, err := dc.Refresh(); err == nil {
