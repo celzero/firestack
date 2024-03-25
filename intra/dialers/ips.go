@@ -78,9 +78,16 @@ func For(hostOrIP string) []netip.Addr {
 	return nil
 }
 
-// Resolve always resolves hostname to IP addresses, bypassing cache.
+// Resolve resolves hostname to IP addresses, bypassing cache.
+// If resolution fails, entries from the cache are returned, if any.
 func Resolve(hostname string) ([]netip.Addr, error) {
-	return ipm.LookupNetIP(context.Background(), "ip", hostname)
+	addrs, err := ipm.LookupNetIP(context.Background(), "ip", hostname)
+	if len(addrs) <= 0 { // check cache
+		if addrs = ipm.GetAny(hostname).Addrs(); len(addrs) > 0 {
+			return addrs, nil
+		} // else: on cached addrs
+	}
+	return addrs, err
 }
 
 // Mapper is a hostname to IP (a/aaaa) resolver for the network engine; may be nil.
