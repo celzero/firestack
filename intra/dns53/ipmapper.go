@@ -43,8 +43,16 @@ type ipmapper struct {
 
 var _ ipmap.IPMapper = (*ipmapper)(nil)
 
-func AddIPMapper(r dnsx.Resolver) {
-	m := &ipmapper{dnsx.IpMapper, r, core.NewBarrier(battl)}
+// AddIPMapper adds or removes the IPMapper.
+func AddIPMapper(r dnsx.Resolver, clear bool) {
+	var m ipmap.IPMapper
+	ok := r != nil
+	if ok {
+		m = &ipmapper{dnsx.IpMapper, r, core.NewBarrier(battl)}
+	} // else remove; m is nil
+	if clear {
+		dialers.Clear()
+	}
 	dialers.Mapper(m)
 }
 

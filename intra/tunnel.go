@@ -154,6 +154,7 @@ func (t *rtunnel) Disconnect() {
 	t.once.Do(func() {
 		t.closed.Store(true)
 
+		removeIPMapper()
 		err0 := t.resolver.Stop()
 		err1 := t.proxies.StopProxies()
 		n := t.services.StopServers()

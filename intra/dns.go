@@ -22,7 +22,11 @@ import (
 )
 
 func addIPMapper(r dnsx.Resolver) {
-	dns53.AddIPMapper(r)
+	dns53.AddIPMapper(r, false /*clear cache*/)
+}
+
+func removeIPMapper() {
+	dns53.AddIPMapper(nil, true /*clear cache*/)
 }
 
 // AddDNSProxy creates and adds a DNS53 transport to the tunnel's resolver.

@@ -38,6 +38,8 @@ const maxFailLimit = 4
 
 var zeroaddr = netip.Addr{}
 
+// IPMapper is an interface for resolving hostnames to IP addresses.
+// For internal used by firestack.
 type IPMapper interface {
 	// net.Resolver does not impl Lookup
 	// IPMapper must confirm to net.Resolver
@@ -62,6 +64,8 @@ type IPMap interface {
 	MakeIPSet(hostOrIP string, ipps []string) *IPSet
 	// With sets the default resolver to use for hostname resolution.
 	With(r IPMapper)
+	// Clear removes all IPSets from the map.
+	Clear()
 }
 
 type ipmap struct {
@@ -94,18 +98,15 @@ func NewIPMapFor(r IPMapper) IPMap {
 }
 
 func (m *ipmap) With(r IPMapper) {
-	log.I("ipmap: new resolver")
+	log.I("ipmap: new resolver; ok? %t", r != nil)
 	m.r = r // may be nil
 }
 
-/* Implements IPMapper.
-func (m *ipmap) Lookup(q []byte) ([]byte, error) {
-	r := m.r // actual ipmapper implementation
-	if r == nil {
-		return nil, &net.DNSError{Err: "no resolver", Name: "query", Server: "localhost"}
-	}
-	return r.Lookup(q)
-}*/
+func (m *ipmap) Clear() {
+	m.Lock()
+	defer m.Unlock()
+	clear(m.m)
+}
 
 // Implements IPMapper.
 func (m *ipmap) LookupNetIP(ctx context.Context, network, host string) ([]netip.Addr, error) {
