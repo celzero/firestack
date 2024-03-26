@@ -544,7 +544,7 @@ func (s *StdNetBind2) Send(bufs [][]byte, endpoint conn.Endpoint) (err error) {
 	var retried bool
 retry:
 	if offload {
-		n := coalesceMessages(ua, ep, bufs, *msgs, setGSOSize)
+		n := coalesceMessages2(ua, ep, bufs, *msgs, setGSOSize)
 		// send coalseced msgs; ie, len(*msgs) <= len(bufs)
 		err = s.send(c, br, (*msgs)[:n])
 		loge(err, "wg: bind2: %s GSO: send(%d/%d) to %s; err(%v)", s.id, n, len(bufs), ua, err)
@@ -676,6 +676,56 @@ func coalesceMessages(addr *net.UDPAddr, ep *StdNetEndpoint2, bufs [][]byte, msg
 		setSrcControl(&nextmsg.OOB, ep) // no-op on Android
 		nextmsg.Buffers[0] = buf
 		nextmsg.Addr = addr
+		dgramCnt = 1
+	}
+	return base + 1
+}
+
+func coalesceMessages2(addr *net.UDPAddr, ep *StdNetEndpoint2, bufs [][]byte, msgs []ipv6.Message, setGSO setGSOFunc) int {
+	var (
+		base     = -1 // index of msg we are currently coalescing into
+		gsoSize  int  // segmentation size of msgs[base]
+		dgramCnt int  // number of dgrams coalesced into msgs[base]
+		endBatch bool // tracking flag to start a new batch on next iteration of bufs
+	)
+	maxPayloadLen := maxIPv4PayloadLen
+	if ep.DstIP().Is6() {
+		maxPayloadLen = maxIPv6PayloadLen
+	}
+	for i, buf := range bufs {
+		if i > 0 {
+			msgLen := len(buf)
+			baseLenBefore := len(msgs[base].Buffers[0])
+			freeBaseCap := cap(msgs[base].Buffers[0]) - baseLenBefore
+			if msgLen+baseLenBefore <= maxPayloadLen &&
+				msgLen <= gsoSize &&
+				msgLen <= freeBaseCap &&
+				dgramCnt < udpSegmentMaxDatagrams &&
+				!endBatch {
+				msgs[base].Buffers[0] = append(msgs[base].Buffers[0], buf...)
+				if i == len(bufs)-1 {
+					setGSO(&msgs[base].OOB, uint16(gsoSize))
+				}
+				dgramCnt++
+				if msgLen < gsoSize {
+					// A smaller than gsoSize packet on the tail is legal, but
+					// it must end the batch.
+					endBatch = true
+				}
+				continue
+			}
+		}
+		if dgramCnt > 1 {
+			setGSO(&msgs[base].OOB, uint16(gsoSize))
+		}
+		// Reset prior to incrementing base since we are preparing to start a
+		// new potential batch.
+		endBatch = false
+		base++
+		gsoSize = len(buf)
+		setSrcControl(&msgs[base].OOB, ep)
+		msgs[base].Buffers[0] = buf
+		msgs[base].Addr = addr
 		dgramCnt = 1
 	}
 	return base + 1
