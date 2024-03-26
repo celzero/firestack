@@ -19,7 +19,6 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
-	"runtime"
 	"strconv"
 	"sync"
 	"syscall"
@@ -450,7 +449,7 @@ func (s *StdNetBind2) getUDPAddr() *net.UDPAddr {
 // TODO: When all Binds handle IdealBatchSize, remove this dynamic function and
 // rename the IdealBatchSize constant to BatchSize.
 func (s *StdNetBind2) BatchSize() int {
-	if runtime.GOOS == "linux" || runtime.GOOS == "android" {
+	if supportsBatchRw() {
 		return IdealBatchSize
 	}
 	return 1
