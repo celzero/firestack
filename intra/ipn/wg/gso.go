@@ -73,7 +73,8 @@ func setGSOSize(control *[]byte, gsoSize uint16) {
 	hdr.Level = unix.SOL_UDP
 	hdr.Type = unix.UDP_SEGMENT
 	hdr.SetLen(unix.CmsgLen(sizeOfGSOData))
-	copy((gsoControl)[unix.SizeofCmsghdr:], unsafe.Slice((*byte)(unsafe.Pointer(&gsoSize)), sizeOfGSOData))
+	// github.com/WireGuard/wireguard-go/commit/f502ec3fad116d11109529bcf283e464f4822c18
+	copy((gsoControl)[unix.CmsgLen(0):], unsafe.Slice((*byte)(unsafe.Pointer(&gsoSize)), sizeOfGSOData))
 	*control = (*control)[:existingLen+space]
 }
 
