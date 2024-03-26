@@ -530,10 +530,14 @@ func (s *StdNetBind2) Send(bufs [][]byte, endpoint conn.Endpoint) (err error) {
 		return syscall.ENOMEM
 	}
 
+	dst := addrport(endpoint, !is6)
+	if !addrok(dst.Addr()) {
+		log.E("wg: bind2: %s invalid destination %v", s.id, dst)
+		return syscall.EINVAL
+	}
+
 	ua := s.getUDPAddr() // from udpAddrPool
 	defer s.putUDPAddr(ua)
-
-	dst := addrport(endpoint, !is6)
 	*ua = *net.UDPAddrFromAddrPort(dst)
 	s.lastSendAddr = dst
 
@@ -739,4 +743,8 @@ func addrport(ep conn.Endpoint, as4 bool) netip.AddrPort {
 		}
 	}
 	return zeroaddrport
+}
+
+func addrok(a netip.Addr) bool {
+	return a.IsValid() || !a.IsUnspecified()
 }
