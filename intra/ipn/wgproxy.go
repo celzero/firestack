@@ -64,6 +64,8 @@ const (
 	noaddr = ""
 	// min mtu for ipv6
 	minmtu6 = 1280
+
+	FAST = x.WGFAST
 )
 
 type wgtun struct {
@@ -81,6 +83,7 @@ type wgtun struct {
 	reqbarrier     *core.Barrier     // request barrier for dns lookups
 	once           sync.Once         // exec fn exactly once
 	hasV4, hasV6   bool              // interface has ipv4/ipv6 routes?
+	preferOffload  bool              // UDP GRO/GSO offloads
 }
 
 type wgconn interface {
@@ -101,7 +104,7 @@ type wgproxy struct {
 type WgProxy interface {
 	Proxy
 	tun.Device
-	canUpdate(txt string) bool
+	canUpdate(id, txt string) bool
 	IpcSet(txt string) error
 }
 
@@ -179,10 +182,26 @@ func (h *wgproxy) Dialer() *protect.RDial {
 	return h.rd
 }
 
-func (w *wgproxy) canUpdate(txt string) bool {
+func preferOffload(id string) bool {
+	return strings.HasPrefix(id, FAST)
+}
+
+func stripPrefixIfNeeded(id string) string {
+	return strings.TrimPrefix(id, FAST)
+}
+
+func (w *wgproxy) canUpdate(id, txt string) bool {
+	const reuse = true // can update in-place; reuse existing tunnel
+	const anew = false // cannot update in-place; create new tunnel
 	if w.status == END {
-		log.W("proxy: wg: !canUpdate(%s): END; status(%d)", w.id, w.status)
-		return false
+		log.W("proxy: wg: !canUpdate(%s<>%s): END; status(%d)", id, w.id, w.status)
+		return anew
+	}
+
+	incomingPrefersOffload := preferOffload(id)
+	if incomingPrefersOffload != w.preferOffload {
+		log.W("proxy: wg: !canUpdate(%s): preferOffload() %t != %t", id, incomingPrefersOffload, w.preferOffload)
+		return anew
 	}
 
 	// str copy: go.dev/play/p/eO814kGGNtO
@@ -190,20 +209,20 @@ func (w *wgproxy) canUpdate(txt string) bool {
 	ifaddrs, _, dnsh, _, mtu, err := wgIfConfigOf(w.id, &cptxt)
 	if err != nil {
 		log.W("proxy: wg: !canUpdate(%s): err: %v", w.id, err)
-		return false
+		return anew
 	}
 
 	if len(ifaddrs) != len(w.addrs) {
 		log.D("proxy: wg: !canUpdate(%s): len(ifaddrs) %d != %d", w.id, len(ifaddrs), len(w.addrs))
-		return false
+		return anew
 	}
 	if w.mtu != mtu {
 		log.D("proxy: wg: !canUpdate(%s): mtu %d != %d", w.id, mtu, w.mtu)
-		return false
+		return anew
 	}
 	if dnsh != nil && !dnsh.EqualAddrs(w.dns) {
 		log.D("proxy: wg: !canUpdate(%s): new/mismatched dns", w.id)
-		return false
+		return anew
 	}
 
 	for _, inifaddr := range ifaddrs {
@@ -218,10 +237,10 @@ func (w *wgproxy) canUpdate(txt string) bool {
 		}
 		if !ipok {
 			log.D("proxy: wg: !canUpdate(%s): new ifaddrs (%s) != (%s)", w.id, ifaddrs, w.addrs)
-			return false
+			return anew
 		}
 	}
-	return true
+	return reuse
 }
 
 func wglogger(id string) *device.Logger {
@@ -277,16 +296,16 @@ func wgIfConfigOf(id string, txtptr *string) (ifaddrs []netip.Prefix, allowedadd
 				return
 			}
 			// carry over allowed_ips
-			log.V("proxy: wg: %s ifconfig: skipping key %q", id, k)
+			log.D("proxy: wg: %s ifconfig: skipping key %q", id, k)
 			pcfg.WriteString(line + "\n")
 		case "endpoint": // may exist more than once
 			// TODO: endpoint could be v4 or v6 or a hostname
 			loadMH(endpointh, v)
 			// carry over endpoints
-			log.V("proxy: wg: %s ifconfig: skipping key %q", id, k)
+			log.D("proxy: wg: %s ifconfig: skipping key %q", id, k)
 			pcfg.WriteString(line + "\n")
 		default:
-			log.V("proxy: wg: %s ifconfig: skipping key %q", id, k)
+			log.D("proxy: wg: %s ifconfig: skipping key %q", id, k)
 			pcfg.WriteString(line + "\n")
 		}
 	}
@@ -371,7 +390,14 @@ func NewWgProxy(id string, ctl protect.Controller, cfg string) (WgProxy, error) 
 		return nil, err
 	}
 
-	wgep := wg.NewEndpoint2(id, ctl, wgtun.listener)
+	id = wgtun.id // has stripped prefix FAST, if any
+
+	var wgep wgconn
+	if wgtun.preferOffload {
+		wgep = wg.NewEndpoint2(id, ctl, wgtun.listener)
+	} else {
+		wgep = wg.NewEndpoint(id, ctl, wgtun.listener)
+	}
 
 	wgdev := device.NewDevice(wgtun, wgep, wglogger(id))
 
@@ -424,7 +450,7 @@ func makeWgTun(id string, ifaddrs, allowedaddrs []netip.Prefix, dnsm, endpointm 
 	s.SetTransportProtocolOption(tcp.ProtocolNumber, &sackEnabledOpt)
 	ep := channel.New(epsize, uint32(tunmtu), "")
 	t := &wgtun{
-		id:             id,
+		id:             stripPrefixIfNeeded(id),
 		addrs:          ifaddrs,
 		allowed:        allowedaddrs,
 		remote:         endpointm, // may be nil
@@ -436,6 +462,7 @@ func makeWgTun(id string, ifaddrs, allowedaddrs []netip.Prefix, dnsm, endpointm 
 		reqbarrier:     core.NewBarrier(wgbarrierttl),
 		mtu:            tunmtu,
 		status:         TUP,
+		preferOffload:  preferOffload(id),
 	}
 
 	// see WriteNotify below

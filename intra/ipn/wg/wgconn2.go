@@ -544,7 +544,7 @@ func (s *StdNetBind2) Send(bufs [][]byte, endpoint conn.Endpoint) (err error) {
 	var retried bool
 retry:
 	if offload {
-		n := coalesceMessages2(ua, ep, bufs, *msgs, setGSOSize)
+		n := coalesceMessages(ua, ep, bufs, *msgs, setGSOSize)
 		// send coalseced msgs; ie, len(*msgs) <= len(bufs)
 		err = s.send(c, br, (*msgs)[:n])
 		loge(err, "wg: bind2: %s GSO: send(%d/%d) to %s; err(%v)", s.id, n, len(bufs), ua, err)

@@ -31,7 +31,7 @@ func (pxr *proxifier) addProxy(id, txt string) (p Proxy, err error) {
 	// wireguard proxies have IDs starting with "wg"
 	if strings.HasPrefix(id, WG) {
 		if p, _ = pxr.ProxyFor(id); p != nil {
-			if wgp, ok := p.(WgProxy); ok && wgp.canUpdate(txt) {
+			if wgp, ok := p.(WgProxy); ok && wgp.canUpdate(id, txt) {
 				log.I("proxy: updating wg %s/%s", id, p.GetAddr())
 
 				ifaddrs, _, dnsh, _, mtu, err0 := wgIfConfigOf(id, &txt) // removes wg ifconfig from txt
@@ -48,7 +48,7 @@ func (pxr *proxifier) addProxy(id, txt string) (p Proxy, err error) {
 					return nil, err1
 				} else {
 					// sensitive log: peercfg contains private key
-					log.P("proxy: updating wg(%s) len(peercfg(%s))", id, len(txt))
+					log.P("proxy: updating wg(%s) len(peercfg(%d))", id, len(txt))
 				}
 
 				err2 := wgp.Refresh()
