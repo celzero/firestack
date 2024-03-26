@@ -31,11 +31,6 @@ import (
 // around this limitation)
 const socketBufferSize = 7 << 20
 
-// controlFn is the callback function signature from net.ListenConfig.Control.
-// It is used to apply platform specific configuration to the socket prior to
-// bind.
-type controlFn func(network, address string, c syscall.RawConn) error
-
 // controlFns is a list of functions that are called from the listen config
 // that can apply socket options.
 var controlFns = []protect.ControlFn{}
