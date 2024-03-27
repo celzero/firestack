@@ -59,7 +59,7 @@ type Gateway interface {
 	// translate overwrites ip answers to alg ip answers
 	translate(yes bool)
 	// Query using t1 as primary transport and t2 as secondary and preset as pre-determined ip answers
-	q(t1 Transport, t2 Transport, preset []*netip.Addr, network string, q []byte, s *x.DNSSummary) (r []byte, err error)
+	q(t1 Transport, t2 Transport, preset []*netip.Addr, network string, q []byte, s *x.DNSSummary) ([]byte, error)
 	// clear obj state
 	stop()
 }
@@ -207,6 +207,7 @@ func (t *dnsgateway) querySecondary(t2 Transport, network string, q []byte, out 
 		if len(blocklistnames) > 0 {
 			result.summary.Blocklists = blocklistnames
 		}
+		result.summary.UpstreamBlocks = true
 		// a blocked answer (ans3) has A, AAAA, or HTTPS/SVCB records
 		// see: xdns.RefusedResponseFromMessage
 		if len(ans3.Answer) > 0 {
@@ -269,7 +270,7 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []*netip.Addr, network string, q
 	err = ansin.Unpack(r)
 	if err != nil {
 		log.D("alg: abort; ans err %v", err)
-		return nil, err
+		return
 	}
 
 	qname, _ := xdns.NormalizeQName(xdns.QName(ansin))
@@ -279,7 +280,13 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []*netip.Addr, network string, q
 
 	hasaaaaq := xdns.HasAAAAQuestion(ansin)
 	hasans := xdns.HasAnyAnswer(ansin)
-	if !hasans && hasaaaaq {
+	ans0000 := xdns.AQuadAUnspecified(ansin)
+
+	if ans0000 {
+		summary.UpstreamBlocks = true
+	}
+
+	if !hasans && hasaaaaq && !ans0000 {
 		// override original resp with dns64 if needed
 		d64 := t.dns64.D64(t1.ID(), r, t1) // d64 is disabled by default
 		if len(d64) > xdns.MinDNSPacketSize {
@@ -295,10 +302,10 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []*netip.Addr, network string, q
 	hasq := hasaaaaq || xdns.HasAQuestion(ansin) || xdns.HasSVCBQuestion(ansin) || xdns.HasHTTPQuestion(ansin)
 	hasans = xdns.HasAnyAnswer(ansin) // recheck after d64
 	rgood := xdns.HasRcodeSuccess(ansin)
-	ans0000 := xdns.AQuadAUnspecified(ansin)
+
 	if !hasq || !hasans || !rgood || ans0000 {
 		log.D("alg: skip; query(n:%s / a:%d) hasq(%t) hasans(%t) rgood(%t), ans0000(%t)", qname, len(ansin.Answer), hasq, hasans, rgood, ans0000)
-		return // equivalent to return r, nil
+		return // equivalent to return r, v=deny, nil
 	}
 
 	a6 := xdns.AAAAAnswer(ansin)
@@ -314,6 +321,7 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []*netip.Addr, network string, q
 
 	// inform kt of secondary blocklists, if any
 	summary.Blocklists = secres.summary.Blocklists
+	summary.UpstreamBlocks = secres.summary.UpstreamBlocks || summary.UpstreamBlocks
 
 	defer func() {
 		if isAlgErr(err) && !mod {
