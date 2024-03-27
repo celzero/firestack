@@ -28,6 +28,7 @@ import (
 	"io"
 	"os"
 	"sync"
+	"sync/atomic"
 
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/netstack"
@@ -43,6 +44,8 @@ type Tunnel interface {
 	IsConnected() bool
 	// Disconnect disconnects the tunnel.
 	Disconnect()
+	// Enabled checks if the tunnel is up.
+	Enabled() bool
 	// Write writes input data to the TUN interface.
 	Write(data []byte) (int, error)
 	// Close connections
@@ -62,6 +65,7 @@ type gtunnel struct {
 	hdl    netstack.GConnHandler // tcp, udp, and icmp handlers
 	mtu    int                   // mtu of the tun device
 	pcapio *pcapsink             // pcap output, if any
+	closed atomic.Bool           // open/close?
 	once   *sync.Once
 }
 
@@ -128,14 +132,21 @@ func (t *gtunnel) Disconnect() {
 		err0 := hdl.Close()
 		err1 := p.Close()
 		s.Destroy()
+		t.closed.Store(true)
 		log.I("tun: netstack closed; errs: %v / %v", err0, err1)
 	})
 }
 
-func (t *gtunnel) IsConnected() bool {
+func (t *gtunnel) Enabled() bool {
 	s := t.stack
 
+	// nic may be down even if tunnel is up, when SetLink is in between
+	// removing existing nic and creating a new one.
 	return s != nil && s.CheckNIC(settings.NICID)
+}
+
+func (t *gtunnel) IsConnected() bool {
+	return !t.closed.Load()
 }
 
 func (t *gtunnel) Write([]byte) (int, error) {
@@ -148,7 +159,7 @@ func NewGTunnel(fd, mtu, engine int, tcph netstack.GTCPConnHandler, udph netstac
 	stack := netstack.NewNetstack() // always dual-stack
 	sink := new(pcapsink)
 	once := new(sync.Once)
-	t = &gtunnel{stack, hdl, mtu, sink, once}
+	t = &gtunnel{stack, hdl, mtu, sink, atomic.Bool{}, once}
 
 	err = t.setLinkAndRoutes(fd, mtu, engine) // creates endpoint / brings up nic
 	if err != nil {
@@ -220,6 +231,7 @@ func (t *gtunnel) SetLink(fd, mtu int) error {
 		return err
 	}
 
+	// Enabled() may temporarily return false when Up() is in progress.
 	if err = netstack.Up(s, ep, hdl); err != nil { // attach new endpoint
 		return err
 	}
