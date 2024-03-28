@@ -15,7 +15,6 @@ import (
 	"gvisor.dev/gvisor/pkg/tcpip"
 	"gvisor.dev/gvisor/pkg/tcpip/header"
 	"gvisor.dev/gvisor/pkg/tcpip/link/sniffer"
-	"gvisor.dev/gvisor/pkg/tcpip/network/arp"
 	"gvisor.dev/gvisor/pkg/tcpip/network/ipv4"
 	"gvisor.dev/gvisor/pkg/tcpip/network/ipv6"
 	"gvisor.dev/gvisor/pkg/tcpip/stack"
@@ -110,16 +109,16 @@ func Up(s *stack.Stack, ep stack.LinkEndpoint, h GConnHandler) error {
 	// TODO: other stack otps?
 	// github.com/xjasonlyu/tun2socks/blob/31468620e/core/option/option.go#L69
 
-	if useIPTablesForICMP {
-		// TODO: untested
-		setupIcmpHandlerV2(s, ep, h.ICMP())
-	} else {
-		setupIcmpHandler(s, ep, h.ICMP())
-	}
-
 	if newnic {
 		setupTcpHandler(s, h.TCP())
 		setupUdpHandler(s, h.UDP())
+		if useIPTablesForICMP {
+			// TODO: untested
+			setupIcmpHandlerV2(s, ep, h.ICMP())
+		} else {
+			setupIcmpHandler(s, ep, h.ICMP())
+		}
+
 	}
 
 	// creates and enables a fake nic for netstack s
@@ -203,7 +202,7 @@ func NewNetstack() (s *stack.Stack) {
 		NetworkProtocols: []stack.NetworkProtocolFactory{
 			ipv4.NewProtocol,
 			ipv6.NewProtocol,
-			arp.NewProtocol, // unused
+			// arp.NewProtocol, unused
 		},
 		TransportProtocols: []stack.TransportProtocolFactory{
 			icmp.NewProtocol4,
