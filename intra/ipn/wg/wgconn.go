@@ -59,7 +59,7 @@ type StdNetBind struct {
 }
 
 func NewEndpoint(id string, ctl protect.Controller, f rwlistener) *StdNetBind {
-	dialer := protect.MakeNsListenConfig(id, ctl)
+	dialer := protect.MakeNsListener(id, ctl)
 	return &StdNetBind{id: id, d: dialer, listener: f}
 }
 

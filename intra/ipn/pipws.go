@@ -29,6 +29,7 @@ const (
 )
 
 type pipws struct {
+	nofwd                      // no forwarding/listening
 	id          string         // some unique identifier
 	url         string         // ws proxy url
 	hostname    string         // ws proxy hostname
@@ -233,14 +234,6 @@ func (t *pipws) Dial(network, addr string) (protect.Conn, error) {
 
 	t.status = TOK
 	return c, nil
-}
-
-// Announce implements Proxy.
-func (h *pipws) Announce(network, local string) (protect.PacketConn, error) {
-	if h.status == END {
-		return nil, errProxyStopped
-	}
-	return nil, errAnnounceNotSupported
 }
 
 func (h *pipws) fetch(req *http.Request) (*http.Response, error) {

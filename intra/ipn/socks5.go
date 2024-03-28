@@ -26,6 +26,7 @@ import (
 )
 
 type socks5 struct {
+	nofwd                           // no forwarding/listening
 	outbound []proxy.Dialer         // outbound dialers connecting unto upstream proxy
 	id       string                 // unique identifier
 	opts     *settings.ProxyOptions // connect options
@@ -169,14 +170,6 @@ func (h *socks5) Dial(network, addr string) (c protect.Conn, err error) {
 		h.status = TKO
 	}
 	return
-}
-
-// Announce implements Proxy.
-func (h *socks5) Announce(network, local string) (protect.PacketConn, error) {
-	if h.status == END {
-		return nil, errProxyStopped
-	}
-	return nil, errAnnounceNotSupported
 }
 
 func (h *socks5) Dialer() *protect.RDial {

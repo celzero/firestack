@@ -156,14 +156,14 @@ func MakeNsDialer(who string, c Controller) *net.Dialer {
 // Creates a RDial that can bind to any active interface.
 func MakeNsRDial(who string, c Controller) *RDial {
 	return &RDial{
-		Owner:    who,
-		Dialer:   MakeNsDialer(who, c),
-		Listener: MakeNsListenConfig(who, c),
+		Owner:  who,
+		Dialer: MakeNsDialer(who, c),
+		Listen: MakeNsListener(who, c),
 	}
 }
 
 // Creates a listener that can bind to any active interface.
-func MakeNsListenConfig(who string, c Controller) *net.ListenConfig {
+func MakeNsListener(who string, c Controller) *net.ListenConfig {
 	x := netlistener()
 	if c != nil {
 		x.Control = ifbind(who, c)

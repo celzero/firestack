@@ -34,6 +34,11 @@ func (h *ground) Announce(network, local string) (protect.PacketConn, error) {
 	return nil, errNoProxyResponse
 }
 
+// Accept implements Proxy.
+func (h *ground) Accept(network, local string) (protect.Listener, error) {
+	return nil, errNoProxyResponse
+}
+
 func (h *ground) Dialer() *protect.RDial {
 	return &protect.RDial{Owner: h.ID()} // no-op dialer
 }

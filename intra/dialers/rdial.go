@@ -190,14 +190,23 @@ func commondial(d *protect.RDial, network, addr string, connect connectFunc) (ne
 	return nil, errs
 }
 
-// Listen listens on for UDP connections on the local address using d.
+// ListenPacket listens on for UDP connections on the local address using d.
 // Returned net.Conn is guaranteed to be a *net.UDPConn.
-func Listen(d *protect.RDial, network, local string) (net.PacketConn, error) {
+func ListenPacket(d *protect.RDial, network, local string) (net.PacketConn, error) {
 	if d == nil {
-		log.E("rdial: Announce: nil dialer")
+		log.E("rdial: ListenPacket: nil dialer")
 		return nil, errNoListener
 	}
 	return d.AnnounceUDP(network, local)
+}
+
+// Listen listens on for TCP connections on the local address using d.
+func Listen(d *protect.RDial, network, local string) (net.Listener, error) {
+	if d == nil {
+		log.E("rdial: Listen: nil dialer")
+		return nil, errNoListener
+	}
+	return d.AcceptTCP(network, local)
 }
 
 // Dial dials into addr using the provided dialer and returns a net.Conn,

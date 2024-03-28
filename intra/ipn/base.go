@@ -55,6 +55,14 @@ func (h *base) Announce(network, local string) (protect.PacketConn, error) {
 	if h.status == END {
 		return nil, errProxyStopped
 	}
+	return dialers.ListenPacket(h.outbound, network, local)
+}
+
+// Accept implements Proxy.
+func (h *base) Accept(network, local string) (protect.Listener, error) {
+	if h.status == END {
+		return nil, errProxyStopped
+	}
 	return dialers.Listen(h.outbound, network, local)
 }
 

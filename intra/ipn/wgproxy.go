@@ -94,6 +94,7 @@ type wgconn interface {
 var _ WgProxy = (*wgproxy)(nil)
 
 type wgproxy struct {
+	nofwd
 	*wgtun
 	*device.Device
 	wgep wgconn
@@ -112,14 +113,6 @@ type WgProxy interface {
 func (h *wgproxy) Dial(network, address string) (c protect.Conn, err error) {
 	// ProxyDial resolves address if needed; then dials into all resolved ips.
 	return dialers.ProxyDial(h.wgtun, network, address)
-}
-
-// Announce implements Proxy.
-func (h *wgproxy) Announce(network, local string) (protect.PacketConn, error) {
-	if h.status == END {
-		return nil, errProxyStopped
-	}
-	return nil, errAnnounceNotSupported
 }
 
 // BatchSize implements WgProxy
@@ -423,6 +416,7 @@ func NewWgProxy(id string, ctl protect.Controller, cfg string) (WgProxy, error) 
 	// bindok := bindWgSockets(id, wgdev, ctl)
 
 	w := &wgproxy{
+		nofwd{},
 		wgtun, // stack
 		wgdev, // device
 		wgep,  // endpoint

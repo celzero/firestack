@@ -22,6 +22,7 @@ import (
 )
 
 type http1 struct {
+	nofwd                   // no forwarding/listening
 	hc       *http.Client   // exported http client
 	rd       *protect.RDial // exported rdial
 	outbound proxy.Dialer
@@ -91,14 +92,6 @@ func (h *http1) Dial(network, addr string) (c protect.Conn, err error) {
 	}
 	log.I("proxy: http1: dial(%s) from %s to %s; err? %v", network, h.GetAddr(), addr, err)
 	return
-}
-
-// Announce implements Proxy.
-func (h *http1) Announce(network, local string) (protect.PacketConn, error) {
-	if h.status == END {
-		return nil, errProxyStopped
-	}
-	return nil, errAnnounceNotSupported
 }
 
 func (h *http1) fetch(req *http.Request) (*http.Response, error) {

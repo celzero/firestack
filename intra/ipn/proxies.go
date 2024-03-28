@@ -85,6 +85,8 @@ type Proxy interface {
 	Dial(network, addr string) (protect.Conn, error)
 	// Announce returns a packet-oriented udp connection on this proxy.
 	Announce(network, local string) (protect.PacketConn, error)
+	// Accept returns a listener for this proxy.
+	Accept(network, local string) (protect.Listener, error)
 	// fetch response for this request over HTTP.
 	fetch(req *http.Request) (*http.Response, error)
 	// Dialer returns the dialer for this proxy, which is an
@@ -120,6 +122,18 @@ var PROXYGATEWAY = &gw{ok: true}
 
 // PROXYNOGATEWAY is a Router that routes nothing.
 var PROXYNOGATEWAY = &gw{ok: false}
+
+type nofwd struct{}
+
+// Announce implements Proxy.
+func (nofwd) Announce(network, local string) (protect.PacketConn, error) {
+	return nil, errAnnounceNotSupported
+}
+
+// Accept implements Proxy.
+func (nofwd) Accept(network, local string) (protect.Listener, error) {
+	return nil, errAnnounceNotSupported
+}
 
 func (w *gw) IP4() bool            { return w.ok }
 func (w *gw) IP6() bool            { return w.ok }

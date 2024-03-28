@@ -21,6 +21,8 @@ type Conn = net.Conn
 
 type PacketConn = net.PacketConn
 
+type Listener = net.Listener
+
 type RDialer interface {
 	// Dial creates a connection to the given address,
 	// the resulting net.Conn must be a *net.TCPConn if
@@ -28,20 +30,19 @@ type RDialer interface {
 	// a *net.UDPConn if network is "udp" or "udp4" or "udp6".
 	Dial(network, addr string) (Conn, error)
 	// Announce announces the local address. network must be
-	// packet-oriented ("udp" or "udp4" or "udp6") conn.
-	// (the returned conn is actually a protect.PacketConn;
-	// protect.Conn is used in signature to make gobind happy
-	// as it does not support exporting interfaces with fns
-	// that return more than 2 values, like ReadFrom does).
+	// packet-oriented ("udp" or "udp4" or "udp6").
 	Announce(network, local string) (PacketConn, error)
+	// Accept creates a listener on the local address. network
+	// must be stream-oriented ("tcp" or "tcp4" or "tcp6").
+	Accept(network, local string) (Listener, error)
 }
 
 // RDial discards local-addresses
 type RDial struct {
-	Owner    string            // owner tag
-	Dialer   proxy.Dialer      // may be nil
-	Listener *net.ListenConfig // may be nil
-	RDialer  RDialer           // may be nil
+	Owner   string            // owner tag
+	Dialer  proxy.Dialer      // may be nil
+	Listen  *net.ListenConfig // may be nil
+	RDialer RDialer           // may be nil
 }
 
 var (
@@ -49,8 +50,11 @@ var (
 	errNoTCP       = errors.New("not a tcp dialer")
 	errNoUDP       = errors.New("not a udp dialer")
 	errNoAnnouncer = errors.New("not an announcer")
+	errNoAcceptor  = errors.New("not an acceptor")
 	errNoUDPMux    = errors.New("not a udp announcer")
+	errNoTCPMux    = errors.New("not a tcp announcer")
 	errAnnounce    = errors.New("cannot announce network")
+	errAccept      = errors.New("cannot accept network")
 )
 
 func (d *RDial) dial(network, addr string) (Conn, error) {
@@ -74,6 +78,26 @@ func (d *RDial) Dial(network, addr string) (net.Conn, error) {
 	}
 }
 
+func (d *RDial) Accept(network, local string) (Listener, error) {
+	if network != "tcp" && network != "tcp4" && network != "tcp6" {
+		return nil, errAccept
+	}
+	uselistener := d.Listen != nil
+	userdialer := d.RDialer != nil
+	if !uselistener && !userdialer {
+		log.V("xdial: Accept: (r? %t / o: %s) %s %s", userdialer, d.Owner, network, local)
+		return nil, errNoAcceptor
+	}
+	if uselistener {
+		if ln, err := d.Listen.Listen(context.Background(), network, local); err == nil {
+			return ln, nil
+		} else {
+			return nil, err
+		}
+	}
+	return d.RDialer.Accept(network, local)
+}
+
 func (d *RDial) Announce(network, local string) (PacketConn, error) {
 	if network != "udp" && network != "udp4" && network != "udp6" {
 		return nil, errAnnounce
@@ -81,10 +105,14 @@ func (d *RDial) Announce(network, local string) (PacketConn, error) {
 	// todo: check if local is a local address or empty (any)
 	// diailing (proxy.Dial/net.Dial/etc) on wildcard addresses (ex: ":8080" or "" or "localhost:1025")
 	// is not equivalent to listening/announcing. see: github.com/golang/go/issues/22827
-	uselistener := d.Listener != nil
+	uselistener := d.Listen != nil
 	userdialer := d.RDialer != nil
+	if !uselistener && !userdialer {
+		log.V("xdial: Announce: (r? %t / o: %s) %s %s", userdialer, d.Owner, network, local)
+		return nil, errNoAnnouncer
+	}
 	if uselistener {
-		if pc, err := d.Listener.ListenPacket(context.Background(), network, local); err == nil {
+		if pc, err := d.Listen.ListenPacket(context.Background(), network, local); err == nil {
 			switch x := pc.(type) {
 			case *net.UDPConn:
 				return x, nil
@@ -97,11 +125,7 @@ func (d *RDial) Announce(network, local string) (PacketConn, error) {
 			return nil, err
 		}
 	}
-	if userdialer {
-		return d.RDialer.Announce(network, local)
-	}
-	log.V("xdial: Announce: (r? %t / o: %s) %s %s", userdialer, d.Owner, network, local)
-	return nil, errNoAnnouncer
+	return d.RDialer.Announce(network, local)
 }
 
 func clos(c io.Closer) {
@@ -152,5 +176,18 @@ func (d *RDial) AnnounceUDP(network, local string) (*net.UDPConn, error) {
 		log.W("xdial: AnnounceUDP: (%s) %T is not %T (ok? %t); other errs: %v", d.Owner, c, uc, ok, err)
 		clos(c)
 		return nil, errNoUDPMux
+	}
+}
+
+// AcceptTCP creates a listener on the local address. network must be "tcp" or "tcp4" or "tcp6".
+func (d *RDial) AcceptTCP(network string, local string) (*net.TCPListener, error) {
+	if ln, err := d.Accept(network, local); err != nil {
+		return nil, err
+	} else if tl, ok := ln.(*net.TCPListener); ok {
+		return tl, nil
+	} else {
+		log.W("xdial: AcceptTCP: (%s) %T is not %T (ok? %t); other errs: %v", d.Owner, ln, tl, ok, err)
+		clos(ln)
+		return nil, errNoTCPMux
 	}
 }

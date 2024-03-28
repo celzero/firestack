@@ -30,7 +30,7 @@ func NewExitProxy(c protect.Controller) Proxy {
 		log.W("proxy: exit: missing ctl; probably not what you want")
 	}
 	d := protect.MakeNsDialer(Exit, c)
-	l := protect.MakeNsListenConfig(Exit, c)
+	l := protect.MakeNsListener(Exit, c)
 	h := &exit{
 		addr:      "127.0.0.127:1337",
 		outbound:  d,
@@ -59,6 +59,14 @@ func (h *exit) Dial(network, addr string) (c protect.Conn, err error) {
 
 // Announce implements Proxy.
 func (h *exit) Announce(network, local string) (protect.PacketConn, error) {
+	if h.status == END {
+		return nil, errProxyStopped
+	}
+	return dialers.NetListenPacket(h.listencfg, network, local)
+}
+
+// Accept implements Proxy.
+func (h *exit) Accept(network, local string) (protect.Listener, error) {
 	if h.status == END {
 		return nil, errProxyStopped
 	}
