@@ -459,4 +459,5 @@ func fillSummary(s *x.DNSSummary, other *x.DNSSummary) {
 	other.RelayServer = s.RelayServer
 	other.Status = s.Status
 	other.Blocklists = s.Blocklists
+	other.UpstreamBlocks = s.UpstreamBlocks
 }

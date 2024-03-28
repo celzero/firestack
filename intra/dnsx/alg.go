@@ -207,7 +207,6 @@ func (t *dnsgateway) querySecondary(t2 Transport, network string, q []byte, out 
 		if len(blocklistnames) > 0 {
 			result.summary.Blocklists = blocklistnames
 		}
-		result.summary.UpstreamBlocks = true
 		// a blocked answer (ans3) has A, AAAA, or HTTPS/SVCB records
 		// see: xdns.RefusedResponseFromMessage
 		if len(ans3.Answer) > 0 {
@@ -219,6 +218,7 @@ func (t *dnsgateway) querySecondary(t2 Transport, network string, q []byte, out 
 		if len(blocklistnames) > 0 {
 			result.summary.Blocklists = blocklistnames
 		}
+		result.summary.UpstreamBlocks = xdns.AQuadAUnspecified(ans2)
 		a4 := xdns.AAAAAnswer(ans2)
 		a6 := xdns.AAnswer(ans2)
 		ip4hints := xdns.IPHints(ans2, dns.SVCB_IPV4HINT)
