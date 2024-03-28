@@ -21,7 +21,6 @@ import (
 // from: github.com/pion/transport/blob/03c807b/udp/conn.go
 
 const (
-	rcvsize          = 8192
 	maxtimeouterrors = 3
 )
 
@@ -164,7 +163,7 @@ func (x *muxer) read() {
 
 	timeouterrors := 0
 	for {
-		bptr := core.AllocRegion(rcvsize)
+		bptr := core.AllocRegion(core.BMAX)
 		b := *bptr
 		b = b[:cap(b)]
 		free := func() {
