@@ -58,6 +58,8 @@ type Tunnel interface {
 	SetRoute(engine int) error
 	// Set or unset the pcap sink
 	SetPcap(fpcap string) error
+	// Set or unset the pcap sink
+	SetPcapFd(fpcap int32) error
 }
 
 type gtunnel struct {
@@ -204,7 +206,31 @@ func (t *gtunnel) SetPcap(fpcap string) error {
 	}
 }
 
-func (t *gtunnel) SetLinkAndRoutes(fd, mtu, engine int) (err error) {
+func (t *gtunnel) SetPcapFd(fpcap int32) error {
+	pcap := t.pcapio
+
+	if pcap == nil {
+		return errStackMissing
+	}
+	ignored := pcap.Close() // close any existing pcap sink
+
+	if fpcap < 0 {
+		log.I("netstack: pcap closed (ignored-err? %v)", ignored)
+		return nil // nothing else to do; pcap is closed
+	} else if fpcap < 3 {
+		// if fpcap is 0, 1, or 2 then pcap is written to stdout
+		ok := pcap.log(true)
+		log.I("netstack: pcap(int32 %d)/log(%t)", fpcap, ok)
+		return nil // fdbased will write to stdout
+	} else {
+		fout := os.NewFile(uintptr(fpcap), "")
+		ignored = pcap.file(fout) // attach
+		log.I("netstack: pcap(int32 %d)/file(%v) (ignored-err? %v)", fpcap, fout, ignored)
+		return nil // sniffer will write to fout
+	}
+}
+
+func (t *gtunnel) setLinkAndRoutes(fd, mtu, engine int) (err error) {
 	if err = t.SetLink(fd, mtu); err == nil {
 		err = t.SetRoute(engine)
 	}
