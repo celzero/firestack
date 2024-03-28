@@ -68,13 +68,21 @@ type Proxies interface {
 }
 
 type Router interface {
+	// IP4 returns true if this router supports IPv4.
 	IP4() bool
+	// IP6 returns true if this router supports IPv6.
 	IP6() bool
+	// Contains returns true if this router can route ipprefix.
 	Contains(ipprefix string) bool
 }
 
 type ProxyListener interface {
+	// OnProxyAdded is called when a proxy is added.
 	OnProxyAdded(id string)
+	// OnProxyRemoved is called when a proxy is removed except when all
+	// proxies are stopped, in which case OnProxiesStopped is called.
 	OnProxyRemoved(id string)
+	// OnProxiesStopped is called when all proxies are stopped.
+	// Note: OnProxyRemoved is not called for each proxy.
 	OnProxiesStopped()
 }

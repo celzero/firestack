@@ -120,7 +120,12 @@ type DNSResolver interface {
 }
 
 type ResolverListener interface {
+	// OnDNSAdded is called when a new DNS transport with id is added.
 	OnDNSAdded(id string)
+	// OnDNSRemoved is called when a DNS transport with id is removed, except
+	// when the transport is stopped, then OnDNSStopped is called instead.
 	OnDNSRemoved(id string)
+	// OnDNSStopped is called when the DNS transport is stopped. Note:
+	// OnDNSRemoved is not called for each transport before this.
 	OnDNSStopped()
 }
