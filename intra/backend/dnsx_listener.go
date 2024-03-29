@@ -10,21 +10,20 @@ import "fmt"
 
 // DNSSummary is a summary of a DNS transaction, reported when it is complete.
 type DNSSummary struct {
-	Type        string  // dnscrypt, dns53, doh, odoh, dot
-	ID          string  // transport id
-	Latency     float64 // Response (or failure) latency in seconds
-	QName       string  // query domain
-	QType       int     // A, AAAA, SVCB, HTTPS, etc.
-	RData       string  // response data, usually a csv of ips
-	RCode       int     // response code
-	RTtl        int     // response ttl
-	Server      string
-	RelayServer string // hop, if any; proxy or a relay server
-	Status      int
-	Blocklists  string // csv separated list of blocklists names, if any.
-	Upstrea
-	mBlocks bool   // true if any among upstream transports returned blocked ans.
-	Msg     string // final status message, if any
+	Type           string  // dnscrypt, dns53, doh, odoh, dot
+	ID             string  // transport id
+	Latency        float64 // Response (or failure) latency in seconds
+	QName          string  // query domain
+	QType          int     // A, AAAA, SVCB, HTTPS, etc.
+	RData          string  // response data, usually a csv of ips
+	RCode          int     // response code
+	RTtl           int     // response ttl
+	Server         string
+	RelayServer    string // hop, if any; proxy or a relay server
+	Status         int
+	Blocklists     string // csv separated list of blocklists names, if any.
+	UpstreamBlocks bool   // true if any among upstream transports returned blocked ans.
+	Msg            string // final status message, if any
 }
 
 type DNSOpts struct {
@@ -47,7 +46,7 @@ func (s *DNSSummary) Str() string {
 type DNSListener interface {
 	ResolverListener
 	// OnQuery is called when a DNS query is received. The listener
-	// can return a DNSOpts to control how the query is handled.
+	// can return a DNSOpts to modify
 	OnQuery(domain string, qtyp int) *DNSOpts
 	// OnResponse is called when a DNS response is received.
 	OnResponse(*DNSSummary)
