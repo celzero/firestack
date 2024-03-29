@@ -73,7 +73,7 @@ func setupUdpHandler(s *stack.Stack, h GUDPConnHandler) {
 func NewUDPForwarder(s *stack.Stack, h GUDPConnHandler) *udp.Forwarder {
 	return udp.NewForwarder(s, func(request *udp.ForwarderRequest) {
 		if request == nil {
-			log.E("ns: forwarder: nil request")
+			log.E("ns: udp: forwarder: nil request")
 			return
 		}
 		id := request.ID()
@@ -118,7 +118,7 @@ func (g *GUDPConn) Connect(fin bool) error {
 	// use gonet.DialUDP instead?
 	if endpoint, err := g.req.CreateEndpoint(wq); err != nil {
 		// ex: CONNECT endpoint for [fd66:f83a:c650::1]:15753 => [fd66:f83a:c650::3]:53; err(no route to host)
-		log.E("ns: connect: endpoint for %v => %v; err(%v)", g.src, g.dst, err)
+		log.E("ns: udp: connect: endpoint for %v => %v; err(%v)", g.src, g.dst, err)
 		return e(err)
 	} else {
 		g.ep = endpoint

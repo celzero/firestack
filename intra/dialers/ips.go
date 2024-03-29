@@ -112,7 +112,7 @@ func IPProtos(ippro string) {
 		log.D("dialers: ips: invalid protos %s; use existing: %s", ippro, ipProto)
 		return
 	}
-	log.I("dialers: ips: routes set to %s", ipProto)
+	log.I("dialers: ips: protos set to %s", ipProto)
 }
 
 func Clear() {

@@ -52,7 +52,7 @@ func setupTcpHandler(s *stack.Stack, h GTCPConnHandler) {
 func NewTCPForwarder(s *stack.Stack, h GTCPConnHandler) *tcp.Forwarder {
 	return tcp.NewForwarder(s, rcvwnd, maxInFlight, func(request *tcp.ForwarderRequest) {
 		if request == nil {
-			log.E("ns: forwarder: nil request")
+			log.E("ns: tcp: forwarder: nil request")
 			return
 		}
 		id := request.ID()
@@ -107,7 +107,7 @@ func (g *GTCPConn) Connect(rst bool) (open bool, err error) {
 	rst, err = g.synack()
 	g.req.Complete(rst)
 
-	log.V("ns: forwarder: proxy src(%v) => dst(%v); fin? %t", g.LocalAddr(), g.RemoteAddr(), rst)
+	log.V("ns: tcp: forwarder: proxy src(%v) => dst(%v); fin? %t", g.LocalAddr(), g.RemoteAddr(), rst)
 	return !rst, err // open or closed
 }
 
@@ -115,7 +115,7 @@ func (g *GTCPConn) synack() (rst bool, err error) {
 	wq := new(waiter.Queue)
 	// the passive-handshake (SYN) may not successful for a non-existent route (say, ipv6)
 	if ep, err := g.req.CreateEndpoint(wq); err != nil {
-		log.E("ns: forwarder: data src(%v) => dst(%v); err(%v)", g.LocalAddr(), g.RemoteAddr(), err)
+		log.E("ns: tcp: forwarder: data src(%v) => dst(%v); err(%v)", g.LocalAddr(), g.RemoteAddr(), err)
 		// prevent potential half-open TCP connection leak.
 		// hopefully doesn't break happy-eyeballs datatracker.ietf.org/doc/html/rfc8305#section-5
 		// ie, apps that expect network-unreachable ICMP msgs instead of TCP RSTs?
