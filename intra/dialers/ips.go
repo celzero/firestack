@@ -109,8 +109,8 @@ func IPProtos(ippro string) {
 	case settings.IP46:
 		ipProto = ippro
 	default:
-		log.W("dialers: ips: invalid protos %s; using %s", ippro, settings.IP46)
-		ipProto = settings.IP46 // default
+		log.D("dialers: ips: invalid protos %s; use existing: %s", ippro, ipProto)
+		return
 	}
 	log.I("dialers: ips: routes set to %s", ipProto)
 }

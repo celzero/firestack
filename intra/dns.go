@@ -26,7 +26,7 @@ func addIPMapper(r dnsx.Resolver, protos string) {
 }
 
 func removeIPMapper() {
-	dns53.AddIPMapper(nil, true /*clear cache*/)
+	dns53.AddIPMapper(nil, "", true /*clear cache*/)
 }
 
 // AddDNSProxy creates and adds a DNS53 transport to the tunnel's resolver.
