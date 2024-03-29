@@ -15,10 +15,10 @@ const ( // see protect/protect.go
 // Controller provides answers to filter network traffic.
 type Controller interface {
 	// Bind4 binds fd to any internet-capable IPv4 interface.
-	Bind4(who string, fd int)
+	Bind4(who, addrport string, fd int)
 	// Bind6 binds fd to any internet-capable IPv6 interface.
 	// also: github.com/lwip-tcpip/lwip/blob/239918c/src/core/ipv6/ip6.c#L68
-	Bind6(who string, fd int)
+	Bind6(who, addrport string, fd int)
 	// Protect marks fd as protected.
 	Protect(who string, fd int)
 }

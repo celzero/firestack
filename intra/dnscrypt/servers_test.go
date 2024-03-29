@@ -25,9 +25,9 @@ type fakeCtl struct {
 	protect.Controller
 }
 
-func (*fakeCtl) Bind4(_ string, _ int)   {}
-func (*fakeCtl) Bind6(_ string, _ int)   {}
-func (*fakeCtl) Protect(_ string, _ int) {}
+func (*fakeCtl) Bind4(_, _ string, _ int) {}
+func (*fakeCtl) Bind6(_, _ string, _ int) {}
+func (*fakeCtl) Protect(_ string, _ int)  {}
 
 type fakeObs struct {
 	x.ProxyListener

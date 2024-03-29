@@ -292,7 +292,7 @@ func (s *StdNetBind) Send(buf [][]byte, endpoint conn.Endpoint) (err error) {
 	}
 	bufok := len(data) > 0
 
-	log.V("wg: bind: send: %s addr(%v) blackhole? %t; noconn? %t; nobuf? %t", s.id, addrPort, blackhole, noconn, bufok)
+	log.V("wg: bind: send: %s addr(%v) blackhole? %t; noconn? %t; hasbuf? %t", s.id, addrPort, blackhole, noconn, bufok)
 
 	if blackhole || !bufok {
 		return nil

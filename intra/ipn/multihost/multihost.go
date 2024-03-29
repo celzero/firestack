@@ -62,6 +62,13 @@ func (h *MH) Addrs() []netip.Addr {
 	return h.addrs
 }
 
+func (h *MH) AnyAddr() string {
+	if len(h.addrs) <= 0 {
+		return ""
+	}
+	return h.addrs[0].String()
+}
+
 func (h *MH) Len() int {
 	h.RLock()
 	defer h.RUnlock()

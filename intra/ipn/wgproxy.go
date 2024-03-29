@@ -157,7 +157,7 @@ func (w *wgproxy) Refresh() (err error) {
 		return
 	}
 	// not required since wgconn:NewBind() is namespace aware
-	// bindok := bindWgSockets(w.ID(), w.wgdev, w.ctl)
+	// bindok := bindWgSockets(w.ID(), w.remote.AnyAddr(), w.wgdev, w.ctl)
 	log.I("proxy: wg: refresh(%s) done; len(dns): %d", w.id, n)
 	return
 }
@@ -341,7 +341,7 @@ func loadIPNets(out *[]netip.Prefix, v string) (err error) {
 	return
 }
 
-func bindWgSockets(id string, wgdev *device.Device, ctl protect.Controller) bool {
+func bindWgSockets(id, addrport string, wgdev *device.Device, ctl protect.Controller) bool {
 	var ok4, ok6 bool
 
 	// ref: github.com/WireGuard/wireguard-go/blob/1417a47c8/conn/bind_std.go#L130
@@ -356,14 +356,14 @@ func bindWgSockets(id string, wgdev *device.Device, ctl protect.Controller) bool
 	if fd4, err := bind.PeekLookAtSocketFd4(); err != nil {
 		log.W("proxy: wg: %s bindWgSockets4: failed to get wg4 socket %v", id, err)
 	} else {
-		ctl.Bind4(id, fd4)
+		ctl.Bind4(id, addrport, fd4)
 		ok4 = true
 	}
 
 	if fd6, err := bind.PeekLookAtSocketFd6(); err != nil {
 		log.W("proxy: wg: %s bindWgSockets6: failed to get wg6 socket %v", id, err)
 	} else {
-		ctl.Bind6(id, fd6)
+		ctl.Bind6(id, addrport, fd6)
 		ok6 = true
 	}
 
@@ -413,7 +413,7 @@ func NewWgProxy(id string, ctl protect.Controller, cfg string) (WgProxy, error) 
 
 	// nb: call after StdNetBind conn has been "Open"ed
 	// not needed for wg.NewBind; see: wg:wgconn.go
-	// bindok := bindWgSockets(id, wgdev, ctl)
+	// bindok := bindWgSockets(id, endpointh.AnyAddr(), wgdev, ctl)
 
 	w := &wgproxy{
 		nofwd{},

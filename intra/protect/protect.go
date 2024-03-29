@@ -72,9 +72,9 @@ func ifbind(who string, ctl Controller) func(string, string, syscall.RawConn) er
 			}
 			switch network {
 			case "tcp6", "udp6":
-				ctl.Bind6(who, sock)
+				ctl.Bind6(who, addr, sock)
 			case "tcp4", "udp4":
-				ctl.Bind4(who, sock)
+				ctl.Bind4(who, addr, sock)
 			case "tcp", "udp": // unexpected dual-stack socket
 				fallthrough // Control usually qualifies protocol family for the fd
 			default:
