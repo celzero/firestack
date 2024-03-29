@@ -44,7 +44,7 @@ type ipmapper struct {
 var _ ipmap.IPMapper = (*ipmapper)(nil)
 
 // AddIPMapper adds or removes the IPMapper.
-func AddIPMapper(r dnsx.Resolver, clear bool) {
+func AddIPMapper(r dnsx.Resolver, protos string, clear bool) {
 	var m ipmap.IPMapper
 	ok := r != nil
 	if ok {
@@ -54,6 +54,7 @@ func AddIPMapper(r dnsx.Resolver, clear bool) {
 		dialers.Clear()
 	}
 	dialers.Mapper(m)
+	dialers.IPProtos(protos)
 }
 
 func str2ip(host string) (netip.Addr, error) {

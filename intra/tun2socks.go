@@ -44,16 +44,13 @@ func init() {
 //	Disconnect() in order to close the TUN device.
 //
 // `mtu` is the MTU of the TUN device.
-// `engine` IP protocols to route: one of settings.Ns4, settings.Ns6, settings.Ns46.
 // `fakedns` are the DNS servers that the system believes it is using, in "host:port" style.
 // `bdg` is a kotlin object that implements the Bridge interface.
 // `dtr` is a kotlin object that implements the DefaultDNS interface.
 // Throws an exception if the TUN file descriptor cannot be opened, or if the tunnel fails to
 // connect.
-func Connect(fd, mtu, engine int, fakedns string, dtr DefaultDNS, bdg Bridge) (t Tunnel, err error) {
-	tunmode := settings.DefaultTunMode()
-	tunmode.IpMode = engine
-	return NewTunnel(fd, mtu, fakedns, tunmode, dtr, bdg)
+func Connect(fd, mtu int, fakedns string, dtr DefaultDNS, bdg Bridge) (t Tunnel, err error) {
+	return NewTunnel(fd, mtu, fakedns, settings.DefaultTunMode(), dtr, bdg)
 }
 
 // Change log level to log.VERBOSE, log.DEBUG, log.INFO, log.WARN, log.ERROR.

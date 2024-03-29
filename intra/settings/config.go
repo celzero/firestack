@@ -86,34 +86,24 @@ type TunMode struct {
 	BlockMode int
 	// PtMode determines 6to4 translation heuristics.
 	PtMode int
-	// Ns4, Ns6, or Ns46
-	IpMode int
 }
 
-func (tm *TunMode) L3() string {
-	return L3(tm.IpMode)
-}
-
-// SetMode re-assigns d to DNSMode, b to BlockMode,
-// pt to NatPtMode, p to IpMode.
-func (t *TunMode) SetMode(d, b, pt, p int) {
+// SetMode re-assigns d to DNSMode, b to BlockMode, pt to NatPtMode.
+func (t *TunMode) SetMode(d, b, pt int) {
 	t.DNSMode = d
 	t.BlockMode = b
 	t.PtMode = pt
-	t.IpMode = p
 }
 
 // NewTunMode returns a new TunMode object.
 // `d` sets dns-mode.
 // `b` sets block-mode.
 // `pt` sets natpt-mode.
-// `p` sets ip-mode.
-func NewTunMode(d, b, pt, p int) *TunMode {
+func NewTunMode(d, b, pt int) *TunMode {
 	return &TunMode{
 		DNSMode:   d,
 		BlockMode: b,
 		PtMode:    pt,
-		IpMode:    p,
 	}
 }
 
@@ -127,7 +117,6 @@ func DefaultTunMode() *TunMode {
 		DNSMode:   DNSModeIP,
 		BlockMode: BlockModeNone,
 		PtMode:    PtModeNo46,
-		IpMode:    Ns4,
 	}
 }
 

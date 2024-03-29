@@ -16,6 +16,7 @@ import (
 
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
+	"github.com/celzero/firestack/intra/settings"
 )
 
 type connectFunc func(*protect.RDial, string, netip.Addr, int) (net.Conn, error)
@@ -26,6 +27,12 @@ func filter(ips []netip.Addr, exclude netip.Addr) []netip.Addr {
 	filtered := make([]netip.Addr, 0, len(ips))
 	for _, ip := range ips {
 		if ip.Compare(exclude) == 0 || !ip.IsValid() {
+			continue
+		}
+		if ip.Is4() && ipProto == settings.IP6 {
+			continue
+		}
+		if ip.Is6() && ipProto == settings.IP4 {
 			continue
 		}
 		filtered = append(filtered, ip)

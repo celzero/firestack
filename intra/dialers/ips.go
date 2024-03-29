@@ -14,6 +14,7 @@ import (
 
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect/ipmap"
+	"github.com/celzero/firestack/intra/settings"
 )
 
 var (
@@ -24,6 +25,7 @@ var (
 )
 
 var ipm ipmap.IPMap = ipmap.NewIPMap()
+var ipProto string = settings.IP46
 
 func addr(ip netip.Addr, port int) string {
 	return net.JoinHostPort(ip.String(), strconv.Itoa(port))
@@ -95,6 +97,22 @@ func Mapper(m ipmap.IPMapper) {
 	log.I("dialers: ips: mapper ok? %t", m != nil)
 	// usually set once per tunnel disconnect/reconnect
 	ipm.With(m)
+}
+
+// p must be one of settings.IP4, settings.IP6, or settings.IP46
+func IPProtos(ippro string) {
+	switch ippro {
+	case settings.IP4:
+		fallthrough
+	case settings.IP6:
+		fallthrough
+	case settings.IP46:
+		ipProto = ippro
+	default:
+		log.W("dialers: ips: invalid protos %s; using %s", ippro, settings.IP46)
+		ipProto = settings.IP46 // default
+	}
+	log.I("dialers: ips: routes set to %s", ipProto)
 }
 
 func Clear() {

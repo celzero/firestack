@@ -21,8 +21,8 @@ import (
 	"github.com/celzero/firestack/intra/xdns"
 )
 
-func addIPMapper(r dnsx.Resolver) {
-	dns53.AddIPMapper(r, false /*clear cache*/)
+func addIPMapper(r dnsx.Resolver, protos string) {
+	dns53.AddIPMapper(r, protos, false /*clear cache*/)
 }
 
 func removeIPMapper() {

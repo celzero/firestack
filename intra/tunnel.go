@@ -30,6 +30,7 @@ import (
 	"sync/atomic"
 
 	x "github.com/celzero/firestack/intra/backend"
+	"github.com/celzero/firestack/intra/dialers"
 	"github.com/celzero/firestack/intra/dnsx"
 	"github.com/celzero/firestack/intra/ipn"
 	"github.com/celzero/firestack/intra/log"
@@ -95,7 +96,6 @@ func NewTunnel(fd, mtu int, fakedns string, tunmode *settings.TunMode, dtr Defau
 	if bdg == nil || dtr == nil {
 		return nil, fmt.Errorf("tun: no bridge? %t or default-dns? %t", bdg == nil, dtr == nil)
 	}
-	l3 := tunmode.L3()
 
 	natpt := x64.NewNatPt(tunmode)
 	proxies := ipn.NewProxifier(bdg, bdg)
@@ -114,15 +114,15 @@ func NewTunnel(fd, mtu int, fakedns string, tunmode *settings.TunMode, dtr Defau
 	resolver.Add(newGoosTransport(bdg, proxies))     // os-resolver; fixed
 	resolver.Add(newBlockAllTransport())             // fixed
 	resolver.Add(newDNSCryptTransport(proxies, bdg)) // fixed
-	resolver.Add(newMDNSTransport(l3))               // fixed
+	resolver.Add(newMDNSTransport(settings.IP46))    // fixed
 
-	addIPMapper(resolver) // namespace aware os-resolver for pkg dialers
+	addIPMapper(resolver, settings.IP46) // namespace aware os-resolver for pkg dialers
 
 	tcph := NewTCPHandler(resolver, proxies, tunmode, bdg, bdg)
 	udph := NewUDPHandler(resolver, proxies, tunmode, bdg, bdg)
 	icmph := NewICMPHandler(resolver, proxies, tunmode, bdg)
 
-	gt, err := tunnel.NewGTunnel(fd, mtu, tunmode.IpMode, tcph, udph, icmph)
+	gt, err := tunnel.NewGTunnel(fd, mtu, tcph, udph, icmph)
 
 	if err != nil {
 		log.I("tun: <<< new >>>; err(%v)", err)
@@ -171,8 +171,19 @@ func (t *rtunnel) SetRoute(engine int) error {
 		return errClosed
 	}
 
-	t.tunmode.SetMode(t.tunmode.DNSMode, t.tunmode.BlockMode, t.tunmode.PtMode, engine)
 	return t.Tunnel.SetRoute(engine)
+}
+
+func (t *rtunnel) SetLinkAndRoutes(fd, mtu, engine int) error {
+	if t.closed.Load() {
+		log.W("tun: <<< set link and route >>>; already closed")
+		return errClosed
+	}
+
+	l3 := settings.L3(engine)
+	dialers.IPProtos(l3)
+	t.resolver.Add(newMDNSTransport(l3))
+	return t.Tunnel.SetLinkAndRoutes(fd, mtu, engine)
 }
 
 func (t *rtunnel) GetResolver() (x.DNSResolver, error) {
@@ -215,5 +226,5 @@ func (t *rtunnel) GetServices() (rnet.Services, error) {
 }
 
 func (t *rtunnel) SetTunMode(dnsmode, blockmode, ptmode int) {
-	t.tunmode.SetMode(dnsmode, blockmode, ptmode, t.tunmode.IpMode)
+	t.tunmode.SetMode(dnsmode, blockmode, ptmode)
 }

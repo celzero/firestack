@@ -53,7 +53,7 @@ type Tunnel interface {
 	// Creates a new link using fd (tun device) and mtu.
 	SetLink(fd, mtu int) error
 	// internal method that creates the link and updates the routes
-	setLinkAndRoutes(fd, mtu, engine int) error
+	SetLinkAndRoutes(fd, mtu, engine int) error
 	// New route
 	SetRoute(engine int) error
 	// Set or unset the pcap sink
@@ -154,19 +154,19 @@ func (t *gtunnel) Write([]byte) (int, error) {
 	return 0, errNoWriter
 }
 
-func NewGTunnel(fd, mtu, engine int, tcph netstack.GTCPConnHandler, udph netstack.GUDPConnHandler, icmph netstack.GICMPHandler) (t Tunnel, err error) {
+func NewGTunnel(fd, mtu int, tcph netstack.GTCPConnHandler, udph netstack.GUDPConnHandler, icmph netstack.GICMPHandler) (t Tunnel, err error) {
 	hdl := netstack.NewGConnHandler(tcph, udph, icmph)
 	stack := netstack.NewNetstack() // always dual-stack
 	sink := new(pcapsink)
 	once := new(sync.Once)
 	t = &gtunnel{stack, hdl, mtu, sink, atomic.Bool{}, once}
 
-	err = t.setLinkAndRoutes(fd, mtu, engine) // creates endpoint / brings up nic
+	err = t.SetLinkAndRoutes(fd, mtu, settings.Ns46) // creates endpoint / brings up nic
 	if err != nil {
 		return nil, err
 	}
 
-	log.I("tun: new netstack up; fd(%d), l3(%v), mtu(%d)", fd, engine, mtu)
+	log.I("tun: new netstack up; fd(%d), mtu(%d)", fd, mtu)
 	return
 }
 
@@ -204,7 +204,7 @@ func (t *gtunnel) SetPcap(fpcap string) error {
 	}
 }
 
-func (t *gtunnel) setLinkAndRoutes(fd, mtu, engine int) (err error) {
+func (t *gtunnel) SetLinkAndRoutes(fd, mtu, engine int) (err error) {
 	if err = t.SetLink(fd, mtu); err == nil {
 		err = t.SetRoute(engine)
 	}
@@ -248,8 +248,9 @@ func (t *gtunnel) SetRoute(engine int) error {
 		return errStackMissing
 	}
 	l3 := settings.L3(engine)
-	netstack.Route(s, l3)
-	log.I("tun: new route; l3(%v)", l3)
+	// netstack route is never changed; always dual-stack
+	// netstack.Route(s, l3)
+	log.I("tun: new route (no-op); l3(%v)", l3)
 	return nil
 }
 
