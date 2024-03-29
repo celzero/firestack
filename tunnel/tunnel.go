@@ -249,8 +249,8 @@ func (t *gtunnel) SetRoute(engine int) error {
 	}
 	l3 := settings.L3(engine)
 	// netstack route is never changed; always dual-stack
-	// netstack.Route(s, l3)
-	log.I("tun: new route (no-op); l3(%v)", l3)
+	netstack.Route(s, settings.IP46)
+	log.I("tun: new route; (no-op) got %s but set %s", l3, settings.IP46)
 	return nil
 }
 

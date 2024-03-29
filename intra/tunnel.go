@@ -183,7 +183,7 @@ func (t *rtunnel) SetLinkAndRoutes(fd, mtu, engine int) error {
 	l3 := settings.L3(engine)
 	dialers.IPProtos(l3)
 	t.resolver.Add(newMDNSTransport(l3))
-	return t.Tunnel.SetLinkAndRoutes(fd, mtu, engine)
+	return t.Tunnel.SetLink(fd, mtu) // route is always dual-stack
 }
 
 func (t *rtunnel) GetResolver() (x.DNSResolver, error) {
