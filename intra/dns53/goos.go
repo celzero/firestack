@@ -127,7 +127,7 @@ func (t *goosr) send(q []byte) (response []byte, elapsed time.Duration, qerr *dn
 			response = xdns.Servfail(q)
 			err = errQueryParse
 		} else {
-			if ips, err = t.r.LookupNetIP(bgctx, "ip", host); err == nil {
+			if ips, err = t.r.LookupNetIP(bgctx, "ip", host); err == nil && xdns.HasAnyAnswer(msg) {
 				log.D("dns53: goosr: go resolver for %s => %s", host, ips)
 				ans, err = xdns.AQuadAForQuery(msg, ips...)
 			} else if ips, err = t.rcgo.LookupNetIP(bgctx, "ip", host); err == nil {
