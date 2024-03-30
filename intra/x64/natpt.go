@@ -27,7 +27,7 @@ import (
 // ----   |  --------   |  --------  |  ----   |  --------
 // ip4+6  |  ip4+6      |  bind      |  rdns   |  y
 // ip4+6  |  ip6+4	    |  bind      |  rdns   |  y
-
+//
 // datatracker.ietf.org/doc/html/rfc8305#section-7
 type natPt struct {
 	*nat64
@@ -77,12 +77,19 @@ func (n *natPt) X64(id string, rawip6 []byte) []byte {
 		return nil
 	}
 
+	// blocked domains (with zero IPv6 addr) should always be translated
+	// to blocked IPv4 addr regardless of NAT64 prefix
+	if ip6.IsUnspecified() {
+		log.D("natpt: ip6(%v) is unspecified", ip6)
+		return net.IPv4zero
+	}
+
 	prefixes := n.nat64PrefixForResolver(id)
 	if len(prefixes) <= 0 {
 		log.D("natpt: no prefix64 found for resolver(%s)", ip6, id)
 		return nil
 	}
-	if x := matchNat64(prefixes, ip6); x != nil {
+	if x := match(prefixes, ip6); x != nil {
 		return n.xAddr(x, ip6)
 	} else {
 		log.D("natpt: no matching prefix64 for ip(%v) in id(%s/%d)", ip6, id, len(prefixes))
@@ -135,7 +142,8 @@ func (n *natPt) nat64PrefixForResolver(id string) []*net.IPNet {
 	}
 }
 
-func matchNat64(nets []*net.IPNet, ip net.IP) *net.IPNet {
+// match returns the first matching prefix for ip in nets.
+func match(nets []*net.IPNet, ip net.IP) *net.IPNet {
 	for _, p := range nets {
 		if p.Contains(ip) {
 			return p

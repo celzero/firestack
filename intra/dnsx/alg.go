@@ -760,7 +760,7 @@ func (t *dnsgateway) xLocked(algip netip.Addr, useptr bool) []*netip.Addr {
 
 func (t *dnsgateway) maybeUndoNat64(realips []*netip.Addr) (unnat []*netip.Addr) {
 	for _, nip := range realips {
-		if !nip.Unmap().Is6() || nip.IsUnspecified() {
+		if !nip.Unmap().Is6() {
 			continue
 		}
 		// TODO: use the actual ID of the transport that did nat64
