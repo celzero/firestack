@@ -24,33 +24,36 @@ import (
 )
 
 type goosr struct {
-	status  int
-	r       *net.Resolver
-	rcgo    *net.Resolver
-	dialer  *protect.RDial
-	pid     string      // the only supported proxy is ipn.Exit
-	proxies ipn.Proxies // should never be nil
-	est     core.P2QuantileEstimator
+	status int
+	r      *net.Resolver
+	rcgo   *net.Resolver
+	dialer *protect.RDial
+	px     ipn.Proxy // the only supported proxy is ipn.Exit
+	est    core.P2QuantileEstimator
 }
 
 var _ dnsx.Transport = (*transport)(nil)
 
 // NewGoosTransport returns the default Go DNS resolver
-func NewGoosTransport(px ipn.Proxies, ctl protect.Controller) (t dnsx.Transport, err error) {
+func NewGoosTransport(pxs ipn.Proxies, ctl protect.Controller) (t dnsx.Transport, err error) {
 	// cannot be nil, see: ipn.Exit which the only proxy guaranteed to be connected to the internet;
 	// ex: ipn.Base routed back within the tunnel (rethink's traffic routed back into rethink)
 	// but it doesn't work for goos because the traffic to localhost:53 is routed back in as if
 	// the destination is vpn's own "fake" dns (typically, at 10.111.222.3)
-	if px == nil {
+	if pxs == nil {
 		return nil, dnsx.ErrNoProxyProvider
 	}
 	d := protect.MakeNsRDial(dnsx.Goos, ctl)
+	px, err := pxs.ProxyFor(ipn.Exit)
+	if err != nil {
+		log.E("dns53: goosr: no exit proxy: %v", err)
+		return nil, err
+	}
 	tx := &goosr{
-		status:  x.Start,
-		dialer:  d,
-		proxies: px,
-		pid:     dnsx.NetExitProxy, // NetExitProxy => ipn.Exit
-		est:     core.NewP50Estimator(),
+		status: x.Start,
+		dialer: d,
+		px:     px,
+		est:    core.NewP50Estimator(),
 	}
 	tx.r = &net.Resolver{
 		PreferGo: true,
@@ -65,13 +68,9 @@ func NewGoosTransport(px ipn.Proxies, ctl protect.Controller) (t dnsx.Transport,
 }
 
 func (t *goosr) pxdial(ctx context.Context, network, addr string) (conn net.Conn, err error) {
-	px, err := t.proxies.ProxyFor(t.pid)
-	if err != nil {
-		return nil, err
-	}
 	// addr must be ip:port
-	log.V("dns53: goosr: pxdial: using %s proxy for %s:%s => %s", t.pid, network, px.GetAddr(), addr)
-	return px.Dialer().Dial(network, addr)
+	log.V("dns53: goosr: pxdial: using %s proxy for %s:%s => %s", ipn.Exit, network, t.px.GetAddr(), addr)
+	return t.px.Dialer().Dial(network, addr)
 }
 
 func (t *goosr) dial(ctx context.Context, network, addr string) (net.Conn, error) {
