@@ -497,7 +497,7 @@ func (r *resolver) determineTransport(id string) Transport {
 		return t0
 	} else if t1 != nil {
 		return t1
-	} else if useFallback(id0) {
+	} else if canUseDefaultDNS(id0) {
 		return tf
 	}
 
@@ -809,7 +809,7 @@ func isReserved(id string) bool {
 	return false
 }
 
-func useFallback(id string) bool {
+func canUseDefaultDNS(id string) bool {
 	switch id {
 	case System, Local, Alg, Preferred, BlockFree:
 		return true
