@@ -39,6 +39,7 @@ type natPt struct {
 
 var _ dnsx.NatPt = (*natPt)(nil)
 
+// NewNatPt returns a new NatPt.
 func NewNatPt(tunmode *settings.TunMode) dnsx.NatPt {
 	log.I("natpt: new; mode(%v)", tunmode)
 	return &natPt{
@@ -50,6 +51,7 @@ func NewNatPt(tunmode *settings.TunMode) dnsx.NatPt {
 	}
 }
 
+// D64 Implements DNS64.
 func (pt *natPt) D64(id string, ans6 []byte, f dnsx.Transport) []byte {
 	if pt.do64() {
 		return pt.dns64.eval(id, pt.force64(), ans6, f)
@@ -57,19 +59,23 @@ func (pt *natPt) D64(id string, ans6 []byte, f dnsx.Transport) []byte {
 	return nil
 }
 
+// force64 returns true if DNS64 synthesis is done for ALL AAAA records.
 func (pt *natPt) force64() bool {
 	return pt.tunmode.PtMode == settings.PtModeForce64
 }
 
+// do64 returns true if DNS64 synthesis is enabled.
 func (pt *natPt) do64() bool {
 	return pt.tunmode.PtMode != settings.PtModeNo46
 }
 
+// IsNat64 Implements NAT64.
 func (n *natPt) IsNat64(id string, ip []byte) bool {
 	prefixes := n.nat64PrefixForResolver(id)
-	return matchNat64(prefixes, ip) != nil
+	return match(prefixes, ip) != nil
 }
 
+// X64 Implements NAT64.
 func (n *natPt) X64(id string, rawip6 []byte) []byte {
 	ip6 := net.IP(rawip6)
 	if len(ip6) != net.IPv6len {
@@ -97,10 +103,12 @@ func (n *natPt) X64(id string, rawip6 []byte) []byte {
 	return nil
 }
 
+// Add64 implements DNS64.
 func (h *natPt) Add64(id string, f dnsx.Transport) bool {
 	return h.dns64.AddResolver(id, f)
 }
 
+// Remove64 implements DNS64.
 func (h *natPt) Remove64(id string) bool {
 	return h.dns64.RemoveResolver(id)
 }
