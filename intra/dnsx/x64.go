@@ -8,9 +8,10 @@ package dnsx
 
 // ref: datatracker.ietf.org/doc/html/rfc8880
 const Rfc7050WKN = "ipv4only.arpa."
-const UnderlayResolver = "__underlay"
-const OverlayResolver = "__overlay"
-const Local464Resolver = "__local464"
+const AnyResolver = "__anyresolver"
+const UnderlayResolver = "__underlay" // used by transport dnsx.System
+const OverlayResolver = "__overlay"   // "net.DefaultResolver" dnsx.Goos
+const Local464Resolver = "__local464" // preset "forced" DNS64/NAT64
 
 type NatPt interface {
 	DNS64

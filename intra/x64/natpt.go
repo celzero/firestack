@@ -90,6 +90,21 @@ func (n *natPt) X64(id string, rawip6 []byte) []byte {
 		return net.IPv4zero
 	}
 
+	if id == dnsx.AnyResolver {
+		for tid, prefixes := range n.ip64 {
+			if len(prefixes) <= 0 {
+				continue
+			}
+			if x := match(prefixes, ip6); x != nil {
+				return n.xAddr(x, ip6)
+			} else {
+				log.V("natpt: no matching prefix64 for ip(%v) in id(%s/%d)", ip6, tid, len(prefixes))
+			}
+		}
+		log.D("natpt: no prefix64 found for resolver(%s)", ip6, id)
+		return nil
+	}
+
 	prefixes := n.nat64PrefixForResolver(id)
 	if len(prefixes) <= 0 {
 		log.D("natpt: no prefix64 found for resolver(%s)", ip6, id)
