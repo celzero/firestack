@@ -72,6 +72,8 @@ type Router interface {
 	IP4() bool
 	// IP6 returns true if this router supports IPv6.
 	IP6() bool
+	// MTU returns the MTU of this router.
+	MTU() (int, error)
 	// Contains returns true if this router can route ipprefix.
 	Contains(ipprefix string) bool
 }

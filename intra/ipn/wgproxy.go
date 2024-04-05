@@ -210,7 +210,7 @@ func (w *wgproxy) canUpdate(id, txt string) bool {
 		return anew
 	}
 
-	actualmtu := calcMtu(mtu)
+	actualmtu := calcTunMtu(mtu)
 	if w.mtu != actualmtu {
 		log.D("proxy: wg: !canUpdate(%s): mtu %d != %d", w.id, actualmtu, w.mtu)
 		return anew
@@ -426,7 +426,7 @@ func NewWgProxy(id string, ctl protect.Controller, cfg string) (WgProxy, error) 
 	w.rd = newRDial(w)
 	w.hc = newHTTPClient(w.rd)
 
-	log.D("proxy: wg: new %s; addrs(%v) mtu(%d/%d) / v4(%t) v6(%t)", id, ifaddrs, mtu, calcMtu(mtu), wgtun.hasV4, wgtun.hasV6)
+	log.D("proxy: wg: new %s; addrs(%v) mtu(%d/%d) / v4(%t) v6(%t)", id, ifaddrs, mtu, calcTunMtu(mtu), wgtun.hasV4, wgtun.hasV6)
 
 	return w, nil
 }
@@ -438,7 +438,8 @@ func makeWgTun(id string, ifaddrs, allowedaddrs []netip.Prefix, dnsm, endpointm 
 		TransportProtocols: []stack.TransportProtocolFactory{tcp.NewProtocol, udp.NewProtocol, icmp.NewProtocol6, icmp.NewProtocol4},
 		HandleLocal:        true,
 	}
-	tunmtu := calcMtu(mtu)
+	// github.com/tailscale/tailscale/blob/92d3f64e95/net/tstun/mtu.go
+	tunmtu := calcTunMtu(mtu)
 
 	s := stack.New(opts)
 	sackEnabledOpt := tcpip.TCPSACKEnabled(true)
@@ -750,9 +751,14 @@ func (h *wgtun) listener(op string, err error) {
 	}
 }
 
-func calcMtu(mtu int) int {
+func calcTunMtu(netmtu int) int {
 	// uint32(mtu) - 80 is the maximum payload size of a WireGuard packet.
-	return max(minmtu6-80, mtu-80) // 80 is the overhead of the WireGuard header
+	return max(minmtu6-80, netmtu-80) // 80 is the overhead of the WireGuard header
+}
+
+func calcNetMtu(tunmtu int) int {
+	// uint32(mtu) - 80 is the maximum payload size of a WireGuard packet.
+	return max(minmtu6, tunmtu+80) // 80 is the overhead of the WireGuard header
 }
 
 func timedout(err error) bool {

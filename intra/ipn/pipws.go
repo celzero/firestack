@@ -212,7 +212,7 @@ func (t *pipws) Dial(network, addr string) (protect.Conn, error) {
 	if !strings.HasSuffix(u.Path, "/") {
 		u.Path += "/"
 	}
-	u.Path += domain + "/" + port + "/" + network
+	u.Path += domain + "/" + port + "/" + t.rsasig
 
 	msg := hexurl(u.Path)
 

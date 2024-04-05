@@ -287,7 +287,7 @@ func (t *piph2) Dial(network, addr string) (protect.Conn, error) {
 	if !strings.HasSuffix(u.Path, "/") {
 		u.Path += "/"
 	}
-	u.Path += domain + "/" + port + "/" + network
+	u.Path += domain + "/" + port + "/" + t.rsasig
 
 	// ref: github.com/ginuerzh/gost/blob/1c62376e0880e/http2.go#L221
 	// and: github.com/golang/go/issues/17227#issuecomment-249424243

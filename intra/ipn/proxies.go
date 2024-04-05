@@ -41,6 +41,9 @@ const (
 
 	// DNS addrs, urls, or stamps
 	nodns = "" // no DNS
+
+	NOMTU  = 0
+	MAXMTU = 65535
 )
 
 var (
@@ -55,6 +58,7 @@ var (
 	errProxyConfig          = errors.New("invalid proxy config")
 	errNoProxyResponse      = errors.New("no response from proxy")
 	errNoSig                = errors.New("auth missing sig")
+	errNoMtu                = errors.New("no mtu")
 
 	udptimeoutsec = 5 * 60                    // 5m
 	tcptimeoutsec = (2 * 60 * 60) + (40 * 60) // 2h40m
@@ -137,6 +141,7 @@ func (nofwd) Accept(network, local string) (protect.Listener, error) {
 
 func (w *gw) IP4() bool            { return w.ok }
 func (w *gw) IP6() bool            { return w.ok }
+func (w *gw) MTU() (int, error)    { return NOMTU, errNoMtu }
 func (w *gw) Contains(string) bool { return w.ok }
 
 func NewProxifier(c protect.Controller, o x.ProxyListener) Proxies {
@@ -270,6 +275,33 @@ func (px *proxifier) IP6() bool {
 	}
 
 	return len(px.p) > 0
+}
+
+func (px *proxifier) MTU() (out int, err error) {
+	px.RLock()
+	defer px.RUnlock()
+
+	out = MAXMTU
+	safemtu := minmtu6
+	for _, p := range px.p {
+		if local(p.ID()) {
+			continue
+		}
+		var r x.Router
+		if r = p.Router(); r == nil {
+			continue
+		}
+		if m, err1 := r.MTU(); err1 == nil {
+			if p.Type() == WG {
+				m = calcNetMtu(m)
+			}
+			out = min(out, max(m, safemtu))
+		}
+	}
+	if out == MAXMTU { // unchanged
+		err = errNoMtu
+	}
+	return out, err
 }
 
 // Implements Router.
