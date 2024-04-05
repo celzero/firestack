@@ -1,11 +1,11 @@
 package backend
 
 import (
-	"log"
 	"testing"
 )
 
 func Test192(tst *testing.T) {
+	log := tst.Log
 	t := NewIpTree()
 	t.Add("192.0.0.0/8", "app192:443")
 	t.Add("192.1.0.0/16", "app192:80")
@@ -20,24 +20,26 @@ func Test192(tst *testing.T) {
 	g16any, err1 := t.GetAny("192.1.0.0/16")
 	ko(tst, err)
 	ko(tst, err1)
-	log.Println("g16", g16, "g16any", g16any, "esc?", rmv)
+	log("g16", g16, "g16any", g16any, "esc?", rmv)
 
 	g32any, err := t.GetAny("192.1.1.2/32")
 	ko(tst, err)
-	log.Println("g32any", g32any)
+	log("g32any", g32any)
 
 	gall, err := t.GetAll("192.1.1.1/32")
 	ko(tst, err)
-	log.Println("gall", gall)
+	log("gall", gall)
 
 	route := t.Routes("192.1.0.0/16")
 	rlike := t.RoutesLike("192.1.0.0/16", ":80")
 	val := t.Values("192.1.0.0/16")
 	vlike := t.ValuesLike("192.1.0.0/16", ":80")
-	log.Println("val", val)
-	log.Println("route", route)
-	log.Println("vlike", vlike)
-	log.Println("rlike", rlike)
+	vlike2 := t.ValuesLike("192.1.0.0/16", "app192:80")
+	log("val", val)
+	log("route", route)
+	log("vlike", vlike, "vlike(1app):", vlike2)
+	log("rlike", rlike)
+	tst.FailNow()
 }
 
 func ko(tst *testing.T, err error) {

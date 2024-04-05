@@ -373,10 +373,17 @@ func (c *iptree) RoutesLike(cidr, like string) string {
 
 	rt := make([]string, 0)
 	c.t.WalkMatch(r, func(k *net.IPNet, v any) bool {
-		if v != nil {
-			if s, ok := v.(string); ok && len(s) > 0 {
-				if strings.HasPrefix(s, like) {
-					rt = append(rt, k.String())
+		if v == nil {
+			return true // next
+		}
+		if s, ok := v.(string); ok && len(s) > 0 {
+			if !strings.Contains(s, like) {
+				return true // next
+			}
+			all := strings.Split(s, Vsep) // grab all occurences of v in csv s
+			for _, val := range all {
+				if strings.HasPrefix(val, like) {
+					rt = append(rt, val)
 				}
 			}
 		}
@@ -396,10 +403,17 @@ func (c *iptree) ValuesLike(cidr, like string) string {
 
 	vt := make([]string, 0)
 	c.t.WalkMatch(r, func(k *net.IPNet, v any) bool {
-		if v != nil {
-			if s, ok := v.(string); ok && len(s) > 0 {
-				if strings.HasPrefix(s, like) {
-					vt = append(vt, s)
+		if v == nil {
+			return true // next
+		}
+		if s, ok := v.(string); ok && len(s) > 0 {
+			if !strings.Contains(s, like) {
+				return true // next
+			}
+			all := strings.Split(s, Vsep) // grab all occurences of v in csv s
+			for _, val := range all {
+				if strings.HasPrefix(val, like) {
+					vt = append(vt, val)
 				}
 			}
 		}
