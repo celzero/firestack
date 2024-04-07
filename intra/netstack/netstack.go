@@ -29,8 +29,13 @@ const useIPTablesForICMP = false
 // enable forwarding of packets on the interface
 const nicfwd = false
 
+type sniff struct {
+	stack.LinkEndpoint
+	Swapper
+}
+
 // ref: github.com/google/gvisor/blob/91f58d2cc/pkg/tcpip/sample/tun_tcp_echo/main.go#L102
-func NewEndpoint(dev, mtu int, sink io.WriteCloser) (ep stack.LinkEndpoint, err error) {
+func NewEndpoint(dev, mtu int, sink io.WriteCloser) (ep SeamlessEndpoint, err error) {
 	defer func() {
 		if err != nil {
 			syscall.Close(dev)
@@ -48,7 +53,18 @@ func NewEndpoint(dev, mtu int, sink io.WriteCloser) (ep stack.LinkEndpoint, err 
 		return nil, err
 	}
 	// ref: github.com/google/gvisor/blob/aeabb785278/pkg/tcpip/link/sniffer/sniffer.go#L111-L131
-	return sniffer.NewWithWriter(ep, sink, umtu)
+	return asSniffer(ep, sink, umtu)
+}
+
+func asSniffer(ep SeamlessEndpoint, sink io.WriteCloser, mtu uint32) (SeamlessEndpoint, error) {
+	if sink == nil {
+		return ep, nil
+	}
+	if link, err := sniffer.NewWithWriter(ep, sink, mtu); err != nil {
+		return nil, err
+	} else {
+		return sniff{link, ep}, nil
+	}
 }
 
 func LogPcap(y bool) (ok bool) {

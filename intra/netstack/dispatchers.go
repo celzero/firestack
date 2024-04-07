@@ -165,6 +165,8 @@ type readVDispatcher struct {
 
 var _ linkDispatcher = (*readVDispatcher)(nil)
 
+// newReadVDispatcher creates a new linkDispatcher that vector reads packets from
+// fd and dispatches them to endpoint e. It assumes ownership of fd but not of e.
 func newReadVDispatcher(fd int, e *endpoint) (linkDispatcher, error) {
 	stopFd, err := newStopFd()
 	if err != nil {

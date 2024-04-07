@@ -39,7 +39,6 @@ func Test192(tst *testing.T) {
 	log("route", route)
 	log("vlike", vlike, "vlike(1app):", vlike2)
 	log("rlike", rlike)
-	tst.FailNow()
 }
 
 func ko(tst *testing.T, err error) {
