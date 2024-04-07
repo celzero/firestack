@@ -236,6 +236,7 @@ func (e *endpoint) Swap(fd, mtu int) (err error) {
 
 	e.Lock()
 	defer e.Unlock()
+	prev := e.inboundDispatcher
 
 	e.inboundDispatcher, err = createInboundDispatcher(e, fd)
 	if err != nil {
@@ -243,9 +244,9 @@ func (e *endpoint) Swap(fd, mtu int) (err error) {
 	}
 	go e.dispatchLoop(e.inboundDispatcher)
 
-	// TODO: should we let the existing dispatcher stop on EOF?
-	if rx := e.inboundDispatcher; rx != nil {
-		go rx.stop() // Stop existing dispatcher on e.fds
+	// TODO: should we let the previous dispatcher stop on EOF?
+	if prev != nil {
+		go prev.stop()
 	}
 
 	return nil
