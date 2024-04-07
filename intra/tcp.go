@@ -117,7 +117,8 @@ func (h *tcpHandler) onFlow(localaddr, target netip.AddrPort, realips, domains, 
 	var proto int32 = 6 // tcp
 	src := localaddr.String()
 	dst := target.String()
-	res := h.listener.Flow(proto, uid, src, dst, realips, domains, probableDomains, blocklists)
+	dup := hasActiveConn(h.conntracker, dst, realips)
+	res := h.listener.Flow(proto, uid, dup, src, dst, realips, domains, probableDomains, blocklists)
 
 	if res == nil {
 		log.W("tcp: onFlow: empty res from kt; using base")

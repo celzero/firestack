@@ -136,7 +136,8 @@ func (h *udpHandler) onFlow(localaddr, target netip.AddrPort, realips, domains, 
 	}
 
 	var proto int32 = 17 // udp
-	res := h.listener.Flow(proto, uid, src, dst, realips, domains, probableDomains, blocklists)
+	dup := hasActiveConn(h.conntracker, dst, realips)
+	res := h.listener.Flow(proto, uid, dup, src, dst, realips, domains, probableDomains, blocklists)
 
 	if res == nil {
 		log.W("udp: onFlow: empty res from kt; optbase")

@@ -203,6 +203,14 @@ func undoAlg(r dnsx.Resolver, algip netip.Addr) (realips, domains, probableDomai
 	return
 }
 
+func hasActiveConn(cm core.ConnMapper, ip, ips string) bool {
+	if cm == nil {
+		return false
+	}
+	// TODO: filter by protocol (tcp/udp) when finding conns
+	return len(cm.Find(ip)) > 0 || len(cm.FindAny(ips)) > 0
+}
+
 // returns proxy-id, conn-id, user-id
 func splitCidPidUid(decision *Mark) (cid, pid, uid string) {
 	if decision == nil {

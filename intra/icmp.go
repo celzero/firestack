@@ -81,8 +81,9 @@ func (h *icmpHandler) onFlow(source, target netip.AddrPort, realips, domains, pr
 	var proto int32 = 1 // icmp
 	src := source.String()
 	dst := target.String()
+	dup := false // TODO: find if dup traffic
 	// todo: handle forwarding icmp to appropriate proxy?
-	res := h.listener.Flow(proto, uid, src, dst, realips, domains, probableDomains, blocklists)
+	res := h.listener.Flow(proto, uid, dup, src, dst, realips, domains, probableDomains, blocklists)
 
 	cid, pid, _ = splitCidPidUid(res)
 	block = pid == ipn.Block
