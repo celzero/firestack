@@ -908,7 +908,7 @@ func IsSVCBQType(qtype uint16) bool {
 }
 
 func HasAnyQuestion(msg *dns.Msg) bool {
-	return msg != nil && len(msg.Question) > 0
+	return !(msg == nil || len(msg.Question) <= 0)
 }
 
 // whether the given msg (ans/query) has a AAAA question section
