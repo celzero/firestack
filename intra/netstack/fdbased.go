@@ -34,6 +34,7 @@ import (
 	"sync/atomic"
 
 	"github.com/celzero/firestack/intra/log"
+	"github.com/celzero/firestack/intra/settings"
 	"golang.org/x/sys/unix"
 	"gvisor.dev/gvisor/pkg/buffer"
 	"gvisor.dev/gvisor/pkg/sync"
@@ -250,7 +251,7 @@ func (e *endpoint) Swap(fd, mtu int) (err error) {
 	go e.dispatchLoop(e.inboundDispatcher)
 
 	// TODO: should we let the previous dispatcher stop on EOF?
-	if prev != nil {
+	if prev != nil && !settings.Debug {
 		go prev.stop()
 	}
 
