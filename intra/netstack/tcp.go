@@ -22,7 +22,8 @@ import (
 
 // ref: github.com/tailscale/tailscale/blob/cfb5bd0559/wgengine/netstack/netstack.go#L236-L237
 const rcvwnd = 0
-const maxInFlight = 128
+
+const maxInFlight = 512 // arbitrary
 
 type GTCPConnHandler interface {
 	// Proxy copies data between src and dst.
