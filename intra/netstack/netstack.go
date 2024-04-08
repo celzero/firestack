@@ -97,7 +97,7 @@ func Up(s *stack.Stack, ep stack.LinkEndpoint, h GConnHandler) error {
 	// also closes its netstack protos (ip4, ip6), closes link-endpoint (ep), if any
 	if ferr := s.RemoveNIC(nic); ferr != nil {
 		_, newnic = ferr.(*tcpip.ErrUnknownNICID)
-		log.I("netstack: remove nic? %t; err(%v)", newnic, ferr)
+		log.I("netstack: new nic? %t; remove nic? err(%v)", newnic, ferr)
 	} else {
 		log.I("netstack: removed nic(%d)", nic)
 	}
@@ -177,6 +177,7 @@ func Route(s *stack.Stack, l3 string) {
 	// TODO? s.Pause()
 	// defer s.Resume()
 
+	which := l3
 	switch l3 {
 	case settings.IP46:
 		s.SetRouteTable([]tcpip.Route{
@@ -199,6 +200,7 @@ func Route(s *stack.Stack, l3 string) {
 	case settings.IP4:
 		fallthrough
 	default:
+		which = settings.IP4
 		s.SetRouteTable([]tcpip.Route{
 			{
 				Destination: header.IPv4EmptySubnet,
@@ -206,6 +208,7 @@ func Route(s *stack.Stack, l3 string) {
 			},
 		})
 	}
+	log.I("netstack: route(ask:%s; set: %s); done", l3, which)
 }
 
 // also: github.com/google/gvisor/blob/adbdac747/runsc/boot/loader.go#L1132
