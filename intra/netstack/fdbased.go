@@ -31,6 +31,7 @@ package netstack
 
 import (
 	"fmt"
+	"sync/atomic"
 
 	"github.com/celzero/firestack/intra/log"
 	"golang.org/x/sys/unix"
@@ -47,6 +48,8 @@ var _ stack.InjectableLinkEndpoint = (*endpoint)(nil)
 var _ stack.LinkEndpoint = (*endpoint)(nil)
 var _ stack.LinkEndpoint = (*sniff)(nil)
 var _ Swapper = (*sniff)(nil)
+
+const invalidfd int = -1
 
 type Swapper interface {
 	// Swap closes existing FDs; uses new fd and mtu.
@@ -74,10 +77,10 @@ type endpoint struct {
 	// fds is the set of file descriptors each identifying one inbound/outbound
 	// channel. The endpoint will dispatch from all inbound channels as well as
 	// hash outbound packets to specific channels based on the packet hash.
-	fds fdInfo
+	fds atomic.Value // int
 
 	// mtu (maximum transmission unit) is the maximum size of a packet.
-	mtu uint32
+	mtu atomic.Uint32
 
 	// hdrSize specifies the link-layer header size. If set to 0, no header
 	// is added/removed; otherwise an ethernet header is used.
@@ -189,7 +192,8 @@ func NewFdbasedInjectableEndpoint(opts *Options) (SeamlessEndpoint, error) {
 	}
 
 	e := &endpoint{
-		mtu:     opts.MTU,
+		mtu:     atomic.Uint32{},
+		fds:     atomic.Value{},
 		caps:    caps,
 		addr:    opts.Address,
 		hdrSize: hdrSize,
@@ -231,8 +235,9 @@ func (e *endpoint) Swap(fd, mtu int) (err error) {
 		return fmt.Errorf("unix.SetNonblock(%v) failed: %v", fd, err)
 	}
 
-	e.fds = fdInfo{fd: fd} // commence WritePackets() on fd
-	e.mtu = uint32(mtu)
+	// commence WritePackets() on fd
+	e.fds.Store(fd)
+	e.mtu.Store(uint32(mtu))
 
 	e.Lock()
 	defer e.Unlock()
@@ -288,7 +293,7 @@ func (e *endpoint) IsAttached() bool {
 // MTU implements stack.LinkEndpoint.MTU. It returns the value initialized
 // during construction.
 func (e *endpoint) MTU() uint32 {
-	return e.mtu
+	return e.mtu.Load()
 }
 
 // Capabilities implements stack.LinkEndpoint.Capabilities.
@@ -354,6 +359,14 @@ func (e *endpoint) logPacketIfNeeded(dir sniffer.Direction, pkt *stack.PacketBuf
 	}
 }
 
+// fd returns the file descriptor associated with the endpoint.
+func (e *endpoint) fd() int {
+	if fd, ok := e.fds.Load().(int); ok {
+		return fd
+	}
+	return invalidfd
+}
+
 // writePackets writes outbound packets to the file descriptor. If it is not
 // currently writable, the packet is dropped.
 // Way more simplified than og impl, ref: github.com/google/gvisor/issues/7125
@@ -363,7 +376,11 @@ func (e *endpoint) WritePackets(pkts stack.PacketBufferList) (int, tcpip.Error) 
 	// segment can get split into 46 segments of 1420 bytes and a single 216
 	// byte segment.
 	const batchSz = 47
-	fd := e.fds.fd // may have been closed
+	fd := e.fd()         // may have been closed
+	if fd == invalidfd { // unlikely; panic instead?
+		log.E("ns: WritePackets (to tun): fd invalid")
+		return 0, &tcpip.ErrNoSuchFile{}
+	}
 	batch := make([]unix.Iovec, 0, batchSz)
 	packets, written := 0, 0
 	total := pkts.Len()
@@ -409,7 +426,7 @@ func (e *endpoint) dispatchLoop(inbound linkDispatcher) tcpip.Error {
 
 	if inbound == nil {
 		log.W("ns: dispatchLoop: inbound nil")
-		return &tcpip.ErrInvalidEndpointState{}
+		return &tcpip.ErrUnknownDevice{}
 	}
 	for {
 		cont, err := inbound.dispatch()
@@ -445,5 +462,5 @@ func (e *endpoint) InjectInbound(protocol tcpip.NetworkProtocolNumber, pkt *stac
 func (e *endpoint) InjectOutbound(dest tcpip.Address, packet *buffer.View) tcpip.Error {
 	log.V("ns: inject-outbound (to tun) to dst(%v)", dest)
 	// TODO: e.logPacketIfNeeded(sniffer.DirectionSend, packet)
-	return rawfile.NonBlockingWrite(e.fds.fd, packet.AsSlice())
+	return rawfile.NonBlockingWrite(e.fd(), packet.AsSlice())
 }
