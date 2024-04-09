@@ -232,6 +232,14 @@ func createInboundDispatcher(e *endpoint, fd int) (linkDispatcher, error) {
 
 // Implements Swapper.
 func (e *endpoint) Swap(fd, mtu int) (err error) {
+	var prev linkDispatcher
+	defer func() {
+		// TODO: should we let the previous dispatcher stop on EOF?
+		if prev != nil && !settings.Debug {
+			go prev.stop()
+		}
+	}()
+
 	if err = unix.SetNonblock(fd, true); err != nil {
 		return fmt.Errorf("unix.SetNonblock(%v) failed: %v", fd, err)
 	}
@@ -242,18 +250,13 @@ func (e *endpoint) Swap(fd, mtu int) (err error) {
 
 	e.Lock()
 	defer e.Unlock()
-	prev := e.inboundDispatcher
+	prev = e.inboundDispatcher
 
 	e.inboundDispatcher, err = createInboundDispatcher(e, fd)
 	if err != nil {
 		return fmt.Errorf("createInboundDispatcher(...) = %v", err)
 	}
 	go e.dispatchLoop(e.inboundDispatcher)
-
-	// TODO: should we let the previous dispatcher stop on EOF?
-	if prev != nil && !settings.Debug {
-		go prev.stop()
-	}
 
 	return nil
 }
