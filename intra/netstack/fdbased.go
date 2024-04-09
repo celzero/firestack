@@ -388,7 +388,7 @@ func (e *endpoint) WritePackets(pkts stack.PacketBufferList) (int, tcpip.Error) 
 	const batchSz = 47
 	fd := e.fd()         // may have been closed
 	if fd == invalidfd { // unlikely; panic instead?
-		log.E("ns: WritePackets (to tun): fd invalid")
+		log.E("ns: tun(-1): WritePackets (to tun): fd invalid")
 		return 0, &tcpip.ErrNoSuchFile{}
 	}
 	batch := make([]unix.Iovec, 0, batchSz)
@@ -434,14 +434,15 @@ func (e *endpoint) dispatchLoop(inbound linkDispatcher) tcpip.Error {
 	e.wg.Add(1)
 	defer e.wg.Done()
 
+	fd := e.fd()
 	if inbound == nil {
-		log.W("ns: dispatchLoop: inbound nil")
+		log.W("ns: tun(%d): dispatchLoop: inbound nil", fd)
 		return &tcpip.ErrUnknownDevice{}
 	}
 	for {
 		cont, err := inbound.dispatch()
 		if err != nil || !cont {
-			log.I("ns: dispatchLoop: exit; err(%v)", err)
+			log.I("ns: tun(%d): dispatchLoop: exit; err(%v)", fd, err)
 			return err
 		}
 	}
