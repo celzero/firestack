@@ -187,7 +187,7 @@ func (d *readVDispatcher) stop() {
 	d.stopFd.stop()
 	// TODO: should close tun-fd before stopFd?
 	err := syscall.Close(d.fd)
-	log.I("ns: stop: fds closed event(%d) tun(%d); err? %v", d.efd, d.fd, err)
+	log.I("ns: dispatch: stop: fds closed event(%d) tun(%d); err? %v", d.efd, d.fd, err)
 }
 
 const abort = false // abort indicates that the dispatcher should stop.
@@ -196,7 +196,7 @@ const cont = true   // cont indicates that the dispatcher should continue delive
 // dispatch reads one packet from the file descriptor and dispatches it.
 func (d *readVDispatcher) dispatch() (bool, tcpip.Error) {
 	done := d.closed.Load()
-	log.V("ns: dispatch: done? %t", done)
+	log.V("ns: tun(%d): dispatch: done? %t", d.fd, done)
 	if done {
 		return abort, new(tcpip.ErrAborted)
 	}
@@ -208,7 +208,7 @@ func (d *readVDispatcher) dispatch() (bool, tcpip.Error) {
 
 	n, err := rawfile.BlockingReadvUntilStopped(d.efd, d.fd, iov)
 
-	log.V("ns: dispatch: got(%d bytes), err(%v)", n, err)
+	log.V("ns: tun(%d): dispatch: got(%d bytes), err(%v)", d.fd, n, err)
 	if n <= 0 || err != nil {
 		if err == nil {
 			err = new(tcpip.ErrNoSuchFile)
@@ -235,7 +235,7 @@ func (d *readVDispatcher) dispatch() (bool, tcpip.Error) {
 		// IP version information is at the first octet, so pulling up 1 byte.
 		h, ok := pkt.Data().PullUp(1)
 		if !ok {
-			log.W("ns: dispatch: no data!")
+			log.W("ns: tun(%d): dispatch: no data!", d.fd)
 			pkt.DecRef()
 			return cont, nil
 		}
@@ -245,13 +245,13 @@ func (d *readVDispatcher) dispatch() (bool, tcpip.Error) {
 		case header.IPv6Version:
 			p = header.IPv6ProtocolNumber
 		default:
-			log.W("ns: dispatch: unknown proto!")
+			log.W("ns: tun(%d): dispatch: unknown proto!", d.fd)
 			pkt.DecRef()
 			return cont, nil
 		}
 	}
 
-	log.V("ns: dispatch (from-tun) proto(%d) for pkt-id(%d)", p, pkt.Hash)
+	log.V("ns: tun(%d): dispatch: (from-tun) proto(%d) for pkt-id(%d)", d.fd, p, pkt.Hash)
 
 	go func() {
 		d.e.InjectInbound(p, pkt)

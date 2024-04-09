@@ -392,7 +392,7 @@ func (e *endpoint) WritePackets(pkts stack.PacketBufferList) (int, tcpip.Error) 
 		if len(batch)+numIovecs > rawfile.MaxIovs {
 			// writes in to fd, up to len(batch) not cap(batch)
 			if err := rawfile.NonBlockingWriteIovec(fd, batch); err != nil {
-				log.W("ns: WritePackets (to tun): err(%v), sent(%d)/total(%d)", err, written, total)
+				log.W("ns: tun(%d): WritePackets (to tun): err(%v), sent(%d)/total(%d)", fd, err, written, total)
 				return written, err
 			}
 			// mark processed packets as written
@@ -409,13 +409,13 @@ func (e *endpoint) WritePackets(pkts stack.PacketBufferList) (int, tcpip.Error) 
 	}
 	if len(batch) > 0 {
 		if err := rawfile.NonBlockingWriteIovec(fd, batch); err != nil {
-			log.W("ns: WritePackets (to tun): err(%v), sent(%d)/total(%d)", err, packets, total)
+			log.W("ns: tun(%d): WritePackets (to tun): err(%v), sent(%d)/total(%d)", fd, err, packets, total)
 			return written, err
 		}
 		written += packets
 	}
 
-	log.V("ns: WritePackets (to tun): written(%d)/total(%d)", written, total)
+	log.V("ns: tun(%d): WritePackets (to tun): written(%d)/total(%d)", fd, written, total)
 	return written, nil
 }
 
@@ -461,7 +461,8 @@ func (e *endpoint) InjectInbound(protocol tcpip.NetworkProtocolNumber, pkt *stac
 // Unused: InjectOutobund implements stack.InjectableEndpoint.InjectOutbound.
 // InjectOutbound egresses a tun-inbound packet.
 func (e *endpoint) InjectOutbound(dest tcpip.Address, packet *buffer.View) tcpip.Error {
-	log.V("ns: inject-outbound (to tun) to dst(%v)", dest)
+	fd := e.fd()
+	log.V("ns: tun(%d): inject-outbound (to tun) to dst(%v)", fd, dest)
 	// TODO: e.logPacketIfNeeded(sniffer.DirectionSend, packet)
-	return rawfile.NonBlockingWrite(e.fd(), packet.AsSlice())
+	return rawfile.NonBlockingWrite(fd, packet.AsSlice())
 }
