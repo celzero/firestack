@@ -19,6 +19,7 @@ import (
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/dnsx"
 	"github.com/celzero/firestack/intra/log"
+	"github.com/celzero/firestack/intra/protect"
 )
 
 // pipe copies data from src to dst, and returns the number of bytes copied.
@@ -67,8 +68,10 @@ func download(cid string, local net.Conn, remote net.Conn) (n int64, err error) 
 // It also sends a summary to the listener when done. Always called in a goroutine.
 func forward(local net.Conn, remote net.Conn, t core.ConnMapper, l SocketListener, smm *SocketSummary) {
 	cid := smm.ID
+	uid := smm.UID
+	ct := core.ConnTuple{CID: cid, UID: uid}
 
-	t.Track(cid, local, remote)
+	t.Track(ct, local, remote)
 	defer t.Untrack(cid)
 
 	uploadch := make(chan ioinfo)
@@ -136,14 +139,6 @@ func stall(m *core.ExpMap, k string) (secs uint32) {
 	return
 }
 
-func netipFrom(ip net.IP) *netip.Addr {
-	if addr, ok := netip.AddrFromSlice(ip); ok {
-		addr = addr.Unmap()
-		return &addr
-	}
-	return nil
-}
-
 func oneRealIp(realips string, origipp netip.AddrPort) netip.AddrPort {
 	if len(realips) <= 0 {
 		return origipp
@@ -208,7 +203,7 @@ func hasActiveConn(cm core.ConnMapper, ip, ips string) bool {
 		return false
 	}
 	// TODO: filter by protocol (tcp/udp) when finding conns
-	return len(cm.Find(ip)) > 0 || len(cm.FindAny(ips)) > 0
+	return !hasSelfUid(cm.Find(ip), true) || !hasSelfUid(cm.FindAll(ips), true)
 }
 
 // returns proxy-id, conn-id, user-id
@@ -225,26 +220,6 @@ func ipp(addr net.Addr) (netip.AddrPort, error) {
 		return zeroaddr, errors.New("nil addr")
 	}
 	return netip.ParseAddrPort(addr.String())
-}
-
-func addr2ip(a net.Addr) string {
-	if a == nil {
-		return ""
-	}
-	switch x := a.(type) {
-	case *net.TCPAddr:
-		return x.IP.String()
-	case *net.UDPAddr:
-		return x.IP.String()
-	case *net.IPAddr:
-		return x.IP.String()
-	case *net.IPNet:
-		return x.IP.String()
-	}
-	if b, err := netip.ParseAddrPort(a.String()); err == nil {
-		return b.Addr().String()
-	}
-	return ""
 }
 
 func conn2str(a net.Conn, b net.Conn) string {
@@ -264,6 +239,18 @@ func closeconns(cm core.ConnMapper, cids []string) (closed []string) {
 
 	log.I("intra: closed %d/%d", len(closed), len(cids))
 	return closed
+}
+
+func hasSelfUid(t []core.ConnTuple, d bool) bool {
+	if len(t) <= 0 {
+		return d // default
+	}
+	for _, x := range t {
+		if x.UID == protect.UidSelf {
+			return true
+		}
+	}
+	return false // regardless of d
 }
 
 func clos(c ...net.Conn) {
