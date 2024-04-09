@@ -571,8 +571,8 @@ func (r *resolver) reply(c protect.Conn) {
 		}
 
 		if err != nil {
-			secs := int(time.Since(start).Seconds() * 1000)
-			log.D("dns: udp: done; tot: %d, t: %ds, err: %v", cnt, secs, err)
+			millis := int(time.Since(start).Seconds() * 1000)
+			log.D("dns: udp: done; tot: %d, t: %dms, err: %v", cnt, millis, err)
 			free()
 			break
 		}
