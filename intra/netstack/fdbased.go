@@ -32,9 +32,9 @@ package netstack
 import (
 	"fmt"
 	"sync/atomic"
+	"time"
 
 	"github.com/celzero/firestack/intra/log"
-	"github.com/celzero/firestack/intra/settings"
 	"golang.org/x/sys/unix"
 	"gvisor.dev/gvisor/pkg/buffer"
 	"gvisor.dev/gvisor/pkg/sync"
@@ -233,10 +233,16 @@ func createInboundDispatcher(e *endpoint, fd int) (linkDispatcher, error) {
 // Implements Swapper.
 func (e *endpoint) Swap(fd, mtu int) (err error) {
 	var prev linkDispatcher
+	var prevfd int
 	defer func() {
 		// TODO: should we let the previous dispatcher stop on EOF?
-		if prev != nil && !settings.Debug {
-			go prev.stop()
+		// From prelim experiments, it seems prevfd never EOFs?
+		if prev != nil {
+			log.I("ns: tun(%d => %d): Swap: stopping previous dispatcher", prevfd, fd)
+			go func() {
+				time.Sleep(5 * time.Second) // some arbitrary delay
+				prev.stop()
+			}()
 		}
 	}()
 
@@ -245,7 +251,7 @@ func (e *endpoint) Swap(fd, mtu int) (err error) {
 	}
 
 	// commence WritePackets() on fd
-	e.fds.Store(fd)
+	prevfd, _ = e.fds.Swap(fd).(int)
 	e.mtu.Store(uint32(mtu))
 
 	e.Lock()
