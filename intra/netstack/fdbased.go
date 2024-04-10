@@ -69,10 +69,6 @@ type linkDispatcher interface {
 	dispatch() (bool, tcpip.Error)
 }
 
-type fdInfo struct {
-	fd int
-}
-
 type endpoint struct {
 	sync.RWMutex
 	// fds is the set of file descriptors each identifying one inbound/outbound
@@ -242,6 +238,7 @@ func (e *endpoint) Swap(fd, mtu int) (err error) {
 			go func() {
 				time.Sleep(5 * time.Second) // some arbitrary delay
 				prev.stop()
+				// avoid e.Wait(), it blocks until ALL dispatchers stop, not just prev
 			}()
 		}
 	}()
@@ -250,9 +247,9 @@ func (e *endpoint) Swap(fd, mtu int) (err error) {
 		return fmt.Errorf("unix.SetNonblock(%v) failed: %v", fd, err)
 	}
 
+	e.mtu.Store(uint32(mtu))
 	// commence WritePackets() on fd
 	prevfd, _ = e.fds.Swap(fd).(int)
-	e.mtu.Store(uint32(mtu))
 
 	e.Lock()
 	defer e.Unlock()
