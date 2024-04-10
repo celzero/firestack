@@ -296,9 +296,9 @@ func (px *proxifier) MTU() (out int, err error) {
 				m = calcNetMtu(m)
 			}
 			out = min(out, max(m, safemtu))
-		}
+		} // else: NOMTU
 	}
-	if out == MAXMTU { // unchanged
+	if out == MAXMTU || out == NOMTU { // unchanged or unknown
 		err = errNoMtu
 	}
 	return out, err
