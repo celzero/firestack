@@ -170,6 +170,7 @@ func NewGTunnel(fd, mtu int, tcph netstack.GTCPConnHandler, udph netstack.GUDPCo
 	if err != nil {
 		return nil, err
 	}
+	netstack.Route(stack, settings.IP46) // always dual-stack
 
 	t = &gtunnel{stack, ep, hdl, mtu, sink, atomic.Bool{}, new(sync.Once)}
 
@@ -177,8 +178,6 @@ func NewGTunnel(fd, mtu int, tcph netstack.GTCPConnHandler, udph netstack.GUDPCo
 	if err = netstack.Up(stack, ep, hdl); err != nil { // attach new endpoint
 		return nil, err
 	}
-
-	netstack.Route(stack, settings.IP46) // always dual-stack
 
 	log.I("tun: new netstack up; fd(%d), mtu(%d)", fd, mtu)
 	return
