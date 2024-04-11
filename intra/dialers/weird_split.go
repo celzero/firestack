@@ -22,6 +22,7 @@ func (s *WeirdSplitter) Write(b []byte) (int, error) {
 
 	// Setting `used` to true ensures that this code only runs once per socket.
 	s.Used = true
+	// One-byte segment is unable to be split.
 	if len(b) < 2 {
 		return conn.Write(b)
 	}
