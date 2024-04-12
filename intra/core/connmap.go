@@ -65,6 +65,7 @@ func (h *cm) trackDstLocked(t ConnTuple, conns []net.Conn) {
 		if c == nil {
 			continue
 		}
+		// TODO: handle unconnected udp sockets
 		raddr := c.RemoteAddr()
 		if raddr == nil {
 			continue
@@ -150,6 +151,7 @@ func (h *cm) Find(dst string) (tups []ConnTuple) {
 	h.RLock()
 	defer h.RUnlock()
 
+	// TODO: handle unconnected udp sockets
 	if tups, ok := h.dsttracker[dst]; ok {
 		return tups
 	}
