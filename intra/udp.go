@@ -30,6 +30,7 @@ import (
 	"io"
 	"net"
 	"net/netip"
+	"strconv"
 	"time"
 
 	"github.com/celzero/firestack/intra/dnsx"
@@ -118,9 +119,10 @@ func (h *udpHandler) onFlow(localaddr, target netip.AddrPort, realips, domains, 
 	}
 
 	src := localaddr.String()
-	dst := "" // unconnected udp sockets may not have a valid target
+	dst, dport := "", "" // unconnected udp sockets may not have a valid target
 	if target.IsValid() {
 		dst = target.String()
+		dport = strconv.Itoa(int(target.Port()))
 	}
 	if len(realips) <= 0 || len(domains) <= 0 {
 		log.V("udp: onFlow: no realips(%s) or domains(%s + %s), for src=%s dst=%s", realips, domains, probableDomains, localaddr, dst)
@@ -136,7 +138,7 @@ func (h *udpHandler) onFlow(localaddr, target netip.AddrPort, realips, domains, 
 	}
 
 	var proto int32 = 17 // udp
-	dup := hasActiveConn(h.conntracker, dst, realips)
+	dup := hasActiveConn(h.conntracker, dst, realips, dport)
 	res := h.listener.Flow(proto, uid, dup, src, dst, realips, domains, probableDomains, blocklists)
 
 	if res == nil {

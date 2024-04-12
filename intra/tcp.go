@@ -30,6 +30,7 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"strconv"
 	"time"
 
 	"github.com/celzero/firestack/intra/dnsx"
@@ -117,7 +118,8 @@ func (h *tcpHandler) onFlow(localaddr, target netip.AddrPort, realips, domains, 
 	var proto int32 = 6 // tcp
 	src := localaddr.String()
 	dst := target.String()
-	dup := hasActiveConn(h.conntracker, dst, realips)
+	dport := strconv.Itoa(int(target.Port()))
+	dup := hasActiveConn(h.conntracker, dst, realips, dport)
 	res := h.listener.Flow(proto, uid, dup, src, dst, realips, domains, probableDomains, blocklists)
 
 	if res == nil {
@@ -278,7 +280,7 @@ func (h *tcpHandler) handle(px ipn.Proxy, src net.Conn, target netip.AddrPort, s
 			if r := recover(); r != nil {
 				log.W("tcp: forward: panic %v", r)
 			}
-			defer h.conntracker.Untrack(ct.CID)
+			h.conntracker.Untrack(ct.CID)
 		}()
 		forward(src, dst, l, smm) // src always *gonet.TCPConn
 	}()

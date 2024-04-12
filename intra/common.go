@@ -193,12 +193,12 @@ func undoAlg(r dnsx.Resolver, algip netip.Addr) (realips, domains, probableDomai
 	return
 }
 
-func hasActiveConn(cm core.ConnMapper, ip, ips string) bool {
+func hasActiveConn(cm core.ConnMapper, ipp, ips, port string) bool {
 	if cm == nil {
 		return false
 	}
 	// TODO: filter by protocol (tcp/udp) when finding conns
-	return !hasSelfUid(cm.Find(ip), true) || !hasSelfUid(cm.FindAll(ips), true)
+	return !hasSelfUid(cm.Find(ipp), true) || !hasSelfUid(cm.FindAll(ips, port), true)
 }
 
 // returns proxy-id, conn-id, user-id

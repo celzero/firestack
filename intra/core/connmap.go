@@ -21,7 +21,7 @@ type ConnMapper interface {
 	Clear() []string
 	Track(t ConnTuple, x ...net.Conn) int
 	Find(dst string) (t []ConnTuple)
-	FindAll(csvdst string) (t []ConnTuple)
+	FindAll(csvips, port string) (t []ConnTuple)
 	Get(cid string) []net.Conn
 	Untrack(cid string) int
 	UntrackBatch(cids []string) []string
@@ -72,6 +72,7 @@ func (h *cm) trackDstLocked(t ConnTuple, conns []net.Conn) {
 		}
 		dst := raddr.String()
 		if tups, ok := h.dsttracker[dst]; ok {
+			// TODO: do not add dup tuples (cid)
 			h.dsttracker[dst] = append(tups, t)
 		} else {
 			h.dsttracker[dst] = []ConnTuple{t}
@@ -158,18 +159,19 @@ func (h *cm) Find(dst string) (tups []ConnTuple) {
 	return
 }
 
-func (h *cm) FindAll(csvdst string) (out []ConnTuple) {
+func (h *cm) FindAll(csvips, port string) (out []ConnTuple) {
 	out = make([]ConnTuple, 0)
 
-	if len(csvdst) == 0 {
+	if len(csvips) == 0 {
 		return
 	}
 
 	h.RLock()
 	defer h.RUnlock()
 
-	dsts := strings.Split(csvdst, ",")
+	dsts := strings.Split(csvips, ",")
 	for _, dst := range dsts {
+		dst = net.JoinHostPort(dst, port)
 		if tups, ok := h.dsttracker[dst]; ok {
 			out = append(out, tups...)
 		}
