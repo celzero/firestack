@@ -269,15 +269,18 @@ func (h *tcpHandler) handle(px ipn.Proxy, src net.Conn, target netip.AddrPort, s
 		return err
 	}
 
+	ct := core.ConnTuple{CID: smm.ID, UID: smm.UID}
+
+	h.conntracker.Track(ct, src, dst)
 	go func() {
-		cm := h.conntracker
 		l := h.listener
 		defer func() {
 			if r := recover(); r != nil {
 				log.W("tcp: forward: panic %v", r)
 			}
+			defer h.conntracker.Untrack(ct.CID)
 		}()
-		forward(src, dst, cm, l, smm) // src always *gonet.TCPConn
+		forward(src, dst, l, smm) // src always *gonet.TCPConn
 	}()
 
 	log.I("tcp: new conn %s via proxy(%s); src(%s) -> dst(%s) for %s", smm.ID, px.ID(), src.LocalAddr(), target, smm.UID)

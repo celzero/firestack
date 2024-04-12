@@ -240,15 +240,17 @@ func (h *udpHandler) proxy(gconn net.Conn, src, dst netip.AddrPort) (ok bool) {
 		// no summary for dns queries
 		return true // ok
 	}
+
+	ct := core.ConnTuple{CID: smm.ID, UID: smm.UID}
+	h.conntracker.Track(ct, gconn, remote)
 	go func() {
-		cm := h.conntracker
 		defer func() {
 			if r := recover(); r != nil {
 				log.W("udp: forward: %s -> %s panic %v", src, dst, r)
 			}
+			h.conntracker.Untrack(ct.CID)
 		}()
-
-		forward(gconn, &rwext{remote}, cm, l, smm)
+		forward(gconn, &rwext{remote}, l, smm)
 	}()
 	return true // ok
 }
