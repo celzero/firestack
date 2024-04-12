@@ -159,7 +159,7 @@ func (t *rtunnel) Disconnect() {
 		err0 := t.resolver.Stop()
 		err1 := t.proxies.StopProxies()
 		n := t.services.StopServers()
-		t.bridge = nil // "free" ref to the client
+		// t.bridge = nil // "free" ref to the client
 		log.I("tun: <<< disconnect >>>; err0(%v); err1(%v); svc(%d)", err0, err1, n)
 
 		t.Tunnel.Disconnect()
