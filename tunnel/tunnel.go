@@ -24,12 +24,15 @@
 package tunnel
 
 import (
+	"encoding/binary"
 	"errors"
 	"io"
 	"os"
 	"sync"
 	"sync/atomic"
+	"time"
 
+	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/netstack"
 	"github.com/celzero/firestack/intra/settings"
@@ -102,6 +105,20 @@ func (p *pcapsink) Close() error {
 	return err
 }
 
+// from: github.com/google/gvisor/blob/596e8d22/pkg/tcpip/link/sniffer/sniffer.go#L93
+func (p *pcapsink) begin() error {
+	_, offset := time.Date(0, 0, 0, 0, 0, 0, 0, time.Local).Zone()
+	return binary.Write(p.sink, binary.LittleEndian, core.PcapHeader{
+		MagicNumber:  0xa1b2c3d4,
+		VersionMajor: 2,
+		VersionMinor: 4,
+		Thiszone:     int32(offset),
+		Sigfigs:      0,
+		Snaplen:      netstack.SnapLen, // must match netstack.asSniffer()
+		Network:      101,              // LINKTYPE_RAW
+	})
+}
+
 func (p *pcapsink) file(f io.WriteCloser) (err error) {
 	p.Lock()
 	w := p.sink
@@ -109,10 +126,14 @@ func (p *pcapsink) file(f io.WriteCloser) (err error) {
 	p.Unlock()
 
 	if w != nil {
-		err = w.Close()
+		_ = w.Close()
 	}
 	y := f != nil
-	netstack.FilePcap(y)
+	if y {
+		err = p.begin() // write pcap header before any packets
+		log.I("tun: pcap: begin: writeHeader; err(%v)", err)
+	}
+	netstack.FilePcap(y) // signal netstack to write packets
 	return
 }
 

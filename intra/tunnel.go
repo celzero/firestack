@@ -76,6 +76,7 @@ type Tunnel interface {
 	// to which a PCAP file will be written to.
 	// If len(fpcap) is 0, no PCAP file will be written.
 	// If len(fpcap) is 1, PCAP be written to stdout.
+	// Must be called on a background thread.
 	SetPcap(fpcap string) error
 	// Set DNSMode, BlockMode, PtMode.
 	SetTunMode(dnsmode, blockmode, ptmode int)

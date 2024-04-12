@@ -29,6 +29,8 @@ const useIPTablesForICMP = false
 // enable forwarding of packets on the interface
 const nicfwd = false
 
+const SnapLen uint32 = 2048 // in bytes; some sufficient value
+
 type sniff struct {
 	stack.LinkEndpoint
 	Swapper
@@ -53,14 +55,15 @@ func NewEndpoint(dev, mtu int, sink io.WriteCloser) (ep SeamlessEndpoint, err er
 		return nil, err
 	}
 	// ref: github.com/google/gvisor/blob/aeabb785278/pkg/tcpip/link/sniffer/sniffer.go#L111-L131
-	return asSniffer(ep, sink, umtu)
+	return asSniffer(ep, sink)
 }
 
-func asSniffer(ep SeamlessEndpoint, sink io.WriteCloser, mtu uint32) (SeamlessEndpoint, error) {
+func asSniffer(ep SeamlessEndpoint, sink io.WriteCloser) (SeamlessEndpoint, error) {
 	if sink == nil {
 		return ep, nil
 	}
-	if link, err := sniffer.NewWithWriter(ep, sink, mtu); err != nil {
+	// TODO: MTU instead of SnapLen? Must match pcapsink.begin()
+	if link, err := sniffer.NewWithWriter(ep, sink, SnapLen); err != nil {
 		return nil, err
 	} else {
 		return sniff{link, ep}, nil
