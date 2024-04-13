@@ -27,6 +27,7 @@ import (
 	"strings"
 	"sync"
 	"syscall"
+	"time"
 
 	x "github.com/celzero/firestack/intra/backend"
 	"github.com/celzero/firestack/intra/core"
@@ -85,6 +86,11 @@ type wgtun struct {
 	once           sync.Once         // exec fn exactly once
 	hasV4, hasV6   bool              // interface has ipv4/ipv6 routes?
 	preferOffload  bool              // UDP GRO/GSO offloads
+	since          int64             // uptime in unix millis
+	latestRx       int64             // last rx time in unix millis
+	latestTx       int64             // last tx time in unix millis
+	errRx          int32             // rx error count
+	errTx          int32             // tx error count
 }
 
 type wgconn interface {
@@ -482,6 +488,7 @@ func makeWgTun(id string, ifaddrs, allowedaddrs []netip.Prefix, peers map[string
 		mtu:            tunmtu,
 		status:         TUP,
 		preferOffload:  preferOffload(id),
+		since:          now(),
 	}
 
 	// see WriteNotify below
@@ -656,6 +663,39 @@ func (tun *wgtun) Close() error {
 	return err
 }
 
+// Implements Router.
+// TODO: use wgtun as a receiver for Stats()
+func (w *wgproxy) Stats() (out x.Stats) {
+	if w.status == END {
+		return
+	}
+
+	cfg, err := w.IpcGet()
+	if err != nil || len(cfg) <= 0 {
+		log.W("proxy: wg: %s stats: ipcget: %v", w.id, err)
+		return
+	}
+
+	stat := wg.ReadStats(cfg)
+	out.Rx = stat.TotalRx()
+	out.Tx = stat.TotalTx()
+	out.LastOK = stat.LeastRecentHandshake()
+	out.Addr = w.IfAddr() // may be empty
+	out.ErrRx = w.errRx
+	out.ErrTx = w.errTx
+	out.LastRx = w.latestRx
+	out.LastTx = w.latestTx
+	out.Since = w.since
+	return out
+}
+
+func (w *wgtun) IfAddr() string {
+	if len(w.addrs) > 0 {
+		return w.addrs[0].String()
+	}
+	return noaddr
+}
+
 func (tun *wgtun) MTU() (int, error) {
 	return tun.mtu, nil
 }
@@ -692,7 +732,8 @@ func (h *wgtun) Type() string {
 	return WG
 }
 
-func (h *wgtun) Router() x.Router {
+// TODO: make wgtun a Router; see Stats()
+func (h *wgproxy) Router() x.Router {
 	return h
 }
 
@@ -755,6 +796,7 @@ func (h *wgtun) Contains(ipprefix string) bool {
 			return y
 		}
 	}
+
 	return false
 }
 
@@ -772,6 +814,22 @@ func (h *wgtun) listener(op string, err error) {
 	} else {
 		h.status = TKO
 	}
+
+	if h.status == TOK && op == "r" {
+		h.latestRx = now()
+	} else if h.status == TOK && op == "w" {
+		h.latestTx = now()
+	}
+
+	if h.status == TKO && op == "r" {
+		h.errRx++
+	} else if h.status == TKO && op == "w" {
+		h.errTx++
+	}
+}
+
+func now() int64 {
+	return time.Now().UnixMilli()
 }
 
 func calcTunMtu(netmtu int) int {

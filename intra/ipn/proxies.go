@@ -113,7 +113,10 @@ type proxifier struct {
 	obs x.ProxyListener
 }
 
-type gw struct{ ok bool }
+type gw struct {
+	ok    bool
+	stats x.Stats
+}
 
 var _ x.Router = (*gw)(nil)
 var _ x.Router = (*proxifier)(nil)
@@ -142,6 +145,7 @@ func (nofwd) Accept(network, local string) (protect.Listener, error) {
 func (w *gw) IP4() bool            { return w.ok }
 func (w *gw) IP6() bool            { return w.ok }
 func (w *gw) MTU() (int, error)    { return NOMTU, errNoMtu }
+func (w *gw) Stats() x.Stats       { return w.stats }
 func (w *gw) Contains(string) bool { return w.ok }
 
 func NewProxifier(c protect.Controller, o x.ProxyListener) Proxies {
@@ -302,6 +306,36 @@ func (px *proxifier) MTU() (out int, err error) {
 		err = errNoMtu
 	}
 	return out, err
+}
+
+// Implements Router.
+func (px *proxifier) Stats() x.Stats {
+	px.RLock()
+	defer px.RUnlock()
+
+	var s x.Stats
+	for _, p := range px.p {
+		if local(p.ID()) {
+			continue
+		}
+		if r := p.Router(); r != nil {
+			s = accStats(s, r.Stats())
+		}
+	}
+	return s
+}
+
+func accStats(a, b x.Stats) (c x.Stats) {
+	c.Tx = a.Tx + b.Tx
+	c.Rx = a.Rx + b.Rx
+	c.ErrRx = a.ErrRx + b.ErrRx
+	c.ErrTx = a.ErrTx + b.ErrTx
+	c.LastOK = max(a.LastOK, b.LastOK)
+	c.LastRx = max(a.LastRx, b.LastRx)
+	c.LastTx = max(a.LastTx, b.LastTx)
+	// todo: a.Since or b.Since may be zero
+	c.Since = min(a.Since, b.Since)
+	return
 }
 
 // Implements Router.

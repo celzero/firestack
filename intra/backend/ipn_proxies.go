@@ -74,10 +74,13 @@ type Router interface {
 	IP6() bool
 	// MTU returns the MTU of this router.
 	MTU() (int, error)
+	// Stats returns the stats of this router.
+	Stats() Stats
 	// Contains returns true if this router can route ipprefix.
 	Contains(ipprefix string) bool
 }
 
+// ProxyListener is a listener for proxy events.
 type ProxyListener interface {
 	// OnProxyAdded is called when a proxy is added.
 	OnProxyAdded(id string)
@@ -87,4 +90,17 @@ type ProxyListener interface {
 	// OnProxiesStopped is called when all proxies are stopped.
 	// Note: OnProxyRemoved is not called for each proxy.
 	OnProxiesStopped()
+}
+
+// Stats lists interesting stats of a Router.
+type Stats struct {
+	Addr   string // address of the router
+	Rx     int64  // bytes received
+	Tx     int64  // bytes transmitted
+	ErrRx  int32  // receive errors
+	ErrTx  int32  // transmit errors
+	LastRx int64  // last receive in millis
+	LastTx int64  // last transmit in millis
+	LastOK int64  // last handshake or ping or connect millis
+	Since  int64  // uptime in millis
 }
