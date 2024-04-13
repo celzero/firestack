@@ -443,6 +443,21 @@ func (proxy *DcMulti) Stop() error {
 	return nil
 }
 
+// refreshRoutes re-adds relay routes to all live/tracked servers
+func (proxy *DcMulti) refreshRoutes() {
+	udp, tcp := route(proxy)
+	if len(udp) <= 0 || len(tcp) <= 0 {
+		log.W("dnscrypt: refreshRoutes: null relays")
+	}
+	n := 0
+	for _, x := range proxy.serversInfo.getAll() {
+		x.RelayUDPAddrs = udp // may be empty or nil
+		x.RelayTCPAddrs = tcp // may be empty or nil
+		n++
+	}
+	log.I("dnscrypt: refreshRoutes: %d/%d for %d servers", len(udp), len(tcp), n)
+}
+
 // AddGateways adds relay servers
 func (proxy *DcMulti) AddGateways(routescsv string) (int, error) {
 	if len(routescsv) <= 0 {
@@ -455,7 +470,10 @@ func (proxy *DcMulti) AddGateways(routescsv string) (int, error) {
 	r := strings.Split(routescsv, ",")
 	cat := xdns.FindUnique(proxy.routes, r)
 	proxy.routes = append(proxy.routes, cat...)
-	log.I("dnscrypt: added %d relays %s", len(cat), routescsv)
+	log.I("dnscrypt: added %d/%d relays %s", len(cat), len(r), cat)
+	if len(cat) > 0 {
+		go proxy.refreshRoutes()
+	}
 	return len(cat), nil
 }
 
@@ -471,6 +489,9 @@ func (proxy *DcMulti) RemoveGateways(routescsv string) (int, error) {
 	rm := strings.Split(routescsv, ",")
 	l := len(proxy.routes)
 	proxy.routes = xdns.FindUnique(rm, proxy.routes)
+	if l != len(proxy.routes) { // routes changed
+		go proxy.refreshRoutes()
+	}
 	return l - len(proxy.routes), nil
 }
 
