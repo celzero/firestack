@@ -83,6 +83,7 @@ func For(hostOrIP string) []netip.Addr {
 // Resolve resolves hostname to IP addresses, bypassing cache.
 // If resolution fails, entries from the cache are returned, if any.
 func Resolve(hostname string) ([]netip.Addr, error) {
+	// ipm.LookupNetIP itself has a short-term cache (ipmapper.go:battl)
 	addrs, err := ipm.LookupNetIP(context.Background(), "ip", hostname)
 	if len(addrs) <= 0 { // check cache
 		if addrs = ipm.GetAny(hostname).Addrs(); len(addrs) > 0 {

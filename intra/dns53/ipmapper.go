@@ -24,7 +24,7 @@ import (
 	"github.com/miekg/dns"
 )
 
-const battl = 5 * time.Second
+const battl = 10 * time.Second
 
 var (
 	errNoHost = errors.New("no hostname")
