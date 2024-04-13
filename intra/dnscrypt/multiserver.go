@@ -651,8 +651,10 @@ func NewTransport(p *DcMulti, id, serverstamp string) (dnsx.Transport, error) {
 	}
 	if _, err := p.addOne(id, serverstamp); err == nil {
 		if ok := p.refreshOne(id); ok {
+			log.I("dnscrypt: added %s; %s", id, serverstamp)
 			return p.serversInfo.get(id), nil
 		} else {
+			log.W("dnscrypt: failed to add %s; %s", id, serverstamp)
 			p.removeOne(id)
 			return nil, errNoCert
 		}
@@ -667,6 +669,7 @@ func AddRelayTransport(p *DcMulti, relaystamp string) error {
 		return dnsx.ErrNoDcProxy
 	}
 	if _, err := p.AddGateways(relaystamp); err == nil {
+		log.I("dnscrypt: added relay %s", relaystamp)
 		return nil
 	} else {
 		return err
