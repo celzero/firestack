@@ -72,7 +72,8 @@ type wgtun struct {
 	id             string            // id
 	addrs          []netip.Prefix    // interface addresses
 	allowed        []netip.Prefix    // allowed ips (peers)
-	remote         *multihost.MH     // remote endpoints
+	peers          map[string]any    // peer (remote endpoint) public keys
+	remote         *multihost.MH     // peer (remote endpoint) addrs
 	status         int               // status of this interface
 	stack          *stack.Stack      // stack fakes tun device for wg
 	ep             *channel.Endpoint // reads and writes packets to/from stack
@@ -105,7 +106,7 @@ type wgproxy struct {
 type WgProxy interface {
 	Proxy
 	tun.Device
-	canUpdate(id, txt string) bool
+	update(id, txt string) bool
 	IpcSet(txt string) error
 }
 
@@ -183,40 +184,43 @@ func stripPrefixIfNeeded(id string) string {
 	return strings.TrimPrefix(id, FAST)
 }
 
-func (w *wgproxy) canUpdate(id, txt string) bool {
+// canUpdate checks if the existing tunnel can be updated in-place;
+// that is, incoming interface config is compatible with the existing tunnel,
+// regardless of whether peer config has changed (which can be updated in-place).
+func (w *wgproxy) update(id, txt string) bool {
 	const reuse = true // can update in-place; reuse existing tunnel
 	const anew = false // cannot update in-place; create new tunnel
 	if w.status == END {
-		log.W("proxy: wg: !canUpdate(%s<>%s): END; status(%d)", id, w.id, w.status)
+		log.W("proxy: wg: !update(%s<>%s): END; status(%d)", id, w.id, w.status)
 		return anew
 	}
 
 	incomingPrefersOffload := preferOffload(id)
 	if incomingPrefersOffload != w.preferOffload {
-		log.W("proxy: wg: !canUpdate(%s): preferOffload() %t != %t", id, incomingPrefersOffload, w.preferOffload)
+		log.W("proxy: wg: !update(%s): preferOffload() %t != %t", id, incomingPrefersOffload, w.preferOffload)
 		return anew
 	}
 
 	// str copy: go.dev/play/p/eO814kGGNtO
 	cptxt := txt
-	ifaddrs, _, dnsh, _, mtu, err := wgIfConfigOf(w.id, &cptxt)
+	ifaddrs, allowed, peers, dnsh, peersh, mtu, err := wgIfConfigOf(w.id, &cptxt)
 	if err != nil {
-		log.W("proxy: wg: !canUpdate(%s): err: %v", w.id, err)
+		log.W("proxy: wg: !update(%s): err: %v", w.id, err)
 		return anew
 	}
 
 	if len(ifaddrs) != len(w.addrs) {
-		log.D("proxy: wg: !canUpdate(%s): len(ifaddrs) %d != %d", w.id, len(ifaddrs), len(w.addrs))
+		log.D("proxy: wg: !update(%s): len(ifaddrs) %d != %d", w.id, len(ifaddrs), len(w.addrs))
 		return anew
 	}
 
 	actualmtu := calcTunMtu(mtu)
 	if w.mtu != actualmtu {
-		log.D("proxy: wg: !canUpdate(%s): mtu %d != %d", w.id, actualmtu, w.mtu)
+		log.D("proxy: wg: !update(%s): mtu %d != %d", w.id, actualmtu, w.mtu)
 		return anew
 	}
 	if dnsh != nil && !dnsh.EqualAddrs(w.dns) {
-		log.D("proxy: wg: !canUpdate(%s): new/mismatched dns", w.id)
+		log.D("proxy: wg: !update(%s): new/mismatched dns", w.id)
 		return anew
 	}
 
@@ -231,10 +235,20 @@ func (w *wgproxy) canUpdate(id, txt string) bool {
 			}
 		}
 		if !ipok {
-			log.D("proxy: wg: !canUpdate(%s): new ifaddrs (%s) != (%s)", w.id, ifaddrs, w.addrs)
+			log.D("proxy: wg: !update(%s): new ifaddrs (%s) != (%s)", w.id, ifaddrs, w.addrs)
 			return anew
 		}
 	}
+
+	// reusing existing tunnel (interface config unchanged)
+	// but peer config may have changed!
+	log.I("proxy: wg: update(%s): reuse; allowed: %d->%d; peers: %d->%d; dns: %d->%d; endpoint: %d->%d",
+		w.id, len(w.allowed), len(allowed), len(w.peers), len(peers), w.dns.Len(), dnsh.Len(), w.remote.Len(), peersh.Len())
+	w.allowed = allowed
+	w.peers = peers
+	w.remote = peersh // requires refresh
+	w.dns = dnsh      // requires refresh
+
 	return reuse
 }
 
@@ -250,12 +264,13 @@ func wglogger(id string) *device.Logger {
 	return logger
 }
 
-func wgIfConfigOf(id string, txtptr *string) (ifaddrs []netip.Prefix, allowedaddrs []netip.Prefix, dnsh, endpointh *multihost.MH, mtu int, err error) {
+func wgIfConfigOf(id string, txtptr *string) (ifaddrs []netip.Prefix, allowedaddrs []netip.Prefix, peers map[string]any, dnsh, endpointh *multihost.MH, mtu int, err error) {
 	txt := *txtptr
 	pcfg := strings.Builder{}
 	r := bufio.NewScanner(strings.NewReader(txt))
 	dnsh = multihost.New(id + "dns")
 	endpointh = multihost.New(id + "endpoint")
+	peers = make(map[string]any)
 	for r.Scan() {
 		line := r.Text()
 		if len(line) <= 0 {
@@ -270,11 +285,13 @@ func wgIfConfigOf(id string, txtptr *string) (ifaddrs []netip.Prefix, allowedadd
 			err = fmt.Errorf("proxy: wg: %s failed to parse line %q", id, line)
 			return
 		}
+		untouchedv := v
 		k = strings.ToLower(strings.TrimSpace(k))
 		v = strings.ToLower(strings.TrimSpace(v))
 
-		// process interface config; Address, DNS, ListenPort, MTU
+		// process interface & peer config; Address, DNS, ListenPort, MTU, Allowed IPs, Endpoint
 		// github.com/WireGuard/wireguard-android/blob/713947e432/tunnel/src/main/java/com/wireguard/config/Interface.java#L232
+		// github.com/WireGuard/wireguard-android/blob/713947e432/tunnel/src/main/java/com/wireguard/config/Peer.java#L176
 		switch k {
 		case "address": // may exist more than once
 			if err = loadIPNets(&ifaddrs, v); err != nil {
@@ -290,13 +307,18 @@ func wgIfConfigOf(id string, txtptr *string) (ifaddrs []netip.Prefix, allowedadd
 			if err = loadIPNets(&allowedaddrs, v); err != nil {
 				return
 			}
-			// carry over allowed_ips
+			// peer config: carry over allowed_ips
 			log.D("proxy: wg: %s ifconfig: skipping key %q", id, k)
 			pcfg.WriteString(line + "\n")
 		case "endpoint": // may exist more than once
 			// TODO: endpoint could be v4 or v6 or a hostname
 			loadMH(endpointh, v)
-			// carry over endpoints
+			// peer config: carry over endpoints
+			log.D("proxy: wg: %s ifconfig: skipping key %q", id, k)
+			pcfg.WriteString(line + "\n")
+		case "public_key":
+			peers[untouchedv] = struct{}{}
+			// peer config: carry over public keys
 			log.D("proxy: wg: %s ifconfig: skipping key %q", id, k)
 			pcfg.WriteString(line + "\n")
 		default:
@@ -372,14 +394,14 @@ func bindWgSockets(id, addrport string, wgdev *device.Device, ctl protect.Contro
 
 // ref: github.com/WireGuard/wireguard-android/blob/713947e432/tunnel/tools/libwg-go/api-android.go#L76
 func NewWgProxy(id string, ctl protect.Controller, cfg string) (WgProxy, error) {
-	ifaddrs, allowedaddrs, dnsh, endpointh, mtu, err := wgIfConfigOf(id, &cfg)
+	ifaddrs, allowedaddrs, peers, dnsh, endpointh, mtu, err := wgIfConfigOf(id, &cfg)
 	uapicfg := cfg
 	if err != nil {
 		log.E("proxy: wg: %s failed to get addrs from config %v", id, err)
 		return nil, err
 	}
 
-	wgtun, err := makeWgTun(id, ifaddrs, allowedaddrs, dnsh, endpointh, mtu)
+	wgtun, err := makeWgTun(id, ifaddrs, allowedaddrs, peers, dnsh, endpointh, mtu)
 	if err != nil {
 		log.E("proxy: wg: %s failed to create tun %v", id, err)
 		return nil, err
@@ -426,13 +448,13 @@ func NewWgProxy(id string, ctl protect.Controller, cfg string) (WgProxy, error) 
 	w.rd = newRDial(w)
 	w.hc = newHTTPClient(w.rd)
 
-	log.D("proxy: wg: new %s; addrs(%v) mtu(%d/%d) / v4(%t) v6(%t)", id, ifaddrs, mtu, calcTunMtu(mtu), wgtun.hasV4, wgtun.hasV6)
+	log.D("proxy: wg: new %s; addrs(%v) mtu(%d/%d) peers(%d) / v4(%t) v6(%t)", id, ifaddrs, mtu, calcTunMtu(mtu), len(peers), wgtun.hasV4, wgtun.hasV6)
 
 	return w, nil
 }
 
 // ref: github.com/WireGuard/wireguard-go/blob/469159ecf7/tun/netstack/tun.go#L54
-func makeWgTun(id string, ifaddrs, allowedaddrs []netip.Prefix, dnsm, endpointm *multihost.MH, mtu int) (*wgtun, error) {
+func makeWgTun(id string, ifaddrs, allowedaddrs []netip.Prefix, peers map[string]any, dnsm, endpointm *multihost.MH, mtu int) (*wgtun, error) {
 	opts := stack.Options{
 		NetworkProtocols:   []stack.NetworkProtocolFactory{ipv4.NewProtocol, ipv6.NewProtocol},
 		TransportProtocols: []stack.TransportProtocolFactory{tcp.NewProtocol, udp.NewProtocol, icmp.NewProtocol6, icmp.NewProtocol4},
@@ -449,6 +471,7 @@ func makeWgTun(id string, ifaddrs, allowedaddrs []netip.Prefix, dnsm, endpointm 
 		id:             stripPrefixIfNeeded(id),
 		addrs:          ifaddrs,
 		allowed:        allowedaddrs,
+		peers:          peers,
 		remote:         endpointm, // may be nil
 		ep:             ep,
 		stack:          s,
