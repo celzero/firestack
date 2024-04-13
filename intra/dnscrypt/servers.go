@@ -79,6 +79,26 @@ func newServersInfo() ServersInfo {
 	}
 }
 
+func (serversInfo *ServersInfo) len() int {
+	serversInfo.RLock()
+	defer serversInfo.RUnlock()
+
+	return len(serversInfo.registeredServers)
+}
+
+func (serversInfo *ServersInfo) getAll() []*serverinfo {
+	serversInfo.RLock()
+	defer serversInfo.RUnlock()
+
+	servers := make([]*serverinfo, 0, len(serversInfo.inner))
+	for _, si := range serversInfo.inner {
+		if si != nil {
+			servers = append(servers, si)
+		}
+	}
+	return servers
+}
+
 func (serversInfo *ServersInfo) getOne() (serverInfo *serverinfo) {
 	serversInfo.RLock()
 	defer serversInfo.RUnlock()
