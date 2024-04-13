@@ -20,6 +20,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"math/rand"
 	"net"
 	"strings"
 	"sync"
@@ -81,10 +82,16 @@ var (
 	errNoConn          = errors.New("dnscrypt: no connection")
 )
 
-func udpExchange(pid string, serverInfo *serverinfo, sharedKey *[32]byte, encryptedQuery []byte, clientNonce []byte) ([]byte, error) {
+func chooseAny[t net.Addr](s []t) t {
+	return s[rand.Intn(len(s))]
+}
+
+func udpExchange(pid string, serverInfo *serverinfo, sharedKey *[32]byte, encryptedQuery []byte, clientNonce []byte) (res []byte, relay net.Addr, err error) {
 	upstreamAddr := serverInfo.UDPAddr
-	if serverInfo.RelayUDPAddr != nil {
-		upstreamAddr = serverInfo.RelayUDPAddr
+	userelay := len(serverInfo.RelayUDPAddrs) > 0
+	if userelay {
+		upstreamAddr = chooseAny(serverInfo.RelayUDPAddrs)
+		relay = upstreamAddr
 	}
 
 	pc, err := serverInfo.dialudp(pid, upstreamAddr)
@@ -93,14 +100,14 @@ func udpExchange(pid string, serverInfo *serverinfo, sharedKey *[32]byte, encryp
 			err = errNoConn
 		}
 		log.E("dnscrypt: udp: dialing %s; hasConn? %s(%t); err: %v", serverInfo, pid, pc != nil, err)
-		return nil, err
+		return
 	}
 
 	defer pc.Close()
 	if err = pc.SetDeadline(time.Now().Add(timeout8s)); err != nil {
-		return nil, err
+		return
 	}
-	if serverInfo.RelayUDPAddr != nil {
+	if userelay {
 		prepareForRelay(serverInfo.UDPAddr.IP, serverInfo.UDPAddr.Port, &encryptedQuery)
 	}
 	// TODO: use a pool
@@ -111,27 +118,31 @@ func udpExchange(pid string, serverInfo *serverinfo, sharedKey *[32]byte, encryp
 		core.Recycle(bptr)
 	}()
 	for tries := 2; tries > 0; tries-- {
-		if _, err := pc.Write(encryptedQuery); err != nil {
+		if _, err = pc.Write(encryptedQuery); err != nil {
 			log.E("dnscrypt: udp: [%s] write err; [%v]", serverInfo.Name, err)
-			return nil, err
+			return
 		}
-		length, err := pc.Read(encryptedResponse)
+		var length int
+		length, err = pc.Read(encryptedResponse)
 		if err == nil {
 			encryptedResponse = encryptedResponse[:length]
 			break
 		} else if tries <= 0 {
 			log.E("dnscrypt: udp: [%s] read err; quit [%v]", serverInfo.Name, err)
-			return nil, err
+			return
 		}
 		log.D("dnscrypt: udp: [%s] read err; retry [%v]", serverInfo.Name, err)
 	}
-	return decrypt(serverInfo, sharedKey, encryptedResponse, clientNonce)
+	res, err = decrypt(serverInfo, sharedKey, encryptedResponse, clientNonce)
+	return
 }
 
-func tcpExchange(pid string, serverInfo *serverinfo, sharedKey *[32]byte, encryptedQuery []byte, clientNonce []byte) ([]byte, error) {
+func tcpExchange(pid string, serverInfo *serverinfo, sharedKey *[32]byte, encryptedQuery []byte, clientNonce []byte) (res []byte, relay net.Addr, err error) {
 	upstreamAddr := serverInfo.TCPAddr
-	if serverInfo.RelayTCPAddr != nil {
-		upstreamAddr = serverInfo.RelayTCPAddr
+	userelay := len(serverInfo.RelayTCPAddrs) > 0
+	if userelay {
+		upstreamAddr = chooseAny(serverInfo.RelayTCPAddrs)
+		relay = upstreamAddr
 	}
 
 	pc, err := serverInfo.dialtcp(pid, upstreamAddr)
@@ -140,31 +151,32 @@ func tcpExchange(pid string, serverInfo *serverinfo, sharedKey *[32]byte, encryp
 			err = errNoConn
 		}
 		log.E("dnscrypt: tcp: dialing %s; hasConn? %s(%t); err: %v", serverInfo, pid, pc != nil, err)
-		return nil, err
+		return
 	}
 	defer pc.Close()
-	if derr := pc.SetDeadline(time.Now().Add(timeout8s)); derr != nil {
-		log.E("dnscrypt: tcp: err deadline: %v", derr)
-		return nil, derr
+	if err = pc.SetDeadline(time.Now().Add(timeout8s)); err != nil {
+		log.E("dnscrypt: tcp: err deadline: %v", err)
+		return
 	}
-	if serverInfo.RelayTCPAddr != nil {
+	if userelay {
 		prepareForRelay(serverInfo.TCPAddr.IP, serverInfo.TCPAddr.Port, &encryptedQuery)
 	}
 	encryptedQuery, err = xdns.PrefixWithSize(encryptedQuery)
 	if err != nil {
 		log.E("dnscrypt: tcp: prefix(q) %s err: %v", serverInfo, err)
-		return nil, err
+		return
 	}
-	if _, werr := pc.Write(encryptedQuery); werr != nil {
-		log.E("dnscrypt: tcp: err write: %v", serverInfo, werr)
-		return nil, werr
+	if _, err = pc.Write(encryptedQuery); err != nil {
+		log.E("dnscrypt: tcp: err write: %v", serverInfo, err)
+		return
 	}
 	encryptedResponse, err := xdns.ReadPrefixed(&pc)
 	if err != nil {
 		log.E("dnscrypt: tcp: read(enc) %s err %v", serverInfo, err)
-		return nil, err
+		return
 	}
-	return decrypt(serverInfo, sharedKey, encryptedResponse, clientNonce)
+	res, err = decrypt(serverInfo, sharedKey, encryptedResponse, clientNonce)
+	return
 }
 
 func prepareForRelay(ip net.IP, port int, eq *[]byte) {
@@ -177,7 +189,7 @@ func prepareForRelay(ip net.IP, port int, eq *[]byte) {
 	*eq = relayedQuery
 }
 
-func query(pid string, packet []byte, serverInfo *serverinfo, useudp bool) (response []byte, qerr *dnsx.QueryError) {
+func query(pid string, packet []byte, serverInfo *serverinfo, useudp bool) (response []byte, relay net.Addr, qerr *dnsx.QueryError) {
 	if len(packet) < xdns.MinDNSPacketSize {
 		qerr = dnsx.NewBadQueryError(errQueryTooShort)
 		return
@@ -235,7 +247,7 @@ func query(pid string, packet []byte, serverInfo *serverinfo, useudp bool) (resp
 		}
 
 		if useudp {
-			response, err = udpExchange(pid, serverInfo, sharedKey, encryptedQuery, clientNonce)
+			response, relay, err = udpExchange(pid, serverInfo, sharedKey, encryptedQuery, clientNonce)
 		}
 		tcpfallback := useudp && err != nil
 		if tcpfallback {
@@ -244,7 +256,7 @@ func query(pid string, packet []byte, serverInfo *serverinfo, useudp bool) (resp
 		// if udp errored out, try over tcp; or use tcp if udp is disabled
 		if tcpfallback || !useudp {
 			useudp = false // switched to tcp
-			response, err = tcpExchange(pid, serverInfo, sharedKey, encryptedQuery, clientNonce)
+			response, relay, err = tcpExchange(pid, serverInfo, sharedKey, encryptedQuery, clientNonce)
 		}
 
 		if err != nil {
@@ -291,6 +303,7 @@ func query(pid string, packet []byte, serverInfo *serverinfo, useudp bool) (resp
 // resolve resolves incoming DNS query, data
 func resolve(network string, data []byte, si *serverinfo, smm *x.DNSSummary) (response []byte, err error) {
 	var qerr *dnsx.QueryError
+	var anonrelayaddr net.Addr
 
 	before := time.Now()
 
@@ -298,7 +311,7 @@ func resolve(network string, data []byte, si *serverinfo, smm *x.DNSSummary) (re
 	useudp := proto == dnsx.NetTypeUDP
 
 	// si may be nil
-	response, qerr = query(pid, data, si, useudp)
+	response, anonrelayaddr, qerr = query(pid, data, si, useudp)
 
 	after := time.Now()
 
@@ -309,8 +322,8 @@ func resolve(network string, data []byte, si *serverinfo, smm *x.DNSSummary) (re
 	var anonrelay string
 	if si != nil {
 		resolver = si.HostName
-		if si.RelayTCPAddr != nil {
-			anonrelay = si.RelayTCPAddr.IP.String()
+		if anonrelayaddr != nil { // may be nil
+			anonrelay = anonrelayaddr.String()
 		}
 	}
 
@@ -326,7 +339,7 @@ func resolve(network string, data []byte, si *serverinfo, smm *x.DNSSummary) (re
 	smm.RCode = xdns.Rcode(ans)
 	smm.RTtl = xdns.RTtl(ans)
 	smm.Server = resolver
-	smm.RelayServer = anonrelay
+	smm.RelayServer = anonrelay // may be empty
 	smm.Status = status
 
 	noAnonRelay := len(anonrelay) <= 0
@@ -394,7 +407,7 @@ func (proxy *DcMulti) start() error {
 	curve25519.ScalarBaseMult(&proxy.proxyPublicKey, &proxy.proxySecretKey)
 
 	_, err := proxy.Refresh()
-	if len(proxy.serversInfo.registeredServers) > 0 {
+	if proxy.serversInfo.len() > 0 {
 		go func(ctx context.Context) {
 			for {
 				select {
@@ -402,7 +415,7 @@ func (proxy *DcMulti) start() error {
 					log.I("dnscrypt: cert refresh stopped")
 					return
 				default:
-					hasServers := len(proxy.serversInfo.registeredServers) > 0
+					hasServers := proxy.serversInfo.len() > 0
 					allDead := len(proxy.liveServers) == 0
 					delay := certRefreshDelay
 					if hasServers && allDead {
