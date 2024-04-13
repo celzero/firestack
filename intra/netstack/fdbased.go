@@ -259,8 +259,9 @@ func (e *endpoint) Swap(fd, mtu int) (err error) {
 	if err != nil {
 		return fmt.Errorf("createInboundDispatcher(...) = %v", err)
 	}
-	go e.dispatchLoop(e.inboundDispatcher)
-
+	if e.dispatcher != nil { // attached?
+		go e.dispatchLoop(e.inboundDispatcher)
+	}
 	return nil
 }
 
