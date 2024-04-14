@@ -70,27 +70,27 @@ const (
 )
 
 type wgtun struct {
-	id             string            // id
-	addrs          []netip.Prefix    // interface addresses
-	allowed        []netip.Prefix    // allowed ips (peers)
-	peers          map[string]any    // peer (remote endpoint) public keys
-	remote         *multihost.MH     // peer (remote endpoint) addrs
-	status         int               // status of this interface
-	stack          *stack.Stack      // stack fakes tun device for wg
-	ep             *channel.Endpoint // reads and writes packets to/from stack
-	incomingPacket chan *buffer.View // pipes ep writes to wg
-	events         chan tun.Event    // wg specific tun (interface) events
-	mtu            int               // mtu of this interface
-	dns            *multihost.MH     // dns resolver for this interface
-	reqbarrier     *core.Barrier     // request barrier for dns lookups
-	once           sync.Once         // exec fn exactly once
-	hasV4, hasV6   bool              // interface has ipv4/ipv6 routes?
-	preferOffload  bool              // UDP GRO/GSO offloads
-	since          int64             // uptime in unix millis
-	latestRx       int64             // last rx time in unix millis
-	latestTx       int64             // last tx time in unix millis
-	errRx          int32             // rx error count
-	errTx          int32             // tx error count
+	id             string                      // id
+	addrs          []netip.Prefix              // interface addresses
+	allowed        []netip.Prefix              // allowed ips (peers)
+	peers          map[string]any              // peer (remote endpoint) public keys
+	remote         *multihost.MH               // peer (remote endpoint) addrs
+	status         int                         // status of this interface
+	stack          *stack.Stack                // stack fakes tun device for wg
+	ep             *channel.Endpoint           // reads and writes packets to/from stack
+	incomingPacket chan *buffer.View           // pipes ep writes to wg
+	events         chan tun.Event              // wg specific tun (interface) events
+	mtu            int                         // mtu of this interface
+	dns            *multihost.MH               // dns resolver for this interface
+	reqbarrier     *core.Barrier[[]netip.Addr] // request barrier for dns lookups
+	once           sync.Once                   // exec fn exactly once
+	hasV4, hasV6   bool                        // interface has ipv4/ipv6 routes?
+	preferOffload  bool                        // UDP GRO/GSO offloads
+	since          int64                       // uptime in unix millis
+	latestRx       int64                       // last rx time in unix millis
+	latestTx       int64                       // last tx time in unix millis
+	errRx          int32                       // rx error count
+	errTx          int32                       // tx error count
 }
 
 type wgconn interface {
@@ -484,7 +484,7 @@ func makeWgTun(id string, ifaddrs, allowedaddrs []netip.Prefix, peers map[string
 		events:         make(chan tun.Event, eventssize),
 		incomingPacket: make(chan *buffer.View, epsize),
 		dns:            dnsm,
-		reqbarrier:     core.NewBarrier(wgbarrierttl),
+		reqbarrier:     core.NewBarrier[[]netip.Addr](wgbarrierttl),
 		mtu:            tunmtu,
 		status:         TUP,
 		preferOffload:  preferOffload(id),
@@ -676,7 +676,7 @@ func (w *wgproxy) Stats() (out x.Stats) {
 		return
 	}
 
-	stat := wg.ReadStats(cfg)
+	stat := wg.ReadStats(w.id, cfg)
 	out.Rx = stat.TotalRx()
 	out.Tx = stat.TotalTx()
 	out.LastOK = stat.LeastRecentHandshake()

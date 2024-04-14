@@ -30,39 +30,39 @@ const (
 )
 
 // Work is the type of the function to memoize.
-type Work func() (any, error)
+type Work[T any] func() (T, error)
 
 // V is an in-flight or completed Barrier.Do V
-type V struct {
+type V[T any] struct {
 	wg  sync.WaitGroup
 	exp time.Time
-	Val any
+	Val T
 	Err error
 	N   atomic.Uint32
 }
 
-func (v *V) String() string {
-	return fmt.Sprintf("v: %s // n: %d; exp: %s // err: %v", v.Val, v.N.Load(), v.exp, v.Err)
+func (v *V[t]) String() string {
+	return fmt.Sprintf("v: %v // n: %d; exp: %s // err: %v", v.Val, v.N.Load(), v.exp, v.Err)
 }
 
 // Barrier represents a class of work and forms a namespace in
 // which units of work can be executed with duplicate suppression.
-type Barrier struct {
-	mu  sync.Mutex    // protects m
-	m   map[string]*V // caches in-flight and completed Vs
-	ttl time.Duration // time-to-live for completed Vs in m
+type Barrier[T any] struct {
+	mu  sync.Mutex       // protects m
+	m   map[string]*V[T] // caches in-flight and completed Vs
+	ttl time.Duration    // time-to-live for completed Vs in m
 }
 
 // NewBarrier returns a new Barrier with the given time-to-live for
 // completed Vs.
-func NewBarrier(ttl time.Duration) *Barrier {
-	return &Barrier{
-		m:   make(map[string]*V),
+func NewBarrier[T any](ttl time.Duration) *Barrier[T] {
+	return &Barrier[T]{
+		m:   make(map[string]*V[T]),
 		ttl: ttl,
 	}
 }
 
-func (ba *Barrier) getLocked(k string) (*V, bool) {
+func (ba *Barrier[T]) getLocked(k string) (*V[T], bool) {
 	v, ok := ba.m[k]
 	if v != nil {
 		if time.Now().After(v.exp) {
@@ -73,8 +73,8 @@ func (ba *Barrier) getLocked(k string) (*V, bool) {
 	return v, ok
 }
 
-func (ba *Barrier) addLocked(k string) *V {
-	v := new(V)
+func (ba *Barrier[T]) addLocked(k string) *V[T] {
+	v := new(V[T])
 	v.wg.Add(1)
 	v.exp = time.Now().Add(ba.ttl)
 	ba.m[k] = v
@@ -85,7 +85,7 @@ func (ba *Barrier) addLocked(k string) *V {
 // sure that only one execution is in-flight for a given key at a
 // time. If a duplicate comes in, the duplicate caller waits for the
 // original to complete and receives the same results.
-func (ba *Barrier) Do(k string, once Work) (*V, int) {
+func (ba *Barrier[T]) Do(k string, once Work[T]) (*V[T], int) {
 	ba.mu.Lock()
 	c, _ := ba.getLocked(k)
 	if c != nil {

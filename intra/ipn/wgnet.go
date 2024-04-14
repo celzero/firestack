@@ -132,12 +132,8 @@ func (tnet *wgtun) DialContext(_ context.Context, network, address string) (net.
 		log.W("wg: dial: lookup failed %q: %v", host, rv.Err)
 		return nil, &net.OpError{Op: "dial", Err: rv.Err}
 	}
-	allAddrs, vok := rv.Val.([]netip.Addr)
-	if !vok {
-		log.W("wg: dial: cast failed %q for val: %v", host, rv.Val)
-		return nil, &net.OpError{Op: "dial", Err: errInvalidDNSResponse}
-	}
 
+	allAddrs := rv.Val
 	var addrs []netip.AddrPort
 	for _, ip := range allAddrs {
 		if (ip.Is4() && acceptV4) || (ip.Is6() && acceptV6) {
@@ -176,8 +172,8 @@ func (tnet *wgtun) DialContext(_ context.Context, network, address string) (net.
 	return nil, errs
 }
 
-func resolve(tnet *wgtun, host string) core.Work {
-	return func() (any, error) {
+func resolve(tnet *wgtun, host string) core.Work[[]netip.Addr] {
+	return func() ([]netip.Addr, error) {
 		return tnet.LookupHost(host)
 	}
 }

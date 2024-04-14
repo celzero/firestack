@@ -70,16 +70,16 @@ type cres struct {
 
 // TODO: Keep a context here so that queries can be canceled.
 type ctransport struct {
-	sync.RWMutex               // protects store
-	Transport                  // the underlying transport
-	store        []*cache      // cache buckets
-	ipport       string        // a fake ip:port
-	status       int           // status of this transport
-	ttl          time.Duration // lifetime duration of a cached dns entry
-	halflife     time.Duration // increment ttl on each read
-	bumps        int           // max bumps in lifetime of a cached response
-	size         int           // max size of a cache bucket
-	reqbarrier   *core.Barrier // coalesce requests for the same query
+	sync.RWMutex                      // protects store
+	Transport                         // the underlying transport
+	store        []*cache             // cache buckets
+	ipport       string               // a fake ip:port
+	status       int                  // status of this transport
+	ttl          time.Duration        // lifetime duration of a cached dns entry
+	halflife     time.Duration        // increment ttl on each read
+	bumps        int                  // max bumps in lifetime of a cached response
+	size         int                  // max size of a cache bucket
+	reqbarrier   *core.Barrier[*cres] // coalesce requests for the same query
 	est          core.P2QuantileEstimator
 }
 
@@ -110,7 +110,7 @@ func NewCachingTransport(t Transport, ttl time.Duration) Transport {
 		halflife:   ttl / 2,
 		bumps:      defbumps,
 		size:       defsize,
-		reqbarrier: core.NewBarrier(ttl10s),
+		reqbarrier: core.NewBarrier[*cres](ttl10s),
 		est:        core.NewP50Estimator(),
 	}
 	log.I("cache: (%s) setup: %s; opts: %s", ct.ID(), ct.GetAddr(), ct.str())
@@ -309,7 +309,7 @@ func (t *ctransport) fetch(network string, q []byte, msg *dns.Msg, summary *x.DN
 		fsmm.ID = t.Transport.ID()
 		fsmm.Type = t.Transport.Type()
 
-		v, _ := t.reqbarrier.Do(key, func() (any, error) {
+		v, _ := t.reqbarrier.Do(key, func() (*cres, error) {
 			ans, qerr := t.Transport.Query(network, q, fsmm)
 			// cb.put no-ops when len(ans) is 0
 			cb.put(key, ans, fsmm)
@@ -319,9 +319,8 @@ func (t *ctransport) fetch(network string, q []byte, msg *dns.Msg, summary *x.DN
 
 		cachedres, fresh := cb.freshCopy(key) // always prefer value from cache
 		if cachedres == nil {                 // use barrier response
-			var ok bool
-			cachedres, ok = v.Val.(*cres) // never nil, even on errs; but cres.ans may be nil
-			log.D("cache: barrier: empty(%s); %s; typecast? %t", key, cachedres, ok)
+			cachedres = v.Val // never nil, even on errs; but cres.ans may be nil
+			log.D("cache: barrier: empty(%s); %s; typecast? %t", key, cachedres)
 		} else if !fresh { // expect fresh values, except on verrs
 			log.W("cache: barrier: stale(%s); barrier: %s (cache: %s)", key, v.String(), cachedres.String())
 		}

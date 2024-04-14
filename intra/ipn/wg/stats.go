@@ -19,6 +19,9 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/celzero/firestack/intra/core"
+	"github.com/celzero/firestack/intra/log"
 )
 
 // from: github.com/WireGuard/wireguard-android/blob/4ba87947ae/tunnel/src/main/java/com/wireguard/android/backend/Statistics.java
@@ -26,6 +29,7 @@ import (
 
 var (
 	errNoSuchPeer = errors.New("no such peer")
+	ba            = core.NewBarrier[*ifstats](30 * time.Second)
 )
 
 // peerstats represents the statistics for a peer.
@@ -104,8 +108,19 @@ func (s *ifstats) LeastRecentHandshake() int64 {
 	return least
 }
 
-// ReadStats parses a configuration string and returns a Statistics instance.
-func ReadStats(config string) *ifstats {
+func ReadStats(id, config string) *ifstats {
+	v, _ := ba.Do("ReadStats", func() (*ifstats, error) {
+		return readStats(config), nil
+	})
+	if v == nil { // unlikely
+		log.W("wg: ReadStats: nil for %s", id)
+		return nil
+	}
+	return v.Val
+}
+
+// readStats parses a configuration string and returns a Statistics instance.
+func readStats(config string) *ifstats {
 	stats := newStats()
 	var key string
 	var rx, tx, latestHandshakeMSec int64
