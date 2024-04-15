@@ -15,7 +15,6 @@ package wg
 
 import (
 	"errors"
-	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -98,12 +97,10 @@ func (s *ifstats) TotalTx() int64 {
 	return total
 }
 
-func (s *ifstats) LeastRecentHandshake() int64 {
-	least := int64(math.MaxInt64)
+func (s *ifstats) LatestRecentHandshake() int64 {
+	least := int64(0)
 	for _, stats := range s.stats {
-		if stats.LatestHandshakeEpochMillis < least {
-			least = stats.LatestHandshakeEpochMillis
-		}
+		least = max(least, stats.LatestHandshakeEpochMillis)
 	}
 	return least
 }

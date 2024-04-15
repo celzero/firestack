@@ -679,7 +679,7 @@ func (w *wgproxy) Stats() (out x.Stats) {
 	stat := wg.ReadStats(w.id, cfg)
 	out.Rx = stat.TotalRx()
 	out.Tx = stat.TotalTx()
-	out.LastOK = stat.LeastRecentHandshake()
+	out.LastOK = stat.LatestRecentHandshake()
 	out.Addr = w.IfAddr() // may be empty
 	out.ErrRx = w.errRx
 	out.ErrTx = w.errTx
