@@ -75,7 +75,7 @@ type Router interface {
 	// MTU returns the MTU of this router.
 	MTU() (int, error)
 	// Stats returns the stats of this router.
-	Stats() Stats
+	Stat() *Stats
 	// Contains returns true if this router can route ipprefix.
 	Contains(ipprefix string) bool
 }
@@ -97,8 +97,8 @@ type Stats struct {
 	Addr   string // address of the router
 	Rx     int64  // bytes received
 	Tx     int64  // bytes transmitted
-	ErrRx  int32  // receive errors
-	ErrTx  int32  // transmit errors
+	ErrRx  int64  // receive errors
+	ErrTx  int64  // transmit errors
 	LastRx int64  // last receive in millis
 	LastTx int64  // last transmit in millis
 	LastOK int64  // last handshake or ping or connect millis

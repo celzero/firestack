@@ -145,7 +145,7 @@ func (nofwd) Accept(network, local string) (protect.Listener, error) {
 func (w *gw) IP4() bool            { return w.ok }
 func (w *gw) IP6() bool            { return w.ok }
 func (w *gw) MTU() (int, error)    { return NOMTU, errNoMtu }
-func (w *gw) Stats() x.Stats       { return w.stats }
+func (w *gw) Stat() *x.Stats       { return &w.stats }
 func (w *gw) Contains(string) bool { return w.ok }
 
 func NewProxifier(c protect.Controller, o x.ProxyListener) Proxies {
@@ -309,23 +309,24 @@ func (px *proxifier) MTU() (out int, err error) {
 }
 
 // Implements Router.
-func (px *proxifier) Stats() x.Stats {
+func (px *proxifier) Stat() *x.Stats {
 	px.RLock()
 	defer px.RUnlock()
 
-	var s x.Stats
+	var s *x.Stats
 	for _, p := range px.p {
 		if local(p.ID()) {
 			continue
 		}
 		if r := p.Router(); r != nil {
-			s = accStats(s, r.Stats())
+			s = accStats(s, r.Stat())
 		}
 	}
 	return s
 }
 
-func accStats(a, b x.Stats) (c x.Stats) {
+func accStats(a, b *x.Stats) (c *x.Stats) {
+	c = new(x.Stats)
 	c.Tx = a.Tx + b.Tx
 	c.Rx = a.Rx + b.Rx
 	c.ErrRx = a.ErrRx + b.ErrRx

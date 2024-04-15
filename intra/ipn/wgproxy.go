@@ -89,8 +89,8 @@ type wgtun struct {
 	since          int64                       // uptime in unix millis
 	latestRx       int64                       // last rx time in unix millis
 	latestTx       int64                       // last tx time in unix millis
-	errRx          int32                       // rx error count
-	errTx          int32                       // tx error count
+	errRx          int64                       // rx error count
+	errTx          int64                       // tx error count
 }
 
 type wgconn interface {
@@ -665,7 +665,7 @@ func (tun *wgtun) Close() error {
 
 // Implements Router.
 // TODO: use wgtun as a receiver for Stats()
-func (w *wgproxy) Stats() (out x.Stats) {
+func (w *wgproxy) Stat() (out *x.Stats) {
 	if w.status == END {
 		return
 	}
@@ -677,6 +677,7 @@ func (w *wgproxy) Stats() (out x.Stats) {
 	}
 
 	stat := wg.ReadStats(w.id, cfg)
+	out = new(x.Stats)
 	out.Rx = stat.TotalRx()
 	out.Tx = stat.TotalTx()
 	out.LastOK = stat.LatestRecentHandshake()
