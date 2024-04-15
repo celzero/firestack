@@ -109,7 +109,7 @@ func (s *ifstats) LeastRecentHandshake() int64 {
 }
 
 func ReadStats(id, config string) *ifstats {
-	v, _ := ba.Do("ReadStats", func() (*ifstats, error) {
+	v, _ := ba.Do(id, func() (*ifstats, error) {
 		return readStats(config), nil
 	})
 	if v == nil { // unlikely
