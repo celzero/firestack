@@ -10,11 +10,17 @@ import (
 	"net"
 	"strings"
 	"sync"
+
+	"github.com/celzero/firestack/intra/log"
 )
 
 type ConnTuple struct {
 	CID string // conn id
 	UID string // proc id
+}
+
+func (t ConnTuple) String() string {
+	return t.CID + ":" + t.UID
 }
 
 type ConnMapper interface {
@@ -57,10 +63,11 @@ func (h *cm) Track(t ConnTuple, conns ...net.Conn) (n int) {
 	}
 	h.trackDstLocked(t, conns)
 
+	log.D("connmap: track: %d conns for %s", n, cid)
 	return
 }
 
-func (h *cm) trackDstLocked(t ConnTuple, conns []net.Conn) {
+func (h *cm) trackDstLocked(t ConnTuple, conns []net.Conn) (n int) {
 	for _, c := range conns {
 		if c == nil {
 			continue
@@ -71,13 +78,18 @@ func (h *cm) trackDstLocked(t ConnTuple, conns []net.Conn) {
 			continue
 		}
 		dst := raddr.String()
+		log.V("connmap: track: %s -> %s", t.CID, dst)
 		if tups, ok := h.dsttracker[dst]; ok {
 			// TODO: do not add dup tuples (cid)
 			h.dsttracker[dst] = append(tups, t)
+			n += len(tups) + 1
 		} else {
 			h.dsttracker[dst] = []ConnTuple{t}
+			n += 1
 		}
 	}
+	log.D("connmap: track: %d dst for %s", n, t.CID)
+	return
 }
 
 func (h *cm) Untrack(cid string) (n int) {
@@ -86,34 +98,42 @@ func (h *cm) Untrack(cid string) (n int) {
 
 	for _, c := range h.conntracker[cid] {
 		if c != nil {
-			n++
 			h.untrackDstLocked(cid, c)
 			go c.Close()
+			n += 1
 		}
 	}
 	delete(h.conntracker, cid)
+	log.D("connmap: untrack: %d conns for %s", n, cid)
 	return
 }
 
-func (h *cm) untrackDstLocked(cid string, c net.Conn) {
+func (h *cm) untrackDstLocked(cid string, c net.Conn) (ok bool) {
 	raddr := c.RemoteAddr()
-	if raddr == nil {
+	if raddr == nil { // should not happen?
+		log.W("connmap: untrack: no remote addr for %s", cid)
 		return
 	}
 	dst := raddr.String()
 	if tups, ok := h.dsttracker[dst]; ok {
 		for i, t := range tups {
 			if t.CID == cid {
+				log.D("connmap: untrack: dst %s -> %s", cid, dst)
 				// ids[i+1:] does not panic if i+1 is out of range
 				// go.dev/play/p/troeQ5djf9h
 				h.dsttracker[dst] = append(tups[:i], tups[i+1:]...)
+				ok = true
 				break
 			}
 		}
-		if len(h.dsttracker[dst]) == 0 {
+		if len(tups) == 0 {
 			delete(h.dsttracker, dst)
 		}
+		log.D("connmap: untrack: %d dst for %s; ok? %t", len(tups), cid, ok)
+	} else {
+		log.D("connmap: untrack: no dst for %s", cid)
 	}
+	return
 }
 
 func (h *cm) UntrackBatch(cids []string) (out []string) {
@@ -131,6 +151,7 @@ func (h *cm) UntrackBatch(cids []string) (out []string) {
 		delete(h.conntracker, id)
 		out = append(out, id)
 	}
+	log.D("connmap: untrack: batch %d conns", len(out))
 	return
 }
 
@@ -146,16 +167,15 @@ func (h *cm) Get(cid string) (conns []net.Conn) {
 
 func (h *cm) Find(dst string) (tups []ConnTuple) {
 	if len(dst) == 0 {
+		log.D("connmap: find: empty dst")
 		return
 	}
 
 	h.RLock()
 	defer h.RUnlock()
-
 	// TODO: handle unconnected udp sockets
-	if tups, ok := h.dsttracker[dst]; ok {
-		return tups
-	}
+	tups = h.dsttracker[dst]
+	log.V("connmap: find: %d tuples for %s", len(tups), dst)
 	return
 }
 
@@ -163,6 +183,7 @@ func (h *cm) FindAll(csvips, port string) (out []ConnTuple) {
 	out = make([]ConnTuple, 0)
 
 	if len(csvips) == 0 {
+		log.D("connmap: findAll: empty csvips")
 		return
 	}
 
@@ -176,6 +197,7 @@ func (h *cm) FindAll(csvips, port string) (out []ConnTuple) {
 			out = append(out, tups...)
 		}
 	}
+	log.V("connmap: findAll: %d tuples for %s", len(out), csvips)
 	return
 }
 
@@ -194,5 +216,6 @@ func (h *cm) Clear() (cids []string) {
 	}
 	clear(h.conntracker)
 	clear(h.dsttracker)
+	log.D("connmap: clear: %d conns", len(cids))
 	return
 }

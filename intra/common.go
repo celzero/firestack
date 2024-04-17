@@ -195,6 +195,7 @@ func undoAlg(r dnsx.Resolver, algip netip.Addr) (realips, domains, probableDomai
 
 func hasActiveConn(cm core.ConnMapper, ipp, ips, port string) bool {
 	if cm == nil {
+		log.W("intra: hasActiveConn: unexpected nil cm")
 		return false
 	}
 	// TODO: filter by protocol (tcp/udp) when finding conns
@@ -242,9 +243,11 @@ func hasSelfUid(t []core.ConnTuple, d bool) bool {
 	}
 	for _, x := range t {
 		if x.UID == protect.UidSelf {
+			log.D("intra: hasSelfUid(%v): true", x)
 			return true
 		}
 	}
+	log.V("intra: hasSelfUid(%d): false; %v", len(t), t)
 	return false // regardless of d
 }
 
