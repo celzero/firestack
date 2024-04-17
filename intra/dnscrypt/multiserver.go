@@ -82,15 +82,16 @@ var (
 	errNoConn          = errors.New("dnscrypt: no connection")
 )
 
-func chooseAny[t net.Addr](s []t) t {
+func chooseAny[T any](s []T) T {
 	return s[rand.Intn(len(s))]
 }
 
 func udpExchange(pid string, serverInfo *serverinfo, sharedKey *[32]byte, encryptedQuery []byte, clientNonce []byte) (res []byte, relay net.Addr, err error) {
 	upstreamAddr := serverInfo.UDPAddr
-	userelay := len(serverInfo.RelayUDPAddrs) > 0
+	relayAddrs := serverInfo.RelayUDPAddrs
+	userelay := len(relayAddrs) > 0
 	if userelay {
-		upstreamAddr = chooseAny(serverInfo.RelayUDPAddrs)
+		upstreamAddr = chooseAny(relayAddrs)
 		relay = upstreamAddr
 	}
 
@@ -139,9 +140,10 @@ func udpExchange(pid string, serverInfo *serverinfo, sharedKey *[32]byte, encryp
 
 func tcpExchange(pid string, serverInfo *serverinfo, sharedKey *[32]byte, encryptedQuery []byte, clientNonce []byte) (res []byte, relay net.Addr, err error) {
 	upstreamAddr := serverInfo.TCPAddr
-	userelay := len(serverInfo.RelayTCPAddrs) > 0
+	relayAddrs := serverInfo.RelayTCPAddrs
+	userelay := len(relayAddrs) > 0
 	if userelay {
-		upstreamAddr = chooseAny(serverInfo.RelayTCPAddrs)
+		upstreamAddr = chooseAny(relayAddrs)
 		relay = upstreamAddr
 	}
 
