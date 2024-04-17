@@ -25,17 +25,29 @@ const dialRetryTimeout = 1 * time.Minute
 
 func filter(ips []netip.Addr, exclude netip.Addr) []netip.Addr {
 	filtered := make([]netip.Addr, 0, len(ips))
+	var sample netip.Addr
 	for _, ip := range ips {
 		if ip.Compare(exclude) == 0 || !ip.IsValid() {
 			continue
-		}
-		if ip.Is4() && ipProto == settings.IP6 {
+		} else if ip.Is4() && ipProto == settings.IP6 {
+			if ipok(ip) && !ipok(sample) {
+				sample = ip
+			}
 			continue
-		}
-		if ip.Is6() && ipProto == settings.IP4 {
+		} else if ip.Is6() && ipProto == settings.IP4 {
+			if ipok(ip) && !ipok(sample) {
+				sample = ip
+			}
 			continue
 		}
 		filtered = append(filtered, ip)
+	}
+	if ipok(sample) {
+		// sample one unfiltered ip in an ironic case that it works
+		// but the filtered out ones don't. this can happen in scenarios
+		// where tunnel's ipProto is IP4 but the underlying network is IP6:
+		// that is, IP6 is filtered out even though it might have worked.
+		filtered = append(filtered, sample)
 	}
 	return filtered
 }
