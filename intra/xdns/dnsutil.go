@@ -122,10 +122,11 @@ func HasTCFlag(packet []byte) bool {
 }
 
 func QName(msg *dns.Msg) string {
-	if HasAnyQuestion(msg) {
-		return msg.Question[0].Name
+	if !HasAnyQuestion(msg) {
+		return ""
 	}
-	return ""
+	q := msg.Question[0]
+	return q.Name
 }
 
 func AName(ans dns.RR) (string, error) {
