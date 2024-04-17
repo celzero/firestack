@@ -327,6 +327,13 @@ func (px *proxifier) Stat() *x.Stats {
 
 func accStats(a, b *x.Stats) (c *x.Stats) {
 	c = new(x.Stats)
+	if a == nil && b == nil {
+		return c
+	} else if a == nil {
+		return b
+	} else if b == nil {
+		return a
+	}
 	c.Tx = a.Tx + b.Tx
 	c.Rx = a.Rx + b.Rx
 	c.ErrRx = a.ErrRx + b.ErrRx

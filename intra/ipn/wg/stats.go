@@ -120,18 +120,18 @@ func ReadStats(id, config string) *ifstats {
 func readStats(config string) *ifstats {
 	stats := newStats()
 	var key string
-	var rx, tx, latestHandshakeMSec int64
+	var rx, tx, latestHandshakeMillis int64
 
 	// see: github.com/WireGuard/wireguard-go/blob/12269c27/device/uapi.go#L51
 	lines := strings.Split(config, "\n")
 	for _, line := range lines {
 		if strings.HasPrefix(line, "public_key=") {
 			if key != "" {
-				stats.add(key, rx, tx, latestHandshakeMSec)
+				stats.add(key, rx, tx, latestHandshakeMillis)
 			}
 			rx = 0
 			tx = 0
-			latestHandshakeMSec = 0
+			latestHandshakeMillis = 0
 			key = line[11:]
 		} else if strings.HasPrefix(line, "rx_bytes=") {
 			if key == "" {
@@ -148,17 +148,17 @@ func readStats(config string) *ifstats {
 				continue
 			}
 			sec, _ := strconv.ParseInt(line[24:], 10, 64)
-			latestHandshakeMSec += sec * 1000
+			latestHandshakeMillis += sec * 1000
 		} else if strings.HasPrefix(line, "last_handshake_time_nsec=") {
 			if key == "" {
 				continue
 			}
 			nsec, _ := strconv.ParseInt(line[25:], 10, 64)
-			latestHandshakeMSec += nsec / 1000000
+			latestHandshakeMillis += nsec / 1000000
 		}
 	}
 	if key != "" {
-		stats.add(key, rx, tx, latestHandshakeMSec)
+		stats.add(key, rx, tx, latestHandshakeMillis)
 	}
 	stats.lastTouched = time.Now()
 	return stats

@@ -666,6 +666,8 @@ func (tun *wgtun) Close() error {
 // Implements Router.
 // TODO: use wgtun as a receiver for Stats()
 func (w *wgproxy) Stat() (out *x.Stats) {
+	out = new(x.Stats)
+
 	if w.status == END {
 		return
 	}
@@ -677,7 +679,10 @@ func (w *wgproxy) Stat() (out *x.Stats) {
 	}
 
 	stat := wg.ReadStats(w.id, cfg)
-	out = new(x.Stats)
+	if stat == nil { // unlikely
+		log.W("proxy: wg: %s stats: readstats: nil", w.id)
+		return
+	}
 	out.Rx = stat.TotalRx()
 	out.Tx = stat.TotalTx()
 	out.LastOK = stat.LatestRecentHandshake()
