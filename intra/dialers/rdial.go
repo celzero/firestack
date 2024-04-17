@@ -23,31 +23,30 @@ type connectFunc func(*protect.RDial, string, netip.Addr, int) (net.Conn, error)
 
 const dialRetryTimeout = 1 * time.Minute
 
-func filter(ips []netip.Addr, exclude netip.Addr) []netip.Addr {
+func maybeFilter(ips []netip.Addr, alwaysExclude netip.Addr) []netip.Addr {
 	filtered := make([]netip.Addr, 0, len(ips))
-	var sample netip.Addr
+	unfiltered := make([]netip.Addr, 0, len(ips))
 	for _, ip := range ips {
-		if ip.Compare(exclude) == 0 || !ip.IsValid() {
+		if ip.Compare(alwaysExclude) == 0 || !ip.IsValid() {
 			continue
 		} else if ip.Is4() && ipProto == settings.IP6 {
-			if ipok(ip) && !ipok(sample) {
-				sample = ip
-			}
-			continue
+			unfiltered = append(unfiltered, ip)
 		} else if ip.Is6() && ipProto == settings.IP4 {
-			if ipok(ip) && !ipok(sample) {
-				sample = ip
-			}
-			continue
+			unfiltered = append(unfiltered, ip)
+		} else {
+			filtered = append(filtered, ip)
 		}
-		filtered = append(filtered, ip)
 	}
-	if ipok(sample) {
+	if len(filtered) <= 0 {
+		// if all ips are filtered out, fail open and return unfiltered
+		return unfiltered
+	}
+	if len(unfiltered) > 0 {
 		// sample one unfiltered ip in an ironic case that it works
 		// but the filtered out ones don't. this can happen in scenarios
 		// where tunnel's ipProto is IP4 but the underlying network is IP6:
 		// that is, IP6 is filtered out even though it might have worked.
-		filtered = append(filtered, sample)
+		filtered = append(filtered, unfiltered[0])
 	}
 	return filtered
 }
@@ -169,12 +168,12 @@ func commondial(d *protect.RDial, network, addr string, connect connectFunc) (ne
 	}
 
 	ipset := ips.Addrs()
-	allips := filter(ipset, confirmed)
+	allips := maybeFilter(ipset, confirmed)
 	if len(allips) <= 0 {
 		var ok bool
 		if ips, ok = renew(domain, ips); ok {
 			ipset = ips.Addrs()
-			allips = filter(ipset, confirmed)
+			allips = maybeFilter(ipset, confirmed)
 		}
 		log.D("rdial: renew ips for %s; ok? %t", addr, ok)
 	}
