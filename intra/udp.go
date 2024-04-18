@@ -171,7 +171,7 @@ func (h *udpHandler) ProxyMux(gconn *netstack.GUDPConn, src netip.AddrPort) (ok 
 	gerr := gconn.Connect(ack)
 
 	l := h.listener
-	local, smm, err := h.Connect(gconn, src, invalidaddr) // local may be nil; smm is never nil
+	local, smm, _, err := h.Connect(gconn, src, invalidaddr) // local may be nil; smm is never nil
 
 	if err != nil || gerr != nil || local == nil {
 		clos(gconn, local)
@@ -181,6 +181,7 @@ func (h *udpHandler) ProxyMux(gconn *netstack.GUDPConn, src netip.AddrPort) (ok 
 		} else {
 			log.W("udp: proxy: unexpected %s -> [unconnected]; netstack err: %v; dst err: %v", src, gerr, err)
 		}
+		// invalid dst addrs are not tracked; conntracker.Untrack() not req
 		return // not ok
 	}
 	mxr := newMuxer(local)
