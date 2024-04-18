@@ -242,6 +242,9 @@ func (h *tcpHandler) handle(px ipn.Proxy, src net.Conn, target netip.AddrPort, s
 	start := time.Now()
 	var dst net.Conn
 
+	ct := core.ConnTuple{CID: smm.ID, UID: smm.UID}
+
+	h.conntracker.TrackDest(ct, target) // will be untracked by forward
 	// TODO: handle wildcard addrs?
 	// github.com/google/gvisor/blob/5ba35f516b5c2/test/benchmarks/tcp/tcp_proxy.go#L359
 	// ref: stackoverflow.com/questions/63656117
@@ -270,8 +273,6 @@ func (h *tcpHandler) handle(px ipn.Proxy, src net.Conn, target netip.AddrPort, s
 		log.W("tcp: err dialing %s proxy(%s) to dst(%v) for %s: %v", smm.ID, px.ID(), target, smm.UID, err)
 		return err
 	}
-
-	ct := core.ConnTuple{CID: smm.ID, UID: smm.UID}
 
 	h.conntracker.Track(ct, src, dst)
 	go func() {

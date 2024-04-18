@@ -8,6 +8,7 @@ package core
 
 import (
 	"net"
+	"net/netip"
 	"strings"
 	"sync"
 
@@ -26,6 +27,7 @@ func (t ConnTuple) String() string {
 type ConnMapper interface {
 	Clear() []string
 	Track(t ConnTuple, x ...net.Conn) int
+	TrackDest(t ConnTuple, x netip.AddrPort) int
 	Find(dst string) (t []ConnTuple)
 	FindAll(csvips, port string) (t []ConnTuple)
 	Get(cid string) []net.Conn
@@ -64,6 +66,22 @@ func (h *cm) Track(t ConnTuple, conns ...net.Conn) (n int) {
 	h.trackDstLocked(t, conns)
 
 	log.D("connmap: track: %d conns for %s", n, cid)
+	return
+}
+
+func (h *cm) TrackDest(t ConnTuple, x netip.AddrPort) (n int) {
+	h.Lock()
+	defer h.Unlock()
+
+	dst := x.String()
+	if tups, ok := h.dsttracker[dst]; ok {
+		h.dsttracker[dst] = append(tups, t)
+		n = len(tups) + 1
+	} else {
+		h.dsttracker[dst] = []ConnTuple{t}
+		n = 1
+	}
+	log.D("connmap: trackDest: %d dst for %s", n, t.CID)
 	return
 }
 
@@ -108,28 +126,30 @@ func (h *cm) Untrack(cid string) (n int) {
 	return
 }
 
-func (h *cm) untrackDstLocked(cid string, c net.Conn) (ok bool) {
+func (h *cm) untrackDstLocked(cid string, c net.Conn) (rmv bool) {
 	raddr := c.RemoteAddr()
 	if raddr == nil { // should not happen?
 		log.W("connmap: untrack: no remote addr for %s", cid)
 		return
 	}
 	dst := raddr.String()
+	newtups := make([]ConnTuple, 0)
 	if tups, ok := h.dsttracker[dst]; ok {
-		for i, t := range tups {
+		for _, t := range tups {
 			if t.CID == cid {
 				log.D("connmap: untrack: dst %s -> %s", cid, dst)
-				// ids[i+1:] does not panic if i+1 is out of range
-				// go.dev/play/p/troeQ5djf9h
-				h.dsttracker[dst] = append(tups[:i], tups[i+1:]...)
-				ok = true
-				break
+				rmv = true
+				// TODO: break if dups are handled in trackDstLocked
+			} else {
+				newtups = append(newtups, t)
 			}
 		}
-		if len(tups) == 0 {
+		if len(newtups) == 0 {
 			delete(h.dsttracker, dst)
+		} else {
+			h.dsttracker[dst] = newtups
 		}
-		log.D("connmap: untrack: %d dst for %s; ok? %t", len(tups), cid, ok)
+		log.D("connmap: untrack: %d/%d dst for %s; rmv? %t", len(newtups), len(tups), cid, rmv)
 	} else {
 		log.D("connmap: untrack: no dst for %s", cid)
 	}
@@ -167,7 +187,7 @@ func (h *cm) Get(cid string) (conns []net.Conn) {
 
 func (h *cm) Find(dst string) (tups []ConnTuple) {
 	if len(dst) == 0 {
-		log.D("connmap: find: empty dst")
+		// too verbose: log.V("connmap: find: empty dst")
 		return
 	}
 
@@ -183,7 +203,7 @@ func (h *cm) FindAll(csvips, port string) (out []ConnTuple) {
 	out = make([]ConnTuple, 0)
 
 	if len(csvips) == 0 {
-		log.D("connmap: findAll: empty csvips")
+		// too verbose: log.V("connmap: findAll: empty csvips")
 		return
 	}
 
