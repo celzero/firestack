@@ -199,12 +199,6 @@ func fetchDNSCryptServerInfo(proxy *DcMulti, name string, stamp stamps.ServerSta
 		stamp.ServerPk = serverPk
 	}
 
-	// relayudpaddrs and relaytcpaddrs may be nil, even if err == nil
-	relayudpaddrs, relaytcpaddrs := route(proxy)
-	// iff tcp relay is unset, unset udp relay too
-	if len(relaytcpaddrs) <= 0 {
-		relayudpaddrs = nil
-	}
 	// note: relays are not used to fetch certs due to multiple issues reported by users
 	certInfo, err := fetchCurrentDNSCryptCert(proxy, &name, stamp.ServerPk, stamp.ServerAddrStr, stamp.ProviderName)
 	if err != nil {
@@ -240,14 +234,14 @@ func fetchDNSCryptServerInfo(proxy *DcMulti, name string, stamp stamps.ServerSta
 		Name:               name,
 		UDPAddr:            udpaddr,
 		TCPAddr:            tcpaddr,
-		RelayTCPAddrs:      relaytcpaddrs,
-		RelayUDPAddrs:      relayudpaddrs,
+		RelayTCPAddrs:      nil, // added later; see proxy.refreshRoutes()
+		RelayUDPAddrs:      nil, // added later; see proxy.refreshRoutes()
 		proxies:            px,
 		relay:              relay,
 		dialer:             dialer,
 		est:                core.NewP50Estimator(),
 	}
-	log.I("dnscrypt: (%s) setup: %s; anonrelay? %t, proxy? %t", name, si.HostName, relaytcpaddrs != nil, relay != nil)
+	log.I("dnscrypt: (%s) setup: %s; anonrelay? %t, proxy? %t", name, si.HostName, relay != nil)
 	return si, nil
 }
 

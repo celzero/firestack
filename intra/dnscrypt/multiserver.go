@@ -392,6 +392,7 @@ func (proxy *DcMulti) Refresh() (string, error) {
 		// ignore error if live-servers are around
 		return "", err
 	}
+	go proxy.refreshRoutes()
 	return proxy.LiveTransports(), nil
 }
 
@@ -512,7 +513,7 @@ func (proxy *DcMulti) Remove(uid string) bool {
 	// may be a gateway / relay or a dnscrypt server
 	n := proxy.removeOne(uid)
 	nr, nerr := proxy.RemoveGateways(uid)
-	log.I("dnscrypt: removed %s; %d servers; %d relays [err %v]", uid, n, nr, nerr)
+	log.D("dnscrypt: removed %s; %d servers; %d relays [err %v]", uid, n, nr, nerr)
 	return true
 }
 
@@ -654,6 +655,7 @@ func NewTransport(p *DcMulti, id, serverstamp string) (dnsx.Transport, error) {
 	if _, err := p.addOne(id, serverstamp); err == nil {
 		if ok := p.refreshOne(id); ok {
 			log.I("dnscrypt: added %s; %s", id, serverstamp)
+			go p.refreshRoutes()
 			return p.serversInfo.get(id), nil
 		} else {
 			log.W("dnscrypt: failed to add %s; %s", id, serverstamp)
