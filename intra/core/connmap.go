@@ -63,7 +63,7 @@ func (h *cm) Track(t ConnTuple, conns ...net.Conn) (n int) {
 		h.conntracker[cid] = append(v, conns...)
 		n = len(v) + len(conns)
 	}
-	h.trackDstLocked(t, conns)
+	h.addToDstTrackerLocked(t, conns)
 
 	log.D("connmap: track: %d conns for %s", n, cid)
 	return
@@ -73,19 +73,23 @@ func (h *cm) TrackDest(t ConnTuple, x netip.AddrPort) (n int) {
 	h.Lock()
 	defer h.Unlock()
 
-	dst := x.String()
+	return h.trackDestLocked(t, x.String())
+}
+
+func (h *cm) trackDestLocked(t ConnTuple, dst string) (n int) {
 	if tups, ok := h.dsttracker[dst]; ok {
+		// TODO: do not add dup ConnTuples
 		h.dsttracker[dst] = append(tups, t)
 		n = len(tups) + 1
 	} else {
 		h.dsttracker[dst] = []ConnTuple{t}
 		n = 1
 	}
-	log.D("connmap: trackDest: %d dst for %s", n, t.CID)
+	log.V("connmap: trackDest: %d dst for %s", n, t.CID)
 	return
 }
 
-func (h *cm) trackDstLocked(t ConnTuple, conns []net.Conn) (n int) {
+func (h *cm) addToDstTrackerLocked(t ConnTuple, conns []net.Conn) (n int) {
 	for _, c := range conns {
 		if c == nil {
 			continue
@@ -95,16 +99,7 @@ func (h *cm) trackDstLocked(t ConnTuple, conns []net.Conn) (n int) {
 		if raddr == nil {
 			continue
 		}
-		dst := raddr.String()
-		log.V("connmap: track: %s -> %s", t.CID, dst)
-		if tups, ok := h.dsttracker[dst]; ok {
-			// TODO: do not add dup tuples (cid)
-			h.dsttracker[dst] = append(tups, t)
-			n += len(tups) + 1
-		} else {
-			h.dsttracker[dst] = []ConnTuple{t}
-			n += 1
-		}
+		n += h.trackDestLocked(t, raddr.String())
 	}
 	log.D("connmap: track: %d dst for %s", n, t.CID)
 	return
@@ -116,7 +111,7 @@ func (h *cm) Untrack(cid string) (n int) {
 
 	for _, c := range h.conntracker[cid] {
 		if c != nil {
-			h.untrackDstLocked(cid, c)
+			h.delFromDstTrackerLocked(cid, c)
 			go c.Close()
 			n += 1
 		}
@@ -126,7 +121,7 @@ func (h *cm) Untrack(cid string) (n int) {
 	return
 }
 
-func (h *cm) untrackDstLocked(cid string, c net.Conn) (rmv bool) {
+func (h *cm) delFromDstTrackerLocked(cid string, c net.Conn) (rmv bool) {
 	raddr := c.RemoteAddr()
 	if raddr == nil { // should not happen?
 		log.W("connmap: untrack: no remote addr for %s", cid)
@@ -149,7 +144,7 @@ func (h *cm) untrackDstLocked(cid string, c net.Conn) (rmv bool) {
 		} else {
 			h.dsttracker[dst] = newtups
 		}
-		log.D("connmap: untrack: %d/%d dst for %s; rmv? %t", len(newtups), len(tups), cid, rmv)
+		log.V("connmap: untrack: %d/%d dst for %s; rmv? %t", len(newtups), len(tups), cid, rmv)
 	} else {
 		log.D("connmap: untrack: no dst for %s", cid)
 	}
@@ -164,7 +159,7 @@ func (h *cm) UntrackBatch(cids []string) (out []string) {
 	for _, id := range cids {
 		for _, c := range h.conntracker[id] {
 			if c != nil {
-				h.untrackDstLocked(id, c)
+				h.delFromDstTrackerLocked(id, c)
 				go c.Close()
 			}
 		}
@@ -195,7 +190,7 @@ func (h *cm) Find(dst string) (tups []ConnTuple) {
 	defer h.RUnlock()
 	// TODO: handle unconnected udp sockets
 	tups = h.dsttracker[dst]
-	log.V("connmap: find: %d tuples for %s", len(tups), dst)
+	log.V("connmap: find: %v tuples for %s", tups, dst)
 	return
 }
 
@@ -217,7 +212,7 @@ func (h *cm) FindAll(csvips, port string) (out []ConnTuple) {
 			out = append(out, tups...)
 		}
 	}
-	log.V("connmap: findAll: %d tuples for %s", len(out), csvips)
+	log.V("connmap: findAll: %v tuples for %s", out, csvips)
 	return
 }
 
