@@ -483,11 +483,12 @@ func (t *transport) Query(network string, q []byte, smm *x.DNSSummary) (r []byte
 	}
 
 	status := dnsx.Complete
+	ans := xdns.AsMsg(r)
+
 	if qerr != nil {
 		status = qerr.Status()
 		err = qerr.Unwrap()
 	}
-	ans := xdns.AsMsg(r)
 	t.status = status
 
 	t.est.Add(elapsed.Seconds())

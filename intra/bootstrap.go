@@ -199,7 +199,7 @@ func (b *bootstrap) Query(network string, q []byte, summary *x.DNSSummary) ([]by
 	tr := b.Transport
 	if tr != nil {
 		log.V("dns: default: query %s %d", network, len(q))
-		return tr.Query(network, q, summary)
+		return dnsx.Req(tr, network, q, summary)
 	}
 	return nil, errDefaultTransportNotReady
 }

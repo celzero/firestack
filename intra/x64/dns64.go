@@ -102,7 +102,7 @@ func (d *dns64) AddResolver(id string, r dnsx.Transport) bool {
 	d.register(id)
 
 	discarded := new(x.DNSSummary)
-	b, err := r.Query(dnsx.NetTypeUDP, arpa64, discarded)
+	b, err := dnsx.Req(r, dnsx.NetTypeUDP, arpa64, discarded)
 	if err != nil {
 		log.W("dns64: udp: could not query resolver %s", id)
 		return false
@@ -114,7 +114,7 @@ func (d *dns64) AddResolver(id string, r dnsx.Transport) bool {
 		return false
 	} else if ans.Truncated { // should never be the case for DOH, ODOH, DOT
 		// else if: returned response is truncated dns ans, retry over tcp
-		b, err = r.Query(dnsx.NetTypeTCP, arpa64, discarded)
+		b, err = dnsx.Req(r, dnsx.NetTypeTCP, arpa64, discarded)
 		if err != nil {
 			log.W("dns64: tcp: could not query resolver %s", id)
 			return false
@@ -240,7 +240,7 @@ func (d *dns64) query64(msg6 *dns.Msg, r dnsx.Transport) (*dns.Msg, error) {
 	}
 
 	discarded := new(x.DNSSummary)
-	a4, err := r.Query(dnsx.NetTypeUDP, q4, discarded)
+	a4, err := dnsx.Req(r, dnsx.NetTypeUDP, q4, discarded)
 	log.D("dns64: udp: upstream q(%s) / a(%d) / e(%v) / e-not-nil(%t)", xdns.QName(msg4), len(a4), err, err != nil)
 	if err != nil {
 		return nil, err
@@ -253,7 +253,7 @@ func (d *dns64) query64(msg6 *dns.Msg, r dnsx.Transport) (*dns.Msg, error) {
 		return nil, err
 	} else if res.Truncated { // should never be the case for DOH, ODOH, DOT
 		// else if: returned response is truncated dns ans, retry over tcp
-		a4, err = r.Query(dnsx.NetTypeTCP, q4, discarded)
+		a4, err = dnsx.Req(r, dnsx.NetTypeTCP, q4, discarded)
 		log.D("dns64: tcp: upstream q(%s) / a(%d) / e(%v) / e-not-nil(%t)", xdns.QName(msg4), len(a4), err, err != nil)
 		if err != nil {
 			return nil, err

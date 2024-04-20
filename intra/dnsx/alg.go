@@ -186,19 +186,17 @@ func (t *dnsgateway) querySecondary(t2 Transport, network string, q []byte, out 
 			ticker.Stop()
 			return
 		}
-	} else { // query secondary to get answer for q
-		if r, err = t2.Query(network, q, result.summary); err != nil {
-			log.D("alg: skip; sec transport %s err %v", t2.ID(), err)
-			return
-		}
+	} else {
+		// query secondary to get answer for q
+		r, err = Req(t2, network, q, result.summary)
 	}
 
-	if len(r) == 0 {
-		log.W("alg: skip; no primary or sec ans")
+	if err != nil {
+		log.D("alg: skip; sec transport %s err? %v", t2.ID(), err)
 		return
 	}
 
-	// check if answer r is blocked
+	// check if answer r is blocked; r is either from t2 or from <-in
 	if ans2 := xdns.AsMsg(r); ans2 == nil {
 		// not a valid dns answer
 		return
@@ -254,7 +252,7 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []*netip.Addr, network string, q
 	if usepreset {
 		r, err = synthesizeOrQuery(preset, t1, q, network, innersummary)
 	} else {
-		r, err = query(t1, network, q, innersummary)
+		r, err = Req(t1, network, q, innersummary)
 	}
 	resch <- r
 
@@ -262,8 +260,11 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []*netip.Addr, network string, q
 	fillSummary(innersummary, summary)
 
 	if err != nil {
-		log.D("alg: abort; qerr %v", err)
-		return
+		if len(r) <= 0 {
+			log.D("alg: abort; r: 0, qerr %v", err)
+			return
+		}
+		log.D("alg: err but r ok; r: %d, qerr %v", len(r), err)
 	}
 
 	ansin := &dns.Msg{}
@@ -824,7 +825,7 @@ func hash48(s string) uint64 {
 func synthesizeOrQuery(pre []*netip.Addr, tr Transport, q []byte, network string, smm *x.DNSSummary) ([]byte, error) {
 	// synthesize a response with the given ips
 	if len(pre) == 0 {
-		return query(tr, network, q, smm)
+		return Req(tr, network, q, smm)
 	}
 	msg := xdns.AsMsg(q)
 	if msg == nil {
@@ -840,7 +841,7 @@ func synthesizeOrQuery(pre []*netip.Addr, tr Transport, q []byte, network string
 		// if no ips are of the same family as the question xdns.AQuadAForQuery returns error
 		ans, err := xdns.AQuadAForQuery(msg, unptr(pre)...)
 		if err != nil { // errors on invalid msg, question, or mismatched ips
-			return query(tr, network, q, smm)
+			return Req(tr, network, q, smm)
 		}
 		withPresetSummary(smm)
 		smm.RCode = xdns.Rcode(ans)
@@ -850,7 +851,7 @@ func synthesizeOrQuery(pre []*netip.Addr, tr Transport, q []byte, network string
 		log.D("alg: synthesize: q(4? %t / 6? %t) rdata(%s)", qname, is4, is6, smm.RData)
 		return ans.Pack()
 	} else if isHTTPS || isSVCB {
-		r, err := tr.Query(network, q, smm)
+		r, err := Req(tr, network, q, smm)
 		if err != nil {
 			return r, err
 		}
@@ -877,12 +878,29 @@ func synthesizeOrQuery(pre []*netip.Addr, tr Transport, q []byte, network string
 
 		return ans.Pack()
 	} else {
-		return query(tr, network, q, smm)
+		return Req(tr, network, q, smm)
 	}
 }
 
-func query(t Transport, network string, q []byte, smm *x.DNSSummary) ([]byte, error) {
-	return t.Query(network, q, smm)
+// Req sends q to transport t and returns the answer, if any;
+// errors are unset unless answer is empty;
+// smm, the in/out parameter, is dns summary as got from t.
+func Req(t Transport, network string, q []byte, smm *x.DNSSummary) ([]byte, error) {
+	if t == nil {
+		return nil, errNoSuchTransport
+	}
+	if len(q) <= 0 {
+		return nil, errNoQuestion
+	}
+	if smm == nil { // discard smm
+		discarded := new(x.DNSSummary)
+		smm = discarded
+	}
+	r, err := t.Query(network, q, smm)
+	if len(r) > 0 {
+		return r, nil
+	}
+	return r, err
 }
 
 func splitIPFamilies(ips []*netip.Addr) (ip4s, ip6s []*netip.Addr) {

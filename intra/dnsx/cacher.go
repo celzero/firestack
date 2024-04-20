@@ -310,7 +310,7 @@ func (t *ctransport) fetch(network string, q []byte, msg *dns.Msg, summary *x.DN
 		fsmm.Type = t.Transport.Type()
 
 		v, _ := t.reqbarrier.Do(key, func() (*cres, error) {
-			ans, qerr := t.Transport.Query(network, q, fsmm)
+			ans, qerr := Req(t.Transport, network, q, fsmm)
 			// cb.put no-ops when len(ans) is 0
 			cb.put(key, ans, fsmm)
 			// cres.ans may be nil
