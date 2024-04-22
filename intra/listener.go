@@ -29,6 +29,7 @@ type SocketSummary struct {
 	start    time.Time // Tracks start time; unexported.
 	Rtt      int32     // Round-trip time (ms); (sans ICMP).
 	Msg      string    // Err or other messages, if any.
+	Dup      bool      // True if another active connection to Target exists.
 }
 
 type SocketListener interface {
@@ -78,20 +79,21 @@ func icmpSummary(id, pid string) *SocketSummary {
 	}
 }
 
-func tcpSummary(id, pid, uid string, dst netip.Addr) *SocketSummary {
+func tcpSummary(id, pid, uid string, dup bool, dst netip.Addr) *SocketSummary {
 	return &SocketSummary{
 		Proto:  ProtoTypeTCP,
 		ID:     id,
 		PID:    pid,
 		UID:    uid,
+		Dup:    dup,
 		Target: dst.String(),
 		start:  time.Now(),
 		Msg:    errNone.Error(),
 	}
 }
 
-func udpSummary(id, pid, uid string, dst netip.Addr) *SocketSummary {
-	s := tcpSummary(id, pid, uid, dst)
+func udpSummary(id, pid, uid string, dup bool, dst netip.Addr) *SocketSummary {
+	s := tcpSummary(id, pid, uid, dup, dst)
 	s.Proto = ProtoTypeUDP
 	return s
 }

@@ -108,14 +108,16 @@ func NewUDPHandler(resolver dnsx.Resolver, prox ipn.Proxies, tunMode *settings.T
 	return h
 }
 
-func (h *udpHandler) onFlow(localaddr, target netip.AddrPort, realips, domains, probableDomains, blocklists string) *Mark {
+func (h *udpHandler) onFlow(localaddr, target netip.AddrPort, realips, domains, probableDomains, blocklists string) (*Mark, bool) {
+	const dup = true
+	const notdup = !dup
 	// BlockModeNone returns false, BlockModeSink returns true
 	if h.tunMode.BlockMode == settings.BlockModeSink {
-		return optionsBlock
+		return optionsBlock, notdup
 	}
 	// todo: block-mode none should call into listener.Flow to determine upstream proxy
 	if h.tunMode.BlockMode == settings.BlockModeNone {
-		return optionsBase
+		return optionsBase, notdup
 	}
 
 	src := localaddr.String()
@@ -137,19 +139,19 @@ func (h *udpHandler) onFlow(localaddr, target netip.AddrPort, realips, domains, 
 		}
 	}
 
-	var proto int32 = 17 // udp
-	dup := hasActiveConn(h.conntracker, dst, realips, dport)
-	res := h.listener.Flow(proto, uid, dup, src, dst, realips, domains, probableDomains, blocklists)
+	var proto int32 = 17                                        // udp
+	active := hasActiveConn(h.conntracker, dst, realips, dport) // existing active conn denotes dup
+	res := h.listener.Flow(proto, uid, active, src, dst, realips, domains, probableDomains, blocklists)
 
 	if res == nil {
 		log.W("udp: onFlow: empty res from kt; optbase")
-		return optionsBase
+		return optionsBase, active // true if dup
 	} else if len(res.PID) <= 0 {
 		log.W("udp: onFlow: no pid from kt; using base")
 		res.PID = ipn.Base
 	}
 
-	return res
+	return res, active // true if dup
 }
 
 // ProxyMux implements netstack.GUDPConnHandler
@@ -268,9 +270,9 @@ func (h *udpHandler) Connect(gconn net.Conn, src, target netip.AddrPort) (dst co
 	realips, domains, probableDomains, blocklists := undoAlg(h.resolver, target.Addr())
 
 	// flow is alg/nat-aware, do not change target or any addrs
-	res := h.onFlow(src, target, realips, domains, probableDomains, blocklists)
+	res, dup := h.onFlow(src, target, realips, domains, probableDomains, blocklists)
 	cid, pid, uid := splitCidPidUid(res)
-	smm = udpSummary(cid, pid, uid, target.Addr())
+	smm = udpSummary(cid, pid, uid, dup, target.Addr())
 	ct = core.ConnTuple{CID: cid, UID: uid}
 
 	if res.PID == ipn.Block {

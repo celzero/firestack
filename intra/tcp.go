@@ -93,13 +93,15 @@ func NewTCPHandler(resolver dnsx.Resolver, prox ipn.Proxies, tunMode *settings.T
 	return h
 }
 
-func (h *tcpHandler) onFlow(localaddr, target netip.AddrPort, realips, domains, probableDomains, blocklists string) *Mark {
+func (h *tcpHandler) onFlow(localaddr, target netip.AddrPort, realips, domains, probableDomains, blocklists string) (*Mark, bool) {
+	const dup = true
+	const notdup = !dup
 	// BlockModeNone returns false, BlockModeSink returns true
 	if h.tunMode.BlockMode == settings.BlockModeSink {
-		return optionsBlock
+		return optionsBlock, notdup
 	} else if h.tunMode.BlockMode == settings.BlockModeNone {
 		// todo: block-mode none should call into listener.Flow to determine upstream proxy
-		return optionsBase
+		return optionsBase, notdup
 	}
 
 	if len(realips) <= 0 || len(domains) <= 0 {
@@ -119,18 +121,18 @@ func (h *tcpHandler) onFlow(localaddr, target netip.AddrPort, realips, domains, 
 	src := localaddr.String()
 	dst := target.String()
 	dport := strconv.Itoa(int(target.Port()))
-	dup := hasActiveConn(h.conntracker, dst, realips, dport)
-	res := h.listener.Flow(proto, uid, dup, src, dst, realips, domains, probableDomains, blocklists)
+	active := hasActiveConn(h.conntracker, dst, realips, dport) // existing active conns denote dup
+	res := h.listener.Flow(proto, uid, active, src, dst, realips, domains, probableDomains, blocklists)
 
 	if res == nil {
 		log.W("tcp: onFlow: empty res from kt; using base")
-		return optionsBase
+		return optionsBase, active // true if dup
 	} else if len(res.PID) <= 0 {
 		log.W("tcp: onFlow: no pid from kt; using base")
 		res.PID = ipn.Base
 	}
 
-	return res
+	return res, active // true if dup
 }
 
 func (h *tcpHandler) End() error {
@@ -181,10 +183,10 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target netip.AddrPort)
 
 	// flow/dns-override are nat-aware, as in, they can deal with
 	// nat-ed ips just fine, and so, use target as-is instead of ipx4
-	res := h.onFlow(src, target, realips, domains, probableDomains, blocklists)
+	res, dup := h.onFlow(src, target, realips, domains, probableDomains, blocklists)
 
 	cid, pid, uid := splitCidPidUid(res)
-	s = tcpSummary(cid, pid, uid, target.Addr())
+	smm = tcpSummary(cid, pid, uid, dup, target.Addr())
 
 	if pid == ipn.Block {
 		var secs uint32
