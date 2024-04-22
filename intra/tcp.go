@@ -152,15 +152,15 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target netip.AddrPort)
 	const deny bool = !allow // blocked
 	const rst bool = true    // tear down conn
 	const ack bool = !rst    // send synack
-	var s *SocketSummary
+	var smm *SocketSummary
 	var err error
 
 	defer func() {
 		if !open {
 			gconn.Close()
-			if s != nil {
-				s.done(err)
-				go sendNotif(h.listener, s)
+			if smm != nil {
+				smm.done(err)
+				go sendNotif(h.listener, smm)
 			} // else: summary not created
 		}
 	}()
@@ -223,30 +223,32 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target netip.AddrPort)
 		} // else not a dns request
 	} // if ipn.Exit then let it connect as-is (aka exit)
 
+	ct := core.ConnTuple{CID: smm.ID, UID: smm.UID}
+
 	// pick all realips to connect to
 	for i, dstipp := range makeIPPorts(realips, target, 0) {
-		if err = h.handle(px, gconn, dstipp, s); err == nil {
+		h.conntracker.TrackDest(ct, dstipp) // may be untracked by handle()
+		if err = h.handle(px, gconn, dstipp, ct, smm); err == nil {
 			return allow
 		} // else try the next realip
-		end := time.Since(s.start)
+		end := time.Since(smm.start)
 		elapsed := int32(end.Seconds() * 1000)
 		log.W("tcp: dial: #%d: %s failed; addr(%s); for uid %s (%d); w err(%v)", i, cid, dstipp, uid, elapsed, err)
 		if end > retrytimeout {
 			break
 		}
 	}
+
+	h.conntracker.Untrack(ct.CID)
 	return deny
 }
 
-func (h *tcpHandler) handle(px ipn.Proxy, src net.Conn, target netip.AddrPort, smm *SocketSummary) (err error) {
+func (h *tcpHandler) handle(px ipn.Proxy, src net.Conn, target netip.AddrPort, ct core.ConnTuple, smm *SocketSummary) (err error) {
 	var pc protect.Conn
 
 	start := time.Now()
 	var dst net.Conn
 
-	ct := core.ConnTuple{CID: smm.ID, UID: smm.UID}
-
-	h.conntracker.TrackDest(ct, target) // will be untracked by forward
 	// TODO: handle wildcard addrs?
 	// github.com/google/gvisor/blob/5ba35f516b5c2/test/benchmarks/tcp/tcp_proxy.go#L359
 	// ref: stackoverflow.com/questions/63656117
@@ -273,20 +275,18 @@ func (h *tcpHandler) handle(px ipn.Proxy, src net.Conn, target netip.AddrPort, s
 
 	if err != nil {
 		log.W("tcp: err dialing %s proxy(%s) to dst(%v) for %s: %v", smm.ID, px.ID(), target, smm.UID, err)
-		h.conntracker.Untrack(ct.CID)
 		return err
 	}
 
 	h.conntracker.Track(ct, src, dst)
 	go func() {
-		l := h.listener
 		defer func() {
 			if r := recover(); r != nil {
 				log.W("tcp: forward: panic %v", r)
 			}
 			h.conntracker.Untrack(ct.CID)
 		}()
-		forward(src, dst, l, smm) // src always *gonet.TCPConn
+		forward(src, dst, h.listener, smm) // src always *gonet.TCPConn
 	}()
 
 	log.I("tcp: new conn %s via proxy(%s); src(%s) -> dst(%s) for %s", smm.ID, px.ID(), src.LocalAddr(), target, smm.UID)
