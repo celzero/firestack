@@ -367,7 +367,10 @@ func (proxy *DcMulti) LiveTransports() string {
 }
 
 func (proxy *DcMulti) refreshOne(uid string) bool {
+	proxy.RLock()
 	r, ok := proxy.registeredServers[uid]
+	proxy.RUnlock()
+
 	if !ok {
 		return false
 	}
@@ -381,7 +384,14 @@ func (proxy *DcMulti) refreshOne(uid string) bool {
 
 // Refresh re-registers servers
 func (proxy *DcMulti) Refresh() (string, error) {
-	for _, registeredServer := range proxy.registeredServers {
+	var servers []*registeredserver
+	proxy.RLock()
+	for _, s := range proxy.registeredServers {
+		servers = append(servers, &s)
+	}
+	proxy.RUnlock()
+
+	for _, registeredServer := range servers {
 		proxy.serversInfo.registerServer(registeredServer.name, registeredServer.stamp)
 	}
 	var err error
@@ -468,12 +478,12 @@ func (proxy *DcMulti) AddGateways(routescsv string) (int, error) {
 	}
 
 	proxy.Lock()
-	defer proxy.Unlock()
-
 	r := strings.Split(routescsv, ",")
 	cat := xdns.FindUnique(proxy.routes, r)
 	proxy.routes = append(proxy.routes, cat...)
-	log.I("dnscrypt: added %d/%d relays %s", len(cat), len(r), cat)
+	proxy.Unlock()
+
+	log.I("dnscrypt: added %d/%d; relay? %s", len(cat), len(r), cat)
 	if len(cat) > 0 {
 		go proxy.refreshRoutes()
 	}
@@ -487,23 +497,26 @@ func (proxy *DcMulti) RemoveGateways(routescsv string) (int, error) {
 	}
 
 	proxy.Lock()
-	defer proxy.Unlock()
-
 	rm := strings.Split(routescsv, ",")
 	l := len(proxy.routes)
 	proxy.routes = xdns.FindUnique(rm, proxy.routes)
-	if l != len(proxy.routes) { // routes changed
+	n := len(proxy.routes)
+	proxy.Unlock()
+
+	if l != n { // routes changed
 		go proxy.refreshRoutes()
 	}
-	return l - len(proxy.routes), nil
+	log.V("dnscrypt: removed %d/%d; relays: %s", l-n, l, routescsv)
+	return l - n, nil
 }
 
 func (proxy *DcMulti) removeOne(uid string) int {
 	proxy.Lock()
-	defer proxy.Unlock()
+	delete(proxy.registeredServers, uid)
+	proxy.Unlock()
+
 	// TODO: handle err
 	n, err := proxy.serversInfo.unregisterServer(uid)
-	delete(proxy.registeredServers, uid)
 	log.D("dnscrypt: removed %s; %d servers (err? %v)", uid, n, err)
 	return n
 }
@@ -537,9 +550,6 @@ func (proxy *DcMulti) RemoveAll(servernamescsv string) (int, error) {
 }
 
 func (proxy *DcMulti) addOne(uid, rawstamp string) (string, error) {
-	proxy.Lock()
-	defer proxy.Unlock()
-
 	stamp, err := stamps.NewServerStampFromString(rawstamp)
 	if err != nil {
 		return uid, fmt.Errorf("dnscrypt: stamp error for [%s] def: [%v]", rawstamp, err)
@@ -548,7 +558,11 @@ func (proxy *DcMulti) addOne(uid, rawstamp string) (string, error) {
 		// TODO: Implement doh
 		return uid, fmt.Errorf("dnscrypt: doh not supported %s", rawstamp)
 	}
+
+	proxy.Lock()
 	proxy.registeredServers[uid] = registeredserver{name: uid, stamp: stamp}
+	proxy.Unlock()
+
 	log.D("dnscrypt: added [%s] %s", uid, stamp2str(&stamp))
 	return uid, nil
 }

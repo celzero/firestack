@@ -251,7 +251,10 @@ func fetchDoHServerInfo(proxy *DcMulti, name string, stamp stamps.ServerStamp) (
 }
 
 func route(proxy *DcMulti) (udpaddrs []*net.UDPAddr, tcpaddrs []*net.TCPAddr) {
+	proxy.Lock()
 	relays := proxy.routes
+	proxy.Unlock()
+
 	if len(relays) <= 0 { // no err, no relays
 		return
 	}
