@@ -484,7 +484,7 @@ func (s *StdNetBind2) Close() error {
 	return errors.Join(err4, err6)
 }
 
-func (s *StdNetBind2) Send(bufs [][]byte, endpoint conn.Endpoint) (err error) {
+func (s *StdNetBind2) Send(bufs [][]byte, peer conn.Endpoint) (err error) {
 	defer func() {
 		target := &ErrUDPGSODisabled{}
 		if errors.As(err, target) {
@@ -494,9 +494,9 @@ func (s *StdNetBind2) Send(bufs [][]byte, endpoint conn.Endpoint) (err error) {
 		}
 	}()
 
-	ep, ok := endpoint.(*StdNetEndpoint2)
+	ep, ok := peer.(*StdNetEndpoint2)
 	if !ok { // unlikely
-		log.E("wg: bind2: %s wrong endpoint type %T", s.id, endpoint)
+		log.E("wg: bind2: %s wrong endpoint type %T", s.id, peer)
 		return conn.ErrWrongEndpointType
 	}
 
@@ -506,7 +506,7 @@ func (s *StdNetBind2) Send(bufs [][]byte, endpoint conn.Endpoint) (err error) {
 	offload := s.ipv4TxOffload
 	var br batchWriter = s.ipv4PC
 	is6 := false
-	if endpoint.DstIP().Is6() {
+	if peer.DstIP().Is6() {
 		blackhole = s.blackhole6
 		c = s.ipv6
 		br = s.ipv6PC
@@ -530,7 +530,7 @@ func (s *StdNetBind2) Send(bufs [][]byte, endpoint conn.Endpoint) (err error) {
 		return syscall.ENOMEM
 	}
 
-	dst := addrport(endpoint, !is6)
+	dst := addrport(peer, !is6)
 	if !addrok(dst.Addr()) {
 		log.E("wg: bind2: %s invalid destination %v", s.id, dst)
 		return syscall.EINVAL

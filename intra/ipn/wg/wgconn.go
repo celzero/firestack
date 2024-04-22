@@ -262,24 +262,24 @@ func (s *StdNetBind) makeReceiveFn(uc *net.UDPConn) conn.ReceiveFunc {
 	}
 }
 
-func (s *StdNetBind) Send(buf [][]byte, endpoint conn.Endpoint) (err error) {
+func (s *StdNetBind) Send(buf [][]byte, peer conn.Endpoint) (err error) {
 	defer func() {
 		s.listener("w", err)
 	}()
 
-	nend, ok := endpoint.(StdNetEndpoint)
+	where, ok := peer.(StdNetEndpoint)
 	if !ok {
-		log.E("wg: bind: send: %s wrong endpoint type: %T", s.id, endpoint)
+		log.E("wg: bind: send: %s wrong endpoint type: %T", s.id, peer)
 		return conn.ErrWrongEndpointType
 	}
 	// the peer endpoint
-	addrPort := netip.AddrPort(nend)
+	dst := netip.AddrPort(where)
 
 	s.mu.Lock()
 	blackhole := s.blackhole4
 	uc := s.ipv4
 	noconn := uc == nil
-	if addrPort.Addr().Is6() {
+	if dst.Addr().Is6() {
 		blackhole = s.blackhole6
 		uc = s.ipv6
 		noconn = uc == nil
@@ -292,7 +292,7 @@ func (s *StdNetBind) Send(buf [][]byte, endpoint conn.Endpoint) (err error) {
 	}
 	bufok := len(data) > 0
 
-	log.V("wg: bind: send: %s addr(%v) blackhole? %t; noconn? %t; hasbuf? %t", s.id, addrPort, blackhole, noconn, bufok)
+	log.V("wg: bind: send: %s addr(%v) blackhole? %t; noconn? %t; hasbuf? %t", s.id, dst, blackhole, noconn, bufok)
 
 	if blackhole || !bufok {
 		return nil
@@ -301,12 +301,12 @@ func (s *StdNetBind) Send(buf [][]byte, endpoint conn.Endpoint) (err error) {
 		return syscall.EAFNOSUPPORT
 	}
 
-	s.lastSendAddr = addrPort
+	s.lastSendAddr = dst
 
 	uc.SetDeadline(time.Now().Add(wgtimeout))
-	n, err := uc.WriteToUDPAddrPort(data, addrPort)
+	n, err := uc.WriteToUDPAddrPort(data, dst)
 
-	loge(err, "wg: bind: send: %s addr(%v) n(%d); err? %v", s.id, addrPort, n, err)
+	loge(err, "wg: bind: send: %s addr(%v) n(%d); err? %v", s.id, dst, n, err)
 	return err
 }
 
