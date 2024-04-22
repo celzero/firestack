@@ -250,7 +250,6 @@ func (r *resolver) Get(id string) (x.DNSTransport, error) {
 }
 
 func (r *resolver) Remove(id string) (ok bool) {
-
 	// these IDs are reserved for internal use
 	if isReserved(id) {
 		log.I("dns: removing reserved transport %s", id)
@@ -267,18 +266,18 @@ func (r *resolver) Remove(id string) (ok bool) {
 		r.Unlock()
 
 		log.I("dns: removed transport %s", id)
-
-		if tm, err := r.dcProxy(); err == nil {
-			tm.Remove(id)
-			tm.Remove(CT + id)
-		}
-
-		go r.listener.OnDNSRemoved(id)
-
-		return true
 	}
 
-	return false
+	if tm, err := r.dcProxy(); err == nil { // remove from dc-proxy, if any
+		hasTransport = tm.Remove(id) || hasTransport
+		hasTransport = tm.Remove(CT+id) || hasTransport
+	}
+
+	if hasTransport {
+		go r.listener.OnDNSRemoved(id)
+	}
+
+	return hasTransport
 }
 
 func (r *resolver) IsDnsAddr(ipport string) bool {
