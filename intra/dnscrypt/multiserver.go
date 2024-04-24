@@ -460,12 +460,16 @@ func (proxy *DcMulti) Stop() error {
 func (proxy *DcMulti) refreshRoutes() {
 	udp, tcp := route(proxy)
 	if len(udp) <= 0 || len(tcp) <= 0 {
-		log.W("dnscrypt: refreshRoutes: null relays")
+		log.I("dnscrypt: refreshRoutes: remove all relays")
 	}
 	n := 0
 	for _, x := range proxy.serversInfo.getAll() {
-		x.RelayUDPAddrs = udp // may be empty or nil
-		x.RelayTCPAddrs = tcp // may be empty or nil
+		if x == nil {
+			continue
+		}
+		// udp, tcp may be empty or nil; which means no relay
+		x.RelayUDPAddrs = udp
+		x.RelayTCPAddrs = tcp
 		n++
 	}
 	log.I("dnscrypt: refreshRoutes: %d/%d for %d servers", len(udp), len(tcp), n)

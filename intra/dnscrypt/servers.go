@@ -90,12 +90,13 @@ func (serversInfo *ServersInfo) getAll() []*serverinfo {
 	serversInfo.RLock()
 	defer serversInfo.RUnlock()
 
-	servers := make([]*serverinfo, 0, len(serversInfo.inner))
+	servers := make([]*serverinfo, 0)
 	for _, si := range serversInfo.inner {
 		if si != nil {
 			servers = append(servers, si)
 		}
 	}
+	log.V("dnscrypt: getAll: servers [%d/%d]", len(servers), len(serversInfo.inner))
 	return servers
 }
 
