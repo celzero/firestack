@@ -193,14 +193,6 @@ func (r *resolver) Add(dt x.DNSTransport) (ok bool) {
 
 	switch t.Type() {
 	case DNS53, DNSCrypt, DOH, DOT, ODOH:
-		// DNSCrypt transports are also registered with DcProxy
-		// Alg transports are also registered with Gateway
-		// Remove cleans those up
-		r.Remove(t.ID()) // also removes CT
-		if t.ID() == System {
-			go r.Remove64(UnderlayResolver)
-		}
-
 		ct := NewCachingTransport(t, ttl10m)
 
 		r.Lock()
