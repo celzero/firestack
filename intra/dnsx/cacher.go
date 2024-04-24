@@ -80,6 +80,7 @@ type ctransport struct {
 	bumps        int                  // max bumps in lifetime of a cached response
 	size         int                  // max size of a cache bucket
 	reqbarrier   *core.Barrier[*cres] // coalesce requests for the same query
+	hangover     *core.Hangover       // hangover for the transport
 	est          core.P2QuantileEstimator
 }
 
@@ -111,6 +112,7 @@ func NewCachingTransport(t Transport, ttl time.Duration) Transport {
 		bumps:      defbumps,
 		size:       defsize,
 		reqbarrier: core.NewBarrier[*cres](ttl10s),
+		hangover:   core.NewHangover(),
 		est:        core.NewP50Estimator(),
 	}
 	log.I("cache: (%s) setup: %s; opts: %s", ct.ID(), ct.GetAddr(), ct.str())
@@ -325,10 +327,6 @@ func (t *ctransport) fetch(network string, q []byte, msg *dns.Msg, summary *x.DN
 			log.W("cache: barrier: stale(%s); barrier: %s (cache: %s)", key, v.String(), cachedres.String())
 		}
 
-		if cachedres == nil { // nil iff typecast above fails
-			return nil, errCacheResponseEmpty
-		}
-
 		fres, cachedsmm, ferr := asResponse(msg, cachedres, true)
 		// fill summary regardless of errors
 		fillSummary(cachedsmm, fsmm) // cachedsmm may be equal to finalsumm
@@ -341,15 +339,21 @@ func (t *ctransport) fetch(network string, q []byte, msg *dns.Msg, summary *x.DN
 	// no network connectivity but cache returns proper responses to queries,
 	// which results in confused apps that think there's network connectivity,
 	// that is, these confused apps go bezerk resulting in battery drain.
-	tok := t.Status() != SendFailed
+	if t.Status() == SendFailed {
+		t.hangover.Start()
+	} else {
+		t.hangover.Stop()
+	}
+	// 10s hasn't elapsed since the first send failure
+	trok := t.hangover.Within(ttl10s)
 
-	if v, isfresh := cb.freshCopy(key); tok && v != nil {
+	if v, isfresh := cb.freshCopy(key); trok && v != nil {
 		var cachedsummary *x.DNSSummary
 
-		log.D("cache: hit(%s): %s, but stale? %t", key, v.str(), !isfresh)
+		log.D("cache: hit(k: %s / stale? %t): %s, but stale? %t", key, !isfresh, v.str())
 		r, cachedsummary, err = asResponse(msg, v, isfresh) // return cached response, may be stale
 		if err != nil {
-			log.W("cache: hit(%s) %s, but err? %v", key, v.str(), err)
+			log.W("cache: hit(k: %s) %s, but err? %v", key, v.str(), err)
 			if err == errCacheResponseMismatch {
 				// FIXME: this is a hack to fix the issue where the cache
 				// returns a response that does not match the query.
@@ -368,6 +372,8 @@ func (t *ctransport) fetch(network string, q []byte, msg *dns.Msg, summary *x.DN
 			t.est.Add(0)        // however, update the estimator
 			return
 		} // else: fallthrough to sendRequest
+	} else {
+		log.D("cache: miss(k: %s): cached? %t, hangover? %t, stale? %t", key, v != nil, trok, !isfresh)
 	}
 
 	return sendRequest(summary) // summary is filled by underlying transport
