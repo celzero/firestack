@@ -375,10 +375,10 @@ func (proxy *DcMulti) refreshOne(uid string) bool {
 		return false
 	}
 	if err := proxy.serversInfo.refreshServer(proxy, r.name, r.stamp); err != nil {
-		log.E("dnscrypt: refresh failed %s: %s; err: %v", r.name, stamp2str(&r.stamp), err)
+		log.E("dnscrypt: refresh failed %s: %s; err: %v", r.name, stamp2str(r.stamp), err)
 		return false
 	}
-	log.D("dnscrypt: refresh success %s: %s", r.name, stamp2str(&r.stamp))
+	log.D("dnscrypt: refresh success %s: %s", r.name, stamp2str(r.stamp))
 	return true
 }
 
@@ -567,7 +567,7 @@ func (proxy *DcMulti) addOne(uid, rawstamp string) (string, error) {
 	proxy.registeredServers[uid] = registeredserver{name: uid, stamp: stamp}
 	proxy.Unlock()
 
-	log.D("dnscrypt: added [%s] %s", uid, stamp2str(&stamp))
+	log.D("dnscrypt: added [%s] %s", uid, stamp2str(stamp))
 	return uid, nil
 }
 
@@ -642,7 +642,7 @@ func (p *DcMulti) Status() int {
 	return p.lastStatus
 }
 
-func stamp2str(s *stamps.ServerStamp) string {
+func stamp2str(s stamps.ServerStamp) string {
 	return fmt.Sprintf("name:%s, addr:%s, path:%s", s.ProviderName, s.ServerAddrStr, s.Path)
 }
 

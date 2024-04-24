@@ -275,17 +275,17 @@ func (h *udpHandler) Connect(gconn net.Conn, src, target netip.AddrPort) (dst co
 	smm = udpSummary(cid, pid, uid, dup, target.Addr())
 	ct = core.ConnTuple{CID: cid, UID: uid}
 
-	if res.PID == ipn.Block {
+	if pid == ipn.Block {
 		var secs uint32
-		k := res.UID + target.String() // UID may be unknown and target may be invalid addr
-		if len(domains) > 0 {          // probableDomains are not reliable for firewalling
-			k = res.UID + domains
+		k := uid + target.String() // UID may be unknown and target may be invalid addr
+		if len(domains) > 0 {      // probableDomains are not reliable for firewalling
+			k = uid + domains
 		}
 		if secs = stall(h.fwtracker, k); secs > 0 {
 			waittime := time.Duration(secs) * time.Second
 			time.Sleep(waittime)
 		}
-		log.I("udp: %s conn firewalled from %s -> %s (dom: %s + %s/ real: %s); stall? %ds for uid %s", res.CID, src, target, domains, probableDomains, realips, secs, res.UID)
+		log.I("udp: %s conn firewalled from %s -> %s (dom: %s + %s/ real: %s); stall? %ds for uid %s", cid, src, target, domains, probableDomains, realips, secs, uid)
 		return nil, smm, ct, errUdpFirewalled // disconnect
 	}
 
@@ -307,15 +307,15 @@ func (h *udpHandler) Connect(gconn net.Conn, src, target netip.AddrPort) (dst co
 	// as seen (with Flow) is owned by Rethink, then expect the conn
 	// to be marked ipn.Base for queries sent to tunnel's fake DNS addr
 	// and ipn.Exit for anywhere else.
-	if res.PID != ipn.Exit {
+	if pid != ipn.Exit {
 		if dnsOverride(h.resolver, dnsx.NetTypeUDP, gconn, target) {
 			// SocketSummary is not sent to listener; x.DNSSummary is
 			return nil, smm, ct, nil // connect, no dst
 		} // else: not a dns query
 	} // else: proxy src to dst
 
-	if px, err = h.prox.ProxyFor(res.PID); err != nil {
-		log.W("udp: %s failed to get proxy for %s: %v", res.CID, res.PID, err)
+	if px, err = h.prox.ProxyFor(pid); err != nil {
+		log.W("udp: %s failed to get proxy for %s: %v", cid, pid, err)
 		return nil, smm, ct, err // disconnect
 	}
 
@@ -324,7 +324,7 @@ func (h *udpHandler) Connect(gconn net.Conn, src, target netip.AddrPort) (dst co
 
 	// unconnected udp socket?
 	if target.Addr().IsUnspecified() || !target.IsValid() {
-		log.I("udp: unconnected udp at (%s) for uid %s via %s", src, res.UID, px.ID())
+		log.I("udp: unconnected udp at (%s) for uid %s via %s", src, uid, px.ID())
 		pc, errs = px.Announce("udp", src.String())
 		selectedTarget = src // no target
 	} else {
@@ -339,7 +339,7 @@ func (h *udpHandler) Connect(gconn net.Conn, src, target netip.AddrPort) (dst co
 			errs = err // store just the last err; complicates logging
 			end := time.Since(smm.start)
 			elapsed := int32(end.Seconds() * 1000)
-			log.W("udp: connect: #%d: %s failed; addr(%s); for uid %s (%ds) w err(%v)", i, res.CID, dstipp, res.UID, elapsed, err)
+			log.W("udp: connect: #%d: %s failed; addr(%s); for uid %s (%ds) w err(%v)", i, cid, dstipp, uid, elapsed, err)
 			if end > retrytimeout {
 				break
 			}
@@ -350,21 +350,21 @@ func (h *udpHandler) Connect(gconn net.Conn, src, target netip.AddrPort) (dst co
 		return nil, smm, ct, errs // disconnect
 	}
 	if pc == nil {
-		log.W("udp: connect: %s failed to connect addr(%s/%s); for uid %s", res.CID, target, selectedTarget, res.UID)
+		log.W("udp: connect: %s failed to connect addr(%s/%s); for uid %s", cid, target, selectedTarget, uid)
 		return nil, smm, ct, errUdpSetupConn // disconnect
 	}
 
 	var ok bool
 	if dst, ok = pc.(core.UDPConn); !ok {
 		pclose(pc, "rw")
-		log.E("udp: connect: %s proxy(%s) does not impl core.UDPConn(%s/%s) for uid %s", res.CID, px.ID(), target, selectedTarget, res.UID)
+		log.E("udp: connect: %s proxy(%s) does not impl core.UDPConn(%s/%s) for uid %s", cid, px.ID(), target, selectedTarget, uid)
 		return nil, smm, ct, errUdpSetupConn // disconnect
 	}
 
 	// pc.RemoteAddr may be that of the proxy, not the actual dst
 	// ex: pc.RemoteAddr is 127.0.0.1 for Orbot
 	smm.Target = selectedTarget.Addr().String()
-	log.I("udp: %s (proxy? %s@%s) %v -> %s/%s for uid %s", res.CID, px.ID(), px.GetAddr(), dst.LocalAddr(), target, selectedTarget, res.UID)
+	log.I("udp: %s (proxy? %s@%s) %v -> %s/%s for uid %s", cid, px.ID(), px.GetAddr(), dst.LocalAddr(), target, selectedTarget, uid)
 
 	return dst, smm, ct, nil // connect
 }

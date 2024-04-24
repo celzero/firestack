@@ -192,7 +192,7 @@ func (t *dnsgateway) querySecondary(t2 Transport, network string, q []byte, out 
 	}
 
 	if err != nil {
-		log.D("alg: skip; sec transport %s err? %v", t2.ID(), err)
+		log.D("alg: skip; sec transport %s err? %v", idstr(t2), err)
 		return
 	}
 
@@ -936,4 +936,11 @@ func withPresetSummary(smm *x.DNSSummary) {
 	smm.Server = Preset
 	smm.Blocklists = ""  // blocklists are not honoured
 	smm.RelayServer = "" // no relay is used
+}
+
+func idstr(t Transport) string {
+	if t == nil {
+		return notransport
+	}
+	return t.ID()
 }

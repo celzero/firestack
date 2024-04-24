@@ -122,7 +122,7 @@ func HasTCFlag(packet []byte) bool {
 }
 
 func QName(msg *dns.Msg) string {
-	if !HasAnyQuestion(msg) {
+	if msg == nil || !HasAnyQuestion(msg) {
 		return ""
 	}
 	q := msg.Question[0]

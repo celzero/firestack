@@ -373,7 +373,7 @@ func (t *ctransport) fetch(network string, q []byte, msg *dns.Msg, summary *x.DN
 			return
 		} // else: fallthrough to sendRequest
 	} else {
-		log.D("cache: miss(k: %s): cached? %t, hangover? %t, stale? %t", key, v != nil, trok, !isfresh)
+		log.D("cache: miss(k: %s): cached? %t, hangover? %t, stale? %t", key, v != nil, !trok, !isfresh)
 	}
 
 	return sendRequest(summary) // summary is filled by underlying transport

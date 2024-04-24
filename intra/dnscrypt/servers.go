@@ -255,12 +255,13 @@ func route(proxy *DcMulti) (udpaddrs []*net.UDPAddr, tcpaddrs []*net.TCPAddr) {
 	relays := proxy.routes
 	proxy.Unlock()
 
+	udpaddrs = make([]*net.UDPAddr, 0)
+	tcpaddrs = make([]*net.TCPAddr, 0)
+
 	if len(relays) <= 0 { // no err, no relays
 		return
 	}
 
-	udpaddrs = make([]*net.UDPAddr, 0, len(relays))
-	tcpaddrs = make([]*net.TCPAddr, 0, len(relays))
 	for _, rr := range relays {
 		var rrstamp *stamps.ServerStamp
 		if len(rr) == 0 {
@@ -316,8 +317,8 @@ func (s *serverinfo) String() string {
 	if s.TCPAddr != nil {
 		serveraddr = s.TCPAddr.String()
 	}
-	if s.RelayTCPAddrs != nil {
-		relayaddr = chooseAny(s.RelayTCPAddrs).String()
+	if a := s.RelayTCPAddrs; a != nil {
+		relayaddr = chooseAny(a).String()
 	}
 
 	return serverid + ":" + servername + "/" + serveraddr + "<=>" + relayaddr
