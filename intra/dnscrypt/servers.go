@@ -72,8 +72,8 @@ type ServersInfo struct {
 }
 
 // newServersInfo returns a new servers-info object
-func newServersInfo() ServersInfo {
-	return ServersInfo{
+func newServersInfo() *ServersInfo {
+	return &ServersInfo{
 		registeredServers: make(map[string]registeredserver),
 		inner:             make(map[string]*serverinfo),
 	}

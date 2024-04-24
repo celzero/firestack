@@ -43,7 +43,7 @@ type DcMulti struct {
 	sync.RWMutex
 	proxyPublicKey      [32]byte
 	proxySecretKey      [32]byte
-	serversInfo         ServersInfo
+	serversInfo         *ServersInfo
 	certIgnoreTimestamp bool
 	registeredServers   map[string]registeredserver
 	routes              []string
