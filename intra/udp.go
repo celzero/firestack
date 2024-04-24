@@ -127,7 +127,7 @@ func (h *udpHandler) onFlow(localaddr, target netip.AddrPort, realips, domains, 
 		dport = strconv.Itoa(int(target.Port()))
 	}
 	if len(realips) <= 0 || len(domains) <= 0 {
-		log.V("udp: onFlow: no realips(%s) or domains(%s + %s), for src=%s dst=%s", realips, domains, probableDomains, localaddr, dst)
+		log.VV("udp: onFlow: no realips(%s) or domains(%s + %s), for src=%s dst=%s", realips, domains, probableDomains, localaddr, dst)
 	}
 
 	// Implict: BlockModeFilter or BlockModeFilterProc

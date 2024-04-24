@@ -108,7 +108,7 @@ func (g *GTCPConn) Connect(rst bool) (open bool, err error) {
 	rst, err = g.synack()
 	g.req.Complete(rst)
 
-	log.V("ns: tcp: forwarder: proxy src(%v) => dst(%v); fin? %t", g.LocalAddr(), g.RemoteAddr(), rst)
+	log.VV("ns: tcp: forwarder: proxy src(%v) => dst(%v); fin? %t", g.LocalAddr(), g.RemoteAddr(), rst)
 	return !rst, err // open or closed
 }
 

@@ -55,15 +55,14 @@ func Connect(fd, mtu int, fakedns string, dtr DefaultDNS, bdg Bridge) (t Tunnel,
 
 // Change log level to log.VERBOSE, log.DEBUG, log.INFO, log.WARN, log.ERROR.
 func LogLevel(level int) {
-	dbg := false
 	dlvl := log.WARN
 	switch l := log.LogLevel(level); l {
+	case log.VVERBOSE:
+		dlvl = log.VVERBOSE
 	case log.VERBOSE:
 		dlvl = log.VERBOSE
-		dbg = true
 	case log.DEBUG:
 		dlvl = log.DEBUG
-		dbg = true
 	case log.INFO:
 		dlvl = log.INFO
 	case log.WARN:
@@ -74,5 +73,6 @@ func LogLevel(level int) {
 		log.W("tun: unknown log-level(%d), using warn", l)
 	}
 	log.SetLevel(dlvl)
-	settings.Debug = dbg
+	settings.Debug = dlvl < log.INFO
+	log.I("tun: new log-level %d; debug? %t", dlvl, settings.Debug)
 }

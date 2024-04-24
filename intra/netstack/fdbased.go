@@ -422,7 +422,7 @@ func (e *endpoint) WritePackets(pkts stack.PacketBufferList) (int, tcpip.Error) 
 		written += packets
 	}
 
-	log.V("ns: tun(%d): WritePackets (to tun): written(%d)/total(%d)", fd, written, total)
+	log.VV("ns: tun(%d): WritePackets (to tun): written(%d)/total(%d)", fd, written, total)
 	return written, nil
 }
 
@@ -456,7 +456,7 @@ func (e *endpoint) ARPHardwareType() header.ARPHardwareType {
 
 // InjectInbound ingresses a netstack-inbound packet.
 func (e *endpoint) InjectInbound(protocol tcpip.NetworkProtocolNumber, pkt *stack.PacketBuffer) {
-	log.V("ns: inject-inbound (from tun) %d", protocol)
+	log.VV("ns: inject-inbound (from tun) %d", protocol)
 	d := e.dispatcher // TODO: read lock?
 	if d != nil && pkt != nil {
 		e.logPacketIfNeeded(sniffer.DirectionRecv, pkt)
@@ -470,7 +470,7 @@ func (e *endpoint) InjectInbound(protocol tcpip.NetworkProtocolNumber, pkt *stac
 // InjectOutbound egresses a tun-inbound packet.
 func (e *endpoint) InjectOutbound(dest tcpip.Address, packet *buffer.View) tcpip.Error {
 	fd := e.fd()
-	log.V("ns: tun(%d): inject-outbound (to tun) to dst(%v)", fd, dest)
+	log.VV("ns: tun(%d): inject-outbound (to tun) to dst(%v)", fd, dest)
 	// TODO: e.logPacketIfNeeded(sniffer.DirectionSend, packet)
 	return rawfile.NonBlockingWrite(fd, packet.AsSlice())
 }

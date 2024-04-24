@@ -49,7 +49,7 @@ func setupIcmpHandler(nstk *stack.Stack, ep stack.LinkEndpoint, handler GICMPHan
 
 	// ICMPv4
 	nstk.SetTransportProtocolHandler(icmp.ProtocolNumber4, func(id stack.TransportEndpointID, packet *stack.PacketBuffer) bool {
-		log.V("icmp: v4 packet? %v", packet)
+		log.VV("icmp: v4 packet? %v", packet)
 
 		if packet == nil {
 			log.E("icmp: v4 nil packet")
@@ -96,7 +96,7 @@ func setupIcmpHandler(nstk *stack.Stack, ep stack.LinkEndpoint, handler GICMPHan
 		l3 := packet.NetworkHeader().View()
 		log.D("icmp: v4 type %v/%v sz [%v]; src(%v) -> dst(%v)", icmpin.Type(), icmpin.Code(), datalen, src, dst)
 		if !handler.Ping(src, dst, data, func(reply []byte) error {
-			log.V("icmp: v4 reply %v", reply)
+			log.VV("icmp: v4 reply %v", reply)
 			// sendICMP: github.com/google/gvisor/blob/8035cf9ed/pkg/tcpip/transport/tcp/testing/context/context.go#L404
 			// parseICMP: github.com/google/gvisor/blob/8035cf9ed/pkg/tcpip/header/parse/parse.go#L194
 			// makeICMP: github.com/google/gvisor/blob/8035cf9ed/pkg/tcpip/tests/integration/iptables_test.go#L2100
@@ -163,7 +163,7 @@ func setupIcmpHandler(nstk *stack.Stack, ep stack.LinkEndpoint, handler GICMPHan
 
 	// ICMPv6
 	nstk.SetTransportProtocolHandler(icmp.ProtocolNumber6, func(id stack.TransportEndpointID, packet *stack.PacketBuffer) bool {
-		log.V("icmp: v6 packet? %v", packet)
+		log.VV("icmp: v6 packet? %v", packet)
 
 		if packet == nil {
 			log.E("icmp: v6 nil packet")
@@ -209,7 +209,7 @@ func setupIcmpHandler(nstk *stack.Stack, ep stack.LinkEndpoint, handler GICMPHan
 		l3 := packet.NetworkHeader().View()
 		log.D("icmp: v6 type %v/%v sz[%d] from %v -> %v", icmpin.Type(), icmpin.Code(), dlen, src, dst)
 		if !handler.Ping(src, dst, data, func(reply []byte) error {
-			log.V("icmp: v6 reply %v", reply)
+			log.VV("icmp: v6 reply %v", reply)
 
 			icmpout := header.ICMPv6(reply)
 			if icmpout.Type() == header.ICMPv6DstUnreachable {

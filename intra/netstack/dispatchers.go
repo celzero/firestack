@@ -196,7 +196,7 @@ const cont = true   // cont indicates that the dispatcher should continue delive
 // dispatch reads one packet from the file descriptor and dispatches it.
 func (d *readVDispatcher) dispatch() (bool, tcpip.Error) {
 	done := d.closed.Load()
-	log.V("ns: tun(%d): dispatch: done? %t", d.fd, done)
+	log.VV("ns: tun(%d): dispatch: done? %t", d.fd, done)
 	if done {
 		return abort, new(tcpip.ErrAborted)
 	}
@@ -208,7 +208,7 @@ func (d *readVDispatcher) dispatch() (bool, tcpip.Error) {
 
 	n, err := rawfile.BlockingReadvUntilStopped(d.efd, d.fd, iov)
 
-	log.V("ns: tun(%d): dispatch: got(%d bytes), err(%v)", d.fd, n, err)
+	log.VV("ns: tun(%d): dispatch: got(%d bytes), err(%v)", d.fd, n, err)
 	if n <= 0 || err != nil {
 		if err == nil {
 			err = new(tcpip.ErrNoSuchFile)
@@ -251,7 +251,7 @@ func (d *readVDispatcher) dispatch() (bool, tcpip.Error) {
 		}
 	}
 
-	log.V("ns: tun(%d): dispatch: (from-tun) proto(%d) for pkt-id(%d)", d.fd, p, pkt.Hash)
+	log.VV("ns: tun(%d): dispatch: (from-tun) proto(%d) for pkt-id(%d)", d.fd, p, pkt.Hash)
 
 	go func() {
 		d.e.InjectInbound(p, pkt)

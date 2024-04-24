@@ -99,7 +99,7 @@ func sendNotif(l SocketListener, s *SocketSummary) {
 
 	ok1 := l != nil      // likely due to bugs
 	ok2 := len(s.ID) > 0 // likely due to bugs
-	log.V("intra: end? sendNotif(%t,%t): %s", ok1, ok2, s.str())
+	log.VV("intra: end? sendNotif(%t,%t): %s", ok1, ok2, s.str())
 	if ok1 && ok2 {
 		l.OnSocketClosed(s) // s.Duration may be uninitialized (zero)
 	}
@@ -247,7 +247,7 @@ func hasSelfUid(t []core.ConnTuple, d bool) bool {
 			return true
 		}
 	}
-	log.V("intra: hasSelfUid(%d): false; %v", len(t), t)
+	log.VV("intra: hasSelfUid(%d): false; %v", len(t), t)
 	return false // regardless of d
 }
 
