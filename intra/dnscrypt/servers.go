@@ -143,11 +143,10 @@ func (serversInfo *ServersInfo) unregisterServer(name string) (int, error) {
 }
 
 func (serversInfo *ServersInfo) registerServer(name string, stamp stamps.ServerStamp) {
-	newRegisteredServer := registeredserver{name: name, stamp: stamp}
 	serversInfo.Lock()
 	defer serversInfo.Unlock()
 
-	serversInfo.registeredServers[name] = newRegisteredServer
+	serversInfo.registeredServers[name] = registeredserver{name: name, stamp: stamp}
 }
 
 func (serversInfo *ServersInfo) refresh(proxy *DcMulti) ([]string, error) {
@@ -246,7 +245,7 @@ func fetchDNSCryptServerInfo(proxy *DcMulti, name string, stamp stamps.ServerSta
 	return si, nil
 }
 
-func fetchDoHServerInfo(proxy *DcMulti, name string, stamp stamps.ServerStamp) (serverinfo, error) {
+func fetchDoHServerInfo(_ *DcMulti, _ string, _ stamps.ServerStamp) (serverinfo, error) {
 	// FIXME: custom ip-address, user-certs, and cert-pinning not supported
 	return serverinfo{}, errors.New("unsupported protocol")
 }
