@@ -33,6 +33,7 @@ const (
 	NOOP     = x.NOOP
 	INTERNET = x.INTERNET
 
+	TNT = x.TNT
 	TZZ = x.TZZ
 	TUP = x.TUP
 	TOK = x.TOK

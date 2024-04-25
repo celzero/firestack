@@ -26,6 +26,7 @@ const ( // see ipn/proxies.go
 	INTERNET = "net"    // egress network, ex: Exit
 
 	// status of proxies
+	TNT = 2  // proxy UP but not responding
 	TZZ = 1  // proxy idle
 	TUP = 0  // proxy UP but not yet OK
 	TOK = -1 // proxy OK

@@ -811,29 +811,43 @@ func (h *wgtun) listener(op string, err error) {
 		return
 	}
 
-	if err == nil {
-		h.status = TOK
-	} else if op == "r" && timedout(err) {
+	s := TOK // assume err == nil
+	if op == "r" && timedout(err) {
 		// if status is "up" but writes (op == "w") have not yet happened
 		// then reads ("r") are expected to timeout; so ignore them
-		h.status = TZZ
-	} else {
-		h.status = TKO
+		neverRead := h.latestRx <= 0
+		wrote := h.latestTx > 0
+		if neverRead && wrote {
+			s = TNT // writes succeeded; but reads have never
+		} else {
+			s = TZZ // wirtes and reads have suceeded in the past
+		}
+	} else if err != nil {
+		s = TKO
 	}
 
-	if h.status == TOK && op == "r" {
+	if s == TOK && op == "r" {
 		h.latestRx = now()
-	} else if h.status == TOK && op == "w" {
+	} else if s == TOK && op == "w" {
 		h.latestTx = now()
 	}
 
-	if h.status == TKO && op == "r" {
+	writeElapsedMs := h.latestTx - h.latestRx // may be negative
+	// if no reads in 20s since last write, then mark as unresponsive
+	if s == TOK && writeElapsedMs > 20*1000 {
+		s = TNT
+	}
+
+	if s == TKO && op == "r" {
 		h.errRx++
-	} else if h.status == TKO && op == "w" {
+	} else if s == TKO && op == "w" {
 		h.errTx++
 	}
+
+	h.status = s
 }
 
+// now returns the current time in unix millis
 func now() int64 {
 	return time.Now().UnixMilli()
 }
