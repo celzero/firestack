@@ -815,9 +815,7 @@ func (h *wgtun) listener(op string, err error) {
 	if op == "r" && timedout(err) {
 		// if status is "up" but writes (op == "w") have not yet happened
 		// then reads ("r") are expected to timeout; so ignore them
-		neverRead := h.latestRx <= 0
-		wrote := h.latestTx > 0
-		if neverRead && wrote {
+		if h.latestRx <= 0 {
 			s = TNT // writes succeeded; but reads have never
 		} else {
 			s = TZZ // wirtes and reads have suceeded in the past
@@ -826,22 +824,23 @@ func (h *wgtun) listener(op string, err error) {
 		s = TKO
 	}
 
-	if s == TOK && op == "r" {
-		h.latestRx = now()
-	} else if s == TOK && op == "w" {
-		h.latestTx = now()
-	}
-
-	writeElapsedMs := h.latestTx - h.latestRx // may be negative
-	// if no reads in 20s since last write, then mark as unresponsive
-	if s == TOK && writeElapsedMs > 20*1000 {
-		s = TNT
-	}
-
-	if s == TKO && op == "r" {
-		h.errRx++
-	} else if s == TKO && op == "w" {
-		h.errTx++
+	if s == TOK {
+		if op == "r" {
+			h.latestRx = now()
+		} else if op == "w" {
+			h.latestTx = now()
+		}
+		writeElapsedMs := h.latestTx - h.latestRx // may be negative
+		// if no reads in 20s since last write, then mark as unresponsive
+		if writeElapsedMs > 20*1000 {
+			s = TNT
+		}
+	} else if s == TKO {
+		if op == "r" {
+			h.errRx++
+		} else if op == "w" {
+			h.errTx++
+		}
 	}
 
 	h.status = s
