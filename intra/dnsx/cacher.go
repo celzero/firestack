@@ -328,12 +328,21 @@ func (t *ctransport) fetch(network string, q []byte, msg *dns.Msg, summary *x.DN
 			return &cres{ans: xdns.AsMsg(ans), s: copySummary(fsmm)}, qerr
 		})
 
+		trok := t.hangover.Within(ttl10s)
 		cachedres, fresh := cb.freshCopy(key) // always prefer value from cache
 		if cachedres == nil {                 // use barrier response
-			cachedres = v.Val // never nil, even on errs; but cres.ans may be nil
-			log.D("cache: barrier: empty(%s); %s; typecast? %t", key, cachedres)
+			cachedres = v.Val.copy() // never nil, even on errs; but cres.ans may be nil
+			log.D("cache: barrier: empty(k: %s); barrier: %s", key, v.String())
 		} else if !fresh { // expect fresh values, except on verrs
-			log.W("cache: barrier: stale(%s); barrier: %s (cache: %s)", key, v.String(), cachedres.String())
+			log.W("cache: barrier: stale(k: %s); barrier: %s (cache: %s)", key, v.String(), cachedres.String())
+		}
+
+		if !trok {
+			log.D("cache: barrier: hangover(k: %s); discard ans", key)
+			// if there's no network connectivity (in hangover) don't
+			// return cached/barriered response; though, leave cachedres.s
+			// intact as it is used to fill in fsmm (see: asResponse)
+			cachedres.ans = nil
 		}
 
 		fres, cachedsmm, ferr := asResponse(msg, cachedres, true)
@@ -354,7 +363,7 @@ func (t *ctransport) fetch(network string, q []byte, msg *dns.Msg, summary *x.DN
 	if v, isfresh := cb.freshCopy(key); trok && v != nil {
 		var cachedsummary *x.DNSSummary
 
-		log.D("cache: hit(k: %s / stale? %t): %s, but stale? %t", key, !isfresh, v.str())
+		log.D("cache: hit(k: %s / stale? %t): %s", key, !isfresh, v.str())
 		r, cachedsummary, err = asResponse(msg, v, isfresh) // return cached response, may be stale
 		if err != nil {
 			log.W("cache: hit(k: %s) %s, but err? %v", key, v.str(), err)
