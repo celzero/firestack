@@ -47,6 +47,7 @@ const (
 var (
 	errNoQuestion            = errors.New("no question")
 	errNoAnswer              = errors.New("no answer")
+	errHangover              = errors.New("no connectivity")
 	errCacheResponseEmpty    = errors.New("empty cache response")
 	errCacheResponseMismatch = errors.New("cache response mismatch")
 )
@@ -328,7 +329,6 @@ func (t *ctransport) fetch(network string, q []byte, msg *dns.Msg, summary *x.DN
 			return &cres{ans: xdns.AsMsg(ans), s: copySummary(fsmm)}, qerr
 		})
 
-		trok := t.hangover.Within(ttl10s)
 		cachedres, fresh := cb.freshCopy(key) // always prefer value from cache
 		if cachedres == nil {                 // use barrier response
 			cachedres = v.Val.copy() // never nil, even on errs; but cres.ans may be nil
@@ -337,17 +337,27 @@ func (t *ctransport) fetch(network string, q []byte, msg *dns.Msg, summary *x.DN
 			log.W("cache: barrier: stale(k: %s); barrier: %s (cache: %s)", key, v.String(), cachedres.String())
 		}
 
-		if !trok {
+		// if there's no network connectivity (in hangover for 10s) don't
+		// return cached/barriered response, instead return an error
+		if !t.hangover.Within(ttl10s) {
 			log.D("cache: barrier: hangover(k: %s); discard ans", key)
-			// if there's no network connectivity (in hangover) don't
-			// return cached/barriered response; though, leave cachedres.s
-			// intact as it is used to fill in fsmm (see: asResponse)
-			cachedres.ans = nil
+			err := errors.Join(v.Err, errHangover)
+			// retain upstream
+			fsmm.Server = cachedres.s.Server
+			fsmm.RelayServer = cachedres.s.RelayServer
+			// retain query
+			fsmm.QName = cachedres.s.QName
+			fsmm.QType = cachedres.s.QType
+			// mimic send fail
+			fsmm.Msg = err.Error()
+			fsmm.RCode = dns.RcodeServerFailure
+			fsmm.Status = SendFailed
+			return nil, err
 		}
 
 		fres, cachedsmm, ferr := asResponse(msg, cachedres, true)
 		// fill summary regardless of errors
-		fillSummary(cachedsmm, fsmm) // cachedsmm may be equal to finalsumm
+		fillSummary(cachedsmm, fsmm) // cachedsmm may itself be fsmm
 
 		return fres, errors.Join(v.Err, ferr)
 	}
