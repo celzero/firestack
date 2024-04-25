@@ -1,4 +1,4 @@
-// Copyright (c) 2020 RethinkDNS and its authors.
+// Copyright (c) 2024 RethinkDNS and its authors.
 //
 // This Source Code Form is subject to the terms of the Mozilla Public
 // License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -41,14 +41,14 @@ func NewHangover() *Hangover {
 	return &Hangover{start: s}
 }
 
-func (h *Hangover) Start() {
+func (h *Hangover) Note() {
 	s := h.start.Load()
 	if s.IsZero() {
 		h.start.Cas(s, time.Now())
 	} // else: already started
 }
 
-func (h *Hangover) Stop() {
+func (h *Hangover) Break() {
 	s := h.start.Load()
 	if !s.IsZero() {
 		h.start.Cas(s, zerotime)

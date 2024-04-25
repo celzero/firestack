@@ -80,7 +80,7 @@ type ctransport struct {
 	bumps        int                  // max bumps in lifetime of a cached response
 	size         int                  // max size of a cache bucket
 	reqbarrier   *core.Barrier[*cres] // coalesce requests for the same query
-	hangover     *core.Hangover       // hangover for the transport
+	hangover     *core.Hangover       // tracks send failure threshold
 	est          core.P2QuantileEstimator
 }
 
@@ -306,6 +306,14 @@ func (t *ctransport) Type() string {
 	return t.Transport.Type()
 }
 
+func (t *ctransport) hangoverCheckpoint() {
+	if t.Status() == SendFailed {
+		t.hangover.Note()
+	} else {
+		t.hangover.Break()
+	}
+}
+
 func (t *ctransport) fetch(network string, q []byte, msg *dns.Msg, summary *x.DNSSummary, cb *cache, key string) (r []byte, err error) {
 	sendRequest := func(fsmm *x.DNSSummary) ([]byte, error) {
 		fsmm.ID = t.Transport.ID()
@@ -313,6 +321,7 @@ func (t *ctransport) fetch(network string, q []byte, msg *dns.Msg, summary *x.DN
 
 		v, _ := t.reqbarrier.Do(key, func() (*cres, error) {
 			ans, qerr := Req(t.Transport, network, q, fsmm)
+			t.hangoverCheckpoint()
 			// cb.put no-ops when len(ans) is 0
 			cb.put(key, ans, fsmm)
 			// cres.ans may be nil
@@ -339,12 +348,7 @@ func (t *ctransport) fetch(network string, q []byte, msg *dns.Msg, summary *x.DN
 	// no network connectivity but cache returns proper responses to queries,
 	// which results in confused apps that think there's network connectivity,
 	// that is, these confused apps go bezerk resulting in battery drain.
-	if t.Status() == SendFailed {
-		t.hangover.Start()
-	} else {
-		t.hangover.Stop()
-	}
-	// 10s hasn't elapsed since the first send failure
+	// has 10s elapsed since the first send failure
 	trok := t.hangover.Within(ttl10s)
 
 	if v, isfresh := cb.freshCopy(key); trok && v != nil {
