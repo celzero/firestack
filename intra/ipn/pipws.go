@@ -34,9 +34,9 @@ type pipws struct {
 	url         string         // ws proxy url
 	hostname    string         // ws proxy hostname
 	port        int            // ws proxy port
-	token       string         // hex, client token
+	token       string         // hex, raw client token
 	toksig      string         // hex, authorizer (rdns) signed client token
-	rsasig      string         // hex, authorizer unblinded signature
+	rsasighash  string         // hex, authorizer sha256(unblinded signature)
 	client      http.Client    // ws client
 	proxydialer *protect.RDial // ws dialer
 	hc          *http.Client   // exported http client
@@ -63,12 +63,12 @@ func (t *pipws) dial(network, addr string) (net.Conn, error) {
 func (t *pipws) wsconn(rurl, msg string) (c net.Conn, res *http.Response, err error) {
 	var ws *websocket.Conn
 	ctx := context.Background()
-	msgmac := t.claim(msg)
+	msgmac := t.claim(msg) // msg is url.Path
 	hdrs := http.Header{}
 	hdrs.Set("User-Agent", "")
 	if msgmac != nil {
-		hdrs.Set("x-nile-pip-claim", msgmac[0])
-		hdrs.Set("x-nile-pip-mac", msgmac[1])
+		hdrs.Set("x-nile-pip-claim", msgmac[0]) // client token (po.User)
+		hdrs.Set("x-nile-pip-mac", msgmac[1])   // hmac derived from token-sig (po.Password)
 		// msg is implicitly hex(sha256(url.Path))
 		// hdrs.Set("x-nile-pip-msg", msg)
 	}
@@ -91,6 +91,10 @@ func (t *pipws) wsconn(rurl, msg string) (c net.Conn, res *http.Response, err er
 	return
 }
 
+// NewPipWsProxy creates a new pipws proxy with the given id, controller, and proxy options.
+// The proxy options must contain a valid URL, and the URL must have a path with the format "/ws/<sha256(rsasig)>".
+// The proxy options must also contain a valid auth user (raw client token) and
+// password (expiry + signed raw client token).
 func NewPipWsProxy(id string, ctl protect.Controller, po *settings.ProxyOptions) (Proxy, error) {
 	if po == nil {
 		return nil, errMissingProxyOpt
@@ -132,7 +136,7 @@ func NewPipWsProxy(id string, ctl protect.Controller, po *settings.ProxyOptions)
 		proxydialer: dialer,
 		token:       po.Auth.User,
 		toksig:      po.Auth.Password,
-		rsasig:      splitpath[2],
+		rsasighash:  splitpath[2],
 		status:      TUP,
 	}
 	t.rd = newRDial(t)
@@ -186,7 +190,7 @@ func (t *pipws) claim(msg string) []string {
 	if len(t.token) == 0 || len(t.toksig) == 0 {
 		return nil
 	}
-	// hmac msg keyed by token's sig
+	// hmac(msg aka url.path) keyed to hmac-signed(token)
 	msgmac := hmac256(hex2byte(msg), hex2byte(t.toksig))
 	return []string{t.token, byte2hex(msgmac)}
 }
@@ -212,7 +216,7 @@ func (t *pipws) Dial(network, addr string) (protect.Conn, error) {
 	if !strings.HasSuffix(u.Path, "/") {
 		u.Path += "/"
 	}
-	u.Path += domain + "/" + port + "/" + t.rsasig
+	u.Path += domain + "/" + port + "/" + t.rsasighash
 
 	msg := hexurl(u.Path)
 

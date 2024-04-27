@@ -163,9 +163,10 @@ func (k *pipkey) Blind() (string, error) {
 	salt := verifierState.CopySalt()
 
 	k.blindMsg = blindMsg
-	k.id = hmac256(k.blindMsg, k.pubkey.N.Bytes())
+	k.id = hmac256(k.blindMsg, k.pubkey.N.Bytes()) // must match with server-side impl
 	k.rsavp1state = verifierState
 
+	// existing state; id : blindMsg : r : salt : msg
 	return byte2hex(k.id) +
 		delim + byte2hex(blindMsg) +
 		delim + byte2hex(r) +
