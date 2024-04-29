@@ -68,7 +68,7 @@ type pipkey struct {
 	pubkey      *rsa.PublicKey
 	rsavp1      *blindrsa.RSAVerifier
 	rsavp1state blindsign.VerifierState
-	id          []byte // 64 bytes id derived from blindMsg
+	id          []byte // 64 bytes id derived from hmac(m=blindMsg, k=pubkey)
 	msg         []byte // 32 bytes random msg specific to this key
 	blindMsg    []byte // 256 bytes blindMsg derived from msg, r, salt
 }
