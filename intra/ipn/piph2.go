@@ -312,7 +312,13 @@ func (t *piph2) Dial(network, addr string) (protect.Conn, error) {
 		closePipe(readable, writable)
 		return nil, err
 	}
-	msg := hexurl(u.Path)
+
+	msg := fixedMsgHex // 16 bytes; fixed
+	if uniqClaimPerUrl {
+		msg = hexurl(u.Path) // 32 bytes; per url
+	} else {
+		u.Path = u.Path + "/" + msg
+	}
 
 	trace := httptrace.ClientTrace{
 		GetConn: func(hostPort string) {

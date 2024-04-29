@@ -25,7 +25,9 @@ import (
 )
 
 const (
-	writeTimeout time.Duration = 10 * time.Second
+	writeTimeout    time.Duration = 10 * time.Second
+	uniqClaimPerUrl               = false                              // generate a new claim per url
+	fixedMsgHex                   = "aecdcde241e3196f2252738c11467baf" // some fixed hex; 16 bytes
 )
 
 type pipws struct {
@@ -63,10 +65,11 @@ func (t *pipws) dial(network, addr string) (net.Conn, error) {
 func (t *pipws) wsconn(rurl, msg string) (c net.Conn, res *http.Response, err error) {
 	var ws *websocket.Conn
 	ctx := context.Background()
-	msgmac := t.claim(msg) // msg is url.Path
+	msgmac := t.claim(msg) // msg is hex(sha256(url.Path)) or fixedMsgHex
 	hdrs := http.Header{}
 	hdrs.Set("User-Agent", "")
 	if msgmac != nil {
+		hdrs.Set("x-nile-pip-msg", msg)
 		hdrs.Set("x-nile-pip-claim", msgmac[0]) // client token (po.User)
 		hdrs.Set("x-nile-pip-mac", msgmac[1])   // hmac derived from token-sig (po.Password)
 		// msg is implicitly hex(sha256(url.Path))
@@ -218,7 +221,12 @@ func (t *pipws) Dial(network, addr string) (protect.Conn, error) {
 	}
 	u.Path += domain + "/" + port + "/" + t.rsasighash
 
-	msg := hexurl(u.Path)
+	msg := fixedMsgHex // 16 bytes; fixed
+	if uniqClaimPerUrl {
+		msg = hexurl(u.Path) // 32 bytes; per url
+	} else {
+		u.Path = u.Path + "/" + msg
+	}
 
 	rurl := u.String()
 	c, res, err := t.wsconn(rurl, msg)
