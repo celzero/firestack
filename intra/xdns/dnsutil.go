@@ -1159,6 +1159,17 @@ func AQuadAUnspecified(msg *dns.Msg) bool {
 	return false
 }
 
+func IsServFailOrInvalid(q []byte) bool {
+	if len(q) <= 0 {
+		return true // invalid
+	}
+	msg := new(dns.Msg)
+	if err := msg.Unpack(q); err != nil {
+		return true // invalid
+	}
+	return msg.Rcode == dns.RcodeServerFailure // servfail
+}
+
 // Servfail returns a SERVFAIL response to the query q.
 func Servfail(q []byte) []byte {
 	msg := &dns.Msg{}

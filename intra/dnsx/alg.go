@@ -883,7 +883,7 @@ func synthesizeOrQuery(pre []*netip.Addr, tr Transport, q []byte, network string
 }
 
 // Req sends q to transport t and returns the answer, if any;
-// errors are unset unless answer is empty;
+// errors are unset if answer is not servfail or empty;
 // smm, the in/out parameter, is dns summary as got from t.
 func Req(t Transport, network string, q []byte, smm *x.DNSSummary) ([]byte, error) {
 	if t == nil {
@@ -897,7 +897,7 @@ func Req(t Transport, network string, q []byte, smm *x.DNSSummary) ([]byte, erro
 		smm = discarded
 	}
 	r, err := t.Query(network, q, smm)
-	if len(r) > 0 {
+	if len(r) > 0 && !xdns.IsServFailOrInvalid(r) {
 		return r, nil
 	}
 	return r, err
