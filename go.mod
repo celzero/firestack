@@ -12,6 +12,8 @@ require (
 	golang.org/x/sys v0.17.0
 )
 
+require github.com/opencoff/go-sieve v0.2.1
+
 require (
 	github.com/cloudflare/circl v1.3.3
 	github.com/cloudflare/odoh-go v1.0.0
