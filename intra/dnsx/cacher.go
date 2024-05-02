@@ -48,7 +48,7 @@ var (
 	errNoQuestion            = errors.New("no question")
 	errNoAnswer              = errors.New("no answer")
 	errHangover              = errors.New("no connectivity")
-	errCacheResponseEmpty    = errors.New("empty cache response")
+	errNilCacheResponse      = errors.New("nil cache response")
 	errCacheResponseMismatch = errors.New("cache response mismatch")
 )
 
@@ -237,7 +237,7 @@ func (cb *cache) put(key string, val []byte, s *x.DNSSummary) (ok bool) {
 	cb.mu.Lock()
 	defer cb.mu.Unlock()
 
-	if rand.Intn(99999) < 33000 { // 33% of the time
+	if rand33pc() { // 33% of the time
 		go cb.scrubCache()
 	}
 
@@ -275,8 +275,8 @@ func asResponse(q *dns.Msg, v *cres, fresh bool) (r []byte, s *x.DNSSummary, err
 		err = errNoQuestion
 		return
 	}
-	if a == nil {
-		err = errCacheResponseEmpty
+	if a == nil { // cache ans may be "empty" but should not be nil
+		err = errNilCacheResponse
 		return
 	}
 	aname, _ := xdns.NormalizeQName(xdns.QName(q))
@@ -488,4 +488,8 @@ func fillSummary(s *x.DNSSummary, other *x.DNSSummary) {
 	other.Status = s.Status
 	other.Blocklists = s.Blocklists
 	other.UpstreamBlocks = s.UpstreamBlocks
+}
+
+func rand33pc() bool {
+	return rand.Intn(99999) < 33000
 }
