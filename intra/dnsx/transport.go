@@ -310,13 +310,15 @@ func (r *resolver) forward(q []byte, chosenids ...string) (res0 []byte, err0 err
 	summary := &x.DNSSummary{
 		QName:  invalidQname,
 		Status: Start,
+		Msg:    noerr.Error(),
 	}
 	// always call up to the listener
 	defer func() {
 		if err0 != nil {
 			summary.Msg = err0.Error()
-		} else {
-			summary.Msg = noerr.Error()
+		} // else: preserve msg from Transport.Query
+		if settings.Debug {
+			summary.Latency = time.Since(starttime).Seconds()
 		}
 		go r.listener.OnResponse(summary)
 	}()
