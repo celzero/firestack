@@ -121,8 +121,12 @@ func NewCachingTransport(t Transport, ttl time.Duration) Transport {
 }
 
 func (c *cres) copy() *cres {
+	var anscopy *dns.Msg
+	if c.ans != nil {
+		anscopy = c.ans.Copy()
+	}
 	return &cres{
-		ans:    c.ans.Copy(),
+		ans:    anscopy,
 		s:      copySummary(c.s),
 		expiry: c.expiry,
 		bumps:  c.bumps,
@@ -316,7 +320,7 @@ func (t *ctransport) fetch(network string, q *dns.Msg, summary *x.DNSSummary, cb
 		v, _ := t.reqbarrier.Do(key, func() (*cres, error) {
 			ans, qerr := Req(t.Transport, network, q, fsmm)
 			t.hangoverCheckpoint()
-			// cb.put no-ops when len(ans) is 0
+			// cb.put no-ops when ans is nil or xdns.Len(ans) is 0
 			cb.put(key, ans, fsmm)
 			// cres.ans may be nil
 			return &cres{ans: ans, s: copySummary(fsmm)}, qerr
