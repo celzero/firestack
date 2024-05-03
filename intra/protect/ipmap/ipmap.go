@@ -32,6 +32,7 @@ import (
 	"sync/atomic"
 
 	"github.com/celzero/firestack/intra/log"
+	"github.com/celzero/firestack/intra/protect"
 )
 
 const maxFailLimit = 4
@@ -71,7 +72,8 @@ type IPMap interface {
 type ipmap struct {
 	sync.RWMutex
 	m map[string]*IPSet
-	r IPMapper // always the default system resolver
+	p map[string]*IPSet // protected ips; immutable, never cleared
+	r IPMapper          // always the default system resolver
 }
 
 // IPSet represents an unordered collection of IP addresses for a single host.
@@ -93,6 +95,7 @@ func NewIPMap() IPMap {
 func NewIPMapFor(r IPMapper) IPMap {
 	return &ipmap{
 		m: make(map[string]*IPSet),
+		p: make(map[string]*IPSet),
 		r: r, // may be nil
 	}
 }
@@ -142,12 +145,15 @@ func (m *ipmap) GetAny(hostOrIP string) *IPSet {
 	return m.get(hostOrIP) // may be empty
 }
 
-func (m *ipmap) get(hostOrIP string) *IPSet {
+func (m *ipmap) get(hostOrIP string) (s *IPSet) {
 	if host, _, err := net.SplitHostPort(hostOrIP); err == nil {
 		hostOrIP = host
 	}
+
+	mm := m.mm(hostOrIP)
+
 	m.RLock()
-	s := m.m[hostOrIP]
+	s = mm[hostOrIP]
 	m.RUnlock()
 
 	if s == nil {
@@ -165,12 +171,21 @@ func (m *ipmap) MakeIPSet(hostOrIP string, ipps []string) *IPSet {
 	return m.makeIPSet(hostOrIP, ipps)
 }
 
+func (m *ipmap) mm(hostname string) (mm map[string]*IPSet) {
+	if protect.NeverResolve(hostname) {
+		return m.p
+	}
+	return m.m
+}
 func (m *ipmap) makeIPSet(hostname string, ipps []string) *IPSet {
 	log.D("ipmap: makeIPSet: %s, seed: %v", hostname, ipps)
 
 	if ipps == nil {
 		ipps = []string{}
 	}
+
+	mm := m.mm(hostname)
+
 	// TODO: disallow confirm/disconfirm if hostname is an IP address
 	s := &IPSet{r: m, seed: ipps}
 	if ip, err := netip.ParseAddr(hostname); err == nil && !ip.IsUnspecified() && ip.IsValid() {
@@ -186,7 +201,7 @@ func (m *ipmap) makeIPSet(hostname string, ipps []string) *IPSet {
 	s.bootstrap()
 
 	m.Lock()
-	m.m[hostname] = s
+	mm[hostname] = s
 	m.Unlock()
 
 	return s

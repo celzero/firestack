@@ -13,6 +13,7 @@ import (
 	"strconv"
 
 	"github.com/celzero/firestack/intra/log"
+	"github.com/celzero/firestack/intra/protect"
 	"github.com/celzero/firestack/intra/protect/ipmap"
 	"github.com/celzero/firestack/intra/settings"
 )
@@ -45,6 +46,11 @@ func udpaddr(ip netip.Addr, port int) *net.UDPAddr {
 
 // Resolves hostOrIP, and re-seeds it if existing is non-empty
 func renew(hostOrIP string, existing *ipmap.IPSet) (cur *ipmap.IPSet, ok bool) {
+	// will never be able to resolve protected hosts (UidSelf, UidRethink),
+	// except for the seed addrs.
+	if protect.NeverResolve(hostOrIP) {
+		return New(hostOrIP, existing.Seed())
+	}
 	if existing.Empty() {
 		// if empty, discard seed, re-resolve hostOrIP; oft times, ipset is
 		// empty when its ips have been disconfirmed beyond some threshold
@@ -117,7 +123,7 @@ func IPProtos(ippro string) {
 }
 
 func Clear() {
-	ipm.Clear()
+	ipm.Clear() // does not remove UidSelf, UidSystem
 }
 
 // Confirm marks addr as preferred for hostOrIP
