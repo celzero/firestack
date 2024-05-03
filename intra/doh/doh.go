@@ -203,17 +203,16 @@ func newTransport(typ, id, rawurl, target string, addrs []string, px ipn.Proxies
 	}
 
 	// Supply a client certificate during TLS handshakes.
-	if auth != nil {
-		signer := newClientAuthWrapper(auth)
-		t.tlsconfig = &tls.Config{
-			GetClientCertificate: signer.GetClientCertificate,
-			// ServerName:           t.hostname,
-		}
-	} else {
-		t.tlsconfig = &tls.Config{
-			InsecureSkipVerify: skipTLSVerify,
-			// ServerName:         t.hostname,
-		}
+	// if auth != nil {
+	// 	signer := newClientAuthWrapper(auth)
+	// 	t.tlsconfig = &tls.Config{
+	// 		GetClientCertificate: signer.GetClientCertificate,
+	// 		ServerName:           t.hostname,
+	// 	}
+	// }
+	t.tlsconfig = &tls.Config{
+		InsecureSkipVerify: skipTLSVerify,
+		// ServerName:         t.hostname,
 	}
 	// Override the dial function.
 	t.client.Transport = &http.Transport{
