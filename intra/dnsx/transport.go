@@ -399,6 +399,11 @@ func (r *resolver) forward(q []byte, chosenids ...string) (res0 []byte, err0 err
 		// summary latency, ips, response, status already set by transport t
 		return res2, err
 	}
+	// very unlikely that ans1 is nil but err is not
+	if ans1 == nil {
+		summary.Status = NoResponse // TODO: servfail?
+		return res2, err
+	}
 
 	res2, err = ans1.Pack()
 	if err != nil {

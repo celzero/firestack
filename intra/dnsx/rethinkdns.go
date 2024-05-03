@@ -310,7 +310,12 @@ func (r *rethinkdnslocal) blockQuery(msg *dns.Msg) (blocklists string, err error
 }
 
 func (r *rethinkdnslocal) blockAnswer(msg *dns.Msg) (blocklists string, err error) {
-	if len(msg.Answer) <= 1 {
+	if msg == nil {
+		err = errNoAnswer
+		return
+	}
+	ans := msg.Answer
+	if len(ans) <= 1 {
 		err = errNotEnoughAnswers
 		return
 	}
@@ -325,7 +330,7 @@ func (r *rethinkdnslocal) blockAnswer(msg *dns.Msg) (blocklists string, err erro
 
 	// handle cname, https/svcb name cloaking: news.ycombinator.com/item?id=26298339
 	// adopted from: github.com/DNSCrypt/dnscrypt-proxy/blob/6e8628f79/dnscrypt-proxy/plugin_block_name.go#L178
-	for _, a := range msg.Answer {
+	for _, a := range ans {
 		var target string
 		switch rr := a.(type) {
 		case *dns.CNAME:
