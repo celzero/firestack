@@ -339,12 +339,7 @@ func (t *ctransport) fetch(network string, q *dns.Msg, summary *x.DNSSummary, cb
 		if !t.hangover.Within(ttl10s) {
 			log.D("cache: barrier: hangover(k: %s); discard ans", key)
 			err := errors.Join(v.Err, errHangover)
-			// retain upstream
-			fsmm.Server = cachedres.s.Server
-			fsmm.RelayServer = cachedres.s.RelayServer
-			// retain query
-			fsmm.QName = cachedres.s.QName
-			fsmm.QType = cachedres.s.QType
+			fillSummary(cachedres.s, fsmm)
 			// mimic send fail
 			fsmm.Msg = err.Error()
 			fsmm.RCode = dns.RcodeServerFailure
@@ -475,7 +470,6 @@ func fillSummary(s *x.DNSSummary, other *x.DNSSummary) {
 	if len(s.RData) != 0 {
 		other.RData = s.RData
 	}
-	// RcodeSuccess = 0
 	other.RCode = s.RCode
 	other.RTtl = s.RTtl
 	other.Server = s.Server
