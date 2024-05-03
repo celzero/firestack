@@ -20,7 +20,7 @@ type NatPt interface {
 
 type DNS64 interface {
 	// Add64 registers DNS64 resolver f to id.
-	Add64(id string, f Transport) bool
+	Add64(f Transport) bool
 	// Remove64 deregisters any current resolver from id.
 	Remove64(id string) bool
 	// ResetNat64Prefix sets the NAT64 prefix for transport id to ip6prefix.
@@ -28,7 +28,7 @@ type DNS64 interface {
 	// D64 synthesizes ans64 (AAAA) from ans6 if required, using resolver f.
 	// Returned ans64 is nil if no DNS64 synthesis is needed (not AAAA).
 	// Returned ans64 is ans6 if it already has AAAA records.
-	D64(id string, ans6 []byte, f Transport) []byte
+	D64(network string, ans6 *dns.Msg, f Transport) *dns.Msg
 }
 
 type NAT64 interface {

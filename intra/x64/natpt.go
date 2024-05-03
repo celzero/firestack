@@ -12,6 +12,7 @@ import (
 	"github.com/celzero/firestack/intra/dnsx"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/settings"
+	"github.com/miekg/dns"
 )
 
 // app    |  interface  |  pt        |  who    |  internet?
@@ -52,9 +53,9 @@ func NewNatPt(tunmode *settings.TunMode) dnsx.NatPt {
 }
 
 // D64 Implements DNS64.
-func (pt *natPt) D64(id string, ans6 []byte, f dnsx.Transport) []byte {
+func (pt *natPt) D64(network string, ans6 *dns.Msg, f dnsx.Transport) *dns.Msg {
 	if pt.do64() {
-		return pt.dns64.eval(id, pt.force64(), ans6, f)
+		return pt.dns64.eval(network, pt.force64(), ans6, f)
 	}
 	return nil
 }
@@ -77,6 +78,7 @@ func (n *natPt) IsNat64(id string, ip []byte) bool {
 
 // X64 Implements NAT64.
 func (n *natPt) X64(id string, rawip6 []byte) []byte {
+	id = id64(id)
 	ip6 := net.IP(rawip6)
 	if len(ip6) != net.IPv6len {
 		log.D("natpt: ip6(%v) len(%d) != 16", ip6, len(ip6))
@@ -119,13 +121,13 @@ func (n *natPt) X64(id string, rawip6 []byte) []byte {
 }
 
 // Add64 implements DNS64.
-func (h *natPt) Add64(id string, f dnsx.Transport) bool {
-	return h.dns64.AddResolver(id, f)
+func (h *natPt) Add64(f dnsx.Transport) bool {
+	return h.dns64.AddResolver(ID64(f), f)
 }
 
 // Remove64 implements DNS64.
 func (h *natPt) Remove64(id string) bool {
-	return h.dns64.RemoveResolver(id)
+	return h.dns64.RemoveResolver(id64(id))
 }
 
 func (n *natPt) ResetNat64Prefix(ip6prefix string) bool {
@@ -173,4 +175,19 @@ func match(nets []*net.IPNet, ip net.IP) *net.IPNet {
 		}
 	}
 	return nil
+}
+
+func ID64(t dnsx.Transport) string {
+	return id64(t.ID())
+}
+
+func id64(tid string) string {
+	switch tid {
+	case dnsx.System:
+		return dnsx.UnderlayResolver
+	case dnsx.Goos:
+		return dnsx.OverlayResolver
+	default:
+		return tid
+	}
 }
