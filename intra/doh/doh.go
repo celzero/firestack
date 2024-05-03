@@ -105,8 +105,7 @@ func NewOdohTransport(id, endpoint, target string, addrs []string, px ipn.Proxie
 }
 
 func newTransport(typ, id, rawurl, target string, addrs []string, px ipn.Proxies, ctl protect.Controller) (*transport, error) {
-	// TODO: client auth
-	var auth ClientAuth
+	// TODO: ClientAuth
 	skipTLSVerify := false
 	isodoh := typ == dnsx.ODOH
 
