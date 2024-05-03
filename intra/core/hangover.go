@@ -62,3 +62,7 @@ func (h *Hangover) Within(d time.Duration) bool {
 	}
 	return time.Since(s) <= d
 }
+
+func (h *Hangover) Exceeds(d time.Duration) bool {
+	return !h.Within(d)
+}
