@@ -10,7 +10,6 @@ import (
 	"encoding/binary"
 	"errors"
 	"hash/fnv"
-	"net"
 	"net/netip"
 	"strconv"
 	"strings"
@@ -758,16 +757,14 @@ func (t *dnsgateway) maybeUndoNat64(realips ...*netip.Addr) (unnat []*netip.Addr
 		// DNS query is not available. But, we needn't worry about UN-NAT64'ing other resolvers
 		// except the one we "force" onto the clients (aka dnsx.Local464Resolver).
 		// whether the active network has ipv4 connectivity is checked by dialers.filter()
-		ipx4 := net.IP(t.dns64.X64(Local464Resolver, unmapped.AsSlice())) // ipx4 may be nil
-		if len(ipx4) < net.IPv4len {                                      // no nat?
-			log.D("alg: dns64: maybeUndoNat64: No local nat64 to ip4(%v) for ip6(%v)", ipx4, nip)
+		ipx4 := t.dns64.X64(Local464Resolver, unmapped) // ipx4 may be zero addr
+		if !ipok(ipx4) {                                // no nat?
+			log.D("alg: dns64: maybeUndoNat64: No local nat64 to ip4(%v) for ip6(%v); ip not ok", ipx4, nip)
 			continue
 		}
 		log.D("alg: dns64: maybeUndoNat64: nat64 to ip4(%v) from ip6(%v)", ipx4, nip)
-		if nipx4, ok := netip.AddrFromSlice(ipx4); ok {
-			unmapped4 := nipx4.Unmap()
-			unnat = append(unnat, &unmapped4)
-		}
+		unmapped4 := ipx4.Unmap()
+		unnat = append(unnat, &unmapped4)
 	}
 	return
 }
@@ -931,4 +928,8 @@ func idstr(t Transport) string {
 		return notransport
 	}
 	return t.ID()
+}
+
+func ipok(ip netip.Addr) bool {
+	return !ip.IsUnspecified() && ip.IsValid()
 }

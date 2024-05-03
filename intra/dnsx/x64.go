@@ -6,7 +6,11 @@
 
 package dnsx
 
-import "github.com/miekg/dns"
+import (
+	"net/netip"
+
+	"github.com/miekg/dns"
+)
 
 // ref: datatracker.ietf.org/doc/html/rfc8880
 const Rfc7050WKN = "ipv4only.arpa."
@@ -35,8 +39,8 @@ type DNS64 interface {
 
 type NAT64 interface {
 	// Returns true if ip is a NAT64 address from transport id.
-	IsNat64(id string, ip []byte) bool
+	IsNat64(id string, ip netip.Addr) bool
 	// Translates ip to IPv4 using the NAT64 prefix for transport id.
 	// As a special case, ip is zero addr, output is always IPv4 zero addr.
-	X64(id string, ip []byte) []byte
+	X64(id string, ip netip.Addr) netip.Addr
 }
