@@ -24,12 +24,11 @@
 package doh
 
 import (
-	"golang.org/x/net/dns/dnsmessage"
+	"github.com/miekg/dns"
 )
 
 const (
-	OptResourcePaddingCode = 12
-	PaddingBlockSize       = 128 // RFC8467 recommendation
+	PaddingBlockSize = 128 // RFC8467 recommendation
 )
 
 const kOptRrHeaderLen int = 1 + // DOMAIN NAME
@@ -46,8 +45,7 @@ const kOptPaddingHeaderLen int = 2 + // OPTION-CODE
 // OPT RR with no RFC7830 padding option, and that the message is fully
 // label-compressed.
 func computePaddingSize(msgLen int, blockSize int) int {
-	// We'll always be adding a new padding header inside the OPT
-	// RR's data.
+	// always add a new padding header inside the OPT RR's data.
 	extraPadding := kOptPaddingHeaderLen
 
 	padSize := blockSize - (msgLen+extraPadding)%blockSize
@@ -56,71 +54,48 @@ func computePaddingSize(msgLen int, blockSize int) int {
 
 // Create an appropriately-sized padding option. Precondition: |msgLen| is the
 // length of a message that already contains an OPT RR.
-func getPadding(msgLen int) dnsmessage.Option {
-	optPadding := dnsmessage.Option{
-		Code: OptResourcePaddingCode,
-		Data: make([]byte, computePaddingSize(msgLen, PaddingBlockSize)),
+func optPadding(msgLen int) dns.EDNS0 {
+	return &dns.EDNS0_PADDING{
+		Padding: make([]byte, computePaddingSize(msgLen, PaddingBlockSize)),
 	}
-	return optPadding
 }
 
 // Add EDNS padding, as defined in RFC7830, to a raw DNS message.
-func AddEdnsPadding(rawMsg []byte) ([]byte, error) {
-	var msg dnsmessage.Message
-	if err := msg.Unpack(rawMsg); err != nil {
-		return nil, err
-	}
-
-	// Search for OPT resource and save |optRes| pointer if possible.
-	var optRes *dnsmessage.OPTResource = nil
-	for _, additional := range msg.Additionals {
-		switch body := additional.Body.(type) {
-		case *dnsmessage.OPTResource:
-			optRes = body
-		}
-	}
-	if optRes != nil {
-		// Search for a padding Option. If the message already contains
-		// padding, we will respect the stub resolver's padding.
-		for _, option := range optRes.Options {
-			if option.Code == OptResourcePaddingCode {
-				return rawMsg, nil
+func AddEdnsPadding(msg *dns.Msg) (*dns.Msg, error) {
+	var opt *dns.OPT
+	for _, addn := range msg.Extra {
+		if dns.TypeOPT == addn.Header().Rrtype {
+			var ok bool
+			opt, ok = addn.(*dns.OPT)
+			if ok {
+				msg.Compress = true
+				break
 			}
 		}
-		// At this point, |optRes| points to an OPTResource that does
-		// not contain a padding option.
-	} else {
-		// Create an empty OPTResource (contains no padding option) and
-		// push it into |msg.Additionals|.
-		optRes = &dnsmessage.OPTResource{
-			Options: []dnsmessage.Option{},
+	}
+	if opt != nil {
+		for _, option := range opt.Option {
+			if option.Option() == dns.EDNS0PADDING {
+				return msg, nil // already padded
+			}
+		} // fallthrough
+	} else { // create opt
+		opt = &dns.OPT{
+			Hdr: dns.RR_Header{
+				Name:   ".", // RFC 6891 section 6.1.2
+				Rrtype: dns.TypeOPT,
+				Class:  65535,
+				Ttl:    dns.RcodeSuccess >> 4 << 24, // todo: TTL for dnssec 32768
+			},
+			Option: make([]dns.EDNS0, 0),
 		}
-
-		optHeader := dnsmessage.ResourceHeader{}
-		// SetEDNS0(udpPayloadLen int, extRCode RCode, dnssecOK bool) error
-		err := optHeader.SetEDNS0(65535, dnsmessage.RCodeSuccess, false)
-		if err != nil {
-			return nil, err
-		}
-
-		msg.Additionals = append(msg.Additionals, dnsmessage.Resource{
-			Header: optHeader,
-			Body:   optRes,
-		})
+		msg.Compress = true
+		msg.Extra = append(msg.Extra, opt)
 	}
 	// At this point, |msg| contains an OPT resource, and that OPT resource
-	// does not contain a padding option.
+	// does not contain a padding option. Add the padding option to |msg| that
+	// will round its size on the wire up to the nearest block.
+	opt.Option = append(opt.Option, optPadding(msg.Len()))
 
-	// Compress the message to determine its size before padding.
-	compressedMsg, err := msg.Pack()
-	if err != nil {
-		return nil, err
-	}
-	// Add the padding option to |msg| that will round its size on the wire
-	// up to the nearest block.
-	paddingOption := getPadding(len(compressedMsg))
-	optRes.Options = append(optRes.Options, paddingOption)
-
-	// Re-pack the message, with compression unconditionally enabled.
-	return msg.Pack()
+	return msg, nil
 }
