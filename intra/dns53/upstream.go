@@ -8,7 +8,6 @@ package dns53
 
 import (
 	"errors"
-	"fmt"
 	"net"
 	"net/netip"
 	"strings"
@@ -118,24 +117,6 @@ func NewTransportFrom(id string, ipp netip.AddrPort, px ipn.Proxies, ctl protect
 	return newTransport(id, do, px, ctl)
 }
 
-// Given a raw DNS query (including the query ID), this function sends the
-// query.  If the query is successful, it returns the response and a nil qerr.  Otherwise,
-// it returns a SERVFAIL response and a qerr with a status value indicating the cause.
-func (t *transport) doQuery(network, pid string, q []byte) (response []byte, elapsed time.Duration, qerr *dnsx.QueryError) {
-	if len(q) < 2 {
-		qerr = dnsx.NewBadQueryError(fmt.Errorf("dns53: query length is %d", len(q)))
-		return
-	}
-
-	response, elapsed, qerr = t.send(network, pid, q)
-
-	if qerr != nil { // only on send-request errors
-		response = xdns.Servfail(q)
-	}
-
-	return
-}
-
 func (t *transport) pxdial(network, pid string) (conn *dns.Conn, err error) {
 	var px ipn.Proxy
 	if t.relay != nil { // relay takes precedence
@@ -176,11 +157,9 @@ func (t *transport) dial(network string) (*dns.Conn, error) {
 }
 
 // ref: github.com/celzero/midway/blob/77ede02c/midway/server.go#L179
-func (t *transport) send(network, pid string, q []byte) (response []byte, elapsed time.Duration, qerr *dnsx.QueryError) {
-	var ans *dns.Msg
+func (t *transport) send(network, pid string, q *dns.Msg) (ans *dns.Msg, elapsed time.Duration, qerr *dnsx.QueryError) {
 	var err error
-	msg := xdns.AsMsg(q)
-	if msg == nil {
+	if q == nil || !xdns.HasAnyQuestion(q) {
 		qerr = dnsx.NewBadQueryError(errQueryParse)
 		return
 	}
@@ -211,38 +190,37 @@ func (t *transport) send(network, pid string, q []byte) (response []byte, elapse
 
 	log.V("dns53: send: (%s / %s) to %s using udp? %t / px? %t / relay? %t; err? %v", network, t.id, t.addrport, useudp, useproxy, userelay, err)
 
-	if err == nil { // send query
-		t.lastaddr = remoteAddrIfAny(conn) // may return empty string
-		ans, elapsed, err = t.client.ExchangeWithConn(msg, conn)
-		clos(conn) // TODO: conn pooling w/ ExchangeWithConn
-		if err != nil {
-			qerr = dnsx.NewSendFailedQueryError(err)
-		} else if ans == nil {
-			qerr = dnsx.NewBadResponseQueryError(err)
-		} else {
-			response, err = ans.Pack()
-			if err != nil { // cannot dial or err packing
-				qerr = dnsx.NewBadResponseQueryError(err)
-			}
-		}
-		return
-	} else {
+	if err != nil {
 		qerr = dnsx.NewClientQueryError(err)
 		return
+	} // else: send query
+
+	t.lastaddr = remoteAddrIfAny(conn) // may return empty string
+	ans, elapsed, err = t.client.ExchangeWithConn(q, conn)
+	clos(conn) // TODO: conn pooling w/ ExchangeWithConn
+	if err != nil {
+		qerr = dnsx.NewSendFailedQueryError(err)
+	} else if ans == nil {
+		qerr = dnsx.NewBadResponseQueryError(err)
 	}
+
+	return
 }
 
-func (t *transport) Query(network string, q []byte, smm *x.DNSSummary) (r []byte, err error) {
+func (t *transport) Query(network string, q *dns.Msg, smm *x.DNSSummary) (ans *dns.Msg, err error) {
 	proto, pid := xdns.Net2ProxyID(network)
-	response, elapsed, qerr := t.doQuery(proto, pid, q)
+
+	ans, elapsed, qerr := t.send(proto, pid, q)
+	if qerr != nil { // only on send-request errors
+		ans = xdns.Servfail(q)
+	}
 
 	status := dnsx.Complete
 	if qerr != nil {
 		err = qerr.Unwrap()
 		status = qerr.Status()
-		log.W("dns53: err(%v) / size(%d)", err, len(response))
+		log.W("dns53: err(%v) / size(%d)", err, xdns.Len(ans))
 	}
-	ans := xdns.AsMsg(response)
 	t.status = status
 
 	smm.Latency = elapsed.Seconds()
@@ -258,9 +236,9 @@ func (t *transport) Query(network string, q []byte, smm *x.DNSSummary) (r []byte
 	smm.Status = status
 	t.est.Add(smm.Latency)
 
-	log.V("dns53: len(res): %d, data: %s, via: %s, err? %v", len(response), smm.RData, smm.RelayServer, err)
+	log.V("dns53: len(res): %d, data: %s, via: %s, err? %v", xdns.Len(ans), smm.RData, smm.RelayServer, err)
 
-	return response, err
+	return ans, err
 }
 
 func (t *transport) ID() string {

@@ -33,6 +33,7 @@ import (
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
 	"github.com/celzero/firestack/intra/xdns"
+	"github.com/miekg/dns"
 
 	stamps "github.com/jedisct1/go-dnsstamps"
 	"golang.org/x/crypto/curve25519"
@@ -191,18 +192,15 @@ func prepareForRelay(ip net.IP, port int, eq *[]byte) {
 	*eq = relayedQuery
 }
 
-func query(pid string, packet []byte, serverInfo *serverinfo, useudp bool) (response []byte, relay net.Addr, qerr *dnsx.QueryError) {
-	if len(packet) < xdns.MinDNSPacketSize {
+func query(pid string, packet *dns.Msg, serverInfo *serverinfo, useudp bool) (ans *dns.Msg, relay net.Addr, qerr *dnsx.QueryError) {
+	var response []byte
+	if packet == nil || !xdns.HasAnyQuestion(packet) {
 		qerr = dnsx.NewBadQueryError(errQueryTooShort)
-		return
+		return // nil ans
 	}
 
 	intercept := newIntercept()
-	// serverName := "-"
-	// needsEDNS0Padding = (serverInfo.Proto == stamps.StampProtoTypeDoH || serverInfo.Proto == stamps.StampProtoTypeTLS)
-	needsEDNS0Padding := false
-
-	query, err := intercept.handleRequest(packet, needsEDNS0Padding)
+	intercepted, err := intercept.handleRequest(packet)
 	state := intercept.state
 
 	saction := state.action
@@ -210,33 +208,27 @@ func query(pid string, packet []byte, serverInfo *serverinfo, useudp bool) (resp
 	if err != nil || saction == ActionDrop {
 		log.E("dnscrypt: ActionDrop %v", err)
 		qerr = dnsx.NewBadQueryError(err)
-		return
+		return // nil ans
 	}
 	if saction == ActionSynth {
 		if sr != nil {
+			ans = sr
 			log.D("dnscrypt: send synth response")
-			response, err = sr.PackBuffer(response)
-			// XXX: when the query is blocked and pack-buffer fails
-			// doh falls back to forwarding the query instead.
-			if err != nil {
-				qerr = dnsx.NewBadResponseQueryError(err)
-			}
-			return
+			return // synth ans
 		}
 		log.D("dnscrypt: no synth; forward query [udp? %t]...", useudp)
-	}
-	if len(query) < xdns.MinDNSPacketSize {
-		qerr = dnsx.NewBadQueryError(errQueryTooShort)
-		return
-	}
-	if len(query) > xdns.MaxDNSPacketSize {
-		qerr = dnsx.NewBadQueryError(errQueryTooLarge)
-		return
 	}
 
 	if serverInfo == nil {
 		qerr = dnsx.NewInternalQueryError(errNoServers)
-		return
+		return // nil ans
+	}
+
+	query, err := intercepted.Pack()
+	if err != nil {
+		log.E("dnscrypt: pack query err: %v", err)
+		qerr = dnsx.NewBadQueryError(err)
+		return // nil ans
 	}
 
 	if serverInfo.Proto == stamps.StampProtoTypeDNSCrypt {
@@ -245,7 +237,7 @@ func query(pid string, packet []byte, serverInfo *serverinfo, useudp bool) (resp
 		if cerr != nil {
 			log.W("dnscrypt: enc fail forwarding to %s", serverInfo)
 			qerr = dnsx.NewInternalQueryError(cerr)
-			return
+			return // nil ans
 		}
 
 		if useudp {
@@ -264,21 +256,21 @@ func query(pid string, packet []byte, serverInfo *serverinfo, useudp bool) (resp
 		if err != nil {
 			log.W("dnscrypt: querying [udp? %t; tcpfallback?: %t] failed: %v", useudp, tcpfallback, err)
 			qerr = dnsx.NewSendFailedQueryError(err)
-			return
+			return // nil ans
 		}
 	} else if serverInfo.Proto == stamps.StampProtoTypeDoH {
 		// FIXME: implement
 		qerr = dnsx.NewSendFailedQueryError(errNoDoh)
-		return
+		return // nil ans
 	} else {
 		qerr = dnsx.NewTransportQueryError(errUnknownProto)
-		return
+		return // nil ans
 	}
 
 	if len(response) < xdns.MinDNSPacketSize || len(response) > xdns.MaxDNSPacketSize {
 		log.E("dnscrypt: response from %s too small or too large", serverInfo)
 		qerr = dnsx.NewBadResponseQueryError(errInvalidResponse)
-		return
+		return // nil ans
 	}
 
 	response, err = intercept.handleResponse(response, useudp)
@@ -286,24 +278,21 @@ func query(pid string, packet []byte, serverInfo *serverinfo, useudp bool) (resp
 	if err != nil {
 		log.E("dnscrypt: err intercept response for %s: %w", serverInfo, err)
 		qerr = dnsx.NewBadResponseQueryError(err)
-		return
+		return // nil ans
 	}
 
-	if state.action == ActionSynth && state.response != nil {
-		response, err = state.response.PackBuffer(response)
-		// XXX: when the query is blocked and pack-buffer fails doh falls
-		// back to forwarding the query instead, but here we don't.
-		if err != nil {
-			qerr = dnsx.NewBadResponseQueryError(err)
-		}
-		return
+	ans = new(dns.Msg)
+	if err = ans.Unpack(response); err != nil {
+		log.E("dnscrypt: err unpack response for %s: %w", serverInfo, err)
+		qerr = dnsx.NewBadResponseQueryError(err)
+		return // nil ans?
 	}
 
-	return
+	return // ans "response"
 }
 
 // resolve resolves incoming DNS query, data
-func resolve(network string, data []byte, si *serverinfo, smm *x.DNSSummary) (response []byte, err error) {
+func resolve(network string, data *dns.Msg, si *serverinfo, smm *x.DNSSummary) (ans *dns.Msg, err error) {
 	var qerr *dnsx.QueryError
 	var anonrelayaddr net.Addr
 
@@ -312,8 +301,8 @@ func resolve(network string, data []byte, si *serverinfo, smm *x.DNSSummary) (re
 	proto, pid := xdns.Net2ProxyID(network)
 	useudp := proto == dnsx.NetTypeUDP
 
-	// si may be nil
-	response, anonrelayaddr, qerr = query(pid, data, si, useudp)
+	// ans, si may be nil
+	ans, anonrelayaddr, qerr = query(pid, data, si, useudp)
 
 	after := time.Now()
 
@@ -334,8 +323,6 @@ func resolve(network string, data []byte, si *serverinfo, smm *x.DNSSummary) (re
 		err = qerr.Unwrap()
 	}
 
-	ans := xdns.AsMsg(response)
-
 	smm.Latency = latency.Seconds()
 	smm.RData = xdns.GetInterestingRData(ans)
 	smm.RCode = xdns.Rcode(ans)
@@ -353,9 +340,9 @@ func resolve(network string, data []byte, si *serverinfo, smm *x.DNSSummary) (re
 		}
 	}
 
-	log.V("dnscrypt: len(res): %d, data: %s, via: %s, err? %v", len(response), smm.RData, smm.RelayServer, err)
+	log.V("dnscrypt: len(res): %d, data: %s, via: %s, err? %v", xdns.Len(ans), smm.RData, smm.RelayServer, err)
 
-	return response, err
+	return // ans, err
 }
 
 // LiveTransports returns csv of dnscrypt server-names currently in-use
@@ -624,7 +611,7 @@ func (p *DcMulti) Type() string {
 }
 
 // Query implements dnsx.TransportMult
-func (p *DcMulti) Query(network string, q []byte, summary *x.DNSSummary) (r []byte, err error) {
+func (p *DcMulti) Query(network string, q *dns.Msg, summary *x.DNSSummary) (r *dns.Msg, err error) {
 	r, err = resolve(network, q, p.serversInfo.getOne(), summary)
 	p.lastStatus = summary.Status
 	p.lastAddr = summary.Server

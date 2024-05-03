@@ -41,7 +41,7 @@ var (
 
 // targets:  github.com/DNSCrypt/dnscrypt-resolvers/blob/master/v3/odoh-servers.md
 // endpoints:  github.com/DNSCrypt/dnscrypt-resolvers/blob/master/v3/odoh-relays.md
-func (d *transport) doOdoh(pid string, q []byte) (res []byte, elapsed time.Duration, qerr *dnsx.QueryError) {
+func (d *transport) doOdoh(pid string, q *dns.Msg) (res *dns.Msg, elapsed time.Duration, qerr *dnsx.QueryError) {
 	viaproxy := len(d.odohproxy) > 0
 
 	odohmsg, odohctx, err := d.buildTargetQuery(q)
@@ -76,19 +76,27 @@ func (d *transport) doOdoh(pid string, q []byte) (res []byte, elapsed time.Durat
 		return
 	}
 
-	oans, err := odoh.UnmarshalDNSMessage(res)
+	ans, err := res.Pack()
 	if err != nil {
 		qerr = dnsx.NewBadResponseQueryError(err)
 		return
 	}
 
-	res, err = odohctx.OpenAnswer(oans)
+	oans, err := odoh.UnmarshalDNSMessage(ans)
+	if err != nil {
+		qerr = dnsx.NewBadResponseQueryError(err)
+		return
+	}
+
+	ans, err = odohctx.OpenAnswer(oans)
 	if err != nil {
 		qerr = dnsx.NewInternalQueryError(err)
 		return
 	}
 
-	log.V("odoh: success; res: %d", len(res))
+	log.V("odoh: success; res: %d", len(ans))
+	res = new(dns.Msg) // unpack into a new msg
+	err = res.Unpack(ans)
 	return
 }
 
@@ -123,7 +131,7 @@ func (d *transport) asOdohRequest(q []byte) (req *http.Request, err error) {
 	return
 }
 
-func (d *transport) buildTargetQuery(q []byte) (m odoh.ObliviousDNSMessage, ctx odoh.QueryContext, err error) {
+func (d *transport) buildTargetQuery(msg *dns.Msg) (m odoh.ObliviousDNSMessage, ctx odoh.QueryContext, err error) {
 	ocfg, err := d.fetchTargetConfig()
 	if err != nil {
 		return
@@ -132,8 +140,13 @@ func (d *transport) buildTargetQuery(q []byte) (m odoh.ObliviousDNSMessage, ctx 
 		err = errZeroOdohCfgs
 		return
 	}
+	q, err := msg.Pack()
+	if err != nil {
+		return
+	}
+
 	key := ocfg.Contents
-	pad := computePaddingSize(len(q), PaddingBlockSize)
+	pad := computePaddingSize(msg.Len(), PaddingBlockSize)
 	oq := odoh.CreateObliviousDNSQuery(q, uint16(pad))
 	log.V("odoh: build-target: odoh qlen %d", len(oq.DnsMessage)+len(oq.Padding))
 	return key.EncryptQuery(oq)
@@ -220,20 +233,15 @@ func (d *transport) refreshTargetKeyWellKnown() (ocfg *odoh.ObliviousDoHConfig, 
 }
 
 func (d *transport) refreshTargetKeyDNS() (ocfg *odoh.ObliviousDoHConfig, exp time.Time, err error) {
-	var cq []byte
 	cmsg := new(dns.Msg)
 	cmsg.SetQuestion(dns.Fqdn(d.odohtargetname), dns.TypeHTTPS)
-	cq, err = cmsg.Pack()
-	if err != nil {
-		return
-	}
 
 	// doh query for odoh-config is sent to odohconfigdns
-	req, err := d.asDohRequest(cq)
+	req, err := d.asDohRequest(cmsg)
 	if err != nil {
 		return
 	}
-	cr, _, t1, qerr := d.send(dnsx.NetNoProxy, req)
+	cres, _, t1, qerr := d.send(dnsx.NetNoProxy, req)
 
 	log.D("odoh: refresh-target: %s; elapsed: %dms; err? %v", d.odohtargetname, t1.Milliseconds(), qerr)
 	if qerr != nil {
@@ -241,8 +249,7 @@ func (d *transport) refreshTargetKeyDNS() (ocfg *odoh.ObliviousDoHConfig, exp ti
 		return
 	}
 
-	cres := xdns.AsMsg(cr)
-	if cres == nil || len(cres.Answer) <= 0 {
+	if cres == nil || !xdns.HasAnyAnswer(cres) {
 		log.W("odoh: refresh-target: no config ans")
 		err = errMissingOdohCfgResponse
 		return

@@ -125,7 +125,7 @@ func (t *dnssd) oneshotQuery(msg *dns.Msg) (*dns.Msg, *dnsx.QueryError) {
 	return nil, dnsx.NewNoResponseQueryError(errNoMdnsAnswer)
 }
 
-func (t *dnssd) Query(_ string, q []byte, summary *x.DNSSummary) (r []byte, err error) {
+func (t *dnssd) Query(_ string, q *dns.Msg, summary *x.DNSSummary) (ans *dns.Msg, err error) {
 	summary.ID = t.ID()
 	summary.Type = t.Type()
 	summary.Server = t.GetAddr()
@@ -136,14 +136,13 @@ func (t *dnssd) Query(_ string, q []byte, summary *x.DNSSummary) (r []byte, err 
 
 	start := time.Now()
 
-	msg := &dns.Msg{}
-	if err = msg.Unpack(q); err != nil {
+	if q == nil || !xdns.HasAnyQuestion(q) {
 		summary.Status = dnsx.BadQuery
 		t.status = dnsx.BadQuery
 		return
 	}
 
-	ans, qerr := t.oneshotQuery(msg)
+	ans, qerr := t.oneshotQuery(q)
 	if qerr != nil {
 		err = qerr.Unwrap()
 		t.status = qerr.Status()
@@ -160,11 +159,7 @@ func (t *dnssd) Query(_ string, q []byte, summary *x.DNSSummary) (r []byte, err 
 	summary.Blocklists = ""
 	t.est.Add(summary.Latency)
 
-	if qerr != nil || ans == nil {
-		return
-	}
-
-	return ans.Pack()
+	return ans, err
 }
 
 func (t *dnssd) ID() string {

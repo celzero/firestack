@@ -6,6 +6,8 @@
 
 package dnsx
 
+import "github.com/miekg/dns"
+
 // ref: datatracker.ietf.org/doc/html/rfc8880
 const Rfc7050WKN = "ipv4only.arpa."
 const AnyResolver = "__anyresolver"

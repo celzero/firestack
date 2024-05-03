@@ -59,7 +59,7 @@ type Gateway interface {
 	// translate overwrites ip answers to alg ip answers
 	translate(yes bool)
 	// Query using t1 as primary transport and t2 as secondary and preset as pre-determined ip answers
-	q(t1 Transport, t2 Transport, preset []*netip.Addr, network string, q []byte, s *x.DNSSummary) ([]byte, error)
+	q(t1 Transport, t2 Transport, preset []*netip.Addr, network string, q *dns.Msg, s *x.DNSSummary) (*dns.Msg, error)
 	// clear obj state
 	stop()
 }
@@ -141,9 +141,8 @@ func (t *dnsgateway) stop() {
 	t.hexes = rfc8215a
 }
 
-func (t *dnsgateway) querySecondary(t2 Transport, network string, q []byte, out chan<- secans, in <-chan []byte) {
-	var r []byte
-	var msg *dns.Msg
+func (t *dnsgateway) querySecondary(t2 Transport, network string, msg *dns.Msg, out chan<- secans, in <-chan *dns.Msg) {
+	var r *dns.Msg
 	var err error
 	result := secans{
 		ips:     []*netip.Addr{},
@@ -160,7 +159,7 @@ func (t *dnsgateway) querySecondary(t2 Transport, network string, q []byte, out 
 	}()
 
 	// check if the question is blocked
-	if msg = xdns.AsMsg(q); msg == nil {
+	if msg == nil || !xdns.HasAnyQuestion(msg) {
 		return // not a valid dns message
 	} else if ok := xdns.HasAQuadAQuestion(msg) || xdns.HasHTTPQuestion(msg) || xdns.HasSVCBQuestion(msg); !ok {
 		return // not a dns question we care about
@@ -188,7 +187,7 @@ func (t *dnsgateway) querySecondary(t2 Transport, network string, q []byte, out 
 		}
 	} else {
 		// query secondary to get answer for q
-		r, err = Req(t2, network, q, result.summary)
+		r, err = Req(t2, network, msg, result.summary)
 	}
 
 	if err != nil {
@@ -197,30 +196,30 @@ func (t *dnsgateway) querySecondary(t2 Transport, network string, q []byte, out 
 	}
 
 	// check if answer r is blocked; r is either from t2 or from <-in
-	if ans2 := xdns.AsMsg(r); ans2 == nil {
+	if r == nil || !xdns.HasAnyAnswer(r) {
 		// not a valid dns answer
 		return
-	} else if ans3, blocklistnames := t.rdns.blockA( /*may be nil*/ t2, nil, msg, ans2, result.summary.Blocklists); ans3 != nil {
-		// if ans3 is not nil, then the ans2/r is blocked
+	} else if a, blocklistnames := t.rdns.blockA( /*may be nil*/ t2, nil, msg, r, result.summary.Blocklists); a != nil {
+		// if "a" is not nil, then the r is blocked
 		if len(blocklistnames) > 0 {
 			result.summary.Blocklists = blocklistnames
 		}
-		// a blocked answer (ans3) has A, AAAA, or HTTPS/SVCB records
+		// blocked answer has A, AAAA, or HTTPS/SVCB records
 		// see: xdns.RefusedResponseFromMessage
-		if len(ans3.Answer) > 0 {
-			result.ips = append(result.ips, xdns.AAnswer(ans3)...)
-			result.ips = append(result.ips, xdns.AAAAAnswer(ans3)...)
+		if len(a.Answer) > 0 {
+			result.ips = append(result.ips, xdns.AAnswer(a)...)
+			result.ips = append(result.ips, xdns.AAAAAnswer(a)...)
 		} // noop: for HTTPS/SVCB, the answer section is empty
 		return
 	} else {
 		if len(blocklistnames) > 0 {
 			result.summary.Blocklists = blocklistnames
 		}
-		result.summary.UpstreamBlocks = xdns.AQuadAUnspecified(ans2)
-		a4 := xdns.AAAAAnswer(ans2)
-		a6 := xdns.AAnswer(ans2)
-		ip4hints := xdns.IPHints(ans2, dns.SVCB_IPV4HINT)
-		ip6hints := xdns.IPHints(ans2, dns.SVCB_IPV6HINT)
+		result.summary.UpstreamBlocks = xdns.AQuadAUnspecified(r)
+		a4 := xdns.AAAAAnswer(r)
+		a6 := xdns.AAnswer(r)
+		ip4hints := xdns.IPHints(r, dns.SVCB_IPV4HINT)
+		ip6hints := xdns.IPHints(r, dns.SVCB_IPV6HINT)
 		result.ips = append(result.ips, a4...)
 		result.ips = append(result.ips, a6...)
 		result.ips = append(result.ips, ip4hints...)
@@ -230,7 +229,7 @@ func (t *dnsgateway) querySecondary(t2 Transport, network string, q []byte, out 
 }
 
 // Implements Gateway
-func (t *dnsgateway) q(t1, t2 Transport, preset []*netip.Addr, network string, q []byte, summary *x.DNSSummary) (r []byte, err error) {
+func (t *dnsgateway) q(t1, t2 Transport, preset []*netip.Addr, network string, q *dns.Msg, summary *x.DNSSummary) (r *dns.Msg, err error) {
 	if t1 == nil {
 		return nil, errNoTransportAlg
 	}
@@ -243,7 +242,7 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []*netip.Addr, network string, q
 	}
 	mod := t.mod // allow alg?
 	secch := make(chan secans, 1)
-	resch := make(chan []byte, 1)
+	resch := make(chan *dns.Msg, 1)
 	innersummary := new(x.DNSSummary)
 	// todo: use context?
 	// t2 may be nil
@@ -260,20 +259,14 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []*netip.Addr, network string, q
 	fillSummary(innersummary, summary)
 
 	if err != nil {
-		if len(r) <= 0 {
+		if r == nil {
 			log.D("alg: abort; r: 0, qerr %v", err)
 			return
 		}
-		log.D("alg: err but r ok; r: %d, qerr %v", len(r), err)
+		log.D("alg: err but r ok; r: %d, qerr %v", xdns.Len(r), err)
 	}
 
-	ansin := &dns.Msg{}
-	err = ansin.Unpack(r)
-	if err != nil {
-		log.D("alg: abort; ans err %v", err)
-		return
-	}
-
+	ansin := r.Copy()
 	qname, _ := xdns.NormalizeQName(xdns.QName(ansin))
 
 	summary.QName = qname
@@ -282,30 +275,25 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []*netip.Addr, network string, q
 	hasaaaaq := xdns.HasAAAAQuestion(ansin)
 	hasans := xdns.HasAnyAnswer(ansin)
 	ans0000 := xdns.AQuadAUnspecified(ansin)
+	rgood := xdns.HasRcodeSuccess(ansin)
 
 	if ans0000 {
 		summary.UpstreamBlocks = true
 	}
 
-	if !hasans && hasaaaaq && !ans0000 {
-		// override original resp with dns64 if needed
-		d64 := t.dns64.D64(t1.ID(), r, t1) // d64 is disabled by default
-		if len(d64) > xdns.MinDNSPacketSize {
-			ans64 := new(dns.Msg)
-			_ = ans64.Unpack(d64)
-
+	if !hasans && hasaaaaq && !ans0000 { // synth aaaa from a, if needed
+		ans64 := t.dns64.D64(network, r, t1)            // d64 is disabled by default
+		if rgood = xdns.HasRcodeSuccess(ans64); rgood { // reaffirm rgood
 			withDNS64Summary(ans64, summary)
 			ansin = ans64
-			r = d64
-		} // else: d64 is nil on no D64 or error
-	} // else: no d64; not AAAA question or AAAA answer already exists
+		} // else: ans64 is nil on no D64 or error
+	} // else: no ans64; not AAAA question or AAAA answer already exists
 
 	hasq := hasaaaaq || xdns.HasAQuestion(ansin) || xdns.HasSVCBQuestion(ansin) || xdns.HasHTTPQuestion(ansin)
 	hasans = xdns.HasAnyAnswer(ansin) // recheck after d64
-	rgood := xdns.HasRcodeSuccess(ansin)
 
 	if !hasq || !hasans || !rgood || ans0000 {
-		log.D("alg: skip; query(n:%s / a:%d) hasq(%t) hasans(%t) rgood(%t), ans0000(%t)", qname, len(ansin.Answer), hasq, hasans, rgood, ans0000)
+		log.D("alg: skip; query(n:%s / a:%d) hasq(%t) hasans(%t) rgood(%t), ans0000(%t)", qname, xdns.Len(ansin), hasq, hasans, rgood, ans0000)
 		return // equivalent to return r, v=deny, nil
 	}
 
@@ -317,6 +305,7 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []*netip.Addr, network string, q
 	targets := xdns.Targets(ansin)
 	realip := make([]*netip.Addr, 0)
 	algips := make([]*netip.Addr, 0)
+
 	// fetch secondary ips before lock
 	secres := <-secch
 
@@ -380,7 +369,7 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []*netip.Addr, network string, q
 	substok6 := false
 	// substituions needn't happen when no alg ips to begin with
 	mustsubst := false
-	ansout := ansin
+	ansout := ansin // same as r.Copy()
 	// TODO: substitute ips in additional section
 	if len(algip4hints) > 0 {
 		substok4 = xdns.SubstSVCBRecordIPs( /*out*/ ansout, dns.SVCB_IPV4HINT, algip4hints, algttl) || substok4
@@ -429,21 +418,16 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []*netip.Addr, network string, q
 
 	log.D("alg: ok; domains %s ips %s => subst %s; mod? %t", targets, realip, algips, mod)
 
-	if rout, err := ansout.Pack(); err == nil {
-		if t.registerMultiLocked(qname, x) {
-			// if mod is set, send modified answer
-			if mod {
-				withAlgSummaryIfNeeded(algips, summary)
-				return rout, nil
-			} else {
-				return r, nil
-			}
+	if t.registerMultiLocked(qname, x) {
+		// if mod is set, send modified answer
+		if mod {
+			withAlgSummaryIfNeeded(algips, summary)
+			return ansout, nil
 		} else {
-			return r, errCannotRegisterAlg
+			return r, nil
 		}
 	} else {
-		log.W("alg: unpacking err(%v)", err)
-		return r, err
+		return r, errCannotRegisterAlg
 	}
 }
 
@@ -828,13 +812,12 @@ func hash48(s string) uint64 {
 	return (uint64(v64>>48) ^ uint64(v64)) & 0xFFFFFFFFFFFF // 48 bits
 }
 
-func synthesizeOrQuery(pre []*netip.Addr, tr Transport, q []byte, network string, smm *x.DNSSummary) ([]byte, error) {
+func synthesizeOrQuery(pre []*netip.Addr, tr Transport, msg *dns.Msg, network string, smm *x.DNSSummary) (*dns.Msg, error) {
 	// synthesize a response with the given ips
 	if len(pre) == 0 {
-		return Req(tr, network, q, smm)
+		return Req(tr, network, msg, smm)
 	}
-	msg := xdns.AsMsg(q)
-	if msg == nil {
+	if msg == nil || !xdns.HasAnyQuestion(msg) {
 		return nil, errNoQuestion
 	}
 	qname := xdns.QName(msg)
@@ -847,7 +830,7 @@ func synthesizeOrQuery(pre []*netip.Addr, tr Transport, q []byte, network string
 		// if no ips are of the same family as the question xdns.AQuadAForQuery returns error
 		ans, err := xdns.AQuadAForQuery(msg, unptr(pre)...)
 		if err != nil { // errors on invalid msg, question, or mismatched ips
-			return Req(tr, network, q, smm)
+			return Req(tr, network, msg, smm)
 		}
 		withPresetSummary(smm)
 		smm.RCode = xdns.Rcode(ans)
@@ -855,15 +838,14 @@ func synthesizeOrQuery(pre []*netip.Addr, tr Transport, q []byte, network string
 		smm.RTtl = xdns.RTtl(ans)
 
 		log.D("alg: synthesize: q(4? %t / 6? %t) rdata(%s)", qname, is4, is6, smm.RData)
-		return ans.Pack()
+
+		return ans, nil // no error
 	} else if isHTTPS || isSVCB {
-		r, err := Req(tr, network, q, smm)
+		ans, err := Req(tr, network, msg, smm)
 		if err != nil {
-			return r, err
-		}
-		ans := xdns.AsMsg(r)
-		if ans == nil {
-			return r, errNoAnswer
+			return ans, err
+		} else if ans == nil { // empty answer is ok
+			return nil, errNoAnswer
 		}
 		var ok4, ok6 bool
 		ttl := int(xdns.AnsTTL)
@@ -880,22 +862,22 @@ func synthesizeOrQuery(pre []*netip.Addr, tr Transport, q []byte, network string
 		smm.RData = xdns.GetInterestingRData(ans)
 		smm.RTtl = xdns.RTtl(ans)
 
-		log.D("alg: synthesize: q(HTTPS? %t); subst4(%t), subst6(%t); rdata(%s)", q, isHTTPS, ok4, ok6, smm.RData)
+		log.D("alg: synthesize: q: %s; (HTTPS? %t); subst4(%t), subst6(%t); rdata(%s)", qname, isHTTPS, ok4, ok6, smm.RData)
 
-		return ans.Pack()
+		return ans, nil // no error
 	} else {
-		return Req(tr, network, q, smm)
+		return Req(tr, network, msg, smm)
 	}
 }
 
 // Req sends q to transport t and returns the answer, if any;
 // errors are unset if answer is not servfail or empty;
 // smm, the in/out parameter, is dns summary as got from t.
-func Req(t Transport, network string, q []byte, smm *x.DNSSummary) ([]byte, error) {
+func Req(t Transport, network string, q *dns.Msg, smm *x.DNSSummary) (*dns.Msg, error) {
 	if t == nil {
 		return nil, errNoSuchTransport
 	}
-	if len(q) <= 0 {
+	if !xdns.HasAnyQuestion(q) {
 		return nil, errNoQuestion
 	}
 	if smm == nil { // discard smm
@@ -903,7 +885,7 @@ func Req(t Transport, network string, q []byte, smm *x.DNSSummary) ([]byte, erro
 		smm = discarded
 	}
 	r, err := t.Query(network, q, smm)
-	if len(r) > 0 && !xdns.IsServFailOrInvalid(r) {
+	if !xdns.IsServFailOrInvalid(r) {
 		return r, nil
 	}
 	return r, err

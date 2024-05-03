@@ -19,6 +19,7 @@ import (
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
 	"github.com/celzero/firestack/intra/xdns"
+	"github.com/miekg/dns"
 )
 
 const (
@@ -195,10 +196,10 @@ func (b *bootstrap) Type() string {
 	return b.typ // DOH or DNS53
 }
 
-func (b *bootstrap) Query(network string, q []byte, summary *x.DNSSummary) ([]byte, error) {
+func (b *bootstrap) Query(network string, q *dns.Msg, summary *x.DNSSummary) (*dns.Msg, error) {
 	tr := b.Transport
 	if tr != nil {
-		log.V("dns: default: query %s %d", network, len(q))
+		log.V("dns: default: %s query? %t", network, q != nil)
 		return dnsx.Req(tr, network, q, summary)
 	}
 	return nil, errDefaultTransportNotReady

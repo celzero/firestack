@@ -403,22 +403,20 @@ func TestDoh(t *testing.T) {
 	q := aquery("google.com")
 	smm := &x.DNSSummary{}
 	netw := xdns.NetAndProxyID("tcp", ipn.Base)
-	r, err := tr.Query(netw, q, smm)
+	ans, err := tr.Query(netw, q, smm)
 	if err != nil {
 		log.Output(2, smm.Str())
 		t.Fatal(err)
 	}
-	if len(r) == 0 {
-		t.Fatal("empty response")
+	if xdns.Len(ans) == 0 {
+		t.Fatal("no ans")
 	}
-	ans := xdns.AsMsg(r)
 	log.Output(10, ans.Answer[0].String())
 }
 
-func aquery(d string) []byte {
+func aquery(d string) *dns.Msg {
 	msg := &dns.Msg{}
 	msg.SetQuestion(dns.Fqdn(d), dns.TypeA)
 	msg.Id = 1234
-	b, _ := msg.Pack()
-	return b
+	return msg
 }

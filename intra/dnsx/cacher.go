@@ -216,17 +216,11 @@ func (cb *cache) freshCopy(key string) (v *cres, ok bool) {
 
 // put caches val against key, and returns true if the cache was updated.
 // val must be a valid dns packet with successful rcode with no truncation.
-func (cb *cache) put(key string, val []byte, s *x.DNSSummary) (ok bool) {
+func (cb *cache) put(key string, ans *dns.Msg, s *x.DNSSummary) (ok bool) {
 	ok = false
-
-	if len(val) <= 0 {
-		return
-	}
-
-	ans := xdns.AsMsg(val)
 	// only cache successful responses
 	// TODO: implement negative caching
-	if ans == nil || !xdns.HasRcodeSuccess(ans) || xdns.HasTCFlag(val) {
+	if ans == nil || !xdns.HasRcodeSuccess(ans) || xdns.HasTCFlag(ans) {
 		return
 	}
 
@@ -267,11 +261,11 @@ func (cb *cache) put(key string, val []byte, s *x.DNSSummary) (ok bool) {
 	return
 }
 
-func asResponse(q *dns.Msg, v *cres, fresh bool) (r []byte, s *x.DNSSummary, err error) {
+func asResponse(q *dns.Msg, v *cres, fresh bool) (a *dns.Msg, s *x.DNSSummary, err error) {
 	s = v.s // v must never be nil
-	a := v.ans
+	a = v.ans
 
-	if q == nil {
+	if q == nil || !xdns.HasAnyQuestion(q) {
 		err = errNoQuestion
 		return
 	}
@@ -294,7 +288,6 @@ func asResponse(q *dns.Msg, v *cres, fresh bool) (r []byte, s *x.DNSSummary, err
 	if !fresh { // if the v is not fresh, set the ttl to the minimum
 		xdns.WithTtl(a, stalettl)
 	}
-	r, err = a.Pack()
 	return
 }
 
@@ -315,8 +308,8 @@ func (t *ctransport) hangoverCheckpoint() {
 	}
 }
 
-func (t *ctransport) fetch(network string, q []byte, msg *dns.Msg, summary *x.DNSSummary, cb *cache, key string) (r []byte, err error) {
-	sendRequest := func(fsmm *x.DNSSummary) ([]byte, error) {
+func (t *ctransport) fetch(network string, q *dns.Msg, summary *x.DNSSummary, cb *cache, key string) (r *dns.Msg, err error) {
+	sendRequest := func(fsmm *x.DNSSummary) (*dns.Msg, error) {
 		fsmm.ID = t.Transport.ID()
 		fsmm.Type = t.Transport.Type()
 
@@ -326,7 +319,7 @@ func (t *ctransport) fetch(network string, q []byte, msg *dns.Msg, summary *x.DN
 			// cb.put no-ops when len(ans) is 0
 			cb.put(key, ans, fsmm)
 			// cres.ans may be nil
-			return &cres{ans: xdns.AsMsg(ans), s: copySummary(fsmm)}, qerr
+			return &cres{ans: ans, s: copySummary(fsmm)}, qerr
 		})
 
 		cachedres, fresh := cb.freshCopy(key) // always prefer value from cache
@@ -355,7 +348,7 @@ func (t *ctransport) fetch(network string, q []byte, msg *dns.Msg, summary *x.DN
 			return nil, err
 		}
 
-		fres, cachedsmm, ferr := asResponse(msg, cachedres, true)
+		fres, cachedsmm, ferr := asResponse(q, cachedres, true)
 		// fill summary regardless of errors
 		fillSummary(cachedsmm, fsmm) // cachedsmm may itself be fsmm
 
@@ -374,7 +367,7 @@ func (t *ctransport) fetch(network string, q []byte, msg *dns.Msg, summary *x.DN
 		var cachedsummary *x.DNSSummary
 
 		log.D("cache: hit(k: %s / stale? %t): %s", key, !isfresh, v.str())
-		r, cachedsummary, err = asResponse(msg, v, isfresh) // return cached response, may be stale
+		r, cachedsummary, err = asResponse(q, v, isfresh) // return cached response, may be stale
 		if err != nil {
 			log.W("cache: hit(k: %s) %s, but err? %v", key, v.str(), err)
 			if err == errCacheResponseMismatch {
@@ -402,14 +395,12 @@ func (t *ctransport) fetch(network string, q []byte, msg *dns.Msg, summary *x.DN
 	return sendRequest(summary) // summary is filled by underlying transport
 }
 
-func (t *ctransport) Query(network string, q []byte, summary *x.DNSSummary) ([]byte, error) {
-	var response []byte
+func (t *ctransport) Query(network string, q *dns.Msg, summary *x.DNSSummary) (*dns.Msg, error) {
+	var response *dns.Msg
 	var err error
 	var cb *cache
 
-	msg := xdns.AsMsg(q)
-
-	if key, h, ok := mkcachekey(msg); ok {
+	if key, h, ok := mkcachekey(q); ok {
 		t.Lock()
 		cb = t.store[h]
 		if cb == nil {
@@ -425,7 +416,7 @@ func (t *ctransport) Query(network string, q []byte, summary *x.DNSSummary) ([]b
 		}
 		t.Unlock()
 
-		response, err = t.fetch(network, q, msg, summary, cb, key)
+		response, err = t.fetch(network, q, summary, cb, key)
 
 	} else {
 		err = errMissingQueryName // not really a transport error

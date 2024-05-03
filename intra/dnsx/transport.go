@@ -94,7 +94,7 @@ type Transport interface {
 	// Given a DNS query (including ID), returns a DNS response with matching
 	// ID, or an error if no response was received.  The error may be accompanied
 	// by a SERVFAIL response if appropriate.
-	Query(network string, q []byte, summary *x.DNSSummary) ([]byte, error)
+	Query(network string, q *dns.Msg, summary *x.DNSSummary) (*dns.Msg, error)
 }
 
 // TransportMult is a hybrid: transport and a multi-transport.
@@ -201,7 +201,7 @@ func (r *resolver) Add(dt x.DNSTransport) (ok bool) {
 			r.transports[ct.ID()] = ct // cached
 		}
 		if t.ID() == System {
-			go r.Add64(UnderlayResolver, t)
+			go r.Add64(t)
 		}
 		r.Unlock()
 
@@ -250,7 +250,7 @@ func (r *resolver) Remove(id string) (ok bool) {
 	_, hasTransport := r.transports[id]
 	if hasTransport {
 		if id == System {
-			go r.Remove64(UnderlayResolver)
+			go r.Remove64(id)
 		}
 		r.Lock()
 		delete(r.transports, id)
@@ -382,11 +382,12 @@ func (r *resolver) forward(q []byte, chosenids ...string) (res0 []byte, err0 err
 	summary.Type = t.Type()
 	summary.ID = t.ID()
 	var res2 []byte
+	var ans1 *dns.Msg
 
 	netid := xdns.NetAndProxyID(NetTypeUDP, pid)
 
 	// with t2 as the secondary transport, which could be nil
-	res2, err = gw.q(t, t2, presetIPs, netid, q, summary)
+	ans1, err = gw.q(t, t2, presetIPs, netid, msg, summary)
 
 	algerr := isAlgErr(err) // not set when gw.translate is off
 	if algerr {
@@ -399,8 +400,9 @@ func (r *resolver) forward(q []byte, chosenids ...string) (res0 []byte, err0 err
 		return res2, err
 	}
 
-	ans1, err := unpack(res2)
+	res2, err = ans1.Pack()
 	if err != nil {
+		// TODO: servefail?
 		summary.Status = BadResponse
 		return res2, err
 	}
@@ -412,8 +414,9 @@ func (r *resolver) forward(q []byte, chosenids ...string) (res0 []byte, err0 err
 	if !pref.NOBLOCK && isnewans {
 		// overwrite if new answer
 		ans1 = ans2
-		res2, err = ans1.Pack()
+		res2, err = ans2.Pack()
 		if err != nil {
+			// TODO: servfail?
 			summary.Status = BadResponse
 			return res2, err
 		}

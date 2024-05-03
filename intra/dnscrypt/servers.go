@@ -33,6 +33,7 @@ import (
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
 	"github.com/celzero/firestack/intra/xdns"
+	"github.com/miekg/dns"
 
 	stamps "github.com/jedisct1/go-dnsstamps"
 	"golang.org/x/crypto/ed25519"
@@ -332,7 +333,7 @@ func (s *serverinfo) Type() string {
 	return dnsx.DNSCrypt
 }
 
-func (s *serverinfo) Query(network string, q []byte, summary *x.DNSSummary) (r []byte, err error) {
+func (s *serverinfo) Query(network string, q *dns.Msg, summary *x.DNSSummary) (r *dns.Msg, err error) {
 	r, err = resolve(network, q, s, summary)
 	s.status = summary.Status
 

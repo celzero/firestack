@@ -8,7 +8,6 @@ package dns53
 
 import (
 	"context"
-	"fmt"
 	"net"
 	"net/netip"
 	"time"
@@ -77,40 +76,23 @@ func (t *goosr) dial(ctx context.Context, network, addr string) (net.Conn, error
 	return t.dialer.Dial(network, addr)
 }
 
-func (t *goosr) doQuery(q []byte) (response []byte, elapsed time.Duration, qerr *dnsx.QueryError) {
-	if len(q) < 2 {
-		qerr = dnsx.NewBadQueryError(fmt.Errorf("dns53: goosr: query length is %d", len(q)))
-		return
-	}
-
-	response, elapsed, qerr = t.send(q)
-
-	if qerr != nil { // only on send-request errors
-		response = xdns.Servfail(q)
-	}
-
-	return
-}
-
-func (t *goosr) send(q []byte) (response []byte, elapsed time.Duration, qerr *dnsx.QueryError) {
-	var ans *dns.Msg
+func (t *goosr) send(msg *dns.Msg) (ans *dns.Msg, elapsed time.Duration, qerr *dnsx.QueryError) {
 	var err error
 	var ip netip.Addr
 	var ips []netip.Addr
-
-	start := time.Now()
-
-	msg := xdns.AsMsg(q)
 	if msg == nil {
 		qerr = dnsx.NewBadQueryError(errQueryParse)
 		return
 	}
 
+	start := time.Now()
+
 	host := xdns.QName(msg)
+	// zero length host must return NS records for the root zone
 	if len(host) <= 0 || host == "." {
 		qerr = dnsx.NewBadQueryError(errNoHost)
 		elapsed = time.Since(start)
-		response = xdns.Servfail(q)
+		ans = xdns.Servfail(msg)
 		return
 	}
 
@@ -123,7 +105,7 @@ func (t *goosr) send(q []byte) (response []byte, elapsed time.Duration, qerr *dn
 
 		if !aquadaq { // TODO: support queries other than A/AAAA
 			log.E("dns53: goosr: not A/AAAA query type for %s", host)
-			response = xdns.Servfail(q)
+			ans = xdns.Servfail(msg)
 			err = errQueryParse
 		} else {
 			if ips, err = t.r.LookupNetIP(bgctx, "ip", host); err == nil && xdns.HasAnyAnswer(msg) {
@@ -142,38 +124,34 @@ func (t *goosr) send(q []byte) (response []byte, elapsed time.Duration, qerr *dn
 		return
 	}
 
-	response, err = ans.Pack()
-	if err != nil {
-		qerr = dnsx.NewBadResponseQueryError(err)
-		return
-	}
-
 	return
 }
 
-func (t *goosr) Query(_ string, q []byte, smm *x.DNSSummary) (r []byte, err error) {
-	response, elapsed, qerr := t.doQuery(q)
+func (t *goosr) Query(_ string, q *dns.Msg, smm *x.DNSSummary) (r *dns.Msg, err error) {
+	r, elapsed, qerr := t.send(q)
+	if qerr != nil { // only on send-request errors
+		r = xdns.Servfail(q)
+	}
 
 	status := dnsx.Complete
 	if qerr != nil {
 		err = qerr.Unwrap()
 		status = qerr.Status()
-		log.W("dns53: goosr: err(%v) / size(%d)", qerr, len(response))
+		log.W("dns53: goosr: err(%v) / size(%d)", qerr, xdns.Len(r))
 	}
-	ans := xdns.AsMsg(response)
 	t.status = status
 
 	smm.Latency = elapsed.Seconds()
-	smm.RData = xdns.GetInterestingRData(ans)
-	smm.RCode = xdns.Rcode(ans)
-	smm.RTtl = xdns.RTtl(ans)
+	smm.RData = xdns.GetInterestingRData(r)
+	smm.RCode = xdns.Rcode(r)
+	smm.RTtl = xdns.RTtl(r)
 	smm.Server = t.GetAddr()
 	smm.Status = status
 	t.est.Add(smm.Latency)
 
-	log.V("dns53: goosr: len(res): %d, data: %s, via: %s, err? %v", len(response), smm.RData, smm.RelayServer, err)
+	log.V("dns53: goosr: len(res): %d, data: %s, via: %s, err? %v", xdns.Len(r), smm.RData, smm.RelayServer, err)
 
-	return response, err
+	return r, err
 }
 
 func (t *goosr) ID() string {
