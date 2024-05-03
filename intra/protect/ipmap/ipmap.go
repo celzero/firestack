@@ -327,6 +327,7 @@ func (s *IPSet) Confirmed() netip.Addr {
 
 // Confirm marks ip as the confirmed address.
 func (s *IPSet) Confirm(ip netip.Addr) {
+	s.fails = 0 // reset fails, a new confirmed ip
 	if ip.Compare(s.Confirmed()) == 0 {
 		return
 	}
