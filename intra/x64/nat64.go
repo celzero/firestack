@@ -25,12 +25,17 @@ func (n *nat64) IsNat64(prefix64 *net.IPNet, ip6 net.IP) bool {
 }
 
 // xAddr translates ip6 to IPv4 discarding prefix64.
+// If prefix64 or ip6 is not valid, it returns zerovalueaddr.
+// If ip6 is unspecified, it returns unspecified IPv4.
 func (n *nat64) xAddr(prefix64 *net.IPNet, ip6 net.IP) net.IP {
 	return ip6to4(prefix64, ip6)
 }
 
 // ip6to4 converts ip6 to IPv4 discarding prefix64.
 func ip6to4(prefix64 *net.IPNet, ip6 net.IP) net.IP {
+	if ip6.IsUnspecified() {
+		return net.IPv4zero
+	}
 	ip4 := make(net.IP, net.IPv4len)
 	bitmask, _ := prefix64.Mask.Size() // prefix64 expected to be never nil
 	startByte := bitmask / 8
