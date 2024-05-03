@@ -114,7 +114,14 @@ func TruncatedResponse(packet []byte) ([]byte, error) {
 	return dstMsg.Pack()
 }
 
-func HasTCFlag(packet []byte) bool {
+func HasTCFlag(msg *dns.Msg) bool {
+	if msg == nil {
+		return false
+	}
+	return msg.Truncated
+}
+
+func HasTCFlag2(packet []byte) bool {
 	if len(packet) < 2 {
 		return false
 	}
@@ -1159,33 +1166,35 @@ func AQuadAUnspecified(msg *dns.Msg) bool {
 	return false
 }
 
-func IsServFailOrInvalid(q []byte) bool {
-	if len(q) <= 0 {
-		return true // invalid
+func Len(msg *dns.Msg) int {
+	if msg == nil {
+		return 0
 	}
-	msg := new(dns.Msg)
-	if err := msg.Unpack(q); err != nil {
+	if msg.Response {
+		return len(msg.Answer)
+	}
+	return len(msg.Question)
+}
+
+func IsServFailOrInvalid(msg *dns.Msg) bool {
+	if msg == nil {
 		return true // invalid
 	}
 	return msg.Rcode == dns.RcodeServerFailure // servfail
 }
 
 // Servfail returns a SERVFAIL response to the query q.
-func Servfail(q []byte) []byte {
-	msg := &dns.Msg{}
-	if err := msg.Unpack(q); err != nil {
-		log.W("dnsutil: servfail: error reading q: %v", err)
+func Servfail(q *dns.Msg) *dns.Msg {
+	if q == nil {
+		log.W("dnsutil: servfail: error reading q")
 		return nil
 	}
+	msg := q.Copy()
 	msg.Response = true
 	msg.RecursionAvailable = true
 	msg.Rcode = dns.RcodeServerFailure
 	msg.Extra = nil
-	b, err := msg.Pack()
-	if err != nil {
-		log.W("dnsutil: servfail: ctor error: %v", err)
-	}
-	return b
+	return msg
 }
 
 // GetBlocklistStampHeaderKey returns the http-header key for blocklists stamp
