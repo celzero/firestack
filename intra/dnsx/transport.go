@@ -407,8 +407,7 @@ func (r *resolver) forward(q []byte, chosenids ...string) (res0 []byte, err0 err
 
 	res2, err = ans1.Pack()
 	if err != nil {
-		// TODO: servefail?
-		summary.Status = BadResponse
+		summary.Status = BadResponse // TODO: servfail?
 		return res2, err
 	}
 
@@ -421,8 +420,7 @@ func (r *resolver) forward(q []byte, chosenids ...string) (res0 []byte, err0 err
 		ans1 = ans2
 		res2, err = ans2.Pack()
 		if err != nil {
-			// TODO: servfail?
-			summary.Status = BadResponse
+			summary.Status = BadResponse // TODO: servfail?
 			return res2, err
 		}
 		// summary latency, response, status, ips also set by transport t
