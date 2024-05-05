@@ -261,10 +261,14 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []*netip.Addr, network string, q
 
 	if err != nil {
 		if ansin == nil {
-			log.D("alg: abort; r: 0, qerr %v", err)
+			log.I("alg: abort; r: 0, qerr %v", err)
 			return nil, err
 		}
 		log.D("alg: err but r ok; ans: %d, qerr %v", xdns.Len(ansin), err)
+	}
+
+	if ansin == nil { // may be nil on errors
+		return nil, err
 	}
 
 	qname, _ := xdns.NormalizeQName(xdns.QName(ansin))
@@ -281,9 +285,13 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []*netip.Addr, network string, q
 		summary.UpstreamBlocks = true
 	}
 
+	log.D("alg: q(%s) ans(%d) hasaaaq(%t) hasans(%t) rgood(%t) ans0000(%t)", qname, xdns.Ans(ansin), hasaaaaq, hasans, rgood, ans0000)
+
 	if !hasans && hasaaaaq && !ans0000 { // synth aaaa from a, if needed
-		ans64 := t.dns64.D64(network, ansin, t1)        // d64 is disabled by default
-		if rgood = xdns.HasRcodeSuccess(ans64); rgood { // reaffirm rgood
+		ans64 := t.dns64.D64(network, ansin, t1) // d64 is disabled by default
+		rgood = xdns.HasRcodeSuccess(ans64)
+		log.D("alg: d64: q(%s) ans64(%d) rgood64(%t)", qname, xdns.Len(ans64), rgood)
+		if rgood { // reaffirm rgood
 			ansin = ans64
 			withDNS64Summary(ans64, summary)
 		} // else: ans64 is nil on no D64 or error
@@ -324,10 +332,10 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []*netip.Addr, network string, q
 	t.Lock()
 	defer t.Unlock()
 
-	algip4hints := []*netip.Addr{}
-	algip6hints := []*netip.Addr{}
-	algip4s := []*netip.Addr{}
-	algip6s := []*netip.Addr{}
+	algip4hints := make([]*netip.Addr, 0, len(ip4hints))
+	algip6hints := make([]*netip.Addr, 0, len(ip6hints))
+	algip4s := make([]*netip.Addr, 0, len(a4))
+	algip6s := make([]*netip.Addr, 0, len(a6))
 	for i, ip4 := range ip4hints {
 		realip = append(realip, ip4)
 		// 0th algip is reserved for A records

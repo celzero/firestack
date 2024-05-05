@@ -1176,6 +1176,20 @@ func Len(msg *dns.Msg) int {
 	return len(msg.Question)
 }
 
+func Ans(msg *dns.Msg) (s string) {
+	if msg != nil {
+		a := msg.Answer
+		if len(a) > 0 {
+			for _, rr := range a {
+				if rr != nil {
+					s += rr.String() + "  "
+				}
+			}
+		}
+	}
+	return
+}
+
 func IsServFailOrInvalid(msg *dns.Msg) bool {
 	if msg == nil {
 		return true // invalid
