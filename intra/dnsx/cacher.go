@@ -259,7 +259,7 @@ func (cb *cache) put(key string, ans *dns.Msg, s *x.DNSSummary) (ok bool) {
 	}
 	cb.c[key] = v
 
-	log.D("cache: put(%s): %s", key, v.str())
+	log.D("cache: put(%s): l(%t/%d); %s", key, xdns.HasAnyAnswer(ans), xdns.Len(ans), v.str())
 
 	ok = true
 	return

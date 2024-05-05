@@ -150,7 +150,7 @@ func NewResolver(fakeaddrs string, tunmode *settings.TunMode, dtr x.DNSTransport
 	r.gateway = NewDNSGateway(r, pt)
 	r.loadaddrs(fakeaddrs)
 	if dtr.ID() != Default {
-		log.W("dns: not default; ignoring", dtr.ID(), dtr.GetAddr())
+		log.W("dns: not default; ignoring %s @ %s", dtr.ID(), dtr.GetAddr())
 	} else if tr, ok := dtr.(Transport); !ok {
 		log.W("dns: not a transport; ignoring", dtr.ID(), dtr.GetAddr())
 	} else {

@@ -285,7 +285,7 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []*netip.Addr, network string, q
 		summary.UpstreamBlocks = true
 	}
 
-	log.D("alg: q(%s) ans(%d) hasaaaq(%t) hasans(%t) rgood(%t) ans0000(%t)", qname, xdns.Ans(ansin), hasaaaaq, hasans, rgood, ans0000)
+	log.D("alg: q(%s) ans(%s) hasaaaq(%t) hasans(%t) rgood(%t) ans0000(%t)", qname, xdns.Ans(ansin), hasaaaaq, hasans, rgood, ans0000)
 
 	if !hasans && hasaaaaq && !ans0000 { // synth aaaa from a, if needed
 		ans64 := t.dns64.D64(network, ansin, t1) // d64 is disabled by default
