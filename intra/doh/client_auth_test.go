@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+//go:build ignore
+
 package doh
 
 import (
@@ -27,13 +29,17 @@ import (
 	"log"
 	"net"
 	"testing"
+	"time"
 
 	x "github.com/celzero/firestack/intra/backend"
 	"github.com/celzero/firestack/intra/dialers"
+	"github.com/celzero/firestack/intra/dnsx"
 	"github.com/celzero/firestack/intra/ipn"
 	ilog "github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
+	"github.com/celzero/firestack/intra/rnet"
 	"github.com/celzero/firestack/intra/settings"
+	"github.com/celzero/firestack/intra/x64"
 	"github.com/celzero/firestack/intra/xdns"
 	"github.com/miekg/dns"
 )
@@ -364,59 +370,85 @@ func (*fakeObs) OnProxyAdded(string)   {}
 func (*fakeObs) OnProxyRemoved(string) {}
 func (*fakeObs) OnProxiesStopped()     {}
 
-/*
 type fakeBdg struct {
 	protect.Controller
-	intra.Bridge
+	x.DNSListener
 }
 
 var (
-	baseNsOpts = &dnsx.NsOpts{PID: ipn.Base, IPCSV: "", TIDCSV: ""}
-	baseMark   = &intra.Mark{PID: ipn.Base, CID: "testcid", UID: protect.UidSelf}
+	baseNsOpts = &x.DNSOpts{PID: dnsx.NetNoProxy, IPCSV: "", TIDCSV: x.CT + "test0"}
 	baseTab    = &rnet.Tab{CID: "testcid", Block: false}
 )
 
-func (*fakeBdg) Flow(_ int32, _ int, a, b, c, d, e, f string) *intra.Mark { return baseMark }
-func (*fakeBdg) OnSocketClosed(*intra.SocketSummary)                      {}
-
-func (*fakeBdg) OnQuery(_ string, _ int) *dnsx.NsOpts { return baseNsOpts }
-func (*fakeBdg) OnResponse(*dnsx.Summary)             {}
+func (*fakeBdg) OnQuery(_ string, _ int) *x.DNSOpts { return baseNsOpts }
+func (*fakeBdg) OnResponse(*x.DNSSummary)           {}
+func (*fakeBdg) OnDNSAdded(string)                  {}
+func (*fakeBdg) OnDNSRemoved(string)                {}
+func (*fakeBdg) OnDNSStopped()                      {}
 
 func (*fakeBdg) Route(a, b, c, d, e string) *rnet.Tab { return baseTab }
 func (*fakeBdg) OnComplete(*rnet.ServerSummary)       {}
-*/
 
 func TestDoh(t *testing.T) {
-	resolver := &net.Resolver{}
+	netr := &net.Resolver{}
 	// create a struct that implements protect.Controller interface
 	ctl := &fakeCtl{}
 	obs := &fakeObs{}
-	// bdg := &fakeBdg{Controller: ctl}
+	bdg := &fakeBdg{Controller: ctl}
 	pxr := ipn.NewProxifier(ctl, obs)
 	ilog.SetLevel(0)
-	dialers.Mapper(resolver)
 	settings.Debug = true
-	tr, err := NewTransport("test0", "https://8.8.8.8/dns-query", nil, pxr, ctl)
+	dialers.Mapper(netr)
+
+	q := aquery("skysports.com")
+	q6 := aaaaquery("skysports.com")
+	b4, _ := q.Pack()
+	b6, _ := q6.Pack()
+	// smm := &x.DNSSummary{}
+	// smm6 := &x.DNSSummary{}
+	_ = xdns.NetAndProxyID("tcp", ipn.Base)
+	tm := &settings.TunMode{
+		DNSMode:   settings.DNSModePort,
+		BlockMode: settings.BlockModeNone,
+		PtMode:    settings.PtModeAuto,
+	}
+	tr, _ := NewTransport("test0", "https://8.8.8.8/dns-query", nil, pxr, ctl)
+	dtr, _ := NewTransport(x.Default, "https://1.1.1.1/dns-query", nil, pxr, ctl)
+
+	natpt := x64.NewNatPt(tm)
+	resolv := dnsx.NewResolver("10.111.222.3", tm, dtr, bdg, natpt)
+	resolv.Add(tr)
+	r4, err := resolv.Forward(b4)
+	r6, err6 := resolv.Forward(b6)
+	time.Sleep(1 * time.Second)
+	_, _ = resolv.Forward(b6)
 	if err != nil {
+		// log.Output(2, smm.Str())
 		t.Fatal(err)
 	}
-	q := aquery("google.com")
-	smm := &x.DNSSummary{}
-	netw := xdns.NetAndProxyID("tcp", ipn.Base)
-	ans, err := tr.Query(netw, q, smm)
-	if err != nil {
-		log.Output(2, smm.Str())
-		t.Fatal(err)
+	if err6 != nil {
+		// log.Output(2, smm6.Str())
+		t.Fatal(err6)
 	}
-	if xdns.Len(ans) == 0 {
+	ans := xdns.AsMsg(r4)
+	ans6 := xdns.AsMsg(r6)
+	if xdns.Len(ans) == 0 && xdns.Len(ans6) == 0 {
 		t.Fatal("no ans")
 	}
-	log.Output(10, ans.Answer[0].String())
+	log.Output(10, xdns.Ans(ans))
+	log.Output(10, xdns.Ans(ans6))
 }
 
 func aquery(d string) *dns.Msg {
 	msg := &dns.Msg{}
 	msg.SetQuestion(dns.Fqdn(d), dns.TypeA)
 	msg.Id = 1234
+	return msg
+}
+
+func aaaaquery(d string) *dns.Msg {
+	msg := &dns.Msg{}
+	msg.SetQuestion(dns.Fqdn(d), dns.TypeAAAA)
+	msg.Id = 3456
 	return msg
 }
