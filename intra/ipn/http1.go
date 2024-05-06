@@ -53,6 +53,7 @@ func NewHTTPProxy(id string, c protect.Controller, po *settings.ProxyOptions) (P
 	if po.Scheme == "https" && len(po.Host) > 0 {
 		opttls := tx.WithTls(&tls.Config{
 			ServerName: po.Host,
+			MinVersion: tls.VersionTLS12,
 		})
 		opts = append(opts, opttls)
 	}

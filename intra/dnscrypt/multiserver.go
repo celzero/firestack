@@ -374,7 +374,8 @@ func (proxy *DcMulti) Refresh() (string, error) {
 	var servers []*registeredserver
 	proxy.RLock()
 	for _, s := range proxy.registeredServers {
-		servers = append(servers, &s)
+		sp := &s // stackoverflow.com/a/68247837
+		servers = append(servers, sp)
 	}
 	proxy.RUnlock()
 

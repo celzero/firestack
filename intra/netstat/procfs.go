@@ -352,15 +352,16 @@ func findProcNetEntryForProtocol(protocol string, src, dst netip.AddrPort) *Proc
 		return nil
 	}
 
-	for _, entry := range entries {
-		cached := getProcNetEntryFromPool(&entry)
+	for _, ent := range entries {
+		ep := &ent // stackoverflow.com/a/68247837
+		cached := getProcNetEntryFromPool(ep)
 		if invalidProcNetEntry(cached) {
-			addProcNetEntryToPool(&entry)
+			addProcNetEntryToPool(ep)
 		}
 		// return on first match since e.Same is pretty lax and deliberately
 		// not exact at matching the various procnet entries
-		if e.Same(&entry) {
-			return &entry
+		if e.Same(ep) {
+			return ep
 		}
 	}
 

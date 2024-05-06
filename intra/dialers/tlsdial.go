@@ -37,6 +37,7 @@ func tlsConnect(d *tls.Dialer, proto, sni string, ip netip.Addr, port int) (net.
 		if d.Config == nil {
 			d.Config = &tls.Config{
 				ServerName: sni,
+				MinVersion: tls.VersionTLS12,
 			}
 		} else if len(d.Config.ServerName) <= 0 {
 			d.Config.ServerName = sni

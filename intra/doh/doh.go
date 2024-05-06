@@ -211,6 +211,7 @@ func newTransport(typ, id, rawurl, target string, addrs []string, px ipn.Proxies
 	// }
 	t.tlsconfig = &tls.Config{
 		InsecureSkipVerify: skipTLSVerify,
+		MinVersion:         tls.VersionTLS12,
 		// ServerName:         t.hostname,
 	}
 	// Override the dial function.
