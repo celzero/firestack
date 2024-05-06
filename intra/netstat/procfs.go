@@ -15,6 +15,7 @@ import (
 	"net"
 	"net/netip"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -234,7 +235,7 @@ func clos(c io.Closer) {
 
 // ParseProcNet scans /proc/net/* returns a list of entries, one entry per line scanned
 func ParseProcNet(protocol string) ([]ProcNetEntry, error) {
-	filename := fmt.Sprintf("/proc/net/%s", protocol)
+	filename := filepath.Clean(fmt.Sprintf("/proc/net/%s", protocol))
 	fd, err := os.Open(filename)
 	if err != nil {
 		return nil, err

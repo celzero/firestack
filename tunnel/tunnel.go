@@ -28,6 +28,7 @@ import (
 	"errors"
 	"io"
 	"os"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -208,25 +209,25 @@ func (t *gtunnel) CloseConns(activecsv string) (closedcsv string) {
 	return t.hdl.CloseConns(activecsv)
 }
 
-func (t *gtunnel) SetPcap(fpcap string) error {
+func (t *gtunnel) SetPcap(fp string) error {
 	pcap := t.pcapio
+	fp = filepath.Clean(fp)
 
 	ignored := pcap.Close() // close any existing pcap sink
-
-	if len(fpcap) == 0 {
+	if len(fp) == 0 {
 		log.I("netstack: pcap closed (ignored-err? %v)", ignored)
 		return nil // nothing else to do; pcap is closed
-	} else if len(fpcap) == 1 {
+	} else if len(fp) == 1 {
 		// if fdpcap is 0, 1, or 2 then pcap is written to stdout
 		ok := pcap.log(true)
-		log.I("netstack: pcap(%s)/log(%t)", fpcap, ok)
+		log.I("netstack: pcap(%s)/log(%t)", fp, ok)
 		return nil // fdbased will write to stdout
-	} else if fout, err := os.OpenFile(fpcap, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0600); err == nil {
+	} else if fout, err := os.OpenFile(fp, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0600); err == nil {
 		ignored = pcap.file(fout) // attach
-		log.I("netstack: pcap(%s)/file(%v) (ignored-err? %v)", fpcap, fout, ignored)
+		log.I("netstack: pcap(%s)/file(%v) (ignored-err? %v)", fp, fout, ignored)
 		return nil // sniffer will write to fout
 	} else {
-		log.E("netstack: pcap(%s); (err? %v)", fpcap, err)
+		log.E("netstack: pcap(%s); (err? %v)", fp, err)
 		return err // no pcap
 	}
 }

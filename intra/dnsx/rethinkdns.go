@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -354,6 +355,7 @@ func (r *rethinkdnslocal) blockAnswer(msg *dns.Msg) (blocklists string, err erro
 }
 
 func load(configjson string) ([]string, map[string]string, error) {
+	configjson = filepath.Clean(configjson)
 	data, err := os.ReadFile(configjson)
 	if err != nil {
 		return nil, nil, err
