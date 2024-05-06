@@ -8,8 +8,8 @@ require (
 	github.com/jedisct1/xsecretbox v0.0.0-20190909160646-b731c21297f9
 	github.com/k-sone/critbitgo v1.4.0
 	github.com/miekg/dns v1.1.49
-	golang.org/x/crypto v0.18.0
-	golang.org/x/sys v0.17.0
+	golang.org/x/crypto v0.21.0
+	golang.org/x/sys v0.18.0
 )
 
 require (
@@ -19,7 +19,7 @@ require (
 	github.com/elazarl/goproxy v0.0.0-20230808193330-2592e75ae04a
 	github.com/txthinking/socks5 v0.0.0-20220615051428-39268faee3e6
 	golang.org/x/mobile v0.0.0-20220518205345-8578da9835fd
-	golang.org/x/net v0.20.0
+	golang.org/x/net v0.23.0
 	golang.zx2c4.com/wireguard v0.0.0-20231211153847-12269c276173
 	gvisor.dev/gvisor v0.0.0-20240306221502-ee1e1f6070e3
 	nhooyr.io/websocket v1.8.7
@@ -31,7 +31,6 @@ require (
 	github.com/aead/poly1305 v0.0.0-20180717145839-3fee0db0b635 // indirect
 	github.com/cisco/go-hpke v0.0.0-20210215210317-01c430f1f302 // indirect
 	github.com/cisco/go-tls-syntax v0.0.0-20200617162716-46b0cfb76b9b // indirect
-	github.com/golang/protobuf v1.5.3 // indirect
 	github.com/google/btree v1.1.2 // indirect
 	github.com/klauspost/compress v1.10.3 // indirect
 	github.com/patrickmn/go-cache v2.1.0+incompatible // indirect
