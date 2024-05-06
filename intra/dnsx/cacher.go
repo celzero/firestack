@@ -147,7 +147,7 @@ func (t *ctransport) str() string {
 
 func hash(s string) uint8 {
 	h := fnv.New32a()
-	h.Write([]byte(s))
+	_, _ = h.Write([]byte(s))
 	return uint8(h.Sum32() % defbuckets)
 }
 

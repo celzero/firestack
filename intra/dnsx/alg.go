@@ -805,7 +805,7 @@ func (t *dnsgateway) rdnsblLocked(algip netip.Addr, useptr bool) (bcsv string) {
 // xor fold fnv to 18 bits: www.isthe.com/chongo/tech/comp/fnv
 func hash22(s string) uint32 {
 	h := fnv.New64a()
-	h.Write([]byte(s))
+	_, _ = h.Write([]byte(s))
 	v64 := h.Sum64()
 	return (uint32(v64>>22) ^ uint32(v64)) & 0x3FFFFF // 22 bits
 }
@@ -813,7 +813,7 @@ func hash22(s string) uint32 {
 // xor fold fnv to 48 bits: www.isthe.com/chongo/tech/comp/fnv
 func hash48(s string) uint64 {
 	h := fnv.New64a()
-	h.Write([]byte(s))
+	_, _ = h.Write([]byte(s))
 	v64 := h.Sum64()
 	return (uint64(v64>>48) ^ uint64(v64)) & 0xFFFFFFFFFFFF // 48 bits
 }
