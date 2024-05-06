@@ -409,12 +409,12 @@ func loge(err error, msg string, rest ...any) {
 
 func extend(c net.Conn, t time.Duration) {
 	if c != nil {
-		c.SetDeadline(time.Now().Add(t))
+		_ = c.SetDeadline(time.Now().Add(t))
 	}
 }
 
 func clos(c io.Closer) {
 	if c != nil {
-		c.Close()
+		_ = c.Close()
 	}
 }

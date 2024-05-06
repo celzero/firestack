@@ -446,14 +446,14 @@ func (c *client) send(q *dns.Msg) *dnsx.QueryError {
 	} else {
 		qname := xdns.QName(q)
 		if c.unicast4 != nil {
-			setDeadline(c.unicast4)
+			extend(c.unicast4, timeout)
 			if _, err = c.unicast4.WriteToUDP(buf, xdns.MDNSAddr4); err != nil {
 				return dnsx.NewSendFailedQueryError(err)
 			}
 			log.D("mdns: send: sent query4 %s", qname)
 		}
 		if c.unicast6 != nil {
-			setDeadline(c.unicast6)
+			extend(c.unicast6, timeout)
 			if _, err = c.unicast6.WriteToUDP(buf, xdns.MDNSAddr6); err != nil {
 				return dnsx.NewSendFailedQueryError(err)
 			}
@@ -479,7 +479,7 @@ func (c *client) recv(conn *net.UDPConn) {
 
 	raddr := conn.RemoteAddr()
 	for c.closed.Load() == 0 {
-		setDeadline(conn)
+		extend(conn, timeout)
 		n, err := conn.Read(buf)
 
 		if c.closed.Load() == 1 {
@@ -542,9 +542,8 @@ func (c *client) alias(src, dst string) {
 	c.tracker[dst] = se
 }
 
-func setDeadline(c *net.UDPConn) error {
+func extend(c net.Conn, t time.Duration) {
 	if c != nil {
-		return c.SetDeadline(time.Now().Add(timeout))
+		_ = c.SetDeadline(time.Now().Add(t))
 	}
-	return errBindFail
 }
