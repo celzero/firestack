@@ -1,6 +1,6 @@
 module github.com/celzero/firestack
 
-go 1.22
+go 1.22.2
 
 require (
 	github.com/celzero/gotrie v0.0.0-20240214185511-300735a8f01f
@@ -13,7 +13,7 @@ require (
 )
 
 require (
-	github.com/cloudflare/circl v1.3.3
+	github.com/cloudflare/circl v1.3.8
 	github.com/cloudflare/odoh-go v1.0.0
 	github.com/crazy-max/xgo v0.31.0
 	github.com/elazarl/goproxy v0.0.0-20230808193330-2592e75ae04a

@@ -21,8 +21,8 @@ github.com/cisco/go-hpke v0.0.0-20210215210317-01c430f1f302/go.mod h1:RSsoIHRMBe
 github.com/cisco/go-tls-syntax v0.0.0-20200617162716-46b0cfb76b9b h1:Ves2turKTX7zruivAcUOQg155xggcbv3suVdbKCBQNM=
 github.com/cisco/go-tls-syntax v0.0.0-20200617162716-46b0cfb76b9b/go.mod h1:0AZAV7lYvynZQ5ErHlGMKH+4QYMyNCFd+AiL9MlrCYA=
 github.com/cloudflare/circl v1.0.0/go.mod h1:MhjB3NEEhJbTOdLLq964NIUisXDxaE1WkQPUxtgZXiY=
-github.com/cloudflare/circl v1.3.3 h1:fE/Qz0QdIGqeWfnwq0RE0R7MI51s0M2E4Ga9kq5AEMs=
-github.com/cloudflare/circl v1.3.3/go.mod h1:5XYMA4rFBvNIrhs50XuiBJ15vF2pZn4nnUKZrLbUZFA=
+github.com/cloudflare/circl v1.3.8 h1:j+V8jJt09PoeMFIu2uh5JUyEaIHTXVOHslFoLNAKqwI=
+github.com/cloudflare/circl v1.3.8/go.mod h1:PDRU+oXvdD7KCtgKxW95M5Z8BpSCJXQORiZFnBQS5QU=
 github.com/cloudflare/odoh-go v1.0.0 h1:4ZRBHNFC0wefDpWKuSXDuw6SsEulP3QrS/rqG9RVCgo=
 github.com/cloudflare/odoh-go v1.0.0/go.mod h1:J3Doz827YDYvz4hEmJU6q45hRFOqxUBL6NRUuEfjMxA=
 github.com/containerd/cgroups v1.0.1/go.mod h1:0SJrPIenamHDcZhEcJMNBB85rHcUsw4f25ZfBiPYRkU=
