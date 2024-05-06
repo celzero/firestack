@@ -155,7 +155,7 @@ func (t *HttpTunnel) Dial(network string, address string) (net.Conn, error) {
 
 func clos(c io.Closer) {
 	if c != nil {
-		c.Close()
+		_ = c.Close()
 	}
 }
 

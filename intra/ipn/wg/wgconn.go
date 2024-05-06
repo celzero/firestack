@@ -16,6 +16,7 @@ package wg
 import (
 	"context"
 	"errors"
+	"io"
 	"net"
 	"net/netip"
 	"strconv"
@@ -39,7 +40,6 @@ var (
 	errNoLocalAddr     = errors.New("wg: bind: no local address")
 	errNoRawConn       = errors.New("wg: bind: no raw conn")
 	errNotUDP          = errors.New("wg: bind: not a UDP conn")
-	errNoUDPAddr       = errors.New("wg: bind: no UDPAddr")
 	errNoListen        = errors.New("wg: bind: listen failed")
 )
 
@@ -154,7 +154,7 @@ func (s *StdNetBind) listenNet(network string, port int) (*net.UDPConn, int, err
 	if udpconn, ok := conn.(*net.UDPConn); ok {
 		return udpconn, uaddr.Port, nil
 	} else {
-		conn.Close()
+		clos(conn)
 		return nil, 0, errNotUDP
 	}
 }
@@ -190,12 +190,12 @@ again:
 	no6 := errors.Is(err, syscall.EAFNOSUPPORT)
 	log.D("wg: bind: %s #%d listen6(%d); busy? %t no6? %t err? %v", bind.id, tries, port, busy, no6, err)
 	if uport == 0 && busy && tries < maxbindtries {
-		ipv4.Close()
+		clos(ipv4)
 		tries++
 		goto again
 	}
 	if err != nil && !no6 {
-		ipv4.Close()
+		clos(ipv4)
 		return nil, 0, err
 	}
 
@@ -246,7 +246,7 @@ func (s *StdNetBind) makeReceiveFn(uc *net.UDPConn) conn.ReceiveFunc {
 		numMsgs := 0
 		b := bufs[0]
 
-		uc.SetDeadline(time.Now().Add(wgtimeout))
+		extend(uc, wgtimeout)
 		n, addr, err := uc.ReadFromUDPAddrPort(b)
 		if err == nil {
 			numMsgs++
@@ -303,7 +303,7 @@ func (s *StdNetBind) Send(buf [][]byte, peer conn.Endpoint) (err error) {
 
 	s.lastSendAddr = dst
 
-	uc.SetDeadline(time.Now().Add(wgtimeout))
+	extend(uc, wgtimeout)
 	n, err := uc.WriteToUDPAddrPort(data, dst)
 
 	loge(err, "wg: bind: send: %s addr(%v) n(%d); err? %v", s.id, dst, n, err)
@@ -405,4 +405,16 @@ func loge(err error, msg string, rest ...any) {
 		l = log.W
 	}
 	l(msg, rest...)
+}
+
+func extend(c net.Conn, t time.Duration) {
+	if c != nil {
+		c.SetDeadline(time.Now().Add(t))
+	}
+}
+
+func clos(c io.Closer) {
+	if c != nil {
+		c.Close()
+	}
 }

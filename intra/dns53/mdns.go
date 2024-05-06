@@ -31,10 +31,9 @@ import (
 )
 
 var (
-	errNoProtos        = errors.New("enable at least one of IPv4 and IPv6 querying")
-	errBindFail        = errors.New("failed to bind to udp port")
-	errNoMdnsAnswer    = errors.New("no mdns answer")
-	errUnexpectedProxy = errors.New("proxy not supported")
+	errNoProtos     = errors.New("enable at least one of IPv4 and IPv6 querying")
+	errBindFail     = errors.New("failed to bind to udp port")
+	errNoMdnsAnswer = errors.New("no mdns answer")
 )
 
 type dnssd struct {
@@ -105,7 +104,7 @@ func (t *dnssd) oneshotQuery(msg *dns.Msg) (*dns.Msg, *dnsx.QueryError) {
 		log.E("mdns: underlying transport: %s", err)
 		return nil, dnsx.NewTransportQueryError(err)
 	}
-	defer c.Close()
+	defer clos(c)
 	if qerr := c.query(qctx); qerr != nil {
 		log.E("mdns: oquery(%s): %v", qname, qerr)
 		return nil, qerr
@@ -305,18 +304,11 @@ func (c *client) Close() error {
 
 	log.I("mdns: closing client %v", c.str())
 
-	closeudp(c.unicast4)
-	closeudp(c.unicast6)
-	closeudp(c.multicast4)
-	closeudp(c.multicast6)
+	clos(c.unicast4)
+	clos(c.unicast6)
+	clos(c.multicast4)
+	clos(c.multicast6)
 
-	return nil
-}
-
-func closeudp(c *net.UDPConn) error {
-	if c != nil {
-		return c.Close()
-	}
 	return nil
 }
 

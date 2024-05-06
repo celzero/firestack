@@ -370,35 +370,6 @@ func loadIPNets(out *[]netip.Prefix, v string) (err error) {
 	return
 }
 
-func bindWgSockets(id, addrport string, wgdev *device.Device, ctl protect.Controller) bool {
-	var ok4, ok6 bool
-
-	// ref: github.com/WireGuard/wireguard-go/blob/1417a47c8/conn/bind_std.go#L130
-	// bind: github.com/WireGuard/wireguard-android/blob/713947e432/tunnel/tools/libwg-go/api-android.go#L180
-	// protect: https://github.com/WireGuard/wireguard-android/blob/713947e432/tunnel/src/main/java/com/wireguard/android/backend/GoBackend.java#L316
-	bind, _ := wgdev.Bind().(conn.PeekLookAtSocketFd)
-	if bind == nil {
-		log.E("proxy: wg: %s bindWgSockets: failed to get socket", id)
-		return false
-	}
-
-	if fd4, err := bind.PeekLookAtSocketFd4(); err != nil {
-		log.W("proxy: wg: %s bindWgSockets4: failed to get wg4 socket %v", id, err)
-	} else {
-		ctl.Bind4(id, addrport, fd4)
-		ok4 = true
-	}
-
-	if fd6, err := bind.PeekLookAtSocketFd6(); err != nil {
-		log.W("proxy: wg: %s bindWgSockets6: failed to get wg6 socket %v", id, err)
-	} else {
-		ctl.Bind6(id, addrport, fd6)
-		ok6 = true
-	}
-
-	return ok4 || ok6
-}
-
 // ref: github.com/WireGuard/wireguard-android/blob/713947e432/tunnel/tools/libwg-go/api-android.go#L76
 func NewWgProxy(id string, ctl protect.Controller, cfg string) (WgProxy, error) {
 	ifaddrs, allowedaddrs, peers, dnsh, endpointh, mtu, err := wgIfConfigOf(id, &cfg)
@@ -439,10 +410,6 @@ func NewWgProxy(id string, ctl protect.Controller, cfg string) (WgProxy, error) 
 		log.E("proxy: wg: %s failed init %v", id, err)
 		return nil, err
 	}
-
-	// nb: call after StdNetBind conn has been "Open"ed
-	// not needed for wg.NewBind; see: wg:wgconn.go
-	// bindok := bindWgSockets(id, endpointh.AnyAddr(), wgdev, ctl)
 
 	w := &wgproxy{
 		nofwd{},

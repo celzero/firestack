@@ -79,7 +79,6 @@ type pcapsink struct {
 }
 
 var (
-	errStackMissing = errors.New("tun: netstack not initialized")
 	errInvalidTunFd = errors.New("invalid tun fd")
 	errNoWriter     = errors.New("no write() on netstack")
 )
@@ -95,7 +94,8 @@ func (p *pcapsink) writeAsync(b []byte) {
 	p.RUnlock()
 
 	if w != nil {
-		w.Write(b)
+		n, err := w.Write(b)
+		log.VV("tun: pcap: writeAsync: n: %d, err? %v", n, err)
 	} // else: no op
 }
 
@@ -240,14 +240,15 @@ func (t *gtunnel) SetLinkAndRoutes(fd, mtu, engine int) (err error) {
 func (t *gtunnel) SetLink(fd, mtu int) error {
 	dupfd, err := dup(fd) // tunnel will own dupfd
 	if err != nil {
+		log.E("tun: new link; err %v", err)
 		return err
 	}
 
-	t.ep.Swap(dupfd, mtu) // swap fd and mtu
+	err = t.ep.Swap(dupfd, mtu) // swap fd and mtu
 	t.mtu = mtu
 
-	log.I("tun: new link; fd(%d), mtu(%d)", dupfd, mtu)
-	return nil
+	log.I("tun: new link; fd(%d), mtu(%d); err? %v", dupfd, mtu, err)
+	return err
 }
 
 func (t *gtunnel) SetRoute(engine int) error {

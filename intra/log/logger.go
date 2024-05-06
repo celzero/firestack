@@ -162,7 +162,7 @@ func (l *simpleLogger) out(at int, f string, args ...any) {
 	if len(l.tag) > 0 {
 		msg = l.tag + msg
 	}
-	l.o.Output(at, msg)
+	_ = l.o.Output(at, msg) // may error
 }
 
 func (l *simpleLogger) err(at int, f string, args ...any) {
@@ -170,5 +170,5 @@ func (l *simpleLogger) err(at int, f string, args ...any) {
 	if len(l.tag) > 0 {
 		msg = l.tag + msg
 	}
-	l.e.Output(at, msg)
+	_ = l.e.Output(at, msg) // may error
 }

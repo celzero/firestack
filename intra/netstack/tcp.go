@@ -87,9 +87,9 @@ func (g *GTCPConn) ok() bool {
 
 func (g *GTCPConn) StatefulTeardown() (rst bool) {
 	if g.ok() {
-		g.Close() // g.TCPConn.Close error always nil
+		_ = g.Close() // g.TCPConn.Close error always nil
 	} else {
-		g.synack()           // establish circuit
+		_, _ = g.synack()    // establish circuit
 		g.req.Complete(true) // then rst
 	}
 	return true // always rst
@@ -211,7 +211,7 @@ func (g *GTCPConn) Abort() {
 		ep.Abort()
 	}
 	if c != nil {
-		c.Close()
+		_ = c.Close()
 	}
 }
 
@@ -222,7 +222,7 @@ func (g GTCPConn) Close() error {
 		ep.Abort()
 	}
 	if c != nil {
-		c.SetDeadline(time.Now().Add(-1))
+		_ = c.SetDeadline(time.Now().Add(-1))
 		return c.Close() // always returns nil; see gonet.TCPConn.Close
 	}
 	return nil

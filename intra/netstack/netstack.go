@@ -40,7 +40,7 @@ type sniff struct {
 func NewEndpoint(dev, mtu int, sink io.WriteCloser) (ep SeamlessEndpoint, err error) {
 	defer func() {
 		if err != nil {
-			syscall.Close(dev)
+			_ = syscall.Close(dev)
 		}
 		log.I("netstack: new endpoint(fd:%d / mtu:%d); err? %v", dev, mtu, err)
 	}()

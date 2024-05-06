@@ -9,7 +9,6 @@ package ipn
 import (
 	"context"
 	"crypto/hmac"
-	"crypto/rand"
 	"crypto/sha256"
 	"crypto/tls"
 	"encoding/hex"
@@ -17,7 +16,6 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptrace"
-	"net/netip"
 	"net/textproto"
 	"net/url"
 	"strconv"
@@ -89,15 +87,16 @@ func (c *pipconn) Write(b []byte) (int, error) {
 func (c *pipconn) Close() (err error) {
 	log.D("piph2: close(%s); waiting?(%t)", c.id, c.ok)
 	c.CloseRead()
-	return c.CloseWrite()
+	c.CloseWrite()
+	return nil
 }
 
-func (c *pipconn) CloseRead() error {
-	return clos(c.r)
+func (c *pipconn) CloseRead() {
+	clos(c.r)
 }
 
-func (c *pipconn) CloseWrite() error {
-	return clos(c.w)
+func (c *pipconn) CloseWrite() {
+	clos(c.w)
 }
 
 func (c *pipconn) LocalAddr() net.Addr           { return c.laddr }
@@ -135,11 +134,10 @@ func (t *piph2) dialtls(network, addr string, cfg *tls.Config) (net.Conn, error)
 	return conn, nil
 }
 
-func clos(c io.Closer) error {
+func clos(c io.Closer) {
 	if c != nil {
-		return c.Close()
+		_ = c.Close()
 	}
-	return nil
 }
 
 func (t *piph2) dial(network, addr string) (net.Conn, error) {
@@ -457,22 +455,6 @@ func hmac256(m, k []byte) []byte {
 	mac := hmac.New(sha256.New, k)
 	mac.Write(m)
 	return mac.Sum(nil)
-}
-
-func sha256sum(m []byte) []byte {
-	digest := sha256.Sum256(m)
-	return digest[:]
-}
-
-func hexipp(ipport netip.AddrPort) (n string, err error) {
-	nonce := make([]byte, 16)
-	if _, err := rand.Read(nonce); err == nil {
-		nonce = append(nonce, ipport.Addr().AsSlice()...)
-		n = byte2hex(nonce)
-	} else {
-		log.E("piph2: hexnonce: err %v", err)
-	}
-	return
 }
 
 func hexurl(p string) string {

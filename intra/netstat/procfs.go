@@ -11,6 +11,7 @@ import (
 	"bufio"
 	"encoding/binary"
 	"fmt"
+	"io"
 	"net"
 	"net/netip"
 	"os"
@@ -225,6 +226,12 @@ func toUnmappedAddr(ip net.IP) netip.Addr {
 	return ipp.Unmap()
 }
 
+func clos(c io.Closer) {
+	if c != nil {
+		_ = c.Close()
+	}
+}
+
 // ParseProcNet scans /proc/net/* returns a list of entries, one entry per line scanned
 func ParseProcNet(protocol string) ([]ProcNetEntry, error) {
 	filename := fmt.Sprintf("/proc/net/%s", protocol)
@@ -232,7 +239,7 @@ func ParseProcNet(protocol string) ([]ProcNetEntry, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer fd.Close()
+	defer clos(fd)
 
 	entries := make([]ProcNetEntry, 0)
 	scanner := bufio.NewScanner(fd)

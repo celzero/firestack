@@ -157,7 +157,7 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target netip.AddrPort)
 
 	defer func() {
 		if !open {
-			gconn.Close()
+			clos(gconn)
 			if smm != nil {
 				smm.done(err)
 				go sendNotif(h.listener, smm)
@@ -166,14 +166,14 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target netip.AddrPort)
 	}()
 
 	if h.status == TCPEND {
-		log.D("tcp: proxy: end")
-		gconn.Connect(rst) // fin
+		_, err = gconn.Connect(rst) // fin
+		log.D("tcp: proxy: end %v -> %v; close err? %v", src, target, err)
 		return deny
 	}
 
 	if !src.IsValid() || !target.IsValid() {
-		log.E("tcp: nil addr %v -> %v", src, target)
-		gconn.Connect(rst) // fin
+		_, err = gconn.Connect(rst) // fin
+		log.E("tcp: nil addr %v -> %v; close err? %v", src, target, err)
 		return deny
 	}
 
@@ -200,7 +200,7 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target netip.AddrPort)
 		}
 		log.I("tcp: gconn %s firewalled from %s -> %s (dom: %s + %s/ real: %s) for %s; stall? %ds", cid, src, target, domains, probableDomains, realips, uid, secs)
 		err = errTcpFirewalled
-		gconn.Connect(rst) // fin
+		_, _ = gconn.Connect(rst) // fin
 		return deny
 	}
 

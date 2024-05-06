@@ -43,7 +43,7 @@ func (s *ServerSummary) done(errs ...error) {
 	}
 }
 
-func (s *ServerSummary) str() string {
+func (s *ServerSummary) String() string {
 	return fmt.Sprintf("type: %s, sid: %s, pid: %s, cid: %s, upload: %d, download: %d, duration: %d, msg: %s",
 		s.Type, s.SID, s.PID, s.CID, s.Tx, s.Rx, s.Duration, s.Msg)
 }

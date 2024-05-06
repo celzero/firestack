@@ -387,7 +387,9 @@ func (t *ctransport) fetch(network string, q *dns.Msg, summary *x.DNSSummary, cb
 			// fallthrough to sendRequest
 		} else if cachedsummary != nil {
 			if !isfresh { // not fresh, fetch in the background
-				go sendRequest(new(x.DNSSummary))
+				go func() {
+					_, _ = sendRequest(new(x.DNSSummary))
+				}()
 			}
 			// change summary fields to reflect cached response, except for latency
 			fillSummary(cachedsummary, summary)

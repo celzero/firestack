@@ -105,7 +105,7 @@ func udpExchange(pid string, serverInfo *serverinfo, sharedKey *[32]byte, encryp
 		return
 	}
 
-	defer pc.Close()
+	defer clos(pc)
 	if err = pc.SetDeadline(time.Now().Add(timeout8s)); err != nil {
 		return
 	}
@@ -156,7 +156,7 @@ func tcpExchange(pid string, serverInfo *serverinfo, sharedKey *[32]byte, encryp
 		log.E("dnscrypt: tcp: dialing %s; hasConn? %s(%t); err: %v", serverInfo, pid, pc != nil, err)
 		return
 	}
-	defer pc.Close()
+	defer clos(pc)
 	if err = pc.SetDeadline(time.Now().Add(timeout8s)); err != nil {
 		log.E("dnscrypt: tcp: err deadline: %v", err)
 		return
@@ -648,7 +648,10 @@ func NewDcMult(px ipn.Proxies, ctl protect.Controller) *DcMulti {
 		dialer:              protect.MakeNsRDial(dnsx.DcProxy, ctl),
 		est:                 core.NewP50Estimator(),
 	}
-	dc.start()
+	err := dc.start()
+	if err != nil {
+		log.E("dnscrypt: start failed: %v", err)
+	}
 	return dc
 }
 

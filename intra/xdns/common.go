@@ -50,10 +50,9 @@ var (
 )
 
 var (
-	ip4zero    = net.IPv4zero
-	ip6zero    = net.IPv6unspecified
-	dnsport    = uint16(53)
-	fakedomain = "MTE1LDI1MiwxNjMsMjI4LDg5LDI0NSwxOTIsNzEsNiwyNTQsNjMsOTEsMjE1LDY.lan"
+	ip4zero = net.IPv4zero
+	ip6zero = net.IPv6unspecified
+	dnsport = uint16(53)
 )
 
 const (

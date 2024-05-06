@@ -26,9 +26,9 @@ type goosr struct {
 	status int
 	r      *net.Resolver
 	rcgo   *net.Resolver
-	dialer *protect.RDial
-	px     ipn.Proxy // the only supported proxy is ipn.Exit
-	est    core.P2QuantileEstimator
+	// dialer *protect.RDial
+	px  ipn.Proxy // the only supported proxy is ipn.Exit
+	est core.P2QuantileEstimator
 }
 
 var _ dnsx.Transport = (*transport)(nil)
@@ -42,7 +42,7 @@ func NewGoosTransport(pxs ipn.Proxies, ctl protect.Controller) (t dnsx.Transport
 	if pxs == nil {
 		return nil, dnsx.ErrNoProxyProvider
 	}
-	d := protect.MakeNsRDial(dnsx.Goos, ctl)
+	// d := protect.MakeNsRDial(dnsx.Goos, ctl)
 	px, err := pxs.ProxyFor(ipn.Exit)
 	if err != nil {
 		log.E("dns53: goosr: no exit proxy: %v", err)
@@ -50,9 +50,9 @@ func NewGoosTransport(pxs ipn.Proxies, ctl protect.Controller) (t dnsx.Transport
 	}
 	tx := &goosr{
 		status: x.Start,
-		dialer: d,
-		px:     px,
-		est:    core.NewP50Estimator(),
+		// dialer: d,
+		px:  px,
+		est: core.NewP50Estimator(),
 	}
 	tx.r = &net.Resolver{
 		PreferGo: true,
@@ -70,10 +70,6 @@ func (t *goosr) pxdial(ctx context.Context, network, addr string) (conn net.Conn
 	// addr must be ip:port
 	log.V("dns53: goosr: pxdial: using %s proxy for %s:%s => %s", ipn.Exit, network, t.px.GetAddr(), addr)
 	return t.px.Dialer().Dial(network, addr)
-}
-
-func (t *goosr) dial(ctx context.Context, network, addr string) (net.Conn, error) {
-	return t.dialer.Dial(network, addr)
 }
 
 func (t *goosr) send(msg *dns.Msg) (ans *dns.Msg, elapsed time.Duration, qerr *dnsx.QueryError) {

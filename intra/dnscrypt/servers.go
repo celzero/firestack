@@ -207,7 +207,7 @@ func fetchDNSCryptServerInfo(proxy *DcMulti, name string, stamp stamps.ServerSta
 	}
 	var tcpaddr *net.TCPAddr
 	var udpaddr *net.UDPAddr
-	s, p := hostport(stamp.ServerAddrStr)
+	s, p := hostport(&stamp)
 	if ips, err := dialers.Resolve(s); err == nil && len(ips) > 0 {
 		ipp := netip.AddrPortFrom(ips[0], p)
 		tcpaddr = net.TCPAddrFromAddrPort(ipp)
@@ -279,7 +279,7 @@ func route(proxy *DcMulti) (udpaddrs []*net.UDPAddr, tcpaddrs []*net.TCPAddr) {
 			}
 		}
 
-		host, port := hostport(rrstamp.ServerAddrStr)
+		host, port := hostport(rrstamp)
 		if rrstamp != nil && (rrstamp.Proto == stamps.StampProtoTypeDNSCrypt ||
 			rrstamp.Proto == stamps.StampProtoTypeDNSCryptRelay) {
 			if ips, err := dialers.Resolve(host); err == nil && len(ips) > 0 {
@@ -296,7 +296,11 @@ func route(proxy *DcMulti) (udpaddrs []*net.UDPAddr, tcpaddrs []*net.TCPAddr) {
 	return
 }
 
-func hostport(x string) (string, uint16) {
+func hostport(stamp *stamps.ServerStamp) (string, uint16) {
+	if stamp == nil {
+		return "", 0
+	}
+	x := stamp.ServerAddrStr
 	s, port, err := net.SplitHostPort(x)
 	if err != nil || len(port) <= 0 {
 		log.W("dnscrypt: host-port og(%s); err? %v", x, err)

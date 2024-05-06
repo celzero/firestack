@@ -509,12 +509,12 @@ func (r *resolver) dnstcp(q []byte, w io.WriteCloser) error {
 
 	rlen := len(ans)
 	if rlen <= 0 && err != nil {
-		w.Close() // close on client err
+		clos(w) // close on client err
 		return err
 	}
 
 	if n, err := writePrefixed(w, ans, rlen); err != nil {
-		w.Close() // close on write back err
+		clos(w) // close on write back err
 		return err
 	} else if n != rlen {
 		// do not close on incomplete writes
@@ -529,12 +529,12 @@ func (r *resolver) dnsudp(q []byte, w io.WriteCloser) error {
 
 	rlen := len(ans)
 	if rlen <= 0 && err != nil {
-		w.Close() // close on client err
+		clos(w) // close on client err
 		return err
 	}
 
 	if n, err := w.Write(ans); err != nil {
-		w.Close() // close on write back err
+		clos(w) // close on write back err
 		return err
 	} else if n != rlen {
 		// do not close on incomplete writes
@@ -546,7 +546,7 @@ func (r *resolver) dnsudp(q []byte, w io.WriteCloser) error {
 
 // reply DNS-over-UDP from a stub resolver.
 func (r *resolver) reply(c protect.Conn) {
-	defer c.Close()
+	defer clos(c)
 
 	start := time.Now()
 	cnt := 0
@@ -583,7 +583,7 @@ func (r *resolver) reply(c protect.Conn) {
 // Accept a DNS-over-TCP socket from a stub resolver, and connect the socket
 // to this DNSTransport.
 func (r *resolver) accept(c io.ReadWriteCloser) {
-	defer c.Close()
+	defer clos(c)
 
 	start := time.Now()
 	cnt := 0
@@ -924,4 +924,10 @@ func PrefixFor(id string) string {
 
 func cachedTransport(t Transport) bool {
 	return strings.HasSuffix(t.ID(), CT) || strings.HasPrefix(t.GetAddr(), cacheprefix)
+}
+
+func clos(c io.Closer) {
+	if c != nil {
+		_ = c.Close()
+	}
 }

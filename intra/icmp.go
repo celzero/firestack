@@ -158,7 +158,7 @@ func (h *icmpHandler) Ping(source, target netip.AddrPort, msg []byte, pong netst
 	}
 	defer clos(uc)
 
-	uc.SetDeadline(time.Now().Add(icmptimeout))
+	extend(uc, icmptimeout)
 	if _, err = uc.Write(msg); err != nil {
 		log.E("t.icmp: egress:  write(%v) ping; err %v", target, err)
 		return false // denied
@@ -201,7 +201,7 @@ func (h *icmpHandler) fetch(c net.Conn, pong netstack.Pong, summary *SocketSumma
 			return
 		}
 
-		c.SetDeadline(time.Now().Add(icmptimeout))
+		extend(c, icmptimeout)
 		if n, err = c.Read(b); err != nil {
 			log.E("t.icmp: ingress: read(%v <- %v) ping err %v", src, dst, err)
 			success = success || false
@@ -231,4 +231,10 @@ func (h *icmpHandler) sendNotif(s *SocketSummary) {
 		return
 	}
 	l.OnSocketClosed(s)
+}
+
+func extend(c net.Conn, t time.Duration) {
+	if c != nil {
+		_ = c.SetDeadline(time.Now().Add(t))
+	}
 }

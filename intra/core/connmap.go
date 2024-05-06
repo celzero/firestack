@@ -112,7 +112,7 @@ func (h *cm) Untrack(cid string) (n int) {
 	for _, c := range h.conntracker[cid] {
 		if c != nil {
 			h.delFromDstTrackerLocked(cid, c)
-			go c.Close()
+			_ = c.Close()
 			n += 1
 		}
 	}
@@ -160,7 +160,7 @@ func (h *cm) UntrackBatch(cids []string) (out []string) {
 		for _, c := range h.conntracker[id] {
 			if c != nil {
 				h.delFromDstTrackerLocked(id, c)
-				go c.Close()
+				_ = c.Close()
 			}
 		}
 		delete(h.conntracker, id)
@@ -224,7 +224,7 @@ func (h *cm) Clear() (cids []string) {
 	for k, v := range h.conntracker {
 		for _, c := range v {
 			if c != nil {
-				go c.Close()
+				_ = c.Close()
 			}
 		}
 		cids = append(cids, k)

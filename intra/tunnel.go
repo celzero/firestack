@@ -76,7 +76,6 @@ type Tunnel interface {
 	// to which a PCAP file will be written to.
 	// If len(fpcap) is 0, no PCAP file will be written.
 	// If len(fpcap) is 1, PCAP be written to stdout.
-	// Must be called on a background thread.
 	SetPcap(fpcap string) error
 	// Set DNSMode, BlockMode, PtMode.
 	SetTunMode(dnsmode, blockmode, ptmode int)
@@ -159,7 +158,7 @@ func (t *rtunnel) Disconnect() {
 		err0 := t.resolver.Stop()
 		err1 := t.proxies.StopProxies()
 		n := t.services.StopServers()
-		// t.bridge = nil // "free" ref to the client
+		t.bridge = nil // "free" ref to the client
 		log.I("tun: <<< disconnect >>>; err0(%v); err1(%v); svc(%d)", err0, err1, n)
 
 		t.Tunnel.Disconnect()

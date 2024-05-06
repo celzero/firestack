@@ -38,8 +38,8 @@ var (
 	// Address: 192.0.0.170
 	// Address: 64:ff9b::c000:aa
 	// Address: 64:ff9b::c000:ab
-	_, rfc6052WKP, _ = net.ParseCIDR("64:ff9b::/96")
-	_, rfc8215WKP, _ = net.ParseCIDR("64:ff9b:1:fffe::/96")
+	// _, rfc6052WKP, _ = net.ParseCIDR("64:ff9b::/96")
+	// _, rfc8215WKP, _ = net.ParseCIDR("64:ff9b:1:fffe::/96")
 
 	ttl64 = uint32(180)
 

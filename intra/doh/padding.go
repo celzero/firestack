@@ -31,12 +31,6 @@ const (
 	PaddingBlockSize = 128 // RFC8467 recommendation
 )
 
-const kOptRrHeaderLen int = 1 + // DOMAIN NAME
-	2 + // TYPE
-	2 + // CLASS
-	4 + // TTL
-	2 // RDLEN
-
 const kOptPaddingHeaderLen int = 2 + // OPTION-CODE
 	2 // OPTION-LENGTH
 

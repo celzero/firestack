@@ -88,7 +88,10 @@ func (b *iovecBuffer) nextIovecs() []unix.Iovec {
 			break
 		}
 		v := buffer.NewViewSize(size)
-		buf.Append(v)
+		err := buf.Append(v) // todo: break if error?
+		if err != nil {
+			log.W("ns: dispatch: nextIovecs: err buffer.append(%d): %v", size, err)
+		}
 		b.iovecs[i+vnetHdrOff] = unix.Iovec{Base: v.BasePtr()}
 		b.iovecs[i+vnetHdrOff].SetLen(v.Size())
 	}

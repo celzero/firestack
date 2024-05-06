@@ -79,12 +79,12 @@ var (
 var _ netstack.GUDPConnHandler = (*udpHandler)(nil)
 
 func (rw *rwext) Read(b []byte) (n int, err error) {
-	rw.UDPConn.SetDeadline(time.Now().Add(udptimeout))
+	extend(rw.UDPConn, udptimeout)
 	return rw.UDPConn.Read(b)
 }
 
 func (rw *rwext) Write(b []byte) (n int, err error) {
-	rw.UDPConn.SetDeadline(time.Now().Add(udptimeout))
+	extend(rw.UDPConn, udptimeout)
 	return rw.UDPConn.Write(b)
 }
 
@@ -163,9 +163,9 @@ func (h *udpHandler) ProxyMux(gconn *netstack.GUDPConn, src netip.AddrPort) (ok 
 	var invalidaddr = netip.AddrPort{}
 
 	if h.status == UDPEND {
-		log.D("udp: connect: end")
-		gconn.Connect(fin) // disconnect, no nat
-		return             // not ok
+		err := gconn.Connect(fin) // disconnect, no nat
+		log.D("udp: connect: mux: end listen(%v); close err? %v", src, err)
+		return // not ok
 	}
 
 	// connect (register endpoint) right away, since new packets needn't be
@@ -181,7 +181,7 @@ func (h *udpHandler) ProxyMux(gconn *netstack.GUDPConn, src netip.AddrPort) (ok 
 			smm.done(err)
 			go sendNotif(l, smm)
 		} else {
-			log.W("udp: proxy: unexpected %s -> [unconnected]; netstack err: %v; dst err: %v", src, gerr, err)
+			log.W("udp: proxy: mux: unexpected %s -> [unconnected]; netstack err: %v; dst err: %v", src, gerr, err)
 		}
 		// invalid dst addrs are not tracked; conntracker.Untrack() not req
 		return // not ok
@@ -191,18 +191,18 @@ func (h *udpHandler) ProxyMux(gconn *netstack.GUDPConn, src netip.AddrPort) (ok 
 		for {
 			dxconn, err := mxr.vend()
 			if err != nil {
-				log.I("udp: proxy: %s vend for %s done; err? %v", smm.ID, src, err)
+				log.I("udp: proxy: mux: %s vend for %s done; err? %v", smm.ID, src, err)
 				break
 			}
 			if dst, err := ipp(dxconn.RemoteAddr()); err != nil || dst.Addr().IsUnspecified() || !dst.IsValid() {
-				log.W("udp: proxy: %s bad dst ipport %s -> %s; err: %v", smm.ID, src, dst, err)
+				log.W("udp: proxy: mux: %s bad dst ipport %s -> %s; err: %v", smm.ID, src, dst, err)
 				clos(dxconn)
 			} else {
-				log.I("udp: proxy: %s mux for %s -> %s", smm.ID, src, dst)
+				log.I("udp: proxy: mux: %s for %s -> %s", smm.ID, src, dst)
 				h.proxy(dxconn, src, dst)
 			}
 		}
-		log.I("udp: proxy: %s mux for %s done", smm.ID, mxr.stats)
+		log.I("udp: proxy: mux: %s for %s done", smm.ID, mxr.stats)
 	}()
 	return true // ok
 }

@@ -97,6 +97,10 @@ func (d *transport) doOdoh(pid string, q *dns.Msg) (res *dns.Msg, elapsed time.D
 	log.V("odoh: success; res: %d", len(ans))
 	res = new(dns.Msg) // unpack into a new msg
 	err = res.Unpack(ans)
+	if err != nil {
+		qerr = dnsx.NewBadResponseQueryError(err)
+		return
+	}
 	return
 }
 

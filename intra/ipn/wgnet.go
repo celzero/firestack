@@ -39,11 +39,10 @@ import (
 )
 
 var (
-	errNoSuchHost         = errors.New("no such host")
-	errInvalidDNSResponse = errors.New("invalid DNS response")
-	errNumericPort        = errors.New("port must be numeric")
-	errNoSuitableAddress  = errors.New("no suitable address found")
-	errMissingAddress     = errors.New("missing address")
+	errNoSuchHost        = errors.New("no such host")
+	errNumericPort       = errors.New("port must be numeric")
+	errNoSuitableAddress = errors.New("no suitable address found")
+	errMissingAddress    = errors.New("missing address")
 )
 
 const (

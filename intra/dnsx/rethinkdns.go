@@ -262,17 +262,6 @@ func (r *rethinkdns) keyToNames(list []string) (v []string) {
 	return
 }
 
-func (r *rethinkdns) flagsToNames(flagstr []string) (v []string) {
-	for _, entry := range flagstr {
-		if i, err := strconv.Atoi(entry); err == nil && i < len(r.flags) {
-			v = append(v, r.flags[i])
-		} else {
-			continue
-		}
-	}
-	return
-}
-
 func (r *rethinkdns) blockQuery(*dns.Msg) (b string, err error)  { err = errRemote; return }
 func (r *rethinkdns) blockAnswer(*dns.Msg) (b string, err error) { err = errRemote; return }
 
@@ -452,9 +441,9 @@ func (r *rethinkdns) decode(stamp string, ver string, enctyp int) (info []*listi
 
 	var u16 []uint16
 	if ver == ver0 {
-		u16 = stringtouint(string(buf))
+		u16 = str2uint16(string(buf))
 	} else if ver == ver1 {
-		u16 = bytestouint(buf)
+		u16 = byte2uint16(buf)
 	} else {
 		err = fmt.Errorf("unimplemented header stamp version %v", ver)
 		return
@@ -592,7 +581,7 @@ func encode(ver string, u16 []uint16, enctyp int) (string, error) {
 		return "", fmt.Errorf("version %s unsupported / len(input): %d", ver, len(u16))
 	}
 
-	buf := uinttobytes(u16)
+	buf := uint16tobyte(u16)
 	if enctyp == EB32 {
 		out := b32.StdEncoding.WithPadding(b32.NoPadding).EncodeToString(buf)
 		return ver + hyphensep + strings.ToLower(out), nil
@@ -619,12 +608,7 @@ func (r *rethinkdns) normalizeStamp(s string) (string, error) {
 	return r.FlagsToStamp(flagscsv, EB64) // encode as b64
 }
 
-func stringtobyte(str string) []byte {
-	u16 := stringtouint(str)
-	return uinttobytes(u16)
-}
-
-func stringtouint(str string) []uint16 {
+func str2uint16(str string) []uint16 {
 	runedata := []rune(str)
 	resp := make([]uint16, len(runedata))
 	for key, value := range runedata {
@@ -633,7 +617,7 @@ func stringtouint(str string) []uint16 {
 	return resp
 }
 
-func bytestouint(b []byte) []uint16 {
+func byte2uint16(b []byte) []uint16 {
 	data := make([]uint16, len(b)/2)
 	for i := range data {
 		// assuming little endian
@@ -642,7 +626,7 @@ func bytestouint(b []byte) []uint16 {
 	return data
 }
 
-func uinttobytes(u16 []uint16) []byte {
+func uint16tobyte(u16 []uint16) []byte {
 	bytes := make([]byte, len(u16)*2)
 	for i, v := range u16 {
 		binary.LittleEndian.PutUint16(bytes[i*2:(i+1)*2], v)

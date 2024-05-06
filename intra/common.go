@@ -254,7 +254,7 @@ func hasSelfUid(t []core.ConnTuple, d bool) bool {
 func clos(c ...net.Conn) {
 	for _, x := range c {
 		if x != nil {
-			x.Close()
+			_ = x.Close()
 		}
 	}
 }
@@ -264,21 +264,21 @@ func pclose(c io.Closer, a string) {
 		return
 	}
 	if a == "rw" {
-		c.Close()
+		_ = c.Close()
 		return
 	}
 	switch x := c.(type) {
 	case core.TCPConn: // net.TCPConn confirms to core.TCPConn
 		if a == "r" {
-			x.CloseRead()
+			_ = x.CloseRead()
 		} else if a == "w" {
-			x.CloseWrite()
+			_ = x.CloseWrite()
 		} else { // == "rw"
-			x.Close()
+			_ = x.Close()
 		}
 	case core.UDPConn:
-		x.Close()
+		_ = x.Close()
 	case io.Closer:
-		x.Close()
+		_ = x.Close()
 	}
 }

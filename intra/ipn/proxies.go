@@ -174,7 +174,7 @@ func (px *proxifier) add(p Proxy) (ok bool) {
 	if pp := px.p[p.ID()]; pp != nil {
 		// new proxy, invoke Stop on old proxy
 		if pp != p {
-			go pp.Stop()
+			_ = pp.Stop()
 		}
 	}
 
@@ -188,7 +188,7 @@ func (px *proxifier) RemoveProxy(id string) bool {
 	defer px.Unlock()
 
 	if p, ok := px.p[id]; ok {
-		go p.Stop()
+		_ = p.Stop()
 		delete(px.p, id)
 		go px.obs.OnProxyRemoved(id)
 		log.I("proxy: removed %s", id)
@@ -225,7 +225,7 @@ func (px *proxifier) StopProxies() error {
 
 	l := len(px.p)
 	for _, p := range px.p {
-		go p.Stop()
+		_ = p.Stop()
 	}
 	px.p = make(map[string]Proxy)
 

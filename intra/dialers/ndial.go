@@ -152,6 +152,6 @@ func NetListen(cfg *net.ListenConfig, network, local string) (net.Listener, erro
 
 func clos(c io.Closer) {
 	if c != nil {
-		c.Close()
+		_ = c.Close()
 	}
 }

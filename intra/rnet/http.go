@@ -7,6 +7,7 @@
 package rnet
 
 import (
+	"context"
 	"errors"
 	"io"
 	"net"
@@ -184,17 +185,21 @@ func (h *httpx) hijackConnect(req *http.Request, client net.Conn, ctx *tx.ProxyC
 	addr, port, err := net.SplitHostPort(req.Host)
 	if err != nil {
 		log.W("svchttp: hijackConnect: host(%s) not valid addr/port err %v", host, err)
-		addr = host
 	} else if len(port) <= 0 {
 		host = net.JoinHostPort(addr, "80")
 	}
-	target, err := h.Tr.Dial("tcp", host)
+	target, err := h.Tr.DialContext(context.Background(), "tcp", host)
 	if err != nil {
 		http502(client, err, ssu)
 		return
 	}
 	log.D("Accepting CONNECT to %s; cid: %s", host, ssu.CID)
-	client.Write([]byte("HTTP/1.0 200 Connection established\r\n\r\n"))
+	n, err := client.Write([]byte("HTTP/1.0 200 Connection established\r\n\r\n"))
+	if err != nil {
+		log.W("svchttp: hijackConnect: failed client write (%d); err %v", n, err)
+		http502(client, err, ssu)
+		return
+	}
 
 	go func() {
 		wg := &sync.WaitGroup{}
@@ -210,11 +215,16 @@ func (h *httpx) hijackConnect(req *http.Request, client net.Conn, ctx *tx.ProxyC
 			go pipeconn(target, client, ssu, wg)
 			go pipeconn(client, target, ssu, wg)
 			wg.Wait()
-			client.Close()
-			target.Close()
+			clos(client, target)
 		}
 		h.listener.OnComplete(ssu)
 	}()
+}
+
+func clos(cs ...io.Closer) {
+	for _, c := range cs {
+		_ = c.Close()
+	}
 }
 
 func http502(w io.WriteCloser, err1 error, ssu *ServerSummary) {
@@ -253,10 +263,10 @@ func (h *httpx) Hop(p x.Proxy) error {
 	}
 	if p == nil {
 		h.hdl.px = nil
-		h.ProxyHttpServer.Tr.Dial = h.dialer.Dial
+		h.ProxyHttpServer.Tr.DialContext = h.dialer.DialContext
 	} else if pp, ok := p.(ipn.Proxy); ok {
 		h.hdl.px = pp
-		h.ProxyHttpServer.Tr.Dial = pp.Dialer().Dial
+		h.ProxyHttpServer.Tr.DialContext = pp.Dialer().DialContext
 	} else {
 		log.E("svchttp: hop: %s; failed: %T not ipn.Proxy", h.ID(), p)
 		return errNotProxy

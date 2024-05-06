@@ -79,7 +79,10 @@ type pipkey struct {
 func NewPipKey(pubjwk string, msgOrExistingState string) (PipKey, error) {
 	jwk := &pubKeyJwk{}
 	pubbytes := []byte(pubjwk)
-	json.Unmarshal(pubbytes, jwk)
+	err := json.Unmarshal(pubbytes, jwk)
+	if err != nil {
+		return nil, fmt.Errorf("cannot unmarshal public key: %v", err)
+	}
 	// base64 decode modulus and exponent into a big.Int
 	n, err := base64.RawURLEncoding.DecodeString(jwk.N)
 	if err != nil {
