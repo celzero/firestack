@@ -17,18 +17,21 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"math/big"
 	"strings"
 
+	brsa "github.com/celzero/firestack/intra/core/brsa"
 	"github.com/celzero/firestack/intra/log"
-	"github.com/cloudflare/circl/blindsign"
-	"github.com/cloudflare/circl/blindsign/blindrsa"
+	// "github.com/cloudflare/circl/blindsign/blindrsa"
 )
 
-const delim = ":"
-const msgsize = 32           // msg size in bytes
-const tokensize = 32         // token size in bytes
-const hashfn = crypto.SHA384 // 48 byte hash fn for RSA-PSS
+const (
+	delim      = ":"
+	minmsgsize = 32            // min msg size in bytes; >= pipkey.c.prefixLen
+	tokensize  = 32            // token size in bytes
+	hashfn     = crypto.SHA384 // 48 byte hash fn for RSA-PSS
+)
 
 type PipKey interface {
 	// Token gnerates a 32 byte randomized token (auths dataplane ops; see: tokensize)
@@ -65,12 +68,13 @@ type pubKeyJwk struct {
 
 // pipkey is a struct that implements the PipKey interface.
 type pipkey struct {
-	pubkey      *rsa.PublicKey
-	rsavp1      *blindrsa.RSAVerifier
-	rsavp1state blindsign.VerifierState
-	id          []byte // 64 bytes id derived from hmac(m=blindMsg, k=pubkey)
-	msg         []byte // 32 bytes random msg specific to this key
-	blindMsg    []byte // 256 bytes blindMsg derived from msg, r, salt
+	pubkey   *rsa.PublicKey
+	v        *brsa.Verifier
+	state    *brsa.State
+	c        *brsa.Client
+	id       []byte // 64 bytes id derived from hmac(m=blindMsg, k=pubkey)
+	msg      []byte // min 32 bytes random msg specific to this key
+	blindMsg []byte // 256 bytes blindMsg derived from msg, r, salt
 }
 
 // NewPipKey creates a new PipKey instance.
@@ -102,10 +106,18 @@ func NewPipKey(pubjwk string, msgOrExistingState string) (PipKey, error) {
 		N: bn,
 		E: int(be.Int64()),
 	}
-	v := blindrsa.NewRSAVerifier(pub, hashfn)
+	// brsa.SHA384PSSDeterministic does not prepend random 32 bytes prefix to k.msg,
+	// whilst brsa.SHA384PSSRandomized does. ref: brsa.Prepare() which is unused here.
+	c, err := brsa.NewClient(brsa.SHA384PSSDeterministic, pub)
+	v, err := brsa.NewVerifier(brsa.SHA384PSSDeterministic, pub)
+	if err != nil {
+		log.E("pipkey: new: sha384-pss-det verifier err %v", err)
+		return nil, err
+	}
 	k := &pipkey{
 		pubkey: pub,
-		rsavp1: &v,
+		v:      &v,
+		c:      &c,
 	}
 	if msgOrExistingState != "" {
 		// id : blindMsg : r : salt : msg
@@ -114,34 +126,40 @@ func NewPipKey(pubjwk string, msgOrExistingState string) (PipKey, error) {
 			// if there's only one part, it's the message
 			// todo: check if len(msg bytes) == 32
 			k.msg = hex2byte(parts[0])
-			if len(k.msg) != msgsize {
-				log.E("pipkey: new: invalid msg size; expected %d; got %d", msgsize, len(k.msg))
-				return nil, blindrsa.ErrUnexpectedSize
+			if len(k.msg) < minmsgsize {
+				log.E("pipkey: new: invalid msg size; min %d; got %d", minmsgsize, len(k.msg))
+				return nil, brsa.ErrUnexpectedSize
 			}
 			return k, nil
 		}
 		if len(parts) != 5 {
 			// if there's more than one part, it's the state
 			// and so we at least 4 parts
-			return nil, blindrsa.ErrInvalidMessageLength
+			return nil, brsa.ErrInvalidMessageLength
 		}
-		k.id = hex2byte(parts[0])
+		k.id = hex2byte(parts[0]) // unique id; hmac(msg, pubkey)
 		k.blindMsg = hex2byte(parts[1])
-		r := hex2byte(parts[2]) // blinding factor
+		r := hex2BigInt(parts[2]) // blinding factor
+		rInv, err := modInv(r, k.pubkey.N)
+		if err != nil {
+			log.E("pipkey: new: invalid r/rInv; %v", err)
+			return nil, err
+		}
 		salt := hex2byte(parts[3])
-		k.msg = hex2byte(parts[4])
-		if bmsg, state, err := k.rsavp1.FixedBlind(k.msg, r, salt); err != nil {
+		k.msg = hex2byte(parts[4]) // no need to k.c.Prepare() if SHA384PSSDeterministic
+		if bmsg, state, err := k.c.FixedBlind(k.msg, salt, r, rInv); err != nil {
 			return nil, err
 		} else {
-			k.rsavp1state = state
+			k.state = &state
 			if !bytes.Equal(k.blindMsg, bmsg) { // sanity check
 				log.E("pipkey: new: invalid blindMsg")
-				return nil, blindrsa.ErrInvalidBlind
+				return nil, brsa.ErrInvalidBlind
 			}
 		}
 	} else {
-		k.msg = make([]byte, msgsize)
-		if _, err := rand.Read(k.msg); err != nil {
+		k.msg = make([]byte, minmsgsize)
+		// k.c.Prepare() is unused for SHA384PSSDeterministic
+		if _, err := io.ReadFull(rand.Reader, k.msg); err != nil {
 			log.E("pipkey: new: gen err, %v", err)
 			return nil, err
 		}
@@ -151,48 +169,53 @@ func NewPipKey(pubjwk string, msgOrExistingState string) (PipKey, error) {
 
 // Implements PipKey.
 func (k *pipkey) Blind() (string, error) {
-	if k.rsavp1state != nil {
+	if k.state != nil {
 		log.E("pipkey: blind: already blinded")
-		return "", blindrsa.ErrInvalidBlind
+		return "", brsa.ErrInvalidBlind
 	}
 
-	blindMsg, verifierState, err := k.rsavp1.Blind(rand.Reader, k.msg)
+	blindMsg, verifierState, err := k.c.Blind(rand.Reader, k.msg)
 	if err != nil {
 		log.E("pipkey: blind: %v", err)
 		return "", err
 	}
 
-	r := verifierState.CopyBlind()
-	salt := verifierState.CopySalt()
+	r := verifierState.Factor()
+	salt := verifierState.Salt() // nil for SHA384PSSZeroDeterministic/SHA384PSSZeroRandomized
+
+	if r == nil {
+		log.E("pipkey: blind: invalid r")
+		return "", brsa.ErrInvalidBlind
+	}
 
 	k.blindMsg = blindMsg
 	k.id = hmac256(k.blindMsg, k.pubkey.N.Bytes()) // must match with server-side impl
-	k.rsavp1state = verifierState
+	k.state = &verifierState
 
 	// existing state; id : blindMsg : r : salt : msg
 	return byte2hex(k.id) +
 		delim + byte2hex(blindMsg) +
-		delim + byte2hex(r) +
+		delim + bigInt2hex(r) +
 		delim + byte2hex(salt) +
 		delim + byte2hex(k.msg), nil
 }
 
 // Implements PipKey.
 func (k *pipkey) Finalize(blindSig string) (msgsighash string, err error) {
-	if k.rsavp1state == nil {
+	if k.state == nil {
 		log.E("pipkey: finalize: not blinded")
-		err = blindrsa.ErrInvalidBlind
+		err = brsa.ErrInvalidBlind
 		return
 	}
 	var sigbytes []byte
 	// unblind using r and salt
-	sigbytes, err = k.rsavp1state.Finalize(hex2byte(blindSig))
+	sigbytes, err = k.c.Finalize(*k.state, hex2byte(blindSig))
 	if err != nil {
 		log.E("pipkey: finalize: %v", err)
 		return
 	}
 	// verify the unblinded sig using the public key
-	err = k.rsavp1.Verify(k.msg, sigbytes)
+	err = k.v.Verify(k.msg, sigbytes)
 	if err != nil {
 		log.E("pipkey: finalize: verify: %v", err)
 		return
@@ -230,6 +253,18 @@ func byte2hex(b []byte) string {
 	return hex.EncodeToString(b)
 }
 
+func hex2BigInt(s string) *big.Int {
+	b, err := hex.DecodeString(s)
+	if err != nil {
+		log.E("piph2: hex2BigInt: err %v", err)
+	}
+	return new(big.Int).SetBytes(b)
+}
+
+func bigInt2hex(b *big.Int) (h string) {
+	return hex.EncodeToString(b.Bytes())
+}
+
 // sha256sum returns the SHA256 digest (32 byte) of the message m.
 func sha256sum(m []byte) []byte {
 	digest := sha256.Sum256(m)
@@ -241,4 +276,12 @@ func hmac256(m, k []byte) []byte {
 	mac := hmac.New(sha256.New, k)
 	mac.Write(m)
 	return mac.Sum(nil)
+}
+
+func modInv(g *big.Int, n *big.Int) (z *big.Int, err error) {
+	z = new(big.Int).ModInverse(g, n)
+	if z == nil {
+		err = brsa.ErrInvalidBlind
+	}
+	return
 }
