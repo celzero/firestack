@@ -276,29 +276,21 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []*netip.Addr, network string, q
 	summary.QName = qname
 	summary.QType = qtype(ansin)
 
-	hasaaaaq := xdns.HasAAAAQuestion(ansin)
+	ans64 := t.dns64.D64(network, ansin, t1) // ans64 may be nil if no D64 or error
+	if ans64 != nil {
+		log.D("alg: dns64; s/ans(%d)/ans64(%d)", xdns.Len(ansin), xdns.Len(ans64))
+		withDNS64Summary(ans64, summary)
+		ansin = ans64
+	} // else: no dns64, or error; continue with ansin
+
+	hasq := xdns.HasAAAAQuestion(ansin) || xdns.HasAQuestion(ansin) || xdns.HasSVCBQuestion(ansin) || xdns.HasHTTPQuestion(ansin)
 	hasans := xdns.HasAnyAnswer(ansin)
-	ans0000 := xdns.AQuadAUnspecified(ansin)
 	rgood := xdns.HasRcodeSuccess(ansin)
+	ans0000 := xdns.AQuadAUnspecified(ans64)
 
 	if ans0000 {
 		summary.UpstreamBlocks = true
 	}
-
-	log.D("alg: q(%s) ans(%s) hasaaaq(%t) hasans(%t) rgood(%t) ans0000(%t)", qname, xdns.Ans(ansin), hasaaaaq, hasans, rgood, ans0000)
-
-	if !hasans && hasaaaaq && !ans0000 { // synth aaaa from a, if needed
-		ans64 := t.dns64.D64(network, ansin, t1) // d64 is disabled by default
-		rgood = xdns.HasRcodeSuccess(ans64)
-		log.D("alg: d64: q(%s) ans64(%d) rgood64(%t)", qname, xdns.Len(ans64), rgood)
-		if rgood { // reaffirm rgood
-			ansin = ans64
-			withDNS64Summary(ans64, summary)
-		} // else: ans64 is nil on no D64 or error
-	} // else: no ans64; not AAAA question or AAAA answer already exists
-
-	hasq := hasaaaaq || xdns.HasAQuestion(ansin) || xdns.HasSVCBQuestion(ansin) || xdns.HasHTTPQuestion(ansin)
-	hasans = xdns.HasAnyAnswer(ansin) // recheck after d64
 
 	if !hasq || !hasans || !rgood || ans0000 {
 		log.D("alg: skip; query(n:%s / a:%d) hasq(%t) hasans(%t) rgood(%t), ans0000(%t)", qname, xdns.Len(ansin), hasq, hasans, rgood, ans0000)

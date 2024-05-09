@@ -149,6 +149,28 @@ func (d *dns64) RemoveResolver(id string) bool {
 // TODO: handle svcb/https ipv4hint/ipv6hint
 // datatracker.ietf.org/doc/html/draft-ietf-dnsop-svcb-https-10#section-7.4
 func (d *dns64) eval(network string, force64 bool, og *dns.Msg, r dnsx.Transport) *dns.Msg {
+	ansin := og
+
+	qname := xdns.QName(ansin)
+	// if question is AAAA, then answer must have AAAA; for example CNAME,
+	// records pointing no where must not be considered as AAAA answers
+	// but instead must be sent to DNS64 for translation
+	// q: www.skysports.com AAAA
+	// ans: www.skysports.com CNAME www.skysports.akadns.net;
+	// www.skysports.akadns.net CNAME www.skysports.com.edgekey.net;
+	// www.skysports.com.edgekey.net CNAME e16115.j.akamaiedge.net
+	// hasaaaq(true) hasans(true) rgood(true) ans0000(false)
+	hasq6 := xdns.HasAAAAQuestion(ansin)
+	hasans6 := xdns.HasAAAAAnswer(ansin)
+	ans00006 := xdns.AQuadAUnspecified(ansin)
+	// treat as if v6 answer missing if enforcing 6to4
+	if !hasq6 || (hasans6 && !force64) || ans00006 {
+		// nb: has-aaaa-answer should cover for cases where
+		// the response is blocked by dnsx.RDNS
+		log.D("dns64: net(%s), no-op q(%s), q6(%t), ans6(%t), force64(%t), ans0000(%t)", network, qname, hasq6, hasans6, force64, ans00006)
+		return nil
+	}
+
 	id := ID64(r)
 	d.RLock()
 	ip64, ok := d.ip64[id]
@@ -165,19 +187,6 @@ func (d *dns64) eval(network string, force64 bool, og *dns.Msg, r dnsx.Transport
 			}
 		}
 		log.D("dns64: attempt underlay/local464 resolver ip64 w len(%d)", len(ip64))
-	}
-
-	ansin := og
-
-	qname := xdns.QName(ansin)
-	hasq6 := xdns.HasAAAAQuestion(ansin)
-	hasans6 := xdns.HasAAAAAnswer(ansin)
-	// treat as if v6 answer missing if enforcing 6to4
-	if !hasq6 || (hasans6 && !force64) {
-		// nb: has-aaaa-answer should cover for cases where
-		// the response is blocked by dnsx.RDNS
-		log.D("dns64: net(%s), no-op q(%s), q6(%t), ans6(%t), force64(%t)", network, qname, hasq6, hasans6, force64)
-		return nil
 	}
 
 	ans4, err := d.query64(network, ansin, r)
