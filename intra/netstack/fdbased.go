@@ -34,6 +34,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/log"
 	"golang.org/x/sys/unix"
 	"gvisor.dev/gvisor/pkg/buffer"
@@ -74,7 +75,7 @@ type endpoint struct {
 	// fds is the set of file descriptors each identifying one inbound/outbound
 	// channel. The endpoint will dispatch from all inbound channels as well as
 	// hash outbound packets to specific channels based on the packet hash.
-	fds atomic.Value // int
+	fds *core.Volatile[int] // int
 
 	// mtu (maximum transmission unit) is the maximum size of a packet.
 	mtu atomic.Uint32
@@ -190,7 +191,7 @@ func NewFdbasedInjectableEndpoint(opts *Options) (SeamlessEndpoint, error) {
 
 	e := &endpoint{
 		mtu:     atomic.Uint32{},
-		fds:     atomic.Value{},
+		fds:     core.NewVolatile[int](invalidfd),
 		caps:    caps,
 		addr:    opts.Address,
 		hdrSize: hdrSize,
@@ -249,7 +250,7 @@ func (e *endpoint) Swap(fd, mtu int) (err error) {
 
 	e.mtu.Store(uint32(mtu))
 	// commence WritePackets() on fd
-	prevfd, _ = e.fds.Swap(fd).(int)
+	prevfd = e.fds.Swap(fd)
 
 	e.Lock()
 	defer e.Unlock()
@@ -369,7 +370,7 @@ func (e *endpoint) logPacketIfNeeded(dir sniffer.Direction, pkt *stack.PacketBuf
 
 // fd returns the file descriptor associated with the endpoint.
 func (e *endpoint) fd() int {
-	if fd, ok := e.fds.Load().(int); ok {
+	if fd := e.fds.Load(); fd > 0 {
 		return fd
 	}
 	return invalidfd

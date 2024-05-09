@@ -7,38 +7,17 @@
 package core
 
 import (
-	"sync/atomic"
 	"time"
 )
 
 var zerotime = time.Time{}
 
-type atomicatomic[T any] atomic.Value
-
-func (a *atomicatomic[T]) Load() (t T) {
-	aa := (*atomic.Value)(a)
-	t, _ = aa.Load().(T)
-	return
-}
-
-func (a *atomicatomic[T]) Store(t T) {
-	aa := (*atomic.Value)(a)
-	aa.Store(t)
-}
-
-func (a *atomicatomic[T]) Cas(old, new T) bool {
-	aa := (*atomic.Value)(a)
-	return aa.CompareAndSwap(old, new)
-}
-
 type Hangover struct {
-	start *atomicatomic[time.Time]
+	start *Volatile[time.Time]
 }
 
 func NewHangover() *Hangover {
-	s := new(atomicatomic[time.Time])
-	s.Store(zerotime)
-	return &Hangover{start: s}
+	return &Hangover{start: NewVolatile(zerotime)}
 }
 
 func (h *Hangover) Note() {
