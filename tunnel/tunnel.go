@@ -75,8 +75,7 @@ type gtunnel struct {
 }
 
 type pcapsink struct {
-	sync.RWMutex // protects sink
-	sink         io.WriteCloser
+	sink *core.Volatile[io.WriteCloser]
 }
 
 var (
@@ -90,9 +89,7 @@ func (p *pcapsink) Write(b []byte) (int, error) {
 }
 
 func (p *pcapsink) writeAsync(b []byte) {
-	p.RLock()
-	w := p.sink
-	p.RUnlock()
+	w := p.sink.Load()
 
 	if w != nil {
 		n, err := w.Write(b)
@@ -109,7 +106,7 @@ func (p *pcapsink) Close() error {
 // from: github.com/google/gvisor/blob/596e8d22/pkg/tcpip/link/sniffer/sniffer.go#L93
 func (p *pcapsink) begin() error {
 	_, offset := time.Date(0, 0, 0, 0, 0, 0, 0, time.Local).Zone()
-	return binary.Write(p.sink, binary.LittleEndian, core.PcapHeader{
+	return binary.Write(p.sink.Load(), binary.LittleEndian, core.PcapHeader{
 		MagicNumber:  0xa1b2c3d4,
 		VersionMajor: 2,
 		VersionMinor: 4,
@@ -121,13 +118,10 @@ func (p *pcapsink) begin() error {
 }
 
 func (p *pcapsink) file(f io.WriteCloser) (err error) {
-	p.Lock()
-	w := p.sink
-	p.sink = f
-	p.Unlock()
+	old := p.sink.Swap(f)
 
-	if w != nil {
-		_ = w.Close()
+	if old != nil {
+		_ = old.Close()
 	}
 	y := f != nil
 	if y {
@@ -178,13 +172,19 @@ func (t *gtunnel) Write([]byte) (int, error) {
 	return 0, errNoWriter
 }
 
+func newSink() *pcapsink {
+	p := &pcapsink{sink: core.NewVolatile[io.WriteCloser](nil)}
+	p.log(false) // no log, which is enabled by default
+	return p
+}
+
 func NewGTunnel(fd, mtu int, tcph netstack.GTCPConnHandler, udph netstack.GUDPConnHandler, icmph netstack.GICMPHandler) (t Tunnel, err error) {
 	dupfd, err := dup(fd) // tunnel will own dupfd
 	if err != nil {
 		return nil, err
 	}
 
-	sink := new(pcapsink)
+	sink := newSink()
 	hdl := netstack.NewGConnHandler(tcph, udph, icmph)
 	stack := netstack.NewNetstack() // always dual-stack
 	// NewEndpoint takes ownership of dupfd; closes it on errors
@@ -211,7 +211,6 @@ func (t *gtunnel) CloseConns(activecsv string) (closedcsv string) {
 
 func (t *gtunnel) SetPcap(fp string) error {
 	pcap := t.pcapio
-	fp = filepath.Clean(fp)
 
 	ignored := pcap.Close() // close any existing pcap sink
 	if len(fp) == 0 {
@@ -222,7 +221,7 @@ func (t *gtunnel) SetPcap(fp string) error {
 		ok := pcap.log(true)
 		log.I("netstack: pcap(%s)/log(%t)", fp, ok)
 		return nil // fdbased will write to stdout
-	} else if fout, err := os.OpenFile(fp, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0600); err == nil {
+	} else if fout, err := os.OpenFile(filepath.Clean(fp), os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0600); err == nil {
 		ignored = pcap.file(fout) // attach
 		log.I("netstack: pcap(%s)/file(%v) (ignored-err? %v)", fp, fout, ignored)
 		return nil // sniffer will write to fout
