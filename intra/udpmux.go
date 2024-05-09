@@ -147,7 +147,7 @@ func (x *muxer) drain() {
 			// unroute must be called from a different
 			// goroutine as it blocks on rmu
 			go x.unroute(c)
-			c.Close()
+			clos(c)
 		default:
 			return
 		}
@@ -159,7 +159,9 @@ func (x *muxer) drain() {
 //     It can therefore not be ended until all Conns are closed.
 //  2. Creating a new Conn when receiving from a new remote.
 func (x *muxer) read() {
-	defer x.stop() // stop muxer
+	defer func() {
+		_ = x.stop() // stop muxer
+	}()
 
 	timeouterrors := 0
 	for {
@@ -208,7 +210,7 @@ func (x *muxer) route(raddr net.Addr) (*demuxconn, error) {
 		conn = x.demux(raddr)
 		select {
 		case <-x.doneCh:
-			conn.Close()
+			clos(conn)
 			return nil, errMuxerDone
 		case x.dxconns <- conn:
 			x.stats.dxcount++
@@ -234,13 +236,13 @@ func (x *muxer) sendto(p []byte, addr net.Addr) (int, error) {
 func (x *muxer) extend(t time.Time) {
 	if t.IsZero() || x.until.IsZero() {
 		x.until = t
-		x.mxconn.SetDeadline(t)
+		extend(x.mxconn, time.Until(t))
 		return
 	}
 	// extend if t is after existing deadline at x.until
 	if x.until.Before(t) {
 		x.until = t
-		x.mxconn.SetDeadline(t)
+		extend(x.mxconn, time.Until(t))
 	}
 }
 

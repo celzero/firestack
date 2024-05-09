@@ -27,6 +27,7 @@ import (
 	"strings"
 	"sync"
 	"syscall"
+	"time"
 
 	x "github.com/celzero/firestack/intra/backend"
 	"github.com/celzero/firestack/intra/core"
@@ -69,21 +70,28 @@ const (
 )
 
 type wgtun struct {
-	id             string            // id
-	addrs          []netip.Prefix    // interface addresses
-	allowed        []netip.Prefix    // allowed ips (peers)
-	remote         *multihost.MH     // remote endpoints
-	status         int               // status of this interface
-	stack          *stack.Stack      // stack fakes tun device for wg
-	ep             *channel.Endpoint // reads and writes packets to/from stack
-	incomingPacket chan *buffer.View // pipes ep writes to wg
-	events         chan tun.Event    // wg specific tun (interface) events
-	mtu            int               // mtu of this interface
-	dns            *multihost.MH     // dns resolver for this interface
-	reqbarrier     *core.Barrier     // request barrier for dns lookups
-	once           sync.Once         // exec fn exactly once
-	hasV4, hasV6   bool              // interface has ipv4/ipv6 routes?
-	preferOffload  bool              // UDP GRO/GSO offloads
+	id            string                      // id
+	addrs         []netip.Prefix              // interface addresses
+	allowed       []netip.Prefix              // allowed ips (peers)
+	peers         map[string]any              // peer (remote endpoint) public keys
+	remote        *multihost.MH               // peer (remote endpoint) addrs
+	status        int                         // status of this interface
+	stack         *stack.Stack                // stack fakes tun device for wg
+	ep            *channel.Endpoint           // reads and writes packets to/from stack
+	ingress       chan *buffer.View           // pipes ep writes to wg
+	events        chan tun.Event              // wg specific tun (interface) events
+	finalize      chan struct{}               // close signal for incomingPacket
+	mtu           int                         // mtu of this interface
+	dns           *multihost.MH               // dns resolver for this interface
+	reqbarrier    *core.Barrier[[]netip.Addr] // request barrier for dns lookups
+	once          sync.Once                   // exec fn exactly once
+	hasV4, hasV6  bool                        // interface has ipv4/ipv6 routes?
+	preferOffload bool                        // UDP GRO/GSO offloads
+	since         int64                       // start time in unix millis
+	latestRx      int64                       // last rx time in unix millis
+	latestTx      int64                       // last tx time in unix millis
+	errRx         int64                       // rx error count
+	errTx         int64                       // tx error count
 }
 
 type wgconn interface {
@@ -105,7 +113,7 @@ type wgproxy struct {
 type WgProxy interface {
 	Proxy
 	tun.Device
-	canUpdate(id, txt string) bool
+	update(id, txt string) bool
 	IpcSet(txt string) error
 }
 
@@ -183,40 +191,43 @@ func stripPrefixIfNeeded(id string) string {
 	return strings.TrimPrefix(id, FAST)
 }
 
-func (w *wgproxy) canUpdate(id, txt string) bool {
+// canUpdate checks if the existing tunnel can be updated in-place;
+// that is, incoming interface config is compatible with the existing tunnel,
+// regardless of whether peer config has changed (which can be updated in-place).
+func (w *wgproxy) update(id, txt string) bool {
 	const reuse = true // can update in-place; reuse existing tunnel
 	const anew = false // cannot update in-place; create new tunnel
 	if w.status == END {
-		log.W("proxy: wg: !canUpdate(%s<>%s): END; status(%d)", id, w.id, w.status)
+		log.W("proxy: wg: !update(%s<>%s): END; status(%d)", id, w.id, w.status)
 		return anew
 	}
 
 	incomingPrefersOffload := preferOffload(id)
 	if incomingPrefersOffload != w.preferOffload {
-		log.W("proxy: wg: !canUpdate(%s): preferOffload() %t != %t", id, incomingPrefersOffload, w.preferOffload)
+		log.W("proxy: wg: !update(%s): preferOffload() %t != %t", id, incomingPrefersOffload, w.preferOffload)
 		return anew
 	}
 
 	// str copy: go.dev/play/p/eO814kGGNtO
 	cptxt := txt
-	ifaddrs, _, dnsh, _, mtu, err := wgIfConfigOf(w.id, &cptxt)
+	ifaddrs, allowed, peers, dnsh, peersh, mtu, err := wgIfConfigOf(w.id, &cptxt)
 	if err != nil {
-		log.W("proxy: wg: !canUpdate(%s): err: %v", w.id, err)
+		log.W("proxy: wg: !update(%s): err: %v", w.id, err)
 		return anew
 	}
 
 	if len(ifaddrs) != len(w.addrs) {
-		log.D("proxy: wg: !canUpdate(%s): len(ifaddrs) %d != %d", w.id, len(ifaddrs), len(w.addrs))
+		log.D("proxy: wg: !update(%s): len(ifaddrs) %d != %d", w.id, len(ifaddrs), len(w.addrs))
 		return anew
 	}
 
-	actualmtu := calcMtu(mtu)
+	actualmtu := calcTunMtu(mtu)
 	if w.mtu != actualmtu {
-		log.D("proxy: wg: !canUpdate(%s): mtu %d != %d", w.id, actualmtu, w.mtu)
+		log.D("proxy: wg: !update(%s): mtu %d != %d", w.id, actualmtu, w.mtu)
 		return anew
 	}
 	if dnsh != nil && !dnsh.EqualAddrs(w.dns) {
-		log.D("proxy: wg: !canUpdate(%s): new/mismatched dns", w.id)
+		log.D("proxy: wg: !update(%s): new/mismatched dns", w.id)
 		return anew
 	}
 
@@ -231,10 +242,20 @@ func (w *wgproxy) canUpdate(id, txt string) bool {
 			}
 		}
 		if !ipok {
-			log.D("proxy: wg: !canUpdate(%s): new ifaddrs (%s) != (%s)", w.id, ifaddrs, w.addrs)
+			log.D("proxy: wg: !update(%s): new ifaddrs (%s) != (%s)", w.id, ifaddrs, w.addrs)
 			return anew
 		}
 	}
+
+	// reusing existing tunnel (interface config unchanged)
+	// but peer config may have changed!
+	log.I("proxy: wg: update(%s): reuse; allowed: %d->%d; peers: %d->%d; dns: %d->%d; endpoint: %d->%d",
+		w.id, len(w.allowed), len(allowed), len(w.peers), len(peers), w.dns.Len(), dnsh.Len(), w.remote.Len(), peersh.Len())
+	w.allowed = allowed
+	w.peers = peers
+	w.remote = peersh // requires refresh
+	w.dns = dnsh      // requires refresh
+
 	return reuse
 }
 
@@ -250,12 +271,13 @@ func wglogger(id string) *device.Logger {
 	return logger
 }
 
-func wgIfConfigOf(id string, txtptr *string) (ifaddrs []netip.Prefix, allowedaddrs []netip.Prefix, dnsh, endpointh *multihost.MH, mtu int, err error) {
+func wgIfConfigOf(id string, txtptr *string) (ifaddrs []netip.Prefix, allowedaddrs []netip.Prefix, peers map[string]any, dnsh, endpointh *multihost.MH, mtu int, err error) {
 	txt := *txtptr
 	pcfg := strings.Builder{}
 	r := bufio.NewScanner(strings.NewReader(txt))
 	dnsh = multihost.New(id + "dns")
 	endpointh = multihost.New(id + "endpoint")
+	peers = make(map[string]any)
 	for r.Scan() {
 		line := r.Text()
 		if len(line) <= 0 {
@@ -270,11 +292,13 @@ func wgIfConfigOf(id string, txtptr *string) (ifaddrs []netip.Prefix, allowedadd
 			err = fmt.Errorf("proxy: wg: %s failed to parse line %q", id, line)
 			return
 		}
+		untouchedv := v
 		k = strings.ToLower(strings.TrimSpace(k))
 		v = strings.ToLower(strings.TrimSpace(v))
 
-		// process interface config; Address, DNS, ListenPort, MTU
+		// process interface & peer config; Address, DNS, ListenPort, MTU, Allowed IPs, Endpoint
 		// github.com/WireGuard/wireguard-android/blob/713947e432/tunnel/src/main/java/com/wireguard/config/Interface.java#L232
+		// github.com/WireGuard/wireguard-android/blob/713947e432/tunnel/src/main/java/com/wireguard/config/Peer.java#L176
 		switch k {
 		case "address": // may exist more than once
 			if err = loadIPNets(&ifaddrs, v); err != nil {
@@ -290,13 +314,18 @@ func wgIfConfigOf(id string, txtptr *string) (ifaddrs []netip.Prefix, allowedadd
 			if err = loadIPNets(&allowedaddrs, v); err != nil {
 				return
 			}
-			// carry over allowed_ips
+			// peer config: carry over allowed_ips
 			log.D("proxy: wg: %s ifconfig: skipping key %q", id, k)
 			pcfg.WriteString(line + "\n")
 		case "endpoint": // may exist more than once
 			// TODO: endpoint could be v4 or v6 or a hostname
 			loadMH(endpointh, v)
-			// carry over endpoints
+			// peer config: carry over endpoints
+			log.D("proxy: wg: %s ifconfig: skipping key %q", id, k)
+			pcfg.WriteString(line + "\n")
+		case "public_key":
+			peers[untouchedv] = struct{}{}
+			// peer config: carry over public keys
 			log.D("proxy: wg: %s ifconfig: skipping key %q", id, k)
 			pcfg.WriteString(line + "\n")
 		default:
@@ -341,45 +370,16 @@ func loadIPNets(out *[]netip.Prefix, v string) (err error) {
 	return
 }
 
-func bindWgSockets(id, addrport string, wgdev *device.Device, ctl protect.Controller) bool {
-	var ok4, ok6 bool
-
-	// ref: github.com/WireGuard/wireguard-go/blob/1417a47c8/conn/bind_std.go#L130
-	// bind: github.com/WireGuard/wireguard-android/blob/713947e432/tunnel/tools/libwg-go/api-android.go#L180
-	// protect: https://github.com/WireGuard/wireguard-android/blob/713947e432/tunnel/src/main/java/com/wireguard/android/backend/GoBackend.java#L316
-	bind, _ := wgdev.Bind().(conn.PeekLookAtSocketFd)
-	if bind == nil {
-		log.E("proxy: wg: %s bindWgSockets: failed to get socket", id)
-		return false
-	}
-
-	if fd4, err := bind.PeekLookAtSocketFd4(); err != nil {
-		log.W("proxy: wg: %s bindWgSockets4: failed to get wg4 socket %v", id, err)
-	} else {
-		ctl.Bind4(id, addrport, fd4)
-		ok4 = true
-	}
-
-	if fd6, err := bind.PeekLookAtSocketFd6(); err != nil {
-		log.W("proxy: wg: %s bindWgSockets6: failed to get wg6 socket %v", id, err)
-	} else {
-		ctl.Bind6(id, addrport, fd6)
-		ok6 = true
-	}
-
-	return ok4 || ok6
-}
-
 // ref: github.com/WireGuard/wireguard-android/blob/713947e432/tunnel/tools/libwg-go/api-android.go#L76
 func NewWgProxy(id string, ctl protect.Controller, cfg string) (WgProxy, error) {
-	ifaddrs, allowedaddrs, dnsh, endpointh, mtu, err := wgIfConfigOf(id, &cfg)
+	ifaddrs, allowedaddrs, peers, dnsh, endpointh, mtu, err := wgIfConfigOf(id, &cfg)
 	uapicfg := cfg
 	if err != nil {
 		log.E("proxy: wg: %s failed to get addrs from config %v", id, err)
 		return nil, err
 	}
 
-	wgtun, err := makeWgTun(id, ifaddrs, allowedaddrs, dnsh, endpointh, mtu)
+	wgtun, err := makeWgTun(id, ifaddrs, allowedaddrs, peers, dnsh, endpointh, mtu)
 	if err != nil {
 		log.E("proxy: wg: %s failed to create tun %v", id, err)
 		return nil, err
@@ -411,10 +411,6 @@ func NewWgProxy(id string, ctl protect.Controller, cfg string) (WgProxy, error) 
 		return nil, err
 	}
 
-	// nb: call after StdNetBind conn has been "Open"ed
-	// not needed for wg.NewBind; see: wg:wgconn.go
-	// bindok := bindWgSockets(id, endpointh.AnyAddr(), wgdev, ctl)
-
 	w := &wgproxy{
 		nofwd{},
 		wgtun, // stack
@@ -426,38 +422,42 @@ func NewWgProxy(id string, ctl protect.Controller, cfg string) (WgProxy, error) 
 	w.rd = newRDial(w)
 	w.hc = newHTTPClient(w.rd)
 
-	log.D("proxy: wg: new %s; addrs(%v) mtu(%d/%d) / v4(%t) v6(%t)", id, ifaddrs, mtu, calcMtu(mtu), wgtun.hasV4, wgtun.hasV6)
+	log.D("proxy: wg: new %s; addrs(%v) mtu(%d/%d) peers(%d) / v4(%t) v6(%t)", id, ifaddrs, mtu, calcTunMtu(mtu), len(peers), wgtun.hasV4, wgtun.hasV6)
 
 	return w, nil
 }
 
 // ref: github.com/WireGuard/wireguard-go/blob/469159ecf7/tun/netstack/tun.go#L54
-func makeWgTun(id string, ifaddrs, allowedaddrs []netip.Prefix, dnsm, endpointm *multihost.MH, mtu int) (*wgtun, error) {
+func makeWgTun(id string, ifaddrs, allowedaddrs []netip.Prefix, peers map[string]any, dnsm, endpointm *multihost.MH, mtu int) (*wgtun, error) {
 	opts := stack.Options{
 		NetworkProtocols:   []stack.NetworkProtocolFactory{ipv4.NewProtocol, ipv6.NewProtocol},
 		TransportProtocols: []stack.TransportProtocolFactory{tcp.NewProtocol, udp.NewProtocol, icmp.NewProtocol6, icmp.NewProtocol4},
 		HandleLocal:        true,
 	}
-	tunmtu := calcMtu(mtu)
+	// github.com/tailscale/tailscale/blob/92d3f64e95/net/tstun/mtu.go
+	tunmtu := calcTunMtu(mtu)
 
 	s := stack.New(opts)
 	sackEnabledOpt := tcpip.TCPSACKEnabled(true)
 	s.SetTransportProtocolOption(tcp.ProtocolNumber, &sackEnabledOpt)
 	ep := channel.New(epsize, uint32(tunmtu), "")
 	t := &wgtun{
-		id:             stripPrefixIfNeeded(id),
-		addrs:          ifaddrs,
-		allowed:        allowedaddrs,
-		remote:         endpointm, // may be nil
-		ep:             ep,
-		stack:          s,
-		events:         make(chan tun.Event, eventssize),
-		incomingPacket: make(chan *buffer.View, epsize),
-		dns:            dnsm,
-		reqbarrier:     core.NewBarrier(wgbarrierttl),
-		mtu:            tunmtu,
-		status:         TUP,
-		preferOffload:  preferOffload(id),
+		id:            stripPrefixIfNeeded(id),
+		addrs:         ifaddrs,
+		allowed:       allowedaddrs,
+		peers:         peers,
+		remote:        endpointm, // may be nil
+		ep:            ep,
+		stack:         s,
+		events:        make(chan tun.Event, eventssize),
+		ingress:       make(chan *buffer.View, epsize),
+		finalize:      make(chan struct{}), // always unbuffered
+		dns:           dnsm,
+		reqbarrier:    core.NewBarrier[[]netip.Addr](wgbarrierttl),
+		mtu:           tunmtu,
+		status:        TUP,
+		preferOffload: preferOffload(id),
+		since:         now(),
 	}
 
 	// see WriteNotify below
@@ -530,7 +530,7 @@ func (tun *wgtun) Events() <-chan tun.Event {
 }
 
 func (tun *wgtun) Read(buf [][]byte, sizes []int, offset int) (int, error) {
-	view, ok := <-tun.incomingPacket
+	view, ok := <-tun.ingress
 	if !ok {
 		log.W("wg: %s tun: read closed", tun.id)
 		return 0, os.ErrClosed
@@ -542,7 +542,7 @@ func (tun *wgtun) Read(buf [][]byte, sizes []int, offset int) (int, error) {
 		return 0, err
 	}
 
-	log.V("wg: %s tun: read(%d)", tun.id, n)
+	log.VV("wg: %s tun: read(%d)", tun.id, n)
 	sizes[0] = n
 	return 1, nil
 }
@@ -570,7 +570,7 @@ func (tun *wgtun) Write(bufs [][]byte, offset int) (int, error) {
 			log.W("wg: %s tun: write: unknown proto %d; discard %d", tun.id, protoid, sz)
 			return 0, syscall.EAFNOSUPPORT
 		}
-		log.V("wg: %s tun: write: sz(%d); proto %d", tun.id, sz, protoid)
+		log.VV("wg: %s tun: write: sz(%d); proto %d", tun.id, sz, protoid)
 	}
 
 	return len(bufs), nil
@@ -588,11 +588,13 @@ func (tun *wgtun) WriteNotify() {
 	pkt.DecRef()
 
 	sz := view.Size()
-	log.V("wg: %s tun: write: notify sz(%d)", tun.id, sz)
 
 	select {
-	case tun.incomingPacket <- view:
-	default:
+	case tun.ingress <- view: // closed chans panic on send: groups.google.com/g/golang-nuts/c/SDIBFSkDlK4
+		log.VV("wg: %s tun: write: notify sz(%d)", tun.id, sz)
+	case <-tun.finalize: // dave.cheney.net/2013/04/30/curious-channels
+		log.I("wg: %s tun: write: finalize; dropped pkt; sz(%d)", tun.id, sz)
+	default: // ingress is full and finalize is blocked
 		e := tun.status == END
 		log.W("wg: %s tun: write: closed? %t; dropped pkt; sz(%d)", tun.id, e, sz)
 	}
@@ -606,18 +608,17 @@ func (tun *wgtun) Close() error {
 	}
 	var err error
 	tun.once.Do(func() {
-		// TODO: move this to wgproxy.Close()?
-
 		log.D("proxy: wg: %s tun: closing...", tun.id)
-		tun.status = END
-		tun.stack.RemoveNIC(wgnic)
 
+		close(tun.finalize) // unblock all recievers
+		tun.status = END    // TODO: move this to wgproxy.Close()?
+
+		tun.stack.RemoveNIC(wgnic)
 		// if tun.events != nil {
 		// panics; is it closed by device.Device.Close()?
 		// close(tun.events) }
-
-		if tun.incomingPacket != nil {
-			close(tun.incomingPacket)
+		if tun.ingress != nil {
+			close(tun.ingress)
 		}
 
 		// github.com/tailscale/tailscale/blob/836f932e/wgengine/netstack/netstack.go#L223
@@ -626,10 +627,48 @@ func (tun *wgtun) Close() error {
 		// tun.ep.Close()
 		// destroy waits for the stack to close
 		tun.stack.Destroy()
-
 		log.I("proxy: wg: %s tun: closed", tun.id)
 	})
 	return err
+}
+
+// Implements Router.
+// TODO: use wgtun as a receiver for Stats()
+func (w *wgproxy) Stat() (out *x.Stats) {
+	out = new(x.Stats)
+
+	if w.status == END {
+		return
+	}
+
+	cfg, err := w.IpcGet()
+	if err != nil || len(cfg) <= 0 {
+		log.W("proxy: wg: %s stats: ipcget: %v", w.id, err)
+		return
+	}
+
+	stat := wg.ReadStats(w.id, cfg)
+	if stat == nil { // unlikely
+		log.W("proxy: wg: %s stats: readstats: nil", w.id)
+		return
+	}
+	out.Rx = stat.TotalRx()
+	out.Tx = stat.TotalTx()
+	out.LastOK = stat.LatestRecentHandshake()
+	out.Addr = w.IfAddr() // may be empty
+	out.ErrRx = w.errRx
+	out.ErrTx = w.errTx
+	out.LastRx = w.latestRx
+	out.LastTx = w.latestTx
+	out.Since = w.since
+	return out
+}
+
+func (w *wgtun) IfAddr() string {
+	if len(w.addrs) > 0 {
+		return w.addrs[0].String()
+	}
+	return noaddr
 }
 
 func (tun *wgtun) MTU() (int, error) {
@@ -668,7 +707,8 @@ func (h *wgtun) Type() string {
 	return WG
 }
 
-func (h *wgtun) Router() x.Router {
+// TODO: make wgtun a Router; see Stats()
+func (h *wgproxy) Router() x.Router {
 	return h
 }
 
@@ -731,6 +771,7 @@ func (h *wgtun) Contains(ipprefix string) bool {
 			return y
 		}
 	}
+
 	return false
 }
 
@@ -739,20 +780,54 @@ func (h *wgtun) listener(op string, err error) {
 		return
 	}
 
-	if err == nil {
-		h.status = TOK
-	} else if op == "r" && timedout(err) {
+	s := TOK // assume err == nil
+	if op == "r" && timedout(err) {
 		// if status is "up" but writes (op == "w") have not yet happened
 		// then reads ("r") are expected to timeout; so ignore them
-		h.status = TZZ
-	} else {
-		h.status = TKO
+		if h.latestRx <= 0 {
+			s = TNT // writes succeeded; but reads have never
+		} else {
+			s = TZZ // wirtes and reads have suceeded in the past
+		}
+	} else if err != nil {
+		s = TKO
 	}
+
+	if s == TOK {
+		if op == "r" {
+			h.latestRx = now()
+		} else if op == "w" {
+			h.latestTx = now()
+		}
+		writeElapsedMs := h.latestTx - h.latestRx // may be negative
+		// if no reads in 20s since last write, then mark as unresponsive
+		if writeElapsedMs > 20*1000 {
+			s = TNT
+		}
+	} else if s == TKO {
+		if op == "r" {
+			h.errRx++
+		} else if op == "w" {
+			h.errTx++
+		}
+	}
+
+	h.status = s
 }
 
-func calcMtu(mtu int) int {
+// now returns the current time in unix millis
+func now() int64 {
+	return time.Now().UnixMilli()
+}
+
+func calcTunMtu(netmtu int) int {
 	// uint32(mtu) - 80 is the maximum payload size of a WireGuard packet.
-	return max(minmtu6-80, mtu-80) // 80 is the overhead of the WireGuard header
+	return max(minmtu6-80, netmtu-80) // 80 is the overhead of the WireGuard header
+}
+
+func calcNetMtu(tunmtu int) int {
+	// uint32(mtu) - 80 is the maximum payload size of a WireGuard packet.
+	return max(minmtu6, tunmtu+80) // 80 is the overhead of the WireGuard header
 }
 
 func timedout(err error) bool {

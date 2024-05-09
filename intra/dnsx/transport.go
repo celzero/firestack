@@ -94,7 +94,7 @@ type Transport interface {
 	// Given a DNS query (including ID), returns a DNS response with matching
 	// ID, or an error if no response was received.  The error may be accompanied
 	// by a SERVFAIL response if appropriate.
-	Query(network string, q []byte, summary *x.DNSSummary) ([]byte, error)
+	Query(network string, q *dns.Msg, summary *x.DNSSummary) (*dns.Msg, error)
 }
 
 // TransportMult is a hybrid: transport and a multi-transport.
@@ -150,7 +150,7 @@ func NewResolver(fakeaddrs string, tunmode *settings.TunMode, dtr x.DNSTransport
 	r.gateway = NewDNSGateway(r, pt)
 	r.loadaddrs(fakeaddrs)
 	if dtr.ID() != Default {
-		log.W("dns: not default; ignoring", dtr.ID(), dtr.GetAddr())
+		log.W("dns: not default; ignoring %s @ %s", dtr.ID(), dtr.GetAddr())
 	} else if tr, ok := dtr.(Transport); !ok {
 		log.W("dns: not a transport; ignoring", dtr.ID(), dtr.GetAddr())
 	} else {
@@ -193,14 +193,6 @@ func (r *resolver) Add(dt x.DNSTransport) (ok bool) {
 
 	switch t.Type() {
 	case DNS53, DNSCrypt, DOH, DOT, ODOH:
-		// DNSCrypt transports are also registered with DcProxy
-		// Alg transports are also registered with Gateway
-		// Remove cleans those up
-		r.Remove(t.ID()) // also removes CT
-		if t.ID() == System {
-			go r.Remove64(UnderlayResolver)
-		}
-
 		ct := NewCachingTransport(t, ttl10m)
 
 		r.Lock()
@@ -209,7 +201,7 @@ func (r *resolver) Add(dt x.DNSTransport) (ok bool) {
 			r.transports[ct.ID()] = ct // cached
 		}
 		if t.ID() == System {
-			go r.Add64(UnderlayResolver, t)
+			go r.Add64(t)
 		}
 		r.Unlock()
 
@@ -250,7 +242,6 @@ func (r *resolver) Get(id string) (x.DNSTransport, error) {
 }
 
 func (r *resolver) Remove(id string) (ok bool) {
-
 	// these IDs are reserved for internal use
 	if isReserved(id) {
 		log.I("dns: removing reserved transport %s", id)
@@ -259,7 +250,7 @@ func (r *resolver) Remove(id string) (ok bool) {
 	_, hasTransport := r.transports[id]
 	if hasTransport {
 		if id == System {
-			go r.Remove64(UnderlayResolver)
+			go r.Remove64(id)
 		}
 		r.Lock()
 		delete(r.transports, id)
@@ -267,18 +258,18 @@ func (r *resolver) Remove(id string) (ok bool) {
 		r.Unlock()
 
 		log.I("dns: removed transport %s", id)
-
-		if tm, err := r.dcProxy(); err == nil {
-			tm.Remove(id)
-			tm.Remove(CT + id)
-		}
-
-		go r.listener.OnDNSRemoved(id)
-
-		return true
 	}
 
-	return false
+	if tm, err := r.dcProxy(); err == nil { // remove from dc-proxy, if any
+		hasTransport = tm.Remove(id) || hasTransport
+		hasTransport = tm.Remove(CT+id) || hasTransport
+	}
+
+	if hasTransport {
+		go r.listener.OnDNSRemoved(id)
+	}
+
+	return hasTransport
 }
 
 func (r *resolver) IsDnsAddr(ipport string) bool {
@@ -319,13 +310,15 @@ func (r *resolver) forward(q []byte, chosenids ...string) (res0 []byte, err0 err
 	summary := &x.DNSSummary{
 		QName:  invalidQname,
 		Status: Start,
+		Msg:    noerr.Error(),
 	}
 	// always call up to the listener
 	defer func() {
 		if err0 != nil {
 			summary.Msg = err0.Error()
-		} else {
-			summary.Msg = noerr.Error()
+		} // else: preserve msg from Transport.Query
+		if settings.Debug {
+			summary.Latency = time.Since(starttime).Seconds()
 		}
 		go r.listener.OnResponse(summary)
 	}()
@@ -389,11 +382,12 @@ func (r *resolver) forward(q []byte, chosenids ...string) (res0 []byte, err0 err
 	summary.Type = t.Type()
 	summary.ID = t.ID()
 	var res2 []byte
+	var ans1 *dns.Msg
 
 	netid := xdns.NetAndProxyID(NetTypeUDP, pid)
 
 	// with t2 as the secondary transport, which could be nil
-	res2, err = gw.q(t, t2, presetIPs, netid, q, summary)
+	ans1, err = gw.q(t, t2, presetIPs, netid, msg, summary)
 
 	algerr := isAlgErr(err) // not set when gw.translate is off
 	if algerr {
@@ -405,10 +399,15 @@ func (r *resolver) forward(q []byte, chosenids ...string) (res0 []byte, err0 err
 		// summary latency, ips, response, status already set by transport t
 		return res2, err
 	}
+	// very unlikely that ans1 is nil but err is not
+	if ans1 == nil {
+		summary.Status = NoResponse // TODO: servfail?
+		return res2, err
+	}
 
-	ans1, err := unpack(res2)
+	res2, err = ans1.Pack()
 	if err != nil {
-		summary.Status = BadResponse
+		summary.Status = BadResponse // TODO: servfail?
 		return res2, err
 	}
 
@@ -419,9 +418,9 @@ func (r *resolver) forward(q []byte, chosenids ...string) (res0 []byte, err0 err
 	if !pref.NOBLOCK && isnewans {
 		// overwrite if new answer
 		ans1 = ans2
-		res2, err = ans1.Pack()
+		res2, err = ans2.Pack()
 		if err != nil {
-			summary.Status = BadResponse
+			summary.Status = BadResponse // TODO: servfail?
 			return res2, err
 		}
 		// summary latency, response, status, ips also set by transport t
@@ -510,12 +509,12 @@ func (r *resolver) dnstcp(q []byte, w io.WriteCloser) error {
 
 	rlen := len(ans)
 	if rlen <= 0 && err != nil {
-		w.Close() // close on client err
+		clos(w) // close on client err
 		return err
 	}
 
 	if n, err := writePrefixed(w, ans, rlen); err != nil {
-		w.Close() // close on write back err
+		clos(w) // close on write back err
 		return err
 	} else if n != rlen {
 		// do not close on incomplete writes
@@ -530,12 +529,12 @@ func (r *resolver) dnsudp(q []byte, w io.WriteCloser) error {
 
 	rlen := len(ans)
 	if rlen <= 0 && err != nil {
-		w.Close() // close on client err
+		clos(w) // close on client err
 		return err
 	}
 
 	if n, err := w.Write(ans); err != nil {
-		w.Close() // close on write back err
+		clos(w) // close on write back err
 		return err
 	} else if n != rlen {
 		// do not close on incomplete writes
@@ -547,7 +546,7 @@ func (r *resolver) dnsudp(q []byte, w io.WriteCloser) error {
 
 // reply DNS-over-UDP from a stub resolver.
 func (r *resolver) reply(c protect.Conn) {
-	defer c.Close()
+	defer clos(c)
 
 	start := time.Now()
 	cnt := 0
@@ -571,8 +570,8 @@ func (r *resolver) reply(c protect.Conn) {
 		}
 
 		if err != nil {
-			secs := int(time.Since(start).Seconds() * 1000)
-			log.D("dns: udp: done; tot: %d, t: %ds, err: %v", cnt, secs, err)
+			millis := int(time.Since(start).Seconds() * 1000)
+			log.D("dns: udp: done; tot: %d, t: %dms, err: %v", cnt, millis, err)
 			free()
 			break
 		}
@@ -584,7 +583,7 @@ func (r *resolver) reply(c protect.Conn) {
 // Accept a DNS-over-TCP socket from a stub resolver, and connect the socket
 // to this DNSTransport.
 func (r *resolver) accept(c io.ReadWriteCloser) {
-	defer c.Close()
+	defer clos(c)
 
 	start := time.Now()
 	cnt := 0
@@ -925,4 +924,10 @@ func PrefixFor(id string) string {
 
 func cachedTransport(t Transport) bool {
 	return strings.HasSuffix(t.ID(), CT) || strings.HasPrefix(t.GetAddr(), cacheprefix)
+}
+
+func clos(c io.Closer) {
+	if c != nil {
+		_ = c.Close()
+	}
 }

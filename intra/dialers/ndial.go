@@ -75,12 +75,12 @@ func netdial(d *net.Dialer, network, addr string, connect netConnectFunc) (net.C
 	}
 
 	ipset := ips.Addrs()
-	allips := filter(ipset, confirmed)
+	allips := maybeFilter(ipset, confirmed)
 	if len(allips) <= 0 {
 		var ok bool
 		if ips, ok = renew(domain, ips); ok {
 			ipset = ips.Addrs()
-			allips = filter(ipset, confirmed)
+			allips = maybeFilter(ipset, confirmed)
 		}
 		log.D("ndial: renew ips for %s; ok? %t", addr, ok)
 	}
@@ -152,6 +152,6 @@ func NetListen(cfg *net.ListenConfig, network, local string) (net.Listener, erro
 
 func clos(c io.Closer) {
 	if c != nil {
-		c.Close()
+		_ = c.Close()
 	}
 }

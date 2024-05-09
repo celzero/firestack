@@ -54,44 +54,29 @@ type interceptstate struct {
 }
 
 // HandleRequest changes the incoming DNS question either to add padding to it or synthesize a pre-determined answer.
-func (ic *intercept) handleRequest(packet []byte, needsEDNS0Padding bool) ([]byte, error) {
-	msg := dns.Msg{}
+func (ic *intercept) handleRequest(msg *dns.Msg) (*dns.Msg, error) {
 	state := ic.state
-	if err := msg.Unpack(packet); err != nil {
-		return packet, err
-	}
 	if len(msg.Question) != 1 {
-		return packet, errors.New("unexpected number of questions")
+		return msg, errors.New("unexpected number of questions")
 	}
 	qName, err := xdns.NormalizeQName(msg.Question[0].Name)
 	if err != nil {
-		return packet, err
+		return msg, err
 	}
 	log.D("dnscrypt: query for [%v]", qName)
 	state.qName = qName
-	state.question = &msg
+	state.question = msg
 
 	// TODO: Recheck: None of these methods return err
-	if berr := ic.blockUnqualified(&msg); berr != nil {
+	if berr := ic.blockUnqualified(msg); berr != nil {
 		state.action = ActionDrop
-		return packet, berr
+		return msg, berr
 	}
-	if serr := ic.getSetPayloadSize(&msg); serr != nil {
+	if serr := ic.getSetPayloadSize(msg); serr != nil {
 		state.action = ActionDrop
-		return packet, serr
+		return msg, serr
 	}
-
-	packet2, err := msg.PackBuffer(packet)
-	if err != nil {
-		return packet, err
-	}
-	if needsEDNS0Padding && state.action == ActionContinue {
-		padLen := 63 - ((len(packet2) + 63) & 63)
-		if paddedPacket2, _ := xdns.AddEDNS0PaddingIfNoneFound(&msg, packet2, padLen); paddedPacket2 != nil {
-			return paddedPacket2, nil
-		}
-	}
-	return packet2, nil
+	return msg, nil
 }
 
 // handleResponse
@@ -100,7 +85,7 @@ func (ic *intercept) handleResponse(packet []byte, truncate bool) ([]byte, error
 	msg := dns.Msg{Compress: true}
 	if err := msg.Unpack(packet); err != nil {
 		// HasTCFlag is always false because currently transport is TCP only
-		if len(packet) >= xdns.MinDNSPacketSize && xdns.HasTCFlag(packet) {
+		if len(packet) >= xdns.MinDNSPacketSize && xdns.HasTCFlag2(packet) {
 			log.W("dnscrypt: has-tc-flag, retry with tcp, ignore err: %w", err)
 			err = nil
 		}

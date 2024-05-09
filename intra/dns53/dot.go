@@ -41,7 +41,7 @@ var _ dnsx.Transport = (*dot)(nil)
 
 // NewTLSTransport returns a DNS over TLS transport, ready for use.
 func NewTLSTransport(id, rawurl string, addrs []string, px ipn.Proxies, ctl protect.Controller) (t dnsx.Transport, err error) {
-	tlscfg := &tls.Config{}
+	tlscfg := &tls.Config{MinVersion: tls.VersionTLS12}
 	// rawurl is either tls:host[:port] or tls://host[:port] or host[:port]
 	parsedurl, err := url.Parse(rawurl)
 	if err != nil {
@@ -83,9 +83,9 @@ func NewTLSTransport(id, rawurl string, addrs []string, px ipn.Proxies, ctl prot
 	return tx, nil
 }
 
-func (t *dot) doQuery(pid string, q []byte) (response []byte, elapsed time.Duration, qerr *dnsx.QueryError) {
-	if len(q) < 2 {
-		qerr = dnsx.NewBadQueryError(fmt.Errorf("err len(query) %d", len(q)))
+func (t *dot) doQuery(pid string, q *dns.Msg) (response *dns.Msg, elapsed time.Duration, qerr *dnsx.QueryError) {
+	if q == nil || !xdns.HasAnyQuestion(q) {
+		qerr = dnsx.NewBadQueryError(fmt.Errorf("err len(query) %d", xdns.Len(q)))
 		return
 	}
 
@@ -155,12 +155,10 @@ func (t *dot) addtls(c net.Conn) (net.Conn, error) {
 	return tlsconn, err
 }
 
-func (t *dot) sendRequest(pid string, q []byte) (response []byte, elapsed time.Duration, qerr *dnsx.QueryError) {
-	var ans *dns.Msg
+func (t *dot) sendRequest(pid string, q *dns.Msg) (ans *dns.Msg, elapsed time.Duration, qerr *dnsx.QueryError) {
 	var err error
 
-	msg := xdns.AsMsg(q)
-	if msg == nil {
+	if q == nil || !xdns.HasAnyQuestion(q) {
 		qerr = dnsx.NewBadQueryError(errQueryParse)
 		return
 	}
@@ -177,36 +175,30 @@ func (t *dot) sendRequest(pid string, q []byte) (response []byte, elapsed time.D
 
 	if err == nil {
 		// FIXME: conn pooling using t.c.Dial + ExchangeWithConn
-		ans, elapsed, err = t.c.ExchangeWithConn(msg, conn)
+		ans, elapsed, err = t.c.ExchangeWithConn(q, conn)
 		clos(conn)
 	} // fallthrough
 
 	if err != nil {
 		qerr = dnsx.NewSendFailedQueryError(err)
-		return
-	}
-	response, err = ans.Pack()
-	if err != nil {
-		qerr = dnsx.NewBadResponseQueryError(err)
-		return
 	}
 	return
 }
 
-func (t *dot) Query(network string, q []byte, smm *x.DNSSummary) ([]byte, error) {
-	var err error
+func (t *dot) Query(network string, q *dns.Msg, smm *x.DNSSummary) (ans *dns.Msg, err error) {
+	var qerr *dnsx.QueryError
+	var elapsed time.Duration
 
 	_, pid := xdns.Net2ProxyID(network)
 
-	response, elapsed, qerr := t.doQuery(pid, q)
+	ans, elapsed, qerr = t.doQuery(pid, q)
 
 	status := dnsx.Complete
 	if qerr != nil {
 		err = qerr.Unwrap()
 		status = qerr.Status()
-		log.W("dot: err(%v) / size(%d)", err, len(response))
+		log.W("dot: err(%v) / size(%d)", err, xdns.Len(ans))
 	}
-	ans := xdns.AsMsg(response)
 	t.status = status
 
 	smm.Latency = elapsed.Seconds()
@@ -222,9 +214,9 @@ func (t *dot) Query(network string, q []byte, smm *x.DNSSummary) ([]byte, error)
 	smm.Status = status
 	t.est.Add(smm.Latency)
 
-	log.V("dot: len(res): %d, data: %s, via: %s, err? %v", len(response), smm.RData, smm.RelayServer, err)
+	log.V("dot: len(res): %d, data: %s, via: %s, err? %v", xdns.Len(ans), smm.RData, smm.RelayServer, err)
 
-	return response, err
+	return
 }
 
 func (t *dot) ID() string {

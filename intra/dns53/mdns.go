@@ -31,10 +31,9 @@ import (
 )
 
 var (
-	errNoProtos        = errors.New("enable at least one of IPv4 and IPv6 querying")
-	errBindFail        = errors.New("failed to bind to udp port")
-	errNoMdnsAnswer    = errors.New("no mdns answer")
-	errUnexpectedProxy = errors.New("proxy not supported")
+	errNoProtos     = errors.New("enable at least one of IPv4 and IPv6 querying")
+	errBindFail     = errors.New("failed to bind to udp port")
+	errNoMdnsAnswer = errors.New("no mdns answer")
 )
 
 type dnssd struct {
@@ -105,7 +104,7 @@ func (t *dnssd) oneshotQuery(msg *dns.Msg) (*dns.Msg, *dnsx.QueryError) {
 		log.E("mdns: underlying transport: %s", err)
 		return nil, dnsx.NewTransportQueryError(err)
 	}
-	defer c.Close()
+	defer clos(c)
 	if qerr := c.query(qctx); qerr != nil {
 		log.E("mdns: oquery(%s): %v", qname, qerr)
 		return nil, qerr
@@ -125,7 +124,7 @@ func (t *dnssd) oneshotQuery(msg *dns.Msg) (*dns.Msg, *dnsx.QueryError) {
 	return nil, dnsx.NewNoResponseQueryError(errNoMdnsAnswer)
 }
 
-func (t *dnssd) Query(_ string, q []byte, summary *x.DNSSummary) (r []byte, err error) {
+func (t *dnssd) Query(_ string, q *dns.Msg, summary *x.DNSSummary) (ans *dns.Msg, err error) {
 	summary.ID = t.ID()
 	summary.Type = t.Type()
 	summary.Server = t.GetAddr()
@@ -136,14 +135,13 @@ func (t *dnssd) Query(_ string, q []byte, summary *x.DNSSummary) (r []byte, err 
 
 	start := time.Now()
 
-	msg := &dns.Msg{}
-	if err = msg.Unpack(q); err != nil {
+	if q == nil || !xdns.HasAnyQuestion(q) {
 		summary.Status = dnsx.BadQuery
 		t.status = dnsx.BadQuery
 		return
 	}
 
-	ans, qerr := t.oneshotQuery(msg)
+	ans, qerr := t.oneshotQuery(q)
 	if qerr != nil {
 		err = qerr.Unwrap()
 		t.status = qerr.Status()
@@ -160,11 +158,7 @@ func (t *dnssd) Query(_ string, q []byte, summary *x.DNSSummary) (r []byte, err 
 	summary.Blocklists = ""
 	t.est.Add(summary.Latency)
 
-	if qerr != nil || ans == nil {
-		return
-	}
-
-	return ans.Pack()
+	return ans, err
 }
 
 func (t *dnssd) ID() string {
@@ -310,18 +304,11 @@ func (c *client) Close() error {
 
 	log.I("mdns: closing client %v", c.str())
 
-	closeudp(c.unicast4)
-	closeudp(c.unicast6)
-	closeudp(c.multicast4)
-	closeudp(c.multicast6)
+	clos(c.unicast4)
+	clos(c.unicast6)
+	clos(c.multicast4)
+	clos(c.multicast6)
 
-	return nil
-}
-
-func closeudp(c *net.UDPConn) error {
-	if c != nil {
-		return c.Close()
-	}
 	return nil
 }
 
@@ -459,14 +446,14 @@ func (c *client) send(q *dns.Msg) *dnsx.QueryError {
 	} else {
 		qname := xdns.QName(q)
 		if c.unicast4 != nil {
-			setDeadline(c.unicast4)
+			extend(c.unicast4, timeout)
 			if _, err = c.unicast4.WriteToUDP(buf, xdns.MDNSAddr4); err != nil {
 				return dnsx.NewSendFailedQueryError(err)
 			}
 			log.D("mdns: send: sent query4 %s", qname)
 		}
 		if c.unicast6 != nil {
-			setDeadline(c.unicast6)
+			extend(c.unicast6, timeout)
 			if _, err = c.unicast6.WriteToUDP(buf, xdns.MDNSAddr6); err != nil {
 				return dnsx.NewSendFailedQueryError(err)
 			}
@@ -492,7 +479,7 @@ func (c *client) recv(conn *net.UDPConn) {
 
 	raddr := conn.RemoteAddr()
 	for c.closed.Load() == 0 {
-		setDeadline(conn)
+		extend(conn, timeout)
 		n, err := conn.Read(buf)
 
 		if c.closed.Load() == 1 {
@@ -555,9 +542,8 @@ func (c *client) alias(src, dst string) {
 	c.tracker[dst] = se
 }
 
-func setDeadline(c *net.UDPConn) error {
+func extend(c net.Conn, t time.Duration) {
 	if c != nil {
-		return c.SetDeadline(time.Now().Add(timeout))
+		_ = c.SetDeadline(time.Now().Add(t))
 	}
-	return errBindFail
 }

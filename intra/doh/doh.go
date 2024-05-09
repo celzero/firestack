@@ -26,7 +26,6 @@ package doh
 import (
 	"bytes"
 	"crypto/tls"
-	"encoding/binary"
 	"fmt"
 	"io"
 	"net"
@@ -45,6 +44,7 @@ import (
 	"github.com/celzero/firestack/intra/protect"
 	"github.com/celzero/firestack/intra/xdns"
 	"github.com/cloudflare/odoh-go"
+	"github.com/miekg/dns"
 )
 
 const dohmimetype = "application/dns-message"
@@ -105,8 +105,7 @@ func NewOdohTransport(id, endpoint, target string, addrs []string, px ipn.Proxie
 }
 
 func newTransport(typ, id, rawurl, target string, addrs []string, px ipn.Proxies, ctl protect.Controller) (*transport, error) {
-	// TODO: client auth
-	var auth ClientAuth
+	// TODO: ClientAuth
 	skipTLSVerify := false
 	isodoh := typ == dnsx.ODOH
 
@@ -203,17 +202,17 @@ func newTransport(typ, id, rawurl, target string, addrs []string, px ipn.Proxies
 	}
 
 	// Supply a client certificate during TLS handshakes.
-	if auth != nil {
-		signer := newClientAuthWrapper(auth)
-		t.tlsconfig = &tls.Config{
-			GetClientCertificate: signer.GetClientCertificate,
-			// ServerName:           t.hostname,
-		}
-	} else {
-		t.tlsconfig = &tls.Config{
-			InsecureSkipVerify: skipTLSVerify,
-			// ServerName:         t.hostname,
-		}
+	// if auth != nil {
+	// 	signer := newClientAuthWrapper(auth)
+	// 	t.tlsconfig = &tls.Config{
+	// 		GetClientCertificate: signer.GetClientCertificate,
+	// 		ServerName:           t.hostname,
+	// 	}
+	// }
+	t.tlsconfig = &tls.Config{
+		InsecureSkipVerify: skipTLSVerify,
+		MinVersion:         tls.VersionTLS12,
+		// ServerName:         t.hostname,
 	}
 	// Override the dial function.
 	t.client.Transport = &http.Transport{
@@ -269,7 +268,7 @@ func (t *transport) httpClientFor(p ipn.Proxy) (*http.Client, error) {
 // Independent of the query's success or failure, this function also returns the
 // address of the server on a best-effort basis, or nil if the address could not
 // be determined.
-func (t *transport) doDoh(pid string, q []byte) (response []byte, blocklists string, elapsed time.Duration, qerr *dnsx.QueryError) {
+func (t *transport) doDoh(pid string, q *dns.Msg) (response *dns.Msg, blocklists string, elapsed time.Duration, qerr *dnsx.QueryError) {
 	start := time.Now()
 	q, err := AddEdnsPadding(q)
 	if err != nil {
@@ -280,8 +279,8 @@ func (t *transport) doDoh(pid string, q []byte) (response []byte, blocklists str
 	}
 
 	// zero out the query id
-	id := binary.BigEndian.Uint16(q)
-	binary.BigEndian.PutUint16(q, 0)
+	id := q.Id
+	q.Id = 0
 
 	req, err := t.asDohRequest(q)
 	if err != nil {
@@ -293,12 +292,10 @@ func (t *transport) doDoh(pid string, q []byte) (response []byte, blocklists str
 
 	response, blocklists, elapsed, qerr = t.send(pid, req)
 
-	if qerr == nil { // restore dns query id
-		zeroid := binary.BigEndian.Uint16(response)
-		if zeroid != 0 {
-			log.W("doh: ans qid not zero %d; origid: %d", zeroid, id)
-		}
-		binary.BigEndian.PutUint16(response, id)
+	// restore dns query id
+	q.Id = id
+	if response != nil {
+		response.Id = id
 	} else { // override response with servfail
 		response = xdns.Servfail(q)
 	}
@@ -335,7 +332,8 @@ func (t *transport) fetch(pid string, req *http.Request) (res *http.Response, er
 	return client.Do(req)
 }
 
-func (t *transport) send(pid string, req *http.Request) (ans []byte, blocklists string, elapsed time.Duration, qerr *dnsx.QueryError) {
+func (t *transport) send(pid string, req *http.Request) (msg *dns.Msg, blocklists string, elapsed time.Duration, qerr *dnsx.QueryError) {
+	var ans []byte
 	var server net.Addr
 	var conn net.Conn
 	start := time.Now()
@@ -367,7 +365,7 @@ func (t *transport) send(pid string, req *http.Request) (ans []byte, blocklists 
 			log.E("doh: query failed: %v", qerr)
 			if conn != nil {
 				log.I("doh: close failing doh conn to %s", hostname)
-				conn.Close()
+				clos(conn)
 			}
 		}
 	}()
@@ -414,7 +412,7 @@ func (t *transport) send(pid string, req *http.Request) (ans []byte, blocklists 
 		qerr = dnsx.NewSendFailedQueryError(err)
 		return
 	}
-	httpResponse.Body.Close()
+	clos(httpResponse.Body)
 	log.V("doh: closed response")
 
 	// update the hostname, which could have changed due to a redirect
@@ -434,7 +432,7 @@ func (t *transport) send(pid string, req *http.Request) (ans []byte, blocklists 
 		qerr = dnsx.NewBadResponseQueryError(fmt.Errorf("response length is %d", len(ans)))
 		return
 	}
-
+	msg = xdns.AsMsg(ans)
 	blocklists = t.rdnsBlockstamp(httpResponse)
 	return
 }
@@ -448,7 +446,12 @@ func (t *transport) rdnsBlockstamp(res *http.Response) (blocklistStamp string) {
 	return
 }
 
-func (t *transport) asDohRequest(q []byte) (req *http.Request, err error) {
+func (t *transport) asDohRequest(msg *dns.Msg) (req *http.Request, err error) {
+	var q []byte
+	q, err = msg.Pack()
+	if err != nil {
+		return
+	}
 	req, err = http.NewRequest(http.MethodPost, t.url, bytes.NewBuffer(q))
 	if err != nil {
 		return
@@ -467,7 +470,7 @@ func (t *transport) Type() string {
 	return t.typ
 }
 
-func (t *transport) Query(network string, q []byte, smm *x.DNSSummary) (r []byte, err error) {
+func (t *transport) Query(network string, q *dns.Msg, smm *x.DNSSummary) (r *dns.Msg, err error) {
 	var blocklists string
 	var elapsed time.Duration
 	var qerr *dnsx.QueryError
@@ -483,18 +486,18 @@ func (t *transport) Query(network string, q []byte, smm *x.DNSSummary) (r []byte
 	}
 
 	status := dnsx.Complete
+
 	if qerr != nil {
 		status = qerr.Status()
 		err = qerr.Unwrap()
 	}
-	ans := xdns.AsMsg(r)
 	t.status = status
 
 	t.est.Add(elapsed.Seconds())
 	smm.Latency = elapsed.Seconds()
-	smm.RData = xdns.GetInterestingRData(ans)
-	smm.RCode = xdns.Rcode(ans)
-	smm.RTtl = xdns.RTtl(ans)
+	smm.RData = xdns.GetInterestingRData(r)
+	smm.RCode = xdns.Rcode(r)
+	smm.RTtl = xdns.RTtl(r)
 	smm.Status = status
 	smm.Blocklists = blocklists
 	noOdohRelay := len(smm.RelayServer) <= 0
@@ -505,7 +508,7 @@ func (t *transport) Query(network string, q []byte, smm *x.DNSSummary) (r []byte
 			smm.RelayServer = x.SummaryProxyLabel + pid
 		}
 	}
-	log.V("doh: (p/px %s/%s); len(res): %d, data: %s, via: %s, err? %v", network, pid, len(r), smm.RData, smm.RelayServer, err)
+	log.V("doh: (p/px %s/%s); len(res): %d, data: %s, via: %s, err? %v", network, pid, xdns.Len(r), smm.RData, smm.RelayServer, err)
 	return r, err
 }
 
@@ -529,4 +532,10 @@ func (t *transport) GetAddr() string {
 
 func (t *transport) Status() int {
 	return t.status
+}
+
+func clos(c io.Closer) {
+	if c != nil {
+		_ = c.Close()
+	}
 }

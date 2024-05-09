@@ -31,6 +31,8 @@ package netstack
 
 import (
 	"fmt"
+	"sync/atomic"
+	"time"
 
 	"github.com/celzero/firestack/intra/log"
 	"golang.org/x/sys/unix"
@@ -44,6 +46,21 @@ import (
 )
 
 var _ stack.InjectableLinkEndpoint = (*endpoint)(nil)
+var _ stack.LinkEndpoint = (*endpoint)(nil)
+var _ stack.LinkEndpoint = (*sniff)(nil)
+var _ Swapper = (*sniff)(nil)
+
+const invalidfd int = -1
+
+type Swapper interface {
+	// Swap closes existing FDs; uses new fd and mtu.
+	Swap(fd, mtu int) error
+}
+
+type SeamlessEndpoint interface {
+	stack.LinkEndpoint
+	Swapper
+}
 
 // linkDispatcher reads packets from the link FD and dispatches them to the
 // NetworkDispatcher.
@@ -52,19 +69,15 @@ type linkDispatcher interface {
 	dispatch() (bool, tcpip.Error)
 }
 
-type fdInfo struct {
-	fd int
-}
-
 type endpoint struct {
 	sync.RWMutex
 	// fds is the set of file descriptors each identifying one inbound/outbound
 	// channel. The endpoint will dispatch from all inbound channels as well as
 	// hash outbound packets to specific channels based on the packet hash.
-	fds []fdInfo
+	fds atomic.Value // int
 
 	// mtu (maximum transmission unit) is the maximum size of a packet.
-	mtu uint32
+	mtu atomic.Uint32
 
 	// hdrSize specifies the link-layer header size. If set to 0, no header
 	// is added/removed; otherwise an ethernet header is used.
@@ -78,7 +91,7 @@ type endpoint struct {
 
 	// dispatches packets from the link FD (tun device)
 	// to the network stack.
-	inboundDispatchers []linkDispatcher
+	inboundDispatcher linkDispatcher
 	// the nic this endpoint is attached to.
 	dispatcher stack.NetworkDispatcher
 
@@ -143,7 +156,7 @@ type Options struct {
 // Makes fd non-blocking, but does not take ownership of fd, which must remain
 // open for the lifetime of the returned endpoint (until after the endpoint has
 // stopped being using and Wait returns).
-func NewFdbasedInjectableEndpoint(opts *Options) (stack.LinkEndpoint, error) {
+func NewFdbasedInjectableEndpoint(opts *Options) (SeamlessEndpoint, error) {
 	caps := stack.LinkEndpointCapabilities(0)
 	if opts.RXChecksumOffload {
 		caps |= stack.CapabilityRXChecksumOffload
@@ -176,7 +189,8 @@ func NewFdbasedInjectableEndpoint(opts *Options) (stack.LinkEndpoint, error) {
 	}
 
 	e := &endpoint{
-		mtu:     opts.MTU,
+		mtu:     atomic.Uint32{},
+		fds:     atomic.Value{},
 		caps:    caps,
 		addr:    opts.Address,
 		hdrSize: hdrSize,
@@ -191,18 +205,12 @@ func NewFdbasedInjectableEndpoint(opts *Options) (stack.LinkEndpoint, error) {
 	}
 
 	// Create per channel dispatchers; usually only one.
-	for _, fd := range opts.FDs {
-		if err := unix.SetNonblock(fd, true); err != nil {
-			return nil, fmt.Errorf("unix.SetNonblock(%v) failed: %v", fd, err)
-		}
+	if len(opts.FDs) != 1 {
+		return nil, fmt.Errorf("len(opts.FDs) = %d, expected 1", len(opts.FDs))
+	}
 
-		e.fds = append(e.fds, fdInfo{fd: fd})
-
-		d, err := createInboundDispatcher(e, fd)
-		if err != nil {
-			return nil, fmt.Errorf("createInboundDispatcher(...) = %v", err)
-		}
-		e.inboundDispatchers = append(e.inboundDispatchers, d)
+	if err := e.Swap(opts.FDs[0], int(opts.MTU)); err != nil {
+		return nil, err
 	}
 
 	return e, nil
@@ -218,35 +226,66 @@ func createInboundDispatcher(e *endpoint, fd int) (linkDispatcher, error) {
 	return d, nil
 }
 
+// Implements Swapper.
+func (e *endpoint) Swap(fd, mtu int) (err error) {
+	var prev linkDispatcher
+	var prevfd int
+	defer func() {
+		// TODO: should we let the previous dispatcher stop on EOF?
+		// From prelim experiments, it seems prevfd never EOFs?
+		if prev != nil {
+			log.I("ns: tun(%d => %d): Swap: stopping previous dispatcher", prevfd, fd)
+			go func() {
+				time.Sleep(5 * time.Second) // some arbitrary delay
+				prev.stop()
+				// avoid e.Wait(), it blocks until ALL dispatchers stop, not just prev
+			}()
+		}
+	}()
+
+	if err = unix.SetNonblock(fd, true); err != nil {
+		return fmt.Errorf("unix.SetNonblock(%v) failed: %v", fd, err)
+	}
+
+	e.mtu.Store(uint32(mtu))
+	// commence WritePackets() on fd
+	prevfd, _ = e.fds.Swap(fd).(int)
+
+	e.Lock()
+	defer e.Unlock()
+	prev = e.inboundDispatcher
+
+	e.inboundDispatcher, err = createInboundDispatcher(e, fd)
+	if err != nil {
+		return fmt.Errorf("createInboundDispatcher(...) = %v", err)
+	}
+	if e.dispatcher != nil { // attached?
+		go e.dispatchLoop(e.inboundDispatcher)
+	}
+	return nil
+}
+
 // Attach launches the goroutine that reads packets from the file descriptor and
 // dispatches them via the provided dispatcher.
 func (e *endpoint) Attach(dispatcher stack.NetworkDispatcher) {
 	e.Lock()
 	defer e.Unlock()
 
+	rx := e.inboundDispatcher
 	// Attach is called when the NIC is being created and then enabled.
 	// stack.CreateNIC -> nic.newNIC -> ep.Attach
 	// nil means the NIC is being removed.
 	if dispatcher == nil && e.dispatcher != nil {
-		for _, d := range e.inboundDispatchers {
-			d.stop()
+		if rx != nil {
+			rx.stop()
+			e.Wait()
 		}
-		e.Wait()
 		e.dispatcher = nil
 		return
 	}
 	if dispatcher != nil && e.dispatcher == nil {
 		e.dispatcher = dispatcher
-		// Link endpoints are not savable. When transportation endpoints are
-		// saved, they stop sending outgoing packets and all incoming packets
-		// are rejected.
-		for i := range e.inboundDispatchers {
-			e.wg.Add(1)
-			go func(i int) { // S/R-SAFE: See above.
-				e.dispatchLoop(e.inboundDispatchers[i])
-				e.wg.Done()
-			}(i)
-		}
+		go e.dispatchLoop(rx)
 		return
 	}
 }
@@ -262,7 +301,7 @@ func (e *endpoint) IsAttached() bool {
 // MTU implements stack.LinkEndpoint.MTU. It returns the value initialized
 // during construction.
 func (e *endpoint) MTU() uint32 {
-	return e.mtu
+	return e.mtu.Load()
 }
 
 // Capabilities implements stack.LinkEndpoint.Capabilities.
@@ -328,6 +367,14 @@ func (e *endpoint) logPacketIfNeeded(dir sniffer.Direction, pkt *stack.PacketBuf
 	}
 }
 
+// fd returns the file descriptor associated with the endpoint.
+func (e *endpoint) fd() int {
+	if fd, ok := e.fds.Load().(int); ok {
+		return fd
+	}
+	return invalidfd
+}
+
 // writePackets writes outbound packets to the file descriptor. If it is not
 // currently writable, the packet is dropped.
 // Way more simplified than og impl, ref: github.com/google/gvisor/issues/7125
@@ -337,7 +384,11 @@ func (e *endpoint) WritePackets(pkts stack.PacketBufferList) (int, tcpip.Error) 
 	// segment can get split into 46 segments of 1420 bytes and a single 216
 	// byte segment.
 	const batchSz = 47
-	fd := e.fds[0].fd
+	fd := e.fd()         // may have been closed
+	if fd == invalidfd { // unlikely; panic instead?
+		log.E("ns: tun(-1): WritePackets (to tun): fd invalid")
+		return 0, &tcpip.ErrNoSuchFile{}
+	}
 	batch := make([]unix.Iovec, 0, batchSz)
 	packets, written := 0, 0
 	total := pkts.Len()
@@ -348,7 +399,7 @@ func (e *endpoint) WritePackets(pkts stack.PacketBufferList) (int, tcpip.Error) 
 		if len(batch)+numIovecs > rawfile.MaxIovs {
 			// writes in to fd, up to len(batch) not cap(batch)
 			if err := rawfile.NonBlockingWriteIovec(fd, batch); err != nil {
-				log.W("ns: WritePackets (to tun): err(%v), sent(%d)/total(%d)", err, written, total)
+				log.W("ns: tun(%d): WritePackets (to tun): err(%v), sent(%d)/total(%d)", fd, err, written, total)
 				return written, err
 			}
 			// mark processed packets as written
@@ -365,23 +416,31 @@ func (e *endpoint) WritePackets(pkts stack.PacketBufferList) (int, tcpip.Error) 
 	}
 	if len(batch) > 0 {
 		if err := rawfile.NonBlockingWriteIovec(fd, batch); err != nil {
-			log.W("ns: WritePackets (to tun): err(%v), sent(%d)/total(%d)", err, packets, total)
+			log.W("ns: tun(%d): WritePackets (to tun): err(%v), sent(%d)/total(%d)", fd, err, packets, total)
 			return written, err
 		}
 		written += packets
 	}
 
-	log.V("ns: WritePackets (to tun): written(%d)/total(%d)", written, total)
+	log.VV("ns: tun(%d): WritePackets (to tun): written(%d)/total(%d)", fd, written, total)
 	return written, nil
 }
 
 // dispatchLoop reads packets from the file descriptor in a loop and dispatches
-// them to the network stack.
+// them to the network stack. Must be run as a goroutine.
 func (e *endpoint) dispatchLoop(inbound linkDispatcher) tcpip.Error {
+	e.wg.Add(1)
+	defer e.wg.Done()
+
+	fd := e.fd()
+	if inbound == nil {
+		log.W("ns: tun(%d): dispatchLoop: inbound nil", fd)
+		return &tcpip.ErrUnknownDevice{}
+	}
 	for {
 		cont, err := inbound.dispatch()
 		if err != nil || !cont {
-			log.I("ns: dispatchLoop: exit; err(%v)", err)
+			log.I("ns: tun(%d): dispatchLoop: exit; err(%v)", fd, err)
 			return err
 		}
 	}
@@ -397,7 +456,7 @@ func (e *endpoint) ARPHardwareType() header.ARPHardwareType {
 
 // InjectInbound ingresses a netstack-inbound packet.
 func (e *endpoint) InjectInbound(protocol tcpip.NetworkProtocolNumber, pkt *stack.PacketBuffer) {
-	log.V("ns: inject-inbound (from tun) %d", protocol)
+	log.VV("ns: inject-inbound (from tun) %d", protocol)
 	d := e.dispatcher // TODO: read lock?
 	if d != nil && pkt != nil {
 		e.logPacketIfNeeded(sniffer.DirectionRecv, pkt)
@@ -410,7 +469,8 @@ func (e *endpoint) InjectInbound(protocol tcpip.NetworkProtocolNumber, pkt *stac
 // Unused: InjectOutobund implements stack.InjectableEndpoint.InjectOutbound.
 // InjectOutbound egresses a tun-inbound packet.
 func (e *endpoint) InjectOutbound(dest tcpip.Address, packet *buffer.View) tcpip.Error {
-	log.V("ns: inject-outbound (to tun) to dst(%v)", dest)
+	fd := e.fd()
+	log.VV("ns: tun(%d): inject-outbound (to tun) to dst(%v)", fd, dest)
 	// TODO: e.logPacketIfNeeded(sniffer.DirectionSend, packet)
-	return rawfile.NonBlockingWrite(e.fds[0].fd, packet.AsSlice())
+	return rawfile.NonBlockingWrite(fd, packet.AsSlice())
 }

@@ -40,6 +40,7 @@ import (
 type Logger interface {
 	SetLevel(level LogLevel)
 	Printf(msg string, args ...any)
+	VeryVerbosef(at int, msg string, args ...any)
 	Verbosef(at int, msg string, args ...any)
 	Debugf(at int, msg string, args ...any)
 	Piif(at int, msg string, args ...any)
@@ -62,7 +63,8 @@ type simpleLogger struct {
 type LogLevel uint8
 
 const (
-	VERBOSE LogLevel = iota
+	VVERBOSE LogLevel = iota
+	VERBOSE
 	DEBUG
 	INFO
 	WARN
@@ -105,6 +107,12 @@ func (l *simpleLogger) SetLevel(level LogLevel) {
 // Printf exists to satisfy rnet/http's Logger interface
 func (l *simpleLogger) Printf(msg string, args ...any) {
 	l.Debugf(defaultCallerDepth, msg, args...)
+}
+
+func (l *simpleLogger) VeryVerbosef(at int, msg string, args ...any) {
+	if l.level <= VVERBOSE {
+		l.out(at, msg, args...)
+	}
 }
 
 func (l *simpleLogger) Verbosef(at int, msg string, args ...any) {
@@ -154,7 +162,7 @@ func (l *simpleLogger) out(at int, f string, args ...any) {
 	if len(l.tag) > 0 {
 		msg = l.tag + msg
 	}
-	l.o.Output(at, msg)
+	_ = l.o.Output(at, msg) // may error
 }
 
 func (l *simpleLogger) err(at int, f string, args ...any) {
@@ -162,5 +170,5 @@ func (l *simpleLogger) err(at int, f string, args ...any) {
 	if len(l.tag) > 0 {
 		msg = l.tag + msg
 	}
-	l.e.Output(at, msg)
+	_ = l.e.Output(at, msg) // may error
 }

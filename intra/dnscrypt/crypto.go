@@ -97,7 +97,7 @@ func encrypt(
 	var paddedLength int
 	if useudp { // using udp
 		paddedLength = xdns.MaxDNSUDPSafePacketSize
-	} else if serverInfo.RelayTCPAddr != nil { // tcp, with relay
+	} else if len(serverInfo.RelayTCPAddrs) > 0 { // tcp, with relay
 		paddedLength = xdns.MaxDNSPacketSize
 	} else { // tcp, without relay
 		minQuestionSize := QueryOverhead + len(packet)

@@ -51,7 +51,7 @@ func main() {
 	if *sni == "" {
 		*sni = destination
 	}
-	tlsConfig := &tls.Config{ServerName: *sni}
+	tlsConfig := &tls.Config{ServerName: *sni, MinVersion: tls.VersionTLS12}
 
 	log.Println("Trying direct connection")
 	conn, err := net.DialTCP(addr.Network(), nil, addr)

@@ -121,7 +121,7 @@ func applyBlocklists(b RDNS, q *dns.Msg) (ans *dns.Msg, blocklists string, err e
 
 // answer
 
-func (r *resolver) blockA(t, t2 Transport, q *dns.Msg, ans *dns.Msg, blocklistStamp string) (finalans *dns.Msg, blocklistNames string) {
+func (r *resolver) blockA(t, t2 Transport, q, ans *dns.Msg, blocklistStamp string) (finalans *dns.Msg, blocklistNames string) {
 	br := r.getRdnsRemote()
 	b := r.getRdnsLocal()
 

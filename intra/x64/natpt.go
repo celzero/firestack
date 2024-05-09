@@ -8,10 +8,12 @@ package x64
 
 import (
 	"net"
+	"net/netip"
 
 	"github.com/celzero/firestack/intra/dnsx"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/settings"
+	"github.com/miekg/dns"
 )
 
 // app    |  interface  |  pt        |  who    |  internet?
@@ -39,6 +41,11 @@ type natPt struct {
 
 var _ dnsx.NatPt = (*natPt)(nil)
 
+var (
+	unspecified4  = netip.IPv4Unspecified()
+	zerovalueaddr = netip.Addr{}
+)
+
 // NewNatPt returns a new NatPt.
 func NewNatPt(tunmode *settings.TunMode) dnsx.NatPt {
 	log.I("natpt: new; mode(%v)", tunmode)
@@ -52,9 +59,9 @@ func NewNatPt(tunmode *settings.TunMode) dnsx.NatPt {
 }
 
 // D64 Implements DNS64.
-func (pt *natPt) D64(id string, ans6 []byte, f dnsx.Transport) []byte {
+func (pt *natPt) D64(network string, ans6 *dns.Msg, f dnsx.Transport) *dns.Msg {
 	if pt.do64() {
-		return pt.dns64.eval(id, pt.force64(), ans6, f)
+		return pt.dns64.eval(network, pt.force64(), ans6, f)
 	}
 	return nil
 }
@@ -70,47 +77,63 @@ func (pt *natPt) do64() bool {
 }
 
 // IsNat64 Implements NAT64.
-func (n *natPt) IsNat64(id string, ip []byte) bool {
+func (n *natPt) IsNat64(id string, ip netip.Addr) bool {
 	prefixes := n.nat64PrefixForResolver(id)
-	return match(prefixes, ip) != nil
+	return match(prefixes, addr2ip(ip)) != nil
 }
 
 // X64 Implements NAT64.
-func (n *natPt) X64(id string, rawip6 []byte) []byte {
-	ip6 := net.IP(rawip6)
-	if len(ip6) != net.IPv6len {
-		log.D("natpt: ip6(%v) len(%d) != 16", ip6, len(ip6))
-		return nil
+func (n *natPt) X64(id string, ip6 netip.Addr) (ip4 netip.Addr) {
+	id = id64(id)
+	if !ip6.Is6() {
+		log.D("natpt: not ip6: %v", ip6)
+		return
 	}
 
 	// blocked domains (with zero IPv6 addr) should always be translated
 	// to blocked IPv4 addr regardless of NAT64 prefix
 	if ip6.IsUnspecified() {
 		log.D("natpt: ip6(%v) is unspecified", ip6)
-		return net.IPv4zero
+		return unspecified4
+	}
+
+	rawip := addr2ip(ip6)
+	if id == dnsx.AnyResolver {
+		for tid, prefixes := range n.ip64 {
+			if len(prefixes) <= 0 {
+				continue
+			}
+			if x := match(prefixes, rawip); x != nil {
+				return ip2addr(n.xAddr(x, rawip))
+			} else {
+				log.V("natpt: no matching prefix64 for ip(%v) in id(%s/%d)", ip6, tid, len(prefixes))
+			}
+		}
+		log.D("natpt: no prefix64 found for resolver(%s)", ip6, id)
+		return zerovalueaddr
 	}
 
 	prefixes := n.nat64PrefixForResolver(id)
 	if len(prefixes) <= 0 {
 		log.D("natpt: no prefix64 found for resolver(%s)", ip6, id)
-		return nil
+		return zerovalueaddr
 	}
-	if x := match(prefixes, ip6); x != nil {
-		return n.xAddr(x, ip6)
+	if x := match(prefixes, rawip); x != nil {
+		return ip2addr(n.xAddr(x, rawip))
 	} else {
 		log.D("natpt: no matching prefix64 for ip(%v) in id(%s/%d)", ip6, id, len(prefixes))
 	}
-	return nil
+	return zerovalueaddr
 }
 
 // Add64 implements DNS64.
-func (h *natPt) Add64(id string, f dnsx.Transport) bool {
-	return h.dns64.AddResolver(id, f)
+func (h *natPt) Add64(f dnsx.Transport) bool {
+	return h.dns64.AddResolver(ID64(f), f)
 }
 
 // Remove64 implements DNS64.
 func (h *natPt) Remove64(id string) bool {
-	return h.dns64.RemoveResolver(id)
+	return h.dns64.RemoveResolver(id64(id))
 }
 
 func (n *natPt) ResetNat64Prefix(ip6prefix string) bool {
@@ -158,4 +181,28 @@ func match(nets []*net.IPNet, ip net.IP) *net.IPNet {
 		}
 	}
 	return nil
+}
+
+func ID64(t dnsx.Transport) string {
+	return id64(t.ID())
+}
+
+func id64(tid string) string {
+	switch tid {
+	case dnsx.System:
+		return dnsx.UnderlayResolver
+	case dnsx.Goos:
+		return dnsx.OverlayResolver
+	default:
+		return tid
+	}
+}
+
+func addr2ip(ip netip.Addr) net.IP {
+	return net.IP(ip.AsSlice())
+}
+
+func ip2addr(ip net.IP) netip.Addr {
+	x, _ := netip.AddrFromSlice(ip)
+	return x.Unmap()
 }

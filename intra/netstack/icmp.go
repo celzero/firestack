@@ -49,7 +49,7 @@ func setupIcmpHandler(nstk *stack.Stack, ep stack.LinkEndpoint, handler GICMPHan
 
 	// ICMPv4
 	nstk.SetTransportProtocolHandler(icmp.ProtocolNumber4, func(id stack.TransportEndpointID, packet *stack.PacketBuffer) bool {
-		log.V("icmp: v4 packet? %v", packet)
+		log.VV("icmp: v4 packet? %v", packet)
 
 		if packet == nil {
 			log.E("icmp: v4 nil packet")
@@ -76,27 +76,39 @@ func setupIcmpHandler(nstk *stack.Stack, ep stack.LinkEndpoint, handler GICMPHan
 
 		b := make([]byte, 0, ep.MTU())
 		din8 := buffer.MakeWithData(b)
-		din8.Append(packet.NetworkHeader().View())
+		err := din8.Append(packet.NetworkHeader().View())
+		if err != nil {
+			log.E("icmp: v4 err appending network header1: %v", err)
+			return false
+		}
 		l4 := packet.TransportHeader().View()
 		if l4.Size() > 8 {
 			l4.CapLength(8)
 		}
-		din8.Append(l4)
-		req := din8.Flatten()
+		err = din8.Append(l4)
+		if err != nil {
+			log.E("icmp: v4 err appending transport header1: %v", err)
+			return false
+		}
+		req := din8.Flatten() // l3 + l4
 
 		// github.com/google/gvisor/blob/9b4a7aa00/pkg/tcpip/network/ipv6/icmp.go#L1180
 		r := make([]byte, 0, ep.MTU())
 		din := buffer.MakeWithData(r)
-		din.Append(packet.TransportHeader().View())
+		err = din.Append(packet.TransportHeader().View())
+		if err != nil {
+			log.E("icmp: v4 err appending transport header2: %v", err)
+			return false
+		}
 		l7 := packet.Data().ToBuffer()
 		din.Merge(&l7)
-		data := din.Flatten()
+		data := din.Flatten() // l4 + l7
 		datalen := len(data)
 
 		l3 := packet.NetworkHeader().View()
 		log.D("icmp: v4 type %v/%v sz [%v]; src(%v) -> dst(%v)", icmpin.Type(), icmpin.Code(), datalen, src, dst)
 		if !handler.Ping(src, dst, data, func(reply []byte) error {
-			log.V("icmp: v4 reply %v", reply)
+			log.VV("icmp: v4 reply %v", reply)
 			// sendICMP: github.com/google/gvisor/blob/8035cf9ed/pkg/tcpip/transport/tcp/testing/context/context.go#L404
 			// parseICMP: github.com/google/gvisor/blob/8035cf9ed/pkg/tcpip/header/parse/parse.go#L194
 			// makeICMP: github.com/google/gvisor/blob/8035cf9ed/pkg/tcpip/tests/integration/iptables_test.go#L2100
@@ -120,12 +132,20 @@ func setupIcmpHandler(nstk *stack.Stack, ep stack.LinkEndpoint, handler GICMPHan
 				ip.SetTotalLength(uint16(l3.Size() + len(reply)))
 				ip.SetChecksum(^checksum.Combine(^ip.Checksum(), checksum.Combine(ip.TotalLength(), ^l3len)))
 				payloadview := buffer.NewViewWithData(ip.Payload())
-				res.Append(payloadview)
+				err = res.Append(payloadview)
 			} else {
-				res.Append(l3)
+				err = res.Append(l3)
+			}
+			if err != nil {
+				log.E("icmp: pong: v4 err appending l3 header: %v", err)
+				return unix.ENONET
 			}
 			icmpoutview := buffer.NewViewWithData(icmpout.Payload())
-			res.Append(icmpoutview)
+			err = res.Append(icmpoutview)
+			if err != nil {
+				log.E("icmp: pong: v4 err appending l4 payload: %v", err)
+				return unix.ENONET
+			}
 
 			respkt := stack.NewPacketBuffer(stack.PacketBufferOptions{Payload: res})
 			defer respkt.DecRef()
@@ -163,7 +183,7 @@ func setupIcmpHandler(nstk *stack.Stack, ep stack.LinkEndpoint, handler GICMPHan
 
 	// ICMPv6
 	nstk.SetTransportProtocolHandler(icmp.ProtocolNumber6, func(id stack.TransportEndpointID, packet *stack.PacketBuffer) bool {
-		log.V("icmp: v6 packet? %v", packet)
+		log.VV("icmp: v6 packet? %v", packet)
 
 		if packet == nil {
 			log.E("icmp: v6 nil packet")
@@ -189,27 +209,39 @@ func setupIcmpHandler(nstk *stack.Stack, ep stack.LinkEndpoint, handler GICMPHan
 
 		b := make([]byte, 0, ep.MTU())
 		din8 := buffer.MakeWithData(b)
-		din8.Append(packet.NetworkHeader().View())
+		err := din8.Append(packet.NetworkHeader().View())
+		if err != nil {
+			log.E("icmp: v6 err appending network header1: %v", err)
+			return false
+		}
 		l4 := packet.TransportHeader().View()
 		if l4.Size() > 8 {
 			l4.CapLength(8)
 		}
-		din8.Append(l4)
-		req := din8.Flatten()
+		err = din8.Append(l4)
+		if err != nil {
+			log.E("icmp: v6 err appending transport header1: %v", err)
+			return false
+		}
+		req := din8.Flatten() // l3 + l4
 
 		// github.com/google/gvisor/blob/9b4a7aa00/pkg/tcpip/network/ipv6/icmp.go#L1180
 		r := make([]byte, 0, ep.MTU())
 		din := buffer.MakeWithData(r)
-		din.Append(packet.TransportHeader().View())
+		err = din.Append(packet.TransportHeader().View())
+		if err != nil {
+			log.E("icmp: v6 err appending transport header2: %v", err)
+			return false
+		}
 		l7 := packet.Data().ToBuffer()
 		din.Merge(&l7)
-		data := din.Flatten()
+		data := din.Flatten() // l4 + l7
 		dlen := len(data)
 
 		l3 := packet.NetworkHeader().View()
 		log.D("icmp: v6 type %v/%v sz[%d] from %v -> %v", icmpin.Type(), icmpin.Code(), dlen, src, dst)
 		if !handler.Ping(src, dst, data, func(reply []byte) error {
-			log.V("icmp: v6 reply %v", reply)
+			log.VV("icmp: v6 reply %v", reply)
 
 			icmpout := header.ICMPv6(reply)
 			if icmpout.Type() == header.ICMPv6DstUnreachable {
@@ -227,12 +259,20 @@ func setupIcmpHandler(nstk *stack.Stack, ep stack.LinkEndpoint, handler GICMPHan
 				ip := header.IPv6(l3.AsSlice())
 				ip.SetPayloadLength(uint16(len(icmpout)))
 				payloadview := buffer.NewViewWithData(ip.Payload())
-				res.Append(payloadview)
+				err = res.Append(payloadview)
 			} else {
-				res.Append(l3)
+				err = res.Append(l3)
+			}
+			if err != nil {
+				log.E("icmp: pong: v6 err appending l3 header: %v", err)
+				return unix.ENONET
 			}
 			icmpoutview := buffer.NewViewWithData(icmpout)
-			res.Append(icmpoutview)
+			err = res.Append(icmpoutview)
+			if err != nil {
+				log.E("icmp: pong: v6 err appending l4 payload: %v", err)
+				return unix.ENONET
+			}
 
 			icmpout.SetChecksum(0)
 			icmpout.SetChecksum(header.ICMPv6Checksum(header.ICMPv6ChecksumParams{

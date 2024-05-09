@@ -22,7 +22,8 @@ import (
 
 // ref: github.com/tailscale/tailscale/blob/cfb5bd0559/wgengine/netstack/netstack.go#L236-L237
 const rcvwnd = 0
-const maxInFlight = 128
+
+const maxInFlight = 512 // arbitrary
 
 type GTCPConnHandler interface {
 	// Proxy copies data between src and dst.
@@ -86,9 +87,9 @@ func (g *GTCPConn) ok() bool {
 
 func (g *GTCPConn) StatefulTeardown() (rst bool) {
 	if g.ok() {
-		g.Close() // g.TCPConn.Close error always nil
+		_ = g.Close() // g.TCPConn.Close error always nil
 	} else {
-		g.synack()           // establish circuit
+		_, _ = g.synack()    // establish circuit
 		g.req.Complete(true) // then rst
 	}
 	return true // always rst
@@ -107,7 +108,7 @@ func (g *GTCPConn) Connect(rst bool) (open bool, err error) {
 	rst, err = g.synack()
 	g.req.Complete(rst)
 
-	log.V("ns: tcp: forwarder: proxy src(%v) => dst(%v); fin? %t", g.LocalAddr(), g.RemoteAddr(), rst)
+	log.VV("ns: tcp: forwarder: proxy src(%v) => dst(%v); fin? %t", g.LocalAddr(), g.RemoteAddr(), rst)
 	return !rst, err // open or closed
 }
 
@@ -210,7 +211,7 @@ func (g *GTCPConn) Abort() {
 		ep.Abort()
 	}
 	if c != nil {
-		c.Close()
+		_ = c.Close()
 	}
 }
 
@@ -221,7 +222,7 @@ func (g GTCPConn) Close() error {
 		ep.Abort()
 	}
 	if c != nil {
-		c.SetDeadline(time.Now().Add(-1))
+		_ = c.SetDeadline(time.Now().Add(-1))
 		return c.Close() // always returns nil; see gonet.TCPConn.Close
 	}
 	return nil

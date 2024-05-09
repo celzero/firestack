@@ -9,7 +9,6 @@ package ipn
 import (
 	"context"
 	"crypto/hmac"
-	"crypto/rand"
 	"crypto/sha256"
 	"crypto/tls"
 	"encoding/hex"
@@ -17,7 +16,6 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptrace"
-	"net/netip"
 	"net/textproto"
 	"net/url"
 	"strconv"
@@ -89,15 +87,16 @@ func (c *pipconn) Write(b []byte) (int, error) {
 func (c *pipconn) Close() (err error) {
 	log.D("piph2: close(%s); waiting?(%t)", c.id, c.ok)
 	c.CloseRead()
-	return c.CloseWrite()
+	c.CloseWrite()
+	return nil
 }
 
-func (c *pipconn) CloseRead() error {
-	return clos(c.r)
+func (c *pipconn) CloseRead() {
+	clos(c.r)
 }
 
-func (c *pipconn) CloseWrite() error {
-	return clos(c.w)
+func (c *pipconn) CloseWrite() {
+	clos(c.w)
 }
 
 func (c *pipconn) LocalAddr() net.Addr           { return c.laddr }
@@ -119,7 +118,7 @@ func (t *piph2) dialtls(network, addr string, cfg *tls.Config) (net.Conn, error)
 	hostname := addr[:colonPos]
 
 	if cfg == nil {
-		cfg = &tls.Config{ServerName: hostname}
+		cfg = &tls.Config{ServerName: hostname, MinVersion: tls.VersionTLS12}
 	} else if cfg.ServerName == "" {
 		if cfg = cfg.Clone(); cfg != nil {
 			cfg.ServerName = hostname
@@ -135,11 +134,10 @@ func (t *piph2) dialtls(network, addr string, cfg *tls.Config) (net.Conn, error)
 	return conn, nil
 }
 
-func clos(c io.Closer) error {
+func clos(c io.Closer) {
 	if c != nil {
-		return c.Close()
+		_ = c.Close()
 	}
-	return nil
 }
 
 func (t *piph2) dial(network, addr string) (net.Conn, error) {
@@ -287,7 +285,7 @@ func (t *piph2) Dial(network, addr string) (protect.Conn, error) {
 	if !strings.HasSuffix(u.Path, "/") {
 		u.Path += "/"
 	}
-	u.Path += domain + "/" + port + "/" + network
+	u.Path += domain + "/" + port + "/" + t.rsasig
 
 	// ref: github.com/ginuerzh/gost/blob/1c62376e0880e/http2.go#L221
 	// and: github.com/golang/go/issues/17227#issuecomment-249424243
@@ -312,7 +310,13 @@ func (t *piph2) Dial(network, addr string) (protect.Conn, error) {
 		closePipe(readable, writable)
 		return nil, err
 	}
-	msg := hexurl(u.Path)
+
+	msg := fixedMsgHex // 16 bytes; fixed
+	if uniqClaimPerUrl {
+		msg = hexurl(u.Path) // 32 bytes; per url
+	} else {
+		u.Path = u.Path + "/" + msg
+	}
 
 	trace := httptrace.ClientTrace{
 		GetConn: func(hostPort string) {
@@ -451,22 +455,6 @@ func hmac256(m, k []byte) []byte {
 	mac := hmac.New(sha256.New, k)
 	mac.Write(m)
 	return mac.Sum(nil)
-}
-
-func sha256sum(m []byte) []byte {
-	digest := sha256.Sum256(m)
-	return digest[:]
-}
-
-func hexipp(ipport netip.AddrPort) (n string, err error) {
-	nonce := make([]byte, 16)
-	if _, err := rand.Read(nonce); err == nil {
-		nonce = append(nonce, ipport.Addr().AsSlice()...)
-		n = byte2hex(nonce)
-	} else {
-		log.E("piph2: hexnonce: err %v", err)
-	}
-	return
 }
 
 func hexurl(p string) string {

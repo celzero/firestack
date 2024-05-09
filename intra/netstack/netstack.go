@@ -29,11 +29,18 @@ const useIPTablesForICMP = false
 // enable forwarding of packets on the interface
 const nicfwd = false
 
+const SnapLen uint32 = 2048 // in bytes; some sufficient value
+
+type sniff struct {
+	stack.LinkEndpoint
+	Swapper
+}
+
 // ref: github.com/google/gvisor/blob/91f58d2cc/pkg/tcpip/sample/tun_tcp_echo/main.go#L102
-func NewEndpoint(dev, mtu int, sink io.WriteCloser) (ep stack.LinkEndpoint, err error) {
+func NewEndpoint(dev, mtu int, sink io.WriteCloser) (ep SeamlessEndpoint, err error) {
 	defer func() {
 		if err != nil {
-			syscall.Close(dev)
+			_ = syscall.Close(dev)
 		}
 		log.I("netstack: new endpoint(fd:%d / mtu:%d); err? %v", dev, mtu, err)
 	}()
@@ -48,7 +55,19 @@ func NewEndpoint(dev, mtu int, sink io.WriteCloser) (ep stack.LinkEndpoint, err 
 		return nil, err
 	}
 	// ref: github.com/google/gvisor/blob/aeabb785278/pkg/tcpip/link/sniffer/sniffer.go#L111-L131
-	return sniffer.NewWithWriter(ep, sink, umtu)
+	return asSniffer(ep, sink)
+}
+
+func asSniffer(ep SeamlessEndpoint, sink io.WriteCloser) (SeamlessEndpoint, error) {
+	if sink == nil {
+		return ep, nil
+	}
+	// TODO: MTU instead of SnapLen? Must match pcapsink.begin()
+	if link, err := sniffer.NewWithWriter(ep, sink, SnapLen); err != nil {
+		return nil, err
+	} else {
+		return sniff{link, ep}, nil
+	}
 }
 
 func LogPcap(y bool) (ok bool) {
@@ -81,7 +100,7 @@ func Up(s *stack.Stack, ep stack.LinkEndpoint, h GConnHandler) error {
 	// also closes its netstack protos (ip4, ip6), closes link-endpoint (ep), if any
 	if ferr := s.RemoveNIC(nic); ferr != nil {
 		_, newnic = ferr.(*tcpip.ErrUnknownNICID)
-		log.I("netstack: remove nic? %t; err(%v)", newnic, ferr)
+		log.I("netstack: new nic? %t; remove nic? err(%v)", newnic, ferr)
 	} else {
 		log.I("netstack: removed nic(%d)", nic)
 	}
@@ -161,6 +180,7 @@ func Route(s *stack.Stack, l3 string) {
 	// TODO? s.Pause()
 	// defer s.Resume()
 
+	which := l3
 	switch l3 {
 	case settings.IP46:
 		s.SetRouteTable([]tcpip.Route{
@@ -183,6 +203,7 @@ func Route(s *stack.Stack, l3 string) {
 	case settings.IP4:
 		fallthrough
 	default:
+		which = settings.IP4
 		s.SetRouteTable([]tcpip.Route{
 			{
 				Destination: header.IPv4EmptySubnet,
@@ -190,6 +211,7 @@ func Route(s *stack.Stack, l3 string) {
 			},
 		})
 	}
+	log.I("netstack: route(ask:%s; set: %s); done", l3, which)
 }
 
 // also: github.com/google/gvisor/blob/adbdac747/runsc/boot/loader.go#L1132

@@ -71,6 +71,10 @@ func V(msg string, args ...any) {
 	V2(logFnCallerDepth, msg, args...)
 }
 
+func VV(msg string, args ...any) {
+	VV2(logFnCallerDepth, msg, args...)
+}
+
 func D(msg string, args ...any) {
 	D2(logFnCallerDepth, msg, args...)
 }
@@ -96,6 +100,12 @@ func P(msg string, args ...any) {
 func Wtf(msg string, args ...any) {
 	if Glogger != nil {
 		Glogger.Fatalf(callerDepth, "F "+msg, args...)
+	}
+}
+
+func VV2(at int, msg string, args ...any) {
+	if Glogger != nil {
+		Glogger.VeryVerbosef(at, "V "+msg, args...)
 	}
 }
 

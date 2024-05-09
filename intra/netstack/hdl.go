@@ -60,7 +60,7 @@ func (g *gconnhandler) CloseConns(csv string) string {
 	var t []string
 	var u []string
 	var i []string
-	if tcp := g.tcp; t != nil {
+	if tcp := g.tcp; tcp != nil {
 		t = tcp.CloseConns(cids)
 	}
 	if udp := g.udp; udp != nil {

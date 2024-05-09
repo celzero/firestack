@@ -26,6 +26,7 @@ const ( // see ipn/proxies.go
 	INTERNET = "net"    // egress network, ex: Exit
 
 	// status of proxies
+	TNT = 2  // proxy UP but not responding
 	TZZ = 1  // proxy idle
 	TUP = 0  // proxy UP but not yet OK
 	TOK = -1 // proxy OK
@@ -72,10 +73,15 @@ type Router interface {
 	IP4() bool
 	// IP6 returns true if this router supports IPv6.
 	IP6() bool
+	// MTU returns the MTU of this router.
+	MTU() (int, error)
+	// Stats returns the stats of this router.
+	Stat() *Stats
 	// Contains returns true if this router can route ipprefix.
 	Contains(ipprefix string) bool
 }
 
+// ProxyListener is a listener for proxy events.
 type ProxyListener interface {
 	// OnProxyAdded is called when a proxy is added.
 	OnProxyAdded(id string)
@@ -85,4 +91,17 @@ type ProxyListener interface {
 	// OnProxiesStopped is called when all proxies are stopped.
 	// Note: OnProxyRemoved is not called for each proxy.
 	OnProxiesStopped()
+}
+
+// Stats lists interesting stats of a Router.
+type Stats struct {
+	Addr   string // address of the router
+	Rx     int64  // bytes received
+	Tx     int64  // bytes transmitted
+	ErrRx  int64  // receive errors
+	ErrTx  int64  // transmit errors
+	LastRx int64  // last receive in millis
+	LastTx int64  // last transmit in millis
+	LastOK int64  // last handshake or ping or connect millis
+	Since  int64  // uptime in millis
 }

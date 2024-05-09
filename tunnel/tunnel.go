@@ -24,12 +24,16 @@
 package tunnel
 
 import (
+	"encoding/binary"
 	"errors"
 	"io"
 	"os"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
+	"time"
 
+	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/netstack"
 	"github.com/celzero/firestack/intra/settings"
@@ -52,7 +56,7 @@ type Tunnel interface {
 	CloseConns(activecsv string) (closedcsv string)
 	// Creates a new link using fd (tun device) and mtu.
 	SetLink(fd, mtu int) error
-	// internal method that creates the link and updates the routes
+	// Creates the link and updates the routes
 	SetLinkAndRoutes(fd, mtu, engine int) error
 	// New route
 	SetRoute(engine int) error
@@ -61,11 +65,12 @@ type Tunnel interface {
 }
 
 type gtunnel struct {
-	stack  *stack.Stack          // a tcpip stack
-	hdl    netstack.GConnHandler // tcp, udp, and icmp handlers
-	mtu    int                   // mtu of the tun device
-	pcapio *pcapsink             // pcap output, if any
-	closed atomic.Bool           // open/close?
+	stack  *stack.Stack              // a tcpip stack
+	ep     netstack.SeamlessEndpoint // endpoint for the stack
+	hdl    netstack.GConnHandler     // tcp, udp, and icmp handlers
+	mtu    int                       // mtu of the tun device
+	pcapio *pcapsink                 // pcap output, if any
+	closed atomic.Bool               // open/close?
 	once   *sync.Once
 }
 
@@ -75,7 +80,6 @@ type pcapsink struct {
 }
 
 var (
-	errStackMissing = errors.New("tun: netstack not initialized")
 	errInvalidTunFd = errors.New("invalid tun fd")
 	errNoWriter     = errors.New("no write() on netstack")
 )
@@ -91,7 +95,8 @@ func (p *pcapsink) writeAsync(b []byte) {
 	p.RUnlock()
 
 	if w != nil {
-		w.Write(b)
+		n, err := w.Write(b)
+		log.VV("tun: pcap: writeAsync: n: %d, err? %v", n, err)
 	} // else: no op
 }
 
@@ -101,6 +106,20 @@ func (p *pcapsink) Close() error {
 	return err
 }
 
+// from: github.com/google/gvisor/blob/596e8d22/pkg/tcpip/link/sniffer/sniffer.go#L93
+func (p *pcapsink) begin() error {
+	_, offset := time.Date(0, 0, 0, 0, 0, 0, 0, time.Local).Zone()
+	return binary.Write(p.sink, binary.LittleEndian, core.PcapHeader{
+		MagicNumber:  0xa1b2c3d4,
+		VersionMajor: 2,
+		VersionMinor: 4,
+		Thiszone:     int32(offset),
+		Sigfigs:      0,
+		Snaplen:      netstack.SnapLen, // must match netstack.asSniffer()
+		Network:      101,              // LINKTYPE_RAW
+	})
+}
+
 func (p *pcapsink) file(f io.WriteCloser) (err error) {
 	p.Lock()
 	w := p.sink
@@ -108,10 +127,14 @@ func (p *pcapsink) file(f io.WriteCloser) (err error) {
 	p.Unlock()
 
 	if w != nil {
-		err = w.Close()
+		_ = w.Close()
 	}
 	y := f != nil
-	netstack.FilePcap(y)
+	if y {
+		err = p.begin() // write pcap header before any packets
+		log.I("tun: pcap: begin: writeHeader; err(%v)", err)
+	}
+	netstack.FilePcap(y) // signal netstack to write packets
 	return
 }
 
@@ -120,6 +143,7 @@ func (p *pcapsink) log(y bool) bool {
 }
 
 func (t *gtunnel) Mtu() int {
+	// return int(t.stack.NICInfo()[0].MTU)
 	return t.mtu
 }
 
@@ -155,14 +179,25 @@ func (t *gtunnel) Write([]byte) (int, error) {
 }
 
 func NewGTunnel(fd, mtu int, tcph netstack.GTCPConnHandler, udph netstack.GUDPConnHandler, icmph netstack.GICMPHandler) (t Tunnel, err error) {
+	dupfd, err := dup(fd) // tunnel will own dupfd
+	if err != nil {
+		return nil, err
+	}
+
+	sink := new(pcapsink)
 	hdl := netstack.NewGConnHandler(tcph, udph, icmph)
 	stack := netstack.NewNetstack() // always dual-stack
-	sink := new(pcapsink)
-	once := new(sync.Once)
-	t = &gtunnel{stack, hdl, mtu, sink, atomic.Bool{}, once}
-
-	err = t.SetLinkAndRoutes(fd, mtu, settings.Ns46) // creates endpoint / brings up nic
+	// NewEndpoint takes ownership of dupfd; closes it on errors
+	ep, err := netstack.NewEndpoint(dupfd, mtu, sink)
 	if err != nil {
+		return nil, err
+	}
+	netstack.Route(stack, settings.IP46) // always dual-stack
+
+	t = &gtunnel{stack, ep, hdl, mtu, sink, atomic.Bool{}, new(sync.Once)}
+
+	// Enabled() may temporarily return false when Up() is in progress.
+	if err = netstack.Up(stack, ep, hdl); err != nil { // attach new endpoint
 		return nil, err
 	}
 
@@ -171,86 +206,56 @@ func NewGTunnel(fd, mtu int, tcph netstack.GTCPConnHandler, udph netstack.GUDPCo
 }
 
 func (t *gtunnel) CloseConns(activecsv string) (closedcsv string) {
-	hdl := t.hdl
-	if hdl != nil {
-		closedcsv = hdl.CloseConns(activecsv)
-	}
-	return
+	return t.hdl.CloseConns(activecsv)
 }
 
-func (t *gtunnel) SetPcap(fpcap string) error {
+func (t *gtunnel) SetPcap(fp string) error {
 	pcap := t.pcapio
+	fp = filepath.Clean(fp)
 
-	if pcap == nil {
-		return errStackMissing
-	}
 	ignored := pcap.Close() // close any existing pcap sink
-
-	if len(fpcap) == 0 {
+	if len(fp) == 0 {
 		log.I("netstack: pcap closed (ignored-err? %v)", ignored)
 		return nil // nothing else to do; pcap is closed
-	} else if len(fpcap) == 1 {
+	} else if len(fp) == 1 {
 		// if fdpcap is 0, 1, or 2 then pcap is written to stdout
 		ok := pcap.log(true)
-		log.I("netstack: pcap(%s)/log(%t)", fpcap, ok)
+		log.I("netstack: pcap(%s)/log(%t)", fp, ok)
 		return nil // fdbased will write to stdout
-	} else if fout, err := os.OpenFile(fpcap, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0600); err == nil {
+	} else if fout, err := os.OpenFile(fp, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0600); err == nil {
 		ignored = pcap.file(fout) // attach
-		log.I("netstack: pcap(%s)/file(%v) (ignored-err? %v)", fpcap, fout, ignored)
+		log.I("netstack: pcap(%s)/file(%v) (ignored-err? %v)", fp, fout, ignored)
 		return nil // sniffer will write to fout
 	} else {
-		log.E("netstack: pcap(%s); (err? %v)", fpcap, err)
+		log.E("netstack: pcap(%s); (err? %v)", fp, err)
 		return err // no pcap
 	}
 }
 
 func (t *gtunnel) SetLinkAndRoutes(fd, mtu, engine int) (err error) {
-	if err = t.SetLink(fd, mtu); err == nil {
-		err = t.SetRoute(engine)
-	}
-	return
+	// route is always dual-stack (settings.IP46); never changed
+	log.I("tun: requested route (%s); unchanged", settings.L3(engine))
+	return t.SetLink(fd, mtu)
 }
 
 func (t *gtunnel) SetLink(fd, mtu int) error {
-	s := t.stack
-	hdl := t.hdl
-	pcap := t.pcapio
-
-	if s == nil || hdl == nil || pcap == nil {
-		log.W("tun: link not set; stack? %t, hdl? %v, pcap? %v", s != nil, hdl != nil, pcap != nil)
-		return errStackMissing
-	}
-
 	dupfd, err := dup(fd) // tunnel will own dupfd
 	if err != nil {
-		return err
-	}
-	// NewEndpoint takes ownership of dupfd; closes it on errors
-	ep, err := netstack.NewEndpoint(dupfd, mtu, pcap)
-	if err != nil {
+		log.E("tun: new link; err %v", err)
 		return err
 	}
 
-	// Enabled() may temporarily return false when Up() is in progress.
-	if err = netstack.Up(s, ep, hdl); err != nil { // attach new endpoint
-		return err
-	}
-
-	log.I("tun: new link; fd(%d), mtu(%d)", dupfd, mtu)
+	err = t.ep.Swap(dupfd, mtu) // swap fd and mtu
 	t.mtu = mtu
-	return nil
+
+	log.I("tun: new link; fd(%d), mtu(%d); err? %v", dupfd, mtu, err)
+	return err
 }
 
 func (t *gtunnel) SetRoute(engine int) error {
-	s := t.stack
-
-	if s == nil {
-		return errStackMissing
-	}
-	l3 := settings.L3(engine)
 	// netstack route is never changed; always dual-stack
-	netstack.Route(s, settings.IP46)
-	log.I("tun: new route; (no-op) got %s but set %s", l3, settings.IP46)
+	netstack.Route(t.stack, settings.IP46)
+	log.I("tun: new route; (no-op) got %s but set %s", settings.L3(engine), settings.IP46)
 	return nil
 }
 
