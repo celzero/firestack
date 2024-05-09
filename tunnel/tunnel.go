@@ -78,9 +78,17 @@ type pcapsink struct {
 	sink *core.Volatile[io.WriteCloser]
 }
 
+type nowrite struct{}
+
+func (*nowrite) Write([]byte) (int, error) { return 0, io.ErrClosedPipe }
+func (*nowrite) Close() error              { return nil }
+
+var _ io.WriteCloser = (*nowrite)(nil)
+
 var (
 	errInvalidTunFd = errors.New("invalid tun fd")
 	errNoWriter     = errors.New("no write() on netstack")
+	zerowriter      = &nowrite{}
 )
 
 func (p *pcapsink) Write(b []byte) (int, error) {
@@ -91,7 +99,7 @@ func (p *pcapsink) Write(b []byte) (int, error) {
 func (p *pcapsink) writeAsync(b []byte) {
 	w := p.sink.Load()
 
-	if w != nil {
+	if w != nil && w != zerowriter {
 		n, err := w.Write(b)
 		log.VV("tun: pcap: writeAsync: n: %d, err? %v", n, err)
 	} // else: no op
@@ -104,9 +112,9 @@ func (p *pcapsink) Close() error {
 }
 
 // from: github.com/google/gvisor/blob/596e8d22/pkg/tcpip/link/sniffer/sniffer.go#L93
-func (p *pcapsink) begin() error {
+func (p *pcapsink) begin(w io.Writer) error {
 	_, offset := time.Date(0, 0, 0, 0, 0, 0, 0, time.Local).Zone()
-	return binary.Write(p.sink.Load(), binary.LittleEndian, core.PcapHeader{
+	return binary.Write(w, binary.LittleEndian, core.PcapHeader{
 		MagicNumber:  0xa1b2c3d4,
 		VersionMajor: 2,
 		VersionMinor: 4,
@@ -118,14 +126,17 @@ func (p *pcapsink) begin() error {
 }
 
 func (p *pcapsink) file(f io.WriteCloser) (err error) {
+	if f == nil {
+		f = zerowriter
+	}
 	old := p.sink.Swap(f)
 
 	if old != nil {
 		_ = old.Close()
 	}
-	y := f != nil
+	y := f != zerowriter
 	if y {
-		err = p.begin() // write pcap header before any packets
+		err = p.begin(f) // write pcap header before any packets
 		log.I("tun: pcap: begin: writeHeader; err(%v)", err)
 	}
 	netstack.FilePcap(y) // signal netstack to write packets
@@ -173,7 +184,8 @@ func (t *gtunnel) Write([]byte) (int, error) {
 }
 
 func newSink() *pcapsink {
-	p := &pcapsink{sink: core.NewVolatile[io.WriteCloser](nil)}
+	// go.dev/play/p/4qANL9VSDXb
+	p := &pcapsink{sink: core.NewVolatile[io.WriteCloser](zerowriter)}
 	p.log(false) // no log, which is enabled by default
 	return p
 }
