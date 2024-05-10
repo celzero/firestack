@@ -882,10 +882,19 @@ func Req(t Transport, network string, q *dns.Msg, smm *x.DNSSummary) (*dns.Msg, 
 		discarded := new(x.DNSSummary)
 		smm = discarded
 	}
+	qname := xdns.QName(q)
+
 	r, err := t.Query(network, q, smm)
+
+	if r == nil {
+		log.D("alg: Req: %s no answer; but err? %v", qname, err)
+		return nil, errNoAnswer
+	}
 	if !xdns.IsServFailOrInvalid(r) {
 		return r, nil
 	}
+
+	log.V("alg: Req: %s servfail; rcode %d", qname, xdns.Rcode(r))
 	return r, err
 }
 
