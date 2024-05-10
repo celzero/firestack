@@ -81,7 +81,7 @@ var (
 	errMassivePkt     = errors.New("packet too large")
 	errRdnsUrlMissing = errors.New("url missing")
 	errNoAns          = errors.New("no answer record")
-	errNoDns          = errors.New("nil dns msg")
+	errNoPacket       = errors.New("nil dns msg")
 	errNotAscii       = errors.New("name not ASCII string")
 )
 

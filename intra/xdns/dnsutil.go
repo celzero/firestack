@@ -27,15 +27,23 @@ import (
 )
 
 func AsMsg(packet []byte) *dns.Msg {
+	msg, err := AsMsg2(packet)
+	if err != nil {
+		log.W("dnsutil: as msg err: %v", err)
+	}
+	return msg
+}
+
+func AsMsg2(packet []byte) (*dns.Msg, error) {
 	if len(packet) < MinDNSPacketSize {
-		return nil
+		return nil, errNoPacket
 	}
 	msg := &dns.Msg{}
 	if err := msg.Unpack(packet); err != nil {
 		log.D("dnsutil: failed to unpack msg: %v", err)
-		return nil
+		return nil, err
 	}
-	return msg
+	return msg, nil
 }
 
 func RequestFromResponse(msg *dns.Msg) *dns.Msg {
@@ -488,11 +496,11 @@ func BlockResponseFromMessage(q []byte) (*dns.Msg, error) {
 
 func RefusedResponseFromMessage(srcMsg *dns.Msg) (dstMsg *dns.Msg, err error) {
 	if srcMsg == nil {
-		return nil, errNoDns
+		return nil, errNoPacket
 	}
 	dstMsg = EmptyResponseFromMessage(srcMsg) // may be nil
 	if dstMsg == nil {
-		return nil, errNoDns
+		return nil, errNoPacket
 	}
 	dstMsg.Rcode = dns.RcodeSuccess
 	ttl := BlockTTL
@@ -559,11 +567,11 @@ func RefusedResponseFromMessage(srcMsg *dns.Msg) (dstMsg *dns.Msg, err error) {
 
 func AQuadAForQuery(q *dns.Msg, ips ...netip.Addr) (a *dns.Msg, err error) {
 	if q == nil {
-		return nil, errNoDns
+		return nil, errNoPacket
 	}
 	a = EmptyResponseFromMessage(q) // may be nil
 	if a == nil {
-		return nil, errNoDns
+		return nil, errNoPacket
 	}
 	a.Rcode = dns.RcodeSuccess
 	ttl := AnsTTL
