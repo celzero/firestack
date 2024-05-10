@@ -103,7 +103,7 @@ func (d *dns64) AddResolver(id string, r dnsx.Transport) (ok bool) {
 	discarded := new(x.DNSSummary)
 	netw := xdns.NetAndProxyID(dnsx.NetTypeUDP, dnsx.NetExitProxy)
 	ans, err := dnsx.Req(r, netw, arpa64, discarded)
-	if err != nil || !xdns.HasAnyAnswer(ans) {
+	if err != nil || ans == nil || !xdns.HasAnyAnswer(ans) {
 		log.W("dns64: udp: could not query %s or empty ans; err %v", id, err)
 		return
 	}
