@@ -332,8 +332,7 @@ func (t *transport) fetch(pid string, req *http.Request) (res *http.Response, er
 	return client.Do(req)
 }
 
-func (t *transport) send(pid string, req *http.Request) (msg *dns.Msg, blocklists string, elapsed time.Duration, qerr *dnsx.QueryError) {
-	var ans []byte
+func (t *transport) do(pid string, req *http.Request) (ans []byte, blocklists string, elapsed time.Duration, qerr *dnsx.QueryError) {
 	var server net.Addr
 	var conn net.Conn
 	start := time.Now()
@@ -387,10 +386,10 @@ func (t *transport) send(pid string, req *http.Request) (msg *dns.Msg, blocklist
 		},
 		ConnectStart: func(network, addr string) {
 			start = time.Now() // re...start
-			log.V("doh: connect-start(%s, %s)", network, addr)
+			log.VV("doh: connect-start(%s, %s)", network, addr)
 		},
 		WroteRequest: func(info httptrace.WroteRequestInfo) {
-			log.V("doh: wrote-req(%v)", info)
+			log.VV("doh: wrote-req(%v)", info)
 		},
 	}
 	req = req.WithContext(httptrace.WithClientTrace(req.Context(), &trace))
@@ -419,8 +418,7 @@ func (t *transport) send(pid string, req *http.Request) (msg *dns.Msg, blocklist
 	hostname = httpResponse.Request.URL.Hostname()
 
 	sc := httpResponse.StatusCode
-	if sc != http.StatusOK {
-		// 4xx
+	if sc != http.StatusOK { // 4xx
 		if sc >= http.StatusBadRequest && sc < http.StatusInternalServerError {
 			qerr = dnsx.NewClientQueryError(fmt.Errorf("http-status: %d", sc))
 		} else {
@@ -428,12 +426,23 @@ func (t *transport) send(pid string, req *http.Request) (msg *dns.Msg, blocklist
 		}
 		return
 	}
-	if len(ans) < 2 {
-		qerr = dnsx.NewBadResponseQueryError(fmt.Errorf("response length is %d", len(ans)))
+
+	blocklists = t.rdnsBlockstamp(httpResponse)
+	return
+}
+
+func (t *transport) send(pid string, req *http.Request) (msg *dns.Msg, blocklists string, elapsed time.Duration, qerr *dnsx.QueryError) {
+	var ans []byte
+	var err error
+	ans, blocklists, elapsed, qerr = t.do(pid, req)
+	if qerr != nil {
 		return
 	}
-	msg = xdns.AsMsg(ans)
-	blocklists = t.rdnsBlockstamp(httpResponse)
+	msg, err = xdns.AsMsg2(ans)
+	if msg == nil {
+		qerr = dnsx.NewBadResponseQueryError(fmt.Errorf("parse err: %v", err))
+		return
+	}
 	return
 }
 

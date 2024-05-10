@@ -42,6 +42,7 @@ var (
 // targets:  github.com/DNSCrypt/dnscrypt-resolvers/blob/master/v3/odoh-servers.md
 // endpoints:  github.com/DNSCrypt/dnscrypt-resolvers/blob/master/v3/odoh-relays.md
 func (d *transport) doOdoh(pid string, q *dns.Msg) (res *dns.Msg, elapsed time.Duration, qerr *dnsx.QueryError) {
+	var ans []byte
 	viaproxy := len(d.odohproxy) > 0
 
 	odohmsg, odohctx, err := d.buildTargetQuery(q)
@@ -58,7 +59,7 @@ func (d *transport) doOdoh(pid string, q *dns.Msg) (res *dns.Msg, elapsed time.D
 		return
 	}
 
-	res, _, elapsed, qerr = d.send(pid, req)
+	ans, _, elapsed, qerr = d.do(pid, req)
 	log.V("odoh: send; proxy? %t, elapsed: %s; err? %v", viaproxy, elapsed, qerr)
 	if qerr != nil {
 		// datatracker.ietf.org/doc/rfc9230 section 4.3 and section 7
@@ -76,12 +77,6 @@ func (d *transport) doOdoh(pid string, q *dns.Msg) (res *dns.Msg, elapsed time.D
 		return
 	}
 
-	ans, err := res.Pack()
-	if err != nil {
-		qerr = dnsx.NewBadResponseQueryError(err)
-		return
-	}
-
 	oans, err := odoh.UnmarshalDNSMessage(ans)
 	if err != nil {
 		qerr = dnsx.NewBadResponseQueryError(err)
@@ -96,8 +91,7 @@ func (d *transport) doOdoh(pid string, q *dns.Msg) (res *dns.Msg, elapsed time.D
 
 	log.V("odoh: success; res: %d", len(ans))
 	res = new(dns.Msg) // unpack into a new msg
-	err = res.Unpack(ans)
-	if err != nil {
+	if err = res.Unpack(ans); err != nil {
 		qerr = dnsx.NewBadResponseQueryError(err)
 		return
 	}
