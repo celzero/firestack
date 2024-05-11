@@ -214,15 +214,18 @@ func (t *dnsgateway) querySecondary(t2 Transport, network string, msg *dns.Msg, 
 		if len(blocklistnames) > 0 {
 			result.summary.Blocklists = blocklistnames
 		}
-		result.summary.UpstreamBlocks = xdns.AQuadAUnspecified(r)
-		a4 := xdns.AAAAAnswer(r)
-		a6 := xdns.AAnswer(r)
-		ip4hints := xdns.IPHints(r, dns.SVCB_IPV4HINT)
-		ip6hints := xdns.IPHints(r, dns.SVCB_IPV6HINT)
-		result.ips = append(result.ips, a4...)
-		result.ips = append(result.ips, a6...)
-		result.ips = append(result.ips, ip4hints...)
-		result.ips = append(result.ips, ip6hints...)
+		if xdns.AQuadAUnspecified(r) {
+			result.summary.UpstreamBlocks = true
+		} else {
+			a4 := xdns.AAAAAnswer(r)
+			a6 := xdns.AAnswer(r)
+			ip4hints := xdns.IPHints(r, dns.SVCB_IPV4HINT)
+			ip6hints := xdns.IPHints(r, dns.SVCB_IPV6HINT)
+			result.ips = append(result.ips, a4...)
+			result.ips = append(result.ips, a6...)
+			result.ips = append(result.ips, ip4hints...)
+			result.ips = append(result.ips, ip6hints...)
+		}
 		return
 	}
 }
