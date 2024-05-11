@@ -50,11 +50,11 @@ func isAlgErr(err error) bool {
 
 type Gateway interface {
 	// given an alg or real ip, retrieves assoc real ips as csv, if any
-	X(algip []byte) (realipcsv string)
+	X(algip netip.Addr) (realipcsv string)
 	// given an alg or real ip, retrieves assoc dns names as csv, if any
-	PTR(algip []byte, force bool) (domaincsv string)
+	PTR(algip netip.Addr, force bool) (domaincsv string)
 	// given an alg or real ip, retrieve assoc blocklists as csv, if any
-	RDNSBL(algip []byte) (blocklistcsv string)
+	RDNSBL(algip netip.Addr) (blocklistcsv string)
 	// translate overwrites ip answers to alg ip answers
 	translate(yes bool)
 	// Query using t1 as primary transport and t2 as secondary and preset as pre-determined ip answers
@@ -681,51 +681,38 @@ func gen6Locked(k string, hop int) netip.Addr {
 	return netip.AddrFrom16(b16)
 }
 
-func (t *dnsgateway) X(algip []byte) (ips string) {
+func (t *dnsgateway) X(algip netip.Addr) (ips string) {
 	t.RLock()
 	defer t.RUnlock()
 
-	if fip, ok := netip.AddrFromSlice(algip); ok {
-		rip := t.xLocked(fip, !t.mod)
-		if len(rip) > 0 {
-			var s []string
-			for _, r := range rip {
-				s = append(s, r.String())
-			}
-			ips = strings.Join(s, ",")
-		} // else: algip isn't really an alg ip, nothing to do
-	} else {
-		log.W("alg: invalid algip(%s)", algip)
-	}
+	rip := t.xLocked(algip, !t.mod)
+	if len(rip) > 0 {
+		var s []string
+		for _, r := range rip {
+			s = append(s, r.String())
+		}
+		ips = strings.Join(s, ",")
+	} // else: algip isn't really an alg ip, nothing to do
 
 	return ips
 }
 
-func (t *dnsgateway) PTR(algip []byte, force bool) (domains string) {
+func (t *dnsgateway) PTR(algip netip.Addr, force bool) (domains string) {
 	t.RLock()
 	defer t.RUnlock()
 
-	if fip, ok := netip.AddrFromSlice(algip); ok {
-		d := t.ptrLocked(fip, (!t.mod || force))
-		if len(d) > 0 {
-			domains = strings.Join(d, ",")
-		} // else: algip isn't really an alg ip, nothing to do
-	} else {
-		log.W("alg: invalid algip(%s)", algip)
-	}
+	d := t.ptrLocked(algip, (!t.mod || force))
+	if len(d) > 0 {
+		domains = strings.Join(d, ",")
+	} // else: algip isn't really an alg ip, nothing to do
 	return domains
 }
 
-func (t *dnsgateway) RDNSBL(algip []byte) (blocklists string) {
+func (t *dnsgateway) RDNSBL(algip netip.Addr) (blocklists string) {
 	t.RLock()
 	defer t.RUnlock()
 
-	if fip, ok := netip.AddrFromSlice(algip); ok {
-		blocklists = t.rdnsblLocked(fip, !t.mod)
-	} else {
-		log.W("alg: invalid algip(%s)", algip)
-	}
-	return blocklists
+	return t.rdnsblLocked(algip, !t.mod)
 }
 
 func (t *dnsgateway) xLocked(algip netip.Addr, useptr bool) []*netip.Addr {

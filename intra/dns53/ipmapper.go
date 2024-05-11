@@ -175,16 +175,16 @@ func (m *ipmapper) undoAlg(ip64 []netip.Addr) []netip.Addr {
 	}
 	ips := make([]netip.Addr, 0, len(ip64))
 	realips := make([]string, 0, len(ip64))
-	for _, x := range ip64 {
+	for _, addr := range ip64 {
 		var csv string
-		if x.IsValid() {
-			if csv = gw.X(x.AsSlice()); len(csv) > 0 {
+		if addr.IsValid() {
+			if csv = gw.X(addr); len(csv) > 0 {
 				// may contain duplicates due to how alg maps domains and ips
 				realips = append(realips, strings.Split(csv, ",")...)
 				continue // skip log.W below
 			}
 		}
-		log.W("ipmapper: undoAlg: no algip => realip? (%s => %s)", x, csv)
+		log.W("ipmapper: undoAlg: no algip => realip? (%s => %s)", addr, csv)
 	}
 	dups := 0
 	seen := make(map[string]bool) // track duplicates

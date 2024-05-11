@@ -180,15 +180,14 @@ func makeIPPorts(realips string, origipp netip.AddrPort, cap int) []netip.AddrPo
 func undoAlg(r dnsx.Resolver, algip netip.Addr) (realips, domains, probableDomains, blocklists string) {
 	force := true // force PTR resolution
 	if gw := r.Gateway(); !algip.IsUnspecified() && algip.IsValid() && gw != nil {
-		dst := algip.AsSlice()
-		domains = gw.PTR(dst, !force)
+		domains = gw.PTR(algip, !force)
 		if len(domains) <= 0 {
-			probableDomains = gw.PTR(dst, force)
+			probableDomains = gw.PTR(algip, force)
 		}
-		realips = gw.X(dst)
-		blocklists = gw.RDNSBL(dst)
+		realips = gw.X(algip)
+		blocklists = gw.RDNSBL(algip)
 	} else {
-		log.W("alg: undoAlg: no gw(%t) or dst(%v) or alg-ip(%s)", gw == nil, algip, algip)
+		log.W("alg: undoAlg: no gw(%t) or dst(%v)", gw == nil, algip)
 	}
 	return
 }
