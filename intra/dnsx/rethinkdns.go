@@ -23,6 +23,7 @@ import (
 
 	"github.com/celzero/firestack/intra/backend"
 	x "github.com/celzero/firestack/intra/backend"
+	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/xdns"
 
 	"github.com/celzero/gotrie/trie"
@@ -55,7 +56,7 @@ var (
 	errNoStamps         = errors.New("no stamp set")
 	errMissingCsv       = errors.New("zero comma-separated flags")
 	errFlagsMismatch    = errors.New("flagcsv does not match loaded flags")
-	errNotEnoughAnswers = errors.New("req at least two answers")
+	errNotEnoughAnswers = errors.New("req at least one answer")
 	errTrieArgs         = errors.New("missing data, unable to build blocklist")
 	errNoBlocklistMatch = errors.New("no blocklist applies")
 )
@@ -305,7 +306,7 @@ func (r *rethinkdnslocal) blockAnswer(msg *dns.Msg) (blocklists string, err erro
 		return
 	}
 	ans := msg.Answer
-	if len(ans) <= 1 {
+	if len(ans) <= 0 {
 		err = errNotEnoughAnswers
 		return
 	}
@@ -318,6 +319,7 @@ func (r *rethinkdnslocal) blockAnswer(msg *dns.Msg) (blocklists string, err erro
 		return
 	}
 
+	qname := xdns.QName(msg)
 	// handle cname, https/svcb name cloaking: news.ycombinator.com/item?id=26298339
 	// adopted from: github.com/DNSCrypt/dnscrypt-proxy/blob/6e8628f79/dnscrypt-proxy/plugin_block_name.go#L178
 	for _, a := range ans {
@@ -340,6 +342,10 @@ func (r *rethinkdnslocal) blockAnswer(msg *dns.Msg) (blocklists string, err erro
 		if len(target) <= 0 {
 			continue
 		}
+		// if target is ".", then it is a self-reference to the qname
+		if len(target) == 1 && target[0] == '.' {
+			target = qname
+		}
 
 		// ignore err when incoming name != ascii
 		target, _ = xdns.NormalizeQName(target)
@@ -348,6 +354,8 @@ func (r *rethinkdnslocal) blockAnswer(msg *dns.Msg) (blocklists string, err erro
 			blocklists = strings.Join(r.keyToNames(lists), ",")
 			return
 		}
+
+		log.D("rdns: blockAnswer: no block for target %s, qname %s", target, qname)
 	}
 
 	err = fmt.Errorf("answers not in blocklist %s", stamp)
