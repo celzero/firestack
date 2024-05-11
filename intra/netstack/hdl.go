@@ -55,7 +55,12 @@ func (g *gconnhandler) ICMP() GICMPHandler {
 }
 
 func (g *gconnhandler) CloseConns(csv string) string {
-	cids := strings.Split(csv, ",")
+	var cids []string = nil // nil closes all conns
+	if len(csv) > 0 {
+		// split returns [""] (slice of length 1) if csv is empty
+		// and so, avoid splitting on empty csv, and let cids be nil
+		cids = strings.Split(csv, ",")
+	}
 
 	var t []string
 	var u []string
