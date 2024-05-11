@@ -237,7 +237,7 @@ func (e *endpoint) Swap(fd, mtu int) (err error) {
 		if prev != nil {
 			log.I("ns: tun(%d => %d): Swap: stopping previous dispatcher", prevfd, fd)
 			go func() {
-				time.Sleep(5 * time.Second) // some arbitrary delay
+				time.Sleep(2 * time.Second) // some arbitrary delay
 				prev.stop()
 				// avoid e.Wait(), it blocks until ALL dispatchers stop, not just prev
 			}()
