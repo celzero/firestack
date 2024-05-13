@@ -53,6 +53,8 @@ type Gateway interface {
 	X(algip netip.Addr) (realipcsv string)
 	// given an alg or real ip, retrieves assoc dns names as csv, if any
 	PTR(algip netip.Addr, force bool) (domaincsv string)
+	// given domain, retrieve assoc alg ips as csv, if any
+	RESOLV(domain string) (algipcsv string)
 	// given an alg or real ip, retrieve assoc blocklists as csv, if any
 	RDNSBL(algip netip.Addr) (blocklistcsv string)
 	// translate overwrites ip answers to alg ip answers
@@ -225,6 +227,7 @@ func (t *dnsgateway) querySecondary(t2 Transport, network string, msg *dns.Msg, 
 			result.ips = append(result.ips, a6...)
 			result.ips = append(result.ips, ip4hints...)
 			result.ips = append(result.ips, ip6hints...)
+			// TODO: result.targets?
 		}
 		return
 	}
@@ -400,6 +403,17 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []*netip.Addr, network string, q
 		}
 		log.D("alg: skip; err(%v); ips subst %s", err, qname)
 		return ansin, err // ansin is nil if no alg ips
+	}
+
+	// get existing real ips for qname, from previous alg/nat
+	previp4s, previp6s := t.resolvLocked(qname, false /*realips*/)
+	if len(previp4s) > 0 {
+		realip = append(realip, previp4s...)
+		log.D("alg: subst; for %s with prev ip4s %s", qname, previp4s)
+	}
+	if len(previp6s) > 0 {
+		realip = append(realip, previp6s...)
+		log.D("alg: subst; for %s with prev ip6s %s", qname, previp6s)
 	}
 
 	algips = append(algips, algip4s...)
@@ -689,7 +703,9 @@ func (t *dnsgateway) X(algip netip.Addr) (ips string) {
 	if len(rip) > 0 {
 		var s []string
 		for _, r := range rip {
-			s = append(s, r.String())
+			if r != nil && r.IsValid() {
+				s = append(s, r.String())
+			}
 		}
 		ips = strings.Join(s, ",")
 	} // else: algip isn't really an alg ip, nothing to do
@@ -706,6 +722,24 @@ func (t *dnsgateway) PTR(algip netip.Addr, force bool) (domains string) {
 		domains = strings.Join(d, ",")
 	} // else: algip isn't really an alg ip, nothing to do
 	return domains
+}
+
+func (t *dnsgateway) RESOLV(domain string) (ipcsv string) {
+	t.RLock()
+	defer t.RUnlock()
+
+	ip4s, ip6s := t.resolvLocked(domain, t.mod)
+	ips := append(ip4s, ip6s...)
+	if len(ips) > 0 {
+		var s []string
+		for _, ip := range ips {
+			if ip != nil && ip.IsValid() {
+				s = append(s, ip.String())
+			}
+		}
+		ipcsv = strings.Join(s, ",")
+	}
+	return
 }
 
 func (t *dnsgateway) RDNSBL(algip netip.Addr) (blocklists string) {
@@ -769,6 +803,63 @@ func (t *dnsgateway) ptrLocked(algip netip.Addr, useptr bool) (domains []string)
 		// translate from realip only if not in mod mode
 		domains = ans.domain
 	}
+	return
+}
+
+func (t *dnsgateway) resolvLocked(domain string, algonly bool) (ip4s []*netip.Addr, ip6s []*netip.Addr) {
+	partkey4 := domain + key4
+	partkey6 := domain + key6
+
+	ip4s = make([]*netip.Addr, 0)
+	ip6s = make([]*netip.Addr, 0)
+	staleips := make([]*netip.Addr, 0)
+	if algonly {
+		for i := 0; i < maxiter; i++ {
+			k4 := partkey4 + strconv.Itoa(i)
+			if ans, ok := t.alg[k4]; ok {
+				if time.Until(ans.ttl) > 0 { // not stale
+					ip4s = append(ip4s, ans.algip)
+				} else {
+					staleips = append(staleips, ans.algip)
+				}
+			} else {
+				break
+			}
+		}
+		for i := 0; i < maxiter; i++ {
+			k6 := partkey6 + strconv.Itoa(i)
+			if ans, ok := t.alg[k6]; ok {
+				if time.Until(ans.ttl) > 0 { // not stale
+					ip6s = append(ip6s, ans.algip)
+				} else {
+					staleips = append(staleips, ans.algip)
+				}
+			} else {
+				break
+			}
+		}
+		log.V("alg: resolv: %s -> alg ip4 %d, ip6 %d; stale %v", domain, len(ip4s), len(ip6s), staleips)
+	} else {
+		// all "ans" records have all realips; pick the first one
+		k4 := partkey4 + "0"
+		if ans, ok := t.alg[k4]; ok {
+			if time.Until(ans.ttl) > 0 { // not stale
+				ip4s = append(ip4s, ans.realips...)
+			} else {
+				staleips = append(staleips, ans.realips...)
+			}
+		}
+		k6 := partkey6 + "0"
+		if ans, ok := t.alg[k6]; ok {
+			if time.Until(ans.ttl) > 0 { // not stale
+				ip6s = append(ip6s, ans.realips...)
+			} else {
+				staleips = append(staleips, ans.realips...)
+			}
+		}
+		log.V("alg: resolv: %s -> real ip4 %d, ip6 %d; stale %v", domain, len(ip4s), len(ip6s), staleips)
+	}
+
 	return
 }
 
