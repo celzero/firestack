@@ -33,6 +33,14 @@ const (
 	maxiter     = 100 // max number alg/nat evict iterations
 )
 
+type iptype int
+
+const (
+	typalg iptype = iota
+	typreal
+	typsecondary
+)
+
 var (
 	// 100.64.x.x
 	rfc6598  = []uint8{100, 64, 0, 1}
@@ -405,16 +413,30 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []*netip.Addr, network string, q
 		return ansin, err // ansin is nil if no alg ips
 	}
 
-	// get existing real ips for qname, from previous alg/nat
-	previp4s, previp6s := t.resolvLocked(qname, false /*realips*/)
+	typ := typalg
+	if !mod {
+		typ = typreal
+	}
+	// get existing secondary ips for qname, from previous alg/nat
+	previp4s, previp6s := t.resolvLocked(qname, typ)
 	if len(previp4s) > 0 {
 		realip = append(realip, previp4s...)
-		log.D("alg: subst; for %s with prev ip4s %s", qname, previp4s)
+		log.D("alg: subst; for %s with prev ip4s (alg: %t) %s", qname, typ == typalg, previp4s)
 	}
 	if len(previp6s) > 0 {
 		realip = append(realip, previp6s...)
-		log.D("alg: subst; for %s with prev ip6s %s", qname, previp6s)
+		log.D("alg: subst; for %s with prev ip6s (alg? %t) %s", qname, typ == typalg, previp6s)
 	}
+	prevsec4s, prevsec6s := t.resolvLocked(qname, typsecondary)
+	if len(prevsec4s) > 0 {
+		secres.ips = append(secres.ips, prevsec4s...)
+		log.D("alg: subst; for %s with prev sec ip4s (alg: %t) %s", qname, typ == typalg, prevsec4s)
+	}
+	if len(prevsec6s) > 0 {
+		secres.ips = append(secres.ips, prevsec6s...)
+		log.D("alg: subst; for %s with prev sec ip6s (alg? %t) %s", qname, typ == typalg, prevsec6s)
+	}
+	// TODO: just like w/ previps, get existing targets, blocklists for qname and merge w/ new ones
 
 	algips = append(algips, algip4s...)
 	algips = append(algips, algip6s...)
@@ -728,7 +750,11 @@ func (t *dnsgateway) RESOLV(domain string) (ipcsv string) {
 	t.RLock()
 	defer t.RUnlock()
 
-	ip4s, ip6s := t.resolvLocked(domain, t.mod)
+	typ := typalg
+	if !t.mod {
+		typ = typreal
+	}
+	ip4s, ip6s := t.resolvLocked(domain, typ)
 	ips := append(ip4s, ip6s...)
 	if len(ips) > 0 {
 		var s []string
@@ -806,14 +832,15 @@ func (t *dnsgateway) ptrLocked(algip netip.Addr, useptr bool) (domains []string)
 	return
 }
 
-func (t *dnsgateway) resolvLocked(domain string, algonly bool) (ip4s []*netip.Addr, ip6s []*netip.Addr) {
+func (t *dnsgateway) resolvLocked(domain string, typ iptype) (ip4s []*netip.Addr, ip6s []*netip.Addr) {
 	partkey4 := domain + key4
 	partkey6 := domain + key6
 
 	ip4s = make([]*netip.Addr, 0)
 	ip6s = make([]*netip.Addr, 0)
 	staleips := make([]*netip.Addr, 0)
-	if algonly {
+	switch typ {
+	case typalg:
 		for i := 0; i < maxiter; i++ {
 			k4 := partkey4 + strconv.Itoa(i)
 			if ans, ok := t.alg[k4]; ok {
@@ -839,7 +866,7 @@ func (t *dnsgateway) resolvLocked(domain string, algonly bool) (ip4s []*netip.Ad
 			}
 		}
 		log.V("alg: resolv: %s -> alg ip4 %d, ip6 %d; stale %v", domain, len(ip4s), len(ip6s), staleips)
-	} else {
+	case typreal:
 		// all "ans" records have all realips; pick the first one
 		k4 := partkey4 + "0"
 		if ans, ok := t.alg[k4]; ok {
@@ -858,6 +885,25 @@ func (t *dnsgateway) resolvLocked(domain string, algonly bool) (ip4s []*netip.Ad
 			}
 		}
 		log.V("alg: resolv: %s -> real ip4 %d, ip6 %d; stale %v", domain, len(ip4s), len(ip6s), staleips)
+	case typsecondary:
+		// all "ans" records have all secondaryips; pick the first one
+		k4 := partkey4 + "0"
+		if ans, ok := t.alg[k4]; ok {
+			if time.Until(ans.ttl) > 0 { // not stale
+				ip4s = append(ip4s, ans.secondaryips...)
+			} else {
+				staleips = append(staleips, ans.secondaryips...)
+			}
+		}
+		k6 := partkey6 + "0"
+		if ans, ok := t.alg[k6]; ok {
+			if time.Until(ans.ttl) > 0 { // not stale
+				ip6s = append(ip6s, ans.secondaryips...)
+			} else {
+				staleips = append(staleips, ans.secondaryips...)
+			}
+		}
+		log.V("alg: resolv: %s -> secondary ip4 %d, ip6 %d; stale %v", domain, len(ip4s), len(ip6s), staleips)
 	}
 
 	return
