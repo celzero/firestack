@@ -2,7 +2,7 @@ package dialers
 
 /*
 Combine direct_split with TCB (Transmission Control Block) Desynchronization Attack
-Inspire by byedpi
+Inspired by byedpi
 */
 
 import (
@@ -77,7 +77,7 @@ func exceedTTL(cmsgArr []unix.SocketControlMessage) bool {
 }
 
 /*
-DialWithOverwriteTraceroute estimates the TTL with UDP traceroute,
+DialWithSplitAndDesyncTraceroute estimates the TTL with UDP traceroute,
 then returns a TCP connection that may launch TCB Desynchronization Attack and split the initial upstream segment
 If `payload` is smaller than the initial upstream segment, it launches the attack and splits.
 
@@ -85,7 +85,7 @@ This traceroute is not accurate, because of time limit (TCP handshake).
 
 Note: The path the UDP packet took to reach the destination may differ from the path the TCP packet took.
 */
-func DialWithOverwriteTraceroute(d *protect.RDial, addr *net.TCPAddr, maxTTL int, payload []byte) (DuplexConn, error) {
+func DialWithSplitAndDesyncTraceroute(d *protect.RDial, addr *net.TCPAddr, maxTTL int, payload []byte) (DuplexConn, error) {
 	udpAddr := &net.UDPAddr{
 		IP:   addr.IP,
 		Port: addr.Port,
@@ -194,7 +194,7 @@ func DialWithOverwriteTraceroute(d *protect.RDial, addr *net.TCPAddr, maxTTL int
 	return split1, nil
 }
 
-func DialWithOverwriteFixedTtl(d *protect.RDial, addr *net.TCPAddr, initialTTL int, payload []byte) (DuplexConn, error) {
+func DialWithSplitAndDesyncFixedTtl(d *protect.RDial, addr *net.TCPAddr, initialTTL int, payload []byte) (DuplexConn, error) {
 	tcpConn, err := d.DialTCP(addr.Network(), nil, addr)
 	if err != nil {
 		return nil, err
@@ -210,12 +210,12 @@ func DialWithOverwriteFixedTtl(d *protect.RDial, addr *net.TCPAddr, initialTTL i
 	return split1, nil
 }
 
-func DialWithOverwriteSmart(d *protect.RDial, addr *net.TCPAddr, maxTTL int, payload []byte) (DuplexConn, error) {
+func DialWithSplitAndDesyncSmart(d *protect.RDial, addr *net.TCPAddr, maxTTL int, payload []byte) (DuplexConn, error) {
 	ttl, ok := queryTracerouteResult(addr.IP)
 	if ok {
-		return DialWithOverwriteFixedTtl(d, addr, ttl, payload)
+		return DialWithSplitAndDesyncFixedTtl(d, addr, ttl, payload)
 	}
-	conn, err := DialWithOverwriteTraceroute(d, addr, maxTTL, payload)
+	conn, err := DialWithSplitAndDesyncTraceroute(d, addr, maxTTL, payload)
 	if err == nil {
 		addTracerouteResult(addr.IP, conn.(*OverwriteSplitter).TTL)
 	}
