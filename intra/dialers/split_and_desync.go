@@ -157,6 +157,7 @@ func DialWithSplitAndDesyncTraceroute(d *protect.RDial, addr *net.TCPAddr, maxTT
 		Payload: payload,
 	}
 
+	//After TCP handshake, check received ICMP messages.
 	var cmsgBuf [1024]byte
 	for i := 0; i < maxTTL-1; i++ {
 		/* quote: The payload of the original packet that caused the error is passed as normal data via msg_iovec.
@@ -261,6 +262,7 @@ func (s *OverwriteSplitter) Write(b []byte) (int, error) {
 	}
 	defer unix.Munmap(firstSegment)
 
+	// We want s.Payload to be seen by censors, but don't want s.Payload to be seen by the server.
 	copy(firstSegment, s.Payload)
 	isIPv6 := strings.Contains(conn.RemoteAddr().String(), "[")
 	if isIPv6 {
@@ -286,6 +288,8 @@ func (s *OverwriteSplitter) Write(b []byte) (int, error) {
 	if err != nil {
 		return n1, err
 	}
+
+	// Write the second segment
 	n2, err := conn.Write(b[len(s.Payload):])
 	return n1 + n2, err
 }
