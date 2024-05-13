@@ -36,15 +36,8 @@ func NewGroundedTransport(id string) (t dnsx.Transport) {
 	return
 }
 
-func (t *grounded) Query(_ string, q []byte, summary *x.DNSSummary) ([]byte, error) {
-	var response []byte
-	var ans *dns.Msg
-	var err error
-
-	ans, err = xdns.BlockResponseFromMessage(q)
-	if err == nil {
-		response, err = ans.Pack()
-	}
+func (t *grounded) Query(_ string, q *dns.Msg, summary *x.DNSSummary) (ans *dns.Msg, err error) {
+	ans, err = xdns.RefusedResponseFromMessage(q)
 	if err != nil {
 		t.status = x.BadResponse
 	} else {
@@ -59,7 +52,7 @@ func (t *grounded) Query(_ string, q []byte, summary *x.DNSSummary) ([]byte, err
 	summary.Status = t.Status()
 	summary.Blocklists = ""
 
-	return response, err
+	return ans, err
 }
 
 func (t *grounded) ID() string {

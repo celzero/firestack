@@ -78,6 +78,15 @@ func (d *RDial) Dial(network, addr string) (net.Conn, error) {
 	}
 }
 
+func (d *RDial) DialContext(_ context.Context, network, addr string) (net.Conn, error) {
+	// TODO: use context to cancel dialing
+	if cc, err := d.dial(network, addr); err != nil {
+		return nil, err
+	} else {
+		return cc, nil
+	}
+}
+
 func (d *RDial) Accept(network, local string) (Listener, error) {
 	if network != "tcp" && network != "tcp4" && network != "tcp6" {
 		return nil, errAccept
@@ -130,7 +139,7 @@ func (d *RDial) Announce(network, local string) (PacketConn, error) {
 
 func clos(c io.Closer) {
 	if c != nil {
-		c.Close()
+		_ = c.Close()
 	}
 }
 

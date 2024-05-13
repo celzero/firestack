@@ -18,6 +18,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"errors"
+	"io"
 	"net"
 	"strings"
 	"time"
@@ -303,7 +304,7 @@ func _dnsExchange(proxy *DcMulti, proto string, query *dns.Msg, serverAddress st
 			return dnsExchangeResponse{err: errNoConn}
 		}
 
-		defer pc.Close()
+		defer clos(pc)
 		if derr := pc.SetDeadline(time.Now().Add(timeout8s)); derr != nil {
 			return dnsExchangeResponse{err: derr}
 		}
@@ -340,7 +341,7 @@ func _dnsExchange(proxy *DcMulti, proto string, query *dns.Msg, serverAddress st
 			return dnsExchangeResponse{err: errNoConn}
 		}
 
-		defer pc.Close()
+		defer clos(pc)
 		if derr := pc.SetDeadline(time.Now().Add(timeout8s)); derr != nil {
 			return dnsExchangeResponse{err: derr}
 		}
@@ -362,4 +363,10 @@ func _dnsExchange(proxy *DcMulti, proto string, query *dns.Msg, serverAddress st
 		return dnsExchangeResponse{err: err}
 	}
 	return dnsExchangeResponse{response: &msg, rtt: rtt, err: nil}
+}
+
+func clos(c io.Closer) {
+	if c != nil {
+		_ = c.Close()
+	}
 }

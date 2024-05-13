@@ -86,7 +86,7 @@ func TestOne(t *testing.T) {
 	// adguard := "sdns://AQMAAAAAAAAAETk0LjE0MC4xNC4xNDo1NDQzINErR_JS3PLCu_iZEIbq95zkSV2LFsigxDIuUso_OQhzIjIuZG5zY3J5cHQuZGVmYXVsdC5uczEuYWRndWFyZC5jb20"
 	// cb := "sdns://AQMAAAAAAAAAEzE4NS4yMjguMTY4LjEwOjg0NDMgvKwy-tVDaRcfCDLWB1AnwyCM7vDo6Z-UGNx3YGXUjykRY2xlYW5icm93c2luZy5vcmc"
 	q912 := "sdns://AQYAAAAAAAAAEzE0OS4xMTIuMTEyLjEyOjg0NDMgZ8hHuMh1jNEgJFVDvnVnRt803x2EwAuMRwNo34Idhj4ZMi5kbnNjcnlwdC1jZXJ0LnF1YWQ5Lm5ldA"
-	tr, err := NewTransport(p, "test", q912)
+	tr, err := AddTransport(p, "test", q912)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -94,22 +94,20 @@ func TestOne(t *testing.T) {
 	smm := &x.DNSSummary{}
 	netw := xdns.NetAndProxyID("udp", ipn.Base)
 	// FIXME: querying always fails with EOF
-	r, err := tr.Query(netw, q, smm)
+	ans, err := tr.Query(netw, q, smm)
 	if err != nil {
 		log.Output(2, smm.Str())
 		t.Fatal(err)
 	}
-	if len(r) == 0 {
+	if xdns.Len(ans) == 0 {
 		t.Fatal("empty response")
 	}
-	ans := xdns.AsMsg(r)
 	log.Output(10, ans.Answer[0].String())
 }
 
-func aquery(d string) []byte {
+func aquery(d string) *dns.Msg {
 	msg := &dns.Msg{}
 	msg.SetQuestion(dns.Fqdn(d), dns.TypeA)
 	msg.Id = 1234
-	b, _ := msg.Pack()
-	return b
+	return msg
 }

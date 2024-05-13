@@ -29,6 +29,7 @@ type SocketSummary struct {
 	start    time.Time // Tracks start time; unexported.
 	Rtt      int32     // Round-trip time (ms); (sans ICMP).
 	Msg      string    // Err or other messages, if any.
+	Dup      bool      // True if another active connection to Target exists.
 }
 
 type SocketListener interface {
@@ -38,12 +39,13 @@ type SocketListener interface {
 	// connection is sent back to a pre-registered listener.
 	// protocol is 6 for TCP, 17 for UDP, 1 for ICMP.
 	// uid is -1 in case owner-uid of the connection couldn't be determined.
+	// dup is true if there's another active connection to dst or origdsts.
 	// src and dst are string'd representation of net.TCPAddr and net.UDPAddr.
 	// origdsts is a comma-separated list of original source IPs, this may be same as dst.
 	// domains is a comma-separated list of domain names associated with origsrcs, if any.
 	// probableDomains is a comma-separated list of probable domain names associated with origsrcs, if any.
 	// blocklists is a comma-separated list of blocklist names, if any.
-	Flow(protocol int32, uid int, src, dst, origdsts, domains, probableDomains, blocklists string) *Mark
+	Flow(protocol int32, uid int, dup bool, src, dst, origdsts, domains, probableDomains, blocklists string) *Mark
 	// OnSocketClosed reports summary after a socket closes.
 	OnSocketClosed(*SocketSummary)
 }
@@ -77,20 +79,21 @@ func icmpSummary(id, pid string) *SocketSummary {
 	}
 }
 
-func tcpSummary(id, pid, uid string, dst netip.Addr) *SocketSummary {
+func tcpSummary(id, pid, uid string, dup bool, dst netip.Addr) *SocketSummary {
 	return &SocketSummary{
 		Proto:  ProtoTypeTCP,
 		ID:     id,
 		PID:    pid,
 		UID:    uid,
+		Dup:    dup,
 		Target: dst.String(),
 		start:  time.Now(),
 		Msg:    errNone.Error(),
 	}
 }
 
-func udpSummary(id, pid, uid string, dst netip.Addr) *SocketSummary {
-	s := tcpSummary(id, pid, uid, dst)
+func udpSummary(id, pid, uid string, dup bool, dst netip.Addr) *SocketSummary {
+	s := tcpSummary(id, pid, uid, dup, dst)
 	s.Proto = ProtoTypeUDP
 	return s
 }

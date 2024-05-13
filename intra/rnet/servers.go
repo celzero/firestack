@@ -127,35 +127,46 @@ func (s *services) AddServer(id, url string) (svc Server, err error) {
 	s.Unlock()
 
 	// if the server has a namesake proxy, bridge them
-	go s.Bridge(id, id)
+	err = s.Bridge(id, id)
 
-	return svc, nil
+	log.I("svc: add: %s > %s; err? %v", id, url, err)
+
+	return svc, err
 }
 
-func (s *services) Bridge(serverid, proxyid string) error {
+func (s *services) Bridge(serverid, proxyid string) (err error) {
 	svc, err := s.GetServer(serverid)
 
 	if err != nil {
-		return err
+		log.W("svc: bridge: no server %s; err? %v", serverid, err)
+		return
 	}
 	// remove existing bridge, if any
 	if len(proxyid) <= 0 {
-		return svc.Hop(nil)
+		err = svc.Hop(nil)
+		log.I("svc: bridge: remove all hops for %s; err? %v", serverid, err)
+		return
 	}
+
 	px, err := s.proxies.ProxyFor(proxyid)
 	if err != nil {
-		return err
+		log.W("svc: bridge: no proxy %s for %s; err? %v", proxyid, serverid, err)
+		return
 	}
+
 	svcstr := fmt.Sprintf("%s/%s [%d] at %s", serverid, svc.Type(), svc.Status(), svc.GetAddr())
 	pxstr := fmt.Sprintf("%s/%s [%d] at %s", proxyid, px.Type(), px.Status(), px.GetAddr())
-	log.I("svc: bridge: %s with %s", svcstr, pxstr)
 
-	return svc.Hop(px)
+	err = svc.Hop(px)
+
+	log.I("svc: bridge: %s with %s; hop err? %v", svcstr, pxstr, err)
+
+	return
 }
 
 func (s *services) RemoveServer(id string) bool {
 	if svc, err := s.GetServer(id); err == nil {
-		go svc.Stop()
+		_ = svc.Stop()
 		delete(s.servers, id)
 		return true
 	}
@@ -177,7 +188,7 @@ func (s *services) StopServers() int {
 	defer s.Unlock()
 
 	for _, svc := range s.servers {
-		go svc.Stop()
+		_ = svc.Stop()
 	}
 	return len(s.servers)
 }

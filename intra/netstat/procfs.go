@@ -11,9 +11,11 @@ import (
 	"bufio"
 	"encoding/binary"
 	"fmt"
+	"io"
 	"net"
 	"net/netip"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -225,14 +227,20 @@ func toUnmappedAddr(ip net.IP) netip.Addr {
 	return ipp.Unmap()
 }
 
+func clos(c io.Closer) {
+	if c != nil {
+		_ = c.Close()
+	}
+}
+
 // ParseProcNet scans /proc/net/* returns a list of entries, one entry per line scanned
 func ParseProcNet(protocol string) ([]ProcNetEntry, error) {
-	filename := fmt.Sprintf("/proc/net/%s", protocol)
+	filename := filepath.Clean(fmt.Sprintf("/proc/net/%s", protocol))
 	fd, err := os.Open(filename)
 	if err != nil {
 		return nil, err
 	}
-	defer fd.Close()
+	defer clos(fd)
 
 	entries := make([]ProcNetEntry, 0)
 	scanner := bufio.NewScanner(fd)
@@ -344,15 +352,16 @@ func findProcNetEntryForProtocol(protocol string, src, dst netip.AddrPort) *Proc
 		return nil
 	}
 
-	for _, entry := range entries {
-		cached := getProcNetEntryFromPool(&entry)
+	for _, ent := range entries {
+		ep := &ent // stackoverflow.com/a/68247837
+		cached := getProcNetEntryFromPool(ep)
 		if invalidProcNetEntry(cached) {
-			addProcNetEntryToPool(&entry)
+			addProcNetEntryToPool(ep)
 		}
 		// return on first match since e.Same is pretty lax and deliberately
 		// not exact at matching the various procnet entries
-		if e.Same(&entry) {
-			return &entry
+		if e.Same(ep) {
+			return ep
 		}
 	}
 

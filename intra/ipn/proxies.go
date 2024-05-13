@@ -33,6 +33,7 @@ const (
 	NOOP     = x.NOOP
 	INTERNET = x.INTERNET
 
+	TNT = x.TNT
 	TZZ = x.TZZ
 	TUP = x.TUP
 	TOK = x.TOK
@@ -41,6 +42,9 @@ const (
 
 	// DNS addrs, urls, or stamps
 	nodns = "" // no DNS
+
+	NOMTU  = 0
+	MAXMTU = 65535
 )
 
 var (
@@ -55,6 +59,7 @@ var (
 	errProxyConfig          = errors.New("invalid proxy config")
 	errNoProxyResponse      = errors.New("no response from proxy")
 	errNoSig                = errors.New("auth missing sig")
+	errNoMtu                = errors.New("no mtu")
 
 	udptimeoutsec = 5 * 60                    // 5m
 	tcptimeoutsec = (2 * 60 * 60) + (40 * 60) // 2h40m
@@ -109,7 +114,10 @@ type proxifier struct {
 	obs x.ProxyListener
 }
 
-type gw struct{ ok bool }
+type gw struct {
+	ok    bool
+	stats x.Stats
+}
 
 var _ x.Router = (*gw)(nil)
 var _ x.Router = (*proxifier)(nil)
@@ -137,6 +145,8 @@ func (nofwd) Accept(network, local string) (protect.Listener, error) {
 
 func (w *gw) IP4() bool            { return w.ok }
 func (w *gw) IP6() bool            { return w.ok }
+func (w *gw) MTU() (int, error)    { return NOMTU, errNoMtu }
+func (w *gw) Stat() *x.Stats       { return &w.stats }
 func (w *gw) Contains(string) bool { return w.ok }
 
 func NewProxifier(c protect.Controller, o x.ProxyListener) Proxies {
@@ -164,7 +174,7 @@ func (px *proxifier) add(p Proxy) (ok bool) {
 	if pp := px.p[p.ID()]; pp != nil {
 		// new proxy, invoke Stop on old proxy
 		if pp != p {
-			go pp.Stop()
+			_ = pp.Stop()
 		}
 	}
 
@@ -178,7 +188,7 @@ func (px *proxifier) RemoveProxy(id string) bool {
 	defer px.Unlock()
 
 	if p, ok := px.p[id]; ok {
-		go p.Stop()
+		_ = p.Stop()
 		delete(px.p, id)
 		go px.obs.OnProxyRemoved(id)
 		log.I("proxy: removed %s", id)
@@ -215,7 +225,7 @@ func (px *proxifier) StopProxies() error {
 
 	l := len(px.p)
 	for _, p := range px.p {
-		go p.Stop()
+		_ = p.Stop()
 	}
 	px.p = make(map[string]Proxy)
 
@@ -270,6 +280,71 @@ func (px *proxifier) IP6() bool {
 	}
 
 	return len(px.p) > 0
+}
+
+func (px *proxifier) MTU() (out int, err error) {
+	px.RLock()
+	defer px.RUnlock()
+
+	out = MAXMTU
+	safemtu := minmtu6
+	for _, p := range px.p {
+		if local(p.ID()) {
+			continue
+		}
+		var r x.Router
+		if r = p.Router(); r == nil {
+			continue
+		}
+		if m, err1 := r.MTU(); err1 == nil {
+			if p.Type() == WG {
+				m = calcNetMtu(m)
+			}
+			out = min(out, max(m, safemtu))
+		} // else: NOMTU
+	}
+	if out == MAXMTU || out == NOMTU { // unchanged or unknown
+		err = errNoMtu
+	}
+	return out, err
+}
+
+// Implements Router.
+func (px *proxifier) Stat() *x.Stats {
+	px.RLock()
+	defer px.RUnlock()
+
+	var s *x.Stats
+	for _, p := range px.p {
+		if local(p.ID()) {
+			continue
+		}
+		if r := p.Router(); r != nil {
+			s = accStats(s, r.Stat())
+		}
+	}
+	return s
+}
+
+func accStats(a, b *x.Stats) (c *x.Stats) {
+	c = new(x.Stats)
+	if a == nil && b == nil {
+		return c
+	} else if a == nil {
+		return b
+	} else if b == nil {
+		return a
+	}
+	c.Tx = a.Tx + b.Tx
+	c.Rx = a.Rx + b.Rx
+	c.ErrRx = a.ErrRx + b.ErrRx
+	c.ErrTx = a.ErrTx + b.ErrTx
+	c.LastOK = max(a.LastOK, b.LastOK)
+	c.LastRx = max(a.LastRx, b.LastRx)
+	c.LastTx = max(a.LastTx, b.LastTx)
+	// todo: a.Since or b.Since may be zero
+	c.Since = min(a.Since, b.Since)
+	return
 }
 
 // Implements Router.

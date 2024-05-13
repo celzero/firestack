@@ -33,6 +33,7 @@ import (
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
 	"github.com/celzero/firestack/intra/xdns"
+	"github.com/miekg/dns"
 
 	stamps "github.com/jedisct1/go-dnsstamps"
 	"golang.org/x/crypto/ed25519"
@@ -54,8 +55,8 @@ type serverinfo struct {
 	HostName           string
 	UDPAddr            *net.UDPAddr
 	TCPAddr            *net.TCPAddr
-	RelayUDPAddr       *net.UDPAddr
-	RelayTCPAddr       *net.TCPAddr
+	RelayUDPAddrs      []*net.UDPAddr
+	RelayTCPAddrs      []*net.TCPAddr
 	status             int
 	proxies            ipn.Proxies // proxy-provider, may be nil
 	relay              ipn.Proxy   // proxy relay to use, may be nil
@@ -72,11 +73,32 @@ type ServersInfo struct {
 }
 
 // newServersInfo returns a new servers-info object
-func newServersInfo() ServersInfo {
-	return ServersInfo{
+func newServersInfo() *ServersInfo {
+	return &ServersInfo{
 		registeredServers: make(map[string]registeredserver),
 		inner:             make(map[string]*serverinfo),
 	}
+}
+
+func (serversInfo *ServersInfo) len() int {
+	serversInfo.RLock()
+	defer serversInfo.RUnlock()
+
+	return len(serversInfo.registeredServers)
+}
+
+func (serversInfo *ServersInfo) getAll() []*serverinfo {
+	serversInfo.RLock()
+	defer serversInfo.RUnlock()
+
+	servers := make([]*serverinfo, 0)
+	for _, si := range serversInfo.inner {
+		if si != nil {
+			servers = append(servers, si)
+		}
+	}
+	log.V("dnscrypt: getAll: servers [%d/%d]", len(servers), len(serversInfo.inner))
+	return servers
 }
 
 func (serversInfo *ServersInfo) getOne() (serverInfo *serverinfo) {
@@ -122,11 +144,10 @@ func (serversInfo *ServersInfo) unregisterServer(name string) (int, error) {
 }
 
 func (serversInfo *ServersInfo) registerServer(name string, stamp stamps.ServerStamp) {
-	newRegisteredServer := registeredserver{name: name, stamp: stamp}
 	serversInfo.Lock()
 	defer serversInfo.Unlock()
 
-	serversInfo.registeredServers[name] = newRegisteredServer
+	serversInfo.registeredServers[name] = registeredserver{name: name, stamp: stamp}
 }
 
 func (serversInfo *ServersInfo) refresh(proxy *DcMulti) ([]string, error) {
@@ -179,15 +200,6 @@ func fetchDNSCryptServerInfo(proxy *DcMulti, name string, stamp stamps.ServerSta
 		stamp.ServerPk = serverPk
 	}
 
-	// relayudpaddr and relaytcpaddr may be nil, even if err == nil
-	relayudpaddr, relaytcpaddr, err := route(proxy, name)
-	if err != nil {
-		return serverinfo{}, err
-	}
-	// iff tcp relay is unset, unset udp relay too
-	if relaytcpaddr == nil {
-		relayudpaddr = nil
-	}
 	// note: relays are not used to fetch certs due to multiple issues reported by users
 	certInfo, err := fetchCurrentDNSCryptCert(proxy, &name, stamp.ServerPk, stamp.ServerAddrStr, stamp.ProviderName)
 	if err != nil {
@@ -195,7 +207,7 @@ func fetchDNSCryptServerInfo(proxy *DcMulti, name string, stamp stamps.ServerSta
 	}
 	var tcpaddr *net.TCPAddr
 	var udpaddr *net.UDPAddr
-	s, p := hostport(stamp.ServerAddrStr)
+	s, p := hostport(&stamp)
 	if ips, err := dialers.Resolve(s); err == nil && len(ips) > 0 {
 		ipp := netip.AddrPortFrom(ips[0], p)
 		tcpaddr = net.TCPAddrFromAddrPort(ipp)
@@ -223,66 +235,72 @@ func fetchDNSCryptServerInfo(proxy *DcMulti, name string, stamp stamps.ServerSta
 		Name:               name,
 		UDPAddr:            udpaddr,
 		TCPAddr:            tcpaddr,
-		RelayTCPAddr:       relaytcpaddr,
-		RelayUDPAddr:       relayudpaddr,
+		RelayTCPAddrs:      nil, // added later; see proxy.refreshRoutes()
+		RelayUDPAddrs:      nil, // added later; see proxy.refreshRoutes()
 		proxies:            px,
 		relay:              relay,
 		dialer:             dialer,
 		est:                core.NewP50Estimator(),
 	}
-	log.I("dnscrypt: (%s) setup: %s; relay? %t", name, si.HostName, relay != nil)
+	log.I("dnscrypt: (%s) setup: %s; anonrelay? %t, proxy? %t", name, si.HostName, relay != nil)
 	return si, nil
 }
 
-func fetchDoHServerInfo(proxy *DcMulti, name string, stamp stamps.ServerStamp) (serverinfo, error) {
+func fetchDoHServerInfo(_ *DcMulti, _ string, _ stamps.ServerStamp) (serverinfo, error) {
 	// FIXME: custom ip-address, user-certs, and cert-pinning not supported
 	return serverinfo{}, errors.New("unsupported protocol")
 }
 
-func route(proxy *DcMulti, name string) (udpaddr *net.UDPAddr, tcpaddr *net.TCPAddr, err error) {
-	relayNames := proxy.routes
-	if relayNames == nil { // no err, no relays
+func route(proxy *DcMulti) (udpaddrs []*net.UDPAddr, tcpaddrs []*net.TCPAddr) {
+	proxy.Lock()
+	relays := proxy.routes
+	proxy.Unlock()
+
+	udpaddrs = make([]*net.UDPAddr, 0)
+	tcpaddrs = make([]*net.TCPAddr, 0)
+
+	if len(relays) <= 0 { // no err, no relays
 		return
 	}
 
-	var relayName string
-	if len(relayNames) > 0 {
-		candidate := rand.Intn(len(relayNames))
-		relayName = relayNames[candidate]
-	}
-	var relayCandidateStamp *stamps.ServerStamp
-	if len(relayName) == 0 {
-		err = fmt.Errorf("route declared for [%s] but no relays", name)
-		return
-	} else if relayStamp, serr := stamps.NewServerStampFromString(relayName); serr == nil {
-		relayCandidateStamp = &relayStamp
-	}
-
-	if relayCandidateStamp == nil {
-		relayCandidateStamp = &stamps.ServerStamp{
-			ServerAddrStr: relayName, // may be a hostname or ip-address
-			Proto:         stamps.StampProtoTypeDNSCryptRelay,
+	for _, rr := range relays {
+		var rrstamp *stamps.ServerStamp
+		if len(rr) == 0 {
+			log.W("dnscrypt: route: skip empty relay")
+			continue
+		} else if relayStamp, serr := stamps.NewServerStampFromString(rr); serr == nil {
+			rrstamp = &relayStamp
 		}
-	}
 
-	s, p := hostport(relayCandidateStamp.ServerAddrStr)
-	if relayCandidateStamp != nil && (relayCandidateStamp.Proto == stamps.StampProtoTypeDNSCrypt ||
-		relayCandidateStamp.Proto == stamps.StampProtoTypeDNSCryptRelay) {
-		var ips []netip.Addr
-		if ips, err = dialers.Resolve(s); err == nil && len(ips) > 0 {
-			ipp := netip.AddrPortFrom(ips[0], p) // TODO: randomize?
-			tcpaddr = net.TCPAddrFromAddrPort(ipp)
-			udpaddr = net.UDPAddrFromAddrPort(ipp)
+		if rrstamp == nil {
+			rrstamp = &stamps.ServerStamp{
+				ServerAddrStr: rr, // may be a hostname or ip-address
+				Proto:         stamps.StampProtoTypeDNSCryptRelay,
+			}
+		}
+
+		host, port := hostport(rrstamp)
+		if rrstamp != nil && (rrstamp.Proto == stamps.StampProtoTypeDNSCrypt ||
+			rrstamp.Proto == stamps.StampProtoTypeDNSCryptRelay) {
+			if ips, err := dialers.Resolve(host); err == nil && len(ips) > 0 {
+				ipp := netip.AddrPortFrom(ips[0], port) // TODO: randomize?
+				tcpaddrs = append(tcpaddrs, net.TCPAddrFromAddrPort(ipp))
+				udpaddrs = append(udpaddrs, net.UDPAddrFromAddrPort(ipp))
+			} else {
+				log.W("dnscrypt: route: zero ips for relay [%s] for server [%s]; err [%v]", rr, host, err)
+			}
 		} else {
-			err = fmt.Errorf("zero ips for relay [%s@%s] for server [%s]; err [%v]", relayName, s, name, err)
+			log.W("dnscrypt: route: invalid relay [%s]", rr)
 		}
-	} else {
-		err = fmt.Errorf("invalid relay [%s] for server [%s]", relayName, name)
 	}
 	return
 }
 
-func hostport(x string) (string, uint16) {
+func hostport(stamp *stamps.ServerStamp) (string, uint16) {
+	if stamp == nil {
+		return "", 0
+	}
+	x := stamp.ServerAddrStr
 	s, port, err := net.SplitHostPort(x)
 	if err != nil || len(port) <= 0 {
 		log.W("dnscrypt: host-port og(%s); err? %v", x, err)
@@ -304,8 +322,8 @@ func (s *serverinfo) String() string {
 	if s.TCPAddr != nil {
 		serveraddr = s.TCPAddr.String()
 	}
-	if s.RelayTCPAddr != nil {
-		relayaddr = s.RelayTCPAddr.String()
+	if a := s.RelayTCPAddrs; a != nil {
+		relayaddr = chooseAny(a).String()
 	}
 
 	return serverid + ":" + servername + "/" + serveraddr + "<=>" + relayaddr
@@ -319,7 +337,7 @@ func (s *serverinfo) Type() string {
 	return dnsx.DNSCrypt
 }
 
-func (s *serverinfo) Query(network string, q []byte, summary *x.DNSSummary) (r []byte, err error) {
+func (s *serverinfo) Query(network string, q *dns.Msg, summary *x.DNSSummary) (r *dns.Msg, err error) {
 	r, err = resolve(network, q, s, summary)
 	s.status = summary.Status
 

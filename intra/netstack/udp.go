@@ -103,7 +103,7 @@ func (g *GUDPConn) ok() bool {
 
 func (g *GUDPConn) StatefulTeardown() (fin bool) {
 	if !g.ok() {
-		g.Connect(false) // establish circuit then teardown
+		_ = g.Connect(false) // establish circuit then teardown
 	}
 
 	return g.Close() == nil // then fin
@@ -213,7 +213,7 @@ func (g *GUDPConn) Close() error {
 		ep.Abort()
 	}
 	if c != nil {
-		c.SetDeadline(time.Now().Add(-1))
+		_ = c.SetDeadline(time.Now().Add(-1))
 		return c.Close()
 	}
 	return nil

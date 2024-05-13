@@ -19,6 +19,7 @@ import (
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/dnsx"
 	"github.com/celzero/firestack/intra/log"
+	"github.com/celzero/firestack/intra/protect"
 )
 
 // pipe copies data from src to dst, and returns the number of bytes copied.
@@ -65,11 +66,8 @@ func download(cid string, local net.Conn, remote net.Conn) (n int64, err error) 
 
 // forward copies data between local and remote, and tracks the connection.
 // It also sends a summary to the listener when done. Always called in a goroutine.
-func forward(local net.Conn, remote net.Conn, t core.ConnMapper, l SocketListener, smm *SocketSummary) {
+func forward(local, remote net.Conn, l SocketListener, smm *SocketSummary) {
 	cid := smm.ID
-
-	t.Track(cid, local, remote)
-	defer t.Untrack(cid)
 
 	uploadch := make(chan ioinfo)
 
@@ -101,7 +99,7 @@ func sendNotif(l SocketListener, s *SocketSummary) {
 
 	ok1 := l != nil      // likely due to bugs
 	ok2 := len(s.ID) > 0 // likely due to bugs
-	log.V("intra: end? sendNotif(%t,%t): %s", ok1, ok2, s.str())
+	log.VV("intra: end? sendNotif(%t,%t): %s", ok1, ok2, s.str())
 	if ok1 && ok2 {
 		l.OnSocketClosed(s) // s.Duration may be uninitialized (zero)
 	}
@@ -134,14 +132,6 @@ func stall(m *core.ExpMap, k string) (secs uint32) {
 	newlife := time.Duration(life30s) * time.Second
 	m.Set(k, newlife)
 	return
-}
-
-func netipFrom(ip net.IP) *netip.Addr {
-	if addr, ok := netip.AddrFromSlice(ip); ok {
-		addr = addr.Unmap()
-		return &addr
-	}
-	return nil
 }
 
 func oneRealIp(realips string, origipp netip.AddrPort) netip.AddrPort {
@@ -190,17 +180,25 @@ func makeIPPorts(realips string, origipp netip.AddrPort, cap int) []netip.AddrPo
 func undoAlg(r dnsx.Resolver, algip netip.Addr) (realips, domains, probableDomains, blocklists string) {
 	force := true // force PTR resolution
 	if gw := r.Gateway(); !algip.IsUnspecified() && algip.IsValid() && gw != nil {
-		dst := algip.AsSlice()
-		domains = gw.PTR(dst, !force)
+		domains = gw.PTR(algip, !force)
 		if len(domains) <= 0 {
-			probableDomains = gw.PTR(dst, force)
+			probableDomains = gw.PTR(algip, force)
 		}
-		realips = gw.X(dst)
-		blocklists = gw.RDNSBL(dst)
+		realips = gw.X(algip)
+		blocklists = gw.RDNSBL(algip)
 	} else {
-		log.W("alg: undoAlg: no gw(%t) or dst(%v) or alg-ip(%s)", gw == nil, algip, algip)
+		log.W("alg: undoAlg: no gw(%t) or dst(%v)", gw == nil, algip)
 	}
 	return
+}
+
+func hasActiveConn(cm core.ConnMapper, ipp, ips, port string) bool {
+	if cm == nil {
+		log.W("intra: hasActiveConn: unexpected nil cm")
+		return false
+	}
+	// TODO: filter by protocol (tcp/udp) when finding conns
+	return !hasSelfUid(cm.Find(ipp), true) || !hasSelfUid(cm.FindAll(ips, port), true)
 }
 
 // returns proxy-id, conn-id, user-id
@@ -217,26 +215,6 @@ func ipp(addr net.Addr) (netip.AddrPort, error) {
 		return zeroaddr, errors.New("nil addr")
 	}
 	return netip.ParseAddrPort(addr.String())
-}
-
-func addr2ip(a net.Addr) string {
-	if a == nil {
-		return ""
-	}
-	switch x := a.(type) {
-	case *net.TCPAddr:
-		return x.IP.String()
-	case *net.UDPAddr:
-		return x.IP.String()
-	case *net.IPAddr:
-		return x.IP.String()
-	case *net.IPNet:
-		return x.IP.String()
-	}
-	if b, err := netip.ParseAddrPort(a.String()); err == nil {
-		return b.Addr().String()
-	}
-	return ""
 }
 
 func conn2str(a net.Conn, b net.Conn) string {
@@ -258,10 +236,24 @@ func closeconns(cm core.ConnMapper, cids []string) (closed []string) {
 	return closed
 }
 
+func hasSelfUid(t []core.ConnTuple, d bool) bool {
+	if len(t) <= 0 {
+		return d // default
+	}
+	for _, x := range t {
+		if x.UID == protect.UidSelf {
+			log.D("intra: hasSelfUid(%v): true", x)
+			return true
+		}
+	}
+	log.VV("intra: hasSelfUid(%d): false; %v", len(t), t)
+	return false // regardless of d
+}
+
 func clos(c ...net.Conn) {
 	for _, x := range c {
 		if x != nil {
-			x.Close()
+			_ = x.Close()
 		}
 	}
 }
@@ -271,21 +263,21 @@ func pclose(c io.Closer, a string) {
 		return
 	}
 	if a == "rw" {
-		c.Close()
+		_ = c.Close()
 		return
 	}
 	switch x := c.(type) {
 	case core.TCPConn: // net.TCPConn confirms to core.TCPConn
 		if a == "r" {
-			x.CloseRead()
+			_ = x.CloseRead()
 		} else if a == "w" {
-			x.CloseWrite()
+			_ = x.CloseWrite()
 		} else { // == "rw"
-			x.Close()
+			_ = x.Close()
 		}
 	case core.UDPConn:
-		x.Close()
+		_ = x.Close()
 	case io.Closer:
-		x.Close()
+		_ = x.Close()
 	}
 }

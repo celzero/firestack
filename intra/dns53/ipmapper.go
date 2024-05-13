@@ -24,7 +24,7 @@ import (
 	"github.com/miekg/dns"
 )
 
-const battl = 5 * time.Second
+const battl = 10 * time.Second
 
 var (
 	errNoHost = errors.New("no hostname")
@@ -38,7 +38,7 @@ var (
 type ipmapper struct {
 	id string
 	r  dnsx.Resolver
-	ba *core.Barrier
+	ba *core.Barrier[[]byte]
 }
 
 var _ ipmap.IPMapper = (*ipmapper)(nil)
@@ -48,7 +48,7 @@ func AddIPMapper(r dnsx.Resolver, protos string, clear bool) {
 	var m ipmap.IPMapper
 	ok := r != nil
 	if ok {
-		m = &ipmapper{dnsx.IpMapper, r, core.NewBarrier(battl)}
+		m = &ipmapper{dnsx.IpMapper, r, core.NewBarrier[[]byte](battl)}
 	} // else remove; m is nil
 	if clear {
 		dialers.Clear()
@@ -80,11 +80,8 @@ func (m *ipmapper) Lookup(q []byte) ([]byte, error) {
 	if v.Err != nil || v == nil {
 		log.W("ipmapper: query: noans? %t [err %v] for %s / typ %d", v == nil, v.Err, qname, qtype)
 		return nil, errors.Join(v.Err, errNoAns)
-	} else if val, ok := v.Val.([]byte); !ok {
-		log.W("ipmapper: query: incorrect ans for %s / typ %d", qname, qtype)
-		return nil, errNoAns
 	} else {
-		return val, nil
+		return v.Val, nil
 	}
 }
 
@@ -137,13 +134,13 @@ func (m *ipmapper) LookupNetIP(ctx context.Context, network, host string) ([]net
 	if val4 == nil {
 		noval4 = true
 	} else {
-		r4, _ = val4.Val.([]byte)
+		r4 = val4.Val
 		lerr4 = val4.Err // may be nil
 	}
 	if val6 == nil {
 		noval6 = true
 	} else {
-		r6, _ = val6.Val.([]byte)
+		r6 = val6.Val
 		lerr6 = val6.Err // may be nil
 	}
 
@@ -178,16 +175,16 @@ func (m *ipmapper) undoAlg(ip64 []netip.Addr) []netip.Addr {
 	}
 	ips := make([]netip.Addr, 0, len(ip64))
 	realips := make([]string, 0, len(ip64))
-	for _, x := range ip64 {
+	for _, addr := range ip64 {
 		var csv string
-		if x.IsValid() {
-			if csv = gw.X(x.AsSlice()); len(csv) > 0 {
+		if addr.IsValid() {
+			if csv = gw.X(addr); len(csv) > 0 {
 				// may contain duplicates due to how alg maps domains and ips
 				realips = append(realips, strings.Split(csv, ",")...)
 				continue // skip log.W below
 			}
 		}
-		log.W("ipmapper: undoAlg: no algip => realip? (%s => %s)", x, csv)
+		log.W("ipmapper: undoAlg: no algip => realip? (%s => %s)", addr, csv)
 	}
 	dups := 0
 	seen := make(map[string]bool) // track duplicates
@@ -211,8 +208,8 @@ func key(name string, typ string) string {
 	return name + ":" + typ
 }
 
-func resolve(r dnsx.Resolver, q []byte) core.Work {
-	return func() (any, error) {
+func resolve(r dnsx.Resolver, q []byte) core.Work[[]byte] {
+	return func() ([]byte, error) {
 		return r.LocalLookup(q)
 	}
 }

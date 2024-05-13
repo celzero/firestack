@@ -37,6 +37,7 @@ func tlsConnect(d *tls.Dialer, proto, sni string, ip netip.Addr, port int) (net.
 		if d.Config == nil {
 			d.Config = &tls.Config{
 				ServerName: sni,
+				MinVersion: tls.VersionTLS12,
 			}
 		} else if len(d.Config.ServerName) <= 0 {
 			d.Config.ServerName = sni
@@ -78,12 +79,12 @@ func tlsdial(d *tls.Dialer, network, addr string, connect tlsConnectFunc) (net.C
 	}
 
 	ipset := ips.Addrs()
-	allips := filter(ipset, confirmed)
+	allips := maybeFilter(ipset, confirmed)
 	if len(allips) <= 0 {
 		var ok bool
 		if ips, ok = renew(domain, ips); ok {
 			ipset = ips.Addrs()
-			allips = filter(ipset, confirmed)
+			allips = maybeFilter(ipset, confirmed)
 		}
 		log.D("tlsdial: renew ips for %s; ok? %t", addr, ok)
 	}

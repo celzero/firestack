@@ -248,13 +248,15 @@ func (tr *icmpv2) handleEcho(src, dst netip.AddrPort, pkt *stack.PacketBuffer) {
 		return
 	}
 
+	var err error
 	var ok bool
 	if ok = tr.h.PingOnce(src, dst, tr.pkt2bytes(pkt)); !ok {
 		log.W("icmpv2: ICMP echo ping failed for %v -> %v", src, dst)
-		tr.sendUnreachable(dst, src, pkt)
+		err = tr.sendUnreachable(dst, src, pkt)
 	} else {
-		tr.sendEchoResponse(src, dst, pkt)
+		err = tr.sendEchoResponse(src, dst, pkt)
 	}
+	log.D("icmpv2: echo response sent: %v -> %v; err? %v", src, dst, err)
 }
 
 // sendICMPEchoResponse sends an echo response to the peer with a spoofed source address.
@@ -474,7 +476,11 @@ func (tr *icmpv2) pkt2bytes(pkt *stack.PacketBuffer) []byte {
 	// return pkt.Network().Payload()
 	r := make([]byte, tr.ep.MTU())
 	din := buffer.MakeWithData(r)
-	din.Append(pkt.TransportHeader().View())
+	err := din.Append(pkt.TransportHeader().View())
+	if err != nil {
+		log.W("icmpv2: failed to append transport header: %v", err)
+		return nil
+	}
 	l7 := pkt.Data().ToBuffer()
 	din.Merge(&l7)
 	return din.Flatten()

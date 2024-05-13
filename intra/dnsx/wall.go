@@ -84,6 +84,8 @@ func (r *resolver) GetRdnsRemote() (x.RDNS, error) {
 	return nil, errNoRdns
 }
 
+// blockQ returns a refused ans if q is blocked by local blocklists; nil, otherwise.
+// If t, t2 are non-nil, it skips local blocks for alg and blockfree transports.
 func (r *resolver) blockQ(t, t2 Transport, msg *dns.Msg) (ans *dns.Msg, blocklists string, err error) {
 	if skipBlock(t, t2) {
 		return nil, "", errBlockFreeTransport
@@ -119,9 +121,14 @@ func applyBlocklists(b RDNS, q *dns.Msg) (ans *dns.Msg, blocklists string, err e
 	return
 }
 
-// answer
-
-func (r *resolver) blockA(t, t2 Transport, q *dns.Msg, ans *dns.Msg, blocklistStamp string) (finalans *dns.Msg, blocklistNames string) {
+// blockA blocks the answer if it is blocked by local blocklists.
+// If blocklistStamp is not empty, it resolves them to blocklist names, if valid;
+// and treats as if q was blocked by remote blocklists, effectively skipping local blocks.
+// t, t2 can be nil. if non-nil, they are used to skip local blocks for alg and blockfree.
+// If blocklistStamp is empty, it resolves the answer to blocklist names, if blocked by local blocklists.
+// If blocklistStamp is empty and the answer is not blocked by local blocklists, it returns nil.
+// If blocklistStamp is empty and the answer is blocked by local blocklists, it returns a refused response.
+func (r *resolver) blockA(t, t2 Transport, q, ans *dns.Msg, blocklistStamp string) (finalans *dns.Msg, blocklistNames string) {
 	br := r.getRdnsRemote()
 	b := r.getRdnsLocal()
 

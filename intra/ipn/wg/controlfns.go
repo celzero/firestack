@@ -14,6 +14,7 @@
 package wg
 
 import (
+	"errors"
 	"fmt"
 	"runtime"
 	"syscall"
@@ -59,33 +60,34 @@ func init() {
 		// Enable receiving of the packet information (IP_PKTINFO for IPv4,
 		// IPV6_PKTINFO for IPv6) that is used to implement sticky socket support.
 		func(network, address string, c syscall.RawConn) error {
-			var err error
+			var errc, errs error
 			switch network {
 			case "udp4":
 				if runtime.GOOS != "android" {
-					c.Control(func(fd uintptr) {
-						err = unix.SetsockoptInt(int(fd), unix.IPPROTO_IP, unix.IP_PKTINFO, 1)
+					errc = c.Control(func(fd uintptr) {
+						errs = unix.SetsockoptInt(int(fd), unix.IPPROTO_IP, unix.IP_PKTINFO, 1)
 					})
 				}
 			case "udp6":
-				c.Control(func(fd uintptr) {
+				errc = c.Control(func(fd uintptr) {
 					if runtime.GOOS != "android" {
-						err = unix.SetsockoptInt(int(fd), unix.IPPROTO_IPV6, unix.IPV6_RECVPKTINFO, 1)
-						if err != nil {
+						errs = unix.SetsockoptInt(int(fd), unix.IPPROTO_IPV6, unix.IPV6_RECVPKTINFO, 1)
+						if errs != nil {
 							return
 						}
 					}
-					err = unix.SetsockoptInt(int(fd), unix.IPPROTO_IPV6, unix.IPV6_V6ONLY, 1)
+					errs = unix.SetsockoptInt(int(fd), unix.IPPROTO_IPV6, unix.IPV6_V6ONLY, 1)
 				})
 			default:
-				err = fmt.Errorf("unhandled network: %s: %w", network, unix.EINVAL)
+				errs = fmt.Errorf("unhandled network: %s: %w", network, unix.EINVAL)
 			}
-			return err
+			loge(errors.Join(errc, errs), "wg: control: done; IP_PKTINFO/IPV6_RECVPKTINFO")
+			return errs // discard errc
 		},
 
 		// Attempt to enable UDP_GRO
 		func(network, address string, c syscall.RawConn) error {
-			c.Control(func(fd uintptr) {
+			_ = c.Control(func(fd uintptr) {
 				_ = unix.SetsockoptInt(int(fd), unix.IPPROTO_UDP, unix.UDP_GRO, 1)
 			})
 			return nil

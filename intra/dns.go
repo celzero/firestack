@@ -50,14 +50,14 @@ func newSystemDNSProxy(g Bridge, p ipn.Proxies, ipcsv string) (d dnsx.Transport,
 }
 
 // SetSystemDNS creates and adds a DNS53 transport of the specified IP addresses.
-func SetSystemDNS(t Tunnel, ipcsv string) int {
+func SetSystemDNS(t Tunnel, ipcsv string) error {
 	r, rerr := t.internalResolver()
 	p, perr := t.internalProxies()
 	g := t.getBridge()
 	n := len(ipcsv)
 	if r == nil || p == nil || n <= 0 {
 		log.W("dns: cannot set system dns; n: %d, errs: %v %v", n, rerr, perr)
-		return 0
+		return errors.Join(dnsx.ErrAddFailed, rerr, perr)
 	}
 
 	// if the ipcsv is localhost, use loopback addresses.
@@ -70,10 +70,12 @@ func SetSystemDNS(t Tunnel, ipcsv string) int {
 	var ok bool
 	if sdns, err := newSystemDNSProxy(g, p, ipcsv); err == nil {
 		ok = r.Add(sdns)
+	} else {
+		return err
 	}
 
 	log.I("dns: new system dns from %s; ok? %t", ipcsv, ok)
-	return 1
+	return nil
 }
 
 func newGoosTransport(g Bridge, p ipn.Proxies) (d dnsx.Transport) {
@@ -220,7 +222,7 @@ func AddDNSCryptTransport(t Tunnel, id, stamp string) (err error) {
 	}
 	// todo: unexpose DcMulti, cast to TransportMult
 	if p, ok := tm.(*dnscrypt.DcMulti); ok {
-		if dns, err := dnscrypt.NewTransport(p, id, stamp); err != nil {
+		if dns, err := dnscrypt.AddTransport(p, id, stamp); err != nil {
 			return err
 		} else {
 			return addDNSTransport(r, dns)

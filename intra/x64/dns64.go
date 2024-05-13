@@ -38,8 +38,8 @@ var (
 	// Address: 192.0.0.170
 	// Address: 64:ff9b::c000:aa
 	// Address: 64:ff9b::c000:ab
-	_, rfc6052WKP, _ = net.ParseCIDR("64:ff9b::/96")
-	_, rfc8215WKP, _ = net.ParseCIDR("64:ff9b:1:fffe::/96")
+	// _, rfc6052WKP, _ = net.ParseCIDR("64:ff9b::/96")
+	// _, rfc8215WKP, _ = net.ParseCIDR("64:ff9b:1:fffe::/96")
 
 	ttl64 = uint32(180)
 
@@ -53,7 +53,7 @@ var (
 
 	emptyStruct = struct{}{}
 
-	arpa64 = question()
+	arpa64 = questionArpa64()
 )
 
 type dns64 struct {
@@ -81,11 +81,10 @@ func (d *dns64) init() {
 	}
 }
 
-func question() (b []byte) {
+func questionArpa64() *dns.Msg {
 	msg := new(dns.Msg)
 	msg.SetQuestion(dnsx.Rfc7050WKN, dns.TypeAAAA)
-	b, _ = msg.Pack()
-	return
+	return msg
 }
 
 func (d *dns64) register(id string) {
@@ -98,32 +97,28 @@ func (d *dns64) register(id string) {
 	d.uniqIP64[id] = make(map[string]struct{})
 }
 
-func (d *dns64) AddResolver(id string, r dnsx.Transport) bool {
+func (d *dns64) AddResolver(id string, r dnsx.Transport) (ok bool) {
 	d.register(id)
 
 	discarded := new(x.DNSSummary)
-	b, err := r.Query(dnsx.NetTypeUDP, arpa64, discarded)
-	if err != nil {
-		log.W("dns64: udp: could not query resolver %s", id)
-		return false
+	netw := xdns.NetAndProxyID(dnsx.NetTypeUDP, dnsx.NetExitProxy)
+	ans, err := dnsx.Req(r, netw, arpa64, discarded)
+	if err != nil || ans == nil || !xdns.HasAnyAnswer(ans) {
+		log.W("dns64: udp: could not query %s or empty ans; err %v", id, err)
+		return
 	}
 
-	ans := &dns.Msg{}
-	err = ans.Unpack(b)
-	if err != nil {
-		return false
-	} else if ans.Truncated { // should never be the case for DOH, ODOH, DOT
+	if ans.Truncated { // should never be the case for DOH, ODOH, DOT
 		// else if: returned response is truncated dns ans, retry over tcp
-		b, err = r.Query(dnsx.NetTypeTCP, arpa64, discarded)
+		netw := xdns.NetAndProxyID(dnsx.NetTypeTCP, dnsx.NetExitProxy)
+		ans, err = dnsx.Req(r, netw, arpa64, discarded)
 		if err != nil {
-			log.W("dns64: tcp: could not query resolver %s", id)
-			return false
+			log.W("dns64: tcp: could not query resolver %s; err %v", id, err)
+			return
 		}
-		ans = &dns.Msg{}
-		err = ans.Unpack(b)
-		if err != nil {
+		if !xdns.HasAnyAnswer(ans) {
 			log.W("dns64: tcp: invalid response from resolver %s", id)
-			return false
+			return
 		}
 	}
 
@@ -136,10 +131,11 @@ func (d *dns64) AddResolver(id string, r dnsx.Transport) bool {
 		}
 	}
 
-	if err := d.add(id, ips); err != nil {
-		return false
+	if err := d.add(id, ips); err == nil {
+		return true
 	}
-	return true
+
+	return
 }
 
 func (d *dns64) RemoveResolver(id string) bool {
@@ -152,7 +148,30 @@ func (d *dns64) RemoveResolver(id string) bool {
 
 // TODO: handle svcb/https ipv4hint/ipv6hint
 // datatracker.ietf.org/doc/html/draft-ietf-dnsop-svcb-https-10#section-7.4
-func (d *dns64) eval(id string, force64 bool, og []byte, r dnsx.Transport) []byte {
+func (d *dns64) eval(network string, force64 bool, og *dns.Msg, r dnsx.Transport) *dns.Msg {
+	ansin := og
+
+	qname := xdns.QName(ansin)
+	// if question is AAAA, then answer must have AAAA; for example CNAME,
+	// records pointing no where must not be considered as AAAA answers
+	// but instead must be sent to DNS64 for translation
+	// q: www.skysports.com AAAA
+	// ans: www.skysports.com CNAME www.skysports.akadns.net;
+	// www.skysports.akadns.net CNAME www.skysports.com.edgekey.net;
+	// www.skysports.com.edgekey.net CNAME e16115.j.akamaiedge.net
+	// hasaaaq(true) hasans(true) rgood(true) ans0000(false)
+	hasq6 := xdns.HasAAAAQuestion(ansin)
+	hasans6 := xdns.HasAAAAAnswer(ansin)
+	ans00006 := xdns.AQuadAUnspecified(ansin)
+	// treat as if v6 answer missing if enforcing 6to4
+	if !hasq6 || (hasans6 && !force64) || ans00006 {
+		// nb: has-aaaa-answer should cover for cases where
+		// the response is blocked by dnsx.RDNS
+		log.D("dns64: net(%s), no-op q(%s), q6(%t), ans6(%t), force64(%t), ans0000(%t)", network, qname, hasq6, hasans6, force64, ans00006)
+		return nil
+	}
+
+	id := ID64(r)
 	d.RLock()
 	ip64, ok := d.ip64[id]
 	d.RUnlock()
@@ -170,26 +189,12 @@ func (d *dns64) eval(id string, force64 bool, og []byte, r dnsx.Transport) []byt
 		log.D("dns64: attempt underlay/local464 resolver ip64 w len(%d)", len(ip64))
 	}
 
-	ansin := &dns.Msg{}
-	err := ansin.Unpack(og)
-
-	qname := xdns.QName(ansin)
-	hasq6 := xdns.HasAAAAQuestion(ansin)
-	hasans6 := xdns.HasAAAAAnswer(ansin)
-	// treat as if v6 answer missing if enforcing 6to4
-	if err != nil || !hasq6 || (hasans6 && !force64) {
-		// nb: has-aaaa-answer should cover for cases where
-		// the response is blocked by dnsx.RDNS
-		log.D("dns64: no-op q(%s), err(%v), q6(%t), ans6(%t), force64(%t)", qname, err, hasq6, hasans6, force64)
-		return nil
-	}
-
-	ans4, err := d.query64(ansin, r)
+	ans4, err := d.query64(network, ansin, r)
 	rgood := xdns.HasRcodeSuccess(ans4)
 	hasans := xdns.HasAnyAnswer(ans4)
 	ans0000 := xdns.AQuadAUnspecified(ans4)
 	if err != nil || ans4 == nil || !hasans || ans0000 {
-		log.W("dns64: skip: query(n:%s / a? %t) to resolver(%s), code(good? %t / blocked? %t), err(%v)", qname, hasans, id, rgood, ans0000, err)
+		log.W("dns64: skip: query(n:%s / a? %t) to resolver(%s/%s), code(good? %t / blocked? %t), err(%v)", qname, hasans, id, network, rgood, ans0000, err)
 		return nil
 	}
 
@@ -221,47 +226,40 @@ func (d *dns64) eval(id string, force64 bool, og []byte, r dnsx.Transport) []byt
 		return nil
 	}
 	ans64.Answer = append(ans64.Answer, rr64...)
-	if r, err := ans64.Pack(); err == nil {
-		return r
-	} else {
-		log.W("dns64: unpacking ans64 err(%v)", err)
-		return nil
-	}
+	return ans64
 }
 
-func (d *dns64) query64(msg6 *dns.Msg, r dnsx.Transport) (*dns.Msg, error) {
+// query64 answers IPv4 query from the given IPv6 query.
+func (d *dns64) query64(network string, msg6 *dns.Msg, r dnsx.Transport) (*dns.Msg, error) {
 	msg4 := xdns.Request4FromResponse6(msg6) // may be nil
-	if msg4 == nil {
+	if msg4 == nil || !xdns.HasAnyQuestion(msg4) {
 		return nil, errQuery
 	}
-	q4, err := msg4.Pack()
+
+	proto, pid := xdns.Net2ProxyID(network)
+
+	q4 := xdns.QName(msg4)
+	discarded := new(x.DNSSummary)
+	res, err := dnsx.Req(r, network, msg4, discarded)
+	hasAns := xdns.HasAnyAnswer(res)
+	log.D("dns64: upstream(%s/%s): q(%s) / a(%t) / e(%v) / e-not-nil(%t)", proto, pid, q4, hasAns, err, err != nil)
 	if err != nil {
 		return nil, err
 	}
-
-	discarded := new(x.DNSSummary)
-	a4, err := r.Query(dnsx.NetTypeUDP, q4, discarded)
-	log.D("dns64: udp: upstream q(%s) / a(%d) / e(%v) / e-not-nil(%t)", xdns.QName(msg4), len(a4), err, err != nil)
-	if err != nil {
-		return nil, err
-	} else if len(a4) <= 0 {
+	if !hasAns {
 		return nil, errAns
 	}
-
-	res := &dns.Msg{}
-	if err = res.Unpack(a4); err != nil {
-		return nil, err
-	} else if res.Truncated { // should never be the case for DOH, ODOH, DOT
+	// res.Truncated never likely happens w/ DOH, ODOH, DOT?
+	if res.Truncated && proto != dnsx.NetTypeTCP {
 		// else if: returned response is truncated dns ans, retry over tcp
-		a4, err = r.Query(dnsx.NetTypeTCP, q4, discarded)
-		log.D("dns64: tcp: upstream q(%s) / a(%d) / e(%v) / e-not-nil(%t)", xdns.QName(msg4), len(a4), err, err != nil)
+		network = xdns.NetAndProxyID(dnsx.NetTypeTCP, pid)
+		res, err = dnsx.Req(r, network, msg4, discarded)
+		hasAns = xdns.HasAnyAnswer(res)
+		log.D("dns64: tcp: upstream q(%s) / a(%d) / e(%v) / e-not-nil(%t)", q4, hasAns, err, err != nil)
 		if err != nil {
 			return nil, err
-		} else if len(a4) <= 0 {
+		} else if !hasAns {
 			return nil, errAns
-		} else {
-			res = &dns.Msg{}
-			err = res.Unpack(a4)
 		}
 	}
 	return res, err

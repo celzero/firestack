@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -22,6 +23,7 @@ import (
 
 	"github.com/celzero/firestack/intra/backend"
 	x "github.com/celzero/firestack/intra/backend"
+	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/xdns"
 
 	"github.com/celzero/gotrie/trie"
@@ -54,7 +56,7 @@ var (
 	errNoStamps         = errors.New("no stamp set")
 	errMissingCsv       = errors.New("zero comma-separated flags")
 	errFlagsMismatch    = errors.New("flagcsv does not match loaded flags")
-	errNotEnoughAnswers = errors.New("req at least two answers")
+	errNotEnoughAnswers = errors.New("req at least one answer")
 	errTrieArgs         = errors.New("missing data, unable to build blocklist")
 	errNoBlocklistMatch = errors.New("no blocklist applies")
 )
@@ -262,17 +264,6 @@ func (r *rethinkdns) keyToNames(list []string) (v []string) {
 	return
 }
 
-func (r *rethinkdns) flagsToNames(flagstr []string) (v []string) {
-	for _, entry := range flagstr {
-		if i, err := strconv.Atoi(entry); err == nil && i < len(r.flags) {
-			v = append(v, r.flags[i])
-		} else {
-			continue
-		}
-	}
-	return
-}
-
 func (r *rethinkdns) blockQuery(*dns.Msg) (b string, err error)  { err = errRemote; return }
 func (r *rethinkdns) blockAnswer(*dns.Msg) (b string, err error) { err = errRemote; return }
 
@@ -310,7 +301,12 @@ func (r *rethinkdnslocal) blockQuery(msg *dns.Msg) (blocklists string, err error
 }
 
 func (r *rethinkdnslocal) blockAnswer(msg *dns.Msg) (blocklists string, err error) {
-	if len(msg.Answer) <= 1 {
+	if msg == nil {
+		err = errNoAnswer
+		return
+	}
+	ans := msg.Answer
+	if len(ans) <= 0 {
 		err = errNotEnoughAnswers
 		return
 	}
@@ -323,9 +319,10 @@ func (r *rethinkdnslocal) blockAnswer(msg *dns.Msg) (blocklists string, err erro
 		return
 	}
 
+	qname := xdns.QName(msg)
 	// handle cname, https/svcb name cloaking: news.ycombinator.com/item?id=26298339
 	// adopted from: github.com/DNSCrypt/dnscrypt-proxy/blob/6e8628f79/dnscrypt-proxy/plugin_block_name.go#L178
-	for _, a := range msg.Answer {
+	for _, a := range ans {
 		var target string
 		switch rr := a.(type) {
 		case *dns.CNAME:
@@ -345,6 +342,10 @@ func (r *rethinkdnslocal) blockAnswer(msg *dns.Msg) (blocklists string, err erro
 		if len(target) <= 0 {
 			continue
 		}
+		// if target is ".", then it is a self-reference to the qname
+		if len(target) == 1 && target[0] == '.' {
+			target = qname
+		}
 
 		// ignore err when incoming name != ascii
 		target, _ = xdns.NormalizeQName(target)
@@ -353,6 +354,8 @@ func (r *rethinkdnslocal) blockAnswer(msg *dns.Msg) (blocklists string, err erro
 			blocklists = strings.Join(r.keyToNames(lists), ",")
 			return
 		}
+
+		log.D("rdns: blockAnswer: no block for target %s, qname %s", target, qname)
 	}
 
 	err = fmt.Errorf("answers not in blocklist %s", stamp)
@@ -360,6 +363,7 @@ func (r *rethinkdnslocal) blockAnswer(msg *dns.Msg) (blocklists string, err erro
 }
 
 func load(configjson string) ([]string, map[string]string, error) {
+	configjson = filepath.Clean(configjson)
 	data, err := os.ReadFile(configjson)
 	if err != nil {
 		return nil, nil, err
@@ -447,9 +451,9 @@ func (r *rethinkdns) decode(stamp string, ver string, enctyp int) (info []*listi
 
 	var u16 []uint16
 	if ver == ver0 {
-		u16 = stringtouint(string(buf))
+		u16 = str2uint16(string(buf))
 	} else if ver == ver1 {
-		u16 = bytestouint(buf)
+		u16 = byte2uint16(buf)
 	} else {
 		err = fmt.Errorf("unimplemented header stamp version %v", ver)
 		return
@@ -587,7 +591,7 @@ func encode(ver string, u16 []uint16, enctyp int) (string, error) {
 		return "", fmt.Errorf("version %s unsupported / len(input): %d", ver, len(u16))
 	}
 
-	buf := uinttobytes(u16)
+	buf := uint16tobyte(u16)
 	if enctyp == EB32 {
 		out := b32.StdEncoding.WithPadding(b32.NoPadding).EncodeToString(buf)
 		return ver + hyphensep + strings.ToLower(out), nil
@@ -614,12 +618,7 @@ func (r *rethinkdns) normalizeStamp(s string) (string, error) {
 	return r.FlagsToStamp(flagscsv, EB64) // encode as b64
 }
 
-func stringtobyte(str string) []byte {
-	u16 := stringtouint(str)
-	return uinttobytes(u16)
-}
-
-func stringtouint(str string) []uint16 {
+func str2uint16(str string) []uint16 {
 	runedata := []rune(str)
 	resp := make([]uint16, len(runedata))
 	for key, value := range runedata {
@@ -628,7 +627,7 @@ func stringtouint(str string) []uint16 {
 	return resp
 }
 
-func bytestouint(b []byte) []uint16 {
+func byte2uint16(b []byte) []uint16 {
 	data := make([]uint16, len(b)/2)
 	for i := range data {
 		// assuming little endian
@@ -637,7 +636,7 @@ func bytestouint(b []byte) []uint16 {
 	return data
 }
 
-func uinttobytes(u16 []uint16) []byte {
+func uint16tobyte(u16 []uint16) []byte {
 	bytes := make([]byte, len(u16)*2)
 	for i, v := range u16 {
 		binary.LittleEndian.PutUint16(bytes[i*2:(i+1)*2], v)

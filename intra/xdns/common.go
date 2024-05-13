@@ -50,10 +50,9 @@ var (
 )
 
 var (
-	ip4zero    = net.IPv4zero
-	ip6zero    = net.IPv6unspecified
-	dnsport    = uint16(53)
-	fakedomain = "MTE1LDI1MiwxNjMsMjI4LDg5LDI0NSwxOTIsNzEsNiwyNTQsNjMsOTEsMjE1LDY.lan"
+	ip4zero = net.IPv4zero
+	ip6zero = net.IPv6unspecified
+	dnsport = uint16(53)
 )
 
 const (
@@ -82,15 +81,17 @@ var (
 	errMassivePkt     = errors.New("packet too large")
 	errRdnsUrlMissing = errors.New("url missing")
 	errNoAns          = errors.New("no answer record")
-	errNoDns          = errors.New("nil dns msg")
+	errNoPacket       = errors.New("nil dns msg")
 	errNotAscii       = errors.New("name not ASCII string")
 )
 
+// Net2ProxyID splits network string into proto and pid;
+// proto is the network protocol and pid is the proxy ID.
+// May return empty strings.
 func Net2ProxyID(network string) (proto, pid string) {
 	x := strings.Split(network, ":")
 	if len(x) <= 0 {
-		// some sane defaults though this should never happen
-		return
+		return // empty
 	}
 	if len(x) >= 1 {
 		proto = x[0]
@@ -101,6 +102,9 @@ func Net2ProxyID(network string) (proto, pid string) {
 	return
 }
 
+// NetAndProxyID joins proto and pid into a network string.
+// proto is the network protocol and pid is the proxy ID.
+// May return just the separator ":", if both proto, pid are empty.
 func NetAndProxyID(proto, pid string) string {
 	return fmt.Sprintf("%s:%s", proto, pid)
 }
