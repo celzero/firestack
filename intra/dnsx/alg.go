@@ -420,20 +420,20 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []*netip.Addr, network string, q
 	// get existing secondary ips for qname, from previous alg/nat
 	previp4s, previp6s := t.resolvLocked(qname, typ)
 	if len(previp4s) > 0 {
-		realip = appendUniq(realip, previp4s)
+		realip = appendUniq(realip, previp4s, key4)
 		log.D("alg: subst; for %s with prev ip4s (alg: %t) %s", qname, typ == typalg, previp4s)
 	}
 	if len(previp6s) > 0 {
-		realip = appendUniq(realip, previp6s)
+		realip = appendUniq(realip, previp6s, key6)
 		log.D("alg: subst; for %s with prev ip6s (alg? %t) %s", qname, typ == typalg, previp6s)
 	}
 	prevsec4s, prevsec6s := t.resolvLocked(qname, typsecondary)
 	if len(prevsec4s) > 0 {
-		secres.ips = appendUniq(secres.ips, prevsec4s)
+		secres.ips = appendUniq(secres.ips, prevsec4s, key4)
 		log.D("alg: subst; for %s with prev sec ip4s (alg: %t) %s", qname, typ == typalg, prevsec4s)
 	}
 	if len(prevsec6s) > 0 {
-		secres.ips = appendUniq(secres.ips, prevsec6s)
+		secres.ips = appendUniq(secres.ips, prevsec6s, key6)
 		log.D("alg: subst; for %s with prev sec ip6s (alg? %t) %s", qname, typ == typalg, prevsec6s)
 	}
 	// TODO: just like w/ previps, get existing targets, blocklists for qname and merge w/ new ones
@@ -1071,7 +1071,7 @@ func ipok(ip netip.Addr) bool {
 	return !ip.IsUnspecified() && ip.IsValid()
 }
 
-func appendUniq(ips []*netip.Addr, newips []*netip.Addr) []*netip.Addr {
+func appendUniq(ips, newips []*netip.Addr, k string) []*netip.Addr {
 	if len(newips) == 0 {
 		return ips
 	}
@@ -1081,14 +1081,18 @@ func appendUniq(ips []*netip.Addr, newips []*netip.Addr) []*netip.Addr {
 
 	unique := make([]*netip.Addr, 0)
 	for _, n := range newips {
-		if n == nil {
-			continue
+		if n == nil || !n.IsValid() {
+			continue // do not add invalid ips
+		}
+		if n.Is4() && k != key4 || n.Is6() && k != key6 {
+			continue // do not add ips of different family
 		}
 		dup := false
 		for _, o := range ips {
-			if o == nil {
+			if o == nil || !o.IsValid() {
 				continue
 			}
+			// o may be ipv4 or ipv6, but that's ok
 			if (*n).Compare(*o) == 0 {
 				dup = true
 				break
