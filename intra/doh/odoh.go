@@ -43,7 +43,7 @@ var (
 // endpoints:  github.com/DNSCrypt/dnscrypt-resolvers/blob/master/v3/odoh-relays.md
 func (d *transport) doOdoh(pid string, q *dns.Msg) (res *dns.Msg, elapsed time.Duration, qerr *dnsx.QueryError) {
 	var ans []byte
-	viaproxy := len(d.odohproxy) > 0
+	viaproxy := len(d.odohproxyurl) > 0
 
 	odohmsg, odohctx, err := d.buildTargetQuery(q)
 	if err != nil {
@@ -99,10 +99,10 @@ func (d *transport) doOdoh(pid string, q *dns.Msg) (res *dns.Msg, elapsed time.D
 }
 
 func (d *transport) asOdohRequest(q []byte) (req *http.Request, err error) {
-	viaproxy := len(d.odohproxy) > 0
+	viaproxy := len(d.odohproxyurl) > 0
 	// ref: github.com/cloudflare/odoh-client-go/blob/8d45d054d3/commands/request.go#L53
 	if viaproxy {
-		req, err = http.NewRequest(http.MethodPost, d.odohproxy, bytes.NewBuffer(q))
+		req, err = http.NewRequest(http.MethodPost, d.odohproxyurl, bytes.NewBuffer(q))
 		if err != nil {
 			return
 		}
@@ -202,7 +202,8 @@ func (d *transport) refreshTargetKeyWellKnown() (ocfg *odoh.ObliviousDoHConfig, 
 		err = errMissingOdohCfgQuery
 		return
 	}
-	resp, err = d.wkclient.Do(req)
+	// may use insecure TLS if user opts in; ref: d.tlsconfig
+	resp, err = d.client.Do(req)
 	if err != nil {
 		return
 	}

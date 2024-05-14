@@ -51,7 +51,7 @@ const dohmimetype = "application/dns-message"
 
 type odohtransport struct {
 	omu              sync.RWMutex // protects odohConfig
-	odohproxy        string       // proxy url
+	odohproxyurl     string       // proxy url
 	odohproxyname    string       // proxy hostname
 	odohtargetname   string       // target hostname
 	odohtargetpath   string       // target path
@@ -69,7 +69,6 @@ type transport struct {
 	hostname       string       // endpoint hostname
 	client         http.Client  // only for use with the endpoint
 	tlsconfig      *tls.Config  // preset tlsconfig for the endpoint
-	wkclient       http.Client  // to fetch well-known odoh configs
 	pxcmu          sync.RWMutex // protects pxclients
 	pxclients      map[string]*proxytransport
 	dialer         *protect.RDial
@@ -104,8 +103,7 @@ func NewOdohTransport(id, endpoint, target string, addrs []string, px ipn.Proxie
 	return newTransport(dnsx.ODOH, id, endpoint, target, addrs, px, ctl)
 }
 
-func newTransport(typ, id, rawurl, target string, addrs []string, px ipn.Proxies, ctl protect.Controller) (*transport, error) {
-	// TODO: ClientAuth
+func newTransport(typ, id, rawurl, otargeturl string, addrs []string, px ipn.Proxies, ctl protect.Controller) (*transport, error) {
 	skipTLSVerify := false
 	isodoh := typ == dnsx.ODOH
 
@@ -154,53 +152,39 @@ func newTransport(typ, id, rawurl, target string, addrs []string, px ipn.Proxies
 		proxy := rawurl         // may be empty
 		rawurl := odohconfigdns // never empty
 
-		parsedurl, err := url.Parse(rawurl)
+		proxyurl, err := url.Parse(rawurl)
 		if err != nil {
 			return nil, err
 		}
-		targeturl, err := url.Parse(target)
+		targeturl, err := url.Parse(otargeturl)
 		if err != nil {
 			return nil, err
 		}
-		proxyurl, _ := url.Parse(proxy)
 
 		// addrs are proxy addresses if proxy is not empty, otherwise target addresses
 		if proxyurl != nil && proxyurl.Hostname() != "" {
 			_, renewed = dialers.New(proxyurl.Hostname(), addrs)
 			if len(proxyurl.Path) <= 1 { // should not be "" or "/"
-				proxyurl.Path = odohproxypath
+				proxyurl.Path = odohproxypath // default: "/proxy"
 			}
-			t.odohproxy = proxyurl.String()
+			t.odohproxyurl = proxyurl.String()
 			t.odohproxyname = proxyurl.Hostname()
 		} else if targeturl != nil && targeturl.Hostname() != "" {
 			_, renewed = dialers.New(targeturl.Hostname(), addrs)
 		}
 
-		t.url = parsedurl.String()
-		t.hostname = parsedurl.Hostname()
+		t.url = proxyurl.String()
+		t.hostname = proxyurl.Hostname()
 		t.odohtargetname = targeturl.Hostname()
 		if len(targeturl.Path) > 1 { // should not be "" or "/"
 			t.odohtargetpath = targeturl.Path
 		} else {
 			t.odohtargetpath = odohtargetpath // default: "/dns-query"
 		}
-
-		// setup a client to fetch well-known odoh configs
-		// with tlsclientconfig set to nil, so the underlying
-		// transport determines it from the url
-		t.wkclient = http.Client{
-			Transport: &http.Transport{
-				Dial:                  t.dial,
-				ForceAttemptHTTP2:     true,
-				IdleConnTimeout:       2 * time.Minute,
-				TLSHandshakeTimeout:   3 * time.Second,
-				ResponseHeaderTimeout: 20 * time.Second,
-			},
-		}
-
-		log.I("doh: ODOH for %s -> %s", proxy, target)
+		log.I("doh: ODOH for %s -> %s", proxy, otargeturl)
 	}
 
+	// TODO: ClientAuth
 	// Supply a client certificate during TLS handshakes.
 	// if auth != nil {
 	// 	signer := newClientAuthWrapper(auth)
@@ -212,6 +196,7 @@ func newTransport(typ, id, rawurl, target string, addrs []string, px ipn.Proxies
 	t.tlsconfig = &tls.Config{
 		InsecureSkipVerify: skipTLSVerify,
 		MinVersion:         tls.VersionTLS12,
+		// SNI (hostname) must always be inferred from http-request
 		// ServerName:         t.hostname,
 	}
 	// Override the dial function.
@@ -251,7 +236,8 @@ func (t *transport) httpClientFor(p ipn.Proxy) (*http.Client, error) {
 			IdleConnTimeout:       5 * time.Minute,
 			TLSHandshakeTimeout:   10 * time.Second,
 			ResponseHeaderTimeout: 30 * time.Second,
-			TLSClientConfig:       t.tlsconfig.Clone(),
+			// SNI (hostname) must always be inferred from http-request
+			TLSClientConfig: t.tlsconfig.Clone(),
 		},
 	}
 	// last writer wins
