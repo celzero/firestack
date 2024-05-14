@@ -39,6 +39,28 @@ const maxFailLimit = 4
 
 var zeroaddr = netip.Addr{}
 
+// Type of IPSet.
+type IPSetType int
+
+const (
+	Protected IPSetType = iota
+	Regular
+	AutoType
+)
+
+func (h IPSetType) String() string {
+	switch h {
+	case Protected:
+		return "Protected"
+	case Regular:
+		return "Regular"
+	case AutoType:
+		return "Auto"
+	default:
+		return "Unknown"
+	}
+}
+
 // IPMapper is an interface for resolving hostnames to IP addresses.
 // For internal used by firestack.
 type IPMapper interface {
@@ -62,7 +84,7 @@ type IPMap interface {
 	GetAny(hostOrIP string) *IPSet
 	// MakeIPSet creates an IPSet for this hostname bootstrapped with given IPs
 	// or IP:Ports. Subsequent calls to MakeIPSet return a new, overriden IPSet.
-	MakeIPSet(hostOrIP string, ipps []string) *IPSet
+	MakeIPSet(hostOrIP string, ipps []string, typ IPSetType) *IPSet
 	// With sets the default resolver to use for hostname resolution.
 	With(r IPMapper)
 	// Clear removes all IPSets from the map.
@@ -82,6 +104,7 @@ type IPSet struct {
 	sync.RWMutex              // Protects this struct.
 	ips          []netip.Addr // All known IPs for the server.
 	confirmed    atomic.Value // netip.Addr confirmed to be working.
+	typ          IPSetType    // Regular, Protected, or AutoType
 	r            IPMapper     // Resolver to use for hostname resolution.
 	seed         []string     // Bootstrap ips or ip:ports; may be nil.
 	fails        int          // Number of times the confirmed IP has failed.
@@ -121,7 +144,7 @@ func (m *ipmap) LookupNetIP(ctx context.Context, network, host string) ([]netip.
 }
 
 func (m *ipmap) Add(hostOrIP string) *IPSet {
-	s := m.get(hostOrIP)
+	s := m.get(hostOrIP, AutoType)
 	log.I("ipmap: Add: resolving %s", hostOrIP)
 	if ok := s.add(hostOrIP); !ok {
 		log.W("ipmap: Add: zero ips for %s", hostOrIP)
@@ -130,7 +153,7 @@ func (m *ipmap) Add(hostOrIP string) *IPSet {
 }
 
 func (m *ipmap) Get(hostOrIP string) *IPSet {
-	s := m.get(hostOrIP)
+	s := m.get(hostOrIP, AutoType)
 	if s.Empty() {
 		log.I("ipmap: Get: resolving %s", hostOrIP)
 		if ok := s.add(hostOrIP); !ok {
@@ -142,54 +165,61 @@ func (m *ipmap) Get(hostOrIP string) *IPSet {
 }
 
 func (m *ipmap) GetAny(hostOrIP string) *IPSet {
-	return m.get(hostOrIP) // may be empty
+	return m.get(hostOrIP, AutoType) // may be empty
 }
 
-func (m *ipmap) get(hostOrIP string) (s *IPSet) {
+func (m *ipmap) get(hostOrIP string, typ IPSetType) (s *IPSet) {
 	if host, _, err := net.SplitHostPort(hostOrIP); err == nil {
 		hostOrIP = host
 	}
 
-	mm := m.mm(hostOrIP)
-
 	m.RLock()
-	s = mm[hostOrIP]
+	sp := m.p[hostOrIP]
+	sr := m.m[hostOrIP]
 	m.RUnlock()
 
+	if sp != nil || typ == Protected {
+		s = sp          // may be nil or empty
+		typ = Protected // discard Regular or AutoType
+	} else { // Regular or AutoType
+		s = sr        // may be nil or empty
+		typ = Regular // discard AutoType
+	}
+
 	if s == nil {
-		s = m.makeIPSet(hostOrIP, nil)
+		s = m.makeIPSet(hostOrIP, nil, typ) // typ is never AutoType
 	}
 
 	return s
 }
 
-func (m *ipmap) MakeIPSet(hostOrIP string, ipps []string) *IPSet {
-	log.D("ipmap: renew: %s / seed: %v", hostOrIP, ipps)
+func (m *ipmap) MakeIPSet(hostOrIP string, ipps []string, typ IPSetType) *IPSet {
+	log.D("ipmap: renew: %s / seed: %v / typ: %s", hostOrIP, ipps, typ)
 	if host, _, err := net.SplitHostPort(hostOrIP); err == nil {
 		hostOrIP = host
 	}
-	return m.makeIPSet(hostOrIP, ipps)
+	return m.makeIPSet(hostOrIP, ipps, typ)
 }
 
-func (m *ipmap) mm(hostname string) (mm map[string]*IPSet) {
-	if protect.NeverResolve(hostname) {
-		return m.p
-	}
-	return m.m
-}
-func (m *ipmap) makeIPSet(hostname string, ipps []string) *IPSet {
-	log.D("ipmap: makeIPSet: %s, seed: %v", hostname, ipps)
-
+func (m *ipmap) makeIPSet(hostname string, ipps []string, typ IPSetType) *IPSet {
 	if ipps == nil {
 		ipps = []string{}
 	}
 
-	mm := m.mm(hostname)
+	mm := m.m // Regular or AutoType
+	if protect.NeverResolve(hostname) || typ == Protected {
+		mm = m.p
+		typ = Protected // discard Regular or AutoType
+	} else {
+		typ = Regular // discard AutoType
+	}
+
+	log.D("ipmap: makeIPSet: %s, seed: %v, typ: %s", hostname, ipps, typ)
 
 	// TODO: disallow confirm/disconfirm if hostname is an IP address
-	s := &IPSet{r: m, seed: ipps}
+	s := &IPSet{r: m, seed: ipps, typ: typ}
 	if ip, err := netip.ParseAddr(hostname); err == nil && !ip.IsUnspecified() && ip.IsValid() {
-		log.D("ipmap: makeIPSet: for ipaddr as confirmed %s", ip)
+		log.D("ipmap: makeIPSet: %s for %s, confirmed addr %s", hostname, typ, ip)
 		s.confirmed.Store(ip)
 		s.Lock()
 		s.addLocked(ip)
@@ -317,6 +347,10 @@ func (s *IPSet) Addrs() []netip.Addr {
 		})
 	}
 	return c
+}
+
+func (s *IPSet) Protected() bool {
+	return s.typ == Protected
 }
 
 // Confirmed returns the confirmed IP address, or zeroaddr if there is no such address.
