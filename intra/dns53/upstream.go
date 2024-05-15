@@ -195,14 +195,19 @@ func (t *transport) send(network, pid string, q *dns.Msg) (ans *dns.Msg, elapsed
 		return
 	} // else: send query
 
-	t.lastaddr = remoteAddrIfAny(conn) // may return empty string
+	lastaddr := remoteAddrIfAny(conn) // may return empty string
 	ans, elapsed, err = t.client.ExchangeWithConn(q, conn)
 	clos(conn) // TODO: conn pooling w/ ExchangeWithConn
+
 	if err != nil {
+		log.V("dot: sendRequest: (%s) err: %v; disconfirm", t.id, err, lastaddr)
+		dialers.Disconfirm2(t.addrport, lastaddr)
 		qerr = dnsx.NewSendFailedQueryError(err)
 	} else if ans == nil {
 		qerr = dnsx.NewBadResponseQueryError(err)
 	}
+
+	t.lastaddr = lastaddr
 
 	return
 }

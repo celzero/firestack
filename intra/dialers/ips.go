@@ -146,19 +146,24 @@ func Confirm2(hostOrIP string, addr netip.Addr) bool {
 	return ips != nil
 }
 
+// Disconfirm3 unmarks addr as preferred for hostOrIP
+func Disconfirm3(hostOrIP string, addr net.Addr) bool {
+	return Disconfirm2(hostOrIP, addr.String())
+}
+
 // Disconfirm unmarks addr as preferred for hostOrIP
-func Disconfirm(hostOrIP string, ip net.Addr) bool {
-	if ip, err := netip.ParseAddr(ip.String()); err == nil {
-		return Disconfirm2(hostOrIP, ip)
+func Disconfirm(hostOrIP string, addr netip.Addr) bool {
+	ips := ipm.GetAny(hostOrIP)
+	if ips != nil {
+		return ips.Disconfirm(addr)
 	} // not ok
 	return false
 }
 
 // Disconfirm2 unmarks addr as preferred for hostOrIP
-func Disconfirm2(hostOrIP string, ip netip.Addr) bool {
-	ips := ipm.GetAny(hostOrIP)
-	if ips != nil {
-		return ips.Disconfirm(ip)
+func Disconfirm2(hostOrIP string, addr string) bool {
+	if ip, err := netip.ParseAddr(addr); err == nil {
+		return Disconfirm(hostOrIP, ip)
 	} // not ok
 	return false
 }

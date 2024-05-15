@@ -161,7 +161,7 @@ func (tnet *wgtun) DialContext(_ context.Context, network, address string) (net.
 			dialers.Confirm2(host, addr.Addr())
 			return c, nil
 		}
-		dialers.Disconfirm2(host, addr.Addr())
+		dialers.Disconfirm(host, addr.Addr())
 		errs = errors.Join(errs, err)
 	}
 	if errs == nil {

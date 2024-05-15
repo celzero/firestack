@@ -26,9 +26,10 @@ import (
 )
 
 type dot struct {
-	id      string
-	url     string
-	addr    string
+	id      string // id of the transport
+	url     string // full url
+	addr    string // ip:port or hostname:port
+	host    string // hostname from the url
 	status  int
 	c       *dns.Client
 	rd      *protect.RDial
@@ -64,6 +65,7 @@ func NewTLSTransport(id, rawurl string, addrs []string, px ipn.Proxies, ctl prot
 	tx := &dot{
 		id:      id,
 		url:     rawurl,
+		host:    hostname,
 		addr:    url2addr(rawurl), // may or may not be ipaddr
 		status:  x.Start,
 		proxies: px,
@@ -180,6 +182,9 @@ func (t *dot) sendRequest(pid string, q *dns.Msg) (ans *dns.Msg, elapsed time.Du
 	} // fallthrough
 
 	if err != nil {
+		ip := conn.RemoteAddr()
+		log.V("dot: sendRequest: (%s) err: %v; disconfirm", t.id, err, ip)
+		dialers.Disconfirm3(t.host, ip)
 		qerr = dnsx.NewSendFailedQueryError(err)
 	}
 	return
