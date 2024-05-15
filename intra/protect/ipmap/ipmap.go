@@ -105,7 +105,7 @@ type IPSet struct {
 	ips          []netip.Addr // All known IPs for the server.
 	confirmed    atomic.Value // netip.Addr confirmed to be working.
 	typ          IPSetType    // Regular, Protected, or AutoType
-	r            IPMapper     // Resolver to use for hostname resolution.
+	r            IPMapper     // For hostname resolution, never nil
 	seed         []string     // Bootstrap ips or ip:ports; may be nil.
 	fails        int          // Number of times the confirmed IP has failed.
 }
@@ -274,10 +274,11 @@ func (s *IPSet) add(hostOrIP string) bool {
 		hostOrIP = host
 	}
 	r := s.r
-	if r == nil {
-		log.W("ipmap: Add: (processing: %s) resolver missing", hostOrIP)
+	if r == nil { // unlikley; s.r is never nil
+		log.W("ipmap: Add: no resolver for %s", hostOrIP)
 		return false
 	}
+
 	resolved, err := r.LookupNetIP(context.Background(), "ip", hostOrIP)
 	if err != nil {
 		log.W("ipmap: Add: err resolving %s: %v", hostOrIP, err)

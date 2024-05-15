@@ -73,9 +73,9 @@ func (m *ipmapper) Lookup(q []byte) ([]byte, error) {
 		log.W("ipmapper: query: no qname")
 		return nil, errNoHost
 	}
-	qtype := xdns.QType(msg)
+	qtype := int(xdns.QType(msg))
 
-	v, _ := m.ba.Do(key(qname, strconv.Itoa(int(qtype))), resolve(m.r, q))
+	v, _ := m.ba.Do(key(qname, strconv.Itoa(qtype)), resolve(m.r, q))
 
 	if v.Err != nil || v == nil {
 		log.W("ipmapper: query: noans? %t [err %v] for %s / typ %d", v == nil, v.Err, qname, qtype)
