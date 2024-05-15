@@ -145,7 +145,7 @@ func Confirm(hostOrIP string, addr net.Addr) bool {
 
 func Confirm2(hostOrIP string, addr netip.Addr) bool {
 	ips := ipm.GetAny(hostOrIP)
-	if ips != nil {
+	if ipok(addr) {
 		ips.Confirm(addr)
 	}
 	return ips != nil
