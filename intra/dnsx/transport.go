@@ -56,8 +56,8 @@ const (
 	NetTypeTCP = "tcp"
 	// preferred forwarding network, if any
 	// ipn.Base is treated as a no-proxy
-	NetNoProxy   = "Base"
-	NetExitProxy = "Exit" // same as ipn.Exit
+	NetNoProxy   = x.Base
+	NetExitProxy = x.Exit
 
 	ttl10m = 10 * time.Minute
 
@@ -798,6 +798,20 @@ func IsLocalProxy(pid string) bool {
 	return len(pid) <= 0 || pid == NetNoProxy || pid == NetExitProxy
 }
 
+// RegisterAddrs registers IP ports with all dialers for a given hostname.
+// If id is dnsx.Bootstrap, the hostname is "protected" from re-resolutions.
+// hostname is a domain name, and as a special case, can be protect.UidSelf or protect.UidSystem.
+func RegisterAddrs(id, hostname string, ipps []string) (ok bool) {
+	id, _ = strings.CutPrefix(id, CT)
+	if id == Bootstrap || id == System || id == Default || id == Local {
+		log.I("dnsx: bootstrap! %s -> %v", hostname, ipps)
+		_, ok = dialers.NewProtected(hostname, ipps)
+	} else {
+		_, ok = dialers.New(hostname, ipps)
+	}
+	return
+}
+
 func isReserved(id string) bool {
 	switch id {
 	case Default, Goos, System, Local, Alg, DcProxy, BlockAll, Preferred, Bootstrap, BlockFree:
@@ -848,9 +862,9 @@ func overrideProxyIfNeeded(pid string, ids ...string) string {
 	for _, id := range ids {
 		switch id {
 		// note: Goos is anyway hard-coded to use NetExitProxy
-		case Default, Goos: // exit
+		case Bootstrap, Default, Goos: // exit
 			return NetExitProxy
-		case CT + Default, CT + Goos: // exit
+		case CT + Bootstrap, CT + Default, CT + Goos: // exit
 			return NetExitProxy
 		case System, Local: // base
 			return NetNoProxy

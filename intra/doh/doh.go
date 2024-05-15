@@ -145,7 +145,7 @@ func newTransport(typ, id, rawurl, otargeturl string, addrs []string, px ipn.Pro
 		t.url = parsedurl.String()
 		t.hostname = parsedurl.Hostname()
 		// addrs are pre-determined ip addresses for url / hostname
-		_, renewed = dialers.New(t.hostname, addrs)
+		renewed = dnsx.RegisterAddrs(t.id, t.hostname, addrs)
 	} else {
 		t.odohtransport = &odohtransport{}
 
@@ -163,14 +163,14 @@ func newTransport(typ, id, rawurl, otargeturl string, addrs []string, px ipn.Pro
 
 		// addrs are proxy addresses if proxy is not empty, otherwise target addresses
 		if proxyurl != nil && proxyurl.Hostname() != "" {
-			_, renewed = dialers.New(proxyurl.Hostname(), addrs)
+			renewed = dnsx.RegisterAddrs(id, proxyurl.Hostname(), addrs)
 			if len(proxyurl.Path) <= 1 { // should not be "" or "/"
 				proxyurl.Path = odohproxypath // default: "/proxy"
 			}
 			t.odohproxyurl = proxyurl.String()
 			t.odohproxyname = proxyurl.Hostname()
 		} else if targeturl != nil && targeturl.Hostname() != "" {
-			_, renewed = dialers.New(targeturl.Hostname(), addrs)
+			renewed = dnsx.RegisterAddrs(id, targeturl.Hostname(), addrs)
 		}
 
 		t.url = proxyurl.String()
