@@ -328,6 +328,12 @@ func (s *IPSet) Empty() bool {
 	return len(s.ips) == 0
 }
 
+func (s *IPSet) Size() int {
+	s.RLock()
+	defer s.RUnlock()
+	return len(s.ips)
+}
+
 // Addrs returns a copy of the IP set as a slice in random order.
 // The slice is owned by the caller, but the elements are owned by the set.
 func (s *IPSet) Addrs() []netip.Addr {
@@ -366,9 +372,11 @@ func (s *IPSet) Confirm(ip netip.Addr) {
 		return
 	}
 	s.confirmed.Store(ip)
-	s.Lock()
-	s.addLocked(ip) // Add is O(N)
-	s.Unlock()
+	go func() {
+		s.Lock()
+		s.addLocked(ip) // Add is O(N)
+		s.Unlock()
+	}()
 }
 
 func (s *IPSet) clear() {
@@ -386,16 +394,20 @@ func (s *IPSet) Disconfirm(ip netip.Addr) (ok bool) {
 		s.confirmed.Store(zeroaddr)
 		ok = true
 	}
-	if s.fails > 2*len(s.ips) || s.fails > maxFailLimit {
-		// empty out the set, may be refilled by Get()
-		s.clear()
-		s.fails = 0
-	}
-	// either the confirmed was disconfirmed above
-	// or s never had a confirmed ip, but still
-	// Disconfirm() was called, indicating a failure
-	if c.Compare(zeroaddr) == 0 {
-		s.fails += 1
+
+	// if s is not empty, act on disconfirm
+	if sz := s.Size(); sz > 0 {
+		// either the confirmed was disconfirmed above
+		// or s never had a confirmed ip, but still
+		// Disconfirm() was called, indicating a failure
+		if c.Compare(zeroaddr) == 0 {
+			s.fails += 1
+		}
+		if s.fails > max(2*sz, maxFailLimit) {
+			// empty out the set, may be refilled by Get()
+			s.clear()
+			s.fails = 0
+		}
 	}
 	return
 }
