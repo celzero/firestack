@@ -35,7 +35,7 @@ import (
 	"github.com/celzero/firestack/intra/protect"
 )
 
-const maxFailLimit = 4
+const maxFailLimit = 8
 
 var zeroaddr = netip.Addr{}
 
@@ -373,23 +373,29 @@ func (s *IPSet) Confirm(ip netip.Addr) {
 
 func (s *IPSet) clear() {
 	s.Lock()
-	defer s.Unlock()
 	s.ips = nil
+	s.Unlock()
 	s.confirmed.Store(zeroaddr)
 }
 
 // Disconfirm sets the confirmed address to zeroaddr if the current confirmed address
 // is the provided ip.
 func (s *IPSet) Disconfirm(ip netip.Addr) (ok bool) {
-	if ip.Compare(s.Confirmed()) == 0 {
-		s.fails++
+	c := s.Confirmed()
+	if ip.Compare(c) == 0 {
 		s.confirmed.Store(zeroaddr)
 		ok = true
 	}
-	if s.fails > len(s.ips) || s.fails > maxFailLimit {
+	if s.fails > 2*len(s.ips) || s.fails > maxFailLimit {
 		// empty out the set, may be refilled by Get()
 		s.clear()
 		s.fails = 0
+	}
+	// either the confirmed was disconfirmed above
+	// or s never had a confirmed ip, but still
+	// Disconfirm() was called, indicating a failure
+	if c.Compare(zeroaddr) == 0 {
+		s.fails += 1
 	}
 	return
 }
