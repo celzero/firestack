@@ -26,6 +26,7 @@ package doh
 import (
 	"bytes"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -149,17 +150,16 @@ func newTransport(typ, id, rawurl, otargeturl string, addrs []string, px ipn.Pro
 	} else {
 		t.odohtransport = &odohtransport{}
 
-		proxy := rawurl         // may be empty
-		rawurl := odohconfigdns // never empty
-
-		proxyurl, err := url.Parse(rawurl)
-		if err != nil {
-			return nil, err
+		proxy := rawurl // may be empty
+		configurl, err := url.Parse(odohconfigdns)
+		if err != nil || configurl == nil || configurl.Hostname() == "" {
+			return nil, errors.Join(errNoOdohConfigUrl, err)
 		}
 		targeturl, err := url.Parse(otargeturl)
-		if err != nil {
-			return nil, err
+		if err != nil || targeturl == nil || targeturl.Hostname() == "" {
+			return nil, errors.Join(errNoOdohTarget, err)
 		}
+		proxyurl, _ := url.Parse(proxy) // ignore err as proxy may be empty
 
 		// addrs are proxy addresses if proxy is not empty, otherwise target addresses
 		if proxyurl != nil && proxyurl.Hostname() != "" {
@@ -169,12 +169,12 @@ func newTransport(typ, id, rawurl, otargeturl string, addrs []string, px ipn.Pro
 			}
 			t.odohproxyurl = proxyurl.String()
 			t.odohproxyname = proxyurl.Hostname()
-		} else if targeturl != nil && targeturl.Hostname() != "" {
+		} else {
 			renewed = dnsx.RegisterAddrs(id, targeturl.Hostname(), addrs)
 		}
 
-		t.url = proxyurl.String()
-		t.hostname = proxyurl.Hostname()
+		t.url = configurl.String()        // odohconfigdns
+		t.hostname = configurl.Hostname() // 1.1.1.1
 		t.odohtargetname = targeturl.Hostname()
 		if len(targeturl.Path) > 1 { // should not be "" or "/"
 			t.odohtargetpath = targeturl.Path

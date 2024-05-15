@@ -37,6 +37,8 @@ var (
 	errMissingOdohCfgQuery    = errors.New("no odoh config request")
 	errMissingOdohCfgResponse = errors.New("no odoh config response")
 	errZeroOdohCfgs           = errors.New("no odoh configs found")
+	errNoOdohConfigUrl        = errors.New("no odoh config url")
+	errNoOdohTarget           = errors.New("no odoh target")
 )
 
 // targets:  github.com/DNSCrypt/dnscrypt-resolvers/blob/master/v3/odoh-servers.md
