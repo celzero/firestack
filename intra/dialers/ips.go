@@ -48,8 +48,13 @@ func udpaddr(ip netip.Addr, port int) *net.UDPAddr {
 func renew(hostOrIP string, existing *ipmap.IPSet) (cur *ipmap.IPSet, ok bool) {
 	// will never be able to resolve protected hosts (UidSelf, UidRethink),
 	// except for the seed addrs.
-	if protect.NeverResolve(hostOrIP) || existing.Protected() {
+	if protect.NeverResolve(hostOrIP) {
 		return NewProtected(hostOrIP, existing.Seed())
+	} else if existing.Protected() {
+		// if protected, preserve seed addrs; hen resolve hostOrIP
+		NewProtected(hostOrIP, existing.Seed())
+		cur = ipm.Add(hostOrIP)
+		// fallthrough
 	} else if existing.Empty() {
 		// if empty, discard seed, re-resolve hostOrIP; oft times, ipset is
 		// empty when its ips have been disconfirmed beyond some threshold
@@ -59,7 +64,7 @@ func renew(hostOrIP string, existing *ipmap.IPSet) (cur *ipmap.IPSet, ok bool) {
 			// protect.UidSelf, protect.UidSystem, for example, cur will
 			// always be empty (as they're unresolvable by ipm.Add)
 			return New(hostOrIP, existing.Seed())
-		}
+		} // else: fallthrough
 	} else {
 		// if non-empty, renew hostOrIP with seed addrs
 		New(hostOrIP, existing.Seed())
