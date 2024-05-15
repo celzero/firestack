@@ -49,7 +49,7 @@ func renew(hostOrIP string, existing *ipmap.IPSet) (cur *ipmap.IPSet, ok bool) {
 	// will never be able to resolve protected hosts (UidSelf, UidRethink),
 	// except for the seed addrs.
 	if protect.NeverResolve(hostOrIP) {
-		return NewProtected(hostOrIP, existing.Seed())
+		cur, _ = NewProtected(hostOrIP, existing.Seed())
 	} else if existing.Protected() {
 		// if protected, preserve seed addrs; hen resolve hostOrIP
 		NewProtected(hostOrIP, existing.Seed())
@@ -63,12 +63,15 @@ func renew(hostOrIP string, existing *ipmap.IPSet) (cur *ipmap.IPSet, ok bool) {
 			// if still empty, fallback on seed addrs; when hostOrIP is
 			// protect.UidSelf, protect.UidSystem, for example, cur will
 			// always be empty (as they're unresolvable by ipm.Add)
-			return New(hostOrIP, existing.Seed())
+			cur, _ = New(hostOrIP, existing.Seed())
 		} // else: fallthrough
 	} else {
 		// if non-empty, renew hostOrIP with seed addrs
 		New(hostOrIP, existing.Seed())
 		cur = ipm.Add(hostOrIP)
+	}
+	if cur == nil { // can never happen as Add/New/NewProtected return a non-nil ipset
+		return nil, false
 	}
 	return cur, !cur.Empty()
 }

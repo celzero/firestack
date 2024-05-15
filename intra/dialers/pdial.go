@@ -97,7 +97,7 @@ func proxydial(d proxy.Dialer, network, addr string, connect proxyConnectFunc) (
 		if ipok(ip) {
 			log.V("pdial: trying ip%d %s for %s; duration: %s", i, ip, addr, time.Since(s3))
 			if conn, err = connect(d, network, ip, port); err == nil {
-				ips.Confirm(ip)
+				confirm(ips, ip)
 				log.I("pdial: found working ip%d %s for %s; duration: %s", i, ip, addr, time.Since(s3))
 				return conn, nil
 			}

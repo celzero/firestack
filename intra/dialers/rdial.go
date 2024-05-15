@@ -187,7 +187,7 @@ func commondial(d *protect.RDial, network, addr string, connect connectFunc) (ne
 		if ipok(ip) {
 			if conn, err = connect(d, network, ip, port); err == nil {
 				log.V("rdial: commondial: dialing ip %s for %s", ip, addr)
-				ips.Confirm(ip)
+				confirm(ips, ip)
 				log.I("rdial: commondial: ip %s works for %s", ip, addr)
 				return conn, nil
 			}

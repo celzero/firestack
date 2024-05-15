@@ -98,7 +98,7 @@ func tlsdial(d *tls.Dialer, network, addr string, connect tlsConnectFunc) (net.C
 		if ipok(ip) {
 			log.V("tlsdial: trying ip %s for %s", ip, addr)
 			if conn, err := connect(d, network, domain, ip, port); err == nil {
-				ips.Confirm(ip)
+				confirm(ips, ip)
 				log.I("tlsdial: found working ip %s for %s", ip, addr)
 				return conn, nil
 			} else {

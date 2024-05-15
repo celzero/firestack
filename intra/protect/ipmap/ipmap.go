@@ -217,7 +217,7 @@ func (m *ipmap) makeIPSet(hostname string, ipps []string, typ IPSetType) *IPSet 
 	log.D("ipmap: makeIPSet: %s, seed: %v, typ: %s", hostname, ipps, typ)
 
 	// TODO: disallow confirm/disconfirm if hostname is an IP address
-	s := &IPSet{r: m, seed: ipps, typ: typ}
+	s := &IPSet{r: m, seed: ipps, confirmed: atomic.Value{}, typ: typ, fails: 0}
 	if ip, err := netip.ParseAddr(hostname); err == nil && !ip.IsUnspecified() && ip.IsValid() {
 		log.D("ipmap: makeIPSet: %s for %s, confirmed addr %s", hostname, typ, ip)
 		s.confirmed.Store(ip)
