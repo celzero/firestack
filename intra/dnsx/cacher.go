@@ -314,8 +314,8 @@ func (t *ctransport) hangoverCheckpoint() {
 
 func (t *ctransport) fetch(network string, q *dns.Msg, summary *x.DNSSummary, cb *cache, key string) (*dns.Msg, error) {
 	sendRequest := func(fsmm *x.DNSSummary) (*dns.Msg, error) {
-		fsmm.ID = t.Transport.ID()
-		fsmm.Type = t.Transport.Type()
+		fsmm.ID = t.ID()
+		fsmm.Type = t.Type()
 
 		v, _ := t.reqbarrier.Do(key, func() (*cres, error) {
 			// ans may be nil
