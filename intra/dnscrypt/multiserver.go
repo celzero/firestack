@@ -664,10 +664,14 @@ func AddTransport(p *DcMulti, id, serverstamp string) (dnsx.Transport, error) {
 	if _, err := p.addOne(id, serverstamp); err == nil {
 		if ok := p.refreshOne(id); ok {
 			log.I("dnscrypt: added %s; %s", id, serverstamp)
-			go p.refreshRoutes()
-			return p.serversInfo.get(id), nil
+			if tr := p.serversInfo.get(id); tr != nil {
+				go p.refreshRoutes()
+				return tr, nil
+			}
+			log.W("dnscrypt: failed to add1 %s; %s", id, serverstamp)
+			return nil, dnsx.ErrAddFailed
 		} else {
-			log.W("dnscrypt: failed to add %s; %s", id, serverstamp)
+			log.W("dnscrypt: failed to add2 %s; %s", id, serverstamp)
 			p.removeOne(id)
 			return nil, errNoCert
 		}

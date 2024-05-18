@@ -7,12 +7,14 @@
 package dnscrypt
 
 import (
+	"errors"
 	"log"
 	"net"
 	"testing"
 
 	x "github.com/celzero/firestack/intra/backend"
 	"github.com/celzero/firestack/intra/dialers"
+	"github.com/celzero/firestack/intra/dnsx"
 	"github.com/celzero/firestack/intra/ipn"
 	ilog "github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
@@ -87,8 +89,8 @@ func TestOne(t *testing.T) {
 	// cb := "sdns://AQMAAAAAAAAAEzE4NS4yMjguMTY4LjEwOjg0NDMgvKwy-tVDaRcfCDLWB1AnwyCM7vDo6Z-UGNx3YGXUjykRY2xlYW5icm93c2luZy5vcmc"
 	q912 := "sdns://AQYAAAAAAAAAEzE0OS4xMTIuMTEyLjEyOjg0NDMgZ8hHuMh1jNEgJFVDvnVnRt803x2EwAuMRwNo34Idhj4ZMi5kbnNjcnlwdC1jZXJ0LnF1YWQ5Lm5ldA"
 	tr, err := AddTransport(p, "test", q912)
-	if err != nil {
-		t.Fatal(err)
+	if err != nil || tr == nil {
+		t.Fatal(errors.Join(dnsx.ErrAddFailed, err))
 	}
 	q := aquery("google.com")
 	smm := &x.DNSSummary{}
@@ -102,7 +104,7 @@ func TestOne(t *testing.T) {
 	if xdns.Len(ans) == 0 {
 		t.Fatal("empty response")
 	}
-	log.Output(10, ans.Answer[0].String())
+	log.Output(10, strDNSAns(ans))
 }
 
 func aquery(d string) *dns.Msg {
@@ -110,4 +112,11 @@ func aquery(d string) *dns.Msg {
 	msg.SetQuestion(dns.Fqdn(d), dns.TypeA)
 	msg.Id = 1234
 	return msg
+}
+
+func strDNSAns(a *dns.Msg) string {
+	if a == nil || len(a.Answer) < 1 {
+		return "no answer"
+	}
+	return a.Answer[0].String()
 }

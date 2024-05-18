@@ -130,7 +130,7 @@ func (serversInfo *ServersInfo) get(name string) *serverinfo {
 	if serversCount <= 0 {
 		return nil
 	}
-	return serversInfo.inner[name]
+	return serversInfo.inner[name] // may be nil
 }
 
 func (serversInfo *ServersInfo) unregisterServer(name string) (int, error) {
