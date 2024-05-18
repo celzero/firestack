@@ -339,15 +339,16 @@ func (s *IPSet) Size() int {
 // The slice is owned by the caller, but the elements are owned by the set.
 func (s *IPSet) Addrs() []netip.Addr {
 	s.RLock()
-	sz := len(s.ips)
-	if sz <= 0 {
-		s.RUnlock()
-		return nil
-	}
-	c := make([]netip.Addr, 0, sz)
-	c = append(c, s.ips...)
+	ips := s.ips
 	s.RUnlock()
 
+	sz := len(ips)
+	if sz <= 0 {
+		return []netip.Addr{}
+	}
+
+	c := make([]netip.Addr, 0, sz)
+	c = append(c, ips...)
 	if len(c) > 2 {
 		rand.Shuffle(len(c), func(i, j int) {
 			c[i], c[j] = c[j], c[i]

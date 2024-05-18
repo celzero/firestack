@@ -21,9 +21,13 @@ import (
 
 // create a new private key and prints corres pubkey
 func TestGenKeypair(t *testing.T) {
-	sk, _ := NewWgPrivateKey()
-	pk := sk.Mult()
-	t.Log("pub: ", pk.Base64(), "sk: ", sk.Base64())
+	sk, err := NewWgPrivateKey()
+	if err != nil {
+		t.Error("failed to generate private key: ", err)
+	} else {
+		pk := sk.Mult()
+		t.Log("pub: ", pk.Base64(), "sk: ", sk.Base64())
+	}
 }
 
 func TestRadixSearch(t *testing.T) {
