@@ -41,6 +41,14 @@ jobs:
         # go run nilaway ./...
       shell: bash
 
+    - name: Obj
+      run: |
+        wget https://github.com/Zxilly/go-size-analyzer/releases/download/v1.0.6/go-size-analyzer_1.0.6_linux_amd64.deb -o gsa.deb
+        sudo apt install ./gsa.deb
+        unzip ./build/intra/tun2socks.aar
+        gsa jni/arm64-v8a/libgojni.so -f text
+      shell: bash
+
       # github.com/actions/upload-artifact
     - name: Upload artifacts
       uses: actions/upload-artifact@v3
