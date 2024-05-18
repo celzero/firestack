@@ -35,10 +35,17 @@ jobs:
 
     - name: Vet
       run: |
-        # go vet ./... fails: archive.is/XcDl6
+        # continue on error
+        set -e
+        go env
+        # github.com/actions/setup-go/issues/27
+        export PATH=${PATH}:`go env GOPATH`/bin
+
+        # vet: fails: archive.is/XcDl6
+        go vet ./...
+        # nilaway
         go install go.uber.org/nilaway/cmd/nilaway@latest
-        # fails
-        # go run nilaway ./...
+        nilaway ./...
       shell: bash
 
     - name: Obj
