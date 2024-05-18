@@ -48,7 +48,7 @@ jobs:
 
     - name: Obj
       run: |
-        wget https://github.com/Zxilly/go-size-analyzer/releases/download/v1.0.6/go-size-analyzer_1.0.6_linux_amd64.deb -o gsa.deb
+        wget --tries=2 --waitretry=3 --no-dns-cache https://github.com/Zxilly/go-size-analyzer/releases/download/v1.0.6/go-size-analyzer_1.0.6_linux_amd64.deb -O gsa.deb
         sudo dpkg -i gsa.deb
         unzip ./build/intra/tun2socks.aar
         gsa jni/arm64-v8a/libgojni.so -f text
