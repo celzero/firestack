@@ -49,11 +49,13 @@ jobs:
 
     - name: Obj
       run: |
+        # ignore errors
+        set +e
         wget --tries=2 --waitretry=3 --no-dns-cache https://github.com/Zxilly/go-size-analyzer/releases/download/v1.0.6/go-size-analyzer_1.0.6_linux_amd64.deb -O gsa.deb
         sudo dpkg -i gsa.deb
         # s/tun2socks.aar/firestack.aar; see: make-aar
         unzip firestack.aar
-        gsa jni/arm64-v8a/libgojni.so -f text
+        gsa jni/arm64-v8a/*.so -f text --verbose
       shell: bash
 
       # github.com/actions/upload-artifact
