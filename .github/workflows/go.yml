@@ -10,11 +10,11 @@ on:
 jobs:
 
   build:
-    name: Build
+    name: Build 🧬
     runs-on: ubuntu-latest
     steps:
 
-    - name: Checkout
+    - name: Checkout code 🥏
       uses: actions/checkout@v3
 
     - name: Setup go1.22+
@@ -22,20 +22,20 @@ jobs:
       with:
         go-version: '>=1.22'
 
-    - name: Build
+    - name: 🏗️ Make
       run: |
         # outputs firestack.aar and firestack-arm.aar; also see: "Obj" below
         ./make-aar nogo debug
       shell: bash
 
-    - name: Test
+    - name: 🧪 Test
       if: success()
       run: |
         go env
         # go test -v -race -bench=. -benchtime=100ms ./...
         echo "::notice::success"
 
-    - name: Vet
+    - name: 🧹 Vet
       run: |
         # github.com/actions/setup-go/issues/27
         export PATH=${PATH}:`go env GOPATH`/bin
@@ -47,26 +47,28 @@ jobs:
         nilaway ./...
       shell: bash
 
-    - name: Obj
+    - name: 💿 Obj
       run: |
         wget --tries=2 --waitretry=3 --no-dns-cache https://github.com/Zxilly/go-size-analyzer/releases/download/v1.0.8/go-size-analyzer_1.0.8_linux_amd64.deb -O gsa.deb
         sudo dpkg -i gsa.deb
-        # s/tun2socks.aar/firestack.aar; see: make-aar
-        unzip firestack-arm.aar
+        # s/tun2socks*.aar/firestack*.aar; see: make-aar
+        unzip firestack-debug.aar
         gsa jni/arm64-v8a/*.so -f text --verbose
       shell: bash
 
       # github.com/actions/upload-artifact
-    - name: Upload artifacts
-      uses: actions/upload-artifact@v3
+    - name: 🚀 Upload
+      uses: actions/upload-artifact@v4
       if: success()
       with:
-        name: firestack-aar-${{ github.sha }}
-        path: firestack.aar
-        if-no-files-found: error
+        name: firestack-aar-${{ github.sha }} # must be unique
+        path: firestack*.aar # see: make-aar
+        retention-days: 52 # 0-90; 90 is max
+        if-no-files-found: error # error, warn (default), ignore
+        compression-level: 9 # 0-9; 9 is max
 
   checker:
-    name: Security checker
+    name: 🔐 Security checker
     runs-on: ubuntu-latest
     permissions:
       security-events: write
@@ -74,22 +76,22 @@ jobs:
     env:
       GO111MODULE: on
     steps:
-      - name: "Checkout code"
-        uses: actions/checkout@v3
+      - name: 🥏 Checkout
+        uses: actions/checkout@v4
 
-      - name: Gosec Scanner
+      - name: 🕵️ Gosec Scanner
         uses: securego/gosec@master
         with:
           # we let the report trigger content trigger a failure using the GitHub Security features.
           args: '-no-fail -fmt sarif -out results.sarif ./...'
-      - name: "Upload to code-scanning"
+      - name: 📡 Upload to code-scanning
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: results.sarif
 
   # from: github.com/golangci/golangci-lint-action
   golangci-lint:
-    name: Linter
+    name: 🧭 Lint 
     runs-on: ubuntu-latest
     permissions:
       # Required: allow read access to the content for analysis.
@@ -99,14 +101,14 @@ jobs:
       # Optional: Allow write access to checks to allow the action to annotate code in the PR.
       checks: write
     steps:
-      - name: "Checkout code"
-        uses: actions/checkout@v3
-      - name: Set up Go
+      - name: 🥏 Checkout
+        uses: actions/checkout@v4
+      - name: 🐼 Set up Go
         uses: actions/setup-go@v4
         with:
           go-version: '>=1.22'
           cache: false
-      - name: Lint
+      - name: 🏅 Lint
         uses: golangci/golangci-lint-action@v3.7.0
         with:
           args: --config=.golangci.yml --issues-exit-code=0
