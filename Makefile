@@ -18,7 +18,7 @@ LINUX_BUILDDIR=$(BUILDDIR)/linux
 ANDROID_BUILD_CMD=env PATH=$(GOBIN):$(PATH) $(GOMOBILE) $(GOBIND) $(ANDROID23) \
 				-ldflags '-w -s' -gcflags='-trimpath=${HOME}' -asmflags='-trimpath=${HOME}'
 # built without stripping dwarf/symbols
-ANDROID_ARM64_BUILD_CMD=env PATH=$(GOBIN):$(PATH) $(GOMOBILE) $(GOBIND) $(ANDROID23)
+ANDROID_DEBUG_BUILD_CMD=env PATH=$(GOBIN):$(PATH) $(GOMOBILE) $(GOBIND) $(ANDROID23)
 # exported pkgs
 INTRA_BUILD_CMD=$(IMPORT_PATH)/intra $(IMPORT_PATH)/intra/backend $(IMPORT_PATH)/intra/rnet $(IMPORT_PATH)/intra/settings
 
@@ -26,9 +26,9 @@ $(BUILDDIR)/intra/tun2socks.aar: $(GOMOBILE)
 	mkdir -p $(BUILDDIR)/intra
 	$(ANDROID_BUILD_CMD) -o $@ $(INTRA_BUILD_CMD)
 
-$(BUILDDIR)/intra/tun2socks-arm.aar: $(GOMOBILE)
+$(BUILDDIR)/intra/tun2socks-debug.aar: $(GOMOBILE)
 	mkdir -p $(BUILDDIR)/intra
-	$(ANDROID_ARM64_BUILD_CMD) -o $@ $(INTRA_BUILD_CMD)
+	$(ANDROID_DEBUG_BUILD_CMD) -o $@ $(INTRA_BUILD_CMD)
 
 $(BUILDDIR)/android/tun2socks.aar: $(GOMOBILE)
 	mkdir -p $(BUILDDIR)/android
@@ -65,7 +65,7 @@ android: $(BUILDDIR)/android/tun2socks.aar
 
 intra: $(BUILDDIR)/intra/tun2socks.aar
 
-intrarm: $(BUILDDIR)/intra/tun2socks-arm.aar
+intradebug: $(BUILDDIR)/intra/tun2socks-debug.aar
 
 apple: $(BUILDDIR)/apple/Tun2socks.xcframework
 
