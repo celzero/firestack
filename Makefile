@@ -10,8 +10,8 @@ XGO_LDFLAGS='-s -w -X main.version=$(COMMIT_ID)'
 WINDOWS_BUILDDIR=$(BUILDDIR)/windows
 LINUX_BUILDDIR=$(BUILDDIR)/linux
 
-# ldflags to strip symbols do not work: github.com/golang/go/issues/25035#issuecomment-495004689
-ANDROID_BUILD_CMD=env PATH=$(GOBIN):$(PATH) $(GOMOBILE) bind -v -a -ldflags '-w -s' -androidapi 23 -target=android -tags='android' -work
+# -ldflags '-w -s' to strip symbols do not work? github.com/golang/go/issues/25035#issuecomment-495004689
+ANDROID_BUILD_CMD=env PATH=$(GOBIN):$(PATH) $(GOMOBILE) bind -v -a -androidapi 23 -target=android -tags='android' -work
 ANDROID_ARM64_BUILD_CMD=env PATH=$(GOBIN):$(PATH) $(GOMOBILE) bind -v -a -ldflags '-w -s' -androidapi 23 -target=android/arm64 -tags='android' -work
 # exported pkgs
 INTRA_BUILD_CMD=$(IMPORT_PATH)/intra $(IMPORT_PATH)/intra/backend $(IMPORT_PATH)/intra/rnet $(IMPORT_PATH)/intra/settings
