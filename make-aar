@@ -23,6 +23,7 @@ CLASSARM="${CLASSARM:-arm64}"
 SOURCES="${SOURCES:-build/intra/tun2socks-sources.jar}"
 
 ARG1="${1:-go}"
+ARG2="${2:-nodebug}"
 
 # debug
 printenv
@@ -53,12 +54,19 @@ go env
 # git checkout -b "$VERSION"
 
 # gomobile aar
-make clean && make intra
-# disable arm builds make intrarm
 
-# rename
-mv ./"$BOUT" ./"$FOUT"
-# mv ./"$BOUTARM" ./"$FOUTARM"
+if [ "$ARG2" = "debug" ]; then
+  make clean && make intra && make intraarm
+  # rename
+  mv ./"$BOUT" ./"$FOUT"
+  mv ./"$BOUTARM" ./"$FOUTARM"
+else
+  # default: disable arm (debug) builds
+  make clean && make intra
+  # rename
+  mv ./"$BOUT" ./"$FOUT"
+fi
+
 
 # ls cwd
 ls -ltr
