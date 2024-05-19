@@ -248,6 +248,7 @@ func (r *retrier) Write(b []byte) (int, error) {
 			if err == nil {
 				return n, nil
 			}
+
 			start := time.Now()
 			log.D("rdial: write waiting to retry [%s->%s] %d; write-err? %v", laddr(r.conn), r.raddr, n, err)
 
@@ -255,6 +256,7 @@ func (r *retrier) Write(b []byte) (int, error) {
 			// by the retry procedure. Block until we have a final socket (which will
 			// already have replayed b[:n]), and retry.
 			<-r.retryCompleteFlag
+			barrier(&r.mutex)
 
 			elapsed := time.Since(start).Milliseconds()
 			m, err := r.conn.Write(b[n:])
@@ -384,4 +386,11 @@ func laddr(c net.Conn) net.Addr {
 		return c.LocalAddr()
 	}
 	return nil
+}
+
+func barrier(m *sync.Mutex) {
+	if m != nil {
+		m.Lock()
+		m.Unlock()
+	}
 }
