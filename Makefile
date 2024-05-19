@@ -16,7 +16,7 @@ LINUX_BUILDDIR=$(BUILDDIR)/linux
 # stack traces are not affected by ldflags -s -w: github.com/golang/go/issues/25035#issuecomment-495004689
 # trimpath: github.com/skycoin/skycoin/issues/719
 ANDROID_BUILD_CMD=env PATH=$(GOBIN):$(PATH) $(GOMOBILE) $(GOBIND) $(ANDROID23) \
-				-ldflags '-w -s' -gcflags='-trimpath=${HOME}' -asmflags='-trimpath=${HOME}'
+				-ldflags '-w -s' -gcflags='-trimpath=${HOME}'
 # built without stripping dwarf/symbols
 ANDROID_DEBUG_BUILD_CMD=env PATH=$(GOBIN):$(PATH) $(GOMOBILE) $(GOBIND) $(ANDROID23)
 # exported pkgs
