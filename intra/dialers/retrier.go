@@ -142,7 +142,7 @@ func DialWithSplitRetry(dial *protect.RDial, addr *net.TCPAddr) (DuplexConn, err
 	return r, nil
 }
 
-func (r *retrier) retryLocked(buf []byte) (err error) {
+func (r *retrier) retryLocked() (err error) {
 	clos(r.conn) // close provisional socket
 	var newConn *net.TCPConn
 	if newConn, err = r.dial.DialTCP(r.raddr.Network(), nil, r.raddr); err != nil {
@@ -206,7 +206,7 @@ func (r *retrier) Read(buf []byte) (n int, err error) {
 		r.mutex.Lock()
 		if retryNeeded {
 			// retry only on errors; may be due to timeout or conn reset
-			if retryerr = r.retryLocked(buf); retryerr == nil {
+			if retryerr = r.retryLocked(); retryerr == nil {
 				n, err = r.conn.Read(buf)
 			}
 		}
