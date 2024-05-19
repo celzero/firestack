@@ -10,14 +10,14 @@ on:
 jobs:
 
   build:
-    name: Build 🧬
+    name: 🧬 Build
     runs-on: ubuntu-latest
     steps:
 
-    - name: Checkout code 🥏
-      uses: actions/checkout@v3
+    - name: 🥏 Checkout code
+      uses: actions/checkout@v4
 
-    - name: Setup go1.22+
+    - name: 🐼 Setup go1.22+
       uses: actions/setup-go@v4
       with:
         go-version: '>=1.22'
