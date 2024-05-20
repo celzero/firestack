@@ -102,7 +102,7 @@ func (t *dot) doQuery(pid string, q *dns.Msg) (response *dns.Msg, elapsed time.D
 func (t *dot) tlsdial() (*dns.Conn, error) {
 	c, err := dialers.SplitDialWithTls(t.rd, t.c.TLSConfig, t.addr)
 	// or: c, err := dialers.TlsDial(tlsDialer, "tcp", t.addr)
-	if c != nil {
+	if c != nil && core.IsNotNil(c) {
 		_ = c.SetDeadline(time.Now().Add(dottimeout))
 		return &dns.Conn{Conn: c, UDPSize: t.c.UDPSize}, err
 	}
@@ -145,9 +145,7 @@ func (t *dot) pxdial(pid string) (conn *dns.Conn, err error) {
 }
 
 func clos(c io.Closer) {
-	if c != nil {
-		_ = c.Close()
-	}
+	core.Close(c)
 }
 
 // perform tls handshake

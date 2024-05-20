@@ -23,6 +23,7 @@ import (
 	"sync"
 	"syscall"
 
+	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/ipn/multihost"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
@@ -206,7 +207,7 @@ func (s *StdNetBind2) listenNet(network string, port int) (*net.UDPConn, int, er
 		log.E("wg: bind2: %s %s: listen(%v); err: %v", s.id, network, saddr, err)
 		return nil, 0, err
 	}
-	if c == nil {
+	if c == nil || core.IsNil(c) {
 		log.E("wg: bind2: %s %s: listen(%v); conn nil", s.id, network, saddr)
 		return nil, 0, errNoListen
 	}
@@ -460,8 +461,7 @@ func (s *StdNetBind2) Close() error {
 	defer s.mu.Unlock()
 
 	var err4, err6 error
-	c4 := s.ipv4
-	c6 := s.ipv6
+	c4, c6 := s.ipv4, s.ipv6
 	if c4 != nil {
 		err4 = c4.Close()
 		s.ipv4 = nil
@@ -502,16 +502,16 @@ func (s *StdNetBind2) Send(bufs [][]byte, peer conn.Endpoint) (err error) {
 
 	s.mu.Lock()
 	blackhole := s.blackhole4
-	c := s.ipv4
 	offload := s.ipv4TxOffload
+	c := s.ipv4
 	var br batchWriter = s.ipv4PC
 	is6 := false
 	if peer.DstIP().Is6() {
 		blackhole = s.blackhole6
+		offload = s.ipv6TxOffload
 		c = s.ipv6
 		br = s.ipv6PC
 		is6 = true
-		offload = s.ipv6TxOffload
 	}
 	s.mu.Unlock()
 
@@ -588,7 +588,7 @@ retry:
 func (s *StdNetBind2) send(conn *net.UDPConn, pc batchWriter, msgs []ipv6.Message) (err error) {
 	var n, start int
 
-	if pc != nil {
+	if pc != nil && core.IsNotNil(pc) {
 		for {
 			n, err = pc.WriteBatch(msgs[start:], 0)
 			if err != nil || n == len(msgs[start:]) {

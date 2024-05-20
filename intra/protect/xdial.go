@@ -12,6 +12,7 @@ import (
 	"io"
 	"net"
 
+	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/log"
 	"golang.org/x/net/proxy"
 )
@@ -138,9 +139,7 @@ func (d *RDial) Announce(network, local string) (PacketConn, error) {
 }
 
 func clos(c io.Closer) {
-	if c != nil {
-		_ = c.Close()
-	}
+	core.Close(c)
 }
 
 func (d *RDial) DialTCP(network string, laddr, raddr *net.TCPAddr) (*net.TCPConn, error) {

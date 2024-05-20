@@ -23,6 +23,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/dialers"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/miekg/dns"
@@ -300,7 +301,7 @@ func _dnsExchange(proxy *DcMulti, proto string, query *dns.Msg, serverAddress st
 		pc, err := dialers.Dial(proxy.dialer, "udp", serverAddress)
 		if err != nil {
 			return dnsExchangeResponse{err: err}
-		} else if pc == nil {
+		} else if pc == nil || core.IsNil(pc) {
 			return dnsExchangeResponse{err: errNoConn}
 		}
 
@@ -337,7 +338,7 @@ func _dnsExchange(proxy *DcMulti, proto string, query *dns.Msg, serverAddress st
 		pc, err = dialers.Dial(proxy.dialer, "tcp", serverAddress)
 		if err != nil {
 			return dnsExchangeResponse{err: err}
-		} else if pc == nil {
+		} else if pc == nil || core.IsNil(pc) {
 			return dnsExchangeResponse{err: errNoConn}
 		}
 
@@ -366,7 +367,5 @@ func _dnsExchange(proxy *DcMulti, proto string, query *dns.Msg, serverAddress st
 }
 
 func clos(c io.Closer) {
-	if c != nil {
-		_ = c.Close()
-	}
+	core.Close(c)
 }

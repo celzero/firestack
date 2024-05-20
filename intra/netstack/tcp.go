@@ -206,25 +206,19 @@ func (g *GTCPConn) SetWriteDeadline(t time.Time) error {
 // Abort aborts the connection by sending a RST segment.
 func (g *GTCPConn) Abort() {
 	ep := g.ep
-	c := g.conn
 	if ep != nil {
 		ep.Abort()
 	}
-	if c != nil {
-		_ = c.Close()
-	}
+	core.Close(g.conn)
 }
 
 func (g GTCPConn) Close() error {
 	ep := g.ep
-	c := g.conn
 	if ep != nil {
 		ep.Abort()
 	}
-	if c != nil {
-		_ = c.SetDeadline(time.Now().Add(-1))
-		return c.Close() // always returns nil; see gonet.TCPConn.Close
-	}
+	// g.conn.Close always returns nil; see gonet.TCPConn.Close
+	core.Close(g.conn)
 	return nil
 }
 

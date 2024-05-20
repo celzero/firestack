@@ -349,7 +349,8 @@ func (h *udpHandler) Connect(gconn net.Conn, src, target netip.AddrPort) (dst co
 	if errs != nil {
 		return nil, smm, ct, errs // disconnect
 	}
-	if pc == nil {
+	pcnil := core.IsNil(pc)
+	if pcnil {
 		log.W("udp: connect: %s failed to connect addr(%s/%s); for uid %s", cid, target, selectedTarget, uid)
 		return nil, smm, ct, errUdpSetupConn // disconnect
 	}

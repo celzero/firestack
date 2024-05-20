@@ -149,7 +149,7 @@ func (t *transport) dial(network string) (*dns.Conn, error) {
 	c, err := dialers.Dial2(t.dialer, network, t.addrport)
 	if err != nil {
 		return nil, err
-	} else if c == nil {
+	} else if c == nil || core.IsNil(c) {
 		return nil, errNoNet
 	} else {
 		return &dns.Conn{Conn: c}, nil

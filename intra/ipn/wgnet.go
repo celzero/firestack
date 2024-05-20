@@ -423,8 +423,9 @@ func (pc *PingConn) RemoteAddr() net.Addr {
 
 func (pc *PingConn) Close() error {
 	pc.deadline.Reset(0)
-	if pc.ep != nil {
-		pc.ep.Close()
+	ep := pc.ep
+	if ep != nil {
+		ep.Close()
 	}
 	return nil
 }

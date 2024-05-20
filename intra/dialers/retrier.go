@@ -90,14 +90,17 @@ func closed(c <-chan struct{}) bool {
 	}
 }
 
+// readClosed returns true if the caller has called CloseRead.
 func (r *retrier) readClosed() bool {
 	return closed(r.readCloseFlag)
 }
 
+// writeClosed returns true if the caller has called CloseWrite.
 func (r *retrier) writeClosed() bool {
 	return closed(r.writeCloseFlag)
 }
 
+// retryCompleted returns true if the retry is complete or unnecessary.
 func (r *retrier) retryCompleted() bool {
 	return closed(r.retryCompleteFlag)
 }
@@ -142,6 +145,9 @@ func DialWithSplitRetry(dial *protect.RDial, addr *net.TCPAddr) (DuplexConn, err
 	return r, nil
 }
 
+// retryLocked closes the current connection, dials a new one, and writes the TLS client hello
+// message after splitting it in to two. It returns an error if the dial fails or if the
+// split TLS client hello messages could not be written.
 func (r *retrier) retryLocked() (err error) {
 	clos(r.conn) // close provisional socket
 	var newConn *net.TCPConn
@@ -166,14 +172,14 @@ func (r *retrier) retryLocked() (err error) {
 	// CloseRead and CloseWrite are idempotent, so this is safe even if the user's
 	// action actually affected the new socket.
 	if r.readClosed() {
-		_ = r.conn.CloseRead()
+		core.CloseTCPRead(r.conn)
 		readdone = true
 	} else {
 		_ = r.conn.SetReadDeadline(r.readDeadline)
 	}
 	// caller might have set read or write deadlines before the retry.
 	if r.writeClosed() {
-		_ = r.conn.CloseWrite()
+		core.CloseTCPWrite(r.conn)
 		writedone = true
 	} else {
 		_ = r.conn.SetWriteDeadline(r.writeDeadline)
@@ -184,6 +190,7 @@ func (r *retrier) retryLocked() (err error) {
 	return
 }
 
+// CloseRead closes r.conn for reads, and the read flag.
 func (r *retrier) CloseRead() error {
 	if !r.readClosed() {
 		close(r.readCloseFlag)
@@ -270,6 +277,8 @@ func (r *retrier) Write(b []byte) (int, error) {
 	return r.conn.Write(b)
 }
 
+// ReadFrom reads data from reader into r.conn.ReadFrom, after
+// retries are done; before which reads are delegated to copyOnce.
 func (r *retrier) ReadFrom(reader io.Reader) (bytes int64, err error) {
 	for !r.retryCompleted() {
 		if bytes, err = copyOnce(r, reader); err != nil {
@@ -288,6 +297,7 @@ func (r *retrier) ReadFrom(reader io.Reader) (bytes int64, err error) {
 	return
 }
 
+// CloseWrite closes r.conn for writes, the write flag.
 func (r *retrier) CloseWrite() error {
 	if !r.writeClosed() {
 		close(r.writeCloseFlag)
@@ -297,11 +307,10 @@ func (r *retrier) CloseWrite() error {
 	return r.conn.CloseWrite()
 }
 
+// Close closes the connection and the read and write flags.
 func (r *retrier) Close() error {
-	if err := r.CloseWrite(); err != nil {
-		return err
-	}
-	return r.CloseRead()
+	// also close the read and write flags
+	return errors.Join(r.CloseRead(), r.CloseWrite())
 }
 
 // LocalAddr behaves slightly strangely: its value may change as a
@@ -313,10 +322,13 @@ func (r *retrier) LocalAddr() net.Addr {
 	return r.conn.LocalAddr()
 }
 
+// RemoteAddr returns the remote address of the connection.
 func (r *retrier) RemoteAddr() net.Addr {
 	return r.raddr
 }
 
+// SetReadDeadline sets the read deadline for the connection
+// if the retry is complete, otherwise it does so after the retry.
 func (r *retrier) SetReadDeadline(t time.Time) error {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
@@ -330,6 +342,7 @@ func (r *retrier) SetReadDeadline(t time.Time) error {
 	return nil
 }
 
+// SetWriteDeadline sets the write deadline for the connection.
 func (r *retrier) SetWriteDeadline(t time.Time) error {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
@@ -337,6 +350,8 @@ func (r *retrier) SetWriteDeadline(t time.Time) error {
 	return r.conn.SetWriteDeadline(t)
 }
 
+// SetDeadline sets the read and write deadlines for the connection.
+// Read deadlines are set eventually depending on the status of retries.
 func (r *retrier) SetDeadline(t time.Time) error {
 	e1 := r.SetReadDeadline(t)
 	e2 := r.SetWriteDeadline(t)
@@ -363,6 +378,7 @@ func copyOnce(dst io.Writer, src io.Reader) (int64, error) {
 	return int64(n), err
 }
 
+// splitHello splits the TLS client hello message into two.
 func splitHello(hello []byte) ([]byte, []byte) {
 	if len(hello) == 0 {
 		return hello, hello
@@ -381,8 +397,9 @@ func splitHello(hello []byte) ([]byte, []byte) {
 	return hello[:s], hello[s:]
 }
 
+// laddr returns the local address of the connection.
 func laddr(c net.Conn) net.Addr {
-	if c != nil {
+	if c != nil && core.IsNotNil(c) {
 		return c.LocalAddr()
 	}
 	return nil

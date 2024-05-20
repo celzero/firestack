@@ -208,13 +208,9 @@ func (g *GUDPConn) Close() error {
 		return nil
 	}
 	ep := g.ep
-	c := g.conn
 	if ep != nil {
 		ep.Abort()
 	}
-	if c != nil {
-		_ = c.SetDeadline(time.Now().Add(-1))
-		return c.Close()
-	}
+	core.Close(g.conn)
 	return nil
 }

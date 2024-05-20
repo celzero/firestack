@@ -149,11 +149,12 @@ func (h *icmpHandler) Ping(source, target netip.AddrPort, msg []byte, pong netst
 
 	dst := oneRealIp(realips, target)
 	uc, err := px.Dialer().Dial("udp", dst.String())
-	if err != nil || uc == nil { // nilaway: tx.socks5 returns nil conn even if err == nil
+	ucnil := core.IsNil(uc)
+	if err != nil || ucnil { // nilaway: tx.socks5 returns nil conn even if err == nil
 		if err == nil {
 			err = unix.ENETUNREACH
 		}
-		log.E("t.icmp: egress: dial(%s); hasConn? %s(%t); err %v", dst, pid, uc != nil, err)
+		log.E("t.icmp: egress: dial(%s); hasConn? %s(%t); err %v", dst, pid, ucnil, err)
 		return false // denied
 	}
 	defer clos(uc)
@@ -234,7 +235,7 @@ func (h *icmpHandler) sendNotif(s *SocketSummary) {
 }
 
 func extend(c net.Conn, t time.Duration) {
-	if c != nil {
+	if c != nil && core.IsNotNil(c) {
 		_ = c.SetDeadline(time.Now().Add(t))
 	}
 }

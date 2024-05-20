@@ -24,6 +24,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/ipn/multihost"
 
 	"github.com/celzero/firestack/intra/log"
@@ -221,12 +222,13 @@ func (bind *StdNetBind) Close() error {
 	defer bind.mu.Unlock()
 
 	var err1, err2 error
-	if bind.ipv4 != nil {
-		err1 = bind.ipv4.Close()
+	v4, v6 := bind.ipv4, bind.ipv6
+	if v4 != nil {
+		err1 = v4.Close()
 		bind.ipv4 = nil
 	}
-	if bind.ipv6 != nil {
-		err2 = bind.ipv6.Close()
+	if v6 != nil {
+		err2 = v6.Close()
 		bind.ipv6 = nil
 	}
 	bind.blackhole4 = false
@@ -408,13 +410,11 @@ func loge(err error, msg string, rest ...any) {
 }
 
 func extend(c net.Conn, t time.Duration) {
-	if c != nil {
+	if c != nil && core.IsNotNil(c) {
 		_ = c.SetDeadline(time.Now().Add(t))
 	}
 }
 
 func clos(c io.Closer) {
-	if c != nil {
-		_ = c.Close()
-	}
+	core.Close(c)
 }

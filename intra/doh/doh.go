@@ -530,7 +530,5 @@ func (t *transport) Status() int {
 }
 
 func clos(c io.Closer) {
-	if c != nil {
-		_ = c.Close()
-	}
+	core.Close(c)
 }

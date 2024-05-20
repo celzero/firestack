@@ -1028,6 +1028,9 @@ func MakeAAAARecord(name string, ip6 string, expiry int) dns.RR {
 	return rec
 }
 
+// MaybeToQuadA translates an A record to a AAAA record if the prefix is not nil.
+// The ttl of the new record is the minimum of the original ttl and minttl.
+// If the prefix is nil or answer has an empty A record, it returns nil.
 func MaybeToQuadA(answer dns.RR, prefix *net.IPNet, minttl uint32) dns.RR {
 	header := answer.Header()
 	if prefix == nil || header.Rrtype != dns.TypeA {

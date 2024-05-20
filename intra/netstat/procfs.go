@@ -22,6 +22,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/log"
 )
 
@@ -228,9 +229,7 @@ func toUnmappedAddr(ip net.IP) netip.Addr {
 }
 
 func clos(c io.Closer) {
-	if c != nil {
-		_ = c.Close()
-	}
+	core.Close(c)
 }
 
 // ParseProcNet scans /proc/net/* returns a list of entries, one entry per line scanned

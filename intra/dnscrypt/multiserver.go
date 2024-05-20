@@ -97,11 +97,12 @@ func udpExchange(pid string, serverInfo *serverinfo, sharedKey *[32]byte, encryp
 	}
 
 	pc, err := serverInfo.dialudp(pid, upstreamAddr)
-	if err != nil || pc == nil { // nilaway: tx.socks5 returns nil conn even if err == nil
+	pcnil := core.IsNil(pc)
+	if err != nil || pcnil { // nilaway: tx.socks5 returns nil conn even if err == nil
 		if err == nil {
 			err = errNoConn
 		}
-		log.E("dnscrypt: udp: dialing %s; hasConn? %s(%t); err: %v", serverInfo, pid, pc != nil, err)
+		log.E("dnscrypt: udp: dialing %s; hasConn? %s(%t); err: %v", serverInfo, pid, pcnil, err)
 		return
 	}
 
@@ -149,11 +150,12 @@ func tcpExchange(pid string, serverInfo *serverinfo, sharedKey *[32]byte, encryp
 	}
 
 	pc, err := serverInfo.dialtcp(pid, upstreamAddr)
-	if err != nil || pc == nil { // nilaway: tx.socks5 returns nil conn even if err == nil
+	pcnil := core.IsNil(pc)
+	if err != nil || pcnil { // nilaway: tx.socks5 returns nil conn even if err == nil
 		if err == nil {
 			err = errNoConn
 		}
-		log.E("dnscrypt: tcp: dialing %s; hasConn? %s(%t); err: %v", serverInfo, pid, pc != nil, err)
+		log.E("dnscrypt: tcp: dialing %s; hasConn? %s(%t); err: %v", serverInfo, pid, pcnil, err)
 		return
 	}
 	defer clos(pc)

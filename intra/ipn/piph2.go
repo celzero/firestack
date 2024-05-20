@@ -135,9 +135,7 @@ func (t *piph2) dialtls(network, addr string, cfg *tls.Config) (net.Conn, error)
 }
 
 func clos(c io.Closer) {
-	if c != nil {
-		_ = c.Close()
-	}
+	core.Close(c)
 }
 
 func (t *piph2) dial(network, addr string) (net.Conn, error) {
@@ -446,9 +444,7 @@ func (h *piph2) DNS() string {
 }
 
 func closePipe(c ...io.Closer) {
-	for _, x := range c {
-		clos(x)
-	}
+	core.Close(c...)
 }
 
 func hmac256(m, k []byte) []byte {

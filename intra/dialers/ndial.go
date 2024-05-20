@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect/ipmap"
 )
@@ -152,9 +153,7 @@ func NetListen(cfg *net.ListenConfig, network, local string) (net.Listener, erro
 }
 
 func clos(c io.Closer) {
-	if c != nil {
-		_ = c.Close()
-	}
+	core.Close(c)
 }
 
 func confirm(ips *ipmap.IPSet, ip netip.Addr) {

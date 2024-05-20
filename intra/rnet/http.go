@@ -17,6 +17,7 @@ import (
 	"time"
 
 	x "github.com/celzero/firestack/intra/backend"
+	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/ipn"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
@@ -222,9 +223,7 @@ func (h *httpx) hijackConnect(req *http.Request, client net.Conn, ctx *tx.ProxyC
 }
 
 func clos(cs ...io.Closer) {
-	for _, c := range cs {
-		_ = c.Close()
-	}
+	core.Close(cs...)
 }
 
 func http502(w io.WriteCloser, err1 error, ssu *ServerSummary) {
