@@ -207,10 +207,11 @@ func (g *GUDPConn) Close() error {
 		_ = g.Connect(true)
 		return nil
 	}
-	ep := g.ep
-	if ep != nil {
+	if ep := g.ep; ep != nil {
 		ep.Abort()
 	}
-	core.Close(g.conn)
+	if c := g.conn; c != nil {
+		c.Close()
+	}
 	return nil
 }

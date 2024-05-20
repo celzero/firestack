@@ -9,7 +9,6 @@ package dialers
 import (
 	"context"
 	"errors"
-	"io"
 	"net"
 	"net/netip"
 	"strconv"
@@ -152,8 +151,8 @@ func NetListen(cfg *net.ListenConfig, network, local string) (net.Listener, erro
 	return cfg.Listen(context.Background(), network, local)
 }
 
-func clos(c io.Closer) {
-	core.Close(c)
+func clos(c ...net.Conn) {
+	core.CloseConn(c...)
 }
 
 func confirm(ips *ipmap.IPSet, ip netip.Addr) {

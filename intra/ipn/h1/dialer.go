@@ -15,7 +15,6 @@ import (
 	"bufio"
 	"crypto/tls"
 	"fmt"
-	"io"
 	"net"
 	"net/http"
 	"net/url"
@@ -154,8 +153,8 @@ func (t *HttpTunnel) Dial(network string, address string) (net.Conn, error) {
 	return conn, nil
 }
 
-func clos(c io.Closer) {
-	core.Close(c)
+func clos(c net.Conn) {
+	core.CloseConn(c)
 }
 
 func (t *HttpTunnel) doRoundtrip(conn net.Conn, req *http.Request) (*http.Response, error) {

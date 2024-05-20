@@ -350,7 +350,7 @@ func (t *transport) do(pid string, req *http.Request) (ans []byte, blocklists st
 			log.E("doh: query failed: %v", qerr)
 			if conn != nil {
 				log.I("doh: close failing doh conn to %s", hostname)
-				clos(conn)
+				core.CloseConn(conn)
 			}
 		}
 	}()
@@ -397,7 +397,7 @@ func (t *transport) do(pid string, req *http.Request) (ans []byte, blocklists st
 		qerr = dnsx.NewSendFailedQueryError(err)
 		return
 	}
-	clos(httpResponse.Body)
+	core.Close(httpResponse.Body)
 	log.V("doh: closed response")
 
 	// update the hostname, which could have changed due to a redirect
@@ -527,8 +527,4 @@ func (t *transport) GetAddr() string {
 
 func (t *transport) Status() int {
 	return t.status
-}
-
-func clos(c io.Closer) {
-	core.Close(c)
 }

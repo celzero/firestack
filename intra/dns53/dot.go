@@ -9,7 +9,6 @@ package dns53
 import (
 	"crypto/tls"
 	"fmt"
-	"io"
 	"net"
 	"net/url"
 	"time"
@@ -144,8 +143,8 @@ func (t *dot) pxdial(pid string) (conn *dns.Conn, err error) {
 	return
 }
 
-func clos(c io.Closer) {
-	core.Close(c)
+func clos(c net.Conn) {
+	core.CloseConn(c)
 }
 
 // perform tls handshake

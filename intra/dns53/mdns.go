@@ -104,7 +104,7 @@ func (t *dnssd) oneshotQuery(msg *dns.Msg) (*dns.Msg, *dnsx.QueryError) {
 		log.E("mdns: oquery: underlying transport: %s", err)
 		return nil, dnsx.NewTransportQueryError(err)
 	}
-	defer clos(c)
+	defer core.Close(c)
 	if qerr := c.query(qctx); qerr != nil {
 		log.E("mdns: oquery(%s): %v", qname, qerr)
 		return nil, qerr
@@ -304,7 +304,10 @@ func (c *client) Close() error {
 
 	log.I("mdns: closing client %v", c.str())
 
-	core.CloseUDP(c.unicast4, c.unicast6, c.multicast4, c.multicast6)
+	core.CloseUDP(c.unicast4)
+	core.CloseUDP(c.unicast6)
+	core.CloseUDP(c.multicast4)
+	core.CloseUDP(c.multicast6)
 
 	return nil
 }

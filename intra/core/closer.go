@@ -9,79 +9,137 @@ package core
 import (
 	"io"
 	"net"
+	"os"
 	"reflect"
 )
 
-// CloseUDP closes cs.
-func CloseUDP(cs ...*net.UDPConn) {
-	for _, c := range cs {
-		if c != nil {
-			_ = c.Close()
-		}
+type CloserOp int
+
+const (
+	CopR CloserOp = iota
+	CopW
+	CopRW
+	CopAny
+)
+
+func CloseFile(f *os.File) {
+	if f != nil {
+		_ = f.Close()
 	}
 }
 
-// CloseTCP closes cs.
-func CloseTCP(cs ...*net.TCPConn) {
-	for _, c := range cs {
-		if c != nil {
-			_ = c.Close()
-		}
+// CloseUDP closes c.
+func CloseUDP(c *net.UDPConn) {
+	if c != nil {
+		_ = c.Close()
+	}
+}
+
+// CloseTCP closes c.
+func CloseTCP(c *net.TCPConn) {
+	if c != nil {
+		_ = c.Close()
 	}
 }
 
 // CloseTCPRead closes the read end of r.
 func CloseTCPRead(r TCPConn) {
-	if r != nil && IsNotNil(r) {
-		_ = r.CloseRead()
+	if r != nil {
+		// avoid expensive reflection:
+		// groups.google.com/g/golang-nuts/c/wnH302gBa4I
+		switch x := r.(type) {
+		case *net.TCPConn:
+			if x != nil {
+				_ = x.CloseRead()
+			}
+		default:
+			if IsNotNil(r) {
+				_ = r.CloseRead()
+			}
+		}
 	}
 }
 
 // CloseTCPWrite closes the write end of w.
 func CloseTCPWrite(w TCPConn) {
-	if w != nil && IsNotNil(w) {
-		_ = w.CloseWrite()
+	if w != nil {
+		switch x := w.(type) {
+		case *net.TCPConn:
+			_ = x.CloseRead()
+		default:
+			if IsNotNil(w) {
+				_ = w.CloseRead()
+			}
+		}
 	}
 }
 
-// CloseConn closes c.
-func CloseConn(c net.Conn) {
-	Close(c) // ok even if c is nil; go.dev/play/p/3hL0DUL6_kJ
+// CloseConn closes cs.
+func CloseConn(cs ...net.Conn) {
+	for _, c := range cs {
+		if c == nil {
+			continue
+		}
+		switch x := c.(type) {
+		case *net.TCPConn:
+			if x != nil {
+				_ = x.Close()
+			}
+		case *net.UDPConn:
+			if x != nil {
+				_ = x.Close()
+			}
+		default:
+			if IsNotNil(c) {
+				_ = c.Close()
+			}
+		}
+	}
 }
 
 // Close closes cs.
 func Close(cs ...io.Closer) {
 	for _, c := range cs {
-		if c != nil && !IsNil(c) {
-			_ = c.Close()
-		}
+		CloseOp(c, CopAny)
 	}
 }
 
 // CloseOp closes op on c.
-// op can be "r", "w", or "rw" (default).
-// net.TCPConn confirms to core.TCPConn
-func CloseOp(c io.Closer, op string) {
+func CloseOp(c io.Closer, op CloserOp) {
 	if c == nil {
-		return
-	}
-	if op == "rw" {
-		Close(c)
 		return
 	}
 	switch x := c.(type) {
 	case TCPConn:
-		if op == "r" {
+		if op == CopR {
 			CloseTCPRead(x)
-		} else if op == "w" {
+		} else if op == CopW {
 			CloseTCPWrite(x)
 		} else { // == "rw"
 			CloseConn(x)
 		}
+	case *net.UDPConn:
+		CloseUDP(x)
 	case UDPConn:
 		CloseConn(x)
-	case io.Closer:
-		Close(x)
+	case *net.TCPListener:
+		if x != nil {
+			_ = x.Close()
+		}
+	case *io.PipeReader:
+		if x != nil {
+			_ = x.Close()
+		}
+	case *io.PipeWriter:
+		if x != nil {
+			_ = x.Close()
+		}
+	case *os.File:
+		CloseFile(x)
+	case io.Closer: // ex: net.PacketConn
+		if IsNotNil(c) {
+			_ = c.Close()
+		}
 	}
 }
 

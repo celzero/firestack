@@ -416,5 +416,5 @@ func extend(c net.Conn, t time.Duration) {
 }
 
 func clos(c io.Closer) {
-	core.Close(c)
+	core.CloseOp(c, core.CopRW)
 }

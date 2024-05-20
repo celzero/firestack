@@ -146,13 +146,13 @@ func (h *socks5) Dial(network, addr string) (c protect.Conn, err error) {
 				c = &socks5tcpconn{uc}
 			} else {
 				log.W("proxy: socks5: %s conn not tcp nor udp %s -> %s", h.ID(), h.GetAddr(), addr)
-				clos(c)
+				core.CloseConn(c)
 				c = nil
 				err = errNoProxyConn
 			}
 		} else {
 			log.W("proxy: socks5: %s conn not a tx.Client(%s) %s -> %s", h.ID(), network, h.GetAddr(), addr)
-			clos(c)
+			core.CloseConn(c)
 			c = nil
 			err = errNoProxyConn
 		}

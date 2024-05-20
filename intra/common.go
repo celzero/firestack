@@ -250,8 +250,8 @@ func hasSelfUid(t []core.ConnTuple, d bool) bool {
 	return false // regardless of d
 }
 
-func clos(c ...io.Closer) {
-	core.Close(c...)
+func clos(c ...net.Conn) {
+	core.CloseConn(c...)
 }
 
 func pclose(c io.Closer, op string) {

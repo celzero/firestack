@@ -131,7 +131,7 @@ func (p *pcapsink) file(f io.WriteCloser) (err error) {
 	}
 	old := p.sink.Swap(f)
 
-	core.Close(old)
+	core.CloseOp(old, core.CopRW)
 	y := f != zerowriter
 	if y {
 		err = p.begin(f) // write pcap header before any packets

@@ -18,7 +18,6 @@ import (
 	"bytes"
 	"encoding/binary"
 	"errors"
-	"io"
 	"net"
 	"strings"
 	"time"
@@ -366,6 +365,6 @@ func _dnsExchange(proxy *DcMulti, proto string, query *dns.Msg, serverAddress st
 	return dnsExchangeResponse{response: &msg, rtt: rtt, err: nil}
 }
 
-func clos(c io.Closer) {
-	core.Close(c)
+func clos(c net.Conn) {
+	core.CloseConn(c)
 }

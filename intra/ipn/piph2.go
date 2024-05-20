@@ -12,6 +12,7 @@ import (
 	"crypto/sha256"
 	"crypto/tls"
 	"encoding/hex"
+	"errors"
 	"io"
 	"net"
 	"net/http"
@@ -92,11 +93,11 @@ func (c *pipconn) Close() (err error) {
 }
 
 func (c *pipconn) CloseRead() {
-	clos(c.r)
+	core.Close(c.r)
 }
 
 func (c *pipconn) CloseWrite() {
-	clos(c.w)
+	core.Close(c.w)
 }
 
 func (c *pipconn) LocalAddr() net.Addr           { return c.laddr }
@@ -107,8 +108,8 @@ func SetWriteDeadline(t time.Time) error         { return nil }
 
 func (t *piph2) dialtls(network, addr string, cfg *tls.Config) (net.Conn, error) {
 	rawConn, err := t.dial(network, addr)
-	if err != nil {
-		return nil, err
+	if err != nil || rawConn == nil || core.IsNil(rawConn) {
+		return nil, errors.Join(err, errNoProxyConn)
 	}
 
 	colonPos := strings.LastIndex(addr, ":")
@@ -128,14 +129,10 @@ func (t *piph2) dialtls(network, addr string, cfg *tls.Config) (net.Conn, error)
 	conn := tls.Client(rawConn, cfg)
 	if err := conn.HandshakeContext(context.Background()); err != nil {
 		log.D("piph2: dialtls(%s) handshake error: %v", addr, err)
-		clos(rawConn)
+		core.CloseConn(rawConn)
 		return nil, err
 	}
 	return conn, nil
-}
-
-func clos(c io.Closer) {
-	core.Close(c)
 }
 
 func (t *piph2) dial(network, addr string) (net.Conn, error) {
@@ -290,6 +287,7 @@ func (t *piph2) Dial(network, addr string) (protect.Conn, error) {
 	readable, writable := io.Pipe()
 	// multipart? stackoverflow.com/questions/39761910
 	// mpw := multipart.NewWriter(writable)
+	// todo: buffered chan may slow down the client
 	incomingCh := make(chan io.ReadCloser, 1)
 	wlenCh := make(chan int64, 1)
 	oconn := &pipconn{
@@ -410,7 +408,7 @@ func (t *piph2) Dial(network, addr string) (protect.Conn, error) {
 			closePipe(readable, writable)
 		} else if res.StatusCode != http.StatusOK {
 			log.E("piph2: path(%s) recv bad: %v", u.Path, res.Status)
-			clos(res.Body)
+			core.Close(res.Body)
 			t.status = TKO
 			incomingCh <- nil
 			closePipe(readable, writable)
@@ -443,8 +441,10 @@ func (h *piph2) DNS() string {
 	return nodns
 }
 
-func closePipe(c ...io.Closer) {
-	core.Close(c...)
+func closePipe(ps ...io.Closer) {
+	for _, c := range ps {
+		core.CloseOp(c, core.CopAny)
+	}
 }
 
 func hmac256(m, k []byte) []byte {

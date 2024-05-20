@@ -941,5 +941,5 @@ func cachedTransport(t Transport) bool {
 }
 
 func clos(c io.Closer) {
-	core.Close(c)
+	core.CloseOp(c, core.CopRW)
 }
