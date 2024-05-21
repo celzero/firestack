@@ -48,8 +48,8 @@ func upload(cid string, local net.Conn, remote net.Conn, ioch chan<- ioinfo) {
 	n, err := pipe(remote, local)
 	log.D("intra: %s upload(%d) done(%v) b/w %s", cid, n, err, ci)
 
-	pclose(local, "r")
-	pclose(remote, "w")
+	core.CloseOp(local, core.CopR)
+	core.CloseOp(remote, core.CopW)
 	ioch <- ioinfo{n, err}
 }
 
@@ -59,8 +59,8 @@ func download(cid string, local net.Conn, remote net.Conn) (n int64, err error) 
 	n, err = pipe(local, remote)
 	log.D("intra: %s download(%d) done(%v) b/w %s", cid, n, err, ci)
 
-	pclose(local, "w")
-	pclose(remote, "r")
+	core.CloseOp(local, core.CopW)
+	core.CloseOp(remote, core.CopR)
 	return
 }
 
@@ -252,8 +252,4 @@ func hasSelfUid(t []core.ConnTuple, d bool) bool {
 
 func clos(c ...net.Conn) {
 	core.CloseConn(c...)
-}
-
-func pclose(c io.Closer, op string) {
-	core.CloseOp(c, op)
 }
