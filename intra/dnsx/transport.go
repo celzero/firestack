@@ -234,7 +234,7 @@ func (r *resolver) dcProxy() (TransportMult, error) {
 }
 
 func (r *resolver) Get(id string) (x.DNSTransport, error) {
-	if t := r.determineTransport(id); t == nil {
+	if t := r.determineTransport(id); t == nil || core.IsNil(t) {
 		return nil, errNoSuchTransport
 	} else {
 		return t, nil

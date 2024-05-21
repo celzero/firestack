@@ -97,7 +97,7 @@ func udpExchange(pid string, serverInfo *serverinfo, sharedKey *[32]byte, encryp
 	}
 
 	pc, err := serverInfo.dialudp(pid, upstreamAddr)
-	pcnil := core.IsNil(pc)
+	pcnil := pc == nil || core.IsNil(pc)
 	if err != nil || pcnil { // nilaway: tx.socks5 returns nil conn even if err == nil
 		if err == nil {
 			err = errNoConn
@@ -150,7 +150,7 @@ func tcpExchange(pid string, serverInfo *serverinfo, sharedKey *[32]byte, encryp
 	}
 
 	pc, err := serverInfo.dialtcp(pid, upstreamAddr)
-	pcnil := core.IsNil(pc)
+	pcnil := pc == nil || core.IsNil(pc)
 	if err != nil || pcnil { // nilaway: tx.socks5 returns nil conn even if err == nil
 		if err == nil {
 			err = errNoConn

@@ -357,7 +357,7 @@ func (h *udpHandler) Connect(gconn net.Conn, src, target netip.AddrPort) (dst co
 
 	var ok bool
 	if dst, ok = pc.(core.UDPConn); !ok {
-		pclose(pc, "rw")
+		core.CloseOp(pc, core.CopRW)
 		log.E("udp: connect: %s proxy(%s) does not impl core.UDPConn(%s/%s) for uid %s", cid, px.ID(), target, selectedTarget, uid)
 		return nil, smm, ct, errUdpSetupConn // disconnect
 	}

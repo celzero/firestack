@@ -129,10 +129,13 @@ func ProxyDials(dd []proxy.Dialer, network, addr string) (c net.Conn, err error)
 	tot := len(dd)
 	for i, d := range dd {
 		c, err = proxydial(d, network, addr, proxyConnect)
+		if c == nil && err != nil {
+			err = errors.Join(err, errNoConn)
+		}
 		if err != nil {
 			log.W("pdial: trying %s dialer of %d / %d to %s", network, i, tot, addr)
 			err = errors.Join(err)
-		} else {
+		} else if c != nil {
 			err = nil
 			return
 		}

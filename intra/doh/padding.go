@@ -48,7 +48,7 @@ func computePaddingSize(msgLen int, blockSize int) int {
 
 // Create an appropriately-sized padding option. Precondition: |msgLen| is the
 // length of a message that already contains an OPT RR.
-func optPadding(msgLen int) dns.EDNS0 {
+func optPadding(msgLen int) *dns.EDNS0_PADDING {
 	return &dns.EDNS0_PADDING{
 		Padding: make([]byte, computePaddingSize(msgLen, PaddingBlockSize)),
 	}
@@ -60,9 +60,7 @@ func AddEdnsPadding(msg *dns.Msg) (*dns.Msg, error) {
 	for _, addn := range msg.Extra {
 		if dns.TypeOPT == addn.Header().Rrtype {
 			var ok bool
-			opt, ok = addn.(*dns.OPT)
-			if ok {
-				msg.Compress = true
+			if opt, ok = addn.(*dns.OPT); ok {
 				break
 			}
 		}
@@ -73,6 +71,7 @@ func AddEdnsPadding(msg *dns.Msg) (*dns.Msg, error) {
 				return msg, nil // already padded
 			}
 		} // fallthrough
+		msg.Compress = true
 	} else { // create opt
 		opt = &dns.OPT{
 			Hdr: dns.RR_Header{

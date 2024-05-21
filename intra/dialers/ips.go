@@ -18,7 +18,7 @@ import (
 	"github.com/celzero/firestack/intra/settings"
 )
 
-var (
+const (
 	errNoConn     = net.UnknownNetworkError("no connection")
 	errNoIps      = net.UnknownNetworkError("no ips")
 	errNoDialer   = net.UnknownNetworkError("no dialer")

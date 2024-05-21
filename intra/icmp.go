@@ -149,7 +149,7 @@ func (h *icmpHandler) Ping(source, target netip.AddrPort, msg []byte, pong netst
 
 	dst := oneRealIp(realips, target)
 	uc, err := px.Dialer().Dial("udp", dst.String())
-	ucnil := core.IsNil(uc)
+	ucnil := uc == nil || core.IsNil(uc)
 	if err != nil || ucnil { // nilaway: tx.socks5 returns nil conn even if err == nil
 		if err == nil {
 			err = unix.ENETUNREACH
