@@ -81,7 +81,7 @@ func AddEdnsPadding(msg *dns.Msg) (*dns.Msg, error) {
 				Class:  65535,
 				Ttl:    dns.RcodeSuccess >> 4 << 24, // todo: TTL for dnssec 32768
 			},
-			Option: make([]dns.EDNS0, 0),
+			Option: nil,
 		}
 		msg.Compress = true
 		msg.Extra = append(msg.Extra, opt)
