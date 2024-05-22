@@ -149,6 +149,11 @@ func (s *stopFd) stop() {
 	}
 }
 
+type protocolAndPktBuf struct {
+	num tcpip.NetworkProtocolNumber
+	p *stack.PacketBuffer
+}
+
 // readVDispatcher uses readv() system call to read inbound packets and
 // dispatches them.
 type readVDispatcher struct {
@@ -164,6 +169,8 @@ type readVDispatcher struct {
 
 	// closed is set to true when fd is closed.
 	closed atomic.Bool
+
+	ch chan protocolAndPktBuf
 }
 
 var _ linkDispatcher = (*readVDispatcher)(nil)
@@ -182,6 +189,10 @@ func newReadVDispatcher(fd int, e *endpoint) (linkDispatcher, error) {
 	}
 
 	d.buf = newIovecBuffer(BufConfig)
+
+	d.ch = make(chan protocolAndPktBuf, 900)
+	go d.wing()
+
 	return d, nil
 }
 
@@ -191,6 +202,8 @@ func (d *readVDispatcher) stop() {
 	// TODO: should close tun-fd before stopFd?
 	err := syscall.Close(d.fd)
 	log.I("ns: dispatch: stop: fds closed event(%d) tun(%d); err? %v", d.efd, d.fd, err)
+
+	close(d.ch)
 }
 
 const abort = false // abort indicates that the dispatcher should stop.
@@ -256,9 +269,16 @@ func (d *readVDispatcher) dispatch() (bool, tcpip.Error) {
 
 	log.VV("ns: tun(%d): dispatch: (from-tun) proto(%d) for pkt-id(%d)", d.fd, p, pkt.Hash)
 
-	go func() {
-		d.e.InjectInbound(p, pkt)
-		pkt.DecRef()
-	}()
+	d.ch <- protocolAndPktBuf{
+		p,
+		pkt,
+	}
 	return cont, nil
+}
+
+func (d *readVDispatcher) wing(){
+	for i := range d.ch {
+		d.e.InjectInbound(i.num, i.p)
+		i.p.DecRef()
+	}
 }
