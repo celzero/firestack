@@ -34,7 +34,7 @@ func proxyConnect(d proxy.Dialer, proto string, ip netip.Addr, port int) (net.Co
 	case "udp", "udp4", "udp6":
 		fallthrough
 	default:
-		return d.Dial(proto, addr(ip, port))
+		return d.Dial(proto, addrstr(ip, port))
 	}
 }
 
@@ -138,7 +138,10 @@ func ProxyDials(dd []proxy.Dialer, network, addr string) (c net.Conn, err error)
 		} else if c != nil {
 			err = nil
 			return
-		}
+		} // c and err are nil
+	}
+	if c == nil && err == nil {
+		return nil, errNoConn
 	}
 	return
 }
