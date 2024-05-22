@@ -324,9 +324,7 @@ func (s *IPSet) bootstrap() (n int) {
 
 // Empty reports whether the set is empty.
 func (s *IPSet) Empty() bool {
-	s.RLock()
-	defer s.RUnlock()
-	return len(s.ips) == 0
+	return s.Size() == 0
 }
 
 func (s *IPSet) Size() int {
