@@ -42,7 +42,7 @@ func tlsConnect(d *tls.Dialer, proto, sni string, ip netip.Addr, port int) (net.
 		} else if len(d.Config.ServerName) <= 0 {
 			d.Config.ServerName = sni
 		}
-		return d.Dial(proto, addr(ip, port))
+		return d.Dial(proto, addrstr(ip, port))
 	}
 }
 

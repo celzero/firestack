@@ -68,7 +68,7 @@ func ipConnect(d *protect.RDial, proto string, ip netip.Addr, port int) (net.Con
 	case "udp", "udp4", "udp6":
 		return d.DialUDP(proto, nil, udpaddr(ip, port))
 	default:
-		return d.Dial(proto, addr(ip, port))
+		return d.Dial(proto, addrstr(ip, port))
 	}
 }
 
@@ -82,7 +82,7 @@ func ipConnect2(d *protect.RDial, proto string, ip netip.Addr, port int) (net.Co
 		log.E("rdial: ipConnect2: invalid ip", ip)
 		return nil, errNoIps
 	}
-	return d.Dial(proto, addr(ip, port))
+	return d.Dial(proto, addrstr(ip, port))
 }
 
 func doSplit(port int) bool {
@@ -108,7 +108,7 @@ func splitIpConnect(d *protect.RDial, proto string, ip netip.Addr, port int) (ne
 	case "udp", "udp4", "udp6":
 		return d.DialUDP(proto, nil, udpaddr(ip, port))
 	default:
-		return d.Dial(proto, addr(ip, port))
+		return d.Dial(proto, addrstr(ip, port))
 	}
 }
 
@@ -130,7 +130,7 @@ func splitIpConnect2(d *protect.RDial, proto string, ip netip.Addr, port int) (n
 	case "udp", "udp4", "udp6":
 		return d.DialUDP(proto, nil, udpaddr(ip, port))
 	default:
-		return d.Dial(proto, addr(ip, port))
+		return d.Dial(proto, addrstr(ip, port))
 	}
 }
 
