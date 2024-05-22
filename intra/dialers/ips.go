@@ -28,7 +28,7 @@ const (
 var ipm ipmap.IPMap = ipmap.NewIPMap()
 var ipProto string = settings.IP46
 
-func addr(ip netip.Addr, port int) string {
+func addrstr(ip netip.Addr, port int) string {
 	return net.JoinHostPort(ip.String(), strconv.Itoa(port))
 }
 
