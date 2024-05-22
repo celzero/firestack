@@ -31,15 +31,7 @@ func netConnect(d *net.Dialer, proto string, ip netip.Addr, port int) (net.Conn,
 		log.E("ndial: netConnect: invalid ip", ip)
 		return nil, errNoIps
 	}
-
-	switch proto {
-	case "tcp", "tcp4", "tcp6":
-		fallthrough
-	case "udp", "udp4", "udp6":
-		fallthrough
-	default:
-		return d.Dial(proto, addr(ip, port))
-	}
+	return d.Dial(proto, addrstr(ip, port))
 }
 
 func netdial(d *net.Dialer, network, addr string, connect netConnectFunc) (net.Conn, error) {
