@@ -169,7 +169,7 @@ type readVDispatcher struct {
 	buf      *iovecBuffer  // buf is the iovec buffer that contains packets.
 	closed   atomic.Bool   // closed is set to true when fd is closed.
 	once     sync.Once     // Ensures stop() is called only once.
-	ingress  chan pkts     // ingress receives packets from the tun fd.
+	ingress  chan *pkts    // ingress receives packets from the tun fd.
 	finalize chan struct{} // finalize is closed when the dispatcher is done.
 }
 
@@ -190,7 +190,7 @@ func newReadVDispatcher(fd int, e *endpoint) (linkDispatcher, error) {
 
 	d.buf = newIovecBuffer(BufConfig)
 
-	d.ingress = make(chan pkts, epsize)
+	d.ingress = make(chan *pkts, epsize)
 	d.finalize = make(chan struct{}) // always unbuffered
 	go d.forward()
 
@@ -273,7 +273,7 @@ func (d *readVDispatcher) dispatch() (bool, tcpip.Error) {
 	log.VV("ns: tun(%d): dispatch: (from-tun) proto(%d) for pkt-id(%d)", d.fd, p, pkt.Hash)
 
 	select {
-	case d.ingress <- pkts{p, pkt}: // closed chans panic on send: groups.google.com/g/golang-nuts/c/SDIBFSkDlK4
+	case d.ingress <- &pkts{p, pkt}: // closed chans panic on send: groups.google.com/g/golang-nuts/c/SDIBFSkDlK4
 	case <-d.finalize: // dave.cheney.net/2013/04/30/curious-channels
 		log.W("ns: %s tun: dispatch: finalized; drop pkt, sz(%d)", pkt.Size())
 		pkt.DecRef()
