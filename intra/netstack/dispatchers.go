@@ -26,6 +26,7 @@ package netstack
 
 import (
 	"fmt"
+	"sync"
 	"sync/atomic"
 	"syscall"
 
@@ -36,6 +37,11 @@ import (
 	"gvisor.dev/gvisor/pkg/tcpip/header"
 	"gvisor.dev/gvisor/pkg/tcpip/link/rawfile"
 	"gvisor.dev/gvisor/pkg/tcpip/stack"
+)
+
+const (
+	// epsize is the size of the ingress channel.
+	epsize = 4096
 )
 
 // BufConfig defines the shape of the vectorised view used to read packets from the NIC.
@@ -149,28 +155,22 @@ func (s *stopFd) stop() {
 	}
 }
 
-type protocolAndPktBuf struct {
+type pkts struct {
 	num tcpip.NetworkProtocolNumber
-	p *stack.PacketBuffer
+	pkt *stack.PacketBuffer
 }
 
 // readVDispatcher uses readv() system call to read inbound packets and
 // dispatches them.
 type readVDispatcher struct {
-	stopFd
-	// fd is the file descriptor used to send and receive packets.
-	fd int
-
-	// e is the endpoint this dispatcher is attached to.
-	e *endpoint
-
-	// buf is the iovec buffer that contains the packet contents.
-	buf *iovecBuffer
-
-	// closed is set to true when fd is closed.
-	closed atomic.Bool
-
-	ch chan protocolAndPktBuf
+	stopFd                 // stopFd is used to signal the dispatcher to stop.
+	fd       int           // fd is the file descriptor used to send/receive packets.
+	e        *endpoint     // e is the endpoint this dispatcher is attached to.
+	buf      *iovecBuffer  // buf is the iovec buffer that contains packets.
+	closed   atomic.Bool   // closed is set to true when fd is closed.
+	once     sync.Once     // Ensures stop() is called only once.
+	ingress  chan pkts     // ingress receives packets from the tun fd.
+	finalize chan struct{} // finalize is closed when the dispatcher is done.
 }
 
 var _ linkDispatcher = (*readVDispatcher)(nil)
@@ -190,20 +190,23 @@ func newReadVDispatcher(fd int, e *endpoint) (linkDispatcher, error) {
 
 	d.buf = newIovecBuffer(BufConfig)
 
-	d.ch = make(chan protocolAndPktBuf, 900)
-	go d.wing()
+	d.ingress = make(chan pkts, epsize)
+	d.finalize = make(chan struct{}) // always unbuffered
+	go d.forward()
 
 	return d, nil
 }
 
+// stop stops the dispatcher once. Safe to call multiple times.
 func (d *readVDispatcher) stop() {
-	d.closed.Store(true)
-	d.stopFd.stop()
-	// TODO: should close tun-fd before stopFd?
-	err := syscall.Close(d.fd)
-	log.I("ns: dispatch: stop: fds closed event(%d) tun(%d); err? %v", d.efd, d.fd, err)
-
-	close(d.ch)
+	d.once.Do(func() {
+		d.closed.Store(true)
+		d.stopFd.stop()
+		err := syscall.Close(d.fd) // TODO: close tun-fd before stopFd?
+		close(d.finalize)          // unblock all selects
+		close(d.ingress)           // then close the ingress channel
+		log.I("ns: dispatch: stop: fds closed event(%d) tun(%d); err? %v", d.efd, d.fd, err)
+	})
 }
 
 const abort = false // abort indicates that the dispatcher should stop.
@@ -269,16 +272,20 @@ func (d *readVDispatcher) dispatch() (bool, tcpip.Error) {
 
 	log.VV("ns: tun(%d): dispatch: (from-tun) proto(%d) for pkt-id(%d)", d.fd, p, pkt.Hash)
 
-	d.ch <- protocolAndPktBuf{
-		p,
-		pkt,
+	select {
+	case d.ingress <- pkts{p, pkt}: // closed chans panic on send: groups.google.com/g/golang-nuts/c/SDIBFSkDlK4
+	case <-d.finalize: // dave.cheney.net/2013/04/30/curious-channels
+		log.W("ns: %s tun: dispatch: finalized; drop pkt, sz(%d)", pkt.Size())
+		pkt.DecRef()
+		return abort, new(tcpip.ErrClosedForReceive)
 	}
+
 	return cont, nil
 }
 
-func (d *readVDispatcher) wing(){
-	for i := range d.ch {
-		d.e.InjectInbound(i.num, i.p)
-		i.p.DecRef()
+func (d *readVDispatcher) forward() {
+	for x := range d.ingress {
+		d.e.InjectInbound(x.num, x.pkt)
+		x.pkt.DecRef()
 	}
 }
