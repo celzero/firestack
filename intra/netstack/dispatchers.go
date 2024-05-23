@@ -192,7 +192,9 @@ func newReadVDispatcher(fd int, e *endpoint) (linkDispatcher, error) {
 
 	d.ingress = make(chan *pkts, epsize)
 	d.finalize = make(chan struct{}) // always unbuffered
-	go d.forward()
+	d.forwardAsync()
+
+	log.I("ns: dispatch: newReadVDispatcher: tun(%d) efd(%d) ch(%d)", fd, d.efd, cap(d.ingress))
 
 	return d, nil
 }
@@ -227,7 +229,7 @@ func (d *readVDispatcher) dispatch() (bool, tcpip.Error) {
 
 	n, err := rawfile.BlockingReadvUntilStopped(d.efd, d.fd, iov)
 
-	log.VV("ns: tun(%d): dispatch: got(%d bytes), err(%v)", d.fd, n, err)
+	log.VV("ns: tun(%d): dispatch: q(%d/%d), got(%d bytes), err(%v)", d.fd, len(d.ingress), cap(d.ingress), n, err)
 	if n <= 0 || err != nil {
 		if err == nil {
 			err = new(tcpip.ErrNoSuchFile)
@@ -270,10 +272,9 @@ func (d *readVDispatcher) dispatch() (bool, tcpip.Error) {
 		}
 	}
 
-	log.VV("ns: tun(%d): dispatch: (from-tun) proto(%d) for pkt-id(%d)", d.fd, p, pkt.Hash)
-
 	select {
 	case d.ingress <- &pkts{p, pkt}: // closed chans panic on send: groups.google.com/g/golang-nuts/c/SDIBFSkDlK4
+		log.VV("ns: tun(%d): dispatch: (from-tun) q(%d/%d), proto(%d), sz(%d)", d.fd, len(d.ingress), cap(d.ingress), p, pkt.Size())
 	case <-d.finalize: // dave.cheney.net/2013/04/30/curious-channels
 		log.W("ns: %s tun: dispatch: finalized; drop pkt, sz(%d)", pkt.Size())
 		pkt.DecRef()
@@ -283,9 +284,11 @@ func (d *readVDispatcher) dispatch() (bool, tcpip.Error) {
 	return cont, nil
 }
 
-func (d *readVDispatcher) forward() {
-	for x := range d.ingress {
-		d.e.InjectInbound(x.num, x.pkt)
-		x.pkt.DecRef()
-	}
+func (d *readVDispatcher) forwardAsync() {
+	go func() {
+		for x := range d.ingress {
+			d.e.InjectInbound(x.num, x.pkt)
+			x.pkt.DecRef()
+		}
+	}()
 }

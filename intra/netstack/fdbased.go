@@ -269,7 +269,7 @@ func (e *endpoint) Swap(fd, mtu int) (err error) {
 	if e.dispatcher != nil { // attached?
 		go e.dispatchLoop(e.inboundDispatcher)
 	} else {
-		log.W("ns: tun(%d): Swap: no dispatcher; fd not swapped", fd)
+		log.W("ns: tun(%d => %d): Swap: no dispatcher; fd not swapped", prevfd, fd)
 	}
 	return nil
 }
