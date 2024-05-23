@@ -90,9 +90,9 @@ func NewUDPForwarder(s *stack.Stack, h GUDPConnHandler) *udp.Forwarder {
 
 		// if gc is a connected udp socket; proxy it like a stream
 		if !dst.Addr().IsUnspecified() {
-			h.Proxy(gc, src, dst)
+			go h.Proxy(gc, src, dst)
 		} else {
-			h.ProxyMux(gc, src)
+			go h.ProxyMux(gc, src)
 		}
 	})
 }
