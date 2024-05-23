@@ -241,11 +241,15 @@ func (e *endpoint) Swap(fd, mtu int) (err error) {
 				prev.stop()
 				// avoid e.Wait(), it blocks until ALL dispatchers stop, not just prev
 			}()
+		} else {
+			log.D("ns: tun(%d): Swap: no previous dispatcher?", fd)
 		}
 	}()
 
 	if err = unix.SetNonblock(fd, true); err != nil {
-		return fmt.Errorf("unix.SetNonblock(%v) failed: %v", fd, err)
+		err := fmt.Errorf("unix.SetNonblock(%v) failed: %v", fd, err)
+		log.W("ns: tun(%d): Swap: err %v", fd, err)
+		return err
 	}
 
 	e.mtu.Store(uint32(mtu))
@@ -258,10 +262,14 @@ func (e *endpoint) Swap(fd, mtu int) (err error) {
 
 	e.inboundDispatcher, err = createInboundDispatcher(e, fd)
 	if err != nil {
-		return fmt.Errorf("createInboundDispatcher(...) = %v", err)
+		err := fmt.Errorf("createInboundDispatcher(%d, ...) = %v", fd, err)
+		log.W("ns: tun(%d): Swap: err %v", fd, err)
+		return err
 	}
 	if e.dispatcher != nil { // attached?
 		go e.dispatchLoop(e.inboundDispatcher)
+	} else {
+		log.W("ns: tun(%d): Swap: no dispatcher; fd not swapped", fd)
 	}
 	return nil
 }
@@ -273,10 +281,14 @@ func (e *endpoint) Attach(dispatcher stack.NetworkDispatcher) {
 	defer e.Unlock()
 
 	rx := e.inboundDispatcher
+	fd := e.fd()
+	attach := dispatcher != nil   // nil means the NIC is being removed.
+	pipe := rx != nil             // nil means there's no read dispatcher.
+	exists := e.dispatcher != nil // nil means the NIC is already detached.
 	// Attach is called when the NIC is being created and then enabled.
 	// stack.CreateNIC -> nic.newNIC -> ep.Attach
-	// nil means the NIC is being removed.
 	if dispatcher == nil && e.dispatcher != nil {
+		log.I("ns: tun(%d): attach: detach dispatcher (and inbound? %t)", fd, pipe)
 		if rx != nil {
 			rx.stop()
 			e.Wait()
@@ -285,10 +297,12 @@ func (e *endpoint) Attach(dispatcher stack.NetworkDispatcher) {
 		return
 	}
 	if dispatcher != nil && e.dispatcher == nil {
+		log.I("ns: tun(%d): attach: attach new dispatcher", fd)
 		e.dispatcher = dispatcher
 		go e.dispatchLoop(rx)
 		return
 	}
+	log.W("ns: tun(%d): attach: discard? %t; already hasDispatcher? %t and hasInbound? %t", fd, exists, attach, pipe)
 }
 
 // IsAttached implements stack.LinkEndpoint.IsAttached.
@@ -438,6 +452,8 @@ func (e *endpoint) dispatchLoop(inbound linkDispatcher) tcpip.Error {
 		log.W("ns: tun(%d): dispatchLoop: inbound nil", fd)
 		return &tcpip.ErrUnknownDevice{}
 	}
+
+	log.I("ns: tun(%d): dispatchLoop: start", fd)
 	for {
 		cont, err := inbound.dispatch()
 		if err != nil || !cont {
@@ -457,13 +473,14 @@ func (e *endpoint) ARPHardwareType() header.ARPHardwareType {
 
 // InjectInbound ingresses a netstack-inbound packet.
 func (e *endpoint) InjectInbound(protocol tcpip.NetworkProtocolNumber, pkt *stack.PacketBuffer) {
-	log.VV("ns: inject-inbound (from tun) %d", protocol)
+	fd := e.fd()
+	log.VV("ns: tun(%d): inject-inbound (from tun) %d", fd, protocol)
 	d := e.dispatcher // TODO: read lock?
 	if d != nil && pkt != nil {
 		e.logPacketIfNeeded(sniffer.DirectionRecv, pkt)
 		d.DeliverNetworkPacket(protocol, pkt)
 	} else {
-		log.W("ns: inject-inbound (from tun) %d pkt?(%t) dropped: endpoint not attached", protocol, pkt != nil)
+		log.W("ns: tun(%d): inject-inbound (from tun) %d pkt?(%t) dropped: endpoint not attached", fd, protocol, pkt != nil)
 	}
 }
 
