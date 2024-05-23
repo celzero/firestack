@@ -617,9 +617,7 @@ func (tun *wgtun) Close() error {
 		// if tun.events != nil {
 		// panics; is it closed by device.Device.Close()?
 		// close(tun.events) }
-		if tun.ingress != nil {
-			close(tun.ingress)
-		}
+		close(tun.ingress)
 
 		// github.com/tailscale/tailscale/blob/836f932e/wgengine/netstack/netstack.go#L223
 

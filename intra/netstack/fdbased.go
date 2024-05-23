@@ -233,7 +233,7 @@ func (e *endpoint) Swap(fd, mtu int) (err error) {
 	var prevfd int
 	defer func() {
 		// TODO: should we let the previous dispatcher stop on EOF?
-		// From prelim experiments, it seems prevfd never EOFs?
+		// In prelim experiments, prevfd never EOFs.
 		if prev != nil {
 			log.I("ns: tun(%d => %d): Swap: stopping previous dispatcher", prevfd, fd)
 			go func() {
