@@ -79,7 +79,7 @@ func (c *socks5udpconn) ReadFrom(b []byte) (n int, addr net.Addr, err error) {
 	return 0, nil, errNoProxyConn
 }
 
-func NewSocks5Proxy(id string, ctl protect.Controller, po *settings.ProxyOptions) (Proxy, error) {
+func NewSocks5Proxy(id string, ctl protect.Controller, po *settings.ProxyOptions) (*socks5, error) {
 	var err error
 	if po == nil {
 		log.W("proxy: err setting up socks5(%v): %v", po, err)

@@ -110,12 +110,12 @@ type IPSet struct {
 	fails        int          // Number of times the confirmed IP has failed.
 }
 
-func NewIPMap() IPMap {
+func NewIPMap() *ipmap {
 	return NewIPMapFor(nil)
 }
 
 // NewIPMapFor returns a fresh IPMap with r as its nameserver.
-func NewIPMapFor(r IPMapper) IPMap {
+func NewIPMapFor(r IPMapper) *ipmap {
 	return &ipmap{
 		m: make(map[string]*IPSet),
 		p: make(map[string]*IPSet),

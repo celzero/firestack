@@ -25,7 +25,7 @@ type exit struct {
 	status    int
 }
 
-func NewExitProxy(c protect.Controller) Proxy {
+func NewExitProxy(c protect.Controller) *exit {
 	if c == nil {
 		log.W("proxy: exit: missing ctl; probably not what you want")
 	}

@@ -32,7 +32,7 @@ type http1 struct {
 	status   int
 }
 
-func NewHTTPProxy(id string, c protect.Controller, po *settings.ProxyOptions) (Proxy, error) {
+func NewHTTPProxy(id string, c protect.Controller, po *settings.ProxyOptions) (*http1, error) {
 	var err error
 	if po == nil {
 		log.W("proxy: err setting up http1 w(%v): %v", po, err)

@@ -659,7 +659,7 @@ func NewDcMult(px ipn.Proxies, ctl protect.Controller) *DcMulti {
 }
 
 // AddTransport creates and adds a dnscrypt transport to p
-func AddTransport(p *DcMulti, id, serverstamp string) (dnsx.Transport, error) {
+func AddTransport(p *DcMulti, id, serverstamp string) (*serverinfo, error) {
 	if p == nil {
 		return nil, dnsx.ErrNoDcProxy
 	}

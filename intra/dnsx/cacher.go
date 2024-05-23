@@ -85,7 +85,7 @@ type ctransport struct {
 	est          core.P2QuantileEstimator
 }
 
-func NewDefaultCachingTransport(t Transport) (ct Transport) {
+func NewDefaultCachingTransport(t Transport) Transport {
 	return NewCachingTransport(t, defttl)
 }
 

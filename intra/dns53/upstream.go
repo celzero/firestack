@@ -51,7 +51,7 @@ type transport struct {
 var _ dnsx.Transport = (*transport)(nil)
 
 // NewTransportFromHostname returns a DNS53 transport serving from hostname, ready for use.
-func NewTransportFromHostname(id, hostname string, ipcsv string, px ipn.Proxies, ctl protect.Controller) (t dnsx.Transport, err error) {
+func NewTransportFromHostname(id, hostname string, ipcsv string, px ipn.Proxies, ctl protect.Controller) (t *transport, err error) {
 	// ipcsv may contain port, eg: 10.1.1.3:53
 	do, err := settings.NewDNSOptionsFromHostname(hostname, ipcsv)
 	if err != nil {
@@ -61,7 +61,7 @@ func NewTransportFromHostname(id, hostname string, ipcsv string, px ipn.Proxies,
 }
 
 // NewTransport returns a DNS53 transport serving from ip & port, ready for use.
-func NewTransport(id, ip, port string, px ipn.Proxies, ctl protect.Controller) (t dnsx.Transport, err error) {
+func NewTransport(id, ip, port string, px ipn.Proxies, ctl protect.Controller) (t *transport, err error) {
 	ipport := net.JoinHostPort(ip, port)
 	do, err := settings.NewDNSOptions(ipport)
 	if err != nil {
@@ -71,7 +71,7 @@ func NewTransport(id, ip, port string, px ipn.Proxies, ctl protect.Controller) (
 	return newTransport(id, do, px, ctl)
 }
 
-func newTransport(id string, do *settings.DNSOptions, px ipn.Proxies, ctl protect.Controller) (dnsx.Transport, error) {
+func newTransport(id string, do *settings.DNSOptions, px ipn.Proxies, ctl protect.Controller) (*transport, error) {
 	var relay ipn.Proxy
 	// cannot be nil, see: ipn.Exit which the only proxy guaranteed to be connected to the internet;
 	// ex: ipn.Base routed back within the tunnel (rethink's traffic routed back into rethink).

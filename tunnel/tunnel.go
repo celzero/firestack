@@ -84,6 +84,7 @@ func (*nowrite) Write([]byte) (int, error) { return 0, io.ErrClosedPipe }
 func (*nowrite) Close() error              { return nil }
 
 var _ io.WriteCloser = (*nowrite)(nil)
+var _ Tunnel = (*gtunnel)(nil)
 
 var (
 	errInvalidTunFd = errors.New("invalid tun fd")
@@ -188,7 +189,7 @@ func newSink() *pcapsink {
 	return p
 }
 
-func NewGTunnel(fd, mtu int, tcph netstack.GTCPConnHandler, udph netstack.GUDPConnHandler, icmph netstack.GICMPHandler) (t Tunnel, err error) {
+func NewGTunnel(fd, mtu int, tcph netstack.GTCPConnHandler, udph netstack.GUDPConnHandler, icmph netstack.GICMPHandler) (t *gtunnel, err error) {
 	dupfd, err := dup(fd) // tunnel will own dupfd
 	if err != nil {
 		return nil, err

@@ -139,7 +139,7 @@ type resolver struct {
 
 var _ Resolver = (*resolver)(nil)
 
-func NewResolver(fakeaddrs string, tunmode *settings.TunMode, dtr x.DNSTransport, l x.DNSListener, pt NatPt) Resolver {
+func NewResolver(fakeaddrs string, tunmode *settings.TunMode, dtr x.DNSTransport, l x.DNSListener, pt NatPt) *resolver {
 	r := &resolver{
 		NatPt:        pt,
 		listener:     l,

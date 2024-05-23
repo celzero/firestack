@@ -23,7 +23,7 @@ type base struct {
 	status   int
 }
 
-func NewBaseProxy(c protect.Controller) Proxy {
+func NewBaseProxy(c protect.Controller) *base {
 	d := protect.MakeNsRDial(Base, c)
 	h := &base{
 		addr:     "127.3.4.5:6890",

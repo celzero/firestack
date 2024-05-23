@@ -371,7 +371,7 @@ func loadIPNets(out *[]netip.Prefix, v string) (err error) {
 }
 
 // ref: github.com/WireGuard/wireguard-android/blob/713947e432/tunnel/tools/libwg-go/api-android.go#L76
-func NewWgProxy(id string, ctl protect.Controller, cfg string) (WgProxy, error) {
+func NewWgProxy(id string, ctl protect.Controller, cfg string) (*wgproxy, error) {
 	ifaddrs, allowedaddrs, peers, dnsh, endpointh, mtu, err := wgIfConfigOf(id, &cfg)
 	uapicfg := cfg
 	if err != nil {

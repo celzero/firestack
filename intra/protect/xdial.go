@@ -58,7 +58,7 @@ var (
 	errAccept      = errors.New("cannot accept network")
 )
 
-func (d *RDial) dial(network, addr string) (Conn, error) {
+func (d *RDial) dial(network, addr string) (net.Conn, error) {
 	usedialer := d.Dialer != nil
 	userdialer := d.RDialer != nil
 	if usedialer {
@@ -88,7 +88,7 @@ func (d *RDial) DialContext(_ context.Context, network, addr string) (net.Conn, 
 	}
 }
 
-func (d *RDial) Accept(network, local string) (Listener, error) {
+func (d *RDial) Accept(network, local string) (net.Listener, error) {
 	if network != "tcp" && network != "tcp4" && network != "tcp6" {
 		return nil, errAccept
 	}
@@ -108,7 +108,7 @@ func (d *RDial) Accept(network, local string) (Listener, error) {
 	return d.RDialer.Accept(network, local)
 }
 
-func (d *RDial) Announce(network, local string) (PacketConn, error) {
+func (d *RDial) Announce(network, local string) (net.PacketConn, error) {
 	if network != "udp" && network != "udp4" && network != "udp6" {
 		return nil, errAnnounce
 	}

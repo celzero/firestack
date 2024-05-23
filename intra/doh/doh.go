@@ -90,7 +90,7 @@ func (t *transport) dial(network, addr string) (net.Conn, error) {
 // `rawurl` is the DoH template in string form.
 // `addrs` is a list of IP addresses to bootstrap dialers.
 // `px` is the proxy provider, may be nil (eg for id == dnsx.Default)
-func NewTransport(id, rawurl string, addrs []string, px ipn.Proxies, ctl protect.Controller) (dnsx.Transport, error) {
+func NewTransport(id, rawurl string, addrs []string, px ipn.Proxies, ctl protect.Controller) (*transport, error) {
 	return newTransport(dnsx.DOH, id, rawurl, "", addrs, px, ctl)
 }
 
@@ -100,7 +100,7 @@ func NewTransport(id, rawurl string, addrs []string, px ipn.Proxies, ctl protect
 // `target` is the ODoH resolver.
 // `addrs` is a list of IP addresses to bootstrap endpoint dialers.
 // `px` is the proxy provider, never nil.
-func NewOdohTransport(id, endpoint, target string, addrs []string, px ipn.Proxies, ctl protect.Controller) (dnsx.Transport, error) {
+func NewOdohTransport(id, endpoint, target string, addrs []string, px ipn.Proxies, ctl protect.Controller) (*transport, error) {
 	return newTransport(dnsx.ODOH, id, endpoint, target, addrs, px, ctl)
 }
 

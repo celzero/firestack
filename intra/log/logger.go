@@ -74,6 +74,8 @@ const (
 
 const defaultLevel = INFO
 
+var _ Logger = (*simpleLogger)(nil)
+
 var defaultFlags = golog.Lshortfile
 var defaultCallerDepth = 2
 var _ = RegisterLogger(defaultLogger())
@@ -86,7 +88,7 @@ func defaultLogger() *simpleLogger {
 	}
 }
 
-func NewLogger(tag string) Logger {
+func NewLogger(tag string) *simpleLogger {
 	l := defaultLogger()
 	if len(tag) <= 0 { // if tag is empty, leave it as is
 		return l

@@ -40,7 +40,7 @@ type socks5handler struct {
 	px ipn.Proxy
 }
 
-func newSocks5Server(id, x string, ctl protect.Controller, listener ServerListener) (Server, error) {
+func newSocks5Server(id, x string, ctl protect.Controller, listener ServerListener) (*socks5, error) {
 	var host string
 	var usr string
 	var pwd string

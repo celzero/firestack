@@ -40,7 +40,7 @@ type dot struct {
 var _ dnsx.Transport = (*dot)(nil)
 
 // NewTLSTransport returns a DNS over TLS transport, ready for use.
-func NewTLSTransport(id, rawurl string, addrs []string, px ipn.Proxies, ctl protect.Controller) (t dnsx.Transport, err error) {
+func NewTLSTransport(id, rawurl string, addrs []string, px ipn.Proxies, ctl protect.Controller) (t *dot, err error) {
 	tlscfg := &tls.Config{MinVersion: tls.VersionTLS12}
 	// rawurl is either tls:host[:port] or tls://host[:port] or host[:port]
 	parsedurl, err := url.Parse(rawurl)

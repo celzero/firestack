@@ -18,7 +18,7 @@ import (
 	"github.com/celzero/firestack/intra/settings"
 )
 
-func (pxr *proxifier) NewSocks5Proxy(id, user, pwd, ip, port string) (p Proxy, err error) {
+func (pxr *proxifier) NewSocks5Proxy(id, user, pwd, ip, port string) (p *socks5, err error) {
 	opts := settings.NewAuthProxyOptions("socks5", user, pwd, ip, port, nil)
 	return NewSocks5Proxy(id, pxr.ctl, opts)
 }

@@ -98,7 +98,7 @@ func (t *pipws) wsconn(rurl, msg string) (c net.Conn, res *http.Response, err er
 // The proxy options must contain a valid URL, and the URL must have a path with the format "/ws/<sha256(rsasig)>".
 // The proxy options must also contain a valid auth user (raw client token) and
 // password (expiry + signed raw client token).
-func NewPipWsProxy(id string, ctl protect.Controller, po *settings.ProxyOptions) (Proxy, error) {
+func NewPipWsProxy(id string, ctl protect.Controller, po *settings.ProxyOptions) (*pipws, error) {
 	if po == nil {
 		return nil, errMissingProxyOpt
 	}

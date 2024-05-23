@@ -47,7 +47,7 @@ var (
 )
 
 // NewNatPt returns a new NatPt.
-func NewNatPt(tunmode *settings.TunMode) dnsx.NatPt {
+func NewNatPt(tunmode *settings.TunMode) *natPt {
 	log.I("natpt: new; mode(%v)", tunmode)
 	return &natPt{
 		nat64:   newNat64(),

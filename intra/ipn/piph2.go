@@ -139,7 +139,7 @@ func (t *piph2) dial(network, addr string) (net.Conn, error) {
 	return dialers.SplitDial(t.proxydialer, network, addr)
 }
 
-func NewPipProxy(id string, ctl protect.Controller, po *settings.ProxyOptions) (Proxy, error) {
+func NewPipProxy(id string, ctl protect.Controller, po *settings.ProxyOptions) (*piph2, error) {
 	if po == nil {
 		return nil, errMissingProxyOpt
 	}

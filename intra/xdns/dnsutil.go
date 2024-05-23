@@ -984,7 +984,7 @@ func HasHTTPQuestion(msg *dns.Msg) (ok bool) {
 	return
 }
 
-func MakeARecord(name string, ip4 string, expiry int) dns.RR {
+func MakeARecord(name string, ip4 string, expiry int) *dns.A {
 	if len(ip4) <= 0 || len(name) <= 0 {
 		return nil
 	}
@@ -1006,7 +1006,7 @@ func MakeARecord(name string, ip4 string, expiry int) dns.RR {
 	return rec
 }
 
-func MakeAAAARecord(name string, ip6 string, expiry int) dns.RR {
+func MakeAAAARecord(name string, ip6 string, expiry int) *dns.AAAA {
 	if len(ip6) <= 0 || len(name) <= 0 {
 		return nil
 	}
@@ -1031,7 +1031,7 @@ func MakeAAAARecord(name string, ip6 string, expiry int) dns.RR {
 // MaybeToQuadA translates an A record to a AAAA record if the prefix is not nil.
 // The ttl of the new record is the minimum of the original ttl and minttl.
 // If the prefix is nil or answer has an empty A record, it returns nil.
-func MaybeToQuadA(answer dns.RR, prefix *net.IPNet, minttl uint32) dns.RR {
+func MaybeToQuadA(answer dns.RR, prefix *net.IPNet, minttl uint32) *dns.AAAA {
 	header := answer.Header()
 	if prefix == nil || header.Rrtype != dns.TypeA {
 		return nil

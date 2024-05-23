@@ -149,7 +149,7 @@ func (w *gw) MTU() (int, error)    { return NOMTU, errNoMtu }
 func (w *gw) Stat() *x.Stats       { return &w.stats }
 func (w *gw) Contains(string) bool { return w.ok }
 
-func NewProxifier(c protect.Controller, o x.ProxyListener) Proxies {
+func NewProxifier(c protect.Controller, o x.ProxyListener) *proxifier {
 	if c == nil || o == nil {
 		return nil
 	}

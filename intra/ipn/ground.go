@@ -17,7 +17,9 @@ type ground struct {
 	addr string
 }
 
-func NewGroundProxy() Proxy {
+var _ Proxy = (*ground)(nil)
+
+func NewGroundProxy() *ground {
 	h := &ground{
 		addr: "[::]:0",
 	}

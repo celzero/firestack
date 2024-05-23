@@ -48,8 +48,8 @@ type dnssd struct {
 var _ dnsx.Transport = (*dnssd)(nil)
 
 // NewMDNSTransport returns a DNS transport that sends all DNS queries to mDNS endpoint.
-func NewMDNSTransport(protos string) (t dnsx.Transport) {
-	t = &dnssd{
+func NewMDNSTransport(protos string) *dnssd {
+	t := &dnssd{
 		id:     dnsx.Local,
 		use4:   use4(protos),
 		use6:   use6(protos),
@@ -58,7 +58,7 @@ func NewMDNSTransport(protos string) (t dnsx.Transport) {
 		est:    core.NewP50Estimator(),
 	}
 	log.I("mdns: setup: %s", protos)
-	return
+	return t
 }
 
 func use4(l3 string) bool {

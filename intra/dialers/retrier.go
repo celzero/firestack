@@ -122,7 +122,7 @@ func calcTimeout(before, after time.Time) time.Duration {
 // Read and CloseRead, and another calling Write, ReadFrom, and CloseWrite.
 // `dialer` will be used to establish the connection.
 // `addr` is the destination.
-func DialWithSplitRetry(dial *protect.RDial, addr *net.TCPAddr) (DuplexConn, error) {
+func DialWithSplitRetry(dial *protect.RDial, addr *net.TCPAddr) (*retrier, error) {
 	before := time.Now()
 	conn, err := dial.DialTCP(addr.Network(), nil, addr)
 	if err != nil {
@@ -402,8 +402,13 @@ func laddr(c net.Conn) net.Addr {
 	if c != nil && core.IsNotNil(c) {
 		return c.LocalAddr()
 	}
-	return nil
+	return NoNetAddr{}
 }
+
+type NoNetAddr struct{}
+
+func (NoNetAddr) Network() string { return "no" }
+func (NoNetAddr) String() string  { return "none" }
 
 func barrier(m *sync.Mutex) {
 	if m != nil {

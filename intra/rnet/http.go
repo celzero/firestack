@@ -41,7 +41,7 @@ type httpxhandle struct {
 	px ipn.Proxy
 }
 
-func newHttpServer(id, x string, ctl protect.Controller, listener ServerListener) (Server, error) {
+func newHttpServer(id, x string, ctl protect.Controller, listener ServerListener) (*httpx, error) {
 	var host string
 	var usr string
 	var pwd string

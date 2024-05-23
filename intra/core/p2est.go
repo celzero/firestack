@@ -35,8 +35,10 @@ type P2QuantileEstimator interface {
 	P() float64
 }
 
+var _ P2QuantileEstimator = (*p2)(nil)
+
 // NewP50Estimator returns a new P50 (median) estimator.
-func NewP50Estimator() P2QuantileEstimator {
+func NewP50Estimator() *p2 {
 	// calibrate: go.dev/play/p/Ry1i61XqzgB
 	// 31 worked best amid wild latency fluctuations
 	// using 11 for lower overhead; 5 is the default
@@ -44,7 +46,7 @@ func NewP50Estimator() P2QuantileEstimator {
 }
 
 // NewP90Estimator returns a new estimator with percentile p.
-func NewP2QuantileEstimator(samples int, probability float64) P2QuantileEstimator {
+func NewP2QuantileEstimator(samples int, probability float64) *p2 {
 	// total samples, typically 5; higher sample size improves accuracy for
 	// lower percentiles (p50) at the expense of computational cost;
 	// for higher percentiles (p90+), even sample size as low as 5 works fine.
