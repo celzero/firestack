@@ -256,16 +256,18 @@ func (e *endpoint) Swap(fd, mtu int) (err error) {
 	// commence WritePackets() on fd
 	prevfd = e.fds.Swap(fd)
 
-	e.Lock()
-	defer e.Unlock()
-	prev = e.inboundDispatcher
-
-	e.inboundDispatcher, err = createInboundDispatcher(e, fd)
+	inbound, err := createInboundDispatcher(e, fd)
 	if err != nil {
 		err := fmt.Errorf("createInboundDispatcher(%d, ...) = %v", fd, err)
 		log.W("ns: tun(%d): Swap: err %v", fd, err)
 		return err
 	}
+
+	e.Lock()
+	defer e.Unlock()
+	prev = e.inboundDispatcher
+	e.inboundDispatcher = inbound
+
 	if e.dispatcher != nil { // attached?
 		go e.dispatchLoop(e.inboundDispatcher)
 	} else {
@@ -290,10 +292,11 @@ func (e *endpoint) Attach(dispatcher stack.NetworkDispatcher) {
 	if dispatcher == nil && e.dispatcher != nil {
 		log.I("ns: tun(%d): attach: detach dispatcher (and inbound? %t)", fd, pipe)
 		if rx != nil {
-			rx.stop()
-			e.Wait()
+			go rx.stop() // avoid mutex
+			e.Wait()     // mutex locked!
 		}
 		e.dispatcher = nil
+		log.I("ns: tun(%d): attach: done detaching dispatcher", fd)
 		return
 	}
 	if dispatcher != nil && e.dispatcher == nil {
