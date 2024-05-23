@@ -105,7 +105,7 @@ func Wtf(msg string, args ...any) {
 
 func VV2(at int, msg string, args ...any) {
 	if Glogger != nil {
-		Glogger.VeryVerbosef(at, "V "+msg, args...)
+		Glogger.VeryVerbosef(at, "VV "+msg, args...)
 	}
 }
 
