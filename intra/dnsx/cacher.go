@@ -344,7 +344,7 @@ func (t *ctransport) fetch(network string, q *dns.Msg, summary *x.DNSSummary, cb
 		inhangover := t.hangover.Exceeds(ttl10s)
 		if inhangover {
 			err = errors.Join(err, errHangover)
-			log.D("cache: barrier: hangover(k: %s); discard ans (has? %t)", key, hasans)
+			log.W("cache: barrier: hangover(k: %s); discard ans (has? %t)", key, hasans)
 			fillSummary(cachedres.s, fsmm)
 			// mimic send fail
 			fsmm.Msg = err.Error()
