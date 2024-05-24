@@ -153,20 +153,21 @@ func (h *wgproxy) GetAddr() string {
 // Refresh implements ipn.Proxy
 func (w *wgproxy) Refresh() (err error) {
 	n := w.dns.Refresh()
+	nn := 0
 	if peers := w.remote; peers != nil {
-		peers.Refresh() // peers are also refreshed by w.Device.Up()
+		nn = peers.Refresh() // peers are also refreshed by w.Device.Up()
 	}
 	if err = w.Device.Down(); err != nil {
-		log.E("proxy: wg: !refresh(%s): down: %v", w.id, err)
+		log.E("proxy: wg: !refresh(%s): down: len(dns): %d, len(peer): %d, err: %v", w.id, n, nn, err)
 		return
 	}
 	if err = w.Device.Up(); err != nil {
-		log.E("proxy: wg: !refresh(%s): up: %v", w.id, err)
+		log.E("proxy: wg: !refresh(%s): up: len(dns): %d, len(peer): %d, err: %v", w.id, n, nn, err)
 		return
 	}
 	// not required since wgconn:NewBind() is namespace aware
 	// bindok := bindWgSockets(w.ID(), w.remote.AnyAddr(), w.wgdev, w.ctl)
-	log.I("proxy: wg: refresh(%s) done; len(dns): %d", w.id, n)
+	log.I("proxy: wg: refresh(%s) done; len(dns): %d, len(peer): %d", w.id, n, nn)
 	return
 }
 
