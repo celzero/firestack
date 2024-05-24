@@ -41,7 +41,8 @@ import (
 
 const (
 	// epsize is the size of the ingress channel.
-	epsize = 4096
+	epsize          = 128
+	totalForwarders = 3
 )
 
 // BufConfig defines the shape of the vectorised view used to read packets from the NIC.
@@ -192,7 +193,12 @@ func newReadVDispatcher(fd int, e *endpoint) (linkDispatcher, error) {
 
 	d.ingress = make(chan pkts, epsize)
 	d.finalize = make(chan struct{}) // always unbuffered
-	d.forwardAsync()
+	for i := 0; i < totalForwarders; i++ {
+		// use multiple forwarders since InjectInbound is a sync op
+		// until udp/tcp/icmp ForwarderRequest callback funcs return.
+		// netstack/tcp.go:NewTCPForwarder & netstack/udp.go:NewUDPForwarder
+		go d.forward()
+	}
 
 	log.I("ns: dispatch: newReadVDispatcher: tun(%d) efd(%d) ch(%d)", fd, d.efd, cap(d.ingress))
 
@@ -284,11 +290,9 @@ func (d *readVDispatcher) dispatch() (bool, tcpip.Error) {
 	return cont, nil
 }
 
-func (d *readVDispatcher) forwardAsync() {
-	go func() {
-		for x := range d.ingress {
-			d.e.InjectInbound(x.num, x.pkt)
-			x.pkt.DecRef()
-		}
-	}()
+func (d *readVDispatcher) forward() {
+	for x := range d.ingress {
+		d.e.InjectInbound(x.num, x.pkt)
+		x.pkt.DecRef()
+	}
 }

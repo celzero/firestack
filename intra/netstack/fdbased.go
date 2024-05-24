@@ -476,11 +476,12 @@ func (e *endpoint) ARPHardwareType() header.ARPHardwareType {
 
 // InjectInbound ingresses a netstack-inbound packet.
 func (e *endpoint) InjectInbound(protocol tcpip.NetworkProtocolNumber, pkt *stack.PacketBuffer) {
+	e.logPacketIfNeeded(sniffer.DirectionRecv, pkt)
+
 	fd := e.fd()
 	log.VV("ns: tun(%d): inject-inbound (from tun) %d", fd, protocol)
 	d := e.dispatcher // TODO: read lock?
 	if d != nil && pkt != nil {
-		e.logPacketIfNeeded(sniffer.DirectionRecv, pkt)
 		d.DeliverNetworkPacket(protocol, pkt)
 	} else {
 		log.W("ns: tun(%d): inject-inbound (from tun) %d pkt?(%t) dropped: endpoint not attached", fd, protocol, pkt != nil)

@@ -66,6 +66,8 @@ func NewTCPForwarder(s *stack.Stack, h GTCPConnHandler) *tcp.Forwarder {
 		// demuxer.handlePacket -> find matching endpoint -> queue-packet -> send/recv conn (ep)
 		// ref: github.com/google/gvisor/blob/be6ffa7/pkg/tcpip/stack/transport_demuxer.go#L180
 		gtcp := MakeGTCPConn(request, src, dst)
+		// must always handle it in a separate goroutine as it may block netstack
+		// see: netstack/dispatcher.go:newReadvDispatcher
 		go h.Proxy(gtcp, src, dst)
 	})
 }

@@ -88,8 +88,9 @@ func NewUDPForwarder(s *stack.Stack, h GUDPConnHandler) *udp.Forwarder {
 
 		gc := MakeGUDPConn(request, src, dst)
 
-		// if gc is a connected udp socket; proxy it like a stream
-		if !dst.Addr().IsUnspecified() {
+		// proxy in a separate gorountine; return immediately
+		// why? netstack/dispatcher.go:newReadvDispatcher
+		if gc.connected() { // gc is connected udp; proxy it like a stream
 			go h.Proxy(gc, src, dst)
 		} else {
 			go h.ProxyMux(gc, src)
@@ -214,4 +215,8 @@ func (g *GUDPConn) Close() error {
 		c.Close()
 	}
 	return nil
+}
+
+func (g *GUDPConn) connected() bool {
+	return !g.dst.Addr().IsUnspecified()
 }
