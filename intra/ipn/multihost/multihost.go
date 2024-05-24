@@ -82,10 +82,12 @@ func (h *MH) addrlen() int {
 
 // Refresh re-adds the list of IPs, hostnames, and re-resolves the hostname.
 func (h *MH) Refresh() int {
+	names := h.names
+	addrs := h.straddrs()
 	// resolve ip from domain names
-	n := h.With(h.names)
+	n := h.With(names) // it empties h.names and h.addrs
 	// re-add existing ips, if any
-	return n + h.Add(h.straddrs())
+	return n + h.Add(addrs)
 }
 
 // Add appends the list of IPs, hostnames, and hostname's IPs as resolved.
