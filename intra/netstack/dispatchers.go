@@ -247,13 +247,16 @@ func (d *readVDispatcher) forward(id gidfwd) {
 				log.W("ns: dispatch: forward: gid %d stopped; live %d, q %d", id, cnt, qsize)
 				return
 			} // try stopping after next x
-		}
+		} // initfwd are never stopped
 	}
 }
 
 func (d *readVDispatcher) despawn(gid gidfwd) bool {
-	cnt := d.fwdcount.Load()
-	log.I("ns: dispatch: despawn: gid(%d) size cur(%d)", gid, cnt)
+	if gid == initfwd { // initfwd are never stopped
+		return false
+	}
+	// cnt := d.fwdcount.Load()
+	// log.VV("ns: tun(%d): dispatch: despawn: gid(%d) size cur(%d)", d.fd, gid, cnt)
 	return d.stopotherfwd.CompareAndSwap(false, true)
 }
 
