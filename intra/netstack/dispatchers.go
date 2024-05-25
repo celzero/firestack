@@ -220,7 +220,7 @@ func (d *readVDispatcher) spawn(gid gidfwd, n int32) (ok bool) {
 
 	ok = n > 0 && d.fwdcount.CompareAndSwap(cnt, cnt+n)
 
-	log.I("ns: dispatch: spawn: ok? %t; gid(%d) size: req(%d) cur(%d)", ok, gid, n, cnt)
+	log.V("ns: tun(%d): dispatch: spawn: ok? %t; gid(%d) size: req(%d) cur(%d)", d.fd, ok, gid, n, cnt)
 
 	if ok {
 		d.stopotherfwd.Store(false)
@@ -339,14 +339,14 @@ func (d *readVDispatcher) dispatch() (bool, tcpip.Error) {
 	case d.ingress <- pkts{p, pkt}: // closed chans panic on send: groups.google.com/g/golang-nuts/c/SDIBFSkDlK4
 		log.VV("ns: tun(%d): dispatch: (from-tun) q(%d/%d), proto(%d), sz(%d)", d.fd, qsize, qcap, p, pkt.Size())
 	case <-d.finalize: // dave.cheney.net/2013/04/30/curious-channels
-		log.W("ns: %s tun: dispatch: finalized; drop pkt (%d/%d), sz(%d)", qsize, qcap, pkt.Size())
+		log.W("ns: %s tun(%d): dispatch: finalized; drop pkt (%d/%d), sz(%d)", d.fd, qsize, qcap, pkt.Size())
 		pkt.DecRef()
 		return abort, new(tcpip.ErrClosedForReceive)
 	}
 
 	if qsize > qcap/5 { // q 20% full
 		ok := d.spawn(otherfwd, 1)
-		log.D("ns: tun(%d): dispatch: q(%d/%d); spawn one forwarder? %t", d.fd, qsize, qcap, ok)
+		log.VV("ns: tun(%d): dispatch: q(%d/%d); spawn one forwarder? %t", d.fd, qsize, qcap, ok)
 	} else if qsize < qcap/50 { // q 2% full
 		ok := d.despawn(otherfwd)
 		log.VV("ns: tun(%d): dispatch: q(%d/%d); stop extra forwarders? %t", d.fd, qsize, qcap, ok)
