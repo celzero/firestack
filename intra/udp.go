@@ -264,8 +264,8 @@ func (h *udpHandler) proxy(gconn net.Conn, src, dst netip.AddrPort) (ok bool) {
 // Connect connects the proxy server.
 // Note, target may be nil in lwip (deprecated) while it is always specified in netstack
 func (h *udpHandler) Connect(gconn net.Conn, src, target netip.AddrPort) (dst core.UDPConn, smm *SocketSummary, ct core.ConnTuple, err error) {
-	var px ipn.Proxy
-	var pc io.Closer
+	var px ipn.Proxy = nil
+	var pc io.Closer = nil
 
 	realips, domains, probableDomains, blocklists := undoAlg(h.resolver, target.Addr())
 
@@ -314,7 +314,7 @@ func (h *udpHandler) Connect(gconn net.Conn, src, target netip.AddrPort) (dst co
 		} // else: not a dns query
 	} // else: proxy src to dst
 
-	if px, err = h.prox.ProxyFor(pid); err != nil {
+	if px, err = h.prox.ProxyFor(pid); err != nil || px == nil {
 		log.W("udp: %s failed to get proxy for %s: %v", cid, pid, err)
 		return nil, smm, ct, err // disconnect
 	}

@@ -211,8 +211,8 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target netip.AddrPort)
 		return deny // == !open
 	}
 
-	var px ipn.Proxy
-	if px, err = h.prox.ProxyFor(pid); err != nil {
+	var px ipn.Proxy = nil
+	if px, err = h.prox.ProxyFor(pid); err != nil || px == nil {
 		return deny
 	}
 
