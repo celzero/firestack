@@ -131,19 +131,23 @@ func (c *radix) get(str string) *string {
 	var match []byte
 
 	if match, v, ok = c.t.LongestPrefix(rev); ok {
+		// test: log.VV("radix: get: one: %s: %v %v %v", str, match, v, ok)
 		if ok = len(match) == len(rev); ok {
 			// full match (xyz.ipvonly.arpa); same as c.Get()
 			s, ok = v.(string)
+			// test: log.VV("radix: two: %s: %s %s %t", str, s, rev, ok)
 		} else if ok = len(match) < len(rev) && rev[len(match)-1] == '.'; ok {
 			// partial match upto a subdomain (.ipvonly.arpa); note the trailing dot
 			s, ok = v.(string)
+			// test: log.VV("radix: three: %s: %s %v %t", str, s, rev, ok)
 		}
+		// test: log.VV("radix: get: four: %s: %s [%d %d] %t", str, s, len(rev), len(match), ok)
 		// partial match (ipvonly.arpa) but not a subdomain/wildcard, discard
 	} else { // no match
 		return nil
 	}
 
-	log.V("radix: getAny: partial or full %s => %s; rev %s; match %s; ok? %t", str, s, rev, match, ok)
+	log.V("radix: get: partial or full %s => %s; rev %s; match %s; ok? %t", str, s, rev, match, ok)
 
 	if !ok {
 		return nil

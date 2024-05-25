@@ -2,6 +2,9 @@ package backend
 
 import (
 	"testing"
+
+	ll "github.com/celzero/firestack/intra/log"
+	"github.com/celzero/firestack/intra/settings"
 )
 
 func Test192(tst *testing.T) {
@@ -39,6 +42,21 @@ func Test192(tst *testing.T) {
 	log("route", route)
 	log("vlike", vlike, "vlike(1app):", vlike2)
 	log("rlike", rlike)
+}
+
+func TestUn(tst *testing.T) {
+	ll.SetLevel(ll.VVERBOSE)
+	settings.Debug = true
+
+	trie := NewRadixTree()
+	trie.Add("fritz.box") // exact domain
+	trie.Add(".lan")      // subdomain ending with .lan
+
+	noma1 := trie.HasAny("test.fritz.box") // no subdomain matches
+	yma1 := trie.HasAny("fritz.box")       // exact match for fritz.box
+	yma2 := trie.HasAny("test.lan")        // subdomain match for .lan
+
+	ll.V("no: %t, yes: [%t %t]", noma1, yma1, yma2)
 }
 
 func ko(tst *testing.T, err error) {
