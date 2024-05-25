@@ -119,7 +119,7 @@ func (h *icmpHandler) Ping(source, target netip.AddrPort, msg []byte, pong netst
 		log.D("t.icmp: handler ended")
 		return
 	}
-	var px ipn.Proxy
+	var px ipn.Proxy = nil
 	var err error
 
 	realips, domains, probableDomains, blocklists := undoAlg(h.resolver, target.Addr())
@@ -137,43 +137,52 @@ func (h *icmpHandler) Ping(source, target netip.AddrPort, msg []byte, pong netst
 
 	if block {
 		log.I("t.icmp: egress: firewalled %s -> %s", source, target)
-		// sleep for a while to avoid busy conns
-		time.Sleep(blocktime)
+		// sleep for a while to avoid busy conns? will also block netstack
+		// see: netstack/dispatcher.go:newReadvDispatcher
+		// time.Sleep(blocktime)
 		return false // denied
 	}
 
-	if px, err = h.prox.ProxyFor(pid); err != nil {
+	if px, err = h.prox.ProxyFor(pid); err != nil || px == nil {
 		log.E("t.icmp: egress: no proxy(%s); err %v", pid, err)
 		return false // denied
 	}
 
-	dst := oneRealIp(realips, target)
-	uc, err := px.Dialer().Dial("udp", dst.String())
-	ucnil := uc == nil || core.IsNil(uc)
-	if err != nil || ucnil { // nilaway: tx.socks5 returns nil conn even if err == nil
-		if err == nil {
-			err = unix.ENETUNREACH
+	// always forward in a goroutine to avoid blocking netstack
+	// see: netstack/dispatcher.go:newReadvDispatcher
+	go func() {
+		defer func() {
+			summary.done(err)
+			go h.sendNotif(summary)
+		}()
+		dst := oneRealIp(realips, target)
+		uc, err := px.Dialer().Dial("udp", dst.String())
+		ucnil := uc == nil || core.IsNil(uc)
+		if err != nil || ucnil { // nilaway: tx.socks5 returns nil conn even if err == nil
+			if err == nil {
+				err = unix.ENETUNREACH
+			}
+			log.E("t.icmp: egress: dial(%s); hasConn? %s(%t); err %v", dst, pid, ucnil, err)
+			return // unhandled
 		}
-		log.E("t.icmp: egress: dial(%s); hasConn? %s(%t); err %v", dst, pid, ucnil, err)
-		return false // denied
-	}
-	defer clos(uc)
+		defer clos(uc)
 
-	extend(uc, icmptimeout)
-	if _, err = uc.Write(msg); err != nil {
-		log.E("t.icmp: egress:  write(%v) ping; err %v", target, err)
-		return false // denied
-	}
-	log.I("t.icmp: egress: writeTo(%v) ping; done %d", target, len(msg))
+		extend(uc, icmptimeout)
+		if _, err = uc.Write(msg); err != nil {
+			log.E("t.icmp: egress:  write(%v) ping; err %v", target, err)
+			return // unhandled
+		}
+		log.I("t.icmp: egress: writeTo(%v) ping; done %d", target, len(msg))
 
-	if pong == nil {
-		// single ping, block until done
-		return h.fetch(uc, nil, summary)
-	} else {
-		// multi ping, non-blocking
-		go h.fetch(uc, pong, summary)
-		return true
-	}
+		if pong == nil {
+			// single ping, block until done
+			h.fetch(uc, nil, summary)
+		} else {
+			// multi ping, non-blocking
+			h.fetch(uc, pong, summary)
+		}
+	}()
+	return true // handled
 }
 
 func (h *icmpHandler) fetch(c net.Conn, pong netstack.Pong, summary *SocketSummary) (success bool) {
