@@ -41,8 +41,16 @@ import (
 
 const (
 	// epsize is the size of the ingress channel.
-	epsize          = 128
-	totalForwarders = 3
+	epsize         = 128
+	initForwarders = int32(3)
+	maxForwarders  = int32(9)
+)
+
+type gidfwd int
+
+const (
+	initfwd gidfwd = iota
+	otherfwd
 )
 
 // BufConfig defines the shape of the vectorised view used to read packets from the NIC.
@@ -164,14 +172,16 @@ type pkts struct {
 // readVDispatcher uses readv() system call to read inbound packets and
 // dispatches them.
 type readVDispatcher struct {
-	stopFd                 // stopFd is used to signal the dispatcher to stop.
-	fd       int           // fd is the file descriptor used to send/receive packets.
-	e        *endpoint     // e is the endpoint this dispatcher is attached to.
-	buf      *iovecBuffer  // buf is the iovec buffer that contains packets.
-	closed   atomic.Bool   // closed is set to true when fd is closed.
-	once     sync.Once     // Ensures stop() is called only once.
-	ingress  chan pkts     // ingress receives packets from the tun fd.
-	finalize chan struct{} // finalize is closed when the dispatcher is done.
+	stopFd                     // stopFd is used to signal the dispatcher to stop.
+	fd           int           // fd is the file descriptor used to send/receive packets.
+	e            *endpoint     // e is the endpoint this dispatcher is attached to.
+	buf          *iovecBuffer  // buf is the iovec buffer that contains packets.
+	closed       atomic.Bool   // closed is set to true when fd is closed.
+	once         sync.Once     // Ensures stop() is called only once.
+	ingress      chan pkts     // ingress receives packets from the tun fd.
+	finalize     chan struct{} // finalize is closed when the dispatcher is done.
+	fwdcount     atomic.Int32  // fwdcount is the number of active forwarders.
+	stopotherfwd atomic.Bool   // sigstop is used to stop "otherfwd" forwarders.
 }
 
 var _ linkDispatcher = (*readVDispatcher)(nil)
@@ -184,25 +194,67 @@ func newReadVDispatcher(fd int, e *endpoint) (linkDispatcher, error) {
 		return nil, err
 	}
 	d := &readVDispatcher{
-		stopFd: stopFd,
-		fd:     fd,
-		e:      e,
+		stopFd:   stopFd,
+		fd:       fd,
+		e:        e,
+		buf:      newIovecBuffer(BufConfig),
+		ingress:  make(chan pkts, epsize),
+		finalize: make(chan struct{}), // always unbuffered
 	}
 
-	d.buf = newIovecBuffer(BufConfig)
-
-	d.ingress = make(chan pkts, epsize)
-	d.finalize = make(chan struct{}) // always unbuffered
-	for i := 0; i < totalForwarders; i++ {
-		// use multiple forwarders since InjectInbound is a sync op
-		// until udp/tcp/icmp ForwarderRequest callback funcs return.
-		// netstack/tcp.go:NewTCPForwarder & netstack/udp.go:NewUDPForwarder
-		go d.forward()
-	}
+	d.spawn(initfwd, initForwarders)
 
 	log.I("ns: dispatch: newReadVDispatcher: tun(%d) efd(%d) ch(%d)", fd, d.efd, cap(d.ingress))
 
 	return d, nil
+}
+
+func (d *readVDispatcher) spawn(gid gidfwd, n int32) (ok bool) {
+	cnt := d.fwdcount.Load()
+
+	if gid == otherfwd {
+		n = min(maxForwarders-cnt, n)
+	} else if gid == initfwd {
+		n = min(initForwarders-cnt, n)
+	}
+
+	ok = n > 0 && d.fwdcount.CompareAndSwap(cnt, cnt+n)
+
+	log.I("ns: dispatch: spawn: ok? %t; gid(%d) size: req(%d) cur(%d)", ok, gid, n, cnt)
+
+	if ok {
+		d.stopotherfwd.Store(false)
+		for i := 0; i < int(n); i++ {
+			// use multiple forwarders since InjectInbound is a sync op
+			// until udp/tcp/icmp ForwarderRequest callback funcs return.
+			// netstack/tcp.go:NewTCPForwarder & netstack/udp.go:NewUDPForwarder
+			go d.forward(gid)
+		}
+	}
+	return
+}
+
+func (d *readVDispatcher) forward(id gidfwd) {
+	for x := range d.ingress {
+		d.e.InjectInbound(x.num, x.pkt)
+		x.pkt.DecRef()
+
+		if id == otherfwd && d.stopotherfwd.Load() {
+			cnt := d.fwdcount.Load()
+			qsize := len(d.ingress)
+			stop := d.fwdcount.CompareAndSwap(cnt, cnt-1)
+			if stop {
+				log.W("ns: dispatch: forward: gid %d stopped; live %d, q %d", id, cnt, qsize)
+				return
+			} // try stopping after next x
+		}
+	}
+}
+
+func (d *readVDispatcher) despawn(gid gidfwd) bool {
+	cnt := d.fwdcount.Load()
+	log.I("ns: dispatch: despawn: gid(%d) size cur(%d)", gid, cnt)
+	return d.stopotherfwd.CompareAndSwap(false, true)
 }
 
 // stop stops the dispatcher once. Safe to call multiple times.
@@ -278,21 +330,24 @@ func (d *readVDispatcher) dispatch() (bool, tcpip.Error) {
 		}
 	}
 
+	qsize := len(d.ingress)
+	qcap := cap(d.ingress)
 	select {
 	case d.ingress <- pkts{p, pkt}: // closed chans panic on send: groups.google.com/g/golang-nuts/c/SDIBFSkDlK4
-		log.VV("ns: tun(%d): dispatch: (from-tun) q(%d/%d), proto(%d), sz(%d)", d.fd, len(d.ingress), cap(d.ingress), p, pkt.Size())
+		log.VV("ns: tun(%d): dispatch: (from-tun) q(%d/%d), proto(%d), sz(%d)", d.fd, qsize, qcap, p, pkt.Size())
 	case <-d.finalize: // dave.cheney.net/2013/04/30/curious-channels
-		log.W("ns: %s tun: dispatch: finalized; drop pkt, sz(%d)", pkt.Size())
+		log.W("ns: %s tun: dispatch: finalized; drop pkt (%d/%d), sz(%d)", qsize, qcap, pkt.Size())
 		pkt.DecRef()
 		return abort, new(tcpip.ErrClosedForReceive)
 	}
 
-	return cont, nil
-}
-
-func (d *readVDispatcher) forward() {
-	for x := range d.ingress {
-		d.e.InjectInbound(x.num, x.pkt)
-		x.pkt.DecRef()
+	if qsize > qcap/5 { // q 20% full
+		ok := d.spawn(otherfwd, 1)
+		log.D("ns: tun(%d): dispatch: q(%d/%d); spawn one forwarder? %t", d.fd, qsize, qcap, ok)
+	} else if qsize < qcap/50 { // q 2% full
+		ok := d.despawn(otherfwd)
+		log.VV("ns: tun(%d): dispatch: q(%d/%d); stop extra forwarders? %t", d.fd, qsize, qcap, ok)
 	}
+
+	return cont, nil
 }
