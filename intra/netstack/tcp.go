@@ -67,11 +67,11 @@ func NewTCPForwarder(s *stack.Stack, h GTCPConnHandler) *tcp.Forwarder {
 		// ref: github.com/google/gvisor/blob/be6ffa7/pkg/tcpip/stack/transport_demuxer.go#L180
 		gtcp := MakeGTCPConn(req, src, dst)
 		// setup endpoint right away, so that netstack's internal state is consistent
-		open, err := gtcp.Connect( /*rst*/ false)
-		if err != nil || !open {
+		if open, err := gtcp.makeEndpoint( /*rst*/ false); err != nil || !open {
 			log.E("ns: tcp: forwarder: connect src(%v) => dst(%v); open? %t, err(%v)", src, dst, open, err)
 			return
 		}
+
 		// must always handle it in a separate goroutine as it may block netstack
 		// see: netstack/dispatcher.go:newReadvDispatcher
 		go h.Proxy(gtcp, src, dst)
@@ -103,7 +103,7 @@ func (g *GTCPConn) StatefulTeardown() (rst bool) {
 	return true // always rst
 }
 
-func (g *GTCPConn) Connect(rst bool) (open bool, err error) {
+func (g *GTCPConn) makeEndpoint(rst bool) (open bool, err error) {
 	if rst {
 		g.req.Complete(rst)
 		return false, nil // closed

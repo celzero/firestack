@@ -164,7 +164,7 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target netip.AddrPort)
 
 	if h.status == TCPEND {
 		// _, err = gconn.Connect(rst) // fin
-		// log.D("tcp: proxy: end %v -> %v; close err? %v", src, target, err)
+		log.D("tcp: proxy: end %v -> %v", src, target)
 		return deny
 	}
 

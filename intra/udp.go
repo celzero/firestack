@@ -158,30 +158,29 @@ func (h *udpHandler) onFlow(localaddr, target netip.AddrPort, realips, domains, 
 func (h *udpHandler) ProxyMux(gconn *netstack.GUDPConn, src netip.AddrPort) (ok bool) {
 	log.I("udp: mux for %s", src)
 	// only ipn.Exit and ipn.Base support udp mux / packet conns
-	const fin = true  // disconnect
-	const ack = false // connect
 	var invalidaddr = netip.AddrPort{}
 
 	if h.status == UDPEND {
-		err := gconn.Connect(fin) // disconnect, no nat
-		log.D("udp: connect: mux: end listen(%v); close err? %v", src, err)
+		// err := gconn.Connect(fin) // disconnect, no nat
+		log.D("udp: connect: mux: end listen(%v)", src)
+		clos(gconn)
 		return // not ok
 	}
 
 	// connect (register endpoint) right away, since new packets needn't be
 	// handled / assumed as a new conn (endpoint) by netstack
-	gerr := gconn.Connect(ack)
+	// gerr := gconn.Connect(ack)
 
 	l := h.listener
 	local, smm, _, err := h.Connect(gconn, src, invalidaddr) // local may be nil; smm is never nil
 
-	if err != nil || gerr != nil || local == nil {
+	if err != nil || local == nil {
 		clos(gconn, local)
 		if smm != nil { // smm is never nil; but nilaway complains
 			smm.done(err)
 			go sendNotif(l, smm)
 		} else {
-			log.W("udp: proxy: mux: unexpected %s -> [unconnected]; netstack err: %v; dst err: %v", src, gerr, err)
+			log.W("udp: proxy: mux: unexpected %s -> [unconnected]; err: %v", src, err)
 		}
 		// invalid dst addrs are not tracked; conntracker.Untrack() not req
 		return // not ok
@@ -221,24 +220,25 @@ func (h *udpHandler) proxy(gconn net.Conn, src, dst netip.AddrPort) (ok bool) {
 		return      // not ok
 	}
 
-	// if gconn is a netstack.GUDPConn, then it is not connected.
+	/*if gconn is a netstack.GUDPConn, then it is not connected.
 	// connect right away, since we assume a duplex-stream from here on
 	// see: h.Connect -> dnsOverride
 	var gerr error
 	if gc, ok := gconn.(*netstack.GUDPConn); ok {
 		gerr = gc.Connect(ack)
 	} // not a *netstack.GUDPConn, may be *demuxconn
+	*/
 
 	l := h.listener
 	remote, smm, ct, err := h.Connect(gconn, src, dst) // remote may be nil; smm is never nil
 
-	if err != nil || gerr != nil {
+	if err != nil {
 		clos(gconn, remote)
 		if smm != nil { // smm is never nil; but nilaway complains
 			smm.done(err)
 			go sendNotif(l, smm)
 		} else {
-			log.W("udp: proxy: unexpected %s -> %s; netstack err: %v; dst err: %v", src, dst, gerr, err)
+			log.W("udp: proxy: unexpected %s -> %s; err: %v", src, dst, err)
 		}
 		h.conntracker.Untrack(ct.CID)
 		return // not ok
