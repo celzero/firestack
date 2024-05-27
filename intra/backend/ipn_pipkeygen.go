@@ -16,6 +16,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math/big"
@@ -108,9 +109,10 @@ func NewPipKey(pubjwk string, msgOrExistingState string) (PipKey, error) {
 	}
 	// brsa.SHA384PSSDeterministic does not prepend random 32 bytes prefix to k.msg,
 	// whilst brsa.SHA384PSSRandomized does. ref: brsa.Prepare() which is unused here.
-	c, err := brsa.NewClient(brsa.SHA384PSSDeterministic, pub)
-	v, err := brsa.NewVerifier(brsa.SHA384PSSDeterministic, pub)
-	if err != nil {
+	c, err1 := brsa.NewClient(brsa.SHA384PSSDeterministic, pub)
+	v, err2 := brsa.NewVerifier(brsa.SHA384PSSDeterministic, pub)
+	if err1 != nil || err2 != nil {
+		err := errors.Join(err1, err2)
 		log.E("pipkey: new: sha384-pss-det verifier err %v", err)
 		return nil, err
 	}

@@ -13,7 +13,7 @@ import (
 
 // from: github.com/eycorsican/go-tun2socks/blob/301549c435/core/conn.go#LL3C9-L3C9
 
-// TCPConn abstracts a TCP connection comming from TUN. This connection
+// TCPConn abstracts a TCP connection coming from TUN. This connection
 // should be handled by a registered TCP proxy handler.
 type TCPConn interface {
 	// RemoteAddr returns the destination network address.
@@ -41,7 +41,7 @@ type TCPConn interface {
 	SetWriteDeadline(t time.Time) error
 }
 
-// UDPConn abstracts a UDP connection comming from TUN. This connection
+// UDPConn abstracts a UDP connection coming from TUN. This connection
 // should be handled by a registered UDP proxy handler.
 type UDPConn interface {
 	// LocalAddr returns the local client network address.
