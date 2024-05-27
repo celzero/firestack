@@ -11,6 +11,8 @@ import (
 	"net"
 	"os"
 	"reflect"
+
+	"gvisor.dev/gvisor/pkg/tcpip/adapters/gonet"
 )
 
 type CloserOp int
@@ -52,6 +54,10 @@ func CloseTCPRead(r TCPConn) {
 			if x != nil {
 				_ = x.CloseRead()
 			}
+		case *gonet.TCPConn:
+			if x != nil {
+				_ = x.CloseRead()
+			}
 		default:
 			if IsNotNil(r) {
 				_ = r.CloseRead()
@@ -65,6 +71,8 @@ func CloseTCPWrite(w TCPConn) {
 	if w != nil {
 		switch x := w.(type) {
 		case *net.TCPConn:
+			_ = x.CloseRead()
+		case *gonet.TCPConn:
 			_ = x.CloseRead()
 		default:
 			if IsNotNil(w) {
@@ -86,6 +94,14 @@ func CloseConn(cs ...net.Conn) {
 				_ = x.Close()
 			}
 		case *net.UDPConn:
+			if x != nil {
+				_ = x.Close()
+			}
+		case *gonet.TCPConn:
+			if x != nil {
+				_ = x.Close()
+			}
+		case *gonet.UDPConn:
 			if x != nil {
 				_ = x.Close()
 			}
