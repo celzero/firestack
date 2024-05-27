@@ -50,17 +50,9 @@ type pkts struct {
 }
 
 type fiveTuple struct {
-	srcAddr, dstAddr tcpip.Address
+	srcAddr, dstAddr []byte
 	srcPort, dstPort uint16
 	proto            tcpip.NetworkProtocolNumber
-}
-
-func (t *fiveTuple) src() []byte {
-	return t.srcAddr.AsSlice()
-}
-
-func (t *fiveTuple) dst() []byte {
-	return t.srcAddr.AsSlice()
 }
 
 func (t fiveTuple) String() string {
@@ -90,8 +82,8 @@ func tcpipConnectionID(pkt *stack.PacketBuffer) (fiveTuple, bool) {
 		ipHdr := header.IPv4(h[:hdrLen])
 		tcpHdr := header.TCP(h[hdrLen:][:tcpSrcDstPortLen])
 
-		tup.srcAddr = ipHdr.SourceAddress()
-		tup.dstAddr = ipHdr.DestinationAddress()
+		tup.srcAddr = ipHdr.SourceAddressSlice()
+		tup.dstAddr = ipHdr.DestinationAddressSlice()
 		// All fragment packets need to be processed by the same goroutine, so
 		// only record the TCP ports if this is not a fragment packet.
 		if ipHdr.IsValid(pkt.Data().Size()) && !ipHdr.More() && ipHdr.FragmentOffset() == 0 {
@@ -120,7 +112,9 @@ func tcpipConnectionID(pkt *stack.PacketBuffer) (fiveTuple, bool) {
 				if done || err != nil {
 					break
 				}
-				hdr.Release()
+				if hdr != nil {
+					hdr.Release()
+				} // todo: else, break?
 			}
 			h, ok = pkt.Data().PullUp(int(it.HeaderOffset()) + tcpSrcDstPortLen)
 			if !ok {
@@ -128,8 +122,8 @@ func tcpipConnectionID(pkt *stack.PacketBuffer) (fiveTuple, bool) {
 			}
 			tcpHdr = header.TCP(h[it.HeaderOffset():][:tcpSrcDstPortLen])
 		}
-		tup.srcAddr = ipHdr.SourceAddress()
-		tup.dstAddr = ipHdr.DestinationAddress()
+		tup.srcAddr = ipHdr.SourceAddressSlice()
+		tup.dstAddr = ipHdr.DestinationAddressSlice()
 		tup.srcPort = tcpHdr.SourcePort()
 		tup.dstPort = tcpHdr.DestinationPort()
 		tup.proto = header.IPv6ProtocolNumber
@@ -171,6 +165,9 @@ func (p *processor) deliverPackets() {
 	for p.pkts.Len() > 0 {
 		pkt := p.pkts.PopFront()
 		p.mu.Unlock()
+		if pkt == nil {
+			continue
+		}
 		p.e.InjectInbound(pkt.NetworkProtocolNumber, pkt)
 		pkt.DecRef()
 		p.mu.Lock()
@@ -232,8 +229,8 @@ func (m *processorManager) connectionHash(t *fiveTuple) uint32 {
 
 	h := jenkins.Sum32(m.seed)
 	h.Write(payload[:])
-	h.Write(t.src())
-	h.Write(t.dst())
+	h.Write(t.srcAddr)
+	h.Write(t.dstAddr)
 	return h.Sum32()
 }
 

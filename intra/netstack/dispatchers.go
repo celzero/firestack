@@ -242,7 +242,7 @@ func (d *readVDispatcher) dispatch() (bool, tcpip.Error) {
 	var iseth = d.e.hdrSize > 0 // hdrSize always zero; unused
 	if iseth {
 		if !d.e.parseHeader(pkt) {
-			return false, nil
+			return abort, new(tcpip.ErrNotPermitted)
 		}
 		pkt.NetworkProtocolNumber = header.Ethernet(pkt.LinkHeader().Slice()).Type()
 	}
