@@ -261,7 +261,7 @@ func (m *supervisor) queuePacket(pkt *stack.PacketBuffer, hasEthHeader bool) {
 		}
 		pkt.NetworkProtocolNumber = tup.proto
 	}
-	if len(m.processors) == 1 || nonConnectionPkt {
+	if m.canDeliverInline() || nonConnectionPkt {
 		// If the packet is not associated with an active connection, use the
 		// first processor.
 		pIdx = 0
@@ -285,7 +285,7 @@ func (m *supervisor) stop() {
 	if settings.Debug {
 		log.D("ns: tun(%d): forwarder: stopping %d procs", m.e.fd(), len(m.processors))
 	}
-	if len(m.processors) < 2 {
+	if m.canDeliverInline() {
 		return
 	}
 	for i := range m.processors {
@@ -297,17 +297,24 @@ func (m *supervisor) stop() {
 // wakeReady wakes up all processors that have a packet queued. If there is only
 // one processor, the method delivers the packet inline without waking a
 // goroutine.
-func (m *processorManager) wakeReady() {
+func (m *supervisor) wakeReady() {
 	for i, ready := range m.ready {
 		if !ready {
 			continue
 		}
 		p := &m.processors[i]
-		if len(m.processors) > 1 {
-			p.packetWaker.Assert()
-		} else {
+		if m.canDeliverInline() {
 			p.deliverPackets()
+		} else {
+			p.packetWaker.Assert()
 		}
 		m.ready[i] = false
 	}
+}
+
+// canDeliverInline returns true if the supervisor is configured to deliver
+// packets inline. That is, when only one processor is active, deliver
+// packets inline. sleeper/waker are no-ops.
+func (m *supervisor) canDeliverInline() bool {
+	return len(m.processors) <= 1
 }
