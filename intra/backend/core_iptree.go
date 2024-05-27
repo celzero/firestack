@@ -63,16 +63,17 @@ type iptree struct {
 }
 
 const (
-	Vsep   = "," // values separator (csv)
-	Ksep   = "," // key separator (csv)
-	Kdelim = "@" // key@csv(v) delimiter
-	KVsep  = "|" // k1:v1|k2:v2 separator
+	Vsep   = "," // Vsep is a values separator (csv)
+	Ksep   = "," // Ksep is a key separator (csv)
+	Kdelim = "@" // Kdelim is a key@csv(v) delimiter
+	KVsep  = "|" // KVsep is a k1:v1|k2:v2 separator
 )
 
 var (
 	errValNotString = errors.New("values must be string")
 )
 
+// NewIpTree returns a new IpTree.
 func NewIpTree() IpTree {
 	return &iptree{t: critbitgo.NewNet()}
 }
@@ -170,7 +171,7 @@ func (c *iptree) DelAll(cidr string) (n int32) {
 	defer c.Unlock()
 
 	keys := make([]*net.IPNet, 0)
-	c.t.WalkMatch(r, func(k *net.IPNet, v any) bool {
+	c.t.WalkMatch(r, func(k *net.IPNet, _ any) bool {
 		keys = append(keys, k)
 		return true
 	})
