@@ -1,0 +1,302 @@
+// Copyright (c) 2024 RethinkDNS and its authors.
+//
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at http://mozilla.org/MPL/2.0/.
+//
+// This file incorporates work covered by the following copyright and
+// permission notice:
+//
+//    Copyright 2024 The gVisor Authors.
+//
+//    Licensed under the Apache License, Version 2.0 (the "License");
+//    you may not use this file except in compliance with the License.
+//    You may obtain a copy of the License at
+//
+//         http://www.apache.org/licenses/LICENSE-2.0
+//
+//    Unless required by applicable law or agreed to in writing, software
+//    distributed under the License is distributed on an "AS IS" BASIS,
+//    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+//    See the License for the specific language governing permissions and
+//    limitations under the License.
+
+package netstack
+
+import (
+	"encoding/binary"
+	"fmt"
+	"math/rand"
+	"sync"
+
+	"github.com/celzero/firestack/intra/log"
+	"github.com/celzero/firestack/intra/settings"
+	"gvisor.dev/gvisor/pkg/sleep"
+	"gvisor.dev/gvisor/pkg/tcpip"
+	"gvisor.dev/gvisor/pkg/tcpip/hash/jenkins"
+	"gvisor.dev/gvisor/pkg/tcpip/header"
+	"gvisor.dev/gvisor/pkg/tcpip/stack"
+)
+
+// adopted from: https://github.com/google/gvisor/blob/a244eff8ad/pkg/tcpip/link/fdbased/processors.go
+
+const (
+	maxForwarders = 6
+)
+
+type pkts struct {
+	num tcpip.NetworkProtocolNumber
+	pkt *stack.PacketBuffer
+}
+
+type fiveTuple struct {
+	srcAddr, dstAddr tcpip.Address
+	srcPort, dstPort uint16
+	proto            tcpip.NetworkProtocolNumber
+}
+
+func (t *fiveTuple) src() []byte {
+	return t.srcAddr.AsSlice()
+}
+
+func (t *fiveTuple) dst() []byte {
+	return t.srcAddr.AsSlice()
+}
+
+func (t fiveTuple) String() string {
+	return fmt.Sprintf("%d | %s:%d -> %s:%d", t.proto, t.srcAddr, t.srcPort, t.dstAddr, t.dstPort)
+}
+
+// tcpipConnectionID returns a tcpip connection id tuple based on the data found
+// in the packet. It returns true if the packet is not associated with an active
+// connection (e.g ARP, NDP, etc). The method assumes link headers have already
+// been processed if they were present.
+func tcpipConnectionID(pkt *stack.PacketBuffer) (fiveTuple, bool) {
+	var tup fiveTuple
+	h, ok := pkt.Data().PullUp(1)
+	if !ok {
+		// Skip this packet.
+		return tup, true
+	}
+
+	const tcpSrcDstPortLen = 4
+	switch header.IPVersion(h) {
+	case header.IPv4Version:
+		hdrLen := header.IPv4(h).HeaderLength()
+		h, ok = pkt.Data().PullUp(int(hdrLen) + tcpSrcDstPortLen)
+		if !ok {
+			return tup, true
+		}
+		ipHdr := header.IPv4(h[:hdrLen])
+		tcpHdr := header.TCP(h[hdrLen:][:tcpSrcDstPortLen])
+
+		tup.srcAddr = ipHdr.SourceAddress()
+		tup.dstAddr = ipHdr.DestinationAddress()
+		// All fragment packets need to be processed by the same goroutine, so
+		// only record the TCP ports if this is not a fragment packet.
+		if ipHdr.IsValid(pkt.Data().Size()) && !ipHdr.More() && ipHdr.FragmentOffset() == 0 {
+			tup.srcPort = tcpHdr.SourcePort()
+			tup.dstPort = tcpHdr.DestinationPort()
+		}
+		tup.proto = header.IPv4ProtocolNumber
+	case header.IPv6Version:
+		h, ok = pkt.Data().PullUp(header.IPv6FixedHeaderSize + tcpSrcDstPortLen)
+		if !ok {
+			return tup, true
+		}
+		ipHdr := header.IPv6(h)
+
+		var tcpHdr header.TCP
+		if tcpip.TransportProtocolNumber(ipHdr.NextHeader()) == header.TCPProtocolNumber {
+			tcpHdr = header.TCP(h[header.IPv6FixedHeaderSize:][:tcpSrcDstPortLen])
+		} else {
+			// Slow path for IPv6 extension headers :(.
+			dataBuf := pkt.Data().ToBuffer()
+			dataBuf.TrimFront(header.IPv6MinimumSize)
+			it := header.MakeIPv6PayloadIterator(header.IPv6ExtensionHeaderIdentifier(ipHdr.NextHeader()), dataBuf)
+			defer it.Release()
+			for {
+				hdr, done, err := it.Next()
+				if done || err != nil {
+					break
+				}
+				hdr.Release()
+			}
+			h, ok = pkt.Data().PullUp(int(it.HeaderOffset()) + tcpSrcDstPortLen)
+			if !ok {
+				return tup, true
+			}
+			tcpHdr = header.TCP(h[it.HeaderOffset():][:tcpSrcDstPortLen])
+		}
+		tup.srcAddr = ipHdr.SourceAddress()
+		tup.dstAddr = ipHdr.DestinationAddress()
+		tup.srcPort = tcpHdr.SourcePort()
+		tup.dstPort = tcpHdr.DestinationPort()
+		tup.proto = header.IPv6ProtocolNumber
+	default:
+		return tup, true
+	}
+	return tup, false
+}
+
+type processor struct {
+	mu sync.Mutex
+	// +checklocks:mu
+	pkts stack.PacketBufferList
+
+	e           *endpoint
+	sleeper     sleep.Sleeper
+	packetWaker sleep.Waker
+	closeWaker  sleep.Waker
+}
+
+func (p *processor) start(wg *sync.WaitGroup) {
+	defer wg.Done()
+	defer p.sleeper.Done()
+	for {
+		switch w := p.sleeper.Fetch(true); {
+		case w == &p.packetWaker:
+			p.deliverPackets()
+		case w == &p.closeWaker:
+			p.mu.Lock()
+			p.pkts.Reset()
+			p.mu.Unlock()
+			return
+		}
+	}
+}
+
+func (p *processor) deliverPackets() {
+	p.mu.Lock()
+	for p.pkts.Len() > 0 {
+		pkt := p.pkts.PopFront()
+		p.mu.Unlock()
+		p.e.InjectInbound(pkt.NetworkProtocolNumber, pkt)
+		pkt.DecRef()
+		p.mu.Lock()
+	}
+	p.mu.Unlock()
+}
+
+// processorManager handles starting, closing, and queuing packets on processor
+// goroutines.
+type processorManager struct {
+	processors []processor
+	seed       uint32
+	wg         sync.WaitGroup
+	e          *endpoint
+	ready      []bool
+}
+
+// newProcessorManager creates a new processor manager.
+func newProcessorManager(e *endpoint) *processorManager {
+	m := &processorManager{
+		seed:       rand.Uint32(),
+		e:          e,
+		ready:      make([]bool, maxForwarders),
+		processors: make([]processor, maxForwarders),
+		wg:         sync.WaitGroup{},
+	}
+
+	m.wg.Add(maxForwarders)
+
+	for i := range m.processors {
+		p := &m.processors[i]
+		p.sleeper.AddWaker(&p.packetWaker)
+		p.sleeper.AddWaker(&p.closeWaker)
+		p.e = e
+	}
+
+	return m
+}
+
+// start starts the processor goroutines if the processor manager is configured
+// with more than one processor.
+func (m *processorManager) start() {
+	if settings.Debug {
+		log.D("ns: tun(%d): forwarder: starting %d procs %d", m.e.fd(), len(m.processors), m.seed)
+	}
+	for i := range m.processors {
+		p := &m.processors[i]
+		// Only start processor in a separate goroutine if we have multiple of them.
+		if len(m.processors) > 1 {
+			go p.start(&m.wg)
+		}
+	}
+}
+
+func (m *processorManager) connectionHash(t *fiveTuple) uint32 {
+	var payload [4]byte
+	binary.LittleEndian.PutUint16(payload[0:], t.srcPort)
+	binary.LittleEndian.PutUint16(payload[2:], t.dstPort)
+
+	h := jenkins.Sum32(m.seed)
+	h.Write(payload[:])
+	h.Write(t.src())
+	h.Write(t.dst())
+	return h.Sum32()
+}
+
+// queuePacket queues a packet to be delivered to the appropriate processor.
+func (m *processorManager) queuePacket(pkt *stack.PacketBuffer, hasEthHeader bool) {
+	var pIdx int
+	tup, nonConnectionPkt := tcpipConnectionID(pkt)
+	if !hasEthHeader {
+		if nonConnectionPkt {
+			log.D("ns: tun(%d): forwarder: drop non-connection pkt (sz: %d)", m.e.fd(), pkt.Size())
+			// If there's no eth header this should be a standard tcpip packet. If
+			// it isn't the packet is invalid so drop it.
+			return
+		}
+		pkt.NetworkProtocolNumber = tup.proto
+	}
+	if len(m.processors) == 1 || nonConnectionPkt {
+		// If the packet is not associated with an active connection, use the
+		// first processor.
+		pIdx = 0
+	} else {
+		pIdx = int(m.connectionHash(&tup)) % len(m.processors)
+	}
+	p := &m.processors[pIdx]
+
+	p.mu.Lock()
+	pkt.IncRef()
+	p.pkts.PushBack(pkt) // enqueue.
+	m.ready[pIdx] = true // ready to deliver enqueued packets.
+	p.mu.Unlock()
+
+	if settings.Debug {
+		log.VV("ns: tun(%d): forwarder: q on proc %d, %s", m.e.fd(), pIdx, tup)
+	}
+}
+
+func (m *processorManager) stop() {
+	if settings.Debug {
+		log.D("ns: tun(%d): forwarder: stopping %d procs", m.e.fd(), len(m.processors))
+	}
+	if len(m.processors) < 2 {
+		return
+	}
+	for i := range m.processors {
+		p := &m.processors[i]
+		p.closeWaker.Assert()
+	}
+}
+
+// wakeReady wakes up all processors that have a packet queued. If there is only
+// one processor, the method delivers the packet inline without waking a
+// goroutine.
+func (m *processorManager) wakeReady() {
+	for i, ready := range m.ready {
+		if !ready {
+			continue
+		}
+		p := &m.processors[i]
+		if len(m.processors) > 1 {
+			p.packetWaker.Assert()
+		} else {
+			p.deliverPackets()
+		}
+		m.ready[i] = false
+	}
+}
