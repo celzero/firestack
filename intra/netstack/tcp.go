@@ -51,12 +51,12 @@ func setupTcpHandler(s *stack.Stack, h GTCPConnHandler) {
 // nic.deliverNetworkPacket -> no existing matching endpoints -> NewTCPForwarder.HandlePacket
 // ref: github.com/google/gvisor/blob/e89e736f1/pkg/tcpip/adapters/gonet/gonet_test.go#L189
 func NewTCPForwarder(s *stack.Stack, h GTCPConnHandler) *tcp.Forwarder {
-	return tcp.NewForwarder(s, rcvwnd, maxInFlight, func(request *tcp.ForwarderRequest) {
-		if request == nil {
+	return tcp.NewForwarder(s, rcvwnd, maxInFlight, func(req *tcp.ForwarderRequest) {
+		if req == nil {
 			log.E("ns: tcp: forwarder: nil request")
 			return
 		}
-		id := request.ID()
+		id := req.ID()
 		// src 10.111.222.1:38312
 		src := remoteAddrPort(id)
 		// dst 213.188.195.179:80
@@ -65,7 +65,13 @@ func NewTCPForwarder(s *stack.Stack, h GTCPConnHandler) *tcp.Forwarder {
 		// read/writes are routed using 5-tuple to the same conn (endpoint)
 		// demuxer.handlePacket -> find matching endpoint -> queue-packet -> send/recv conn (ep)
 		// ref: github.com/google/gvisor/blob/be6ffa7/pkg/tcpip/stack/transport_demuxer.go#L180
-		gtcp := MakeGTCPConn(request, src, dst)
+		gtcp := MakeGTCPConn(req, src, dst)
+		// setup endpoint right away, so that netstack's internal state is consistent
+		open, err := gtcp.Connect( /*rst*/ false)
+		if err != nil || !open {
+			log.E("ns: tcp: forwarder: connect src(%v) => dst(%v); open? %t, err(%v)", src, dst, open, err)
+			return
+		}
 		// must always handle it in a separate goroutine as it may block netstack
 		// see: netstack/dispatcher.go:newReadvDispatcher
 		go h.Proxy(gtcp, src, dst)

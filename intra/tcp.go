@@ -27,7 +27,6 @@ package intra
 
 import (
 	"errors"
-	"fmt"
 	"net"
 	"net/netip"
 	"strconv"
@@ -150,8 +149,6 @@ func (h *tcpHandler) CloseConns(cids []string) (closed []string) {
 func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target netip.AddrPort) (open bool) {
 	const allow bool = true  // allowed
 	const deny bool = !allow // blocked
-	const rst bool = true    // tear down conn
-	const ack bool = !rst    // send synack
 	var smm *SocketSummary
 	var err error
 
@@ -166,14 +163,14 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target netip.AddrPort)
 	}()
 
 	if h.status == TCPEND {
-		_, err = gconn.Connect(rst) // fin
-		log.D("tcp: proxy: end %v -> %v; close err? %v", src, target, err)
+		// _, err = gconn.Connect(rst) // fin
+		// log.D("tcp: proxy: end %v -> %v; close err? %v", src, target, err)
 		return deny
 	}
 
 	if !src.IsValid() || !target.IsValid() {
-		_, err = gconn.Connect(rst) // fin
-		log.E("tcp: nil addr %v -> %v; close err? %v", src, target, err)
+		// _, err = gconn.Connect(rst) // fin
+		// log.E("tcp: nil addr %v -> %v; close err? %v", src, target, err)
 		return deny
 	}
 
@@ -200,16 +197,16 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target netip.AddrPort)
 		}
 		log.I("tcp: gconn %s firewalled from %s -> %s (dom: %s + %s/ real: %s) for %s; stall? %ds", cid, src, target, domains, probableDomains, realips, uid, secs)
 		err = errTcpFirewalled
-		_, _ = gconn.Connect(rst) // fin
+		// _, _ = gconn.Connect(rst) // fin
 		return deny
 	}
 
-	// handshake; since we assume a duplex-stream from here on
+	/* handshake; since we assume a duplex-stream from here on
 	if open, err = gconn.Connect(ack); !open {
 		err = fmt.Errorf("tcp: %s connect err %v; %s -> %s for %s", cid, err, src, target, uid)
 		log.E("%v", err)
 		return deny // == !open
-	}
+	}*/
 
 	var px ipn.Proxy = nil
 	if px, err = h.prox.ProxyFor(pid); err != nil || px == nil {
