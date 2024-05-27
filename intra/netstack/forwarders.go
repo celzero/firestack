@@ -165,11 +165,10 @@ func (p *processor) deliverPackets() {
 	for p.pkts.Len() > 0 {
 		pkt := p.pkts.PopFront()
 		p.mu.Unlock()
-		if pkt == nil {
-			continue
+		if pkt != nil {
+			p.e.InjectInbound(pkt.NetworkProtocolNumber, pkt)
+			pkt.DecRef()
 		}
-		p.e.InjectInbound(pkt.NetworkProtocolNumber, pkt)
-		pkt.DecRef()
 		p.mu.Lock()
 	}
 	p.mu.Unlock()
