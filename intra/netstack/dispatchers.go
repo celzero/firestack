@@ -127,8 +127,11 @@ func (b *iovecBuffer) pullBuffer(n int) buffer.Buffer {
 		b.views[i] = nil
 	}
 	pulled := buffer.Buffer{}
-	for _, v := range views {
-		pulled.Append(v)
+	for i, v := range views {
+		if err := pulled.Append(v); err != nil {
+			log.W("ns: dispatch: iov: err append view# %d: %v", i, err)
+			continue
+		}
 	}
 	pulled.Truncate(int64(n))
 	return pulled

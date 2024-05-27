@@ -222,6 +222,8 @@ func (m *processorManager) start() {
 	}
 }
 
+// connectionHash returns a hash value based on the given five tuple.
+// Will return 0 if the hash could not be computed.
 func (m *processorManager) connectionHash(t *fiveTuple) uint32 {
 	if t == nil { // never nil, but nilaway complains.
 		return 0
@@ -231,12 +233,18 @@ func (m *processorManager) connectionHash(t *fiveTuple) uint32 {
 	binary.LittleEndian.PutUint16(payload[2:], t.dstPort)
 
 	h := jenkins.Sum32(m.seed)
-	h.Write(payload[:])
+	if _, err := h.Write(payload[:]); err != nil {
+		return 0
+	}
 	if len(t.srcAddr) > 0 {
-		h.Write(t.srcAddr)
+		if _, err := h.Write(t.srcAddr); err != nil {
+			return 0
+		}
 	} // else: should never happen
 	if len(t.dstAddr) > 0 {
-		h.Write(t.dstAddr)
+		if _, err := h.Write(t.dstAddr); err != nil {
+			return 0
+		}
 	} // else: should never happen
 	return h.Sum32()
 }
