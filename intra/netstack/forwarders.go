@@ -174,9 +174,9 @@ func (p *processor) deliverPackets() {
 	p.mu.Unlock()
 }
 
-// processorManager handles starting, closing, and queuing packets on processor
+// supervisor handles starting, closing, and queuing packets on processor
 // goroutines.
-type processorManager struct {
+type supervisor struct {
 	processors []processor
 	seed       uint32
 	wg         sync.WaitGroup
@@ -184,9 +184,9 @@ type processorManager struct {
 	ready      []bool
 }
 
-// newProcessorManager creates a new processor manager.
-func newProcessorManager(e *endpoint) *processorManager {
-	m := &processorManager{
+// newSupervisor creates a new supervisor for the processors of endpoint e.
+func newSupervisor(e *endpoint) *supervisor {
+	m := &supervisor{
 		seed:       rand.Uint32(),
 		e:          e,
 		ready:      make([]bool, maxForwarders),
@@ -208,22 +208,22 @@ func newProcessorManager(e *endpoint) *processorManager {
 
 // start starts the processor goroutines if the processor manager is configured
 // with more than one processor.
-func (m *processorManager) start() {
+func (m *supervisor) start() {
 	if settings.Debug {
 		log.D("ns: tun(%d): forwarder: starting %d procs %d", m.e.fd(), len(m.processors), m.seed)
 	}
+	if m.canDeliverInline() {
+		return
+	}
 	for i := range m.processors {
 		p := &m.processors[i]
-		// Only start processor in a separate goroutine if we have multiple of them.
-		if len(m.processors) > 1 {
-			go p.start(&m.wg)
-		}
+		go p.start(&m.wg)
 	}
 }
 
-// connectionHash returns a hash value based on the given five tuple.
+// id returns a hash value based on the given five tuple.
 // Will return 0 if the hash could not be computed.
-func (m *processorManager) connectionHash(t *fiveTuple) uint32 {
+func (m *supervisor) id(t *fiveTuple) uint32 {
 	if t == nil { // never nil, but nilaway complains.
 		return 0
 	}
@@ -249,7 +249,7 @@ func (m *processorManager) connectionHash(t *fiveTuple) uint32 {
 }
 
 // queuePacket queues a packet to be delivered to the appropriate processor.
-func (m *processorManager) queuePacket(pkt *stack.PacketBuffer, hasEthHeader bool) {
+func (m *supervisor) queuePacket(pkt *stack.PacketBuffer, hasEthHeader bool) {
 	var pIdx int
 	tup, nonConnectionPkt := tcpipConnectionID(pkt)
 	if !hasEthHeader {
@@ -266,7 +266,7 @@ func (m *processorManager) queuePacket(pkt *stack.PacketBuffer, hasEthHeader boo
 		// first processor.
 		pIdx = 0
 	} else {
-		pIdx = int(m.connectionHash(&tup)) % len(m.processors)
+		pIdx = int(m.id(&tup)) % len(m.processors)
 	}
 	p := &m.processors[pIdx]
 
@@ -281,7 +281,7 @@ func (m *processorManager) queuePacket(pkt *stack.PacketBuffer, hasEthHeader boo
 	}
 }
 
-func (m *processorManager) stop() {
+func (m *supervisor) stop() {
 	if settings.Debug {
 		log.D("ns: tun(%d): forwarder: stopping %d procs", m.e.fd(), len(m.processors))
 	}

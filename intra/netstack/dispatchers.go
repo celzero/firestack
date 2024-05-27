@@ -172,7 +172,7 @@ type readVDispatcher struct {
 	buf    *iovecBuffer // buf is the iovec buffer that contains packets.
 	closed atomic.Bool  // closed is set to true when fd is closed.
 	once   sync.Once    // Ensures stop() is called only once.
-	mgr    *processorManager
+	mgr    *supervisor
 }
 
 var _ linkDispatcher = (*readVDispatcher)(nil)
@@ -189,7 +189,7 @@ func newReadVDispatcher(fd int, e *endpoint) (linkDispatcher, error) {
 		fd:     fd,
 		e:      e,
 		buf:    newIovecBuffer(BufConfig),
-		mgr:    newProcessorManager(e),
+		mgr:    newSupervisor(e),
 	}
 
 	d.mgr.start()
