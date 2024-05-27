@@ -21,7 +21,6 @@
 //     See the License for the specific language governing permissions and
 //     limitations under the License.
 
-// Adopted from: github.com/google/gvisor/blob/f33d034/pkg/tcpip/link/fdbased/packet_dispatchers.go
 package netstack
 
 import (
@@ -39,19 +38,7 @@ import (
 	"gvisor.dev/gvisor/pkg/tcpip/stack"
 )
 
-const (
-	// epsize is the size of the ingress channel.
-	epsize         = 128
-	initForwarders = int32(3)
-	maxForwarders  = int32(9)
-)
-
-type gidfwd int
-
-const (
-	initfwd gidfwd = iota
-	otherfwd
-)
+// Adopted from: github.com/google/gvisor/blob/f2b01a6e4/pkg/tcpip/link/fdbased/packet_dispatchers.go
 
 // BufConfig defines the shape of the vectorised view used to read packets from the NIC.
 var BufConfig = []int{128, 256, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768}
@@ -60,7 +47,7 @@ type iovecBuffer struct {
 	// buffer is the actual buffer that holds the packet contents. Some contents
 	// are reused across calls to pullBuffer if number of requested bytes is
 	// smaller than the number of bytes allocated in the buffer.
-	buffer buffer.Buffer
+	views []*buffer.View
 
 	// iovecs are initialized with base pointers/len of the corresponding
 	// entries in the views defined above, except when GSO is enabled
@@ -84,6 +71,7 @@ type iovecBuffer struct {
 
 func newIovecBuffer(sizes []int) *iovecBuffer {
 	b := &iovecBuffer{
+		views: make([]*buffer.View, len(sizes)),
 		sizes: sizes,
 		// Setting pulledIndex to the length of sizes will allocate all
 		// the buffers.
@@ -97,23 +85,25 @@ func newIovecBuffer(sizes []int) *iovecBuffer {
 func (b *iovecBuffer) nextIovecs() []unix.Iovec {
 	vnetHdrOff := 0
 
-	var buf buffer.Buffer
-	for i, size := range b.sizes {
-		if i > b.pulledIndex {
+	for i := range b.views {
+		if b.views[i] != nil {
 			break
 		}
-		v := buffer.NewViewSize(size)
-		err := buf.Append(v) // todo: break if error?
-		if err != nil {
-			log.W("ns: dispatch: nextIovecs: err buffer.append(%d): %v", size, err)
-		}
+		v := buffer.NewViewSize(b.sizes[i])
+		b.views[i] = v
 		b.iovecs[i+vnetHdrOff] = unix.Iovec{Base: v.BasePtr()}
 		b.iovecs[i+vnetHdrOff].SetLen(v.Size())
 	}
-	buf.Merge(&b.buffer)
-	b.buffer = buf
-	b.pulledIndex = -1
 	return b.iovecs
+}
+
+func (b *iovecBuffer) release() {
+	for _, v := range b.views {
+		if v != nil {
+			v.Release()
+			v = nil
+		}
+	}
 }
 
 // pullBuffer extracts the enough underlying storage from b.buffer to hold n
@@ -122,17 +112,23 @@ func (b *iovecBuffer) nextIovecs() []unix.Iovec {
 // of b.buffer's storage must be reallocated during the next call to
 // nextIovecs.
 func (b *iovecBuffer) pullBuffer(n int) buffer.Buffer {
-	var pulled buffer.Buffer
+	var views []*buffer.View
 	c := 0
 	// Remove the used views from the buffer.
-	pulled = b.buffer.Clone()
-	for _, size := range b.sizes {
-		b.pulledIndex++
-		c += size
-		b.buffer.TrimFront(int64(size))
+	for i, v := range b.views {
+		c += v.Size()
 		if c >= n {
+			b.views[i].CapLength(v.Size() - (c - n))
+			views = append(views, b.views[:i+1]...)
 			break
 		}
+	}
+	for i := range views {
+		b.views[i] = nil
+	}
+	pulled := buffer.Buffer{}
+	for _, v := range views {
+		pulled.Append(v)
 	}
 	pulled.Truncate(int64(n))
 	return pulled
@@ -164,24 +160,16 @@ func (s *stopFd) stop() {
 	}
 }
 
-type pkts struct {
-	num tcpip.NetworkProtocolNumber
-	pkt *stack.PacketBuffer
-}
-
 // readVDispatcher uses readv() system call to read inbound packets and
 // dispatches them.
 type readVDispatcher struct {
-	stopFd                     // stopFd is used to signal the dispatcher to stop.
-	fd           int           // fd is the file descriptor used to send/receive packets.
-	e            *endpoint     // e is the endpoint this dispatcher is attached to.
-	buf          *iovecBuffer  // buf is the iovec buffer that contains packets.
-	closed       atomic.Bool   // closed is set to true when fd is closed.
-	once         sync.Once     // Ensures stop() is called only once.
-	ingress      chan pkts     // ingress receives packets from the tun fd.
-	finalize     chan struct{} // finalize is closed when the dispatcher is done.
-	fwdcount     atomic.Int32  // fwdcount is the number of active forwarders.
-	stopotherfwd atomic.Bool   // sigstop is used to stop "otherfwd" forwarders.
+	stopFd              // stopFd is used to signal the dispatcher to stop.
+	fd     int          // fd is the file descriptor used to send/receive packets.
+	e      *endpoint    // e is the endpoint this dispatcher is attached to.
+	buf    *iovecBuffer // buf is the iovec buffer that contains packets.
+	closed atomic.Bool  // closed is set to true when fd is closed.
+	once   sync.Once    // Ensures stop() is called only once.
+	mgr    *processorManager
 }
 
 var _ linkDispatcher = (*readVDispatcher)(nil)
@@ -194,70 +182,18 @@ func newReadVDispatcher(fd int, e *endpoint) (linkDispatcher, error) {
 		return nil, err
 	}
 	d := &readVDispatcher{
-		stopFd:   stopFd,
-		fd:       fd,
-		e:        e,
-		buf:      newIovecBuffer(BufConfig),
-		ingress:  make(chan pkts, epsize),
-		finalize: make(chan struct{}), // always unbuffered
+		stopFd: stopFd,
+		fd:     fd,
+		e:      e,
+		buf:    newIovecBuffer(BufConfig),
+		mgr:    newProcessorManager(e),
 	}
 
-	d.spawn(initfwd, initForwarders)
+	d.mgr.start()
 
-	log.I("ns: dispatch: newReadVDispatcher: tun(%d) efd(%d) ch(%d)", fd, d.efd, cap(d.ingress))
+	log.I("ns: dispatch: newReadVDispatcher: tun(%d) efd(%d)", fd, d.efd)
 
 	return d, nil
-}
-
-func (d *readVDispatcher) spawn(gid gidfwd, n int32) (ok bool) {
-	cnt := d.fwdcount.Load()
-
-	if gid == otherfwd {
-		n = min(maxForwarders-cnt, n)
-	} else if gid == initfwd {
-		n = min(initForwarders-cnt, n)
-	}
-
-	ok = n > 0 && d.fwdcount.CompareAndSwap(cnt, cnt+n)
-
-	log.V("ns: tun(%d): dispatch: spawn: ok? %t; gid(%d) size: req(%d) cur(%d)", d.fd, ok, gid, n, cnt)
-
-	if ok {
-		d.stopotherfwd.Store(false)
-		for i := 0; i < int(n); i++ {
-			// use multiple forwarders since InjectInbound is a sync op
-			// until udp/tcp/icmp ForwarderRequest callback funcs return.
-			// netstack/tcp.go:NewTCPForwarder & netstack/udp.go:NewUDPForwarder
-			go d.forward(gid)
-		}
-	}
-	return
-}
-
-func (d *readVDispatcher) forward(id gidfwd) {
-	for x := range d.ingress {
-		d.e.InjectInbound(x.num, x.pkt)
-		x.pkt.DecRef()
-
-		if id == otherfwd && d.stopotherfwd.Load() {
-			cnt := d.fwdcount.Load()
-			qsize := len(d.ingress)
-			stop := d.fwdcount.CompareAndSwap(cnt, cnt-1)
-			if stop {
-				log.W("ns: dispatch: forward: gid %d stopped; live %d, q %d", id, cnt, qsize)
-				return
-			} // try stopping after next x
-		} // initfwd are never stopped
-	}
-}
-
-func (d *readVDispatcher) despawn(gid gidfwd) bool {
-	if gid == initfwd { // initfwd are never stopped
-		return false
-	}
-	// cnt := d.fwdcount.Load()
-	// log.VV("ns: tun(%d): dispatch: despawn: gid(%d) size cur(%d)", d.fd, gid, cnt)
-	return d.stopotherfwd.CompareAndSwap(false, true)
 }
 
 // stop stops the dispatcher once. Safe to call multiple times.
@@ -265,9 +201,9 @@ func (d *readVDispatcher) stop() {
 	d.once.Do(func() {
 		d.closed.Store(true)
 		d.stopFd.stop()
+		d.buf.release()
+		d.mgr.stop()
 		err := syscall.Close(d.fd) // TODO: close tun-fd before stopFd?
-		close(d.finalize)          // unblock all selects
-		close(d.ingress)           // then close the ingress channel
 		log.I("ns: dispatch: stop: fds closed event(%d) tun(%d); err? %v", d.efd, d.fd, err)
 	})
 }
@@ -290,7 +226,7 @@ func (d *readVDispatcher) dispatch() (bool, tcpip.Error) {
 
 	n, err := rawfile.BlockingReadvUntilStopped(d.efd, d.fd, iov)
 
-	log.VV("ns: tun(%d): dispatch: q(%d/%d), got(%d bytes), err(%v)", d.fd, len(d.ingress), cap(d.ingress), n, err)
+	log.VV("ns: tun(%d): dispatch: got(%d bytes), err(%v)", d.fd, n, err)
 	if n <= 0 || err != nil {
 		if err == nil {
 			err = new(tcpip.ErrNoSuchFile)
@@ -301,56 +237,18 @@ func (d *readVDispatcher) dispatch() (bool, tcpip.Error) {
 	pkt := stack.NewPacketBuffer(stack.PacketBufferOptions{
 		Payload: d.buf.pullBuffer(n),
 	})
+	defer pkt.DecRef()
 
-	var p tcpip.NetworkProtocolNumber
-	// hdrSize always zero; unused
-	if d.e.hdrSize > 0 {
-		hdr, ok := pkt.LinkHeader().Consume(d.e.hdrSize)
-		if !ok {
-			pkt.DecRef()
-			return cont, nil
+	var iseth = d.e.hdrSize > 0 // hdrSize always zero; unused
+	if iseth {
+		if !d.e.parseHeader(pkt) {
+			return false, nil
 		}
-		p = header.Ethernet(hdr).Type()
-	} else {
-		// We don't get any indication of what the packet is, so try to guess
-		// if it's an IPv4 or IPv6 packet.
-		// IP version information is at the first octet, so pulling up 1 byte.
-		h, ok := pkt.Data().PullUp(1)
-		if !ok {
-			log.W("ns: tun(%d): dispatch: no data!", d.fd)
-			pkt.DecRef()
-			return cont, nil
-		}
-		switch header.IPVersion(h) {
-		case header.IPv4Version:
-			p = header.IPv4ProtocolNumber
-		case header.IPv6Version:
-			p = header.IPv6ProtocolNumber
-		default:
-			log.W("ns: tun(%d): dispatch: unknown proto!", d.fd)
-			pkt.DecRef()
-			return cont, nil
-		}
+		pkt.NetworkProtocolNumber = header.Ethernet(pkt.LinkHeader().Slice()).Type()
 	}
 
-	qsize := len(d.ingress)
-	qcap := cap(d.ingress)
-	select {
-	case d.ingress <- pkts{p, pkt}: // closed chans panic on send: groups.google.com/g/golang-nuts/c/SDIBFSkDlK4
-		log.VV("ns: tun(%d): dispatch: (from-tun) q(%d/%d), proto(%d), sz(%d)", d.fd, qsize, qcap, p, pkt.Size())
-	case <-d.finalize: // dave.cheney.net/2013/04/30/curious-channels
-		log.W("ns: %s tun(%d): dispatch: finalized; drop pkt (%d/%d), sz(%d)", d.fd, qsize, qcap, pkt.Size())
-		pkt.DecRef()
-		return abort, new(tcpip.ErrClosedForReceive)
-	}
-
-	if qsize > qcap/5 { // q 20% full
-		ok := d.spawn(otherfwd, 1)
-		log.VV("ns: tun(%d): dispatch: q(%d/%d); spawn one forwarder? %t", d.fd, qsize, qcap, ok)
-	} else if qsize < qcap/50 { // q 2% full
-		ok := d.despawn(otherfwd)
-		log.VV("ns: tun(%d): dispatch: q(%d/%d); stop extra forwarders? %t", d.fd, qsize, qcap, ok)
-	}
+	d.mgr.queuePacket(pkt, iseth)
+	d.mgr.wakeReady()
 
 	return cont, nil
 }
