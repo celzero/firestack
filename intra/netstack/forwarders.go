@@ -64,7 +64,7 @@ func (t fiveTuple) String() string {
 // connection (e.g ARP, NDP, etc). The method assumes link headers have already
 // been processed if they were present.
 func tcpipConnectionID(pkt *stack.PacketBuffer) (fiveTuple, bool) {
-	var tup fiveTuple
+	tup := fiveTuple{}
 	h, ok := pkt.Data().PullUp(1)
 	if !ok {
 		// Skip this packet.
@@ -223,14 +223,21 @@ func (m *processorManager) start() {
 }
 
 func (m *processorManager) connectionHash(t *fiveTuple) uint32 {
+	if t == nil { // never nil, but nilaway complains.
+		return 0
+	}
 	var payload [4]byte
 	binary.LittleEndian.PutUint16(payload[0:], t.srcPort)
 	binary.LittleEndian.PutUint16(payload[2:], t.dstPort)
 
 	h := jenkins.Sum32(m.seed)
 	h.Write(payload[:])
-	h.Write(t.srcAddr)
-	h.Write(t.dstAddr)
+	if len(t.srcAddr) > 0 {
+		h.Write(t.srcAddr)
+	} // else: should never happen
+	if len(t.dstAddr) > 0 {
+		h.Write(t.dstAddr)
+	} // else: should never happen
 	return h.Sum32()
 }
 
