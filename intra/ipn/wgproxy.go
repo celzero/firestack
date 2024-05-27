@@ -581,7 +581,7 @@ func (tun *wgtun) Write(bufs [][]byte, offset int) (int, error) {
 // github.com/google/gvisor/blob/acf460d0d73/pkg/tcpip/link/channel/channel.go#L31
 func (tun *wgtun) WriteNotify() {
 	pkt := tun.ep.Read()
-	if pkt.IsNil() {
+	if pkt == nil {
 		return
 	}
 
