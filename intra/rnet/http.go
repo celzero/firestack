@@ -72,7 +72,7 @@ func newHttpServer(id, x string, ctl protect.Controller, listener ServerListener
 	hproxy.ConnectDial = nil
 	hproxy.ConnectDialWithReq = nil
 
-	svc := &http.Server{Addr: host, Handler: hproxy}
+	svc := &http.Server{Addr: host, Handler: hproxy, ReadHeaderTimeout: 10 * time.Second}
 	usetls := u.Scheme == "https"
 	hasauth := len(usr) > 0 || len(pwd) > 0
 	if hasauth {

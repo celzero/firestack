@@ -221,7 +221,7 @@ func (g *GUDPConn) Close() error {
 		ep.Abort()
 	}
 	if c := g.conn; c != nil {
-		c.Close()
+		_ = c.Close()
 	}
 	return nil
 }
