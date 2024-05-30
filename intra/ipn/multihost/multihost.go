@@ -124,8 +124,8 @@ func (h *MH) Add(domainsOrIps []string) int {
 		}
 	}
 	// remove dups from h.addrs and h.names
-	h.addrs = removeIPDupsLocked(h.addrs)
-	h.names = removeStrDupsLocked(h.names)
+	h.uniqIPLocked()
+	h.uniqAddrsLocked()
 	h.Unlock()
 
 	log.D("multihost: %s with %s => %s", h.id, h.names, h.addrs)
@@ -171,32 +171,25 @@ func (h *MH) EqualAddrs(other *MH) bool {
 	return true
 }
 
-func removeStrDupsLocked(a []string) []string {
-	if len(a) <= 0 {
-		return a
-	}
-	m := make(map[string]struct{}, len(a))
-	for _, s := range a {
-		m[s] = struct{}{}
-	}
-	b := make([]string, 0, len(m))
-	for s := range m {
-		b = append(b, s)
-	}
-	return b
+func (h *MH) uniqAddrsLocked() {
+	h.names = removeDups(h.names)
 }
 
-func removeIPDupsLocked(a []netip.Addr) []netip.Addr {
+func (h *MH) uniqIPLocked() {
+	h.addrs = removeDups(h.addrs)
+}
+
+func removeDups[T comparable](a []T) []T {
 	if len(a) <= 0 {
 		return a
 	}
-	m := make(map[netip.Addr]struct{}, len(a))
-	for _, ip := range a {
-		m[ip] = struct{}{}
+	acc := make(map[T]struct{}, len(a))
+	for _, s := range a {
+		acc[s] = struct{}{}
 	}
-	b := make([]netip.Addr, 0, len(m))
-	for ip := range m {
-		b = append(b, ip)
+	uniq := make([]T, 0, len(acc))
+	for s := range acc {
+		uniq = append(uniq, s)
 	}
-	return b
+	return uniq
 }
