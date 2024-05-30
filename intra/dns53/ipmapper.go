@@ -48,7 +48,11 @@ func AddIPMapper(r dnsx.Resolver, protos string, clear bool) {
 	var m ipmap.IPMapper
 	ok := r != nil
 	if ok {
-		m = &ipmapper{dnsx.IpMapper, r, core.NewBarrier[[]byte](battl)}
+		m = &ipmapper{
+			id: dnsx.IpMapper,
+			r:  r,
+			ba: core.NewBarrier[[]byte](battl),
+		}
 	} // else remove; m is nil
 	if clear {
 		dialers.Clear()
