@@ -458,6 +458,7 @@ func (pc *PingConn) WriteTo(p []byte, addr net.Addr) (n int, err error) {
 		return int(n64), fmt.Errorf("ping write: %s", tcpipErr)
 	}
 
+	// may overflow on 32-bit systems
 	return int(n64), nil
 }
 

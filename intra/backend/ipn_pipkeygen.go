@@ -105,7 +105,7 @@ func NewPipKey(pubjwk string, msgOrExistingState string) (PipKey, error) {
 	// create rsa.PublicKey
 	pub := &rsa.PublicKey{
 		N: bn,
-		E: int(be.Int64()),
+		E: int(be.Int64()), // may overflow on 32-bit
 	}
 	// brsa.SHA384PSSDeterministic does not prepend random 32 bytes prefix to k.msg,
 	// whilst brsa.SHA384PSSRandomized does. ref: brsa.Prepare() which is unused here.
