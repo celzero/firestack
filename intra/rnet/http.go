@@ -236,16 +236,16 @@ func http502(w io.WriteCloser, err1 error, ssu *ServerSummary) {
 }
 
 func pipeconn(dst net.Conn, src net.Conn, ssu *ServerSummary, wg *sync.WaitGroup) {
-	_, err := io.Copy(dst, src)
+	var err error
+	defer wg.Done()
+	defer ssu.done(err) // done handles nil ssu
+
+	_, err = core.Pipe(dst, src)
 	log.D("svchttp: pipeconn: done; err src(%s) -> dst(%s); err? %v", src.RemoteAddr(), dst.RemoteAddr(), err)
-	if ssu != nil {
-		ssu.done(err)
-	}
-	wg.Done()
 }
 
 func pipetcp(dst, src *net.TCPConn, ssu *ServerSummary, wg *sync.WaitGroup) {
-	_, err1 := io.Copy(dst, src)
+	_, err1 := core.Pipe(dst, src)
 	log.D("svchttp: pipetcp: done; src (%s) -> dst(%s); err? %v", src.RemoteAddr(), dst.RemoteAddr(), err1)
 	err2 := dst.CloseWrite()
 	err3 := src.CloseRead()

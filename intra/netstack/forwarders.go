@@ -250,11 +250,13 @@ func (m *supervisor) id(t *fiveTuple) uint32 {
 
 // queuePacket queues a packet to be delivered to the appropriate processor.
 func (m *supervisor) queuePacket(pkt *stack.PacketBuffer, hasEthHeader bool) {
-	var pIdx int
+	fd := m.e.fd()
+	sz := uint32(len(m.processors))
+	var pIdx uint32
 	tup, nonConnectionPkt := tcpipConnectionID(pkt)
 	if !hasEthHeader {
 		if nonConnectionPkt {
-			log.D("ns: tun(%d): forwarder: drop non-connection pkt (sz: %d)", m.e.fd(), pkt.Size())
+			log.D("ns: tun(%d): forwarder: drop non-connection pkt (sz: %d)", fd, pkt.Size())
 			// If there's no eth header this should be a standard tcpip packet. If
 			// it isn't the packet is invalid so drop it.
 			return
@@ -266,7 +268,14 @@ func (m *supervisor) queuePacket(pkt *stack.PacketBuffer, hasEthHeader bool) {
 		// first processor.
 		pIdx = 0
 	} else {
-		pIdx = int(m.id(&tup)) % len(m.processors)
+		pIdx = m.id(&tup) % sz
+	}
+	// despite uint32, pIdx goes negative
+	// github.com/celzero/firestack/issues/59
+	// https://go.dev/ref/spec#Integer_overflow?
+	if pIdx < 0 || pIdx > sz {
+		log.W("ns: tun(%d): forwarder: invalid processor index %d, %s", fd, pIdx, tup)
+		pIdx = 0
 	}
 	p := &m.processors[pIdx]
 
@@ -277,7 +286,7 @@ func (m *supervisor) queuePacket(pkt *stack.PacketBuffer, hasEthHeader bool) {
 	p.mu.Unlock()
 
 	if settings.Debug {
-		log.VV("ns: tun(%d): forwarder: q on proc %d, %s", m.e.fd(), pIdx, tup)
+		log.VV("ns: tun(%d): forwarder: q on proc %d, %s", fd, pIdx, tup)
 	}
 }
 

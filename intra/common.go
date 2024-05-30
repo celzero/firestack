@@ -9,7 +9,6 @@ package intra
 import (
 	"errors"
 	"fmt"
-	"io"
 	"math/rand"
 	"net"
 	"net/netip"
@@ -22,30 +21,11 @@ import (
 	"github.com/celzero/firestack/intra/protect"
 )
 
-// pipe copies data from src to dst, and returns the number of bytes copied.
-// Prefers src.WriteTo(dst) and dst.ReadFrom(src) if available.
-// Otherwise, uses io.CopyBuffer, recycling buffers from global pool.
-func pipe(dst io.Writer, src io.Reader) (int64, error) {
-	if x, ok := src.(io.WriterTo); ok {
-		return x.WriteTo(dst)
-	} else if x, ok := dst.(io.ReaderFrom); ok {
-		return x.ReadFrom(src)
-	}
-	bptr := core.AllocRegion(core.BMAX)
-	b := *bptr
-	b = b[:cap(b)]
-	defer func() {
-		*bptr = b
-		core.Recycle(bptr)
-	}()
-	return io.CopyBuffer(dst, src, b)
-}
-
 // TODO: Propagate TCP RST using local.Abort(), on appropriate errors.
 func upload(cid string, local net.Conn, remote net.Conn, ioch chan<- ioinfo) {
 	ci := conn2str(local, remote)
 
-	n, err := pipe(remote, local)
+	n, err := core.Pipe(remote, local)
 	log.D("intra: %s upload(%d) done(%v) b/w %s", cid, n, err, ci)
 
 	core.CloseOp(local, core.CopR)
@@ -56,7 +36,7 @@ func upload(cid string, local net.Conn, remote net.Conn, ioch chan<- ioinfo) {
 func download(cid string, local net.Conn, remote net.Conn) (n int64, err error) {
 	ci := conn2str(local, remote)
 
-	n, err = pipe(local, remote)
+	n, err = core.Pipe(local, remote)
 	log.D("intra: %s download(%d) done(%v) b/w %s", cid, n, err, ci)
 
 	core.CloseOp(local, core.CopW)

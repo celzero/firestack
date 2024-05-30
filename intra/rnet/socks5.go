@@ -311,7 +311,7 @@ func (h *socks5) tcphandle(s *tx.Server, ingress *net.TCPConn, r *tx.Request) (e
 		s.AssociatedUDP.Set(caddr.String(), ch, -1)
 		defer s.AssociatedUDP.Delete(caddr.String())
 
-		n, err := io.Copy(io.Discard, ingress)
+		n, err := core.Pipe(io.Discard, ingress)
 
 		log.D("svcsocks: tcp: %s tcp that udp %s associated closed %d; err? %v", h.ID(), caddr, n, err)
 		return nil
