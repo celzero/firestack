@@ -84,7 +84,7 @@ func (pxr *proxifier) addProxy(id, txt string) (p Proxy, err error) {
 		// opts may be nil
 		opts := settings.NewAuthProxyOptions(u.Scheme, usr, pwd, strurl, u.Port(), addrs)
 
-		p, err = pxr.fromOpts(id, opts)
+		p, err = pxr.fromOpts(id, opts) // opts may be nil
 	}
 
 	if err != nil {
@@ -101,6 +101,10 @@ func (pxr *proxifier) addProxy(id, txt string) (p Proxy, err error) {
 }
 
 func (pxr *proxifier) fromOpts(id string, opts *settings.ProxyOptions) (Proxy, error) {
+	if opts == nil {
+		return nil, errNoOpts
+	}
+
 	var p Proxy = nil
 	var err error = nil
 	switch opts.Scheme {

@@ -61,6 +61,7 @@ var (
 	errNoProxyResponse      = errors.New("no response from proxy")
 	errNoSig                = errors.New("auth missing sig")
 	errNoMtu                = errors.New("no mtu")
+	errNoOpts               = errors.New("no proxy opts")
 
 	udptimeoutsec = 5 * 60                    // 5m
 	tcptimeoutsec = (2 * 60 * 60) + (40 * 60) // 2h40m
