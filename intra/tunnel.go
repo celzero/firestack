@@ -180,9 +180,17 @@ func (t *rtunnel) SetLinkAndRoutes(fd, mtu, engine int) error {
 		return errClosed
 	}
 
-	l3 := settings.L3(engine)
-	dialers.IPProtos(l3)
-	t.resolver.Add(newMDNSTransport(l3))
+	defer func() {
+		go func() {
+			l3 := settings.L3(engine)
+			if diff := dialers.IPProtos(l3); diff {
+				// dialers.IPProtos must always preced calls to other refreshes
+				// as it carries the global state for dialers and ipn/multihost
+				go t.proxies.RefreshProto(l3)
+				t.resolver.Add(newMDNSTransport(l3))
+			}
+		}()
+	}()
 	return t.Tunnel.SetLink(fd, mtu) // route is always dual-stack
 }
 
