@@ -129,9 +129,20 @@ func (m *ipmap) With(r IPMapper) {
 }
 
 func (m *ipmap) Clear() {
+	purge := make(chan *IPSet, len(m.m))
+
+	go func() {
+		for s := range purge {
+			s.clear()
+		}
+	}()
+
 	m.Lock()
-	defer m.Unlock()
-	clear(m.m)
+	for _, s := range m.m {
+		purge <- s // preserves seed addrs
+	}
+	m.Unlock()
+	close(purge)
 }
 
 // Implements IPMapper.
@@ -384,6 +395,7 @@ func (s *IPSet) clear() {
 	s.ips = nil
 	s.Unlock()
 	s.confirmed.Store(zeroaddr)
+	s.fails = 0
 }
 
 // Disconfirm sets the confirmed address to zeroaddr if the current confirmed address
@@ -406,7 +418,6 @@ func (s *IPSet) Disconfirm(ip netip.Addr) (ok bool) {
 		if s.fails > max(2*sz, maxFailLimit) {
 			// empty out the set, may be refilled by Get()
 			s.clear()
-			s.fails = 0
 		}
 	}
 	return
