@@ -23,7 +23,9 @@ type connectFunc func(*protect.RDial, string, netip.Addr, int) (net.Conn, error)
 
 const dialRetryTimeout = 1 * time.Minute
 
-func maybeFilter(ips []netip.Addr, alwaysExclude netip.Addr) []netip.Addr {
+func maybeFilter(ips []netip.Addr, alwaysExclude netip.Addr) ([]netip.Addr, bool) {
+	failingopen := true
+
 	filtered := make([]netip.Addr, 0, len(ips))
 	unfiltered := make([]netip.Addr, 0, len(ips))
 	for _, ip := range ips {
@@ -39,7 +41,7 @@ func maybeFilter(ips []netip.Addr, alwaysExclude netip.Addr) []netip.Addr {
 	}
 	if len(filtered) <= 0 {
 		// if all ips are filtered out, fail open and return unfiltered
-		return unfiltered
+		return unfiltered, failingopen
 	}
 	if len(unfiltered) > 0 {
 		// sample one unfiltered ip in an ironic case that it works
@@ -48,7 +50,7 @@ func maybeFilter(ips []netip.Addr, alwaysExclude netip.Addr) []netip.Addr {
 		// that is, IP6 is filtered out even though it might have worked.
 		filtered = append(filtered, unfiltered[0])
 	}
-	return filtered
+	return filtered, !failingopen
 }
 
 // ipConnect dials into ip:port using the provided dialer and returns a net.Conn
@@ -168,14 +170,14 @@ func commondial(d *protect.RDial, network, addr string, connect connectFunc) (ne
 	}
 
 	ipset := ips.Addrs()
-	allips := maybeFilter(ipset, confirmed)
-	if len(allips) <= 0 {
+	allips, failingopen := maybeFilter(ipset, confirmed)
+	if len(allips) <= 0 || failingopen {
 		var ok bool
 		if ips, ok = renew(domain, ips); ok {
 			ipset = ips.Addrs()
-			allips = maybeFilter(ipset, confirmed)
+			allips, failingopen = maybeFilter(ipset, confirmed)
 		}
-		log.D("rdial: renew ips for %s; ok? %t", addr, ok)
+		log.D("rdial: renew ips for %s; ok? %t, failingopen? %t", addr, ok, failingopen)
 	}
 	log.D("rdial: commondial: trying all ips %d for %s", len(allips), addr)
 	for _, ip := range allips {

@@ -118,6 +118,34 @@ func Mapper(m ipmap.IPMapper) {
 	ipm.With(m)
 }
 
+func Use4() bool {
+	d := true // by default, use4
+	switch ipProto {
+	case settings.IP6:
+		return false
+	case settings.IP4:
+		fallthrough
+	case settings.IP46:
+		return true
+	default:
+		return d
+	}
+}
+
+func Use6() bool {
+	d := false // by default, use4 instead
+	switch ipProto {
+	case settings.IP4:
+		return false
+	case settings.IP6:
+		fallthrough
+	case settings.IP46:
+		return true
+	default:
+		return d
+	}
+}
+
 // p must be one of settings.IP4, settings.IP6, or settings.IP46
 func IPProtos(ippro string) (diff bool) {
 	switch ippro {

@@ -76,14 +76,14 @@ func proxydial(d proxy.Dialer, network, addr string, connect proxyConnectFunc) (
 
 	s2 := time.Now()
 	ipset := ips.Addrs()
-	allips := maybeFilter(ipset, confirmed)
-	if len(allips) <= 0 {
+	allips, failingopen := maybeFilter(ipset, confirmed)
+	if len(allips) <= 0 || failingopen {
 		var ok bool
 		if ips, ok = renew(domain, ips); ok {
 			ipset = ips.Addrs()
-			allips = maybeFilter(ipset, confirmed)
+			allips, failingopen = maybeFilter(ipset, confirmed)
 		}
-		log.D("pdial: renew ips for %s; ok? %t", addr, ok)
+		log.D("pdial: renew ips for %s; ok? %t, failingopen? %t", addr, ok, failingopen)
 	}
 	log.D("pdial: trying all %d ips for %s; duration: %s", len(allips), addr, time.Since(s2))
 

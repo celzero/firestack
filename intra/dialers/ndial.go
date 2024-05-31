@@ -68,14 +68,14 @@ func netdial(d *net.Dialer, network, addr string, connect netConnectFunc) (net.C
 	}
 
 	ipset := ips.Addrs()
-	allips := maybeFilter(ipset, confirmed)
-	if len(allips) <= 0 {
+	allips, failingopen := maybeFilter(ipset, confirmed)
+	if len(allips) <= 0 || failingopen {
 		var ok bool
 		if ips, ok = renew(domain, ips); ok {
 			ipset = ips.Addrs()
-			allips = maybeFilter(ipset, confirmed)
+			allips, failingopen = maybeFilter(ipset, confirmed)
 		}
-		log.D("ndial: renew ips for %s; ok? %t", addr, ok)
+		log.D("ndial: renew ips for %s; ok? %t; failingopen? %t", addr, ok, failingopen)
 	}
 	log.D("ndial: trying all ips %d for %s", len(allips), addr)
 	for _, ip := range allips {
