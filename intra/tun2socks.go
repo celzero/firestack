@@ -38,11 +38,8 @@ func init() {
 }
 
 // Connect creates firestack-administered tunnel.
-// `fd` is the TUN device.  The IntraTunnel acquires an additional reference to it, which
-//
-//	is released by Disconnect(), so the caller must close `fd` _and_ call
-//	Disconnect() in order to close the TUN device.
-//
+// `fd` is the TUN device. The tunnel acquires an additional reference to it, which is
+// released by Disconnect(), so the caller must close `fd` and Disconnect() to close the TUN device.
 // `mtu` is the MTU of the TUN device.
 // `fakedns` are the DNS servers that the system believes it is using, in "host:port" style.
 // `bdg` is a kotlin object that implements the Bridge interface.
