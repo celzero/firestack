@@ -18,6 +18,8 @@ import (
 
 var errNoIps error = errors.New("multihost: no ips")
 
+var zeroaddr = netip.Addr{}
+
 // nooplock is a no-op lock.
 type nooplock struct{}
 
@@ -62,11 +64,23 @@ func (h *MH) Addrs() []netip.Addr {
 	return h.addrs
 }
 
-func (h *MH) AnyAddr() string {
-	if len(h.addrs) <= 0 {
-		return ""
+func (h *MH) AnyAddr(prefer4 bool) netip.Addr {
+	out := zeroaddr
+	for _, ip := range h.addrs {
+		if ip.IsUnspecified() || !ip.IsValid() {
+			continue
+		}
+		if prefer4 && ip.Is4() {
+			return ip // return the first v4 addr
+		}
+		if !prefer4 && ip.Is6() {
+			return ip // return the first v6 addr
+		}
+		if !out.IsValid() {
+			out = ip // note the first valid addr; may be unspecified
+		}
 	}
-	return h.addrs[0].String()
+	return out // may be zero addr or unspecified
 }
 
 func (h *MH) Len() int {

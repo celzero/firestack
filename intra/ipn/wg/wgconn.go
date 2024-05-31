@@ -33,6 +33,8 @@ import (
 	"golang.zx2c4.com/wireguard/conn"
 )
 
+// from: github.com/WireGuard/wireguard-go/blob/ebbd4a433/conn/bind_std.go
+
 const maxbindtries = 50
 const wgtimeout = 60 * time.Second
 
@@ -75,22 +77,24 @@ func (e *StdNetBind) ParseEndpoint(s string) (conn.Endpoint, error) {
 	d := multihost.New(e.id + "[" + s + "]")
 	host, portstr, err := net.SplitHostPort(s)
 	if err != nil {
-		log.E("wg: bind: %s not a valid endpoint in(%s); err: %v", e.id, s, err)
+		log.E("wg: bind: %s invalid endpoint in(%s); err: %v", e.id, s, err)
 		return nil, err
-	}
-	d.With([]string{host}) // resolves host if needed
-	ips := d.Addrs()
-	if len(ips) <= 0 {
-		log.E("wg: bind: %s not a valid endpoint in(%s); out(%s, %s)", e.id, s, d.Names(), d.Addrs())
-		return nil, errInvalidEndpoint
 	}
 	port, err := strconv.Atoi(portstr)
 	if err != nil {
-		log.E("wg: bind: %s not a valid port in(%s); err: %v", e.id, s, err)
+		log.E("wg: bind: %s invalid port in(%s); err: %v", e.id, s, err)
 		return nil, err
 	}
 
-	ipport := netip.AddrPortFrom(ips[0], uint16(port))
+	d.With([]string{host}) // resolves host if needed
+	// prefer v4; see: github.com/WireGuard/wireguard-android/blob/4ba87947a/tunnel/src/main/java/com/wireguard/config/InetEndpoint.java#L97
+	ip := d.AnyAddr( /*prefer v4*/ true)
+	if !ip.IsValid() || ip.IsUnspecified() {
+		log.E("wg: bind: %s invalid endpoint addr %v in(%s); out(%s, %s)", e.id, s, ip, d.Names(), d.Addrs())
+		return nil, errInvalidEndpoint
+	}
+
+	ipport := netip.AddrPortFrom(ip, uint16(port))
 	log.I("wg: bind: %s new endpoint %v", e.id, ipport)
 	return asEndpoint(ipport), nil
 }
