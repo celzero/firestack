@@ -22,14 +22,15 @@ import (
 )
 
 type http1 struct {
-	nofwd                   // no forwarding/listening
-	hc       *http.Client   // exported http client
-	rd       *protect.RDial // exported rdial
-	outbound proxy.Dialer
-	id       string
-	opts     *settings.ProxyOptions
-	lastdial time.Time
-	status   int
+	nofwd                      // no forwarding/listening
+	skiprefresh                // no refresh
+	hc          *http.Client   // exported http client
+	rd          *protect.RDial // exported rdial
+	outbound    proxy.Dialer
+	id          string
+	opts        *settings.ProxyOptions
+	lastdial    time.Time
+	status      int
 }
 
 func NewHTTPProxy(id string, c protect.Controller, po *settings.ProxyOptions) (*http1, error) {
@@ -141,4 +142,6 @@ func (h *http1) Stop() error {
 	return nil
 }
 
-func (h *http1) Refresh() error { return nil }
+func (h *http1) onProtoChange() (string, bool) {
+	return h.opts.FullUrl(), true
+}

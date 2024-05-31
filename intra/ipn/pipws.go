@@ -31,20 +31,23 @@ const (
 )
 
 type pipws struct {
-	nofwd                      // no forwarding/listening
-	id          string         // some unique identifier
-	url         string         // ws proxy url
-	hostname    string         // ws proxy hostname
-	port        int            // ws proxy port
-	token       string         // hex, raw client token
-	toksig      string         // hex, authorizer (rdns) signed client token
-	rsasighash  string         // hex, authorizer sha256(unblinded signature)
-	client      http.Client    // ws client
-	proxydialer *protect.RDial // ws dialer
-	hc          *http.Client   // exported http client
-	rd          *protect.RDial // exported dialer
-	lastdial    time.Time      // last dial time
-	status      int            // proxy status: TOK, TKO, END
+	nofwd                        // no forwarding/listening
+	protoagnostic                // since dial is proto aware
+	skiprefresh                  // no refresh
+	id            string         // some unique identifier
+	url           string         // ws proxy url
+	hostname      string         // ws proxy hostname
+	port          int            // ws proxy port
+	token         string         // hex, raw client token
+	toksig        string         // hex, authorizer (rdns) signed client token
+	rsasighash    string         // hex, authorizer sha256(unblinded signature)
+	client        http.Client    // ws client
+	proxydialer   *protect.RDial // ws dialer
+	hc            *http.Client   // exported http client
+	rd            *protect.RDial // exported dialer
+	lastdial      time.Time      // last dial time
+	status        int            // proxy status: TOK, TKO, END
+	opts          *settings.ProxyOptions
 }
 
 var _ core.TCPConn = (*pipwsconn)(nil)
@@ -57,7 +60,8 @@ type pipwsconn struct {
 func (c *pipwsconn) CloseRead() error  { return c.Close() }
 func (c *pipwsconn) CloseWrite() error { return c.Close() }
 
-// connects to the ws proxy at addr over tcp; use by t.client
+// connects to the ws proxy at addr over tcp; used by t.client
+// dial is aware of proto changes via dialers.SplitDial
 func (t *pipws) dial(network, addr string) (net.Conn, error) {
 	return dialers.SplitDial(t.proxydialer, network, addr)
 }
@@ -141,6 +145,7 @@ func NewPipWsProxy(id string, ctl protect.Controller, po *settings.ProxyOptions)
 		toksig:      po.Auth.Password,
 		rsasighash:  splitpath[2],
 		status:      TUP,
+		opts:        po,
 	}
 	t.rd = newRDial(t)
 	t.hc = newHTTPClient(t.rd)
@@ -185,8 +190,6 @@ func (t *pipws) Status() int {
 	}
 	return t.status
 }
-
-func (h *pipws) Refresh() error { return nil }
 
 // Scenario 4: privacypass.github.io/protocol
 func (t *pipws) claim(msg string) []string {

@@ -33,20 +33,23 @@ import (
 )
 
 type piph2 struct {
-	nofwd                      // no forwarding/listening
-	id          string         // some unique identifier
-	url         string         // h2 proxy url
-	hostname    string         // h2 proxy hostname
-	port        int            // h2 proxy port
-	token       string         // hex, client token
-	toksig      string         // hex, authorizer signed client token
-	rsasig      string         // hex, authorizer unblinded signature
-	client      http.Client    // h2 client, see trType
-	proxydialer *protect.RDial // h2 dialer
-	hc          *http.Client   // exported http client
-	rd          *protect.RDial // exported dialer
-	lastdial    time.Time      // last dial time
-	status      int            // proxy status: TOK, TKO, END
+	nofwd                        // no forwarding/listening
+	protoagnostic                // since dial, dialts are proto aware
+	skiprefresh                  // no refresh
+	id            string         // some unique identifier
+	url           string         // h2 proxy url
+	hostname      string         // h2 proxy hostname
+	port          int            // h2 proxy port
+	token         string         // hex, client token
+	toksig        string         // hex, authorizer signed client token
+	rsasig        string         // hex, authorizer unblinded signature
+	client        http.Client    // h2 client, see trType
+	proxydialer   *protect.RDial // h2 dialer
+	hc            *http.Client   // exported http client
+	rd            *protect.RDial // exported dialer
+	lastdial      time.Time      // last dial time
+	status        int            // proxy status: TOK, TKO, END
+	opts          *settings.ProxyOptions
 }
 
 // github.com/posener/h2conn/blob/13e7df33ed1/conn.go
@@ -189,6 +192,7 @@ func NewPipProxy(id string, ctl protect.Controller, po *settings.ProxyOptions) (
 		toksig:      po.Auth.Password,
 		rsasig:      rsasig,
 		status:      TUP,
+		opts:        po,
 	}
 	t.rd = newRDial(t)
 	t.hc = newHTTPClient(t.rd)

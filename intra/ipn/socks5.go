@@ -26,14 +26,15 @@ import (
 )
 
 type socks5 struct {
-	nofwd                           // no forwarding/listening
-	outbound []proxy.Dialer         // outbound dialers connecting unto upstream proxy
-	id       string                 // unique identifier
-	opts     *settings.ProxyOptions // connect options
-	rd       *protect.RDial         // this transport as a dialer
-	hc       *http.Client           // this transport as a http client
-	lastdial time.Time              // last time this transport attempted a connection
-	status   int                    // status of this transport
+	nofwd                              // no forwarding/listening
+	skiprefresh                        // no refresh
+	outbound    []proxy.Dialer         // outbound dialers connecting unto upstream proxy
+	id          string                 // unique identifier
+	opts        *settings.ProxyOptions // connect options
+	rd          *protect.RDial         // this transport as a dialer
+	hc          *http.Client           // this transport as a http client
+	lastdial    time.Time              // last time this transport attempted a connection
+	status      int                    // status of this transport
 }
 
 type socks5tcpconn struct {
@@ -214,4 +215,6 @@ func (h *socks5) Stop() error {
 	return nil
 }
 
-func (h *socks5) Refresh() error { return nil }
+func (h *socks5) onProtoChange() (string, bool) {
+	return h.opts.FullUrl(), true
+}

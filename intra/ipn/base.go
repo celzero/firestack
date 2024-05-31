@@ -16,11 +16,13 @@ import (
 )
 
 type base struct {
-	rd       *protect.RDial // this proxy as a RDial
-	hc       *http.Client   // this proxy as a http.Client
-	outbound *protect.RDial // outbound dialer
-	addr     string
-	status   int
+	protoagnostic                // Dial is proto aware
+	skiprefresh                  // no rebinding necessary on refresh
+	rd            *protect.RDial // this proxy as a RDial
+	hc            *http.Client   // this proxy as a http.Client
+	outbound      *protect.RDial // outbound dialer
+	addr          string
+	status        int
 }
 
 func NewBaseProxy(c protect.Controller) *base {
@@ -108,5 +110,3 @@ func (h *base) Stop() error {
 	log.I("proxy: base: stopped")
 	return nil
 }
-
-func (h *base) Refresh() error { return nil }

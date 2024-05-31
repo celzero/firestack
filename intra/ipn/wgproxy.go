@@ -108,6 +108,7 @@ type wgproxy struct {
 	wgep wgconn
 	hc   *http.Client   // exported http client
 	rd   *protect.RDial // exported rdialer
+	cfg  string         // original config
 }
 
 type WgProxy interface {
@@ -148,6 +149,14 @@ func (h *wgproxy) GetAddr() string {
 		return noaddr
 	}
 	return dst.String()
+}
+
+// onProtoChange implements ipn.Proxy
+func (w *wgproxy) onProtoChange() (string, bool) {
+	_ = w.Refresh() // refresh on proto changes
+	// todo: on refresh err, re-add?
+	// return w.cfg, true
+	return "", false // do not re-add this refreshed wg
 }
 
 // Refresh implements ipn.Proxy
@@ -373,6 +382,7 @@ func loadIPNets(out *[]netip.Prefix, v string) (err error) {
 
 // ref: github.com/WireGuard/wireguard-android/blob/713947e432/tunnel/tools/libwg-go/api-android.go#L76
 func NewWgProxy(id string, ctl protect.Controller, cfg string) (*wgproxy, error) {
+	ogcfg := cfg
 	ifaddrs, allowedaddrs, peers, dnsh, endpointh, mtu, err := wgIfConfigOf(id, &cfg)
 	uapicfg := cfg
 	if err != nil {
@@ -419,6 +429,7 @@ func NewWgProxy(id string, ctl protect.Controller, cfg string) (*wgproxy, error)
 		wgep,  // endpoint
 		nil,   // rdial
 		nil,   // http-client
+		ogcfg, // original config
 	}
 	w.rd = newRDial(w)
 	w.hc = newHTTPClient(w.rd)

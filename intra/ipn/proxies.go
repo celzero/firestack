@@ -16,6 +16,7 @@ import (
 	x "github.com/celzero/firestack/intra/backend"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
+	"github.com/celzero/firestack/intra/settings"
 )
 
 const (
@@ -99,19 +100,24 @@ type Proxy interface {
 	// not all Proxy instances implement DialTCP and DialUDP, though are
 	// guaranteed to implement Dial.
 	Dialer() *protect.RDial
+	// onProtoChange returns true if the proxy must be re-added with cfg on proto changes.
+	onProtoChange() (cfg string, readd bool)
 }
 
 type Proxies interface {
 	x.Proxies
 	// Get returns a transport from this multi-transport.
 	ProxyFor(id string) (Proxy, error)
+	// RefreshProto broadcasts proto change to all active proxies.
+	RefreshProto(l3 string)
 }
 
 type proxifier struct {
 	sync.RWMutex
-	p   map[string]Proxy
-	ctl protect.Controller
-	obs x.ProxyListener
+	p      map[string]Proxy
+	ctl    protect.Controller
+	obs    x.ProxyListener
+	protos string
 }
 
 type gw struct {
@@ -130,6 +136,14 @@ var PROXYGATEWAY = &gw{ok: true}
 
 // PROXYNOGATEWAY is a Router that routes nothing.
 var PROXYNOGATEWAY = &gw{ok: false}
+
+type protoagnostic struct{}
+
+func (protoagnostic) onProtoChange() (string, bool) { return "", false }
+
+type skiprefresh struct{}
+
+func (skiprefresh) Refresh() error { return nil }
 
 type nofwd struct{}
 
@@ -155,9 +169,10 @@ func NewProxifier(c protect.Controller, o x.ProxyListener) *proxifier {
 	}
 
 	pxr := &proxifier{
-		p:   make(map[string]Proxy),
-		ctl: c,
-		obs: o,
+		p:      make(map[string]Proxy),
+		ctl:    c,
+		obs:    o,
+		protos: settings.IP46, // assume all routes ok (fail open)
 	}
 	pxr.add(NewExitProxy(c))  // fixed
 	pxr.add(NewBaseProxy(c))  // fixed
@@ -247,6 +262,24 @@ func (px *proxifier) RefreshProxies() (string, error) {
 		active = append(active, p.ID())
 	}
 	return strings.Join(active, ","), nil
+}
+
+func (px *proxifier) RefreshProto(l3 string) {
+	px.Lock()
+	defer px.Unlock()
+
+	if px.protos == l3 {
+		log.D("proxy: refreshProto (%s) unchanged", l3)
+		return
+	}
+
+	px.protos = l3
+	for _, p := range px.p {
+		if cfg, readd := p.onProtoChange(); readd {
+			_, err := px.addProxy(p.ID(), cfg)
+			log.I("proxy: refreshProto (%s/%s/%s) re-add; err? %v", p.ID(), p.Type(), p.GetAddr(), err)
+		}
+	}
 }
 
 // Implements Router.
