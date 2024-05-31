@@ -119,19 +119,21 @@ func Mapper(m ipmap.IPMapper) {
 }
 
 // p must be one of settings.IP4, settings.IP6, or settings.IP46
-func IPProtos(ippro string) {
+func IPProtos(ippro string) (diff bool) {
 	switch ippro {
 	case settings.IP4:
 		fallthrough
 	case settings.IP6:
 		fallthrough
 	case settings.IP46:
+		diff = ipProto != ippro
 		ipProto = ippro
 	default:
 		log.D("dialers: ips: invalid protos %s; use existing: %s", ippro, ipProto)
 		return
 	}
-	log.I("dialers: ips: protos set to %s", ipProto)
+	log.I("dialers: ips: protos set to %s; diff? %t", ipProto, diff)
+	return
 }
 
 func Clear() {
