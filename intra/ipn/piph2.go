@@ -68,7 +68,7 @@ func (c *pipconn) Read(b []byte) (int, error) {
 		c.r = <-c.rch // nil on error
 		c.ok = true
 	}
-	if c.r == nil {
+	if core.IsNil(c.r) {
 		log.E("piph2: read(%v/%s) not ok", len(b), c.id)
 		return 0, io.EOF
 	}
@@ -135,6 +135,8 @@ func (t *piph2) dialtls(network, addr string, cfg *tls.Config) (net.Conn, error)
 	return conn, nil
 }
 
+// dial dials proxy addr using the proxydialer via dialers.SplitDial,
+// which is aware of proto changes.
 func (t *piph2) dial(network, addr string) (net.Conn, error) {
 	return dialers.SplitDial(t.proxydialer, network, addr)
 }
@@ -247,8 +249,6 @@ func (t *piph2) Status() int {
 	return t.status
 }
 
-func (h *piph2) Refresh() error { return nil }
-
 // Scenario 4: privacypass.github.io/protocol
 func (t *piph2) claim(msg string) []string {
 	if len(t.token) == 0 || len(t.toksig) == 0 {
@@ -294,7 +294,7 @@ func (t *piph2) Dial(network, addr string) (protect.Conn, error) {
 		id:  u.Path,
 		rch: incomingCh,
 		wch: wlenCh,
-		w:   writable,
+		w:   writable, // never nil
 	}
 
 	// github.com/golang/go/issues/26574
