@@ -92,26 +92,27 @@ func (h *MH) PreferredAddrs() []netip.Addr {
 }
 
 func (h *MH) PreferredAddr() netip.Addr {
-	return h.firstAddr(dialers.Use4())
-}
-
-func (h *MH) firstAddr(prefer4 bool) netip.Addr {
-	out := zeroaddr
+	out6 := zeroaddr
+	has4Or46 := dialers.Use4()
+	has6Or46 := dialers.Use6()
+	hasOnly6 := has6Or46 && !has4Or46
 	for _, ip := range h.addrs {
 		if ip.IsUnspecified() || !ip.IsValid() {
 			continue
 		}
-		if prefer4 && ip.Is4() {
-			return ip // return the first v4 addr
+		if ip.Is4() && has4Or46 {
+			return ip // the first v4 addr
 		}
-		if !prefer4 && ip.Is6() {
-			return ip // return the first v6 addr
-		}
-		if !out.IsValid() {
-			out = ip // note the first valid addr; may be unspecified
+		if ip.Is6() {
+			if hasOnly6 {
+				return ip // the first v6 addr
+			}
+			if has6Or46 && !out6.IsValid() {
+				out6 = ip // note the first valid v6 addr
+			}
 		}
 	}
-	return out // may be zero addr or unspecified
+	return out6 // may be zero addr or unspecified
 }
 
 func (h *MH) Len() int {
