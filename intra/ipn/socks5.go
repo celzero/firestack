@@ -86,7 +86,7 @@ func NewSocks5Proxy(id string, ctl protect.Controller, po *settings.ProxyOptions
 		return nil, errMissingProxyOpt
 	}
 
-	// replace with a network namespace aware dialer
+	// always with a network namespace aware dialer
 	tx.Dial = protect.MakeNsRDial(id, ctl)
 
 	portnumber, _ := strconv.Atoi(po.Port)
@@ -100,7 +100,7 @@ func NewSocks5Proxy(id string, ctl protect.Controller, po *settings.ProxyOptions
 	// socks5 server may throw err when dialing with golang/net/x/proxy;
 	// although, txthinking/socks5 deals gracefully with empty auth strings
 	// fproxy, err = proxy.SOCKS5("udp", po.IPPort, po.Auth, proxy.Direct)
-	for _, ip := range mh.Addrs() {
+	for _, ip := range mh.PreferredAddrs() {
 		ipport := netip.AddrPortFrom(ip, uint16(portnumber))
 		c, cerr := tx.NewClient(ipport.String(), po.Auth.User, po.Auth.Password, tcptimeoutsec, udptimeoutsec)
 		if cerr != nil {

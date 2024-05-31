@@ -88,7 +88,7 @@ func (e *StdNetBind) ParseEndpoint(s string) (conn.Endpoint, error) {
 
 	d.With([]string{host}) // resolves host if needed
 	// prefer v4; see: github.com/WireGuard/wireguard-android/blob/4ba87947a/tunnel/src/main/java/com/wireguard/config/InetEndpoint.java#L97
-	ip := d.AnyAddr( /*prefer v4*/ true)
+	ip := d.PreferredAddr()
 	if !ip.IsValid() || ip.IsUnspecified() {
 		log.E("wg: bind: %s invalid endpoint addr %v in(%s); out(%s, %s)", e.id, s, ip, d.Names(), d.Addrs())
 		return nil, errInvalidEndpoint

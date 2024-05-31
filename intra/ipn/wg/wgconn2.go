@@ -153,22 +153,23 @@ func (e *StdNetBind2) ParseEndpoint(s string) (conn.Endpoint, error) {
 	d := multihost.New(e.id + "[" + s + "]")
 	host, portstr, err := net.SplitHostPort(s)
 	if err != nil {
-		log.E("wg: bind2: %s not a valid endpoint in(%s); err: %v", e.id, s, err)
+		log.E("wg: bind2: %s invalid endpoint in(%s); err: %v", e.id, s, err)
 		return nil, err
-	}
-	d.With([]string{host}) // resolves host if needed
-	ips := d.Addrs()
-	if len(ips) <= 0 {
-		log.E("wg: bind2: %s not a valid endpoint in(%s); out(%s, %s)", e.id, s, d.Names(), d.Addrs())
-		return nil, errInvalidEndpoint
 	}
 	port, err := strconv.Atoi(portstr)
 	if err != nil {
-		log.E("wg: bind2: %s not a valid port in(%s); err: %v", e.id, s, err)
+		log.E("wg: bind2: %s invalid port in(%s); err: %v", e.id, s, err)
 		return nil, err
 	}
 
-	ipport := netip.AddrPortFrom(ips[0], uint16(port))
+	d.With([]string{host}) // resolves host if needed
+	ip := d.PreferredAddr()
+	if !ip.IsValid() || ip.IsUnspecified() {
+		log.E("wg: bind2: %s invalid endpoint in(%s); out(%s, %s)", e.id, s, d.Names(), d.Addrs())
+		return nil, errInvalidEndpoint
+	}
+	ipport := netip.AddrPortFrom(ip, uint16(port))
+
 	log.I("wg: bind2: %s new endpoint %v", e.id, ipport)
 	return asEndpoint2(ipport), err
 }

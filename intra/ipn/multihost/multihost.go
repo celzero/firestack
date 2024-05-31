@@ -64,7 +64,38 @@ func (h *MH) Addrs() []netip.Addr {
 	return h.addrs
 }
 
-func (h *MH) AnyAddr(prefer4 bool) netip.Addr {
+func (h *MH) PreferredAddrs() []netip.Addr {
+	out4 := make([]netip.Addr, 0)
+	out6 := make([]netip.Addr, 0)
+	for _, ip := range h.addrs {
+		if ip.IsUnspecified() || !ip.IsValid() {
+			continue
+		}
+		if ip.Is4() {
+			out4 = append(out4, ip)
+		}
+		if ip.Is6() {
+			out6 = append(out6, ip)
+		}
+	}
+	out := make([]netip.Addr, 0)
+	if dialers.Use4() {
+		out = append(out, out4...)
+	}
+	if dialers.Use6() { // ipv4 addrs followed by ipv6
+		out = append(out, out6...)
+	}
+	if len(out) <= 0 { // fail open
+		return h.addrs
+	}
+	return out
+}
+
+func (h *MH) PreferredAddr() netip.Addr {
+	return h.firstAddr(dialers.Use4())
+}
+
+func (h *MH) firstAddr(prefer4 bool) netip.Addr {
 	out := zeroaddr
 	for _, ip := range h.addrs {
 		if ip.IsUnspecified() || !ip.IsValid() {
