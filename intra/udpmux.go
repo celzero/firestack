@@ -254,7 +254,7 @@ func (x *muxer) demux(r net.Addr) *demuxconn {
 		raddr:      r,
 		incomingCh: make(chan *slice),
 		overflowCh: make(chan *slice),
-		closed:     make(chan struct{}),
+		closed:     make(chan struct{}), // must always be unbuffered
 		wt:         time.NewTicker(udptimeout),
 		rt:         time.NewTicker(udptimeout),
 		wto:        udptimeout,
