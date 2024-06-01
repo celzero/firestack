@@ -121,48 +121,11 @@ type proxifier struct {
 	protos string
 }
 
-type gw struct {
-	ok    bool
-	stats x.Stats
-}
-
 var _ x.Router = (*gw)(nil)
 var _ x.Router = (*proxifier)(nil)
 
 var _ Proxies = (*proxifier)(nil)
 var _ protect.RDialer = (Proxy)(nil)
-
-// PROXYGATEWAY is a Router that routes everything.
-var PROXYGATEWAY = &gw{ok: true}
-
-// PROXYNOGATEWAY is a Router that routes nothing.
-var PROXYNOGATEWAY = &gw{ok: false}
-
-type protoagnostic struct{}
-
-func (protoagnostic) onProtoChange() (string, bool) { return "", false }
-
-type skiprefresh struct{}
-
-func (skiprefresh) Refresh() error { return nil }
-
-type nofwd struct{}
-
-// Announce implements Proxy.
-func (nofwd) Announce(network, local string) (protect.PacketConn, error) {
-	return nil, errAnnounceNotSupported
-}
-
-// Accept implements Proxy.
-func (nofwd) Accept(network, local string) (protect.Listener, error) {
-	return nil, errAnnounceNotSupported
-}
-
-func (w *gw) IP4() bool            { return w.ok }
-func (w *gw) IP6() bool            { return w.ok }
-func (w *gw) MTU() (int, error)    { return NOMTU, errNoMtu }
-func (w *gw) Stat() *x.Stats       { return &w.stats }
-func (w *gw) Contains(string) bool { return w.ok }
 
 func NewProxifier(c protect.Controller, o x.ProxyListener) *proxifier {
 	if c == nil || o == nil {
