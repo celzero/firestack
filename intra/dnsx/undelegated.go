@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	c "github.com/celzero/firestack/intra/backend"
+	"github.com/celzero/firestack/intra/settings"
 	"github.com/celzero/firestack/intra/xdns"
 )
 
@@ -172,6 +173,8 @@ func newUndelegatedDomainsTrie() c.RadixTree {
 func (r *resolver) requiresGoosOrLocal(qname string) (id string) {
 	if strings.HasSuffix(qname, ".local") || xdns.IsMDNSQuery(qname) {
 		id = Local
+	} else if r.tunmode.DNSMode != settings.DNSModePort {
+		// skip override when preventing DNS capture on port53 is turned off
 	} else if len(qname) > 0 && r.localdomains.HasAny(qname) {
 		id = Goos // system is primary; see: transport.go:determineTransports()
 	}
