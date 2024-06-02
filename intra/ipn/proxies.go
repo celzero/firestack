@@ -217,6 +217,9 @@ func (px *proxifier) RefreshProxies() (string, error) {
 	px.Lock()
 	defer px.Unlock()
 
+	tot := len(px.p)
+	log.I("proxy: refresh all %d", tot)
+
 	var active []string
 	for _, p := range px.p {
 		if err := p.Refresh(); err != nil {
@@ -225,6 +228,9 @@ func (px *proxifier) RefreshProxies() (string, error) {
 		}
 		active = append(active, p.ID())
 	}
+
+	log.I("proxy: refreshed %d / %d", len(active), tot)
+
 	return strings.Join(active, ","), nil
 }
 
@@ -240,8 +246,13 @@ func (px *proxifier) RefreshProto(l3 string) {
 	px.protos = l3
 	for _, p := range px.p {
 		if cfg, readd := p.onProtoChange(); readd {
-			_, err := px.addProxy(p.ID(), cfg)
-			log.I("proxy: refreshProto (%s/%s/%s) re-add; err? %v", p.ID(), p.Type(), p.GetAddr(), err)
+			curp := p
+			go func() {
+				// defer core.Recover(core.DontExit, "pxr.RefreshProto")
+
+				_, err := px.addProxy(curp.ID(), cfg) // px.addProxy -> px.add (acquires lock)
+				log.I("proxy: refreshProto (%s/%s/%s) re-add; err? %v", curp.ID(), curp.Type(), curp.GetAddr(), err)
+			}()
 		}
 	}
 }
