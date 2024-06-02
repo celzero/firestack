@@ -72,5 +72,10 @@ func LogLevel(level int) {
 	}
 	log.SetLevel(dlvl)
 	settings.Debug = dlvl < log.INFO
+	if settings.Debug {
+		debug.SetTraceback(usr.s())
+	} else {
+		debug.SetTraceback(one.s())
+	}
 	log.I("tun: new log-level %d; debug? %t", dlvl, settings.Debug)
 }
