@@ -1,6 +1,6 @@
 module github.com/celzero/firestack
 
-go 1.22.2
+go 1.22.3
 
 require (
 	github.com/celzero/gotrie v0.0.0-20240214185511-300735a8f01f
@@ -31,6 +31,7 @@ require (
 	github.com/cisco/go-hpke v0.0.0-20210215210317-01c430f1f302 // indirect
 	github.com/cisco/go-tls-syntax v0.0.0-20200617162716-46b0cfb76b9b // indirect
 	github.com/cloudflare/circl v1.3.8 // indirect
+	github.com/go-playground/locales v0.13.0 // indirect
 	github.com/google/btree v1.1.2 // indirect
 	github.com/klauspost/compress v1.10.3 // indirect
 	github.com/patrickmn/go-cache v2.1.0+incompatible // indirect
