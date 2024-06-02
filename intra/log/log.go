@@ -130,7 +130,25 @@ func P(msg string, args ...any) {
 
 func Wtf(msg string, args ...any) {
 	if Glogger != nil {
-		Glogger.Fatalf(callerDepth, "F "+msg, args...)
+		Glogger.Fatalf(CallerDepth, "F "+msg, args...)
+	}
+}
+
+// C logs the stack trace of the current goroutine to Console.
+func C(msg string) {
+	if Glogger != nil {
+		E2(LogFnCallerDepth, "----START----")
+		Glogger.Stack( /*console-only*/ 0, "F "+msg)
+		E2(LogFnCallerDepth, "----STOPP----")
+	}
+}
+
+// T logs the stack trace of the current goroutine.
+func T(msg string) {
+	if Glogger != nil {
+		E2(LogFnCallerDepth, "----START----")
+		Glogger.Stack(LogFnCallerDepth, "F "+msg)
+		E2(LogFnCallerDepth, "----STOPP----")
 	}
 }
 

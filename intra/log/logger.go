@@ -34,11 +34,13 @@ import (
 	"fmt"
 	golog "log"
 	"os"
+	"runtime"
 	"strings"
 )
 
 type Logger interface {
 	SetLevel(level LogLevel)
+	SetConsole(c Console)
 	Printf(msg string, args ...any)
 	VeryVerbosef(at int, msg string, args ...any)
 	Verbosef(at int, msg string, args ...any)
@@ -48,6 +50,7 @@ type Logger interface {
 	Warnf(at int, msg string, args ...any)
 	Errorf(at int, msg string, args ...any)
 	Fatalf(at int, msg string, args ...any)
+	Stack(at int, msg string)
 }
 
 // based on github.com/eycorsican/go-tun2socks/blob/301549c43/common/log/simple/logger.go
@@ -55,6 +58,8 @@ type simpleLogger struct {
 	Logger
 	level LogLevel
 	tag   string
+	c     Console      // may be nil
+	msgC  chan *conMsg // never closed
 	e     *golog.Logger
 	o     *golog.Logger
 }
@@ -76,18 +81,25 @@ const defaultLevel = INFO
 
 var _ Logger = (*simpleLogger)(nil)
 
+// github.com/golang/mobile/blob/fa72addaaa1/internal/mobileinit/mobileinit_android.go#L52
+const logcatLineSize = 1024
+
 var defaultFlags = golog.Lshortfile
 var defaultCallerDepth = 2
 var _ = RegisterLogger(defaultLogger())
 
 func defaultLogger() *simpleLogger {
-	return &simpleLogger{
+	l := &simpleLogger{
 		level: defaultLevel,
+		msgC:  make(chan *conMsg, consoleChSize),
 		e:     golog.New(os.Stderr, "", defaultFlags),
 		o:     golog.New(os.Stdout, "", defaultFlags),
 	}
+	go l.fromConsole()
+	return l
 }
 
+// NewLogger creates a new Glogger with the given tag.
 func NewLogger(tag string) *simpleLogger {
 	l := defaultLogger()
 	if len(tag) <= 0 { // if tag is empty, leave it as is
@@ -102,8 +114,44 @@ func NewLogger(tag string) *simpleLogger {
 	return l
 }
 
+// SetLevel sets the log level.
 func (l *simpleLogger) SetLevel(level LogLevel) {
 	l.level = level
+}
+
+// SetConsole sets the external log console.
+func (l *simpleLogger) SetConsole(c Console) {
+	l.c = c
+}
+
+// fromConsole sends msgs from l.msgC to external log console.
+// It may drop logs on high load (50% for conNorm, 80% for conErr).
+func (l *simpleLogger) fromConsole() {
+	for m := range l.msgC {
+		load := (len(l.msgC) / cap(l.msgC) * 100)           // load percentage
+		if c := l.c; c != nil && m != nil && len(m.m) > 0 { // look for l.c on every msg
+			switch m.t {
+			case conNorm:
+				if load < 50 {
+					c.Log(m.m)
+				} // drop
+			case conStack:
+				c.Stack(m.m)
+			case conErr:
+				if load < 80 {
+					c.Err(m.m)
+				} // drop
+			}
+		} // dropped
+	}
+}
+
+// toConsole sends msg m to l.msgC, dropping if full.
+func (l *simpleLogger) toConsole(m *conMsg) {
+	select {
+	case l.msgC <- m:
+	default: // drop
+	}
 }
 
 // Printf exists to satisfy rnet/http's Logger interface
@@ -158,12 +206,38 @@ func (l *simpleLogger) Fatalf(at int, msg string, args ...any) {
 	os.Exit(1)
 }
 
+func (l *simpleLogger) Stack(at int, msg string) {
+	dump := make([]byte, 2*logcatLineSize) // matches android/log.h.
+	for {
+		n := runtime.Stack(dump, false)
+		if n < len(dump) {
+			msg = msg + "\n\t" + string(dump[:n])
+			if len(l.tag) > 0 {
+				msg = l.tag + msg
+			}
+			if at > 0 { // skip l.err if at is 0
+				_ = l.e.Output(at, msg) // may error
+			} else if c := l.c; c != nil {
+				// c.Stack() on the same go routine, since
+				// the caller (ex: core.Recover) may exit
+				// immediately once simpleLogger.Stack() returns
+				c.Stack(msg)
+			} else {
+				l.toConsole(&conMsg{msg, conStack})
+			}
+			break
+		} // make more space for dump
+		dump = make([]byte, 2*len(dump))
+	}
+}
+
 // ref: github.com/golang/mobile/blob/c713f31d/internal/mobileinit/mobileinit_android.go#L51
 func (l *simpleLogger) out(at int, f string, args ...any) {
 	msg := fmt.Sprintf(f, args...)
 	if len(l.tag) > 0 {
 		msg = l.tag + msg
 	}
+	l.toConsole(&conMsg{msg, conNorm})
 	_ = l.o.Output(at, msg) // may error
 }
 
@@ -172,5 +246,6 @@ func (l *simpleLogger) err(at int, f string, args ...any) {
 	if len(l.tag) > 0 {
 		msg = l.tag + msg
 	}
+	l.toConsole(&conMsg{msg, conErr})
 	_ = l.e.Output(at, msg) // may error
 }
