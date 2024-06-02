@@ -129,7 +129,7 @@ func (h *MH) addrlen() int {
 // Refresh re-adds the list of IPs, hostnames, and re-resolves the hostname.
 func (h *MH) Refresh() int {
 	names := h.names
-	addrs := h.straddrs()
+	addrs := h.straddrs() // may be empty
 	// resolve ip from domain names
 	n := h.With(names) // it empties h.names and h.addrs
 	// re-add existing ips, if any
@@ -139,7 +139,7 @@ func (h *MH) Refresh() int {
 // Add appends the list of IPs, hostnames, and hostname's IPs as resolved.
 func (h *MH) Add(domainsOrIps []string) int {
 	if len(domainsOrIps) <= 0 {
-		log.W("multihost: %s no domains or ips", h.id)
+		log.D("multihost: %s add: no domains or ips; existing n: %v / a: %v", h.id, h.names, h.addrs)
 		return 0
 	}
 
