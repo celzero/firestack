@@ -14,6 +14,7 @@ import (
 	"time"
 
 	x "github.com/celzero/firestack/intra/backend"
+	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
 	"github.com/celzero/firestack/intra/settings"
@@ -158,7 +159,7 @@ func (px *proxifier) add(p Proxy) (ok bool) {
 	}
 
 	px.p[p.ID()] = p
-	go px.obs.OnProxyAdded(p.ID())
+	go px.onNew(p.ID())
 	return true
 }
 
@@ -169,7 +170,7 @@ func (px *proxifier) RemoveProxy(id string) bool {
 	if p, ok := px.p[id]; ok {
 		_ = p.Stop()
 		delete(px.p, id)
-		go px.obs.OnProxyRemoved(id)
+		go px.onRmv(id)
 		log.I("proxy: removed %s", id)
 		return true
 	}
@@ -208,9 +209,27 @@ func (px *proxifier) StopProxies() error {
 	}
 	px.p = make(map[string]Proxy)
 
-	go px.obs.OnProxiesStopped()
+	go px.onStop()
 	log.I("proxy: all(%d) stopped and removed", l)
 	return nil
+}
+
+func (px *proxifier) onNew(id string) {
+	defer core.Recover(core.DontExit, "pxr.onNew")
+
+	px.obs.OnProxyAdded(id)
+}
+
+func (px *proxifier) onRmv(id string) {
+	defer core.Recover(core.DontExit, "pxr.onRmv")
+
+	px.obs.OnProxyRemoved(id)
+}
+
+func (px *proxifier) onStop() {
+	defer core.Recover(core.DontExit, "pxr.onStop")
+
+	px.obs.OnProxiesStopped()
 }
 
 func (px *proxifier) RefreshProxies() (string, error) {
@@ -235,6 +254,8 @@ func (px *proxifier) RefreshProxies() (string, error) {
 }
 
 func (px *proxifier) RefreshProto(l3 string) {
+	defer core.Recover(core.DontExit, "pxr.RefreshProto")
+
 	px.Lock()
 	defer px.Unlock()
 
@@ -248,7 +269,7 @@ func (px *proxifier) RefreshProto(l3 string) {
 		if cfg, readd := p.onProtoChange(); readd {
 			curp := p
 			go func() {
-				// defer core.Recover(core.DontExit, "pxr.RefreshProto")
+				defer core.Recover(core.DontExit, "pxr.RefreshProto")
 
 				_, err := px.addProxy(curp.ID(), cfg) // px.addProxy -> px.add (acquires lock)
 				log.I("proxy: refreshProto (%s/%s/%s) re-add; err? %v", curp.ID(), curp.Type(), curp.GetAddr(), err)
