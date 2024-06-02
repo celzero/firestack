@@ -35,10 +35,35 @@ package log
 var Glogger Logger
 
 // caller -> intra/log.go (this file) -> intra/logger.go -> golang/log.go
-var callerDepth = 4
+var CallerDepth = 4
 
 // caller -> LogFn -> intra/log.go (this file) -> intra/logger.go -> golang/log.go
-var logFnCallerDepth = 5
+var LogFnCallerDepth = CallerDepth + 1
+
+// Console logs messages.
+type Console interface {
+	// Log logs a multi-line log message.
+	Log(s string)
+	// Err logs a multi-line error message.
+	Err(s string)
+	// Stack logs a multi-line stack trace.
+	Stack(s string)
+}
+
+type contyp int
+
+const (
+	conNorm contyp = iota
+	conErr
+	conStack
+)
+
+type conMsg struct {
+	m string
+	t contyp
+}
+
+var consoleChSize = 128
 
 type LogFn func(string, ...any)
 type LogFn2 func(int, string, ...any)
@@ -55,10 +80,16 @@ func SetLevel(level LogLevel) {
 	}
 }
 
+func SetConsole(c Console) {
+	if Glogger != nil {
+		Glogger.SetConsole(c)
+	}
+}
+
 func Of(tag string, l LogFn2) LogFn {
 	if l != nil {
 		return func(msg string, args ...any) {
-			l(logFnCallerDepth, tag+" "+msg, args...)
+			l(LogFnCallerDepth, tag+" "+msg, args...)
 		}
 	}
 	return N
@@ -68,32 +99,32 @@ func N(string, ...any)       {}
 func N2(int, string, ...any) {}
 
 func V(msg string, args ...any) {
-	V2(logFnCallerDepth, msg, args...)
+	V2(LogFnCallerDepth, msg, args...)
 }
 
 func VV(msg string, args ...any) {
-	VV2(logFnCallerDepth, msg, args...)
+	VV2(LogFnCallerDepth, msg, args...)
 }
 
 func D(msg string, args ...any) {
-	D2(logFnCallerDepth, msg, args...)
+	D2(LogFnCallerDepth, msg, args...)
 }
 
 func I(msg string, args ...any) {
-	I2(logFnCallerDepth, msg, args...)
+	I2(LogFnCallerDepth, msg, args...)
 }
 
 func W(msg string, args ...any) {
-	W2(logFnCallerDepth, msg, args...)
+	W2(LogFnCallerDepth, msg, args...)
 }
 
 func E(msg string, args ...any) {
-	E2(logFnCallerDepth, msg, args...)
+	E2(LogFnCallerDepth, msg, args...)
 }
 
 func P(msg string, args ...any) {
 	if Glogger != nil {
-		Glogger.Piif(callerDepth, "P "+msg, args...)
+		Glogger.Piif(CallerDepth, "P "+msg, args...)
 	}
 }
 
