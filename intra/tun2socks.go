@@ -31,6 +31,22 @@ import (
 	"github.com/celzero/firestack/intra/log"
 )
 
+var buildinfo, _ = debug.ReadBuildInfo()
+
+// pkg.go.dev/runtime#hdr-Environment_Variables
+type traceout string
+
+type Console log.Console
+
+const (
+	one  traceout = "single" // offending go routine
+	usr  traceout = "all"    // all user go routines
+	sys  traceout = "system" // all user + system go routines
+	abrt traceout = "crash"  // GOOS-specific crash after tracing
+)
+
+func (t traceout) s() string { return string(t) }
+
 func init() {
 	// increase garbage collection frequency: archive.is/WQBf7
 	debug.SetGCPercent(10)
@@ -78,4 +94,30 @@ func LogLevel(level int) {
 		debug.SetTraceback(one.s())
 	}
 	log.I("tun: new log-level %d; debug? %t", dlvl, settings.Debug)
+}
+
+// SetConsole sets external console to redirect log output to.
+func SetConsole(c Console) {
+	log.SetConsole(c)
+}
+
+// LowMem triggers Go's garbage collection cycle.
+func LowMem() {
+	go debug.FreeOSMemory()
+}
+
+// Build returns the build information.
+func Build() string {
+	if buildinfo != nil {
+		return buildinfo.String()
+	}
+	return "unknown"
+}
+
+// SetCrashFd sets the file descriptor to write crash reports to.
+func SetCrashFd(f string) {
+	if len(f) > 0 {
+		debug.SetPanicOnFault(false)
+	}
+	// TODO: Go1.23: debug.SetCrashFD(f)
 }
