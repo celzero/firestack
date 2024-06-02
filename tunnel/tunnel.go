@@ -76,6 +76,7 @@ type gtunnel struct {
 
 type pcapsink struct {
 	sink *core.Volatile[io.WriteCloser]
+	inC  chan []byte // never closed, always buffered
 }
 
 type nowrite struct{}
@@ -93,17 +94,24 @@ var (
 )
 
 func (p *pcapsink) Write(b []byte) (int, error) {
-	go p.writeAsync(b)
-	return len(b), nil
+	select {
+	case p.inC <- b:
+		return len(b), nil
+	default: // drop
+		return 0, io.ErrNoProgress
+	}
 }
 
 func (p *pcapsink) writeAsync(b []byte) {
 	w := p.sink.Load()
 
-	if w != nil && w != zerowriter {
-		n, err := w.Write(b)
-		log.VV("tun: pcap: writeAsync: n: %d, err? %v", n, err)
-	} // else: no op
+	for b := range p.inC { // winsy spider
+		w := p.sink.Load() // always re-load current writer
+		if w != nil && w != zerowriter {
+			n, err := w.Write(b)
+			log.VV("tun: pcap: writeAsync: n: %d, err? %v", n, err)
+		} // else: no op
+	}
 }
 
 func (p *pcapsink) Close() error {
@@ -130,9 +138,10 @@ func (p *pcapsink) file(f io.WriteCloser) (err error) {
 	if f == nil {
 		f = zerowriter
 	}
-	old := p.sink.Swap(f)
 
+	old := p.sink.Swap(f)
 	core.CloseOp(old, core.CopRW)
+
 	y := f != zerowriter
 	if y {
 		err = p.begin(f) // write pcap header before any packets
@@ -184,8 +193,11 @@ func (t *gtunnel) Write([]byte) (int, error) {
 
 func newSink() *pcapsink {
 	// go.dev/play/p/4qANL9VSDXb
-	p := &pcapsink{sink: core.NewVolatile[io.WriteCloser](zerowriter)}
+	p := &pcapsink{}
+	p.sink = core.NewVolatile[io.WriteCloser](zerowriter)
 	p.log(false) // no log, which is enabled by default
+	p.inC = make(chan []byte, 128)
+	go p.writeAsync() // consumes p.in
 	return p
 }
 
