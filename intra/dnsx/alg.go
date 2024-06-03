@@ -17,6 +17,7 @@ import (
 	"time"
 
 	x "github.com/celzero/firestack/intra/backend"
+	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/settings"
 	"github.com/celzero/firestack/intra/xdns"
@@ -158,7 +159,10 @@ func (t *dnsgateway) querySecondary(t2 Transport, network string, msg *dns.Msg, 
 		summary: new(x.DNSSummary),
 	}
 
+	defer core.Recover(core.DontExit, "alg.querySecondary")
+
 	go func() {
+		// don't need to handle panics w/ core.Recover
 		time.Sleep(timeout)
 		out <- result
 	}()

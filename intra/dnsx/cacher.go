@@ -166,6 +166,8 @@ func mkcachekey(q *dns.Msg) (string, uint8, bool) {
 }
 
 func (cb *cache) scrubCache() {
+	defer core.Recover(core.DontExit, "c.scrubCache")
+
 	cb.mu.Lock()
 	defer cb.mu.Unlock()
 
@@ -314,6 +316,8 @@ func (t *ctransport) hangoverCheckpoint() {
 
 func (t *ctransport) fetch(network string, q *dns.Msg, summary *x.DNSSummary, cb *cache, key string) (*dns.Msg, error) {
 	sendRequest := func(fsmm *x.DNSSummary) (*dns.Msg, error) {
+		defer core.Recover(core.DontExit, "c.sendRequest: "+t.ID()+t.Type())
+
 		fsmm.ID = t.ID()
 		fsmm.Type = t.Type()
 

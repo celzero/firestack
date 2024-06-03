@@ -191,6 +191,8 @@ func (r *resolver) Add(dt x.DNSTransport) (ok bool) {
 		return false
 	}
 
+	defer core.Recover(core.DontExit, "r.Add")
+
 	switch t.Type() {
 	case DNS53, DNSCrypt, DOH, DOT, ODOH:
 		ct := NewCachingTransport(t, ttl10m)
