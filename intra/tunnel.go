@@ -46,6 +46,7 @@ var errClosed = errors.New("tunnel closed for business")
 type Bridge interface {
 	Listener
 	x.Controller
+	Console
 }
 
 // Listener receives usage statistics when a UDP or TCP socket is closed,
@@ -100,6 +101,8 @@ func NewTunnel(fd, mtu int, fakedns string, tunmode *settings.TunMode, dtr Defau
 		return nil, fmt.Errorf("tun: no bridge? %t or default-dns? %t", bdg == nil, dtr == nil)
 	}
 
+	// setConsole sets external console to redirect log output to.
+	log.SetConsole(bdg)
 	natpt := x64.NewNatPt(tunmode)
 	proxies := ipn.NewProxifier(bdg, bdg)
 	services := rnet.NewServices(proxies, bdg, bdg)

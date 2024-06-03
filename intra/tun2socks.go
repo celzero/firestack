@@ -96,11 +96,6 @@ func LogLevel(level int) {
 	log.I("tun: new log-level %d; debug? %t", dlvl, settings.Debug)
 }
 
-// SetConsole sets external console to redirect log output to.
-func SetConsole(c Console) {
-	log.SetConsole(c)
-}
-
 // LowMem triggers Go's garbage collection cycle.
 func LowMem() {
 	go debug.FreeOSMemory()
