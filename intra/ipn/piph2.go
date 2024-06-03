@@ -398,6 +398,7 @@ func (t *piph2) Dial(network, addr string) (protect.Conn, error) {
 
 	t.lastdial = time.Now()
 	go func() {
+		defer core.Recover(core.DontExit, "piph2.Dial")
 		// fixme: currently, this hangs forever when upstream is cloudflare
 		// setting the content-length to the first len(first-write-bytes) works
 		// with cloudflare, but then golang's h2 client isn't happy about sending
