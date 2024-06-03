@@ -242,7 +242,7 @@ func (d *transport) refreshTargetKeyDNS() (ocfg *odoh.ObliviousDoHConfig, exp ti
 	if err != nil {
 		return
 	}
-	cres, _, t1, qerr := d.send(dnsx.NetNoProxy, req)
+	cres, _, _, t1, qerr := d.send(dnsx.NetNoProxy, req)
 
 	log.D("odoh: refresh-target: %s; elapsed: %dms; err? %v", d.odohtargetname, t1.Milliseconds(), qerr)
 	if qerr != nil {
