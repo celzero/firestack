@@ -253,18 +253,26 @@ func (px *proxifier) RefreshProxies() (string, error) {
 	tot := len(px.p)
 	log.I("proxy: refresh all %d", tot)
 
-	var active []string
+	var which = make([]string, 0, len(px.p))
 	for _, p := range px.p {
-		if err := p.Refresh(); err != nil {
-			log.E("proxy: refresh (%s/%s/%s) failed: %v", p.ID(), p.Type(), p.GetAddr(), err)
-			continue
-		}
-		active = append(active, p.ID())
+		curp := p
+		id := curp.ID()
+		which = append(which, id)
+		// some proxy.Refershes may be slow due to network requests, hence
+		// preferred to run in a goroutine to avoid blocking the caller.
+		// ex: wgproxy.Refresh -> multihost.Refersh -> dialers.Resolve
+		go func() {
+			defer core.Recover(core.DontExit, "pxr.RefreshProxies: "+id)
+
+			if err := curp.Refresh(); err != nil {
+				log.E("proxy: refresh (%s/%s/%s) failed: %v", id, curp.Type(), curp.GetAddr(), err)
+			}
+		}()
 	}
 
-	log.I("proxy: refreshed %d / %d", len(active), tot)
+	log.I("proxy: refreshed %d / %d: %v", len(which), tot, which)
 
-	return strings.Join(active, ","), nil
+	return strings.Join(which, ","), nil
 }
 
 func (px *proxifier) RefreshProto(l3 string) {
@@ -280,15 +288,16 @@ func (px *proxifier) RefreshProto(l3 string) {
 
 	px.protos = l3
 	for _, p := range px.p {
-		if cfg, readd := p.onProtoChange(); readd {
-			curp := p
-			go func() {
-				defer core.Recover(core.DontExit, "pxr.RefreshProto")
+		curp := p
+		id := curp.ID()
+		go func() {
+			if cfg, readd := curp.onProtoChange(); readd {
+				defer core.Recover(core.DontExit, "pxr.RefreshProto: "+id)
 
 				_, err := px.addProxy(curp.ID(), cfg) // px.addProxy -> px.add (acquires lock)
-				log.I("proxy: refreshProto (%s/%s/%s) re-add; err? %v", curp.ID(), curp.Type(), curp.GetAddr(), err)
-			}()
-		}
+				log.I("proxy: refreshProto (%s/%s/%s) re-add; err? %v", id, curp.Type(), curp.GetAddr(), err)
+			}
+		}()
 	}
 }
 
