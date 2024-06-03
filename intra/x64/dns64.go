@@ -22,6 +22,7 @@ import (
 	"sync"
 
 	x "github.com/celzero/firestack/intra/backend"
+	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/dnsx"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/xdns"
@@ -74,6 +75,8 @@ func newDns64() *dns64 {
 }
 
 func (d *dns64) init() {
+	defer core.Recover(core.DontExit, "dns64.init")
+
 	err1 := d.ofOverlay()
 	err2 := d.ofLocal464()
 	if err1 != nil || err2 != nil {
