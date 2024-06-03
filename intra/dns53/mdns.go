@@ -345,6 +345,8 @@ func (c *client) query(qctx *qcontext) *dnsx.QueryError {
 }
 
 func (c *client) listen(qctx *qcontext) {
+	defer core.Recover(core.DontExit, "mdns.listen")
+
 	timesup := time.After(qctx.timeout)
 	qname := fmt.Sprintf("%s.%s.", qctx.svc, qctx.tld)
 	total := 0
@@ -468,6 +470,8 @@ func (c *client) recv(conn *net.UDPConn) {
 	if conn == nil {
 		return
 	}
+
+	defer core.Recover(core.DontExit, "mdns.recv")
 
 	bptr := core.Alloc()
 	buf := *bptr
