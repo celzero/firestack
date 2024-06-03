@@ -31,6 +31,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
 )
@@ -132,6 +133,8 @@ func (m *ipmap) Clear() {
 	purge := make(chan *IPSet, len(m.m))
 
 	go func() {
+		defer core.Recover(core.DontExit, "ipmap.goclear")
+
 		for s := range purge {
 			s.clear()
 		}
@@ -384,6 +387,7 @@ func (s *IPSet) Confirm(ip netip.Addr) {
 	}
 	s.confirmed.Store(ip)
 	go func() {
+		defer core.Recover(core.DontExit, "ipset.confirm")
 		s.Lock()
 		s.addLocked(ip) // Add is O(N)
 		s.Unlock()
