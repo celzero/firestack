@@ -237,6 +237,7 @@ func (e *endpoint) Swap(fd, mtu int) (err error) {
 		if prev != nil {
 			log.I("ns: tun(%d => %d): Swap: stopping previous dispatcher", prevfd, fd)
 			go func() {
+				// dispatchers.stop already handles panics
 				time.Sleep(2 * time.Second) // some arbitrary delay
 				prev.stop()
 				// avoid e.Wait(), it blocks until ALL dispatchers stop, not just prev
@@ -447,6 +448,9 @@ func (e *endpoint) WritePackets(pkts stack.PacketBufferList) (int, tcpip.Error) 
 // dispatchLoop reads packets from the file descriptor in a loop and dispatches
 // them to the network stack. Must be run as a goroutine.
 func (e *endpoint) dispatchLoop(inbound linkDispatcher) tcpip.Error {
+	// todo: core.RecoverFn(restart-netstack)
+	defer core.Recover(core.Exit11, "ns.e.dispatch")
+
 	e.wg.Add(1)
 	defer e.wg.Done()
 

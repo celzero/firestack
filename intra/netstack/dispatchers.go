@@ -29,6 +29,7 @@ import (
 	"sync/atomic"
 	"syscall"
 
+	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/log"
 	"golang.org/x/sys/unix"
 	"gvisor.dev/gvisor/pkg/buffer"
@@ -201,6 +202,8 @@ func newReadVDispatcher(fd int, e *endpoint) (linkDispatcher, error) {
 
 // stop stops the dispatcher once. Safe to call multiple times.
 func (d *readVDispatcher) stop() {
+	defer core.Recover(core.DontExit, "ns.d.stop")
+
 	d.once.Do(func() {
 		d.closed.Store(true)
 		d.stopFd.stop()

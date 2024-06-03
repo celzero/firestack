@@ -29,6 +29,7 @@ import (
 	"math/rand"
 	"sync"
 
+	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/settings"
 	"gvisor.dev/gvisor/pkg/sleep"
@@ -145,6 +146,9 @@ type processor struct {
 }
 
 func (p *processor) start(wg *sync.WaitGroup) {
+	// TODO: core.RecoverFn(supervisor.stop)
+	defer core.Recover(core.Exit11, "n.forwaders.start")
+
 	defer wg.Done()
 	defer p.sleeper.Done()
 	for {
