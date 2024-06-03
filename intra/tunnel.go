@@ -30,6 +30,7 @@ import (
 	"sync/atomic"
 
 	x "github.com/celzero/firestack/intra/backend"
+	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/dialers"
 	"github.com/celzero/firestack/intra/dnsx"
 	"github.com/celzero/firestack/intra/ipn"
@@ -93,6 +94,8 @@ type rtunnel struct {
 }
 
 func NewTunnel(fd, mtu int, fakedns string, tunmode *settings.TunMode, dtr DefaultDNS, bdg Bridge) (Tunnel, error) {
+	defer core.Recover(core.Exit11, "i.newTunnel")
+
 	if bdg == nil || dtr == nil {
 		return nil, fmt.Errorf("tun: no bridge? %t or default-dns? %t", bdg == nil, dtr == nil)
 	}
@@ -182,6 +185,8 @@ func (t *rtunnel) SetLinkAndRoutes(fd, mtu, engine int) error {
 
 	defer func() {
 		go func() {
+			defer core.Recover(core.DontExit, "i.setLinkAndRoutes")
+
 			l3 := settings.L3(engine)
 			if diff := dialers.IPProtos(l3); diff {
 				// dialers.IPProtos must always preced calls to other refreshes

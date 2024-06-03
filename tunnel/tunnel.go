@@ -102,8 +102,8 @@ func (p *pcapsink) Write(b []byte) (int, error) {
 	}
 }
 
-func (p *pcapsink) writeAsync(b []byte) {
-	w := p.sink.Load()
+func (p *pcapsink) writeAsync() {
+	defer core.Recover(core.DontExit, "pcap.writeAsync")
 
 	for b := range p.inC { // winsy spider
 		w := p.sink.Load() // always re-load current writer
