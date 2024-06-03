@@ -64,7 +64,7 @@ const (
 	conNorm conpri = iota
 	// conErr is error priority console message.
 	conErr
-	// conStack is stack trace priority console message.
+	// conStack is stacktrace priority console message.
 	conStack
 )
 

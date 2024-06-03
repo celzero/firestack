@@ -67,7 +67,7 @@ type simpleLogger struct {
 }
 
 // based on: github.com/eycorsican/go-tun2socks/blob/301549c43/common/log/logger.go
-type LogLevel uint8
+type LogLevel uint32
 
 const (
 	VVERBOSE LogLevel = iota
@@ -85,7 +85,7 @@ const defaultClevel = STACKTRACE
 
 var _ Logger = (*simpleLogger)(nil)
 
-// github.com/golang/mobile/blob/fa72addaaa1/internal/mobileinit/mobileinit_android.go#L52
+// github.com/golang/mobile/blob/fa72addaaa/internal/mobileinit/mobileinit_android.go#L52
 const logcatLineSize = 1024
 
 var defaultFlags = golog.Lshortfile
@@ -97,8 +97,10 @@ func defaultLogger() *simpleLogger {
 		level:  defaultLevel,
 		clevel: defaultClevel,
 		msgC:   make(chan *conMsg, consoleChSize),
-		e:      golog.New(os.Stderr, "", defaultFlags),
-		o:      golog.New(os.Stdout, "", defaultFlags),
+		// gomobile redirects stderr and stdout to logcat
+		// github.com/golang/mobile/blob/fa72addaaa/internal/mobileinit/mobileinit_android.go#L74-L92
+		e: golog.New(os.Stderr, "", defaultFlags),
+		o: golog.New(os.Stdout, "", defaultFlags),
 	}
 	go l.fromConsole()
 	return l
@@ -120,13 +122,13 @@ func NewLogger(tag string) *simpleLogger {
 }
 
 // SetLevel sets the log level.
-func (l *simpleLogger) SetLevel(level LogLevel) {
-	l.level = level
+func (l *simpleLogger) SetLevel(n LogLevel) {
+	l.level = n
 }
 
 // SetLevel sets the log level.
-func (l *simpleLogger) SetConsoleLevel(level LogLevel) {
-	l.clevel = level
+func (l *simpleLogger) SetConsoleLevel(n LogLevel) {
+	l.clevel = n
 }
 
 // SetConsole sets the external log console.
