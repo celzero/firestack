@@ -37,6 +37,8 @@ const (
 	blocklistHeaderKey = "x-nile-flags" // "x-bl-fl"
 	// github.com/serverless-dns/serverless-dns/blob/f247f75d31a/src/core/io-state.js#L188
 	rethinkdnsRegionHeaderKey = "x-nile-region"
+	// Cf-Ray:[d1e2a3d4b5e6e7f8-SIN]
+	cfRayHeaderKey = "cf-ray"
 )
 
 var (

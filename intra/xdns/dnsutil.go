@@ -1228,8 +1228,13 @@ func GetBlocklistStampHeaderKey() string {
 }
 
 // GetBlocklistStampHeaderKey returns the http-header key for blocklists stamp
-func GetRethinkDNSRegionHeaderKey() string {
-	return http.CanonicalHeaderKey(rethinkdnsRegionHeaderKey)
+func GetRethinkDNSRegionHeaderKey() (r string) {
+	if r = http.CanonicalHeaderKey(rethinkdnsRegionHeaderKey); len(r) > 0 {
+		return r
+	} else if r = http.CanonicalHeaderKey(cfRayHeaderKey); len(r) > 0 {
+		_, r, _ = strings.Cut(r, "-")
+	}
+	return
 }
 
 func IsMDNSQuery(qname string) bool {
