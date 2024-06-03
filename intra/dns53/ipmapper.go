@@ -79,6 +79,8 @@ func (m *ipmapper) Lookup(q []byte) ([]byte, error) {
 	}
 	qtype := int(xdns.QType(msg))
 
+	log.V("ipmapper: lookup: host %s", qname)
+
 	v, _ := m.ba.Do(key(qname, strconv.Itoa(qtype)), resolve(m.r, q))
 
 	if v.Err != nil || v == nil {

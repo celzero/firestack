@@ -131,7 +131,7 @@ func (h *MH) Refresh() int {
 	names := h.names
 	addrs := h.straddrs() // may be empty
 	// resolve ip from domain names
-	n := h.With(names) // it empties h.names and h.addrs
+	n := h.With(names) // empties h.names and h.addrs
 	// re-add existing ips, if any
 	return n + h.Add(addrs)
 }
@@ -157,8 +157,10 @@ func (h *MH) Add(domainsOrIps []string) int {
 		}
 		if ip, err := netip.ParseAddr(dip); err != nil { // may be hostname
 			h.names = append(h.names, dip) // add hostname regardless of resolution
+			log.D("multihost: %s resolving: %q", h.id, dip)
 			if resolvedips, err := dialers.Resolve(dip); err == nil && len(resolvedips) > 0 {
 				h.addrs = append(h.addrs, resolvedips...)
+				log.V("multihost: %s resolved: %q => %s", h.id, dip, resolvedips)
 			} else {
 				if err == nil { // err may be nil even on zero answers
 					err = errNoIps
@@ -225,6 +227,7 @@ func (h *MH) uniqIPLocked() {
 	h.addrs = removeDups(h.addrs)
 }
 
+// go.dev/play/p/WJXpAa-nmep
 func removeDups[T comparable](a []T) []T {
 	if len(a) <= 0 {
 		return a
