@@ -76,7 +76,7 @@ type gtunnel struct {
 
 type pcapsink struct {
 	sink *core.Volatile[io.WriteCloser]
-	inC  chan []byte // never closed, always buffered
+	inC  chan []byte // always buffered
 }
 
 type nowrite struct{}
@@ -114,12 +114,18 @@ func (p *pcapsink) writeAsync() {
 	}
 }
 
-func (p *pcapsink) Close() error {
+func (p *pcapsink) Recycle() error {
 	p.log(false)       // detach
 	err := p.file(nil) // detach
 	return err
 }
 
+func (p *pcapsink) Close() error {
+	defer close(p.inC) // signal writeAsync to exit
+	return p.Recycle()
+}
+
+// begin writes pcap header to w.
 // from: github.com/google/gvisor/blob/596e8d22/pkg/tcpip/link/sniffer/sniffer.go#L93
 func (p *pcapsink) begin(w io.Writer) error {
 	_, offset := time.Date(0, 0, 0, 0, 0, 0, 0, time.Local).Zone()
@@ -235,7 +241,7 @@ func (t *gtunnel) CloseConns(activecsv string) (closedcsv string) {
 func (t *gtunnel) SetPcap(fp string) error {
 	pcap := t.pcapio
 
-	ignored := pcap.Close() // close any existing pcap sink
+	ignored := pcap.Recycle() // close any existing pcap sink
 	if len(fp) == 0 {
 		log.I("netstack: pcap closed (ignored-err? %v)", ignored)
 		return nil // nothing else to do; pcap is closed
