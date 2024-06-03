@@ -151,6 +151,8 @@ func (h *icmpHandler) Ping(source, target netip.AddrPort, msg []byte, pong netst
 	// always forward in a goroutine to avoid blocking netstack
 	// see: netstack/dispatcher.go:newReadvDispatcher
 	go func() {
+		defer core.Recover(core.DontExit, "icmp.Ping")
+
 		defer func() {
 			summary.done(err)
 			go h.sendNotif(summary)
@@ -240,6 +242,7 @@ func (h *icmpHandler) sendNotif(s *SocketSummary) {
 	if l == nil || s == nil || h.status == ICMPEND {
 		return
 	}
+	defer core.Recover(core.DontExit, "icmp.sendNotif; "+s.ID)
 	l.OnSocketClosed(s)
 }
 

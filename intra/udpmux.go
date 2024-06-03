@@ -110,6 +110,7 @@ func (x *muxer) vend() (net.Conn, error) {
 	case c := <-x.dxconns:
 		x.dxconnWG.Add(1) // accept
 		go func() {
+			defer core.Recover(core.DontExit, "udpmux.vend.close")
 			<-c.closed
 			x.unroute(c)
 			x.dxconnWG.Done() // unaccept
@@ -159,6 +160,7 @@ func (x *muxer) drain() {
 //     It can therefore not be ended until all Conns are closed.
 //  2. Creating a new Conn when receiving from a new remote.
 func (x *muxer) read() {
+	defer core.Recover(core.DontExit, "udpmux.read")
 	defer func() {
 		_ = x.stop() // stop muxer
 	}()
@@ -221,6 +223,7 @@ func (x *muxer) route(raddr net.Addr) (*demuxconn, error) {
 }
 
 func (x *muxer) unroute(c *demuxconn) {
+	// don't really expect to handle panic w/ core.Recover
 	x.rmu.Lock()
 	delete(x.routes, c.raddr.String())
 	x.rmu.Unlock()

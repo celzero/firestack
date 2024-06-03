@@ -152,6 +152,8 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target netip.AddrPort)
 	var smm *SocketSummary
 	var err error
 
+	defer core.Recover(core.DontExit, "tcp.Proxy")
+
 	defer func() {
 		if !open {
 			clos(gconn)
@@ -277,12 +279,8 @@ func (h *tcpHandler) handle(px ipn.Proxy, src net.Conn, target netip.AddrPort, c
 
 	h.conntracker.Track(ct, src, dst)
 	go func() {
-		defer func() {
-			if r := recover(); r != nil {
-				log.W("tcp: forward: panic %v", r)
-			}
-			h.conntracker.Untrack(ct.CID)
-		}()
+		defer core.Recover(core.DontExit, "tcp.forward: "+smm.ID)
+		defer h.conntracker.Untrack(ct.CID)
 		forward(src, dst, h.listener, smm) // src always *gonet.TCPConn
 	}()
 
