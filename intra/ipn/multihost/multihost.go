@@ -57,14 +57,21 @@ func (h *MH) straddrs() []string {
 }
 
 func (h *MH) Names() []string {
-	return h.names
+	h.Lock()
+	defer h.Unlock()
+
+	return h.names // todo: return a copy
 }
 
 func (h *MH) Addrs() []netip.Addr {
-	return h.addrs
+	h.Lock()
+	defer h.Unlock()
+
+	return h.addrs // todo: return a copy
 }
 
 func (h *MH) PreferredAddrs() []netip.Addr {
+	h.Lock()
 	out4 := make([]netip.Addr, 0)
 	out6 := make([]netip.Addr, 0)
 	for _, ip := range h.addrs {
@@ -78,6 +85,8 @@ func (h *MH) PreferredAddrs() []netip.Addr {
 			out6 = append(out6, ip)
 		}
 	}
+	h.Unlock()
+
 	out := make([]netip.Addr, 0)
 	if dialers.Use4() {
 		out = append(out, out4...)
@@ -86,7 +95,8 @@ func (h *MH) PreferredAddrs() []netip.Addr {
 		out = append(out, out6...)
 	}
 	if len(out) <= 0 { // fail open
-		return h.addrs
+		// todo: Lock+Unlock
+		return append(out, h.addrs...)
 	}
 	return out
 }
@@ -96,6 +106,9 @@ func (h *MH) PreferredAddr() netip.Addr {
 	has4Or46 := dialers.Use4()
 	has6Or46 := dialers.Use6()
 	hasOnly6 := has6Or46 && !has4Or46
+
+	h.Lock()
+	defer h.Unlock()
 	for _, ip := range h.addrs {
 		if ip.IsUnspecified() || !ip.IsValid() {
 			continue
@@ -123,13 +136,19 @@ func (h *MH) Len() int {
 }
 
 func (h *MH) addrlen() int {
+	h.Lock()
+	defer h.Unlock()
+
 	return len(h.addrs)
 }
 
 // Refresh re-adds the list of IPs, hostnames, and re-resolves the hostname.
 func (h *MH) Refresh() int {
-	names := h.names
+	h.Lock()
+	names := h.names      // todo: copy?
 	addrs := h.straddrs() // may be empty
+	h.Unlock()
+
 	// resolve ip from domain names
 	n := h.With(names) // empties h.names and h.addrs
 	// re-add existing ips, if any
@@ -151,7 +170,7 @@ func (h *MH) Add(domainsOrIps []string) int {
 		h.addrs = make([]netip.Addr, 0)
 	}
 	for _, dip := range domainsOrIps {
-		dip = h.normalize(dip) // host or ip or host:port or ip:port
+		dip = normalize(dip) // host or ip or host:port or ip:port
 		if len(dip) <= 0 {
 			continue
 		}
@@ -189,7 +208,7 @@ func (h *MH) With(domainsOrIps []string) int {
 	return h.Add(domainsOrIps)
 }
 
-func (h *MH) normalize(dip string) string {
+func normalize(dip string) string {
 	dip = strings.TrimSpace(dip)
 	if hostOrIP, _, err := net.SplitHostPort(dip); err == nil {
 		return hostOrIP
