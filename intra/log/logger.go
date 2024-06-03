@@ -40,6 +40,7 @@ import (
 
 type Logger interface {
 	SetLevel(level LogLevel)
+	SetConsoleLevel(level LogLevel)
 	SetConsole(c Console)
 	Printf(msg string, args ...any)
 	VeryVerbosef(at int, msg string, args ...any)
@@ -56,12 +57,13 @@ type Logger interface {
 // based on github.com/eycorsican/go-tun2socks/blob/301549c43/common/log/simple/logger.go
 type simpleLogger struct {
 	Logger
-	level LogLevel
-	tag   string
-	c     Console      // may be nil
-	msgC  chan *conMsg // never closed
-	e     *golog.Logger
-	o     *golog.Logger
+	level  LogLevel
+	tag    string
+	c      Console      // may be nil
+	clevel LogLevel     // may be different from level
+	msgC   chan *conMsg // never closed
+	e      *golog.Logger
+	o      *golog.Logger
 }
 
 // based on: github.com/eycorsican/go-tun2socks/blob/301549c43/common/log/logger.go
@@ -74,10 +76,12 @@ const (
 	INFO
 	WARN
 	ERROR
+	STACKTRACE
 	NONE
 )
 
 const defaultLevel = INFO
+const defaultClevel = STACKTRACE
 
 var _ Logger = (*simpleLogger)(nil)
 
@@ -90,10 +94,11 @@ var _ = RegisterLogger(defaultLogger())
 
 func defaultLogger() *simpleLogger {
 	l := &simpleLogger{
-		level: defaultLevel,
-		msgC:  make(chan *conMsg, consoleChSize),
-		e:     golog.New(os.Stderr, "", defaultFlags),
-		o:     golog.New(os.Stdout, "", defaultFlags),
+		level:  defaultLevel,
+		clevel: defaultClevel,
+		msgC:   make(chan *conMsg, consoleChSize),
+		e:      golog.New(os.Stderr, "", defaultFlags),
+		o:      golog.New(os.Stdout, "", defaultFlags),
 	}
 	go l.fromConsole()
 	return l
@@ -117,6 +122,11 @@ func NewLogger(tag string) *simpleLogger {
 // SetLevel sets the log level.
 func (l *simpleLogger) SetLevel(level LogLevel) {
 	l.level = level
+}
+
+// SetLevel sets the log level.
+func (l *simpleLogger) SetConsoleLevel(level LogLevel) {
+	l.clevel = level
 }
 
 // SetConsole sets the external log console.
@@ -161,48 +171,70 @@ func (l *simpleLogger) Printf(msg string, args ...any) {
 
 func (l *simpleLogger) VeryVerbosef(at int, msg string, args ...any) {
 	if l.level <= VVERBOSE {
-		l.out(at, msg, args...)
+		l.out(at, l.msgstr(msg, args...))
+	}
+	if l.clevel <= VVERBOSE {
+		l.toConsole(&conMsg{msg, conNorm})
 	}
 }
 
 func (l *simpleLogger) Verbosef(at int, msg string, args ...any) {
 	if l.level <= VERBOSE {
-		l.out(at, msg, args...)
+		l.out(at, l.msgstr(msg, args...))
+	}
+	if l.clevel <= VERBOSE {
+		l.toConsole(&conMsg{msg, conNorm})
 	}
 }
 
 func (l *simpleLogger) Debugf(at int, msg string, args ...any) {
 	if l.level <= DEBUG {
-		l.out(at, msg, args...)
+		l.out(at, l.msgstr(msg, args...))
+	}
+	if l.clevel <= DEBUG {
+		l.toConsole(&conMsg{msg, conNorm})
 	}
 }
 
 func (l *simpleLogger) Piif(at int, msg string, args ...any) {
 	if l.level <= DEBUG {
-		l.out(at, msg, args...)
+		l.out(at, l.msgstr(msg, args...))
+	}
+	if l.clevel <= DEBUG {
+		l.toConsole(&conMsg{msg, conNorm})
 	}
 }
 
 func (l *simpleLogger) Infof(at int, msg string, args ...any) {
 	if l.level <= INFO {
-		l.out(at, msg, args...)
+		l.out(at, l.msgstr(msg, args...))
+	}
+	if l.clevel <= INFO {
+		l.toConsole(&conMsg{msg, conNorm})
 	}
 }
 
 func (l *simpleLogger) Warnf(at int, msg string, args ...any) {
 	if l.level <= WARN {
-		l.err(at, msg, args...)
+		l.err(at, l.msgstr(msg, args...))
+	}
+	if l.clevel <= WARN {
+		l.toConsole(&conMsg{msg, conErr})
 	}
 }
 
 func (l *simpleLogger) Errorf(at int, msg string, args ...any) {
 	if l.level <= ERROR {
-		l.err(at, msg, args...)
+		l.err(at, l.msgstr(msg, args...))
+	}
+	if l.clevel <= ERROR {
+		l.toConsole(&conMsg{msg, conErr})
 	}
 }
 
 func (l *simpleLogger) Fatalf(at int, msg string, args ...any) {
-	l.err(at, msg, args...)
+	// todo: log to console?
+	l.err(at, l.msgstr(msg, args...))
 	os.Exit(1)
 }
 
@@ -231,21 +263,19 @@ func (l *simpleLogger) Stack(at int, msg string) {
 	}
 }
 
-// ref: github.com/golang/mobile/blob/c713f31d/internal/mobileinit/mobileinit_android.go#L51
-func (l *simpleLogger) out(at int, f string, args ...any) {
+func (l *simpleLogger) msgstr(f string, args ...any) string {
 	msg := fmt.Sprintf(f, args...)
 	if len(l.tag) > 0 {
 		msg = l.tag + msg
 	}
-	l.toConsole(&conMsg{msg, conNorm})
+	return msg
+}
+
+// ref: github.com/golang/mobile/blob/c713f31d/internal/mobileinit/mobileinit_android.go#L51
+func (l *simpleLogger) out(at int, msg string) {
 	_ = l.o.Output(at, msg) // may error
 }
 
-func (l *simpleLogger) err(at int, f string, args ...any) {
-	msg := fmt.Sprintf(f, args...)
-	if len(l.tag) > 0 {
-		msg = l.tag + msg
-	}
-	l.toConsole(&conMsg{msg, conErr})
+func (l *simpleLogger) err(at int, msg string) {
 	_ = l.e.Output(at, msg) // may error
 }

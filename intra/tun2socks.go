@@ -68,32 +68,18 @@ func Connect(fd, mtu int, fakedns string, dtr DefaultDNS, bdg Bridge) (t Tunnel,
 }
 
 // Change log level to log.VERYVERBOSE, log.VERBOSE, log.DEBUG, log.INFO, log.WARN, log.ERROR.
-func LogLevel(level int) {
-	dlvl := log.WARN
-	switch l := log.LogLevel(level); l {
-	case log.VVERBOSE:
-		dlvl = log.VVERBOSE
-	case log.VERBOSE:
-		dlvl = log.VERBOSE
-	case log.DEBUG:
-		dlvl = log.DEBUG
-	case log.INFO:
-		dlvl = log.INFO
-	case log.WARN:
-		dlvl = log.WARN
-	case log.ERROR:
-		dlvl = log.ERROR
-	default:
-		log.W("tun: unknown log-level(%d), using warn", l)
-	}
+func LogLevel(level, consolelevel int) {
+	dlvl := log.LevelOf(level)
+	clvl := log.LevelOf(consolelevel)
 	log.SetLevel(dlvl)
+	log.SetLevel(clvl)
 	settings.Debug = dlvl < log.INFO
 	if settings.Debug {
 		debug.SetTraceback(usr.s())
 	} else {
 		debug.SetTraceback(one.s())
 	}
-	log.I("tun: new log-level %d; debug? %t", dlvl, settings.Debug)
+	log.I("tun: new lvl: %d, clvl: %d; debug? %t", dlvl, clvl, settings.Debug)
 }
 
 // LowMem triggers Go's garbage collection cycle.

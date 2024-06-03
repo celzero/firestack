@@ -31,6 +31,10 @@
 
 package log
 
+import (
+	"sync/atomic"
+)
+
 // based on: github.com/eycorsican/go-tun2socks/blob/301549c43/common/log/log.go#L5
 var Glogger Logger
 
@@ -39,6 +43,8 @@ var CallerDepth = 4
 
 // caller -> LogFn -> intra/log.go (this file) -> intra/logger.go -> golang/log.go
 var LogFnCallerDepth = CallerDepth + 1
+
+var consoleLogLevel = atomic.Int32{}
 
 // Console logs messages.
 type Console interface {
@@ -50,17 +56,21 @@ type Console interface {
 	Stack(s string)
 }
 
-type contyp int
+// console msg priority
+type conpri int32
 
 const (
-	conNorm contyp = iota
+	// conNorm is normal priority console message.
+	conNorm conpri = iota
+	// conErr is error priority console message.
 	conErr
+	// conStack is stack trace priority console message.
 	conStack
 )
 
 type conMsg struct {
 	m string
-	t contyp
+	t conpri
 }
 
 var consoleChSize = 128
@@ -71,12 +81,19 @@ type LogFn2 func(int, string, ...any)
 func RegisterLogger(l Logger) bool {
 	Glogger = l
 	l.SetLevel(INFO)
+	l.SetConsoleLevel(STACKTRACE)
 	return true
 }
 
 func SetLevel(level LogLevel) {
 	if Glogger != nil {
 		Glogger.SetLevel(level)
+	}
+}
+
+func SetConsoleLogLevel(level LogLevel) {
+	if Glogger != nil {
+		Glogger.SetConsoleLevel(level)
 	}
 }
 
@@ -186,4 +203,24 @@ func E2(at int, msg string, args ...any) {
 	if Glogger != nil {
 		Glogger.Errorf(at, "E "+msg, args...)
 	}
+}
+
+func LevelOf(level int) LogLevel {
+	dlvl := WARN
+	switch l := LogLevel(level); l {
+	case VVERBOSE:
+		dlvl = VVERBOSE
+	case VERBOSE:
+		dlvl = VERBOSE
+	case DEBUG:
+		dlvl = DEBUG
+	case INFO:
+		dlvl = INFO
+	case WARN:
+		dlvl = WARN
+	case ERROR:
+		dlvl = ERROR
+	default:
+	}
+	return dlvl
 }
