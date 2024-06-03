@@ -27,7 +27,7 @@ const (
 )
 
 var ipm ipmap.IPMap = ipmap.NewIPMap()
-var ipProto string = settings.IP46
+var ipProto *core.Volatile[string] = core.NewVolatile(settings.IP46)
 
 func addrstr(ip netip.Addr, port int) string {
 	return net.JoinHostPort(ip.String(), strconv.Itoa(port))
@@ -121,7 +121,7 @@ func Mapper(m ipmap.IPMapper) {
 
 func Use4() bool {
 	d := true // by default, use4
-	switch ipProto {
+	switch ipProto.Load() {
 	case settings.IP6:
 		return false
 	case settings.IP4:
@@ -135,7 +135,7 @@ func Use4() bool {
 
 func Use6() bool {
 	d := false // by default, use4 instead
-	switch ipProto {
+	switch ipProto.Load() {
 	case settings.IP4:
 		return false
 	case settings.IP6:
@@ -155,13 +155,12 @@ func IPProtos(ippro string) (diff bool) {
 	case settings.IP6:
 		fallthrough
 	case settings.IP46:
-		diff = ipProto != ippro
-		ipProto = ippro
+		diff = ipProto.Swap(ippro) != ippro
 	default:
-		log.D("dialers: ips: invalid protos %s; use existing: %s", ippro, ipProto)
+		log.D("dialers: ips: invalid protos %s; use existing: %s", ippro, ipProto.Load())
 		return
 	}
-	log.I("dialers: ips: protos set to %s; diff? %t", ipProto, diff)
+	log.I("dialers: ips: protos set to %s; diff? %t", ippro, diff)
 	return
 }
 

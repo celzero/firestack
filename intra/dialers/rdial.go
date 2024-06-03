@@ -31,9 +31,9 @@ func maybeFilter(ips []netip.Addr, alwaysExclude netip.Addr) ([]netip.Addr, bool
 	for _, ip := range ips {
 		if ip.Compare(alwaysExclude) == 0 || !ip.IsValid() {
 			continue
-		} else if ip.Is4() && ipProto == settings.IP6 {
+		} else if ip.Is4() && ipProto.Load() == settings.IP6 {
 			unfiltered = append(unfiltered, ip)
-		} else if ip.Is6() && ipProto == settings.IP4 {
+		} else if ip.Is6() && ipProto.Load() == settings.IP4 {
 			unfiltered = append(unfiltered, ip)
 		} else {
 			filtered = append(filtered, ip)
