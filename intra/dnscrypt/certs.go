@@ -219,6 +219,8 @@ func dnsExchange(proxy *DcMulti, query *dns.Msg, serverAddress string, serverNam
 		queryCopy := query.Copy()
 		queryCopy.Id += uint16(options)
 		go func(query *dns.Msg, delay time.Duration) {
+			defer core.Recover(core.DontExit, "cert.dnsExchange")
+
 			if proto == "udp" {
 				proto = "tcp"
 			} else {

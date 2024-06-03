@@ -412,6 +412,8 @@ func (proxy *DcMulti) start() error {
 	_, err := proxy.Refresh()
 	if proxy.serversInfo.len() > 0 {
 		go func(ctx context.Context) {
+			defer core.Recover(core.Exit11, "dcmulti.start")
+
 			for {
 				select {
 				case <-ctx.Done():
@@ -448,6 +450,8 @@ func (proxy *DcMulti) Stop() error {
 
 // refreshRoutes re-adds relay routes to all live/tracked servers
 func (proxy *DcMulti) refreshRoutes() {
+	defer core.Recover(core.DontExit, "dcmulti.refreshRoutes")
+
 	udp, tcp := route(proxy)
 	if len(udp) <= 0 || len(tcp) <= 0 {
 		log.I("dnscrypt: refreshRoutes: remove all relays")
