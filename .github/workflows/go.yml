@@ -53,6 +53,7 @@ jobs:
         sudo dpkg -i gsa.deb
         # s/tun2socks*.aar/firestack*.aar; see: make-aar
         unzip firestack-debug.aar
+        which jar && jar tf ./classes.jar
         gsa jni/arm64-v8a/*.so -f text --verbose
       shell: bash
 
