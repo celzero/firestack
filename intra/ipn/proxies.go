@@ -229,13 +229,13 @@ func (px *proxifier) StopProxies() error {
 }
 
 func (px *proxifier) onNew(id string) {
-	defer core.Recover(core.DontExit, "pxr.onNew")
+	defer core.Recover(core.DontExit, "pxr.onNew: "+id)
 
 	px.obs.OnProxyAdded(id)
 }
 
 func (px *proxifier) onRmv(id string) {
-	defer core.Recover(core.DontExit, "pxr.onRmv")
+	defer core.Recover(core.DontExit, "pxr.onRmv: "+id)
 
 	px.obs.OnProxyRemoved(id)
 }
