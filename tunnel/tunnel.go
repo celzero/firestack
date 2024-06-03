@@ -141,7 +141,7 @@ func (p *pcapsink) begin(w io.Writer) error {
 }
 
 func (p *pcapsink) file(f io.WriteCloser) (err error) {
-	if core.IsNil(f) {
+	if f == nil || core.IsNil(f) {
 		f = zerowriter
 	}
 

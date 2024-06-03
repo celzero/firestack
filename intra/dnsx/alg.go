@@ -188,7 +188,7 @@ func (t *dnsgateway) querySecondary(t2 Transport, network string, msg *dns.Msg, 
 	}
 
 	// no secondary transport; check if there's already an answer to work with
-	if core.IsNil(t2) {
+	if t2 == nil || core.IsNil(t2) {
 		ticker := time.NewTicker(timeout)
 		select {
 		case r = <-in:
@@ -249,7 +249,7 @@ func (t *dnsgateway) querySecondary(t2 Transport, network string, msg *dns.Msg, 
 func (t *dnsgateway) q(t1, t2 Transport, preset []*netip.Addr, network string, q *dns.Msg, summary *x.DNSSummary) (*dns.Msg, error) {
 	var ansin *dns.Msg // answer got from transports
 	var err error
-	if core.IsNil(t1) {
+	if t1 == nil || core.IsNil(t1) {
 		return nil, errNoTransportAlg
 	}
 	usepreset := len(preset) > 0
@@ -1003,7 +1003,7 @@ func synthesizeOrQuery(pre []*netip.Addr, tr Transport, msg *dns.Msg, network st
 // errors are unset if answer is not servfail or empty;
 // smm, the in/out parameter, is dns summary as got from t.
 func Req(t Transport, network string, q *dns.Msg, smm *x.DNSSummary) (*dns.Msg, error) {
-	if core.IsNil(t) {
+	if t == nil || core.IsNil(t) {
 		return nil, errNoSuchTransport
 	}
 	if !xdns.HasAnyQuestion(q) {
