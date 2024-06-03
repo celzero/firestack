@@ -1227,6 +1227,11 @@ func GetBlocklistStampHeaderKey() string {
 	return http.CanonicalHeaderKey(blocklistHeaderKey)
 }
 
+// GetBlocklistStampHeaderKey returns the http-header key for blocklists stamp
+func GetRethinkDNSRegionHeaderKey() string {
+	return http.CanonicalHeaderKey(rethinkdnsRegionHeaderKey)
+}
+
 func IsMDNSQuery(qname string) bool {
 	svc, _ := extractMDNSDomain(qname)
 	// todo: check if tld is valid (local, arpa4, arpa6)

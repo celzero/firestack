@@ -254,7 +254,7 @@ func (t *transport) httpClientFor(p ipn.Proxy) (*http.Client, error) {
 // Independent of the query's success or failure, this function also returns the
 // address of the server on a best-effort basis, or nil if the address could not
 // be determined.
-func (t *transport) doDoh(pid string, q *dns.Msg) (response *dns.Msg, blocklists string, elapsed time.Duration, qerr *dnsx.QueryError) {
+func (t *transport) doDoh(pid string, q *dns.Msg) (response *dns.Msg, blocklists, region string, elapsed time.Duration, qerr *dnsx.QueryError) {
 	start := time.Now()
 	q, err := AddEdnsPadding(q)
 	if err != nil {
@@ -276,7 +276,7 @@ func (t *transport) doDoh(pid string, q *dns.Msg) (response *dns.Msg, blocklists
 		return
 	}
 
-	response, blocklists, elapsed, qerr = t.send(pid, req)
+	response, blocklists, region, elapsed, qerr = t.send(pid, req)
 
 	// restore dns query id
 	q.Id = id
@@ -318,7 +318,7 @@ func (t *transport) fetch(pid string, req *http.Request) (res *http.Response, er
 	return client.Do(req)
 }
 
-func (t *transport) do(pid string, req *http.Request) (ans []byte, blocklists string, elapsed time.Duration, qerr *dnsx.QueryError) {
+func (t *transport) do(pid string, req *http.Request) (ans []byte, blocklists, region string, elapsed time.Duration, qerr *dnsx.QueryError) {
 	var server net.Addr
 	var conn net.Conn
 	start := time.Now()
@@ -389,10 +389,11 @@ func (t *transport) do(pid string, req *http.Request) (ans []byte, blocklists st
 		return
 	}
 
+	blocklists, region = t.rdnsHeaders(&httpResponse.Header)
 	// todo: check if content-type is [doh|odoh] mime type
-	log.V("doh: got response")
-	ans, err = io.ReadAll(httpResponse.Body)
+	log.V("doh: got response %s", region)
 
+	ans, err = io.ReadAll(httpResponse.Body)
 	if err != nil {
 		qerr = dnsx.NewSendFailedQueryError(err)
 		return
@@ -413,14 +414,13 @@ func (t *transport) do(pid string, req *http.Request) (ans []byte, blocklists st
 		return
 	}
 
-	blocklists = t.rdnsBlockstamp(httpResponse)
 	return
 }
 
-func (t *transport) send(pid string, req *http.Request) (msg *dns.Msg, blocklists string, elapsed time.Duration, qerr *dnsx.QueryError) {
+func (t *transport) send(pid string, req *http.Request) (msg *dns.Msg, blocklists, region string, elapsed time.Duration, qerr *dnsx.QueryError) {
 	var ans []byte
 	var err error
-	ans, blocklists, elapsed, qerr = t.do(pid, req)
+	ans, blocklists, region, elapsed, qerr = t.do(pid, req)
 	if qerr != nil {
 		return
 	}
@@ -432,12 +432,13 @@ func (t *transport) send(pid string, req *http.Request) (msg *dns.Msg, blocklist
 	return
 }
 
-func (t *transport) rdnsBlockstamp(res *http.Response) (blocklistStamp string) {
-	if res == nil { // should not be nil
+func (t *transport) rdnsHeaders(h *http.Header) (blocklistStamp, region string) {
+	if h == nil { // should not be nil
 		return
 	}
-	blocklistStamp = res.Header.Get(xdns.GetBlocklistStampHeaderKey())
-	log.V("doh: stamp %s; header %v", res.Header, blocklistStamp)
+	blocklistStamp = h.Get(xdns.GetBlocklistStampHeaderKey())
+	region = h.Get(xdns.GetRethinkDNSRegionHeaderKey())
+	log.VV("doh: header %s; region %s; stamp %v", h, region, blocklistStamp)
 	return
 }
 
@@ -466,13 +467,13 @@ func (t *transport) Type() string {
 }
 
 func (t *transport) Query(network string, q *dns.Msg, smm *x.DNSSummary) (r *dns.Msg, err error) {
-	var blocklists string
+	var blocklists, region string
 	var elapsed time.Duration
 	var qerr *dnsx.QueryError
 
 	_, pid := xdns.Net2ProxyID(network)
 	if t.typ == dnsx.DOH {
-		r, blocklists, elapsed, qerr = t.doDoh(pid, q)
+		r, blocklists, region, elapsed, qerr = t.doDoh(pid, q)
 		smm.Server = t.hostname
 	} else {
 		r, elapsed, qerr = t.doOdoh(pid, q)
@@ -494,6 +495,7 @@ func (t *transport) Query(network string, q *dns.Msg, smm *x.DNSSummary) (r *dns
 	smm.RCode = xdns.Rcode(r)
 	smm.RTtl = xdns.RTtl(r)
 	smm.Status = status
+	smm.Region = region
 	smm.Blocklists = blocklists
 	noOdohRelay := len(smm.RelayServer) <= 0
 	if noOdohRelay {

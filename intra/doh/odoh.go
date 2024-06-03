@@ -61,7 +61,7 @@ func (d *transport) doOdoh(pid string, q *dns.Msg) (res *dns.Msg, elapsed time.D
 		return
 	}
 
-	ans, _, elapsed, qerr = d.do(pid, req)
+	ans, _, _, elapsed, qerr = d.do(pid, req)
 	log.V("odoh: send; proxy? %t, elapsed: %s; err? %v", viaproxy, elapsed, qerr)
 	if qerr != nil {
 		// datatracker.ietf.org/doc/rfc9230 section 4.3 and section 7
