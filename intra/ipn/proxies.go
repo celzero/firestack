@@ -151,15 +151,20 @@ func (px *proxifier) add(p Proxy) (ok bool) {
 	px.Lock()
 	defer px.Unlock()
 
-	if pp := px.p[p.ID()]; pp != nil {
+	id := p.ID()
+	if pp := px.p[id]; pp != nil {
 		// new proxy, invoke Stop on old proxy
 		if pp != p {
-			_ = pp.Stop()
+			go func() { // holding px.lock, so exec stop in a goroutine
+				defer core.Recover(core.DontExit, "pxr.add: "+id)
+				_ = pp.Stop()
+				// onRmv is not sent here, as new proxy will be added
+			}()
 		}
 	}
 
-	px.p[p.ID()] = p
-	go px.onNew(p.ID())
+	px.p[id] = p
+	go px.onNew(id)
 	return true
 }
 
@@ -168,9 +173,12 @@ func (px *proxifier) RemoveProxy(id string) bool {
 	defer px.Unlock()
 
 	if p, ok := px.p[id]; ok {
-		_ = p.Stop()
 		delete(px.p, id)
-		go px.onRmv(id)
+		go func() {
+			defer core.Recover(core.DontExit, "pxr.removeProxy: "+id)
+			_ = p.Stop()
+			px.onRmv(id)
+		}()
 		log.I("proxy: removed %s", id)
 		return true
 	}
@@ -205,9 +213,15 @@ func (px *proxifier) StopProxies() error {
 
 	l := len(px.p)
 	for _, p := range px.p {
-		_ = p.Stop()
+		curp := p
+		id := curp.ID()
+
+		go func() {
+			defer core.Recover(core.DontExit, "pxr.stopProxies: "+id)
+			_ = curp.Stop()
+		}()
 	}
-	px.p = make(map[string]Proxy)
+	clear(px.p)
 
 	go px.onStop()
 	log.I("proxy: all(%d) stopped and removed", l)
