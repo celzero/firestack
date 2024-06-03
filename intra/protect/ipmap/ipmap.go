@@ -130,22 +130,30 @@ func (m *ipmap) With(r IPMapper) {
 }
 
 func (m *ipmap) Clear() {
-	purge := make(chan *IPSet, len(m.m))
+	m.Lock()
+	defer m.Unlock()
+
+	sz := len(m.m)
+	purge := make(chan *IPSet, sz)
+	defer close(purge)
 
 	go func() {
 		defer core.Recover(core.DontExit, "ipmap.goclear")
 
+		n := 0
 		for s := range purge {
 			s.clear()
+			n++
 		}
+		log.D("ipmap: clear: done %d/%d sets", n, sz)
 	}()
 
-	m.Lock()
+	n := 0
 	for _, s := range m.m {
 		purge <- s // preserves seed addrs
+		n++
 	}
-	m.Unlock()
-	close(purge)
+	log.I("ipmap: clear: requested %d/%d sets", n, sz)
 }
 
 // Implements IPMapper.
