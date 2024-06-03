@@ -55,7 +55,7 @@ func AddIPMapper(r dnsx.Resolver, protos string, clear bool) {
 		}
 	} // else remove; m is nil
 	if clear {
-		dialers.Clear()
+		dialers.Clear() // note: clears ipset async
 	}
 	dialers.Mapper(m)
 	dialers.IPProtos(protos)
