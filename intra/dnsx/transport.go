@@ -379,7 +379,7 @@ func (r *resolver) forward(q []byte, chosenids ...string) (res0 []byte, err0 err
 
 	log.V("dns: fwd: query %s [prefs:%v]; id? %s, sid? %s, pid? %s, ips? %v", qname, pref, id, sid, pid, presetIPs)
 
-	if t == nil {
+	if core.IsNil(t) {
 		summary.Latency = time.Since(starttime).Seconds()
 		summary.Status = TransportError
 		return nil, errNoSuchTransport
@@ -432,7 +432,7 @@ func (r *resolver) forward(q []byte, chosenids ...string) (res0 []byte, err0 err
 	// very unlikely that ans1 is nil but err is not
 	if ans1 == nil {
 		summary.Status = NoResponse // TODO: servfail?
-		return res2, err
+		return res2, errors.Join(err, errNoAnswer)
 	}
 
 	res2, err = ans1.Pack()
