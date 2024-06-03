@@ -698,6 +698,8 @@ func (r *resolver) refresh() {
 }
 
 func (r *resolver) Refresh() (string, error) {
+	log.I("dns: refresh transports")
+
 	go r.refresh()
 	go dialers.Clear()
 	s := map2csv(r.transports)
