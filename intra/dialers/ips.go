@@ -12,6 +12,7 @@ import (
 	"net/netip"
 	"strconv"
 
+	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
 	"github.com/celzero/firestack/intra/protect/ipmap"
@@ -165,6 +166,8 @@ func IPProtos(ippro string) (diff bool) {
 }
 
 func Clear() {
+	defer core.Recover(core.Exit11, "ipm.Clear")
+
 	ipm.Clear() // does not remove UidSelf, UidSystem
 }
 
