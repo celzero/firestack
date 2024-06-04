@@ -242,8 +242,9 @@ func (l *simpleLogger) Fatalf(at int, msg string, args ...any) {
 }
 
 func (l *simpleLogger) Stack(at int, msg string) {
+	const maxiter = 10
 	dump := make([]byte, 2*logcatLineSize) // matches android/log.h.
-	for {
+	for i := 0; i < maxiter; i++ {
 		n := runtime.Stack(dump, false)
 		if n < len(dump) {
 			msg = msg + "\n\t" + string(dump[:n])
@@ -260,9 +261,10 @@ func (l *simpleLogger) Stack(at int, msg string) {
 			} else {
 				l.toConsole(&conMsg{msg, conStack})
 			}
-			break
+			return
 		} // make more space for dump
 		dump = make([]byte, 2*len(dump))
+		l.out(at, fmt.Sprintf("stack dump, %d retry... %d/%d", i, len(dump), n))
 	}
 }
 
