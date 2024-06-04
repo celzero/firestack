@@ -91,7 +91,7 @@ func SetLevel(level LogLevel) {
 	}
 }
 
-func SetConsoleLogLevel(level LogLevel) {
+func SetConsoleLevel(level LogLevel) {
 	if Glogger != nil {
 		Glogger.SetConsoleLevel(level)
 	}
@@ -220,6 +220,10 @@ func LevelOf(level int) LogLevel {
 		dlvl = WARN
 	case ERROR:
 		dlvl = ERROR
+	case STACKTRACE:
+		dlvl = STACKTRACE
+	case NONE:
+		dlvl = NONE
 	default:
 	}
 	return dlvl

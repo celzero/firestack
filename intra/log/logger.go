@@ -56,7 +56,6 @@ type Logger interface {
 
 // based on github.com/eycorsican/go-tun2socks/blob/301549c43/common/log/simple/logger.go
 type simpleLogger struct {
-	Logger
 	level  LogLevel
 	tag    string
 	c      Console      // may be nil
@@ -65,6 +64,8 @@ type simpleLogger struct {
 	e      *golog.Logger
 	o      *golog.Logger
 }
+
+var _ Logger = (*simpleLogger)(nil)
 
 // based on: github.com/eycorsican/go-tun2socks/blob/301549c43/common/log/logger.go
 type LogLevel uint32
