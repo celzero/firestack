@@ -187,9 +187,7 @@ func (t *rtunnel) SetLinkAndRoutes(fd, mtu, engine int) error {
 	}
 
 	defer func() {
-		go func() {
-			defer core.Recover(core.DontExit, "i.setLinkAndRoutes")
-
+		core.Go("i.setLinkAndRoutes", func() {
 			l3 := settings.L3(engine)
 			if diff := dialers.IPProtos(l3); diff {
 				// dialers.IPProtos must always preced calls to other refreshes
@@ -197,7 +195,7 @@ func (t *rtunnel) SetLinkAndRoutes(fd, mtu, engine int) error {
 				go t.proxies.RefreshProto(l3)
 				t.resolver.Add(newMDNSTransport(l3))
 			}
-		}()
+		})
 	}()
 	return t.Tunnel.SetLink(fd, mtu) // route is always dual-stack
 }

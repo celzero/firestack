@@ -397,8 +397,7 @@ func (t *piph2) Dial(network, addr string) (protect.Conn, error) {
 	}
 
 	t.lastdial = time.Now()
-	go func() {
-		defer core.Recover(core.DontExit, "piph2.Dial")
+	core.Go("piph2.Dial", func() {
 		// fixme: currently, this hangs forever when upstream is cloudflare
 		// setting the content-length to the first len(first-write-bytes) works
 		// with cloudflare, but then golang's h2 client isn't happy about sending
@@ -424,7 +423,7 @@ func (t *piph2) Dial(network, addr string) (protect.Conn, error) {
 			t.status = TOK
 			incomingCh <- res.Body
 		}
-	}()
+	})
 
 	t.status = TOK
 	return oconn, nil

@@ -43,7 +43,7 @@ func RecoverFn(aux string, fn Finally) {
 func Recover(code int, aux string) {
 	// Have all managed goroutines checkin here, and prevent them from exiting
 	// if there's a panic in progress. While this can't lock the entire runtime
-	// to block progress, we can prevent some cases where Terraform may return
+	// to block progress, we can prevent some cases where firestack may return
 	// early before the panic has been printed out.
 	_pmu.Lock()
 	defer _pmu.Unlock()

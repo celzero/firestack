@@ -278,11 +278,10 @@ func (h *tcpHandler) handle(px ipn.Proxy, src net.Conn, target netip.AddrPort, c
 	}
 
 	h.conntracker.Track(ct, src, dst)
-	go func() {
-		defer core.Recover(core.DontExit, "tcp.forward: "+smm.ID)
+	core.Go("tcp.forward:"+smm.ID, func() {
 		defer h.conntracker.Untrack(ct.CID)
 		forward(src, dst, h.listener, smm) // src always *gonet.TCPConn
-	}()
+	})
 
 	log.I("tcp: new conn %s via proxy(%s); src(%s) -> dst(%s) for %s", smm.ID, px.ID(), src.LocalAddr(), target, smm.UID)
 	return nil // handled; takes ownership of src

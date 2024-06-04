@@ -156,9 +156,10 @@ func (p *processor) start(wg *sync.WaitGroup) {
 		case w == &p.packetWaker:
 			p.deliverPackets()
 		case w == &p.closeWaker:
+			// must unlock via deferred since panics are recovered above
 			p.mu.Lock()
+			defer p.mu.Unlock()
 			p.pkts.Reset()
-			p.mu.Unlock()
 			return
 		}
 	}

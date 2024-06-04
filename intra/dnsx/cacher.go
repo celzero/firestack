@@ -167,7 +167,7 @@ func mkcachekey(q *dns.Msg) (string, uint8, bool) {
 
 func (cb *cache) scrubCache() {
 	defer core.Recover(core.DontExit, "c.scrubCache")
-
+	// must unlock from deferred since panics are recovered above
 	cb.mu.Lock()
 	defer cb.mu.Unlock()
 

@@ -218,8 +218,8 @@ func dnsExchange(proxy *DcMulti, query *dns.Msg, serverAddress string, serverNam
 	for tries := 0; tries < 4; tries++ {
 		queryCopy := query.Copy()
 		queryCopy.Id += uint16(options)
-		go func(query *dns.Msg, delay time.Duration) {
-			defer core.Recover(core.DontExit, "cert.dnsExchange")
+		timeout := time.Duration(200*tries) * time.Millisecond
+		core.Go2("cert.dnsExchange", func(query *dns.Msg, delay time.Duration) {
 
 			if proto == "udp" {
 				proto = "tcp"
@@ -236,7 +236,7 @@ func dnsExchange(proxy *DcMulti, query *dns.Msg, serverAddress string, serverNam
 			}
 			option.priority = 0
 			channel <- option
-		}(queryCopy, time.Duration(200*tries)*time.Millisecond)
+		}, queryCopy, timeout)
 		options++
 	}
 	deadline := time.NewTimer(30 * time.Second)

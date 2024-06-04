@@ -137,16 +137,14 @@ func (m *ipmap) Clear() {
 	purge := make(chan *IPSet, sz)
 	defer close(purge)
 
-	go func() {
-		defer core.Recover(core.DontExit, "ipmap.goclear")
-
+	core.Go("ipmap.goclear", func() {
 		n := 0
 		for s := range purge {
 			s.clear()
 			n++
 		}
 		log.D("ipmap: clear: done %d/%d sets", n, sz)
-	}()
+	})
 
 	n := 0
 	for _, s := range m.m {
@@ -394,12 +392,12 @@ func (s *IPSet) Confirm(ip netip.Addr) {
 		return
 	}
 	s.confirmed.Store(ip)
-	go func() {
-		defer core.Recover(core.DontExit, "ipset.confirm")
+	core.Go("ipset.confirm", func() {
 		s.Lock()
+		defer s.Unlock()
+
 		s.addLocked(ip) // Add is O(N)
-		s.Unlock()
-	}()
+	})
 }
 
 func (s *IPSet) clear() {

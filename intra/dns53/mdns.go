@@ -338,15 +338,13 @@ func (c *client) query(qctx *qcontext) *dnsx.QueryError {
 		return err
 	}
 
-	go c.listen(qctx)
+	core.Go("mdns.listen", func() { c.listen(qctx) })
 
 	log.D("mdns: query: waiting for ans to %s", qctx.svc)
 	return nil
 }
 
 func (c *client) listen(qctx *qcontext) {
-	defer core.Recover(core.DontExit, "mdns.listen")
-
 	timesup := time.After(qctx.timeout)
 	qname := fmt.Sprintf("%s.%s.", qctx.svc, qctx.tld)
 	total := 0
@@ -476,6 +474,8 @@ func (c *client) recv(conn *net.UDPConn) {
 	bptr := core.Alloc()
 	buf := *bptr
 	buf = buf[:cap(buf)]
+	// buf must be recycled from a deferred fn since exec continues
+	// on panics and deferred fns are guaranteed to run.
 	defer func() {
 		*bptr = buf
 		core.Recycle(bptr)

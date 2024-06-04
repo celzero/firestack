@@ -102,9 +102,8 @@ func (p *pcapsink) Write(b []byte) (int, error) {
 	}
 }
 
+// writeAsync consumes [p.in] until close.
 func (p *pcapsink) writeAsync() {
-	defer core.Recover(core.DontExit, "pcap.writeAsync")
-
 	for b := range p.inC { // winsy spider
 		w := p.sink.Load() // always re-load current writer
 		if w != nil && w != zerowriter {
@@ -203,7 +202,7 @@ func newSink() *pcapsink {
 	p.sink = core.NewVolatile[io.WriteCloser](zerowriter)
 	p.log(false) // no log, which is enabled by default
 	p.inC = make(chan []byte, 128)
-	go p.writeAsync() // consumes p.in
+	core.Go("pcap.w", func() { p.writeAsync() })
 	return p
 }
 

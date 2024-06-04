@@ -10,7 +10,6 @@ import (
 	"net"
 	"net/netip"
 
-	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/dnsx"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/settings"
@@ -129,15 +128,11 @@ func (n *natPt) X64(id string, ip6 netip.Addr) (ip4 netip.Addr) {
 
 // Add64 implements DNS64.
 func (h *natPt) Add64(f dnsx.Transport) bool {
-	defer core.Recover(core.DontExit, "natpt.add64")
-
 	return h.dns64.AddResolver(ID64(f), f)
 }
 
 // Remove64 implements DNS64.
 func (h *natPt) Remove64(id string) bool {
-	defer core.Recover(core.DontExit, "natpt.remove64")
-
 	return h.dns64.RemoveResolver(id64(id))
 }
 

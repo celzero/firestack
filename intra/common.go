@@ -23,8 +23,6 @@ import (
 
 // TODO: Propagate TCP RST using local.Abort(), on appropriate errors.
 func upload(cid string, local net.Conn, remote net.Conn, ioch chan<- ioinfo) {
-	defer core.Recover(core.DontExit, "c.upload: "+cid)
-
 	ci := conn2str(local, remote)
 
 	n, err := core.Pipe(remote, local)

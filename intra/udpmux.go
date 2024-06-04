@@ -109,12 +109,11 @@ func (x *muxer) vend() (net.Conn, error) {
 	select {
 	case c := <-x.dxconns:
 		x.dxconnWG.Add(1) // accept
-		go func() {
-			defer core.Recover(core.DontExit, "udpmux.vend.close")
+		core.Go("udpmux.vend.close", func() {
 			<-c.closed
 			x.unroute(c)
 			x.dxconnWG.Done() // unaccept
-		}()
+		})
 		return c, nil
 
 	case <-x.doneCh:
@@ -160,6 +159,7 @@ func (x *muxer) drain() {
 //     It can therefore not be ended until all Conns are closed.
 //  2. Creating a new Conn when receiving from a new remote.
 func (x *muxer) read() {
+	// todo: recover must call "free()" if it wasn't.
 	defer core.Recover(core.DontExit, "udpmux.read")
 	defer func() {
 		_ = x.stop() // stop muxer
@@ -170,6 +170,7 @@ func (x *muxer) read() {
 		bptr := core.AllocRegion(core.BMAX)
 		b := *bptr
 		b = b[:cap(b)]
+		// todo: if panics are recovered above, free() may never be called
 		free := func() {
 			*bptr = b
 			core.Recycle(bptr)

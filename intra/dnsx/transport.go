@@ -179,7 +179,8 @@ func (r *resolver) Translate(b bool) {
 
 // Implements Resolver
 func (r *resolver) Add(dt x.DNSTransport) (ok bool) {
-	if dt == nil {
+	if dt == nil || core.IsNil(dt) {
+		log.D("dns: cannot add nil transports")
 		return false
 	}
 	t, ok := dt.(Transport)
@@ -191,23 +192,21 @@ func (r *resolver) Add(dt x.DNSTransport) (ok bool) {
 		return false
 	}
 
-	defer core.Recover(core.DontExit, "r.Add")
-
 	switch t.Type() {
 	case DNS53, DNSCrypt, DOH, DOT, ODOH:
 		ct := NewCachingTransport(t, ttl10m)
-
+		tid := t.ID()
 		r.Lock()
-		r.transports[t.ID()] = t // regular
+		r.transports[tid] = t // regular
 		if ct != nil {
 			r.transports[ct.ID()] = ct // cached
 		}
-		if t.ID() == System {
-			go r.Add64(t)
+		if tid == System {
+			core.Go("r.Add64", func() { r.Add64(t) })
 		}
 		r.Unlock()
 
-		go r.onNew(t.ID())
+		core.Go("r.onAdd", func() { r.listener.OnDNSAdded(tid) })
 		log.I("dns: add transport %s@%s; cache? %t", t.ID(), t.GetAddr(), ct != nil)
 
 		return true
@@ -252,7 +251,7 @@ func (r *resolver) Remove(id string) (ok bool) {
 	_, hasTransport := r.transports[id]
 	if hasTransport {
 		if id == System {
-			go r.Remove64(id)
+			core.Go("r.Remove64", func() { r.Remove64(id) })
 		}
 		r.Lock()
 		delete(r.transports, id)
@@ -268,7 +267,7 @@ func (r *resolver) Remove(id string) (ok bool) {
 	}
 
 	if hasTransport {
-		go r.onRmv(id)
+		core.Go("r.onRemove", func() { r.listener.OnDNSRemoved(id) })
 	}
 
 	return hasTransport
@@ -303,34 +302,6 @@ func (r *resolver) LocalLookup(q []byte) ([]byte, error) {
 	return ans, nil
 }
 
-// onResponse must always be called from a goroutine.
-func (r *resolver) onResponse(s *x.DNSSummary) {
-	defer core.Recover(core.DontExit, "r.onResponse")
-
-	r.listener.OnResponse(s)
-}
-
-// onNew must always be called from a goroutine.
-func (r *resolver) onNew(id string) {
-	defer core.Recover(core.DontExit, "r.onNew: "+id)
-
-	r.listener.OnDNSAdded(id)
-}
-
-// onRmv must always be called from a goroutine.
-func (r *resolver) onRmv(id string) {
-	defer core.Recover(core.DontExit, "r.onRmv: "+id)
-
-	r.listener.OnDNSRemoved(id)
-}
-
-// onStop must always be called from a goroutine.
-func (r *resolver) onStop() {
-	defer core.Recover(core.DontExit, "r.onStop")
-
-	r.listener.OnDNSStopped()
-}
-
 func (r *resolver) Forward(q []byte) ([]byte, error) {
 	return r.forward(q)
 }
@@ -350,7 +321,7 @@ func (r *resolver) forward(q []byte, chosenids ...string) (res0 []byte, err0 err
 		if settings.Debug {
 			summary.Latency = time.Since(starttime).Seconds()
 		}
-		go r.onResponse(summary)
+		core.Go("r.onResponse", func() { r.listener.OnResponse(summary) })
 	}()
 
 	msg, err := unpack(q)
@@ -605,7 +576,7 @@ func (r *resolver) reply(c protect.Conn) {
 			free()
 			break
 		}
-		go do()
+		core.Go("r.reply.do", do)
 		cnt++
 	}
 }
@@ -650,8 +621,6 @@ func (r *resolver) accept(c io.ReadWriteCloser) {
 			break // close on read errs
 		}
 		do := func() {
-			defer core.Recover(core.DontExit, "r.accept.do")
-
 			_ = r.dnstcp(q[:n], c)
 			free()
 		}
@@ -661,7 +630,7 @@ func (r *resolver) accept(c io.ReadWriteCloser) {
 			free()
 			break // close on incomplete reads
 		}
-		go do()
+		core.Go("r.accept.do", do)
 		cnt++
 	}
 	ms := int(time.Since(start).Seconds() * 1000)
@@ -670,7 +639,7 @@ func (r *resolver) accept(c io.ReadWriteCloser) {
 }
 
 func (r *resolver) Stop() error {
-	go r.onStop()
+	core.Go("r.onStop", func() { r.listener.OnDNSStopped() })
 
 	if gw := r.Gateway(); gw != nil {
 		gw.stop()
@@ -686,13 +655,13 @@ func (r *resolver) refresh() {
 	r.RLock()
 	defer r.RUnlock()
 
-	// don't expect to handle panics here w/ core.Recover
 	for _, t := range r.transports {
 		// skip cached transports
 		if !cachedTransport(t) {
+			curt := t
 			// re-adding creates NEW cached transports
 			// which is akin to a cache flush
-			go r.Add(t)
+			core.Go("r.Add", func() { r.Add(curt) })
 		}
 	}
 }

@@ -165,9 +165,8 @@ func IPProtos(ippro string) (diff bool) {
 }
 
 func Clear() {
-	defer core.Recover(core.Exit11, "ipm.Clear")
-
-	ipm.Clear() // does not remove UidSelf, UidSystem
+	// do not need to handle panics w/ core.Recover
+	ipm.Clear() // does not clear UidSelf, UidSystem (protected)
 }
 
 // Confirm marks addr as preferred for hostOrIP

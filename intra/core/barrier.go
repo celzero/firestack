@@ -91,7 +91,7 @@ func (ba *Barrier[T]) Do(k string, once Work[T]) (*V[T], int) {
 	if c != nil {
 		ba.mu.Unlock()
 
-		c.N.Add(1)
+		c.N.Add(1)  // register presence
 		c.wg.Wait() // wait for the in-flight req to complete
 		return c, Shared
 	}
@@ -102,4 +102,59 @@ func (ba *Barrier[T]) Do(k string, once Work[T]) (*V[T], int) {
 
 	c.wg.Done() // unblock all waiters
 	return c, Anew
+}
+
+func (ba *Barrier[T]) Go(k string, once Work[T]) <-chan *V[T] {
+	ch := make(chan *V[T])
+
+	Go(k, func() {
+		defer close(ch)
+
+		ba.mu.Lock()
+		c, _ := ba.getLocked(k)
+		if c != nil {
+			ba.mu.Unlock()
+
+			c.N.Add(1) // register presence
+			c.wg.Wait()
+			ch <- c
+			return
+		}
+		c = ba.addLocked(k)
+		ba.mu.Unlock()
+
+		c.Val, c.Err = once()
+
+		c.wg.Done() // unblock all waiters
+		ch <- c
+	})
+
+	return ch
+}
+
+// Go runs f in a goroutine and recovers from any panics.
+func Go(who string, f func()) {
+	go func() {
+		defer Recover(DontExit, who)
+
+		f()
+	}()
+}
+
+// Go2 runs f(arg0,arg1) in a goroutine and recovers from any panics.
+func Go2[T0 any, T1 any](who string, f func(T0, T1), a0 T0, a1 T1) {
+	go func() {
+		defer Recover(DontExit, who)
+
+		f(a0, a1)
+	}()
+}
+
+// Gx runs f in a goroutine and exits the process if f panics.
+func Gx(who string, f func()) {
+	go func() {
+		defer Recover(Exit11, who)
+
+		f()
+	}()
 }

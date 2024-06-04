@@ -155,16 +155,15 @@ func (px *proxifier) add(p Proxy) (ok bool) {
 	if pp := px.p[id]; pp != nil {
 		// new proxy, invoke Stop on old proxy
 		if pp != p {
-			go func() { // holding px.lock, so exec stop in a goroutine
-				defer core.Recover(core.DontExit, "pxr.add: "+id)
+			core.Go("pxr.add: "+id, func() { // holding px.lock, so exec stop in a goroutine
 				_ = pp.Stop()
 				// onRmv is not sent here, as new proxy will be added
-			}()
+			})
 		}
 	}
 
 	px.p[id] = p
-	go px.onNew(id)
+	core.Go(id, func() { px.obs.OnProxyAdded(id) })
 	return true
 }
 
@@ -174,11 +173,10 @@ func (px *proxifier) RemoveProxy(id string) bool {
 
 	if p, ok := px.p[id]; ok {
 		delete(px.p, id)
-		go func() {
-			defer core.Recover(core.DontExit, "pxr.removeProxy: "+id)
+		core.Go("pxr.removeProxy: "+id, func() {
 			_ = p.Stop()
-			px.onRmv(id)
-		}()
+			px.obs.OnProxyRemoved(id)
+		})
 		log.I("proxy: removed %s", id)
 		return true
 	}
@@ -216,34 +214,15 @@ func (px *proxifier) StopProxies() error {
 		curp := p
 		id := curp.ID()
 
-		go func() {
-			defer core.Recover(core.DontExit, "pxr.stopProxies: "+id)
+		core.Go("pxr.stopProxies: "+id, func() {
 			_ = curp.Stop()
-		}()
+		})
 	}
 	clear(px.p)
 
-	go px.onStop()
+	core.Go("pxr.onStop", func() { px.obs.OnProxiesStopped() })
 	log.I("proxy: all(%d) stopped and removed", l)
 	return nil
-}
-
-func (px *proxifier) onNew(id string) {
-	defer core.Recover(core.DontExit, "pxr.onNew: "+id)
-
-	px.obs.OnProxyAdded(id)
-}
-
-func (px *proxifier) onRmv(id string) {
-	defer core.Recover(core.DontExit, "pxr.onRmv: "+id)
-
-	px.obs.OnProxyRemoved(id)
-}
-
-func (px *proxifier) onStop() {
-	defer core.Recover(core.DontExit, "pxr.onStop")
-
-	px.obs.OnProxiesStopped()
 }
 
 func (px *proxifier) RefreshProxies() (string, error) {
@@ -261,13 +240,11 @@ func (px *proxifier) RefreshProxies() (string, error) {
 		// some proxy.Refershes may be slow due to network requests, hence
 		// preferred to run in a goroutine to avoid blocking the caller.
 		// ex: wgproxy.Refresh -> multihost.Refersh -> dialers.Resolve
-		go func() {
-			defer core.Recover(core.DontExit, "pxr.RefreshProxies: "+id)
-
+		core.Go("pxr.RefreshProxies: "+id, func() {
 			if err := curp.Refresh(); err != nil {
 				log.E("proxy: refresh (%s/%s/%s) failed: %v", id, curp.Type(), curp.GetAddr(), err)
 			}
-		}()
+		})
 	}
 
 	log.I("proxy: refreshed %d / %d: %v", len(which), tot, which)
@@ -277,7 +254,7 @@ func (px *proxifier) RefreshProxies() (string, error) {
 
 func (px *proxifier) RefreshProto(l3 string) {
 	defer core.Recover(core.DontExit, "pxr.RefreshProto")
-
+	// must unlock from deferred since panics are recovered above
 	px.Lock()
 	defer px.Unlock()
 
@@ -290,14 +267,17 @@ func (px *proxifier) RefreshProto(l3 string) {
 	for _, p := range px.p {
 		curp := p
 		id := curp.ID()
-		go func() {
+		core.Go("pxr.RefreshProto: "+id, func() {
+			// always run in a goroutine (or there is a deadlock)
+			// wgproxy.onProtoChange -> multihost.Refresh -> dialers.Resolve
+			// -> ipmapper.LookupIPNet -> resolver.LocalLookup -> transport.Query
+			// -> ipn.ProxyFor -> px.Lock() -> deadlock
 			if cfg, readd := curp.onProtoChange(); readd {
-				defer core.Recover(core.DontExit, "pxr.RefreshProto: "+id)
-
-				_, err := px.addProxy(curp.ID(), cfg) // px.addProxy -> px.add (acquires lock)
+				// px.addProxy -> px.add -> px.Lock() -> deadlock
+				_, err := px.addProxy(curp.ID(), cfg)
 				log.I("proxy: refreshProto (%s/%s/%s) re-add; err? %v", id, curp.Type(), curp.GetAddr(), err)
 			}
-		}()
+		})
 	}
 }
 

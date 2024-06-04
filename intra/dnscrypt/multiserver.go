@@ -411,9 +411,7 @@ func (proxy *DcMulti) start() error {
 
 	_, err := proxy.Refresh()
 	if proxy.serversInfo.len() > 0 {
-		go func(ctx context.Context) {
-			defer core.Recover(core.Exit11, "dcmulti.start")
-
+		core.Gx("dcmulti.start", func() {
 			for {
 				select {
 				case <-ctx.Done():
@@ -433,7 +431,7 @@ func (proxy *DcMulti) start() error {
 					}
 				}
 			}
-		}(ctx)
+		})
 	}
 	return err
 }

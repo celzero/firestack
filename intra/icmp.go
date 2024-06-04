@@ -131,7 +131,7 @@ func (h *icmpHandler) Ping(source, target netip.AddrPort, msg []byte, pong netst
 	defer func() {
 		if !open {
 			summary.done(err)
-			go h.sendNotif(summary)
+			go sendNotif(h.listener, summary)
 		}
 	}()
 
@@ -150,12 +150,10 @@ func (h *icmpHandler) Ping(source, target netip.AddrPort, msg []byte, pong netst
 
 	// always forward in a goroutine to avoid blocking netstack
 	// see: netstack/dispatcher.go:newReadvDispatcher
-	go func() {
-		defer core.Recover(core.DontExit, "icmp.Ping")
-
+	core.Go("icmp.Ping", func() {
 		defer func() {
 			summary.done(err)
-			go h.sendNotif(summary)
+			go sendNotif(h.listener, summary)
 		}()
 		dst := oneRealIp(realips, target)
 		uc, err := px.Dialer().Dial("udp", dst.String())
@@ -183,7 +181,7 @@ func (h *icmpHandler) Ping(source, target netip.AddrPort, msg []byte, pong netst
 			// multi ping, non-blocking
 			h.fetch(uc, pong, summary)
 		}
-	}()
+	})
 	return true // handled
 }
 
@@ -194,7 +192,7 @@ func (h *icmpHandler) fetch(c net.Conn, pong netstack.Pong, summary *SocketSumma
 	defer func() {
 		clos(c)
 		summary.done(err)
-		go h.sendNotif(summary)
+		go sendNotif(h.listener, summary)
 	}()
 
 	bptr := core.Alloc()
@@ -235,15 +233,6 @@ func (h *icmpHandler) fetch(c net.Conn, pong netstack.Pong, summary *SocketSumma
 	}
 	log.I("t.icmp: ingress: ReadFrom(%v <- %v) ping done; ok? %t", src, dst, success)
 	return
-}
-
-func (h *icmpHandler) sendNotif(s *SocketSummary) {
-	l := h.listener
-	if l == nil || s == nil || h.status == ICMPEND {
-		return
-	}
-	defer core.Recover(core.DontExit, "icmp.sendNotif; "+s.ID)
-	l.OnSocketClosed(s)
 }
 
 func extend(c net.Conn, t time.Duration) {
