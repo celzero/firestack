@@ -54,6 +54,7 @@ var (
 	errUnexpectedProxy      = errors.New("unexpected proxy type")
 	errAddProxy             = errors.New("add proxy failed")
 	errProxyNotFound        = errors.New("proxy not found")
+	errGetProxyTimeout      = errors.New("get proxy timeout")
 	errMissingProxyOpt      = errors.New("proxyopts nil")
 	errNoProxyConn          = errors.New("not a tcp/udp proxy conn")
 	errAnnounceNotSupported = errors.New("announce not supported")
@@ -66,6 +67,8 @@ var (
 
 	udptimeoutsec = 5 * 60                    // 5m
 	tcptimeoutsec = (2 * 60 * 60) + (40 * 60) // 2h40m
+
+	getproxytimeout = 5 * time.Second
 )
 
 const (
@@ -183,18 +186,34 @@ func (px *proxifier) RemoveProxy(id string) bool {
 	return false
 }
 
+// ProxyFor returns the proxy for the given id or an error.
+// As a special case, if it takes longer than getproxytimeout, it returns an error.
 func (px *proxifier) ProxyFor(id string) (Proxy, error) {
 	if len(id) <= 0 {
 		return nil, errProxyNotFound
 	}
 
-	px.RLock()
-	defer px.RUnlock()
+	ch := make(chan Proxy) // always unbuffered
+	core.Go("pxr.ProxyFor", func() {
+		px.RLock()
+		defer px.RUnlock()
 
-	if p, ok := px.p[id]; ok {
+		if p, ok := px.p[id]; ok {
+			ch <- p
+		}
+		ch <- nil
+	})
+
+	select {
+	case p := <-ch:
+		if p == nil || core.IsNil(p) {
+			return nil, errProxyNotFound
+		}
 		return p, nil
+	case <-time.After(getproxytimeout):
+		// possibly a deadlock, so return an error
+		return nil, errGetProxyTimeout
 	}
-	return nil, errProxyNotFound
 }
 
 func (px *proxifier) GetProxy(id string) (x.Proxy, error) {
