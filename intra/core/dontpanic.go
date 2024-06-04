@@ -41,17 +41,17 @@ func RecoverFn(aux string, fn Finally) {
 // Recover must be called as a defered function, and must be the first
 // defer called at the start of a new goroutine.
 func Recover(code int, aux string) {
+	recovered := recover()
+	if recovered == nil {
+		return
+	}
+
 	// Have all managed goroutines checkin here, and prevent them from exiting
 	// if there's a panic in progress. While this can't lock the entire runtime
 	// to block progress, we can prevent some cases where firestack may return
 	// early before the panic has been printed out.
 	_pmu.Lock()
 	defer _pmu.Unlock()
-
-	recovered := recover()
-	if recovered == nil {
-		return
-	}
 
 	log.E2(parentCallerDepthAt, "pp: %d, %v", code, recovered)
 	log.C(aux)
