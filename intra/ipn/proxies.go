@@ -193,9 +193,8 @@ func (px *proxifier) ProxyFor(id string) (Proxy, error) {
 		return nil, errProxyNotFound
 	}
 
-	log.VV("proxy: for: %s", id)
 	// go.dev/play/p/xCug1W3OcMH
-	out := make(chan Proxy) // always unbuffered
+	out := make(chan Proxy)
 	core.Go("pxr.ProxyFor", func() {
 		px.RLock()
 		defer px.RUnlock()
@@ -217,7 +216,7 @@ func (px *proxifier) ProxyFor(id string) (Proxy, error) {
 		}
 		return p, nil
 	case <-time.After(getproxytimeout):
-		log.VV("proxy: for: %s; timeout!", id)
+		log.D("proxy: for: %s; timeout!", id)
 		// possibly a deadlock, so return an error
 		return nil, errGetProxyTimeout
 	}
