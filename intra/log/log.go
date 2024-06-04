@@ -206,7 +206,7 @@ func E2(at int, msg string, args ...any) {
 }
 
 func LevelOf(level int) LogLevel {
-	dlvl := WARN
+	dlvl := NONE
 	switch l := LogLevel(level); l {
 	case VVERBOSE:
 		dlvl = VVERBOSE
