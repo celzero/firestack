@@ -104,6 +104,7 @@ func (ba *Barrier[T]) Do(k string, once Work[T]) (*V[T], int) {
 	return c, Anew
 }
 
+// untested
 func (ba *Barrier[T]) Go(k string, once Work[T]) <-chan *V[T] {
 	ch := make(chan *V[T])
 
@@ -130,31 +131,4 @@ func (ba *Barrier[T]) Go(k string, once Work[T]) <-chan *V[T] {
 	})
 
 	return ch
-}
-
-// Go runs f in a goroutine and recovers from any panics.
-func Go(who string, f func()) {
-	go func() {
-		defer Recover(DontExit, who)
-
-		f()
-	}()
-}
-
-// Go2 runs f(arg0,arg1) in a goroutine and recovers from any panics.
-func Go2[T0 any, T1 any](who string, f func(T0, T1), a0 T0, a1 T1) {
-	go func() {
-		defer Recover(DontExit, who)
-
-		f(a0, a1)
-	}()
-}
-
-// Gx runs f in a goroutine and exits the process if f panics.
-func Gx(who string, f func()) {
-	go func() {
-		defer Recover(Exit11, who)
-
-		f()
-	}()
 }
