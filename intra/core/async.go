@@ -15,6 +15,15 @@ func Go(who string, f func()) {
 	}()
 }
 
+// Go1 runs f(arg) in a goroutine and recovers from any panics.
+func Go1[T any](who string, f func(T), arg T) {
+	go func() {
+		defer Recover(DontExit, who)
+
+		f(arg)
+	}()
+}
+
 // Go2 runs f(arg0,arg1) in a goroutine and recovers from any panics.
 func Go2[T0 any, T1 any](who string, f func(T0, T1), a0 T0, a1 T1) {
 	go func() {

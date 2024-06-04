@@ -194,15 +194,15 @@ func (px *proxifier) ProxyFor(id string) (Proxy, error) {
 	}
 
 	ch := make(chan Proxy) // always unbuffered
-	core.Go("pxr.ProxyFor", func() {
+	core.Go1("pxr.ProxyFor", func(out chan Proxy) {
 		px.RLock()
 		defer px.RUnlock()
 
 		if p, ok := px.p[id]; ok {
-			ch <- p
+			out <- p
 		}
-		ch <- nil
-	})
+		out <- nil
+	}, ch)
 
 	select {
 	case p := <-ch:
