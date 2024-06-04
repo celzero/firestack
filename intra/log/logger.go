@@ -173,8 +173,9 @@ func (l *simpleLogger) Printf(msg string, args ...any) {
 }
 
 func (l *simpleLogger) VeryVerbosef(at int, msg string, args ...any) {
+	msg = l.msgstr(msg, args...)
 	if l.level <= VVERBOSE {
-		l.out(at, l.msgstr(msg, args...))
+		l.out(at, msg)
 	}
 	if l.clevel <= VVERBOSE {
 		l.toConsole(&conMsg{msg, conNorm})
@@ -182,8 +183,9 @@ func (l *simpleLogger) VeryVerbosef(at int, msg string, args ...any) {
 }
 
 func (l *simpleLogger) Verbosef(at int, msg string, args ...any) {
+	msg = l.msgstr(msg, args...)
 	if l.level <= VERBOSE {
-		l.out(at, l.msgstr(msg, args...))
+		l.out(at, msg)
 	}
 	if l.clevel <= VERBOSE {
 		l.toConsole(&conMsg{msg, conNorm})
@@ -191,8 +193,9 @@ func (l *simpleLogger) Verbosef(at int, msg string, args ...any) {
 }
 
 func (l *simpleLogger) Debugf(at int, msg string, args ...any) {
+	msg = l.msgstr(msg, args...)
 	if l.level <= DEBUG {
-		l.out(at, l.msgstr(msg, args...))
+		l.out(at, msg)
 	}
 	if l.clevel <= DEBUG {
 		l.toConsole(&conMsg{msg, conNorm})
@@ -200,8 +203,9 @@ func (l *simpleLogger) Debugf(at int, msg string, args ...any) {
 }
 
 func (l *simpleLogger) Piif(at int, msg string, args ...any) {
+	msg = l.msgstr(msg, args...)
 	if l.level <= DEBUG {
-		l.out(at, l.msgstr(msg, args...))
+		l.out(at, msg)
 	}
 	if l.clevel <= DEBUG {
 		l.toConsole(&conMsg{msg, conNorm})
@@ -209,8 +213,9 @@ func (l *simpleLogger) Piif(at int, msg string, args ...any) {
 }
 
 func (l *simpleLogger) Infof(at int, msg string, args ...any) {
+	msg = l.msgstr(msg, args...)
 	if l.level <= INFO {
-		l.out(at, l.msgstr(msg, args...))
+		l.out(at, msg)
 	}
 	if l.clevel <= INFO {
 		l.toConsole(&conMsg{msg, conNorm})
@@ -218,8 +223,9 @@ func (l *simpleLogger) Infof(at int, msg string, args ...any) {
 }
 
 func (l *simpleLogger) Warnf(at int, msg string, args ...any) {
+	msg = l.msgstr(msg, args...)
 	if l.level <= WARN {
-		l.err(at, l.msgstr(msg, args...))
+		l.err(at, msg)
 	}
 	if l.clevel <= WARN {
 		l.toConsole(&conMsg{msg, conErr})
@@ -227,8 +233,9 @@ func (l *simpleLogger) Warnf(at int, msg string, args ...any) {
 }
 
 func (l *simpleLogger) Errorf(at int, msg string, args ...any) {
+	msg = l.msgstr(msg, args...)
 	if l.level <= ERROR {
-		l.err(at, l.msgstr(msg, args...))
+		l.err(at, msg)
 	}
 	if l.clevel <= ERROR {
 		l.toConsole(&conMsg{msg, conErr})
