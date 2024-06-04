@@ -474,10 +474,10 @@ func (proxy *DcMulti) AddGateways(routescsv string) (int, error) {
 	}
 
 	proxy.Lock()
+	defer proxy.Unlock()
 	r := strings.Split(routescsv, ",")
 	cat := xdns.FindUnique(proxy.routes, r)
 	proxy.routes = append(proxy.routes, cat...)
-	proxy.Unlock()
 
 	log.I("dnscrypt: added %d/%d; relay? %s", len(cat), len(r), cat)
 	if len(cat) > 0 {
@@ -493,11 +493,11 @@ func (proxy *DcMulti) RemoveGateways(routescsv string) (int, error) {
 	}
 
 	proxy.Lock()
+	defer proxy.Unlock()
 	rm := strings.Split(routescsv, ",")
 	l := len(proxy.routes)
 	proxy.routes = xdns.FindUnique(rm, proxy.routes)
 	n := len(proxy.routes)
-	proxy.Unlock()
 
 	if l != n { // routes changed
 		go proxy.refreshRoutes()

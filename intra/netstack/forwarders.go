@@ -167,6 +167,8 @@ func (p *processor) start(wg *sync.WaitGroup) {
 
 func (p *processor) deliverPackets() {
 	p.mu.Lock()
+	defer p.mu.Unlock()
+
 	for p.pkts.Len() > 0 {
 		pkt := p.pkts.PopFront()
 		p.mu.Unlock()
@@ -176,7 +178,6 @@ func (p *processor) deliverPackets() {
 		}
 		p.mu.Lock()
 	}
-	p.mu.Unlock()
 }
 
 // supervisor handles starting, closing, and queuing packets on processor
@@ -277,21 +278,21 @@ func (m *supervisor) queuePacket(pkt *stack.PacketBuffer, hasEthHeader bool) {
 	}
 	// despite uint32, pIdx goes negative? github.com/celzero/firestack/issues/59
 	// https://go.dev/ref/spec#Integer_overflow?
-	if pIdx < 0 || pIdx > sz {
+	if pIdx > sz {
 		log.W("ns: tun(%d): forwarder: invalid processor index %d, %s", fd, pIdx, tup)
 		pIdx = 0
 	}
 	p := &m.processors[pIdx]
 
-	p.mu.Lock()
-	pkt.IncRef()
-	p.pkts.PushBack(pkt) // enqueue.
-	m.ready[pIdx] = true // ready to deliver enqueued packets.
-	p.mu.Unlock()
-
 	if settings.Debug {
 		log.VV("ns: tun(%d): forwarder: q on proc %d, %s", fd, pIdx, tup)
 	}
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	pkt.IncRef()
+	p.pkts.PushBack(pkt) // enqueue.
+	m.ready[pIdx] = true // ready to deliver enqueued packets.
 }
 
 func (m *supervisor) stop() {

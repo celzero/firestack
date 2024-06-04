@@ -226,8 +226,8 @@ func (x *muxer) route(raddr net.Addr) (*demuxconn, error) {
 func (x *muxer) unroute(c *demuxconn) {
 	// don't really expect to handle panic w/ core.Recover
 	x.rmu.Lock()
+	defer x.rmu.Unlock()
 	delete(x.routes, c.raddr.String())
-	x.rmu.Unlock()
 }
 
 func (x *muxer) sendto(p []byte, addr net.Addr) (int, error) {

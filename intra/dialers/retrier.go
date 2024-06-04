@@ -211,6 +211,7 @@ func (r *retrier) Read(buf []byte) (n int, err error) {
 	retryNeeded := err != nil
 	if !r.retryCompleted() {
 		r.mutex.Lock()
+		defer r.mutex.Unlock()
 		if retryNeeded {
 			// retry only on errors; may be due to timeout or conn reset
 			if retryerr = r.retryLocked(); retryerr == nil {
@@ -225,7 +226,7 @@ func (r *retrier) Read(buf []byte) (n int, err error) {
 		// _ = r.conn.SetReadDeadline(time.Time{})
 		// reset hello and signal that retry is complete
 		r.hello = nil
-		r.mutex.Unlock()
+		return
 	} // else: just one read is enough; no retry needed
 	return
 }

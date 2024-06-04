@@ -175,14 +175,7 @@ func (d *dns64) eval(network string, force64 bool, og *dns.Msg, r dnsx.Transport
 	}
 
 	id := ID64(r)
-	d.RLock()
-	ip64, ok := d.ip64[id]
-	d.RUnlock()
-
-	if !ok {
-		log.V("dns64: no resolver id(%s) registered", id)
-	}
-
+	ip64 := d.get(id)
 	if len(ip64) <= 0 {
 		if ip64 = d.ip64[dnsx.UnderlayResolver]; len(ip64) <= 0 {
 			if ip64 = d.ip64[dnsx.OverlayResolver]; len(ip64) <= 0 {
@@ -190,6 +183,8 @@ func (d *dns64) eval(network string, force64 bool, og *dns.Msg, r dnsx.Transport
 			}
 		}
 		log.D("dns64: attempt underlay/local464 resolver ip64 w len(%d)", len(ip64))
+	} else {
+		log.V("dns64: no resolver id(%s) registered", id)
 	}
 
 	ans4, err := d.query64(network, ansin, r)
@@ -339,9 +334,7 @@ func (d *dns64) add(serverid string, nat64 []net.IP) error {
 		}
 	}
 
-	d.RLock()
-	ip64 := d.ip64[serverid]
-	d.RUnlock()
+	ip64 := d.get(serverid)
 
 	if len(ip64) == 0 {
 		log.I("dns64: id(%s) has zero nat64 prefixes", serverid)
@@ -349,6 +342,12 @@ func (d *dns64) add(serverid string, nat64 []net.IP) error {
 	} else {
 		return nil
 	}
+}
+
+func (d *dns64) get(sid string) []*net.IPNet {
+	d.RLock()
+	defer d.RUnlock()
+	return d.ip64[sid]
 }
 
 func (d *dns64) addNat64Prefix(id string, ipxx *net.IPNet) error {

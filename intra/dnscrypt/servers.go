@@ -174,10 +174,9 @@ func (serversInfo *ServersInfo) refreshServer(proxy *DcMulti, name string, stamp
 	}
 
 	serversInfo.Lock()
+	defer serversInfo.Unlock()
 	serversInfo.inner[name] = &newServer
 	serversInfo.registeredServers[name] = registeredserver{name: name, stamp: stamp}
-	serversInfo.Unlock()
-
 	return nil
 }
 

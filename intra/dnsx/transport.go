@@ -201,10 +201,11 @@ func (r *resolver) Add(dt x.DNSTransport) (ok bool) {
 		if ct != nil {
 			r.transports[ct.ID()] = ct // cached
 		}
+		r.Unlock()
+
 		if tid == System {
 			core.Go("r.Add64", func() { r.Add64(t) })
 		}
-		r.Unlock()
 
 		core.Go("r.onAdd", func() { r.listener.OnDNSAdded(tid) })
 		log.I("dns: add transport %s@%s; cache? %t", t.ID(), t.GetAddr(), ct != nil)
