@@ -102,13 +102,13 @@ type ipmap struct {
 // IPSet represents an unordered collection of IP addresses for a single host.
 // One IP can be marked as confirmed to be working correctly.
 type IPSet struct {
-	sync.RWMutex              // Protects this struct.
-	ips          []netip.Addr // All known IPs for the server.
-	confirmed    atomic.Value // netip.Addr confirmed to be working.
-	typ          IPSetType    // Regular, Protected, or AutoType
-	r            IPMapper     // For hostname resolution, never nil
-	seed         []string     // Bootstrap ips or ip:ports; may be nil.
-	fails        int          // Number of times the confirmed IP has failed.
+	sync.RWMutex               // Protects this struct.
+	ips          []netip.Addr  // All known IPs for the server.
+	confirmed    atomic.Value  // netip.Addr confirmed to be working.
+	typ          IPSetType     // Regular, Protected, or AutoType
+	r            IPMapper      // For hostname resolution, never nil
+	seed         []string      // Bootstrap ips or ip:ports; may be nil.
+	fails        atomic.Uint32 // Number of times the confirmed IP has failed.
 }
 
 func NewIPMap() *ipmap {
@@ -237,7 +237,7 @@ func (m *ipmap) makeIPSet(hostname string, ipps []string, typ IPSetType) *IPSet 
 	log.D("ipmap: makeIPSet: %s, seed: %v, typ: %s", hostname, ipps, typ)
 
 	// TODO: disallow confirm/disconfirm if hostname is an IP address
-	s := &IPSet{r: m, seed: ipps, confirmed: atomic.Value{}, typ: typ, fails: 0}
+	s := &IPSet{r: m, seed: ipps, confirmed: atomic.Value{}, typ: typ, fails: atomic.Uint32{}}
 	if ip, err := netip.ParseAddr(hostname); err == nil && !ip.IsUnspecified() && ip.IsValid() {
 		log.D("ipmap: makeIPSet: %s for %s, confirmed addr %s", hostname, typ, ip)
 		s.confirmed.Store(ip)
@@ -313,7 +313,7 @@ func (s *IPSet) add(hostOrIP string) bool {
 	s.Unlock()
 	ok := !s.Empty()
 	if ok {
-		s.fails = 0 // reset fails, since we have a new ips
+		s.fails.Store(0) // reset fails, since we have a new ips
 	}
 	return ok
 }
@@ -347,10 +347,10 @@ func (s *IPSet) Empty() bool {
 	return s.Size() == 0
 }
 
-func (s *IPSet) Size() int {
+func (s *IPSet) Size() uint32 {
 	s.RLock()
 	defer s.RUnlock()
-	return len(s.ips)
+	return uint32(len(s.ips))
 }
 
 // Addrs returns a copy of the IP set as a slice in random order.
@@ -387,7 +387,7 @@ func (s *IPSet) Confirmed() netip.Addr {
 
 // Confirm marks ip as the confirmed address.
 func (s *IPSet) Confirm(ip netip.Addr) {
-	s.fails = 0 // reset fails, a new confirmed ip
+	s.fails.Store(0) // reset fails, a new confirmed ip
 	if ip.Compare(s.Confirmed()) == 0 {
 		return
 	}
@@ -405,7 +405,7 @@ func (s *IPSet) clear() {
 	s.ips = nil
 	s.Unlock()
 	s.confirmed.Store(zeroaddr)
-	s.fails = 0
+	s.fails.Store(0)
 }
 
 // Disconfirm sets the confirmed address to zeroaddr if the current confirmed address
@@ -423,9 +423,9 @@ func (s *IPSet) Disconfirm(ip netip.Addr) (ok bool) {
 		// or s never had a confirmed ip, but still
 		// Disconfirm() was called, indicating a failure
 		if c.Compare(zeroaddr) == 0 {
-			s.fails += 1
+			s.fails.Add(1)
 		}
-		if s.fails > max(2*sz, maxFailLimit) {
+		if s.fails.Load() > max(2*sz, maxFailLimit) {
 			// empty out the set, may be refilled by Get()
 			s.clear()
 		}
