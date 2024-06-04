@@ -166,7 +166,7 @@ func (px *proxifier) add(p Proxy) (ok bool) {
 	}
 
 	px.p[id] = p
-	core.Go(id, func() { px.obs.OnProxyAdded(id) })
+	core.Go("pxr.add: "+id, func() { px.obs.OnProxyAdded(id) })
 	return true
 }
 
