@@ -8,6 +8,7 @@
 package core
 
 import (
+	"fmt"
 	"os"
 	"sync"
 
@@ -27,9 +28,9 @@ const Exit11 = 11
 // the process should not exit after recovering from a panic.
 const DontExit = 0
 
-// In case multiple goroutines panic concurrently, ensure only the first one
-// recovered by PanicHandler starts printing.
-var _pmu sync.Mutex
+// In case multiple goroutines panic concurrently, ensure only one of them
+// is able to print the panic message and exit the process.
+var _pmu sync.RWMutex
 
 var parentCallerDepthAt = log.LogFnCallerDepth + 1
 
@@ -50,13 +51,18 @@ func Recover(code int, aux string) {
 	// if there's a panic in progress. While this can't lock the entire runtime
 	// to block progress, we can prevent some cases where firestack may return
 	// early before the panic has been printed out.
-	// _pmu.Lock()
-	// defer _pmu.Unlock()
-
-	log.E2(parentCallerDepthAt, "pp: %d, %v", code, recovered)
-	log.C(aux)
-
-	if code > DontExit {
-		os.Exit(code)
+	if code == DontExit {
+		// many "dontexit" goroutines can safely run concurrently.
+		_pmu.RLock()
+		defer _pmu.RUnlock()
+	} else {
+		defer os.Exit(Exit11)
+		// upto one goroutine panicking should exit the process.
+		_pmu.Lock()
+		defer _pmu.Unlock()
 	}
+	// fixme: what about locks above if log.[E2|C], fmt.Sprintf panic?
+	msg := fmt.Sprintf("%s %d, %v\n", aux, code, recovered)
+	log.E2(parentCallerDepthAt, msg)
+	log.C(msg)
 }
