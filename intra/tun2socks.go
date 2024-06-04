@@ -79,7 +79,7 @@ func LogLevel(level, consolelevel int) {
 	} else {
 		debug.SetTraceback(one.s())
 	}
-	log.I("tun: new lvl: %d, clvl: %d; debug? %t", dlvl, clvl, settings.Debug)
+	log.I("tun: new lvl: %d, clvl: %d", dlvl, clvl)
 }
 
 // LowMem triggers Go's garbage collection cycle.

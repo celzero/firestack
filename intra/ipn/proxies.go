@@ -195,8 +195,8 @@ func (px *proxifier) ProxyFor(id string) (Proxy, error) {
 
 	log.VV("proxy: for: %s", id)
 	// go.dev/play/p/xCug1W3OcMH
-	ch := make(chan Proxy) // always unbuffered
-	core.Go1("pxr.ProxyFor", func(out chan Proxy) {
+	out := make(chan Proxy) // always unbuffered
+	core.Go("pxr.ProxyFor", func() {
 		px.RLock()
 		defer px.RUnlock()
 
@@ -208,10 +208,10 @@ func (px *proxifier) ProxyFor(id string) (Proxy, error) {
 			out <- nil
 		}
 		log.VV("proxy: for: go: %s, %s", id, addr)
-	}, ch)
+	})
 
 	select {
-	case p := <-ch:
+	case p := <-out:
 		if p == nil || core.IsNil(p) {
 			return nil, errProxyNotFound
 		}
