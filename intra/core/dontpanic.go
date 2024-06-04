@@ -50,8 +50,8 @@ func Recover(code int, aux string) {
 	// if there's a panic in progress. While this can't lock the entire runtime
 	// to block progress, we can prevent some cases where firestack may return
 	// early before the panic has been printed out.
-	_pmu.Lock()
-	defer _pmu.Unlock()
+	// _pmu.Lock()
+	// defer _pmu.Unlock()
 
 	log.E2(parentCallerDepthAt, "pp: %d, %v", code, recovered)
 	log.C(aux)
