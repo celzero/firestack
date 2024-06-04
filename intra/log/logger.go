@@ -253,7 +253,8 @@ func (l *simpleLogger) Stack(at int, msg string) {
 	dump := make([]byte, 2*logcatLineSize) // matches android/log.h.
 	for i := 0; i < maxiter; i++ {
 		n := runtime.Stack(dump, false)
-		if n < len(dump) {
+
+		if n < len(dump) || maxiter == i+1 {
 			msg = msg + "\n\t" + string(dump[:n])
 			if len(l.tag) > 0 {
 				msg = l.tag + msg
