@@ -332,6 +332,9 @@ func resolve(network string, data *dns.Msg, si *serverinfo, smm *x.DNSSummary) (
 	smm.Server = resolver
 	smm.RelayServer = anonrelay // may be empty
 	smm.Status = status
+	if err != nil {
+		smm.Msg = err.Error()
+	}
 
 	noAnonRelay := len(anonrelay) <= 0
 	if si != nil && noAnonRelay {
@@ -616,11 +619,11 @@ func (p *DcMulti) Type() string {
 }
 
 // Query implements dnsx.TransportMult
-func (p *DcMulti) Query(network string, q *dns.Msg, summary *x.DNSSummary) (r *dns.Msg, err error) {
-	r, err = resolve(network, q, p.serversInfo.getOne(), summary)
-	p.lastStatus = summary.Status
-	p.lastAddr = summary.Server
-	p.est.Add(summary.Latency)
+func (p *DcMulti) Query(network string, q *dns.Msg, smm *x.DNSSummary) (r *dns.Msg, err error) {
+	r, err = resolve(network, q, p.serversInfo.getOne(), smm)
+	p.lastStatus = smm.Status
+	p.lastAddr = smm.Server
+	p.est.Add(smm.Latency)
 	return
 }
 

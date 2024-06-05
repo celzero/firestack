@@ -505,6 +505,9 @@ func (t *transport) Query(network string, q *dns.Msg, smm *x.DNSSummary) (r *dns
 			smm.RelayServer = x.SummaryProxyLabel + pid
 		}
 	}
+	if err != nil {
+		smm.Msg = err.Error()
+	}
 	log.V("doh: (p/px %s/%s); len(res): %d, data: %s, via: %s, err? %v", network, pid, xdns.Len(r), smm.RData, smm.RelayServer, err)
 	return r, err
 }

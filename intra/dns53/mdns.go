@@ -124,19 +124,19 @@ func (t *dnssd) oneshotQuery(msg *dns.Msg) (*dns.Msg, *dnsx.QueryError) {
 	return nil, dnsx.NewNoResponseQueryError(errNoMdnsAnswer)
 }
 
-func (t *dnssd) Query(_ string, q *dns.Msg, summary *x.DNSSummary) (ans *dns.Msg, err error) {
-	summary.ID = t.ID()
-	summary.Type = t.Type()
-	summary.Server = t.GetAddr()
+func (t *dnssd) Query(_ string, q *dns.Msg, smm *x.DNSSummary) (ans *dns.Msg, err error) {
+	smm.ID = t.ID()
+	smm.Type = t.Type()
+	smm.Server = t.GetAddr()
 
 	defer func() {
-		log.D("mdns: err: %v; summary: %s", err, summary.Str())
+		log.D("mdns: err: %v; summary: %s", err, smm.Str())
 	}()
 
 	start := time.Now()
 
 	if q == nil || !xdns.HasAnyQuestion(q) {
-		summary.Status = dnsx.BadQuery
+		smm.Status = dnsx.BadQuery
 		t.status = dnsx.BadQuery
 		return
 	}
@@ -150,13 +150,15 @@ func (t *dnssd) Query(_ string, q *dns.Msg, summary *x.DNSSummary) (ans *dns.Msg
 	}
 
 	elapsed := time.Since(start)
-	summary.Latency = elapsed.Seconds()
-	summary.RData = xdns.GetInterestingRData(ans)
-	summary.RCode = xdns.Rcode(ans)
-	summary.RTtl = xdns.RTtl(ans)
-	summary.Status = t.Status()
-	summary.Blocklists = ""
-	t.est.Add(summary.Latency)
+	smm.Latency = elapsed.Seconds()
+	smm.RData = xdns.GetInterestingRData(ans)
+	smm.RCode = xdns.Rcode(ans)
+	smm.RTtl = xdns.RTtl(ans)
+	smm.Status = t.Status()
+	if err != nil {
+		smm.Msg = err.Error()
+	}
+	t.est.Add(smm.Latency)
 
 	return ans, err
 }

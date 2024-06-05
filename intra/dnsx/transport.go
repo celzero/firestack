@@ -309,39 +309,38 @@ func (r *resolver) Forward(q []byte) ([]byte, error) {
 
 func (r *resolver) forward(q []byte, chosenids ...string) (res0 []byte, err0 error) {
 	starttime := time.Now()
-	summary := &x.DNSSummary{
+	smm := &x.DNSSummary{
 		QName:  invalidQname,
 		Status: Start,
 		Msg:    noerr.Error(),
 	}
 	// always call up to the listener
 	defer func() {
-		if err0 != nil {
-			summary.Msg = err0.Error()
-		} // else: preserve msg from Transport.Query
 		if settings.Debug {
-			summary.Latency = time.Since(starttime).Seconds()
+			smm.Latency = time.Since(starttime).Seconds()
 		}
-		core.Go("r.onResponse", func() { r.listener.OnResponse(summary) })
+		core.Go("r.onResponse", func() { r.listener.OnResponse(smm) })
 	}()
 
 	msg, err := unpack(q)
 	if err != nil {
 		log.W("dns: fwd: not a dns packet %v", err)
-		summary.Latency = time.Since(starttime).Seconds()
-		summary.Status = BadQuery
+		smm.Latency = time.Since(starttime).Seconds()
+		smm.Status = BadQuery
+		smm.Msg = err.Error()
 		return nil, err
 	}
 
 	// figure out transport to use
 	qname := qname(msg)
 	qtyp := qtype(msg)
-	summary.QName = qname
-	summary.QType = qtyp
+	smm.QName = qname
+	smm.QType = qtyp
 
 	if len(qname) <= 0 { // unexpected; github.com/celzero/rethink-app/issues/1210
-		summary.Latency = time.Since(starttime).Seconds()
-		summary.Status = BadQuery
+		smm.Latency = time.Since(starttime).Seconds()
+		smm.Status = BadQuery
+		smm.Msg = errMissingQueryName.Error()
 		return nil, errMissingQueryName
 	}
 
@@ -352,8 +351,9 @@ func (r *resolver) forward(q []byte, chosenids ...string) (res0 []byte, err0 err
 	log.V("dns: fwd: query %s [prefs:%v]; id? %s, sid? %s, pid? %s, ips? %v", qname, pref, id, sid, pid, presetIPs)
 
 	if t == nil || core.IsNil(t) {
-		summary.Latency = time.Since(starttime).Seconds()
-		summary.Status = TransportError
+		smm.Latency = time.Since(starttime).Seconds()
+		smm.Status = TransportError
+		smm.Msg = errNoSuchTransport.Error()
 		return nil, errNoSuchTransport
 	}
 	var t2 Transport
@@ -366,13 +366,16 @@ func (r *resolver) forward(q []byte, chosenids ...string) (res0 []byte, err0 err
 	res1, blocklists, err := r.blockQ(t, t2, msg) // skips if the t, t2 are alg/block-free
 	if err == nil {
 		if pref.NOBLOCK { // only add blocklists and do not actually block
-			summary.Blocklists = blocklists
+			smm.Blocklists = blocklists
 		} else {
 			b, e := res1.Pack()
-			summary.Latency = time.Since(starttime).Seconds()
-			summary.Status = Complete
-			summary.Blocklists = blocklists
-			summary.RData = xdns.GetInterestingRData(res1)
+			smm.Latency = time.Since(starttime).Seconds()
+			smm.Status = Complete
+			smm.Blocklists = blocklists
+			smm.RData = xdns.GetInterestingRData(res1)
+			if e != nil {
+				smm.Msg = e.Error()
+			}
 			log.V("dns: fwd: query blocked %s by %s", qname, blocklists)
 
 			return b, e
@@ -381,15 +384,15 @@ func (r *resolver) forward(q []byte, chosenids ...string) (res0 []byte, err0 err
 		log.V("dns: fwd: query NOT blocked %s; why? %v", qname, err)
 	}
 
-	summary.Type = t.Type()
-	summary.ID = t.ID()
+	smm.Type = t.Type()
+	smm.ID = t.ID()
 	var res2 []byte
 	var ans1 *dns.Msg
 
 	netid := xdns.NetAndProxyID(NetTypeUDP, pid)
 
 	// with t2 as the secondary transport, which could be nil
-	ans1, err = gw.q(t, t2, presetIPs, netid, msg, summary)
+	ans1, err = gw.q(t, t2, presetIPs, netid, msg, smm)
 
 	algerr := isAlgErr(err) // not set when gw.translate is off
 	if algerr {
@@ -403,17 +406,20 @@ func (r *resolver) forward(q []byte, chosenids ...string) (res0 []byte, err0 err
 	}
 	// very unlikely that ans1 is nil but err is not
 	if ans1 == nil {
-		summary.Status = NoResponse // TODO: servfail?
-		return res2, errors.Join(err, errNoAnswer)
+		err := errors.Join(err, errNoAnswer)
+		smm.Status = NoResponse // TODO: servfail?
+		smm.Msg = err.Error()
+		return res2, err
 	}
 
 	res2, err = ans1.Pack()
 	if err != nil {
-		summary.Status = BadResponse // TODO: servfail?
+		smm.Status = BadResponse // TODO: servfail?
+		smm.Msg = err.Error()
 		return res2, err
 	}
 
-	ans2, blocklistnames := r.blockA(t, t2, msg, ans1, summary.Blocklists)
+	ans2, blocklistnames := r.blockA(t, t2, msg, ans1, smm.Blocklists)
 
 	isnewans := ans2 != nil
 	// do not block, only add blocklists if NOBLOCK is set
@@ -422,18 +428,19 @@ func (r *resolver) forward(q []byte, chosenids ...string) (res0 []byte, err0 err
 		ans1 = ans2
 		res2, err = ans2.Pack()
 		if err != nil {
-			summary.Status = BadResponse // TODO: servfail?
+			smm.Status = BadResponse // TODO: servfail?
+			smm.Msg = err.Error()
 			return res2, err
 		}
 		// summary latency, response, status, ips also set by transport t
-		summary.RData = xdns.GetInterestingRData(ans2)
-		summary.RCode = xdns.Rcode(ans2)
-		summary.RTtl = xdns.RTtl(ans2)
-		summary.Status = Complete
+		smm.RData = xdns.GetInterestingRData(ans2)
+		smm.RCode = xdns.Rcode(ans2)
+		smm.RTtl = xdns.RTtl(ans2)
+		smm.Status = Complete
 	}
 	hasblocklists := len(blocklistnames) > 0
 	if hasblocklists {
-		summary.Blocklists = blocklistnames
+		smm.Blocklists = blocklistnames
 	}
 	ansblocked := xdns.AQuadAUnspecified(ans1)
 

@@ -336,12 +336,15 @@ func (s *serverinfo) Type() string {
 	return dnsx.DNSCrypt
 }
 
-func (s *serverinfo) Query(network string, q *dns.Msg, summary *x.DNSSummary) (r *dns.Msg, err error) {
-	r, err = resolve(network, q, s, summary)
-	s.status = summary.Status
+func (s *serverinfo) Query(network string, q *dns.Msg, smm *x.DNSSummary) (r *dns.Msg, err error) {
+	r, err = resolve(network, q, s, smm)
+	s.status = smm.Status
 
 	if s.est != nil {
-		s.est.Add(summary.Latency)
+		s.est.Add(smm.Latency)
+	}
+	if err != nil {
+		smm.Msg = err.Error()
 	}
 
 	return

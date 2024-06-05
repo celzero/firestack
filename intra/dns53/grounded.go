@@ -36,7 +36,7 @@ func NewGroundedTransport(id string) (t dnsx.Transport) {
 	return
 }
 
-func (t *grounded) Query(_ string, q *dns.Msg, summary *x.DNSSummary) (ans *dns.Msg, err error) {
+func (t *grounded) Query(_ string, q *dns.Msg, smm *x.DNSSummary) (ans *dns.Msg, err error) {
 	ans, err = xdns.RefusedResponseFromMessage(q)
 	if err != nil {
 		t.status = x.BadResponse
@@ -44,13 +44,15 @@ func (t *grounded) Query(_ string, q *dns.Msg, summary *x.DNSSummary) (ans *dns.
 		t.status = x.Complete
 	}
 	elapsed := 0 * time.Second
-	summary.Latency = elapsed.Seconds()
-	summary.RData = xdns.GetInterestingRData(ans)
-	summary.RCode = xdns.Rcode(ans)
-	summary.RTtl = xdns.RTtl(ans)
-	summary.Server = t.GetAddr()
-	summary.Status = t.Status()
-	summary.Blocklists = ""
+	smm.Latency = elapsed.Seconds()
+	smm.RData = xdns.GetInterestingRData(ans)
+	smm.RCode = xdns.Rcode(ans)
+	smm.RTtl = xdns.RTtl(ans)
+	smm.Server = t.GetAddr()
+	smm.Status = t.Status()
+	if err != nil {
+		smm.Msg = err.Error()
+	}
 
 	return ans, err
 }

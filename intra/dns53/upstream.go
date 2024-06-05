@@ -238,6 +238,9 @@ func (t *transport) Query(network string, q *dns.Msg, smm *x.DNSSummary) (ans *d
 	} else if !dnsx.IsLocalProxy(pid) {
 		smm.RelayServer = x.SummaryProxyLabel + pid
 	}
+	if err != nil {
+		smm.Msg = err.Error()
+	}
 	smm.Status = status
 	t.est.Add(smm.Latency)
 

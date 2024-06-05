@@ -143,6 +143,9 @@ func (t *goosr) Query(_ string, q *dns.Msg, smm *x.DNSSummary) (r *dns.Msg, err 
 	smm.RTtl = xdns.RTtl(r)
 	smm.Server = t.GetAddr()
 	smm.Status = status
+	if err != nil {
+		smm.Msg = err.Error()
+	}
 	t.est.Add(smm.Latency)
 
 	log.V("dns53: goosr: len(res): %d, data: %s, via: %s, err? %v", xdns.Len(r), smm.RData, smm.RelayServer, err)
