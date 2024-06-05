@@ -18,6 +18,7 @@ import (
 	x "github.com/celzero/firestack/intra/backend"
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/log"
+	"github.com/celzero/firestack/intra/settings"
 	"github.com/celzero/firestack/intra/xdns"
 	"github.com/miekg/dns"
 )
@@ -316,7 +317,9 @@ func (t *ctransport) hangoverCheckpoint() {
 
 func (t *ctransport) fetch(network string, q *dns.Msg, summary *x.DNSSummary, cb *cache, key string) (*dns.Msg, error) {
 	sendRequest := func(fsmm *x.DNSSummary) (*dns.Msg, error) {
-		defer core.Recover(core.DontExit, "c.sendRequest: "+t.ID()+t.Type())
+		if settings.Debug && rand10pc() {
+			panic("test crash")
+		}
 
 		fsmm.ID = t.ID()
 		fsmm.Type = t.Type()
@@ -391,9 +394,9 @@ func (t *ctransport) fetch(network string, q *dns.Msg, summary *x.DNSSummary, cb
 			// fallthrough to sendRequest
 		} else if cachedsummary != nil {
 			if !isfresh { // not fresh, fetch in the background
-				go func() {
+				core.Go("c.sendRequest: "+t.ID()+t.Type(), func() {
 					_, _ = sendRequest(new(x.DNSSummary))
-				}()
+				})
 			}
 			// change summary fields to reflect cached response, except for latency
 			fillSummary(cachedsummary, summary)
@@ -495,4 +498,8 @@ func fillSummary(s *x.DNSSummary, other *x.DNSSummary) {
 
 func rand33pc() bool {
 	return rand.Intn(99999) < 33000
+}
+
+func rand10pc() bool {
+	return rand.Intn(99999) < 10000
 }
