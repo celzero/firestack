@@ -306,8 +306,11 @@ func (l *simpleLogger) Stack(at int, msg string, scratch []byte) {
 		msg = l.tag + msg
 	}
 
-	if l.level <= STACKTRACE || len(scratch) <= 0 {
+	if l.level > STACKTRACE {
 		l.emitStack(at, msg, "stacktrace disabled")
+		return
+	} else if len(scratch) <= 0 {
+		l.emitStack(at, msg, "stacktrace no scratch")
 		return
 	}
 
