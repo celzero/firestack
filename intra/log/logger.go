@@ -37,6 +37,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"unsafe"
 )
 
 type Logger interface {
@@ -52,7 +53,7 @@ type Logger interface {
 	Warnf(at int, msg string, args ...any)
 	Errorf(at int, msg string, args ...any)
 	Fatalf(at int, msg string, args ...any)
-	Stack(at int, msg string)
+	Stack(at int, msg string, scratch []byte)
 }
 
 // based on github.com/eycorsican/go-tun2socks/blob/301549c43/common/log/simple/logger.go
@@ -91,10 +92,10 @@ const defaultClevel = STACKTRACE
 var _ Logger = (*simpleLogger)(nil)
 
 // github.com/golang/mobile/blob/fa72addaaa/internal/mobileinit/mobileinit_android.go#L52
-const logcatLineSize = 1024
+// const logcatLineSize = 1024
 
 // qSize is the number of recent log msgs to keep in the ring buffer.
-const qSize = 256
+const qSize = 128
 
 // similarTraceThreshold is the no. of similar stacktraces to report before suppressing.
 const similarTraceThreshold = 8
@@ -280,35 +281,47 @@ func (l *simpleLogger) Fatalf(at int, msg string, args ...any) {
 	os.Exit(1)
 }
 
-func (l *simpleLogger) emitStack(at int, msg string) {
+// emitStack sends stacktrace to console or log.
+// Empty msgs are ignored.
+func (l *simpleLogger) emitStack(at int, msgs ...string) {
 	sendtoconsole := at == 0
 
-	if !sendtoconsole {
-		l.err(at+1, msg)
-	} else if c := l.c; c != nil {
-		// c.Stack() on the same go routine, since
-		// the caller (ex: core.Recover) may exit
-		// immediately once simpleLogger.Stack() returns
-		c.Stack(msg)
-	} else {
-		l.toConsole(&conMsg{msg, conStack})
+	for _, msg := range msgs {
+		if len(msg) <= 0 {
+			continue
+		}
+		if !sendtoconsole {
+			l.err(at+1, msg)
+		} else if c := l.c; c != nil {
+			// c.Stack() on the same go routine, since
+			// the caller (ex: core.Recover) may exit
+			// immediately once simpleLogger.Stack() returns
+			c.Stack(msg)
+		} else {
+			l.toConsole(&conMsg{msg, conStack})
+		}
 	}
 }
 
-func (l *simpleLogger) Stack(at int, msg string) {
-	if l.level > STACKTRACE {
-		l.emitStack(at, msg+"\t"+"stacktrace disabled")
+func (l *simpleLogger) Stack(at int, msg string, scratch []byte) {
+	if len(l.tag) > 0 {
+		msg = l.tag + msg
+	}
+
+	if l.level <= STACKTRACE || len(scratch) <= 0 {
+		l.emitStack(at, msg, "stacktrace disabled")
 		return
 	}
 
 	count := l.incrStCount(msg)
 	msg = msg + fmt.Sprintf(" (#%d)", count)
 	if count > similarTraceThreshold {
-		l.emitStack(at, msg+"\t"+"stacktrace suppressed")
+		l.emitStack(at, msg, "stacktrace suppressed")
 		return
 	}
 
 	i := 0
+	// todo: interned strings github.com/golang/go/issues/62483
 	lines := make([]string, qSize)
 	for recent := range l.q.Iter() {
 		lines[i] = recent
@@ -317,25 +330,19 @@ func (l *simpleLogger) Stack(at int, msg string) {
 			break
 		}
 	}
+	var appendix string
 	if i > 0 {
-		flat := strings.Join(lines[:i], "\n")
-		l.emitStack(at, flat)
+		appendix = strings.Join(lines[:i], "\n")
 	}
 
-	const maxiter = 10                     // in case stack is too large
-	dump := make([]byte, 2*logcatLineSize) // matches android/log.h.
-	for i := 0; i < maxiter; i++ {
-		n := runtime.Stack(dump, false)
-		if n < len(dump) || maxiter == i+1 {
-			msg = msg + "\n\t" + string(dump[:n])
-			if len(l.tag) > 0 {
-				msg = l.tag + msg
-			}
-			l.emitStack(at, msg)
-			return
-		} // make more space for dump
-		dump = make([]byte, 2*len(dump))
+	n := runtime.Stack(scratch, false)
+
+	if n == len(scratch) {
+		msg += "[trunc]"
 	}
+	// byt2str accepted proposal: github.com/golang/go/issues/19367
+	// previous discussion: github.com/golang/go/issues/25484
+	l.emitStack(at, appendix, msg, unsafe.String(&scratch[0], n))
 }
 
 func (l *simpleLogger) msgstr(f string, args ...any) string {

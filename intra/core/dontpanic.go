@@ -64,5 +64,13 @@ func Recover(code int, aux string) {
 	// fixme: what about locks above if log.[E2|C], fmt.Sprintf panic?
 	msg := fmt.Sprintf("%s %d, %v\n", aux, code, recovered)
 	log.E2(parentCallerDepthAt, msg)
-	log.C(msg)
+
+	bptr := AllocRegion(BMAX)
+	b := *bptr
+	b = b[:cap(b)]
+	defer func() {
+		*bptr = b
+		Recycle(bptr)
+	}()
+	log.C(msg, b)
 }

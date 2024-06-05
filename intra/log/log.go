@@ -152,19 +152,19 @@ func Wtf(msg string, args ...any) {
 }
 
 // C logs the stack trace of the current goroutine to Console.
-func C(msg string) {
+func C(msg string, scratch []byte) {
 	if Glogger != nil {
 		E2(LogFnCallerDepth, "----START----")
-		Glogger.Stack( /*console-only*/ 0, "F "+msg)
+		Glogger.Stack( /*console-only*/ 0, "F "+msg, scratch)
 		E2(LogFnCallerDepth, "----STOPP----")
 	}
 }
 
 // T logs the stack trace of the current goroutine.
-func T(msg string) {
+func T(msg string, scratch []byte) {
 	if Glogger != nil {
 		E2(LogFnCallerDepth, "----START----")
-		Glogger.Stack(LogFnCallerDepth, "F "+msg)
+		Glogger.Stack(LogFnCallerDepth, "F "+msg, scratch)
 		E2(LogFnCallerDepth, "----STOPP----")
 	}
 }
