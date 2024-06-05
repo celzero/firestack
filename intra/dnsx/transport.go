@@ -407,8 +407,10 @@ func (r *resolver) forward(q []byte, chosenids ...string) (res0 []byte, err0 err
 	// very unlikely that ans1 is nil but err is not
 	if ans1 == nil {
 		err := errors.Join(err, errNoAnswer)
+		if err != nil {
+			smm.Msg = err.Error()
+		}
 		smm.Status = NoResponse // TODO: servfail?
-		smm.Msg = err.Error()
 		return res2, err
 	}
 
