@@ -36,6 +36,7 @@ import (
 	"os"
 	"runtime"
 	"strings"
+	"sync"
 )
 
 type Logger interface {
@@ -56,16 +57,16 @@ type Logger interface {
 
 // based on github.com/eycorsican/go-tun2socks/blob/301549c43/common/log/simple/logger.go
 type simpleLogger struct {
-	level   LogLevel
-	tag     string
-	c       Console      // may be nil
-	clevel  LogLevel     // may be different from level
-	msgC    chan *conMsg // never closed
-	lines   []string     // recent log lines
-	scratch []byte       // stack trace scratch space
-	e       *golog.Logger
-	o       *golog.Logger
-	q       *ring[string] // todo: use []byte instead of string for gc?
+	sync.Mutex // guards stcount
+	level      LogLevel
+	tag        string
+	c          Console           // may be nil
+	clevel     LogLevel          // may be different from level
+	msgC       chan *conMsg      // never closed
+	stcount    map[string]uint32 // stack trace counter for identical traces
+	e          *golog.Logger
+	o          *golog.Logger
+	q          *ring[string] // todo: use []byte instead of string for gc?
 }
 
 var _ Logger = (*simpleLogger)(nil)
@@ -91,7 +92,12 @@ var _ Logger = (*simpleLogger)(nil)
 
 // github.com/golang/mobile/blob/fa72addaaa/internal/mobileinit/mobileinit_android.go#L52
 const logcatLineSize = 1024
+
+// qSize is the number of recent log msgs to keep in the ring buffer.
 const qSize = 256
+
+// similarTraceThreshold is the no. of similar stacktraces to report before suppressing.
+const similarTraceThreshold = 8
 
 var defaultFlags = golog.Lshortfile
 var defaultCallerDepth = 2
@@ -101,9 +107,8 @@ func defaultLogger() *simpleLogger {
 	l := &simpleLogger{
 		level:   defaultLevel,
 		clevel:  defaultClevel,
-		lines:   make([]string, qSize),
-		scratch: make([]byte, 2*logcatLineSize), // matches android/log.h.
 		msgC:    make(chan *conMsg, consoleChSize),
+		stcount: make(map[string]uint32),
 		// gomobile redirects stderr and stdout to logcat
 		// github.com/golang/mobile/blob/fa72addaaa/internal/mobileinit/mobileinit_android.go#L74-L92
 		e: golog.New(os.Stderr, "", defaultFlags),
@@ -136,12 +141,30 @@ func (l *simpleLogger) SetLevel(n LogLevel) {
 
 // SetLevel sets the log level.
 func (l *simpleLogger) SetConsoleLevel(n LogLevel) {
+	l.clearStCounts()
 	l.clevel = n
 }
 
 // SetConsole sets the external log console.
 func (l *simpleLogger) SetConsole(c Console) {
+	l.clearStCounts()
 	l.c = c
+}
+
+func (l *simpleLogger) clearStCounts() {
+	l.Lock()
+	defer l.Unlock()
+	clear(l.stcount)
+}
+
+func (l *simpleLogger) incrStCount(id string) (c uint32) {
+	l.Lock()
+	defer l.Unlock()
+
+	c = l.stcount[id]
+	c++
+	l.stcount[id] = c
+	return c
 }
 
 // fromConsole sends msgs from l.msgC to external log console.
@@ -257,47 +280,61 @@ func (l *simpleLogger) Fatalf(at int, msg string, args ...any) {
 	os.Exit(1)
 }
 
-func (l *simpleLogger) Stack(at int, msg string) {
+func (l *simpleLogger) emitStack(at int, msg string) {
 	sendtoconsole := at == 0
+
+	if !sendtoconsole {
+		l.err(at+1, msg)
+	} else if c := l.c; c != nil {
+		// c.Stack() on the same go routine, since
+		// the caller (ex: core.Recover) may exit
+		// immediately once simpleLogger.Stack() returns
+		c.Stack(msg)
+	} else {
+		l.toConsole(&conMsg{msg, conStack})
+	}
+}
+
+func (l *simpleLogger) Stack(at int, msg string) {
+	if l.level > STACKTRACE {
+		l.emitStack(at, msg+"\t"+"stacktrace disabled")
+		return
+	}
+
+	count := l.incrStCount(msg)
+	msg = msg + fmt.Sprintf(" (#%d)", count)
+	if count > similarTraceThreshold {
+		l.emitStack(at, msg+"\t"+"stacktrace suppressed")
+		return
+	}
+
 	i := 0
+	lines := make([]string, qSize)
 	for recent := range l.q.Iter() {
-		l.lines[i] = recent
+		lines[i] = recent
 		i++
-		if i >= len(l.lines) {
+		if i >= len(lines) {
 			break
 		}
 	}
 	if i > 0 {
-		flat := strings.Join(l.lines[:i], "\n")
-		if sendtoconsole {
-			l.c.Stack(flat)
-		} else {
-			l.err(at, flat)
-		}
+		flat := strings.Join(lines[:i], "\n")
+		l.emitStack(at, flat)
 	}
 
-	const maxiter = 10 // in case stack is too large
+	const maxiter = 10                     // in case stack is too large
+	dump := make([]byte, 2*logcatLineSize) // matches android/log.h.
 	for i := 0; i < maxiter; i++ {
-		dump := l.scratch
 		n := runtime.Stack(dump, false)
 		if n < len(dump) || maxiter == i+1 {
 			msg = msg + "\n\t" + string(dump[:n])
 			if len(l.tag) > 0 {
 				msg = l.tag + msg
 			}
-			if !sendtoconsole {
-				l.err(at, msg)
-			} else if c := l.c; c != nil {
-				// c.Stack() on the same go routine, since
-				// the caller (ex: core.Recover) may exit
-				// immediately once simpleLogger.Stack() returns
-				c.Stack(msg)
-			} else {
-				l.toConsole(&conMsg{msg, conStack})
-			}
+			l.emitStack(at, msg)
 			return
 		} // make more space for dump
-		l.scratch = make([]byte, 2*len(l.scratch))
+		dump = make([]byte, 2*len(dump))
 	}
 }
 
