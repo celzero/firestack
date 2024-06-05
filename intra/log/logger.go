@@ -176,14 +176,12 @@ func (l *simpleLogger) fromConsole() {
 		if c := l.c; c != nil && m != nil && len(m.m) > 0 { // look for l.c on every msg
 			switch m.t {
 			case conNorm:
-				l.q.Push(m.m)
 				if load < 50 {
 					c.Log(m.m)
 				} // drop
 			case conStack:
 				c.Stack(m.m)
 			case conErr:
-				l.q.Push(m.m)
 				if load < 80 {
 					c.Err(m.m)
 				} // drop
@@ -353,11 +351,15 @@ func (l *simpleLogger) msgstr(f string, args ...any) string {
 	return msg
 }
 
+// out logs to stdout and pushes msg into ring buffer.
 // ref: github.com/golang/mobile/blob/c713f31d/internal/mobileinit/mobileinit_android.go#L51
 func (l *simpleLogger) out(at int, msg string) {
 	_ = l.o.Output(at, msg) // may error
+	l.q.Push(msg)
 }
 
+// err logs to stderr and pushes msg into ring buffer.
 func (l *simpleLogger) err(at int, msg string) {
 	_ = l.e.Output(at, msg) // may error
+	l.q.Push(msg)
 }
