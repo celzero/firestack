@@ -165,6 +165,46 @@ func (t *gtunnel) Mtu() int {
 	return t.mtu
 }
 
+func (t *gtunnel) wait() {
+	const betweenChecks = 5 * time.Second
+	const uptimeThreshold = 10 * time.Second
+	const maxchecks = 3
+
+	waitStart := time.Now()
+	i := 0
+	for i < maxchecks && !t.closed.Load() {
+		// wait a bit to let the endpoint settle
+		time.Sleep(betweenChecks)
+		start := time.Now()
+
+		t.ep.Wait() // wait until endpoint closes
+
+		// if the endpoint was up for more than uptimeThreshold,
+		// reset the counter and do another set of maxchecks
+		// as a new endpoint may have been created in between
+		// see: SetLink -> t.ep.Swap
+		if uptime := time.Since(start); uptime >= uptimeThreshold {
+			i = 0 // good ep just closed, restart maxchecks
+		} else { // no endpoint / bad endpoint still closed
+			// ep.Wait was super quick, and it is possible
+			// no endpoint will show up in the next few checks
+			// but if it does, then i is reset to 0 anyway
+			i++
+		}
+	}
+	waitDone := int64(time.Since(waitStart).Milliseconds() / 1000)
+
+	if !t.closed.Load() {
+		// the endpoint closed without a Disconnect, this may happen
+		// in cases where a panic was recovered and endpoint was
+		// closed without a t.ep.Swap or t.stack.Destroy
+		log.E("tun: waiter: ep notified close; #%d, %dsecs", i, waitDone)
+		t.Disconnect() // may already be disconnected
+	} else {
+		log.D("tun: waiter: done; #%d, %dsecs", i, waitDone)
+	}
+}
+
 func (t *gtunnel) Disconnect() {
 	t.once.Do(func() {
 		s := t.stack
@@ -230,6 +270,9 @@ func NewGTunnel(fd, mtu int, tcph netstack.GTCPConnHandler, udph netstack.GUDPCo
 	}
 
 	log.I("tun: new netstack up; fd(%d), mtu(%d)", fd, mtu)
+
+	go t.wait() // wait for endpoint to close
+
 	return
 }
 
