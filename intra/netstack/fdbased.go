@@ -445,11 +445,18 @@ func (e *endpoint) WritePackets(pkts stack.PacketBufferList) (int, tcpip.Error) 
 	return written, nil
 }
 
+func (e *endpoint) notifyRestart() {
+	// deferred fns here should not end up calling the caller of notifyRestart to avoid
+	// infinite recursion (callerFn -> someotherFn -> panic -> notifyRestart -> callerFn)
+	// defer e.Attach(nil)
+	log.U("Network stopped; restart the app")
+}
+
 // dispatchLoop reads packets from the file descriptor in a loop and dispatches
 // them to the network stack. Must be run as a goroutine.
 func (e *endpoint) dispatchLoop(inbound linkDispatcher) tcpip.Error {
 	// todo: core.RecoverFn(restart-netstack)
-	defer core.Recover(core.Exit11, "ns.e.dispatch")
+	defer core.RecoverFn("ns.e.dispatch", e.notifyRestart)
 
 	e.wg.Add(1)
 	defer e.wg.Done()
