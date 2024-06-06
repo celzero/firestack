@@ -33,6 +33,16 @@ func Go2[T0 any, T1 any](who string, f func(T0, T1), a0 T0, a1 T1) {
 	}()
 }
 
+// Gg runs f in a goroutine, recovers from any panics if any;
+// then calls cb in a separate goroutine, and recovers from any panics.
+func Gg(who string, f func(), cb func()) {
+	go func() {
+		defer RecoverFn(who, cb)
+
+		f()
+	}()
+}
+
 // Gx runs f in a goroutine and exits the process if f panics.
 func Gx(who string, f func()) {
 	go func() {
@@ -40,4 +50,10 @@ func Gx(who string, f func()) {
 
 		f()
 	}()
+}
+
+func Gif(cond bool, who string, f func()) {
+	if cond {
+		Go(who, f)
+	}
 }

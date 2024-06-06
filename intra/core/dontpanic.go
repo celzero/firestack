@@ -34,17 +34,22 @@ var _pmu sync.RWMutex
 
 var parentCallerDepthAt = log.LogFnCallerDepth + 1
 
-func RecoverFn(aux string, fn Finally) {
-	Recover(DontExit, aux)
-	fn()
+// fn is called in a separate goroutine, iff a panic is recovered.
+// RecoverFn must be called as a defered function, and must be the first
+// defer called at the start of a new goroutine.
+func RecoverFn(aux string, fn Finally) (didpanic bool) {
+	defer Gif(didpanic, "fin."+aux, fn)
+
+	return Recover(DontExit, aux)
 }
 
 // Recover must be called as a defered function, and must be the first
 // defer called at the start of a new goroutine.
-func Recover(code int, aux string) {
+func Recover(code int, aux string) (didpanic bool) {
 	recovered := recover()
-	if recovered == nil {
-		return
+	didpanic = recovered != nil
+	if !didpanic { // nothing to recover from
+		return false
 	}
 
 	// Have all managed goroutines checkin here, and prevent them from exiting
@@ -61,6 +66,7 @@ func Recover(code int, aux string) {
 		_pmu.Lock()
 		defer _pmu.Unlock()
 	}
+
 	// fixme: what about locks above if log.[E2|C], fmt.Sprintf panic?
 	msg := fmt.Sprintf("%s %d, %v\n", aux, code, recovered)
 	log.E2(parentCallerDepthAt, msg)
@@ -73,4 +79,6 @@ func Recover(code int, aux string) {
 		Recycle(bptr)
 	}()
 	log.C(msg, b)
+
+	return didpanic
 }
