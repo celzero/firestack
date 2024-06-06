@@ -414,7 +414,7 @@ func (proxy *DcMulti) start() error {
 
 	_, err := proxy.Refresh()
 	if proxy.serversInfo.len() > 0 {
-		core.Gx("dcmulti.start", func() {
+		core.Gg("dcmulti.start", func() {
 			for {
 				select {
 				case <-ctx.Done():
@@ -434,9 +434,14 @@ func (proxy *DcMulti) start() error {
 					}
 				}
 			}
-		})
+		}, proxy.notifyRestart)
 	}
 	return err
+}
+
+func (proxy *DcMulti) notifyRestart() {
+	defer proxy.Stop()
+	log.U("DNSCrypt stopped; restart the app")
 }
 
 // Stop stops this dnscrypt proxy
