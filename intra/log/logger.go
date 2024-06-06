@@ -37,6 +37,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"unsafe"
 )
 
@@ -65,6 +66,7 @@ type simpleLogger struct {
 	clevel     LogLevel          // may be different from level
 	msgC       chan *conMsg      // never closed
 	stcount    map[string]uint32 // stack trace counter for identical traces
+	drops      atomic.Uint32     // number of dropped logs
 	e          *golog.Logger
 	o          *golog.Logger
 	q          *ring[string] // todo: use []byte instead of string for gc?
@@ -175,18 +177,30 @@ func (l *simpleLogger) fromConsole() {
 		load := (len(l.msgC) / cap(l.msgC) * 100)           // load percentage
 		if c := l.c; c != nil && m != nil && len(m.m) > 0 { // look for l.c on every msg
 			switch m.t {
-			case conNorm:
+			case NONE:
+				// drop
+			case VVERBOSE, VERBOSE, DEBUG, INFO:
 				if load < 50 {
-					c.Log(m.m)
+					c.Log(int32(m.t), m.m)
+					continue
 				} // drop
-			case conStack:
-				c.Stack(m.m)
-			case conErr:
+			case STACKTRACE:
+				c.Log(int32(m.t), m.m)
+				continue
+			case WARN, ERROR:
+				if load < 5 {
+					d := l.drops.Swap(0)
+					if d > 0 {
+						c.Log(int32(WARN), l.msgstr("dropped %d msgs", d))
+					}
+				}
 				if load < 80 {
-					c.Err(m.m)
+					c.Log(int32(m.t), m.m)
+					continue
 				} // drop
 			}
 		} // dropped
+		l.drops.Add(1)
 	}
 }
 
@@ -209,7 +223,7 @@ func (l *simpleLogger) VeryVerbosef(at int, msg string, args ...any) {
 		l.out(at, msg)
 	}
 	if l.clevel <= VVERBOSE {
-		l.toConsole(&conMsg{msg, conNorm})
+		l.toConsole(&conMsg{msg, VVERBOSE})
 	}
 }
 
@@ -219,7 +233,7 @@ func (l *simpleLogger) Verbosef(at int, msg string, args ...any) {
 		l.out(at, msg)
 	}
 	if l.clevel <= VERBOSE {
-		l.toConsole(&conMsg{msg, conNorm})
+		l.toConsole(&conMsg{msg, VERBOSE})
 	}
 }
 
@@ -229,7 +243,7 @@ func (l *simpleLogger) Debugf(at int, msg string, args ...any) {
 		l.out(at, msg)
 	}
 	if l.clevel <= DEBUG {
-		l.toConsole(&conMsg{msg, conNorm})
+		l.toConsole(&conMsg{msg, DEBUG})
 	}
 }
 
@@ -239,7 +253,7 @@ func (l *simpleLogger) Piif(at int, msg string, args ...any) {
 		l.out(at, msg)
 	}
 	if l.clevel <= DEBUG {
-		l.toConsole(&conMsg{msg, conNorm})
+		l.toConsole(&conMsg{msg, DEBUG})
 	}
 }
 
@@ -249,7 +263,7 @@ func (l *simpleLogger) Infof(at int, msg string, args ...any) {
 		l.out(at, msg)
 	}
 	if l.clevel <= INFO {
-		l.toConsole(&conMsg{msg, conNorm})
+		l.toConsole(&conMsg{msg, INFO})
 	}
 }
 
@@ -259,7 +273,7 @@ func (l *simpleLogger) Warnf(at int, msg string, args ...any) {
 		l.err(at, msg)
 	}
 	if l.clevel <= WARN {
-		l.toConsole(&conMsg{msg, conErr})
+		l.toConsole(&conMsg{msg, WARN})
 	}
 }
 
@@ -269,7 +283,7 @@ func (l *simpleLogger) Errorf(at int, msg string, args ...any) {
 		l.err(at, msg)
 	}
 	if l.clevel <= ERROR {
-		l.toConsole(&conMsg{msg, conErr})
+		l.toConsole(&conMsg{msg, ERROR})
 	}
 }
 
@@ -294,9 +308,9 @@ func (l *simpleLogger) emitStack(at int, msgs ...string) {
 			// c.Stack() on the same go routine, since
 			// the caller (ex: core.Recover) may exit
 			// immediately once simpleLogger.Stack() returns
-			c.Stack(msg)
+			c.Log(int32(STACKTRACE), msg)
 		} else {
-			l.toConsole(&conMsg{msg, conStack})
+			l.toConsole(&conMsg{msg, STACKTRACE})
 		}
 	}
 }

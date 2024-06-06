@@ -31,10 +31,6 @@
 
 package log
 
-import (
-	"sync/atomic"
-)
-
 // based on: github.com/eycorsican/go-tun2socks/blob/301549c43/common/log/log.go#L5
 var Glogger Logger
 
@@ -44,33 +40,17 @@ var CallerDepth = 4
 // caller -> LogFn -> intra/log.go (this file) -> intra/logger.go -> golang/log.go
 var LogFnCallerDepth = CallerDepth + 1
 
-var consoleLogLevel = atomic.Int32{}
-
 // Console logs messages.
 type Console interface {
 	// Log logs a multi-line log message.
-	Log(s string)
-	// Err logs a multi-line error message.
-	Err(s string)
-	// Stack logs a multi-line stack trace.
-	Stack(s string)
+	Log(level int32, s string)
+	// Act prompts for an action.
+	Act(s string)
 }
-
-// console msg priority
-type conpri int32
-
-const (
-	// conNorm is normal priority console message.
-	conNorm conpri = iota
-	// conErr is error priority console message.
-	conErr
-	// conStack is stacktrace priority console message.
-	conStack
-)
 
 type conMsg struct {
 	m string
-	t conpri
+	t LogLevel
 }
 
 var consoleChSize = 128
