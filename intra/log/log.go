@@ -40,12 +40,12 @@ var CallerDepth = 4
 // caller -> LogFn -> intra/log.go (this file) -> intra/logger.go -> golang/log.go
 var LogFnCallerDepth = CallerDepth + 1
 
-// Console logs messages.
+// Console logs or shows messages.
 type Console interface {
-	// Log logs a multi-line log message.
-	Log(level int32, s string)
-	// Act prompts for an action.
-	Act(s string)
+	// Log logs a multi-line msg.
+	Log(level int32, msg string)
+	// Usr shows msg interactively.
+	Usr(msg string)
 }
 
 type conMsg struct {
@@ -137,6 +137,12 @@ func C(msg string, scratch []byte) {
 		E2(LogFnCallerDepth, "----START----")
 		Glogger.Stack( /*console-only*/ 0, "F "+msg, scratch)
 		E2(LogFnCallerDepth, "----STOPP----")
+	}
+}
+
+func U(msg string) {
+	if Glogger != nil {
+		Glogger.Usr(msg)
 	}
 }
 

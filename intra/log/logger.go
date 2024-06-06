@@ -45,6 +45,7 @@ type Logger interface {
 	SetLevel(level LogLevel)
 	SetConsoleLevel(level LogLevel)
 	SetConsole(c Console)
+	Usr(msg string)
 	Printf(msg string, args ...any)
 	VeryVerbosef(at int, msg string, args ...any)
 	Verbosef(at int, msg string, args ...any)
@@ -78,14 +79,15 @@ var _ Logger = (*simpleLogger)(nil)
 type LogLevel uint32
 
 const (
-	VVERBOSE LogLevel = iota
-	VERBOSE
-	DEBUG
-	INFO
-	WARN
-	ERROR
-	STACKTRACE
-	NONE
+	VVERBOSE   LogLevel = iota // VVERBOSE is the most verbose log level.
+	VERBOSE                    // VERBOSE is the verbose log level.
+	DEBUG                      // DEBUG is the debug log level.
+	INFO                       // INFO is the informational log level.
+	WARN                       // WARN is the warning log level.
+	ERROR                      // ERROR is the error log level.
+	STACKTRACE                 // STACKTRACE is the stack trace log level.
+	USR                        // USR is interactive log (e.g. as user prompt).
+	NONE                       // NONE no-ops the logger.
 )
 
 const defaultLevel = INFO
@@ -101,6 +103,9 @@ const qSize = 128
 
 // similarTraceThreshold is the no. of similar stacktraces to report before suppressing.
 const similarTraceThreshold = 8
+
+// similarUsrMsgThreshold is the no. of similar user msgs to report before suppressing.
+const similarUsrMsgThreshold = 3
 
 var defaultFlags = golog.Lshortfile
 var defaultCallerDepth = 2
@@ -184,9 +189,6 @@ func (l *simpleLogger) fromConsole() {
 					c.Log(int32(m.t), m.m)
 					continue
 				} // drop
-			case STACKTRACE:
-				c.Log(int32(m.t), m.m)
-				continue
 			case WARN, ERROR:
 				if load < 5 {
 					d := l.drops.Swap(0)
@@ -198,6 +200,12 @@ func (l *simpleLogger) fromConsole() {
 					c.Log(int32(m.t), m.m)
 					continue
 				} // drop
+			case STACKTRACE:
+				c.Log(int32(m.t), m.m)
+				continue
+			case USR:
+				c.Usr(m.m)
+				continue
 			}
 		} // dropped
 		l.drops.Add(1)
@@ -209,6 +217,19 @@ func (l *simpleLogger) toConsole(m *conMsg) {
 	select {
 	case l.msgC <- m:
 	default: // drop
+	}
+}
+
+func (l *simpleLogger) Usr(msg string) {
+	if l.level <= USR {
+		if count := l.incrStCount(msg); count > similarUsrMsgThreshold {
+			return
+		}
+		if c := l.c; c != nil {
+			c.Usr(msg)
+		} else {
+			l.toConsole(&conMsg{msg, USR})
+		}
 	}
 }
 
