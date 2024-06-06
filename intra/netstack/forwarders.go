@@ -147,7 +147,7 @@ type processor struct {
 
 func (p *processor) start(wg *sync.WaitGroup) {
 	// TODO: core.RecoverFn(supervisor.stop)
-	defer core.RecoverFn("n.forwaders.start", p.e.notifyRestart)
+	defer core.RecoverFn("ns.forwaders.start", p.e.notifyRestart)
 
 	defer wg.Done()
 	defer p.sleeper.Done()
@@ -177,6 +177,9 @@ func (p *processor) deliverPackets() {
 			pkt.DecRef()
 		}
 		p.mu.Lock()
+		if settings.Debug && rand10pc() {
+			panic("ns: tun: forwarder: deliverPackets panic")
+		}
 	}
 }
 
