@@ -40,12 +40,10 @@ var CallerDepth = 4
 // caller -> LogFn -> intra/log.go (this file) -> intra/logger.go -> golang/log.go
 var LogFnCallerDepth = CallerDepth + 1
 
-// Console logs or shows messages.
+// Console is an external logger.
 type Console interface {
 	// Log logs a multi-line msg.
 	Log(level int32, msg string)
-	// Usr shows msg interactively.
-	Usr(msg string)
 }
 
 type conMsg struct {

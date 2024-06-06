@@ -205,7 +205,7 @@ func (l *simpleLogger) fromConsole() {
 				c.Log(int32(m.t), m.m)
 				continue
 			case USR:
-				c.Usr(m.m)
+				c.Log(int32(m.t), m.m)
 				continue
 			}
 		} // dropped
@@ -227,7 +227,7 @@ func (l *simpleLogger) Usr(msg string) {
 			return
 		}
 		if c := l.c; c != nil {
-			c.Usr(msg)
+			c.Log(int32(USR), msg)
 		} else {
 			l.toConsole(&conMsg{msg, USR})
 		}
