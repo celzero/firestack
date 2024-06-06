@@ -313,10 +313,7 @@ func (e *endpoint) Attach(dispatcher stack.NetworkDispatcher) {
 
 // IsAttached implements stack.LinkEndpoint.IsAttached.
 func (e *endpoint) IsAttached() bool {
-	e.RLock()
-	defer e.RUnlock()
-
-	return e.dispatcher != nil
+	return e.getDispatcher() != nil
 }
 
 // MTU implements stack.LinkEndpoint.MTU. It returns the value initialized
@@ -490,15 +487,20 @@ func (e *endpoint) ARPHardwareType() header.ARPHardwareType {
 // InjectInbound ingresses a netstack-inbound packet.
 func (e *endpoint) InjectInbound(protocol tcpip.NetworkProtocolNumber, pkt *stack.PacketBuffer) {
 	e.logPacketIfNeeded(sniffer.DirectionRecv, pkt)
-
+	d := e.getDispatcher()
 	fd := e.fd()
 	log.VV("ns: tun(%d): inject-inbound (from tun) %d", fd, protocol)
-	d := e.dispatcher // TODO: read lock?
 	if d != nil && pkt != nil {
 		d.DeliverNetworkPacket(protocol, pkt)
 	} else {
 		log.W("ns: tun(%d): inject-inbound (from tun) %d pkt?(%t) dropped: endpoint not attached", fd, protocol, pkt != nil)
 	}
+}
+
+func (e *endpoint) getDispatcher() stack.NetworkDispatcher {
+	e.RLock()
+	defer e.RUnlock()
+	return e.dispatcher
 }
 
 // Unused: InjectOutobund implements stack.InjectableEndpoint.InjectOutbound.
