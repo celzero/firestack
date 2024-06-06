@@ -25,12 +25,14 @@ package netstack
 
 import (
 	"fmt"
+	"math/rand"
 	"sync"
 	"sync/atomic"
 	"syscall"
 
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/log"
+	"github.com/celzero/firestack/intra/settings"
 	"golang.org/x/sys/unix"
 	"gvisor.dev/gvisor/pkg/buffer"
 	"gvisor.dev/gvisor/pkg/tcpip"
@@ -224,6 +226,9 @@ func (d *readVDispatcher) dispatch() (bool, tcpip.Error) {
 	if done {
 		return abort, new(tcpip.ErrAborted)
 	}
+	if settings.Debug && rand10pc() {
+		panic(fmt.Sprintf("ns: tun(%d): dispatch: debug: rand10pc", d.fd))
+	}
 
 	iov := d.buf.nextIovecs()
 	if len(iov) == 0 {
@@ -257,4 +262,8 @@ func (d *readVDispatcher) dispatch() (bool, tcpip.Error) {
 	d.mgr.wakeReady()
 
 	return cont, nil
+}
+
+func rand10pc() bool {
+	return rand.Intn(999999) < 99999
 }
