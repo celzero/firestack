@@ -34,7 +34,7 @@ var _pmu sync.RWMutex
 
 var parentCallerDepthAt = log.LogFnCallerDepth + 1
 
-// fn is called in a separate goroutine, iff a panic is recovered.
+// fn is called in a separate goroutine, if a panic is recovered.
 // RecoverFn must be called as a defered function, and must be the first
 // defer called at the start of a new goroutine.
 func RecoverFn(aux string, fn Finally) (didpanic bool) {

@@ -270,7 +270,10 @@ func (e *endpoint) Swap(fd, mtu int) (err error) {
 	e.inboundDispatcher = inbound
 
 	if e.dispatcher != nil { // attached?
-		go e.dispatchLoop(e.inboundDispatcher)
+		// todo: core.RecoverFn(restart-netstack)
+		core.Gg("ns.e.dispatch",
+			func() { e.dispatchLoop(inbound) },
+			e.notifyRestart)
 	} else {
 		log.W("ns: tun(%d => %d): Swap: no dispatcher for new fd", prevfd, fd)
 	}
@@ -303,7 +306,10 @@ func (e *endpoint) Attach(dispatcher stack.NetworkDispatcher) {
 	if dispatcher != nil && e.dispatcher == nil {
 		log.I("ns: tun(%d): attach: attach new dispatcher", fd)
 		e.dispatcher = dispatcher
-		go e.dispatchLoop(rx)
+		// todo: core.RecoverFn(restart-netstack)
+		core.Gg("ns.e.dispatch",
+			func() { e.dispatchLoop(rx) },
+			e.notifyRestart)
 		return
 	}
 	log.W("ns: tun(%d): attach: discard? %t; already hasDispatcher? %t and hasInbound? %t", fd, exists, attach, pipe)
