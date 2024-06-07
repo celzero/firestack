@@ -174,8 +174,9 @@ func (h *MH) Add(domainsOrIps []string) int {
 		h.addrs = make([]netip.AddrPort, 0)
 	}
 	for _, ep := range domainsOrIps {
-		dip, port := normalize(ep) // host or ip or host:port or ip:port
-		if len(dip) <= 0 || port == 0 {
+		// ep is host or ip or host:port or ip:port
+		dip, port := normalize(ep) // port may be 0
+		if len(dip) <= 0 {
 			log.D("multihost: %s add, skipping: %s:%d", h.id, dip, port)
 			continue
 		}
