@@ -49,21 +49,23 @@ var (
 type rwlistener func(op string, err error)
 
 type StdNetBind struct {
-	id         string
-	d          *net.ListenConfig
-	listener   rwlistener
+	id string
+	d  *net.ListenConfig
+	mh *multihost.MH
+
 	mu         sync.Mutex // protects following fields
 	ipv4       *net.UDPConn
 	ipv6       *net.UDPConn
 	blackhole4 bool
 	blackhole6 bool
 
+	listener     rwlistener
 	lastSendAddr netip.AddrPort // may be invalid
 }
 
-func NewEndpoint(id string, ctl protect.Controller, f rwlistener) *StdNetBind {
+func NewEndpoint(id string, ctl protect.Controller, ep *multihost.MH, f rwlistener) *StdNetBind {
 	dialer := protect.MakeNsListener(id, ctl)
-	return &StdNetBind{id: id, d: dialer, listener: f}
+	return &StdNetBind{id: id, d: dialer, mh: ep, listener: f}
 }
 
 type StdNetEndpoint netip.AddrPort
@@ -74,28 +76,31 @@ var (
 )
 
 func (e *StdNetBind) ParseEndpoint(s string) (conn.Endpoint, error) {
-	d := multihost.New(e.id + "[" + s + "]")
-	host, portstr, err := net.SplitHostPort(s)
-	if err != nil {
-		log.E("wg: bind: %s invalid endpoint in(%s); err: %v", e.id, s, err)
-		return nil, err
-	}
-	port, err := strconv.Atoi(portstr)
-	if err != nil {
-		log.E("wg: bind: %s invalid port in(%s); err: %v", e.id, s, err)
-		return nil, err
-	}
-
-	d.With([]string{host}) // resolves host if needed
-	// prefer v4; see: github.com/WireGuard/wireguard-android/blob/4ba87947a/tunnel/src/main/java/com/wireguard/config/InetEndpoint.java#L97
-	ip := d.PreferredAddr()
-	if !ip.IsValid() || ip.IsUnspecified() {
-		log.E("wg: bind: %s invalid endpoint addr %v in(%s); out(%s, %s)", e.id, s, ip, d.Names(), d.Addrs())
+	d := e.mh
+	/*
+		host, portstr, err := net.SplitHostPort(s)
+		if err != nil {
+			log.E("wg: bind: %s invalid endpoint in(%s); err: %v", e.id, s, err)
+			return nil, err
+		}
+		port, err := strconv.Atoi(portstr)
+		if err != nil {
+			log.E("wg: bind: %s invalid port in(%s); err: %v", e.id, s, err)
+			return nil, err
+		}
+	*/
+	// do what tailscale does, and share a preferred endpoint regardless of "s"
+	// github.com/tailscale/tailscale/blob/3a6d3f1a5b7/wgengine/magicsock/magicsock.go#L2568
+	// d.Add([]string{host}) // resolves host if needed
+	ipport := d.PreferredAddr()
+	if !ipport.IsValid() || ipport.Addr().IsUnspecified() {
+		log.E("wg: bind: %s invalid endpoint addr %v in(%s); out(%s, %s)", e.id, ipport, s, d.Names(), d.Addrs())
+		// erroring out from here prevents PostConfig (handshake for this peer endpoint will always be zero)
+		// github.com/WireGuard/wireguard-go/blob/12269c276173/device/uapi.go#L183
 		return nil, errInvalidEndpoint
 	}
 
-	ipport := netip.AddrPortFrom(ip, uint16(port))
-	log.I("wg: bind: %s new endpoint %v", e.id, ipport)
+	log.I("wg: bind: %s new shared endpoint for %s %v", e.id, s, ipport)
 	return asEndpoint(ipport), nil
 }
 

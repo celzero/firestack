@@ -44,6 +44,7 @@ type StdNetBind2 struct {
 	ctl          protect.Controller
 	listener     rwlistener
 	lastSendAddr netip.AddrPort // may be invalid
+	mh           *multihost.MH
 
 	ipv4 *net.UDPConn
 	ipv6 *net.UDPConn
@@ -120,11 +121,12 @@ func (e ErrUDPGSODisabled) Unwrap() error {
 	return e.RetryErr
 }
 
-func NewEndpoint2(id string, ctl protect.Controller, f rwlistener) *StdNetBind2 {
+func NewEndpoint2(id string, ctl protect.Controller, ep *multihost.MH, f rwlistener) *StdNetBind2 {
 	return &StdNetBind2{
 		id:       id,
 		ctl:      ctl,
 		listener: f,
+		mh:       ep,
 
 		udpAddrPool: sync.Pool{
 			New: func() any {
@@ -150,8 +152,8 @@ func NewEndpoint2(id string, ctl protect.Controller, f rwlistener) *StdNetBind2 
 }
 
 func (e *StdNetBind2) ParseEndpoint(s string) (conn.Endpoint, error) {
-	d := multihost.New(e.id + "[" + s + "]")
-	host, portstr, err := net.SplitHostPort(s)
+	d := e.mh
+	/*host, portstr, err := net.SplitHostPort(s)
 	if err != nil {
 		log.E("wg: bind2: %s invalid endpoint in(%s); err: %v", e.id, s, err)
 		return nil, err
@@ -160,18 +162,20 @@ func (e *StdNetBind2) ParseEndpoint(s string) (conn.Endpoint, error) {
 	if err != nil {
 		log.E("wg: bind2: %s invalid port in(%s); err: %v", e.id, s, err)
 		return nil, err
-	}
-
-	d.With([]string{host}) // resolves host if needed
-	ip := d.PreferredAddr()
-	if !ip.IsValid() || ip.IsUnspecified() {
-		log.E("wg: bind2: %s invalid endpoint in(%s); out(%s, %s)", e.id, s, d.Names(), d.Addrs())
+	}*/
+	// do what tailscale does, and share a preferred endpoint regardless of "s"
+	// github.com/tailscale/tailscale/blob/3a6d3f1a5b7/wgengine/magicsock/magicsock.go#L2568
+	// d.Add([]string{host}) // resolves host if needed
+	ipport := d.PreferredAddr()
+	if !ipport.IsValid() || ipport.Addr().IsUnspecified() {
+		log.E("wg: bind2: %s invalid endpoint addr %v in(%s); out(%s, %s)", e.id, ipport, s, d.Names(), d.Addrs())
+		// erroring out from here prevents PostConfig (handshake for this peer endpoint will always be zero)
+		// github.com/WireGuard/wireguard-go/blob/12269c276173/device/uapi.go#L183
 		return nil, errInvalidEndpoint
 	}
-	ipport := netip.AddrPortFrom(ip, uint16(port))
 
-	log.I("wg: bind2: %s new endpoint %v", e.id, ipport)
-	return asEndpoint2(ipport), err
+	log.I("wg: bind2: %s new endpoint for %s, %v", e.id, s, ipport)
+	return asEndpoint2(ipport), nil
 }
 
 func (e *StdNetEndpoint2) ClearSrc() {

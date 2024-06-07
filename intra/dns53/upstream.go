@@ -51,9 +51,9 @@ type transport struct {
 var _ dnsx.Transport = (*transport)(nil)
 
 // NewTransportFromHostname returns a DNS53 transport serving from hostname, ready for use.
-func NewTransportFromHostname(id, hostname string, ipcsv string, px ipn.Proxies, ctl protect.Controller) (t *transport, err error) {
+func NewTransportFromHostname(id, hostOrHostport string, ipcsv string, px ipn.Proxies, ctl protect.Controller) (t *transport, err error) {
 	// ipcsv may contain port, eg: 10.1.1.3:53
-	do, err := settings.NewDNSOptionsFromHostname(hostname, ipcsv)
+	do, err := settings.NewDNSOptionsFromHostname(hostOrHostport, ipcsv)
 	if err != nil {
 		return
 	}

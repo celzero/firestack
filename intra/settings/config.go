@@ -186,14 +186,14 @@ func NewDNSOptionsFromNetIp(ipp netip.AddrPort) (*DNSOptions, error) {
 	}, nil
 }
 
-func NewDNSOptionsFromHostname(hostname, ipcsv string) (*DNSOptions, error) {
-	if len(hostname) <= 0 {
+func NewDNSOptionsFromHostname(hostOrHostPort, ipcsv string) (*DNSOptions, error) {
+	if len(hostOrHostPort) <= 0 {
 		return nil, errDnsOptArg
 	}
 
-	domain, port, _ := net.SplitHostPort(hostname)
+	domain, port, _ := net.SplitHostPort(hostOrHostPort)
 	if len(domain) <= 0 {
-		domain = hostname
+		domain = hostOrHostPort
 	}
 	if len(port) == 0 {
 		port = "53"

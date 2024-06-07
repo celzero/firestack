@@ -400,9 +400,9 @@ func NewWgProxy(id string, ctl protect.Controller, cfg string) (*wgproxy, error)
 
 	var wgep wgconn
 	if wgtun.preferOffload {
-		wgep = wg.NewEndpoint2(id, ctl, wgtun.listener)
+		wgep = wg.NewEndpoint2(id, ctl, endpointh, wgtun.listener)
 	} else {
-		wgep = wg.NewEndpoint(id, ctl, wgtun.listener)
+		wgep = wg.NewEndpoint(id, ctl, endpointh, wgtun.listener)
 	}
 
 	wgdev := device.NewDevice(wgtun, wgep, wglogger(id))
@@ -742,11 +742,11 @@ func (h *wgtun) DNS() string {
 
 	addrs := h.dns.Addrs()
 	for _, dns := range addrs {
-		if dns.IsUnspecified() || !dns.IsValid() {
+		if dns.Addr().IsUnspecified() || !dns.IsValid() {
 			continue
 		}
 		// may be private, link local, etc
-		s += dns.Unmap().String() + ","
+		s += dns.Addr().Unmap().String() + ","
 	}
 
 	log.D("wg: %s dns ipaddrs: (in: %v) out: %s", h.id, addrs, s)
