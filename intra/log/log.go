@@ -189,7 +189,7 @@ func E2(at int, msg string, args ...any) {
 	}
 }
 
-func LevelOf(level int) LogLevel {
+func LevelOf(level int32) LogLevel {
 	dlvl := NONE
 	switch l := LogLevel(level); l {
 	case VVERBOSE:

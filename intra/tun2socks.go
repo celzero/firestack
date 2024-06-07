@@ -68,7 +68,7 @@ func Connect(fd, mtu int, fakedns string, dtr DefaultDNS, bdg Bridge) (t Tunnel,
 }
 
 // Change log level to log.VERYVERBOSE, log.VERBOSE, log.DEBUG, log.INFO, log.WARN, log.ERROR.
-func LogLevel(level, consolelevel int) {
+func LogLevel(level, consolelevel int32) {
 	dlvl := log.LevelOf(level)
 	clvl := log.LevelOf(consolelevel)
 	log.SetLevel(dlvl)
