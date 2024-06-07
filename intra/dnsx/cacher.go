@@ -317,7 +317,7 @@ func (t *ctransport) hangoverCheckpoint() {
 
 func (t *ctransport) fetch(network string, q *dns.Msg, summary *x.DNSSummary, cb *cache, key string) (*dns.Msg, error) {
 	sendRequest := func(fsmm *x.DNSSummary) (*dns.Msg, error) {
-		if settings.Debug && rand10pc() {
+		if false && settings.Debug && rand10pc() {
 			panic("test crash")
 		}
 

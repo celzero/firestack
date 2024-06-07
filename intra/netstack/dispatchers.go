@@ -226,7 +226,7 @@ func (d *readVDispatcher) dispatch() (bool, tcpip.Error) {
 	if done {
 		return abort, new(tcpip.ErrAborted)
 	}
-	if settings.Debug && rand10pc() {
+	if false && settings.Debug && rand10pc() {
 		panic(fmt.Sprintf("ns: tun(%d): dispatch: debug: rand10pc", d.fd))
 	}
 
