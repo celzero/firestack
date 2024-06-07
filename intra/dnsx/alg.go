@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	x "github.com/celzero/firestack/intra/backend"
@@ -102,7 +103,7 @@ type ansMulti struct {
 // TODO: Keep a context here so that queries can be canceled.
 type dnsgateway struct {
 	sync.RWMutex                     // locks alg, nat, octets, hexes
-	mod          bool                // modify realip to algip
+	mod          atomic.Bool         // modify realip to algip
 	alg          map[string]*ans     // domain+type -> ans
 	nat          map[netip.Addr]*ans // algip -> ans
 	ptr          map[netip.Addr]*ans // realip -> ans
@@ -136,8 +137,8 @@ func NewDNSGateway(outer RdnsResolver, dns64 NatPt) (t *dnsgateway) {
 }
 
 func (t *dnsgateway) translate(yes bool) {
-	log.I("alg: translate? %t", yes)
-	t.mod = yes
+	prev := t.mod.Swap(yes)
+	log.I("alg: translate? prev(%t) > now(%t)", prev, yes)
 }
 
 // Implements Gateway
@@ -259,7 +260,7 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []*netip.Addr, network string, q
 	if usepreset {
 		t2 = nil
 	}
-	mod := t.mod // allow alg?
+	mod := t.mod.Load() // allow alg?
 	secch := make(chan secans, 1)
 	resch := make(chan *dns.Msg, 1)
 	innersummary := new(x.DNSSummary)
@@ -417,28 +418,25 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []*netip.Addr, network string, q
 		return ansin, err // ansin is nil if no alg ips
 	}
 
-	typ := typalg
-	if !mod {
-		typ = typreal
-	}
-	// get existing secondary ips for qname, from previous alg/nat
-	previp4s, previp6s := t.resolvLocked(qname, typ)
+	// get existing real ips for qname, from previous alg/nat
+	previp4s, previp6s := t.resolvLocked(qname, typreal)
 	if len(previp4s) > 0 {
 		realip = makeSet(realip, previp4s, key4)
-		log.D("alg: subst; for %s with prev ip4s (alg: %t) %s", qname, typ == typalg, previp4s)
+		log.D("alg: subst; for %s with prev ip4s (alg: %t) %s", qname, mod, previp4s)
 	}
 	if len(previp6s) > 0 {
 		realip = makeSet(realip, previp6s, key6)
-		log.D("alg: subst; for %s with prev ip6s (alg? %t) %s", qname, typ == typalg, previp6s)
+		log.D("alg: subst; for %s with prev ip6s (alg? %t) %s", qname, mod, previp6s)
 	}
+	// get existing secondary ips for qname, from previous alg/nat
 	prevsec4s, prevsec6s := t.resolvLocked(qname, typsecondary)
 	if len(prevsec4s) > 0 {
 		secres.ips = makeSet(secres.ips, prevsec4s, key4)
-		log.D("alg: subst; for %s with prev sec ip4s (alg: %t) %s", qname, typ == typalg, prevsec4s)
+		log.D("alg: subst; for %s with prev sec ip4s (alg: %t) %s", qname, mod, prevsec4s)
 	}
 	if len(prevsec6s) > 0 {
 		secres.ips = makeSet(secres.ips, prevsec6s, key6)
-		log.D("alg: subst; for %s with prev sec ip6s (alg? %t) %s", qname, typ == typalg, prevsec6s)
+		log.D("alg: subst; for %s with prev sec ip6s (alg? %t) %s", qname, mod, prevsec6s)
 	}
 	// TODO: just like w/ previps, get existing targets, blocklists for qname and merge w/ new ones
 
@@ -725,7 +723,7 @@ func (t *dnsgateway) X(algip netip.Addr) (ips string) {
 	t.RLock()
 	defer t.RUnlock()
 
-	rip := t.xLocked(algip, !t.mod)
+	rip := t.xLocked(algip, !t.mod.Load())
 	if len(rip) > 0 {
 		var s []string
 		for _, r := range rip {
@@ -743,7 +741,7 @@ func (t *dnsgateway) PTR(algip netip.Addr, force bool) (domains string) {
 	t.RLock()
 	defer t.RUnlock()
 
-	d := t.ptrLocked(algip, (!t.mod || force))
+	d := t.ptrLocked(algip, (!t.mod.Load() || force))
 	if len(d) > 0 {
 		domains = strings.Join(d, ",")
 	} // else: algip isn't really an alg ip, nothing to do
@@ -755,7 +753,7 @@ func (t *dnsgateway) RESOLV(domain string) (ipcsv string) {
 	defer t.RUnlock()
 
 	typ := typalg
-	if !t.mod {
+	if !t.mod.Load() {
 		typ = typreal
 	}
 	ip4s, ip6s := t.resolvLocked(domain, typ)
@@ -776,7 +774,7 @@ func (t *dnsgateway) RDNSBL(algip netip.Addr) (blocklists string) {
 	t.RLock()
 	defer t.RUnlock()
 
-	return t.rdnsblLocked(algip, !t.mod)
+	return t.rdnsblLocked(algip, !t.mod.Load())
 }
 
 func (t *dnsgateway) xLocked(algip netip.Addr, useptr bool) []*netip.Addr {
