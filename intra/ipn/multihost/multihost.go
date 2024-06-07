@@ -214,17 +214,18 @@ func (h *MH) With(domainsOrIps []string) int {
 	return h.Add(domainsOrIps)
 }
 
-func normalize(dip string) (h string, p uint16) {
+// dip can be host or ip or host:port or ip:port
+func normalize(dip string) (string, uint16) {
 	dip = strings.TrimSpace(dip)
 	if hostOrIP, portstr, err := net.SplitHostPort(dip); err == nil {
 		port, err := strconv.Atoi(portstr)
 		if err != nil {
-			log.E("multihost: normalize(%s); err: %v", dip, err)
-			return
+			log.D("multihost: normalize(%s), no port; err: %v", dip, err)
+			port = 0
 		}
 		return hostOrIP, uint16(port)
 	}
-	return
+	return dip, 0
 }
 
 // 0 port is valid
