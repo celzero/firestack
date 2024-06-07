@@ -690,7 +690,7 @@ func (w *wgproxy) Stat() (out *x.Stats) {
 	out.LastTx = w.latestTx
 	out.Since = w.since
 
-	log.V("proxy: wg: %s stats: %v", w.id, out)
+	log.VV("proxy: wg: %s stats: rx: %d, tx: %d, lastok: %d", w.id, out.LastOK, out.Rx, out.Tx)
 	return out
 }
 
@@ -796,7 +796,7 @@ func (h *wgtun) Contains(ipprefix string) bool {
 	// go.dev/play/p/wdPoNt-cqXZ
 	for _, r := range h.allowed {
 		y := r.Contains(ip)
-		log.D("wg: %s router: contains: %s in %s? %t", h.id, ip, r, y)
+		log.V("wg: %s router: contains: %s in %s? %t", h.id, ip, r, y)
 		if y {
 			return y
 		}
