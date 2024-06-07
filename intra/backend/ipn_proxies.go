@@ -50,6 +50,8 @@ type Proxy interface {
 	DNS() string
 	// Status returns the status of this proxy.
 	Status() int
+	// Ping pings this proxy.
+	Ping() bool
 	// Stop stops this proxy.
 	Stop() error
 	// Refresh re-registers this proxy, if necessary.

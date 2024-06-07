@@ -44,11 +44,14 @@ type protoagnostic struct{}
 // onProtoChange implements Proxy.
 func (protoagnostic) onProtoChange() (string, bool) { return "", false }
 
-// skiprefresh is a proxy that does not need to be refreshed on network changes.
+// skiprefresh is a proxy that does not need to be refreshed or pinged on network changes.
 type skiprefresh struct{}
 
 // Refresh implements Proxy.
 func (skiprefresh) Refresh() error { return nil }
+
+// Ping implements Proxy.
+func (skiprefresh) Ping() bool { return false }
 
 // nofwd is a proxy that does not support listening or forwarding.
 type nofwd struct{}

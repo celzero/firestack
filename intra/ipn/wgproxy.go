@@ -70,28 +70,28 @@ const (
 )
 
 type wgtun struct {
-	id            string                      // id
-	addrs         []netip.Prefix              // interface addresses
-	allowed       []netip.Prefix              // allowed ips (peers)
-	peers         map[string]any              // peer (remote endpoint) public keys
-	remote        *multihost.MH               // peer (remote endpoint) addrs
-	status        int                         // status of this interface
-	stack         *stack.Stack                // stack fakes tun device for wg
-	ep            *channel.Endpoint           // reads and writes packets to/from stack
-	ingress       chan *buffer.View           // pipes ep writes to wg
-	events        chan tun.Event              // wg specific tun (interface) events
-	finalize      chan struct{}               // close signal for incomingPacket
-	mtu           int                         // mtu of this interface
-	dns           *multihost.MH               // dns resolver for this interface
-	reqbarrier    *core.Barrier[[]netip.Addr] // request barrier for dns lookups
-	once          sync.Once                   // exec fn exactly once
-	hasV4, hasV6  bool                        // interface has ipv4/ipv6 routes?
-	preferOffload bool                        // UDP GRO/GSO offloads
-	since         int64                       // start time in unix millis
-	latestRx      int64                       // last rx time in unix millis
-	latestTx      int64                       // last tx time in unix millis
-	errRx         int64                       // rx error count
-	errTx         int64                       // tx error count
+	id            string                           // id
+	addrs         []netip.Prefix                   // interface addresses
+	allowed       []netip.Prefix                   // allowed ips (peers)
+	peers         map[string]device.NoisePublicKey // peer (remote endpoint) public keys
+	remote        *multihost.MH                    // peer (remote endpoint) addrs
+	status        int                              // status of this interface
+	stack         *stack.Stack                     // stack fakes tun device for wg
+	ep            *channel.Endpoint                // reads and writes packets to/from stack
+	ingress       chan *buffer.View                // pipes ep writes to wg
+	events        chan tun.Event                   // wg specific tun (interface) events
+	finalize      chan struct{}                    // close signal for incomingPacket
+	mtu           int                              // mtu of this interface
+	dns           *multihost.MH                    // dns resolver for this interface
+	reqbarrier    *core.Barrier[[]netip.Addr]      // request barrier for dns lookups
+	once          sync.Once                        // exec fn exactly once
+	hasV4, hasV6  bool                             // interface has ipv4/ipv6 routes?
+	preferOffload bool                             // UDP GRO/GSO offloads
+	since         int64                            // start time in unix millis
+	latestRx      int64                            // last rx time in unix millis
+	latestTx      int64                            // last tx time in unix millis
+	errRx         int64                            // rx error count
+	errTx         int64                            // tx error count
 }
 
 type wgconn interface {
@@ -157,6 +157,20 @@ func (w *wgproxy) onProtoChange() (string, bool) {
 	// todo: on refresh err, re-add?
 	// return w.cfg, true
 	return "", false // do not re-add this refreshed wg
+}
+
+func (w *wgproxy) Ping() bool {
+	tracked := w.peers
+	tot := len(tracked)
+	pinged := 0
+	for _, k := range tracked {
+		if peer := w.LookupPeer(k); peer != nil {
+			pinged++
+			peer.SendKeepalive()
+		}
+	}
+	log.D("proxy: wg: %s pinged %d/%d peers", w.id, pinged, tot)
+	return pinged > 0
 }
 
 // Refresh implements ipn.Proxy
@@ -262,7 +276,7 @@ func (w *wgproxy) update(id, txt string) bool {
 	log.I("proxy: wg: update(%s): reuse; allowed: %d->%d; peers: %d->%d; dns: %d->%d; endpoint: %d->%d",
 		w.id, len(w.allowed), len(allowed), len(w.peers), len(peers), w.dns.Len(), dnsh.Len(), w.remote.Len(), peersh.Len())
 	w.allowed = allowed
-	w.peers = peers
+	w.peers = peers   // re-assignment is okay (map entry modification is not)
 	w.remote = peersh // requires refresh
 	w.dns = dnsh      // requires refresh
 
@@ -281,13 +295,13 @@ func wglogger(id string) *device.Logger {
 	return logger
 }
 
-func wgIfConfigOf(id string, txtptr *string) (ifaddrs []netip.Prefix, allowedaddrs []netip.Prefix, peers map[string]any, dnsh, endpointh *multihost.MH, mtu int, err error) {
+func wgIfConfigOf(id string, txtptr *string) (ifaddrs []netip.Prefix, allowedaddrs []netip.Prefix, peers map[string]device.NoisePublicKey, dnsh, endpointh *multihost.MH, mtu int, err error) {
 	txt := *txtptr
 	pcfg := strings.Builder{}
 	r := bufio.NewScanner(strings.NewReader(txt))
 	dnsh = multihost.New(id + "dns")
 	endpointh = multihost.New(id + "endpoint")
-	peers = make(map[string]any)
+	peers = make(map[string]device.NoisePublicKey)
 	for r.Scan() {
 		line := r.Text()
 		if len(line) <= 0 {
@@ -302,7 +316,6 @@ func wgIfConfigOf(id string, txtptr *string) (ifaddrs []netip.Prefix, allowedadd
 			err = fmt.Errorf("proxy: wg: %s failed to parse line %q", id, line)
 			return
 		}
-		untouchedv := v
 		k = strings.ToLower(strings.TrimSpace(k))
 		v = strings.ToLower(strings.TrimSpace(v))
 
@@ -334,9 +347,13 @@ func wgIfConfigOf(id string, txtptr *string) (ifaddrs []netip.Prefix, allowedadd
 			log.D("proxy: wg: %s ifconfig: skipping key %q", id, k)
 			pcfg.WriteString(line + "\n")
 		case "public_key":
-			peers[untouchedv] = struct{}{}
+			var exx error
+			var peerkey device.NoisePublicKey
+			if exx = peerkey.FromHex(v); exx == nil {
+				peers[v] = peerkey
+			}
 			// peer config: carry over public keys
-			log.D("proxy: wg: %s ifconfig: skipping key %q", id, k)
+			log.D("proxy: wg: %s ifconfig: processing key %q, err? %v", id, k, exx)
 			pcfg.WriteString(line + "\n")
 		default:
 			log.D("proxy: wg: %s ifconfig: skipping key %q", id, k)
@@ -440,7 +457,7 @@ func NewWgProxy(id string, ctl protect.Controller, cfg string) (*wgproxy, error)
 }
 
 // ref: github.com/WireGuard/wireguard-go/blob/469159ecf7/tun/netstack/tun.go#L54
-func makeWgTun(id string, ifaddrs, allowedaddrs []netip.Prefix, peers map[string]any, dnsm, endpointm *multihost.MH, mtu int) (*wgtun, error) {
+func makeWgTun(id string, ifaddrs, allowedaddrs []netip.Prefix, peers map[string]device.NoisePublicKey, dnsm, endpointm *multihost.MH, mtu int) (*wgtun, error) {
 	opts := stack.Options{
 		NetworkProtocols:   []stack.NetworkProtocolFactory{ipv4.NewProtocol, ipv6.NewProtocol},
 		TransportProtocols: []stack.TransportProtocolFactory{tcp.NewProtocol, udp.NewProtocol, icmp.NewProtocol6, icmp.NewProtocol4},
@@ -457,7 +474,7 @@ func makeWgTun(id string, ifaddrs, allowedaddrs []netip.Prefix, peers map[string
 		id:            stripPrefixIfNeeded(id),
 		addrs:         ifaddrs,
 		allowed:       allowedaddrs,
-		peers:         peers,
+		peers:         peers,     // its entries must never be modified
 		remote:        endpointm, // may be nil
 		ep:            ep,
 		stack:         s,
