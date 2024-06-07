@@ -187,7 +187,7 @@ func (t *rtunnel) SetLinkAndRoutes(fd, mtu, engine int) error {
 	}
 
 	defer func() {
-		core.Go("i.setLinkAndRoutes", func() {
+		core.Gx("i.setLinkAndRoutes", func() {
 			l3 := settings.L3(engine)
 			if diff := dialers.IPProtos(l3); diff {
 				// dialers.IPProtos must always preced calls to other refreshes

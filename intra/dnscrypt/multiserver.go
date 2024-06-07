@@ -456,7 +456,7 @@ func (proxy *DcMulti) Stop() error {
 
 // refreshRoutes re-adds relay routes to all live/tracked servers
 func (proxy *DcMulti) refreshRoutes() {
-	defer core.Recover(core.DontExit, "dcmulti.refreshRoutes")
+	defer core.Recover(core.Exit11, "dcmulti.refreshRoutes")
 
 	udp, tcp := route(proxy)
 	if len(udp) <= 0 || len(tcp) <= 0 {

@@ -152,7 +152,7 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target netip.AddrPort)
 	var smm *SocketSummary
 	var err error
 
-	defer core.Recover(core.DontExit, "tcp.Proxy")
+	defer core.Recover(core.Exit11, "tcp.Proxy")
 
 	defer func() {
 		if !open {
@@ -238,7 +238,7 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target netip.AddrPort)
 		}
 	}
 
-	h.conntracker.Untrack(ct.CID)
+	h.conntracker.Untrack(ct.CID) // untrack if disallowed
 	return deny
 }
 
@@ -278,7 +278,7 @@ func (h *tcpHandler) handle(px ipn.Proxy, src net.Conn, target netip.AddrPort, c
 	}
 
 	h.conntracker.Track(ct, src, dst)
-	core.Go("tcp.forward:"+smm.ID, func() {
+	core.Gx("tcp.forward:"+smm.ID, func() {
 		defer h.conntracker.Untrack(ct.CID)
 		forward(src, dst, h.listener, smm) // src always *gonet.TCPConn
 	})

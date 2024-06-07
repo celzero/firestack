@@ -150,7 +150,7 @@ func (h *icmpHandler) Ping(source, target netip.AddrPort, msg []byte, pong netst
 
 	// always forward in a goroutine to avoid blocking netstack
 	// see: netstack/dispatcher.go:newReadvDispatcher
-	core.Go("icmp.Ping", func() {
+	core.Gx("icmp.Ping", func() {
 		defer func() {
 			summary.done(err)
 			go sendNotif(h.listener, summary)

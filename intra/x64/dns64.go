@@ -75,7 +75,7 @@ func newDns64() *dns64 {
 }
 
 func (d *dns64) init() {
-	defer core.Recover(core.DontExit, "dns64.init")
+	defer core.Recover(core.Exit11, "dns64.init")
 
 	err1 := d.ofOverlay()
 	err2 := d.ofLocal464()

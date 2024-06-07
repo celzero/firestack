@@ -268,7 +268,7 @@ func ParseProcNet(protocol string) ([]ProcNetEntry, error) {
 }
 
 func cleanupPool() {
-	defer core.Recover(core.DontExit, "procfs.cleanupPool")
+	defer core.Recover(core.Exit11, "procfs.cleanupPool")
 
 	if time.Since(cache.lastcleanup).Milliseconds() <= cachettl {
 		return

@@ -392,7 +392,7 @@ func (s *IPSet) Confirm(ip netip.Addr) {
 		return
 	}
 	s.confirmed.Store(ip)
-	core.Go("ipset.confirm", func() {
+	core.Gx("ipset.confirm", func() {
 		s.Lock()
 		defer s.Unlock()
 

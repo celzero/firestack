@@ -146,8 +146,8 @@ type processor struct {
 }
 
 func (p *processor) start(wg *sync.WaitGroup) {
-	// TODO: core.RecoverFn(supervisor.stop)
-	defer core.RecoverFn("ns.forwaders.start", p.e.notifyRestart)
+	// defer core.RecoverFn("ns.forwaders.start", p.e.notifyRestart)
+	defer core.Recover(core.Exit11, "ns.forwarder.start")
 
 	defer wg.Done()
 	defer p.sleeper.Done()

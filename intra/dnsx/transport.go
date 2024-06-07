@@ -204,7 +204,7 @@ func (r *resolver) Add(dt x.DNSTransport) (ok bool) {
 		r.Unlock()
 
 		if tid == System {
-			core.Go("r.Add64", func() { r.Add64(t) })
+			core.Gx("r.Add64", func() { r.Add64(t) })
 		}
 
 		core.Go("r.onAdd", func() { r.listener.OnDNSAdded(tid) })
@@ -252,7 +252,7 @@ func (r *resolver) Remove(id string) (ok bool) {
 	_, hasTransport := r.transports[id]
 	if hasTransport {
 		if id == System {
-			core.Go("r.Remove64", func() { r.Remove64(id) })
+			core.Gx("r.Remove64", func() { r.Remove64(id) })
 		}
 		r.Lock()
 		delete(r.transports, id)
@@ -586,7 +586,7 @@ func (r *resolver) reply(c protect.Conn) {
 			free()
 			break
 		}
-		core.Go("r.reply.do", do)
+		core.Gx("r.reply.do", do)
 		cnt++
 	}
 }
@@ -640,7 +640,7 @@ func (r *resolver) accept(c io.ReadWriteCloser) {
 			free()
 			break // close on incomplete reads
 		}
-		core.Go("r.accept.do", do)
+		core.Gx("r.accept.do", do)
 		cnt++
 	}
 	ms := int(time.Since(start).Seconds() * 1000)
@@ -671,7 +671,7 @@ func (r *resolver) refresh() {
 			curt := t
 			// re-adding creates NEW cached transports
 			// which is akin to a cache flush
-			core.Go("r.Add", func() { r.Add(curt) })
+			core.Gx("r.Add", func() { r.Add(curt) })
 		}
 	}
 }

@@ -265,7 +265,7 @@ func (px *proxifier) RefreshProxies() (string, error) {
 		// some proxy.Refershes may be slow due to network requests, hence
 		// preferred to run in a goroutine to avoid blocking the caller.
 		// ex: wgproxy.Refresh -> multihost.Refersh -> dialers.Resolve
-		core.Go("pxr.RefreshProxies: "+id, func() {
+		core.Gx("pxr.RefreshProxies: "+id, func() {
 			if err := curp.Refresh(); err != nil {
 				log.E("proxy: refresh (%s/%s/%s) failed: %v", id, curp.Type(), curp.GetAddr(), err)
 			}
@@ -278,7 +278,7 @@ func (px *proxifier) RefreshProxies() (string, error) {
 }
 
 func (px *proxifier) RefreshProto(l3 string) {
-	defer core.Recover(core.DontExit, "pxr.RefreshProto")
+	defer core.Recover(core.Exit11, "pxr.RefreshProto")
 	// must unlock from deferred since panics are recovered above
 	px.Lock()
 	defer px.Unlock()
@@ -292,7 +292,7 @@ func (px *proxifier) RefreshProto(l3 string) {
 	for _, p := range px.p {
 		curp := p
 		id := curp.ID()
-		core.Go("pxr.RefreshProto: "+id, func() {
+		core.Gx("pxr.RefreshProto: "+id, func() {
 			// always run in a goroutine (or there is a deadlock)
 			// wgproxy.onProtoChange -> multihost.Refresh -> dialers.Resolve
 			// -> ipmapper.LookupIPNet -> resolver.LocalLookup -> transport.Query

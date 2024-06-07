@@ -156,7 +156,7 @@ func (h *udpHandler) onFlow(localaddr, target netip.AddrPort, realips, domains, 
 
 // ProxyMux implements netstack.GUDPConnHandler
 func (h *udpHandler) ProxyMux(gconn *netstack.GUDPConn, src netip.AddrPort) (ok bool) {
-	defer core.Recover(core.DontExit, "udp.ProxyMux")
+	defer core.Recover(core.Exit11, "udp.ProxyMux")
 
 	log.I("udp: mux for %s", src)
 	// only ipn.Exit and ipn.Base support udp mux / packet conns
@@ -188,7 +188,7 @@ func (h *udpHandler) ProxyMux(gconn *netstack.GUDPConn, src netip.AddrPort) (ok 
 		return // not ok
 	}
 	mxr := newMuxer(local)
-	core.Go("udp.ProxyMux.looper", func() {
+	core.Gx("udp.ProxyMux.looper", func() {
 		for {
 			dxconn, err := mxr.vend()
 			if err != nil {
@@ -210,7 +210,7 @@ func (h *udpHandler) ProxyMux(gconn *netstack.GUDPConn, src netip.AddrPort) (ok 
 
 // Proxy implements netstack.GUDPConnHandler
 func (h *udpHandler) Proxy(gconn *netstack.GUDPConn, src, dst netip.AddrPort) (ok bool) {
-	defer core.Recover(core.DontExit, "udp.Proxy")
+	defer core.Recover(core.Exit11, "udp.Proxy")
 
 	return h.proxy(gconn, src, dst)
 }
@@ -258,7 +258,7 @@ func (h *udpHandler) proxy(gconn net.Conn, src, dst netip.AddrPort) (ok bool) {
 	}
 
 	h.conntracker.Track(ct, gconn, remote)
-	core.Go("udp.forward: "+cid, func() {
+	core.Gx("udp.forward: "+cid, func() {
 		defer h.conntracker.Untrack(ct.CID)
 		forward(gconn, &rwext{remote}, l, smm)
 	})

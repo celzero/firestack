@@ -454,8 +454,8 @@ func (e *endpoint) notifyRestart() {
 // dispatchLoop reads packets from the file descriptor in a loop and dispatches
 // them to the network stack. Must be run as a goroutine.
 func (e *endpoint) dispatchLoop(inbound linkDispatcher) tcpip.Error {
-	// todo: core.RecoverFn(restart-netstack)
-	defer core.RecoverFn("ns.e.dispatch", e.notifyRestart)
+	// defer core.RecoverFn("ns.e.dispatch", e.notifyRestart)
+	defer core.Recover(core.Exit11, "ns.e.dispatch")
 
 	e.wg.Add(1)
 	defer e.wg.Done()
