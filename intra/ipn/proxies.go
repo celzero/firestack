@@ -199,14 +199,11 @@ func (px *proxifier) ProxyFor(id string) (Proxy, error) {
 		px.RLock()
 		defer px.RUnlock()
 
-		var addr string
 		if p, ok := px.p[id]; ok {
-			addr = p.GetAddr()
 			out <- p
 		} else {
 			out <- nil
 		}
-		log.VV("proxy: for: go: %s, %s", id, addr)
 	})
 
 	select {

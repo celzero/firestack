@@ -648,6 +648,7 @@ func (w *wgproxy) Stat() (out *x.Stats) {
 	out = new(x.Stats)
 
 	if w.status == END {
+		log.W("proxy: wg: %s stats: stopped", w.id)
 		return
 	}
 
@@ -671,6 +672,8 @@ func (w *wgproxy) Stat() (out *x.Stats) {
 	out.LastRx = w.latestRx
 	out.LastTx = w.latestTx
 	out.Since = w.since
+
+	log.V("proxy: wg: %s stats: %v", w.id, out)
 	return out
 }
 
