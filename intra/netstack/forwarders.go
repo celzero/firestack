@@ -45,11 +45,6 @@ const (
 	maxForwarders = 6
 )
 
-type pkts struct {
-	num tcpip.NetworkProtocolNumber
-	pkt *stack.PacketBuffer
-}
-
 type fiveTuple struct {
 	srcAddr, dstAddr []byte
 	srcPort, dstPort uint16
@@ -57,7 +52,7 @@ type fiveTuple struct {
 }
 
 func (t fiveTuple) String() string {
-	return fmt.Sprintf("%d | %s:%d -> %s:%d", t.proto, t.srcAddr, t.srcPort, t.dstAddr, t.dstPort)
+	return fmt.Sprintf("%d | :%d => :%d", t.proto, t.srcPort, t.dstPort)
 }
 
 // tcpipConnectionID returns a tcpip connection id tuple based on the data found
