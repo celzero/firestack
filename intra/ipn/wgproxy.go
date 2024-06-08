@@ -188,8 +188,8 @@ func (w *wgproxy) Ping() bool {
 func (w *wgproxy) Refresh() (err error) {
 	n := w.dns.Refresh()
 	nn := 0
-	if peers := w.remote; peers != nil {
-		nn = peers.Refresh() // peers are also refreshed by w.Device.Up()
+	if mh := w.remote; mh != nil {
+		nn = mh.Refresh()
 	}
 	if err = w.Device.Down(); err != nil {
 		log.E("proxy: wg: !refresh(%s): down: len(dns): %d, len(peer): %d, err: %v", w.id, n, nn, err)

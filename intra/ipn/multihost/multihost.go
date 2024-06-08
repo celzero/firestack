@@ -24,6 +24,11 @@ var zeroaddr = netip.AddrPort{}
 // nooplock is a no-op lock.
 type nooplock struct{}
 
+func (nooplock) Lock()    {}
+func (nooplock) Unlock()  {}
+func (nooplock) RLock()   {}
+func (nooplock) RUnlock() {}
+
 // MH is a list of hostnames and/or ip addresses for one endpoint.
 type MH struct {
 	nooplock // todo: replace with sync.RWMutex
@@ -31,11 +36,6 @@ type MH struct {
 	names    []string         // host:port
 	addrs    []netip.AddrPort // ip:port
 }
-
-func (nooplock) Lock()    {}
-func (nooplock) Unlock()  {}
-func (nooplock) RLock()   {}
-func (nooplock) RUnlock() {}
 
 // New returns a new multihost with the given id.
 func New(id string) *MH {
@@ -73,6 +73,7 @@ func (h *MH) Addrs() []netip.AddrPort {
 	return h.addrs // todo: return a copy
 }
 
+// PreferredAddrs returns the list of IPs per the dialer's preference.
 func (h *MH) PreferredAddrs() []netip.AddrPort {
 	h.Lock()
 	out4 := make([]netip.AddrPort, 0)
