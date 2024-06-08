@@ -26,6 +26,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -88,10 +89,11 @@ type wgtun struct {
 	hasV4, hasV6  bool                             // interface has ipv4/ipv6 routes?
 	preferOffload bool                             // UDP GRO/GSO offloads
 	since         int64                            // start time in unix millis
-	latestRx      int64                            // last rx time in unix millis
-	latestTx      int64                            // last tx time in unix millis
-	errRx         int64                            // rx error count
-	errTx         int64                            // tx error count
+	latestPing    atomic.Int64                     // last ping time in unix millis
+	latestRx      atomic.Int64                     // last rx time in unix millis
+	latestTx      atomic.Int64                     // last tx time in unix millis
+	errRx         atomic.Int64                     // rx error count
+	errTx         atomic.Int64                     // tx error count
 }
 
 type wgconn interface {
@@ -159,18 +161,27 @@ func (w *wgproxy) onProtoChange() (string, bool) {
 	return "", false // do not re-add this refreshed wg
 }
 
+// Ping implements ipn.Proxy.
+// As backpressure, pings are sent once in a 30s period.
 func (w *wgproxy) Ping() bool {
-	tracked := w.peers
-	tot := len(tracked)
-	pinged := 0
-	for _, k := range tracked {
-		if peer := w.LookupPeer(k); peer != nil {
-			pinged++
-			peer.SendKeepalive()
+	now := now()
+	then := w.latestPing.Load()
+	if then+30*1000 > now && w.latestPing.CompareAndSwap(then, now) {
+		tracked := w.peers
+		tot := len(tracked)
+		pinged := 0
+		for _, k := range tracked {
+			if peer := w.LookupPeer(k); peer != nil {
+				pinged++
+				peer.SendKeepalive()
+			}
 		}
+		log.D("proxy: wg: %s ping: %d/%d peers", w.id, pinged, tot)
+		return pinged > 0
+	} else {
+		log.VV("proxy: wg: %s ping: skipped; soon/concurrent; prev(%d)", w.id, then)
 	}
-	log.D("proxy: wg: %s pinged %d/%d peers", w.id, pinged, tot)
-	return pinged > 0
+	return false
 }
 
 // Refresh implements ipn.Proxy
@@ -684,10 +695,10 @@ func (w *wgproxy) Stat() (out *x.Stats) {
 	out.Tx = stat.TotalTx()
 	out.LastOK = stat.LatestRecentHandshake()
 	out.Addr = w.IfAddr() // may be empty
-	out.ErrRx = w.errRx
-	out.ErrTx = w.errTx
-	out.LastRx = w.latestRx
-	out.LastTx = w.latestTx
+	out.ErrRx = w.errRx.Load()
+	out.ErrTx = w.errTx.Load()
+	out.LastRx = w.latestRx.Load()
+	out.LastTx = w.latestTx.Load()
 	out.Since = w.since
 
 	log.VV("proxy: wg: %s stats: rx: %d, tx: %d, lastok: %d", w.id, out.LastOK, out.Rx, out.Tx)
@@ -814,7 +825,7 @@ func (h *wgtun) listener(op string, err error) {
 	if op == "r" && timedout(err) {
 		// if status is "up" but writes (op == "w") have not yet happened
 		// then reads ("r") are expected to timeout; so ignore them
-		if h.latestRx <= 0 {
+		if h.latestRx.Load() <= 0 {
 			s = TNT // writes succeeded; but reads have never
 		} else {
 			s = TZZ // wirtes and reads have suceeded in the past
@@ -825,20 +836,20 @@ func (h *wgtun) listener(op string, err error) {
 
 	if s == TOK {
 		if op == "r" {
-			h.latestRx = now()
+			h.latestRx.Store(now())
 		} else if op == "w" {
-			h.latestTx = now()
+			h.latestTx.Store(now())
 		}
-		writeElapsedMs := h.latestTx - h.latestRx // may be negative
+		writeElapsedMs := h.latestTx.Load() - h.latestRx.Load() // may be negative
 		// if no reads in 20s since last write, then mark as unresponsive
 		if writeElapsedMs > 20*1000 {
 			s = TNT
 		}
 	} else if s == TKO {
 		if op == "r" {
-			h.errRx++
+			h.errRx.Add(1)
 		} else if op == "w" {
-			h.errTx++
+			h.errTx.Add(1)
 		}
 	}
 
