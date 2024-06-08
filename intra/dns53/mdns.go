@@ -197,11 +197,12 @@ type dnssdanswer struct {
 	captured bool
 }
 
-// done checks if we have all the info we need
+// hasip checks if we have all the ip recs we need
 func (s *dnssdanswer) hasip() bool {
 	return (s.ip4 != nil || s.ip6 != nil)
 }
 
+// hassvc checks if we have all the srv recs we need
 func (s *dnssdanswer) hassvc() bool {
 	return s.port != 0 && len(s.txt) > 0
 }
@@ -211,7 +212,7 @@ type qcontext struct {
 	svc         string              // Service to query for, ex: _foobar._tcp, normalized to lower case
 	tld         string              // If blank, assumes "local"
 	msg         *dns.Msg            // If not nil, use this message instead of building one
-	timeout     time.Duration       // Lookup timeout, default 1 second
+	timeout     time.Duration       // Lookup timeout
 	ansch       chan<- *dnssdanswer // answers acc, must be non-blocking (buffered)
 	unicastonly bool                // Unicast response desired, as per 5.4 in RFC
 }
@@ -526,7 +527,7 @@ func (c *client) untrack(name string) {
 // name is NOT normalized
 func (c *client) track(name string) *dnssdanswer {
 	if tse, ok := c.tracker[name]; ok {
-		log.V("mdns: tracker: exists %s with %v", name, tse)
+		log.VV("mdns: tracker: exists %s with %v", name, tse)
 		return tse
 	}
 	se := &dnssdanswer{
@@ -541,7 +542,7 @@ func (c *client) track(name string) *dnssdanswer {
 // src and dst are NOT normalized
 func (c *client) alias(src, dst string) {
 	if se, ok := c.tracker[dst]; ok {
-		log.V("mdns: tracker: discard %v for %s; aliased to %s", se, dst, src)
+		log.VV("mdns: tracker: discard %v for %s; aliased to %s", se, dst, src)
 	}
 	se := c.track(src)
 	log.V("mdns: tracker: alias %s <-> %s with %v", src, dst, se)
