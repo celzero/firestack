@@ -186,6 +186,8 @@ func (w *wgproxy) Ping() bool {
 
 // Refresh implements ipn.Proxy
 func (w *wgproxy) Refresh() (err error) {
+	w.latestPing.Store(0) // reset latest ping time
+
 	n := w.dns.Refresh()
 	nn := 0
 	if mh := w.remote; mh != nil {
