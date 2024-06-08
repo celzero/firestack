@@ -706,8 +706,9 @@ func (w *wgproxy) Stat() (out *x.Stats) {
 }
 
 func (w *wgtun) IfAddr() string {
-	if len(w.addrs) > 0 {
-		return w.addrs[0].String()
+	ifs := w.addrs
+	if len(ifs) > 0 {
+		return ifs[0].String()
 	}
 	return noaddr
 }
