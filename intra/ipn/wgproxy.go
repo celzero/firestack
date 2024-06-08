@@ -72,6 +72,7 @@ const (
 
 type wgtun struct {
 	id            string                           // id
+	cfg           string                           // original config
 	addrs         []netip.Prefix                   // interface addresses
 	allowed       []netip.Prefix                   // allowed ips (peers)
 	peers         map[string]device.NoisePublicKey // peer (remote endpoint) public keys
@@ -110,7 +111,6 @@ type wgproxy struct {
 	wgep wgconn
 	hc   *http.Client   // exported http client
 	rd   *protect.RDial // exported rdialer
-	cfg  string         // original config
 }
 
 type WgProxy interface {
@@ -420,7 +420,7 @@ func NewWgProxy(id string, ctl protect.Controller, cfg string) (*wgproxy, error)
 		return nil, err
 	}
 
-	wgtun, err := makeWgTun(id, ifaddrs, allowedaddrs, peers, dnsh, endpointh, mtu)
+	wgtun, err := makeWgTun(id, ogcfg, ifaddrs, allowedaddrs, peers, dnsh, endpointh, mtu)
 	if err != nil {
 		log.E("proxy: wg: %s failed to create tun %v", id, err)
 		return nil, err
@@ -459,7 +459,6 @@ func NewWgProxy(id string, ctl protect.Controller, cfg string) (*wgproxy, error)
 		wgep,  // endpoint
 		nil,   // rdial
 		nil,   // http-client
-		ogcfg, // original config
 	}
 	w.rd = newRDial(w)
 	w.hc = newHTTPClient(w.rd)
@@ -470,7 +469,7 @@ func NewWgProxy(id string, ctl protect.Controller, cfg string) (*wgproxy, error)
 }
 
 // ref: github.com/WireGuard/wireguard-go/blob/469159ecf7/tun/netstack/tun.go#L54
-func makeWgTun(id string, ifaddrs, allowedaddrs []netip.Prefix, peers map[string]device.NoisePublicKey, dnsm, endpointm *multihost.MH, mtu int) (*wgtun, error) {
+func makeWgTun(id, cfg string, ifaddrs, allowedaddrs []netip.Prefix, peers map[string]device.NoisePublicKey, dnsm, endpointm *multihost.MH, mtu int) (*wgtun, error) {
 	opts := stack.Options{
 		NetworkProtocols:   []stack.NetworkProtocolFactory{ipv4.NewProtocol, ipv6.NewProtocol},
 		TransportProtocols: []stack.TransportProtocolFactory{tcp.NewProtocol, udp.NewProtocol, icmp.NewProtocol6, icmp.NewProtocol4},
@@ -485,6 +484,7 @@ func makeWgTun(id string, ifaddrs, allowedaddrs []netip.Prefix, peers map[string
 	ep := channel.New(epsize, uint32(tunmtu), "")
 	t := &wgtun{
 		id:            stripPrefixIfNeeded(id),
+		cfg:           cfg,
 		addrs:         ifaddrs,
 		allowed:       allowedaddrs,
 		peers:         peers,     // its entries must never be modified
