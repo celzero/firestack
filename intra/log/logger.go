@@ -332,7 +332,11 @@ func (l *simpleLogger) emitStack(at int, msgs ...string) {
 			// immediately once simpleLogger.Stack() returns
 			c.Log(int32(STACKTRACE), msg)
 		} else {
-			l.toConsole(&conMsg{msg, STACKTRACE})
+			// msg, which is unsafely type-coerced from []byte,
+			// is pooled; but the caller owns []byte and so it
+			// cannot be used asynchrously (ex: over channels).
+			// l.toConsole(&conMsg{msg, STACKTRACE})
+			l.drops.Add(1)
 		}
 	}
 }
