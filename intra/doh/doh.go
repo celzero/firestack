@@ -50,6 +50,10 @@ import (
 
 const dohmimetype = "application/dns-message"
 
+const maxEOFTries = uint8(2)
+
+var errNoClient error = errors.New("no doh client")
+
 type odohtransport struct {
 	omu              sync.RWMutex // protects odohConfig
 	odohproxyurl     string       // proxy url
@@ -288,12 +292,52 @@ func (t *transport) doDoh(pid string, q *dns.Msg) (response *dns.Msg, blocklists
 	return
 }
 
-func (t *transport) fetch(pid string, req *http.Request) (res *http.Response, err error) {
+func (t *transport) fetch(pid string, req *http.Request) (*http.Response, error) {
+	ustr := req.URL.String()
+
+	uerr := func(e error) *url.Error {
+		if e == nil {
+			return nil
+		}
+		if e, ok := e.(*url.Error); ok {
+			return e
+		}
+		return &url.Error{
+			Op:  req.Method,
+			URL: ustr,
+			Err: e,
+		}
+	}
+
+	c, err := t.prepare(pid)
+	if err != nil {
+		log.E("doh: prepare (%s) for %s, err: %v", pid, ustr, err)
+		return nil, uerr(err)
+	}
+	if c == nil { // should never happen as prepare() must never return nil without err
+		return nil, uerr(errNoClient)
+	}
+
+	term := false
+	var res *http.Response
+	for i := uint8(0); !term && i < maxEOFTries; i++ {
+		if res, err = c.Do(req); err == nil {
+			return res, nil // res is never nil here
+		}
+		if uerr, ok := err.(*url.Error); ok {
+			term = uerr.Err != io.EOF // terminate if not EOF
+		}
+		log.W("doh: fetch #%d (eof? %t) for %s, err: %v", i, !term, ustr, err)
+	}
+	return nil, err
+}
+
+func (t *transport) prepare(pid string) (client *http.Client, err error) {
 	userelay := t.relay != nil
 	hasproxy := t.proxies != nil
 	useproxy := len(pid) != 0 // if pid == dnsx.NetNoProxy, then px is ipn.Base
 
-	client := &t.client
+	client = &t.client
 	if userelay || useproxy {
 		var px ipn.Proxy
 		if userelay { // relay takes precedence
@@ -311,11 +355,11 @@ func (t *transport) fetch(pid string, req *http.Request) (res *http.Response, er
 		if err != nil {
 			return
 		}
-		log.V("doh: using proxy %s:%s for %s", px.ID(), px.GetAddr(), req.URL)
+		log.VV("doh: using proxy %s:%s for %s", px.ID(), px.GetAddr())
 	} else {
-		log.V("doh: no proxy %s for %s", pid, req.URL)
+		log.D("doh: no proxy %s", pid)
 	}
-	return client.Do(req)
+	return
 }
 
 func (t *transport) do(pid string, req *http.Request) (ans []byte, blocklists, region string, elapsed time.Duration, qerr *dnsx.QueryError) {
