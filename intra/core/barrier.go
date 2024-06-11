@@ -31,6 +31,7 @@ const (
 
 // Work is the type of the function to memoize.
 type Work[T any] func() (T, error)
+type Work1[T any] func(T) (T, error)
 
 // V is an in-flight or completed Barrier.Do V
 type V[T any] struct {
@@ -99,6 +100,26 @@ func (ba *Barrier[T]) Do(k string, once Work[T]) (*V[T], int) {
 	ba.mu.Unlock()
 
 	c.Val, c.Err = once()
+
+	c.wg.Done() // unblock all waiters
+	return c, Anew
+}
+
+// Do1 is like Do but for Work1 with one arg.
+func (ba *Barrier[T]) Do1(k string, once Work1[T], arg T) (*V[T], int) {
+	ba.mu.Lock()
+	c, _ := ba.getLocked(k)
+	if c != nil {
+		ba.mu.Unlock()
+
+		c.N.Add(1)  // register presence
+		c.wg.Wait() // wait for the in-flight req to complete
+		return c, Shared
+	}
+	c = ba.addLocked(k)
+	ba.mu.Unlock()
+
+	c.Val, c.Err = once(arg)
 
 	c.wg.Done() // unblock all waiters
 	return c, Anew
