@@ -180,7 +180,7 @@ func (l *simpleLogger) incrStCount(id string) (c uint32) {
 // It may drop logs on high load (50% for conNorm, 80% for conErr).
 func (l *simpleLogger) fromConsole() {
 	for m := range l.msgC {
-		if m != nil && len(m.m) > 0 { // no msg
+		if m == nil || len(m.m) <= 0 { // no msg
 			continue
 		}
 		load := (len(l.msgC) / cap(l.msgC) * 100) // load percentage
