@@ -119,10 +119,13 @@ type Proxies interface {
 
 type proxifier struct {
 	sync.RWMutex
-	p      map[string]Proxy
-	ctl    protect.Controller
-	obs    x.ProxyListener
-	protos string
+	p        map[string]Proxy
+	exit     Proxy // exit proxy, never changes
+	base     Proxy // base proxy, never changes
+	grounded Proxy // grounded proxy, never changes
+	ctl      protect.Controller
+	obs      x.ProxyListener
+	protos   string
 }
 
 var _ x.Router = (*gw)(nil)
@@ -151,10 +154,20 @@ func NewProxifier(c protect.Controller, o x.ProxyListener) *proxifier {
 }
 
 func (px *proxifier) add(p Proxy) (ok bool) {
+	id := p.ID()
+	if local(id) { // fast path for immutable, reserved proxies
+		if id == Exit {
+			px.exit = p
+		} else if id == Base {
+			px.base = p
+		} else if id == Block {
+			px.grounded = p
+		}
+	}
+
 	px.Lock()
 	defer px.Unlock()
 
-	id := p.ID()
 	if pp := px.p[id]; pp != nil {
 		// new proxy, invoke Stop on old proxy
 		if pp != p {
@@ -191,6 +204,16 @@ func (px *proxifier) RemoveProxy(id string) bool {
 func (px *proxifier) ProxyFor(id string) (Proxy, error) {
 	if len(id) <= 0 {
 		return nil, errProxyNotFound
+	}
+
+	if local(id) { // fast path for immutable proxies
+		if id == Exit {
+			return px.exit, nil
+		} else if id == Base {
+			return px.base, nil
+		} else if id == Block {
+			return px.grounded, nil
+		}
 	}
 
 	// go.dev/play/p/xCug1W3OcMH
