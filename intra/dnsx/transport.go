@@ -290,7 +290,7 @@ func (r *resolver) LocalLookup(q []byte) ([]byte, error) {
 	}
 
 	// including dns64 and/or alg
-	ans, err := r.forward(q, CT+Default)
+	ans, err := r.forward(q, Default)
 	if defaultIsSystemDNS {
 		return ans, err
 	} // else: retry with Goos/System, if needed
@@ -298,7 +298,7 @@ func (r *resolver) LocalLookup(q []byte) ([]byte, error) {
 	// msg may be nil
 	if msg := xdns.AsMsg(ans); err != nil || xdns.IsNXDomain(msg) || !xdns.HasRcodeSuccess(msg) {
 		log.I("dns: nxdomain via Default (err? %v); using Goos for %s", err, xdns.QName(msg))
-		return r.forward(q, CT+Goos) // Goos is System; see: determineTransport
+		return r.forward(q, Goos) // Goos is System; see: determineTransport
 	} // else: rcode success and nil err; do not fallback on Goos/System
 	return ans, nil
 }
