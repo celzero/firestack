@@ -12,6 +12,7 @@ import (
 	"net"
 	"os"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/celzero/firestack/intra/core"
@@ -34,15 +35,16 @@ type sender interface {
 }
 
 type stats struct {
-	dxcount int
-	dur     time.Duration
-	start   time.Time
-	tx      int
-	rx      int
+	dur   time.Duration // set only once; on stop()
+	start time.Time     // set only once; on ctor
+
+	dxcount atomic.Uint32
+	tx      atomic.Uint32
+	rx      atomic.Uint32
 }
 
 func (s *stats) String() string {
-	return fmt.Sprintf("mux: tx: %d, rx: %d, conns: %d, dur: %s", s.tx, s.rx, s.dxcount, s.dur)
+	return fmt.Sprintf("mux: tx: %d, rx: %d, conns: %d, dur: %s", s.tx.Load(), s.rx.Load(), s.dxcount.Load(), s.dur)
 }
 
 // muxer muxes multiple connections grouped by remote addr over net.PacketConn
@@ -179,8 +181,7 @@ func (x *muxer) read() {
 
 		n, who, err := x.mxconn.ReadFrom(b)
 
-		// todo: fields in stats must be atomic
-		x.stats.tx += n // upload
+		x.stats.tx.Add(uint32(n)) // upload
 		if timedout(err) {
 			timeouterrors++
 			if timeouterrors < maxtimeouterrors {
@@ -218,7 +219,7 @@ func (x *muxer) route(raddr net.Addr) (*demuxconn, error) {
 			clos(conn)
 			return nil, errMuxerDone
 		case x.dxconns <- conn:
-			x.stats.dxcount++
+			x.stats.dxcount.Add(1)
 			x.routes[raddr.String()] = conn
 		}
 	}
@@ -235,7 +236,7 @@ func (x *muxer) unroute(c *demuxconn) {
 func (x *muxer) sendto(p []byte, addr net.Addr) (int, error) {
 	// on closed(x.doneCh), x.mxconn is closed and writes will fail
 	n, err := x.mxconn.WriteTo(p, addr)
-	x.stats.rx += n // download
+	x.stats.rx.Add(uint32(n)) // download
 	return n, err
 }
 
