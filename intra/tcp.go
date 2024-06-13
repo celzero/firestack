@@ -45,13 +45,16 @@ import (
 )
 
 type tcpHandler struct {
-	resolver    dnsx.Resolver
-	tunMode     *settings.TunMode
-	listener    SocketListener
-	prox        ipn.Proxies
-	fwtracker   *core.ExpMap
-	status      int
+	resolver    dnsx.Resolver   // resolver to forward dns requests to
+	listener    SocketListener  // listener for socket summaries
+	prox        ipn.Proxies     // proxy provider for egress
+	fwtracker   *core.ExpMap    // uid+dst(domainOrIP) -> blockSecs
 	conntracker core.ConnMapper // connid -> [local,remote]
+	tunMode     *settings.TunMode
+
+	// fields below are mutable
+
+	status *core.Volatile[int] // status of this handler
 }
 
 type ioinfo struct {
@@ -90,7 +93,7 @@ func NewTCPHandler(resolver dnsx.Resolver, prox ipn.Proxies, tunMode *settings.T
 		prox:        prox,
 		fwtracker:   core.NewExpiringMap(),
 		conntracker: core.NewConnMap(),
-		status:      TCPOK,
+		status:      core.NewVolatile(TCPOK),
 	}
 
 	log.I("tcp: new handler created")
@@ -142,7 +145,7 @@ func (h *tcpHandler) onFlow(localaddr, target netip.AddrPort, realips, domains, 
 }
 
 func (h *tcpHandler) End() error {
-	h.status = TCPEND
+	h.status.Store(TCPEND)
 	h.CloseConns(nil)
 	return nil
 }
@@ -172,7 +175,7 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target netip.AddrPort)
 		}
 	}()
 
-	if h.status == TCPEND {
+	if h.status.Load() == TCPEND {
 		// _, err = gconn.Connect(rst) // fin
 		log.D("tcp: proxy: end %v -> %v", src, target)
 		return deny

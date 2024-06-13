@@ -45,13 +45,16 @@ import (
 )
 
 type udpHandler struct {
-	resolver    dnsx.Resolver
+	resolver    dnsx.Resolver   // dns resolver to forward queries to
 	conntracker core.ConnMapper // connid -> [local,remote]
 	tunMode     *settings.TunMode
-	listener    SocketListener
-	prox        ipn.Proxies
-	fwtracker   *core.ExpMap
-	status      int
+	listener    SocketListener // listener for socket summaries
+	prox        ipn.Proxies    // proxy provider for egress
+	fwtracker   *core.ExpMap   // uid+dst(domainOrIP) -> blockSecs
+
+	// fields below are mutable
+
+	status *core.Volatile[int] // status of the handler
 }
 
 // rwext wraps net.Conn and extends deadline by
@@ -105,7 +108,7 @@ func NewUDPHandler(resolver dnsx.Resolver, prox ipn.Proxies, tunMode *settings.T
 		prox:        prox,
 		fwtracker:   core.NewExpiringMap(),
 		conntracker: core.NewConnMap(),
-		status:      UDPOK,
+		status:      core.NewVolatile(UDPOK),
 	}
 
 	log.I("udp: new handler created")
@@ -168,7 +171,7 @@ func (h *udpHandler) ProxyMux(gconn *netstack.GUDPConn, src netip.AddrPort) (ok 
 	// only ipn.Exit and ipn.Base support udp mux / packet conns
 	var invalidaddr = netip.AddrPort{}
 
-	if h.status == UDPEND {
+	if h.status.Load() == UDPEND {
 		// err := gconn.Connect(fin) // disconnect, no nat
 		log.D("udp: connect: mux: end listen(%v)", src)
 		clos(gconn)
@@ -214,17 +217,18 @@ func (h *udpHandler) ProxyMux(gconn *netstack.GUDPConn, src netip.AddrPort) (ok 
 	return true // ok
 }
 
-// Proxy implements netstack.GUDPConnHandler
+// Proxy implements netstack.GUDPConnHandler; thread-safe.
 func (h *udpHandler) Proxy(gconn *netstack.GUDPConn, src, dst netip.AddrPort) (ok bool) {
 	defer core.Recover(core.Exit11, "udp.Proxy")
 
 	return h.proxy(gconn, src, dst)
 }
 
+// proxy connects src to dst over a proxy; thread-safe.
 func (h *udpHandler) proxy(gconn net.Conn, src, dst netip.AddrPort) (ok bool) {
 	// const fin = true  // disconnect
-	const ack = false // connect
-	if h.status == UDPEND {
+	// const ack = false // connect
+	if h.status.Load() == UDPEND {
 		log.D("udp: connect: end")
 		clos(gconn) // disconnect, no nat
 		return      // not ok
@@ -381,7 +385,7 @@ func (h *udpHandler) Connect(gconn net.Conn, src, target netip.AddrPort) (dst co
 
 // End implements netstack.GUDPConnHandler
 func (h *udpHandler) End() error {
-	h.status = UDPEND
+	h.status.Store(UDPEND)
 	h.CloseConns(nil)
 	return nil
 }
