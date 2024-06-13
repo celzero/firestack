@@ -78,6 +78,11 @@ var _ netstack.GTCPConnHandler = (*tcpHandler)(nil)
 // All other traffic is forwarded using `dialer`.
 // `listener` is provided with a summary of each socket when it is closed.
 func NewTCPHandler(resolver dnsx.Resolver, prox ipn.Proxies, tunMode *settings.TunMode, ctl protect.Controller, listener SocketListener) netstack.GTCPConnHandler {
+	if listener == nil || core.IsNil(listener) {
+		log.W("tcp: using noop listener")
+		listener = nooplistener
+	}
+
 	h := &tcpHandler{
 		resolver:    resolver,
 		tunMode:     tunMode,
@@ -123,7 +128,7 @@ func (h *tcpHandler) onFlow(localaddr, target netip.AddrPort, realips, domains, 
 	active := hasActiveConn(h.conntracker, dst, realips, dport) // existing active conns denote dup
 	res := h.listener.Flow(proto, uid, active, src, dst, realips, domains, probableDomains, blocklists)
 
-	if res == nil {
+	if res == nil { // zeroListener returns nil
 		log.W("tcp: onFlow: empty res from kt; using base")
 		return optionsBase, active // true if dup
 	} else if len(res.PID) <= 0 {

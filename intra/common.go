@@ -238,3 +238,13 @@ func hasSelfUid(t []core.ConnTuple, d bool) bool {
 func clos(c ...net.Conn) {
 	core.CloseConn(c...)
 }
+
+// zeroListener is a no-op implementation of SocketListener.
+type zeroListener struct{}
+
+var _ SocketListener = (*zeroListener)(nil)
+
+func (*zeroListener) OnSocketClosed(*SocketSummary)                              {}
+func (*zeroListener) Flow(_ int32, _ int, _ bool, _, _, _, _, _, _ string) *Mark { return nil }
+
+var nooplistener = new(zeroListener)

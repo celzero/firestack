@@ -94,6 +94,10 @@ func (rw *rwext) Write(b []byte) (n int, err error) {
 // `config` is used to bind new external UDP ports.
 // `listener` receives a summary about each UDP binding when it expires.
 func NewUDPHandler(resolver dnsx.Resolver, prox ipn.Proxies, tunMode *settings.TunMode, ctl protect.Controller, listener SocketListener) netstack.GUDPConnHandler {
+	if listener == nil || core.IsNil(listener) {
+		log.W("udp: using noop listener")
+		listener = nooplistener
+	}
 	h := &udpHandler{
 		resolver:    resolver,
 		tunMode:     tunMode,
@@ -143,7 +147,7 @@ func (h *udpHandler) onFlow(localaddr, target netip.AddrPort, realips, domains, 
 	active := hasActiveConn(h.conntracker, dst, realips, dport) // existing active conn denotes dup
 	res := h.listener.Flow(proto, uid, active, src, dst, realips, domains, probableDomains, blocklists)
 
-	if res == nil {
+	if res == nil { // zeroListener returns nil
 		log.W("udp: onFlow: empty res from kt; optbase")
 		return optionsBase, active // true if dup
 	} else if len(res.PID) <= 0 {
