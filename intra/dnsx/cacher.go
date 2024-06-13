@@ -76,7 +76,6 @@ type ctransport struct {
 	Transport                         // the underlying transport
 	store        []*cache             // cache buckets
 	ipport       string               // a fake ip:port
-	status       int                  // status of this transport
 	ttl          time.Duration        // lifetime duration of a cached dns entry
 	halflife     time.Duration        // increment ttl on each read
 	bumps        int                  // max bumps in lifetime of a cached response
@@ -108,7 +107,6 @@ func NewCachingTransport(t Transport, ttl time.Duration) Transport {
 		Transport:  t,
 		store:      make([]*cache, defbuckets),
 		ipport:     "[fdaa:cac::ed:3]:53",
-		status:     Start,
 		ttl:        ttl,
 		halflife:   ttl / 2,
 		bumps:      defbumps,
