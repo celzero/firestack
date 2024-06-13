@@ -31,8 +31,10 @@ type socks5 struct {
 	rdial     *protect.RDial
 	hdl       *socks5handler
 	summaries map[*tx.UDPExchange]*ServerSummary
-	listener  ServerListener
-	status    int
+
+	// mutable fields below
+
+	status *core.Volatile[int] // SOK, SKO, END
 }
 
 type socks5handler struct {
@@ -74,12 +76,12 @@ func newSocks5Server(id, x string, ctl protect.Controller, listener ServerListen
 		hdl:       hdl,
 		listener:  listener,
 		summaries: make(map[*tx.UDPExchange]*ServerSummary),
-		status:    SOK,
+		status:    core.NewVolatile(SOK),
 	}, nil
 }
 
 func (h *socks5) Hop(p x.Proxy) error {
-	if h.status == END {
+	if h.status.Load() == END {
 		log.D("svcsocks5: hop: %s not running", h.ID())
 		return errServerEnd
 	}
@@ -98,14 +100,14 @@ func (h *socks5) Hop(p x.Proxy) error {
 }
 
 func (h *socks5) Start() error {
-	if h.status != END {
+	if h.status.Load() != END {
 		return errSvcRunning
 	}
-	h.status = SOK
+	h.status.Store(SOK)
 	go func() {
 		err := h.Server.ListenAndServe(h)
 		log.I("svcsocks5: %s exited; err? %v", h.ID(), err)
-		h.status = END
+		h.status.Store(END)
 	}()
 	log.I("svcsocks5: %s started %s", h.ID(), h.GetAddr())
 	return nil
@@ -113,7 +115,7 @@ func (h *socks5) Start() error {
 
 func (h *socks5) Stop() error {
 	err := h.Server.Shutdown()
-	h.status = END
+	h.status.Store(END)
 	log.I("svcsocks5: %s stopped; err? %v", h.ID(), err)
 	return err
 }
@@ -144,7 +146,7 @@ func (h *socks5) GetAddr() string {
 }
 
 func (h *socks5) Status() int {
-	return h.status
+	return h.status.Load()
 }
 
 func (h *socks5) Type() string {
@@ -276,7 +278,7 @@ func (h *socks5) tcphandle(s *tx.Server, ingress *net.TCPConn, r *tx.Request) (e
 		log.D("svcsocks5: proxy-tcp: %s; socks5-connect %s", cid, r.Address())
 
 		if err != nil {
-			h.status = SKO
+			h.status.Store(SKO)
 			log.E("svcsocks5: proxy-tcp: %s; connect %s; err: %v", cid, r.Address(), err)
 			return err
 		}
@@ -301,7 +303,7 @@ func (h *socks5) tcphandle(s *tx.Server, ingress *net.TCPConn, r *tx.Request) (e
 		log.D("svcsocks5: proxy-tcp via udp: %s; socks5-tcp-udp %s", h.ID(), r.Address())
 		caddr, err := r.UDP(ingress, s.ServerAddr)
 		if err != nil {
-			h.status = SKO
+			h.status.Store(SKO)
 			return err
 		}
 
@@ -455,7 +457,7 @@ func (h *socks5) Connect(r *tx.Request, w *net.TCPConn) (cid string, rc *net.TCP
 	raddr := w.RemoteAddr()
 	if raddr == nil {
 		log.W("svcsocks5: tcp: %s; err no remote addr", h.ID())
-		h.status = SKO
+		h.status.Store(SKO)
 		err = errNoAddr
 		return
 	}
@@ -463,7 +465,7 @@ func (h *socks5) Connect(r *tx.Request, w *net.TCPConn) (cid string, rc *net.TCP
 	var tc net.Conn // egress
 	cid, tc, err = h.dial("tcp", raddr.String(), r.Address())
 	if err != nil {
-		h.status = SKO
+		h.status.Store(SKO)
 
 		log.W("svcsocks5: tcp: %s; dial remote %s; err: %v", cid, r.Address(), err)
 		var p *tx.Reply
@@ -482,14 +484,14 @@ func (h *socks5) Connect(r *tx.Request, w *net.TCPConn) (cid string, rc *net.TCP
 	var ok bool
 	rc, ok = tc.(*net.TCPConn)
 	if !ok {
-		h.status = SKO
+		h.status.Store(SKO)
 		err = errNotTcp
 		return
 	}
 	laddr := rc.LocalAddr()
 	if laddr == nil {
 		log.W("svcsocks5: tcp: %s; err no local addr", cid, laddr)
-		h.status = SKO
+		h.status.Store(SKO)
 		err = errNoAddr
 		return
 	}

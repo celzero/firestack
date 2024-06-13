@@ -33,7 +33,10 @@ type httpx struct {
 	hdl      *httpxhandle
 	listener ServerListener
 	usetls   bool
-	status   int
+
+	// mutable fields below
+
+	status *core.Volatile[int] // status of the server
 }
 
 type httpxhandle struct {
@@ -91,7 +94,7 @@ func newHttpServer(id, x string, ctl protect.Controller, listener ServerListener
 		hdl:             hdl,
 		svc:             svc,
 		listener:        listener,
-		status:          SOK,
+		status:          core.NewVolatile(SOK),
 	}
 	hproxy.OnRequest().HandleConnectFunc(hx.routeConnect)
 	hproxy.OnRequest().DoFunc(hx.route)
@@ -256,7 +259,7 @@ func pipetcp(dst, src *net.TCPConn, ssu *ServerSummary, wg *sync.WaitGroup) {
 }
 
 func (h *httpx) Hop(p x.Proxy) error {
-	if h.status == END {
+	if h.status.Load() == END {
 		log.D("svchttp: hop: %s not running", h.ID())
 		return errServerEnd
 	}
@@ -276,19 +279,19 @@ func (h *httpx) Hop(p x.Proxy) error {
 }
 
 func (h *httpx) Start() error {
-	if h.status != END {
+	if h.status.Load() == END {
 		return errSvcRunning
 	}
-	h.status = SOK
+	h.status.Store(SOK)
 	go func() {
 		if h.usetls {
-			h.status = END
+			h.status.Store(END)
 			log.E("svchttp: %s cannot start; tls is unimplemented", h.ID())
 			return
 		}
 		err := h.svc.ListenAndServe()
 		log.I("svchttp: %s exited; err? %v", h.ID(), err)
-		h.status = END
+		h.status.Store(END)
 	}()
 	log.I("svchttp: %s started %s", h.ID(), h.GetAddr())
 	return nil
@@ -297,7 +300,7 @@ func (h *httpx) Start() error {
 func (h *httpx) Stop() error {
 	err := h.svc.Close()
 	// err := h.svc.Shutdown(context.Background())
-	h.status = END
+	h.status.Store(END)
 	log.I("svchttp: %s stopped; err? %v", h.ID(), err)
 	return err
 }
@@ -336,7 +339,7 @@ func (h *httpx) GetAddr() string {
 }
 
 func (h *httpx) Status() int {
-	return h.status
+	return h.status.Load()
 }
 
 func (h *httpx) Type() string {
