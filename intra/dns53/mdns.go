@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"net"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -233,11 +234,15 @@ type client struct {
 
 	oneshot bool
 
-	closed atomic.Int32
+	once sync.Once
+
+	// mutable fields
+
+	closed atomic.Bool // 0: open, 1: closed
 }
 
 func (c *client) str() string {
-	return fmt.Sprintf("use4/6? %t/%t; oneshot? %t; tracked %d; closed %d", c.use4, c.use6, c.oneshot, len(c.tracker), c.closed.Load())
+	return fmt.Sprintf("use4/6? %t/%t; oneshot? %t; tracked %d; closed %t", c.use4, c.use6, c.oneshot, len(c.tracker), c.closed.Load())
 }
 
 // newClient creates a new mdns unicast and multicast client
@@ -301,16 +306,18 @@ func (t *dnssd) newClient(oneshot bool) (*client, error) {
 
 // Close cleanups the client
 func (c *client) Close() error {
-	if !c.closed.CompareAndSwap(0, 1) {
+	if c.closed.Load() {
 		return nil // already closed
 	}
+	c.once.Do(func() {
+		c.closed.Store(true)
+		log.I("mdns: closing client %v", c.str())
 
-	log.I("mdns: closing client %v", c.str())
-
-	core.CloseUDP(c.unicast4)
-	core.CloseUDP(c.unicast6)
-	core.CloseUDP(c.multicast4)
-	core.CloseUDP(c.multicast6)
+		core.CloseUDP(c.unicast4)
+		core.CloseUDP(c.unicast6)
+		core.CloseUDP(c.multicast4)
+		core.CloseUDP(c.multicast6)
+	})
 
 	return nil
 }
@@ -347,6 +354,9 @@ func (c *client) query(qctx *qcontext) *dnsx.QueryError {
 	return nil
 }
 
+// listen listens for answers to the MDNS query, and sends them to qctx.ansch,
+// and stops listening after qctx.timeout or the client is closed.
+// Must be called from a goroutine.
 func (c *client) listen(qctx *qcontext) {
 	timesup := time.After(qctx.timeout)
 	qname := fmt.Sprintf("%s.%s.", qctx.svc, qctx.tld)
@@ -486,11 +496,11 @@ func (c *client) recv(conn *net.UDPConn) {
 	}()
 
 	raddr := conn.RemoteAddr()
-	for c.closed.Load() == 0 {
+	for !c.closed.Load() {
 		extend(conn, timeout)
 		n, err := conn.Read(buf)
 
-		if c.closed.Load() == 1 {
+		if c.closed.Load() {
 			log.W("mdns: recv: from(%v); closed; bytes(%d), err(%v)", raddr, n, err)
 			return
 		}
@@ -519,13 +529,15 @@ func (c *client) recv(conn *net.UDPConn) {
 	}
 }
 
+// untrack removes a name from the tracker;
+// name is NOT normalized. untrack is not thread safe.
 func (c *client) untrack(name string) {
 	log.V("mdns: tracker: rmv %s", name)
 	delete(c.tracker, name)
 }
 
 // track marks a name as being tracked by this client;
-// name is NOT normalized
+// name is NOT normalized. track is not thread safe.
 func (c *client) track(name string) *dnssdanswer {
 	if tse, ok := c.tracker[name]; ok {
 		log.VV("mdns: tracker: exists %s with %v", name, tse)
@@ -540,7 +552,7 @@ func (c *client) track(name string) *dnssdanswer {
 }
 
 // alias sets up mapping between two tracked entries;
-// src and dst are NOT normalized
+// src and dst are NOT normalized. alias is not thread safe.
 func (c *client) alias(src, dst string) {
 	if se, ok := c.tracker[dst]; ok {
 		log.VV("mdns: tracker: discard %v for %s; aliased to %s", se, dst, src)
