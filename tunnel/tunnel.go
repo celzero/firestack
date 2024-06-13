@@ -68,10 +68,12 @@ type gtunnel struct {
 	stack  *stack.Stack              // a tcpip stack
 	ep     netstack.SeamlessEndpoint // endpoint for the stack
 	hdl    netstack.GConnHandler     // tcp, udp, and icmp handlers
-	mtu    int                       // mtu of the tun device
 	pcapio *pcapsink                 // pcap output, if any
 	closed atomic.Bool               // open/close?
-	once   *sync.Once
+	once   sync.Once
+
+	// mutable fields
+	mtu *core.Volatile[int] // mtu of the tun device
 }
 
 type pcapsink struct {
@@ -163,7 +165,7 @@ func (p *pcapsink) log(y bool) bool {
 
 func (t *gtunnel) Mtu() int {
 	// return int(t.stack.NICInfo()[0].MTU)
-	return t.mtu
+	return t.mtu.Load()
 }
 
 func (t *gtunnel) wait() {
@@ -263,7 +265,7 @@ func NewGTunnel(fd, mtu int, tcph netstack.GTCPConnHandler, udph netstack.GUDPCo
 	}
 	netstack.Route(stack, settings.IP46) // always dual-stack
 
-	t = &gtunnel{stack, ep, hdl, mtu, sink, atomic.Bool{}, new(sync.Once)}
+	t = &gtunnel{stack, ep, hdl, sink, atomic.Bool{}, sync.Once{}, core.NewVolatile(0)}
 
 	// Enabled() may temporarily return false when Up() is in progress.
 	if err = netstack.Up(stack, ep, hdl); err != nil { // attach new endpoint
@@ -317,7 +319,7 @@ func (t *gtunnel) SetLink(fd, mtu int) error {
 	}
 
 	err = t.ep.Swap(dupfd, mtu) // swap fd and mtu
-	t.mtu = mtu
+	t.mtu.Store(mtu)
 
 	log.I("tun: new link; fd(%d), mtu(%d); err? %v", dupfd, mtu, err)
 	return err
