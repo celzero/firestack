@@ -12,6 +12,7 @@ import (
 	"io"
 	"net"
 	"net/url"
+	"sync"
 	"time"
 
 	x "github.com/celzero/firestack/intra/backend"
@@ -39,7 +40,7 @@ type socks5 struct {
 
 type socks5handler struct {
 	*tx.DefaultHandle
-	px ipn.Proxy
+	px *core.Volatile[ipn.Proxy]
 }
 
 func newSocks5Server(id, x string, ctl protect.Controller, listener ServerListener) (*socks5, error) {
@@ -63,6 +64,7 @@ func newSocks5Server(id, x string, ctl protect.Controller, listener ServerListen
 	remoteip := ""
 	hdl := &socks5handler{
 		DefaultHandle: &tx.DefaultHandle{}, // not used; see dial, TCPHandle, and UDPHandle
+		px:            core.NewZeroVolatile[ipn.Proxy](),
 	}
 	server, _ := tx.NewClassicServer(host, remoteip, usr, pwd, tcptimeoutsec, udptimeoutsec)
 
@@ -85,11 +87,11 @@ func (h *socks5) Hop(p x.Proxy) error {
 		log.D("svcsocks5: hop: %s not running", h.ID())
 		return errServerEnd
 	}
-	if p == nil {
-		h.hdl.px = nil
+	if p == nil || core.IsNil(p) {
+		h.hdl.px.Store(nil) // clear
 		tx.Dial = h.rdial
 	} else if pp, ok := p.(ipn.Proxy); ok {
-		h.hdl.px = pp
+		h.hdl.px.Store(pp)
 		tx.Dial = pp.Dialer()
 	} else {
 		log.E("svcsocks5: hop: %s; failed: %T not ipn.Proxy", h.ID(), p)
@@ -138,8 +140,7 @@ func (h *socks5) ID() string {
 }
 
 func (h *socks5) GetAddr() string {
-	px := h.hdl.px
-	if px != nil {
+	if px := h.hdl.px.Load(); px != nil && core.IsNotNil(px) {
 		return px.GetAddr()
 	}
 	return h.url
@@ -150,11 +151,10 @@ func (h *socks5) Status() int {
 }
 
 func (h *socks5) Type() string {
-	px := h.hdl.px
-	if px != nil {
-		return PXSOCKS5
+	if px := h.hdl.px.Load(); px != nil && core.IsNotNil(px) {
+		return PXSOCKS5 // proxied
 	}
-	return SVCSOCKS5
+	return SVCSOCKS5 // direct
 }
 
 // Implements tx.Handler
@@ -184,8 +184,7 @@ func (h *socks5) dial(network, src, dst string) (cid string, conn net.Conn, err 
 		err = errBlocked
 		return
 	}
-	px := h.hdl.px
-	if px != nil {
+	if px := h.hdl.px.Load(); px != nil && core.IsNotNil(px) {
 		conn, err = px.Dialer().Dial(network, dst)
 	} else {
 		conn, err = h.rdial.Dial(network, dst)
@@ -194,8 +193,7 @@ func (h *socks5) dial(network, src, dst string) (cid string, conn net.Conn, err 
 }
 
 func (h *socks5) pid() (x string) {
-	px := h.hdl.px
-	if px != nil {
+	if px := h.hdl.px.Load(); px != nil && core.IsNotNil(px) {
 		x = px.ID()
 	}
 	return
@@ -209,8 +207,7 @@ func (h *socks5) candial() error {
 	if h.Status() != END {
 		return errProxyEnd // no
 	}
-	px := h.hdl.px
-	if px != nil && px.Status() == ipn.END {
+	if px := h.hdl.px.Load(); px != nil && core.IsNotNil(px) && px.Status() == ipn.END {
 		return errProxyEnd // no
 	}
 	return nil // yes

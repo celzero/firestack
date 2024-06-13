@@ -41,7 +41,7 @@ type httpx struct {
 
 type httpxhandle struct {
 	*AuthHandle
-	px ipn.Proxy
+	px *core.Volatile[ipn.Proxy]
 }
 
 func newHttpServer(id, x string, ctl protect.Controller, listener ServerListener) (*httpx, error) {
@@ -62,6 +62,7 @@ func newHttpServer(id, x string, ctl protect.Controller, listener ServerListener
 	dialer := protect.MakeNsDialer(id, ctl)
 	hdl := &httpxhandle{
 		AuthHandle: &AuthHandle{usr: usr, pwd: pwd},
+		px:         core.NewZeroVolatile[ipn.Proxy](),
 	}
 	hproxy := tx.NewProxyHttpServer()
 	hproxy.Logger = log.Glogger
@@ -263,11 +264,11 @@ func (h *httpx) Hop(p x.Proxy) error {
 		log.D("svchttp: hop: %s not running", h.ID())
 		return errServerEnd
 	}
-	if p == nil {
-		h.hdl.px = nil
+	if p == nil || core.IsNil(p) {
+		h.hdl.px.Store(nil) // clear
 		h.ProxyHttpServer.Tr.DialContext = h.dialer.DialContext
 	} else if pp, ok := p.(ipn.Proxy); ok {
-		h.hdl.px = pp
+		h.hdl.px.Store(pp)
 		h.ProxyHttpServer.Tr.DialContext = pp.Dialer().DialContext
 	} else {
 		log.E("svchttp: hop: %s; failed: %T not ipn.Proxy", h.ID(), p)
@@ -319,8 +320,8 @@ func (h *httpx) Refresh() error {
 }
 
 func (h *httpx) pid() (x string) {
-	px := h.hdl.px
-	if px != nil {
+
+	if px := h.hdl.px.Load(); px != nil && core.IsNotNil(px) {
 		x = px.ID()
 	}
 	return
@@ -331,8 +332,7 @@ func (h *httpx) ID() string {
 }
 
 func (h *httpx) GetAddr() string {
-	px := h.hdl.px
-	if px != nil {
+	if px := h.hdl.px.Load(); px != nil && core.IsNotNil(px) {
 		return px.GetAddr()
 	}
 	return h.host
@@ -343,9 +343,8 @@ func (h *httpx) Status() int {
 }
 
 func (h *httpx) Type() string {
-	px := h.hdl.px
-	if px != nil {
-		return PXHTTP
+	if px := h.hdl.px.Load(); px != nil && core.IsNotNil(px) {
+		return PXHTTP // proxied
 	}
-	return SVCHTTP
+	return SVCHTTP // direct
 }
