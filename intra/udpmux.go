@@ -47,6 +47,7 @@ func (s *stats) String() string {
 
 // muxer muxes multiple connections grouped by remote addr over net.PacketConn
 type muxer struct {
+	// mxconn and stats are immutable (never reassigned)
 	mxconn core.UDPConn
 	stats  *stats
 
@@ -178,6 +179,7 @@ func (x *muxer) read() {
 
 		n, who, err := x.mxconn.ReadFrom(b)
 
+		// todo: fields in stats must be atomic
 		x.stats.tx += n // upload
 		if timedout(err) {
 			timeouterrors++

@@ -39,6 +39,8 @@ func (r *ring[T]) Push(v T) (ok bool) {
 	return
 }
 
+// process reads from the input channel and adds elements to the ring buffer.
+// Must be run in a goroutine.
 func (r *ring[T]) process() {
 	for v := range r.inC {
 		r.Lock()

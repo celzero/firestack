@@ -112,6 +112,7 @@ func NewUDPHandler(resolver dnsx.Resolver, prox ipn.Proxies, tunMode *settings.T
 	return h
 }
 
+// onFlow calls listener.Flow to determine egress rules and routes; thread-safe.
 func (h *udpHandler) onFlow(localaddr, target netip.AddrPort, realips, domains, probableDomains, blocklists string) (*Mark, bool) {
 	const dup = true
 	const notdup = !dup
@@ -269,8 +270,7 @@ func (h *udpHandler) proxy(gconn net.Conn, src, dst netip.AddrPort) (ok bool) {
 	return true // ok
 }
 
-// Connect connects the proxy server.
-// Note, target may be nil in lwip (deprecated) while it is always specified in netstack
+// Connect connects the proxy server; thread-safe.
 func (h *udpHandler) Connect(gconn net.Conn, src, target netip.AddrPort) (dst core.UDPConn, smm *SocketSummary, ct core.ConnTuple, err error) {
 	var px ipn.Proxy = nil
 	var pc io.Closer = nil
@@ -378,6 +378,7 @@ func (h *udpHandler) Connect(gconn net.Conn, src, target netip.AddrPort) (dst co
 	return dst, smm, ct, nil // connect
 }
 
+// End implements netstack.GUDPConnHandler
 func (h *udpHandler) End() error {
 	h.status = UDPEND
 	h.CloseConns(nil)

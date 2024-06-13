@@ -79,6 +79,7 @@ type pcapsink struct {
 	inC  chan []byte // always buffered
 }
 
+// nowrite rejects all writes.
 type nowrite struct{}
 
 func (*nowrite) Write([]byte) (int, error) { return 0, io.ErrClosedPipe }
@@ -211,11 +212,11 @@ func (t *gtunnel) Disconnect() {
 		p := t.pcapio
 		hdl := t.hdl
 
-		err0 := hdl.Close()
-		err1 := p.Close()
+		herr := hdl.Close()
+		perr := p.Close()
 		s.Destroy()
 		t.closed.Store(true)
-		log.I("tun: netstack closed; errs: %v / %v", err0, err1)
+		log.I("tun: netstack closed; errs: %v / %v", herr, perr)
 	})
 }
 
@@ -238,7 +239,7 @@ func (t *gtunnel) Write([]byte) (int, error) {
 
 func newSink() *pcapsink {
 	// go.dev/play/p/4qANL9VSDXb
-	p := &pcapsink{}
+	p := new(pcapsink)
 	p.sink = core.NewVolatile[io.WriteCloser](zerowriter)
 	p.log(false) // no log, which is enabled by default
 	p.inC = make(chan []byte, 128)

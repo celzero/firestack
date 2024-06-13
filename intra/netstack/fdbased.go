@@ -91,9 +91,9 @@ type endpoint struct {
 	caps stack.LinkEndpointCapabilities
 
 	// dispatches packets from the link FD (tun device)
-	// to the network stack.
+	// to the network stack. Protected by the endpoint's mutex.
 	inboundDispatcher linkDispatcher
-	// the nic this endpoint is attached to.
+	// the nic this endpoint is attached to. Protected by the endpoint's mutex.
 	dispatcher stack.NetworkDispatcher
 
 	// wg keeps track of running goroutines.

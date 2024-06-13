@@ -140,6 +140,7 @@ type processor struct {
 	closeWaker  sleep.Waker
 }
 
+// start starts the processor goroutine; thread-safe.
 func (p *processor) start(wg *sync.WaitGroup) {
 	// defer core.RecoverFn("ns.forwaders.start", p.e.notifyRestart)
 	defer core.Recover(core.Exit11, "ns.forwarder.start")
@@ -160,6 +161,7 @@ func (p *processor) start(wg *sync.WaitGroup) {
 	}
 }
 
+// deliverPackets delivers packets to the endpoint; thread-safe.
 func (p *processor) deliverPackets() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -293,6 +295,7 @@ func (m *supervisor) queuePacket(pkt *stack.PacketBuffer, hasEthHeader bool) {
 	m.ready[pIdx] = true // ready to deliver enqueued packets.
 }
 
+// stop stops all processor goroutines.
 func (m *supervisor) stop() {
 	if settings.Debug {
 		log.D("ns: tun(%d): forwarder: stopping %d procs", m.e.fd(), len(m.processors))

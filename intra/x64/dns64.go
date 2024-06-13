@@ -77,8 +77,8 @@ func newDns64() *dns64 {
 func (d *dns64) init() {
 	defer core.Recover(core.Exit11, "dns64.init")
 
-	err1 := d.ofOverlay()
-	err2 := d.ofLocal464()
+	err1 := d.ofOverlay()  // system resolver
+	err2 := d.ofLocal464() // emulated
 	if err1 != nil || err2 != nil {
 		log.W("dns64: err reg underlay(%v) / local(%v)", err1, err2)
 	}
@@ -90,6 +90,7 @@ func questionArpa64() *dns.Msg {
 	return msg
 }
 
+// register adds a new dns resolver to the dns64 map; thread-safe.
 func (d *dns64) register(id string) {
 	d.Lock()
 	defer d.Unlock()
@@ -289,6 +290,7 @@ func (d *dns64) ofLocal464() error {
 	return d.add(dnsx.Local464Resolver, localip64)
 }
 
+// add adds the nat64 prefixes to the dns64 map; thread-safe.
 func (d *dns64) add(serverid string, nat64 []net.IP) error {
 
 	if len(nat64) <= 0 {

@@ -454,7 +454,8 @@ func (proxy *DcMulti) Stop() error {
 	return nil
 }
 
-// refreshRoutes re-adds relay routes to all live/tracked servers
+// refreshRoutes re-adds relay routes to all live/tracked servers.
+// Must be called from a goroutine.
 func (proxy *DcMulti) refreshRoutes() {
 	defer core.Recover(core.Exit11, "dcmulti.refreshRoutes")
 

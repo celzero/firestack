@@ -151,6 +151,7 @@ func (h *tcpHandler) CloseConns(cids []string) (closed []string) {
 }
 
 // Proxy implements netstack.GTCPConnHandler
+// It must be called from a goroutine.
 func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target netip.AddrPort) (open bool) {
 	const allow bool = true  // allowed
 	const deny bool = !allow // blocked
@@ -247,6 +248,7 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target netip.AddrPort)
 	return deny
 }
 
+// handle connects to the target via the proxy, and pipes data between the src, target; thread-safe.
 func (h *tcpHandler) handle(px ipn.Proxy, src net.Conn, target netip.AddrPort, ct core.ConnTuple, smm *SocketSummary) (err error) {
 	var pc protect.Conn
 

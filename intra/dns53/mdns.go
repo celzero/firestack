@@ -466,7 +466,8 @@ func (c *client) send(q *dns.Msg) *dnsx.QueryError {
 	return nil
 }
 
-// recv forwards bytes to msgCh read from conn until error or shutdown
+// recv forwards bytes to msgCh read from conn until error or shutdown.
+// Must be called from a goroutine.
 func (c *client) recv(conn *net.UDPConn) {
 	if conn == nil {
 		return

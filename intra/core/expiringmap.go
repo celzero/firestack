@@ -109,6 +109,7 @@ func (m *ExpMap) Clear() int {
 }
 
 // reaper deletes expired keys.
+// Must always be called from a goroutine.
 func (m *ExpMap) reaper() {
 	m.Lock()
 	defer m.Unlock()

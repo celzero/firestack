@@ -267,6 +267,8 @@ func ParseProcNet(protocol string) ([]ProcNetEntry, error) {
 	return entries, nil
 }
 
+// cleanupPool removes entries from the pool that are older than cachettl.
+// Must be called from a goroutine.
 func cleanupPool() {
 	defer core.Recover(core.Exit11, "procfs.cleanupPool")
 

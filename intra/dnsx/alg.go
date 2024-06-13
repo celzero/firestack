@@ -155,6 +155,8 @@ func (t *dnsgateway) stop() {
 func (t *dnsgateway) querySecondary(t2 Transport, network string, msg *dns.Msg, out chan<- secans, in <-chan *dns.Msg) {
 	var r *dns.Msg
 	var err error
+
+	// result must not be reassigned
 	result := secans{
 		ips:     []*netip.Addr{},
 		summary: new(x.DNSSummary),
