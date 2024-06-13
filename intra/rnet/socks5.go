@@ -27,10 +27,13 @@ var _ tx.Handler = (*socks5)(nil)
 
 type socks5 struct {
 	*tx.Server
-	id        string
-	url       string
-	rdial     *protect.RDial
-	hdl       *socks5handler
+	id       string
+	url      string
+	rdial    *protect.RDial
+	hdl      *socks5handler
+	listener ServerListener
+
+	smu       sync.RWMutex // protects summaries
 	summaries map[*tx.UDPExchange]*ServerSummary
 
 	// mutable fields below
@@ -338,7 +341,9 @@ func (h *socks5) udphandle(s *tx.Server, addr *net.UDPAddr, pkt *tx.Datagram) (e
 		ueladdr := egress.RemoteConn.LocalAddr()
 		ueraddr := egress.RemoteConn.RemoteAddr()
 		uecaddr := egress.ClientAddr
-		ssu := h.summaries[egress]
+
+		ssu := h.getSummary(egress)
+
 		select {
 		case _, ok := <-ch:
 			return fmt.Errorf("udp addr %s not associated with tcp; ch ok? %t", src, ok)
@@ -387,11 +392,15 @@ func (h *socks5) udphandle(s *tx.Server, addr *net.UDPAddr, pkt *tx.Datagram) (e
 		ClientAddr: addr, // same as src
 		RemoteConn: rc,
 	}
-	h.summaries[egress] = ssu
+
+	h.setSummary(egress, ssu)
+
 	log.D("svcsocks5: udp: %s; remote conn for client: %s server: %s remote: %s", cid, addr, egress.RemoteConn.LocalAddr(), pkt.Address())
 	if err := send(egress, pkt.Data); err != nil {
 		log.E("svcsocks5: udp: %s; send pkt %d to remote: %s; err %v", cid, len(pkt.Data), egress.RemoteConn.RemoteAddr(), err)
-		delete(h.summaries, egress)
+
+		h.delSummary(egress)
+
 		clos(egress.RemoteConn) // TODO: clos(egress) instead?
 		return err
 	}
@@ -402,7 +411,7 @@ func (h *socks5) udphandle(s *tx.Server, addr *net.UDPAddr, pkt *tx.Datagram) (e
 		b := *bptr
 		b = b[:cap(b)]
 		defer func() {
-			delete(h.summaries, ue)
+			h.delSummary(ue)
 
 			clos(ue.RemoteConn)
 			s.UDPExchanges.Delete(src + dst)
@@ -516,4 +525,25 @@ func (h *socks5) Connect(r *tx.Request, w *net.TCPConn) (cid string, rc *net.TCP
 		return
 	}
 	return
+}
+
+func (h *socks5) getSummary(c *tx.UDPExchange) *ServerSummary {
+	h.smu.RLock()
+	defer h.smu.RUnlock()
+
+	return h.summaries[c]
+}
+
+func (h *socks5) setSummary(c *tx.UDPExchange, s *ServerSummary) {
+	h.smu.Lock()
+	defer h.smu.Unlock()
+
+	h.summaries[c] = s
+}
+
+func (h *socks5) delSummary(c *tx.UDPExchange) {
+	h.smu.Lock()
+	defer h.smu.Unlock()
+
+	delete(h.summaries, c)
 }
