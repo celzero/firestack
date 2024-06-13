@@ -58,20 +58,21 @@ func NewICMPHandler(resolver dnsx.Resolver, prox ipn.Proxies, tunMode *settings.
 
 func (h *icmpHandler) onFlow(source, target netip.AddrPort, realips, domains, probableDomains, blocklists string) (pid, cid string, block bool) {
 	// BlockModeNone returns false, BlockModeSink returns true
-	if h.tunMode.BlockMode == settings.BlockModeSink {
+	blockmode := h.tunMode.BlockMode.Load()
+	if blockmode == settings.BlockModeSink {
 		pid = ipn.Block
 		block = true
 		return
 	}
 	// todo: block-mode none should call into listener.Flow to determine upstream proxy
-	if h.tunMode.BlockMode == settings.BlockModeNone {
+	if blockmode == settings.BlockModeNone {
 		pid = ipn.Base
 		block = false
 		return
 	}
 
 	uid := -1
-	if h.tunMode.BlockMode == settings.BlockModeFilterProc {
+	if blockmode == settings.BlockModeFilterProc {
 		procEntry := netstat.FindProcNetEntry("icmp", source, target)
 		if procEntry != nil {
 			uid = procEntry.UserID

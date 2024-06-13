@@ -116,12 +116,13 @@ func NewUDPHandler(resolver dnsx.Resolver, prox ipn.Proxies, tunMode *settings.T
 func (h *udpHandler) onFlow(localaddr, target netip.AddrPort, realips, domains, probableDomains, blocklists string) (*Mark, bool) {
 	const dup = true
 	const notdup = !dup
+	blockmode := h.tunMode.BlockMode.Load()
 	// BlockModeNone returns false, BlockModeSink returns true
-	if h.tunMode.BlockMode == settings.BlockModeSink {
+	if blockmode == settings.BlockModeSink {
 		return optionsBlock, notdup
 	}
 	// todo: block-mode none should call into listener.Flow to determine upstream proxy
-	if h.tunMode.BlockMode == settings.BlockModeNone {
+	if blockmode == settings.BlockModeNone {
 		return optionsBase, notdup
 	}
 
@@ -137,7 +138,7 @@ func (h *udpHandler) onFlow(localaddr, target netip.AddrPort, realips, domains, 
 
 	// Implict: BlockModeFilter or BlockModeFilterProc
 	uid := -1
-	if h.tunMode.BlockMode == settings.BlockModeFilterProc {
+	if blockmode == settings.BlockModeFilterProc {
 		procEntry := netstat.FindProcNetEntry("udp", localaddr, target)
 		if procEntry != nil {
 			uid = procEntry.UserID

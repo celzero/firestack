@@ -472,7 +472,7 @@ func (r *resolver) determineTransport(id string) Transport {
 		id0 = Local
 	} else if id == Alg {
 		// if no firewall is setup, alg isn't possible
-		if r.tunmode.BlockMode == settings.BlockModeNone {
+		if r.tunmode.BlockMode.Load() == settings.BlockModeNone {
 			id0 = CT + Preferred
 		} else {
 			id0 = CT + BlockFree

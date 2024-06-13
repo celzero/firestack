@@ -97,13 +97,15 @@ func NewTCPHandler(resolver dnsx.Resolver, prox ipn.Proxies, tunMode *settings.T
 	return h
 }
 
+// onFlow calls listener.Flow to determine egress rules and routes; thread-safe.
 func (h *tcpHandler) onFlow(localaddr, target netip.AddrPort, realips, domains, probableDomains, blocklists string) (*Mark, bool) {
 	const dup = true
 	const notdup = !dup
+	blockmode := h.tunMode.BlockMode.Load()
 	// BlockModeNone returns false, BlockModeSink returns true
-	if h.tunMode.BlockMode == settings.BlockModeSink {
+	if blockmode == settings.BlockModeSink {
 		return optionsBlock, notdup
-	} else if h.tunMode.BlockMode == settings.BlockModeNone {
+	} else if blockmode == settings.BlockModeNone {
 		// todo: block-mode none should call into listener.Flow to determine upstream proxy
 		return optionsBase, notdup
 	}
@@ -114,7 +116,7 @@ func (h *tcpHandler) onFlow(localaddr, target netip.AddrPort, realips, domains, 
 
 	// Implict: BlockModeFilter or BlockModeFilterProc
 	uid := -1
-	if h.tunMode.BlockMode == settings.BlockModeFilterProc {
+	if blockmode == settings.BlockModeFilterProc {
 		procEntry := netstat.FindProcNetEntry("tcp", localaddr, target)
 		if procEntry != nil {
 			uid = procEntry.UserID

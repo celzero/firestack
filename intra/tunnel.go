@@ -80,7 +80,7 @@ type Tunnel interface {
 	// If len(fpcap) is 1, PCAP be written to stdout.
 	SetPcap(fpcap string) error
 	// Set DNSMode, BlockMode, PtMode.
-	SetTunMode(dnsmode, blockmode, ptmode int)
+	SetTunMode(dnsmode, blockmode, ptmode int32)
 }
 
 type rtunnel struct {
@@ -239,6 +239,6 @@ func (t *rtunnel) GetServices() (rnet.Services, error) {
 	return t.services, nil
 }
 
-func (t *rtunnel) SetTunMode(dnsmode, blockmode, ptmode int) {
+func (t *rtunnel) SetTunMode(dnsmode, blockmode, ptmode int32) {
 	t.tunmode.SetMode(dnsmode, blockmode, ptmode)
 }
