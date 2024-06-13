@@ -35,6 +35,7 @@ import (
 	"fmt"
 	golog "log"
 	"os"
+	"reflect"
 	"runtime"
 	"strings"
 	"sync"
@@ -64,7 +65,7 @@ type simpleLogger struct {
 	sync.Mutex // guards stcount
 	level      LogLevel
 	tag        string
-	c          Console           // may be nil
+	c          atomic.Value      // Console
 	clevel     LogLevel          // may be different from level
 	msgC       chan *conMsg      // never closed
 	stcount    map[string]uint32 // stack trace counter for identical traces
@@ -157,7 +158,12 @@ func (l *simpleLogger) SetConsoleLevel(n LogLevel) {
 // SetConsole sets the external log console.
 func (l *simpleLogger) SetConsole(c Console) {
 	l.clearStCounts()
-	l.c = c
+
+	if c == nil || isNil(c) {
+		l.c = atomic.Value{}
+	} else {
+		l.c.Store(c)
+	}
 }
 
 func (l *simpleLogger) clearStCounts() {
@@ -178,13 +184,14 @@ func (l *simpleLogger) incrStCount(id string) (c uint32) {
 
 // fromConsole sends msgs from l.msgC to external log console.
 // It may drop logs on high load (50% for conNorm, 80% for conErr).
+// Must be called once from a goroutine.
 func (l *simpleLogger) fromConsole() {
 	for m := range l.msgC {
 		if m == nil || len(m.m) <= 0 { // no msg
 			continue
 		}
 		load := (len(l.msgC) / cap(l.msgC) * 100) // load percentage
-		if c := l.c; c != nil {                   // look for l.c on every msg
+		if c := l.getConsole(); c != nil {        // look for l.c on every msg
 			switch m.t {
 			case NONE:
 				// drop
@@ -229,7 +236,7 @@ func (l *simpleLogger) Usr(msg string) {
 		if count := l.incrStCount(msg); count > similarUsrMsgThreshold {
 			return
 		}
-		if c := l.c; c != nil {
+		if c := l.getConsole(); c != nil {
 			c.Log(int32(USR), msg)
 		} else {
 			l.toConsole(&conMsg{msg, USR})
@@ -323,13 +330,14 @@ func (l *simpleLogger) Fatalf(at int, msg string, args ...any) {
 func (l *simpleLogger) emitStack(at int, msgs ...string) {
 	sendtoconsole := at == 0
 
+	c := l.getConsole()
 	for _, msg := range msgs {
 		if len(msg) <= 0 {
 			continue
 		}
 		if !sendtoconsole {
 			l.err(at+1, msg)
-		} else if c := l.c; c != nil {
+		} else if c != nil {
 			// c.Stack() on the same go routine, since
 			// the caller (ex: core.Recover) may exit
 			// immediately once simpleLogger.Stack() returns
@@ -342,6 +350,15 @@ func (l *simpleLogger) emitStack(at int, msgs ...string) {
 			l.drops.Add(1)
 		}
 	}
+}
+
+// getConsole returns the external log console, if any; else nil.
+func (l *simpleLogger) getConsole() Console {
+	v := l.c.Load()
+	if c, ok := v.(Console); ok && c != nil && isNotNil(c) {
+		return c
+	}
+	return nil
 }
 
 func (l *simpleLogger) Stack(at int, msg string, scratch []byte) {
@@ -408,4 +425,27 @@ func (l *simpleLogger) out(at int, msg string) {
 func (l *simpleLogger) err(at int, msg string) {
 	_ = l.e.Output(at, msg) // may error
 	l.q.Push(msg)
+}
+
+// from: core/closer.go
+
+func isNotNil(x any) bool {
+	return !isNil(x)
+}
+
+// isNil reports whether x is nil if its Chan, Func, Map,
+// Pointer, UnsafePointer, Interface, and Slice;
+// may panic if x is not addressable
+func isNil(x any) bool {
+	// from: stackoverflow.com/a/76595928
+	if x == nil {
+		return true
+	}
+	v := reflect.ValueOf(x)
+	k := v.Kind()
+	switch k {
+	case reflect.Pointer, reflect.UnsafePointer, reflect.Interface, reflect.Chan, reflect.Func, reflect.Map, reflect.Slice:
+		return v.IsNil()
+	}
+	return false
 }
