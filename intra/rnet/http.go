@@ -24,8 +24,9 @@ import (
 	tx "github.com/elazarl/goproxy"
 )
 
+type dialContextFn func(context.Context, string, string) (net.Conn, error)
+
 type httpx struct {
-	*tx.ProxyHttpServer
 	id       string
 	host     string
 	dialer   *net.Dialer
@@ -35,6 +36,8 @@ type httpx struct {
 	usetls   bool
 
 	// mutable fields below
+	sync.Mutex          // protects tx.ProxyHttpServer
+	*tx.ProxyHttpServer // changed by Hop()
 
 	status *core.Volatile[int] // status of the server
 }
@@ -67,7 +70,7 @@ func newHttpServer(id, x string, ctl protect.Controller, listener ServerListener
 	hproxy := tx.NewProxyHttpServer()
 	hproxy.Logger = log.Glogger
 	hproxy.Tr = &http.Transport{
-		Dial:                  dialer.Dial,
+		DialContext:           dialer.DialContext, // overriden by Hop()
 		ForceAttemptHTTP2:     true,
 		TLSHandshakeTimeout:   10 * time.Second,
 		ResponseHeaderTimeout: 20 * time.Second,
@@ -264,19 +267,30 @@ func (h *httpx) Hop(p x.Proxy) error {
 		log.D("svchttp: hop: %s not running", h.ID())
 		return errServerEnd
 	}
+
+	dialer := h.dialer.DialContext
 	if p == nil || core.IsNil(p) {
 		h.hdl.px.Store(nil) // clear
-		h.ProxyHttpServer.Tr.DialContext = h.dialer.DialContext
+		// h.ProxyHttpServer.Tr.DialContext = h.dialer.DialContext
 	} else if pp, ok := p.(ipn.Proxy); ok {
 		h.hdl.px.Store(pp)
-		h.ProxyHttpServer.Tr.DialContext = pp.Dialer().DialContext
+		dialer = pp.Dialer().DialContext
 	} else {
 		log.E("svchttp: hop: %s; failed: %T not ipn.Proxy", h.ID(), p)
 		return errNotProxy
 	}
 
 	log.D("svchttp: hop: %s over proxy? %t via %s", h.ID(), p != nil, h.GetAddr())
+
+	h.swap(dialer)
 	return nil
+}
+
+func (h *httpx) swap(f dialContextFn) {
+	h.Lock()
+	defer h.Unlock()
+	// todo: reads are not synchronized!
+	h.ProxyHttpServer.Tr.DialContext = f
 }
 
 func (h *httpx) Start() error {

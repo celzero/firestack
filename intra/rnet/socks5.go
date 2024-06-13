@@ -27,6 +27,8 @@ var _ tx.Handler = (*socks5)(nil)
 
 type socks5 struct {
 	*tx.Server
+	sync.Mutex // protects tx.Dial
+
 	id       string
 	url      string
 	rdial    *protect.RDial
@@ -46,13 +48,19 @@ type socks5handler struct {
 	px *core.Volatile[ipn.Proxy]
 }
 
+// newSocks5Server creates a new socks5 server with the given id, url, controller, and listener.
+// It should not be used if ipn/socks5 is also active.
 func newSocks5Server(id, x string, ctl protect.Controller, listener ServerListener) (*socks5, error) {
 	var host string
 	var usr string
 	var pwd string
 
 	rdial := protect.MakeNsRDial(id, ctl)
-	tx.Dial = rdial // overriden by h.Hop
+	if _, ok := tx.Dial.(*protect.RDial); !ok {
+		tx.Dial = rdial // overriden by h.Hop; conflicts with ipn/socks5
+	} else {
+		log.W("svcsocks5: new %s; tx.Dial already set", id)
+	}
 
 	u, err := url.Parse(x)
 	if err != nil {
@@ -90,18 +98,29 @@ func (h *socks5) Hop(p x.Proxy) error {
 		log.D("svcsocks5: hop: %s not running", h.ID())
 		return errServerEnd
 	}
+
+	dialer := h.rdial
 	if p == nil || core.IsNil(p) {
 		h.hdl.px.Store(nil) // clear
-		tx.Dial = h.rdial
+		// dialer = h.rdial
 	} else if pp, ok := p.(ipn.Proxy); ok {
 		h.hdl.px.Store(pp)
-		tx.Dial = pp.Dialer()
+		dialer = pp.Dialer()
 	} else {
 		log.E("svcsocks5: hop: %s; failed: %T not ipn.Proxy", h.ID(), p)
 		return errNotProxy
 	}
 	log.D("svcsocks5: hop: %s over proxy? %t via %s", h.ID(), p != nil, h.GetAddr())
+
+	h.swap(dialer)
 	return nil
+}
+
+func (h *socks5) swap(d *protect.RDial) {
+	h.Lock()
+	defer h.Unlock()
+	// todo: reads are not synchronized!
+	tx.Dial = d
 }
 
 func (h *socks5) Start() error {
