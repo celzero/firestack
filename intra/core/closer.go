@@ -179,3 +179,7 @@ func IsNil(x any) bool {
 	}
 	return false
 }
+
+func TypeEq(a, b any) bool {
+	return reflect.TypeOf(a) == reflect.TypeOf(b)
+}
