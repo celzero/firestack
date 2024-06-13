@@ -47,9 +47,11 @@ type piph2 struct {
 	proxydialer   *protect.RDial // h2 dialer
 	hc            *http.Client   // exported http client
 	rd            *protect.RDial // exported dialer
-	lastdial      time.Time      // last dial time
-	status        int            // proxy status: TOK, TKO, END
 	opts          *settings.ProxyOptions
+
+	// mutable fields
+	lastdial *core.Volatile[time.Time] // last dial time
+	status   *core.Volatile[int]       // proxy status: TOK, TKO, END
 }
 
 // github.com/posener/h2conn/blob/13e7df33ed1/conn.go
@@ -191,7 +193,8 @@ func NewPipProxy(id string, ctl protect.Controller, po *settings.ProxyOptions) (
 		token:       po.Auth.User,
 		toksig:      po.Auth.Password,
 		rsasig:      rsasig,
-		status:      TUP,
+		status:      core.NewVolatile(TUP),
+		lastdial:    core.NewVolatile(time.Time{}),
 		opts:        po,
 	}
 	t.rd = newRDial(t)
@@ -242,15 +245,16 @@ func (*piph2) Router() x.Router {
 }
 
 func (t *piph2) Stop() error {
-	t.status = END
+	t.status.Store(END)
 	return nil
 }
 
 func (t *piph2) Status() int {
-	if t.status != END && idling(t.lastdial) {
+	st := t.status.Load()
+	if st != END && idling(t.lastdial.Load()) {
 		return TZZ
 	}
-	return t.status
+	return st
 }
 
 // Scenario 4: privacypass.github.io/protocol
@@ -265,7 +269,7 @@ func (t *piph2) claim(msg string) []string {
 
 // Dial implements Proxy.
 func (t *piph2) Dial(network, addr string) (protect.Conn, error) {
-	if t.status == END {
+	if t.status.Load() == END {
 		return nil, errProxyStopped
 	}
 	if network != "tcp" {
@@ -306,7 +310,7 @@ func (t *piph2) Dial(network, addr string) (protect.Conn, error) {
 
 	if err != nil {
 		log.E("piph2: req err: %v", err)
-		t.status = TKO
+		t.status.Store(TKO)
 		closePipe(readable, writable)
 		return nil, err
 	}
@@ -396,7 +400,7 @@ func (t *piph2) Dial(network, addr string) (protect.Conn, error) {
 		// req.Header.Set("x-nile-pip-msg", msg)
 	}
 
-	t.lastdial = time.Now()
+	t.lastdial.Store(time.Now())
 	core.Go("piph2.Dial", func() {
 		// fixme: currently, this hangs forever when upstream is cloudflare
 		// setting the content-length to the first len(first-write-bytes) works
@@ -407,30 +411,30 @@ func (t *piph2) Dial(network, addr string) (protect.Conn, error) {
 		res, err := t.client.Do(req)
 		if err != nil || res == nil {
 			log.E("piph2: path(%s) send err: %v", u.Path, err)
-			t.status = TKO
+			t.status.Store(TKO)
 			incomingCh <- nil
 			closePipe(readable, writable)
 		} else if res.StatusCode != http.StatusOK {
 			log.E("piph2: path(%s) recv bad: %v", u.Path, res.Status)
 			core.Close(res.Body)
-			t.status = TKO
+			t.status.Store(TKO)
 			incomingCh <- nil
 			closePipe(readable, writable)
 		} else {
 			log.D("piph2: duplex %s", u.String())
 			// github.com/posener/h2conn/blob/13e7df33ed1/client.go
 			res.Request = req
-			t.status = TOK
+			t.status.Store(TOK)
 			incomingCh <- res.Body
 		}
 	})
 
-	t.status = TOK
+	t.status.Store(TOK)
 	return oconn, nil
 }
 
 func (h *piph2) fetch(req *http.Request) (*http.Response, error) {
-	stopped := h.status == END
+	stopped := h.status.Load() == END
 	if stopped {
 		return nil, errProxyStopped
 	}
