@@ -318,7 +318,7 @@ func (px *proxifier) RefreshProto(l3 string) {
 			// -> ipn.ProxyFor -> px.Lock() -> deadlock
 			if cfg, readd := curp.onProtoChange(); readd {
 				// px.addProxy -> px.add -> px.Lock() -> deadlock
-				_, err := px.addProxy(curp.ID(), cfg)
+				_, err := px.addProxy(id, cfg)
 				log.I("proxy: refreshProto (%s/%s/%s) re-add; err? %v", id, curp.Type(), curp.GetAddr(), err)
 			}
 		})

@@ -103,15 +103,21 @@ type ansMulti struct {
 // TODO: Keep a context here so that queries can be canceled.
 type dnsgateway struct {
 	sync.RWMutex                     // locks alg, nat, octets, hexes
-	mod          atomic.Bool         // modify realip to algip
 	alg          map[string]*ans     // domain+type -> ans
 	nat          map[netip.Addr]*ans // algip -> ans
 	ptr          map[netip.Addr]*ans // realip -> ans
-	rdns         RdnsResolver        // local and remote rdns blocks
-	dns64        NatPt               // dns64/nat64
 	octets       []uint8             // ip4 octets, 100.x.y.z
 	hexes        []uint16            // ip6 hex, 64:ff9b:1:da19:0100.x.y.z
-	chash        bool                // use consistent hashing to generae alg ips
+
+	// fields below are never reassigned
+
+	rdns  RdnsResolver // local and remote rdns blocks
+	dns64 NatPt        // dns64/nat64
+	chash bool         // use consistent hashing to generae alg ips
+
+	// fields below are mutable
+
+	mod atomic.Bool // modify realip to algip
 }
 
 var _ Gateway = (*dnsgateway)(nil)

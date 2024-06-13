@@ -35,7 +35,7 @@ func (a *Volatile[T]) Load() (t T) {
 	return
 }
 
-// Store stores the value t; creates a new Volatile if a or t is nil.
+// Store stores the value t; creates a new Volatile[T] if t is nil.
 func (a *Volatile[T]) Store(t T) {
 	if a == nil {
 		return
@@ -49,7 +49,7 @@ func (a *Volatile[T]) Store(t T) {
 }
 
 // Cas compares and swaps the value of a with new, returns true if the value was swapped.
-// If new is nil, returns true; and sets a to zero value.
+// If new is nil, returns true; and sets a to a new Volatile[T].
 func (a *Volatile[T]) Cas(old, new T) (ok bool) {
 	if a == nil || !TypeEq(old, new) {
 		return
@@ -64,7 +64,7 @@ func (a *Volatile[T]) Cas(old, new T) (ok bool) {
 }
 
 // Swap swaps the value of a with new, returns the old value.
-// If a or new are nil, returns true; and sets a to zero value.
+// If a or new are nil, returns true; and sets a to a new Volatile[T].
 func (a *Volatile[T]) Swap(new T) (old T) {
 	if a == nil {
 		return
