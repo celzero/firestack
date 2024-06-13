@@ -87,9 +87,8 @@ func chooseAny[T any](s []T) T {
 	return s[rand.Intn(len(s))]
 }
 
-func udpExchange(pid string, serverInfo *serverinfo, sharedKey *[32]byte, encryptedQuery []byte, clientNonce []byte) (res []byte, relay net.Addr, err error) {
+func udpExchange(pid string, serverInfo *serverinfo, relayAddrs []*net.UDPAddr, sharedKey *[32]byte, encryptedQuery []byte, clientNonce []byte) (res []byte, relay net.Addr, err error) {
 	upstreamAddr := serverInfo.UDPAddr
-	relayAddrs := serverInfo.RelayUDPAddrs
 	userelay := len(relayAddrs) > 0
 	if userelay {
 		upstreamAddr = chooseAny(relayAddrs)
@@ -140,9 +139,8 @@ func udpExchange(pid string, serverInfo *serverinfo, sharedKey *[32]byte, encryp
 	return
 }
 
-func tcpExchange(pid string, serverInfo *serverinfo, sharedKey *[32]byte, encryptedQuery []byte, clientNonce []byte) (res []byte, relay net.Addr, err error) {
+func tcpExchange(pid string, serverInfo *serverinfo, relayAddrs []*net.TCPAddr, sharedKey *[32]byte, encryptedQuery []byte, clientNonce []byte) (res []byte, relay net.Addr, err error) {
 	upstreamAddr := serverInfo.TCPAddr
-	relayAddrs := serverInfo.RelayTCPAddrs
 	userelay := len(relayAddrs) > 0
 	if userelay {
 		upstreamAddr = chooseAny(relayAddrs)
@@ -233,30 +231,33 @@ func query(pid string, packet *dns.Msg, serverInfo *serverinfo, useudp bool) (an
 		return // nil ans
 	}
 
+	tcprelays := serverInfo.RelayTCPAddrs.Load() // may return nil
+	udprelays := serverInfo.RelayUDPAddrs.Load() // may return nil
+	usetcprelay := len(tcprelays) > 0
 	if serverInfo.Proto == stamps.StampProtoTypeDNSCrypt {
-		sharedKey, encryptedQuery, clientNonce, cerr := encrypt(serverInfo, query, useudp)
+		sharedKey, encryptedQuery, clientNonce, cerr := encrypt(serverInfo, query, useudp, usetcprelay)
 
 		if cerr != nil {
-			log.W("dnscrypt: enc fail forwarding to %s", serverInfo)
+			log.W("dnscrypt: enc fail forwarding to %s; udp? %t, relay? %t", serverInfo, useudp, usetcprelay)
 			qerr = dnsx.NewInternalQueryError(cerr)
 			return // nil ans
 		}
 
 		if useudp {
-			response, relay, err = udpExchange(pid, serverInfo, sharedKey, encryptedQuery, clientNonce)
+			response, relay, err = udpExchange(pid, serverInfo, udprelays, sharedKey, encryptedQuery, clientNonce)
 		}
 		tcpfallback := useudp && err != nil
 		if tcpfallback {
-			log.D("dnscrypt: udp failed, trying tcp")
+			log.D("dnscrypt: udp failed, trying tcp; relay? %t", usetcprelay)
 		}
 		// if udp errored out, try over tcp; or use tcp if udp is disabled
 		if tcpfallback || !useudp {
 			useudp = false // switched to tcp
-			response, relay, err = tcpExchange(pid, serverInfo, sharedKey, encryptedQuery, clientNonce)
+			response, relay, err = tcpExchange(pid, serverInfo, tcprelays, sharedKey, encryptedQuery, clientNonce)
 		}
 
 		if err != nil {
-			log.W("dnscrypt: querying [udp? %t; tcpfallback?: %t] failed: %v", useudp, tcpfallback, err)
+			log.W("dnscrypt: querying [udp? %t; tcpfallback?: %t; relay? %t] failed: %v", useudp, tcpfallback, usetcprelay, err)
 			qerr = dnsx.NewSendFailedQueryError(err)
 			return // nil ans
 		}
@@ -469,8 +470,8 @@ func (proxy *DcMulti) refreshRoutes() {
 			continue
 		}
 		// udp, tcp may be empty or nil; which means no relay
-		x.RelayUDPAddrs = udp
-		x.RelayTCPAddrs = tcp
+		x.RelayUDPAddrs.Store(udp)
+		x.RelayTCPAddrs.Store(tcp)
 		n++
 	}
 	log.I("dnscrypt: refreshRoutes: %d/%d for %d servers", len(udp), len(tcp), n)
