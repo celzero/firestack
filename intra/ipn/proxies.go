@@ -145,9 +145,13 @@ func NewProxifier(c protect.Controller, o x.ProxyListener) *proxifier {
 		obs:    o,
 		protos: settings.IP46, // assume all routes ok (fail open)
 	}
-	pxr.add(NewExitProxy(c))  // fixed
-	pxr.add(NewBaseProxy(c))  // fixed
-	pxr.add(NewGroundProxy()) // fixed
+
+	pxr.exit = NewExitProxy(c)
+	pxr.base = NewBaseProxy(c)
+	pxr.grounded = NewGroundProxy()
+	pxr.add(pxr.exit)     // fixed
+	pxr.add(pxr.base)     // fixed
+	pxr.add(pxr.grounded) // fixed
 	log.I("proxy: new")
 
 	return pxr
@@ -155,14 +159,9 @@ func NewProxifier(c protect.Controller, o x.ProxyListener) *proxifier {
 
 func (px *proxifier) add(p Proxy) (ok bool) {
 	id := p.ID()
-	if local(id) { // fast path for immutable, reserved proxies
-		if id == Exit {
-			px.exit = p
-		} else if id == Base {
-			px.base = p
-		} else if id == Block {
-			px.grounded = p
-		}
+
+	if local(id) {
+		log.I("proxy: adding reserved proxy: %s", id)
 	}
 
 	px.Lock()
