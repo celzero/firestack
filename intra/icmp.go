@@ -28,7 +28,10 @@ type icmpHandler struct {
 	tunMode  *settings.TunMode
 	prox     ipn.Proxies
 	listener Listener
-	status   int
+
+	// mutable fields below
+
+	status *core.Volatile[int]
 }
 
 const (
@@ -49,7 +52,7 @@ func NewICMPHandler(resolver dnsx.Resolver, prox ipn.Proxies, tunMode *settings.
 		tunMode:  tunMode,
 		prox:     prox,
 		listener: listener,
-		status:   ICMPOK,
+		status:   core.NewVolatile(ICMPOK),
 	}
 
 	log.I("icmp: new handler created")
@@ -93,7 +96,7 @@ func (h *icmpHandler) onFlow(source, target netip.AddrPort, realips, domains, pr
 
 // End implements netstack.GICMPHandler.
 func (h *icmpHandler) End() error {
-	h.status = ICMPEND
+	h.status.Store(ICMPEND)
 	h.CloseConns(nil)
 	return nil
 }
@@ -116,7 +119,7 @@ func (h *icmpHandler) PingOnce(src, dst netip.AddrPort, msg []byte) bool {
 // see: sturmflut.github.io/linux/ubuntu/2015/01/17/unprivileged-icmp-sockets-on-linux/
 // ex: github.com/prometheus-community/pro-bing/blob/0bacb2d5e/ping.go#L703
 func (h *icmpHandler) Ping(source, target netip.AddrPort, msg []byte, pong netstack.Pong) (open bool) {
-	if h.status == ICMPEND {
+	if h.status.Load() == ICMPEND {
 		log.D("t.icmp: handler ended")
 		return
 	}
@@ -186,6 +189,12 @@ func (h *icmpHandler) Ping(source, target netip.AddrPort, msg []byte, pong netst
 	return true // handled
 }
 
+// fetch reads from the connection and sends the pong back to the caller.
+// If pong is nil, it reads only the first ping and returns.
+// If pong is not nil, it reads multiple pings and sends the pongs back.
+// Returns true if the ping was successful, false otherwise.
+// c is owned by fetch, and summary is sent back to the listener.
+// Must be called in a goroutine.
 func (h *icmpHandler) fetch(c net.Conn, pong netstack.Pong, summary *SocketSummary) (success bool) {
 	var err error
 	var n int
@@ -207,7 +216,7 @@ func (h *icmpHandler) fetch(c net.Conn, pong netstack.Pong, summary *SocketSumma
 	src := c.LocalAddr()
 	dst := c.RemoteAddr()
 	for {
-		if h.status == ICMPEND {
+		if h.status.Load() == ICMPEND {
 			log.D("icmp: handler ended")
 			return
 		}
