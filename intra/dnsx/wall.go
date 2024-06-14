@@ -46,6 +46,10 @@ func (r *resolver) SetRdnsLocal(t, rd, conf, filetag string) error {
 		r.setRdnsLocal(nil)
 		return nil
 	}
+	if r.closed.Load() {
+		return errResolverClosed
+	}
+
 	rlocal, err := newRDNSLocal(t, rd, conf, filetag)
 	r.setRdnsLocal(rlocal)
 	return err
@@ -58,6 +62,10 @@ func (r *resolver) SetRdnsRemote(filetag string) error {
 		r.setRdnsRemote(nil)
 		return nil
 	}
+	if r.closed.Load() {
+		return errResolverClosed
+	}
+
 	rremote, err := newRDNSRemote(filetag)
 	r.setRdnsRemote(rremote)
 	return err
@@ -65,6 +73,10 @@ func (r *resolver) SetRdnsRemote(filetag string) error {
 
 // Implements RdnsResolver
 func (r *resolver) GetRdnsLocal() (x.RDNS, error) {
+	if r.closed.Load() {
+		return nil, errResolverClosed
+	}
+
 	rlocal := r.getRdnsLocal()
 
 	if rlocal != nil {
@@ -76,6 +88,10 @@ func (r *resolver) GetRdnsLocal() (x.RDNS, error) {
 
 // Implements RdnsResolver
 func (r *resolver) GetRdnsRemote() (x.RDNS, error) {
+	if r.closed.Load() {
+		return nil, errResolverClosed
+	}
+
 	rremote := r.getRdnsRemote()
 	if rremote != nil {
 		// a non-ftrie version for across the jni boundary

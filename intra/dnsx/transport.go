@@ -14,6 +14,7 @@ import (
 	"net/netip"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	x "github.com/celzero/firestack/intra/backend"
@@ -85,6 +86,7 @@ var (
 	errNoRdns              = errors.New("no rdns")
 	errTransportNotMult    = errors.New("not a multi-transport")
 	errMissingQueryName    = errors.New("no query name")
+	errResolverClosed      = errors.New("dns closed for business")
 )
 
 // Transport represents a DNS query transport.  This interface is exported by gobind,
@@ -126,15 +128,21 @@ type Resolver interface {
 type resolver struct {
 	sync.RWMutex // protects transports
 	NatPt
-	tunmode      *settings.TunMode
 	dnsaddrs     []netip.AddrPort
 	transports   map[string]Transport
 	gateway      Gateway
+	tunmode      *settings.TunMode
 	localdomains x.RadixTree
-	rdnsl        *rethinkdnslocal
-	rdnsr        *rethinkdns
-	rmu          sync.RWMutex // protects rdnsr and rdnsl
 	listener     x.DNSListener
+	smms         chan *x.DNSSummary
+
+	once   sync.Once
+	closed atomic.Bool
+
+	// mutable fields
+	rmu   sync.RWMutex // protects rdnsr and rdnsl
+	rdnsl *rethinkdnslocal
+	rdnsr *rethinkdns
 }
 
 var _ Resolver = (*resolver)(nil)
@@ -143,6 +151,7 @@ func NewResolver(fakeaddrs string, tunmode *settings.TunMode, dtr x.DNSTransport
 	r := &resolver{
 		NatPt:        pt,
 		listener:     l,
+		smms:         make(chan *x.DNSSummary, 32),
 		transports:   make(map[string]Transport),
 		tunmode:      tunmode,
 		localdomains: newUndelegatedDomainsTrie(),
@@ -166,7 +175,16 @@ func NewResolver(fakeaddrs string, tunmode *settings.TunMode, dtr x.DNSTransport
 	}
 	log.I("dns: new! gw? %t; default? %s", r.gateway != nil, dtr.GetAddr())
 
+	core.Go("r.Listener", r.sendSummaries)
 	return r
+}
+
+// sendSummaries sends summaries to the listener.
+// Must be run in a goroutine.
+func (r *resolver) sendSummaries() {
+	for smm := range r.smms {
+		r.listener.OnResponse(smm)
+	}
 }
 
 func (r *resolver) Gateway() Gateway {
@@ -179,6 +197,10 @@ func (r *resolver) Translate(b bool) {
 
 // Implements Resolver
 func (r *resolver) Add(dt x.DNSTransport) (ok bool) {
+	if r.closed.Load() {
+		log.W("dns: add: closed for business")
+		return false
+	}
 	if dt == nil || core.IsNil(dt) {
 		log.D("dns: cannot add nil transports")
 		return false
@@ -218,6 +240,9 @@ func (r *resolver) Add(dt x.DNSTransport) (ok bool) {
 }
 
 func (r *resolver) GetMult(id string) (TransportMult, error) {
+	if r.closed.Load() {
+		return nil, errResolverClosed
+	}
 	r.RLock()
 	t, ok := r.transports[id]
 	defer r.RUnlock()
@@ -236,6 +261,10 @@ func (r *resolver) dcProxy() (TransportMult, error) {
 }
 
 func (r *resolver) Get(id string) (x.DNSTransport, error) {
+	if r.closed.Load() {
+		return nil, errResolverClosed
+	}
+
 	if t := r.determineTransport(id); t == nil || core.IsNil(t) {
 		return nil, errNoSuchTransport
 	} else {
@@ -244,6 +273,11 @@ func (r *resolver) Get(id string) (x.DNSTransport, error) {
 }
 
 func (r *resolver) Remove(id string) (ok bool) {
+	if r.closed.Load() {
+		log.W("dns: remove: closed for business")
+		return false
+	}
+
 	// these IDs are reserved for internal use
 	if isReserved(id) {
 		log.I("dns: removing reserved transport %s", id)
@@ -282,6 +316,10 @@ func (r *resolver) IsDnsAddr(ipport string) bool {
 }
 
 func (r *resolver) LocalLookup(q []byte) ([]byte, error) {
+	if r.closed.Load() {
+		return nil, errResolverClosed
+	}
+
 	defaultIsSystemDNS := false
 	if dtr, _ := r.Get(Default); dtr != nil {
 		// todo: a better way to determine whether Default is SystemDNS
@@ -304,6 +342,10 @@ func (r *resolver) LocalLookup(q []byte) ([]byte, error) {
 }
 
 func (r *resolver) Forward(q []byte) ([]byte, error) {
+	if r.closed.Load() {
+		return nil, errResolverClosed
+	}
+
 	return r.forward(q)
 }
 
@@ -319,7 +361,11 @@ func (r *resolver) forward(q []byte, chosenids ...string) (res0 []byte, err0 err
 		if settings.Debug {
 			smm.Latency = time.Since(starttime).Seconds()
 		}
-		core.Go("r.onResponse", func() { r.listener.OnResponse(smm) })
+		select {
+		case r.smms <- smm:
+		default:
+			log.W("dns: fwd: smms closed or full; dropping %s", smm.QName)
+		}
 	}()
 
 	msg, err := unpack(q)
@@ -452,6 +498,11 @@ func (r *resolver) forward(q []byte, chosenids ...string) (res0 []byte, err0 err
 }
 
 func (r *resolver) Serve(proto string, c protect.Conn) {
+	if r.closed.Load() {
+		log.W("dns: serve: closed for business")
+		return
+	}
+
 	switch proto {
 	case NetTypeTCP:
 		r.accept(c)
@@ -649,16 +700,19 @@ func (r *resolver) accept(c io.ReadWriteCloser) {
 }
 
 func (r *resolver) Stop() error {
-	core.Go("r.onStop", func() { r.listener.OnDNSStopped() })
+	r.once.Do(func() {
+		close(r.smms)
 
-	if gw := r.Gateway(); gw != nil {
-		gw.stop()
-	}
-	if dc, err := r.dcProxy(); err == nil {
-		return dc.Stop()
-	}
-	// nothing to stop / no error
-	return nil
+		core.Go("r.onStop", func() { r.listener.OnDNSStopped() })
+
+		if gw := r.Gateway(); gw != nil {
+			gw.stop()
+		}
+		if dc, err := r.dcProxy(); err == nil {
+			_ = dc.Stop()
+		}
+	})
+	return nil // always no error
 }
 
 func (r *resolver) refresh() {
@@ -677,6 +731,10 @@ func (r *resolver) refresh() {
 }
 
 func (r *resolver) Refresh() (string, error) {
+	if r.closed.Load() {
+		return "", errResolverClosed
+	}
+
 	log.I("dns: refresh transports")
 
 	go r.refresh()
@@ -691,6 +749,10 @@ func (r *resolver) Refresh() (string, error) {
 }
 
 func (r *resolver) LiveTransports() string {
+	if r.closed.Load() {
+		log.W("dns: liveTransports: closed for business")
+		return ""
+	}
 	s := map2csv(r.transports)
 	if dc, err := r.dcProxy(); err == nil {
 		x := dc.LiveTransports()
