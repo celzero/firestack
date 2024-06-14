@@ -12,6 +12,7 @@ import (
 	"net/netip"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/celzero/firestack/intra/dialers"
 	"github.com/celzero/firestack/intra/log"
@@ -21,25 +22,21 @@ var errNoIps error = errors.New("multihost: no ips")
 
 var zeroaddr = netip.AddrPort{}
 
-// nooplock is a no-op lock.
-type nooplock struct{}
-
-func (nooplock) Lock()    {}
-func (nooplock) Unlock()  {}
-func (nooplock) RLock()   {}
-func (nooplock) RUnlock() {}
-
 // MH is a list of hostnames and/or ip addresses for one endpoint.
 type MH struct {
-	nooplock // todo: replace with sync.RWMutex
-	id       string
-	names    []string         // host:port
-	addrs    []netip.AddrPort // ip:port
+	sync.RWMutex // protects names and addrs
+	id           string
+	names        []string         // host:port
+	addrs        []netip.AddrPort // ip:port
 }
 
 // New returns a new multihost with the given id.
 func New(id string) *MH {
-	return &MH{id: id}
+	return &MH{
+		id:    id,
+		names: make([]string, 0),
+		addrs: make([]netip.AddrPort, 0),
+	}
 }
 
 func (h *MH) String() string {
@@ -47,8 +44,8 @@ func (h *MH) String() string {
 }
 
 func (h *MH) straddrs() []string {
-	a := make([]string, 0, len(h.addrs))
-	for _, ip := range h.addrs {
+	a := make([]string, 0)
+	for _, ip := range h.Addrs() {
 		if ip.Addr().IsUnspecified() || !ip.IsValid() {
 			continue
 		}
@@ -67,29 +64,33 @@ func (h *MH) Names() []string {
 
 // Returns ip:port, where ports may be 0.
 func (h *MH) Addrs() []netip.AddrPort {
-	h.Lock()
-	defer h.Unlock()
+	h.RLock()
+	defer h.RUnlock()
 
 	return h.addrs // todo: return a copy
 }
 
-// PreferredAddrs returns the list of IPs per the dialer's preference.
-func (h *MH) PreferredAddrs() []netip.AddrPort {
-	h.Lock()
-	out4 := make([]netip.AddrPort, 0)
-	out6 := make([]netip.AddrPort, 0)
-	for _, ip := range h.addrs {
+func (h *MH) splitFamily() (out4, out6, og []netip.AddrPort) {
+	out4 = make([]netip.AddrPort, 0)
+	out6 = make([]netip.AddrPort, 0)
+	og = h.Addrs()
+
+	for _, ip := range og {
 		if ip.Addr().IsUnspecified() || !ip.IsValid() {
 			continue
 		}
 		if ip.Addr().Is4() {
 			out4 = append(out4, ip)
-		}
-		if ip.Addr().Is6() {
+		} else if ip.Addr().Is6() {
 			out6 = append(out6, ip)
 		}
 	}
-	h.Unlock()
+	return
+}
+
+// PreferredAddrs returns the list of IPs per the dialer's preference.
+func (h *MH) PreferredAddrs() []netip.AddrPort {
+	out4, out6, og := h.splitFamily()
 
 	out := make([]netip.AddrPort, 0)
 	if dialers.Use4() {
@@ -99,8 +100,7 @@ func (h *MH) PreferredAddrs() []netip.AddrPort {
 		out = append(out, out6...)
 	}
 	if len(out) <= 0 { // fail open
-		// todo: Lock+Unlock
-		return append(out, h.addrs...)
+		return append(out, og...)
 	}
 	return out
 }
@@ -112,9 +112,7 @@ func (h *MH) PreferredAddr() netip.AddrPort {
 	has6Or46 := dialers.Use6()
 	hasOnly6 := has6Or46 && !has4Or46
 
-	h.Lock()
-	defer h.Unlock()
-	for _, ip := range h.addrs {
+	for _, ip := range h.Addrs() {
 		if ip.Addr().IsUnspecified() || !ip.IsValid() {
 			continue
 		}
@@ -134,6 +132,10 @@ func (h *MH) PreferredAddr() netip.AddrPort {
 }
 
 func (h *MH) Len() int {
+	if h == nil {
+		return 0
+	}
+
 	h.RLock()
 	defer h.RUnlock()
 	// names may exist without addrs and vice versa
@@ -141,79 +143,74 @@ func (h *MH) Len() int {
 }
 
 func (h *MH) addrlen() int {
-	h.Lock()
-	defer h.Unlock()
+	h.RLock()
+	defer h.RUnlock()
 
 	return len(h.addrs)
 }
 
 // Refresh re-adds the list of IPs, hostnames, and re-resolves the hostname.
+// It returns the total number of IPs.
 func (h *MH) Refresh() int {
-	h.Lock()
-	names := h.names      // todo: copy?
-	addrs := h.straddrs() // may be empty
-	h.Unlock()
-
-	// resolve ip from domain names
-	n := h.With(names) // empties h.names and h.addrs
-	// re-add existing ips, if any
-	return n + h.Add(addrs)
+	if h == nil {
+		log.W("multihost: refresh: nil")
+		return 0
+	}
+	// resolve ip from domain names (auto removes dups)
+	return h.Add(h.Names())
 }
 
 // Add appends the list of IPs, hostnames, and hostname's IPs as resolved.
+// It returns the total number of IPs.
+// Removes duplicates.
 func (h *MH) Add(domainsOrIps []string) int {
+	id := h.id
 	if len(domainsOrIps) <= 0 {
-		log.D("multihost: %s add: no domains or ips; existing n: %v / a: %v", h.id, h.names, h.addrs)
+		log.D("multihost: %s add: no domains or ips; existing n? %d", id, h.Len())
 		return 0
 	}
 
+	names, addrs := resolv(id, domainsOrIps)
+
 	h.Lock()
-	if h.names == nil {
-		h.names = make([]string, 0)
-	}
-	if h.addrs == nil {
-		h.addrs = make([]netip.AddrPort, 0)
-	}
+	defer h.Unlock()
+	h.names = append(h.names, names...)
+	h.addrs = append(h.addrs, addrs...)
+	// remove dups from h.addrs and h.names
+	h.uniqIPLocked()
+	h.uniqAddrsLocked()
+	log.D("multihost: %s with %s => %s", h.id, h.names, h.addrs)
+	return len(h.addrs)
+}
+
+func resolv(id string, domainsOrIps []string) ([]string, []netip.AddrPort) {
+	names := make([]string, 0)
+	addrs := make([]netip.AddrPort, 0)
 	for _, ep := range domainsOrIps {
 		// ep is host or ip or host:port or ip:port
 		dip, port := normalize(ep) // port may be 0
 		if len(dip) <= 0 {
-			log.D("multihost: %s add, skipping: %s:%d", h.id, dip, port)
+			log.D("multihost: %s add, skipping: %s:%d", id, dip, port)
 			continue
 		}
 		if ip, err := netip.ParseAddr(dip); err != nil { // may be hostname
-			h.names = append(h.names, ep) // add hostname regardless of resolution
-			log.D("multihost: %s resolving: %q", h.id, ep)
+			names = append(names, ep) // add hostname regardless of resolution
+			log.D("multihost: %s resolving: %q", id, ep)
 			if resolvedips, err := dialers.Resolve(dip); err == nil && len(resolvedips) > 0 {
 				eps := addrport(port, resolvedips...)
-				h.addrs = append(h.addrs, eps...)
-				log.V("multihost: %s resolved: %q => %s", h.id, dip, eps)
+				addrs = append(addrs, eps...)
+				log.V("multihost: %s resolved: %q => %s", id, dip, eps)
 			} else {
 				if err == nil { // err may be nil even on zero answers
 					err = errNoIps
 				}
-				log.W("multihost: %s no ips for %q; err? %v", h.id, dip, err)
+				log.W("multihost: %s no ips for %q; err? %v", id, dip, err)
 			}
 		} else { // may be ip
-			h.addrs = append(h.addrs, addrport(port, ip)...)
+			addrs = append(addrs, addrport(port, ip)...)
 		}
 	}
-	// remove dups from h.addrs and h.names
-	h.uniqIPLocked()
-	h.uniqAddrsLocked()
-	h.Unlock()
-
-	log.D("multihost: %s with %s => %s", h.id, h.names, h.addrs)
-	return h.Len()
-}
-
-// With sets the list of IPs, hostnames, and hostname's IPs as resolved.
-func (h *MH) With(domainsOrIps []string) int {
-	h.Lock()
-	h.names = make([]string, 0)
-	h.addrs = make([]netip.AddrPort, 0)
-	h.Unlock()
-	return h.Add(domainsOrIps)
+	return names, addrs
 }
 
 // dip can be host or ip or host:port or ip:port
@@ -240,25 +237,34 @@ func addrport(port uint16, ips ...netip.Addr) []netip.AddrPort {
 }
 
 func (h *MH) EqualAddrs(other *MH) bool {
-	if (other == nil) || (h.addrlen() != other.addrlen()) {
-		return false
+	const eq = true
+	const noteq = false
+	if h == nil && other == nil {
+		return eq
+	}
+	if h == nil || other == nil {
+		return noteq
 	}
 
-	h.RLock()
-	defer h.RUnlock()
-	for _, me := range h.addrs {
-		var ok bool
-		for _, them := range other.addrs {
-			if me.Compare(them) == 0 {
-				ok = true
+	us := h.Addrs()
+	them := other.Addrs()
+	if len(us) != len(them) {
+		return noteq
+	}
+
+	for _, me := range us {
+		var found bool
+		for _, you := range them {
+			if me.Compare(you) == 0 {
+				found = true
 				break
 			}
 		}
-		if !ok {
-			return false
+		if !found {
+			return noteq
 		}
 	}
-	return true
+	return eq
 }
 
 func (h *MH) uniqAddrsLocked() {

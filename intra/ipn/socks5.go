@@ -92,7 +92,7 @@ func NewSocks5Proxy(id string, ctl protect.Controller, po *settings.ProxyOptions
 
 	portnumber, _ := strconv.Atoi(po.Port)
 	mh := multihost.New(id)
-	mh.With([]string{po.Host, po.IP}) // resolves if ip is name
+	mh.Add([]string{po.Host, po.IP}) // resolves if ip is name
 
 	var clients []proxy.Dialer
 	// x.net.proxy doesn't yet support udp
