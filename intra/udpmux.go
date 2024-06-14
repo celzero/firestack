@@ -108,6 +108,7 @@ func newMuxer(conn core.UDPConn) *muxer {
 }
 
 // vend waits for and returns a demuxed conn to process.
+// Must be called in a loop until error is not nil.
 func (x *muxer) vend() (net.Conn, error) {
 	select {
 	case c := <-x.dxconns:
