@@ -779,7 +779,7 @@ func (t *dnsgateway) RDNSBL(algip netip.Addr) (blocklists string) {
 func (t *dnsgateway) xLocked(algip netip.Addr, useptr bool) []*netip.Addr {
 	var realips []*netip.Addr
 	// alg ips are always unmappped; see take4Locked
-	unmapped := algip.Unmap()
+	unmapped := algip.Unmap() // aligip may also be origip / realip
 	if ans, ok := t.nat[unmapped]; ok {
 		realips = append(ans.realips, ans.secondaryips...)
 	} else if ans, ok := t.ptr[unmapped]; useptr && ok {
@@ -787,7 +787,7 @@ func (t *dnsgateway) xLocked(algip netip.Addr, useptr bool) []*netip.Addr {
 		realips = append(ans.realip, ans.secondaryips...)
 	}
 	var unnated []*netip.Addr
-	if len(realips) == 0 {
+	if len(realips) == 0 { // algip is probably origip / realip
 		unnated = t.maybeUndoNat64(&unmapped)
 	} else {
 		unnated = t.maybeUndoNat64(realips...)

@@ -22,6 +22,8 @@ import (
 	"github.com/celzero/firestack/intra/protect"
 )
 
+const smmchSize = 24
+
 // TODO: Propagate TCP RST using local.Abort(), on appropriate errors.
 func upload(cid string, local net.Conn, remote net.Conn, ioch chan<- ioinfo) {
 	defer core.Recover(core.Exit11, "c.upload: "+cid)
@@ -49,7 +51,7 @@ func download(cid string, local net.Conn, remote net.Conn) (n int64, err error) 
 
 // forward copies data between local and remote, and tracks the connection.
 // It also sends a summary to the listener when done. Always called in a goroutine.
-func forward(local, remote net.Conn, l SocketListener, smm *SocketSummary) {
+func forward(local, remote net.Conn, ch chan *SocketSummary, smm *SocketSummary) {
 	cid := smm.ID
 
 	uploadch := make(chan ioinfo)
@@ -67,15 +69,37 @@ func forward(local, remote net.Conn, l SocketListener, smm *SocketSummary) {
 	smm.Tx = upload.bytes
 
 	smm.done(derr, upload.err)
-	go sendNotif(l, smm)
+	queueSummary(ch, smm)
+}
+
+func queueSummary(ch chan *SocketSummary, s *SocketSummary) {
+	select {
+	case ch <- s:
+	default:
+		log.W("intra: sendSummary: dropped: %s", s.str())
+	}
+}
+
+// must be called from a goroutine
+func sendSummary(ch chan *SocketSummary, l SocketListener) {
+	defer core.Recover(core.DontExit, "c.sendSummary")
+
+	noch := ch == nil
+	notok := l == nil || core.IsNil(l)
+	if noch || notok {
+		log.W("intra: sendSummary: nil ch(%t) or l(%t)", noch, notok)
+		return
+	}
+
+	for s := range ch {
+		if s != nil && len(s.ID) > 0 {
+			go sendNotif(l, s)
+		}
+	}
 }
 
 // must always be called from a goroutine
 func sendNotif(l SocketListener, s *SocketSummary) {
-	if s == nil { // unlikely
-		return
-	}
-
 	defer core.Recover(core.DontExit, "c.sendNotif: "+s.ID)
 
 	// sleep a bit to avoid scenario where kotlin-land
@@ -83,12 +107,8 @@ func sendNotif(l SocketListener, s *SocketSummary) {
 	// this conn (cid) to meaninfully process its summary
 	time.Sleep(1 * time.Second)
 
-	ok1 := l != nil      // likely due to bugs
-	ok2 := len(s.ID) > 0 // likely due to bugs
-	log.VV("intra: end? sendNotif(%t,%t): %s", ok1, ok2, s.str())
-	if ok1 && ok2 {
-		l.OnSocketClosed(s) // s.Duration may be uninitialized (zero)
-	}
+	log.VV("intra: end? sendNotif(%t,%t): %s", s.str())
+	l.OnSocketClosed(s) // s.Duration may be uninitialized (zero)
 }
 
 func dnsOverride(r dnsx.Resolver, proto string, conn net.Conn, addr netip.AddrPort) bool {

@@ -30,6 +30,7 @@ import (
 	"net"
 	"net/netip"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/celzero/firestack/intra/dnsx"
@@ -51,6 +52,9 @@ type tcpHandler struct {
 	fwtracker   *core.ExpMap    // uid+dst(domainOrIP) -> blockSecs
 	conntracker core.ConnMapper // connid -> [local,remote]
 	tunMode     *settings.TunMode
+	smmch       chan *SocketSummary
+
+	once sync.Once
 
 	// fields below are mutable
 
@@ -93,8 +97,11 @@ func NewTCPHandler(resolver dnsx.Resolver, prox ipn.Proxies, tunMode *settings.T
 		prox:        prox,
 		fwtracker:   core.NewExpiringMap(),
 		conntracker: core.NewConnMap(),
+		smmch:       make(chan *SocketSummary, smmchSize),
 		status:      core.NewVolatile(TCPOK),
 	}
+
+	go sendSummary(h.smmch, listener)
 
 	log.I("tcp: new handler created")
 	return h
@@ -145,8 +152,12 @@ func (h *tcpHandler) onFlow(localaddr, target netip.AddrPort, realips, domains, 
 }
 
 func (h *tcpHandler) End() error {
-	h.status.Store(TCPEND)
-	h.CloseConns(nil)
+	h.once.Do(func() {
+		h.status.Store(TCPEND)
+		h.CloseConns(nil)
+		close(h.smmch)
+		log.I("tcp: handler end")
+	})
 	return nil
 }
 
@@ -170,7 +181,7 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target netip.AddrPort)
 			clos(gconn)
 			if smm != nil {
 				smm.done(err)
-				go sendNotif(h.listener, smm)
+				queueSummary(h.smmch, smm)
 			} // else: summary not created
 		}
 	}()
@@ -290,9 +301,9 @@ func (h *tcpHandler) handle(px ipn.Proxy, src net.Conn, target netip.AddrPort, c
 	}
 
 	h.conntracker.Track(ct, src, dst)
-	core.Gx("tcp.forward:"+smm.ID, func() {
+	core.Go("tcp.forward:"+smm.ID, func() {
 		defer h.conntracker.Untrack(ct.CID)
-		forward(src, dst, h.listener, smm) // src always *gonet.TCPConn
+		forward(src, dst, h.smmch, smm) // src always *gonet.TCPConn
 	})
 
 	log.I("tcp: new conn %s via proxy(%s); src(%s) -> dst(%s) for %s", smm.ID, px.ID(), src.LocalAddr(), target, smm.UID)

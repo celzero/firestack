@@ -9,6 +9,7 @@ package intra
 import (
 	"net"
 	"net/netip"
+	"sync"
 	"time"
 
 	"golang.org/x/sys/unix"
@@ -28,6 +29,9 @@ type icmpHandler struct {
 	tunMode  *settings.TunMode
 	prox     ipn.Proxies
 	listener Listener
+	smmch    chan *SocketSummary
+
+	once sync.Once
 
 	// mutable fields below
 
@@ -52,8 +56,11 @@ func NewICMPHandler(resolver dnsx.Resolver, prox ipn.Proxies, tunMode *settings.
 		tunMode:  tunMode,
 		prox:     prox,
 		listener: listener,
+		smmch:    make(chan *SocketSummary, smmchSize),
 		status:   core.NewVolatile(ICMPOK),
 	}
+
+	go sendSummary(h.smmch, listener)
 
 	log.I("icmp: new handler created")
 	return h
@@ -96,8 +103,12 @@ func (h *icmpHandler) onFlow(source, target netip.AddrPort, realips, domains, pr
 
 // End implements netstack.GICMPHandler.
 func (h *icmpHandler) End() error {
-	h.status.Store(ICMPEND)
-	h.CloseConns(nil)
+	h.once.Do(func() {
+		h.status.Store(ICMPEND)
+		h.CloseConns(nil)
+		close(h.smmch)
+		log.I("icmp: handler end")
+	})
 	return nil
 }
 
@@ -130,12 +141,12 @@ func (h *icmpHandler) Ping(source, target netip.AddrPort, msg []byte, pong netst
 
 	// flow is alg/nat-aware, do not change target or any addrs
 	pid, cid, block := h.onFlow(source, target, realips, domains, probableDomains, blocklists)
-	summary := icmpSummary(cid, pid)
+	smm := icmpSummary(cid, pid)
 
 	defer func() {
 		if !open {
-			summary.done(err)
-			go sendNotif(h.listener, summary)
+			smm.done(err)
+			queueSummary(h.smmch, smm)
 		}
 	}()
 
@@ -156,8 +167,8 @@ func (h *icmpHandler) Ping(source, target netip.AddrPort, msg []byte, pong netst
 	// see: netstack/dispatcher.go:newReadvDispatcher
 	core.Gx("icmp.Ping", func() {
 		defer func() {
-			summary.done(err)
-			go sendNotif(h.listener, summary)
+			smm.done(err)
+			queueSummary(h.smmch, smm)
 		}()
 		dst := oneRealIp(realips, target)
 		uc, err := px.Dialer().Dial("udp", dst.String())
@@ -180,10 +191,10 @@ func (h *icmpHandler) Ping(source, target netip.AddrPort, msg []byte, pong netst
 
 		if pong == nil {
 			// single ping, block until done
-			h.fetch(uc, nil, summary)
+			h.fetch(uc, nil, smm)
 		} else {
 			// multi ping, non-blocking
-			h.fetch(uc, pong, summary)
+			h.fetch(uc, pong, smm)
 		}
 	})
 	return true // handled
@@ -195,14 +206,14 @@ func (h *icmpHandler) Ping(source, target netip.AddrPort, msg []byte, pong netst
 // Returns true if the ping was successful, false otherwise.
 // c is owned by fetch, and summary is sent back to the listener.
 // Must be called in a goroutine.
-func (h *icmpHandler) fetch(c net.Conn, pong netstack.Pong, summary *SocketSummary) (success bool) {
+func (h *icmpHandler) fetch(c net.Conn, pong netstack.Pong, smm *SocketSummary) (success bool) {
 	var err error
 	var n int
 
 	defer func() {
 		clos(c)
-		summary.done(err)
-		go sendNotif(h.listener, summary)
+		smm.done(err)
+		queueSummary(h.smmch, smm)
 	}()
 
 	bptr := core.Alloc()

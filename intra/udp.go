@@ -31,6 +31,7 @@ import (
 	"net"
 	"net/netip"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/celzero/firestack/intra/dnsx"
@@ -48,9 +49,12 @@ type udpHandler struct {
 	resolver    dnsx.Resolver   // dns resolver to forward queries to
 	conntracker core.ConnMapper // connid -> [local,remote]
 	tunMode     *settings.TunMode
-	listener    SocketListener // listener for socket summaries
-	prox        ipn.Proxies    // proxy provider for egress
-	fwtracker   *core.ExpMap   // uid+dst(domainOrIP) -> blockSecs
+	listener    SocketListener      // listener for socket summaries
+	prox        ipn.Proxies         // proxy provider for egress
+	fwtracker   *core.ExpMap        // uid+dst(domainOrIP) -> blockSecs
+	smmch       chan *SocketSummary // socket summary channel
+
+	once sync.Once
 
 	// fields below are mutable
 
@@ -109,7 +113,10 @@ func NewUDPHandler(resolver dnsx.Resolver, prox ipn.Proxies, tunMode *settings.T
 		fwtracker:   core.NewExpiringMap(),
 		conntracker: core.NewConnMap(),
 		status:      core.NewVolatile(UDPOK),
+		smmch:       make(chan *SocketSummary, smmchSize),
 	}
+
+	go sendSummary(h.smmch, listener)
 
 	log.I("udp: new handler created")
 	return h
@@ -182,14 +189,13 @@ func (h *udpHandler) ProxyMux(gconn *netstack.GUDPConn, src netip.AddrPort) (ok 
 	// handled / assumed as a new conn (endpoint) by netstack
 	// gerr := gconn.Connect(ack)
 
-	l := h.listener
 	local, smm, _, err := h.Connect(gconn, src, invalidaddr) // local may be nil; smm is never nil
 
 	if err != nil || local == nil {
 		clos(gconn, local)
 		if smm != nil { // smm is never nil; but nilaway complains
 			smm.done(err)
-			go sendNotif(l, smm)
+			queueSummary(h.smmch, smm)
 		} else {
 			log.W("udp: proxy: mux: unexpected %s -> [unconnected]; err: %v", src, err)
 		}
@@ -243,14 +249,13 @@ func (h *udpHandler) proxy(gconn net.Conn, src, dst netip.AddrPort) (ok bool) {
 	} // not a *netstack.GUDPConn, may be *demuxconn
 	*/
 
-	l := h.listener
 	remote, smm, ct, err := h.Connect(gconn, src, dst) // remote may be nil; smm is never nil
 
 	if err != nil {
 		clos(gconn, remote)
 		if smm != nil { // smm is never nil; but nilaway complains
 			smm.done(err)
-			go sendNotif(l, smm)
+			queueSummary(h.smmch, smm)
 		} else {
 			log.W("udp: proxy: unexpected %s -> %s; err: %v", src, dst, err)
 		}
@@ -268,9 +273,9 @@ func (h *udpHandler) proxy(gconn net.Conn, src, dst netip.AddrPort) (ok bool) {
 	}
 
 	h.conntracker.Track(ct, gconn, remote)
-	core.Gx("udp.forward: "+cid, func() {
+	core.Go("udp.forward: "+cid, func() {
 		defer h.conntracker.Untrack(ct.CID)
-		forward(gconn, &rwext{remote}, l, smm)
+		forward(gconn, &rwext{remote}, h.smmch, smm)
 	})
 	return true // ok
 }
@@ -385,8 +390,12 @@ func (h *udpHandler) Connect(gconn net.Conn, src, target netip.AddrPort) (dst co
 
 // End implements netstack.GUDPConnHandler
 func (h *udpHandler) End() error {
-	h.status.Store(UDPEND)
-	h.CloseConns(nil)
+	h.once.Do(func() {
+		h.status.Store(UDPEND)
+		h.CloseConns(nil)
+		close(h.smmch)
+		log.I("udp: handler end")
+	})
 	return nil
 }
 
