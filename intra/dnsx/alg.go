@@ -794,9 +794,9 @@ func (t *dnsgateway) xLocked(algip netip.Addr, useptr bool) []*netip.Addr {
 	}
 	log.D("alg: dns64: algip(%v) -> realips(%v) -> unnated(%v)", unmapped, realips, unnated)
 	if len(unnated) > 0 {
-		return unnated
+		return unnated // already de-duplicated
 	}
-	return realips
+	return removeDups2(realips)
 }
 
 func (t *dnsgateway) maybeUndoNat64(realips ...*netip.Addr) (unnat []*netip.Addr) {
@@ -818,7 +818,7 @@ func (t *dnsgateway) maybeUndoNat64(realips ...*netip.Addr) (unnat []*netip.Addr
 		unmapped4 := ipx4.Unmap()
 		unnat = append(unnat, &unmapped4)
 	}
-	return
+	return removeDups2(unnat)
 }
 
 func (t *dnsgateway) ptrLocked(algip netip.Addr, useptr bool) (domains []string) {
@@ -830,7 +830,7 @@ func (t *dnsgateway) ptrLocked(algip netip.Addr, useptr bool) (domains []string)
 		// translate from realip only if not in mod mode
 		domains = ans.domain
 	}
-	return
+	return removeDups(domains)
 }
 
 // resolvLocked returns IPs and related targets for domain
