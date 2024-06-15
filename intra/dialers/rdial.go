@@ -25,15 +25,16 @@ const dialRetryTimeout = 1 * time.Minute
 
 func maybeFilter(ips []netip.Addr, alwaysExclude netip.Addr) ([]netip.Addr, bool) {
 	failingopen := true
+	proto := ipProto.Load()
 
 	filtered := make([]netip.Addr, 0, len(ips))
 	unfiltered := make([]netip.Addr, 0, len(ips))
 	for _, ip := range ips {
 		if ip.Compare(alwaysExclude) == 0 || !ip.IsValid() {
 			continue
-		} else if ip.Is4() && ipProto.Load() == settings.IP6 {
+		} else if ip.Is4() && proto == settings.IP6 {
 			unfiltered = append(unfiltered, ip)
-		} else if ip.Is6() && ipProto.Load() == settings.IP4 {
+		} else if ip.Is6() && proto == settings.IP4 {
 			unfiltered = append(unfiltered, ip)
 		} else {
 			filtered = append(filtered, ip)
