@@ -109,7 +109,6 @@ type wgconn interface {
 var _ WgProxy = (*wgproxy)(nil)
 
 type wgproxy struct {
-	nofwd
 	*wgtun
 	*device.Device
 	wgep wgconn
@@ -128,6 +127,18 @@ type WgProxy interface {
 func (h *wgproxy) Dial(network, address string) (c protect.Conn, err error) {
 	// ProxyDial resolves address if needed; then dials into all resolved ips.
 	return dialers.ProxyDial(h.wgtun, network, address)
+}
+
+// Announce implements Proxy.
+func (h *wgproxy) Announce(network, local string) (net.PacketConn, error) {
+	// todo: dialers.ProxyListenPacket(h.wgtun, network, local)
+	return h.wgtun.Announce(network, local)
+}
+
+// Accept implements Proxy.
+func (h *wgproxy) Accept(network, local string) (net.Listener, error) {
+	// todo: dialers.ProxyListen(h.wgtun, network, local)
+	return h.wgtun.Accept(network, local)
 }
 
 // BatchSize implements WgProxy
@@ -461,7 +472,6 @@ func NewWgProxy(id string, ctl protect.Controller, cfg string) (*wgproxy, error)
 	}
 
 	w := &wgproxy{
-		nofwd{},
 		wgtun, // stack
 		wgdev, // device
 		wgep,  // endpoint
@@ -731,8 +741,9 @@ func (tun *wgtun) BatchSize() int {
 	return 1
 }
 
-// Dial implements proxy.Dialer
+// Dial implements proxy.Dialer and protect.RDialer
 func (h *wgtun) Dial(network, address string) (c net.Conn, err error) {
+	// wgproxy.Dial -> dialers.ProxyDial -> wgtun.Dial
 	if h.status.Load() == END {
 		return nil, errProxyStopped
 	}
@@ -745,7 +756,45 @@ func (h *wgtun) Dial(network, address string) (c net.Conn, err error) {
 	} // else: status updated by h.listener
 
 	log.I("wg: %s dial: end %s %s; err %v", h.id, network, address, err)
+	return
+}
 
+// Announce implements protect.RDialer
+func (h *wgtun) Announce(network, local string) (pc net.PacketConn, err error) {
+	// wgproxy.Dial -> dialers.ProxyListenPacket -> protect.AnnounceUDP -> wgtun.Announce
+	if h.status.Load() == END {
+		return nil, errProxyStopped
+	}
+
+	log.D("wg: %s announce: start %s %s", h.id, network, local)
+
+	var addr netip.AddrPort
+	if addr, err = netip.ParseAddrPort(local); err == nil {
+		if pc, err = h.ListenUDPAddrPort(addr); err != nil {
+			h.status.Store(TKO)
+		} // else: status updated by h.listener
+	} // else: expect local to always be ipaddr
+
+	log.I("wg: %s announce: end %s %s; err %v", h.id, network, local, err)
+	return
+}
+
+func (h *wgtun) Accept(network, local string) (ln net.Listener, err error) {
+	// wgproxy.Dial -> dialers.ProxyListen -> protect.AcceptTCP -> wgtun.Accept
+	if h.status.Load() == END {
+		return nil, errProxyStopped
+	}
+
+	log.D("wg: %s accept: start %s %s", h.id, network, local)
+
+	var addr netip.AddrPort
+	if addr, err = netip.ParseAddrPort(local); err == nil {
+		if ln, err = h.ListenTCPAddrPort(addr); err != nil {
+			h.status.Store(TKO)
+		} // else: status updated by h.listener
+	} // else: expect local to always be ipaddr
+
+	log.I("wg: %s accept: end %s %s; err %v", h.id, network, local, err)
 	return
 }
 
