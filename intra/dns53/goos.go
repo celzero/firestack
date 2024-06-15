@@ -104,6 +104,7 @@ func (t *goosr) send(msg *dns.Msg) (ans *dns.Msg, elapsed time.Duration, qerr *d
 			ans = xdns.Servfail(msg)
 			err = errQueryParse
 		} else {
+			// cgo first (uses dnsx.System iff not in Loopback), Resolver.LookupNetIP (uses dnsx.Default)
 			if ips, err = t.r.LookupNetIP(bgctx, "ip", host); err == nil && xdns.HasAnyAnswer(msg) {
 				log.D("dns53: goosr: go resolver for %s => %s", host, ips)
 				ans, err = xdns.AQuadAForQuery(msg, ips...)
