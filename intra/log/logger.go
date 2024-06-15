@@ -281,10 +281,10 @@ func (l *simpleLogger) Debugf(at int, msg string, args ...any) {
 
 func (l *simpleLogger) Piif(at int, msg string, args ...any) {
 	msg = l.msgstr(msg, args...)
-	if l.level <= DEBUG {
+	if l.level <= VVERBOSE {
 		l.out(at, msg)
 	}
-	if l.clevel <= DEBUG {
+	if l.clevel <= VVERBOSE {
 		l.toConsole(&conMsg{msg, DEBUG})
 	}
 }
