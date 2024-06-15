@@ -24,50 +24,57 @@ var (
 
 // TODO: These modes could be covered by bit-flags instead.
 
-// DNSModeNone does not redirect DNS queries sent to the tunnel.
-const DNSModeNone int32 = 0
+const (
+	// DNSModeNone does not redirect DNS queries sent to the tunnel.
+	DNSModeNone int32 = 0
+	// DNSModeIP redirects DNS requests sent to the IP endpoint set by VPN.
+	DNSModeIP int32 = 1
+	// DNSModePort redirects all DNS requests on port 53.
+	DNSModePort int32 = 2
+)
 
-// DNSModeIP redirects DNS requests sent to the IP endpoint set by VPN.
-const DNSModeIP int32 = 1
+const (
+	// BlockModeNone filters no packet.
+	BlockModeNone int32 = 0
+	// BlockModeFilter filters packets on connection establishment.
+	BlockModeFilter int32 = 1
+	// BlockModeSink blackholes all packets.
+	BlockModeSink int32 = 2
+	// BlockModeFilterProc determines owner-uid of a tcp/udp connection
+	// from procfs before filtering
+	BlockModeFilterProc int32 = 3
+)
 
-// DNSModePort redirects all DNS requests on port 53.
-const DNSModePort int32 = 2
-
-// BlockModeNone filters no packet.
-const BlockModeNone int32 = 0
-
-// BlockModeFilter filters packets on connection establishment.
-const BlockModeFilter int32 = 1
-
-// BlockModeSink blackholes all packets.
-const BlockModeSink int32 = 2
-
-// BlockModeFilterProc determines owner-uid of a tcp/udp connection
-// from procfs before filtering
-const BlockModeFilterProc int32 = 3
-
-// PtModeAuto does not enforce (but may still use) 6to4 protocol translation.
-const PtModeAuto int32 = 0
-
-// PtModeForce64 enforces 6to4 protocol translation.
-const PtModeForce64 int32 = 1
-
-// Android implements 464Xlat out-of-the-box, so this zero userspace impl
-const PtModeNo46 int32 = 2
+const (
+	// PtModeAuto does not enforce (but may still use) 6to4 protocol translation.
+	PtModeAuto int32 = 0
+	// PtModeForce64 enforces 6to4 protocol translation.
+	PtModeForce64 int32 = 1
+	// Android implements 464Xlat out-of-the-box, so this zero userspace impl
+	PtModeNo46 int32 = 2
+)
 
 // msb to lsb: ipv6, ipv4, lwip(1) or netstack(0)
-const Ns4 = 0b010  // 2
-const Ns46 = 0b110 // 6
-const Ns6 = 0b100  // 4
+const (
+	Ns4  = 0b010 // 2
+	Ns46 = 0b110 // 6
+	Ns6  = 0b100 // 4
+)
 
-const IP4 = "4"
-const IP46 = "46"
-const IP6 = "6"
+// IP4, IP46, IP6 are string'd repr of Ns4, Ns46, Ns6
+const (
+	IP4  = "4"
+	IP46 = "46"
+	IP6  = "6"
+)
 
+// NICID is the default network interface card ID for the network stack.
 const NICID = 0x01
 
+// Debug is a global flag to enable debug behaviour.
 var Debug bool = false
 
+// L3 returns the string'd repr of engine.
 func L3(engine int) string {
 	switch engine {
 	case Ns46:
@@ -128,6 +135,7 @@ func (d *DNSOptions) String() string {
 	return d.AddrPort()
 }
 
+// AddrPort returns the ip:port or host:port.
 func (d *DNSOptions) AddrPort() string {
 	if len(d.ipp) > 0 {
 		return d.ipp
@@ -267,10 +275,12 @@ func (p *ProxyOptions) String() string {
 	return p.Auth.User + "," + p.Auth.Password + "," + p.IPPort
 }
 
+// HasAuth returns true if p has auth params.
 func (p *ProxyOptions) HasAuth() bool {
 	return len(p.Auth.User) > 0 && len(p.Auth.Password) > 0
 }
 
+// FullUrl returns the full url with auth.
 func (p *ProxyOptions) FullUrl() string {
 	if p.HasAuth() {
 		// superuser.com/a/532530
@@ -284,6 +294,7 @@ func (p *ProxyOptions) FullUrl() string {
 	return p.Url()
 }
 
+// Url returns the url without auth.
 func (p *ProxyOptions) Url() string {
 	return p.Scheme + "://" + p.IPPort
 }
