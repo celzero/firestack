@@ -174,6 +174,11 @@ func (m *ipmapper) LookupNetIP(ctx context.Context, network, host string) ([]net
 }
 
 func (m *ipmapper) undoAlg(ip64 []netip.Addr) []netip.Addr {
+	// unlike common.go:undoAlg, we do not filter out ipaddrs
+	// based on dialers.Use4/Use6. This is because the ipmapper
+	// is used for DNS queries, and the dialers are used for
+	// actual connections. The dialers will filter out ipaddrs
+	// based on the dialers.Use4/Use6 settings.
 	gw := m.r.Gateway()
 	if gw == nil {
 		log.D("ipmapper: undoAlg: no-op; no gateway")
