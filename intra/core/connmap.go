@@ -190,7 +190,7 @@ func (h *cm) Find(dst string) (tups []ConnTuple) {
 	defer h.RUnlock()
 	// TODO: handle unconnected udp sockets
 	tups = h.dsttracker[dst]
-	log.VV("connmap: find: %v tuples for %s", tups, dst)
+	log.VV("connmap: find: %d tuples for %s", len(tups), dst)
 	return
 }
 
@@ -212,7 +212,7 @@ func (h *cm) FindAll(csvips, port string) (out []ConnTuple) {
 			out = append(out, tups...)
 		}
 	}
-	log.VV("connmap: findAll: %v tuples for %s", out, csvips)
+	log.VV("connmap: findAll: %d tuples for %s", len(out), csvips)
 	return
 }
 
