@@ -217,6 +217,7 @@ func ListenPacket(d *protect.RDial, network, local string) (net.PacketConn, erro
 		log.E("rdial: ListenPacket: nil dialer")
 		return nil, errNoListener
 	}
+	// todo: resolve local if hostname
 	return d.AnnounceUDP(network, local)
 }
 
@@ -226,6 +227,7 @@ func Listen(d *protect.RDial, network, local string) (net.Listener, error) {
 		log.E("rdial: Listen: nil dialer")
 		return nil, errNoListener
 	}
+	// todo: resolve local if hostname
 	return d.AcceptTCP(network, local)
 }
 
