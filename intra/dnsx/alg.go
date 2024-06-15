@@ -427,26 +427,15 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []*netip.Addr, network string, q
 	}
 
 	// get existing real ips for qname, from previous alg/nat
-	previp4s, previp6s := t.resolvLocked(qname, typreal)
-	if len(previp4s) > 0 {
-		realip = makeSet(realip, previp4s, key4)
-		log.D("alg: subst; for %s with prev ip4s (alg: %t) %s", qname, mod, previp4s)
-	}
-	if len(previp6s) > 0 {
-		realip = makeSet(realip, previp6s, key6)
-		log.D("alg: subst; for %s with prev ip6s (alg? %t) %s", qname, mod, previp6s)
-	}
+	previp4s, previp6s, prevtargets := t.resolvLocked(qname, typreal)
+	realip = removeDups2(realip, previp4s, previp6s)
+	targets = removeDups(targets, prevtargets)
 	// get existing secondary ips for qname, from previous alg/nat
-	prevsec4s, prevsec6s := t.resolvLocked(qname, typsecondary)
-	if len(prevsec4s) > 0 {
-		secres.ips = makeSet(secres.ips, prevsec4s, key4)
-		log.D("alg: subst; for %s with prev sec ip4s (alg: %t) %s", qname, mod, prevsec4s)
-	}
-	if len(prevsec6s) > 0 {
-		secres.ips = makeSet(secres.ips, prevsec6s, key6)
-		log.D("alg: subst; for %s with prev sec ip6s (alg? %t) %s", qname, mod, prevsec6s)
-	}
-	// TODO: just like w/ previps, get existing targets, blocklists for qname and merge w/ new ones
+	prevsec4s, prevsec6s, _ := t.resolvLocked(qname, typsecondary)
+	secres.ips = removeDups2(secres.ips, prevsec4s, prevsec6s)
+	log.D("alg: subst; for %s / prev targets %s; prev ips (alg? %t); v4: %s, v6: %s; sec4: %s, sec6: %s",
+		qname, prevtargets, mod, previp4s, previp6s, prevsec4s, prevsec6s)
+	// TODO: just like w/ previps/prevtargets, get blocklists for qname and merge w/ new ones?
 
 	algips = append(algips, algip4s...)
 	algips = append(algips, algip6s...)
@@ -465,7 +454,7 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []*netip.Addr, network string, q
 		ttl: time.Now().Add(ttl2m),
 	}
 
-	log.D("alg: ok; domains %s ips %s => subst %s; mod? %t", targets, realip, algips, mod)
+	log.D("alg: ok; domains %s ips %s => subst %s; mod? %t; sec %s", targets, realip, algips, mod, secres.ips)
 
 	if t.registerMultiLocked(qname, x) {
 		// if mod is set, send modified answer
@@ -764,7 +753,7 @@ func (t *dnsgateway) RESOLV(domain string) (ipcsv string) {
 	if !t.mod.Load() {
 		typ = typreal
 	}
-	ip4s, ip6s := t.resolvLocked(domain, typ)
+	ip4s, ip6s, _ := t.resolvLocked(domain, typ)
 	ips := append(ip4s, ip6s...)
 	if len(ips) > 0 {
 		var s []string
@@ -793,7 +782,7 @@ func (t *dnsgateway) xLocked(algip netip.Addr, useptr bool) []*netip.Addr {
 		realips = append(ans.realips, ans.secondaryips...)
 	} else if ans, ok := t.ptr[unmapped]; useptr && ok {
 		// translate from realip only if not in mod mode
-		realips = append(ans.realips, ans.secondaryips...)
+		realips = append(ans.realip, ans.secondaryips...)
 	}
 	var unnated []*netip.Addr
 	if len(realips) == 0 {
@@ -842,12 +831,20 @@ func (t *dnsgateway) ptrLocked(algip netip.Addr, useptr bool) (domains []string)
 	return
 }
 
-func (t *dnsgateway) resolvLocked(domain string, typ iptype) (ip4s []*netip.Addr, ip6s []*netip.Addr) {
+// resolvLocked returns IPs and related targets for domain
+// depending on typ.
+// If typ is typalg, it returns all algips for domain.
+// If typ is typreal, it returns all realips for domain.
+// If typ is typsecondary, it returns all secondaryips for domain.
+// ip4s and ip6s may overlap, and are segregated by the source algip
+// family (and not by the family of the resolved IPs themselves).
+func (t *dnsgateway) resolvLocked(domain string, typ iptype) (ip4s, ip6s []*netip.Addr, targets []string) {
 	partkey4 := domain + key4
 	partkey6 := domain + key6
 
 	ip4s = make([]*netip.Addr, 0)
 	ip6s = make([]*netip.Addr, 0)
+	targets = make([]string, 0)
 	staleips := make([]*netip.Addr, 0)
 	switch typ {
 	case typalg:
@@ -856,6 +853,7 @@ func (t *dnsgateway) resolvLocked(domain string, typ iptype) (ip4s []*netip.Addr
 			if ans, ok := t.alg[k4]; ok {
 				if time.Until(ans.ttl) > 0 { // not stale
 					ip4s = append(ip4s, ans.algip)
+					targets = append(targets, ans.domain...)
 				} else {
 					staleips = append(staleips, ans.algip)
 				}
@@ -868,6 +866,7 @@ func (t *dnsgateway) resolvLocked(domain string, typ iptype) (ip4s []*netip.Addr
 			if ans, ok := t.alg[k6]; ok {
 				if time.Until(ans.ttl) > 0 { // not stale
 					ip6s = append(ip6s, ans.algip)
+					targets = append(targets, ans.domain...)
 				} else {
 					staleips = append(staleips, ans.algip)
 				}
@@ -877,41 +876,59 @@ func (t *dnsgateway) resolvLocked(domain string, typ iptype) (ip4s []*netip.Addr
 		}
 		log.V("alg: resolv: %s -> alg ip4 %d, ip6 %d; stale %v", domain, len(ip4s), len(ip6s), staleips)
 	case typreal:
-		// all "ans" records have all realips; pick the first one
-		k4 := partkey4 + "0"
-		if ans, ok := t.alg[k4]; ok {
-			if time.Until(ans.ttl) > 0 { // not stale
-				ip4s = append(ip4s, ans.realips...)
-			} else {
-				staleips = append(staleips, ans.realips...)
-			}
+		for i := 0; i < 2; i++ { // a = 0, https/svcb = 1+
+			k4 := partkey4 + strconv.Itoa(i)
+			if ans, ok := t.alg[k4]; ok {
+				if time.Until(ans.ttl) > 0 { // not stale
+					ip4s = append(ip4s, ans.realips...)
+					targets = append(targets, ans.domain...)
+				} else {
+					staleips = append(staleips, ans.realips...)
+				}
+				// all ans{} have all realips; pick the first one
+				break
+			} // continue
 		}
-		k6 := partkey6 + "0"
-		if ans, ok := t.alg[k6]; ok {
-			if time.Until(ans.ttl) > 0 { // not stale
-				ip6s = append(ip6s, ans.realips...)
-			} else {
-				staleips = append(staleips, ans.realips...)
-			}
+		for i := 0; i < 2; i++ { // aaaa = 0, https/svcb = 1+
+			k6 := partkey6 + strconv.Itoa(i)
+			if ans, ok := t.alg[k6]; ok {
+				if time.Until(ans.ttl) > 0 { // not stale
+					ip6s = append(ip6s, ans.realips...)
+					targets = append(targets, ans.domain...)
+				} else {
+					staleips = append(staleips, ans.realips...)
+				}
+				// all ans{} have all realips; pick the first one
+				break
+			} // continue
 		}
 		log.V("alg: resolv: %s -> real ip4 %d, ip6 %d; stale %v", domain, len(ip4s), len(ip6s), staleips)
 	case typsecondary:
-		// all "ans" records have all secondaryips; pick the first one
-		k4 := partkey4 + "0"
-		if ans, ok := t.alg[k4]; ok {
-			if time.Until(ans.ttl) > 0 { // not stale
-				ip4s = append(ip4s, ans.secondaryips...)
-			} else {
-				staleips = append(staleips, ans.secondaryips...)
-			}
+		for i := 0; i < 2; i++ { // a = 0, https/svcb = 1+
+			k4 := partkey4 + strconv.Itoa(i)
+			if ans, ok := t.alg[k4]; ok {
+				if time.Until(ans.ttl) > 0 { // not stale
+					ip4s = append(ip4s, ans.secondaryips...)
+					targets = append(targets, ans.domain...)
+				} else {
+					staleips = append(staleips, ans.secondaryips...)
+				}
+				// all ans{} have all secondaryips; pick the first one
+				break
+			} // continue
 		}
-		k6 := partkey6 + "0"
-		if ans, ok := t.alg[k6]; ok {
-			if time.Until(ans.ttl) > 0 { // not stale
-				ip6s = append(ip6s, ans.secondaryips...)
-			} else {
-				staleips = append(staleips, ans.secondaryips...)
-			}
+		for i := 0; i < 2; i++ { // aaaa = 0, https/svcb = 1+
+			k6 := partkey6 + strconv.Itoa(i)
+			if ans, ok := t.alg[k6]; ok {
+				if time.Until(ans.ttl) > 0 { // not stale
+					ip6s = append(ip6s, ans.secondaryips...)
+					targets = append(targets, ans.domain...)
+				} else {
+					staleips = append(staleips, ans.secondaryips...)
+				}
+				// all ans{} have all secondaryips; pick the first one
+				break
+			} // continue
 		}
 		log.V("alg: resolv: %s -> secondary ip4 %d, ip6 %d; stale %v", domain, len(ip4s), len(ip6s), staleips)
 	}
@@ -1081,29 +1098,30 @@ func ipok(ip netip.Addr) bool {
 	return !ip.IsUnspecified() && ip.IsValid()
 }
 
-func makeSet(ips, newips []*netip.Addr, k string) []*netip.Addr {
-	set := make(map[netip.Addr]struct{})
-	for _, o := range ips {
-		if o == nil || !o.IsValid() {
-			continue
+// go.dev/play/p/WJXpAa-nmep
+func removeDups[T comparable](a ...[]T) (out []T) {
+	acc := make(map[T]struct{}, 0)
+	for _, x := range a {
+		for _, xx := range x {
+			acc[xx] = struct{}{}
 		}
-		if o.Is4() && k != key4 || o.Is6() && k != key6 {
-			continue // do not add ips of different family
-		}
-		set[*o] = struct{}{} // netip.Addr is comparable
 	}
-	for _, n := range newips {
-		if n == nil || !n.IsValid() {
-			continue
-		}
-		if n.Is4() && k != key4 || n.Is6() && k != key6 {
-			continue // do not add ips of different family
-		}
-		set[*n] = struct{}{}
+	for s := range acc {
+		out = append(out, s)
 	}
-	uniq := make([]*netip.Addr, 0, len(set))
-	for ip := range set {
-		uniq = append(uniq, &ip)
+	return
+}
+
+// go.dev/play/p/zI_9nYhEVJY
+func removeDups2[T comparable](all ...[]*T) (out []*T) {
+	acc := make(map[T]struct{}, 0)
+	for _, list := range all {
+		for _, e := range list {
+			acc[*e] = struct{}{}
+		}
 	}
-	return uniq
+	for s := range acc {
+		out = append(out, &s)
+	}
+	return
 }
