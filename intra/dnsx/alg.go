@@ -102,12 +102,12 @@ type ansMulti struct {
 
 // TODO: Keep a context here so that queries can be canceled.
 type dnsgateway struct {
-	sync.RWMutex                     // locks alg, nat, octets, hexes
-	alg          map[string]*ans     // domain+type -> ans
-	nat          map[netip.Addr]*ans // algip -> ans
-	ptr          map[netip.Addr]*ans // realip -> ans
-	octets       []uint8             // ip4 octets, 100.x.y.z
-	hexes        []uint16            // ip6 hex, 64:ff9b:1:da19:0100.x.y.z
+	sync.RWMutex                          // locks alg, nat, octets, hexes
+	alg          map[string]*ans          // domain+type -> ans
+	nat          map[netip.Addr]*ans      // algip -> ans
+	ptr          map[netip.Addr]*ansMulti // realip -> ansMulti
+	octets       []uint8                  // ip4 octets, 100.x.y.z
+	hexes        []uint16                 // ip6 hex, 64:ff9b:1:da19:0100.x.y.z
 
 	// fields below are never reassigned
 
@@ -126,7 +126,7 @@ var _ Gateway = (*dnsgateway)(nil)
 func NewDNSGateway(outer RdnsResolver, dns64 NatPt) (t *dnsgateway) {
 	alg := make(map[string]*ans)
 	nat := make(map[netip.Addr]*ans)
-	ptr := make(map[netip.Addr]*ans)
+	ptr := make(map[netip.Addr]*ansMulti)
 
 	t = &dnsgateway{
 		alg:    alg,
@@ -538,8 +538,8 @@ func (t *dnsgateway) registerMultiLocked(q string, am *ansMulti) bool {
 		}
 	}
 	for i := range am.realip {
-		// index is always 0 since algip is inconsequential for ptr
-		if ok := t.registerPtrLocked(i, am.ansViewLocked(0)); !ok {
+		// todo: clone(am)?
+		if ok := t.registerPtrLocked(i, am); !ok {
 			return false
 		}
 	}
@@ -563,9 +563,9 @@ func (t *dnsgateway) registerNatLocked(q string, idx int, x *ans) bool {
 }
 
 // register mapping from realip -> algip+qname (ptr)
-func (t *dnsgateway) registerPtrLocked(idx int, x *ans) bool {
-	ip := x.realips[idx]
-	t.ptr[*ip] = x // x contains qname and the algip
+func (t *dnsgateway) registerPtrLocked(idx int, x *ansMulti) bool {
+	ip := x.realip[idx]
+	t.ptr[*ip] = x // x contains qname and the algips
 	return true
 }
 
