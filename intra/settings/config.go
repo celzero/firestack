@@ -25,7 +25,7 @@ var (
 // TODO: These modes could be covered by bit-flags instead.
 
 // DNSModeNone does not redirect DNS queries sent to the tunnel.
-const DNSModeNone = 0
+const DNSModeNone int32 = 0
 
 // DNSModeIP redirects DNS requests sent to the IP endpoint set by VPN.
 const DNSModeIP int32 = 1
