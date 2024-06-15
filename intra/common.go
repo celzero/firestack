@@ -143,27 +143,21 @@ func makeIPPorts(realips string, origipp netip.AddrPort, cap int) []netip.AddrPo
 		cap = len(ips)
 	}
 
-	filtered := 0 // filtered out due to ip family mismatch
 	r := make([]netip.AddrPort, 0, cap)
 	// override alg-ip with the first real-ip
 	for _, v := range ips { // may contain unspecifed ips
 		if len(r) >= cap {
 			break
 		}
-		// len may be zero when realips is "," or ""
-		if len(v) > 0 {
+		if len(v) > 0 { // len may be zero when realips is "," or ""
 			ip, err := netip.ParseAddr(v)
 			if err == nil && ip.IsValid() && !ip.IsUnspecified() {
-				if ip.Is4() && use4 || ip.Is6() && use6 {
-					r = append(r, netip.AddrPortFrom(ip, origipp.Port()))
-				} else {
-					filtered++
-				}
+				r = append(r, netip.AddrPortFrom(ip, origipp.Port()))
 			} // else: discard ip
 		} // else: next v
 	}
 
-	log.VV("intra: makeIPPorts(v4? %t, v6? %t); filtered: %d/%d; in: %v, out: %v", use4, use6, filtered, len(ips), ips, r)
+	log.VV("intra: makeIPPorts(v4? %t, v6? %t); tot: %d; in: %v, out: %v", use4, use6, len(ips), ips, r)
 
 	if len(r) > 0 {
 		rand.Shuffle(len(r), func(i, j int) {
@@ -172,7 +166,7 @@ func makeIPPorts(realips string, origipp netip.AddrPort, cap int) []netip.AddrPo
 		return r
 	}
 
-	log.W("intra: makeIPPorts(v4? %t, v6? %t): all filtered %d/%d; out: %s", use4, use6, filtered, len(ips), origipp)
+	log.W("intra: makeIPPorts(v4? %t, v6? %t): all: %d; out: %s", use4, use6, len(ips), origipp)
 	return []netip.AddrPort{origipp}
 }
 
@@ -183,12 +177,46 @@ func undoAlg(r dnsx.Resolver, algip netip.Addr) (realips, domains, probableDomai
 		if len(domains) <= 0 {
 			probableDomains = gw.PTR(algip, force)
 		}
-		realips = gw.X(algip)
+		// prevent scenarios where the tunnel only has v4 (or v6) routes and
+		// all the routing decisions by listener.Flow() are made based on those routes
+		// but we end up dailing into a v6 (or v4) address (which was unaccounted for).
+		// Dialing into v6 (or v4) address may succeed in such scenarios thereby
+		// resulting in a percieved "leak".
+		realips = filterFamilyForDialing(gw.X(algip))
 		blocklists = gw.RDNSBL(algip)
 	} else {
 		log.W("alg: undoAlg: no gw(%t) or dst(%v)", gw == nil, algip)
 	}
 	return
+}
+
+// filterFamilyForDialing filters out invalid IPs and IPs that are not
+// of the family that the dialer is configured to use.
+func filterFamilyForDialing(ipcsv string) string {
+	if len(ipcsv) <= 0 {
+		return ipcsv
+	}
+	ips := strings.Split(ipcsv, ",")
+	use4 := dialers.Use4()
+	use6 := dialers.Use6()
+	var filtered, unfiltered []string
+	for _, v := range ips {
+		if len(v) <= 0 {
+			continue
+		}
+		ip, err := netip.ParseAddr(v)
+		if err == nil && ip.IsValid() {
+			// always include unspecified IPs as it is used by the client
+			// to make block/no-block decisions
+			if ip.IsUnspecified() || ip.Is4() && use4 || ip.Is6() && use6 {
+				filtered = append(filtered, v)
+			} else {
+				unfiltered = append(unfiltered, v)
+			}
+		} // else: discard ip
+	}
+	log.VV("intra: filterFamily(v4? %t, v6? %t): filtered: %d/%d; in: %v, out: %v, ignored: %v", use4, use6, len(filtered), len(ips), ips, filtered, unfiltered)
+	return strings.Join(filtered, ",")
 }
 
 func hasActiveConn(cm core.ConnMapper, ipp, ips, port string) bool {
