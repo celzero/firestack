@@ -437,6 +437,7 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []*netip.Addr, network string, q
 		qname, prevtargets, mod, previp4s, previp6s, prevsec4s, prevsec6s)
 	// TODO: just like w/ previps/prevtargets, get blocklists for qname and merge w/ new ones?
 
+	ansttl := time.Duration(xdns.RTtl(ansin)) * time.Second
 	algips = append(algips, algip4s...)
 	algips = append(algips, algip6s...)
 	algips = append(algips, algip4hints...)
@@ -451,7 +452,8 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []*netip.Addr, network string, q
 		qname:        qname,
 		blocklists:   secres.summary.Blocklists,
 		// qname->realip valid for next ttl seconds
-		ttl: time.Now().Add(ttl2m),
+		// but algips are valid for algttl seconds
+		ttl: time.Now().Add(max(ttl2m, ansttl)),
 	}
 
 	log.D("alg: ok; domains %s ips %s => subst %s; mod? %t; sec %s", targets, realip, algips, mod, secres.ips)
