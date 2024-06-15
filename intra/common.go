@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/celzero/firestack/intra/core"
+	"github.com/celzero/firestack/intra/dialers"
 	"github.com/celzero/firestack/intra/dnsx"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
@@ -130,13 +131,19 @@ func oneRealIp(realips string, origipp netip.AddrPort) netip.AddrPort {
 }
 
 func makeIPPorts(realips string, origipp netip.AddrPort, cap int) []netip.AddrPort {
+	use4 := dialers.Use4()
+	use6 := dialers.Use6()
+
 	ips := strings.Split(realips, ",")
 	if len(ips) <= 0 {
+		log.VV("intra: makeIPPorts(v4? %t, v6? %t): no realips; out: %s", use4, use6, origipp)
 		return []netip.AddrPort{origipp}
 	}
 	if cap <= 0 || cap > len(ips) {
 		cap = len(ips)
 	}
+
+	filtered := 0 // filtered out due to ip family mismatch
 	r := make([]netip.AddrPort, 0, cap)
 	// override alg-ip with the first real-ip
 	for _, v := range ips { // may contain unspecifed ips
@@ -147,10 +154,16 @@ func makeIPPorts(realips string, origipp netip.AddrPort, cap int) []netip.AddrPo
 		if len(v) > 0 {
 			ip, err := netip.ParseAddr(v)
 			if err == nil && ip.IsValid() && !ip.IsUnspecified() {
-				r = append(r, netip.AddrPortFrom(ip, origipp.Port()))
-			}
-		}
+				if ip.Is4() && use4 || ip.Is6() && use6 {
+					r = append(r, netip.AddrPortFrom(ip, origipp.Port()))
+				} else {
+					filtered++
+				}
+			} // else: discard ip
+		} // else: next v
 	}
+
+	log.VV("intra: makeIPPorts(v4? %t, v6? %t); filtered: %d/%d; in: %v, out: %v", use4, use6, filtered, len(ips), ips, r)
 
 	if len(r) > 0 {
 		rand.Shuffle(len(r), func(i, j int) {
@@ -159,6 +172,7 @@ func makeIPPorts(realips string, origipp netip.AddrPort, cap int) []netip.AddrPo
 		return r
 	}
 
+	log.W("intra: makeIPPorts(v4? %t, v6? %t): all filtered %d/%d; out: %s", use4, use6, filtered, len(ips), origipp)
 	return []netip.AddrPort{origipp}
 }
 
