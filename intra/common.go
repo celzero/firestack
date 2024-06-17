@@ -24,6 +24,10 @@ import (
 
 const smmchSize = 24
 
+var (
+	errNoAddr = errors.New("nil addr")
+)
+
 // TODO: Propagate TCP RST using local.Abort(), on appropriate errors.
 func upload(cid string, local net.Conn, remote net.Conn, ioch chan<- ioinfo) {
 	defer core.Recover(core.Exit11, "c.upload: "+cid)
@@ -216,10 +220,13 @@ func filterFamilyForDialing(ipcsv string) string {
 	if len(ipcsv) <= 0 {
 		return ipcsv
 	}
+	// assume ipv4 is available on ipv6-only network by the way of
+	// any of the 4to6 mechanisms like 464Xlat, DNS64/NAT64, Teredo etc.
+	fallback := false
 	ips := strings.Split(ipcsv, ",")
 	use4 := dialers.Use4()
 	use6 := dialers.Use6()
-	var filtered, unfiltered []string
+	var filtered, unfiltered, invalids []string
 	for _, v := range ips {
 		if len(v) <= 0 {
 			continue
@@ -228,14 +235,23 @@ func filterFamilyForDialing(ipcsv string) string {
 		if err == nil && ip.IsValid() {
 			// always include unspecified IPs as it is used by the client
 			// to make block/no-block decisions
-			if ip.IsUnspecified() || ip.Is4() && use4 || ip.Is6() && use6 {
+			if ip.IsUnspecified() || use4 && ip.Is4() || use6 && ip.Is6() {
 				filtered = append(filtered, v)
 			} else {
 				unfiltered = append(unfiltered, v)
 			}
-		} // else: discard ip
+		} else { // else: discard ip
+			invalids = append(invalids, v)
+		}
 	}
-	log.VV("intra: filterFamily(v4? %t, v6? %t): filtered: %d/%d; in: %v, out: %v, ignored: %v", use4, use6, len(filtered), len(ips), ips, filtered, unfiltered)
+	logger := log.VV
+	if len(filtered) <= 0 {
+		fallback = true
+		filtered = unfiltered
+		unfiltered = nil
+		logger = log.W
+	}
+	logger("intra: filterFamily(v4? %t, v6? %t, fallback? %t): filtered: %d/%d; in: %v, out: %v, ignored: %v + %v", use4, use6, fallback, len(filtered), len(ips), ips, filtered, unfiltered, invalids)
 	return strings.Join(filtered, ",")
 }
 
@@ -258,8 +274,8 @@ func splitCidPidUid(decision *Mark) (cid, pid, uid string) {
 
 func ipp(addr net.Addr) (netip.AddrPort, error) {
 	var zeroaddr = netip.AddrPort{}
-	if addr == nil {
-		return zeroaddr, errors.New("nil addr")
+	if addr == nil || core.IsNil(addr) {
+		return zeroaddr, errNoAddr
 	}
 	return netip.ParseAddrPort(addr.String())
 }

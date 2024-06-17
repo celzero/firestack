@@ -16,7 +16,6 @@ import (
 
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
-	"github.com/celzero/firestack/intra/settings"
 )
 
 type connectFunc func(*protect.RDial, string, netip.Addr, int) (net.Conn, error)
@@ -25,19 +24,20 @@ const dialRetryTimeout = 1 * time.Minute
 
 func maybeFilter(ips []netip.Addr, alwaysExclude netip.Addr) ([]netip.Addr, bool) {
 	failingopen := true
-	proto := ipProto.Load()
+	use4 := Use4()
+	use6 := Use6()
 
 	filtered := make([]netip.Addr, 0, len(ips))
 	unfiltered := make([]netip.Addr, 0, len(ips))
 	for _, ip := range ips {
 		if ip.Compare(alwaysExclude) == 0 || !ip.IsValid() {
 			continue
-		} else if ip.Is4() && proto == settings.IP6 {
-			unfiltered = append(unfiltered, ip)
-		} else if ip.Is6() && proto == settings.IP4 {
-			unfiltered = append(unfiltered, ip)
-		} else {
+		} else if use4 && ip.Is4() {
 			filtered = append(filtered, ip)
+		} else if use6 && ip.Is6() {
+			filtered = append(filtered, ip)
+		} else {
+			unfiltered = append(unfiltered, ip)
 		}
 	}
 	if len(filtered) <= 0 {
