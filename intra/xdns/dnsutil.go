@@ -22,6 +22,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/miekg/dns"
 )
@@ -636,6 +637,10 @@ func HasAnyAnswer(msg *dns.Msg) bool {
 
 func IsNXDomain(msg *dns.Msg) bool {
 	return msg != nil && msg.Rcode == dns.RcodeNameError
+}
+
+func IsARecord(rr dns.RR) bool {
+	return rr != nil && core.IsNotNil(rr) && rr.Header().Rrtype == dns.TypeA
 }
 
 func HasAAnswer(msg *dns.Msg) bool {

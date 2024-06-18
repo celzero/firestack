@@ -197,20 +197,31 @@ func (d *dns64) eval(network string, force64 bool, og *dns.Msg, r dnsx.Transport
 		return nil
 	}
 
+	var didTranslate bool
 	rr64 := make([]dns.RR, 0)
 	for _, answer := range ans4.Answer {
 		if len(ip64) <= 0 { // can never be the case, see Local464Resolver
 			continue
-		} else {
-			for _, ipnet := range ip64 {
-				if rec := xdns.MaybeToQuadA(answer, ipnet, ttl64); rec != nil {
-					rr64 = append(rr64, rec)
-				}
+		}
+		if !xdns.IsARecord(answer) {
+			// could be a CNAME record which must be preserved as-is
+			// to maintain the integrity of the response; as MaybeToQuadA
+			// will reject any non-A records.
+			// qname: a.com
+			// ans: a.com -> cname -> b.com -> ipv4
+			// translated: a.com -> cname -> b.com -> ipv4
+			rr64 = append(rr64, answer)
+			continue
+		}
+		for _, ipnet := range ip64 {
+			if rec := xdns.MaybeToQuadA(answer, ipnet, ttl64); rec != nil {
+				rr64 = append(rr64, rec)
+				didTranslate = true
 			}
 		}
 	}
 
-	if len(rr64) <= 0 {
+	if !didTranslate {
 		// may be there were no A records in ans4; or,
 		// xdns.ToQuadA failed for every A ans4 record
 		log.W("dns64: no rr64 translations done")
