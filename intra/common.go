@@ -24,6 +24,9 @@ import (
 
 const smmchSize = 24
 
+// immediate is the wait time before sending a summary to the listener.
+var immediate = time.Duration(0)
+
 var (
 	errNoAddr = errors.New("nil addr")
 )
@@ -97,19 +100,20 @@ func sendSummary(ch chan *SocketSummary, l SocketListener) {
 
 	for s := range ch {
 		if s != nil && len(s.ID) > 0 {
-			go sendNotif(l, s)
+			sendNotif(l, s, immediate)
 		}
 	}
 }
 
-// must always be called from a goroutine
-func sendNotif(l SocketListener, s *SocketSummary) {
+func sendNotif(l SocketListener, s *SocketSummary, after time.Duration) {
 	defer core.Recover(core.DontExit, "c.sendNotif: "+s.ID)
 
-	// sleep a bit to avoid scenario where kotlin-land
-	// hasn't yet had the chance to persist info about
-	// this conn (cid) to meaninfully process its summary
-	time.Sleep(1 * time.Second)
+	if after > 0 {
+		// sleep a bit to avoid scenario where kotlin-land
+		// hasn't yet had the chance to persist info about
+		// this conn (cid) to meaninfully process its summary
+		time.Sleep(after)
+	}
 
 	log.VV("intra: end? sendNotif(%t,%t): %s", s.str())
 	l.OnSocketClosed(s) // s.Duration may be uninitialized (zero)
