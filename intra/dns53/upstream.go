@@ -72,13 +72,12 @@ func NewTransport(id, ip, port string, px ipn.Proxies, ctl protect.Controller) (
 }
 
 func newTransport(id string, do *settings.DNSOptions, px ipn.Proxies, ctl protect.Controller) (*transport, error) {
-	var relay ipn.Proxy
 	// cannot be nil, see: ipn.Exit which the only proxy guaranteed to be connected to the internet;
 	// ex: ipn.Base routed back within the tunnel (rethink's traffic routed back into rethink).
 	if px == nil {
 		return nil, dnsx.ErrNoProxyProvider
 	}
-	relay, _ = px.ProxyFor(id)
+	relay, _ := px.ProxyFor(id)
 	d := protect.MakeNsRDial(id, ctl)
 	tx := &transport{
 		id:       id,
