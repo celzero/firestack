@@ -53,6 +53,7 @@ type udpHandler struct {
 	prox        ipn.Proxies         // proxy provider for egress
 	fwtracker   *core.ExpMap        // uid+dst(domainOrIP) -> blockSecs
 	smmch       chan *SocketSummary // socket summary channel
+	done        chan struct{}       // always unbuffered
 
 	once sync.Once
 
@@ -114,6 +115,7 @@ func NewUDPHandler(resolver dnsx.Resolver, prox ipn.Proxies, tunMode *settings.T
 		conntracker: core.NewConnMap(),
 		status:      core.NewVolatile(UDPOK),
 		smmch:       make(chan *SocketSummary, smmchSize),
+		done:        make(chan struct{}),
 	}
 
 	go sendSummary(h.smmch, listener)
@@ -195,7 +197,7 @@ func (h *udpHandler) ProxyMux(gconn *netstack.GUDPConn, src netip.AddrPort) (ok 
 		clos(gconn, local)
 		if smm != nil { // smm is never nil; but nilaway complains
 			smm.done(err)
-			queueSummary(h.smmch, smm)
+			queueSummary(h.smmch, h.done, smm)
 		} else {
 			log.W("udp: proxy: mux: unexpected %s -> [unconnected]; err: %v", src, err)
 		}
@@ -255,7 +257,7 @@ func (h *udpHandler) proxy(gconn net.Conn, src, dst netip.AddrPort) (ok bool) {
 		clos(gconn, remote)
 		if smm != nil { // smm is never nil; but nilaway complains
 			smm.done(err)
-			queueSummary(h.smmch, smm)
+			queueSummary(h.smmch, h.done, smm)
 		} else {
 			log.W("udp: proxy: unexpected %s -> %s; err: %v", src, dst, err)
 		}
@@ -275,7 +277,7 @@ func (h *udpHandler) proxy(gconn net.Conn, src, dst netip.AddrPort) (ok bool) {
 	h.conntracker.Track(ct, gconn, remote)
 	core.Go("udp.forward: "+cid, func() {
 		defer h.conntracker.Untrack(ct.CID)
-		forward(gconn, &rwext{remote}, h.smmch, smm)
+		forward(gconn, &rwext{remote}, h.smmch, h.done, smm)
 	})
 	return true // ok
 }
@@ -393,6 +395,7 @@ func (h *udpHandler) End() error {
 	h.once.Do(func() {
 		h.status.Store(UDPEND)
 		h.CloseConns(nil)
+		close(h.done)
 		close(h.smmch)
 		log.I("udp: handler end")
 	})

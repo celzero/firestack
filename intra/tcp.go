@@ -53,6 +53,7 @@ type tcpHandler struct {
 	conntracker core.ConnMapper // connid -> [local,remote]
 	tunMode     *settings.TunMode
 	smmch       chan *SocketSummary
+	done        chan struct{} // always unbuffered, never nil
 
 	once sync.Once
 
@@ -98,6 +99,7 @@ func NewTCPHandler(resolver dnsx.Resolver, prox ipn.Proxies, tunMode *settings.T
 		fwtracker:   core.NewExpiringMap(),
 		conntracker: core.NewConnMap(),
 		smmch:       make(chan *SocketSummary, smmchSize),
+		done:        make(chan struct{}),
 		status:      core.NewVolatile(TCPOK),
 	}
 
@@ -155,6 +157,7 @@ func (h *tcpHandler) End() error {
 	h.once.Do(func() {
 		h.status.Store(TCPEND)
 		h.CloseConns(nil)
+		close(h.done)
 		close(h.smmch)
 		log.I("tcp: handler end")
 	})
@@ -181,7 +184,7 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target netip.AddrPort)
 			clos(gconn)
 			if smm != nil {
 				smm.done(err)
-				queueSummary(h.smmch, smm)
+				queueSummary(h.smmch, h.done, smm)
 			} // else: summary not created
 		}
 	}()
@@ -303,7 +306,7 @@ func (h *tcpHandler) handle(px ipn.Proxy, src net.Conn, target netip.AddrPort, c
 	h.conntracker.Track(ct, src, dst)
 	core.Go("tcp.forward:"+smm.ID, func() {
 		defer h.conntracker.Untrack(ct.CID)
-		forward(src, dst, h.smmch, smm) // src always *gonet.TCPConn
+		forward(src, dst, h.smmch, h.done, smm) // src always *gonet.TCPConn
 	})
 
 	log.I("tcp: new conn %s via proxy(%s); src(%s) -> dst(%s) for %s", smm.ID, px.ID(), src.LocalAddr(), target, smm.UID)

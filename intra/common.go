@@ -58,7 +58,7 @@ func download(cid string, local net.Conn, remote net.Conn) (n int64, err error) 
 
 // forward copies data between local and remote, and tracks the connection.
 // It also sends a summary to the listener when done. Always called in a goroutine.
-func forward(local, remote net.Conn, ch chan *SocketSummary, smm *SocketSummary) {
+func forward(local, remote net.Conn, ch chan *SocketSummary, done chan struct{}, smm *SocketSummary) {
 	cid := smm.ID
 
 	uploadch := make(chan ioinfo)
@@ -76,12 +76,14 @@ func forward(local, remote net.Conn, ch chan *SocketSummary, smm *SocketSummary)
 	smm.Tx = upload.bytes
 
 	smm.done(derr, upload.err)
-	queueSummary(ch, smm)
+	queueSummary(ch, done, smm)
 }
 
-func queueSummary(ch chan *SocketSummary, s *SocketSummary) {
+func queueSummary(ch chan *SocketSummary, done chan struct{}, s *SocketSummary) {
 	select {
 	case ch <- s:
+	case <-done:
+		log.D("intra: queueSummary: end")
 	default:
 		log.W("intra: sendSummary: dropped: %s", s.str())
 	}

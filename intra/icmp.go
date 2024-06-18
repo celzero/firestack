@@ -30,6 +30,7 @@ type icmpHandler struct {
 	prox     ipn.Proxies
 	listener Listener
 	smmch    chan *SocketSummary
+	done     chan struct{} // always unbuffered, never nil
 
 	once sync.Once
 
@@ -106,6 +107,7 @@ func (h *icmpHandler) End() error {
 	h.once.Do(func() {
 		h.status.Store(ICMPEND)
 		h.CloseConns(nil)
+		close(h.done)
 		close(h.smmch)
 		log.I("icmp: handler end")
 	})
@@ -146,7 +148,7 @@ func (h *icmpHandler) Ping(source, target netip.AddrPort, msg []byte, pong netst
 	defer func() {
 		if !open {
 			smm.done(err)
-			queueSummary(h.smmch, smm)
+			queueSummary(h.smmch, h.done, smm)
 		}
 	}()
 
@@ -168,7 +170,7 @@ func (h *icmpHandler) Ping(source, target netip.AddrPort, msg []byte, pong netst
 	core.Gx("icmp.Ping", func() {
 		defer func() {
 			smm.done(err)
-			queueSummary(h.smmch, smm)
+			queueSummary(h.smmch, h.done, smm)
 		}()
 		dst := oneRealIp(realips, target)
 		uc, err := px.Dialer().Dial("udp", dst.String())
@@ -213,7 +215,7 @@ func (h *icmpHandler) fetch(c net.Conn, pong netstack.Pong, smm *SocketSummary) 
 	defer func() {
 		clos(c)
 		smm.done(err)
-		queueSummary(h.smmch, smm)
+		queueSummary(h.smmch, h.done, smm)
 	}()
 
 	bptr := core.Alloc()
