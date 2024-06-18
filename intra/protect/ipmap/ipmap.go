@@ -28,6 +28,7 @@ import (
 	"math/rand"
 	"net"
 	"net/netip"
+	"strings"
 	"sync"
 	"sync/atomic"
 
@@ -324,6 +325,7 @@ func (s *IPSet) bootstrap() (n int) {
 	defer s.Unlock()
 
 	for _, ipstr := range s.seed {
+		ipstr = strings.TrimSpace(ipstr)
 		if len(ipstr) <= 0 {
 			continue
 		}
