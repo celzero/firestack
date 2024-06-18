@@ -355,7 +355,7 @@ func (t *transport) prepare(pid string) (client *http.Client, err error) {
 		if err != nil {
 			return
 		}
-		log.VV("doh: using proxy %s:%s for %s", px.ID(), px.GetAddr())
+		log.VV("doh: using proxy %s:%s", px.ID(), px.GetAddr())
 	} else {
 		log.D("doh: no proxy %s", pid)
 	}
