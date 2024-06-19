@@ -84,7 +84,7 @@ func (t *goosr) send(msg *dns.Msg) (ans *dns.Msg, elapsed time.Duration, qerr *d
 	start := time.Now()
 
 	host := xdns.QName(msg)
-	// zero length host must return NS records for the root zone
+	// TODO: zero length host must return NS records for the root zone
 	if len(host) <= 0 || host == "." {
 		qerr = dnsx.NewBadQueryError(errNoHost)
 		elapsed = time.Since(start)
@@ -108,15 +108,16 @@ func (t *goosr) send(msg *dns.Msg) (ans *dns.Msg, elapsed time.Duration, qerr *d
 			if xdns.HasAAAAQuestion(msg) {
 				proto = "ip6"
 			}
-			if ips, errl := t.r.LookupNetIP(bgctx, proto, host); errl == nil && xdns.HasAnyAnswer(msg) {
-				log.D("dns53: goosr: go resolver for %s => %s", host, ips)
+			if ips, errc := t.rcgo.LookupNetIP(bgctx, proto, host); errc == nil {
+				log.D("dns53: goosr: cgo resolver for %s => %s", host, ips)
 				ans, err = xdns.AQuadAForQuery(msg, ips...)
-			} else if ips, errc := t.rcgo.LookupNetIP(bgctx, proto, host); errc == nil {
-				log.D("dns53: goosr: cgo resolver (why? %v) for %s => %s", errl, host, ips)
+			} else if ips, errl := t.r.LookupNetIP(bgctx, proto, host); errl == nil && xdns.HasAnyAnswer(msg) {
+				log.D("dns53: goosr: go resolver (why? %v) for %s => %s", errl, host, ips)
 				ans, err = xdns.AQuadAForQuery(msg, ips...)
 			} else {
 				err = errors.Join(errl, errc)
 			}
+			// TODO: if len(ips) <= 0 synthesize a NXDOMAIN?
 		}
 	}
 
