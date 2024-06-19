@@ -158,7 +158,7 @@ func (t *dnsgateway) stop() {
 	t.hexes = rfc8215a
 }
 
-func (t *dnsgateway) querySecondary(t2 Transport, network string, msg *dns.Msg, out chan<- secans, in <-chan *dns.Msg) {
+func (t *dnsgateway) querySecondary(t2 Transport, network string, msg *dns.Msg, twosecres chan<- secans, t1res <-chan *dns.Msg) {
 	var r *dns.Msg
 	var err error
 
@@ -173,11 +173,11 @@ func (t *dnsgateway) querySecondary(t2 Transport, network string, msg *dns.Msg, 
 	go func() {
 		// don't need to handle panics w/ core.Recover
 		time.Sleep(timeout)
-		out <- result
+		twosecres <- result // result 1
 	}()
 	defer func() {
 		// race against the timeout
-		out <- result
+		twosecres <- result // result 2
 	}()
 
 	// check if the question is blocked
@@ -200,12 +200,12 @@ func (t *dnsgateway) querySecondary(t2 Transport, network string, msg *dns.Msg, 
 	if t2 == nil || core.IsNil(t2) {
 		ticker := time.NewTicker(timeout)
 		select {
-		case r = <-in:
+		case r = <-t1res: // from primary transport, t1; may be nil
 			ticker.Stop()
-			break
+			break // process "r"
 		case <-ticker.C:
 			ticker.Stop()
-			return
+			return // no "r" to process
 		}
 	} else {
 		// query secondary to get answer for q
@@ -269,7 +269,8 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []*netip.Addr, network string, q
 		t2 = nil
 	}
 	mod := t.mod.Load() // allow alg?
-	secch := make(chan secans, 1)
+	// at most two results (t1 or t2 responses, or nil timeout response)
+	secch := make(chan secans, 2)
 	resch := make(chan *dns.Msg, 1)
 	innersummary := new(x.DNSSummary)
 	// todo: use context?
