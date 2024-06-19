@@ -209,6 +209,7 @@ func (t *gtunnel) wait() {
 }
 
 func (t *gtunnel) Disconnect() {
+	// no core.Recover here as the tunnel is disconnecting anyway
 	t.once.Do(func() {
 		s := t.stack
 		p := t.pcapio
