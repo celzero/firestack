@@ -633,7 +633,7 @@ func (r *resolver) reply(c protect.Conn) {
 
 		if err != nil {
 			millis := int(time.Since(start).Seconds() * 1000)
-			log.D("dns: udp: done; tot: %d, t: %dms, err: %v", cnt, millis, err)
+			log.VV("dns: udp: done; tot: %d, t: %dms, err: %v", cnt, millis, err)
 			free()
 			break
 		}
