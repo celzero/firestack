@@ -1232,12 +1232,15 @@ func GetBlocklistStampHeaderKey() string {
 	return http.CanonicalHeaderKey(blocklistHeaderKey)
 }
 
-// GetBlocklistStampHeaderKey returns the http-header key for blocklists stamp
-func GetRethinkDNSRegionHeaderKey() (r string) {
-	if r = http.CanonicalHeaderKey(rethinkdnsRegionHeaderKey); len(r) > 0 {
-		return r
-	} else if r = http.CanonicalHeaderKey(cfRayHeaderKey); len(r) > 0 {
-		_, r, _ = strings.Cut(r, "-")
+// GetBlocklistStampHeaderKey1 returns the http-header key for region set by rdns upstream on Fly
+func GetRethinkDNSRegionHeaderKey1() string {
+	return http.CanonicalHeaderKey(rethinkdnsRegionHeaderKey)
+}
+
+// GetBlocklistStampHeaderKey2 returns the http-header key for region set by rdns upstream on Cloudflare
+func GetRethinkDNSRegionHeaderKey2() (r string) {
+	if ck := http.CanonicalHeaderKey(cfRayHeaderKey); len(ck) > 0 {
+		_, r, _ = strings.Cut(ck, "-")
 	}
 	return
 }

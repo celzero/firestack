@@ -481,7 +481,10 @@ func (t *transport) rdnsHeaders(h *http.Header) (blocklistStamp, region string) 
 		return
 	}
 	blocklistStamp = h.Get(xdns.GetBlocklistStampHeaderKey())
-	region = h.Get(xdns.GetRethinkDNSRegionHeaderKey())
+	region = h.Get(xdns.GetRethinkDNSRegionHeaderKey1())
+	if len(region) <= 0 {
+		region = h.Get(xdns.GetRethinkDNSRegionHeaderKey2())
+	}
 	log.VV("doh: header %s; region %s; stamp %v", h, region, blocklistStamp)
 	return
 }
