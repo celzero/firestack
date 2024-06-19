@@ -58,6 +58,7 @@ func NewICMPHandler(resolver dnsx.Resolver, prox ipn.Proxies, tunMode *settings.
 		prox:     prox,
 		listener: listener,
 		smmch:    make(chan *SocketSummary, smmchSize),
+		done:     make(chan struct{}),
 		status:   core.NewVolatile(ICMPOK),
 	}
 
