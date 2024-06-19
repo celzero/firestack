@@ -2,7 +2,7 @@
 
 A userspace TCP/UDP connection monitor, firewall, DNS resolver, and [WireGuard](https://github.com/wireguard/wireguard-go) client for Android.
 
-Firestack is built specifically for [Rethink DNS + Firewall](https://github.com/celzero/rethink-app). [gVisor/netstack](https://github.com/google/gvisor/tree/go/pkg/tcpip) provides a SOCKS-like interface (similar to [badvpn's tun2socks](https://github.com/ambrop72/badvpn)) for TCP and UDP connections over a tun-device.
+Firestack is built specifically for [Rethink DNS + Firewall + VPN](https://github.com/celzero/rethink-app). [gVisor/netstack](https://github.com/google/gvisor/tree/go/pkg/tcpip) provides a SOCKS-like interface (similar to [badvpn's tun2socks](https://github.com/ambrop72/badvpn)) for TCP and UDP connections over a tun-device.
 
 Firestack is a hard-fork of Google's [outline-go-tun2socks](https://github.com/Jigsaw-Code/outline-go-tun2socks) project.
 
@@ -33,14 +33,16 @@ your [Android builds via jitpack.io](https://jitpack.io/#celzero/firestack) ([re
 
     # add the dep to your app's build.gradle
     dependencies {
-        implementation 'com.github.celzero:firestack:Tag'
+        implementation 'com.github.celzero:firestack:Tag@aar'
+        # with debug symbols
+        implementation 'com.github.celzero:firestack:Tag:debug@aar'
     }
 ```
 
 ## API
 
 The APIs aren't stable and hence left undocumented, but you can look at
-RethinkDNS ([GoVpnAdapter](https://github.com/celzero/rethink-app/blob/982849564/app/src/main/java/com/celzero/bravedns/net/go/GoVpnAdapter.java#L164-L232),
+Rethink DNS + Firewall + VPN codebase: ([GoVpnAdapter](https://github.com/celzero/rethink-app/blob/982849564/app/src/main/java/com/celzero/bravedns/net/go/GoVpnAdapter.java#L164-L232),
  [BraveVpnService](https://github.com/celzero/rethink-app/blob/982849564/app/src/main/java/com/celzero/bravedns/service/BraveVPNService.kt#L130-L137)) to see how to integrate with Firestack on Android.
 
 ## Build
@@ -51,7 +53,7 @@ Firestack only supports Android. Instructions for other platforms are left as-is
 
 - macOS host (iOS, macOS)
 - make
-- Go >= 1.20
+- Go >= 1.22
 - A C compiler (e.g.: clang, gcc)
 
 Firestack APIs are available only on Android builds for now. iOS and Linux support planned but nothing concrete yet.
