@@ -134,6 +134,29 @@ func splitIpConnect2(d *protect.RDial, proto string, ip netip.Addr, port int) (n
 	}
 }
 
+func splitIpConnect3(d *protect.RDial, proto string, ip netip.Addr, port int) (net.Conn, error) {
+	if d == nil {
+		log.E("rdial: splitIpConnect3: nil dialer")
+		return nil, errNoDialer
+	} else if !ipok(ip) {
+		log.E("rdial: splitIpConnect3: invalid ip", ip)
+		return nil, errNoIps
+	}
+
+	switch proto {
+	case "tcp", "tcp4", "tcp6":
+		if ! ip.IsPrivate() {
+			payload := []byte(Http1_1String)
+			return DialWithSplitAndDesyncSmart(d, tcpaddr(ip, port), 20, payload)
+		}
+		return d.DialTCP(proto, nil, tcpaddr(ip, port))
+	case "udp", "udp4", "udp6":
+		return d.DialUDP(proto, nil, udpaddr(ip, port))
+	default:
+		return d.Dial(proto, addr(ip, port))
+	}
+}
+
 func commondial(d *protect.RDial, network, addr string, connect connectFunc) (net.Conn, error) {
 	start := time.Now()
 
@@ -248,6 +271,10 @@ func SplitDial(d *protect.RDial, network, addr string) (net.Conn, error) {
 // SplitDial2 is like SplitDial except it splits ClientHello in all TLS connections.
 func SplitDial2(d *protect.RDial, network, addr string) (net.Conn, error) {
 	return commondial(d, network, addr, splitIpConnect2)
+}
+
+func SplitDial3(d *protect.RDial, network, addr string) (net.Conn, error) {
+	return commondial(d, network, addr, splitIpConnect3)
 }
 
 // SplitDialWithTls dials into addr using the provided dialer and returns a tls.Conn

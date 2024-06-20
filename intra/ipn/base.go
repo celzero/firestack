@@ -15,6 +15,20 @@ import (
 	"github.com/celzero/firestack/intra/protect"
 )
 
+var currentStrategy func(*protect.RDial, string, string) (protect.Conn, error) = dialers.SplitDial
+const (
+	retrierStrategy int = 0
+	desyncStrategy int = 1
+)
+func SwitchStrategy(s int){
+	switch s {
+	case retrierStrategy:
+		currentStrategy = dialers.SplitDial
+	case desyncStrategy:
+		currentStrategy = dialers.SplitDial3
+	}
+}
+
 type base struct {
 	rd       *protect.RDial // this proxy as a RDial
 	hc       *http.Client   // this proxy as a http.Client
@@ -41,7 +55,7 @@ func (h *base) Dial(network, addr string) (c protect.Conn, err error) {
 		return nil, errProxyStopped
 	}
 
-	if c, err = dialers.SplitDial(h.outbound, network, addr); err != nil {
+	if c, err = currentStrategy(h.outbound, network, addr); err != nil {
 		h.status = TKO
 	} else {
 		h.status = TOK
