@@ -351,7 +351,7 @@ func (h *udpHandler) Connect(gconn net.Conn, src, target netip.AddrPort) (dst co
 		// note: fake-dns-ips shouldn't be un-nated / un-alg'd
 		for i, dstipp := range makeIPPorts(realips, target, 0) {
 			selectedTarget = dstipp
-			h.conntracker.TrackDest(ct, selectedTarget) // will be untracked by forward
+			// h.conntracker.TrackDest(ct, selectedTarget) // will be untracked by forward
 			if pc, err = px.Dial("udp", selectedTarget.String()); err == nil {
 				errs = nil // reset errs
 				break

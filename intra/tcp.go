@@ -251,7 +251,7 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target netip.AddrPort)
 
 	// pick all realips to connect to
 	for i, dstipp := range makeIPPorts(realips, target, 0) {
-		h.conntracker.TrackDest(ct, dstipp) // may be untracked by handle()
+		// h.conntracker.TrackDest(ct, dstipp) // may be untracked by handle()
 		if err = h.handle(px, gconn, dstipp, ct, smm); err == nil {
 			return allow
 		} // else try the next realip
@@ -263,7 +263,7 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target netip.AddrPort)
 		}
 	}
 
-	h.conntracker.Untrack(ct.CID) // untrack if disallowed
+	// h.conntracker.Untrack(ct.CID) // untrack if disallowed
 	return deny
 }
 

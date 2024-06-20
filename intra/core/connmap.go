@@ -25,25 +25,40 @@ func (t ConnTuple) String() string {
 }
 
 type ConnMapper interface {
+	// Clear untracks all conns.
 	Clear() []string
+	// Track maps x[] to t.
 	Track(t ConnTuple, x ...net.Conn) int
+	// TrackDest maps ip:port to t.
 	TrackDest(t ConnTuple, x netip.AddrPort) int
+	// Find returns all ConnTuples mapped to ip:port (dst).
 	Find(dst string) (t []ConnTuple)
+	// FindAll returns all ConnTuples mapped to ips (csvips) and port.
 	FindAll(csvips, port string) (t []ConnTuple)
+	// Get returns a conn mapped to connection id, cid.
 	Get(cid string) []net.Conn
+	// Untrack closes all conns with connection id, cid.
 	Untrack(cid string) int
+	// UntrackBatch untracks one cid at a time.
 	UntrackBatch(cids []string) []string
 }
 
 type cm struct {
 	sync.RWMutex
 	conntracker map[string][]net.Conn  // id -> conns
-	dsttracker  map[string][]ConnTuple // dst ipport -> conntuple
+	dsttracker  map[string][]ConnTuple // dst ipport -> conntuple; may be nil
 }
 
 var _ ConnMapper = (*cm)(nil)
 
 func NewConnMap() *cm {
+	return &cm{
+		conntracker: make(map[string][]net.Conn),
+		dsttracker:  nil,
+	}
+}
+
+func NewConnDestMap() *cm {
 	return &cm{
 		conntracker: make(map[string][]net.Conn),
 		dsttracker:  make(map[string][]ConnTuple),
@@ -77,6 +92,10 @@ func (h *cm) TrackDest(t ConnTuple, x netip.AddrPort) (n int) {
 }
 
 func (h *cm) trackDestLocked(t ConnTuple, dst string) (n int) {
+	if h.dsttracker == nil { // not a dest connmap
+		return 0
+	}
+
 	if tups, ok := h.dsttracker[dst]; ok {
 		// TODO: do not add dup ConnTuples
 		h.dsttracker[dst] = append(tups, t)
@@ -90,6 +109,10 @@ func (h *cm) trackDestLocked(t ConnTuple, dst string) (n int) {
 }
 
 func (h *cm) addToDstTrackerLocked(t ConnTuple, conns []net.Conn) (n int) {
+	if h.dsttracker == nil { // not a dest connmap
+		return 0
+	}
+
 	for _, c := range conns {
 		if c == nil || IsNil(c) {
 			continue
@@ -122,6 +145,10 @@ func (h *cm) Untrack(cid string) (n int) {
 }
 
 func (h *cm) delFromDstTrackerLocked(cid string, c net.Conn) (rmv bool) {
+	if h.dsttracker == nil { // not a dest connmap
+		return
+	}
+
 	raddr := c.RemoteAddr()
 	if raddr == nil { // should not happen?
 		log.W("connmap: untrack: no remote addr for %s", cid)
@@ -181,7 +208,7 @@ func (h *cm) Get(cid string) (conns []net.Conn) {
 }
 
 func (h *cm) Find(dst string) (tups []ConnTuple) {
-	if len(dst) == 0 {
+	if len(dst) == 0 || h.dsttracker == nil {
 		// too verbose: log.V("connmap: find: empty dst")
 		return
 	}
@@ -197,7 +224,7 @@ func (h *cm) Find(dst string) (tups []ConnTuple) {
 func (h *cm) FindAll(csvips, port string) (out []ConnTuple) {
 	out = make([]ConnTuple, 0)
 
-	if len(csvips) == 0 {
+	if len(csvips) == 0 || h.dsttracker == nil {
 		// too verbose: log.V("connmap: findAll: empty csvips")
 		return
 	}
@@ -222,13 +249,11 @@ func (h *cm) Clear() (cids []string) {
 
 	cids = make([]string, 0, len(h.conntracker))
 	for k, v := range h.conntracker {
-		for _, c := range v {
-			CloseConn(c)
-		}
+		CloseConn(v...)
 		cids = append(cids, k)
 	}
 	clear(h.conntracker)
-	clear(h.dsttracker)
+	clear(h.dsttracker) // ok to clear(nil maps)
 	log.D("connmap: clear: %d conns", len(cids))
 	return
 }
