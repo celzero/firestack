@@ -84,6 +84,8 @@ type Services interface {
 	RefreshServers() (active string)
 }
 
+var _ Services = (*services)(nil)
+var _ Server = (*httpx)(nil)
 var _ Server = (*socks5)(nil)
 
 type services struct {
@@ -94,7 +96,7 @@ type services struct {
 	ctl      protect.Controller
 }
 
-func NewServices(proxies ipn.Proxies, ctl protect.Controller, listener ServerListener) Services {
+func NewServices(proxies ipn.Proxies, ctl protect.Controller, listener ServerListener) *services {
 	if listener == nil || ctl == nil {
 		return nil
 	}

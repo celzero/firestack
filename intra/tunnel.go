@@ -30,6 +30,7 @@ import (
 	"sync/atomic"
 
 	x "github.com/celzero/firestack/intra/backend"
+	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/dialers"
 	"github.com/celzero/firestack/intra/dnsx"
 	"github.com/celzero/firestack/intra/ipn"
@@ -45,6 +46,7 @@ var errClosed = errors.New("tunnel closed for business")
 type Bridge interface {
 	Listener
 	x.Controller
+	Console
 }
 
 // Listener receives usage statistics when a UDP or TCP socket is closed,
@@ -78,7 +80,7 @@ type Tunnel interface {
 	// If len(fpcap) is 1, PCAP be written to stdout.
 	SetPcap(fpcap string) error
 	// Set DNSMode, BlockMode, PtMode.
-	SetTunMode(dnsmode, blockmode, ptmode int)
+	SetTunMode(dnsmode, blockmode, ptmode int32)
 }
 
 type rtunnel struct {
@@ -93,10 +95,14 @@ type rtunnel struct {
 }
 
 func NewTunnel(fd, mtu int, fakedns string, tunmode *settings.TunMode, dtr DefaultDNS, bdg Bridge) (Tunnel, error) {
+	defer core.Recover(core.Exit11, "i.newTunnel")
+
 	if bdg == nil || dtr == nil {
 		return nil, fmt.Errorf("tun: no bridge? %t or default-dns? %t", bdg == nil, dtr == nil)
 	}
 
+	// setConsole sets external console to redirect log output to.
+	log.SetConsole(bdg)
 	natpt := x64.NewNatPt(tunmode)
 	proxies := ipn.NewProxifier(bdg, bdg)
 	services := rnet.NewServices(proxies, bdg, bdg)
@@ -180,9 +186,17 @@ func (t *rtunnel) SetLinkAndRoutes(fd, mtu, engine int) error {
 		return errClosed
 	}
 
-	l3 := settings.L3(engine)
-	dialers.IPProtos(l3)
-	t.resolver.Add(newMDNSTransport(l3))
+	defer func() {
+		core.Gx("i.setLinkAndRoutes", func() {
+			l3 := settings.L3(engine)
+			if diff := dialers.IPProtos(l3); diff {
+				// dialers.IPProtos must always preced calls to other refreshes
+				// as it carries the global state for dialers and ipn/multihost
+				go t.proxies.RefreshProto(l3)
+				t.resolver.Add(newMDNSTransport(l3))
+			}
+		})
+	}()
 	return t.Tunnel.SetLink(fd, mtu) // route is always dual-stack
 }
 
@@ -225,6 +239,6 @@ func (t *rtunnel) GetServices() (rnet.Services, error) {
 	return t.services, nil
 }
 
-func (t *rtunnel) SetTunMode(dnsmode, blockmode, ptmode int) {
+func (t *rtunnel) SetTunMode(dnsmode, blockmode, ptmode int32) {
 	t.tunmode.SetMode(dnsmode, blockmode, ptmode)
 }

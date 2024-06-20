@@ -27,10 +27,10 @@ package intra
 
 import (
 	"errors"
-	"fmt"
 	"net"
 	"net/netip"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/celzero/firestack/intra/dnsx"
@@ -46,13 +46,20 @@ import (
 )
 
 type tcpHandler struct {
-	resolver    dnsx.Resolver
-	tunMode     *settings.TunMode
-	listener    SocketListener
-	prox        ipn.Proxies
-	fwtracker   *core.ExpMap
-	status      int
+	resolver    dnsx.Resolver   // resolver to forward dns requests to
+	listener    SocketListener  // listener for socket summaries
+	prox        ipn.Proxies     // proxy provider for egress
+	fwtracker   *core.ExpMap    // uid+dst(domainOrIP) -> blockSecs
 	conntracker core.ConnMapper // connid -> [local,remote]
+	tunMode     *settings.TunMode
+	smmch       chan *SocketSummary
+	done        chan struct{} // always unbuffered, never nil
+
+	once sync.Once
+
+	// fields below are mutable
+
+	status *core.Volatile[int] // status of this handler
 }
 
 type ioinfo struct {
@@ -79,6 +86,11 @@ var _ netstack.GTCPConnHandler = (*tcpHandler)(nil)
 // All other traffic is forwarded using `dialer`.
 // `listener` is provided with a summary of each socket when it is closed.
 func NewTCPHandler(resolver dnsx.Resolver, prox ipn.Proxies, tunMode *settings.TunMode, ctl protect.Controller, listener SocketListener) netstack.GTCPConnHandler {
+	if listener == nil || core.IsNil(listener) {
+		log.W("tcp: using noop listener")
+		listener = nooplistener
+	}
+
 	h := &tcpHandler{
 		resolver:    resolver,
 		tunMode:     tunMode,
@@ -86,20 +98,26 @@ func NewTCPHandler(resolver dnsx.Resolver, prox ipn.Proxies, tunMode *settings.T
 		prox:        prox,
 		fwtracker:   core.NewExpiringMap(),
 		conntracker: core.NewConnMap(),
-		status:      TCPOK,
+		smmch:       make(chan *SocketSummary, smmchSize),
+		done:        make(chan struct{}),
+		status:      core.NewVolatile(TCPOK),
 	}
+
+	go sendSummary(h.smmch, listener)
 
 	log.I("tcp: new handler created")
 	return h
 }
 
+// onFlow calls listener.Flow to determine egress rules and routes; thread-safe.
 func (h *tcpHandler) onFlow(localaddr, target netip.AddrPort, realips, domains, probableDomains, blocklists string) (*Mark, bool) {
 	const dup = true
 	const notdup = !dup
+	blockmode := h.tunMode.BlockMode.Load()
 	// BlockModeNone returns false, BlockModeSink returns true
-	if h.tunMode.BlockMode == settings.BlockModeSink {
+	if blockmode == settings.BlockModeSink {
 		return optionsBlock, notdup
-	} else if h.tunMode.BlockMode == settings.BlockModeNone {
+	} else if blockmode == settings.BlockModeNone {
 		// todo: block-mode none should call into listener.Flow to determine upstream proxy
 		return optionsBase, notdup
 	}
@@ -110,7 +128,7 @@ func (h *tcpHandler) onFlow(localaddr, target netip.AddrPort, realips, domains, 
 
 	// Implict: BlockModeFilter or BlockModeFilterProc
 	uid := -1
-	if h.tunMode.BlockMode == settings.BlockModeFilterProc {
+	if blockmode == settings.BlockModeFilterProc {
 		procEntry := netstat.FindProcNetEntry("tcp", localaddr, target)
 		if procEntry != nil {
 			uid = procEntry.UserID
@@ -124,7 +142,7 @@ func (h *tcpHandler) onFlow(localaddr, target netip.AddrPort, realips, domains, 
 	active := hasActiveConn(h.conntracker, dst, realips, dport) // existing active conns denote dup
 	res := h.listener.Flow(proto, uid, active, src, dst, realips, domains, probableDomains, blocklists)
 
-	if res == nil {
+	if res == nil { // zeroListener returns nil
 		log.W("tcp: onFlow: empty res from kt; using base")
 		return optionsBase, active // true if dup
 	} else if len(res.PID) <= 0 {
@@ -136,8 +154,13 @@ func (h *tcpHandler) onFlow(localaddr, target netip.AddrPort, realips, domains, 
 }
 
 func (h *tcpHandler) End() error {
-	h.status = TCPEND
-	h.CloseConns(nil)
+	h.once.Do(func() {
+		h.status.Store(TCPEND)
+		h.CloseConns(nil)
+		close(h.done)
+		close(h.smmch)
+		log.I("tcp: handler end")
+	})
 	return nil
 }
 
@@ -147,33 +170,34 @@ func (h *tcpHandler) CloseConns(cids []string) (closed []string) {
 }
 
 // Proxy implements netstack.GTCPConnHandler
+// It must be called from a goroutine.
 func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target netip.AddrPort) (open bool) {
 	const allow bool = true  // allowed
 	const deny bool = !allow // blocked
-	const rst bool = true    // tear down conn
-	const ack bool = !rst    // send synack
 	var smm *SocketSummary
 	var err error
+
+	defer core.Recover(core.Exit11, "tcp.Proxy")
 
 	defer func() {
 		if !open {
 			clos(gconn)
 			if smm != nil {
 				smm.done(err)
-				go sendNotif(h.listener, smm)
+				queueSummary(h.smmch, h.done, smm)
 			} // else: summary not created
 		}
 	}()
 
-	if h.status == TCPEND {
-		_, err = gconn.Connect(rst) // fin
-		log.D("tcp: proxy: end %v -> %v; close err? %v", src, target, err)
+	if h.status.Load() == TCPEND {
+		// _, err = gconn.Connect(rst) // fin
+		log.D("tcp: proxy: end %v -> %v", src, target)
 		return deny
 	}
 
 	if !src.IsValid() || !target.IsValid() {
-		_, err = gconn.Connect(rst) // fin
-		log.E("tcp: nil addr %v -> %v; close err? %v", src, target, err)
+		// _, err = gconn.Connect(rst) // fin
+		// log.E("tcp: nil addr %v -> %v; close err? %v", src, target, err)
 		return deny
 	}
 
@@ -200,19 +224,19 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target netip.AddrPort)
 		}
 		log.I("tcp: gconn %s firewalled from %s -> %s (dom: %s + %s/ real: %s) for %s; stall? %ds", cid, src, target, domains, probableDomains, realips, uid, secs)
 		err = errTcpFirewalled
-		_, _ = gconn.Connect(rst) // fin
+		// _, _ = gconn.Connect(rst) // fin
 		return deny
 	}
 
-	// handshake; since we assume a duplex-stream from here on
+	/* handshake; since we assume a duplex-stream from here on
 	if open, err = gconn.Connect(ack); !open {
 		err = fmt.Errorf("tcp: %s connect err %v; %s -> %s for %s", cid, err, src, target, uid)
 		log.E("%v", err)
 		return deny // == !open
-	}
+	}*/
 
-	var px ipn.Proxy
-	if px, err = h.prox.ProxyFor(pid); err != nil {
+	var px ipn.Proxy = nil
+	if px, err = h.prox.ProxyFor(pid); err != nil || px == nil {
 		return deny
 	}
 
@@ -239,10 +263,11 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target netip.AddrPort)
 		}
 	}
 
-	h.conntracker.Untrack(ct.CID)
+	h.conntracker.Untrack(ct.CID) // untrack if disallowed
 	return deny
 }
 
+// handle connects to the target via the proxy, and pipes data between the src, target; thread-safe.
 func (h *tcpHandler) handle(px ipn.Proxy, src net.Conn, target netip.AddrPort, ct core.ConnTuple, smm *SocketSummary) (err error) {
 	var pc protect.Conn
 
@@ -279,15 +304,10 @@ func (h *tcpHandler) handle(px ipn.Proxy, src net.Conn, target netip.AddrPort, c
 	}
 
 	h.conntracker.Track(ct, src, dst)
-	go func() {
-		defer func() {
-			if r := recover(); r != nil {
-				log.W("tcp: forward: panic %v", r)
-			}
-			h.conntracker.Untrack(ct.CID)
-		}()
-		forward(src, dst, h.listener, smm) // src always *gonet.TCPConn
-	}()
+	core.Go("tcp.forward:"+smm.ID, func() {
+		defer h.conntracker.Untrack(ct.CID)
+		forward(src, dst, h.smmch, h.done, smm) // src always *gonet.TCPConn
+	})
 
 	log.I("tcp: new conn %s via proxy(%s); src(%s) -> dst(%s) for %s", smm.ID, px.ID(), src.LocalAddr(), target, smm.UID)
 	return nil // handled; takes ownership of src

@@ -1,4 +1,4 @@
-name: "CodeQL"
+name: CodeQL
 
 on:
   push:
@@ -10,7 +10,7 @@ on:
 
 jobs:
   analyze:
-    name: Analyze
+    name: 📐 Analyze
     # Runner size impacts CodeQL analysis time. To learn more, please see:
     #   - https://gh.io/recommended-hardware-resources-for-running-codeql
     #   - https://gh.io/supported-runners-and-hardware-resources
@@ -35,17 +35,17 @@ jobs:
         # Learn more about CodeQL language support at https://aka.ms/codeql-docs/language-support
 
     steps:
-    - name: Checkout repository
+    - name: 🥏 Checkout
       uses: actions/checkout@v4
 
     # must happen before codeql init
-    - name: Setup go1.22+
+    - name: 🐼 Setup go1.22+
       uses: actions/setup-go@v4
       with:
         go-version: '>=1.22'
 
     # Initializes the CodeQL tools for scanning.
-    - name: Initialize
+    - name: 🛠️ Initialize
       uses: github/codeql-action/init@v3
       with:
         languages: ${{ matrix.language }}
@@ -68,12 +68,12 @@ jobs:
     #   If the Autobuild fails above, remove it and uncomment the following three lines.
     #   modify them (or add more) to build your code if your project, please refer to the EXAMPLE below for guidance.
 
-    - name: Build
+    - name: 🚀 Build
       run: |
         ./make-aar nogo
       shell: bash
 
-    - name: Perform CodeQL Analysis
+    - name: 🧩 Perform CodeQL
       uses: github/codeql-action/analyze@v3
       with:
         category: "/language:${{matrix.language}}"

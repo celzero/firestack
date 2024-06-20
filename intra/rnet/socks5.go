@@ -12,6 +12,7 @@ import (
 	"io"
 	"net"
 	"net/url"
+	"sync"
 	"time"
 
 	x "github.com/celzero/firestack/intra/backend"
@@ -26,27 +27,40 @@ var _ tx.Handler = (*socks5)(nil)
 
 type socks5 struct {
 	*tx.Server
-	id        string
-	url       string
-	rdial     *protect.RDial
-	hdl       *socks5handler
+	sync.Mutex // protects tx.Dial
+
+	id       string
+	url      string
+	rdial    *protect.RDial
+	hdl      *socks5handler
+	listener ServerListener
+
+	smu       sync.RWMutex // protects summaries
 	summaries map[*tx.UDPExchange]*ServerSummary
-	listener  ServerListener
-	status    int
+
+	// mutable fields below
+
+	status *core.Volatile[int] // SOK, SKO, END
 }
 
 type socks5handler struct {
 	*tx.DefaultHandle
-	px ipn.Proxy
+	px *core.Volatile[ipn.Proxy]
 }
 
-func newSocks5Server(id, x string, ctl protect.Controller, listener ServerListener) (Server, error) {
+// newSocks5Server creates a new socks5 server with the given id, url, controller, and listener.
+// It should not be used if ipn/socks5 is also active.
+func newSocks5Server(id, x string, ctl protect.Controller, listener ServerListener) (*socks5, error) {
 	var host string
 	var usr string
 	var pwd string
 
 	rdial := protect.MakeNsRDial(id, ctl)
-	tx.Dial = rdial // overriden by h.Hop
+	if _, ok := tx.Dial.(*protect.RDial); !ok {
+		tx.Dial = rdial // overriden by h.Hop; conflicts with ipn/socks5
+	} else {
+		log.W("svcsocks5: new %s; tx.Dial already set", id)
+	}
 
 	u, err := url.Parse(x)
 	if err != nil {
@@ -61,6 +75,7 @@ func newSocks5Server(id, x string, ctl protect.Controller, listener ServerListen
 	remoteip := ""
 	hdl := &socks5handler{
 		DefaultHandle: &tx.DefaultHandle{}, // not used; see dial, TCPHandle, and UDPHandle
+		px:            core.NewZeroVolatile[ipn.Proxy](),
 	}
 	server, _ := tx.NewClassicServer(host, remoteip, usr, pwd, tcptimeoutsec, udptimeoutsec)
 
@@ -74,38 +89,49 @@ func newSocks5Server(id, x string, ctl protect.Controller, listener ServerListen
 		hdl:       hdl,
 		listener:  listener,
 		summaries: make(map[*tx.UDPExchange]*ServerSummary),
-		status:    SOK,
+		status:    core.NewVolatile(SOK),
 	}, nil
 }
 
 func (h *socks5) Hop(p x.Proxy) error {
-	if h.status == END {
+	if h.status.Load() == END {
 		log.D("svcsocks5: hop: %s not running", h.ID())
 		return errServerEnd
 	}
-	if p == nil {
-		h.hdl.px = nil
-		tx.Dial = h.rdial
+
+	dialer := h.rdial
+	if p == nil || core.IsNil(p) {
+		h.hdl.px.Store(nil) // clear
+		// dialer = h.rdial
 	} else if pp, ok := p.(ipn.Proxy); ok {
-		h.hdl.px = pp
-		tx.Dial = pp.Dialer()
+		h.hdl.px.Store(pp)
+		dialer = pp.Dialer()
 	} else {
 		log.E("svcsocks5: hop: %s; failed: %T not ipn.Proxy", h.ID(), p)
 		return errNotProxy
 	}
 	log.D("svcsocks5: hop: %s over proxy? %t via %s", h.ID(), p != nil, h.GetAddr())
+
+	h.swap(dialer)
 	return nil
 }
 
+func (h *socks5) swap(d *protect.RDial) {
+	h.Lock()
+	defer h.Unlock()
+	// todo: reads are not synchronized!
+	tx.Dial = d
+}
+
 func (h *socks5) Start() error {
-	if h.status != END {
+	if h.status.Load() != END {
 		return errSvcRunning
 	}
-	h.status = SOK
+	h.status.Store(SOK)
 	go func() {
 		err := h.Server.ListenAndServe(h)
 		log.I("svcsocks5: %s exited; err? %v", h.ID(), err)
-		h.status = END
+		h.status.Store(END)
 	}()
 	log.I("svcsocks5: %s started %s", h.ID(), h.GetAddr())
 	return nil
@@ -113,7 +139,7 @@ func (h *socks5) Start() error {
 
 func (h *socks5) Stop() error {
 	err := h.Server.Shutdown()
-	h.status = END
+	h.status.Store(END)
 	log.I("svcsocks5: %s stopped; err? %v", h.ID(), err)
 	return err
 }
@@ -136,23 +162,21 @@ func (h *socks5) ID() string {
 }
 
 func (h *socks5) GetAddr() string {
-	px := h.hdl.px
-	if px != nil {
+	if px := h.hdl.px.Load(); px != nil && core.IsNotNil(px) {
 		return px.GetAddr()
 	}
 	return h.url
 }
 
 func (h *socks5) Status() int {
-	return h.status
+	return h.status.Load()
 }
 
 func (h *socks5) Type() string {
-	px := h.hdl.px
-	if px != nil {
-		return PXSOCKS5
+	if px := h.hdl.px.Load(); px != nil && core.IsNotNil(px) {
+		return PXSOCKS5 // proxied
 	}
-	return SVCSOCKS5
+	return SVCSOCKS5 // direct
 }
 
 // Implements tx.Handler
@@ -182,8 +206,7 @@ func (h *socks5) dial(network, src, dst string) (cid string, conn net.Conn, err 
 		err = errBlocked
 		return
 	}
-	px := h.hdl.px
-	if px != nil {
+	if px := h.hdl.px.Load(); px != nil && core.IsNotNil(px) {
 		conn, err = px.Dialer().Dial(network, dst)
 	} else {
 		conn, err = h.rdial.Dial(network, dst)
@@ -192,8 +215,7 @@ func (h *socks5) dial(network, src, dst string) (cid string, conn net.Conn, err 
 }
 
 func (h *socks5) pid() (x string) {
-	px := h.hdl.px
-	if px != nil {
+	if px := h.hdl.px.Load(); px != nil && core.IsNotNil(px) {
 		x = px.ID()
 	}
 	return
@@ -207,8 +229,7 @@ func (h *socks5) candial() error {
 	if h.Status() != END {
 		return errProxyEnd // no
 	}
-	px := h.hdl.px
-	if px != nil && px.Status() == ipn.END {
+	if px := h.hdl.px.Load(); px != nil && core.IsNotNil(px) && px.Status() == ipn.END {
 		return errProxyEnd // no
 	}
 	return nil // yes
@@ -276,7 +297,7 @@ func (h *socks5) tcphandle(s *tx.Server, ingress *net.TCPConn, r *tx.Request) (e
 		log.D("svcsocks5: proxy-tcp: %s; socks5-connect %s", cid, r.Address())
 
 		if err != nil {
-			h.status = SKO
+			h.status.Store(SKO)
 			log.E("svcsocks5: proxy-tcp: %s; connect %s; err: %v", cid, r.Address(), err)
 			return err
 		}
@@ -301,7 +322,7 @@ func (h *socks5) tcphandle(s *tx.Server, ingress *net.TCPConn, r *tx.Request) (e
 		log.D("svcsocks5: proxy-tcp via udp: %s; socks5-tcp-udp %s", h.ID(), r.Address())
 		caddr, err := r.UDP(ingress, s.ServerAddr)
 		if err != nil {
-			h.status = SKO
+			h.status.Store(SKO)
 			return err
 		}
 
@@ -311,7 +332,7 @@ func (h *socks5) tcphandle(s *tx.Server, ingress *net.TCPConn, r *tx.Request) (e
 		s.AssociatedUDP.Set(caddr.String(), ch, -1)
 		defer s.AssociatedUDP.Delete(caddr.String())
 
-		n, err := io.Copy(io.Discard, ingress)
+		n, err := core.Pipe(io.Discard, ingress)
 
 		log.D("svcsocks: tcp: %s tcp that udp %s associated closed %d; err? %v", h.ID(), caddr, n, err)
 		return nil
@@ -339,7 +360,9 @@ func (h *socks5) udphandle(s *tx.Server, addr *net.UDPAddr, pkt *tx.Datagram) (e
 		ueladdr := egress.RemoteConn.LocalAddr()
 		ueraddr := egress.RemoteConn.RemoteAddr()
 		uecaddr := egress.ClientAddr
-		ssu := h.summaries[egress]
+
+		ssu := h.getSummary(egress)
+
 		select {
 		case _, ok := <-ch:
 			return fmt.Errorf("udp addr %s not associated with tcp; ch ok? %t", src, ok)
@@ -388,11 +411,15 @@ func (h *socks5) udphandle(s *tx.Server, addr *net.UDPAddr, pkt *tx.Datagram) (e
 		ClientAddr: addr, // same as src
 		RemoteConn: rc,
 	}
-	h.summaries[egress] = ssu
+
+	h.setSummary(egress, ssu)
+
 	log.D("svcsocks5: udp: %s; remote conn for client: %s server: %s remote: %s", cid, addr, egress.RemoteConn.LocalAddr(), pkt.Address())
 	if err := send(egress, pkt.Data); err != nil {
 		log.E("svcsocks5: udp: %s; send pkt %d to remote: %s; err %v", cid, len(pkt.Data), egress.RemoteConn.RemoteAddr(), err)
-		delete(h.summaries, egress)
+
+		h.delSummary(egress)
+
 		clos(egress.RemoteConn) // TODO: clos(egress) instead?
 		return err
 	}
@@ -403,7 +430,7 @@ func (h *socks5) udphandle(s *tx.Server, addr *net.UDPAddr, pkt *tx.Datagram) (e
 		b := *bptr
 		b = b[:cap(b)]
 		defer func() {
-			delete(h.summaries, ue)
+			h.delSummary(ue)
 
 			clos(ue.RemoteConn)
 			s.UDPExchanges.Delete(src + dst)
@@ -455,7 +482,7 @@ func (h *socks5) Connect(r *tx.Request, w *net.TCPConn) (cid string, rc *net.TCP
 	raddr := w.RemoteAddr()
 	if raddr == nil {
 		log.W("svcsocks5: tcp: %s; err no remote addr", h.ID())
-		h.status = SKO
+		h.status.Store(SKO)
 		err = errNoAddr
 		return
 	}
@@ -463,7 +490,7 @@ func (h *socks5) Connect(r *tx.Request, w *net.TCPConn) (cid string, rc *net.TCP
 	var tc net.Conn // egress
 	cid, tc, err = h.dial("tcp", raddr.String(), r.Address())
 	if err != nil {
-		h.status = SKO
+		h.status.Store(SKO)
 
 		log.W("svcsocks5: tcp: %s; dial remote %s; err: %v", cid, r.Address(), err)
 		var p *tx.Reply
@@ -482,14 +509,14 @@ func (h *socks5) Connect(r *tx.Request, w *net.TCPConn) (cid string, rc *net.TCP
 	var ok bool
 	rc, ok = tc.(*net.TCPConn)
 	if !ok {
-		h.status = SKO
+		h.status.Store(SKO)
 		err = errNotTcp
 		return
 	}
 	laddr := rc.LocalAddr()
 	if laddr == nil {
 		log.W("svcsocks5: tcp: %s; err no local addr", cid, laddr)
-		h.status = SKO
+		h.status.Store(SKO)
 		err = errNoAddr
 		return
 	}
@@ -517,4 +544,25 @@ func (h *socks5) Connect(r *tx.Request, w *net.TCPConn) (cid string, rc *net.TCP
 		return
 	}
 	return
+}
+
+func (h *socks5) getSummary(c *tx.UDPExchange) *ServerSummary {
+	h.smu.RLock()
+	defer h.smu.RUnlock()
+
+	return h.summaries[c]
+}
+
+func (h *socks5) setSummary(c *tx.UDPExchange, s *ServerSummary) {
+	h.smu.Lock()
+	defer h.smu.Unlock()
+
+	h.summaries[c] = s
+}
+
+func (h *socks5) delSummary(c *tx.UDPExchange) {
+	h.smu.Lock()
+	defer h.smu.Unlock()
+
+	delete(h.summaries, c)
 }

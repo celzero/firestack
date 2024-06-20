@@ -3,11 +3,11 @@ jdk:
 env:
   PACK: "aar"
   CLASSFULL: "full"
-  CLASSARM: "arm64"
+  CLASSDBG: "debug"
   FOUT: "firestack.aar"
-  FOUTARM: "firestack-arm.aar"
+  FOUTDBG: "firestack-debug.aar"
   BOUT: "build/intra/tun2socks.aar"
-  BOUTARM: "build/intra/tun2socks-arm.aar"
+  BOUTDBG: "build/intra/tun2socks-debug.aar"
   SOURCES: "build/intra/tun2socks-sources.jar"
 before_install:
 # - sdk install java 17.0.8-jbr

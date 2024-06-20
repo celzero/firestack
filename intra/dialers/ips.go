@@ -12,13 +12,14 @@ import (
 	"net/netip"
 	"strconv"
 
+	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
 	"github.com/celzero/firestack/intra/protect/ipmap"
 	"github.com/celzero/firestack/intra/settings"
 )
 
-var (
+const (
 	errNoConn     = net.UnknownNetworkError("no connection")
 	errNoIps      = net.UnknownNetworkError("no ips")
 	errNoDialer   = net.UnknownNetworkError("no dialer")
@@ -26,9 +27,9 @@ var (
 )
 
 var ipm ipmap.IPMap = ipmap.NewIPMap()
-var ipProto string = settings.IP46
+var ipProto *core.Volatile[string] = core.NewVolatile(settings.IP46)
 
-func addr(ip netip.Addr, port int) string {
+func addrstr(ip netip.Addr, port int) string {
 	return net.JoinHostPort(ip.String(), strconv.Itoa(port))
 }
 
@@ -49,9 +50,13 @@ func renew(hostOrIP string, existing *ipmap.IPSet) (cur *ipmap.IPSet, ok bool) {
 	// will never be able to resolve protected hosts (UidSelf, UidRethink),
 	// except for the seed addrs.
 	if protect.NeverResolve(hostOrIP) {
-		return New(hostOrIP, existing.Seed())
-	}
-	if existing.Empty() {
+		cur, _ = NewProtected(hostOrIP, existing.Seed())
+	} else if existing.Protected() {
+		// if protected, preserve seed addrs; hen resolve hostOrIP
+		NewProtected(hostOrIP, existing.Seed())
+		cur = ipm.Add(hostOrIP)
+		// fallthrough
+	} else if existing.Empty() {
 		// if empty, discard seed, re-resolve hostOrIP; oft times, ipset is
 		// empty when its ips have been disconfirmed beyond some threshold
 		cur = ipm.Add(hostOrIP)
@@ -59,19 +64,27 @@ func renew(hostOrIP string, existing *ipmap.IPSet) (cur *ipmap.IPSet, ok bool) {
 			// if still empty, fallback on seed addrs; when hostOrIP is
 			// protect.UidSelf, protect.UidSystem, for example, cur will
 			// always be empty (as they're unresolvable by ipm.Add)
-			return New(hostOrIP, existing.Seed())
-		}
+			cur, _ = New(hostOrIP, existing.Seed())
+		} // else: fallthrough
 	} else {
 		// if non-empty, renew hostOrIP with seed addrs
 		New(hostOrIP, existing.Seed())
 		cur = ipm.Add(hostOrIP)
+	}
+	if cur == nil { // can never happen as Add/New/NewProtected return a non-nil ipset
+		return nil, false
 	}
 	return cur, !cur.Empty()
 }
 
 // New re-seeds hostOrIP with a new set of ips or ip:ports.
 func New(hostOrIP string, ipps []string) (*ipmap.IPSet, bool) {
-	ips := ipm.MakeIPSet(hostOrIP, ipps)
+	ips := ipm.MakeIPSet(hostOrIP, ipps, ipmap.AutoType)
+	return ips, !ips.Empty()
+}
+
+func NewProtected(hostOrIP string, ipps []string) (*ipmap.IPSet, bool) {
+	ips := ipm.MakeIPSet(hostOrIP, ipps, ipmap.Protected)
 	return ips, !ips.Empty()
 }
 
@@ -106,24 +119,54 @@ func Mapper(m ipmap.IPMapper) {
 	ipm.With(m)
 }
 
+func Use4() bool {
+	d := true // by default, use4
+	switch ipProto.Load() {
+	case settings.IP6:
+		return false
+	case settings.IP4:
+		fallthrough
+	case settings.IP46:
+		return true
+	default:
+		return d
+	}
+}
+
+func Use6() bool {
+	d := false // by default, use4 instead
+	switch ipProto.Load() {
+	case settings.IP4:
+		return false
+	case settings.IP6:
+		fallthrough
+	case settings.IP46:
+		return true
+	default:
+		return d
+	}
+}
+
 // p must be one of settings.IP4, settings.IP6, or settings.IP46
-func IPProtos(ippro string) {
+func IPProtos(ippro string) (diff bool) {
 	switch ippro {
 	case settings.IP4:
 		fallthrough
 	case settings.IP6:
 		fallthrough
 	case settings.IP46:
-		ipProto = ippro
+		diff = ipProto.Swap(ippro) != ippro
 	default:
-		log.D("dialers: ips: invalid protos %s; use existing: %s", ippro, ipProto)
+		log.D("dialers: ips: invalid protos %s; use existing: %s", ippro, ipProto.Load())
 		return
 	}
-	log.I("dialers: ips: protos set to %s", ipProto)
+	log.I("dialers: ips: protos set to %s; diff? %t", ippro, diff)
+	return
 }
 
 func Clear() {
-	ipm.Clear() // does not remove UidSelf, UidSystem
+	// do not need to handle panics w/ core.Recover
+	ipm.Clear() // does not clear UidSelf, UidSystem (protected)
 }
 
 // Confirm marks addr as preferred for hostOrIP
@@ -136,25 +179,30 @@ func Confirm(hostOrIP string, addr net.Addr) bool {
 
 func Confirm2(hostOrIP string, addr netip.Addr) bool {
 	ips := ipm.GetAny(hostOrIP)
-	if ips != nil {
+	if ipok(addr) {
 		ips.Confirm(addr)
 	}
 	return ips != nil
 }
 
+// Disconfirm3 unmarks addr as preferred for hostOrIP
+func Disconfirm3(hostOrIP string, addr net.Addr) bool {
+	return Disconfirm2(hostOrIP, addr.String())
+}
+
 // Disconfirm unmarks addr as preferred for hostOrIP
-func Disconfirm(hostOrIP string, ip net.Addr) bool {
-	if ip, err := netip.ParseAddr(ip.String()); err == nil {
-		return Disconfirm2(hostOrIP, ip)
+func Disconfirm(hostOrIP string, addr netip.Addr) bool {
+	ips := ipm.GetAny(hostOrIP)
+	if ips != nil {
+		return ips.Disconfirm(addr)
 	} // not ok
 	return false
 }
 
 // Disconfirm2 unmarks addr as preferred for hostOrIP
-func Disconfirm2(hostOrIP string, ip netip.Addr) bool {
-	ips := ipm.GetAny(hostOrIP)
-	if ips != nil {
-		return ips.Disconfirm(ip)
+func Disconfirm2(hostOrIP string, addr string) bool {
+	if ip, err := netip.ParseAddr(addr); err == nil {
+		return Disconfirm(hostOrIP, ip)
 	} // not ok
 	return false
 }

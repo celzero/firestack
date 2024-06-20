@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	c "github.com/celzero/firestack/intra/backend"
+	"github.com/celzero/firestack/intra/settings"
 	"github.com/celzero/firestack/intra/xdns"
 )
 
@@ -110,55 +111,55 @@ var undelegatedSet = []string{
 	"98.100.in-addr.arpa",
 	"99.100.in-addr.arpa",
 	"a.e.f.ip6.arpa",
-	"airdream",
-	"api",
+	".airdream",
+	".api",
 	"b.e.f.ip6.arpa",
-	"bbrouter",
-	"belkin",
-	"bind",
-	"blinkap",
-	"corp",
+	".bbrouter",
+	".belkin",
+	".bind",
+	".blinkap",
+	".corp",
 	"d.f.ip6.arpa",
-	"davolink",
-	"dearmyrouter",
-	"dhcp",
-	"dlink",
-	"domain",
-	"envoy",
-	"example",
-	"f.f.ip6.arpa",
-	"grp",
-	"gw==",
-	"home",
-	"hub",
-	"internal",
-	"intra",
-	"intranet",
-	"invalid",
-	"ksyun",
-	"lan",
-	"loc",
-	"local",
-	"localdomain",
-	"localhost",
-	"localnet",
-	"modem",
-	"mynet",
-	"myrouter",
-	"novalocal",
-	// "onion", github.com/celzero/rethink-app/issues/1259
-	"openstacklocal",
-	"priv",
-	"private",
-	"prv",
-	"router",
-	"telus",
-	"test",
-	"totolink",
-	"wlan_ap",
-	"workgroup",
-	"zghjccbob3n0",
+	".davolink",
+	".dearmyrouter",
+	".dhcp",
+	".dlink",
+	".domain",
+	".envoy",
+	".example",
 	"fritz.box", // github.com/celzero/rethink-app/issues/1298
+	"f.f.ip6.arpa",
+	".grp",
+	".gw==",
+	".home",
+	".hub",
+	".internal",
+	".intra",
+	".intranet",
+	".invalid",
+	".ksyun",
+	".lan",
+	".loc",
+	".local",
+	".localdomain",
+	".localhost",
+	".localnet",
+	".modem",
+	".mynet",
+	".myrouter",
+	".novalocal",
+	// "onion", github.com/celzero/rethink-app/issues/1259
+	".openstacklocal",
+	".priv",
+	".private",
+	".prv",
+	".router",
+	".telus",
+	".test",
+	".totolink",
+	".wlan_ap",
+	".workgroup",
+	".zghjccbob3n0",
 }
 
 func newUndelegatedDomainsTrie() c.RadixTree {
@@ -172,6 +173,10 @@ func newUndelegatedDomainsTrie() c.RadixTree {
 func (r *resolver) requiresGoosOrLocal(qname string) (id string) {
 	if strings.HasSuffix(qname, ".local") || xdns.IsMDNSQuery(qname) {
 		id = Local
+	} else if r.tunmode.DNSMode.Load() != settings.DNSModePort {
+		// todo: remove this once we let users "pin" domains to resolvers
+		// github.com/celzero/rethink-app/issues/1153
+		// skip override when preventing DNS capture on port53 is turned off
 	} else if len(qname) > 0 && r.localdomains.HasAny(qname) {
 		id = Goos // system is primary; see: transport.go:determineTransports()
 	}

@@ -24,6 +24,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/ipn/multihost"
 
 	"github.com/celzero/firestack/intra/log"
@@ -31,6 +32,8 @@ import (
 	"golang.org/x/sys/unix"
 	"golang.zx2c4.com/wireguard/conn"
 )
+
+// from: github.com/WireGuard/wireguard-go/blob/ebbd4a433/conn/bind_std.go
 
 const maxbindtries = 50
 const wgtimeout = 60 * time.Second
@@ -46,21 +49,23 @@ var (
 type rwlistener func(op string, err error)
 
 type StdNetBind struct {
-	id         string
-	d          *net.ListenConfig
-	listener   rwlistener
+	id string
+	d  *net.ListenConfig
+	mh *multihost.MH
+
 	mu         sync.Mutex // protects following fields
 	ipv4       *net.UDPConn
 	ipv6       *net.UDPConn
 	blackhole4 bool
 	blackhole6 bool
 
+	listener     rwlistener
 	lastSendAddr netip.AddrPort // may be invalid
 }
 
-func NewEndpoint(id string, ctl protect.Controller, f rwlistener) *StdNetBind {
+func NewEndpoint(id string, ctl protect.Controller, ep *multihost.MH, f rwlistener) *StdNetBind {
 	dialer := protect.MakeNsListener(id, ctl)
-	return &StdNetBind{id: id, d: dialer, listener: f}
+	return &StdNetBind{id: id, d: dialer, mh: ep, listener: f}
 }
 
 type StdNetEndpoint netip.AddrPort
@@ -71,26 +76,31 @@ var (
 )
 
 func (e *StdNetBind) ParseEndpoint(s string) (conn.Endpoint, error) {
-	d := multihost.New(e.id + "[" + s + "]")
-	host, portstr, err := net.SplitHostPort(s)
-	if err != nil {
-		log.E("wg: bind: %s not a valid endpoint in(%s); err: %v", e.id, s, err)
-		return nil, err
-	}
-	d.With([]string{host}) // resolves host if needed
-	ips := d.Addrs()
-	if len(ips) <= 0 {
-		log.E("wg: bind: %s not a valid endpoint in(%s); out(%s, %s)", e.id, s, d.Names(), d.Addrs())
+	d := e.mh
+	/*
+		host, portstr, err := net.SplitHostPort(s)
+		if err != nil {
+			log.E("wg: bind: %s invalid endpoint in(%s); err: %v", e.id, s, err)
+			return nil, err
+		}
+		port, err := strconv.Atoi(portstr)
+		if err != nil {
+			log.E("wg: bind: %s invalid port in(%s); err: %v", e.id, s, err)
+			return nil, err
+		}
+	*/
+	// do what tailscale does, and share a preferred endpoint regardless of "s"
+	// github.com/tailscale/tailscale/blob/3a6d3f1a5b7/wgengine/magicsock/magicsock.go#L2568
+	// d.Add([]string{host}) // resolves host if needed
+	ipport := d.PreferredAddr()
+	if !ipport.IsValid() || ipport.Addr().IsUnspecified() {
+		log.E("wg: bind: %s invalid endpoint addr %v in(%s); out(%s, %s)", e.id, ipport, s, d.Names(), d.Addrs())
+		// erroring out from here prevents PostConfig (handshake for this peer endpoint will always be zero)
+		// github.com/WireGuard/wireguard-go/blob/12269c276173/device/uapi.go#L183
 		return nil, errInvalidEndpoint
 	}
-	port, err := strconv.Atoi(portstr)
-	if err != nil {
-		log.E("wg: bind: %s not a valid port in(%s); err: %v", e.id, s, err)
-		return nil, err
-	}
 
-	ipport := netip.AddrPortFrom(ips[0], uint16(port))
-	log.I("wg: bind: %s new endpoint %v", e.id, ipport)
+	log.I("wg: bind: %s new shared endpoint for %s %v", e.id, s, ipport)
 	return asEndpoint(ipport), nil
 }
 
@@ -221,12 +231,13 @@ func (bind *StdNetBind) Close() error {
 	defer bind.mu.Unlock()
 
 	var err1, err2 error
-	if bind.ipv4 != nil {
-		err1 = bind.ipv4.Close()
+	v4, v6 := bind.ipv4, bind.ipv6
+	if v4 != nil {
+		err1 = v4.Close()
 		bind.ipv4 = nil
 	}
-	if bind.ipv6 != nil {
-		err2 = bind.ipv6.Close()
+	if v6 != nil {
+		err2 = v6.Close()
 		bind.ipv6 = nil
 	}
 	bind.blackhole4 = false
@@ -408,13 +419,11 @@ func loge(err error, msg string, rest ...any) {
 }
 
 func extend(c net.Conn, t time.Duration) {
-	if c != nil {
+	if c != nil && core.IsNotNil(c) {
 		_ = c.SetDeadline(time.Now().Add(t))
 	}
 }
 
 func clos(c io.Closer) {
-	if c != nil {
-		_ = c.Close()
-	}
+	core.CloseOp(c, core.CopRW)
 }

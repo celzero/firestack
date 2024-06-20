@@ -47,7 +47,7 @@ var (
 )
 
 // NewNatPt returns a new NatPt.
-func NewNatPt(tunmode *settings.TunMode) dnsx.NatPt {
+func NewNatPt(tunmode *settings.TunMode) *natPt {
 	log.I("natpt: new; mode(%v)", tunmode)
 	return &natPt{
 		nat64:   newNat64(),
@@ -60,20 +60,12 @@ func NewNatPt(tunmode *settings.TunMode) dnsx.NatPt {
 
 // D64 Implements DNS64.
 func (pt *natPt) D64(network string, ans6 *dns.Msg, f dnsx.Transport) *dns.Msg {
-	if pt.do64() {
-		return pt.dns64.eval(network, pt.force64(), ans6, f)
+	ptmode := pt.tunmode.PtMode.Load()
+	if ptmode != settings.PtModeNo46 { // do64
+		force64 := ptmode == settings.PtModeForce64
+		return pt.dns64.eval(network, force64, ans6, f)
 	}
 	return nil
-}
-
-// force64 returns true if DNS64 synthesis is done for ALL AAAA records.
-func (pt *natPt) force64() bool {
-	return pt.tunmode.PtMode == settings.PtModeForce64
-}
-
-// do64 returns true if DNS64 synthesis is enabled.
-func (pt *natPt) do64() bool {
-	return pt.tunmode.PtMode != settings.PtModeNo46
 }
 
 // IsNat64 Implements NAT64.

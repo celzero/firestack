@@ -14,8 +14,10 @@ import (
 	"time"
 
 	x "github.com/celzero/firestack/intra/backend"
+	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
+	"github.com/celzero/firestack/intra/settings"
 )
 
 const (
@@ -52,6 +54,7 @@ var (
 	errUnexpectedProxy      = errors.New("unexpected proxy type")
 	errAddProxy             = errors.New("add proxy failed")
 	errProxyNotFound        = errors.New("proxy not found")
+	errGetProxyTimeout      = errors.New("get proxy timeout")
 	errMissingProxyOpt      = errors.New("proxyopts nil")
 	errNoProxyConn          = errors.New("not a tcp/udp proxy conn")
 	errAnnounceNotSupported = errors.New("announce not supported")
@@ -60,9 +63,12 @@ var (
 	errNoProxyResponse      = errors.New("no response from proxy")
 	errNoSig                = errors.New("auth missing sig")
 	errNoMtu                = errors.New("no mtu")
+	errNoOpts               = errors.New("no proxy opts")
 
 	udptimeoutsec = 5 * 60                    // 5m
 	tcptimeoutsec = (2 * 60 * 60) + (40 * 60) // 2h40m
+
+	getproxytimeout = 5 * time.Second
 )
 
 const (
@@ -99,24 +105,27 @@ type Proxy interface {
 	// not all Proxy instances implement DialTCP and DialUDP, though are
 	// guaranteed to implement Dial.
 	Dialer() *protect.RDial
+	// onProtoChange returns true if the proxy must be re-added with cfg on proto changes.
+	onProtoChange() (cfg string, readd bool)
 }
 
 type Proxies interface {
 	x.Proxies
 	// Get returns a transport from this multi-transport.
 	ProxyFor(id string) (Proxy, error)
+	// RefreshProto broadcasts proto change to all active proxies.
+	RefreshProto(l3 string)
 }
 
 type proxifier struct {
 	sync.RWMutex
-	p   map[string]Proxy
-	ctl protect.Controller
-	obs x.ProxyListener
-}
-
-type gw struct {
-	ok    bool
-	stats x.Stats
+	p        map[string]Proxy
+	exit     Proxy // exit proxy, never changes
+	base     Proxy // base proxy, never changes
+	grounded Proxy // grounded proxy, never changes
+	ctl      protect.Controller
+	obs      x.ProxyListener
+	protos   string
 }
 
 var _ x.Router = (*gw)(nil)
@@ -125,61 +134,51 @@ var _ x.Router = (*proxifier)(nil)
 var _ Proxies = (*proxifier)(nil)
 var _ protect.RDialer = (Proxy)(nil)
 
-// PROXYGATEWAY is a Router that routes everything.
-var PROXYGATEWAY = &gw{ok: true}
-
-// PROXYNOGATEWAY is a Router that routes nothing.
-var PROXYNOGATEWAY = &gw{ok: false}
-
-type nofwd struct{}
-
-// Announce implements Proxy.
-func (nofwd) Announce(network, local string) (protect.PacketConn, error) {
-	return nil, errAnnounceNotSupported
-}
-
-// Accept implements Proxy.
-func (nofwd) Accept(network, local string) (protect.Listener, error) {
-	return nil, errAnnounceNotSupported
-}
-
-func (w *gw) IP4() bool            { return w.ok }
-func (w *gw) IP6() bool            { return w.ok }
-func (w *gw) MTU() (int, error)    { return NOMTU, errNoMtu }
-func (w *gw) Stat() *x.Stats       { return &w.stats }
-func (w *gw) Contains(string) bool { return w.ok }
-
-func NewProxifier(c protect.Controller, o x.ProxyListener) Proxies {
+func NewProxifier(c protect.Controller, o x.ProxyListener) *proxifier {
 	if c == nil || o == nil {
 		return nil
 	}
 
 	pxr := &proxifier{
-		p:   make(map[string]Proxy),
-		ctl: c,
-		obs: o,
+		p:      make(map[string]Proxy),
+		ctl:    c,
+		obs:    o,
+		protos: settings.IP46, // assume all routes ok (fail open)
 	}
-	pxr.add(NewExitProxy(c))  // fixed
-	pxr.add(NewBaseProxy(c))  // fixed
-	pxr.add(NewGroundProxy()) // fixed
+
+	pxr.exit = NewExitProxy(c)
+	pxr.base = NewBaseProxy(c)
+	pxr.grounded = NewGroundProxy()
+	pxr.add(pxr.exit)     // fixed
+	pxr.add(pxr.base)     // fixed
+	pxr.add(pxr.grounded) // fixed
 	log.I("proxy: new")
 
 	return pxr
 }
 
 func (px *proxifier) add(p Proxy) (ok bool) {
+	id := p.ID()
+
+	if local(id) {
+		log.I("proxy: adding reserved proxy: %s", id)
+	}
+
 	px.Lock()
 	defer px.Unlock()
 
-	if pp := px.p[p.ID()]; pp != nil {
+	if pp := px.p[id]; pp != nil {
 		// new proxy, invoke Stop on old proxy
 		if pp != p {
-			_ = pp.Stop()
+			core.Go("pxr.add: "+id, func() { // holding px.lock, so exec stop in a goroutine
+				_ = pp.Stop()
+				// onRmv is not sent here, as new proxy will be added
+			})
 		}
 	}
 
-	px.p[p.ID()] = p
-	go px.obs.OnProxyAdded(p.ID())
+	px.p[id] = p
+	core.Go("pxr.add: "+id, func() { px.obs.OnProxyAdded(id) })
 	return true
 }
 
@@ -188,27 +187,58 @@ func (px *proxifier) RemoveProxy(id string) bool {
 	defer px.Unlock()
 
 	if p, ok := px.p[id]; ok {
-		_ = p.Stop()
 		delete(px.p, id)
-		go px.obs.OnProxyRemoved(id)
+		core.Go("pxr.removeProxy: "+id, func() {
+			_ = p.Stop()
+			px.obs.OnProxyRemoved(id)
+		})
 		log.I("proxy: removed %s", id)
 		return true
 	}
 	return false
 }
 
+// ProxyFor returns the proxy for the given id or an error.
+// As a special case, if it takes longer than getproxytimeout, it returns an error.
 func (px *proxifier) ProxyFor(id string) (Proxy, error) {
 	if len(id) <= 0 {
 		return nil, errProxyNotFound
 	}
 
-	px.RLock()
-	defer px.RUnlock()
-
-	if p, ok := px.p[id]; ok {
-		return p, nil
+	if local(id) { // fast path for immutable proxies
+		if id == Exit {
+			return px.exit, nil
+		} else if id == Base {
+			return px.base, nil
+		} else if id == Block {
+			return px.grounded, nil
+		}
 	}
-	return nil, errProxyNotFound
+
+	// go.dev/play/p/xCug1W3OcMH
+	out := make(chan Proxy)
+	core.Go("pxr.ProxyFor", func() {
+		px.RLock()
+		defer px.RUnlock()
+
+		if p, ok := px.p[id]; ok {
+			out <- p
+		} else {
+			out <- nil
+		}
+	})
+
+	select {
+	case p := <-out:
+		if p == nil || core.IsNil(p) {
+			return nil, errProxyNotFound
+		}
+		return p, nil
+	case <-time.After(getproxytimeout):
+		log.D("proxy: for: %s; timeout!", id)
+		// possibly a deadlock, so return an error
+		return nil, errGetProxyTimeout
+	}
 }
 
 func (px *proxifier) GetProxy(id string) (x.Proxy, error) {
@@ -225,11 +255,16 @@ func (px *proxifier) StopProxies() error {
 
 	l := len(px.p)
 	for _, p := range px.p {
-		_ = p.Stop()
-	}
-	px.p = make(map[string]Proxy)
+		curp := p
+		id := curp.ID()
 
-	go px.obs.OnProxiesStopped()
+		core.Go("pxr.stopProxies: "+id, func() {
+			_ = curp.Stop()
+		})
+	}
+	clear(px.p)
+
+	core.Go("pxr.onStop", func() { px.obs.OnProxiesStopped() })
 	log.I("proxy: all(%d) stopped and removed", l)
 	return nil
 }
@@ -238,15 +273,56 @@ func (px *proxifier) RefreshProxies() (string, error) {
 	px.Lock()
 	defer px.Unlock()
 
-	var active []string
+	tot := len(px.p)
+	log.I("proxy: refresh all %d", tot)
+
+	var which = make([]string, 0, len(px.p))
 	for _, p := range px.p {
-		if err := p.Refresh(); err != nil {
-			log.E("proxy: refresh (%s/%s/%s) failed: %v", p.ID(), p.Type(), p.GetAddr(), err)
-			continue
-		}
-		active = append(active, p.ID())
+		curp := p
+		id := curp.ID()
+		which = append(which, id)
+		// some proxy.Refershes may be slow due to network requests, hence
+		// preferred to run in a goroutine to avoid blocking the caller.
+		// ex: wgproxy.Refresh -> multihost.Refersh -> dialers.Resolve
+		core.Gx("pxr.RefreshProxies: "+id, func() {
+			if err := curp.Refresh(); err != nil {
+				log.E("proxy: refresh (%s/%s/%s) failed: %v", id, curp.Type(), curp.GetAddr(), err)
+			}
+		})
 	}
-	return strings.Join(active, ","), nil
+
+	log.I("proxy: refreshed %d / %d: %v", len(which), tot, which)
+
+	return strings.Join(which, ","), nil
+}
+
+func (px *proxifier) RefreshProto(l3 string) {
+	defer core.Recover(core.Exit11, "pxr.RefreshProto")
+	// must unlock from deferred since panics are recovered above
+	px.Lock()
+	defer px.Unlock()
+
+	if px.protos == l3 {
+		log.D("proxy: refreshProto (%s) unchanged", l3)
+		return
+	}
+
+	px.protos = l3
+	for _, p := range px.p {
+		curp := p
+		id := curp.ID()
+		core.Gx("pxr.RefreshProto: "+id, func() {
+			// always run in a goroutine (or there is a deadlock)
+			// wgproxy.onProtoChange -> multihost.Refresh -> dialers.Resolve
+			// -> ipmapper.LookupIPNet -> resolver.LocalLookup -> transport.Query
+			// -> ipn.ProxyFor -> px.Lock() -> deadlock
+			if cfg, readd := curp.onProtoChange(); readd {
+				// px.addProxy -> px.add -> px.Lock() -> deadlock
+				_, err := px.addProxy(id, cfg)
+				log.I("proxy: refreshProto (%s/%s/%s) re-add; err? %v", id, curp.Type(), curp.GetAddr(), err)
+			}
+		})
+	}
 }
 
 // Implements Router.

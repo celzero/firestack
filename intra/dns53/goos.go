@@ -34,7 +34,7 @@ type goosr struct {
 var _ dnsx.Transport = (*transport)(nil)
 
 // NewGoosTransport returns the default Go DNS resolver
-func NewGoosTransport(pxs ipn.Proxies, ctl protect.Controller) (t dnsx.Transport, err error) {
+func NewGoosTransport(pxs ipn.Proxies, ctl protect.Controller) (t *goosr, err error) {
 	// cannot be nil, see: ipn.Exit which the only proxy guaranteed to be connected to the internet;
 	// ex: ipn.Base routed back within the tunnel (rethink's traffic routed back into rethink)
 	// but it doesn't work for goos because the traffic to localhost:53 is routed back in as if
@@ -104,6 +104,7 @@ func (t *goosr) send(msg *dns.Msg) (ans *dns.Msg, elapsed time.Duration, qerr *d
 			ans = xdns.Servfail(msg)
 			err = errQueryParse
 		} else {
+			// cgo first (uses dnsx.System iff not in Loopback), Resolver.LookupNetIP (uses dnsx.Default)
 			if ips, err = t.r.LookupNetIP(bgctx, "ip", host); err == nil && xdns.HasAnyAnswer(msg) {
 				log.D("dns53: goosr: go resolver for %s => %s", host, ips)
 				ans, err = xdns.AQuadAForQuery(msg, ips...)
@@ -143,6 +144,9 @@ func (t *goosr) Query(_ string, q *dns.Msg, smm *x.DNSSummary) (r *dns.Msg, err 
 	smm.RTtl = xdns.RTtl(r)
 	smm.Server = t.GetAddr()
 	smm.Status = status
+	if err != nil {
+		smm.Msg = err.Error()
+	}
 	t.est.Add(smm.Latency)
 
 	log.V("dns53: goosr: len(res): %d, data: %s, via: %s, err? %v", xdns.Len(r), smm.RData, smm.RelayServer, err)

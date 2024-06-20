@@ -9,13 +9,14 @@ package dialers
 import (
 	"context"
 	"errors"
-	"io"
 	"net"
 	"net/netip"
 	"strconv"
 	"time"
 
+	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/log"
+	"github.com/celzero/firestack/intra/protect/ipmap"
 )
 
 type netConnectFunc func(*net.Dialer, string, netip.Addr, int) (net.Conn, error)
@@ -30,15 +31,7 @@ func netConnect(d *net.Dialer, proto string, ip netip.Addr, port int) (net.Conn,
 		log.E("ndial: netConnect: invalid ip", ip)
 		return nil, errNoIps
 	}
-
-	switch proto {
-	case "tcp", "tcp4", "tcp6":
-		fallthrough
-	case "udp", "udp4", "udp6":
-		fallthrough
-	default:
-		return d.Dial(proto, addr(ip, port))
-	}
+	return d.Dial(proto, addrstr(ip, port))
 }
 
 func netdial(d *net.Dialer, network, addr string, connect netConnectFunc) (net.Conn, error) {
@@ -75,14 +68,14 @@ func netdial(d *net.Dialer, network, addr string, connect netConnectFunc) (net.C
 	}
 
 	ipset := ips.Addrs()
-	allips := maybeFilter(ipset, confirmed)
-	if len(allips) <= 0 {
+	allips, failingopen := maybeFilter(ipset, confirmed)
+	if len(allips) <= 0 || failingopen {
 		var ok bool
 		if ips, ok = renew(domain, ips); ok {
 			ipset = ips.Addrs()
-			allips = maybeFilter(ipset, confirmed)
+			allips, failingopen = maybeFilter(ipset, confirmed)
 		}
-		log.D("ndial: renew ips for %s; ok? %t", addr, ok)
+		log.D("ndial: renew ips for %s; ok? %t; failingopen? %t", addr, ok, failingopen)
 	}
 	log.D("ndial: trying all ips %d for %s", len(allips), addr)
 	for _, ip := range allips {
@@ -94,7 +87,7 @@ func netdial(d *net.Dialer, network, addr string, connect netConnectFunc) (net.C
 		if ipok(ip) {
 			log.V("ndial: dialing ip %s for %s", ip, addr)
 			if conn, err := connect(d, network, ip, port); err == nil {
-				ips.Confirm(ip)
+				confirm(ips, ip)
 				log.I("ndial: found working ip %s for %s", ip, addr)
 				return conn, nil
 			} else {
@@ -150,8 +143,12 @@ func NetListen(cfg *net.ListenConfig, network, local string) (net.Listener, erro
 	return cfg.Listen(context.Background(), network, local)
 }
 
-func clos(c io.Closer) {
-	if c != nil {
-		_ = c.Close()
+func clos(c ...net.Conn) {
+	core.CloseConn(c...)
+}
+
+func confirm(ips *ipmap.IPSet, ip netip.Addr) {
+	if ips != nil && ipok(ip) {
+		ips.Confirm(ip)
 	}
 }

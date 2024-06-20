@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync/atomic"
 
 	"github.com/celzero/firestack/intra/log"
 	"golang.org/x/net/proxy"
@@ -23,50 +24,57 @@ var (
 
 // TODO: These modes could be covered by bit-flags instead.
 
-// DNSModeNone does not redirect DNS queries sent to the tunnel.
-const DNSModeNone = 0
+const (
+	// DNSModeNone does not redirect DNS queries sent to the tunnel.
+	DNSModeNone int32 = 0
+	// DNSModeIP redirects DNS requests sent to the IP endpoint set by VPN.
+	DNSModeIP int32 = 1
+	// DNSModePort redirects all DNS requests on port 53.
+	DNSModePort int32 = 2
+)
 
-// DNSModeIP redirects DNS requests sent to the IP endpoint set by VPN.
-const DNSModeIP int = 1
+const (
+	// BlockModeNone filters no packet.
+	BlockModeNone int32 = 0
+	// BlockModeFilter filters packets on connection establishment.
+	BlockModeFilter int32 = 1
+	// BlockModeSink blackholes all packets.
+	BlockModeSink int32 = 2
+	// BlockModeFilterProc determines owner-uid of a tcp/udp connection
+	// from procfs before filtering
+	BlockModeFilterProc int32 = 3
+)
 
-// DNSModePort redirects all DNS requests on port 53.
-const DNSModePort int = 2
-
-// BlockModeNone filters no packet.
-const BlockModeNone int = 0
-
-// BlockModeFilter filters packets on connection establishment.
-const BlockModeFilter int = 1
-
-// BlockModeSink blackholes all packets.
-const BlockModeSink int = 2
-
-// BlockModeFilterProc determines owner-uid of a tcp/udp connection
-// from procfs before filtering
-const BlockModeFilterProc int = 3
-
-// PtModeAuto does not enforce (but may still use) 6to4 protocol translation.
-const PtModeAuto int = 0
-
-// PtModeForce64 enforces 6to4 protocol translation.
-const PtModeForce64 int = 1
-
-// Android implements 464Xlat out-of-the-box, so this zero userspace impl
-const PtModeNo46 int = 2
+const (
+	// PtModeAuto does not enforce (but may still use) 6to4 protocol translation.
+	PtModeAuto int32 = 0
+	// PtModeForce64 enforces 6to4 protocol translation.
+	PtModeForce64 int32 = 1
+	// Android implements 464Xlat out-of-the-box, so this zero userspace impl
+	PtModeNo46 int32 = 2
+)
 
 // msb to lsb: ipv6, ipv4, lwip(1) or netstack(0)
-const Ns4 = 0b010  // 2
-const Ns46 = 0b110 // 6
-const Ns6 = 0b100  // 4
+const (
+	Ns4  = 0b010 // 2
+	Ns46 = 0b110 // 6
+	Ns6  = 0b100 // 4
+)
 
-const IP4 = "4"
-const IP46 = "46"
-const IP6 = "6"
+// IP4, IP46, IP6 are string'd repr of Ns4, Ns46, Ns6
+const (
+	IP4  = "4"
+	IP46 = "46"
+	IP6  = "6"
+)
 
+// NICID is the default network interface card ID for the network stack.
 const NICID = 0x01
 
+// Debug is a global flag to enable debug behaviour.
 var Debug bool = false
 
+// L3 returns the string'd repr of engine.
 func L3(engine int) string {
 	switch engine {
 	case Ns46:
@@ -81,30 +89,30 @@ func L3(engine int) string {
 // TunMode specifies dns, firewall, xlat, and ip modes
 type TunMode struct {
 	// DNSMode specifies the kind of DNS traffic to be trapped and routed to DoH servers
-	DNSMode int
+	DNSMode atomic.Int32
 	// BlockMode instructs change in firewall behaviour.
-	BlockMode int
+	BlockMode atomic.Int32
 	// PtMode determines 6to4 translation heuristics.
-	PtMode int
+	PtMode atomic.Int32
 }
 
 // SetMode re-assigns d to DNSMode, b to BlockMode, pt to NatPtMode.
-func (t *TunMode) SetMode(d, b, pt int) {
-	t.DNSMode = d
-	t.BlockMode = b
-	t.PtMode = pt
+func (t *TunMode) SetMode(d, b, pt int32) {
+	t.DNSMode.Store(d)
+	t.BlockMode.Store(b)
+	t.PtMode.Store(pt)
 }
 
 // NewTunMode returns a new TunMode object.
 // `d` sets dns-mode.
 // `b` sets block-mode.
 // `pt` sets natpt-mode.
-func NewTunMode(d, b, pt int) *TunMode {
-	return &TunMode{
-		DNSMode:   d,
-		BlockMode: b,
-		PtMode:    pt,
-	}
+func NewTunMode(d, b, pt int32) *TunMode {
+	tm := &TunMode{}
+	tm.DNSMode.Store(d)
+	tm.BlockMode.Store(b)
+	tm.PtMode.Store(pt)
+	return tm
 }
 
 // DefaultTunMode returns a new default TunMode with
@@ -113,11 +121,7 @@ func NewTunMode(d, b, pt int) *TunMode {
 // is captured and replayed to the remote DoH server)
 // and with firewall disabled.
 func DefaultTunMode() *TunMode {
-	return &TunMode{
-		DNSMode:   DNSModeIP,
-		BlockMode: BlockModeNone,
-		PtMode:    PtModeNo46,
-	}
+	return NewTunMode(DNSModeIP, BlockModeNone, PtModeNo46)
 }
 
 // DNSOptions define https or socks5 proxy options
@@ -131,6 +135,7 @@ func (d *DNSOptions) String() string {
 	return d.AddrPort()
 }
 
+// AddrPort returns the ip:port or host:port.
 func (d *DNSOptions) AddrPort() string {
 	if len(d.ipp) > 0 {
 		return d.ipp
@@ -186,14 +191,14 @@ func NewDNSOptionsFromNetIp(ipp netip.AddrPort) (*DNSOptions, error) {
 	}, nil
 }
 
-func NewDNSOptionsFromHostname(hostname, ipcsv string) (*DNSOptions, error) {
-	if len(hostname) <= 0 {
+func NewDNSOptionsFromHostname(hostOrHostPort, ipcsv string) (*DNSOptions, error) {
+	if len(hostOrHostPort) <= 0 {
 		return nil, errDnsOptArg
 	}
 
-	domain, port, _ := net.SplitHostPort(hostname)
+	domain, port, _ := net.SplitHostPort(hostOrHostPort)
 	if len(domain) <= 0 {
-		domain = hostname
+		domain = hostOrHostPort
 	}
 	if len(port) == 0 {
 		port = "53"
@@ -270,10 +275,12 @@ func (p *ProxyOptions) String() string {
 	return p.Auth.User + "," + p.Auth.Password + "," + p.IPPort
 }
 
+// HasAuth returns true if p has auth params.
 func (p *ProxyOptions) HasAuth() bool {
 	return len(p.Auth.User) > 0 && len(p.Auth.Password) > 0
 }
 
+// FullUrl returns the full url with auth.
 func (p *ProxyOptions) FullUrl() string {
 	if p.HasAuth() {
 		// superuser.com/a/532530
@@ -287,6 +294,7 @@ func (p *ProxyOptions) FullUrl() string {
 	return p.Url()
 }
 
+// Url returns the url without auth.
 func (p *ProxyOptions) Url() string {
 	return p.Scheme + "://" + p.IPPort
 }

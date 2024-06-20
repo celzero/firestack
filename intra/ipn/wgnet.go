@@ -50,10 +50,10 @@ const (
 	wgbarrierttl = time.Second * 10
 )
 
-// intra/tcp.go expects dst conns to confirm to core.TCPConn
+// intra/tcp expects dst conns to confirm to core.TCPConn
 var _ core.TCPConn = (*gonet.TCPConn)(nil)
 
-// intra/udp.go expects dst conns to confirm to core.UDPConn
+// intra/udp expects dst conns to confirm to core.UDPConn
 var _ core.UDPConn = (*gonet.UDPConn)(nil)
 
 // --------------------------------------------------------------------
@@ -161,7 +161,7 @@ func (tnet *wgtun) DialContext(_ context.Context, network, address string) (net.
 			dialers.Confirm2(host, addr.Addr())
 			return c, nil
 		}
-		dialers.Disconfirm2(host, addr.Addr())
+		dialers.Disconfirm(host, addr.Addr())
 		errs = errors.Join(errs, err)
 	}
 	if errs == nil {
@@ -230,44 +230,44 @@ func ipportFrom(addr any) (ipp netip.AddrPort) {
 	return ipp
 }
 
-func (net *wgtun) DialContextTCPAddrPort(ctx context.Context, addr netip.AddrPort) (*gonet.TCPConn, error) {
+func (tnet *wgtun) DialContextTCPAddrPort(ctx context.Context, addr netip.AddrPort) (*gonet.TCPConn, error) {
 	faddr, protocol := fullAddrFrom(addr)
-	return gonet.DialContextTCP(ctx, net.stack, faddr, protocol)
+	return gonet.DialContextTCP(ctx, tnet.stack, faddr, protocol)
 }
 
-func (net *wgtun) DialContextTCP(ctx context.Context, addr *net.TCPAddr) (*gonet.TCPConn, error) {
+func (tnet *wgtun) DialContextTCP(ctx context.Context, addr *net.TCPAddr) (*gonet.TCPConn, error) {
 	if addr == nil {
-		return net.DialContextTCPAddrPort(ctx, netip.AddrPort{})
+		return tnet.DialContextTCPAddrPort(ctx, netip.AddrPort{})
 	}
 
-	return net.DialContextTCPAddrPort(ctx, ipportFrom(addr))
+	return tnet.DialContextTCPAddrPort(ctx, ipportFrom(addr))
 }
 
-func (net *wgtun) DialTCPAddrPort(addr netip.AddrPort) (*gonet.TCPConn, error) {
+func (tnet *wgtun) DialTCPAddrPort(addr netip.AddrPort) (*gonet.TCPConn, error) {
 	faddr, protocol := fullAddrFrom(addr)
-	return gonet.DialTCP(net.stack, faddr, protocol)
+	return gonet.DialTCP(tnet.stack, faddr, protocol)
 }
 
-func (net *wgtun) DialTCP(addr *net.TCPAddr) (*gonet.TCPConn, error) {
+func (tnet *wgtun) DialTCP(addr *net.TCPAddr) (*gonet.TCPConn, error) {
 	if addr == nil {
-		return net.DialTCPAddrPort(netip.AddrPort{})
+		return tnet.DialTCPAddrPort(netip.AddrPort{})
 	}
-	return net.DialTCPAddrPort(ipportFrom(addr))
+	return tnet.DialTCPAddrPort(ipportFrom(addr))
 }
 
-func (net *wgtun) ListenTCPAddrPort(addr netip.AddrPort) (*gonet.TCPListener, error) {
+func (tnet *wgtun) ListenTCPAddrPort(addr netip.AddrPort) (*gonet.TCPListener, error) {
 	fa, pn := fullAddrFrom(addr)
-	return gonet.ListenTCP(net.stack, fa, pn)
+	return gonet.ListenTCP(tnet.stack, fa, pn)
 }
 
-func (net *wgtun) ListenTCP(addr *net.TCPAddr) (*gonet.TCPListener, error) {
+func (tnet *wgtun) ListenTCP(addr *net.TCPAddr) (*gonet.TCPListener, error) {
 	if addr == nil {
-		return net.ListenTCPAddrPort(netip.AddrPort{})
+		return tnet.ListenTCPAddrPort(netip.AddrPort{})
 	}
-	return net.ListenTCPAddrPort(ipportFrom(addr))
+	return tnet.ListenTCPAddrPort(ipportFrom(addr))
 }
 
-func (net *wgtun) DialUDPAddrPort(laddr, raddr netip.AddrPort) (*gonet.UDPConn, error) {
+func (tnet *wgtun) DialUDPAddrPort(laddr, raddr netip.AddrPort) (*gonet.UDPConn, error) {
 	var src, dst *tcpip.FullAddress
 	var protocol tcpip.NetworkProtocolNumber
 	if laddr.IsValid() || laddr.Port() > 0 {
@@ -281,14 +281,14 @@ func (net *wgtun) DialUDPAddrPort(laddr, raddr netip.AddrPort) (*gonet.UDPConn, 
 		dst = &addr
 	}
 
-	return gonet.DialUDP(net.stack, src, dst, protocol)
+	return gonet.DialUDP(tnet.stack, src, dst, protocol)
 }
 
-func (net *wgtun) ListenUDPAddrPort(laddr netip.AddrPort) (*gonet.UDPConn, error) {
-	return net.DialUDPAddrPort(laddr, netip.AddrPort{})
+func (tnet *wgtun) ListenUDPAddrPort(laddr netip.AddrPort) (*gonet.UDPConn, error) {
+	return tnet.DialUDPAddrPort(laddr, netip.AddrPort{})
 }
 
-func (net *wgtun) DialUDP(laddr, raddr *net.UDPAddr) (*gonet.UDPConn, error) {
+func (tnet *wgtun) DialUDP(laddr, raddr *net.UDPAddr) (*gonet.UDPConn, error) {
 	var src, dst netip.AddrPort
 	if laddr != nil {
 		src = ipportFrom(laddr)
@@ -297,11 +297,11 @@ func (net *wgtun) DialUDP(laddr, raddr *net.UDPAddr) (*gonet.UDPConn, error) {
 		dst = ipportFrom(raddr)
 	}
 
-	return net.DialUDPAddrPort(src, dst)
+	return tnet.DialUDPAddrPort(src, dst)
 }
 
-func (net *wgtun) ListenUDP(laddr *net.UDPAddr) (*gonet.UDPConn, error) {
-	return net.DialUDP(laddr, nil)
+func (tnet *wgtun) ListenUDP(laddr *net.UDPAddr) (*gonet.UDPConn, error) {
+	return tnet.DialUDP(laddr, nil)
 }
 
 // --------------------------------------------------------------------
@@ -423,8 +423,9 @@ func (pc *PingConn) RemoteAddr() net.Addr {
 
 func (pc *PingConn) Close() error {
 	pc.deadline.Reset(0)
-	if pc.ep != nil {
-		pc.ep.Close()
+	ep := pc.ep
+	if ep != nil {
+		ep.Close()
 	}
 	return nil
 }
@@ -457,6 +458,7 @@ func (pc *PingConn) WriteTo(p []byte, addr net.Addr) (n int, err error) {
 		return int(n64), fmt.Errorf("ping write: %s", tcpipErr)
 	}
 
+	// may overflow on 32-bit systems
 	return int(n64), nil
 }
 

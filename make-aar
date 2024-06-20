@@ -12,17 +12,22 @@ set -eux
 # gitlab.com/fdroid/fdroiddata/-/blob/81c14003f/metadata/com.tailscale.ipn.yml
 # gitlab.com/fdroid/fdroiddata/-/blob/d6c5315a/metadata/org.calyxinstitute.vpn.yml
 
-# defaults
+# defaults; can be overridden for ex by jitpack.yml
 PACK="${PACK:-aar}"
+# final out
 FOUT="${FOUT:-firestack.aar}"
+FOUTDBG="${FOUTDBG:-firestack-debug.aar}"
+# build out
 BOUT="${BOUT:-build/intra/tun2socks.aar}"
-FOUTARM="${FOUTARM:-firestack-arm.aar}"
-BOUTARM="${BOUTARM:-build/intra/tun2socks-arm.aar}"
-# CLASSFULL="${CLASSFULL:-full}"
-CLASSARM="${CLASSARM:-arm64}"
+BOUTDBG="${BOUTDBG:-build/intra/tun2socks-debug.aar}"
+# artifact classifier
+CLASSFULL="${CLASSFULL:-full}" # unused
+CLASSDBG="${CLASSDBG:-debug}"
+# artifact bytecode sources
 SOURCES="${SOURCES:-build/intra/tun2socks-sources.jar}"
 
 ARG1="${1:-go}"
+ARG2="${2:-debug}"
 
 # debug
 printenv
@@ -30,8 +35,8 @@ ls -ltr $ANDROID_HOME/**
 
 if [ "$ARG1" = "go" ]; then
   # download from go.dev/dl
-  curl -Lso go.tar.gz https://go.dev/dl/go1.22.2.linux-amd64.tar.gz
-  echo "5901c52b7a78002aeff14a21f93e0f064f74ce1360fce51c6ee68cd471216a17 go.tar.gz" | sha256sum -c -
+  curl -Lso go.tar.gz https://go.dev/dl/go1.22.3.linux-amd64.tar.gz
+  echo "8920ea521bad8f6b7bc377b4824982e011c19af27df88a815e3586ea895f1b36 go.tar.gz" | sha256sum -c -
 
   # HOME=/home/jitpack
   # PWD=/home/jitpack/build
@@ -53,12 +58,18 @@ go env
 # git checkout -b "$VERSION"
 
 # gomobile aar
-make clean && make intra
-# disable arm builds make intrarm
 
-# rename
-mv ./"$BOUT" ./"$FOUT"
-# mv ./"$BOUTARM" ./"$FOUTARM"
+if [ "$ARG2" = "debug" ]; then
+  # default: with debug builds
+  make clean && make intra && make intradebug
+  # rename
+  mv ./"$BOUT" ./"$FOUT"
+  mv ./"$BOUTDBG" ./"$FOUTDBG"
+else
+  make clean && make intra
+  # rename
+  mv ./"$BOUT" ./"$FOUT"
+fi
 
 # ls cwd
 ls -ltr

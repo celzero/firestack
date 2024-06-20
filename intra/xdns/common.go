@@ -35,6 +35,10 @@ const (
 const (
 	ClientMagicLen     = 8
 	blocklistHeaderKey = "x-nile-flags" // "x-bl-fl"
+	// github.com/serverless-dns/serverless-dns/blob/f247f75d31a/src/core/io-state.js#L188
+	rethinkdnsRegionHeaderKey = "x-nile-region"
+	// Cf-Ray:[d1e2a3d4b5e6e7f8-SIN]
+	cfRayHeaderKey = "cf-ray"
 )
 
 var (
@@ -81,7 +85,7 @@ var (
 	errMassivePkt     = errors.New("packet too large")
 	errRdnsUrlMissing = errors.New("url missing")
 	errNoAns          = errors.New("no answer record")
-	errNoDns          = errors.New("nil dns msg")
+	errNoPacket       = errors.New("nil dns msg")
 	errNotAscii       = errors.New("name not ASCII string")
 )
 

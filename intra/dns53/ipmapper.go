@@ -48,10 +48,14 @@ func AddIPMapper(r dnsx.Resolver, protos string, clear bool) {
 	var m ipmap.IPMapper
 	ok := r != nil
 	if ok {
-		m = &ipmapper{dnsx.IpMapper, r, core.NewBarrier[[]byte](battl)}
+		m = &ipmapper{
+			id: dnsx.IpMapper,
+			r:  r,
+			ba: core.NewBarrier[[]byte](battl),
+		}
 	} // else remove; m is nil
 	if clear {
-		dialers.Clear()
+		dialers.Clear() // note: clears ipset async
 	}
 	dialers.Mapper(m)
 	dialers.IPProtos(protos)
@@ -73,9 +77,11 @@ func (m *ipmapper) Lookup(q []byte) ([]byte, error) {
 		log.W("ipmapper: query: no qname")
 		return nil, errNoHost
 	}
-	qtype := xdns.QType(msg)
+	qtype := int(xdns.QType(msg))
 
-	v, _ := m.ba.Do(key(qname, strconv.Itoa(int(qtype))), resolve(m.r, q))
+	log.V("ipmapper: lookup: host %s", qname)
+
+	v, _ := m.ba.Do1(key(qname, strconv.Itoa(qtype)), m.r.LocalLookup, q)
 
 	if v.Err != nil || v == nil {
 		log.W("ipmapper: query: noans? %t [err %v] for %s / typ %d", v == nil, v.Err, qname, qtype)
@@ -125,8 +131,8 @@ func (m *ipmapper) LookupNetIP(ctx context.Context, network, host string) ([]net
 		return nil, errs
 	}
 
-	val4, _ := m.ba.Do(key(host, "ip4"), resolve(m.r, q4))
-	val6, _ := m.ba.Do(key(host, "ip6"), resolve(m.r, q6))
+	val4, _ := m.ba.Do1(key(host, "ip4"), m.r.LocalLookup, q4)
+	val6, _ := m.ba.Do1(key(host, "ip6"), m.r.LocalLookup, q6)
 
 	var noval4, noval6 bool
 	var r4, r6 []byte
@@ -168,6 +174,11 @@ func (m *ipmapper) LookupNetIP(ctx context.Context, network, host string) ([]net
 }
 
 func (m *ipmapper) undoAlg(ip64 []netip.Addr) []netip.Addr {
+	// unlike common.go:undoAlg, we do not filter out ipaddrs
+	// based on dialers.Use4/Use6. This is because the ipmapper
+	// is used for DNS queries, and the dialers are used for
+	// actual connections. The dialers will filter out ipaddrs
+	// based on the dialers.Use4/Use6 settings.
 	gw := m.r.Gateway()
 	if gw == nil {
 		log.D("ipmapper: undoAlg: no-op; no gateway")
@@ -175,16 +186,16 @@ func (m *ipmapper) undoAlg(ip64 []netip.Addr) []netip.Addr {
 	}
 	ips := make([]netip.Addr, 0, len(ip64))
 	realips := make([]string, 0, len(ip64))
-	for _, x := range ip64 {
+	for _, addr := range ip64 {
 		var csv string
-		if x.IsValid() {
-			if csv = gw.X(x.AsSlice()); len(csv) > 0 {
+		if addr.IsValid() {
+			if csv = gw.X(addr); len(csv) > 0 {
 				// may contain duplicates due to how alg maps domains and ips
 				realips = append(realips, strings.Split(csv, ",")...)
 				continue // skip log.W below
 			}
 		}
-		log.W("ipmapper: undoAlg: no algip => realip? (%s => %s)", x, csv)
+		log.W("ipmapper: undoAlg: no algip => realip? (%s => %s)", addr, csv)
 	}
 	dups := 0
 	seen := make(map[string]bool) // track duplicates
@@ -206,12 +217,6 @@ func (m *ipmapper) undoAlg(ip64 []netip.Addr) []netip.Addr {
 
 func key(name string, typ string) string {
 	return name + ":" + typ
-}
-
-func resolve(r dnsx.Resolver, q []byte) core.Work[[]byte] {
-	return func() ([]byte, error) {
-		return r.LocalLookup(q)
-	}
 }
 
 func addrs(a []byte) []netip.Addr {

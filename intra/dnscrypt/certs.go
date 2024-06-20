@@ -18,13 +18,14 @@ import (
 	"bytes"
 	"encoding/binary"
 	"errors"
-	"io"
 	"net"
 	"strings"
 	"time"
 
+	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/dialers"
 	"github.com/celzero/firestack/intra/log"
+	"github.com/celzero/firestack/intra/protect"
 	"github.com/miekg/dns"
 	"golang.org/x/crypto/ed25519"
 
@@ -64,7 +65,7 @@ func fetchCurrentDNSCryptCert(proxy *DcMulti, serverName *string, pk ed25519.Pub
 		log.W("dnscrypt: [%v] is not v2, ('%v' doesn't start with '2.dnscrypt-cert.')", *serverName, providerName)
 	}
 	log.I("dnscrypt: [%v] Fetching DNSCrypt certificate for [%s] at [%v]", *serverName, providerName, serverAddress)
-	in, rtt, err := dnsExchange(proxy, &query, serverAddress, serverName)
+	in, rtt, err := dnsExchange(proxy.dialer, &query, serverAddress, serverName)
 	if err != nil {
 		log.W("dnscrypt: [%s] TIMEOUT %v", *serverName, err)
 		return certinfo{}, err
@@ -202,8 +203,7 @@ func packTxtString(s string) []byte {
 	return msg
 }
 
-func dnsExchange(proxy *DcMulti, query *dns.Msg, serverAddress string, serverName *string) (*dns.Msg, time.Duration, error) {
-
+func dnsExchange(dialer *protect.RDial, query *dns.Msg, serverAddress string, serverName *string) (*dns.Msg, time.Duration, error) {
 	// always use udp to fetch certs since most servers like adguard, cleanbrowsing
 	// don't support fetching certs over tcp
 	proto := "udp"
@@ -218,7 +218,9 @@ func dnsExchange(proxy *DcMulti, query *dns.Msg, serverAddress string, serverNam
 	for tries := 0; tries < 4; tries++ {
 		queryCopy := query.Copy()
 		queryCopy.Id += uint16(options)
-		go func(query *dns.Msg, delay time.Duration) {
+		timeout := time.Duration(200*tries) * time.Millisecond
+		core.Go2("cert.dnsExchange", func(query *dns.Msg, delay time.Duration) {
+
 			if proto == "udp" {
 				proto = "tcp"
 			} else {
@@ -230,11 +232,11 @@ func dnsExchange(proxy *DcMulti, query *dns.Msg, serverAddress string, serverNam
 			case <-cancelChannel:
 				return
 			default:
-				option = _dnsExchange(proxy, proto, query, serverAddress, minsz)
+				option = _dnsExchange(dialer, proto, query, serverAddress, minsz)
 			}
 			option.priority = 0
 			channel <- option
-		}(queryCopy, time.Duration(200*tries)*time.Millisecond)
+		}, queryCopy, timeout)
 		options++
 	}
 	deadline := time.NewTimer(30 * time.Second)
@@ -271,7 +273,9 @@ func dnsExchange(proxy *DcMulti, query *dns.Msg, serverAddress string, serverNam
 	return nil, 0, err
 }
 
-func _dnsExchange(proxy *DcMulti, proto string, query *dns.Msg, serverAddress string, paddedLen int) dnsExchangeResponse {
+// _dnsExchange sends query and returns an answer from serverAddress using dialer.
+// It can be called from multiple goroutines.
+func _dnsExchange(dialer *protect.RDial, proto string, query *dns.Msg, serverAddress string, paddedLen int) dnsExchangeResponse {
 	var packet []byte
 	var rtt time.Duration
 
@@ -297,10 +301,10 @@ func _dnsExchange(proxy *DcMulti, proto string, query *dns.Msg, serverAddress st
 		}
 
 		now := time.Now()
-		pc, err := dialers.Dial(proxy.dialer, "udp", serverAddress)
+		pc, err := dialers.Dial(dialer, "udp", serverAddress)
 		if err != nil {
 			return dnsExchangeResponse{err: err}
-		} else if pc == nil {
+		} else if pc == nil || core.IsNil(pc) {
 			return dnsExchangeResponse{err: errNoConn}
 		}
 
@@ -334,10 +338,10 @@ func _dnsExchange(proxy *DcMulti, proto string, query *dns.Msg, serverAddress st
 		*/
 		now := time.Now()
 		var pc net.Conn
-		pc, err = dialers.Dial(proxy.dialer, "tcp", serverAddress)
+		pc, err = dialers.Dial(dialer, "tcp", serverAddress)
 		if err != nil {
 			return dnsExchangeResponse{err: err}
-		} else if pc == nil {
+		} else if pc == nil || core.IsNil(pc) {
 			return dnsExchangeResponse{err: errNoConn}
 		}
 
@@ -365,8 +369,6 @@ func _dnsExchange(proxy *DcMulti, proto string, query *dns.Msg, serverAddress st
 	return dnsExchangeResponse{response: &msg, rtt: rtt, err: nil}
 }
 
-func clos(c io.Closer) {
-	if c != nil {
-		_ = c.Close()
-	}
+func clos(c net.Conn) {
+	core.CloseConn(c)
 }

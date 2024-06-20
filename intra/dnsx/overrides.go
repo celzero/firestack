@@ -35,25 +35,18 @@ func (h *resolver) isDns(ipport string) bool {
 			log.E("dnsx: missing dst-addr(%v) or dns(%v)", ipp, h.dnsaddrs)
 			return false
 		}
-		if h.trapIP() {
+		dnsmode := h.tunmode.DNSMode.Load()
+		if dnsmode == settings.DNSModeIP {
 			if yes := h.isDnsIpPort(ipp); yes {
 				return true
 			}
-		} else if h.trapPort() {
+		} else if dnsmode == settings.DNSModePort {
 			if yes := h.isDnsPort(ipp); yes {
 				return true
 			}
 		}
 		return false
 	}
-}
-
-func (h *resolver) trapIP() bool {
-	return h.tunmode.DNSMode == settings.DNSModeIP
-}
-
-func (h *resolver) trapPort() bool {
-	return h.tunmode.DNSMode == settings.DNSModePort
 }
 
 func (r *resolver) addDnsAddrs(csvaddr string) {

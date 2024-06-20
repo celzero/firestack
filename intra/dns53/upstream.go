@@ -51,9 +51,9 @@ type transport struct {
 var _ dnsx.Transport = (*transport)(nil)
 
 // NewTransportFromHostname returns a DNS53 transport serving from hostname, ready for use.
-func NewTransportFromHostname(id, hostname string, ipcsv string, px ipn.Proxies, ctl protect.Controller) (t dnsx.Transport, err error) {
+func NewTransportFromHostname(id, hostOrHostport string, ipcsv string, px ipn.Proxies, ctl protect.Controller) (t *transport, err error) {
 	// ipcsv may contain port, eg: 10.1.1.3:53
-	do, err := settings.NewDNSOptionsFromHostname(hostname, ipcsv)
+	do, err := settings.NewDNSOptionsFromHostname(hostOrHostport, ipcsv)
 	if err != nil {
 		return
 	}
@@ -61,7 +61,7 @@ func NewTransportFromHostname(id, hostname string, ipcsv string, px ipn.Proxies,
 }
 
 // NewTransport returns a DNS53 transport serving from ip & port, ready for use.
-func NewTransport(id, ip, port string, px ipn.Proxies, ctl protect.Controller) (t dnsx.Transport, err error) {
+func NewTransport(id, ip, port string, px ipn.Proxies, ctl protect.Controller) (t *transport, err error) {
 	ipport := net.JoinHostPort(ip, port)
 	do, err := settings.NewDNSOptions(ipport)
 	if err != nil {
@@ -71,14 +71,13 @@ func NewTransport(id, ip, port string, px ipn.Proxies, ctl protect.Controller) (
 	return newTransport(id, do, px, ctl)
 }
 
-func newTransport(id string, do *settings.DNSOptions, px ipn.Proxies, ctl protect.Controller) (dnsx.Transport, error) {
-	var relay ipn.Proxy
+func newTransport(id string, do *settings.DNSOptions, px ipn.Proxies, ctl protect.Controller) (*transport, error) {
 	// cannot be nil, see: ipn.Exit which the only proxy guaranteed to be connected to the internet;
 	// ex: ipn.Base routed back within the tunnel (rethink's traffic routed back into rethink).
 	if px == nil {
 		return nil, dnsx.ErrNoProxyProvider
 	}
-	relay, _ = px.ProxyFor(id)
+	relay, _ := px.ProxyFor(id)
 	d := protect.MakeNsRDial(id, ctl)
 	tx := &transport{
 		id:       id,
@@ -91,8 +90,8 @@ func newTransport(id string, do *settings.DNSOptions, px ipn.Proxies, ctl protec
 	}
 	ipcsv := do.ResolvedAddrs()
 	hasips := len(ipcsv) > 0
-	ips := strings.Split(ipcsv, ",")       // may be nil or empty or ip:port
-	_, ok := dialers.New(tx.addrport, ips) // addrport may be protect.UidSelf or protect.System
+	ips := strings.Split(ipcsv, ",")               // may be nil or empty or ip:port
+	ok := dnsx.RegisterAddrs(id, tx.addrport, ips) // addrport may be protect.UidSelf or protect.System
 	log.I("dns53: (%s) pre-resolved %s to %s; ok? %t", id, tx.addrport, ipcsv, ok)
 	tx.client = &dns.Client{
 		Net:     "udp",   // default transport type
@@ -149,7 +148,7 @@ func (t *transport) dial(network string) (*dns.Conn, error) {
 	c, err := dialers.Dial2(t.dialer, network, t.addrport)
 	if err != nil {
 		return nil, err
-	} else if c == nil {
+	} else if c == nil || core.IsNil(c) {
 		return nil, errNoNet
 	} else {
 		return &dns.Conn{Conn: c}, nil
@@ -195,14 +194,19 @@ func (t *transport) send(network, pid string, q *dns.Msg) (ans *dns.Msg, elapsed
 		return
 	} // else: send query
 
-	t.lastaddr = remoteAddrIfAny(conn) // may return empty string
+	lastaddr := remoteAddrIfAny(conn) // may return empty string
 	ans, elapsed, err = t.client.ExchangeWithConn(q, conn)
 	clos(conn) // TODO: conn pooling w/ ExchangeWithConn
+
 	if err != nil {
+		log.V("dot: sendRequest: (%s) err: %v; disconfirm", t.id, err, lastaddr)
+		dialers.Disconfirm2(t.addrport, lastaddr)
 		qerr = dnsx.NewSendFailedQueryError(err)
 	} else if ans == nil {
 		qerr = dnsx.NewBadResponseQueryError(err)
 	}
+
+	t.lastaddr = lastaddr
 
 	return
 }
@@ -232,6 +236,9 @@ func (t *transport) Query(network string, q *dns.Msg, smm *x.DNSSummary) (ans *d
 		smm.RelayServer = x.SummaryProxyLabel + t.relay.ID()
 	} else if !dnsx.IsLocalProxy(pid) {
 		smm.RelayServer = x.SummaryProxyLabel + pid
+	}
+	if err != nil {
+		smm.Msg = err.Error()
 	}
 	smm.Status = status
 	t.est.Add(smm.Latency)

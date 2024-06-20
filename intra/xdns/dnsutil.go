@@ -22,20 +22,29 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/miekg/dns"
 )
 
 func AsMsg(packet []byte) *dns.Msg {
+	msg, err := AsMsg2(packet)
+	if err != nil {
+		log.W("dnsutil: as msg err: %v", err)
+	}
+	return msg
+}
+
+func AsMsg2(packet []byte) (*dns.Msg, error) {
 	if len(packet) < MinDNSPacketSize {
-		return nil
+		return nil, errNoPacket
 	}
 	msg := &dns.Msg{}
 	if err := msg.Unpack(packet); err != nil {
 		log.D("dnsutil: failed to unpack msg: %v", err)
-		return nil
+		return nil, err
 	}
-	return msg
+	return msg, nil
 }
 
 func RequestFromResponse(msg *dns.Msg) *dns.Msg {
@@ -488,11 +497,11 @@ func BlockResponseFromMessage(q []byte) (*dns.Msg, error) {
 
 func RefusedResponseFromMessage(srcMsg *dns.Msg) (dstMsg *dns.Msg, err error) {
 	if srcMsg == nil {
-		return nil, errNoDns
+		return nil, errNoPacket
 	}
 	dstMsg = EmptyResponseFromMessage(srcMsg) // may be nil
 	if dstMsg == nil {
-		return nil, errNoDns
+		return nil, errNoPacket
 	}
 	dstMsg.Rcode = dns.RcodeSuccess
 	ttl := BlockTTL
@@ -559,11 +568,11 @@ func RefusedResponseFromMessage(srcMsg *dns.Msg) (dstMsg *dns.Msg, err error) {
 
 func AQuadAForQuery(q *dns.Msg, ips ...netip.Addr) (a *dns.Msg, err error) {
 	if q == nil {
-		return nil, errNoDns
+		return nil, errNoPacket
 	}
 	a = EmptyResponseFromMessage(q) // may be nil
 	if a == nil {
-		return nil, errNoDns
+		return nil, errNoPacket
 	}
 	a.Rcode = dns.RcodeSuccess
 	ttl := AnsTTL
@@ -628,6 +637,10 @@ func HasAnyAnswer(msg *dns.Msg) bool {
 
 func IsNXDomain(msg *dns.Msg) bool {
 	return msg != nil && msg.Rcode == dns.RcodeNameError
+}
+
+func IsARecord(rr dns.RR) bool {
+	return rr != nil && core.IsNotNil(rr) && rr.Header().Rrtype == dns.TypeA
 }
 
 func HasAAnswer(msg *dns.Msg) bool {
@@ -976,7 +989,7 @@ func HasHTTPQuestion(msg *dns.Msg) (ok bool) {
 	return
 }
 
-func MakeARecord(name string, ip4 string, expiry int) dns.RR {
+func MakeARecord(name string, ip4 string, expiry int) *dns.A {
 	if len(ip4) <= 0 || len(name) <= 0 {
 		return nil
 	}
@@ -998,7 +1011,7 @@ func MakeARecord(name string, ip4 string, expiry int) dns.RR {
 	return rec
 }
 
-func MakeAAAARecord(name string, ip6 string, expiry int) dns.RR {
+func MakeAAAARecord(name string, ip6 string, expiry int) *dns.AAAA {
 	if len(ip6) <= 0 || len(name) <= 0 {
 		return nil
 	}
@@ -1020,7 +1033,10 @@ func MakeAAAARecord(name string, ip6 string, expiry int) dns.RR {
 	return rec
 }
 
-func MaybeToQuadA(answer dns.RR, prefix *net.IPNet, minttl uint32) dns.RR {
+// MaybeToQuadA translates an A record to a AAAA record if the prefix is not nil.
+// The ttl of the new record is the minimum of the original ttl and minttl.
+// If the prefix is nil or answer has an empty A record, it returns nil.
+func MaybeToQuadA(answer dns.RR, prefix *net.IPNet, minttl uint32) *dns.AAAA {
 	header := answer.Header()
 	if prefix == nil || header.Rrtype != dns.TypeA {
 		return nil
@@ -1214,6 +1230,19 @@ func Servfail(q *dns.Msg) *dns.Msg {
 // GetBlocklistStampHeaderKey returns the http-header key for blocklists stamp
 func GetBlocklistStampHeaderKey() string {
 	return http.CanonicalHeaderKey(blocklistHeaderKey)
+}
+
+// GetBlocklistStampHeaderKey1 returns the http-header key for region set by rdns upstream on Fly
+func GetRethinkDNSRegionHeaderKey1() string {
+	return http.CanonicalHeaderKey(rethinkdnsRegionHeaderKey)
+}
+
+// GetBlocklistStampHeaderKey2 returns the http-header key for region set by rdns upstream on Cloudflare
+func GetRethinkDNSRegionHeaderKey2() (r string) {
+	if ck := http.CanonicalHeaderKey(cfRayHeaderKey); len(ck) > 0 {
+		_, r, _ = strings.Cut(ck, "-")
+	}
+	return
 }
 
 func IsMDNSQuery(qname string) bool {

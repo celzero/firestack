@@ -123,7 +123,7 @@ func AddProxyDNS(t Tunnel, p x.Proxy) error {
 		return errors.Join(rerr, perr)
 	}
 	g := t.getBridge()
-	ipOrHostCsv := p.DNS()
+	ipOrHostCsv := p.DNS() // may return csv(host:port), csv(ip:port), csv(ips), csv(host)
 	if len(ipOrHostCsv) == 0 {
 		log.W("dns: no proxy dns for %s @ %s", p.ID(), p.GetAddr())
 		return dnsx.ErrNoProxyDNS
@@ -135,9 +135,9 @@ func AddProxyDNS(t Tunnel, p x.Proxy) error {
 	}
 	first := ipsOrHost[0]
 	ipport, err := xdns.DnsIPPort(first)
-	hostname := first // could be multiple hostnames, but choose the first
-	if err != nil {   // use hostname
-		if dns, err := dns53.NewTransportFromHostname(p.ID(), hostname, "", pxr, g); err != nil {
+	hostOrHostport := first // could be multiple hostnames or host:ports, but choose the first
+	if err != nil {         // use hostname
+		if dns, err := dns53.NewTransportFromHostname(p.ID(), hostOrHostport, "", pxr, g); err != nil {
 			return err
 		} else {
 			return addDNSTransport(r, dns)

@@ -52,8 +52,7 @@ func TestGetDomain(t *testing.T) {
 	ips := s.Addrs()
 	if len(ips) == 0 {
 		t.Fatal("IP set is empty")
-	}
-	if !ips[0].IsValid() {
+	} else if !ips[0].IsValid() {
 		t.Error("nil IP in set")
 	}
 }
@@ -67,8 +66,7 @@ func TestGetIP(t *testing.T) {
 	ips := s.Addrs()
 	if len(ips) != 1 {
 		t.Errorf("Wrong IP set size %d", len(ips))
-	}
-	if ips[0].Unmap().String() != "192.0.2.1" {
+	} else if ips[0].Unmap().String() != "192.0.2.1" {
 		t.Error("Wrong IP")
 	}
 }
@@ -83,8 +81,7 @@ func TestAddDomain(t *testing.T) {
 	ips := s.Addrs()
 	if len(ips) == 0 {
 		t.Fatal("IP set is empty")
-	}
-	if !ips[0].IsValid() {
+	} else if !ips[0].IsValid() {
 		t.Error("nil IP in set")
 	}
 }
@@ -95,20 +92,24 @@ func TestAddIP(t *testing.T) {
 	ips := s.Addrs()
 	if len(ips) != 1 {
 		t.Errorf("Wrong IP set size %d", len(ips))
-	}
-	if ips[0].Unmap().String() != "192.0.2.1" {
+	} else if ips[0].Unmap().String() != "192.0.2.1" {
 		t.Error("Wrong IP")
 	}
 }
 
 func TestConfirmed(t *testing.T) {
 	m := NewIPMap()
-	s := m.Get("www.google.com")
+	fqdn := "www.google.com"
+	s := m.Get(fqdn)
 	if s.Confirmed().IsValid() {
 		t.Error("Confirmed should start out nil")
 	}
 
 	ips := s.Addrs()
+	if len(ips) == 0 {
+		t.Fatalf("Empty IPSet for %s", fqdn)
+		return
+	}
 	s.Confirm(ips[0])
 	if ips[0].Compare(s.Confirmed()) != 0 {
 		t.Error("Confirmation failed")
@@ -137,8 +138,13 @@ func TestConfirmNew(t *testing.T) {
 
 func TestDisconfirmMismatch(t *testing.T) {
 	m := NewIPMap()
-	s := m.Get("www.google.com")
+	fqdn := "www.google.com"
+	s := m.Get(fqdn)
 	ips := s.Addrs()
+	if len(ips) == 0 {
+		t.Fatalf("Empty IPSet for %s", fqdn)
+		return
+	}
 	s.Confirm(ips[0])
 
 	// Make a copy

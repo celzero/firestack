@@ -21,6 +21,7 @@ import (
 	"runtime"
 	"unsafe"
 
+	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/log"
 	"golang.org/x/sys/unix"
 )
@@ -85,7 +86,7 @@ func supportsUDPOffload(conn *net.UDPConn) (txOffload, rxOffload bool) {
 		log.W("wg: gso: syscall err: %v", err)
 		return
 	}
-	if rc == nil {
+	if rc == nil || core.IsNil(rc) {
 		log.W("wg: gso: syscall conn nil")
 		return
 	}

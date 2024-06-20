@@ -87,12 +87,18 @@ func NewUDPForwarder(s *stack.Stack, h GUDPConnHandler) *udp.Forwarder {
 		dst := localAddrPort(id)
 
 		gc := MakeGUDPConn(request, src, dst)
+		// connect so that netstack's internal state is consistent
+		if err := gc.makeEndpoint( /*fin*/ false); err != nil {
+			log.E("ns: udp: forwarder: connect: %v; src(%v) dst(%v)", err, src, dst)
+			return
+		}
 
-		// if gc is a connected udp socket; proxy it like a stream
-		if !dst.Addr().IsUnspecified() {
-			h.Proxy(gc, src, dst)
+		// proxy in a separate gorountine; return immediately
+		// why? netstack/dispatcher.go:newReadvDispatcher
+		if gc.connected() { // gc is connected udp; proxy it like a stream
+			go h.Proxy(gc, src, dst)
 		} else {
-			h.ProxyMux(gc, src)
+			go h.ProxyMux(gc, src)
 		}
 	})
 }
@@ -103,15 +109,19 @@ func (g *GUDPConn) ok() bool {
 
 func (g *GUDPConn) StatefulTeardown() (fin bool) {
 	if !g.ok() {
-		_ = g.Connect(false) // establish circuit then teardown
+		_ = g.makeEndpoint( /*fin*/ false) // establish circuit then teardown
 	}
 
 	return g.Close() == nil // then fin
 }
 
-func (g *GUDPConn) Connect(fin bool) error {
+func (g *GUDPConn) makeEndpoint(fin bool) error {
 	if fin {
 		return e(&tcpip.ErrHostUnreachable{})
+	}
+
+	if g.ok() { // already setup
+		return nil
 	}
 
 	wq := new(waiter.Queue)
@@ -204,17 +214,18 @@ func (g *GUDPConn) SetWriteDeadline(t time.Time) error {
 // Close closes the connection.
 func (g *GUDPConn) Close() error {
 	if !g.ok() {
-		_ = g.Connect(true)
+		_ = g.makeEndpoint( /*fin*/ true)
 		return nil
 	}
-	ep := g.ep
-	c := g.conn
-	if ep != nil {
+	if ep := g.ep; ep != nil {
 		ep.Abort()
 	}
-	if c != nil {
-		_ = c.SetDeadline(time.Now().Add(-1))
-		return c.Close()
+	if c := g.conn; c != nil {
+		_ = c.Close()
 	}
 	return nil
+}
+
+func (g *GUDPConn) connected() bool {
+	return !g.dst.Addr().IsUnspecified()
 }

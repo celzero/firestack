@@ -12,6 +12,7 @@ import (
 	"net"
 	"os"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/celzero/firestack/intra/core"
@@ -34,19 +35,21 @@ type sender interface {
 }
 
 type stats struct {
-	dxcount int
-	dur     time.Duration
-	start   time.Time
-	tx      int
-	rx      int
+	dur   time.Duration // set only once; on stop()
+	start time.Time     // set only once; on ctor
+
+	dxcount atomic.Uint32
+	tx      atomic.Uint32
+	rx      atomic.Uint32
 }
 
 func (s *stats) String() string {
-	return fmt.Sprintf("mux: tx: %d, rx: %d, conns: %d, dur: %s", s.tx, s.rx, s.dxcount, s.dur)
+	return fmt.Sprintf("mux: tx: %d, rx: %d, conns: %d, dur: %s", s.tx.Load(), s.rx.Load(), s.dxcount.Load(), s.dur)
 }
 
 // muxer muxes multiple connections grouped by remote addr over net.PacketConn
 type muxer struct {
+	// mxconn and stats are immutable (never reassigned)
 	mxconn core.UDPConn
 	stats  *stats
 
@@ -105,15 +108,16 @@ func newMuxer(conn core.UDPConn) *muxer {
 }
 
 // vend waits for and returns a demuxed conn to process.
+// Must be called in a loop until error is not nil.
 func (x *muxer) vend() (net.Conn, error) {
 	select {
 	case c := <-x.dxconns:
 		x.dxconnWG.Add(1) // accept
-		go func() {
+		core.Gx("udpmux.vend.close", func() {
 			<-c.closed
 			x.unroute(c)
 			x.dxconnWG.Done() // unaccept
-		}()
+		})
 		return c, nil
 
 	case <-x.doneCh:
@@ -159,6 +163,8 @@ func (x *muxer) drain() {
 //     It can therefore not be ended until all Conns are closed.
 //  2. Creating a new Conn when receiving from a new remote.
 func (x *muxer) read() {
+	// todo: recover must call "free()" if it wasn't.
+	defer core.Recover(core.Exit11, "udpmux.read")
 	defer func() {
 		_ = x.stop() // stop muxer
 	}()
@@ -168,6 +174,7 @@ func (x *muxer) read() {
 		bptr := core.AllocRegion(core.BMAX)
 		b := *bptr
 		b = b[:cap(b)]
+		// todo: if panics are recovered above, free() may never be called
 		free := func() {
 			*bptr = b
 			core.Recycle(bptr)
@@ -175,7 +182,7 @@ func (x *muxer) read() {
 
 		n, who, err := x.mxconn.ReadFrom(b)
 
-		x.stats.tx += n // upload
+		x.stats.tx.Add(uint32(n)) // upload
 		if timedout(err) {
 			timeouterrors++
 			if timeouterrors < maxtimeouterrors {
@@ -213,7 +220,7 @@ func (x *muxer) route(raddr net.Addr) (*demuxconn, error) {
 			clos(conn)
 			return nil, errMuxerDone
 		case x.dxconns <- conn:
-			x.stats.dxcount++
+			x.stats.dxcount.Add(1)
 			x.routes[raddr.String()] = conn
 		}
 	}
@@ -221,15 +228,16 @@ func (x *muxer) route(raddr net.Addr) (*demuxconn, error) {
 }
 
 func (x *muxer) unroute(c *demuxconn) {
+	// don't really expect to handle panic w/ core.Recover
 	x.rmu.Lock()
+	defer x.rmu.Unlock()
 	delete(x.routes, c.raddr.String())
-	x.rmu.Unlock()
 }
 
 func (x *muxer) sendto(p []byte, addr net.Addr) (int, error) {
 	// on closed(x.doneCh), x.mxconn is closed and writes will fail
 	n, err := x.mxconn.WriteTo(p, addr)
-	x.stats.rx += n // download
+	x.stats.rx.Add(uint32(n)) // download
 	return n, err
 }
 
@@ -254,7 +262,7 @@ func (x *muxer) demux(r net.Addr) *demuxconn {
 		raddr:      r,
 		incomingCh: make(chan *slice),
 		overflowCh: make(chan *slice),
-		closed:     make(chan struct{}),
+		closed:     make(chan struct{}), // must always be unbuffered
 		wt:         time.NewTicker(udptimeout),
 		rt:         time.NewTicker(udptimeout),
 		wto:        udptimeout,

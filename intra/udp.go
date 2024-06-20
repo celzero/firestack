@@ -31,6 +31,7 @@ import (
 	"net"
 	"net/netip"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/celzero/firestack/intra/dnsx"
@@ -45,13 +46,20 @@ import (
 )
 
 type udpHandler struct {
-	resolver    dnsx.Resolver
+	resolver    dnsx.Resolver   // dns resolver to forward queries to
 	conntracker core.ConnMapper // connid -> [local,remote]
 	tunMode     *settings.TunMode
-	listener    SocketListener
-	prox        ipn.Proxies
-	fwtracker   *core.ExpMap
-	status      int
+	listener    SocketListener      // listener for socket summaries
+	prox        ipn.Proxies         // proxy provider for egress
+	fwtracker   *core.ExpMap        // uid+dst(domainOrIP) -> blockSecs
+	smmch       chan *SocketSummary // socket summary channel
+	done        chan struct{}       // always unbuffered
+
+	once sync.Once
+
+	// fields below are mutable
+
+	status *core.Volatile[int] // status of the handler
 }
 
 // rwext wraps net.Conn and extends deadline by
@@ -94,6 +102,10 @@ func (rw *rwext) Write(b []byte) (n int, err error) {
 // `config` is used to bind new external UDP ports.
 // `listener` receives a summary about each UDP binding when it expires.
 func NewUDPHandler(resolver dnsx.Resolver, prox ipn.Proxies, tunMode *settings.TunMode, ctl protect.Controller, listener SocketListener) netstack.GUDPConnHandler {
+	if listener == nil || core.IsNil(listener) {
+		log.W("udp: using noop listener")
+		listener = nooplistener
+	}
 	h := &udpHandler{
 		resolver:    resolver,
 		tunMode:     tunMode,
@@ -101,22 +113,28 @@ func NewUDPHandler(resolver dnsx.Resolver, prox ipn.Proxies, tunMode *settings.T
 		prox:        prox,
 		fwtracker:   core.NewExpiringMap(),
 		conntracker: core.NewConnMap(),
-		status:      UDPOK,
+		status:      core.NewVolatile(UDPOK),
+		smmch:       make(chan *SocketSummary, smmchSize),
+		done:        make(chan struct{}),
 	}
+
+	go sendSummary(h.smmch, listener)
 
 	log.I("udp: new handler created")
 	return h
 }
 
+// onFlow calls listener.Flow to determine egress rules and routes; thread-safe.
 func (h *udpHandler) onFlow(localaddr, target netip.AddrPort, realips, domains, probableDomains, blocklists string) (*Mark, bool) {
 	const dup = true
 	const notdup = !dup
+	blockmode := h.tunMode.BlockMode.Load()
 	// BlockModeNone returns false, BlockModeSink returns true
-	if h.tunMode.BlockMode == settings.BlockModeSink {
+	if blockmode == settings.BlockModeSink {
 		return optionsBlock, notdup
 	}
 	// todo: block-mode none should call into listener.Flow to determine upstream proxy
-	if h.tunMode.BlockMode == settings.BlockModeNone {
+	if blockmode == settings.BlockModeNone {
 		return optionsBase, notdup
 	}
 
@@ -132,7 +150,7 @@ func (h *udpHandler) onFlow(localaddr, target netip.AddrPort, realips, domains, 
 
 	// Implict: BlockModeFilter or BlockModeFilterProc
 	uid := -1
-	if h.tunMode.BlockMode == settings.BlockModeFilterProc {
+	if blockmode == settings.BlockModeFilterProc {
 		procEntry := netstat.FindProcNetEntry("udp", localaddr, target)
 		if procEntry != nil {
 			uid = procEntry.UserID
@@ -143,7 +161,7 @@ func (h *udpHandler) onFlow(localaddr, target netip.AddrPort, realips, domains, 
 	active := hasActiveConn(h.conntracker, dst, realips, dport) // existing active conn denotes dup
 	res := h.listener.Flow(proto, uid, active, src, dst, realips, domains, probableDomains, blocklists)
 
-	if res == nil {
+	if res == nil { // zeroListener returns nil
 		log.W("udp: onFlow: empty res from kt; optbase")
 		return optionsBase, active // true if dup
 	} else if len(res.PID) <= 0 {
@@ -156,38 +174,38 @@ func (h *udpHandler) onFlow(localaddr, target netip.AddrPort, realips, domains, 
 
 // ProxyMux implements netstack.GUDPConnHandler
 func (h *udpHandler) ProxyMux(gconn *netstack.GUDPConn, src netip.AddrPort) (ok bool) {
+	defer core.Recover(core.Exit11, "udp.ProxyMux")
+
 	log.I("udp: mux for %s", src)
 	// only ipn.Exit and ipn.Base support udp mux / packet conns
-	const fin = true  // disconnect
-	const ack = false // connect
 	var invalidaddr = netip.AddrPort{}
 
-	if h.status == UDPEND {
-		err := gconn.Connect(fin) // disconnect, no nat
-		log.D("udp: connect: mux: end listen(%v); close err? %v", src, err)
+	if h.status.Load() == UDPEND {
+		// err := gconn.Connect(fin) // disconnect, no nat
+		log.D("udp: connect: mux: end listen(%v)", src)
+		clos(gconn)
 		return // not ok
 	}
 
 	// connect (register endpoint) right away, since new packets needn't be
 	// handled / assumed as a new conn (endpoint) by netstack
-	gerr := gconn.Connect(ack)
+	// gerr := gconn.Connect(ack)
 
-	l := h.listener
 	local, smm, _, err := h.Connect(gconn, src, invalidaddr) // local may be nil; smm is never nil
 
-	if err != nil || gerr != nil || local == nil {
+	if err != nil || local == nil {
 		clos(gconn, local)
 		if smm != nil { // smm is never nil; but nilaway complains
 			smm.done(err)
-			go sendNotif(l, smm)
+			queueSummary(h.smmch, h.done, smm)
 		} else {
-			log.W("udp: proxy: mux: unexpected %s -> [unconnected]; netstack err: %v; dst err: %v", src, gerr, err)
+			log.W("udp: proxy: mux: unexpected %s -> [unconnected]; err: %v", src, err)
 		}
 		// invalid dst addrs are not tracked; conntracker.Untrack() not req
 		return // not ok
 	}
 	mxr := newMuxer(local)
-	go func() {
+	core.Gx("udp.ProxyMux.looper", func() {
 		for {
 			dxconn, err := mxr.vend()
 			if err != nil {
@@ -203,42 +221,45 @@ func (h *udpHandler) ProxyMux(gconn *netstack.GUDPConn, src netip.AddrPort) (ok 
 			}
 		}
 		log.I("udp: proxy: mux: %s for %s done", smm.ID, mxr.stats)
-	}()
+	})
 	return true // ok
 }
 
-// Proxy implements netstack.GUDPConnHandler
+// Proxy implements netstack.GUDPConnHandler; thread-safe.
 func (h *udpHandler) Proxy(gconn *netstack.GUDPConn, src, dst netip.AddrPort) (ok bool) {
+	defer core.Recover(core.Exit11, "udp.Proxy")
+
 	return h.proxy(gconn, src, dst)
 }
 
+// proxy connects src to dst over a proxy; thread-safe.
 func (h *udpHandler) proxy(gconn net.Conn, src, dst netip.AddrPort) (ok bool) {
 	// const fin = true  // disconnect
-	const ack = false // connect
-	if h.status == UDPEND {
+	// const ack = false // connect
+	if h.status.Load() == UDPEND {
 		log.D("udp: connect: end")
 		clos(gconn) // disconnect, no nat
 		return      // not ok
 	}
 
-	// if gconn is a netstack.GUDPConn, then it is not connected.
+	/*if gconn is a netstack.GUDPConn, then it is not connected.
 	// connect right away, since we assume a duplex-stream from here on
 	// see: h.Connect -> dnsOverride
 	var gerr error
 	if gc, ok := gconn.(*netstack.GUDPConn); ok {
 		gerr = gc.Connect(ack)
 	} // not a *netstack.GUDPConn, may be *demuxconn
+	*/
 
-	l := h.listener
 	remote, smm, ct, err := h.Connect(gconn, src, dst) // remote may be nil; smm is never nil
 
-	if err != nil || gerr != nil {
+	if err != nil {
 		clos(gconn, remote)
 		if smm != nil { // smm is never nil; but nilaway complains
 			smm.done(err)
-			go sendNotif(l, smm)
+			queueSummary(h.smmch, h.done, smm)
 		} else {
-			log.W("udp: proxy: unexpected %s -> %s; netstack err: %v; dst err: %v", src, dst, gerr, err)
+			log.W("udp: proxy: unexpected %s -> %s; err: %v", src, dst, err)
 		}
 		h.conntracker.Untrack(ct.CID)
 		return // not ok
@@ -248,24 +269,23 @@ func (h *udpHandler) proxy(gconn net.Conn, src, dst netip.AddrPort) (ok bool) {
 		return true // ok
 	}
 
+	var cid string
+	if smm != nil { // smm is never nil
+		cid = smm.ID
+	}
+
 	h.conntracker.Track(ct, gconn, remote)
-	go func() {
-		defer func() {
-			if r := recover(); r != nil {
-				log.W("udp: forward: %s -> %s panic %v", src, dst, r)
-			}
-			h.conntracker.Untrack(ct.CID)
-		}()
-		forward(gconn, &rwext{remote}, l, smm)
-	}()
+	core.Go("udp.forward: "+cid, func() {
+		defer h.conntracker.Untrack(ct.CID)
+		forward(gconn, &rwext{remote}, h.smmch, h.done, smm)
+	})
 	return true // ok
 }
 
-// Connect connects the proxy server.
-// Note, target may be nil in lwip (deprecated) while it is always specified in netstack
+// Connect connects the proxy server; thread-safe.
 func (h *udpHandler) Connect(gconn net.Conn, src, target netip.AddrPort) (dst core.UDPConn, smm *SocketSummary, ct core.ConnTuple, err error) {
-	var px ipn.Proxy
-	var pc io.Closer
+	var px ipn.Proxy = nil
+	var pc io.Closer = nil
 
 	realips, domains, probableDomains, blocklists := undoAlg(h.resolver, target.Addr())
 
@@ -314,7 +334,7 @@ func (h *udpHandler) Connect(gconn net.Conn, src, target netip.AddrPort) (dst co
 		} // else: not a dns query
 	} // else: proxy src to dst
 
-	if px, err = h.prox.ProxyFor(pid); err != nil {
+	if px, err = h.prox.ProxyFor(pid); err != nil || px == nil {
 		log.W("udp: %s failed to get proxy for %s: %v", cid, pid, err)
 		return nil, smm, ct, err // disconnect
 	}
@@ -349,14 +369,15 @@ func (h *udpHandler) Connect(gconn net.Conn, src, target netip.AddrPort) (dst co
 	if errs != nil {
 		return nil, smm, ct, errs // disconnect
 	}
-	if pc == nil {
+	pcnil := core.IsNil(pc)
+	if pcnil {
 		log.W("udp: connect: %s failed to connect addr(%s/%s); for uid %s", cid, target, selectedTarget, uid)
 		return nil, smm, ct, errUdpSetupConn // disconnect
 	}
 
 	var ok bool
 	if dst, ok = pc.(core.UDPConn); !ok {
-		pclose(pc, "rw")
+		core.CloseOp(pc, core.CopRW)
 		log.E("udp: connect: %s proxy(%s) does not impl core.UDPConn(%s/%s) for uid %s", cid, px.ID(), target, selectedTarget, uid)
 		return nil, smm, ct, errUdpSetupConn // disconnect
 	}
@@ -369,9 +390,15 @@ func (h *udpHandler) Connect(gconn net.Conn, src, target netip.AddrPort) (dst co
 	return dst, smm, ct, nil // connect
 }
 
+// End implements netstack.GUDPConnHandler
 func (h *udpHandler) End() error {
-	h.status = UDPEND
-	h.CloseConns(nil)
+	h.once.Do(func() {
+		h.status.Store(UDPEND)
+		h.CloseConns(nil)
+		close(h.done)
+		close(h.smmch)
+		log.I("udp: handler end")
+	})
 	return nil
 }
 

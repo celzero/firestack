@@ -68,45 +68,70 @@ type gtunnel struct {
 	stack  *stack.Stack              // a tcpip stack
 	ep     netstack.SeamlessEndpoint // endpoint for the stack
 	hdl    netstack.GConnHandler     // tcp, udp, and icmp handlers
-	mtu    int                       // mtu of the tun device
 	pcapio *pcapsink                 // pcap output, if any
 	closed atomic.Bool               // open/close?
-	once   *sync.Once
+	once   sync.Once
+
+	// mutable fields
+	mtu *core.Volatile[int] // mtu of the tun device
 }
 
 type pcapsink struct {
 	sink *core.Volatile[io.WriteCloser]
+	inC  chan []byte // always buffered
 }
+
+// nowrite rejects all writes.
+type nowrite struct{}
+
+func (*nowrite) Write([]byte) (int, error) { return 0, io.ErrClosedPipe }
+func (*nowrite) Close() error              { return nil }
+
+var _ io.WriteCloser = (*nowrite)(nil)
+var _ Tunnel = (*gtunnel)(nil)
 
 var (
 	errInvalidTunFd = errors.New("invalid tun fd")
 	errNoWriter     = errors.New("no write() on netstack")
+	zerowriter      = &nowrite{}
 )
 
 func (p *pcapsink) Write(b []byte) (int, error) {
-	go p.writeAsync(b)
-	return len(b), nil
+	select {
+	case p.inC <- b:
+		return len(b), nil
+	default: // drop
+		return 0, io.ErrNoProgress
+	}
 }
 
-func (p *pcapsink) writeAsync(b []byte) {
-	w := p.sink.Load()
-
-	if w != nil {
-		n, err := w.Write(b)
-		log.VV("tun: pcap: writeAsync: n: %d, err? %v", n, err)
-	} // else: no op
+// writeAsync consumes [p.in] until close.
+func (p *pcapsink) writeAsync() {
+	for b := range p.inC { // winsy spider
+		w := p.sink.Load() // always re-load current writer
+		if w != nil && w != zerowriter {
+			n, err := w.Write(b)
+			log.VV("tun: pcap: writeAsync: n: %d, err? %v", n, err)
+		} // else: no op
+	}
 }
 
-func (p *pcapsink) Close() error {
+func (p *pcapsink) Recycle() error {
 	p.log(false)       // detach
 	err := p.file(nil) // detach
 	return err
 }
 
+func (p *pcapsink) Close() error {
+	defer close(p.inC) // signal writeAsync to exit
+	return p.Recycle()
+}
+
+// begin writes pcap header to w.
 // from: github.com/google/gvisor/blob/596e8d22/pkg/tcpip/link/sniffer/sniffer.go#L93
-func (p *pcapsink) begin() error {
+func (p *pcapsink) begin(w io.Writer) error {
 	_, offset := time.Date(0, 0, 0, 0, 0, 0, 0, time.Local).Zone()
-	return binary.Write(p.sink.Load(), binary.LittleEndian, core.PcapHeader{
+	return binary.Write(w, binary.LittleEndian, core.PcapHeader{
 		MagicNumber:  0xa1b2c3d4,
 		VersionMajor: 2,
 		VersionMinor: 4,
@@ -118,14 +143,16 @@ func (p *pcapsink) begin() error {
 }
 
 func (p *pcapsink) file(f io.WriteCloser) (err error) {
-	old := p.sink.Swap(f)
-
-	if old != nil {
-		_ = old.Close()
+	if f == nil || core.IsNil(f) {
+		f = zerowriter
 	}
-	y := f != nil
+
+	old := p.sink.Swap(f) // old may be nil
+	core.CloseOp(old, core.CopRW)
+
+	y := f != zerowriter
 	if y {
-		err = p.begin() // write pcap header before any packets
+		err = p.begin(f) // write pcap header before any packets
 		log.I("tun: pcap: begin: writeHeader; err(%v)", err)
 	}
 	netstack.FilePcap(y) // signal netstack to write packets
@@ -138,20 +165,61 @@ func (p *pcapsink) log(y bool) bool {
 
 func (t *gtunnel) Mtu() int {
 	// return int(t.stack.NICInfo()[0].MTU)
-	return t.mtu
+	return t.mtu.Load()
+}
+
+func (t *gtunnel) wait() {
+	const betweenChecks = 5 * time.Second
+	const uptimeThreshold = 10 * time.Second
+	const maxchecks = 3
+
+	waitStart := time.Now()
+	i := 0
+	for i < maxchecks && !t.closed.Load() {
+		// wait a bit to let the endpoint settle
+		time.Sleep(betweenChecks)
+		start := time.Now()
+
+		t.ep.Wait() // wait until endpoint closes
+
+		// if the endpoint was up for more than uptimeThreshold,
+		// reset the counter and do another set of maxchecks
+		// as a new endpoint may have been created in between
+		// see: SetLink -> t.ep.Swap
+		if uptime := time.Since(start); uptime >= uptimeThreshold {
+			i = 0 // good ep just closed, restart maxchecks
+		} else { // no endpoint / bad endpoint still closed
+			// ep.Wait was super quick, and it is possible
+			// no endpoint will show up in the next few checks
+			// but if it does, then i is reset to 0 anyway
+			i++
+		}
+	}
+	waitDone := int64(time.Since(waitStart).Milliseconds() / 1000)
+
+	if !t.closed.Load() {
+		// the endpoint closed without a Disconnect, this may happen
+		// in cases where a panic was recovered and endpoint was
+		// closed without a t.ep.Swap or t.stack.Destroy
+		log.E("tun: waiter: ep notified close; #%d, %dsecs", i, waitDone)
+		t.Disconnect() // may already be disconnected
+	} else {
+		log.D("tun: waiter: done; #%d, %dsecs", i, waitDone)
+	}
 }
 
 func (t *gtunnel) Disconnect() {
+	// no core.Recover here as the tunnel is disconnecting anyway
 	t.once.Do(func() {
 		s := t.stack
 		p := t.pcapio
 		hdl := t.hdl
 
-		err0 := hdl.Close()
-		err1 := p.Close()
+		herr := hdl.Close()
+		perr := p.Close()
 		s.Destroy()
 		t.closed.Store(true)
-		log.I("tun: netstack closed; errs: %v / %v", err0, err1)
+		log.I("tun: netstack closed; errs: %v / %v", herr, perr)
 	})
 }
 
@@ -173,12 +241,16 @@ func (t *gtunnel) Write([]byte) (int, error) {
 }
 
 func newSink() *pcapsink {
-	p := &pcapsink{sink: core.NewVolatile[io.WriteCloser](nil)}
+	// go.dev/play/p/4qANL9VSDXb
+	p := new(pcapsink)
+	p.sink = core.NewVolatile[io.WriteCloser](zerowriter)
 	p.log(false) // no log, which is enabled by default
+	p.inC = make(chan []byte, 128)
+	core.Go("pcap.w", func() { p.writeAsync() })
 	return p
 }
 
-func NewGTunnel(fd, mtu int, tcph netstack.GTCPConnHandler, udph netstack.GUDPConnHandler, icmph netstack.GICMPHandler) (t Tunnel, err error) {
+func NewGTunnel(fd, mtu int, tcph netstack.GTCPConnHandler, udph netstack.GUDPConnHandler, icmph netstack.GICMPHandler) (t *gtunnel, err error) {
 	dupfd, err := dup(fd) // tunnel will own dupfd
 	if err != nil {
 		return nil, err
@@ -194,7 +266,7 @@ func NewGTunnel(fd, mtu int, tcph netstack.GTCPConnHandler, udph netstack.GUDPCo
 	}
 	netstack.Route(stack, settings.IP46) // always dual-stack
 
-	t = &gtunnel{stack, ep, hdl, mtu, sink, atomic.Bool{}, new(sync.Once)}
+	t = &gtunnel{stack, ep, hdl, sink, atomic.Bool{}, sync.Once{}, core.NewVolatile(0)}
 
 	// Enabled() may temporarily return false when Up() is in progress.
 	if err = netstack.Up(stack, ep, hdl); err != nil { // attach new endpoint
@@ -202,6 +274,9 @@ func NewGTunnel(fd, mtu int, tcph netstack.GTCPConnHandler, udph netstack.GUDPCo
 	}
 
 	log.I("tun: new netstack up; fd(%d), mtu(%d)", fd, mtu)
+
+	go t.wait() // wait for endpoint to close
+
 	return
 }
 
@@ -212,7 +287,7 @@ func (t *gtunnel) CloseConns(activecsv string) (closedcsv string) {
 func (t *gtunnel) SetPcap(fp string) error {
 	pcap := t.pcapio
 
-	ignored := pcap.Close() // close any existing pcap sink
+	ignored := pcap.Recycle() // close any existing pcap sink
 	if len(fp) == 0 {
 		log.I("netstack: pcap closed (ignored-err? %v)", ignored)
 		return nil // nothing else to do; pcap is closed
@@ -245,7 +320,7 @@ func (t *gtunnel) SetLink(fd, mtu int) error {
 	}
 
 	err = t.ep.Swap(dupfd, mtu) // swap fd and mtu
-	t.mtu = mtu
+	t.mtu.Store(mtu)
 
 	log.I("tun: new link; fd(%d), mtu(%d); err? %v", dupfd, mtu, err)
 	return err

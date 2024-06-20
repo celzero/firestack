@@ -9,6 +9,7 @@ package backend
 const ( // see ipn/proxies.go
 	// nb: Base proxies are Catch-All / fallback proxies
 	// IDs for default proxies
+
 	Block   = "Block"       // blocks all traffic
 	Base    = "Base"        // does not proxy traffic; in sync w dnsx.NetNoProxy
 	Exit    = "Exit"        // always connects to the Internet (exit node); in sync w dnsx.NetExitProxy
@@ -16,6 +17,7 @@ const ( // see ipn/proxies.go
 	OrbotH1 = "OrbotHttp1"  // Orbot: Base Tor-as-a-HTTP/1.1 proxy
 
 	// type of proxies
+
 	SOCKS5   = "socks5" // SOCKS5 proxy
 	HTTP1    = "http1"  // HTTP/1.1 proxy
 	WG       = "wg"     // WireGuard-as-a-proxy
@@ -26,6 +28,7 @@ const ( // see ipn/proxies.go
 	INTERNET = "net"    // egress network, ex: Exit
 
 	// status of proxies
+
 	TNT = 2  // proxy UP but not responding
 	TZZ = 1  // proxy idle
 	TUP = 0  // proxy UP but not yet OK
@@ -47,9 +50,11 @@ type Proxy interface {
 	DNS() string
 	// Status returns the status of this proxy.
 	Status() int
+	// Ping pings this proxy.
+	Ping() bool
 	// Stop stops this proxy.
 	Stop() error
-	// Refresh re-registers this proxy.
+	// Refresh re-registers this proxy, if necessary.
 	Refresh() error
 }
 

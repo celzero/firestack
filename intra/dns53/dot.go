@@ -9,7 +9,6 @@ package dns53
 import (
 	"crypto/tls"
 	"fmt"
-	"io"
 	"net"
 	"net/url"
 	"time"
@@ -26,9 +25,10 @@ import (
 )
 
 type dot struct {
-	id      string
-	url     string
-	addr    string
+	id      string // id of the transport
+	url     string // full url
+	addr    string // ip:port or hostname:port
+	host    string // hostname from the url
 	status  int
 	c       *dns.Client
 	rd      *protect.RDial
@@ -40,7 +40,7 @@ type dot struct {
 var _ dnsx.Transport = (*dot)(nil)
 
 // NewTLSTransport returns a DNS over TLS transport, ready for use.
-func NewTLSTransport(id, rawurl string, addrs []string, px ipn.Proxies, ctl protect.Controller) (t dnsx.Transport, err error) {
+func NewTLSTransport(id, rawurl string, addrs []string, px ipn.Proxies, ctl protect.Controller) (t *dot, err error) {
 	tlscfg := &tls.Config{MinVersion: tls.VersionTLS12}
 	// rawurl is either tls:host[:port] or tls://host[:port] or host[:port]
 	parsedurl, err := url.Parse(rawurl)
@@ -58,12 +58,13 @@ func NewTLSTransport(id, rawurl string, addrs []string, px ipn.Proxies, ctl prot
 	rd := protect.MakeNsRDial(id, ctl)
 	hostname := parsedurl.Hostname()
 	// addrs are pre-determined ip addresses for url / hostname
-	_, ok := dialers.New(hostname, addrs)
+	ok := dnsx.RegisterAddrs(id, hostname, addrs)
 	// add sni to tls config
 	tlscfg.ServerName = hostname
 	tx := &dot{
 		id:      id,
 		url:     rawurl,
+		host:    hostname,
 		addr:    url2addr(rawurl), // may or may not be ipaddr
 		status:  x.Start,
 		proxies: px,
@@ -100,7 +101,7 @@ func (t *dot) doQuery(pid string, q *dns.Msg) (response *dns.Msg, elapsed time.D
 func (t *dot) tlsdial() (*dns.Conn, error) {
 	c, err := dialers.SplitDialWithTls(t.rd, t.c.TLSConfig, t.addr)
 	// or: c, err := dialers.TlsDial(tlsDialer, "tcp", t.addr)
-	if c != nil {
+	if c != nil && core.IsNotNil(c) {
 		_ = c.SetDeadline(time.Now().Add(dottimeout))
 		return &dns.Conn{Conn: c, UDPSize: t.c.UDPSize}, err
 	}
@@ -142,10 +143,8 @@ func (t *dot) pxdial(pid string) (conn *dns.Conn, err error) {
 	return
 }
 
-func clos(c io.Closer) {
-	if c != nil {
-		_ = c.Close()
-	}
+func clos(c net.Conn) {
+	core.CloseConn(c)
 }
 
 // perform tls handshake
@@ -180,6 +179,9 @@ func (t *dot) sendRequest(pid string, q *dns.Msg) (ans *dns.Msg, elapsed time.Du
 	} // fallthrough
 
 	if err != nil {
+		raddr := remoteAddrIfAny(conn)
+		log.V("dot: sendRequest: (%s) err: %v; disconfirm", t.id, err, raddr)
+		dialers.Disconfirm2(t.host, raddr)
 		qerr = dnsx.NewSendFailedQueryError(err)
 	}
 	return
@@ -210,6 +212,9 @@ func (t *dot) Query(network string, q *dns.Msg, smm *x.DNSSummary) (ans *dns.Msg
 		smm.RelayServer = x.SummaryProxyLabel + t.relay.ID()
 	} else if !dnsx.IsLocalProxy(pid) {
 		smm.RelayServer = x.SummaryProxyLabel + pid
+	}
+	if err != nil {
+		smm.Msg = err.Error()
 	}
 	smm.Status = status
 	t.est.Add(smm.Latency)

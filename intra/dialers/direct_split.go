@@ -34,23 +34,20 @@ type splitter struct {
 	used bool // Initially false.  Becomes true after the first write.
 }
 
-// split returns a DuplexConn that always splits the initial upstream segment.
-func split(c *net.TCPConn) DuplexConn {
-	return &splitter{TCPConn: c}
-}
+var _ DuplexConn = (*splitter)(nil)
 
 // DialWithSplit returns a TCP connection that always splits the initial upstream segment.
 // Like net.Conn, it is intended for two-threaded use, with one thread calling
 // Read and CloseRead, and another calling Write, ReadFrom, and CloseWrite.
-func DialWithSplit(d *protect.RDial, addr *net.TCPAddr) (DuplexConn, error) {
+func DialWithSplit(d *protect.RDial, addr *net.TCPAddr) (*splitter, error) {
 	conn, err := d.DialTCP(addr.Network(), nil, addr)
 	if err != nil {
 		return nil, err
 	}
 	if conn == nil {
-		return nil, errNoConn
+		return nil, net.UnknownNetworkError("no conn")
 	}
-	return split(conn), nil
+	return &splitter{TCPConn: conn}, nil
 }
 
 // Write-related functions

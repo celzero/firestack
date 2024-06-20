@@ -14,10 +14,14 @@ import (
 )
 
 type ground struct {
+	protoagnostic
+	skiprefresh
 	addr string
 }
 
-func NewGroundProxy() Proxy {
+var _ Proxy = (*ground)(nil)
+
+func NewGroundProxy() *ground {
 	h := &ground{
 		addr: "[::]:0",
 	}
@@ -74,5 +78,3 @@ func (h *ground) Status() int {
 func (h *ground) Stop() error {
 	return nil
 }
-
-func (h *ground) Refresh() error { return nil }

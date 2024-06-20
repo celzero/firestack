@@ -28,6 +28,10 @@ type ServerSummary struct {
 }
 
 func (s *ServerSummary) done(errs ...error) {
+	if s == nil {
+		return
+	}
+
 	s.Duration = int32(time.Since(s.start).Seconds())
 
 	err := errors.Join(errs...) // errs may be nil

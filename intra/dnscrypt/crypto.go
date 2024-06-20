@@ -80,7 +80,7 @@ func computeSharedKey(cryptoConstruction xdns.CryptoConstruction, secretKey *[32
 func encrypt(
 	serverInfo *serverinfo,
 	packet []byte,
-	useudp bool,
+	useudp, userelay bool,
 ) (sharedKey *[32]byte, encrypted []byte, clientNonce []byte, err error) {
 	nonce := make([]byte, NonceSize)
 	clientNonce = make([]byte, HalfNonceSize)
@@ -97,7 +97,7 @@ func encrypt(
 	var paddedLength int
 	if useudp { // using udp
 		paddedLength = xdns.MaxDNSUDPSafePacketSize
-	} else if len(serverInfo.RelayTCPAddrs) > 0 { // tcp, with relay
+	} else if userelay { // tcp, with relay
 		paddedLength = xdns.MaxDNSPacketSize
 	} else { // tcp, without relay
 		minQuestionSize := QueryOverhead + len(packet)

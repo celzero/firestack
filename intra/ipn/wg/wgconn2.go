@@ -23,6 +23,7 @@ import (
 	"sync"
 	"syscall"
 
+	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/ipn/multihost"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
@@ -43,6 +44,7 @@ type StdNetBind2 struct {
 	ctl          protect.Controller
 	listener     rwlistener
 	lastSendAddr netip.AddrPort // may be invalid
+	mh           *multihost.MH
 
 	ipv4 *net.UDPConn
 	ipv6 *net.UDPConn
@@ -119,11 +121,12 @@ func (e ErrUDPGSODisabled) Unwrap() error {
 	return e.RetryErr
 }
 
-func NewEndpoint2(id string, ctl protect.Controller, f rwlistener) *StdNetBind2 {
+func NewEndpoint2(id string, ctl protect.Controller, ep *multihost.MH, f rwlistener) *StdNetBind2 {
 	return &StdNetBind2{
 		id:       id,
 		ctl:      ctl,
 		listener: f,
+		mh:       ep,
 
 		udpAddrPool: sync.Pool{
 			New: func() any {
@@ -149,27 +152,30 @@ func NewEndpoint2(id string, ctl protect.Controller, f rwlistener) *StdNetBind2 
 }
 
 func (e *StdNetBind2) ParseEndpoint(s string) (conn.Endpoint, error) {
-	d := multihost.New(e.id + "[" + s + "]")
-	host, portstr, err := net.SplitHostPort(s)
+	d := e.mh
+	/*host, portstr, err := net.SplitHostPort(s)
 	if err != nil {
-		log.E("wg: bind2: %s not a valid endpoint in(%s); err: %v", e.id, s, err)
+		log.E("wg: bind2: %s invalid endpoint in(%s); err: %v", e.id, s, err)
 		return nil, err
-	}
-	d.With([]string{host}) // resolves host if needed
-	ips := d.Addrs()
-	if len(ips) <= 0 {
-		log.E("wg: bind2: %s not a valid endpoint in(%s); out(%s, %s)", e.id, s, d.Names(), d.Addrs())
-		return nil, errInvalidEndpoint
 	}
 	port, err := strconv.Atoi(portstr)
 	if err != nil {
-		log.E("wg: bind2: %s not a valid port in(%s); err: %v", e.id, s, err)
+		log.E("wg: bind2: %s invalid port in(%s); err: %v", e.id, s, err)
 		return nil, err
+	}*/
+	// do what tailscale does, and share a preferred endpoint regardless of "s"
+	// github.com/tailscale/tailscale/blob/3a6d3f1a5b7/wgengine/magicsock/magicsock.go#L2568
+	// d.Add([]string{host}) // resolves host if needed
+	ipport := d.PreferredAddr()
+	if !ipport.IsValid() || ipport.Addr().IsUnspecified() {
+		log.E("wg: bind2: %s invalid endpoint addr %v in(%s); out(%s, %s)", e.id, ipport, s, d.Names(), d.Addrs())
+		// erroring out from here prevents PostConfig (handshake for this peer endpoint will always be zero)
+		// github.com/WireGuard/wireguard-go/blob/12269c276173/device/uapi.go#L183
+		return nil, errInvalidEndpoint
 	}
 
-	ipport := netip.AddrPortFrom(ips[0], uint16(port))
-	log.I("wg: bind2: %s new endpoint %v", e.id, ipport)
-	return asEndpoint2(ipport), err
+	log.I("wg: bind2: %s new endpoint for %s, %v", e.id, s, ipport)
+	return asEndpoint2(ipport), nil
 }
 
 func (e *StdNetEndpoint2) ClearSrc() {
@@ -206,7 +212,7 @@ func (s *StdNetBind2) listenNet(network string, port int) (*net.UDPConn, int, er
 		log.E("wg: bind2: %s %s: listen(%v); err: %v", s.id, network, saddr, err)
 		return nil, 0, err
 	}
-	if c == nil {
+	if c == nil || core.IsNil(c) {
 		log.E("wg: bind2: %s %s: listen(%v); conn nil", s.id, network, saddr)
 		return nil, 0, errNoListen
 	}
@@ -460,8 +466,7 @@ func (s *StdNetBind2) Close() error {
 	defer s.mu.Unlock()
 
 	var err4, err6 error
-	c4 := s.ipv4
-	c6 := s.ipv6
+	c4, c6 := s.ipv4, s.ipv6
 	if c4 != nil {
 		err4 = c4.Close()
 		s.ipv4 = nil
@@ -502,16 +507,16 @@ func (s *StdNetBind2) Send(bufs [][]byte, peer conn.Endpoint) (err error) {
 
 	s.mu.Lock()
 	blackhole := s.blackhole4
-	c := s.ipv4
 	offload := s.ipv4TxOffload
+	c := s.ipv4
 	var br batchWriter = s.ipv4PC
 	is6 := false
 	if peer.DstIP().Is6() {
 		blackhole = s.blackhole6
+		offload = s.ipv6TxOffload
 		c = s.ipv6
 		br = s.ipv6PC
 		is6 = true
-		offload = s.ipv6TxOffload
 	}
 	s.mu.Unlock()
 
@@ -588,7 +593,7 @@ retry:
 func (s *StdNetBind2) send(conn *net.UDPConn, pc batchWriter, msgs []ipv6.Message) (err error) {
 	var n, start int
 
-	if pc != nil {
+	if pc != nil && core.IsNotNil(pc) {
 		for {
 			n, err = pc.WriteBatch(msgs[start:], 0)
 			if err != nil || n == len(msgs[start:]) {

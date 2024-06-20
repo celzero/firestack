@@ -37,12 +37,15 @@ var (
 	errMissingOdohCfgQuery    = errors.New("no odoh config request")
 	errMissingOdohCfgResponse = errors.New("no odoh config response")
 	errZeroOdohCfgs           = errors.New("no odoh configs found")
+	errNoOdohConfigUrl        = errors.New("no odoh config url")
+	errNoOdohTarget           = errors.New("no odoh target")
 )
 
 // targets:  github.com/DNSCrypt/dnscrypt-resolvers/blob/master/v3/odoh-servers.md
 // endpoints:  github.com/DNSCrypt/dnscrypt-resolvers/blob/master/v3/odoh-relays.md
 func (d *transport) doOdoh(pid string, q *dns.Msg) (res *dns.Msg, elapsed time.Duration, qerr *dnsx.QueryError) {
-	viaproxy := len(d.odohproxy) > 0
+	var ans []byte
+	viaproxy := len(d.odohproxyurl) > 0
 
 	odohmsg, odohctx, err := d.buildTargetQuery(q)
 	if err != nil {
@@ -58,7 +61,7 @@ func (d *transport) doOdoh(pid string, q *dns.Msg) (res *dns.Msg, elapsed time.D
 		return
 	}
 
-	res, _, elapsed, qerr = d.send(pid, req)
+	ans, _, _, elapsed, qerr = d.do(pid, req)
 	log.V("odoh: send; proxy? %t, elapsed: %s; err? %v", viaproxy, elapsed, qerr)
 	if qerr != nil {
 		// datatracker.ietf.org/doc/rfc9230 section 4.3 and section 7
@@ -76,12 +79,6 @@ func (d *transport) doOdoh(pid string, q *dns.Msg) (res *dns.Msg, elapsed time.D
 		return
 	}
 
-	ans, err := res.Pack()
-	if err != nil {
-		qerr = dnsx.NewBadResponseQueryError(err)
-		return
-	}
-
 	oans, err := odoh.UnmarshalDNSMessage(ans)
 	if err != nil {
 		qerr = dnsx.NewBadResponseQueryError(err)
@@ -96,8 +93,7 @@ func (d *transport) doOdoh(pid string, q *dns.Msg) (res *dns.Msg, elapsed time.D
 
 	log.V("odoh: success; res: %d", len(ans))
 	res = new(dns.Msg) // unpack into a new msg
-	err = res.Unpack(ans)
-	if err != nil {
+	if err = res.Unpack(ans); err != nil {
 		qerr = dnsx.NewBadResponseQueryError(err)
 		return
 	}
@@ -105,10 +101,10 @@ func (d *transport) doOdoh(pid string, q *dns.Msg) (res *dns.Msg, elapsed time.D
 }
 
 func (d *transport) asOdohRequest(q []byte) (req *http.Request, err error) {
-	viaproxy := len(d.odohproxy) > 0
+	viaproxy := len(d.odohproxyurl) > 0
 	// ref: github.com/cloudflare/odoh-client-go/blob/8d45d054d3/commands/request.go#L53
 	if viaproxy {
-		req, err = http.NewRequest(http.MethodPost, d.odohproxy, bytes.NewBuffer(q))
+		req, err = http.NewRequest(http.MethodPost, d.odohproxyurl, bytes.NewBuffer(q))
 		if err != nil {
 			return
 		}
@@ -208,7 +204,8 @@ func (d *transport) refreshTargetKeyWellKnown() (ocfg *odoh.ObliviousDoHConfig, 
 		err = errMissingOdohCfgQuery
 		return
 	}
-	resp, err = d.wkclient.Do(req)
+	// may use insecure TLS if user opts in; ref: d.tlsconfig
+	resp, err = d.client.Do(req)
 	if err != nil {
 		return
 	}
@@ -245,7 +242,7 @@ func (d *transport) refreshTargetKeyDNS() (ocfg *odoh.ObliviousDoHConfig, exp ti
 	if err != nil {
 		return
 	}
-	cres, _, t1, qerr := d.send(dnsx.NetNoProxy, req)
+	cres, _, _, t1, qerr := d.send(dnsx.NetNoProxy, req)
 
 	log.D("odoh: refresh-target: %s; elapsed: %dms; err? %v", d.odohtargetname, t1.Milliseconds(), qerr)
 	if qerr != nil {

@@ -26,6 +26,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -71,27 +72,33 @@ const (
 
 type wgtun struct {
 	id            string                      // id
+	cfg           string                      // original config
 	addrs         []netip.Prefix              // interface addresses
-	allowed       []netip.Prefix              // allowed ips (peers)
-	peers         map[string]any              // peer (remote endpoint) public keys
-	remote        *multihost.MH               // peer (remote endpoint) addrs
-	status        int                         // status of this interface
 	stack         *stack.Stack                // stack fakes tun device for wg
 	ep            *channel.Endpoint           // reads and writes packets to/from stack
 	ingress       chan *buffer.View           // pipes ep writes to wg
 	events        chan tun.Event              // wg specific tun (interface) events
 	finalize      chan struct{}               // close signal for incomingPacket
 	mtu           int                         // mtu of this interface
-	dns           *multihost.MH               // dns resolver for this interface
 	reqbarrier    *core.Barrier[[]netip.Addr] // request barrier for dns lookups
 	once          sync.Once                   // exec fn exactly once
 	hasV4, hasV6  bool                        // interface has ipv4/ipv6 routes?
 	preferOffload bool                        // UDP GRO/GSO offloads
 	since         int64                       // start time in unix millis
-	latestRx      int64                       // last rx time in unix millis
-	latestTx      int64                       // last tx time in unix millis
-	errRx         int64                       // rx error count
-	errTx         int64                       // tx error count
+
+	// mutable fields
+
+	peers   *core.Volatile[map[string]device.NoisePublicKey] // peer (remote endpoint) public keys
+	dns     *core.Volatile[*multihost.MH]                    // dns resolver for this interface
+	allowed *core.Volatile[[]netip.Prefix]                   // allowed ips (peers)
+	remote  *core.Volatile[*multihost.MH]                    // peer (remote endpoint) addrs
+
+	status     *core.Volatile[int] // status of this interface
+	latestPing atomic.Int64        // last ping time in unix millis
+	latestRx   atomic.Int64        // last rx time in unix millis
+	latestTx   atomic.Int64        // last tx time in unix millis
+	errRx      atomic.Int64        // rx error count
+	errTx      atomic.Int64        // tx error count
 }
 
 type wgconn interface {
@@ -102,7 +109,6 @@ type wgconn interface {
 var _ WgProxy = (*wgproxy)(nil)
 
 type wgproxy struct {
-	nofwd
 	*wgtun
 	*device.Device
 	wgep wgconn
@@ -121,6 +127,18 @@ type WgProxy interface {
 func (h *wgproxy) Dial(network, address string) (c protect.Conn, err error) {
 	// ProxyDial resolves address if needed; then dials into all resolved ips.
 	return dialers.ProxyDial(h.wgtun, network, address)
+}
+
+// Announce implements Proxy.
+func (h *wgproxy) Announce(network, local string) (net.PacketConn, error) {
+	// todo: dialers.ProxyListenPacket(h.wgtun, network, local)
+	return h.wgtun.Announce(network, local)
+}
+
+// Accept implements Proxy.
+func (h *wgproxy) Accept(network, local string) (net.Listener, error) {
+	// todo: dialers.ProxyListen(h.wgtun, network, local)
+	return h.wgtun.Accept(network, local)
 }
 
 // BatchSize implements WgProxy
@@ -150,28 +168,65 @@ func (h *wgproxy) GetAddr() string {
 	return dst.String()
 }
 
+// onProtoChange implements ipn.Proxy
+func (w *wgproxy) onProtoChange() (string, bool) {
+	_ = w.Refresh() // refresh on proto changes
+	// todo: on refresh err, re-add?
+	// return w.cfg, true
+	return "", false // do not re-add this refreshed wg
+}
+
+// Ping implements ipn.Proxy.
+// As backpressure, pings are sent once in a 30s period.
+func (w *wgproxy) Ping() bool {
+	now := now()
+	then := w.latestPing.Load()
+	if then+30*1000 > now && w.latestPing.CompareAndSwap(then, now) {
+		tracked := w.peers.Load()
+		tot := len(tracked)
+		pinged := 0
+		for _, k := range tracked {
+			if peer := w.LookupPeer(k); peer != nil {
+				pinged++
+				peer.SendKeepalive()
+			}
+		}
+		log.D("proxy: wg: %s ping: %d/%d peers", w.id, pinged, tot)
+		return pinged > 0
+	} else {
+		log.VV("proxy: wg: %s ping: skipped; soon/concurrent; prev(%d)", w.id, then)
+	}
+	return false
+}
+
 // Refresh implements ipn.Proxy
 func (w *wgproxy) Refresh() (err error) {
-	n := w.dns.Refresh()
-	if peers := w.remote; peers != nil {
-		peers.Refresh() // peers are also refreshed by w.Device.Up()
+	w.latestPing.Store(0) // reset latest ping time
+
+	n := 0
+	if mh := w.dns.Load(); mh != nil {
+		n = mh.Refresh()
+	}
+	nn := 0
+	if mh := w.remote.Load(); mh != nil {
+		nn = mh.Refresh()
 	}
 	if err = w.Device.Down(); err != nil {
-		log.E("proxy: wg: !refresh(%s): down: %v", w.id, err)
+		log.E("proxy: wg: !refresh(%s): down: len(dns): %d, len(peer): %d, err: %v", w.id, n, nn, err)
 		return
 	}
 	if err = w.Device.Up(); err != nil {
-		log.E("proxy: wg: !refresh(%s): up: %v", w.id, err)
+		log.E("proxy: wg: !refresh(%s): up: len(dns): %d, len(peer): %d, err: %v", w.id, n, nn, err)
 		return
 	}
 	// not required since wgconn:NewBind() is namespace aware
 	// bindok := bindWgSockets(w.ID(), w.remote.AnyAddr(), w.wgdev, w.ctl)
-	log.I("proxy: wg: refresh(%s) done; len(dns): %d", w.id, n)
+	log.I("proxy: wg: refresh(%s) done; len(dns): %d, len(peer): %d", w.id, n, nn)
 	return
 }
 
 func (h *wgproxy) fetch(req *http.Request) (resp *http.Response, err error) {
-	stopped := h.status == END
+	stopped := h.status.Load() == END
 	log.V("wg: %d; fetch: %s; ok? %t", h.id, req.URL, !stopped)
 	if stopped {
 		return nil, errProxyStopped
@@ -197,7 +252,7 @@ func stripPrefixIfNeeded(id string) string {
 func (w *wgproxy) update(id, txt string) bool {
 	const reuse = true // can update in-place; reuse existing tunnel
 	const anew = false // cannot update in-place; create new tunnel
-	if w.status == END {
+	if w.status.Load() == END {
 		log.W("proxy: wg: !update(%s<>%s): END; status(%d)", id, w.id, w.status)
 		return anew
 	}
@@ -226,7 +281,7 @@ func (w *wgproxy) update(id, txt string) bool {
 		log.D("proxy: wg: !update(%s): mtu %d != %d", w.id, actualmtu, w.mtu)
 		return anew
 	}
-	if dnsh != nil && !dnsh.EqualAddrs(w.dns) {
+	if dnsh != nil && !dnsh.EqualAddrs(w.dns.Load()) {
 		log.D("proxy: wg: !update(%s): new/mismatched dns", w.id)
 		return anew
 	}
@@ -250,11 +305,12 @@ func (w *wgproxy) update(id, txt string) bool {
 	// reusing existing tunnel (interface config unchanged)
 	// but peer config may have changed!
 	log.I("proxy: wg: update(%s): reuse; allowed: %d->%d; peers: %d->%d; dns: %d->%d; endpoint: %d->%d",
-		w.id, len(w.allowed), len(allowed), len(w.peers), len(peers), w.dns.Len(), dnsh.Len(), w.remote.Len(), peersh.Len())
-	w.allowed = allowed
-	w.peers = peers
-	w.remote = peersh // requires refresh
-	w.dns = dnsh      // requires refresh
+		w.id, len(w.allowed.Load()), len(allowed), len(w.peers.Load()), len(peers), w.dns.Load().Len(), dnsh.Len(),
+		w.remote.Load().Len() /*remote.Load may return nil*/, peersh.Len())
+	w.peers.Store(peers) // re-assignment is okay (map entry modification is not)
+	w.allowed.Store(allowed)
+	w.remote.Store(peersh) // requires refresh
+	w.dns.Store(dnsh)      // requires refresh
 
 	return reuse
 }
@@ -271,13 +327,13 @@ func wglogger(id string) *device.Logger {
 	return logger
 }
 
-func wgIfConfigOf(id string, txtptr *string) (ifaddrs []netip.Prefix, allowedaddrs []netip.Prefix, peers map[string]any, dnsh, endpointh *multihost.MH, mtu int, err error) {
+func wgIfConfigOf(id string, txtptr *string) (ifaddrs []netip.Prefix, allowedaddrs []netip.Prefix, peers map[string]device.NoisePublicKey, dnsh, endpointh *multihost.MH, mtu int, err error) {
 	txt := *txtptr
 	pcfg := strings.Builder{}
 	r := bufio.NewScanner(strings.NewReader(txt))
 	dnsh = multihost.New(id + "dns")
 	endpointh = multihost.New(id + "endpoint")
-	peers = make(map[string]any)
+	peers = make(map[string]device.NoisePublicKey)
 	for r.Scan() {
 		line := r.Text()
 		if len(line) <= 0 {
@@ -292,7 +348,6 @@ func wgIfConfigOf(id string, txtptr *string) (ifaddrs []netip.Prefix, allowedadd
 			err = fmt.Errorf("proxy: wg: %s failed to parse line %q", id, line)
 			return
 		}
-		untouchedv := v
 		k = strings.ToLower(strings.TrimSpace(k))
 		v = strings.ToLower(strings.TrimSpace(v))
 
@@ -324,9 +379,13 @@ func wgIfConfigOf(id string, txtptr *string) (ifaddrs []netip.Prefix, allowedadd
 			log.D("proxy: wg: %s ifconfig: skipping key %q", id, k)
 			pcfg.WriteString(line + "\n")
 		case "public_key":
-			peers[untouchedv] = struct{}{}
+			var exx error
+			var peerkey device.NoisePublicKey
+			if exx = peerkey.FromHex(v); exx == nil {
+				peers[v] = peerkey
+			}
 			// peer config: carry over public keys
-			log.D("proxy: wg: %s ifconfig: skipping key %q", id, k)
+			log.D("proxy: wg: %s ifconfig: processing key %q, err? %v", id, k, exx)
 			pcfg.WriteString(line + "\n")
 		default:
 			log.D("proxy: wg: %s ifconfig: skipping key %q", id, k)
@@ -371,7 +430,8 @@ func loadIPNets(out *[]netip.Prefix, v string) (err error) {
 }
 
 // ref: github.com/WireGuard/wireguard-android/blob/713947e432/tunnel/tools/libwg-go/api-android.go#L76
-func NewWgProxy(id string, ctl protect.Controller, cfg string) (WgProxy, error) {
+func NewWgProxy(id string, ctl protect.Controller, cfg string) (*wgproxy, error) {
+	ogcfg := cfg
 	ifaddrs, allowedaddrs, peers, dnsh, endpointh, mtu, err := wgIfConfigOf(id, &cfg)
 	uapicfg := cfg
 	if err != nil {
@@ -379,7 +439,7 @@ func NewWgProxy(id string, ctl protect.Controller, cfg string) (WgProxy, error) 
 		return nil, err
 	}
 
-	wgtun, err := makeWgTun(id, ifaddrs, allowedaddrs, peers, dnsh, endpointh, mtu)
+	wgtun, err := makeWgTun(id, ogcfg, ifaddrs, allowedaddrs, peers, dnsh, endpointh, mtu)
 	if err != nil {
 		log.E("proxy: wg: %s failed to create tun %v", id, err)
 		return nil, err
@@ -389,9 +449,9 @@ func NewWgProxy(id string, ctl protect.Controller, cfg string) (WgProxy, error) 
 
 	var wgep wgconn
 	if wgtun.preferOffload {
-		wgep = wg.NewEndpoint2(id, ctl, wgtun.listener)
+		wgep = wg.NewEndpoint2(id, ctl, endpointh, wgtun.listener)
 	} else {
-		wgep = wg.NewEndpoint(id, ctl, wgtun.listener)
+		wgep = wg.NewEndpoint(id, ctl, endpointh, wgtun.listener)
 	}
 
 	wgdev := device.NewDevice(wgtun, wgep, wglogger(id))
@@ -412,7 +472,6 @@ func NewWgProxy(id string, ctl protect.Controller, cfg string) (WgProxy, error) 
 	}
 
 	w := &wgproxy{
-		nofwd{},
 		wgtun, // stack
 		wgdev, // device
 		wgep,  // endpoint
@@ -428,7 +487,7 @@ func NewWgProxy(id string, ctl protect.Controller, cfg string) (WgProxy, error) 
 }
 
 // ref: github.com/WireGuard/wireguard-go/blob/469159ecf7/tun/netstack/tun.go#L54
-func makeWgTun(id string, ifaddrs, allowedaddrs []netip.Prefix, peers map[string]any, dnsm, endpointm *multihost.MH, mtu int) (*wgtun, error) {
+func makeWgTun(id, cfg string, ifaddrs, allowedaddrs []netip.Prefix, peers map[string]device.NoisePublicKey, dnsm, endpointm *multihost.MH, mtu int) (*wgtun, error) {
 	opts := stack.Options{
 		NetworkProtocols:   []stack.NetworkProtocolFactory{ipv4.NewProtocol, ipv6.NewProtocol},
 		TransportProtocols: []stack.TransportProtocolFactory{tcp.NewProtocol, udp.NewProtocol, icmp.NewProtocol6, icmp.NewProtocol4},
@@ -443,19 +502,20 @@ func makeWgTun(id string, ifaddrs, allowedaddrs []netip.Prefix, peers map[string
 	ep := channel.New(epsize, uint32(tunmtu), "")
 	t := &wgtun{
 		id:            stripPrefixIfNeeded(id),
+		cfg:           cfg,
 		addrs:         ifaddrs,
-		allowed:       allowedaddrs,
-		peers:         peers,
-		remote:        endpointm, // may be nil
 		ep:            ep,
 		stack:         s,
 		events:        make(chan tun.Event, eventssize),
 		ingress:       make(chan *buffer.View, epsize),
 		finalize:      make(chan struct{}), // always unbuffered
-		dns:           dnsm,
+		allowed:       core.NewVolatile(allowedaddrs),
+		dns:           core.NewVolatile(dnsm),
+		remote:        core.NewVolatile(endpointm), // may be nil
+		peers:         core.NewVolatile(peers),     // its entries must never be modified
 		reqbarrier:    core.NewBarrier[[]netip.Addr](wgbarrierttl),
 		mtu:           tunmtu,
-		status:        TUP,
+		status:        core.NewVolatile(TUP),
 		preferOffload: preferOffload(id),
 		since:         now(),
 	}
@@ -580,7 +640,7 @@ func (tun *wgtun) Write(bufs [][]byte, offset int) (int, error) {
 // github.com/google/gvisor/blob/acf460d0d73/pkg/tcpip/link/channel/channel.go#L31
 func (tun *wgtun) WriteNotify() {
 	pkt := tun.ep.Read()
-	if pkt.IsNil() {
+	if pkt == nil {
 		return
 	}
 
@@ -595,14 +655,14 @@ func (tun *wgtun) WriteNotify() {
 	case <-tun.finalize: // dave.cheney.net/2013/04/30/curious-channels
 		log.I("wg: %s tun: write: finalize; dropped pkt; sz(%d)", tun.id, sz)
 	default: // ingress is full and finalize is blocked
-		e := tun.status == END
+		e := tun.status.Load() == END
 		log.W("wg: %s tun: write: closed? %t; dropped pkt; sz(%d)", tun.id, e, sz)
 	}
 }
 
 func (tun *wgtun) Close() error {
 	// wgproxy inherits h.status: go.dev/play/p/HeU5EvzAjnv
-	if tun.status == END {
+	if tun.status.Load() == END {
 		log.W("proxy: wg: %s tun: already closed?", tun.id)
 		return errProxyStopped
 	}
@@ -610,16 +670,14 @@ func (tun *wgtun) Close() error {
 	tun.once.Do(func() {
 		log.D("proxy: wg: %s tun: closing...", tun.id)
 
-		close(tun.finalize) // unblock all recievers
-		tun.status = END    // TODO: move this to wgproxy.Close()?
+		close(tun.finalize)   // unblock all recievers
+		tun.status.Store(END) // TODO: move this to wgproxy.Close()?
 
 		tun.stack.RemoveNIC(wgnic)
 		// if tun.events != nil {
 		// panics; is it closed by device.Device.Close()?
 		// close(tun.events) }
-		if tun.ingress != nil {
-			close(tun.ingress)
-		}
+		close(tun.ingress)
 
 		// github.com/tailscale/tailscale/blob/836f932e/wgengine/netstack/netstack.go#L223
 
@@ -637,7 +695,8 @@ func (tun *wgtun) Close() error {
 func (w *wgproxy) Stat() (out *x.Stats) {
 	out = new(x.Stats)
 
-	if w.status == END {
+	if w.status.Load() == END {
+		log.W("proxy: wg: %s stats: stopped", w.id)
 		return
 	}
 
@@ -656,17 +715,20 @@ func (w *wgproxy) Stat() (out *x.Stats) {
 	out.Tx = stat.TotalTx()
 	out.LastOK = stat.LatestRecentHandshake()
 	out.Addr = w.IfAddr() // may be empty
-	out.ErrRx = w.errRx
-	out.ErrTx = w.errTx
-	out.LastRx = w.latestRx
-	out.LastTx = w.latestTx
+	out.ErrRx = w.errRx.Load()
+	out.ErrTx = w.errTx.Load()
+	out.LastRx = w.latestRx.Load()
+	out.LastTx = w.latestTx.Load()
 	out.Since = w.since
+
+	log.VV("proxy: wg: %s stats: rx: %d, tx: %d, lastok: %d", w.id, out.LastOK, out.Rx, out.Tx)
 	return out
 }
 
 func (w *wgtun) IfAddr() string {
-	if len(w.addrs) > 0 {
-		return w.addrs[0].String()
+	ifs := w.addrs
+	if len(ifs) > 0 {
+		return ifs[0].String()
 	}
 	return noaddr
 }
@@ -679,9 +741,10 @@ func (tun *wgtun) BatchSize() int {
 	return 1
 }
 
-// Dial implements proxy.Dialer
+// Dial implements proxy.Dialer and protect.RDialer
 func (h *wgtun) Dial(network, address string) (c net.Conn, err error) {
-	if h.status == END {
+	// wgproxy.Dial -> dialers.ProxyDial -> wgtun.Dial
+	if h.status.Load() == END {
 		return nil, errProxyStopped
 	}
 
@@ -689,11 +752,49 @@ func (h *wgtun) Dial(network, address string) (c net.Conn, err error) {
 
 	// DialContext resolves addr if needed; then dialing into all resolved ips.
 	if c, err = h.DialContext(context.TODO(), network, address); err != nil {
-		h.status = TKO
+		h.status.Store(TKO)
 	} // else: status updated by h.listener
 
 	log.I("wg: %s dial: end %s %s; err %v", h.id, network, address, err)
+	return
+}
 
+// Announce implements protect.RDialer
+func (h *wgtun) Announce(network, local string) (pc net.PacketConn, err error) {
+	// wgproxy.Dial -> dialers.ProxyListenPacket -> protect.AnnounceUDP -> wgtun.Announce
+	if h.status.Load() == END {
+		return nil, errProxyStopped
+	}
+
+	log.D("wg: %s announce: start %s %s", h.id, network, local)
+
+	var addr netip.AddrPort
+	if addr, err = netip.ParseAddrPort(local); err == nil {
+		if pc, err = h.ListenUDPAddrPort(addr); err != nil {
+			h.status.Store(TKO)
+		} // else: status updated by h.listener
+	} // else: expect local to always be ipaddr
+
+	log.I("wg: %s announce: end %s %s; err %v", h.id, network, local, err)
+	return
+}
+
+func (h *wgtun) Accept(network, local string) (ln net.Listener, err error) {
+	// wgproxy.Dial -> dialers.ProxyListen -> protect.AcceptTCP -> wgtun.Accept
+	if h.status.Load() == END {
+		return nil, errProxyStopped
+	}
+
+	log.D("wg: %s accept: start %s %s", h.id, network, local)
+
+	var addr netip.AddrPort
+	if addr, err = netip.ParseAddrPort(local); err == nil {
+		if ln, err = h.ListenTCPAddrPort(addr); err != nil {
+			h.status.Store(TKO)
+		} // else: status updated by h.listener
+	} // else: expect local to always be ipaddr
+
+	log.I("wg: %s accept: end %s %s; err %v", h.id, network, local, err)
 	return
 }
 
@@ -713,7 +814,7 @@ func (h *wgproxy) Router() x.Router {
 }
 
 func (h *wgtun) Status() int {
-	return h.status
+	return h.status.Load()
 }
 
 func (h *wgtun) DNS() string {
@@ -721,30 +822,35 @@ func (h *wgtun) DNS() string {
 	// prefer hostnames over IPs:
 	// hostnames may resolve to different IPs on different networks;
 	// tunnel could use hostnames to implement "refresh"
-	names := h.dns.Names()
-	for _, hostname := range names {
-		s += hostname + ","
-	}
-	log.D("wg: %s dns hostnames: (in: %v) out: %s", h.id, names, s)
-	if len(s) > 0 { // return names, if any
-		return strings.TrimRight(s, ",")
-	}
-
-	addrs := h.dns.Addrs()
-	for _, dns := range addrs {
-		if dns.IsUnspecified() || !dns.IsValid() {
-			continue
+	dnsm := h.dns.Load()
+	if dnsm != nil {
+		names := dnsm.Names()
+		for _, hostname := range names {
+			s += hostname + ","
 		}
-		// may be private, link local, etc
-		s += dns.Unmap().String() + ","
-	}
+		log.D("wg: %s dns hostnames (in: %d); out: %s", h.id, names, s)
+		if len(s) > 0 { // return names, if any
+			return strings.TrimRight(s, ",")
+		}
 
-	log.D("wg: %s dns ipaddrs: (in: %v) out: %s", h.id, addrs, s)
-	if len(s) > 0 { // return ipaddrs, if any
-		return strings.TrimRight(s, ",")
-	}
+		addrs := dnsm.Addrs()
+		for _, dns := range addrs {
+			if dns.Addr().IsUnspecified() || !dns.IsValid() {
+				continue
+			}
+			// may be private, link local, etc
+			s += dns.Addr().Unmap().String() + ","
+		}
 
-	log.W("wg: %s dns: not found (names: %v; addrs: %s)", h.id, names, addrs)
+		log.D("wg: %s dns ipaddrs (in: %t); out: %s", h.id, addrs, s)
+		if len(s) > 0 { // return ipaddrs, if any
+			return strings.TrimRight(s, ",")
+		}
+
+		log.W("wg: %s dns: not found (names: %v; addrs: %s)", h.id, names, addrs)
+	} else { // unlikely as wireguard config is considered invalid if DNS not set
+		log.E("wg: %s dns: nil", h.id)
+	}
 	return nodns
 }
 
@@ -764,9 +870,9 @@ func (h *wgtun) Contains(ipprefix string) bool {
 	}
 
 	// go.dev/play/p/wdPoNt-cqXZ
-	for _, r := range h.allowed {
+	for _, r := range h.allowed.Load() {
 		y := r.Contains(ip)
-		log.D("wg: %s router: contains: %s in %s? %t", h.id, ip, r, y)
+		log.V("wg: %s router: contains: %s in %s? %t", h.id, ip, r, y)
 		if y {
 			return y
 		}
@@ -776,7 +882,7 @@ func (h *wgtun) Contains(ipprefix string) bool {
 }
 
 func (h *wgtun) listener(op string, err error) {
-	if h.status == END {
+	if h.status.Load() == END {
 		return
 	}
 
@@ -784,7 +890,7 @@ func (h *wgtun) listener(op string, err error) {
 	if op == "r" && timedout(err) {
 		// if status is "up" but writes (op == "w") have not yet happened
 		// then reads ("r") are expected to timeout; so ignore them
-		if h.latestRx <= 0 {
+		if h.latestRx.Load() <= 0 {
 			s = TNT // writes succeeded; but reads have never
 		} else {
 			s = TZZ // wirtes and reads have suceeded in the past
@@ -795,24 +901,24 @@ func (h *wgtun) listener(op string, err error) {
 
 	if s == TOK {
 		if op == "r" {
-			h.latestRx = now()
+			h.latestRx.Store(now())
 		} else if op == "w" {
-			h.latestTx = now()
+			h.latestTx.Store(now())
 		}
-		writeElapsedMs := h.latestTx - h.latestRx // may be negative
+		writeElapsedMs := h.latestTx.Load() - h.latestRx.Load() // may be negative
 		// if no reads in 20s since last write, then mark as unresponsive
 		if writeElapsedMs > 20*1000 {
 			s = TNT
 		}
 	} else if s == TKO {
 		if op == "r" {
-			h.errRx++
+			h.errRx.Add(1)
 		} else if op == "w" {
-			h.errTx++
+			h.errTx.Add(1)
 		}
 	}
 
-	h.status = s
+	h.status.Store(s)
 }
 
 // now returns the current time in unix millis

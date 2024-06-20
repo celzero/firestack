@@ -46,6 +46,10 @@ func (r *resolver) SetRdnsLocal(t, rd, conf, filetag string) error {
 		r.setRdnsLocal(nil)
 		return nil
 	}
+	if r.closed.Load() {
+		return errResolverClosed
+	}
+
 	rlocal, err := newRDNSLocal(t, rd, conf, filetag)
 	r.setRdnsLocal(rlocal)
 	return err
@@ -58,6 +62,10 @@ func (r *resolver) SetRdnsRemote(filetag string) error {
 		r.setRdnsRemote(nil)
 		return nil
 	}
+	if r.closed.Load() {
+		return errResolverClosed
+	}
+
 	rremote, err := newRDNSRemote(filetag)
 	r.setRdnsRemote(rremote)
 	return err
@@ -65,6 +73,10 @@ func (r *resolver) SetRdnsRemote(filetag string) error {
 
 // Implements RdnsResolver
 func (r *resolver) GetRdnsLocal() (x.RDNS, error) {
+	if r.closed.Load() {
+		return nil, errResolverClosed
+	}
+
 	rlocal := r.getRdnsLocal()
 
 	if rlocal != nil {
@@ -76,6 +88,10 @@ func (r *resolver) GetRdnsLocal() (x.RDNS, error) {
 
 // Implements RdnsResolver
 func (r *resolver) GetRdnsRemote() (x.RDNS, error) {
+	if r.closed.Load() {
+		return nil, errResolverClosed
+	}
+
 	rremote := r.getRdnsRemote()
 	if rremote != nil {
 		// a non-ftrie version for across the jni boundary
@@ -84,6 +100,8 @@ func (r *resolver) GetRdnsRemote() (x.RDNS, error) {
 	return nil, errNoRdns
 }
 
+// blockQ returns a refused ans if q is blocked by local blocklists; nil, otherwise.
+// If t, t2 are non-nil, it skips local blocks for alg and blockfree transports.
 func (r *resolver) blockQ(t, t2 Transport, msg *dns.Msg) (ans *dns.Msg, blocklists string, err error) {
 	if skipBlock(t, t2) {
 		return nil, "", errBlockFreeTransport
@@ -119,8 +137,13 @@ func applyBlocklists(b RDNS, q *dns.Msg) (ans *dns.Msg, blocklists string, err e
 	return
 }
 
-// answer
-
+// blockA blocks the answer if it is blocked by local blocklists.
+// If blocklistStamp is not empty, it resolves them to blocklist names, if valid;
+// and treats as if q was blocked by remote blocklists, effectively skipping local blocks.
+// t, t2 can be nil. if non-nil, they are used to skip local blocks for alg and blockfree.
+// If blocklistStamp is empty, it resolves the answer to blocklist names, if blocked by local blocklists.
+// If blocklistStamp is empty and the answer is not blocked by local blocklists, it returns nil.
+// If blocklistStamp is empty and the answer is blocked by local blocklists, it returns a refused response.
 func (r *resolver) blockA(t, t2 Transport, q, ans *dns.Msg, blocklistStamp string) (finalans *dns.Msg, blocklistNames string) {
 	br := r.getRdnsRemote()
 	b := r.getRdnsLocal()

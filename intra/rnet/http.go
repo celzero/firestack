@@ -17,14 +17,16 @@ import (
 	"time"
 
 	x "github.com/celzero/firestack/intra/backend"
+	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/ipn"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
 	tx "github.com/elazarl/goproxy"
 )
 
+type dialContextFn func(context.Context, string, string) (net.Conn, error)
+
 type httpx struct {
-	*tx.ProxyHttpServer
 	id       string
 	host     string
 	dialer   *net.Dialer
@@ -32,15 +34,20 @@ type httpx struct {
 	hdl      *httpxhandle
 	listener ServerListener
 	usetls   bool
-	status   int
+
+	// mutable fields below
+	sync.Mutex          // protects tx.ProxyHttpServer
+	*tx.ProxyHttpServer // changed by Hop()
+
+	status *core.Volatile[int] // status of the server
 }
 
 type httpxhandle struct {
 	*AuthHandle
-	px ipn.Proxy
+	px *core.Volatile[ipn.Proxy]
 }
 
-func newHttpServer(id, x string, ctl protect.Controller, listener ServerListener) (Server, error) {
+func newHttpServer(id, x string, ctl protect.Controller, listener ServerListener) (*httpx, error) {
 	var host string
 	var usr string
 	var pwd string
@@ -58,11 +65,12 @@ func newHttpServer(id, x string, ctl protect.Controller, listener ServerListener
 	dialer := protect.MakeNsDialer(id, ctl)
 	hdl := &httpxhandle{
 		AuthHandle: &AuthHandle{usr: usr, pwd: pwd},
+		px:         core.NewZeroVolatile[ipn.Proxy](),
 	}
 	hproxy := tx.NewProxyHttpServer()
 	hproxy.Logger = log.Glogger
 	hproxy.Tr = &http.Transport{
-		Dial:                  dialer.Dial,
+		DialContext:           dialer.DialContext, // overriden by Hop()
 		ForceAttemptHTTP2:     true,
 		TLSHandshakeTimeout:   10 * time.Second,
 		ResponseHeaderTimeout: 20 * time.Second,
@@ -71,7 +79,7 @@ func newHttpServer(id, x string, ctl protect.Controller, listener ServerListener
 	hproxy.ConnectDial = nil
 	hproxy.ConnectDialWithReq = nil
 
-	svc := &http.Server{Addr: host, Handler: hproxy}
+	svc := &http.Server{Addr: host, Handler: hproxy, ReadHeaderTimeout: 10 * time.Second}
 	usetls := u.Scheme == "https"
 	hasauth := len(usr) > 0 || len(pwd) > 0
 	if hasauth {
@@ -90,7 +98,7 @@ func newHttpServer(id, x string, ctl protect.Controller, listener ServerListener
 		hdl:             hdl,
 		svc:             svc,
 		listener:        listener,
-		status:          SOK,
+		status:          core.NewVolatile(SOK),
 	}
 	hproxy.OnRequest().HandleConnectFunc(hx.routeConnect)
 	hproxy.OnRequest().DoFunc(hx.route)
@@ -222,9 +230,7 @@ func (h *httpx) hijackConnect(req *http.Request, client net.Conn, ctx *tx.ProxyC
 }
 
 func clos(cs ...io.Closer) {
-	for _, c := range cs {
-		_ = c.Close()
-	}
+	core.Close(cs...)
 }
 
 func http502(w io.WriteCloser, err1 error, ssu *ServerSummary) {
@@ -237,16 +243,16 @@ func http502(w io.WriteCloser, err1 error, ssu *ServerSummary) {
 }
 
 func pipeconn(dst net.Conn, src net.Conn, ssu *ServerSummary, wg *sync.WaitGroup) {
-	_, err := io.Copy(dst, src)
+	var err error
+	defer wg.Done()
+	defer ssu.done(err) // done handles nil ssu
+
+	_, err = core.Pipe(dst, src)
 	log.D("svchttp: pipeconn: done; err src(%s) -> dst(%s); err? %v", src.RemoteAddr(), dst.RemoteAddr(), err)
-	if ssu != nil {
-		ssu.done(err)
-	}
-	wg.Done()
 }
 
 func pipetcp(dst, src *net.TCPConn, ssu *ServerSummary, wg *sync.WaitGroup) {
-	_, err1 := io.Copy(dst, src)
+	_, err1 := core.Pipe(dst, src)
 	log.D("svchttp: pipetcp: done; src (%s) -> dst(%s); err? %v", src.RemoteAddr(), dst.RemoteAddr(), err1)
 	err2 := dst.CloseWrite()
 	err3 := src.CloseRead()
@@ -257,39 +263,50 @@ func pipetcp(dst, src *net.TCPConn, ssu *ServerSummary, wg *sync.WaitGroup) {
 }
 
 func (h *httpx) Hop(p x.Proxy) error {
-	if h.status == END {
+	if h.status.Load() == END {
 		log.D("svchttp: hop: %s not running", h.ID())
 		return errServerEnd
 	}
-	if p == nil {
-		h.hdl.px = nil
-		h.ProxyHttpServer.Tr.DialContext = h.dialer.DialContext
+
+	dialer := h.dialer.DialContext
+	if p == nil || core.IsNil(p) {
+		h.hdl.px.Store(nil) // clear
+		// h.ProxyHttpServer.Tr.DialContext = h.dialer.DialContext
 	} else if pp, ok := p.(ipn.Proxy); ok {
-		h.hdl.px = pp
-		h.ProxyHttpServer.Tr.DialContext = pp.Dialer().DialContext
+		h.hdl.px.Store(pp)
+		dialer = pp.Dialer().DialContext
 	} else {
 		log.E("svchttp: hop: %s; failed: %T not ipn.Proxy", h.ID(), p)
 		return errNotProxy
 	}
 
 	log.D("svchttp: hop: %s over proxy? %t via %s", h.ID(), p != nil, h.GetAddr())
+
+	h.swap(dialer)
 	return nil
 }
 
+func (h *httpx) swap(f dialContextFn) {
+	h.Lock()
+	defer h.Unlock()
+	// todo: reads are not synchronized!
+	h.ProxyHttpServer.Tr.DialContext = f
+}
+
 func (h *httpx) Start() error {
-	if h.status != END {
+	if h.status.Load() == END {
 		return errSvcRunning
 	}
-	h.status = SOK
+	h.status.Store(SOK)
 	go func() {
 		if h.usetls {
-			h.status = END
+			h.status.Store(END)
 			log.E("svchttp: %s cannot start; tls is unimplemented", h.ID())
 			return
 		}
 		err := h.svc.ListenAndServe()
 		log.I("svchttp: %s exited; err? %v", h.ID(), err)
-		h.status = END
+		h.status.Store(END)
 	}()
 	log.I("svchttp: %s started %s", h.ID(), h.GetAddr())
 	return nil
@@ -298,7 +315,7 @@ func (h *httpx) Start() error {
 func (h *httpx) Stop() error {
 	err := h.svc.Close()
 	// err := h.svc.Shutdown(context.Background())
-	h.status = END
+	h.status.Store(END)
 	log.I("svchttp: %s stopped; err? %v", h.ID(), err)
 	return err
 }
@@ -317,8 +334,8 @@ func (h *httpx) Refresh() error {
 }
 
 func (h *httpx) pid() (x string) {
-	px := h.hdl.px
-	if px != nil {
+
+	if px := h.hdl.px.Load(); px != nil && core.IsNotNil(px) {
 		x = px.ID()
 	}
 	return
@@ -329,21 +346,19 @@ func (h *httpx) ID() string {
 }
 
 func (h *httpx) GetAddr() string {
-	px := h.hdl.px
-	if px != nil {
+	if px := h.hdl.px.Load(); px != nil && core.IsNotNil(px) {
 		return px.GetAddr()
 	}
 	return h.host
 }
 
 func (h *httpx) Status() int {
-	return h.status
+	return h.status.Load()
 }
 
 func (h *httpx) Type() string {
-	px := h.hdl.px
-	if px != nil {
-		return PXHTTP
+	if px := h.hdl.px.Load(); px != nil && core.IsNotNil(px) {
+		return PXHTTP // proxied
 	}
-	return SVCHTTP
+	return SVCHTTP // direct
 }

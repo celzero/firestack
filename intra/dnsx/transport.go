@@ -14,6 +14,7 @@ import (
 	"net/netip"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	x "github.com/celzero/firestack/intra/backend"
@@ -56,8 +57,8 @@ const (
 	NetTypeTCP = "tcp"
 	// preferred forwarding network, if any
 	// ipn.Base is treated as a no-proxy
-	NetNoProxy   = "Base"
-	NetExitProxy = "Exit" // same as ipn.Exit
+	NetNoProxy   = x.Base
+	NetExitProxy = x.Exit
 
 	ttl10m = 10 * time.Minute
 
@@ -85,6 +86,7 @@ var (
 	errNoRdns              = errors.New("no rdns")
 	errTransportNotMult    = errors.New("not a multi-transport")
 	errMissingQueryName    = errors.New("no query name")
+	errResolverClosed      = errors.New("dns closed for business")
 )
 
 // Transport represents a DNS query transport.  This interface is exported by gobind,
@@ -126,23 +128,30 @@ type Resolver interface {
 type resolver struct {
 	sync.RWMutex // protects transports
 	NatPt
-	tunmode      *settings.TunMode
 	dnsaddrs     []netip.AddrPort
 	transports   map[string]Transport
 	gateway      Gateway
+	tunmode      *settings.TunMode
 	localdomains x.RadixTree
-	rdnsl        *rethinkdnslocal
-	rdnsr        *rethinkdns
-	rmu          sync.RWMutex // protects rdnsr and rdnsl
 	listener     x.DNSListener
+	smms         chan *x.DNSSummary
+
+	once   sync.Once
+	closed atomic.Bool
+
+	// mutable fields
+	rmu   sync.RWMutex // protects rdnsr and rdnsl
+	rdnsl *rethinkdnslocal
+	rdnsr *rethinkdns
 }
 
 var _ Resolver = (*resolver)(nil)
 
-func NewResolver(fakeaddrs string, tunmode *settings.TunMode, dtr x.DNSTransport, l x.DNSListener, pt NatPt) Resolver {
+func NewResolver(fakeaddrs string, tunmode *settings.TunMode, dtr x.DNSTransport, l x.DNSListener, pt NatPt) *resolver {
 	r := &resolver{
 		NatPt:        pt,
 		listener:     l,
+		smms:         make(chan *x.DNSSummary, 32),
 		transports:   make(map[string]Transport),
 		tunmode:      tunmode,
 		localdomains: newUndelegatedDomainsTrie(),
@@ -166,7 +175,16 @@ func NewResolver(fakeaddrs string, tunmode *settings.TunMode, dtr x.DNSTransport
 	}
 	log.I("dns: new! gw? %t; default? %s", r.gateway != nil, dtr.GetAddr())
 
+	core.Go("r.Listener", r.sendSummaries)
 	return r
+}
+
+// sendSummaries sends summaries to the listener.
+// Must be run in a goroutine.
+func (r *resolver) sendSummaries() {
+	for smm := range r.smms {
+		r.listener.OnResponse(smm)
+	}
 }
 
 func (r *resolver) Gateway() Gateway {
@@ -179,7 +197,12 @@ func (r *resolver) Translate(b bool) {
 
 // Implements Resolver
 func (r *resolver) Add(dt x.DNSTransport) (ok bool) {
-	if dt == nil {
+	if r.closed.Load() {
+		log.W("dns: add: closed for business")
+		return false
+	}
+	if dt == nil || core.IsNil(dt) {
+		log.D("dns: cannot add nil transports")
 		return false
 	}
 	t, ok := dt.(Transport)
@@ -194,18 +217,19 @@ func (r *resolver) Add(dt x.DNSTransport) (ok bool) {
 	switch t.Type() {
 	case DNS53, DNSCrypt, DOH, DOT, ODOH:
 		ct := NewCachingTransport(t, ttl10m)
-
+		tid := t.ID()
 		r.Lock()
-		r.transports[t.ID()] = t // regular
+		r.transports[tid] = t // regular
 		if ct != nil {
 			r.transports[ct.ID()] = ct // cached
 		}
-		if t.ID() == System {
-			go r.Add64(t)
-		}
 		r.Unlock()
 
-		go r.listener.OnDNSAdded(t.ID())
+		if tid == System {
+			core.Gx("r.Add64", func() { r.Add64(t) })
+		}
+
+		core.Go("r.onAdd", func() { r.listener.OnDNSAdded(tid) })
 		log.I("dns: add transport %s@%s; cache? %t", t.ID(), t.GetAddr(), ct != nil)
 
 		return true
@@ -216,6 +240,9 @@ func (r *resolver) Add(dt x.DNSTransport) (ok bool) {
 }
 
 func (r *resolver) GetMult(id string) (TransportMult, error) {
+	if r.closed.Load() {
+		return nil, errResolverClosed
+	}
 	r.RLock()
 	t, ok := r.transports[id]
 	defer r.RUnlock()
@@ -234,7 +261,11 @@ func (r *resolver) dcProxy() (TransportMult, error) {
 }
 
 func (r *resolver) Get(id string) (x.DNSTransport, error) {
-	if t := r.determineTransport(id); t == nil {
+	if r.closed.Load() {
+		return nil, errResolverClosed
+	}
+
+	if t := r.determineTransport(id); t == nil || core.IsNil(t) {
 		return nil, errNoSuchTransport
 	} else {
 		return t, nil
@@ -242,6 +273,11 @@ func (r *resolver) Get(id string) (x.DNSTransport, error) {
 }
 
 func (r *resolver) Remove(id string) (ok bool) {
+	if r.closed.Load() {
+		log.W("dns: remove: closed for business")
+		return false
+	}
+
 	// these IDs are reserved for internal use
 	if isReserved(id) {
 		log.I("dns: removing reserved transport %s", id)
@@ -250,7 +286,7 @@ func (r *resolver) Remove(id string) (ok bool) {
 	_, hasTransport := r.transports[id]
 	if hasTransport {
 		if id == System {
-			go r.Remove64(id)
+			core.Gx("r.Remove64", func() { r.Remove64(id) })
 		}
 		r.Lock()
 		delete(r.transports, id)
@@ -266,7 +302,7 @@ func (r *resolver) Remove(id string) (ok bool) {
 	}
 
 	if hasTransport {
-		go r.listener.OnDNSRemoved(id)
+		core.Go("r.onRemove", func() { r.listener.OnDNSRemoved(id) })
 	}
 
 	return hasTransport
@@ -280,6 +316,10 @@ func (r *resolver) IsDnsAddr(ipport string) bool {
 }
 
 func (r *resolver) LocalLookup(q []byte) ([]byte, error) {
+	if r.closed.Load() {
+		return nil, errResolverClosed
+	}
+
 	defaultIsSystemDNS := false
 	if dtr, _ := r.Get(Default); dtr != nil {
 		// todo: a better way to determine whether Default is SystemDNS
@@ -288,7 +328,7 @@ func (r *resolver) LocalLookup(q []byte) ([]byte, error) {
 	}
 
 	// including dns64 and/or alg
-	ans, err := r.forward(q, CT+Default)
+	ans, err := r.forward(q, Default)
 	if defaultIsSystemDNS {
 		return ans, err
 	} // else: retry with Goos/System, if needed
@@ -296,50 +336,57 @@ func (r *resolver) LocalLookup(q []byte) ([]byte, error) {
 	// msg may be nil
 	if msg := xdns.AsMsg(ans); err != nil || xdns.IsNXDomain(msg) || !xdns.HasRcodeSuccess(msg) {
 		log.I("dns: nxdomain via Default (err? %v); using Goos for %s", err, xdns.QName(msg))
-		return r.forward(q, CT+Goos) // Goos is System; see: determineTransport
+		return r.forward(q, Goos) // Goos is System; see: determineTransport
 	} // else: rcode success and nil err; do not fallback on Goos/System
 	return ans, nil
 }
 
 func (r *resolver) Forward(q []byte) ([]byte, error) {
+	if r.closed.Load() {
+		return nil, errResolverClosed
+	}
+
 	return r.forward(q)
 }
 
 func (r *resolver) forward(q []byte, chosenids ...string) (res0 []byte, err0 error) {
 	starttime := time.Now()
-	summary := &x.DNSSummary{
+	smm := &x.DNSSummary{
 		QName:  invalidQname,
 		Status: Start,
 		Msg:    noerr.Error(),
 	}
 	// always call up to the listener
 	defer func() {
-		if err0 != nil {
-			summary.Msg = err0.Error()
-		} // else: preserve msg from Transport.Query
 		if settings.Debug {
-			summary.Latency = time.Since(starttime).Seconds()
+			smm.Latency = time.Since(starttime).Seconds()
 		}
-		go r.listener.OnResponse(summary)
+		select {
+		case r.smms <- smm:
+		default:
+			log.W("dns: fwd: smms closed or full; dropping %s", smm.QName)
+		}
 	}()
 
 	msg, err := unpack(q)
 	if err != nil {
 		log.W("dns: fwd: not a dns packet %v", err)
-		summary.Latency = time.Since(starttime).Seconds()
-		summary.Status = BadQuery
+		smm.Latency = time.Since(starttime).Seconds()
+		smm.Status = BadQuery
+		smm.Msg = err.Error()
 		return nil, err
 	}
 
 	// figure out transport to use
 	qname := qname(msg)
 	qtyp := qtype(msg)
-	summary.QName = qname
-	summary.QType = qtyp
+	smm.QName = qname
+	smm.QType = qtyp
 
 	if len(qname) <= 0 { // unexpected; github.com/celzero/rethink-app/issues/1210
-		summary.Latency = time.Since(starttime).Seconds()
-		summary.Status = BadQuery
+		smm.Latency = time.Since(starttime).Seconds()
+		smm.Status = BadQuery
+		smm.Msg = errMissingQueryName.Error()
 		return nil, errMissingQueryName
 	}
 
@@ -349,9 +396,10 @@ func (r *resolver) forward(q []byte, chosenids ...string) (res0 []byte, err0 err
 
 	log.V("dns: fwd: query %s [prefs:%v]; id? %s, sid? %s, pid? %s, ips? %v", qname, pref, id, sid, pid, presetIPs)
 
-	if t == nil {
-		summary.Latency = time.Since(starttime).Seconds()
-		summary.Status = TransportError
+	if t == nil || core.IsNil(t) {
+		smm.Latency = time.Since(starttime).Seconds()
+		smm.Status = TransportError
+		smm.Msg = errNoSuchTransport.Error()
 		return nil, errNoSuchTransport
 	}
 	var t2 Transport
@@ -364,13 +412,16 @@ func (r *resolver) forward(q []byte, chosenids ...string) (res0 []byte, err0 err
 	res1, blocklists, err := r.blockQ(t, t2, msg) // skips if the t, t2 are alg/block-free
 	if err == nil {
 		if pref.NOBLOCK { // only add blocklists and do not actually block
-			summary.Blocklists = blocklists
+			smm.Blocklists = blocklists
 		} else {
 			b, e := res1.Pack()
-			summary.Latency = time.Since(starttime).Seconds()
-			summary.Status = Complete
-			summary.Blocklists = blocklists
-			summary.RData = xdns.GetInterestingRData(res1)
+			smm.Latency = time.Since(starttime).Seconds()
+			smm.Status = Complete
+			smm.Blocklists = blocklists
+			smm.RData = xdns.GetInterestingRData(res1)
+			if e != nil {
+				smm.Msg = e.Error()
+			}
 			log.V("dns: fwd: query blocked %s by %s", qname, blocklists)
 
 			return b, e
@@ -379,15 +430,15 @@ func (r *resolver) forward(q []byte, chosenids ...string) (res0 []byte, err0 err
 		log.V("dns: fwd: query NOT blocked %s; why? %v", qname, err)
 	}
 
-	summary.Type = t.Type()
-	summary.ID = t.ID()
+	smm.Type = t.Type()
+	smm.ID = t.ID()
 	var res2 []byte
 	var ans1 *dns.Msg
 
 	netid := xdns.NetAndProxyID(NetTypeUDP, pid)
 
 	// with t2 as the secondary transport, which could be nil
-	ans1, err = gw.q(t, t2, presetIPs, netid, msg, summary)
+	ans1, err = gw.q(t, t2, presetIPs, netid, msg, smm)
 
 	algerr := isAlgErr(err) // not set when gw.translate is off
 	if algerr {
@@ -401,17 +452,22 @@ func (r *resolver) forward(q []byte, chosenids ...string) (res0 []byte, err0 err
 	}
 	// very unlikely that ans1 is nil but err is not
 	if ans1 == nil {
-		summary.Status = NoResponse // TODO: servfail?
+		err := errors.Join(err, errNoAnswer)
+		if err != nil {
+			smm.Msg = err.Error()
+		}
+		smm.Status = NoResponse // TODO: servfail?
 		return res2, err
 	}
 
 	res2, err = ans1.Pack()
 	if err != nil {
-		summary.Status = BadResponse // TODO: servfail?
+		smm.Status = BadResponse // TODO: servfail?
+		smm.Msg = err.Error()
 		return res2, err
 	}
 
-	ans2, blocklistnames := r.blockA(t, t2, msg, ans1, summary.Blocklists)
+	ans2, blocklistnames := r.blockA(t, t2, msg, ans1, smm.Blocklists)
 
 	isnewans := ans2 != nil
 	// do not block, only add blocklists if NOBLOCK is set
@@ -420,18 +476,19 @@ func (r *resolver) forward(q []byte, chosenids ...string) (res0 []byte, err0 err
 		ans1 = ans2
 		res2, err = ans2.Pack()
 		if err != nil {
-			summary.Status = BadResponse // TODO: servfail?
+			smm.Status = BadResponse // TODO: servfail?
+			smm.Msg = err.Error()
 			return res2, err
 		}
 		// summary latency, response, status, ips also set by transport t
-		summary.RData = xdns.GetInterestingRData(ans2)
-		summary.RCode = xdns.Rcode(ans2)
-		summary.RTtl = xdns.RTtl(ans2)
-		summary.Status = Complete
+		smm.RData = xdns.GetInterestingRData(ans2)
+		smm.RCode = xdns.Rcode(ans2)
+		smm.RTtl = xdns.RTtl(ans2)
+		smm.Status = Complete
 	}
 	hasblocklists := len(blocklistnames) > 0
 	if hasblocklists {
-		summary.Blocklists = blocklistnames
+		smm.Blocklists = blocklistnames
 	}
 	ansblocked := xdns.AQuadAUnspecified(ans1)
 
@@ -441,6 +498,11 @@ func (r *resolver) forward(q []byte, chosenids ...string) (res0 []byte, err0 err
 }
 
 func (r *resolver) Serve(proto string, c protect.Conn) {
+	if r.closed.Load() {
+		log.W("dns: serve: closed for business")
+		return
+	}
+
 	switch proto {
 	case NetTypeTCP:
 		r.accept(c)
@@ -461,7 +523,7 @@ func (r *resolver) determineTransport(id string) Transport {
 		id0 = Local
 	} else if id == Alg {
 		// if no firewall is setup, alg isn't possible
-		if r.tunmode.BlockMode == settings.BlockModeNone {
+		if r.tunmode.BlockMode.Load() == settings.BlockModeNone {
 			id0 = CT + Preferred
 		} else {
 			id0 = CT + BlockFree
@@ -575,7 +637,7 @@ func (r *resolver) reply(c protect.Conn) {
 			free()
 			break
 		}
-		go do()
+		core.Gx("r.reply.do", do)
 		cnt++
 	}
 }
@@ -629,7 +691,7 @@ func (r *resolver) accept(c io.ReadWriteCloser) {
 			free()
 			break // close on incomplete reads
 		}
-		go do()
+		core.Gx("r.accept.do", do)
 		cnt++
 	}
 	ms := int(time.Since(start).Seconds() * 1000)
@@ -638,16 +700,19 @@ func (r *resolver) accept(c io.ReadWriteCloser) {
 }
 
 func (r *resolver) Stop() error {
-	go r.listener.OnDNSStopped()
+	r.once.Do(func() {
+		close(r.smms)
 
-	if gw := r.Gateway(); gw != nil {
-		gw.stop()
-	}
-	if dc, err := r.dcProxy(); err == nil {
-		return dc.Stop()
-	}
-	// nothing to stop / no error
-	return nil
+		core.Go("r.onStop", func() { r.listener.OnDNSStopped() })
+
+		if gw := r.Gateway(); gw != nil {
+			gw.stop()
+		}
+		if dc, err := r.dcProxy(); err == nil {
+			_ = dc.Stop()
+		}
+	})
+	return nil // always no error
 }
 
 func (r *resolver) refresh() {
@@ -657,14 +722,21 @@ func (r *resolver) refresh() {
 	for _, t := range r.transports {
 		// skip cached transports
 		if !cachedTransport(t) {
+			curt := t
 			// re-adding creates NEW cached transports
 			// which is akin to a cache flush
-			go r.Add(t)
+			core.Gx("r.Add", func() { r.Add(curt) })
 		}
 	}
 }
 
 func (r *resolver) Refresh() (string, error) {
+	if r.closed.Load() {
+		return "", errResolverClosed
+	}
+
+	log.I("dns: refresh transports")
+
 	go r.refresh()
 	go dialers.Clear()
 	s := map2csv(r.transports)
@@ -677,6 +749,10 @@ func (r *resolver) Refresh() (string, error) {
 }
 
 func (r *resolver) LiveTransports() string {
+	if r.closed.Load() {
+		log.W("dns: liveTransports: closed for business")
+		return ""
+	}
 	s := map2csv(r.transports)
 	if dc, err := r.dcProxy(); err == nil {
 		x := dc.LiveTransports()
@@ -798,6 +874,20 @@ func IsLocalProxy(pid string) bool {
 	return len(pid) <= 0 || pid == NetNoProxy || pid == NetExitProxy
 }
 
+// RegisterAddrs registers IP ports with all dialers for a given hostname.
+// If id is dnsx.Bootstrap, the hostname is "protected" from re-resolutions.
+// hostname is a domain name, and as a special case, can be protect.UidSelf or protect.UidSystem.
+func RegisterAddrs(id, hostname string, ipps []string) (ok bool) {
+	id, _ = strings.CutPrefix(id, CT)
+	if id == Bootstrap || id == System || id == Default || id == Local {
+		log.I("dnsx: bootstrap! %s -> %v", hostname, ipps)
+		_, ok = dialers.NewProtected(hostname, ipps)
+	} else {
+		_, ok = dialers.New(hostname, ipps)
+	}
+	return
+}
+
 func isReserved(id string) bool {
 	switch id {
 	case Default, Goos, System, Local, Alg, DcProxy, BlockAll, Preferred, Bootstrap, BlockFree:
@@ -848,9 +938,9 @@ func overrideProxyIfNeeded(pid string, ids ...string) string {
 	for _, id := range ids {
 		switch id {
 		// note: Goos is anyway hard-coded to use NetExitProxy
-		case Default, Goos: // exit
+		case Bootstrap, Default, Goos: // exit
 			return NetExitProxy
-		case CT + Default, CT + Goos: // exit
+		case CT + Bootstrap, CT + Default, CT + Goos: // exit
 			return NetExitProxy
 		case System, Local: // base
 			return NetNoProxy
@@ -927,7 +1017,5 @@ func cachedTransport(t Transport) bool {
 }
 
 func clos(c io.Closer) {
-	if c != nil {
-		_ = c.Close()
-	}
+	core.CloseOp(c, core.CopRW)
 }

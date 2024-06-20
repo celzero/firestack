@@ -51,12 +51,12 @@ func setupTcpHandler(s *stack.Stack, h GTCPConnHandler) {
 // nic.deliverNetworkPacket -> no existing matching endpoints -> NewTCPForwarder.HandlePacket
 // ref: github.com/google/gvisor/blob/e89e736f1/pkg/tcpip/adapters/gonet/gonet_test.go#L189
 func NewTCPForwarder(s *stack.Stack, h GTCPConnHandler) *tcp.Forwarder {
-	return tcp.NewForwarder(s, rcvwnd, maxInFlight, func(request *tcp.ForwarderRequest) {
-		if request == nil {
+	return tcp.NewForwarder(s, rcvwnd, maxInFlight, func(req *tcp.ForwarderRequest) {
+		if req == nil {
 			log.E("ns: tcp: forwarder: nil request")
 			return
 		}
-		id := request.ID()
+		id := req.ID()
 		// src 10.111.222.1:38312
 		src := remoteAddrPort(id)
 		// dst 213.188.195.179:80
@@ -65,7 +65,15 @@ func NewTCPForwarder(s *stack.Stack, h GTCPConnHandler) *tcp.Forwarder {
 		// read/writes are routed using 5-tuple to the same conn (endpoint)
 		// demuxer.handlePacket -> find matching endpoint -> queue-packet -> send/recv conn (ep)
 		// ref: github.com/google/gvisor/blob/be6ffa7/pkg/tcpip/stack/transport_demuxer.go#L180
-		gtcp := MakeGTCPConn(request, src, dst)
+		gtcp := MakeGTCPConn(req, src, dst)
+		// setup endpoint right away, so that netstack's internal state is consistent
+		if open, err := gtcp.makeEndpoint( /*rst*/ false); err != nil || !open {
+			log.E("ns: tcp: forwarder: connect src(%v) => dst(%v); open? %t, err(%v)", src, dst, open, err)
+			return
+		}
+
+		// must always handle it in a separate goroutine as it may block netstack
+		// see: netstack/dispatcher.go:newReadvDispatcher
 		go h.Proxy(gtcp, src, dst)
 	})
 }
@@ -95,7 +103,7 @@ func (g *GTCPConn) StatefulTeardown() (rst bool) {
 	return true // always rst
 }
 
-func (g *GTCPConn) Connect(rst bool) (open bool, err error) {
+func (g *GTCPConn) makeEndpoint(rst bool) (open bool, err error) {
 	if rst {
 		g.req.Complete(rst)
 		return false, nil // closed
@@ -205,25 +213,21 @@ func (g *GTCPConn) SetWriteDeadline(t time.Time) error {
 
 // Abort aborts the connection by sending a RST segment.
 func (g *GTCPConn) Abort() {
-	ep := g.ep
-	c := g.conn
-	if ep != nil {
+	if ep := g.ep; ep != nil {
 		ep.Abort()
 	}
-	if c != nil {
+	if c := g.conn; c != nil {
 		_ = c.Close()
 	}
 }
 
 func (g GTCPConn) Close() error {
-	ep := g.ep
-	c := g.conn
-	if ep != nil {
+	if ep := g.ep; ep != nil {
 		ep.Abort()
 	}
-	if c != nil {
-		_ = c.SetDeadline(time.Now().Add(-1))
-		return c.Close() // always returns nil; see gonet.TCPConn.Close
+	// g.conn.Close always returns nil; see gonet.TCPConn.Close
+	if c := g.conn; c != nil {
+		_ = c.Close()
 	}
 	return nil
 }

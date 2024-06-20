@@ -2,6 +2,7 @@ package protect
 
 import (
 	"context"
+	"errors"
 	"net"
 	"sync"
 	"syscall"
@@ -38,8 +39,8 @@ type hasSyscallConn interface {
 
 func verifyMatch(t *testing.T, conn hasSyscallConn, p *fakeProtector) {
 	rawconn, err := conn.SyscallConn()
-	if err != nil {
-		t.Fatal(err)
+	if err != nil || rawconn == nil {
+		t.Fatal(errors.Join(err, &net.OpError{Op: "SyscallConn"}))
 	}
 	_ = rawconn.Control(func(fd uintptr) {
 		if len(p.fds) == 0 {
@@ -65,12 +66,13 @@ func TestDialTCP(t *testing.T) {
 	}
 
 	conn, err := d.Dial("tcp", l.Addr().String())
-	if err != nil {
-		t.Fatal(err)
+	if err != nil || conn == nil {
+		t.Fatal(errors.Join(err, &net.OpError{Op: "Dial"}))
+		return
 	}
 	verifyMatch(t, conn.(*net.TCPConn), p)
-	l.Close()
-	conn.Close()
+	clos(conn)
+	clos(l)
 }
 
 func TestListenUDP(t *testing.T) {
@@ -83,11 +85,12 @@ func TestListenUDP(t *testing.T) {
 	c := MakeListenConfig(p)
 
 	conn, err := c.ListenPacket(context.Background(), udpaddr.Network(), udpaddr.String())
-	if err != nil {
-		t.Fatal(err)
+	if err != nil || conn == nil {
+		t.Fatal(errors.Join(err, &net.OpError{Op: "ListenPacket"}))
+		return
 	}
 	verifyMatch(t, conn.(*net.UDPConn), p)
-	conn.Close()
+	clos(conn)
 }
 
 func TestLookupIPAddr(t *testing.T) {
@@ -109,12 +112,13 @@ func TestNilDialer(t *testing.T) {
 
 	d := MakeDialer(nil)
 	conn, err := d.Dial("tcp", l.Addr().String())
-	if err != nil {
-		t.Fatal(err)
+	if err != nil || conn == nil {
+		t.Fatal(errors.Join(err, &net.OpError{Op: "Dial"}))
+		return
 	}
 
-	conn.Close()
-	l.Close()
+	clos(conn)
+	clos(l)
 }
 
 func TestNilListener(t *testing.T) {
@@ -125,9 +129,9 @@ func TestNilListener(t *testing.T) {
 
 	c := MakeListenConfig(nil)
 	conn, err := c.ListenPacket(context.Background(), udpaddr.Network(), udpaddr.String())
-	if err != nil {
-		t.Fatal(err)
+	if err != nil || conn == nil {
+		t.Fatal(errors.Join(err, &net.OpError{Op: "Dial"}))
 	}
 
-	conn.Close()
+	clos(conn)
 }

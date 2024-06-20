@@ -24,6 +24,7 @@ type DNSSummary struct {
 	Blocklists     string // csv separated list of blocklists names, if any.
 	UpstreamBlocks bool   // true if any among upstream transports returned blocked ans.
 	Msg            string // final status message, if any
+	Region         string // region of the rethinkdns server (if used)
 }
 
 type DNSOpts struct {

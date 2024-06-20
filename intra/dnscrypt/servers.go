@@ -55,13 +55,16 @@ type serverinfo struct {
 	HostName           string
 	UDPAddr            *net.UDPAddr
 	TCPAddr            *net.TCPAddr
-	RelayUDPAddrs      []*net.UDPAddr
-	RelayTCPAddrs      []*net.TCPAddr
-	status             int
 	proxies            ipn.Proxies // proxy-provider, may be nil
 	relay              ipn.Proxy   // proxy relay to use, may be nil
 	dialer             *protect.RDial
 	est                core.P2QuantileEstimator
+
+	// fields below are mutable
+
+	RelayUDPAddrs *core.Volatile[[]*net.UDPAddr] // anonymous relays, if any
+	RelayTCPAddrs *core.Volatile[[]*net.TCPAddr] // anonymous relays, if any
+	status        *core.Volatile[int]            // status of the last query
 }
 
 var _ dnsx.Transport = (*serverinfo)(nil)
@@ -130,7 +133,7 @@ func (serversInfo *ServersInfo) get(name string) *serverinfo {
 	if serversCount <= 0 {
 		return nil
 	}
-	return serversInfo.inner[name]
+	return serversInfo.inner[name] // may be nil
 }
 
 func (serversInfo *ServersInfo) unregisterServer(name string) (int, error) {
@@ -174,10 +177,9 @@ func (serversInfo *ServersInfo) refreshServer(proxy *DcMulti, name string, stamp
 	}
 
 	serversInfo.Lock()
+	defer serversInfo.Unlock()
 	serversInfo.inner[name] = &newServer
 	serversInfo.registeredServers[name] = registeredserver{name: name, stamp: stamp}
-	serversInfo.Unlock()
-
 	return nil
 }
 
@@ -224,6 +226,7 @@ func fetchDNSCryptServerInfo(proxy *DcMulti, name string, stamp stamps.ServerSta
 		relay, _ = px.ProxyFor(name)
 	}
 	dialer := protect.MakeNsRDial(name, proxy.ctl)
+
 	si := serverinfo{
 		Proto:              stamps.StampProtoTypeDNSCrypt,
 		MagicQuery:         certInfo.MagicQuery,
@@ -235,12 +238,13 @@ func fetchDNSCryptServerInfo(proxy *DcMulti, name string, stamp stamps.ServerSta
 		Name:               name,
 		UDPAddr:            udpaddr,
 		TCPAddr:            tcpaddr,
-		RelayTCPAddrs:      nil, // added later; see proxy.refreshRoutes()
-		RelayUDPAddrs:      nil, // added later; see proxy.refreshRoutes()
+		RelayTCPAddrs:      core.NewZeroVolatile[[]*net.TCPAddr](), // populated later; see proxy.refreshRoutes()
+		RelayUDPAddrs:      core.NewZeroVolatile[[]*net.UDPAddr](), // populated later; see proxy.refreshRoutes()
 		proxies:            px,
 		relay:              relay,
 		dialer:             dialer,
 		est:                core.NewP50Estimator(),
+		status:             core.NewVolatile[int](dnsx.Start),
 	}
 	log.I("dnscrypt: (%s) setup: %s; anonrelay? %t, proxy? %t", name, si.HostName, relay != nil)
 	return si, nil
@@ -322,7 +326,7 @@ func (s *serverinfo) String() string {
 	if s.TCPAddr != nil {
 		serveraddr = s.TCPAddr.String()
 	}
-	if a := s.RelayTCPAddrs; a != nil {
+	if a := s.RelayTCPAddrs.Load(); len(a) > 0 {
 		relayaddr = chooseAny(a).String()
 	}
 
@@ -337,12 +341,15 @@ func (s *serverinfo) Type() string {
 	return dnsx.DNSCrypt
 }
 
-func (s *serverinfo) Query(network string, q *dns.Msg, summary *x.DNSSummary) (r *dns.Msg, err error) {
-	r, err = resolve(network, q, s, summary)
-	s.status = summary.Status
+func (s *serverinfo) Query(network string, q *dns.Msg, smm *x.DNSSummary) (r *dns.Msg, err error) {
+	r, err = resolve(network, q, s, smm)
+	s.status.Store(smm.Status)
 
 	if s.est != nil {
-		s.est.Add(summary.Latency)
+		s.est.Add(smm.Latency)
+	}
+	if err != nil {
+		smm.Msg = err.Error()
 	}
 
 	return
@@ -361,7 +368,7 @@ func (s *serverinfo) GetAddr() string {
 }
 
 func (s *serverinfo) Status() int {
-	return s.status
+	return s.status.Load()
 }
 
 func (s *serverinfo) dialudp(pid string, addr *net.UDPAddr) (net.Conn, error) {

@@ -11,7 +11,6 @@ import (
 	"bufio"
 	"encoding/binary"
 	"fmt"
-	"io"
 	"net"
 	"net/netip"
 	"os"
@@ -22,6 +21,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/log"
 )
 
@@ -227,12 +227,6 @@ func toUnmappedAddr(ip net.IP) netip.Addr {
 	return ipp.Unmap()
 }
 
-func clos(c io.Closer) {
-	if c != nil {
-		_ = c.Close()
-	}
-}
-
 // ParseProcNet scans /proc/net/* returns a list of entries, one entry per line scanned
 func ParseProcNet(protocol string) ([]ProcNetEntry, error) {
 	filename := filepath.Clean(fmt.Sprintf("/proc/net/%s", protocol))
@@ -240,7 +234,7 @@ func ParseProcNet(protocol string) ([]ProcNetEntry, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer clos(fd)
+	defer core.CloseFile(fd)
 
 	entries := make([]ProcNetEntry, 0)
 	scanner := bufio.NewScanner(fd)
@@ -273,7 +267,11 @@ func ParseProcNet(protocol string) ([]ProcNetEntry, error) {
 	return entries, nil
 }
 
+// cleanupPool removes entries from the pool that are older than cachettl.
+// Must be called from a goroutine.
 func cleanupPool() {
+	defer core.Recover(core.Exit11, "procfs.cleanupPool")
+
 	if time.Since(cache.lastcleanup).Milliseconds() <= cachettl {
 		return
 	}

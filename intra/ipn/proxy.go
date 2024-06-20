@@ -18,7 +18,7 @@ import (
 	"github.com/celzero/firestack/intra/settings"
 )
 
-func (pxr *proxifier) NewSocks5Proxy(id, user, pwd, ip, port string) (p Proxy, err error) {
+func (pxr *proxifier) NewSocks5Proxy(id, user, pwd, ip, port string) (p *socks5, err error) {
 	opts := settings.NewAuthProxyOptions("socks5", user, pwd, ip, port, nil)
 	return NewSocks5Proxy(id, pxr.ctl, opts)
 }
@@ -28,6 +28,9 @@ func (pxr *proxifier) AddProxy(id, txt string) (x.Proxy, error) {
 }
 
 func (pxr *proxifier) addProxy(id, txt string) (p Proxy, err error) {
+	if len(txt) <= 0 {
+		return nil, errAddProxy
+	}
 	// wireguard proxies have IDs starting with "wg"
 	if strings.HasPrefix(id, WG) {
 		if p, _ = pxr.ProxyFor(id); p != nil {
@@ -81,28 +84,16 @@ func (pxr *proxifier) addProxy(id, txt string) (p Proxy, err error) {
 		// opts may be nil
 		opts := settings.NewAuthProxyOptions(u.Scheme, usr, pwd, strurl, u.Port(), addrs)
 
-		switch u.Scheme {
-		case "socks5":
-			p, err = NewSocks5Proxy(id, pxr.ctl, opts)
-		case "http":
-			fallthrough
-		case "https":
-			p, err = NewHTTPProxy(id, pxr.ctl, opts)
-		case "piph2":
-			p, err = NewPipProxy(id, pxr.ctl, opts)
-		case "pipws":
-			p, err = NewPipWsProxy(id, pxr.ctl, opts)
-		case "wg":
-			err = fmt.Errorf("proxy: id must be prefixed with %s in %s for [%s]", WG, id, txt)
-		default:
-			err = errProxyScheme
-		}
+		p, err = pxr.fromOpts(id, opts) // opts may be nil
 	}
 
 	if err != nil {
-		log.W("proxy: add %s/%s failed; err: %v", id, txt, err)
+		log.P("proxy: add %s failed; cfg: %v", id, txt)
+		log.W("proxy: add %s failed; err: %v", id, err)
 		return nil, err
 	} else if p == nil {
+		log.P("proxy: add %s nil; cfg: %v", id, txt)
+		log.W("proxy: add %s nil; txt: %d", id, len(txt))
 		return nil, errAddProxy
 	} else if ok := pxr.add(p); !ok {
 		return nil, errAddProxy
@@ -110,6 +101,32 @@ func (pxr *proxifier) addProxy(id, txt string) (p Proxy, err error) {
 
 	log.I("proxy: added %s/%s/%s", p.ID(), p.Type(), p.GetAddr())
 	return
+}
+
+func (pxr *proxifier) fromOpts(id string, opts *settings.ProxyOptions) (Proxy, error) {
+	if opts == nil {
+		return nil, errNoOpts
+	}
+
+	var p Proxy = nil
+	var err error = nil
+	switch opts.Scheme {
+	case "socks5":
+		p, err = NewSocks5Proxy(id, pxr.ctl, opts)
+	case "http":
+		fallthrough
+	case "https":
+		p, err = NewHTTPProxy(id, pxr.ctl, opts)
+	case "piph2":
+		p, err = NewPipProxy(id, pxr.ctl, opts)
+	case "pipws":
+		p, err = NewPipWsProxy(id, pxr.ctl, opts)
+	case "wg":
+		err = fmt.Errorf("proxy: id must be prefixed with %s in %s for [%s]", WG, id, opts)
+	default:
+		err = errProxyScheme
+	}
+	return p, err
 }
 
 func Fetch(p Proxy, req *http.Request) (*http.Response, error) {

@@ -91,9 +91,9 @@ type endpoint struct {
 	caps stack.LinkEndpointCapabilities
 
 	// dispatches packets from the link FD (tun device)
-	// to the network stack.
+	// to the network stack. Protected by the endpoint's mutex.
 	inboundDispatcher linkDispatcher
-	// the nic this endpoint is attached to.
+	// the nic this endpoint is attached to. Protected by the endpoint's mutex.
 	dispatcher stack.NetworkDispatcher
 
 	// wg keeps track of running goroutines.
@@ -233,35 +233,47 @@ func (e *endpoint) Swap(fd, mtu int) (err error) {
 	var prevfd int
 	defer func() {
 		// TODO: should we let the previous dispatcher stop on EOF?
-		// From prelim experiments, it seems prevfd never EOFs?
+		// In prelim experiments, prevfd never EOFs.
 		if prev != nil {
 			log.I("ns: tun(%d => %d): Swap: stopping previous dispatcher", prevfd, fd)
 			go func() {
-				time.Sleep(5 * time.Second) // some arbitrary delay
+				// dispatchers.stop already handles panics
+				time.Sleep(2 * time.Second) // some arbitrary delay
 				prev.stop()
 				// avoid e.Wait(), it blocks until ALL dispatchers stop, not just prev
 			}()
+		} else {
+			log.D("ns: tun(%d): Swap: no previous dispatcher?", fd)
 		}
 	}()
 
 	if err = unix.SetNonblock(fd, true); err != nil {
-		return fmt.Errorf("unix.SetNonblock(%v) failed: %v", fd, err)
+		err := fmt.Errorf("unix.SetNonblock(%v) failed: %v", fd, err)
+		log.W("ns: tun(%d): Swap: err %v", fd, err)
+		return err
 	}
 
 	e.mtu.Store(uint32(mtu))
 	// commence WritePackets() on fd
 	prevfd = e.fds.Swap(fd)
 
+	inbound, err := createInboundDispatcher(e, fd)
+	if err != nil {
+		err := fmt.Errorf("createInboundDispatcher(%d, ...) = %v", fd, err)
+		log.W("ns: tun(%d): Swap: err %v", fd, err)
+		return err
+	}
+
 	e.Lock()
 	defer e.Unlock()
 	prev = e.inboundDispatcher
+	e.inboundDispatcher = inbound
 
-	e.inboundDispatcher, err = createInboundDispatcher(e, fd)
-	if err != nil {
-		return fmt.Errorf("createInboundDispatcher(...) = %v", err)
-	}
 	if e.dispatcher != nil { // attached?
-		go e.dispatchLoop(e.inboundDispatcher)
+		// todo: core.RecoverFn(restart-netstack)
+		go e.dispatchLoop(inbound)
+	} else {
+		log.W("ns: tun(%d => %d): Swap: no dispatcher for new fd", prevfd, fd)
 	}
 	return nil
 }
@@ -273,30 +285,35 @@ func (e *endpoint) Attach(dispatcher stack.NetworkDispatcher) {
 	defer e.Unlock()
 
 	rx := e.inboundDispatcher
+	fd := e.fd()
+	attach := dispatcher != nil   // nil means the NIC is being removed.
+	pipe := rx != nil             // nil means there's no read dispatcher.
+	exists := e.dispatcher != nil // nil means the NIC is already detached.
 	// Attach is called when the NIC is being created and then enabled.
 	// stack.CreateNIC -> nic.newNIC -> ep.Attach
-	// nil means the NIC is being removed.
 	if dispatcher == nil && e.dispatcher != nil {
+		log.I("ns: tun(%d): attach: detach dispatcher (and inbound? %t)", fd, pipe)
 		if rx != nil {
-			rx.stop()
-			e.Wait()
+			go rx.stop() // avoid mutex
+			// e.Wait() on all inboundDispatchers w/ mutex locked?
 		}
 		e.dispatcher = nil
+		log.I("ns: tun(%d): attach: done detaching dispatcher", fd)
 		return
 	}
 	if dispatcher != nil && e.dispatcher == nil {
+		log.I("ns: tun(%d): attach: attach new dispatcher", fd)
 		e.dispatcher = dispatcher
+		// todo: core.RecoverFn(restart-netstack)
 		go e.dispatchLoop(rx)
 		return
 	}
+	log.W("ns: tun(%d): attach: discard? %t; already hasDispatcher? %t and hasInbound? %t", fd, exists, attach, pipe)
 }
 
 // IsAttached implements stack.LinkEndpoint.IsAttached.
 func (e *endpoint) IsAttached() bool {
-	e.RLock()
-	defer e.RUnlock()
-
-	return e.dispatcher != nil
+	return e.getDispatcher() != nil
 }
 
 // MTU implements stack.LinkEndpoint.MTU. It returns the value initialized
@@ -427,9 +444,19 @@ func (e *endpoint) WritePackets(pkts stack.PacketBufferList) (int, tcpip.Error) 
 	return written, nil
 }
 
+func (e *endpoint) notifyRestart() {
+	// deferred fns here should not end up calling the caller of notifyRestart to avoid
+	// infinite recursion (callerFn -> someotherFn -> panic -> notifyRestart -> callerFn)
+	// defer e.Attach(nil)
+	log.U("Network stopped; restart the app")
+}
+
 // dispatchLoop reads packets from the file descriptor in a loop and dispatches
 // them to the network stack. Must be run as a goroutine.
 func (e *endpoint) dispatchLoop(inbound linkDispatcher) tcpip.Error {
+	// defer core.RecoverFn("ns.e.dispatch", e.notifyRestart)
+	defer core.Recover(core.Exit11, "ns.e.dispatch")
+
 	e.wg.Add(1)
 	defer e.wg.Done()
 
@@ -438,6 +465,8 @@ func (e *endpoint) dispatchLoop(inbound linkDispatcher) tcpip.Error {
 		log.W("ns: tun(%d): dispatchLoop: inbound nil", fd)
 		return &tcpip.ErrUnknownDevice{}
 	}
+
+	log.I("ns: tun(%d): dispatchLoop: start", fd)
 	for {
 		cont, err := inbound.dispatch()
 		if err != nil || !cont {
@@ -457,14 +486,21 @@ func (e *endpoint) ARPHardwareType() header.ARPHardwareType {
 
 // InjectInbound ingresses a netstack-inbound packet.
 func (e *endpoint) InjectInbound(protocol tcpip.NetworkProtocolNumber, pkt *stack.PacketBuffer) {
-	log.VV("ns: inject-inbound (from tun) %d", protocol)
-	d := e.dispatcher // TODO: read lock?
+	e.logPacketIfNeeded(sniffer.DirectionRecv, pkt)
+	d := e.getDispatcher()
+	fd := e.fd()
+	log.VV("ns: tun(%d): inject-inbound (from tun) %d", fd, protocol)
 	if d != nil && pkt != nil {
-		e.logPacketIfNeeded(sniffer.DirectionRecv, pkt)
 		d.DeliverNetworkPacket(protocol, pkt)
 	} else {
-		log.W("ns: inject-inbound (from tun) %d pkt?(%t) dropped: endpoint not attached", protocol, pkt != nil)
+		log.W("ns: tun(%d): inject-inbound (from tun) %d pkt?(%t) dropped: endpoint not attached", fd, protocol, pkt != nil)
 	}
+}
+
+func (e *endpoint) getDispatcher() stack.NetworkDispatcher {
+	e.RLock()
+	defer e.RUnlock()
+	return e.dispatcher
 }
 
 // Unused: InjectOutobund implements stack.InjectableEndpoint.InjectOutbound.

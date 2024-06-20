@@ -15,13 +15,13 @@ import (
 	"bufio"
 	"crypto/tls"
 	"fmt"
-	"io"
 	"net"
 	"net/http"
 	"net/url"
 	"strings"
 	"time"
 
+	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/dialers"
 	"github.com/celzero/firestack/intra/log"
 )
@@ -153,10 +153,8 @@ func (t *HttpTunnel) Dial(network string, address string) (net.Conn, error) {
 	return conn, nil
 }
 
-func clos(c io.Closer) {
-	if c != nil {
-		_ = c.Close()
-	}
+func clos(c net.Conn) {
+	core.CloseConn(c)
 }
 
 func (t *HttpTunnel) doRoundtrip(conn net.Conn, req *http.Request) (*http.Response, error) {

@@ -34,7 +34,7 @@ func proxyConnect(d proxy.Dialer, proto string, ip netip.Addr, port int) (net.Co
 	case "udp", "udp4", "udp6":
 		fallthrough
 	default:
-		return d.Dial(proto, addr(ip, port))
+		return d.Dial(proto, addrstr(ip, port))
 	}
 }
 
@@ -76,14 +76,14 @@ func proxydial(d proxy.Dialer, network, addr string, connect proxyConnectFunc) (
 
 	s2 := time.Now()
 	ipset := ips.Addrs()
-	allips := maybeFilter(ipset, confirmed)
-	if len(allips) <= 0 {
+	allips, failingopen := maybeFilter(ipset, confirmed)
+	if len(allips) <= 0 || failingopen {
 		var ok bool
 		if ips, ok = renew(domain, ips); ok {
 			ipset = ips.Addrs()
-			allips = maybeFilter(ipset, confirmed)
+			allips, failingopen = maybeFilter(ipset, confirmed)
 		}
-		log.D("pdial: renew ips for %s; ok? %t", addr, ok)
+		log.D("pdial: renew ips for %s; ok? %t, failingopen? %t", addr, ok, failingopen)
 	}
 	log.D("pdial: trying all %d ips for %s; duration: %s", len(allips), addr, time.Since(s2))
 
@@ -97,7 +97,7 @@ func proxydial(d proxy.Dialer, network, addr string, connect proxyConnectFunc) (
 		if ipok(ip) {
 			log.V("pdial: trying ip%d %s for %s; duration: %s", i, ip, addr, time.Since(s3))
 			if conn, err = connect(d, network, ip, port); err == nil {
-				ips.Confirm(ip)
+				confirm(ips, ip)
 				log.I("pdial: found working ip%d %s for %s; duration: %s", i, ip, addr, time.Since(s3))
 				return conn, nil
 			}
@@ -129,13 +129,19 @@ func ProxyDials(dd []proxy.Dialer, network, addr string) (c net.Conn, err error)
 	tot := len(dd)
 	for i, d := range dd {
 		c, err = proxydial(d, network, addr, proxyConnect)
+		if c == nil && err != nil {
+			err = errors.Join(err, errNoConn)
+		}
 		if err != nil {
 			log.W("pdial: trying %s dialer of %d / %d to %s", network, i, tot, addr)
 			err = errors.Join(err)
-		} else {
+		} else if c != nil {
 			err = nil
 			return
-		}
+		} // c and err are nil
+	}
+	if c == nil && err == nil {
+		return nil, errNoConn
 	}
 	return
 }

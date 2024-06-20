@@ -35,10 +35,23 @@ package log
 var Glogger Logger
 
 // caller -> intra/log.go (this file) -> intra/logger.go -> golang/log.go
-var callerDepth = 4
+var CallerDepth = 4
 
 // caller -> LogFn -> intra/log.go (this file) -> intra/logger.go -> golang/log.go
-var logFnCallerDepth = 5
+var LogFnCallerDepth = CallerDepth + 1
+
+// Console is an external logger.
+type Console interface {
+	// Log logs a multi-line msg.
+	Log(level int32, msg string)
+}
+
+type conMsg struct {
+	m string
+	t LogLevel
+}
+
+var consoleChSize = 128
 
 type LogFn func(string, ...any)
 type LogFn2 func(int, string, ...any)
@@ -46,6 +59,7 @@ type LogFn2 func(int, string, ...any)
 func RegisterLogger(l Logger) bool {
 	Glogger = l
 	l.SetLevel(INFO)
+	l.SetConsoleLevel(STACKTRACE)
 	return true
 }
 
@@ -55,10 +69,22 @@ func SetLevel(level LogLevel) {
 	}
 }
 
+func SetConsoleLevel(level LogLevel) {
+	if Glogger != nil {
+		Glogger.SetConsoleLevel(level)
+	}
+}
+
+func SetConsole(c Console) {
+	if Glogger != nil {
+		Glogger.SetConsole(c)
+	}
+}
+
 func Of(tag string, l LogFn2) LogFn {
 	if l != nil {
 		return func(msg string, args ...any) {
-			l(logFnCallerDepth, tag+" "+msg, args...)
+			l(LogFnCallerDepth, tag+" "+msg, args...)
 		}
 	}
 	return N
@@ -68,44 +94,68 @@ func N(string, ...any)       {}
 func N2(int, string, ...any) {}
 
 func V(msg string, args ...any) {
-	V2(logFnCallerDepth, msg, args...)
+	V2(LogFnCallerDepth, msg, args...)
 }
 
 func VV(msg string, args ...any) {
-	VV2(logFnCallerDepth, msg, args...)
+	VV2(LogFnCallerDepth, msg, args...)
 }
 
 func D(msg string, args ...any) {
-	D2(logFnCallerDepth, msg, args...)
+	D2(LogFnCallerDepth, msg, args...)
 }
 
 func I(msg string, args ...any) {
-	I2(logFnCallerDepth, msg, args...)
+	I2(LogFnCallerDepth, msg, args...)
 }
 
 func W(msg string, args ...any) {
-	W2(logFnCallerDepth, msg, args...)
+	W2(LogFnCallerDepth, msg, args...)
 }
 
 func E(msg string, args ...any) {
-	E2(logFnCallerDepth, msg, args...)
+	E2(LogFnCallerDepth, msg, args...)
 }
 
 func P(msg string, args ...any) {
 	if Glogger != nil {
-		Glogger.Piif(callerDepth, "P "+msg, args...)
+		Glogger.Piif(CallerDepth, "P "+msg, args...)
 	}
 }
 
 func Wtf(msg string, args ...any) {
 	if Glogger != nil {
-		Glogger.Fatalf(callerDepth, "F "+msg, args...)
+		Glogger.Fatalf(CallerDepth, "F "+msg, args...)
+	}
+}
+
+// C logs the stack trace of the current goroutine to Console.
+func C(msg string, scratch []byte) {
+	if Glogger != nil {
+		E2(LogFnCallerDepth, "----START----")
+		Glogger.Stack( /*console-only*/ 0, "F "+msg, scratch)
+		E2(LogFnCallerDepth, "----STOPP----")
+	}
+}
+
+func U(msg string) {
+	if Glogger != nil {
+		Glogger.Usr(msg)
+	}
+}
+
+// T logs the stack trace of the current goroutine.
+func T(msg string, scratch []byte) {
+	if Glogger != nil {
+		E2(LogFnCallerDepth, "----START----")
+		Glogger.Stack(LogFnCallerDepth, "F "+msg, scratch)
+		E2(LogFnCallerDepth, "----STOPP----")
 	}
 }
 
 func VV2(at int, msg string, args ...any) {
 	if Glogger != nil {
-		Glogger.VeryVerbosef(at, "V "+msg, args...)
+		Glogger.VeryVerbosef(at, "VV "+msg, args...)
 	}
 }
 
@@ -137,4 +187,28 @@ func E2(at int, msg string, args ...any) {
 	if Glogger != nil {
 		Glogger.Errorf(at, "E "+msg, args...)
 	}
+}
+
+func LevelOf(level int32) LogLevel {
+	dlvl := NONE
+	switch l := LogLevel(level); l {
+	case VVERBOSE:
+		dlvl = VVERBOSE
+	case VERBOSE:
+		dlvl = VERBOSE
+	case DEBUG:
+		dlvl = DEBUG
+	case INFO:
+		dlvl = INFO
+	case WARN:
+		dlvl = WARN
+	case ERROR:
+		dlvl = ERROR
+	case STACKTRACE:
+		dlvl = STACKTRACE
+	case NONE:
+		dlvl = NONE
+	default:
+	}
+	return dlvl
 }

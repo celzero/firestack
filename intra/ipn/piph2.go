@@ -12,6 +12,7 @@ import (
 	"crypto/sha256"
 	"crypto/tls"
 	"encoding/hex"
+	"errors"
 	"io"
 	"net"
 	"net/http"
@@ -32,20 +33,25 @@ import (
 )
 
 type piph2 struct {
-	nofwd                      // no forwarding/listening
-	id          string         // some unique identifier
-	url         string         // h2 proxy url
-	hostname    string         // h2 proxy hostname
-	port        int            // h2 proxy port
-	token       string         // hex, client token
-	toksig      string         // hex, authorizer signed client token
-	rsasig      string         // hex, authorizer unblinded signature
-	client      http.Client    // h2 client, see trType
-	proxydialer *protect.RDial // h2 dialer
-	hc          *http.Client   // exported http client
-	rd          *protect.RDial // exported dialer
-	lastdial    time.Time      // last dial time
-	status      int            // proxy status: TOK, TKO, END
+	nofwd                        // no forwarding/listening
+	protoagnostic                // since dial, dialts are proto aware
+	skiprefresh                  // no refresh
+	id            string         // some unique identifier
+	url           string         // h2 proxy url
+	hostname      string         // h2 proxy hostname
+	port          int            // h2 proxy port
+	token         string         // hex, client token
+	toksig        string         // hex, authorizer signed client token
+	rsasig        string         // hex, authorizer unblinded signature
+	client        http.Client    // h2 client, see trType
+	proxydialer   *protect.RDial // h2 dialer
+	hc            *http.Client   // exported http client
+	rd            *protect.RDial // exported dialer
+	opts          *settings.ProxyOptions
+
+	// mutable fields
+	lastdial *core.Volatile[time.Time] // last dial time
+	status   *core.Volatile[int]       // proxy status: TOK, TKO, END
 }
 
 // github.com/posener/h2conn/blob/13e7df33ed1/conn.go
@@ -67,7 +73,7 @@ func (c *pipconn) Read(b []byte) (int, error) {
 		c.r = <-c.rch // nil on error
 		c.ok = true
 	}
-	if c.r == nil {
+	if core.IsNil(c.r) {
 		log.E("piph2: read(%v/%s) not ok", len(b), c.id)
 		return 0, io.EOF
 	}
@@ -92,11 +98,11 @@ func (c *pipconn) Close() (err error) {
 }
 
 func (c *pipconn) CloseRead() {
-	clos(c.r)
+	core.Close(c.r)
 }
 
 func (c *pipconn) CloseWrite() {
-	clos(c.w)
+	core.Close(c.w)
 }
 
 func (c *pipconn) LocalAddr() net.Addr           { return c.laddr }
@@ -107,8 +113,8 @@ func SetWriteDeadline(t time.Time) error         { return nil }
 
 func (t *piph2) dialtls(network, addr string, cfg *tls.Config) (net.Conn, error) {
 	rawConn, err := t.dial(network, addr)
-	if err != nil {
-		return nil, err
+	if err != nil || rawConn == nil || core.IsNil(rawConn) {
+		return nil, errors.Join(err, errNoProxyConn)
 	}
 
 	colonPos := strings.LastIndex(addr, ":")
@@ -128,23 +134,19 @@ func (t *piph2) dialtls(network, addr string, cfg *tls.Config) (net.Conn, error)
 	conn := tls.Client(rawConn, cfg)
 	if err := conn.HandshakeContext(context.Background()); err != nil {
 		log.D("piph2: dialtls(%s) handshake error: %v", addr, err)
-		clos(rawConn)
+		core.CloseConn(rawConn)
 		return nil, err
 	}
 	return conn, nil
 }
 
-func clos(c io.Closer) {
-	if c != nil {
-		_ = c.Close()
-	}
-}
-
+// dial dials proxy addr using the proxydialer via dialers.SplitDial,
+// which is aware of proto changes.
 func (t *piph2) dial(network, addr string) (net.Conn, error) {
 	return dialers.SplitDial(t.proxydialer, network, addr)
 }
 
-func NewPipProxy(id string, ctl protect.Controller, po *settings.ProxyOptions) (Proxy, error) {
+func NewPipProxy(id string, ctl protect.Controller, po *settings.ProxyOptions) (*piph2, error) {
 	if po == nil {
 		return nil, errMissingProxyOpt
 	}
@@ -191,7 +193,9 @@ func NewPipProxy(id string, ctl protect.Controller, po *settings.ProxyOptions) (
 		token:       po.Auth.User,
 		toksig:      po.Auth.Password,
 		rsasig:      rsasig,
-		status:      TUP,
+		status:      core.NewVolatile(TUP),
+		lastdial:    core.NewVolatile(time.Time{}),
+		opts:        po,
 	}
 	t.rd = newRDial(t)
 	t.hc = newHTTPClient(t.rd)
@@ -241,18 +245,17 @@ func (*piph2) Router() x.Router {
 }
 
 func (t *piph2) Stop() error {
-	t.status = END
+	t.status.Store(END)
 	return nil
 }
 
 func (t *piph2) Status() int {
-	if t.status != END && idling(t.lastdial) {
+	st := t.status.Load()
+	if st != END && idling(t.lastdial.Load()) {
 		return TZZ
 	}
-	return t.status
+	return st
 }
-
-func (h *piph2) Refresh() error { return nil }
 
 // Scenario 4: privacypass.github.io/protocol
 func (t *piph2) claim(msg string) []string {
@@ -266,7 +269,7 @@ func (t *piph2) claim(msg string) []string {
 
 // Dial implements Proxy.
 func (t *piph2) Dial(network, addr string) (protect.Conn, error) {
-	if t.status == END {
+	if t.status.Load() == END {
 		return nil, errProxyStopped
 	}
 	if network != "tcp" {
@@ -292,13 +295,14 @@ func (t *piph2) Dial(network, addr string) (protect.Conn, error) {
 	readable, writable := io.Pipe()
 	// multipart? stackoverflow.com/questions/39761910
 	// mpw := multipart.NewWriter(writable)
+	// todo: buffered chan may slow down the client
 	incomingCh := make(chan io.ReadCloser, 1)
 	wlenCh := make(chan int64, 1)
 	oconn := &pipconn{
 		id:  u.Path,
 		rch: incomingCh,
 		wch: wlenCh,
-		w:   writable,
+		w:   writable, // never nil
 	}
 
 	// github.com/golang/go/issues/26574
@@ -306,7 +310,7 @@ func (t *piph2) Dial(network, addr string) (protect.Conn, error) {
 
 	if err != nil {
 		log.E("piph2: req err: %v", err)
-		t.status = TKO
+		t.status.Store(TKO)
 		closePipe(readable, writable)
 		return nil, err
 	}
@@ -396,8 +400,8 @@ func (t *piph2) Dial(network, addr string) (protect.Conn, error) {
 		// req.Header.Set("x-nile-pip-msg", msg)
 	}
 
-	t.lastdial = time.Now()
-	go func() {
+	t.lastdial.Store(time.Now())
+	core.Go("piph2.Dial", func() {
 		// fixme: currently, this hangs forever when upstream is cloudflare
 		// setting the content-length to the first len(first-write-bytes) works
 		// with cloudflare, but then golang's h2 client isn't happy about sending
@@ -407,30 +411,30 @@ func (t *piph2) Dial(network, addr string) (protect.Conn, error) {
 		res, err := t.client.Do(req)
 		if err != nil || res == nil {
 			log.E("piph2: path(%s) send err: %v", u.Path, err)
-			t.status = TKO
+			t.status.Store(TKO)
 			incomingCh <- nil
 			closePipe(readable, writable)
 		} else if res.StatusCode != http.StatusOK {
 			log.E("piph2: path(%s) recv bad: %v", u.Path, res.Status)
-			clos(res.Body)
-			t.status = TKO
+			core.Close(res.Body)
+			t.status.Store(TKO)
 			incomingCh <- nil
 			closePipe(readable, writable)
 		} else {
 			log.D("piph2: duplex %s", u.String())
 			// github.com/posener/h2conn/blob/13e7df33ed1/client.go
 			res.Request = req
-			t.status = TOK
+			t.status.Store(TOK)
 			incomingCh <- res.Body
 		}
-	}()
+	})
 
-	t.status = TOK
+	t.status.Store(TOK)
 	return oconn, nil
 }
 
 func (h *piph2) fetch(req *http.Request) (*http.Response, error) {
-	stopped := h.status == END
+	stopped := h.status.Load() == END
 	if stopped {
 		return nil, errProxyStopped
 	}
@@ -445,9 +449,9 @@ func (h *piph2) DNS() string {
 	return nodns
 }
 
-func closePipe(c ...io.Closer) {
-	for _, x := range c {
-		clos(x)
+func closePipe(ps ...io.Closer) {
+	for _, c := range ps {
+		core.CloseOp(c, core.CopAny)
 	}
 }
 

@@ -42,7 +42,7 @@ func tlsConnect(d *tls.Dialer, proto, sni string, ip netip.Addr, port int) (net.
 		} else if len(d.Config.ServerName) <= 0 {
 			d.Config.ServerName = sni
 		}
-		return d.Dial(proto, addr(ip, port))
+		return d.Dial(proto, addrstr(ip, port))
 	}
 }
 
@@ -79,14 +79,14 @@ func tlsdial(d *tls.Dialer, network, addr string, connect tlsConnectFunc) (net.C
 	}
 
 	ipset := ips.Addrs()
-	allips := maybeFilter(ipset, confirmed)
-	if len(allips) <= 0 {
+	allips, failingopen := maybeFilter(ipset, confirmed)
+	if len(allips) <= 0 || failingopen {
 		var ok bool
 		if ips, ok = renew(domain, ips); ok {
 			ipset = ips.Addrs()
-			allips = maybeFilter(ipset, confirmed)
+			allips, failingopen = maybeFilter(ipset, confirmed)
 		}
-		log.D("tlsdial: renew ips for %s; ok? %t", addr, ok)
+		log.D("tlsdial: renew ips for %s; ok? %t, failingopen? %t", addr, ok, failingopen)
 	}
 	log.D("tlsdial: trying all ips %d for %s", len(allips), addr)
 	for _, ip := range allips {
@@ -98,7 +98,7 @@ func tlsdial(d *tls.Dialer, network, addr string, connect tlsConnectFunc) (net.C
 		if ipok(ip) {
 			log.V("tlsdial: trying ip %s for %s", ip, addr)
 			if conn, err := connect(d, network, domain, ip, port); err == nil {
-				ips.Confirm(ip)
+				confirm(ips, ip)
 				log.I("tlsdial: found working ip %s for %s", ip, addr)
 				return conn, nil
 			} else {

@@ -12,6 +12,7 @@ import (
 	"io"
 	"net"
 
+	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/log"
 	"golang.org/x/net/proxy"
 )
@@ -40,9 +41,9 @@ type RDialer interface {
 // RDial discards local-addresses
 type RDial struct {
 	Owner   string            // owner tag
-	Dialer  proxy.Dialer      // may be nil
-	Listen  *net.ListenConfig // may be nil
-	RDialer RDialer           // may be nil
+	Dialer  proxy.Dialer      // may be nil; used by exit, base, grounded
+	Listen  *net.ListenConfig // may be nil; used by exit, base, grounded
+	RDialer RDialer           // may be nil; used by remote proxies, ex: wg
 }
 
 var (
@@ -57,9 +58,9 @@ var (
 	errAccept      = errors.New("cannot accept network")
 )
 
-func (d *RDial) dial(network, addr string) (Conn, error) {
+func (d *RDial) dial(network, addr string) (net.Conn, error) {
 	usedialer := d.Dialer != nil
-	userdialer := d.RDialer != nil
+	userdialer := d.RDialer != nil && core.IsNotNil(d.RDialer)
 	if usedialer {
 		return d.Dialer.Dial(network, addr)
 	}
@@ -87,12 +88,12 @@ func (d *RDial) DialContext(_ context.Context, network, addr string) (net.Conn, 
 	}
 }
 
-func (d *RDial) Accept(network, local string) (Listener, error) {
+func (d *RDial) Accept(network, local string) (net.Listener, error) {
 	if network != "tcp" && network != "tcp4" && network != "tcp6" {
 		return nil, errAccept
 	}
 	uselistener := d.Listen != nil
-	userdialer := d.RDialer != nil
+	userdialer := d.RDialer != nil && core.IsNotNil(d.RDialer)
 	if !uselistener && !userdialer {
 		log.V("xdial: Accept: (r? %t / o: %s) %s %s", userdialer, d.Owner, network, local)
 		return nil, errNoAcceptor
@@ -107,7 +108,7 @@ func (d *RDial) Accept(network, local string) (Listener, error) {
 	return d.RDialer.Accept(network, local)
 }
 
-func (d *RDial) Announce(network, local string) (PacketConn, error) {
+func (d *RDial) Announce(network, local string) (net.PacketConn, error) {
 	if network != "udp" && network != "udp4" && network != "udp6" {
 		return nil, errAnnounce
 	}
@@ -115,7 +116,7 @@ func (d *RDial) Announce(network, local string) (PacketConn, error) {
 	// diailing (proxy.Dial/net.Dial/etc) on wildcard addresses (ex: ":8080" or "" or "localhost:1025")
 	// is not equivalent to listening/announcing. see: github.com/golang/go/issues/22827
 	uselistener := d.Listen != nil
-	userdialer := d.RDialer != nil
+	userdialer := d.RDialer != nil && core.IsNotNil(d.RDialer)
 	if !uselistener && !userdialer {
 		log.V("xdial: Announce: (r? %t / o: %s) %s %s", userdialer, d.Owner, network, local)
 		return nil, errNoAnnouncer
@@ -138,9 +139,7 @@ func (d *RDial) Announce(network, local string) (PacketConn, error) {
 }
 
 func clos(c io.Closer) {
-	if c != nil {
-		_ = c.Close()
-	}
+	core.Close(c)
 }
 
 func (d *RDial) DialTCP(network string, laddr, raddr *net.TCPAddr) (*net.TCPConn, error) {
@@ -176,6 +175,7 @@ func (d *RDial) DialUDP(network string, laddr, raddr *net.UDPAddr) (*net.UDPConn
 }
 
 // AnnounceUDP announces the local address. network must be "udp" or "udp4" or "udp6".
+// Helper method for d.Announce("udp", local)
 func (d *RDial) AnnounceUDP(network, local string) (*net.UDPConn, error) {
 	if c, err := d.Announce(network, local); err != nil {
 		return nil, err
@@ -189,6 +189,7 @@ func (d *RDial) AnnounceUDP(network, local string) (*net.UDPConn, error) {
 }
 
 // AcceptTCP creates a listener on the local address. network must be "tcp" or "tcp4" or "tcp6".
+// Helper method for d.Accept("tcp", local)
 func (d *RDial) AcceptTCP(network string, local string) (*net.TCPListener, error) {
 	if ln, err := d.Accept(network, local); err != nil {
 		return nil, err

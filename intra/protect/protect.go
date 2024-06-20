@@ -29,6 +29,7 @@ import (
 	"syscall"
 
 	b "github.com/celzero/firestack/intra/backend"
+	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/log"
 )
 
@@ -129,7 +130,7 @@ func ipbind(p Protector) func(string, string, syscall.RawConn) error {
 // unused: Creates a dialer that binds to a particular ip.
 func MakeDialer(p Protector) *net.Dialer {
 	x := netdialer()
-	if p != nil {
+	if p != nil && core.IsNotNil(p) {
 		x.Control = ipbind(p)
 	}
 	return x
@@ -138,7 +139,7 @@ func MakeDialer(p Protector) *net.Dialer {
 // unused: Creates a listener that binds to a particular ip.
 func MakeListenConfig(p Protector) *net.ListenConfig {
 	x := netlistener()
-	if p != nil {
+	if p != nil && core.IsNotNil(p) {
 		x.Control = ipbind(p)
 	}
 	return x
@@ -147,7 +148,7 @@ func MakeListenConfig(p Protector) *net.ListenConfig {
 // Creates a net.Dialer that can bind to any active interface.
 func MakeNsDialer(who string, c Controller) *net.Dialer {
 	x := netdialer()
-	if c != nil {
+	if c != nil && core.IsNotNil(c) {
 		x.Control = ifbind(who, c)
 	}
 	return x
@@ -165,7 +166,7 @@ func MakeNsRDial(who string, c Controller) *RDial {
 // Creates a listener that can bind to any active interface.
 func MakeNsListener(who string, c Controller) *net.ListenConfig {
 	x := netlistener()
-	if c != nil {
+	if c != nil && core.IsNotNil(c) {
 		x.Control = ifbind(who, c)
 	}
 	return x
@@ -180,7 +181,7 @@ func MakeNsListenConfigExt(who string, ctl Controller, ext []ControlFn) *net.Lis
 				return err
 			}
 		}
-		if ctl != nil {
+		if ctl != nil && core.IsNotNil(ctl) {
 			if err := ifbind(who, ctl)(network, address, c); err != nil {
 				return err
 			}

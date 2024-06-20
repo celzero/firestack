@@ -17,6 +17,8 @@ import (
 )
 
 type exit struct {
+	protoagnostic
+	skiprefresh
 	rd        *protect.RDial    // this proxy as a RDial
 	hc        *http.Client      // this proxy as a http.Client
 	outbound  *net.Dialer       // outbound dialer
@@ -25,7 +27,7 @@ type exit struct {
 	status    int
 }
 
-func NewExitProxy(c protect.Controller) Proxy {
+func NewExitProxy(c protect.Controller) *exit {
 	if c == nil {
 		log.W("proxy: exit: missing ctl; probably not what you want")
 	}
@@ -116,5 +118,3 @@ func (h *exit) Stop() error {
 	log.I("proxy: exit: stopped")
 	return nil
 }
-
-func (h *exit) Refresh() error { return nil }

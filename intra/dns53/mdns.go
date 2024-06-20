@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"net"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -48,8 +49,8 @@ type dnssd struct {
 var _ dnsx.Transport = (*dnssd)(nil)
 
 // NewMDNSTransport returns a DNS transport that sends all DNS queries to mDNS endpoint.
-func NewMDNSTransport(protos string) (t dnsx.Transport) {
-	t = &dnssd{
+func NewMDNSTransport(protos string) *dnssd {
+	t := &dnssd{
 		id:     dnsx.Local,
 		use4:   use4(protos),
 		use6:   use6(protos),
@@ -58,7 +59,7 @@ func NewMDNSTransport(protos string) (t dnsx.Transport) {
 		est:    core.NewP50Estimator(),
 	}
 	log.I("mdns: setup: %s", protos)
-	return
+	return t
 }
 
 func use4(l3 string) bool {
@@ -101,10 +102,10 @@ func (t *dnssd) oneshotQuery(msg *dns.Msg) (*dns.Msg, *dnsx.QueryError) {
 	log.D("mdns: oquery: %s", qname)
 
 	if c, err = t.newClient(true); err != nil {
-		log.E("mdns: underlying transport: %s", err)
+		log.E("mdns: oquery: underlying transport: %s", err)
 		return nil, dnsx.NewTransportQueryError(err)
 	}
-	defer clos(c)
+	defer core.Close(c)
 	if qerr := c.query(qctx); qerr != nil {
 		log.E("mdns: oquery(%s): %v", qname, qerr)
 		return nil, qerr
@@ -124,19 +125,19 @@ func (t *dnssd) oneshotQuery(msg *dns.Msg) (*dns.Msg, *dnsx.QueryError) {
 	return nil, dnsx.NewNoResponseQueryError(errNoMdnsAnswer)
 }
 
-func (t *dnssd) Query(_ string, q *dns.Msg, summary *x.DNSSummary) (ans *dns.Msg, err error) {
-	summary.ID = t.ID()
-	summary.Type = t.Type()
-	summary.Server = t.GetAddr()
+func (t *dnssd) Query(_ string, q *dns.Msg, smm *x.DNSSummary) (ans *dns.Msg, err error) {
+	smm.ID = t.ID()
+	smm.Type = t.Type()
+	smm.Server = t.GetAddr()
 
 	defer func() {
-		log.D("mdns: err: %v; summary: %s", err, summary.Str())
+		log.D("mdns: err: %v; summary: %s", err, smm.Str())
 	}()
 
 	start := time.Now()
 
 	if q == nil || !xdns.HasAnyQuestion(q) {
-		summary.Status = dnsx.BadQuery
+		smm.Status = dnsx.BadQuery
 		t.status = dnsx.BadQuery
 		return
 	}
@@ -150,13 +151,15 @@ func (t *dnssd) Query(_ string, q *dns.Msg, summary *x.DNSSummary) (ans *dns.Msg
 	}
 
 	elapsed := time.Since(start)
-	summary.Latency = elapsed.Seconds()
-	summary.RData = xdns.GetInterestingRData(ans)
-	summary.RCode = xdns.Rcode(ans)
-	summary.RTtl = xdns.RTtl(ans)
-	summary.Status = t.Status()
-	summary.Blocklists = ""
-	t.est.Add(summary.Latency)
+	smm.Latency = elapsed.Seconds()
+	smm.RData = xdns.GetInterestingRData(ans)
+	smm.RCode = xdns.Rcode(ans)
+	smm.RTtl = xdns.RTtl(ans)
+	smm.Status = t.Status()
+	if err != nil {
+		smm.Msg = err.Error()
+	}
+	t.est.Add(smm.Latency)
 
 	return ans, err
 }
@@ -195,11 +198,12 @@ type dnssdanswer struct {
 	captured bool
 }
 
-// done checks if we have all the info we need
+// hasip checks if we have all the ip recs we need
 func (s *dnssdanswer) hasip() bool {
 	return (s.ip4 != nil || s.ip6 != nil)
 }
 
+// hassvc checks if we have all the srv recs we need
 func (s *dnssdanswer) hassvc() bool {
 	return s.port != 0 && len(s.txt) > 0
 }
@@ -209,7 +213,7 @@ type qcontext struct {
 	svc         string              // Service to query for, ex: _foobar._tcp, normalized to lower case
 	tld         string              // If blank, assumes "local"
 	msg         *dns.Msg            // If not nil, use this message instead of building one
-	timeout     time.Duration       // Lookup timeout, default 1 second
+	timeout     time.Duration       // Lookup timeout
 	ansch       chan<- *dnssdanswer // answers acc, must be non-blocking (buffered)
 	unicastonly bool                // Unicast response desired, as per 5.4 in RFC
 }
@@ -230,11 +234,15 @@ type client struct {
 
 	oneshot bool
 
-	closed atomic.Int32
+	once sync.Once
+
+	// mutable fields
+
+	closed atomic.Bool // 0: open, 1: closed
 }
 
 func (c *client) str() string {
-	return fmt.Sprintf("use4/6? %t/%t; oneshot? %t; tracked %d; closed %d", c.use4, c.use6, c.oneshot, len(c.tracker), c.closed.Load())
+	return fmt.Sprintf("use4/6? %t/%t; oneshot? %t; tracked %d; closed %t", c.use4, c.use6, c.oneshot, len(c.tracker), c.closed.Load())
 }
 
 // newClient creates a new mdns unicast and multicast client
@@ -298,16 +306,18 @@ func (t *dnssd) newClient(oneshot bool) (*client, error) {
 
 // Close cleanups the client
 func (c *client) Close() error {
-	if !c.closed.CompareAndSwap(0, 1) {
+	if c.closed.Load() {
 		return nil // already closed
 	}
+	c.once.Do(func() {
+		c.closed.Store(true)
+		log.I("mdns: closing client %v", c.str())
 
-	log.I("mdns: closing client %v", c.str())
-
-	clos(c.unicast4)
-	clos(c.unicast6)
-	clos(c.multicast4)
-	clos(c.multicast6)
+		core.CloseUDP(c.unicast4)
+		core.CloseUDP(c.unicast6)
+		core.CloseUDP(c.multicast4)
+		core.CloseUDP(c.multicast6)
+	})
 
 	return nil
 }
@@ -338,12 +348,15 @@ func (c *client) query(qctx *qcontext) *dnsx.QueryError {
 		return err
 	}
 
-	go c.listen(qctx)
+	core.Go("mdns.listen", func() { c.listen(qctx) })
 
 	log.D("mdns: query: waiting for ans to %s", qctx.svc)
 	return nil
 }
 
+// listen listens for answers to the MDNS query, and sends them to qctx.ansch,
+// and stops listening after qctx.timeout or the client is closed.
+// Must be called from a goroutine.
 func (c *client) listen(qctx *qcontext) {
 	timesup := time.After(qctx.timeout)
 	qname := fmt.Sprintf("%s.%s.", qctx.svc, qctx.tld)
@@ -463,26 +476,31 @@ func (c *client) send(q *dns.Msg) *dnsx.QueryError {
 	return nil
 }
 
-// recv forwards bytes to msgCh read from conn until error or shutdown
+// recv forwards bytes to msgCh read from conn until error or shutdown.
+// Must be called from a goroutine.
 func (c *client) recv(conn *net.UDPConn) {
 	if conn == nil {
 		return
 	}
 
+	defer core.Recover(core.DontExit, "mdns.recv")
+
 	bptr := core.Alloc()
 	buf := *bptr
 	buf = buf[:cap(buf)]
+	// buf must be recycled from a deferred fn since exec continues
+	// on panics and deferred fns are guaranteed to run.
 	defer func() {
 		*bptr = buf
 		core.Recycle(bptr)
 	}()
 
 	raddr := conn.RemoteAddr()
-	for c.closed.Load() == 0 {
+	for !c.closed.Load() {
 		extend(conn, timeout)
 		n, err := conn.Read(buf)
 
-		if c.closed.Load() == 1 {
+		if c.closed.Load() {
 			log.W("mdns: recv: from(%v); closed; bytes(%d), err(%v)", raddr, n, err)
 			return
 		}
@@ -511,16 +529,18 @@ func (c *client) recv(conn *net.UDPConn) {
 	}
 }
 
+// untrack removes a name from the tracker;
+// name is NOT normalized. untrack is not thread safe.
 func (c *client) untrack(name string) {
 	log.V("mdns: tracker: rmv %s", name)
 	delete(c.tracker, name)
 }
 
 // track marks a name as being tracked by this client;
-// name is NOT normalized
+// name is NOT normalized. track is not thread safe.
 func (c *client) track(name string) *dnssdanswer {
 	if tse, ok := c.tracker[name]; ok {
-		log.V("mdns: tracker: exists %s with %v", name, tse)
+		log.VV("mdns: tracker: exists %s with %v", name, tse)
 		return tse
 	}
 	se := &dnssdanswer{
@@ -532,10 +552,10 @@ func (c *client) track(name string) *dnssdanswer {
 }
 
 // alias sets up mapping between two tracked entries;
-// src and dst are NOT normalized
+// src and dst are NOT normalized. alias is not thread safe.
 func (c *client) alias(src, dst string) {
 	if se, ok := c.tracker[dst]; ok {
-		log.V("mdns: tracker: discard %v for %s; aliased to %s", se, dst, src)
+		log.VV("mdns: tracker: discard %v for %s; aliased to %s", se, dst, src)
 	}
 	se := c.track(src)
 	log.V("mdns: tracker: alias %s <-> %s with %v", src, dst, se)
@@ -543,7 +563,7 @@ func (c *client) alias(src, dst string) {
 }
 
 func extend(c net.Conn, t time.Duration) {
-	if c != nil {
+	if c != nil && core.IsNotNil(c) {
 		_ = c.SetDeadline(time.Now().Add(t))
 	}
 }

@@ -26,14 +26,15 @@ import (
 )
 
 type socks5 struct {
-	nofwd                           // no forwarding/listening
-	outbound []proxy.Dialer         // outbound dialers connecting unto upstream proxy
-	id       string                 // unique identifier
-	opts     *settings.ProxyOptions // connect options
-	rd       *protect.RDial         // this transport as a dialer
-	hc       *http.Client           // this transport as a http client
-	lastdial time.Time              // last time this transport attempted a connection
-	status   int                    // status of this transport
+	nofwd                              // no forwarding/listening
+	skiprefresh                        // no refresh
+	outbound    []proxy.Dialer         // outbound dialers connecting unto upstream proxy
+	id          string                 // unique identifier
+	opts        *settings.ProxyOptions // connect options
+	rd          *protect.RDial         // this transport as a dialer
+	hc          *http.Client           // this transport as a http client
+	lastdial    time.Time              // last time this transport attempted a connection
+	status      int                    // status of this transport
 }
 
 type socks5tcpconn struct {
@@ -79,19 +80,19 @@ func (c *socks5udpconn) ReadFrom(b []byte) (n int, addr net.Addr, err error) {
 	return 0, nil, errNoProxyConn
 }
 
-func NewSocks5Proxy(id string, ctl protect.Controller, po *settings.ProxyOptions) (Proxy, error) {
+func NewSocks5Proxy(id string, ctl protect.Controller, po *settings.ProxyOptions) (*socks5, error) {
 	var err error
 	if po == nil {
 		log.W("proxy: err setting up socks5(%v): %v", po, err)
 		return nil, errMissingProxyOpt
 	}
 
-	// replace with a network namespace aware dialer
+	// always with a network namespace aware dialer
 	tx.Dial = protect.MakeNsRDial(id, ctl)
 
 	portnumber, _ := strconv.Atoi(po.Port)
 	mh := multihost.New(id)
-	mh.With([]string{po.Host, po.IP}) // resolves if ip is name
+	mh.Add([]string{po.Host, po.IP}) // resolves if ip is name
 
 	var clients []proxy.Dialer
 	// x.net.proxy doesn't yet support udp
@@ -100,8 +101,8 @@ func NewSocks5Proxy(id string, ctl protect.Controller, po *settings.ProxyOptions
 	// socks5 server may throw err when dialing with golang/net/x/proxy;
 	// although, txthinking/socks5 deals gracefully with empty auth strings
 	// fproxy, err = proxy.SOCKS5("udp", po.IPPort, po.Auth, proxy.Direct)
-	for _, ip := range mh.Addrs() {
-		ipport := netip.AddrPortFrom(ip, uint16(portnumber))
+	for _, ip := range mh.PreferredAddrs() {
+		ipport := netip.AddrPortFrom(ip.Addr(), uint16(portnumber))
 		c, cerr := tx.NewClient(ipport.String(), po.Auth.User, po.Auth.Password, tcptimeoutsec, udptimeoutsec)
 		if cerr != nil {
 			err = errors.Join(err, cerr)
@@ -146,13 +147,13 @@ func (h *socks5) Dial(network, addr string) (c protect.Conn, err error) {
 				c = &socks5tcpconn{uc}
 			} else {
 				log.W("proxy: socks5: %s conn not tcp nor udp %s -> %s", h.ID(), h.GetAddr(), addr)
-				clos(c)
+				core.CloseConn(c)
 				c = nil
 				err = errNoProxyConn
 			}
 		} else {
 			log.W("proxy: socks5: %s conn not a tx.Client(%s) %s -> %s", h.ID(), network, h.GetAddr(), addr)
-			clos(c)
+			core.CloseConn(c)
 			c = nil
 			err = errNoProxyConn
 		}
@@ -214,4 +215,6 @@ func (h *socks5) Stop() error {
 	return nil
 }
 
-func (h *socks5) Refresh() error { return nil }
+func (h *socks5) onProtoChange() (string, bool) {
+	return h.opts.FullUrl(), true
+}

@@ -18,6 +18,7 @@ import (
 	x "github.com/celzero/firestack/intra/backend"
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/log"
+	"github.com/celzero/firestack/intra/settings"
 	"github.com/celzero/firestack/intra/xdns"
 	"github.com/miekg/dns"
 )
@@ -75,7 +76,6 @@ type ctransport struct {
 	Transport                         // the underlying transport
 	store        []*cache             // cache buckets
 	ipport       string               // a fake ip:port
-	status       int                  // status of this transport
 	ttl          time.Duration        // lifetime duration of a cached dns entry
 	halflife     time.Duration        // increment ttl on each read
 	bumps        int                  // max bumps in lifetime of a cached response
@@ -85,7 +85,7 @@ type ctransport struct {
 	est          core.P2QuantileEstimator
 }
 
-func NewDefaultCachingTransport(t Transport) (ct Transport) {
+func NewDefaultCachingTransport(t Transport) Transport {
 	return NewCachingTransport(t, defttl)
 }
 
@@ -107,7 +107,6 @@ func NewCachingTransport(t Transport, ttl time.Duration) Transport {
 		Transport:  t,
 		store:      make([]*cache, defbuckets),
 		ipport:     "[fdaa:cac::ed:3]:53",
-		status:     Start,
 		ttl:        ttl,
 		halflife:   ttl / 2,
 		bumps:      defbumps,
@@ -165,7 +164,11 @@ func mkcachekey(q *dns.Msg) (string, uint8, bool) {
 	return qname + cacheKeySep + qtyp, hash(qname), true
 }
 
+// scrubCache deletes expired entries from the cache.
+// Must be called from a goroutine.
 func (cb *cache) scrubCache() {
+	defer core.Recover(core.Exit11, "c.scrubCache")
+	// must unlock from deferred since panics are recovered above
 	cb.mu.Lock()
 	defer cb.mu.Unlock()
 
@@ -314,8 +317,12 @@ func (t *ctransport) hangoverCheckpoint() {
 
 func (t *ctransport) fetch(network string, q *dns.Msg, summary *x.DNSSummary, cb *cache, key string) (*dns.Msg, error) {
 	sendRequest := func(fsmm *x.DNSSummary) (*dns.Msg, error) {
-		fsmm.ID = t.Transport.ID()
-		fsmm.Type = t.Transport.Type()
+		if false && settings.Debug && rand10pc() {
+			panic("test crash")
+		}
+
+		fsmm.ID = t.ID()
+		fsmm.Type = t.Type()
 
 		v, _ := t.reqbarrier.Do(key, func() (*cres, error) {
 			// ans may be nil
@@ -344,7 +351,7 @@ func (t *ctransport) fetch(network string, q *dns.Msg, summary *x.DNSSummary, cb
 		inhangover := t.hangover.Exceeds(ttl10s)
 		if inhangover {
 			err = errors.Join(err, errHangover)
-			log.D("cache: barrier: hangover(k: %s); discard ans (has? %t)", key, hasans)
+			log.W("cache: barrier: hangover(k: %s); discard ans (has? %t)", key, hasans)
 			fillSummary(cachedres.s, fsmm)
 			// mimic send fail
 			fsmm.Msg = err.Error()
@@ -387,9 +394,9 @@ func (t *ctransport) fetch(network string, q *dns.Msg, summary *x.DNSSummary, cb
 			// fallthrough to sendRequest
 		} else if cachedsummary != nil {
 			if !isfresh { // not fresh, fetch in the background
-				go func() {
+				core.Gx("c.sendRequest: "+t.ID()+t.Type(), func() {
 					_, _ = sendRequest(new(x.DNSSummary))
-				}()
+				})
 			}
 			// change summary fields to reflect cached response, except for latency
 			fillSummary(cachedsummary, summary)
@@ -491,4 +498,8 @@ func fillSummary(s *x.DNSSummary, other *x.DNSSummary) {
 
 func rand33pc() bool {
 	return rand.Intn(99999) < 33000
+}
+
+func rand10pc() bool {
+	return rand.Intn(99999) < 10000
 }

@@ -91,7 +91,7 @@ func (h *cm) trackDestLocked(t ConnTuple, dst string) (n int) {
 
 func (h *cm) addToDstTrackerLocked(t ConnTuple, conns []net.Conn) (n int) {
 	for _, c := range conns {
-		if c == nil {
+		if c == nil || IsNil(c) {
 			continue
 		}
 		// TODO: handle unconnected udp sockets
@@ -110,7 +110,7 @@ func (h *cm) Untrack(cid string) (n int) {
 	defer h.Unlock()
 
 	for _, c := range h.conntracker[cid] {
-		if c != nil {
+		if c != nil && IsNotNil(c) {
 			h.delFromDstTrackerLocked(cid, c)
 			_ = c.Close()
 			n += 1
@@ -158,7 +158,7 @@ func (h *cm) UntrackBatch(cids []string) (out []string) {
 	out = make([]string, 0, len(cids))
 	for _, id := range cids {
 		for _, c := range h.conntracker[id] {
-			if c != nil {
+			if c != nil && IsNotNil(c) {
 				h.delFromDstTrackerLocked(id, c)
 				_ = c.Close()
 			}
@@ -190,7 +190,7 @@ func (h *cm) Find(dst string) (tups []ConnTuple) {
 	defer h.RUnlock()
 	// TODO: handle unconnected udp sockets
 	tups = h.dsttracker[dst]
-	log.VV("connmap: find: %v tuples for %s", tups, dst)
+	log.VV("connmap: find: %d tuples for %s", len(tups), dst)
 	return
 }
 
@@ -212,7 +212,7 @@ func (h *cm) FindAll(csvips, port string) (out []ConnTuple) {
 			out = append(out, tups...)
 		}
 	}
-	log.VV("connmap: findAll: %v tuples for %s", out, csvips)
+	log.VV("connmap: findAll: %d tuples for %s", len(out), csvips)
 	return
 }
 
@@ -223,9 +223,7 @@ func (h *cm) Clear() (cids []string) {
 	cids = make([]string, 0, len(h.conntracker))
 	for k, v := range h.conntracker {
 		for _, c := range v {
-			if c != nil {
-				_ = c.Close()
-			}
+			CloseConn(c)
 		}
 		cids = append(cids, k)
 	}

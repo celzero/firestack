@@ -15,6 +15,7 @@ package wg
 
 import (
 	"errors"
+	"fmt"
 	"strconv"
 	"strings"
 	"time"
@@ -44,6 +45,14 @@ type ifstats struct {
 	lastTouched time.Time
 }
 
+func (s *ifstats) String() string {
+	d := s.lastTouched.UnixMilli()
+	rx := s.TotalRx()
+	tx := s.TotalTx()
+	hdshk := s.LatestRecentHandshake()
+	return fmt.Sprintf("ifstats{lastTouched: %d, rx: %d, tx: %d, lastOK: %d}", d, rx, tx, hdshk)
+}
+
 // newStats creates a new Statistics instance.
 func newStats() *ifstats {
 	return &ifstats{
@@ -54,6 +63,7 @@ func newStats() *ifstats {
 
 // add adds a new peer's statistics to the map.
 func (s *ifstats) add(key string, rx, tx, latestHandshake int64) {
+	log.VV("wg: ReadStats: add %s, %d, %d, %d", key, rx, tx, latestHandshake)
 	s.stats[key] = peerstats{RxBytes: rx, TxBytes: tx, LatestHandshakeEpochMillis: latestHandshake}
 }
 
@@ -102,6 +112,7 @@ func (s *ifstats) LatestRecentHandshake() int64 {
 	for _, stats := range s.stats {
 		least = max(least, stats.LatestHandshakeEpochMillis)
 	}
+	log.VV("wg: ReadStats: LatestRecentHandshake: %d, Peers: %d", least, len(s.stats))
 	return least
 }
 
@@ -124,9 +135,12 @@ func readStats(config string) *ifstats {
 
 	// see: github.com/WireGuard/wireguard-go/blob/12269c27/device/uapi.go#L51
 	lines := strings.Split(config, "\n")
+	n := len(lines)
+	k := 0
 	for _, line := range lines {
 		if strings.HasPrefix(line, "public_key=") {
 			if key != "" {
+				k++
 				stats.add(key, rx, tx, latestHandshakeMillis)
 			}
 			rx = 0
@@ -158,8 +172,10 @@ func readStats(config string) *ifstats {
 		}
 	}
 	if key != "" {
+		k++
 		stats.add(key, rx, tx, latestHandshakeMillis)
 	}
 	stats.lastTouched = time.Now()
+	log.V("wg: ReadStats: %d peers, %d lines", n, k)
 	return stats
 }
