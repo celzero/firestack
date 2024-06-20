@@ -29,7 +29,6 @@ import (
 	"errors"
 	"net"
 	"net/netip"
-	"strconv"
 	"sync"
 	"time"
 
@@ -110,16 +109,14 @@ func NewTCPHandler(resolver dnsx.Resolver, prox ipn.Proxies, tunMode *settings.T
 }
 
 // onFlow calls listener.Flow to determine egress rules and routes; thread-safe.
-func (h *tcpHandler) onFlow(localaddr, target netip.AddrPort, realips, domains, probableDomains, blocklists string) (*Mark, bool) {
-	const dup = true
-	const notdup = !dup
+func (h *tcpHandler) onFlow(localaddr, target netip.AddrPort, realips, domains, probableDomains, blocklists string) *Mark {
 	blockmode := h.tunMode.BlockMode.Load()
 	// BlockModeNone returns false, BlockModeSink returns true
 	if blockmode == settings.BlockModeSink {
-		return optionsBlock, notdup
+		return optionsBlock
 	} else if blockmode == settings.BlockModeNone {
 		// todo: block-mode none should call into listener.Flow to determine upstream proxy
-		return optionsBase, notdup
+		return optionsBase
 	}
 
 	if len(realips) <= 0 || len(domains) <= 0 {
@@ -138,19 +135,17 @@ func (h *tcpHandler) onFlow(localaddr, target netip.AddrPort, realips, domains, 
 	var proto int32 = 6 // tcp
 	src := localaddr.String()
 	dst := target.String()
-	dport := strconv.Itoa(int(target.Port()))
-	active := hasActiveConn(h.conntracker, dst, realips, dport) // existing active conns denote dup
-	res := h.listener.Flow(proto, uid, active, src, dst, realips, domains, probableDomains, blocklists)
+	res := h.listener.Flow(proto, int32(uid), src, dst, realips, domains, probableDomains, blocklists)
 
 	if res == nil { // zeroListener returns nil
 		log.W("tcp: onFlow: empty res from kt; using base")
-		return optionsBase, active // true if dup
+		return optionsBase
 	} else if len(res.PID) <= 0 {
 		log.W("tcp: onFlow: no pid from kt; using base")
 		res.PID = ipn.Base
 	}
 
-	return res, active // true if dup
+	return res
 }
 
 func (h *tcpHandler) End() error {
@@ -207,10 +202,10 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target netip.AddrPort)
 
 	// flow/dns-override are nat-aware, as in, they can deal with
 	// nat-ed ips just fine, and so, use target as-is instead of ipx4
-	res, dup := h.onFlow(src, target, realips, domains, probableDomains, blocklists)
+	res := h.onFlow(src, target, realips, domains, probableDomains, blocklists)
 
 	cid, pid, uid := splitCidPidUid(res)
-	smm = tcpSummary(cid, pid, uid, dup, target.Addr())
+	smm = tcpSummary(cid, pid, uid, target.Addr())
 
 	if pid == ipn.Block {
 		var secs uint32
