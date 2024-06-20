@@ -156,7 +156,7 @@ func splitIpConnect3(d *protect.RDial, proto string, ip netip.Addr, port int) (n
 	case "udp", "udp4", "udp6":
 		return d.DialUDP(proto, nil, udpaddr(ip, port))
 	default:
-		return d.Dial(proto, addr(ip, port))
+		return d.Dial(proto, addrstr(ip, port))
 	}
 }
 
