@@ -12,6 +12,7 @@ import (
 	"io"
 	"net"
 	"strings"
+	"errors"
 )
 
 const (
@@ -102,6 +103,9 @@ func DialWithSplitAndDesyncTraceroute(d *protect.RDial, addr *net.TCPAddr, maxTT
 	rawConn, err := udpConn.SyscallConn()
 	if err != nil {
 		return nil, err
+	}
+	if rawConn == nil {
+		return nil, errors.New("(*UDPConn) SyscallConn() returned nil")
 	}
 	var udpFD int
 	err = rawConn.Control(func(fd uintptr) {
@@ -242,6 +246,9 @@ func (s *OverwriteSplitter) Write(b []byte) (int, error) {
 	if err != nil {
 		return 0, err
 	}
+	if rawConn == nil {
+		return 0, errors.New("(*TCPConn) SyscallConn() returned nil")
+	}
 	var sockFD int
 	err = rawConn.Control(func(fd uintptr) {
 		sockFD = int(fd)
@@ -267,7 +274,11 @@ func (s *OverwriteSplitter) Write(b []byte) (int, error) {
 
 	// We want s.Payload to be seen by censors, but don't want s.Payload to be seen by the server.
 	copy(firstSegment, s.Payload)
-	isIPv6 := strings.Contains(conn.RemoteAddr().String(), "[")
+	mRemote := conn.RemoteAddr()
+	if mRemote == nil {
+		return 0, errors.New("RemoteAddr() returned nil")
+	}
+	isIPv6 := strings.Contains(mRemote.String(), "[")
 	if isIPv6 {
 		err = unix.SetsockoptInt(sockFD, unix.IPPROTO_IPV6, unix.IPV6_UNICAST_HOPS, s.TTL)
 	} else {
