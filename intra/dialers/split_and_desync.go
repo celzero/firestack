@@ -128,7 +128,10 @@ func DialWithSplitAndDesyncTraceroute(d *protect.RDial, addr *net.TCPAddr, maxTT
 	var ttl int
 	ttlMap := make(map[[probeSize]byte]int)
 	for ttl = 2; ttl <= maxTTL; ttl++ {
-		rand.Read(msgBuf[:])
+		_, err = rand.Read(msgBuf[:])
+		if err != nil {
+			return nil, err
+		}
 		ttlMap[msgBuf] = ttl
 		if isIPv6 {
 			err = unix.SetsockoptInt(udpFD, unix.IPPROTO_IPV6, unix.IPV6_UNICAST_HOPS, ttl)
