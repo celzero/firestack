@@ -25,6 +25,7 @@ package ipmap
 
 import (
 	"context"
+	"fmt"
 	"math/rand"
 	"net"
 	"net/netip"
@@ -212,14 +213,19 @@ func (m *ipmap) get(hostOrIP string, typ IPSetType) (s *IPSet) {
 	}
 
 	if s == nil {
-		s = m.makeIPSet(hostOrIP, nil, typ) // typ is never AutoType
+		s = m.MakeIPSet(hostOrIP, nil, typ) // typ is never AutoType or Protected
 	}
 
 	return s
 }
 
 func (m *ipmap) MakeIPSet(hostOrIP string, ipps []string, typ IPSetType) *IPSet {
-	log.D("ipmap: renew: %s / seed: %v / typ: %s", hostOrIP, ipps, typ)
+	if len(ipps) <= 0 && typ == Protected {
+		// TODO: error?
+		log.T(fmt.Sprintf("ipmap: renew: %s; empty seed for Protected!", hostOrIP))
+	} else {
+		log.D("ipmap: renew: %s / seed: %v / typ: %s", hostOrIP, ipps, typ)
+	}
 	if host, _, err := net.SplitHostPort(hostOrIP); err == nil {
 		hostOrIP = host
 	}
@@ -241,6 +247,7 @@ func (m *ipmap) makeIPSet(hostname string, ipps []string, typ IPSetType) *IPSet 
 
 	log.D("ipmap: makeIPSet: %s, seed: %v, typ: %s", hostname, ipps, typ)
 
+	// TODO: if typ is Protected, then ipps (seed) must never be empty
 	// TODO: disallow confirm/disconfirm if hostname is an IP address
 	s := &IPSet{r: m, seed: ipps, confirmed: core.NewZeroVolatile[netip.Addr](), typ: typ, fails: atomic.Uint32{}}
 	if ip, err := netip.ParseAddr(hostname); err == nil && !ip.IsUnspecified() && ip.IsValid() {
