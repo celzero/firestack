@@ -135,6 +135,7 @@ type resolver struct {
 	localdomains x.RadixTree
 	listener     x.DNSListener
 	smms         chan *x.DNSSummary
+	done         chan struct{} // always unbuffered
 
 	once   sync.Once
 	closed atomic.Bool
@@ -152,6 +153,7 @@ func NewResolver(fakeaddrs string, tunmode *settings.TunMode, dtr x.DNSTransport
 		NatPt:        pt,
 		listener:     l,
 		smms:         make(chan *x.DNSSummary, 32),
+		done:         make(chan struct{}),
 		transports:   make(map[string]Transport),
 		tunmode:      tunmode,
 		localdomains: newUndelegatedDomainsTrie(),
@@ -363,8 +365,10 @@ func (r *resolver) forward(q []byte, chosenids ...string) (res0 []byte, err0 err
 		}
 		select {
 		case r.smms <- smm:
+		case <-r.done:
+			log.W("dns: fwd: smms closed; dropping %s", smm.QName)
 		default:
-			log.W("dns: fwd: smms closed or full; dropping %s", smm.QName)
+			log.W("dns: fwd: smms full; dropping %s", smm.QName)
 		}
 	}()
 
@@ -703,7 +707,7 @@ func (r *resolver) accept(c io.ReadWriteCloser) {
 
 func (r *resolver) Stop() error {
 	r.once.Do(func() {
-		close(r.smms)
+		close(r.done)
 
 		core.Go("r.onStop", func() { r.listener.OnDNSStopped() })
 
@@ -713,6 +717,11 @@ func (r *resolver) Stop() error {
 		if dc, err := r.dcProxy(); err == nil {
 			_ = dc.Stop()
 		}
+
+		core.Go("r.onStop.Close", func() {
+			time.Sleep(2 * time.Second) // wait a bit
+			close(r.smms)               // close listener chan
+		})
 	})
 	return nil // always no error
 }
