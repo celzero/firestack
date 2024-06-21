@@ -213,7 +213,7 @@ func (m *ipmap) get(hostOrIP string, typ IPSetType) (s *IPSet) {
 	}
 
 	if s == nil {
-		s = m.MakeIPSet(hostOrIP, nil, typ) // typ is never AutoType or Protected
+		s = m.makeIPSet(hostOrIP, nil, typ) // typ is never AutoType
 	}
 
 	return s
@@ -247,7 +247,6 @@ func (m *ipmap) makeIPSet(hostname string, ipps []string, typ IPSetType) *IPSet 
 
 	log.D("ipmap: makeIPSet: %s, seed: %v, typ: %s", hostname, ipps, typ)
 
-	// TODO: if typ is Protected, then ipps (seed) must never be empty
 	// TODO: disallow confirm/disconfirm if hostname is an IP address
 	s := &IPSet{r: m, seed: ipps, confirmed: core.NewZeroVolatile[netip.Addr](), typ: typ, fails: atomic.Uint32{}}
 	if ip, err := netip.ParseAddr(hostname); err == nil && !ip.IsUnspecified() && ip.IsValid() {
@@ -260,11 +259,16 @@ func (m *ipmap) makeIPSet(hostname string, ipps []string, typ IPSetType) *IPSet 
 		s.confirmed.Store(zeroaddr)
 	}
 
-	s.bootstrap()
+	totalseeds := s.bootstrap()
 
-	m.Lock()
-	mm[hostname] = s
-	m.Unlock()
+	// if typ is Protected, then seeds must never be empty
+	if typ == Protected && totalseeds <= 0 {
+		log.W("ipmap: makeIPSet: zero seeds; %s for type %s discarded", hostname, typ)
+	} else {
+		m.Lock()
+		mm[hostname] = s
+		m.Unlock()
+	}
 
 	return s
 }
