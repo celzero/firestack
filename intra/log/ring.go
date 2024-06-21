@@ -7,12 +7,14 @@
 package log
 
 import (
+	"context"
 	"sync"
 )
 
 // A thread-safe ring buffer implementation
 type ring[T any] struct {
 	sync.RWMutex
+	ctx  context.Context
 	b    []T    // buffer
 	inC  chan T // input channel
 	head int
@@ -20,8 +22,9 @@ type ring[T any] struct {
 }
 
 // NewRing creates a new ring buffer with the given capacity
-func newRing[T any](capacity int) *ring[T] {
+func newRing[T any](ctx context.Context, capacity int) *ring[T] {
 	r := &ring[T]{
+		ctx: ctx,
 		b:   make([]T, capacity),
 		inC: make(chan T, capacity/2),
 	}
@@ -29,9 +32,17 @@ func newRing[T any](capacity int) *ring[T] {
 	return r
 }
 
+func (r *ring[T]) closeWaiter() {
+	select {
+	case <-r.ctx.Done():
+		close(r.inC)
+	}
+}
+
 // Push adds an element to the ring buffer
 func (r *ring[T]) Push(v T) (ok bool) {
 	select {
+	case <-r.ctx.Done():
 	case r.inC <- v:
 		return true
 	default: // over cap, drop
@@ -42,6 +53,8 @@ func (r *ring[T]) Push(v T) (ok bool) {
 // process reads from the input channel and adds elements to the ring buffer.
 // Must be run in a goroutine.
 func (r *ring[T]) process() {
+	go r.closeWaiter()
+
 	for v := range r.inC {
 		r.Lock()
 		r.b[r.head] = v

@@ -32,6 +32,7 @@
 package log
 
 import (
+	"context"
 	"fmt"
 	golog "log"
 	"os"
@@ -123,7 +124,7 @@ func defaultLogger() *simpleLogger {
 		// github.com/golang/mobile/blob/fa72addaaa/internal/mobileinit/mobileinit_android.go#L74-L92
 		e: golog.New(os.Stderr, "", defaultFlags),
 		o: golog.New(os.Stdout, "", defaultFlags),
-		q: newRing[string](qSize),
+		q: newRing[string](context.TODO(), qSize),
 	}
 	go l.fromConsole()
 	return l
