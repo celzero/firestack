@@ -1045,7 +1045,7 @@ func Req(t Transport, network string, q *dns.Msg, smm *x.DNSSummary) (*dns.Msg, 
 
 	if r == nil {
 		log.D("alg: Req: %s no answer; but err? %v", qname, err)
-		return nil, errNoAnswer
+		return nil, err // err may be nil
 	}
 	if !xdns.IsServFailOrInvalid(r) {
 		return r, nil

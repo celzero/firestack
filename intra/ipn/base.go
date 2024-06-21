@@ -29,6 +29,8 @@ func SwitchStrategy(s int){
 	}
 }
 
+// base is no-op proxy that dials into the underlying network,
+// which typically is wifi or mobile but may also be a tun device.
 type base struct {
 	protoagnostic                // Dial is proto aware
 	skiprefresh                  // no rebinding necessary on refresh
@@ -39,12 +41,13 @@ type base struct {
 	status        int
 }
 
+// Base returns a base proxy.
 func NewBaseProxy(c protect.Controller) *base {
 	d := protect.MakeNsRDial(Base, c)
 	h := &base{
-		addr:     "127.3.4.5:6890",
+		addr:     "127.8.4.5:3690",
 		outbound: d,
-		status:   TOK,
+		status:   TUP,
 	}
 	h.rd = newRDial(h)
 	h.hc = newHTTPClient(h.rd)

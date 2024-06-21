@@ -19,7 +19,6 @@ import (
 	"github.com/celzero/firestack/intra/dialers"
 	"github.com/celzero/firestack/intra/dnsx"
 	"github.com/celzero/firestack/intra/log"
-	"github.com/celzero/firestack/intra/protect"
 )
 
 const smmchSize = 24
@@ -261,15 +260,6 @@ func filterFamilyForDialing(ipcsv string) string {
 	return strings.Join(filtered, ",")
 }
 
-func hasActiveConn(cm core.ConnMapper, ipp, ips, port string) bool {
-	if cm == nil {
-		log.W("intra: hasActiveConn: unexpected nil cm")
-		return false
-	}
-	// TODO: filter by protocol (tcp/udp) when finding conns
-	return !hasSelfUid(cm.Find(ipp), true) || !hasSelfUid(cm.FindAll(ips, port), true)
-}
-
 // returns proxy-id, conn-id, user-id
 func splitCidPidUid(decision *Mark) (cid, pid, uid string) {
 	if decision == nil {
@@ -305,20 +295,6 @@ func closeconns(cm core.ConnMapper, cids []string) (closed []string) {
 	return closed
 }
 
-func hasSelfUid(t []core.ConnTuple, d bool) bool {
-	if len(t) <= 0 {
-		return d // default
-	}
-	for _, x := range t {
-		if x.UID == protect.UidSelf {
-			log.D("intra: hasSelfUid(%v): true", x)
-			return true
-		}
-	}
-	log.VV("intra: hasSelfUid(%d): false; %v", len(t), t)
-	return false // regardless of d
-}
-
 func clos(c ...net.Conn) {
 	core.CloseConn(c...)
 }
@@ -328,7 +304,7 @@ type zeroListener struct{}
 
 var _ SocketListener = (*zeroListener)(nil)
 
-func (*zeroListener) OnSocketClosed(*SocketSummary)                              {}
-func (*zeroListener) Flow(_ int32, _ int, _ bool, _, _, _, _, _, _ string) *Mark { return nil }
+func (*zeroListener) OnSocketClosed(*SocketSummary)                  {}
+func (*zeroListener) Flow(_, _ int32, _, _, _, _, _, _ string) *Mark { return nil }
 
 var nooplistener = new(zeroListener)

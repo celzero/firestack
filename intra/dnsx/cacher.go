@@ -70,7 +70,6 @@ type cres struct {
 	bumps  int
 }
 
-// TODO: Keep a context here so that queries can be canceled.
 type ctransport struct {
 	sync.RWMutex                      // protects store
 	Transport                         // the underlying transport

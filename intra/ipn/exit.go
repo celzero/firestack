@@ -7,7 +7,6 @@
 package ipn
 
 import (
-	"net"
 	"net/http"
 
 	x "github.com/celzero/firestack/intra/backend"
@@ -16,28 +15,24 @@ import (
 	"github.com/celzero/firestack/intra/protect"
 )
 
+// exit is a proxy that always dials out to the internet.
 type exit struct {
 	protoagnostic
 	skiprefresh
-	rd        *protect.RDial    // this proxy as a RDial
-	hc        *http.Client      // this proxy as a http.Client
-	outbound  *net.Dialer       // outbound dialer
-	listencfg *net.ListenConfig // outbound listener
-	addr      string
-	status    int
+	rd       *protect.RDial // this proxy as a RDial
+	hc       *http.Client   // this proxy as a http.Client
+	outbound *protect.RDial // outbound dialer
+	addr     string
+	status   int
 }
 
+// NewExitProxy returns a new exit proxy.
 func NewExitProxy(c protect.Controller) *exit {
-	if c == nil {
-		log.W("proxy: exit: missing ctl; probably not what you want")
-	}
-	d := protect.MakeNsDialer(Exit, c)
-	l := protect.MakeNsListener(Exit, c)
+	d := protect.MakeNsRDial(Exit, c)
 	h := &exit{
-		addr:      "127.0.0.127:1337",
-		outbound:  d,
-		listencfg: l,
-		status:    TUP,
+		addr:     "127.0.0.127:1337",
+		outbound: d,
+		status:   TUP,
 	}
 	h.rd = newRDial(h)
 	h.hc = newHTTPClient(h.rd)
@@ -50,7 +45,7 @@ func (h *exit) Dial(network, addr string) (c protect.Conn, err error) {
 		return nil, errProxyStopped
 	}
 
-	if c, err = dialers.NetDial(h.outbound, network, addr); err != nil {
+	if c, err = dialers.SplitDial(h.outbound, network, addr); err != nil {
 		h.status = TKO
 	} else {
 		h.status = TOK
@@ -64,7 +59,7 @@ func (h *exit) Announce(network, local string) (protect.PacketConn, error) {
 	if h.status == END {
 		return nil, errProxyStopped
 	}
-	return dialers.NetListenPacket(h.listencfg, network, local)
+	return dialers.ListenPacket(h.outbound, network, local)
 }
 
 // Accept implements Proxy.
@@ -72,7 +67,7 @@ func (h *exit) Accept(network, local string) (protect.Listener, error) {
 	if h.status == END {
 		return nil, errProxyStopped
 	}
-	return dialers.NetListen(h.listencfg, network, local)
+	return dialers.Listen(h.outbound, network, local)
 }
 
 func (h *exit) Dialer() *protect.RDial {

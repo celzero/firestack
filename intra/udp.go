@@ -30,7 +30,6 @@ import (
 	"io"
 	"net"
 	"net/netip"
-	"strconv"
 	"sync"
 	"time"
 
@@ -125,24 +124,21 @@ func NewUDPHandler(resolver dnsx.Resolver, prox ipn.Proxies, tunMode *settings.T
 }
 
 // onFlow calls listener.Flow to determine egress rules and routes; thread-safe.
-func (h *udpHandler) onFlow(localaddr, target netip.AddrPort, realips, domains, probableDomains, blocklists string) (*Mark, bool) {
-	const dup = true
-	const notdup = !dup
+func (h *udpHandler) onFlow(localaddr, target netip.AddrPort, realips, domains, probableDomains, blocklists string) *Mark {
 	blockmode := h.tunMode.BlockMode.Load()
 	// BlockModeNone returns false, BlockModeSink returns true
 	if blockmode == settings.BlockModeSink {
-		return optionsBlock, notdup
+		return optionsBlock
 	}
 	// todo: block-mode none should call into listener.Flow to determine upstream proxy
 	if blockmode == settings.BlockModeNone {
-		return optionsBase, notdup
+		return optionsBase
 	}
 
 	src := localaddr.String()
-	dst, dport := "", "" // unconnected udp sockets may not have a valid target
+	dst := "" // unconnected udp sockets may not have a valid target
 	if target.IsValid() {
 		dst = target.String()
-		dport = strconv.Itoa(int(target.Port()))
 	}
 	if len(realips) <= 0 || len(domains) <= 0 {
 		log.VV("udp: onFlow: no realips(%s) or domains(%s + %s), for src=%s dst=%s", realips, domains, probableDomains, localaddr, dst)
@@ -157,19 +153,18 @@ func (h *udpHandler) onFlow(localaddr, target netip.AddrPort, realips, domains, 
 		}
 	}
 
-	var proto int32 = 17                                        // udp
-	active := hasActiveConn(h.conntracker, dst, realips, dport) // existing active conn denotes dup
-	res := h.listener.Flow(proto, uid, active, src, dst, realips, domains, probableDomains, blocklists)
+	var proto int32 = 17 // udp
+	res := h.listener.Flow(proto, int32(uid), src, dst, realips, domains, probableDomains, blocklists)
 
 	if res == nil { // zeroListener returns nil
 		log.W("udp: onFlow: empty res from kt; optbase")
-		return optionsBase, active // true if dup
+		return optionsBase
 	} else if len(res.PID) <= 0 {
 		log.W("udp: onFlow: no pid from kt; using base")
 		res.PID = ipn.Base
 	}
 
-	return res, active // true if dup
+	return res
 }
 
 // ProxyMux implements netstack.GUDPConnHandler
@@ -290,9 +285,9 @@ func (h *udpHandler) Connect(gconn net.Conn, src, target netip.AddrPort) (dst co
 	realips, domains, probableDomains, blocklists := undoAlg(h.resolver, target.Addr())
 
 	// flow is alg/nat-aware, do not change target or any addrs
-	res, dup := h.onFlow(src, target, realips, domains, probableDomains, blocklists)
+	res := h.onFlow(src, target, realips, domains, probableDomains, blocklists)
 	cid, pid, uid := splitCidPidUid(res)
-	smm = udpSummary(cid, pid, uid, dup, target.Addr())
+	smm = udpSummary(cid, pid, uid, target.Addr())
 	ct = core.ConnTuple{CID: cid, UID: uid}
 
 	if pid == ipn.Block {
@@ -351,7 +346,7 @@ func (h *udpHandler) Connect(gconn net.Conn, src, target netip.AddrPort) (dst co
 		// note: fake-dns-ips shouldn't be un-nated / un-alg'd
 		for i, dstipp := range makeIPPorts(realips, target, 0) {
 			selectedTarget = dstipp
-			h.conntracker.TrackDest(ct, selectedTarget) // will be untracked by forward
+			// h.conntracker.TrackDest(ct, selectedTarget) // will be untracked by forward
 			if pc, err = px.Dial("udp", selectedTarget.String()); err == nil {
 				errs = nil // reset errs
 				break

@@ -394,7 +394,7 @@ func (r *resolver) forward(q []byte, chosenids ...string) (res0 []byte, err0 err
 	id, sid, pid, presetIPs := r.preferencesFrom(qname, uint16(qtyp), pref, chosenids...)
 	t := r.determineTransport(id)
 
-	log.V("dns: fwd: query %s [prefs:%v]; id? %s, sid? %s, pid? %s, ips? %v", qname, pref, id, sid, pid, presetIPs)
+	log.V("dns: fwd: query %s [prefs:%v; chosen:%v]; id? %s, sid? %s, pid? %s, ips? %v", qname, pref, chosenids, id, sid, pid, presetIPs)
 
 	if t == nil || core.IsNil(t) {
 		smm.Latency = time.Since(starttime).Seconds()
@@ -447,18 +447,20 @@ func (r *resolver) forward(q []byte, chosenids ...string) (res0 []byte, err0 err
 	// in the case of an alg transport, if there's no-alg,
 	// err is set which should be ignored if res2 is not nil
 	if err != nil && !algerr {
+		// both err and res2 are set when res2 has rcode error or servfail
 		// summary latency, ips, response, status already set by transport t
 		return res2, err
 	}
-	// very unlikely that ans1 is nil but err is not
 	if ans1 == nil {
-		err := errors.Join(err, errNoAnswer)
+		if err == nil { // very unlikely that ans1 is nil but err is not
+			err = errNoAnswer
+		}
 		if err != nil {
 			smm.Msg = err.Error()
 		}
 		smm.Status = NoResponse // TODO: servfail?
 		return res2, err
-	}
+	} // discard alg err
 
 	res2, err = ans1.Pack()
 	if err != nil {
@@ -633,7 +635,7 @@ func (r *resolver) reply(c protect.Conn) {
 
 		if err != nil {
 			millis := int(time.Since(start).Seconds() * 1000)
-			log.D("dns: udp: done; tot: %d, t: %dms, err: %v", cnt, millis, err)
+			log.VV("dns: udp: done; tot: %d, t: %dms, err: %v", cnt, millis, err)
 			free()
 			break
 		}

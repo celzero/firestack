@@ -8,6 +8,7 @@ package dns53
 
 import (
 	"context"
+	"errors"
 	"net"
 	"net/netip"
 	"time"
@@ -68,14 +69,13 @@ func NewGoosTransport(pxs ipn.Proxies, ctl protect.Controller) (t *goosr, err er
 
 func (t *goosr) pxdial(ctx context.Context, network, addr string) (conn net.Conn, err error) {
 	// addr must be ip:port
-	log.V("dns53: goosr: pxdial: using %s proxy for %s:%s => %s", ipn.Exit, network, t.px.GetAddr(), addr)
+	log.VV("dns53: goosr: pxdial: using %s proxy for %s:%s => %s", ipn.Exit, network, t.px.GetAddr(), addr)
 	return t.px.Dialer().Dial(network, addr)
 }
 
 func (t *goosr) send(msg *dns.Msg) (ans *dns.Msg, elapsed time.Duration, qerr *dnsx.QueryError) {
 	var err error
 	var ip netip.Addr
-	var ips []netip.Addr
 	if msg == nil {
 		qerr = dnsx.NewBadQueryError(errQueryParse)
 		return
@@ -84,7 +84,7 @@ func (t *goosr) send(msg *dns.Msg) (ans *dns.Msg, elapsed time.Duration, qerr *d
 	start := time.Now()
 
 	host := xdns.QName(msg)
-	// zero length host must return NS records for the root zone
+	// TODO: zero length host must return NS records for the root zone
 	if len(host) <= 0 || host == "." {
 		qerr = dnsx.NewBadQueryError(errNoHost)
 		elapsed = time.Since(start)
@@ -104,14 +104,20 @@ func (t *goosr) send(msg *dns.Msg) (ans *dns.Msg, elapsed time.Duration, qerr *d
 			ans = xdns.Servfail(msg)
 			err = errQueryParse
 		} else {
-			// cgo first (uses dnsx.System iff not in Loopback), Resolver.LookupNetIP (uses dnsx.Default)
-			if ips, err = t.r.LookupNetIP(bgctx, "ip", host); err == nil && xdns.HasAnyAnswer(msg) {
-				log.D("dns53: goosr: go resolver for %s => %s", host, ips)
-				ans, err = xdns.AQuadAForQuery(msg, ips...)
-			} else if ips, err = t.rcgo.LookupNetIP(bgctx, "ip", host); err == nil {
+			proto := "ip4"
+			if xdns.HasAAAAQuestion(msg) {
+				proto = "ip6"
+			}
+			if ips, errc := t.rcgo.LookupNetIP(bgctx, proto, host); errc == nil {
 				log.D("dns53: goosr: cgo resolver for %s => %s", host, ips)
 				ans, err = xdns.AQuadAForQuery(msg, ips...)
+			} else if ips, errl := t.r.LookupNetIP(bgctx, proto, host); errl == nil && xdns.HasAnyAnswer(msg) {
+				log.D("dns53: goosr: go resolver (why? %v) for %s => %s", errl, host, ips)
+				ans, err = xdns.AQuadAForQuery(msg, ips...)
+			} else {
+				err = errors.Join(errl, errc)
 			}
+			// TODO: if len(ips) <= 0 synthesize a NXDOMAIN?
 		}
 	}
 

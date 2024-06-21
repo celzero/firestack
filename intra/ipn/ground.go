@@ -13,6 +13,7 @@ import (
 	"github.com/celzero/firestack/intra/protect"
 )
 
+// ground is a proxy that does nothing.
 type ground struct {
 	protoagnostic
 	skiprefresh
@@ -21,6 +22,7 @@ type ground struct {
 
 var _ Proxy = (*ground)(nil)
 
+// NewGroundProxy returns a new ground proxy.
 func NewGroundProxy() *ground {
 	h := &ground{
 		addr: "[::]:0",
