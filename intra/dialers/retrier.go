@@ -141,7 +141,7 @@ func DialWithSplitRetry(dial *protect.RDial, addr *net.TCPAddr) (*retrier, error
 // retryLocked closes the current connection, dials a new one, and writes the TLS client hello
 // message after splitting it in to two. It returns an error if the dial fails or if the
 // split TLS client hello messages could not be written.
-func (r *retrier) retryLocked() (err error) {
+func (r *retrier) retryLocked(buf []byte) (n int, err error) {
 	clos(r.conn) // close provisional socket
 	var newConn *net.TCPConn
 	if newConn, err = r.dial.DialTCP(r.raddr.Network(), nil, r.raddr); err != nil {
@@ -179,7 +179,7 @@ func (r *retrier) retryLocked() (err error) {
 	if readdone || writedone {
 		log.I("rdial: retryLocked: %s->%s; end read? %t, end write? %t", laddr(r.conn), r.raddr, readdone, writedone)
 	}
-	return
+	return r.conn.Read(buf)
 }
 
 // CloseRead closes r.conn for reads, and the read flag.
@@ -192,35 +192,52 @@ func (r *retrier) CloseRead() error {
 
 // Read data from r.conn into buf
 func (r *retrier) Read(buf []byte) (n int, err error) {
+	note := log.V
+
 	n, err = r.conn.Read(buf)
 	if n == 0 && err == nil { // no data and no error
-		log.V("rdial: read: no data; retrying [%s<-%s]", laddr(r.conn), r.raddr)
+		note("rdial: read: no data; retrying [%s<-%s]", laddr(r.conn), r.raddr)
 		return // nothing yet to retry; on to next read
 	}
-	var retryerr error
-	retryNeeded := err != nil
+
+	mustretry := err != nil
+	note = log.D
 	if !r.retryCompleted() {
 		r.mutex.Lock()
 		defer r.mutex.Unlock()
-		retryNotDone := !r.retryCompleted()
-		if retryNotDone && retryNeeded {
-			// retry only on errors; may be due to timeout or conn reset
-			if retryerr = r.retryLocked(); retryerr == nil {
-				n, err = r.conn.Read(buf)
-			}
+		if !r.retryCompleted() {
+			defer close(r.retryDoneCh) // signal that retry is complete or unnecessary
 
-			log.D("rdial: read: reset; retried?(%t) [%s<-%s] %d; read-err? %v, retry-err? %v", retryNeeded, laddr(r.conn), r.raddr, n, err, retryerr)
-			close(r.retryDoneCh)
+			if mustretry { // retry; err may be timeout or conn reset
+				n, err = r.retryLocked(buf)
+				note = log.I
+			}
+			note("rdial: read: [%s<-%s] %d; retried? %t; err? %v", laddr(r.conn), r.raddr, n, mustretry, err)
 			// reset deadlines
 			_ = r.conn.SetReadDeadline(r.readDeadline)
 			_ = r.conn.SetWriteDeadline(r.writeDeadline)
-			// _ = r.conn.SetReadDeadline(time.Time{})
-			// reset hello and signal that retry is complete
+			// reset hello
 			r.hello = nil
 			return
+		} else {
+			log.I("rdial: read: already retried! [%s<-%s] %d; err? %v", laddr(r.conn), r.raddr, n, err)
 		}
-		log.D("rdial: read: retry race (needs? %t / done! %t) [%s<-%s] %d; read-err? %v", retryNeeded, !retryNotDone, laddr(r.conn), r.raddr, n, err)
 	} // else: just one read is enough; no retry needed
+	return
+}
+
+func (r *retrier) sendCopyHello(b []byte) (n int, didWrite bool, src net.Addr, err error) {
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
+
+	src = laddr(r.conn)
+	if !r.retryCompleted() { // first write
+		n, err = r.conn.Write(b)
+		r.hello = append(r.hello, b[:n]...) // capture first write, "hello"
+		// require a response or another write within a short timeout.
+		_ = r.conn.SetReadDeadline(time.Now().Add(r.timeout))
+		didWrite = true
+	}
 	return
 }
 
@@ -230,44 +247,47 @@ func (r *retrier) Write(b []byte) (int, error) {
 	// every packet after retry completes, while also ensuring that r.hello is
 	// empty at steady-state.
 	if !r.retryCompleted() {
-		n := 0
-		var err error
-		attempted := false
-		r.mutex.Lock()
-		if !r.retryCompleted() { // nothing to retry
-			n, err = r.conn.Write(b)
-			attempted = true
-			r.hello = append(r.hello, b[:n]...)
-			// require a response or another write within a short timeout.
-			_ = r.conn.SetReadDeadline(time.Now().Add(r.timeout))
+		n, sent, srcaddr, err := r.sendCopyHello(b)
+
+		note := log.D
+		if err != nil {
+			note = log.W
+		} else if sent {
+			note = log.I
 		}
-		r.mutex.Unlock()
 
-		log.D("rdial: write retry?(%t) [%s->%s] %d; write-err? %v", attempted, laddr(r.conn), r.raddr, n, err)
+		note("rdial: write: first?(%t) [%s->%s] %d; 1st write-err? %v", sent, srcaddr, r.raddr, n, err)
 
-		if attempted {
+		if sent {
 			if err == nil {
 				return n, nil
 			}
 
 			start := time.Now()
-			log.D("rdial: write waiting to retry [%s->%s] %d; write-err? %v", laddr(r.conn), r.raddr, n, err)
-
 			// write error on the provisional socket should be handled
 			// by the retry procedure. Block until we have a final socket (which will
 			// already have replayed b[:n]), and retry.
 			<-r.retryDoneCh
-			barrier(&r.mutex)
+
+			r.mutex.Lock()
+			c := r.conn
+			r.mutex.Unlock()
 
 			elapsed := time.Since(start).Milliseconds()
-			m, err := r.conn.Write(b[n:])
-			log.D("rdial: write retried [%s->%s] %d in %dms; write-err? %v", laddr(r.conn), r.raddr, n+m, elapsed, err)
 
+			m, err := c.Write(b[n:])
+
+			if err == nil {
+				note = log.I
+			} else {
+				note = log.W
+			}
+			note("rdial: write retried [%s->%s] %d in %dms; 2nd write-err? %v", laddr(c), r.raddr, n+m, elapsed, err)
 			return n + m, err
 		}
 	}
 
-	// retryCompleted() is true, so r.conn is final and doesn't need locking.
+	// retryCompleted() is true, so r.conn is final and doesn't need locking
 	return r.conn.Write(b)
 }
 
@@ -281,6 +301,7 @@ func (r *retrier) ReadFrom(reader io.Reader) (bytes int64, err error) {
 		}
 	}
 
+	// retryCompleted() is true, so r.conn is final and doesn't need locking
 	var b int64
 	b, err = r.conn.ReadFrom(reader)
 	bytes += b
@@ -401,10 +422,3 @@ type zeroNetAddr struct{}
 
 func (zeroNetAddr) Network() string { return "no" }
 func (zeroNetAddr) String() string  { return "none" }
-
-func barrier(m *sync.Mutex) {
-	if m != nil {
-		m.Lock()
-		m.Unlock()
-	}
-}
