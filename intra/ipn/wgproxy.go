@@ -677,7 +677,10 @@ func (tun *wgtun) Close() error {
 		// if tun.events != nil {
 		// panics; is it closed by device.Device.Close()?
 		// close(tun.events) }
-		close(tun.ingress)
+		core.Go("wg.Close: "+tun.id, func() {
+			time.Sleep(2 * time.Second)
+			close(tun.ingress)
+		})
 
 		// github.com/tailscale/tailscale/blob/836f932e/wgengine/netstack/netstack.go#L223
 
