@@ -17,10 +17,10 @@ import (
 
 var currentStrategy func(*protect.RDial, string, string) (protect.Conn, error) = dialers.SplitDial
 const (
-	retrierStrategy int = 0
-	desyncStrategy int = 1
+	retrierStrategy int32 = 0
+	desyncStrategy int32 = 1
 )
-func SwitchStrategy(s int){
+func SwitchStrategy(s int32){
 	switch s {
 	case retrierStrategy:
 		currentStrategy = dialers.SplitDial
