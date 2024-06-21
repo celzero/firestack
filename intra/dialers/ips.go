@@ -171,14 +171,11 @@ func Clear() {
 
 // Confirm marks addr as preferred for hostOrIP
 func Confirm(hostOrIP string, addr net.Addr) bool {
-	if ip, err := netip.ParseAddr(addr.String()); err == nil {
-		return Confirm2(hostOrIP, ip)
-	} // not ok
-	return false
+	return Confirm2(hostOrIP, ipof(addr.String()))
 }
 
 func Confirm2(hostOrIP string, addr netip.Addr) bool {
-	if ipok(addr) {
+	if ipok(addr) { // confirms ONLY valid ips
 		ips := ipm.GetAny(hostOrIP)
 		ips.Confirm(addr)
 		return ips != nil
@@ -202,10 +199,14 @@ func Disconfirm(hostOrIP string, addr netip.Addr) bool {
 
 // Disconfirm2 unmarks addr as preferred for hostOrIP
 func Disconfirm2(hostOrIP string, addr string) bool {
+	return Disconfirm(hostOrIP, ipof(addr))
+}
+
+func ipof(addr string) (zz netip.Addr) {
 	if ipp, err := netip.ParseAddrPort(addr); err == nil {
-		return Disconfirm(hostOrIP, ipp.Addr())
+		return ipp.Addr()
 	} else if ip, err := netip.ParseAddr(addr); err == nil {
-		return Disconfirm(hostOrIP, ip)
+		return ip
 	}
-	return false
+	return
 }
