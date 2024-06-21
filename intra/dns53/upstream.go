@@ -165,6 +165,7 @@ func (t *transport) send(network, pid string, q *dns.Msg) (ans *dns.Msg, elapsed
 
 	var conn *dns.Conn
 
+	qname := xdns.QName(q)
 	useudp := network == dnsx.NetTypeUDP
 	userelay := t.relay != nil
 	useproxy := len(pid) != 0 // pid == dnsx.NetNoProxy => ipn.Base
@@ -174,20 +175,20 @@ func (t *transport) send(network, pid string, q *dns.Msg) (ans *dns.Msg, elapsed
 	if userelay || useproxy {
 		conn, err = t.pxdial(network, pid)
 		if err != nil && useudp {
-			log.E("dns53: send: udp %s pxdial(px? %t / relay? %t) failed %v", t.id, useproxy, userelay, err)
+			log.E("dns53: send: udp %s pxdial(px? %t / relay? %t) for %s failed %v", t.id, useproxy, userelay, qname, err)
 			network = dnsx.NetTypeTCP
 			conn, err = t.pxdial(network, pid)
 		}
 	} else {
 		conn, err = t.dial(network)
 		if err != nil && useudp {
-			log.E("dns53: send: udp %s dial failed %v", t.id, err)
+			log.E("dns53: send: udp %s dial for %s failed %v", t.id, qname, err)
 			network = dnsx.NetTypeTCP
 			conn, err = t.dial(network)
 		}
 	}
 
-	log.V("dns53: send: (%s / %s) to %s using udp? %t / px? %t / relay? %t; err? %v", network, t.id, t.addrport, useudp, useproxy, userelay, err)
+	log.V("dns53: send: (%s / %s) to %s for %s using udp? %t / px? %t / relay? %t; err? %v", network, t.id, t.addrport, qname, useudp, useproxy, userelay, err)
 
 	if err != nil {
 		qerr = dnsx.NewClientQueryError(err)
@@ -199,7 +200,7 @@ func (t *transport) send(network, pid string, q *dns.Msg) (ans *dns.Msg, elapsed
 	clos(conn) // TODO: conn pooling w/ ExchangeWithConn
 
 	if err != nil {
-		log.V("dot: sendRequest: (%s) err: %v; disconfirm", t.id, err, lastaddr)
+		log.V("dns53: sendRequest: (%s) for %s; err: %v; disconfirm", t.id, qname, err, lastaddr)
 		dialers.Disconfirm2(t.addrport, lastaddr)
 		qerr = dnsx.NewSendFailedQueryError(err)
 	} else if ans == nil {
@@ -223,7 +224,7 @@ func (t *transport) Query(network string, q *dns.Msg, smm *x.DNSSummary) (ans *d
 	if qerr != nil {
 		err = qerr.Unwrap()
 		status = qerr.Status()
-		log.W("dns53: err(%v) / size(%d)", err, xdns.Len(ans))
+		log.W("dns53: (%s) err(%v) / size(%d)", t.id, err, xdns.Len(ans))
 	}
 	t.status = status
 
@@ -243,7 +244,7 @@ func (t *transport) Query(network string, q *dns.Msg, smm *x.DNSSummary) (ans *d
 	smm.Status = status
 	t.est.Add(smm.Latency)
 
-	log.V("dns53: len(res): %d, data: %s, via: %s, err? %v", xdns.Len(ans), smm.RData, smm.RelayServer, err)
+	log.V("dns53: (%s) len(res): %d, data: %s, via: %s, err? %v", t.id, xdns.Len(ans), smm.RData, smm.RelayServer, err)
 
 	return ans, err
 }
