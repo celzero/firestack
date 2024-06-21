@@ -230,7 +230,7 @@ type client struct {
 	multicast6 *net.UDPConn
 
 	tracker map[string]*dnssdanswer
-	msgCh   chan *dns.Msg
+	msgCh   chan *dns.Msg // never closed
 
 	oneshot bool
 

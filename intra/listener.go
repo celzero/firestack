@@ -96,6 +96,9 @@ func udpSummary(id, pid, uid string, dst netip.Addr) *SocketSummary {
 }
 
 func (s *SocketSummary) str() string {
+	if s == nil {
+		return "<nil>"
+	}
 	return fmt.Sprintf("socket-summary: id=%s pid=%s uid=%s down=%d up=%d dur=%d synack=%d msg=%s",
 		s.ID, s.PID, s.UID, s.Rx, s.Tx, s.Duration, s.Rtt, s.Msg)
 }

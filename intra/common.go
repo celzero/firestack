@@ -80,9 +80,9 @@ func forward(local, remote net.Conn, ch chan *SocketSummary, done chan struct{},
 
 func queueSummary(ch chan<- *SocketSummary, done <-chan struct{}, s *SocketSummary) {
 	select {
-	case ch <- s:
 	case <-done:
-		log.D("intra: queueSummary: end")
+		log.D("intra: queueSummary: end: %s", s.str())
+	case ch <- s:
 	default:
 		log.W("intra: sendSummary: dropped: %s", s.str())
 	}

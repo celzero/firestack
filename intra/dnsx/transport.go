@@ -364,9 +364,9 @@ func (r *resolver) forward(q []byte, chosenids ...string) (res0 []byte, err0 err
 			smm.Latency = time.Since(starttime).Seconds()
 		}
 		select {
-		case r.smms <- smm:
 		case <-r.done:
 			log.W("dns: fwd: smms closed; dropping %s", smm.QName)
+		case r.smms <- smm:
 		default:
 			log.W("dns: fwd: smms full; dropping %s", smm.QName)
 		}
