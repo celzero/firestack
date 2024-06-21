@@ -178,11 +178,12 @@ func Confirm(hostOrIP string, addr net.Addr) bool {
 }
 
 func Confirm2(hostOrIP string, addr netip.Addr) bool {
-	ips := ipm.GetAny(hostOrIP)
 	if ipok(addr) {
+		ips := ipm.GetAny(hostOrIP)
 		ips.Confirm(addr)
+		return ips != nil
 	}
-	return ips != nil
+	return false
 }
 
 // Disconfirm3 unmarks addr as preferred for hostOrIP
@@ -194,7 +195,7 @@ func Disconfirm3(hostOrIP string, addr net.Addr) bool {
 func Disconfirm(hostOrIP string, addr netip.Addr) bool {
 	ips := ipm.GetAny(hostOrIP)
 	if ips != nil {
-		return ips.Disconfirm(addr)
+		return ips.Disconfirm(addr) // disconfirms ANY ip (invalid/unspecified)
 	} // not ok
 	return false
 }
