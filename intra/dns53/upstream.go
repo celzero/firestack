@@ -38,7 +38,7 @@ var errQueryParse = errors.New("dns53: err parse query")
 // TODO: Keep a context here so that queries can be canceled.
 type transport struct {
 	id       string
-	addrport string // hostname, ip:port, protect.UidSelf, protect.System
+	addrport string // hostname, ip:port, protect.UidSelf:53, protect.System:53
 	lastaddr string // last resolved addr
 	status   int
 	client   *dns.Client
@@ -200,8 +200,8 @@ func (t *transport) send(network, pid string, q *dns.Msg) (ans *dns.Msg, elapsed
 	clos(conn) // TODO: conn pooling w/ ExchangeWithConn
 
 	if err != nil {
-		log.V("dns53: sendRequest: (%s) for %s; err: %v; disconfirm", t.id, qname, err, lastaddr)
-		dialers.Disconfirm2(t.addrport, lastaddr)
+		ok := dialers.Disconfirm2(t.addrport, lastaddr)
+		log.V("dns53: sendRequest: (%s) for %s; err: %v; disconfirm? %t %s => %s", t.id, qname, err, ok, t.addrport, lastaddr)
 		qerr = dnsx.NewSendFailedQueryError(err)
 	} else if ans == nil {
 		qerr = dnsx.NewBadResponseQueryError(err)

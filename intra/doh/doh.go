@@ -386,8 +386,8 @@ func (t *transport) do(pid string, req *http.Request) (ans []byte, blocklists, r
 				dialers.Confirm(hostname, server)
 				return
 			} else {
-				log.D("doh: disconfirming %s, %s", hostname, server)
-				dialers.Disconfirm3(hostname, server)
+				ok := dialers.Disconfirm3(hostname, server)
+				log.D("doh: disconfirming %s, %s done? %t", hostname, server, ok)
 			}
 		}
 		if qerr != nil {
