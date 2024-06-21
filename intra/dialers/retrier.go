@@ -88,8 +88,7 @@ var _ core.TCPConn = (*retrier)(nil)
 //     it's not optimized: https://github.com/golang/go/issues/32529)
 func closed(c <-chan struct{}) bool {
 	select {
-	case <-c:
-		// The channel has been closed.
+	case <-c: // The channel has been closed.
 		return true
 	default:
 		return false
