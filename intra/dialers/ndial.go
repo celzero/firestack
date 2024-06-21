@@ -58,7 +58,7 @@ func netdial(d *net.Dialer, network, addr string, connect netConnectFunc) (net.C
 	if ipok(confirmed) {
 		log.V("ndial: dialing confirmed ip %s for %s", confirmed, addr)
 		if conn, cerr := connect(d, network, confirmed, port); cerr == nil {
-			log.V("ndial: found working ip %s for %s", confirmed, addr)
+			log.V("ndial: confirmed ip working %s for %s", confirmed, addr)
 			return conn, nil
 		} else {
 			errs = errors.Join(errs, cerr)
@@ -88,7 +88,7 @@ func netdial(d *net.Dialer, network, addr string, connect netConnectFunc) (net.C
 			log.V("ndial: dialing ip %s for %s", ip, addr)
 			if conn, err := connect(d, network, ip, port); err == nil {
 				confirm(ips, ip)
-				log.I("ndial: found working ip %s for %s", ip, addr)
+				log.I("ndial: confirming working ip %s for %s", ip, addr)
 				return conn, nil
 			} else {
 				errs = errors.Join(errs, err)
