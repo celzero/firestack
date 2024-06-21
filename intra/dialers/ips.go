@@ -202,8 +202,10 @@ func Disconfirm(hostOrIP string, addr netip.Addr) bool {
 
 // Disconfirm2 unmarks addr as preferred for hostOrIP
 func Disconfirm2(hostOrIP string, addr string) bool {
-	if ip, err := netip.ParseAddr(addr); err == nil {
+	if ipp, err := netip.ParseAddrPort(addr); err == nil {
+		return Disconfirm(hostOrIP, ipp.Addr())
+	} else if ip, err := netip.ParseAddr(addr); err == nil {
 		return Disconfirm(hostOrIP, ip)
-	} // not ok
+	}
 	return false
 }
