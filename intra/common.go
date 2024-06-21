@@ -78,7 +78,7 @@ func forward(local, remote net.Conn, ch chan *SocketSummary, done chan struct{},
 	queueSummary(ch, done, smm)
 }
 
-func queueSummary(ch chan *SocketSummary, done chan struct{}, s *SocketSummary) {
+func queueSummary(ch chan<- *SocketSummary, done <-chan struct{}, s *SocketSummary) {
 	select {
 	case ch <- s:
 	case <-done:
