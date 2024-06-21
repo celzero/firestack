@@ -148,8 +148,12 @@ func (m *ipmap) Clear() {
 	})
 
 	n := 0
-	for _, s := range m.m {
+	for _, s := range m.m { // regular / auto
 		purge <- s // preserves seed addrs
+		n++
+	}
+	for _, s := range m.p { // protected
+		purge <- s // only clears confirmed ip
 		n++
 	}
 	log.I("ipmap: clear: requested %d/%d sets", n, sz)
@@ -402,9 +406,11 @@ func (s *IPSet) Confirm(ip netip.Addr) {
 }
 
 func (s *IPSet) clear() {
-	s.Lock()
-	s.ips = nil
-	s.Unlock()
+	if s.typ != Protected {
+		s.Lock()
+		s.ips = nil
+		s.Unlock()
+	}
 	s.confirmed.Store(zeroaddr)
 	s.fails.Store(0)
 }
