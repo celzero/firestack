@@ -77,8 +77,9 @@ type gtunnel struct {
 }
 
 type pcapsink struct {
-	sink *core.Volatile[io.WriteCloser]
-	inC  chan []byte // always buffered
+	sink  *core.Volatile[io.WriteCloser]
+	inC   chan []byte   // always buffered
+	doneC chan struct{} // always unbuffered
 }
 
 // nowrite rejects all writes.
@@ -100,6 +101,8 @@ func (p *pcapsink) Write(b []byte) (int, error) {
 	select {
 	case p.inC <- b:
 		return len(b), nil
+	case <-p.doneC: // drop
+		return 0, io.ErrClosedPipe
 	default: // drop
 		return 0, io.ErrNoProgress
 	}
@@ -123,7 +126,12 @@ func (p *pcapsink) Recycle() error {
 }
 
 func (p *pcapsink) Close() error {
-	defer close(p.inC) // signal writeAsync to exit
+	defer core.Go("pcap.Close", func() {
+		time.Sleep(2 * time.Second)
+		close(p.inC) // signal writeAsync to exit
+	})
+	defer close(p.doneC)
+
 	return p.Recycle()
 }
 
