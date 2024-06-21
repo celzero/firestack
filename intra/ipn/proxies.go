@@ -221,6 +221,7 @@ func (px *proxifier) ProxyFor(id string) (Proxy, error) {
 		px.RLock()
 		defer px.RUnlock()
 
+		defer close(out)
 		if p, ok := px.p[id]; ok {
 			out <- p
 		} else {
