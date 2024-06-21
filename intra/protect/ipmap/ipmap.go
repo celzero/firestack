@@ -186,7 +186,7 @@ func (m *ipmap) Get(hostOrIP string) *IPSet {
 			log.W("ipmap: Get: zero ips for %s", hostOrIP)
 		}
 	}
-	log.D("ipmap: Get: %s => %s", hostOrIP, s.Addrs())
+	log.D("ipmap: Get: %s => %s", hostOrIP, s.ips)
 	return s
 }
 
