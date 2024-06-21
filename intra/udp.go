@@ -389,9 +389,12 @@ func (h *udpHandler) Connect(gconn net.Conn, src, target netip.AddrPort) (dst co
 func (h *udpHandler) End() error {
 	h.once.Do(func() {
 		h.status.Store(UDPEND)
-		h.CloseConns(nil)
 		close(h.done)
-		close(h.smmch)
+		h.CloseConns(nil)
+		core.Go("udp.Close", func() {
+			time.Sleep(2 * time.Second) // wait a bit
+			close(h.smmch)              // close listener chan
+		})
 		log.I("udp: handler end")
 	})
 	return nil

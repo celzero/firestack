@@ -106,9 +106,12 @@ func (h *icmpHandler) onFlow(source, target netip.AddrPort, realips, domains, pr
 func (h *icmpHandler) End() error {
 	h.once.Do(func() {
 		h.status.Store(ICMPEND)
-		h.CloseConns(nil)
 		close(h.done)
-		close(h.smmch)
+		h.CloseConns(nil)
+		core.Go("icmp.Close", func() {
+			time.Sleep(2 * time.Second) // wait a bit
+			close(h.smmch)              // close listener chan
+		})
 		log.I("icmp: handler end")
 	})
 	return nil
