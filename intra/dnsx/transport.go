@@ -940,13 +940,13 @@ func overrideProxyIfNeeded(pid string, ids ...string) string {
 	for _, id := range ids {
 		switch id {
 		// note: Goos is anyway hard-coded to use NetExitProxy
-		case Bootstrap, Default, Goos: // exit
-			return NetExitProxy
-		case CT + Bootstrap, CT + Default, CT + Goos: // exit
-			return NetExitProxy
-		case System, Local: // base
+		case Goos: // exit
 			return NetNoProxy
-		case CT + System, CT + Local: // base
+		case CT + Goos: // exit
+			return NetNoProxy
+		case Bootstrap, Default, System, Local: // base
+			return NetNoProxy
+		case CT + Bootstrap, CT + Default, CT + System, CT + Local: // base
 			return NetNoProxy
 		}
 	}
