@@ -219,6 +219,8 @@ func (t *gtunnel) wait() {
 func (t *gtunnel) Disconnect() {
 	// no core.Recover here as the tunnel is disconnecting anyway
 	t.once.Do(func() {
+		t.closed.Store(true)
+
 		s := t.stack
 		p := t.pcapio
 		hdl := t.hdl
@@ -226,7 +228,6 @@ func (t *gtunnel) Disconnect() {
 		herr := hdl.Close()
 		perr := p.Close()
 		s.Destroy()
-		t.closed.Store(true)
 		log.I("tun: netstack closed; errs: %v / %v", herr, perr)
 	})
 }
