@@ -116,7 +116,7 @@ func sendNotif(l SocketListener, s *SocketSummary, after time.Duration) {
 		time.Sleep(after)
 	}
 
-	log.VV("intra: end? sendNotif(%t,%t): %s", s.str())
+	log.VV("intra: end? sendNotif: %s", s.str())
 	l.OnSocketClosed(s) // s.Duration may be uninitialized (zero)
 }
 
