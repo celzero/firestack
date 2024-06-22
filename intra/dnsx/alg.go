@@ -292,6 +292,9 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []*netip.Addr, network string, q
 			log.I("alg: abort; r: 0, qerr %v", err)
 			return nil, err
 		}
+		if !xdns.HasRcodeSuccess(ansin) {
+			return ansin, err
+		}
 		log.D("alg: err but r ok; ans: %d, qerr %v", xdns.Len(ansin), err)
 	}
 
