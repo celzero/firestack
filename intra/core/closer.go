@@ -71,12 +71,16 @@ func CloseTCPWrite(w TCPConn) {
 	if w != nil {
 		switch x := w.(type) {
 		case *net.TCPConn:
-			_ = x.CloseRead()
+			if x != nil {
+				_ = x.CloseWrite()
+			}
 		case *gonet.TCPConn:
-			_ = x.CloseRead()
+			if x != nil {
+				_ = x.CloseWrite()
+			}
 		default:
 			if IsNotNil(w) {
-				_ = w.CloseRead()
+				_ = w.CloseWrite()
 			}
 		}
 	}
