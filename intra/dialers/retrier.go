@@ -108,7 +108,7 @@ func calcTimeout(before, after time.Time) time.Duration {
 	// False positives trigger an unnecessary retry, which can make connections slower, so they are
 	// worth avoiding.  However, overly long timeouts make retry slower and less useful.
 	rtt := after.Sub(before)
-	return 1200*time.Millisecond + min(2*rtt, 400*time.Millisecond)
+	return 1200*time.Millisecond + max(2*rtt, 400*time.Millisecond)
 }
 
 // DialWithSplitRetry returns a TCP connection that transparently retries by
