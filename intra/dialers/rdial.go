@@ -88,9 +88,9 @@ func ipConnect2(d *protect.RDial, proto string, ip netip.Addr, port int) (net.Co
 	return d.Dial(proto, addrstr(ip, port))
 }
 
-func doSplit(port int) bool {
+func doSplit(ip netip.Addr, port int) bool {
 	// HTTPS or DoT
-	return port == 443 || port == 853
+	return !ip.IsPrivate() && (port == 443 || port == 853)
 }
 
 func splitIpConnect(d *protect.RDial, proto string, ip netip.Addr, port int) (net.Conn, error) {
@@ -104,7 +104,7 @@ func splitIpConnect(d *protect.RDial, proto string, ip netip.Addr, port int) (ne
 
 	switch proto {
 	case "tcp", "tcp4", "tcp6":
-		if doSplit(port) { // split tls client-hello for https requests
+		if doSplit(ip, port) { // split tls client-hello for https requests
 			return DialWithSplitRetry(d, tcpaddr(ip, port))
 		}
 		return d.DialTCP(proto, nil, tcpaddr(ip, port))
@@ -126,7 +126,7 @@ func splitIpConnect2(d *protect.RDial, proto string, ip netip.Addr, port int) (n
 
 	switch proto {
 	case "tcp", "tcp4", "tcp6":
-		if doSplit(port) { // split tls client-hello for https requests
+		if doSplit(ip, port) { // split tls client-hello for https requests
 			return DialWithSplit(d, tcpaddr(ip, port))
 		}
 		return d.DialTCP(proto, nil, tcpaddr(ip, port))
