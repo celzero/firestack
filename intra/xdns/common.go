@@ -33,9 +33,11 @@ const (
 )
 
 const (
-	ClientMagicLen     = 8
+	ClientMagicLen = 8
+	// X-Nile-Flags:[1:AAIAAQ]
 	blocklistHeaderKey = "x-nile-flags" // "x-bl-fl"
 	// github.com/serverless-dns/serverless-dns/blob/f247f75d31a/src/core/io-state.js#L188
+	// X-Nile-Region:[sin]
 	rethinkdnsRegionHeaderKey = "x-nile-region"
 	// Cf-Ray:[d1e2a3d4b5e6e7f8-SIN]
 	cfRayHeaderKey = "cf-ray"
