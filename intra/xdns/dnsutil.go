@@ -1239,10 +1239,7 @@ func GetRethinkDNSRegionHeaderKey1() string {
 
 // GetBlocklistStampHeaderKey2 returns the http-header key for region set by rdns upstream on Cloudflare
 func GetRethinkDNSRegionHeaderKey2() (r string) {
-	if ck := http.CanonicalHeaderKey(cfRayHeaderKey); len(ck) > 0 {
-		_, r, _ = strings.Cut(ck, "-")
-	}
-	return
+	return http.CanonicalHeaderKey(cfRayHeaderKey)
 }
 
 func IsMDNSQuery(qname string) bool {
