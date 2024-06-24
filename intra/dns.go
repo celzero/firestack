@@ -178,12 +178,25 @@ func AddODoHTransport(t Tunnel, id, endpoint, resolver, epips string) error {
 	if rerr != nil || perr != nil {
 		return errors.Join(rerr, perr)
 	}
+
+	var boot dnsx.Transport
+	var ok bool
+	tr, err := r.Get(dnsx.Default)
+	if err == nil {
+		boot, ok = tr.(dnsx.Transport)
+		if !ok {
+			return dnsx.ErrNotDefaultTransport
+		}
+	} else {
+		log.D("intra: add odoh: bootstrap dns err %v", err)
+	}
+
 	g := t.getBridge()
 	split := []string{}
 	if len(epips) > 0 {
 		split = strings.Split(epips, ",")
 	}
-	if dns, err := doh.NewOdohTransport(id, endpoint, resolver, split, pxr, g); err != nil {
+	if dns, err := doh.NewOdohTransport(id, endpoint, resolver, split, pxr, g, boot); err != nil {
 		return err
 	} else {
 		return addDNSTransport(r, dns)

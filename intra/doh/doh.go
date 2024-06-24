@@ -100,7 +100,7 @@ func (t *transport) dial(network, addr string) (net.Conn, error) {
 // `addrs` is a list of IP addresses to bootstrap dialers.
 // `px` is the proxy provider, may be nil (eg for id == dnsx.Default)
 func NewTransport(id, rawurl string, addrs []string, px ipn.Proxies, ctl protect.Controller) (*transport, error) {
-	return newTransport(dnsx.DOH, id, rawurl, "", addrs, px, ctl)
+	return newTransport(dnsx.DOH, id, rawurl, "", addrs, px, ctl, nil)
 }
 
 // NewTransport returns a POST-only Oblivious DoH transport.
@@ -109,11 +109,11 @@ func NewTransport(id, rawurl string, addrs []string, px ipn.Proxies, ctl protect
 // `target` is the ODoH resolver.
 // `addrs` is a list of IP addresses to bootstrap endpoint dialers.
 // `px` is the proxy provider, never nil.
-func NewOdohTransport(id, endpoint, target string, addrs []string, px ipn.Proxies, ctl protect.Controller) (*transport, error) {
-	return newTransport(dnsx.ODOH, id, endpoint, target, addrs, px, ctl)
+func NewOdohTransport(id, endpoint, target string, addrs []string, px ipn.Proxies, ctl protect.Controller, boot dnsx.Transport) (*transport, error) {
+	return newTransport(dnsx.ODOH, id, endpoint, target, addrs, px, ctl, boot)
 }
 
-func newTransport(typ, id, rawurl, otargeturl string, addrs []string, px ipn.Proxies, ctl protect.Controller) (*transport, error) {
+func newTransport(typ, id, rawurl, otargeturl string, addrs []string, px ipn.Proxies, ctl protect.Controller, boot dnsx.Transport) (*transport, error) {
 	skipTLSVerify := false
 	isodoh := typ == dnsx.ODOH
 
@@ -158,6 +158,7 @@ func newTransport(typ, id, rawurl, otargeturl string, addrs []string, px ipn.Pro
 		// addrs are pre-determined ip addresses for url / hostname
 		renewed = dnsx.RegisterAddrs(t.id, t.hostname, addrs)
 	} else {
+		t.bootstrap(boot)
 		t.odohtransport = &odohtransport{}
 
 		proxy := rawurl // may be empty

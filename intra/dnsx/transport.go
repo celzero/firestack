@@ -899,6 +899,10 @@ func RegisterAddrs(id, hostname string, ipps []string) (ok bool) {
 	return
 }
 
+func IsEncrypted(t Transport) bool {
+	return t.Type() == DOT || t.Type() == DOH || t.Type() == DNSCrypt || t.Type() == ODOH
+}
+
 func isReserved(id string) bool {
 	switch id {
 	case Default, Goos, System, Local, Alg, DcProxy, BlockAll, Preferred, Bootstrap, BlockFree:
