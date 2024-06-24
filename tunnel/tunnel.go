@@ -255,6 +255,7 @@ func newSink() *pcapsink {
 	p.sink = core.NewVolatile[io.WriteCloser](zerowriter)
 	p.log(false) // no log, which is enabled by default
 	p.inC = make(chan []byte, 128)
+	p.doneC = make(chan struct{})
 	core.Go("pcap.w", func() { p.writeAsync() })
 	return p
 }
