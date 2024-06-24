@@ -33,6 +33,7 @@ import (
 	"net/http"
 	"net/http/httptrace"
 	"net/url"
+	"strings"
 	"sync"
 	"time"
 
@@ -52,6 +53,8 @@ const dohmimetype = "application/dns-message"
 
 const maxEOFTries = uint8(2)
 
+const purgethreshold = 1 * time.Minute
+
 var errNoClient error = errors.New("no doh client")
 
 type odohtransport struct {
@@ -62,20 +65,22 @@ type odohtransport struct {
 	odohtargetpath   string       // target path
 	odohConfig       *odoh.ObliviousDoHConfig
 	odohConfigExpiry time.Time
-	preferWK         bool // prefer .well-known over svcb/https probe
+	preferWK         bool           // prefer .well-known over svcb/https probe
+	boot             dnsx.Transport // DNS-over-HTTPS transport
 }
 
 // TODO: Keep a context here so that queries can be canceled.
 type transport struct {
 	*odohtransport // stackoverflow.com/a/28505394
 	id             string
-	typ            string       // dnsx.DOH / dnsx.ODOH
-	url            string       // endpoint URL
-	hostname       string       // endpoint hostname
-	client         http.Client  // only for use with the endpoint
-	tlsconfig      *tls.Config  // preset tlsconfig for the endpoint
-	pxcmu          sync.RWMutex // protects pxclients
-	pxclients      map[string]*proxytransport
+	typ            string                     // dnsx.DOH / dnsx.ODOH
+	url            string                     // endpoint URL
+	hostname       string                     // endpoint hostname
+	client         http.Client                // only for use with the endpoint
+	tlsconfig      *tls.Config                // preset tlsconfig for the endpoint
+	pxcmu          sync.RWMutex               // protects pxclients
+	pxclients      map[string]*proxytransport // todo: use weak pointers for Proxy
+	lastpurge      *core.Volatile[time.Time]  // last scrubbed time for stale pxclients
 	dialer         *protect.RDial
 	proxies        ipn.Proxies // proxy provider, may be nil
 	relay          ipn.Proxy   // dial doh via relay, may be nil
@@ -126,6 +131,7 @@ func newTransport(typ, id, rawurl, otargeturl string, addrs []string, px ipn.Pro
 		relay:     relay,                        // may be nil
 		status:    dnsx.Start,
 		pxclients: make(map[string]*proxytransport),
+		lastpurge: core.NewVolatile(time.Now()),
 		est:       core.NewP50Estimator(),
 	}
 	if !isodoh {
@@ -222,6 +228,41 @@ type proxytransport struct {
 	c *http.Client
 }
 
+// always called from a go-routine
+func (t *transport) purgeProxyClients() {
+	lastpurge := t.lastpurge.Load()
+	if time.Since(lastpurge) <= purgethreshold {
+		return
+	}
+	if ok := t.lastpurge.Cas(lastpurge, time.Now()); !ok {
+		log.I("doh: purge proxy clients: race...")
+		return
+	}
+	t.pxcmu.Lock()
+	defer t.pxcmu.Unlock()
+	for id, pxtr := range t.pxclients {
+		if pxtr == nil {
+			continue
+		} else if pxtr.p == nil {
+			delete(t.pxclients, id)
+			continue
+		} else if orig, err := t.proxies.ProxyFor(id); err != nil {
+			delete(t.pxclients, id)
+			log.W("doh: purge proxy clients: %s %v", id, err)
+			continue
+		} else {
+			diff := pxtr.p != orig
+			note := log.V
+			if diff {
+				note = log.I
+				delete(t.pxclients, id)
+				continue
+			}
+			note("doh: purge proxy clients: remove? %t %s", diff, id)
+		}
+	}
+}
+
 func (t *transport) httpClientFor(p ipn.Proxy) (*http.Client, error) {
 	t.pxcmu.RLock()
 	pxtr, ok := t.pxclients[p.ID()]
@@ -248,6 +289,9 @@ func (t *transport) httpClientFor(p ipn.Proxy) (*http.Client, error) {
 	t.pxcmu.Lock()
 	t.pxclients[p.ID()] = &proxytransport{p: p, c: client}
 	t.pxcmu.Unlock()
+
+	// check if other proxies need to be purged
+	go t.purgeProxyClients()
 
 	return client, nil
 }
@@ -435,7 +479,6 @@ func (t *transport) do(pid string, req *http.Request) (ans []byte, blocklists, r
 
 	blocklists, region = t.rdnsHeaders(&httpResponse.Header)
 	// todo: check if content-type is [doh|odoh] mime type
-	log.V("doh: got response %s", region)
 
 	ans, err = io.ReadAll(httpResponse.Body)
 	if err != nil {
