@@ -525,9 +525,13 @@ func (t *transport) rdnsHeaders(h *http.Header) (blocklistStamp, region string) 
 		return
 	}
 	blocklistStamp = h.Get(xdns.GetBlocklistStampHeaderKey())
+	// X-Nile-Region:[sin]
 	region = h.Get(xdns.GetRethinkDNSRegionHeaderKey1())
 	if len(region) <= 0 {
-		region = h.Get(xdns.GetRethinkDNSRegionHeaderKey2())
+		// Cf-Ray:[d1e2a3d4b5e6e7f8-SIN]
+		if ck := h.Get(xdns.GetRethinkDNSRegionHeaderKey2()); len(ck) > 0 {
+			_, region, _ = strings.Cut(ck, "-")
+		}
 	}
 	log.VV("doh: header %s; region %s; stamp %v", h, region, blocklistStamp)
 	return
