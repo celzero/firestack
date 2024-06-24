@@ -31,21 +31,30 @@ type QueryError struct {
 }
 
 func (e *QueryError) Error() string {
-	if e.err == nil {
-		return ""
+	if e == nil || e.err == nil {
+		return "[nil]"
 	}
 	return e.err.Error()
 }
 
 func (e *QueryError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
 	return e.err // may be nil and that's how it should be
 }
 
 func (e *QueryError) Status() int {
+	if e == nil {
+		return 100 // unknown
+	}
 	return e.status
 }
 
 func (e *QueryError) strstatus() string {
+	if e == nil {
+		return "[nil]"
+	}
 	switch e.status {
 	case Start:
 		return "Start"
@@ -66,16 +75,15 @@ func (e *QueryError) strstatus() string {
 	case ClientError:
 		return "ClientError"
 	default:
-		return "Unknown"
+		return "Unknown" // 100
 	}
 }
 
 func (e *QueryError) String() string {
+	if e == nil {
+		return "[nil]"
+	}
 	return e.strstatus() + ":" + e.Error()
-}
-
-func (e *QueryError) SendFailed() bool {
-	return e.status == SendFailed
 }
 
 func newQueryError(no int, err error) *QueryError {
