@@ -280,9 +280,12 @@ func (r *retrier) Write(b []byte) (int, error) {
 
 			elapsed := time.Since(start).Milliseconds()
 
-			m, err := c.Write(leftover)
+			m := 0
+			if len(leftover) > 0 {
+				m, err = c.Write(leftover)
 
-			logeif(err)("rdial: write retried [%s->%s] %d in %dms; 2nd write-err? %v", laddr(c), r.raddr, m, elapsed, err)
+				logeif(err)("rdial: write retried [%s->%s] %d in %dms; 2nd write-err? %v", laddr(c), r.raddr, m, elapsed, err)
+			}
 			return n + m, err
 		}
 	}
