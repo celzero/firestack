@@ -37,6 +37,11 @@ import (
 	"github.com/celzero/firestack/intra/protect"
 )
 
+type zeroNetAddr struct{}
+
+func (zeroNetAddr) Network() string { return "no" }
+func (zeroNetAddr) String() string  { return "none" }
+
 // retrier implements the DuplexConn interface and must
 // be typecastable to *net.TCPConn (see: xdial.DialTCP)
 // inheritance: go.dev/play/p/mMiQgXsPM7Y
@@ -212,7 +217,7 @@ func (r *retrier) Read(buf []byte) (n int, err error) {
 				n, err = r.retryLocked(buf)
 				note = log.I
 			}
-			note("rdial: read: [%s<-%s] %d; retried? %t; err? %v", laddr(r.conn), r.raddr, n, mustretry, err)
+			logeor(err, note)("rdial: read: [%s<-%s] %d; retried? %t; err? %v", laddr(r.conn), r.raddr, n, mustretry, err)
 			// reset deadlines
 			_ = r.conn.SetReadDeadline(r.readDeadline)
 			_ = r.conn.SetWriteDeadline(r.writeDeadline)
@@ -250,18 +255,18 @@ func (r *retrier) Write(b []byte) (int, error) {
 		n, sent, srcaddr, err := r.sendCopyHello(b)
 
 		note := log.D
-		if err != nil {
-			note = log.W
-		} else if sent {
+		if sent {
 			note = log.I
 		}
 
-		note("rdial: write: first?(%t) [%s->%s] %d; 1st write-err? %v", sent, srcaddr, r.raddr, n, err)
+		logeor(err, note)("rdial: write: first?(%t) [%s->%s] %d; 1st write-err? %v", sent, srcaddr, r.raddr, n, err)
 
 		if sent {
 			if err == nil {
 				return n, nil
 			}
+
+			leftover := b[n:]
 
 			start := time.Now()
 			// write error on the provisional socket should be handled
@@ -275,14 +280,9 @@ func (r *retrier) Write(b []byte) (int, error) {
 
 			elapsed := time.Since(start).Milliseconds()
 
-			m, err := c.Write(b[n:])
+			m, err := c.Write(leftover)
 
-			if err == nil {
-				note = log.I
-			} else {
-				note = log.W
-			}
-			note("rdial: write retried [%s->%s] %d in %dms; 2nd write-err? %v", laddr(c), r.raddr, n+m, elapsed, err)
+			logeif(err)("rdial: write retried [%s->%s] %d in %dms; 2nd write-err? %v", laddr(c), r.raddr, m, elapsed, err)
 			return n + m, err
 		}
 	}
@@ -294,12 +294,20 @@ func (r *retrier) Write(b []byte) (int, error) {
 // ReadFrom reads data from reader into r.conn.ReadFrom, after
 // retries are done; before which reads are delegated to copyOnce.
 func (r *retrier) ReadFrom(reader io.Reader) (bytes int64, err error) {
+	copies := 0
 	for !r.retryCompleted() {
-		if bytes, err = copyOnce(r, reader); err != nil {
-			log.W("rdial: readfrom: copyOnce: %v", err)
+		var b int64
+		if b, err = copyOnce(r, reader); err != nil {
+			log.W("rdial: readfrom: copyOnce #%d; sz: %d; err: %v", copies, bytes, err)
 			return
 		}
+		if b == 0 {
+			log.W("rdial: readfrom: copyOnce #%d; sz: %d; err: zero byte!", copies, bytes)
+		}
+		copies++
+		bytes += b
 	}
+	log.D("rdial: readfrom: copyOnce done #%d; sz: %d", copies, bytes)
 
 	// retryCompleted() is true, so r.conn is final and doesn't need locking
 	var b int64
@@ -307,7 +315,7 @@ func (r *retrier) ReadFrom(reader io.Reader) (bytes int64, err error) {
 	bytes += b
 
 	if err != nil {
-		log.W("rdial: readfrom: %v", err)
+		log.W("rdial: readfrom: sz: %d; err: %v", bytes, err)
 	}
 	return
 }
@@ -383,11 +391,13 @@ func copyOnce(dst io.Writer, src io.Reader) (int64, error) {
 		core.Recycle(bptr)
 	}()
 
-	n, err := src.Read(buf)
+	n, err := src.Read(buf) // downstream conn
 	if err != nil {
+		log.W("rdial: copyOnce: read %d/%d; err %v", n, len(buf), err)
 		return 0, err
 	}
-	n, err = dst.Write(buf[:n])
+	n, err = dst.Write(buf[:n]) // retrier
+	logeif(err)("rdial: copyOnce: write %d/%d; err %v", n, len(buf), err)
 	return int64(n), err
 }
 
@@ -418,7 +428,17 @@ func laddr(c net.Conn) net.Addr {
 	return zeroNetAddr{}
 }
 
-type zeroNetAddr struct{}
+func logeif(e error) log.LogFn {
+	if e != nil {
+		return log.E
+	} else {
+		return log.D
+	}
+}
 
-func (zeroNetAddr) Network() string { return "no" }
-func (zeroNetAddr) String() string  { return "none" }
+func logeor(e error, d log.LogFn) log.LogFn {
+	if e != nil {
+		return log.E
+	}
+	return d
+}
