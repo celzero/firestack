@@ -482,16 +482,22 @@ func fillSummary(s *x.DNSSummary, other *x.DNSSummary) {
 	if other.QType == 0 {
 		other.QType = s.QType
 	}
+	// fill in region if empty
+	if len(other.Region) == 0 {
+		other.Region = s.Region
+	}
 
 	if len(s.RData) != 0 {
 		other.RData = s.RData
 	}
+
 	other.RCode = s.RCode
 	other.RTtl = s.RTtl
 	other.Server = s.Server
 	other.RelayServer = s.RelayServer
 	other.Status = s.Status
 	other.Blocklists = s.Blocklists
+	other.Msg = s.Msg
 	other.UpstreamBlocks = s.UpstreamBlocks
 }
 
