@@ -265,6 +265,7 @@ func (r *retrier) Write(b []byte) (int, error) {
 			if err == nil {
 				return n, nil
 			}
+			err = nil
 
 			leftover := b[n:]
 
@@ -283,9 +284,8 @@ func (r *retrier) Write(b []byte) (int, error) {
 			m := 0
 			if len(leftover) > 0 {
 				m, err = c.Write(leftover)
-
-				logeif(err)("rdial: write retried [%s->%s] %d in %dms; 2nd write-err? %v", laddr(c), r.raddr, m, elapsed, err)
 			}
+			logeor(err, note)("rdial: write retried [%s->%s] %d in %dms; 2nd write-err? %v", laddr(c), r.raddr, m, elapsed, err)
 			return n + m, err
 		}
 	}
