@@ -189,6 +189,19 @@ func (r *resolver) sendSummaries() {
 	}
 }
 
+func (r *resolver) queueSummary(smm *x.DNSSummary) {
+	if smm == nil {
+		return
+	}
+	select {
+	case <-r.done:
+		log.W("dns: fwd: smms closed; dropping %s", smm.Str())
+	case r.smms <- smm:
+	default:
+		log.W("dns: fwd: smms full; dropping %s", smm.Str())
+	}
+}
+
 func (r *resolver) Gateway() Gateway {
 	return r.gateway
 }
@@ -363,13 +376,10 @@ func (r *resolver) forward(q []byte, chosenids ...string) (res0 []byte, err0 err
 		if settings.Debug {
 			smm.Latency = time.Since(starttime).Seconds()
 		}
-		select {
-		case <-r.done:
-			log.W("dns: fwd: smms closed; dropping %s", smm.QName)
-		case r.smms <- smm:
-		default:
-			log.W("dns: fwd: smms full; dropping %s", smm.QName)
+		if len(smm.Msg) <= 0 {
+			smm.Msg = noerr.Error()
 		}
+		r.queueSummary(smm)
 	}()
 
 	msg, err := unpack(q)
