@@ -304,13 +304,10 @@ func (r *retrier) ReadFrom(reader io.Reader) (bytes int64, err error) {
 			log.W("rdial: readfrom: copyOnce #%d; sz: %d; err: %v", copies, bytes, err)
 			return
 		}
-		if b == 0 {
-			log.W("rdial: readfrom: copyOnce #%d; sz: %d; err: zero byte!", copies, bytes)
-		}
 		copies++
 		bytes += b
+		log.D("rdial: readfrom: copyOnce #%d; sz: %d", copies, b)
 	}
-	log.D("rdial: readfrom: copyOnce done #%d; sz: %d", copies, bytes)
 
 	// retryCompleted() is true, so r.conn is final and doesn't need locking
 	var b int64
@@ -394,13 +391,20 @@ func copyOnce(dst io.Writer, src io.Reader) (int64, error) {
 		core.Recycle(bptr)
 	}()
 
+	var dstaddr, srcaddr net.Addr
+	if r, ok := dst.(*retrier); ok {
+		srcaddr = laddr(r)
+		dstaddr = r.raddr
+	}
+
 	n, err := src.Read(buf) // downstream conn
 	if err != nil {
-		log.W("rdial: copyOnce: read %d/%d; err %v", n, len(buf), err)
+		log.W("rdial: copyOnce: read [%s->%s] %d/%d; err %v", srcaddr, dstaddr, n, len(buf), err)
 		return 0, err
 	}
-	n, err = dst.Write(buf[:n]) // retrier
-	logeif(err)("rdial: copyOnce: write %d/%d; err %v", n, len(buf), err)
+	wn, err := dst.Write(buf[:n]) // retrier; upstream
+	logeif(err)("rdial: copyOnce: rw [%s->%s] %d/%d; err %v", srcaddr, dstaddr, n, wn, err)
+
 	return int64(n), err
 }
 
