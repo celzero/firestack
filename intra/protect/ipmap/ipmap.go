@@ -444,7 +444,13 @@ func (s *IPSet) Confirm(ip netip.Addr) {
 		return
 	}
 
-	s.fails.Store(0) // reset fails, a new confirmed ip
+	// do not reset fails, as confirmed ipaddrs may be repeatedly
+	// disconfirmed by upstream clients (for example; dialers may
+	// confirm an ip if it successfully dials, but upstream clients
+	// like dot/doh/dns53 may disconfirm them on HTTP/DNS errors).
+	// We'd want to keep incrementing failures, so an eventual
+	// reset can happen once a generous maxFailLimit is exhausted.
+	// s.fails.Store(0)
 	if ip.Compare(s.confirmed.Load()) == 0 {
 		return
 	}
@@ -473,7 +479,7 @@ func (s *IPSet) clear() {
 
 // Disconfirm sets the confirmed address to zeroaddr if the current confirmed address
 // is the provided ip.
-func (s *IPSet) Disconfirm(ip netip.Addr) (ok bool) {
+func (s *IPSet) Disconfirm(ip netip.Addr) (done bool) {
 	if s.typ == IPAddr { // no-op for ipaddr
 		return false
 	}
@@ -481,20 +487,24 @@ func (s *IPSet) Disconfirm(ip netip.Addr) (ok bool) {
 	c := s.confirmed.Load()
 	if ip.Compare(c) == 0 {
 		s.confirmed.Store(zeroaddr)
-		ok = true
+		done = true
 	}
 
 	// if s is not empty, act on disconfirm
 	if sz := s.Size(); sz > 0 {
+		tot := s.fails.Load()
 		// either the confirmed was disconfirmed above
 		// or s never had a confirmed ip, but still
 		// Disconfirm() was called, indicating a failure
-		if c.Compare(zeroaddr) == 0 {
-			s.fails.Add(1)
+		if done || c.Compare(zeroaddr) == 0 {
+			tot = s.fails.Add(1)
 		}
-		if s.fails.Load() > max(2*sz, maxFailLimit) {
+
+		if tot > max(2*sz, maxFailLimit) {
 			// empty out the set, may be refilled by Get()
-			s.clear()
+			if s.fails.CompareAndSwap(tot, 0) {
+				s.clear()
+			}
 		}
 	}
 	return
