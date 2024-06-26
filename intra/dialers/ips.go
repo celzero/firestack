@@ -48,11 +48,13 @@ func udpaddr(ip netip.Addr, port int) *net.UDPAddr {
 // Resolves hostOrIP, and re-seeds it if existing is non-empty
 func renew(hostOrIP string, existing *ipmap.IPSet) (cur *ipmap.IPSet, ok bool) {
 	// will never be able to resolve protected hosts (UidSelf, UidRethink),
-	// except for the seed addrs.
+	// and so, keep existing as-is (we do not want to use NewProtected and
+	// race against dnsx.RegisterAddrs or other clients updating UidSelf or
+	// UidRethink as changes come in from kotlinland intra.Bridge)
 	if protect.NeverResolve(hostOrIP) {
-		cur, _ = NewProtected(hostOrIP, existing.Seed())
+		cur = existing.Reset()
 	} else if existing.Protected() {
-		// if protected, preserve seed addrs; hen resolve hostOrIP
+		// if protected, preserve seed addrs; then resolve hostOrIP
 		NewProtected(hostOrIP, existing.Seed())
 		cur = ipm.Add(hostOrIP)
 		// fallthrough
@@ -61,9 +63,7 @@ func renew(hostOrIP string, existing *ipmap.IPSet) (cur *ipmap.IPSet, ok bool) {
 		// empty when its ips have been disconfirmed beyond some threshold
 		cur = ipm.Add(hostOrIP)
 		if cur.Empty() {
-			// if still empty, fallback on seed addrs; when hostOrIP is
-			// protect.UidSelf, protect.UidSystem, for example, cur will
-			// always be empty (as they're unresolvable by ipm.Add)
+			// if still empty, fallback on seed addrs
 			cur, _ = New(hostOrIP, existing.Seed())
 		} // else: fallthrough
 	} else {

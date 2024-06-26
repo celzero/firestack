@@ -417,7 +417,7 @@ func (s *IPSet) Addrs() []netip.Addr {
 
 	c := make([]netip.Addr, 0, sz)
 	c = append(c, ips...)
-	if len(c) > 2 {
+	if len(c) > 1 {
 		rand.Shuffle(len(c), func(i, j int) {
 			c[i], c[j] = c[j], c[i]
 		})
@@ -461,6 +461,13 @@ func (s *IPSet) Confirm(ip netip.Addr) {
 
 		s.addLocked(ip) // Add is O(N)
 	})
+}
+
+// Reset clears existing IPs for Regular and Protected types,
+// while it is a no-op for type IPAddr.
+func (s *IPSet) Reset() *IPSet {
+	s.clear()
+	return s
 }
 
 func (s *IPSet) clear() {
