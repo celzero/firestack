@@ -173,29 +173,6 @@ func FindUnique(s []string, n []string) (u []string) {
 	return
 }
 
-// remove removes elements at indices r from a ascii string slice s
-// and returns a slice
-func RemoveOverlap(s []string, r []string) []string {
-	// TODO: check if the max(r...) is within len(s)
-	// FIXME: s shouldn't contain empty string
-	var j int = 0
-	for _, x := range s {
-		var skip bool = false
-		for _, y := range r {
-			if x == y {
-				skip = true
-				break
-			}
-		}
-		if !skip {
-			s[j] = x
-			j++
-		}
-	}
-	// slice out the bottom-half to be removed
-	return s[:j]
-}
-
 // TODO: merge this with doh.Accept
 func ReadPrefixed(conn *net.Conn) ([]byte, error) {
 	buf := make([]byte, 2+MaxDNSPacketSize)
