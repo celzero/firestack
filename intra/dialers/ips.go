@@ -68,6 +68,9 @@ func renew(hostOrIP string, existing *ipmap.IPSet) (cur *ipmap.IPSet, ok bool) {
 		} // else: fallthrough
 	} else {
 		// if non-empty, renew hostOrIP with seed addrs
+		// existing may be of typ IPAddr, in which case
+		// existing.Seed() would be empty, and hostOrIP
+		// should be a valid IP or IP:Port.
 		New(hostOrIP, existing.Seed())
 		cur = ipm.Add(hostOrIP)
 	}
