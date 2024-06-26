@@ -158,7 +158,7 @@ func (tnet *wgtun) DialContext(_ context.Context, network, address string) (net.
 		}
 		log.I("wg: dial: %s: #%d %v", network, i, addr)
 		if err == nil {
-			dialers.Confirm2(host, addr.Addr())
+			dialers.Confirm(host, addr.Addr())
 			return c, nil
 		}
 		dialers.Disconfirm(host, addr.Addr())

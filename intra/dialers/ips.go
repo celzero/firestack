@@ -169,18 +169,22 @@ func Clear() {
 	ipm.Clear() // does not clear UidSelf, UidSystem (protected)
 }
 
-// Confirm marks addr as preferred for hostOrIP
-func Confirm(hostOrIP string, addr net.Addr) bool {
-	return Confirm2(hostOrIP, ipof(addr.String()))
+// Confirm3 marks addr as preferred for hostOrIP
+func Confirm3(hostOrIP string, addr net.Addr) bool {
+	return Confirm2(hostOrIP, addr.String())
 }
 
-func Confirm2(hostOrIP string, addr netip.Addr) bool {
+func Confirm(hostOrIP string, addr netip.Addr) bool {
 	if ipok(addr) { // confirms ONLY valid ips
 		ips := ipm.GetAny(hostOrIP)
 		ips.Confirm(addr)
 		return ips != nil
 	}
 	return false
+}
+
+func Confirm2(hostOrIP string, addr string) bool {
+	return Confirm(hostOrIP, ipof(addr))
 }
 
 // Disconfirm3 unmarks addr as preferred for hostOrIP

@@ -178,11 +178,13 @@ func (t *dot) sendRequest(pid string, q *dns.Msg) (ans *dns.Msg, elapsed time.Du
 		clos(conn)
 	} // fallthrough
 
+	raddr := remoteAddrIfAny(conn)
 	if err != nil {
-		raddr := remoteAddrIfAny(conn)
 		ok := dialers.Disconfirm2(t.host, raddr)
 		log.V("dot: sendRequest: (%s) err: %v; disconfirm? %t %s => %s", t.id, err, ok, t.host, raddr)
 		qerr = dnsx.NewSendFailedQueryError(err)
+	} else {
+		dialers.Confirm2(t.host, raddr)
 	}
 	return
 }

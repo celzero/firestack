@@ -205,6 +205,8 @@ func (t *transport) send(network, pid string, q *dns.Msg) (ans *dns.Msg, elapsed
 		qerr = dnsx.NewSendFailedQueryError(err)
 	} else if ans == nil {
 		qerr = dnsx.NewBadResponseQueryError(err)
+	} else {
+		dialers.Confirm2(t.addrport, lastaddr)
 	}
 
 	t.lastaddr = lastaddr

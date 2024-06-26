@@ -428,7 +428,7 @@ func (t *transport) do(pid string, req *http.Request) (ans []byte, blocklists, r
 		if hasserveraddr {
 			if qerr == nil {
 				// record a working IP address for this server
-				dialers.Confirm(hostname, server)
+				dialers.Confirm3(hostname, server)
 				return
 			} else {
 				ok := dialers.Disconfirm3(hostname, server)
