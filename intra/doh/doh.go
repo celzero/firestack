@@ -105,7 +105,7 @@ func NewTransport(id, rawurl string, addrs []string, px ipn.Proxies, ctl protect
 
 // NewTransport returns a POST-only Oblivious DoH transport.
 // `id` identifies this transport.
-// `endpoint` is the ODoH proxy that liasons with the target.
+// `endpoint` is the ODoH proxy that liaisons with the target.
 // `target` is the ODoH resolver.
 // `addrs` is a list of IP addresses to bootstrap endpoint dialers.
 // `px` is the proxy provider, never nil.

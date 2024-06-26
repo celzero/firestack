@@ -346,7 +346,7 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []*netip.Addr, network string, q
 
 	defer func() {
 		if isAlgErr(err) && !mod {
-			log.D("alg: no mod; supress err %v", err)
+			log.D("alg: no mod; suppress err %v", err)
 			// ignore alg errors if no modification is desired
 			err = nil
 		}

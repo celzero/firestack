@@ -123,7 +123,7 @@ func (h *tcpHandler) onFlow(localaddr, target netip.AddrPort, realips, domains, 
 		log.D("onFlow: no realips(%s) or domains(%s + %s), for src=%s dst=%s", realips, domains, probableDomains, localaddr, target)
 	}
 
-	// Implict: BlockModeFilter or BlockModeFilterProc
+	// Implicit: BlockModeFilter or BlockModeFilterProc
 	uid := -1
 	if blockmode == settings.BlockModeFilterProc {
 		procEntry := netstat.FindProcNetEntry("tcp", localaddr, target)

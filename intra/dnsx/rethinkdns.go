@@ -514,7 +514,7 @@ func (r *rethinkdns) flagstoinfo(flags []uint16) ([]*listinfo, error) {
 				pos := (index * 16) + j
 				if pos >= len(r.flags) {
 					// github.com/celzero/firestack/issues/5
-					// sliently ignore scenarios where stamp encodes many
+					// silently ignore scenarios where stamp encodes many
 					// more blocklsts than what's currently loaded
 					continue
 				}

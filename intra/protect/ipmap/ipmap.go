@@ -86,7 +86,7 @@ type IPMap interface {
 	// Subsequent calls to GetAny return the same IPSet. Never returns nil.
 	GetAny(hostOrIP string) *IPSet
 	// MakeIPSet creates an IPSet for this hostname bootstrapped with given IPs
-	// or IP:Ports. Subsequent calls to MakeIPSet return a new, overriden IPSet.
+	// or IP:Ports. Subsequent calls to MakeIPSet return a new, overridden IPSet.
 	MakeIPSet(hostOrIP string, ipps []string, typ IPSetType) *IPSet
 	// With sets the default resolver to use for hostname resolution.
 	With(r IPMapper)
@@ -310,7 +310,7 @@ func (s *IPSet) add(hostOrIP string) bool {
 		hostOrIP = host
 	}
 	r := s.r
-	if r == nil { // unlikley; s.r is never nil
+	if r == nil { // unlikely; s.r is never nil
 		log.W("ipmap: Add: no resolver for %s", hostOrIP)
 		return false
 	}

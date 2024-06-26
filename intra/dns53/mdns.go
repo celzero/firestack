@@ -419,7 +419,7 @@ loop:
 			if disco == nil { // no valid answers
 				log.D("mdns: listen: no valid answers for %s; len? %d", qname, len(xxlans))
 				continue
-			} else if (c.oneshot && disco.hasip()) || // oneshot + recieved v4 / v6 ips
+			} else if (c.oneshot && disco.hasip()) || // oneshot + received v4 / v6 ips
 				(!c.oneshot && disco.hasip() && disco.hassvc()) { // v4 / v6 ips and srv
 				if !disco.captured {
 					disco.captured = true

@@ -144,7 +144,7 @@ func (h *udpHandler) onFlow(localaddr, target netip.AddrPort, realips, domains, 
 		log.VV("udp: onFlow: no realips(%s) or domains(%s + %s), for src=%s dst=%s", realips, domains, probableDomains, localaddr, dst)
 	}
 
-	// Implict: BlockModeFilter or BlockModeFilterProc
+	// Implicit: BlockModeFilter or BlockModeFilterProc
 	uid := -1
 	if blockmode == settings.BlockModeFilterProc {
 		procEntry := netstat.FindProcNetEntry("udp", localaddr, target)

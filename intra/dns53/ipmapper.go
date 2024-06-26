@@ -121,7 +121,7 @@ func (m *ipmapper) LookupNetIP(ctx context.Context, network, host string) ([]net
 	case "ip6":
 		q6, err6 = dnsmsg(host, dns.TypeAAAA)
 	default:
-		log.E("ipmapper: lookup: unkown net %s query %s", network, host)
+		log.E("ipmapper: lookup: unknown net %s query %s", network, host)
 		return nil, errNoNet
 	}
 

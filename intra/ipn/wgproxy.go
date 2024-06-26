@@ -670,7 +670,7 @@ func (tun *wgtun) Close() error {
 	tun.once.Do(func() {
 		log.D("proxy: wg: %s tun: closing...", tun.id)
 
-		close(tun.finalize)   // unblock all recievers
+		close(tun.finalize)   // unblock all receivers
 		tun.status.Store(END) // TODO: move this to wgproxy.Close()?
 
 		tun.stack.RemoveNIC(wgnic)
@@ -896,7 +896,7 @@ func (h *wgtun) listener(op string, err error) {
 		if h.latestRx.Load() <= 0 {
 			s = TNT // writes succeeded; but reads have never
 		} else {
-			s = TZZ // wirtes and reads have suceeded in the past
+			s = TZZ // wirtes and reads have succeeded in the past
 		}
 	} else if err != nil {
 		s = TKO
