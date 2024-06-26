@@ -303,15 +303,17 @@ func (s *IPSet) hasLocked(ip netip.Addr) bool {
 }
 
 // Adds an IP to the set if it is not present.  Must be called under Lock.
-func (s *IPSet) addLocked(ip netip.Addr) {
-	uns := !ip.IsUnspecified()
-	valip := ip.IsValid()
-	newip := !s.hasLocked(ip.Unmap())
-	if uns && valip && newip {
-		// always unmapped; github.com/golang/go/issues/53607
-		s.ips = append(s.ips, ip.Unmap())
-	} else {
-		log.D("ipmap: add: fail %s; !uns? %t, val? %t, !new? %t", ip, uns, valip, newip)
+func (s *IPSet) addLocked(ips ...netip.Addr) {
+	for i, ip := range ips {
+		uns := !ip.IsUnspecified()
+		valip := ip.IsValid()
+		newip := !s.hasLocked(ip.Unmap())
+		if uns && valip && newip {
+			// always unmapped; github.com/golang/go/issues/53607
+			s.ips = append(s.ips, ip.Unmap())
+		} else {
+			log.D("ipmap: add #%d: fail %s; !uns? %t, val? %t, !new? %t", i, ip, uns, valip, newip)
+		}
 	}
 }
 
@@ -325,11 +327,10 @@ func (s *IPSet) Seed() []string {
 // add one or more IP addresses to the set.
 // The hostname can be a domain name or an IP address.
 func (s *IPSet) add(hostOrIP string) bool {
-	if s.typ == IPAddr {
-		// nothing to do
-		// TODO: also return false for typ == Protected?
+	if s.typ == IPAddr { // nothing to do as this ipset only has one ipaddr
 		return false
 	}
+
 	if host, _, err := net.SplitHostPort(hostOrIP); err == nil {
 		hostOrIP = host
 	}
@@ -346,15 +347,16 @@ func (s *IPSet) add(hostOrIP string) bool {
 	} else {
 		log.D("ipmap: Add: resolved? %s => %s", hostOrIP, resolved)
 	}
+
 	s.Lock()
-	for _, addr := range resolved { // resolved may be nil
-		s.addLocked(addr)
-	}
+	s.addLocked(resolved...) // resolved may be nil
 	s.Unlock()
+
 	ok := !s.Empty()
 	if ok {
 		s.fails.Store(0) // reset fails, since we have a new ips
 	}
+
 	return ok
 }
 
@@ -439,6 +441,9 @@ func (s *IPSet) Confirmed() netip.Addr {
 }
 
 // Confirm marks ip as the confirmed address.
+// No-op if current confirmed IP is the same as ip.
+// No-op if s is of type Protected and ip isn't in seed addrs.
+// No-op if s is of type IPAddr.
 func (s *IPSet) Confirm(ip netip.Addr) {
 	if s.typ == IPAddr { // ipaddr fast path, no-op
 		return
@@ -454,13 +459,33 @@ func (s *IPSet) Confirm(ip netip.Addr) {
 	if ip.Compare(s.confirmed.Load()) == 0 {
 		return
 	}
-	s.confirmed.Store(ip)
-	core.Gx("ipset.confirm", func() {
-		s.Lock()
-		defer s.Unlock()
 
-		s.addLocked(ip) // Add is O(N)
-	})
+	s.RLock()
+	newIP := !s.hasLocked(ip)
+	s.RUnlock()
+
+	// Protected IPSets should stay consistent with its seed addrs
+	// and must not add or confirm unseeded IPs. This happens in cases
+	// where an IP from a previous Protected IPSet may be confirmed at
+	// a time after the IPSet has been updated to a new one. For example,
+	// if UidSelf / UidSystem has been changed to new System DNS IPs,
+	// a goroutine using the previous UidSelf / UidSystem IPSet may
+	// end up confirming IP address in the new one.
+	if s.typ == Protected && newIP {
+		return
+	}
+
+	s.confirmed.Store(ip)
+
+	// Add this IP to the set if it hasn't been seen before.
+	if s.typ != Protected && newIP {
+		core.Gx("ipset.confirm", func() {
+			s.Lock()
+			defer s.Unlock()
+
+			s.addLocked(ip) // Add is O(N)
+		})
+	}
 }
 
 // Reset clears existing IPs for Regular and Protected types,
