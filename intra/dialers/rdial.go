@@ -158,8 +158,16 @@ func commondial(d *protect.RDial, network, addr string, connect connectFunc) (ne
 	var conn net.Conn
 	var errs error
 	ips := ipm.Get(domain)
+	dontretry := ips.OneIPOnly() // just one IP, no retries possible
 	confirmed := ips.Confirmed() // may be zeroaddr
-	if ipok(confirmed) {
+	confirmedIPOK := ipok(confirmed)
+
+	defer func() {
+		dur := time.Since(start)
+		log.D("rdial: duration: %s; failed %s; confirmed? %s, sz: %d", dur, addr, confirmed, ips.Size())
+	}()
+
+	if confirmedIPOK {
 		log.V("rdial: commondial: dialing confirmed ip %s for %s", confirmed, addr)
 		if conn, err = connect(d, network, confirmed, port); err == nil {
 			log.V("rdial: commondial: ip %s works for %s", confirmed, addr)
@@ -168,6 +176,14 @@ func commondial(d *protect.RDial, network, addr string, connect connectFunc) (ne
 		errs = errors.Join(errs, err)
 		ips.Disconfirm(confirmed)
 		log.D("rdial: commondial: confirmed ip %s for %s failed with err %v", confirmed, addr, err)
+	}
+
+	if dontretry {
+		if !confirmedIPOK {
+			log.E("rdial: ip %s not ok for %s", confirmed, addr)
+			errs = errors.Join(errs, errNoIps)
+		}
+		return nil, errs
 	}
 
 	ipset := ips.Addrs()
@@ -180,7 +196,8 @@ func commondial(d *protect.RDial, network, addr string, connect connectFunc) (ne
 		}
 		log.D("rdial: renew ips for %s; ok? %t, failingopen? %t", addr, ok, failingopen)
 	}
-	log.D("rdial: commondial: trying all ips %d for %s", len(allips), addr)
+	log.D("rdial: commondial: trying all ips %d %v for %s, failingopen? %t",
+		len(allips), allips, addr, failingopen)
 	for _, ip := range allips {
 		end := time.Since(start)
 		if end > dialRetryTimeout {
@@ -200,9 +217,6 @@ func commondial(d *protect.RDial, network, addr string, connect connectFunc) (ne
 			log.W("rdial: commondial: ip %s not ok for %s", ip, addr)
 		}
 	}
-
-	dur := time.Since(start)
-	log.D("rdial: commondial: duration: %s; failed %s", dur, addr)
 
 	if len(ipset) <= 0 {
 		errs = errNoIps
