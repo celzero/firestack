@@ -89,7 +89,7 @@ Note: The path the UDP packet took to reach the destination may differ from the 
 func DialWithSplitAndDesyncTraceroute(d *protect.RDial, addr *net.TCPAddr, maxTTL int, payload []byte) (DuplexConn, error) {
 	udpAddr := &net.UDPAddr{
 		IP:   addr.IP,
-		Port: addr.Port,
+		Port: 53,
 		Zone: addr.Zone,
 	}
 	udpConn, err := d.DialUDP(udpAddr.Network(), nil, udpAddr)
