@@ -7,6 +7,7 @@ package netstack
 
 import (
 	"errors"
+	"io"
 	"net"
 	"net/netip"
 	"time"
@@ -22,7 +23,7 @@ import (
 	"gvisor.dev/gvisor/pkg/waiter"
 )
 
-var errMissingEp = errors.New("udp not connected to any endpoint")
+var errMissingEp = errors.New("not connected to any endpoint")
 
 type GUDPConnHandler interface {
 	// Proxy proxies data between conn (src) and dst.
@@ -162,7 +163,7 @@ func (g *GUDPConn) RemoteAddr() (addr net.Addr) {
 
 func (g *GUDPConn) Write(data []byte) (int, error) {
 	if !g.ok() {
-		return 0, errMissingEp
+		return 0, netError(g, "udp", "write", io.ErrClosedPipe)
 	}
 	// nb: write-deadlines set by intra.udp
 	// addr: 10.111.222.3:17711; g.LocalAddr(g.udp.remote): 10.111.222.3:17711; g.RemoteAddr(g.udp.local): 10.111.222.1:53
@@ -174,42 +175,42 @@ func (g *GUDPConn) Write(data []byte) (int, error) {
 
 func (g *GUDPConn) Read(data []byte) (int, error) {
 	if !g.ok() {
-		return 0, errMissingEp
+		return 0, netError(g, "udp", "read", io.ErrNoProgress)
 	}
 	return g.conn.Read(data)
 }
 
 func (g *GUDPConn) WriteTo(data []byte, addr net.Addr) (int, error) {
 	if !g.ok() {
-		return 0, errMissingEp
+		return 0, netError(g, "udp", "writeTo", net.ErrWriteToConnected)
 	}
 	return g.conn.WriteTo(data, addr)
 }
 
 func (g *GUDPConn) ReadFrom(data []byte) (int, net.Addr, error) {
 	if !g.ok() {
-		return 0, nil, errMissingEp
+		return 0, nil, netError(g, "udp", "readFrom", io.ErrNoProgress)
 	}
 	return g.conn.ReadFrom(data)
 }
 
 func (g *GUDPConn) SetDeadline(t time.Time) error {
-	if !g.ok() {
-		return errMissingEp
+	if !g.ok() { // no-op as with netstack's gonet impl
+		return nil
 	}
 	return g.conn.SetDeadline(t)
 }
 
 func (g *GUDPConn) SetReadDeadline(t time.Time) error {
-	if !g.ok() {
-		return errMissingEp
+	if !g.ok() { // no-op as with netstack's gonet impl
+		return nil
 	}
 	return g.conn.SetReadDeadline(t)
 }
 
 func (g *GUDPConn) SetWriteDeadline(t time.Time) error {
-	if !g.ok() {
-		return errMissingEp
+	if !g.ok() { // no-op as with netstack's gonet impl
+		return nil
 	}
 	return g.conn.SetWriteDeadline(t)
 }

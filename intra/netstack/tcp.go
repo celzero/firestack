@@ -170,28 +170,28 @@ func (g *GTCPConn) RemoteAddr() net.Addr {
 
 func (g *GTCPConn) Write(data []byte) (int, error) {
 	if !g.ok() {
-		return 0, g.netError("write", io.EOF)
+		return 0, netError(g, "tcp", "write", io.ErrClosedPipe)
 	}
 	return g.conn.Write(data)
 }
 
 func (g *GTCPConn) Read(data []byte) (int, error) {
 	if !g.ok() {
-		return 0, g.netError("read", io.EOF)
+		return 0, netError(g, "tcp", "read", io.ErrNoProgress)
 	}
 	return g.conn.Read(data)
 }
 
 func (g *GTCPConn) CloseWrite() error {
 	if !g.ok() {
-		return g.netError("close", net.ErrClosed)
+		return netError(g, "tcp", "close", net.ErrClosed)
 	}
 	return g.conn.CloseWrite()
 }
 
 func (g *GTCPConn) CloseRead() error {
 	if !g.ok() {
-		return g.netError("close", net.ErrClosed)
+		return netError(g, "tcp", "close", net.ErrClosed)
 	}
 	return g.conn.CloseRead()
 }
@@ -239,10 +239,10 @@ func (g GTCPConn) Close() error {
 }
 
 // from: netstack gonet
-func (c *GTCPConn) netError(op string, err error) *net.OpError {
+func netError(c net.Conn, proto, op string, err error) *net.OpError {
 	return &net.OpError{
 		Op:     op,
-		Net:    "tcp",
+		Net:    proto,
 		Source: c.LocalAddr(),
 		Addr:   c.RemoteAddr(),
 		Err:    err,
