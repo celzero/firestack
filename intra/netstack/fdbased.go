@@ -402,7 +402,7 @@ func (e *endpoint) WritePackets(pkts stack.PacketBufferList) (int, tcpip.Error) 
 	packets, written := 0, 0
 	total := pkts.Len()
 	for _, pkt := range pkts.AsSlice() {
-		e.logPacketIfNeeded(sniffer.DirectionSend, pkt)
+		logPacketIfNeeded(sniffer.DirectionSend, pkt)
 		views := pkt.AsSlices()
 		numIovecs := len(views)
 		if len(batch)+numIovecs > rawfile.MaxIovs {
@@ -476,7 +476,7 @@ func (e *endpoint) ARPHardwareType() header.ARPHardwareType {
 
 // InjectInbound ingresses a netstack-inbound packet.
 func (e *endpoint) InjectInbound(protocol tcpip.NetworkProtocolNumber, pkt *stack.PacketBuffer) {
-	e.logPacketIfNeeded(sniffer.DirectionRecv, pkt)
+	logPacketIfNeeded(sniffer.DirectionRecv, pkt)
 	d := e.getDispatcher()
 	fd := e.fd()
 	log.VV("ns: tun(%d): inject-inbound (from tun) %d", fd, protocol)
