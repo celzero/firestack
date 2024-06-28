@@ -49,7 +49,7 @@ type GUDPConn struct {
 }
 
 // ref: github.com/google/gvisor/blob/e89e736f1/pkg/tcpip/adapters/gonet/gonet_test.go#L373
-func MakeGUDPConn(r *udp.ForwarderRequest, src, dst netip.AddrPort) *GUDPConn {
+func makeGUDPConn(r *udp.ForwarderRequest, src, dst netip.AddrPort) *GUDPConn {
 	return &GUDPConn{
 		ep:  nil,
 		src: src,
@@ -59,7 +59,7 @@ func MakeGUDPConn(r *udp.ForwarderRequest, src, dst netip.AddrPort) *GUDPConn {
 }
 
 func setupUdpHandler(s *stack.Stack, h GUDPConnHandler) {
-	s.SetTransportProtocolHandler(udp.ProtocolNumber, NewUDPForwarder(s, h).HandlePacket)
+	s.SetTransportProtocolHandler(udp.ProtocolNumber, udpForwarder(s, h).HandlePacket)
 }
 
 // Perhaps udp conns shouldn't be closed as eagerly as its tcp counterpart
@@ -73,7 +73,7 @@ func setupUdpHandler(s *stack.Stack, h GUDPConnHandler) {
 // via: github.com/google/gvisor/blob/be6ffa7/pkg/tcpip/adapters/gonet/gonet.go#L315
 // fin: github.com/google/gvisor/blob/be6ffa7/pkg/tcpip/transport/udp/endpoint.go#L220
 // but: github.com/google/gvisor/blob/be6ffa7/pkg/tcpip/transport/udp/endpoint.go#L180
-func NewUDPForwarder(s *stack.Stack, h GUDPConnHandler) *udp.Forwarder {
+func udpForwarder(s *stack.Stack, h GUDPConnHandler) *udp.Forwarder {
 	return udp.NewForwarder(s, func(request *udp.ForwarderRequest) {
 		if request == nil {
 			log.E("ns: udp: forwarder: nil request")
@@ -89,7 +89,7 @@ func NewUDPForwarder(s *stack.Stack, h GUDPConnHandler) *udp.Forwarder {
 		// multiple dst in the unconnected udp case.
 		dst := localAddrPort(id)
 
-		gc := MakeGUDPConn(request, src, dst)
+		gc := makeGUDPConn(request, src, dst)
 		// connect so that netstack's internal state is consistent
 		if err := gc.makeEndpoint( /*fin*/ false); err != nil {
 			log.E("ns: udp: forwarder: connect: %v; src(%v) dst(%v)", err, src, dst)
