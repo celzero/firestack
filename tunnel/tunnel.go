@@ -177,7 +177,7 @@ func (t *gtunnel) Mtu() int {
 }
 
 func (t *gtunnel) wait() {
-	const betweenChecks = 5 * time.Second
+	const betweenChecks = 3 * time.Second
 	const uptimeThreshold = 10 * time.Second
 	const maxchecks = 3
 
