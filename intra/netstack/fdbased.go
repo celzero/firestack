@@ -32,6 +32,7 @@ package netstack
 import (
 	"fmt"
 	"sync/atomic"
+	"syscall"
 
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/log"
@@ -229,27 +230,29 @@ func createInboundDispatcher(e *endpoint, fd int) (linkDispatcher, error) {
 
 // Implements Swapper.
 func (e *endpoint) Swap(fd, mtu int) (err error) {
+	defer func() {
+		if err != nil {
+			_ = syscall.Close(fd)
+			log.W("ns: tun(%d): Swap: close fd! err %v", fd, err)
+		}
+	}()
 
 	if err = unix.SetNonblock(fd, true); err != nil {
-		err := fmt.Errorf("unix.SetNonblock(%v) failed: %v", fd, err)
-		log.W("ns: tun(%d): Swap: err %v", fd, err)
-		return err
+		return fmt.Errorf("unix.SetNonblock(%v) failed: %v", fd, err)
 	}
 
 	e.mtu.Store(uint32(mtu))
-	// prevfd closed by inboundDispatcher
+	// prevfd closed by inboundDispatcher; and may be 0 value
 	prevfd := e.fds.Swap(fd) // commence WritePackets() on fd
 
-	log.D("ns: swapping tun... fd: %d, mtu: %d", fd, mtu)
+	log.D("ns: swapping tun... fd: %d => %d, mtu: %d", prevfd, fd, mtu)
 
 	e.Lock()
 	defer e.Unlock()
-	if e.inboundDispatcher == nil {
+	if e.inboundDispatcher == nil { // prevfd must be 0 value if inbound is nil
 		e.inboundDispatcher, err = createInboundDispatcher(e, fd)
 		if err != nil {
-			err := fmt.Errorf("createInboundDispatcher(%d, ...) = %v", fd, err)
-			log.W("ns: tun(%d): Swap: err %v", fd, err)
-			return err
+			return fmt.Errorf("createInboundDispatcher(%d, ...) = %v", fd, err)
 		}
 		if e.dispatcher != nil { // attached?
 			// todo: core.RecoverFn(restart-netstack)
@@ -257,12 +260,9 @@ func (e *endpoint) Swap(fd, mtu int) (err error) {
 		} else {
 			log.W("ns: tun(%d => %d): Swap: no dispatcher for new fd", prevfd, fd)
 		}
-	} else {
-		e.inboundDispatcher.swap(fd)
-	}
-
-	log.I("ns: tun(%d => %d): Swap: done", prevfd, fd)
-	return nil
+		return nil
+	} // else:
+	return e.inboundDispatcher.swap(fd) // always closes prevfd
 }
 
 // Attach launches the goroutine that reads packets from the file descriptor and
