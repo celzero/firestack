@@ -167,6 +167,37 @@ func (h *tcpHandler) CloseConns(cids []string) (closed []string) {
 	return closeconns(h.conntracker, cids)
 }
 
+// Error implements netstack.GTCPConnHandler.
+// It must be called from a goroutine.
+func (h *tcpHandler) Error(err error, src, target netip.AddrPort) {
+	defer core.Recover(core.Exit11, "tcp.ProxyError")
+
+	if h.status.Load() == TCPEND {
+		// _, err = gconn.Connect(rst) // fin
+		log.D("tcp: proxy error: end %v -> %v", src, target)
+		return
+	}
+
+	if !src.IsValid() || !target.IsValid() {
+		// log.E("tcp: nil addr %v -> %v; close err? %v", src, target, err)
+		return
+	}
+
+	// alg happens after nat64, and so, alg knows nat-ed ips
+	// that is, realips are un-nated
+	realips, domains, probableDomains, blocklists := undoAlg(h.resolver, target.Addr())
+
+	// flow/dns-override are nat-aware, as in, they can deal with
+	// nat-ed ips just fine, and so, use target as-is instead of ipx4
+	res := h.onFlow(src, target, realips, domains, probableDomains, blocklists)
+
+	cid, pid, uid := splitCidPidUid(res)
+	smm := tcpSummary(cid, pid, uid, target.Addr()).done(err)
+	queueSummary(h.smmch, h.done, smm)
+
+	return // error notfied
+}
+
 // Proxy implements netstack.GTCPConnHandler
 // It must be called from a goroutine.
 func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target netip.AddrPort) (open bool) {
@@ -179,11 +210,7 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target netip.AddrPort)
 
 	defer func() {
 		if !open {
-			clos(gconn)
-			if smm != nil {
-				smm.done(err)
-				queueSummary(h.smmch, h.done, smm)
-			} // else: summary not created
+			clos(gconn) // gconn may be nil
 		}
 	}()
 
@@ -192,6 +219,13 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target netip.AddrPort)
 		log.D("tcp: proxy: end %v -> %v", src, target)
 		return deny
 	}
+
+	defer func() {
+		if smm != nil {
+			smm.done(err)
+			queueSummary(h.smmch, h.done, smm)
+		} // else: summary not created
+	}()
 
 	if !src.IsValid() || !target.IsValid() {
 		// _, err = gconn.Connect(rst) // fin

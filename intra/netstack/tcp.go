@@ -28,6 +28,8 @@ const maxInFlight = 512 // arbitrary
 type GTCPConnHandler interface {
 	// Proxy copies data between src and dst.
 	Proxy(conn *GTCPConn, src, dst netip.AddrPort) bool
+	// Error notes the error in connecting src to dst.
+	Error(err error, src, dst netip.AddrPort)
 	// CloseConns closes conns by cids, or all conns if cids is empty.
 	CloseConns([]string) []string
 	// End closes all conns and releases resources.
@@ -69,6 +71,7 @@ func NewTCPForwarder(s *stack.Stack, h GTCPConnHandler) *tcp.Forwarder {
 		// setup endpoint right away, so that netstack's internal state is consistent
 		if open, err := gtcp.makeEndpoint( /*rst*/ false); err != nil || !open {
 			log.E("ns: tcp: forwarder: connect src(%v) => dst(%v); open? %t, err(%v)", src, dst, open, err)
+			go h.Error(err, src, dst) // error
 			return
 		}
 
@@ -124,7 +127,7 @@ func (g *GTCPConn) synack() (rst bool, err error) {
 	wq := new(waiter.Queue)
 	// the passive-handshake (SYN) may not successful for a non-existent route (say, ipv6)
 	if ep, err := g.req.CreateEndpoint(wq); err != nil {
-		log.E("ns: tcp: forwarder: data src(%v) => dst(%v); err(%v)", g.LocalAddr(), g.RemoteAddr(), err)
+		log.E("ns: tcp: forwarder: synack src(%v) => dst(%v); err(%v)", g.LocalAddr(), g.RemoteAddr(), err)
 		// prevent potential half-open TCP connection leak.
 		// hopefully doesn't break happy-eyeballs datatracker.ietf.org/doc/html/rfc8305#section-5
 		// ie, apps that expect network-unreachable ICMP msgs instead of TCP RSTs?
