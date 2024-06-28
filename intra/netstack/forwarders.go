@@ -28,6 +28,7 @@ import (
 	"fmt"
 	"math/rand"
 	"sync"
+	"time"
 
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/log"
@@ -39,11 +40,9 @@ import (
 	"gvisor.dev/gvisor/pkg/tcpip/stack"
 )
 
-// adopted from: https://github.com/google/gvisor/blob/a244eff8ad/pkg/tcpip/link/fdbased/processors.go
+// adopted from: github.com/google/gvisor/blob/a244eff8ad/pkg/tcpip/link/fdbased/processors.go
 
-const (
-	maxForwarders = 6
-)
+const maxForwarders = 6
 
 type fiveTuple struct {
 	srcAddr, dstAddr []byte
@@ -298,6 +297,7 @@ func (m *supervisor) queuePacket(pkt *stack.PacketBuffer, hasEthHeader bool) {
 
 // stop stops all processor goroutines.
 func (m *supervisor) stop() {
+	start := time.Now()
 	if settings.Debug {
 		log.D("ns: tun(%d): forwarder: stopping %d procs", m.fd, len(m.processors))
 	}
@@ -307,6 +307,11 @@ func (m *supervisor) stop() {
 	for i := range m.processors {
 		p := &m.processors[i]
 		p.closeWaker.Assert()
+	}
+	m.wg.Wait()
+	if settings.Debug {
+		elapsed := time.Since(start).Milliseconds() / 1000
+		log.D("ns: tun(%d): forwarder: stopped %d procs in %ds", elapsed)
 	}
 }
 
