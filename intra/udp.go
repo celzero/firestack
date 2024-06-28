@@ -220,7 +220,30 @@ func (h *udpHandler) ProxyMux(gconn *netstack.GUDPConn, src netip.AddrPort) (ok 
 	return true // ok
 }
 
+// Error implements netstack.GUDPConnHandler.
+// Must be called from a goroutine.
+func (h *udpHandler) Error(err error, src, dst netip.AddrPort) {
+	defer core.Recover(core.Exit11, "udp.ProxyError")
+
+	if h.status.Load() == UDPEND {
+		log.D("udp: proxy error: end %v -> %v", src, dst)
+		return
+	}
+
+	realips, domains, probableDomains, blocklists := undoAlg(h.resolver, dst.Addr())
+
+	// flow is alg/nat-aware, do not change target or any addrs
+	res := h.onFlow(src, dst, realips, domains, probableDomains, blocklists)
+
+	cid, pid, uid := splitCidPidUid(res)
+	smm := udpSummary(cid, pid, uid, dst.Addr()).done(err)
+	queueSummary(h.smmch, h.done, smm)
+
+	return // error notified
+}
+
 // Proxy implements netstack.GUDPConnHandler; thread-safe.
+// Must be called from a goroutine.
 func (h *udpHandler) Proxy(gconn *netstack.GUDPConn, src, dst netip.AddrPort) (ok bool) {
 	defer core.Recover(core.Exit11, "udp.Proxy")
 

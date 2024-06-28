@@ -107,7 +107,7 @@ func (s *SocketSummary) elapsed() {
 	s.Duration = int32(time.Since(s.start).Seconds())
 }
 
-func (s *SocketSummary) done(errs ...error) {
+func (s *SocketSummary) done(errs ...error) *SocketSummary {
 	defer func() {
 		if len(s.Msg) <= 0 {
 			s.Msg = errNone.Error()
@@ -117,7 +117,7 @@ func (s *SocketSummary) done(errs ...error) {
 	s.elapsed()
 
 	if len(errs) <= 0 {
-		return
+		return s
 	}
 
 	err := errors.Join(errs...) // errs may be nil
@@ -128,4 +128,5 @@ func (s *SocketSummary) done(errs ...error) {
 			s.Msg = s.Msg + "; " + err.Error()
 		}
 	}
+	return s
 }

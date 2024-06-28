@@ -29,6 +29,8 @@ type GUDPConnHandler interface {
 	Proxy(conn *GUDPConn, src, dst netip.AddrPort) bool
 	// ProxyMux proxies data between conn and multiple destinations.
 	ProxyMux(conn *GUDPConn, src netip.AddrPort) bool
+	// Error notes the error in connecting src to dst.
+	Error(err error, src, dst netip.AddrPort)
 	// CloseConns closes conns by ids, or all if ids is empty.
 	CloseConns([]string) []string
 	// End closes the handler and all its connections.
@@ -90,6 +92,7 @@ func NewUDPForwarder(s *stack.Stack, h GUDPConnHandler) *udp.Forwarder {
 		// connect so that netstack's internal state is consistent
 		if err := gc.makeEndpoint( /*fin*/ false); err != nil {
 			log.E("ns: udp: forwarder: connect: %v; src(%v) dst(%v)", err, src, dst)
+			go h.Error(err, src, dst)
 			return
 		}
 
