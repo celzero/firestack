@@ -306,13 +306,13 @@ func (r *retrier) Write(b []byte) (int, error) {
 func (r *retrier) ReadFrom(reader io.Reader) (bytes int64, err error) {
 	copies := 0
 	for !r.retryCompleted() {
-		var b int64
-		if b, err = copyOnce(r, reader); err != nil {
+		b, e := copyOnce(r, reader)
+		bytes += b
+		if err = e; err != nil {
 			log.W("rdial: readfrom: copyOnce #%d; sz: %d; err: %v", copies, bytes, err)
 			return
 		}
 		copies++
-		bytes += b
 		log.D("rdial: readfrom: copyOnce #%d; sz: %d", copies, b)
 	}
 
