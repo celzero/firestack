@@ -284,7 +284,7 @@ func (e *endpoint) Attach(dispatcher stack.NetworkDispatcher) {
 		log.I("ns: tun(%d): attach: detach dispatcher (and inbound? %t)", fd, pipe)
 		if rx != nil {
 			go rx.stop() // avoid mutex
-			// e.Wait() on all inboundDispatchers w/ mutex locked?
+			e.Wait()     // on all inboundDispatcher w/ mutex locked?
 		}
 		e.dispatcher = nil
 		e.inboundDispatcher = nil
