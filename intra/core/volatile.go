@@ -49,7 +49,7 @@ func (a *Volatile[T]) Store(t T) {
 }
 
 // Cas compares and swaps the value of a with new, returns true if the value was swapped.
-// If new is nil, returns true; and sets a to a new Volatile[T].
+// If new is nil, returns true; and sets a to NewZeroVolatile[T].
 func (a *Volatile[T]) Cas(old, new T) (ok bool) {
 	if a == nil || !TypeEq(old, new) {
 		return
@@ -64,12 +64,16 @@ func (a *Volatile[T]) Cas(old, new T) (ok bool) {
 }
 
 // Swap swaps the value of a with new, returns the old value.
-// If a or new are nil, returns true; and sets a to a new Volatile[T].
+// If a is nil, returns zero value; and sets a to NewZeroVolatile[T].
+// If new is nil, returns old value; and sets a to NewZeroVolatile[T].
 func (a *Volatile[T]) Swap(new T) (old T) {
 	if a == nil {
 		return
 	}
 	if IsNil(new) {
+		aa := (*atomic.Value)(a)
+		old = aa.Load().(T)
+
 		*a = *NewZeroVolatile[T]()
 		return
 	}
