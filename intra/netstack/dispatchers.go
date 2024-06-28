@@ -24,15 +24,13 @@
 package netstack
 
 import (
-	"fmt"
 	"math/rand"
+	"net"
 	"sync"
 	"sync/atomic"
-	"syscall"
 
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/log"
-	"github.com/celzero/firestack/intra/settings"
 	"golang.org/x/sys/unix"
 	"gvisor.dev/gvisor/pkg/buffer"
 	"gvisor.dev/gvisor/pkg/tcpip"
@@ -140,37 +138,10 @@ func (b *iovecBuffer) pullBuffer(n int) buffer.Buffer {
 	return pulled
 }
 
-// stopFd is an eventfd used to signal the stop of a dispatcher.
-type stopFd struct {
-	efd int
-}
-
-func newStopFd() (stopFd, error) {
-	efd, err := unix.Eventfd(0, unix.EFD_NONBLOCK)
-	if err != nil {
-		return stopFd{efd: -1}, fmt.Errorf("failed to create eventfd: %w", err)
-	}
-	return stopFd{efd: efd}, nil
-}
-
-// stop writes to the eventfd and notifies the dispatcher to stop. It does not
-// block.
-func (s *stopFd) stop() {
-	increment := []byte{1, 0, 0, 0, 0, 0, 0, 0}
-	if n, err := unix.Write(s.efd, increment); n != len(increment) || err != nil {
-		// There are two possible errors documented in eventfd(2) for writing:
-		// 1. We are writing 8 bytes and not 0xffffffffffffff, thus no EINVAL.
-		// 2. stop is only supposed to be called once, it can't reach the limit,
-		// thus no EAGAIN.
-		panic(fmt.Sprintf("write(efd) = (%d, %s), want (%d, nil)", n, err, len(increment)))
-	}
-}
-
 // readVDispatcher uses readv() system call to read inbound packets and
 // dispatches them.
 type readVDispatcher struct {
-	stopFd              // stopFd is used to signal the dispatcher to stop.
-	fd     int          // fd is the file descriptor used to send/receive packets.
+	fds    *core.Volatile[*fds]
 	e      *endpoint    // e is the endpoint this dispatcher is attached to.
 	buf    *iovecBuffer // buf is the iovec buffer that contains packets.
 	closed atomic.Bool  // closed is set to true when fd is closed.
@@ -183,23 +154,40 @@ var _ linkDispatcher = (*readVDispatcher)(nil)
 // newReadVDispatcher creates a new linkDispatcher that vector reads packets from
 // fd and dispatches them to endpoint e. It assumes ownership of fd but not of e.
 func newReadVDispatcher(fd int, e *endpoint) (linkDispatcher, error) {
-	stopFd, err := newStopFd()
+	tun, err := newTun(fd)
 	if err != nil {
 		return nil, err
 	}
 	d := &readVDispatcher{
-		stopFd: stopFd,
-		fd:     fd,
-		e:      e,
-		buf:    newIovecBuffer(BufConfig),
-		mgr:    newSupervisor(e, fd),
+		e:   e,
+		fds: core.NewVolatile(tun),
+		buf: newIovecBuffer(BufConfig),
+		mgr: newSupervisor(e, fd),
 	}
-
 	d.mgr.start()
 
-	log.I("ns: dispatch: newReadVDispatcher: tun(%d/%d) efd(%d)", fd, e.fd(), d.efd)
-
+	log.I("ns: dispatch: newReadVDispatcher: tun(%d)", fd)
 	return d, nil
+}
+
+// swap atomically swaps existing fd for this new one.
+func (d *readVDispatcher) swap(fd int) error {
+	done := d.closed.Load()
+	if done {
+		return net.ErrClosed
+	}
+
+	f, err := newTun(fd)
+	if err != nil {
+		log.I("ns: dispatch: swap: failed; err %v", err)
+		return err
+	}
+
+	prev := d.fds.Swap(f)
+	prev.stop()
+
+	log.I("ns: dispatch: swap: tun(%d => %d)", prev.tun(), fd)
+	return nil
 }
 
 // stop stops the dispatcher once. Safe to call multiple times.
@@ -208,11 +196,10 @@ func (d *readVDispatcher) stop() {
 
 	d.once.Do(func() {
 		d.closed.Store(true)
-		d.stopFd.stop()
+		d.fds.Load().stop()
 		d.buf.release()
 		d.mgr.stop()
-		err := syscall.Close(d.fd) // TODO: close tun-fd before stopFd?
-		log.I("ns: dispatch: stop: fds closed event(%d) tun(%d); err? %v", d.efd, d.fd, err)
+		log.I("ns: dispatch: closed!")
 	})
 }
 
@@ -221,13 +208,15 @@ const cont = true   // cont indicates that the dispatcher should continue delive
 
 // dispatch reads one packet from the file descriptor and dispatches it.
 func (d *readVDispatcher) dispatch() (bool, tcpip.Error) {
+	fds := d.fds.Load()
+	if !fds.ok() {
+		return abort, new(tcpip.ErrNoSuchFile)
+	}
+
 	done := d.closed.Load()
-	log.VV("ns: tun(%d): dispatch: done? %t", d.fd, done)
+	log.VV("ns: tun(%d): dispatch: done? %t", fds.tun(), done)
 	if done {
 		return abort, new(tcpip.ErrAborted)
-	}
-	if false && settings.Debug && rand10pc() {
-		panic(fmt.Sprintf("ns: tun(%d): dispatch: debug: rand10pc", d.fd))
 	}
 
 	iov := d.buf.nextIovecs()
@@ -235,9 +224,9 @@ func (d *readVDispatcher) dispatch() (bool, tcpip.Error) {
 		return abort, new(tcpip.ErrBadBuffer)
 	}
 
-	n, err := rawfile.BlockingReadvUntilStopped(d.efd, d.fd, iov)
+	n, err := rawfile.BlockingReadvUntilStopped(fds.eve(), fds.tun(), iov)
 
-	log.VV("ns: tun(%d): dispatch: got(%d bytes), err(%v)", d.fd, n, err)
+	log.VV("ns: tun(%d): dispatch: got(%d bytes), err(%v)", fds.tun(), n, err)
 	if n <= 0 || err != nil {
 		if err == nil {
 			err = new(tcpip.ErrNoSuchFile)
