@@ -163,13 +163,14 @@ func CloseOp(c io.Closer, op CloserOp) {
 	}
 }
 
+// may panic or return false if x is not addressable
 func IsNotNil(x any) bool {
 	return !IsNil(x)
 }
 
 // IsNil reports whether x is nil if its Chan, Func, Map,
 // Pointer, UnsafePointer, Interface, and Slice;
-// may panic if x is not addressable
+// may panic or return false if x is not addressable
 func IsNil(x any) bool {
 	// from: stackoverflow.com/a/76595928
 	if x == nil {
