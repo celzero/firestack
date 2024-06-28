@@ -177,17 +177,17 @@ func (d *readVDispatcher) swap(fd int) error {
 		return net.ErrClosed
 	}
 
+	note := log.I
 	f, err := newTun(fd)
 	if err != nil {
-		log.I("ns: dispatch: swap: failed; err %v", err)
-		return err
+		note = log.W
 	}
 
-	prev := d.fds.Swap(f)
-	prev.stop()
+	prev := d.fds.Swap(f) // f may be nil
+	prev.stop()           // prev may be nil
 
-	log.I("ns: dispatch: swap: tun(%d => %d)", prev.tun(), fd)
-	return nil
+	note("ns: dispatch: swap: tun(%d => %d); err %v", prev.tun(), fd, err)
+	return err
 }
 
 // stop stops the dispatcher once. Safe to call multiple times.
