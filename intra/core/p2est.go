@@ -181,6 +181,10 @@ func (est *p2) linear(i int, d int) float64 {
 func (est *p2) Get() int64 {
 	c := est.count
 
+	if c == 0 {
+		return 0
+	}
+
 	if c > est.u {
 		ms := est.q[est.mid] * 1000
 		return int64(ms)
