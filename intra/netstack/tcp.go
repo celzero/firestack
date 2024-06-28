@@ -71,6 +71,9 @@ func NewTCPForwarder(s *stack.Stack, h GTCPConnHandler) *tcp.Forwarder {
 		// setup endpoint right away, so that netstack's internal state is consistent
 		if open, err := gtcp.makeEndpoint( /*rst*/ false); err != nil || !open {
 			log.E("ns: tcp: forwarder: connect src(%v) => dst(%v); open? %t, err(%v)", src, dst, open, err)
+			if err == nil {
+				err = errMissingEp
+			}
 			go h.Error(err, src, dst) // error
 			return
 		}
