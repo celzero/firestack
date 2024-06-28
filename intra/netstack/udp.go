@@ -74,13 +74,12 @@ func setupUdpHandler(s *stack.Stack, h GUDPConnHandler) {
 // fin: github.com/google/gvisor/blob/be6ffa7/pkg/tcpip/transport/udp/endpoint.go#L220
 // but: github.com/google/gvisor/blob/be6ffa7/pkg/tcpip/transport/udp/endpoint.go#L180
 func udpForwarder(s *stack.Stack, h GUDPConnHandler) *udp.Forwarder {
-	return udp.NewForwarder(s, func(request *udp.ForwarderRequest) {
-		if request == nil {
+	return udp.NewForwarder(s, func(req *udp.ForwarderRequest) {
+		if req == nil {
 			log.E("ns: udp: forwarder: nil request")
 			return
 		}
-		id := request.ID()
-
+		id := req.ID()
 		// src 10.111.222.1:20716; same as endpoint.GetRemoteAddress
 		src := remoteAddrPort(id)
 		// dst 10.111.222.3:53; same as endpoint.GetLocalAddress
@@ -89,7 +88,7 @@ func udpForwarder(s *stack.Stack, h GUDPConnHandler) *udp.Forwarder {
 		// multiple dst in the unconnected udp case.
 		dst := localAddrPort(id)
 
-		gc := makeGUDPConn(request, src, dst)
+		gc := makeGUDPConn(req, src, dst)
 		// connect so that netstack's internal state is consistent
 		if err := gc.makeEndpoint( /*fin*/ false); err != nil {
 			log.E("ns: udp: forwarder: connect: %v; src(%v) dst(%v)", err, src, dst)
