@@ -192,12 +192,12 @@ func newReadVDispatcher(fd int, e *endpoint) (linkDispatcher, error) {
 		fd:     fd,
 		e:      e,
 		buf:    newIovecBuffer(BufConfig),
-		mgr:    newSupervisor(e),
+		mgr:    newSupervisor(e, fd),
 	}
 
 	d.mgr.start()
 
-	log.I("ns: dispatch: newReadVDispatcher: tun(%d) efd(%d)", fd, d.efd)
+	log.I("ns: dispatch: newReadVDispatcher: tun(%d/%d) efd(%d)", fd, e.fd(), d.efd)
 
 	return d, nil
 }
