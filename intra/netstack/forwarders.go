@@ -133,7 +133,7 @@ type processor struct {
 	// +checklocks:mu
 	pkts stack.PacketBufferList
 
-	e           *endpoint
+	e           stack.InjectableLinkEndpoint
 	sleeper     sleep.Sleeper
 	packetWaker sleep.Waker
 	closeWaker  sleep.Waker
@@ -185,16 +185,14 @@ type supervisor struct {
 	processors []processor
 	seed       uint32
 	wg         sync.WaitGroup
-	e          *endpoint
 	fd         int // tun fd for diagnostics
 	ready      []bool
 }
 
 // newSupervisor creates a new supervisor for the processors of endpoint e.
-func newSupervisor(e *endpoint, fd int) *supervisor {
+func newSupervisor(e stack.InjectableLinkEndpoint, fd int) *supervisor {
 	m := &supervisor{
 		seed:       rand.Uint32(),
-		e:          e,
 		fd:         fd,
 		ready:      make([]bool, maxForwarders),
 		processors: make([]processor, maxForwarders),
