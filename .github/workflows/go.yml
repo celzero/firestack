@@ -73,28 +73,28 @@ jobs:
         which jar && jar tf ./classes.jar
         gsa jni/arm64-v8a/*.so -f text --verbose
 
-        pip install sqlelf
+        #pip install sqlelf
 
-        sqlelf jni/arm64-v8a/libgojni.so --sql \
-          "SELECT mnemonic, COUNT(*) from elf_instructions GROUP BY mnemonic ORDER BY 2 DESC LIMIT 20"
+        #sqlelf jni/arm64-v8a/libgojni.so --sql \
+        #  "SELECT mnemonic, COUNT(*) from elf_instructions GROUP BY mnemonic ORDER BY 2 DESC LIMIT 20"
 
-        sqlelf jni/arm64-v8a/libgojni.so --sql \
-          "SELECT * from elf_headers"
+        #sqlelf jni/arm64-v8a/libgojni.so --sql \
+        #  "SELECT * from elf_headers"
 
         # determine NEEDED entries
-        sqlelf jni/arm64-v8a/libgojni.so --sql \
-          "SELECT elf_strings.path, elf_strings.value
-          FROM elf_dynamic_entries
-          INNER JOIN elf_strings ON elf_dynamic_entries.value = elf_strings.offset
-          WHERE elf_dynamic_entries.tag = 'NEEDED'"
+        #sqlelf jni/arm64-v8a/libgojni.so --sql \
+        #  "SELECT elf_strings.path, elf_strings.value
+        #  FROM elf_dynamic_entries
+        #  INNER JOIN elf_strings ON elf_dynamic_entries.value = elf_strings.offset
+        #  WHERE elf_dynamic_entries.tag = 'NEEDED'"
 
         # determine the largest functions
-        sqlelf jni/arm64-v8a/libgojni.so --sql \
-          "SELECT name AS function_name, (high_pc - low_pc) AS function_size
-          FROM dwarf_dies
-          WHERE tag = 'DW_TAG_subprogram'
-          ORDER BY function_size DESC
-          LIMIT 50;"
+        #sqlelf jni/arm64-v8a/libgojni.so --sql \
+        #  "SELECT name AS function_name, (high_pc - low_pc) AS function_size
+        #  FROM dwarf_dies
+        #  WHERE tag = 'DW_TAG_subprogram'
+        #  ORDER BY function_size DESC
+        #  LIMIT 50;"
       shell: bash
 
       # github.com/actions/upload-artifact
