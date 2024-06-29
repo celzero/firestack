@@ -9,6 +9,7 @@ import (
 	"io"
 	"net"
 	"net/netip"
+	"sync"
 	"time"
 
 	"github.com/celzero/firestack/intra/core"
@@ -39,11 +40,12 @@ type GTCPConnHandler interface {
 var _ core.TCPConn = (*GTCPConn)(nil)
 
 type GTCPConn struct {
-	c   *core.Volatile[*gonet.TCPConn] // conn exposes TCP semantics atop endpoint
-	ep  *core.Volatile[tcpip.Endpoint] // endpoint is netstack's io interface
-	src netip.AddrPort                 // local addr (remote addr in netstack)
-	dst netip.AddrPort                 // remote addr (local addr in netstack)
-	req *tcp.ForwarderRequest          // egress request as a TCP state machine
+	c    *core.Volatile[*gonet.TCPConn] // conn exposes TCP semantics atop endpoint
+	ep   *core.Volatile[tcpip.Endpoint] // endpoint is netstack's io interface
+	src  netip.AddrPort                 // local addr (remote addr in netstack)
+	dst  netip.AddrPort                 // remote addr (local addr in netstack)
+	req  *tcp.ForwarderRequest          // egress request as a TCP state machine
+	once sync.Once
 }
 
 func setupTcpHandler(s *stack.Stack, h GTCPConnHandler) {
@@ -108,37 +110,53 @@ func (g *GTCPConn) endpoint() tcpip.Endpoint {
 }
 
 func (g *GTCPConn) StatefulTeardown() (rst bool) {
-	if g.ok() {
-		_ = g.Close() // g.TCPConn.Close error always nil
-	} else {
-		_, _ = g.synack()    // establish circuit
-		g.req.Complete(true) // then rst
-	}
-	return true // always rst
+	_, _ = g.synack(true) // establish circuit
+	_ = g.Close()         // g.TCPConn.Close error always nil
+	return true           // always rst
 }
 
-func (g *GTCPConn) Connect(rst bool) (bool, error) {
-	return g.makeEndpoint(rst)
+func (g *GTCPConn) Redo(rst bool) (open bool, err error) {
+	if rst {
+		g.complete(rst)
+		return false, nil // closed
+	}
+
+	rst, err = g.synack(true)
+
+	log.VV("ns: tcp: forwarder: redo src(%v) => dst(%v); fin? %t", g.LocalAddr(), g.RemoteAddr(), rst)
+	return !rst, err
 }
 
 func (g *GTCPConn) makeEndpoint(rst bool) (open bool, err error) {
 	if rst {
-		g.req.Complete(rst)
+		g.complete(rst)
 		return false, nil // closed
 	}
 
-	if g.ok() { // already setup
-		return true, nil // open
-	}
-
-	rst, err = g.synack()
-	g.req.Complete(rst)
+	rst, err = g.synack(false)
 
 	log.VV("ns: tcp: forwarder: proxy src(%v) => dst(%v); fin? %t", g.LocalAddr(), g.RemoteAddr(), rst)
 	return !rst, err // open or closed
 }
 
-func (g *GTCPConn) synack() (rst bool, err error) {
+func (g *GTCPConn) complete(rst bool) {
+	g.once.Do(func() {
+		log.D("ns: tcp: forwarder: complete src(%v) => dst(%v); rst? %t", g.LocalAddr(), g.RemoteAddr(), rst)
+		g.req.Complete(rst)
+	})
+}
+
+func (g *GTCPConn) synack(complete bool) (rst bool, err error) {
+	if g.ok() { // already setup
+		return false, nil // open, err free
+	}
+
+	defer func() {
+		if complete { // complete the request
+			g.complete(rst)
+		}
+	}()
+
 	wq := new(waiter.Queue)
 	// the passive-handshake (SYN) may not successful for a non-existent route (say, ipv6)
 	if ep, err := g.req.CreateEndpoint(wq); err != nil {
@@ -147,11 +165,11 @@ func (g *GTCPConn) synack() (rst bool, err error) {
 		// hopefully doesn't break happy-eyeballs datatracker.ietf.org/doc/html/rfc8305#section-5
 		// ie, apps that expect network-unreachable ICMP msgs instead of TCP RSTs?
 		// TCP RST here is indistinguishable to an app from being firewalled.
-		return true, e(err)
+		return true, e(err) // close, err
 	} else {
 		g.ep.Store(ep)
 		g.c.Store(gonet.NewTCPConn(wq, ep))
-		return false, nil
+		return false, nil // open, err free
 	}
 }
 
