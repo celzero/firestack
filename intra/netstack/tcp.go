@@ -74,7 +74,7 @@ func tcpForwarder(s *stack.Stack, h GTCPConnHandler) *tcp.Forwarder {
 		// setup endpoint right away, so that netstack's internal state is consistent
 		// in case there are multiple forwarders dispatching from the TUN device.
 		if !settings.SingleThreadedTUNForwarder {
-			if open, err := gtcp.makeEndpoint( /*rst*/ false); err != nil || !open {
+			if open, err := gtcp.tryConnect( /*rst*/ false); err != nil || !open {
 				log.E("ns: tcp: forwarder: connect src(%v) => dst(%v); open? %t, err(%v)", src, dst, open, err)
 				if err == nil {
 					err = errMissingEp
@@ -119,7 +119,7 @@ func (g *GTCPConn) StatefulTeardown() (rst bool) {
 	return true           // always rst
 }
 
-func (g *GTCPConn) Redo(rst bool) (open bool, err error) {
+func (g *GTCPConn) Connect(rst bool) (open bool, err error) {
 	if rst {
 		g.complete(rst)
 		return false, nil // closed
@@ -131,7 +131,7 @@ func (g *GTCPConn) Redo(rst bool) (open bool, err error) {
 	return !rst, err
 }
 
-func (g *GTCPConn) makeEndpoint(rst bool) (open bool, err error) {
+func (g *GTCPConn) tryConnect(rst bool) (open bool, err error) {
 	if rst {
 		g.complete(rst)
 		return false, nil // closed
@@ -143,6 +143,8 @@ func (g *GTCPConn) makeEndpoint(rst bool) (open bool, err error) {
 	return !rst, err // open or closed
 }
 
+// complete must be called at least once, otherwise the conn counts towards
+// maxInFlight and may cause silent tcp conn drops.
 func (g *GTCPConn) complete(rst bool) {
 	g.once.Do(func() {
 		log.D("ns: tcp: forwarder: complete src(%v) => dst(%v); rst? %t", g.LocalAddr(), g.RemoteAddr(), rst)

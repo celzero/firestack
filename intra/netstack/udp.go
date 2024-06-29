@@ -92,7 +92,7 @@ func udpForwarder(s *stack.Stack, h GUDPConnHandler) *udp.Forwarder {
 		gc := makeGUDPConn(req, src, dst)
 		// connect so that netstack's internal state is consistent
 		// TODO: makeEndpoint here iff !settings.SingleThreadedTUNForwarder
-		if err := gc.makeEndpoint( /*fin*/ false); err != nil {
+		if err := gc.connect( /*fin*/ false); err != nil {
 			log.E("ns: udp: forwarder: connect: %v; src(%v) dst(%v)", err, src, dst)
 			go h.Error(err, src, dst)
 			return
@@ -121,12 +121,12 @@ func (g *GUDPConn) endpoint() tcpip.Endpoint {
 }
 
 func (g *GUDPConn) StatefulTeardown() (fin bool) {
-	_ = g.makeEndpoint( /*fin*/ false) // establish circuit then teardown
-	_ = g.Close()                      // then shutdown
-	return true                        // always fin
+	_ = g.connect( /*fin*/ false) // establish circuit then teardown
+	_ = g.Close()                 // then shutdown
+	return true                   // always fin
 }
 
-func (g *GUDPConn) makeEndpoint(fin bool) error {
+func (g *GUDPConn) connect(fin bool) error {
 	if fin {
 		return e(&tcpip.ErrHostUnreachable{})
 	}
@@ -225,7 +225,7 @@ func (g *GUDPConn) SetWriteDeadline(t time.Time) error {
 // Close closes the connection.
 func (g *GUDPConn) Close() error {
 	if !g.ok() {
-		_ = g.makeEndpoint( /*fin*/ true)
+		_ = g.connect( /*fin*/ true)
 		return nil
 	}
 	if ep := g.endpoint(); ep != nil {
