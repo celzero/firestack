@@ -194,7 +194,7 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target netip.AddrPort)
 	}()
 
 	if h.status.Load() == TCPEND {
-		_, err = gconn.Connect(rst) // fin
+		_, err = gconn.Redo(rst) // fin
 		log.D("tcp: proxy: end %v -> %v; err? %v", src, target, err)
 		return deny
 	}
@@ -204,7 +204,7 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target netip.AddrPort)
 	}()
 
 	if !src.IsValid() || !target.IsValid() {
-		_, err = gconn.Connect(rst) // fin
+		_, err = gconn.Redo(rst) // fin
 		log.E("tcp: nil addr %v -> %v; close err? %v", src, target, err)
 		return deny
 	}
@@ -237,7 +237,7 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target netip.AddrPort)
 	}
 
 	// handshake; since we assume a duplex-stream from here on
-	if open, err = gconn.Connect(ack); !open {
+	if open, err = gconn.Redo(ack); !open {
 		err = fmt.Errorf("tcp: %s connect err %v; %s -> %s for %s", cid, err, src, target, uid)
 		log.E("%v", err)
 		return deny // == !open
