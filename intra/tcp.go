@@ -27,6 +27,7 @@ package intra
 
 import (
 	"errors"
+	"fmt"
 	"net"
 	"net/netip"
 	"sync"
@@ -169,38 +170,16 @@ func (h *tcpHandler) CloseConns(cids []string) (closed []string) {
 
 // Error implements netstack.GTCPConnHandler.
 // It must be called from a goroutine.
-func (h *tcpHandler) Error(err error, src, target netip.AddrPort) {
-	defer core.Recover(core.Exit11, "tcp.ProxyError")
-
-	if h.status.Load() == TCPEND {
-		// _, err = gconn.Connect(rst) // fin
-		log.D("tcp: proxy error: end %v -> %v", src, target)
-		return
-	}
-
-	if !src.IsValid() || !target.IsValid() {
-		// log.E("tcp: nil addr %v -> %v; close err? %v", src, target, err)
-		return
-	}
-
-	// alg happens after nat64, and so, alg knows nat-ed ips
-	// that is, realips are un-nated
-	realips, domains, probableDomains, blocklists := undoAlg(h.resolver, target.Addr())
-
-	// flow/dns-override are nat-aware, as in, they can deal with
-	// nat-ed ips just fine, and so, use target as-is instead of ipx4
-	res := h.onFlow(src, target, realips, domains, probableDomains, blocklists)
-
-	cid, pid, uid := splitCidPidUid(res)
-	smm := tcpSummary(cid, pid, uid, target.Addr()).done(err)
-	queueSummary(h.smmch, h.done, smm)
-
-	return // error notfied
+func (h *tcpHandler) Error(gconn *netstack.GTCPConn, src, dst netip.AddrPort, err error) {
+	ok := h.Proxy(gconn, src, dst)
+	log.I("tcp: proxy: %v -> %v; err %v; recovered? %t", src, dst, err, ok)
 }
 
 // Proxy implements netstack.GTCPConnHandler
 // It must be called from a goroutine.
 func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target netip.AddrPort) (open bool) {
+	const rst = true         // rst / fin
+	const ack = !rst         // syn / ack
 	const allow bool = true  // allowed
 	const deny bool = !allow // blocked
 	var smm *SocketSummary
@@ -215,21 +194,18 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target netip.AddrPort)
 	}()
 
 	if h.status.Load() == TCPEND {
-		// _, err = gconn.Connect(rst) // fin
-		log.D("tcp: proxy: end %v -> %v", src, target)
+		_, err = gconn.Connect(rst) // fin
+		log.D("tcp: proxy: end %v -> %v; err? %v", src, target, err)
 		return deny
 	}
 
 	defer func() {
-		if smm != nil {
-			smm.done(err)
-			queueSummary(h.smmch, h.done, smm)
-		} // else: summary not created
+		queueSummary(h.smmch, h.done, smm.done(err)) // smm may be nil
 	}()
 
 	if !src.IsValid() || !target.IsValid() {
-		// _, err = gconn.Connect(rst) // fin
-		// log.E("tcp: nil addr %v -> %v; close err? %v", src, target, err)
+		_, err = gconn.Connect(rst) // fin
+		log.E("tcp: nil addr %v -> %v; close err? %v", src, target, err)
 		return deny
 	}
 
@@ -260,12 +236,12 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target netip.AddrPort)
 		return deny
 	}
 
-	/* handshake; since we assume a duplex-stream from here on
+	// handshake; since we assume a duplex-stream from here on
 	if open, err = gconn.Connect(ack); !open {
 		err = fmt.Errorf("tcp: %s connect err %v; %s -> %s for %s", cid, err, src, target, uid)
 		log.E("%v", err)
 		return deny // == !open
-	}*/
+	}
 
 	var px ipn.Proxy = nil
 	if px, err = h.prox.ProxyFor(pid); err != nil || px == nil {

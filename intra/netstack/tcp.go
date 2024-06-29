@@ -28,8 +28,8 @@ const maxInFlight = 512 // arbitrary
 type GTCPConnHandler interface {
 	// Proxy copies data between src and dst.
 	Proxy(conn *GTCPConn, src, dst netip.AddrPort) bool
-	// Error notes the error in connecting src to dst.
-	Error(err error, src, dst netip.AddrPort)
+	// Error notes the error in connecting src to dst; retrying if necessary.
+	Error(conn *GTCPConn, src, dst netip.AddrPort, err error)
 	// CloseConns closes conns by cids, or all conns if cids is empty.
 	CloseConns([]string) []string
 	// End closes all conns and releases resources.
@@ -39,11 +39,11 @@ type GTCPConnHandler interface {
 var _ core.TCPConn = (*GTCPConn)(nil)
 
 type GTCPConn struct {
-	conn *gonet.TCPConn
-	ep   tcpip.Endpoint
-	src  netip.AddrPort
-	dst  netip.AddrPort
-	req  *tcp.ForwarderRequest
+	c   *core.Volatile[*gonet.TCPConn] // conn exposes TCP semantics atop endpoint
+	ep  *core.Volatile[tcpip.Endpoint] // endpoint is netstack's io interface
+	src netip.AddrPort                 // local addr (remote addr in netstack)
+	dst netip.AddrPort                 // remote addr (local addr in netstack)
+	req *tcp.ForwarderRequest          // egress request as a TCP state machine
 }
 
 func setupTcpHandler(s *stack.Stack, h GTCPConnHandler) {
@@ -74,7 +74,7 @@ func tcpForwarder(s *stack.Stack, h GTCPConnHandler) *tcp.Forwarder {
 			if err == nil {
 				err = errMissingEp
 			}
-			go h.Error(err, src, dst) // error
+			go h.Error(gtcp, src, dst, err) // error
 			return
 		}
 
@@ -87,16 +87,24 @@ func tcpForwarder(s *stack.Stack, h GTCPConnHandler) *tcp.Forwarder {
 func makeGTCPConn(req *tcp.ForwarderRequest, src, dst netip.AddrPort) *GTCPConn {
 	// set sock-opts? github.com/xjasonlyu/tun2socks/blob/31468620e/core/tcp.go#L82
 	return &GTCPConn{
-		conn: nil,
-		ep:   nil,
-		src:  src,
-		dst:  dst,
-		req:  req,
+		c:   core.NewZeroVolatile[*gonet.TCPConn](),
+		ep:  core.NewZeroVolatile[tcpip.Endpoint](),
+		src: src,
+		dst: dst,
+		req: req,
 	}
 }
 
 func (g *GTCPConn) ok() bool {
-	return g.conn != nil
+	return g.conn() != nil
+}
+
+func (g *GTCPConn) conn() *gonet.TCPConn {
+	return g.c.Load()
+}
+
+func (g *GTCPConn) endpoint() tcpip.Endpoint {
+	return g.ep.Load()
 }
 
 func (g *GTCPConn) StatefulTeardown() (rst bool) {
@@ -107,6 +115,10 @@ func (g *GTCPConn) StatefulTeardown() (rst bool) {
 		g.req.Complete(true) // then rst
 	}
 	return true // always rst
+}
+
+func (g *GTCPConn) Connect(rst bool) (bool, error) {
+	return g.makeEndpoint(rst)
 }
 
 func (g *GTCPConn) makeEndpoint(rst bool) (open bool, err error) {
@@ -137,8 +149,8 @@ func (g *GTCPConn) synack() (rst bool, err error) {
 		// TCP RST here is indistinguishable to an app from being firewalled.
 		return true, e(err)
 	} else {
-		g.ep = ep
-		g.conn = gonet.NewTCPConn(wq, ep)
+		g.ep.Store(ep)
+		g.c.Store(gonet.NewTCPConn(wq, ep))
 		return false, nil
 	}
 }
@@ -147,85 +159,90 @@ func (g *GTCPConn) synack() (rst bool, err error) {
 // ref: github.com/tailscale/tailscale/blob/8c5c87be2/wgengine/netstack/netstack.go#L768-L775
 // and: github.com/google/gvisor/blob/ffabadf0/pkg/tcpip/transport/tcp/endpoint.go#L2759
 func (g *GTCPConn) LocalAddr() net.Addr {
-	if !g.ok() {
+	if c := g.conn(); c == nil {
 		return net.TCPAddrFromAddrPort(g.src)
-	}
-	// client local addr is remote to the gonet adapter
-	if addr := g.conn.RemoteAddr(); addr != nil {
-		return addr
+	} else { // client local addr is remote to the gonet adapter
+		if addr := c.RemoteAddr(); addr != nil {
+			return addr
+		}
 	}
 	return net.TCPAddrFromAddrPort(g.src)
 }
 
 func (g *GTCPConn) RemoteAddr() net.Addr {
-	if !g.ok() {
+	if c := g.conn(); c == nil {
 		return net.TCPAddrFromAddrPort(g.dst)
-	}
-	// client remote addr is local to the gonet adapter
-	if addr := g.conn.LocalAddr(); addr != nil {
-		return addr
+	} else { // client remote addr is local to the gonet adapter
+		if addr := c.LocalAddr(); addr != nil {
+			return addr
+		}
 	}
 	return net.TCPAddrFromAddrPort(g.dst)
 }
 
 func (g *GTCPConn) Write(data []byte) (int, error) {
-	if !g.ok() {
+	if c := g.conn(); c == nil {
 		return 0, netError(g, "tcp", "write", io.ErrClosedPipe)
+	} else {
+		return c.Write(data)
 	}
-	return g.conn.Write(data)
 }
 
 func (g *GTCPConn) Read(data []byte) (int, error) {
-	if !g.ok() {
+	if c := g.conn(); c == nil {
 		return 0, netError(g, "tcp", "read", io.ErrNoProgress)
+	} else {
+		return c.Read(data)
 	}
-	return g.conn.Read(data)
 }
 
 func (g *GTCPConn) CloseWrite() error {
-	if !g.ok() {
+	if c := g.conn(); c == nil {
 		return netError(g, "tcp", "close", net.ErrClosed)
+	} else {
+		return c.CloseWrite()
 	}
-	return g.conn.CloseWrite()
 }
 
 func (g *GTCPConn) CloseRead() error {
-	if !g.ok() {
+	if c := g.conn(); c == nil {
 		return netError(g, "tcp", "close", net.ErrClosed)
+	} else {
+		return c.CloseRead()
 	}
-	return g.conn.CloseRead()
 }
 
 func (g *GTCPConn) SetDeadline(t time.Time) error {
-	if g.ok() {
-		return g.conn.SetDeadline(t)
+	if c := g.conn(); c != nil {
+		return c.SetDeadline(t)
+	} else {
+		return nil // no-op to confirm with netstack's gonet impl
 	}
-	return nil // no-op to confirm with netstack's gonet impl
 }
 
 func (g *GTCPConn) SetReadDeadline(t time.Time) error {
-	if g.ok() {
-		return g.conn.SetReadDeadline(t)
+	if c := g.conn(); c != nil {
+		return c.SetReadDeadline(t)
 	}
 	return nil // no-op to confirm with netstack's gonet impl
 }
 
 func (g *GTCPConn) SetWriteDeadline(t time.Time) error {
-	if g.ok() {
-		return g.conn.SetWriteDeadline(t)
+	if c := g.conn(); c != nil {
+		return c.SetWriteDeadline(t)
 	}
 	return nil // no-op to confirm with netstack's gonet impl
 }
 
 // Abort aborts the connection by sending a RST segment.
 func (g *GTCPConn) Abort() {
-	if ep := g.ep; ep != nil {
+	if ep := g.endpoint(); ep != nil {
 		ep.Abort()
 	}
 	core.Close(g)
 }
 
-func (g GTCPConn) Close() error {
+func (g *GTCPConn) Close() error {
 	g.Abort()
 	// g.conn.Close always returns nil; see gonet.TCPConn.Close
 	return nil
