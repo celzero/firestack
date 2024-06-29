@@ -155,7 +155,7 @@ func (p *pcapsink) file(f io.WriteCloser) (err error) {
 		f = zerowriter
 	}
 
-	old := p.sink.Swap(f) // old may be nil
+	old := p.sink.Tango(f) // old may be nil
 	core.CloseOp(old, core.CopRW)
 
 	y := f != zerowriter

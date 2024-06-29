@@ -36,6 +36,7 @@ func (a *Volatile[T]) Load() (t T) {
 }
 
 // Store stores the value t; creates a new Volatile[T] if t is nil.
+// If a is nil, does nothing.
 func (a *Volatile[T]) Store(t T) {
 	if a == nil {
 		return
@@ -50,6 +51,7 @@ func (a *Volatile[T]) Store(t T) {
 
 // Cas compares and swaps the value of a with new, returns true if the value was swapped.
 // If new is nil, returns true; and sets a to NewZeroVolatile[T].
+// If a is nil or old & new are not of same concrete type, returns false.
 func (a *Volatile[T]) Cas(old, new T) (ok bool) {
 	if a == nil || !TypeEq(old, new) {
 		return
@@ -64,8 +66,9 @@ func (a *Volatile[T]) Cas(old, new T) (ok bool) {
 }
 
 // Swap swaps the value of a with new, returns the old value.
-// If a is nil, returns zero value; and sets a to NewZeroVolatile[T].
+// If a is nil, returns zero value.
 // If new is nil, returns old value; and sets a to NewZeroVolatile[T].
+// If old & new are not of the same concrete type, it panics.
 func (a *Volatile[T]) Swap(new T) (old T) {
 	if a == nil {
 		return
@@ -80,4 +83,23 @@ func (a *Volatile[T]) Swap(new T) (old T) {
 	aa := (*atomic.Value)(a)
 	old, _ = aa.Swap(new).(T)
 	return old
+}
+
+// Tango retrieves old value and loads in new non-atomically.
+// If a is nil, returns zero value.
+// If new is nil, returns zero value; and sets a to NewZeroVolatile[T].
+// old & new need not be the same concrete type.
+func (a *Volatile[T]) Tango(new T) (old T) {
+	if a == nil {
+		return
+	}
+
+	aa := (*atomic.Value)(a)
+	old = aa.Load().(T)
+	if IsNil(new) {
+		*a = *NewZeroVolatile[T]()
+		return
+	}
+	aa.Store(new)
+	return
 }
