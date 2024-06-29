@@ -412,6 +412,7 @@ func copyOnce(dst io.Writer, src io.Reader) (int64, error) {
 		return 0, err
 	}
 	wn, err := dst.Write(buf[:n]) // retrier; upstream
+
 	logeif(err)("rdial: copyOnce: rw [%s->%s] %d/%d; err %v", srcaddr, dstaddr, n, wn, err)
 
 	return int64(n), err
