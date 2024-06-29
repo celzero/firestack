@@ -47,14 +47,54 @@ jobs:
         nilaway ./...
       shell: bash
 
+    - name: 🐍 Python3
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.10'
+
     - name: 💿 Obj
       run: |
         wget --tries=2 --waitretry=3 --no-dns-cache https://github.com/Zxilly/go-size-analyzer/releases/download/v1.0.8/go-size-analyzer_1.0.8_linux_amd64.deb -O gsa.deb
         sudo dpkg -i gsa.deb
         # s/tun2socks*.aar/firestack*.aar; see: make-aar
+        #
+        # Archive:  firestack-debug.aar
+        # inflating: AndroidManifest.xml
+        # inflating: proguard.txt
+        # inflating: classes.jar
+        # inflating: jni/armeabi-v7a/libgojni.so
+        # inflating: jni/arm64-v8a/libgojni.so
+        # inflating: jni/x86/libgojni.so
+        # inflating: jni/x86_64/libgojni.so
+        # inflating: R.txt
+        # creating: res/
+        # /usr/bin/jar
         unzip firestack-debug.aar
         which jar && jar tf ./classes.jar
         gsa jni/arm64-v8a/*.so -f text --verbose
+
+        pip install sqlelf
+
+        sqlelf jni/arm64-v8a/libgojni.so --sql \
+          "SELECT mnemonic, COUNT(*) from elf_instructions GROUP BY mnemonic ORDER BY 2 DESC LIMIT 20"
+
+        sqlelf jni/arm64-v8a/libgojni.so --sql \
+          "SELECT * from elf_headers"
+
+        # determine NEEDED entries
+        sqlelf jni/arm64-v8a/libgojni.so --sql \
+          "SELECT elf_strings.path, elf_strings.value
+          FROM elf_dynamic_entries
+          INNER JOIN elf_strings ON elf_dynamic_entries.value = elf_strings.offset
+          WHERE elf_dynamic_entries.tag = 'NEEDED'"
+
+        # determine the largest functions
+        sqlelf jni/arm64-v8a/libgojni.so --sql \
+          "SELECT name AS function_name, (high_pc - low_pc) AS function_size
+          FROM dwarf_dies
+          WHERE tag = 'DW_TAG_subprogram'
+          ORDER BY function_size DESC
+          LIMIT 50;"
       shell: bash
 
       # github.com/actions/upload-artifact
