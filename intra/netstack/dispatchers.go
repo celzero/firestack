@@ -33,9 +33,9 @@ import (
 	"github.com/celzero/firestack/intra/log"
 	"golang.org/x/sys/unix"
 	"gvisor.dev/gvisor/pkg/buffer"
+	"gvisor.dev/gvisor/pkg/rawfile"
 	"gvisor.dev/gvisor/pkg/tcpip"
 	"gvisor.dev/gvisor/pkg/tcpip/header"
-	"gvisor.dev/gvisor/pkg/tcpip/link/rawfile"
 	"gvisor.dev/gvisor/pkg/tcpip/stack"
 )
 
@@ -225,14 +225,15 @@ func (d *readVDispatcher) dispatch() (bool, tcpip.Error) {
 		return abort, new(tcpip.ErrBadBuffer)
 	}
 
-	n, err := rawfile.BlockingReadvUntilStopped(fds.eve(), fds.tun(), iov)
+	// github.com/google/gvisor/blob/d59375d82/pkg/tcpip/link/fdbased/packet_dispatchers.go#L186
+	n, errno := rawfile.BlockingReadvUntilStopped(fds.eve(), fds.tun(), iov)
 
-	log.VV("ns: tun(%d): dispatch: got(%d bytes), err(%v)", fds.tun(), n, err)
-	if n <= 0 || err != nil {
-		if err == nil {
-			err = new(tcpip.ErrNoSuchFile)
+	log.VV("ns: tun(%d): dispatch: got(%d bytes), err(%v)", fds.tun(), n, errno)
+	if n <= 0 || errno != 0 {
+		if errno == 0 {
+			return abort, new(tcpip.ErrNoSuchFile)
 		}
-		return abort, err
+		return abort, tcpip.TranslateErrno(errno)
 	}
 
 	pkt := stack.NewPacketBuffer(stack.PacketBufferOptions{
