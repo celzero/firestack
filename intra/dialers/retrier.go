@@ -207,13 +207,15 @@ func (r *retrier) Read(buf []byte) (n int, err error) {
 		note("rdial: read: no data; retrying [%s<-%s]", laddr(r.conn), r.raddr)
 		return // nothing yet to retry; on to next read
 	}
+	logeor(err, note)("rdial: read: [%s<-%s] %d; must retry; err: %v", laddr(r.conn), r.raddr, n, err)
 
 	mustretry := err != nil
 	note = log.D
 	if !r.retryCompleted() {
 		r.mutex.Lock()
 		defer r.mutex.Unlock()
-		if !r.retryCompleted() {
+		done := r.retryCompleted()
+		if !done {
 			defer close(r.retryDoneCh) // signal that retry is complete or unnecessary
 
 			if mustretry { // retry; err may be timeout or conn reset
@@ -227,9 +229,8 @@ func (r *retrier) Read(buf []byte) (n int, err error) {
 			// reset hello
 			r.hello = nil
 			return
-		} else {
-			log.I("rdial: read: already retried! [%s<-%s] %d; err? %v", laddr(r.conn), r.raddr, n, err)
 		}
+		logeor(err, note)("rdial: read: already retried! [%s<-%s] %d; err? %v", laddr(r.conn), r.raddr, n, err)
 	} // else: just one read is enough; no retry needed
 	return
 }
@@ -307,13 +308,14 @@ func (r *retrier) ReadFrom(reader io.Reader) (bytes int64, err error) {
 	copies := 0
 	for !r.retryCompleted() {
 		b, e := copyOnce(r, reader)
-		bytes += b
-		if err = e; err != nil {
-			log.W("rdial: readfrom: copyOnce #%d; sz: %d; err: %v", copies, bytes, err)
-			return
-		}
+
 		copies++
-		log.D("rdial: readfrom: copyOnce #%d; sz: %d", copies, b)
+		bytes += b
+
+		logeif(err)("rdial: readfrom: copyOnce #%d; sz: %d/%d; err: %v", copies, b, bytes, err)
+		if e != nil {
+			return bytes, e
+		}
 	}
 
 	// retryCompleted() is true, so r.conn is final and doesn't need locking
