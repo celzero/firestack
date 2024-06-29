@@ -207,9 +207,9 @@ func (r *retrier) Read(buf []byte) (n int, err error) {
 		note("rdial: read: no data; retrying [%s<-%s]", laddr(r.conn), r.raddr)
 		return // nothing yet to retry; on to next read
 	}
-	logeor(err, note)("rdial: read: [%s<-%s] %d; must retry; err: %v", laddr(r.conn), r.raddr, n, err)
-
 	mustretry := err != nil
+	logeor(err, note)("rdial: read: [%s<-%s] %d; mustretry? %t; err: %v", laddr(r.conn), r.raddr, n, mustretry, err)
+
 	note = log.D
 	if !r.retryCompleted() {
 		r.mutex.Lock()
@@ -406,12 +406,12 @@ func copyOnce(dst io.Writer, src io.Reader) (int64, error) {
 		dstaddr = r.raddr
 	}
 
-	n, err := src.Read(buf) // downstream conn
+	n, err := src.Read(buf) // src: netstack; downstream conn
 	if err != nil {
 		log.W("rdial: copyOnce: read [%s->%s] %d/%d; err %v", srcaddr, dstaddr, n, len(buf), err)
 		return 0, err
 	}
-	wn, err := dst.Write(buf[:n]) // retrier; upstream
+	wn, err := dst.Write(buf[:n]) // dst: retrier; upstream conn
 
 	logeif(err)("rdial: copyOnce: rw [%s->%s] %d/%d; err %v", srcaddr, dstaddr, n, wn, err)
 
