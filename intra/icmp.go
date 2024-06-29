@@ -150,8 +150,7 @@ func (h *icmpHandler) Ping(source, target netip.AddrPort, msg []byte, pong netst
 
 	defer func() {
 		if !open {
-			smm.done(err)
-			queueSummary(h.smmch, h.done, smm)
+			queueSummary(h.smmch, h.done, smm.done(err))
 		}
 	}()
 
@@ -172,8 +171,7 @@ func (h *icmpHandler) Ping(source, target netip.AddrPort, msg []byte, pong netst
 	// see: netstack/dispatcher.go:newReadvDispatcher
 	core.Gx("icmp.Ping", func() {
 		defer func() {
-			smm.done(err)
-			queueSummary(h.smmch, h.done, smm)
+			queueSummary(h.smmch, h.done, smm.done(err))
 		}()
 		dst := oneRealIp(realips, target)
 		uc, err := px.Dialer().Dial("udp", dst.String())
@@ -217,8 +215,7 @@ func (h *icmpHandler) fetch(c net.Conn, pong netstack.Pong, smm *SocketSummary) 
 
 	defer func() {
 		clos(c)
-		smm.done(err)
-		queueSummary(h.smmch, h.done, smm)
+		queueSummary(h.smmch, h.done, smm.done(err))
 	}()
 
 	bptr := core.Alloc()

@@ -74,11 +74,14 @@ func forward(local, remote net.Conn, ch chan *SocketSummary, done chan struct{},
 	smm.Rx = dbytes
 	smm.Tx = upload.bytes
 
-	smm.done(derr, upload.err)
-	queueSummary(ch, done, smm)
+	queueSummary(ch, done, smm.done(derr, upload.err))
 }
 
-func queueSummary(ch chan<- *SocketSummary, done chan struct{}, s *SocketSummary) {
+func queueSummary(ch chan<- *SocketSummary, done <-chan struct{}, s *SocketSummary) {
+	if s == nil {
+		return
+	}
+
 	select {
 	case <-done:
 		log.D("intra: queueSummary: end: %s", s.str())

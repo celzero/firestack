@@ -190,12 +190,8 @@ func (h *udpHandler) ProxyMux(gconn *netstack.GUDPConn, src netip.AddrPort) (ok 
 
 	if err != nil || local == nil {
 		clos(gconn, local)
-		if smm != nil { // smm is never nil; but nilaway complains
-			smm.done(err)
-			queueSummary(h.smmch, h.done, smm)
-		} else {
-			log.W("udp: proxy: mux: unexpected %s -> [unconnected]; err: %v", src, err)
-		}
+		queueSummary(h.smmch, h.done, smm.done(err))
+		log.W("udp: proxy: mux: unexpected %s -> [unconnected]; err: %v", src, err)
 		// invalid dst addrs are not tracked; conntracker.Untrack() not req
 		return // not ok
 	}
@@ -273,12 +269,8 @@ func (h *udpHandler) proxy(gconn net.Conn, src, dst netip.AddrPort) (ok bool) {
 
 	if err != nil {
 		clos(gconn, remote)
-		if smm != nil { // smm is never nil; but nilaway complains
-			smm.done(err)
-			queueSummary(h.smmch, h.done, smm)
-		} else {
-			log.W("udp: proxy: unexpected %s -> %s; err: %v", src, dst, err)
-		}
+		queueSummary(h.smmch, h.done, smm.done(err)) // smm may be nil
+		log.W("udp: proxy: unexpected %s -> %s; err: %v", src, dst, err)
 		h.conntracker.Untrack(ct.CID)
 		return // not ok
 	} else if remote == nil { // dnsOverride?
