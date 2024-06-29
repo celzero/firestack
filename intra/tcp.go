@@ -189,7 +189,8 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target netip.AddrPort)
 
 	defer func() {
 		if !open {
-			clos(gconn) // gconn may be nil
+			clos(gconn)                                  // gconn may be nil
+			queueSummary(h.smmch, h.done, smm.done(err)) // smm may be nil
 		}
 	}()
 
@@ -198,10 +199,6 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target netip.AddrPort)
 		log.D("tcp: proxy: end %v -> %v; err? %v", src, target, err)
 		return deny
 	}
-
-	defer func() {
-		queueSummary(h.smmch, h.done, smm.done(err)) // smm may be nil
-	}()
 
 	if !src.IsValid() || !target.IsValid() {
 		_, err = gconn.Redo(rst) // fin
