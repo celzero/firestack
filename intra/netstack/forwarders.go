@@ -309,7 +309,7 @@ func (m *supervisor) stop() {
 	m.wg.Wait()
 	if settings.Debug {
 		elapsed := time.Since(start).Milliseconds() / 1000
-		log.D("ns: tun(%d): forwarder: stopped %d procs in %ds", elapsed)
+		log.D("ns: tun(%d): forwarder: stopped %d procs in %ds", m.fd, len(m.processors), elapsed)
 	}
 }
 
