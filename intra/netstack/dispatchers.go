@@ -185,6 +185,7 @@ func (d *readVDispatcher) swap(fd int) error {
 
 	prev := d.fds.Swap(f) // f may be nil
 	prev.stop()           // prev may be nil
+	d.mgr.swap(fd)        // used for diagnostics only
 
 	note("ns: dispatch: swap: tun(%d => %d); err %v", prev.tun(), fd, err)
 	return err
