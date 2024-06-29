@@ -239,7 +239,7 @@ func (g *GTCPConn) Abort() {
 	if ep := g.endpoint(); ep != nil {
 		ep.Abort()
 	}
-	core.Close(g)
+	core.Close(g.conn())
 }
 
 func (g *GTCPConn) Close() error {
