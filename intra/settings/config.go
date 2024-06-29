@@ -74,6 +74,9 @@ const NICID = 0x01
 // Debug is a global flag to enable debug behaviour.
 var Debug bool = false
 
+// SingleThreadedTUNForwarder is a global flag to enable single-threaded TUN forwarding.
+var SingleThreadedTUNForwarder = false
+
 // L3 returns the string'd repr of engine.
 func L3(engine int) string {
 	switch engine {

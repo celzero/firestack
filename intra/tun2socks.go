@@ -87,6 +87,11 @@ func LowMem() {
 	go debug.FreeOSMemory()
 }
 
+func Slowdown(y bool) {
+	settings.SingleThreadedTUNForwarder = y
+	log.I("tun: slowdown? %v", y)
+}
+
 // Build returns the build information.
 func Build() string {
 	if buildinfo != nil {

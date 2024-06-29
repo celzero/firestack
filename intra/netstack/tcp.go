@@ -14,6 +14,7 @@ import (
 
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/log"
+	"github.com/celzero/firestack/intra/settings"
 	"gvisor.dev/gvisor/pkg/tcpip"
 	"gvisor.dev/gvisor/pkg/tcpip/adapters/gonet"
 	"gvisor.dev/gvisor/pkg/tcpip/stack"
@@ -71,13 +72,16 @@ func tcpForwarder(s *stack.Stack, h GTCPConnHandler) *tcp.Forwarder {
 		// ref: github.com/google/gvisor/blob/be6ffa7/pkg/tcpip/stack/transport_demuxer.go#L180
 		gtcp := makeGTCPConn(req, src, dst)
 		// setup endpoint right away, so that netstack's internal state is consistent
-		if open, err := gtcp.makeEndpoint( /*rst*/ false); err != nil || !open {
-			log.E("ns: tcp: forwarder: connect src(%v) => dst(%v); open? %t, err(%v)", src, dst, open, err)
-			if err == nil {
-				err = errMissingEp
+		// in case there are multiple forwarders dispatching from the TUN device.
+		if !settings.SingleThreadedTUNForwarder {
+			if open, err := gtcp.makeEndpoint( /*rst*/ false); err != nil || !open {
+				log.E("ns: tcp: forwarder: connect src(%v) => dst(%v); open? %t, err(%v)", src, dst, open, err)
+				if err == nil {
+					err = errMissingEp
+				}
+				go h.Error(gtcp, src, dst, err) // error
+				return
 			}
-			go h.Error(gtcp, src, dst, err) // error
-			return
 		}
 
 		// must always handle it in a separate goroutine as it may block netstack

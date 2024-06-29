@@ -91,6 +91,7 @@ func udpForwarder(s *stack.Stack, h GUDPConnHandler) *udp.Forwarder {
 
 		gc := makeGUDPConn(req, src, dst)
 		// connect so that netstack's internal state is consistent
+		// TODO: makeEndpoint here iff !settings.SingleThreadedTUNForwarder
 		if err := gc.makeEndpoint( /*fin*/ false); err != nil {
 			log.E("ns: udp: forwarder: connect: %v; src(%v) dst(%v)", err, src, dst)
 			go h.Error(err, src, dst)
