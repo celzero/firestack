@@ -252,17 +252,20 @@ func (e *endpoint) Swap(fd, mtu int) (err error) {
 	if e.inboundDispatcher == nil { // prevfd must be 0 value if inbound is nil
 		e.inboundDispatcher, err = createInboundDispatcher(e, fd)
 		if err != nil {
-			return fmt.Errorf("createInboundDispatcher(%d, ...) = %v", fd, err)
+			err = fmt.Errorf("createInboundDispatcher(%d, ...) = %v", fd, err)
 		}
-		if e.dispatcher != nil { // attached?
-			// todo: core.RecoverFn(restart-netstack)
-			go e.dispatchLoop(e.inboundDispatcher)
-		} else {
-			log.W("ns: tun(%d => %d): Swap: no dispatcher for new fd", prevfd, fd)
-		}
-		return nil
-	} // else:
-	return e.inboundDispatcher.swap(fd) // always closes prevfd
+	} else {
+		err = e.inboundDispatcher.swap(fd) // always closes prevfd
+		// todo: on err != nil e.inboundDispatcher = nil?
+	}
+
+	hasDispatcher := e.dispatcher != nil
+	if err == nil && hasDispatcher { // attached?
+		go e.dispatchLoop(e.inboundDispatcher)
+	} else {
+		log.E("ns: tun(%d => %d): Swap: no dispatcher? %t for new fd; err %v", prevfd, fd, !hasDispatcher, err)
+	}
+	return
 }
 
 // Attach launches the goroutine that reads packets from the file descriptor and
@@ -295,7 +298,6 @@ func (e *endpoint) Attach(dispatcher stack.NetworkDispatcher) {
 	if dispatcher != nil && e.dispatcher == nil {
 		log.I("ns: tun(%d): attach: attach new dispatcher", fd)
 		e.dispatcher = dispatcher
-		// todo: core.RecoverFn(restart-netstack)
 		go e.dispatchLoop(rx)
 		return
 	}
@@ -451,16 +453,17 @@ func (e *endpoint) dispatchLoop(inbound linkDispatcher) tcpip.Error {
 	e.wg.Add(1)
 	defer e.wg.Done()
 
+	fd := e.fd()
 	if inbound == nil {
-		log.W("ns: dispatchLoop: inbound nil")
+		log.W("ns: tun(%d): dispatchLoop: inbound nil", fd)
 		return &tcpip.ErrUnknownDevice{}
 	}
 
-	log.I("ns: dispatchLoop: start")
+	log.I("ns: tun(%d): dispatchLoop: start", fd)
 	for {
 		cont, err := inbound.dispatch()
 		if err != nil || !cont {
-			log.I("ns: dispatchLoop: exit; err %v", err)
+			log.W("ns: tun(%d): dispatchLoop: exit; err %v", fd, err)
 			return err
 		}
 	}
