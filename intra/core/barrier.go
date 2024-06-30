@@ -34,7 +34,7 @@ type Work[T any] func() (T, error)
 type Work1[T any] func(T) (T, error)
 
 // V is an in-flight or completed Barrier.Do V
-type V[T any] struct {
+type V[T any, K comparable] struct {
 	wg  sync.WaitGroup
 	dob time.Time
 	Val T
@@ -42,36 +42,40 @@ type V[T any] struct {
 	N   atomic.Uint32
 }
 
-func (v *V[t]) String() string {
+func (v *V[t, k]) String() string {
 	return fmt.Sprintf("v: %v // n: %d; exp: %s // err: %v", v.Val, v.N.Load(), v.dob, v.Err)
 }
 
 // Barrier represents a class of work and forms a namespace in
 // which units of work can be executed with duplicate suppression.
-type Barrier[T any] struct {
-	mu  sync.Mutex       // protects m
-	m   map[string]*V[T] // caches in-flight and completed Vs
-	ttl time.Duration    // time-to-live for completed Vs in m
-	neg time.Duration    // time-to-live for errored Vs in m
+type Barrier[T any, K comparable] struct {
+	mu  sync.Mutex     // protects m
+	m   map[K]*V[T, K] // caches in-flight and completed Vs
+	ttl time.Duration  // time-to-live for completed Vs in m
+	neg time.Duration  // time-to-live for errored Vs in m
+}
+
+func NewKeyedBarrier[T any, K comparable](ttl time.Duration) *Barrier[T, K] {
+	return NewBarrier2[T, K](ttl, ttl/5)
 }
 
 // NewBarrier returns a new Barrier with the given time-to-live for
 // completed Vs.
-func NewBarrier[T any](ttl time.Duration) *Barrier[T] {
-	return NewBarrier2[T](ttl, ttl/5)
+func NewBarrier[T any](ttl time.Duration) *Barrier[T, string] {
+	return NewBarrier2[T, string](ttl, ttl/5)
 }
 
 // NewBarrier2 returns a new Barrier with the time-to-lives for
 // completed Vs (ttl) and errored Vs (neg).
-func NewBarrier2[T any](ttl, neg time.Duration) *Barrier[T] {
-	return &Barrier[T]{
-		m:   make(map[string]*V[T]),
+func NewBarrier2[T any, K comparable](ttl, neg time.Duration) *Barrier[T, K] {
+	return &Barrier[T, K]{
+		m:   make(map[K]*V[T, K]),
 		ttl: ttl,
 		neg: max(1*time.Second /*min neg*/, neg),
 	}
 }
 
-func (ba *Barrier[T]) getLocked(k string) (*V[T], bool) {
+func (ba *Barrier[T, K]) getLocked(k K) (*V[T, K], bool) {
 	v, ok := ba.m[k]
 	if v != nil {
 		ttl := ba.ttl
@@ -86,8 +90,8 @@ func (ba *Barrier[T]) getLocked(k string) (*V[T], bool) {
 	return v, ok
 }
 
-func (ba *Barrier[T]) addLocked(k string) *V[T] {
-	v := new(V[T])
+func (ba *Barrier[T, K]) addLocked(k K) *V[T, K] {
+	v := new(V[T, K])
 	v.wg.Add(1)
 	v.dob = time.Now()
 	ba.m[k] = v
@@ -98,7 +102,7 @@ func (ba *Barrier[T]) addLocked(k string) *V[T] {
 // sure that only one execution is in-flight for a given key at a
 // time. If a duplicate comes in, the duplicate caller waits for the
 // original to complete and receives the same results.
-func (ba *Barrier[T]) Do(k string, once Work[T]) (*V[T], int) {
+func (ba *Barrier[T, K]) Do(k K, once Work[T]) (*V[T, K], int) {
 	ba.mu.Lock()
 	c, _ := ba.getLocked(k)
 	if c != nil {
@@ -118,7 +122,7 @@ func (ba *Barrier[T]) Do(k string, once Work[T]) (*V[T], int) {
 }
 
 // Do1 is like Do but for Work1 with one arg.
-func (ba *Barrier[T]) Do1(k string, once Work1[T], arg T) (*V[T], int) {
+func (ba *Barrier[T, K]) Do1(k K, once Work1[T], arg T) (*V[T, K], int) {
 	ba.mu.Lock()
 	c, _ := ba.getLocked(k)
 	if c != nil {
@@ -138,10 +142,10 @@ func (ba *Barrier[T]) Do1(k string, once Work1[T], arg T) (*V[T], int) {
 }
 
 // untested
-func (ba *Barrier[T]) Go(k string, once Work[T]) <-chan *V[T] {
-	ch := make(chan *V[T])
+func (ba *Barrier[T, K]) Go(k K, once Work[T]) <-chan *V[T, K] {
+	ch := make(chan *V[T, K])
 
-	Go(k, func() {
+	Go("barrier", func() {
 		defer close(ch)
 
 		ba.mu.Lock()

@@ -38,7 +38,7 @@ var (
 type ipmapper struct {
 	id string
 	r  dnsx.Resolver
-	ba *core.Barrier[[]byte]
+	ba *core.Barrier[[]byte, string]
 }
 
 var _ ipmap.IPMapper = (*ipmapper)(nil)

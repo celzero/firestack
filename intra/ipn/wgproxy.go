@@ -71,20 +71,20 @@ const (
 )
 
 type wgtun struct {
-	id            string                      // id
-	cfg           string                      // original config
-	addrs         []netip.Prefix              // interface addresses
-	stack         *stack.Stack                // stack fakes tun device for wg
-	ep            *channel.Endpoint           // reads and writes packets to/from stack
-	ingress       chan *buffer.View           // pipes ep writes to wg
-	events        chan tun.Event              // wg specific tun (interface) events
-	finalize      chan struct{}               // close signal for incomingPacket
-	mtu           int                         // mtu of this interface
-	reqbarrier    *core.Barrier[[]netip.Addr] // request barrier for dns lookups
-	once          sync.Once                   // exec fn exactly once
-	hasV4, hasV6  bool                        // interface has ipv4/ipv6 routes?
-	preferOffload bool                        // UDP GRO/GSO offloads
-	since         int64                       // start time in unix millis
+	id            string                              // id
+	cfg           string                              // original config
+	addrs         []netip.Prefix                      // interface addresses
+	stack         *stack.Stack                        // stack fakes tun device for wg
+	ep            *channel.Endpoint                   // reads and writes packets to/from stack
+	ingress       chan *buffer.View                   // pipes ep writes to wg
+	events        chan tun.Event                      // wg specific tun (interface) events
+	finalize      chan struct{}                       // close signal for incomingPacket
+	mtu           int                                 // mtu of this interface
+	ba            *core.Barrier[[]netip.Addr, string] // request barrier for dns lookups
+	once          sync.Once                           // exec fn exactly once
+	hasV4, hasV6  bool                                // interface has ipv4/ipv6 routes?
+	preferOffload bool                                // UDP GRO/GSO offloads
+	since         int64                               // start time in unix millis
 
 	// mutable fields
 
@@ -513,7 +513,7 @@ func makeWgTun(id, cfg string, ifaddrs, allowedaddrs []netip.Prefix, peers map[s
 		dns:           core.NewVolatile(dnsm),
 		remote:        core.NewVolatile(endpointm), // may be nil
 		peers:         core.NewVolatile(peers),     // its entries must never be modified
-		reqbarrier:    core.NewBarrier[[]netip.Addr](wgbarrierttl),
+		ba:            core.NewBarrier[[]netip.Addr](wgbarrierttl),
 		mtu:           tunmtu,
 		status:        core.NewVolatile(TUP),
 		preferOffload: preferOffload(id),

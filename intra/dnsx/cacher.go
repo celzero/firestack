@@ -71,16 +71,16 @@ type cres struct {
 }
 
 type ctransport struct {
-	sync.RWMutex                      // protects store
-	Transport                         // the underlying transport
-	store        []*cache             // cache buckets
-	ipport       string               // a fake ip:port
-	ttl          time.Duration        // lifetime duration of a cached dns entry
-	halflife     time.Duration        // increment ttl on each read
-	bumps        int                  // max bumps in lifetime of a cached response
-	size         int                  // max size of a cache bucket
-	reqbarrier   *core.Barrier[*cres] // coalesce requests for the same query
-	hangover     *core.Hangover       // tracks send failure threshold
+	sync.RWMutex                              // protects store
+	Transport                                 // the underlying transport
+	store        []*cache                     // cache buckets
+	ipport       string                       // a fake ip:port
+	ttl          time.Duration                // lifetime duration of a cached dns entry
+	halflife     time.Duration                // increment ttl on each read
+	bumps        int                          // max bumps in lifetime of a cached response
+	size         int                          // max size of a cache bucket
+	reqbarrier   *core.Barrier[*cres, string] // coalesce requests for the same query
+	hangover     *core.Hangover               // tracks send failure threshold
 	est          core.P2QuantileEstimator
 }
 
