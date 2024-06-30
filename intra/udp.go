@@ -36,12 +36,12 @@ import (
 	"github.com/celzero/firestack/intra/dnsx"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/netstat"
+	"github.com/celzero/firestack/intra/settings"
 
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/ipn"
 	"github.com/celzero/firestack/intra/netstack"
 	"github.com/celzero/firestack/intra/protect"
-	"github.com/celzero/firestack/intra/settings"
 )
 
 type udpHandler struct {
