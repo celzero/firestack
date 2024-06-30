@@ -68,18 +68,18 @@ func stat(s *stack.Stack) (out *x.NetStat) {
 	out.IPStat.RcvErrs = out.IPStat.Rcv - int64(ip.ValidPacketsReceived.Value())
 	// ip forwarding
 	router := ip.Forwarding
-	out.RouterStat.Errs = int64(router.Errors.Value())
-	out.RouterStat.Timeouts = int64(router.ExhaustedTTL.Value())
-	out.RouterStat.Unrch = int64(router.HostUnreachable.Value())
-	out.RouterStat.PTB = int64(router.PacketTooBig.Value())
-	out.RouterStat.Drops = int64(router.InitializingSource.Value() +
+	out.IPFwdStat.Errs = int64(router.Errors.Value())
+	out.IPFwdStat.Timeouts = int64(router.ExhaustedTTL.Value())
+	out.IPFwdStat.Unrch = int64(router.HostUnreachable.Value())
+	out.IPFwdStat.PTB = int64(router.PacketTooBig.Value())
+	out.IPFwdStat.Drops = int64(router.InitializingSource.Value() +
 		router.ExtensionHeaderProblem.Value() +
 		router.LinkLocalDestination.Value() +
 		router.LinkLocalSource.Value() +
 		router.NoMulticastPendingQueueBufferSpace.Value() +
 		router.OutgoingDeviceNoBufferSpace.Value())
-	out.RouterStat.NoRoute = int64(router.Unrouteable.Value())
-	out.RouterStat.NoHop = int64(router.UnknownOutputEndpoint.Value())
+	out.IPFwdStat.NoRoute = int64(router.Unrouteable.Value())
+	out.IPFwdStat.NoHop = int64(router.UnknownOutputEndpoint.Value())
 	// icmp
 	out.ICMPStat.Snd4 = int64(icmp.V4.PacketsSent.EchoRequest.Value())
 	out.ICMPStat.Snd6 = int64(icmp.V6.PacketsSent.EchoRequest.Value())

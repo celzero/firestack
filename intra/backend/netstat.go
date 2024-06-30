@@ -18,7 +18,7 @@ type NICStat struct {
 	Drops     int64 // drops
 }
 
-type RouterStat struct {
+type IPFwdStat struct {
 	Errs     int64 // errors
 	Unrch    int64 // unreachable
 	NoRoute  int64 // no route
@@ -94,7 +94,7 @@ type UDPStat struct {
 type NetStat struct {
 	NICStat
 	IPStat
-	RouterStat
+	IPFwdStat
 	ICMPStat
 	TCPStat
 	UDPStat
