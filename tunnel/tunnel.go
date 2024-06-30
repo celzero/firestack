@@ -279,7 +279,15 @@ func NewGTunnel(fd, mtu int, tcph netstack.GTCPConnHandler, udph netstack.GUDPCo
 	}
 	netstack.Route(stack, settings.IP46) // always dual-stack
 
-	t = &gtunnel{stack, ep, hdl, sink, atomic.Bool{}, sync.Once{}, core.NewVolatile(0)}
+	t = &gtunnel{
+		stack:  stack,
+		ep:     ep,
+		hdl:    hdl,
+		pcapio: sink,
+		closed: atomic.Bool{},
+		once:   sync.Once{},
+		mtu:    core.NewVolatile(0),
+	}
 
 	// Enabled() may temporarily return false when Up() is in progress.
 	if err = netstack.Up(stack, ep, hdl); err != nil { // attach new endpoint
@@ -303,7 +311,7 @@ func (t *gtunnel) SetPcap(fp string) error {
 	ignored := pcap.Recycle() // close any existing pcap sink
 	if len(fp) == 0 {
 		log.I("netstack: pcap closed (ignored-err? %v)", ignored)
-		return nil // nothing else to do; pcap is closed
+		return nil // nothing else to do; pcap closed
 	} else if len(fp) == 1 {
 		// if fdpcap is 0, 1, or 2 then pcap is written to stdout
 		ok := pcap.log(true)
