@@ -695,8 +695,8 @@ func (tun *wgtun) Close() error {
 
 // Implements Router.
 // TODO: use wgtun as a receiver for Stats()
-func (w *wgproxy) Stat() (out *x.Stats) {
-	out = new(x.Stats)
+func (w *wgproxy) Stat() (out *x.RouterStats) {
+	out = new(x.RouterStats)
 
 	if w.status.Load() == END {
 		log.W("proxy: wg: %s stats: stopped", w.id)

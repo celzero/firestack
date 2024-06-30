@@ -81,7 +81,7 @@ type Router interface {
 	// MTU returns the MTU of this router.
 	MTU() (int, error)
 	// Stats returns the stats of this router.
-	Stat() *Stats
+	Stat() *RouterStats
 	// Contains returns true if this router can route ipprefix.
 	Contains(ipprefix string) bool
 }
@@ -98,8 +98,8 @@ type ProxyListener interface {
 	OnProxiesStopped()
 }
 
-// Stats lists interesting stats of a Router.
-type Stats struct {
+// RouterStats lists interesting stats of a Router.
+type RouterStats struct {
 	Addr   string // address of the router
 	Rx     int64  // bytes received
 	Tx     int64  // bytes transmitted

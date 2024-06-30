@@ -387,11 +387,11 @@ func (px *proxifier) MTU() (out int, err error) {
 }
 
 // Implements Router.
-func (px *proxifier) Stat() *x.Stats {
+func (px *proxifier) Stat() *x.RouterStats {
 	px.RLock()
 	defer px.RUnlock()
 
-	var s *x.Stats
+	var s *x.RouterStats
 	for _, p := range px.p {
 		if local(p.ID()) {
 			continue
@@ -403,8 +403,8 @@ func (px *proxifier) Stat() *x.Stats {
 	return s
 }
 
-func accStats(a, b *x.Stats) (c *x.Stats) {
-	c = new(x.Stats)
+func accStats(a, b *x.RouterStats) (c *x.RouterStats) {
+	c = new(x.RouterStats)
 	if a == nil && b == nil {
 		return c
 	} else if a == nil {
