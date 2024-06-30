@@ -14,6 +14,7 @@ import (
 
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/log"
+	"github.com/celzero/firestack/intra/settings"
 	"gvisor.dev/gvisor/pkg/tcpip"
 
 	"gvisor.dev/gvisor/pkg/tcpip/adapters/gonet"
@@ -31,7 +32,7 @@ type GUDPConnHandler interface {
 	// ProxyMux proxies data between conn and multiple destinations.
 	ProxyMux(conn *GUDPConn, src netip.AddrPort) bool
 	// Error notes the error in connecting src to dst.
-	Error(err error, src, dst netip.AddrPort)
+	Error(conn *GUDPConn, src, dst netip.AddrPort, err error)
 	// CloseConns closes conns by ids, or all if ids is empty.
 	CloseConns([]string) []string
 	// End closes the handler and all its connections.
@@ -90,12 +91,14 @@ func udpForwarder(s *stack.Stack, h GUDPConnHandler) *udp.Forwarder {
 		dst := localAddrPort(id)
 
 		gc := makeGUDPConn(req, src, dst)
-		// connect so that netstack's internal state is consistent
-		// TODO: makeEndpoint here iff !settings.SingleThreadedTUNForwarder
-		if err := gc.connect( /*fin*/ false); err != nil {
-			log.E("ns: udp: forwarder: connect: %v; src(%v) dst(%v)", err, src, dst)
-			go h.Error(err, src, dst)
-			return
+		// setup to recv right away, so that netstack's internal state is consistent
+		// in case there are multiple forwarders dispatching from the TUN device.
+		if !settings.SingleThreadedTUNForwarder {
+			if err := gc.tryConnect(); err != nil {
+				log.E("ns: udp: forwarder: connect: %v; src(%v) dst(%v)", err, src, dst)
+				go h.Error(gc, src, dst, err)
+				return
+			}
 		}
 
 		// proxy in a separate gorountine; return immediately
@@ -121,16 +124,16 @@ func (g *GUDPConn) endpoint() tcpip.Endpoint {
 }
 
 func (g *GUDPConn) StatefulTeardown() (fin bool) {
-	_ = g.connect( /*fin*/ false) // establish circuit then teardown
-	_ = g.Close()                 // then shutdown
-	return true                   // always fin
+	_ = g.tryConnect() // establish circuit then teardown
+	_ = g.Close()      // then shutdown
+	return true        // always fin
 }
 
-func (g *GUDPConn) connect(fin bool) error {
-	if fin {
-		return e(&tcpip.ErrHostUnreachable{})
-	}
+func (g *GUDPConn) Connect() error {
+	return g.tryConnect()
+}
 
+func (g *GUDPConn) tryConnect() error {
 	if g.ok() { // already setup
 		return nil
 	}
@@ -224,10 +227,6 @@ func (g *GUDPConn) SetWriteDeadline(t time.Time) error {
 
 // Close closes the connection.
 func (g *GUDPConn) Close() error {
-	if !g.ok() {
-		_ = g.connect( /*fin*/ true)
-		return nil
-	}
 	if ep := g.endpoint(); ep != nil {
 		ep.Abort()
 	}

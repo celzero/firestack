@@ -176,7 +176,6 @@ func (h *udpHandler) ProxyMux(gconn *netstack.GUDPConn, src netip.AddrPort) (ok 
 	var invalidaddr = netip.AddrPort{}
 
 	if h.status.Load() == UDPEND {
-		// err := gconn.Connect(fin) // disconnect, no nat
 		log.D("udp: connect: mux: end listen(%v)", src)
 		clos(gconn)
 		return // not ok
@@ -184,17 +183,18 @@ func (h *udpHandler) ProxyMux(gconn *netstack.GUDPConn, src netip.AddrPort) (ok 
 
 	// connect (register endpoint) right away, since new packets needn't be
 	// handled / assumed as a new conn (endpoint) by netstack
-	// gerr := gconn.Connect(ack)
+	gerr := gconn.Connect()
 
-	local, smm, _, err := h.Connect(gconn, src, invalidaddr) // local may be nil; smm is never nil
+	local, smm, _, err := h.Connect(gconn, src, invalidaddr, gerr != nil) // local may be nil; smm is never nil
 
-	if err != nil || local == nil {
+	if gerr != nil || err != nil || local == nil {
 		clos(gconn, local)
-		queueSummary(h.smmch, h.done, smm.done(err))
-		log.W("udp: proxy: mux: unexpected %s -> [unconnected]; err: %v", src, err)
+		queueSummary(h.smmch, h.done, smm.done(gerr, err))
+		log.W("udp: proxy: mux: unexpected %s -> [unconnected]; errs: %v / %v", src, gerr, err)
 		// invalid dst addrs are not tracked; conntracker.Untrack() not req
 		return // not ok
 	}
+
 	mxr := newMuxer(local)
 	core.Gx("udp.ProxyMux.looper", func() {
 		for {
@@ -218,24 +218,9 @@ func (h *udpHandler) ProxyMux(gconn *netstack.GUDPConn, src netip.AddrPort) (ok 
 
 // Error implements netstack.GUDPConnHandler.
 // Must be called from a goroutine.
-func (h *udpHandler) Error(err error, src, dst netip.AddrPort) {
-	defer core.Recover(core.Exit11, "udp.ProxyError")
-
-	if h.status.Load() == UDPEND {
-		log.D("udp: proxy error: end %v -> %v", src, dst)
-		return
-	}
-
-	realips, domains, probableDomains, blocklists := undoAlg(h.resolver, dst.Addr())
-
-	// flow is alg/nat-aware, do not change target or any addrs
-	res := h.onFlow(src, dst, realips, domains, probableDomains, blocklists)
-
-	cid, pid, uid := splitCidPidUid(res)
-	smm := udpSummary(cid, pid, uid, dst.Addr()).done(err)
-	queueSummary(h.smmch, h.done, smm)
-
-	return // error notified
+func (h *udpHandler) Error(gconn *netstack.GUDPConn, src, dst netip.AddrPort, err error) {
+	ok := h.Proxy(gconn, src, dst)
+	log.I("udp: proxy: %v ->  %v; err %v; recovered? %t", src, dst, err, ok)
 }
 
 // Proxy implements netstack.GUDPConnHandler; thread-safe.
@@ -248,28 +233,25 @@ func (h *udpHandler) Proxy(gconn *netstack.GUDPConn, src, dst netip.AddrPort) (o
 
 // proxy connects src to dst over a proxy; thread-safe.
 func (h *udpHandler) proxy(gconn net.Conn, src, dst netip.AddrPort) (ok bool) {
-	// const fin = true  // disconnect
-	// const ack = false // connect
 	if h.status.Load() == UDPEND {
 		log.D("udp: connect: end")
 		clos(gconn) // disconnect, no nat
 		return      // not ok
 	}
 
-	/*if gconn is a netstack.GUDPConn, then it is not connected.
+	// if gconn is a netstack.GUDPConn, then it may or may not be connected.
 	// connect right away, since we assume a duplex-stream from here on
 	// see: h.Connect -> dnsOverride
 	var gerr error
 	if gc, ok := gconn.(*netstack.GUDPConn); ok {
-		gerr = gc.Connect(ack)
+		gerr = gc.Connect()
 	} // not a *netstack.GUDPConn, may be *demuxconn
-	*/
 
-	remote, smm, ct, err := h.Connect(gconn, src, dst) // remote may be nil; smm is never nil
+	remote, smm, ct, err := h.Connect(gconn, src, dst, gerr != nil) // remote may be nil; smm is never nil
 
-	if err != nil {
+	if gerr != nil || err != nil {
 		clos(gconn, remote)
-		queueSummary(h.smmch, h.done, smm.done(err)) // smm may be nil
+		queueSummary(h.smmch, h.done, smm.done(gerr, err)) // smm may be nil
 		log.W("udp: proxy: unexpected %s -> %s; err: %v", src, dst, err)
 		h.conntracker.Untrack(ct.CID)
 		return // not ok
@@ -293,7 +275,7 @@ func (h *udpHandler) proxy(gconn net.Conn, src, dst netip.AddrPort) (ok bool) {
 }
 
 // Connect connects the proxy server; thread-safe.
-func (h *udpHandler) Connect(gconn net.Conn, src, target netip.AddrPort) (dst core.UDPConn, smm *SocketSummary, ct core.ConnTuple, err error) {
+func (h *udpHandler) Connect(gconn net.Conn, src, target netip.AddrPort, drop bool) (dst core.UDPConn, smm *SocketSummary, ct core.ConnTuple, err error) {
 	var px ipn.Proxy = nil
 	var pc io.Closer = nil
 
@@ -304,6 +286,11 @@ func (h *udpHandler) Connect(gconn net.Conn, src, target netip.AddrPort) (dst co
 	cid, pid, uid := splitCidPidUid(res)
 	smm = udpSummary(cid, pid, uid, target.Addr())
 	ct = core.ConnTuple{CID: cid, UID: uid}
+
+	if drop {
+		log.D("udp: %s conn dropped (gconn not ok) from %s -> %s", cid, src, target)
+		return
+	}
 
 	if pid == ipn.Block {
 		var secs uint32
@@ -319,7 +306,7 @@ func (h *udpHandler) Connect(gconn net.Conn, src, target netip.AddrPort) (dst co
 		return nil, smm, ct, errUdpFirewalled // disconnect
 	}
 
-	// requests meant for ipn.Exit are always routed to it
+	// requests meant for ipn.Exit are always routed untouched to target
 	// and never to whatever is set as DNS upstream.
 	// Ex: If kotlin-land initiates a DNS query (with InetAddress),
 	// it is routed to the tunnel's fake DNS addr, which is trapped by
