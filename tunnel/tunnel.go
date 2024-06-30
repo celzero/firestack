@@ -33,6 +33,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	x "github.com/celzero/firestack/intra/backend"
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/netstack"
@@ -62,6 +63,8 @@ type Tunnel interface {
 	SetRoute(engine int) error
 	// Set or unset the pcap sink
 	SetPcap(fpcap string) error
+	// NIC, IP, TCP, UDP, and ICMP stats.
+	Stat() (*x.NetStat, error)
 }
 
 type gtunnel struct {
@@ -341,6 +344,10 @@ func (t *gtunnel) SetRoute(engine int) error {
 	netstack.Route(t.stack, settings.IP46)
 	log.I("tun: new route; (no-op) got %s but set %s", settings.L3(engine), settings.IP46)
 	return nil
+}
+
+func (t *gtunnel) Stat() (*x.NetStat, error) {
+	return netstack.Stat(t.stack)
 }
 
 func dup(fd int) (int, error) {
