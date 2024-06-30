@@ -36,8 +36,8 @@ type IPStat struct {
 	Errs        int64 // packet errors
 	Rcv         int64 // packets received from l2
 	Snd         int64 // packets sent to l4
-	RcvErrs     int64 // packet receive errors from l2
-	SndErrs     int64 // packet send errors to l4
+	ErrRcv      int64 // packet receive errors from l2
+	ErrSnd      int64 // packet send errors to l4
 }
 
 type ICMPStat struct {
@@ -60,35 +60,35 @@ type ICMPStat struct {
 }
 
 type TCPStat struct {
-	Active       int64 // connecting
-	Passive      int64 // listening
-	ChecksumErrs int64 // bad checksums
-	Est          int64 // current established
-	EstClo       int64 // established but closed
-	EstRst       int64 // established but RST
-	EstTo        int64 // established but timeout
-	Con          int64 // current connected
-	ConFail      int64 // failed connect attempts
-	PortFail     int64 // failed port reservations
-	RcvErrs      int64 // invalid recv segments
-	AckDrop      int64 // acks dropped
-	SynDrop      int64 // syns dropped
-	Rcv          int64 // segments received
-	Snd          int64 // segments sent
-	SndErrs      int64 // segment send errors
-	Retrans      int64 // retransmissions
-	Timeouts     int64 // connection timeouts
-	Drops        int64 // drops by max inflight threshold
+	Active      int64 // connecting
+	Passive     int64 // listening
+	Est         int64 // current established
+	EstClo      int64 // established but closed
+	EstRst      int64 // established but RST
+	EstTo       int64 // established but timeout
+	Con         int64 // current connected
+	ConFail     int64 // failed connect attempts
+	PortFail    int64 // failed port reservations
+	SynDrop     int64 // syns dropped
+	AckDrop     int64 // acks dropped
+	ErrChecksum int64 // bad checksums
+	ErrRcv      int64 // invalid recv segments
+	ErrSnd      int64 // segment send errors
+	Rcv         int64 // segments received
+	Snd         int64 // segments sent
+	Retrans     int64 // retransmissions
+	Timeouts    int64 // connection timeouts
+	Drops       int64 // drops by max inflight threshold
 }
 
 type UDPStat struct {
-	ChecksumErrs int64 // bad checksums
-	RcvErrs      int64 // recv errors
-	SndErrs      int64 // send errors
-	Snd          int64 // packets sent
-	Rcv          int64 // packets received
-	PortFail     int64 // unknown port
-	Drops        int64 // rcv buffer errors
+	ErrChecksum int64 // bad checksums
+	ErrRcv      int64 // recv errors
+	ErrSnd      int64 // send errors
+	Snd         int64 // packets sent
+	Rcv         int64 // packets received
+	PortFail    int64 // unknown port
+	Drops       int64 // rcv buffer errors
 }
 
 type NetStat struct {
