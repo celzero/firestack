@@ -9,20 +9,20 @@ package core
 import (
 	"math"
 	"slices"
+	"sync/atomic"
 )
 
 // from: github.com/celzero/rethink-app/main/app/src/main/java/com/celzero/bravedns/util/P2QuantileEstimation.kt
 // details: aakinshin.net/posts/p2-quantile-estimator/
 // orig impl: github.com/AndreyAkinshin/perfolizer p2.cs
 type p2 struct {
-	p     float64   // percentile
-	u     int       // sample size
-	mid   int       // u / 2
-	n     []int     // marker positions
-	ns    []float64 // desired marker positions
-	dns   []float64
-	q     []float64 // marker heights
-	count int       // total sampled so far
+	p     float64      // percentile
+	u     int64        // sample size
+	mid   int64        // u / 2
+	n     []int64      // marker positions
+	ns    []float64    // desired marker positions
+	q     []float64    // marker heights
+	count atomic.Int64 // total sampled so far
 }
 
 // P2QuantileEstimator is an interface for the P2 quantile estimator.
@@ -46,20 +46,19 @@ func NewP50Estimator() *p2 {
 }
 
 // NewP90Estimator returns a new estimator with percentile p.
-func NewP2QuantileEstimator(samples int, probability float64) *p2 {
+func NewP2QuantileEstimator(samples int64, probability float64) *p2 {
 	// total samples, typically 5; higher sample size improves accuracy for
 	// lower percentiles (p50) at the expense of computational cost;
 	// for higher percentiles (p90+), even sample size as low as 5 works fine.
-	mid := int(math.Floor(float64(samples) / 2.0))
+	mid := int64(math.Floor(float64(samples) / 2.0))
 	return &p2{
 		p:     probability,
 		u:     samples,
 		mid:   mid,
-		n:     make([]int, samples),
+		n:     make([]int64, samples),
 		ns:    make([]float64, samples),
-		dns:   make([]float64, samples),
 		q:     make([]float64, samples),
-		count: 0,
+		count: atomic.Int64{},
 	}
 }
 
@@ -71,24 +70,24 @@ func (est *p2) P() float64 {
 // Add a sample to the estimator.
 // www.cse.wustl.edu/~jain/papers/ftp/psqr.pdf (p. 1078)
 func (est *p2) Add(x float64) {
-	if est.count < est.u {
-		est.q[est.count] = x
-		est.count++
+	if est.count.Load() < est.u {
+		est.q[est.count.Load()] = x
+		cnt := est.count.Add(1)
 
-		if est.count == est.u {
+		if cnt == est.u {
 			slices.Sort(est.q)
 
 			t := est.u - 1 // 0 index
-			for i := 0; i <= t; i++ {
+			for i := int64(0); i <= t; i++ {
 				est.n[i] = i
 			}
 
 			// divide p into mid no of equal segments
 			// p => 0.5, u = 11, t = 10, mid = 5; pmid => 0.1
 			pmid := est.p / float64(est.mid)
-			for i := 0; i <= est.mid; i++ {
-				est.dns[i] = pmid * float64(i)
-				est.ns[i] = est.dns[i] * float64(t)
+			for i := int64(0); i <= est.mid; i++ {
+				density := pmid * float64(i)
+				est.ns[i] = density * float64(t)
 			}
 
 			rem := t - est.mid // the rest
@@ -96,21 +95,24 @@ func (est *p2) Add(x float64) {
 			// divide q into rem no of equal segments
 			// q => 0.5, u = 10, mid = 5, rem = 5; smid => 0.5
 			smid := s / float64(rem)
-			for i := 1; i <= rem; i++ {
+			for i := int64(1); i <= rem; i++ {
 				// assign i-th portion of smid to dns[mid+i]
 				// [mid+1] => .6, [mid+2] => .7, [mid+3] => .8,
 				// [mid+4] => .9, [mid+5] => 1
-				est.dns[est.mid+i] = (smid * float64(i)) + est.p
+				density := (smid * float64(i)) + est.p
 				// assign t-th portion of dns[mid+i] to ns[mid+i]
 				// [mid+1] => 6, [mid+2] => 7, [mid+3] => 8,
 				// [mid+4] => 9, [mid+5] => 10
-				est.ns[est.mid+i] = est.dns[est.mid+i] * float64(t)
+				est.ns[est.mid+i] = density * float64(t)
 			}
 		}
 		return
 	}
 
-	var k int
+	cnt := est.count.Add(1)
+	cnt = cnt - 1 // old
+
+	var k int64
 	if x < est.q[0] {
 		est.q[0] = x // update min
 		k = 0
@@ -119,7 +121,7 @@ func (est *p2) Add(x float64) {
 		k = est.u - 2
 	} else {
 		k = est.u - 2
-		for i := 1; i <= est.u-2; i++ {
+		for i := int64(1); i <= est.u-2; i++ {
 			if x < est.q[i] {
 				k = i - 1
 				break
@@ -131,11 +133,18 @@ func (est *p2) Add(x float64) {
 		est.n[i]++
 	}
 
-	for i := 0; i < est.u; i++ {
-		est.ns[i] += est.dns[i]
+	// go.dev/play/p/wL0hHYIB5DT
+	// for i := 0; i < est.u; i++ {
+	//	est.ns[i] += est.dns[i]
+	// }
+
+	// go.dev/play/p/yY23exf-KXh
+	factor := float64(cnt) / float64(cnt-1)
+	for i := int64(0); i < est.u; i++ { // update desired marker positions
+		est.ns[i] *= factor
 	}
 
-	for i := 1; i < est.u-1; i++ { // update intermediatories
+	for i := int64(1); i < est.u-1; i++ { // update intermediatories
 		d := est.ns[i] - float64(est.n[i])
 
 		if (d >= 1 && est.n[i+1]-est.n[i] > 1) || (d <= -1 && est.n[i-1]-est.n[i] < -1) {
@@ -149,12 +158,10 @@ func (est *p2) Add(x float64) {
 			est.n[i] += dInt
 		}
 	}
-
-	est.count++
 }
 
 // parabolic computes the parabolic estimate.
-func (est *p2) parabolic(i int, d float64) float64 {
+func (est *p2) parabolic(i int64, d float64) float64 {
 	qi := est.q[i]
 	qij := est.q[i+1]
 	qih := est.q[i-1]
@@ -168,7 +175,7 @@ func (est *p2) parabolic(i int, d float64) float64 {
 }
 
 // linear computes the linear estimate.
-func (est *p2) linear(i int, d int) float64 {
+func (est *p2) linear(i int64, d int64) float64 {
 	df := float64(d)
 	qi := est.q[i]
 	qd := est.q[i+d]
@@ -179,7 +186,7 @@ func (est *p2) linear(i int, d int) float64 {
 
 // Get the estimation for p.
 func (est *p2) Get() int64 {
-	c := est.count
+	c := est.count.Load()
 
 	if c == 0 {
 		return 0
@@ -197,7 +204,7 @@ func (est *p2) Get() int64 {
 }
 
 // sign2int returns the sign of the float64 as an int.
-func sign2int(d float64) int {
+func sign2int(d float64) int64 {
 	if d < 0 {
 		return -1
 	} else if d > 0 {
