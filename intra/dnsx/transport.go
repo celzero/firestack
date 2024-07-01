@@ -406,7 +406,7 @@ func (r *resolver) forward(q []byte, chosenids ...string) (res0 []byte, err0 err
 
 	pref := r.listener.OnQuery(qname, qtyp)
 	id, sid, pid, presetIPs := r.preferencesFrom(qname, uint16(qtyp), pref, chosenids...)
-	t := r.determineTransport(id)
+	t := r.determineTransport(id) // id may be empty if pref is nil
 
 	log.V("dns: fwd: query %s [prefs:%v; chosen:%v]; id? %s, sid? %s, pid? %s, ips? %v", qname, pref, chosenids, id, sid, pid, presetIPs)
 
@@ -786,9 +786,9 @@ func (r *resolver) LiveTransports() string {
 
 func (r *resolver) preferencesFrom(qname string, qtyp uint16, s *x.DNSOpts, chosenids ...string) (id1, id2, pid string, ips []*netip.Addr) {
 	var x []string
-	if s == nil { // should never happen; but it has during testing
+	if s == nil { // should never happen; but it has during testing (on End())
 		log.W("dns: pref: no ns opts for %s", qname)
-		x = nil
+		return // no-op
 	} else {
 		x = strings.Split(s.TIDCSV, ",")
 		if y := strings.Split(s.IPCSV, ","); len(y) > 0 {
@@ -859,7 +859,7 @@ func (r *resolver) preferencesFrom(qname string, qtyp uint16, s *x.DNSOpts, chos
 		id1 = Local
 		id2 = ""
 	}
-	if len(s.PID) > 0 {
+	if s != nil && len(s.PID) > 0 {
 		pid = overrideProxyIfNeeded(s.PID, id1, id2)
 	} else {
 		pid = NetNoProxy

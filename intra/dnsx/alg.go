@@ -255,13 +255,14 @@ func (t *dnsgateway) querySecondary(t2 Transport, network string, msg *dns.Msg, 
 }
 
 // Implements Gateway
+// preset may be nil
 func (t *dnsgateway) q(t1, t2 Transport, preset []*netip.Addr, network string, q *dns.Msg, summary *x.DNSSummary) (*dns.Msg, error) {
 	var ansin *dns.Msg // answer got from transports
 	var err error
 	if t1 == nil || core.IsNil(t1) {
 		return nil, errNoTransportAlg
 	}
-	usepreset := len(preset) > 0
+	usepreset := len(preset) > 0 // preset may be nil
 	// presets override both t1 and t2:
 	// discard t2 as with preset we don't care about additional ips and blocklists;
 	// t1 is not discarded entirely as it is needed to subst ips in https/svcb responses
