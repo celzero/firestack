@@ -111,8 +111,9 @@ func (h *icmpHandler) End() error {
 		core.Go("icmp.Close", func() {
 			time.Sleep(2 * time.Second) // wait a bit
 			close(h.smmch)              // close listener chan
+			log.I("icmp: smm chan closed %x", h.smmch)
 		})
-		log.I("icmp: handler end")
+		log.I("icmp: handler end %x %x", h.done, h.smmch)
 	})
 	return nil
 }

@@ -157,8 +157,9 @@ func (h *tcpHandler) End() error {
 		core.Go("tcp.Close", func() {
 			time.Sleep(2 * time.Second) // wait a bit
 			close(h.smmch)              // close listener chan
+			log.I("tcp: smm chan closed %x", h.smmch)
 		})
-		log.I("tcp: handler end")
+		log.I("tcp: handler end %x %x", h.done, h.smmch)
 	})
 	return nil
 }

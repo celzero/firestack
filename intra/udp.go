@@ -396,8 +396,9 @@ func (h *udpHandler) End() error {
 		core.Go("udp.Close", func() {
 			time.Sleep(2 * time.Second) // wait a bit
 			close(h.smmch)              // close listener chan
+			log.I("udp: smm chan closed %x", h.smmch)
 		})
-		log.I("udp: handler end")
+		log.I("udp: handler end %x %x", h.done, h.smmch)
 	})
 	return nil
 }

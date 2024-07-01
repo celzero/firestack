@@ -75,7 +75,7 @@ func tcpForwarder(s *stack.Stack, h GTCPConnHandler) *tcp.Forwarder {
 		// in case there are multiple forwarders dispatching from the TUN device.
 		if !settings.SingleThreadedTUNForwarder {
 			if open, err := gtcp.tryConnect(); err != nil || !open {
-				log.E("ns: tcp: forwarder: connect src(%v) => dst(%v); open? %t, err(%v)", src, dst, open, err)
+				log.E("ns: tcp: forwarder: tryConnect err src(%v) => dst(%v); open? %t, err(%v)", src, dst, open, err)
 				if err == nil {
 					err = errMissingEp
 				}
@@ -150,7 +150,7 @@ func (g *GTCPConn) synack(complete bool) (rst bool, err error) {
 	wq := new(waiter.Queue)
 	// the passive-handshake (SYN) may not successful for a non-existent route (say, ipv6)
 	if ep, err := g.req.CreateEndpoint(wq); err != nil {
-		log.E("ns: tcp: forwarder: synack src(%v) => dst(%v); err(%v)", g.LocalAddr(), g.RemoteAddr(), err)
+		log.E("ns: tcp: forwarder: synack(complete? %t) src(%v) => dst(%v); err(%v)", complete, g.LocalAddr(), g.RemoteAddr(), err)
 		// prevent potential half-open TCP connection leak.
 		// hopefully doesn't break happy-eyeballs datatracker.ietf.org/doc/html/rfc8305#section-5
 		// ie, apps that expect network-unreachable ICMP msgs instead of TCP RSTs?
