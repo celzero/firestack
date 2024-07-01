@@ -390,9 +390,9 @@ func (h *udpHandler) Connect(gconn net.Conn, src, target netip.AddrPort, drop bo
 // End implements netstack.GUDPConnHandler
 func (h *udpHandler) End() error {
 	h.once.Do(func() {
+		h.CloseConns(nil)
 		h.status.Store(UDPEND)
 		close(h.done)
-		h.CloseConns(nil)
 		core.Go("udp.Close", func() {
 			time.Sleep(2 * time.Second) // wait a bit
 			close(h.smmch)              // close listener chan

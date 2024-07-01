@@ -105,9 +105,9 @@ func (h *icmpHandler) onFlow(source, target netip.AddrPort, realips, domains, pr
 // End implements netstack.GICMPHandler.
 func (h *icmpHandler) End() error {
 	h.once.Do(func() {
+		h.CloseConns(nil)
 		h.status.Store(ICMPEND)
 		close(h.done)
-		h.CloseConns(nil)
 		core.Go("icmp.Close", func() {
 			time.Sleep(2 * time.Second) // wait a bit
 			close(h.smmch)              // close listener chan

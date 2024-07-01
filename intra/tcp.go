@@ -151,9 +151,9 @@ func (h *tcpHandler) onFlow(localaddr, target netip.AddrPort, realips, domains, 
 
 func (h *tcpHandler) End() error {
 	h.once.Do(func() {
+		h.CloseConns(nil)
 		h.status.Store(TCPEND)
 		close(h.done) // signal close listener send
-		h.CloseConns(nil)
 		core.Go("tcp.Close", func() {
 			time.Sleep(2 * time.Second) // wait a bit
 			close(h.smmch)              // close listener chan
