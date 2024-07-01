@@ -8,6 +8,7 @@ package core
 
 import (
 	"math"
+	"slices"
 	"sort"
 )
 
@@ -190,7 +191,7 @@ func (est *p2) Get() int64 {
 		return int64(ms)
 	}
 
-	sort.Float64s(est.q[:c])
+	slices.Sort(est.q[:c]) // go.dev/play/p/sCIM4AB1t6n
 	index := int(float64(c-1) * est.p)
 	ms := est.q[index] * 1000
 	return int64(ms)
