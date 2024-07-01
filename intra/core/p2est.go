@@ -9,7 +9,6 @@ package core
 import (
 	"math"
 	"slices"
-	"sort"
 )
 
 // from: github.com/celzero/rethink-app/main/app/src/main/java/com/celzero/bravedns/util/P2QuantileEstimation.kt
@@ -77,7 +76,7 @@ func (est *p2) Add(x float64) {
 		est.count++
 
 		if est.count == est.u {
-			sort.Float64s(est.q)
+			slices.Sort(est.q)
 
 			t := est.u - 1 // 0 index
 			for i := 0; i <= t; i++ {
