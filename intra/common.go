@@ -82,6 +82,8 @@ func queueSummary(ch chan<- *SocketSummary, done <-chan struct{}, s *SocketSumma
 		return
 	}
 
+	log.VV("intra: queueSummary: over %x %x %s", ch, done, s.ID)
+
 	select {
 	case <-done:
 		log.D("intra: queueSummary: end: %s", s.str())
