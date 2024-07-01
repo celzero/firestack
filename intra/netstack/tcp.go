@@ -74,7 +74,7 @@ func tcpForwarder(s *stack.Stack, h GTCPConnHandler) *tcp.Forwarder {
 		// setup endpoint right away, so that netstack's internal state is consistent
 		// in case there are multiple forwarders dispatching from the TUN device.
 		if !settings.SingleThreadedTUNForwarder {
-			if open, err := gtcp.tryConnect( /*rst*/ false); err != nil || !open {
+			if open, err := gtcp.tryConnect(); err != nil || !open {
 				log.E("ns: tcp: forwarder: connect src(%v) => dst(%v); open? %t, err(%v)", src, dst, open, err)
 				if err == nil {
 					err = errMissingEp
@@ -113,31 +113,15 @@ func (g *GTCPConn) endpoint() tcpip.Endpoint {
 	return g.ep.Load()
 }
 
-func (g *GTCPConn) StatefulTeardown() (rst bool) {
-	_, _ = g.synack(true) // establish circuit
-	_ = g.Close()         // g.TCPConn.Close error always nil
-	return true           // always rst
-}
+func (g *GTCPConn) Connect() (open bool, err error) {
+	rst, err := g.synack(true)
 
-func (g *GTCPConn) Connect(rst bool) (open bool, err error) {
-	if rst {
-		g.complete(rst)
-		return false, nil // closed
-	}
-
-	rst, err = g.synack(true)
-
-	log.VV("ns: tcp: forwarder: redo src(%v) => dst(%v); fin? %t", g.LocalAddr(), g.RemoteAddr(), rst)
+	log.VV("ns: tcp: forwarder: connect src(%v) => dst(%v); fin? %t", g.LocalAddr(), g.RemoteAddr(), rst)
 	return !rst, err
 }
 
-func (g *GTCPConn) tryConnect(rst bool) (open bool, err error) {
-	if rst {
-		g.complete(rst)
-		return false, nil // closed
-	}
-
-	rst, err = g.synack(false)
+func (g *GTCPConn) tryConnect() (open bool, err error) {
+	rst, err := g.synack(false)
 
 	log.VV("ns: tcp: forwarder: proxy src(%v) => dst(%v); fin? %t", g.LocalAddr(), g.RemoteAddr(), rst)
 	return !rst, err // open or closed
@@ -260,6 +244,7 @@ func (g *GTCPConn) SetWriteDeadline(t time.Time) error {
 
 // Abort aborts the connection by sending a RST segment.
 func (g *GTCPConn) Abort() {
+	g.complete(true) // complete if needed
 	if ep := g.endpoint(); ep != nil {
 		ep.Abort()
 	}

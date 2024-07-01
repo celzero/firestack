@@ -178,8 +178,6 @@ func (h *tcpHandler) Error(gconn *netstack.GTCPConn, src, dst netip.AddrPort, er
 // Proxy implements netstack.GTCPConnHandler
 // It must be called from a goroutine.
 func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target netip.AddrPort) (open bool) {
-	const rst = true         // rst / fin
-	const ack = !rst         // syn / ack
 	const allow bool = true  // allowed
 	const deny bool = !allow // blocked
 	var smm *SocketSummary
@@ -189,22 +187,25 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target netip.AddrPort)
 
 	defer func() {
 		if !open {
-			clos(gconn)                                  // gconn may be nil
-			queueSummary(h.smmch, h.done, smm.done(err)) // smm may be nil
+			clos(gconn) // gconn may be nil
 		}
 	}()
 
 	if h.status.Load() == TCPEND {
-		_, err = gconn.Connect(rst) // fin
 		log.D("tcp: proxy: end %v -> %v; err? %v", src, target, err)
 		return deny
 	}
 
 	if !src.IsValid() || !target.IsValid() {
-		_, err = gconn.Connect(rst) // fin
 		log.E("tcp: nil addr %v -> %v; close err? %v", src, target, err)
 		return deny
 	}
+
+	defer func() {
+		if !open { // when open, smm instead queued by handle() -> forward()
+			queueSummary(h.smmch, h.done, smm.done(err)) // smm may be nil
+		}
+	}()
 
 	// alg happens after nat64, and so, alg knows nat-ed ips
 	// that is, realips are un-nated
@@ -229,12 +230,11 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target netip.AddrPort)
 		}
 		log.I("tcp: gconn %s firewalled from %s -> %s (dom: %s + %s/ real: %s) for %s; stall? %ds", cid, src, target, domains, probableDomains, realips, uid, secs)
 		err = errTcpFirewalled
-		_, _ = gconn.Connect(rst) // fin
 		return deny
 	}
 
 	// handshake; since we assume a duplex-stream from here on
-	if open, err = gconn.Connect(ack); !open {
+	if open, err = gconn.Connect(); !open {
 		err = fmt.Errorf("tcp: %s connect err %v; %s -> %s for %s", cid, err, src, target, uid)
 		log.E("%v", err)
 		return deny // == !open
