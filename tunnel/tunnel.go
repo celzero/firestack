@@ -26,6 +26,7 @@ package tunnel
 import (
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -213,6 +214,7 @@ func (t *gtunnel) wait() {
 		// in cases where a panic was recovered and endpoint was
 		// closed without a t.ep.Swap or t.stack.Destroy
 		log.E("tun: waiter: ep notified close; #%d, %dsecs", i, waitDone)
+		log.U(fmt.Sprintf("Deactivated! Down after %dsecs", waitDone))
 		t.Disconnect() // may already be disconnected
 	} else {
 		log.D("tun: waiter: done; #%d, %dsecs", i, waitDone)
