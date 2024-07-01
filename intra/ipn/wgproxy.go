@@ -652,11 +652,15 @@ func (tun *wgtun) WriteNotify() {
 	select {
 	case <-tun.finalize: // dave.cheney.net/2013/04/30/curious-channels
 		log.I("wg: %s tun: write: finalize; dropped pkt; sz(%d)", tun.id, sz)
-	case tun.ingress <- view: // closed chans panic on send: groups.google.com/g/golang-nuts/c/SDIBFSkDlK4
-		log.VV("wg: %s tun: write: notify sz(%d)", tun.id, sz)
-	default: // ingress is full and finalize is blocked
-		e := tun.status.Load() == END
-		log.W("wg: %s tun: write: closed? %t; dropped pkt; sz(%d)", tun.id, e, sz)
+	default:
+		select {
+		case <-tun.finalize:
+		case tun.ingress <- view: // closed chans panic on send: groups.google.com/g/golang-nuts/c/SDIBFSkDlK4
+			log.VV("wg: %s tun: write: notify sz(%d)", tun.id, sz)
+		default: // ingress is full and finalize is blocked
+			e := tun.status.Load() == END
+			log.W("wg: %s tun: write: closed? %t; dropped pkt; sz(%d)", tun.id, e, sz)
+		}
 	}
 }
 

@@ -82,17 +82,22 @@ func queueSummary(ch chan<- *SocketSummary, done <-chan struct{}, s *SocketSumma
 		return
 	}
 
+	// go.dev/play/p/AXDdhcMu2w_k
 	// even though channel done is always closed before ch, we still
-	// see panic from the select statement writing to ch.
-	defer core.Recover(core.DontExit, "c.queueSummary: "+s.ID)
+	// see panic from the select statement writing to ch; and hence
+	// the need to have this nested select statement.
 
 	log.VV("intra: queueSummary: over %x %x %s", ch, done, s.ID)
 	select {
 	case <-done:
 		log.D("intra: queueSummary: end: %s", s.str())
-	case ch <- s:
 	default:
-		log.W("intra: sendSummary: dropped: %s", s.str())
+		select {
+		case <-done:
+		case ch <- s:
+		default:
+			log.W("intra: sendSummary: dropped: %s", s.str())
+		}
 	}
 }
 

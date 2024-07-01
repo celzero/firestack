@@ -43,9 +43,13 @@ func (r *ring[T]) closeWaiter() {
 func (r *ring[T]) Push(v T) (ok bool) {
 	select {
 	case <-r.ctx.Done():
-	case r.inC <- v:
-		return true
-	default: // over cap, drop
+	default:
+		select {
+		case <-r.ctx.Done():
+		case r.inC <- v:
+			return true
+		default: // over cap, drop
+		}
 	}
 	return
 }

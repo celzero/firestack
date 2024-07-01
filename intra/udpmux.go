@@ -71,8 +71,8 @@ type demuxconn struct {
 	raddr net.Addr // remote address connected to
 	laddr net.Addr // local address connected from
 
-	incomingCh chan *slice // incoming data
-	overflowCh chan *slice // overflow data
+	incomingCh chan *slice // incoming data, never closed
+	overflowCh chan *slice // overflow data, never closed
 
 	closed chan struct{} // close signal
 	once   sync.Once     // close once
@@ -201,7 +201,7 @@ func (x *muxer) read() {
 			return
 		} else { // may be existing route or a new route
 			select {
-			case dst.incomingCh <- &slice{v: b[:n], free: free}:
+			case dst.incomingCh <- &slice{v: b[:n], free: free}: // incomingCh is never closed
 			default: // dst probably closed, but not yet unrouted
 				log.W("udp: mux: read: drop(sz: %d); route to %s closed but yet found?", n, dst.raddr)
 			}
@@ -295,7 +295,7 @@ func (c *demuxconn) io(out *[]byte, in *slice) (int, error) {
 		case <-c.closed:
 			log.W("udp: demux: read: drop(sz: %d)", q)
 			in.free()
-		case c.overflowCh <- ov:
+		case c.overflowCh <- ov: // overflowCh is never closed
 		}
 		log.D("udp: demux: read: overflow(sz: %d)", q)
 	} else {

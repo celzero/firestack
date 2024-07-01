@@ -196,9 +196,13 @@ func (r *resolver) queueSummary(smm *x.DNSSummary) {
 	select {
 	case <-r.done:
 		log.W("dns: fwd: smms closed; dropping %s", smm.Str())
-	case r.smms <- smm:
 	default:
-		log.W("dns: fwd: smms full; dropping %s", smm.Str())
+		select {
+		case <-r.done:
+		case r.smms <- smm:
+		default:
+			log.W("dns: fwd: smms full; dropping %s", smm.Str())
+		}
 	}
 }
 

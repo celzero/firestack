@@ -104,12 +104,16 @@ var (
 func (p *pcapsink) Write(b []byte) (int, error) {
 	select {
 	case <-p.doneC: // closed
-		return 0, io.ErrClosedPipe
-	case p.inC <- b:
-		return len(b), nil
-	default: // drop
-		return 0, io.ErrNoProgress
+	default:
+		select {
+		case <-p.doneC: // closed
+		case p.inC <- b:
+			return len(b), nil
+		default: // drop
+			return 0, io.ErrNoProgress
+		}
 	}
+	return 0, io.ErrClosedPipe
 }
 
 // writeAsync consumes [p.in] until close.
