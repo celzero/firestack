@@ -82,8 +82,11 @@ func queueSummary(ch chan<- *SocketSummary, done <-chan struct{}, s *SocketSumma
 		return
 	}
 
-	log.VV("intra: queueSummary: over %x %x %s", ch, done, s.ID)
+	// even though channel done is always closed before ch, we still
+	// see panic from the select statement writing to ch.
+	defer core.Recover(core.DontExit, "c.queueSummary: "+s.ID)
 
+	log.VV("intra: queueSummary: over %x %x %s", ch, done, s.ID)
 	select {
 	case <-done:
 		log.D("intra: queueSummary: end: %s", s.str())
