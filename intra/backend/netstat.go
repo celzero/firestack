@@ -6,6 +6,7 @@
 
 package backend
 
+// NICStat is a collection of network interface statistics for the current tunnel.
 type NICStat struct {
 	RxBytes   int64 // bytes received
 	RxPkts    int64 // packets received
@@ -18,6 +19,7 @@ type NICStat struct {
 	Drops     int64 // drops
 }
 
+// IPFwdStat is a collection of IP forwarding statistics for the current tunnel.
 type IPFwdStat struct {
 	Errs     int64 // errors
 	Unrch    int64 // unreachable
@@ -28,6 +30,7 @@ type IPFwdStat struct {
 	Drops    int64 // drops
 }
 
+// IPStat is a collection of IP statistics for the current tunnel.
 type IPStat struct {
 	InvalidDst  int64 // invalid destination addresses
 	InvalidSrc  int64 // invalid source addresses
@@ -40,6 +43,7 @@ type IPStat struct {
 	ErrSnd      int64 // packet send errors to l4
 }
 
+// ICMPStat is a collection of ICMP statistics for the current tunnel.
 type ICMPStat struct {
 	Rcv4        int64 // ICMPv4 messages received
 	Rcv6        int64 // ICMPv6 messages received
@@ -59,6 +63,7 @@ type ICMPStat struct {
 	Drops6      int64 // ICMPv6 messages dropped
 }
 
+// TCPStat is a collection of TCP statistics for the current tunnel.
 type TCPStat struct {
 	Active      int64 // connecting
 	Passive     int64 // listening
@@ -81,6 +86,7 @@ type TCPStat struct {
 	Drops       int64 // drops by max inflight threshold
 }
 
+// UDPStat is a collection of UDP statistics for the current tunnel.
 type UDPStat struct {
 	ErrChecksum int64 // bad checksums
 	ErrRcv      int64 // recv errors
@@ -91,11 +97,30 @@ type UDPStat struct {
 	Drops       int64 // rcv buffer errors
 }
 
+// NetStat is a collection of network statistics for the current tunnel.
 type NetStat struct {
-	NICStat
-	IPStat
-	IPFwdStat
-	ICMPStat
-	TCPStat
-	UDPStat
+	NICSt  NICStat
+	IPSt   IPStat
+	FWDSt  IPFwdStat
+	ICMPSt ICMPStat
+	TCPSt  TCPStat
+	UDPSt  UDPStat
 }
+
+// NIC returns the network interface statistics.
+func (n *NetStat) NIC() *NICStat { return &n.NICSt }
+
+// IP returns the IP statistics.
+func (n *NetStat) IP() *IPStat { return &n.IPSt }
+
+// FWD returns the IP forwarding statistics.
+func (n *NetStat) FWD() *IPFwdStat { return &n.FWDSt }
+
+// ICMP returns the ICMP statistics.
+func (n *NetStat) ICMP() *ICMPStat { return &n.ICMPSt }
+
+// TCP returns the TCP statistics.
+func (n *NetStat) TCP() *TCPStat { return &n.TCPSt }
+
+// UDP returns the UDP statistics.
+func (n *NetStat) UDP() *UDPStat { return &n.UDPSt }
