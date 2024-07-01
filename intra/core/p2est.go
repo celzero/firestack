@@ -71,8 +71,8 @@ func (est *p2) P() float64 {
 // www.cse.wustl.edu/~jain/papers/ftp/psqr.pdf (p. 1078)
 func (est *p2) Add(x float64) {
 	if est.count.Load() < est.u {
-		est.q[est.count.Load()] = x
 		cnt := est.count.Add(1)
+		est.q[cnt-1] = x
 
 		if cnt == est.u {
 			slices.Sort(est.q)
