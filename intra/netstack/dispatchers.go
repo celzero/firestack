@@ -28,6 +28,7 @@ import (
 	"net"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/log"
@@ -40,6 +41,8 @@ import (
 )
 
 // Adopted from: github.com/google/gvisor/blob/f2b01a6e4/pkg/tcpip/link/fdbased/packet_dispatchers.go
+
+const wrapttl = 5 * time.Second // wrapttl is the time to wait for wrapup() to complete.
 
 // BufConfig defines the shape of the vectorised view used to read packets from the NIC.
 var BufConfig = []int{128, 256, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768}
@@ -183,9 +186,9 @@ func (d *readVDispatcher) swap(fd int) error {
 		note = log.W
 	}
 
-	prev := d.fds.Swap(f) // f may be nil
-	prev.stop()           // prev may be nil
-	d.mgr.swap(fd)        // used for diagnostics only
+	prev := d.fds.Swap(f)      // f may be nil
+	go d.wrapup(prev, wrapttl) // prev may be nil
+	d.mgr.swap(fd)             // used for diagnostics only
 
 	note("ns: dispatch: swap: tun(%d => %d); err %v", prev.tun(), fd, err)
 	return err
@@ -207,9 +210,41 @@ func (d *readVDispatcher) stop() {
 const abort = false // abort indicates that the dispatcher should stop.
 const cont = true   // cont indicates that the dispatcher should continue delivering packets despite an error.
 
-// dispatch reads one packet from the file descriptor and dispatches it.
+// dispatch reads packets from the current file descriptor in d.fds and dispatches it to netstack.
 func (d *readVDispatcher) dispatch() (bool, tcpip.Error) {
-	fds := d.fds.Load()
+	return d.io(d.fds.Load())
+}
+
+// wrapup reads packets from fds and dispatches it to netstack
+// and closes fds on error or on timeout. Must be called in a goroutine.
+func (d *readVDispatcher) wrapup(fds *fds, noMoreThan30s time.Duration) {
+	if !fds.ok() { // fds may be nil
+		return
+	}
+
+	noMoreThan30s = min(30*time.Second, noMoreThan30s)
+	secs := int64(noMoreThan30s.Seconds() * 1000)
+
+	defer fds.stop()
+
+	log.I("ns: tun(%d): drain: start w timeout in %dsecs", fds.tun(), secs)
+	for {
+		select {
+		case <-time.After(noMoreThan30s):
+			log.W("ns: tun(%d): drain: timeout! %dsecs", fds.tun(), secs)
+			return
+		default:
+			cont, err := d.io(fds)
+			if err != nil || !cont {
+				log.W("ns: tun(%d): drain: exit; err %v", fds.tun(), err)
+				return
+			}
+		}
+	}
+}
+
+// io reads packets from fds and dispatches it to netstack.
+func (d *readVDispatcher) io(fds *fds) (bool, tcpip.Error) {
 	if !fds.ok() {
 		return abort, new(tcpip.ErrNoSuchFile)
 	}
