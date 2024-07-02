@@ -182,6 +182,8 @@ func (t *gtunnel) Mtu() int {
 }
 
 func (t *gtunnel) wait() {
+	defer core.Recover(core.Exit11, "g.wait")
+
 	const betweenChecks = 3 * time.Second
 	const uptimeThreshold = 10 * time.Second
 	const maxchecks = 3
@@ -223,6 +225,8 @@ func (t *gtunnel) wait() {
 }
 
 func (t *gtunnel) Disconnect() {
+	defer core.Recover(core.Exit11, "g.Disconnect")
+
 	// no core.Recover here as the tunnel is disconnecting anyway
 	t.once.Do(func() {
 		t.closed.Store(true)
@@ -305,10 +309,14 @@ func NewGTunnel(fd, mtu int, tcph netstack.GTCPConnHandler, udph netstack.GUDPCo
 }
 
 func (t *gtunnel) CloseConns(activecsv string) (closedcsv string) {
+	defer core.Recover(core.Exit11, "g.CloseConns")
+
 	return t.hdl.CloseConns(activecsv)
 }
 
 func (t *gtunnel) SetPcap(fp string) error {
+	defer core.Recover(core.Exit11, "g.SetPcap")
+
 	pcap := t.pcapio
 
 	ignored := pcap.Recycle() // close any existing pcap sink
@@ -337,6 +345,8 @@ func (t *gtunnel) SetLinkAndRoutes(fd, mtu, engine int) (err error) {
 }
 
 func (t *gtunnel) SetLink(fd, mtu int) error {
+	defer core.Recover(core.Exit11, "g.SetLink")
+
 	dupfd, err := dup(fd) // tunnel will own dupfd
 	if err != nil {
 		log.E("tun: new link; err %v", err)
@@ -351,6 +361,8 @@ func (t *gtunnel) SetLink(fd, mtu int) error {
 }
 
 func (t *gtunnel) SetRoute(engine int) error {
+	defer core.Recover(core.Exit11, "g.SetRoute")
+
 	// netstack route is never changed; always dual-stack
 	netstack.Route(t.stack, settings.IP46)
 	log.I("tun: new route; (no-op) got %s but set %s", settings.L3(engine), settings.IP46)

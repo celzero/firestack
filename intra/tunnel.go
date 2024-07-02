@@ -153,6 +153,8 @@ func (t *rtunnel) getBridge() Bridge {
 }
 
 func (t *rtunnel) Disconnect() {
+	defer core.Recover(core.Exit11, "intra.Disconnect")
+
 	if t.closed.Load() {
 		log.I("tun: <<< disconnect >>> already closed")
 		return
