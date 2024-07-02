@@ -7,6 +7,7 @@
 package dns53
 
 import (
+	"context"
 	"errors"
 	"net"
 	"net/netip"
@@ -37,6 +38,8 @@ var errQueryParse = errors.New("dns53: err parse query")
 
 // TODO: Keep a context here so that queries can be canceled.
 type transport struct {
+	ctx      context.Context
+	done     context.CancelFunc
 	id       string
 	addrport string // hostname, ip:port, protect.UidSelf:53, protect.System:53
 	lastaddr string // last resolved addr
@@ -79,14 +82,17 @@ func newTransport(id string, do *settings.DNSOptions, px ipn.Proxies, ctl protec
 	}
 	relay, _ := px.ProxyFor(id)
 	d := protect.MakeNsRDial(id, ctl)
+	ctx, done := context.WithCancel(context.Background())
 	tx := &transport{
+		ctx:      ctx,
+		done:     done,
 		id:       id,
 		addrport: do.AddrPort(), // may be hostname:port or ip:port
 		status:   dnsx.Start,
 		dialer:   d,
 		proxies:  px,    // never nil; see above
 		relay:    relay, // may be nil
-		est:      core.NewP50Estimator(),
+		est:      core.NewP50Estimator(ctx),
 	}
 	ipcsv := do.ResolvedAddrs()
 	hasips := len(ipcsv) > 0
@@ -280,6 +286,11 @@ func (t *transport) GetAddr() string {
 
 func (t *transport) Status() int {
 	return t.status
+}
+
+func (t *transport) Stop() error {
+	t.done()
+	return nil
 }
 
 func remoteAddrIfAny(conn *dns.Conn) string {

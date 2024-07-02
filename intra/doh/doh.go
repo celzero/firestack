@@ -25,6 +25,7 @@ package doh
 
 import (
 	"bytes"
+	"context"
 	"crypto/tls"
 	"errors"
 	"fmt"
@@ -72,6 +73,8 @@ type odohtransport struct {
 // TODO: Keep a context here so that queries can be canceled.
 type transport struct {
 	*odohtransport // stackoverflow.com/a/28505394
+	ctx            context.Context
+	done           context.CancelFunc
 	id             string
 	typ            string                     // dnsx.DOH / dnsx.ODOH
 	url            string                     // endpoint URL
@@ -123,7 +126,11 @@ func newTransport(typ, id, rawurl, otargeturl string, addrs []string, px ipn.Pro
 		relay, _ = px.ProxyFor(id)
 	}
 
+	ctx, done := context.WithCancel(context.Background())
+
 	t := &transport{
+		ctx:       ctx,
+		done:      done,
 		id:        id,
 		typ:       typ,
 		dialer:    protect.MakeNsRDial(id, ctl), // ctl may be nil
@@ -132,7 +139,7 @@ func newTransport(typ, id, rawurl, otargeturl string, addrs []string, px ipn.Pro
 		status:    dnsx.Start,
 		pxclients: make(map[string]*proxytransport),
 		lastpurge: core.NewVolatile(time.Now()),
-		est:       core.NewP50Estimator(),
+		est:       core.NewP50Estimator(ctx),
 	}
 	if !isodoh {
 		parsedurl, err := url.Parse(rawurl)
@@ -627,4 +634,9 @@ func (t *transport) GetAddr() string {
 
 func (t *transport) Status() int {
 	return t.status
+}
+
+func (t *transport) Stop() error {
+	t.done()
+	return nil
 }

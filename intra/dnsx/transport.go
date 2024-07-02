@@ -125,6 +125,9 @@ type Resolver interface {
 	Forward(q []byte) ([]byte, error)
 	// Serve reads DNS query from conn and writes DNS answer to conn
 	Serve(proto string, conn protect.Conn)
+
+	// StopResolvers stops all transports.
+	StopResolvers() error
 }
 
 type resolver struct {
@@ -721,7 +724,7 @@ func (r *resolver) accept(c io.ReadWriteCloser) {
 	// TODO: Cancel outstanding queries.
 }
 
-func (r *resolver) Stop() error {
+func (r *resolver) StopResolvers() error {
 	r.once.Do(func() {
 		close(r.done)
 

@@ -14,7 +14,6 @@ import (
 	"time"
 
 	x "github.com/celzero/firestack/intra/backend"
-	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/dnsx"
 	"github.com/celzero/firestack/intra/ipn"
 	"github.com/celzero/firestack/intra/log"
@@ -28,11 +27,10 @@ type goosr struct {
 	r      *net.Resolver
 	rcgo   *net.Resolver
 	// dialer *protect.RDial
-	px  ipn.Proxy // the only supported proxy is ipn.Exit
-	est core.P2QuantileEstimator
+	px ipn.Proxy // the only supported proxy is ipn.Exit
 }
 
-var _ dnsx.Transport = (*transport)(nil)
+var _ dnsx.Transport = (*goosr)(nil)
 
 // NewGoosTransport returns the default Go DNS resolver
 func NewGoosTransport(pxs ipn.Proxies, ctl protect.Controller) (t *goosr, err error) {
@@ -52,8 +50,7 @@ func NewGoosTransport(pxs ipn.Proxies, ctl protect.Controller) (t *goosr, err er
 	tx := &goosr{
 		status: x.Start,
 		// dialer: d,
-		px:  px,
-		est: core.NewP50Estimator(),
+		px: px,
 	}
 	tx.r = &net.Resolver{
 		PreferGo: true,
@@ -153,7 +150,6 @@ func (t *goosr) Query(_ string, q *dns.Msg, smm *x.DNSSummary) (r *dns.Msg, err 
 	if err != nil {
 		smm.Msg = err.Error()
 	}
-	t.est.Add(smm.Latency)
 
 	log.V("dns53: goosr: len(res): %d, data: %s, via: %s, err? %v", xdns.Len(r), smm.RData, smm.RelayServer, err)
 
@@ -169,7 +165,7 @@ func (t *goosr) Type() string {
 }
 
 func (t *goosr) P50() int64 {
-	return t.est.Get()
+	return 1 // always fast
 }
 
 func (t *goosr) GetAddr() string {
@@ -178,4 +174,8 @@ func (t *goosr) GetAddr() string {
 
 func (t *goosr) Status() int {
 	return t.status
+}
+
+func (*goosr) Stop() error {
+	return nil
 }

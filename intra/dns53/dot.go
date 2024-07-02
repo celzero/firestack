@@ -22,9 +22,12 @@ import (
 	"github.com/celzero/firestack/intra/protect"
 	"github.com/celzero/firestack/intra/xdns"
 	"github.com/miekg/dns"
+	"golang.org/x/net/context"
 )
 
 type dot struct {
+	ctx     context.Context
+	done    context.CancelFunc
 	id      string // id of the transport
 	url     string // full url
 	addr    string // ip:port or hostname:port
@@ -61,7 +64,10 @@ func NewTLSTransport(id, rawurl string, addrs []string, px ipn.Proxies, ctl prot
 	ok := dnsx.RegisterAddrs(id, hostname, addrs)
 	// add sni to tls config
 	tlscfg.ServerName = hostname
+	ctx, done := context.WithCancel(context.Background())
 	tx := &dot{
+		ctx:     ctx,
+		done:    done,
 		id:      id,
 		url:     rawurl,
 		host:    hostname,
@@ -70,7 +76,7 @@ func NewTLSTransport(id, rawurl string, addrs []string, px ipn.Proxies, ctl prot
 		proxies: px,
 		rd:      rd,
 		relay:   relay,
-		est:     core.NewP50Estimator(),
+		est:     core.NewP50Estimator(ctx),
 	}
 	// local dialer: protect.MakeNsDialer(id, ctl)
 	tx.c = &dns.Client{
@@ -244,6 +250,11 @@ func (t *dot) GetAddr() string {
 
 func (t *dot) Status() int {
 	return t.status
+}
+
+func (t *dot) Stop() error {
+	t.done()
+	return nil
 }
 
 func url2addr(url string) string {

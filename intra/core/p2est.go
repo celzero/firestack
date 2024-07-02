@@ -7,22 +7,26 @@
 package core
 
 import (
+	"context"
 	"math"
 	"slices"
-	"sync/atomic"
+	"sync"
 )
 
 // from: github.com/celzero/rethink-app/main/app/src/main/java/com/celzero/bravedns/util/P2QuantileEstimation.kt
 // details: aakinshin.net/posts/p2-quantile-estimator/
 // orig impl: github.com/AndreyAkinshin/perfolizer p2.cs
 type p2 struct {
+	mu    sync.RWMutex
+	ctx   context.Context
 	p     float64      // percentile
 	u     int64        // sample size
 	mid   int64        // u / 2
 	n     []int64      // marker positions
 	ns    []float64    // desired marker positions
 	q     []float64    // marker heights
-	count atomic.Int64 // total sampled so far
+	count int64        // total sampled so far
+	addc  chan float64 // add sample
 }
 
 // P2QuantileEstimator is an interface for the P2 quantile estimator.
@@ -38,28 +42,32 @@ type P2QuantileEstimator interface {
 var _ P2QuantileEstimator = (*p2)(nil)
 
 // NewP50Estimator returns a new P50 (median) estimator.
-func NewP50Estimator() *p2 {
+func NewP50Estimator(ctx context.Context) *p2 {
 	// calibrate: go.dev/play/p/Ry1i61XqzgB
 	// 31 worked best amid wild latency fluctuations
 	// using 11 for lower overhead; 5 is the default
-	return NewP2QuantileEstimator(11, 0.5)
+	return NewP2QuantileEstimator(ctx, 11, 0.5)
 }
 
 // NewP90Estimator returns a new estimator with percentile p.
-func NewP2QuantileEstimator(samples int64, probability float64) *p2 {
+func NewP2QuantileEstimator(ctx context.Context, samples int64, probability float64) *p2 {
 	// total samples, typically 5; higher sample size improves accuracy for
 	// lower percentiles (p50) at the expense of computational cost;
 	// for higher percentiles (p90+), even sample size as low as 5 works fine.
 	mid := int64(math.Floor(float64(samples) / 2.0))
-	return &p2{
+	p := &p2{
+		ctx:   ctx,
 		p:     probability,
 		u:     samples,
 		mid:   mid,
 		n:     make([]int64, samples),
 		ns:    make([]float64, samples),
 		q:     make([]float64, samples),
-		count: atomic.Int64{},
+		count: 0,
+		addc:  make(chan float64, samples),
 	}
+	go p.run()
+	return p
 }
 
 // P returns the percentile, p.
@@ -70,11 +78,36 @@ func (est *p2) P() float64 {
 // Add a sample to the estimator.
 // www.cse.wustl.edu/~jain/papers/ftp/psqr.pdf (p. 1078)
 func (est *p2) Add(x float64) {
-	if est.count.Load() < est.u {
-		cnt := est.count.Add(1)
-		est.q[cnt-1] = x
+	select {
+	case est.addc <- x:
+	case <-est.ctx.Done():
+	default:
+	}
+}
 
-		if cnt == est.u {
+func (est *p2) run() {
+	for {
+		select {
+		case x := <-est.addc:
+			est.add(x)
+		case <-est.ctx.Done():
+			return
+		}
+	}
+}
+
+func (est *p2) add(x float64) {
+	est.mu.Lock()
+	defer est.mu.Unlock()
+
+	defer func() {
+		est.count += 1
+	}()
+
+	if est.count < est.u {
+		est.q[est.count] = x
+
+		if est.count+1 == est.u {
 			slices.Sort(est.q)
 
 			t := est.u - 1 // 0 index
@@ -109,9 +142,6 @@ func (est *p2) Add(x float64) {
 		return
 	}
 
-	cnt := est.count.Add(1)
-	cnt = cnt - 1 // old
-
 	var k int64
 	if x < est.q[0] {
 		est.q[0] = x // update min
@@ -139,7 +169,7 @@ func (est *p2) Add(x float64) {
 	// }
 
 	// go.dev/play/p/yY23exf-KXh
-	factor := float64(cnt) / float64(cnt-1)
+	factor := float64(est.count) / float64(est.count-1)
 	for i := int64(0); i < est.u; i++ { // update desired marker positions
 		est.ns[i] *= factor
 	}
@@ -149,19 +179,19 @@ func (est *p2) Add(x float64) {
 
 		if (d >= 1 && est.n[i+1]-est.n[i] > 1) || (d <= -1 && est.n[i-1]-est.n[i] < -1) {
 			dInt := sign2int(d)
-			qs := est.parabolic(i, float64(dInt))
+			qs := est.parabolicLocked(i, float64(dInt))
 			if est.q[i-1] < qs && qs < est.q[i+1] {
 				est.q[i] = qs
 			} else {
-				est.q[i] = est.linear(i, dInt)
+				est.q[i] = est.linearLocked(i, dInt)
 			}
 			est.n[i] += dInt
 		}
 	}
 }
 
-// parabolic computes the parabolic estimate.
-func (est *p2) parabolic(i int64, d float64) float64 {
+// parabolicLocked computes the parabolic estimate.
+func (est *p2) parabolicLocked(i int64, d float64) float64 {
 	qi := est.q[i]
 	qij := est.q[i+1]
 	qih := est.q[i-1]
@@ -174,8 +204,8 @@ func (est *p2) parabolic(i int64, d float64) float64 {
 				((nij-ni-d)*(qi-qih)/(ni-nih)))
 }
 
-// linear computes the linear estimate.
-func (est *p2) linear(i int64, d int64) float64 {
+// linearLocked computes the linear estimate.
+func (est *p2) linearLocked(i int64, d int64) float64 {
 	df := float64(d)
 	qi := est.q[i]
 	qd := est.q[i+d]
@@ -186,7 +216,10 @@ func (est *p2) linear(i int64, d int64) float64 {
 
 // Get the estimation for p.
 func (est *p2) Get() int64 {
-	c := est.count.Load()
+	est.mu.RLock()
+	defer est.mu.RUnlock()
+
+	c := est.count
 
 	if c == 0 {
 		return 0

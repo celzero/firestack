@@ -15,6 +15,7 @@
 package dnscrypt
 
 import (
+	"context"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -45,6 +46,8 @@ type registeredserver struct {
 }
 
 type serverinfo struct {
+	ctx                context.Context
+	done               context.CancelFunc
 	Proto              stamps.StampProtoType
 	MagicQuery         [8]byte
 	ClientPubKey       *[32]byte
@@ -227,7 +230,10 @@ func fetchDNSCryptServerInfo(proxy *DcMulti, name string, stamp stamps.ServerSta
 	}
 	dialer := protect.MakeNsRDial(name, proxy.ctl)
 
+	ctx, done := context.WithCancel(proxy.ctx)
 	si := serverinfo{
+		ctx:                ctx,
+		done:               done,
 		Proto:              stamps.StampProtoTypeDNSCrypt,
 		MagicQuery:         certInfo.MagicQuery,
 		ClientPubKey:       &proxy.proxyPublicKey,
@@ -243,7 +249,7 @@ func fetchDNSCryptServerInfo(proxy *DcMulti, name string, stamp stamps.ServerSta
 		proxies:            px,
 		relay:              relay,
 		dialer:             dialer,
-		est:                core.NewP50Estimator(),
+		est:                core.NewP50Estimator(ctx),
 		status:             core.NewVolatile[int](dnsx.Start),
 	}
 	log.I("dnscrypt: (%s) setup: %s; anonrelay? %t, proxy? %t", name, si.HostName, relay != nil)
@@ -369,6 +375,11 @@ func (s *serverinfo) GetAddr() string {
 
 func (s *serverinfo) Status() int {
 	return s.status.Load()
+}
+
+func (s *serverinfo) Stop() error {
+	s.done()
+	return nil
 }
 
 func (s *serverinfo) dialudp(pid string, addr *net.UDPAddr) (net.Conn, error) {
