@@ -73,12 +73,15 @@ func (a *Volatile[T]) safeStore(old, new T) {
 // If new is nil, returns true; and sets a to NewZeroVolatile[T] non-atomically.
 // If a is nil or old & new are not of same concrete type, returns false.
 func (a *Volatile[T]) Cas(old, new T) (ok bool) {
-	if a == nil || !TypeEq(old, new) {
+	if a == nil {
 		return
 	}
 	if IsNil(new) {
 		*a = *NewZeroVolatile[T]()
 		return true
+	}
+	if !TypeEq(old, new) {
+		return
 	}
 
 	aa := (*atomic.Value)(a)

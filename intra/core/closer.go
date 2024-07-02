@@ -186,5 +186,10 @@ func IsNil(x any) bool {
 }
 
 func TypeEq(a, b any) bool {
+	if IsNil(a) {
+		return false
+	} else if IsNil(b) {
+		return false
+	}
 	return reflect.TypeOf(a) == reflect.TypeOf(b)
 }
