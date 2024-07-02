@@ -167,9 +167,8 @@ func (g *GTCPConn) synack(complete bool) (rst bool, err error) {
 // ref: github.com/tailscale/tailscale/blob/8c5c87be2/wgengine/netstack/netstack.go#L768-L775
 // and: github.com/google/gvisor/blob/ffabadf0/pkg/tcpip/transport/tcp/endpoint.go#L2759
 func (g *GTCPConn) LocalAddr() net.Addr {
-	if c := g.conn(); c == nil {
-		return net.TCPAddrFromAddrPort(g.src)
-	} else { // client local addr is remote to the gonet adapter
+	if c := g.conn(); c != nil {
+		// client local addr is remote to the gonet adapter
 		if addr := c.RemoteAddr(); addr != nil {
 			return addr
 		}
@@ -178,9 +177,8 @@ func (g *GTCPConn) LocalAddr() net.Addr {
 }
 
 func (g *GTCPConn) RemoteAddr() net.Addr {
-	if c := g.conn(); c == nil {
-		return net.TCPAddrFromAddrPort(g.dst)
-	} else { // client remote addr is local to the gonet adapter
+	if c := g.conn(); c != nil {
+		// client remote addr is local to the gonet adapter
 		if addr := c.LocalAddr(); addr != nil {
 			return addr
 		}
@@ -189,35 +187,31 @@ func (g *GTCPConn) RemoteAddr() net.Addr {
 }
 
 func (g *GTCPConn) Write(data []byte) (int, error) {
-	if c := g.conn(); c == nil {
-		return 0, netError(g, "tcp", "write", io.ErrClosedPipe)
-	} else {
+	if c := g.conn(); c != nil {
 		return c.Write(data)
 	}
+	return 0, netError(g, "tcp", "write", io.ErrClosedPipe)
 }
 
 func (g *GTCPConn) Read(data []byte) (int, error) {
-	if c := g.conn(); c == nil {
-		return 0, netError(g, "tcp", "read", io.ErrNoProgress)
-	} else {
+	if c := g.conn(); c != nil {
 		return c.Read(data)
 	}
+	return 0, netError(g, "tcp", "read", io.ErrNoProgress)
 }
 
 func (g *GTCPConn) CloseWrite() error {
-	if c := g.conn(); c == nil {
-		return netError(g, "tcp", "close", net.ErrClosed)
-	} else {
+	if c := g.conn(); c != nil {
 		return c.CloseWrite()
 	}
+	return netError(g, "tcp", "close", net.ErrClosed)
 }
 
 func (g *GTCPConn) CloseRead() error {
-	if c := g.conn(); c == nil {
-		return netError(g, "tcp", "close", net.ErrClosed)
-	} else {
+	if c := g.conn(); c != nil {
 		return c.CloseRead()
 	}
+	return netError(g, "tcp", "close", net.ErrClosed)
 }
 
 func (g *GTCPConn) SetDeadline(t time.Time) error {
@@ -253,8 +247,7 @@ func (g *GTCPConn) Abort() {
 
 func (g *GTCPConn) Close() error {
 	g.Abort()
-	// g.conn.Close always returns nil; see gonet.TCPConn.Close
-	return nil
+	return nil // g.conn.Close always returns nil; see gonet.TCPConn.Close
 }
 
 // from: netstack gonet
