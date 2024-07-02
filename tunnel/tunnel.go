@@ -134,10 +134,7 @@ func (p *pcapsink) Recycle() error {
 }
 
 func (p *pcapsink) Close() error {
-	defer core.Go("pcap.Close", func() {
-		time.Sleep(2 * time.Second)
-		close(p.inC) // signal writeAsync to exit
-	})
+	defer close(p.inC) // signal writeAsync to exit
 	defer close(p.doneC)
 
 	return p.Recycle()
