@@ -101,8 +101,8 @@ func queueSummary(ch chan<- *SocketSummary, done <-chan struct{}, s *SocketSumma
 	}
 }
 
-// must be called from a goroutine
-func sendSummary(ch chan *SocketSummary, l SocketListener) {
+// must be called from a goroutine; loops reading from ch until done is closed.
+func sendSummary(ch chan *SocketSummary, done chan struct{}, l SocketListener) {
 	defer core.Recover(core.DontExit, "c.sendSummary")
 
 	noch := ch == nil
@@ -112,9 +112,14 @@ func sendSummary(ch chan *SocketSummary, l SocketListener) {
 		return
 	}
 
-	for s := range ch {
-		if s != nil && len(s.ID) > 0 {
-			sendNotif(l, s, immediate)
+	for {
+		select {
+		case <-done:
+			return
+		case s := <-ch:
+			if s != nil && len(s.ID) > 0 {
+				sendNotif(l, s, immediate)
+			}
 		}
 	}
 }

@@ -97,6 +97,8 @@ type Transport interface {
 	// ID, or an error if no response was received.  The error may be accompanied
 	// by a SERVFAIL response if appropriate.
 	Query(network string, q *dns.Msg, summary *x.DNSSummary) (*dns.Msg, error)
+	// Stop closes the transport.
+	Stop() error
 }
 
 // TransportMult is a hybrid: transport and a multi-transport.
@@ -732,10 +734,7 @@ func (r *resolver) Stop() error {
 			_ = dc.Stop()
 		}
 
-		core.Go("r.onStop.Close", func() {
-			time.Sleep(2 * time.Second) // wait a bit
-			close(r.smms)               // close listener chan
-		})
+		close(r.smms) // close listener chan
 	})
 	return nil // always no error
 }

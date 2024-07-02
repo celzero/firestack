@@ -117,7 +117,7 @@ func NewUDPHandler(resolver dnsx.Resolver, prox ipn.Proxies, tunMode *settings.T
 		done:        make(chan struct{}),
 	}
 
-	go sendSummary(h.smmch, listener)
+	go sendSummary(h.smmch, h.done, listener)
 
 	log.I("udp: new handler created")
 	return h
@@ -393,11 +393,7 @@ func (h *udpHandler) End() error {
 		h.CloseConns(nil)
 		h.status.Store(UDPEND)
 		close(h.done)
-		core.Go("udp.Close", func() {
-			time.Sleep(2 * time.Second) // wait a bit
-			close(h.smmch)              // close listener chan
-			log.I("udp: smm chan closed %x", h.smmch)
-		})
+		close(h.smmch)
 		log.I("udp: handler end %x %x", h.done, h.smmch)
 	})
 	return nil

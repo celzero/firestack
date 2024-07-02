@@ -103,7 +103,7 @@ func NewTCPHandler(resolver dnsx.Resolver, prox ipn.Proxies, tunMode *settings.T
 		status:      core.NewVolatile(TCPOK),
 	}
 
-	go sendSummary(h.smmch, listener)
+	go sendSummary(h.smmch, h.done, listener)
 
 	log.I("tcp: new handler created")
 	return h
@@ -153,12 +153,8 @@ func (h *tcpHandler) End() error {
 	h.once.Do(func() {
 		h.CloseConns(nil)
 		h.status.Store(TCPEND)
-		close(h.done) // signal close listener send
-		core.Go("tcp.Close", func() {
-			time.Sleep(2 * time.Second) // wait a bit
-			close(h.smmch)              // close listener chan
-			log.I("tcp: smm chan closed %x", h.smmch)
-		})
+		close(h.done)  // signal close listener send
+		close(h.smmch) // close listener chan
 		log.I("tcp: handler end %x %x", h.done, h.smmch)
 	})
 	return nil

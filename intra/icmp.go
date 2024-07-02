@@ -62,7 +62,7 @@ func NewICMPHandler(resolver dnsx.Resolver, prox ipn.Proxies, tunMode *settings.
 		status:   core.NewVolatile(ICMPOK),
 	}
 
-	go sendSummary(h.smmch, listener)
+	go sendSummary(h.smmch, h.done, listener)
 
 	log.I("icmp: new handler created")
 	return h
@@ -108,11 +108,7 @@ func (h *icmpHandler) End() error {
 		h.CloseConns(nil)
 		h.status.Store(ICMPEND)
 		close(h.done)
-		core.Go("icmp.Close", func() {
-			time.Sleep(2 * time.Second) // wait a bit
-			close(h.smmch)              // close listener chan
-			log.I("icmp: smm chan closed %x", h.smmch)
-		})
+		close(h.smmch) // close listener chan
 		log.I("icmp: handler end %x %x", h.done, h.smmch)
 	})
 	return nil
