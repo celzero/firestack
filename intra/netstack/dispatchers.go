@@ -223,7 +223,7 @@ func (d *readVDispatcher) wrapup(fds *fds, noMoreThan30s time.Duration) {
 	}
 
 	noMoreThan30s = min(30*time.Second, noMoreThan30s)
-	secs := int64(noMoreThan30s.Seconds() * 1000)
+	secs := int64(noMoreThan30s.Seconds())
 
 	go func() {
 		<-time.After(noMoreThan30s)
