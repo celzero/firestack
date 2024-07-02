@@ -225,20 +225,18 @@ func (d *readVDispatcher) wrapup(fds *fds, noMoreThan30s time.Duration) {
 	noMoreThan30s = min(30*time.Second, noMoreThan30s)
 	secs := int64(noMoreThan30s.Seconds() * 1000)
 
-	defer fds.stop()
+	go func() {
+		<-time.After(noMoreThan30s)
+		log.W("ns: tun(%d): drain: timeout! %dsecs", fds.tun(), secs)
+		fds.stop()
+	}()
 
 	log.I("ns: tun(%d): drain: start w timeout in %dsecs", fds.tun(), secs)
 	for {
-		select {
-		case <-time.After(noMoreThan30s):
-			log.W("ns: tun(%d): drain: timeout! %dsecs", fds.tun(), secs)
+		cont, err := d.io(fds)
+		if err != nil || !cont {
+			log.W("ns: tun(%d): drain: exit; err %v", fds.tun(), err)
 			return
-		default:
-			cont, err := d.io(fds)
-			if err != nil || !cont {
-				log.W("ns: tun(%d): drain: exit; err %v", fds.tun(), err)
-				return
-			}
 		}
 	}
 }
