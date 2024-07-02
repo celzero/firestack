@@ -9,7 +9,7 @@ import "sync/atomic"
 
 // go.dev/play/p/hHKxNa8PD5v
 
-// Volatile is a generic, non-panicking atomic.Value.
+// Volatile is a non-panicking, non-atomic atomic.Value.
 type Volatile[T any] atomic.Value
 
 // NewVolatile returns a new Volatile with the value t.
@@ -26,6 +26,7 @@ func NewZeroVolatile[T any]() *Volatile[T] {
 }
 
 // Load returns the value of a. May return zero value.
+// This func is atomic.
 func (a *Volatile[T]) Load() (t T) {
 	if a == nil {
 		return
@@ -36,21 +37,40 @@ func (a *Volatile[T]) Load() (t T) {
 }
 
 // Store stores the value t; creates a new Volatile[T] if t is nil.
-// If a is nil, does nothing.
+// If a is nil, does nothing. This func is not atomic.
 func (a *Volatile[T]) Store(t T) {
 	if a == nil {
 		return
 	}
-	if IsNil(t) {
+	a.safeStore(a.Load(), t)
+}
+
+// safeStore stores new in a, iff old & new are of the same concrete type.
+// If old & new are not of the same concrete type, it creates a Volatile with new.
+// If new is nil, sets a to NewZeroVolatile[T].
+// If a is nil, does nothing. This func is not atomic.
+func (a *Volatile[T]) safeStore(old, new T) {
+	if a == nil {
+		return
+	}
+	if IsNil(new) {
 		*a = *NewZeroVolatile[T]()
 		return
 	}
-	aa := (*atomic.Value)(a)
-	aa.Store(t)
+
+	// new not nil, old may be nil
+	if !TypeEq(old, new) {
+		*a = *NewVolatile(new)
+		return
+	} else {
+		aa := (*atomic.Value)(a)
+		aa.Store(new)
+		return
+	}
 }
 
 // Cas compares and swaps the value of a with new, returns true if the value was swapped.
-// If new is nil, returns true; and sets a to NewZeroVolatile[T].
+// If new is nil, returns true; and sets a to NewZeroVolatile[T] non-atomically.
 // If a is nil or old & new are not of same concrete type, returns false.
 func (a *Volatile[T]) Cas(old, new T) (ok bool) {
 	if a == nil || !TypeEq(old, new) {
@@ -88,18 +108,14 @@ func (a *Volatile[T]) Swap(new T) (old T) {
 // Tango retrieves old value and loads in new non-atomically.
 // If a is nil, returns zero value.
 // If new is nil, returns zero value; and sets a to NewZeroVolatile[T].
-// old & new need not be the same concrete type.
+// old & new need not be the same concrete type. This func is not atomic.
 func (a *Volatile[T]) Tango(new T) (old T) {
 	if a == nil {
 		return
 	}
 
+	defer a.safeStore(old, new)
+
 	aa := (*atomic.Value)(a)
-	old = aa.Load().(T)
-	if IsNil(new) {
-		*a = *NewZeroVolatile[T]()
-		return
-	}
-	aa.Store(new)
-	return
+	return aa.Load().(T)
 }
