@@ -142,7 +142,8 @@ func (g *GTCPConn) synack(complete bool) (rst bool, err error) {
 	}
 
 	defer func() {
-		if complete { // complete the request
+		// complete when either g is opened or complete is set
+		if complete || !rst {
 			g.complete(rst)
 		}
 	}()
