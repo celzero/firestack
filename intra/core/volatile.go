@@ -16,12 +16,14 @@ type Volatile[T any] atomic.Value
 // Panics if t is nil.
 func NewVolatile[T any](t T) *Volatile[T] {
 	v := NewZeroVolatile[T]()
+	// safe to call Store but not any other func on v from this ctor.
 	v.Store(t)
 	return v
 }
 
 // NewVolatile returns a new uninitialized Volatile.
 func NewZeroVolatile[T any]() *Volatile[T] {
+	// do not call into any func on the returned instance from this ctor.
 	return new(Volatile[T])
 }
 
@@ -57,16 +59,16 @@ func (a *Volatile[T]) safeStore(old, new T) {
 		*a = *NewZeroVolatile[T]()
 		return
 	}
-
-	// new not nil, old may be nil
-	if !TypeEq(old, new) {
-		*a = *NewVolatile(new)
-		return
-	} else {
+	if IsNil(old) || TypeEq(old, new) {
 		aa := (*atomic.Value)(a)
 		aa.Store(new)
 		return
 	}
+	// old is of a different concrete type
+	*a = *NewZeroVolatile[T]()
+	aa := (*atomic.Value)(a)
+	aa.Store(new)
+	return
 }
 
 // Cas compares and swaps the value of a with new, returns true if the value was swapped.
