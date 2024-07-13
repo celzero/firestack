@@ -45,6 +45,7 @@ import (
 	"github.com/celzero/firestack/intra/ipn"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
+	"github.com/celzero/firestack/intra/settings"
 	"github.com/celzero/firestack/intra/xdns"
 	"github.com/cloudflare/odoh-go"
 	"github.com/miekg/dns"
@@ -94,7 +95,11 @@ type transport struct {
 var _ dnsx.Transport = (*transport)(nil)
 
 func (t *transport) dial(network, addr string) (net.Conn, error) {
-	return dialers.SplitDial(t.dialer, network, addr)
+	if settings.SingleThreadedTUNForwarder { // no splits in loopback (rinr) mode
+		return dialers.Dial(t.dialer, network, addr)
+	} else {
+		return dialers.SplitDial(t.dialer, network, addr)
+	}
 }
 
 // NewTransport returns a POST-only DoH transport.

@@ -143,7 +143,11 @@ func (t *piph2) dialtls(network, addr string, cfg *tls.Config) (net.Conn, error)
 // dial dials proxy addr using the proxydialer via dialers.SplitDial,
 // which is aware of proto changes.
 func (t *piph2) dial(network, addr string) (net.Conn, error) {
-	return dialers.SplitDial(t.proxydialer, network, addr)
+	if settings.SingleThreadedTUNForwarder { // no split in loopback (rinr) mode
+		return dialers.Dial(t.proxydialer, network, addr)
+	} else {
+		return dialers.SplitDial(t.proxydialer, network, addr)
+	}
 }
 
 func NewPipProxy(id string, ctl protect.Controller, po *settings.ProxyOptions) (*piph2, error) {

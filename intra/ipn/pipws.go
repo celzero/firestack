@@ -63,7 +63,11 @@ func (c *pipwsconn) CloseWrite() error { return c.Close() }
 // connects to the ws proxy at addr over tcp; used by t.client
 // dial is aware of proto changes via dialers.SplitDial
 func (t *pipws) dial(network, addr string) (net.Conn, error) {
-	return dialers.SplitDial(t.proxydialer, network, addr)
+	if settings.SingleThreadedTUNForwarder { // no split in loopback (rinr) mode
+		return dialers.Dial(t.proxydialer, network, addr)
+	} else {
+		return dialers.SplitDial(t.proxydialer, network, addr)
+	}
 }
 
 func (t *pipws) wsconn(rurl, msg string) (c net.Conn, res *http.Response, err error) {

@@ -257,6 +257,17 @@ func Dial2(d *protect.RDial, network, addr string) (net.Conn, error) {
 	return commondial(d, network, addr, ipConnect2)
 }
 
+// DialWithTls dials into addr using the provided dialer and returns a tls.Conn
+func DialWithTls(d *protect.RDial, cfg *tls.Config, addr string) (net.Conn, error) {
+	c, err := commondial(d, "tcp", addr, ipConnect)
+	if err != nil {
+		return c, err
+	}
+	tlsconn := tls.Client(c, cfg)
+	err = tlsconn.Handshake()
+	return tlsconn, err
+}
+
 // SplitDial dials into addr splitting ClientHello if the first connection
 // is unsuccessful. Using the provided dialer it returns a net.Conn,
 // which may not be net.UDPConn or net.TCPConn

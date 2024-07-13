@@ -13,6 +13,7 @@ import (
 	"github.com/celzero/firestack/intra/dialers"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
+	"github.com/celzero/firestack/intra/settings"
 )
 
 // base is no-op proxy that dials into the underlying network,
@@ -46,11 +47,20 @@ func (h *base) Dial(network, addr string) (c protect.Conn, err error) {
 		return nil, errProxyStopped
 	}
 
-	if c, err = dialers.SplitDial(h.outbound, network, addr); err != nil {
-		h.status = TKO
+	defer func() {
+		if err != nil {
+			h.status = TKO
+		} else {
+			h.status = TOK
+		}
+	}()
+
+	if settings.SingleThreadedTUNForwarder { // loopback (rinr) mode
+		c, err = dialers.Dial(h.outbound, network, addr)
 	} else {
-		h.status = TOK
+		c, err = dialers.SplitDial(h.outbound, network, addr)
 	}
+
 	log.I("proxy: base: dial(%s) to %s; err? %v", network, addr, err)
 	return
 }

@@ -20,6 +20,7 @@ import (
 	"github.com/celzero/firestack/intra/ipn"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
+	"github.com/celzero/firestack/intra/settings"
 	"github.com/celzero/firestack/intra/xdns"
 	"github.com/miekg/dns"
 	"golang.org/x/net/context"
@@ -104,9 +105,13 @@ func (t *dot) doQuery(pid string, q *dns.Msg) (response *dns.Msg, elapsed time.D
 	return
 }
 
-func (t *dot) tlsdial() (*dns.Conn, error) {
-	c, err := dialers.SplitDialWithTls(t.rd, t.c.TLSConfig, t.addr)
-	// or: c, err := dialers.TlsDial(tlsDialer, "tcp", t.addr)
+func (t *dot) tlsdial() (_ *dns.Conn, err error) {
+	var c net.Conn
+	if settings.SingleThreadedTUNForwarder { // no splits in loopback (rinr) mode
+		c, err = dialers.DialWithTls(t.rd, t.c.TLSConfig.Clone(), t.addr)
+	} else {
+		c, err = dialers.SplitDialWithTls(t.rd, t.c.TLSConfig.Clone(), t.addr)
+	}
 	if c != nil && core.IsNotNil(c) {
 		_ = c.SetDeadline(time.Now().Add(dottimeout))
 		return &dns.Conn{Conn: c, UDPSize: t.c.UDPSize}, err
