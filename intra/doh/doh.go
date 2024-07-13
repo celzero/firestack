@@ -95,7 +95,7 @@ type transport struct {
 var _ dnsx.Transport = (*transport)(nil)
 
 func (t *transport) dial(network, addr string) (net.Conn, error) {
-	if settings.SingleThreadedTUNForwarder { // no splits in loopback (rinr) mode
+	if settings.Loopingback.Load() { // no splits in loopback (rinr) mode
 		return dialers.Dial(t.dialer, network, addr)
 	} else {
 		return dialers.SplitDial(t.dialer, network, addr)

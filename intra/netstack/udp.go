@@ -93,7 +93,7 @@ func udpForwarder(s *stack.Stack, h GUDPConnHandler) *udp.Forwarder {
 		gc := makeGUDPConn(req, src, dst)
 		// setup to recv right away, so that netstack's internal state is consistent
 		// in case there are multiple forwarders dispatching from the TUN device.
-		if !settings.SingleThreadedTUNForwarder {
+		if !settings.Loopingback.Load() {
 			if err := gc.tryConnect(); err != nil {
 				log.E("ns: udp: forwarder: connect: %v; src(%v) dst(%v)", err, src, dst)
 				go h.Error(gc, src, dst, err)

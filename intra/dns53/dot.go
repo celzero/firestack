@@ -107,7 +107,7 @@ func (t *dot) doQuery(pid string, q *dns.Msg) (response *dns.Msg, elapsed time.D
 
 func (t *dot) tlsdial() (_ *dns.Conn, err error) {
 	var c net.Conn
-	if settings.SingleThreadedTUNForwarder { // no splits in loopback (rinr) mode
+	if settings.Loopingback.Load() { // no splits in loopback (rinr) mode
 		c, err = dialers.DialWithTls(t.rd, t.c.TLSConfig.Clone(), t.addr)
 	} else {
 		c, err = dialers.SplitDialWithTls(t.rd, t.c.TLSConfig.Clone(), t.addr)

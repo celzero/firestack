@@ -55,7 +55,7 @@ func (h *base) Dial(network, addr string) (c protect.Conn, err error) {
 		}
 	}()
 
-	if settings.SingleThreadedTUNForwarder { // loopback (rinr) mode
+	if settings.Loopingback.Load() { // loopback (rinr) mode
 		c, err = dialers.Dial(h.outbound, network, addr)
 	} else {
 		c, err = dialers.SplitDial(h.outbound, network, addr)
