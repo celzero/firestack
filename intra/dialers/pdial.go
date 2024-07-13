@@ -21,10 +21,10 @@ type proxyConnectFunc func(proxy.Dialer, string, netip.Addr, int) (net.Conn, err
 
 func proxyConnect(d proxy.Dialer, proto string, ip netip.Addr, port int) (net.Conn, error) {
 	if d == nil {
-		log.E("odial: proxyConnect: nil dialer")
+		log.E("pdial: proxyConnect: nil dialer")
 		return nil, errNoDialer
 	} else if !ipok(ip) {
-		log.E("odial: proxyConnect: invalid ip", ip)
+		log.E("pdial: proxyConnect: invalid ip", ip)
 		return nil, errNoIps
 	}
 
