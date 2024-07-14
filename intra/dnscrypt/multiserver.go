@@ -80,7 +80,6 @@ var (
 	errNonceUnexpected = errors.New("dnscrypt: unexpected nonce")
 	errIncorrectTag    = errors.New("dnscrypt: incorrect tag")
 	errIncorrectPad    = errors.New("dnscrypt: incorrect padding")
-	errStarted         = errors.New("dnscrypt: already started")
 	errNoConn          = errors.New("dnscrypt: no connection")
 )
 
@@ -436,8 +435,12 @@ func (proxy *DcMulti) start() error {
 }
 
 func (proxy *DcMulti) notifyRestart() {
-	defer proxy.Stop()
+	defer proxy.stop()
 	log.U("DNSCrypt stopped; restart the app")
+}
+
+func (proxy *DcMulti) stop() {
+	_ = proxy.Stop()
 }
 
 // Stop stops this dnscrypt proxy

@@ -40,7 +40,7 @@ type basicAuth struct {
 	password string
 }
 
-// AuthBasic returns a ProxyAuthorization that implements "Basic" protocol while ignoring realm challanges.
+// AuthBasic returns a ProxyAuthorization that implements "Basic" protocol while ignoring realm challenges.
 func AuthBasic(username string, password string) *basicAuth {
 	return &basicAuth{username: username, password: password}
 }

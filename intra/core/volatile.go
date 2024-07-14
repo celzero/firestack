@@ -68,7 +68,6 @@ func (a *Volatile[T]) safeStore(old, new T) {
 	*a = *NewZeroVolatile[T]()
 	aa := (*atomic.Value)(a)
 	aa.Store(new)
-	return
 }
 
 // Cas compares and swaps the value of a with new, returns true if the value was swapped.

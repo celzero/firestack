@@ -33,10 +33,9 @@ func newRing[T any](ctx context.Context, capacity int) *ring[T] {
 }
 
 func (r *ring[T]) closeWaiter() {
-	select {
-	case <-r.ctx.Done():
-		close(r.inC)
-	}
+	defer close(r.inC)
+
+	<-r.ctx.Done()
 }
 
 // Push adds an element to the ring buffer

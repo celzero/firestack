@@ -286,7 +286,7 @@ func (m *supervisor) queuePacket(pkt *stack.PacketBuffer, hasEthHeader bool) {
 		pIdx = m.id(&tup) % sz
 	}
 	// despite uint32, pIdx goes negative? github.com/celzero/firestack/issues/59
-	// https://go.dev/ref/spec#Integer_overflow?
+	// go.dev/ref/spec#Integer_overflow?
 	if pIdx > sz {
 		log.W("ns: tun(%d): forwarder: invalid processor index %d, %s", fd, pIdx, tup)
 		pIdx = 0

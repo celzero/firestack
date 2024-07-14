@@ -28,8 +28,8 @@ import (
 
 func main() {
 	flag.Usage = func() {
-		fmt.Fprintf(flag.CommandLine.Output(), "Usage: %s [-sni=SNI] destination\n", os.Args[0])
-		fmt.Fprintln(flag.CommandLine.Output(), "This tool attempts a TLS connection to the "+
+		_, _ = fmt.Fprintf(flag.CommandLine.Output(), "Usage: %s [-sni=SNI] destination\n", os.Args[0])
+		_, _ = fmt.Fprintln(flag.CommandLine.Output(), "This tool attempts a TLS connection to the "+
 			"destination (port 443), with and without splitting.  If the SNI is specified, it "+
 			"overrides the destination, which can be an IP address.")
 		flag.PrintDefaults()

@@ -228,7 +228,7 @@ func undoAlg(r dnsx.Resolver, algip netip.Addr) (realips, domains, probableDomai
 		// all the routing decisions by listener.Flow() are made based on those routes
 		// but we end up dailing into a v6 (or v4) address (which was unaccounted for).
 		// Dialing into v6 (or v4) address may succeed in such scenarios thereby
-		// resulting in a percieved "leak".
+		// resulting in a perceived "leak".
 		realips = filterFamilyForDialing(gw.X(algip))
 		blocklists = gw.RDNSBL(algip)
 	} else {

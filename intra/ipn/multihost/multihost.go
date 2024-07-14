@@ -143,13 +143,6 @@ func (h *MH) Len() int {
 	return max(len(h.addrs), len(h.names))
 }
 
-func (h *MH) addrlen() int {
-	h.RLock()
-	defer h.RUnlock()
-
-	return len(h.addrs)
-}
-
 // Refresh re-adds the list of IPs, hostnames, and re-resolves the hostname.
 // It returns the total number of IPs.
 func (h *MH) Refresh() int {
