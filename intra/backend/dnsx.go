@@ -80,8 +80,6 @@ type DNSTransportMult interface {
 	Remove(id string) bool
 	// Get returns a transport from this multi-transport.
 	Get(id string) (DNSTransport, error)
-	// Stop stops this multi-transport.
-	Stop() error
 	// Refresh re-registers transports and returns a csv of active ones.
 	Refresh() (string, error)
 	// LiveTransports returns a csv of active transports.

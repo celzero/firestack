@@ -62,7 +62,7 @@ func NewICMPHandler(resolver dnsx.Resolver, prox ipn.Proxies, tunMode *settings.
 		status:   core.NewVolatile(ICMPOK),
 	}
 
-	go sendSummary(h.smmch, listener)
+	go sendSummary(h.smmch, h.done, listener)
 
 	log.I("icmp: new handler created")
 	return h
@@ -105,11 +105,11 @@ func (h *icmpHandler) onFlow(source, target netip.AddrPort, realips, domains, pr
 // End implements netstack.GICMPHandler.
 func (h *icmpHandler) End() error {
 	h.once.Do(func() {
-		h.status.Store(ICMPEND)
 		h.CloseConns(nil)
+		h.status.Store(ICMPEND)
 		close(h.done)
-		close(h.smmch)
-		log.I("icmp: handler end")
+		close(h.smmch) // close listener chan
+		log.I("icmp: handler end %x %x", h.done, h.smmch)
 	})
 	return nil
 }
@@ -147,8 +147,7 @@ func (h *icmpHandler) Ping(source, target netip.AddrPort, msg []byte, pong netst
 
 	defer func() {
 		if !open {
-			smm.done(err)
-			queueSummary(h.smmch, h.done, smm)
+			queueSummary(h.smmch, h.done, smm.done(err))
 		}
 	}()
 
@@ -169,8 +168,7 @@ func (h *icmpHandler) Ping(source, target netip.AddrPort, msg []byte, pong netst
 	// see: netstack/dispatcher.go:newReadvDispatcher
 	core.Gx("icmp.Ping", func() {
 		defer func() {
-			smm.done(err)
-			queueSummary(h.smmch, h.done, smm)
+			queueSummary(h.smmch, h.done, smm.done(err))
 		}()
 		dst := oneRealIp(realips, target)
 		uc, err := px.Dialer().Dial("udp", dst.String())
@@ -214,8 +212,7 @@ func (h *icmpHandler) fetch(c net.Conn, pong netstack.Pong, smm *SocketSummary) 
 
 	defer func() {
 		clos(c)
-		smm.done(err)
-		queueSummary(h.smmch, h.done, smm)
+		queueSummary(h.smmch, h.done, smm.done(err))
 	}()
 
 	bptr := core.Alloc()

@@ -26,6 +26,7 @@ package tunnel
 import (
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -33,6 +34,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	x "github.com/celzero/firestack/intra/backend"
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/netstack"
@@ -62,6 +64,8 @@ type Tunnel interface {
 	SetRoute(engine int) error
 	// Set or unset the pcap sink
 	SetPcap(fpcap string) error
+	// NIC, IP, TCP, UDP, and ICMP stats.
+	Stat() (*x.NetStat, error)
 }
 
 type gtunnel struct {
@@ -77,8 +81,9 @@ type gtunnel struct {
 }
 
 type pcapsink struct {
-	sink *core.Volatile[io.WriteCloser]
-	inC  chan []byte // always buffered
+	sink  *core.Volatile[io.WriteCloser]
+	inC   chan []byte   // always buffered
+	doneC chan struct{} // always unbuffered
 }
 
 // nowrite rejects all writes.
@@ -98,11 +103,17 @@ var (
 
 func (p *pcapsink) Write(b []byte) (int, error) {
 	select {
-	case p.inC <- b:
-		return len(b), nil
-	default: // drop
-		return 0, io.ErrNoProgress
+	case <-p.doneC: // closed
+	default:
+		select {
+		case <-p.doneC: // closed
+		case p.inC <- b:
+			return len(b), nil
+		default: // drop
+			return 0, io.ErrNoProgress
+		}
 	}
+	return 0, io.ErrClosedPipe
 }
 
 // writeAsync consumes [p.in] until close.
@@ -124,6 +135,8 @@ func (p *pcapsink) Recycle() error {
 
 func (p *pcapsink) Close() error {
 	defer close(p.inC) // signal writeAsync to exit
+	defer close(p.doneC)
+
 	return p.Recycle()
 }
 
@@ -147,7 +160,7 @@ func (p *pcapsink) file(f io.WriteCloser) (err error) {
 		f = zerowriter
 	}
 
-	old := p.sink.Swap(f) // old may be nil
+	old := p.sink.Tango(f) // old may be nil
 	core.CloseOp(old, core.CopRW)
 
 	y := f != zerowriter
@@ -169,7 +182,9 @@ func (t *gtunnel) Mtu() int {
 }
 
 func (t *gtunnel) wait() {
-	const betweenChecks = 5 * time.Second
+	defer core.Recover(core.Exit11, "g.wait")
+
+	const betweenChecks = 3 * time.Second
 	const uptimeThreshold = 10 * time.Second
 	const maxchecks = 3
 
@@ -202,6 +217,7 @@ func (t *gtunnel) wait() {
 		// in cases where a panic was recovered and endpoint was
 		// closed without a t.ep.Swap or t.stack.Destroy
 		log.E("tun: waiter: ep notified close; #%d, %dsecs", i, waitDone)
+		log.U(fmt.Sprintf("Deactivated! Down after %dsecs", waitDone))
 		t.Disconnect() // may already be disconnected
 	} else {
 		log.D("tun: waiter: done; #%d, %dsecs", i, waitDone)
@@ -209,8 +225,12 @@ func (t *gtunnel) wait() {
 }
 
 func (t *gtunnel) Disconnect() {
+	defer core.Recover(core.Exit11, "g.Disconnect")
+
 	// no core.Recover here as the tunnel is disconnecting anyway
 	t.once.Do(func() {
+		t.closed.Store(true)
+
 		s := t.stack
 		p := t.pcapio
 		hdl := t.hdl
@@ -218,7 +238,6 @@ func (t *gtunnel) Disconnect() {
 		herr := hdl.Close()
 		perr := p.Close()
 		s.Destroy()
-		t.closed.Store(true)
 		log.I("tun: netstack closed; errs: %v / %v", herr, perr)
 	})
 }
@@ -246,6 +265,7 @@ func newSink() *pcapsink {
 	p.sink = core.NewVolatile[io.WriteCloser](zerowriter)
 	p.log(false) // no log, which is enabled by default
 	p.inC = make(chan []byte, 128)
+	p.doneC = make(chan struct{})
 	core.Go("pcap.w", func() { p.writeAsync() })
 	return p
 }
@@ -266,7 +286,15 @@ func NewGTunnel(fd, mtu int, tcph netstack.GTCPConnHandler, udph netstack.GUDPCo
 	}
 	netstack.Route(stack, settings.IP46) // always dual-stack
 
-	t = &gtunnel{stack, ep, hdl, sink, atomic.Bool{}, sync.Once{}, core.NewVolatile(0)}
+	t = &gtunnel{
+		stack:  stack,
+		ep:     ep,
+		hdl:    hdl,
+		pcapio: sink,
+		closed: atomic.Bool{},
+		once:   sync.Once{},
+		mtu:    core.NewVolatile(0),
+	}
 
 	// Enabled() may temporarily return false when Up() is in progress.
 	if err = netstack.Up(stack, ep, hdl); err != nil { // attach new endpoint
@@ -281,16 +309,20 @@ func NewGTunnel(fd, mtu int, tcph netstack.GTCPConnHandler, udph netstack.GUDPCo
 }
 
 func (t *gtunnel) CloseConns(activecsv string) (closedcsv string) {
+	defer core.Recover(core.Exit11, "g.CloseConns")
+
 	return t.hdl.CloseConns(activecsv)
 }
 
 func (t *gtunnel) SetPcap(fp string) error {
+	defer core.Recover(core.Exit11, "g.SetPcap")
+
 	pcap := t.pcapio
 
 	ignored := pcap.Recycle() // close any existing pcap sink
 	if len(fp) == 0 {
 		log.I("netstack: pcap closed (ignored-err? %v)", ignored)
-		return nil // nothing else to do; pcap is closed
+		return nil // nothing else to do; pcap closed
 	} else if len(fp) == 1 {
 		// if fdpcap is 0, 1, or 2 then pcap is written to stdout
 		ok := pcap.log(true)
@@ -313,6 +345,8 @@ func (t *gtunnel) SetLinkAndRoutes(fd, mtu, engine int) (err error) {
 }
 
 func (t *gtunnel) SetLink(fd, mtu int) error {
+	defer core.Recover(core.Exit11, "g.SetLink")
+
 	dupfd, err := dup(fd) // tunnel will own dupfd
 	if err != nil {
 		log.E("tun: new link; err %v", err)
@@ -327,10 +361,16 @@ func (t *gtunnel) SetLink(fd, mtu int) error {
 }
 
 func (t *gtunnel) SetRoute(engine int) error {
+	defer core.Recover(core.Exit11, "g.SetRoute")
+
 	// netstack route is never changed; always dual-stack
 	netstack.Route(t.stack, settings.IP46)
 	log.I("tun: new route; (no-op) got %s but set %s", settings.L3(engine), settings.IP46)
 	return nil
+}
+
+func (t *gtunnel) Stat() (*x.NetStat, error) {
+	return netstack.Stat(t.stack)
 }
 
 func dup(fd int) (int, error) {

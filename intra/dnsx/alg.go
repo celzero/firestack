@@ -82,8 +82,8 @@ type secans struct {
 
 type ans struct {
 	algip        *netip.Addr   // generated answer
-	realips      []*netip.Addr // all ip answers
-	secondaryips []*netip.Addr // all ip answers from secondary
+	realips      []*netip.Addr // all ip answers, v6+v4
+	secondaryips []*netip.Addr // all ip answers from secondary, v6+v4
 	domain       []string      // all domain names in an answer (incl qname)
 	qname        string        // the query domain name
 	blocklists   string        // csv blocklists containing qname per active config at the time
@@ -92,8 +92,8 @@ type ans struct {
 
 type ansMulti struct {
 	algip        []*netip.Addr // generated answers
-	realip       []*netip.Addr // all ip answers
-	secondaryips []*netip.Addr // all ip answers from secondary
+	realip       []*netip.Addr // all ip answers, v6+v6
+	secondaryips []*netip.Addr // all ip answers from secondary, v6+v4
 	domain       []string      // all domain names in an answer (incl qname)
 	qname        string        // the query domain name
 	blocklists   string        // csv blocklists containing qname per active config at the time
@@ -255,13 +255,14 @@ func (t *dnsgateway) querySecondary(t2 Transport, network string, msg *dns.Msg, 
 }
 
 // Implements Gateway
+// preset may be nil
 func (t *dnsgateway) q(t1, t2 Transport, preset []*netip.Addr, network string, q *dns.Msg, summary *x.DNSSummary) (*dns.Msg, error) {
 	var ansin *dns.Msg // answer got from transports
 	var err error
 	if t1 == nil || core.IsNil(t1) {
 		return nil, errNoTransportAlg
 	}
-	usepreset := len(preset) > 0
+	usepreset := len(preset) > 0 // preset may be nil
 	// presets override both t1 and t2:
 	// discard t2 as with preset we don't care about additional ips and blocklists;
 	// t1 is not discarded entirely as it is needed to subst ips in https/svcb responses
@@ -291,6 +292,9 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []*netip.Addr, network string, q
 		if ansin == nil {
 			log.I("alg: abort; r: 0, qerr %v", err)
 			return nil, err
+		}
+		if !xdns.HasRcodeSuccess(ansin) {
+			return ansin, err
 		}
 		log.D("alg: err but r ok; ans: %d, qerr %v", xdns.Len(ansin), err)
 	}
@@ -343,7 +347,7 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []*netip.Addr, network string, q
 
 	defer func() {
 		if isAlgErr(err) && !mod {
-			log.D("alg: no mod; supress err %v", err)
+			log.D("alg: no mod; suppress err %v", err)
 			// ignore alg errors if no modification is desired
 			err = nil
 		}
@@ -812,7 +816,7 @@ func (t *dnsgateway) maybeUndoNat64(realips ...*netip.Addr) (unnat []*netip.Addr
 		// whether the active network has ipv4 connectivity is checked by dialers.filter()
 		ipx4 := t.dns64.X64(Local464Resolver, unmapped) // ipx4 may be zero addr
 		if !ipok(ipx4) {                                // no nat?
-			log.D("alg: dns64: maybeUndoNat64: No local nat64 to ip4(%v) for ip6(%v); ip not ok", ipx4, nip)
+			log.V("alg: dns64: maybeUndoNat64: No local nat64 to ip4(%v) for ip6(%v); ip not ok", ipx4, nip)
 			continue
 		}
 		log.D("alg: dns64: maybeUndoNat64: nat64 to ip4(%v) from ip6(%v)", ipx4, nip)
@@ -883,7 +887,7 @@ func (t *dnsgateway) resolvLocked(domain string, typ iptype) (ip4s, ip6s []*neti
 			k4 := partkey4 + strconv.Itoa(i)
 			if ans, ok := t.alg[k4]; ok {
 				if time.Until(ans.ttl) > 0 { // not stale
-					ip4s = append(ip4s, ans.realips...)
+					ip4s = append(ip4s, v4only(ans.realips)...)
 					targets = append(targets, ans.domain...)
 				} else {
 					staleips = append(staleips, ans.realips...)
@@ -896,7 +900,7 @@ func (t *dnsgateway) resolvLocked(domain string, typ iptype) (ip4s, ip6s []*neti
 			k6 := partkey6 + strconv.Itoa(i)
 			if ans, ok := t.alg[k6]; ok {
 				if time.Until(ans.ttl) > 0 { // not stale
-					ip6s = append(ip6s, ans.realips...)
+					ip6s = append(ip6s, v6only(ans.realips)...)
 					targets = append(targets, ans.domain...)
 				} else {
 					staleips = append(staleips, ans.realips...)
@@ -911,7 +915,7 @@ func (t *dnsgateway) resolvLocked(domain string, typ iptype) (ip4s, ip6s []*neti
 			k4 := partkey4 + strconv.Itoa(i)
 			if ans, ok := t.alg[k4]; ok {
 				if time.Until(ans.ttl) > 0 { // not stale
-					ip4s = append(ip4s, ans.secondaryips...)
+					ip4s = append(ip4s, v4only(ans.secondaryips)...)
 					targets = append(targets, ans.domain...)
 				} else {
 					staleips = append(staleips, ans.secondaryips...)
@@ -924,7 +928,7 @@ func (t *dnsgateway) resolvLocked(domain string, typ iptype) (ip4s, ip6s []*neti
 			k6 := partkey6 + strconv.Itoa(i)
 			if ans, ok := t.alg[k6]; ok {
 				if time.Until(ans.ttl) > 0 { // not stale
-					ip6s = append(ip6s, ans.secondaryips...)
+					ip6s = append(ip6s, v6only(ans.secondaryips)...)
 					targets = append(targets, ans.domain...)
 				} else {
 					staleips = append(staleips, ans.secondaryips...)
@@ -1068,6 +1072,36 @@ func splitIPFamilies(ips []*netip.Addr) (ip4s, ip6s []*netip.Addr) {
 		}
 	}
 	return
+}
+
+func v4only(ips []*netip.Addr) []*netip.Addr {
+	return filterLeft(ips, func(ip *netip.Addr) (ok bool) {
+		if ip != nil {
+			ok = ip.Is4()
+		}
+		return
+	})
+}
+
+func v6only(ips []*netip.Addr) []*netip.Addr {
+	return filterLeft(ips, func(ip *netip.Addr) (ok bool) {
+		if ip != nil {
+			ok = ip.Is6()
+		}
+		return
+	})
+}
+
+type TestFn[T any] func(T) bool
+
+func filterLeft[T any](arr []T, yes TestFn[T]) []T {
+	out := make([]T, 0)
+	for _, x := range arr {
+		if yes(x) {
+			out = append(out, x)
+		}
+	}
+	return out
 }
 
 // unptr removes pointer from a slice of pointers of type T

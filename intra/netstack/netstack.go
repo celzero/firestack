@@ -137,7 +137,14 @@ func Up(s *stack.Stack, ep stack.LinkEndpoint, h GConnHandler) error {
 		} else {
 			setupIcmpHandler(s, ep, h.ICMP())
 		}
+	}
 
+	if settings.Debug {
+		tcp := s.TransportProtocolInstance(tcp.ProtocolNumber) != nil     // 6
+		udp := s.TransportProtocolInstance(udp.ProtocolNumber) != nil     // 17
+		icmp4 := s.TransportProtocolInstance(icmp.ProtocolNumber4) != nil // 1
+		icmp6 := s.TransportProtocolInstance(icmp.ProtocolNumber6) != nil // 58
+		log.D("netstack: transport instances: icmp4/6? %t/%t, tcp/udp %t/%t", icmp4, icmp6, tcp, udp)
 	}
 
 	// creates and enables a fake nic for netstack s

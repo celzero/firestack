@@ -96,15 +96,24 @@ func udpSummary(id, pid, uid string, dst netip.Addr) *SocketSummary {
 }
 
 func (s *SocketSummary) str() string {
-	return fmt.Sprintf("socket-summary: id=%s pid=%s uid=%s down=%d up=%d dur=%d synack=%d msg=%s",
-		s.ID, s.PID, s.UID, s.Rx, s.Tx, s.Duration, s.Rtt, s.Msg)
+	if s != nil {
+		return fmt.Sprintf("socket-summary: id=%s pid=%s uid=%s down=%d up=%d dur=%d synack=%d msg=%s",
+			s.ID, s.PID, s.UID, s.Rx, s.Tx, s.Duration, s.Rtt, s.Msg)
+	}
+	return "<nil>"
 }
 
 func (s *SocketSummary) elapsed() {
-	s.Duration = int32(time.Since(s.start).Seconds())
+	if s != nil {
+		s.Duration = int32(time.Since(s.start).Seconds())
+	}
 }
 
-func (s *SocketSummary) done(errs ...error) {
+func (s *SocketSummary) done(errs ...error) *SocketSummary {
+	if s == nil {
+		return nil
+	}
+
 	defer func() {
 		if len(s.Msg) <= 0 {
 			s.Msg = errNone.Error()
@@ -114,7 +123,7 @@ func (s *SocketSummary) done(errs ...error) {
 	s.elapsed()
 
 	if len(errs) <= 0 {
-		return
+		return s
 	}
 
 	err := errors.Join(errs...) // errs may be nil
@@ -125,4 +134,5 @@ func (s *SocketSummary) done(errs ...error) {
 			s.Msg = s.Msg + "; " + err.Error()
 		}
 	}
+	return s
 }

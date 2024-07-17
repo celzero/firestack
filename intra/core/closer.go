@@ -71,12 +71,16 @@ func CloseTCPWrite(w TCPConn) {
 	if w != nil {
 		switch x := w.(type) {
 		case *net.TCPConn:
-			_ = x.CloseRead()
+			if x != nil {
+				_ = x.CloseWrite()
+			}
 		case *gonet.TCPConn:
-			_ = x.CloseRead()
+			if x != nil {
+				_ = x.CloseWrite()
+			}
 		default:
 			if IsNotNil(w) {
-				_ = w.CloseRead()
+				_ = w.CloseWrite()
 			}
 		}
 	}
@@ -159,13 +163,14 @@ func CloseOp(c io.Closer, op CloserOp) {
 	}
 }
 
+// may panic or return false if x is not addressable
 func IsNotNil(x any) bool {
 	return !IsNil(x)
 }
 
 // IsNil reports whether x is nil if its Chan, Func, Map,
 // Pointer, UnsafePointer, Interface, and Slice;
-// may panic if x is not addressable
+// may panic or return false if x is not addressable
 func IsNil(x any) bool {
 	// from: stackoverflow.com/a/76595928
 	if x == nil {
@@ -181,5 +186,10 @@ func IsNil(x any) bool {
 }
 
 func TypeEq(a, b any) bool {
+	if IsNil(a) {
+		return false
+	} else if IsNil(b) {
+		return false
+	}
 	return reflect.TypeOf(a) == reflect.TypeOf(b)
 }

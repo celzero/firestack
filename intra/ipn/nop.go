@@ -13,8 +13,8 @@ import (
 
 // gw is a no-op/stub gateway that is either dualstack or not and has dummy stats.
 type gw struct {
-	dual  bool    // is dualstack
-	stats x.Stats // zero stats
+	dual  bool          // is dualstack
+	stats x.RouterStats // zero stats
 }
 
 // IP4 implements Router.
@@ -27,7 +27,7 @@ func (w *gw) IP6() bool { return w.dual }
 func (w *gw) MTU() (int, error) { return NOMTU, errNoMtu }
 
 // Stat implements Router.
-func (w *gw) Stat() *x.Stats { return &w.stats }
+func (w *gw) Stat() *x.RouterStats { return &w.stats }
 
 // Contains implements Router.
 func (w *gw) Contains(string) bool { return w.dual }

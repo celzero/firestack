@@ -88,9 +88,9 @@ func ipConnect2(d *protect.RDial, proto string, ip netip.Addr, port int) (net.Co
 	return d.Dial(proto, addrstr(ip, port))
 }
 
-func doSplit(port int) bool {
+func doSplit(ip netip.Addr, port int) bool {
 	// HTTPS or DoT
-	return port == 443 || port == 853
+	return !ip.IsPrivate() && (port == 443 || port == 853)
 }
 
 func splitIpConnect(d *protect.RDial, proto string, ip netip.Addr, port int) (net.Conn, error) {
@@ -104,7 +104,7 @@ func splitIpConnect(d *protect.RDial, proto string, ip netip.Addr, port int) (ne
 
 	switch proto {
 	case "tcp", "tcp4", "tcp6":
-		if doSplit(port) { // split tls client-hello for https requests
+		if doSplit(ip, port) { // split tls client-hello for https requests
 			return DialWithSplitRetry(d, tcpaddr(ip, port))
 		}
 		return d.DialTCP(proto, nil, tcpaddr(ip, port))
@@ -126,7 +126,7 @@ func splitIpConnect2(d *protect.RDial, proto string, ip netip.Addr, port int) (n
 
 	switch proto {
 	case "tcp", "tcp4", "tcp6":
-		if doSplit(port) { // split tls client-hello for https requests
+		if doSplit(ip, port) { // split tls client-hello for https requests
 			return DialWithSplit(d, tcpaddr(ip, port))
 		}
 		return d.DialTCP(proto, nil, tcpaddr(ip, port))
@@ -181,8 +181,16 @@ func commondial(d *protect.RDial, network, addr string, connect connectFunc) (ne
 	var conn net.Conn
 	var errs error
 	ips := ipm.Get(domain)
+	dontretry := ips.OneIPOnly() // just one IP, no retries possible
 	confirmed := ips.Confirmed() // may be zeroaddr
-	if ipok(confirmed) {
+	confirmedIPOK := ipok(confirmed)
+
+	defer func() {
+		dur := time.Since(start)
+		log.D("rdial: duration: %s; failed %s; confirmed? %s, sz: %d", dur, addr, confirmed, ips.Size())
+	}()
+
+	if confirmedIPOK {
 		log.V("rdial: commondial: dialing confirmed ip %s for %s", confirmed, addr)
 		if conn, err = connect(d, network, confirmed, port); err == nil {
 			log.V("rdial: commondial: ip %s works for %s", confirmed, addr)
@@ -191,6 +199,14 @@ func commondial(d *protect.RDial, network, addr string, connect connectFunc) (ne
 		errs = errors.Join(errs, err)
 		ips.Disconfirm(confirmed)
 		log.D("rdial: commondial: confirmed ip %s for %s failed with err %v", confirmed, addr, err)
+	}
+
+	if dontretry {
+		if !confirmedIPOK {
+			log.E("rdial: ip %s not ok for %s", confirmed, addr)
+			errs = errors.Join(errs, errNoIps)
+		}
+		return nil, errs
 	}
 
 	ipset := ips.Addrs()
@@ -203,7 +219,8 @@ func commondial(d *protect.RDial, network, addr string, connect connectFunc) (ne
 		}
 		log.D("rdial: renew ips for %s; ok? %t, failingopen? %t", addr, ok, failingopen)
 	}
-	log.D("rdial: commondial: trying all ips %d for %s", len(allips), addr)
+	log.D("rdial: commondial: trying all ips %d %v for %s, failingopen? %t",
+		len(allips), allips, addr, failingopen)
 	for _, ip := range allips {
 		end := time.Since(start)
 		if end > dialRetryTimeout {
@@ -223,9 +240,6 @@ func commondial(d *protect.RDial, network, addr string, connect connectFunc) (ne
 			log.W("rdial: commondial: ip %s not ok for %s", ip, addr)
 		}
 	}
-
-	dur := time.Since(start)
-	log.D("rdial: commondial: duration: %s; failed %s", dur, addr)
 
 	if len(ipset) <= 0 {
 		errs = errNoIps
@@ -264,6 +278,17 @@ func Dial(d *protect.RDial, network, addr string) (net.Conn, error) {
 // Dial2 dials into addr using the provided dialer and returns a net.Conn
 func Dial2(d *protect.RDial, network, addr string) (net.Conn, error) {
 	return commondial(d, network, addr, ipConnect2)
+}
+
+// DialWithTls dials into addr using the provided dialer and returns a tls.Conn
+func DialWithTls(d *protect.RDial, cfg *tls.Config, addr string) (net.Conn, error) {
+	c, err := commondial(d, "tcp", addr, ipConnect)
+	if err != nil {
+		return c, err
+	}
+	tlsconn := tls.Client(c, cfg)
+	err = tlsconn.Handshake()
+	return tlsconn, err
 }
 
 // SplitDial dials into addr splitting ClientHello if the first connection

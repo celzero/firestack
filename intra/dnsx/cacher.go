@@ -7,6 +7,7 @@
 package dnsx
 
 import (
+	"context"
 	"errors"
 	"hash/fnv"
 	"math/rand"
@@ -71,17 +72,20 @@ type cres struct {
 }
 
 type ctransport struct {
-	sync.RWMutex                      // protects store
-	Transport                         // the underlying transport
-	store        []*cache             // cache buckets
-	ipport       string               // a fake ip:port
-	ttl          time.Duration        // lifetime duration of a cached dns entry
-	halflife     time.Duration        // increment ttl on each read
-	bumps        int                  // max bumps in lifetime of a cached response
-	size         int                  // max size of a cache bucket
-	reqbarrier   *core.Barrier[*cres] // coalesce requests for the same query
-	hangover     *core.Hangover       // tracks send failure threshold
-	est          core.P2QuantileEstimator
+	sync.RWMutex // protects store
+	Transport    // the underlying transport
+
+	ctx        context.Context
+	done       context.CancelFunc
+	store      []*cache                     // cache buckets
+	ipport     string                       // a fake ip:port
+	ttl        time.Duration                // lifetime duration of a cached dns entry
+	halflife   time.Duration                // increment ttl on each read
+	bumps      int                          // max bumps in lifetime of a cached response
+	size       int                          // max size of a cache bucket
+	reqbarrier *core.Barrier[*cres, string] // coalesce requests for the same query
+	hangover   *core.Hangover               // tracks send failure threshold
+	est        core.P2QuantileEstimator
 }
 
 func NewDefaultCachingTransport(t Transport) Transport {
@@ -102,8 +106,11 @@ func NewCachingTransport(t Transport, ttl time.Duration) Transport {
 		log.W("cache: (%s) no-op for alg: %s", t.ID(), t.GetAddr())
 		return t
 	}
+	ctx, done := context.WithCancel(context.Background())
 	ct := &ctransport{
 		Transport:  t,
+		ctx:        ctx,
+		done:       done,
 		store:      make([]*cache, defbuckets),
 		ipport:     "[fdaa:cac::ed:3]:53",
 		ttl:        ttl,
@@ -112,7 +119,7 @@ func NewCachingTransport(t Transport, ttl time.Duration) Transport {
 		size:       defsize,
 		reqbarrier: core.NewBarrier[*cres](ttl10s),
 		hangover:   core.NewHangover(),
-		est:        core.NewP50Estimator(),
+		est:        core.NewP50Estimator(ctx),
 	}
 	log.I("cache: (%s) setup: %s; opts: %s", ct.ID(), ct.GetAddr(), ct.str())
 	return ct
@@ -453,6 +460,11 @@ func (t *ctransport) Status() int {
 	return t.Transport.Status()
 }
 
+func (t *ctransport) Stop() error {
+	t.done()
+	return t.Transport.Stop()
+}
+
 func copySummary(from *x.DNSSummary) (to *x.DNSSummary) {
 	to = new(x.DNSSummary)
 	*to = *from
@@ -482,16 +494,22 @@ func fillSummary(s *x.DNSSummary, other *x.DNSSummary) {
 	if other.QType == 0 {
 		other.QType = s.QType
 	}
+	// fill in region if empty
+	if len(other.Region) == 0 {
+		other.Region = s.Region
+	}
 
 	if len(s.RData) != 0 {
 		other.RData = s.RData
 	}
+
 	other.RCode = s.RCode
 	other.RTtl = s.RTtl
 	other.Server = s.Server
 	other.RelayServer = s.RelayServer
 	other.Status = s.Status
 	other.Blocklists = s.Blocklists
+	other.Msg = s.Msg
 	other.UpstreamBlocks = s.UpstreamBlocks
 }
 

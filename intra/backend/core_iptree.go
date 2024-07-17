@@ -411,7 +411,7 @@ func (c *iptree) ValuesLike(cidr, like string) string {
 			if !strings.Contains(s, like) {
 				return true // next
 			}
-			all := strings.Split(s, Vsep) // grab all occurences of v in csv s
+			all := strings.Split(s, Vsep) // grab all occurrences of v in csv s
 			for _, val := range all {
 				if strings.HasPrefix(val, like) {
 					vt = append(vt, val)

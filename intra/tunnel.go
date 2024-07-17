@@ -153,6 +153,8 @@ func (t *rtunnel) getBridge() Bridge {
 }
 
 func (t *rtunnel) Disconnect() {
+	defer core.Recover(core.Exit11, "intra.Disconnect")
+
 	if t.closed.Load() {
 		log.I("tun: <<< disconnect >>> already closed")
 		return
@@ -161,7 +163,7 @@ func (t *rtunnel) Disconnect() {
 		t.closed.Store(true)
 
 		removeIPMapper()
-		err0 := t.resolver.Stop()
+		err0 := t.resolver.StopResolvers()
 		err1 := t.proxies.StopProxies()
 		n := t.services.StopServers()
 		t.bridge = nil // "free" ref to the client

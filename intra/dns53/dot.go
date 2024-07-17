@@ -20,11 +20,15 @@ import (
 	"github.com/celzero/firestack/intra/ipn"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
+	"github.com/celzero/firestack/intra/settings"
 	"github.com/celzero/firestack/intra/xdns"
 	"github.com/miekg/dns"
+	"golang.org/x/net/context"
 )
 
 type dot struct {
+	ctx     context.Context
+	done    context.CancelFunc
 	id      string // id of the transport
 	url     string // full url
 	addr    string // ip:port or hostname:port
@@ -61,7 +65,10 @@ func NewTLSTransport(id, rawurl string, addrs []string, px ipn.Proxies, ctl prot
 	ok := dnsx.RegisterAddrs(id, hostname, addrs)
 	// add sni to tls config
 	tlscfg.ServerName = hostname
+	ctx, done := context.WithCancel(context.Background())
 	tx := &dot{
+		ctx:     ctx,
+		done:    done,
 		id:      id,
 		url:     rawurl,
 		host:    hostname,
@@ -70,7 +77,7 @@ func NewTLSTransport(id, rawurl string, addrs []string, px ipn.Proxies, ctl prot
 		proxies: px,
 		rd:      rd,
 		relay:   relay,
-		est:     core.NewP50Estimator(),
+		est:     core.NewP50Estimator(ctx),
 	}
 	// local dialer: protect.MakeNsDialer(id, ctl)
 	tx.c = &dns.Client{
@@ -98,9 +105,13 @@ func (t *dot) doQuery(pid string, q *dns.Msg) (response *dns.Msg, elapsed time.D
 	return
 }
 
-func (t *dot) tlsdial() (*dns.Conn, error) {
-	c, err := dialers.SplitDialWithTls(t.rd, t.c.TLSConfig, t.addr)
-	// or: c, err := dialers.TlsDial(tlsDialer, "tcp", t.addr)
+func (t *dot) tlsdial() (_ *dns.Conn, err error) {
+	var c net.Conn
+	if settings.Loopingback.Load() { // no splits in loopback (rinr) mode
+		c, err = dialers.DialWithTls(t.rd, t.c.TLSConfig.Clone(), t.addr)
+	} else {
+		c, err = dialers.SplitDialWithTls(t.rd, t.c.TLSConfig.Clone(), t.addr)
+	}
 	if c != nil && core.IsNotNil(c) {
 		_ = c.SetDeadline(time.Now().Add(dottimeout))
 		return &dns.Conn{Conn: c, UDPSize: t.c.UDPSize}, err
@@ -178,11 +189,13 @@ func (t *dot) sendRequest(pid string, q *dns.Msg) (ans *dns.Msg, elapsed time.Du
 		clos(conn)
 	} // fallthrough
 
+	raddr := remoteAddrIfAny(conn)
 	if err != nil {
-		raddr := remoteAddrIfAny(conn)
-		log.V("dot: sendRequest: (%s) err: %v; disconfirm", t.id, err, raddr)
-		dialers.Disconfirm2(t.host, raddr)
+		ok := dialers.Disconfirm2(t.host, raddr)
+		log.V("dot: sendRequest: (%s) err: %v; disconfirm? %t %s => %s", t.id, err, ok, t.host, raddr)
 		qerr = dnsx.NewSendFailedQueryError(err)
+	} else {
+		dialers.Confirm2(t.host, raddr)
 	}
 	return
 }
@@ -242,6 +255,11 @@ func (t *dot) GetAddr() string {
 
 func (t *dot) Status() int {
 	return t.status
+}
+
+func (t *dot) Stop() error {
+	t.done()
+	return nil
 }
 
 func url2addr(url string) string {

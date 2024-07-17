@@ -38,7 +38,7 @@ var (
 type ipmapper struct {
 	id string
 	r  dnsx.Resolver
-	ba *core.Barrier[[]byte]
+	ba *core.Barrier[[]byte, string]
 }
 
 var _ ipmap.IPMapper = (*ipmapper)(nil)
@@ -121,7 +121,7 @@ func (m *ipmapper) LookupNetIP(ctx context.Context, network, host string) ([]net
 	case "ip6":
 		q6, err6 = dnsmsg(host, dns.TypeAAAA)
 	default:
-		log.E("ipmapper: lookup: unkown net %s query %s", network, host)
+		log.E("ipmapper: lookup: unknown net %s query %s", network, host)
 		return nil, errNoNet
 	}
 

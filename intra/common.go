@@ -74,22 +74,35 @@ func forward(local, remote net.Conn, ch chan *SocketSummary, done chan struct{},
 	smm.Rx = dbytes
 	smm.Tx = upload.bytes
 
-	smm.done(derr, upload.err)
-	queueSummary(ch, done, smm)
+	queueSummary(ch, done, smm.done(derr, upload.err))
 }
 
-func queueSummary(ch chan *SocketSummary, done chan struct{}, s *SocketSummary) {
+func queueSummary(ch chan<- *SocketSummary, done <-chan struct{}, s *SocketSummary) {
+	if s == nil {
+		return
+	}
+
+	// go.dev/play/p/AXDdhcMu2w_k
+	// even though channel done is always closed before ch, we still
+	// see panic from the select statement writing to ch; and hence
+	// the need to have this nested select statement.
+
+	log.VV("intra: queueSummary: over %x %x %s", ch, done, s.ID)
 	select {
-	case ch <- s:
 	case <-done:
-		log.D("intra: queueSummary: end")
+		log.D("intra: queueSummary: end: %s", s.str())
 	default:
-		log.W("intra: sendSummary: dropped: %s", s.str())
+		select {
+		case <-done:
+		case ch <- s:
+		default:
+			log.W("intra: sendSummary: dropped: %s", s.str())
+		}
 	}
 }
 
-// must be called from a goroutine
-func sendSummary(ch chan *SocketSummary, l SocketListener) {
+// must be called from a goroutine; loops reading from ch until done is closed.
+func sendSummary(ch chan *SocketSummary, done chan struct{}, l SocketListener) {
 	defer core.Recover(core.DontExit, "c.sendSummary")
 
 	noch := ch == nil
@@ -99,9 +112,14 @@ func sendSummary(ch chan *SocketSummary, l SocketListener) {
 		return
 	}
 
-	for s := range ch {
-		if s != nil && len(s.ID) > 0 {
-			sendNotif(l, s, immediate)
+	for {
+		select {
+		case <-done:
+			return
+		case s := <-ch:
+			if s != nil && len(s.ID) > 0 {
+				sendNotif(l, s, immediate)
+			}
 		}
 	}
 }
@@ -116,7 +134,7 @@ func sendNotif(l SocketListener, s *SocketSummary, after time.Duration) {
 		time.Sleep(after)
 	}
 
-	log.VV("intra: end? sendNotif(%t,%t): %s", s.str())
+	log.VV("intra: end? sendNotif: %s", s.str())
 	l.OnSocketClosed(s) // s.Duration may be uninitialized (zero)
 }
 
@@ -210,7 +228,7 @@ func undoAlg(r dnsx.Resolver, algip netip.Addr) (realips, domains, probableDomai
 		// all the routing decisions by listener.Flow() are made based on those routes
 		// but we end up dailing into a v6 (or v4) address (which was unaccounted for).
 		// Dialing into v6 (or v4) address may succeed in such scenarios thereby
-		// resulting in a percieved "leak".
+		// resulting in a perceived "leak".
 		realips = filterFamilyForDialing(gw.X(algip))
 		blocklists = gw.RDNSBL(algip)
 	} else {
@@ -304,7 +322,7 @@ type zeroListener struct{}
 
 var _ SocketListener = (*zeroListener)(nil)
 
-func (*zeroListener) OnSocketClosed(*SocketSummary)                  {}
 func (*zeroListener) Flow(_, _ int32, _, _, _, _, _, _ string) *Mark { return nil }
+func (*zeroListener) OnSocketClosed(*SocketSummary)                  {}
 
 var nooplistener = new(zeroListener)

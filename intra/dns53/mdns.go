@@ -14,6 +14,7 @@
 package dns53
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net"
@@ -38,6 +39,8 @@ var (
 )
 
 type dnssd struct {
+	ctx    context.Context
+	done   context.CancelFunc
 	id     string // ID of this transport
 	ipport string // IP:Port queries are sent to (v4)
 	use4   bool   // Use IPv4
@@ -50,13 +53,16 @@ var _ dnsx.Transport = (*dnssd)(nil)
 
 // NewMDNSTransport returns a DNS transport that sends all DNS queries to mDNS endpoint.
 func NewMDNSTransport(protos string) *dnssd {
+	ctx, done := context.WithCancel(context.Background())
 	t := &dnssd{
+		ctx:    ctx,
+		done:   done,
 		id:     dnsx.Local,
 		use4:   use4(protos),
 		use6:   use6(protos),
 		ipport: xdns.MDNSAddr4.String(), // ip6: ff02::fb:5353
 		status: dnsx.Start,
-		est:    core.NewP50Estimator(),
+		est:    core.NewP50Estimator(ctx),
 	}
 	log.I("mdns: setup: %s", protos)
 	return t
@@ -184,6 +190,11 @@ func (t *dnssd) Status() int {
 	return t.status
 }
 
+func (t *dnssd) Stop() error {
+	t.done()
+	return nil
+}
+
 // from: github.com/hashicorp/mdns/blob/5b0ab6d61/client.go
 
 // dnssdanswer is returned after dnssd / mdns query
@@ -230,7 +241,7 @@ type client struct {
 	multicast6 *net.UDPConn
 
 	tracker map[string]*dnssdanswer
-	msgCh   chan *dns.Msg
+	msgCh   chan *dns.Msg // never closed
 
 	oneshot bool
 
@@ -419,7 +430,7 @@ loop:
 			if disco == nil { // no valid answers
 				log.D("mdns: listen: no valid answers for %s; len? %d", qname, len(xxlans))
 				continue
-			} else if (c.oneshot && disco.hasip()) || // oneshot + recieved v4 / v6 ips
+			} else if (c.oneshot && disco.hasip()) || // oneshot + received v4 / v6 ips
 				(!c.oneshot && disco.hasip() && disco.hassvc()) { // v4 / v6 ips and srv
 				if !disco.captured {
 					disco.captured = true

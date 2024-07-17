@@ -76,3 +76,7 @@ func (t *grounded) GetAddr() string {
 func (t *grounded) Status() int {
 	return t.status
 }
+
+func (*grounded) Stop() error {
+	return nil
+}

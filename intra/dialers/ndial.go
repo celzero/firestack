@@ -54,17 +54,33 @@ func netdial(d *net.Dialer, network, addr string, connect netConnectFunc) (net.C
 
 	var errs error
 	ips := ipm.Get(domain)
+	dontretry := ips.OneIPOnly() // just one IP, no retries possible
 	confirmed := ips.Confirmed()
-	if ipok(confirmed) {
+	confirmedIPOK := ipok(confirmed)
+
+	defer func() {
+		dur := time.Since(start)
+		log.D("ndial: duration: %s; failed %s; confirmed? %s, sz: %d", dur, addr, confirmed, ips.Size())
+	}()
+
+	if confirmedIPOK {
 		log.V("ndial: dialing confirmed ip %s for %s", confirmed, addr)
 		if conn, cerr := connect(d, network, confirmed, port); cerr == nil {
-			log.V("ndial: found working ip %s for %s", confirmed, addr)
+			log.V("ndial: confirmed ip working %s for %s", confirmed, addr)
 			return conn, nil
 		} else {
 			errs = errors.Join(errs, cerr)
 			ips.Disconfirm(confirmed)
-			log.D("ndial: confirmed ip %s for %s failed with err %v", confirmed, addr, cerr)
+			log.W("ndial: confirmed ip %s for %s failed with err %v", confirmed, addr, cerr)
 		}
+	}
+
+	if dontretry { // no retries possible
+		if !confirmedIPOK {
+			log.E("ndial: ip %s not ok for %s", confirmed, addr)
+			errs = errors.Join(errs, errNoIps)
+		}
+		return nil, errs
 	}
 
 	ipset := ips.Addrs()
@@ -77,7 +93,8 @@ func netdial(d *net.Dialer, network, addr string, connect netConnectFunc) (net.C
 		}
 		log.D("ndial: renew ips for %s; ok? %t; failingopen? %t", addr, ok, failingopen)
 	}
-	log.D("ndial: trying all ips %d for %s", len(allips), addr)
+	log.D("ndial: trying all ips %d %v for %s, failingopen? %t",
+		len(allips), allips, addr, failingopen)
 	for _, ip := range allips {
 		end := time.Since(start)
 		if end > dialRetryTimeout {
@@ -88,7 +105,7 @@ func netdial(d *net.Dialer, network, addr string, connect netConnectFunc) (net.C
 			log.V("ndial: dialing ip %s for %s", ip, addr)
 			if conn, err := connect(d, network, ip, port); err == nil {
 				confirm(ips, ip)
-				log.I("ndial: found working ip %s for %s", ip, addr)
+				log.I("ndial: confirming working ip %s for %s", ip, addr)
 				return conn, nil
 			} else {
 				errs = errors.Join(errs, err)
@@ -98,9 +115,6 @@ func netdial(d *net.Dialer, network, addr string, connect netConnectFunc) (net.C
 			log.D("ndial: ip %s not ok for %s", ip, addr)
 		}
 	}
-
-	dur := time.Since(start)
-	log.D("ndial: duration: %s; failed %s", dur, addr)
 
 	if len(ipset) <= 0 {
 		errs = errNoIps

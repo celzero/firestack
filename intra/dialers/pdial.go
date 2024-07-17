@@ -21,10 +21,10 @@ type proxyConnectFunc func(proxy.Dialer, string, netip.Addr, int) (net.Conn, err
 
 func proxyConnect(d proxy.Dialer, proto string, ip netip.Addr, port int) (net.Conn, error) {
 	if d == nil {
-		log.E("odial: proxyConnect: nil dialer")
+		log.E("pdial: proxyConnect: nil dialer")
 		return nil, errNoDialer
 	} else if !ipok(ip) {
-		log.E("odial: proxyConnect: invalid ip", ip)
+		log.E("pdial: proxyConnect: invalid ip", ip)
 		return nil, errNoIps
 	}
 
@@ -62,8 +62,16 @@ func proxydial(d proxy.Dialer, network, addr string, connect proxyConnectFunc) (
 	var errs error
 	s1 := time.Now()
 	ips := ipm.Get(domain)
+	dontretry := ips.OneIPOnly() // just one IP, no retries possible
 	confirmed := ips.Confirmed()
-	if ipok(confirmed) {
+	confirmedIPOK := ipok(confirmed)
+
+	defer func() {
+		dur := time.Since(start)
+		log.D("pdial: duration: %s; failed %s; confirmed? %s, sz: %d", dur, addr, confirmed, ips.Size())
+	}()
+
+	if confirmedIPOK {
 		log.V("pdial: trying confirmed ip %s for %s; duration: %s", confirmed, addr, time.Since(s1))
 		if conn, err = connect(d, network, confirmed, port); err == nil {
 			log.V("pdial: found working ip %s for %s; duration: %s", confirmed, addr, time.Since(s1))
@@ -72,6 +80,14 @@ func proxydial(d proxy.Dialer, network, addr string, connect proxyConnectFunc) (
 		errs = errors.Join(errs, err)
 		ips.Disconfirm(confirmed)
 		log.D("pdial: confirmed ip %s for %s failed with err %v", confirmed, addr, err)
+	}
+
+	if dontretry {
+		if !confirmedIPOK {
+			log.E("pdial: ip %s not ok for %s", confirmed, addr)
+			errs = errors.Join(errs, errNoIps)
+		}
+		return nil, errs
 	}
 
 	s2 := time.Now()
@@ -85,7 +101,8 @@ func proxydial(d proxy.Dialer, network, addr string, connect proxyConnectFunc) (
 		}
 		log.D("pdial: renew ips for %s; ok? %t, failingopen? %t", addr, ok, failingopen)
 	}
-	log.D("pdial: trying all %d ips for %s; duration: %s", len(allips), addr, time.Since(s2))
+	log.D("pdial: trying all %d %v ips for %s, failingopen? %t; duration: %s",
+		len(allips), allips, addr, failingopen, time.Since(s2))
 
 	s3 := time.Now()
 	for i, ip := range allips {
@@ -107,9 +124,6 @@ func proxydial(d proxy.Dialer, network, addr string, connect proxyConnectFunc) (
 			log.D("pdial: ip %s not ok for %s", ip, addr)
 		}
 	}
-
-	dur := time.Since(start)
-	log.D("pdial: duration: %s; failed %s", dur, addr)
 
 	if len(ipset) <= 0 {
 		errs = errNoIps

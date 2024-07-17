@@ -25,6 +25,7 @@ package ipmap
 
 import (
 	"context"
+	"fmt"
 	"math/rand"
 	"net"
 	"net/netip"
@@ -47,6 +48,7 @@ type IPSetType int
 const (
 	Protected IPSetType = iota
 	Regular
+	IPAddr
 	AutoType
 )
 
@@ -56,6 +58,8 @@ func (h IPSetType) String() string {
 		return "Protected"
 	case Regular:
 		return "Regular"
+	case IPAddr:
+		return "ipaddr"
 	case AutoType:
 		return "Auto"
 	default:
@@ -85,7 +89,7 @@ type IPMap interface {
 	// Subsequent calls to GetAny return the same IPSet. Never returns nil.
 	GetAny(hostOrIP string) *IPSet
 	// MakeIPSet creates an IPSet for this hostname bootstrapped with given IPs
-	// or IP:Ports. Subsequent calls to MakeIPSet return a new, overriden IPSet.
+	// or IP:Ports. Subsequent calls to MakeIPSet return a new, overridden IPSet.
 	MakeIPSet(hostOrIP string, ipps []string, typ IPSetType) *IPSet
 	// With sets the default resolver to use for hostname resolution.
 	With(r IPMapper)
@@ -95,21 +99,22 @@ type IPMap interface {
 
 type ipmap struct {
 	sync.RWMutex
-	m map[string]*IPSet
-	p map[string]*IPSet // protected ips; immutable, never cleared
-	r IPMapper          // always the default system resolver
+	m  map[string]*IPSet // regular type
+	p  map[string]*IPSet // protected ips; immutable, never cleared
+	ip map[string]*IPSet // ipaddrs
+	r  IPMapper          // always the default system resolver
 }
 
 // IPSet represents an unordered collection of IP addresses for a single host.
 // One IP can be marked as confirmed to be working correctly.
 type IPSet struct {
-	sync.RWMutex               // Protects this struct.
-	ips          []netip.Addr  // All known IPs for the server.
-	confirmed    atomic.Value  // netip.Addr confirmed to be working.
-	typ          IPSetType     // Regular, Protected, or AutoType
-	r            IPMapper      // For hostname resolution, never nil
-	seed         []string      // Bootstrap ips or ip:ports; may be nil.
-	fails        atomic.Uint32 // Number of times the confirmed IP has failed.
+	sync.RWMutex                            // Protects this struct.
+	ips          []netip.Addr               // All known IPs for the server.
+	confirmed    *core.Volatile[netip.Addr] // netip.Addr confirmed to be working.
+	typ          IPSetType                  // Regular, Protected, or AutoType
+	r            IPMapper                   // For hostname resolution, never nil
+	seed         []string                   // Bootstrap ips or ip:ports; may be nil.
+	fails        atomic.Uint32              // Number of times the confirmed IP has failed.
 }
 
 func NewIPMap() *ipmap {
@@ -119,9 +124,10 @@ func NewIPMap() *ipmap {
 // NewIPMapFor returns a fresh IPMap with r as its nameserver.
 func NewIPMapFor(r IPMapper) *ipmap {
 	return &ipmap{
-		m: make(map[string]*IPSet),
-		p: make(map[string]*IPSet),
-		r: r, // may be nil
+		m:  make(map[string]*IPSet),
+		p:  make(map[string]*IPSet),
+		ip: make(map[string]*IPSet),
+		r:  r, // may be nil
 	}
 }
 
@@ -134,7 +140,7 @@ func (m *ipmap) Clear() {
 	m.Lock()
 	defer m.Unlock()
 
-	sz := len(m.m)
+	sz := len(m.m) + len(m.p)
 	purge := make(chan *IPSet, sz)
 	defer close(purge)
 
@@ -148,10 +154,15 @@ func (m *ipmap) Clear() {
 	})
 
 	n := 0
-	for _, s := range m.m {
+	for _, s := range m.m { // regular / auto
 		purge <- s // preserves seed addrs
 		n++
 	}
+	for _, s := range m.p { // protected
+		purge <- s // only clears confirmed ip
+		n++
+	}
+	// ipaddr type is not "cleared"
 	log.I("ipmap: clear: requested %d/%d sets", n, sz)
 }
 
@@ -181,7 +192,7 @@ func (m *ipmap) Get(hostOrIP string) *IPSet {
 			log.W("ipmap: Get: zero ips for %s", hostOrIP)
 		}
 	}
-	log.D("ipmap: Get: %s => %s", hostOrIP, s.Addrs())
+	log.D("ipmap: Get: %s => %s", hostOrIP, s.ips)
 	return s
 }
 
@@ -197,11 +208,15 @@ func (m *ipmap) get(hostOrIP string, typ IPSetType) (s *IPSet) {
 	m.RLock()
 	sp := m.p[hostOrIP]
 	sr := m.m[hostOrIP]
+	si := m.ip[hostOrIP]
 	m.RUnlock()
 
 	if sp != nil || typ == Protected {
 		s = sp          // may be nil or empty
 		typ = Protected // discard Regular or AutoType
+	} else if si != nil || typ == IPAddr {
+		s = si
+		typ = IPAddr
 	} else { // Regular or AutoType
 		s = sr        // may be nil or empty
 		typ = Regular // discard AutoType
@@ -215,7 +230,13 @@ func (m *ipmap) get(hostOrIP string, typ IPSetType) (s *IPSet) {
 }
 
 func (m *ipmap) MakeIPSet(hostOrIP string, ipps []string, typ IPSetType) *IPSet {
-	log.D("ipmap: renew: %s / seed: %v / typ: %s", hostOrIP, ipps, typ)
+	if len(ipps) <= 0 && typ == Protected {
+		// TODO: error?
+		log.T(fmt.Sprintf("ipmap: renew: %s; empty seed for Protected!", hostOrIP))
+	} else {
+		// TODO: hostOrIP must be IP (or IP:Port) if typ == IPAddr
+		log.D("ipmap: renew: %s / seed: %v / typ: %s", hostOrIP, ipps, typ)
+	}
 	if host, _, err := net.SplitHostPort(hostOrIP); err == nil {
 		hostOrIP = host
 	}
@@ -223,6 +244,8 @@ func (m *ipmap) MakeIPSet(hostOrIP string, ipps []string, typ IPSetType) *IPSet 
 }
 
 func (m *ipmap) makeIPSet(hostname string, ipps []string, typ IPSetType) *IPSet {
+	var ip netip.Addr
+	var err error
 	if ipps == nil {
 		ipps = []string{}
 	}
@@ -231,29 +254,40 @@ func (m *ipmap) makeIPSet(hostname string, ipps []string, typ IPSetType) *IPSet 
 	if protect.NeverResolve(hostname) || typ == Protected {
 		mm = m.p
 		typ = Protected // discard Regular or AutoType
+	} else if ip, err = netip.ParseAddr(hostname); err == nil && !ip.IsUnspecified() && ip.IsValid() {
+		mm = m.ip
+		typ = IPAddr
 	} else {
-		typ = Regular // discard AutoType
+		typ = Regular // discard AutoType & IPAddr type
 	}
 
 	log.D("ipmap: makeIPSet: %s, seed: %v, typ: %s", hostname, ipps, typ)
 
-	// TODO: disallow confirm/disconfirm if hostname is an IP address
-	s := &IPSet{r: m, seed: ipps, confirmed: atomic.Value{}, typ: typ, fails: atomic.Uint32{}}
-	if ip, err := netip.ParseAddr(hostname); err == nil && !ip.IsUnspecified() && ip.IsValid() {
+	s := &IPSet{
+		confirmed: core.NewZeroVolatile[netip.Addr](),
+		typ:       typ,
+		r:         m,
+		seed:      ipps,
+		fails:     atomic.Uint32{},
+	}
+	if typ == IPAddr {
 		log.D("ipmap: makeIPSet: %s for %s, confirmed addr %s", hostname, typ, ip)
 		s.confirmed.Store(ip)
-		s.Lock()
-		s.addLocked(ip)
-		s.Unlock()
+		// s.ips is empty for typ == IPAddr
 	} else {
 		s.confirmed.Store(zeroaddr)
 	}
 
-	s.bootstrap()
+	totalseeds := s.bootstrap()
 
-	m.Lock()
-	mm[hostname] = s
-	m.Unlock()
+	// if typ is Protected, then seeds must never be empty
+	if typ == Protected && totalseeds <= 0 {
+		log.W("ipmap: makeIPSet: zero seeds; %s for type %s discarded", hostname, typ)
+	} else {
+		m.Lock()
+		mm[hostname] = s
+		m.Unlock()
+	}
 
 	return s
 }
@@ -269,15 +303,17 @@ func (s *IPSet) hasLocked(ip netip.Addr) bool {
 }
 
 // Adds an IP to the set if it is not present.  Must be called under Lock.
-func (s *IPSet) addLocked(ip netip.Addr) {
-	uns := !ip.IsUnspecified()
-	valip := ip.IsValid()
-	newip := !s.hasLocked(ip.Unmap())
-	if uns && valip && newip {
-		// always unmapped; github.com/golang/go/issues/53607
-		s.ips = append(s.ips, ip.Unmap())
-	} else {
-		log.D("ipmap: add: fail %s; !uns? %t, val? %t, !new? %t", ip, uns, valip, newip)
+func (s *IPSet) addLocked(ips ...netip.Addr) {
+	for i, ip := range ips {
+		uns := !ip.IsUnspecified()
+		valip := ip.IsValid()
+		newip := !s.hasLocked(ip.Unmap())
+		if uns && valip && newip {
+			// always unmapped; github.com/golang/go/issues/53607
+			s.ips = append(s.ips, ip.Unmap())
+		} else {
+			log.D("ipmap: add #%d: fail %s; !uns? %t, val? %t, !new? %t", i, ip, uns, valip, newip)
+		}
 	}
 }
 
@@ -291,11 +327,15 @@ func (s *IPSet) Seed() []string {
 // add one or more IP addresses to the set.
 // The hostname can be a domain name or an IP address.
 func (s *IPSet) add(hostOrIP string) bool {
+	if s.typ == IPAddr { // nothing to do as this ipset only has one ipaddr
+		return false
+	}
+
 	if host, _, err := net.SplitHostPort(hostOrIP); err == nil {
 		hostOrIP = host
 	}
 	r := s.r
-	if r == nil { // unlikley; s.r is never nil
+	if r == nil { // unlikely; s.r is never nil
 		log.W("ipmap: Add: no resolver for %s", hostOrIP)
 		return false
 	}
@@ -307,15 +347,16 @@ func (s *IPSet) add(hostOrIP string) bool {
 	} else {
 		log.D("ipmap: Add: resolved? %s => %s", hostOrIP, resolved)
 	}
+
 	s.Lock()
-	for _, addr := range resolved { // resolved may be nil
-		s.addLocked(addr)
-	}
+	s.addLocked(resolved...) // resolved may be nil
 	s.Unlock()
+
 	ok := !s.Empty()
 	if ok {
 		s.fails.Store(0) // reset fails, since we have a new ips
 	}
+
 	return ok
 }
 
@@ -346,10 +387,15 @@ func (s *IPSet) bootstrap() (n int) {
 
 // Empty reports whether the set is empty.
 func (s *IPSet) Empty() bool {
+	// typ == IPAddr is never empty!
 	return s.Size() == 0
 }
 
 func (s *IPSet) Size() uint32 {
+	if s.typ == IPAddr { // IPAddr type always has one ip (confirmed)
+		return 1
+	}
+
 	s.RLock()
 	defer s.RUnlock()
 	return uint32(len(s.ips))
@@ -358,6 +404,10 @@ func (s *IPSet) Size() uint32 {
 // Addrs returns a copy of the IP set as a slice in random order.
 // The slice is owned by the caller, but the elements are owned by the set.
 func (s *IPSet) Addrs() []netip.Addr {
+	if s.typ == IPAddr { // fast path for ipaddrs
+		return []netip.Addr{s.confirmed.Load()}
+	}
+
 	s.RLock()
 	ips := s.ips
 	s.RUnlock()
@@ -369,7 +419,7 @@ func (s *IPSet) Addrs() []netip.Addr {
 
 	c := make([]netip.Addr, 0, sz)
 	c = append(c, ips...)
-	if len(c) > 2 {
+	if len(c) > 1 {
 		rand.Shuffle(len(c), func(i, j int) {
 			c[i], c[j] = c[j], c[i]
 		})
@@ -381,55 +431,112 @@ func (s *IPSet) Protected() bool {
 	return s.typ == Protected
 }
 
+func (s *IPSet) OneIPOnly() bool {
+	return s.typ == IPAddr
+}
+
 // Confirmed returns the confirmed IP address, or zeroaddr if there is no such address.
 func (s *IPSet) Confirmed() netip.Addr {
-	ip, _ := s.confirmed.Load().(netip.Addr)
-	return ip
+	return s.confirmed.Load()
 }
 
 // Confirm marks ip as the confirmed address.
+// No-op if current confirmed IP is the same as ip.
+// No-op if s is of type Protected and ip isn't in seed addrs.
+// No-op if s is of type IPAddr.
 func (s *IPSet) Confirm(ip netip.Addr) {
-	s.fails.Store(0) // reset fails, a new confirmed ip
-	if ip.Compare(s.Confirmed()) == 0 {
+	if s.typ == IPAddr { // ipaddr fast path, no-op
 		return
 	}
-	s.confirmed.Store(ip)
-	core.Gx("ipset.confirm", func() {
-		s.Lock()
-		defer s.Unlock()
 
-		s.addLocked(ip) // Add is O(N)
-	})
+	// do not reset fails, as confirmed ipaddrs may be repeatedly
+	// disconfirmed by upstream clients (for example; dialers may
+	// confirm an ip if it successfully dials, but upstream clients
+	// like dot/doh/dns53 may disconfirm them on HTTP/DNS errors).
+	// We'd want to keep incrementing failures, so an eventual
+	// reset can happen once a generous maxFailLimit is exhausted.
+	// s.fails.Store(0)
+	if ip.Compare(s.confirmed.Load()) == 0 {
+		return
+	}
+
+	s.RLock()
+	newIP := !s.hasLocked(ip)
+	s.RUnlock()
+
+	// Protected IPSets should stay consistent with its seed addrs
+	// and must not add or confirm unseeded IPs. This happens in cases
+	// where an IP from a previous Protected IPSet may be confirmed at
+	// a time after the IPSet has been updated to a new one. For example,
+	// if UidSelf / UidSystem has been changed to new System DNS IPs,
+	// a goroutine using the previous UidSelf / UidSystem IPSet may
+	// end up confirming IP address in the new one.
+	if s.typ == Protected && newIP {
+		return
+	}
+
+	s.confirmed.Store(ip)
+
+	// Add this IP to the set if it hasn't been seen before.
+	if s.typ != Protected && newIP {
+		core.Gx("ipset.confirm", func() {
+			s.Lock()
+			defer s.Unlock()
+
+			s.addLocked(ip) // Add is O(N)
+		})
+	}
+}
+
+// Reset clears existing IPs for Regular and Protected types,
+// while it is a no-op for type IPAddr.
+func (s *IPSet) Reset() *IPSet {
+	s.clear()
+	return s
 }
 
 func (s *IPSet) clear() {
-	s.Lock()
-	s.ips = nil
-	s.Unlock()
+	if s.typ == IPAddr { // no-op for ipaddr
+		return
+	}
+
+	if s.typ != Protected {
+		s.Lock()
+		s.ips = nil
+		s.Unlock()
+	}
 	s.confirmed.Store(zeroaddr)
 	s.fails.Store(0)
 }
 
 // Disconfirm sets the confirmed address to zeroaddr if the current confirmed address
 // is the provided ip.
-func (s *IPSet) Disconfirm(ip netip.Addr) (ok bool) {
-	c := s.Confirmed()
+func (s *IPSet) Disconfirm(ip netip.Addr) (done bool) {
+	if s.typ == IPAddr { // no-op for ipaddr
+		return false
+	}
+
+	c := s.confirmed.Load()
 	if ip.Compare(c) == 0 {
 		s.confirmed.Store(zeroaddr)
-		ok = true
+		done = true
 	}
 
 	// if s is not empty, act on disconfirm
 	if sz := s.Size(); sz > 0 {
+		tot := s.fails.Load()
 		// either the confirmed was disconfirmed above
 		// or s never had a confirmed ip, but still
 		// Disconfirm() was called, indicating a failure
-		if c.Compare(zeroaddr) == 0 {
-			s.fails.Add(1)
+		if done || c.Compare(zeroaddr) == 0 {
+			tot = s.fails.Add(1)
 		}
-		if s.fails.Load() > max(2*sz, maxFailLimit) {
+
+		if tot > max(2*sz, maxFailLimit) {
 			// empty out the set, may be refilled by Get()
-			s.clear()
+			if s.fails.CompareAndSwap(tot, 0) {
+				s.clear()
+			}
 		}
 	}
 	return

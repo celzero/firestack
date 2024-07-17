@@ -33,9 +33,11 @@ const (
 )
 
 const (
-	ClientMagicLen     = 8
+	ClientMagicLen = 8
+	// X-Nile-Flags:[1:AAIAAQ]
 	blocklistHeaderKey = "x-nile-flags" // "x-bl-fl"
 	// github.com/serverless-dns/serverless-dns/blob/f247f75d31a/src/core/io-state.js#L188
+	// X-Nile-Region:[sin]
 	rethinkdnsRegionHeaderKey = "x-nile-region"
 	// Cf-Ray:[d1e2a3d4b5e6e7f8-SIN]
 	cfRayHeaderKey = "cf-ray"
@@ -169,29 +171,6 @@ func FindUnique(s []string, n []string) (u []string) {
 	}
 
 	return
-}
-
-// remove removes elements at indices r from a ascii string slice s
-// and returns a slice
-func RemoveOverlap(s []string, r []string) []string {
-	// TODO: check if the max(r...) is within len(s)
-	// FIXME: s shouldn't contain empty string
-	var j int = 0
-	for _, x := range s {
-		var skip bool = false
-		for _, y := range r {
-			if x == y {
-				skip = true
-				break
-			}
-		}
-		if !skip {
-			s[j] = x
-			j++
-		}
-	}
-	// slice out the bottom-half to be removed
-	return s[:j]
 }
 
 // TODO: merge this with doh.Accept

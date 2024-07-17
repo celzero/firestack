@@ -58,8 +58,8 @@ func (h *MH) straddrs() []string {
 func (h *MH) Names() []string {
 	h.Lock()
 	defer h.Unlock()
-
-	return h.names // todo: return a copy
+	// copying h.names is not required as strings are immutable
+	return h.names
 }
 
 // Returns ip:port, where ports may be 0.
@@ -67,7 +67,8 @@ func (h *MH) Addrs() []netip.AddrPort {
 	h.RLock()
 	defer h.RUnlock()
 
-	return h.addrs // todo: return a copy
+	// copying h.addrs is not required as netip.AddrPort is immutable
+	return h.addrs
 }
 
 func (h *MH) splitFamily() (out4, out6, og []netip.AddrPort) {
@@ -140,13 +141,6 @@ func (h *MH) Len() int {
 	defer h.RUnlock()
 	// names may exist without addrs and vice versa
 	return max(len(h.addrs), len(h.names))
-}
-
-func (h *MH) addrlen() int {
-	h.RLock()
-	defer h.RUnlock()
-
-	return len(h.addrs)
 }
 
 // Refresh re-adds the list of IPs, hostnames, and re-resolves the hostname.

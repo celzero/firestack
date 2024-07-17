@@ -25,6 +25,7 @@ package doh
 
 import (
 	"bytes"
+	"context"
 	"crypto/tls"
 	"errors"
 	"fmt"
@@ -33,6 +34,7 @@ import (
 	"net/http"
 	"net/http/httptrace"
 	"net/url"
+	"strings"
 	"sync"
 	"time"
 
@@ -43,6 +45,7 @@ import (
 	"github.com/celzero/firestack/intra/ipn"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
+	"github.com/celzero/firestack/intra/settings"
 	"github.com/celzero/firestack/intra/xdns"
 	"github.com/cloudflare/odoh-go"
 	"github.com/miekg/dns"
@@ -51,6 +54,8 @@ import (
 const dohmimetype = "application/dns-message"
 
 const maxEOFTries = uint8(2)
+
+const purgethreshold = 1 * time.Minute
 
 var errNoClient error = errors.New("no doh client")
 
@@ -62,20 +67,24 @@ type odohtransport struct {
 	odohtargetpath   string       // target path
 	odohConfig       *odoh.ObliviousDoHConfig
 	odohConfigExpiry time.Time
-	preferWK         bool // prefer .well-known over svcb/https probe
+	preferWK         bool           // prefer .well-known over svcb/https probe
+	boot             dnsx.Transport // DNS-over-HTTPS transport
 }
 
 // TODO: Keep a context here so that queries can be canceled.
 type transport struct {
 	*odohtransport // stackoverflow.com/a/28505394
+	ctx            context.Context
+	done           context.CancelFunc
 	id             string
-	typ            string       // dnsx.DOH / dnsx.ODOH
-	url            string       // endpoint URL
-	hostname       string       // endpoint hostname
-	client         http.Client  // only for use with the endpoint
-	tlsconfig      *tls.Config  // preset tlsconfig for the endpoint
-	pxcmu          sync.RWMutex // protects pxclients
-	pxclients      map[string]*proxytransport
+	typ            string                     // dnsx.DOH / dnsx.ODOH
+	url            string                     // endpoint URL
+	hostname       string                     // endpoint hostname
+	client         http.Client                // only for use with the endpoint
+	tlsconfig      *tls.Config                // preset tlsconfig for the endpoint
+	pxcmu          sync.RWMutex               // protects pxclients
+	pxclients      map[string]*proxytransport // todo: use weak pointers for Proxy
+	lastpurge      *core.Volatile[time.Time]  // last scrubbed time for stale pxclients
 	dialer         *protect.RDial
 	proxies        ipn.Proxies // proxy provider, may be nil
 	relay          ipn.Proxy   // dial doh via relay, may be nil
@@ -86,7 +95,11 @@ type transport struct {
 var _ dnsx.Transport = (*transport)(nil)
 
 func (t *transport) dial(network, addr string) (net.Conn, error) {
-	return dialers.SplitDial(t.dialer, network, addr)
+	if settings.Loopingback.Load() { // no splits in loopback (rinr) mode
+		return dialers.Dial(t.dialer, network, addr)
+	} else {
+		return dialers.SplitDial(t.dialer, network, addr)
+	}
 }
 
 // NewTransport returns a POST-only DoH transport.
@@ -95,20 +108,20 @@ func (t *transport) dial(network, addr string) (net.Conn, error) {
 // `addrs` is a list of IP addresses to bootstrap dialers.
 // `px` is the proxy provider, may be nil (eg for id == dnsx.Default)
 func NewTransport(id, rawurl string, addrs []string, px ipn.Proxies, ctl protect.Controller) (*transport, error) {
-	return newTransport(dnsx.DOH, id, rawurl, "", addrs, px, ctl)
+	return newTransport(dnsx.DOH, id, rawurl, "", addrs, px, ctl, nil)
 }
 
 // NewTransport returns a POST-only Oblivious DoH transport.
 // `id` identifies this transport.
-// `endpoint` is the ODoH proxy that liasons with the target.
+// `endpoint` is the ODoH proxy that liaisons with the target.
 // `target` is the ODoH resolver.
 // `addrs` is a list of IP addresses to bootstrap endpoint dialers.
 // `px` is the proxy provider, never nil.
-func NewOdohTransport(id, endpoint, target string, addrs []string, px ipn.Proxies, ctl protect.Controller) (*transport, error) {
-	return newTransport(dnsx.ODOH, id, endpoint, target, addrs, px, ctl)
+func NewOdohTransport(id, endpoint, target string, addrs []string, px ipn.Proxies, ctl protect.Controller, boot dnsx.Transport) (*transport, error) {
+	return newTransport(dnsx.ODOH, id, endpoint, target, addrs, px, ctl, boot)
 }
 
-func newTransport(typ, id, rawurl, otargeturl string, addrs []string, px ipn.Proxies, ctl protect.Controller) (*transport, error) {
+func newTransport(typ, id, rawurl, otargeturl string, addrs []string, px ipn.Proxies, ctl protect.Controller, boot dnsx.Transport) (*transport, error) {
 	skipTLSVerify := false
 	isodoh := typ == dnsx.ODOH
 
@@ -118,7 +131,11 @@ func newTransport(typ, id, rawurl, otargeturl string, addrs []string, px ipn.Pro
 		relay, _ = px.ProxyFor(id)
 	}
 
+	ctx, done := context.WithCancel(context.Background())
+
 	t := &transport{
+		ctx:       ctx,
+		done:      done,
 		id:        id,
 		typ:       typ,
 		dialer:    protect.MakeNsRDial(id, ctl), // ctl may be nil
@@ -126,7 +143,8 @@ func newTransport(typ, id, rawurl, otargeturl string, addrs []string, px ipn.Pro
 		relay:     relay,                        // may be nil
 		status:    dnsx.Start,
 		pxclients: make(map[string]*proxytransport),
-		est:       core.NewP50Estimator(),
+		lastpurge: core.NewVolatile(time.Now()),
+		est:       core.NewP50Estimator(ctx),
 	}
 	if !isodoh {
 		parsedurl, err := url.Parse(rawurl)
@@ -152,6 +170,7 @@ func newTransport(typ, id, rawurl, otargeturl string, addrs []string, px ipn.Pro
 		// addrs are pre-determined ip addresses for url / hostname
 		renewed = dnsx.RegisterAddrs(t.id, t.hostname, addrs)
 	} else {
+		t.bootstrap(boot)
 		t.odohtransport = &odohtransport{}
 
 		proxy := rawurl // may be empty
@@ -222,6 +241,41 @@ type proxytransport struct {
 	c *http.Client
 }
 
+// always called from a go-routine
+func (t *transport) purgeProxyClients() {
+	lastpurge := t.lastpurge.Load()
+	if time.Since(lastpurge) <= purgethreshold {
+		return
+	}
+	if ok := t.lastpurge.Cas(lastpurge, time.Now()); !ok {
+		log.I("doh: purge proxy clients: race...")
+		return
+	}
+	t.pxcmu.Lock()
+	defer t.pxcmu.Unlock()
+	for id, pxtr := range t.pxclients {
+		if pxtr == nil {
+			continue
+		} else if pxtr.p == nil {
+			delete(t.pxclients, id)
+			continue
+		} else if orig, err := t.proxies.ProxyFor(id); err != nil {
+			delete(t.pxclients, id)
+			log.W("doh: purge proxy clients: %s %v", id, err)
+			continue
+		} else {
+			diff := pxtr.p != orig
+			note := log.V
+			if diff {
+				note = log.I
+				delete(t.pxclients, id)
+				continue
+			}
+			note("doh: purge proxy clients: remove? %t %s", diff, id)
+		}
+	}
+}
+
 func (t *transport) httpClientFor(p ipn.Proxy) (*http.Client, error) {
 	t.pxcmu.RLock()
 	pxtr, ok := t.pxclients[p.ID()]
@@ -248,6 +302,9 @@ func (t *transport) httpClientFor(p ipn.Proxy) (*http.Client, error) {
 	t.pxcmu.Lock()
 	t.pxclients[p.ID()] = &proxytransport{p: p, c: client}
 	t.pxcmu.Unlock()
+
+	// check if other proxies need to be purged
+	go t.purgeProxyClients()
 
 	return client, nil
 }
@@ -383,11 +440,11 @@ func (t *transport) do(pid string, req *http.Request) (ans []byte, blocklists, r
 		if hasserveraddr {
 			if qerr == nil {
 				// record a working IP address for this server
-				dialers.Confirm(hostname, server)
+				dialers.Confirm3(hostname, server)
 				return
 			} else {
-				log.D("doh: disconfirming %s, %s", hostname, server)
-				dialers.Disconfirm3(hostname, server)
+				ok := dialers.Disconfirm3(hostname, server)
+				log.D("doh: disconfirming %s, %s done? %t", hostname, server, ok)
 			}
 		}
 		if qerr != nil {
@@ -435,7 +492,6 @@ func (t *transport) do(pid string, req *http.Request) (ans []byte, blocklists, r
 
 	blocklists, region = t.rdnsHeaders(&httpResponse.Header)
 	// todo: check if content-type is [doh|odoh] mime type
-	log.V("doh: got response %s", region)
 
 	ans, err = io.ReadAll(httpResponse.Body)
 	if err != nil {
@@ -481,9 +537,13 @@ func (t *transport) rdnsHeaders(h *http.Header) (blocklistStamp, region string) 
 		return
 	}
 	blocklistStamp = h.Get(xdns.GetBlocklistStampHeaderKey())
+	// X-Nile-Region:[sin]
 	region = h.Get(xdns.GetRethinkDNSRegionHeaderKey1())
 	if len(region) <= 0 {
-		region = h.Get(xdns.GetRethinkDNSRegionHeaderKey2())
+		// Cf-Ray:[d1e2a3d4b5e6e7f8-SIN]
+		if ck := h.Get(xdns.GetRethinkDNSRegionHeaderKey2()); len(ck) > 0 {
+			_, region, _ = strings.Cut(ck, "-")
+		}
 	}
 	log.VV("doh: header %s; region %s; stamp %v", h, region, blocklistStamp)
 	return
@@ -579,4 +639,9 @@ func (t *transport) GetAddr() string {
 
 func (t *transport) Status() int {
 	return t.status
+}
+
+func (t *transport) Stop() error {
+	t.done()
+	return nil
 }

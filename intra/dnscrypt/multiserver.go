@@ -50,6 +50,7 @@ type DcMulti struct {
 	routes              []string
 	liveServers         []string
 	proxies             ipn.Proxies
+	ctx                 context.Context
 	sigterm             context.CancelFunc
 	lastStatus          int
 	lastAddr            string
@@ -79,7 +80,6 @@ var (
 	errNonceUnexpected = errors.New("dnscrypt: unexpected nonce")
 	errIncorrectTag    = errors.New("dnscrypt: incorrect tag")
 	errIncorrectPad    = errors.New("dnscrypt: incorrect padding")
-	errStarted         = errors.New("dnscrypt: already started")
 	errNoConn          = errors.New("dnscrypt: no connection")
 )
 
@@ -402,12 +402,6 @@ func (proxy *DcMulti) Refresh() (string, error) {
 
 // start starts this dnscrypt proxy
 func (proxy *DcMulti) start() error {
-	if proxy.sigterm != nil {
-		return errStarted
-	}
-	ctx, cancel := context.WithCancel(context.Background())
-	proxy.sigterm = cancel
-
 	if _, err := crypto_rand.Read(proxy.proxySecretKey[:]); err != nil {
 		return err
 	}
@@ -418,7 +412,7 @@ func (proxy *DcMulti) start() error {
 		core.Gg("dcmulti.start", func() {
 			for {
 				select {
-				case <-ctx.Done():
+				case <-proxy.ctx.Done():
 					log.I("dnscrypt: cert refresh stopped")
 					return
 				default:
@@ -441,17 +435,17 @@ func (proxy *DcMulti) start() error {
 }
 
 func (proxy *DcMulti) notifyRestart() {
-	defer proxy.Stop()
+	defer proxy.stop()
 	log.U("DNSCrypt stopped; restart the app")
+}
+
+func (proxy *DcMulti) stop() {
+	_ = proxy.Stop()
 }
 
 // Stop stops this dnscrypt proxy
 func (proxy *DcMulti) Stop() error {
-	if proxy.sigterm != nil {
-		proxy.sigterm()
-	}
-	proxy.sigterm = nil
-	proxy.ctl = nil // a bridge in to client "freed" here
+	proxy.sigterm()
 	return nil
 }
 
@@ -650,6 +644,7 @@ func stamp2str(s stamps.ServerStamp) string {
 
 // NewDcMult creates a dnscrypt proxy
 func NewDcMult(px ipn.Proxies, ctl protect.Controller) *DcMulti {
+	ctx, cancel := context.WithCancel(context.Background())
 	dc := &DcMulti{
 		routes:              nil,
 		registeredServers:   make(map[string]registeredserver),
@@ -660,8 +655,10 @@ func NewDcMult(px ipn.Proxies, ctl protect.Controller) *DcMulti {
 		proxies:             px,
 		lastAddr:            "",
 		ctl:                 ctl,
+		ctx:                 ctx,
+		sigterm:             cancel,
 		dialer:              protect.MakeNsRDial(dnsx.DcProxy, ctl),
-		est:                 core.NewP50Estimator(),
+		est:                 core.NewP50Estimator(ctx),
 	}
 	err := dc.start()
 	if err != nil {

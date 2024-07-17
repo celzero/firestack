@@ -65,8 +65,16 @@ func tlsdial(d *tls.Dialer, network, addr string, connect tlsConnectFunc) (net.C
 	}
 	var errs error
 	ips := ipm.Get(domain)
+	dontretry := ips.OneIPOnly() // just one IP, no retries possible
 	confirmed := ips.Confirmed()
-	if ipok(confirmed) {
+	confirmedIPOK := ipok(confirmed)
+
+	defer func() {
+		dur := time.Since(start)
+		log.D("tlsdial: duration: %s; failed %s; confirmed? %s, sz: %d", dur, addr, confirmed, ips.Size())
+	}()
+
+	if confirmedIPOK {
 		log.V("tlsdial: confirmed ip %s for %s", confirmed, addr)
 		if conn, cerr := connect(d, network, domain, confirmed, port); cerr == nil {
 			log.V("tlsdial: found working ip %s for %s", confirmed, addr)
@@ -76,6 +84,14 @@ func tlsdial(d *tls.Dialer, network, addr string, connect tlsConnectFunc) (net.C
 			ips.Disconfirm(confirmed)
 			log.D("tlsdial: confirmed ip %s for %s failed with err %v", confirmed, addr, cerr)
 		}
+	}
+
+	if dontretry {
+		if !confirmedIPOK {
+			log.E("tlsdial: ip %s not ok for %s", confirmed, addr)
+			errs = errors.Join(errs, errNoIps)
+		}
+		return nil, errs
 	}
 
 	ipset := ips.Addrs()
@@ -109,9 +125,6 @@ func tlsdial(d *tls.Dialer, network, addr string, connect tlsConnectFunc) (net.C
 			log.D("tlsdial: ip %s for %s is not ok", ip, addr)
 		}
 	}
-
-	dur := time.Since(start)
-	log.D("tlsdial: duration: %s; failed %s", dur, addr)
 
 	if len(ipset) <= 0 {
 		errs = errNoIps

@@ -57,7 +57,7 @@ func newSocks5Server(id, x string, ctl protect.Controller, listener ServerListen
 
 	rdial := protect.MakeNsRDial(id, ctl)
 	if _, ok := tx.Dial.(*protect.RDial); !ok {
-		tx.Dial = rdial // overriden by h.Hop; conflicts with ipn/socks5
+		tx.Dial = rdial // overridden by h.Hop; conflicts with ipn/socks5
 	} else {
 		log.W("svcsocks5: new %s; tx.Dial already set", id)
 	}

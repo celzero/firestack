@@ -126,7 +126,7 @@ func (tnet *wgtun) DialContext(_ context.Context, network, address string) (net.
 		}
 	}
 
-	rv, _ := tnet.reqbarrier.Do(host, resolve(tnet, host))
+	rv, _ := tnet.ba.Do(host, resolve(tnet, host))
 	if rv.Err != nil {
 		log.W("wg: dial: lookup failed %q: %v", host, rv.Err)
 		return nil, &net.OpError{Op: "dial", Err: rv.Err}
@@ -158,7 +158,7 @@ func (tnet *wgtun) DialContext(_ context.Context, network, address string) (net.
 		}
 		log.I("wg: dial: %s: #%d %v", network, i, addr)
 		if err == nil {
-			dialers.Confirm2(host, addr.Addr())
+			dialers.Confirm(host, addr.Addr())
 			return c, nil
 		}
 		dialers.Disconfirm(host, addr.Addr())

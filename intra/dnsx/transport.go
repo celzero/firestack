@@ -97,6 +97,8 @@ type Transport interface {
 	// ID, or an error if no response was received.  The error may be accompanied
 	// by a SERVFAIL response if appropriate.
 	Query(network string, q *dns.Msg, summary *x.DNSSummary) (*dns.Msg, error)
+	// Stop closes the transport.
+	Stop() error
 }
 
 // TransportMult is a hybrid: transport and a multi-transport.
@@ -123,6 +125,9 @@ type Resolver interface {
 	Forward(q []byte) ([]byte, error)
 	// Serve reads DNS query from conn and writes DNS answer to conn
 	Serve(proto string, conn protect.Conn)
+
+	// StopResolvers stops all transports.
+	StopResolvers() error
 }
 
 type resolver struct {
@@ -135,6 +140,7 @@ type resolver struct {
 	localdomains x.RadixTree
 	listener     x.DNSListener
 	smms         chan *x.DNSSummary
+	done         chan struct{} // always unbuffered
 
 	once   sync.Once
 	closed atomic.Bool
@@ -152,6 +158,7 @@ func NewResolver(fakeaddrs string, tunmode *settings.TunMode, dtr x.DNSTransport
 		NatPt:        pt,
 		listener:     l,
 		smms:         make(chan *x.DNSSummary, 32),
+		done:         make(chan struct{}),
 		transports:   make(map[string]Transport),
 		tunmode:      tunmode,
 		localdomains: newUndelegatedDomainsTrie(),
@@ -184,6 +191,23 @@ func NewResolver(fakeaddrs string, tunmode *settings.TunMode, dtr x.DNSTransport
 func (r *resolver) sendSummaries() {
 	for smm := range r.smms {
 		r.listener.OnResponse(smm)
+	}
+}
+
+func (r *resolver) queueSummary(smm *x.DNSSummary) {
+	if smm == nil {
+		return
+	}
+	select {
+	case <-r.done:
+		log.W("dns: fwd: smms closed; dropping %s", smm.Str())
+	default:
+		select {
+		case <-r.done:
+		case r.smms <- smm:
+		default:
+			log.W("dns: fwd: smms full; dropping %s", smm.Str())
+		}
 	}
 }
 
@@ -361,11 +385,10 @@ func (r *resolver) forward(q []byte, chosenids ...string) (res0 []byte, err0 err
 		if settings.Debug {
 			smm.Latency = time.Since(starttime).Seconds()
 		}
-		select {
-		case r.smms <- smm:
-		default:
-			log.W("dns: fwd: smms closed or full; dropping %s", smm.QName)
+		if len(smm.Msg) <= 0 {
+			smm.Msg = noerr.Error()
 		}
+		r.queueSummary(smm)
 	}()
 
 	msg, err := unpack(q)
@@ -392,7 +415,7 @@ func (r *resolver) forward(q []byte, chosenids ...string) (res0 []byte, err0 err
 
 	pref := r.listener.OnQuery(qname, qtyp)
 	id, sid, pid, presetIPs := r.preferencesFrom(qname, uint16(qtyp), pref, chosenids...)
-	t := r.determineTransport(id)
+	t := r.determineTransport(id) // id may be empty if pref is nil
 
 	log.V("dns: fwd: query %s [prefs:%v; chosen:%v]; id? %s, sid? %s, pid? %s, ips? %v", qname, pref, chosenids, id, sid, pid, presetIPs)
 
@@ -701,9 +724,9 @@ func (r *resolver) accept(c io.ReadWriteCloser) {
 	// TODO: Cancel outstanding queries.
 }
 
-func (r *resolver) Stop() error {
+func (r *resolver) StopResolvers() error {
 	r.once.Do(func() {
-		close(r.smms)
+		close(r.done)
 
 		core.Go("r.onStop", func() { r.listener.OnDNSStopped() })
 
@@ -713,6 +736,8 @@ func (r *resolver) Stop() error {
 		if dc, err := r.dcProxy(); err == nil {
 			_ = dc.Stop()
 		}
+
+		close(r.smms) // close listener chan
 	})
 	return nil // always no error
 }
@@ -767,9 +792,9 @@ func (r *resolver) LiveTransports() string {
 
 func (r *resolver) preferencesFrom(qname string, qtyp uint16, s *x.DNSOpts, chosenids ...string) (id1, id2, pid string, ips []*netip.Addr) {
 	var x []string
-	if s == nil { // should never happen; but it has during testing
+	if s == nil { // should never happen; but it has during testing (on End())
 		log.W("dns: pref: no ns opts for %s", qname)
-		x = nil
+		return // no-op
 	} else {
 		x = strings.Split(s.TIDCSV, ",")
 		if y := strings.Split(s.IPCSV, ","); len(y) > 0 {
@@ -840,7 +865,7 @@ func (r *resolver) preferencesFrom(qname string, qtyp uint16, s *x.DNSOpts, chos
 		id1 = Local
 		id2 = ""
 	}
-	if len(s.PID) > 0 {
+	if s != nil && len(s.PID) > 0 {
 		pid = overrideProxyIfNeeded(s.PID, id1, id2)
 	} else {
 		pid = NetNoProxy
@@ -888,6 +913,10 @@ func RegisterAddrs(id, hostname string, ipps []string) (ok bool) {
 		_, ok = dialers.New(hostname, ipps)
 	}
 	return
+}
+
+func IsEncrypted(t Transport) bool {
+	return t.Type() == DOT || t.Type() == DOH || t.Type() == DNSCrypt || t.Type() == ODOH
 }
 
 func isReserved(id string) bool {
@@ -940,13 +969,13 @@ func overrideProxyIfNeeded(pid string, ids ...string) string {
 	for _, id := range ids {
 		switch id {
 		// note: Goos is anyway hard-coded to use NetExitProxy
-		case Bootstrap, Default, Goos: // exit
-			return NetExitProxy
-		case CT + Bootstrap, CT + Default, CT + Goos: // exit
-			return NetExitProxy
-		case System, Local: // base
+		case Goos: // exit
 			return NetNoProxy
-		case CT + System, CT + Local: // base
+		case CT + Goos: // exit
+			return NetNoProxy
+		case Bootstrap, Default, System, Local: // base
+			return NetNoProxy
+		case CT + Bootstrap, CT + Default, CT + System, CT + Local: // base
 			return NetNoProxy
 		}
 	}

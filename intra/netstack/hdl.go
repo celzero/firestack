@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/netip"
 	"strings"
+	"sync"
 
 	"gvisor.dev/gvisor/pkg/tcpip"
 	"gvisor.dev/gvisor/pkg/tcpip/stack"
@@ -28,6 +29,7 @@ type gconnhandler struct {
 	tcp  GTCPConnHandler
 	udp  GUDPConnHandler
 	icmp GICMPHandler
+	once sync.Once
 }
 
 const allconns = ""
@@ -81,22 +83,23 @@ func (g *gconnhandler) CloseConns(csv string) string {
 	return strings.Join(s, ",")
 }
 
-func (g *gconnhandler) Close() error {
-	var errs error
-	g.CloseConns(allconns)
-	if t := g.tcp; t != nil {
-		err := t.End()
-		errs = errors.Join(errs, err)
-	}
-	if u := g.udp; u != nil {
-		err := u.End()
-		errs = errors.Join(errs, err)
-	}
-	if i := g.icmp; i != nil {
-		err := i.End()
-		errs = errors.Join(errs, err)
-	}
-	return errs
+func (g *gconnhandler) Close() (errs error) {
+	g.once.Do(func() {
+		g.CloseConns(allconns)
+		if t := g.tcp; t != nil {
+			err := t.End()
+			errs = errors.Join(errs, err)
+		}
+		if u := g.udp; u != nil {
+			err := u.End()
+			errs = errors.Join(errs, err)
+		}
+		if i := g.icmp; i != nil {
+			err := i.End()
+			errs = errors.Join(errs, err)
+		}
+	})
+	return
 }
 
 // src/dst addrs are flipped

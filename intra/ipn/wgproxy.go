@@ -71,20 +71,20 @@ const (
 )
 
 type wgtun struct {
-	id            string                      // id
-	cfg           string                      // original config
-	addrs         []netip.Prefix              // interface addresses
-	stack         *stack.Stack                // stack fakes tun device for wg
-	ep            *channel.Endpoint           // reads and writes packets to/from stack
-	ingress       chan *buffer.View           // pipes ep writes to wg
-	events        chan tun.Event              // wg specific tun (interface) events
-	finalize      chan struct{}               // close signal for incomingPacket
-	mtu           int                         // mtu of this interface
-	reqbarrier    *core.Barrier[[]netip.Addr] // request barrier for dns lookups
-	once          sync.Once                   // exec fn exactly once
-	hasV4, hasV6  bool                        // interface has ipv4/ipv6 routes?
-	preferOffload bool                        // UDP GRO/GSO offloads
-	since         int64                       // start time in unix millis
+	id            string                              // id
+	cfg           string                              // original config
+	addrs         []netip.Prefix                      // interface addresses
+	stack         *stack.Stack                        // stack fakes tun device for wg
+	ep            *channel.Endpoint                   // reads and writes packets to/from stack
+	ingress       chan *buffer.View                   // pipes ep writes to wg
+	events        chan tun.Event                      // wg specific tun (interface) events
+	finalize      chan struct{}                       // close signal for incomingPacket
+	mtu           int                                 // mtu of this interface
+	ba            *core.Barrier[[]netip.Addr, string] // request barrier for dns lookups
+	once          sync.Once                           // exec fn exactly once
+	hasV4, hasV6  bool                                // interface has ipv4/ipv6 routes?
+	preferOffload bool                                // UDP GRO/GSO offloads
+	since         int64                               // start time in unix millis
 
 	// mutable fields
 
@@ -513,7 +513,7 @@ func makeWgTun(id, cfg string, ifaddrs, allowedaddrs []netip.Prefix, peers map[s
 		dns:           core.NewVolatile(dnsm),
 		remote:        core.NewVolatile(endpointm), // may be nil
 		peers:         core.NewVolatile(peers),     // its entries must never be modified
-		reqbarrier:    core.NewBarrier[[]netip.Addr](wgbarrierttl),
+		ba:            core.NewBarrier[[]netip.Addr](wgbarrierttl),
 		mtu:           tunmtu,
 		status:        core.NewVolatile(TUP),
 		preferOffload: preferOffload(id),
@@ -650,13 +650,17 @@ func (tun *wgtun) WriteNotify() {
 	sz := view.Size()
 
 	select {
-	case tun.ingress <- view: // closed chans panic on send: groups.google.com/g/golang-nuts/c/SDIBFSkDlK4
-		log.VV("wg: %s tun: write: notify sz(%d)", tun.id, sz)
 	case <-tun.finalize: // dave.cheney.net/2013/04/30/curious-channels
 		log.I("wg: %s tun: write: finalize; dropped pkt; sz(%d)", tun.id, sz)
-	default: // ingress is full and finalize is blocked
-		e := tun.status.Load() == END
-		log.W("wg: %s tun: write: closed? %t; dropped pkt; sz(%d)", tun.id, e, sz)
+	default:
+		select {
+		case <-tun.finalize:
+		case tun.ingress <- view: // closed chans panic on send: groups.google.com/g/golang-nuts/c/SDIBFSkDlK4
+			log.VV("wg: %s tun: write: notify sz(%d)", tun.id, sz)
+		default: // ingress is full and finalize is blocked
+			e := tun.status.Load() == END
+			log.W("wg: %s tun: write: closed? %t; dropped pkt; sz(%d)", tun.id, e, sz)
+		}
 	}
 }
 
@@ -670,7 +674,7 @@ func (tun *wgtun) Close() error {
 	tun.once.Do(func() {
 		log.D("proxy: wg: %s tun: closing...", tun.id)
 
-		close(tun.finalize)   // unblock all recievers
+		close(tun.finalize)   // unblock all receivers
 		tun.status.Store(END) // TODO: move this to wgproxy.Close()?
 
 		tun.stack.RemoveNIC(wgnic)
@@ -692,8 +696,8 @@ func (tun *wgtun) Close() error {
 
 // Implements Router.
 // TODO: use wgtun as a receiver for Stats()
-func (w *wgproxy) Stat() (out *x.Stats) {
-	out = new(x.Stats)
+func (w *wgproxy) Stat() (out *x.RouterStats) {
+	out = new(x.RouterStats)
 
 	if w.status.Load() == END {
 		log.W("proxy: wg: %s stats: stopped", w.id)
@@ -893,7 +897,7 @@ func (h *wgtun) listener(op string, err error) {
 		if h.latestRx.Load() <= 0 {
 			s = TNT // writes succeeded; but reads have never
 		} else {
-			s = TZZ // wirtes and reads have suceeded in the past
+			s = TZZ // wirtes and reads have succeeded in the past
 		}
 	} else if err != nil {
 		s = TKO

@@ -7,6 +7,7 @@
 package dns53
 
 import (
+	"context"
 	"errors"
 	"net"
 	"net/netip"
@@ -37,8 +38,10 @@ var errQueryParse = errors.New("dns53: err parse query")
 
 // TODO: Keep a context here so that queries can be canceled.
 type transport struct {
+	ctx      context.Context
+	done     context.CancelFunc
 	id       string
-	addrport string // hostname, ip:port, protect.UidSelf, protect.System
+	addrport string // hostname, ip:port, protect.UidSelf:53, protect.System:53
 	lastaddr string // last resolved addr
 	status   int
 	client   *dns.Client
@@ -79,14 +82,17 @@ func newTransport(id string, do *settings.DNSOptions, px ipn.Proxies, ctl protec
 	}
 	relay, _ := px.ProxyFor(id)
 	d := protect.MakeNsRDial(id, ctl)
+	ctx, done := context.WithCancel(context.Background())
 	tx := &transport{
+		ctx:      ctx,
+		done:     done,
 		id:       id,
 		addrport: do.AddrPort(), // may be hostname:port or ip:port
 		status:   dnsx.Start,
 		dialer:   d,
 		proxies:  px,    // never nil; see above
 		relay:    relay, // may be nil
-		est:      core.NewP50Estimator(),
+		est:      core.NewP50Estimator(ctx),
 	}
 	ipcsv := do.ResolvedAddrs()
 	hasips := len(ipcsv) > 0
@@ -165,6 +171,7 @@ func (t *transport) send(network, pid string, q *dns.Msg) (ans *dns.Msg, elapsed
 
 	var conn *dns.Conn
 
+	qname := xdns.QName(q)
 	useudp := network == dnsx.NetTypeUDP
 	userelay := t.relay != nil
 	useproxy := len(pid) != 0 // pid == dnsx.NetNoProxy => ipn.Base
@@ -174,20 +181,20 @@ func (t *transport) send(network, pid string, q *dns.Msg) (ans *dns.Msg, elapsed
 	if userelay || useproxy {
 		conn, err = t.pxdial(network, pid)
 		if err != nil && useudp {
-			log.E("dns53: send: udp %s pxdial(px? %t / relay? %t) failed %v", t.id, useproxy, userelay, err)
+			log.E("dns53: send: udp %s pxdial(px? %t / relay? %t) for %s failed %v", t.id, useproxy, userelay, qname, err)
 			network = dnsx.NetTypeTCP
 			conn, err = t.pxdial(network, pid)
 		}
 	} else {
 		conn, err = t.dial(network)
 		if err != nil && useudp {
-			log.E("dns53: send: udp %s dial failed %v", t.id, err)
+			log.E("dns53: send: udp %s dial for %s failed %v", t.id, qname, err)
 			network = dnsx.NetTypeTCP
 			conn, err = t.dial(network)
 		}
 	}
 
-	log.V("dns53: send: (%s / %s) to %s using udp? %t / px? %t / relay? %t; err? %v", network, t.id, t.addrport, useudp, useproxy, userelay, err)
+	log.V("dns53: send: (%s / %s) to %s for %s using udp? %t / px? %t / relay? %t; err? %v", network, t.id, t.addrport, qname, useudp, useproxy, userelay, err)
 
 	if err != nil {
 		qerr = dnsx.NewClientQueryError(err)
@@ -199,11 +206,13 @@ func (t *transport) send(network, pid string, q *dns.Msg) (ans *dns.Msg, elapsed
 	clos(conn) // TODO: conn pooling w/ ExchangeWithConn
 
 	if err != nil {
-		log.V("dot: sendRequest: (%s) err: %v; disconfirm", t.id, err, lastaddr)
-		dialers.Disconfirm2(t.addrport, lastaddr)
+		ok := dialers.Disconfirm2(t.addrport, lastaddr)
+		log.V("dns53: sendRequest: (%s) for %s; err: %v; disconfirm? %t %s => %s", t.id, qname, err, ok, t.addrport, lastaddr)
 		qerr = dnsx.NewSendFailedQueryError(err)
 	} else if ans == nil {
 		qerr = dnsx.NewBadResponseQueryError(err)
+	} else {
+		dialers.Confirm2(t.addrport, lastaddr)
 	}
 
 	t.lastaddr = lastaddr
@@ -223,7 +232,7 @@ func (t *transport) Query(network string, q *dns.Msg, smm *x.DNSSummary) (ans *d
 	if qerr != nil {
 		err = qerr.Unwrap()
 		status = qerr.Status()
-		log.W("dns53: err(%v) / size(%d)", err, xdns.Len(ans))
+		log.W("dns53: (%s) err(%v) / size(%d)", t.id, err, xdns.Len(ans))
 	}
 	t.status = status
 
@@ -243,7 +252,7 @@ func (t *transport) Query(network string, q *dns.Msg, smm *x.DNSSummary) (ans *d
 	smm.Status = status
 	t.est.Add(smm.Latency)
 
-	log.V("dns53: len(res): %d, data: %s, via: %s, err? %v", xdns.Len(ans), smm.RData, smm.RelayServer, err)
+	log.V("dns53: (%s) len(res): %d, data: %s, via: %s, err? %v", t.id, xdns.Len(ans), smm.RData, smm.RelayServer, err)
 
 	return ans, err
 }
@@ -277,6 +286,11 @@ func (t *transport) GetAddr() string {
 
 func (t *transport) Status() int {
 	return t.status
+}
+
+func (t *transport) Stop() error {
+	t.done()
+	return nil
 }
 
 func remoteAddrIfAny(conn *dns.Conn) string {

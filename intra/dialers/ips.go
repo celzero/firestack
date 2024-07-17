@@ -48,11 +48,13 @@ func udpaddr(ip netip.Addr, port int) *net.UDPAddr {
 // Resolves hostOrIP, and re-seeds it if existing is non-empty
 func renew(hostOrIP string, existing *ipmap.IPSet) (cur *ipmap.IPSet, ok bool) {
 	// will never be able to resolve protected hosts (UidSelf, UidRethink),
-	// except for the seed addrs.
+	// and so, keep existing as-is (we do not want to use NewProtected and
+	// race against dnsx.RegisterAddrs or other clients updating UidSelf or
+	// UidRethink as changes come in from kotlinland intra.Bridge)
 	if protect.NeverResolve(hostOrIP) {
-		cur, _ = NewProtected(hostOrIP, existing.Seed())
+		cur = existing.Reset()
 	} else if existing.Protected() {
-		// if protected, preserve seed addrs; hen resolve hostOrIP
+		// if protected, preserve seed addrs; then resolve hostOrIP
 		NewProtected(hostOrIP, existing.Seed())
 		cur = ipm.Add(hostOrIP)
 		// fallthrough
@@ -61,13 +63,14 @@ func renew(hostOrIP string, existing *ipmap.IPSet) (cur *ipmap.IPSet, ok bool) {
 		// empty when its ips have been disconfirmed beyond some threshold
 		cur = ipm.Add(hostOrIP)
 		if cur.Empty() {
-			// if still empty, fallback on seed addrs; when hostOrIP is
-			// protect.UidSelf, protect.UidSystem, for example, cur will
-			// always be empty (as they're unresolvable by ipm.Add)
+			// if still empty, fallback on seed addrs
 			cur, _ = New(hostOrIP, existing.Seed())
 		} // else: fallthrough
 	} else {
 		// if non-empty, renew hostOrIP with seed addrs
+		// existing may be of typ IPAddr, in which case
+		// existing.Seed() would be empty, and hostOrIP
+		// should be a valid IP or IP:Port.
 		New(hostOrIP, existing.Seed())
 		cur = ipm.Add(hostOrIP)
 	}
@@ -169,20 +172,22 @@ func Clear() {
 	ipm.Clear() // does not clear UidSelf, UidSystem (protected)
 }
 
-// Confirm marks addr as preferred for hostOrIP
-func Confirm(hostOrIP string, addr net.Addr) bool {
-	if ip, err := netip.ParseAddr(addr.String()); err == nil {
-		return Confirm2(hostOrIP, ip)
-	} // not ok
+// Confirm3 marks addr as preferred for hostOrIP
+func Confirm3(hostOrIP string, addr net.Addr) bool {
+	return Confirm2(hostOrIP, addr.String())
+}
+
+func Confirm(hostOrIP string, addr netip.Addr) bool {
+	if ipok(addr) { // confirms ONLY valid ips
+		ips := ipm.GetAny(hostOrIP)
+		ips.Confirm(addr)
+		return ips != nil
+	}
 	return false
 }
 
-func Confirm2(hostOrIP string, addr netip.Addr) bool {
-	ips := ipm.GetAny(hostOrIP)
-	if ipok(addr) {
-		ips.Confirm(addr)
-	}
-	return ips != nil
+func Confirm2(hostOrIP string, addr string) bool {
+	return Confirm(hostOrIP, ipof(addr))
 }
 
 // Disconfirm3 unmarks addr as preferred for hostOrIP
@@ -194,15 +199,21 @@ func Disconfirm3(hostOrIP string, addr net.Addr) bool {
 func Disconfirm(hostOrIP string, addr netip.Addr) bool {
 	ips := ipm.GetAny(hostOrIP)
 	if ips != nil {
-		return ips.Disconfirm(addr)
+		return ips.Disconfirm(addr) // disconfirms ANY ip (invalid/unspecified)
 	} // not ok
 	return false
 }
 
 // Disconfirm2 unmarks addr as preferred for hostOrIP
 func Disconfirm2(hostOrIP string, addr string) bool {
-	if ip, err := netip.ParseAddr(addr); err == nil {
-		return Disconfirm(hostOrIP, ip)
-	} // not ok
-	return false
+	return Disconfirm(hostOrIP, ipof(addr))
+}
+
+func ipof(addr string) (zz netip.Addr) {
+	if ipp, err := netip.ParseAddrPort(addr); err == nil {
+		return ipp.Addr()
+	} else if ip, err := netip.ParseAddr(addr); err == nil {
+		return ip
+	}
+	return
 }

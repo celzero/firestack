@@ -145,10 +145,10 @@ func U(msg string) {
 }
 
 // T logs the stack trace of the current goroutine.
-func T(msg string, scratch []byte) {
+func T(msg string) {
 	if Glogger != nil {
 		E2(LogFnCallerDepth, "----START----")
-		Glogger.Stack(LogFnCallerDepth, "F "+msg, scratch)
+		Glogger.Stack(LogFnCallerDepth, "F "+msg, make([]byte, 1024))
 		E2(LogFnCallerDepth, "----STOPP----")
 	}
 }

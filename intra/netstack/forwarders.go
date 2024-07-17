@@ -28,6 +28,7 @@ import (
 	"fmt"
 	"math/rand"
 	"sync"
+	"time"
 
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/log"
@@ -39,11 +40,9 @@ import (
 	"gvisor.dev/gvisor/pkg/tcpip/stack"
 )
 
-// adopted from: https://github.com/google/gvisor/blob/a244eff8ad/pkg/tcpip/link/fdbased/processors.go
+// adopted from: github.com/google/gvisor/blob/a244eff8ad/pkg/tcpip/link/fdbased/processors.go
 
-const (
-	maxForwarders = 6
-)
+const maxForwarders = 6
 
 type fiveTuple struct {
 	srcAddr, dstAddr []byte
@@ -134,7 +133,7 @@ type processor struct {
 	// +checklocks:mu
 	pkts stack.PacketBufferList
 
-	e           *endpoint
+	e           stack.InjectableLinkEndpoint
 	sleeper     sleep.Sleeper
 	packetWaker sleep.Waker
 	closeWaker  sleep.Waker
@@ -186,15 +185,15 @@ type supervisor struct {
 	processors []processor
 	seed       uint32
 	wg         sync.WaitGroup
-	e          *endpoint
+	fd         *core.Volatile[int] // tun fd for diagnostics
 	ready      []bool
 }
 
 // newSupervisor creates a new supervisor for the processors of endpoint e.
-func newSupervisor(e *endpoint) *supervisor {
+func newSupervisor(e stack.InjectableLinkEndpoint, fd int) *supervisor {
 	m := &supervisor{
 		seed:       rand.Uint32(),
-		e:          e,
+		fd:         core.NewVolatile(fd),
 		ready:      make([]bool, maxForwarders),
 		processors: make([]processor, maxForwarders),
 		wg:         sync.WaitGroup{},
@@ -212,11 +211,21 @@ func newSupervisor(e *endpoint) *supervisor {
 	return m
 }
 
+// tun returns the tun fd (use for diagnostics only).
+func (m *supervisor) tun() int {
+	return m.fd.Load()
+}
+
+// swap notes the new tun fd (use for diagnostics only).
+func (m *supervisor) swap(tun int) {
+	m.fd.Store(tun)
+}
+
 // start starts the processor goroutines if the processor manager is configured
 // with more than one processor.
 func (m *supervisor) start() {
 	if settings.Debug {
-		log.D("ns: tun(%d): forwarder: starting %d procs %d", m.e.fd(), len(m.processors), m.seed)
+		log.D("ns: tun(%d): forwarder: starting %d procs %d", m.tun(), len(m.processors), m.seed)
 	}
 	if m.canDeliverInline() {
 		return
@@ -256,8 +265,8 @@ func (m *supervisor) id(t *fiveTuple) uint32 {
 
 // queuePacket queues a packet to be delivered to the appropriate processor.
 func (m *supervisor) queuePacket(pkt *stack.PacketBuffer, hasEthHeader bool) {
-	fd := m.e.fd()
 	sz := uint32(len(m.processors))
+	fd := m.tun()
 	var pIdx uint32
 	tup, nonConnectionPkt := tcpipConnectionID(pkt)
 	if !hasEthHeader {
@@ -269,7 +278,7 @@ func (m *supervisor) queuePacket(pkt *stack.PacketBuffer, hasEthHeader bool) {
 		}
 		pkt.NetworkProtocolNumber = tup.proto
 	}
-	if m.canDeliverInline() || nonConnectionPkt {
+	if m.canDeliverInline() || nonConnectionPkt || settings.Loopingback.Load() {
 		// If the packet is not associated with an active connection, use the
 		// first processor.
 		pIdx = 0
@@ -277,7 +286,7 @@ func (m *supervisor) queuePacket(pkt *stack.PacketBuffer, hasEthHeader bool) {
 		pIdx = m.id(&tup) % sz
 	}
 	// despite uint32, pIdx goes negative? github.com/celzero/firestack/issues/59
-	// https://go.dev/ref/spec#Integer_overflow?
+	// go.dev/ref/spec#Integer_overflow?
 	if pIdx > sz {
 		log.W("ns: tun(%d): forwarder: invalid processor index %d, %s", fd, pIdx, tup)
 		pIdx = 0
@@ -297,8 +306,10 @@ func (m *supervisor) queuePacket(pkt *stack.PacketBuffer, hasEthHeader bool) {
 
 // stop stops all processor goroutines.
 func (m *supervisor) stop() {
+	fd := m.tun()
+	start := time.Now()
 	if settings.Debug {
-		log.D("ns: tun(%d): forwarder: stopping %d procs", m.e.fd(), len(m.processors))
+		log.D("ns: tun(%d): forwarder: stopping %d procs", fd, len(m.processors))
 	}
 	if m.canDeliverInline() {
 		return
@@ -306,6 +317,11 @@ func (m *supervisor) stop() {
 	for i := range m.processors {
 		p := &m.processors[i]
 		p.closeWaker.Assert()
+	}
+	m.wg.Wait()
+	if settings.Debug {
+		elapsed := time.Since(start).Milliseconds() / 1000
+		log.D("ns: tun(%d): forwarder: stopped %d procs in %ds", fd, len(m.processors), elapsed)
 	}
 }
 
@@ -318,7 +334,7 @@ func (m *supervisor) wakeReady() {
 			continue
 		}
 		p := &m.processors[i]
-		if m.canDeliverInline() {
+		if m.canDeliverInline() || settings.Loopingback.Load() {
 			p.deliverPackets()
 		} else {
 			p.packetWaker.Assert()

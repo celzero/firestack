@@ -24,24 +24,25 @@
 package netstack
 
 import (
-	"fmt"
 	"math/rand"
+	"net"
 	"sync"
 	"sync/atomic"
-	"syscall"
+	"time"
 
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/log"
-	"github.com/celzero/firestack/intra/settings"
 	"golang.org/x/sys/unix"
 	"gvisor.dev/gvisor/pkg/buffer"
+	"gvisor.dev/gvisor/pkg/rawfile"
 	"gvisor.dev/gvisor/pkg/tcpip"
 	"gvisor.dev/gvisor/pkg/tcpip/header"
-	"gvisor.dev/gvisor/pkg/tcpip/link/rawfile"
 	"gvisor.dev/gvisor/pkg/tcpip/stack"
 )
 
 // Adopted from: github.com/google/gvisor/blob/f2b01a6e4/pkg/tcpip/link/fdbased/packet_dispatchers.go
+
+const wrapttl = 5 * time.Second // wrapttl is the time to wait for wrapup() to complete.
 
 // BufConfig defines the shape of the vectorised view used to read packets from the NIC.
 var BufConfig = []int{128, 256, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768}
@@ -140,37 +141,10 @@ func (b *iovecBuffer) pullBuffer(n int) buffer.Buffer {
 	return pulled
 }
 
-// stopFd is an eventfd used to signal the stop of a dispatcher.
-type stopFd struct {
-	efd int
-}
-
-func newStopFd() (stopFd, error) {
-	efd, err := unix.Eventfd(0, unix.EFD_NONBLOCK)
-	if err != nil {
-		return stopFd{efd: -1}, fmt.Errorf("failed to create eventfd: %w", err)
-	}
-	return stopFd{efd: efd}, nil
-}
-
-// stop writes to the eventfd and notifies the dispatcher to stop. It does not
-// block.
-func (s *stopFd) stop() {
-	increment := []byte{1, 0, 0, 0, 0, 0, 0, 0}
-	if n, err := unix.Write(s.efd, increment); n != len(increment) || err != nil {
-		// There are two possible errors documented in eventfd(2) for writing:
-		// 1. We are writing 8 bytes and not 0xffffffffffffff, thus no EINVAL.
-		// 2. stop is only supposed to be called once, it can't reach the limit,
-		// thus no EAGAIN.
-		panic(fmt.Sprintf("write(efd) = (%d, %s), want (%d, nil)", n, err, len(increment)))
-	}
-}
-
 // readVDispatcher uses readv() system call to read inbound packets and
 // dispatches them.
 type readVDispatcher struct {
-	stopFd              // stopFd is used to signal the dispatcher to stop.
-	fd     int          // fd is the file descriptor used to send/receive packets.
+	fds    *core.Volatile[*fds]
 	e      *endpoint    // e is the endpoint this dispatcher is attached to.
 	buf    *iovecBuffer // buf is the iovec buffer that contains packets.
 	closed atomic.Bool  // closed is set to true when fd is closed.
@@ -183,23 +157,41 @@ var _ linkDispatcher = (*readVDispatcher)(nil)
 // newReadVDispatcher creates a new linkDispatcher that vector reads packets from
 // fd and dispatches them to endpoint e. It assumes ownership of fd but not of e.
 func newReadVDispatcher(fd int, e *endpoint) (linkDispatcher, error) {
-	stopFd, err := newStopFd()
+	tun, err := newTun(fd)
 	if err != nil {
 		return nil, err
 	}
 	d := &readVDispatcher{
-		stopFd: stopFd,
-		fd:     fd,
-		e:      e,
-		buf:    newIovecBuffer(BufConfig),
-		mgr:    newSupervisor(e),
+		e:   e,
+		fds: core.NewVolatile(tun),
+		buf: newIovecBuffer(BufConfig),
+		mgr: newSupervisor(e, fd),
 	}
-
 	d.mgr.start()
 
-	log.I("ns: dispatch: newReadVDispatcher: tun(%d) efd(%d)", fd, d.efd)
-
+	log.I("ns: dispatch: newReadVDispatcher: tun(%d)", fd)
 	return d, nil
+}
+
+// swap atomically swaps existing fd for this new one.
+func (d *readVDispatcher) swap(fd int) error {
+	done := d.closed.Load()
+	if done {
+		return net.ErrClosed
+	}
+
+	note := log.I
+	f, err := newTun(fd)
+	if err != nil {
+		note = log.W
+	}
+
+	prev := d.fds.Swap(f)      // f may be nil
+	go d.wrapup(prev, wrapttl) // prev may be nil
+	d.mgr.swap(fd)             // used for diagnostics only
+
+	note("ns: dispatch: swap: tun(%d => %d); err %v", prev.tun(), fd, err)
+	return err
 }
 
 // stop stops the dispatcher once. Safe to call multiple times.
@@ -208,26 +200,57 @@ func (d *readVDispatcher) stop() {
 
 	d.once.Do(func() {
 		d.closed.Store(true)
-		d.stopFd.stop()
+		d.fds.Load().stop()
 		d.buf.release()
 		d.mgr.stop()
-		err := syscall.Close(d.fd) // TODO: close tun-fd before stopFd?
-		log.I("ns: dispatch: stop: fds closed event(%d) tun(%d); err? %v", d.efd, d.fd, err)
+		log.I("ns: dispatch: closed!")
 	})
 }
 
 const abort = false // abort indicates that the dispatcher should stop.
 const cont = true   // cont indicates that the dispatcher should continue delivering packets despite an error.
 
-// dispatch reads one packet from the file descriptor and dispatches it.
+// dispatch reads packets from the current file descriptor in d.fds and dispatches it to netstack.
 func (d *readVDispatcher) dispatch() (bool, tcpip.Error) {
+	return d.io(d.fds.Load())
+}
+
+// wrapup reads packets from fds and dispatches it to netstack
+// and closes fds on error or on timeout. Must be called in a goroutine.
+func (d *readVDispatcher) wrapup(fds *fds, noMoreThan30s time.Duration) {
+	if !fds.ok() { // fds may be nil
+		return
+	}
+
+	noMoreThan30s = min(30*time.Second, noMoreThan30s)
+	secs := int64(noMoreThan30s.Seconds())
+
+	go func() {
+		<-time.After(noMoreThan30s)
+		log.W("ns: tun(%d): drain: timeout! %dsecs", fds.tun(), secs)
+		fds.stop()
+	}()
+
+	log.I("ns: tun(%d): drain: start w timeout in %dsecs", fds.tun(), secs)
+	for {
+		cont, err := d.io(fds)
+		if err != nil || !cont {
+			log.W("ns: tun(%d): drain: exit; err %v", fds.tun(), err)
+			return
+		}
+	}
+}
+
+// io reads packets from fds and dispatches it to netstack.
+func (d *readVDispatcher) io(fds *fds) (bool, tcpip.Error) {
+	if !fds.ok() {
+		return abort, new(tcpip.ErrNoSuchFile)
+	}
+
 	done := d.closed.Load()
-	log.VV("ns: tun(%d): dispatch: done? %t", d.fd, done)
+	log.VV("ns: tun(%d): dispatch: done? %t", fds.tun(), done)
 	if done {
 		return abort, new(tcpip.ErrAborted)
-	}
-	if false && settings.Debug && rand10pc() {
-		panic(fmt.Sprintf("ns: tun(%d): dispatch: debug: rand10pc", d.fd))
 	}
 
 	iov := d.buf.nextIovecs()
@@ -235,14 +258,15 @@ func (d *readVDispatcher) dispatch() (bool, tcpip.Error) {
 		return abort, new(tcpip.ErrBadBuffer)
 	}
 
-	n, err := rawfile.BlockingReadvUntilStopped(d.efd, d.fd, iov)
+	// github.com/google/gvisor/blob/d59375d82/pkg/tcpip/link/fdbased/packet_dispatchers.go#L186
+	n, errno := rawfile.BlockingReadvUntilStopped(fds.eve(), fds.tun(), iov)
 
-	log.VV("ns: tun(%d): dispatch: got(%d bytes), err(%v)", d.fd, n, err)
-	if n <= 0 || err != nil {
-		if err == nil {
-			err = new(tcpip.ErrNoSuchFile)
+	log.VV("ns: tun(%d): dispatch: got(%d bytes), err(%v)", fds.tun(), n, errno)
+	if n <= 0 || errno != 0 {
+		if errno == 0 {
+			return abort, new(tcpip.ErrNoSuchFile)
 		}
-		return abort, err
+		return abort, tcpip.TranslateErrno(errno)
 	}
 
 	pkt := stack.NewPacketBuffer(stack.PacketBufferOptions{
