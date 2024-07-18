@@ -23,9 +23,6 @@ import (
 	"gvisor.dev/gvisor/pkg/tcpip/transport/udp"
 )
 
-// use netstack's built-in ip-tables rules to trap and handle icmp packets
-const useIPTablesForICMP = false
-
 // enable forwarding of packets on the interface
 const nicfwd = false
 
@@ -131,12 +128,7 @@ func Up(s *stack.Stack, ep stack.LinkEndpoint, h GConnHandler) error {
 	if newnic {
 		setupTcpHandler(s, h.TCP())
 		setupUdpHandler(s, h.UDP())
-		if useIPTablesForICMP {
-			// TODO: untested
-			setupIcmpHandlerV2(s, ep, h.ICMP())
-		} else {
-			setupIcmpHandler(s, ep, h.ICMP())
-		}
+		setupIcmpHandler(s, ep, h.ICMP())
 	}
 
 	if settings.Debug {
@@ -218,6 +210,7 @@ func Route(s *stack.Stack, l3 string) {
 			},
 		})
 	}
+	// s.AddTCPProbe(func(state *stack.TCPEndpointState) {})
 	log.I("netstack: route(ask:%s; set: %s); done", l3, which)
 }
 
