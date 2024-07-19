@@ -308,9 +308,4 @@ const (
 	RetrierStrategy int32 = iota
 	DesyncStrategy
 )
-func newStrategy(s int32) atomic.Int32 {
-	var i atomic.Int32
-	i.Store(s)
-	return i
-}
-var DialStrategy = newStrategy(RetrierStrategy)
+var DialStrategy atomic.Int32
