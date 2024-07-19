@@ -13,6 +13,7 @@ import (
 	"net"
 	"strings"
 	"errors"
+	randNum "math/rand"
 )
 
 const (
@@ -89,10 +90,21 @@ Note: The path the UDP packet took to reach the destination may differ from the 
 func DialWithSplitAndDesyncTraceroute(d *protect.RDial, addr *net.TCPAddr, maxTTL int, payload []byte) (DuplexConn, error) {
 	udpAddr := &net.UDPAddr{
 		IP:   addr.IP,
-		Port: 53,
+		Port: 1,
 		Zone: addr.Zone,
 	}
-	udpConn, err := d.DialUDP(udpAddr.Network(), nil, udpAddr)
+	isIPv6 := true
+	if addr.IP.To4() != nil {
+		isIPv6 = false
+	}
+
+	var networkStr string
+	if isIPv6 {
+		networkStr = "udp6"
+	} else {
+		networkStr = "udp4"
+	}
+	udpConn, err := d.AnnounceUDP(networkStr, ":0")
 	if err != nil {
 		return nil, err
 	}
@@ -115,10 +127,6 @@ func DialWithSplitAndDesyncTraceroute(d *protect.RDial, addr *net.TCPAddr, maxTT
 		return nil, err
 	}
 
-	isIPv6 := true
-	if addr.IP.To4() != nil {
-		isIPv6 = false
-	}
 	if isIPv6 {
 		err = unix.SetsockoptInt(udpFD, unix.IPPROTO_IPV6, unix.IPV6_RECVERR, 1)
 	} else {
@@ -130,13 +138,12 @@ func DialWithSplitAndDesyncTraceroute(d *protect.RDial, addr *net.TCPAddr, maxTT
 
 	var msgBuf [probeSize]byte
 	var ttl int
-	ttlMap := make(map[[probeSize]byte]int)
+	basePort := 1 + randNum.Intn(65535-maxTTL)
 	for ttl = 2; ttl <= maxTTL; ttl++ {
 		_, err = rand.Read(msgBuf[:])
 		if err != nil {
 			return nil, err
 		}
-		ttlMap[msgBuf] = ttl
 		if isIPv6 {
 			err = unix.SetsockoptInt(udpFD, unix.IPPROTO_IPV6, unix.IPV6_UNICAST_HOPS, ttl)
 		} else {
@@ -145,7 +152,8 @@ func DialWithSplitAndDesyncTraceroute(d *protect.RDial, addr *net.TCPAddr, maxTT
 		if err != nil {
 			return nil, err
 		}
-		_, err = udpConn.Write(msgBuf[:])
+		udpAddr.Port = basePort+ttl
+		_, err = udpConn.WriteToUDP(msgBuf[:], udpAddr)
 		if err != nil {
 			return nil, err
 		}
@@ -167,10 +175,7 @@ func DialWithSplitAndDesyncTraceroute(d *protect.RDial, addr *net.TCPAddr, maxTT
 	//After TCP handshake, check received ICMP messages.
 	var cmsgBuf [1024]byte
 	for i := 0; i < maxTTL-1; i++ {
-		/* quote: The payload of the original packet that caused the error is passed as normal data via msg_iovec.
-  		man recv.2 
-		So we can query which packet trigger error with ttlMap */
-		n, cmsgN, _, _, err := unix.Recvmsg(udpFD, msgBuf[:], cmsgBuf[:], unix.MSG_ERRQUEUE)
+		_, cmsgN, _, from, err := unix.Recvmsg(udpFD, msgBuf[:], cmsgBuf[:], unix.MSG_ERRQUEUE)
 		if err != nil {
 			//udpConn must be nonblocking
 			break
@@ -179,20 +184,19 @@ func DialWithSplitAndDesyncTraceroute(d *protect.RDial, addr *net.TCPAddr, maxTT
 		if err != nil {
 			continue
 		}
-		if n != probeSize {
-			continue
-		}
 		if isIPv6 {
 			if exceedHopLimit(cmsgArr) {
-				ttl, ok := ttlMap[msgBuf]
-				if ok && ttl > split1.TTL {
+				fromPort := from.(*unix.SockaddrInet6).Port
+				ttl = fromPort-basePort
+				if ttl > split1.TTL && ttl <= maxTTL {
 					split1.TTL = ttl
 				}
 			}
 		} else {
 			if exceedTTL(cmsgArr) {
-				ttl, ok := ttlMap[msgBuf]
-				if ok && ttl > split1.TTL {
+				fromPort := from.(*unix.SockaddrInet4).Port
+				ttl = fromPort-basePort
+				if ttl > split1.TTL && ttl <= maxTTL {
 					split1.TTL = ttl
 				}
 			}
