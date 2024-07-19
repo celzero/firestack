@@ -13,7 +13,7 @@ import (
 	"net"
 	"strings"
 	"errors"
-	randNum "math/rand"
+	mathRand "math/rand"
 )
 
 const (
@@ -138,7 +138,7 @@ func DialWithSplitAndDesyncTraceroute(d *protect.RDial, addr *net.TCPAddr, maxTT
 
 	var msgBuf [probeSize]byte
 	var ttl int
-	basePort := 1 + randNum.Intn(65535-maxTTL)
+	basePort := 1 + mathRand.Intn(65535-maxTTL)//#nosec G404
 	for ttl = 2; ttl <= maxTTL; ttl++ {
 		_, err = rand.Read(msgBuf[:])
 		if err != nil {
