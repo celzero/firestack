@@ -20,7 +20,7 @@ type cachedResults struct {
 
 const (
 	defaultCapacity = 512
-	defaultStaleTtl = 300 // in seconds
+	defaultStaleTtl = 30 // in seconds
 )
 
 var globalCache cachedResults
