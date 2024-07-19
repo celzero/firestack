@@ -1,10 +1,11 @@
 package dialers
 
 import (
-	sieve "github.com/opencoff/go-sieve" //This line is copied from dnscrypt-proxy,
 	"net"
 	"sync"
 	"time"
+
+	sieve "github.com/opencoff/go-sieve" //This line is copied from dnscrypt-proxy,
 )
 
 type cachedResult struct {

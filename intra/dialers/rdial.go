@@ -148,7 +148,7 @@ func splitIpConnect3(d *protect.RDial, proto string, ip netip.Addr, port int) (n
 
 	switch proto {
 	case "tcp", "tcp4", "tcp6":
-		if ! ip.IsPrivate() {
+		if !ip.IsPrivate() {
 			payload := []byte(Http1_1String)
 			return DialWithSplitAndDesyncSmart(d, tcpaddr(ip, port), 20, payload)
 		}

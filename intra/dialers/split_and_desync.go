@@ -7,13 +7,15 @@ Inspired by byedpi
 
 import (
 	"crypto/rand"
-	"github.com/celzero/firestack/intra/protect"
-	"golang.org/x/sys/unix"
+	"errors"
 	"io"
+	mathRand "math/rand"
 	"net"
 	"strings"
-	"errors"
-	mathRand "math/rand"
+
+	"github.com/celzero/firestack/intra/log"
+	"github.com/celzero/firestack/intra/protect"
+	"golang.org/x/sys/unix"
 )
 
 const (
@@ -31,15 +33,17 @@ type OverwriteSplitter struct {
 
 /*
 Check if cmsgArr contains an ICMPv6 hop limit exceeded SockExtendedErr
-type SockExtendedErr struct {
-	Errno  uint32
-	Origin uint8
-	Type   uint8
-	Code   uint8
-	Pad    uint8
-	Info   uint32
-	Data   uint32
-}
+
+	type SockExtendedErr struct {
+		Errno  uint32
+		Origin uint8
+		Type   uint8
+		Code   uint8
+		Pad    uint8
+		Info   uint32
+		Data   uint32
+	}
+
 https://www.rfc-editor.org/rfc/rfc4443.html#section-3.3
 */
 func exceedHopLimit(cmsgArr []unix.SocketControlMessage) bool {
@@ -111,7 +115,12 @@ func DialWithSplitAndDesyncTraceroute(d *protect.RDial, addr *net.TCPAddr, maxTT
 	if udpConn == nil {
 		return nil, errNoConn
 	}
-	defer udpConn.Close()
+	defer func() {
+		err := udpConn.Close()
+		if err != nil {
+			log.E("traceroute: cannot close udpConn: %v", err)
+		}
+	}()
 	rawConn, err := udpConn.SyscallConn()
 	if err != nil {
 		return nil, err
@@ -138,7 +147,7 @@ func DialWithSplitAndDesyncTraceroute(d *protect.RDial, addr *net.TCPAddr, maxTT
 
 	var msgBuf [probeSize]byte
 	var ttl int
-	basePort := 1 + mathRand.Intn(65535-maxTTL)//#nosec G404
+	basePort := 1 + mathRand.Intn(65535-maxTTL) //#nosec G404
 	for ttl = 2; ttl <= maxTTL; ttl++ {
 		_, err = rand.Read(msgBuf[:])
 		if err != nil {
@@ -152,7 +161,7 @@ func DialWithSplitAndDesyncTraceroute(d *protect.RDial, addr *net.TCPAddr, maxTT
 		if err != nil {
 			return nil, err
 		}
-		udpAddr.Port = basePort+ttl
+		udpAddr.Port = basePort + ttl
 		_, err = udpConn.WriteToUDP(msgBuf[:], udpAddr)
 		if err != nil {
 			return nil, err
@@ -187,7 +196,7 @@ func DialWithSplitAndDesyncTraceroute(d *protect.RDial, addr *net.TCPAddr, maxTT
 		if isIPv6 {
 			if exceedHopLimit(cmsgArr) {
 				fromPort := from.(*unix.SockaddrInet6).Port
-				ttl = fromPort-basePort
+				ttl = fromPort - basePort
 				if ttl > split1.TTL && ttl <= maxTTL {
 					split1.TTL = ttl
 				}
@@ -195,7 +204,7 @@ func DialWithSplitAndDesyncTraceroute(d *protect.RDial, addr *net.TCPAddr, maxTT
 		} else {
 			if exceedTTL(cmsgArr) {
 				fromPort := from.(*unix.SockaddrInet4).Port
-				ttl = fromPort-basePort
+				ttl = fromPort - basePort
 				if ttl > split1.TTL && ttl <= maxTTL {
 					split1.TTL = ttl
 				}
@@ -265,7 +274,12 @@ func (s *OverwriteSplitter) Write(b []byte) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	defer unix.Close(fileFD)
+	defer func() {
+		err := unix.Close(fileFD)
+		if err != nil {
+			log.E("desync: cannot close memfd: %v", err)
+		}
+	}()
 	err = unix.Ftruncate(fileFD, int64(len(s.Payload)))
 	if err != nil {
 		return 0, err
@@ -274,7 +288,12 @@ func (s *OverwriteSplitter) Write(b []byte) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	defer unix.Munmap(firstSegment)
+	defer func() {
+		err := unix.Munmap(firstSegment)
+		if err != nil {
+			log.E("desync: Munmap failed: %v", err)
+		}
+	}()
 
 	// We want s.Payload to be seen by censors, but don't want s.Payload to be seen by the server.
 	copy(firstSegment, s.Payload)
