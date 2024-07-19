@@ -109,3 +109,7 @@ func SetCrashFd(f string) {
 	}
 	// TODO: Go1.23: debug.SetCrashFD(f)
 }
+
+func DialStrat(strategy int32) {
+	settings.DialStrategy.Store(strategy)
+}

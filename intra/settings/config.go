@@ -303,3 +303,14 @@ func (p *ProxyOptions) FullUrl() string {
 func (p *ProxyOptions) Url() string {
 	return p.Scheme + "://" + p.IPPort
 }
+
+const (
+	RetrierStrategy int32 = iota
+	DesyncStrategy
+)
+func newStrategy(s int32) atomic.Int32 {
+	var i atomic.Int32
+	i.Store(s)
+	return i
+}
+var DialStrategy = newStrategy(RetrierStrategy)
