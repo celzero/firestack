@@ -32,6 +32,7 @@ import (
 
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/log"
+	"github.com/celzero/firestack/intra/settings"
 	"golang.org/x/sys/unix"
 	"gvisor.dev/gvisor/pkg/buffer"
 	"gvisor.dev/gvisor/pkg/rawfile"
@@ -216,9 +217,21 @@ func (d *readVDispatcher) dispatch() (bool, tcpip.Error) {
 }
 
 // wrapup reads packets from fds and dispatches it to netstack
-// and closes fds on error or on timeout. Must be called in a goroutine.
+// and closes fds on error or on timeout. If settings.Loopingback is true,
+// it closes fds immediately. Must be called in a goroutine.
 func (d *readVDispatcher) wrapup(fds *fds, noMoreThan30s time.Duration) {
 	if !fds.ok() { // fds may be nil
+		return
+	}
+	// Loopback is set to true when VPN is in lockdown mode (block connections
+	// without vpn). It is observed that by closing the previous tun after delay
+	// results in "connection was reset" errors in netstack's TCP handler, which
+	// only go away if the tunnel is recreated (via stop/start or pause/unpause).
+	// This behaviour is seen when the device either connects to internet after
+	// quite a while or the device switches to a new network (on Android 14+).
+	if settings.Loopingback.Load() {
+		log.I("ns: tun(%d): wrapup: immediate (loopback)", fds.tun())
+		fds.stop()
 		return
 	}
 
