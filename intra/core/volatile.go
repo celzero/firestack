@@ -89,8 +89,8 @@ func (a *Volatile[T]) Cas(old, new T) (ok bool) {
 	return aa.CompareAndSwap(old, new)
 }
 
-// Swap swaps the value of a with new, returns the old value.
-// If a is nil, returns zero value.
+// Swap assigns new and returns the old value, atomically.
+// If a is nil, it returns zero value.
 // If new is nil, returns old value; and sets a to NewZeroVolatile[T].
 // If old & new are not of the same concrete type, it panics.
 func (a *Volatile[T]) Swap(new T) (old T) {

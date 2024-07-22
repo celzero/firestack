@@ -216,7 +216,7 @@ func (m *supervisor) tun() int {
 	return m.fd.Load()
 }
 
-// swap notes the new tun fd (use for diagnostics only).
+// swap notes the new tun fd (used for diagnostics only).
 func (m *supervisor) swap(tun int) {
 	m.fd.Store(tun)
 }
