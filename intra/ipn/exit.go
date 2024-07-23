@@ -46,7 +46,7 @@ func (h *exit) Dial(network, addr string) (c protect.Conn, err error) {
 	}
 
 	// exit always splits
-	if c, err = dialers.SplitDial(h.outbound, network, addr); err != nil {
+	if c, err = useDialStrategy(h.outbound, network, addr); err != nil {
 		h.status = TKO
 	} else {
 		h.status = TOK

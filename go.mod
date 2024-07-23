@@ -12,6 +12,8 @@ require (
 	golang.org/x/sys v0.18.0
 )
 
+require github.com/opencoff/go-sieve v0.2.1
+
 require (
 	github.com/cloudflare/odoh-go v1.0.0
 	github.com/crazy-max/xgo v0.31.0
