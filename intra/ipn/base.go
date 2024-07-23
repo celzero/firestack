@@ -16,7 +16,7 @@ import (
 	"github.com/celzero/firestack/intra/settings"
 )
 
-func useDialStrategy(d *protect.RDial, network, addr string) (protect.Conn, error) {
+func dialStrat(d *protect.RDial, network, addr string) (protect.Conn, error) {
 	switch settings.DialStrategy.Load() {
 	case settings.DesyncStrategy:
 		return dialers.SplitDial3(d, network, addr)
@@ -67,7 +67,7 @@ func (h *base) Dial(network, addr string) (c protect.Conn, err error) {
 	if settings.Loopingback.Load() { // loopback (rinr) mode
 		c, err = dialers.Dial(h.outbound, network, addr)
 	} else {
-		c, err = useDialStrategy(h.outbound, network, addr)
+		c, err = dialStrat(h.outbound, network, addr)
 	}
 
 	log.I("proxy: base: dial(%s) to %s; err? %v", network, addr, err)

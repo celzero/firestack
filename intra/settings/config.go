@@ -304,8 +304,10 @@ func (p *ProxyOptions) Url() string {
 	return p.Scheme + "://" + p.IPPort
 }
 
+// Dialer strategies
 const (
 	RetrierStrategy int32 = iota
 	DesyncStrategy
 )
+
 var DialStrategy atomic.Int32

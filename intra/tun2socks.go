@@ -110,6 +110,15 @@ func SetCrashFd(f string) {
 	// TODO: Go1.23: debug.SetCrashFD(f)
 }
 
+// DialStrat sets the dial strategy to use.
+// Must be one of settings.DesyncStrategy or settings.RetrierStrategy.
 func DialStrat(strategy int32) {
-	settings.DialStrategy.Store(strategy)
+	switch strategy {
+	case settings.DesyncStrategy:
+		fallthrough
+	case settings.RetrierStrategy:
+		settings.DialStrategy.Store(strategy)
+	default:
+		settings.DialStrategy.Store(settings.RetrierStrategy)
+	}
 }

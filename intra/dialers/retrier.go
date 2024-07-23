@@ -445,6 +445,13 @@ func laddr(c net.Conn) net.Addr {
 	return zeroNetAddr{}
 }
 
+func raddr(c net.Conn) net.Addr {
+	if c != nil && core.IsNotNil(c) {
+		return c.RemoteAddr()
+	}
+	return zeroNetAddr{}
+}
+
 func logeif(e error) log.LogFn {
 	if e != nil {
 		return log.E

@@ -1,78 +1,49 @@
 package dialers
 
 import (
-	"net"
+	"net/netip"
 	"sync"
 	"time"
 
-	sieve "github.com/opencoff/go-sieve" //This line is copied from dnscrypt-proxy,
+	sieve "github.com/opencoff/go-sieve"
 )
 
-type cachedResult struct {
-	expiration int64 //in seconds
-	ttl        int
+type ttlval struct {
+	exp     time.Time
+	ttlSecs int
 }
 
-type cachedResults struct {
+type ttlmap struct {
 	sync.RWMutex
-	ipv4Cache *sieve.Sieve[[4]byte, cachedResult]
-	ipv6Cache *sieve.Sieve[[8]byte, cachedResult]
+	c *sieve.Sieve[netip.Addr, ttlval]
 }
 
 const (
-	defaultCapacity = 512
-	defaultStaleTtl = 30 // in seconds
+	capacity = 2048
+	lifetime = 30 * time.Second
 )
 
-var globalCache cachedResults
-
-func queryTracerouteResult(ip net.IP) (int, bool) {
-	isIPv6 := ip.To4() == nil
-	globalCache.RLock()
-	defer globalCache.RUnlock()
-	if globalCache.ipv4Cache == nil || globalCache.ipv6Cache == nil {
-		return 0, false
-	}
-	var (
-		r  cachedResult
-		ok bool
-	)
-	if isIPv6 {
-		var key [8]byte
-		copy(key[:], ip[:8])
-		r, ok = globalCache.ipv6Cache.Get(key)
-	} else {
-		var key [4]byte
-		copy(key[:], ip.To4())
-		r, ok = globalCache.ipv4Cache.Get(key)
-	}
-	if !ok {
-		return 0, false
-	}
-	if time.Now().Unix() > r.expiration {
-		return 0, false
-	}
-	return r.ttl, true
+var ttlcache ttlmap = ttlmap{
+	c: sieve.New[netip.Addr, ttlval](capacity),
 }
-func addTracerouteResult(ip net.IP, ttl int) {
-	isIPv6 := ip.To4() == nil
-	result := cachedResult{
-		expiration: time.Now().Unix() + defaultStaleTtl,
-		ttl:        ttl,
+
+// getTTL returns the TTL for the given IP address, if present.
+func getTTL(ip netip.Addr) (int, bool) {
+	ttlcache.RLock()
+	defer ttlcache.RUnlock()
+	r, ok := ttlcache.c.Get(ip)
+	if !ok || time.Until(r.exp) < 0 {
+		return 0, false
 	}
-	globalCache.Lock()
-	defer globalCache.Unlock()
-	if globalCache.ipv4Cache == nil || globalCache.ipv6Cache == nil {
-		globalCache.ipv4Cache = sieve.New[[4]byte, cachedResult](defaultCapacity)
-		globalCache.ipv6Cache = sieve.New[[8]byte, cachedResult](defaultCapacity)
-	}
-	if isIPv6 {
-		var key [8]byte
-		copy(key[:], ip[:8])
-		globalCache.ipv6Cache.Add(key, result)
-	} else {
-		var key [4]byte
-		copy(key[:], ip.To4())
-		globalCache.ipv4Cache.Add(key, result)
-	}
+	return r.ttlSecs, true
+}
+
+// putTTL stores the TTL for the given IP address for a limited time (30s).
+func putTTL(ip netip.Addr, ttl int) {
+	ttlcache.Lock()
+	defer ttlcache.Unlock()
+	ttlcache.c.Add(ip, ttlval{
+		exp:     time.Now().Add(lifetime),
+		ttlSecs: ttl,
+	})
 }

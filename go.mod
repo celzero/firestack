@@ -10,9 +10,8 @@ require (
 	github.com/miekg/dns v1.1.49
 	golang.org/x/crypto v0.21.0
 	golang.org/x/sys v0.18.0
+	github.com/opencoff/go-sieve v0.2.1
 )
-
-require github.com/opencoff/go-sieve v0.2.1
 
 require (
 	github.com/cloudflare/odoh-go v1.0.0
