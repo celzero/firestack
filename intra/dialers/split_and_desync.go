@@ -167,7 +167,14 @@ func DialWithSplitAndDesyncTraceroute(d *protect.RDial, ipp netip.AddrPort, maxT
 		return nil, errNoConn
 	}
 
-	var cmsgBuf [1024]byte
+	bptr := core.Alloc()
+	cmsgBuf := *bptr
+	cmsgBuf = cmsgBuf[:cap(cmsgBuf)]
+	defer func() {
+		*bptr = cmsgBuf
+		core.Recycle(bptr)
+	}()
+
 	split1 := &OverwriteSplitter{
 		conn:    tcpConn,
 		ttl:     1,
