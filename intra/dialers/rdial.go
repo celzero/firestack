@@ -150,7 +150,7 @@ func splitIpConnect3(d *protect.RDial, proto string, ip netip.Addr, port int) (n
 	case "tcp", "tcp4", "tcp6":
 		if !ip.IsPrivate() {
 			payload := []byte(Http1_1String)
-			return DialWithSplitAndDesyncSmart(d, netip.AddrPortFrom(ip, uint16(port)), 20 /*some fixed ttl*/, payload)
+			return DialWithSplitAndDesyncSmart(d, netip.AddrPortFrom(ip, uint16(port)), 20 /*some fixed max ttl*/, payload)
 		}
 		return d.DialTCP(proto, nil, tcpaddr(ip, port))
 	case "udp", "udp4", "udp6":
