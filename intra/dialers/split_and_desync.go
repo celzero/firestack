@@ -381,16 +381,11 @@ func (s *OverwriteSplitter) Write(b []byte) (int, error) {
 
 // ReadFrom reads from the reader and writes to s.
 func (s *OverwriteSplitter) ReadFrom(reader io.Reader) (bytes int64, err error) {
-	copies := 0
-	for !s.used.Load() {
-		b, e := copyOnce(s, reader)
-
-		copies++
-		bytes += b
-
-		logeif(err)("split-desync: readfrom: copyOnce #%d; sz: %d/%d; err: %v", copies, b, bytes, err)
-		if e != nil {
-			return bytes, e
+	if !s.used.Load() {
+		bytes, err = copyOnce(s, reader)
+		logeif(err)("split-desync: readfrom: copyOnce; sz: %d; err: %v", bytes, err)
+		if err != nil {
+			return
 		}
 	}
 
