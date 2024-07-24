@@ -242,7 +242,7 @@ func DialWithSplitAndDesyncSmart(d *protect.RDial, ipp netip.AddrPort, maxTTL in
 		return DialWithSplitAndDesyncFixedTtl(d, ipp, ttl, payload)
 	}
 	conn, err := DialWithSplitAndDesyncTraceroute(d, ipp, maxTTL, payload)
-	if err == nil {
+	if err == nil && conn != nil { // go vet (incorrectly) complains about conn being nil when err is nil
 		ttlcache.Put(ipp.Addr(), conn.ttl)
 	}
 	return conn, err
