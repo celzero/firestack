@@ -185,9 +185,8 @@ func DialWithSplitAndDesyncTraceroute(d *protect.RDial, ipp netip.AddrPort, maxT
 	for i := 0; i < maxTTL-1; i++ {
 		_, cmsgN, _, from, err := unix.Recvmsg(udpFD, msgBuf[:], cmsgBuf[:], unix.MSG_ERRQUEUE)
 		if err != nil {
-			log.W("split-desync: recvmsg failed: %v", err)
-			//udpConn must be nonblocking
-			break
+			log.V("split-desync: recvmsg failed: %v", err)
+			break // udpConn must be nonblocking
 		}
 
 		cmsgs, err := unix.ParseSocketControlMessage(cmsgBuf[:cmsgN])
@@ -196,10 +195,8 @@ func DialWithSplitAndDesyncTraceroute(d *protect.RDial, ipp netip.AddrPort, maxT
 			continue
 		}
 
-		exceeds := false
 		if isIPv6 {
-			exceeds = exceedsHopLimit(cmsgs)
-			if exceeds {
+			if exceedsHopLimit(cmsgs) {
 				fromPort := from.(*unix.SockaddrInet6).Port
 				ttl = fromPort - basePort
 				if ttl <= maxTTL {
@@ -207,8 +204,7 @@ func DialWithSplitAndDesyncTraceroute(d *protect.RDial, ipp netip.AddrPort, maxT
 				}
 			}
 		} else {
-			exceeds = exceedsTTL(cmsgs)
-			if exceeds {
+			if exceedsTTL(cmsgs) {
 				fromPort := from.(*unix.SockaddrInet4).Port
 				ttl = fromPort - basePort
 				if ttl <= maxTTL {
