@@ -27,6 +27,10 @@ const (
 	Http1_1String = "POST / HTTP/1.1\r\nHost: 10.0.0.1\r\nContent-Type: application/octet-stream\r\nContent-Length: 9999999\r\n\r\n"
 )
 
+// ttlcache stores the TTL for a given IP address for a limited time.
+// TODO: invalidate cache on network changes.
+var ttlcache = core.NewDefaultSieve[netip.Addr, int]()
+
 type OverwriteSplitter struct {
 	conn    *net.TCPConn
 	used    atomic.Bool
@@ -236,14 +240,14 @@ func DialWithSplitAndDesyncFixedTtl(d *protect.RDial, addr netip.AddrPort, initi
 // DialWithSplitAndDesyncSmart estimates the TTL with UDP traceroute,
 // then returns a TCP connection that may launch TCB Desynchronization
 // and split the initial upstream segment.
-func DialWithSplitAndDesyncSmart(d *protect.RDial, addr netip.AddrPort, maxTTL int, payload []byte) (DuplexConn, error) {
-	ttl, ok := getTTL(addr.Addr())
+func DialWithSplitAndDesyncSmart(d *protect.RDial, ipp netip.AddrPort, maxTTL int, payload []byte) (DuplexConn, error) {
+	ttl, ok := ttlcache.Get(ipp.Addr())
 	if ok {
-		return DialWithSplitAndDesyncFixedTtl(d, addr, ttl, payload)
+		return DialWithSplitAndDesyncFixedTtl(d, ipp, ttl, payload)
 	}
-	conn, err := DialWithSplitAndDesyncTraceroute(d, addr, maxTTL, payload)
+	conn, err := DialWithSplitAndDesyncTraceroute(d, ipp, maxTTL, payload)
 	if err == nil {
-		putTTL(addr.Addr(), conn.ttl)
+		ttlcache.Put(ipp.Addr(), conn.ttl)
 	}
 	return conn, err
 }
