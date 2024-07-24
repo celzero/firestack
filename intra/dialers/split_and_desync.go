@@ -9,7 +9,7 @@ import (
 	"crypto/rand"
 	"errors"
 	"io"
-	mathRand "math/rand"
+	mathrand "math/rand"
 	"net"
 	"net/netip"
 	"strings"
@@ -145,7 +145,7 @@ func DialWithSplitAndDesyncTraceroute(d *protect.RDial, addr netip.AddrPort, max
 
 	var msgBuf [probeSize]byte
 	var ttl int
-	basePort := 1 + mathRand.Intn(65535-maxTTL) //#nosec G404
+	basePort := 1 + mathrand.Intn(65535-maxTTL) //#nosec G404
 	for ttl = 2; ttl <= maxTTL; ttl++ {
 		_, err = rand.Read(msgBuf[:])
 		if err != nil {
