@@ -93,19 +93,12 @@ func exceedsTTL(cmsgs []unix.SocketControlMessage) bool {
 // If `payload` is smaller than the initial upstream segment, it launches the attack and splits.
 // This traceroute is not accurate, because of time limit (TCP handshake).
 // Note: The path the UDP packet took to reach the destination may differ from the path the TCP packet took.
-func DialWithSplitAndDesyncTraceroute(d *protect.RDial, addr netip.AddrPort, maxTTL int, payload []byte) (*OverwriteSplitter, error) {
-	udpAddr := net.UDPAddrFromAddrPort(addr)
+func DialWithSplitAndDesyncTraceroute(d *protect.RDial, ipp netip.AddrPort, maxTTL int, payload []byte) (*OverwriteSplitter, error) {
+	udpAddr := net.UDPAddrFromAddrPort(ipp)
 	udpAddr.Port = 1 // unset port
 
-	isIPv6 := addr.Addr().Is6()
-	var networkStr string
-	if isIPv6 {
-		networkStr = "udp6"
-	} else {
-		networkStr = "udp4"
-	}
-
-	udpConn, err := d.AnnounceUDP(networkStr, ":0")
+	isIPv6 := ipp.Addr().Is6()
+	udpConn, err := d.AnnounceUDP("udp", ":0")
 	if err != nil {
 		log.E("split-desync: err announcing udp: %v", err)
 		return nil, err
@@ -166,7 +159,7 @@ func DialWithSplitAndDesyncTraceroute(d *protect.RDial, addr netip.AddrPort, max
 		}
 	}
 
-	tcpConn, err := d.DialTCP("tcp", nil, net.TCPAddrFromAddrPort(addr))
+	tcpConn, err := d.DialTCP("tcp", nil, net.TCPAddrFromAddrPort(ipp))
 	if err != nil {
 		return nil, err
 	}
@@ -217,7 +210,7 @@ func DialWithSplitAndDesyncTraceroute(d *protect.RDial, addr netip.AddrPort, max
 			}
 		}
 	}
-	log.D("split-desync: addr: %v, ttl: %d", addr, split1.ttl)
+	log.D("split-desync: addr: %v, ttl: %d", ipp, split1.ttl)
 
 	return split1, nil
 }
