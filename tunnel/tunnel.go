@@ -45,7 +45,7 @@ import (
 
 // Tunnel represents a session on a TUN device.
 type Tunnel interface {
-	Mtu() int
+	Mtu() int32
 	// IsConnected indicates whether the tunnel is in a connected state.
 	IsConnected() bool
 	// Disconnect disconnects the tunnel.
@@ -75,9 +75,6 @@ type gtunnel struct {
 	pcapio *pcapsink                 // pcap output, if any
 	closed atomic.Bool               // open/close?
 	once   sync.Once
-
-	// mutable fields
-	mtu *core.Volatile[int] // mtu of the tun device
 }
 
 type pcapsink struct {
@@ -176,9 +173,9 @@ func (p *pcapsink) log(y bool) bool {
 	return netstack.LogPcap(y)
 }
 
-func (t *gtunnel) Mtu() int {
-	// return int(t.stack.NICInfo()[0].MTU)
-	return t.mtu.Load()
+func (t *gtunnel) Mtu() int32 {
+	// return int32(t.stack.NICInfo()[0].MTU)
+	return int32(t.ep.MTU())
 }
 
 func (t *gtunnel) wait() {
@@ -293,7 +290,6 @@ func NewGTunnel(fd, mtu int, tcph netstack.GTCPConnHandler, udph netstack.GUDPCo
 		pcapio: sink,
 		closed: atomic.Bool{},
 		once:   sync.Once{},
-		mtu:    core.NewVolatile(0),
 	}
 
 	// Enabled() may temporarily return false when Up() is in progress.
@@ -354,7 +350,6 @@ func (t *gtunnel) SetLink(fd, mtu int) error {
 	}
 
 	err = t.ep.Swap(dupfd, mtu) // swap fd and mtu
-	t.mtu.Store(mtu)
 
 	log.I("tun: new link; fd(%d), mtu(%d); err? %v", dupfd, mtu, err)
 	return err
