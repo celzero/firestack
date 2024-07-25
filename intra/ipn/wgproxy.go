@@ -181,7 +181,10 @@ func (w *wgproxy) onProtoChange() (string, bool) {
 func (w *wgproxy) Ping() bool {
 	now := now()
 	then := w.latestPing.Load()
-	if then+30*1000 > now && w.latestPing.CompareAndSwap(then, now) {
+	neversent := then == 0
+	recent := then+30*1000 < now
+	sendnow := w.latestPing.CompareAndSwap(then, now)
+	if (neversent || !recent) && sendnow {
 		tracked := w.peers.Load()
 		tot := len(tracked)
 		pinged := 0
@@ -194,7 +197,7 @@ func (w *wgproxy) Ping() bool {
 		log.D("proxy: wg: %s ping: %d/%d peers", w.id, pinged, tot)
 		return pinged > 0
 	} else {
-		log.VV("proxy: wg: %s ping: skipped; soon/concurrent; prev(%d)", w.id, then)
+		log.VV("proxy: wg: %s ping: skipped; soon? %t / concurrent? %t; prev(%d)", w.id, !recent, sendnow, then)
 	}
 	return false
 }
