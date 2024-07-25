@@ -81,7 +81,7 @@ type secans struct {
 }
 
 type ans struct {
-	algip        *netip.Addr   // generated answer
+	algip        *netip.Addr   // generated answer, v6 or v4
 	realips      []*netip.Addr // all ip answers, v6+v4
 	secondaryips []*netip.Addr // all ip answers from secondary, v6+v4
 	domain       []string      // all domain names in an answer (incl qname)
@@ -91,8 +91,8 @@ type ans struct {
 }
 
 type ansMulti struct {
-	algip        []*netip.Addr // generated answers
-	realip       []*netip.Addr // all ip answers, v6+v6
+	algip        []*netip.Addr // generated answers, v6 or v4
+	realip       []*netip.Addr // all ip answers, v6+v4
 	secondaryips []*netip.Addr // all ip answers from secondary, v6+v4
 	domain       []string      // all domain names in an answer (incl qname)
 	qname        string        // the query domain name
@@ -171,7 +171,7 @@ func (t *dnsgateway) querySecondary(t2 Transport, network string, msg *dns.Msg, 
 	defer core.Recover(core.DontExit, "alg.querySecondary")
 
 	go func() {
-		// don't need to handle panics w/ core.Recover
+		// benign: don't really have to handle panics w/ core.Recover
 		time.Sleep(timeout)
 		twosecres <- result // result 1
 	}()
