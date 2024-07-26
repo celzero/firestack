@@ -36,12 +36,13 @@ func NewSieve[K comparable, V any](sz int, lifetime time.Duration) *Sieve[K, V] 
 	}
 }
 
-func (s *Sieve[K, V]) Get(k K) (zz V, ok bool) {
+func (s *Sieve[K, V]) Get(k K) (V, bool) {
 	s.RLock()
 	defer s.RUnlock()
 	r, ok := s.c.Get(k)
 	if !ok || time.Until(r.exp) < 0 {
-		return // zero value, false
+		var zz V // zero value
+		return zz, false
 	}
 	return r.v, true
 }
