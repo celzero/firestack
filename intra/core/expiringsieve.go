@@ -1,7 +1,6 @@
 package core
 
 import (
-	"sync"
 	"time"
 
 	sieve "github.com/opencoff/go-sieve"
@@ -17,8 +16,10 @@ type sval[T any] struct {
 	v   T
 }
 
+// Sieve is a thread-safe map with expiring keys and fixed capacity.
+// Eviction is based on the SIEVE algorithm described in:
+// yazhuozhang.com/assets/pdf/nsdi24-sieve.pdf
 type Sieve[K comparable, V any] struct {
-	sync.RWMutex
 	c *sieve.Sieve[K, sval[V]]
 	t time.Duration
 }
@@ -36,9 +37,9 @@ func NewSieve[K comparable, V any](sz int, lifetime time.Duration) *Sieve[K, V] 
 	}
 }
 
+// Get returns the value associated with the given key,
+// and a boolean indicating whether the key was found.
 func (s *Sieve[K, V]) Get(k K) (V, bool) {
-	s.RLock()
-	defer s.RUnlock()
 	r, ok := s.c.Get(k)
 	if !ok || time.Until(r.exp) < 0 {
 		var zz V // zero value
@@ -48,8 +49,6 @@ func (s *Sieve[K, V]) Get(k K) (V, bool) {
 }
 
 func (s *Sieve[K, V]) Put(k K, v V) (replaced bool) {
-	s.Lock()
-	defer s.Unlock()
 	return s.c.Add(k, sval[V]{
 		exp: time.Now().Add(s.t),
 		v:   v,
