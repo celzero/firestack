@@ -116,7 +116,11 @@ func Up(s *stack.Stack, ep stack.LinkEndpoint, h GConnHandler) error {
 	// from: github.com/telepresenceio/telepresence/blob/ab7dda7d55/pkg/vif/stack.go#L232
 	// Enable Receive Buffer Auto-Tuning, see: github.com/google/gvisor/issues/1666
 	bufauto := tcpip.TCPModerateReceiveBufferOption(true)
-	s.SetTransportProtocolOption(tcp.ProtocolNumber, &bufauto)
+	_ = s.SetTransportProtocolOption(tcp.ProtocolNumber, &bufauto)
+
+	// coder.com/blog/delivering-5x-faster-throughput-in-coder-2-12-0
+	ccopt := tcpip.CongestionControlOption("cubic")
+	_ = s.SetTransportProtocolOption(tcp.ProtocolNumber, &ccopt)
 
 	ttl := tcpip.DefaultTTLOption(64)
 	s.SetNetworkProtocolOption(ipv4.ProtocolNumber, &ttl)
