@@ -48,9 +48,25 @@ func (s *Sieve[K, V]) Get(k K) (V, bool) {
 	return r.v, true
 }
 
+// Put adds an element to the sieve with the given key and value.
 func (s *Sieve[K, V]) Put(k K, v V) (replaced bool) {
 	return s.c.Add(k, sval[V]{
 		exp: time.Now().Add(s.t),
 		v:   v,
 	})
+}
+
+// Del removes the element with the given key from the sieve.
+func (s *Sieve[K, V]) Del(k K) {
+	s.c.Delete(k)
+}
+
+// Len returns the number of elements in the sieve.
+func (s *Sieve[K, V]) Len() int {
+	return s.c.Len()
+}
+
+// Clear removes all elements from the sieve.
+func (s *Sieve[K, V]) Clear() {
+	s.c.Purge()
 }
