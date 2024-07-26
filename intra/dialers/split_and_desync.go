@@ -98,7 +98,15 @@ func DialWithSplitAndDesyncTraceroute(d *protect.RDial, ipp netip.AddrPort, maxT
 	udpAddr.Port = 1 // unset port
 
 	isIPv6 := ipp.Addr().Is6()
-	udpConn, err := d.AnnounceUDP("udp", ":0")
+
+	var networkStr string
+	if isIPv6 {
+		networkStr = "udp6"
+	} else {
+		networkStr = "udp4"
+	}
+
+	udpConn, err := d.AnnounceUDP(networkStr, ":0")
 	if err != nil {
 		log.E("split-desync: err announcing udp: %v", err)
 		return nil, err
