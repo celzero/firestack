@@ -278,7 +278,7 @@ func (m *supervisor) queuePacket(pkt *stack.PacketBuffer, hasEthHeader bool) {
 		}
 		pkt.NetworkProtocolNumber = tup.proto
 	}
-	if m.canDeliverInline() || nonConnectionPkt || settings.Loopingback.Load() {
+	if m.canDeliverInline() || nonConnectionPkt || settings.SingleThreaded.Load() {
 		// If the packet is not associated with an active connection, use the
 		// first processor.
 		pIdx = 0
@@ -334,7 +334,7 @@ func (m *supervisor) wakeReady() {
 			continue
 		}
 		p := &m.processors[i]
-		if m.canDeliverInline() || settings.Loopingback.Load() {
+		if m.canDeliverInline() || settings.SingleThreaded.Load() {
 			p.deliverPackets()
 		} else {
 			p.packetWaker.Assert()

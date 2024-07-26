@@ -88,10 +88,16 @@ func LowMem() {
 }
 
 // Slowdown sets the TUN forwarder in single-threaded mode.
-// Currently, set when netstack is running in "loopback" (rinr) mode.
 func Slowdown(y bool) {
-	ok := settings.Loopingback.CompareAndSwap(!y, y)
+	ok := settings.SingleThreaded.CompareAndSwap(!y, y)
 	log.I("tun: slowdown? %t / ok? %t", y, ok)
+}
+
+// Loopback informs the network stack that it must deal with packets
+// originating from its own process routed back into the tunnel.
+func Loopback(y bool) {
+	ok := settings.Loopingback.CompareAndSwap(!y, y)
+	log.I("tun: loopback? %t / ok? %t", y, ok)
 }
 
 // Build returns the build information.

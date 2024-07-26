@@ -75,9 +75,12 @@ const NICID = 0x01
 var Debug bool = false
 
 // Loopingback is a global flag to adjust netstack behaviour
-// wrt single-threaded TUN packet processor, no split dialing,
-// zero delay close(tunfd) etc.
+// wrt preventing split dialing, closing tunfd without delay etc.
 var Loopingback = atomic.Bool{}
+
+// SingleThreaded is a global flag to run Netstack's packet forwarder
+// in a single-threaded mode.
+var SingleThreaded = atomic.Bool{}
 
 // L3 returns the string'd repr of engine.
 func L3(engine int) string {
