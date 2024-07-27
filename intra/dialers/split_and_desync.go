@@ -99,6 +99,10 @@ func DialWithSplitAndDesyncTraceroute(d *protect.RDial, ipp netip.AddrPort, maxT
 
 	isIPv6 := ipp.Addr().Is6()
 
+	/*
+ 	Use udp4 for IPv4 to prevent OS from giving cmsg(s) which mix IPPROTO_IPV6 cmsg level and IPv4-related cmsg data,
+ 	because exceedsTTL() returns false when cmsg.Header.Level == IPPROTO_IPV6
+	*/
 	var networkStr string
 	if isIPv6 {
 		networkStr = "udp6"
