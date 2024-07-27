@@ -24,6 +24,9 @@
 package doh
 
 import (
+	"errors"
+
+	"github.com/celzero/firestack/intra/log"
 	"github.com/miekg/dns"
 )
 
@@ -33,6 +36,8 @@ const (
 
 const kOptPaddingHeaderLen int = 2 + // OPTION-CODE
 	2 // OPTION-LENGTH
+
+var errPadding = errors.New("padding: malformed rr")
 
 // Compute the number of padding bytes needed, excluding headers.
 // Assumes that |msgLen| is the length of a raw DNS message that contains an
@@ -65,10 +70,23 @@ func AddEdnsPadding(msg *dns.Msg) (*dns.Msg, error) {
 			}
 		}
 	}
+
 	if opt != nil {
-		for _, option := range opt.Option {
-			if option.Option() == dns.EDNS0PADDING {
-				return msg, nil // already padded
+		for _, o := range opt.Option {
+			if o.Option() == dns.EDNS0PADDING { // process padding rr
+				if p, ok := o.(*dns.EDNS0_PADDING); ok {
+					if p != nil { // has rr
+						if len(p.Padding) > 0 {
+							return msg, nil // already padded
+						}
+						log.W("doh: padding: has ends0padding opt but padding nil! %s", msg)
+						*p = *optPadding(msg.Len()) // add padding
+						return msg, nil
+					} else { // has opt but no rr?!
+						log.E("doh: padding: has ends0padding opt but rr nil! %s", msg)
+						return nil, errPadding
+					}
+				}
 			}
 		} // fallthrough
 		msg.Compress = true

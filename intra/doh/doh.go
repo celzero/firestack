@@ -319,7 +319,7 @@ func (t *transport) doDoh(pid string, q *dns.Msg) (response *dns.Msg, blocklists
 	start := time.Now()
 	q, err := AddEdnsPadding(q)
 	if err != nil {
-		log.D("doh: failed to add padding: %v", err)
+		log.E("doh: failed to add padding %s: %v", xdns.QName(q), err)
 		elapsed = time.Since(start)
 		qerr = dnsx.NewInternalQueryError(err)
 		return
