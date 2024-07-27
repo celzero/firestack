@@ -98,7 +98,19 @@ func DialWithSplitAndDesyncTraceroute(d *protect.RDial, ipp netip.AddrPort, maxT
 	udpAddr.Port = 1 // unset port
 
 	isIPv6 := ipp.Addr().Is6()
-	udpConn, err := d.AnnounceUDP("udp", ":0")
+
+	/*
+ 	Use udp4 for IPv4 to prevent OS from giving cmsg(s) which mix IPPROTO_IPV6 cmsg level and IPv4-related cmsg data,
+ 	because exceedsTTL() returns false when cmsg.Header.Level == IPPROTO_IPV6
+	*/
+	var networkStr string
+	if isIPv6 {
+		networkStr = "udp6"
+	} else {
+		networkStr = "udp4"
+	}
+
+	udpConn, err := d.AnnounceUDP(networkStr, ":0")
 	if err != nil {
 		log.E("split-desync: err announcing udp: %v", err)
 		return nil, err
