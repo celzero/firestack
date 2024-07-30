@@ -187,9 +187,9 @@ func (d *readVDispatcher) swap(fd int) error {
 		note = log.W
 	}
 
-	prev := d.fds.Swap(f)      // f may be nil
-	go d.wrapup(prev, wrapttl) // prev may be nil
-	d.mgr.swap(fd)             // used for diagnostics only
+	prev := d.fds.Swap(f)   // f may be nil
+	d.wrapup(prev, wrapttl) // prev may be nil
+	d.mgr.swap(fd)          // used for diagnostics only
 
 	note("ns: dispatch: swap: tun(%d => %d); err %v", prev.tun(), fd, err)
 	return err
@@ -244,14 +244,16 @@ func (d *readVDispatcher) wrapup(fds *fds, noMoreThan30s time.Duration) {
 		fds.stop()
 	}()
 
-	log.I("ns: tun(%d): drain: start w timeout in %dsecs", fds.tun(), secs)
-	for {
-		cont, err := d.io(fds)
-		if err != nil || !cont {
-			log.W("ns: tun(%d): drain: exit; err %v", fds.tun(), err)
-			return
+	go func() {
+		log.I("ns: tun(%d): drain: start w timeout in %dsecs", fds.tun(), secs)
+		for {
+			cont, err := d.io(fds)
+			if err != nil || !cont {
+				log.W("ns: tun(%d): drain: exit; err %v", fds.tun(), err)
+				return
+			}
 		}
-	}
+	}()
 }
 
 // io reads packets from fds and dispatches it to netstack.
