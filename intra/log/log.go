@@ -51,7 +51,7 @@ type conMsg struct {
 	t LogLevel
 }
 
-var consoleChSize = 128
+var consoleChSize = 256
 
 type LogFn func(string, ...any)
 type LogFn2 func(int, string, ...any)
