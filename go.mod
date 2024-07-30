@@ -8,9 +8,9 @@ require (
 	github.com/jedisct1/xsecretbox v0.0.0-20190909160646-b731c21297f9
 	github.com/k-sone/critbitgo v1.4.0
 	github.com/miekg/dns v1.1.49
+	github.com/opencoff/go-sieve v0.2.1
 	golang.org/x/crypto v0.21.0
 	golang.org/x/sys v0.18.0
-	github.com/opencoff/go-sieve v0.2.1
 )
 
 require (
@@ -21,7 +21,7 @@ require (
 	golang.org/x/mobile v0.0.0-20220518205345-8578da9835fd
 	golang.org/x/net v0.23.0
 	golang.zx2c4.com/wireguard v0.0.0-20231211153847-12269c276173
-	gvisor.dev/gvisor v0.0.0-20240629121841-891b40cf7fe0
+	gvisor.dev/gvisor v0.0.0-20240729225701-924c9908865c
 	nhooyr.io/websocket v1.8.7
 )
 
