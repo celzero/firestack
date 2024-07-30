@@ -523,3 +523,6 @@ func (e *endpoint) Close() {
 	log.W("ns: tun(%d): Close!", e.fd())
 	e.Attach(nil)
 }
+
+// SetOnCloseAction implements stack.LinkEndpoint.
+func (*endpoint) SetOnCloseAction(func()) {}
