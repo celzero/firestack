@@ -11,7 +11,6 @@ import (
 	"errors"
 	"io"
 	"net"
-	"syscall"
 
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/log"
@@ -46,12 +45,6 @@ type RDial struct {
 	Listen  *net.ListenConfig // may be nil; used by exit, base, grounded
 	RDialer RDialer           // may be nil; used by remote proxies, ex: wg
 }
-
-const (
-	defaultKeepIdle = 45
-	defaultKeepCnt = 5
-	defaultKeepIntvl = 1
-)
 
 var (
 	errNoDialer    = errors.New("not a dialer")
@@ -156,8 +149,6 @@ func (d *RDial) DialTCP(network string, laddr, raddr *net.TCPAddr) (*net.TCPConn
 		return nil, err
 	} else if tc, ok := c.(*net.TCPConn); ok {
 		// d.Dialer.LocalAddr = nil
-		//adjust keepalive config to save battery
-		setKeepAliveConfig(tc, defaultKeepIdle, defaultKeepCnt, defaultKeepIntvl)
 		return tc, nil
 	} else {
 		log.W("xdial: DialTCP: (%s) %T is not %T (ok? %t); other errs: %v", d.Owner, c, tc, ok, err)
@@ -208,26 +199,5 @@ func (d *RDial) AcceptTCP(network string, local string) (*net.TCPListener, error
 		log.W("xdial: AcceptTCP: (%s) %T is not %T (ok? %t); other errs: %v", d.Owner, ln, tl, ok, err)
 		clos(ln)
 		return nil, errNoTCPMux
-	}
-}
-
-func setKeepAliveConfig(tc *net.TCPConn, keepIdle, keepCnt, keepIntvl int){
-	rawConn,err := tc.SyscallConn();
-	if err != nil {
-		return
-	}
-	err = rawConn.Control(func(fd uintptr) {
-		if err := syscall.SetsockoptInt(int(fd), syscall.IPPROTO_TCP, syscall.TCP_KEEPINTVL, keepIntvl); err!=nil {
-			log.E("Can't set TCP_KEEPINTVL: %v", err)
-		}
-		if err := syscall.SetsockoptInt(int(fd), syscall.IPPROTO_TCP, syscall.TCP_KEEPCNT, keepCnt); err!=nil {
-			log.E("Can't set TCP_KEEPCNT: %v", err)
-		}
-		if err := syscall.SetsockoptInt(int(fd), syscall.IPPROTO_TCP, syscall.TCP_KEEPIDLE, keepIdle); err!=nil {
-			log.E("Can't set TCP_KEEPIDLE: %v", err)
-		}
-	})
-	if err != nil {
-		log.E("RawConn.Control() failed: %v", err)
 	}
 }
