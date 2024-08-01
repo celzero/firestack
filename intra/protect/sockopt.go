@@ -24,28 +24,38 @@
 package protect
 
 import (
+	"net"
 	"syscall"
 
 	"github.com/celzero/firestack/intra/log"
 )
 
 const (
-	defaultKeepIdle = 120
-	defaultKeepCnt = 5
+	defaultKeepIdle  = 120
+	defaultKeepCnt   = 5
 	defaultKeepIntvl = 1
 )
 
-func SetKeepAliveConfig(network, addr string, c syscall.RawConn) error {
-	return c.Control(func(fd uintptr) {
-		sock := int(fd)
-		if err := syscall.SetsockoptInt(sock, syscall.IPPROTO_TCP, syscall.TCP_KEEPIDLE, defaultKeepIdle); err!=nil {
-			log.E("set TCP_KEEPIDLE failed: %v", err)
+func TrySetKeepAliveConfig(c Conn) {
+	if tcpConn, ok := c.(*net.TCPConn); ok {
+		rawConn, err := tcpConn.SyscallConn()
+		if err != nil || rawConn == nil {
+			return
 		}
-		if err := syscall.SetsockoptInt(sock, syscall.IPPROTO_TCP, syscall.TCP_KEEPINTVL, defaultKeepIntvl); err!=nil {
-			log.E("set TCP_KEEPINTVL failed: %v", err)
+		err = rawConn.Control(func(fd uintptr) {
+			sock := int(fd)
+			if err := syscall.SetsockoptInt(sock, syscall.IPPROTO_TCP, syscall.TCP_KEEPIDLE, defaultKeepIdle); err != nil {
+				log.E("set TCP_KEEPIDLE failed: %v", err)
+			}
+			if err := syscall.SetsockoptInt(sock, syscall.IPPROTO_TCP, syscall.TCP_KEEPINTVL, defaultKeepIntvl); err != nil {
+				log.E("set TCP_KEEPINTVL failed: %v", err)
+			}
+			if err := syscall.SetsockoptInt(sock, syscall.IPPROTO_TCP, syscall.TCP_KEEPCNT, defaultKeepCnt); err != nil {
+				log.E("set TCP_KEEPCNT failed: %v", err)
+			}
+		})
+		if err != nil {
+			log.E("RawConn.Control() failed: %v", err)
 		}
-		if err := syscall.SetsockoptInt(sock, syscall.IPPROTO_TCP, syscall.TCP_KEEPCNT, defaultKeepCnt); err!=nil {
-			log.E("set TCP_KEEPCNT failed: %v", err)
-		}
-	})
+	}
 }

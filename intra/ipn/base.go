@@ -39,7 +39,7 @@ type base struct {
 
 // Base returns a base proxy.
 func NewBaseProxy(c protect.Controller) *base {
-	d := protect.MakeNsRDialExt(Base, c, []protect.ControlFn{protect.SetKeepAliveConfig})
+	d := protect.MakeNsRDial(Base, c)
 	h := &base{
 		addr:     "127.8.4.5:3690",
 		outbound: d,
@@ -69,6 +69,9 @@ func (h *base) Dial(network, addr string) (c protect.Conn, err error) {
 	} else {
 		c, err = dialStrat(h.outbound, network, addr)
 	}
+
+	//Adjust TCP keepalive config if c is a TCPConn
+	protect.TrySetKeepAliveConfig(c)
 
 	log.I("proxy: base: dial(%s) to %s; err? %v", network, addr, err)
 	return
