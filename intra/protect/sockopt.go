@@ -30,7 +30,7 @@ import (
 )
 
 const (
-	defaultKeepIdle = 45
+	defaultKeepIdle = 120
 	defaultKeepCnt = 5
 	defaultKeepIntvl = 1
 )
