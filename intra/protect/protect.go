@@ -163,6 +163,29 @@ func MakeNsRDial(who string, c Controller) *RDial {
 	}
 }
 
+// Creates a RDial that can bind to any active interface, with additional control fns.
+func MakeNsRDialExt(who string, ctl Controller, ext []ControlFn) *RDial {
+	dialer := MakeNsDialer(who, ctl)
+	dialer.Control = func(network, address string, c syscall.RawConn) error {
+		for _, fn := range ext {
+			if err := fn(network, address, c); err != nil {
+				return err
+			}
+		}
+		if ctl != nil && core.IsNotNil(ctl) {
+			if err := ifbind(who, ctl)(network, address, c); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	return &RDial{
+		Owner:  who,
+		Dialer: dialer,
+		Listen: MakeNsListener(who, ctl),
+	}
+}
+
 // Creates a listener that can bind to any active interface.
 func MakeNsListener(who string, c Controller) *net.ListenConfig {
 	x := netlistener()

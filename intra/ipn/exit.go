@@ -28,7 +28,7 @@ type exit struct {
 
 // NewExitProxy returns a new exit proxy.
 func NewExitProxy(c protect.Controller) *exit {
-	d := protect.MakeNsRDial(Exit, c)
+	d := protect.MakeNsRDialExt(Exit, c, []protect.ControlFn{protect.SetKeepAliveConfig})
 	h := &exit{
 		addr:     "127.0.0.127:1337",
 		outbound: d,

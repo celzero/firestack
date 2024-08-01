@@ -39,7 +39,7 @@ type base struct {
 
 // Base returns a base proxy.
 func NewBaseProxy(c protect.Controller) *base {
-	d := protect.MakeNsRDial(Base, c)
+	d := protect.MakeNsRDialExt(Base, c, []protect.ControlFn{protect.SetKeepAliveConfig})
 	h := &base{
 		addr:     "127.8.4.5:3690",
 		outbound: d,
