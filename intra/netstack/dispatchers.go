@@ -182,7 +182,7 @@ func (d *readVDispatcher) swap(fd int) error {
 	}
 
 	note := log.I
-	f, err := newTun(fd)
+	f, err := newTun(fd) // fd may be invalid (ex: -1)
 	if err != nil {
 		note = log.W
 	}

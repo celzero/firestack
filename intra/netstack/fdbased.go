@@ -56,6 +56,8 @@ const invalidfd int = -1
 type Swapper interface {
 	// Swap closes existing FDs; uses new fd and mtu.
 	Swap(fd, mtu int) error
+	// Dispose closes all existing FDs.
+	Dispose() error
 }
 
 type SeamlessEndpoint interface {
@@ -228,6 +230,32 @@ func createInboundDispatcher(e *endpoint, fd int) (linkDispatcher, error) {
 	return d, nil
 }
 
+func (e *endpoint) Dispose() (err error) {
+	if e.fds == nil {
+		log.W("ns: tun: Dispose: fds nil")
+		return nil
+	}
+	prevfd := e.fds.Swap(invalidfd) // prevfd may be invalidfd
+	if prevfd == invalidfd {
+		log.W("ns: tun: Dispose: prevfd invalid")
+		return nil
+	}
+
+	defer func() {
+		_ = syscall.Close(prevfd)
+		log.I("ns: tun(%d): Dispose: close fd %d!", prevfd)
+	}()
+
+	e.Lock()
+	defer e.Unlock()
+	if e.inboundDispatcher != nil {
+		// e.dispatchLoop() will auto-exit due to invalidfd
+		err = e.inboundDispatcher.swap(invalidfd)
+	}
+
+	return
+}
+
 // Implements Swapper.
 func (e *endpoint) Swap(fd, mtu int) (err error) {
 	defer func() {
@@ -242,7 +270,7 @@ func (e *endpoint) Swap(fd, mtu int) (err error) {
 	}
 
 	e.SetMTU(uint32(mtu))
-	// prevfd closed by inboundDispatcher; and may be 0 value
+	// prevfd closed by inboundDispatcher; and may be invalidfd
 	prevfd := e.fds.Swap(fd) // commence WritePackets() on fd
 
 	log.D("ns: swapping tun... fd: %d => %d, mtu: %d", prevfd, fd, mtu)

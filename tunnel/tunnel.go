@@ -50,7 +50,7 @@ type Tunnel interface {
 	IsConnected() bool
 	// Disconnect disconnects the tunnel.
 	Disconnect()
-	// Enabled checks if the tunnel is up.
+	// Enabled checks if the tunnel is up and running.
 	Enabled() bool
 	// Write writes input data to the TUN interface.
 	Write(data []byte) (int, error)
@@ -58,6 +58,8 @@ type Tunnel interface {
 	CloseConns(activecsv string) (closedcsv string)
 	// Creates a new link using fd (tun device) and mtu.
 	SetLink(fd, mtu int) error
+	// Unsets existing link and closes the fd (tun device).
+	Unlink() error
 	// Creates the link and updates the routes
 	SetLinkAndRoutes(fd, mtu, engine int) error
 	// New route
@@ -338,6 +340,12 @@ func (t *gtunnel) SetLinkAndRoutes(fd, mtu, engine int) (err error) {
 	// route is always dual-stack (settings.IP46); never changed
 	log.I("tun: requested route (%s); unchanged", settings.L3(engine))
 	return t.SetLink(fd, mtu)
+}
+
+func (t *gtunnel) Unlink() error {
+	defer core.Recover(core.Exit11, "g.Unlink")
+
+	return t.ep.Dispose()
 }
 
 func (t *gtunnel) SetLink(fd, mtu int) error {
