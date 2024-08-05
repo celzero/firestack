@@ -119,7 +119,7 @@ func (h *icmpHandler) CloseConns(cids []string) []string { return nil }
 
 // PingOnce implements netstack.GICMPHandler.
 func (h *icmpHandler) PingOnce(src, dst netip.AddrPort, msg []byte) bool {
-	return h.Ping(src, dst, msg, nil /*no pong*/)
+	return h.Ping(src, dst, msg)
 }
 
 // Ping implements netstack.GICMPHandler.
@@ -131,10 +131,10 @@ func (h *icmpHandler) PingOnce(src, dst netip.AddrPort, msg []byte) bool {
 // ref: androidxref.com/9.0.0_r3/xref/libcore/luni/src/test/java/libcore/java/net/InetAddressTest.java#265
 // see: sturmflut.github.io/linux/ubuntu/2015/01/17/unprivileged-icmp-sockets-on-linux/
 // ex: github.com/prometheus-community/pro-bing/blob/0bacb2d5e/ping.go#L703
-func (h *icmpHandler) Ping(source, target netip.AddrPort, msg []byte, pong netstack.Pong) (open bool) {
+func (h *icmpHandler) Ping(source, target netip.AddrPort, msg []byte) (echoed bool) {
 	if h.status.Load() == ICMPEND {
 		log.D("t.icmp: handler ended")
-		return
+		return // not handled
 	}
 	var px ipn.Proxy = nil
 	var err error
@@ -146,7 +146,7 @@ func (h *icmpHandler) Ping(source, target netip.AddrPort, msg []byte, pong netst
 	smm := icmpSummary(cid, pid)
 
 	defer func() {
-		if !open {
+		if !echoed {
 			queueSummary(h.smmch, h.done, smm.done(err))
 		}
 	}()
@@ -179,41 +179,16 @@ func (h *icmpHandler) Ping(source, target netip.AddrPort, msg []byte, pong netst
 		return // unhandled
 	}
 
+	defer queueSummary(h.smmch, h.done, smm.done(err)) // err may be nil
 	defer clos(uc)
+
 	extend(uc, icmptimeout)
 
-	if _, err = uc.Write(msg); err != nil {
-		log.E("t.icmp: egress:  write(%v) ping; err %v", target, err)
-		return // unhandled
+	_, err = uc.Write(msg)
+	logei(err, "t.icmp: egress: write(%v <- %v) ping; done %d; err? %v", dst, source, len(msg), err)
+	if err != nil {
+		return false // write error
 	}
-	log.I("t.icmp: egress: writeTo(%v) ping; done %d", target, len(msg))
-
-	if pong == nil {
-		// single ping, block until done
-		return h.fetch(uc, nil, smm)
-	} else {
-		// multi ping, non-blocking
-		core.Gx("icmp.Ping", func() {
-			h.fetch(uc, pong, smm)
-		})
-	}
-	return true // handled
-}
-
-// fetch reads from the connection and sends the pong back to the caller.
-// If pong is nil, it reads only the first ping and returns.
-// If pong is not nil, it reads multiple pings and sends the pongs back.
-// Returns true if the ping was successful, false otherwise.
-// c is owned by fetch, and summary is sent back to the listener.
-// Must be called in a goroutine.
-func (h *icmpHandler) fetch(c net.Conn, pong netstack.Pong, smm *SocketSummary) (success bool) {
-	var err error
-	var n int
-
-	defer func() {
-		clos(c)
-		queueSummary(h.smmch, h.done, smm.done(err))
-	}()
 
 	bptr := core.Alloc()
 	b := *bptr
@@ -223,40 +198,23 @@ func (h *icmpHandler) fetch(c net.Conn, pong netstack.Pong, smm *SocketSummary) 
 		core.Recycle(bptr)
 	}()
 
-	src := c.LocalAddr()
-	dst := c.RemoteAddr()
-	for {
-		if h.status.Load() == ICMPEND {
-			log.D("icmp: handler ended")
-			return
-		}
+	extend(uc, icmptimeout)
+	_, err = uc.Read(b)
+	logei(err, "t.icmp: ingress: read(%v <- %v) ping done; err? %v", source, dst, err)
 
-		extend(c, icmptimeout)
-		if n, err = c.Read(b); err != nil {
-			log.E("t.icmp: ingress: read(%v <- %v) ping err %v", src, dst, err)
-			success = success || false
-			break // on error, stop
-		} else if pong != nil { // process multiple pings
-			if err = pong(b[:n]); err != nil {
-				if err != unix.ENETUNREACH {
-					log.E("t.icmp: ingress: write(%v <- %v) pong err %v", src, dst, err)
-				}
-				break // on error, stop
-			} else {
-				success = true
-				continue // on success, continue
-			}
-		} else { // just the first ping
-			success = true
-			break
-		}
-	}
-	log.I("t.icmp: ingress: ReadFrom(%v <- %v) ping done; ok? %t", src, dst, success)
-	return
+	return true // echoed; even if err != nil
 }
 
 func extend(c net.Conn, t time.Duration) {
 	if c != nil && core.IsNotNil(c) {
 		_ = c.SetDeadline(time.Now().Add(t))
 	}
+}
+
+func logei(err error, msg string, args ...any) {
+	f := log.E
+	if err == nil {
+		f = log.I
+	}
+	f(msg, args...)
 }

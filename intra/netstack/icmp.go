@@ -24,7 +24,7 @@ type Pong func(reply []byte) error
 
 type GICMPHandler interface {
 	// Ping informs if ICMP Echo from src to dst is replied to
-	Ping(source, destination netip.AddrPort, msg []byte) bool
+	Ping(src, dst netip.AddrPort, msg []byte) bool
 	// CloseConns closes all connections
 	CloseConns([]string) []string
 	// End closes the handler and all its connections
