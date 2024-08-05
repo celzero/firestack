@@ -342,14 +342,14 @@ func (h *udpHandler) Connect(gconn net.Conn, src, target netip.AddrPort, drop bo
 	// unconnected udp socket?
 	if target.Addr().IsUnspecified() || !target.IsValid() {
 		log.I("udp: unconnected udp at (%s) for uid %s via %s", src, uid, px.ID())
-		pc, errs = px.Announce("udp", src.String())
+		pc, errs = px.Dialer().Announce("udp", src.String())
 		selectedTarget = src // no target
 	} else {
 		// note: fake-dns-ips shouldn't be un-nated / un-alg'd
 		for i, dstipp := range makeIPPorts(realips, target, 0) {
 			selectedTarget = dstipp
 			// h.conntracker.TrackDest(ct, selectedTarget) // will be untracked by forward
-			if pc, err = px.Dial("udp", selectedTarget.String()); err == nil {
+			if pc, err = px.Dialer().Dial("udp", selectedTarget.String()); err == nil {
 				errs = nil // reset errs
 				break
 			} // else try the next realip

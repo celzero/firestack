@@ -280,7 +280,7 @@ func (h *tcpHandler) handle(px ipn.Proxy, src net.Conn, target netip.AddrPort, c
 	// github.com/google/gvisor/blob/5ba35f516b5c2/test/benchmarks/tcp/tcp_proxy.go#L359
 	// ref: stackoverflow.com/questions/63656117
 	// ref: stackoverflow.com/questions/40328025
-	if pc, err = px.Dial("tcp", target.String()); err == nil {
+	if pc, err = px.Dialer().Dial("tcp", target.String()); err == nil {
 		smm.Rtt = int32(time.Since(start).Seconds() * 1000)
 		// pc.RemoteAddr may be that of the proxy, not the actual dst
 		// ex: pc.RemoteAddr is 127.0.0.1 for Orbot
