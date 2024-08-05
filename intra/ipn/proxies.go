@@ -8,7 +8,6 @@ package ipn
 
 import (
 	"errors"
-	"net/http"
 	"strings"
 	"sync"
 	"time"
@@ -92,14 +91,12 @@ var _ protect.RDialer = (Proxy)(nil)
 
 type Proxy interface {
 	x.Proxy
-	// Dial returns a connection to this proxy.
-	Dial(network, addr string) (protect.Conn, error)
-	// Announce returns a packet-oriented udp connection on this proxy.
-	Announce(network, local string) (protect.PacketConn, error)
-	// Accept returns a listener for this proxy.
-	Accept(network, local string) (protect.Listener, error)
-	// fetch response for this request over HTTP.
-	fetch(req *http.Request) (*http.Response, error)
+	// Dial(network, addr string) (protect.Conn, error)
+	// Announce(network, local string) (protect.PacketConn, error)
+	// Accept(network, local string) (protect.Listener, error)
+	// fetch(req *http.Request) (*http.Response, error)
+	protect.RDialer
+
 	// Dialer returns the dialer for this proxy, which is an
 	// adapter for protect.RDialer interface, but with the caveat that
 	// not all Proxy instances implement DialTCP and DialUDP, though are
