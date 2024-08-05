@@ -7,8 +7,6 @@
 package ipn
 
 import (
-	"net/http"
-
 	x "github.com/celzero/firestack/intra/backend"
 	"github.com/celzero/firestack/intra/dialers"
 	"github.com/celzero/firestack/intra/log"
@@ -20,7 +18,6 @@ type exit struct {
 	protoagnostic
 	skiprefresh
 	rd       *protect.RDial // this proxy as a RDial
-	hc       *http.Client   // this proxy as a http.Client
 	outbound *protect.RDial // outbound dialer
 	addr     string
 	status   int
@@ -35,7 +32,6 @@ func NewExitProxy(c protect.Controller) *exit {
 		status:   TUP,
 	}
 	h.rd = newRDial(h)
-	h.hc = newHTTPClient(h.rd)
 	return h
 }
 
@@ -78,15 +74,6 @@ func (h *exit) Dialer() *protect.RDial {
 // todo: return system DNS
 func (h *exit) DNS() string {
 	return nodns
-}
-
-func (h *exit) fetch(req *http.Request) (*http.Response, error) {
-	stopped := h.status == END
-	log.V("proxy: base: fetch(%s); ok? %t", req.URL, !stopped)
-	if stopped {
-		return nil, errProxyStopped
-	}
-	return h.hc.Do(req)
 }
 
 func (h *exit) ID() string {

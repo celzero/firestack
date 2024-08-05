@@ -8,7 +8,6 @@ package ipn
 
 import (
 	"crypto/tls"
-	"net/http"
 	"net/url"
 	"time"
 
@@ -24,7 +23,6 @@ import (
 type http1 struct {
 	nofwd                      // no forwarding/listening
 	skiprefresh                // no refresh
-	hc          *http.Client   // exported http client
 	rd          *protect.RDial // exported rdial
 	outbound    proxy.Dialer
 	id          string
@@ -71,7 +69,6 @@ func NewHTTPProxy(id string, c protect.Controller, po *settings.ProxyOptions) (*
 		opts:     po,
 	}
 	h.rd = newRDial(h)
-	h.hc = newHTTPClient(h.rd)
 
 	log.D("proxy: http1: created %s with opts(%s)", h.ID(), po)
 
@@ -94,15 +91,6 @@ func (h *http1) Dial(network, addr string) (c protect.Conn, err error) {
 	}
 	log.I("proxy: http1: dial(%s) from %s to %s; err? %v", network, h.GetAddr(), addr, err)
 	return
-}
-
-func (h *http1) fetch(req *http.Request) (*http.Response, error) {
-	stopped := h.status == END
-	log.V("proxy: http1: %d; fetch(%s) from %s; ok? %t", h.id, req.URL, !stopped)
-	if stopped {
-		return nil, errProxyStopped
-	}
-	return h.hc.Do(req)
 }
 
 func (h *http1) Dialer() *protect.RDial {

@@ -7,8 +7,6 @@
 package ipn
 
 import (
-	"net/http"
-
 	x "github.com/celzero/firestack/intra/backend"
 	"github.com/celzero/firestack/intra/dialers"
 	"github.com/celzero/firestack/intra/log"
@@ -31,7 +29,6 @@ type base struct {
 	protoagnostic                // Dial is proto aware
 	skiprefresh                  // no rebinding necessary on refresh
 	rd            *protect.RDial // this proxy as a RDial
-	hc            *http.Client   // this proxy as a http.Client
 	outbound      *protect.RDial // outbound dialer
 	addr          string
 	status        int
@@ -46,7 +43,6 @@ func NewBaseProxy(c protect.Controller) *base {
 		status:   TUP,
 	}
 	h.rd = newRDial(h)
-	h.hc = newHTTPClient(h.rd)
 	return h
 }
 
@@ -96,15 +92,6 @@ func (h *base) Dialer() *protect.RDial {
 
 func (h *base) DNS() string {
 	return nodns
-}
-
-func (h *base) fetch(req *http.Request) (*http.Response, error) {
-	stopped := h.status == END
-	log.V("proxy: base: fetch(%s); ok? %t", req.URL, !stopped)
-	if stopped {
-		return nil, errProxyStopped
-	}
-	return h.hc.Do(req)
 }
 
 func (h *base) ID() string {

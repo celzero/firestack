@@ -94,7 +94,6 @@ type Proxy interface {
 	// Dial(network, addr string) (protect.Conn, error)
 	// Announce(network, local string) (protect.PacketConn, error)
 	// Accept(network, local string) (protect.Listener, error)
-	// fetch(req *http.Request) (*http.Response, error)
 	protect.RDialer
 
 	// Dialer returns the dialer for this proxy, which is an

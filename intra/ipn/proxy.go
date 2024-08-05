@@ -129,10 +129,6 @@ func (pxr *proxifier) fromOpts(id string, opts *settings.ProxyOptions) (Proxy, e
 	return p, err
 }
 
-func Fetch(p Proxy, req *http.Request) (*http.Response, error) {
-	return p.fetch(req)
-}
-
 func newRDial(p Proxy) *protect.RDial {
 	return &protect.RDial{
 		Owner:   p.ID(),

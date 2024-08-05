@@ -43,7 +43,6 @@ type pipws struct {
 	rsasighash    string         // hex, authorizer sha256(unblinded signature)
 	client        http.Client    // ws client
 	proxydialer   *protect.RDial // ws dialer
-	hc            *http.Client   // exported http client
 	rd            *protect.RDial // exported dialer
 	lastdial      time.Time      // last dial time
 	status        int            // proxy status: TOK, TKO, END
@@ -152,7 +151,6 @@ func NewPipWsProxy(id string, ctl protect.Controller, po *settings.ProxyOptions)
 		opts:        po,
 	}
 	t.rd = newRDial(t)
-	t.hc = newHTTPClient(t.rd)
 
 	_, ok := dialers.New(t.hostname, po.Addrs) // po.Addrs may be nil or empty
 	if !ok {
@@ -253,15 +251,6 @@ func (t *pipws) Dial(network, addr string) (protect.Conn, error) {
 
 	t.status = TOK
 	return c, nil
-}
-
-func (h *pipws) fetch(req *http.Request) (*http.Response, error) {
-	stopped := h.Status() == END
-	log.V("pipws: %d; fetch %s; ok? %t", h.id, req.URL, !stopped)
-	if stopped {
-		return nil, errProxyStopped
-	}
-	return h.hc.Do(req)
 }
 
 func (h *pipws) Dialer() *protect.RDial {

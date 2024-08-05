@@ -45,7 +45,6 @@ type piph2 struct {
 	rsasig        string         // hex, authorizer unblinded signature
 	client        http.Client    // h2 client, see trType
 	proxydialer   *protect.RDial // h2 dialer
-	hc            *http.Client   // exported http client
 	rd            *protect.RDial // exported dialer
 	opts          *settings.ProxyOptions
 
@@ -202,7 +201,6 @@ func NewPipProxy(id string, ctl protect.Controller, po *settings.ProxyOptions) (
 		opts:        po,
 	}
 	t.rd = newRDial(t)
-	t.hc = newHTTPClient(t.rd)
 
 	_, ok := dialers.New(t.hostname, po.Addrs) // po.Addrs may be nil or empty
 	if !ok {
@@ -435,14 +433,6 @@ func (t *piph2) Dial(network, addr string) (protect.Conn, error) {
 
 	t.status.Store(TOK)
 	return oconn, nil
-}
-
-func (h *piph2) fetch(req *http.Request) (*http.Response, error) {
-	stopped := h.status.Load() == END
-	if stopped {
-		return nil, errProxyStopped
-	}
-	return h.hc.Do(req)
 }
 
 func (h *piph2) Dialer() *protect.RDial {

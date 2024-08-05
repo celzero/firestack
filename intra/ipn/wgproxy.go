@@ -20,7 +20,6 @@ import (
 	"context"
 	"fmt"
 	"net"
-	"net/http"
 	"net/netip"
 	"os"
 	"strconv"
@@ -112,7 +111,6 @@ type wgproxy struct {
 	*wgtun
 	*device.Device
 	wgep wgconn
-	hc   *http.Client   // exported http client
 	rd   *protect.RDial // exported rdialer
 }
 
@@ -225,15 +223,6 @@ func (w *wgproxy) Refresh() (err error) {
 	// bindok := bindWgSockets(w.ID(), w.remote.AnyAddr(), w.wgdev, w.ctl)
 	log.I("proxy: wg: refresh(%s) done; len(dns): %d, len(peer): %d", w.id, n, nn)
 	return
-}
-
-func (h *wgproxy) fetch(req *http.Request) (resp *http.Response, err error) {
-	stopped := h.status.Load() == END
-	log.V("wg: %d; fetch: %s; ok? %t", h.id, req.URL, !stopped)
-	if stopped {
-		return nil, errProxyStopped
-	}
-	return h.hc.Do(req)
 }
 
 func (h *wgproxy) Dialer() *protect.RDial {
@@ -478,10 +467,8 @@ func NewWgProxy(id string, ctl protect.Controller, cfg string) (*wgproxy, error)
 		wgdev, // device
 		wgep,  // endpoint
 		nil,   // rdial
-		nil,   // http-client
 	}
 	w.rd = newRDial(w)
-	w.hc = newHTTPClient(w.rd)
 
 	log.D("proxy: wg: new %s; addrs(%v) mtu(%d/%d) peers(%d) / v4(%t) v6(%t)", id, ifaddrs, mtu, calcTunMtu(mtu), len(peers), wgtun.hasV4, wgtun.hasV6)
 
