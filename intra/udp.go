@@ -253,11 +253,11 @@ func (h *udpHandler) proxy(gconn net.Conn, src, dst netip.AddrPort) (ok bool) {
 		clos(gconn, remote)
 		queueSummary(h.smmch, h.done, smm.done(gerr, err)) // smm may be nil
 		log.W("udp: proxy: unexpected %s -> %s; err: %v", src, dst, err)
-		h.conntracker.Untrack(ct.CID)
+		// dst addrs no longer tracked in h.Connect: h.conntracker.Untrack(ct.CID)
 		return // not ok
 	} else if remote == nil { // dnsOverride?
 		// no summary for dns queries
-		// dns-conns are not tracked: conntracker.Untrack() not req
+		// dns-conns not tracked in h.Connect: conntracker.Untrack() not req
 		return true // ok
 	}
 
