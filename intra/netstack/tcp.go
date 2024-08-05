@@ -73,7 +73,7 @@ func tcpForwarder(s *stack.Stack, h GTCPConnHandler) *tcp.Forwarder {
 		gtcp := makeGTCPConn(req, src, dst)
 		// setup endpoint right away, so that netstack's internal state is consistent
 		// in case there are multiple forwarders dispatching from the TUN device.
-		if !settings.Loopingback.Load() {
+		if !settings.SingleThreaded.Load() {
 			if open, err := gtcp.tryConnect(); err != nil || !open {
 				log.E("ns: tcp: forwarder: tryConnect err src(%v) => dst(%v); open? %t, err(%v)", src, dst, open, err)
 				if err == nil {
