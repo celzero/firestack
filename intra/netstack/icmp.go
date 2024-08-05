@@ -8,13 +8,12 @@ package netstack
 
 import (
 	"errors"
-	"fmt"
 	"net/netip"
 
+	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/log"
-	"golang.org/x/sys/unix"
 	"gvisor.dev/gvisor/pkg/buffer"
-	"gvisor.dev/gvisor/pkg/tcpip/checksum"
+	"gvisor.dev/gvisor/pkg/tcpip"
 	"gvisor.dev/gvisor/pkg/tcpip/header"
 	"gvisor.dev/gvisor/pkg/tcpip/stack"
 	"gvisor.dev/gvisor/pkg/tcpip/transport/icmp"
@@ -24,10 +23,8 @@ import (
 type Pong func(reply []byte) error
 
 type GICMPHandler interface {
-	// Multi ping handler
-	Ping(source, destination netip.AddrPort, msg []byte, pong Pong) bool
-	// Single ping handler
-	PingOnce(source, destination netip.AddrPort, msg []byte) bool
+	// Ping informs if ICMP Echo from src to dst is replied to
+	Ping(source, destination netip.AddrPort, msg []byte) bool
 	// CloseConns closes all connections
 	CloseConns([]string) []string
 	// End closes the handler and all its connections
@@ -61,274 +58,395 @@ func newIcmpForwarder(ep stack.LinkEndpoint, h GICMPHandler) *icmpForwarder {
 	return &icmpForwarder{ep, h}
 }
 
-func (f *icmpForwarder) reply4(id stack.TransportEndpointID, pkt *stack.PacketBuffer) bool {
-	log.VV("icmp: v4 packet? %v", pkt)
+// sendICMP: github.com/google/gvisor/blob/8035cf9ed/pkg/tcpip/transport/tcp/testing/context/context.go#L404
+// parseICMP: github.com/google/gvisor/blob/8035cf9ed/pkg/tcpip/header/parse/parse.go#L194
+// makeICMP: github.com/google/gvisor/blob/8035cf9ed/pkg/tcpip/tests/integration/iptables_test.go#L2100
+func (f *icmpForwarder) reply4(id stack.TransportEndpointID, pkt *stack.PacketBuffer) (handled bool) {
+	var err tcpip.Error
+
+	log.VV("icmp: v4: packet? %v", pkt)
 
 	if pkt == nil {
-		log.E("icmp: v4 nil packet")
-		return false
+		log.E("icmp: v4: nil packet")
+		return // not handled
 	}
 	if !f.ep.IsAttached() {
-		log.D("icmp: endpoint not attached")
-		return false
-	}
-
-	// ref: github.com/google/gvisor/blob/acf460d0d735/pkg/tcpip/stack/conntrack.go#L933
-	l4bytes := pkt.TransportHeader().Slice()
-	icmpin := header.ICMPv4(l4bytes)
-	if icmpin.Type() != header.ICMPv4Echo {
-		// netstack handles other msgs except echo / ping
-		log.D("icmp: v4 type %v passthrough", icmpin.Type())
-		return false
+		log.D("icmp: v4: endpoint not attached")
+		return // not handled
 	}
 
 	src := remoteAddrPort(id)
 	dst := localAddrPort(id)
 
-	log.D("icmp: v4 type %v src %v dst %v", icmpin.Type(), src, dst)
-
-	b := make([]byte, 0, f.ep.MTU())
-	din8 := buffer.MakeWithData(b)
-	err := din8.Append(pkt.NetworkHeader().View())
-	if err != nil {
-		log.E("icmp: v4 err appending network header1: %v", err)
-		return false
+	// ref: github.com/google/gvisor/blob/acf460d0d735/pkg/tcpip/stack/conntrack.go#L933
+	hdr := header.ICMPv4(pkt.TransportHeader().Slice())
+	if hdr.Type() != header.ICMPv4Echo {
+		// netstack handles other msgs except echo / ping
+		log.D("icmp: v4: type %v passthrough", hdr.Type())
+		return // not handled
 	}
-	l4 := pkt.TransportHeader().View()
-	if l4.Size() > 8 {
-		l4.CapLength(8)
-	}
-	err = din8.Append(l4)
-	if err != nil {
-		log.E("icmp: v4 err appending transport header1: %v", err)
-		return false
-	}
-	req := din8.Flatten() // l3 + l4
 
 	// github.com/google/gvisor/blob/9b4a7aa00/pkg/tcpip/network/ipv6/icmp.go#L1180
-	r := make([]byte, 0, f.ep.MTU())
-	din := buffer.MakeWithData(r)
-	err = din.Append(pkt.TransportHeader().View())
-	if err != nil {
-		log.E("icmp: v4 err appending transport header2: %v", err)
-		return false
+	data, derr := l4l7(pkt, f.ep.MTU())
+	if derr != nil {
+		log.E("icmp: v4: err getting payload: %v", derr)
+		return // not handled
 	}
-	l7 := pkt.Data().ToBuffer()
-	din.Merge(&l7)
-	data := din.Flatten() // l4 + l7
-	datalen := len(data)
 
-	l3 := pkt.NetworkHeader().View()
-	log.D("icmp: v4 type %v/%v sz [%v]; src(%v) -> dst(%v)", icmpin.Type(), icmpin.Code(), datalen, src, dst)
-	if !f.h.Ping(src, dst, data, func(reply []byte) error {
-		log.VV("icmp: v4 reply %v", reply)
-		// sendICMP: github.com/google/gvisor/blob/8035cf9ed/pkg/tcpip/transport/tcp/testing/context/context.go#L404
-		// parseICMP: github.com/google/gvisor/blob/8035cf9ed/pkg/tcpip/header/parse/parse.go#L194
-		// makeICMP: github.com/google/gvisor/blob/8035cf9ed/pkg/tcpip/tests/integration/iptables_test.go#L2100
-		// Allocate a buffer data and headers.
-		icmpout := header.ICMPv4(reply)
-		if icmpout.Type() == header.ICMPv4DstUnreachable {
-			const ICMPv4HeaderSize = 4
-			d := make([]byte, len(req)+header.ICMPv4MinimumErrorPayloadSize)
-			icmpunreach := header.ICMPv4(d)
-			copy(icmpunreach[:ICMPv4HeaderSize], reply)
-			copy(icmpunreach[header.ICMPv4MinimumErrorPayloadSize:], req)
-			log.D("icmp: v4 unreachable %v/%v sz[%d] from %v <- %v", icmpunreach.Type(), icmpunreach.Code(), len(icmpunreach), src, dst)
-			icmpout = icmpunreach
-		}
+	log.D("icmp: v4: type %v/%v sz [%v]; src(%v) -> dst(%v)", hdr.Type(), hdr.Code(), len(data), src, dst)
 
-		x := make([]byte, 0, f.ep.MTU())
-		res := buffer.MakeWithData(x)
-		if len(icmpout) != datalen {
-			ip := header.IPv4(l3.AsSlice())
-			l3len := ip.TotalLength()
-			ip.SetTotalLength(uint16(l3.Size() + len(reply)))
-			ip.SetChecksum(^checksum.Combine(^ip.Checksum(), checksum.Combine(ip.TotalLength(), ^l3len)))
-			payloadview := buffer.NewViewWithData(ip.Payload())
-			err = res.Append(payloadview)
-		} else {
-			err = res.Append(l3)
+	// always forward in a goroutine to avoid blocking netstack
+	// see: netstack/dispatcher.go:newReadvDispatcher
+	core.Go("icmp4.pinger", func() {
+		if !f.h.Ping(src, dst, data) { // unreachable
+			// make unreachable icmp packet for req and l7
+			err = f.icmpErr4(pkt, header.ICMPv4DstUnreachable, header.ICMPv4HostUnreachable)
+		} else { // reachable
+			// if unhandled by the handler, send a reply ourselves
+			hdr.SetType(header.ICMPv4EchoReply)
+			hdr.SetChecksum(0)
+			hdr.SetChecksum(header.ICMPv4Checksum(hdr, pkt.Data().Checksum()))
+			log.D("icmp: v4: ok type %v/%v sz[%d] from %v <- %v", hdr.Type(), hdr.Code(), len(hdr), src, dst)
+			var pout stack.PacketBufferList
+			pout.PushBack(pkt)
+			_, err = f.ep.WritePackets(pout)
 		}
-		if err != nil {
-			log.E("icmp: pong: v4 err appending l3 header: %v", err)
-			return unix.ENONET
-		}
-		icmpoutview := buffer.NewViewWithData(icmpout.Payload())
-		err = res.Append(icmpoutview)
-		if err != nil {
-			log.E("icmp: pong: v4 err appending l4 payload: %v", err)
-			return unix.ENONET
-		}
+		loge(err, "icmp: v4: wrote reply to tun; err? %v", err)
+	})
 
-		respkt := stack.NewPacketBuffer(stack.PacketBufferOptions{Payload: res})
-		defer respkt.DecRef()
+	return true // handled
+}
 
-		log.D("icmp: v4 response: type %v/%v sz[%d] from %v <- %v", icmpout.Type(), icmpout.Code(), res.Size(), src, dst)
+func (f *icmpForwarder) reply6(id stack.TransportEndpointID, packet *stack.PacketBuffer) (handled bool) {
+	log.VV("icmp: v6 packet? %v", packet)
 
-		var pout stack.PacketBufferList
-		pout.PushBack(respkt)
-		if _, err := f.ep.WritePackets(pout); err != nil {
-			log.E("icmp: v4 err writing upstream res [%v <- %v] to tun %v", src, dst, err)
-			return fmt.Errorf("icmp: v4 err writing upstream res to tun: %v", err)
-		}
-
-		if icmpout.Type() == header.ICMPv4DstUnreachable {
-			return unix.ENETUNREACH
-		}
-		// inform the client that it can continue to listen for more packets
-		return nil
-	}) {
-		// if unhandled by the handler, send a reply ourselves
-		icmpin.SetType(header.ICMPv4EchoReply)
-		icmpin.SetChecksum(0)
-		icmpin.SetChecksum(header.ICMPv4Checksum(icmpin, pkt.Data().Checksum()))
-		var pout stack.PacketBufferList
-		pout.PushBack(pkt)
-		_, err := f.ep.WritePackets(pout)
-		if err != nil {
-			log.E("icmp: v4 err writing default reply to tun: %v", err)
-			return false
-		}
+	if packet == nil {
+		log.E("icmp: v6: nil packet")
+		return // not handled
 	}
+	if !f.ep.IsAttached() {
+		log.D("icmp: v6: endpoint not attached")
+		return // not handled
+	}
+
+	hdr := header.ICMPv6(packet.TransportHeader().Slice())
+	if hdr.Type() != header.ICMPv6EchoRequest {
+		log.D("icmp: v6: type %v/%v passthrough", hdr.Type(), hdr.Code())
+		return false // netstack to handle other msgs except echo / ping
+	}
+
+	src := remoteAddrPort(id)
+	dst := localAddrPort(id)
+	// github.com/google/gvisor/blob/9b4a7aa00/pkg/tcpip/network/ipv6/icmp.go#L1180
+	data, derr := l4l7(packet, f.ep.MTU())
+	if derr != nil {
+		log.E("icmp: v6: err getting payload: %v", derr)
+		return // not handled
+	}
+
+	log.D("icmp: v6: type %v/%v sz[%d] from src(%v) -> dst(%v)", hdr.Type(), hdr.Code(), len(data), src, dst)
+	// always forward in a goroutine to avoid blocking netstack
+	// see: netstack/dispatcher.go:newReadvDispatcher
+	core.Go("icmp4.pinger", func() {
+		var err tcpip.Error
+		if !f.h.Ping(src, dst, data) { // unreachable
+			err = f.icmpErr6(id, packet, header.ICMPv6DstUnreachable, header.ICMPv6NetworkUnreachable)
+		} else { // reachable
+			hdr.SetType(header.ICMPv6EchoReply)
+			hdr.SetChecksum(0)
+			hdr.SetChecksum(header.ICMPv6Checksum(header.ICMPv6ChecksumParams{
+				Header:      hdr,
+				Src:         id.LocalAddress,  // from dst
+				Dst:         id.RemoteAddress, // to src
+				PayloadCsum: packet.Data().Checksum(),
+				PayloadLen:  packet.Data().Size(),
+			}))
+			log.D("icmp: v6: ok type %v/%v sz[%d] from %v <- %v", hdr.Type(), hdr.Code(), len(hdr), src, dst)
+			var pout stack.PacketBufferList
+			pout.PushBack(packet)
+			_, err = f.ep.WritePackets(pout)
+		}
+		loge(err, "icmp: v6: wrote reply to tun; err? %v", err)
+	})
 
 	return true
 }
 
-func (f *icmpForwarder) reply6(id stack.TransportEndpointID, packet *stack.PacketBuffer) bool {
-	log.VV("icmp: v6 packet? %v", packet)
+// from: github.com/google/gvisor/blob/19ab27f98/pkg/tcpip/network/ipv4/icmp.go#L609
+func (f *icmpForwarder) icmpErr4(pkt *stack.PacketBuffer, icmpType header.ICMPv4Type, icmpCode header.ICMPv4Code) tcpip.Error {
+	origIPHdr := header.IPv4(pkt.NetworkHeader().Slice())
+	origIPHdrSrc := origIPHdr.SourceAddress()
+	origIPHdrDst := origIPHdr.DestinationAddress()
 
-	if packet == nil {
-		log.E("icmp: v6 nil packet")
-		return false
-	}
-	if !f.ep.IsAttached() {
-		log.D("icmp: endpoint not attached")
-		return false
-	}
-
-	l4bytes := packet.TransportHeader().Slice()
-	icmpin := header.ICMPv6(l4bytes)
-	if icmpin.Type() != header.ICMPv6EchoRequest {
-		log.D("icmp: v6 type %v/%v passthrough", icmpin.Type(), icmpin.Code())
-		// netstack handles other msgs except echo / ping
-		return false
+	// TODO(gvisor.dev/issues/4058): Make sure we don't send ICMP errors in
+	// response to a non-initial fragment, but it currently can not happen.
+	if pkt.NetworkPacketInfo.LocalAddressBroadcast || header.IsV4MulticastAddress(origIPHdrDst) || origIPHdrSrc == header.IPv4Any {
+		log.W("icmp: v4: skip broadcast/multicast dst(%s) <- src(%s)", origIPHdrDst, origIPHdrSrc)
+		return &tcpip.ErrAddressFamilyNotSupported{}
 	}
 
-	src := remoteAddrPort(id)
-	dst := localAddrPort(id)
+	transportHeader := pkt.TransportHeader().Slice()
 
-	log.D("icmp: v6 type %v src %v dst %v", icmpin.Type(), src, dst)
+	// Don't respond to icmp error packets.
+	if origIPHdr.Protocol() == uint8(header.ICMPv4ProtocolNumber) {
+		// We need to decide to explicitly name the packets we can respond to or
+		// the ones we can not respond to. The decision is somewhat arbitrary and
+		// if problems arise this could be reversed. It was judged less of a breach
+		// of protocol to not respond to unknown non-error packets than to respond
+		// to unknown error packets so we take the first approach.
+		if len(transportHeader) < header.ICMPv4MinimumSize {
+			log.D("icmp: v4: l4 header too small: %d", len(transportHeader))
+			return &tcpip.ErrMalformedHeader{}
+		}
+		x := header.ICMPv4(transportHeader)
+		switch x.Type() {
+		case
+			header.ICMPv4EchoReply,
+			header.ICMPv4Echo,
+			header.ICMPv4Timestamp,
+			header.ICMPv4TimestampReply,
+			header.ICMPv4InfoRequest,
+			header.ICMPv4InfoReply:
+		default:
+			// Assume any type we don't know about may be an error type.
+			log.W("icmp: v4: skip ICMP error packet %d", x.Type())
+			return &tcpip.ErrNotSupported{}
+		}
+	}
 
-	b := make([]byte, 0, f.ep.MTU())
-	din8 := buffer.MakeWithData(b)
-	err := din8.Append(packet.NetworkHeader().View())
+	var pointer byte = 0 // only needed for param problem packets
+	switch icmpCode {
+	case header.ICMPv4NetProhibited:
+	case header.ICMPv4HostProhibited:
+	case header.ICMPv4AdminProhibited:
+	case header.ICMPv4PortUnreachable:
+	case header.ICMPv4ProtoUnreachable:
+	case header.ICMPv4NetUnreachable: // or:  header.ICMPv4TTLExceeded, header.ICMPv4CodeUnused
+	case header.ICMPv4HostUnreachable: // or: header.ICMPv4ReassemblyTimeout
+	case header.ICMPv4FragmentationNeeded:
+	default:
+		log.W("icmp: v4: unsupported code %d", icmpCode)
+		return &tcpip.ErrNotSupported{}
+	}
+
+	// Now work out how much of the triggering packet we should return.
+	// As per RFC 1812 Section 4.3.2.3
+	//
+	//   ICMP datagram SHOULD contain as much of the original
+	//   datagram as possible without the length of the ICMP
+	//   datagram exceeding 576 bytes.
+	//
+	// NOTE: The above RFC referenced is different from the original
+	// recommendation in RFC 1122 and RFC 792 where it mentioned that at
+	// least 8 bytes of the payload must be included. Today linux and other
+	// systems implement the RFC 1812 definition and not the original
+	// requirement. We treat 8 bytes as the minimum but will try send more.
+	mtu := int(f.ep.MTU())
+	const maxIPData = header.IPv4MinimumProcessableDatagramSize - header.IPv4MinimumSize
+	if mtu > maxIPData {
+		mtu = maxIPData
+	}
+	available := mtu - header.ICMPv4MinimumSize
+	needed := len(origIPHdr) + header.ICMPv4MinimumErrorPayloadSize
+	payloadLen := len(origIPHdr) + len(transportHeader) + pkt.Data().Size()
+
+	if available < needed {
+		log.W("icmp: v4: no space for orig IP header has: %d < want: %d; total %d", available, needed, payloadLen)
+		return &tcpip.ErrNoBufferSpace{}
+	}
+
+	if payloadLen > available {
+		payloadLen = available
+	}
+
+	// The buffers used by pkt may be used elsewhere in the system.
+	// For example, an AF_RAW or AF_PACKET socket may use what the transport
+	// protocol considers an unreachable destination. Thus we deep copy pkt to
+	// prevent multiple ownership and SR errors. The new copy is a vectorized
+	// view with the entire incoming IP packet reassembled and truncated as
+	// required. This is now the payload of the new ICMP packet and no longer
+	// considered a packet in its own right.
+
+	payload := buffer.MakeWithView(pkt.NetworkHeader().View())
+	payload.Append(pkt.TransportHeader().View())
+	if dataCap := payloadLen - int(payload.Size()); dataCap > 0 {
+		buf := pkt.Data().ToBuffer()
+		buf.Truncate(int64(dataCap))
+		payload.Merge(&buf)
+	} else {
+		payload.Truncate(int64(payloadLen))
+	}
+
+	icmpPkt := stack.NewPacketBuffer(stack.PacketBufferOptions{
+		ReserveHeaderBytes: int(f.ep.MaxHeaderLength()) + header.ICMPv4MinimumSize,
+		Payload:            payload,
+	})
+	defer icmpPkt.DecRef()
+
+	icmpPkt.TransportProtocolNumber = header.ICMPv4ProtocolNumber
+
+	icmpHdr := header.ICMPv4(icmpPkt.TransportHeader().Push(header.ICMPv4MinimumSize))
+	icmpHdr.SetCode(icmpCode)
+	icmpHdr.SetType(icmpType)
+	icmpHdr.SetPointer(pointer)
+	icmpHdr.SetChecksum(header.ICMPv4Checksum(icmpHdr, icmpPkt.Data().Checksum()))
+
+	var pout stack.PacketBufferList
+	pout.PushBack(icmpPkt)
+
+	n, err := f.ep.WritePackets(pout)
+
+	loge(err, "icmp: v4: sent %d bytes to tun; err? %v", n, err)
+
+	return err
+}
+
+// from: github.com/google/gvisor/blob/19ab27f98/pkg/tcpip/network/ipv6/icmp.go#L1055
+func (f *icmpForwarder) icmpErr6(id stack.TransportEndpointID, pkt *stack.PacketBuffer, icmpType header.ICMPv6Type, icmpCode header.ICMPv6Code) tcpip.Error {
+	origIPHdr := header.IPv6(pkt.NetworkHeader().Slice())
+	origIPHdrSrc := origIPHdr.SourceAddress()
+	origIPHdrDst := origIPHdr.DestinationAddress()
+
+	// Only send ICMP error if the address is not a multicast v6
+	// address and the source is not the unspecified address.
+	//
+	// There are exceptions to this rule.
+	// See: point e.3) RFC 4443 section-2.4
+	//
+	//	 (e) An ICMPv6 error message MUST NOT be originated as a result of
+	//       receiving the following:
+	//
+	//       (e.1) An ICMPv6 error message.
+	//
+	//       (e.2) An ICMPv6 redirect message [IPv6-DISC].
+	//
+	//       (e.3) A packet destined to an IPv6 multicast address.  (There are
+	//             two exceptions to this rule: (1) the Packet Too Big Message
+	//             (Section 3.2) to allow Path MTU discovery to work for IPv6
+	//             multicast, and (2) the Parameter Problem Message, Code 2
+	//             (Section 3.4) reporting an unrecognized IPv6 option (see
+	//             Section 4.2 of [IPv6]) that has the Option Type highest-
+	//             order two bits set to 10).
+	//
+	allowResponseToMulticast := false // TODO: reason.respondsToMulticast()
+	isOrigDstMulticast := header.IsV6MulticastAddress(origIPHdrDst)
+	if (!allowResponseToMulticast && isOrigDstMulticast) || origIPHdrSrc == header.IPv6Any {
+		log.W("icmp: v6: skip multicast dst(%s) <- src(%s)", origIPHdrDst, origIPHdrSrc)
+		return &tcpip.ErrAddressFamilyNotSupported{}
+	}
+
+	if pkt.TransportProtocolNumber == header.ICMPv6ProtocolNumber {
+		if typ := header.ICMPv6(pkt.TransportHeader().Slice()).Type(); typ.IsErrorType() || typ == header.ICMPv6RedirectMsg {
+			log.W("icmp: v6: skip ICMP error packet %d", typ)
+			return nil
+		}
+	}
+
+	var pointer uint32 = 0 // TODO: must be set for param problem packets
+	switch icmpCode {
+	// TODO: handle ICMPv6ParamProblem; determine reason.code, reason.pointer
+	case header.ICMPv6Prohibited: // ICMPv6DstUnreachable
+	case header.ICMPv6PortUnreachable: // ICMPv6DstUnreachable
+	case header.ICMPv6NetworkUnreachable: // ICMPv6DstUnreachable
+		// or: ICMPv6HopLimitExceeded/ICMPv6UnusedCode -> ICMPv6TimeLimitExceeded
+		// or: ICMPv6ReassemblyTimeout -> ICMPv6PacketTooBig
+	case header.ICMPv6AddressUnreachable: // ICMPv6DstUnreachable
+	default:
+		log.W("icmp: v6: unsupported code %d", icmpCode)
+		return &tcpip.ErrNotSupported{}
+	}
+
+	network, transport := pkt.NetworkHeader().View(), pkt.TransportHeader().View()
+
+	// As per RFC 4443 section 2.4
+	//
+	//    (c) Every ICMPv6 error message (type < 128) MUST include
+	//    as much of the IPv6 offending (invoking) packet (the
+	//    packet that caused the error) as possible without making
+	//    the error message packet exceed the minimum IPv6 MTU
+	//    [IPv6].
+	mtu := int(f.ep.MTU())
+	const maxIPv6Data = header.IPv6MinimumMTU - header.IPv6FixedHeaderSize
+	if mtu > maxIPv6Data {
+		mtu = maxIPv6Data
+	}
+	available := mtu - header.ICMPv6ErrorHeaderSize
+	needed := header.IPv6MinimumSize
+	payloadLen := network.Size() + transport.Size() + pkt.Data().Size()
+	if available < needed {
+		log.W("icmp: v6: no space for orig IP header has: %d < want: %d; total %d", available, needed, payloadLen)
+		return &tcpip.ErrNoBufferSpace{}
+	}
+	if payloadLen > available {
+		payloadLen = available
+	}
+
+	payload, err := l3l4(pkt, int64(payloadLen))
 	if err != nil {
-		log.E("icmp: v6 err appending network header1: %v", err)
-		return false
+		log.E("icmp: v6: err getting payload: %v", err)
+		return &tcpip.ErrNoBufferSpace{}
 	}
-	l4 := packet.TransportHeader().View()
-	if l4.Size() > 8 {
-		l4.CapLength(8)
-	}
-	err = din8.Append(l4)
-	if err != nil {
-		log.E("icmp: v6 err appending transport header1: %v", err)
-		return false
-	}
-	req := din8.Flatten() // l3 + l4
 
-	// github.com/google/gvisor/blob/9b4a7aa00/pkg/tcpip/network/ipv6/icmp.go#L1180
-	r := make([]byte, 0, f.ep.MTU())
+	newPkt := stack.NewPacketBuffer(stack.PacketBufferOptions{
+		ReserveHeaderBytes: int(f.ep.MaxHeaderLength()) + header.ICMPv6ErrorHeaderSize,
+		Payload:            payload,
+	})
+	defer newPkt.DecRef()
+	newPkt.TransportProtocolNumber = header.ICMPv6ProtocolNumber
+
+	icmpHdr := header.ICMPv6(newPkt.TransportHeader().Push(header.ICMPv6DstUnreachableMinimumSize))
+	icmpHdr.SetType(icmpType)
+	icmpHdr.SetCode(icmpCode)
+	icmpHdr.SetTypeSpecific(pointer)
+
+	pktData := newPkt.Data()
+	icmpHdr.SetChecksum(header.ICMPv6Checksum(header.ICMPv6ChecksumParams{
+		Header:      icmpHdr,
+		Src:         id.LocalAddress,
+		Dst:         id.RemoteAddress,
+		PayloadCsum: pktData.Checksum(),
+		PayloadLen:  pktData.Size(),
+	}))
+
+	var pout stack.PacketBufferList
+	pout.PushBack(newPkt)
+	n, werr := f.ep.WritePackets(pout)
+
+	loge(werr, "icmp: v6: sent %d bytes to tun; err? %v", n, werr)
+
+	return werr
+}
+
+func loge(err tcpip.Error, format string, args ...any) {
+	f := log.D
+	if err == nil {
+		f = log.V
+	}
+	f(format, args)
+}
+
+func l4l7(pkt *stack.PacketBuffer, sz uint32) ([]byte, error) {
+	r := make([]byte, 0, sz)
 	din := buffer.MakeWithData(r)
-	err = din.Append(packet.TransportHeader().View())
+	l4 := pkt.TransportHeader().View()
+	err := din.Append(l4)
 	if err != nil {
-		log.E("icmp: v6 err appending transport header2: %v", err)
-		return false
+		log.E("icmp: l4l7: err appending transport header: %v", err)
+		return nil, err
 	}
-	l7 := packet.Data().ToBuffer()
-	din.Merge(&l7)
-	data := din.Flatten() // l4 + l7
-	dlen := len(data)
+	l7 := pkt.Data().ToBuffer()
+	din.Merge(&l7) // l4 + l7
+	return din.Flatten(), nil
+}
 
-	l3 := packet.NetworkHeader().View()
-	log.D("icmp: v6 type %v/%v sz[%d] from %v -> %v", icmpin.Type(), icmpin.Code(), dlen, src, dst)
-	if !f.h.Ping(src, dst, data, func(reply []byte) error {
-		log.VV("icmp: v6 reply %v", reply)
-
-		icmpout := header.ICMPv6(reply)
-		if icmpout.Type() == header.ICMPv6DstUnreachable {
-			d := make([]byte, len(req)+header.ICMPv6DstUnreachableMinimumSize)
-			icmpunreach := header.ICMPv6(d)
-			copy(icmpunreach[:header.ICMPv6HeaderSize], reply)
-			copy(icmpunreach[header.ICMPv6DstUnreachableMinimumSize:], req)
-			log.D("icmp: v6 unreachable %v/%v sz[%d] from %v <- %v", icmpunreach.Type(), icmpunreach.Code(), len(icmpunreach), src, dst)
-			icmpout = icmpunreach
-		}
-
-		x := make([]byte, 0, f.ep.MTU())
-		res := buffer.MakeWithData(x)
-		if len(icmpout) != dlen {
-			ip := header.IPv6(l3.AsSlice())
-			ip.SetPayloadLength(uint16(len(icmpout)))
-			payloadview := buffer.NewViewWithData(ip.Payload())
-			err = res.Append(payloadview)
-		} else {
-			err = res.Append(l3)
-		}
-		if err != nil {
-			log.E("icmp: pong: v6 err appending l3 header: %v", err)
-			return unix.ENONET
-		}
-		icmpoutview := buffer.NewViewWithData(icmpout)
-		err = res.Append(icmpoutview)
-		if err != nil {
-			log.E("icmp: pong: v6 err appending l4 payload: %v", err)
-			return unix.ENONET
-		}
-
-		icmpout.SetChecksum(0)
-		icmpout.SetChecksum(header.ICMPv6Checksum(header.ICMPv6ChecksumParams{
-			Header: icmpout,
-			Src:    id.RemoteAddress, // src
-			Dst:    id.LocalAddress,  // dst
-		}))
-
-		log.D("icmp: v6 response: type %v/%v sz[%d] from %v <- %v", icmpout.Type(), icmpout.Code(), res.Size(), src, dst)
-
-		respkt := stack.NewPacketBuffer(stack.PacketBufferOptions{Payload: res})
-		defer respkt.DecRef()
-
-		var pout stack.PacketBufferList
-		pout.PushBack(respkt)
-		if _, err := f.ep.WritePackets(pout); err != nil {
-			log.E("icmp: v6 err writing upstream res [%v <- %v] to tun %v", src, dst, err)
-			return fmt.Errorf("icmp: v6 err writing upstream res to tun %v", err)
-		}
-
-		if icmpout.Type() == header.ICMPv6DstUnreachable {
-			return unix.ENETUNREACH
-		}
-		return nil
-	}) {
-		icmpin.SetType(header.ICMPv6EchoReply)
-		icmpin.SetChecksum(0)
-		dst := id.LocalAddress
-		src := id.RemoteAddress
-		icmpin.SetChecksum(header.ICMPv6Checksum(header.ICMPv6ChecksumParams{
-			Header:      icmpin,
-			Src:         dst, // from dst
-			Dst:         src, // to src
-			PayloadCsum: packet.Data().Checksum(),
-			PayloadLen:  packet.Data().Size(),
-		}))
-
-		log.D("icmp: v6 default response: type %v/%v sz[%d] from %v <- %v", icmpin.Type(), icmpin.Code(), len(icmpin), src, dst)
-		var pout stack.PacketBufferList
-		pout.PushBack(packet)
-		if _, err := f.ep.WritePackets(pout); err != nil {
-			log.E("icmp: v6 err writing default echo pkt to tun [%v <- %v] %v", src, dst, err)
-			return false
-		}
+func l3l4(pkt *stack.PacketBuffer, sz int64) (b buffer.Buffer, err error) {
+	l3 := pkt.NetworkHeader().View()
+	l4 := pkt.TransportHeader().View()
+	v := buffer.MakeWithView(l3)
+	if err = v.Append(l4); err == nil {
+		b = pkt.Data().ToBuffer()
+		b.Merge(&b)
+		b.Truncate(sz)
 	}
-	return true
+	return
 }

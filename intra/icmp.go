@@ -164,39 +164,39 @@ func (h *icmpHandler) Ping(source, target netip.AddrPort, msg []byte, pong netst
 		return false // denied
 	}
 
-	// always forward in a goroutine to avoid blocking netstack
-	// see: netstack/dispatcher.go:newReadvDispatcher
-	core.Gx("icmp.Ping", func() {
-		defer func() {
-			queueSummary(h.smmch, h.done, smm.done(err))
-		}()
-		dst := oneRealIp(realips, target)
-		uc, err := px.Dialer().Dial("udp", dst.String())
-		ucnil := uc == nil || core.IsNil(uc)
-		if err != nil || ucnil { // nilaway: tx.socks5 returns nil conn even if err == nil
-			if err == nil {
-				err = unix.ENETUNREACH
-			}
-			log.E("t.icmp: egress: dial(%s); hasConn? %s(%t); err %v", dst, pid, ucnil, err)
-			return // unhandled
-		}
-		defer clos(uc)
+	defer func() {
+		queueSummary(h.smmch, h.done, smm.done(err))
+	}()
 
-		extend(uc, icmptimeout)
-		if _, err = uc.Write(msg); err != nil {
-			log.E("t.icmp: egress:  write(%v) ping; err %v", target, err)
-			return // unhandled
+	dst := oneRealIp(realips, target)
+	uc, err := px.Dialer().Dial("udp", dst.String())
+	ucnil := uc == nil || core.IsNil(uc)
+	if err != nil || ucnil { // nilaway: tx.socks5 returns nil conn even if err == nil
+		if err == nil {
+			err = unix.ENETUNREACH
 		}
-		log.I("t.icmp: egress: writeTo(%v) ping; done %d", target, len(msg))
+		log.E("t.icmp: egress: dial(%s); hasConn? %s(%t); err %v", dst, pid, ucnil, err)
+		return // unhandled
+	}
 
-		if pong == nil {
-			// single ping, block until done
-			h.fetch(uc, nil, smm)
-		} else {
-			// multi ping, non-blocking
+	defer clos(uc)
+	extend(uc, icmptimeout)
+
+	if _, err = uc.Write(msg); err != nil {
+		log.E("t.icmp: egress:  write(%v) ping; err %v", target, err)
+		return // unhandled
+	}
+	log.I("t.icmp: egress: writeTo(%v) ping; done %d", target, len(msg))
+
+	if pong == nil {
+		// single ping, block until done
+		return h.fetch(uc, nil, smm)
+	} else {
+		// multi ping, non-blocking
+		core.Gx("icmp.Ping", func() {
 			h.fetch(uc, pong, smm)
-		}
-	})
+		})
+	}
 	return true // handled
 }
 
