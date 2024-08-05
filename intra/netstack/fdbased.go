@@ -329,6 +329,11 @@ func (e *endpoint) Attach(dispatcher stack.NetworkDispatcher) {
 		go e.dispatchLoop(rx)
 		return
 	}
+	if dispatcher != nil {
+		log.W("ns: tun(%d): attach: discard? %t; but switch to new anyway", fd, exists)
+		e.dispatcher = dispatcher
+		return
+	}
 	log.W("ns: tun(%d): attach: discard? %t; hadDispatcher? %t hadInbound? %t", fd, exists, attach, pipe)
 }
 
@@ -484,7 +489,7 @@ func (e *endpoint) dispatchLoop(inbound linkDispatcher) tcpip.Error {
 	defer e.wg.Done()
 
 	fd := e.fd()
-	if inbound == nil {
+	if inbound == nil || core.IsNil(inbound) {
 		log.W("ns: tun(%d): dispatchLoop: inbound nil", fd)
 		return &tcpip.ErrUnknownDevice{}
 	}
