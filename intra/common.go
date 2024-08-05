@@ -62,10 +62,8 @@ func forward(local, remote net.Conn, ch chan *SocketSummary, done chan struct{},
 
 	uploadch := make(chan ioinfo)
 
-	var dbytes int64
-	var derr error
 	go upload(cid, local, remote, uploadch)
-	dbytes, derr = download(cid, local, remote)
+	dbytes, derr := download(cid, local, remote)
 
 	upload := <-uploadch
 
