@@ -243,7 +243,7 @@ func (e *endpoint) Dispose() (err error) {
 
 	defer func() {
 		_ = syscall.Close(prevfd)
-		log.I("ns: tun(%d): Dispose: close fd %d!", prevfd)
+		log.I("ns: tun(%d): Dispose: close fd", prevfd)
 	}()
 
 	e.Lock()

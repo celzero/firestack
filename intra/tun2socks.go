@@ -122,9 +122,11 @@ func DialStrat(strategy int32) {
 	switch strategy {
 	case settings.DesyncStrategy:
 		fallthrough
-	case settings.RetrierStrategy:
+	case settings.SplitTCPStrategy:
+		fallthrough
+	case settings.SplitTCPOrTLSStrategy:
 		settings.DialStrategy.Store(strategy)
 	default:
-		settings.DialStrategy.Store(settings.RetrierStrategy)
+		settings.DialStrategy.Store(settings.SplitTCPStrategy)
 	}
 }

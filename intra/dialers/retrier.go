@@ -24,6 +24,7 @@
 package dialers
 
 import (
+	"encoding/binary"
 	"errors"
 	"io"
 	"math/rand"
@@ -35,6 +36,7 @@ import (
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
+	"github.com/celzero/firestack/intra/settings"
 )
 
 type zeroNetAddr struct{}
@@ -153,15 +155,11 @@ func (r *retrier) retryWriteReadLocked(buf []byte) (n int, err error) {
 		log.E("rdial: retryLocked: dial %s: err %v", r.raddr, err)
 		return
 	}
-	var n1st, n2nd int
+
 	r.conn = newConn
-	first, second := splitHello(r.hello)
-	if n1st, err = r.conn.Write(first); err != nil {
-		log.E("rdial: retryLocked: splitWrite1 %s (%d): err %v", r.raddr, len(first), err)
-		return
-	}
-	if n2nd, err = r.conn.Write(second); err != nil {
-		log.E("rdial: retryLocked: splitWrite2 %s (%d): err %v", r.raddr, len(second), err)
+	n, split, err := writeSplit(r.conn, r.hello)
+	logeif(err)("rdial: retryLocked: %s->%s; split? %d; write? %d/%d; err? %v", laddr(r.conn), r.raddr, split, n, len(r.hello), err)
+	if err != nil {
 		return
 	}
 
@@ -171,22 +169,18 @@ func (r *retrier) retryWriteReadLocked(buf []byte) (n int, err error) {
 	// action actually affected the new socket.
 	readdone := r.readDone.Load()
 	writedone := r.writeDone.Load()
-	note := log.D
 	if readdone {
 		core.CloseTCPRead(r.conn)
-		note = log.W
 	} else {
 		_ = r.conn.SetReadDeadline(r.readDeadline)
 	}
 	// caller might have set read or write deadlines before the retry.
 	if writedone {
 		core.CloseTCPWrite(r.conn)
-		note = log.W
 	} else {
 		_ = r.conn.SetWriteDeadline(r.writeDeadline)
 	}
-	note("rdial: retryLocked: %s->%s; split1 %d/%d, split2 %d/%d; readdone? %t, writedone? %t",
-		laddr(r.conn), r.raddr, n1st, len(first), n2nd, len(second), readdone, writedone)
+
 	return r.conn.Read(buf)
 }
 
@@ -416,6 +410,121 @@ func copyOnce(dst io.Writer, src io.Reader) (int64, error) {
 	logeif(err)("rdial: copyOnce: rw [%s->%s] %d/%d; err %v", srcaddr, dstaddr, n, wn, err)
 
 	return int64(n), err
+}
+
+func getTLSClientHelloRecordLen(h []byte) (uint16, bool) {
+	if len(h) < 5 {
+		return 0, false
+	}
+
+	const (
+		TYPE_HANDSHAKE byte   = 22
+		VERSION_TLS10  uint16 = 0x0301
+		VERSION_TLS11  uint16 = 0x0302
+		VERSION_TLS12  uint16 = 0x0303
+		VERSION_TLS13  uint16 = 0x0304
+	)
+
+	if h[0] != TYPE_HANDSHAKE {
+		return 0, false
+	}
+
+	ver := binary.BigEndian.Uint16(h[1:3])
+	if ver != VERSION_TLS10 && ver != VERSION_TLS11 &&
+		ver != VERSION_TLS12 && ver != VERSION_TLS13 {
+		return 0, false
+	}
+
+	return binary.BigEndian.Uint16(h[3:5]), true
+}
+
+func writeSplit(w net.Conn, b []byte) (n, splitLen int, err error) {
+	switch settings.DialStrategy.Load() {
+	case settings.SplitTCPStrategy:
+		n, splitLen, err = writeTCPSplit(w, b)
+	case settings.SplitTCPOrTLSStrategy:
+		n, splitLen, err = writeTCPOrTLSSplit(w, b)
+	default:
+		n, err = w.Write(b)
+	}
+	return
+}
+
+func writeTCPSplit(w net.Conn, hello []byte) (n, splitLen int, err error) {
+	var p, q int
+	to := raddr(w)
+	from := laddr(w)
+
+	first, second := splitHello(hello)
+
+	splitLen = len(first)
+
+	if p, err = w.Write(first); err != nil {
+		log.E("rdial: retryLocked: TCP split1 %s (%d): err %v", to, len(first), err)
+		return p, splitLen, err
+	} else if q, err = w.Write(second); err != nil {
+		log.E("rdial: retryLocked: TCP split2 %s (%d): err %v", to, len(second), err)
+		return p + q, splitLen, err
+	}
+	log.D("rdial: retryLocked: %s->%s; TCP splits: %d,%d", from, to, len(first), len(second))
+
+	return p + q, splitLen, nil
+}
+
+// from: github.com/Jigsaw-Code/Intra/blob/27637e0ed497/Android/app/src/go/intra/split/retrier.go#L245
+func writeTCPOrTLSSplit(w net.Conn, hello []byte) (n, splitLen int, err error) {
+	to := raddr(w)
+	from := laddr(w)
+
+	if len(hello) <= 1 {
+		n, err = w.Write(hello)
+		log.D("rdial: Splits: %s->%s; len(hello) <= 1; n: %d; err: %v", from, to, n, err)
+		return
+	}
+
+	const (
+		MIN_SPLIT int = 6
+		MAX_SPLIT int = 64
+	)
+
+	// random number in the range [MIN_SPLIT, MAX_SPLIT]
+	// splitLen includes 5 bytes of TLS header
+	splitLen = MIN_SPLIT + rand.Intn(MAX_SPLIT+1-MIN_SPLIT)
+	limit := len(hello) / 2
+	if splitLen > limit {
+		splitLen = limit
+	}
+
+	recordLen, ok := getTLSClientHelloRecordLen(hello)
+	recordSplitLen := splitLen - 5
+	if !ok || recordSplitLen <= 0 || recordSplitLen >= int(recordLen) {
+		// TCP split if hello is not a valid TLS Client Hello, or cannot be fragmented
+		n, err = w.Write(hello[:splitLen])
+		if err == nil {
+			var m int
+			m, err = w.Write(hello[splitLen:])
+			n += m
+		}
+		log.D("rdial: Splits: %s->%s; TCP %d/%d; n: %d; err: %v", from, to, splitLen, len(hello), n, err)
+		return
+	}
+
+	parcel := hello[:splitLen]
+	binary.BigEndian.PutUint16(parcel[3:5], uint16(recordSplitLen))
+	if n, err = w.Write(parcel); err != nil {
+		log.E("rdial: Splits: %s->%s; TLS1 %d/%d; n: %d; err: %v", from, to, splitLen, len(hello), n, err)
+		return
+	}
+
+	parcel = hello[splitLen-5:]
+	copy(parcel, hello[:5])
+	binary.BigEndian.PutUint16(parcel[3:5], recordLen-uint16(recordSplitLen))
+
+	m, err := w.Write(parcel)
+	n += m
+
+	logeif(err)("rdial: Splits: %s->%s; TLS2 %d/%d; n: %d; err: %v", from, to, splitLen, len(hello), n, err)
+	return
 }
 
 // splitHello splits the TLS client hello message into two.

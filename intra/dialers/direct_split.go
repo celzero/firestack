@@ -51,7 +51,7 @@ func DialWithSplit(d *protect.RDial, addr *net.TCPAddr) (*splitter, error) {
 }
 
 // Write-related functions
-func (s *splitter) Write(b []byte) (int, error) {
+func (s *splitter) Write(b []byte) (n int, err error) {
 	conn := s.TCPConn
 	if s.used {
 		// After the first write, there is no special write behavior.
@@ -60,13 +60,8 @@ func (s *splitter) Write(b []byte) (int, error) {
 
 	// Setting `used` to true ensures that this code only runs once per socket.
 	s.used = true
-	b1, b2 := splitHello(b)
-	n1, err := conn.Write(b1)
-	if err != nil {
-		return n1, err
-	}
-	n2, err := conn.Write(b2)
-	return n1 + n2, err
+	n, _, err = writeSplit(conn, b)
+	return n, err
 }
 
 func (s *splitter) ReadFrom(reader io.Reader) (bytes int64, err error) {

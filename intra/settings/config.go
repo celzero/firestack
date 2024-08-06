@@ -309,7 +309,8 @@ func (p *ProxyOptions) Url() string {
 
 // Dialer strategies
 const (
-	RetrierStrategy int32 = iota
+	SplitTCPStrategy int32 = iota
+	SplitTCPOrTLSStrategy
 	DesyncStrategy
 )
 
