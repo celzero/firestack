@@ -25,7 +25,7 @@ type exit struct {
 
 // NewExitProxy returns a new exit proxy.
 func NewExitProxy(c protect.Controller) *exit {
-	d := protect.MakeNsRDialExt(Exit, c, []protect.ControlFn{protect.SetKeepAliveConfig})
+	d := protect.MakeNsRDial(Exit, c)
 	h := &exit{
 		addr:     "127.0.0.127:1337",
 		outbound: d,
@@ -47,6 +47,8 @@ func (h *exit) Dial(network, addr string) (c protect.Conn, err error) {
 	} else {
 		h.status = TOK
 	}
+	//Adjust TCP keepalive config if c is a TCPConn
+	protect.TrySetKeepAliveConfig(c)
 	log.I("proxy: exit: dial(%s) to %s; err? %v", network, addr, err)
 	return
 }
