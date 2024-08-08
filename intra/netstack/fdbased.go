@@ -241,11 +241,6 @@ func (e *endpoint) Dispose() (err error) {
 		return nil
 	}
 
-	defer func() {
-		_ = syscall.Close(prevfd)
-		log.I("ns: tun(%d): Dispose: close fd", prevfd)
-	}()
-
 	e.Lock()
 	defer e.Unlock()
 	if e.inboundDispatcher != nil {
@@ -258,19 +253,13 @@ func (e *endpoint) Dispose() (err error) {
 
 // Implements Swapper.
 func (e *endpoint) Swap(fd, mtu int) (err error) {
-	defer func() {
-		if err != nil {
-			_ = syscall.Close(fd)
-			log.W("ns: tun(%d): Swap: close fd! err %v", fd, err)
-		}
-	}()
+	e.SetMTU(uint32(mtu))
 
 	if err = unix.SetNonblock(fd, true); err != nil {
+		clos(fd)
 		return fmt.Errorf("unix.SetNonblock(%v) failed: %v", fd, err)
 	}
 
-	e.SetMTU(uint32(mtu))
-	// prevfd closed by inboundDispatcher; and may be invalidfd
 	prevfd := e.fds.Swap(fd) // commence WritePackets() on fd
 
 	log.D("ns: swapping tun... fd: %d => %d, mtu: %d", prevfd, fd, mtu)
@@ -279,9 +268,6 @@ func (e *endpoint) Swap(fd, mtu int) (err error) {
 	defer e.Unlock()
 	if e.inboundDispatcher == nil { // prevfd must be 0 value if inbound is nil
 		e.inboundDispatcher, err = createInboundDispatcher(e, fd)
-		if err != nil {
-			err = fmt.Errorf("createInboundDispatcher(%d, ...) = %v", fd, err)
-		}
 	} else {
 		err = e.inboundDispatcher.swap(fd) // always closes prevfd
 		// todo: on err != nil e.inboundDispatcher = nil?
@@ -291,9 +277,15 @@ func (e *endpoint) Swap(fd, mtu int) (err error) {
 	if err == nil && hasDispatcher { // attached?
 		go e.dispatchLoop(e.inboundDispatcher)
 	} else {
-		log.E("ns: tun(%d => %d): Swap: no dispatcher? %t for new fd; err %v", prevfd, fd, !hasDispatcher, err)
+		log.W("ns: tun(%d => %d): Swap: no dispatcher? %t for new fd; err %v", prevfd, fd, !hasDispatcher, err)
 	}
 	return
+}
+
+func clos(fd int) {
+	if fd > 0 || fd != invalidfd {
+		_ = syscall.Close(fd)
+	}
 }
 
 // Attach launches the goroutine that reads packets from the file descriptor and

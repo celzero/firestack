@@ -157,6 +157,7 @@ var _ linkDispatcher = (*readVDispatcher)(nil)
 
 // newReadVDispatcher creates a new linkDispatcher that vector reads packets from
 // fd and dispatches them to endpoint e. It assumes ownership of fd but not of e.
+// However, on errors, it does not take ownership of fd.
 func newReadVDispatcher(fd int, e *endpoint) (linkDispatcher, error) {
 	tun, err := newTun(fd)
 	if err != nil {
@@ -175,21 +176,24 @@ func newReadVDispatcher(fd int, e *endpoint) (linkDispatcher, error) {
 }
 
 // swap atomically swaps existing fd for this new one.
+// On error, it closes fd.
 func (d *readVDispatcher) swap(fd int) error {
 	done := d.closed.Load()
 	if done {
+		clos(fd)
 		return net.ErrClosed
 	}
 
 	note := log.I
 	f, err := newTun(fd) // fd may be invalid (ex: -1)
 	if err != nil {
+		defer clos(fd)
 		note = log.W
 	}
 
 	prev := d.fds.Swap(f)   // f may be nil
 	d.wrapup(prev, wrapttl) // prev may be nil
-	d.mgr.swap(fd)          // used for diagnostics only
+	d.mgr.swap(f.tun())     // used for diagnostics only
 
 	note("ns: dispatch: swap: tun(%d => %d); err %v", prev.tun(), fd, err)
 	return err
