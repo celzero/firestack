@@ -117,11 +117,6 @@ func (h *icmpHandler) End() error {
 // CloseConns implements netstack.GICMPHandler.
 func (h *icmpHandler) CloseConns(cids []string) []string { return nil }
 
-// PingOnce implements netstack.GICMPHandler.
-func (h *icmpHandler) PingOnce(src, dst netip.AddrPort, msg []byte) bool {
-	return h.Ping(src, dst, msg)
-}
-
 // Ping implements netstack.GICMPHandler.
 // Nb: to send icmp pings, root access is required; and so,
 // send "unprivileged" icmp pings via udp reqs; which do
@@ -145,11 +140,7 @@ func (h *icmpHandler) Ping(source, target netip.AddrPort, msg []byte) (echoed bo
 	pid, cid, block := h.onFlow(source, target, realips, domains, probableDomains, blocklists)
 	smm := icmpSummary(cid, pid)
 
-	defer func() {
-		if !echoed {
-			queueSummary(h.smmch, h.done, smm.done(err))
-		}
-	}()
+	defer queueSummary(h.smmch, h.done, smm.done(err)) // err may be nil
 
 	if block {
 		log.I("t.icmp: egress: firewalled %s -> %s", source, target)
@@ -164,10 +155,6 @@ func (h *icmpHandler) Ping(source, target netip.AddrPort, msg []byte) (echoed bo
 		return false // denied
 	}
 
-	defer func() {
-		queueSummary(h.smmch, h.done, smm.done(err))
-	}()
-
 	dst := oneRealIp(realips, target)
 	uc, err := px.Dialer().Dial("udp", dst.String())
 	ucnil := uc == nil || core.IsNil(uc)
@@ -179,7 +166,6 @@ func (h *icmpHandler) Ping(source, target netip.AddrPort, msg []byte) (echoed bo
 		return // unhandled
 	}
 
-	defer queueSummary(h.smmch, h.done, smm.done(err)) // err may be nil
 	defer clos(uc)
 
 	extend(uc, icmptimeout)
