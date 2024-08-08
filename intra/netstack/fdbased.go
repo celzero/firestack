@@ -232,23 +232,24 @@ func createInboundDispatcher(e *endpoint, fd int) (linkDispatcher, error) {
 
 func (e *endpoint) Dispose() (err error) {
 	if e.fds == nil {
-		log.W("ns: tun: Dispose: fds nil")
+		log.W("ns: tun: Dispose: no fds")
 		return nil
 	}
 	prevfd := e.fds.Swap(invalidfd) // prevfd may be invalidfd
 	if prevfd == invalidfd {
-		log.W("ns: tun: Dispose: prevfd invalid")
+		log.W("ns: tun: Dispose: invalid prevfd")
 		return nil
 	}
-
 	e.Lock()
 	defer e.Unlock()
-	if e.inboundDispatcher != nil {
-		// e.dispatchLoop() will auto-exit due to invalidfd
-		err = e.inboundDispatcher.swap(invalidfd)
+	if e.inboundDispatcher == nil {
+		log.W("ns: tun: Dispose: no inbound dispatcher")
+		// nothing to do
+		return nil
 	}
-
-	return
+	// e.inboundDispatcher.swap() will close prevfd
+	// e.dispatchLoop() will auto-exit due to invalidfd
+	return e.inboundDispatcher.swap(invalidfd)
 }
 
 // Implements Swapper.
