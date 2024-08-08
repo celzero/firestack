@@ -42,7 +42,7 @@ func (h *exit) Dial(network, addr string) (c protect.Conn, err error) {
 	}
 
 	// exit always splits
-	if c, err = dialStrat(h.outbound, network, addr); err != nil {
+	if c, err = localDialStrat(h.outbound, network, addr); err != nil {
 		h.status = TKO
 	} else {
 		h.status = TOK

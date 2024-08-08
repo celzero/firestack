@@ -14,6 +14,7 @@ import (
 
 	x "github.com/celzero/firestack/intra/backend"
 	"github.com/celzero/firestack/intra/core"
+	"github.com/celzero/firestack/intra/dialers"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
 	"github.com/celzero/firestack/intra/settings"
@@ -444,4 +445,13 @@ func local(id string) bool {
 
 func idling(t time.Time) bool {
 	return time.Since(t) > tzzTimeout
+}
+
+func localDialStrat(d *protect.RDial, network, addr string) (protect.Conn, error) {
+	switch settings.DialStrategy.Load() {
+	case settings.DesyncStrategy:
+		return dialers.DesyncDial(d, network, addr)
+	default:
+		return dialers.SplitDial(d, network, addr)
+	}
 }

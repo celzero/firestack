@@ -115,7 +115,7 @@ func splitIpConnect(d *protect.RDial, proto string, ip netip.Addr, port int) (ne
 	}
 }
 
-func splitIpConnect2(d *protect.RDial, proto string, ip netip.Addr, port int) (net.Conn, error) {
+func splitAlwaysIpConnect(d *protect.RDial, proto string, ip netip.Addr, port int) (net.Conn, error) {
 	if d == nil {
 		log.E("rdial: splitIpConnect2: nil dialer")
 		return nil, errNoDialer
@@ -137,7 +137,7 @@ func splitIpConnect2(d *protect.RDial, proto string, ip netip.Addr, port int) (n
 	}
 }
 
-func splitIpConnect3(d *protect.RDial, proto string, ip netip.Addr, port int) (net.Conn, error) {
+func desyncIpConnect(d *protect.RDial, proto string, ip netip.Addr, port int) (net.Conn, error) {
 	if d == nil {
 		log.E("rdial: splitIpConnect3: nil dialer")
 		return nil, errNoDialer
@@ -298,14 +298,14 @@ func SplitDial(d *protect.RDial, network, addr string) (net.Conn, error) {
 	return commondial(d, network, addr, splitIpConnect)
 }
 
-// SplitDial2 is like SplitDial except it splits ClientHello in all TLS connections.
-func SplitDial2(d *protect.RDial, network, addr string) (net.Conn, error) {
-	return commondial(d, network, addr, splitIpConnect2)
+// SplitAlwaysDial is like SplitDial except it splits ClientHello in all TLS connections.
+func SplitAlwaysDial(d *protect.RDial, network, addr string) (net.Conn, error) {
+	return commondial(d, network, addr, splitAlwaysIpConnect)
 }
 
-// SplitDial3 attempts TCP desync.
-func SplitDial3(d *protect.RDial, network, addr string) (net.Conn, error) {
-	return commondial(d, network, addr, splitIpConnect3)
+// DesyncDial attempts TCP desync.
+func DesyncDial(d *protect.RDial, network, addr string) (net.Conn, error) {
+	return commondial(d, network, addr, desyncIpConnect)
 }
 
 // SplitDialWithTls dials into addr using the provided dialer and returns a tls.Conn
