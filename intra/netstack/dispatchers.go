@@ -157,10 +157,10 @@ var _ linkDispatcher = (*readVDispatcher)(nil)
 
 // newReadVDispatcher creates a new linkDispatcher that vector reads packets from
 // fd and dispatches them to endpoint e. It assumes ownership of fd but not of e.
-// However, on errors, it does not take ownership of fd.
 func newReadVDispatcher(fd int, e *endpoint) (linkDispatcher, error) {
 	tun, err := newTun(fd)
 	if err != nil {
+		clos(fd)
 		return nil, err
 	}
 	d := &readVDispatcher{
