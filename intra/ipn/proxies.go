@@ -64,14 +64,12 @@ var (
 	errNoSig                = errors.New("auth missing sig")
 	errNoMtu                = errors.New("no mtu")
 	errNoOpts               = errors.New("no proxy opts")
-
-	udptimeoutsec = 5 * 60                    // 5m
-	tcptimeoutsec = (2 * 60 * 60) + (40 * 60) // 2h40m
-
-	getproxytimeout = 5 * time.Second
 )
 
 const (
+	udptimeoutsec         int           = 5 * 60                    // 5m
+	tcptimeoutsec         int           = (2 * 60 * 60) + (40 * 60) // 2h40m
+	getproxytimeout       time.Duration = 5 * time.Second
 	tlsHandshakeTimeout   time.Duration = 30 * time.Second // some proxies take a long time to handshake
 	responseHeaderTimeout time.Duration = 60 * time.Second
 	tzzTimeout            time.Duration = 2 * time.Minute // time between new connections before proxies transition to idle
@@ -86,9 +84,6 @@ var _ Proxy = (*wgproxy)(nil)
 var _ Proxy = (*ground)(nil)
 var _ Proxy = (*pipws)(nil)
 var _ Proxy = (*piph2)(nil)
-
-// Proxy implements the RDialer interface.
-var _ protect.RDialer = (Proxy)(nil)
 
 type Proxy interface {
 	x.Proxy
@@ -117,9 +112,9 @@ type Proxies interface {
 type proxifier struct {
 	sync.RWMutex
 	p        map[string]Proxy
-	exit     Proxy // exit proxy, never changes
-	base     Proxy // base proxy, never changes
-	grounded Proxy // grounded proxy, never changes
+	exit     *exit   // exit proxy, never changes
+	base     *base   // base proxy, never changes
+	grounded *ground // grounded proxy, never changes
 	ctl      protect.Controller
 	obs      x.ProxyListener
 	protos   string
