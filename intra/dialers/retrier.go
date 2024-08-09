@@ -395,9 +395,21 @@ func copyOnce(dst io.Writer, src io.Reader) (int64, error) {
 	}()
 
 	var dstaddr, srcaddr net.Addr
-	if r, ok := dst.(*retrier); ok {
-		srcaddr = laddr(r)
+	switch r := dst.(type) {
+	case *retrier:
+		srcaddr = laddr(r.conn)
 		dstaddr = r.raddr
+	case *splitter:
+		srcaddr = laddr(r)
+		dstaddr = raddr(r)
+	case *overwriteSplitter:
+		srcaddr = laddr(r)
+		dstaddr = raddr(r)
+	case net.Conn:
+		srcaddr = laddr(r)
+		dstaddr = raddr(r)
+	default:
+		log.W("rdial: copyOnce: unknown dst type %T", dst)
 	}
 
 	n, err := src.Read(buf) // src: netstack; downstream conn
