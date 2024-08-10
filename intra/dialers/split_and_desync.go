@@ -25,6 +25,9 @@ import (
 const (
 	probeSize     = 8
 	Http1_1String = "POST / HTTP/1.1\r\nHost: 10.0.0.1\r\nContent-Type: application/octet-stream\r\nContent-Length: 9999999\r\n\r\n"
+
+	DESYNC_MAX_TTL  = 24 // some arbitrary value
+	DESYNC_NOOP_TTL = DESYNC_MAX_TTL
 )
 
 // ttlcache stores the TTL for a given IP address for a limited time.
@@ -93,9 +96,10 @@ func exceedsTTL(cmsgs []unix.SocketControlMessage) bool {
 // If `payload` is smaller than the initial upstream segment, it launches the attack and splits.
 // This traceroute is not accurate, because of time limit (TCP handshake).
 // Note: The path the UDP packet took to reach the destination may differ from the path the TCP packet took.
-func DialWithSplitAndDesyncTraceroute(d *protect.RDial, ipp netip.AddrPort, maxTTL int, payload []byte) (*overwriteSplitter, error) {
+func DialWithSplitAndDesyncTraceroute(d *protect.RDial, ipp netip.AddrPort, payload []byte) (*overwriteSplitter, error) {
 	udpAddr := net.UDPAddrFromAddrPort(ipp)
 	udpAddr.Port = 1 // unset port
+	maxTTL := DESYNC_MAX_TTL
 
 	isIPv6 := ipp.Addr().Is6()
 
@@ -225,6 +229,10 @@ func DialWithSplitAndDesyncTraceroute(d *protect.RDial, ipp netip.AddrPort, maxT
 			}
 		}
 	}
+	if split1.ttl == 1 {
+		split1.ttl = DESYNC_NOOP_TTL
+	}
+
 	log.D("split-desync: addr: %v, ttl: %d", ipp, split1.ttl)
 
 	return split1, nil
@@ -248,12 +256,12 @@ func DialWithSplitAndDesyncFixedTtl(d *protect.RDial, addr netip.AddrPort, initi
 // DialWithSplitAndDesyncSmart estimates the TTL with UDP traceroute,
 // then returns a TCP connection that may launch TCB Desynchronization
 // and split the initial upstream segment.
-func DialWithSplitAndDesyncSmart(d *protect.RDial, ipp netip.AddrPort, maxTTL int, payload []byte) (DuplexConn, error) {
+func DialWithSplitAndDesyncSmart(d *protect.RDial, ipp netip.AddrPort, payload []byte) (DuplexConn, error) {
 	ttl, ok := ttlcache.Get(ipp.Addr())
 	if ok {
 		return DialWithSplitAndDesyncFixedTtl(d, ipp, ttl, payload)
 	}
-	conn, err := DialWithSplitAndDesyncTraceroute(d, ipp, maxTTL, payload)
+	conn, err := DialWithSplitAndDesyncTraceroute(d, ipp, payload)
 	if err == nil && conn != nil { // go vet (incorrectly) complains about conn being nil when err is nil
 		ttlcache.Put(ipp.Addr(), conn.ttl)
 	}
@@ -309,8 +317,11 @@ func (s *overwriteSplitter) Write(b []byte) (int, error) {
 		return conn.Write(b)
 	}
 
-	// set `Used` to ensure this code only runs once per conn.
-	s.used.Store(true)
+	// set `used` to ensure this code only runs once per conn.
+	if !s.used.CompareAndSwap(false, true) {
+		return conn.Write(b)
+	}
+
 	if len(b) <= len(s.payload) {
 		return conn.Write(b)
 	}
