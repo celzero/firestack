@@ -18,23 +18,16 @@ import (
 	"io"
 	"net"
 
+	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/protect"
 )
-
-// DuplexConn represents a bidirectional stream socket.
-type DuplexConn interface {
-	net.Conn
-	io.ReaderFrom
-	CloseWrite() error
-	CloseRead() error
-}
 
 type splitter struct {
 	*net.TCPConn
 	used bool // Initially false.  Becomes true after the first write.
 }
 
-var _ DuplexConn = (*splitter)(nil)
+var _ core.DuplexConn = (*splitter)(nil)
 
 // DialWithSplit returns a TCP connection that always splits the initial upstream segment.
 // Like net.Conn, it is intended for two-threaded use, with one thread calling

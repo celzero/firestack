@@ -7,6 +7,7 @@
 package core
 
 import (
+	"io"
 	"net"
 	"time"
 )
@@ -18,27 +19,25 @@ import (
 type TCPConn interface {
 	// RemoteAddr returns the destination network address.
 	RemoteAddr() net.Addr
-
 	// LocalAddr returns the local client network address.
 	LocalAddr() net.Addr
 
 	// confirms to protect.Conn
-	Write(data []byte) (int, error)
-	Read(data []byte) (int, error)
-	Close() error
+	Write([]byte) (int, error)
+	Read([]byte) (int, error)
 
+	Close() error
 	// CloseWrite closes the writing side by sending a FIN
 	// segment to local peer. That means we can write no further
 	// data to TUN.
 	CloseWrite() error
-
 	// CloseRead closes the reading side. That means we can no longer
 	// read more from TUN.
 	CloseRead() error
 
-	SetDeadline(t time.Time) error
-	SetReadDeadline(t time.Time) error
-	SetWriteDeadline(t time.Time) error
+	SetDeadline(time.Time) error
+	SetReadDeadline(time.Time) error
+	SetWriteDeadline(time.Time) error
 }
 
 // UDPConn abstracts a UDP connection coming from TUN. This connection
@@ -49,18 +48,24 @@ type UDPConn interface {
 	RemoteAddr() net.Addr
 
 	// confirms to protect.Conn
-	Write(data []byte) (int, error)
-	Read(data []byte) (int, error)
+	Write([]byte) (int, error)
+	Read([]byte) (int, error)
 
 	// confirms to net.PacketConn
-	WriteTo(data []byte, addr net.Addr) (int, error)
-	ReadFrom(data []byte) (int, net.Addr, error)
+	WriteTo([]byte, net.Addr) (int, error)
+	ReadFrom([]byte) (int, net.Addr, error)
 
 	// Close closes the connection.
 	Close() error
 
 	// Implements net.Conn
-	SetDeadline(t time.Time) error
-	SetReadDeadline(t time.Time) error
-	SetWriteDeadline(t time.Time) error
+	SetDeadline(time.Time) error
+	SetReadDeadline(time.Time) error
+	SetWriteDeadline(time.Time) error
+}
+
+// DuplexConn represents a bidirectional stream socket.
+type DuplexConn interface {
+	TCPConn
+	io.ReaderFrom
 }
