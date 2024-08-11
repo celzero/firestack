@@ -11,6 +11,7 @@ import (
 	"net"
 	"os"
 	"reflect"
+	"syscall"
 
 	"gvisor.dev/gvisor/pkg/tcpip/adapters/gonet"
 )
@@ -28,6 +29,10 @@ func CloseFile(f *os.File) {
 	if f != nil {
 		_ = f.Close()
 	}
+}
+
+func CloseFD(fd int) {
+	_ = syscall.Close(fd)
 }
 
 // CloseUDP closes c.
