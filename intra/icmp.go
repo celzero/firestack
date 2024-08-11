@@ -143,6 +143,7 @@ func (h *icmpHandler) Ping(source, target netip.AddrPort, msg []byte) (echoed bo
 	defer queueSummary(h.smmch, h.done, smm.done(err)) // err may be nil
 
 	if block {
+		err = errIcmpFirewalled
 		log.I("t.icmp: egress: firewalled %s -> %s", source, target)
 		// sleep for a while to avoid busy conns? will also block netstack
 		// see: netstack/dispatcher.go:newReadvDispatcher
@@ -155,22 +156,24 @@ func (h *icmpHandler) Ping(source, target netip.AddrPort, msg []byte) (echoed bo
 		return false // denied
 	}
 
+	anyaddr := ":0"
 	dst := oneRealIp(realips, target)
-	uc, err := px.Dialer().Dial("udp", dst.String())
+	uc, err := px.Dialer().Probe("udp", anyaddr)
 	ucnil := uc == nil || core.IsNil(uc)
+	smm.Target = dst.Addr().String()
 	if err != nil || ucnil { // nilaway: tx.socks5 returns nil conn even if err == nil
 		if err == nil {
 			err = unix.ENETUNREACH
 		}
 		log.E("t.icmp: egress: dial(%s); hasConn? %s(%t); err %v", dst, pid, ucnil, err)
-		return // unhandled
+		return false // unhandled
 	}
 
-	defer clos(uc)
+	defer core.Close(uc)
 
-	extend(uc, icmptimeout)
-
-	_, err = uc.Write(msg)
+	extendp(uc, icmptimeout)
+	// todo: construct ICMP header? github.com/prometheus-community/pro-bing/blob/0bacb2d5e7/ping.go#L717
+	_, err = uc.WriteTo(msg, net.UDPAddrFromAddrPort(dst))
 	logei(err, "t.icmp: egress: write(%v <- %v) ping; done %d; err? %v", dst, source, len(msg), err)
 	if err != nil {
 		return false // write error
@@ -184,14 +187,21 @@ func (h *icmpHandler) Ping(source, target netip.AddrPort, msg []byte) (echoed bo
 		core.Recycle(bptr)
 	}()
 
-	extend(uc, icmptimeout)
-	_, err = uc.Read(b)
-	logei(err, "t.icmp: ingress: read(%v <- %v) ping done; err? %v", source, dst, err)
+	extendp(uc, icmptimeout)
+	_, from, err := uc.ReadFrom(b) // todo: assert from == dst
+	// todo: ignore non-ICMP replies in b: github.com/prometheus-community/pro-bing/blob/0bacb2d5e7/ping.go#L630
+	logei(err, "t.icmp: ingress: read(%v <- %v / %v) ping done; err? %v", source, from, dst, err)
 
 	return true // echoed; even if err != nil
 }
 
 func extend(c net.Conn, t time.Duration) {
+	if c != nil && core.IsNotNil(c) {
+		_ = c.SetDeadline(time.Now().Add(t))
+	}
+}
+
+func extendp(c net.PacketConn, t time.Duration) {
 	if c != nil && core.IsNotNil(c) {
 		_ = c.SetDeadline(time.Now().Add(t))
 	}

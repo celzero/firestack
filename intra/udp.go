@@ -73,8 +73,9 @@ const (
 )
 
 var (
-	errUdpFirewalled = errors.New("udp: firewalled")
-	errUdpSetupConn  = errors.New("udp: could not create conn")
+	errIcmpFirewalled = errors.New("icmp: firewalled")
+	errUdpFirewalled  = errors.New("udp: firewalled")
+	errUdpSetupConn   = errors.New("udp: could not create conn")
 )
 
 var (

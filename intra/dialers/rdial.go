@@ -14,11 +14,57 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
+	"golang.org/x/net/icmp"
 )
 
-type connectFunc func(*protect.RDial, string, netip.Addr, int) (net.Conn, error)
+// rconn is a union type for net.UDPConn, net.TCPConn, icmp.PacketConn, net.TCPListener
+type rconn interface {
+	*net.Conn | *icmp.PacketConn | *net.UDPConn | *net.TCPConn | *net.TCPListener
+}
+
+// adapt adapts a mkconn to a mkrconn
+func adapt(f mkconn) mkrconn[*net.Conn] {
+	return func(d *protect.RDial, network string, ip netip.Addr, port int) (*net.Conn, error) {
+		c, err := f(d, network, ip, port)
+
+		defer func() {
+			if err != nil && c != nil {
+				clos(c)
+			}
+		}()
+
+		if err != nil {
+			return nil, err
+		}
+		if c == nil || core.IsNil(c) { // go.dev/play/p/SsmqM00d2oH
+			return nil, errNilConn
+		}
+		return &c, nil
+	}
+}
+
+// asConn returns a net.Conn from a *net.Conn
+func asConn(c *net.Conn, err error) (net.Conn, error) {
+	defer func() {
+		if err != nil && c != nil {
+			clos(*c)
+		}
+	}()
+
+	if err != nil {
+		return nil, err
+	}
+	if c == nil || *c == nil || core.IsNil(*c) {
+		return nil, errNilConn
+	}
+	return *c, nil
+}
+
+type mkrconn[C rconn] func(*protect.RDial, string, netip.Addr, int) (C, error)
+type mkconn func(*protect.RDial, string, netip.Addr, int) (net.Conn, error)
 
 const dialRetryTimeout = 1 * time.Minute
 
@@ -73,19 +119,6 @@ func ipConnect(d *protect.RDial, proto string, ip netip.Addr, port int) (net.Con
 	default:
 		return d.Dial(proto, addrstr(ip, port))
 	}
-}
-
-// ipConnect2 dials into ip:port using the provided dialer and returns a net.Conn
-// net.Conn may not be any among net.UDPConn or net.TCPConn or core.UDPConn or core.TCPConn
-func ipConnect2(d *protect.RDial, proto string, ip netip.Addr, port int) (net.Conn, error) {
-	if d == nil {
-		log.E("rdial: ipConnect2: nil dialer")
-		return nil, errNoDialer
-	} else if !ipok(ip) {
-		log.E("rdial: ipConnect2: invalid ip", ip)
-		return nil, errNoIps
-	}
-	return d.Dial(proto, addrstr(ip, port))
 }
 
 func doSplit(ip netip.Addr, port int) bool {
@@ -159,7 +192,19 @@ func desyncIpConnect(d *protect.RDial, proto string, ip netip.Addr, port int) (n
 	}
 }
 
-func commondial(d *protect.RDial, network, addr string, connect connectFunc) (net.Conn, error) {
+func tcpListen(d *protect.RDial, network string, ip netip.Addr, port int) (*net.TCPListener, error) {
+	return d.AcceptTCP(network, addrstr(ip, port))
+}
+
+func udpListen(d *protect.RDial, network string, ip netip.Addr, port int) (*net.UDPConn, error) {
+	return d.AnnounceUDP(network, addrstr(ip, port))
+}
+
+func icmpListen(d *protect.RDial, network string, ip netip.Addr, port int) (*icmp.PacketConn, error) {
+	return d.ProbeICMP(network, addrstr(ip, port))
+}
+
+func commondial[C rconn](d *protect.RDial, network, addr string, connect mkrconn[C]) (C, error) {
 	start := time.Now()
 
 	log.D("rdial: commondial: dialing (host:port) %s", addr)
@@ -177,7 +222,7 @@ func commondial(d *protect.RDial, network, addr string, connect connectFunc) (ne
 		return nil, err
 	}
 
-	var conn net.Conn
+	var conn C
 	var errs error
 	ips := ipm.Get(domain)
 	dontretry := ips.OneIPOnly() // just one IP, no retries possible
@@ -254,8 +299,7 @@ func ListenPacket(d *protect.RDial, network, local string) (net.PacketConn, erro
 		log.E("rdial: ListenPacket: nil dialer")
 		return nil, errNoListener
 	}
-	// todo: resolve local if hostname
-	return d.AnnounceUDP(network, local)
+	return commondial(d, network, local, udpListen)
 }
 
 // Listen listens on for TCP connections on the local address using d.
@@ -264,24 +308,23 @@ func Listen(d *protect.RDial, network, local string) (net.Listener, error) {
 		log.E("rdial: Listen: nil dialer")
 		return nil, errNoListener
 	}
-	// todo: resolve local if hostname
-	return d.AcceptTCP(network, local)
+	return commondial(d, network, local, tcpListen)
+}
+
+// Probe sends and accepts ICMP packets on addr using d over a net.PacketConn.
+func Probe(d *protect.RDial, network, addr string) (net.PacketConn, error) {
+	return commondial(d, network, addr, icmpListen)
 }
 
 // Dial dials into addr using the provided dialer and returns a net.Conn,
 // which is guaranteed to be either net.UDPConn or net.TCPConn
 func Dial(d *protect.RDial, network, addr string) (net.Conn, error) {
-	return commondial(d, network, addr, ipConnect)
-}
-
-// Dial2 dials into addr using the provided dialer and returns a net.Conn
-func Dial2(d *protect.RDial, network, addr string) (net.Conn, error) {
-	return commondial(d, network, addr, ipConnect2)
+	return asConn(commondial(d, network, addr, adapt(ipConnect)))
 }
 
 // DialWithTls dials into addr using the provided dialer and returns a tls.Conn
 func DialWithTls(d *protect.RDial, cfg *tls.Config, addr string) (net.Conn, error) {
-	c, err := commondial(d, "tcp", addr, ipConnect)
+	c, err := asConn(commondial(d, "tcp", addr, adapt(ipConnect)))
 	if err != nil {
 		return c, err
 	}
@@ -294,22 +337,22 @@ func DialWithTls(d *protect.RDial, cfg *tls.Config, addr string) (net.Conn, erro
 // is unsuccessful. Using the provided dialer it returns a net.Conn,
 // which may not be net.UDPConn or net.TCPConn
 func SplitDial(d *protect.RDial, network, addr string) (net.Conn, error) {
-	return commondial(d, network, addr, splitIpConnect)
+	return asConn(commondial(d, network, addr, adapt(splitIpConnect)))
 }
 
 // SplitAlwaysDial is like SplitDial except it splits ClientHello in all TLS connections.
 func SplitAlwaysDial(d *protect.RDial, network, addr string) (net.Conn, error) {
-	return commondial(d, network, addr, splitAlwaysIpConnect)
+	return asConn(commondial(d, network, addr, adapt(splitAlwaysIpConnect)))
 }
 
 // DesyncDial attempts TCP desync.
 func DesyncDial(d *protect.RDial, network, addr string) (net.Conn, error) {
-	return commondial(d, network, addr, desyncIpConnect)
+	return asConn(commondial(d, network, addr, adapt(desyncIpConnect)))
 }
 
 // SplitDialWithTls dials into addr using the provided dialer and returns a tls.Conn
 func SplitDialWithTls(d *protect.RDial, cfg *tls.Config, addr string) (net.Conn, error) {
-	c, err := commondial(d, "tcp", addr, splitIpConnect)
+	c, err := asConn(commondial(d, "tcp", addr, adapt(splitIpConnect)))
 	if err != nil {
 		return c, err
 	}

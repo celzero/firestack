@@ -149,9 +149,7 @@ func (t *transport) pxdial(network, pid string) (conn *dns.Conn, err error) {
 
 func (t *transport) dial(network string) (*dns.Conn, error) {
 	// protect.dialers resolves t.addrport, if necessary
-	// dialers.Dial fails to dial into tcp/udp conns w/ proxies like wgproxy
-	// which only dial out to generic net.Conn for UDP and core.TCPConn for tcp
-	c, err := dialers.Dial2(t.dialer, network, t.addrport)
+	c, err := dialers.Dial(t.dialer, network, t.addrport)
 	if err != nil {
 		return nil, err
 	} else if c == nil || core.IsNil(c) {
