@@ -12,6 +12,7 @@ import (
 	"time"
 
 	x "github.com/celzero/firestack/intra/backend"
+	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/dialers"
 	tx "github.com/celzero/firestack/intra/ipn/h1"
 	"github.com/celzero/firestack/intra/log"
@@ -28,7 +29,7 @@ type http1 struct {
 	id          string
 	opts        *settings.ProxyOptions
 	lastdial    time.Time
-	status      int
+	status      *core.Volatile[int]
 }
 
 func NewHTTPProxy(id string, c protect.Controller, po *settings.ProxyOptions) (*http1, error) {
@@ -77,7 +78,7 @@ func NewHTTPProxy(id string, c protect.Controller, po *settings.ProxyOptions) (*
 
 // Dial implements Proxy.
 func (h *http1) Dial(network, addr string) (c protect.Conn, err error) {
-	if h.status == END {
+	if h.status.Load() == END {
 		return nil, errProxyStopped
 	}
 
@@ -85,9 +86,9 @@ func (h *http1) Dial(network, addr string) (c protect.Conn, err error) {
 	// dialers.ProxyDial not needed, because
 	// tx.HttpTunnel.Dial() supports dialing into hostnames
 	if c, err = dialers.ProxyDial(h.outbound, network, addr); err != nil {
-		h.status = TKO
+		h.status.Store(TKO)
 	} else {
-		h.status = TOK
+		h.status.Store(TOK)
 	}
 	log.I("proxy: http1: dial(%s) from %s to %s; err? %v", network, h.GetAddr(), addr, err)
 	return
@@ -118,14 +119,15 @@ func (h *http1) GetAddr() string {
 }
 
 func (h *http1) Status() int {
-	if h.status != END && idling(h.lastdial) {
+	s := h.status.Load()
+	if s != END && idling(h.lastdial) {
 		return TZZ
 	}
-	return h.status
+	return s
 }
 
 func (h *http1) Stop() error {
-	h.status = END
+	h.status.Store(END)
 	log.I("proxy: http1: stopped %s", h.id)
 	return nil
 }

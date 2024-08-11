@@ -31,21 +31,21 @@ const (
 )
 
 type pipws struct {
-	nofwd                        // no forwarding/listening
-	protoagnostic                // since dial is proto aware
-	skiprefresh                  // no refresh
-	id            string         // some unique identifier
-	url           string         // ws proxy url
-	hostname      string         // ws proxy hostname
-	port          int            // ws proxy port
-	token         string         // hex, raw client token
-	toksig        string         // hex, authorizer (rdns) signed client token
-	rsasighash    string         // hex, authorizer sha256(unblinded signature)
-	client        http.Client    // ws client
-	proxydialer   *protect.RDial // ws dialer
-	rd            *protect.RDial // exported dialer
-	lastdial      time.Time      // last dial time
-	status        int            // proxy status: TOK, TKO, END
+	nofwd                             // no forwarding/listening
+	protoagnostic                     // since dial is proto aware
+	skiprefresh                       // no refresh
+	id            string              // some unique identifier
+	url           string              // ws proxy url
+	hostname      string              // ws proxy hostname
+	port          int                 // ws proxy port
+	token         string              // hex, raw client token
+	toksig        string              // hex, authorizer (rdns) signed client token
+	rsasighash    string              // hex, authorizer sha256(unblinded signature)
+	client        http.Client         // ws client
+	proxydialer   *protect.RDial      // ws dialer
+	rd            *protect.RDial      // exported dialer
+	lastdial      time.Time           // last dial time
+	status        *core.Volatile[int] // proxy status: TOK, TKO, END
 	opts          *settings.ProxyOptions
 }
 
@@ -147,7 +147,7 @@ func NewPipWsProxy(id string, ctl protect.Controller, po *settings.ProxyOptions)
 		token:       po.Auth.User,
 		toksig:      po.Auth.Password,
 		rsasighash:  splitpath[2],
-		status:      TUP,
+		status:      core.NewVolatile(TUP),
 		opts:        po,
 	}
 	t.rd = newRDial(t)
@@ -182,15 +182,17 @@ func (*pipws) Router() x.Router {
 }
 
 func (t *pipws) Stop() error {
-	t.status = END
+	t.status.Store(END)
+	log.I("pipws: stopped")
 	return nil
 }
 
 func (t *pipws) Status() int {
-	if t.status != END && idling(t.lastdial) {
+	s := t.status.Load()
+	if s != END && idling(t.lastdial) {
 		return TZZ
 	}
-	return t.status
+	return s
 }
 
 // Scenario 4: privacypass.github.io/protocol
@@ -205,7 +207,7 @@ func (t *pipws) claim(msg string) []string {
 
 // Dial connects to addr via wsconn over this ws proxy
 func (t *pipws) Dial(network, addr string) (protect.Conn, error) {
-	if t.status == END {
+	if t.status.Load() == END {
 		return nil, errProxyStopped
 	}
 	// tcp, tcp4, tcp6
@@ -238,18 +240,18 @@ func (t *pipws) Dial(network, addr string) (protect.Conn, error) {
 	t.lastdial = time.Now()
 	if err != nil {
 		log.E("pipws: req err: %v", err)
-		t.status = TKO
+		t.status.Store(TKO)
 		return nil, err
 	}
 	if res.StatusCode != 101 {
 		log.E("pipws: res not ws %d", res.StatusCode)
-		t.status = TKO
+		t.status.Store(TKO)
 		return nil, err
 	}
 
 	log.D("pipws: duplex %s", rurl)
 
-	t.status = TOK
+	t.status.Store(TOK)
 	return c, nil
 }
 

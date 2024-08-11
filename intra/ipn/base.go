@@ -8,6 +8,7 @@ package ipn
 
 import (
 	x "github.com/celzero/firestack/intra/backend"
+	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/dialers"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
@@ -22,7 +23,7 @@ type base struct {
 	rd            *protect.RDial // this proxy as a RDial
 	outbound      *protect.RDial // outbound dialer
 	addr          string
-	status        int
+	status        *core.Volatile[int]
 }
 
 // Base returns a base proxy.
@@ -31,7 +32,7 @@ func NewBaseProxy(c protect.Controller) *base {
 	h := &base{
 		addr:     "127.8.4.5:3690",
 		outbound: d,
-		status:   TUP,
+		status:   core.NewVolatile(TUP),
 	}
 	h.rd = newRDial(h)
 	return h
@@ -39,15 +40,15 @@ func NewBaseProxy(c protect.Controller) *base {
 
 // Dial implements the Proxy interface.
 func (h *base) Dial(network, addr string) (c protect.Conn, err error) {
-	if h.status == END {
+	if h.status.Load() == END {
 		return nil, errProxyStopped
 	}
 
 	defer func() {
 		if err != nil {
-			h.status = TKO
+			h.status.Store(TKO)
 		} else {
-			h.status = TOK
+			h.status.Store(TOK)
 		}
 	}()
 
@@ -66,7 +67,7 @@ func (h *base) Dial(network, addr string) (c protect.Conn, err error) {
 
 // Announce implements Proxy.
 func (h *base) Announce(network, local string) (protect.PacketConn, error) {
-	if h.status == END {
+	if h.status.Load() == END {
 		return nil, errProxyStopped
 	}
 	return dialers.ListenPacket(h.outbound, network, local)
@@ -74,7 +75,7 @@ func (h *base) Announce(network, local string) (protect.PacketConn, error) {
 
 // Accept implements Proxy.
 func (h *base) Accept(network, local string) (protect.Listener, error) {
-	if h.status == END {
+	if h.status.Load() == END {
 		return nil, errProxyStopped
 	}
 	return dialers.Listen(h.outbound, network, local)
@@ -105,11 +106,11 @@ func (h *base) GetAddr() string {
 }
 
 func (h *base) Status() int {
-	return h.status
+	return h.status.Load()
 }
 
 func (h *base) Stop() error {
-	h.status = END
+	h.status.Store(END)
 	log.I("proxy: base: stopped")
 	return nil
 }
