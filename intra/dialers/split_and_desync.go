@@ -6,13 +6,10 @@ Inspired by byedpi
 */
 
 import (
-	"crypto/rand"
-	"errors"
 	"io"
-	mathrand "math/rand"
+	"math/rand"
 	"net"
 	"net/netip"
-	"strings"
 	"sync/atomic"
 	"time"
 
@@ -26,8 +23,14 @@ const (
 	probeSize     = 8
 	Http1_1String = "POST / HTTP/1.1\r\nHost: 10.0.0.1\r\nContent-Type: application/octet-stream\r\nContent-Length: 9999999\r\n\r\n"
 
-	DESYNC_MAX_TTL  = 24 // some arbitrary value
-	DESYNC_NOOP_TTL = DESYNC_MAX_TTL
+	// relaxed is a flag to enable relaxed mode, which lets connections go through without desync.
+	relaxed = true
+
+	DEFAULT_TTL = 64
+	// from: github.com/bol-van/zapret/blob/c369f11638/nfq/darkmagic.h#L214-L216
+	DESYNC_MAX_TTL   = 20
+	DESYNC_NOOP_TTL  = 3
+	DESYNC_DELTA_TTL = 1
 )
 
 // ttlcache stores the TTL for a given IP address for a limited time.
@@ -92,56 +95,44 @@ func exceedsTTL(cmsgs []unix.SocketControlMessage) bool {
 	return false
 }
 
-// DialWithSplitAndDesyncTraceroute estimates the TTL with UDP traceroute,
-// then returns a TCP connection that may launch TCB Desynchronization Attack and split the initial upstream segment
-// If `payload` is smaller than the initial upstream segment, it launches the attack and splits.
-// This traceroute is not accurate, because of time limit (TCP handshake).
-// Note: The path the UDP packet took to reach the destination may differ from the path the TCP packet took.
-func DialWithSplitAndDesyncTraceroute(d *protect.RDial, ipp netip.AddrPort, payload []byte) (*overwriteSplitter, error) {
+// dialUDP dials a UDP conn to the target address over a port range basePort to basePort+DESYNC_MAX_TTL, with TTL
+// set to 2, 3, ..., DESYNC_MAX_TTL. It does not take ownership of the conn (which must be closed by the caller).
+func dialUDP(d *protect.RDial, ipp netip.AddrPort, basePort int) (*net.UDPConn, int, error) {
 	udpAddr := net.UDPAddrFromAddrPort(ipp)
 	udpAddr.Port = 1 // unset port
-	maxTTL := DESYNC_MAX_TTL
 
 	isIPv6 := ipp.Addr().Is6()
 
-	/*
-		Use udp4 for IPv4 to prevent OS from giving cmsg(s) which mix IPPROTO_IPV6 cmsg level and IPv4-related cmsg data,
-		because exceedsTTL() returns false when cmsg.Header.Level == IPPROTO_IPV6
-	*/
-	var networkStr string
+	// explicitly prefer udp4 for IPv4 to prevent OS from giving cmsg(s) which mix IPPROTO_IPV6 cmsg level
+	// & IPv4-related cmsg data, because exceedsTTL() returns false when cmsg.Header.Level == IPPROTO_IPV6.
+	// that is: "udp" dials a dual-stack connection, which we don't want.
+	proto := "udp4"
 	if isIPv6 {
-		networkStr = "udp6"
-	} else {
-		networkStr = "udp4"
+		proto = "udp6"
 	}
 
-	udpConn, err := d.AnnounceUDP(networkStr, ":0")
+	var udpFD int
+	uc, err := d.AnnounceUDP(proto, ":0")
 	if err != nil {
 		log.E("split-desync: err announcing udp: %v", err)
-		return nil, err
+		return uc, udpFD, err
 	}
-	if udpConn == nil {
-		return nil, errNoConn
+	if uc == nil {
+		return uc, udpFD, errNoConn
 	}
 
-	defer func() {
-		err := udpConn.Close()
-		logeif(err)("split-desync: close udp; err? %v", err)
-	}()
-
-	rawConn, err := udpConn.SyscallConn()
+	rawConn, err := uc.SyscallConn()
 	if err != nil {
-		return nil, err
+		return uc, udpFD, err
 	}
 	if rawConn == nil {
-		return nil, errors.New("split-desync: SyscallConn(udp) nil")
+		return uc, udpFD, errNoSysConn
 	}
-	var udpFD int
 	err = rawConn.Control(func(fd uintptr) {
 		udpFD = int(fd)
 	})
 	if err != nil {
-		return nil, err
+		return uc, udpFD, err
 	}
 
 	if isIPv6 {
@@ -150,16 +141,14 @@ func DialWithSplitAndDesyncTraceroute(d *protect.RDial, ipp netip.AddrPort, payl
 		err = unix.SetsockoptInt(udpFD, unix.IPPROTO_IP, unix.IP_RECVERR, 1)
 	}
 	if err != nil {
-		return nil, err
+		return uc, udpFD, err
 	}
 
 	var msgBuf [probeSize]byte
-	var ttl int
-	basePort := 1 + mathrand.Intn(65535-maxTTL) //#nosec G404
-	for ttl = 2; ttl <= maxTTL; ttl++ {
+	for ttl := 2; ttl <= DESYNC_MAX_TTL; ttl += DESYNC_DELTA_TTL {
 		_, err = rand.Read(msgBuf[:])
 		if err != nil {
-			return nil, err
+			return uc, udpFD, err
 		}
 		if isIPv6 {
 			err = unix.SetsockoptInt(udpFD, unix.IPPROTO_IPV6, unix.IPV6_UNICAST_HOPS, ttl)
@@ -167,22 +156,55 @@ func DialWithSplitAndDesyncTraceroute(d *protect.RDial, ipp netip.AddrPort, payl
 			err = unix.SetsockoptInt(udpFD, unix.IPPROTO_IP, unix.IP_TTL, ttl)
 		}
 		if err != nil {
-			return nil, err
+			return uc, udpFD, err
 		}
 		udpAddr.Port = basePort + ttl
-		_, err = udpConn.WriteToUDP(msgBuf[:], udpAddr)
+		_, err = uc.WriteToUDP(msgBuf[:], udpAddr)
+		// todo: continue if in relaxed mode?
 		if err != nil {
+			return uc, udpFD, err
+		}
+	}
+	return uc, udpFD, nil
+}
+
+// desyncWithTraceroute estimates the TTL with UDP traceroute,
+// then returns a TCP connection that may launch TCB Desynchronization Attack and split the initial upstream segment
+// If `payload` is smaller than the initial upstream segment, it launches the attack and splits.
+// This traceroute is not accurate, because of time limit (TCP handshake).
+// Note: The path the UDP packet took to reach the destination may differ from the path the TCP packet took.
+func desyncWithTraceroute(d *protect.RDial, ipp netip.AddrPort) (*overwriteSplitter, error) {
+	measureTTL := true
+	isIPv6 := ipp.Addr().Is6()
+	basePort := 1 + rand.Intn(65535-(DESYNC_MAX_TTL*DESYNC_DELTA_TTL)) //#nosec G404
+
+	uc, udpFD, err := dialUDP(d, ipp, basePort)
+	defer core.Close(uc)
+
+	logeif(err)("split-desync: dialUDP %v %d: err? %v", ipp, udpFD, err)
+	if err != nil {
+		measureTTL = false
+		if !relaxed {
 			return nil, err
 		}
 	}
 
-	tcpConn, err := d.DialTCP("tcp", nil, net.TCPAddrFromAddrPort(ipp))
+	proto := "tcp4"
+	if isIPv6 {
+		proto = "tcp6"
+	}
+
+	tcpConn, err := d.DialTCP(proto, nil, net.TCPAddrFromAddrPort(ipp))
 	if err != nil {
+		log.E("split-desync: dialTCP %v err: %v", ipp, err)
 		return nil, err
 	}
 	if tcpConn == nil {
+		log.E("split-desync: dialTCP %v err: %v", ipp, errNoConn)
 		return nil, errNoConn
 	}
+
+	var msgBuf [probeSize]byte
 
 	bptr := core.Alloc()
 	cmsgBuf := *bptr
@@ -194,53 +216,56 @@ func DialWithSplitAndDesyncTraceroute(d *protect.RDial, ipp netip.AddrPort, payl
 
 	split1 := &overwriteSplitter{
 		conn:    tcpConn,
-		ttl:     1,
-		payload: payload,
+		ttl:     DESYNC_NOOP_TTL,
+		payload: []byte(Http1_1String),
+		ip6:     isIPv6,
 	}
 
-	// after TCP handshake, check received ICMP messages.
-	for i := 0; i < maxTTL-1; i++ {
+	// skip desync if no measurement is done
+	defer split1.used.Store(!measureTTL)
+
+	// after TCP handshake, check received ICMP messages, if measureTTL is true.
+	for i := 0; i < DESYNC_MAX_TTL-1 && measureTTL; i += DESYNC_DELTA_TTL {
 		_, cmsgN, _, from, err := unix.Recvmsg(udpFD, msgBuf[:], cmsgBuf[:], unix.MSG_ERRQUEUE)
 		if err != nil {
-			log.V("split-desync: recvmsg failed: %v", err)
+			log.V("split-desync: recvmsg %v failed: %v", ipp, err)
 			break // udpConn must be nonblocking
 		}
 
 		cmsgs, err := unix.ParseSocketControlMessage(cmsgBuf[:cmsgN])
 		if err != nil {
-			log.W("split-desync: parseSocketControlMessage failed: %v", err)
+			log.W("split-desync: parseSocketControlMessage %v failed: %v", ipp, err)
 			continue
 		}
 
 		if isIPv6 {
 			if exceedsHopLimit(cmsgs) {
 				fromPort := from.(*unix.SockaddrInet6).Port
-				ttl = fromPort - basePort
-				if ttl <= maxTTL {
-					split1.ttl = max(split1.ttl, ttl)
+				ttl := fromPort - basePort
+				if ttl > DESYNC_MAX_TTL {
+					break
 				}
+				split1.ttl = max(split1.ttl, ttl)
 			}
 		} else {
 			if exceedsTTL(cmsgs) {
 				fromPort := from.(*unix.SockaddrInet4).Port
-				ttl = fromPort - basePort
-				if ttl <= maxTTL {
-					split1.ttl = max(split1.ttl, ttl)
+				ttl := fromPort - basePort
+				if ttl > DESYNC_MAX_TTL {
+					break
 				}
+				split1.ttl = max(split1.ttl, ttl)
 			}
 		}
 	}
-	if split1.ttl == 1 {
-		split1.ttl = DESYNC_NOOP_TTL
-	}
 
-	log.D("split-desync: addr: %v, ttl: %d", ipp, split1.ttl)
+	log.D("split-desync: done: %v, ok? %t, ttl: %d", ipp, measureTTL, split1.ttl)
 
 	return split1, nil
 }
 
-func DialWithSplitAndDesyncFixedTtl(d *protect.RDial, addr netip.AddrPort, initialTTL int, payload []byte) (*overwriteSplitter, error) {
-	tcpConn, err := d.DialTCP("tcp", nil, net.TCPAddrFromAddrPort(addr))
+func desyncWithFixedTtl(d *protect.RDial, ipp netip.AddrPort, initialTTL int) (*overwriteSplitter, error) {
+	tcpConn, err := d.DialTCP("tcp", nil, net.TCPAddrFromAddrPort(ipp))
 	if err != nil {
 		return nil, err
 	}
@@ -250,20 +275,22 @@ func DialWithSplitAndDesyncFixedTtl(d *protect.RDial, addr netip.AddrPort, initi
 	return &overwriteSplitter{
 		conn:    tcpConn,
 		ttl:     initialTTL,
-		payload: payload,
+		payload: []byte(Http1_1String),
+		ip6:     ipp.Addr().Is6(),
 	}, nil
 }
 
-// DialWithSplitAndDesyncSmart estimates the TTL with UDP traceroute,
+// DialWithSplitAndDesync estimates the TTL with UDP traceroute,
 // then returns a TCP connection that may launch TCB Desynchronization
 // and split the initial upstream segment.
-func DialWithSplitAndDesyncSmart(d *protect.RDial, ipp netip.AddrPort, payload []byte) (DuplexConn, error) {
+// ref: github.com/bol-van/zapret/blob/c369f11638/docs/readme.eng.md#dpi-desync-attack
+func DialWithSplitAndDesync(d *protect.RDial, ipp netip.AddrPort) (*overwriteSplitter, error) {
 	ttl, ok := ttlcache.Get(ipp.Addr())
 	if ok {
-		return DialWithSplitAndDesyncFixedTtl(d, ipp, ttl, payload)
+		return desyncWithFixedTtl(d, ipp, ttl)
 	}
-	conn, err := DialWithSplitAndDesyncTraceroute(d, ipp, payload)
-	if err == nil && conn != nil { // go vet (incorrectly) complains about conn being nil when err is nil
+	conn, err := desyncWithTraceroute(d, ipp)
+	if err == nil && conn != nil { // go vet (incorrectly) complains conn being nil when err is nil
 		ttlcache.Put(ipp.Addr(), conn.ttl)
 	}
 	return conn, err
@@ -311,10 +338,13 @@ func (s *overwriteSplitter) SetWriteDeadline(t time.Time) error {
 func (s *overwriteSplitter) Read(b []byte) (int, error) { return s.conn.Read(b) }
 
 // Write implements DuplexConn.
+// ref: github.com/hufrea/byedpi/blob/82e5229df00/desync.c#L69-L123
 func (s *overwriteSplitter) Write(b []byte) (int, error) {
 	conn := s.conn
+
 	if s.used.Load() {
 		// after the first write, there is no special write behavior.
+		// used may also be set to true to avoid desync.
 		return conn.Write(b)
 	}
 
@@ -323,22 +353,28 @@ func (s *overwriteSplitter) Write(b []byte) (int, error) {
 		return conn.Write(b)
 	}
 
+	laddr := laddr(s.conn)
+	raddr := raddr(s.conn)
+
 	if len(b) <= len(s.payload) {
+		log.D("split-desync: write: no desync %s => %s; len(b) <= len(s.payload): %d <= %d", laddr, raddr, len(b), len(s.payload))
 		return conn.Write(b)
 	}
+
 	rawConn, err := conn.SyscallConn()
 	if err != nil {
 		return 0, err
 	}
 	if rawConn == nil {
-		return 0, errors.New("split-desync: SyscallConn(tcp) nil")
+		return 0, errNoSysConn
 	}
+
 	var sockFD int
 	err = rawConn.Control(func(fd uintptr) {
 		sockFD = int(fd)
 	})
 	if err != nil {
-		log.E("split-desync: get sock fd failed; %v", err)
+		log.E("split-desync: %s => %s get sock fd failed; %v", laddr, raddr, err)
 		return 0, err
 	}
 
@@ -346,10 +382,9 @@ func (s *overwriteSplitter) Write(b []byte) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	defer func() {
-		err := unix.Close(fileFD)
-		logeif(err)("desync: close memfd; err? %v", err)
-	}()
+
+	defer core.CloseFD(fileFD)
+
 	err = unix.Ftruncate(fileFD, int64(len(s.payload)))
 	if err != nil {
 		return 0, err
@@ -359,41 +394,35 @@ func (s *overwriteSplitter) Write(b []byte) (int, error) {
 		return 0, err
 	}
 	defer func() {
-		err := unix.Munmap(firstSegment)
-		logeif(err)("desync: munmap; err? %v", err)
+		_ = unix.Munmap(firstSegment)
 	}()
 
-	// We want s.Payload to be seen by censors, but don't want s.Payload to be seen by the server.
+	// restrict TTL to ensure s.Payload is seen by censors, but not by the server.
 	copy(firstSegment, s.payload)
-	mRemote := conn.RemoteAddr()
-	if mRemote == nil {
-		return 0, errors.New("split-desync: remoteaddr nil")
-	}
-	isIPv6 := strings.Contains(mRemote.String(), "[")
-	if isIPv6 {
+	if s.ip6 {
 		err = unix.SetsockoptInt(sockFD, unix.IPPROTO_IPV6, unix.IPV6_UNICAST_HOPS, s.ttl)
 	} else {
 		err = unix.SetsockoptInt(sockFD, unix.IPPROTO_IP, unix.IP_TTL, s.ttl)
 	}
 	if err != nil {
-		log.E("split-desync: setsockopt failed: %v", err)
+		log.E("split-desync: %s => %s setsockopt(ttl) err: %v", laddr, raddr, err)
 		return 0, err
 	}
 	var offset int64 = 0
 	n1, err := unix.Sendfile(sockFD, fileFD, &offset, len(s.payload))
 	if err != nil {
-		log.E("split-desync: sendfile %d failed: %v", n1, err)
+		log.E("split-desync: %s => %s sendfile() %d err: %v", laddr, raddr, n1, err)
 		return n1, err
 	}
 
 	copy(firstSegment, b[:len(s.payload)])
-	if isIPv6 {
-		err = unix.SetsockoptInt(sockFD, unix.IPPROTO_IPV6, unix.IPV6_UNICAST_HOPS, 64)
+	if s.ip6 {
+		err = unix.SetsockoptInt(sockFD, unix.IPPROTO_IPV6, unix.IPV6_UNICAST_HOPS, DEFAULT_TTL)
 	} else {
-		err = unix.SetsockoptInt(sockFD, unix.IPPROTO_IP, unix.IP_TTL, 64)
+		err = unix.SetsockoptInt(sockFD, unix.IPPROTO_IP, unix.IP_TTL, DEFAULT_TTL)
 	}
 	if err != nil {
-		log.E("split-desync: setsockopt failed: %v", err)
+		log.E("split-desync: %s => %s setsockopt(ttl) err: %v", laddr, raddr, err)
 		return n1, err
 	}
 

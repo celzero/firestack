@@ -20,7 +20,9 @@ import (
 )
 
 const (
+	errNilConn    = net.UnknownNetworkError("nil connection")
 	errNoConn     = net.UnknownNetworkError("no connection")
+	errNoSysConn  = net.UnknownNetworkError("no sys connection")
 	errNoIps      = net.UnknownNetworkError("no ips")
 	errNoDialer   = net.UnknownNetworkError("no dialer")
 	errNoListener = net.UnknownNetworkError("no listener")
