@@ -58,6 +58,7 @@ var (
 	errMissingProxyOpt      = errors.New("proxyopts nil")
 	errNoProxyConn          = errors.New("not a tcp/udp proxy conn")
 	errAnnounceNotSupported = errors.New("announce not supported")
+	errProbeNotSupported    = errors.New("probe not supported")
 	errProxyStopped         = errors.New("proxy stopped")
 	errProxyConfig          = errors.New("invalid proxy config")
 	errNoProxyResponse      = errors.New("no response from proxy")

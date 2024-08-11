@@ -45,6 +45,11 @@ func (h *ground) Accept(network, local string) (protect.Listener, error) {
 	return nil, errNoProxyResponse
 }
 
+// Probe implements Proxy.
+func (h *ground) Probe(network, local string) (protect.PacketConn, error) {
+	return nil, errNoProxyResponse
+}
+
 func (h *ground) Dialer() *protect.RDial {
 	return &protect.RDial{Owner: h.ID()} // no-op dialer
 }

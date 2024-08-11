@@ -1,4 +1,4 @@
-// Copyright (c) 2023 RethinkDNS and its authors.
+// Copyright (c) 2024 RethinkDNS and its authors.
 //
 // This Source Code Form is subject to the terms of the Mozilla Public
 // License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -64,4 +64,9 @@ func (nofwd) Announce(network, local string) (protect.PacketConn, error) {
 // Accept implements Proxy.
 func (nofwd) Accept(network, local string) (protect.Listener, error) {
 	return nil, errAnnounceNotSupported
+}
+
+// Probe implements Proxy.
+func (nofwd) Probe(string, string) (protect.PacketConn, error) {
+	return nil, errProbeNotSupported
 }

@@ -14,6 +14,7 @@ import (
 
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/log"
+	"golang.org/x/net/icmp"
 	"golang.org/x/net/proxy"
 )
 
@@ -36,6 +37,9 @@ type RDialer interface {
 	// Accept creates a listener on the local address. network
 	// must be stream-oriented ("tcp" or "tcp4" or "tcp6").
 	Accept(network, local string) (Listener, error)
+	// Probe listens on the local address for ICMP packets sent
+	// over UDP. Network must be "udp" or "udp4" or "udp6".
+	Probe(network, local string) (PacketConn, error)
 }
 
 // RDial discards local-addresses
@@ -54,6 +58,7 @@ var (
 	errNoAcceptor  = errors.New("not an acceptor")
 	errNoUDPMux    = errors.New("not a udp announcer")
 	errNoTCPMux    = errors.New("not a tcp announcer")
+	errNoICMP      = errors.New("not an icmp prober")
 	errAnnounce    = errors.New("cannot announce network")
 	errAccept      = errors.New("cannot accept network")
 )
@@ -71,23 +76,17 @@ func (d *RDial) dial(network, addr string) (net.Conn, error) {
 	return nil, errNoDialer
 }
 
+// Dial implements RDialer interface.
 func (d *RDial) Dial(network, addr string) (net.Conn, error) {
-	if cc, err := d.dial(network, addr); err != nil {
-		return nil, err
-	} else {
-		return cc, nil
-	}
+	return d.dial(network, addr)
 }
 
 func (d *RDial) DialContext(_ context.Context, network, addr string) (net.Conn, error) {
 	// TODO: use context to cancel dialing
-	if cc, err := d.dial(network, addr); err != nil {
-		return nil, err
-	} else {
-		return cc, nil
-	}
+	return d.dial(network, addr)
 }
 
+// Accept implements RDialer interface.
 func (d *RDial) Accept(network, local string) (net.Listener, error) {
 	if network != "tcp" && network != "tcp4" && network != "tcp6" {
 		return nil, errAccept
@@ -108,6 +107,7 @@ func (d *RDial) Accept(network, local string) (net.Listener, error) {
 	return d.RDialer.Accept(network, local)
 }
 
+// Announce implements RDialer interface.
 func (d *RDial) Announce(network, local string) (net.PacketConn, error) {
 	if network != "udp" && network != "udp4" && network != "udp6" {
 		return nil, errAnnounce
@@ -138,10 +138,32 @@ func (d *RDial) Announce(network, local string) (net.PacketConn, error) {
 	return d.RDialer.Announce(network, local)
 }
 
-func clos(c io.Closer) {
-	core.Close(c)
+// Probe implements RDialer interface.
+func (d *RDial) Probe(network, local string) (PacketConn, error) {
+	if network != "udp" && network != "udp4" && network != "udp6" {
+		return nil, errAnnounce
+	}
+	// todo: check if local is a local address or empty (any)
+	uselistener := d.Listen != nil
+	userdialer := d.RDialer != nil && core.IsNotNil(d.RDialer)
+	if !uselistener && !userdialer {
+		log.V("xdial: Probe: (r? %t / o: %s) %s %s", userdialer, d.Owner, network, local)
+		return nil, errNoAnnouncer
+	}
+
+	if uselistener {
+		c, err := icmp.ListenPacket(network, local)
+		if err != nil {
+			clos(c)
+			return nil, err
+		}
+		return c, nil
+	}
+	return d.RDialer.Probe(network, local)
 }
 
+// DialTCP creates a net.TCPConn to raddr.
+// Helper method for d.Dial("tcp", raddr.String())
 func (d *RDial) DialTCP(network string, laddr, raddr *net.TCPAddr) (*net.TCPConn, error) {
 	// grab a mutex if mutating LocalAddr
 	// d.Dialer.LocalAddr = laddr
@@ -158,6 +180,8 @@ func (d *RDial) DialTCP(network string, laddr, raddr *net.TCPAddr) (*net.TCPConn
 	}
 }
 
+// DialUDP creates a net.UDPConn to raddr.
+// Helper method for d.Dial("udp", raddr.String())
 func (d *RDial) DialUDP(network string, laddr, raddr *net.UDPAddr) (*net.UDPConn, error) {
 	// grab a mutex if mutating LocalAddr
 	// d.Dialer.LocalAddr = laddr
@@ -200,4 +224,22 @@ func (d *RDial) AcceptTCP(network string, local string) (*net.TCPListener, error
 		clos(ln)
 		return nil, errNoTCPMux
 	}
+}
+
+// ProbeICMP listens on the local address for ICMP packets sent over UDP.
+// network must be "udp" or "udp4" or "udp6". Helper method for d.Probe("udp", local)
+func (d *RDial) ProbeICMP(network, local string) (*icmp.PacketConn, error) {
+	if c, err := d.Probe(network, local); err != nil {
+		return nil, err
+	} else if ic, ok := c.(*icmp.PacketConn); ok {
+		return ic, nil
+	} else {
+		log.W("xdial: ProbeICMP: (%s) %T is not %T (ok? %t); other errs: %v", d.Owner, c, ic, ok, err)
+		clos(c)
+		return nil, errNoICMP
+	}
+}
+
+func clos(c io.Closer) {
+	core.Close(c)
 }

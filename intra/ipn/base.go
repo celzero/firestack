@@ -81,6 +81,14 @@ func (h *base) Accept(network, local string) (protect.Listener, error) {
 	return dialers.Listen(h.outbound, network, local)
 }
 
+// Probe implements Proxy.
+func (h *base) Probe(network, local string) (protect.PacketConn, error) {
+	if h.status.Load() == END {
+		return nil, errProxyStopped
+	}
+	return dialers.Probe(h.outbound, network, local)
+}
+
 func (h *base) Dialer() *protect.RDial {
 	return h.rd
 }

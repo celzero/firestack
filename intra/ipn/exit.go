@@ -70,6 +70,14 @@ func (h *exit) Accept(network, local string) (protect.Listener, error) {
 	return dialers.Listen(h.outbound, network, local)
 }
 
+// Probe implements Proxy.
+func (h *exit) Probe(network, local string) (protect.PacketConn, error) {
+	if h.status.Load() == END {
+		return nil, errProxyStopped
+	}
+	return dialers.Probe(h.outbound, network, local)
+}
+
 func (h *exit) Dialer() *protect.RDial {
 	return h.rd
 }

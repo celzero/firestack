@@ -772,6 +772,7 @@ func (h *wgtun) Announce(network, local string) (pc net.PacketConn, err error) {
 	return
 }
 
+// Accept implements protect.RDialer
 func (h *wgtun) Accept(network, local string) (ln net.Listener, err error) {
 	// wgproxy.Dial -> dialers.ProxyListen -> protect.AcceptTCP -> wgtun.Accept
 	if h.status.Load() == END {
@@ -788,6 +789,26 @@ func (h *wgtun) Accept(network, local string) (ln net.Listener, err error) {
 	} // else: expect local to always be ipaddr
 
 	log.I("wg: %s accept: end %s %s; err %v", h.id, network, local, err)
+	return
+}
+
+// Probe implements protect.RDialer
+func (h *wgtun) Probe(network, local string) (pc net.PacketConn, err error) {
+	// wgproxy.Dial -> dialers.ProxyListen -> protect.AcceptTCP -> wgtun.Accept
+	if h.status.Load() == END {
+		return nil, errProxyStopped
+	}
+
+	log.D("wg: %s probe: start %s %s", h.id, network, local)
+
+	var addr netip.AddrPort
+	if addr, err = netip.ParseAddrPort(local); err == nil {
+		if pc, err = h.ListenUDPAddrPort(addr); err != nil {
+			h.status.Store(TKO)
+		} // else: status updated by h.listener
+	} // else: expect local to always be ipaddr
+
+	log.I("wg: %s probe: end %s %s; err %v", h.id, network, local, err)
 	return
 }
 
