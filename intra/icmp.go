@@ -156,9 +156,14 @@ func (h *icmpHandler) Ping(source, target netip.AddrPort, msg []byte) (echoed bo
 		return false // denied
 	}
 
-	anyaddr := ":0"
 	dst := oneRealIp(realips, target)
-	uc, err := px.Dialer().Probe("udp", anyaddr)
+	anyaddr := "0.0.0.0"
+	proto := "udp4"
+	if target.Addr().Is6() {
+		proto = "udp6"
+		anyaddr = "::"
+	}
+	uc, err := px.Dialer().Probe(proto, anyaddr)
 	ucnil := uc == nil || core.IsNil(uc)
 	smm.Target = dst.Addr().String()
 	if err != nil || ucnil { // nilaway: tx.socks5 returns nil conn even if err == nil

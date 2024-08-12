@@ -140,7 +140,7 @@ func (d *RDial) Announce(network, local string) (net.PacketConn, error) {
 
 // Probe implements RDialer interface.
 func (d *RDial) Probe(network, local string) (PacketConn, error) {
-	if network != "udp" && network != "udp4" && network != "udp6" {
+	if network != "udp4" && network != "udp6" {
 		return nil, errAnnounce
 	}
 	// todo: check if local is a local address or empty (any)
