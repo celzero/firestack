@@ -35,13 +35,16 @@ jobs:
         # go test -v -race -bench=. -benchtime=100ms ./...
         echo "::notice::success"
 
-    - name: 🧹 Vet
+    - name: 🔮 Vet
       run: |
         # github.com/actions/setup-go/issues/27
         export PATH=${PATH}:`go env GOPATH`/bin
 
         # vet: fails: archive.is/XcDl6
         go vet ./...
+        # staticcheck: archive.is/9Ctlf
+        go install honnef.co/go/tools/cmd/staticcheck@latest
+        staticcheck ./...
         # nilaway
         go install go.uber.org/nilaway/cmd/nilaway@latest
         nilaway ./...
