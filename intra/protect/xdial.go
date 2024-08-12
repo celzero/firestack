@@ -14,7 +14,6 @@ import (
 
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/log"
-	"golang.org/x/net/icmp"
 	"golang.org/x/net/proxy"
 )
 
@@ -59,6 +58,7 @@ var (
 	errNoUDPMux    = errors.New("not a udp announcer")
 	errNoTCPMux    = errors.New("not a tcp announcer")
 	errNoICMP      = errors.New("not an icmp prober")
+	errNoICMPL3    = errors.New("not an ip:icmp listener")
 	errAnnounce    = errors.New("cannot announce network")
 	errAccept      = errors.New("cannot accept network")
 )
@@ -152,12 +152,7 @@ func (d *RDial) Probe(network, local string) (PacketConn, error) {
 	}
 
 	if uselistener {
-		c, err := icmp.ListenPacket(network, local)
-		if err != nil {
-			clos(c)
-			return nil, err
-		}
-		return c, nil
+		return listenICMP(network, local)
 	}
 	return d.RDialer.Probe(network, local)
 }
@@ -228,16 +223,8 @@ func (d *RDial) AcceptTCP(network string, local string) (*net.TCPListener, error
 
 // ProbeICMP listens on the local address for ICMP packets sent over UDP.
 // network must be "udp" or "udp4" or "udp6". Helper method for d.Probe("udp", local)
-func (d *RDial) ProbeICMP(network, local string) (*icmp.PacketConn, error) {
-	if c, err := d.Probe(network, local); err != nil {
-		return nil, err
-	} else if ic, ok := c.(*icmp.PacketConn); ok {
-		return ic, nil
-	} else {
-		log.W("xdial: ProbeICMP: (%s) %T is not %T (ok? %t); other errs: %v", d.Owner, c, ic, ok, err)
-		clos(c)
-		return nil, errNoICMP
-	}
+func (d *RDial) ProbeICMP(network, local string) (net.PacketConn, error) {
+	return d.Probe(network, local)
 }
 
 func clos(c io.Closer) {
