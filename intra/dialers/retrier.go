@@ -317,9 +317,7 @@ func (r *retrier) ReadFrom(reader io.Reader) (bytes int64, err error) {
 	b, err = r.conn.ReadFrom(reader)
 	bytes += b
 
-	if err != nil {
-		log.W("rdial: readfrom: sz: %d; err: %v", bytes, err)
-	}
+	logeif(err)("rdial: readfrom: done; sz: %d; err: %v", bytes, err)
 	return
 }
 
