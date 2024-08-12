@@ -351,10 +351,13 @@ func (s *overwriteSplitter) Write(b []byte) (n int, err error) {
 	laddr := laddr(s.conn)
 	raddr := raddr(s.conn)
 
+	noop := len(b) == 0 // go vet has us handle this case
 	short := len(b) < len(s.payload)
 	swapped := false
-	used := s.used.Load()
-	if used {
+	used := s.used.Load() // also true when s.ttl == desync_invalid_ttl
+	if noop {
+		n, err = 0, nil
+	} else if used {
 		// after the first write, there is no special write behavior.
 		// used may also be set to true to avoid desync.
 		n, err = conn.Write(b)
@@ -365,9 +368,9 @@ func (s *overwriteSplitter) Write(b []byte) (n int, err error) {
 	} else if short {
 		n, err = conn.Write(b)
 	}
-	if used || short || !swapped {
-		logeif(err)("split-desync: write: %s => %s; desync done %d; (used? %t, short? %t, race? %t); err? %v",
-			laddr, raddr, n, used, short, !swapped, err)
+	if used || short || !swapped || noop {
+		logeif(err)("split-desync: write: %s => %s; desync done %d; (noop? %t, used? %t, short? %t, race? %t); err? %v",
+			laddr, raddr, n, noop, used, short, !swapped, err)
 		return n, err
 	}
 
