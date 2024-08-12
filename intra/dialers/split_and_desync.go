@@ -23,9 +23,10 @@ const (
 
 	default_ttl = 64
 	// from: github.com/bol-van/zapret/blob/c369f11638/nfq/darkmagic.h#L214-L216
-	desync_max_ttl   = 20
-	desync_noop_ttl  = 3
-	desync_delta_ttl = 1
+	desync_max_ttl     = 20
+	desync_noop_ttl    = 3
+	desync_delta_ttl   = 1
+	desync_invalid_ttl = -1
 )
 
 // ttlcache stores the TTL for a given IP address for a limited time.
@@ -256,8 +257,11 @@ func desyncWithTraceroute(d *protect.RDial, ipp netip.AddrPort) (*overwriteSplit
 		}
 	}
 
-	// skip desync if no measurement is done
-	oc.used.Store(!processed)
+	if !processed {
+		// skip desync if no measurement is done
+		oc.used.Store(false)
+		oc.ttl = desync_invalid_ttl
+	}
 
 	log.D("split-desync: done: %v, used? %t, ttl: %d", ipp, oc.used.Load(), oc.ttl)
 
@@ -272,12 +276,15 @@ func desyncWithFixedTtl(d *protect.RDial, ipp netip.AddrPort, initialTTL int) (*
 	if tcpConn == nil {
 		return nil, errNoConn
 	}
-	return &overwriteSplitter{
+	s := &overwriteSplitter{
 		conn:    tcpConn,
 		ttl:     initialTTL,
 		payload: []byte(http1_1str),
 		ip6:     ipp.Addr().Is6(),
-	}, nil
+	}
+	// skip desync if no measurement is done
+	s.used.Store(initialTTL == desync_invalid_ttl)
+	return s, nil
 }
 
 // DialWithSplitAndDesync estimates the TTL with UDP traceroute,
