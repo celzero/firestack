@@ -15,17 +15,17 @@ import (
 )
 
 const (
-	probeSize     = 8
-	Http1_1String = "POST / HTTP/1.1\r\nHost: 10.0.0.1\r\nContent-Type: application/octet-stream\r\nContent-Length: 9999999\r\n\r\n"
+	probeSize  = 8
+	http1_1str = "POST / HTTP/1.1\r\nHost: 10.0.0.1\r\nContent-Type: application/octet-stream\r\nContent-Length: 9999999\r\n\r\n"
 
 	// relaxed is a flag to enable relaxed mode, which lets connections go through without desync.
 	relaxed = true
 
-	DEFAULT_TTL = 64
+	default_ttl = 64
 	// from: github.com/bol-van/zapret/blob/c369f11638/nfq/darkmagic.h#L214-L216
-	DESYNC_MAX_TTL   = 20
-	DESYNC_NOOP_TTL  = 3
-	DESYNC_DELTA_TTL = 1
+	desync_max_ttl   = 20
+	desync_noop_ttl  = 3
+	desync_delta_ttl = 1
 )
 
 // ttlcache stores the TTL for a given IP address for a limited time.
@@ -92,9 +92,9 @@ func exceedsTTL(cmsgs []unix.SocketControlMessage) bool {
 	return false
 }
 
-// dialUDP dials a UDP conn to the target address over a port range basePort to basePort+DESYNC_MAX_TTL, with TTL
+// tracert dials a UDP conn to the target address over a port range basePort to basePort+DESYNC_MAX_TTL, with TTL
 // set to 2, 3, ..., DESYNC_MAX_TTL. It does not take ownership of the conn (which must be closed by the caller).
-func dialUDP(d *protect.RDial, ipp netip.AddrPort, basePort int) (*net.UDPConn, int, error) {
+func tracert(d *protect.RDial, ipp netip.AddrPort, basePort int) (*net.UDPConn, int, error) {
 	udpAddr := net.UDPAddrFromAddrPort(ipp)
 	udpAddr.Port = 1 // unset port
 
@@ -142,7 +142,7 @@ func dialUDP(d *protect.RDial, ipp netip.AddrPort, basePort int) (*net.UDPConn, 
 	}
 
 	var msgBuf [probeSize]byte
-	for ttl := 2; ttl <= DESYNC_MAX_TTL; ttl += DESYNC_DELTA_TTL {
+	for ttl := 2; ttl <= desync_max_ttl; ttl += desync_delta_ttl {
 		_, err = rand.Read(msgBuf[:])
 		if err != nil {
 			return uc, udpFD, err
@@ -173,9 +173,9 @@ func dialUDP(d *protect.RDial, ipp netip.AddrPort, basePort int) (*net.UDPConn, 
 func desyncWithTraceroute(d *protect.RDial, ipp netip.AddrPort) (*overwriteSplitter, error) {
 	measureTTL := true
 	isIPv6 := ipp.Addr().Is6()
-	basePort := 1 + rand.Intn(65535-(DESYNC_MAX_TTL*DESYNC_DELTA_TTL)) //#nosec G404
+	basePort := 1 + rand.Intn(65535-(desync_max_ttl)) //#nosec G404
 
-	uc, udpFD, err := dialUDP(d, ipp, basePort)
+	uc, udpFD, err := tracert(d, ipp, basePort)
 	defer core.Close(uc)
 
 	logeif(err)("split-desync: dialUDP %v %d: err? %v", ipp, udpFD, err)
@@ -213,8 +213,8 @@ func desyncWithTraceroute(d *protect.RDial, ipp netip.AddrPort) (*overwriteSplit
 
 	oc := &overwriteSplitter{
 		conn:    tcpConn,
-		ttl:     DESYNC_NOOP_TTL,
-		payload: []byte(Http1_1String),
+		ttl:     desync_noop_ttl,
+		payload: []byte(http1_1str),
 		ip6:     isIPv6,
 	}
 
@@ -282,7 +282,7 @@ func desyncWithFixedTtl(d *protect.RDial, ipp netip.AddrPort, initialTTL int) (*
 	return &overwriteSplitter{
 		conn:    tcpConn,
 		ttl:     initialTTL,
-		payload: []byte(Http1_1String),
+		payload: []byte(http1_1str),
 		ip6:     ipp.Addr().Is6(),
 	}, nil
 }
@@ -424,9 +424,9 @@ func (s *overwriteSplitter) Write(b []byte) (int, error) {
 
 	copy(firstSegment, b[:len(s.payload)])
 	if s.ip6 {
-		err = unix.SetsockoptInt(sockFD, unix.IPPROTO_IPV6, unix.IPV6_UNICAST_HOPS, DEFAULT_TTL)
+		err = unix.SetsockoptInt(sockFD, unix.IPPROTO_IPV6, unix.IPV6_UNICAST_HOPS, default_ttl)
 	} else {
-		err = unix.SetsockoptInt(sockFD, unix.IPPROTO_IP, unix.IP_TTL, DEFAULT_TTL)
+		err = unix.SetsockoptInt(sockFD, unix.IPPROTO_IP, unix.IP_TTL, default_ttl)
 	}
 	if err != nil {
 		log.E("split-desync: %s => %s setsockopt(ttl) err: %v", laddr, raddr, err)
