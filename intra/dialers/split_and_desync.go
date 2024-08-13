@@ -21,13 +21,12 @@ import (
 )
 
 const (
-	probeSize  = 8
-	http1_1str = "POST / HTTP/1.1\r\nHost: 10.0.0.1\r\nContent-Type: application/octet-stream\r\nContent-Length: 9999999\r\n\r\n"
-
-	// relaxed is a flag to enable relaxed mode, which lets connections go through without desync.
-	relaxed = true
-
+	probeSize   = 8
 	default_ttl = 64
+
+	// desync_relaxed enables relaxed mode, which lets connections go through without desync.
+	desync_relaxed    = true
+	desync_http1_1str = "POST / HTTP/1.1\r\nHost: 10.0.0.1\r\nContent-Type: application/octet-stream\r\nContent-Length: 9999999\r\n\r\n"
 	// from: github.com/bol-van/zapret/blob/c369f11638/nfq/darkmagic.h#L214-L216
 	desync_max_ttl     = 20
 	desync_noop_ttl    = 3
@@ -188,7 +187,7 @@ func desyncWithTraceroute(d *protect.RDial, ipp netip.AddrPort) (*overwriteSplit
 	logeif(err)("split-desync: dialUDP %v %d: err? %v", ipp, udpFD, err)
 	if err != nil {
 		measureTTL = false
-		if !relaxed {
+		if !desync_relaxed {
 			return nil, err
 		}
 	}
@@ -221,7 +220,7 @@ func desyncWithTraceroute(d *protect.RDial, ipp netip.AddrPort) (*overwriteSplit
 	oc := &overwriteSplitter{
 		conn:    tcpConn,
 		ttl:     desync_noop_ttl,
-		payload: []byte(http1_1str),
+		payload: []byte(desync_http1_1str),
 		ip6:     isIPv6,
 	}
 
@@ -285,11 +284,11 @@ func desyncWithFixedTtl(d *protect.RDial, ipp netip.AddrPort, initialTTL int) (*
 	s := &overwriteSplitter{
 		conn:    tcpConn,
 		ttl:     initialTTL,
-		payload: []byte(http1_1str),
+		payload: []byte(desync_http1_1str),
 		ip6:     ipp.Addr().Is6(),
 	}
 	// skip desync if no measurement is done
-	s.used.Store(initialTTL == desync_invalid_ttl)
+	s.used.Store(s.ttl == desync_invalid_ttl)
 	return s, nil
 }
 
@@ -297,7 +296,7 @@ func desyncWithFixedTtl(d *protect.RDial, ipp netip.AddrPort, initialTTL int) (*
 // then returns a TCP connection that may launch TCB Desynchronization
 // and split the initial upstream segment.
 // ref: github.com/bol-van/zapret/blob/c369f11638/docs/readme.eng.md#dpi-desync-attack
-func DialWithSplitAndDesync(d *protect.RDial, ipp netip.AddrPort) (*overwriteSplitter, error) {
+func dialWithSplitAndDesync(d *protect.RDial, ipp netip.AddrPort) (*overwriteSplitter, error) {
 	ttl, ok := ttlcache.Get(ipp.Addr())
 	if ok {
 		return desyncWithFixedTtl(d, ipp, ttl)
@@ -434,7 +433,10 @@ func (s *overwriteSplitter) Write(b []byte) (n int, err error) {
 		return n1, err
 	}
 
+	// restore the first-half of the payload so that it gets picked up on retranmission.
 	copy(firstSegment, b[:len(s.payload)])
+
+	// restore to default TTL
 	if s.ip6 {
 		err = unix.SetsockoptInt(sockFD, unix.IPPROTO_IPV6, unix.IPV6_UNICAST_HOPS, default_ttl)
 	} else {

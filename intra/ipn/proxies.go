@@ -444,10 +444,5 @@ func idling(t time.Time) bool {
 }
 
 func localDialStrat(d *protect.RDial, network, addr string) (protect.Conn, error) {
-	switch settings.DialStrategy.Load() {
-	case settings.DesyncStrategy:
-		return dialers.DesyncDial(d, network, addr)
-	default:
-		return dialers.SplitDial(d, network, addr)
-	}
+	return dialers.SplitDial(d, network, addr)
 }

@@ -48,8 +48,9 @@ func (zeroNetAddr) String() string  { return "none" }
 // be typecastable to *net.TCPConn (see: xdial.DialTCP)
 // inheritance: go.dev/play/p/mMiQgXsPM7Y
 type retrier struct {
-	dial  *protect.RDial
-	raddr *net.TCPAddr
+	dial      *protect.RDial
+	dialStrat int32
+	raddr     *net.TCPAddr
 
 	// Flags indicating whether the caller has called CloseRead and CloseWrite.
 	readDone  atomic.Bool
@@ -65,8 +66,8 @@ type retrier struct {
 	// the current underlying connection.  It is only modified by the reader
 	// thread, so the reader functions may access it without acquiring a lock.
 	// nb: if embedding TCPConn; override its WriteTo instead of just ReadFrom
-	// as io.Copy prefers WriteTo over ReadFrom
-	conn *net.TCPConn
+	// as io.Copy prefers WriteTo over ReadFrom; or use core.Pipe
+	conn core.DuplexConn
 
 	// External read and write deadlines.  These need to be stored here so that
 	// they can be re-applied in the event of a retry.
@@ -124,9 +125,9 @@ func calcTimeout(before, after time.Time) time.Duration {
 // Read and CloseRead, and another calling Write, ReadFrom, and CloseWrite.
 // `dialer` will be used to establish the connection.
 // `addr` is the destination.
-func DialWithSplitRetry(dial *protect.RDial, addr *net.TCPAddr) (*retrier, error) {
+func DialWithSplitRetry(d *protect.RDial, addr *net.TCPAddr) (*retrier, error) {
 	before := time.Now()
-	conn, err := dial.DialTCP(addr.Network(), nil, addr)
+	conn, err := d.DialTCP(addr.Network(), nil, addr)
 	if err != nil {
 		log.E("rdial: tcp addr %s: err %v", addr, err)
 		return nil, err
@@ -135,7 +136,8 @@ func DialWithSplitRetry(dial *protect.RDial, addr *net.TCPAddr) (*retrier, error
 
 	r := &retrier{
 		conn:        conn,
-		dial:        dial,
+		dial:        d,
+		dialStrat:   settings.DialStrategy.Load(),
 		raddr:       addr,
 		timeout:     calcTimeout(before, after),
 		retryDoneCh: make(chan struct{}),
@@ -150,15 +152,26 @@ func DialWithSplitRetry(dial *protect.RDial, addr *net.TCPAddr) (*retrier, error
 // split TLS client hello messages could not be written.
 func (r *retrier) retryWriteReadLocked(buf []byte) (n int, err error) {
 	clos(r.conn) // close provisional socket
-	var newConn *net.TCPConn
-	if newConn, err = r.dial.DialTCP(r.raddr.Network(), nil, r.raddr); err != nil {
-		log.E("rdial: retryLocked: dial %s: err %v", r.raddr, err)
-		return
+	var newConn core.DuplexConn
+
+	switch r.dialStrat {
+	case settings.DesyncStrategy:
+		if newConn, err = dialWithSplitAndDesync(r.dial, r.raddr.AddrPort()); err != nil {
+			log.E("rdial: retryLocked: dialDesync %s: err %v", r.raddr, err)
+			return
+		}
+	case settings.SplitTCPStrategy, settings.SplitTCPOrTLSStrategy:
+		fallthrough
+	default:
+		if newConn, err = r.dial.DialTCP(r.raddr.Network(), nil, r.raddr); err != nil {
+			log.E("rdial: retryLocked: dialTCP %s: err %v", r.raddr, err)
+			return
+		}
 	}
 
 	r.conn = newConn
-	n, split, err := writeSplit(r.conn, r.hello)
-	logeif(err)("rdial: retryLocked: %s->%s; split? %d; write? %d/%d; err? %v", laddr(r.conn), r.raddr, split, n, len(r.hello), err)
+	n, split, err := r.writeSplitLocked()
+	logeif(err)("rdial: retryLocked: strat(%d) %s->%s; split? %d; write? %d/%d; err? %v", r.dialStrat, laddr(r.conn), r.raddr, split, n, len(r.hello), err)
 	if err != nil {
 		return
 	}
@@ -448,16 +461,28 @@ func getTLSClientHelloRecordLen(h []byte) (uint16, bool) {
 	return binary.BigEndian.Uint16(h[3:5]), true
 }
 
-func writeSplit(w net.Conn, b []byte) (n, splitLen int, err error) {
-	switch settings.DialStrategy.Load() {
+func (r *retrier) writeSplitLocked() (n, splitLen int, err error) {
+	return writeSplit(r.dialStrat, r.conn, r.hello)
+}
+
+func writeSplit(strat int32, w net.Conn, b []byte) (n, splitLen int, err error) {
+	switch strat {
 	case settings.SplitTCPStrategy:
 		n, splitLen, err = writeTCPSplit(w, b)
 	case settings.SplitTCPOrTLSStrategy:
 		n, splitLen, err = writeTCPOrTLSSplit(w, b)
+	case settings.DesyncStrategy:
+		n, err = writeDesync(w, b)
+		// desync does not always split
+		splitLen = len(desync_http1_1str)
 	default:
 		n, err = w.Write(b)
 	}
 	return
+}
+
+func writeDesync(w io.Writer, b []byte) (n int, err error) {
+	return w.Write(b)
 }
 
 func writeTCPSplit(w net.Conn, hello []byte) (n, splitLen int, err error) {

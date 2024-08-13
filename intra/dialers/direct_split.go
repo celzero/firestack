@@ -17,14 +17,17 @@ package dialers
 import (
 	"io"
 	"net"
+	"sync/atomic"
 
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/protect"
+	"github.com/celzero/firestack/intra/settings"
 )
 
 type splitter struct {
 	*net.TCPConn
-	used bool // Initially false.  Becomes true after the first write.
+	strat int32
+	used  atomic.Bool // Initially false.  Becomes true after the first write.
 }
 
 var _ core.DuplexConn = (*splitter)(nil)
@@ -40,25 +43,29 @@ func DialWithSplit(d *protect.RDial, addr *net.TCPAddr) (*splitter, error) {
 	if conn == nil {
 		return nil, net.UnknownNetworkError("no conn")
 	}
-	return &splitter{TCPConn: conn}, nil
+	strat := settings.DialStrategy.Load()
+	return &splitter{TCPConn: conn, strat: strat}, nil
 }
 
 // Write-related functions
 func (s *splitter) Write(b []byte) (n int, err error) {
 	conn := s.TCPConn
-	if s.used {
-		// After the first write, there is no special write behavior.
+	strat := s.strat
+	if s.used.Load() {
+		// after the first write, there is no special write behavior.
+		return conn.Write(b)
+	} else if ok := s.used.CompareAndSwap(false, true); ok {
+		// setting `used` to true ensures that this code only runs once per socket.
+		n, _, err = writeSplit(strat, conn, b)
+		return n, err
+	} else {
+		// if `used` is already swapped, then the split has already been done.
 		return conn.Write(b)
 	}
-
-	// Setting `used` to true ensures that this code only runs once per socket.
-	s.used = true
-	n, _, err = writeSplit(conn, b)
-	return n, err
 }
 
 func (s *splitter) ReadFrom(reader io.Reader) (bytes int64, err error) {
-	if !s.used {
+	if !s.used.Load() {
 		// This is the first write on this socket.
 		// Use copyOnce(), which calls Write(), to get Write's splitting behavior for
 		// the first segment.

@@ -54,7 +54,8 @@ func adaptp(f mkpconn) mkrconn[*net.PacketConn] {
 }
 
 func unPtr[P any, Q any](p *P, q Q) (P, Q) {
-	if core.IsNil(p) {
+	// go.dev/play/p/XRrCepATeIi
+	if p == nil || core.IsNil(p) {
 		var zz P
 		return zz, q
 	}
