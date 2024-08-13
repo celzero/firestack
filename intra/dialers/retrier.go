@@ -408,8 +408,8 @@ func copyOnce(dst io.Writer, src io.Reader) (int64, error) {
 	var dstaddr, srcaddr net.Addr
 	switch r := dst.(type) {
 	case *retrier:
-		srcaddr = laddr(r.conn)
-		dstaddr = r.raddr
+		srcaddr = laddr(r)
+		dstaddr = raddr(r)
 	case *splitter:
 		srcaddr = laddr(r)
 		dstaddr = raddr(r)
