@@ -14,57 +14,9 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
-	"golang.org/x/net/icmp"
 )
-
-// rconn is a union type for net.UDPConn, net.TCPConn, icmp.PacketConn, net.TCPListener
-type rconn interface {
-	*net.Conn | *icmp.PacketConn | *net.UDPConn | *net.TCPConn | *net.TCPListener
-}
-
-// adapt adapts a mkconn to a mkrconn
-func adapt(f mkconn) mkrconn[*net.Conn] {
-	return func(d *protect.RDial, network string, ip netip.Addr, port int) (*net.Conn, error) {
-		c, err := f(d, network, ip, port)
-
-		defer func() {
-			if err != nil && c != nil {
-				clos(c)
-			}
-		}()
-
-		if err != nil {
-			return nil, err
-		}
-		if c == nil || core.IsNil(c) { // go.dev/play/p/SsmqM00d2oH
-			return nil, errNilConn
-		}
-		return &c, nil
-	}
-}
-
-// asConn returns a net.Conn from a *net.Conn
-func asConn(c *net.Conn, err error) (net.Conn, error) {
-	defer func() {
-		if err != nil && c != nil {
-			clos(*c)
-		}
-	}()
-
-	if err != nil {
-		return nil, err
-	}
-	if c == nil || *c == nil || core.IsNil(*c) {
-		return nil, errNilConn
-	}
-	return *c, nil
-}
-
-type mkrconn[C rconn] func(*protect.RDial, string, netip.Addr, int) (C, error)
-type mkconn func(*protect.RDial, string, netip.Addr, int) (net.Conn, error)
 
 const dialRetryTimeout = 1 * time.Minute
 
@@ -148,28 +100,6 @@ func splitIpConnect(d *protect.RDial, proto string, ip netip.Addr, port int) (ne
 	}
 }
 
-func splitAlwaysIpConnect(d *protect.RDial, proto string, ip netip.Addr, port int) (net.Conn, error) {
-	if d == nil {
-		log.E("rdial: splitIpConnect2: nil dialer")
-		return nil, errNoDialer
-	} else if !ipok(ip) {
-		log.E("rdial: splitIpConnect2: invalid ip", ip)
-		return nil, errNoIps
-	}
-
-	switch proto {
-	case "tcp", "tcp4", "tcp6":
-		if doSplit(ip, port) { // split tls client-hello for https requests
-			return DialWithSplit(d, tcpaddr(ip, port))
-		}
-		return d.DialTCP(proto, nil, tcpaddr(ip, port))
-	case "udp", "udp4", "udp6":
-		return d.DialUDP(proto, nil, udpaddr(ip, port))
-	default:
-		return d.Dial(proto, addrstr(ip, port))
-	}
-}
-
 func desyncIpConnect(d *protect.RDial, proto string, ip netip.Addr, port int) (net.Conn, error) {
 	if d == nil {
 		log.E("rdial: splitIpConnect3: nil dialer")
@@ -200,7 +130,7 @@ func udpListen(d *protect.RDial, network string, ip netip.Addr, port int) (*net.
 	return d.AnnounceUDP(network, addrstr(ip, port))
 }
 
-func icmpListen(d *protect.RDial, network string, ip netip.Addr, port int) (*icmp.PacketConn, error) {
+func icmpListen(d *protect.RDial, network string, ip netip.Addr, port int) (net.PacketConn, error) {
 	return d.ProbeICMP(network, addrstr(ip, port))
 }
 
@@ -313,20 +243,21 @@ func Listen(d *protect.RDial, network, local string) (net.Listener, error) {
 
 // Probe sends and accepts ICMP packets on addr using d over a net.PacketConn.
 func Probe(d *protect.RDial, network, addr string) (net.PacketConn, error) {
-	return commondial(d, network, addr, icmpListen)
+	return unPtr(commondial(d, network, addr, adaptp(icmpListen)))
 }
 
 // Dial dials into addr using the provided dialer and returns a net.Conn,
 // which is guaranteed to be either net.UDPConn or net.TCPConn
 func Dial(d *protect.RDial, network, addr string) (net.Conn, error) {
-	return asConn(commondial(d, network, addr, adapt(ipConnect)))
+	return unPtr(commondial(d, network, addr, adaptc(ipConnect)))
 }
 
 // DialWithTls dials into addr using the provided dialer and returns a tls.Conn
 func DialWithTls(d *protect.RDial, cfg *tls.Config, addr string) (net.Conn, error) {
-	c, err := asConn(commondial(d, "tcp", addr, adapt(ipConnect)))
+	c, err := unPtr(commondial(d, "tcp", addr, adaptc(ipConnect)))
 	if err != nil {
-		return c, err
+		clos(c)
+		return nil, err
 	}
 	tlsconn := tls.Client(c, cfg)
 	err = tlsconn.Handshake()
@@ -337,23 +268,19 @@ func DialWithTls(d *protect.RDial, cfg *tls.Config, addr string) (net.Conn, erro
 // is unsuccessful. Using the provided dialer it returns a net.Conn,
 // which may not be net.UDPConn or net.TCPConn
 func SplitDial(d *protect.RDial, network, addr string) (net.Conn, error) {
-	return asConn(commondial(d, network, addr, adapt(splitIpConnect)))
-}
-
-// SplitAlwaysDial is like SplitDial except it splits ClientHello in all TLS connections.
-func SplitAlwaysDial(d *protect.RDial, network, addr string) (net.Conn, error) {
-	return asConn(commondial(d, network, addr, adapt(splitAlwaysIpConnect)))
+	return unPtr(commondial(d, network, addr, adaptc(splitIpConnect)))
 }
 
 // DesyncDial attempts TCP desync.
 func DesyncDial(d *protect.RDial, network, addr string) (net.Conn, error) {
-	return asConn(commondial(d, network, addr, adapt(desyncIpConnect)))
+	return unPtr(commondial(d, network, addr, adaptc(desyncIpConnect)))
 }
 
 // SplitDialWithTls dials into addr using the provided dialer and returns a tls.Conn
 func SplitDialWithTls(d *protect.RDial, cfg *tls.Config, addr string) (net.Conn, error) {
-	c, err := asConn(commondial(d, "tcp", addr, adapt(splitIpConnect)))
+	c, err := unPtr(commondial(d, "tcp", addr, adaptc(splitIpConnect)))
 	if err != nil {
+		clos(c)
 		return c, err
 	}
 	tlsconn := tls.Client(c, cfg)
