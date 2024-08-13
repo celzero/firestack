@@ -59,7 +59,7 @@ func (h *base) Dial(network, addr string) (c protect.Conn, err error) {
 	}
 
 	//Adjust TCP keepalive config if c is a TCPConn
-	protect.TrySetKeepAliveConfig(c)
+	protect.SetKeepAliveConfig(c)
 
 	log.I("proxy: base: dial(%s) to %s; err? %v", network, addr, err)
 	return
