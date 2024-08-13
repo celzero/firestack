@@ -7,7 +7,6 @@
 package netstack
 
 import (
-	"errors"
 	"net/netip"
 
 	"github.com/celzero/firestack/intra/core"
@@ -35,8 +34,6 @@ type icmpForwarder struct {
 	ep stack.LinkEndpoint
 	h  GICMPHandler
 }
-
-var errMissingIcmpPacket = errors.New("icmp: nil packet")
 
 // ref: github.com/SagerNet/LibSagerNetCore/blob/632d6b892e/gvisor/icmp.go
 func setupIcmpHandler(s *stack.Stack, ep stack.LinkEndpoint, hdl GICMPHandler) {

@@ -177,15 +177,6 @@ func (h *socks5) DNS() string {
 	return nodns
 }
 
-func (h *socks5) fetch(req *http.Request) (*http.Response, error) {
-	stopped := h.status == END
-	log.V("proxy: socks5: %s; fetch(%s); ended? %t", h.id, req.URL, stopped)
-	if stopped {
-		return nil, errProxyStopped
-	}
-	return h.hc.Do(req)
-}
-
 func (h *socks5) ID() string {
 	return h.id
 }

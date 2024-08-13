@@ -23,7 +23,7 @@ const (
 	ClientError    = x.ClientError
 )
 
-var noerr = errors.New("no error")
+var noErr = errors.New("no error")
 
 type QueryError struct {
 	status int

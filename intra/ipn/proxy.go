@@ -136,17 +136,6 @@ func newRDial(p Proxy) *protect.RDial {
 	}
 }
 
-func newHTTPClient(d *protect.RDial) *http.Client {
-	c := &http.Client{}
-	c.Transport = &http.Transport{
-		Dial:                  d.Dial,
-		ForceAttemptHTTP2:     true,
-		TLSHandshakeTimeout:   tlsHandshakeTimeout,
-		ResponseHeaderTimeout: responseHeaderTimeout,
-	}
-	return c
-}
-
 func newHTTP1Client(d *protect.RDial) *http.Client {
 	c := &http.Client{}
 	c.Transport = &http.Transport{

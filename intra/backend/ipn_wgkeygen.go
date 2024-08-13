@@ -86,10 +86,10 @@ func NewWgPrivateKey() (WgKey, error) {
 func parseKeyBase64(s string) (*eckey, error) {
 	k, err := base64.StdEncoding.DecodeString(s)
 	if err != nil {
-		return nil, fmt.Errorf("Invalid key: %v", err)
+		return nil, fmt.Errorf("invalid key: %v", err)
 	}
 	if len(k) != klen {
-		return nil, errors.New("Keys must decode to exactly 32 bytes")
+		return nil, errors.New("keys must decode to exactly 32 bytes")
 	}
 	var key eckey
 	copy(key[:], k)

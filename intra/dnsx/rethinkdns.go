@@ -21,7 +21,6 @@ import (
 
 	"github.com/miekg/dns"
 
-	"github.com/celzero/firestack/intra/backend"
 	x "github.com/celzero/firestack/intra/backend"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/xdns"
@@ -47,8 +46,8 @@ const (
 
 // encoding type, base32 or base64
 const (
-	EB32 = backend.EB32
-	EB64 = backend.EB64
+	EB32 = x.EB32
+	EB64 = x.EB64
 )
 
 var (

@@ -140,7 +140,9 @@ func (h *icmpHandler) Ping(source, target netip.AddrPort, msg []byte) (echoed bo
 	pid, cid, block := h.onFlow(source, target, realips, domains, probableDomains, blocklists)
 	smm := icmpSummary(cid, pid)
 
-	defer queueSummary(h.smmch, h.done, smm.done(err)) // err may be nil
+	defer func() {
+		queueSummary(h.smmch, h.done, smm.done(err)) // err may be nil
+	}()
 
 	if block {
 		err = errIcmpFirewalled

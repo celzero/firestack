@@ -7,8 +7,6 @@
 package ipn
 
 import (
-	"net/http"
-
 	x "github.com/celzero/firestack/intra/backend"
 	"github.com/celzero/firestack/intra/protect"
 )
@@ -52,10 +50,6 @@ func (h *ground) Probe(network, local string) (protect.PacketConn, error) {
 
 func (h *ground) Dialer() *protect.RDial {
 	return &protect.RDial{Owner: h.ID()} // no-op dialer
-}
-
-func (h *ground) fetch(*http.Request) (*http.Response, error) {
-	return nil, errNoProxyResponse
 }
 
 func (h *ground) DNS() string {

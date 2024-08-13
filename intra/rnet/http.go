@@ -166,7 +166,7 @@ func (h *httpx) summarize(res *http.Response, ctx *tx.ProxyCtx) *http.Response {
 	if req != nil {
 		ssu.Tx = int(req.ContentLength)
 	}
-	ssu.done(noerr)
+	ssu.done(noErr)
 	go h.listener.OnComplete(ssu)
 	return res
 }

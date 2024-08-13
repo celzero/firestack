@@ -57,7 +57,6 @@ var (
 	errNoAcceptor  = errors.New("not an acceptor")
 	errNoUDPMux    = errors.New("not a udp announcer")
 	errNoTCPMux    = errors.New("not a tcp announcer")
-	errNoICMP      = errors.New("not an icmp prober")
 	errNoICMPL3    = errors.New("not an ip:icmp listener")
 	errAnnounce    = errors.New("cannot announce network")
 	errAccept      = errors.New("cannot accept network")

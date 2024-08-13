@@ -378,7 +378,7 @@ func (r *resolver) forward(q []byte, chosenids ...string) (res0 []byte, err0 err
 	smm := &x.DNSSummary{
 		QName:  invalidQname,
 		Status: Start,
-		Msg:    noerr.Error(),
+		Msg:    noErr.Error(),
 	}
 	// always call up to the listener
 	defer func() {
@@ -386,7 +386,7 @@ func (r *resolver) forward(q []byte, chosenids ...string) (res0 []byte, err0 err
 			smm.Latency = time.Since(starttime).Seconds()
 		}
 		if len(smm.Msg) <= 0 {
-			smm.Msg = noerr.Error()
+			smm.Msg = noErr.Error()
 		}
 		r.queueSummary(smm)
 	}()

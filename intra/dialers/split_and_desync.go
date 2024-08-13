@@ -7,6 +7,7 @@
 package dialers
 
 import (
+	secrand "crypto/rand"
 	"io"
 	"math/rand"
 	"net"
@@ -149,7 +150,7 @@ func tracert(d *protect.RDial, ipp netip.AddrPort, basePort int) (*net.UDPConn, 
 
 	var msgBuf [probeSize]byte
 	for ttl := 2; ttl <= desync_max_ttl; ttl += desync_delta_ttl {
-		_, err = rand.Read(msgBuf[:])
+		_, err = secrand.Read(msgBuf[:])
 		if err != nil {
 			return uc, udpFD, err
 		}
@@ -179,7 +180,7 @@ func tracert(d *protect.RDial, ipp netip.AddrPort, basePort int) (*net.UDPConn, 
 func desyncWithTraceroute(d *protect.RDial, ipp netip.AddrPort) (*overwriteSplitter, error) {
 	measureTTL := true
 	isIPv6 := ipp.Addr().Is6()
-	basePort := 1 + rand.Intn(65535-(desync_max_ttl)) //#nosec G404
+	basePort := 1 + rand.Intn(65535-desync_max_ttl) //#nosec G404
 
 	uc, udpFD, err := tracert(d, ipp, basePort)
 	defer core.Close(uc)
