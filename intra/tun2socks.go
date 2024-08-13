@@ -24,6 +24,7 @@
 package intra
 
 import (
+	"os"
 	"runtime/debug"
 
 	"github.com/celzero/firestack/intra/settings"
@@ -108,12 +109,20 @@ func Build() string {
 	return "unknown"
 }
 
-// SetCrashFd sets the file descriptor to write crash reports to.
-func SetCrashFd(f string) {
-	if len(f) > 0 {
+// SetCrashFd sets output file to go runtime crashes to.
+func SetCrashFd(fp string) bool {
+	if len(fp) > 0 {
+		f, err := os.Open(fp)
+		if err == nil {
+			var zz debug.CrashOptions
+			debug.SetCrashOutput(f, zz)
+		} else {
+			log.E("tun: crash file %s: %v", fp, err)
+		}
 		debug.SetPanicOnFault(false)
+		return err == nil
 	}
-	// TODO: Go1.23: debug.SetCrashFD(f)
+	return false
 }
 
 // DialStrat sets the dial strategy to use.
