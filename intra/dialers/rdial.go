@@ -100,28 +100,6 @@ func splitIpConnect(d *protect.RDial, proto string, ip netip.Addr, port int) (ne
 	}
 }
 
-func desyncIpConnect(d *protect.RDial, proto string, ip netip.Addr, port int) (net.Conn, error) {
-	if d == nil {
-		log.E("rdial: splitIpConnect3: nil dialer")
-		return nil, errNoDialer
-	} else if !ipok(ip) {
-		log.E("rdial: splitIpConnect3: invalid ip", ip)
-		return nil, errNoIps
-	}
-
-	switch proto {
-	case "tcp", "tcp4", "tcp6":
-		if !ip.IsPrivate() {
-			return DialWithSplitAndDesync(d, netip.AddrPortFrom(ip, uint16(port)))
-		}
-		return d.DialTCP(proto, nil, tcpaddr(ip, port))
-	case "udp", "udp4", "udp6":
-		return d.DialUDP(proto, nil, udpaddr(ip, port))
-	default:
-		return d.Dial(proto, addrstr(ip, port))
-	}
-}
-
 func tcpListen(d *protect.RDial, network string, ip netip.Addr, port int) (*net.TCPListener, error) {
 	return d.AcceptTCP(network, addrstr(ip, port))
 }
@@ -264,16 +242,11 @@ func DialWithTls(d *protect.RDial, cfg *tls.Config, addr string) (net.Conn, erro
 	return tlsconn, err
 }
 
-// SplitDial dials into addr splitting ClientHello if the first connection
-// is unsuccessful. Using the provided dialer it returns a net.Conn,
-// which may not be net.UDPConn or net.TCPConn
+// SplitDial dials into addr splitting the first segment to two if the
+// first connection is unsuccessful, using settings.DialStrategy.
+// Returns a net.Conn, which may not be net.UDPConn or net.TCPConn.
 func SplitDial(d *protect.RDial, network, addr string) (net.Conn, error) {
 	return unPtr(commondial(d, network, addr, adaptc(splitIpConnect)))
-}
-
-// DesyncDial attempts TCP desync.
-func DesyncDial(d *protect.RDial, network, addr string) (net.Conn, error) {
-	return unPtr(commondial(d, network, addr, adaptc(desyncIpConnect)))
 }
 
 // SplitDialWithTls dials into addr using the provided dialer and returns a tls.Conn
