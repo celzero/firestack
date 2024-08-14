@@ -12,7 +12,7 @@ import (
 	"time"
 )
 
-var noErr = errors.New("no error")
+var errNop = errors.New("no error")
 
 // Summary is a summary of a DNS transaction, reported when it is complete.
 type ServerSummary struct {
@@ -36,14 +36,14 @@ func (s *ServerSummary) done(errs ...error) {
 
 	err := errors.Join(errs...) // errs may be nil
 	if err != nil {
-		if s.Msg == noErr.Error() {
+		if s.Msg == errNop.Error() {
 			s.Msg = err.Error()
 		} else {
 			s.Msg = s.Msg + "; " + err.Error()
 		}
 	}
 	if len(s.Msg) <= 0 {
-		s.Msg = noErr.Error()
+		s.Msg = errNop.Error()
 	}
 }
 
@@ -59,7 +59,7 @@ func serverSummary(typ, sid, pid, cid string) *ServerSummary {
 		PID:   pid,
 		CID:   cid,
 		start: time.Now(),
-		Msg:   noErr.Error(),
+		Msg:   errNop.Error(),
 	}
 }
 
