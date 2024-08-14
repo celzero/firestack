@@ -42,9 +42,9 @@ jobs:
 
         # vet: fails: archive.is/XcDl6
         go vet ./...
-        # staticcheck: archive.is/9Ctlf
-        go install honnef.co/go/tools/cmd/staticcheck@latest
-        staticcheck ./...
+        # staticcheck: fails: archive.is/wip/TKXsH
+        # go install honnef.co/go/tools/cmd/staticcheck@latest
+        # staticcheck ./...
         # nilaway
         go install go.uber.org/nilaway/cmd/nilaway@latest
         nilaway ./...
@@ -156,3 +156,8 @@ jobs:
         uses: golangci/golangci-lint-action@v3.7.0
         with:
           args: --config=.golangci.yml --issues-exit-code=0
+      - name: 📡 Staticheck
+        uses: dominikh/staticcheck-action@v1.3.1
+        with:
+          version: "latest"
+          install-go: false
