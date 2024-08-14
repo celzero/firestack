@@ -42,7 +42,7 @@ type zeroNetAddr struct{}
 func (zeroNetAddr) Network() string { return "no" }
 func (zeroNetAddr) String() string  { return "none" }
 
-const maxRetryDialCount = 2
+const maxRetryCount = 2
 
 // retrier implements the DuplexConn interface and must
 // be typecastable to *net.TCPConn (see: xdial.DialTCP)
@@ -284,12 +284,12 @@ func (r *retrier) Read(buf []byte) (n int, err error) {
 		done := r.retryCompleted()
 		if !done {
 			defer close(r.retryDoneCh) // signal that retry is complete or unnecessary
-
-			if mustretry { // retry; err may be timeout or conn reset
+			// retry on errs like timeouts or connection resets
+			for err != nil && r.retryCount < maxRetryCount {
+				r.retryCount++
 				n, err = r.retryWriteReadLocked(buf)
-				note = log.I
+				logeor(err, log.I)("retrier: read# %d: [%s<-%s] %d; err? %v", r.retryCount, laddr(r.conn), r.raddr, n, err)
 			}
-			logeor(err, note)("rdial: read: [%s<-%s] %d; retried? %t; err? %v", laddr(r.conn), r.raddr, n, mustretry, err)
 			// todo: reset deadlines only if no err?
 			_ = r.conn.SetReadDeadline(r.readDeadline)
 			_ = r.conn.SetWriteDeadline(r.writeDeadline)
