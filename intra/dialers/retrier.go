@@ -272,11 +272,10 @@ func (r *retrier) Read(buf []byte) (n int, err error) {
 
 	n, err = r.conn.Read(buf) // r.conn may be provisional or final connection
 	if n == 0 && err == nil { // no data and no error
-		note("rdial: read: no data; retrying [%s<-%s]", laddr(r.conn), r.raddr)
+		note("retrier: read: no data; retrying [%s<-%s]", laddr(r.conn), r.raddr)
 		return // nothing yet to retry; on to next read
 	}
-	mustretry := err != nil
-	logeor(err, note)("rdial: read: [%s<-%s] %d; mustretry? %t; err: %v", laddr(r.conn), r.raddr, n, mustretry, err)
+	logeor(err, note)("retrier: read: [%s<-%s] %d; err: %v", laddr(r.conn), r.raddr, n, err)
 
 	note = log.D
 	if !r.retryCompleted() {
@@ -298,7 +297,7 @@ func (r *retrier) Read(buf []byte) (n int, err error) {
 			r.hello = nil
 			return
 		}
-		logeor(err, note)("rdial: read: already retried! [%s<-%s] %d; err? %v", laddr(r.conn), r.raddr, n, err)
+		logeor(err, note)("retrier: read: already retried! [%s<-%s] %d; err? %v", laddr(r.conn), r.raddr, n, err)
 	} // else: just one read is enough; no retry needed
 	return
 }
@@ -307,33 +306,34 @@ func (r *retrier) sendCopyHello(b []byte) (n int, didWrite bool, src net.Addr, e
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
 
-	src = laddr(r.conn)
+	c := r.conn
+	src = laddr(c)
 	if !r.retryCompleted() { // first write
-		n, err = r.conn.Write(b)
+		n, err = c.Write(b)
 		r.hello = append(r.hello, b[:n]...) // capture first write, "hello"
 		// require a response or another write within a short timeout.
-		_ = r.conn.SetReadDeadline(time.Now().Add(r.timeout))
+		_ = c.SetReadDeadline(time.Now().Add(r.timeout))
 		didWrite = true
 	}
 	return
 }
 
-// Write data in b to r.conn
+// Write data in b to retrier's underlying conn, r.conn
 func (r *retrier) Write(b []byte) (int, error) {
 	// Double-checked locking pattern.  This avoids lock acquisition on
 	// every packet after retry completes, while also ensuring that r.hello is
 	// empty at steady-state.
 	if !r.retryCompleted() {
-		n, sent, srcaddr, err := r.sendCopyHello(b)
+		n, sentAndCopied, src, err := r.sendCopyHello(b)
 
 		note := log.D
-		if sent {
+		if sentAndCopied {
 			note = log.I
 		}
 
-		logeor(err, note)("rdial: write: first?(%t) [%s->%s] %d; 1st write-err? %v", sent, srcaddr, r.raddr, n, err)
+		logeor(err, note)("retrier: write: first?(%t) [%s->%s] %d; 1st write-err? %v", sentAndCopied, src, r.raddr, n, err)
 
-		if sent {
+		if sentAndCopied {
 			// since Write() does not wait for <-retryDoneCh if there are no errors,
 			// it is possible that ReadFrom() -> copyOnce() is called before retryDoneCh
 			// is closed, resulting in two Write() calls, and r.hello containing buffers
@@ -380,7 +380,7 @@ func (r *retrier) ReadFrom(reader io.Reader) (bytes int64, err error) {
 		copies++
 		bytes += b
 
-		logeif(err)("rdial: readfrom: copyOnce #%d; sz: %d/%d; err: %v", copies, b, bytes, err)
+		logeif(err)("retrier: readfrom: copyOnce #%d; sz: %d/%d; err: %v", copies, b, bytes, err)
 		if e != nil {
 			return bytes, e
 		}
@@ -391,7 +391,7 @@ func (r *retrier) ReadFrom(reader io.Reader) (bytes int64, err error) {
 	b, err = r.conn.ReadFrom(reader)
 	bytes += b
 
-	logeif(err)("rdial: readfrom: done; sz: %d; err: %v", bytes, err)
+	logeif(err)("retrier: readfrom: done; sz: %d; err: %v", bytes, err)
 	return
 }
 
