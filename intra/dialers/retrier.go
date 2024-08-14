@@ -244,18 +244,18 @@ func (r *retrier) retryWriteReadLocked(buf []byte) (n int, err error) {
 	readdone := r.readDone.Load()
 	writedone := r.writeDone.Load()
 	if readdone {
-		core.CloseTCPRead(r.conn)
+		core.CloseTCPRead(newConn)
 	} else {
-		_ = r.conn.SetReadDeadline(r.readDeadline)
+		_ = newConn.SetReadDeadline(r.readDeadline)
 	}
 	// caller might have set read or write deadlines before the retry.
 	if writedone {
-		core.CloseTCPWrite(r.conn)
+		core.CloseTCPWrite(newConn)
 	} else {
-		_ = r.conn.SetWriteDeadline(r.writeDeadline)
+		_ = newConn.SetWriteDeadline(r.writeDeadline)
 	}
 
-	return r.conn.Read(buf)
+	return newConn.Read(buf)
 }
 
 // CloseRead closes r.conn for reads, and the read flag.
