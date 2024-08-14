@@ -13,10 +13,11 @@ import (
 	"github.com/celzero/firestack/intra/log"
 )
 
+// shorter count / interval for faster drops
 const (
-	defaultIdle     = 300 // in seconds
+	defaultIdle     = 180 // in seconds
 	defaultCount    = 4   // unacknowledged probes
-	defaultInterval = 15  // in seconds
+	defaultInterval = 5   // in seconds
 )
 
 var (
@@ -29,8 +30,8 @@ var (
 )
 
 func SetKeepAliveConfig(c Conn) bool {
-	if tcpConn, ok := c.(*net.TCPConn); ok {
-		return tcpConn.SetKeepAliveConfig(cfg) == nil
+	if tc, ok := c.(*net.TCPConn); ok {
+		return tc.SetKeepAliveConfig(cfg) == nil
 	}
 	return false
 }
