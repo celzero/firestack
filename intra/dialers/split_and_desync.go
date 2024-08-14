@@ -118,7 +118,7 @@ func tracert(d *protect.RDial, ipp netip.AddrPort, basePort int) (*net.UDPConn, 
 	var udpFD int
 	uc, err := d.AnnounceUDP(proto, ":0")
 	if err != nil {
-		log.E("split-desync: err announcing udp: %v", err)
+		log.E("desync: err announcing udp: %v", err)
 		return uc, udpFD, err
 	}
 	if uc == nil {
@@ -185,7 +185,7 @@ func desyncWithTraceroute(d *protect.RDial, ipp netip.AddrPort) (*overwriteSplit
 	uc, udpFD, err := tracert(d, ipp, basePort)
 	defer core.Close(uc)
 
-	logeif(err)("split-desync: dialUDP %v %d: err? %v", ipp, udpFD, err)
+	logeif(err)("desync: dialUDP %v %d: err? %v", ipp, udpFD, err)
 	if err != nil {
 		measureTTL = false
 		if !desync_relaxed {
@@ -200,11 +200,11 @@ func desyncWithTraceroute(d *protect.RDial, ipp netip.AddrPort) (*overwriteSplit
 
 	tcpConn, err := d.DialTCP(proto, nil, net.TCPAddrFromAddrPort(ipp))
 	if err != nil {
-		log.E("split-desync: dialTCP %v err: %v", ipp, err)
+		log.E("desync: dialTCP %v err: %v", ipp, err)
 		return nil, err
 	}
 	if tcpConn == nil {
-		log.E("split-desync: dialTCP %v err: %v", ipp, errNoConn)
+		log.E("desync: dialTCP %v err: %v", ipp, errNoConn)
 		return nil, errNoConn
 	}
 
@@ -230,13 +230,13 @@ func desyncWithTraceroute(d *protect.RDial, ipp netip.AddrPort) (*overwriteSplit
 	for i := 0; i < desync_max_ttl-1 && measureTTL; i += desync_delta_ttl {
 		_, cmsgN, _, from, err := unix.Recvmsg(udpFD, msgBuf[:], cmsgBuf[:], unix.MSG_ERRQUEUE)
 		if err != nil {
-			log.V("split-desync: recvmsg %v, err: %v", ipp, err)
+			log.V("desync: recvmsg %v, err: %v", ipp, err)
 			break
 		}
 
 		cmsgs, err := unix.ParseSocketControlMessage(cmsgBuf[:cmsgN])
 		if err != nil {
-			log.W("split-desync: parseSocketControlMessage %v failed: %v", ipp, err)
+			log.W("desync: parseSocketControlMessage %v failed: %v", ipp, err)
 			continue
 		}
 
@@ -269,7 +269,7 @@ func desyncWithTraceroute(d *protect.RDial, ipp netip.AddrPort) (*overwriteSplit
 		oc.ttl = desync_invalid_ttl
 	}
 
-	log.D("split-desync: done: %v, used? %t, ttl: %d", ipp, oc.used.Load(), oc.ttl)
+	log.D("desync: done: %v, used? %t, ttl: %d", ipp, oc.used.Load(), oc.ttl)
 
 	return oc, nil
 }
@@ -375,7 +375,7 @@ func (s *overwriteSplitter) Write(b []byte) (n int, err error) {
 		n, err = conn.Write(b)
 	}
 	if used || short || !swapped || noop {
-		logeif(err)("split-desync: write: %s => %s; desync done %d; (noop? %t, used? %t, short? %t, race? %t); err? %v",
+		logeif(err)("desync: write: %s => %s; desync done %d; (noop? %t, used? %t, short? %t, race? %t); err? %v",
 			laddr, raddr, n, noop, used, short, !swapped, err)
 		return n, err
 	}
@@ -393,7 +393,7 @@ func (s *overwriteSplitter) Write(b []byte) (n int, err error) {
 		sockFD = int(fd)
 	})
 	if err != nil {
-		log.E("split-desync: %s => %s get sock fd failed; %v", laddr, raddr, err)
+		log.E("desync: %s => %s get sock fd failed; %v", laddr, raddr, err)
 		return 0, err
 	}
 
@@ -424,13 +424,13 @@ func (s *overwriteSplitter) Write(b []byte) (n int, err error) {
 		err = unix.SetsockoptInt(sockFD, unix.IPPROTO_IP, unix.IP_TTL, s.ttl)
 	}
 	if err != nil {
-		log.E("split-desync: %s => %s setsockopt(ttl) err: %v", laddr, raddr, err)
+		log.E("desync: %s => %s setsockopt(ttl) err: %v", laddr, raddr, err)
 		return 0, err
 	}
 	var offset int64 = 0
 	n1, err := unix.Sendfile(sockFD, fileFD, &offset, len(s.payload))
 	if err != nil {
-		log.E("split-desync: %s => %s sendfile() %d err: %v", laddr, raddr, n1, err)
+		log.E("desync: %s => %s sendfile() %d err: %v", laddr, raddr, n1, err)
 		return n1, err
 	}
 
@@ -444,13 +444,13 @@ func (s *overwriteSplitter) Write(b []byte) (n int, err error) {
 		err = unix.SetsockoptInt(sockFD, unix.IPPROTO_IP, unix.IP_TTL, default_ttl)
 	}
 	if err != nil {
-		log.E("split-desync: %s => %s setsockopt(ttl) err: %v", laddr, raddr, err)
+		log.E("desync: %s => %s setsockopt(ttl) err: %v", laddr, raddr, err)
 		return n1, err
 	}
 
 	// write the second segment
 	n2, err := conn.Write(b[len(s.payload):])
-	logeif(err)("split-desync: write: n1: %d, n2: %d, err: %v", n1, n2, err)
+	logeif(err)("desync: write: n1: %d, n2: %d, err: %v", n1, n2, err)
 	return n1 + n2, err
 }
 
@@ -458,7 +458,7 @@ func (s *overwriteSplitter) Write(b []byte) (n int, err error) {
 func (s *overwriteSplitter) ReadFrom(reader io.Reader) (bytes int64, err error) {
 	if !s.used.Load() {
 		bytes, err = copyOnce(s, reader)
-		logeif(err)("split-desync: readfrom: copyOnce; sz: %d; err: %v", bytes, err)
+		logeif(err)("desync: readfrom: copyOnce; sz: %d; err: %v", bytes, err)
 		if err != nil {
 			return
 		}
@@ -466,7 +466,7 @@ func (s *overwriteSplitter) ReadFrom(reader io.Reader) (bytes int64, err error) 
 
 	b, err := s.conn.ReadFrom(reader)
 	bytes += b
-	log.V("split-desync: readfrom: done; sz: %d; err: %v", bytes, err)
+	log.V("desync: readfrom: done; sz: %d; err: %v", bytes, err)
 
 	return
 }
