@@ -65,21 +65,34 @@ func dialWithSplitStrat(dialStrat int32, d *protect.RDial, addr *net.TCPAddr) (c
 
 // Write implements DuplexConn.
 func (s *splitter) Write(b []byte) (n int, err error) {
-	conn := s.TCPConn
-	strat := s.strat
 	if s.used.Load() {
 		// after the first write, there is no special write behavior.
-		return conn.Write(b)
+		return s.conn.Write(b)
 	} else if ok := s.used.CompareAndSwap(false, true); ok {
 		// setting `used` to true ensures that this code only runs once per socket.
-		n, _, err = writeSplit(strat, conn, b)
+		n, err = s.writeSplit(b)
 		return n, err
 	} else {
-		// if `used` is already swapped, then the split has already been done.
-		return conn.Write(b)
+		// if `used` is already swapped or set, then the split has already been done.
+		return s.conn.Write(b)
 	}
 }
 
+func (s *splitter) writeSplit(b []byte) (n int, err error) {
+	w := s.conn
+	switch s.strat {
+	case settings.SplitTCP:
+		n, err = writeTCPSplit(w, b)
+	case settings.SplitTCPOrTLS:
+		n, err = writeTCPOrTLSSplit(w, b)
+	default:
+		log.W("split: unknown dial strategy: %d", s.strat)
+		n, err = w.Write(b)
+	}
+	return
+}
+
+// ReadFrom implements DuplexConn.
 func (s *splitter) ReadFrom(reader io.Reader) (bytes int64, err error) {
 	if !s.used.Load() {
 		// This is the first write on this socket.

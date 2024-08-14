@@ -25,6 +25,7 @@ const (
 	errNoSysConn  = net.UnknownNetworkError("no sys connection")
 	errNoIps      = net.UnknownNetworkError("no ips")
 	errNoDialer   = net.UnknownNetworkError("no dialer")
+	errNoRetrier  = net.UnknownNetworkError("no retrier")
 	errNoListener = net.UnknownNetworkError("no listener")
 )
 

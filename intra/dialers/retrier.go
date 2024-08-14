@@ -24,10 +24,8 @@
 package dialers
 
 import (
-	"encoding/binary"
 	"errors"
 	"io"
-	"math/rand"
 	"net"
 	"sync"
 	"sync/atomic"
@@ -44,23 +42,24 @@ type zeroNetAddr struct{}
 func (zeroNetAddr) Network() string { return "no" }
 func (zeroNetAddr) String() string  { return "none" }
 
+const maxRetryDialCount = 2
+
 // retrier implements the DuplexConn interface and must
 // be typecastable to *net.TCPConn (see: xdial.DialTCP)
 // inheritance: go.dev/play/p/mMiQgXsPM7Y
 type retrier struct {
-	dial      *protect.RDial
-	dialStrat int32
-	raddr     *net.TCPAddr
+	dialer     *protect.RDial
+	dialerOpts settings.DialerOpts
+	raddr      *net.TCPAddr
 
 	// Flags indicating whether the caller has called CloseRead and CloseWrite.
 	readDone  atomic.Bool
 	writeDone atomic.Bool
 
-	// mutex is a lock that guards `conn`, `hello`, and `retryCompleteFlag`,
-	// readDeadline, and writeDeadline.
-	// These fields must not be modified except under this lock.
-	// After retryCompletedFlag is closed, these values will not be modified
-	// again so locking is no longer required for reads.
+	// mutex is a lock that guards conn, retryCount, hello, timeout,
+	// retryDoneCh, readDeadline, and writeDeadline.
+	// After retryDoneCh is closed, these values will not be
+	// modified again so locking is no longer required for reads.
 	mutex sync.Mutex
 
 	// the current underlying connection.  It is only modified by the reader
@@ -78,7 +77,8 @@ type retrier struct {
 	timeout time.Duration
 	// hello is the contents written before the first read.  It is initially empty,
 	// and is cleared when the first byte is received.
-	hello []byte
+	hello      []byte
+	retryCount uint8
 	// Flag indicating when retry is finished or unnecessary.
 	retryDoneCh chan struct{} // always unbuffered
 }
@@ -108,14 +108,12 @@ func (r *retrier) retryCompleted() bool {
 	return closed(r.retryDoneCh)
 }
 
-// Given timestamps immediately before and after a successful socket connection
-// (i.e. the time the SYN was sent and the time the SYNACK was received), this
-// function returns a reasonable timeout for replies to a hello sent on this socket.
-func calcTimeout(before, after time.Time) time.Duration {
+// Given rtt of a successful socket connection (SYN sent - SYNACK received),
+// returns a timeout for replies to the first segment sent on this socket.
+func calcTimeout(rtt time.Duration) time.Duration {
 	// These values were chosen to have a <1% false positive rate based on test data.
 	// False positives trigger an unnecessary retry, which can make connections slower, so they are
 	// worth avoiding.  However, overly long timeouts make retry slower and less useful.
-	rtt := after.Sub(before)
 	return 1200*time.Millisecond + max(2*rtt, 100*time.Millisecond)
 }
 
@@ -126,52 +124,115 @@ func calcTimeout(before, after time.Time) time.Duration {
 // `dialer` will be used to establish the connection.
 // `addr` is the destination.
 func DialWithSplitRetry(d *protect.RDial, addr *net.TCPAddr) (*retrier, error) {
-	before := time.Now()
-	conn, err := d.DialTCP(addr.Network(), nil, addr)
-	if err != nil {
-		log.E("rdial: tcp addr %s: err %v", addr, err)
-		return nil, err
-	}
-	after := time.Now()
-
 	r := &retrier{
-		conn:        conn,
-		dial:        d,
-		dialStrat:   settings.DialStrategy.Load(),
+		dialer:      d,
+		dialerOpts:  settings.GetDialerOpts(),
 		raddr:       addr,
-		timeout:     calcTimeout(before, after),
 		retryDoneCh: make(chan struct{}),
 	}
 
-	log.V("rdial: dial: %s->%s; timeout %v", laddr(conn), addr, r.timeout)
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
+
+	if _, err := r.dialLocked(); err != nil {
+		return nil, err
+	}
 	return r, nil
 }
 
-// retryWriteReadLocked closes the current connection, dials a new one, and writes the TLS client hello
-// message after splitting it in to two. It returns an error if the dial fails or if the
-// split TLS client hello messages could not be written.
-func (r *retrier) retryWriteReadLocked(buf []byte) (n int, err error) {
-	clos(r.conn) // close provisional socket
-	var newConn core.DuplexConn
+func (r *retrier) dialStratLocked() (strat int32, split bool, err error) {
+	auto := r.dialerOpts.Strat == settings.SplitAuto
+	retryStrat := r.dialerOpts.Retry
 
-	switch r.dialStrat {
-	case settings.DesyncStrategy:
-		if newConn, err = dialWithSplitAndDesync(r.dial, r.raddr.AddrPort()); err != nil {
-			log.E("rdial: retryLocked: dialDesync %s: err %v", r.raddr, err)
+	switch retryStrat {
+	case settings.RetryNever:
+		if r.retryCount >= 1 {
+			err = errNoRetrier // retry not allowed
 			return
 		}
-	case settings.SplitTCPStrategy, settings.SplitTCPOrTLSStrategy:
-		fallthrough
-	default:
-		if newConn, err = r.dial.DialTCP(r.raddr.Network(), nil, r.raddr); err != nil {
-			log.E("rdial: retryLocked: dialTCP %s: err %v", r.raddr, err)
-			return
+		split = r.retryCount == 0 // split at 1st attempt
+	case settings.RetryWithSplit:
+		split = r.retryCount >= 1 // split after 1st attempt
+	case settings.RetryAfterSplit:
+		split = r.retryCount == 0 // split at 1st attempt
+		if auto {
+			split = r.retryCount <= 1 // split at 1st, 2nd attempts
 		}
 	}
 
-	r.conn = newConn
-	n, split, err := r.writeSplitLocked()
-	logeif(err)("rdial: retryLocked: strat(%d) %s->%s; split? %d; write? %d/%d; err? %v", r.dialStrat, laddr(r.conn), r.raddr, split, n, len(r.hello), err)
+	if auto {
+		switch retryStrat {
+		case settings.RetryNever:
+			// only one attempt allowed; always split
+			strat = settings.SplitTCPOrTLS
+		case settings.RetryWithSplit:
+			// if retrying (retryCount > 0), always split
+			if r.retryCount == 1 {
+				strat = settings.SplitTCPOrTLS
+			} else if r.retryCount == 2 {
+				strat = settings.SplitDesync
+			} else { // split is either true or false
+				strat = settings.SplitTCP
+			}
+		case settings.RetryAfterSplit:
+			// split for the first two attempts
+			if r.retryCount == 0 {
+				strat = settings.SplitTCPOrTLS
+			} else if r.retryCount == 1 {
+				strat = settings.SplitDesync
+			} else { // split is false, so strat does not matter
+				strat = settings.SplitTCP
+			}
+		}
+	} else {
+		strat = r.dialerOpts.Strat
+	}
+
+	return
+}
+
+// dialLocked establishes a new connection to r.raddr and closes existing, if any.
+// Sets r.conn on non-errors and timeout as calculated from round-trip time.
+func (r *retrier) dialLocked() (c core.DuplexConn, err error) {
+	clos(r.conn) // close existing connection, if any
+
+	strat, split, err := r.dialStratLocked()
+	if err != nil {
+		return
+	}
+
+	begin := time.Now()
+	if split {
+		c, err = dialWithSplitStrat(strat, r.dialer, r.raddr)
+	} else {
+		c, err = r.dialer.DialTCP(r.raddr.Network(), nil, r.raddr)
+	}
+	if err == nil && c == nil {
+		err = errNoConn
+	}
+
+	rtt := time.Since(begin)
+	r.conn = c
+	r.timeout = calcTimeout(rtt)
+
+	logeif(err)("retrier: dial(%s) %s->%s; strat: %d, split? %t, rtt: %dms; err? %v",
+		r.dialerOpts, laddr(c), r.raddr, strat, split, rtt.Milliseconds(), err)
+
+	return
+}
+
+// retryWriteReadLocked closes the current connection, dials a new one, and writes the hello
+// message (first segment) after splitting according to specified dial strategy.
+// Returns an error if the dial fails or if the splits could not be written.
+func (r *retrier) retryWriteReadLocked(buf []byte) (n int, err error) {
+	// also closes provisional socket
+	newConn, err := r.dialLocked()
+	if err != nil {
+		return
+	}
+
+	n, err = newConn.Write(r.hello)
+	logeif(err)("retrier: retryLocked: strat(%s) %s->%s; write? %d/%d; err? %v", r.dialerOpts, laddr(r.conn), r.raddr, n, len(r.hello), err)
 	if err != nil {
 		return
 	}
