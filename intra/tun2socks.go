@@ -124,18 +124,3 @@ func SetCrashFd(fp string) bool {
 	}
 	return false
 }
-
-// DialStrat sets the dial strategy to use.
-// Must be one of settings.DesyncStrategy or settings.RetrierStrategy.
-func DialStrat(strategy int32) {
-	switch strategy {
-	case settings.DesyncStrategy:
-		fallthrough
-	case settings.SplitTCPStrategy:
-		fallthrough
-	case settings.SplitTCPOrTLSStrategy:
-		settings.DialStrategy.Store(strategy)
-	default:
-		settings.DialStrategy.Store(settings.SplitTCPStrategy)
-	}
-}

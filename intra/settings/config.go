@@ -308,11 +308,86 @@ func (p *ProxyOptions) Url() string {
 	return p.Scheme + "://" + p.IPPort
 }
 
-// Dialer strategies
+// DialerOpts define dialer options.
+type DialerOpts struct {
+	// Strat is the dialing strategy.
+	Strat int32
+	// Retry is the retry strategy.
+	Retry int32
+}
+
+func newDialerOpts() *DialerOpts {
+	return &DialerOpts{}
+}
+
+func (d DialerOpts) String() string {
+	s := func() string {
+		switch d.Strat {
+		case SplitTCP:
+			return "SplitTCP"
+		case SplitTCPOrTLS:
+			return "SplitTCPOrTLS"
+		case SplitDesync:
+			return "SplitDesync"
+		default:
+			return "Unknown"
+		}
+	}()
+	r := func() string {
+		switch d.Retry {
+		case RetryNever:
+			return "RetryNever"
+		case RetryWithSplit:
+			return "RetryWithSplit"
+		case RetryAfterSplit:
+			return "RetryAfterSplit"
+		default:
+			return "Unknown"
+		}
+	}()
+
+	return s + "," + r
+}
+
+// Dial strategies
 const (
-	SplitTCPStrategy int32 = iota
-	SplitTCPOrTLSStrategy
-	DesyncStrategy
+	SplitTCPOrTLS int32 = iota
+	SplitTCP
+	SplitDesync
+	SplitAuto
 )
 
-var DialStrategy atomic.Int32
+// Retry strategies
+const (
+	RetryAfterSplit int32 = iota
+	RetryWithSplit
+	RetryNever
+)
+
+var dialerOpts = newDialerOpts()
+
+// SetDialerOpts sets the dialer options to use.
+func SetDialerOpts(strat, retry int32) bool {
+	s := dialerOpts
+	ok := true
+	switch strat {
+	case SplitTCP, SplitTCPOrTLS, SplitDesync:
+		s.Strat = strat
+	default:
+		s.Strat = SplitTCPOrTLS
+		ok = false
+	}
+	switch retry {
+	case RetryNever, RetryWithSplit, RetryAfterSplit:
+		s.Retry = retry
+	default:
+		s.Retry = RetryAfterSplit
+		ok = false
+	}
+	return ok
+}
+
+// GetDialerOpts returns current dialer options.
+func GetDialerOpts() DialerOpts {
+	return *dialerOpts
+}
