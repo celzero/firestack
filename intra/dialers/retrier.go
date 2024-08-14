@@ -225,7 +225,7 @@ func (r *retrier) dialLocked() (c core.DuplexConn, err error) {
 // message (first segment) after splitting according to specified dial strategy.
 // Returns an error if the dial fails or if the splits could not be written.
 func (r *retrier) retryWriteReadLocked(buf []byte) (n int, err error) {
-	// also closes provisional socket
+	// r.dialLocked also closes provisional socket
 	newConn, err := r.dialLocked()
 	if err != nil {
 		return
@@ -237,7 +237,7 @@ func (r *retrier) retryWriteReadLocked(buf []byte) (n int, err error) {
 		return
 	}
 
-	// While we were creating the new socket, the caller might have called CloseRead
+	// while we were creating the new socket, the caller might have called CloseRead
 	// or CloseWrite on the old socket. Copy that state to the new socket.
 	// CloseRead and CloseWrite are idempotent, so this is safe even if the user's
 	// action actually affected the new socket.
@@ -270,7 +270,7 @@ func (r *retrier) CloseRead() error {
 func (r *retrier) Read(buf []byte) (n int, err error) {
 	note := log.V
 
-	n, err = r.conn.Read(buf)
+	n, err = r.conn.Read(buf) // r.conn may be provisional or final connection
 	if n == 0 && err == nil { // no data and no error
 		note("rdial: read: no data; retrying [%s<-%s]", laddr(r.conn), r.raddr)
 		return // nothing yet to retry; on to next read
@@ -358,12 +358,12 @@ func (r *retrier) Write(b []byte) (int, error) {
 			elapsed := time.Since(start).Milliseconds()
 
 			m := 0
-			if len(leftover) > 0 {
+			if len(leftover) > 0 { // c may have been closed
 				m, err = c.Write(leftover)
 			}
-			logeor(err, note)("rdial: write retried [%s->%s] %d in %dms; 2nd write-err? %v", laddr(c), r.raddr, m, elapsed, err)
+			logeor(err, note)("retrier: write retried [%s->%s] %d in %dms; 2nd write-err? %v", laddr(c), r.raddr, m, elapsed, err)
 			return n + m, err
-		}
+		} // not sent by sendCopyHello; do a normal write
 	}
 
 	// retryCompleted() is true, so r.conn is final and doesn't need locking
