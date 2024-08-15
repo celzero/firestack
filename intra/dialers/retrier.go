@@ -232,7 +232,7 @@ func (r *retrier) retryWriteReadLocked(buf []byte) (n int, err error) {
 	}
 
 	n, err = newConn.Write(r.hello)
-	logeif(err)("retrier: retryLocked: strat(%s) %s->%s; write? %d/%d; err? %v", r.dialerOpts, laddr(r.conn), r.raddr, n, len(r.hello), err)
+	logeif(err)("retrier: retryLocked: strat(%s) %s->%s; write? %d/%d; err? %v", r.dialerOpts, laddr(newConn), r.raddr, n, len(r.hello), err)
 	if err != nil {
 		return
 	}

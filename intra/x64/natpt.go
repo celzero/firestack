@@ -113,7 +113,7 @@ func (n *natPt) X64(id string, ip6 netip.Addr) (ip4 netip.Addr) {
 	if x := match(prefixes, rawip); x != nil {
 		return ip2addr(n.xAddr(x, rawip))
 	} else {
-		log.D("natpt: no matching prefix64 for ip(%v) in id(%s/%d)", ip6, id, len(prefixes))
+		log.VV("natpt: no matching prefix64 for ip(%v) in id(%s/%d)", ip6, id, len(prefixes))
 	}
 	return zerovalueaddr
 }

@@ -165,6 +165,7 @@ func (h *icmpHandler) Ping(source, target netip.AddrPort, msg []byte) (echoed bo
 		proto = "udp6"
 		anyaddr = "[::]:0"
 	}
+	// todo: use dialers.ListenICMP?
 	uc, err := px.Dialer().Probe(proto, anyaddr)
 	ucnil := uc == nil || core.IsNil(uc)
 	smm.Target = dst.Addr().String()
