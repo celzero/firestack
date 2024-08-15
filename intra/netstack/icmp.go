@@ -95,6 +95,8 @@ func (f *icmpForwarder) reply4(id stack.TransportEndpointID, pkt *stack.PacketBu
 	// always forward in a goroutine to avoid blocking netstack
 	// see: netstack/dispatcher.go:newReadvDispatcher
 	core.Go("icmp4.pinger", func() {
+		pkt.IncRef()
+		defer pkt.DecRef()
 		if !f.h.Ping(src, dst, data) { // unreachable
 			// make unreachable icmp packet for req and l7
 			err = f.icmpErr4(pkt, header.ICMPv4DstUnreachable, header.ICMPv4HostUnreachable)
@@ -117,10 +119,10 @@ func (f *icmpForwarder) reply4(id stack.TransportEndpointID, pkt *stack.PacketBu
 	return true // handled
 }
 
-func (f *icmpForwarder) reply6(id stack.TransportEndpointID, packet *stack.PacketBuffer) (handled bool) {
-	log.VV("icmp: v6 packet? %v", packet)
+func (f *icmpForwarder) reply6(id stack.TransportEndpointID, pkt *stack.PacketBuffer) (handled bool) {
+	log.VV("icmp: v6 packet? %v", pkt)
 
-	if packet == nil {
+	if pkt == nil {
 		log.E("icmp: v6: nil packet")
 		return // not handled
 	}
@@ -129,7 +131,7 @@ func (f *icmpForwarder) reply6(id stack.TransportEndpointID, packet *stack.Packe
 		return // not handled
 	}
 
-	hdr := header.ICMPv6(packet.TransportHeader().Slice())
+	hdr := header.ICMPv6(pkt.TransportHeader().Slice())
 	if hdr.Type() != header.ICMPv6EchoRequest {
 		log.D("icmp: v6: type %v/%v passthrough", hdr.Type(), hdr.Code())
 		return false // netstack to handle other msgs except echo / ping
@@ -138,7 +140,7 @@ func (f *icmpForwarder) reply6(id stack.TransportEndpointID, packet *stack.Packe
 	src := remoteAddrPort(id)
 	dst := localAddrPort(id)
 	// github.com/google/gvisor/blob/9b4a7aa00/pkg/tcpip/network/ipv6/icmp.go#L1180
-	data, derr := l4l7(packet, f.ep.MTU())
+	data, derr := l4l7(pkt, f.ep.MTU())
 	if derr != nil {
 		log.E("icmp: v6: err getting payload: %v", derr)
 		return // not handled
@@ -148,9 +150,12 @@ func (f *icmpForwarder) reply6(id stack.TransportEndpointID, packet *stack.Packe
 	// always forward in a goroutine to avoid blocking netstack
 	// see: netstack/dispatcher.go:newReadvDispatcher
 	core.Go("icmp4.pinger", func() {
+		pkt.IncRef()
+		defer pkt.DecRef()
+
 		var err tcpip.Error
 		if !f.h.Ping(src, dst, data) { // unreachable
-			err = f.icmpErr6(id, packet, header.ICMPv6DstUnreachable, header.ICMPv6NetworkUnreachable)
+			err = f.icmpErr6(id, pkt, header.ICMPv6DstUnreachable, header.ICMPv6NetworkUnreachable)
 		} else { // reachable
 			hdr.SetType(header.ICMPv6EchoReply)
 			hdr.SetChecksum(0)
@@ -158,13 +163,13 @@ func (f *icmpForwarder) reply6(id stack.TransportEndpointID, packet *stack.Packe
 				Header:      hdr,
 				Src:         id.LocalAddress,  // from dst
 				Dst:         id.RemoteAddress, // to src
-				PayloadCsum: packet.Data().Checksum(),
-				PayloadLen:  packet.Data().Size(),
+				PayloadCsum: pkt.Data().Checksum(),
+				PayloadLen:  pkt.Data().Size(),
 			}))
 			log.D("icmp: v6: ok type %v/%v sz[%d] from %v <- %v", hdr.Type(), hdr.Code(), len(hdr), src, dst)
 
 			var pout stack.PacketBufferList
-			pout.PushBack(packet)
+			pout.PushBack(pkt)
 			defer pout.DecRef()
 
 			_, err = f.ep.WritePackets(pout)
