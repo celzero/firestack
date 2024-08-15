@@ -42,7 +42,7 @@ type zeroNetAddr struct{}
 func (zeroNetAddr) Network() string { return "no" }
 func (zeroNetAddr) String() string  { return "none" }
 
-const maxRetryCount = 2
+const maxRetryCount = 3
 
 // retrier implements the DuplexConn interface and must
 // be typecastable to *net.TCPConn (see: xdial.DialTCP)
