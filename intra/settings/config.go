@@ -351,10 +351,10 @@ func (d DialerOpts) String() string {
 
 // Dial strategies
 const (
-	SplitTCPOrTLS int32 = iota
+	SplitAuto int32 = iota
+	SplitTCPOrTLS
 	SplitTCP
 	SplitDesync
-	SplitAuto
 )
 
 // Retry strategies
