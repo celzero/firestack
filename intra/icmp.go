@@ -159,11 +159,11 @@ func (h *icmpHandler) Ping(source, target netip.AddrPort, msg []byte) (echoed bo
 	}
 
 	dst := oneRealIp(realips, target)
-	anyaddr := "0.0.0.0"
+	anyaddr := "0.0.0.0:0"
 	proto := "udp4"
 	if target.Addr().Is6() {
 		proto = "udp6"
-		anyaddr = "::"
+		anyaddr = "[::]:0"
 	}
 	uc, err := px.Dialer().Probe(proto, anyaddr)
 	ucnil := uc == nil || core.IsNil(uc)
