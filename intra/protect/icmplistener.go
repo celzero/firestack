@@ -29,10 +29,6 @@ type icmplistener struct {
 	Control ControlFn
 }
 
-func icmpListener() *icmplistener {
-	return &icmplistener{}
-}
-
 // listenICMP listens for incoming ICMP packets addressed to
 // address for non-privileged datagram-oriented ICMP endpoints.
 // network must be "udp4" or "udp6". The endpoint allows to read,

@@ -246,10 +246,19 @@ func MakeNsICMPListenerExt(who string, ctl Controller, ext []ControlFn) *icmplis
 
 // Creates a plain old dialer
 func netdialer() *net.Dialer {
-	return &net.Dialer{}
+	x := &net.Dialer{}
+	// todo: x.KeepAliveConfig = kacfg
+	return x
 }
 
 // Creates a plain old listener
 func netlistener() *net.ListenConfig {
-	return &net.ListenConfig{}
+	x := &net.ListenConfig{}
+	// todo: x.KeepAliveConfig = kacfg
+	return x
+}
+
+// Creates a icmp listener over UDP
+func icmpListener() *icmplistener {
+	return &icmplistener{}
 }

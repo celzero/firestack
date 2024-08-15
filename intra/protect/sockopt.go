@@ -21,7 +21,7 @@ const (
 )
 
 var (
-	cfg = net.KeepAliveConfig{
+	kacfg = net.KeepAliveConfig{
 		Enable:   true,
 		Idle:     defaultIdle,
 		Count:    defaultCount,
@@ -31,14 +31,14 @@ var (
 
 func SetKeepAliveConfig(c Conn) bool {
 	if tc, ok := c.(*net.TCPConn); ok {
-		return tc.SetKeepAliveConfig(cfg) == nil
+		return tc.SetKeepAliveConfig(kacfg) == nil
 	}
 	return false
 }
 
 func SetKeepAliveConfigSockOpt(c Conn) bool {
-	if tcpConn, ok := c.(*net.TCPConn); ok {
-		rawConn, err := tcpConn.SyscallConn()
+	if tc, ok := c.(*net.TCPConn); ok {
+		rawConn, err := tc.SyscallConn()
 		if err != nil || rawConn == nil {
 			ok = false
 			return ok
