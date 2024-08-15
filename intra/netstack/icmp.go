@@ -104,8 +104,11 @@ func (f *icmpForwarder) reply4(id stack.TransportEndpointID, pkt *stack.PacketBu
 			hdr.SetChecksum(0)
 			hdr.SetChecksum(header.ICMPv4Checksum(hdr, pkt.Data().Checksum()))
 			log.D("icmp: v4: ok type %v/%v sz[%d] from %v <- %v", hdr.Type(), hdr.Code(), len(hdr), src, dst)
+
 			var pout stack.PacketBufferList
 			pout.PushBack(pkt)
+			defer pout.DecRef()
+
 			_, err = f.ep.WritePackets(pout)
 		}
 		loge(err, "icmp: v4: wrote reply to tun; err? %v", err)
@@ -159,8 +162,11 @@ func (f *icmpForwarder) reply6(id stack.TransportEndpointID, packet *stack.Packe
 				PayloadLen:  packet.Data().Size(),
 			}))
 			log.D("icmp: v6: ok type %v/%v sz[%d] from %v <- %v", hdr.Type(), hdr.Code(), len(hdr), src, dst)
+
 			var pout stack.PacketBufferList
 			pout.PushBack(packet)
+			defer pout.DecRef()
+
 			_, err = f.ep.WritePackets(pout)
 		}
 		loge(err, "icmp: v6: wrote reply to tun; err? %v", err)
@@ -278,7 +284,6 @@ func (f *icmpForwarder) icmpErr4(pkt *stack.PacketBuffer, icmpType header.ICMPv4
 		ReserveHeaderBytes: int(f.ep.MaxHeaderLength()) + header.ICMPv4MinimumSize,
 		Payload:            payload,
 	})
-	defer icmpPkt.DecRef()
 
 	icmpPkt.TransportProtocolNumber = header.ICMPv4ProtocolNumber
 
@@ -290,6 +295,7 @@ func (f *icmpForwarder) icmpErr4(pkt *stack.PacketBuffer, icmpType header.ICMPv4
 
 	var pout stack.PacketBufferList
 	pout.PushBack(icmpPkt)
+	defer pout.DecRef()
 
 	n, err := f.ep.WritePackets(pout)
 
@@ -388,7 +394,6 @@ func (f *icmpForwarder) icmpErr6(id stack.TransportEndpointID, pkt *stack.Packet
 		ReserveHeaderBytes: int(f.ep.MaxHeaderLength()) + header.ICMPv6ErrorHeaderSize,
 		Payload:            payload,
 	})
-	defer newPkt.DecRef()
 	newPkt.TransportProtocolNumber = header.ICMPv6ProtocolNumber
 
 	icmpHdr := header.ICMPv6(newPkt.TransportHeader().Push(header.ICMPv6DstUnreachableMinimumSize))
@@ -407,6 +412,8 @@ func (f *icmpForwarder) icmpErr6(id stack.TransportEndpointID, pkt *stack.Packet
 
 	var pout stack.PacketBufferList
 	pout.PushBack(newPkt)
+	defer pout.DecRef()
+
 	n, werr := f.ep.WritePackets(pout)
 
 	loge(werr, "icmp: v6: sent %d bytes to tun; err? %v", n, werr)
