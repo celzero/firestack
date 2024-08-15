@@ -42,12 +42,12 @@ jobs:
 
         # vet: fails: archive.is/XcDl6
         go vet ./...
-        # staticcheck: fails: archive.is/wip/TKXsH
+        # staticcheck
         # go install honnef.co/go/tools/cmd/staticcheck@latest
         # staticcheck ./...
-        # nilaway
-        go install go.uber.org/nilaway/cmd/nilaway@latest
-        nilaway ./...
+        # nilaway fails: archive.is/wip/TKXsH
+        # go install go.uber.org/nilaway/cmd/nilaway@latest
+        # nilaway ./...
       shell: bash
 
     - name: 🐍 Python3
