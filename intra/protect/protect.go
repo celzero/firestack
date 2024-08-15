@@ -157,9 +157,10 @@ func MakeNsDialer(who string, c Controller) *net.Dialer {
 // Creates a RDial that can bind to any active interface.
 func MakeNsRDial(who string, c Controller) *RDial {
 	return &RDial{
-		Owner:  who,
-		Dialer: MakeNsDialer(who, c),
-		Listen: MakeNsListener(who, c),
+		Owner:      who,
+		Dialer:     MakeNsDialer(who, c),
+		Listen:     MakeNsListener(who, c),
+		listenICMP: MakeNsICMPListener(who, c),
 	}
 }
 
@@ -179,10 +180,13 @@ func MakeNsRDialExt(who string, ctl Controller, ext []ControlFn) *RDial {
 		}
 		return nil
 	}
+	listener := MakeNsListenConfigExt(who, ctl, ext)
+	icmplistener := MakeNsICMPListenerExt(who, ctl, ext)
 	return &RDial{
-		Owner:  who,
-		Dialer: dialer,
-		Listen: MakeNsListener(who, ctl),
+		Owner:      who,
+		Dialer:     dialer,
+		Listen:     listener,
+		listenICMP: icmplistener,
 	}
 }
 
@@ -198,6 +202,32 @@ func MakeNsListener(who string, c Controller) *net.ListenConfig {
 // Creates a listener that can bind to any active interface, with additional control fns.
 func MakeNsListenConfigExt(who string, ctl Controller, ext []ControlFn) *net.ListenConfig {
 	x := netlistener()
+	x.Control = func(network, address string, c syscall.RawConn) error {
+		for _, fn := range ext { // must do prior to ctl.bind
+			if err := fn(network, address, c); err != nil {
+				return err
+			}
+		}
+		if ctl != nil && core.IsNotNil(ctl) {
+			if err := ifbind(who, ctl)(network, address, c); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	return x
+}
+
+func MakeNsICMPListener(who string, c Controller) *icmplistener {
+	x := icmpListener()
+	if c != nil && core.IsNotNil(c) {
+		x.Control = ifbind(who, c)
+	}
+	return x
+}
+
+func MakeNsICMPListenerExt(who string, ctl Controller, ext []ControlFn) *icmplistener {
+	x := icmpListener()
 	x.Control = func(network, address string, c syscall.RawConn) error {
 		for _, fn := range ext { // must do prior to ctl.bind
 			if err := fn(network, address, c); err != nil {

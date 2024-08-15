@@ -43,10 +43,11 @@ type RDialer interface {
 
 // RDial discards local-addresses
 type RDial struct {
-	Owner   string            // owner tag
-	Dialer  proxy.Dialer      // may be nil; used by exit, base, grounded
-	Listen  *net.ListenConfig // may be nil; used by exit, base, grounded
-	RDialer RDialer           // may be nil; used by remote proxies, ex: wg
+	Owner      string            // owner tag
+	Dialer     proxy.Dialer      // may be nil; used by exit, base, grounded
+	Listen     *net.ListenConfig // may be nil; used by exit, base, grounded
+	listenICMP *icmplistener     // may be nil; used by exit, base, grounded
+	RDialer    RDialer           // may be nil; used by remote proxies, ex: wg
 }
 
 var (
@@ -58,6 +59,7 @@ var (
 	errNoUDPMux    = errors.New("not a udp announcer")
 	errNoTCPMux    = errors.New("not a tcp announcer")
 	errNoICMPL3    = errors.New("not an ip:icmp listener")
+	errNoSysConn   = errors.New("no syscall.Conn")
 	errAnnounce    = errors.New("cannot announce network")
 	errAccept      = errors.New("cannot accept network")
 )
@@ -143,7 +145,7 @@ func (d *RDial) Probe(network, local string) (PacketConn, error) {
 		return nil, errAnnounce
 	}
 	// todo: check if local is a local address or empty (any)
-	uselistener := d.Listen != nil
+	uselistener := d.listenICMP != nil
 	userdialer := d.RDialer != nil && core.IsNotNil(d.RDialer)
 	if !uselistener && !userdialer {
 		log.V("xdial: Probe: (r? %t / o: %s) %s %s", userdialer, d.Owner, network, local)
@@ -151,7 +153,7 @@ func (d *RDial) Probe(network, local string) (PacketConn, error) {
 	}
 
 	if uselistener {
-		return listenICMP(network, local)
+		return d.listenICMP.listenICMP(network, local)
 	}
 	return d.RDialer.Probe(network, local)
 }

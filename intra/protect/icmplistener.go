@@ -25,6 +25,14 @@ const (
 	protocolIPv6ICMP = 58
 )
 
+type icmplistener struct {
+	Control ControlFn
+}
+
+func icmpListener() *icmplistener {
+	return &icmplistener{}
+}
+
 // listenICMP listens for incoming ICMP packets addressed to
 // address for non-privileged datagram-oriented ICMP endpoints.
 // network must be "udp4" or "udp6". The endpoint allows to read,
@@ -38,7 +46,7 @@ const (
 //	listenICMP("udp6", "::")
 //
 // from: cs.opensource.google/go/x/net/+/refs/tags/v0.28.0:icmp/listen_posix.go
-func listenICMP(network, address string) (net.PacketConn, error) {
+func (ln *icmplistener) listenICMP(network, address string) (net.PacketConn, error) {
 	var family, proto int
 	switch network {
 	case "udp4":
@@ -72,7 +80,30 @@ func listenICMP(network, address string) (net.PacketConn, error) {
 		clos(c)
 		return nil, cerr
 	}
+	if cfn := ln.Control; cfn != nil {
+		var sc syscall.RawConn
+		if sc, err = sysconn(c); err == nil {
+			err = cfn(network, address, sc)
+		}
+		if err != nil {
+			clos(c)
+			return nil, err
+		}
+	}
 	return c, nil
+}
+
+func sysconn(c net.PacketConn) (syscall.RawConn, error) {
+	switch v := c.(type) {
+	case *net.UDPConn:
+		return v.SyscallConn()
+	case *net.IPConn:
+		return v.SyscallConn()
+	case *net.UnixConn:
+		return v.SyscallConn()
+	default:
+		return nil, errNoSysConn
+	}
 }
 
 // from: cs.opensource.google/go/x/net/+/refs/tags/v0.28.0:icmp/helper_posix.go
