@@ -34,18 +34,12 @@ type splitter struct {
 
 var _ core.DuplexConn = (*splitter)(nil)
 
-// DialWithSplit returns a TCP connection that always splits the initial upstream segment.
-// Like net.Conn, it is intended for two-threaded use, with one thread calling
-// Read and CloseRead, and another calling Write, ReadFrom, and CloseWrite.
-func DialWithSplit(d *protect.RDial, addr *net.TCPAddr) (core.DuplexConn, error) {
-	ds := settings.GetDialerOpts()
-	return dialWithSplitStrat(ds.Strat, d, addr)
-}
-
 // dialWithSplitStrat returns a TCP connection that always splits the initial upstream segment
 // using the specified strategy, strat, which is one of the settings.Split* constants.
 func dialWithSplitStrat(dialStrat int32, d *protect.RDial, addr *net.TCPAddr) (core.DuplexConn, error) {
 	switch dialStrat {
+	case settings.SplitNever:
+		return d.DialTCP(addr.Network(), nil, addr)
 	case settings.SplitDesync:
 		return dialWithSplitAndDesync(d, addr.AddrPort())
 	case settings.SplitTCP, settings.SplitTCPOrTLS:

@@ -140,9 +140,10 @@ func DialWithSplitRetry(d *protect.RDial, addr *net.TCPAddr) (*retrier, error) {
 	return r, nil
 }
 
-func (r *retrier) dialStratLocked() (strat int32, split bool, err error) {
+func (r *retrier) dialStratLocked() (strat int32, err error) {
 	auto := r.dialerOpts.Strat == settings.SplitAuto
 	retryStrat := r.dialerOpts.Retry
+	split := r.dialerOpts.Strat != settings.SplitNever
 
 	switch retryStrat {
 	case settings.RetryNever:
@@ -150,20 +151,22 @@ func (r *retrier) dialStratLocked() (strat int32, split bool, err error) {
 			err = errNoRetrier // retry not allowed
 			return
 		}
-		split = r.retryCount == 0 // split at 1st attempt
+		split = split && r.retryCount == 0 // split at 1st attempt
 	case settings.RetryWithSplit:
-		split = r.retryCount >= 1 // split after 1st attempt
+		split = split && r.retryCount >= 1 // split after 1st attempt
 	case settings.RetryAfterSplit:
-		split = r.retryCount == 0 // split at 1st attempt
+		split = split && r.retryCount == 0 // split at 1st attempt
 		if auto {
-			split = r.retryCount <= 1 // split at 1st, 2nd attempts
+			split = split && r.retryCount <= 1 // split at 1st, 2nd attempts
 		}
 	}
 
-	if auto {
+	if !split {
+		strat = settings.SplitNever
+	} else if auto {
 		switch retryStrat {
 		case settings.RetryNever:
-			// only one attempt allowed; always split
+			// only one attempt allowed; neither retried nor split
 			strat = settings.SplitTCPOrTLS
 		case settings.RetryWithSplit:
 			// if retrying (retryCount > 0), always split
@@ -196,17 +199,13 @@ func (r *retrier) dialStratLocked() (strat int32, split bool, err error) {
 func (r *retrier) dialLocked() (c core.DuplexConn, err error) {
 	clos(r.conn) // close existing connection, if any
 
-	strat, split, err := r.dialStratLocked()
+	strat, err := r.dialStratLocked()
 	if err != nil {
 		return
 	}
 
 	begin := time.Now()
-	if split {
-		c, err = dialWithSplitStrat(strat, r.dialer, r.raddr)
-	} else {
-		c, err = r.dialer.DialTCP(r.raddr.Network(), nil, r.raddr)
-	}
+	c, err = dialWithSplitStrat(strat, r.dialer, r.raddr)
 	if err == nil && c == nil {
 		err = errNoConn
 	}
@@ -215,8 +214,8 @@ func (r *retrier) dialLocked() (c core.DuplexConn, err error) {
 	r.conn = c
 	r.timeout = calcTimeout(rtt)
 
-	logeif(err)("retrier: dial(%s) %s->%s; strat: %d, split? %t, rtt: %dms; err? %v",
-		r.dialerOpts, laddr(c), r.raddr, strat, split, rtt.Milliseconds(), err)
+	logeif(err)("retrier: dial(%s) %s->%s; strat: %d, rtt: %dms; err? %v",
+		r.dialerOpts, laddr(c), r.raddr, strat, rtt.Milliseconds(), err)
 
 	return
 }
