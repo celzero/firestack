@@ -323,12 +323,16 @@ func newDialerOpts() *DialerOpts {
 func (d DialerOpts) String() string {
 	s := func() string {
 		switch d.Strat {
+		case SplitAuto:
+			return "SplitAuto"
 		case SplitTCP:
 			return "SplitTCP"
 		case SplitTCPOrTLS:
 			return "SplitTCPOrTLS"
 		case SplitDesync:
 			return "SplitDesync"
+		case SplitNever:
+			return "SplitNever"
 		default:
 			return "Unknown"
 		}
@@ -355,6 +359,7 @@ const (
 	SplitTCPOrTLS
 	SplitTCP
 	SplitDesync
+	SplitNever
 )
 
 // Retry strategies
@@ -371,10 +376,10 @@ func SetDialerOpts(strat, retry int32) bool {
 	s := dialerOpts
 	ok := true
 	switch strat {
-	case SplitTCP, SplitTCPOrTLS, SplitDesync:
+	case SplitTCP, SplitTCPOrTLS, SplitDesync, SplitAuto, SplitNever:
 		s.Strat = strat
 	default:
-		s.Strat = SplitTCPOrTLS
+		s.Strat = SplitAuto
 		ok = false
 	}
 	switch retry {
