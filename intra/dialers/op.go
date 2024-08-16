@@ -75,13 +75,13 @@ func writeTCPSplit(w net.Conn, hello []byte) (n int, err error) {
 	first, second := splitHello(hello)
 
 	if p, err = w.Write(first); err != nil {
-		log.E("op: retryLocked: TCP split1 %s (%d): err %v", to, len(first), err)
+		log.E("op: splits: TCP1 %s (%d): err %v", to, len(first), err)
 		return p, err
 	} else if q, err = w.Write(second); err != nil {
-		log.E("op: retryLocked: TCP split2 %s (%d): err %v", to, len(second), err)
+		log.E("op: splits: TCP2 %s (%d): err %v", to, len(second), err)
 		return p + q, err
 	}
-	log.D("op: retryLocked: %s->%s; TCP splits: %d,%d", from, to, len(first), len(second))
+	log.D("op: splits: %s->%s; TCP: %d/%d,%d/%d", from, to, p, len(first), q, len(second))
 
 	return p + q, nil
 }
@@ -139,7 +139,12 @@ func writeTCPOrTLSSplit(w net.Conn, hello []byte) (n int, err error) {
 	n += m
 
 	logeif(err)("op: splits: %s->%s; TLS2 %d/%d; n: %d; err: %v", from, to, splitLen, len(hello), n, err)
-	return
+	// if n > len(hello); return len(hello) to avoid confusion with the callers
+	// that expect bytes written to be equal to the length of the input buffer.
+	// splits: [:f29]:55476->[:f5e]:443; TLS2 51/2048; n: 2053; err: <nil>
+	// F c.upload: [11] runtime error: slice bounds out of range [:2053] with capacity 2048
+	// from: dialers.(*retrier).sendCopyHello
+	return min(n, max(n, len(hello))), err
 }
 
 // splitHello splits the TLS client hello message into two.
