@@ -54,6 +54,13 @@ func Alloc() *[]byte {
 
 // Recycle returns the byte slices to the pool
 func Recycle(b *[]byte) bool {
+	// some buffer pool impl extend len until cap (github.com/v2fly/v2ray-core/blob/0c5abc7e53a/common/bytespool/pool.go#L63)
+	// arr := *b.slice
+	// arr[:cap(arr)]
+	// ----
+	// Other impls truncate the slice to 0 len (github.com/golang/example/blob/9fd7daa/slog-handler-guide/README.md#speed)
+	// (*b.slice) := (*b.slice)[:0]
+
 	// ref: go.dev/play/p/ywM_j-IvVH6
 	if slab := slabfor(b); slab != nil {
 		*b = (*b)[:0]
@@ -74,15 +81,17 @@ func init() {
 	slabs[k(BMAX)] = newpool(BMAX)
 }
 
+// slabfor returns a sync.Pool that byte b can be recycled to.
 func slabfor(b *[]byte) *sync.Pool {
 	sz := cap(*b)
 	return slabof(sz)
 }
 
+// slabof returns the sync.Pool that vends byte slices of size sz.
 func slabof(sz int) (p *sync.Pool) {
 	if sz > BMAX {
 		// do not store larger regions
-	} else if sz >= BMAX { // min 64k
+	} else if sz >= BMAX { // min/exactly 64k
 		p = slabs[k(BMAX)]
 	} else if sz >= B32768 { // min 32k
 		p = slabs[k(B32768)]
@@ -98,6 +107,7 @@ func slabof(sz int) (p *sync.Pool) {
 	return
 }
 
+// newpool returns a new sync.Pool of byte slices with minimum capacity, size.
 func newpool(size int) *sync.Pool {
 	return &sync.Pool{
 		New: func() any {
