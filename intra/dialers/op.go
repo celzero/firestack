@@ -86,6 +86,7 @@ func writeTCPSplit(w net.Conn, hello []byte) (n int, err error) {
 	return p + q, nil
 }
 
+// upb-syssec.github.io/blog/2023/record-fragmentation/
 // from: github.com/Jigsaw-Code/Intra/blob/27637e0ed497/Android/app/src/go/intra/split/retrier.go#L245
 func writeTCPOrTLSSplit(w net.Conn, hello []byte) (n int, err error) {
 	to := raddr(w)
@@ -111,40 +112,73 @@ func writeTCPOrTLSSplit(w net.Conn, hello []byte) (n int, err error) {
 	}
 
 	recordLen, ok := getTLSClientHelloRecordLen(hello)
-	recordSplitLen := splitLen - 5
-	if !ok || recordSplitLen <= 0 || recordSplitLen >= int(recordLen) {
+	recordSplit1Len := splitLen - 5
+	recordSplit2Len := recordLen - uint16(recordSplit1Len)
+	if !ok || recordSplit1Len <= 0 || recordSplit1Len >= int(recordLen) {
 		// TCP split if hello is not a valid TLS Client Hello, or cannot be fragmented
-		n, err = w.Write(hello[:splitLen])
-		if err == nil {
-			var m int
-			m, err = w.Write(hello[splitLen:])
-			n += m
-		}
-		log.D("op: splits: %s->%s; TCP %d/%d; n: %d; err: %v", from, to, splitLen, len(hello), n, err)
-		return
+		return writeTCPSplit(w, hello)
 	}
 
-	parcel := hello[:splitLen]
-	binary.BigEndian.PutUint16(parcel[3:5], uint16(recordSplitLen))
-	if n, err = w.Write(parcel); err != nil {
+	bptr := core.AllocRegion(len(hello))
+	parcel := *bptr
+	parcel = parcel[:cap(parcel)]
+	defer func() {
+		*bptr = parcel
+		core.Recycle(bptr)
+	}()
+	// TLS record layout:
+	//	+-------------+ 0
+	//	| RecordType  |
+	//	+-------------+ 1
+	//	|  Protocol   |
+	//	|  Version    |
+	//	+-------------+ 3
+	//	|   Record    |
+	//	|   Length    |
+	//	+-------------+ 5
+	//	|   Message   |
+	//	|    Data     |
+	//	+-------------+ Message Length + 5
+	//
+	//	RecordType := invalid(0) | handshake(22) | application_data(23) | ...
+	//	LegacyRecordVersion := 0x0301 ("TLS 1.0") | 0x0302 ("TLS 1.1") | 0x0303 ("TLS 1.2")
+	//	0 < Message Length (of handshake)        ≤ 2^14
+	//	0 ≤ Message Length (of application_data) ≤ 2^14
+	//
+	// datatracker.ietf.org/doc/html/rfc8446#section-5.1
+	// see: github.com/Jigsaw-Code/outline-sdk/blob/19f51846/transport/tlsfrag/tls.go#L24
+
+	// do not modify hello in-place as it "updates" the underlying buffer
+	// (go.dev/play/p/CffJ3XziU5u) which breaks the io.Writer.Write contract.
+
+	// 1. copy the split which includes the record header
+	// 2. write len(message data) of this split from [3:5]
+	p := copy(parcel, hello[:splitLen])
+	binary.BigEndian.PutUint16(parcel[3:5], uint16(recordSplit1Len))
+	n, err = w.Write(parcel[:p])
+	if err != nil {
 		log.E("op: Splits: %s->%s; TLS1 %d/%d; n: %d; err: %v", from, to, splitLen, len(hello), n, err)
 		return
 	}
 
-	parcel = hello[splitLen-5:]
-	copy(parcel, hello[:5])
-	binary.BigEndian.PutUint16(parcel[3:5], recordLen-uint16(recordSplitLen))
+	// 3. copy the rest of the message data + trailing space for the 5 byte record header
+	// 4. write the original record header from [0:5]
+	// 5. write len(message data) of this split from [3:5]
+	q := copy(parcel, hello[splitLen-5:])
+	aux := copy(parcel, hello[:5]) // repeated
+	binary.BigEndian.PutUint16(parcel[3:5], recordSplit2Len)
+	m, err := w.Write(parcel[:q])
+	// discount repeated 5-byte header from total bytes
+	n += min(m-aux, 0)
 
-	m, err := w.Write(parcel)
-	n += m
-
-	logeif(err)("op: splits: %s->%s; TLS2 %d/%d; n: %d; err: %v", from, to, splitLen, len(hello), n, err)
+	logeif(err)("op: splits: %s->%s; TLS2 %d/%d; n: %d, m: %d; err: %v",
+		from, to, splitLen, len(hello), n, m, err)
 	// if n > len(hello); return len(hello) to avoid confusion with the callers
 	// that expect bytes written to be equal to the length of the input buffer.
 	// splits: [:f29]:55476->[:f5e]:443; TLS2 51/2048; n: 2053; err: <nil>
 	// F c.upload: [11] runtime error: slice bounds out of range [:2053] with capacity 2048
 	// from: dialers.(*retrier).sendCopyHello
-	return min(n, max(n, len(hello))), err
+	return min(n, len(hello)), err
 }
 
 // splitHello splits the TLS client hello message into two.
