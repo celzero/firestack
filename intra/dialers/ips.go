@@ -17,6 +17,7 @@ import (
 	"github.com/celzero/firestack/intra/protect"
 	"github.com/celzero/firestack/intra/protect/ipmap"
 	"github.com/celzero/firestack/intra/settings"
+	"github.com/miekg/dns"
 )
 
 const (
@@ -116,6 +117,53 @@ func Resolve(hostname string) ([]netip.Addr, error) {
 		} // else: on cached addrs
 	}
 	return addrs, err
+}
+
+func ECH(hostname string) ([]byte, error) {
+	msg := &dns.Msg{}
+	msg.SetQuestion(dns.Fqdn(hostname), dns.TypeHTTPS)
+	q, err := msg.Pack()
+	if err != nil {
+		return nil, err
+	}
+	res, err := ipm.Lookup(q)
+	if err != nil {
+		return nil, err
+	}
+	ans := &dns.Msg{}
+	if err = ans.Unpack(res); err != nil {
+		return nil, err
+	}
+	for _, a := range ans.Answer {
+		if rr, ok := a.(*dns.HTTPS); ok {
+			for i, kv := range rr.Value {
+				if kv.Key() == dns.SVCB_ECHCONFIG {
+					if v, ok := rr.Value[i].(*dns.SVCBECHConfig); ok {
+						return v.ECH, nil
+					}
+				}
+			}
+		}
+	}
+	return nil, errNoEch
+}
+
+func Query(msg *dns.Msg) (*dns.Msg, error) {
+	q, err := msg.Pack()
+	if err != nil {
+		return nil, err
+	}
+
+	r, err := ipm.Lookup(q)
+	if err != nil {
+		return nil, err
+	}
+
+	ans := &dns.Msg{}
+	if err = ans.Unpack(r); err != nil {
+		return nil, err
+	}
+	return ans, nil
 }
 
 // Mapper is a hostname to IP (a/aaaa) resolver for the network engine; may be nil.

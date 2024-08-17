@@ -160,15 +160,24 @@ func TestDisconfirmMismatch(t *testing.T) {
 	}
 }
 
+type fakeResolver struct {
+	*net.Resolver
+}
+
+func (r *fakeResolver) Lookup(q []byte) ([]byte, error) {
+	return nil, errors.New("fake resolver stub")
+}
+
 func TestResolver(t *testing.T) {
 	var dialCount int32
-	resolver := &net.Resolver{
+	r := &net.Resolver{
 		PreferGo: true,
 		Dial: func(context context.Context, network, address string) (net.Conn, error) {
 			atomic.AddInt32(&dialCount, 1)
 			return nil, errors.New("Fake dialer")
 		},
 	}
+	resolver := &fakeResolver{r}
 	m := NewIPMapFor(resolver)
 	s := m.Get("www.google.com")
 	if !s.Empty() {

@@ -13,8 +13,7 @@ import (
 	"net/url"
 	"time"
 
-	x "github.com/celzero/firestack/intra/backend"
-	"github.com/celzero/firestack/intra/core"
+	"github.com/celzero/firestack/intra/dialers"
 	"github.com/celzero/firestack/intra/dnsx"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/xdns"
@@ -235,38 +234,18 @@ func (d *transport) refreshTargetKeyWellKnown() (ocfg *odoh.ObliviousDoHConfig, 
 	return
 }
 
-func (d *transport) bootstrap(t dnsx.Transport) {
-	if t != nil && core.IsNotNil(t) && dnsx.IsEncrypted(t) {
-		d.boot = t
-		log.D("odoh: bootstrap %s %s %s", t.ID(), t.Type(), t.GetAddr())
-	} else {
-		log.W("odoh: bootstrap not encrypted or nil")
-	}
-}
-
 func (d *transport) refreshTargetKeyDNS() (ocfg *odoh.ObliviousDoHConfig, exp time.Time, err error) {
 	cmsg := new(dns.Msg)
 	cmsg.SetQuestion(dns.Fqdn(d.odohtargetname), dns.TypeHTTPS)
 
 	var cres *dns.Msg
-	if d.boot != nil {
-		discard := new(x.DNSSummary)
-		cres, err = d.boot.Query(dnsx.NetTypeTCP, cmsg, discard)
-		log.D("odoh: refresh-target: bootstrap: err? %v; %s", err, discard.Str())
-	} else {
-		var t1 time.Duration
-		var qerr *dnsx.QueryError
-		// doh query for odoh-config is sent to odohconfigdns
-		if req, err1 := d.asDohRequest(cmsg); err1 != nil {
-			err = err1
-			return
-		} else {
-			cres, _, _, t1, qerr = d.send(dnsx.NetNoProxy, req)
-			if qerr != nil {
-				err = qerr.Unwrap() // qerr may be nil
-			}
+	// fetch odoh-config from the default dns
+	if cres, err = dialers.Query(cmsg); err != nil {
+		var req *http.Request
+		// fetch odoh-config from odohconfigdns
+		if req, err = d.asDohRequest(cmsg); err == nil {
+			cres, _, _, _, err = d.send(dnsx.NetNoProxy, req)
 		}
-		log.D("odoh: refresh-target: %s; elapsed: %dms; err? %v", d.odohtargetname, t1.Milliseconds(), qerr)
 	}
 
 	if err != nil {

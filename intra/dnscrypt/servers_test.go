@@ -61,14 +61,21 @@ func (*fakeBdg) Route(a, b, c, d, e string) *rnet.Tab { return baseTab }
 func (*fakeBdg) OnComplete(*rnet.ServerSummary)       {}
 */
 
+type fakeResolver struct{ *net.Resolver }
+
+func (r fakeResolver) Lookup([]byte) ([]byte, error) {
+	return nil, errors.New("not implemented")
+}
+
 func TestOne(t *testing.T) {
-	resolver := &net.Resolver{}
+	r := &net.Resolver{}
 	// create a struct that implements protect.Controller interface
 	ctl := &fakeCtl{}
 	obs := &fakeObs{}
 	// bdg := &fakeBdg{Controller: ctl}
 	pxr := ipn.NewProxifier(ctl, obs)
 	ilog.SetLevel(0)
+	resolver := fakeResolver{r}
 	dialers.Mapper(resolver)
 	settings.Debug = true
 	p := NewDcMult(pxr, ctl)
