@@ -7,17 +7,13 @@
 package dialers
 
 import (
-	"context"
 	"net"
 	"net/netip"
 	"strconv"
 
-	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
 	"github.com/celzero/firestack/intra/protect/ipmap"
-	"github.com/celzero/firestack/intra/settings"
-	"github.com/miekg/dns"
 )
 
 const (
@@ -32,23 +28,6 @@ const (
 )
 
 var ipm ipmap.IPMap = ipmap.NewIPMap()
-var ipProto *core.Volatile[string] = core.NewVolatile(settings.IP46)
-
-func addrstr(ip netip.Addr, port int) string {
-	return net.JoinHostPort(ip.String(), strconv.Itoa(port))
-}
-
-func tcpaddr(ip netip.Addr, port int) *net.TCPAddr {
-	// ip must never be a wildcard address and must be unmapped
-	// go.dev/play/p/UopgKYEMJtw
-	return &net.TCPAddr{IP: ip.AsSlice(), Port: port}
-}
-
-func udpaddr(ip netip.Addr, port int) *net.UDPAddr {
-	// ip must never be a wildcard address and must be unmapped
-	// go.dev/play/p/UopgKYEMJtw
-	return &net.UDPAddr{IP: ip.AsSlice(), Port: port}
-}
 
 // Resolves hostOrIP, and re-seeds it if existing is non-empty
 func renew(hostOrIP string, existing *ipmap.IPSet) (cur *ipmap.IPSet, ok bool) {
@@ -107,116 +86,11 @@ func For(hostOrIP string) []netip.Addr {
 	return nil
 }
 
-// Resolve resolves hostname to IP addresses, bypassing cache.
-// If resolution fails, entries from the cache are returned, if any.
-func Resolve(hostname string) ([]netip.Addr, error) {
-	// ipm.LookupNetIP itself has a short-term cache (ipmapper.go:battl)
-	addrs, err := ipm.LookupNetIP(context.Background(), "ip", hostname)
-	if len(addrs) <= 0 { // check cache
-		if addrs = ipm.GetAny(hostname).Addrs(); len(addrs) > 0 {
-			return addrs, nil
-		} // else: on cached addrs
-	}
-	return addrs, err
-}
-
-func ECH(hostname string) ([]byte, error) {
-	msg := &dns.Msg{}
-	msg.SetQuestion(dns.Fqdn(hostname), dns.TypeHTTPS)
-	q, err := msg.Pack()
-	if err != nil {
-		return nil, err
-	}
-	res, err := ipm.Lookup(q)
-	if err != nil {
-		return nil, err
-	}
-	ans := &dns.Msg{}
-	if err = ans.Unpack(res); err != nil {
-		return nil, err
-	}
-	for _, a := range ans.Answer {
-		if rr, ok := a.(*dns.HTTPS); ok {
-			for i, kv := range rr.Value {
-				if kv.Key() == dns.SVCB_ECHCONFIG {
-					if v, ok := rr.Value[i].(*dns.SVCBECHConfig); ok {
-						return v.ECH, nil
-					}
-				}
-			}
-		}
-	}
-	return nil, errNoEch
-}
-
-func Query(msg *dns.Msg) (*dns.Msg, error) {
-	q, err := msg.Pack()
-	if err != nil {
-		return nil, err
-	}
-
-	r, err := ipm.Lookup(q)
-	if err != nil {
-		return nil, err
-	}
-
-	ans := &dns.Msg{}
-	if err = ans.Unpack(r); err != nil {
-		return nil, err
-	}
-	return ans, nil
-}
-
 // Mapper is a hostname to IP (a/aaaa) resolver for the network engine; may be nil.
 func Mapper(m ipmap.IPMapper) {
 	log.I("dialers: ips: mapper ok? %t", m != nil)
 	// usually set once per tunnel disconnect/reconnect
 	ipm.With(m)
-}
-
-func Use4() bool {
-	d := true // by default, use4
-	switch ipProto.Load() {
-	case settings.IP6:
-		return false
-	case settings.IP4:
-		fallthrough
-	case settings.IP46:
-		return true
-	default:
-		return d
-	}
-}
-
-func Use6() bool {
-	d := false // by default, use4 instead
-	switch ipProto.Load() {
-	case settings.IP4:
-		return false
-	case settings.IP6:
-		fallthrough
-	case settings.IP46:
-		return true
-	default:
-		return d
-	}
-}
-
-// p must be one of settings.IP4, settings.IP6, or settings.IP46
-func IPProtos(ippro string) (diff bool) {
-	switch ippro {
-	case settings.IP4:
-		fallthrough
-	case settings.IP6:
-		fallthrough
-	case settings.IP46:
-		diff = ipProto.Swap(ippro) != ippro
-	default:
-		log.D("dialers: ips: invalid protos %s; use existing: %s", ippro, ipProto.Load())
-		return
-	}
-	log.I("dialers: ips: protos set to %s; diff? %t", ippro, diff)
-	return
 }
 
 func Clear() {
@@ -268,4 +142,20 @@ func ipof(addr string) (zz netip.Addr) {
 		return ip
 	}
 	return
+}
+
+func addrstr(ip netip.Addr, port int) string {
+	return net.JoinHostPort(ip.String(), strconv.Itoa(port))
+}
+
+func tcpaddr(ip netip.Addr, port int) *net.TCPAddr {
+	// ip must never be a wildcard address and must be unmapped
+	// go.dev/play/p/UopgKYEMJtw
+	return &net.TCPAddr{IP: ip.AsSlice(), Port: port}
+}
+
+func udpaddr(ip netip.Addr, port int) *net.UDPAddr {
+	// ip must never be a wildcard address and must be unmapped
+	// go.dev/play/p/UopgKYEMJtw
+	return &net.UDPAddr{IP: ip.AsSlice(), Port: port}
 }
