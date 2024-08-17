@@ -169,7 +169,7 @@ func writeTCPOrTLSSplit(w net.Conn, hello []byte) (n int, err error) {
 	binary.BigEndian.PutUint16(parcel[3:5], recordSplit2Len)
 	m, err := w.Write(parcel[:q])
 	// discount repeated 5-byte header from total bytes
-	n += min(m-aux, 0)
+	n += max(m-aux, 0)
 
 	logeif(err)("op: splits: %s->%s; TLS2 %d/%d; n: %d, m: %d; err: %v",
 		from, to, splitLen, len(hello), n, m, err)
