@@ -79,6 +79,12 @@ func NewTLSTransport(id, rawurl string, addrs []string, px ipn.Proxies, ctl prot
 		relay:   relay,
 		est:     core.NewP50Estimator(ctx),
 	}
+	// TODO: ECH
+	ech := t.ech()
+	// if len(ech) > 0 {
+	// 	tlscfg.EncryptedClientHelloConfigList = ech
+	// 	tlscfg.MinVersion = tls.VersionTLS13
+	// }
 	// local dialer: protect.MakeNsDialer(id, ctl)
 	tx.c = &dns.Client{
 		Net:            "tcp-tls",
@@ -87,8 +93,18 @@ func NewTLSTransport(id, rawurl string, addrs []string, px ipn.Proxies, ctl prot
 		SingleInflight: true,
 		TLSConfig:      tlscfg,
 	}
-	log.I("dot: (%s) setup: %s; relay? %t; resolved? %t", id, rawurl, relay != nil, ok)
+	log.I("dot: (%s) setup: %s; relay? %t; resolved? %t, ech? %t",
+		id, rawurl, relay != nil, ok, len(ech) > 0)
 	return tx, nil
+}
+
+func (t *dot) ech() []byte {
+	if v, err := dialers.ECH(t.host); err == nil {
+		log.V("dot: ech(%s): %d", t.host, len(v))
+		return v
+	}
+	log.W("dot: ech(%s): not found", t.host)
+	return nil
 }
 
 func (t *dot) doQuery(pid string, q *dns.Msg) (response *dns.Msg, elapsed time.Duration, qerr *dnsx.QueryError) {

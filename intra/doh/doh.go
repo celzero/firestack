@@ -205,6 +205,7 @@ func newTransport(typ, id, rawurl, otargeturl string, addrs []string, px ipn.Pro
 		log.I("doh: ODOH for %s -> %s", proxy, otargeturl)
 	}
 
+	ech := t.ech()
 	// TODO: ClientAuth
 	// Supply a client certificate during TLS handshakes.
 	// if auth != nil {
@@ -212,6 +213,13 @@ func newTransport(typ, id, rawurl, otargeturl string, addrs []string, px ipn.Pro
 	// 	t.tlsconfig = &tls.Config{
 	// 		GetClientCertificate: signer.GetClientCertificate,
 	// 		ServerName:           t.hostname,
+	// 	}
+	// }
+	// TODO: ECH
+	// if len(ech) > 0 {
+	// 	t.tlsconfig = &tls.Config{
+	// 		MinVersion:                     tls.VersionTLS13, // must be 1.3
+	// 		EncryptedClientHelloConfigList: ech,
 	// 	}
 	// }
 	t.tlsconfig = &tls.Config{
@@ -230,13 +238,30 @@ func newTransport(typ, id, rawurl, otargeturl string, addrs []string, px ipn.Pro
 		TLSClientConfig:       t.tlsconfig.Clone(),
 	}
 
-	log.I("doh: new transport(%s): %s; relay? %t; addrs? %v; resolved? %t", t.typ, t.url, relay != nil, addrs, renewed)
+	log.I("doh: new transport(%s): %s; relay? %t; addrs? %v; resolved? %t, ech? %t",
+		t.typ, t.url, relay != nil, addrs, renewed, len(ech) > 0)
 	return t, nil
 }
 
 type proxytransport struct {
 	p ipn.Proxy
 	c *http.Client
+}
+
+func (t *transport) ech() []byte {
+	name := t.hostname
+	if t.typ == dnsx.ODOH {
+		name = t.odohproxyname
+	}
+	if len(name) <= 0 {
+		return nil
+	} else if v, err := dialers.ECH(name); err != nil {
+		log.W("doh: ech(%s): %v", name, err)
+		return nil
+	} else {
+		log.V("doh: ech(%s): sz %d", name, len(v))
+		return v
+	}
 }
 
 // always called from a go-routine
