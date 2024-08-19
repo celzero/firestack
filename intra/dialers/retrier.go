@@ -265,7 +265,8 @@ func (r *retrier) CloseRead() error {
 	r.readDone.Store(true)
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
-	return r.conn.CloseRead()
+	core.CloseOp(r.conn, core.CopR)
+	return nil
 }
 
 // Read data from r.conn into buf
@@ -409,7 +410,8 @@ func (r *retrier) CloseWrite() error {
 	r.writeDone.Store(true)
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
-	return r.conn.CloseWrite()
+	core.CloseOp(r.conn, core.CopW)
+	return nil
 }
 
 // Close closes the connection and the read and write flags.
@@ -424,7 +426,10 @@ func (r *retrier) Close() error {
 func (r *retrier) LocalAddr() net.Addr {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
-	return r.conn.LocalAddr()
+	if c := r.conn; c != nil && core.IsNotNil(c) {
+		return c.LocalAddr()
+	}
+	return zeroNetAddr{}
 }
 
 // RemoteAddr returns the remote address of the connection.
@@ -442,7 +447,10 @@ func (r *retrier) SetReadDeadline(t time.Time) error {
 	// is complete. Retry relies on setting its own read
 	// deadline, and we don't want this to interfere.
 	if r.retryCompleted() {
-		return r.conn.SetReadDeadline(t)
+		if c := r.conn; c != nil && core.IsNotNil(c) {
+			return c.SetWriteDeadline(t)
+		}
+		return errNoConn
 	}
 	return nil
 }
@@ -452,7 +460,10 @@ func (r *retrier) SetWriteDeadline(t time.Time) error {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
 	r.writeDeadline = t
-	return r.conn.SetWriteDeadline(t)
+	if c := r.conn; c != nil && core.IsNotNil(c) {
+		return c.SetWriteDeadline(t)
+	}
+	return errNoConn
 }
 
 // SetDeadline sets the read and write deadlines for the connection.
