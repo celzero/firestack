@@ -19,10 +19,10 @@ import (
 type CloserOp int
 
 const (
-	CopR CloserOp = iota
-	CopW
-	CopRW
-	CopAny
+	CopR   CloserOp = iota // close read
+	CopW                   // close write
+	CopRW                  // close read write
+	CopAny                 // close
 )
 
 func CloseFile(f *os.File) {
@@ -140,7 +140,7 @@ func CloseOp(c io.Closer, op CloserOp) {
 			CloseTCPRead(x)
 		} else if op == CopW {
 			CloseTCPWrite(x)
-		} else { // == "rw"
+		} else { // == "rw" or "any"
 			CloseConn(x)
 		}
 	case *net.UDPConn:
