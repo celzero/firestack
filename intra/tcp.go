@@ -237,7 +237,7 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target netip.AddrPort)
 	}
 
 	// handshake; since we assume a duplex-stream from here on
-	if open, err = gconn.Connect(); !open {
+	if open, err = gconn.Establish(); !open {
 		err = fmt.Errorf("tcp: %s connect err %v; %s -> %s for %s", cid, err, src, target, uid)
 		log.E("%v", err)
 		return deny // == !open

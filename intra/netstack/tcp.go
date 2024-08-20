@@ -113,7 +113,7 @@ func (g *GTCPConn) endpoint() tcpip.Endpoint {
 	return g.ep.Load()
 }
 
-func (g *GTCPConn) Connect() (open bool, err error) {
+func (g *GTCPConn) Establish() (open bool, err error) {
 	rst, err := g.synack(true)
 
 	log.VV("ns: tcp: forwarder: connect src(%v) => dst(%v); fin? %t", g.LocalAddr(), g.RemoteAddr(), rst)
