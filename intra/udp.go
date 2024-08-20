@@ -77,6 +77,7 @@ var (
 	errIcmpFirewalled = errors.New("icmp: firewalled")
 	errUdpFirewalled  = errors.New("udp: firewalled")
 	errUdpSetupConn   = errors.New("udp: could not create conn")
+	errUdpEnd         = errors.New("udp: stopped")
 )
 
 var (
@@ -181,7 +182,7 @@ func (h *udpHandler) ProxyMux(gconn *netstack.GUDPConn, src, dst netip.AddrPort)
 // Error implements netstack.GUDPConnHandler.
 // Must be called from a goroutine.
 func (h *udpHandler) Error(gconn *netstack.GUDPConn, src, dst netip.AddrPort, err error) {
-	ok := h.proxy(gconn, src, dst, false) // never mux
+	ok := h.proxy(gconn, src, dst, false)
 	log.I("udp: proxy: %v ->  %v; err %v; recovered? %t", src, dst, err, ok)
 }
 
@@ -194,11 +195,6 @@ func (h *udpHandler) Proxy(gconn *netstack.GUDPConn, src, dst netip.AddrPort) (o
 
 // proxy connects src to dst over a proxy; thread-safe.
 func (h *udpHandler) proxy(gconn *netstack.GUDPConn, src, dst netip.AddrPort, mux bool) (ok bool) {
-	if h.status.Load() == UDPEND {
-		log.D("udp: connect: end")
-		clos(gconn) // disconnect, no nat
-		return      // not ok
-	}
 
 	remote, smm, ct, err := h.Connect(gconn, src, dst, mux) // remote may be nil; smm is never nil
 
@@ -236,8 +232,7 @@ func (h *udpHandler) Connect(gconn *netstack.GUDPConn, src, target netip.AddrPor
 	// see: h.Connect -> dnsOverride
 	if err = gconn.Establish(); err != nil {
 		log.W("udp: %s gconn connect, mux? %t, err %s => %s", src, target, mux, err)
-		return nil, nil, ct, err
-	}
+	} // err handled after onFlow, so that the listener knows about this gconn/flow
 
 	realips, domains, probableDomains, blocklists := undoAlg(h.resolver, target.Addr())
 
@@ -246,6 +241,11 @@ func (h *udpHandler) Connect(gconn *netstack.GUDPConn, src, target netip.AddrPor
 	cid, pid, uid := splitCidPidUid(res)
 	smm = udpSummary(cid, pid, uid, target.Addr())
 	ct = core.ConnTuple{CID: cid, UID: uid}
+
+	if h.status.Load() == UDPEND {
+		log.D("udp: connect: end")
+		return nil, smm, ct, errUdpEnd // disconnect, no nat
+	}
 
 	if pid == ipn.Block {
 		var secs uint32
@@ -260,6 +260,10 @@ func (h *udpHandler) Connect(gconn *netstack.GUDPConn, src, target netip.AddrPor
 		log.I("udp: %s conn firewalled from %s => %s (dom: %s + %s/ real: %s); stall? %ds for uid %s",
 			cid, src, target, domains, probableDomains, realips, secs, uid)
 		return nil, smm, ct, errUdpFirewalled // disconnect
+	}
+
+	if err != nil { // gconn.Establish() failed
+		return nil, smm, ct, err // disconnect
 	}
 
 	// requests meant for ipn.Exit are always routed untouched to target

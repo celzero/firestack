@@ -80,6 +80,7 @@ const (
 var (
 	errTcpFirewalled = errors.New("tcp: firewalled")
 	errTcpSetupConn  = errors.New("tcp: could not create conn")
+	errTcpEnd        = errors.New("tcp: stopped")
 )
 
 var _ netstack.GTCPConnHandler = (*tcpHandler)(nil)
@@ -194,11 +195,6 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target netip.AddrPort)
 		}
 	}()
 
-	if h.status.Load() == TCPEND {
-		log.D("tcp: proxy: end %v -> %v; err? %v", src, target, err)
-		return deny
-	}
-
 	if !src.IsValid() || !target.IsValid() {
 		log.E("tcp: nil addr %v -> %v; close err? %v", src, target, err)
 		return deny
@@ -217,9 +213,14 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target netip.AddrPort)
 	// flow/dns-override are nat-aware, as in, they can deal with
 	// nat-ed ips just fine, and so, use target as-is instead of ipx4
 	res := h.onFlow(src, target, realips, domains, probableDomains, blocklists)
-
 	cid, pid, uid := splitCidPidUid(res)
 	smm = tcpSummary(cid, pid, uid, target.Addr())
+
+	if h.status.Load() == TCPEND {
+		err = errTcpEnd
+		log.D("tcp: proxy: end %v -> %v", src, target)
+		return deny
+	}
 
 	if pid == ipn.Block {
 		var secs uint32

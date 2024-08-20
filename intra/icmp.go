@@ -137,10 +137,6 @@ func (h *icmpHandler) CloseConns(cids []string) []string { return nil }
 // see: sturmflut.github.io/linux/ubuntu/2015/01/17/unprivileged-icmp-sockets-on-linux/
 // ex: github.com/prometheus-community/pro-bing/blob/0bacb2d5e/ping.go#L703
 func (h *icmpHandler) Ping(source, target netip.AddrPort, msg []byte) (echoed bool) {
-	if h.status.Load() == ICMPEND {
-		log.D("t.icmp: handler ended")
-		return // not handled
-	}
 	var px ipn.Proxy = nil
 	var err error
 
@@ -154,9 +150,15 @@ func (h *icmpHandler) Ping(source, target netip.AddrPort, msg []byte) (echoed bo
 		queueSummary(h.smmch, h.done, smm.done(err)) // err may be nil
 	}()
 
+	if h.status.Load() == ICMPEND {
+		err = errIcmpEnd
+		log.D("t.icmp: handler ended (%s => %s)", source, target)
+		return false // not handled
+	}
+
 	if block {
 		err = errIcmpFirewalled
-		log.I("t.icmp: egress: firewalled %s -> %s", source, target)
+		log.I("t.icmp: egress: firewalled %s => %s", source, target)
 		// sleep for a while to avoid busy conns? will also block netstack
 		// see: netstack/dispatcher.go:newReadvDispatcher
 		// time.Sleep(blocktime)
@@ -192,7 +194,7 @@ func (h *icmpHandler) Ping(source, target netip.AddrPort, msg []byte) (echoed bo
 	extendp(uc, icmptimeout)
 	// todo: construct ICMP header? github.com/prometheus-community/pro-bing/blob/0bacb2d5e7/ping.go#L717
 	_, err = uc.WriteTo(msg, net.UDPAddrFromAddrPort(dst))
-	logei(err, "t.icmp: egress: write(%v <- %v) ping; done %d; err? %v", dst, source, len(msg), err)
+	logei(err, "t.icmp: egress: write(%v <= %v) ping; done %d; err? %v", dst, source, len(msg), err)
 	if err != nil {
 		return false // write error
 	}
@@ -208,7 +210,7 @@ func (h *icmpHandler) Ping(source, target netip.AddrPort, msg []byte) (echoed bo
 	extendp(uc, icmptimeout)
 	_, from, err := uc.ReadFrom(b) // todo: assert from == dst
 	// todo: ignore non-ICMP replies in b: github.com/prometheus-community/pro-bing/blob/0bacb2d5e7/ping.go#L630
-	logei(err, "t.icmp: ingress: read(%v <- %v / %v) ping done; err? %v", source, from, dst, err)
+	logei(err, "t.icmp: ingress: read(%v <= %v / %v) ping done; err? %v", source, from, dst, err)
 
 	return true // echoed; even if err != nil
 }
