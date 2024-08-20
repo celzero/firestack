@@ -25,6 +25,7 @@ package intra
 
 import (
 	"os"
+	"path/filepath"
 	"runtime/debug"
 
 	"github.com/celzero/firestack/intra/settings"
@@ -112,7 +113,7 @@ func Build() string {
 // SetCrashFd sets output file to go runtime crashes to.
 func SetCrashFd(fp string) bool {
 	if len(fp) > 0 {
-		f, err := os.Open(fp)
+		f, err := os.OpenFile(filepath.Clean(fp), os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0600)
 		if err == nil {
 			var zz debug.CrashOptions
 			debug.SetCrashOutput(f, zz)
