@@ -94,8 +94,8 @@ func (f *icmpForwarder) reply4(id stack.TransportEndpointID, pkt *stack.PacketBu
 
 	// always forward in a goroutine to avoid blocking netstack
 	// see: netstack/dispatcher.go:newReadvDispatcher
+	pkt.IncRef()
 	core.Go("icmp4.pinger", func() {
-		pkt.IncRef()
 		defer pkt.DecRef()
 		if !f.h.Ping(src, dst, data) { // unreachable
 			// make unreachable icmp packet for req and l7
@@ -149,8 +149,8 @@ func (f *icmpForwarder) reply6(id stack.TransportEndpointID, pkt *stack.PacketBu
 	log.D("icmp: v6: type %v/%v sz[%d] from src(%v) -> dst(%v)", hdr.Type(), hdr.Code(), len(data), src, dst)
 	// always forward in a goroutine to avoid blocking netstack
 	// see: netstack/dispatcher.go:newReadvDispatcher
+	pkt.IncRef()
 	core.Go("icmp4.pinger", func() {
-		pkt.IncRef()
 		defer pkt.DecRef()
 
 		var err tcpip.Error
