@@ -237,11 +237,7 @@ func (l *simpleLogger) Usr(msg string) {
 		if count := l.incrStCount(msg); count > similarUsrMsgThreshold {
 			return
 		}
-		if c := l.getConsole(); c != nil {
-			c.Log(int32(USR), msg)
-		} else {
-			l.toConsole(&conMsg{msg, USR})
-		}
+		l.toConsole(&conMsg{msg, USR})
 	}
 }
 

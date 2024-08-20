@@ -155,14 +155,16 @@ func (h *udpHandler) onFlow(localaddr, target netip.AddrPort, realips, domains, 
 	}
 
 	var proto int32 = 17 // udp
-	res := h.listener.Flow(proto, int32(uid), src, dst, realips, domains, probableDomains, blocklists)
+	res, flok := core.Gr("udp.flow", func() *Mark {
+		return h.listener.Flow(proto, int32(uid), src, dst, realips, domains, probableDomains, blocklists)
+	}, onFlowTimeout)
 
-	if res == nil { // zeroListener returns nil
-		log.W("udp: onFlow: empty res from kt; optbase")
-		return optionsBase
+	if res == nil || !flok { // zeroListener returns nil
+		log.W("udp: onFlow: empty res or on flow timeout %t; block!", flok)
+		return optionsBlock
 	} else if len(res.PID) <= 0 {
-		log.W("udp: onFlow: no pid from kt; using base")
-		res.PID = ipn.Base
+		log.W("udp: onFlow: no pid from kt; exit!")
+		res.PID = ipn.Exit
 	}
 
 	return res

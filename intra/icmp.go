@@ -95,7 +95,17 @@ func (h *icmpHandler) onFlow(source, target netip.AddrPort, realips, domains, pr
 	src := source.String()
 	dst := target.String()
 	// todo: handle forwarding icmp to appropriate proxy?
-	res := h.listener.Flow(proto, int32(uid), src, dst, realips, domains, probableDomains, blocklists)
+	res, flok := core.Gr("udp.flow", func() *Mark {
+		return h.listener.Flow(proto, int32(uid), src, dst, realips, domains, probableDomains, blocklists)
+	}, onFlowTimeout)
+
+	if res == nil || !flok { // zeroListener returns nil
+		log.W("icmp: onFlow: empty res or on flow timeout %t; block!", flok)
+		res = optionsBlock
+	} else if len(res.PID) <= 0 {
+		log.E("icmp: onFlow: no pid from kt; exit!")
+		res.PID = ipn.Exit
+	}
 
 	cid, pid, _ = splitCidPidUid(res)
 	block = pid == ipn.Block

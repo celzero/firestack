@@ -72,7 +72,10 @@ const (
 	TCPEND
 )
 
-const retrytimeout = 1 * time.Minute
+const (
+	retrytimeout  = 1 * time.Minute
+	onFlowTimeout = 5 * time.Second
+)
 
 var (
 	errTcpFirewalled = errors.New("tcp: firewalled")
@@ -136,14 +139,17 @@ func (h *tcpHandler) onFlow(localaddr, target netip.AddrPort, realips, domains, 
 	var proto int32 = 6 // tcp
 	src := localaddr.String()
 	dst := target.String()
-	res := h.listener.Flow(proto, int32(uid), src, dst, realips, domains, probableDomains, blocklists)
 
-	if res == nil { // zeroListener returns nil
-		log.W("tcp: onFlow: empty res from kt; using base")
-		return optionsBase
+	res, flok := core.Gr("tcp.flow", func() *Mark {
+		return h.listener.Flow(proto, int32(uid), src, dst, realips, domains, probableDomains, blocklists)
+	}, onFlowTimeout)
+
+	if res == nil || !flok { // zeroListener returns nil
+		log.W("tcp: onFlow: empty res or on flow timeout %t; block!", flok)
+		return optionsBlock
 	} else if len(res.PID) <= 0 {
-		log.W("tcp: onFlow: no pid from kt; using base")
-		res.PID = ipn.Base
+		log.E("tcp: onFlow: no pid from kt; exit!")
+		res.PID = ipn.Exit
 	}
 
 	return res

@@ -6,6 +6,10 @@
 
 package core
 
+import (
+	"time"
+)
+
 // Go runs f in a goroutine and recovers from any panics.
 func Go(who string, f func()) {
 	go func() {
@@ -56,4 +60,25 @@ func Gif(cond bool, who string, f func()) {
 	if cond {
 		Go(who, f)
 	}
+}
+
+func Gr[T any](who string, f func() T, d time.Duration) (zz T, ok bool) {
+	ch := make(chan T)
+
+	timer := time.NewTicker(d)
+	defer timer.Stop()
+
+	go func() {
+		defer Recover(Exit11, who)
+		defer close(ch)
+
+		ch <- f()
+	}()
+
+	select {
+	case out := <-ch:
+		return out, true
+	case <-timer.C:
+	}
+	return zz, false
 }

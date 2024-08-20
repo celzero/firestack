@@ -62,6 +62,8 @@ const (
 
 	ttl10m = 10 * time.Minute
 
+	onQueryTimeout = 3 * time.Second
+
 	// pseudo transport ID to tag dns64 responses
 	AlgDNS64 = "dns64"
 )
@@ -82,6 +84,7 @@ var (
 	ErrNoProxyDNS          = errors.New("no proxy dns")
 	ErrAddFailed           = errors.New("add failed")
 	errNoSuchTransport     = errors.New("missing transport")
+	errOnQueryTimeout      = errors.New("timeout fetching prefs")
 	errBlockFreeTransport  = errors.New("block free transport")
 	errNoRdns              = errors.New("no rdns")
 	errTransportNotMult    = errors.New("not a multi-transport")
@@ -413,7 +416,17 @@ func (r *resolver) forward(q []byte, chosenids ...string) (res0 []byte, err0 err
 		return nil, errMissingQueryName
 	}
 
-	pref := r.listener.OnQuery(qname, qtyp)
+	pref, oqok := core.Gr("r.onQuery", func() *x.DNSOpts {
+		return r.listener.OnQuery(qname, qtyp)
+	}, onQueryTimeout)
+	if !oqok {
+		log.W("dns: fwd: no preferences for %s", qname)
+		smm.Latency = time.Since(starttime).Seconds()
+		smm.Status = ClientError
+		smm.Msg = errOnQueryTimeout.Error()
+		return nil, errOnQueryTimeout
+	}
+
 	id, sid, pid, presetIPs := r.preferencesFrom(qname, uint16(qtyp), pref, chosenids...)
 	t := r.determineTransport(id) // id may be empty if pref is nil
 

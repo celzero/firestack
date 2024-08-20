@@ -101,7 +101,6 @@ func NewTunnel(fd, mtu int, fakedns string, tunmode *settings.TunMode, dtr Defau
 		return nil, fmt.Errorf("tun: no bridge? %t or default-dns? %t", bdg == nil, dtr == nil)
 	}
 
-	// setConsole sets external console to redirect log output to.
 	log.SetConsole(bdg)
 	natpt := x64.NewNatPt(tunmode)
 	proxies := ipn.NewProxifier(bdg, bdg)

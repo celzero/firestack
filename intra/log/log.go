@@ -75,6 +75,7 @@ func SetConsoleLevel(level LogLevel) {
 	}
 }
 
+// SetConsole sets external console to redirect log output to.
 func SetConsole(c Console) {
 	if Glogger != nil {
 		Glogger.SetConsole(c)
