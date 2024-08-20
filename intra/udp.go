@@ -47,6 +47,7 @@ import (
 type udpHandler struct {
 	resolver    dnsx.Resolver   // dns resolver to forward queries to
 	conntracker core.ConnMapper // connid -> [local,remote]
+	mux         *muxTable       // EIM/EIF table
 	tunMode     *settings.TunMode
 	listener    SocketListener      // listener for socket summaries
 	prox        ipn.Proxies         // proxy provider for egress
@@ -113,6 +114,7 @@ func NewUDPHandler(resolver dnsx.Resolver, prox ipn.Proxies, tunMode *settings.T
 		prox:        prox,
 		fwtracker:   core.NewExpiringMap(),
 		conntracker: core.NewConnMap(),
+		mux:         newMuxTable(),
 		status:      core.NewVolatile(UDPOK),
 		smmch:       make(chan *SocketSummary, smmchSize),
 		done:        make(chan struct{}),
@@ -171,58 +173,15 @@ func (h *udpHandler) onFlow(localaddr, target netip.AddrPort, realips, domains, 
 }
 
 // ProxyMux implements netstack.GUDPConnHandler
-func (h *udpHandler) ProxyMux(gconn *netstack.GUDPConn, src netip.AddrPort) (ok bool) {
+func (h *udpHandler) ProxyMux(gconn *netstack.GUDPConn, src, dst netip.AddrPort) (ok bool) {
 	defer core.Recover(core.Exit11, "udp.ProxyMux")
-
-	log.I("udp: mux for %s", src)
-	// only ipn.Exit and ipn.Base support udp mux / packet conns
-	var invalidaddr = netip.AddrPort{}
-
-	if h.status.Load() == UDPEND {
-		log.D("udp: connect: mux: end listen(%v)", src)
-		clos(gconn)
-		return // not ok
-	}
-
-	// connect (register endpoint) right away, since new packets needn't be
-	// handled / assumed as a new conn (endpoint) by netstack
-	gerr := gconn.Connect()
-
-	local, smm, _, err := h.Connect(gconn, src, invalidaddr, gerr != nil) // local may be nil; smm is never nil
-
-	if gerr != nil || err != nil || local == nil {
-		clos(gconn, local)
-		queueSummary(h.smmch, h.done, smm.done(gerr, err))
-		log.W("udp: proxy: mux: unexpected %s -> [unconnected]; errs: %v / %v", src, gerr, err)
-		// invalid dst addrs are not tracked; conntracker.Untrack() not req
-		return // not ok
-	}
-
-	mxr := newMuxer(local)
-	core.Gx("udp.ProxyMux.looper", func() {
-		for {
-			dxconn, err := mxr.vend()
-			if err != nil {
-				log.I("udp: proxy: mux: %s vend for %s done; err? %v", smm.ID, src, err)
-				break
-			}
-			if dst, err := ipp(dxconn.RemoteAddr()); err != nil || dst.Addr().IsUnspecified() || !dst.IsValid() {
-				log.W("udp: proxy: mux: %s bad dst ipport %s -> %s; err: %v", smm.ID, src, dst, err)
-				clos(dxconn)
-			} else {
-				log.I("udp: proxy: mux: %s for %s -> %s", smm.ID, src, dst)
-				h.proxy(dxconn, src, dst)
-			}
-		}
-		log.I("udp: proxy: mux: %s for %s done", smm.ID, mxr.stats)
-	})
-	return true // ok
+	return h.proxy(gconn, src, dst, true)
 }
 
 // Error implements netstack.GUDPConnHandler.
 // Must be called from a goroutine.
 func (h *udpHandler) Error(gconn *netstack.GUDPConn, src, dst netip.AddrPort, err error) {
-	ok := h.Proxy(gconn, src, dst)
+	ok := h.proxy(gconn, src, dst, false) // never mux
 	log.I("udp: proxy: %v ->  %v; err %v; recovered? %t", src, dst, err, ok)
 }
 
@@ -230,32 +189,23 @@ func (h *udpHandler) Error(gconn *netstack.GUDPConn, src, dst netip.AddrPort, er
 // Must be called from a goroutine.
 func (h *udpHandler) Proxy(gconn *netstack.GUDPConn, src, dst netip.AddrPort) (ok bool) {
 	defer core.Recover(core.Exit11, "udp.Proxy")
-
-	return h.proxy(gconn, src, dst)
+	return h.proxy(gconn, src, dst, false)
 }
 
 // proxy connects src to dst over a proxy; thread-safe.
-func (h *udpHandler) proxy(gconn net.Conn, src, dst netip.AddrPort) (ok bool) {
+func (h *udpHandler) proxy(gconn *netstack.GUDPConn, src, dst netip.AddrPort, mux bool) (ok bool) {
 	if h.status.Load() == UDPEND {
 		log.D("udp: connect: end")
 		clos(gconn) // disconnect, no nat
 		return      // not ok
 	}
 
-	// if gconn is a netstack.GUDPConn, then it may or may not be connected.
-	// connect right away, since we assume a duplex-stream from here on
-	// see: h.Connect -> dnsOverride
-	var gerr error
-	if gc, ok := gconn.(*netstack.GUDPConn); ok {
-		gerr = gc.Connect()
-	} // not a *netstack.GUDPConn, may be *demuxconn
+	remote, smm, ct, err := h.Connect(gconn, src, dst, mux) // remote may be nil; smm is never nil
 
-	remote, smm, ct, err := h.Connect(gconn, src, dst, gerr != nil) // remote may be nil; smm is never nil
-
-	if gerr != nil || err != nil {
+	if err != nil {
 		clos(gconn, remote)
-		queueSummary(h.smmch, h.done, smm.done(gerr, err)) // smm may be nil
-		log.W("udp: proxy: unexpected %s -> %s; err: %v", src, dst, err)
+		queueSummary(h.smmch, h.done, smm.done(err)) // smm may be nil
+		log.W("udp: proxy: mux? %t, unexpected %s -> %s; err: %v", mux, src, dst, err)
 		// dst addrs no longer tracked in h.Connect: h.conntracker.Untrack(ct.CID)
 		return // not ok
 	} else if remote == nil { // dnsOverride?
@@ -278,9 +228,16 @@ func (h *udpHandler) proxy(gconn net.Conn, src, dst netip.AddrPort) (ok bool) {
 }
 
 // Connect connects the proxy server; thread-safe.
-func (h *udpHandler) Connect(gconn net.Conn, src, target netip.AddrPort, drop bool) (dst core.UDPConn, smm *SocketSummary, ct core.ConnTuple, err error) {
+func (h *udpHandler) Connect(gconn *netstack.GUDPConn, src, target netip.AddrPort, mux bool) (dst core.UDPConn, smm *SocketSummary, ct core.ConnTuple, err error) {
 	var px ipn.Proxy = nil
 	var pc io.Closer = nil
+
+	// connect gconn right away, since we assume a duplex-stream from here on
+	// see: h.Connect -> dnsOverride
+	if err = gconn.Establish(); err != nil {
+		log.W("udp: %s gconn connect, mux? %t, err %s => %s", src, target, mux, err)
+		return nil, nil, ct, err
+	}
 
 	realips, domains, probableDomains, blocklists := undoAlg(h.resolver, target.Addr())
 
@@ -289,11 +246,6 @@ func (h *udpHandler) Connect(gconn net.Conn, src, target netip.AddrPort, drop bo
 	cid, pid, uid := splitCidPidUid(res)
 	smm = udpSummary(cid, pid, uid, target.Addr())
 	ct = core.ConnTuple{CID: cid, UID: uid}
-
-	if drop {
-		log.D("udp: %s conn dropped (gconn not ok) from %s -> %s", cid, src, target)
-		return
-	}
 
 	if pid == ipn.Block {
 		var secs uint32
@@ -305,7 +257,8 @@ func (h *udpHandler) Connect(gconn net.Conn, src, target netip.AddrPort, drop bo
 			waittime := time.Duration(secs) * time.Second
 			time.Sleep(waittime)
 		}
-		log.I("udp: %s conn firewalled from %s -> %s (dom: %s + %s/ real: %s); stall? %ds for uid %s", cid, src, target, domains, probableDomains, realips, secs, uid)
+		log.I("udp: %s conn firewalled from %s => %s (dom: %s + %s/ real: %s); stall? %ds for uid %s",
+			cid, src, target, domains, probableDomains, realips, secs, uid)
 		return nil, smm, ct, errUdpFirewalled // disconnect
 	}
 
@@ -341,51 +294,55 @@ func (h *udpHandler) Connect(gconn net.Conn, src, target netip.AddrPort, drop bo
 
 	var errs error
 	var selectedTarget netip.AddrPort
-
-	// unconnected udp socket?
-	if target.Addr().IsUnspecified() || !target.IsValid() {
-		log.I("udp: unconnected udp at (%s) for uid %s via %s", src, uid, px.ID())
-		pc, errs = px.Dialer().Announce("udp", src.String())
-		selectedTarget = src // no target
-	} else {
-		// note: fake-dns-ips shouldn't be un-nated / un-alg'd
-		for i, dstipp := range makeIPPorts(realips, target, 0) {
-			selectedTarget = dstipp
-			// h.conntracker.TrackDest(ct, selectedTarget) // will be untracked by forward
-			if pc, err = px.Dialer().Dial("udp", selectedTarget.String()); err == nil {
-				errs = nil // reset errs
-				break
-			} // else try the next realip
-			errs = err // store just the last err; complicates logging
-			end := time.Since(smm.start)
-			elapsed := int32(end.Seconds() * 1000)
-			log.W("udp: connect: #%d: %s failed; addr(%s); for uid %s (%ds) w err(%v)", i, cid, dstipp, uid, elapsed, err)
-			if end > retrytimeout {
-				break
+	// note: fake-dns-ips shouldn't be un-nated / un-alg'd
+	for i, dstipp := range makeIPPorts(realips, target, 0) {
+		selectedTarget = dstipp
+		// h.conntracker.TrackDest(ct, selectedTarget) // will be untracked by forward
+		if mux { // pc is net.PacketConn (which confirms to core.UDPConn)
+			var mxr *muxer
+			// mux not supported by all proxies (few like Exit, Base, WG support it)
+			if mxr, err = h.mux.associate(src, px.Dialer().Announce); err == nil {
+				pc, err = mxr.vend(net.UDPAddrFromAddrPort(selectedTarget))
 			}
+		} else { // pc is net.Conn (which confirms to core.UDPConn)
+			pc, err = px.Dialer().Dial("udp", selectedTarget.String())
 		}
-	}
+		if err == nil {
+			errs = nil // reset errs
+			break
+		} // else try the next realip
 
-	if errs != nil {
-		return nil, smm, ct, errs // disconnect
-	}
-	pcnil := core.IsNil(pc)
-	if pcnil {
-		log.W("udp: connect: %s failed to connect addr(%s/%s); for uid %s", cid, target, selectedTarget, uid)
-		return nil, smm, ct, errUdpSetupConn // disconnect
-	}
-
-	var ok bool
-	if dst, ok = pc.(core.UDPConn); !ok {
-		core.CloseOp(pc, core.CopRW)
-		log.E("udp: connect: %s proxy(%s) does not impl core.UDPConn(%s/%s) for uid %s", cid, px.ID(), target, selectedTarget, uid)
-		return nil, smm, ct, errUdpSetupConn // disconnect
+		errs = err // store just the last err; complicates logging
+		end := time.Since(smm.start)
+		log.W("udp: connect: #%d: %s failed; mux? %t, addr(%s); for uid %s (%dms) w err(%v)",
+			i, cid, mux, dstipp, uid, end.Milliseconds(), err)
+		if end > retrytimeout {
+			break
+		}
 	}
 
 	// pc.RemoteAddr may be that of the proxy, not the actual dst
 	// ex: pc.RemoteAddr is 127.0.0.1 for Orbot
 	smm.Target = selectedTarget.Addr().String()
-	log.I("udp: %s (proxy? %s@%s) %v -> %s/%s for uid %s", cid, px.ID(), px.GetAddr(), dst.LocalAddr(), target, selectedTarget, uid)
+
+	if errs != nil {
+		return nil, smm, ct, errs // disconnect
+	} else if pc == nil || core.IsNil(pc) {
+		log.W("udp: connect: %s no egress conn/mux? %t for addr(%s/%s), uid %s",
+			cid, mux, target, selectedTarget, uid)
+		return nil, smm, ct, errUdpSetupConn // disconnect
+	}
+
+	var ok bool
+	if dst, ok = pc.(core.UDPConn); !ok {
+		core.Close(pc)
+		log.E("udp: connect: %s proxy(%s) does not impl core.UDPConn(%s/%s); mux? %t, uid %s",
+			cid, px.ID(), target, selectedTarget, mux, uid)
+		return nil, smm, ct, errUdpSetupConn // disconnect
+	}
+
+	log.I("udp: %s (proxy? %s@%s) %v -> %s/%s; mux? %t, uid %s",
+		cid, px.ID(), px.GetAddr(), dst.LocalAddr(), target, selectedTarget, mux, uid)
 
 	return dst, smm, ct, nil // connect
 }

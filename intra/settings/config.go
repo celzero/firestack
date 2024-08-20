@@ -83,6 +83,14 @@ var Loopingback = atomic.Bool{}
 // in a single-threaded mode.
 var SingleThreaded = atomic.Bool{}
 
+// EndpointIndependentMapping is a global flag to enable endpoint-independent
+// mapping for UDP as per RFC 4787.
+var EndpointIndependentMapping = atomic.Bool{}
+
+// EndpointIndependentFiltering is a global flag to enable endpoint-independent
+// filtering for UDP as per RFC 4787.
+var EndpointIndependentFiltering = atomic.Bool{}
+
 // L3 returns the string'd repr of engine.
 func L3(engine int) string {
 	switch engine {

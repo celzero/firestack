@@ -13,7 +13,10 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/celzero/firestack/intra/settings"
 	"gvisor.dev/gvisor/pkg/tcpip"
+	"gvisor.dev/gvisor/pkg/tcpip/network/ipv4"
+	"gvisor.dev/gvisor/pkg/tcpip/network/ipv6"
 	"gvisor.dev/gvisor/pkg/tcpip/stack"
 )
 
@@ -133,4 +136,21 @@ func localUDPAddr(id stack.TransportEndpointID) *net.UDPAddr {
 func nsaddr2ip(addr tcpip.Address) net.IP {
 	b := addr.AsSlice()
 	return net.IP(b)
+}
+
+func addrport2nsaddr(ipp netip.AddrPort) (tcpip.FullAddress, tcpip.NetworkProtocolNumber) {
+	var proto tcpip.NetworkProtocolNumber
+	var addr tcpip.Address
+	if ipp.Addr().Is4() {
+		proto = ipv4.ProtocolNumber
+		addr = tcpip.AddrFrom4(ipp.Addr().As4())
+	} else {
+		proto = ipv6.ProtocolNumber
+		addr = tcpip.AddrFrom16(ipp.Addr().As16())
+	}
+	return tcpip.FullAddress{
+		NIC:  settings.NICID,
+		Addr: addr,
+		Port: ipp.Port(),
+	}, proto
 }
