@@ -434,7 +434,6 @@ type muxTable struct {
 }
 
 type assocFn func(net, dst string) (net.PacketConn, error)
-type dissocFn func(src netip.AddrPort)
 
 func newMuxTable() *muxTable {
 	return &muxTable{t: make(map[netip.AddrPort]*muxer)}

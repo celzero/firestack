@@ -7,7 +7,6 @@
 package intra
 
 import (
-	"errors"
 	"fmt"
 	"math/rand"
 	"net"
@@ -25,10 +24,6 @@ const smmchSize = 24
 
 // immediate is the wait time before sending a summary to the listener.
 var immediate = time.Duration(0)
-
-var (
-	errNoAddr = errors.New("nil addr")
-)
 
 // TODO: Propagate TCP RST using local.Abort(), on appropriate errors.
 func upload(cid string, local net.Conn, remote net.Conn, ioch chan<- ioinfo) {
@@ -282,14 +277,6 @@ func splitCidPidUid(decision *Mark) (cid, pid, uid string) {
 		return
 	}
 	return decision.CID, decision.PID, decision.UID
-}
-
-func ipp(addr net.Addr) (netip.AddrPort, error) {
-	var zeroaddr = netip.AddrPort{}
-	if addr == nil || core.IsNil(addr) {
-		return zeroaddr, errNoAddr
-	}
-	return netip.ParseAddrPort(addr.String())
 }
 
 func conn2str(a net.Conn, b net.Conn) string {
