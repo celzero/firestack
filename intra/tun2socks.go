@@ -103,6 +103,14 @@ func Loopback(y bool) {
 	log.I("tun: loopback? %t / ok? %t", y, ok)
 }
 
+// Transparency enables/disables endpoint-independent mapping/filtering.
+// Currently applies only for UDP (RFC 4787).
+func Transparency(eim, eif bool) {
+	settings.EndpointIndependentMapping.Store(eim)
+	settings.EndpointIndependentFiltering.Store(eif)
+	log.I("tun: eim? %t / eif? %t", eim, eif)
+}
+
 // Build returns the build information.
 func Build() string {
 	if buildinfo != nil {
