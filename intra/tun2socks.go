@@ -28,6 +28,7 @@ import (
 	"path/filepath"
 	"runtime/debug"
 
+	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/settings"
 
 	"github.com/celzero/firestack/intra/log"
@@ -111,16 +112,26 @@ func Build() string {
 }
 
 // SetCrashFd sets output file to go runtime crashes to.
-func SetCrashFd(fp string) bool {
+func SetCrashFd(fp string) (ok bool) {
+	defer func() {
+		// if crash fd cannot be set, panic on fault to at least
+		// capture faults (as panics) via core.DontPanic.
+		debug.SetPanicOnFault(!ok)
+	}()
+
 	if len(fp) > 0 {
 		f, err := os.OpenFile(filepath.Clean(fp), os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0600)
+		defer core.CloseFile(f)
+
 		if err == nil {
 			var zz debug.CrashOptions
-			debug.SetCrashOutput(f, zz)
-		} else {
-			log.E("tun: crash file %s: %v", fp, err)
+			err = debug.SetCrashOutput(f, zz)
 		}
-		debug.SetPanicOnFault(false)
+		note := log.I
+		if err != nil {
+			note = log.E
+		}
+		note("tun: crash file %s, err? %v", fp, err)
 		return err == nil
 	}
 	return false
