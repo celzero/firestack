@@ -18,6 +18,7 @@ import (
 
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/log"
+	"github.com/celzero/firestack/intra/netstack"
 )
 
 // from: github.com/pion/transport/blob/03c807b/udp/conn.go
@@ -61,7 +62,8 @@ type muxer struct {
 	dxconns chan *demuxconn // never closed
 	doneCh  chan struct{}   // stop vending, reading, and routing
 	once    sync.Once
-	cb      func() // muxer.stop() callback (new goroutine)
+	cb      func()             // muxer.stop() callback (in a new goroutine)
+	vnd     netstack.DemuxerFn // for new routes in netstack
 
 	rmu    sync.Mutex            // protects routes
 	routes map[string]*demuxconn // remote addr -> demuxed conn
@@ -249,6 +251,11 @@ func (x *muxer) route(raddr net.Addr) (*demuxconn, error) {
 		case x.dxconns <- conn:
 			x.stats.dxcount.Add(1)
 			x.routes[addr] = conn
+			if dst, err := addr2netip(raddr); err == nil && dst.IsValid() {
+				go x.vnd(dst)
+			} else { // should never happen
+				log.E("udp: mux: %s route: invalid addr %s; err: %v", x.cid, raddr, err)
+			}
 			log.I("udp: mux: %s route: new for %s; stats: %d",
 				x.cid, raddr, x.stats)
 		}
@@ -487,4 +494,8 @@ func (e *muxTable) dissociate(id string, src netip.AddrPort) {
 	e.Lock()
 	defer e.Unlock()
 	delete(e.t, src)
+}
+
+func addr2netip(addr net.Addr) (netip.AddrPort, error) {
+	return netip.ParseAddrPort(addr.String())
 }

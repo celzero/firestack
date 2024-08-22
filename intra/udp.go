@@ -27,7 +27,6 @@ package intra
 
 import (
 	"errors"
-	"io"
 	"net"
 	"net/netip"
 	"sync"
@@ -176,32 +175,48 @@ func (h *udpHandler) onFlow(localaddr, target netip.AddrPort, realips, domains, 
 }
 
 // ProxyMux implements netstack.GUDPConnHandler
-func (h *udpHandler) ProxyMux(gconn *netstack.GUDPConn, src, dst netip.AddrPort) (ok bool) {
+func (h *udpHandler) ProxyMux(gconn *netstack.GUDPConn, src, dst netip.AddrPort, dmx netstack.DemuxerFn) (ok bool) {
 	defer core.Recover(core.Exit11, "udp.ProxyMux")
-	return h.proxy(gconn, src, dst, true)
+	return h.proxy(gconn, src, dst, dmx)
 }
 
 // Error implements netstack.GUDPConnHandler.
 // Must be called from a goroutine.
-func (h *udpHandler) Error(gconn *netstack.GUDPConn, src, dst netip.AddrPort, err error) {
-	ok := h.proxy(gconn, src, dst, false)
-	log.I("udp: proxy: %v ->  %v; err %v; recovered? %t", src, dst, err, ok)
+func (h *udpHandler) Error(gconn *netstack.GUDPConn, src, target netip.AddrPort, err error) {
+	log.W("udp: proxy: %v ->  %v; err %v", src, target, err)
+	if !src.IsValid() || !target.IsValid() {
+		return
+	}
+
+	realips, domains, probableDomains, blocklists := undoAlg(h.resolver, target.Addr())
+
+	// flow is alg/nat-aware, do not change target or any addrs
+	res := h.onFlow(src, target, realips, domains, probableDomains, blocklists)
+	cid, pid, uid := splitCidPidUid(res)
+	smm := udpSummary(cid, pid, uid, target.Addr())
+
+	if h.status.Load() == UDPEND {
+		err = errUdpEnd
+	} else if pid == ipn.Block {
+		err = errUdpFirewalled
+	}
+	smm.done(err)
 }
 
 // Proxy implements netstack.GUDPConnHandler; thread-safe.
 // Must be called from a goroutine.
 func (h *udpHandler) Proxy(gconn *netstack.GUDPConn, src, dst netip.AddrPort) (ok bool) {
 	defer core.Recover(core.Exit11, "udp.Proxy")
-	return h.proxy(gconn, src, dst, false)
+	return h.proxy(gconn, src, dst, nil)
 }
 
 // proxy connects src to dst over a proxy; thread-safe.
-func (h *udpHandler) proxy(gconn *netstack.GUDPConn, src, dst netip.AddrPort, mux bool) (ok bool) {
-
-	remote, smm, ct, err := h.Connect(gconn, src, dst, mux) // remote may be nil; smm is never nil
+func (h *udpHandler) proxy(gconn *netstack.GUDPConn, src, dst netip.AddrPort, dmx netstack.DemuxerFn) (ok bool) {
+	mux := dmx != nil
+	remote, smm, err := h.Connect(gconn, src, dst, dmx) // remote may be nil; smm is never nil
 
 	if err != nil {
-		clos(gconn, remote)
+		core.Close(gconn, remote)
 		queueSummary(h.smmch, h.done, smm.done(err)) // smm may be nil
 		log.W("udp: proxy: mux? %t, unexpected %s -> %s; err: %v", mux, src, dst, err)
 		// dst addrs no longer tracked in h.Connect: h.conntracker.Untrack(ct.CID)
@@ -217,23 +232,23 @@ func (h *udpHandler) proxy(gconn *netstack.GUDPConn, src, dst netip.AddrPort, mu
 		cid = smm.ID
 	}
 
-	h.conntracker.Track(ct, gconn, remote)
+	h.conntracker.Track(cid, gconn, remote)
 	core.Go("udp.forward: "+cid, func() {
-		defer h.conntracker.Untrack(ct.CID)
+		defer h.conntracker.Untrack(cid)
 		forward(gconn, &rwext{remote}, h.smmch, h.done, smm)
 	})
 	return true // ok
 }
 
 // Connect connects the proxy server; thread-safe.
-func (h *udpHandler) Connect(gconn *netstack.GUDPConn, src, target netip.AddrPort, mux bool) (dst core.UDPConn, smm *SocketSummary, ct core.ConnTuple, err error) {
-	var px ipn.Proxy = nil
-	var pc io.Closer = nil
+func (h *udpHandler) Connect(gconn *netstack.GUDPConn, src, target netip.AddrPort, dmx netstack.DemuxerFn) (pc net.Conn, smm *SocketSummary, err error) {
+	mux := dmx != nil
 
-	// connect gconn right away, since we assume a duplex-stream from here on
-	// see: h.Connect -> dnsOverride
-	if err = gconn.Establish(); err != nil {
-		log.W("udp: %s gconn connect, mux? %t, err %s => %s", src, target, mux, err)
+	if !target.IsValid() { // must call h.Bind
+		err = errUdpUnconnected
+	} else { // connect gconn right away, since we assume a duplex-stream from here on
+		// see: h.Connect -> dnsOverride
+		err = gconn.Establish()
 	} // err handled after onFlow, so that the listener knows about this gconn/flow
 
 	realips, domains, probableDomains, blocklists := undoAlg(h.resolver, target.Addr())

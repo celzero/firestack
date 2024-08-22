@@ -73,7 +73,7 @@ const (
 )
 
 const (
-	retrytimeout  = 1 * time.Minute
+	retrytimeout  = 15 * time.Second
 	onFlowTimeout = 5 * time.Second
 )
 
