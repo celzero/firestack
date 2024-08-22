@@ -25,7 +25,6 @@ import (
 
 var (
 	errMissingEp   = errors.New("not connected to any endpoint")
-	errMissingReq  = errors.New("missing forwarder request")
 	errFilteredOut = errors.New("no eif; filtered out")
 )
 
