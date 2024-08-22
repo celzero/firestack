@@ -25,8 +25,6 @@ const (
 	probeSize   = 8
 	default_ttl = 64
 
-	// desync_relaxed enables relaxed mode, which lets connections go through without desync.
-	desync_relaxed    = true
 	desync_http1_1str = "POST / HTTP/1.1\r\nHost: 10.0.0.1\r\nContent-Type: application/octet-stream\r\nContent-Length: 9999999\r\n\r\n"
 	// from: github.com/bol-van/zapret/blob/c369f11638/nfq/darkmagic.h#L214-L216
 	desync_max_ttl     = 20
@@ -164,7 +162,6 @@ func tracert(d *protect.RDial, ipp netip.AddrPort, basePort int) (*net.UDPConn, 
 		}
 		udpAddr.Port = basePort + ttl
 		_, err = uc.WriteToUDP(msgBuf[:], udpAddr)
-		// todo: continue if in relaxed mode?
 		if err != nil {
 			return uc, udpFD, err
 		}
@@ -188,9 +185,6 @@ func desyncWithTraceroute(d *protect.RDial, ipp netip.AddrPort) (*overwriteSplit
 	logeif(err)("desync: dialUDP %v %d: err? %v", ipp, udpFD, err)
 	if err != nil {
 		measureTTL = false
-		if !desync_relaxed {
-			return nil, err
-		}
 	}
 
 	proto := "tcp4"
