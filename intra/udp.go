@@ -310,7 +310,7 @@ func (h *udpHandler) Connect(gconn *netstack.GUDPConn, src, target netip.AddrPor
 		if mux { // pc is net.PacketConn (which confirms to core.UDPConn)
 			var mxr *muxer
 			// mux not supported by all proxies (few like Exit, Base, WG support it)
-			if mxr, err = h.mux.associate(src, px.Dialer().Announce); err == nil {
+			if mxr, err = h.mux.associate(cid, src, px.Dialer().Announce, dmx); err == nil {
 				pc, err = mxr.vend(net.UDPAddrFromAddrPort(selectedTarget))
 			}
 		} else { // pc is net.Conn (which confirms to core.UDPConn)
