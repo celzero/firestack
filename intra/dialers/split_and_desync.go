@@ -238,21 +238,19 @@ func desyncWithTraceroute(d *protect.RDial, ipp netip.AddrPort) (*overwriteSplit
 			if exceedsHopLimit(cmsgs) {
 				fromPort := from.(*unix.SockaddrInet6).Port
 				ttl := fromPort - basePort
-				if ttl > desync_max_ttl {
-					break
-				}
-				oc.ttl = max(oc.ttl, ttl)
-				processed = true
+				if ttl <= desync_max_ttl {
+					oc.ttl = max(oc.ttl, ttl)
+					processed = true
+				} // else: corrupted packet?
 			}
 		} else {
 			if exceedsTTL(cmsgs) {
 				fromPort := from.(*unix.SockaddrInet4).Port
 				ttl := fromPort - basePort
-				if ttl > desync_max_ttl {
-					break
-				}
-				oc.ttl = max(oc.ttl, ttl)
-				processed = true
+				if ttl <= desync_max_ttl {
+					oc.ttl = max(oc.ttl, ttl)
+					processed = true
+				} // else: corrupted packet?
 			}
 		}
 	}
