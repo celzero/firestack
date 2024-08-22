@@ -92,7 +92,7 @@ func CloseTCPWrite(w TCPConn) {
 }
 
 // CloseConn closes cs.
-func CloseConn(cs ...net.Conn) {
+func CloseConn(cs ...MinConn) {
 	for _, c := range cs {
 		if c == nil {
 			continue

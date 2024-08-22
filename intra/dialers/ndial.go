@@ -157,7 +157,7 @@ func NetListen(cfg *net.ListenConfig, network, local string) (net.Listener, erro
 	return cfg.Listen(context.Background(), network, local)
 }
 
-func clos(c ...net.Conn) {
+func clos(c ...core.MinConn) {
 	core.CloseConn(c...)
 }
 

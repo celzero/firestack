@@ -256,12 +256,10 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target netip.AddrPort)
 		} // else not a dns request
 	} // if ipn.Exit then let it connect as-is (aka exit)
 
-	ct := core.ConnTuple{CID: smm.ID, UID: smm.UID}
-
 	// pick all realips to connect to
 	for i, dstipp := range makeIPPorts(realips, target, 0) {
 		// h.conntracker.TrackDest(ct, dstipp) // may be untracked by handle()
-		if err = h.handle(px, gconn, dstipp, ct, smm); err == nil {
+		if err = h.handle(px, gconn, dstipp, smm); err == nil {
 			return allow
 		} // else try the next realip
 		end := time.Since(smm.start)
@@ -272,12 +270,12 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target netip.AddrPort)
 		}
 	}
 
-	// h.conntracker.Untrack(ct.CID) // untrack if disallowed
+	// h.conntracker.Untrack(cid) // untrack if disallowed
 	return deny
 }
 
 // handle connects to the target via the proxy, and pipes data between the src, target; thread-safe.
-func (h *tcpHandler) handle(px ipn.Proxy, src net.Conn, target netip.AddrPort, ct core.ConnTuple, smm *SocketSummary) (err error) {
+func (h *tcpHandler) handle(px ipn.Proxy, src net.Conn, target netip.AddrPort, smm *SocketSummary) (err error) {
 	var pc protect.Conn
 
 	start := time.Now()
@@ -312,9 +310,9 @@ func (h *tcpHandler) handle(px ipn.Proxy, src net.Conn, target netip.AddrPort, c
 		return err
 	}
 
-	h.conntracker.Track(ct, src, dst)
+	h.conntracker.Track(smm.ID, src, dst)
 	core.Go("tcp.forward:"+smm.ID, func() {
-		defer h.conntracker.Untrack(ct.CID)
+		defer h.conntracker.Untrack(smm.ID)
 		forward(src, dst, h.smmch, h.done, smm) // src always *gonet.TCPConn
 	})
 

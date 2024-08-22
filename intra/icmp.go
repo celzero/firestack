@@ -191,7 +191,7 @@ func (h *icmpHandler) Ping(source, target netip.AddrPort, msg []byte) (echoed bo
 
 	defer core.Close(uc)
 
-	extendp(uc, icmptimeout)
+	extend(uc, icmptimeout)
 	// todo: construct ICMP header? github.com/prometheus-community/pro-bing/blob/0bacb2d5e7/ping.go#L717
 	_, err = uc.WriteTo(msg, net.UDPAddrFromAddrPort(dst))
 	logei(err, "t.icmp: egress: write(%v <= %v) ping; done %d; err? %v", dst, source, len(msg), err)
@@ -207,7 +207,7 @@ func (h *icmpHandler) Ping(source, target netip.AddrPort, msg []byte) (echoed bo
 		core.Recycle(bptr)
 	}()
 
-	extendp(uc, icmptimeout)
+	extend(uc, icmptimeout)
 	_, from, err := uc.ReadFrom(b) // todo: assert from == dst
 	// todo: ignore non-ICMP replies in b: github.com/prometheus-community/pro-bing/blob/0bacb2d5e7/ping.go#L630
 	logei(err, "t.icmp: ingress: read(%v <= %v / %v) ping done; err? %v", source, from, dst, err)
@@ -215,13 +215,7 @@ func (h *icmpHandler) Ping(source, target netip.AddrPort, msg []byte) (echoed bo
 	return true // echoed; even if err != nil
 }
 
-func extend(c net.Conn, t time.Duration) {
-	if c != nil && core.IsNotNil(c) {
-		_ = c.SetDeadline(time.Now().Add(t))
-	}
-}
-
-func extendp(c net.PacketConn, t time.Duration) {
+func extend(c core.MinConn, t time.Duration) {
 	if c != nil && core.IsNotNil(c) {
 		_ = c.SetDeadline(time.Now().Add(t))
 	}

@@ -298,7 +298,7 @@ func closeconns(cm core.ConnMapper, cids []string) (closed []string) {
 	return closed
 }
 
-func clos(c ...net.Conn) {
+func clos(c ...core.MinConn) {
 	core.CloseConn(c...)
 }
 

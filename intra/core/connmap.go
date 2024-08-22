@@ -7,9 +7,6 @@
 package core
 
 import (
-	"net"
-	"net/netip"
-	"strings"
 	"sync"
 
 	"github.com/celzero/firestack/intra/log"
@@ -20,23 +17,13 @@ type ConnTuple struct {
 	UID string // proc id
 }
 
-func (t ConnTuple) String() string {
-	return t.CID + ":" + t.UID
-}
-
 type ConnMapper interface {
 	// Clear untracks all conns.
 	Clear() []string
-	// Track maps x[] to t.
-	Track(t ConnTuple, x ...net.Conn) int
-	// TrackDest maps ip:port to t.
-	TrackDest(t ConnTuple, x netip.AddrPort) int
-	// Find returns all ConnTuples mapped to ip:port (dst).
-	Find(dst string) (t []ConnTuple)
-	// FindAll returns all ConnTuples mapped to ips (csvips) and port.
-	FindAll(csvips, port string) (t []ConnTuple)
+	// Track maps x[] to cid.
+	Track(cid string, x ...MinConn) int
 	// Get returns a conn mapped to connection id, cid.
-	Get(cid string) []net.Conn
+	Get(cid string) []MinConn
 	// Untrack closes all conns with connection id, cid.
 	Untrack(cid string) int
 	// UntrackBatch untracks one cid at a time.
@@ -45,86 +32,36 @@ type ConnMapper interface {
 
 type cm struct {
 	sync.RWMutex
-	conntracker map[string][]net.Conn  // id -> conns
-	dsttracker  map[string][]ConnTuple // dst ipport -> conntuple; may be nil
+	trac map[string][]MinConn // id -> conns
 }
 
 var _ ConnMapper = (*cm)(nil)
 
 func NewConnMap() *cm {
 	return &cm{
-		conntracker: make(map[string][]net.Conn),
-		dsttracker:  nil,
+		trac: make(map[string][]MinConn),
 	}
 }
 
 func NewConnDestMap() *cm {
 	return &cm{
-		conntracker: make(map[string][]net.Conn),
-		dsttracker:  make(map[string][]ConnTuple),
+		trac: make(map[string][]MinConn),
 	}
 }
 
-func (h *cm) Track(t ConnTuple, conns ...net.Conn) (n int) {
+func (h *cm) Track(cid string, conns ...MinConn) (n int) {
 	h.Lock()
 	defer h.Unlock()
 
-	cid := t.CID
-
-	if v, ok := h.conntracker[cid]; !ok {
-		h.conntracker[cid] = conns
+	if v, ok := h.trac[cid]; !ok {
+		h.trac[cid] = conns
 		n = len(conns)
 	} else { // should not happen?
-		h.conntracker[cid] = append(v, conns...)
+		h.trac[cid] = append(v, conns...)
 		n = len(v) + len(conns)
 	}
-	h.addToDstTrackerLocked(t, conns)
 
 	log.D("connmap: track: %d conns for %s", n, cid)
-	return
-}
-
-func (h *cm) TrackDest(t ConnTuple, x netip.AddrPort) (n int) {
-	h.Lock()
-	defer h.Unlock()
-
-	return h.trackDestLocked(t, x.String())
-}
-
-func (h *cm) trackDestLocked(t ConnTuple, dst string) (n int) {
-	if h.dsttracker == nil { // not a dest connmap
-		return 0
-	}
-
-	if tups, ok := h.dsttracker[dst]; ok {
-		// TODO: do not add dup ConnTuples
-		h.dsttracker[dst] = append(tups, t)
-		n = len(tups) + 1
-	} else {
-		h.dsttracker[dst] = []ConnTuple{t}
-		n = 1
-	}
-	log.VV("connmap: trackDest: %d dst for %s", n, t.CID)
-	return
-}
-
-func (h *cm) addToDstTrackerLocked(t ConnTuple, conns []net.Conn) (n int) {
-	if h.dsttracker == nil { // not a dest connmap
-		return 0
-	}
-
-	for _, c := range conns {
-		if c == nil || IsNil(c) {
-			continue
-		}
-		// TODO: handle unconnected udp sockets
-		raddr := c.RemoteAddr()
-		if raddr == nil {
-			continue
-		}
-		n += h.trackDestLocked(t, raddr.String())
-	}
-	log.D("connmap: track: %d dst for %s", n, t.CID)
 	return
 }
 
@@ -132,49 +69,14 @@ func (h *cm) Untrack(cid string) (n int) {
 	h.Lock()
 	defer h.Unlock()
 
-	for _, c := range h.conntracker[cid] {
+	for _, c := range h.trac[cid] {
 		if c != nil && IsNotNil(c) {
-			h.delFromDstTrackerLocked(cid, c)
 			_ = c.Close()
 			n += 1
 		}
 	}
-	delete(h.conntracker, cid)
+	delete(h.trac, cid)
 	log.D("connmap: untrack: %d conns for %s", n, cid)
-	return
-}
-
-func (h *cm) delFromDstTrackerLocked(cid string, c net.Conn) (rmv bool) {
-	if h.dsttracker == nil { // not a dest connmap
-		return
-	}
-
-	raddr := c.RemoteAddr()
-	if raddr == nil { // should not happen?
-		log.W("connmap: untrack: no remote addr for %s", cid)
-		return
-	}
-	dst := raddr.String()
-	newtups := make([]ConnTuple, 0)
-	if tups, ok := h.dsttracker[dst]; ok {
-		for _, t := range tups {
-			if t.CID == cid {
-				log.D("connmap: untrack: dst %s -> %s", cid, dst)
-				rmv = true
-				// TODO: break if dups are handled in trackDstLocked
-			} else {
-				newtups = append(newtups, t)
-			}
-		}
-		if len(newtups) == 0 {
-			delete(h.dsttracker, dst)
-		} else {
-			h.dsttracker[dst] = newtups
-		}
-		log.VV("connmap: untrack: %d/%d dst for %s; rmv? %t", len(newtups), len(tups), cid, rmv)
-	} else {
-		log.V("connmap: untrack: no dst for %s", cid)
-	}
 	return
 }
 
@@ -184,62 +86,25 @@ func (h *cm) UntrackBatch(cids []string) (out []string) {
 
 	out = make([]string, 0, len(cids))
 	for _, id := range cids {
-		for _, c := range h.conntracker[id] {
+		for _, c := range h.trac[id] {
 			if c != nil && IsNotNil(c) {
-				h.delFromDstTrackerLocked(id, c)
 				_ = c.Close()
 			}
 		}
-		delete(h.conntracker, id)
+		delete(h.trac, id)
 		out = append(out, id)
 	}
 	log.D("connmap: untrack: batch %d conns", len(out))
 	return
 }
 
-func (h *cm) Get(cid string) (conns []net.Conn) {
+func (h *cm) Get(cid string) (conns []MinConn) {
 	h.RLock()
 	defer h.RUnlock()
 
-	if conns, ok := h.conntracker[cid]; ok {
+	if conns, ok := h.trac[cid]; ok {
 		return conns
 	}
-	return
-}
-
-func (h *cm) Find(dst string) (tups []ConnTuple) {
-	if len(dst) == 0 || h.dsttracker == nil {
-		// too verbose: log.V("connmap: find: empty dst")
-		return
-	}
-
-	h.RLock()
-	defer h.RUnlock()
-	// TODO: handle unconnected udp sockets
-	tups = h.dsttracker[dst]
-	log.VV("connmap: find: %d tuples for %s", len(tups), dst)
-	return
-}
-
-func (h *cm) FindAll(csvips, port string) (out []ConnTuple) {
-	out = make([]ConnTuple, 0)
-
-	if len(csvips) == 0 || h.dsttracker == nil {
-		// too verbose: log.V("connmap: findAll: empty csvips")
-		return
-	}
-
-	h.RLock()
-	defer h.RUnlock()
-
-	dsts := strings.Split(csvips, ",")
-	for _, dst := range dsts {
-		dst = net.JoinHostPort(dst, port)
-		if tups, ok := h.dsttracker[dst]; ok {
-			out = append(out, tups...)
-		}
-	}
-	log.VV("connmap: findAll: %d tuples for %s", len(out), csvips)
 	return
 }
 
@@ -247,13 +112,12 @@ func (h *cm) Clear() (cids []string) {
 	h.Lock()
 	defer h.Unlock()
 
-	cids = make([]string, 0, len(h.conntracker))
-	for k, v := range h.conntracker {
+	cids = make([]string, 0, len(h.trac))
+	for k, v := range h.trac {
 		CloseConn(v...)
 		cids = append(cids, k)
 	}
-	clear(h.conntracker)
-	clear(h.dsttracker) // ok to clear(nil maps)
+	clear(h.trac)
 	log.D("connmap: clear: %d conns", len(cids))
 	return
 }

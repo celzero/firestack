@@ -58,7 +58,7 @@ type UDPConn interface {
 	// Close closes the connection.
 	Close() error
 
-	// Implements net.Conn
+	// Implements net.Conn and net.PacketConn
 	SetDeadline(time.Time) error
 	SetReadDeadline(time.Time) error
 	SetWriteDeadline(time.Time) error
@@ -68,4 +68,14 @@ type UDPConn interface {
 type DuplexConn interface {
 	TCPConn
 	io.ReaderFrom
+}
+
+// MinConn is a minimal connection interface that is
+// a subset of both net.Conn and net.PacketConn.
+type MinConn interface {
+	LocalAddr() net.Addr
+	SetDeadline(time.Time) error
+	SetReadDeadline(time.Time) error
+	SetWriteDeadline(time.Time) error
+	Close() error
 }
