@@ -134,7 +134,7 @@ func sendNotif(l SocketListener, s *SocketSummary, after time.Duration) {
 func dnsOverride(r dnsx.Resolver, proto string, conn net.Conn, addr netip.AddrPort) bool {
 	// addr with zone information removed; see: netip.ParseAddrPort which h.resolver relies on
 	// addr2 := &net.TCPAddr{IP: addr.IP, Port: addr.Port}
-	if r.IsDnsAddr(addr.String()) {
+	if addr.IsValid() && r.IsDnsAddr(addr) {
 		// conn closed by the resolver
 		r.Serve(proto, conn)
 		return true

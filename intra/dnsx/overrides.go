@@ -27,26 +27,22 @@ func (h *resolver) isDnsPort(addr netip.AddrPort) bool {
 	return false
 }
 
-func (h *resolver) isDns(ipport string) bool {
-	if ipp, err := netip.ParseAddrPort(ipport); err != nil {
-		return false
-	} else {
-		if !ipp.IsValid() || len(h.dnsaddrs) <= 0 {
-			log.E("dnsx: missing dst-addr(%v) or dns(%v)", ipp, h.dnsaddrs)
-			return false
-		}
-		dnsmode := h.tunmode.DNSMode.Load()
-		if dnsmode == settings.DNSModeIP {
-			if yes := h.isDnsIpPort(ipp); yes {
-				return true
-			}
-		} else if dnsmode == settings.DNSModePort {
-			if yes := h.isDnsPort(ipp); yes {
-				return true
-			}
-		}
+func (h *resolver) isDns(ipp netip.AddrPort) bool {
+	if !ipp.IsValid() || len(h.dnsaddrs) <= 0 {
+		log.E("dnsx: missing dst-addr(%v) or dns(%v)", ipp, h.dnsaddrs)
 		return false
 	}
+	dnsmode := h.tunmode.DNSMode.Load()
+	if dnsmode == settings.DNSModeIP {
+		if yes := h.isDnsIpPort(ipp); yes {
+			return true
+		}
+	} else if dnsmode == settings.DNSModePort {
+		if yes := h.isDnsPort(ipp); yes {
+			return true
+		}
+	}
+	return false
 }
 
 func (r *resolver) addDnsAddrs(csvaddr string) {

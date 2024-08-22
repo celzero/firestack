@@ -121,7 +121,7 @@ type Resolver interface {
 	// GetMult returns multi-transport, if available
 	GetMult(id string) (TransportMult, error)
 
-	IsDnsAddr(ipport string) bool
+	IsDnsAddr(ipport netip.AddrPort) bool
 	// Lookup performs resolution on Default and/or Goos DNSes
 	LocalLookup(q []byte) ([]byte, error)
 	// Forward performs resolution on any DNS transport
@@ -335,10 +335,7 @@ func (r *resolver) Remove(id string) (ok bool) {
 	return hasTransport
 }
 
-func (r *resolver) IsDnsAddr(ipport string) bool {
-	if len(ipport) <= 0 {
-		return false
-	}
+func (r *resolver) IsDnsAddr(ipport netip.AddrPort) bool {
 	return r.isDns(ipport)
 }
 
