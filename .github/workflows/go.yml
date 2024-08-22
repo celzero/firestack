@@ -45,9 +45,8 @@ jobs:
         # staticcheck
         # go install honnef.co/go/tools/cmd/staticcheck@latest
         # staticcheck ./...
-        # nilaway fails: archive.is/wip/TKXsH
-        # go install go.uber.org/nilaway/cmd/nilaway@latest
-        # nilaway ./...
+        go install go.uber.org/nilaway/cmd/nilaway@latest
+        nilaway ./...
       shell: bash
 
     - name: 🐍 Python3
