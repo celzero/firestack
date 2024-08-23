@@ -248,15 +248,19 @@ func (x *muxer) route(to netip.AddrPort) *demuxconn {
 			log.W("udp: mux: %s route: for %s; muxer closed", x.cid, to)
 			return nil
 		case x.dxconns <- conn:
-			x.stats.dxcount.Add(1)
+			n := x.stats.dxcount.Add(1)
 			x.routes[to] = conn
-			core.Go("udpmux.vend", func() {
-				verr := x.vnd(to) // a fork in the road
-				if verr != nil {
-					clos(conn)
-					log.E("udp: mux: %s route: vend failure %s; err %v", x.cid, to, verr)
-				}
-			})
+			firstEverDemux := n == 1
+			// the first demux conn is already vended/sockisifed via netstack
+			// (see: udpHandler:ProxyMux) so it should not be vended again.
+			if !firstEverDemux {
+				core.Go("udpmux.vend", func() { // a fork in the road
+					if verr := x.vnd(to); verr != nil {
+						clos(conn)
+						log.E("udp: mux: %s route: vend failure %s; err %v", x.cid, to, verr)
+					}
+				})
+			}
 			log.I("udp: mux: %s route: new for %s; stats: %d", x.cid, to, x.stats)
 		}
 	}
