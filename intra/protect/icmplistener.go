@@ -110,6 +110,9 @@ func sockaddr(family int, address string) (syscall.Sockaddr, error) {
 		if err != nil {
 			return nil, err
 		}
+		if a == nil { // nilaway
+			return nil, net.InvalidAddrError("bad ipv4 address")
+		}
 		if len(a.IP) == 0 {
 			a.IP = net.IPv4zero
 		}
@@ -123,6 +126,9 @@ func sockaddr(family int, address string) (syscall.Sockaddr, error) {
 		a, err := net.ResolveIPAddr("ip6", address)
 		if err != nil {
 			return nil, err
+		}
+		if a == nil { // nilaway
+			return nil, net.InvalidAddrError("bad ipv6 address")
 		}
 		if len(a.IP) == 0 {
 			a.IP = net.IPv6unspecified
