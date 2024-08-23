@@ -158,11 +158,12 @@ func (x *muxer) stop() error {
 func (x *muxer) drain() {
 	x.rmu.Lock()
 	defer x.rmu.Unlock()
+
+	defer clear(x.routes)
 	log.I("udp: mux: %s drain: closing %d demuxed conns", x.cid, len(x.routes))
 	for _, c := range x.routes {
 		clos(c) // will unroute as well
 	}
-
 }
 
 // readers has to tasks:
