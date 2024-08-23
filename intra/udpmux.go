@@ -473,15 +473,16 @@ func newMuxTable() *muxTable {
 	return &muxTable{t: make(map[netip.AddrPort]*muxer)}
 }
 
-func (e *muxTable) associate(id string, src netip.AddrPort, mk assocFn, vendor netstack.DemuxerFn) (*muxer, error) {
+func (e *muxTable) associate(id string, src netip.AddrPort, mk assocFn, v netstack.DemuxerFn) (*muxer, error) {
 	e.Lock()
 	defer e.Unlock()
 
+	proto, anyaddr := anyaddrFor(src)
 	if mxr, ok := e.t[src]; ok {
 		return mxr, nil
-	} else if pc, err := mk("udp", src.String()); err == nil {
+	} else if pc, err := mk(proto, anyaddr); err == nil {
 		log.I("udp: mux: %s new assoc for %s", id, src)
-		mxr = newMuxerLocked(id, pc, vendor, func() {
+		mxr = newMuxerLocked(id, pc, v, func() {
 			e.dissociate(id, src)
 		})
 		e.t[src] = mxr

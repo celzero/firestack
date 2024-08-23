@@ -171,12 +171,7 @@ func (h *icmpHandler) Ping(source, target netip.AddrPort, msg []byte) (echoed bo
 	}
 
 	dst := oneRealIp(realips, target)
-	anyaddr := "0.0.0.0:0"
-	proto := "udp4"
-	if target.Addr().Is6() {
-		proto = "udp6"
-		anyaddr = "[::]:0"
-	}
+	proto, anyaddr := anyaddrFor(dst)
 	// todo: use dialers.ListenICMP?
 	uc, err := px.Dialer().Probe(proto, anyaddr)
 	ucnil := uc == nil || core.IsNil(uc)
@@ -219,6 +214,16 @@ func extend(c core.MinConn, t time.Duration) {
 	if c != nil && core.IsNotNil(c) {
 		_ = c.SetDeadline(time.Now().Add(t))
 	}
+}
+
+func anyaddrFor(ipp netip.AddrPort) (proto, anyaddr string) {
+	anyaddr = "0.0.0.0:0"
+	proto = "udp4"
+	if ipp.Addr().Is6() {
+		proto = "udp6"
+		anyaddr = "[::]:0"
+	}
+	return
 }
 
 func logei(err error, msg string, args ...any) {
