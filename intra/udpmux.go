@@ -147,8 +147,8 @@ func (x *muxer) stop() error {
 		x.drain()
 		err = x.mxconn.Close() // close the muxed conn
 
-		x.dxconnWG.Wait() // all conns close / error out
-		go x.cb()         // dissociate
+		x.dxconnWG.Wait()          // all conns close / error out
+		core.Go("udpmux.cb", x.cb) // dissociate
 		x.stats.dur = time.Since(x.stats.start)
 		log.I("udp: mux: %s stopped; stats: %s", x.cid, x.stats)
 	})
@@ -157,29 +157,13 @@ func (x *muxer) stop() error {
 }
 
 func (x *muxer) drain() {
-	dc := make([]*demuxconn, 0, len(x.dxconns))
-	draintimeout := 2 * time.Second
-	tick := time.NewTicker(draintimeout)
-
-	defer func() {
-		log.I("udp: mux: %s draining... %d", x.cid, len(dc))
-		go x.unroute(dc...)
-		for _, c := range dc {
-			clos(c)
-		}
-	}()
-
-	for { // close unaccepted connections
-		select {
-		case c := <-x.dxconns:
-			tick.Reset(draintimeout)
-			// unroute must be called from a different
-			// goroutine as it blocks on rmu
-			dc = append(dc, c)
-		case <-tick.C:
-			return
-		}
+	x.rmu.Lock()
+	defer x.rmu.Unlock()
+	log.I("udp: mux: %s drain: closing %d demuxed conns", x.cid, len(x.routes))
+	for _, c := range x.routes {
+		clos(c) // will unroute as well
 	}
+
 }
 
 // readers has to tasks:
