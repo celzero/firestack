@@ -212,7 +212,7 @@ func (r *retrier) dialLocked() (c core.DuplexConn, err error) {
 	}
 
 	rtt := time.Since(begin)
-	r.conn = c
+	r.conn = c // c may be nil
 	r.timeout = calcTimeout(rtt)
 
 	logeif(err)("retrier: dial(%s) %s->%s; strat: %d, rtt: %dms; err? %v",
@@ -271,14 +271,20 @@ func (r *retrier) CloseRead() error {
 
 // Read data from r.conn into buf
 func (r *retrier) Read(buf []byte) (n int, err error) {
+	c := r.conn
+	if c == nil || core.IsNil(c) { // should rarely happen
+		log.E("retrier: read: [] <= %s, no conn", r.raddr)
+		return 0, errNoConn
+	}
+
 	note := log.V
 
-	n, err = r.conn.Read(buf) // r.conn may be provisional or final connection
+	n, err = c.Read(buf)      // r.conn may be provisional or final connection
 	if n == 0 && err == nil { // no data and no error
-		note("retrier: read: no data; retrying [%s<-%s]", laddr(r.conn), r.raddr)
+		note("retrier: read: no data; retrying [%s<-%s]", laddr(c), r.raddr)
 		return // nothing yet to retry; on to next read
 	}
-	logeor(err, note)("retrier: read: [%s<-%s] %d; err: %v", laddr(r.conn), r.raddr, n, err)
+	logeor(err, note)("retrier: read: [%s<-%s] %d; err: %v", laddr(c), r.raddr, n, err)
 
 	note = log.D
 	if !r.retryCompleted() {
@@ -288,11 +294,19 @@ func (r *retrier) Read(buf []byte) (n int, err error) {
 		if !done {
 			defer close(r.retryDoneCh) // signal that retry is complete or unnecessary
 			// retry on errs like timeouts or connection resets
-			for err != nil && r.retryCount < maxRetryCount {
+			for (c == nil || err != nil) && r.retryCount < maxRetryCount {
 				r.retryCount++
 				n, err = r.retryWriteReadLocked(buf)
+				c = r.conn // re-assign c to newConn, if any; may be nil
+				if err == nil && c == nil {
+					err = errNoConn
+				}
 				logeor(err, log.I)("retrier: read# %d: [%s<-%s] %d; err? %v",
-					r.retryCount, laddr(r.conn), r.raddr, n, err)
+					r.retryCount, laddr(c), r.raddr, n, err)
+			}
+			if c != nil && core.IsNotNil(c) {
+				_ = c.SetReadDeadline(r.readDeadline)
+				_ = c.SetWriteDeadline(r.writeDeadline)
 			}
 			// todo: reset deadlines only if no err?
 			_ = r.conn.SetReadDeadline(r.readDeadline)
@@ -301,7 +315,7 @@ func (r *retrier) Read(buf []byte) (n int, err error) {
 			r.hello = nil
 			return
 		}
-		logeor(err, note)("retrier: read: already retried! [%s<-%s] %d; err? %v", laddr(r.conn), r.raddr, n, err)
+		logeor(err, note)("retrier: read: already retried! [%s<-%s] %d; err? %v", laddr(c), r.raddr, n, err)
 	} // else: just one read is enough; no retry needed
 	return
 }
@@ -311,6 +325,11 @@ func (r *retrier) sendCopyHello(b []byte) (n int, didWrite bool, src net.Addr, e
 	defer r.mutex.Unlock()
 
 	c := r.conn
+	if c == nil || core.IsNil(c) {
+		err = errNilConn
+		log.E("retrier: send(tee): [] => %s, no conn; sz(%d)", r.raddr, len(b))
+		return
+	}
 	src = laddr(c)
 	if !r.retryCompleted() { // first write
 		n, err = c.Write(b)
@@ -355,12 +374,12 @@ func (r *retrier) Write(b []byte) (int, error) {
 			<-r.retryDoneCh
 
 			r.mutex.Lock()
-			newConn := r.conn // newConn may have been closed
 			elapsed := time.Since(start).Milliseconds()
 			if r.retryErr != nil {
 				r.mutex.Unlock()
+				// r.conn may be nil or closed
 				log.E("retrier: write: retry failed [%s->%s] in %dms; old -> new: %v -> %v",
-					laddr(newConn), r.raddr, elapsed, err, r.retryErr)
+					laddr(r.conn), r.raddr, elapsed, err, r.retryErr)
 				return n, err // pass on the og error
 			}
 			r.mutex.Unlock()
@@ -377,28 +396,37 @@ func (r *retrier) Write(b []byte) (int, error) {
 	}
 
 	// retryCompleted() is true, so r.conn is final and doesn't need locking
-	return r.conn.Write(b)
+	if c := r.conn; c == nil {
+		log.E("retrier: write: [] => %s, no conn", r.raddr)
+		return 0, errNilConn
+	} else {
+		return c.Write(b)
+	}
 }
 
-// ReadFrom reads data from reader into r.conn.ReadFrom, after
+// ReadFrom reads data from reader via r.conn.ReadFrom, after (as needed)
 // retries are done; before which reads are delegated to copyOnce.
 func (r *retrier) ReadFrom(reader io.Reader) (bytes int64, err error) {
 	copies := 0
 	for !r.retryCompleted() {
 		b, e := copyOnce(r, reader)
-
 		copies++
 		bytes += b
-
 		logeif(err)("retrier: readfrom: copyOnce #%d; sz: %d/%d; err: %v", copies, b, bytes, err)
 		if e != nil {
 			return bytes, e
 		}
 	}
 
+	c := r.conn
+	if c == nil || core.IsNil(c) {
+		log.E("retrier: readfrom: [] <= %s, no conn; after# %d: sz(%d)", r.raddr, copies, bytes)
+		return bytes, io.ErrUnexpectedEOF
+	}
+
 	// retryCompleted() is true, so r.conn is final and doesn't need locking
 	var b int64
-	b, err = r.conn.ReadFrom(reader)
+	b, err = c.ReadFrom(reader)
 	bytes += b
 
 	logeif(err)("retrier: readfrom: done; sz: %d; err: %v", bytes, err)
