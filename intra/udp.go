@@ -322,13 +322,9 @@ func (h *udpHandler) Connect(gconn *netstack.GUDPConn, src, target netip.AddrPor
 	// note: fake-dns-ips shouldn't be un-nated / un-alg'd
 	for i, dstipp := range makeIPPorts(realips, target, 0) {
 		selectedTarget = dstipp
-		if mux { // pc is net.PacketConn (which confirms to core.UDPConn)
-			var mxr *muxer
-			// mux not supported by all proxies (few like Exit, Base, WG support it)
-			if mxr, err = h.mux.associate(cid, src, px.Dialer().Announce, dmx); err == nil {
-				pc, err = mxr.vend(net.UDPAddrFromAddrPort(selectedTarget))
-			}
-		} else { // pc is net.Conn (which confirms to core.UDPConn)
+		if mux { // mux is not supported by all proxies (few like Exit, Base, WG support it)
+			pc, err = h.mux.associate(cid, src, selectedTarget, px.Dialer().Announce, dmx)
+		} else {
 			pc, err = px.Dialer().Dial("udp", selectedTarget.String())
 		}
 		if err == nil {
