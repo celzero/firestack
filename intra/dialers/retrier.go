@@ -56,7 +56,7 @@ type retrier struct {
 	readDone  atomic.Bool
 	writeDone atomic.Bool
 
-	// mutex is a lock that guards conn, retryCount, hello, timeout,
+	// mutex is a lock that guards conn, retryCount, tee, timeout,
 	// retryErr, retryDoneCh, readDeadline, and writeDeadline.
 	// After retryDoneCh is closed, these values will not be
 	// modified again so locking is no longer required for reads.
@@ -74,9 +74,9 @@ type retrier struct {
 	writeDeadline time.Time
 	// Time to wait between the 1st write & the 1st read before triggering a retry.
 	timeout time.Duration
-	// hello is the contents written before the first read.  It is initially empty,
+	// tee is the contents written before the first read.  It is initially empty,
 	// and is cleared when the first byte is received.
-	hello []byte
+	tee []byte
 	// retryErr is set to the error from the last retry, if any.
 	retryErr   error
 	retryCount uint8
@@ -221,8 +221,8 @@ func (r *retrier) dialLocked() (c core.DuplexConn, err error) {
 	return
 }
 
-// retryWriteReadLocked closes the current connection, dials a new one, and writes the hello
-// message (first segment) after splitting according to specified dial strategy.
+// retryWriteReadLocked closes the current connection, dials a new one, and writes
+// the first segment after splitting according to specified dial strategy.
 // Returns an error if the dial fails or if the splits could not be written.
 func (r *retrier) retryWriteReadLocked(buf []byte) (int, error) {
 	// r.dialLocked also closes provisional socket
@@ -232,9 +232,9 @@ func (r *retrier) retryWriteReadLocked(buf []byte) (int, error) {
 	}
 
 	var nw int
-	nw, r.retryErr = newConn.Write(r.hello)
+	nw, r.retryErr = newConn.Write(r.tee)
 	logeif(r.retryErr)("retrier: retryLocked: strat(%s) %s->%s; write? %d/%d; err? %v",
-		r.dialerOpts, laddr(newConn), r.raddr, nw, len(r.hello), r.retryErr)
+		r.dialerOpts, laddr(newConn), r.raddr, nw, len(r.tee), r.retryErr)
 	if r.retryErr != nil {
 		return 0, r.retryErr
 	}
@@ -308,11 +308,7 @@ func (r *retrier) Read(buf []byte) (n int, err error) {
 				_ = c.SetReadDeadline(r.readDeadline)
 				_ = c.SetWriteDeadline(r.writeDeadline)
 			}
-			// todo: reset deadlines only if no err?
-			_ = r.conn.SetReadDeadline(r.readDeadline)
-			_ = r.conn.SetWriteDeadline(r.writeDeadline)
-			// reset hello
-			r.hello = nil
+			r.tee = nil // discard teed data
 			return
 		}
 		logeor(err, note)("retrier: read: already retried! [%s<-%s] %d; err? %v", laddr(c), r.raddr, n, err)
@@ -320,7 +316,7 @@ func (r *retrier) Read(buf []byte) (n int, err error) {
 	return
 }
 
-func (r *retrier) sendCopyHello(b []byte) (n int, didWrite bool, src net.Addr, err error) {
+func (r *retrier) teeSend(b []byte) (n int, didWrite bool, src net.Addr, err error) {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
 
@@ -333,9 +329,9 @@ func (r *retrier) sendCopyHello(b []byte) (n int, didWrite bool, src net.Addr, e
 	src = laddr(c)
 	if !r.retryCompleted() { // first write
 		n, err = c.Write(b)
-		// capture first write, "hello"
-		r.hello = append(r.hello, b...)
-		// all of b was written to r.hello if not to c
+		// capture first write, aka "hello"
+		r.tee = append(r.tee, b...)
+		// all of b was written to r.tee if not to c
 		// require a response or another write within a short timeout.
 		_ = c.SetReadDeadline(time.Now().Add(r.timeout))
 		didWrite = true
@@ -346,10 +342,10 @@ func (r *retrier) sendCopyHello(b []byte) (n int, didWrite bool, src net.Addr, e
 // Write data in b to retrier's underlying conn, r.conn
 func (r *retrier) Write(b []byte) (int, error) {
 	// Double-checked locking pattern.  This avoids lock acquisition on
-	// every packet after retry completes, while also ensuring that r.hello is
+	// every packet after retry completes, while also ensuring that r.tee is
 	// empty at steady-state.
 	if !r.retryCompleted() {
-		n, sentAndCopied, src, err := r.sendCopyHello(b)
+		n, sentAndCopied, src, err := r.teeSend(b)
 
 		note := log.D
 		if sentAndCopied {
@@ -361,7 +357,7 @@ func (r *retrier) Write(b []byte) (int, error) {
 		if sentAndCopied {
 			// since Write() does not wait for <-retryDoneCh if there are no errors,
 			// it is possible that ReadFrom() -> copyOnce() is called before retryDoneCh
-			// is closed, resulting in two Write() calls, and r.hello containing buffers
+			// is closed, resulting in two Write() calls, and r.tee containing buffers
 			// the size of two Writes()
 			if err == nil {
 				return n, nil
@@ -370,7 +366,7 @@ func (r *retrier) Write(b []byte) (int, error) {
 			start := time.Now()
 			// write error on the provisional socket should be handled
 			// by the retry procedure. Block until we have a final socket (which will
-			// already have replayed r.hello), and retry.
+			// already have replayed r.tee), and retry.
 			<-r.retryDoneCh
 
 			r.mutex.Lock()
@@ -390,9 +386,9 @@ func (r *retrier) Write(b []byte) (int, error) {
 			// }
 
 			// retry succeeded, nil error
-			// all of b was written to r.hello which was replayed
+			// all of b was written to r.tee which was replayed
 			return len(b), nil
-		} // not sent by sendCopyHello; do a normal write
+		} // not sent by teeSend; do a normal write
 	}
 
 	// retryCompleted() is true, so r.conn is final and doesn't need locking
