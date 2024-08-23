@@ -215,8 +215,12 @@ func (x *muxer) readers() {
 			} // else: err out
 		}
 		if err != nil {
-			log.I("udp: mux: %s read done: %v", x.cid, err)
+			log.I("udp: mux: %s read done n(%d): %v", x.cid, n, err)
 			return
+		}
+		if who == nil {
+			log.W("udp: mux: %s read done n(%d): nil remote addr; skip", x.cid, n)
+			continue
 		}
 
 		if dst, err := x.route(who); err != nil {
@@ -237,7 +241,7 @@ func (x *muxer) route(raddr net.Addr) (*demuxconn, error) {
 	x.rmu.Lock()
 	defer x.rmu.Unlock()
 
-	addr := raddr.String()
+	addr := raddr.String() // raddr must never be nil
 	conn, ok := x.routes[addr]
 	if !ok || conn == nil {
 		// new routes created here won't really exist in netstack if
