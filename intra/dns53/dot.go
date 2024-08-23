@@ -66,7 +66,7 @@ func NewTLSTransport(id, rawurl string, addrs []string, px ipn.Proxies, ctl prot
 	// add sni to tls config
 	tlscfg.ServerName = hostname
 	ctx, done := context.WithCancel(context.Background())
-	tx := &dot{
+	t = &dot{
 		ctx:     ctx,
 		done:    done,
 		id:      id,
@@ -86,7 +86,7 @@ func NewTLSTransport(id, rawurl string, addrs []string, px ipn.Proxies, ctl prot
 	// 	tlscfg.MinVersion = tls.VersionTLS13
 	// }
 	// local dialer: protect.MakeNsDialer(id, ctl)
-	tx.c = &dns.Client{
+	t.c = &dns.Client{
 		Net:            "tcp-tls",
 		Dialer:         nil, // unused; dialers from px take precedence
 		Timeout:        dottimeout,
@@ -95,7 +95,7 @@ func NewTLSTransport(id, rawurl string, addrs []string, px ipn.Proxies, ctl prot
 	}
 	log.I("dot: (%s) setup: %s; relay? %t; resolved? %t, ech? %t",
 		id, rawurl, relay != nil, ok, len(ech) > 0)
-	return tx, nil
+	return t, nil
 }
 
 func (t *dot) ech() []byte {
