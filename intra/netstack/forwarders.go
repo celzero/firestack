@@ -311,14 +311,13 @@ func (m *supervisor) stop() {
 	if settings.Debug {
 		log.D("ns: tun(%d): forwarder: stopping %d procs", fd, len(m.processors))
 	}
-	if m.canDeliverInline() {
-		return
-	}
-	for i := range m.processors {
-		p := &m.processors[i]
-		p.closeWaker.Assert()
-	}
-	m.wg.Wait()
+	if !m.canDeliverInline() {
+		for i := range m.processors {
+			p := &m.processors[i]
+			p.closeWaker.Assert()
+		}
+		m.wg.Wait()
+	} // else: no goroutines to stop or wait for.
 	if settings.Debug {
 		elapsed := time.Since(start).Milliseconds() / 1000
 		log.D("ns: tun(%d): forwarder: stopped %d procs in %ds", fd, len(m.processors), elapsed)

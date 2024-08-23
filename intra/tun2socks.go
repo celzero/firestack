@@ -76,7 +76,7 @@ func LogLevel(level, consolelevel int32) {
 	clvl := log.LevelOf(consolelevel)
 	log.SetLevel(dlvl)
 	log.SetConsoleLevel(clvl)
-	settings.Debug = dlvl < log.INFO
+	settings.Debug = dlvl <= log.DEBUG
 	if settings.Debug {
 		debug.SetTraceback(usr.s())
 	} else {

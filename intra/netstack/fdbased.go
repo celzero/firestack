@@ -78,7 +78,7 @@ type endpoint struct {
 	// fds is the set of file descriptors each identifying one inbound/outbound
 	// channel. The endpoint will dispatch from all inbound channels as well as
 	// hash outbound packets to specific channels based on the packet hash.
-	fds *core.Volatile[int] // int
+	fds *core.Volatile[int]
 
 	// mtu (maximum transmission unit) is the maximum size of a packet.
 	mtu atomic.Uint32
