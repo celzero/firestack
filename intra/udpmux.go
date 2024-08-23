@@ -62,7 +62,7 @@ type muxer struct {
 	cb      func()             // muxer.stop() callback (in a new goroutine)
 	vnd     netstack.DemuxerFn // for new routes in netstack
 
-	rmu    sync.Mutex                    // protects routes
+	rmu    sync.RWMutex                  // protects routes
 	routes map[netip.AddrPort]*demuxconn // remote addr -> demuxed conn
 
 	dxconnWG *sync.WaitGroup // wait group for demuxed conns
@@ -104,7 +104,7 @@ func newMuxer(cid, pid string, conn net.PacketConn, vnd netstack.DemuxerFn, f fu
 		mxconn:   conn,
 		stats:    &stats{start: time.Now()},
 		routes:   make(map[netip.AddrPort]*demuxconn),
-		rmu:      sync.Mutex{},
+		rmu:      sync.RWMutex{},
 		dxconns:  make(chan *demuxconn),
 		doneCh:   make(chan struct{}),
 		dxconnWG: &sync.WaitGroup{},
@@ -124,7 +124,7 @@ func (x *muxer) awaiters() {
 			log.D("udp: mux: %s awaiter: watching %s => %s", x.cid, c.laddr, c.raddr)
 			x.dxconnWG.Add(1) // accept
 			core.Gx("udpmux.vend.close", func() {
-				<-c.closed
+				<-c.closed // conn closed
 				x.unroute(c)
 				x.dxconnWG.Done() // unaccept
 			})
@@ -216,14 +216,24 @@ func (x *muxer) readers() {
 	}
 }
 
-func (x *muxer) route(to netip.AddrPort) *demuxconn {
-	x.rmu.Lock()
-	defer x.rmu.Unlock()
+func (x *muxer) routeFast(to netip.AddrPort) *demuxconn {
+	x.rmu.RLock()
+	defer x.rmu.RUnlock()
+	return x.routes[to]
+}
 
+func (x *muxer) route(to netip.AddrPort) *demuxconn {
 	if !to.IsValid() {
 		log.W("udp: mux: %s route: invalid addr %s", x.cid, to)
 		return nil
 	}
+
+	if conn := x.routeFast(to); conn != nil {
+		return conn
+	}
+
+	x.rmu.Lock()
+	defer x.rmu.Unlock()
 
 	conn := x.routes[to]
 	if conn == nil {
