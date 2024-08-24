@@ -113,7 +113,7 @@ type dnsgateway struct {
 
 	rdns  RdnsResolver // local and remote rdns blocks
 	dns64 NatPt        // dns64/nat64
-	chash bool         // use consistent hashing to generae alg ips
+	chash bool         // use consistent hashing to generate alg ips
 
 	// fields below are mutable
 
@@ -995,7 +995,7 @@ func synthesizeOrQuery(pre []*netip.Addr, tr Transport, msg *dns.Msg, network st
 		withPresetSummary(smm)
 		smm.RCode = xdns.Rcode(ans)
 		smm.RData = xdns.GetInterestingRData(ans)
-		smm.RTtl = xdns.RTtl(ans)
+		smm.RTtl = xdns.RTtl(ans) // usually 1 per xdns.AnsTTL
 
 		log.D("alg: synthesize: q(4? %t / 6? %t) rdata(%s)", qname, is4, is6, smm.RData)
 
@@ -1014,7 +1014,7 @@ func synthesizeOrQuery(pre []*netip.Addr, tr Transport, msg *dns.Msg, network st
 			ok4 = xdns.SubstSVCBRecordIPs( /*out*/ ans, dns.SVCB_IPV4HINT, ip4s, ttl)
 		}
 		if len(ip6s) > 0 {
-			ok6 = xdns.SubstSVCBRecordIPs( /*out*/ ans, dns.SVCB_IPV6HINT, ip6s, algttl)
+			ok6 = xdns.SubstSVCBRecordIPs( /*out*/ ans, dns.SVCB_IPV6HINT, ip6s, ttl)
 		}
 
 		withPresetSummary(smm)

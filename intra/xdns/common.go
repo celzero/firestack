@@ -51,7 +51,7 @@ var (
 	MaxDNSUDPPacketSize     = 4096
 	MaxDNSUDPSafePacketSize = 1252
 	BlockTTL                = uint32(5)
-	AnsTTL                  = uint32(300)
+	AnsTTL                  = uint32(60)
 	MaxMTU                  = 0xffff // 65k, ought to be enough for everybody
 )
 
