@@ -62,7 +62,7 @@ type Gateway interface {
 	// given an alg or real ip, retrieves assoc real ips as csv, if any
 	X(algip netip.Addr) (realipcsv string)
 	// given an alg or real ip, retrieves assoc dns names as csv, if any
-	PTR(algip netip.Addr, force bool) (domaincsv string)
+	PTR(algip netip.Addr, force bool) (domaincsv string, didForce bool)
 	// given domain, retrieve assoc alg ips as csv, if any
 	RESOLV(domain string) (algipcsv string)
 	// given an alg or real ip, retrieve assoc blocklists as csv, if any
@@ -741,15 +741,16 @@ func (t *dnsgateway) X(algip netip.Addr) (ips string) {
 	return ips
 }
 
-func (t *dnsgateway) PTR(algip netip.Addr, force bool) (domains string) {
+func (t *dnsgateway) PTR(algip netip.Addr, force bool) (domains string, didForce bool) {
 	t.RLock()
 	defer t.RUnlock()
 
-	d := t.ptrLocked(algip, (!t.mod.Load() || force))
+	force = !t.mod.Load() || force
+	d := t.ptrLocked(algip, force)
 	if len(d) > 0 {
 		domains = strings.Join(d, ",")
 	} // else: algip isn't really an alg ip, nothing to do
-	return domains
+	return domains, force
 }
 
 func (t *dnsgateway) RESOLV(domain string) (ipcsv string) {

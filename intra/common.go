@@ -211,11 +211,12 @@ func makeIPPorts(realips string, origipp netip.AddrPort, cap int) []netip.AddrPo
 }
 
 func undoAlg(r dnsx.Resolver, algip netip.Addr) (realips, domains, probableDomains, blocklists string) {
+	didForce := false
 	force := true // force PTR resolution
 	if gw := r.Gateway(); !algip.IsUnspecified() && algip.IsValid() && gw != nil {
-		domains = gw.PTR(algip, !force)
-		if len(domains) <= 0 {
-			probableDomains = gw.PTR(algip, force)
+		domains, didForce = gw.PTR(algip, !force)
+		if !didForce && len(domains) <= 0 {
+			probableDomains, _ = gw.PTR(algip, force)
 		}
 		// prevent scenarios where the tunnel only has v4 (or v6) routes and
 		// all the routing decisions by listener.Flow() are made based on those routes
