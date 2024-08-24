@@ -43,12 +43,6 @@ func NewConnMap() *cm {
 	}
 }
 
-func NewConnDestMap() *cm {
-	return &cm{
-		trac: make(map[string][]MinConn),
-	}
-}
-
 func (h *cm) Track(cid string, conns ...MinConn) (n int) {
 	h.Lock()
 	defer h.Unlock()
@@ -69,12 +63,8 @@ func (h *cm) Untrack(cid string) (n int) {
 	h.Lock()
 	defer h.Unlock()
 
-	for _, c := range h.trac[cid] {
-		if c != nil && IsNotNil(c) {
-			_ = c.Close()
-			n += 1
-		}
-	}
+	n = len(h.trac[cid])
+	CloseConn(h.trac[cid]...)
 	delete(h.trac, cid)
 	log.D("connmap: untrack: %d conns for %s", n, cid)
 	return
@@ -86,11 +76,7 @@ func (h *cm) UntrackBatch(cids []string) (out []string) {
 
 	out = make([]string, 0, len(cids))
 	for _, id := range cids {
-		for _, c := range h.trac[id] {
-			if c != nil && IsNotNil(c) {
-				_ = c.Close()
-			}
-		}
+		CloseConn(h.trac[id]...)
 		delete(h.trac, id)
 		out = append(out, id)
 	}
@@ -102,10 +88,7 @@ func (h *cm) Get(cid string) (conns []MinConn) {
 	h.RLock()
 	defer h.RUnlock()
 
-	if conns, ok := h.trac[cid]; ok {
-		return conns
-	}
-	return
+	return h.trac[cid]
 }
 
 func (h *cm) Clear() (cids []string) {
