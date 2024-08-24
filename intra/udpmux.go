@@ -425,11 +425,11 @@ func (c *demuxconn) SetReadDeadline(t time.Time) error {
 func (c *demuxconn) SetWriteDeadline(t time.Time) error {
 	if d := time.Until(t); d > 0 {
 		c.wto = d
-		c.rt.Reset(d)
+		c.wt.Reset(d)
 		c.remux.extend(t)
 	} else {
 		c.remux.extend(time.Time{}) // no deadline
-		c.rt.Stop()
+		c.wt.Stop()
 	}
 	// Write deadline of underlying connection should not be changed
 	// since the connection can be shared.
