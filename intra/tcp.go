@@ -131,8 +131,20 @@ func (h *tcpHandler) CloseConns(cids []string) (closed []string) {
 // Error implements netstack.GTCPConnHandler.
 // It must be called from a goroutine.
 func (h *tcpHandler) Error(gconn *netstack.GTCPConn, src, dst netip.AddrPort, err error) {
-	ok := h.Proxy(gconn, src, dst)
-	log.I("tcp: proxy: %v -> %v; err %v; recovered? %t", src, dst, err, ok)
+	log.W("tcp: error: %v -> %v; err %v", src, dst, err)
+	if !src.IsValid() || !dst.IsValid() {
+		return
+	}
+	res, _, _, _ := h.onFlow("tcp", src, dst)
+	cid, pid, uid := splitCidPidUid(res)
+	smm := tcpSummary(cid, pid, uid, dst.Addr())
+
+	if h.status.Load() == UDPEND {
+		err = errTcpEnd
+	} else if pid == ipn.Block {
+		err = errTcpFirewalled
+	}
+	smm.done(err)
 }
 
 // Proxy implements netstack.GTCPConnHandler
