@@ -853,11 +853,6 @@ func (r *resolver) preferencesFrom(qname string, qtyp uint16, s *x.DNSOpts, chos
 		}
 	}
 
-	if len(ips) > 0 { // skip blocks if ips are set (even if unspecified ips)
-		log.D("dns: pref: preset ips (no block) %v for %s", ips, qname)
-		s.NOBLOCK = true
-	}
-
 	l := len(x)
 	if x == nil || l <= 0 { // x may be nil
 		log.W("dns: pref: no tids for %s", qname)
@@ -886,12 +881,27 @@ func (r *resolver) preferencesFrom(qname string, qtyp uint16, s *x.DNSOpts, chos
 		log.D("dns: pref: use suggested tr(%s) for %s", reqid, qname)
 		id1 = reqid
 		id2 = ""
+	} else if isAnyFixed(id1, id2) {
+		log.VV("dns: pref: use fixed tr (%s, %s) for %s", id1, id2, qname)
+		if id1 != Fixed { // Fixed must always be the primary transport
+			id2 = id1
+			id1 = Fixed
+		}
+		if len(id2) <= 0 {
+			id2 = Preferred
+		}
+		// s.NOBLOCK is respected
 	}
 	if isAnyLocal(id1, id2) { // use one transport, Local, if set
 		id1 = Local
 		id2 = ""
 	}
-	if s != nil && len(s.PID) > 0 {
+	if len(ips) > 0 {
+		log.D("dns: pref: preset ips (no block) %v for %s", ips, qname)
+		s.NOBLOCK = true // skip blocks if ips are set (even if unspecified ips)
+		id2 = ""         // no secondary transport
+	}
+	if len(s.PID) > 0 {
 		pid = overrideProxyIfNeeded(s.PID, id1, id2)
 	} else {
 		pid = NetNoProxy
@@ -976,6 +986,10 @@ func isTransportID(match string, ids ...string) bool {
 
 func isAnyBlockAll(ids ...string) bool {
 	return isTransportID(BlockAll, ids...)
+}
+
+func isAnyFixed(ids ...string) bool {
+	return isTransportID(Fixed, ids...)
 }
 
 func isAnyIPUnspecified(ips []*netip.Addr) bool {

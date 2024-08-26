@@ -45,8 +45,12 @@ const (
 
 var (
 	// 100.64.x.x
-	rfc6598  = []uint8{100, 64, 0, 1}
-	rfc8215a = []uint16{0x64, 0xff9b, 0x1, 0xda19, 0x100, 0x0, 0x0, 0x0}
+	rfc6598    = []uint8{100, 64, 0, 1}
+	rfc8215a   = []uint16{0x64, 0xff9b, 0x1, 0xda19, 0x100, 0x0, 0x0, 0x0}
+	rfc3068ip4 = netip.AddrFrom4([4]uint8{192, 88, 99, 114})
+	rfc3068ip6 = netip.AddrFrom16([16]byte{0x20, 0x02, 0xF1, 0x3D, 0x00, 0x01, 0xDA, 0x19, 0x01, 0x92, 0x00, 0x88, 0x00, 0x99, 0x01, 0x14})
+	// [192.88.99.114, 2002:f13d:1:da19:192:88:99:114] go.dev/play/p/-0MJenRF5pm
+	fixedRealIPs = []*netip.Addr{&rfc3068ip4, &rfc3068ip6}
 
 	errNoTransportAlg    = errors.New("no alg transport")
 	errNotAvailableAlg   = errors.New("no valid alg ips")
@@ -262,24 +266,31 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []*netip.Addr, network string, q
 	if t1 == nil || core.IsNil(t1) {
 		return nil, errNoTransportAlg
 	}
-	usepreset := len(preset) > 0 // preset may be nil
+
+	usepreset := len(preset) > 0                  // preset may be nil
+	mod := t.mod.Load()                           // allow alg?
+	usefixed := !usepreset && isAnyFixed(t1.ID()) // fixed realips?
+	if usefixed {
+		preset = fixedRealIPs
+		mod = true // assert mod == true?
+		usepreset = true
+		t1 = t2 // assert t2 != nil?
+	}
 	// presets override both t1 and t2:
 	// discard t2 as with preset we don't care about additional ips and blocklists;
 	// t1 is not discarded entirely as it is needed to subst ips in https/svcb responses
 	if usepreset {
-		t2 = nil
+		t2 = nil // assert t2 == nil?
 	}
-	mod := t.mod.Load() // allow alg?
 	// at most two results (t1 or t2 responses, or nil timeout response)
 	secch := make(chan secans, 2)
 	resch := make(chan *dns.Msg, 1)
 	innersummary := new(x.DNSSummary)
 	// todo: use context?
-	// t2 may be nil
-	go t.querySecondary(t2, network, q, secch, resch)
+	go t.querySecondary(t2, network, q, secch, resch) // t2 may be nil
 
 	if usepreset {
-		ansin, err = synthesizeOrQuery(preset, t1, q, network, innersummary)
+		ansin, err = synthesizeOrQuery(preset, t1, q, network, innersummary, usefixed)
 	} else {
 		ansin, err = Req(t1, network, q, innersummary)
 	}
@@ -308,6 +319,7 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []*netip.Addr, network string, q
 	summary.QName = qname
 	summary.QType = qtype(ansin)
 
+	// if usefixed is true, then d64 is no-op, as preset fixed ip does have ipv6
 	ans64 := t.dns64.D64(network, ansin, t1) // ans64 may be nil if no D64 or error
 	if ans64 != nil {
 		log.D("alg: dns64; s/ans(%d)/ans64(%d)", xdns.Len(ansin), xdns.Len(ans64))
@@ -400,7 +412,8 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []*netip.Addr, network string, q
 	substok4 := false
 	substok6 := false
 	// substituions needn't happen when no alg ips to begin with
-	mustsubst := false
+	// but must happen if (real) ips are fixed
+	mustsubst := false || usefixed
 	ansout := ansin.Copy()
 	// TODO: substitute ips in additional section
 	if len(algip4hints) > 0 {
@@ -424,22 +437,34 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []*netip.Addr, network string, q
 	if !substok4 && !substok6 {
 		if mustsubst {
 			err = errCannotSubstAlg
-		} else {
+		} else { // no algips
 			err = nil
 		}
-		log.D("alg: skip; err(%v); ips subst %s", err, qname)
+		log.D("alg: skip; err(%v); ips subst %s; fixed? %t", err, qname, usefixed)
 		return ansin, err // ansin is nil if no alg ips
 	}
 
 	// get existing real ips for qname, from previous alg/nat
 	previp4s, previp6s, prevtargets := t.resolvLocked(qname, typreal)
-	realip = removeDups2(realip, previp4s, previp6s)
 	targets = removeDups(targets, prevtargets)
+
+	var fixedips []*netip.Addr
+	if usefixed {
+		// if usefixed, then realips are in fact fixedips
+		fixedips = realip
+		// empty out realip and secres.ips got from answers
+		// secres.ips is fixedips anyway since t2 is nil
+		realip = nil
+		secres.ips = nil
+	}
+
+	realip = removeDups2(realip, previp4s, previp6s)
 	// get existing secondary ips for qname, from previous alg/nat
 	prevsec4s, prevsec6s, _ := t.resolvLocked(qname, typsecondary)
 	secres.ips = removeDups2(secres.ips, prevsec4s, prevsec6s)
-	log.D("alg: subst; for %s / prev targets %s; prev ips (alg? %t); v4: %s, v6: %s; sec4: %s, sec6: %s",
-		qname, prevtargets, mod, previp4s, previp6s, prevsec4s, prevsec6s)
+
+	log.D("alg: subst; for %s / prev targets %s; prev ips (alg? %t / fix? %t); v4: %s, v6: %s; sec4: %s, sec6: %s",
+		qname, prevtargets, mod, usefixed, previp4s, previp6s, prevsec4s, prevsec6s)
 	// TODO: just like w/ previps/prevtargets, get blocklists for qname and merge w/ new ones?
 
 	ansttl := time.Duration(xdns.RTtl(ansin)) * time.Second
@@ -461,7 +486,7 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []*netip.Addr, network string, q
 		ttl: time.Now().Add(max(ttl2m, ansttl)),
 	}
 
-	log.D("alg: ok; domains %s ips %s => subst %s; mod? %t; sec %s", targets, realip, algips, mod, secres.ips)
+	log.D("alg: ok; domains %s real: %s / fix: %s => subst %s; mod? %t; sec %s", targets, realip, fixedips, algips, mod, secres.ips)
 
 	if t.registerMultiLocked(qname, x) {
 		// if mod is set, send modified answer
@@ -963,7 +988,7 @@ func hash48(s string) uint64 {
 	return (uint64(v64>>48) ^ uint64(v64)) & 0xFFFFFFFFFFFF // 48 bits
 }
 
-func synthesizeOrQuery(pre []*netip.Addr, tr Transport, msg *dns.Msg, network string, smm *x.DNSSummary) (*dns.Msg, error) {
+func synthesizeOrQuery(pre []*netip.Addr, tr Transport, msg *dns.Msg, network string, smm *x.DNSSummary, fixed bool) (*dns.Msg, error) {
 	// synthesize a response with the given ips
 	if len(pre) == 0 {
 		return Req(tr, network, msg, smm)
@@ -978,17 +1003,21 @@ func synthesizeOrQuery(pre []*netip.Addr, tr Transport, msg *dns.Msg, network st
 	isHTTPS := (!is4 && !is6) && xdns.IsHTTPSQType(qtyp)
 	isSVCB := (!is4 && !is6) && xdns.IsSVCBQType(qtyp)
 	if is4 || is6 {
+		preset := unptr(pre)
 		// if no ips are of the same family as the question xdns.AQuadAForQuery returns error
-		ans, err := xdns.AQuadAForQuery(msg, unptr(pre)...)
+		ans, err := xdns.AQuadAForQuery(msg, preset...)
 		if err != nil { // errors on invalid msg, question, or mismatched ips
+			log.W("alg: synthesize: %s with %v; err(%v); using tr %s@%s",
+				qname, preset, err, tr.ID(), tr.GetAddr())
 			return Req(tr, network, msg, smm)
 		}
-		withPresetSummary(smm)
+		withPresetSummary(smm, false /*req sent?*/, fixed)
 		smm.RCode = xdns.Rcode(ans)
 		smm.RData = xdns.GetInterestingRData(ans)
 		smm.RTtl = xdns.RTtl(ans) // usually 1 per xdns.AnsTTL
 
-		log.D("alg: synthesize: q(4? %t / 6? %t) rdata(%s)", qname, is4, is6, smm.RData)
+		log.D("alg: synthesize: q(4? %t / 6? %t), fixed? %t, rdata(%s)",
+			qname, is4, is6, fixed, smm.RData)
 
 		return ans, nil // no error
 	} else if isHTTPS || isSVCB {
@@ -1008,15 +1037,22 @@ func synthesizeOrQuery(pre []*netip.Addr, tr Transport, msg *dns.Msg, network st
 			ok6 = xdns.SubstSVCBRecordIPs( /*out*/ ans, dns.SVCB_IPV6HINT, ip6s, ttl)
 		}
 
-		withPresetSummary(smm)
+		withPresetSummary(smm, true /*req sent?*/, fixed)
 		smm.RCode = xdns.Rcode(ans)
 		smm.RData = xdns.GetInterestingRData(ans)
 		smm.RTtl = xdns.RTtl(ans)
 
-		log.D("alg: synthesize: q: %s; (HTTPS? %t); subst4(%t), subst6(%t); rdata(%s)", qname, isHTTPS, ok4, ok6, smm.RData)
+		log.D("alg: synthesize: q: %s; (HTTPS? %t / fixed? %); subst4(%t), subst6(%t); rdata(%s); tr: %s@%s",
+			qname, isHTTPS, fixed, ok4, ok6, smm.RData, tr.ID(), tr.GetAddr())
 
 		return ans, nil // no error
 	} else {
+		note := log.VV
+		if fixed {
+			note = log.W
+		}
+		note("alg: synthesize: %s skip; fixed? %t, qtype %d; using tr %s@%s",
+			qname, fixed, qtyp, tr.ID(), tr.GetAddr())
 		return Req(tr, network, msg, smm)
 	}
 }
@@ -1104,14 +1140,20 @@ func unptr[t any](p []*t) (v []t) {
 	return
 }
 
-func withPresetSummary(smm *x.DNSSummary) {
+func withPresetSummary(smm *x.DNSSummary, reqSent, fixed bool) {
+	id := Preset
+	if fixed {
+		id = Fixed
+	}
 	// override id and type from whatever was set before
-	smm.ID = Preset
-	smm.Type = Preset
-	// other unset fields
-	smm.Latency = 0
-	smm.Status = Complete
-	smm.Server = Preset
+	smm.ID = id
+	smm.Type = id
+	if !reqSent { // other unset fields if req not sent upstream
+		smm.Latency = 0
+		smm.Status = Complete
+		smm.Server = "127.5.3.9"
+	}
+	smm.Server = PrefixFor(id) + smm.Server
 	smm.Blocklists = ""  // blocklists are not honoured
 	smm.RelayServer = "" // no relay is used
 }
