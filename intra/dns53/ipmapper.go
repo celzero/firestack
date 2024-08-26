@@ -224,7 +224,7 @@ func (m *ipmapper) undoAlg(ip64 []netip.Addr) []netip.Addr {
 	for _, addr := range ip64 {
 		var csv string
 		if addr.IsValid() {
-			if csv = gw.X(addr); len(csv) > 0 {
+			if csv, _ = gw.X(addr); len(csv) > 0 {
 				// may contain duplicates due to how alg maps domains and ips
 				realips = append(realips, strings.Split(csv, ",")...)
 				continue // skip log.W below

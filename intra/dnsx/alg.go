@@ -64,14 +64,14 @@ func isAlgErr(err error) bool {
 
 type Gateway interface {
 	// given an alg or real ip, retrieves assoc real ips as csv, if any
-	X(algip netip.Addr) (realipcsv string)
+	X(maybeAlg netip.Addr) (realipcsv string, undidAlg bool)
 	// given an alg or real ip, retrieves assoc dns names as csv, if any
-	PTR(algip netip.Addr, force bool) (domaincsv string, didForce bool)
-	// given domain, retrieve assoc alg ips as csv, if any
-	RESOLV(domain string) (algipcsv string)
+	PTR(maybeAlg netip.Addr, force bool) (domaincsv string, didForce bool)
+	// given domain, retrieve assoc alg ips or real ips as csv, if any
+	RESOLV(domain string) (ipcsv string)
 	// given an alg or real ip, retrieve assoc blocklists as csv, if any
-	RDNSBL(algip netip.Addr) (blocklistcsv string)
-	// translate overwrites ip answers to alg ip answers
+	RDNSBL(maybeAlg netip.Addr) (blocklistcsv string)
+	// translate overwrites ip answers to alg ip & fixed ip answers
 	translate(yes bool)
 	// Query using t1 as primary transport and t2 as secondary and preset as pre-determined ip answers
 	q(t1 Transport, t2 Transport, preset []*netip.Addr, network string, q *dns.Msg, s *x.DNSSummary) (*dns.Msg, error)
@@ -739,11 +739,11 @@ func gen6Locked(k string, hop int) netip.Addr {
 	return netip.AddrFrom16(b16)
 }
 
-func (t *dnsgateway) X(algip netip.Addr) (ips string) {
+func (t *dnsgateway) X(maybeAlg netip.Addr) (ips string, undidAlg bool) {
 	t.RLock()
 	defer t.RUnlock()
 
-	rip := t.xLocked(algip, !t.mod.Load())
+	rip, undidAlg := t.xLocked(maybeAlg, !t.mod.Load())
 	if len(rip) > 0 {
 		var s []string
 		for _, r := range rip {
@@ -754,15 +754,16 @@ func (t *dnsgateway) X(algip netip.Addr) (ips string) {
 		ips = strings.Join(s, ",")
 	} // else: algip isn't really an alg ip, nothing to do
 
-	return ips
+	return ips, undidAlg
 }
 
-func (t *dnsgateway) PTR(algip netip.Addr, force bool) (domains string, didForce bool) {
+func (t *dnsgateway) PTR(maybeAlg netip.Addr, force bool) (domains string, didForce bool) {
 	t.RLock()
 	defer t.RUnlock()
 
-	force = !t.mod.Load() || force
-	d := t.ptrLocked(algip, force)
+	// do not use t.ptr (realip -> ans) in mod mode, unless forced
+	useptr := !t.mod.Load() || force
+	d := t.ptrLocked(maybeAlg, useptr)
 	if len(d) > 0 {
 		domains = strings.Join(d, ",")
 	} // else: algip isn't really an alg ip, nothing to do
@@ -798,27 +799,33 @@ func (t *dnsgateway) RDNSBL(algip netip.Addr) (blocklists string) {
 	return t.rdnsblLocked(algip, !t.mod.Load())
 }
 
-func (t *dnsgateway) xLocked(algip netip.Addr, useptr bool) []*netip.Addr {
+func (t *dnsgateway) xLocked(maybeAlg netip.Addr, useptr bool) ([]*netip.Addr, bool) {
 	var realips []*netip.Addr
+	var undidAlg bool = false
 	// alg ips are always unmappped; see take4Locked
-	unmapped := algip.Unmap() // aligip may also be origip / realip
+	unmapped := maybeAlg.Unmap() // aligip may also be origip / realip
 	if ans, ok := t.nat[unmapped]; ok {
 		realips = append(ans.realips, ans.secondaryips...)
+		undidAlg = true
 	} else if ans, ok := t.ptr[unmapped]; useptr && ok {
 		// translate from realip only if not in mod mode
+		// both realips & secondaryips may be nil, but that's okay:
+		// go.dev/play/p/fSjRjMSAS2m
 		realips = append(ans.realip, ans.secondaryips...)
 	}
 	var unnated []*netip.Addr
 	if len(realips) == 0 { // algip is probably origip / realip
+		// unnat origip as it itself may have been synthesized from
+		// our DNS responses by apps doing funky things; like FreeFire
 		unnated = t.maybeUndoNat64(&unmapped)
 	} else {
 		unnated = t.maybeUndoNat64(realips...)
 	}
 	log.D("alg: dns64: algip(%v) -> realips(%v) -> unnated(%v)", unmapped, realips, unnated)
-	if len(unnated) > 0 {
-		return unnated // already de-duplicated
+	if len(unnated) > 0 { // unnated is already de-duplicated
+		return unnated, undidAlg
 	}
-	return removeDups2(realips)
+	return removeDups2(realips), undidAlg
 }
 
 func (t *dnsgateway) maybeUndoNat64(realips ...*netip.Addr) (unnat []*netip.Addr) {

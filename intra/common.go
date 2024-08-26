@@ -214,20 +214,22 @@ func makeIPPorts(realips string, origipp netip.AddrPort, cap int) []netip.AddrPo
 	return []netip.AddrPort{origipp}
 }
 
-func undoAlg(r dnsx.Resolver, algip netip.Addr) (realips, domains, probableDomains, blocklists string) {
+// algip may or may not be an actual alg ip.
+func undoAlg(r dnsx.Resolver, algip netip.Addr) (undidAlg bool, realips, domains, probableDomains, blocklists string) {
 	didForce := false
-	force := true // force PTR resolution
+	forcePTR := true // force PTR resolution?
 	if gw := r.Gateway(); !algip.IsUnspecified() && algip.IsValid() && gw != nil {
-		domains, didForce = gw.PTR(algip, !force)
+		domains, didForce = gw.PTR(algip, !forcePTR)
 		if !didForce && len(domains) <= 0 {
-			probableDomains, _ = gw.PTR(algip, force)
+			probableDomains, _ = gw.PTR(algip, forcePTR)
 		}
 		// prevent scenarios where the tunnel only has v4 (or v6) routes and
 		// all the routing decisions by listener.Flow() are made based on those routes
 		// but we end up dailing into a v6 (or v4) address (which was unaccounted for).
 		// Dialing into v6 (or v4) address may succeed in such scenarios thereby
 		// resulting in a perceived "leak".
-		realips = filterFamilyForDialing(gw.X(algip))
+		realips, undidAlg = gw.X(algip)
+		realips = filterFamilyForDialing(realips)
 		blocklists = gw.RDNSBL(algip)
 	} else {
 		log.W("alg: undoAlg: no gw(%t) or dst(%v)", gw == nil, algip)
