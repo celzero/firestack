@@ -82,8 +82,8 @@ type secans struct {
 
 type ans struct {
 	algip        *netip.Addr   // generated answer, v6 or v4
-	realips      []*netip.Addr // all ip answers, v6+v4
-	secondaryips []*netip.Addr // all ip answers from secondary, v6+v4
+	realips      []*netip.Addr // all ip answers, v6+v4; may be nil
+	secondaryips []*netip.Addr // all ip answers from secondary, v6+v4; may be nil
 	domain       []string      // all domain names in an answer (incl qname)
 	qname        string        // the query domain name
 	blocklists   string        // csv blocklists containing qname per active config at the time
@@ -92,8 +92,8 @@ type ans struct {
 
 type ansMulti struct {
 	algip        []*netip.Addr // generated answers, v6 or v4
-	realip       []*netip.Addr // all ip answers, v6+v4
-	secondaryips []*netip.Addr // all ip answers from secondary, v6+v4
+	realip       []*netip.Addr // all ip answers, v6+v4; may be nil
+	secondaryips []*netip.Addr // all ip answers from secondary, v6+v4; may be nil
 	domain       []string      // all domain names in an answer (incl qname)
 	qname        string        // the query domain name
 	blocklists   string        // csv blocklists containing qname per active config at the time
@@ -528,40 +528,31 @@ func (am *ansMulti) ansViewLocked(i int) *ans {
 }
 
 func (t *dnsgateway) registerMultiLocked(q string, am *ansMulti) bool {
-	for i := range am.algip {
-		if ok := t.registerNatLocked(q, i, am.ansViewLocked(i)); !ok {
-			return false
-		}
-	}
-	for i := range am.realip {
-		// todo: clone(am)?
-		if ok := t.registerPtrLocked(i, am); !ok {
-			return false
-		}
-	}
-	return true
-}
-
-// register mapping from qname -> algip+realip (alg) and algip -> qname+realip (nat)
-func (t *dnsgateway) registerNatLocked(q string, idx int, x *ans) bool {
-	ip := x.algip
-	var k string
-	if ip.Is4() {
-		k = q + key4 + strconv.Itoa(idx)
-	} else if ip.Is6() {
-		k = q + key6 + strconv.Itoa(idx)
-	} else {
+	if len(am.algip) <= 0 { // defensive; should not happen
+		log.E("alg: no algips for %s; real? %d, sec? %d", q, len(am.realip), len(am.secondaryips))
 		return false
 	}
-	t.alg[k] = x
-	t.nat[*ip] = x
-	return true
-}
 
-// register mapping from realip -> algip+qname (ptr)
-func (t *dnsgateway) registerPtrLocked(idx int, x *ansMulti) bool {
-	ip := x.realip[idx]
-	t.ptr[*ip] = x // x contains qname and the algips
+	// register mapping from qname -> algip+realip (alg) and algip -> qname+realip (nat)
+	for i := range am.algip { // am.algip may be nil?
+		x := am.ansViewLocked(i)
+		ip := x.algip
+		var k string
+		if ip.Is4() {
+			k = q + key4 + strconv.Itoa(i)
+		} else if ip.Is6() {
+			k = q + key6 + strconv.Itoa(i)
+		} else {
+			return false
+		}
+		t.alg[k] = x
+		t.nat[*ip] = x
+	}
+	// register mapping from realip -> algip+qname (ptr)
+	for i := range am.realip { // am.realip may be nil.
+		ip := am.realip[i] // todo: clone(am)?
+		t.ptr[*ip] = am    // am contains qname and the algips
+	}
 	return true
 }
 
@@ -827,9 +818,9 @@ func (t *dnsgateway) maybeUndoNat64(realips ...*netip.Addr) (unnat []*netip.Addr
 	return removeDups2(unnat)
 }
 
-func (t *dnsgateway) ptrLocked(algip netip.Addr, useptr bool) (domains []string) {
+func (t *dnsgateway) ptrLocked(maybeAlg netip.Addr, useptr bool) (domains []string) {
 	// alg ips are always unmappped; see take4Locked
-	unmapped := algip.Unmap()
+	unmapped := maybeAlg.Unmap()
 	if ans, ok := t.nat[unmapped]; ok {
 		domains = ans.domain
 	} else if ans, ok := t.ptr[unmapped]; useptr && ok {
