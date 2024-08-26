@@ -32,6 +32,10 @@ type SocketSummary struct {
 }
 
 type SocketListener interface {
+	// Preflow is called before a new connection is established; return "transport id" of a
+	// registered DNS transport to to re-resolve egress domain (as mapped by alg at actual
+	// resolution time against a "fake" IP) to determine the real egress IP to connect to.
+	Preflow(protocol, uid int32, src, dst string) *PreMark
 	// Flow is called on a new connection; return "proxyid,connid" to forward the connection
 	// to a pre-registered proxy; "Base" to allow the connection; "Block" to block the connection.
 	// "connid" is used to uniquely identify a connection across all proxies, and a summary of the
@@ -48,10 +52,15 @@ type SocketListener interface {
 	OnSocketClosed(*SocketSummary)
 }
 
+type PreMark struct {
+	UID    string // UID of the app which owns this flow.
+	TIDCSV string // TIDCSV is a list of DNS transport IDs.
+}
+
 type Mark struct {
-	PID string // PID of the proxy to forward the socket over.
-	CID string // CID identifies this socket.
-	UID string // UID of the app which owns this socket.
+	PID string // PID of the proxy to forward the flow over.
+	CID string // CID identifies this flow.
+	UID string // UID of the app which owns this flow.
 }
 
 const (

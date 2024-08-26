@@ -308,6 +308,7 @@ type zeroListener struct{}
 
 var _ SocketListener = (*zeroListener)(nil)
 
+func (*zeroListener) Preflow(_, _ int32, _, _ string) *PreMark       { return nil }
 func (*zeroListener) Flow(_, _ int32, _, _, _, _, _, _ string) *Mark { return nil }
 func (*zeroListener) OnSocketClosed(*SocketSummary)                  {}
 
