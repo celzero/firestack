@@ -243,17 +243,5 @@ func addrs(a []byte) []netip.Addr {
 }
 
 func dnsmsg(host string, qtype uint16) ([]byte, error) {
-	msg := dns.Msg{
-		MsgHdr: dns.MsgHdr{
-			RecursionDesired: true,
-		},
-		Question: []dns.Question{
-			{
-				Name:   dns.Fqdn(host),
-				Qtype:  qtype,
-				Qclass: dns.ClassINET,
-			},
-		},
-	}
-	return msg.Pack()
+	return xdns.Question(host, qtype)
 }

@@ -10,6 +10,7 @@ import (
 	"context"
 	"net/netip"
 
+	"github.com/celzero/firestack/intra/xdns"
 	"github.com/miekg/dns"
 )
 
@@ -21,16 +22,14 @@ func Resolve(hostname string) ([]netip.Addr, error) {
 	if len(addrs) <= 0 { // check cache
 		if addrs = ipm.GetAny(hostname).Addrs(); len(addrs) > 0 {
 			return addrs, nil
-		} // else: on cached addrs
+		} // else: no cached addrs
 	}
 	return addrs, err
 }
 
 // ECH returns the ECH config, if any, for the given hostname.
 func ECH(hostname string) ([]byte, error) {
-	msg := &dns.Msg{}
-	msg.SetQuestion(dns.Fqdn(hostname), dns.TypeHTTPS)
-	q, err := msg.Pack()
+	q, err := xdns.Question(hostname, dns.TypeHTTPS)
 	if err != nil {
 		return nil, err
 	}
