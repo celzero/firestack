@@ -471,46 +471,46 @@ func copySummary(from *x.DNSSummary) (to *x.DNSSummary) {
 	return
 }
 
-// fillSummary copies non-zero values into other.
-func fillSummary(s *x.DNSSummary, other *x.DNSSummary) {
-	if other == nil || s == other {
+// fillSummary copies non-zero values into out.
+func fillSummary(s *x.DNSSummary, out *x.DNSSummary) {
+	if out == nil || s == out {
 		return
 	}
 	if len(s.Type) != 0 {
-		other.Type = s.Type
+		out.Type = s.Type
 	}
 	if len(s.ID) != 0 {
-		other.ID = s.ID
+		out.ID = s.ID
 	}
 	if s.Latency != 0 {
-		other.Latency = s.Latency
+		out.Latency = s.Latency
 	}
 
 	// query portions are only filled in if they are empty
-	if len(other.QName) == 0 {
-		other.QName = s.QName
+	if len(out.QName) == 0 {
+		out.QName = s.QName
 	}
 	// dns.TypeNone = 0
-	if other.QType == 0 {
-		other.QType = s.QType
+	if out.QType == 0 {
+		out.QType = s.QType
 	}
 	// fill in region if empty
-	if len(other.Region) == 0 {
-		other.Region = s.Region
+	if len(out.Region) == 0 {
+		out.Region = s.Region
 	}
 
 	if len(s.RData) != 0 {
-		other.RData = s.RData
+		out.RData = s.RData
 	}
 
-	other.RCode = s.RCode
-	other.RTtl = s.RTtl
-	other.Server = s.Server
-	other.RelayServer = s.RelayServer
-	other.Status = s.Status
-	other.Blocklists = s.Blocklists
-	other.Msg = s.Msg
-	other.UpstreamBlocks = s.UpstreamBlocks
+	out.RCode = s.RCode
+	out.RTtl = s.RTtl
+	out.Server = s.Server
+	out.RelayServer = s.RelayServer
+	out.Status = s.Status
+	out.Blocklists = s.Blocklists
+	out.Msg = s.Msg
+	out.UpstreamBlocks = s.UpstreamBlocks
 }
 
 func rand33pc() bool {
