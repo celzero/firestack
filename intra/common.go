@@ -11,13 +11,17 @@ import (
 	"math/rand"
 	"net"
 	"net/netip"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/dialers"
 	"github.com/celzero/firestack/intra/dnsx"
+	"github.com/celzero/firestack/intra/ipn"
 	"github.com/celzero/firestack/intra/log"
+	"github.com/celzero/firestack/intra/netstat"
+	"github.com/celzero/firestack/intra/settings"
 )
 
 const smmchSize = 24
@@ -313,3 +317,104 @@ func (*zeroListener) Flow(_, _ int32, _, _, _, _, _, _ string) *Mark { return ni
 func (*zeroListener) OnSocketClosed(*SocketSummary)                  {}
 
 var nooplistener = new(zeroListener)
+
+type baseHandler struct {
+	tunMode  *settings.TunMode
+	resolver dnsx.Resolver  // dns resolver to forward queries to
+	listener SocketListener // listener for socket summaries
+}
+
+// onFlow calls listener.Flow to determine egress rules and routes; thread-safe.
+func (h *baseHandler) onFlow(network string, localaddr, target netip.AddrPort) (fm *Mark, ips, doms, pdoms string) {
+	blockmode := h.tunMode.BlockMode.Load()
+	fm = optionsBlock // fail-safe: block everything in the default case
+	// BlockModeNone returns false, BlockModeSink returns true
+	if blockmode == settings.BlockModeSink {
+		return
+	} else {
+		// BlockModeNone|BlockModeFilter|BlockModeFilterProc
+		fm = optionsBase
+	}
+
+	// Implicit: BlockModeFilter or BlockModeFilterProc
+	uid := -1
+	if blockmode == settings.BlockModeFilterProc {
+		procEntry := netstat.FindProcNetEntry(network, localaddr, target)
+		if procEntry != nil {
+			uid = procEntry.UserID
+		}
+	}
+
+	var proto int32 = -1 // unsupported
+	switch network {
+	case "udp", "udp6", "udp4":
+		proto = 17
+	case "tcp", "tcp6", "tcp4":
+		proto = 6
+	case "icmp", "icmp4":
+		proto = 1
+	case "icmp6":
+		proto = 58
+	}
+
+	src := localaddr.String()
+	dst := target.String()
+
+	var undidAlg bool
+	var blocklists string
+	var pre *PreMark
+	var ok bool
+
+	// alg happens after nat64, and so, alg knows nat-ed ips
+	// that is, realips are un-nated
+	undidAlg, ips, doms, pdoms, blocklists = undoAlg(h.resolver, target.Addr())
+	hasOldIPs := len(ips) > 0
+	if undidAlg && !hasOldIPs {
+		pre, ok = core.Gr(network+".preflow", func() *PreMark {
+			return h.listener.Preflow(proto, int32(uid), src, dst)
+		}, onFlowTimeout)
+
+		hasNewIPs := false
+		hasPre := pre != nil && len(pre.TIDCSV) > 0
+		if ok && hasPre {
+			var err error
+			if uid, err = strconv.Atoi(pre.UID); err != nil {
+				uid = -1
+			}
+			tids := strings.Split(pre.TIDCSV, ",")
+			for _, d := range strings.Split(doms, ",") {
+				newips, err := dialers.ResolveOn(d, tids...)
+				hasNewIPs = err == nil && len(newips) > 0
+				if hasNewIPs { // fetch alg result for the newly resolved ips
+					_, ips, doms, pdoms, blocklists = undoAlg(h.resolver, newips[0])
+					break
+				} // else: either no known transport or preflow failed
+			}
+		} // else: either no known transport or preflow failed
+
+		if !ok || !hasPre || !hasNewIPs {
+			log.W("onFlow: %s alg, but no preflow? %t / %t; ips? %t; block!", network, ok, hasPre, hasNewIPs)
+			return // either optionsBlock (BlockModeNone) or optionsBase
+		} // else: if we've got old ips, dial them
+	} else {
+		log.D("onFlow: %s noalg? %t or hasips? %t", network, undidAlg, hasOldIPs)
+	}
+
+	if len(ips) <= 0 || len(doms) <= 0 {
+		log.D("onFlow: %s no realips(%s) or domains(%s + %s), for src=%s dst=%s", network, ips, doms, pdoms, localaddr, target)
+	}
+
+	fm, ok = core.Gr(network+".flow", func() *Mark {
+		return h.listener.Flow(proto, int32(uid), src, dst, ips, doms, pdoms, blocklists)
+	}, onFlowTimeout)
+
+	if fm == nil || !ok { // zeroListener returns nil
+		log.W("onFlow: %s empty res or on flow timeout %t; block!", network, ok)
+		fm = optionsBlock
+	} else if len(fm.PID) <= 0 {
+		log.E("onFlow: %s no pid from kt; exit!", network)
+		fm.PID = ipn.Exit
+	}
+
+	return
+}
