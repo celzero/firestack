@@ -25,12 +25,9 @@ import (
 
 type icmpHandler struct {
 	*baseHandler
-	resolver dnsx.Resolver
-	tunMode  *settings.TunMode
-	prox     ipn.Proxies
-	listener Listener
-	smmch    chan *SocketSummary
-	done     chan struct{} // always unbuffered, never nil
+	prox  ipn.Proxies
+	smmch chan *SocketSummary
+	done  chan struct{} // always unbuffered, never nil
 
 	once sync.Once
 
