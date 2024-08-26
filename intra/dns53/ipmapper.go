@@ -67,32 +67,26 @@ func str2ip(host string) (netip.Addr, error) {
 
 // Implements IPMapper.
 func (m *ipmapper) Lookup(q []byte) ([]byte, error) {
-	msg := xdns.AsMsg(q)
-	if msg == nil {
-		log.W("ipmapper: not a dns query sz(%d)", len(q))
-		return nil, errQueryParse
-	}
-	qname := xdns.QName(msg)
-	if len(qname) <= 0 {
-		log.W("ipmapper: query: no qname")
-		return nil, errNoHost
-	}
-	qtype := int(xdns.QType(msg))
+	return m.queryAny(q, "" /*local*/)
+}
 
-	log.V("ipmapper: lookup: host %s", qname)
+// Implements IPMapper.
+func (m *ipmapper) LookupOn(q []byte, tids ...string) ([]byte, error) {
+	return m.queryAny(q, tids...)
+}
 
-	v, _ := m.ba.Do1(key(qname, strconv.Itoa(qtype)), m.r.LocalLookup, q)
-
-	if v.Err != nil || v == nil {
-		log.W("ipmapper: query: noans? %t [err %v] for %s / typ %d", v == nil, v.Err, qname, qtype)
-		return nil, errors.Join(v.Err, errNoAns)
-	} else {
-		return v.Val, nil
-	}
+// Implements IPMapper.
+func (m *ipmapper) LookupNetIPOn(ctx context.Context, network, host string, tids ...string) ([]netip.Addr, error) {
+	return m.queryIP(ctx, network, host, tids...)
 }
 
 // Implements IPMapper.
 func (m *ipmapper) LookupNetIP(ctx context.Context, network, host string) ([]netip.Addr, error) {
+	return m.queryIP(ctx, network, host, "" /*local*/)
+}
+
+// todo: use context
+func (m *ipmapper) queryIP(_ context.Context, network, host string, tids ...string) ([]netip.Addr, error) {
 	if len(host) <= 0 {
 		return nil, errNoHost
 	}
@@ -108,7 +102,7 @@ func (m *ipmapper) LookupNetIP(ctx context.Context, network, host string) ([]net
 		return []netip.Addr{ip}, nil
 	}
 
-	log.V("ipmapper: lookup: host %s on network %s", host, network)
+	log.V("ipmapper: lookup: host %s:%s on %s", network, host, tids)
 
 	var q4, q6 []byte
 	var err4, err6 error
@@ -131,8 +125,14 @@ func (m *ipmapper) LookupNetIP(ctx context.Context, network, host string) ([]net
 		return nil, errs
 	}
 
-	val4, _ := m.ba.Do1(key(host, "ip4"), m.r.LocalLookup, q4)
-	val6, _ := m.ba.Do1(key(host, "ip6"), m.r.LocalLookup, q6)
+	var val4, val6 *core.V[[]byte, string]
+	if len(tids) > 0 {
+		val4, _ = m.ba.Do(key(host, "ip4"), m.lookup(q4, tids...))
+		val6, _ = m.ba.Do(key(host, "ip6"), m.lookup(q6, tids...))
+	} else {
+		val4, _ = m.ba.Do1(key(host, "ip4"), m.r.LocalLookup, q4)
+		val6, _ = m.ba.Do1(key(host, "ip6"), m.r.LocalLookup, q6)
+	}
 
 	var noval4, noval6 bool
 	var r4, r6 []byte
@@ -171,6 +171,41 @@ func (m *ipmapper) LookupNetIP(ctx context.Context, network, host string) ([]net
 
 	log.D("ipmapper: host %s => ips %s; err4: %v, err6: %v", host, ips, lerr4, lerr6)
 	return ips, nil
+}
+
+func (m *ipmapper) queryAny(q []byte, tids ...string) ([]byte, error) {
+	msg := xdns.AsMsg(q)
+	if msg == nil {
+		log.W("ipmapper: not a dns query sz(%d)", len(q))
+		return nil, errQueryParse
+	}
+	qname := xdns.QName(msg)
+	if len(qname) <= 0 {
+		log.W("ipmapper: query: no qname")
+		return nil, errNoHost
+	}
+	qtype := int(xdns.QType(msg))
+
+	log.V("ipmapper: lookup: host %s, tids: %v", qname, tids)
+
+	var v *core.V[[]byte, string]
+	if len(tids) > 0 {
+		v, _ = m.ba.Do(key(qname, strconv.Itoa(qtype)), m.lookup(q, tids...))
+	} else {
+		v, _ = m.ba.Do1(key(qname, strconv.Itoa(qtype)), m.r.LocalLookup, q)
+	}
+
+	if v.Err != nil || v == nil {
+		log.W("ipmapper: query: noans? %t [err %v] for %s / typ %d; on: %v",
+			v == nil, v.Err, qname, qtype, tids)
+		return nil, errors.Join(v.Err, errNoAns)
+	} else {
+		return v.Val, nil
+	}
+}
+
+func (m *ipmapper) lookup(q []byte, tids ...string) func() ([]byte, error) {
+	return func() ([]byte, error) { return m.r.Lookup(q, tids...) }
 }
 
 func (m *ipmapper) undoAlg(ip64 []netip.Addr) []netip.Addr {

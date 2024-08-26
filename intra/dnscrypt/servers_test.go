@@ -7,9 +7,11 @@
 package dnscrypt
 
 import (
+	"context"
 	"errors"
 	"log"
 	"net"
+	"net/netip"
 	"testing"
 
 	x "github.com/celzero/firestack/intra/backend"
@@ -64,6 +66,14 @@ func (*fakeBdg) OnComplete(*rnet.ServerSummary)       {}
 type fakeResolver struct{ *net.Resolver }
 
 func (r fakeResolver) Lookup([]byte) ([]byte, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (r fakeResolver) LookupOn([]byte, ...string) ([]byte, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (r fakeResolver) LookupNetIPOn(_ context.Context, _, _ string, _ ...string) ([]netip.Addr, error) {
 	return nil, errors.New("not implemented")
 }
 
