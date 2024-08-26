@@ -276,6 +276,12 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []*netip.Addr, network string, q
 		usepreset = true
 		t1 = t2 // assert t2 != nil?
 	}
+	if t1 == nil || core.IsNil(t1) {
+		log.W("alg: no primary transport; t1 %s, t2 %s, preset? %t fixed? %t",
+			idstr(t1), idstr(t2), usepreset, usefixed)
+		return nil, errNoTransportAlg
+	}
+
 	// presets override both t1 and t2:
 	// discard t2 as with preset we don't care about additional ips and blocklists;
 	// t1 is not discarded entirely as it is needed to subst ips in https/svcb responses
@@ -1014,8 +1020,8 @@ func synthesizeOrQuery(pre []*netip.Addr, tr Transport, msg *dns.Msg, network st
 		// if no ips are of the same family as the question xdns.AQuadAForQuery returns error
 		ans, err := xdns.AQuadAForQuery(msg, preset...)
 		if err != nil { // errors on invalid msg, question, or mismatched ips
-			log.W("alg: synthesize: %s with %v; err(%v); using tr %s@%s",
-				qname, preset, err, tr.ID(), tr.GetAddr())
+			log.W("alg: synthesize: %s with %v; err(%v); using tr %s",
+				qname, preset, err, idstr(tr))
 			return Req(tr, network, msg, smm)
 		}
 		withPresetSummary(smm, false /*req sent?*/, fixed)
@@ -1049,8 +1055,8 @@ func synthesizeOrQuery(pre []*netip.Addr, tr Transport, msg *dns.Msg, network st
 		smm.RData = xdns.GetInterestingRData(ans)
 		smm.RTtl = xdns.RTtl(ans)
 
-		log.D("alg: synthesize: q: %s; (HTTPS? %t / fixed? %); subst4(%t), subst6(%t); rdata(%s); tr: %s@%s",
-			qname, isHTTPS, fixed, ok4, ok6, smm.RData, tr.ID(), tr.GetAddr())
+		log.D("alg: synthesize: q: %s; (HTTPS? %t / fixed? %); subst4(%t), subst6(%t); rdata(%s); tr: %s",
+			qname, isHTTPS, fixed, ok4, ok6, smm.RData, idstr(tr))
 
 		return ans, nil // no error
 	} else {
@@ -1058,8 +1064,8 @@ func synthesizeOrQuery(pre []*netip.Addr, tr Transport, msg *dns.Msg, network st
 		if fixed {
 			note = log.W
 		}
-		note("alg: synthesize: %s skip; fixed? %t, qtype %d; using tr %s@%s",
-			qname, fixed, qtyp, tr.ID(), tr.GetAddr())
+		note("alg: synthesize: %s skip; fixed? %t, qtype %d; using tr %s",
+			qname, fixed, qtyp, idstr(tr))
 		return Req(tr, network, msg, smm)
 	}
 }
