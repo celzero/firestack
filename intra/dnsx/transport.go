@@ -43,6 +43,7 @@ const (
 	Default   = x.Default
 	Preferred = x.Preferred
 	Preset    = x.Preset
+	Fixed     = x.Fixed
 	BlockFree = x.BlockFree
 	Bootstrap = x.Bootstrap
 	BlockAll  = x.BlockAll
@@ -75,6 +76,8 @@ var (
 	cacheprefix   = "cached."
 	d64prefix     = "64."
 	defaultprefix = "d."
+	presetprefix  = "pre."
+	fixedprefix   = "fix."
 )
 
 var (
@@ -1049,6 +1052,10 @@ func PrefixFor(id string) string {
 		return d64prefix
 	case Default, CT + Default:
 		return defaultprefix
+	case Preset:
+		return presetprefix
+	case Fixed:
+		return fixedprefix
 	}
 	return ""
 }
