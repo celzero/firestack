@@ -127,6 +127,8 @@ type Resolver interface {
 	IsDnsAddr(ipport netip.AddrPort) bool
 	// Lookup performs resolution on Default and/or Goos DNSes
 	LocalLookup(q []byte) ([]byte, error)
+	// LookupIPs performs resolution on chosen Transport.
+	Lookup([]byte, ...string) ([]byte, error)
 	// Forward performs resolution on any DNS transport
 	Forward(q []byte) ([]byte, error)
 	// Serve reads DNS query from conn and writes DNS answer to conn
@@ -340,6 +342,17 @@ func (r *resolver) Remove(id string) (ok bool) {
 
 func (r *resolver) IsDnsAddr(ipport netip.AddrPort) bool {
 	return r.isDns(ipport)
+}
+
+func (r *resolver) Lookup(q []byte, chosenids ...string) ([]byte, error) {
+	if len(q) <= 0 {
+		return nil, errNoQuestion
+	}
+	if len(chosenids) <= 0 {
+		chosenids = []string{Preferred}
+	}
+
+	return r.forward(q, chosenids...)
 }
 
 func (r *resolver) LocalLookup(q []byte) ([]byte, error) {
