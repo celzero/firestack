@@ -487,6 +487,12 @@ func AddEDNS0PaddingIfNoneFound(msg *dns.Msg, unpaddedPacket []byte, paddingLen 
 	return msg.Pack()
 }
 
+func Question(domain string, qtyp uint16) ([]byte, error) {
+	msg := &dns.Msg{}
+	msg.SetQuestion(dns.Fqdn(domain), qtyp)
+	return msg.Pack()
+}
+
 func BlockResponseFromMessage(q []byte) (*dns.Msg, error) {
 	r := &dns.Msg{}
 	if err := r.Unpack(q); err != nil {
