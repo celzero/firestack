@@ -34,7 +34,6 @@ import (
 
 	"github.com/celzero/firestack/intra/dnsx"
 	"github.com/celzero/firestack/intra/log"
-	"github.com/celzero/firestack/intra/netstat"
 	"github.com/celzero/firestack/intra/settings"
 
 	"github.com/celzero/firestack/intra/core"
@@ -44,11 +43,9 @@ import (
 )
 
 type udpHandler struct {
-	resolver    dnsx.Resolver   // dns resolver to forward queries to
-	conntracker core.ConnMapper // connid -> [local,remote]
-	mux         *muxTable       // EIM/EIF table
-	tunMode     *settings.TunMode
-	listener    SocketListener      // listener for socket summaries
+	*baseHandler
+	conntracker core.ConnMapper     // connid -> [local,remote]
+	mux         *muxTable           // EIM/EIF table
 	prox        ipn.Proxies         // proxy provider for egress
 	fwtracker   *core.ExpMap        // uid+dst(domainOrIP) -> blockSecs
 	smmch       chan *SocketSummary // socket summary channel
@@ -111,9 +108,11 @@ func NewUDPHandler(resolver dnsx.Resolver, prox ipn.Proxies, tunMode *settings.T
 		listener = nooplistener
 	}
 	h := &udpHandler{
-		resolver:    resolver,
-		tunMode:     tunMode,
-		listener:    listener,
+		baseHandler: &baseHandler{
+			resolver: resolver,
+			tunMode:  tunMode,
+			listener: listener,
+		},
 		prox:        prox,
 		fwtracker:   core.NewExpiringMap(),
 		conntracker: core.NewConnMap(),
@@ -127,52 +126,6 @@ func NewUDPHandler(resolver dnsx.Resolver, prox ipn.Proxies, tunMode *settings.T
 
 	log.I("udp: new handler created")
 	return h
-}
-
-// onFlow calls listener.Flow to determine egress rules and routes; thread-safe.
-func (h *udpHandler) onFlow(localaddr, target netip.AddrPort, realips, domains, probableDomains, blocklists string) *Mark {
-	blockmode := h.tunMode.BlockMode.Load()
-	// BlockModeNone returns false, BlockModeSink returns true
-	if blockmode == settings.BlockModeSink {
-		return optionsBlock
-	}
-	// todo: block-mode none should call into listener.Flow to determine upstream proxy
-	if blockmode == settings.BlockModeNone {
-		return optionsBase
-	}
-
-	src := localaddr.String()
-	dst := "" // unconnected udp sockets may not have a valid target
-	if target.IsValid() {
-		dst = target.String()
-	}
-	if len(realips) <= 0 || len(domains) <= 0 {
-		log.VV("udp: onFlow: no realips(%s) or domains(%s + %s), for src=%s dst=%s", realips, domains, probableDomains, localaddr, dst)
-	}
-
-	// Implicit: BlockModeFilter or BlockModeFilterProc
-	uid := -1
-	if blockmode == settings.BlockModeFilterProc {
-		procEntry := netstat.FindProcNetEntry("udp", localaddr, target)
-		if procEntry != nil {
-			uid = procEntry.UserID
-		}
-	}
-
-	var proto int32 = 17 // udp
-	res, flok := core.Gr("udp.flow", func() *Mark {
-		return h.listener.Flow(proto, int32(uid), src, dst, realips, domains, probableDomains, blocklists)
-	}, onFlowTimeout)
-
-	if res == nil || !flok { // zeroListener returns nil
-		log.W("udp: onFlow: empty res or on flow timeout %t; block!", flok)
-		return optionsBlock
-	} else if len(res.PID) <= 0 {
-		log.W("udp: onFlow: no pid from kt; exit!")
-		res.PID = ipn.Exit
-	}
-
-	return res
 }
 
 // ProxyMux implements netstack.GUDPConnHandler
@@ -189,10 +142,8 @@ func (h *udpHandler) Error(gconn *netstack.GUDPConn, src, target netip.AddrPort,
 		return
 	}
 
-	realips, domains, probableDomains, blocklists := undoAlg(h.resolver, target.Addr())
-
 	// flow is alg/nat-aware, do not change target or any addrs
-	res := h.onFlow(src, target, realips, domains, probableDomains, blocklists)
+	res, _, _, _ := h.onFlow("udp", src, target)
 	cid, pid, uid := splitCidPidUid(res)
 	smm := udpSummary(cid, pid, uid, target.Addr())
 
@@ -252,10 +203,8 @@ func (h *udpHandler) Connect(gconn *netstack.GUDPConn, src, target netip.AddrPor
 		err = gconn.Establish()
 	} // err handled after onFlow, so that the listener knows about this gconn/flow
 
-	realips, domains, probableDomains, blocklists := undoAlg(h.resolver, target.Addr())
-
 	// flow is alg/nat-aware, do not change target or any addrs
-	res := h.onFlow(src, target, realips, domains, probableDomains, blocklists)
+	res, realips, domains, probableDomains := h.onFlow("udp", src, target)
 	cid, pid, uid := splitCidPidUid(res)
 	smm = udpSummary(cid, pid, uid, target.Addr())
 

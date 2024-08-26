@@ -30,6 +30,8 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -46,12 +48,10 @@ import (
 )
 
 type tcpHandler struct {
-	resolver    dnsx.Resolver   // resolver to forward dns requests to
-	listener    SocketListener  // listener for socket summaries
+	*baseHandler
 	prox        ipn.Proxies     // proxy provider for egress
 	fwtracker   *core.ExpMap    // uid+dst(domainOrIP) -> blockSecs
 	conntracker core.ConnMapper // connid -> [local,remote]
-	tunMode     *settings.TunMode
 	smmch       chan *SocketSummary
 	done        chan struct{} // always unbuffered, never nil
 
@@ -96,9 +96,11 @@ func NewTCPHandler(resolver dnsx.Resolver, prox ipn.Proxies, tunMode *settings.T
 	}
 
 	h := &tcpHandler{
-		resolver:    resolver,
-		tunMode:     tunMode,
-		listener:    listener,
+		baseHandler: &baseHandler{
+			resolver: resolver,
+			tunMode:  tunMode,
+			listener: listener,
+		},
 		prox:        prox,
 		fwtracker:   core.NewExpiringMap(),
 		conntracker: core.NewConnMap(),
@@ -114,18 +116,15 @@ func NewTCPHandler(resolver dnsx.Resolver, prox ipn.Proxies, tunMode *settings.T
 }
 
 // onFlow calls listener.Flow to determine egress rules and routes; thread-safe.
-func (h *tcpHandler) onFlow(localaddr, target netip.AddrPort, realips, domains, probableDomains, blocklists string) *Mark {
+func (h *tcpHandler) onFlow2(localaddr, target netip.AddrPort) (fm *Mark, ips, doms, pdoms string) {
 	blockmode := h.tunMode.BlockMode.Load()
+	fm = optionsBlock // fail-safe: block everything in the default case
 	// BlockModeNone returns false, BlockModeSink returns true
 	if blockmode == settings.BlockModeSink {
-		return optionsBlock
-	} else if blockmode == settings.BlockModeNone {
-		// todo: block-mode none should call into listener.Flow to determine upstream proxy
-		return optionsBase
-	}
-
-	if len(realips) <= 0 || len(domains) <= 0 {
-		log.D("onFlow: no realips(%s) or domains(%s + %s), for src=%s dst=%s", realips, domains, probableDomains, localaddr, target)
+		return
+	} else {
+		// BlockModeNone|BlockModeFilter|BlockModeFilterProc
+		fm = optionsBase
 	}
 
 	// Implicit: BlockModeFilter or BlockModeFilterProc
@@ -141,19 +140,64 @@ func (h *tcpHandler) onFlow(localaddr, target netip.AddrPort, realips, domains, 
 	src := localaddr.String()
 	dst := target.String()
 
-	res, flok := core.Gr("tcp.flow", func() *Mark {
-		return h.listener.Flow(proto, int32(uid), src, dst, realips, domains, probableDomains, blocklists)
-	}, onFlowTimeout)
+	var undidAlg bool
+	var blocklists string
+	var pre *PreMark
+	var ok bool
 
-	if res == nil || !flok { // zeroListener returns nil
-		log.W("tcp: onFlow: empty res or on flow timeout %t; block!", flok)
-		return optionsBlock
-	} else if len(res.PID) <= 0 {
-		log.E("tcp: onFlow: no pid from kt; exit!")
-		res.PID = ipn.Exit
+	// alg happens after nat64, and so, alg knows nat-ed ips
+	// that is, realips are un-nated
+	undidAlg, ips, doms, pdoms, blocklists = undoAlg(h.resolver, target.Addr())
+	hasOldIPs := len(ips) > 0
+	if undidAlg && !hasOldIPs {
+		pre, ok = core.Gr("tcp.preflow", func() *PreMark {
+			return h.listener.Preflow(proto, int32(uid), src, dst)
+		}, onFlowTimeout)
+
+		hasNewIPs := false
+		hasPre := pre != nil && len(pre.TIDCSV) > 0
+		if ok && hasPre {
+			var err error
+			if uid, err = strconv.Atoi(pre.UID); err != nil {
+				uid = -1
+			}
+			tidcsv := pre.TIDCSV
+			tids := strings.Split(tidcsv, ",")
+			for _, d := range strings.Split(doms, ",") {
+				newips, err := dialers.ResolveOn(d, tids...)
+				hasNewIPs = err == nil && len(newips) > 0
+				if hasNewIPs { // fetch alg result for the newly resolved ips
+					_, ips, doms, pdoms, blocklists = undoAlg(h.resolver, newips[0])
+					break
+				} // else: either no known transport or preflow failed
+			}
+		} // else: either no known transport or preflow failed
+
+		if !ok || !hasPre || !hasNewIPs {
+			log.W("tcp: onFlow: alg, but no preflow? %t / %t; ips? %t; block!", ok, hasPre, hasNewIPs)
+			return // either optionsBlock (BlockModeNone) or optionsBase
+		} // else: if we've got old ips, dial them
+	} else {
+		log.D("tcp: onFlow: noalg? %t or hasips? %t", undidAlg, hasOldIPs)
 	}
 
-	return res
+	if len(ips) <= 0 || len(doms) <= 0 {
+		log.D("onFlow: no realips(%s) or domains(%s + %s), for src=%s dst=%s", ips, doms, pdoms, localaddr, target)
+	}
+
+	fm, ok = core.Gr("tcp.flow", func() *Mark {
+		return h.listener.Flow(proto, int32(uid), src, dst, ips, doms, pdoms, blocklists)
+	}, onFlowTimeout)
+
+	if fm == nil || !ok { // zeroListener returns nil
+		log.W("tcp: onFlow: empty res or on flow timeout %t; block!", ok)
+		fm = optionsBlock
+	} else if len(fm.PID) <= 0 {
+		log.E("tcp: onFlow: no pid from kt; exit!")
+		fm.PID = ipn.Exit
+	}
+
+	return
 }
 
 func (h *tcpHandler) End() error {
@@ -206,13 +250,9 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target netip.AddrPort)
 		}
 	}()
 
-	// alg happens after nat64, and so, alg knows nat-ed ips
-	// that is, realips are un-nated
-	realips, domains, probableDomains, blocklists := undoAlg(h.resolver, target.Addr())
-
 	// flow/dns-override are nat-aware, as in, they can deal with
 	// nat-ed ips just fine, and so, use target as-is instead of ipx4
-	res := h.onFlow(src, target, realips, domains, probableDomains, blocklists)
+	res, realips, domains, probableDomains := h.onFlow("tcp", src, target)
 	cid, pid, uid := splitCidPidUid(res)
 	smm = tcpSummary(cid, pid, uid, target.Addr())
 

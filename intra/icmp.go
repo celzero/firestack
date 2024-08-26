@@ -16,7 +16,6 @@ import (
 
 	"github.com/celzero/firestack/intra/dnsx"
 	"github.com/celzero/firestack/intra/log"
-	"github.com/celzero/firestack/intra/netstat"
 
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/ipn"
@@ -25,6 +24,7 @@ import (
 )
 
 type icmpHandler struct {
+	*baseHandler
 	resolver dnsx.Resolver
 	tunMode  *settings.TunMode
 	prox     ipn.Proxies
@@ -53,13 +53,15 @@ var _ netstack.GICMPHandler = (*icmpHandler)(nil)
 
 func NewICMPHandler(resolver dnsx.Resolver, prox ipn.Proxies, tunMode *settings.TunMode, listener Listener) netstack.GICMPHandler {
 	h := &icmpHandler{
-		resolver: resolver,
-		tunMode:  tunMode,
-		prox:     prox,
-		listener: listener,
-		smmch:    make(chan *SocketSummary, smmchSize),
-		done:     make(chan struct{}),
-		status:   core.NewVolatile(ICMPOK),
+		baseHandler: &baseHandler{
+			resolver: resolver,
+			tunMode:  tunMode,
+			listener: listener,
+		},
+		prox:   prox,
+		smmch:  make(chan *SocketSummary, smmchSize),
+		done:   make(chan struct{}),
+		status: core.NewVolatile(ICMPOK),
 	}
 
 	go sendSummary(h.smmch, h.done, listener)
@@ -68,48 +70,12 @@ func NewICMPHandler(resolver dnsx.Resolver, prox ipn.Proxies, tunMode *settings.
 	return h
 }
 
-func (h *icmpHandler) onFlow(source, target netip.AddrPort, realips, domains, probableDomains, blocklists string) (pid, cid string, block bool) {
-	// BlockModeNone returns false, BlockModeSink returns true
-	blockmode := h.tunMode.BlockMode.Load()
-	if blockmode == settings.BlockModeSink {
-		pid = ipn.Block
-		block = true
-		return
+func (h *icmpHandler) flow(source, target netip.AddrPort) (_ *Mark, _, _, _ string) {
+	proto := "icmp"
+	if target.Addr().Is6() {
+		proto = "icmp6"
 	}
-	// todo: block-mode none should call into listener.Flow to determine upstream proxy
-	if blockmode == settings.BlockModeNone {
-		pid = ipn.Base
-		block = false
-		return
-	}
-
-	uid := -1
-	if blockmode == settings.BlockModeFilterProc {
-		procEntry := netstat.FindProcNetEntry("icmp", source, target)
-		if procEntry != nil {
-			uid = procEntry.UserID
-		}
-	}
-
-	var proto int32 = 1 // icmp
-	src := source.String()
-	dst := target.String()
-	// todo: handle forwarding icmp to appropriate proxy?
-	res, flok := core.Gr("udp.flow", func() *Mark {
-		return h.listener.Flow(proto, int32(uid), src, dst, realips, domains, probableDomains, blocklists)
-	}, onFlowTimeout)
-
-	if res == nil || !flok { // zeroListener returns nil
-		log.W("icmp: onFlow: empty res or on flow timeout %t; block!", flok)
-		res = optionsBlock
-	} else if len(res.PID) <= 0 {
-		log.E("icmp: onFlow: no pid from kt; exit!")
-		res.PID = ipn.Exit
-	}
-
-	cid, pid, _ = splitCidPidUid(res)
-	block = pid == ipn.Block
-	return
+	return h.onFlow(proto, source, target)
 }
 
 // End implements netstack.GICMPHandler.
@@ -140,10 +106,9 @@ func (h *icmpHandler) Ping(source, target netip.AddrPort, msg []byte) (echoed bo
 	var px ipn.Proxy = nil
 	var err error
 
-	realips, domains, probableDomains, blocklists := undoAlg(h.resolver, target.Addr())
-
 	// flow is alg/nat-aware, do not change target or any addrs
-	pid, cid, block := h.onFlow(source, target, realips, domains, probableDomains, blocklists)
+	res, realips, _, _ := h.flow(source, target)
+	cid, pid, _ := splitCidPidUid(res)
 	smm := icmpSummary(cid, pid)
 
 	defer func() {
@@ -156,7 +121,7 @@ func (h *icmpHandler) Ping(source, target netip.AddrPort, msg []byte) (echoed bo
 		return false // not handled
 	}
 
-	if block {
+	if pid == ipn.Block {
 		err = errIcmpFirewalled
 		log.I("t.icmp: egress: firewalled %s => %s", source, target)
 		// sleep for a while to avoid busy conns? will also block netstack
