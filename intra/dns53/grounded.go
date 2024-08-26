@@ -28,7 +28,7 @@ var _ dnsx.Transport = (*grounded)(nil)
 // NewGroundedTransport returns a DNS transport that blocks all DNS queries.
 func NewGroundedTransport(id string) (t dnsx.Transport) {
 	t = &grounded{
-		id:     id, // typically, dnsx.BlockAll
+		id:     id, // typically, dnsx.BlockAll or dnsx.Fixed
 		ipport: "127.0.0.3:53",
 		status: dnsx.Start,
 	}

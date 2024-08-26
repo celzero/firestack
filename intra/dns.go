@@ -87,6 +87,10 @@ func newBlockAllTransport() dnsx.Transport {
 	return dns53.NewGroundedTransport(dnsx.BlockAll)
 }
 
+func newNopTransport() dnsx.Transport {
+	return dns53.NewGroundedTransport(dnsx.Fixed)
+}
+
 func newDNSCryptTransport(px ipn.Proxies, bdg Bridge) (p dnsx.TransportMult) {
 	p = dnscrypt.NewDcMult(px, bdg)
 	return

@@ -23,6 +23,7 @@ const ( // see dnsx/transport.go
 	Default   = "Default"   // default (fallback) dns
 	Preferred = "Preferred" // user preferred dns, primary for alg
 	Preset    = "Preset"    // synthesizes answers from presets (ex: IPs)
+	Fixed     = "Fixed"     // synthesizes A/AAAA from a single fixed IP
 	BlockFree = "BlockFree" // no local blocks; if not set, default is used
 	BlockAll  = "BlockAll"  // all blocks; never cached!
 	Bootstrap = "Bootstrap" // bootstrap dns; always encapsulted by Default
@@ -108,7 +109,7 @@ type RDNSResolver interface {
 	SetRdnsRemote(filetag string) error
 	// GetRdnsRemote returns the remote rdns resolver.
 	GetRdnsRemote() (RDNS, error)
-	// Translate enables or disables ALG responses
+	// Translate enables or disables ALG/fixed responses
 	Translate(bool)
 }
 
