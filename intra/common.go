@@ -373,7 +373,7 @@ func (h *baseHandler) onFlow(network string, localaddr, target netip.AddrPort) (
 	hasOldIPs := len(ips) > 0
 	if undidAlg && !hasOldIPs {
 		pre, ok = core.Gr(network+".preflow", func() *PreMark {
-			return h.listener.Preflow(proto, int32(uid), src, dst)
+			return h.listener.Preflow(proto, int32(uid), src, dst, doms)
 		}, onFlowTimeout)
 
 		hasNewIPs := false
