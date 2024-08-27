@@ -232,14 +232,7 @@ func (g *GUDPConn) Write(data []byte) (int, error) {
 		// ep(state 3 / info &{2048 17 {53 10.111.222.3 17711 10.111.222.1} 1 10.111.222.3 1} / stats &{{{1}} {{0}} {{{0}} {{0}} {{0}} {{0}}} {{{0}} {{0}} {{0}}} {{{0}} {{0}}} {{{0}} {{0}} {{0}}}})
 		// 3: status:datagram-connected / {2048=>proto, 17=>transport, {53=>local-port localip 17711=>remote-port remoteip}=>endpoint-id, 1=>bind-nic-id, ip=>bind-addr, 1=>registered-nic-id}
 		// g.ep may be nil: log.V("ns: writeFrom: from(%v) / ep(state %v / info %v / stats %v)", addr, g.ep.State(), g.ep.Info(), g.ep.Stats())
-		if g.eif {
-			// unexpected except in cases of DNS override;
-			// forward the packet to the dst as got from the first pkt
-			log.W("ns: udp: Write(To): unexpected; %s <= %s; sz: %d", g.src, g.dst, len(data))
-			return c.WriteTo(data, net.UDPAddrFromAddrPort(g.dst))
-		} else {
-			return c.Write(data)
-		}
+		return c.Write(data)
 	}
 	return 0, netError(g, "udp", "write", io.ErrClosedPipe)
 }

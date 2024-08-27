@@ -304,7 +304,7 @@ func (f *icmpForwarder) icmpErr4(pkt *stack.PacketBuffer, icmpType header.ICMPv4
 
 	n, err := f.ep.WritePackets(pout)
 
-	loge(err, "icmp: v4: sent %d bytes to tun; err? %v", n, err)
+	loge(err, "icmp: v4: sent %d bytes to tun; err? %v", n, e(err))
 
 	return err
 }
