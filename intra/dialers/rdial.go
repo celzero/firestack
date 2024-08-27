@@ -89,7 +89,7 @@ func splitIpConnect(d *protect.RDial, proto string, ip netip.Addr, port int) (ne
 
 	switch proto {
 	case "tcp", "tcp4", "tcp6":
-		if doSplit(ip, port) { // split tls client-hello for https requests
+		if doSplit(ip, port) {
 			return DialWithSplitRetry(d, tcpaddr(ip, port))
 		}
 		return d.DialTCP(proto, nil, tcpaddr(ip, port))
