@@ -21,7 +21,6 @@ type rconn interface {
 
 type mkrconn[C rconn] func(*protect.RDial, string, netip.Addr, int) (C, error)
 type mkconn func(*protect.RDial, string, netip.Addr, int) (net.Conn, error)
-type mkpconn func(*protect.RDial, string, netip.Addr, int) (net.PacketConn, error)
 
 // adaptc adapts a mkconn to a mkrconn
 func adaptc(f mkconn) mkrconn[*net.Conn] {
@@ -29,21 +28,6 @@ func adaptc(f mkconn) mkrconn[*net.Conn] {
 		c, err := f(d, network, ip, port)
 		if err != nil {
 			clos(c)
-			return nil, err
-		}
-		if c == nil || core.IsNil(c) { // go.dev/play/p/SsmqM00d2oH
-			return nil, errNilConn
-		}
-		return &c, nil
-	}
-}
-
-// adaptp adapts a mkpconn to a mkrconn
-func adaptp(f mkpconn) mkrconn[*net.PacketConn] {
-	return func(d *protect.RDial, network string, ip netip.Addr, port int) (*net.PacketConn, error) {
-		c, err := f(d, network, ip, port)
-		if err != nil {
-			core.Close(c)
 			return nil, err
 		}
 		if c == nil || core.IsNil(c) { // go.dev/play/p/SsmqM00d2oH

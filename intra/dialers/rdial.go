@@ -100,18 +100,6 @@ func splitIpConnect(d *protect.RDial, proto string, ip netip.Addr, port int) (ne
 	}
 }
 
-func tcpListen(d *protect.RDial, network string, ip netip.Addr, port int) (*net.TCPListener, error) {
-	return d.AcceptTCP(network, addrstr(ip, port))
-}
-
-func udpListen(d *protect.RDial, network string, ip netip.Addr, port int) (*net.UDPConn, error) {
-	return d.AnnounceUDP(network, addrstr(ip, port))
-}
-
-func icmpListen(d *protect.RDial, network string, ip netip.Addr, port int) (net.PacketConn, error) {
-	return d.ProbeICMP(network, addrstr(ip, port))
-}
-
 func commondial[C rconn](d *protect.RDial, network, addr string, connect mkrconn[C]) (C, error) {
 	start := time.Now()
 
@@ -207,7 +195,7 @@ func ListenPacket(d *protect.RDial, network, local string) (net.PacketConn, erro
 		log.E("rdial: ListenPacket: nil dialer")
 		return nil, errNoListener
 	}
-	return commondial(d, network, local, udpListen)
+	return d.AnnounceUDP(network, local)
 }
 
 // Listen listens on for TCP connections on the local address using d.
@@ -216,12 +204,14 @@ func Listen(d *protect.RDial, network, local string) (net.Listener, error) {
 		log.E("rdial: Listen: nil dialer")
 		return nil, errNoListener
 	}
-	return commondial(d, network, local, tcpListen)
+	return d.AcceptTCP(network, local)
 }
 
-// Probe sends and accepts ICMP packets on addr using d over a net.PacketConn.
-func Probe(d *protect.RDial, network, addr string) (net.PacketConn, error) {
-	return unPtr(commondial(d, network, addr, adaptp(icmpListen)))
+// Probe sends and accepts ICMP packets on local addr using d over a net.PacketConn.
+func Probe(d *protect.RDial, network, local string) (net.PacketConn, error) {
+	// commondial does not handle unspecified ips well; see: ipmap.go & ipok()
+	// return unPtr(commondial(d, network, addr, adaptp(icmpListen)))
+	return d.ProbeICMP(network, local)
 }
 
 // Dial dials into addr using the provided dialer and returns a net.Conn,
