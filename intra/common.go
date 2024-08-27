@@ -379,9 +379,10 @@ func (h *baseHandler) onFlow(network string, localaddr, target netip.AddrPort) (
 		hasNewIPs := false
 		hasPre := pre != nil && len(pre.TIDCSV) > 0
 		if ok && hasPre {
-			var err error
-			if uid, err = strconv.Atoi(pre.UID); err != nil {
-				uid = -1
+			if newuid, err := strconv.Atoi(pre.UID); err == nil {
+				uid = newuid
+			} else {
+				log.W("onFlow: %s preflow: invalid uid %s; using %d, err? %v", network, pre.UID, uid, err)
 			}
 			tids := strings.Split(pre.TIDCSV, ",")
 			for _, d := range strings.Split(doms, ",") {
