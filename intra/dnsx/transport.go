@@ -957,9 +957,10 @@ func IsEncrypted(t Transport) bool {
 
 func isReserved(id string) bool {
 	switch id {
-	case Default, Goos, System, Local, Alg, DcProxy, BlockAll, Preferred, Bootstrap, BlockFree:
+	case Default, Goos, System, Local, Alg, DcProxy, BlockAll, Preferred, Bootstrap, BlockFree, Fixed, Preset:
 		return true
-	case CT + Default, CT + Goos, CT + System, CT + Local, CT + Alg, CT + DcProxy, CT + BlockAll, CT + Bootstrap, CT + Preferred, CT + BlockFree:
+	case CT + Default, CT + Goos, CT + System, CT + Local, CT + Alg, CT + DcProxy, CT + BlockAll,
+		CT + Bootstrap, CT + Preferred, CT + BlockFree, CT + Fixed, CT + Preset:
 		return true
 	}
 	return false
@@ -1013,9 +1014,10 @@ func overrideProxyIfNeeded(pid string, ids ...string) string {
 			return NetNoProxy
 		case CT + Goos: // exit
 			return NetNoProxy
-		case Bootstrap, Default, System, Local: // base
+		case Bootstrap, Default, System, Local, Fixed, Preset: // base
 			return NetNoProxy
-		case CT + Bootstrap, CT + Default, CT + System, CT + Local: // base
+		case CT + Bootstrap, CT + Default, CT + System, CT + Local,
+			CT + Fixed, CT + Preset: // base
 			return NetNoProxy
 		}
 	}
