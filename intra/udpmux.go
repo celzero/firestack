@@ -202,7 +202,7 @@ func (x *muxer) readers() {
 			log.I("udp: mux: %s read done n(%d): %v", x.cid, n, err)
 			return
 		}
-		if who == nil {
+		if who == nil || n == 0 {
 			log.W("udp: mux: %s read done n(%d): nil remote addr; skip", x.cid, n)
 			continue
 		}
@@ -518,7 +518,7 @@ func addr2netip(addr net.Addr) (zz netip.AddrPort) {
 		return // zz
 	}
 	ipp, err := netip.ParseAddrPort(addr.String())
-	if err == nil {
+	if err != nil {
 		log.W("udp: mux: addr2netip: %v", err)
 		return // zz
 	}
