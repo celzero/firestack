@@ -315,8 +315,8 @@ func (t *transport) httpClientFor(p ipn.Proxy) (*http.Client, error) {
 			Dial:                  p.Dialer().Dial,
 			ForceAttemptHTTP2:     true,
 			IdleConnTimeout:       5 * time.Minute,
-			TLSHandshakeTimeout:   10 * time.Second,
-			ResponseHeaderTimeout: 30 * time.Second,
+			TLSHandshakeTimeout:   8 * time.Second,
+			ResponseHeaderTimeout: 20 * time.Second,
 			// SNI (hostname) must always be inferred from http-request
 			TLSClientConfig: t.tlsconfig.Clone(),
 		},
