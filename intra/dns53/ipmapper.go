@@ -127,8 +127,8 @@ func (m *ipmapper) queryIP(_ context.Context, network, host string, tids ...stri
 
 	var val4, val6 *core.V[[]byte, string]
 	if len(tids) > 0 {
-		val4, _ = m.ba.Do(key(host, "ip4"), m.lookup(q4, tids...))
-		val6, _ = m.ba.Do(key(host, "ip6"), m.lookup(q6, tids...))
+		val4, _ = m.ba.Do(key(host, "ip4", tids...), m.lookup(q4, tids...))
+		val6, _ = m.ba.Do(key(host, "ip6", tids...), m.lookup(q6, tids...))
 	} else {
 		val4, _ = m.ba.Do1(key(host, "ip4"), m.r.LocalLookup, q4)
 		val6, _ = m.ba.Do1(key(host, "ip6"), m.r.LocalLookup, q6)
@@ -190,7 +190,7 @@ func (m *ipmapper) queryAny(q []byte, tids ...string) ([]byte, error) {
 
 	var v *core.V[[]byte, string]
 	if len(tids) > 0 {
-		v, _ = m.ba.Do(key(qname, strconv.Itoa(qtype)), m.lookup(q, tids...))
+		v, _ = m.ba.Do(key(qname, strconv.Itoa(qtype), tids...), m.lookup(q, tids...))
 	} else {
 		v, _ = m.ba.Do1(key(qname, strconv.Itoa(qtype)), m.r.LocalLookup, q)
 	}
@@ -250,8 +250,11 @@ func (m *ipmapper) undoAlg(ip64 []netip.Addr) []netip.Addr {
 	return ips
 }
 
-func key(name string, typ string) string {
-	return name + ":" + typ
+func key(name, typ string, oth ...string) string {
+	if len(oth) <= 0 {
+		return name + ":" + typ
+	}
+	return name + ":" + typ + ":" + strings.Join(oth, ":")
 }
 
 func addrs(a []byte) []netip.Addr {
