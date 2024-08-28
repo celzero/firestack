@@ -139,12 +139,10 @@ func (h *tcpHandler) Error(gconn *netstack.GTCPConn, src, dst netip.AddrPort, er
 	cid, pid, uid := splitCidPidUid(res)
 	smm := tcpSummary(cid, pid, uid, dst.Addr())
 
-	if h.status.Load() == UDPEND {
-		err = errTcpEnd
-	} else if pid == ipn.Block {
+	if pid == ipn.Block {
 		err = errTcpFirewalled
 	}
-	smm.done(err)
+	queueSummary(h.smmch, h.done, smm.done(err))
 }
 
 // Proxy implements netstack.GTCPConnHandler

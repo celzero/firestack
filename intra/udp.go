@@ -141,18 +141,14 @@ func (h *udpHandler) Error(gconn *netstack.GUDPConn, src, target netip.AddrPort,
 	if !src.IsValid() || !target.IsValid() {
 		return
 	}
-
-	// flow is alg/nat-aware, do not change target or any addrs
 	res, _, _, _ := h.onFlow("udp", src, target)
 	cid, pid, uid := splitCidPidUid(res)
 	smm := udpSummary(cid, pid, uid, target.Addr())
 
-	if h.status.Load() == UDPEND {
-		err = errUdpEnd
-	} else if pid == ipn.Block {
+	if pid == ipn.Block {
 		err = errUdpFirewalled
 	}
-	smm.done(err)
+	queueSummary(h.smmch, h.done, smm.done(err))
 }
 
 // Proxy implements netstack.GUDPConnHandler; thread-safe.
