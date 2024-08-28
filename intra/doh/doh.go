@@ -405,7 +405,7 @@ func (t *transport) fetch(pid string, req *http.Request) (*http.Response, error)
 			return res, nil // res is never nil here
 		}
 		if uerr, ok := err.(*url.Error); ok {
-			term = uerr.Err != io.EOF // terminate if not EOF
+			term = uerr.Err != io.EOF || uerr.Err != io.ErrUnexpectedEOF // terminate if not EOF
 		}
 		log.W("doh: fetch #%d (eof? %t) for %s, err: %v", i, !term, ustr, err)
 	}
@@ -430,7 +430,6 @@ func (t *transport) prepare(pid string) (client *http.Client, err error) {
 		if px == nil {
 			return nil, dnsx.ErrNoProxyProvider
 		}
-		// or: ipn.Fetch(px, req)
 		client, err = t.httpClientFor(px)
 		if err != nil {
 			return
