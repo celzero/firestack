@@ -14,17 +14,11 @@ import (
 	"github.com/miekg/dns"
 )
 
-// ResolveOn resolves nom to IPs on given DNS transport IDs, tids, bypassing cache.
-// If resolution fails, entries from the cache are returned, if any.
+// ResolveOn resolves nom to IPs on given DNS transport IDs, tids.
 func ResolveOn(nom string, tids ...string) ([]netip.Addr, error) {
 	// ipm.LookupNetIP itself has a short-term cache (ipmapper.go:battl)
-	addrs, err := ipm.LookupNetIPOn(context.Background(), "ip", nom, tids...)
-	if len(addrs) <= 0 { // check cache
-		if addrs = ipm.GetAny(nom).Addrs(); len(addrs) > 0 {
-			return addrs, nil
-		} // else: no cached addrs
-	}
-	return addrs, err
+	// and since TIDs are specified, the ipmap cache is not used.
+	return ipm.LookupNetIPOn(context.Background(), "ip", nom, tids...)
 }
 
 // Resolve resolves hostname to IP addresses, bypassing cache.
