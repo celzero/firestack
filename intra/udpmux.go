@@ -18,7 +18,6 @@ import (
 
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/log"
-	"github.com/celzero/firestack/intra/netstack"
 )
 
 // from: github.com/pion/transport/blob/03c807b/udp/conn.go
@@ -46,6 +45,8 @@ func (s *stats) String() string {
 	return fmt.Sprintf("tx: %d, rx: %d, conns: %d, dur: %ds", s.tx.Load(), s.rx.Load(), s.dxcount.Load(), int64(s.dur.Seconds()))
 }
 
+type vendor func(dst netip.AddrPort) error
+
 // muxer muxes multiple connections grouped by remote addr over net.PacketConn
 type muxer struct {
 	// cid, pid, mxconn, stats are immutable (never reassigned)
@@ -59,8 +60,8 @@ type muxer struct {
 	dxconns chan *demuxconn // never closed
 	doneCh  chan struct{}   // stop vending, reading, and routing
 	once    sync.Once
-	cb      func()             // muxer.stop() callback (in a new goroutine)
-	vnd     netstack.DemuxerFn // for new routes in netstack
+	cb      func() // muxer.stop() callback (in a new goroutine)
+	vnd     vendor // for new routes in netstack
 
 	rmu    sync.RWMutex                  // protects routes
 	routes map[netip.AddrPort]*demuxconn // remote addr -> demuxed conn
@@ -97,7 +98,7 @@ var _ sender = (*muxer)(nil)
 var _ core.UDPConn = (*demuxconn)(nil)
 
 // newMuxer creates a muxer/demuxer for a connectionless conn.
-func newMuxer(cid, pid string, conn net.PacketConn, vnd netstack.DemuxerFn, f func()) *muxer {
+func newMuxer(cid, pid string, conn net.PacketConn, vnd vendor, f func()) *muxer {
 	x := &muxer{
 		cid:      cid,
 		pid:      pid,
@@ -473,7 +474,7 @@ func newMuxTable() *muxTable {
 	return &muxTable{t: make(map[netip.AddrPort]*muxer)}
 }
 
-func (e *muxTable) associate(cid, pid string, src, dst netip.AddrPort, mk assocFn, v netstack.DemuxerFn) (c net.Conn, err error) {
+func (e *muxTable) associate(cid, pid string, src, dst netip.AddrPort, mk assocFn, v vendor) (c net.Conn, err error) {
 	e.Lock() // lock
 
 	var mxr *muxer

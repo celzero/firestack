@@ -269,7 +269,7 @@ func (h *udpHandler) Connect(gconn *netstack.GUDPConn, src, target netip.AddrPor
 	for i, dstipp := range makeIPPorts(realips, target, 0) {
 		selectedTarget = dstipp
 		if mux { // mux is not supported by all proxies (few like Exit, Base, WG support it)
-			pc, err = h.mux.associate(cid, pid, src, selectedTarget, px.Dialer().Announce, dmx)
+			pc, err = h.mux.associate(cid, pid, src, selectedTarget, px.Dialer().Announce, vendor(dmx))
 		} else {
 			pc, err = px.Dialer().Dial("udp", selectedTarget.String())
 		}
