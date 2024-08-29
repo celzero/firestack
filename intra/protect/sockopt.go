@@ -11,6 +11,7 @@ import (
 	"syscall"
 
 	"github.com/celzero/firestack/intra/log"
+	"github.com/celzero/firestack/intra/settings"
 )
 
 // shorter count / interval for faster drops
@@ -30,13 +31,19 @@ var (
 )
 
 func SetKeepAliveConfig(c Conn) bool {
-	if tc, ok := c.(*net.TCPConn); ok {
-		return tc.SetKeepAliveConfig(kacfg) == nil
+	if settings.GetDialerOpts().LowerKeepAlive {
+		if tc, ok := c.(*net.TCPConn); ok {
+			return tc.SetKeepAliveConfig(kacfg) == nil
+		}
 	}
 	return false
 }
 
 func SetKeepAliveConfigSockOpt(c Conn) bool {
+	if !settings.GetDialerOpts().LowerKeepAlive {
+		return false
+	}
+
 	if tc, ok := c.(*net.TCPConn); ok {
 		rawConn, err := tc.SyscallConn()
 		if err != nil || rawConn == nil {

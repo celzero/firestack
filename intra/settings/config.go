@@ -322,6 +322,9 @@ type DialerOpts struct {
 	Strat int32
 	// Retry is the retry strategy.
 	Retry int32
+	// LowerKeepAlive is the flag to enable low TCP keep-alive.
+	// Currently, 180s for idle, 5s for interval, and 4 probes.
+	LowerKeepAlive bool
 }
 
 func newDialerOpts() *DialerOpts {
@@ -357,8 +360,14 @@ func (d DialerOpts) String() string {
 			return "Unknown"
 		}
 	}()
+	ka := func() string {
+		if d.LowerKeepAlive {
+			return "LowerKeepAlive"
+		}
+		return ""
+	}()
 
-	return s + "," + r
+	return strings.Join([]string{s, r, ka}, ",")
 }
 
 // Dial strategies
@@ -380,7 +389,7 @@ const (
 var dialerOpts = newDialerOpts()
 
 // SetDialerOpts sets the dialer options to use.
-func SetDialerOpts(strat, retry int32) bool {
+func SetDialerOpts(strat, retry int32, keepalive bool) bool {
 	s := dialerOpts
 	ok := true
 	switch strat {
@@ -397,6 +406,7 @@ func SetDialerOpts(strat, retry int32) bool {
 		s.Retry = RetryAfterSplit
 		ok = false
 	}
+	s.LowerKeepAlive = keepalive
 	return ok
 }
 
