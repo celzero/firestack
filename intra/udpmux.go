@@ -218,7 +218,7 @@ func (x *muxer) readers() {
 	}
 }
 
-func (x *muxer) routeFast(to netip.AddrPort) *demuxconn {
+func (x *muxer) findRoute(to netip.AddrPort) *demuxconn {
 	x.rmu.RLock()
 	defer x.rmu.RUnlock()
 	return x.routes[to]
@@ -230,7 +230,7 @@ func (x *muxer) route(to netip.AddrPort) *demuxconn {
 		return nil
 	}
 
-	if conn := x.routeFast(to); conn != nil {
+	if conn := x.findRoute(to); conn != nil {
 		return conn
 	}
 
