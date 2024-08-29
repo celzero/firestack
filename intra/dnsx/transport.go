@@ -890,7 +890,8 @@ func (r *resolver) preferencesFrom(qname string, qtyp uint16, s *x.DNSOpts, chos
 		if len(id2) <= 0 {
 			id2 = Preferred
 		}
-		// s.NOBLOCK is respected
+		// s.NOBLOCK must be respected
+		// s.PID must be respected
 	}
 	if isAnyLocal(id1, id2) { // use one transport, Local, if set
 		id1 = Local
@@ -1014,10 +1015,9 @@ func overrideProxyIfNeeded(pid string, ids ...string) string {
 			return NetNoProxy
 		case CT + Goos: // exit
 			return NetNoProxy
-		case Bootstrap, Default, System, Local, Fixed, Preset: // base
+		case Bootstrap, Default, System, Local, Preset: // base
 			return NetNoProxy
-		case CT + Bootstrap, CT + Default, CT + System, CT + Local,
-			CT + Fixed, CT + Preset: // base
+		case CT + Bootstrap, CT + Default, CT + System, CT + Local, CT + Preset: // base
 			return NetNoProxy
 		}
 	}
