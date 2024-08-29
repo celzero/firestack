@@ -867,13 +867,19 @@ func (r *resolver) preferencesFrom(qname string, qtyp uint16, s *x.DNSOpts, chos
 		id1, id2 = x[0], x[1] // ids for transport t1, t2
 	}
 
+	usechosen := false
 	if len(chosenids) > 0 { // chosen ID overrides all
-		if len(chosenids[0]) > 0 {
+		if len(chosenids[0]) > 0 { // may be empty
 			id1 = chosenids[0]
+			usechosen = true
+		} else {
+			log.W("dns: pref: chosen ids empty: %v", chosenids)
 		}
-		if len(chosenids) > 1 && len(chosenids[1]) > 0 {
+		if usechosen && len(chosenids) > 1 && len(chosenids[1]) > 0 {
 			id2 = chosenids[1]
 		}
+	}
+	if usechosen {
 		log.D("dns: pref: use chosen tr(%s, %s) for %s", id1, id2, qname)
 	} else if isAnyBlockAll(id1, id2) || isAnyIPUnspecified(ips) { // just one transport, BlockAll, if set
 		id1 = BlockAll
