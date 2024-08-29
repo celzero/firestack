@@ -53,14 +53,19 @@ type SocketListener interface {
 }
 
 type PreMark struct {
-	UID    string // UID of the app which owns this flow.
-	TIDCSV string // TIDCSV is a list of DNS transport IDs.
+	// UID of the app which owns this flow.
+	UID string
+	// TIDCSV is a list of DNS transport IDs.
+	TIDCSV string
 }
 
 type Mark struct {
-	PID string // PID of the proxy to forward the flow over.
-	CID string // CID identifies this flow.
-	UID string // UID of the app which owns this flow.
+	// PID of the proxy to forward the flow over.
+	PID string
+	// CID identifies this flow.
+	CID string
+	// UID of the app which owns this flow.
+	UID string
 }
 
 const (
