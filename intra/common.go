@@ -384,8 +384,17 @@ func (h *baseHandler) onFlow(network string, localaddr, target netip.AddrPort) (
 			} else {
 				log.W("onFlow: %s preflow: invalid uid %s; using %d, err? %v", network, pre.UID, uid, err)
 			}
+			// empty pre.TIDCSV will result in len(tids) == 1
+			// go.dev/play/p/67cd88Y1lUE
 			tids := strings.Split(pre.TIDCSV, ",")
 			for _, d := range strings.Split(doms, ",") {
+				if len(d) <= 0 {
+					log.V("onFlow: %s preflow: empty domain in %v from %v => %v for %s; skip!",
+						network, doms, src, target, pre.UID)
+					continue
+				}
+				// ResolveOn will use dnsx.Default if TID is empty
+				// see: dns53.ipmapper:queryIP & dnsx.transport:Lookup
 				newips, err := dialers.ResolveOn(d, tids...)
 				hasNewIPs = err == nil && len(newips) > 0
 				if hasNewIPs { // fetch alg result for the newly resolved ips
@@ -398,7 +407,7 @@ func (h *baseHandler) onFlow(network string, localaddr, target netip.AddrPort) (
 		if !ok || !hasPre || !hasNewIPs {
 			log.W("onFlow: %s alg, but no preflow? %t / %t; ips? %t; block!", network, ok, hasPre, hasNewIPs)
 			return // either optionsBlock (BlockModeNone) or optionsBase
-		} // else: if we've got old ips, dial them
+		} // else: if we've got target and/or old ips, dial them
 	} else {
 		log.D("onFlow: %s noalg? %t or hasips? %t", network, undidAlg, hasOldIPs)
 	}
