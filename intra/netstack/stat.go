@@ -8,11 +8,15 @@ package netstack
 
 import (
 	"errors"
+	"strings"
 	"time"
 
 	x "github.com/celzero/firestack/intra/backend"
 	"github.com/celzero/firestack/intra/core"
+	"github.com/celzero/firestack/intra/settings"
 	"gvisor.dev/gvisor/pkg/tcpip"
+	"gvisor.dev/gvisor/pkg/tcpip/network/ipv4"
+	"gvisor.dev/gvisor/pkg/tcpip/network/ipv6"
 	"gvisor.dev/gvisor/pkg/tcpip/stack"
 )
 
@@ -40,11 +44,37 @@ func stat(s *stack.Stack) (out *x.NetStat) {
 	out = new(x.NetStat)
 
 	stat := s.Stats()
+	allinfo := s.NICInfo()
 	tcp := stat.TCP
 	udp := stat.UDP
 	icmp := stat.ICMP
 	ip := stat.IP
 	nic := stat.NICs
+
+	// nicinfo
+	if len(allinfo) > 0 {
+		if info, ok := allinfo[settings.NICID]; ok {
+			out.NICIn.Name = info.Name
+			out.NICIn.Mtu = int32(info.MTU)
+			out.NICIn.HwAddr = info.LinkAddress.String()
+			addrs := make([]string, 0, len(info.ProtocolAddresses))
+			for _, addr := range info.ProtocolAddresses {
+				addrs = append(addrs, addr.AddressWithPrefix.String())
+			}
+			out.NICIn.Addrs = strings.Join(addrs, ",")
+			out.NICIn.Arp = int32(info.ARPHardwareType)
+			out.NICIn.Up = info.Flags.Up
+			out.NICIn.Running = info.Flags.Running
+			out.NICIn.Lo = info.Flags.Loopback
+			out.NICIn.Promisc = info.Flags.Promiscuous
+			out.NICIn.Forwarding4 = info.Forwarding[ipv4.ProtocolNumber]
+			out.NICIn.Forwarding6 = info.Forwarding[ipv6.ProtocolNumber]
+		} else {
+			out.NICIn.Name = "missing"
+		}
+	} else {
+		out.NICIn.Name = "unknown"
+	}
 
 	// nic
 	out.NICSt.RxBytes = int64(nic.Rx.Bytes.Value())

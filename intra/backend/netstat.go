@@ -19,6 +19,20 @@ type NICStat struct {
 	Drops     int64 // drops
 }
 
+type NICInfo struct {
+	Name        string
+	HwAddr      string
+	Addrs       string
+	Mtu         int32
+	Up          bool
+	Running     bool
+	Promisc     bool
+	Lo          bool
+	Arp         int32
+	Forwarding4 bool
+	Forwarding6 bool
+}
+
 // IPFwdStat is a collection of IP forwarding statistics for the current tunnel.
 type IPFwdStat struct {
 	Errs     int64 // errors
@@ -100,6 +114,7 @@ type UDPStat struct {
 // NetStat is a collection of network statistics for the current tunnel.
 type NetStat struct {
 	NICSt  NICStat
+	NICIn  NICInfo
 	IPSt   IPStat
 	FWDSt  IPFwdStat
 	ICMPSt ICMPStat
@@ -109,6 +124,9 @@ type NetStat struct {
 
 // NIC returns the network interface statistics.
 func (n *NetStat) NIC() *NICStat { return &n.NICSt }
+
+// NICI returns the network interface info.
+func (n *NetStat) NICINFO() *NICInfo { return &n.NICIn }
 
 // IP returns the IP statistics.
 func (n *NetStat) IP() *IPStat { return &n.IPSt }
