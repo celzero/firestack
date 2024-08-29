@@ -67,7 +67,7 @@ func str2ip(host string) (netip.Addr, error) {
 
 // Implements IPMapper.
 func (m *ipmapper) Lookup(q []byte) ([]byte, error) {
-	return m.queryAny(q, "" /*local*/)
+	return m.queryAny(q)
 }
 
 // Implements IPMapper.
@@ -82,7 +82,7 @@ func (m *ipmapper) LookupNetIPOn(ctx context.Context, network, host string, tids
 
 // Implements IPMapper.
 func (m *ipmapper) LookupNetIP(ctx context.Context, network, host string) ([]netip.Addr, error) {
-	return m.queryIP(ctx, network, host, "" /*local*/)
+	return m.queryIP(ctx, network, host)
 }
 
 // todo: use context
@@ -189,7 +189,7 @@ func (m *ipmapper) queryAny(q []byte, tids ...string) ([]byte, error) {
 	log.V("ipmapper: lookup: host %s, tids: %v", qname, tids)
 
 	var v *core.V[[]byte, string]
-	if len(tids) > 0 {
+	if !firstEmpty(tids) {
 		v, _ = m.ba.Do(key(qname, strconv.Itoa(qtype), tids...), m.lookup(q, tids...))
 	} else {
 		v, _ = m.ba.Do1(key(qname, strconv.Itoa(qtype)), m.r.LocalLookup, q)
@@ -282,4 +282,8 @@ func addrs(a []byte) []netip.Addr {
 
 func dnsmsg(host string, qtype uint16) ([]byte, error) {
 	return xdns.Question(host, qtype)
+}
+
+func firstEmpty(arr []string) bool {
+	return len(arr) <= 0 || len(arr[0]) <= 0
 }

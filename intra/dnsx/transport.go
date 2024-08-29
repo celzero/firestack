@@ -348,8 +348,9 @@ func (r *resolver) Lookup(q []byte, chosenids ...string) ([]byte, error) {
 	if len(q) <= 0 {
 		return nil, errNoQuestion
 	}
-	if len(chosenids) <= 0 {
-		chosenids = []string{Preferred}
+	if firstEmpty(chosenids) {
+		log.W("dns: no transport ids %v; using dnsx.Default", chosenids)
+		chosenids = []string{Default}
 	}
 
 	return r.forward(q, chosenids...)
@@ -1095,4 +1096,8 @@ func cachedTransport(t Transport) bool {
 
 func clos(c io.Closer) {
 	core.CloseOp(c, core.CopRW)
+}
+
+func firstEmpty(arr []string) bool {
+	return len(arr) <= 0 || len(arr[0]) <= 0
 }
