@@ -195,3 +195,11 @@ func logei(err error, msg string, args ...any) {
 	}
 	f(msg, args...)
 }
+
+func logev(err error, msg string, args ...any) {
+	f := log.E
+	if err == nil {
+		f = log.V
+	}
+	f(msg, args...)
+}

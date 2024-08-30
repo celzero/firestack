@@ -344,13 +344,18 @@ func (c *demuxconn) Read(p []byte) (int, error) {
 // Write implements core.UDPConn.Write
 func (c *demuxconn) Write(p []byte) (n int, err error) {
 	defer c.wt.Reset(c.wto)
+	sz := len(p)
 	select {
 	case <-c.wt.C:
+		log.W("udp: mux: %s demux: write: %v => %v; timeout (sz: %d)", c.remux.id(), c.laddr, c.raddr, sz)
 		return 0, os.ErrDeadlineExceeded
 	case <-c.closed:
+		log.W("udp: mux: %s demux: write: %v => %v; closed (sz: %d)", c.remux.id(), c.laddr, c.raddr, sz)
 		return 0, net.ErrClosed
 	default:
-		return c.remux.sendto(p, c.raddr)
+		n, err = c.remux.sendto(p, c.raddr)
+		logev(err, "udp: mux: %s demux: write: %v => %v; done(sz: %d/%d); err? %v", c.remux.id(), c.laddr, c.raddr, n, sz, err)
+		return n, err
 	}
 }
 
@@ -446,13 +451,13 @@ func (c *demuxconn) io(out *[]byte, in *slice) (int, error) {
 		ov := &slice{v: in.v[n:], free: in.free}
 		select {
 		case <-c.closed:
-			log.W("udp: mux: %s demux: read: drop(sz: %d)", id, q)
+			log.W("udp: mux: %s demux: read: %v <= %v drop(sz: %d)", id, c.laddr, c.raddr, q)
 			in.free()
 		case c.overflowCh <- ov: // overflowCh is never closed
-			log.W("udp: mux: %s demux: read: overflow(sz: %d)", id, q)
+			log.W("udp: mux: %s demux: read: %v <= %v overflow(sz: %d)", id, c.laddr, c.raddr, q)
 		}
 	} else {
-		log.D("udp: mux: %s demux: read: done(sz: %d)", id, n)
+		log.V("udp: mux: %s demux: read: %v <= %v done(sz: %d)", id, c.laddr, c.raddr, n)
 		in.free()
 	}
 	return n, nil
