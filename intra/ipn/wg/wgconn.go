@@ -16,6 +16,7 @@ package wg
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/netip"
@@ -268,9 +269,22 @@ func (s *StdNetBind) makeReceiveFn(uc *net.UDPConn) conn.ReceiveFunc {
 			eps[i] = asEndpoint(addr)
 		}
 
-		loge(err, "wg: bind: %s recvFrom(%v): %d / err? %v", s.id, addr, n, err)
+		s := fmt.Sprintf("wg: bind: %s recvFrom(%v): %d / err? %v", s.id, addr, n, err)
+		if err == nil || timedout(err) {
+			log.D(s)
+		} else {
+			log.E(s)
+		}
 		return numMsgs, err
 	}
+}
+
+func timedout(err error) bool {
+	if err == nil {
+		return false
+	}
+	x, ok := err.(net.Error)
+	return ok && x.Timeout()
 }
 
 func (s *StdNetBind) Send(buf [][]byte, peer conn.Endpoint) (err error) {
