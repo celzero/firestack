@@ -405,17 +405,26 @@ func (d DialerOpts) String() string {
 
 // Dial strategies
 const (
+	// SplitAuto is the default dial strategy; chosen by the engine.
 	SplitAuto int32 = iota
+	// SplitTCPOrTLS splits first TCP segment or fragments the TLS SNI header.
 	SplitTCPOrTLS
+	// SplitTCP splits the first TCP segment.
 	SplitTCP
+	// SplitDesync splits the first TCP segment after desynchronizing the connection
+	// by sending a different, but fixed, first TCP segement to the censor.
 	SplitDesync
+	// SplitNever doesn't muck; connects as-is.
 	SplitNever
 )
 
 // Retry strategies
 const (
+	// RetryAfterSplit retries connection as-is after split fails.
 	RetryAfterSplit int32 = iota
+	// RetryWithSplit connects as-is, but retries with split.
 	RetryWithSplit
+	// RetryNever never retries.
 	RetryNever
 )
 
