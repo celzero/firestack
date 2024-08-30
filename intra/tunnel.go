@@ -26,6 +26,7 @@ package intra
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -281,24 +282,17 @@ func (t *rtunnel) stat() (*x.NetStat, error) {
 	out.RDNSIn.Transparency = settings.EndpointIndependentFiltering.Load()
 	out.RDNSIn.Dialer4 = dialers.Use4()
 	out.RDNSIn.Dialer6 = dialers.Use6()
-	out.RDNSIn.DialerOpts = settings.GetDialerOpts().String()
-	out.RDNSIn.TunMode = t.tunmode.String()
+	out.RDNSIn.DialerOpts = csv2ssv(settings.GetDialerOpts().String())
+	out.RDNSIn.TunMode = csv2ssv(t.tunmode.String())
 
-	fetchaddr := func(r dnsx.Resolver, id string) string {
-		if tr, rerr := r.Get(id); rerr == nil {
-			return tr.GetAddr()
-		} else {
-			return rerr.Error()
-		}
-	}
 	if r := t.resolver; r != nil {
 		out.RDNSIn.DNSPreferred = fetchaddr(r, x.Preferred)
 		out.RDNSIn.DNSDefault = fetchaddr(r, x.Default)
 		out.RDNSIn.DNSSystem = fetchaddr(r, x.System)
-		out.RDNSIn.DNS = r.LiveTransports()
+		out.RDNSIn.DNS = csv2ssv(r.LiveTransports())
 	}
 	if p := t.proxies; p != nil {
-		out.RDNSIn.Proxies = p.LiveProxies()
+		out.RDNSIn.Proxies = csv2ssv(p.LiveProxies())
 		out.RDNSIn.ProxiesHas4 = p.Router().IP4()
 		out.RDNSIn.ProxiesHas6 = p.Router().IP6()
 		if ps := p.Router().Stat(); ps != nil {
@@ -307,4 +301,16 @@ func (t *rtunnel) stat() (*x.NetStat, error) {
 		}
 	}
 	return out, nil
+}
+
+func csv2ssv(csv string) string {
+	return strings.ReplaceAll(csv, ",", ";")
+}
+
+func fetchaddr(r dnsx.Resolver, id string) string {
+	if tr, rerr := r.Get(id); rerr == nil {
+		return tr.GetAddr()
+	} else {
+		return rerr.Error()
+	}
 }
