@@ -140,11 +140,11 @@ type RDNSInfo struct {
 	DNSSystem    string
 	DNS          string
 
-	ProxiesHas4 bool
-	ProxiesHas6 bool
-	ProxyLastOK string
-	ProxySince  string
-	Proxies     string
+	ProxiesHas4   bool
+	ProxiesHas6   bool
+	ProxyLastOKMs int64
+	ProxySinceMs  int64
+	Proxies       string
 }
 
 // NIC returns the network interface statistics.

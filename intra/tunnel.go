@@ -302,10 +302,9 @@ func (t *rtunnel) stat() (*x.NetStat, error) {
 		out.RDNSIn.ProxiesHas4 = p.Router().IP4()
 		out.RDNSIn.ProxiesHas6 = p.Router().IP6()
 		if ps := p.Router().Stat(); ps != nil {
-			out.RDNSIn.ProxyLastOK = ps.LastOK
-			out.RDNSIn.ProxySince = ps.Since
+			out.RDNSIn.ProxyLastOKMs = ps.LastOK
+			out.RDNSIn.ProxySinceMs = ps.Since
 		}
-		p.Router().Stat()
 	}
 	return out, nil
 }
