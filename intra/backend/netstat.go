@@ -120,6 +120,31 @@ type NetStat struct {
 	ICMPSt ICMPStat
 	TCPSt  TCPStat
 	UDPSt  UDPStat
+	RDNSIn RDNSInfo
+}
+
+type RDNSInfo struct {
+	Open         bool
+	Debug        bool
+	Looping      bool
+	Slowdown     bool
+	Transparency bool
+
+	Dialer4    bool
+	Dialer6    bool
+	DialerOpts string
+	TunMode    string
+
+	DNSPreferred string
+	DNSDefault   string
+	DNSSystem    string
+	DNS          string
+
+	ProxiesHas4 bool
+	ProxiesHas6 bool
+	ProxyLastOK string
+	ProxySince  string
+	Proxies     string
 }
 
 // NIC returns the network interface statistics.
@@ -142,3 +167,6 @@ func (n *NetStat) TCP() *TCPStat { return &n.TCPSt }
 
 // UDP returns the UDP statistics.
 func (n *NetStat) UDP() *UDPStat { return &n.UDPSt }
+
+// RDNS returns the RDNS settings / info.
+func (n *NetStat) RDNSINFO() *RDNSInfo { return &n.RDNSIn }

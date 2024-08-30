@@ -28,6 +28,7 @@ import (
 	"fmt"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	x "github.com/celzero/firestack/intra/backend"
 	"github.com/celzero/firestack/intra/core"
@@ -41,7 +42,13 @@ import (
 	"github.com/celzero/firestack/tunnel"
 )
 
-var errClosed = errors.New("tunnel closed for business")
+var bar = core.NewKeyedBarrier[*x.NetStat, string](10 * time.Second)
+
+var (
+	errNoStatCache = errors.New("netstat: stat in cache is nil")
+	errNoStat      = errors.New("netstat: no stat")
+	errClosed      = errors.New("tunnel closed for business")
+)
 
 type Bridge interface {
 	Listener
@@ -243,4 +250,62 @@ func (t *rtunnel) GetServices() (rnet.Services, error) {
 
 func (t *rtunnel) SetTunMode(dnsmode, blockmode, ptmode int32) {
 	t.tunmode.SetMode(dnsmode, blockmode, ptmode)
+}
+
+func (t *rtunnel) Stat() (*x.NetStat, error) {
+	v, _ := bar.Do("stat", func() (*x.NetStat, error) {
+		return t.stat()
+	})
+	if v == nil {
+		return nil, errNoStat
+	} else if v.Err != nil {
+		return nil, v.Err
+	} else if v.Val == nil {
+		return nil, errNoStatCache
+	}
+
+	return v.Val, nil
+}
+
+func (t *rtunnel) stat() (*x.NetStat, error) {
+	out, err := t.Tunnel.Stat()
+
+	if err != nil {
+		return nil, err
+	}
+	// rdns info
+	out.RDNSIn.Open = !t.closed.Load()
+	out.RDNSIn.Debug = settings.Debug
+	out.RDNSIn.Looping = settings.Loopingback.Load()
+	out.RDNSIn.Slowdown = settings.SingleThreaded.Load()
+	out.RDNSIn.Transparency = settings.EndpointIndependentFiltering.Load()
+	out.RDNSIn.Dialer4 = dialers.Use4()
+	out.RDNSIn.Dialer6 = dialers.Use6()
+	out.RDNSIn.DialerOpts = settings.GetDialerOpts().String()
+	out.RDNSIn.TunMode = t.tunmode.String()
+
+	fetchaddr := func(r dnsx.Resolver, id string) string {
+		if tr, rerr := r.Get(id); rerr == nil {
+			return tr.GetAddr()
+		} else {
+			return rerr.Error()
+		}
+	}
+	if r := t.resolver; r != nil {
+		out.RDNSIn.DNSPreferred = fetchaddr(r, x.Preferred)
+		out.RDNSIn.DNSDefault = fetchaddr(r, x.Default)
+		out.RDNSIn.DNSSystem = fetchaddr(r, x.System)
+		out.RDNSIn.DNS = r.LiveTransports()
+	}
+	if p := t.proxies; p != nil {
+		out.RDNSIn.Proxies = p.LiveProxies()
+		out.RDNSIn.ProxiesHas4 = p.Router().IP4()
+		out.RDNSIn.ProxiesHas6 = p.Router().IP6()
+		if ps := p.Router().Stat(); ps != nil {
+			out.RDNSIn.ProxyLastOK = ps.LastOK
+			out.RDNSIn.ProxySince = ps.Since
+		}
+		p.Router().Stat()
+	}
+	return out, nil
 }

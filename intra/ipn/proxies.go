@@ -108,6 +108,8 @@ type Proxies interface {
 	ProxyFor(id string) (Proxy, error)
 	// RefreshProto broadcasts proto change to all active proxies.
 	RefreshProto(l3 string)
+	// LiveProxies returns a csv of active proxies.
+	LiveProxies() string
 }
 
 type proxifier struct {
@@ -290,6 +292,17 @@ func (px *proxifier) RefreshProxies() (string, error) {
 	return strings.Join(which, ","), nil
 }
 
+func (px *proxifier) LiveProxies() string {
+	px.RLock()
+	defer px.RUnlock()
+
+	out := make([]string, 0, len(px.p))
+	for id := range px.p {
+		out = append(out, id)
+	}
+	return strings.Join(out, ",")
+}
+
 func (px *proxifier) RefreshProto(l3 string) {
 	defer core.Recover(core.Exit11, "pxr.RefreshProto")
 	// must unlock from deferred since panics are recovered above
@@ -405,6 +418,7 @@ func accStats(a, b *x.RouterStats) (c *x.RouterStats) {
 	} else if b == nil {
 		return a
 	}
+	// c.Addr?
 	c.Tx = a.Tx + b.Tx
 	c.Rx = a.Rx + b.Rx
 	c.ErrRx = a.ErrRx + b.ErrRx

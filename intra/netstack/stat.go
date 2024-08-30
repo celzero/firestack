@@ -9,10 +9,8 @@ package netstack
 import (
 	"errors"
 	"strings"
-	"time"
 
 	x "github.com/celzero/firestack/intra/backend"
-	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/settings"
 	"gvisor.dev/gvisor/pkg/tcpip"
 	"gvisor.dev/gvisor/pkg/tcpip/network/ipv4"
@@ -20,27 +18,13 @@ import (
 	"gvisor.dev/gvisor/pkg/tcpip/stack"
 )
 
-var (
-	errNoStack = errors.New("netstat: no stack")
-	errNoStat  = errors.New("netstat: no stat")
-)
-
-var ba = core.NewKeyedBarrier[*x.NetStat, uint32](10 * time.Second)
+var errNoStack = errors.New("netstat: no stack")
 
 func Stat(s *stack.Stack) (out *x.NetStat, err error) {
 	if s == nil {
 		return nil, errNoStack
 	}
-	v, _ := ba.Do(s.Seed(), func() (*x.NetStat, error) {
-		return stat(s), nil
-	})
-	if v != nil {
-		return v.Val, nil
-	}
-	return nil, errNoStat
-}
 
-func stat(s *stack.Stack) (out *x.NetStat) {
 	out = new(x.NetStat)
 
 	stat := s.Stats()
@@ -156,7 +140,7 @@ func stat(s *stack.Stack) (out *x.NetStat) {
 	out.TCPSt.Timeouts = int64(tcp.Timeouts.Value())
 	out.TCPSt.Drops = int64(tcp.ForwardMaxInFlightDrop.Value())
 
-	return out
+	return out, nil
 }
 
 func summation(m *tcpip.IntegralStatCounterMap) (sum uint64) {

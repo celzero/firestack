@@ -113,6 +113,39 @@ type TunMode struct {
 	PtMode atomic.Int32
 }
 
+func (t *TunMode) String() string {
+	d := func() string {
+		switch t.DNSMode.Load() {
+		case DNSModeIP:
+			return "IP"
+		case DNSModePort:
+			return "IPPort"
+		}
+		return "None"
+	}()
+	b := func() string {
+		switch t.BlockMode.Load() {
+		case BlockModeFilter:
+			return "Filter"
+		case BlockModeSink:
+			return "Sink"
+		case BlockModeFilterProc:
+			return "FilterProc"
+		}
+		return "None"
+	}()
+	pt := func() string {
+		switch t.PtMode.Load() {
+		case PtModeForce64:
+			return "Force64"
+		case PtModeNo46:
+			return "No46"
+		}
+		return "Auto"
+	}()
+	return strings.Join([]string{d, b, pt}, ",")
+}
+
 // SetMode re-assigns d to DNSMode, b to BlockMode, pt to NatPtMode.
 func (t *TunMode) SetMode(d, b, pt int32) {
 	t.DNSMode.Store(d)
