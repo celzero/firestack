@@ -316,16 +316,6 @@ func (x *muxer) newLocked(r netip.AddrPort) *demuxconn {
 	}
 }
 
-// TODO: make sure a conn can only be vend once
-func (x *muxer) vend(dst netip.AddrPort) (net.Conn, error) {
-	c := x.route(dst)
-	if c == nil {
-		log.E("udp: mux: %s vend: no conn for %s", x.cid, dst)
-		return nil, errUdpSetupConn
-	}
-	return c, nil
-}
-
 // Read implements core.UDPConn.Read
 func (c *demuxconn) Read(p []byte) (int, error) {
 	defer c.rt.Reset(c.rto)
@@ -507,8 +497,14 @@ func (e *muxTable) associate(cid, pid string, src, dst netip.AddrPort, mk assocF
 		return nil, errProxyMismatch // return
 	}
 
-	e.Unlock()           // unlock
-	return mxr.vend(dst) // do not hold e.lock on calls into mxr
+	e.Unlock() // unlock
+	// do not hold e.lock on calls into mxr
+	c = mxr.route(dst)
+	if c == nil {
+		log.E("udp: mux: %s vend: no conn for %s", mxr.cid, dst)
+		return nil, errUdpSetupConn
+	}
+	return c, nil
 }
 
 func (e *muxTable) dissociate(cid, pid string, src netip.AddrPort) {
