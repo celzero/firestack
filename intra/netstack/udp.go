@@ -134,7 +134,7 @@ func udpForwarder(s *stack.Stack, h GUDPConnHandler) *udp.Forwarder {
 		}
 
 		demux := func(newdst netip.AddrPort) error {
-			if newdst == dst {
+			if newdst.Compare(dst) == 0 {
 				log.D("ns: udp: demuxer: no-op; src(%v) same as dst(%v)", src, newdst)
 				return nil
 			}
