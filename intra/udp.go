@@ -166,7 +166,7 @@ func (h *udpHandler) proxy(gconn *netstack.GUDPConn, src, dst netip.AddrPort, dm
 	if err != nil {
 		core.Close(gconn, remote)
 		queueSummary(h.smmch, h.done, smm.done(err)) // smm may be nil
-		log.W("udp: proxy: mux? %t, unexpected %s -> %s; err: %v", mux, src, dst, err)
+		log.D("udp: proxy: mux? %t, firewalled? %s -> %s; err: %v", mux, src, dst, err)
 		// dst addrs no longer tracked in h.Connect: h.conntracker.Untrack(ct.CID)
 		return // not ok
 	} else if remote == nil { // dnsOverride?
