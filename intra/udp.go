@@ -250,7 +250,7 @@ func (h *udpHandler) Connect(gconn *netstack.GUDPConn, src, target netip.AddrPor
 	// as seen (with Flow) is owned by Rethink, then expect the conn
 	// to be marked ipn.Base for queries sent to tunnel's fake DNS addr
 	// and ipn.Exit for anywhere else.
-	if pid != ipn.Exit {
+	if pid == ipn.Base {
 		if dnsOverride(h.resolver, dnsx.NetTypeUDP, gconn, target) {
 			// SocketSummary is not sent to listener; x.DNSSummary is
 			return nil, smm, nil // connect, no dst
