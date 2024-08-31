@@ -382,7 +382,8 @@ func (h *baseHandler) onFlow(network string, localaddr, target netip.AddrPort) (
 			if newuid, err := strconv.Atoi(pre.UID); err == nil {
 				uid = newuid
 			} else {
-				log.W("onFlow: %s preflow: invalid uid %s; using %d, err? %v", network, pre.UID, uid, err)
+				log.W("onFlow: %s preflow: invalid uid %s; using %d, err? %v",
+					network, pre.UID, uid, err)
 			}
 			// empty pre.TIDCSV will result in len(tids) == 1
 			// go.dev/play/p/67cd88Y1lUE
@@ -405,7 +406,8 @@ func (h *baseHandler) onFlow(network string, localaddr, target netip.AddrPort) (
 		} // else: either no known transport or preflow failed
 
 		if !ok || !hasPre || !hasNewIPs {
-			log.W("onFlow: %s alg, but no preflow? %t / %t; ips? %t; block!", network, ok, hasPre, hasNewIPs)
+			log.W("onFlow: %s alg, but no preflow? %t / %t, ips? %t for %s over %s; block!",
+				network, ok, hasPre, hasNewIPs, pre.UID, pre.TIDCSV)
 			return // either optionsBlock (BlockModeNone) or optionsBase
 		} // else: if we've got target and/or old ips, dial them
 	} else {

@@ -1055,7 +1055,7 @@ func synthesizeOrQuery(pre []*netip.Addr, tr Transport, msg *dns.Msg, network st
 		smm.RData = xdns.GetInterestingRData(ans)
 		smm.RTtl = xdns.RTtl(ans)
 
-		log.D("alg: synthesize: q: %s; (HTTPS? %t / fixed? %); subst4(%t), subst6(%t); rdata(%s); tr: %s",
+		log.D("alg: synthesize: q: %s; (HTTPS? %t / fixed? %t); subst4(%t), subst6(%t); rdata(%s); tr: %s",
 			qname, isHTTPS, fixed, ok4, ok6, smm.RData, idstr(tr))
 
 		return ans, nil // no error
