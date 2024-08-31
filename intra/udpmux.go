@@ -22,9 +22,21 @@ import (
 
 // from: github.com/pion/transport/blob/03c807b/udp/conn.go
 
-const (
-	maxtimeouterrors = 3
+const maxtimeouterrors = 3
+
+type flowkind int32
+
+var (
+	ingress flowkind = 0
+	egress  flowkind = 1
 )
+
+func (f flowkind) String() string {
+	if f == ingress {
+		return "ingress"
+	}
+	return "egress"
+}
 
 type sender interface {
 	id() string
@@ -192,6 +204,7 @@ func (x *muxer) readers() {
 		n, who, err := x.mxconn.ReadFrom(b)
 
 		x.stats.tx.Add(uint32(n)) // upload
+
 		if timedout(err) {
 			timeouterrors++
 			if timeouterrors < maxtimeouterrors {
@@ -207,13 +220,15 @@ func (x *muxer) readers() {
 			log.W("udp: mux: %s read done n(%d): nil remote addr; skip", x.cid, n)
 			continue
 		}
-		// may be existing route or a new route
-		if dst := x.route(addr2netip(who)); dst != nil {
+
+		// may be an existing route or a new route
+		if dst := x.route(addr2netip(who), ingress); dst != nil {
 			select {
 			case dst.incomingCh <- &slice{v: b[:n], free: free}: // incomingCh is never closed
 			default: // dst probably closed, but not yet unrouted
 				log.W("udp: mux: %s read: drop(sz: %d); route to %s", x.cid, n, dst.raddr)
 			}
+			log.V("udp: mux: %s read: n(%d) from %v <= %v; err %v", x.cid, n, dst, who, err)
 		} // else: ignore (who is invalid or x is closed)
 	}
 }
@@ -224,9 +239,9 @@ func (x *muxer) findRoute(to netip.AddrPort) *demuxconn {
 	return x.routes[to]
 }
 
-func (x *muxer) route(to netip.AddrPort) *demuxconn {
+func (x *muxer) route(to netip.AddrPort, f flowkind) *demuxconn {
 	if !to.IsValid() {
-		log.W("udp: mux: %s route: invalid addr %s", x.cid, to)
+		log.W("udp: mux: %s route: %s invalid addr %s", x.cid, f, to)
 		return nil
 	}
 
@@ -237,8 +252,8 @@ func (x *muxer) route(to netip.AddrPort) *demuxconn {
 	x.rmu.Lock()
 	defer x.rmu.Unlock()
 
-	conn := x.routes[to]
-	if conn == nil {
+	conn, ok := x.routes[to]
+	if conn == nil || !ok {
 		// new routes created here won't really exist in netstack if
 		// settings.EndpointIndependentMapping or settings.EndpointIndependentFiltering
 		// is set to false.
@@ -246,23 +261,24 @@ func (x *muxer) route(to netip.AddrPort) *demuxconn {
 		select {
 		case <-x.doneCh:
 			clos(conn)
-			log.W("udp: mux: %s route: for %s; muxer closed", x.cid, to)
+			log.W("udp: mux: %s route: %s for %s; muxer closed", x.cid, f, to)
 			return nil
 		case x.dxconns <- conn:
 			n := x.stats.dxcount.Add(1)
 			x.routes[to] = conn
-			firstEverDemux := n == 1
-			// the first demux conn is already vended/sockisifed via netstack
-			// (see: udpHandler:ProxyMux) so it should not be vended again.
-			if !firstEverDemux {
+			// if egress, a demuxed conn is already vended/sockisifed via netstack
+			// (see: udpHandler:ProxyMux) and so it need not be vended again. Even
+			// if it were to be, it'd fail with "port/addr already in use"
+			// ex: route: egress vend failure 1.1.1.1:53; err connect udp 10.111.222.1:42182: port is in use
+			if f == ingress {
 				core.Go("udpmux.vend", func() { // a fork in the road
 					if verr := x.vnd(to); verr != nil {
 						clos(conn)
-						log.E("udp: mux: %s route: vend failure %s; err %v", x.cid, to, verr)
+						log.E("udp: mux: %s route: %s vend failure %s; err %v", x.cid, f, to, verr)
 					}
 				})
 			}
-			log.I("udp: mux: %s route: new for %s; stats: %d", x.cid, to, x.stats)
+			log.I("udp: mux: %s route: %s #%d new for %s; stats: %d", x.cid, f, n, to, x.stats)
 		}
 	}
 	return conn
@@ -469,7 +485,7 @@ func newMuxTable() *muxTable {
 	return &muxTable{t: make(map[netip.AddrPort]*muxer)}
 }
 
-func (e *muxTable) associate(cid, pid string, src, dst netip.AddrPort, mk assocFn, v vendor) (c net.Conn, err error) {
+func (e *muxTable) associate(cid, pid string, src, dst netip.AddrPort, mk assocFn, v vendor) (_ net.Conn, err error) {
 	e.Lock() // lock
 
 	var mxr *muxer
@@ -499,7 +515,7 @@ func (e *muxTable) associate(cid, pid string, src, dst netip.AddrPort, mk assocF
 
 	e.Unlock() // unlock
 	// do not hold e.lock on calls into mxr
-	c = mxr.route(dst)
+	c := mxr.route(dst, egress)
 	if c == nil {
 		log.E("udp: mux: %s vend: no conn for %s", mxr.cid, dst)
 		return nil, errUdpSetupConn
