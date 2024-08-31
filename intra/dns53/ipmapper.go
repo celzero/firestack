@@ -126,7 +126,7 @@ func (m *ipmapper) queryIP(_ context.Context, network, host string, tids ...stri
 	}
 
 	var val4, val6 *core.V[[]byte, string]
-	if len(tids) > 0 {
+	if !firstEmpty(tids) {
 		val4, _ = m.ba.Do(key(host, "ip4", tids...), m.lookup(q4, tids...))
 		val6, _ = m.ba.Do(key(host, "ip6", tids...), m.lookup(q6, tids...))
 	} else {
