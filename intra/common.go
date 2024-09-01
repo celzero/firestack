@@ -333,10 +333,9 @@ func (h *baseHandler) onFlow(network string, localaddr, target netip.AddrPort) (
 	// BlockModeNone returns false, BlockModeSink returns true
 	if blockmode == settings.BlockModeSink {
 		return
-	} else {
-		// BlockModeNone|BlockModeFilter|BlockModeFilterProc
+	} else if blockmode == settings.BlockModeNone {
 		fm = optionsBase
-	}
+	} // else: BlockModeFilter|BlockModeFilterProc
 
 	// Implicit: BlockModeFilter or BlockModeFilterProc
 	uid := -1
