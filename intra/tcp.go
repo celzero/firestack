@@ -174,7 +174,7 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target netip.AddrPort)
 
 	// flow/dns-override are nat-aware, as in, they can deal with
 	// nat-ed ips just fine, and so, use target as-is instead of ipx4
-	res, realips, domains, probableDomains := h.onFlow("tcp", src, target)
+	res, undidAlg, realips, domains := h.onFlow("tcp", src, target)
 	cid, pid, uid := splitCidPidUid(res)
 	smm = tcpSummary(cid, pid, uid, target.Addr())
 
@@ -185,17 +185,24 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target netip.AddrPort)
 	}
 
 	if pid == ipn.Block {
-		var secs uint32
-		k := uid + target.String()
-		if len(domains) > 0 { // probableDomains are not reliable to use for firewalling
-			k = uid + domains
+		if undidAlg && len(realips) <= 0 && len(domains) > 0 {
+			err = errNoIPsForDomain
+		} else {
+			err = errTcpFirewalled
 		}
+		var k string
+		if len(domains) > 0 {
+			k = uid + domains
+		} else {
+			k = uid + target.String()
+		}
+		var secs uint32
 		if secs = stall(h.fwtracker, k); secs > 0 {
 			waittime := time.Duration(secs) * time.Second
 			time.Sleep(waittime)
 		}
-		log.I("tcp: gconn %s firewalled from %s -> %s (dom: %s + %s/ real: %s) for %s; stall? %ds", cid, src, target, domains, probableDomains, realips, uid, secs)
-		err = errTcpFirewalled
+		log.I("tcp: gconn %s firewalled from %s -> %s (dom: %s / real: %s) for %s; stall? %ds", cid, src, target, domains, realips, uid, secs)
+
 		return deny
 	}
 

@@ -67,7 +67,7 @@ func NewICMPHandler(resolver dnsx.Resolver, prox ipn.Proxies, tunMode *settings.
 	return h
 }
 
-func (h *icmpHandler) flow(source, target netip.AddrPort) (_ *Mark, _, _, _ string) {
+func (h *icmpHandler) flow(source, target netip.AddrPort) (_ *Mark, _ bool, _, _ string) {
 	proto := "icmp"
 	if target.Addr().Is6() {
 		proto = "icmp6"
@@ -104,7 +104,7 @@ func (h *icmpHandler) Ping(source, target netip.AddrPort, msg []byte) (echoed bo
 	var err error
 
 	// flow is alg/nat-aware, do not change target or any addrs
-	res, realips, _, _ := h.flow(source, target)
+	res, undidAlg, realips, doms := h.flow(source, target)
 	cid, pid, _ := splitCidPidUid(res)
 	smm := icmpSummary(cid, pid)
 
@@ -119,7 +119,11 @@ func (h *icmpHandler) Ping(source, target netip.AddrPort, msg []byte) (echoed bo
 	}
 
 	if pid == ipn.Block {
-		err = errIcmpFirewalled
+		if undidAlg && len(realips) <= 0 && len(doms) > 0 {
+			err = errNoIPsForDomain
+		} else {
+			err = errIcmpFirewalled
+		}
 		log.I("t.icmp: egress: firewalled %s => %s", source, target)
 		// sleep for a while to avoid busy conns? will also block netstack
 		// see: netstack/dispatcher.go:newReadvDispatcher

@@ -64,6 +64,7 @@ const (
 )
 
 var (
+	errNoIPsForDomain = errors.New("dns: no ips")
 	errIcmpFirewalled = errors.New("icmp: firewalled")
 	errUdpFirewalled  = errors.New("udp: firewalled")
 	errUdpSetupConn   = errors.New("udp: could not create conn")
@@ -200,7 +201,7 @@ func (h *udpHandler) Connect(gconn *netstack.GUDPConn, src, target netip.AddrPor
 	} // err handled after onFlow, so that the listener knows about this gconn/flow
 
 	// flow is alg/nat-aware, do not change target or any addrs
-	res, realips, domains, probableDomains := h.onFlow("udp", src, target)
+	res, undidAlg, realips, domains := h.onFlow("udp", src, target)
 	cid, pid, uid := splitCidPidUid(res)
 	smm = udpSummary(cid, pid, uid, target.Addr())
 
@@ -210,21 +211,25 @@ func (h *udpHandler) Connect(gconn *netstack.GUDPConn, src, target netip.AddrPor
 	}
 
 	if pid == ipn.Block {
-		var secs uint32
+		if undidAlg && len(realips) <= 0 && len(domains) > 0 {
+			err = errNoIPsForDomain
+		} else {
+			err = errUdpFirewalled
+		}
 		var k string
-
-		if len(domains) > 0 { // probableDomains are not reliable for firewalling
+		if len(domains) > 0 {
 			k = uid + domains
 		} else {
 			k = uid + target.String() // UID may be unknown
 		}
+		var secs uint32
 		if secs = stall(h.fwtracker, k); secs > 0 {
 			waittime := time.Duration(secs) * time.Second
 			time.Sleep(waittime)
 		}
-		log.I("udp: connect: %s conn firewalled from %s => %s (dom: %s + %s/ real: %s); stall? %ds for uid %s",
-			cid, src, target, domains, probableDomains, realips, secs, uid)
-		return nil, smm, errUdpFirewalled // disconnect
+		log.I("udp: connect: %s conn firewalled from %s => %s (dom: %s / real: %s); stall? %ds for uid %s",
+			cid, src, target, domains, realips, secs, uid)
+		return nil, smm, err // disconnect
 	}
 
 	if err != nil { // gconn.Establish() failed

@@ -327,7 +327,7 @@ type baseHandler struct {
 }
 
 // onFlow calls listener.Flow to determine egress rules and routes; thread-safe.
-func (h *baseHandler) onFlow(network string, localaddr, target netip.AddrPort) (fm *Mark, ips, doms, pdoms string) {
+func (h *baseHandler) onFlow(network string, localaddr, target netip.AddrPort) (fm *Mark, undidAlg bool, ips, doms string) {
 	blockmode := h.tunMode.BlockMode.Load()
 	fm = optionsBlock // fail-safe: block everything in the default case
 	// BlockModeNone returns false, BlockModeSink returns true
@@ -361,8 +361,7 @@ func (h *baseHandler) onFlow(network string, localaddr, target netip.AddrPort) (
 	src := localaddr.String()
 	dst := target.String()
 
-	var undidAlg bool
-	var blocklists string
+	var pdoms, blocklists string
 	var pre *PreMark
 	var ok bool
 
@@ -407,7 +406,8 @@ func (h *baseHandler) onFlow(network string, localaddr, target netip.AddrPort) (
 		if !ok || !hasPre || !hasNewIPs {
 			log.W("onFlow: %s alg, but no preflow? %t / %t, ips? %t for %s over %s; block!",
 				network, ok, hasPre, hasNewIPs, pre.UID, pre.TIDCSV)
-			return // either optionsBlock (BlockModeNone) or optionsBase
+			// either optionsBase (BlockModeNone) or optionsBlock
+			return fm, undidAlg, "", ""
 		} // else: if we've got target and/or old ips, dial them
 	} else {
 		log.D("onFlow: %s noalg? %t or hasips? %t", network, undidAlg, hasOldIPs)
