@@ -397,8 +397,8 @@ func (h *baseHandler) onFlow(network string, localaddr, target netip.AddrPort) (
 				// see: dns53.ipmapper:queryIP & dnsx.transport:Lookup
 				newips, err := dialers.ResolveOn(d, tids...)
 				hasNewIPs = err == nil && len(newips) > 0
-				if hasNewIPs { // fetch alg result for the newly resolved ips
-					_, ips, doms, pdoms, blocklists = undoAlg(h.resolver, newips[0])
+				if hasNewIPs { // fetch alg result if resolve succeeded
+					_, ips, doms, pdoms, blocklists = undoAlg(h.resolver, target.Addr())
 					break
 				} // else: either no known transport or preflow failed
 			}
