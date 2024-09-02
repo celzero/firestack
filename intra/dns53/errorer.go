@@ -24,19 +24,19 @@ type errorer struct {
 	ipport string
 }
 
-var _ dnsx.Transport = (*grounded)(nil)
+var _ dnsx.Transport = (*errorer)(nil)
 
 // NewGroundedTransport returns a DNS transport that blocks all DNS queries.
-func NewErrorerTransport(id string) (t dnsx.Transport) {
-	t = &grounded{
+func NewErrorerTransport(id string) *errorer {
+	t := &errorer{
 		id:     id, // typically, dnsx.Fixed
 		ipport: "127.3.3.3:33",
 	}
 	log.I("errorer(%s) setup: %s", t.ID(), t.GetAddr())
-	return
+	return t
 }
 
-func (t *grounded) Query(_ string, q *dns.Msg, smm *x.DNSSummary) (*dns.Msg, error) {
+func (t *errorer) Query(_ string, q *dns.Msg, smm *x.DNSSummary) (*dns.Msg, error) {
 	smm.Latency = 0
 	smm.RData = xdns.GetInterestingRData(nil)
 	smm.RCode = xdns.Rcode(nil)
@@ -48,26 +48,26 @@ func (t *grounded) Query(_ string, q *dns.Msg, smm *x.DNSSummary) (*dns.Msg, err
 	return nil, errStubTransport
 }
 
-func (t *grounded) ID() string {
+func (t *errorer) ID() string {
 	return t.id
 }
 
-func (t *grounded) Type() string {
+func (*errorer) Type() string {
 	return dnsx.DNS53
 }
 
-func (t *grounded) P50() int64 {
+func (*errorer) P50() int64 {
 	return 0
 }
 
-func (t *grounded) GetAddr() string {
+func (t *errorer) GetAddr() string {
 	return t.ipport
 }
 
-func (t *grounded) Status() int {
+func (*errorer) Status() int {
 	return x.ClientError
 }
 
-func (*grounded) Stop() error {
+func (*errorer) Stop() error {
 	return nil
 }
