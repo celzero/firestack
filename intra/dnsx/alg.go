@@ -323,17 +323,21 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []*netip.Addr, network string, q
 		ansin = ans64
 	} // else: no dns64, or error; continue with ansin
 
-	hasq := xdns.HasAAAAQuestion(ansin) || xdns.HasAQuestion(ansin) || xdns.HasSVCBQuestion(ansin) || xdns.HasHTTPQuestion(ansin)
+	hasq := xdns.HasAAAAQuestion(ansin) || xdns.HasAQuestion(ansin) ||
+		xdns.HasSVCBQuestion(ansin) || xdns.HasHTTPQuestion(ansin)
 	hasans := xdns.HasAnyAnswer(ansin)
 	rgood := xdns.HasRcodeSuccess(ansin)
-	ans0000 := xdns.AQuadAUnspecified(ans64)
+	// for t1, ansin's already evaluated for ans0000 in querySecondary
+	// (may be superceded by answer from t2, if t2 is not nil); and so
+	// only ans64 is checked for "0.0.0.0" / "::" here.
+	ans640000 := xdns.AQuadAUnspecified(ans64) // ans64 may be nil
 
-	if ans0000 {
+	if ans640000 {
 		summary.UpstreamBlocks = true
 	}
 
-	if !hasq || !hasans || !rgood || ans0000 {
-		log.D("alg: skip; query(n:%s / a:%d) hasq(%t) hasans(%t) rgood(%t), ans0000(%t)", qname, xdns.Len(ansin), hasq, hasans, rgood, ans0000)
+	if !hasq || !hasans || !rgood || ans640000 {
+		log.D("alg: skip; query(n:%s / a:%d) hasq(%t) hasans(%t) rgood(%t), ans0000(%t)", qname, xdns.Len(ansin), hasq, hasans, rgood, ans640000)
 		return ansin, nil
 	}
 
