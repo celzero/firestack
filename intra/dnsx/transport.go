@@ -457,8 +457,6 @@ func (r *resolver) forward(q []byte, chosenids ...string) (res0 []byte, err0 err
 		t2 = r.determineTransport(sid)
 	}
 
-	gw := r.Gateway()
-
 	res1, blocklists, err := r.blockQ(t, t2, msg) // skips if the t, t2 are alg/block-free
 	if err == nil {
 		if pref.NOBLOCK { // only add blocklists and do not actually block
@@ -488,7 +486,7 @@ func (r *resolver) forward(q []byte, chosenids ...string) (res0 []byte, err0 err
 	netid := xdns.NetAndProxyID(NetTypeUDP, pid)
 
 	// with t2 as the secondary transport, which could be nil
-	ans1, err = gw.q(t, t2, presetIPs, netid, msg, smm)
+	ans1, err = r.gateway.q(t, t2, presetIPs, netid, msg, smm)
 
 	algerr := isAlgErr(err) // not set when gw.translate is off
 	if algerr {
@@ -870,13 +868,15 @@ func (r *resolver) preferencesFrom(qname string, qtyp uint16, s *x.DNSOpts, chos
 	usechosen := false
 	if len(chosenids) > 0 { // chosen ID overrides all
 		if len(chosenids[0]) > 0 { // may be empty
-			id1 = chosenids[0]
+			id1 = chosenids[0] // never empty
 			usechosen = true
 		} else {
 			log.W("dns: pref: chosen ids empty: %v", chosenids)
 		}
-		if usechosen && len(chosenids) > 1 && len(chosenids[1]) > 0 {
-			id2 = chosenids[1]
+		if usechosen && len(chosenids) > 1 {
+			id2 = chosenids[1] // may be empty, but that's ok
+		} else {
+			id2 = "" // wipe out id2 if not set; use just id1
 		}
 	}
 	if usechosen {
