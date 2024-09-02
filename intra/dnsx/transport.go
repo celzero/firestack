@@ -430,7 +430,7 @@ func (r *resolver) forward(q []byte, chosenids ...string) (res0 []byte, err0 err
 		return nil, errMissingQueryName
 	}
 
-	pref, oqok := core.Gr("r.onQuery", func() *x.DNSOpts {
+	pref, oqok := core.Grx("r.onQuery", func() *x.DNSOpts {
 		return r.listener.OnQuery(qname, qtyp)
 	}, onQueryTimeout)
 	if !oqok {

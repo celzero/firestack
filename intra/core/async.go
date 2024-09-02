@@ -62,7 +62,7 @@ func Gif(cond bool, who string, f func()) {
 	}
 }
 
-func Gr[T any](who string, f func() T, d time.Duration) (zz T, ok bool) {
+func Grx[T any](who string, f func() T, d time.Duration) (zz T, ok bool) {
 	ch := make(chan T)
 
 	timer := time.NewTicker(d)

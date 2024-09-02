@@ -370,7 +370,7 @@ func (h *baseHandler) onFlow(network string, localaddr, target netip.AddrPort) (
 	undidAlg, ips, doms, pdoms, blocklists = undoAlg(h.resolver, target.Addr())
 	hasOldIPs := len(ips) > 0
 	if undidAlg && !hasOldIPs {
-		pre, ok = core.Gr(network+".preflow", func() *PreMark {
+		pre, ok = core.Grx(network+".preflow", func() *PreMark {
 			return h.listener.Preflow(proto, int32(uid), src, dst, doms)
 		}, onFlowTimeout)
 
@@ -417,7 +417,7 @@ func (h *baseHandler) onFlow(network string, localaddr, target netip.AddrPort) (
 		log.D("onFlow: %s no realips(%s) or domains(%s + %s), for src=%s dst=%s", network, ips, doms, pdoms, localaddr, target)
 	}
 
-	fm, ok = core.Gr(network+".flow", func() *Mark {
+	fm, ok = core.Grx(network+".flow", func() *Mark {
 		return h.listener.Flow(proto, int32(uid), src, dst, ips, doms, pdoms, blocklists)
 	}, onFlowTimeout)
 
