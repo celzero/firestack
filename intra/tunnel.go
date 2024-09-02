@@ -126,7 +126,7 @@ func NewTunnel(fd, mtu int, fakedns string, tunmode *settings.TunMode, dtr Defau
 	resolver := dnsx.NewResolver(fakedns, tunmode, dtr, bdg, natpt)
 	resolver.Add(newGoosTransport(bdg, proxies))     // os-resolver; fixed
 	resolver.Add(newBlockAllTransport())             // fixed
-	resolver.Add(newNopTransport())                  // fixed
+	resolver.Add(newFixedTransport())                // fixed
 	resolver.Add(newDNSCryptTransport(proxies, bdg)) // fixed
 	resolver.Add(newMDNSTransport(settings.IP46))    // fixed
 

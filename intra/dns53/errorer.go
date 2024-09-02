@@ -1,4 +1,4 @@
-// Copyright (c) 2022 RethinkDNS and its authors.
+// Copyright (c) 2024 RethinkDNS and its authors.
 //
 // This Source Code Form is subject to the terms of the Mozilla Public
 // License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -7,7 +7,7 @@
 package dns53
 
 import (
-	"time"
+	"errors"
 
 	x "github.com/celzero/firestack/intra/backend"
 	"github.com/celzero/firestack/intra/dnsx"
@@ -16,45 +16,36 @@ import (
 	"github.com/miekg/dns"
 )
 
+var errStubTransport = errors.New("dns: stub transport")
+
 // TODO: Keep a context here so that queries can be canceled.
-type grounded struct {
+type errorer struct {
 	id     string
 	ipport string
-	status int
 }
 
 var _ dnsx.Transport = (*grounded)(nil)
 
 // NewGroundedTransport returns a DNS transport that blocks all DNS queries.
-func NewGroundedTransport(id string) (t dnsx.Transport) {
+func NewErrorerTransport(id string) (t dnsx.Transport) {
 	t = &grounded{
-		id:     id, // typically, dnsx.BlockAll
-		ipport: "127.0.0.3:53",
-		status: dnsx.Start,
+		id:     id, // typically, dnsx.Fixed
+		ipport: "127.3.3.3:33",
 	}
-	log.I("grounded(%s) setup: %s", t.ID(), t.GetAddr())
+	log.I("errorer(%s) setup: %s", t.ID(), t.GetAddr())
 	return
 }
 
-func (t *grounded) Query(_ string, q *dns.Msg, smm *x.DNSSummary) (ans *dns.Msg, err error) {
-	ans, err = xdns.RefusedResponseFromMessage(q)
-	if err != nil {
-		t.status = x.BadResponse
-	} else {
-		t.status = x.Complete
-	}
-	elapsed := 0 * time.Second
-	smm.Latency = elapsed.Seconds()
-	smm.RData = xdns.GetInterestingRData(ans)
-	smm.RCode = xdns.Rcode(ans)
-	smm.RTtl = xdns.RTtl(ans)
+func (t *grounded) Query(_ string, q *dns.Msg, smm *x.DNSSummary) (*dns.Msg, error) {
+	smm.Latency = 0
+	smm.RData = xdns.GetInterestingRData(nil)
+	smm.RCode = xdns.Rcode(nil)
+	smm.RTtl = xdns.RTtl(nil)
 	smm.Server = t.GetAddr()
 	smm.Status = t.Status()
-	if err != nil {
-		smm.Msg = err.Error()
-	}
+	smm.Msg = errStubTransport.Error()
 
-	return ans, err
+	return nil, errStubTransport
 }
 
 func (t *grounded) ID() string {
@@ -74,7 +65,7 @@ func (t *grounded) GetAddr() string {
 }
 
 func (t *grounded) Status() int {
-	return t.status
+	return x.ClientError
 }
 
 func (*grounded) Stop() error {
