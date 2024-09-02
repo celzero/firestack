@@ -162,27 +162,35 @@ func (t *dnsgateway) stop() {
 	t.hexes = rfc8215a
 }
 
-func (t *dnsgateway) querySecondary(t2 Transport, network string, msg *dns.Msg, twosecres chan<- secans, t1res <-chan *dns.Msg) {
+func (t *dnsgateway) qs(t2 Transport, network string, msg *dns.Msg, t1res <-chan *dns.Msg) <-chan secans {
+	t2res := make(chan secans, 1)
+	go func() {
+		defer close(t2res)
+
+		qname := xdns.QName(msg)
+
+		r, ok := core.Grx("alg.qs."+qname, func() secans {
+			return t.querySecondary(t2, network, msg, t1res)
+		}, timeout)
+
+		if !ok {
+			log.W("alg: skip; qs timeout; tr2: %s, qname: %s", idstr(t2), qname)
+		}
+
+		t2res <- r // may be zero secans
+	}()
+	return t2res
+}
+
+func (t *dnsgateway) querySecondary(t2 Transport, network string, msg *dns.Msg, t1res <-chan *dns.Msg) (result secans) {
 	var r *dns.Msg
 	var err error
 
 	// result must not be reassigned
-	result := secans{
+	result = secans{
 		ips:     []*netip.Addr{},
 		summary: new(x.DNSSummary),
 	}
-
-	defer core.Recover(core.DontExit, "alg.querySecondary")
-
-	go func() {
-		// benign: don't really have to handle panics w/ core.Recover
-		time.Sleep(timeout)
-		twosecres <- result // result 1
-	}()
-	defer func() {
-		// race against the timeout
-		twosecres <- result // result 2
-	}()
 
 	// check if the question is blocked
 	if msg == nil || !xdns.HasAnyQuestion(msg) {
@@ -202,28 +210,15 @@ func (t *dnsgateway) querySecondary(t2 Transport, network string, msg *dns.Msg, 
 
 	// no secondary transport; check if there's already an answer to work with
 	if t2 == nil || core.IsNil(t2) {
-		ticker := time.NewTicker(timeout)
-		select {
-		case r = <-t1res: // from primary transport, t1; may be nil
-			ticker.Stop()
-			break // process "r"
-		case <-ticker.C:
-			ticker.Stop()
-			return // no "r" to process
-		}
+		r = <-t1res // from primary transport, t1; r may be nil
 	} else {
 		// query secondary to get answer for q
 		r, err = Req(t2, network, msg, result.summary)
 	}
 
-	if err != nil {
-		log.D("alg: skip; sec transport %s err? %v", idstr(t2), err)
-		return
-	}
-
 	// check if answer r is blocked; r is either from t2 or from <-in
-	if r == nil || !xdns.HasAnyAnswer(r) {
-		// not a valid dns answer
+	if err != nil || r == nil || !xdns.HasAnyAnswer(r) { // not a valid dns answer
+		log.D("alg: skip; sec transport %s; nores? %t, err? %v", idstr(t2), r == nil, err)
 		return
 	} else if a, blocklistnames := t.rdns.blockA( /*may be nil*/ t2, nil, msg, r, result.summary.Blocklists); a != nil {
 		// if "a" is not nil, then the r is blocked
@@ -263,13 +258,10 @@ func (t *dnsgateway) querySecondary(t2 Transport, network string, msg *dns.Msg, 
 func (t *dnsgateway) q(t1, t2 Transport, preset []*netip.Addr, network string, q *dns.Msg, summary *x.DNSSummary) (*dns.Msg, error) {
 	var ansin *dns.Msg // answer got from transports
 	var err error
-	if t1 == nil || core.IsNil(t1) {
-		return nil, errNoTransportAlg
-	}
 
-	usepreset := len(preset) > 0                  // preset may be nil
-	mod := t.mod.Load()                           // allow alg?
-	usefixed := !usepreset && isAnyFixed(t1.ID()) // fixed realips?
+	usepreset := len(preset) > 0                    // preset may be nil
+	mod := t.mod.Load()                             // allow alg?
+	usefixed := !usepreset && isAnyFixed(idstr(t1)) // fixed realips?
 	if usefixed {
 		preset = fixedRealIPs
 		mod = true // assert mod == true?
@@ -288,19 +280,17 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []*netip.Addr, network string, q
 	if usepreset {
 		t2 = nil // assert t2 == nil?
 	}
-	// at most two results (t1 or t2 responses, or nil timeout response)
-	secch := make(chan secans, 2)
-	resch := make(chan *dns.Msg, 1)
+	t1res := make(chan *dns.Msg, 1)
 	innersummary := new(x.DNSSummary)
 	// todo: use context?
-	go t.querySecondary(t2, network, q, secch, resch) // t2 may be nil
+	secch := t.qs(t2, network, q, t1res) // t2 may be nil
 
 	if usepreset {
 		ansin, err = synthesizeOrQuery(preset, t1, q, network, innersummary, usefixed)
 	} else {
 		ansin, err = Req(t1, network, q, innersummary)
 	}
-	resch <- ansin // ansin may be nil; but that's ok
+	t1res <- ansin // ansin may be nil; but that's ok
 
 	// override relevant values in summary
 	fillSummary(innersummary, summary)
