@@ -146,7 +146,7 @@ func (h *icmpHandler) Ping(source, target netip.AddrPort, msg []byte) (echoed bo
 		if err == nil {
 			err = unix.ENETUNREACH
 		}
-		log.E("t.icmp: egress: dial(%s); hasConn? %s(%t); err %v", dst, pid, ucnil, err)
+		log.E("t.icmp: egress: dial(%s); hasConn? %s(%t); err %v", dst, pid, !ucnil, err)
 		return false // unhandled
 	}
 

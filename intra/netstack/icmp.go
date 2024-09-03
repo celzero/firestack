@@ -113,7 +113,7 @@ func (f *icmpForwarder) reply4(id stack.TransportEndpointID, pkt *stack.PacketBu
 
 			_, err = f.ep.WritePackets(pout)
 		}
-		loge(err, "icmp: v4: wrote reply to tun; err? %v", err)
+		loge(err)("icmp: v4: wrote reply to tun; err? %v", err)
 	})
 
 	return true // handled
@@ -174,7 +174,7 @@ func (f *icmpForwarder) reply6(id stack.TransportEndpointID, pkt *stack.PacketBu
 
 			_, err = f.ep.WritePackets(pout)
 		}
-		loge(err, "icmp: v6: wrote reply to tun; err? %v", err)
+		loge(err)("icmp: v6: wrote reply to tun; err? %v", err)
 	})
 
 	return true
@@ -302,11 +302,11 @@ func (f *icmpForwarder) icmpErr4(pkt *stack.PacketBuffer, icmpType header.ICMPv4
 	pout.PushBack(icmpPkt)
 	defer pout.DecRef()
 
-	n, err := f.ep.WritePackets(pout)
+	n, werr := f.ep.WritePackets(pout)
 
-	loge(err, "icmp: v4: sent %d bytes to tun; err? %v", n, e(err))
+	loge(werr)("icmp: v4: sent %d bytes to tun; err? %v", n, werr)
 
-	return err
+	return werr
 }
 
 // from: github.com/google/gvisor/blob/19ab27f98/pkg/tcpip/network/ipv6/icmp.go#L1055
@@ -421,17 +421,17 @@ func (f *icmpForwarder) icmpErr6(id stack.TransportEndpointID, pkt *stack.Packet
 
 	n, werr := f.ep.WritePackets(pout)
 
-	loge(werr, "icmp: v6: sent %d bytes to tun; err? %v", n, werr)
+	loge(werr)("icmp: v6: sent %d bytes to tun; err? %v", n, werr)
 
 	return werr
 }
 
-func loge(err tcpip.Error, format string, args ...any) {
-	f := log.D
+func loge(err tcpip.Error) (f log.LogFn) {
+	f = log.E
 	if err == nil {
 		f = log.V
 	}
-	f(format, args)
+	return
 }
 
 func l4l7(pkt *stack.PacketBuffer, sz uint32) ([]byte, error) {
