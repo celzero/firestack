@@ -27,6 +27,16 @@ const rcvwnd = 0
 
 const maxInFlight = 512 // arbitrary
 
+var (
+	// defaults: github.com/google/gvisor/blob/fa49677e141db/pkg/tcpip/transport/tcp/protocol.go#L73
+	// idle: 2h; count: 9; interval: 75s
+	defaultKeepAliveIdle     = tcpip.KeepaliveIdleOption(10 * time.Minute)
+	defaultKeepAliveInterval = tcpip.KeepaliveIntervalOption(5 * time.Second)
+	defaultKeepAliveCount    = 4 // unacknowledged probes
+	// github.com/tailscale/tailscale/blob/65fe0ba7b5/cmd/derper/derper.go#L75-L78
+	defaultUserTimeout = tcpip.TCPUserTimeoutOption(60 * time.Second)
+)
+
 type GTCPConnHandler interface {
 	// Proxy copies data between src and dst.
 	Proxy(conn *GTCPConn, src, dst netip.AddrPort) bool
@@ -42,7 +52,6 @@ var _ core.TCPConn = (*GTCPConn)(nil)
 
 type GTCPConn struct {
 	c    *core.Volatile[*gonet.TCPConn] // conn exposes TCP semantics atop endpoint
-	ep   *core.Volatile[tcpip.Endpoint] // endpoint is netstack's io interface
 	src  netip.AddrPort                 // local addr (remote addr in netstack)
 	dst  netip.AddrPort                 // remote addr (local addr in netstack)
 	req  *tcp.ForwarderRequest          // egress request as a TCP state machine
@@ -94,7 +103,6 @@ func makeGTCPConn(req *tcp.ForwarderRequest, src, dst netip.AddrPort) *GTCPConn 
 	// set sock-opts? github.com/xjasonlyu/tun2socks/blob/31468620e/core/tcp.go#L82
 	return &GTCPConn{
 		c:   core.NewZeroVolatile[*gonet.TCPConn](),
-		ep:  core.NewZeroVolatile[tcpip.Endpoint](),
 		src: src,
 		dst: dst,
 		req: req,
@@ -107,10 +115,6 @@ func (g *GTCPConn) ok() bool {
 
 func (g *GTCPConn) conn() *gonet.TCPConn {
 	return g.c.Load()
-}
-
-func (g *GTCPConn) endpoint() tcpip.Endpoint {
-	return g.ep.Load()
 }
 
 func (g *GTCPConn) Establish() (open bool, err error) {
@@ -158,9 +162,25 @@ func (g *GTCPConn) synack(complete bool) (rst bool, err error) {
 		// TCP RST here is indistinguishable to an app from being firewalled.
 		return true, e(err) // close, err
 	} else {
-		g.ep.Store(ep)
 		g.c.Store(gonet.NewTCPConn(wq, ep))
+		keepalive(ep)
 		return false, nil // open, err free
+	}
+}
+
+func keepalive(ep tcpip.Endpoint) {
+	if settings.GetDialerOpts().LowerKeepAlive {
+		sockopt(ep, &defaultKeepAliveIdle, &defaultKeepAliveInterval, &defaultUserTimeout)
+		ep.SetSockOptInt(tcpip.KeepaliveCountOption, defaultKeepAliveCount)
+		ep.SocketOptions().SetKeepAlive(true)
+	}
+}
+
+func sockopt(ep tcpip.Endpoint, opts ...tcpip.SettableSocketOption) {
+	for _, opt := range opts {
+		if opt != nil {
+			_ = ep.SetSockOpt(opt)
+		}
 	}
 }
 
@@ -240,9 +260,6 @@ func (g *GTCPConn) SetWriteDeadline(t time.Time) error {
 // Abort aborts the connection by sending a RST segment.
 func (g *GTCPConn) Abort() {
 	g.complete(true) // complete if needed
-	if ep := g.endpoint(); ep != nil {
-		ep.Abort()
-	}
 	core.Close(g.conn())
 }
 
