@@ -96,8 +96,8 @@ func (f *icmpForwarder) reply4(id stack.TransportEndpointID, pkt *stack.PacketBu
 	// see: netstack/dispatcher.go:newReadvDispatcher
 	pkt.IncRef()
 	core.Go("icmp4.pinger", func() {
-		defer pkt.DecRef()
 		if !f.h.Ping(src, dst, data) { // unreachable
+			defer pkt.DecRef()
 			// make unreachable icmp packet for req and l7
 			err = f.icmpErr4(pkt, header.ICMPv4DstUnreachable, header.ICMPv4HostUnreachable)
 		} else { // reachable
@@ -151,10 +151,9 @@ func (f *icmpForwarder) reply6(id stack.TransportEndpointID, pkt *stack.PacketBu
 	// see: netstack/dispatcher.go:newReadvDispatcher
 	pkt.IncRef()
 	core.Go("icmp4.pinger", func() {
-		defer pkt.DecRef()
-
 		var err tcpip.Error
 		if !f.h.Ping(src, dst, data) { // unreachable
+			defer pkt.DecRef()
 			err = f.icmpErr6(id, pkt, header.ICMPv6DstUnreachable, header.ICMPv6NetworkUnreachable)
 		} else { // reachable
 			hdr.SetType(header.ICMPv6EchoReply)
