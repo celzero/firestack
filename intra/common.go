@@ -164,7 +164,7 @@ func stall(m *core.ExpMap, k string) (secs uint32) {
 	return
 }
 
-func oneRealIp(realips string, origipp netip.AddrPort) netip.AddrPort {
+func oneRealIPPort(realips string, origipp netip.AddrPort) netip.AddrPort {
 	if len(realips) <= 0 {
 		return origipp
 	}

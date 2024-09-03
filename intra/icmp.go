@@ -136,9 +136,9 @@ func (h *icmpHandler) Ping(source, target netip.AddrPort, msg []byte) (echoed bo
 		return false // denied
 	}
 
-	dst := oneRealIp(realips, target)
+	dst := oneRealIPPort(realips, target)
 	proto, anyaddr := anyaddrFor(dst)
-	// todo: use dialers.ListenICMP?
+
 	uc, err := px.Dialer().Probe(proto, anyaddr)
 	ucnil := uc == nil || core.IsNil(uc)
 	smm.Target = dst.Addr().String()
