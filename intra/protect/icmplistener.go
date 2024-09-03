@@ -103,6 +103,7 @@ func sysconn(c net.PacketConn) (syscall.RawConn, error) {
 }
 
 // from: cs.opensource.google/go/x/net/+/refs/tags/v0.28.0:icmp/helper_posix.go
+// todo: do not resolve address
 func sockaddr(family int, address string) (syscall.Sockaddr, error) {
 	switch family {
 	case syscall.AF_INET:

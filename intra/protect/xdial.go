@@ -151,6 +151,10 @@ func (d *RDial) Probe(network, local string) (PacketConn, error) {
 		log.V("xdial: Probe: (r? %t / o: %s) %s %s", userdialer, d.Owner, network, local)
 		return nil, errNoAnnouncer
 	}
+	// drop port if present
+	if ip, _, err := net.SplitHostPort(local); err == nil {
+		local = ip
+	}
 
 	if uselistener {
 		return d.listenICMP.listenICMP(network, local)
