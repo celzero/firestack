@@ -155,7 +155,7 @@ func (h *icmpHandler) Ping(source, target netip.AddrPort, msg []byte) (echoed bo
 	extend(uc, icmptimeout)
 	// todo: construct ICMP header? github.com/prometheus-community/pro-bing/blob/0bacb2d5e7/ping.go#L717
 	_, err = uc.WriteTo(msg, net.UDPAddrFromAddrPort(dst))
-	logei(err, "t.icmp: egress: write(%v <= %v) ping; done %d; err? %v", dst, source, len(msg), err)
+	logei(err)("t.icmp: egress: write(%v <= %v) ping; done %d; err? %v", dst, source, len(msg), err)
 	if err != nil {
 		return false // write error
 	}
@@ -171,7 +171,7 @@ func (h *icmpHandler) Ping(source, target netip.AddrPort, msg []byte) (echoed bo
 	extend(uc, icmptimeout)
 	_, from, err := uc.ReadFrom(b) // todo: assert from == dst
 	// todo: ignore non-ICMP replies in b: github.com/prometheus-community/pro-bing/blob/0bacb2d5e7/ping.go#L630
-	logei(err, "t.icmp: ingress: read(%v <= %v / %v) ping done; err? %v", source, from, dst, err)
+	logei(err)("t.icmp: ingress: read(%v <= %v / %v) ping done; err? %v", source, from, dst, err)
 
 	return true // echoed; even if err != nil
 }
@@ -192,18 +192,18 @@ func anyaddrFor(ipp netip.AddrPort) (proto, anyaddr string) {
 	return
 }
 
-func logei(err error, msg string, args ...any) {
+func logei(err error) log.LogFn {
 	f := log.E
 	if err == nil {
 		f = log.I
 	}
-	f(msg, args...)
+	return f
 }
 
-func logev(err error, msg string, args ...any) {
+func logev(err error) log.LogFn {
 	f := log.E
 	if err == nil {
-		f = log.V
+		f = log.VV
 	}
-	f(msg, args...)
+	return f
 }

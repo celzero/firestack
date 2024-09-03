@@ -353,14 +353,17 @@ func (c *demuxconn) Write(p []byte) (n int, err error) {
 	sz := len(p)
 	select {
 	case <-c.wt.C:
-		log.W("udp: mux: %s demux: write: %v => %v; timeout (sz: %d)", c.remux.id(), c.laddr, c.raddr, sz)
+		log.W("udp: mux: %s demux: write: %v => %v; timeout (sz: %d)",
+			c.remux.id(), c.laddr, c.raddr, sz)
 		return 0, os.ErrDeadlineExceeded
 	case <-c.closed:
-		log.W("udp: mux: %s demux: write: %v => %v; closed (sz: %d)", c.remux.id(), c.laddr, c.raddr, sz)
+		log.W("udp: mux: %s demux: write: %v => %v; closed (sz: %d)",
+			c.remux.id(), c.laddr, c.raddr, sz)
 		return 0, net.ErrClosed
 	default:
 		n, err = c.remux.sendto(p, c.raddr)
-		logev(err, "udp: mux: %s demux: write: %v => %v; done(sz: %d/%d); err? %v", c.remux.id(), c.laddr, c.raddr, n, sz, err)
+		logev(err)("udp: mux: %s demux: write: %v => %v; done(sz: %d/%d); err? %v",
+			c.remux.id(), c.laddr, c.raddr, n, sz, err)
 		return n, err
 	}
 }
