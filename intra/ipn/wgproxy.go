@@ -486,9 +486,8 @@ func makeWgTun(id, cfg string, ifaddrs, allowedaddrs []netip.Prefix, peers map[s
 	tunmtu := calcTunMtu(mtu)
 
 	s := stack.New(opts)
-	sackEnabledOpt := tcpip.TCPSACKEnabled(true)
-	s.SetTransportProtocolOption(tcp.ProtocolNumber, &sackEnabledOpt)
 	ep := channel.New(epsize, uint32(tunmtu), "")
+	core.SetNetstackOpts(s)
 	t := &wgtun{
 		id:            stripPrefixIfNeeded(id),
 		cfg:           cfg,
@@ -515,6 +514,11 @@ func makeWgTun(id, cfg string, ifaddrs, allowedaddrs []netip.Prefix, peers map[s
 	if err := s.CreateNIC(wgnic, ep); err != nil {
 		return nil, fmt.Errorf("wg: %s create nic: %v", t.id, err)
 	}
+
+	// github.com/xjasonlyu/tun2socks/blob/31468620e/core/stack.go#L80
+	_ = s.SetSpoofing(wgnic, true)
+	// github.com/tailscale/tailscale/blob/c4d0237e5c/wgengine/netstack/netstack.go#L345-L350
+	_ = s.SetPromiscuousMode(wgnic, true)
 
 	processed := make(map[string]bool)
 	for _, ipnet := range ifaddrs {
