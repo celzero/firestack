@@ -865,7 +865,8 @@ func (r *resolver) preferencesFrom(qname string, qtyp uint16, s *x.DNSOpts, chos
 		id1, id2 = x[0], x[1] // ids for transport t1, t2
 	}
 
-	if !firstEmpty(chosenids) { // chosen ID overrides all
+	// chosen ID overrides all
+	if !firstEmpty(chosenids) && len(chosenids) > 0 {
 		id1 = chosenids[0] // never empty
 		id2 = ""           // wipe out id2 if not set; use just id1
 		if len(chosenids) > 1 {
