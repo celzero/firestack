@@ -170,10 +170,14 @@ func (g *GTCPConn) synack(complete bool) (rst bool, err error) {
 
 func keepalive(ep tcpip.Endpoint) {
 	if settings.GetDialerOpts().LowerKeepAlive {
-		sockopt(ep, &defaultKeepAliveIdle, &defaultKeepAliveInterval, &defaultUserTimeout)
+		// github.com/tailscale/tailscale/issues/4522 (low keepalive)
+		// github.com/tailscale/tailscale/pull/6147 (high keepalive)
+		// github.com/tailscale/tailscale/issues/6148 (other changes)
+		sockopt(ep, &defaultKeepAliveIdle, &defaultKeepAliveInterval, &usrTimeout)
 		ep.SetSockOptInt(tcpip.KeepaliveCountOption, defaultKeepAliveCount)
-		ep.SocketOptions().SetKeepAlive(true)
 	}
+	// github.com/tailscale/tailscale/commit/1aa75b1c9ea2
+	ep.SocketOptions().SetKeepAlive(true) // applies netstack defaults
 }
 
 func sockopt(ep tcpip.Endpoint, opts ...tcpip.SettableSocketOption) {
