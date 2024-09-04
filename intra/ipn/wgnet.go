@@ -181,21 +181,26 @@ func resolve(tnet *wgtun, host string) core.Work[[]netip.Addr] {
 // tcp and udp dialers
 // --------------------------------------------------------------------
 
-func fullAddrFrom(ipport netip.AddrPort) (tcpip.FullAddress, tcpip.NetworkProtocolNumber) {
+// addrok return true if the address is valid and not unspecified.
+func addrok(ipp netip.AddrPort) bool {
+	return ipp.IsValid() && !ipp.Addr().IsUnspecified() && ipp.Port() > 0
+}
+
+func fullAddrFrom(ipp netip.AddrPort) (tcpip.FullAddress, tcpip.NetworkProtocolNumber) {
 	var protoNumber tcpip.NetworkProtocolNumber
 	var nsdaddr tcpip.Address
-	if ipport.Addr().Is4() {
+	if ipp.Addr().Is4() {
 		protoNumber = ipv4.ProtocolNumber
-		nsdaddr = tcpip.AddrFrom4(ipport.Addr().As4())
+		nsdaddr = tcpip.AddrFrom4(ipp.Addr().As4())
 	} else {
 		protoNumber = ipv6.ProtocolNumber
-		nsdaddr = tcpip.AddrFrom16(ipport.Addr().As16())
+		nsdaddr = tcpip.AddrFrom16(ipp.Addr().As16())
 	}
-	log.V("wg: dial: translate ipp: %v -> %v", ipport, nsdaddr)
+	log.V("wg: dial: translate ipp: %v -> %v", ipp, nsdaddr)
 	return tcpip.FullAddress{
 		NIC:  wgnic,
 		Addr: nsdaddr,
-		Port: ipport.Port(),
+		Port: ipp.Port(), // may be 0
 	}, protoNumber
 }
 
@@ -270,17 +275,21 @@ func (tnet *wgtun) ListenTCP(addr *net.TCPAddr) (*gonet.TCPListener, error) {
 func (tnet *wgtun) DialUDPAddrPort(laddr, raddr netip.AddrPort) (*gonet.UDPConn, error) {
 	var src, dst *tcpip.FullAddress
 	var protocol tcpip.NetworkProtocolNumber
-	if laddr.IsValid() || laddr.Port() > 0 {
+	if addrok(laddr) {
+		// todo: assign zero addr to src to bind to wildcard?
 		var addr tcpip.FullAddress
 		addr, protocol = fullAddrFrom(laddr)
 		src = &addr
-	}
-	if raddr.IsValid() || raddr.Port() > 0 {
+	} // else: unbound
+	if addrok(raddr) {
 		var addr tcpip.FullAddress
 		addr, protocol = fullAddrFrom(raddr)
 		dst = &addr
-	}
+	} // else: unconnected
 
+	// if src is non-nil, addrs are acquired on wgnic;
+	// ep.Bind -> ep.BindAndThen -> ep.net.BindAndThen -> ep.checkV4Mapped
+	// github.com/google/gvisor/blob/932d9dc6/pkg/tcpip/stack/addressable_endpoint_state.go#L644
 	return gonet.DialUDP(tnet.stack, src, dst, protocol)
 }
 
