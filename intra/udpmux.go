@@ -173,7 +173,7 @@ func (x *muxer) drain() {
 	defer x.rmu.Unlock()
 
 	defer clear(x.routes)
-	log.I("udp: mux: %s drain: closing %d demuxed conns", x.cid, len(x.routes))
+	log.D("udp: mux: %s drain: closing %d demuxed conns", x.cid, len(x.routes))
 	for _, c := range x.routes {
 		clos(c) // will unroute as well
 	}
@@ -208,7 +208,8 @@ func (x *muxer) readers() {
 		if timedout(err) {
 			timeouterrors++
 			if timeouterrors < maxtimeouterrors {
-				log.I("udp: mux: %s read timeout(%d): %v", x.cid, timeouterrors, err)
+				x.extend(time.Now().Add(udptimeout))
+				log.D("udp: mux: %s read timeout(%d): %v", x.cid, timeouterrors, err)
 				continue
 			} // else: err out
 		}
