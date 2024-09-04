@@ -34,7 +34,7 @@ var (
 	defaultKeepAliveInterval = tcpip.KeepaliveIntervalOption(5 * time.Second)
 	defaultKeepAliveCount    = 4 // unacknowledged probes
 	// github.com/tailscale/tailscale/blob/65fe0ba7b5/cmd/derper/derper.go#L75-L78
-	defaultUserTimeout = tcpip.TCPUserTimeoutOption(60 * time.Second)
+	usrTimeout = tcpip.TCPUserTimeoutOption(10*time.Minute + (4 * 5 * time.Second))
 )
 
 type GTCPConnHandler interface {
