@@ -95,8 +95,8 @@ type ans struct {
 }
 
 type ansMulti struct {
-	algip        []*netip.Addr // generated answers, v6 or v4
-	realip       []*netip.Addr // all ip answers, v6+v4; may be nil
+	algips       []*netip.Addr // generated answers, v6 or v4
+	realips      []*netip.Addr // all ip answers, v6+v4; may be nil
 	secondaryips []*netip.Addr // all ip answers from secondary, v6+v4; may be nil
 	domain       []string      // all domain names in an answer (incl qname)
 	qname        string        // the query domain name
@@ -473,8 +473,8 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []*netip.Addr, network string, q
 	algips = append(algips, algip4hints...)
 	algips = append(algips, algip6hints...)
 	x := &ansMulti{
-		algip:  algips,
-		realip: realip,
+		algips:  algips,
+		realips: realip,
 		// may be empty on timeout errors, or
 		// or same as realips if t2 is nil
 		secondaryips: secres.ips,
@@ -542,8 +542,8 @@ func withAlgSummaryIfNeeded(algips []*netip.Addr, s *x.DNSSummary) {
 
 func (am *ansMulti) ansViewLocked(i int) *ans {
 	return &ans{
-		algip:        am.algip[i],
-		realips:      am.realip,
+		algip:        am.algips[i],
+		realips:      am.realips,
 		secondaryips: am.secondaryips,
 		domain:       am.domain,
 		qname:        am.qname,
@@ -553,13 +553,13 @@ func (am *ansMulti) ansViewLocked(i int) *ans {
 }
 
 func (t *dnsgateway) registerMultiLocked(q string, am *ansMulti) bool {
-	if len(am.algip) <= 0 { // defensive; should not happen
-		log.E("alg: no algips for %s; real? %d, sec? %d", q, len(am.realip), len(am.secondaryips))
+	if len(am.algips) <= 0 { // defensive; should not happen
+		log.E("alg: no algips for %s; real? %d, sec? %d", q, len(am.realips), len(am.secondaryips))
 		return false
 	}
 
 	// register mapping from qname -> algip+realip (alg) and algip -> qname+realip (nat)
-	for i := range am.algip { // am.algip may be nil?
+	for i := range am.algips { // am.algip may be nil?
 		x := am.ansViewLocked(i)
 		ip := x.algip
 		var k string
@@ -574,9 +574,9 @@ func (t *dnsgateway) registerMultiLocked(q string, am *ansMulti) bool {
 		t.nat[*ip] = x
 	}
 	// register mapping from realip -> algip+qname (ptr)
-	for i := range am.realip { // am.realip may be nil.
-		ip := am.realip[i] // todo: clone(am)?
-		t.ptr[*ip] = am    // am contains qname and the algips
+	for i := range am.realips { // am.realip may be nil.
+		ip := am.realips[i] // todo: clone(am)?
+		t.ptr[*ip] = am     // am contains qname and the algips
 	}
 	return true
 }
@@ -743,7 +743,9 @@ func (t *dnsgateway) X(maybeAlg netip.Addr) (ips string, undidAlg bool) {
 	t.RLock()
 	defer t.RUnlock()
 
-	rip, undidAlg := t.xLocked(maybeAlg, !t.mod.Load())
+	// stale IPs are okay iff !mod; as then maybeAlg itself is a realip
+	usestale := !t.mod.Load()
+	rip, undidAlg := t.xLocked(maybeAlg, usestale)
 	if len(rip) > 0 {
 		var s []string
 		for _, r := range rip {
@@ -799,19 +801,25 @@ func (t *dnsgateway) RDNSBL(algip netip.Addr) (blocklists string) {
 	return t.rdnsblLocked(algip, !t.mod.Load())
 }
 
-func (t *dnsgateway) xLocked(maybeAlg netip.Addr, useptr bool) ([]*netip.Addr, bool) {
+func (t *dnsgateway) xLocked(maybeAlg netip.Addr, usestale bool) ([]*netip.Addr, bool) {
 	var realips []*netip.Addr
-	var undidAlg bool = false
+	var undidAlg, fresh bool
 	// alg ips are always unmappped; see take4Locked
 	unmapped := maybeAlg.Unmap() // aligip may also be origip / realip
 	if ans, ok := t.nat[unmapped]; ok {
-		realips = append(ans.realips, ans.secondaryips...)
+		if fresh = time.Until(ans.ttl) > 0; fresh || usestale {
+			realips = append(ans.realips, ans.secondaryips...)
+		}
 		undidAlg = true
-	} else if ans, ok := t.ptr[unmapped]; useptr && ok {
-		// translate from realip only if not in mod mode
-		// both realips & secondaryips may be nil, but that's okay:
+	} else if ans, ok := t.ptr[unmapped]; ok {
+		// for IPs (unlike domains), it is okay to fallback on ptr as the
+		// maybeAlg may be an algip OR realip (latter in the case where an
+		// app is connecting to a cached IP addr from before t.mod was set)
+		// nb: both realips & secondaryips may be nil, but that's okay:
 		// go.dev/play/p/fSjRjMSAS2m
-		realips = append(ans.realip, ans.secondaryips...)
+		if fresh = time.Until(ans.ttl) > 0; fresh || usestale {
+			realips = append(ans.realips, ans.secondaryips...)
+		}
 	}
 	var unnated []*netip.Addr
 	if len(realips) == 0 { // algip is probably origip / realip
@@ -821,7 +829,8 @@ func (t *dnsgateway) xLocked(maybeAlg netip.Addr, useptr bool) ([]*netip.Addr, b
 	} else {
 		unnated = t.maybeUndoNat64(realips...)
 	}
-	log.D("alg: dns64: algip(%v) -> realips(%v) -> unnated(%v)", unmapped, realips, unnated)
+	log.D("alg: dns64: (fresh? %t / staleok? %t) algip(%v) -> realips(%v) -> unnated(%v)",
+		fresh, usestale, unmapped, realips, unnated)
 	if len(unnated) > 0 { // unnated is already de-duplicated
 		return unnated, undidAlg
 	}
