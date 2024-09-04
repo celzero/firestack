@@ -239,9 +239,9 @@ func (x *muxer) findRoute(to netip.AddrPort) *demuxconn {
 	return x.routes[to]
 }
 
-func (x *muxer) route(to netip.AddrPort, f flowkind) *demuxconn {
+func (x *muxer) route(to netip.AddrPort, flo flowkind) *demuxconn {
 	if !to.IsValid() {
-		log.W("udp: mux: %s route: %s invalid addr %s", x.cid, f, to)
+		log.W("udp: mux: %s route: %s invalid addr %s", x.cid, flo, to)
 		return nil
 	}
 
@@ -261,7 +261,7 @@ func (x *muxer) route(to netip.AddrPort, f flowkind) *demuxconn {
 		select {
 		case <-x.doneCh:
 			clos(conn)
-			log.W("udp: mux: %s route: %s for %s; muxer closed", x.cid, f, to)
+			log.W("udp: mux: %s route: %s for %s; muxer closed", x.cid, flo, to)
 			return nil
 		case x.dxconns <- conn:
 			n := x.stats.dxcount.Add(1)
@@ -270,15 +270,15 @@ func (x *muxer) route(to netip.AddrPort, f flowkind) *demuxconn {
 			// (see: udpHandler:ProxyMux) and so it need not be vended again. Even
 			// if it were to be, it'd fail with "port/addr already in use"
 			// ex: route: egress vend failure 1.1.1.1:53; err connect udp 10.111.222.1:42182: port is in use
-			if f == ingress {
+			if flo == ingress {
 				core.Go("udpmux.vend", func() { // a fork in the road
 					if verr := x.vnd(to); verr != nil {
 						clos(conn)
-						log.E("udp: mux: %s route: %s vend failure %s; err %v", x.cid, f, to, verr)
+						log.E("udp: mux: %s route: %s vend failure %s; err %v", x.cid, flo, to, verr)
 					}
 				})
 			}
-			log.I("udp: mux: %s route: %s #%d new for %s; stats: %d", x.cid, f, n, to, x.stats)
+			log.I("udp: mux: %s route: %s #%d new for %s; stats: %d", x.cid, flo, n, to, x.stats)
 		}
 	}
 	return conn
