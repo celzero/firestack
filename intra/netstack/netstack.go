@@ -130,18 +130,18 @@ func Up(s *stack.Stack, ep stack.LinkEndpoint, h GConnHandler) error {
 
 	// creates and enables a fake nic for netstack s
 	// netstack protos (ip4, ip6) enabled and ep is attached to nic
-	if nerr := e(s.CreateNIC(nic, ep)); nerr != nil {
-		return nerr
+	if nerr := s.CreateNIC(nic, ep); nerr != nil {
+		return e(nerr)
 	}
 	// ref: github.com/xjasonlyu/tun2socks/blob/31468620e/core/stack.go#L80
 	// allow spoofing packets tuples
-	if nerr := e(s.SetSpoofing(nic, true)); nerr != nil {
-		return nerr
+	if nerr := s.SetSpoofing(nic, true); nerr != nil {
+		return e(nerr)
 	}
 	// ref: github.com/xjasonlyu/tun2socks/blob/31468620e/core/stack.go#L94
 	// allow all packets sent to our fake nic through to netstack
-	if nerr := e(s.SetPromiscuousMode(nic, true)); nerr != nil {
-		return nerr
+	if nerr := s.SetPromiscuousMode(nic, true); nerr != nil {
+		return e(nerr)
 	}
 
 	s.SetNICForwarding(nic, ipv4.ProtocolNumber, nicfwd)
