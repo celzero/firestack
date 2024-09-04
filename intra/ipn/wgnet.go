@@ -204,48 +204,9 @@ func fullAddrFrom(ipp netip.AddrPort) (tcpip.FullAddress, tcpip.NetworkProtocolN
 	}, protoNumber
 }
 
-func ipportFrom(addr any) (ipp netip.AddrPort) {
-	var err error
-	switch addr := addr.(type) {
-	case *net.TCPAddr:
-		if ip, ok := netip.AddrFromSlice(addr.IP); ok {
-			ipp = netip.AddrPortFrom(ip, uint16(addr.Port))
-		} else {
-			log.W("wg: dial: invalid tcp addr: %v", addr)
-		}
-	case *net.UDPAddr:
-		if ip, ok := netip.AddrFromSlice(addr.IP); ok {
-			ipp = netip.AddrPortFrom(ip, uint16(addr.Port))
-		} else {
-			log.W("wg: dial: invalid udp addr: %v", addr)
-		}
-	case string:
-		// may error if addr is an IP addr without port
-		if ipp, err = netip.ParseAddrPort(addr); err != nil {
-			if ip, err2 := netip.ParseAddr(addr); err2 == nil {
-				ipp = netip.AddrPortFrom(ip, 0)
-			} else {
-				log.W("wg: dial: addr: %v; err1: %v / err2: %v", addr, err, err2)
-			}
-		}
-	default:
-		log.W("wg: dial: unknown addr type: %T %v", addr, addr)
-	}
-	log.V("wg: dial: translate addr: %v -> %v", addr, ipp)
-	return ipp
-}
-
 func (tnet *wgtun) DialContextTCPAddrPort(ctx context.Context, addr netip.AddrPort) (*gonet.TCPConn, error) {
 	faddr, protocol := fullAddrFrom(addr)
 	return gonet.DialContextTCP(ctx, tnet.stack, faddr, protocol)
-}
-
-func (tnet *wgtun) DialContextTCP(ctx context.Context, addr *net.TCPAddr) (*gonet.TCPConn, error) {
-	if addr == nil {
-		return tnet.DialContextTCPAddrPort(ctx, netip.AddrPort{})
-	}
-
-	return tnet.DialContextTCPAddrPort(ctx, ipportFrom(addr))
 }
 
 func (tnet *wgtun) DialTCPAddrPort(addr netip.AddrPort) (*gonet.TCPConn, error) {
@@ -253,23 +214,9 @@ func (tnet *wgtun) DialTCPAddrPort(addr netip.AddrPort) (*gonet.TCPConn, error) 
 	return gonet.DialTCP(tnet.stack, faddr, protocol)
 }
 
-func (tnet *wgtun) DialTCP(addr *net.TCPAddr) (*gonet.TCPConn, error) {
-	if addr == nil {
-		return tnet.DialTCPAddrPort(netip.AddrPort{})
-	}
-	return tnet.DialTCPAddrPort(ipportFrom(addr))
-}
-
 func (tnet *wgtun) ListenTCPAddrPort(addr netip.AddrPort) (*gonet.TCPListener, error) {
 	fa, pn := fullAddrFrom(addr)
 	return gonet.ListenTCP(tnet.stack, fa, pn)
-}
-
-func (tnet *wgtun) ListenTCP(addr *net.TCPAddr) (*gonet.TCPListener, error) {
-	if addr == nil {
-		return tnet.ListenTCPAddrPort(netip.AddrPort{})
-	}
-	return tnet.ListenTCPAddrPort(ipportFrom(addr))
 }
 
 func (tnet *wgtun) DialUDPAddrPort(laddr, raddr netip.AddrPort) (*gonet.UDPConn, error) {
@@ -300,10 +247,10 @@ func (tnet *wgtun) ListenUDPAddrPort(laddr netip.AddrPort) (*gonet.UDPConn, erro
 func (tnet *wgtun) DialUDP(laddr, raddr *net.UDPAddr) (*gonet.UDPConn, error) {
 	var src, dst netip.AddrPort
 	if laddr != nil {
-		src = ipportFrom(laddr)
+		src = laddr.AddrPort()
 	}
 	if raddr != nil {
-		dst = ipportFrom(raddr)
+		dst = raddr.AddrPort()
 	}
 
 	return tnet.DialUDPAddrPort(src, dst)
