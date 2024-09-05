@@ -15,6 +15,9 @@ import (
 )
 
 func SetNetstackOpts(s *stack.Stack) {
+	// TODO: other stack otps?
+	// github.com/xjasonlyu/tun2socks/blob/31468620e/core/option/option.go#L69
+
 	// TODO: setup protocol opts?
 	// github.com/google/gvisor/blob/ef9e8d91/test/benchmarks/tcp/tcp_proxy.go#L233
 	sack := tcpip.TCPSACKEnabled(true)

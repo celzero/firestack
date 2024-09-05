@@ -111,9 +111,6 @@ func Up(s *stack.Stack, ep stack.LinkEndpoint, h GConnHandler) error {
 
 	core.SetNetstackOpts(s)
 
-	// TODO: other stack otps?
-	// github.com/xjasonlyu/tun2socks/blob/31468620e/core/option/option.go#L69
-
 	if newnic {
 		setupTcpHandler(s, h.TCP())
 		setupUdpHandler(s, h.UDP())
