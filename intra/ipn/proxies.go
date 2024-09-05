@@ -155,12 +155,14 @@ func NewProxifier(c protect.Controller, o x.ProxyListener) *proxifier {
 func (px *proxifier) add(p Proxy) (ok bool) {
 	id := p.ID()
 
-	if local(id) {
-		log.I("proxy: adding reserved proxy: %s", id)
-	}
-
 	px.Lock()
 	defer px.Unlock()
+
+	defer func() {
+		if ok {
+			core.Go("pxr.add: "+id, func() { px.obs.OnProxyAdded(id) })
+		}
+	}()
 
 	if pp := px.p[id]; pp != nil {
 		// new proxy, invoke Stop on old proxy
@@ -172,9 +174,34 @@ func (px *proxifier) add(p Proxy) (ok bool) {
 		}
 	}
 
-	px.p[id] = p
-	core.Go("pxr.add: "+id, func() { px.obs.OnProxyAdded(id) })
-	return true
+	if local(id) {
+		switch id {
+		case Exit:
+			if x, typeok := p.(*exit); typeok {
+				px.exit = x
+				px.p[id] = p
+				ok = true
+			}
+		case Base:
+			if x, typeok := p.(*base); typeok {
+				px.base = x
+				px.p[id] = p
+				ok = true
+			}
+		case Block:
+			if x, typeok := p.(*ground); typeok {
+				px.grounded = x
+				px.p[id] = p
+				ok = true
+			}
+		}
+	} else {
+		px.p[id] = p
+		ok = true
+	}
+
+	log.D("proxy: add: proxy %s ok? %t", id, ok)
+	return ok
 }
 
 func (px *proxifier) RemoveProxy(id string) bool {
@@ -237,6 +264,7 @@ func (px *proxifier) ProxyFor(id string) (Proxy, error) {
 	}
 }
 
+// GetProxy implements x.Proxies.
 func (px *proxifier) GetProxy(id string) (x.Proxy, error) {
 	return px.ProxyFor(id)
 }
