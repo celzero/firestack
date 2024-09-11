@@ -189,6 +189,10 @@ func addrok(ipp netip.AddrPort) bool {
 func fullAddrFrom(ipp netip.AddrPort) (tcpip.FullAddress, tcpip.NetworkProtocolNumber) {
 	var protoNumber tcpip.NetworkProtocolNumber
 	var nsdaddr tcpip.Address
+	if !ipp.IsValid() {
+		// TODO: use unspecified address like in PingConn?
+		return tcpip.FullAddress{}, 0
+	}
 	if ipp.Addr().Is4() {
 		protoNumber = ipv4.ProtocolNumber
 		nsdaddr = tcpip.AddrFrom4(ipp.Addr().As4())
@@ -223,16 +227,15 @@ func (tnet *wgtun) DialUDPAddrPort(laddr, raddr netip.AddrPort) (*gonet.UDPConn,
 	var src, dst *tcpip.FullAddress
 	var protocol tcpip.NetworkProtocolNumber
 	if addrok(laddr) {
-		// todo: assign zero addr to src to bind to wildcard?
 		var addr tcpip.FullAddress
 		addr, protocol = fullAddrFrom(laddr)
 		src = &addr
-	} // else: unbound
+	} // else: unbound; src must be left nil
 	if addrok(raddr) {
 		var addr tcpip.FullAddress
 		addr, protocol = fullAddrFrom(raddr)
 		dst = &addr
-	} // else: unconnected
+	} // else: unconnected; dst must be left nil
 
 	// if src is non-nil, addrs are acquired on wgnic;
 	// ep.Bind -> ep.BindAndThen -> ep.net.BindAndThen -> ep.checkV4Mapped

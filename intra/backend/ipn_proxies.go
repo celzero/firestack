@@ -13,6 +13,7 @@ const ( // see ipn/proxies.go
 	Block   = "Block"       // blocks all traffic
 	Base    = "Base"        // does not proxy traffic; in sync w dnsx.NetNoProxy
 	Exit    = "Exit"        // always connects to the Internet (exit node); in sync w dnsx.NetExitProxy
+	Ingress = "Ingress"     // incoming connections
 	OrbotS5 = "OrbotSocks5" // Orbot: Base Tor-as-a-SOCKS5 proxy
 	OrbotH1 = "OrbotHttp1"  // Orbot: Base Tor-as-a-HTTP/1.1 proxy
 

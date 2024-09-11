@@ -48,6 +48,7 @@ type SocketListener interface {
 	// probableDomains is a comma-separated list of probable domain names associated with origsrcs, if any.
 	// blocklists is a comma-separated list of blocklist names, if any.
 	Flow(protocol, uid int32, src, dst, origdsts, domains, probableDomains, blocklists string) *Mark
+	Inflow(protocol, uid int32, src, dst string) *Mark
 	// OnSocketClosed reports summary after a socket closes.
 	OnSocketClosed(*SocketSummary)
 }

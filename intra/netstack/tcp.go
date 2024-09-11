@@ -3,9 +3,11 @@
 // This Source Code Form is subject to the terms of the Mozilla Public
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
 package netstack
 
 import (
+	"context"
 	"io"
 	"net"
 	"net/netip"
@@ -38,10 +40,12 @@ var (
 )
 
 type GTCPConnHandler interface {
-	// Proxy copies data between src and dst.
-	Proxy(conn *GTCPConn, src, dst netip.AddrPort) bool
+	// Proxy copies data between conn and dst (egress).
+	Proxy(in *GTCPConn, src, dst netip.AddrPort) bool
+	// ReverseProxy copies data between conn and dst (ingress).
+	ReverseProxy(out *GTCPConn, in net.Conn, src, dst netip.AddrPort) bool
 	// Error notes the error in connecting src to dst; retrying if necessary.
-	Error(conn *GTCPConn, src, dst netip.AddrPort, err error)
+	Error(in *GTCPConn, src, dst netip.AddrPort, err error)
 	// CloseConns closes conns by cids, or all conns if cids is empty.
 	CloseConns([]string) []string
 	// End closes all conns and releases resources.
@@ -51,14 +55,38 @@ type GTCPConnHandler interface {
 var _ core.TCPConn = (*GTCPConn)(nil)
 
 type GTCPConn struct {
-	c    *core.Volatile[*gonet.TCPConn] // conn exposes TCP semantics atop endpoint
-	src  netip.AddrPort                 // local addr (remote addr in netstack)
-	dst  netip.AddrPort                 // remote addr (local addr in netstack)
-	req  *tcp.ForwarderRequest          // egress request as a TCP state machine
-	once sync.Once
+	stack *stack.Stack
+	c     *core.Volatile[*gonet.TCPConn] // conn exposes TCP semantics atop endpoint
+	src   netip.AddrPort                 // local addr (remote addr in netstack)
+	dst   netip.AddrPort                 // remote addr (local addr in netstack)
+	req   *tcp.ForwarderRequest          // egress request as a TCP state machine
+	once  sync.Once
 }
 
-func setupTcpHandler(s *stack.Stack, h GTCPConnHandler) {
+// s is the netstack to use for dialing (reads/writes).
+// in is the incoming connection to netstack, s.
+// to (src) is remote.
+// from (dst) is local (to netstack, s).
+// h is the handler that handles connection in into netstack, s, by
+// dialing to from (dst) from to (src).
+func InboundTCP(s *stack.Stack, in net.Conn, to, from netip.AddrPort, h GTCPConnHandler) error {
+	newgc := makeGTCPConn(s, nil /*not a forwarder req*/, to, from)
+	if !settings.SingleThreaded.Load() {
+		if open, err := newgc.tryConnect(); err != nil || !open {
+			log.E("ns: tcp: inbound: tryConnect err src(%v) => dst(%v); open? %t, err(%v)",
+				to, from, open, err)
+			if err == nil {
+				err = errMissingEp
+			}
+			go h.Error(newgc, to, from, err) // error
+			return err
+		}
+	}
+	go h.ReverseProxy(newgc, in, to, from)
+	return nil
+}
+
+func OutboundTCP(s *stack.Stack, h GTCPConnHandler) {
 	s.SetTransportProtocolHandler(tcp.ProtocolNumber, tcpForwarder(s, h).HandlePacket)
 }
 
@@ -79,7 +107,7 @@ func tcpForwarder(s *stack.Stack, h GTCPConnHandler) *tcp.Forwarder {
 		// read/writes are routed using 5-tuple to the same conn (endpoint)
 		// demuxer.handlePacket -> find matching endpoint -> queue-packet -> send/recv conn (ep)
 		// ref: github.com/google/gvisor/blob/be6ffa7/pkg/tcpip/stack/transport_demuxer.go#L180
-		gtcp := makeGTCPConn(req, src, dst)
+		gtcp := makeGTCPConn(s, req, src, dst)
 		// setup endpoint right away, so that netstack's internal state is consistent
 		// in case there are multiple forwarders dispatching from the TUN device.
 		if !settings.SingleThreaded.Load() {
@@ -99,13 +127,14 @@ func tcpForwarder(s *stack.Stack, h GTCPConnHandler) *tcp.Forwarder {
 	})
 }
 
-func makeGTCPConn(req *tcp.ForwarderRequest, src, dst netip.AddrPort) *GTCPConn {
+func makeGTCPConn(s *stack.Stack, req *tcp.ForwarderRequest, src, dst netip.AddrPort) *GTCPConn {
 	// set sock-opts? github.com/xjasonlyu/tun2socks/blob/31468620e/core/tcp.go#L82
 	return &GTCPConn{
-		c:   core.NewZeroVolatile[*gonet.TCPConn](),
-		src: src,
-		dst: dst,
-		req: req,
+		stack: s,
+		c:     core.NewZeroVolatile[*gonet.TCPConn](),
+		src:   src,
+		dst:   dst,
+		req:   req, // may be nil
 	}
 }
 
@@ -135,8 +164,12 @@ func (g *GTCPConn) tryConnect() (open bool, err error) {
 // maxInFlight and may cause silent tcp conn drops.
 func (g *GTCPConn) complete(rst bool) {
 	g.once.Do(func() {
-		log.D("ns: tcp: forwarder: complete src(%v) => dst(%v); rst? %t", g.LocalAddr(), g.RemoteAddr(), rst)
-		g.req.Complete(rst)
+		req := g.req
+		log.D("ns: tcp: forwarder: complete src(%v) => dst(%v); req? %t, rst? %t",
+			g.LocalAddr(), g.RemoteAddr(), req != nil, rst)
+		if req != nil {
+			req.Complete(rst)
+		}
 	})
 }
 
@@ -152,20 +185,33 @@ func (g *GTCPConn) synack(complete bool) (rst bool, err error) {
 		}
 	}()
 
-	wq := new(waiter.Queue)
-	// the passive-handshake (SYN) may not successful for a non-existent route (say, ipv6)
-	if ep, err := g.req.CreateEndpoint(wq); err != nil || ep == nil {
-		log.E("ns: tcp: forwarder: synack(complete? %t / ep? %t) src(%v) => dst(%v); err(%v)", complete, ep != nil, g.LocalAddr(), g.RemoteAddr(), err)
-		// prevent potential half-open TCP connection leak.
-		// hopefully doesn't break happy-eyeballs datatracker.ietf.org/doc/html/rfc8305#section-5
-		// ie, apps that expect network-unreachable ICMP msgs instead of TCP RSTs?
-		// TCP RST here is indistinguishable to an app from being firewalled.
-		return true, e(err) // close, err
-	} else {
-		g.c.Store(gonet.NewTCPConn(wq, ep))
-		keepalive(ep)
-		return false, nil // open, err free
+	if g.req != nil { // egressing (process netstack's req from tun)
+		wq := new(waiter.Queue)
+		// the passive-handshake (SYN) may not successful for a non-existent route (say, ipv6)
+		if ep, err := g.req.CreateEndpoint(wq); err != nil || ep == nil {
+			log.E("ns: tcp: forwarder: synack(complete? %t / ep? %t) src(%v) => dst(%v); err(%v)", complete, ep != nil, g.LocalAddr(), g.RemoteAddr(), err)
+			// prevent potential half-open TCP connection leak.
+			// hopefully doesn't break happy-eyeballs datatracker.ietf.org/doc/html/rfc8305#section-5
+			// ie, apps that expect network-unreachable ICMP msgs instead of TCP RSTs?
+			// TCP RST here is indistinguishable to an app from being firewalled.
+			return true, e(err) // close, err
+		} else {
+			g.c.Store(gonet.NewTCPConn(wq, ep))
+			keepalive(ep)
+		}
+	} else { // ingressing (process a conn into tun)
+		src, proto := addrport2nsaddr(g.dst) // remote addr is local addr in netstack
+		dst, _ := addrport2nsaddr(g.src)     // local addr is remote addr in netstack
+		bg := context.Background()
+		if conn, err := gonet.DialTCPWithBind(bg, g.stack, src, dst, proto); err != nil {
+			log.E("ns: tcp: forwarder: synack(complete? %t) src(%v) => dst(%v); err(%v)", complete, g.LocalAddr(), g.RemoteAddr(), err)
+			return true, err // close, err
+		} else {
+			g.c.Store(conn)
+		}
 	}
+
+	return false, nil // open, err free
 }
 
 func keepalive(ep tcpip.Endpoint) {
@@ -175,9 +221,9 @@ func keepalive(ep tcpip.Endpoint) {
 		// github.com/tailscale/tailscale/issues/6148 (other changes)
 		sockopt(ep, &defaultKeepAliveIdle, &defaultKeepAliveInterval, &usrTimeout)
 		ep.SetSockOptInt(tcpip.KeepaliveCountOption, defaultKeepAliveCount)
+		// github.com/tailscale/tailscale/commit/1aa75b1c9ea2
+		ep.SocketOptions().SetKeepAlive(true) // applies netstack defaults
 	}
-	// github.com/tailscale/tailscale/commit/1aa75b1c9ea2
-	ep.SocketOptions().SetKeepAlive(true) // applies netstack defaults
 }
 
 func sockopt(ep tcpip.Endpoint, opts ...tcpip.SettableSocketOption) {

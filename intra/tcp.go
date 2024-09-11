@@ -145,6 +145,45 @@ func (h *tcpHandler) Error(gconn *netstack.GTCPConn, src, dst netip.AddrPort, er
 	queueSummary(h.smmch, h.done, smm.done(err))
 }
 
+func (h *tcpHandler) ReverseProxy(gconn *netstack.GTCPConn, in net.Conn, to, from netip.AddrPort) (open bool) {
+	uid := UNKNOWN_UID
+	nn := networkNumber("tcp")
+	// TODO: default fm as optionsBase or optionsBlock
+	// inflow does not go through nat/alg/dns/proxy
+	fm, ok := core.Grx("tcp.inflow", func() *Mark {
+		return h.listener.Inflow(nn, int32(uid), to.String(), from.String())
+	}, onFlowTimeout)
+	if !ok || fm == nil {
+		log.E("tcp: reverse: inflow timeout %v <= %v", to, from)
+		return false
+	}
+	cid := fm.CID
+	pid := fm.PID
+	smm := tcpSummary(cid, pid, fm.UID, from.Addr())
+	if pid == ipn.Block {
+		log.I("tcp: reverse: block %s -> %s", from, to)
+		clos(gconn, in)
+		queueSummary(h.smmch, h.done, smm.done(errUdpInFirewalled))
+		return true
+	}
+
+	// handshake; since we assume a duplex-stream from here on
+	if open, err := gconn.Establish(); !open {
+		err = fmt.Errorf("tcp: %s reverse: gconn.Est, err %v; %s => %s for %d",
+			cid, err, to, from, uid)
+		log.E("%v", err)
+		queueSummary(h.smmch, h.done, smm.done(err))
+		return false
+	}
+
+	h.conntracker.Track(cid, gconn, in)
+	core.Go("tcp.reverse:"+cid, func() {
+		defer h.conntracker.Untrack(cid)
+		forward(gconn, &rwext{in}, h.smmch, h.done, smm)
+	})
+	return true
+}
+
 // Proxy implements netstack.GTCPConnHandler
 // It must be called from a goroutine.
 func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target netip.AddrPort) (open bool) {
@@ -256,10 +295,6 @@ func (h *tcpHandler) handle(px ipn.Proxy, src net.Conn, target netip.AddrPort, s
 	// ref: stackoverflow.com/questions/40328025
 	if pc, err = px.Dialer().Dial("tcp", target.String()); err == nil {
 		smm.Rtt = int32(time.Since(start).Seconds() * 1000)
-		// pc.RemoteAddr may be that of the proxy, not the actual dst
-		// ex: pc.RemoteAddr is 127.0.0.1 for Orbot
-		smm.Target = target.Addr().String()
-
 		switch uc := pc.(type) {
 		case *net.TCPConn: // usual
 			dst = uc
@@ -273,6 +308,10 @@ func (h *tcpHandler) handle(px ipn.Proxy, src net.Conn, target netip.AddrPort, s
 			err = errTcpSetupConn
 		}
 	}
+
+	// pc.RemoteAddr may be that of the proxy, not the actual dst
+	// ex: pc.RemoteAddr is 127.0.0.1 for Orbot
+	smm.Target = target.Addr().String()
 
 	if err != nil {
 		log.W("tcp: err dialing %s proxy(%s) to dst(%v) for %s: %v", smm.ID, px.ID(), target, smm.UID, err)

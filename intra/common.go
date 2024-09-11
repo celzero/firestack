@@ -24,7 +24,13 @@ import (
 	"github.com/celzero/firestack/intra/settings"
 )
 
-const smmchSize = 24
+const (
+	smmchSize           = 24
+	UNKNOWN_UID         = -1
+	EGRESS              = 1
+	INGRESS             = -1
+	UNSUPPORTED_NETWORK = -1
+)
 
 // immediate is the wait time before sending a summary to the listener.
 var immediate = time.Duration(0)
@@ -316,6 +322,7 @@ var _ SocketListener = (*zeroListener)(nil)
 
 func (*zeroListener) Preflow(_, _ int32, _, _, _ string) *PreMark    { return nil }
 func (*zeroListener) Flow(_, _ int32, _, _, _, _, _, _ string) *Mark { return nil }
+func (*zeroListener) Inflow(_, _ int32, _, _ string) *Mark           { return nil }
 func (*zeroListener) OnSocketClosed(*SocketSummary)                  {}
 
 var nooplistener = new(zeroListener)
@@ -338,7 +345,7 @@ func (h *baseHandler) onFlow(network string, localaddr, target netip.AddrPort) (
 	} // else: BlockModeFilter|BlockModeFilterProc
 
 	// Implicit: BlockModeFilter or BlockModeFilterProc
-	uid := -1
+	uid := UNKNOWN_UID
 	if blockmode == settings.BlockModeFilterProc {
 		procEntry := netstat.FindProcNetEntry(network, localaddr, target)
 		if procEntry != nil {
@@ -346,17 +353,7 @@ func (h *baseHandler) onFlow(network string, localaddr, target netip.AddrPort) (
 		}
 	}
 
-	var proto int32 = -1 // unsupported
-	switch network {
-	case "udp", "udp6", "udp4":
-		proto = 17
-	case "tcp", "tcp6", "tcp4":
-		proto = 6
-	case "icmp", "icmp4":
-		proto = 1
-	case "icmp6":
-		proto = 58
-	}
+	var proto int32 = networkNumber(network) // -1 unsupported
 
 	src := localaddr.String()
 	dst := target.String()
@@ -430,4 +427,18 @@ func (h *baseHandler) onFlow(network string, localaddr, target netip.AddrPort) (
 	}
 
 	return
+}
+
+func networkNumber(n string) int32 {
+	switch n {
+	case "udp", "udp6", "udp4":
+		return 17
+	case "tcp", "tcp6", "tcp4":
+		return 6
+	case "icmp", "icmp4":
+		return 1
+	case "icmp6":
+		return 58
+	}
+	return UNSUPPORTED_NETWORK
 }

@@ -18,9 +18,6 @@ import (
 	"gvisor.dev/gvisor/pkg/tcpip/transport/icmp"
 )
 
-// Pong is a callback function to send a reply to the client
-type Pong func(reply []byte) error
-
 type GICMPHandler interface {
 	// Ping informs if ICMP Echo from src to dst is replied to
 	Ping(src, dst netip.AddrPort, msg []byte) bool
@@ -36,7 +33,7 @@ type icmpForwarder struct {
 }
 
 // ref: github.com/SagerNet/LibSagerNetCore/blob/632d6b892e/gvisor/icmp.go
-func setupIcmpHandler(s *stack.Stack, ep stack.LinkEndpoint, hdl GICMPHandler) {
+func OutboundICMP(s *stack.Stack, ep stack.LinkEndpoint, hdl GICMPHandler) {
 	// remove default handlers
 	s.SetTransportProtocolHandler(icmp.ProtocolNumber4, nil)
 	s.SetTransportProtocolHandler(icmp.ProtocolNumber6, nil)
@@ -150,7 +147,7 @@ func (f *icmpForwarder) reply6(id stack.TransportEndpointID, pkt *stack.PacketBu
 	// always forward in a goroutine to avoid blocking netstack
 	// see: netstack/dispatcher.go:newReadvDispatcher
 	pkt.IncRef()
-	core.Go("icmp4.pinger", func() {
+	core.Go("icmp6.pinger", func() {
 		var err tcpip.Error
 		if !f.h.Ping(src, dst, data) { // unreachable
 			defer pkt.DecRef()

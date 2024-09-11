@@ -16,6 +16,7 @@ import (
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/dialers"
 	"github.com/celzero/firestack/intra/log"
+	"github.com/celzero/firestack/intra/netstack"
 	"github.com/celzero/firestack/intra/protect"
 	"github.com/celzero/firestack/intra/settings"
 )
@@ -24,6 +25,7 @@ const (
 	Block   = x.Block
 	Base    = x.Base
 	Exit    = x.Exit
+	Ingress = x.Ingress
 	OrbotS5 = x.OrbotS5
 	OrbotH1 = x.OrbotH1
 
@@ -65,6 +67,7 @@ var (
 	errNoSig                = errors.New("auth missing sig")
 	errNoMtu                = errors.New("no mtu")
 	errNoOpts               = errors.New("no proxy opts")
+	errMissingRev           = errors.New("missing reverse proxy")
 )
 
 const (
@@ -110,6 +113,8 @@ type Proxies interface {
 	RefreshProto(l3 string)
 	// LiveProxies returns a csv of active proxies.
 	LiveProxies() string
+	// Reverser sets the reverse proxy for all proxies.
+	Reverser(r netstack.GConnHandler) error
 }
 
 type proxifier struct {
@@ -119,6 +124,7 @@ type proxifier struct {
 	base     *base   // base proxy, never changes
 	grounded *ground // grounded proxy, never changes
 	ctl      protect.Controller
+	rev      netstack.GConnHandler // may be nil
 	obs      x.ProxyListener
 	protos   string
 }
@@ -358,6 +364,14 @@ func (px *proxifier) RefreshProto(l3 string) {
 			}
 		})
 	}
+}
+
+func (px *proxifier) Reverser(rhdl netstack.GConnHandler) error {
+	px.Lock()
+	defer px.Unlock()
+
+	px.rev = rhdl
+	return nil
 }
 
 // Implements Router.

@@ -3,6 +3,7 @@
 // This Source Code Form is subject to the terms of the Mozilla Public
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
 package netstack
 
 import (
@@ -10,7 +11,6 @@ import (
 	"io"
 	"syscall"
 
-	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/settings"
 	"gvisor.dev/gvisor/pkg/tcpip"
@@ -90,7 +90,7 @@ func FilePcap(y bool) (ok bool) {
 
 // ref: github.com/brewlin/net-protocol/blob/ec64e5f899/internal/endpoint/endpoint.go#L20
 func Up(s *stack.Stack, ep stack.LinkEndpoint, h GConnHandler) error {
-	var nic tcpip.NICID = settings.NICID
+	nic := tcpip.NICID(settings.NICID)
 
 	// fetch existing routes before adding removing nic, which wipes out routes
 	existingroutes := s.GetRouteTable()
@@ -109,13 +109,14 @@ func Up(s *stack.Stack, ep stack.LinkEndpoint, h GConnHandler) error {
 	//	defer s.Resume()
 	// }
 
-	core.SetNetstackOpts(s)
+	SetNetstackOpts(s)
 
 	if newnic {
-		setupTcpHandler(s, h.TCP())
-		setupUdpHandler(s, h.UDP())
-		setupIcmpHandler(s, ep, h.ICMP())
+		OutboundTCP(s, h.TCP())
+		OutboundUDP(s, h.UDP())
 	}
+	// icmp needs link endpoint, which is always new
+	OutboundICMP(s, ep, h.ICMP())
 
 	if settings.Debug {
 		tcp := s.TransportProtocolInstance(tcp.ProtocolNumber) != nil     // 6

@@ -3,6 +3,7 @@
 // This Source Code Form is subject to the terms of the Mozilla Public
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
 package netstack
 
 import (
@@ -28,16 +29,18 @@ var (
 	errFilteredOut = errors.New("no eif; filtered out")
 )
 
-type DemuxerFn func(dst netip.AddrPort) error
+type DemuxerFn func(in net.Conn, to netip.AddrPort) error
 
 type GUDPConnHandler interface {
+	// ReverseProxy proxies data between conn and dst (egress).
+	ReverseProxy(out *GUDPConn, in net.Conn, src, dst netip.AddrPort) bool
 	// Proxy proxies data between conn (src) and dst.
-	Proxy(conn *GUDPConn, src, dst netip.AddrPort) bool
+	Proxy(in *GUDPConn, src, dst netip.AddrPort) bool
 	// ProxyMux proxies data between conn and multiple destinations
 	// (endpoint-independent mapping).
-	ProxyMux(conn *GUDPConn, src, dst netip.AddrPort, dmx DemuxerFn) bool
+	ProxyMux(in *GUDPConn, src, dst netip.AddrPort, dmx DemuxerFn) bool
 	// Error notes the error in connecting src to dst.
-	Error(conn *GUDPConn, src, dst netip.AddrPort, err error)
+	Error(in *GUDPConn, src, dst netip.AddrPort, err error)
 	// CloseConns closes conns by ids, or all if ids is empty.
 	CloseConns([]string) []string
 	// End closes the handler and all its connections.
@@ -77,8 +80,21 @@ func makeGUDPConn(s *stack.Stack, r *udp.ForwarderRequest, src, dst netip.AddrPo
 	}
 }
 
-func setupUdpHandler(s *stack.Stack, h GUDPConnHandler) {
+func OutboundUDP(s *stack.Stack, h GUDPConnHandler) {
 	s.SetTransportProtocolHandler(udp.ProtocolNumber, udpForwarder(s, h).HandlePacket)
+}
+
+func InboundUDP(s *stack.Stack, in net.Conn, to, from netip.AddrPort, h GUDPConnHandler) error {
+	newgc := makeGUDPConn(s, nil /*not a forwarder req*/, to, from)
+	if !settings.SingleThreaded.Load() {
+		if err := newgc.Establish(); err != nil {
+			log.E("ns: udp: inbound: dial: %v; src(%v) dst(%v)", err, to, from)
+			go h.Error(newgc, to, from, err)
+			return err
+		}
+	}
+	go h.ReverseProxy(newgc, in, to, from)
+	return nil
 }
 
 // Perhaps udp conns shouldn't be closed as eagerly as its tcp counterpart
@@ -133,7 +149,7 @@ func udpForwarder(s *stack.Stack, h GUDPConnHandler) *udp.Forwarder {
 			}
 		}
 
-		demux := func(newdst netip.AddrPort) error {
+		demux := func(ingress net.Conn, newdst netip.AddrPort) error {
 			if newdst.Compare(dst) == 0 {
 				log.D("ns: udp: demuxer: no-op; src(%v) same as dst(%v)", src, newdst)
 				return nil
@@ -141,16 +157,7 @@ func udpForwarder(s *stack.Stack, h GUDPConnHandler) *udp.Forwarder {
 			if !gc.eif {
 				return errFilteredOut
 			}
-			newgc := makeGUDPConn(s, nil /*not a forwarder req*/, src, newdst)
-			if !settings.SingleThreaded.Load() {
-				if err := newgc.Establish(); err != nil {
-					log.E("ns: udp: demuxer: dial: %v; src(%v) dst(%v)", err, src, newdst)
-					go h.Error(newgc, src, newdst, err)
-					return err
-				}
-			}
-			go h.Proxy(newgc, src, newdst)
-			return nil
+			return InboundUDP(s, ingress, src, newdst, h)
 		}
 
 		// proxy in a separate gorountine; return immediately
@@ -182,7 +189,7 @@ func (g *GUDPConn) Establish() error {
 		return nil
 	}
 
-	if g.req == nil {
+	if g.req == nil { // ingressing (process a conn into tun)
 		src, proto := addrport2nsaddr(g.dst) // remote addr is local addr in netstack
 		dst, _ := addrport2nsaddr(g.src)     // local addr is remote addr in netstack
 		// ingress socket w/ gonet.DialUDP
@@ -192,7 +199,7 @@ func (g *GUDPConn) Establish() error {
 		} else {
 			g.c.Store(conn)
 		}
-	} else {
+	} else { // egressing (process netstack's req from tun)
 		wq := new(waiter.Queue)
 		if ep, err := g.req.CreateEndpoint(wq); err != nil || ep == nil {
 			// ex: CONNECT endpoint for [fd66:f83a:c650::1]:15753 => [fd66:f83a:c650::3]:53; err(no route to host)

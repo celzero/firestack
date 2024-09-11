@@ -64,14 +64,15 @@ const (
 )
 
 var (
-	errNoIPsForDomain = errors.New("dns: no ips")
-	errIcmpFirewalled = errors.New("icmp: firewalled")
-	errUdpFirewalled  = errors.New("udp: firewalled")
-	errUdpSetupConn   = errors.New("udp: could not create conn")
-	errProxyMismatch  = errors.New("udp: proxy mismatch")
-	errUdpUnconnected = errors.New("udp: cannot connect")
-	errUdpEnd         = errors.New("udp: stopped")
-	errIcmpEnd        = errors.New("icmp: stopped")
+	errNoIPsForDomain  = errors.New("dns: no ips")
+	errIcmpFirewalled  = errors.New("icmp: firewalled")
+	errUdpFirewalled   = errors.New("udp: firewalled")
+	errUdpInFirewalled = errors.New("udp: ingress firewalled")
+	errUdpSetupConn    = errors.New("udp: could not create conn")
+	errProxyMismatch   = errors.New("udp: proxy mismatch")
+	errUdpUnconnected  = errors.New("udp: cannot connect")
+	errUdpEnd          = errors.New("udp: stopped")
+	errIcmpEnd         = errors.New("icmp: stopped")
 )
 
 var (
@@ -129,6 +130,42 @@ func NewUDPHandler(resolver dnsx.Resolver, prox ipn.Proxies, tunMode *settings.T
 	return h
 }
 
+func (h *udpHandler) ReverseProxy(gconn *netstack.GUDPConn, in net.Conn, to, from netip.AddrPort) (ok bool) {
+	uid := UNKNOWN_UID
+	nn := networkNumber("udp")
+	// TODO: default fm as optionsBase or optionsBlock
+	// inflow does not go through nat/alg/dns/proxy
+	fm, ok := core.Grx("udp.inflow", func() *Mark {
+		return h.listener.Inflow(nn, int32(uid), to.String(), from.String())
+	}, onFlowTimeout)
+	if !ok || fm == nil {
+		log.E("udp: reverse: inflow timeout %v <= %v", to, from)
+		return false
+	}
+	cid := fm.CID
+	pid := fm.PID
+	smm := udpSummary(cid, pid, fm.UID, from.Addr())
+	if pid == ipn.Block {
+		log.I("udp: %s reverse: block %s -> %s", cid, from, to)
+		clos(gconn, in)
+		queueSummary(h.smmch, h.done, smm.done(errUdpInFirewalled))
+		return true
+	}
+
+	if err := gconn.Establish(); err != nil { // gconn.Establish() failed
+		log.W("udp: %s reverse: %s gconn.Est, err %s => %s", cid, to, from, err)
+		queueSummary(h.smmch, h.done, smm.done(errUdpInFirewalled))
+		return false
+	}
+
+	h.conntracker.Track(cid, gconn, in)
+	core.Go("udp.reverse:"+cid, func() {
+		defer h.conntracker.Untrack(cid)
+		forward(gconn, &rwext{in}, h.smmch, h.done, smm)
+	})
+	return true
+}
+
 // ProxyMux implements netstack.GUDPConnHandler
 func (h *udpHandler) ProxyMux(gconn *netstack.GUDPConn, src, dst netip.AddrPort, dmx netstack.DemuxerFn) (ok bool) {
 	defer core.Recover(core.Exit11, "udp.ProxyMux")
@@ -167,7 +204,7 @@ func (h *udpHandler) proxy(gconn *netstack.GUDPConn, src, dst netip.AddrPort, dm
 	if err != nil {
 		core.Close(gconn, remote)
 		queueSummary(h.smmch, h.done, smm.done(err)) // smm may be nil
-		log.D("udp: proxy: mux? %t, firewalled? %s -> %s; err: %v", mux, src, dst, err)
+		log.D("udp: proxy: mux? %t, firewalled? %s => %s; err: %v", mux, src, dst, err)
 		// dst addrs no longer tracked in h.Connect: h.conntracker.Untrack(ct.CID)
 		return // not ok
 	} else if remote == nil { // dnsOverride?
@@ -206,7 +243,7 @@ func (h *udpHandler) Connect(gconn *netstack.GUDPConn, src, target netip.AddrPor
 	smm = udpSummary(cid, pid, uid, target.Addr())
 
 	if h.status.Load() == UDPEND {
-		log.D("udp: connect: end")
+		log.D("udp: connect: %s %v => %v, end", cid, src, target)
 		return nil, smm, errUdpEnd // disconnect, no nat
 	}
 
@@ -274,7 +311,7 @@ func (h *udpHandler) Connect(gconn *netstack.GUDPConn, src, target netip.AddrPor
 	for i, dstipp := range makeIPPorts(realips, target, 0) {
 		selectedTarget = dstipp
 		if mux { // mux is not supported by all proxies (few like Exit, Base, WG support it)
-			pc, err = h.mux.associate(cid, pid, src, selectedTarget, px.Dialer().Announce, vendor(dmx))
+			pc, err = h.mux.associate(cid, pid, uid, src, selectedTarget, px.Dialer().Announce, vendor(dmx))
 		} else {
 			pc, err = px.Dialer().Dial("udp", selectedTarget.String())
 		}

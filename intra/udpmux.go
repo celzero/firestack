@@ -57,7 +57,7 @@ func (s *stats) String() string {
 	return fmt.Sprintf("tx: %d, rx: %d, conns: %d, dur: %ds", s.tx.Load(), s.rx.Load(), s.dxcount.Load(), int64(s.dur.Seconds()))
 }
 
-type vendor func(dst netip.AddrPort) error
+type vendor func(fwd net.Conn, dst netip.AddrPort) error
 
 // muxer muxes multiple connections grouped by remote addr over net.PacketConn
 type muxer struct {
@@ -65,6 +65,7 @@ type muxer struct {
 	mxconn net.PacketConn
 	cid    string // connection id of mxconn
 	pid    string // proxy id mxconn is listening on
+	uid    string // user id owner of mxconn
 	stats  *stats
 
 	until time.Time // deadline extension
@@ -110,10 +111,11 @@ var _ sender = (*muxer)(nil)
 var _ core.UDPConn = (*demuxconn)(nil)
 
 // newMuxer creates a muxer/demuxer for a connectionless conn.
-func newMuxer(cid, pid string, conn net.PacketConn, vnd vendor, f func()) *muxer {
+func newMuxer(cid, pid, uid string, conn net.PacketConn, vnd vendor, f func()) *muxer {
 	x := &muxer{
 		cid:      cid,
 		pid:      pid,
+		uid:      uid,
 		mxconn:   conn,
 		stats:    &stats{start: time.Now()},
 		routes:   make(map[netip.AddrPort]*demuxconn),
@@ -273,7 +275,7 @@ func (x *muxer) route(to netip.AddrPort, flo flowkind) *demuxconn {
 			// ex: route: egress vend failure 1.1.1.1:53; err connect udp 10.111.222.1:42182: port is in use
 			if flo == ingress {
 				core.Go("udpmux.vend", func() { // a fork in the road
-					if verr := x.vnd(to); verr != nil {
+					if verr := x.vnd(conn, to); verr != nil {
 						clos(conn)
 						log.E("udp: mux: %s route: %s vend failure %s; err %v", x.cid, flo, to, verr)
 					}
@@ -489,7 +491,7 @@ func newMuxTable() *muxTable {
 	return &muxTable{t: make(map[netip.AddrPort]*muxer)}
 }
 
-func (e *muxTable) associate(cid, pid string, src, dst netip.AddrPort, mk assocFn, v vendor) (_ net.Conn, err error) {
+func (e *muxTable) associate(cid, pid, uid string, src, dst netip.AddrPort, mk assocFn, v vendor) (_ net.Conn, err error) {
 	e.Lock() // lock
 
 	var mxr *muxer
@@ -505,14 +507,15 @@ func (e *muxTable) associate(cid, pid string, src, dst netip.AddrPort, mk assocF
 			e.Unlock()      // unlock
 			return nil, err // return
 		}
-		mxr = newMuxer(cid, pid, pc, v, func() {
+		mxr = newMuxer(cid, pid, uid, pc, v, func() {
 			e.dissociate(cid, pid, src)
 		})
 		e.t[src] = mxr
 		log.I("udp: mux: %s new assoc for %s", cid, src)
-	} else if mxr.pid != pid {
+	} else if mxr.pid != pid || mxr.uid != uid {
 		// client rules prevent from associating w/ a different proxy
-		log.E("udp: mux: %s assoc proxy mismatch: %s != %s", cid, mxr.pid, pid)
+		log.E("udp: mux: %s assoc mismatch: %s != %s or %s != %s",
+			cid, mxr.pid, pid, mxr.uid, uid)
 		e.Unlock()                   // unlock
 		return nil, errProxyMismatch // return
 	}

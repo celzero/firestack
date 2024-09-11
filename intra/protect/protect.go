@@ -47,6 +47,7 @@ func NeverResolve(hostname string) bool {
 
 type Controller = b.Controller
 type Protector = b.Protector
+type Forwarder = RDialer
 
 type ControlFn func(network, addr string, c syscall.RawConn) (err error)
 

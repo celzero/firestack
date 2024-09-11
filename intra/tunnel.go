@@ -37,6 +37,7 @@ import (
 	"github.com/celzero/firestack/intra/dnsx"
 	"github.com/celzero/firestack/intra/ipn"
 	"github.com/celzero/firestack/intra/log"
+	"github.com/celzero/firestack/intra/netstack"
 	"github.com/celzero/firestack/intra/rnet"
 	"github.com/celzero/firestack/intra/settings"
 	"github.com/celzero/firestack/intra/x64"
@@ -135,13 +136,16 @@ func NewTunnel(fd, mtu int, fakedns string, tunmode *settings.TunMode, dtr Defau
 	tcph := NewTCPHandler(resolver, proxies, tunmode, bdg, bdg)
 	udph := NewUDPHandler(resolver, proxies, tunmode, bdg, bdg)
 	icmph := NewICMPHandler(resolver, proxies, tunmode, bdg)
+	hdl := netstack.NewGConnHandler(tcph, udph, icmph)
 
-	gt, err := tunnel.NewGTunnel(fd, mtu, tcph, udph, icmph)
+	gt, revhdl, err := tunnel.NewGTunnel(fd, mtu, hdl)
 
 	if err != nil {
 		log.I("tun: <<< new >>>; err(%v)", err)
 		return nil, err
 	}
+
+	proxies.Reverser(revhdl)
 
 	t := &rtunnel{
 		Tunnel:   gt,

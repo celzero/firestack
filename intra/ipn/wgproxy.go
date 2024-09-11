@@ -35,6 +35,7 @@ import (
 	"github.com/celzero/firestack/intra/ipn/multihost"
 	"github.com/celzero/firestack/intra/ipn/wg"
 	"github.com/celzero/firestack/intra/log"
+	"github.com/celzero/firestack/intra/netstack"
 	"github.com/celzero/firestack/intra/protect"
 	"github.com/celzero/firestack/intra/settings"
 	"golang.zx2c4.com/wireguard/conn"
@@ -420,8 +421,13 @@ func loadIPNets(out *[]netip.Prefix, v string) (err error) {
 	return
 }
 
+func (w *wgproxy) StopThenNew(ctl protect.Controller, rev netstack.GConnHandler) (*wgproxy, error) {
+	w.Stop()
+	return NewWgProxy(w.id, ctl, rev, w.cfg)
+}
+
 // ref: github.com/WireGuard/wireguard-android/blob/713947e432/tunnel/tools/libwg-go/api-android.go#L76
-func NewWgProxy(id string, ctl protect.Controller, cfg string) (*wgproxy, error) {
+func NewWgProxy(id string, ctl protect.Controller, rev netstack.GConnHandler, cfg string) (*wgproxy, error) {
 	ogcfg := cfg
 	ifaddrs, allowedaddrs, peers, dnsh, endpointh, mtu, err := wgIfConfigOf(id, &cfg)
 	uapicfg := cfg
@@ -430,7 +436,7 @@ func NewWgProxy(id string, ctl protect.Controller, cfg string) (*wgproxy, error)
 		return nil, err
 	}
 
-	wgtun, err := makeWgTun(id, ogcfg, ifaddrs, allowedaddrs, peers, dnsh, endpointh, mtu)
+	wgtun, err := makeWgTun(id, ogcfg, rev, ifaddrs, allowedaddrs, peers, dnsh, endpointh, mtu)
 	if err != nil {
 		log.E("proxy: wg: %s failed to create tun %v", id, err)
 		return nil, err
@@ -476,7 +482,11 @@ func NewWgProxy(id string, ctl protect.Controller, cfg string) (*wgproxy, error)
 }
 
 // ref: github.com/WireGuard/wireguard-go/blob/469159ecf7/tun/netstack/tun.go#L54
-func makeWgTun(id, cfg string, ifaddrs, allowedaddrs []netip.Prefix, peers map[string]device.NoisePublicKey, dnsm, endpointm *multihost.MH, mtu int) (*wgtun, error) {
+func makeWgTun(id, cfg string, rev netstack.GConnHandler, ifaddrs, allowedaddrs []netip.Prefix, peers map[string]device.NoisePublicKey, dnsm, endpointm *multihost.MH, mtu int) (*wgtun, error) {
+	if rev == nil {
+		return nil, errMissingRev
+	}
+
 	opts := stack.Options{
 		NetworkProtocols:   []stack.NetworkProtocolFactory{ipv4.NewProtocol, ipv6.NewProtocol},
 		TransportProtocols: []stack.TransportProtocolFactory{tcp.NewProtocol, udp.NewProtocol, icmp.NewProtocol6, icmp.NewProtocol4},
@@ -487,7 +497,9 @@ func makeWgTun(id, cfg string, ifaddrs, allowedaddrs []netip.Prefix, peers map[s
 
 	s := stack.New(opts)
 	ep := channel.New(epsize, uint32(tunmtu), "")
-	core.SetNetstackOpts(s)
+	netstack.SetNetstackOpts(s)
+	netstack.OutboundTCP(s, rev.TCP())
+	netstack.OutboundUDP(s, rev.UDP())
 	t := &wgtun{
 		id:            stripPrefixIfNeeded(id),
 		cfg:           cfg,
@@ -860,7 +872,7 @@ func (h *wgtun) DNS() string {
 			s += dns.Addr().Unmap().String() + ","
 		}
 
-		log.D("wg: %s dns ipaddrs (in: %t); out: %s", h.id, addrs, s)
+		log.D("wg: %s dns ipaddrs (in: %v); out: %s", h.id, addrs, s)
 		if len(s) > 0 { // return ipaddrs, if any
 			return strings.TrimRight(s, ",")
 		}
