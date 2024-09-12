@@ -40,6 +40,7 @@ import (
 	"github.com/celzero/firestack/intra/netstack"
 	"github.com/celzero/firestack/intra/settings"
 	"golang.org/x/sys/unix"
+	"gvisor.dev/gvisor/pkg/tcpip"
 	"gvisor.dev/gvisor/pkg/tcpip/stack"
 )
 
@@ -269,19 +270,19 @@ func newSink() *pcapsink {
 	return p
 }
 
-func NewGTunnel(fd, mtu int, tcph netstack.GTCPConnHandler, udph netstack.GUDPConnHandler, icmph netstack.GICMPHandler) (t *gtunnel, err error) {
+func NewGTunnel(fd, mtu int, hdl netstack.GConnHandler) (t *gtunnel, rev netstack.GConnHandler, err error) {
+	var nic tcpip.NICID
 	dupfd, err := dup(fd) // tunnel will own dupfd
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	sink := newSink()
-	hdl := netstack.NewGConnHandler(tcph, udph, icmph)
 	stack := netstack.NewNetstack() // always dual-stack
 	// NewEndpoint takes ownership of dupfd; closes it on errors
 	ep, err := netstack.NewEndpoint(dupfd, mtu, sink)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	netstack.Route(stack, settings.IP46) // always dual-stack
 
@@ -295,11 +296,13 @@ func NewGTunnel(fd, mtu int, tcph netstack.GTCPConnHandler, udph netstack.GUDPCo
 	}
 
 	// Enabled() may temporarily return false when Up() is in progress.
-	if err = netstack.Up(stack, ep, hdl); err != nil { // attach new endpoint
-		return nil, err
+	if nic, err = netstack.Up(stack, ep, hdl); err != nil { // attach new endpoint
+		return nil, nil, err
 	}
 
-	log.I("tun: new netstack up; fd(%d), mtu(%d)", fd, mtu)
+	rev = netstack.NewReverseGConnHandler(stack, nic, ep, hdl)
+
+	log.I("tun: new netstack(%d) up; fd(%d), mtu(%d)", nic, fd, mtu)
 
 	go t.wait() // wait for endpoint to close
 

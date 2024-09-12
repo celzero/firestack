@@ -8,7 +8,9 @@ package netstack
 
 import (
 	"errors"
+	"fmt"
 	"io"
+	"net/netip"
 	"syscall"
 
 	"github.com/celzero/firestack/intra/log"
@@ -89,7 +91,7 @@ func FilePcap(y bool) (ok bool) {
 }
 
 // ref: github.com/brewlin/net-protocol/blob/ec64e5f899/internal/endpoint/endpoint.go#L20
-func Up(s *stack.Stack, ep stack.LinkEndpoint, h GConnHandler) error {
+func Up(s *stack.Stack, ep stack.LinkEndpoint, h GConnHandler) (tcpip.NICID, error) {
 	nic := tcpip.NICID(settings.NICID)
 
 	// fetch existing routes before adding removing nic, which wipes out routes
@@ -112,6 +114,9 @@ func Up(s *stack.Stack, ep stack.LinkEndpoint, h GConnHandler) error {
 	SetNetstackOpts(s)
 
 	if newnic {
+		if err := addIfAddrs(s, nic); err != nil {
+			return nic, err
+		}
 		OutboundTCP(s, h.TCP())
 		OutboundUDP(s, h.UDP())
 	}
@@ -129,35 +134,83 @@ func Up(s *stack.Stack, ep stack.LinkEndpoint, h GConnHandler) error {
 	// creates and enables a fake nic for netstack s
 	// netstack protos (ip4, ip6) enabled and ep is attached to nic
 	if nerr := s.CreateNIC(nic, ep); nerr != nil {
-		return e(nerr)
+		return nic, e(nerr)
 	}
 	// ref: github.com/xjasonlyu/tun2socks/blob/31468620e/core/stack.go#L80
 	// allow spoofing packets tuples
 	if nerr := s.SetSpoofing(nic, true); nerr != nil {
-		return e(nerr)
+		return nic, e(nerr)
 	}
 	// ref: github.com/xjasonlyu/tun2socks/blob/31468620e/core/stack.go#L94
 	// allow all packets sent to our fake nic through to netstack
 	if nerr := s.SetPromiscuousMode(nic, true); nerr != nil {
-		return e(nerr)
+		return nic, e(nerr)
 	}
+
+	if4, _ := s.GetMainNICAddress(nic, ipv4.ProtocolNumber)
+	if6, _ := s.GetMainNICAddress(nic, ipv6.ProtocolNumber)
 
 	s.SetNICForwarding(nic, ipv4.ProtocolNumber, nicfwd)
 	s.SetNICForwarding(nic, ipv6.ProtocolNumber, nicfwd)
 	// use existing routes if the nic is being recycled
 	if !newnic && len(existingroutes) > 0 {
-		log.I("netstack: up(%d)! existing routes? %s; new routes: %s", nic, s.GetRouteTable(), existingroutes)
+		log.I("netstack: up(%d)! addrs: %v %v; existing routes? %s; new routes: %s",
+			nic, if4, if6, s.GetRouteTable(), existingroutes)
 		s.SetRouteTable(existingroutes)
 	} else {
-		log.I("netstack: up(%d)! new? %t; routes? %s", nic, newnic, s.GetRouteTable())
+		log.I("netstack: up(%d)! new? %t; addrs: %v %v; routes? %s",
+			nic, newnic, if4, if6, s.GetRouteTable())
 	}
 
-	return nil
+	return nic, nil
 }
 
 func e(err tcpip.Error) error {
 	if err != nil {
 		return errors.New(err.String())
+	}
+	return nil
+}
+
+func addIfAddrs(s *stack.Stack, nic tcpip.NICID) error {
+	// TODO: make it configurable like fakedns is
+	// 10.111.222.0/24 / [fd66:f83a:c650::0]/120
+	// must match with:
+	// github.com/celzero/rethink-app/blob/59aa0daae/app/src/main/java/com/celzero/bravedns/service/BraveVPNService.kt#L2813
+	ifaddr4, err4 := netip.ParsePrefix("10.111.222.1/24")
+	ifaddr6, err6 := netip.ParsePrefix("fd66:f83a:c650::1/120")
+
+	if err4 != nil || err6 != nil { // should never happen
+		return errors.Join(err4, err6)
+	}
+
+	// go.dev/play/p/Clg4geOwXMf
+	nsaddr4 := tcpip.AddrFrom4(ifaddr4.Addr().As4())
+	nsaddr6 := tcpip.AddrFrom16(ifaddr6.Addr().As16())
+
+	ap4 := tcpip.AddressWithPrefix{
+		Address:   nsaddr4,        // 10.111.222.1
+		PrefixLen: ifaddr4.Bits(), // 24
+	}
+	ap6 := tcpip.AddressWithPrefix{
+		Address:   nsaddr6,        // fd66:f83a:c650::1
+		PrefixLen: ifaddr6.Bits(), // 120
+	}
+	protoaddr4 := tcpip.ProtocolAddress{
+		Protocol:          ipv4.ProtocolNumber,
+		AddressWithPrefix: ap4,
+	}
+	protoaddr6 := tcpip.ProtocolAddress{
+		Protocol:          ipv6.ProtocolNumber,
+		AddressWithPrefix: ap6,
+	}
+
+	// at: github.com/google/gvisor/blob/1f4299ee3f/pkg/tcpip/stack/addressable_endpoint_state.go#L177
+	if err := s.AddProtocolAddress(nic, protoaddr4, stack.AddressProperties{}); err != nil {
+		return fmt.Errorf("wg: %s add addr(%v): %v", nic, ifaddr6, err)
+	}
+	if err := s.AddProtocolAddress(nic, protoaddr6, stack.AddressProperties{}); err != nil {
+		return fmt.Errorf("wg: %s add addr(%v): %v", nic, ifaddr4, err)
 	}
 	return nil
 }

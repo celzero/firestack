@@ -99,7 +99,7 @@ func tcpForwarder(s *stack.Stack, h GTCPConnHandler) *tcp.Forwarder {
 			return
 		}
 		id := req.ID()
-		// src 10.111.222.1:38312
+		// src 10.111.222.1:38312 / [fd66:f83a:c650::1]:15753
 		src := remoteAddrPort(id)
 		// dst 213.188.195.179:80
 		dst := localAddrPort(id)
