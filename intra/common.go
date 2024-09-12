@@ -27,8 +27,7 @@ import (
 const (
 	smmchSize           = 24
 	UNKNOWN_UID         = -1
-	EGRESS              = 1
-	INGRESS             = -1
+	UNKNOWN_UID_STR     = "-1"
 	UNSUPPORTED_NETWORK = -1
 )
 
