@@ -70,6 +70,7 @@ var (
 	errUdpInFirewalled = errors.New("udp: ingress firewalled")
 	errUdpSetupConn    = errors.New("udp: could not create conn")
 	errProxyMismatch   = errors.New("udp: proxy mismatch")
+	errUidMismatch     = errors.New("udp: uid mismatch")
 	errUdpUnconnected  = errors.New("udp: cannot connect")
 	errUdpEnd          = errors.New("udp: stopped")
 	errIcmpEnd         = errors.New("icmp: stopped")

@@ -512,12 +512,18 @@ func (e *muxTable) associate(cid, pid, uid string, src, dst netip.AddrPort, mk a
 		})
 		e.t[src] = mxr
 		log.I("udp: mux: %s new assoc for %s", cid, src)
-	} else if mxr.pid != pid || mxr.uid != uid {
+	} else if mxr.pid != pid {
 		// client rules prevent from associating w/ a different proxy
-		log.E("udp: mux: %s assoc mismatch: %s != %s or %s != %s",
+		log.E("udp: mux: %s assoc proxy mismatch: %s != %s or %s != %s",
 			cid, mxr.pid, pid, mxr.uid, uid)
 		e.Unlock()                   // unlock
 		return nil, errProxyMismatch // return
+	} else if mxr.uid != uid &&
+		(uid != UNKNOWN_UID_STR || mxr.uid != UNKNOWN_UID_STR) {
+		log.E("udp: mux: %s assoc uid mismatch: %s != %s or %s != %s",
+			cid, mxr.pid, pid, mxr.uid, uid)
+		e.Unlock()                 // unlock
+		return nil, errUidMismatch // return
 	}
 
 	e.Unlock() // unlock
