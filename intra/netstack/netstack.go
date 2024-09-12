@@ -207,10 +207,10 @@ func addIfAddrs(s *stack.Stack, nic tcpip.NICID) error {
 
 	// at: github.com/google/gvisor/blob/1f4299ee3f/pkg/tcpip/stack/addressable_endpoint_state.go#L177
 	if err := s.AddProtocolAddress(nic, protoaddr4, stack.AddressProperties{}); err != nil {
-		return fmt.Errorf("wg: %s add addr(%v): %v", nic, ifaddr6, err)
+		return fmt.Errorf("wg: %d add addr(%v): %v", nic, ifaddr6, err)
 	}
 	if err := s.AddProtocolAddress(nic, protoaddr6, stack.AddressProperties{}); err != nil {
-		return fmt.Errorf("wg: %s add addr(%v): %v", nic, ifaddr4, err)
+		return fmt.Errorf("wg: %d add addr(%v): %v", nic, ifaddr4, err)
 	}
 	return nil
 }
