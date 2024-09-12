@@ -575,7 +575,9 @@ func makeWgTun(id, cfg string, rev netstack.GConnHandler, ifaddrs, allowedaddrs 
 	// commence the wireguard state machine
 	t.events <- tun.EventUp
 
-	log.I("proxy: wg: %s tun: created; dns[%s]; dst[%s]; mtu[%d]", t.id, dnsm, endpointm, tunmtu)
+	if4, if6 := netstack.StackAddrs(s, wgnic)
+	log.I("proxy: wg: %s tun: created; dns[%s]; dst[%s]; mtu[%d]; ifaddrs[%v / %v]",
+		t.id, dnsm, endpointm, tunmtu, if4, if6)
 
 	return t, nil
 }
