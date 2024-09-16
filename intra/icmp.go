@@ -102,14 +102,17 @@ func (h *icmpHandler) CloseConns(cids []string) []string { return nil }
 func (h *icmpHandler) Ping(source, target netip.AddrPort, msg []byte) (echoed bool) {
 	var px ipn.Proxy = nil
 	var err error
+	var tx, rx int
 
 	// flow is alg/nat-aware, do not change target or any addrs
 	res, undidAlg, realips, doms := h.flow(source, target)
 	// on Android, uid is always "unknown" for icmp
-	cid, pid, _ := splitCidPidUid(res)
-	smm := icmpSummary(cid, pid)
+	cid, pid, uid := splitCidPidUid(res)
+	smm := icmpSummary(cid, pid, uid)
 
 	defer func() {
+		smm.Tx = int64(tx)
+		smm.Rx = int64(rx)
 		queueSummary(h.smmch, h.done, smm.done(err)) // err may be nil
 	}()
 
@@ -155,7 +158,7 @@ func (h *icmpHandler) Ping(source, target netip.AddrPort, msg []byte) (echoed bo
 
 	extend(uc, icmptimeout)
 	// todo: construct ICMP header? github.com/prometheus-community/pro-bing/blob/0bacb2d5e7/ping.go#L717
-	_, err = uc.WriteTo(msg, net.UDPAddrFromAddrPort(dst))
+	tx, err = uc.WriteTo(msg, net.UDPAddrFromAddrPort(dst))
 	logei(err)("t.icmp: egress: write(%v <= %v) ping; done %d; err? %v", dst, source, len(msg), err)
 	if err != nil {
 		return false // write error
@@ -170,7 +173,7 @@ func (h *icmpHandler) Ping(source, target netip.AddrPort, msg []byte) (echoed bo
 	}()
 
 	extend(uc, icmptimeout)
-	_, from, err := uc.ReadFrom(b) // todo: assert from == dst
+	rx, from, err := uc.ReadFrom(b) // todo: assert from == dst
 	// todo: ignore non-ICMP replies in b: github.com/prometheus-community/pro-bing/blob/0bacb2d5e7/ping.go#L630
 	logei(err)("t.icmp: ingress: read(%v <= %v / %v) ping done; err? %v", source, from, dst, err)
 

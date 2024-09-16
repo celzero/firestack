@@ -82,11 +82,12 @@ var (
 	errNone = errors.New("no error")
 )
 
-func icmpSummary(id, pid string) *SocketSummary {
+func icmpSummary(id, pid, uid string) *SocketSummary {
 	return &SocketSummary{
 		Proto: ProtoTypeICMP,
 		ID:    id,
 		PID:   pid,
+		UID:   uid,
 		start: time.Now(),
 		Msg:   errNone.Error(),
 	}
