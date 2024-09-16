@@ -105,6 +105,7 @@ func (h *icmpHandler) Ping(source, target netip.AddrPort, msg []byte) (echoed bo
 
 	// flow is alg/nat-aware, do not change target or any addrs
 	res, undidAlg, realips, doms := h.flow(source, target)
+	// on Android, uid is always "unknown" for icmp
 	cid, pid, _ := splitCidPidUid(res)
 	smm := icmpSummary(cid, pid)
 
