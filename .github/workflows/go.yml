@@ -128,7 +128,8 @@ jobs:
           # we let the report trigger content trigger a failure using the GitHub Security features.
           args: '-no-fail -fmt sarif -out results.sarif ./...'
       - name: 📡 Upload to code-scanning
-        uses: github/codeql-action/upload-sarif@v3
+        # github.com/securego/gosec/issues/1219
+        uses: github/codeql-action/upload-sarif@v2
         with:
           sarif_file: results.sarif
 
