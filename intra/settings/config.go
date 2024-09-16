@@ -91,6 +91,10 @@ var EndpointIndependentMapping = atomic.Bool{}
 // filtering for UDP as per RFC 4787.
 var EndpointIndependentFiltering = atomic.Bool{}
 
+// SystemDNSForUndelegatedDomains is a global flag to always use System DNS
+// for undelegated domains.
+var SystemDNSForUndelegatedDomains = atomic.Bool{}
+
 // L3 returns the string'd repr of engine.
 func L3(engine int) string {
 	switch engine {

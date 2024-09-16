@@ -173,7 +173,7 @@ func newUndelegatedDomainsTrie() c.RadixTree {
 func (r *resolver) requiresGoosOrLocal(qname string) (id string) {
 	if strings.HasSuffix(qname, ".local") || xdns.IsMDNSQuery(qname) {
 		id = Local
-	} else if r.tunmode.DNSMode.Load() != settings.DNSModePort {
+	} else if !settings.SystemDNSForUndelegatedDomains.Load() {
 		// todo: remove this once we let users "pin" domains to resolvers
 		// github.com/celzero/rethink-app/issues/1153
 		// skip override when preventing DNS capture on port53 is turned off

@@ -103,6 +103,11 @@ func Loopback(y bool) {
 	log.I("tun: loopback? %t / ok? %t", y, ok)
 }
 
+func UndelegatedDomains(useSystemDNS bool) {
+	ok := settings.SystemDNSForUndelegatedDomains.CompareAndSwap(!useSystemDNS, useSystemDNS)
+	log.I("tun: resolve undelegated with system DNS? %t / ok? %t", useSystemDNS, ok)
+}
+
 // Transparency enables/disables endpoint-independent mapping/filtering.
 // Currently applies only for UDP (RFC 4787).
 func Transparency(eim, eif bool) {
