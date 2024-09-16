@@ -84,6 +84,17 @@ type secans struct {
 	summary *x.DNSSummary
 }
 
+func (sec *secans) initIfNeeded() {
+	// ptr reciever updates all secans in-place:
+	// go.dev/play/p/wjBd1TC59zN
+	if sec.ips == nil {
+		sec.ips = []*netip.Addr{}
+	}
+	if sec.summary == nil {
+		sec.summary = new(x.DNSSummary)
+	}
+}
+
 type ans struct {
 	algip        *netip.Addr   // generated answer, v6 or v4
 	realips      []*netip.Addr // all ip answers, v6+v4; may be nil
@@ -177,6 +188,8 @@ func (t *dnsgateway) qs(t2 Transport, network string, msg *dns.Msg, t1res <-chan
 			log.W("alg: skip; qs timeout; tr2: %s, qname: %s", idstr(t2), qname)
 		}
 
+		r.initIfNeeded() // r may be nil on Grx:timeout
+
 		t2res <- r // may be zero secans
 	}()
 	return t2res
@@ -186,11 +199,7 @@ func (t *dnsgateway) querySecondary(t2 Transport, network string, msg *dns.Msg, 
 	var r *dns.Msg
 	var err error
 
-	// result must not be reassigned
-	result = secans{
-		ips:     []*netip.Addr{},
-		summary: new(x.DNSSummary),
-	}
+	result.initIfNeeded() // result must not be reassigned
 
 	// check if the question is blocked
 	if msg == nil || !xdns.HasAnyQuestion(msg) {
