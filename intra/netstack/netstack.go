@@ -114,9 +114,6 @@ func Up(s *stack.Stack, ep stack.LinkEndpoint, h GConnHandler) (tcpip.NICID, err
 	SetNetstackOpts(s)
 
 	if newnic {
-		if err := addIfAddrs(s, nic); err != nil {
-			return nic, err
-		}
 		OutboundTCP(s, h.TCP())
 		OutboundUDP(s, h.UDP())
 	}
@@ -136,6 +133,11 @@ func Up(s *stack.Stack, ep stack.LinkEndpoint, h GConnHandler) (tcpip.NICID, err
 	if nerr := s.CreateNIC(nic, ep); nerr != nil {
 		return nic, e(nerr)
 	}
+	// add addrs to this nic just attached to netstack s
+	if err := addIfAddrs(s, nic); err != nil {
+		return nic, err
+	}
+
 	// ref: github.com/xjasonlyu/tun2socks/blob/31468620e/core/stack.go#L80
 	// allow spoofing packets tuples
 	if nerr := s.SetSpoofing(nic, true); nerr != nil {
