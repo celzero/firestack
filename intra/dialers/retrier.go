@@ -115,7 +115,7 @@ func calcTimeout(rtt time.Duration) time.Duration {
 	// These values were chosen to have a <1% false positive rate based on test data.
 	// False positives trigger an unnecessary retry, which can make connections slower, so they are
 	// worth avoiding.  However, overly long timeouts make retry slower and less useful.
-	return 1200*time.Millisecond + max(2*rtt, 100*time.Millisecond)
+	return 800*time.Millisecond + max(2*rtt, 100*time.Millisecond)
 }
 
 // DialWithSplitRetry returns a TCP connection that transparently retries by
@@ -158,31 +158,33 @@ func (r *retrier) dialStratLocked() (strat int32, err error) {
 	case settings.RetryAfterSplit:
 		split = split && r.retryCount == 0 // split at 1st attempt
 		if auto {
-			split = split && r.retryCount <= 1 // split at 1st, 2nd attempts
+			// split at all attempts except the last
+			split = split && r.retryCount < maxRetryCount
 		}
 	}
 
 	if !split {
 		strat = settings.SplitNever
 	} else if auto {
+		cycle := r.retryCount % maxRetryCount
 		switch retryStrat {
 		case settings.RetryNever:
 			// only one attempt allowed; neither retried nor split
 			strat = settings.SplitTCPOrTLS
 		case settings.RetryWithSplit:
 			// if retrying (retryCount > 0), always split
-			if r.retryCount == 1 {
+			if cycle == 1 {
 				strat = settings.SplitTCPOrTLS
-			} else if r.retryCount == 2 {
+			} else if cycle == 2 {
 				strat = settings.SplitDesync
 			} else { // split is either true or false
 				strat = settings.SplitTCP
 			}
 		case settings.RetryAfterSplit:
 			// split for the first two attempts
-			if r.retryCount == 0 {
+			if cycle == 0 {
 				strat = settings.SplitTCPOrTLS
-			} else if r.retryCount == 1 {
+			} else if cycle == 1 {
 				strat = settings.SplitDesync
 			} else { // split is false, so strat does not matter
 				strat = settings.SplitTCP
@@ -281,10 +283,10 @@ func (r *retrier) Read(buf []byte) (n int, err error) {
 
 	n, err = c.Read(buf)      // r.conn may be provisional or final connection
 	if n == 0 && err == nil { // no data and no error
-		note("retrier: read: no data; retrying [%s<-%s]", laddr(c), r.raddr)
+		note("retrier: read: no data; retrying [%s<=%s]", laddr(c), r.raddr)
 		return // nothing yet to retry; on to next read
 	}
-	logeor(err, note)("retrier: read: [%s<-%s] %d; err: %v", laddr(c), r.raddr, n, err)
+	logeor(err, note)("retrier: read: [%s<=%s] %d; err: %v", laddr(c), r.raddr, n, err)
 
 	note = log.D
 	if !r.retryCompleted() {
@@ -301,7 +303,7 @@ func (r *retrier) Read(buf []byte) (n int, err error) {
 				if err == nil && c == nil {
 					err = errNoConn
 				}
-				logeor(err, log.I)("retrier: read# %d: [%s<-%s] %d; err? %v",
+				logeor(err, log.I)("retrier: read# %d: [%s<=%s] %d; err? %v",
 					r.retryCount, laddr(c), r.raddr, n, err)
 			}
 			if c != nil && core.IsNotNil(c) {
@@ -311,7 +313,7 @@ func (r *retrier) Read(buf []byte) (n int, err error) {
 			r.tee = nil // discard teed data
 			return
 		}
-		logeor(err, note)("retrier: read: already retried! [%s<-%s] %d; err? %v", laddr(c), r.raddr, n, err)
+		logeor(err, note)("retrier: read: already retried! [%s<=%s] %d; err? %v", laddr(c), r.raddr, n, err)
 	} // else: just one read is enough; no retry needed
 	return
 }
@@ -352,7 +354,8 @@ func (r *retrier) Write(b []byte) (int, error) {
 			note = log.I
 		}
 
-		logeor(err, note)("retrier: write: first?(%t) [%s->%s] %d; 1st write-err? %v", sentAndCopied, src, r.raddr, n, err)
+		logeor(err, note)("retrier: write: first?(%t) [%s=>%s] %d; 1st write-err? %v",
+			sentAndCopied, src, r.raddr, n, err)
 
 		if sentAndCopied {
 			// since Write() does not wait for <-retryDoneCh if there are no errors,
@@ -374,7 +377,7 @@ func (r *retrier) Write(b []byte) (int, error) {
 			if r.retryErr != nil {
 				r.mutex.Unlock()
 				// r.conn may be nil or closed
-				log.E("retrier: write: retry failed [%s->%s] in %dms; old -> new: %v -> %v",
+				log.E("retrier: write: retry failed [%s=>%s] in %dms; old -> new: %v => %v",
 					laddr(r.conn), r.raddr, elapsed, err, r.retryErr)
 				return n, err // pass on the og error
 			}
