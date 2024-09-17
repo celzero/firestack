@@ -393,9 +393,9 @@ func (l *simpleLogger) Stack(at int, msg string, scratch []byte) {
 		appendix = strings.Join(lines[:i], "\n")
 	}
 
-	sendtoconsole := at == 0
-	largebuf := len(scratch) > 16384
-	n := runtime.Stack(scratch, sendtoconsole && largebuf)
+	// full stacktrace iff large enough scratch
+	full := len(scratch) > 16384 // 16KB
+	n := runtime.Stack(scratch, full)
 
 	if n == len(scratch) {
 		msg += "[trunc]"
