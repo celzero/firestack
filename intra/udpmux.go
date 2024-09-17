@@ -194,7 +194,7 @@ func (x *muxer) readers() {
 
 	timeouterrors := 0
 	for {
-		bptr := core.AllocRegion(core.BMAX)
+		bptr := core.AllocRegion(core.B65536)
 		b := *bptr
 		b = b[:cap(b)]
 		// todo: if panics are recovered above, free() may never be called

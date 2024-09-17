@@ -16,10 +16,10 @@ import (
 var slabs map[string]*sync.Pool // read-only after init
 
 const (
-	// BMAX is slab of size 64k; also the max
-	BMAX = 64 * 1024
+	// B524288 is slab of size 512k
+	B524288 = 512 * 1024
 	// B65536 is slab of size 64k
-	B65536 = BMAX
+	B65536 = 64 * 1024
 	// B32768 is slab of size 32k
 	B32768 = 32 * 1024
 	// B16384 is slab of size 16k
@@ -30,6 +30,8 @@ const (
 	B4096 = 4 * 1024
 	// B2048 is slab of size 2k; also the min
 	B2048 = 2 * 1024
+	// BMAX is the largest pooled slab size
+	BMAX = B524288
 )
 
 // pointers to slices: archive.is/BhHuQ
@@ -50,6 +52,11 @@ func AllocRegion(size int) *[]byte {
 // Alloc returns a truncated byte slice of size 2048
 func Alloc() *[]byte {
 	return AllocRegion(B2048)
+}
+
+// LOB returns a truncated byte slice of size 524288
+func LOB() *[]byte {
+	return AllocRegion(B524288)
 }
 
 // Recycle returns the byte slices to the pool
@@ -78,7 +85,8 @@ func init() {
 	slabs[k(B8192)] = newpool(B8192)
 	slabs[k(B16384)] = newpool(B16384)
 	slabs[k(B32768)] = newpool(B32768)
-	slabs[k(BMAX)] = newpool(BMAX)
+	slabs[k(B65536)] = newpool(B65536)
+	slabs[k(B524288)] = newpool(B524288)
 }
 
 // slabfor returns a sync.Pool that byte b can be recycled to.
@@ -91,8 +99,10 @@ func slabfor(b *[]byte) *sync.Pool {
 func slabof(sz int) (p *sync.Pool) {
 	if sz > BMAX {
 		// do not store larger regions
-	} else if sz >= BMAX { // min/exactly 64k
-		p = slabs[k(BMAX)]
+	} else if sz >= B524288 { // min 512k
+		p = slabs[k(B524288)]
+	} else if sz >= B65536 { // min 64k
+		p = slabs[k(B65536)]
 	} else if sz >= B32768 { // min 32k
 		p = slabs[k(B32768)]
 	} else if sz >= B16384 { // min 16k

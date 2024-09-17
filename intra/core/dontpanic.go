@@ -91,7 +91,7 @@ func trace(code ExitCode, msg string) {
 		defer _pmu.Unlock()
 	}
 
-	bptr := AllocRegion(BMAX)
+	bptr := LOB()
 	b := *bptr
 	b = b[:cap(b)]
 	defer func() {

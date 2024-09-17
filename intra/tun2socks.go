@@ -125,7 +125,7 @@ func Build() string {
 }
 
 func PrintStack() {
-	bptr := core.AllocRegion(core.BMAX)
+	bptr := core.LOB()
 	b := *bptr
 	b = b[:cap(b)]
 	defer func() {
