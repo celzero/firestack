@@ -152,6 +152,7 @@ func Build(full bool) string {
 	return buf.String()
 }
 
+// PrintStack logs the stack trace of all active goroutines.
 func PrintStack() {
 	bptr := core.LOB()
 	b := *bptr
