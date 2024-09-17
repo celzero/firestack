@@ -124,6 +124,17 @@ func Build() string {
 	return "unknown"
 }
 
+func PrintStack() {
+	bptr := core.AllocRegion(core.BMAX)
+	b := *bptr
+	b = b[:cap(b)]
+	defer func() {
+		*bptr = b
+		core.Recycle(bptr)
+	}()
+	log.TALL("tun: trace", b)
+}
+
 // SetCrashFd sets output file to go runtime crashes to.
 func SetCrashFd(fp string) (ok bool) {
 	defer func() {

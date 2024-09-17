@@ -154,6 +154,14 @@ func T(msg string) {
 	}
 }
 
+func TALL(msg string, scratch64k []byte) {
+	if Glogger != nil {
+		E2(LogFnCallerDepth, "----START----")
+		Glogger.Stack(LogFnCallerDepth, "F "+msg, scratch64k)
+		E2(LogFnCallerDepth, "----STOPP----")
+	}
+}
+
 func VV2(at int, msg string, args ...any) {
 	if Glogger != nil {
 		Glogger.VeryVerbosef(at, "VV "+msg, args...)
