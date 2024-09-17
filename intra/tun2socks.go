@@ -129,25 +129,27 @@ func Build(full bool) string {
 	// adopted from golang/runtime/debug/mod.go
 	buf := new(strings.Builder)
 	if buildinfo.GoVersion != "" {
-		fmt.Fprintf(buf, "go\t%s\n", buildinfo.GoVersion)
+		fmt.Fprintf(buf, "go: %s\t", buildinfo.GoVersion)
 	}
 	if buildinfo.Path != "" {
-		fmt.Fprintf(buf, "path\t%s\n", buildinfo.Path)
+		fmt.Fprintf(buf, "path: %s\t", buildinfo.Path)
 	}
 	if buildinfo.Main != (debug.Module{}) {
 		m := buildinfo.Main
-		buf.WriteString("mod")
-		buf.WriteByte('\t')
+		buf.WriteString("mod: ")
 		buf.WriteString(m.Path)
-		buf.WriteByte('\t')
+		buf.WriteByte(' ')
 		buf.WriteString(m.Version)
-		buf.WriteByte('\t')
+		buf.WriteByte(' ')
 		if m.Replace == nil {
-			buf.WriteString(m.Sum)
+			sum := m.Sum
+			if len(sum) > 10 {
+				sum = m.Sum[:10]
+			}
+			buf.WriteString(sum)
 		} else {
-			buf.WriteString("replaced")
+			buf.WriteString("r")
 		}
-		buf.WriteByte('\n')
 	}
 	return buf.String()
 }
