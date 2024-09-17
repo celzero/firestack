@@ -24,9 +24,11 @@
 package intra
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime/debug"
+	"strings"
 
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/settings"
@@ -117,11 +119,37 @@ func Transparency(eim, eif bool) {
 }
 
 // Build returns the build information.
-func Build() string {
-	if buildinfo != nil {
+func Build(full bool) string {
+	if buildinfo == nil {
+		return "unknown"
+	}
+	if full {
 		return buildinfo.String()
 	}
-	return "unknown"
+	// adopted from golang/runtime/debug/mod.go
+	buf := new(strings.Builder)
+	if buildinfo.GoVersion != "" {
+		fmt.Fprintf(buf, "go\t%s\n", buildinfo.GoVersion)
+	}
+	if buildinfo.Path != "" {
+		fmt.Fprintf(buf, "path\t%s\n", buildinfo.Path)
+	}
+	if buildinfo.Main != (debug.Module{}) {
+		m := buildinfo.Main
+		buf.WriteString("mod")
+		buf.WriteByte('\t')
+		buf.WriteString(m.Path)
+		buf.WriteByte('\t')
+		buf.WriteString(m.Version)
+		buf.WriteByte('\t')
+		if m.Replace == nil {
+			buf.WriteString(m.Sum)
+		} else {
+			buf.WriteString("replaced")
+		}
+		buf.WriteByte('\n')
+	}
+	return buf.String()
 }
 
 func PrintStack() {
