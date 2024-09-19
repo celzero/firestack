@@ -4,7 +4,7 @@ GOMOBILE=$(GOBIN)/gomobile
 IMPORT_PATH=github.com/celzero/firestack
 ELECTRON_PATH=$(IMPORT_PATH)/outline/electron
 XGO=$(GOBIN)/xgo
-COMMIT_ID=$(git rev-parse --short HEAD)
+COMMIT_ID=$(shell git rev-parse --short HEAD)
 XGO_LDFLAGS='-s -w -X main.version=$(COMMIT_ID)'
 LDFLAGS='-w -s -X $(IMPORT_PATH)/intra/core.Commit=$(COMMIT_ID)'
 
