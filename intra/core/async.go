@@ -68,6 +68,7 @@ func Grx[T any](who string, f func() T, d time.Duration) (zz T, ok bool) {
 	timer := time.NewTicker(d)
 	defer timer.Stop()
 
+	// go.dev/play/p/VtWYJrxhXz6
 	go func() {
 		defer Recover(Exit11, who)
 		defer close(ch)
