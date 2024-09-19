@@ -12,9 +12,13 @@ import (
 	"runtime"
 )
 
-// Commit set at link time by git rev-parse --short HEAD
-var Commit string
+var (
+	// Commit set at link time by git rev-parse --short HEAD
+	Commit string
+	// Date set at link time by date -u +'%Y%m%d%H%M%S'
+	Date string
+)
 
 func Version() string {
-	return fmt.Sprintf("%s/%s, %s, %s", runtime.GOOS, runtime.GOARCH, runtime.Version(), Commit)
+	return fmt.Sprintf("%s/%s@%s v%s-%s", runtime.GOOS, runtime.GOARCH, runtime.Version(), Date, Commit)
 }
