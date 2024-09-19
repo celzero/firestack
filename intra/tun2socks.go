@@ -24,11 +24,9 @@
 package intra
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"runtime/debug"
-	"strings"
 
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/settings"
@@ -120,38 +118,13 @@ func Transparency(eim, eif bool) {
 
 // Build returns the build information.
 func Build(full bool) string {
+	if !full {
+		return core.Version()
+	}
 	if buildinfo == nil {
 		return "unknown"
 	}
-	if full {
-		return buildinfo.String()
-	}
-	// adopted from golang/runtime/debug/mod.go
-	buf := new(strings.Builder)
-	if buildinfo.GoVersion != "" {
-		fmt.Fprintf(buf, "go: %s\t", buildinfo.GoVersion)
-	}
-	if buildinfo.Path != "" {
-		fmt.Fprintf(buf, "path: %s\t", buildinfo.Path)
-	}
-	if buildinfo.Main != (debug.Module{}) {
-		m := buildinfo.Main
-		buf.WriteString("mod: ")
-		buf.WriteString(m.Path)
-		buf.WriteByte(' ')
-		buf.WriteString(m.Version)
-		buf.WriteByte(' ')
-		if m.Replace == nil {
-			sum := m.Sum
-			if len(sum) > 10 {
-				sum = m.Sum[:10]
-			}
-			buf.WriteString(sum)
-		} else {
-			buf.WriteString("r")
-		}
-	}
-	return buf.String()
+	return buildinfo.String()
 }
 
 // PrintStack logs the stack trace of all active goroutines.

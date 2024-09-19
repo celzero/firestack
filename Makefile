@@ -1,11 +1,13 @@
 BUILDDIR=$(CURDIR)/build
 GOBIN=$(CURDIR)/bin
 GOMOBILE=$(GOBIN)/gomobile
+IMPORT_PATH=github.com/celzero/firestack
 ELECTRON_PATH=$(IMPORT_PATH)/outline/electron
 XGO=$(GOBIN)/xgo
-IMPORT_PATH=github.com/celzero/firestack
 COMMIT_ID=$(git rev-parse --short HEAD)
 XGO_LDFLAGS='-s -w -X main.version=$(COMMIT_ID)'
+LDFLAGS='-w -s -X $(IMPORT_PATH)/intra/core.Commit=$(COMMIT_ID)'
+
 GOBIND=bind -v -a
 # -work: keep the temporary directory for debugging
 ANDROID23=-androidapi 23 -target=android -tags='android' -work
@@ -16,7 +18,7 @@ LINUX_BUILDDIR=$(BUILDDIR)/linux
 # stack traces are not affected by ldflags -s -w: github.com/golang/go/issues/25035#issuecomment-495004689
 # trimpath: github.com/skycoin/skycoin/issues/719
 ANDROID_BUILD_CMD=env PATH=$(GOBIN):$(PATH) $(GOMOBILE) $(GOBIND) $(ANDROID23) \
-				-ldflags '-w -s' -gcflags='-trimpath=${HOME}'
+				-ldflags $(LDFLAGS) -gcflags='-trimpath=${HOME}'
 # built without stripping dwarf/symbols
 ANDROID_DEBUG_BUILD_CMD=env PATH=$(GOBIN):$(PATH) $(GOMOBILE) $(GOBIND) $(ANDROID23)
 # exported pkgs
