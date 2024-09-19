@@ -227,6 +227,14 @@ func (r *resolver) Translate(b bool) {
 	r.gateway.translate(b)
 }
 
+func (r *resolver) stopIfExistsLocked(id string) {
+	if t, ok := r.transports[id]; ok && t != nil {
+		err := t.Stop() // todo: async?
+		log.VV("dns: stop: %s; err? %v", id, err)
+		delete(r.transports, id)
+	}
+}
+
 // Implements Resolver
 func (r *resolver) Add(dt x.DNSTransport) (ok bool) {
 	if r.closed.Load() {
@@ -251,8 +259,10 @@ func (r *resolver) Add(dt x.DNSTransport) (ok bool) {
 		ct := NewCachingTransport(t, ttl10m)
 		tid := t.ID()
 		r.Lock()
+		r.stopIfExistsLocked(tid)
 		r.transports[tid] = t // regular
 		if ct != nil {
+			r.stopIfExistsLocked(ct.ID())
 			r.transports[ct.ID()] = ct // cached
 		}
 		r.Unlock()
