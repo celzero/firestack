@@ -26,6 +26,7 @@ package doh
 import (
 	"errors"
 
+	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/miekg/dns"
 )
@@ -73,6 +74,9 @@ func AddEdnsPadding(msg *dns.Msg) (*dns.Msg, error) {
 
 	if opt != nil {
 		for _, o := range opt.Option {
+			if o == nil || core.IsNil(o) {
+				continue
+			}
 			if o.Option() == dns.EDNS0PADDING { // process padding rr
 				if p, ok := o.(*dns.EDNS0_PADDING); ok {
 					if p != nil { // has rr
