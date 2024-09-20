@@ -38,7 +38,10 @@ const (
 const kOptPaddingHeaderLen int = 2 + // OPTION-CODE
 	2 // OPTION-LENGTH
 
-var errPadding = errors.New("padding: malformed rr")
+var (
+	errPadding  = errors.New("padding: malformed rr")
+	errNilExtra = errors.New("padding: nil extra")
+)
 
 // Compute the number of padding bytes needed, excluding headers.
 // Assumes that |msgLen| is the length of a raw DNS message that contains an
@@ -64,7 +67,11 @@ func optPadding(msgLen int) *dns.EDNS0_PADDING {
 func AddEdnsPadding(msg *dns.Msg) (*dns.Msg, error) {
 	var opt *dns.OPT = nil
 	for _, addn := range msg.Extra {
-		if dns.TypeOPT == addn.Header().Rrtype {
+		if addn == nil || core.IsNil(addn) {
+			return nil, errNilExtra
+		}
+		ahdr := addn.Header()
+		if ahdr != nil && ahdr.Rrtype == dns.TypeOPT {
 			var ok bool
 			if opt, ok = addn.(*dns.OPT); ok {
 				break
