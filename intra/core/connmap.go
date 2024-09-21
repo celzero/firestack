@@ -28,6 +28,8 @@ type ConnMapper interface {
 	Untrack(cid string) int
 	// UntrackBatch untracks one cid at a time.
 	UntrackBatch(cids []string) []string
+	// Len returns the number of tracked conns.
+	Len() int
 }
 
 type cm struct {
@@ -103,4 +105,11 @@ func (h *cm) Clear() (cids []string) {
 	clear(h.trac)
 	log.D("connmap: clear: %d conns", len(cids))
 	return
+}
+
+func (h *cm) Len() int {
+	h.RLock()
+	defer h.RUnlock()
+
+	return len(h.trac)
 }
