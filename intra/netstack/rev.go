@@ -16,7 +16,10 @@ import (
 	"gvisor.dev/gvisor/pkg/tcpip/stack"
 )
 
+type revbase[T gconns] struct{}
+
 type revtcp struct {
+	*revbase[*GTCPConn]
 	revstack *stack.Stack
 	reverser GTCPConnHandler
 	stackip4 netip.Addr
@@ -24,6 +27,7 @@ type revtcp struct {
 }
 
 type revudp struct {
+	*revbase[*GUDPConn]
 	revstack *stack.Stack
 	reverser GUDPConnHandler
 	stackip4 netip.Addr
@@ -31,6 +35,7 @@ type revudp struct {
 }
 
 type revicmp struct {
+	*revbase[*GUDPConn]
 	revstack *stack.Stack
 	revep    stack.LinkEndpoint
 	reverser GICMPHandler
@@ -74,6 +79,33 @@ func newReverseICMP(s *stack.Stack, ep stack.LinkEndpoint, h GICMPHandler) *revi
 	return &revicmp{revstack: s, revep: ep, reverser: h}
 }
 
+// Base
+
+func (t *revbase[T]) ReverseProxy(out T, in net.Conn, src, dst netip.AddrPort) bool {
+	// TODO: stub
+	log.E("revbase: %T ReverseProxy not implemented %v <= %v", out, src, dst)
+	return false
+}
+
+func (u *revbase[T]) Error(in T, src, dst netip.AddrPort, err error) {
+	log.E("revbase: %T Error %v <= %v: %v", in, src, dst, err)
+}
+
+func (*revbase[T]) OpenConns() int32 {
+	// TODO: stub
+	return 0
+}
+
+func (*revbase[T]) CloseConns([]string) []string {
+	// TODO: stub
+	return nil
+}
+
+func (*revbase[T]) End() error {
+	// TODO: stub
+	return nil
+}
+
 // TCP
 
 func (t *revtcp) Proxy(in *GTCPConn, src, dst netip.AddrPort) bool {
@@ -83,26 +115,6 @@ func (t *revtcp) Proxy(in *GTCPConn, src, dst netip.AddrPort) bool {
 	err := InboundTCP(t.revstack, in, t.revipp(dst), src, t.reverser)
 	logeif(err)("revtcp: Proxy %v <= %v; err? %v", src, dst, err)
 	return err == nil
-}
-
-func (t *revtcp) ReverseProxy(out *GTCPConn, in net.Conn, src, dst netip.AddrPort) bool {
-	// TODO: stub
-	log.E("revtcp: ReverseProxy not implemented %v <= %v", src, dst)
-	return false
-}
-
-func (t *revtcp) Error(in *GTCPConn, src, dst netip.AddrPort, err error) {
-	log.E("revtcp: error %v => %v: %v", src, dst, err)
-}
-
-func (t *revtcp) CloseConns([]string) []string {
-	// TODO: stub
-	return nil
-}
-
-func (t *revtcp) End() error {
-	// TODO: stub
-	return nil
 }
 
 // ip local to revstack
@@ -129,26 +141,6 @@ func (u *revudp) ProxyMux(in *GUDPConn, src, dst netip.AddrPort, mux DemuxerFn) 
 	return err == nil
 }
 
-func (u *revudp) ReverseProxy(out *GUDPConn, in net.Conn, src, dst netip.AddrPort) bool {
-	// TODO: stub
-	log.E("revudp: ReverseProxy not implemented %v <= %v", src, dst)
-	return false
-}
-
-func (u *revudp) Error(in *GUDPConn, src, dst netip.AddrPort, err error) {
-	log.E("revudp: error %v <= %v: %v", src, dst, err)
-}
-
-func (u *revudp) CloseConns([]string) []string {
-	// TODO: stub
-	return nil
-}
-
-func (u *revudp) End() error {
-	// TODO: stub
-	return nil
-}
-
 // ip local to revstack
 func (r *revudp) revipp(ipp netip.AddrPort) netip.AddrPort {
 	if ipp.Addr().Is6() {
@@ -159,20 +151,10 @@ func (r *revudp) revipp(ipp netip.AddrPort) netip.AddrPort {
 
 // ICMP
 
-func (i *revicmp) Ping(src, dst netip.AddrPort, msg []byte) bool {
+func (i *revicmp) Ping(msg []byte, src, dst netip.AddrPort) bool {
 	// TODO: stub
 	log.E("revicmp: Ping not implemented %v <= %v; err? %v", src, dst)
 	return false
-}
-
-func (*revicmp) CloseConns([]string) []string {
-	// TODO: stub
-	return nil
-}
-
-func (*revicmp) End() error {
-	// TODO: stub
-	return nil
 }
 
 func logeif(err error) log.LogFn {
@@ -198,6 +180,6 @@ func StackAddrs(s *stack.Stack, nic tcpip.NICID) (netip.Addr, netip.Addr) {
 	if !mainaddr6.Address.Equal(zeromainaddr.Address) {
 		ip6 = netip.AddrFrom16(mainaddr6.Address.As16())
 	}
-	log.V("rev: StackAddr4 %v %v", ip4, ip6)
+	log.V("rev: StackAddrs %v %v", ip4, ip6)
 	return ip4, ip6
 }
