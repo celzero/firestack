@@ -20,5 +20,5 @@ var (
 )
 
 func Version() string {
-	return fmt.Sprintf("%s/%s@%s v%s-%s", runtime.GOOS, runtime.GOARCH, runtime.Version(), Date, Commit)
+	return fmt.Sprintf("v%s-%s (%s/%s@%s)", Date, Commit, runtime.GOOS, runtime.GOARCH, runtime.Version())
 }
