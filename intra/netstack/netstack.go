@@ -114,6 +114,7 @@ func Up(s *stack.Stack, ep stack.LinkEndpoint, h GConnHandler) (tcpip.NICID, err
 	SetNetstackOpts(s)
 
 	if newnic {
+		// github.com/google/gvisor/blob/a7dcce93/pkg/tcpip/sample/tun_tcp_connect/main.go
 		OutboundTCP(s, h.TCP())
 		OutboundUDP(s, h.UDP())
 	}
@@ -154,6 +155,8 @@ func Up(s *stack.Stack, ep stack.LinkEndpoint, h GConnHandler) (tcpip.NICID, err
 
 	s.SetNICForwarding(nic, ipv4.ProtocolNumber, nicfwd)
 	s.SetNICForwarding(nic, ipv6.ProtocolNumber, nicfwd)
+	// s.SetNICMulticastForwarding(nic, ipv4.ProtocolNumber, nicfwd)
+	// s.SetNICMulticastForwarding(nic, ipv6.ProtocolNumber, nicfwd)
 	// use existing routes if the nic is being recycled
 	if !newnic && len(existingroutes) > 0 {
 		log.I("netstack: up(%d)! addrs: %v %v; existing routes? %s; new routes: %s",
@@ -176,6 +179,20 @@ func e(err tcpip.Error) error {
 
 func addIfAddrs(s *stack.Stack, nic tcpip.NICID) error {
 	// TODO: make it configurable like fakedns is
+	// The NIC is set in Spoofing mode. When the UDP Endpoint uses a non-local
+	// address to "Connect", netstack generates a temporary addressState to
+	// build a route, which can be primary but is always ephemeral. When this
+	// UDP Endpoint uses a multicast address to "Connect", netstack selects
+	// any available primary addressState to build a route. However, when the
+	// NIC is in the just-initialized or idle state, no primary addressState
+	// is readily available, and "Connect" fails. And so, permanent addresses,
+	// e.g. 10.111.222.1/24 and fd66:f83a:c650::1/120, are assigned to the NIC,
+	// which are only used to build routes for multicast response (and should
+	// for any other connection that is "ingressing" into netstack).
+	//
+	// In fact, for multicast, the sender normally does not expect a response.
+	// So, the ep.net.Connect is unnecessary.
+
 	// 10.111.222.0/24 / [fd66:f83a:c650::0]/120
 	// must match with:
 	// github.com/celzero/rethink-app/blob/59aa0daae/app/src/main/java/com/celzero/bravedns/service/BraveVPNService.kt#L2813

@@ -81,7 +81,7 @@ func (f *icmpForwarder) reply4(id stack.TransportEndpointID, pkt *stack.PacketBu
 		return // not handled
 	}
 
-	log.D("icmp: v4: type %v/%v sz [%v]; src(%v) -> dst(%v)", hdr.Type(), hdr.Code(), len(data), src, dst)
+	log.D("icmp: v4: type %v/%v sz [%v]; src(%v) => dst(%v)", hdr.Type(), hdr.Code(), len(data), src, dst)
 
 	// always forward in a goroutine to avoid blocking netstack
 	// see: netstack/dispatcher.go:newReadvDispatcher
@@ -96,7 +96,7 @@ func (f *icmpForwarder) reply4(id stack.TransportEndpointID, pkt *stack.PacketBu
 			hdr.SetType(header.ICMPv4EchoReply)
 			hdr.SetChecksum(0)
 			hdr.SetChecksum(header.ICMPv4Checksum(hdr, pkt.Data().Checksum()))
-			log.D("icmp: v4: ok type %v/%v sz[%d] from %v <- %v", hdr.Type(), hdr.Code(), len(hdr), src, dst)
+			log.D("icmp: v4: ok type %v/%v sz[%d] from %v <= %v", hdr.Type(), hdr.Code(), len(hdr), src, dst)
 
 			var pout stack.PacketBufferList
 			pout.PushBack(pkt)
@@ -137,7 +137,7 @@ func (f *icmpForwarder) reply6(id stack.TransportEndpointID, pkt *stack.PacketBu
 		return // not handled
 	}
 
-	log.D("icmp: v6: type %v/%v sz[%d] from src(%v) -> dst(%v)", hdr.Type(), hdr.Code(), len(data), src, dst)
+	log.D("icmp: v6: type %v/%v sz[%d] from src(%v) => dst(%v)", hdr.Type(), hdr.Code(), len(data), src, dst)
 	// always forward in a goroutine to avoid blocking netstack
 	// see: netstack/dispatcher.go:newReadvDispatcher
 	pkt.IncRef()
@@ -156,7 +156,7 @@ func (f *icmpForwarder) reply6(id stack.TransportEndpointID, pkt *stack.PacketBu
 				PayloadCsum: pkt.Data().Checksum(),
 				PayloadLen:  pkt.Data().Size(),
 			}))
-			log.D("icmp: v6: ok type %v/%v sz[%d] from %v <- %v", hdr.Type(), hdr.Code(), len(hdr), src, dst)
+			log.D("icmp: v6: ok type %v/%v sz[%d] from %v <= %v", hdr.Type(), hdr.Code(), len(hdr), src, dst)
 
 			var pout stack.PacketBufferList
 			pout.PushBack(pkt)
@@ -179,7 +179,7 @@ func (f *icmpForwarder) icmpErr4(pkt *stack.PacketBuffer, icmpType header.ICMPv4
 	// TODO(gvisor.dev/issues/4058): Make sure we don't send ICMP errors in
 	// response to a non-initial fragment, but it currently can not happen.
 	if pkt.NetworkPacketInfo.LocalAddressBroadcast || header.IsV4MulticastAddress(origIPHdrDst) || origIPHdrSrc == header.IPv4Any {
-		log.W("icmp: v4: skip broadcast/multicast dst(%s) <- src(%s)", origIPHdrDst, origIPHdrSrc)
+		log.W("icmp: v4: skip broadcast/multicast dst(%s) <= src(%s)", origIPHdrDst, origIPHdrSrc)
 		return &tcpip.ErrAddressFamilyNotSupported{}
 	}
 
@@ -329,7 +329,7 @@ func (f *icmpForwarder) icmpErr6(id stack.TransportEndpointID, pkt *stack.Packet
 	allowResponseToMulticast := false // TODO: reason.respondsToMulticast()
 	isOrigDstMulticast := header.IsV6MulticastAddress(origIPHdrDst)
 	if (!allowResponseToMulticast && isOrigDstMulticast) || origIPHdrSrc == header.IPv6Any {
-		log.W("icmp: v6: skip multicast dst(%s) <- src(%s)", origIPHdrDst, origIPHdrSrc)
+		log.W("icmp: v6: skip multicast dst(%s) <= src(%s)", origIPHdrDst, origIPHdrSrc)
 		return &tcpip.ErrAddressFamilyNotSupported{}
 	}
 
