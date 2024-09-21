@@ -376,7 +376,19 @@ func (t *gtunnel) SetRoute(engine int) error {
 }
 
 func (t *gtunnel) Stat() (*x.NetStat, error) {
-	return netstack.Stat(t.stack)
+	st, err := netstack.Stat(t.stack)
+	if err == nil && st != nil {
+		if t := t.hdl.TCP(); t != nil {
+			st.RDNSIn.OpenConnsTCP = t.OpenConns()
+		}
+		if u := t.hdl.UDP(); u != nil {
+			st.RDNSIn.OpenConnsUDP = u.OpenConns()
+		}
+		if i := t.hdl.ICMP(); i != nil {
+			st.RDNSIn.OpenConnsICMP = i.OpenConns()
+		}
+	}
+	return st, err
 }
 
 func dup(fd int) (int, error) {
