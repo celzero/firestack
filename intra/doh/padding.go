@@ -63,8 +63,8 @@ func optPadding(msgLen int) *dns.EDNS0_PADDING {
 	}
 }
 
-// Add EDNS padding, as defined in RFC7830, to a raw DNS message.
-func AddEdnsPadding(msg *dns.Msg) (*dns.Msg, error) {
+// padQuery adds EDNS padding (RFC7830) to msg.
+func padQuery(msg *dns.Msg) (*dns.Msg, error) {
 	var opt *dns.OPT = nil
 	for _, addn := range msg.Extra {
 		if addn == nil || core.IsNil(addn) {

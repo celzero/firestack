@@ -340,12 +340,12 @@ func (t *transport) httpClientFor(p ipn.Proxy) (*http.Client, error) {
 // be determined.
 func (t *transport) doDoh(pid string, q *dns.Msg) (response *dns.Msg, blocklists, region string, elapsed time.Duration, qerr *dnsx.QueryError) {
 	start := time.Now()
-	q, err := AddEdnsPadding(q)
-	if err != nil {
+	q, err := padQuery(q)
+	if err != nil || q == nil {
 		log.W("doh: failed to add padding %s: %v", xdns.QName(q), err)
 		if settings.Debug { // fail on padding if debug
 			elapsed = time.Since(start)
-			qerr = dnsx.NewInternalQueryError(err)
+			qerr = dnsx.NewInternalQueryError(err) // err can be nil
 			return
 		}
 	}
