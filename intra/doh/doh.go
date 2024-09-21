@@ -338,16 +338,18 @@ func (t *transport) httpClientFor(p ipn.Proxy) (*http.Client, error) {
 // Independent of the query's success or failure, this function also returns the
 // address of the server on a best-effort basis, or nil if the address could not
 // be determined.
-func (t *transport) doDoh(pid string, q *dns.Msg) (response *dns.Msg, blocklists, region string, elapsed time.Duration, qerr *dnsx.QueryError) {
+func (t *transport) doDoh(pid string, msg *dns.Msg) (response *dns.Msg, blocklists, region string, elapsed time.Duration, qerr *dnsx.QueryError) {
 	start := time.Now()
-	q, err := padQuery(q)
-	if err != nil || q == nil {
-		log.W("doh: failed to add padding %s: %v", xdns.QName(q), err)
-		if settings.Debug { // fail on padding if debug
-			elapsed = time.Since(start)
-			qerr = dnsx.NewInternalQueryError(err) // err can be nil
-			return
-		}
+	q, err := padQuery(msg)
+	// fail on padding if debug
+	if settings.Debug && (err != nil || q == nil) {
+		elapsed = time.Since(start)
+		qerr = dnsx.NewInternalQueryError(err) // err can be nil
+		return
+	}
+	if q == nil { // padding error
+		log.W("doh: failed to pad %s: %v", xdns.QName(msg), err)
+		q = msg
 	}
 
 	// zero out the query id
