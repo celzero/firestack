@@ -207,11 +207,13 @@ func addIfAddrs(s *stack.Stack, nic tcpip.NICID) error {
 		AddressWithPrefix: ap6,
 	}
 
+	asMainAddr := stack.AddressProperties{PEB: stack.CanBePrimaryEndpoint}
+
 	// at: github.com/google/gvisor/blob/1f4299ee3f/pkg/tcpip/stack/addressable_endpoint_state.go#L177
-	if err := s.AddProtocolAddress(nic, protoaddr4, stack.AddressProperties{}); err != nil {
+	if err := s.AddProtocolAddress(nic, protoaddr4, asMainAddr); err != nil {
 		return fmt.Errorf("wg: %d add addr(%v): %v", nic, ifaddr6, err)
 	}
-	if err := s.AddProtocolAddress(nic, protoaddr6, stack.AddressProperties{}); err != nil {
+	if err := s.AddProtocolAddress(nic, protoaddr6, asMainAddr); err != nil {
 		return fmt.Errorf("wg: %d add addr(%v): %v", nic, ifaddr4, err)
 	}
 	return nil
