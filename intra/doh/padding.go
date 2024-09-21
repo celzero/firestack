@@ -39,8 +39,9 @@ const kOptPaddingHeaderLen int = 2 + // OPTION-CODE
 	2 // OPTION-LENGTH
 
 var (
-	errPadding  = errors.New("padding: malformed rr")
-	errNilExtra = errors.New("padding: nil extra")
+	errEdnsNilMsg   = errors.New("padding: nil msg")
+	errEdnsMal      = errors.New("padding: malformed rr")
+	errEdnsNilExtra = errors.New("padding: nil extra")
 )
 
 // Compute the number of padding bytes needed, excluding headers.
@@ -65,10 +66,13 @@ func optPadding(msgLen int) *dns.EDNS0_PADDING {
 
 // padQuery adds EDNS padding (RFC7830) to msg.
 func padQuery(msg *dns.Msg) (*dns.Msg, error) {
+	if msg == nil || core.IsNil(msg) {
+		return nil, errEdnsNilMsg
+	}
 	var opt *dns.OPT = nil
 	for _, addn := range msg.Extra {
 		if addn == nil || core.IsNil(addn) {
-			return nil, errNilExtra
+			return nil, errEdnsNilExtra
 		}
 		ahdr := addn.Header()
 		if ahdr != nil && ahdr.Rrtype == dns.TypeOPT {
@@ -95,7 +99,7 @@ func padQuery(msg *dns.Msg) (*dns.Msg, error) {
 						return msg, nil
 					} else { // has opt but no rr?!
 						log.E("doh: padding: has ends0padding opt but rr nil! %s", msg)
-						return nil, errPadding
+						return nil, errEdnsMal
 					}
 				}
 			}
