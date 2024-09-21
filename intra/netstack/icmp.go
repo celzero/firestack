@@ -7,8 +7,6 @@
 package netstack
 
 import (
-	"net/netip"
-
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/log"
 	"gvisor.dev/gvisor/pkg/buffer"
@@ -19,12 +17,8 @@ import (
 )
 
 type GICMPHandler interface {
-	// Ping informs if ICMP Echo from src to dst is replied to
-	Ping(src, dst netip.AddrPort, msg []byte) bool
-	// CloseConns closes all connections
-	CloseConns([]string) []string
-	// End closes the handler and all its connections
-	End() error
+	GBaseConnHandler
+	GEchoConnHandler
 }
 
 type icmpForwarder struct {

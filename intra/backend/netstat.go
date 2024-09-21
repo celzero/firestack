@@ -145,6 +145,10 @@ type RDNSInfo struct {
 	ProxyLastOKMs int64
 	ProxySinceMs  int64
 	Proxies       string
+
+	OpenConnsTCP  int32
+	OpenConnsUDP  int32
+	OpenConnsICMP int32
 }
 
 // NIC returns the network interface statistics.

@@ -40,16 +40,7 @@ var (
 )
 
 type GTCPConnHandler interface {
-	// Proxy copies data between conn and dst (egress).
-	Proxy(in *GTCPConn, src, dst netip.AddrPort) bool
-	// ReverseProxy copies data between conn and dst (ingress).
-	ReverseProxy(out *GTCPConn, in net.Conn, src, dst netip.AddrPort) bool
-	// Error notes the error in connecting src to dst; retrying if necessary.
-	Error(in *GTCPConn, src, dst netip.AddrPort, err error)
-	// CloseConns closes conns by cids, or all conns if cids is empty.
-	CloseConns([]string) []string
-	// End closes all conns and releases resources.
-	End() error
+	GSpecConnHandler[*GTCPConn]
 }
 
 var _ core.TCPConn = (*GTCPConn)(nil)

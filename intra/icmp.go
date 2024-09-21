@@ -87,6 +87,11 @@ func (h *icmpHandler) End() error {
 	return nil
 }
 
+// TODO: stub
+func (h *icmpHandler) OpenConns() int32 {
+	return 0
+}
+
 // CloseConns implements netstack.GICMPHandler.
 func (h *icmpHandler) CloseConns(cids []string) []string { return nil }
 
@@ -99,7 +104,7 @@ func (h *icmpHandler) CloseConns(cids []string) []string { return nil }
 // ref: androidxref.com/9.0.0_r3/xref/libcore/luni/src/test/java/libcore/java/net/InetAddressTest.java#265
 // see: sturmflut.github.io/linux/ubuntu/2015/01/17/unprivileged-icmp-sockets-on-linux/
 // ex: github.com/prometheus-community/pro-bing/blob/0bacb2d5e/ping.go#L703
-func (h *icmpHandler) Ping(source, target netip.AddrPort, msg []byte) (echoed bool) {
+func (h *icmpHandler) Ping(msg []byte, source, target netip.AddrPort) (echoed bool) {
 	var px ipn.Proxy = nil
 	var err error
 	var tx, rx int

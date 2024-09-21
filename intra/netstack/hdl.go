@@ -20,6 +20,40 @@ import (
 	"gvisor.dev/gvisor/pkg/tcpip/stack"
 )
 
+type gconns interface {
+	*GUDPConn | *GTCPConn
+}
+
+type GBaseConnHandler interface {
+	// OpenConns returns the number of active connections.
+	OpenConns() int32
+	// CloseConns closes conns by ids, or all if ids is empty.
+	CloseConns([]string) []string
+	// End closes the handler and all its connections.
+	End() error
+}
+
+type GSpecConnHandler[T gconns] interface {
+	GBaseConnHandler
+	// Proxy copies data between conn and dst (egress).
+	Proxy(in T, src, dst netip.AddrPort) bool
+	// ReverseProxy copies data between conn and dst (ingress).
+	ReverseProxy(out T, in net.Conn, src, dst netip.AddrPort) bool
+	// Error notes the error in connecting src to dst; retrying if necessary.
+	Error(in T, src, dst netip.AddrPort, err error)
+}
+
+type GMuxConnHandler[T gconns] interface {
+	// ProxyMux proxies data between conn and multiple destinations
+	// (endpoint-independent mapping).
+	ProxyMux(in T, src, dst netip.AddrPort, dmx DemuxerFn) bool
+}
+
+type GEchoConnHandler interface {
+	// Ping informs if ICMP Echo from src to dst is replied to
+	Ping(msg []byte, src, dst netip.AddrPort) bool
+}
+
 type GConnHandler interface {
 	TCP() GTCPConnHandler         // TCP returns the TCP handler.
 	UDP() GUDPConnHandler         // UDP returns the UDP handler.

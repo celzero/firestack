@@ -123,6 +123,13 @@ func (h *tcpHandler) End() error {
 	return nil
 }
 
+// OpenConns implements netstack.GTCPConnHandler
+func (h *tcpHandler) OpenConns() int32 {
+	// account for two conntracker entries (local, remote)
+	// per outbound connection
+	return int32(h.conntracker.Len() / 2)
+}
+
 // CloseConns implements netstack.GTCPConnHandler
 func (h *tcpHandler) CloseConns(cids []string) (closed []string) {
 	return closeconns(h.conntracker, cids)

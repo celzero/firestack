@@ -32,19 +32,8 @@ var (
 type DemuxerFn func(in net.Conn, to netip.AddrPort) error
 
 type GUDPConnHandler interface {
-	// ReverseProxy proxies data between conn and dst (egress).
-	ReverseProxy(out *GUDPConn, in net.Conn, src, dst netip.AddrPort) bool
-	// Proxy proxies data between conn (src) and dst.
-	Proxy(in *GUDPConn, src, dst netip.AddrPort) bool
-	// ProxyMux proxies data between conn and multiple destinations
-	// (endpoint-independent mapping).
-	ProxyMux(in *GUDPConn, src, dst netip.AddrPort, dmx DemuxerFn) bool
-	// Error notes the error in connecting src to dst.
-	Error(in *GUDPConn, src, dst netip.AddrPort, err error)
-	// CloseConns closes conns by ids, or all if ids is empty.
-	CloseConns([]string) []string
-	// End closes the handler and all its connections.
-	End() error
+	GSpecConnHandler[*GUDPConn]
+	GMuxConnHandler[*GUDPConn]
 }
 
 var _ core.UDPConn = (*GUDPConn)(nil)
