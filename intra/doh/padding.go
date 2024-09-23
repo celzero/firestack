@@ -40,6 +40,7 @@ const kOptPaddingHeaderLen int = 2 + // OPTION-CODE
 
 var (
 	errEdnsNilMsg   = errors.New("padding: nil msg")
+	errEdnsOptNil   = errors.New("padding: nil opt")
 	errEdnsMal      = errors.New("padding: malformed rr")
 	errEdnsNilExtra = errors.New("padding: nil extra")
 )
@@ -86,7 +87,10 @@ func padQuery(msg *dns.Msg) (*dns.Msg, error) {
 	if opt != nil {
 		for _, o := range opt.Option {
 			if o == nil || core.IsNil(o) {
-				continue
+				// msg.Len() panics when opt.Option contains nil values
+				// (miekg/dns/edns.go: *opt.len() => o.pack())
+				log.W("doh: padding: ends0padding opt nil in sz: %d", len(opt.Option))
+				return nil, errEdnsOptNil
 			}
 			if o.Option() == dns.EDNS0PADDING { // process padding rr
 				if p, ok := o.(*dns.EDNS0_PADDING); ok {
