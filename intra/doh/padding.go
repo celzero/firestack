@@ -120,7 +120,11 @@ func padQuery(msg *dns.Msg) (*dns.Msg, error) {
 			Option: nil, // must be nil when empty or msg.Len() panics
 		}
 		msg.Compress = true
-		msg.Extra = append(msg.Extra, opt)
+		if msg.Extra != nil && core.IsNotNil(msg.Extra) && len(msg.Extra) > 0 {
+			msg.Extra = append(msg.Extra, opt)
+		} else {
+			msg.Extra = []dns.RR{opt}
+		}
 	}
 	// At this point, |msg| contains an OPT resource, and that OPT resource
 	// does not contain a padding option. Add the padding option to |msg| that
