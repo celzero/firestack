@@ -133,7 +133,7 @@ func NewUDPHandler(resolver dnsx.Resolver, prox ipn.Proxies, tunMode *settings.T
 
 func (h *udpHandler) ReverseProxy(gconn *netstack.GUDPConn, in net.Conn, to, from netip.AddrPort) (ok bool) {
 	uid := UNKNOWN_UID
-	nn := networkNumber("udp")
+	nn := ntoa("udp")
 	// TODO: default fm as optionsBase or optionsBlock
 	// inflow does not go through nat/alg/dns/proxy
 	fm, ok := core.Grx("udp.inflow", func() *Mark {

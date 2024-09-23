@@ -151,7 +151,7 @@ func dnsOverride(r dnsx.Resolver, proto string, conn net.Conn, addr netip.AddrPo
 	return false
 }
 
-// TODO: move this to ipn.Ground
+// TODO: move this to ipn.Block
 func stall(m *core.ExpMap, k string) (secs uint32) {
 	if n := m.Get(k); n <= 0 {
 		secs = 0 // no stall
@@ -273,6 +273,7 @@ func filterFamilyForDialing(ipcsv string) string {
 		}
 	}
 	logger := log.VV
+	// fail open: if no ipv4 then fallback to ipv6, and vice-versa.
 	if len(filtered) <= 0 {
 		fallback = true
 		filtered = unfiltered
@@ -352,7 +353,7 @@ func (h *baseHandler) onFlow(network string, localaddr, target netip.AddrPort) (
 		}
 	}
 
-	var proto int32 = networkNumber(network) // -1 unsupported
+	var proto int32 = ntoa(network) // -1 unsupported
 
 	src := localaddr.String()
 	dst := target.String()
@@ -428,7 +429,7 @@ func (h *baseHandler) onFlow(network string, localaddr, target netip.AddrPort) (
 	return
 }
 
-func networkNumber(n string) int32 {
+func ntoa(n string) int32 {
 	switch n {
 	case "udp", "udp6", "udp4":
 		return 17

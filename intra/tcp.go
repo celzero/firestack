@@ -154,7 +154,7 @@ func (h *tcpHandler) Error(gconn *netstack.GTCPConn, src, dst netip.AddrPort, er
 
 func (h *tcpHandler) ReverseProxy(gconn *netstack.GTCPConn, in net.Conn, to, from netip.AddrPort) (open bool) {
 	uid := UNKNOWN_UID
-	nn := networkNumber("tcp")
+	nn := ntoa("tcp")
 	// TODO: default fm as optionsBase or optionsBlock
 	// inflow does not go through nat/alg/dns/proxy
 	fm, ok := core.Grx("tcp.inflow", func() *Mark {
