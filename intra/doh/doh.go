@@ -701,6 +701,8 @@ func (t *transport) GetAddr() string {
 
 	if t.echconfig != nil {
 		addr = dnsx.EchPrefix + addr
+	} else if t.skipTLSVerify {
+		addr = dnsx.NoPkiPrefix + addr
 	}
 	// doh transports could be "dnsx.Bootstrap"
 	prefix := dnsx.PrefixFor(t.id)

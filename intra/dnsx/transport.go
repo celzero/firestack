@@ -79,6 +79,7 @@ var (
 	presetprefix  = "pre."
 	fixedprefix   = "fix."
 	EchPrefix     = "ech."
+	NoPkiPrefix   = "nopki."
 )
 
 var (
