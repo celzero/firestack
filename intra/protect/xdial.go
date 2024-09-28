@@ -24,6 +24,8 @@ type PacketConn = net.PacketConn
 
 type Listener = net.Listener
 
+type DialFn func(network, addr string) (net.Conn, error)
+
 type RDialer interface {
 	// Dial creates a connection to the given address,
 	// the resulting net.Conn must be a *net.TCPConn if

@@ -78,6 +78,7 @@ var (
 	defaultprefix = "d."
 	presetprefix  = "pre."
 	fixedprefix   = "fix."
+	EchPrefix     = "ech."
 )
 
 var (
