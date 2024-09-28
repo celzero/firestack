@@ -30,7 +30,6 @@ var (
 	errNoHost = errors.New("no hostname")
 	errNoAns  = errors.New("no answer")
 	errNoNet  = errors.New("unknown network")
-	errNoCfg  = errors.New("dot: no config")
 
 	loopback4 = netip.AddrFrom4([4]byte{127, 0, 0, 1})
 	loopback6 = netip.IPv6Loopback()

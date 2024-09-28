@@ -185,17 +185,6 @@ func clos(c net.Conn) {
 	core.CloseConn(c)
 }
 
-// perform tls handshake
-func (t *dot) addtls(c net.Conn, cfg *tls.Config) (net.Conn, error) {
-	var err error
-	if cfg == nil {
-		return nil, errNoCfg
-	}
-	tlsconn := tls.Client(c, cfg)
-	err = tlsconn.Handshake()
-	return tlsconn, err
-}
-
 func (t *dot) sendRequest(pid string, q *dns.Msg) (ans *dns.Msg, elapsed time.Duration, qerr *dnsx.QueryError) {
 	var err error
 
