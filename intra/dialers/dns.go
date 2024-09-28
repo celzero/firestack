@@ -35,6 +35,7 @@ func Resolve(hostname string) ([]netip.Addr, error) {
 }
 
 // ECH returns the ECH config, if any, for the given hostname.
+// The query is resolved using IPMapper's default resolver.
 func ECH(hostname string) ([]byte, error) {
 	q, err := xdns.Question(hostname, dns.TypeHTTPS)
 	if err != nil {

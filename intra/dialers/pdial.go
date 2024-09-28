@@ -62,6 +62,7 @@ func proxydial(d proxy.Dialer, network, addr string, connect proxyConnectFunc) (
 	var errs error
 	s1 := time.Now()
 	ips := ipm.Get(domain)
+	// todo: resolve domain using proxy's resolver if available
 	dontretry := ips.OneIPOnly() // just one IP, no retries possible
 	confirmed := ips.Confirmed()
 	confirmedIPOK := ipok(confirmed)
@@ -73,7 +74,12 @@ func proxydial(d proxy.Dialer, network, addr string, connect proxyConnectFunc) (
 
 	if confirmedIPOK {
 		log.V("pdial: trying confirmed ip %s for %s; duration: %s", confirmed, addr, time.Since(s1))
-		if conn, err = connect(d, network, confirmed, port); err == nil {
+		conn, err = connect(d, network, confirmed, port)
+		// nilaway: tx.socks5 returns nil conn even if err == nil
+		if conn == nil && err == nil {
+			err = errNoConn
+		}
+		if err == nil {
 			log.V("pdial: found working ip %s for %s; duration: %s", confirmed, addr, time.Since(s1))
 			return conn, nil
 		}
@@ -113,7 +119,12 @@ func proxydial(d proxy.Dialer, network, addr string, connect proxyConnectFunc) (
 		}
 		if ipok(ip) {
 			log.V("pdial: trying ip%d %s for %s; duration: %s", i, ip, addr, time.Since(s3))
-			if conn, err = connect(d, network, ip, port); err == nil {
+			conn, err = connect(d, network, ip, port)
+			// nilaway: tx.socks5 returns nil conn even if err == nil
+			if conn == nil && err == nil {
+				err = errNoConn
+			}
+			if err == nil {
 				confirm(ips, ip)
 				log.I("pdial: found working ip%d %s for %s; duration: %s", i, ip, addr, time.Since(s3))
 				return conn, nil

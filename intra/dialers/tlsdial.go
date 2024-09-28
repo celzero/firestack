@@ -76,7 +76,11 @@ func tlsdial(d *tls.Dialer, network, addr string, connect tlsConnectFunc) (net.C
 
 	if confirmedIPOK {
 		log.V("tlsdial: confirmed ip %s for %s", confirmed, addr)
-		if conn, cerr := connect(d, network, domain, confirmed, port); cerr == nil {
+		conn, cerr := connect(d, network, domain, confirmed, port)
+		if conn == nil && err == nil {
+			err = errNoConn
+		}
+		if cerr == nil {
 			log.V("tlsdial: found working ip %s for %s", confirmed, addr)
 			return conn, nil
 		} else {
@@ -113,7 +117,11 @@ func tlsdial(d *tls.Dialer, network, addr string, connect tlsConnectFunc) (net.C
 		}
 		if ipok(ip) {
 			log.V("tlsdial: trying ip %s for %s", ip, addr)
-			if conn, err := connect(d, network, domain, ip, port); err == nil {
+			conn, err := connect(d, network, domain, ip, port)
+			if conn == nil && err == nil {
+				err = errNoConn
+			}
+			if err == nil {
 				confirm(ips, ip)
 				log.I("tlsdial: found working ip %s for %s", ip, addr)
 				return conn, nil

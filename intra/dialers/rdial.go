@@ -132,7 +132,12 @@ func commondial[C rconn](d *protect.RDial, network, addr string, connect mkrconn
 
 	if confirmedIPOK {
 		log.V("rdial: commondial: dialing confirmed ip %s for %s", confirmed, addr)
-		if conn, err = connect(d, network, confirmed, port); err == nil {
+		conn, err = connect(d, network, confirmed, port)
+		// nilaway: tx.socks5 returns nil conn even if err == nil
+		if conn == nil && err == nil {
+			err = errNoConn
+		}
+		if err == nil {
 			log.V("rdial: commondial: ip %s works for %s", confirmed, addr)
 			return conn, nil
 		}
@@ -168,7 +173,12 @@ func commondial[C rconn](d *protect.RDial, network, addr string, connect mkrconn
 			break
 		}
 		if ipok(ip) {
-			if conn, err = connect(d, network, ip, port); err == nil {
+			conn, err = connect(d, network, ip, port)
+			// nilaway: tx.socks5 returns nil conn even if err == nil
+			if conn == nil && err == nil {
+				err = errNoConn
+			}
+			if err == nil {
 				log.V("rdial: commondial: dialing ip %s for %s", ip, addr)
 				confirm(ips, ip)
 				log.I("rdial: commondial: ip %s works for %s", ip, addr)
