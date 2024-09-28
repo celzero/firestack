@@ -86,7 +86,6 @@ func NewTLSTransport(id, rawurl string, addrs []string, px ipn.Proxies, ctl prot
 		relay:         relay,
 		est:           core.NewP50Estimator(ctx),
 	}
-	// TODO: ECH
 	ech := t.ech()
 	if len(ech) > 0 {
 		echcfg.EncryptedClientHelloConfigList = ech
@@ -109,6 +108,7 @@ func dnsclient(c *tls.Config) *dns.Client {
 	}
 }
 
+// todo: ech over user specified dns+proxy
 func (t *dot) ech() []byte {
 	if v, err := dialers.ECH(t.host); err == nil {
 		log.V("dot: ech(%s): %d", t.host, len(v))
@@ -132,92 +132,53 @@ func (t *dot) doQuery(pid string, q *dns.Msg) (response *dns.Msg, elapsed time.D
 	return
 }
 
-func (t *dot) tlsdial() (_ *dns.Conn, err error) {
-	var c net.Conn = nil
-	if t.c3 != nil {
-		// no splits for ech or in loopback (rinr) mode
-		cfg := t.c3.TLSConfig
-		c, err = dialers.DialWithTls(t.rd, cfg, t.addr)
+func (t *dot) tlsdial(rd *protect.RDial) (_ *dns.Conn, err error) {
+	var c net.Conn = nil // dot is always tcp
+	addr := t.addr       // t.addr may be ip or hostname
+	if t.c3 != nil {     // may be nil if ech is not available
+		cfg := t.c3.TLSConfig // don't clone; may be modified by dialers.DialWithTls
+		c, err = dialers.DialWithTls(rd, cfg, addr)
 		log.W("dot: tlsdial: (%s) ech; err? %v", t.id, err)
 	}
 	if c == nil && core.IsNil(c) { // no ech or ech failed
 		cfg := t.c.TLSConfig
 		if settings.Loopingback.Load() {
-			c, err = dialers.DialWithTls(t.rd, cfg, t.addr)
+			// no splits for ech or in loopback (rinr) mode
+			c, err = dialers.DialWithTls(rd, cfg, addr)
 		} else {
-			c, err = dialers.SplitDialWithTls(t.rd, cfg, t.addr)
+			c, err = dialers.SplitDialWithTls(rd, cfg, addr)
 		}
 	}
 	if c != nil && core.IsNotNil(c) {
 		_ = c.SetDeadline(time.Now().Add(dottimeout))
+		// todo: higher timeout for if using proxy dialer
+		// _ = c.SetDeadline(time.Now().Add(dottimeout * 2))
 		return &dns.Conn{Conn: c, UDPSize: t.c.UDPSize}, err
+	} else {
+		if err == nil {
+			log.W("dot: tlsdial: (%s) nil conn/err for %s", t.id, addr)
+			err = errNoNet
+		}
 	}
 	return nil, err
 }
 
-func (t *dot) pxdial(pid string) (_ *dns.Conn, err error) {
+func (t *dot) pxdial(pid string) (*dns.Conn, error) {
 	var px ipn.Proxy
 	if t.relay != nil { // relay takes precedence
 		px = t.relay
 	} else if t.proxies != nil { // use proxy, if specified
+		var err error
 		if px, err = t.proxies.ProxyFor(pid); err != nil {
-			return
+			return nil, err
 		}
 	}
 	if px == nil {
 		return nil, dnsx.ErrNoProxyProvider
 	}
-
-	log.V("dot: pxdial: (%s) using relay/proxy %s at %s", t.id, px.ID(), px.GetAddr())
-
-	return t.multipxdial(px, t.c3, t.c)
-}
-
-func (t *dot) multipxdial(px ipn.Proxy, cs ...*dns.Client) (_ *dns.Conn, err error) {
-	var pxconn net.Conn
-	for _, c := range cs {
-		if c == nil { // may be nil if ech is not available
-			continue
-		}
-		cfg := c.TLSConfig // don't clone; we may need to modify it
-		// dot is always tcp; and t.addr may be ip or hostname
-		pxconn, err = px.Dialer().Dial("tcp", t.addr)
-		if pxconn == nil || err != nil { // nilaway: tx.socks5 returns nil conn even if err == nil
-			if err == nil {
-				err = errNoNet
-			}
-			log.E("dot: pxdial: (%s) no conn for relay/proxy %s at %s; err? %v",
-				t.id, px.ID(), px.GetAddr(), err)
-			continue
-		}
-
-		// higher timeout for proxy
-		_ = pxconn.SetDeadline(time.Now().Add(dottimeout * 2))
-		pxconn, err = t.addtls(pxconn, cfg)
-
-		if eerr, ok := err.(*tls.ECHRejectionError); ok {
-			clos(pxconn)
-
-			ech := eerr.RetryConfigList
-			log.I("dot: addtls: (%s) ech rejected; new? %d, err: %v", t.id, len(ech), eerr)
-			if len(ech) > 0 { // retry with new ech
-				cfg.EncryptedClientHelloConfigList = ech
-				t.c3 = dnsclient(cfg)
-				pxconn, err = t.addtls(pxconn, cfg)
-			}
-		}
-		if err != nil {
-			clos(pxconn)
-			continue
-		}
-	}
-	if err != nil {
-		return nil, err
-	}
-	if pxconn == nil { // unlikely unless all clients are nil
-		return nil, errNoCfg
-	}
-	return &dns.Conn{Conn: pxconn}, nil
+	log.V("dot: pxdial: (%s) using relay/proxy %s at %s",
+		t.id, px.ID(), px.GetAddr())
+	return t.tlsdial(px.Dialer())
 }
 
 func clos(c net.Conn) {
@@ -248,9 +209,8 @@ func (t *dot) sendRequest(pid string, q *dns.Msg) (ans *dns.Msg, elapsed time.Du
 	useproxy := len(pid) != 0 // pid == dnsx.NetNoProxy => ipn.Base
 	if useproxy || userelay {
 		conn, err = t.pxdial(pid)
-	} else {
-		// ref dns.Client.Dial
-		conn, err = t.tlsdial()
+	} else { // ref dns.Client.Dial
+		conn, err = t.tlsdial(t.rd)
 	}
 
 	if err == nil {
