@@ -222,14 +222,7 @@ func Dial(d *protect.RDial, network, addr string) (net.Conn, error) {
 
 // DialWithTls dials into addr using the provided dialer and returns a tls.Conn
 func DialWithTls(d *protect.RDial, cfg *tls.Config, addr string) (net.Conn, error) {
-	c, err := unPtr(commondial(d, "tcp", addr, adaptc(ipConnect)))
-	if err != nil {
-		clos(c)
-		return nil, err
-	}
-	tlsconn := tls.Client(c, cfg)
-	err = tlsconn.Handshake()
-	return tlsconn, err
+	return dialtls(d, cfg, addr, adaptc(ipConnect))
 }
 
 // SplitDial dials into addr splitting the first segment to two if the
@@ -241,16 +234,40 @@ func SplitDial(d *protect.RDial, network, addr string) (net.Conn, error) {
 
 // SplitDialWithTls dials into addr using the provided dialer and returns a tls.Conn
 func SplitDialWithTls(d *protect.RDial, cfg *tls.Config, addr string) (net.Conn, error) {
-	c, err := unPtr(commondial(d, "tcp", addr, adaptc(splitIpConnect)))
-	if err != nil {
-		clos(c)
-		return c, err
-	}
-	tlsconn := tls.Client(c, cfg)
-	err = tlsconn.Handshake()
-	return tlsconn, err
+	return dialtls(d, cfg, addr, adaptc(splitIpConnect))
 }
 
 func ipok(ip netip.Addr) bool {
 	return ip.IsValid() && !ip.IsUnspecified()
+}
+
+func dialtls(d *protect.RDial, cfg *tls.Config, addr string, how mkrconn[*net.Conn]) (net.Conn, error) {
+	c, err := unPtr(commondial(d, "tcp", addr, how))
+	if err != nil {
+		clos(c)
+		return nil, err
+	}
+	tlsconn := tls.Client(c, cfg)
+	err = tlsconn.Handshake()
+	if eerr, ok := err.(*tls.ECHRejectionError); ok {
+		clos(tlsconn)
+
+		ech := eerr.RetryConfigList
+		log.I("rdial: tls: ech rejected; new? %d, err: %v", len(ech), eerr)
+		if len(ech) > 0 { // retry with new ech
+			cfg.EncryptedClientHelloConfigList = ech
+			c, err = unPtr(commondial(d, "tcp", addr, adaptc(ipConnect)))
+			if err != nil {
+				clos(c)
+				return nil, err
+			}
+			tlsconn = tls.Client(c, cfg)
+			err = tlsconn.Handshake()
+		}
+	}
+	if err != nil {
+		clos(tlsconn)
+		tlsconn = nil
+	}
+	return tlsconn, err
 }

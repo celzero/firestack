@@ -27,18 +27,20 @@ import (
 )
 
 type dot struct {
-	ctx     context.Context
-	done    context.CancelFunc
-	id      string // id of the transport
-	url     string // full url
-	addr    string // ip:port or hostname:port
-	host    string // hostname from the url
-	status  int
-	c       *dns.Client
-	rd      *protect.RDial
-	proxies ipn.Proxies // may be nil
-	relay   ipn.Proxy   // may be nil
-	est     core.P2QuantileEstimator
+	ctx           context.Context
+	done          context.CancelFunc
+	id            string // id of the transport
+	url           string // full url
+	addr          string // ip:port or hostname:port
+	host          string // hostname from the url
+	skipTLSVerify bool
+	status        int
+	c             *dns.Client
+	c3            *dns.Client // with ech
+	rd            *protect.RDial
+	proxies       ipn.Proxies // may be nil
+	relay         ipn.Proxy   // may be nil
+	est           core.P2QuantileEstimator
 }
 
 var _ dnsx.Transport = (*dot)(nil)
@@ -46,14 +48,18 @@ var _ dnsx.Transport = (*dot)(nil)
 // NewTLSTransport returns a DNS over TLS transport, ready for use.
 func NewTLSTransport(id, rawurl string, addrs []string, px ipn.Proxies, ctl protect.Controller) (t *dot, err error) {
 	tlscfg := &tls.Config{MinVersion: tls.VersionTLS12}
+	echcfg := &tls.Config{MinVersion: tls.VersionTLS13}
 	// rawurl is either tls:host[:port] or tls://host[:port] or host[:port]
 	parsedurl, err := url.Parse(rawurl)
 	if err != nil {
 		return
 	}
+	skipTLSVerify := false
 	if parsedurl.Scheme != "tls" {
 		log.I("dot: disabling tls verification for %s", rawurl)
 		tlscfg.InsecureSkipVerify = true
+		// echcfg.InsecureSkipVerify = true
+		skipTLSVerify = true
 	}
 	var relay ipn.Proxy
 	if px != nil {
@@ -67,35 +73,40 @@ func NewTLSTransport(id, rawurl string, addrs []string, px ipn.Proxies, ctl prot
 	tlscfg.ServerName = hostname
 	ctx, done := context.WithCancel(context.Background())
 	t = &dot{
-		ctx:     ctx,
-		done:    done,
-		id:      id,
-		url:     rawurl,
-		host:    hostname,
-		addr:    url2addr(rawurl), // may or may not be ipaddr
-		status:  x.Start,
-		proxies: px,
-		rd:      rd,
-		relay:   relay,
-		est:     core.NewP50Estimator(ctx),
+		ctx:           ctx,
+		done:          done,
+		id:            id,
+		url:           rawurl,
+		host:          hostname,
+		skipTLSVerify: skipTLSVerify,
+		addr:          url2addr(rawurl), // may or may not be ipaddr
+		status:        x.Start,
+		proxies:       px,
+		rd:            rd,
+		relay:         relay,
+		est:           core.NewP50Estimator(ctx),
 	}
 	// TODO: ECH
 	ech := t.ech()
-	// if len(ech) > 0 {
-	// 	tlscfg.EncryptedClientHelloConfigList = ech
-	// 	tlscfg.MinVersion = tls.VersionTLS13
-	// }
-	// local dialer: protect.MakeNsDialer(id, ctl)
-	t.c = &dns.Client{
-		Net:            "tcp-tls",
-		Dialer:         nil, // unused; dialers from px take precedence
-		Timeout:        dottimeout,
-		SingleInflight: true,
-		TLSConfig:      tlscfg,
+	if len(ech) > 0 {
+		echcfg.EncryptedClientHelloConfigList = ech
+		t.c3 = dnsclient(echcfg)
 	}
+	// local dialer: protect.MakeNsDialer(id, ctl)
+	t.c = dnsclient(tlscfg)
 	log.I("dot: (%s) setup: %s; relay? %t; resolved? %t, ech? %t",
 		id, rawurl, relay != nil, ok, len(ech) > 0)
 	return t, nil
+}
+
+func dnsclient(c *tls.Config) *dns.Client {
+	return &dns.Client{
+		Net:            "tcp-tls",
+		Dialer:         nil, // unused; dialers from px take precedence
+		Timeout:        dottimeout,
+		SingleInflight: true, // coalsece queries
+		TLSConfig:      c.Clone(),
+	}
 }
 
 func (t *dot) ech() []byte {
@@ -122,11 +133,20 @@ func (t *dot) doQuery(pid string, q *dns.Msg) (response *dns.Msg, elapsed time.D
 }
 
 func (t *dot) tlsdial() (_ *dns.Conn, err error) {
-	var c net.Conn
-	if settings.Loopingback.Load() { // no splits in loopback (rinr) mode
-		c, err = dialers.DialWithTls(t.rd, t.c.TLSConfig.Clone(), t.addr)
-	} else {
-		c, err = dialers.SplitDialWithTls(t.rd, t.c.TLSConfig.Clone(), t.addr)
+	var c net.Conn = nil
+	if t.c3 != nil {
+		// no splits for ech or in loopback (rinr) mode
+		cfg := t.c3.TLSConfig
+		c, err = dialers.DialWithTls(t.rd, cfg, t.addr)
+		log.W("dot: tlsdial: (%s) ech; err? %v", t.id, err)
+	}
+	if c == nil && core.IsNil(c) { // no ech or ech failed
+		cfg := t.c.TLSConfig
+		if settings.Loopingback.Load() {
+			c, err = dialers.DialWithTls(t.rd, cfg, t.addr)
+		} else {
+			c, err = dialers.SplitDialWithTls(t.rd, cfg, t.addr)
+		}
 	}
 	if c != nil && core.IsNotNil(c) {
 		_ = c.SetDeadline(time.Now().Add(dottimeout))
@@ -135,7 +155,7 @@ func (t *dot) tlsdial() (_ *dns.Conn, err error) {
 	return nil, err
 }
 
-func (t *dot) pxdial(pid string) (conn *dns.Conn, err error) {
+func (t *dot) pxdial(pid string) (_ *dns.Conn, err error) {
 	var px ipn.Proxy
 	if t.relay != nil { // relay takes precedence
 		px = t.relay
@@ -149,25 +169,55 @@ func (t *dot) pxdial(pid string) (conn *dns.Conn, err error) {
 	}
 
 	log.V("dot: pxdial: (%s) using relay/proxy %s at %s", t.id, px.ID(), px.GetAddr())
-	// dot is always tcp; and t.addr may be ip or hostname
-	pxconn, err := px.Dialer().Dial("tcp", t.addr)
+
+	return t.multipxdial(px, t.c3, t.c)
+}
+
+func (t *dot) multipxdial(px ipn.Proxy, cs ...*dns.Client) (_ *dns.Conn, err error) {
+	var pxconn net.Conn
+	for _, c := range cs {
+		if c == nil { // may be nil if ech is not available
+			continue
+		}
+		cfg := c.TLSConfig // don't clone; we may need to modify it
+		// dot is always tcp; and t.addr may be ip or hostname
+		pxconn, err = px.Dialer().Dial("tcp", t.addr)
+		if pxconn == nil || err != nil { // nilaway: tx.socks5 returns nil conn even if err == nil
+			if err == nil {
+				err = errNoNet
+			}
+			log.E("dot: pxdial: (%s) no conn for relay/proxy %s at %s; err? %v",
+				t.id, px.ID(), px.GetAddr(), err)
+			continue
+		}
+
+		// higher timeout for proxy
+		_ = pxconn.SetDeadline(time.Now().Add(dottimeout * 2))
+		pxconn, err = t.addtls(pxconn, cfg)
+
+		if eerr, ok := err.(*tls.ECHRejectionError); ok {
+			clos(pxconn)
+
+			ech := eerr.RetryConfigList
+			log.I("dot: addtls: (%s) ech rejected; new? %d, err: %v", t.id, len(ech), eerr)
+			if len(ech) > 0 { // retry with new ech
+				cfg.EncryptedClientHelloConfigList = ech
+				t.c3 = dnsclient(cfg)
+				pxconn, err = t.addtls(pxconn, cfg)
+			}
+		}
+		if err != nil {
+			clos(pxconn)
+			continue
+		}
+	}
 	if err != nil {
-		return
+		return nil, err
 	}
-	if pxconn == nil { // nilaway: tx.socks5 returns nil conn even if err == nil
-		log.E("dot: pxdial: (%s) no conn for relay/proxy %s at %s", t.id, px.ID(), px.GetAddr())
-		err = errNoNet
-		return
+	if pxconn == nil { // unlikely unless all clients are nil
+		return nil, errNoCfg
 	}
-	// higher timeout for proxy
-	_ = pxconn.SetDeadline(time.Now().Add(dottimeout * 3))
-	pxconn, err = t.addtls(pxconn)
-	if err != nil {
-		clos(pxconn)
-		return
-	}
-	conn = &dns.Conn{Conn: pxconn}
-	return
+	return &dns.Conn{Conn: pxconn}, nil
 }
 
 func clos(c net.Conn) {
@@ -175,9 +225,13 @@ func clos(c net.Conn) {
 }
 
 // perform tls handshake
-func (t *dot) addtls(c net.Conn) (net.Conn, error) {
-	tlsconn := tls.Client(c, t.c.TLSConfig)
-	err := tlsconn.Handshake()
+func (t *dot) addtls(c net.Conn, cfg *tls.Config) (net.Conn, error) {
+	var err error
+	if cfg == nil {
+		return nil, errNoCfg
+	}
+	tlsconn := tls.Client(c, cfg)
+	err = tlsconn.Handshake()
 	return tlsconn, err
 }
 
@@ -207,6 +261,7 @@ func (t *dot) sendRequest(pid string, q *dns.Msg) (ans *dns.Msg, elapsed time.Du
 
 	raddr := remoteAddrIfAny(conn)
 	if err != nil {
+		clos(conn)
 		ok := dialers.Disconfirm2(t.host, raddr)
 		log.V("dot: sendRequest: (%s) err: %v; disconfirm? %t %s => %s", t.id, err, ok, t.host, raddr)
 		qerr = dnsx.NewSendFailedQueryError(err)
@@ -265,8 +320,13 @@ func (t *dot) P50() int64 {
 	return t.est.Get()
 }
 
-func (t *dot) GetAddr() string {
-	return t.addr
+func (t *dot) GetAddr() (addr string) {
+	if t.c3 != nil {
+		addr = dnsx.EchPrefix + t.addr
+	} else if t.skipTLSVerify {
+		addr = dnsx.NoPkiPrefix + t.addr
+	}
+	return addr
 }
 
 func (t *dot) Status() int {
