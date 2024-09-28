@@ -216,8 +216,7 @@ func (b *bootstrap) P50() int64 {
 func (b *bootstrap) GetAddr() string {
 	tr := b.Transport
 	if tr != nil {
-		prefix := dnsx.PrefixFor(b.ID())
-		return prefix + tr.GetAddr()
+		return tr.GetAddr()
 	}
 	return ""
 }
