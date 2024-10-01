@@ -230,6 +230,8 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target netip.AddrPort)
 		return deny
 	}
 
+	actualTargets := makeIPPorts(realips, target, 0)
+
 	if pid == ipn.Block {
 		if undidAlg && len(realips) <= 0 && len(domains) > 0 {
 			err = errNoIPsForDomain
@@ -247,7 +249,11 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target netip.AddrPort)
 			waittime := time.Duration(secs) * time.Second
 			time.Sleep(waittime)
 		}
-		log.I("tcp: gconn %s firewalled from %s -> %s (dom: %s / real: %s) for %s; stall? %ds", cid, src, target, domains, realips, uid, secs)
+		if len(actualTargets) > 0 {
+			smm.Target = actualTargets[0].Addr().String()
+		}
+		log.I("tcp: gconn %s firewalled from %s -> %s (dom: %s / real: %s) for %s; stall? %ds",
+			cid, src, target, domains, realips, uid, secs)
 
 		return deny
 	}
@@ -272,7 +278,7 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target netip.AddrPort)
 	} // if ipn.Exit then let it connect as-is (aka exit)
 
 	// pick all realips to connect to
-	for i, dstipp := range makeIPPorts(realips, target, 0) {
+	for i, dstipp := range actualTargets {
 		// h.conntracker.TrackDest(ct, dstipp) // may be untracked by handle()
 		if err = h.handle(px, gconn, dstipp, smm); err == nil {
 			return allow

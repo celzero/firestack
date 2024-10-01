@@ -88,10 +88,10 @@ type wgtun struct {
 
 	// mutable fields
 
-	peers   *core.Volatile[map[string]device.NoisePublicKey] // peer (remote endpoint) public keys
-	dns     *core.Volatile[*multihost.MH]                    // dns resolver for this interface
-	allowed *core.Volatile[[]netip.Prefix]                   // allowed ips (peers)
-	remote  *core.Volatile[*multihost.MH]                    // peer (remote endpoint) addrs
+	peers  *core.Volatile[map[string]device.NoisePublicKey] // peer (remote endpoint) public keys
+	dns    *core.Volatile[*multihost.MH]                    // dns resolver for this interface
+	remote *core.Volatile[*multihost.MH]                    // peer (remote endpoint) addrs
+	rt     x.IpTree                                         // route table for this interface
 
 	status     *core.Volatile[int] // status of this interface
 	latestPing atomic.Int64        // last ping time in unix millis
@@ -297,14 +297,21 @@ func (w *wgproxy) update(id, txt string) bool {
 	// reusing existing tunnel (interface config unchanged)
 	// but peer config may have changed!
 	log.I("proxy: wg: update(%s): reuse; allowed: %d->%d; peers: %d->%d; dns: %d->%d; endpoint: %d->%d",
-		w.id, len(w.allowed.Load()), len(allowed), len(w.peers.Load()), len(peers), w.dns.Load().Len(), dnsh.Len(),
+		w.id, w.rt.Len(), len(allowed), len(w.peers.Load()), len(peers), w.dns.Load().Len(), dnsh.Len(),
 		w.remote.Load().Len() /*remote.Load may return nil*/, peersh.Len())
 	w.peers.Store(peers) // re-assignment is okay (map entry modification is not)
-	w.allowed.Store(allowed)
+	w.allowedIPs(allowed)
 	w.remote.Store(peersh) // requires refresh
 	w.dns.Store(dnsh)      // requires refresh
 
 	return reuse
+}
+
+func (w *wgtun) allowedIPs(allowed []netip.Prefix) {
+	w.rt.Clear()
+	for _, ipnet := range allowed {
+		w.rt.Set(ipnet.String(), w.id)
+	}
 }
 
 func wglogger(id string) *device.Logger {
@@ -509,10 +516,10 @@ func makeWgTun(id, cfg string, rev netstack.GConnHandler, ifaddrs, allowedaddrs 
 		events:        make(chan tun.Event, eventssize),
 		ingress:       make(chan *buffer.View, epsize),
 		finalize:      make(chan struct{}), // always unbuffered
-		allowed:       core.NewVolatile(allowedaddrs),
 		dns:           core.NewVolatile(dnsm),
 		remote:        core.NewVolatile(endpointm), // may be nil
 		peers:         core.NewVolatile(peers),     // its entries must never be modified
+		rt:            x.NewIpTree(),
 		ba:            core.NewBarrier[[]netip.Addr](wgbarrierttl),
 		mtu:           tunmtu,
 		status:        core.NewVolatile(TUP),
@@ -891,26 +898,9 @@ func (h *wgtun) IP4() bool { return h.hasV4 }
 func (h *wgtun) IP6() bool { return h.hasV6 }
 
 func (h *wgtun) Contains(ipprefix string) bool {
-	ip, err1 := netip.ParseAddr(ipprefix)
-	if err1 != nil {
-		if ipnet, err2 := netip.ParsePrefix(ipprefix); err2 != nil {
-			log.W("wg: %s router: contains: invalid ip/prefix %s; errs: [%v, %v]", h.id, ipprefix, err1, err2)
-			return false
-		} else {
-			ip = ipnet.Addr()
-		}
-	}
-
-	// go.dev/play/p/wdPoNt-cqXZ
-	for _, r := range h.allowed.Load() {
-		y := r.Contains(ip)
-		log.V("wg: %s router: contains: %s in %s? %t", h.id, ip, r, y)
-		if y {
-			return y
-		}
-	}
-
-	return false
+	y, err := h.rt.HasAny(ipprefix)
+	loged(err)("wg: %s router: %s contains? %t; err? %v", h.id, ipprefix, y, err)
+	return y
 }
 
 func (h *wgtun) listener(op string, err error) {
@@ -971,6 +961,13 @@ func calcNetMtu(tunmtu int) int {
 func timedout(err error) bool {
 	x, ok := err.(net.Error)
 	return ok && x.Timeout()
+}
+
+func loged(err error) log.LogFn {
+	if err != nil {
+		return log.E
+	}
+	return log.D
 }
 
 // func Stop(), Fetch(), getDialer() is impl by wgproxy

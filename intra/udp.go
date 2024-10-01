@@ -248,6 +248,8 @@ func (h *udpHandler) Connect(gconn *netstack.GUDPConn, src, target netip.AddrPor
 		return nil, smm, errUdpEnd // disconnect, no nat
 	}
 
+	actualTargets := makeIPPorts(realips, target, 0)
+
 	if pid == ipn.Block {
 		if undidAlg && len(realips) <= 0 && len(domains) > 0 {
 			err = errNoIPsForDomain
@@ -264,6 +266,9 @@ func (h *udpHandler) Connect(gconn *netstack.GUDPConn, src, target netip.AddrPor
 		if secs = stall(h.fwtracker, k); secs > 0 {
 			waittime := time.Duration(secs) * time.Second
 			time.Sleep(waittime)
+		}
+		if len(actualTargets) > 0 {
+			smm.Target = actualTargets[0].Addr().String()
 		}
 		log.I("udp: connect: %s conn firewalled from %s => %s (dom: %s / real: %s); stall? %ds for uid %s",
 			cid, src, target, domains, realips, secs, uid)
@@ -309,7 +314,7 @@ func (h *udpHandler) Connect(gconn *netstack.GUDPConn, src, target netip.AddrPor
 	var errs error
 	var selectedTarget netip.AddrPort
 	// note: fake-dns-ips shouldn't be un-nated / un-alg'd
-	for i, dstipp := range makeIPPorts(realips, target, 0) {
+	for i, dstipp := range actualTargets {
 		selectedTarget = dstipp
 		if mux { // mux is not supported by all proxies (few like Exit, Base, WG support it)
 			pc, err = h.mux.associate(cid, pid, uid, src, selectedTarget, px.Dialer().Announce, vendor(dmx))

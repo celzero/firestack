@@ -179,6 +179,8 @@ func oneRealIPPort(realips string, origipp netip.AddrPort) netip.AddrPort {
 	return origipp
 }
 
+// makeIPPorts returns a slice of valid, non-zero at most cap AddrPorts.
+// The first element may be origipp AddrPort, if realips is empty or contains only unspecified IPs.
 func makeIPPorts(realips string, origipp netip.AddrPort, cap int) []netip.AddrPort {
 	use4 := dialers.Use4()
 	use6 := dialers.Use6()

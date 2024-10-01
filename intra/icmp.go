@@ -111,6 +111,7 @@ func (h *icmpHandler) Ping(msg []byte, source, target netip.AddrPort) (echoed bo
 
 	// flow is alg/nat-aware, do not change target or any addrs
 	res, undidAlg, realips, doms := h.flow(source, target)
+	dst := oneRealIPPort(realips, target)
 	// on Android, uid is always "unknown" for icmp
 	cid, pid, uid := splitCidPidUid(res)
 	smm := icmpSummary(cid, pid, uid)
@@ -118,6 +119,7 @@ func (h *icmpHandler) Ping(msg []byte, source, target netip.AddrPort) (echoed bo
 	defer func() {
 		smm.Tx = int64(tx)
 		smm.Rx = int64(rx)
+		smm.Target = dst.Addr().String()
 		queueSummary(h.smmch, h.done, smm.done(err)) // err may be nil
 	}()
 
@@ -145,7 +147,6 @@ func (h *icmpHandler) Ping(msg []byte, source, target netip.AddrPort) (echoed bo
 		return false // denied
 	}
 
-	dst := oneRealIPPort(realips, target)
 	proto, anyaddr := anyaddrFor(dst)
 
 	uc, err := px.Dialer().Probe(proto, anyaddr)
