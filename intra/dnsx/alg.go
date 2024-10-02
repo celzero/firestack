@@ -91,8 +91,8 @@ func (sec *secans) initIfNeeded() {
 	if sec.ips == nil {
 		sec.ips = []*netip.Addr{}
 	}
-	if sec.summary == nil {
-		sec.summary = new(x.DNSSummary)
+	if sec.smm == nil {
+		sec.smm = new(x.DNSSummary)
 	}
 }
 
@@ -215,8 +215,8 @@ func (t *dnsgateway) querySecondary(t2 Transport, network string, msg *dns.Msg, 
 			result.ips = append(result.ips, xdns.AAnswer(ans1)...)
 			result.ips = append(result.ips, xdns.AAAAAnswer(ans1)...)
 		} // noop: for HTTP/SVCB, the answer is always empty
-		result.summary.Blocklists = blocklists
-		result.summary.Status = Complete
+		result.smm.Blocklists = blocklists
+		result.smm.Status = Complete
 		return
 	}
 
@@ -226,19 +226,20 @@ func (t *dnsgateway) querySecondary(t2 Transport, network string, msg *dns.Msg, 
 		result.pri = true // secans not from secondary
 	} else {
 		// query secondary to get answer for q
-		r, err = Req(t2, network, msg, result.summary)
+		r, err = Req(t2, network, msg, result.smm)
 	}
 
 	// check if answer r is blocked; r is either from t2 or from <-in
 	if err != nil || r == nil || !xdns.HasAnyAnswer(r) { // not a valid dns answer
 		log.D("alg: skip; sec transport %s; nores? %t, err? %v", idstr(t2), r == nil, err)
+		result.smm.Msg = errNotEnoughAnswers.Error()
 		return
-	} else if a, blocklistnames := t.rdns.blockA( /*may be nil*/ t2, nil, msg, r, result.summary.Blocklists); a != nil {
+	} else if a, blocklistnames := t.rdns.blockA( /*may be nil*/ t2, nil, msg, r, result.smm.Blocklists); a != nil {
 		// if "a" is not nil, then the r is blocked
 		if len(blocklistnames) > 0 {
-			result.summary.Blocklists = blocklistnames
+			result.smm.Blocklists = blocklistnames
 		}
-		// when UpstreamBlocks is true, A/AAAA must be 0.0.0.0/::
+		// when rdns.blockA blocks, A/AAAA must be 0.0.0.0/::
 		// and HTTPS/SVCB is an empty answer section
 		// see: xdns.RefusedResponseFromMessage
 		if len(a.Answer) > 0 {
@@ -248,7 +249,7 @@ func (t *dnsgateway) querySecondary(t2 Transport, network string, msg *dns.Msg, 
 		return
 	} else {
 		if len(blocklistnames) > 0 {
-			result.summary.Blocklists = blocklistnames
+			result.smm.Blocklists = blocklistnames
 		}
 		if xdns.AQuadAUnspecified(r) {
 			// A/AAAA must be 0.0.0.0/::, when UpstreamBlocks is true
@@ -269,7 +270,7 @@ func (t *dnsgateway) querySecondary(t2 Transport, network string, msg *dns.Msg, 
 
 // Implements Gateway
 // preset may be nil
-func (t *dnsgateway) q(t1, t2 Transport, preset []*netip.Addr, network string, q *dns.Msg, summary *x.DNSSummary) (*dns.Msg, error) {
+func (t *dnsgateway) q(t1, t2 Transport, preset []*netip.Addr, network string, q *dns.Msg, smm *x.DNSSummary) (*dns.Msg, error) {
 	var ansin *dns.Msg // answer got from transports
 	var err error
 
@@ -307,7 +308,7 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []*netip.Addr, network string, q
 	t1res <- ansin // ansin may be nil; but that's ok
 
 	// override relevant values in summary
-	fillSummary(innersummary, summary)
+	fillSummary(innersummary, smm)
 
 	if err != nil {
 		if ansin == nil {
@@ -326,14 +327,14 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []*netip.Addr, network string, q
 
 	qname, _ := xdns.NormalizeQName(xdns.QName(ansin))
 
-	summary.QName = qname
-	summary.QType = qtype(ansin)
+	smm.QName = qname
+	smm.QType = qtype(ansin)
 
 	// if usefixed is true, then d64 is no-op, as preset fixed ip does have ipv6
 	ans64 := t.dns64.D64(network, ansin, t1) // ans64 may be nil if no D64 or error
 	if ans64 != nil {
-		log.D("alg: dns64; s/ans(%d)/ans64(%d)", xdns.Len(ansin), xdns.Len(ans64))
-		withDNS64Summary(ans64, summary)
+		log.D("alg: %s:%d dns64; s/ans(%d)/ans64(%d)", qname, smm.QType, xdns.Len(ansin), xdns.Len(ans64))
+		withDNS64Summary(ans64, smm)
 		ansin = ans64
 	} // else: no dns64, or error; continue with ansin
 
@@ -341,17 +342,18 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []*netip.Addr, network string, q
 		xdns.HasSVCBQuestion(ansin) || xdns.HasHTTPQuestion(ansin)
 	hasans := xdns.HasAnyAnswer(ansin)
 	rgood := xdns.HasRcodeSuccess(ansin)
-	// for t1, ansin's already evaluated for ans0000 in querySecondary
-	// (may be superceded by answer from t2, if t2 is not nil); and so
-	// only ans64 is checked for "0.0.0.0" / "::" here.
+	// for t1, ansin's already evaluated for ans0000 in querySecondary,
+	// when secans.pri is true (may be superceded by answer from t2,
+	// if t2 != nil), & so only ans64 is checked for 0.0.0.0 / :: here.
 	ans640000 := xdns.AQuadAUnspecified(ans64) // ans64 may be nil
 
 	if ans640000 {
-		summary.UpstreamBlocks = true
+		smm.UpstreamBlocks = true
 	}
 
 	if !hasq || !hasans || !rgood || ans640000 {
-		log.D("alg: skip; query(n:%s / a:%d) hasq(%t) hasans(%t) rgood(%t), ans0000(%t)", qname, xdns.Len(ansin), hasq, hasans, rgood, ans640000)
+		log.D("alg: skip; query %s:%d / a:%d, hasq(%t) hasans(%t) rgood(%t), ans0000(%t)",
+			qname, smm.QType, xdns.Len(ansin), hasq, hasans, rgood, ans640000)
 		return ansin, nil
 	}
 
@@ -364,18 +366,25 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []*netip.Addr, network string, q
 	realip := make([]*netip.Addr, 0)
 	algips := make([]*netip.Addr, 0)
 
-	// fetch secondary ips before lock
+	// fetch secondary ips before locks
+	// these may be from primary when secans.pri is true
 	secres := <-secch
 
 	// inform kt of secondary blocklists, if any
-	summary.Blocklists = secres.summary.Blocklists
-	summary.UpstreamBlocks = secres.summary.UpstreamBlocks || summary.UpstreamBlocks
+	smm.Blocklists = secres.smm.Blocklists
+	smm.UpstreamBlocks = secres.smm.UpstreamBlocks || smm.UpstreamBlocks
+
+	if smm.UpstreamBlocks || len(secres.smm.Msg) > 0 {
+		smsg := secres.smm.Msg
+		spri := secres.pri
+		log.V("alg: %s:%d upstream blocks: primary? %t / sec? %t; secres: pri? %t, msg:  %s",
+			qname, smm.QType, secres.smm.UpstreamBlocks, smm.UpstreamBlocks, spri, smsg)
+	}
 
 	defer func() {
 		if isAlgErr(err) && !mod {
-			log.D("alg: no mod; suppress err %v", err)
-			// ignore alg errors if no modification is desired
-			err = nil
+			log.D("alg: %s:%d no mod; suppress err %v", qname, smm.QType, err)
+			err = nil // ignore alg errors if no modification is desired
 		}
 	}()
 
@@ -447,14 +456,16 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []*netip.Addr, network string, q
 		mustsubst = true
 	}
 
-	log.D("alg: %s a6(a %d / h %d / s %t) : a4(a %d / h %d / s %t)", qname, len(a6), len(ip6hints), substok6, len(a4), len(ip4hints), substok4)
+	log.D("alg: %s:%d a6(a %d / h %d / s %t) : a4(a %d / h %d / s %t)",
+		qname, smm.QType, len(a6), len(ip6hints), substok6, len(a4), len(ip4hints), substok4)
 	if !substok4 && !substok6 {
 		if mustsubst {
 			err = errCannotSubstAlg
 		} else { // no algips
 			err = nil
 		}
-		log.D("alg: skip; err(%v); ips subst %s; fixed? %t", err, qname, usefixed)
+		log.D("alg: skip; err(%v); ips subst %s:%d; fixed? %t",
+			err, qname, smm.QType, usefixed)
 		return ansin, err // ansin is nil if no alg ips
 	}
 
@@ -477,8 +488,8 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []*netip.Addr, network string, q
 	prevsec4s, prevsec6s, _ := t.resolvLocked(qname, typsecondary)
 	secres.ips = removeDups2(secres.ips, prevsec4s, prevsec6s)
 
-	log.D("alg: subst; for %s / prev targets %s; prev ips (alg? %t / fix? %t); v4: %s, v6: %s; sec4: %s, sec6: %s",
-		qname, prevtargets, mod, usefixed, previp4s, previp6s, prevsec4s, prevsec6s)
+	log.D("alg: subst; for %s:%d / prev targets %s; prev ips (alg? %t / fix? %t); v4: %s, v6: %s; sec4: %s, sec6: %s",
+		qname, smm.QType, prevtargets, mod, usefixed, previp4s, previp6s, prevsec4s, prevsec6s)
 	// TODO: just like w/ previps/prevtargets, get blocklists for qname and merge w/ new ones?
 
 	ansttl := time.Duration(xdns.RTtl(ansin)) * time.Second
@@ -494,18 +505,19 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []*netip.Addr, network string, q
 		secondaryips: secres.ips,
 		domain:       targets, // may be nil
 		qname:        qname,
-		blocklists:   secres.summary.Blocklists,
+		blocklists:   secres.smm.Blocklists,
 		// qname->realip valid for next ttl seconds
 		// but algips are valid for algttl seconds
 		ttl: time.Now().Add(max(ttl2m, ansttl)),
 	}
 
-	log.D("alg: ok; domains %s real: %s / fix: %s => subst %s; mod? %t; sec %s", targets, realip, fixedips, algips, mod, secres.ips)
+	log.D("alg: ok; domains %s real: %s / fix: %s => subst %s; mod? %t; sec %s",
+		targets, realip, fixedips, algips, mod, secres.ips)
 
 	if t.registerMultiLocked(qname, x) {
 		// if mod is set, send modified answer
 		if mod {
-			withAlgSummaryIfNeeded(algips, summary)
+			withAlgSummaryIfNeeded(algips, smm)
 			return ansout, nil
 		} else {
 			return ansin, nil
