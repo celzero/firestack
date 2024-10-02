@@ -80,8 +80,9 @@ type Gateway interface {
 }
 
 type secans struct {
-	ips     []*netip.Addr
-	summary *x.DNSSummary
+	ips []*netip.Addr
+	smm *x.DNSSummary
+	pri bool
 }
 
 func (sec *secans) initIfNeeded() {
@@ -203,8 +204,10 @@ func (t *dnsgateway) querySecondary(t2 Transport, network string, msg *dns.Msg, 
 
 	// check if the question is blocked
 	if msg == nil || !xdns.HasAnyQuestion(msg) {
+		result.smm.Msg = errNoQuestion.Error()
 		return // not a valid dns message
 	} else if ok := xdns.HasAQuadAQuestion(msg) || xdns.HasHTTPQuestion(msg) || xdns.HasSVCBQuestion(msg); !ok {
+		result.smm.Msg = errNotEnoughAnswers.Error()
 		return // not a dns question we care about
 	} else if ans1, blocklists, err2 := t.rdns.blockQ( /*maybe nil*/ t2, nil, msg); err2 == nil {
 		// if err !is nil, then the question is blocked
@@ -219,7 +222,8 @@ func (t *dnsgateway) querySecondary(t2 Transport, network string, msg *dns.Msg, 
 
 	// no secondary transport; check if there's already an answer to work with
 	if t2 == nil || core.IsNil(t2) {
-		r = <-t1res // from primary transport, t1; r may be nil
+		r = <-t1res       // from primary transport, t1; r may be nil
+		result.pri = true // secans not from secondary
 	} else {
 		// query secondary to get answer for q
 		r, err = Req(t2, network, msg, result.summary)
@@ -234,7 +238,8 @@ func (t *dnsgateway) querySecondary(t2 Transport, network string, msg *dns.Msg, 
 		if len(blocklistnames) > 0 {
 			result.summary.Blocklists = blocklistnames
 		}
-		// blocked answer has A, AAAA, or HTTPS/SVCB records
+		// when UpstreamBlocks is true, A/AAAA must be 0.0.0.0/::
+		// and HTTPS/SVCB is an empty answer section
 		// see: xdns.RefusedResponseFromMessage
 		if len(a.Answer) > 0 {
 			result.ips = append(result.ips, xdns.AAnswer(a)...)
@@ -246,14 +251,14 @@ func (t *dnsgateway) querySecondary(t2 Transport, network string, msg *dns.Msg, 
 			result.summary.Blocklists = blocklistnames
 		}
 		if xdns.AQuadAUnspecified(r) {
-			result.summary.UpstreamBlocks = true
-		} else {
-			a4 := xdns.AAAAAnswer(r)
-			a6 := xdns.AAnswer(r)
+			// A/AAAA must be 0.0.0.0/::, when UpstreamBlocks is true
+			result.smm.UpstreamBlocks = true
+		}
+		if xdns.HasAnyAnswer(r) {
 			ip4hints := xdns.IPHints(r, dns.SVCB_IPV4HINT)
 			ip6hints := xdns.IPHints(r, dns.SVCB_IPV6HINT)
-			result.ips = append(result.ips, a4...)
-			result.ips = append(result.ips, a6...)
+			result.ips = append(result.ips, xdns.AAnswer(r)...)
+			result.ips = append(result.ips, xdns.AAAAAnswer(r)...)
 			result.ips = append(result.ips, ip4hints...)
 			result.ips = append(result.ips, ip6hints...)
 			// TODO: result.targets?
