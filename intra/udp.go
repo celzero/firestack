@@ -27,6 +27,7 @@ package intra
 
 import (
 	"errors"
+	"fmt"
 	"net"
 	"net/netip"
 	"sync"
@@ -380,7 +381,7 @@ func (h *udpHandler) End() error {
 
 // OpenConns implements netstack.GUDPConnHandler
 func (h *udpHandler) OpenConns() string {
-	return h.conntracker.String()
+	return fmt.Sprintf("%d | %s", h.conntracker.Len()/2, h.conntracker.String())
 }
 
 // CloseConns implements netstack.GUDPConnHandler

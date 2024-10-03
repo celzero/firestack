@@ -27,9 +27,10 @@ type ConnMapper interface {
 	Untrack(cid string) int
 	// UntrackBatch untracks one cid at a time.
 	UntrackBatch(cids []string) []string
-	String() string
 	// Len returns the number of tracked conns.
 	Len() int
+	// String returns a string repr of all tracked conns.
+	String() string
 }
 
 type connstat struct {

@@ -125,7 +125,7 @@ func (h *tcpHandler) End() error {
 
 // OpenConns implements netstack.GTCPConnHandler
 func (h *tcpHandler) OpenConns() string {
-	return h.conntracker.String()
+	return fmt.Sprintf("%d | %s", h.conntracker.Len()/2, h.conntracker.String())
 }
 
 // CloseConns implements netstack.GTCPConnHandler
