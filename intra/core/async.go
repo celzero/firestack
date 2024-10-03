@@ -65,6 +65,9 @@ func Gif(cond bool, who string, f func()) {
 func Grx[T any](who string, f func() T, d time.Duration) (zz T, ok bool) {
 	ch := make(chan T)
 
+	done := make(chan struct{})
+	defer close(done)
+
 	timer := time.NewTicker(d)
 	defer timer.Stop()
 
@@ -73,7 +76,10 @@ func Grx[T any](who string, f func() T, d time.Duration) (zz T, ok bool) {
 		defer Recover(Exit11, who)
 		defer close(ch)
 
-		ch <- f()
+		select {
+		case ch <- f():
+		case <-done:
+		}
 	}()
 
 	select {
