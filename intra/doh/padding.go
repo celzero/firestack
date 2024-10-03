@@ -65,8 +65,10 @@ func optPadding(msgLen int) *dns.EDNS0_PADDING {
 	}
 }
 
-// padQuery adds EDNS padding (RFC7830) to msg.
+// padQuery adds EDNS padding (RFC7830) to msg. May return (nil, nil).
 func padQuery(msg *dns.Msg) (*dns.Msg, error) {
+	defer core.Recover(core.DontExit, "doh.padQ")
+
 	if msg == nil || core.IsNil(msg) {
 		return nil, errEdnsNilMsg
 	}
@@ -108,7 +110,7 @@ func padQuery(msg *dns.Msg) (*dns.Msg, error) {
 				}
 			}
 		} // fallthrough
-		msg.Compress = true
+		// msg.Compress = true
 	} else { // create opt
 		opt = &dns.OPT{
 			Hdr: dns.RR_Header{
@@ -119,7 +121,7 @@ func padQuery(msg *dns.Msg) (*dns.Msg, error) {
 			},
 			Option: nil, // must be nil when empty or msg.Len() panics
 		}
-		msg.Compress = true
+		// msg.Compress = true
 		if msg.Extra != nil && core.IsNotNil(msg.Extra) && len(msg.Extra) > 0 {
 			msg.Extra = append(msg.Extra, opt)
 		} else {
