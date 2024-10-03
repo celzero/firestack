@@ -424,20 +424,23 @@ func (t *transport) fetch(pid string, req *http.Request) (*http.Response, error)
 }
 
 func (t *transport) multifetch(req *http.Request, clients ...*http.Client) (res *http.Response, err error) {
-	term := false
-	sent := false
+	var eeof, sent bool
+
 	for _, c := range clients {
 		if c == nil { // c may be nil (ex: if no ech)
 			continue
 		}
-		for i := uint8(0); !term && i < maxEOFTries; i++ {
+		for i := uint8(0); eeof && i < maxEOFTries; i++ {
+			eeof = false
 			sent = true
 			if res, err = c.Do(req); err == nil {
 				return res, nil // res is never nil here
 			}
 			if uerr, ok := err.(*url.Error); ok {
-				term = uerr.Err != io.EOF || uerr.Err != io.ErrUnexpectedEOF // terminate if not EOF
-			} else if eerr, ok := err.(*tls.ECHRejectionError); ok {
+				eeof = uerr.Err == io.EOF || uerr.Err == io.ErrUnexpectedEOF // terminate if not EOF
+			}
+			var eerr tls.ECHRejectionError
+			if errors.As(err, &eerr) {
 				ech := eerr.RetryConfigList
 				useech := t.echconfig != nil
 				if len(ech) > 0 && useech {
@@ -446,7 +449,7 @@ func (t *transport) multifetch(req *http.Request, clients ...*http.Client) (res 
 				}
 				log.I("doh: fetch #%d: ech rejected; retry? %t ech? %t", i, len(ech) > 0, useech)
 			}
-			log.W("doh: fetch #%d (eof? %t); err: %v", i, !term, err)
+			log.W("doh: fetch #%d (eof? %t); err: %v", i, eeof, err)
 		}
 	}
 	if !sent && err == nil { // should never happen
