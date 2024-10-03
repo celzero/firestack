@@ -379,10 +379,8 @@ func (h *udpHandler) End() error {
 }
 
 // OpenConns implements netstack.GUDPConnHandler
-func (h *udpHandler) OpenConns() int32 {
-	// account for two conntracker entries (local, remote)
-	// per outbound connection
-	return int32(h.conntracker.Len() / 2)
+func (h *udpHandler) OpenConns() string {
+	return h.conntracker.String()
 }
 
 // CloseConns implements netstack.GUDPConnHandler

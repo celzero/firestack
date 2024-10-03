@@ -91,9 +91,9 @@ func (u *revbase[T]) Error(in T, src, dst netip.AddrPort, err error) {
 	log.E("revbase: %T Error %v <= %v: %v", in, src, dst, err)
 }
 
-func (*revbase[T]) OpenConns() int32 {
+func (*revbase[T]) OpenConns() string {
 	// TODO: stub
-	return 0
+	return ""
 }
 
 func (*revbase[T]) CloseConns([]string) []string {

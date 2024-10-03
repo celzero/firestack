@@ -26,7 +26,7 @@ type gconns interface {
 
 type GBaseConnHandler interface {
 	// OpenConns returns the number of active connections.
-	OpenConns() int32
+	OpenConns() string
 	// CloseConns closes conns by ids, or all if ids is empty.
 	CloseConns([]string) []string
 	// End closes the handler and all its connections.

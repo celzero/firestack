@@ -88,8 +88,8 @@ func (h *icmpHandler) End() error {
 }
 
 // TODO: stub
-func (h *icmpHandler) OpenConns() int32 {
-	return 0
+func (h *icmpHandler) OpenConns() string {
+	return ""
 }
 
 // CloseConns implements netstack.GICMPHandler.
