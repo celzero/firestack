@@ -143,6 +143,10 @@ func (serversInfo *ServersInfo) unregisterServer(name string) (int, error) {
 	serversInfo.Lock()
 	defer serversInfo.Unlock()
 
+	if si, ok := serversInfo.inner[name]; ok {
+		si.Stop()
+	}
+
 	delete(serversInfo.registeredServers, name)
 	delete(serversInfo.inner, name)
 
@@ -181,6 +185,9 @@ func (serversInfo *ServersInfo) refreshServer(proxy *DcMulti, name string, stamp
 
 	serversInfo.Lock()
 	defer serversInfo.Unlock()
+	if si, ok := serversInfo.inner[name]; ok {
+		si.Stop()
+	}
 	serversInfo.inner[name] = &newServer
 	serversInfo.registeredServers[name] = registeredserver{name: name, stamp: stamp}
 	return nil
@@ -378,7 +385,9 @@ func (s *serverinfo) Status() int {
 }
 
 func (s *serverinfo) Stop() error {
-	s.done()
+	if s != nil {
+		s.done()
+	}
 	return nil
 }
 
