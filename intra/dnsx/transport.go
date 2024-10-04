@@ -229,6 +229,8 @@ func (r *resolver) Translate(b bool) {
 	r.gateway.translate(b)
 }
 
+// stopIfExistsLocked stops the transport if it exists,
+// then deletes it from the map.
 func (r *resolver) stopIfExistsLocked(id string) {
 	if t, ok := r.transports[id]; ok && t != nil {
 		err := t.Stop() // todo: async?
@@ -333,8 +335,8 @@ func (r *resolver) Remove(id string) (ok bool) {
 			core.Gx("r.Remove64", func() { r.Remove64(id) })
 		}
 		r.Lock()
-		delete(r.transports, id)
-		delete(r.transports, CT+id)
+		r.stopIfExistsLocked(id)
+		r.stopIfExistsLocked(CT + id)
 		r.Unlock()
 
 		log.I("dns: removed transport %s", id)
