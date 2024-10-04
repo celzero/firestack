@@ -20,7 +20,7 @@ jobs:
     - name: 🐼 Setup go1.23+
       uses: actions/setup-go@v4
       with:
-        go-version: '>=1.23'
+        go-version: '>=1.23.2'
 
     - name: 🏗️ Make
       run: |

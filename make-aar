@@ -35,8 +35,8 @@ ls -ltr $ANDROID_HOME/**
 
 if [ "$ARG1" = "go" ]; then
   # download from go.dev/dl
-  curl -Lso go.tar.gz https://go.dev/dl/go1.23.0.linux-amd64.tar.gz
-  echo "905a297f19ead44780548933e0ff1a1b86e8327bb459e92f9c0012569f76f5e3 go.tar.gz" | sha256sum -c -
+  curl -Lso go.tar.gz https://go.dev/dl/go1.23.2.linux-amd64.tar.gz
+  echo "542d3c1705f1c6a1c5a80d5dc62e2e45171af291e755d591c5e6531ef63b454e go.tar.gz" | sha256sum -c -
 
   # HOME=/home/jitpack
   # PWD=/home/jitpack/build
