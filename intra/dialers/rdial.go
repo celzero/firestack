@@ -259,7 +259,8 @@ func dialtls(d *protect.RDial, cfg *tls.Config, addr string, how mkrconn[*net.Co
 	}
 	tlsconn := tls.Client(c, cfg)
 	err = tlsconn.Handshake()
-	if eerr, ok := err.(*tls.ECHRejectionError); ok {
+	var eerr tls.ECHRejectionError
+	if errors.As(err, &eerr) {
 		clos(tlsconn)
 
 		ech := eerr.RetryConfigList
