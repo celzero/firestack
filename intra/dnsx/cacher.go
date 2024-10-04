@@ -85,7 +85,6 @@ type ctransport struct {
 	size       int                          // max size of a cache bucket
 	reqbarrier *core.Barrier[*cres, string] // coalesce requests for the same query
 	hangover   *core.Hangover               // tracks send failure threshold
-	est        core.P2QuantileEstimator
 }
 
 func NewDefaultCachingTransport(t Transport) Transport {
@@ -119,7 +118,6 @@ func NewCachingTransport(t Transport, ttl time.Duration) Transport {
 		size:       defsize,
 		reqbarrier: core.NewBarrier[*cres](ttl10s),
 		hangover:   core.NewHangover(),
-		est:        core.NewP50Estimator(ctx),
 	}
 	log.I("cache: (%s) setup: %s; opts: %s", ct.ID(), ct.GetAddr(), ct.str())
 	return ct
@@ -407,7 +405,6 @@ func (t *ctransport) fetch(network string, q *dns.Msg, summary *x.DNSSummary, cb
 			// change summary fields to reflect cached response, except for latency
 			fillSummary(cachedsummary, summary)
 			summary.Latency = 0 // don't use cached latency
-			t.est.Add(0)        // however, update the estimator
 			return r, nil
 		} // else: fallthrough to sendRequest
 	} else {
@@ -448,7 +445,7 @@ func (t *ctransport) Query(network string, q *dns.Msg, summary *x.DNSSummary) (*
 }
 
 func (t *ctransport) P50() int64 {
-	return t.est.Get()
+	return 0
 }
 
 func (t *ctransport) GetAddr() string {
