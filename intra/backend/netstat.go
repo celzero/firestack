@@ -111,18 +111,6 @@ type UDPStat struct {
 	Drops       int64 // rcv buffer errors
 }
 
-// NetStat is a collection of network statistics for the current tunnel.
-type NetStat struct {
-	NICSt  NICStat
-	NICIn  NICInfo
-	IPSt   IPStat
-	FWDSt  IPFwdStat
-	ICMPSt ICMPStat
-	TCPSt  TCPStat
-	UDPSt  UDPStat
-	RDNSIn RDNSInfo
-}
-
 type RDNSInfo struct {
 	Open         bool
 	Debug        bool
@@ -151,6 +139,59 @@ type RDNSInfo struct {
 	OpenConnsICMP string
 }
 
+// ref: github.com/google/gops/blob/35c854fb84a/agent/agent.go
+type GoStat struct {
+	Alloc      string // bytes allocated and not yet freed
+	TotalAlloc string // total bytes allocated in aggregate
+	Sys        string // bytes obtained from system
+	Lookups    int64  // number of pointer lookups
+	Mallocs    int64  // number of mallocs
+	Frees      int64  // number of frees
+
+	HeapAlloc    string // bytes allocated on heap
+	HeapSys      string // heap obtained from system
+	HeapIdle     string // bytes in idle spans
+	HeapInuse    string // bytes in non-idle span
+	HeapReleased string // bytes released to the OS
+	HeapObjects  int64  // total number of allocated objects
+
+	StackInuse  string // bytes used by stack allocator
+	StackSys    string // bytes obtained from system for stack allocator
+	MSpanInuse  string // mspan allocs
+	MSpanSys    string // bytes obtained from system for mspan structures
+	MCacheInuse string // mcache structures
+	MCacheSys   string // bytes obtained from system for mcache structures
+	BuckHashSys string // bytes used by the profiling bucket hash table
+
+	EnableGC      bool   // GC enabled
+	DebugGC       bool   // GC debug
+	GCSys         string // bytes used for garbage collection system metadata
+	OtherSys      string // bytes used for off-heap allocations
+	NextGC        string // target heap size of the next GC
+	LastGC        string // last run in heap
+	PauseSecs     int64  // total STW pause time
+	NumGC         int32  // number of GC runs
+	NumForcedGC   int32  // number of forced GC runs
+	GCCPUFraction string // fraction of CPU time used by GC
+
+	NumGoroutine int64 // number of goroutines
+	NumCgo       int64 // number of cgo calls
+	NumCPU       int64 // number of CPUs
+}
+
+// NetStat is a collection of network engine statistics.
+type NetStat struct {
+	NICSt  NICStat
+	NICIn  NICInfo
+	IPSt   IPStat
+	FWDSt  IPFwdStat
+	ICMPSt ICMPStat
+	TCPSt  TCPStat
+	UDPSt  UDPStat
+	RDNSIn RDNSInfo
+	GOSt   GoStat
+}
+
 // NIC returns the network interface statistics.
 func (n *NetStat) NIC() *NICStat { return &n.NICSt }
 
@@ -174,3 +215,6 @@ func (n *NetStat) UDP() *UDPStat { return &n.UDPSt }
 
 // RDNS returns the RDNS settings / info.
 func (n *NetStat) RDNSINFO() *RDNSInfo { return &n.RDNSIn }
+
+// GO returns the Go runtime statistics.
+func (n *NetStat) GO() *GoStat { return &n.GOSt }

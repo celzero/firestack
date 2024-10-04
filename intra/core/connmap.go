@@ -131,7 +131,7 @@ func (h *cm) String() string {
 
 	var s strings.Builder
 	for _, v := range h.trac {
-		s.WriteString(fmt.Sprintf("%s;", v.String()))
+		s.WriteString(fmt.Sprintf("%s\n", v.String()))
 	}
 	return s.String()
 }
@@ -158,8 +158,17 @@ func (h *cm) Len() int {
 }
 
 func (c *connstat) String() string {
-	d := int64(time.Since(c.t).Seconds() * 1000)
-	return fmt.Sprintf("%d:%d[%s]", d, len(c.c), conn2str(c.c...))
+	return fmt.Sprintf("%s:%d[%s]", formatTime(c.t), len(c.c), conn2str(c.c...))
+}
+
+func formatTime(t time.Time) string {
+	if s := int64(time.Since(t).Seconds() * 1000); s < 60 {
+		return fmt.Sprintf("%ds", s)
+	} else if s < 3600 {
+		return fmt.Sprintf("%dm", s/60)
+	} else {
+		return fmt.Sprintf("%dh", s/3600)
+	}
 }
 
 func conn2str(c ...MinConn) (csv string) {
