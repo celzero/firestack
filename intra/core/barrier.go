@@ -14,6 +14,7 @@
 package core
 
 import (
+	"errors"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -28,6 +29,8 @@ const (
 	// results are already stored in the Barrier.
 	Shared
 )
+
+var errTimeout = errors.New("barrier: timeout")
 
 // Work is the type of the function to memoize.
 type Work[T any] func() (T, error)
@@ -46,6 +49,10 @@ func (v *V[t, k]) String() string {
 	return fmt.Sprintf("v: %v // n: %d; exp: %s // err: %v", v.Val, v.N.Load(), v.dob, v.Err)
 }
 
+func (v *V[t, k]) id() string {
+	return fmt.Sprintf("%p", v)
+}
+
 // Barrier represents a class of work and forms a namespace in
 // which units of work can be executed with duplicate suppression.
 type Barrier[T any, K comparable] struct {
@@ -53,6 +60,7 @@ type Barrier[T any, K comparable] struct {
 	m   map[K]*V[T, K] // caches in-flight and completed Vs
 	ttl time.Duration  // time-to-live for completed Vs in m
 	neg time.Duration  // time-to-live for errored Vs in m
+	to  time.Duration  // timeout for Do(), Do1(), Go()
 }
 
 func NewKeyedBarrier[T any, K comparable](ttl time.Duration) *Barrier[T, K] {
@@ -72,6 +80,7 @@ func NewBarrier2[T any, K comparable](ttl, neg time.Duration) *Barrier[T, K] {
 		m:   make(map[K]*V[T, K]),
 		ttl: ttl,
 		neg: max(1*time.Second /*min neg*/, neg),
+		to:  ttl,
 	}
 }
 
@@ -115,7 +124,12 @@ func (ba *Barrier[T, K]) Do(k K, once Work[T]) (*V[T, K], int) {
 	c = ba.addLocked(k)
 	ba.mu.Unlock()
 
-	c.Val, c.Err = once()
+	if _, completed := Grx("ba.do."+c.id(), func() *V[T, K] {
+		c.Val, c.Err = once()
+		return c
+	}, ba.to); !completed {
+		c.Err = errTimeout
+	}
 
 	c.wg.Done() // unblock all waiters
 	return c, Anew
@@ -135,7 +149,12 @@ func (ba *Barrier[T, K]) Do1(k K, once Work1[T], arg T) (*V[T, K], int) {
 	c = ba.addLocked(k)
 	ba.mu.Unlock()
 
-	c.Val, c.Err = once(arg)
+	if _, completed := Grx("ba.do1."+c.id(), func() *V[T, K] {
+		c.Val, c.Err = once(arg)
+		return c
+	}, ba.to); !completed {
+		c.Err = errTimeout
+	}
 
 	c.wg.Done() // unblock all waiters
 	return c, Anew
@@ -145,7 +164,7 @@ func (ba *Barrier[T, K]) Do1(k K, once Work1[T], arg T) (*V[T, K], int) {
 func (ba *Barrier[T, K]) Go(k K, once Work[T]) <-chan *V[T, K] {
 	ch := make(chan *V[T, K])
 
-	Go("barrier", func() {
+	Go("ba.go", func() {
 		defer close(ch)
 
 		ba.mu.Lock()
@@ -153,8 +172,8 @@ func (ba *Barrier[T, K]) Go(k K, once Work[T]) <-chan *V[T, K] {
 		if c != nil {
 			ba.mu.Unlock()
 
-			c.N.Add(1) // register presence
-			c.wg.Wait()
+			c.N.Add(1)  // register presence
+			c.wg.Wait() // wait for the in-flight req to complete
 			ch <- c
 			return
 		}
