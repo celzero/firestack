@@ -108,13 +108,15 @@ type ipmap struct {
 // IPSet represents an unordered collection of IP addresses for a single host.
 // One IP can be marked as confirmed to be working correctly.
 type IPSet struct {
-	sync.RWMutex                            // Protects this struct.
-	ips          []netip.Addr               // All known IPs for the server.
-	confirmed    *core.Volatile[netip.Addr] // netip.Addr confirmed to be working.
-	typ          IPSetType                  // Regular, Protected, or AutoType
-	r            IPMapper                   // For hostname resolution, never nil
-	seed         []string                   // Bootstrap ips or ip:ports; may be nil.
-	fails        atomic.Uint32              // Number of times the confirmed IP has failed.
+	mu  sync.RWMutex // Protects ips.
+	ips []netip.Addr // All known IPs for the server.
+	typ IPSetType    // Regular, Protected, or AutoType
+
+	r    IPMapper // For hostname resolution, never nil
+	seed []string // Bootstrap ips or ip:ports; may be nil; is immutable.
+
+	confirmed *core.Volatile[netip.Addr] // netip.Addr confirmed to be working.
+	fails     atomic.Uint32              // Number of times the confirmed IP has failed.
 }
 
 func NewIPMap() *ipmap {
@@ -344,8 +346,6 @@ func (s *IPSet) addLocked(ips ...netip.Addr) {
 
 // Returns bootstrap ips or ip:ports.
 func (s *IPSet) Seed() []string {
-	s.RLock()
-	defer s.RLock()
 	return s.seed
 }
 
@@ -373,9 +373,9 @@ func (s *IPSet) add(hostOrIP string) bool {
 		log.D("ipmap: Add: resolved? %s => %s", hostOrIP, resolved)
 	}
 
-	s.Lock()
+	s.mu.Lock()
 	s.addLocked(resolved...) // resolved may be nil
-	s.Unlock()
+	s.mu.Unlock()
 
 	ok := !s.Empty()
 	if ok {
@@ -387,8 +387,8 @@ func (s *IPSet) add(hostOrIP string) bool {
 
 // Adds one or more IP addresses to the set.
 func (s *IPSet) bootstrap() (n int) {
-	s.Lock()
-	defer s.Unlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
 	for _, ipstr := range s.seed {
 		ipstr = strings.TrimSpace(ipstr)
@@ -421,8 +421,8 @@ func (s *IPSet) Size() uint32 {
 		return 1
 	}
 
-	s.RLock()
-	defer s.RUnlock()
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	return uint32(len(s.ips))
 }
 
@@ -433,9 +433,9 @@ func (s *IPSet) Addrs() []netip.Addr {
 		return []netip.Addr{s.confirmed.Load()}
 	}
 
-	s.RLock()
+	s.mu.RLock()
 	ips := s.ips
-	s.RUnlock()
+	s.mu.RUnlock()
 
 	sz := len(ips)
 	if sz <= 0 {
@@ -485,32 +485,32 @@ func (s *IPSet) Confirm(ip netip.Addr) {
 		return
 	}
 
-	s.RLock()
-	newIP := !s.hasLocked(ip)
-	s.RUnlock()
+	// since mutex are acquired, perform ops asynchronously
+	core.Gx("ipset.cfm."+ip.String(), func() {
+		s.mu.RLock()
+		newIP := !s.hasLocked(ip)
+		s.mu.RUnlock()
 
-	// Protected IPSets should stay consistent with its seed addrs
-	// and must not add or confirm unseeded IPs. This happens in cases
-	// where an IP from a previous Protected IPSet may be confirmed at
-	// a time after the IPSet has been updated to a new one. For example,
-	// if UidSelf / UidSystem has been changed to new System DNS IPs,
-	// a goroutine using the previous UidSelf / UidSystem IPSet may
-	// end up confirming IP address in the new one.
-	if s.typ == Protected && newIP {
-		return
-	}
+		// Protected IPSets should stay consistent with its seed addrs
+		// and must not add or confirm unseeded IPs. This happens in cases
+		// where an IP from a previous Protected IPSet may be confirmed at
+		// a time after the IPSet has been updated to a new one. For example,
+		// if UidSelf / UidSystem has been changed to new System DNS IPs,
+		// a goroutine using the previous UidSelf / UidSystem IPSet may
+		// end up confirming IP address in the new one.
+		if s.typ == Protected && newIP {
+			return
+		}
 
-	s.confirmed.Store(ip)
+		s.confirmed.Store(ip)
 
-	// Add this IP to the set if it hasn't been seen before.
-	if s.typ != Protected && newIP {
-		core.Gx("ipset.confirm", func() {
-			s.Lock()
-			defer s.Unlock()
-
+		// Add this IP to the set if it hasn't been seen before.
+		if s.typ != Protected && newIP {
+			s.mu.Lock()
 			s.addLocked(ip) // Add is O(N)
-		})
-	}
+			s.mu.Unlock()
+		}
+	})
 }
 
 // Reset clears existing IPs for Regular and Protected types,
@@ -526,9 +526,9 @@ func (s *IPSet) clear() {
 	}
 
 	if s.typ != Protected {
-		s.Lock()
+		s.mu.Lock()
 		s.ips = nil
-		s.Unlock()
+		s.mu.Unlock()
 	}
 	s.confirmed.Store(zeroaddr)
 	s.fails.Store(0)
@@ -547,22 +547,25 @@ func (s *IPSet) Disconfirm(ip netip.Addr) (done bool) {
 		done = true
 	}
 
-	// if s is not empty, act on disconfirm
-	if sz := s.Size(); sz > 0 {
-		tot := s.fails.Load()
-		// either the confirmed was disconfirmed above
-		// or s never had a confirmed ip, but still
-		// Disconfirm() was called, indicating a failure
-		if done || c.Compare(zeroaddr) == 0 {
-			tot = s.fails.Add(1)
-		}
+	// Size and clear require a lock, do so asynchronously
+	core.Go("ipset.dis."+ip.String(), func() {
+		// if s is not empty, act on disconfirm
+		if sz := s.Size(); sz > 0 {
+			tot := s.fails.Load()
+			// either the confirmed was disconfirmed above
+			// or s never had a confirmed ip, but still
+			// Disconfirm() was called, indicating a failure
+			if done || c.Compare(zeroaddr) == 0 {
+				tot = s.fails.Add(1)
+			}
 
-		if tot > max(2*sz, maxFailLimit) {
-			// empty out the set, may be refilled by Get()
-			if s.fails.CompareAndSwap(tot, 0) {
-				s.clear()
+			if tot > max(2*sz, maxFailLimit) {
+				// empty out the set, may be refilled by Get()
+				if s.fails.CompareAndSwap(tot, 0) {
+					s.clear()
+				}
 			}
 		}
-	}
+	})
 	return
 }
