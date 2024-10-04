@@ -80,16 +80,6 @@ func LogPcap(y bool) (ok bool) {
 	return
 }
 
-func FilePcap(y bool) (ok bool) {
-	if y {
-		ok = sniffer.LogPacketsToPCAP.CompareAndSwap(0, 1)
-	} else {
-		ok = sniffer.LogPacketsToPCAP.CompareAndSwap(1, 0)
-	}
-	log.I("netstack: pcap sink?(%t); done?(%t)", y, ok)
-	return
-}
-
 // ref: github.com/brewlin/net-protocol/blob/ec64e5f899/internal/endpoint/endpoint.go#L20
 func Up(s *stack.Stack, ep stack.LinkEndpoint, h GConnHandler) (tcpip.NICID, error) {
 	nic := tcpip.NICID(settings.NICID)

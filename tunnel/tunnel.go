@@ -168,7 +168,6 @@ func (p *pcapsink) file(f io.WriteCloser) (err error) {
 		err = p.begin(f) // write pcap header before any packets
 		log.I("tun: pcap: begin: writeHeader; err(%v)", err)
 	}
-	netstack.FilePcap(y) // signal netstack to write packets
 	return
 }
 

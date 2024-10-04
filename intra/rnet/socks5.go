@@ -56,10 +56,13 @@ func newSocks5Server(id, x string, ctl protect.Controller, listener ServerListen
 	var pwd string
 
 	rdial := protect.MakeNsRDial(id, ctl)
-	if _, ok := tx.Dial.(*protect.RDial); !ok {
-		tx.Dial = rdial // overridden by h.Hop; conflicts with ipn/socks5
-	} else {
-		log.W("svcsocks5: new %s; tx.Dial already set", id)
+	// tx.DialTCP and tx.DialUDP may already been set by ipn.sock5
+	tx.DialTCP = func(n string, _, d string) (net.Conn, error) {
+		return rdial.Dial(n, d)
+	}
+	// todo: support connecting from src
+	tx.DialUDP = func(n string, _, d string) (net.Conn, error) {
+		return rdial.Dial(n, d)
 	}
 
 	u, err := url.Parse(x)
@@ -116,11 +119,18 @@ func (h *socks5) Hop(p x.Proxy) error {
 	return nil
 }
 
-func (h *socks5) swap(d *protect.RDial) {
+func (h *socks5) swap(rd *protect.RDial) {
 	h.Lock()
 	defer h.Unlock()
-	// todo: reads are not synchronized!
-	tx.Dial = d
+	// todo: var tx.DialTCP/tx.DialUDP (reads) not synchronized
+	// tx.DialTCP and tx.DialUDP may already been set by ipn.sock5
+	tx.DialTCP = func(n string, _, d string) (net.Conn, error) {
+		return rd.Dial(n, d)
+	}
+	// todo: support connecting from src
+	tx.DialUDP = func(n string, _, d string) (net.Conn, error) {
+		return rd.Dial(n, d)
+	}
 }
 
 func (h *socks5) Start() error {

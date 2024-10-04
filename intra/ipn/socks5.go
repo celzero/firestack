@@ -52,14 +52,16 @@ var _ net.Conn = (*socks5udpconn)(nil)
 
 func (c *socks5tcpconn) CloseRead() error {
 	if c.Client != nil && c.Client.TCPConn != nil {
-		return c.Client.TCPConn.CloseRead()
+		core.CloseOp(c.Client.TCPConn, core.CopR)
+		return nil
 	}
 	return errNoProxyConn
 }
 
 func (c *socks5tcpconn) CloseWrite() error {
 	if c.Client != nil && c.Client.TCPConn != nil {
-		return c.Client.TCPConn.CloseWrite()
+		core.CloseOp(c.Client.TCPConn, core.CopW)
+		return nil
 	}
 	return errNoProxyConn
 }
@@ -67,7 +69,10 @@ func (c *socks5tcpconn) CloseWrite() error {
 // WriteFrom writes b to TUN using addr as the source.
 func (c *socks5udpconn) WriteTo(b []byte, addr net.Addr) (n int, err error) {
 	if c.Client != nil && c.Client.UDPConn != nil {
-		return c.Client.UDPConn.WriteTo(b, addr)
+		if uconn, ok := c.Client.UDPConn.(*net.UDPConn); ok {
+			return uconn.WriteTo(b, addr)
+		}
+		return c.Client.UDPConn.Write(b)
 	}
 	return 0, errNoProxyConn
 }
@@ -75,12 +80,17 @@ func (c *socks5udpconn) WriteTo(b []byte, addr net.Addr) (n int, err error) {
 // ReceiveTo is incoming TUN packet b to be sent to addr.
 func (c *socks5udpconn) ReadFrom(b []byte) (n int, addr net.Addr, err error) {
 	if c.Client != nil && c.Client.UDPConn != nil {
-		return c.Client.UDPConn.ReadFrom(b)
+		if uconn, ok := c.Client.UDPConn.(*net.UDPConn); ok {
+			return uconn.ReadFrom(b)
+		}
+		return 0, nil, errNotUDPConn
 	}
 	return 0, nil, errNoProxyConn
 }
 
 func NewSocks5Proxy(id string, ctl protect.Controller, po *settings.ProxyOptions) (*socks5, error) {
+	tx.Debug = settings.Debug
+
 	var err error
 	if po == nil {
 		log.W("proxy: err setting up socks5(%v): %v", po, err)
@@ -88,7 +98,14 @@ func NewSocks5Proxy(id string, ctl protect.Controller, po *settings.ProxyOptions
 	}
 
 	// always with a network namespace aware dialer
-	tx.Dial = protect.MakeNsRDial(id, ctl)
+	dialer := protect.MakeNsRDial(id, ctl)
+	// todo: support connecting from src
+	tx.DialTCP = func(n string, _, d string) (net.Conn, error) {
+		return dialer.Dial(n, d)
+	}
+	tx.DialUDP = func(n string, _, d string) (net.Conn, error) {
+		return dialer.Dial(n, d)
+	}
 
 	portnumber, _ := strconv.Atoi(po.Port)
 	mh := multihost.New(id)
