@@ -184,7 +184,7 @@ func conn2str(c ...MinConn) (csv string) {
 		if cc, ok := v.(net.Conn); ok {
 			raddr := cc.RemoteAddr()
 			s = append(s, fmt.Sprintf("%s=>%s", laddr, raddr))
-		} else {
+		} else if laddr != nil { // nilaway
 			s = append(s, laddr.String())
 		}
 	}

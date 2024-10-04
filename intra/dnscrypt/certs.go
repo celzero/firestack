@@ -279,11 +279,12 @@ func _dnsExchange(dialer *protect.RDial, proto string, query *dns.Msg, serverAdd
 	var packet []byte
 	var rtt time.Duration
 
+	qname := xdns.QName(query)
 	// FIXME: udp relays do not support fetching certs over relays, and
 	// doing so leaks client's identity to the actual dns-crypt server!
-	log.V("dnscrypt: [%s] relay is not used when fetching certs", proto)
+	log.V("dnscrypt: [%s] relay is not used when fetching certs %s", proto, qname)
 	if proto == "udp" {
-		qNameLen, padding := len(query.Question[0].Name), 0
+		qNameLen, padding := len(qname), 0
 		if qNameLen < paddedLen {
 			padding = paddedLen - qNameLen
 		}

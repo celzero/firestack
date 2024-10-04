@@ -35,6 +35,7 @@ import (
 var (
 	errNoProtos     = errors.New("enable at least one of IPv4 and IPv6 querying")
 	errBindFail     = errors.New("failed to bind to udp port")
+	errNoMdnsQuery  = errors.New("no mdns query")
 	errNoMdnsAnswer = errors.New("no mdns answer")
 )
 
@@ -335,6 +336,10 @@ func (c *client) Close() error {
 
 // query is used to perform a lookup and stream results
 func (c *client) query(qctx *qcontext) *dnsx.QueryError {
+	if !xdns.HasAnyQuestion(qctx.msg) {
+		return dnsx.NewBadQueryError(errNoMdnsQuery)
+	}
+
 	if c.use4 {
 		go c.recv(c.unicast4)
 		go c.recv(c.multicast4)
@@ -351,7 +356,7 @@ func (c *client) query(qctx *qcontext) *dnsx.QueryError {
 	// In the Question Section of a Multicast DNS query, the top bit of the qclass
 	// field is used to indicate that unicast responses are preferred for this
 	// particular question.  (See Section 5.4.)
-	if !c.oneshot && qctx.unicastonly {
+	if !c.oneshot && qctx.unicastonly && len(q.Question) > 0 {
 		q.Question[0].Qclass |= 1 << 15
 	}
 	if err := c.send(q); err != nil {
