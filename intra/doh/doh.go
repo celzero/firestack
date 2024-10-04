@@ -425,7 +425,6 @@ func (t *transport) fetch(pid string, req *http.Request) (*http.Response, error)
 
 func (t *transport) multifetch(req *http.Request, clients ...*http.Client) (res *http.Response, err error) {
 	var cont, sent bool
-	var eerr tls.ECHRejectionError
 
 	for _, c := range clients {
 		if c == nil { // c may be nil (ex: if no ech)
@@ -437,7 +436,7 @@ func (t *transport) multifetch(req *http.Request, clients ...*http.Client) (res 
 			if res, err = c.Do(req); err == nil {
 				return res, nil // res is never nil here
 			}
-			if errors.As(err, &eerr) {
+			if eerr := new(tls.ECHRejectionError); errors.As(err, &eerr) {
 				cont = true
 				ech := eerr.RetryConfigList
 				useech := t.echconfig != nil
