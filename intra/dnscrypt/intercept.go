@@ -160,6 +160,10 @@ func (ic *intercept) blockUnqualified(msg *dns.Msg) error {
 		return nil
 	}
 
+	if len(msg.Question) <= 0 {
+		return nil
+	}
+
 	question := msg.Question[0]
 	if question.Qclass != dns.ClassINET || (question.Qtype != dns.TypeA && question.Qtype != dns.TypeAAAA) {
 		return nil

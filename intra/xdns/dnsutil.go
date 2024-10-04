@@ -156,7 +156,7 @@ func AName(ans dns.RR) (string, error) {
 }
 
 func QType(msg *dns.Msg) uint16 {
-	if HasAnyQuestion(msg) {
+	if HasAnyQuestion(msg) && len(msg.Question) > 0 {
 		return msg.Question[0].Qtype
 	}
 	return dns.TypeNone
@@ -940,7 +940,7 @@ func HasAnyQuestion(msg *dns.Msg) bool {
 
 // whether the given msg (ans/query) has a AAAA question section
 func HasAAAAQuestion(msg *dns.Msg) bool {
-	if !HasAnyQuestion(msg) {
+	if !HasAnyQuestion(msg) || len(msg.Question) <= 0 {
 		return false
 	}
 	q := msg.Question[0]
@@ -949,7 +949,7 @@ func HasAAAAQuestion(msg *dns.Msg) bool {
 
 // whether the given msg (ans/query) has a A question section
 func HasAQuestion(msg *dns.Msg) bool {
-	if !HasAnyQuestion(msg) {
+	if !HasAnyQuestion(msg) || len(msg.Question) <= 0 {
 		return false
 	}
 	q := msg.Question[0]
@@ -973,7 +973,7 @@ func HasAQuadAQuestion(msg *dns.Msg) bool {
 
 // whether the given msg (ans/query) has a svcb question section
 func HasSVCBQuestion(msg *dns.Msg) (ok bool) {
-	if !HasAnyQuestion(msg) {
+	if !HasAnyQuestion(msg) || len(msg.Question) <= 0 {
 		return false
 	} else {
 		q := msg.Question[0]
@@ -985,7 +985,7 @@ func HasSVCBQuestion(msg *dns.Msg) (ok bool) {
 
 // whether the given msg (ans/query) has a https question section
 func HasHTTPQuestion(msg *dns.Msg) (ok bool) {
-	if !HasAnyQuestion(msg) {
+	if !HasAnyQuestion(msg) || len(msg.Question) <= 0 {
 		return false
 	} else {
 		q := msg.Question[0]
