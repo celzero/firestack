@@ -162,7 +162,7 @@ func (c *connstat) String() string {
 }
 
 func formatTime(t time.Time) string {
-	if s := int64(time.Since(t).Seconds() * 1000); s < 60 {
+	if s := int64(time.Since(t).Seconds()); s < 60 {
 		return fmt.Sprintf("%ds", s)
 	} else if s < 3600 {
 		return fmt.Sprintf("%dm", s/60)
