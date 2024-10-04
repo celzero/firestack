@@ -274,6 +274,8 @@ func (t *dot) GetAddr() (addr string) {
 		addr = dnsx.EchPrefix + t.addr
 	} else if t.skipTLSVerify {
 		addr = dnsx.NoPkiPrefix + t.addr
+	} else {
+		addr = t.addr
 	}
 	return addr
 }
