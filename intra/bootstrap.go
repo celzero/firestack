@@ -169,6 +169,7 @@ func (b *bootstrap) kickstart(px ipn.Proxies, g Bridge) error {
 	}
 
 	if b.Transport != nil {
+		b.Transport.Stop()
 		log.I("dns: default: removing %s %s[%s]", b.typ, b.hostname, b.GetAddr())
 	}
 
