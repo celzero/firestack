@@ -131,6 +131,9 @@ func (e *SnoopyEndpoint) DeliverNetworkPacket(protocol tcpip.NetworkProtocolNumb
 // DumpPacket logs a packet, depending on configuration, to stderr and/or a
 // pcap file. ts is an optional timestamp for the packet.
 func (e *SnoopyEndpoint) DumpPacket(dir Direction, protocol tcpip.NetworkProtocolNumber, pkt *stack.PacketBuffer, ts *time.Time) {
+	if pkt == nil { // nilaway
+		return
+	}
 	if LogPackets.Load() == 1 {
 		LogPacket(e.logPrefix, dir, protocol, pkt)
 	}
@@ -159,7 +162,9 @@ func (e *SnoopyEndpoint) DumpPacket(dir Direction, protocol tcpip.NetworkProtoco
 // forwards the request to the lower endpoint.
 func (e *SnoopyEndpoint) WritePackets(pkts stack.PacketBufferList) (int, tcpip.Error) {
 	for _, pkt := range pkts.AsSlice() {
-		e.DumpPacket(DirectionSend, pkt.NetworkProtocolNumber, pkt, nil)
+		if pkt != nil { // nilaway
+			e.DumpPacket(DirectionSend, pkt.NetworkProtocolNumber, pkt, nil)
+		}
 	}
 	return e.Endpoint.WritePackets(pkts)
 }
