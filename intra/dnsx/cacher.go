@@ -331,21 +331,21 @@ func (t *ctransport) fetch(network string, q *dns.Msg, summary *x.DNSSummary, cb
 		fsmm.ID = t.ID()
 		fsmm.Type = t.Type()
 
-		v, _ := t.reqbarrier.Do(key, func() (*cres, error) {
+		cc := &cres{ans: nil, s: copySummary(fsmm)}
+		v, _ := t.reqbarrier.Do(key, func() (_ *cres, qerr error) {
 			// ans may be nil
-			ans, qerr := Req(t.Transport, network, q, fsmm)
+			cc.ans, qerr = Req(t.Transport, network, q, fsmm)
 			t.hangoverCheckpoint()
 			// cb.put no-ops when ans is nil or xdns.Len(ans) is 0
-			cb.put(key, ans, fsmm)
-			// cres.ans may be nil
-			return &cres{ans: ans, s: copySummary(fsmm)}, qerr
+			cb.put(key, cc.ans, fsmm)
+			return cc, qerr
 		})
 
 		err := v.Err
 
 		cachedres, fresh := cb.freshCopy(key) // always prefer value from cache
 		if cachedres == nil {                 // v.Val may be uncacheable (ex: rcode != 0)
-			cachedres = v.Val.copy() // v.Val (cres) never nil; but cres.ans may be nil
+			cachedres = cc.copy() // cc (cres) never nil; but cc.ans may be nil
 			log.D("cache: barrier: empty(k: %s); barrier: %s", key, v.String())
 		} else if !fresh { // expect fresh values, except on verrs
 			log.W("cache: barrier: stale(k: %s); barrier: %s (cache: %s)", key, v.String(), cachedres.String())
@@ -368,6 +368,7 @@ func (t *ctransport) fetch(network string, q *dns.Msg, summary *x.DNSSummary, cb
 			return nil, err
 		}
 
+		// fres may be nil
 		fres, cachedsmm, ferr := asResponse(q, cachedres, fresh)
 		// fill summary regardless of errors
 		fillSummary(cachedsmm, fsmm) // cachedsmm may itself be fsmm
