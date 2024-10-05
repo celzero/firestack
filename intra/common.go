@@ -217,7 +217,8 @@ func makeIPPorts(realips string, origipp netip.AddrPort, cap int) []netip.AddrPo
 		return r
 	}
 
-	log.W("intra: makeIPPorts(v4? %t, v6? %t): all: %d; out: %s", use4, use6, len(ips), origipp)
+	log.W("intra: makeIPPorts(v4? %t, v6? %t): using origip; all: %d; out: %s",
+		use4, use6, len(ips), origipp)
 	return []netip.AddrPort{origipp}
 }
 
