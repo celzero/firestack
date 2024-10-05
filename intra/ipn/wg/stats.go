@@ -120,11 +120,11 @@ func ReadStats(id, config string) *ifstats {
 	v, _ := ba.Do(id, func() (*ifstats, error) {
 		return readStats(config), nil
 	})
-	if v == nil { // unlikely
-		log.W("wg: ReadStats: nil for %s", id)
+	if v == nil || v.Val == nil { // v.Val is nil when ba.Do timesout
+		log.E("wg: ReadStats: nil for %s, e: %s", id, v.E())
 		return nil
 	}
-	return v.Val
+	return v.Val // may be nil
 }
 
 // readStats parses a configuration string and returns a Statistics instance.
