@@ -195,7 +195,7 @@ func (m *ipmapper) queryAny(q []byte, tids ...string) ([]byte, error) {
 		v, _ = m.ba.Do1(key(qname, strconv.Itoa(qtype)), m.r.LocalLookup, q)
 	}
 
-	if v.Err != nil || v == nil {
+	if v == nil || v.Err != nil {
 		log.W("ipmapper: query: noans? %t [err %v] for %s / typ %d; on: %v",
 			v == nil, v.Err, qname, qtype, tids)
 		return nil, errors.Join(v.Err, errNoAns)
