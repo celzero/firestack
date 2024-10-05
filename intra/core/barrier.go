@@ -46,7 +46,20 @@ type V[T any, K comparable] struct {
 }
 
 func (v *V[t, k]) String() string {
+	if v == nil {
+		return "core.V: <nil>"
+	}
 	return fmt.Sprintf("v: %v // n: %d; exp: %s // err: %v", v.Val, v.N.Load(), v.dob, v.Err)
+}
+
+func (v *V[t, k]) E() string {
+	if v == nil {
+		return "core.V: <nil>"
+	} else if ve := v.Err; ve == nil {
+		return "core.V: no error"
+	} else {
+		return ve.Error()
+	}
 }
 
 func (v *V[t, k]) id() string {
