@@ -301,7 +301,7 @@ func (g *GTCPConn) SetWriteDeadline(t time.Time) error {
 // Abort aborts the connection by sending a RST segment.
 func (g *GTCPConn) Abort() {
 	g.complete(true) // complete if needed
-	core.Close(g.conn())
+	go core.Close(g.conn())
 }
 
 func (g *GTCPConn) Close() error {

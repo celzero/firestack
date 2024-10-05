@@ -277,8 +277,6 @@ func (g *GUDPConn) SetWriteDeadline(t time.Time) error {
 
 // Close closes the connection.
 func (g *GUDPConn) Close() error {
-	if c := g.conn(); c != nil {
-		_ = c.Close()
-	}
+	go core.Close(g.conn())
 	return nil
 }
