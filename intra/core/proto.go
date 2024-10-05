@@ -70,6 +70,10 @@ type DuplexConn interface {
 	io.ReaderFrom
 }
 
+type ICMPConn interface {
+	net.PacketConn
+}
+
 // MinConn is a minimal connection interface that is
 // a subset of both net.Conn and net.PacketConn.
 type MinConn interface {

@@ -150,6 +150,8 @@ func (h *icmpHandler) Ping(msg []byte, source, target netip.AddrPort) (echoed bo
 	proto, anyaddr := anyaddrFor(dst)
 
 	uc, err := px.Dialer().Probe(proto, anyaddr)
+	defer core.Close(uc)
+
 	ucnil := uc == nil || core.IsNil(uc)
 	smm.Target = dst.Addr().String()
 	if err != nil || ucnil { // nilaway: tx.socks5 returns nil conn even if err == nil
@@ -159,8 +161,6 @@ func (h *icmpHandler) Ping(msg []byte, source, target netip.AddrPort) (echoed bo
 		log.E("t.icmp: egress: dial(%s); hasConn? %s(%t); err %v", dst, pid, !ucnil, err)
 		return false // unhandled
 	}
-
-	defer core.Close(uc)
 
 	extend(uc, icmptimeout)
 	// todo: construct ICMP header? github.com/prometheus-community/pro-bing/blob/0bacb2d5e7/ping.go#L717

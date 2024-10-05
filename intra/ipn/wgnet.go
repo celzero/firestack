@@ -16,13 +16,10 @@
 package ipn
 
 import (
-	"bytes"
 	"context"
 	"errors"
-	"fmt"
 	"net"
 	"net/netip"
-	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -30,12 +27,11 @@ import (
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/dialers"
 	"github.com/celzero/firestack/intra/log"
+	"github.com/celzero/firestack/intra/netstack"
 	"gvisor.dev/gvisor/pkg/tcpip"
 	"gvisor.dev/gvisor/pkg/tcpip/adapters/gonet"
 	"gvisor.dev/gvisor/pkg/tcpip/network/ipv4"
 	"gvisor.dev/gvisor/pkg/tcpip/network/ipv6"
-	"gvisor.dev/gvisor/pkg/tcpip/transport/icmp"
-	"gvisor.dev/gvisor/pkg/waiter"
 )
 
 var (
@@ -132,7 +128,7 @@ func (tnet *wgtun) DialContext(_ context.Context, network, address string) (net.
 		return nil, &net.OpError{Op: "dial", Err: rv.Err}
 	}
 
-	allAddrs := rv.Val
+	allAddrs := rv.Val // may be nil but shouldn't be if rv.Err is nil
 	var addrs []netip.AddrPort
 	for _, ip := range allAddrs {
 		if (ip.Is4() && acceptV4) || (ip.Is6() && acceptV6) {
@@ -154,7 +150,7 @@ func (tnet *wgtun) DialContext(_ context.Context, network, address string) (net.
 		case "udp", "udp4", "udp6":
 			c, err = tnet.DialUDPAddrPort(netip.AddrPort{}, addr)
 		case "ping", "ping4", "ping6":
-			c, err = tnet.DialPingAddr(netip.Addr{}, addr.Addr())
+			c, err = tnet.DialPing(netip.Addr{}, addr.Addr())
 		}
 		log.I("wg: dial: %s: #%d %v", network, i, addr)
 		if err == nil {
@@ -263,204 +259,10 @@ func (tnet *wgtun) ListenUDP(laddr *net.UDPAddr) (*gonet.UDPConn, error) {
 	return tnet.DialUDP(laddr, nil)
 }
 
-// --------------------------------------------------------------------
-// icmp dialer
-// --------------------------------------------------------------------
-
-type PingConn struct {
-	src      PingAddr
-	dst      PingAddr
-	wq       waiter.Queue
-	ep       tcpip.Endpoint
-	deadline *time.Timer
+func (tnet *wgtun) ListenPing(laddr netip.Addr) (*netstack.GICMPConn, error) {
+	return netstack.DialPingAddr(tnet.stack, wgnic, laddr, netip.Addr{})
 }
 
-type PingAddr struct{ addr netip.Addr }
-
-func (ipp PingAddr) String() string {
-	return ipp.addr.String()
-}
-
-func (ipp PingAddr) Network() string {
-	if ipp.addr.Is4() {
-		return "ping4"
-	} else if ipp.addr.Is6() {
-		return "ping6"
-	}
-	return "ping"
-}
-
-func (ipp PingAddr) Addr() netip.Addr {
-	return ipp.addr
-}
-
-func PingAddrFromAddr(addr netip.Addr) *PingAddr {
-	return &PingAddr{addr}
-}
-
-func (net *wgtun) DialPingAddr(laddr, raddr netip.Addr) (*PingConn, error) {
-	if !laddr.IsValid() && !raddr.IsValid() {
-		return nil, errors.New("ping dial: invalid address")
-	}
-	v6 := laddr.Is6() || raddr.Is6()
-	bind := laddr.IsValid()
-	if !bind {
-		if v6 {
-			laddr = netip.IPv6Unspecified()
-		} else {
-			laddr = netip.IPv4Unspecified()
-		}
-	}
-
-	tn := icmp.ProtocolNumber4
-	pn := ipv4.ProtocolNumber
-	if v6 {
-		tn = icmp.ProtocolNumber6
-		pn = ipv6.ProtocolNumber
-	}
-
-	pc := &PingConn{
-		src:      PingAddr{laddr},
-		deadline: time.NewTimer(time.Hour << 10),
-	}
-	pc.deadline.Stop()
-
-	ep, tcpipErr := net.stack.NewEndpoint(tn, pn, &pc.wq)
-	if tcpipErr != nil || ep == nil {
-		return nil, fmt.Errorf("ping socket: endpoint: %s", tcpipErr)
-	}
-	pc.ep = ep
-
-	if bind {
-		fa, _ := fullAddrFrom(netip.AddrPortFrom(laddr, 0))
-		if tcpipErr = pc.ep.Bind(fa); tcpipErr != nil {
-			return nil, fmt.Errorf("ping bind: %s", tcpipErr)
-		}
-	}
-
-	if raddr.IsValid() {
-		pc.dst = PingAddr{raddr}
-		fa, _ := fullAddrFrom(netip.AddrPortFrom(raddr, 0))
-		if tcpipErr = pc.ep.Connect(fa); tcpipErr != nil {
-			return nil, fmt.Errorf("ping connect: %s", tcpipErr)
-		}
-	}
-
-	return pc, nil
-}
-
-func (net *wgtun) ListenPingAddr(laddr netip.Addr) (*PingConn, error) {
-	return net.DialPingAddr(laddr, netip.Addr{})
-}
-
-func (net *wgtun) DialPing(laddr, raddr *PingAddr) (*PingConn, error) {
-	var src, dst netip.Addr
-	if laddr != nil {
-		src = laddr.addr
-	}
-	if raddr != nil {
-		dst = raddr.addr
-	}
-	return net.DialPingAddr(src, dst)
-}
-
-func (net *wgtun) ListenPing(laddr *PingAddr) (*PingConn, error) {
-	var src netip.Addr
-	if laddr != nil {
-		src = laddr.addr
-	}
-	return net.ListenPingAddr(src)
-}
-
-func (pc *PingConn) LocalAddr() net.Addr {
-	return pc.src
-}
-
-func (pc *PingConn) RemoteAddr() net.Addr {
-	return pc.dst
-}
-
-func (pc *PingConn) Close() error {
-	pc.deadline.Reset(0)
-	ep := pc.ep
-	if ep != nil {
-		ep.Close()
-	}
-	return nil
-}
-
-func (pc *PingConn) SetWriteDeadline(t time.Time) error {
-	return errors.New("not implemented")
-}
-
-func (pc *PingConn) WriteTo(p []byte, addr net.Addr) (n int, err error) {
-	var ip netip.Addr
-	switch v := addr.(type) {
-	case *PingAddr:
-		ip = v.addr
-	case *net.IPAddr:
-		ip, _ = netip.AddrFromSlice(v.IP)
-	default:
-		return 0, fmt.Errorf("ping write: wrong net.Addr type")
-	}
-	if !((ip.Is4() && pc.src.addr.Is4()) || (ip.Is6() && pc.src.addr.Is6())) {
-		return 0, fmt.Errorf("ping write: mismatched protocols")
-	}
-
-	buf := bytes.NewReader(p)
-	remote, _ := fullAddrFrom(netip.AddrPortFrom(ip, 0))
-	// won't block, no deadlines
-	n64, tcpipErr := pc.ep.Write(buf, tcpip.WriteOptions{
-		To: &remote,
-	})
-	if tcpipErr != nil {
-		return int(n64), fmt.Errorf("ping write: %s", tcpipErr)
-	}
-
-	// may overflow on 32-bit systems
-	return int(n64), nil
-}
-
-func (pc *PingConn) Write(p []byte) (n int, err error) {
-	return pc.WriteTo(p, &pc.dst)
-}
-
-func (pc *PingConn) ReadFrom(p []byte) (n int, addr net.Addr, err error) {
-	e, notifyCh := waiter.NewChannelEntry(waiter.EventIn)
-	pc.wq.EventRegister(&e)
-	defer pc.wq.EventUnregister(&e)
-
-	select {
-	case <-pc.deadline.C:
-		return 0, nil, os.ErrDeadlineExceeded
-	case <-notifyCh:
-	}
-
-	w := tcpip.SliceWriter(p)
-
-	res, tcpipErr := pc.ep.Read(&w, tcpip.ReadOptions{
-		NeedRemoteAddr: true,
-	})
-	if tcpipErr != nil {
-		return 0, nil, fmt.Errorf("ping read: %s", tcpipErr)
-	}
-
-	remoteAddr, _ := netip.AddrFromSlice(res.RemoteAddr.Addr.AsSlice())
-	return res.Count, &PingAddr{remoteAddr}, nil
-}
-
-func (pc *PingConn) Read(p []byte) (n int, err error) {
-	n, _, err = pc.ReadFrom(p)
-	return
-}
-
-func (pc *PingConn) SetDeadline(t time.Time) error {
-	// pc.SetWriteDeadline is unimplemented
-
-	return pc.SetReadDeadline(t)
-}
-
-func (pc *PingConn) SetReadDeadline(t time.Time) error {
-	pc.deadline.Reset(time.Until(t))
-	return nil
+func (tnet *wgtun) DialPing(laddr, raddr netip.Addr) (*netstack.GICMPConn, error) {
+	return netstack.DialPingAddr(tnet.stack, wgnic, laddr, raddr)
 }
