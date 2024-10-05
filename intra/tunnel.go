@@ -45,7 +45,7 @@ import (
 	"github.com/celzero/firestack/tunnel"
 )
 
-var bar = core.NewKeyedBarrier[*x.NetStat, string](10 * time.Second)
+var bar = core.NewKeyedBarrier[*x.NetStat, string](30 * time.Second)
 
 var (
 	errNoStatCache = errors.New("netstat: stat in cache is nil")
@@ -262,7 +262,7 @@ func (t *rtunnel) Stat() (*x.NetStat, error) {
 	v, _ := bar.Do("stat", func() (*x.NetStat, error) {
 		return t.stat()
 	})
-	if v == nil {
+	if v == nil { // unlikely
 		return nil, errNoStat
 	} else if v.Err != nil {
 		return nil, v.Err
@@ -291,7 +291,7 @@ func (t *rtunnel) stat() (*x.NetStat, error) {
 	out.RDNSIn.TunMode = csv2ssv(t.tunmode.String())
 
 	var mm runtime.MemStats
-	runtime.ReadMemStats(&mm)
+	runtime.ReadMemStats(&mm) // stw & expensive
 	out.GOSt.Alloc = formatBytes(mm.Alloc)
 	out.GOSt.TotalAlloc = formatBytes(mm.TotalAlloc)
 	out.GOSt.Sys = formatBytes(mm.Sys)
