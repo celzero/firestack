@@ -17,7 +17,6 @@ import (
 	"github.com/celzero/firestack/intra/settings"
 	"gvisor.dev/gvisor/pkg/tcpip"
 	"gvisor.dev/gvisor/pkg/tcpip/header"
-	"gvisor.dev/gvisor/pkg/tcpip/link/sniffer"
 	"gvisor.dev/gvisor/pkg/tcpip/network/ipv4"
 	"gvisor.dev/gvisor/pkg/tcpip/network/ipv6"
 	"gvisor.dev/gvisor/pkg/tcpip/stack"
@@ -29,11 +28,14 @@ import (
 // enable forwarding of packets on the interface
 const nicfwd = false
 
+// SnapLen is the maximum bytes of a packet to be saved. Packets with a length
+// less than or equal to snapLen will be saved in their entirety. Longer
+// packets will be truncated to snapLen.
 const SnapLen uint32 = 2048 // in bytes; some sufficient value
 
-type sniff struct {
+type linkFdSwap struct {
 	stack.LinkEndpoint
-	Swapper
+	FdSwapper
 }
 
 // ref: github.com/google/gvisor/blob/91f58d2cc/pkg/tcpip/sample/tun_tcp_echo/main.go#L102
@@ -55,28 +57,38 @@ func NewEndpoint(dev, mtu int, sink io.WriteCloser) (ep SeamlessEndpoint, err er
 		return nil, err
 	}
 	// ref: github.com/google/gvisor/blob/aeabb785278/pkg/tcpip/link/sniffer/sniffer.go#L111-L131
-	return asSniffer(ep, sink)
+	return snoop(ep, sink)
 }
 
-func asSniffer(ep SeamlessEndpoint, sink io.WriteCloser) (SeamlessEndpoint, error) {
+func snoop(ep SeamlessEndpoint, sink io.WriteCloser) (SeamlessEndpoint, error) {
 	if sink == nil {
 		return ep, nil
 	}
 	// TODO: MTU instead of SnapLen? Must match pcapsink.begin()
-	if link, err := sniffer.NewWithWriter(ep, sink, SnapLen); err != nil {
+	if link, err := NewSnoopyEndpoint(ep, sink); err != nil {
 		return nil, err
 	} else {
-		return sniff{link, ep}, nil
+		return linkFdSwap{link, ep}, nil
 	}
 }
 
 func LogPcap(y bool) (ok bool) {
 	if y {
-		ok = sniffer.LogPackets.CompareAndSwap(0, 1)
+		ok = LogPackets.CompareAndSwap(0, 1)
 	} else {
-		ok = sniffer.LogPackets.CompareAndSwap(1, 0)
+		ok = LogPackets.CompareAndSwap(1, 0)
 	}
 	log.I("netstack: pcap stdout(%t): done?(%t)", y, ok)
+	return
+}
+
+func LogFile(y bool) (ok bool) {
+	if y {
+		ok = WritePCAP.CompareAndSwap(0, 1)
+	} else {
+		ok = WritePCAP.CompareAndSwap(1, 0)
+	}
+	log.I("netstack: pcap file(%t): done?(%t)", y, ok)
 	return
 }
 

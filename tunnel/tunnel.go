@@ -24,10 +24,8 @@
 package tunnel
 
 import (
-	"encoding/binary"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"sync"
@@ -80,19 +78,6 @@ type gtunnel struct {
 	once   sync.Once
 }
 
-type pcapsink struct {
-	sink  *core.Volatile[io.WriteCloser]
-	inC   chan []byte   // always buffered
-	doneC chan struct{} // always unbuffered
-}
-
-// nowrite rejects all writes.
-type nowrite struct{}
-
-func (*nowrite) Write([]byte) (int, error) { return 0, io.ErrClosedPipe }
-func (*nowrite) Close() error              { return nil }
-
-var _ io.WriteCloser = (*nowrite)(nil)
 var _ Tunnel = (*gtunnel)(nil)
 
 var (
@@ -100,80 +85,6 @@ var (
 	errNoWriter     = errors.New("no write() on netstack")
 	zerowriter      = &nowrite{}
 )
-
-func (p *pcapsink) Write(b []byte) (int, error) {
-	select {
-	case <-p.doneC: // closed
-	default:
-		select {
-		case <-p.doneC: // closed
-		case p.inC <- b:
-			return len(b), nil
-		default: // drop
-			return 0, io.ErrNoProgress
-		}
-	}
-	return 0, io.ErrClosedPipe
-}
-
-// writeAsync consumes [p.in] until close.
-func (p *pcapsink) writeAsync() {
-	for b := range p.inC { // winsy spider
-		w := p.sink.Load() // always re-load current writer
-		if w != nil && w != zerowriter {
-			n, err := w.Write(b)
-			log.VV("tun: pcap: writeAsync: n: %d, err? %v", n, err)
-		} // else: no op
-	}
-}
-
-func (p *pcapsink) Recycle() error {
-	p.log(false)       // detach
-	err := p.file(nil) // detach
-	return err
-}
-
-func (p *pcapsink) Close() error {
-	defer close(p.inC) // signal writeAsync to exit
-	defer close(p.doneC)
-
-	return p.Recycle()
-}
-
-// begin writes pcap header to w.
-// from: github.com/google/gvisor/blob/596e8d22/pkg/tcpip/link/sniffer/sniffer.go#L93
-func (p *pcapsink) begin(w io.Writer) error {
-	_, offset := time.Date(0, 0, 0, 0, 0, 0, 0, time.Local).Zone()
-	return binary.Write(w, binary.LittleEndian, core.PcapHeader{
-		MagicNumber:  0xa1b2c3d4,
-		VersionMajor: 2,
-		VersionMinor: 4,
-		Thiszone:     int32(offset),
-		Sigfigs:      0,
-		Snaplen:      netstack.SnapLen, // must match netstack.asSniffer()
-		Network:      101,              // LINKTYPE_RAW
-	})
-}
-
-func (p *pcapsink) file(f io.WriteCloser) (err error) {
-	if f == nil || core.IsNil(f) {
-		f = zerowriter
-	}
-
-	old := p.sink.Tango(f) // old may be nil
-	core.CloseOp(old, core.CopRW)
-
-	y := f != zerowriter
-	if y {
-		err = p.begin(f) // write pcap header before any packets
-		log.I("tun: pcap: begin: writeHeader; err(%v)", err)
-	}
-	return
-}
-
-func (p *pcapsink) log(y bool) bool {
-	return netstack.LogPcap(y)
-}
 
 func (t *gtunnel) Mtu() int32 {
 	// return int32(t.stack.NICInfo()[0].MTU)
@@ -258,17 +169,6 @@ func (t *gtunnel) Write([]byte) (int, error) {
 	return 0, errNoWriter
 }
 
-func newSink() *pcapsink {
-	// go.dev/play/p/4qANL9VSDXb
-	p := new(pcapsink)
-	p.sink = core.NewVolatile[io.WriteCloser](zerowriter)
-	p.log(false) // no log, which is enabled by default
-	p.inC = make(chan []byte, 128)
-	p.doneC = make(chan struct{})
-	core.Go("pcap.w", func() { p.writeAsync() })
-	return p
-}
-
 func NewGTunnel(fd, mtu int, hdl netstack.GConnHandler) (t *gtunnel, rev netstack.GConnHandler, err error) {
 	var nic tcpip.NICID
 	dupfd, err := dup(fd) // tunnel will own dupfd
@@ -319,7 +219,7 @@ func (t *gtunnel) SetPcap(fp string) error {
 
 	pcap := t.pcapio
 
-	ignored := pcap.Recycle() // close any existing pcap sink
+	ignored := pcap.recycle() // close any existing pcap sink
 	if len(fp) == 0 {
 		log.I("netstack: pcap closed (ignored-err? %v)", ignored)
 		return nil // nothing else to do; pcap closed

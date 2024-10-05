@@ -48,12 +48,12 @@ import (
 
 var _ stack.InjectableLinkEndpoint = (*endpoint)(nil)
 var _ stack.LinkEndpoint = (*endpoint)(nil)
-var _ stack.LinkEndpoint = (*sniff)(nil)
-var _ Swapper = (*sniff)(nil)
+var _ stack.LinkEndpoint = (*linkFdSwap)(nil)
+var _ FdSwapper = (*linkFdSwap)(nil)
 
 const invalidfd int = -1
 
-type Swapper interface {
+type FdSwapper interface {
 	// Swap closes existing FDs; uses new fd and mtu.
 	Swap(fd, mtu int) error
 	// Dispose closes all existing FDs.
@@ -62,7 +62,7 @@ type Swapper interface {
 
 type SeamlessEndpoint interface {
 	stack.LinkEndpoint
-	Swapper
+	FdSwapper
 }
 
 // linkDispatcher reads packets from the link FD and dispatches them to the
