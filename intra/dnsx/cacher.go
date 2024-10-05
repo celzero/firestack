@@ -39,7 +39,10 @@ const (
 	// ttl for expired response
 	stalettl = 15 // seconds
 	// ttl for response from requests that were barriered
-	ttl10s = 10 * time.Second
+	// (ideally, longer than request timeouts)
+	battl = 30 * time.Second
+	// threshold for hangover responses
+	httl = 10 * time.Second
 	// how many entries to scrub at a time per cache bucket
 	maxscrubs = defsize / 4 // 25% of the cache
 	// separator qname, qtype cache-key
@@ -116,7 +119,7 @@ func NewCachingTransport(t Transport, ttl time.Duration) Transport {
 		halflife:   ttl / 2,
 		bumps:      defbumps,
 		size:       defsize,
-		reqbarrier: core.NewBarrier[*cres](ttl10s),
+		reqbarrier: core.NewBarrier[*cres](battl),
 		hangover:   core.NewHangover(),
 	}
 	log.I("cache: (%s) setup: %s; opts: %s", ct.ID(), ct.GetAddr(), ct.str())
@@ -352,7 +355,7 @@ func (t *ctransport) fetch(network string, q *dns.Msg, summary *x.DNSSummary, cb
 		hasans := cachedres.ans != nil
 		// if there's no network connectivity (in hangover for 10s) don't
 		// return cached/barriered response, instead return an error
-		inhangover := t.hangover.Exceeds(ttl10s)
+		inhangover := t.hangover.Exceeds(httl)
 		if inhangover {
 			err = errors.Join(err, errHangover)
 			log.W("cache: barrier: hangover(k: %s); discard ans (has? %t)", key, hasans)
@@ -378,7 +381,7 @@ func (t *ctransport) fetch(network string, q *dns.Msg, summary *x.DNSSummary, cb
 	// which results in confused apps that think there's network connectivity,
 	// that is, these confused apps go bezerk resulting in battery drain.
 	// has 10s elapsed since the first send failure
-	trok := t.hangover.Within(ttl10s)
+	trok := t.hangover.Within(httl)
 
 	if v, isfresh := cb.freshCopy(key); trok && v != nil {
 		var cachedsummary *x.DNSSummary
