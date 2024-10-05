@@ -62,7 +62,7 @@ func Gif(cond bool, who string, f func()) {
 	}
 }
 
-func Grx[T any](who string, f func() T, d time.Duration) (zz T, ok bool) {
+func Grx[T any](who string, f func() T, d time.Duration) (zz T, completed bool) {
 	ch := make(chan T)
 
 	done := make(chan struct{})
