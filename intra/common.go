@@ -7,12 +7,14 @@
 package intra
 
 import (
+	"context"
 	"fmt"
 	"math/rand"
 	"net"
 	"net/netip"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/celzero/firestack/intra/core"
@@ -31,8 +33,294 @@ const (
 	UNSUPPORTED_NETWORK = -1
 )
 
+const (
+	HDLOK = iota
+	HDLEND
+)
+
 // immediate is the wait time before sending a summary to the listener.
 var immediate = time.Duration(0)
+
+// zeroListener is a no-op implementation of SocketListener.
+type zeroListener struct{}
+
+var _ SocketListener = (*zeroListener)(nil)
+
+func (*zeroListener) Preflow(_, _ int32, _, _, _ string) *PreMark    { return nil }
+func (*zeroListener) Flow(_, _ int32, _, _, _, _, _, _ string) *Mark { return nil }
+func (*zeroListener) Inflow(_, _ int32, _, _ string) *Mark           { return nil }
+func (*zeroListener) OnSocketClosed(*SocketSummary)                  {}
+
+var nooplistener = new(zeroListener)
+
+type baseHandler struct {
+	proto string // tcp, udp, icmp
+	ctx   context.Context
+	done  context.CancelFunc
+
+	tunMode  *settings.TunMode
+	resolver dnsx.Resolver // dns resolver to forward queries to
+	smmch    chan *SocketSummary
+	listener SocketListener // listener for socket summaries
+
+	fwtracker   *core.ExpMap    // uid+dst(domainOrIP) -> blockSecs
+	conntracker core.ConnMapper // connid -> [local,remote]
+
+	once sync.Once
+
+	// fields below are mutable
+
+	status *core.Volatile[int] // status of this handler
+}
+
+func newBaseHandler(proto string, r dnsx.Resolver, tm *settings.TunMode, l SocketListener) *baseHandler {
+	ctx, done := context.WithCancel(context.Background())
+	return &baseHandler{
+		proto:       proto,
+		ctx:         ctx,
+		done:        done,
+		tunMode:     tm,
+		resolver:    r,
+		smmch:       make(chan *SocketSummary, smmchSize),
+		listener:    l,
+		fwtracker:   core.NewExpiringMap(),
+		conntracker: core.NewConnMap(),
+		status:      core.NewVolatile(HDLOK),
+	}
+}
+
+// onFlow calls listener.Flow to determine egress rules and routes; thread-safe.
+func (h *baseHandler) onFlow(localaddr, target netip.AddrPort) (fm *Mark, undidAlg bool, ips, doms string) {
+	blockmode := h.tunMode.BlockMode.Load()
+	fm = optionsBlock // fail-safe: block everything in the default case
+	// BlockModeNone returns false, BlockModeSink returns true
+	if blockmode == settings.BlockModeSink {
+		return
+	} else if blockmode == settings.BlockModeNone {
+		fm = optionsBase
+	} // else: BlockModeFilter|BlockModeFilterProc
+
+	// Implicit: BlockModeFilter or BlockModeFilterProc
+	uid := UNKNOWN_UID
+	if blockmode == settings.BlockModeFilterProc {
+		procEntry := netstat.FindProcNetEntry(h.proto, localaddr, target)
+		if procEntry != nil {
+			uid = procEntry.UserID
+		}
+	}
+
+	network := h.proto
+	if network == "icmp" && target.Addr().Is6() {
+		network = "icmp6"
+	}
+	var proto int32 = ntoa(network) // -1 unsupported
+
+	src := localaddr.String()
+	dst := target.String()
+
+	var pdoms, blocklists string
+	var pre *PreMark
+	var ok bool
+
+	// alg happens after nat64, and so, alg knows nat-ed ips
+	// that is, realips are un-nated
+	undidAlg, ips, doms, pdoms, blocklists = h.undoAlg(target.Addr())
+	hasOldIPs := len(ips) > 0
+	if undidAlg && !hasOldIPs {
+		pre, ok = core.Grx(h.proto+".preflow", func() *PreMark {
+			return h.listener.Preflow(proto, int32(uid), src, dst, doms)
+		}, onFlowTimeout)
+
+		hasNewIPs := false
+		hasPre := pre != nil && len(pre.TIDCSV) > 0
+		if ok && hasPre {
+			if newuid, err := strconv.Atoi(pre.UID); err == nil {
+				uid = newuid
+			} else {
+				log.W("onFlow: %s preflow: invalid uid %s; using %d, err? %v",
+					h.proto, pre.UID, uid, err)
+			}
+			// empty pre.TIDCSV will result in len(tids) == 1
+			// go.dev/play/p/67cd88Y1lUE
+			tids := strings.Split(pre.TIDCSV, ",")
+			for _, d := range strings.Split(doms, ",") {
+				if len(d) <= 0 {
+					log.V("onFlow: %s preflow: empty domain in %v from %v => %v for %s; skip!",
+						h.proto, doms, src, target, pre.UID)
+					continue
+				}
+				// ResolveOn will use dnsx.Default if TID is empty
+				// see: dns53.ipmapper:queryIP & dnsx.transport:Lookup
+				newips, err := dialers.ResolveOn(d, tids...)
+				hasNewIPs = err == nil && len(newips) > 0
+				if hasNewIPs { // fetch alg result if resolve succeeded
+					_, ips, doms, pdoms, blocklists = h.undoAlg(target.Addr())
+					break
+				} // else: either no known transport or preflow failed
+			}
+		} // else: either no known transport or preflow failed
+
+		if !ok || !hasPre || !hasNewIPs {
+			log.W("onFlow: %s alg, but no preflow? %t / %t, ips? %t for %s over %s; block!",
+				h.proto, ok, hasPre, hasNewIPs, pre.UID, pre.TIDCSV)
+			// either optionsBase (BlockModeNone) or optionsBlock
+			return fm, undidAlg, "", ""
+		} // else: if we've got target and/or old ips, dial them
+	} else {
+		log.D("onFlow: %s noalg? %t or hasips? %t", h.proto, undidAlg, hasOldIPs)
+	}
+
+	if len(ips) <= 0 || len(doms) <= 0 {
+		log.D("onFlow: %s no realips(%s) or domains(%s + %s), for src=%s dst=%s",
+			h.proto, ips, doms, pdoms, localaddr, target)
+	}
+
+	fm, ok = core.Grx(h.proto+".flow", func() *Mark {
+		return h.listener.Flow(proto, int32(uid), src, dst, ips, doms, pdoms, blocklists)
+	}, onFlowTimeout)
+
+	if fm == nil || !ok { // zeroListener returns nil
+		log.W("onFlow: %s empty res or on flow timeout %t; block!", h.proto, ok)
+		fm = optionsBlock
+	} else if len(fm.PID) <= 0 {
+		log.E("onFlow: %s no pid from kt; exit!", h.proto)
+		fm.PID = ipn.Exit
+	}
+
+	return
+}
+
+// forward copies data between local and remote, and tracks the connection.
+// It also sends a summary to the listener when done. Always called in a goroutine.
+func (h *baseHandler) forward(local, remote net.Conn, smm *SocketSummary) {
+	cid := smm.ID
+
+	h.conntracker.Track(cid, local, remote)
+	defer h.conntracker.Untrack(cid)
+
+	uploadch := make(chan ioinfo)
+
+	go upload(cid, local, remote, uploadch)
+	dbytes, derr := download(cid, local, remote)
+
+	upload := <-uploadch
+
+	// remote conn could be dialed in to some proxy; and so,
+	// its remote addr may not be the same as smm.Target
+	smm.Rx = dbytes
+	smm.Tx = upload.bytes
+
+	h.queueSummary(smm.done(derr, upload.err))
+}
+
+func (h *baseHandler) queueSummary(s *SocketSummary) {
+	if s == nil {
+		return
+	}
+
+	// go.dev/play/p/AXDdhcMu2w_k
+	// even though channel done is always closed before ch, we still
+	// see panic from the select statement writing to ch; and hence
+	// the need to have this nested select statement.
+
+	log.VV("intra: queueSummary: %x %x %s", h.smmch, h.ctx, s.ID)
+	select {
+	case <-h.ctx.Done():
+		log.D("intra: queueSummary: end: %s", s.str())
+	default:
+		select {
+		case <-h.ctx.Done():
+		case h.smmch <- s:
+		default:
+			log.W("intra: sendSummary: dropped: %s", s.str())
+		}
+	}
+}
+
+// must be called from a goroutine; loops reading from ch until done is closed.
+func (h *baseHandler) processSummaries() {
+	defer core.Recover(core.DontExit, "c.sendSummary")
+
+	for {
+		select {
+		case <-h.ctx.Done():
+			return
+		case s := <-h.smmch:
+			if s != nil && len(s.ID) > 0 {
+				h.sendSummary(s, immediate)
+			}
+		}
+	}
+}
+
+func (h *baseHandler) sendSummary(s *SocketSummary, after time.Duration) {
+	defer core.Recover(core.DontExit, "c.sendNotif: "+s.ID)
+
+	if after > 0 {
+		// sleep a bit to avoid scenario where kotlin-land
+		// hasn't yet had the chance to persist info about
+		// this conn (cid) to meaninfully process its summary
+		time.Sleep(after)
+	}
+
+	log.VV("intra: end? sendNotif: %s", s.str())
+	h.listener.OnSocketClosed(s) // s.Duration may be uninitialized (zero)
+}
+
+// OpenConns implements netstack.GBaseConnHandler
+func (h *baseHandler) OpenConns() string {
+	return fmt.Sprintf("%d | %s", h.conntracker.Len()/2, h.conntracker.String())
+}
+
+// CloseConns implements netstack.GBaseConnHandler
+func (h *baseHandler) CloseConns(cids []string) (closed []string) {
+	return closeconns(h.conntracker, cids)
+}
+
+// TODO: move this to ipn.Block
+func (h *baseHandler) stall(k string) (secs uint32) {
+	if n := h.fwtracker.Get(k); n <= 0 {
+		secs = 0 // no stall
+	} else if n > 30 {
+		secs = 30 // max up to 30s
+	} else if n < 5 {
+		secs = (rand.Uint32() % 5) + 1 // up to 5s
+	} else {
+		secs = n
+	}
+	// track uid->target for n secs, or 30s if n is 0
+	life30s := ((29 + secs) % 30) + 1
+	newlife := time.Duration(life30s) * time.Second
+	h.fwtracker.Set(k, newlife)
+	if secs > 0 {
+		w := time.Duration(secs) * time.Second
+		time.Sleep(w)
+	}
+	return
+}
+
+func (h *baseHandler) dnsOverride(conn net.Conn, addr netip.AddrPort) bool {
+	// addr with zone information removed; see: netip.ParseAddrPort which h.resolver relies on
+	// addr2 := &net.TCPAddr{IP: addr.IP, Port: addr.Port}
+	if addr.IsValid() && h.resolver.IsDnsAddr(addr) {
+		// conn closed by the resolver
+		h.resolver.Serve(h.proto, conn)
+		return true
+	}
+	return false
+}
+
+// End implements netstack.GBaseConnHandler
+func (h *baseHandler) End() error {
+	h.once.Do(func() {
+		h.CloseConns(nil)
+		h.status.Store(HDLEND)
+		h.done()       // signal close listener send
+		close(h.smmch) // close listener chan
+		log.I("%s: handler end %x %x", h.proto, h.ctx, h.smmch)
+	})
+	return nil
+}
 
 // TODO: Propagate TCP RST using local.Abort(), on appropriate errors.
 func upload(cid string, local net.Conn, remote net.Conn, ioch chan<- ioinfo) {
@@ -56,116 +344,6 @@ func download(cid string, local net.Conn, remote net.Conn) (n int64, err error) 
 
 	core.CloseOp(local, core.CopW)
 	core.CloseOp(remote, core.CopR)
-	return
-}
-
-// forward copies data between local and remote, and tracks the connection.
-// It also sends a summary to the listener when done. Always called in a goroutine.
-func forward(local, remote net.Conn, ch chan *SocketSummary, done chan struct{}, smm *SocketSummary) {
-	cid := smm.ID
-
-	uploadch := make(chan ioinfo)
-
-	go upload(cid, local, remote, uploadch)
-	dbytes, derr := download(cid, local, remote)
-
-	upload := <-uploadch
-
-	// remote conn could be dialed in to some proxy; and so,
-	// its remote addr may not be the same as smm.Target
-	smm.Rx = dbytes
-	smm.Tx = upload.bytes
-
-	queueSummary(ch, done, smm.done(derr, upload.err))
-}
-
-func queueSummary(ch chan<- *SocketSummary, done <-chan struct{}, s *SocketSummary) {
-	if s == nil {
-		return
-	}
-
-	// go.dev/play/p/AXDdhcMu2w_k
-	// even though channel done is always closed before ch, we still
-	// see panic from the select statement writing to ch; and hence
-	// the need to have this nested select statement.
-
-	log.VV("intra: queueSummary: over %x %x %s", ch, done, s.ID)
-	select {
-	case <-done:
-		log.D("intra: queueSummary: end: %s", s.str())
-	default:
-		select {
-		case <-done:
-		case ch <- s:
-		default:
-			log.W("intra: sendSummary: dropped: %s", s.str())
-		}
-	}
-}
-
-// must be called from a goroutine; loops reading from ch until done is closed.
-func sendSummary(ch chan *SocketSummary, done chan struct{}, l SocketListener) {
-	defer core.Recover(core.DontExit, "c.sendSummary")
-
-	noch := ch == nil
-	notok := l == nil || core.IsNil(l)
-	if noch || notok {
-		log.W("intra: sendSummary: nil ch(%t) or l(%t)", noch, notok)
-		return
-	}
-
-	for {
-		select {
-		case <-done:
-			return
-		case s := <-ch:
-			if s != nil && len(s.ID) > 0 {
-				sendNotif(l, s, immediate)
-			}
-		}
-	}
-}
-
-func sendNotif(l SocketListener, s *SocketSummary, after time.Duration) {
-	defer core.Recover(core.DontExit, "c.sendNotif: "+s.ID)
-
-	if after > 0 {
-		// sleep a bit to avoid scenario where kotlin-land
-		// hasn't yet had the chance to persist info about
-		// this conn (cid) to meaninfully process its summary
-		time.Sleep(after)
-	}
-
-	log.VV("intra: end? sendNotif: %s", s.str())
-	l.OnSocketClosed(s) // s.Duration may be uninitialized (zero)
-}
-
-func dnsOverride(r dnsx.Resolver, proto string, conn net.Conn, addr netip.AddrPort) bool {
-	// addr with zone information removed; see: netip.ParseAddrPort which h.resolver relies on
-	// addr2 := &net.TCPAddr{IP: addr.IP, Port: addr.Port}
-	if addr.IsValid() && r.IsDnsAddr(addr) {
-		// conn closed by the resolver
-		r.Serve(proto, conn)
-		return true
-	}
-	return false
-}
-
-// TODO: move this to ipn.Block
-func stall(m *core.ExpMap, k string) (secs uint32) {
-	if n := m.Get(k); n <= 0 {
-		secs = 0 // no stall
-	} else if n > 30 {
-		secs = 30 // max up to 30s
-	} else if n < 5 {
-		secs = (rand.Uint32() % 5) + 1 // up to 5s
-	} else {
-		secs = n
-	}
-	// track uid->target for n secs, or 30s if n is 0
-	life30s := ((29 + secs) % 30) + 1
-	newlife := time.Duration(life30s) * time.Second
-	m.Set(k, newlife)
 	return
 }
 
@@ -223,7 +401,8 @@ func makeIPPorts(realips string, origipp netip.AddrPort, cap int) []netip.AddrPo
 }
 
 // algip may or may not be an actual alg ip.
-func undoAlg(r dnsx.Resolver, algip netip.Addr) (undidAlg bool, realips, domains, probableDomains, blocklists string) {
+func (h *baseHandler) undoAlg(algip netip.Addr) (undidAlg bool, realips, domains, probableDomains, blocklists string) {
+	r := h.resolver
 	didForce := false
 	forcePTR := true // force PTR resolution?
 	if gw := r.Gateway(); !algip.IsUnspecified() && algip.IsValid() && gw != nil {
@@ -316,120 +495,6 @@ func closeconns(cm core.ConnMapper, cids []string) (closed []string) {
 
 func clos(c ...core.MinConn) {
 	core.CloseConn(c...)
-}
-
-// zeroListener is a no-op implementation of SocketListener.
-type zeroListener struct{}
-
-var _ SocketListener = (*zeroListener)(nil)
-
-func (*zeroListener) Preflow(_, _ int32, _, _, _ string) *PreMark    { return nil }
-func (*zeroListener) Flow(_, _ int32, _, _, _, _, _, _ string) *Mark { return nil }
-func (*zeroListener) Inflow(_, _ int32, _, _ string) *Mark           { return nil }
-func (*zeroListener) OnSocketClosed(*SocketSummary)                  {}
-
-var nooplistener = new(zeroListener)
-
-type baseHandler struct {
-	tunMode  *settings.TunMode
-	resolver dnsx.Resolver  // dns resolver to forward queries to
-	listener SocketListener // listener for socket summaries
-}
-
-// onFlow calls listener.Flow to determine egress rules and routes; thread-safe.
-func (h *baseHandler) onFlow(network string, localaddr, target netip.AddrPort) (fm *Mark, undidAlg bool, ips, doms string) {
-	blockmode := h.tunMode.BlockMode.Load()
-	fm = optionsBlock // fail-safe: block everything in the default case
-	// BlockModeNone returns false, BlockModeSink returns true
-	if blockmode == settings.BlockModeSink {
-		return
-	} else if blockmode == settings.BlockModeNone {
-		fm = optionsBase
-	} // else: BlockModeFilter|BlockModeFilterProc
-
-	// Implicit: BlockModeFilter or BlockModeFilterProc
-	uid := UNKNOWN_UID
-	if blockmode == settings.BlockModeFilterProc {
-		procEntry := netstat.FindProcNetEntry(network, localaddr, target)
-		if procEntry != nil {
-			uid = procEntry.UserID
-		}
-	}
-
-	var proto int32 = ntoa(network) // -1 unsupported
-
-	src := localaddr.String()
-	dst := target.String()
-
-	var pdoms, blocklists string
-	var pre *PreMark
-	var ok bool
-
-	// alg happens after nat64, and so, alg knows nat-ed ips
-	// that is, realips are un-nated
-	undidAlg, ips, doms, pdoms, blocklists = undoAlg(h.resolver, target.Addr())
-	hasOldIPs := len(ips) > 0
-	if undidAlg && !hasOldIPs {
-		pre, ok = core.Grx(network+".preflow", func() *PreMark {
-			return h.listener.Preflow(proto, int32(uid), src, dst, doms)
-		}, onFlowTimeout)
-
-		hasNewIPs := false
-		hasPre := pre != nil && len(pre.TIDCSV) > 0
-		if ok && hasPre {
-			if newuid, err := strconv.Atoi(pre.UID); err == nil {
-				uid = newuid
-			} else {
-				log.W("onFlow: %s preflow: invalid uid %s; using %d, err? %v",
-					network, pre.UID, uid, err)
-			}
-			// empty pre.TIDCSV will result in len(tids) == 1
-			// go.dev/play/p/67cd88Y1lUE
-			tids := strings.Split(pre.TIDCSV, ",")
-			for _, d := range strings.Split(doms, ",") {
-				if len(d) <= 0 {
-					log.V("onFlow: %s preflow: empty domain in %v from %v => %v for %s; skip!",
-						network, doms, src, target, pre.UID)
-					continue
-				}
-				// ResolveOn will use dnsx.Default if TID is empty
-				// see: dns53.ipmapper:queryIP & dnsx.transport:Lookup
-				newips, err := dialers.ResolveOn(d, tids...)
-				hasNewIPs = err == nil && len(newips) > 0
-				if hasNewIPs { // fetch alg result if resolve succeeded
-					_, ips, doms, pdoms, blocklists = undoAlg(h.resolver, target.Addr())
-					break
-				} // else: either no known transport or preflow failed
-			}
-		} // else: either no known transport or preflow failed
-
-		if !ok || !hasPre || !hasNewIPs {
-			log.W("onFlow: %s alg, but no preflow? %t / %t, ips? %t for %s over %s; block!",
-				network, ok, hasPre, hasNewIPs, pre.UID, pre.TIDCSV)
-			// either optionsBase (BlockModeNone) or optionsBlock
-			return fm, undidAlg, "", ""
-		} // else: if we've got target and/or old ips, dial them
-	} else {
-		log.D("onFlow: %s noalg? %t or hasips? %t", network, undidAlg, hasOldIPs)
-	}
-
-	if len(ips) <= 0 || len(doms) <= 0 {
-		log.D("onFlow: %s no realips(%s) or domains(%s + %s), for src=%s dst=%s", network, ips, doms, pdoms, localaddr, target)
-	}
-
-	fm, ok = core.Grx(network+".flow", func() *Mark {
-		return h.listener.Flow(proto, int32(uid), src, dst, ips, doms, pdoms, blocklists)
-	}, onFlowTimeout)
-
-	if fm == nil || !ok { // zeroListener returns nil
-		log.W("onFlow: %s empty res or on flow timeout %t; block!", network, ok)
-		fm = optionsBlock
-	} else if len(fm.PID) <= 0 {
-		log.E("onFlow: %s no pid from kt; exit!", network)
-		fm.PID = ipn.Exit
-	}
-
-	return
 }
 
 func ntoa(n string) int32 {

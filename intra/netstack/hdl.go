@@ -21,7 +21,7 @@ import (
 )
 
 type gconns interface {
-	*GUDPConn | *GTCPConn
+	*GUDPConn | *GTCPConn | *GICMPConn
 }
 
 type GBaseConnHandler interface {

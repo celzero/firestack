@@ -9,7 +9,6 @@ package intra
 import (
 	"net"
 	"net/netip"
-	"sync"
 	"time"
 
 	"golang.org/x/sys/unix"
@@ -25,21 +24,8 @@ import (
 
 type icmpHandler struct {
 	*baseHandler
-	prox  ipn.Proxies
-	smmch chan *SocketSummary
-	done  chan struct{} // always unbuffered, never nil
-
-	once sync.Once
-
-	// mutable fields below
-
-	status *core.Volatile[int]
+	prox ipn.Proxies
 }
-
-const (
-	ICMPOK = iota
-	ICMPEND
-)
 
 const (
 	blocktime   = 25 * time.Second
@@ -50,50 +36,19 @@ var _ netstack.GICMPHandler = (*icmpHandler)(nil)
 
 func NewICMPHandler(resolver dnsx.Resolver, prox ipn.Proxies, tunMode *settings.TunMode, listener Listener) netstack.GICMPHandler {
 	h := &icmpHandler{
-		baseHandler: &baseHandler{
-			resolver: resolver,
-			tunMode:  tunMode,
-			listener: listener,
-		},
-		prox:   prox,
-		smmch:  make(chan *SocketSummary, smmchSize),
-		done:   make(chan struct{}),
-		status: core.NewVolatile(ICMPOK),
+		baseHandler: newBaseHandler("icmp", resolver, tunMode, listener),
+		prox:        prox,
 	}
 
-	go sendSummary(h.smmch, h.done, listener)
+	go h.processSummaries()
 
 	log.I("icmp: new handler created")
 	return h
 }
 
 func (h *icmpHandler) flow(source, target netip.AddrPort) (_ *Mark, _ bool, _, _ string) {
-	proto := "icmp"
-	if target.Addr().Is6() {
-		proto = "icmp6"
-	}
-	return h.onFlow(proto, source, target)
+	return h.onFlow(source, target)
 }
-
-// End implements netstack.GICMPHandler.
-func (h *icmpHandler) End() error {
-	h.once.Do(func() {
-		h.CloseConns(nil)
-		h.status.Store(ICMPEND)
-		close(h.done)
-		close(h.smmch) // close listener chan
-		log.I("icmp: handler end %x %x", h.done, h.smmch)
-	})
-	return nil
-}
-
-// TODO: stub
-func (h *icmpHandler) OpenConns() string {
-	return ""
-}
-
-// CloseConns implements netstack.GICMPHandler.
-func (h *icmpHandler) CloseConns(cids []string) []string { return nil }
 
 // Ping implements netstack.GICMPHandler.
 // Nb: to send icmp pings, root access is required; and so,
@@ -120,10 +75,10 @@ func (h *icmpHandler) Ping(msg []byte, source, target netip.AddrPort) (echoed bo
 		smm.Tx = int64(tx)
 		smm.Rx = int64(rx)
 		smm.Target = dst.Addr().String()
-		queueSummary(h.smmch, h.done, smm.done(err)) // err may be nil
+		h.queueSummary(smm.done(err)) // err may be nil
 	}()
 
-	if h.status.Load() == ICMPEND {
+	if h.status.Load() == HDLEND {
 		err = errIcmpEnd
 		log.D("t.icmp: handler ended (%s => %s)", source, target)
 		return false // not handled
@@ -161,6 +116,9 @@ func (h *icmpHandler) Ping(msg []byte, source, target netip.AddrPort) (echoed bo
 		log.E("t.icmp: egress: dial(%s); hasConn? %s(%t); err %v", dst, pid, !ucnil, err)
 		return false // unhandled
 	}
+
+	h.conntracker.Track(cid, uc)
+	defer h.conntracker.Untrack(cid)
 
 	extend(uc, icmptimeout)
 	// todo: construct ICMP header? github.com/prometheus-community/pro-bing/blob/0bacb2d5e7/ping.go#L717

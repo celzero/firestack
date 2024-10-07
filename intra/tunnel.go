@@ -134,8 +134,8 @@ func NewTunnel(fd, mtu int, fakedns string, tunmode *settings.TunMode, dtr Defau
 
 	addIPMapper(resolver, settings.IP46) // namespace aware os-resolver for pkg dialers
 
-	tcph := NewTCPHandler(resolver, proxies, tunmode, bdg, bdg)
-	udph := NewUDPHandler(resolver, proxies, tunmode, bdg, bdg)
+	tcph := NewTCPHandler(resolver, proxies, tunmode, bdg)
+	udph := NewUDPHandler(resolver, proxies, tunmode, bdg)
 	icmph := NewICMPHandler(resolver, proxies, tunmode, bdg)
 	hdl := netstack.NewGConnHandler(tcph, udph, icmph)
 
