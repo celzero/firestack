@@ -46,14 +46,17 @@ type DefaultDNS interface {
 }
 
 type bootstrap struct {
-	dnsx.Transport             // the underlying transport
-	proxies        ipn.Proxies // never nil if underlying transport is set
-	bridge         Bridge      // never nil if underlying transport is set
-	typ            string      // DOH or DNS53
-	ipports        string      // never empty for DNS53
-	url            string      // never empty for DOH
-	hostname       string      // never empty
+	tr       dnsx.Transport // the underlying transport
+	proxies  ipn.Proxies    // never nil if underlying transport is set
+	bridge   Bridge         // never nil if underlying transport is set
+	typ      string         // DOH or DNS53
+	ipports  string         // never empty for DNS53
+	url      string         // never empty for DOH
+	hostname string         // never empty
 }
+
+var _ DefaultDNS = (*bootstrap)(nil)
+var _ dnsx.Transport = (*bootstrap)(nil)
 
 // NewDefaultDNS creates a new DefaultDNS resolver of type typ. For typ DOH,
 // url scheme is http or https; for typ DNS53, url is ipport or csv(ipport).
@@ -168,18 +171,18 @@ func (b *bootstrap) kickstart(px ipn.Proxies, g Bridge) error {
 		err = errDefaultTransportType
 	}
 
-	if b.Transport != nil {
-		b.Transport.Stop()
+	if tr = b.tr; tr != nil {
+		tr.Stop()
 		log.I("dns: default: removing %s %s[%s]", b.typ, b.hostname, b.GetAddr())
 	}
 
 	// always override previous transport with (new) tr; even if nil
-	b.Transport = tr
+	b.tr = tr
 	if err != nil {
 		log.E("dns: default: start; err %v", err)
 		return err
 	}
-	if tr == nil {
+	if b.tr == nil {
 		log.W("dns: default: start; nil transport %s %s", b.typ, b.hostname)
 		return errCannotStart
 	}
@@ -198,8 +201,7 @@ func (b *bootstrap) Type() string {
 }
 
 func (b *bootstrap) Query(network string, q *dns.Msg, summary *x.DNSSummary) (*dns.Msg, error) {
-	tr := b.Transport
-	if tr != nil {
+	if tr := b.tr; tr != nil {
 		log.V("dns: default: %s query? %t", network, q != nil)
 		return dnsx.Req(tr, network, q, summary)
 	}
@@ -207,25 +209,29 @@ func (b *bootstrap) Query(network string, q *dns.Msg, summary *x.DNSSummary) (*d
 }
 
 func (b *bootstrap) P50() int64 {
-	tr := b.Transport
-	if tr != nil {
+	if tr := b.tr; tr != nil {
 		return tr.P50()
 	}
 	return 0
 }
 
 func (b *bootstrap) GetAddr() string {
-	tr := b.Transport
-	if tr != nil {
+	if tr := b.tr; tr != nil {
 		return tr.GetAddr()
 	}
 	return ""
 }
 
 func (b *bootstrap) Status() int {
-	tr := b.Transport
-	if tr != nil {
+	if tr := b.tr; tr != nil {
 		return tr.Status()
 	}
 	return dnsx.ClientError
+}
+
+func (b *bootstrap) Stop() error {
+	if tr := b.tr; tr != nil {
+		return tr.Stop()
+	}
+	return nil
 }
