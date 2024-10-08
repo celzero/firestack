@@ -7,11 +7,9 @@
 package netstack
 
 import (
-	"errors"
 	"net"
 	"net/netip"
 	"strings"
-	"sync"
 
 	"github.com/celzero/firestack/intra/settings"
 	"gvisor.dev/gvisor/pkg/tcpip"
@@ -29,8 +27,8 @@ type GBaseConnHandler interface {
 	OpenConns() string
 	// CloseConns closes conns by ids, or all if ids is empty.
 	CloseConns([]string) []string
-	// End closes the handler and all its connections.
-	End() error
+	// end closes the handler and all its connections.
+	End()
 }
 
 type GSpecConnHandler[T gconns] interface {
@@ -59,14 +57,12 @@ type GConnHandler interface {
 	UDP() GUDPConnHandler         // UDP returns the UDP handler.
 	ICMP() GICMPHandler           // ICMP returns the ICMP handler.
 	CloseConns(csv string) string // CloseConns closes the connections with the given IDs, or all if empty.
-	Close() error                 // Close closes TCP, UDP, ICMP handlers and its resources.
 }
 
 type gconnhandler struct {
 	tcp  GTCPConnHandler
 	udp  GUDPConnHandler
 	icmp GICMPHandler
-	once sync.Once
 }
 
 const allconns = ""
@@ -118,25 +114,6 @@ func (g *gconnhandler) CloseConns(csv string) string {
 	s = append(s, u...)
 	s = append(s, i...)
 	return strings.Join(s, ",")
-}
-
-func (g *gconnhandler) Close() (errs error) {
-	g.once.Do(func() {
-		g.CloseConns(allconns)
-		if t := g.tcp; t != nil {
-			err := t.End()
-			errs = errors.Join(errs, err)
-		}
-		if u := g.udp; u != nil {
-			err := u.End()
-			errs = errors.Join(errs, err)
-		}
-		if i := g.icmp; i != nil {
-			err := i.End()
-			errs = errors.Join(errs, err)
-		}
-	})
-	return
 }
 
 // src/dst addrs are flipped

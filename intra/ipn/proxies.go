@@ -7,6 +7,7 @@
 package ipn
 
 import (
+	"context"
 	"errors"
 	"strings"
 	"sync"
@@ -136,7 +137,7 @@ var _ x.Router = (*proxifier)(nil)
 var _ Proxies = (*proxifier)(nil)
 var _ protect.RDialer = (Proxy)(nil)
 
-func NewProxifier(c protect.Controller, o x.ProxyListener) *proxifier {
+func NewProxifier(pctx context.Context, c protect.Controller, o x.ProxyListener) *proxifier {
 	if c == nil || o == nil {
 		return nil
 	}
@@ -155,6 +156,8 @@ func NewProxifier(c protect.Controller, o x.ProxyListener) *proxifier {
 	pxr.add(pxr.base)     // fixed
 	pxr.add(pxr.grounded) // fixed
 	log.I("proxy: new")
+
+	context.AfterFunc(pctx, pxr.stopProxies)
 
 	return pxr
 }
@@ -280,7 +283,7 @@ func (px *proxifier) Router() x.Router {
 	return px
 }
 
-func (px *proxifier) StopProxies() error {
+func (px *proxifier) stopProxies() {
 	px.Lock()
 	defer px.Unlock()
 
@@ -297,7 +300,6 @@ func (px *proxifier) StopProxies() error {
 
 	core.Go("pxr.onStop", func() { px.obs.OnProxiesStopped() })
 	log.I("proxy: all(%d) stopped and removed", l)
-	return nil
 }
 
 func (px *proxifier) RefreshProxies() (string, error) {

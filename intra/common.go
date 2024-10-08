@@ -22,6 +22,7 @@ import (
 	"github.com/celzero/firestack/intra/dnsx"
 	"github.com/celzero/firestack/intra/ipn"
 	"github.com/celzero/firestack/intra/log"
+	"github.com/celzero/firestack/intra/netstack"
 	"github.com/celzero/firestack/intra/netstat"
 	"github.com/celzero/firestack/intra/settings"
 )
@@ -56,7 +57,6 @@ var nooplistener = new(zeroListener)
 type baseHandler struct {
 	proto string // tcp, udp, icmp
 	ctx   context.Context
-	done  context.CancelFunc
 
 	tunMode  *settings.TunMode
 	resolver dnsx.Resolver // dns resolver to forward queries to
@@ -73,12 +73,12 @@ type baseHandler struct {
 	status *core.Volatile[int] // status of this handler
 }
 
-func newBaseHandler(proto string, r dnsx.Resolver, tm *settings.TunMode, l SocketListener) *baseHandler {
-	ctx, done := context.WithCancel(context.Background())
-	return &baseHandler{
+var _ netstack.GBaseConnHandler = (*baseHandler)(nil)
+
+func newBaseHandler(pctx context.Context, proto string, r dnsx.Resolver, tm *settings.TunMode, l SocketListener) *baseHandler {
+	h := &baseHandler{
+		ctx:         pctx,
 		proto:       proto,
-		ctx:         ctx,
-		done:        done,
 		tunMode:     tm,
 		resolver:    r,
 		smmch:       make(chan *SocketSummary, smmchSize),
@@ -87,6 +87,8 @@ func newBaseHandler(proto string, r dnsx.Resolver, tm *settings.TunMode, l Socke
 		conntracker: core.NewConnMap(),
 		status:      core.NewVolatile(HDLOK),
 	}
+	context.AfterFunc(pctx, h.End)
+	return h
 }
 
 // onFlow calls listener.Flow to determine egress rules and routes; thread-safe.
@@ -311,15 +313,13 @@ func (h *baseHandler) dnsOverride(conn net.Conn, addr netip.AddrPort) bool {
 }
 
 // End implements netstack.GBaseConnHandler
-func (h *baseHandler) End() error {
+func (h *baseHandler) End() {
 	h.once.Do(func() {
 		h.CloseConns(nil)
 		h.status.Store(HDLEND)
-		h.done()       // signal close listener send
 		close(h.smmch) // close listener chan
 		log.I("%s: handler end %x %x", h.proto, h.ctx, h.smmch)
 	})
-	return nil
 }
 
 // TODO: Propagate TCP RST using local.Abort(), on appropriate errors.

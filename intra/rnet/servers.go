@@ -7,6 +7,7 @@
 package rnet
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"sync"
@@ -74,12 +75,10 @@ type Services interface {
 	Bridge(serverid, proxyid string) error
 	// Remove removes a server.
 	RemoveServer(id string) (ok bool)
-	// RemoveAll removes all servers, returns the number removed.
-	RemoveAll() (rm int)
+	// RemoveAll removes all servers.
+	RemoveAll()
 	// Get returns a Server.
 	GetServer(id string) (Server, error)
-	// Stop stops all services, returns the number stopped.
-	StopServers() (n int)
 	// Refresh re-registers servces and returns a csv of active ones.
 	RefreshServers() (active string)
 }
@@ -96,16 +95,18 @@ type services struct {
 	ctl      protect.Controller
 }
 
-func NewServices(proxies ipn.Proxies, ctl protect.Controller, listener ServerListener) *services {
+func NewServices(pctx context.Context, proxies ipn.Proxies, ctl protect.Controller, listener ServerListener) *services {
 	if listener == nil || ctl == nil {
 		return nil
 	}
-	return &services{
+	svc := &services{
 		servers:  make(map[string]Server),
 		ctl:      ctl,
 		proxies:  proxies,
 		listener: listener,
 	}
+	context.AfterFunc(pctx, svc.stopServers)
+	return svc
 }
 
 func (s *services) AddServer(id, url string) (svc Server, err error) {
@@ -185,14 +186,15 @@ func (s *services) GetServer(id string) (Server, error) {
 	return nil, errNoServer
 }
 
-func (s *services) StopServers() int {
+func (s *services) stopServers() {
 	s.Lock()
 	defer s.Unlock()
 
+	n := len(s.servers)
 	for _, svc := range s.servers {
 		_ = svc.Stop()
 	}
-	return len(s.servers)
+	log.I("svc: stopped servers: %d", n)
 }
 
 func (s *services) RefreshServers() string {
@@ -215,12 +217,12 @@ func (s *services) RefreshServers() string {
 	return csv
 }
 
-func (s *services) RemoveAll() int {
-	n := s.StopServers()
+func (s *services) RemoveAll() {
+	s.stopServers()
 
 	s.Lock()
 	clear(s.servers)
 	s.Unlock()
 
-	return n
+	return
 }

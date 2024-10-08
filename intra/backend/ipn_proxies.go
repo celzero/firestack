@@ -68,8 +68,6 @@ type Proxies interface {
 	GetProxy(id string) (Proxy, error)
 	// Router returns a lowest common denomination router for this multi-transport.
 	Router() Router
-	// Stop stops all proxies.
-	StopProxies() error
 	// Refresh re-registers proxies and returns a csv of active ones.
 	RefreshProxies() (string, error)
 }

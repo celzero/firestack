@@ -7,6 +7,7 @@
 package netstack
 
 import (
+	"context"
 	"net"
 	"net/netip"
 
@@ -35,7 +36,7 @@ type revudp struct {
 }
 
 type revicmp struct {
-	*revbase[*GUDPConn]
+	*revbase[*GICMPConn]
 	revstack *stack.Stack
 	revep    stack.LinkEndpoint
 	reverser GICMPHandler
@@ -45,18 +46,21 @@ var _ GTCPConnHandler = (*revtcp)(nil)
 var _ GUDPConnHandler = (*revudp)(nil)
 var _ GICMPHandler = (*revicmp)(nil)
 
-func NewReverseGConnHandler(to *stack.Stack, of tcpip.NICID, ep stack.LinkEndpoint, via GConnHandler) *gconnhandler {
-	return &gconnhandler{
+func NewReverseGConnHandler(pctx context.Context, to *stack.Stack, of tcpip.NICID, ep stack.LinkEndpoint, via GConnHandler) *gconnhandler {
+	h := &gconnhandler{
 		tcp:  newReverseTCP(to, of, via.TCP()),
 		udp:  newReverseUDP(to, of, via.UDP()),
 		icmp: newReverseICMP(to, ep, via.ICMP()),
 	}
+	context.AfterFunc(pctx, h.end)
+	return h
 }
 
 func newReverseTCP(s *stack.Stack, nic tcpip.NICID, h GTCPConnHandler) *revtcp {
 	ip4, ip6 := StackAddrs(s, nic)
 	log.I("rev: nic %d newReverseTCP %v %v", nic, ip4, ip6)
 	return &revtcp{
+		revbase:  &revbase[*GTCPConn]{},
 		revstack: s,
 		reverser: h,
 		stackip4: ip4,
@@ -68,6 +72,7 @@ func newReverseUDP(s *stack.Stack, nic tcpip.NICID, h GUDPConnHandler) *revudp {
 	ip4, ip6 := StackAddrs(s, nic)
 	log.I("rev: nic %d newReverseUDP %v %v", nic, ip4, ip6)
 	return &revudp{
+		revbase:  &revbase[*GUDPConn]{},
 		revstack: s,
 		reverser: h,
 		stackip4: ip4,
@@ -76,18 +81,37 @@ func newReverseUDP(s *stack.Stack, nic tcpip.NICID, h GUDPConnHandler) *revudp {
 }
 
 func newReverseICMP(s *stack.Stack, ep stack.LinkEndpoint, h GICMPHandler) *revicmp {
-	return &revicmp{revstack: s, revep: ep, reverser: h}
+	return &revicmp{
+		revbase:  &revbase[*GICMPConn]{},
+		revstack: s,
+		revep:    ep,
+		reverser: h,
+	}
+}
+
+// GConnHandler
+
+func (g *gconnhandler) end() {
+	if t := g.tcp; t != nil {
+		t.End()
+	}
+	if u := g.udp; u != nil {
+		u.End()
+	}
+	if i := g.icmp; i != nil {
+		i.End()
+	}
 }
 
 // Base
 
-func (t *revbase[T]) ReverseProxy(out T, in net.Conn, src, dst netip.AddrPort) bool {
+func (*revbase[T]) ReverseProxy(out T, in net.Conn, src, dst netip.AddrPort) bool {
 	// TODO: stub
 	log.E("revbase: %T ReverseProxy not implemented %v <= %v", out, src, dst)
 	return false
 }
 
-func (u *revbase[T]) Error(in T, src, dst netip.AddrPort, err error) {
+func (*revbase[T]) Error(in T, src, dst netip.AddrPort, err error) {
 	log.E("revbase: %T Error %v <= %v: %v", in, src, dst, err)
 }
 
@@ -101,9 +125,8 @@ func (*revbase[T]) CloseConns([]string) []string {
 	return nil
 }
 
-func (*revbase[T]) End() error {
+func (*revbase[T]) End() {
 	// TODO: stub
-	return nil
 }
 
 // TCP

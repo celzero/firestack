@@ -7,6 +7,7 @@
 package dnsx
 
 import (
+	"context"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -136,13 +137,15 @@ type Resolver interface {
 	// Serve reads DNS query from conn and writes DNS answer to conn
 	Serve(proto string, conn protect.Conn)
 
-	// StopResolvers stops all transports.
-	StopResolvers() error
+	// stopResolvers stops all transports.
+	stopResolvers()
 }
 
 type resolver struct {
 	sync.RWMutex // protects transports
 	NatPt
+	ctx          context.Context
+	done         context.CancelFunc
 	dnsaddrs     []netip.AddrPort
 	transports   map[string]Transport
 	gateway      Gateway
@@ -150,7 +153,6 @@ type resolver struct {
 	localdomains x.RadixTree
 	listener     x.DNSListener
 	smms         chan *x.DNSSummary
-	done         chan struct{} // always unbuffered
 
 	once   sync.Once
 	closed atomic.Bool
@@ -163,17 +165,19 @@ type resolver struct {
 
 var _ Resolver = (*resolver)(nil)
 
-func NewResolver(fakeaddrs string, tunmode *settings.TunMode, dtr x.DNSTransport, l x.DNSListener, pt NatPt) *resolver {
+func NewResolver(pctx context.Context, fakeaddrs string, tunmode *settings.TunMode, dtr x.DNSTransport, l x.DNSListener, pt NatPt) *resolver {
+	ctx, cancel := context.WithCancel(pctx)
 	r := &resolver{
+		ctx:          ctx,
+		done:         cancel,
 		NatPt:        pt,
 		listener:     l,
 		smms:         make(chan *x.DNSSummary, 32),
-		done:         make(chan struct{}),
 		transports:   make(map[string]Transport),
 		tunmode:      tunmode,
 		localdomains: newUndelegatedDomainsTrie(),
 	}
-	r.gateway = NewDNSGateway(r, pt)
+	r.gateway = NewDNSGateway(ctx, r, pt)
 	r.loadaddrs(fakeaddrs)
 	if dtr.ID() != Default {
 		log.W("dns: not default; ignoring %s @ %s", dtr.ID(), dtr.GetAddr())
@@ -193,6 +197,7 @@ func NewResolver(fakeaddrs string, tunmode *settings.TunMode, dtr x.DNSTransport
 	log.I("dns: new! gw? %t; default? %s", r.gateway != nil, dtr.GetAddr())
 
 	core.Go("r.Listener", r.sendSummaries)
+	context.AfterFunc(ctx, r.stopResolvers)
 	return r
 }
 
@@ -209,11 +214,11 @@ func (r *resolver) queueSummary(smm *x.DNSSummary) {
 		return
 	}
 	select {
-	case <-r.done:
+	case <-r.ctx.Done():
 		log.W("dns: fwd: smms closed; dropping %s", smm.Str())
 	default:
 		select {
-		case <-r.done:
+		case <-r.ctx.Done():
 		case r.smms <- smm:
 		default:
 			log.W("dns: fwd: smms full; dropping %s", smm.Str())
@@ -764,22 +769,17 @@ func (r *resolver) accept(c io.ReadWriteCloser) {
 	// TODO: Cancel outstanding queries.
 }
 
-func (r *resolver) StopResolvers() error {
+func (r *resolver) stopResolvers() {
 	r.once.Do(func() {
-		close(r.done)
-
 		core.Go("r.onStop", func() { r.listener.OnDNSStopped() })
+		r.done()
 
-		if gw := r.Gateway(); gw != nil {
-			gw.stop()
-		}
 		if dc, err := r.dcProxy(); err == nil {
 			_ = dc.Stop()
 		}
 
 		close(r.smms) // close listener chan
 	})
-	return nil // always no error
 }
 
 func (r *resolver) refresh() {

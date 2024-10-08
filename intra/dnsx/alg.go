@@ -7,6 +7,7 @@
 package dnsx
 
 import (
+	"context"
 	"encoding/binary"
 	"errors"
 	"hash/fnv"
@@ -139,7 +140,7 @@ type dnsgateway struct {
 var _ Gateway = (*dnsgateway)(nil)
 
 // NewDNSGateway returns a DNS ALG, ready for use.
-func NewDNSGateway(outer RdnsResolver, dns64 NatPt) (t *dnsgateway) {
+func NewDNSGateway(pctx context.Context, outer RdnsResolver, dns64 NatPt) (t *dnsgateway) {
 	alg := make(map[string]*ans)
 	nat := make(map[netip.Addr]*ans)
 	ptr := make(map[netip.Addr]*ansMulti)
@@ -154,6 +155,8 @@ func NewDNSGateway(outer RdnsResolver, dns64 NatPt) (t *dnsgateway) {
 		hexes:  rfc8215a,
 		chash:  true,
 	}
+
+	context.AfterFunc(pctx, t.stop)
 	log.I("alg: setup done")
 	return
 }

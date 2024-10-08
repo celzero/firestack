@@ -24,6 +24,7 @@
 package intra
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"runtime"
@@ -95,6 +96,7 @@ type Tunnel interface {
 
 type rtunnel struct {
 	tunnel.Tunnel
+	done     context.CancelFunc
 	tunmode  *settings.TunMode
 	bridge   Bridge
 	proxies  ipn.Proxies
@@ -104,17 +106,24 @@ type rtunnel struct {
 	once     sync.Once
 }
 
-func NewTunnel(fd, mtu int, fakedns string, tunmode *settings.TunMode, dtr DefaultDNS, bdg Bridge) (Tunnel, error) {
+func NewTunnel(fd, mtu int, fakedns string, tunmode *settings.TunMode, dtr DefaultDNS, bdg Bridge) (t Tunnel, err error) {
 	defer core.Recover(core.Exit11, "i.newTunnel")
 
 	if bdg == nil || dtr == nil {
 		return nil, fmt.Errorf("tun: no bridge? %t or default-dns? %t", bdg == nil, dtr == nil)
 	}
 
+	ctx, cancel := context.WithCancel(context.Background())
+	defer func() {
+		if err != nil {
+			cancel()
+		}
+	}()
+
 	log.SetConsole(bdg)
 	natpt := x64.NewNatPt(tunmode)
-	proxies := ipn.NewProxifier(bdg, bdg)
-	services := rnet.NewServices(proxies, bdg, bdg)
+	proxies := ipn.NewProxifier(ctx, bdg, bdg)
+	services := rnet.NewServices(ctx, proxies, bdg, bdg)
 
 	if proxies == nil || services == nil {
 		return nil, fmt.Errorf("tun: no proxies? %t or services? %t", proxies == nil, services == nil)
@@ -125,21 +134,21 @@ func NewTunnel(fd, mtu int, fakedns string, tunmode *settings.TunMode, dtr Defau
 		return nil, err
 	}
 
-	resolver := dnsx.NewResolver(fakedns, tunmode, dtr, bdg, natpt)
+	resolver := dnsx.NewResolver(ctx, fakedns, tunmode, dtr, bdg, natpt)
 	resolver.Add(newGoosTransport(bdg, proxies))     // os-resolver; fixed
 	resolver.Add(newBlockAllTransport())             // fixed
 	resolver.Add(newFixedTransport())                // fixed
 	resolver.Add(newDNSCryptTransport(proxies, bdg)) // fixed
 	resolver.Add(newMDNSTransport(settings.IP46))    // fixed
 
-	addIPMapper(resolver, settings.IP46) // namespace aware os-resolver for pkg dialers
+	addIPMapper(ctx, resolver, settings.IP46) // namespace aware os-resolver for pkg dialers
 
-	tcph := NewTCPHandler(resolver, proxies, tunmode, bdg)
-	udph := NewUDPHandler(resolver, proxies, tunmode, bdg)
-	icmph := NewICMPHandler(resolver, proxies, tunmode, bdg)
+	tcph := NewTCPHandler(ctx, resolver, proxies, tunmode, bdg)
+	udph := NewUDPHandler(ctx, resolver, proxies, tunmode, bdg)
+	icmph := NewICMPHandler(ctx, resolver, proxies, tunmode, bdg)
 	hdl := netstack.NewGConnHandler(tcph, udph, icmph)
 
-	gt, revhdl, err := tunnel.NewGTunnel(fd, mtu, hdl)
+	gt, revhdl, err := tunnel.NewGTunnel(ctx, fd, mtu, hdl)
 
 	if err != nil {
 		log.I("tun: <<< new >>>; err(%v)", err)
@@ -148,8 +157,9 @@ func NewTunnel(fd, mtu int, fakedns string, tunmode *settings.TunMode, dtr Defau
 
 	proxies.Reverser(revhdl)
 
-	t := &rtunnel{
+	t = &rtunnel{
 		Tunnel:   gt,
+		done:     cancel,
 		tunmode:  tunmode,
 		bridge:   bdg,
 		proxies:  proxies,
@@ -174,15 +184,9 @@ func (t *rtunnel) Disconnect() {
 	}
 	t.once.Do(func() {
 		t.closed.Store(true)
-
-		removeIPMapper()
-		err0 := t.resolver.StopResolvers()
-		err1 := t.proxies.StopProxies()
-		n := t.services.StopServers()
+		t.done()
 		t.bridge = nil // "free" ref to the client
-		log.I("tun: <<< disconnect >>>; err0(%v); err1(%v); svc(%d)", err0, err1, n)
-
-		t.Tunnel.Disconnect()
+		log.I("tun: <<< disconnect >>>")
 	})
 }
 

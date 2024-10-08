@@ -7,8 +7,10 @@
 package intra
 
 import (
+	"context"
 	"errors"
 	"strings"
+	"sync"
 
 	x "github.com/celzero/firestack/intra/backend"
 	"github.com/celzero/firestack/intra/dns53"
@@ -21,12 +23,16 @@ import (
 	"github.com/celzero/firestack/intra/xdns"
 )
 
-func addIPMapper(r dnsx.Resolver, protos string) {
-	dns53.AddIPMapper(r, protos, false /*clear cache*/)
-}
+var addOnce sync.Once
 
-func removeIPMapper() {
-	dns53.AddIPMapper(nil, "", true /*clear cache*/)
+// can only be called once.
+func addIPMapper(ctx context.Context, r dnsx.Resolver, protos string) {
+	addOnce.Do(func() {
+		dns53.AddIPMapper(r, protos, false /*clear cache*/)
+		context.AfterFunc(ctx, func() {
+			dns53.AddIPMapper(nil, "", true /*clear cache*/)
+		})
+	})
 }
 
 // AddDNSProxy creates and adds a DNS53 transport to the tunnel's resolver.

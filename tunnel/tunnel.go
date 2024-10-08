@@ -24,6 +24,7 @@
 package tunnel
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -91,7 +92,7 @@ func (t *gtunnel) Mtu() int32 {
 	return int32(t.ep.MTU())
 }
 
-func (t *gtunnel) wait() {
+func (t *gtunnel) waitForEndpoint() {
 	defer core.Recover(core.Exit11, "g.wait")
 
 	const betweenChecks = 3 * time.Second
@@ -128,6 +129,7 @@ func (t *gtunnel) wait() {
 		// closed without a t.ep.Swap or t.stack.Destroy
 		log.E("tun: waiter: ep notified close; #%d, %dsecs", i, waitDone)
 		log.U(fmt.Sprintf("Deactivated! Down after %dsecs", waitDone))
+		// todo: disconnect parent tunnel
 		t.Disconnect() // may already be disconnected
 	} else {
 		log.D("tun: waiter: done; #%d, %dsecs", i, waitDone)
@@ -140,15 +142,8 @@ func (t *gtunnel) Disconnect() {
 	// no core.Recover here as the tunnel is disconnecting anyway
 	t.once.Do(func() {
 		t.closed.Store(true)
-
-		s := t.stack
-		p := t.pcapio
-		hdl := t.hdl
-
-		herr := hdl.Close()
-		perr := p.Close()
-		s.Destroy()
-		log.I("tun: netstack closed; errs: %v / %v", herr, perr)
+		t.stack.Destroy()
+		log.I("tun: netstack closed")
 	})
 }
 
@@ -169,21 +164,30 @@ func (t *gtunnel) Write([]byte) (int, error) {
 	return 0, errNoWriter
 }
 
-func NewGTunnel(fd, mtu int, hdl netstack.GConnHandler) (t *gtunnel, rev netstack.GConnHandler, err error) {
-	var nic tcpip.NICID
+func NewGTunnel(pctx context.Context, fd, mtu int, hdl netstack.GConnHandler) (t *gtunnel, rev netstack.GConnHandler, err error) {
 	dupfd, err := dup(fd) // tunnel will own dupfd
 	if err != nil {
 		return nil, nil, err
 	}
 
-	sink := newSink()
+	sink := newSink(pctx)
 	stack := netstack.NewNetstack() // always dual-stack
 	// NewEndpoint takes ownership of dupfd; closes it on errors
-	ep, err := netstack.NewEndpoint(dupfd, mtu, sink)
-	if err != nil {
-		return nil, nil, err
+	ep, eerr := netstack.NewEndpoint(dupfd, mtu, sink)
+	if eerr != nil {
+		return nil, nil, eerr
 	}
 	netstack.Route(stack, settings.IP46) // always dual-stack
+
+	var nic tcpip.NICID
+	// Enabled() may temporarily return false when Up() is in progress.
+	if nic, err = netstack.Up(stack, ep, hdl); err != nil { // attach new endpoint
+		return nil, nil, err
+	}
+
+	rev = netstack.NewReverseGConnHandler(pctx, stack, nic, ep, hdl)
+
+	log.I("tun: new netstack(%d) up; fd(%d), mtu(%d)", nic, fd, mtu)
 
 	t = &gtunnel{
 		stack:  stack,
@@ -193,18 +197,13 @@ func NewGTunnel(fd, mtu int, hdl netstack.GConnHandler) (t *gtunnel, rev netstac
 		closed: atomic.Bool{},
 		once:   sync.Once{},
 	}
-
-	// Enabled() may temporarily return false when Up() is in progress.
-	if nic, err = netstack.Up(stack, ep, hdl); err != nil { // attach new endpoint
-		return nil, nil, err
-	}
-
-	rev = netstack.NewReverseGConnHandler(stack, nic, ep, hdl)
-
-	log.I("tun: new netstack(%d) up; fd(%d), mtu(%d)", nic, fd, mtu)
-
-	go t.wait() // wait for endpoint to close
-
+	go t.waitForEndpoint()
+	context.AfterFunc(pctx, func() {
+		log.I("tun: ctx done")
+		if !t.closed.Load() {
+			t.Disconnect()
+		}
+	})
 	return
 }
 

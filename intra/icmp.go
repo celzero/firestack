@@ -7,6 +7,7 @@
 package intra
 
 import (
+	"context"
 	"net"
 	"net/netip"
 	"time"
@@ -34,9 +35,9 @@ const (
 
 var _ netstack.GICMPHandler = (*icmpHandler)(nil)
 
-func NewICMPHandler(resolver dnsx.Resolver, prox ipn.Proxies, tunMode *settings.TunMode, listener Listener) netstack.GICMPHandler {
+func NewICMPHandler(pctx context.Context, resolver dnsx.Resolver, prox ipn.Proxies, tunMode *settings.TunMode, listener Listener) netstack.GICMPHandler {
 	h := &icmpHandler{
-		baseHandler: newBaseHandler("icmp", resolver, tunMode, listener),
+		baseHandler: newBaseHandler(pctx, "icmp", resolver, tunMode, listener),
 		prox:        prox,
 	}
 

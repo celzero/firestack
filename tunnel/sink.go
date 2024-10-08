@@ -7,6 +7,7 @@
 package tunnel
 
 import (
+	"context"
 	"io"
 
 	"github.com/celzero/firestack/intra/core"
@@ -15,9 +16,10 @@ import (
 )
 
 type pcapsink struct {
-	sink  *core.Volatile[io.WriteCloser]
-	inC   chan []byte   // always buffered
-	doneC chan struct{} // always unbuffered
+	ctx  context.Context
+	done context.CancelFunc
+	sink *core.Volatile[io.WriteCloser]
+	inC  chan []byte // always buffered
 }
 
 // nowrite rejects all writes.
@@ -29,24 +31,30 @@ var _ io.WriteCloser = (*pcapsink)(nil)
 func (*nowrite) Write(b []byte) (int, error) { return len(b), nil }
 func (*nowrite) Close() error                { return nil }
 
-func newSink() *pcapsink {
+func newSink(pctx context.Context) *pcapsink {
+	ctx, cancel := context.WithCancel(pctx)
 	// go.dev/play/p/4qANL9VSDXb
 	p := new(pcapsink)
+	p.ctx = ctx
+	p.done = cancel
 	p.sink = core.NewVolatile[io.WriteCloser](zerowriter)
 	p.log(false) // no log, which is enabled by default
 	p.fout(false)
 	p.inC = make(chan []byte, 128)
-	p.doneC = make(chan struct{})
 	core.Go("pcap.w", func() { p.writeAsync() })
+	context.AfterFunc(ctx, func() {
+		defer close(p.inC) // signal writeAsync to exit
+		p.recycle()
+	})
 	return p
 }
 
 func (p *pcapsink) Write(b []byte) (int, error) {
 	select {
-	case <-p.doneC: // closed
+	case <-p.ctx.Done(): // closed
 	default:
 		select {
-		case <-p.doneC: // closed
+		case <-p.ctx.Done(): // closed
 		case p.inC <- b:
 			return len(b), nil
 		default: // drop
@@ -74,10 +82,8 @@ func (p *pcapsink) recycle() error {
 }
 
 func (p *pcapsink) Close() error {
-	defer close(p.inC) // signal writeAsync to exit
-	defer close(p.doneC)
-
-	return p.recycle()
+	p.done()
+	return nil
 }
 
 // begin writes pcap header to w.
