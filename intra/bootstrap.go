@@ -63,15 +63,15 @@ var _ dnsx.Transport = (*bootstrap)(nil)
 // NewDefaultDNS creates a new DefaultDNS resolver of type typ. For typ DOH,
 // url scheme is http or https; for typ DNS53, url is ipport or csv(ipport).
 // ips is a csv of ipports for typ DOH, and nil for typ DNS53.
-func NewDefaultDNS(pctx context.Context, typ, url, ips string) (DefaultDNS, error) {
+func NewDefaultDNS(typ, url, ips string) (DefaultDNS, error) {
 	b := new(bootstrap)
-	b.ctx = pctx
+	b.ctx = context.TODO()
 
 	if err := b.reinit(typ, url, ips); err != nil {
 		return nil, err
 	}
 
-	context.AfterFunc(pctx, func() { b.Stop() })
+	// context.AfterFunc(b.ctx, func() { b.Stop() })
 	log.I("dns: default: %s new %s %s %s", typ, url, b.hostname, ips)
 
 	return b, nil
