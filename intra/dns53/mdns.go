@@ -53,8 +53,8 @@ type dnssd struct {
 var _ dnsx.Transport = (*dnssd)(nil)
 
 // NewMDNSTransport returns a DNS transport that sends all DNS queries to mDNS endpoint.
-func NewMDNSTransport(protos string) *dnssd {
-	ctx, done := context.WithCancel(context.Background())
+func NewMDNSTransport(pctx context.Context, protos string) *dnssd {
+	ctx, done := context.WithCancel(pctx)
 	t := &dnssd{
 		ctx:    ctx,
 		done:   done,

@@ -72,6 +72,7 @@ type Listener interface {
 // Tunnel represents an Intra session.
 type Tunnel interface {
 	tunnel.Tunnel
+	internalCtx() context.Context
 	// Get the resolver.
 	GetResolver() (x.DNSResolver, error)
 	// Get the internal resolver.
@@ -96,6 +97,7 @@ type Tunnel interface {
 
 type rtunnel struct {
 	tunnel.Tunnel
+	ctx      context.Context
 	done     context.CancelFunc
 	tunmode  *settings.TunMode
 	bridge   Bridge
@@ -135,11 +137,11 @@ func NewTunnel(fd, mtu int, fakedns string, tunmode *settings.TunMode, dtr Defau
 	}
 
 	resolver := dnsx.NewResolver(ctx, fakedns, tunmode, dtr, bdg, natpt)
-	resolver.Add(newGoosTransport(bdg, proxies))     // os-resolver; fixed
-	resolver.Add(newBlockAllTransport())             // fixed
-	resolver.Add(newFixedTransport())                // fixed
-	resolver.Add(newDNSCryptTransport(proxies, bdg)) // fixed
-	resolver.Add(newMDNSTransport(settings.IP46))    // fixed
+	resolver.Add(newGoosTransport(ctx, bdg, proxies))     // os-resolver; fixed
+	resolver.Add(newBlockAllTransport())                  // fixed
+	resolver.Add(newFixedTransport())                     // fixed
+	resolver.Add(newDNSCryptTransport(ctx, proxies, bdg)) // fixed
+	resolver.Add(newMDNSTransport(ctx, settings.IP46))    // fixed
 
 	addIPMapper(ctx, resolver, settings.IP46) // namespace aware os-resolver for pkg dialers
 
@@ -159,6 +161,7 @@ func NewTunnel(fd, mtu int, fakedns string, tunmode *settings.TunMode, dtr Defau
 
 	t = &rtunnel{
 		Tunnel:   gt,
+		ctx:      ctx,
 		done:     cancel,
 		tunmode:  tunmode,
 		bridge:   bdg,
@@ -212,11 +215,15 @@ func (t *rtunnel) SetLinkAndRoutes(fd, mtu, engine int) error {
 				// dialers.IPProtos must always preced calls to other refreshes
 				// as it carries the global state for dialers and ipn/multihost
 				go t.proxies.RefreshProto(l3)
-				t.resolver.Add(newMDNSTransport(l3))
+				t.resolver.Add(newMDNSTransport(t.ctx, l3))
 			}
 		})
 	}()
 	return t.Tunnel.SetLink(fd, mtu) // route is always dual-stack
+}
+
+func (t *rtunnel) internalCtx() context.Context {
+	return t.ctx
 }
 
 func (t *rtunnel) GetResolver() (x.DNSResolver, error) {

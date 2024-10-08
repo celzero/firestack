@@ -643,9 +643,11 @@ func stamp2str(s stamps.ServerStamp) string {
 }
 
 // NewDcMult creates a dnscrypt proxy
-func NewDcMult(px ipn.Proxies, ctl protect.Controller) *DcMulti {
-	ctx, cancel := context.WithCancel(context.Background())
+func NewDcMult(pctx context.Context, px ipn.Proxies, ctl protect.Controller) *DcMulti {
+	ctx, cancel := context.WithCancel(pctx)
 	dc := &DcMulti{
+		ctx:                 ctx,
+		sigterm:             cancel,
 		routes:              nil,
 		registeredServers:   make(map[string]registeredserver),
 		certIgnoreTimestamp: false,
@@ -655,8 +657,6 @@ func NewDcMult(px ipn.Proxies, ctl protect.Controller) *DcMulti {
 		proxies:             px,
 		lastAddr:            "",
 		ctl:                 ctl,
-		ctx:                 ctx,
-		sigterm:             cancel,
 		dialer:              protect.MakeNsRDial(dnsx.DcProxy, ctl),
 		est:                 core.NewP50Estimator(ctx),
 	}

@@ -14,6 +14,7 @@ import (
 	"time"
 
 	x "github.com/celzero/firestack/intra/backend"
+	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/dnsx"
 	"github.com/celzero/firestack/intra/ipn"
 	"github.com/celzero/firestack/intra/log"
@@ -23,17 +24,20 @@ import (
 )
 
 type goosr struct {
-	status int
-	r      *net.Resolver
-	rcgo   *net.Resolver
+	ctx  context.Context
+	done context.CancelFunc
+	r    *net.Resolver
+	rcgo *net.Resolver
 	// dialer *protect.RDial
 	px ipn.Proxy // the only supported proxy is ipn.Exit
+
+	status *core.Volatile[int]
 }
 
 var _ dnsx.Transport = (*goosr)(nil)
 
 // NewGoosTransport returns the default Go DNS resolver
-func NewGoosTransport(pxs ipn.Proxies, ctl protect.Controller) (t *goosr, err error) {
+func NewGoosTransport(pctx context.Context, pxs ipn.Proxies, ctl protect.Controller) (t *goosr, err error) {
 	// cannot be nil, see: ipn.Exit which the only proxy guaranteed to be connected to the internet;
 	// ex: ipn.Base routed back within the tunnel (rethink's traffic routed back into rethink)
 	// but it doesn't work for goos because the traffic to localhost:53 is routed back in as if
@@ -47,8 +51,11 @@ func NewGoosTransport(pxs ipn.Proxies, ctl protect.Controller) (t *goosr, err er
 		log.E("dns53: goosr: no exit proxy: %v", err)
 		return nil, err
 	}
+	ctx, cancel := context.WithCancel(pctx)
 	tx := &goosr{
-		status: x.Start,
+		ctx:    ctx,
+		done:   cancel,
+		status: core.NewVolatile(x.Start),
 		// dialer: d,
 		px: px,
 	}
@@ -139,7 +146,7 @@ func (t *goosr) Query(_ string, q *dns.Msg, smm *x.DNSSummary) (r *dns.Msg, err 
 		status = qerr.Status()
 		log.W("dns53: goosr: err(%v) / size(%d)", qerr, xdns.Len(r))
 	}
-	t.status = status
+	t.status.Store(status)
 
 	smm.Latency = elapsed.Seconds()
 	smm.RData = xdns.GetInterestingRData(r)
@@ -173,9 +180,10 @@ func (t *goosr) GetAddr() string {
 }
 
 func (t *goosr) Status() int {
-	return t.status
+	return t.status.Load()
 }
 
-func (*goosr) Stop() error {
+func (t *goosr) Stop() error {
+	t.done()
 	return nil
 }

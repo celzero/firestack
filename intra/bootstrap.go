@@ -7,6 +7,7 @@
 package intra
 
 import (
+	"context"
 	"errors"
 	"net/url"
 	"strings"
@@ -46,6 +47,7 @@ type DefaultDNS interface {
 }
 
 type bootstrap struct {
+	ctx      context.Context
 	tr       dnsx.Transport // the underlying transport
 	proxies  ipn.Proxies    // never nil if underlying transport is set
 	bridge   Bridge         // never nil if underlying transport is set
@@ -61,13 +63,15 @@ var _ dnsx.Transport = (*bootstrap)(nil)
 // NewDefaultDNS creates a new DefaultDNS resolver of type typ. For typ DOH,
 // url scheme is http or https; for typ DNS53, url is ipport or csv(ipport).
 // ips is a csv of ipports for typ DOH, and nil for typ DNS53.
-func NewDefaultDNS(typ, url, ips string) (DefaultDNS, error) {
+func NewDefaultDNS(pctx context.Context, typ, url, ips string) (DefaultDNS, error) {
 	b := new(bootstrap)
+	b.ctx = pctx
 
 	if err := b.reinit(typ, url, ips); err != nil {
 		return nil, err
 	}
 
+	context.AfterFunc(pctx, func() { b.Stop() })
 	log.I("dns: default: %s new %s %s %s", typ, url, b.hostname, ips)
 
 	return b, nil
@@ -81,9 +85,9 @@ func newDefaultDohTransport(url string, ipcsv string, p ipn.Proxies, g Bridge) (
 	return nil, errCannotStart
 }
 
-func newDefaultTransport(ipcsv string, p ipn.Proxies, g Bridge) (dnsx.Transport, error) {
+func newDefaultTransport(ctx context.Context, ipcsv string, p ipn.Proxies, g Bridge) (dnsx.Transport, error) {
 	if len(ipcsv) > 0 {
-		return dns53.NewTransportFromHostname(bootid, specialHostname, ipcsv, p, g)
+		return dns53.NewTransportFromHostname(ctx, bootid, specialHostname, ipcsv, p, g)
 	}
 	return nil, errCannotStart
 }
@@ -164,7 +168,7 @@ func (b *bootstrap) kickstart(px ipn.Proxies, g Bridge) error {
 	var err error
 	switch b.typ {
 	case dnsx.DNS53:
-		tr, err = newDefaultTransport(b.ipports, px, g)
+		tr, err = newDefaultTransport(b.ctx, b.ipports, px, g)
 	case dnsx.DOH:
 		tr, err = newDefaultDohTransport(b.url, b.ipports, px, g)
 	default:

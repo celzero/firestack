@@ -38,7 +38,6 @@ var errQueryParse = errors.New("dns53: err parse query")
 
 // TODO: Keep a context here so that queries can be canceled.
 type transport struct {
-	ctx      context.Context
 	done     context.CancelFunc
 	id       string
 	addrport string // hostname, ip:port, protect.UidSelf:53, protect.System:53
@@ -54,27 +53,27 @@ type transport struct {
 var _ dnsx.Transport = (*transport)(nil)
 
 // NewTransportFromHostname returns a DNS53 transport serving from hostname, ready for use.
-func NewTransportFromHostname(id, hostOrHostport string, ipcsv string, px ipn.Proxies, ctl protect.Controller) (t *transport, err error) {
+func NewTransportFromHostname(ctx context.Context, id, hostOrHostport string, ipcsv string, px ipn.Proxies, ctl protect.Controller) (t *transport, err error) {
 	// ipcsv may contain port, eg: 10.1.1.3:53
 	do, err := settings.NewDNSOptionsFromHostname(hostOrHostport, ipcsv)
 	if err != nil {
 		return
 	}
-	return newTransport(id, do, px, ctl)
+	return newTransport(ctx, id, do, px, ctl)
 }
 
 // NewTransport returns a DNS53 transport serving from ip & port, ready for use.
-func NewTransport(id, ip, port string, px ipn.Proxies, ctl protect.Controller) (t *transport, err error) {
+func NewTransport(ctx context.Context, id, ip, port string, px ipn.Proxies, ctl protect.Controller) (t *transport, err error) {
 	ipport := net.JoinHostPort(ip, port)
 	do, err := settings.NewDNSOptions(ipport)
 	if err != nil {
 		return
 	}
 
-	return newTransport(id, do, px, ctl)
+	return newTransport(ctx, id, do, px, ctl)
 }
 
-func newTransport(id string, do *settings.DNSOptions, px ipn.Proxies, ctl protect.Controller) (*transport, error) {
+func newTransport(pctx context.Context, id string, do *settings.DNSOptions, px ipn.Proxies, ctl protect.Controller) (*transport, error) {
 	// cannot be nil, see: ipn.Exit which the only proxy guaranteed to be connected to the internet;
 	// ex: ipn.Base routed back within the tunnel (rethink's traffic routed back into rethink).
 	if px == nil {
@@ -82,9 +81,8 @@ func newTransport(id string, do *settings.DNSOptions, px ipn.Proxies, ctl protec
 	}
 	relay, _ := px.ProxyFor(id)
 	d := protect.MakeNsRDial(id, ctl)
-	ctx, done := context.WithCancel(context.Background())
+	ctx, done := context.WithCancel(pctx)
 	tx := &transport{
-		ctx:      ctx,
 		done:     done,
 		id:       id,
 		addrport: do.AddrPort(), // may be hostname:port or ip:port
@@ -113,13 +111,13 @@ func newTransport(id string, do *settings.DNSOptions, px ipn.Proxies, ctl protec
 }
 
 // NewTransportFrom returns a DNS53 transport serving from ipp, ready for use.
-func NewTransportFrom(id string, ipp netip.AddrPort, px ipn.Proxies, ctl protect.Controller) (t dnsx.Transport, err error) {
+func NewTransportFrom(ctx context.Context, id string, ipp netip.AddrPort, px ipn.Proxies, ctl protect.Controller) (t dnsx.Transport, err error) {
 	do, err := settings.NewDNSOptionsFromNetIp(ipp)
 	if err != nil {
 		return
 	}
 
-	return newTransport(id, do, px, ctl)
+	return newTransport(ctx, id, do, px, ctl)
 }
 
 func (t *transport) pxdial(network, pid string) (conn *dns.Conn, err error) {
