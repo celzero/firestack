@@ -78,17 +78,18 @@ func (r fakeResolver) LookupNetIPOn(_ context.Context, _, _ string, _ ...string)
 }
 
 func TestOne(t *testing.T) {
+	ctx := context.TODO()
 	r := &net.Resolver{}
 	// create a struct that implements protect.Controller interface
 	ctl := &fakeCtl{}
 	obs := &fakeObs{}
 	// bdg := &fakeBdg{Controller: ctl}
-	pxr := ipn.NewProxifier(ctl, obs)
+	pxr := ipn.NewProxifier(ctx, ctl, obs)
 	ilog.SetLevel(0)
 	resolver := fakeResolver{r}
 	dialers.Mapper(resolver)
 	settings.Debug = true
-	p := NewDcMult(pxr, ctl)
+	p := NewDcMult(ctx, pxr, ctl)
 	// csromania fetches certs, but not answers
 	// csromania := "sdns://AQIAAAAAAAAADTE0Ni43MC42Ni4yMjcgMTNyrVlWMsJBa4cvCY-FG925ZShMbL6aTxkJZDDbqVoeMi5kbnNjcnlwdC1jZXJ0LmNyeXB0b3N0b3JtLmlz"
 	// dctnl does not fetch certs

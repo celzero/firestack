@@ -77,10 +77,10 @@ func NewDefaultDNS(pctx context.Context, typ, url, ips string) (DefaultDNS, erro
 	return b, nil
 }
 
-func newDefaultDohTransport(url string, ipcsv string, p ipn.Proxies, g Bridge) (dnsx.Transport, error) {
+func newDefaultDohTransport(ctx context.Context, url string, ipcsv string, p ipn.Proxies, g Bridge) (dnsx.Transport, error) {
 	ips := strings.Split(ipcsv, ",")
 	if len(url) > 0 && len(ips) > 0 {
-		return doh.NewTransport(bootid, url, ips, p, g)
+		return doh.NewTransport(ctx, bootid, url, ips, p, g)
 	}
 	return nil, errCannotStart
 }
@@ -170,13 +170,13 @@ func (b *bootstrap) kickstart(px ipn.Proxies, g Bridge) error {
 	case dnsx.DNS53:
 		tr, err = newDefaultTransport(b.ctx, b.ipports, px, g)
 	case dnsx.DOH:
-		tr, err = newDefaultDohTransport(b.url, b.ipports, px, g)
+		tr, err = newDefaultDohTransport(b.ctx, b.url, b.ipports, px, g)
 	default:
 		err = errDefaultTransportType
 	}
 
-	if tr = b.tr; tr != nil {
-		tr.Stop()
+	if prev := b.tr; prev != nil {
+		prev.Stop() // stop after new transport is ready
 		log.I("dns: default: removing %s %s[%s]", b.typ, b.hostname, b.GetAddr())
 	}
 
