@@ -65,8 +65,6 @@ type gconnhandler struct {
 	icmp GICMPHandler
 }
 
-const allconns = ""
-
 var _ GConnHandler = (*gconnhandler)(nil)
 
 func NewGConnHandler(tcp GTCPConnHandler, udp GUDPConnHandler, icmp GICMPHandler) GConnHandler {

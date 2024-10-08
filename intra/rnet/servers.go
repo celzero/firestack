@@ -223,6 +223,4 @@ func (s *services) RemoveAll() {
 	s.Lock()
 	clear(s.servers)
 	s.Unlock()
-
-	return
 }
