@@ -16,6 +16,7 @@ import (
 	x "github.com/celzero/firestack/intra/backend"
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/dialers"
+	"github.com/celzero/firestack/intra/ipn/warp"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/netstack"
 	"github.com/celzero/firestack/intra/protect"
@@ -29,6 +30,7 @@ const (
 	Ingress = x.Ingress
 	OrbotS5 = x.OrbotS5
 	OrbotH1 = x.OrbotH1
+	RpnWg   = x.RpnWg
 
 	SOCKS5   = x.SOCKS5
 	HTTP1    = x.HTTP1
@@ -37,6 +39,7 @@ const (
 	PIPWS    = x.PIPWS
 	NOOP     = x.NOOP
 	INTERNET = x.INTERNET
+	RPN      = x.RPN
 
 	TNT = x.TNT
 	TZZ = x.TZZ
@@ -125,16 +128,24 @@ type proxifier struct {
 	exit     *exit   // exit proxy, never changes
 	base     *base   // base proxy, never changes
 	grounded *ground // grounded proxy, never changes
+	auto     *auto   // auto proxy, never changes
 	ctl      protect.Controller
 	rev      netstack.GConnHandler // may be nil
+	warpc    *warp.Client          // warp registration, never changes
 	obs      x.ProxyListener
 	protos   string
 }
 
-var _ x.Router = (*gw)(nil)
-var _ x.Router = (*proxifier)(nil)
+type Rpn interface {
+	x.Rpn
+	Warp() (Proxy, error)
+	Pip() (Proxy, error)
+}
 
 var _ Proxies = (*proxifier)(nil)
+var _ x.Rpn = (*proxifier)(nil)
+var _ x.Router = (*proxifier)(nil)
+var _ x.Router = (*gw)(nil)
 var _ protect.RDialer = (Proxy)(nil)
 
 func NewProxifier(pctx context.Context, c protect.Controller, o x.ProxyListener) *proxifier {
@@ -152,9 +163,13 @@ func NewProxifier(pctx context.Context, c protect.Controller, o x.ProxyListener)
 	pxr.exit = NewExitProxy(c)
 	pxr.base = NewBaseProxy(c)
 	pxr.grounded = NewGroundProxy()
+	pxr.auto = NewAutoProxy(pxr)
+
+	pxr.warpc = warp.NewWarpClient(pctx, c)
 	pxr.add(pxr.exit)     // fixed
 	pxr.add(pxr.base)     // fixed
 	pxr.add(pxr.grounded) // fixed
+	pxr.add(pxr.auto)
 	log.I("proxy: new")
 
 	context.AfterFunc(pctx, pxr.stopProxies)
@@ -248,30 +263,22 @@ func (px *proxifier) ProxyFor(id string) (Proxy, error) {
 	}
 
 	// go.dev/play/p/xCug1W3OcMH
-	out := make(chan Proxy)
-	core.Go("pxr.ProxyFor", func() {
+	p, ok := core.Grx("pxr.ProxyFor: "+id, func() Proxy {
 		px.RLock()
 		defer px.RUnlock()
 
-		defer close(out)
-		if p, ok := px.p[id]; ok {
-			out <- p
-		} else {
-			out <- nil
-		}
-	})
+		return px.p[id]
+	}, getproxytimeout)
 
-	select {
-	case p := <-out:
-		if p == nil || core.IsNil(p) {
-			return nil, errProxyNotFound
-		}
-		return p, nil
-	case <-time.After(getproxytimeout):
-		log.D("proxy: for: %s; timeout!", id)
+	if !ok {
+		log.W("proxy: for: %s; timeout!", id)
 		// possibly a deadlock, so return an error
 		return nil, errGetProxyTimeout
 	}
+	if p == nil || core.IsNil(p) {
+		return nil, errProxyNotFound
+	}
+	return p, nil
 }
 
 // GetProxy implements x.Proxies.
@@ -280,6 +287,10 @@ func (px *proxifier) GetProxy(id string) (x.Proxy, error) {
 }
 
 func (px *proxifier) Router() x.Router {
+	return px
+}
+
+func (px *proxifier) Rpn() x.Rpn {
 	return px
 }
 
@@ -492,6 +503,26 @@ func (px *proxifier) Contains(ipprefix string) bool {
 		}
 	}
 	return false
+}
+
+// Implements x.Rpn.
+func (px *proxifier) RegisterWarp(pub string) ([]byte, error) {
+	id, err := px.warpc.Make(pub, "")
+	if err != nil {
+		log.E("proxy: warp: make for %s failed: %v", pub, err)
+		return nil, err
+	}
+	// create a byte writer and write the identity to it
+
+	return id.Json()
+}
+
+func (px *proxifier) Warp() (Proxy, error) {
+	return px.ProxyFor(RpnWg)
+}
+
+func (px *proxifier) Pip() (Proxy, error) {
+	return px.ProxyFor(PIPWS)
 }
 
 func local(id string) bool {

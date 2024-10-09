@@ -14,6 +14,8 @@ const ( // see ipn/proxies.go
 	Base    = "Base"        // does not proxy traffic; in sync w dnsx.NetNoProxy
 	Exit    = "Exit"        // always connects to the Internet (exit node); in sync w dnsx.NetExitProxy
 	Ingress = "Ingress"     // incoming connections
+	Auto    = "rpn"         // auto uses ipn.Exit or any of the RPN proxies
+	RpnWg   = WG + RPN      // RPN Warp
 	OrbotS5 = "OrbotSocks5" // Orbot: Base Tor-as-a-SOCKS5 proxy
 	OrbotH1 = "OrbotHttp1"  // Orbot: Base Tor-as-a-HTTP/1.1 proxy
 
@@ -27,6 +29,7 @@ const ( // see ipn/proxies.go
 	PIPWS    = "pipws"  // PIP: WebSockets proxy
 	NOOP     = "noop"   // No proxy, ex: Base, Block
 	INTERNET = "net"    // egress network, ex: Exit
+	RPN      = "rpn"    // Rethink Proxy Network
 
 	// status of proxies
 
@@ -37,6 +40,10 @@ const ( // see ipn/proxies.go
 	TKO = -2 // proxy not OK
 	END = -3 // proxy stopped
 )
+
+type Rpn interface {
+	RegisterWarp(b64 string) ([]byte, error)
+}
 
 type Proxy interface {
 	// ID returns the ID of this proxy.
@@ -68,6 +75,8 @@ type Proxies interface {
 	GetProxy(id string) (Proxy, error)
 	// Router returns a lowest common denomination router for this multi-transport.
 	Router() Router
+	// RPN returns the Rethink Proxy Network interface.
+	Rpn() Rpn
 	// Refresh re-registers proxies and returns a csv of active ones.
 	RefreshProxies() (string, error)
 }
