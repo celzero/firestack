@@ -798,7 +798,7 @@ func (t *dnsgateway) PTR(maybeAlg netip.Addr, force bool) (domains string, didFo
 	if len(d) > 0 {
 		domains = strings.Join(d, ",")
 	} // else: algip isn't really an alg ip, nothing to do
-	return domains, force
+	return domains, useptr
 }
 
 func (t *dnsgateway) RESOLV(domain string) (ipcsv string) {
