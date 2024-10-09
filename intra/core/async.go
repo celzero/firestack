@@ -7,6 +7,8 @@
 package core
 
 import (
+	"errors"
+	"strconv"
 	"time"
 )
 
@@ -88,4 +90,62 @@ func Grx[T any](who string, f func() T, d time.Duration) (zz T, completed bool) 
 	case <-timer.C:
 	}
 	return zz, false
+}
+
+// errPanic returns an error indicating that the function at index i panicked.
+func errPanic(who string) error {
+	return errors.New(who + "fn panicked")
+}
+
+// Race runs all the functions in fs concurrently and returns the first non-error result.
+// Returned values are the result, the index of the function that returned the result, and any errors.
+// If all functions return an error, the accumulation of it is returned.
+// Panicking functions are considered as returning an error.
+// If the timeout is reached, errTimeout is returned.
+// Note that, zero value result could be returned if at least one function returns that without any error.
+func Race[T any](who string, timeout time.Duration, fs ...func() (T, error)) (zz T, fidx int, errs error) {
+	type res struct {
+		t   T
+		err error
+		i   int
+	}
+
+	ch := make(chan *res, len(fs))
+	defer close(ch)
+	done := make(chan struct{}) // always unbuffered
+	defer close(done)
+
+	for i, f := range fs {
+		i, f := i, f
+		fid := who + ".race." + strconv.Itoa(i)
+		Gg(fid, func() {
+			out, err := f()
+			select {
+			case <-done:
+			case ch <- &res{out, err, i}:
+			}
+
+		}, func() {
+			select {
+			case <-done:
+			case ch <- &res{zz, errPanic(fid), i}:
+			}
+		})
+	}
+
+outer:
+	for {
+		select {
+		case r := <-ch:
+			if r.err != nil {
+				errs = errors.Join(errs, r.err)
+			} else {
+				return r.t, r.i, r.err
+			}
+		case <-time.After(timeout):
+			errs = errors.Join(errs, errTimeout)
+			break outer
+		}
+	}
+	return // zz
 }
