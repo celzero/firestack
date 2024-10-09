@@ -16,6 +16,7 @@ import (
 
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
+	utls "github.com/refraction-networking/utls"
 )
 
 const dialRetryTimeout = 1 * time.Minute
@@ -281,4 +282,21 @@ func dialtls(d *protect.RDial, cfg *tls.Config, addr string, how mkrconn[*net.Co
 		tlsconn = nil
 	}
 	return tlsconn, err
+}
+
+// DialWithUTls dials a uTLS connection.
+func DialWithUTls(d *protect.RDial, cfg *utls.Config, ipport netip.AddrPort) (net.Conn, error) {
+	how := adaptc(ipConnect)
+	c, err := unPtr(commondial(d, "tcp", ipport.String(), how))
+	if err != nil {
+		clos(c)
+		return nil, err
+	}
+
+	utlsConn, handshakeErr := utlsHello(c, cfg, cfg.ServerName)
+	if handshakeErr != nil {
+		clos(c)
+		return nil, handshakeErr
+	}
+	return utlsConn, nil
 }
