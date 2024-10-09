@@ -44,19 +44,12 @@ func (h *base) Dial(network, addr string) (c protect.Conn, err error) {
 		return nil, errProxyStopped
 	}
 
-	defer func() {
-		if err != nil {
-			h.status.Store(TKO)
-		} else {
-			h.status.Store(TOK)
-		}
-	}()
-
 	if settings.Loopingback.Load() { // loopback (rinr) mode
 		c, err = dialers.Dial(h.outbound, network, addr)
 	} else {
 		c, err = localDialStrat(h.outbound, network, addr)
 	}
+	defer localDialStatus(h.status, err)
 
 	//Adjust TCP keepalive config if c is a TCPConn
 	protect.SetKeepAliveConfigSockOpt(c)
@@ -70,7 +63,10 @@ func (h *base) Announce(network, local string) (protect.PacketConn, error) {
 	if h.status.Load() == END {
 		return nil, errProxyStopped
 	}
-	return dialers.ListenPacket(h.outbound, network, local)
+	c, err := dialers.ListenPacket(h.outbound, network, local)
+	defer localDialStatus(h.status, err)
+	log.I("proxy: base: announce(%s) on %s; err? %v", network, local, err)
+	return c, err
 }
 
 // Accept implements Proxy.
@@ -86,7 +82,10 @@ func (h *base) Probe(network, local string) (protect.PacketConn, error) {
 	if h.status.Load() == END {
 		return nil, errProxyStopped
 	}
-	return dialers.Probe(h.outbound, network, local)
+	c, err := dialers.Probe(h.outbound, network, local)
+	defer localDialStatus(h.status, err)
+	log.I("proxy: base: probe(%s) on %s; err? %v", network, local, err)
+	return c, err
 }
 
 func (h *base) Dialer() *protect.RDial {
