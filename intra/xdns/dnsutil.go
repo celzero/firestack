@@ -397,11 +397,13 @@ func Targets(msg *dns.Msg) (targets []string) {
 		case *dns.CNAME:
 			target = r.Target
 		case *dns.SVCB:
-			if r.Priority == 0 {
+			// discard "." and "" targets
+			if r.Priority == 0 && len(r.Target) > 1 {
 				target = r.Target
 			}
 		case *dns.HTTPS:
-			if r.Priority == 0 {
+			// discard "." and "" targets
+			if r.Priority == 0 && len(r.Target) > 1 {
 				target = r.Target
 			}
 		default:
