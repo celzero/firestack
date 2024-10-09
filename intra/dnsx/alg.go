@@ -1217,13 +1217,16 @@ func ipok(ip netip.Addr) bool {
 // go.dev/play/p/WJXpAa-nmep
 func removeDups[T comparable](a ...[]T) (out []T) {
 	acc := make(map[T]struct{}, 0)
+	out = make([]T, 0)
 	for _, x := range a {
 		for _, xx := range x {
+			if _, ok := acc[xx]; ok {
+				continue
+			}
+			// maintain incoming order
+			out = append(out, xx)
 			acc[xx] = struct{}{}
 		}
-	}
-	for s := range acc {
-		out = append(out, s)
 	}
 	return
 }
@@ -1231,13 +1234,18 @@ func removeDups[T comparable](a ...[]T) (out []T) {
 // go.dev/play/p/zI_9nYhEVJY
 func removeDups2[T comparable](all ...[]*T) (out []*T) {
 	acc := make(map[T]struct{}, 0)
+	out = make([]*T, 0)
 	for _, list := range all {
 		for _, e := range list {
+			if e == nil {
+				continue
+			}
+			if _, ok := acc[*e]; ok {
+				continue
+			}
+			out = append(out, e)
 			acc[*e] = struct{}{}
 		}
-	}
-	for s := range acc {
-		out = append(out, &s)
 	}
 	return
 }
