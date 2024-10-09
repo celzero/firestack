@@ -80,7 +80,10 @@ func (w *Client) GetAcct(tok, deviceID string) (IdentityAccount, error) {
 	req.Header.Set("Authorization", "Bearer "+tok)
 
 	resp, err := w.c.Do(req)
-	if err != nil {
+	if err != nil || resp == nil {
+		if err == nil {
+			err = errNoApiResponse
+		}
 		return IdentityAccount{}, err
 	}
 	defer core.Close(resp.Body)
@@ -89,14 +92,16 @@ func (w *Client) GetAcct(tok, deviceID string) (IdentityAccount, error) {
 		return IdentityAccount{}, fmt.Errorf("API request failed with status: %s", resp.Status)
 	}
 
-	// convert response to byte array
-	responseData, err := io.ReadAll(resp.Body)
-	if err != nil {
+	b, err := io.ReadAll(resp.Body)
+	if err != nil || len(b) == 0 {
+		if err == nil {
+			err = errNoApiData
+		}
 		return IdentityAccount{}, err
 	}
 
 	var ia = IdentityAccount{}
-	if err := json.Unmarshal(responseData, &ia); err != nil {
+	if err := json.Unmarshal(b, &ia); err != nil {
 		return IdentityAccount{}, err
 	}
 
@@ -133,7 +138,10 @@ func (w *Client) reg(publicKey string) (Identity, error) {
 	}
 
 	resp, err := w.c.Do(req)
-	if err != nil {
+	if err != nil || resp == nil {
+		if err == nil {
+			err = errNoApiResponse
+		}
 		return Identity{}, err
 	}
 	defer core.Close(resp.Body)
@@ -142,13 +150,16 @@ func (w *Client) reg(publicKey string) (Identity, error) {
 		return Identity{}, fmt.Errorf("API request failed with status: %s", resp.Status)
 	}
 
-	responseData, err := io.ReadAll(resp.Body)
-	if err != nil {
+	b, err := io.ReadAll(resp.Body)
+	if err != nil || len(b) == 0 {
+		if err == nil {
+			err = errNoApiData
+		}
 		return Identity{}, err
 	}
 
 	var id = Identity{}
-	if err := json.Unmarshal(responseData, &id); err != nil {
+	if err := json.Unmarshal(b, &id); err != nil {
 		return Identity{}, err
 	}
 
@@ -170,7 +181,10 @@ func (w *Client) ResetLicense(authToken, deviceID string) (License, error) {
 	req.Header.Set("Authorization", "Bearer "+authToken)
 
 	resp, err := w.c.Do(req)
-	if err != nil {
+	if err != nil || resp == nil {
+		if err == nil {
+			err = errNoApiResponse
+		}
 		return License{}, err
 	}
 	defer core.Close(resp.Body)
@@ -179,13 +193,16 @@ func (w *Client) ResetLicense(authToken, deviceID string) (License, error) {
 		return License{}, fmt.Errorf("API request failed with response: %s", resp.Status)
 	}
 
-	responseData, err := io.ReadAll(resp.Body)
-	if err != nil {
+	b, err := io.ReadAll(resp.Body)
+	if err != nil || len(b) == 0 {
+		if err == nil {
+			err = errNoApiData
+		}
 		return License{}, err
 	}
 
 	var lc = License{}
-	if err := json.Unmarshal(responseData, &lc); err != nil {
+	if err := json.Unmarshal(b, &lc); err != nil {
 		return License{}, err
 	}
 
@@ -212,7 +229,10 @@ func (w *Client) UpdateAcct(authToken, deviceID, license string) (IdentityAccoun
 	req.Header.Set("Authorization", "Bearer "+authToken)
 
 	resp, err := w.c.Do(req)
-	if err != nil {
+	if err != nil || resp == nil {
+		if err == nil {
+			err = errNoApiResponse
+		}
 		return IdentityAccount{}, err
 	}
 	defer core.Close(resp.Body)
@@ -221,13 +241,16 @@ func (w *Client) UpdateAcct(authToken, deviceID, license string) (IdentityAccoun
 		return IdentityAccount{}, fmt.Errorf("API request failed with status: %s", resp.Status)
 	}
 
-	responseData, err := io.ReadAll(resp.Body)
-	if err != nil {
+	b, err := io.ReadAll(resp.Body)
+	if err != nil || len(b) == 0 {
+		if err == nil {
+			err = errNoApiData
+		}
 		return IdentityAccount{}, err
 	}
 
 	var ia = IdentityAccount{}
-	if err := json.Unmarshal(responseData, &ia); err != nil {
+	if err := json.Unmarshal(b, &ia); err != nil {
 		return IdentityAccount{}, err
 	}
 

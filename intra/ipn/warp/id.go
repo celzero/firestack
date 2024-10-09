@@ -23,8 +23,10 @@ import (
 )
 
 var (
-	errZeroIdentity = errors.New("warp: identity content empty")
-	errZeroPeers    = errors.New("warp: no peers")
+	errNoApiResponse = errors.New("warp: no api response")
+	errNoApiData     = errors.New("warp: no api data")
+	errZeroIdentity  = errors.New("warp: identity content empty")
+	errZeroPeers     = errors.New("warp: no peers")
 )
 
 type IdentityAccount struct {
@@ -133,6 +135,10 @@ func (w *bytewriter) Bytes() []byte {
 }
 
 func (id *Identity) Json() ([]byte, error) {
+	if id == nil || len(id.ID) <= 0 {
+		return nil, errZeroIdentity
+	}
+
 	var w bytewriter
 	if err := id.writeJson(&w); err != nil {
 		return nil, err
@@ -141,7 +147,7 @@ func (id *Identity) Json() ([]byte, error) {
 }
 
 func (id *Identity) writeJson(w io.Writer) error {
-	if len(id.ID) <= 0 {
+	if id == nil || len(id.ID) <= 0 {
 		return errZeroIdentity
 	}
 	id.genWgConf()
@@ -151,7 +157,7 @@ func (id *Identity) writeJson(w io.Writer) error {
 }
 
 func (id *Identity) genWgConf() {
-	if len(id.Config.Peers) < 1 {
+	if id == nil || len(id.Config.Peers) < 1 {
 		return
 	}
 	id.WgConf = fmt.Sprintf(`[Interface]
