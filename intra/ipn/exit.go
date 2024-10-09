@@ -48,7 +48,7 @@ func (h *exit) Dial(network, addr string) (c protect.Conn, err error) {
 	} else {
 		h.status.Store(TOK)
 	}
-	//Adjust TCP keepalive config if c is a TCPConn
+	// adjust TCP keepalive config if c is a TCPConn
 	protect.SetKeepAliveConfigSockOpt(c)
 	log.I("proxy: exit: dial(%s) to %s; err? %v", network, addr, err)
 	return
