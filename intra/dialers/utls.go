@@ -9,15 +9,13 @@
 //
 //    SPDX-License-Identifier: MIT
 
-// from: github.com/bepass-org/warp-plus/blob/19ac233cc/warp/tlsdial.go
+// from: github.com/bepass-org/warp-plus/blob/19ac233cc/warp/tls.go
 
 package dialers
 
 import (
 	"io"
 	"net"
-
-	"github.com/celzero/firestack/intra/core"
 
 	utls "github.com/refraction-networking/utls"
 )
@@ -92,21 +90,14 @@ func (e *sniCurveExt) Read(b []byte) (n int, err error) {
 	if len(b) < e.Len() {
 		return 0, io.ErrShortBuffer
 	}
+	pad := make([]byte, sniCurveSize)
 	// https://tools.ietf.org/html/rfc7627
 	b[0] = byte(utlsExtSniCurveId >> 8)
 	b[1] = byte(utlsExtSniCurveId)
 	b[2] = byte(e.curvelen >> 8)
 	b[3] = byte(e.curvelen)
 
-	bptr := core.Alloc()
-	buf := *bptr
-	buf = buf[:cap(buf)]
-	defer func() {
-		*bptr = buf
-		core.Recycle(bptr)
-	}()
-
-	copy(b[4:], buf)
+	copy(b[4:], pad)
 	return e.Len(), io.EOF
 }
 
