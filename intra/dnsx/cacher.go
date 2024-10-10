@@ -328,6 +328,8 @@ func (t *ctransport) fetch(network string, q *dns.Msg, summary *x.DNSSummary, cb
 			panic("test crash")
 		}
 
+		fsmm.QName = summary.QName
+		fsmm.QType = summary.QType
 		fsmm.ID = t.ID()
 		fsmm.Type = t.Type()
 
@@ -418,7 +420,7 @@ func (t *ctransport) fetch(network string, q *dns.Msg, summary *x.DNSSummary, cb
 	return sendRequest(summary) // summary is filled by underlying transport
 }
 
-func (t *ctransport) Query(network string, q *dns.Msg, summary *x.DNSSummary) (*dns.Msg, error) {
+func (t *ctransport) Query(network string, q *dns.Msg, smm *x.DNSSummary) (*dns.Msg, error) {
 	var response *dns.Msg
 	var err error
 	var cb *cache
@@ -439,7 +441,7 @@ func (t *ctransport) Query(network string, q *dns.Msg, summary *x.DNSSummary) (*
 		}
 		t.Unlock()
 
-		response, err = t.fetch(network, q, summary, cb, key)
+		response, err = t.fetch(network, q, smm, cb, key)
 
 	} else {
 		err = errMissingQueryName // not really a transport error
