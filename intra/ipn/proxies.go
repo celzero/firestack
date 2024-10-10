@@ -27,7 +27,8 @@ const (
 	Block   = x.Block
 	Base    = x.Base
 	Exit    = x.Exit
-	Ingress = x.Ingress
+	Auto    = x.Auto
+	Ingress = x.Ingress // dummy
 	OrbotS5 = x.OrbotS5
 	OrbotH1 = x.OrbotH1
 	RpnWg   = x.RpnWg
@@ -134,12 +135,6 @@ type proxifier struct {
 	warpc    *warp.Client          // warp registration, never changes
 	obs      x.ProxyListener
 	protos   string
-}
-
-type Rpn interface {
-	x.Rpn
-	Warp() (Proxy, error)
-	Pip() (Proxy, error)
 }
 
 var _ Proxies = (*proxifier)(nil)
@@ -517,11 +512,11 @@ func (px *proxifier) RegisterWarp(pub string) ([]byte, error) {
 	return id.Json()
 }
 
-func (px *proxifier) Warp() (Proxy, error) {
+func (px *proxifier) Warp() (x.Proxy, error) {
 	return px.ProxyFor(RpnWg)
 }
 
-func (px *proxifier) Pip() (Proxy, error) {
+func (px *proxifier) Pip() (x.Proxy, error) {
 	return px.ProxyFor(PIPWS)
 }
 

@@ -77,8 +77,8 @@ func (h *auto) Announce(network, local string) (protect.PacketConn, error) {
 	if h.status.Load() == END {
 		return nil, errProxyStopped
 	}
-	exit, _ := h.pxr.ProxyFor(Exit)
-	warp, _ := h.pxr.ProxyFor(RpnWg)
+	exit, exerr := h.pxr.ProxyFor(Exit)
+	warp, waerr := h.pxr.ProxyFor(RpnWg)
 
 	// auto always splits
 	c, who, err := core.Race(
@@ -86,12 +86,12 @@ func (h *auto) Announce(network, local string) (protect.PacketConn, error) {
 		tlsHandshakeTimeout,
 		func() (protect.PacketConn, error) {
 			if exit == nil {
-				return nil, errProxyNotFound
+				return nil, exerr
 			}
 			return dialers.ListenPacket(exit.Dialer(), network, local)
 		}, func() (protect.PacketConn, error) {
 			if warp == nil {
-				return nil, errProxyNotFound
+				return nil, waerr
 			}
 			return dialers.ListenPacket(warp.Dialer(), network, local)
 		},

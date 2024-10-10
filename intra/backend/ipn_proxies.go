@@ -43,6 +43,8 @@ const ( // see ipn/proxies.go
 
 type Rpn interface {
 	RegisterWarp(b64 string) ([]byte, error)
+	Warp() (Proxy, error)
+	Pip() (Proxy, error)
 }
 
 type Proxy interface {
