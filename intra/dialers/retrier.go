@@ -292,8 +292,8 @@ func (r *retrier) Read(buf []byte) (n int, err error) {
 	if !r.retryCompleted() {
 		r.mutex.Lock()
 		defer r.mutex.Unlock()
-		done := r.retryCompleted()
-		if !done {
+
+		if !r.retryCompleted() {
 			defer close(r.retryDoneCh) // signal that retry is complete or unnecessary
 			// retry on errs like timeouts or connection resets
 			for (c == nil || err != nil) && r.retryCount < maxRetryCount {

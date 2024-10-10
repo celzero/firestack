@@ -17,6 +17,7 @@ import (
 	"io"
 	"net"
 
+	"github.com/noql-net/certpool"
 	utls "github.com/refraction-networking/utls"
 )
 
@@ -128,4 +129,21 @@ func utlsHello(c net.Conn, ucfg *utls.Config, sni string) (*utls.UConn, error) {
 	}
 
 	return uconn, nil
+}
+
+func ensureSni2(cfg *utls.Config, addr string) *utls.Config {
+	if cfg == nil {
+		cfg = NewUTLSCfg(sni(addr))
+	} else if len(cfg.ServerName) <= 0 {
+		cfg.ServerName = sni(addr)
+	}
+	return cfg
+}
+
+func NewUTLSCfg(host string) *utls.Config {
+	return &utls.Config{
+		ServerName: host,
+		MinVersion: utls.VersionTLS12,
+		RootCAs:    certpool.Roots(),
+	}
 }

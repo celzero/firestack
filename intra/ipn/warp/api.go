@@ -28,8 +28,6 @@ import (
 	"github.com/celzero/firestack/intra/dialers"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
-	"github.com/noql-net/certpool"
-	utls "github.com/refraction-networking/utls"
 )
 
 type Client struct {
@@ -53,16 +51,12 @@ func (w *Client) utlsDial(ctx context.Context, network, addr string) (net.Conn, 
 	if err != nil {
 		return nil, err
 	}
-	cfg := &utls.Config{
-		ServerName: host,
-		MinVersion: utls.VersionTLS12,
-		RootCAs:    certpool.Roots(),
-	}
 	ip, err := core.RandomIPFromPrefix(cfip141)
 	if err != nil {
 		return nil, err
 	}
-	return dialers.DialWithUTls(w.d, cfg, netip.AddrPortFrom(ip, uint16(443)))
+	ipp := netip.AddrPortFrom(ip, uint16(443))
+	return dialers.DialWithUTls(w.d, dialers.NewUTLSCfg(host), network, ipp.String())
 }
 
 func (w *Client) GetAcct(tok, deviceID string) (IdentityAccount, error) {

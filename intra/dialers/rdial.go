@@ -146,19 +146,19 @@ func dialtls[D rdial](d D, cfg *tls.Config, network, addr string, how dialFn[D, 
 	return tlsconn, err
 }
 
-// DialWithUTls dials a uTLS connection.
-func DialWithUTls(d *protect.RDial, cfg *utls.Config, ipport netip.AddrPort) (net.Conn, error) {
-	how := adaptRDial(ipConnect)
-	c, err := unPtr(commondial(d, "tcp", ipport.String(), how))
+// DialWithUTls dials a uTLS connection to addr and cfg.
+func DialWithUTls(d *protect.RDial, cfg *utls.Config, network, addr string) (net.Conn, error) {
+	c, err := unPtr(commondial(d, network, addr, adaptRDial(ipConnect)))
 	if err != nil {
 		clos(c)
 		return nil, err
 	}
 
-	utlsConn, handshakeErr := utlsHello(c, cfg, cfg.ServerName)
-	if handshakeErr != nil {
+	cfg = ensureSni2(cfg, addr)
+	utlsConn, err := utlsHello(c, cfg, cfg.ServerName)
+	if err != nil {
 		clos(c)
-		return nil, handshakeErr
+		return nil, err
 	}
 	return utlsConn, nil
 }
