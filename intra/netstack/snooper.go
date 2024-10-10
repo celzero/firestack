@@ -41,7 +41,7 @@ import (
 
 // from: github.com/google/gvisor/blob/596e8d22/pkg/tcpip/link/sniffer/sniffer.go
 
-var LogPackets atomicbitops.Uint32 = atomicbitops.FromUint32(1)
+var LogPackets atomicbitops.Uint32 = atomicbitops.FromUint32(0)
 var WritePCAP atomicbitops.Uint32 = atomicbitops.FromUint32(0)
 
 // SnoopyEndpoint is used to snoop and log network traffic.

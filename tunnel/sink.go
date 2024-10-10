@@ -38,8 +38,8 @@ func newSink(pctx context.Context) *pcapsink {
 	p.ctx = ctx
 	p.done = cancel
 	p.sink = core.NewVolatile[io.WriteCloser](zerowriter)
-	p.log(false) // no log, which is enabled by default
-	p.fout(false)
+	p.log(false)  // no log
+	p.fout(false) // no file out
 	p.inC = make(chan []byte, 128)
 	core.Go("pcap.w", func() { p.writeAsync() })
 	context.AfterFunc(ctx, func() {
@@ -86,12 +86,6 @@ func (p *pcapsink) Close() error {
 	return nil
 }
 
-// begin writes pcap header to w.
-// from: github.com/google/gvisor/blob/596e8d22/pkg/tcpip/link/sniffer/sniffer.go#L93
-func (p *pcapsink) begin(w io.Writer) error {
-	return netstack.WritePCAPHeader(w)
-}
-
 func (p *pcapsink) file(f io.WriteCloser) (err error) {
 	if f == nil || core.IsNil(f) {
 		f = zerowriter
@@ -102,7 +96,8 @@ func (p *pcapsink) file(f io.WriteCloser) (err error) {
 
 	y := f != zerowriter
 	if y {
-		err = p.begin(f) // write pcap header before any packets
+		// from: github.com/google/gvisor/blob/596e8d22/pkg/tcpip/link/sniffer/sniffer.go#L93
+		err = netstack.WritePCAPHeader(f) // write pcap header before any packets
 		log.I("tun: pcap: begin: writeHeader; err(%v)", err)
 	}
 	p.fout(y)
