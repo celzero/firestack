@@ -84,13 +84,13 @@ var (
 )
 
 var (
-	ErrNotDefaultTransport = errors.New("not a default transport")
+	ErrNotDefaultTransport = errors.New("not a default dns transport")
 	ErrNoDcProxy           = errors.New("no dnscrypt-proxy")
-	ErrNoProxyProvider     = errors.New("no proxy provider")
+	ErrNoProxyProvider     = errors.New("no proxy provider for dns")
 	ErrNoProxyDNS          = errors.New("no proxy dns")
-	ErrAddFailed           = errors.New("add failed")
-	errNoSuchTransport     = errors.New("missing transport")
-	errOnQueryTimeout      = errors.New("timeout fetching prefs")
+	ErrAddFailed           = errors.New("dns add failed")
+	errNoSuchTransport     = errors.New("missing dns transport")
+	errOnQueryTimeout      = errors.New("timeout fetching dns prefs")
 	errBlockFreeTransport  = errors.New("block free transport")
 	errNoRdns              = errors.New("no rdns")
 	errTransportNotMult    = errors.New("not a multi-transport")
