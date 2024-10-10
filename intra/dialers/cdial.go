@@ -79,7 +79,7 @@ func commondial[D rdial, C rconn](d D, network, addr string, connect dialFn[D, C
 
 	defer func() {
 		dur := time.Since(start)
-		log.D("rdial: duration: %s; failed %s; confirmed? %s, sz: %d", dur, addr, confirmed, ips.Size())
+		log.D("rdial: duration: %s; addr %s; confirmed? %s, sz: %d", dur, addr, confirmed, ips.Size())
 	}()
 
 	if confirmedIPOK {
@@ -95,7 +95,8 @@ func commondial[D rdial, C rconn](d D, network, addr string, connect dialFn[D, C
 		}
 		errs = errors.Join(errs, err)
 		ips.Disconfirm(confirmed)
-		log.D("rdial: commondial: confirmed ip %s for %s failed with err %v", confirmed, addr, err)
+		logwd(err)("rdial: commondial: confirmed %s for %s failed; err %v",
+			confirmed, addr, err)
 	}
 
 	if dontretry {
@@ -137,7 +138,7 @@ func commondial[D rdial, C rconn](d D, network, addr string, connect dialFn[D, C
 				return conn, nil
 			}
 			errs = errors.Join(errs, err)
-			log.W("rdial: commondial: ip %s for %s failed with err %v", ip, addr, err)
+			logwd(err)("rdial: commondial: ip %s for %s failed; err %v", ip, addr, err)
 		} else {
 			log.W("rdial: commondial: ip %s not ok for %s", ip, addr)
 		}
@@ -162,4 +163,11 @@ func confirm(ips *ipmap.IPSet, ip netip.Addr) {
 
 func ipok(ip netip.Addr) bool {
 	return ip.IsValid() && !ip.IsUnspecified()
+}
+
+func logwd(err error) log.LogFn {
+	if err != nil {
+		return log.W
+	}
+	return log.D
 }
