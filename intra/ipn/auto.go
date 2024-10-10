@@ -9,7 +9,6 @@ package ipn
 import (
 	x "github.com/celzero/firestack/intra/backend"
 	"github.com/celzero/firestack/intra/core"
-	"github.com/celzero/firestack/intra/dialers"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
 )
@@ -52,12 +51,12 @@ func (h *auto) Dial(network, addr string) (protect.Conn, error) {
 			if exit == nil {
 				return nil, exerr
 			}
-			return localDialStrat(exit.Dialer(), network, addr)
+			return exit.Dialer().Dial(network, addr)
 		}, func() (protect.Conn, error) {
 			if warp == nil {
 				return nil, waerr
 			}
-			return dialers.ProxyDial(warp.Dialer(), network, addr)
+			return warp.Dialer().Dial(network, addr)
 		},
 	)
 
@@ -88,12 +87,12 @@ func (h *auto) Announce(network, local string) (protect.PacketConn, error) {
 			if exit == nil {
 				return nil, exerr
 			}
-			return dialers.ListenPacket(exit.Dialer(), network, local)
+			return exit.Dialer().Announce(network, local)
 		}, func() (protect.PacketConn, error) {
 			if warp == nil {
 				return nil, waerr
 			}
-			return dialers.ListenPacket(warp.Dialer(), network, local)
+			return warp.Dialer().Announce(network, local)
 		},
 	)
 
@@ -112,7 +111,7 @@ func (h *auto) Accept(network, local string) (protect.Listener, error) {
 		return nil, errProxyStopped
 	}
 	if exit, err := h.pxr.ProxyFor(Exit); err == nil {
-		return dialers.Listen(exit.Dialer(), network, local)
+		return exit.Dialer().Accept(network, local)
 	} else {
 		return nil, err
 	}
@@ -125,7 +124,7 @@ func (h *auto) Probe(network, local string) (protect.PacketConn, error) {
 	}
 	// todo: rpnwg
 	if exit, err := h.pxr.ProxyFor(Exit); err == nil {
-		return dialers.Probe(exit.Dialer(), network, local)
+		return exit.Dialer().Probe(network, local)
 	} else {
 		return nil, err
 	}
