@@ -141,7 +141,7 @@ func (h *auto) DNS() string {
 }
 
 func (h *auto) ID() string {
-	return RpnWg
+	return Auto
 }
 
 func (h *auto) Type() string {
@@ -162,6 +162,6 @@ func (h *auto) Status() int {
 
 func (h *auto) Stop() error {
 	h.status.Store(END)
-	log.I("proxy: exit: stopped")
+	log.I("proxy: auto: stopped")
 	return nil
 }
