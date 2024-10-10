@@ -42,7 +42,6 @@ import (
 	"gvisor.dev/gvisor/pkg/sync"
 	"gvisor.dev/gvisor/pkg/tcpip"
 	"gvisor.dev/gvisor/pkg/tcpip/header"
-	"gvisor.dev/gvisor/pkg/tcpip/link/sniffer"
 	"gvisor.dev/gvisor/pkg/tcpip/stack"
 )
 
@@ -396,16 +395,6 @@ func (e *endpoint) ParseHeader(pkt *stack.PacketBuffer) bool {
 	return true
 }
 
-func logPacketIfNeeded(dir sniffer.Direction, pkt *stack.PacketBuffer) {
-	if pkt == nil {
-		return
-	}
-	protocol := pkt.NetworkProtocolNumber
-	if sniffer.LogPackets.Load() == 1 {
-		sniffer.LogPacket("rdnspcap", dir, protocol, pkt)
-	}
-}
-
 // fd returns the file descriptor associated with the endpoint.
 func (e *endpoint) fd() int {
 	if fd := e.fds.Load(); fd > 0 {
@@ -432,7 +421,6 @@ func (e *endpoint) WritePackets(pkts stack.PacketBufferList) (int, tcpip.Error) 
 	packets, written := 0, 0
 	total := pkts.Len()
 	for _, pkt := range pkts.AsSlice() {
-		logPacketIfNeeded(sniffer.DirectionSend, pkt)
 		views := pkt.AsSlices()
 		numIovecs := len(views)
 		if len(batch)+numIovecs > rawfile.MaxIovs {
@@ -525,7 +513,6 @@ func (e *endpoint) getDispatcher() stack.NetworkDispatcher {
 
 // InjectInbound ingresses a netstack-inbound packet.
 func (e *endpoint) InjectInbound(protocol tcpip.NetworkProtocolNumber, pkt *stack.PacketBuffer) {
-	logPacketIfNeeded(sniffer.DirectionRecv, pkt)
 	d := e.getDispatcher()
 	fd := e.fd()
 	log.VV("ns: tun(%d): inject-inbound (from tun) %d", fd, protocol)
@@ -541,7 +528,6 @@ func (e *endpoint) InjectInbound(protocol tcpip.NetworkProtocolNumber, pkt *stac
 func (e *endpoint) InjectOutbound(dest tcpip.Address, packet *buffer.View) tcpip.Error {
 	fd := e.fd()
 	log.VV("ns: tun(%d): inject-outbound (to tun) to dst(%v)", fd, dest)
-	// TODO: e.logPacketIfNeeded(sniffer.DirectionSend, packet)
 	errno := rawfile.NonBlockingWrite(fd, packet.AsSlice())
 	return tcpip.TranslateErrno(errno)
 }
