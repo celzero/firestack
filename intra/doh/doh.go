@@ -310,14 +310,14 @@ func (t *transport) purgeProxyClients() {
 	}
 }
 
-func (t *transport) httpClientFor(p ipn.Proxy) (c3, c *http.Client, err error) {
+func (t *transport) httpClientFor(p ipn.Proxy) (c3, c *http.Client) {
 	t.pxcmu.RLock()
 	pxtr, ok := t.pxclients[p.ID()]
 	t.pxcmu.RUnlock()
 
 	same := pxtr != nil && pxtr.p == p
 	if ok && same {
-		return pxtr.c3, pxtr.c, nil
+		return pxtr.c3, pxtr.c
 	}
 
 	pdial := p.Dialer().Dial
@@ -342,7 +342,7 @@ func (t *transport) httpClientFor(p ipn.Proxy) (c3, c *http.Client, err error) {
 	// check if other proxies need to be purged
 	go t.purgeProxyClients()
 
-	return client3, &client, nil
+	return client3, &client
 }
 
 // Given a raw DNS query (including the query ID), this function sends the
@@ -408,16 +408,13 @@ func (t *transport) fetch(pid string, req *http.Request) (*http.Response, error)
 
 	c3, c, err := t.prepare(pid) // c3 may be nil
 	if err != nil {
-		log.E("doh: prepare (%s) for %s, err: %v", pid, ustr, err)
+		log.E("doh: fetch: prepare (%s) for %s, err: %v", pid, ustr, err)
 		return nil, uerr(err)
-	}
-	if c == nil && c3 == nil { // should never happen as prepare() must never return nil without err
-		return nil, uerr(errNoClient)
 	}
 
 	r, err := t.multifetch(req, c3, c)
 	if err != nil {
-		log.W("doh: fetch %s, err: %v", ustr, err)
+		log.W("doh: fetch: %s, err: %v", ustr, err)
 		return r, uerr(err)
 	}
 	return r, nil
@@ -446,13 +443,18 @@ func (t *transport) multifetch(req *http.Request, clients ...*http.Client) (res 
 				}
 				log.I("doh: fetch #%d: ech rejected; retry? %t ech? %t", i, len(ech) > 0, useech)
 			} else if uerr, ok := err.(*url.Error); ok {
-				// terminate if not EOF
-				cont = uerr.Err == io.EOF || uerr.Err == io.ErrUnexpectedEOF
-			}
+				eof := uerr.Err == io.EOF
+				if eof && res != nil {
+					log.D("doh: fetch #%d: EOF; but res exists! %t", i)
+					return res, nil
+				} // continue if EOF
+				cont = eof || uerr.Err == io.ErrUnexpectedEOF
+			} // terminate if not EOF
 			log.W("doh: fetch #%d (cont? %t); err: %v", i, cont, err)
 		}
 	}
 	if !sent && err == nil { // should never happen
+		log.E("doh: fetch: no client sent request %d", len(clients))
 		return nil, errNoClient
 	}
 	return nil, err
@@ -480,12 +482,10 @@ func (t *transport) prepare(pid string) (c3, c *http.Client, err error) {
 		if px == nil {
 			return nil, nil, dnsx.ErrNoProxyProvider
 		}
-		c3, c, err = t.httpClientFor(px) // c3 may be nil
-		useech = c3 != nil
-		if err != nil {
-			return
-		}
-		log.VV("doh: using proxy %s:%s ech? %t", px.ID(), px.GetAddr(), useech)
+		c3, c = t.httpClientFor(px) // c3 may be nil
+
+		log.VV("doh: using proxy %s:%s ech? %t / other? %t",
+			px.ID(), px.GetAddr(), c3 != nil, c != nil)
 	} else {
 		log.D("doh: no proxy %s ech? %t", pid, useech)
 	}
