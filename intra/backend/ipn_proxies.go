@@ -14,7 +14,7 @@ const ( // see ipn/proxies.go
 	Base    = "Base"        // does not proxy traffic; in sync w dnsx.NetNoProxy
 	Exit    = "Exit"        // always connects to the Internet (exit node); in sync w dnsx.NetExitProxy
 	Ingress = "Ingress"     // incoming connections
-	Auto    = "rpn"         // auto uses ipn.Exit or any of the RPN proxies
+	Auto    = "Auto"        // auto uses ipn.Exit or any of the RPN proxies
 	RpnWg   = WG + RPN      // RPN Warp
 	OrbotS5 = "OrbotSocks5" // Orbot: Base Tor-as-a-SOCKS5 proxy
 	OrbotH1 = "OrbotHttp1"  // Orbot: Base Tor-as-a-HTTP/1.1 proxy
