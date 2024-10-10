@@ -7,24 +7,75 @@
 package dialers
 
 import (
+	"crypto/tls"
 	"net"
 	"net/netip"
 
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/protect"
+	"golang.org/x/net/proxy"
 )
+
+// rdial is a union type for protect.RDial, net.Dialer, tls.Dialer
+type rdial interface {
+	*protect.RDial | *net.Dialer | *tls.Dialer | *proxy.Dialer
+}
 
 // rconn is a union type for net.UDPConn, net.TCPConn, icmp.PacketConn, net.TCPListener
 type rconn interface {
 	*net.Conn | *net.PacketConn | *net.UDPConn | *net.TCPConn | *net.TCPListener
 }
 
-type mkrconn[C rconn] func(*protect.RDial, string, netip.Addr, int) (C, error)
-type mkconn func(*protect.RDial, string, netip.Addr, int) (net.Conn, error)
+type dialFn[D rdial, C rconn] func(D, string, netip.Addr, int) (C, error)
+type connectFn[D rdial] func(D, string, netip.Addr, int) (net.Conn, error)
 
-// adaptc adapts a mkconn to a mkrconn
-func adaptc(f mkconn) mkrconn[*net.Conn] {
+// adaptRDial adapts a connectFn[protect.RDial] to a dialFn
+func adaptRDial(f connectFn[*protect.RDial]) dialFn[*protect.RDial, *net.Conn] {
 	return func(d *protect.RDial, network string, ip netip.Addr, port int) (cc *net.Conn, err error) {
+		c, err := f(d, network, ip, port)
+		if err != nil {
+			clos(c)
+			return nil, err
+		}
+		if c == nil || core.IsNil(c) { // go.dev/play/p/SsmqM00d2oH
+			return nil, errNilConn
+		}
+		return &c, nil
+	}
+}
+
+// adaptNetDial adapts a connectFn[net.Dialer] to a dialFn
+func adaptNetDial(f connectFn[*net.Dialer]) dialFn[*net.Dialer, *net.Conn] {
+	return func(d *net.Dialer, network string, ip netip.Addr, port int) (cc *net.Conn, err error) {
+		c, err := f(d, network, ip, port)
+		if err != nil {
+			clos(c)
+			return nil, err
+		}
+		if c == nil || core.IsNil(c) {
+			return nil, errNilConn
+		}
+		return &c, nil
+	}
+}
+
+// adaptTlsDial adapts a connectFn[tls.Dialer] to a dialFn
+func adaptTlsDial(f connectFn[*tls.Dialer]) dialFn[*tls.Dialer, *net.Conn] {
+	return func(d *tls.Dialer, network string, ip netip.Addr, port int) (cc *net.Conn, err error) {
+		c, err := f(d, network, ip, port)
+		if err != nil {
+			clos(c)
+			return nil, err
+		}
+		if c == nil || core.IsNil(c) {
+			return nil, errNilConn
+		}
+		return &c, nil
+	}
+}
+
+func adaptProxyDial(f connectFn[*proxy.Dialer]) dialFn[*proxy.Dialer, *net.Conn] {
+	return func(d *proxy.Dialer, network string, ip netip.Addr, port int) (cc *net.Conn, err error) {
 		c, err := f(d, network, ip, port)
 		if err != nil {
 			clos(c)

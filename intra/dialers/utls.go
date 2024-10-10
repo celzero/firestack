@@ -111,8 +111,13 @@ func (e *sniCurveExt) Read(b []byte) (n int, err error) {
 }
 
 // utlsHello creates a TLS hello packet with SNICurve.
-func utlsHello(conn net.Conn, config *utls.Config, sni string) (*utls.UConn, error) {
-	uconn := utls.UClient(conn, config, utls.HelloCustom)
+func utlsHello(c net.Conn, ucfg *utls.Config, sni string) (*utls.UConn, error) {
+	switch c := c.(type) {
+	case *utls.UConn:
+		return c, nil
+	}
+
+	uconn := utls.UClient(c, ucfg, utls.HelloCustom)
 	spec := utls.ClientHelloSpec{
 		TLSVersMax:   utlsVer,
 		TLSVersMin:   utlsVer,

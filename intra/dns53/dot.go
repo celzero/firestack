@@ -137,16 +137,16 @@ func (t *dot) tlsdial(rd *protect.RDial) (_ *dns.Conn, err error) {
 	addr := t.addr       // t.addr may be ip or hostname
 	if t.c3 != nil {     // may be nil if ech is not available
 		cfg := t.c3.TLSConfig // don't clone; may be modified by dialers.DialWithTls
-		c, err = dialers.DialWithTls(rd, cfg, addr)
+		c, err = dialers.DialWithTls(rd, cfg, "tcp", addr)
 		log.W("dot: tlsdial: (%s) ech; err? %v", t.id, err)
 	}
 	if c == nil && core.IsNil(c) { // no ech or ech failed
 		cfg := t.c.TLSConfig
 		if settings.Loopingback.Load() {
 			// no splits for ech or in loopback (rinr) mode
-			c, err = dialers.DialWithTls(rd, cfg, addr)
+			c, err = dialers.DialWithTls(rd, cfg, "tcp", addr)
 		} else {
-			c, err = dialers.SplitDialWithTls(rd, cfg, addr)
+			c, err = dialers.SplitDialWithTls(rd, cfg, "tcp", addr)
 		}
 	}
 	if c != nil && core.IsNotNil(c) {
