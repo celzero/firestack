@@ -152,9 +152,7 @@ func (d *dns64) RemoveResolver(id string) bool {
 
 // TODO: handle svcb/https ipv4hint/ipv6hint
 // datatracker.ietf.org/doc/html/draft-ietf-dnsop-svcb-https-10#section-7.4
-func (d *dns64) eval(network string, force64 bool, og *dns.Msg, r dnsx.Transport) *dns.Msg {
-	ansin := og
-
+func (d *dns64) eval(network string, force64 bool, ansin *dns.Msg, r dnsx.Transport) *dns.Msg {
 	qname := xdns.QName(ansin)
 	// if question is AAAA, then answer must have AAAA; for example CNAME,
 	// records pointing no where must not be considered as AAAA answers
