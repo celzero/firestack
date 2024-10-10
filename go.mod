@@ -23,7 +23,7 @@ require (
 	golang.org/x/mobile v0.0.0-20220518205345-8578da9835fd
 	golang.org/x/net v0.27.0
 	golang.zx2c4.com/wireguard v0.0.0-20231211153847-12269c276173
-	gvisor.dev/gvisor v0.0.0-20241003235444-a89be6af9e4c
+	gvisor.dev/gvisor v0.0.0-20241009022347-94b16c128c1c
 	nhooyr.io/websocket v1.8.7
 )
 
