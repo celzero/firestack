@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	x "github.com/celzero/firestack/intra/backend"
+	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/settings"
 	"gvisor.dev/gvisor/pkg/tcpip"
 	"gvisor.dev/gvisor/pkg/tcpip/network/ipv4"
@@ -61,9 +62,9 @@ func Stat(s *stack.Stack) (out *x.NetStat, err error) {
 	}
 
 	// nic
-	out.NICSt.RxBytes = int64(nic.Rx.Bytes.Value())
+	out.NICSt.Rx = core.FmtBytes(uint64(nic.Rx.Bytes.Value()))
 	out.NICSt.RxPkts = int64(nic.Rx.Packets.Value())
-	out.NICSt.TxBytes = int64(nic.Tx.Bytes.Value())
+	out.NICSt.Tx = core.FmtBytes(uint64(nic.Tx.Bytes.Value()))
 	out.NICSt.TxPkts = int64(nic.Tx.Packets.Value())
 	out.NICSt.Drops = int64(nic.TxPacketsDroppedNoBufferSpace.Value())
 	out.NICSt.Invalid = int64(nic.MalformedL4RcvdPackets.Value())

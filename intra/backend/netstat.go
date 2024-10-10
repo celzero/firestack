@@ -8,15 +8,15 @@ package backend
 
 // NICStat is a collection of network interface statistics for the current tunnel.
 type NICStat struct {
-	RxBytes   int64 // bytes received
-	RxPkts    int64 // packets received
-	TxBytes   int64 // bytes sent
-	TxPkts    int64 // packets sent
-	Invalid   int64 // invalid packets
-	L4Unknown int64 // unknown l4 packets
-	L3Unknown int64 // unknown l3 packets
-	L4Drops   int64 // l4 drops
-	Drops     int64 // drops
+	Rx        string // bytes received
+	RxPkts    int64  // packets received
+	Tx        string // bytes sent
+	TxPkts    int64  // packets sent
+	Invalid   int64  // invalid packets
+	L4Unknown int64  // unknown l4 packets
+	L3Unknown int64  // unknown l3 packets
+	L4Drops   int64  // l4 drops
+	Drops     int64  // drops
 }
 
 type NICInfo struct {

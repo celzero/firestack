@@ -303,30 +303,30 @@ func (t *rtunnel) stat() (*x.NetStat, error) {
 
 	var mm runtime.MemStats
 	runtime.ReadMemStats(&mm) // stw & expensive
-	out.GOSt.Alloc = formatBytes(mm.Alloc)
-	out.GOSt.TotalAlloc = formatBytes(mm.TotalAlloc)
-	out.GOSt.Sys = formatBytes(mm.Sys)
+	out.GOSt.Alloc = core.FmtBytes(mm.Alloc)
+	out.GOSt.TotalAlloc = core.FmtBytes(mm.TotalAlloc)
+	out.GOSt.Sys = core.FmtBytes(mm.Sys)
 	out.GOSt.Lookups = int64(mm.Lookups)
 	out.GOSt.Mallocs = int64(mm.Mallocs)
 	out.GOSt.Frees = int64(mm.Frees)
-	out.GOSt.HeapAlloc = formatBytes(mm.HeapAlloc)
-	out.GOSt.HeapSys = formatBytes(mm.HeapSys)
-	out.GOSt.HeapIdle = formatBytes(mm.HeapIdle)
-	out.GOSt.HeapInuse = formatBytes(mm.HeapInuse)
-	out.GOSt.HeapReleased = formatBytes(mm.HeapReleased)
+	out.GOSt.HeapAlloc = core.FmtBytes(mm.HeapAlloc)
+	out.GOSt.HeapSys = core.FmtBytes(mm.HeapSys)
+	out.GOSt.HeapIdle = core.FmtBytes(mm.HeapIdle)
+	out.GOSt.HeapInuse = core.FmtBytes(mm.HeapInuse)
+	out.GOSt.HeapReleased = core.FmtBytes(mm.HeapReleased)
 	out.GOSt.HeapObjects = int64(mm.HeapObjects)
-	out.GOSt.StackInuse = formatBytes(mm.StackInuse)
-	out.GOSt.StackSys = formatBytes(mm.StackSys)
-	out.GOSt.MSpanInuse = formatBytes(mm.MSpanInuse)
-	out.GOSt.MSpanSys = formatBytes(mm.MSpanSys)
-	out.GOSt.MCacheInuse = formatBytes(mm.MCacheInuse)
-	out.GOSt.MCacheSys = formatBytes(mm.MCacheSys)
-	out.GOSt.BuckHashSys = formatBytes(mm.BuckHashSys)
-	out.GOSt.GCSys = formatBytes(mm.GCSys)
-	out.GOSt.OtherSys = formatBytes(mm.OtherSys)
-	out.GOSt.NextGC = formatTime(mm.NextGC)
-	out.GOSt.LastGC = formatTime(mm.LastGC)
-	out.GOSt.PauseSecs = formatPeriod(mm.PauseTotalNs)
+	out.GOSt.StackInuse = core.FmtBytes(mm.StackInuse)
+	out.GOSt.StackSys = core.FmtBytes(mm.StackSys)
+	out.GOSt.MSpanInuse = core.FmtBytes(mm.MSpanInuse)
+	out.GOSt.MSpanSys = core.FmtBytes(mm.MSpanSys)
+	out.GOSt.MCacheInuse = core.FmtBytes(mm.MCacheInuse)
+	out.GOSt.MCacheSys = core.FmtBytes(mm.MCacheSys)
+	out.GOSt.BuckHashSys = core.FmtBytes(mm.BuckHashSys)
+	out.GOSt.GCSys = core.FmtBytes(mm.GCSys)
+	out.GOSt.OtherSys = core.FmtBytes(mm.OtherSys)
+	out.GOSt.NextGC = core.FmtTimeNs(mm.NextGC)
+	out.GOSt.LastGC = core.FmtTimeNs(mm.LastGC)
+	out.GOSt.PauseSecs = core.FmtTimeSecs(mm.PauseTotalNs)
 	out.GOSt.NumGC = int32(mm.NumGC)
 	out.GOSt.NumForcedGC = int32(mm.NumForcedGC)
 	out.GOSt.GCCPUFraction = fmt.Sprintf("%0.4f", mm.GCCPUFraction)
@@ -365,31 +365,4 @@ func fetchaddr(r dnsx.Resolver, id string) string {
 	} else {
 		return rerr.Error()
 	}
-}
-
-var units = []string{" b", "kb", "mb", "gb"}
-
-// from: github.com/google/gops/blob/35c854fb84/agent/agent.go
-func formatBytes(val uint64) string {
-	var i int
-	var target uint64
-	for i = range units {
-		target = 1 << uint(10*(i+1))
-		if val < target {
-			break
-		}
-	}
-	if i > 0 {
-		return fmt.Sprintf("%0.2f%s (%d bytes)",
-			float64(val)/(float64(target)/1024), units[i], val)
-	}
-	return fmt.Sprintf("%d bytes", val)
-}
-
-func formatTime(ns uint64) string {
-	return time.Now().Add(-time.Duration(ns)).Format(time.TimeOnly)
-}
-
-func formatPeriod(ns uint64) int64 {
-	return int64(time.Duration(ns).Seconds() * 1000)
 }
