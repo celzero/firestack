@@ -111,7 +111,6 @@ func Race[T any](who string, timeout time.Duration, fs ...func() (T, error)) (zz
 	}
 
 	ch := make(chan *res, len(fs))
-	defer close(ch)
 	done := make(chan struct{}) // always unbuffered
 	defer close(done)
 
@@ -124,7 +123,6 @@ func Race[T any](who string, timeout time.Duration, fs ...func() (T, error)) (zz
 			case <-done:
 			case ch <- &res{out, err, i}:
 			}
-
 		}, func() {
 			select {
 			case <-done:
@@ -134,7 +132,7 @@ func Race[T any](who string, timeout time.Duration, fs ...func() (T, error)) (zz
 	}
 
 outer:
-	for {
+	for i := 0; i < len(fs); i++ {
 		select {
 		case r := <-ch:
 			if r.err != nil {
