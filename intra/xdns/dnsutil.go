@@ -1059,7 +1059,7 @@ func MaybeToQuadA(answer dns.RR, prefix *net.IPNet, minttl uint32) *dns.AAAA {
 	}
 	ttl := min(minttl, header.Ttl)
 
-	ipv6 := ip4to6(prefix, ipv4)
+	ipv6 := ip4to6(*prefix, ipv4)
 
 	trec := new(dns.AAAA)
 	trec.Hdr = dns.RR_Header{
@@ -1122,7 +1122,7 @@ func ToIp6Hint(answer dns.RR, prefix *net.IPNet) dns.RR {
 			log.W("dnsutil: invalid https/svcb ipv4hint %s", x)
 			continue
 		}
-		hint6.Hint = append(hint6.Hint, ip4to6(prefix, ip4))
+		hint6.Hint = append(hint6.Hint, ip4to6(*prefix, ip4))
 	}
 
 	if header.Rrtype == dns.TypeSVCB {
@@ -1152,9 +1152,9 @@ func ToIp6Hint(answer dns.RR, prefix *net.IPNet) dns.RR {
 	}
 }
 
-func ip4to6(prefix6 *net.IPNet, ip4 net.IP) net.IP {
+func ip4to6(prefix6 net.IPNet, ip4 net.IP) net.IP {
 	ip6 := make(net.IP, net.IPv6len)
-	if prefix6 == nil || len(ip4) <= 0 {
+	if len(prefix6.IP) <= 0 || len(ip4) <= 0 {
 		return ip6 // all zeros?
 	}
 	copy(ip6, prefix6.IP)
