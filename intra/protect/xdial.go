@@ -175,8 +175,10 @@ func (d *RDial) DialTCP(network string, laddr, raddr *net.TCPAddr) (*net.TCPConn
 		// d.Dialer.LocalAddr = nil
 		return tc, nil
 	} else {
-		log.W("xdial: DialTCP: (%s) %T is not %T (ok? %t); other errs: %v", d.Owner, c, tc, ok, err)
+		log.W("xdial: DialTCP: (%s) to %s, %T is not %T (ok? %t); other errs: %v",
+			d.Owner, raddr, c, tc, ok, err)
 		// some proxies like wgproxy, socks5 do not vend *net.TCPConn
+		// also errors if retrier (core.DuplexConn) is looped back here
 		clos(c)
 		return nil, errNoTCP
 	}
@@ -193,7 +195,8 @@ func (d *RDial) DialUDP(network string, laddr, raddr *net.UDPAddr) (*net.UDPConn
 		// d.Dialer.LocalAddr = nil
 		return uc, nil
 	} else {
-		log.W("xdial: DialUDP: (%s) %T is not %T (ok? %t); other errs: %v", d.Owner, c, uc, ok, err)
+		log.W("xdial: DialUDP: (%s) to %s, %T is not %T (ok? %t); other errs: %v",
+			d.Owner, raddr, c, uc, ok, err)
 		// some proxies like wgproxy, socks5 do not vend *net.UDPConn
 		clos(c)
 		return nil, errNoUDP
@@ -208,7 +211,8 @@ func (d *RDial) AnnounceUDP(network, local string) (*net.UDPConn, error) {
 	} else if uc, ok := c.(*net.UDPConn); ok {
 		return uc, nil
 	} else {
-		log.W("xdial: AnnounceUDP: (%s) %T is not %T (ok? %t); other errs: %v", d.Owner, c, uc, ok, err)
+		log.W("xdial: AnnounceUDP: (%s) from %s, %T is not %T (ok? %t); other errs: %v",
+			d.Owner, local, c, uc, ok, err)
 		clos(c)
 		return nil, errNoUDPMux
 	}
@@ -222,7 +226,8 @@ func (d *RDial) AcceptTCP(network string, local string) (*net.TCPListener, error
 	} else if tl, ok := ln.(*net.TCPListener); ok {
 		return tl, nil
 	} else {
-		log.W("xdial: AcceptTCP: (%s) %T is not %T (ok? %t); other errs: %v", d.Owner, ln, tl, ok, err)
+		log.W("xdial: AcceptTCP: (%s) from %s, %T is not %T (ok? %t); other errs: %v",
+			d.Owner, local, ln, tl, ok, err)
 		clos(ln)
 		return nil, errNoTCPMux
 	}
