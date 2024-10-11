@@ -104,6 +104,7 @@ func (d *dns64) register(id string) {
 func (d *dns64) AddResolver(id string, r dnsx.Transport) (ok bool) {
 	d.register(id)
 
+	// todo: send summary to the listener
 	discarded := new(x.DNSSummary)
 	netw := xdns.NetAndProxyID(dnsx.NetTypeUDP, dnsx.NetExitProxy)
 	ans, err := dnsx.Req(r, netw, arpa64, discarded)
@@ -247,6 +248,7 @@ func (d *dns64) query64(network string, msg6 *dns.Msg, r dnsx.Transport) (*dns.M
 	proto, pid := xdns.Net2ProxyID(network)
 
 	q4 := xdns.QName(msg4)
+	// todo: send summary to the listener
 	discarded := new(x.DNSSummary)
 	res, err := dnsx.Req(r, network, msg4, discarded)
 	hasAns := xdns.HasAnyAnswer(res)
@@ -373,10 +375,11 @@ func (d *dns64) addNat64Prefix(id string, ipxx *net.IPNet) error {
 	}
 
 	// ipxx.String -> 64:ff9b:1::/mask
-	_, exists := uniq[ipxx.String()]
+	ipxxstr := ipxx.String()
+	_, exists := uniq[ipxxstr]
 	if !exists {
 		ip64 = append(ip64, ipxx)
-		uniq[ipxx.String()] = emptyStruct
+		uniq[ipxxstr] = emptyStruct
 		log.I("dns64: add ipnet [%s] for server(%s)", ipxx, id)
 	} else {
 		log.D("dns64: prefix6(%v) for server(%s) exists!", id, ipxx)
