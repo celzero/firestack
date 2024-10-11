@@ -427,6 +427,8 @@ func (t *transport) multifetch(req *http.Request, clients ...*http.Client) (res 
 		if c == nil { // c may be nil (ex: if no ech)
 			continue
 		}
+		cont = true
+		sent = false
 		for i := uint8(0); cont && i < maxEOFTries; i++ {
 			cont = false
 			sent = true
