@@ -30,7 +30,7 @@ const (
 	Shared
 )
 
-var errTimeout = errors.New("barrier: timeout")
+var errTimeout = errors.New("core: timeout")
 
 // Work is the type of the function to memoize.
 type Work[T any] func() (T, error)
