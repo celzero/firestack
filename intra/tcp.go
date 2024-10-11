@@ -121,7 +121,7 @@ func (h *tcpHandler) ReverseProxy(gconn *netstack.GTCPConn, in net.Conn, to, fro
 	pid := fm.PID
 	smm := tcpSummary(cid, pid, fm.UID, from.Addr())
 	if pid == ipn.Block {
-		log.I("tcp: reverse: block %s -> %s", from, to)
+		log.I("tcp: reverse: block %s => %s", from, to)
 		clos(gconn, in)
 		h.queueSummary(smm.done(errUdpInFirewalled))
 		return true
@@ -279,7 +279,5 @@ func (h *tcpHandler) handle(px ipn.Proxy, src net.Conn, target netip.AddrPort, s
 	core.Go("tcp.forward:"+smm.ID, func() {
 		h.forward(src, dst, smm) // src always *gonet.TCPConn
 	})
-
-	log.I("tcp: new conn %s via proxy(%s); src(%s) -> dst(%s) for %s", smm.ID, px.ID(), src.LocalAddr(), target, smm.UID)
 	return nil // handled; takes ownership of src
 }

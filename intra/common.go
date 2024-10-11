@@ -196,14 +196,21 @@ func (h *baseHandler) onFlow(localaddr, target netip.AddrPort) (fm *Mark, undidA
 // It also sends a summary to the listener when done. Always called in a goroutine.
 func (h *baseHandler) forward(local, remote net.Conn, smm *SocketSummary) {
 	cid := smm.ID
+	uid := smm.UID
+	via := smm.Proto + ":" + smm.PID
+
+	tup := conn2str(local, remote)
+
+	log.I("%s: new conn %s via proxy(%s); %s for %s",
+		h.proto, cid, via, tup, uid)
 
 	h.conntracker.Track(cid, local, remote)
 	defer h.conntracker.Untrack(cid)
 
 	uploadch := make(chan ioinfo)
 
-	go upload(cid, local, remote, uploadch)
-	dbytes, derr := download(cid, local, remote)
+	go upload(cid, via, local, remote, uploadch)
+	dbytes, derr := download(cid, via, local, remote)
 
 	upload := <-uploadch
 
@@ -225,16 +232,16 @@ func (h *baseHandler) queueSummary(s *SocketSummary) {
 	// see panic from the select statement writing to ch; and hence
 	// the need to have this nested select statement.
 
-	log.VV("intra: queueSummary: %x %x %s", h.smmch, h.ctx, s.ID)
+	log.VV("%s: queueSummary: %x %x %s", h.proto, h.smmch, h.ctx, s.ID)
 	select {
 	case <-h.ctx.Done():
-		log.D("intra: queueSummary: end: %s", s.str())
+		log.D("%s: queueSummary: end: %s", h.proto, s.str())
 	default:
 		select {
 		case <-h.ctx.Done():
 		case h.smmch <- s:
 		default:
-			log.W("intra: sendSummary: dropped: %s", s.str())
+			log.W("%s: sendSummary: dropped: %s", h.proto, s.str())
 		}
 	}
 }
@@ -265,7 +272,7 @@ func (h *baseHandler) sendSummary(s *SocketSummary, after time.Duration) {
 		time.Sleep(after)
 	}
 
-	log.VV("intra: end? sendNotif: %s", s.str())
+	log.VV("%s: end? sendNotif: %s", h.proto, s.str())
 	h.listener.OnSocketClosed(s) // s.Duration may be uninitialized (zero)
 }
 
@@ -276,7 +283,14 @@ func (h *baseHandler) OpenConns() string {
 
 // CloseConns implements netstack.GBaseConnHandler
 func (h *baseHandler) CloseConns(cids []string) (closed []string) {
-	return closeconns(h.conntracker, cids)
+	if len(cids) <= 0 {
+		closed = h.conntracker.Clear()
+	} else {
+		closed = h.conntracker.UntrackBatch(cids)
+	}
+
+	log.I("%s: closed %d/%d", h.proto, len(closed), len(cids))
+	return closed
 }
 
 // TODO: move this to ipn.Block
@@ -323,24 +337,24 @@ func (h *baseHandler) End() {
 }
 
 // TODO: Propagate TCP RST using local.Abort(), on appropriate errors.
-func upload(cid string, local net.Conn, remote net.Conn, ioch chan<- ioinfo) {
+func upload(cid, proto string, local net.Conn, remote net.Conn, ioch chan<- ioinfo) {
 	defer core.Recover(core.Exit11, "c.upload: "+cid)
 
 	ci := conn2str(local, remote)
 
 	n, err := core.Pipe(remote, local)
-	log.D("intra: %s upload(%d) done(%v) b/w %s", cid, n, err, ci)
+	log.D("%s: %s upload(%d) done(%v) b/w %s", proto, cid, n, err, ci)
 
 	core.CloseOp(local, core.CopR)
 	core.CloseOp(remote, core.CopW)
 	ioch <- ioinfo{n, err}
 }
 
-func download(cid string, local net.Conn, remote net.Conn) (n int64, err error) {
+func download(cid, proto string, local net.Conn, remote net.Conn) (n int64, err error) {
 	ci := conn2str(local, remote)
 
 	n, err = core.Pipe(local, remote)
-	log.D("intra: %s download(%d) done(%v) b/w %s", cid, n, err, ci)
+	log.D("%s: %s download(%d) done(%v) b/w %s", proto, cid, n, err, ci)
 
 	core.CloseOp(local, core.CopW)
 	core.CloseOp(remote, core.CopR)
@@ -480,17 +494,6 @@ func conn2str(a net.Conn, b net.Conn) string {
 	al := a.LocalAddr()
 	bl := b.LocalAddr()
 	return fmt.Sprintf("a(%v->%v) => b(%v<-%v)", al, ar, bl, br)
-}
-
-func closeconns(cm core.ConnMapper, cids []string) (closed []string) {
-	if len(cids) <= 0 {
-		closed = cm.Clear()
-	} else {
-		closed = cm.UntrackBatch(cids)
-	}
-
-	log.I("intra: closed %d/%d", len(closed), len(cids))
-	return closed
 }
 
 func clos(c ...core.MinConn) {
