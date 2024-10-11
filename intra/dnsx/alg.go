@@ -1112,11 +1112,19 @@ func Req(t Transport, network string, q *dns.Msg, smm *x.DNSSummary) (*dns.Msg, 
 	if !xdns.HasAnyQuestion(q) {
 		return nil, errNoQuestion
 	}
+	qname := qname(q)
+
 	if smm == nil { // discard smm
 		discarded := new(x.DNSSummary)
 		smm = discarded
 	}
-	qname := xdns.QName(q)
+	if len(smm.QName) <= 0 {
+		smm.QName = qname
+	}
+	if smm.QType <= 0 {
+		qtyp := qtype(q)
+		smm.QType = qtyp
+	}
 
 	r, err := t.Query(network, q, smm)
 
