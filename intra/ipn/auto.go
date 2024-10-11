@@ -10,7 +10,6 @@ import (
 	"context"
 	"math/rand"
 	"net/netip"
-	"strconv"
 	"time"
 
 	x "github.com/celzero/firestack/intra/backend"
@@ -210,10 +209,6 @@ func (h *auto) Stop() error {
 	h.status.Store(END)
 	log.I("proxy: auto: stopped")
 	return nil
-}
-
-func key(addr string, who int) string {
-	return addr + ":" + strconv.Itoa(who)
 }
 
 // go.dev/play/p/GtLCDAXeeLJ
