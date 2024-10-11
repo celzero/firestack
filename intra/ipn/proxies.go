@@ -74,6 +74,8 @@ var (
 	errNoMtu                = errors.New("no mtu")
 	errNoOpts               = errors.New("no proxy opts")
 	errMissingRev           = errors.New("missing reverse proxy")
+	errNoAuto464XLAT        = errors.New("no auto 464xlat")
+	errNotPinned            = errors.New("another auto proxy pinned")
 )
 
 const (
@@ -158,7 +160,7 @@ func NewProxifier(pctx context.Context, c protect.Controller, o x.ProxyListener)
 	pxr.exit = NewExitProxy(c)
 	pxr.base = NewBaseProxy(c)
 	pxr.grounded = NewGroundProxy()
-	pxr.auto = NewAutoProxy(pxr)
+	pxr.auto = NewAutoProxy(pctx, pxr)
 
 	pxr.warpc = warp.NewWarpClient(pctx, c)
 	pxr.add(pxr.exit)     // fixed
