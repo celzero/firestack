@@ -123,7 +123,7 @@ func NewTunnel(fd, mtu int, fakedns string, tunmode *settings.TunMode, dtr Defau
 	}()
 
 	log.SetConsole(bdg)
-	natpt := x64.NewNatPt(tunmode)
+	natpt := x64.NewNatPt(tunmode, bdg)
 	proxies := ipn.NewProxifier(ctx, bdg, bdg)
 	services := rnet.NewServices(ctx, proxies, bdg, bdg)
 

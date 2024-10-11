@@ -63,20 +63,20 @@ type dns64 struct {
 	ip64 map[string][]*net.IPNet
 	// dns-resolver -> unique nat64-ips
 	uniqIP64 map[string]map[string]struct{}
+	l        x.DNSListener
 }
 
-func newDns64() *dns64 {
-	x := &dns64{
+func newDns64(l x.DNSListener) *dns64 {
+	d := &dns64{
 		ip64:     make(map[string][]*net.IPNet),
 		uniqIP64: make(map[string]map[string]struct{}),
+		l:        l,
 	}
-	go x.init()
-	return x
+	core.Gx("dns64.init", d.init)
+	return d
 }
 
 func (d *dns64) init() {
-	defer core.Recover(core.Exit11, "dns64.init")
-
 	err1 := d.ofOverlay()  // system resolver
 	err2 := d.ofLocal464() // emulated
 	if err1 != nil || err2 != nil {
@@ -105,9 +105,15 @@ func (d *dns64) AddResolver(id string, r dnsx.Transport) (ok bool) {
 	d.register(id)
 
 	// todo: send summary to the listener
-	discarded := new(x.DNSSummary)
+	smm := new(x.DNSSummary)
+
 	netw := xdns.NetAndProxyID(dnsx.NetTypeUDP, dnsx.NetExitProxy)
-	ans, err := dnsx.Req(r, netw, arpa64, discarded)
+	ans, err := dnsx.Req(r, netw, arpa64, smm)
+
+	defer func() {
+		core.Go("dns64."+id, func() { d.l.OnResponse(smm) })
+	}()
+
 	if err != nil || ans == nil || !xdns.HasAnyAnswer(ans) {
 		log.W("dns64: udp: could not query %s or empty ans; err %v", id, err)
 		return
@@ -116,7 +122,7 @@ func (d *dns64) AddResolver(id string, r dnsx.Transport) (ok bool) {
 	if ans.Truncated { // should never be the case for DOH, ODOH, DOT
 		// else if: returned response is truncated dns ans, retry over tcp
 		netw := xdns.NetAndProxyID(dnsx.NetTypeTCP, dnsx.NetExitProxy)
-		ans, err = dnsx.Req(r, netw, arpa64, discarded)
+		ans, err = dnsx.Req(r, netw, arpa64, smm)
 		if err != nil {
 			log.W("dns64: tcp: could not query resolver %s; err %v", id, err)
 			return
@@ -248,9 +254,14 @@ func (d *dns64) query64(network string, msg6 *dns.Msg, r dnsx.Transport) (*dns.M
 	proto, pid := xdns.Net2ProxyID(network)
 
 	q4 := xdns.QName(msg4)
-	// todo: send summary to the listener
-	discarded := new(x.DNSSummary)
-	res, err := dnsx.Req(r, network, msg4, discarded)
+	smm := new(x.DNSSummary)
+
+	res, err := dnsx.Req(r, network, msg4, smm)
+
+	defer func() {
+		core.Go("dns64.q4."+q4, func() { d.l.OnResponse(smm) })
+	}()
+
 	hasAns := xdns.HasAnyAnswer(res)
 	log.D("dns64: upstream(%s/%s): q(%s) / a(%t) / e(%v) / e-not-nil(%t)", proto, pid, q4, hasAns, err, err != nil)
 	if err != nil {
@@ -263,7 +274,7 @@ func (d *dns64) query64(network string, msg6 *dns.Msg, r dnsx.Transport) (*dns.M
 	if res.Truncated && proto != dnsx.NetTypeTCP {
 		// else if: returned response is truncated dns ans, retry over tcp
 		network = xdns.NetAndProxyID(dnsx.NetTypeTCP, pid)
-		res, err = dnsx.Req(r, network, msg4, discarded)
+		res, err = dnsx.Req(r, network, msg4, smm)
 		hasAns = xdns.HasAnyAnswer(res)
 		log.D("dns64: tcp: upstream q(%s) / a(%d) / e(%v) / e-not-nil(%t)", q4, hasAns, err, err != nil)
 		if err != nil {

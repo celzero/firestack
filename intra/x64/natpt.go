@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/netip"
 
+	x "github.com/celzero/firestack/intra/backend"
 	"github.com/celzero/firestack/intra/dnsx"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/settings"
@@ -47,11 +48,11 @@ var (
 )
 
 // NewNatPt returns a new NatPt.
-func NewNatPt(tunmode *settings.TunMode) *natPt {
+func NewNatPt(tunmode *settings.TunMode, l x.DNSListener) *natPt {
 	log.I("natpt: new; mode(%v)", tunmode)
 	return &natPt{
 		nat64:   newNat64(),
-		dns64:   newDns64(),
+		dns64:   newDns64(l),
 		tunmode: tunmode,
 		ip4s:    nil,
 		ip6s:    nil,
