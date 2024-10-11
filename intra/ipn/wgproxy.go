@@ -505,7 +505,7 @@ func makeWgTun(id, cfg string, rev netstack.GConnHandler, ifaddrs, allowedaddrs 
 	s := stack.New(opts)
 	ep := channel.New(epsize, uint32(tunmtu), "")
 	netstack.SetNetstackOpts(s)
-	if settings.ExperimentalWireGuard.Load() {
+	if settings.ExperimentalWireGuard.Load() && settings.EndpointIndependentFiltering.Load() {
 		netstack.OutboundTCP(s, rev.TCP())
 		netstack.OutboundUDP(s, rev.UDP())
 	}
