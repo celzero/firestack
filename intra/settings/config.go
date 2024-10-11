@@ -83,6 +83,10 @@ var Loopingback = atomic.Bool{}
 // in a single-threaded mode.
 var SingleThreaded = atomic.Bool{}
 
+// ExperimentalWireGuard is a global flag to enable experimental
+// settings for WireGuard.
+var ExperimentalWireGuard = atomic.Bool{}
+
 // EndpointIndependentMapping is a global flag to enable endpoint-independent
 // mapping for UDP as per RFC 4787.
 var EndpointIndependentMapping = atomic.Bool{}

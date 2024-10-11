@@ -505,8 +505,10 @@ func makeWgTun(id, cfg string, rev netstack.GConnHandler, ifaddrs, allowedaddrs 
 	s := stack.New(opts)
 	ep := channel.New(epsize, uint32(tunmtu), "")
 	netstack.SetNetstackOpts(s)
-	netstack.OutboundTCP(s, rev.TCP())
-	netstack.OutboundUDP(s, rev.UDP())
+	if settings.ExperimentalWireGuard.Load() {
+		netstack.OutboundTCP(s, rev.TCP())
+		netstack.OutboundUDP(s, rev.UDP())
+	}
 	t := &wgtun{
 		id:            stripPrefixIfNeeded(id),
 		cfg:           cfg,
@@ -534,10 +536,12 @@ func makeWgTun(id, cfg string, rev netstack.GConnHandler, ifaddrs, allowedaddrs 
 		return nil, fmt.Errorf("wg: %s create nic: %v", t.id, err)
 	}
 
-	// github.com/xjasonlyu/tun2socks/blob/31468620e/core/stack.go#L80
-	_ = s.SetSpoofing(wgnic, true)
-	// github.com/tailscale/tailscale/blob/c4d0237e5c/wgengine/netstack/netstack.go#L345-L350
-	_ = s.SetPromiscuousMode(wgnic, true)
+	if settings.ExperimentalWireGuard.Load() {
+		// github.com/xjasonlyu/tun2socks/blob/31468620e/core/stack.go#L80
+		_ = s.SetSpoofing(wgnic, true)
+		// github.com/tailscale/tailscale/blob/c4d0237e5c/wgengine/netstack/netstack.go#L345-L350
+		_ = s.SetPromiscuousMode(wgnic, true)
+	}
 
 	processed := make(map[string]bool)
 	for _, ipnet := range ifaddrs {

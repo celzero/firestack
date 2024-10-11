@@ -295,6 +295,7 @@ func (t *rtunnel) stat() (*x.NetStat, error) {
 	out.RDNSIn.Debug = settings.Debug
 	out.RDNSIn.Looping = settings.Loopingback.Load()
 	out.RDNSIn.Slowdown = settings.SingleThreaded.Load()
+	out.RDNSIn.NewWireGuard = settings.ExperimentalWireGuard.Load()
 	out.RDNSIn.Transparency = settings.EndpointIndependentFiltering.Load()
 	out.RDNSIn.Dialer4 = dialers.Use4()
 	out.RDNSIn.Dialer6 = dialers.Use6()

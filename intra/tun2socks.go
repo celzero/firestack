@@ -93,6 +93,8 @@ func LowMem() {
 // Slowdown sets the TUN forwarder in single-threaded mode.
 func Slowdown(y bool) {
 	ok := settings.SingleThreaded.CompareAndSwap(!y, y)
+	// todo: move to its own method
+	settings.ExperimentalWireGuard.CompareAndSwap(!y, y)
 	log.I("tun: slowdown? %t / ok? %t", y, ok)
 }
 

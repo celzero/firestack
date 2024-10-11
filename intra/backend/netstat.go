@@ -116,6 +116,7 @@ type RDNSInfo struct {
 	Debug        bool
 	Looping      bool
 	Slowdown     bool
+	NewWireGuard bool
 	Transparency bool
 
 	Dialer4    bool

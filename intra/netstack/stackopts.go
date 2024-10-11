@@ -7,6 +7,7 @@
 package netstack
 
 import (
+	"github.com/celzero/firestack/intra/settings"
 	"gvisor.dev/gvisor/pkg/tcpip"
 	"gvisor.dev/gvisor/pkg/tcpip/network/ipv4"
 	"gvisor.dev/gvisor/pkg/tcpip/network/ipv6"
@@ -32,22 +33,24 @@ func SetNetstackOpts(s *stack.Stack) {
 	ccopt := tcpip.CongestionControlOption("cubic")
 	_ = s.SetTransportProtocolOption(tcp.ProtocolNumber, &ccopt)
 
-	ttl := tcpip.DefaultTTLOption(64)
+	ttl := tcpip.DefaultTTLOption(128)
 	s.SetNetworkProtocolOption(ipv4.ProtocolNumber, &ttl)
 	s.SetNetworkProtocolOption(ipv6.ProtocolNumber, &ttl)
 
-	// github.com/tailscale/tailscale/blob/c4d0237e5c/wgengine/netstack/netstack_tcpbuf_default.go
-	tcpRXBufOpt := tcpip.TCPReceiveBufferSizeRangeOption{
-		Min:     tcp.MinBufferSize,
-		Default: tcp.DefaultSendBufferSize,
-		Max:     8 << 20, // 8MiB
+	if settings.ExperimentalWireGuard.Load() {
+		// github.com/tailscale/tailscale/blob/c4d0237e5c/wgengine/netstack/netstack_tcpbuf_default.go
+		tcpRXBufOpt := tcpip.TCPReceiveBufferSizeRangeOption{
+			Min:     tcp.MinBufferSize,
+			Default: tcp.DefaultSendBufferSize,
+			Max:     8 << 20, // 8MiB
+		}
+		tcpTXBufOpt := tcpip.TCPSendBufferSizeRangeOption{
+			Min:     tcp.MinBufferSize,
+			Default: tcp.DefaultReceiveBufferSize,
+			Max:     6 << 20, // 6MiB
+		}
+		// github.com/tailscale/tailscale/blob/c4d0237e5c/wgengine/netstack/netstack.go#L329
+		_ = s.SetTransportProtocolOption(tcp.ProtocolNumber, &tcpRXBufOpt)
+		_ = s.SetTransportProtocolOption(tcp.ProtocolNumber, &tcpTXBufOpt)
 	}
-	tcpTXBufOpt := tcpip.TCPSendBufferSizeRangeOption{
-		Min:     tcp.MinBufferSize,
-		Default: tcp.DefaultReceiveBufferSize,
-		Max:     6 << 20, // 6MiB
-	}
-	// github.com/tailscale/tailscale/blob/c4d0237e5c/wgengine/netstack/netstack.go#L329
-	_ = s.SetTransportProtocolOption(tcp.ProtocolNumber, &tcpRXBufOpt)
-	_ = s.SetTransportProtocolOption(tcp.ProtocolNumber, &tcpTXBufOpt)
 }
