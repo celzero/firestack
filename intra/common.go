@@ -63,8 +63,8 @@ type baseHandler struct {
 	smmch    chan *SocketSummary
 	listener SocketListener // listener for socket summaries
 
-	fwtracker   *core.ExpMap    // uid+dst(domainOrIP) -> blockSecs
-	conntracker core.ConnMapper // connid -> [local,remote]
+	conntracker core.ConnMapper              // connid -> [local,remote]
+	fwtracker   *core.ExpMap[string, string] // uid+dst(domainOrIP) -> blockSecs
 
 	once sync.Once
 
@@ -83,7 +83,7 @@ func newBaseHandler(pctx context.Context, proto string, r dnsx.Resolver, tm *set
 		resolver:    r,
 		smmch:       make(chan *SocketSummary, smmchSize),
 		listener:    l,
-		fwtracker:   core.NewExpiringMap(),
+		fwtracker:   core.NewExpiringMap(pctx),
 		conntracker: core.NewConnMap(),
 		status:      core.NewVolatile(HDLOK),
 	}
