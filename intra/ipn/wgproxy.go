@@ -33,6 +33,7 @@ import (
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/dialers"
 	"github.com/celzero/firestack/intra/ipn/multihost"
+	"github.com/celzero/firestack/intra/ipn/warp"
 	"github.com/celzero/firestack/intra/ipn/wg"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/netstack"
@@ -359,7 +360,8 @@ func wgIfConfigOf(id string, txtptr *string) (ifaddrs []netip.Prefix, allowedadd
 				return
 			}
 		case "dns": // may exist more than once: github.com/celzero/rethink-app/issues/1298
-			loadMH(dnsh, v)
+			n := loadMH(dnsh, v)
+			log.D("proxy: wg: %s ifconfig: dns(%d) %s", id, n, v)
 		case "mtu":
 			if mtu, err = strconv.Atoi(v); err != nil {
 				return
@@ -373,7 +375,21 @@ func wgIfConfigOf(id string, txtptr *string) (ifaddrs []netip.Prefix, allowedadd
 			pcfg.WriteString(line + "\n")
 		case "endpoint": // may exist more than once
 			// TODO: endpoint could be v4 or v6 or a hostname
-			loadMH(endpointh, v)
+			n := 0
+			if isRPN(id) {
+				v4, v6, err := warp.Endpoints()
+				if err == nil {
+					warpipcsv := v4.String() + "," + v6.String()
+					n = loadMH(endpointh, warpipcsv)
+				}
+				loged(err)("proxy: wg: %s v4 %s, v6 %s; added? %d; err? %v",
+					id, v4, v6, n, err)
+			}
+			if n < 0 {
+				n = loadMH(endpointh, v)
+				log.D("proxy: wg: %s ifconfig: endpoint(%d) %s", id, n, v)
+			}
+
 			// peer config: carry over endpoints
 			log.D("proxy: wg: %s ifconfig: skipping key %q", id, k)
 			pcfg.WriteString(line + "\n")
@@ -398,12 +414,12 @@ func wgIfConfigOf(id string, txtptr *string) (ifaddrs []netip.Prefix, allowedadd
 	return
 }
 
-func loadMH(mh *multihost.MH, v string) {
+func loadMH(mh *multihost.MH, v string) int {
 	if mh == nil {
-		return
+		return 0
 	}
 	vv := strings.Split(v, ",")
-	mh.Add(vv) // vv may be host:port, ip:port, host, or ip
+	return mh.Add(vv) // vv may be host:port, ip:port, host, or ip
 }
 
 func loadIPNets(out *[]netip.Prefix, v string) (err error) {

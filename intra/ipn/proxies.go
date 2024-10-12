@@ -522,6 +522,10 @@ func (px *proxifier) Pip() (x.Proxy, error) {
 	return px.ProxyFor(PIPWS)
 }
 
+func isRPN(id string) bool {
+	return strings.Contains(id, RPN)
+}
+
 func local(id string) bool {
 	return id == Base || id == Block || id == Exit
 }
