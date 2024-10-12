@@ -32,6 +32,7 @@ import (
 // ip4+6  |  ip6+4	    |  bind      |  rdns   |  y
 //
 // datatracker.ietf.org/doc/html/rfc8305#section-7
+// nicmx.github.io/Jool/en/intro-xlat.html
 type natPt struct {
 	*nat64
 	*dns64
