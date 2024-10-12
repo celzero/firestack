@@ -122,10 +122,15 @@ func Endpoints() (v4 netip.AddrPort, v6 netip.AddrPort, err error) {
 		err = errors.Join(err4, err6)
 		return
 	}
-	if v4.IsValid() {
+	v4ok, v6ok := ip4.IsValid(), ip6.IsValid()
+	if !v4ok && !v6ok {
+		err = errZeroRandomEp
+		return
+	}
+	if v4ok {
 		v4 = netip.AddrPortFrom(ip4, anyPort())
 	}
-	if v6.IsValid() {
+	if v6ok {
 		v6 = netip.AddrPortFrom(ip6, anyPort())
 	}
 	return

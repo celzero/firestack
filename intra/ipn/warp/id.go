@@ -27,6 +27,7 @@ var (
 	errNoApiData     = errors.New("warp: no api data")
 	errZeroIdentity  = errors.New("warp: identity content empty")
 	errZeroPeers     = errors.New("warp: no peers")
+	errZeroRandomEp  = errors.New("warp: zero random endpoint")
 )
 
 type IdentityAccount struct {
