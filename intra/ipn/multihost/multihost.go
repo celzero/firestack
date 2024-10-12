@@ -279,7 +279,7 @@ func removeDups[T comparable](a []T) []T {
 		acc[s] = struct{}{}
 	}
 	uniq := make([]T, 0, len(acc))
-	for s := range acc {
+	for s := range acc { // not stable; randomizes order
 		uniq = append(uniq, s)
 	}
 	return uniq
