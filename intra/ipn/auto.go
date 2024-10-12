@@ -112,7 +112,8 @@ func (h *auto) Dial(network, addr string) (protect.Conn, error) {
 	}
 	// adjust TCP keepalive config if c is a TCPConn
 	protect.SetKeepAliveConfigSockOpt(c)
-	log.I("proxy: auto: w(%d) dial(%s) to %s; err? %v", who, network, addr, err)
+	log.I("proxy: auto: w(%d) pin(%t/%d), dial(%s) %s; err? %v",
+		who, recent, previdx, network, addr, err)
 	return c, err
 }
 
