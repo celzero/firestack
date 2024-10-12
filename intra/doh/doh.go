@@ -656,10 +656,10 @@ func (t *transport) Query(network string, q *dns.Msg, smm *x.DNSSummary) (r *dns
 	_, pid := xdns.Net2ProxyID(network)
 	if t.typ == dnsx.DOH {
 		r, blocklists, region, elapsed, qerr = t.doDoh(pid, q)
-		smm.Server = t.hostname
+		smm.Server = t.GetAddr()
 	} else {
 		r, elapsed, qerr = t.doOdoh(pid, q)
-		smm.Server = t.odohtargetname
+		smm.Server = t.GetAddr()
 		smm.RelayServer = t.odohproxyname
 	}
 
