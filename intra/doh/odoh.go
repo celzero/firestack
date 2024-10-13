@@ -147,9 +147,9 @@ func (d *transport) buildTargetQuery(msg *dns.Msg) (m odoh.ObliviousDNSMessage, 
 	}
 
 	key := ocfg.Contents
-	pad := computePaddingSize(msg.Len(), PaddingBlockSize)
+	pad := xdns.ComputePaddingSize(msg)
 	oq := odoh.CreateObliviousDNSQuery(q, uint16(pad))
-	log.V("odoh: build-target: odoh qlen %d", len(oq.DnsMessage)+len(oq.Padding))
+	log.V("odoh: build-target: odoh qlen: %d / pad: %d", len(oq.DnsMessage), len(oq.Padding))
 	return key.EncryptQuery(oq)
 }
 
