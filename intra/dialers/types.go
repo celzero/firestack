@@ -18,7 +18,7 @@ import (
 
 // rdial is a union type for protect.RDial, net.Dialer, tls.Dialer
 type rdial interface {
-	*protect.RDial | *net.Dialer | *tls.Dialer | *proxy.Dialer
+	*protect.RDial | *protect.RDialer | *tls.Dialer | *proxy.Dialer
 }
 
 // rconn is a union type for net.UDPConn, net.TCPConn, icmp.PacketConn, net.TCPListener
@@ -30,8 +30,8 @@ type dialFn[D rdial, C rconn] func(D, string, netip.Addr, int) (C, error)
 type connectFn[D rdial] func(D, string, netip.Addr, int) (net.Conn, error)
 
 // adaptRDial adapts a connectFn[protect.RDial] to a dialFn
-func adaptRDial(f connectFn[*protect.RDial]) dialFn[*protect.RDial, *net.Conn] {
-	return func(d *protect.RDial, network string, ip netip.Addr, port int) (cc *net.Conn, err error) {
+func adaptRDial[D *protect.RDial, C *net.Conn](f connectFn[D]) dialFn[D, C] {
+	return func(d D, network string, ip netip.Addr, port int) (cc C, err error) {
 		c, err := f(d, network, ip, port)
 		if err != nil {
 			clos(c)
@@ -44,9 +44,9 @@ func adaptRDial(f connectFn[*protect.RDial]) dialFn[*protect.RDial, *net.Conn] {
 	}
 }
 
-// adaptNetDial adapts a connectFn[net.Dialer] to a dialFn
-func adaptNetDial(f connectFn[*net.Dialer]) dialFn[*net.Dialer, *net.Conn] {
-	return func(d *net.Dialer, network string, ip netip.Addr, port int) (cc *net.Conn, err error) {
+// adaptRDialer adapts a connectFn[protect.RDialer] to a dialFn
+func adaptRDialer[D *protect.RDialer, C *net.Conn](f connectFn[D]) dialFn[D, C] {
+	return func(d D, network string, ip netip.Addr, port int) (cc C, err error) {
 		c, err := f(d, network, ip, port)
 		if err != nil {
 			clos(c)
@@ -60,8 +60,8 @@ func adaptNetDial(f connectFn[*net.Dialer]) dialFn[*net.Dialer, *net.Conn] {
 }
 
 // adaptTlsDial adapts a connectFn[tls.Dialer] to a dialFn
-func adaptTlsDial(f connectFn[*tls.Dialer]) dialFn[*tls.Dialer, *net.Conn] {
-	return func(d *tls.Dialer, network string, ip netip.Addr, port int) (cc *net.Conn, err error) {
+func adaptTlsDial[D *tls.Dialer, C *net.Conn](f connectFn[D]) dialFn[D, C] {
+	return func(d D, network string, ip netip.Addr, port int) (cc C, err error) {
 		c, err := f(d, network, ip, port)
 		if err != nil {
 			clos(c)
@@ -74,8 +74,8 @@ func adaptTlsDial(f connectFn[*tls.Dialer]) dialFn[*tls.Dialer, *net.Conn] {
 	}
 }
 
-func adaptProxyDial(f connectFn[*proxy.Dialer]) dialFn[*proxy.Dialer, *net.Conn] {
-	return func(d *proxy.Dialer, network string, ip netip.Addr, port int) (cc *net.Conn, err error) {
+func adaptProxyDial[D *proxy.Dialer, C *net.Conn](f connectFn[D]) dialFn[D, C] {
+	return func(d D, network string, ip netip.Addr, port int) (cc C, err error) {
 		c, err := f(d, network, ip, port)
 		if err != nil {
 			clos(c)

@@ -25,14 +25,7 @@ func proxyConnect(d *proxy.Dialer, proto string, ip netip.Addr, port int) (net.C
 		return nil, errNoIps
 	}
 
-	switch proto {
-	case "tcp", "tcp4", "tcp6":
-		fallthrough
-	case "udp", "udp4", "udp6":
-		fallthrough
-	default:
-		return (*d).Dial(proto, addrstr(ip, port))
-	}
+	return (*d).Dial(proto, addrstr(ip, port))
 }
 
 // ProxyDial tries to connect to addr using d
