@@ -18,6 +18,18 @@ import (
 	utls "github.com/refraction-networking/utls"
 )
 
+func netConnect2(d *protect.RDialer, proto string, ip netip.Addr, port int) (net.Conn, error) {
+	if d == nil {
+		log.E("rdial: netConnect: nil dialer")
+		return nil, errNoDialer
+	} else if !ipok(ip) {
+		log.E("rdial: netConnect: invalid ip", ip)
+		return nil, errNoIps
+	}
+
+	return (*d).Dial(proto, addrstr(ip, port))
+}
+
 // ipConnect dials into ip:port using the provided dialer and returns a net.Conn
 // net.Conn is guaranteed to be either net.UDPConn or net.TCPConn
 func ipConnect(d *protect.RDial, proto string, ip netip.Addr, port int) (net.Conn, error) {
@@ -98,11 +110,6 @@ func Dial(d *protect.RDial, network, addr string) (net.Conn, error) {
 	return unPtr(commondial(d, network, addr, adaptRDial(ipConnect)))
 }
 
-// DialWithTls dials into addr using the provided dialer and returns a tls.Conn
-func DialWithTls(d *protect.RDial, cfg *tls.Config, network, addr string) (net.Conn, error) {
-	return dialtls(d, cfg, network, addr, adaptRDial(ipConnect))
-}
-
 // SplitDial dials into addr splitting the first segment to two if the
 // first connection is unsuccessful, using settings.DialStrategy.
 // Returns a net.Conn, which may not be net.UDPConn or net.TCPConn.
@@ -110,9 +117,9 @@ func SplitDial(d *protect.RDial, network, addr string) (net.Conn, error) {
 	return unPtr(commondial(d, network, addr, adaptRDial(splitIpConnect)))
 }
 
-// SplitDialWithTls dials into addr using the provided dialer and returns a tls.Conn
-func SplitDialWithTls(d *protect.RDial, cfg *tls.Config, network, addr string) (net.Conn, error) {
-	return dialtls(d, cfg, network, addr, adaptRDial(splitIpConnect))
+// DialWithTls dials into addr using the provided dialer and returns a tls.Conn
+func DialWithTls(d protect.RDialer, cfg *tls.Config, network, addr string) (net.Conn, error) {
+	return dialtls(&d, cfg, network, addr, adaptRDialer(netConnect2))
 }
 
 func dialtls[D rdial](d D, cfg *tls.Config, network, addr string, how dialFn[D, *net.Conn]) (net.Conn, error) {

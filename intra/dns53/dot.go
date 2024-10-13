@@ -20,7 +20,6 @@ import (
 	"github.com/celzero/firestack/intra/ipn"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
-	"github.com/celzero/firestack/intra/settings"
 	"github.com/celzero/firestack/intra/xdns"
 	"github.com/miekg/dns"
 	"golang.org/x/net/context"
@@ -132,7 +131,7 @@ func (t *dot) doQuery(pid string, q *dns.Msg) (response *dns.Msg, elapsed time.D
 	return
 }
 
-func (t *dot) tlsdial(rd *protect.RDial) (_ *dns.Conn, err error) {
+func (t *dot) tlsdial(rd protect.RDialer) (_ *dns.Conn, err error) {
 	var c net.Conn = nil // dot is always tcp
 	addr := t.addr       // t.addr may be ip or hostname
 	if t.c3 != nil {     // may be nil if ech is not available
@@ -142,12 +141,7 @@ func (t *dot) tlsdial(rd *protect.RDial) (_ *dns.Conn, err error) {
 	}
 	if c == nil && core.IsNil(c) { // no ech or ech failed
 		cfg := t.c.TLSConfig
-		if settings.Loopingback.Load() {
-			// no splits for ech or in loopback (rinr) mode
-			c, err = dialers.DialWithTls(rd, cfg, "tcp", addr)
-		} else {
-			c, err = dialers.SplitDialWithTls(rd, cfg, "tcp", addr)
-		}
+		c, err = dialers.DialWithTls(rd, cfg, "tcp", addr)
 	}
 	if c != nil && core.IsNotNil(c) {
 		_ = c.SetDeadline(time.Now().Add(dottimeout))
