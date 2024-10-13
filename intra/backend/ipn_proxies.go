@@ -42,9 +42,10 @@ const ( // see ipn/proxies.go
 )
 
 type Rpn interface {
-	RegisterWarp(b64 string) ([]byte, error)
-	Warp() (Proxy, error)
-	Pip() (Proxy, error)
+	RegisterWarp(publicKeyBase64 string) (json []byte, err error)
+	TestWarp() (ips string, errs error)
+	Warp() (rpn Proxy, err error)
+	Pip() (rpn Proxy, err error)
 }
 
 type Proxy interface {

@@ -9,8 +9,11 @@ package ipn
 import (
 	"context"
 	"errors"
+	"net/netip"
+	"os"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	x "github.com/celzero/firestack/intra/backend"
@@ -514,12 +517,80 @@ func (px *proxifier) RegisterWarp(pub string) ([]byte, error) {
 	return id.Json()
 }
 
+// Implements x.Rpn.
 func (px *proxifier) Warp() (x.Proxy, error) {
 	return px.ProxyFor(RpnWg)
 }
 
+// Implements x.Rpn.
 func (px *proxifier) Pip() (x.Proxy, error) {
 	return px.ProxyFor(PIPWS)
+}
+
+func (px *proxifier) TestWarp() (string, error) {
+	const totalpings = 5
+	pingch := make(chan netip.AddrPort, totalpings*2)
+	// ips := make([]netip.AddrPort, 0)
+	wg := sync.WaitGroup{}
+	wg.Add(totalpings)
+
+	for i := 0; i < totalpings; i++ {
+		v4, v6, err := warp.Endpoints()
+		if err != nil {
+			log.W("proxy: warp: ping#%d: %v", i, err)
+			continue
+		}
+		core.Go("pxr.testwarp", func() {
+			defer wg.Done()
+
+			var c4, c6 protect.Conn
+			var err4, err6 error
+			c4, err4 = px.exit.Dial("udp", v4.String())
+			c6, err6 = px.exit.Dial("udp", v6.String())
+			defer core.CloseConn(c4, c6)
+
+			// net.OpError => os.SyscallError => syscall.Errno
+			if syserr := new(os.SyscallError); errors.As(err4, &syserr) {
+				if syserr.Err == syscall.ECONNREFUSED {
+					err4 = nil
+				}
+			}
+			if syserr := new(os.SyscallError); errors.As(err6, &syserr) {
+				if syserr.Err == syscall.ECONNREFUSED {
+					err6 = nil
+				}
+			}
+			if err4 == nil {
+				pingch <- v4
+			}
+			if err6 == nil {
+				pingch <- v6
+			}
+		})
+	}
+
+	core.Go("pxr.testwarp.closer", func() {
+		defer close(pingch)
+		wg.Wait()
+	})
+
+	addrs := make([]string, 0, totalpings)
+	timeout := time.After(15 * time.Second)
+	i := 0
+	for ip := range pingch {
+		log.I("proxy: warp: ping#%d: %s ok", i, ip)
+		addrs = append(addrs, ip.String())
+		if closed(timeout) {
+			log.I("proxy: warp: ping#%d: timeout", i)
+			break
+		}
+		i++
+	}
+
+	if len(addrs) <= 0 {
+		return "", errNoSuitableAddress
+	}
+	return strings.Join(addrs, ","), nil
 }
 
 func isRPN(id string) bool {
@@ -536,4 +607,13 @@ func idling(t time.Time) bool {
 
 func localDialStrat(d *protect.RDial, network, addr string) (protect.Conn, error) {
 	return dialers.SplitDial(d, network, addr)
+}
+
+func closed[T any](ch <-chan T) bool {
+	select {
+	case <-ch:
+		return true
+	default:
+	}
+	return false
 }
