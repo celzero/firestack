@@ -38,7 +38,6 @@ type auto struct {
 	protoagnostic
 	skiprefresh
 	pxr    Proxies
-	rd     *protect.RDial // this proxy as a RDial
 	addr   string
 	exp    *core.ExpMap[string, int]
 	status *core.Volatile[int]
@@ -52,7 +51,6 @@ func NewAutoProxy(ctx context.Context, pxr Proxies) *auto {
 		exp:    core.NewExpiringMap2[string, int](ctx),
 		status: core.NewVolatile(TUP),
 	}
-	h.rd = newRDial(h)
 	return h
 }
 
@@ -177,8 +175,8 @@ func (h *auto) Probe(network, local string) (protect.PacketConn, error) {
 	}
 }
 
-func (h *auto) Dialer() *protect.RDial {
-	return h.rd
+func (h *auto) Dialer() protect.RDialer {
+	return h
 }
 
 // todo: return system DNS

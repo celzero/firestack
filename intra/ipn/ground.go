@@ -29,7 +29,7 @@ func NewGroundProxy() *ground {
 }
 
 // Dial implements Proxy.
-func (h *ground) Dial(network, addr string) (c protect.Conn, err error) {
+func (h *ground) Dial(network, addr string) (protect.Conn, error) {
 	return nil, errNoProxyResponse
 }
 
@@ -48,8 +48,8 @@ func (h *ground) Probe(network, local string) (protect.PacketConn, error) {
 	return nil, errNoProxyResponse
 }
 
-func (h *ground) Dialer() *protect.RDial {
-	return &protect.RDial{Owner: h.ID()} // no-op dialer
+func (h *ground) Dialer() protect.RDialer {
+	return h // no-op dialer
 }
 
 func (h *ground) DNS() string {

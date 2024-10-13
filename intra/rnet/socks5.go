@@ -31,7 +31,7 @@ type socks5 struct {
 
 	id       string
 	url      string
-	rdial    *protect.RDial
+	outbound *protect.RDial
 	hdl      *socks5handler
 	listener ServerListener
 
@@ -88,7 +88,7 @@ func newSocks5Server(id, x string, ctl protect.Controller, listener ServerListen
 		Server:    server,
 		id:        id,
 		url:       host,
-		rdial:     rdial,
+		outbound:  rdial,
 		hdl:       hdl,
 		listener:  listener,
 		summaries: make(map[*tx.UDPExchange]*ServerSummary),
@@ -102,7 +102,7 @@ func (h *socks5) Hop(p x.Proxy) error {
 		return errServerEnd
 	}
 
-	dialer := h.rdial
+	var dialer protect.RDialer = h.outbound
 	if p == nil || core.IsNil(p) {
 		h.hdl.px.Store(nil) // clear
 		// dialer = h.rdial
@@ -119,7 +119,7 @@ func (h *socks5) Hop(p x.Proxy) error {
 	return nil
 }
 
-func (h *socks5) swap(rd *protect.RDial) {
+func (h *socks5) swap(rd protect.RDialer) {
 	h.Lock()
 	defer h.Unlock()
 	// todo: var tx.DialTCP/tx.DialUDP (reads) not synchronized
@@ -219,7 +219,7 @@ func (h *socks5) dial(network, src, dst string) (cid string, conn net.Conn, err 
 	if px := h.hdl.px.Load(); px != nil && core.IsNotNil(px) {
 		conn, err = px.Dialer().Dial(network, dst)
 	} else {
-		conn, err = h.rdial.Dial(network, dst)
+		conn, err = h.outbound.Dial(network, dst)
 	}
 	return tab.CID, conn, err
 }

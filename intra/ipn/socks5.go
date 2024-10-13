@@ -9,7 +9,6 @@ package ipn
 import (
 	"errors"
 	"net"
-	"net/http"
 	"net/netip"
 	"strconv"
 	"time"
@@ -31,8 +30,6 @@ type socks5 struct {
 	outbound    []proxy.Dialer         // outbound dialers connecting unto upstream proxy
 	id          string                 // unique identifier
 	opts        *settings.ProxyOptions // connect options
-	rd          *protect.RDial         // this transport as a dialer
-	hc          *http.Client           // this transport as a http client
 	lastdial    time.Time              // last time this transport attempted a connection
 	status      int                    // status of this transport
 }
@@ -138,8 +135,6 @@ func NewSocks5Proxy(id string, ctl protect.Controller, po *settings.ProxyOptions
 		id:       id,
 		opts:     po,
 	}
-	h.rd = newRDial(h)
-	h.hc = newHTTP1Client(h.rd)
 
 	log.D("proxy: socks5: created %s with clients(%d), opts(%s)", h.ID(), len(clients), po)
 
@@ -186,8 +181,8 @@ func (h *socks5) Dial(network, addr string) (c protect.Conn, err error) {
 	return
 }
 
-func (h *socks5) Dialer() *protect.RDial {
-	return h.rd
+func (h *socks5) Dialer() protect.RDialer {
+	return h
 }
 
 func (h *socks5) DNS() string {

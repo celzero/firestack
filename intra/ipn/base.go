@@ -20,7 +20,6 @@ import (
 type base struct {
 	protoagnostic                // Dial is proto aware
 	skiprefresh                  // no rebinding necessary on refresh
-	rd            *protect.RDial // this proxy as a RDial
 	outbound      *protect.RDial // outbound dialer
 	addr          string
 	status        *core.Volatile[int]
@@ -34,7 +33,6 @@ func NewBaseProxy(c protect.Controller) *base {
 		outbound: d,
 		status:   core.NewVolatile(TUP),
 	}
-	h.rd = newRDial(h)
 	return h
 }
 
@@ -88,8 +86,8 @@ func (h *base) Probe(network, local string) (protect.PacketConn, error) {
 	return c, err
 }
 
-func (h *base) Dialer() *protect.RDial {
-	return h.rd
+func (h *base) Dialer() protect.RDialer {
+	return h
 }
 
 func (h *base) DNS() string {

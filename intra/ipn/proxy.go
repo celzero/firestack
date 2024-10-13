@@ -8,13 +8,11 @@ package ipn
 
 import (
 	"fmt"
-	"net/http"
 	"net/url"
 	"strings"
 
 	x "github.com/celzero/firestack/intra/backend"
 	"github.com/celzero/firestack/intra/log"
-	"github.com/celzero/firestack/intra/protect"
 	"github.com/celzero/firestack/intra/settings"
 )
 
@@ -127,22 +125,4 @@ func (pxr *proxifier) fromOpts(id string, opts *settings.ProxyOptions) (Proxy, e
 		err = errProxyScheme
 	}
 	return p, err
-}
-
-func newRDial(p Proxy) *protect.RDial {
-	return &protect.RDial{
-		Owner:   p.ID(),
-		RDialer: p,
-	}
-}
-
-func newHTTP1Client(d *protect.RDial) *http.Client {
-	c := &http.Client{}
-	c.Transport = &http.Transport{
-		Dial:                  d.Dial,
-		ForceAttemptHTTP2:     false,
-		TLSHandshakeTimeout:   tlsHandshakeTimeout,
-		ResponseHeaderTimeout: responseHeaderTimeout,
-	}
-	return c
 }

@@ -111,7 +111,7 @@ type Proxy interface {
 	// adapter for protect.RDialer interface, but with the caveat that
 	// not all Proxy instances implement DialTCP and DialUDP, though are
 	// guaranteed to implement Dial.
-	Dialer() *protect.RDial
+	Dialer() protect.RDialer
 	// onProtoChange returns true if the proxy must be re-added with cfg on proto changes.
 	onProtoChange() (cfg string, readd bool)
 }

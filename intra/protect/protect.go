@@ -157,9 +157,9 @@ func MakeNsDialer(who string, c Controller) *net.Dialer {
 // Creates a RDial that can bind to any active interface.
 func MakeNsRDial(who string, c Controller) *RDial {
 	return &RDial{
-		Owner:      who,
-		Dialer:     MakeNsDialer(who, c),
-		Listen:     MakeNsListener(who, c),
+		owner:      who,
+		dialer:     MakeNsDialer(who, c),
+		listen:     MakeNsListener(who, c),
 		listenICMP: MakeNsICMPListener(who, c),
 	}
 }
@@ -183,9 +183,9 @@ func MakeNsRDialExt(who string, ctl Controller, ext []ControlFn) *RDial {
 	listener := MakeNsListenConfigExt(who, ctl, ext)
 	icmplistener := MakeNsICMPListenerExt(who, ctl, ext)
 	return &RDial{
-		Owner:      who,
-		Dialer:     dialer,
-		Listen:     listener,
+		owner:      who,
+		dialer:     dialer,
+		listen:     listener,
 		listenICMP: icmplistener,
 	}
 }

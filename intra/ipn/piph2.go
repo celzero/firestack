@@ -44,8 +44,7 @@ type piph2 struct {
 	toksig        string         // hex, authorizer signed client token
 	rsasig        string         // hex, authorizer unblinded signature
 	client        http.Client    // h2 client, see trType
-	proxydialer   *protect.RDial // h2 dialer
-	rd            *protect.RDial // exported dialer
+	outbound      *protect.RDial // h2 dialer
 	opts          *settings.ProxyOptions
 
 	// mutable fields
@@ -143,9 +142,9 @@ func (t *piph2) dialtls(network, addr string, cfg *tls.Config) (net.Conn, error)
 // which is aware of proto changes.
 func (t *piph2) dial(network, addr string) (net.Conn, error) {
 	if settings.Loopingback.Load() { // no split in loopback (rinr) mode
-		return dialers.Dial(t.proxydialer, network, addr)
+		return dialers.Dial(t.outbound, network, addr)
 	} else {
-		return dialers.SplitDial(t.proxydialer, network, addr)
+		return dialers.SplitDial(t.outbound, network, addr)
 	}
 }
 
@@ -188,19 +187,18 @@ func NewPipProxy(id string, ctl protect.Controller, po *settings.ProxyOptions) (
 	}
 	dialer := protect.MakeNsRDial(id, ctl)
 	t := &piph2{
-		id:          id,
-		url:         parsedurl.String(),
-		hostname:    parsedurl.Hostname(),
-		port:        port,
-		proxydialer: dialer,
-		token:       po.Auth.User,
-		toksig:      po.Auth.Password,
-		rsasig:      rsasig,
-		status:      core.NewVolatile(TUP),
-		lastdial:    core.NewVolatile(time.Time{}),
-		opts:        po,
+		id:       id,
+		url:      parsedurl.String(),
+		hostname: parsedurl.Hostname(),
+		port:     port,
+		outbound: dialer,
+		token:    po.Auth.User,
+		toksig:   po.Auth.Password,
+		rsasig:   rsasig,
+		status:   core.NewVolatile(TUP),
+		lastdial: core.NewVolatile(time.Time{}),
+		opts:     po,
 	}
-	t.rd = newRDial(t)
 
 	_, ok := dialers.New(t.hostname, po.Addrs) // po.Addrs may be nil or empty
 	if !ok {
@@ -435,8 +433,8 @@ func (t *piph2) Dial(network, addr string) (protect.Conn, error) {
 	return oconn, nil
 }
 
-func (h *piph2) Dialer() *protect.RDial {
-	return h.rd
+func (h *piph2) Dialer() protect.RDialer {
+	return h
 }
 
 func (h *piph2) DNS() string {

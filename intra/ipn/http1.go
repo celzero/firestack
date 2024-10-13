@@ -22,9 +22,8 @@ import (
 )
 
 type http1 struct {
-	nofwd                      // no forwarding/listening
-	skiprefresh                // no refresh
-	rd          *protect.RDial // exported rdial
+	nofwd       // no forwarding/listening
+	skiprefresh // no refresh
 	outbound    proxy.Dialer
 	id          string
 	opts        *settings.ProxyOptions
@@ -69,7 +68,6 @@ func NewHTTPProxy(id string, c protect.Controller, po *settings.ProxyOptions) (*
 		id:       id,
 		opts:     po,
 	}
-	h.rd = newRDial(h)
 
 	log.D("proxy: http1: created %s with opts(%s)", h.ID(), po)
 
@@ -94,8 +92,8 @@ func (h *http1) Dial(network, addr string) (c protect.Conn, err error) {
 	return
 }
 
-func (h *http1) Dialer() *protect.RDial {
-	return h.rd
+func (h *http1) Dialer() protect.RDialer {
+	return h
 }
 
 func (h *http1) DNS() string {

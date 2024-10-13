@@ -113,7 +113,6 @@ type wgproxy struct {
 	*wgtun
 	*device.Device
 	wgep wgconn
-	rd   *protect.RDial // exported rdialer
 }
 
 type WgProxy interface {
@@ -227,8 +226,8 @@ func (w *wgproxy) Refresh() (err error) {
 	return
 }
 
-func (h *wgproxy) Dialer() *protect.RDial {
-	return h.rd
+func (h *wgproxy) Dialer() protect.RDialer {
+	return h
 }
 
 func preferOffload(id string) bool {
@@ -495,9 +494,7 @@ func NewWgProxy(id string, ctl protect.Controller, rev netstack.GConnHandler, cf
 		wgtun, // stack
 		wgdev, // device
 		wgep,  // endpoint
-		nil,   // rdial
 	}
-	w.rd = newRDial(w)
 
 	log.D("proxy: wg: new %s; addrs(%v) mtu(%d/%d) peers(%d) / v4(%t) v6(%t)", id, ifaddrs, mtu, calcTunMtu(mtu), len(peers), wgtun.hasV4, wgtun.hasV6)
 

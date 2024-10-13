@@ -42,8 +42,7 @@ type pipws struct {
 	toksig        string              // hex, authorizer (rdns) signed client token
 	rsasighash    string              // hex, authorizer sha256(unblinded signature)
 	client        http.Client         // ws client
-	proxydialer   *protect.RDial      // ws dialer
-	rd            *protect.RDial      // exported dialer
+	outbound      *protect.RDial      // ws dialer
 	lastdial      time.Time           // last dial time
 	status        *core.Volatile[int] // proxy status: TOK, TKO, END
 	opts          *settings.ProxyOptions
@@ -63,9 +62,9 @@ func (c *pipwsconn) CloseWrite() error { return c.Close() }
 // dial is aware of proto changes via dialers.SplitDial
 func (t *pipws) dial(network, addr string) (net.Conn, error) {
 	if settings.Loopingback.Load() { // no split in loopback (rinr) mode
-		return dialers.Dial(t.proxydialer, network, addr)
+		return dialers.Dial(t.outbound, network, addr)
 	} else {
-		return dialers.SplitDial(t.proxydialer, network, addr)
+		return dialers.SplitDial(t.outbound, network, addr)
 	}
 }
 
@@ -139,18 +138,17 @@ func NewPipWsProxy(id string, ctl protect.Controller, po *settings.ProxyOptions)
 	}
 	dialer := protect.MakeNsRDial(id, ctl)
 	t := &pipws{
-		id:          id,
-		url:         parsedurl.String(),
-		hostname:    parsedurl.Hostname(),
-		port:        port,
-		proxydialer: dialer,
-		token:       po.Auth.User,
-		toksig:      po.Auth.Password,
-		rsasighash:  splitpath[2],
-		status:      core.NewVolatile(TUP),
-		opts:        po,
+		id:         id,
+		url:        parsedurl.String(),
+		hostname:   parsedurl.Hostname(),
+		port:       port,
+		outbound:   dialer,
+		token:      po.Auth.User,
+		toksig:     po.Auth.Password,
+		rsasighash: splitpath[2],
+		status:     core.NewVolatile(TUP),
+		opts:       po,
 	}
-	t.rd = newRDial(t)
 
 	_, ok := dialers.New(t.hostname, po.Addrs) // po.Addrs may be nil or empty
 	if !ok {
@@ -255,8 +253,8 @@ func (t *pipws) Dial(network, addr string) (protect.Conn, error) {
 	return c, nil
 }
 
-func (h *pipws) Dialer() *protect.RDial {
-	return h.rd
+func (h *pipws) Dialer() protect.RDialer {
+	return h
 }
 
 func (h *pipws) DNS() string {

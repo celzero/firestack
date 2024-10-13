@@ -43,18 +43,21 @@ type RDialer interface {
 	Probe(network, local string) (PacketConn, error)
 }
 
-// RDial discards local-addresses
+// RDial adapts dialers and listeners to RDialer.
+// It always discards bind address.
 type RDial struct {
-	Owner string // owner tag
+	owner string // owner tag
 
-	// local dialers
-	Dialer     proxy.Dialer      // may be nil; used by exit, base, grounded
-	Listen     *net.ListenConfig // may be nil; used by exit, base, grounded
+	// local dialer
+	dialer     proxy.Dialer      // may be nil; used by exit, base, grounded
+	listen     *net.ListenConfig // may be nil; used by exit, base, grounded
 	listenICMP *icmplistener     // may be nil; used by exit, base, grounded
 
-	// remote dialers
-	RDialer RDialer // may be nil; used by remote proxies, ex: wg
+	// remote dialer
+	delegate RDialer // may be nil; used by remote proxies, ex: wg
 }
+
+var _ RDialer = (*RDial)(nil)
 
 var (
 	errNoDialer    = errors.New("not a dialer")
@@ -71,15 +74,15 @@ var (
 )
 
 func (d *RDial) dial(network, addr string) (net.Conn, error) {
-	usedialer := d.Dialer != nil
-	userdialer := d.RDialer != nil && core.IsNotNil(d.RDialer)
+	usedialer := d.dialer != nil
+	usedelegate := d.delegate != nil && core.IsNotNil(d.delegate)
 	if usedialer {
-		return d.Dialer.Dial(network, addr)
+		return d.dialer.Dial(network, addr)
 	}
-	if userdialer {
-		return d.RDialer.Dial(network, addr)
+	if usedelegate {
+		return d.delegate.Dial(network, addr)
 	}
-	log.V("xdial: Dial: (r? %t / o: %s) %s %s", userdialer, d.Owner, network, addr)
+	log.V("xdial: Dial: (r? %t / o: %s) %s %s", usedelegate, d.owner, network, addr)
 	return nil, errNoDialer
 }
 
@@ -98,20 +101,20 @@ func (d *RDial) Accept(network, local string) (net.Listener, error) {
 	if network != "tcp" && network != "tcp4" && network != "tcp6" {
 		return nil, errAccept
 	}
-	uselistener := d.Listen != nil
-	userdialer := d.RDialer != nil && core.IsNotNil(d.RDialer)
-	if !uselistener && !userdialer {
-		log.V("xdial: Accept: (r? %t / o: %s) %s %s", userdialer, d.Owner, network, local)
+	uselistener := d.listen != nil
+	usedelegate := d.delegate != nil && core.IsNotNil(d.delegate)
+	if !uselistener && !usedelegate {
+		log.V("xdial: Accept: (r? %t / o: %s) %s %s", usedelegate, d.owner, network, local)
 		return nil, errNoAcceptor
 	}
 	if uselistener {
-		if ln, err := d.Listen.Listen(context.Background(), network, local); err == nil {
+		if ln, err := d.listen.Listen(context.Background(), network, local); err == nil {
 			return ln, nil
 		} else {
 			return nil, err
 		}
 	}
-	return d.RDialer.Accept(network, local)
+	return d.delegate.Accept(network, local)
 }
 
 // Announce implements RDialer interface.
@@ -122,19 +125,19 @@ func (d *RDial) Announce(network, local string) (net.PacketConn, error) {
 	// todo: check if local is a local address or empty (any)
 	// diailing (proxy.Dial/net.Dial/etc) on wildcard addresses (ex: ":8080" or "" or "localhost:1025")
 	// is not equivalent to listening/announcing. see: github.com/golang/go/issues/22827
-	uselistener := d.Listen != nil
-	userdialer := d.RDialer != nil && core.IsNotNil(d.RDialer)
-	if !uselistener && !userdialer {
-		log.V("xdial: Announce: (r? %t / o: %s) %s %s", userdialer, d.Owner, network, local)
+	uselistener := d.listen != nil
+	usedelegate := d.delegate != nil && core.IsNotNil(d.delegate)
+	if !uselistener && !usedelegate {
+		log.V("xdial: Announce: (r? %t / o: %s) %s %s", usedelegate, d.owner, network, local)
 		return nil, errNoAnnouncer
 	}
 	if uselistener {
-		if pc, err := d.Listen.ListenPacket(context.Background(), network, local); err == nil {
+		if pc, err := d.listen.ListenPacket(context.Background(), network, local); err == nil {
 			switch x := pc.(type) {
 			case *net.UDPConn:
 				return x, nil
 			default:
-				log.W("xdial: Announce: addr(%s) for owner(%s): failed; %T is not net.UDPConn; other errs: %v", local, d.Owner, x, err)
+				log.W("xdial: Announce: addr(%s) for owner(%s): failed; %T is not net.UDPConn; other errs: %v", local, d.owner, x, err)
 				clos(pc)
 				return nil, errNoUDPMux
 			}
@@ -142,7 +145,7 @@ func (d *RDial) Announce(network, local string) (net.PacketConn, error) {
 			return nil, err
 		}
 	}
-	return d.RDialer.Announce(network, local)
+	return d.delegate.Announce(network, local)
 }
 
 // Probe implements RDialer interface.
@@ -152,9 +155,9 @@ func (d *RDial) Probe(network, local string) (PacketConn, error) {
 	}
 	// todo: check if local is a local address or empty (any)
 	uselistener := d.listenICMP != nil
-	userdialer := d.RDialer != nil && core.IsNotNil(d.RDialer)
-	if !uselistener && !userdialer {
-		log.V("xdial: Probe: (r? %t / o: %s) %s %s", userdialer, d.Owner, network, local)
+	usedelegate := d.delegate != nil && core.IsNotNil(d.delegate)
+	if !uselistener && !usedelegate {
+		log.V("xdial: Probe: (r? %t / o: %s) %s %s", usedelegate, d.owner, network, local)
 		return nil, errNoAnnouncer
 	}
 	// drop port if present
@@ -165,7 +168,7 @@ func (d *RDial) Probe(network, local string) (PacketConn, error) {
 	if uselistener {
 		return d.listenICMP.listenICMP(network, local)
 	}
-	return d.RDialer.Probe(network, local)
+	return d.delegate.Probe(network, local)
 }
 
 // DialTCP creates a net.TCPConn to raddr.
@@ -180,7 +183,8 @@ func (d *RDial) DialTCP(network string, laddr, raddr *net.TCPAddr) (*net.TCPConn
 		return tc, nil
 	} else {
 		log.W("xdial: DialTCP: (%s) to %s, %T is not %T (ok? %t); other errs: %v",
-			d.Owner, raddr, c, tc, ok, err)
+			d.owner, raddr, c, tc, ok, err)
+		log.T("not tcp")
 		// some proxies like wgproxy, socks5 do not vend *net.TCPConn
 		// also errors if retrier (core.DuplexConn) is looped back here
 		clos(c)
@@ -200,7 +204,8 @@ func (d *RDial) DialUDP(network string, laddr, raddr *net.UDPAddr) (*net.UDPConn
 		return uc, nil
 	} else {
 		log.W("xdial: DialUDP: (%s) to %s, %T is not %T (ok? %t); other errs: %v",
-			d.Owner, raddr, c, uc, ok, err)
+			d.owner, raddr, c, uc, ok, err)
+		log.T("not udp")
 		// some proxies like wgproxy, socks5 do not vend *net.UDPConn
 		clos(c)
 		return nil, errNoUDP
@@ -216,7 +221,8 @@ func (d *RDial) AnnounceUDP(network, local string) (*net.UDPConn, error) {
 		return uc, nil
 	} else {
 		log.W("xdial: AnnounceUDP: (%s) from %s, %T is not %T (ok? %t); other errs: %v",
-			d.Owner, local, c, uc, ok, err)
+			d.owner, local, c, uc, ok, err)
+		log.T("not udpmux")
 		clos(c)
 		return nil, errNoUDPMux
 	}
@@ -231,7 +237,8 @@ func (d *RDial) AcceptTCP(network string, local string) (*net.TCPListener, error
 		return tl, nil
 	} else {
 		log.W("xdial: AcceptTCP: (%s) from %s, %T is not %T (ok? %t); other errs: %v",
-			d.Owner, local, ln, tl, ok, err)
+			d.owner, local, ln, tl, ok, err)
+		log.T("not tcpmux")
 		clos(ln)
 		return nil, errNoTCPMux
 	}

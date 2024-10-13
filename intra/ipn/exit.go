@@ -18,7 +18,6 @@ import (
 type exit struct {
 	protoagnostic
 	skiprefresh
-	rd       *protect.RDial // this proxy as a RDial
 	outbound *protect.RDial // outbound dialer
 	addr     string
 	status   *core.Volatile[int]
@@ -32,7 +31,6 @@ func NewExitProxy(c protect.Controller) *exit {
 		outbound: d,
 		status:   core.NewVolatile(TUP),
 	}
-	h.rd = newRDial(h)
 	return h
 }
 
@@ -81,8 +79,8 @@ func (h *exit) Probe(network, local string) (protect.PacketConn, error) {
 	return c, err
 }
 
-func (h *exit) Dialer() *protect.RDial {
-	return h.rd
+func (h *exit) Dialer() protect.RDialer {
+	return h
 }
 
 // todo: return system DNS
