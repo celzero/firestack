@@ -149,7 +149,7 @@ func U(msg string) {
 func T(msg string) {
 	if Glogger != nil {
 		E2(LogFnCallerDepth, "----START----")
-		Glogger.Stack(LogFnCallerDepth, "F "+msg, make([]byte, 1024))
+		Glogger.Stack(LogFnCallerDepth, "F "+msg, make([]byte, 4096))
 		E2(LogFnCallerDepth, "----STOPP----")
 	}
 }
