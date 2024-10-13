@@ -1195,9 +1195,16 @@ func Len(msg *dns.Msg) int {
 		return 0
 	}
 	if msg.Response {
-		return len(msg.Answer)
+		return len(msg.Answer) + len(msg.Extra)
 	}
 	return len(msg.Question)
+}
+
+func Size(msg *dns.Msg) int {
+	if msg == nil {
+		return 0
+	}
+	return msg.Len()
 }
 
 func Ans(msg *dns.Msg) (s string) {

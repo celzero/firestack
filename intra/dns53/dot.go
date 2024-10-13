@@ -212,7 +212,8 @@ func (t *dot) sendRequest(pid string, q *dns.Msg) (ans *dns.Msg, elapsed time.Du
 	if err != nil {
 		clos(conn)
 		ok := dialers.Disconfirm2(t.host, raddr)
-		log.V("dot: sendRequest: (%s) err: %v; disconfirm? %t %s => %s", t.id, err, ok, t.host, raddr)
+		log.V("dot: sendRequest: (%s) sz: %d, opt: %s, err: %v; disconfirm? %t %s => %s",
+			t.id, xdns.Size(q), q.IsEdns0(), err, ok, t.host, raddr)
 		qerr = dnsx.NewSendFailedQueryError(err)
 	} else {
 		dialers.Confirm2(t.host, raddr)
@@ -232,7 +233,7 @@ func (t *dot) Query(network string, q *dns.Msg, smm *x.DNSSummary) (ans *dns.Msg
 	if qerr != nil {
 		err = qerr.Unwrap()
 		status = qerr.Status()
-		log.W("dot: err(%v) / size(%d)", err, xdns.Len(ans))
+		log.W("dot: ans? %v err(%v) / ans(%d)", ans, err, xdns.Len(ans))
 	}
 	t.status = status
 
@@ -252,7 +253,8 @@ func (t *dot) Query(network string, q *dns.Msg, smm *x.DNSSummary) (ans *dns.Msg
 	smm.Status = status
 	t.est.Add(smm.Latency)
 
-	log.V("dot: len(res): %d, data: %s, via: %s, err? %v", xdns.Len(ans), smm.RData, smm.RelayServer, err)
+	log.V("dot: len(res): %d/%d, data: %s, via: %s, err? %v",
+		xdns.Len(ans), xdns.Size(ans), smm.RData, smm.RelayServer, err)
 
 	return
 }
