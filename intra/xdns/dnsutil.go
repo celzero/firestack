@@ -27,6 +27,11 @@ import (
 	"github.com/miekg/dns"
 )
 
+const PaddingBlockSize = 128 // RFC8467 recommendation
+
+// OPTION-CODE + OPTION-LENGTH
+const kOptPaddingHeaderLen int = 2 + 2
+
 func AsMsg(packet []byte) *dns.Msg {
 	msg, err := AsMsg2(packet)
 	if err != nil {
@@ -462,31 +467,54 @@ func RemoveEDNS0Options(msg *dns.Msg) bool {
 	return true
 }
 
-func AddEDNS0PaddingIfNoneFound(msg *dns.Msg, unpaddedPacket []byte, paddingLen int) ([]byte, error) {
-	if msg == nil || paddingLen <= 0 {
-		return unpaddedPacket, nil
-	}
+func ensureEDNS0(msg *dns.Msg) *dns.OPT {
 	edns0 := msg.IsEdns0()
 	if edns0 == nil {
 		msg.SetEdns0(uint16(MaxDNSPacketSize), false)
-		edns0 = msg.IsEdns0()
-		if edns0 == nil {
-			return unpaddedPacket, nil
-		}
+		return msg.IsEdns0()
 	}
-	for _, option := range edns0.Option {
-		if option.Option() == dns.EDNS0PADDING {
-			return unpaddedPacket, nil
-		}
+	return edns0
+}
+
+// Create an appropriately-sized padding option.
+func optPadding(sz int) *dns.EDNS0_PADDING {
+	return &dns.EDNS0_PADDING{
+		Padding: make([]byte, sz),
 	}
-	ext := new(dns.EDNS0_PADDING)
-	padding := make([]byte, paddingLen)
-	for i := range padding {
-		padding[i] = 'X'
+}
+
+// Compute the number of padding bytes needed, excluding headers.
+// Assumes that |msgLen| is the length of a raw DNS message that contains an
+// OPT RR with no RFC7830 padding option, and that the message is fully
+// label-compressed.
+func computePaddingSize(msgLen int, blockSize int) int {
+	// always add a new padding header inside the OPT RR's data.
+	extraPadding := kOptPaddingHeaderLen
+
+	padSize := blockSize - (msgLen+extraPadding)%blockSize
+	return padSize % blockSize
+}
+
+func AddEDNS0PaddingIfNoneFound(msg *dns.Msg) {
+	if msg == nil {
+		return
 	}
-	ext.Padding = padding[:paddingLen]
-	edns0.Option = append(edns0.Option, ext)
-	return msg.Pack()
+
+	edns0 := ensureEDNS0(msg)
+	if edns0 == nil {
+		return
+	}
+
+	if edns0padlen(edns0) >= 0 { // -1 = no edns0 padding rr
+		return
+	}
+
+	paddingLen := computePaddingSize(msg.Len(), PaddingBlockSize)
+	if paddingLen <= 0 {
+		return
+	}
+
+	edns0.Option = append(edns0.Option, optPadding(paddingLen))
 }
 
 func Question(domain string, qtyp uint16) ([]byte, error) {
@@ -1205,6 +1233,28 @@ func Size(msg *dns.Msg) int {
 		return 0
 	}
 	return msg.Len()
+}
+
+func EDNS0PadLen(msg *dns.Msg) int {
+	if msg == nil {
+		return -1
+	}
+	return edns0padlen(msg.IsEdns0())
+}
+
+func edns0padlen(edns0 *dns.OPT) int {
+	if edns0 == nil {
+		return -1
+	}
+	for _, opt := range edns0.Option {
+		if opt == nil {
+			continue
+		}
+		if rr, ok := opt.(*dns.EDNS0_PADDING); ok {
+			return len(rr.Padding)
+		}
+	}
+	return -1
 }
 
 func Ans(msg *dns.Msg) (s string) {

@@ -351,19 +351,9 @@ func (t *transport) httpClientFor(p ipn.Proxy) (c3, c *http.Client) {
 // Independent of the query's success or failure, this function also returns the
 // address of the server on a best-effort basis, or nil if the address could not
 // be determined.
-func (t *transport) doDoh(pid string, msg *dns.Msg) (response *dns.Msg, blocklists, region string, elapsed time.Duration, qerr *dnsx.QueryError) {
+func (t *transport) doDoh(pid string, q *dns.Msg) (response *dns.Msg, blocklists, region string, elapsed time.Duration, qerr *dnsx.QueryError) {
 	start := time.Now()
-	q, err := padQuery(msg)
-	// fail on padding if debug
-	if settings.Debug && (err != nil || q == nil) {
-		elapsed = time.Since(start)
-		qerr = dnsx.NewInternalQueryError(err) // err can be nil
-		return
-	}
-	if q == nil { // padding error
-		log.W("doh: failed to pad %s: %v", xdns.QName(msg), err)
-		q = msg
-	}
+	q = padQuery(q)
 
 	// zero out the query id
 	id := q.Id
@@ -690,8 +680,8 @@ func (t *transport) Query(network string, q *dns.Msg, smm *x.DNSSummary) (r *dns
 	if err != nil {
 		smm.Msg = err.Error()
 	}
-	log.V("doh: (p/px %s/%s); len(res): %d/%d, q: %s, data: %s, via: %s, err? %v",
-		network, pid, xdns.Len(r), xdns.Size(r), smm.QName, smm.RData, smm.RelayServer, err)
+	log.V("doh: (p/px %s/%s); a:%d/sz:%d/pad:%d, q: %s, data: %s, via: %s, err? %v",
+		network, pid, xdns.Len(r), xdns.Size(r), xdns.EDNS0PadLen(r), smm.QName, smm.RData, smm.RelayServer, err)
 	return r, err
 }
 
