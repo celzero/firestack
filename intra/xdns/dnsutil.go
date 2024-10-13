@@ -416,8 +416,11 @@ func Targets(msg *dns.Msg) (targets []string) {
 		}
 		if len(target) <= 0 {
 			continue
+		} else if _, ok := dns.IsDomainName(target); !ok {
+			// discard targets not domain names such as "."
+			continue
 		} else if x, err := NormalizeQName(target); err == nil {
-			if _, ok := touched[x]; !ok {
+			if _, has := touched[x]; !has {
 				targets = append(targets, x)
 				touched[x] = struct{}{}
 			}
