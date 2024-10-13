@@ -24,7 +24,7 @@ import (
 	tx "github.com/elazarl/goproxy"
 )
 
-type dialContextFn func(context.Context, string, string) (net.Conn, error)
+type dialFn func(network, addr string) (net.Conn, error)
 
 type httpx struct {
 	id       string
@@ -268,13 +268,13 @@ func (h *httpx) Hop(p x.Proxy) error {
 		return errServerEnd
 	}
 
-	dialer := h.dialer.DialContext
+	dialer := h.dialer.Dial
 	if p == nil || core.IsNil(p) {
 		h.hdl.px.Store(nil) // clear
 		// h.ProxyHttpServer.Tr.DialContext = h.dialer.DialContext
 	} else if pp, ok := p.(ipn.Proxy); ok {
 		h.hdl.px.Store(pp)
-		dialer = pp.Dialer().DialContext
+		dialer = pp.Dialer().Dial
 	} else {
 		log.E("svchttp: hop: %s; failed: %T not ipn.Proxy", h.ID(), p)
 		return errNotProxy
@@ -286,11 +286,13 @@ func (h *httpx) Hop(p x.Proxy) error {
 	return nil
 }
 
-func (h *httpx) swap(f dialContextFn) {
+func (h *httpx) swap(f dialFn) {
 	h.Lock()
 	defer h.Unlock()
 	// todo: reads are not synchronized!
-	h.ProxyHttpServer.Tr.DialContext = f
+	h.ProxyHttpServer.Tr.DialContext = func(_ context.Context, network, addr string) (net.Conn, error) {
+		return f(network, addr)
+	}
 }
 
 func (h *httpx) Start() error {
