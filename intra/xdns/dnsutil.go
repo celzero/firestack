@@ -484,15 +484,20 @@ func optPadding(sz int) *dns.EDNS0_PADDING {
 }
 
 // Compute the number of padding bytes needed, excluding headers.
-// Assumes that |msgLen| is the length of a raw DNS message that contains an
-// OPT RR with no RFC7830 padding option, and that the message is fully
-// label-compressed.
-func computePaddingSize(msgLen int, blockSize int) int {
+func ComputePaddingSize(msg *dns.Msg) int {
+	if msg == nil {
+		return 0
+	}
+
+	// msgLen is the length of a raw DNS message that contains an
+	// OPT RR with no RFC7830 padding option, and that the message is fully
+	// label-compressed.
+	msgLen := msg.Len()
 	// always add a new padding header inside the OPT RR's data.
 	extraPadding := kOptPaddingHeaderLen
 
-	padSize := blockSize - (msgLen+extraPadding)%blockSize
-	return padSize % blockSize
+	padSize := PaddingBlockSize - (msgLen+extraPadding)%PaddingBlockSize
+	return padSize % PaddingBlockSize
 }
 
 func AddEDNS0PaddingIfNoneFound(msg *dns.Msg) {
@@ -509,7 +514,7 @@ func AddEDNS0PaddingIfNoneFound(msg *dns.Msg) {
 		return
 	}
 
-	paddingLen := computePaddingSize(msg.Len(), PaddingBlockSize)
+	paddingLen := ComputePaddingSize(msg)
 	if paddingLen <= 0 {
 		return
 	}
