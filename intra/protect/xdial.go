@@ -45,11 +45,15 @@ type RDialer interface {
 
 // RDial discards local-addresses
 type RDial struct {
-	Owner      string            // owner tag
+	Owner string // owner tag
+
+	// local dialers
 	Dialer     proxy.Dialer      // may be nil; used by exit, base, grounded
 	Listen     *net.ListenConfig // may be nil; used by exit, base, grounded
 	listenICMP *icmplistener     // may be nil; used by exit, base, grounded
-	RDialer    RDialer           // may be nil; used by remote proxies, ex: wg
+
+	// remote dialers
+	RDialer RDialer // may be nil; used by remote proxies, ex: wg
 }
 
 var (
