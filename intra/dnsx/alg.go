@@ -380,7 +380,7 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []*netip.Addr, network string, q
 	if smm.UpstreamBlocks || len(secres.smm.Msg) > 0 {
 		smsg := secres.smm.Msg
 		spri := secres.pri
-		log.V("alg: %s:%d upstream blocks: primary? %t / sec? %t; secres: pri? %t, msg:  %s",
+		log.V("alg: %s:%d upstream blocks: primary? %t / sec? %t; secres: pri? %t, msg: %s",
 			qname, smm.QType, secres.smm.UpstreamBlocks, smm.UpstreamBlocks, spri, smsg)
 	}
 
