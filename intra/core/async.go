@@ -103,7 +103,7 @@ func errPanic(who string) error {
 // Panicking functions are considered as returning an error.
 // If the timeout is reached, errTimeout is returned.
 // Note that, zero value result could be returned if at least one function returns that without any error.
-func Race[T any](who string, timeout time.Duration, fs ...func() (T, error)) (zz T, fidx int, errs error) {
+func Race[T any](who string, timeout time.Duration, fs ...Work[T]) (zz T, fidx int, errs error) {
 	type res struct {
 		t   T
 		err error
