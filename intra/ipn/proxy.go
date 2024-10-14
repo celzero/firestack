@@ -116,9 +116,11 @@ func (pxr *proxifier) fromOpts(id string, opts *settings.ProxyOptions) (Proxy, e
 	case "https":
 		p, err = NewHTTPProxy(id, pxr.ctl, opts)
 	case "piph2":
-		p, err = NewPipProxy(id, pxr.ctl, opts)
+		// todo: assert id == RpnH2
+		p, err = NewPipProxy(pxr.ctl, opts)
 	case "pipws":
-		p, err = NewPipWsProxy(id, pxr.ctl, opts)
+		// todo: assert id == RpnWs
+		p, err = NewPipWsProxy(pxr.ctl, opts)
 	case "wg":
 		err = fmt.Errorf("proxy: id must be prefixed with %s in %s for [%s]", WG, id, opts)
 	default:

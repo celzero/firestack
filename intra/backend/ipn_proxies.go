@@ -16,6 +16,8 @@ const ( // see ipn/proxies.go
 	Ingress = "Ingress"     // incoming connections
 	Auto    = "Auto"        // auto uses ipn.Exit or any of the RPN proxies
 	RpnWg   = WG + RPN      // RPN Warp
+	RpnWs   = PIPWS + RPN   // RPN WebSockets
+	RpnH2   = PIPH2 + RPN   // RPN HTTP/2
 	OrbotS5 = "OrbotSocks5" // Orbot: Base Tor-as-a-SOCKS5 proxy
 	OrbotH1 = "OrbotHttp1"  // Orbot: Base Tor-as-a-HTTP/1.1 proxy
 

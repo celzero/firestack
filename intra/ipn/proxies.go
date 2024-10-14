@@ -35,6 +35,8 @@ const (
 	OrbotS5 = x.OrbotS5
 	OrbotH1 = x.OrbotH1
 	RpnWg   = x.RpnWg
+	RpnWs   = x.RpnWs
+	RpnH2   = x.RpnH2
 
 	SOCKS5   = x.SOCKS5
 	HTTP1    = x.HTTP1
@@ -524,7 +526,7 @@ func (px *proxifier) Warp() (x.Proxy, error) {
 
 // Implements x.Rpn.
 func (px *proxifier) Pip() (x.Proxy, error) {
-	return px.ProxyFor(PIPWS)
+	return px.ProxyFor(RpnWs)
 }
 
 func (px *proxifier) TestWarp() (string, error) {

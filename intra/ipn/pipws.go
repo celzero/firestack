@@ -104,7 +104,7 @@ func (t *pipws) wsconn(rurl, msg string) (c net.Conn, res *http.Response, err er
 // The proxy options must contain a valid URL, and the URL must have a path with the format "/ws/<sha256(rsasig)>".
 // The proxy options must also contain a valid auth user (raw client token) and
 // password (expiry + signed raw client token).
-func NewPipWsProxy(id string, ctl protect.Controller, po *settings.ProxyOptions) (*pipws, error) {
+func NewPipWsProxy(ctl protect.Controller, po *settings.ProxyOptions) (*pipws, error) {
 	if po == nil {
 		return nil, errMissingProxyOpt
 	}
@@ -136,9 +136,8 @@ func NewPipWsProxy(id string, ctl protect.Controller, po *settings.ProxyOptions)
 	if splitpath[1] != "ws" {
 		return nil, errProxyConfig
 	}
-	dialer := protect.MakeNsRDial(id, ctl)
+	dialer := protect.MakeNsRDial(RpnWs, ctl)
 	t := &pipws{
-		id:         id,
 		url:        parsedurl.String(),
 		hostname:   parsedurl.Hostname(),
 		port:       port,
@@ -164,7 +163,7 @@ func NewPipWsProxy(id string, ctl protect.Controller, po *settings.ProxyOptions)
 }
 
 func (t *pipws) ID() string {
-	return t.id
+	return RpnWs
 }
 
 func (t *pipws) Type() string {

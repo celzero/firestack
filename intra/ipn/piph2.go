@@ -148,7 +148,7 @@ func (t *piph2) dial(network, addr string) (net.Conn, error) {
 	}
 }
 
-func NewPipProxy(id string, ctl protect.Controller, po *settings.ProxyOptions) (*piph2, error) {
+func NewPipProxy(ctl protect.Controller, po *settings.ProxyOptions) (*piph2, error) {
 	if po == nil {
 		return nil, errMissingProxyOpt
 	}
@@ -185,9 +185,8 @@ func NewPipProxy(id string, ctl protect.Controller, po *settings.ProxyOptions) (
 	if len(rsasig) == 0 {
 		return nil, errNoSig
 	}
-	dialer := protect.MakeNsRDial(id, ctl)
+	dialer := protect.MakeNsRDial(RpnH2, ctl)
 	t := &piph2{
-		id:       id,
 		url:      parsedurl.String(),
 		hostname: parsedurl.Hostname(),
 		port:     port,
@@ -225,11 +224,12 @@ func NewPipProxy(id string, ctl protect.Controller, po *settings.ProxyOptions) (
 			ResponseHeaderTimeout: responseHeaderTimeout,
 		}
 	}
+
 	return t, nil
 }
 
 func (t *piph2) ID() string {
-	return t.id
+	return RpnH2
 }
 
 func (t *piph2) Type() string {
