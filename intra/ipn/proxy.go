@@ -7,11 +7,19 @@
 package ipn
 
 import (
+	"errors"
 	"fmt"
+	"net"
+	"net/netip"
 	"net/url"
+	"os"
+	"strconv"
 	"strings"
+	"syscall"
 
 	x "github.com/celzero/firestack/intra/backend"
+	"github.com/celzero/firestack/intra/core"
+	"github.com/celzero/firestack/intra/dialers"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/settings"
 )
@@ -127,4 +135,65 @@ func (pxr *proxifier) fromOpts(id string, opts *settings.ProxyOptions) (Proxy, e
 		err = errProxyScheme
 	}
 	return p, err
+}
+
+func Reaches(p Proxy, hostportOrIPPortCsv string) bool {
+	if p == nil {
+		return false
+	}
+	if len(hostportOrIPPortCsv) <= 0 {
+		return true
+	}
+	// upstream := dnsx.Default
+	// if pdns := p.DNS(); len(pdns) > 0 {
+	//	upstream = pdns
+	// }
+	ipps := make([]netip.AddrPort, 0)
+	for _, x := range strings.Split(hostportOrIPPortCsv, ",") {
+		host, port, err := net.SplitHostPort(x)
+		if err != nil {
+			port = "80"
+			x = host
+		}
+		on, err := strconv.ParseUint(port, 10, 16)
+		if err != nil {
+			log.W("wg: %s router: %s port %s; err: %v",
+				p.ID(), x, port, err)
+			on = 80
+		}
+		if len(x) > 0 { // x may be ip, host
+			ips := dialers.For(x)
+			for _, ip := range ips {
+				ipp := netip.AddrPortFrom(ip, uint16(on))
+				ipps = append(ipps, ipp)
+			}
+		}
+	}
+	tests := make([]core.Work[bool], 0)
+	for _, ipp := range ipps {
+		addr := ipp.String()
+		tests = append(tests, func() (bool, error) {
+			c, err := p.Dial("tcp", addr)
+			defer core.CloseConn(c)
+
+			ok := err == nil
+			if syserr := new(os.SyscallError); errors.As(err, &syserr) {
+				ok = syserr.Err == syscall.ECONNREFUSED
+			}
+			log.V("wg: %s router: %s reaches? %t; err? %v", p.ID(), addr, ok, err)
+			return ok, err
+		})
+	}
+
+	if len(tests) <= 0 {
+		log.W("wg: %s router: %v; no tests", p.ID(), hostportOrIPPortCsv)
+		return false
+	}
+
+	ok, who, err := core.Race("reach."+p.ID(), getproxytimeout, tests...)
+
+	log.D("wg: %s router: %v => %v reaches? %t; who: %d, err? %v",
+		p.ID(), hostportOrIPPortCsv, ipps, ok, who, err)
+
+	return ok
 }

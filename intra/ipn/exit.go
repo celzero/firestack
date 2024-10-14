@@ -18,6 +18,7 @@ import (
 type exit struct {
 	protoagnostic
 	skiprefresh
+	gw
 	outbound *protect.RDial // outbound dialer
 	addr     string
 	status   *core.Volatile[int]
@@ -96,8 +97,13 @@ func (h *exit) Type() string {
 	return INTERNET
 }
 
-func (*exit) Router() x.Router {
-	return PROXYGATEWAY
+func (h *exit) Router() x.Router {
+	return h
+}
+
+// Reaches implements x.Router.
+func (h *exit) Reaches(hostportOrIPPortCsv string) bool {
+	return Reaches(h, hostportOrIPPortCsv)
 }
 
 func (h *exit) GetAddr() string {

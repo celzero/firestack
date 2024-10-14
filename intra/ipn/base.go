@@ -20,6 +20,7 @@ import (
 type base struct {
 	protoagnostic                // Dial is proto aware
 	skiprefresh                  // no rebinding necessary on refresh
+	gw                           // dual stack gateway
 	outbound      *protect.RDial // outbound dialer
 	addr          string
 	status        *core.Volatile[int]
@@ -102,8 +103,13 @@ func (h *base) Type() string {
 	return NOOP
 }
 
-func (*base) Router() x.Router {
-	return PROXYGATEWAY
+func (h *base) Router() x.Router {
+	return h
+}
+
+// Reaches implements x.Router.
+func (h *base) Reaches(hostportOrIPPortCsv string) bool {
+	return Reaches(h, hostportOrIPPortCsv)
 }
 
 func (h *base) GetAddr() string {

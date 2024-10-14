@@ -24,6 +24,7 @@ import (
 type http1 struct {
 	nofwd       // no forwarding/listening
 	skiprefresh // no refresh
+	gw          // dual stack gateway
 	outbound    proxy.Dialer
 	id          string
 	opts        *settings.ProxyOptions
@@ -108,8 +109,13 @@ func (h *http1) Type() string {
 	return HTTP1
 }
 
-func (*http1) Router() x.Router {
-	return PROXYGATEWAY
+func (h *http1) Router() x.Router {
+	return h
+}
+
+// Reaches implements x.Router.
+func (h *http1) Reaches(hostportOrIPPortCsv string) bool {
+	return Reaches(h, hostportOrIPPortCsv)
 }
 
 func (h *http1) GetAddr() string {

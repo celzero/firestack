@@ -15,6 +15,7 @@ import (
 type ground struct {
 	protoagnostic
 	skiprefresh
+	gw
 	addr string
 }
 
@@ -23,6 +24,7 @@ var _ Proxy = (*ground)(nil)
 // NewGroundProxy returns a new ground proxy.
 func NewGroundProxy() *ground {
 	h := &ground{
+		gw:   proxynogateway,
 		addr: "[::]:0",
 	}
 	return h
@@ -65,7 +67,7 @@ func (h *ground) Type() string {
 }
 
 func (h *ground) Router() x.Router {
-	return PROXYNOGATEWAY
+	return h
 }
 
 func (h *ground) GetAddr() string {

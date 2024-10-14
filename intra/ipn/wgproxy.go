@@ -869,6 +869,11 @@ func (h *wgproxy) Router() x.Router {
 	return h
 }
 
+// TODO: make wgtun a Router; see Stats()
+func (h *wgproxy) Reaches(hostportOrIPPortCsv string) bool {
+	return Reaches(h, hostportOrIPPortCsv)
+}
+
 func (h *wgtun) Status() int {
 	return h.status.Load()
 }
@@ -914,9 +919,9 @@ func (h *wgtun) DNS() string {
 func (h *wgtun) IP4() bool { return h.hasV4 }
 func (h *wgtun) IP6() bool { return h.hasV6 }
 
-func (h *wgtun) Contains(ipprefix string) bool {
-	y, err := h.rt.HasAny(ipprefix)
-	loged(err)("wg: %s router: %s contains? %t; err? %v", h.id, ipprefix, y, err)
+func (h *wgtun) Contains(ippOrCidr string) bool {
+	y, err := h.rt.HasAny(ippOrCidr)
+	loged(err)("wg: %s router: %s contains? %t; err? %v", h.id, ippOrCidr, y, err)
 	return y
 }
 

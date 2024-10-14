@@ -507,6 +507,11 @@ func (px *proxifier) Contains(ipprefix string) bool {
 	return false
 }
 
+func (px *proxifier) Reaches(ippcsv string) bool {
+	// TODO: stub
+	return px.Contains(ippcsv)
+}
+
 // Implements x.Rpn.
 func (px *proxifier) RegisterWarp(pub string) ([]byte, error) {
 	id, err := px.warpc.Make(pub, "")

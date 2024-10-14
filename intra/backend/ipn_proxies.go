@@ -44,9 +44,13 @@ const ( // see ipn/proxies.go
 )
 
 type Rpn interface {
+	// RegisterWarp registers a new Warp public key.
 	RegisterWarp(publicKeyBase64 string) (json []byte, err error)
+	// TestWarp pings random Warp endpoints and returns reachable ones.
 	TestWarp() (ips string, errs error)
+	// Warp returns a RpnWg proxy.
 	Warp() (rpn Proxy, err error)
+	// Pip returns a RpnWs proxy.
 	Pip() (rpn Proxy, err error)
 }
 
@@ -95,6 +99,8 @@ type Router interface {
 	MTU() (int, error)
 	// Stats returns the stats of this router.
 	Stat() *RouterStats
+	// Reaches returns true if any host:port or ip:port is dialable.
+	Reaches(hostportOrIPPortCsv string) bool
 	// Contains returns true if this router can route ipprefix.
 	Contains(ipprefix string) bool
 }

@@ -34,7 +34,7 @@ type pipws struct {
 	nofwd                             // no forwarding/listening
 	protoagnostic                     // since dial is proto aware
 	skiprefresh                       // no refresh
-	id            string              // some unique identifier
+	gw                                // dual stack gateway
 	url           string              // ws proxy url
 	hostname      string              // ws proxy hostname
 	port          int                 // ws proxy port
@@ -174,8 +174,13 @@ func (t *pipws) GetAddr() string {
 	return t.hostname + ":" + strconv.Itoa(t.port)
 }
 
-func (*pipws) Router() x.Router {
-	return PROXYGATEWAY
+func (t *pipws) Router() x.Router {
+	return t
+}
+
+// Reaches implements x.Router.
+func (t *pipws) Reaches(hostportOrIPPortCsv string) bool {
+	return Reaches(t, hostportOrIPPortCsv)
 }
 
 func (t *pipws) Stop() error {

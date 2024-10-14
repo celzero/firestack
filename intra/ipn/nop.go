@@ -7,21 +7,26 @@
 package ipn
 
 import (
+	"net/netip"
+
 	x "github.com/celzero/firestack/intra/backend"
+	"github.com/celzero/firestack/intra/dialers"
 	"github.com/celzero/firestack/intra/protect"
 )
 
 // gw is a no-op/stub gateway that is either dualstack or not and has dummy stats.
 type gw struct {
-	dual  bool          // is dualstack
-	stats x.RouterStats // zero stats
+	nov4, nov6 bool          // is dualstack
+	stats      x.RouterStats // zero stats
 }
 
+var _ x.Router = (*gw)(nil)
+
 // IP4 implements Router.
-func (w *gw) IP4() bool { return w.dual }
+func (w *gw) IP4() bool { return !w.nov4 }
 
 // IP6 implements Router.
-func (w *gw) IP6() bool { return w.dual }
+func (w *gw) IP6() bool { return !w.nov6 }
 
 // MTU implements Router.
 func (w *gw) MTU() (int, error) { return NOMTU, errNoMtu }
@@ -30,13 +35,33 @@ func (w *gw) MTU() (int, error) { return NOMTU, errNoMtu }
 func (w *gw) Stat() *x.RouterStats { return &w.stats }
 
 // Contains implements Router.
-func (w *gw) Contains(string) bool { return w.dual }
+func (w *gw) Contains(prefix string) bool {
+	ipnet, err := netip.ParsePrefix(prefix)
+	if err != nil {
+		return false
+	}
+	return (w.ok(ipnet.Addr()))
+}
 
-// PROXYGATEWAY is a stub Router that routes everything.
-var PROXYGATEWAY = &gw{dual: true}
+func (w *gw) ok(ip netip.Addr) bool  { return w.ok4(ip) || w.ok6(ip) }
+func (w *gw) ok4(ip netip.Addr) bool { return w.IP4() && ip.IsValid() && ip.Is4() }
+func (w *gw) ok6(ip netip.Addr) bool { return w.IP6() && ip.IsValid() && ip.Is6() }
 
-// PROXYNOGATEWAY is a stub Router that routes nothing.
-var PROXYNOGATEWAY = &gw{dual: false}
+func (w *gw) Reaches(hostportOrIPPortCsv string) bool {
+	if len(hostportOrIPPortCsv) <= 0 {
+		return true
+	}
+	ips := dialers.For(hostportOrIPPortCsv)
+	for _, ip := range ips {
+		if w.ok(ip) {
+			return true
+		}
+	}
+	return false
+}
+
+// proxynogateway is a Router that routes nothing.
+var proxynogateway = gw{nov4: true, nov6: true}
 
 // protoagnostic is a proxy that does not care about protocol changes.
 type protoagnostic struct{}

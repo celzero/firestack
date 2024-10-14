@@ -27,6 +27,7 @@ import (
 type socks5 struct {
 	nofwd                              // no forwarding/listening
 	skiprefresh                        // no refresh
+	gw                                 // dual stack gateway
 	outbound    []proxy.Dialer         // outbound dialers connecting unto upstream proxy
 	id          string                 // unique identifier
 	opts        *settings.ProxyOptions // connect options
@@ -198,7 +199,12 @@ func (h *socks5) Type() string {
 }
 
 func (h *socks5) Router() x.Router {
-	return PROXYGATEWAY
+	return h
+}
+
+// Reaches implements x.Router.
+func (h *socks5) Reaches(hostportOrIPPortCsv string) bool {
+	return Reaches(h, hostportOrIPPortCsv)
 }
 
 func (h *socks5) GetAddr() string {

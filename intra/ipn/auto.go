@@ -37,6 +37,7 @@ var ttl30s = 30 * time.Second
 type auto struct {
 	protoagnostic
 	skiprefresh
+	gw
 	pxr    Proxies
 	addr   string
 	exp    *core.ExpMap[string, int]
@@ -192,8 +193,13 @@ func (h *auto) Type() string {
 	return RPN
 }
 
-func (*auto) Router() x.Router {
-	return PROXYGATEWAY
+func (h *auto) Router() x.Router {
+	return h
+}
+
+// Reaches implements x.Router.
+func (h *auto) Reaches(hostportOrIPPortCsv string) bool {
+	return Reaches(h, hostportOrIPPortCsv)
 }
 
 func (h *auto) GetAddr() string {

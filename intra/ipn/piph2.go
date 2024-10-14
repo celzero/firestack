@@ -36,7 +36,7 @@ type piph2 struct {
 	nofwd                        // no forwarding/listening
 	protoagnostic                // since dial, dialts are proto aware
 	skiprefresh                  // no refresh
-	id            string         // some unique identifier
+	gw                           // dual stack gateway
 	url           string         // h2 proxy url
 	hostname      string         // h2 proxy hostname
 	port          int            // h2 proxy port
@@ -240,8 +240,13 @@ func (t *piph2) GetAddr() string {
 	return t.hostname + ":" + strconv.Itoa(t.port)
 }
 
-func (*piph2) Router() x.Router {
-	return PROXYGATEWAY
+func (t *piph2) Router() x.Router {
+	return t
+}
+
+// Reaches implements x.Router.
+func (t *piph2) Reaches(hostportOrIPPortCsv string) bool {
+	return Reaches(t, hostportOrIPPortCsv)
 }
 
 func (t *piph2) Stop() error {
