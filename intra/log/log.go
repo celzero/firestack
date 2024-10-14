@@ -31,6 +31,8 @@
 
 package log
 
+import "fmt"
+
 // based on: github.com/eycorsican/go-tun2socks/blob/301549c43/common/log/log.go#L5
 var Glogger Logger
 
@@ -146,8 +148,11 @@ func U(msg string) {
 }
 
 // T logs the stack trace of the current goroutine.
-func T(msg string) {
+func T(msg string, args ...any) {
 	if Glogger != nil {
+		if len(args) > 0 {
+			msg = fmt.Sprintf(msg, args...)
+		}
 		E2(LogFnCallerDepth, "----START----")
 		Glogger.Stack(LogFnCallerDepth, "F "+msg, make([]byte, 4096))
 		E2(LogFnCallerDepth, "----STOPP----")

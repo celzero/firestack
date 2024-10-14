@@ -137,7 +137,7 @@ func (d *RDial) Announce(network, local string) (net.PacketConn, error) {
 			case *net.UDPConn:
 				return x, nil
 			default:
-				log.W("xdial: Announce: addr(%s) for owner(%s): failed; %T is not net.UDPConn; other errs: %v", local, d.owner, x, err)
+				log.T("xdial: Announce: addr(%s) for owner(%s): failed; %T is not net.UDPConn; other errs: %v", local, d.owner, x, err)
 				clos(pc)
 				return nil, errNoUDPMux
 			}
@@ -157,7 +157,7 @@ func (d *RDial) Probe(network, local string) (PacketConn, error) {
 	uselistener := d.listenICMP != nil
 	usedelegate := d.delegate != nil && core.IsNotNil(d.delegate)
 	if !uselistener && !usedelegate {
-		log.V("xdial: Probe: (r? %t / o: %s) %s %s", usedelegate, d.owner, network, local)
+		log.T("xdial: Probe: (r? %t / o: %s) %s %s", usedelegate, d.owner, network, local)
 		return nil, errNoAnnouncer
 	}
 	// drop port if present
@@ -182,9 +182,8 @@ func (d *RDial) DialTCP(network string, laddr, raddr *net.TCPAddr) (*net.TCPConn
 		// d.Dialer.LocalAddr = nil
 		return tc, nil
 	} else {
-		log.W("xdial: DialTCP: (%s) to %s, %T is not %T (ok? %t); other errs: %v",
+		log.T("xdial: DialTCP: (%s) to %s, %T is not %T (ok? %t); other errs: %v",
 			d.owner, raddr, c, tc, ok, err)
-		log.T("not tcp")
 		// some proxies like wgproxy, socks5 do not vend *net.TCPConn
 		// also errors if retrier (core.DuplexConn) is looped back here
 		clos(c)
@@ -203,9 +202,8 @@ func (d *RDial) DialUDP(network string, laddr, raddr *net.UDPAddr) (*net.UDPConn
 		// d.Dialer.LocalAddr = nil
 		return uc, nil
 	} else {
-		log.W("xdial: DialUDP: (%s) to %s, %T is not %T (ok? %t); other errs: %v",
+		log.T("xdial: DialUDP: (%s) to %s, %T is not %T (ok? %t); other errs: %v",
 			d.owner, raddr, c, uc, ok, err)
-		log.T("not udp")
 		// some proxies like wgproxy, socks5 do not vend *net.UDPConn
 		clos(c)
 		return nil, errNoUDP
@@ -220,9 +218,8 @@ func (d *RDial) AnnounceUDP(network, local string) (*net.UDPConn, error) {
 	} else if uc, ok := c.(*net.UDPConn); ok {
 		return uc, nil
 	} else {
-		log.W("xdial: AnnounceUDP: (%s) from %s, %T is not %T (ok? %t); other errs: %v",
+		log.T("xdial: AnnounceUDP: (%s) from %s, %T is not %T (ok? %t); other errs: %v",
 			d.owner, local, c, uc, ok, err)
-		log.T("not udpmux")
 		clos(c)
 		return nil, errNoUDPMux
 	}
@@ -236,9 +233,8 @@ func (d *RDial) AcceptTCP(network string, local string) (*net.TCPListener, error
 	} else if tl, ok := ln.(*net.TCPListener); ok {
 		return tl, nil
 	} else {
-		log.W("xdial: AcceptTCP: (%s) from %s, %T is not %T (ok? %t); other errs: %v",
+		log.T("xdial: AcceptTCP: (%s) from %s, %T is not %T (ok? %t); other errs: %v",
 			d.owner, local, ln, tl, ok, err)
-		log.T("not tcpmux")
 		clos(ln)
 		return nil, errNoTCPMux
 	}
