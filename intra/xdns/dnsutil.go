@@ -284,6 +284,12 @@ func GetInterestingRData(msg *dns.Msg) string {
 					return httpsstr(r)
 				}
 			} else {
+				// https(sky.rethinkdns.com.	300	IN	HTTPS	1 .
+				// alpn="h3,h2"
+				// ipv4hint="104.21.83.62,172.67.214.246"
+				// ech="AEX+DQBB4gAgACBdYSRjAsOpA+y22/VDM2YR/3fxGdNuepJpi9gJZm8nPgAEAAEAAQASY2xvdWRmbGFyZS1lY2guY29tAAA="
+				// ipv6hint="2606:4700:3030::6815:533e,2606:4700:3030::ac43:d6f6")
+				// for ipcsv(104.21.83.62,172.67.214.246,2606:4700:3030::6815:533e,2606:4700:3030::ac43:d6f6)
 				log.D("dnsutil: RData: ignored https(%s) for ipcsv(%s)", r.String(), ipcsv)
 			}
 			continue
