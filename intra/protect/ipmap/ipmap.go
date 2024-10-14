@@ -25,7 +25,6 @@ package ipmap
 
 import (
 	"context"
-	"fmt"
 	"math/rand"
 	"net"
 	"net/netip"
@@ -257,15 +256,20 @@ func (m *ipmap) get(hostOrIP string, typ IPSetType) (s *IPSet) {
 }
 
 func (m *ipmap) MakeIPSet(hostOrIP string, ipps []string, typ IPSetType) *IPSet {
+	if host, _, err := net.SplitHostPort(hostOrIP); err == nil {
+		hostOrIP = host
+	}
 	if len(ipps) <= 0 && typ == Protected {
-		// TODO: error?
-		log.T(fmt.Sprintf("ipmap: renew: %s; empty seed for Protected!", hostOrIP))
+		ip, err := netip.ParseAddr(hostOrIP)
+		if err != nil || !ip.IsValid() {
+			// TODO: return error?
+			log.T("ipmap: renew: %s; empty seed for Protected!", hostOrIP)
+		}
+		ipps = []string{hostOrIP}
+		log.I("ipmap: renew: %s Protected type seeded from hostOrIP: %v", hostOrIP, ipps)
 	} else {
 		// TODO: hostOrIP must be IP (or IP:Port) if typ == IPAddr
 		log.D("ipmap: renew: %s / seed: %v / typ: %s", hostOrIP, ipps, typ)
-	}
-	if host, _, err := net.SplitHostPort(hostOrIP); err == nil {
-		hostOrIP = host
 	}
 	return m.makeIPSet(hostOrIP, ipps, typ)
 }
