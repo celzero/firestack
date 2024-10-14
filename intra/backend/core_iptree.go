@@ -437,16 +437,21 @@ func (c *iptree) Len() int {
 	return c.t.Size()
 }
 
-func ip2cidr(ipOrCidr string) (ipnet *net.IPNet, err error) {
+func ip2cidr(ippOrCidr string) (*net.IPNet, error) {
 	var ipaddr netip.Addr
-	if _, ipnet, err = net.ParseCIDR(ipOrCidr); err == nil {
-		return
-	} else if ipaddr, err = netip.ParseAddr(ipOrCidr); err == nil {
+	if _, ipnet, err := net.ParseCIDR(ippOrCidr); err == nil {
+		return ipnet, err
+	} else {
+		if ipp, err1 := netip.ParseAddrPort(ippOrCidr); err1 == nil {
+			ipaddr = ipp.Addr()
+		} else if ip, err2 := netip.ParseAddr(ippOrCidr); err2 == nil {
+			ipaddr = ip
+		} else {
+			log.W("iptree: ip2cidr: cidr %v / ipp %v / ip %v", err, err1, err2)
+			return nil, errors.Join(err, err1, err2)
+		}
 		ip := ipaddr.AsSlice()
 		mask := net.CIDRMask(ipaddr.BitLen(), ipaddr.BitLen())
-		ipnet = &net.IPNet{IP: ip, Mask: mask}
-	} else {
-		log.W("iptree: ip2cidr: %v", err)
+		return &net.IPNet{IP: ip, Mask: mask}, nil
 	}
-	return
 }
