@@ -11,6 +11,7 @@ import (
 	"errors"
 	"io"
 	"net"
+	"net/netip"
 
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/log"
@@ -120,6 +121,7 @@ func (d *RDial) Accept(network, local string) (net.Listener, error) {
 // Announce implements RDialer interface.
 func (d *RDial) Announce(network, local string) (net.PacketConn, error) {
 	if network != "udp" && network != "udp4" && network != "udp6" {
+		log.T("xdial: Announce: invalid network %s", network)
 		return nil, errAnnounce
 	}
 	// todo: check if local is a local address or empty (any)
@@ -150,6 +152,14 @@ func (d *RDial) Announce(network, local string) (net.PacketConn, error) {
 
 // Probe implements RDialer interface.
 func (d *RDial) Probe(network, local string) (PacketConn, error) {
+	if network == "udp" {
+		ip, _ := netip.ParseAddrPort(local)
+		if ip.IsValid() && ip.Addr().Is4() {
+			network = "udp4"
+		} else if ip.IsValid() && ip.Addr().Is6() {
+			network = "udp6"
+		}
+	}
 	if network != "udp4" && network != "udp6" {
 		return nil, errAnnounce
 	}
