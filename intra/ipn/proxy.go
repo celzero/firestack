@@ -16,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
 	x "github.com/celzero/firestack/intra/backend"
 	"github.com/celzero/firestack/intra/core"
@@ -157,7 +158,7 @@ func Reaches(p Proxy, hostportOrIPPortCsv string) bool {
 		}
 		on, err := strconv.ParseUint(port, 10, 16)
 		if err != nil {
-			log.W("wg: %s router: %s port %s; err: %v",
+			log.W("proxy: %s reaches: %s port %s; err: %v",
 				p.ID(), x, port, err)
 			on = 80
 		}
@@ -171,28 +172,19 @@ func Reaches(p Proxy, hostportOrIPPortCsv string) bool {
 	}
 	tests := make([]core.Work[bool], 0)
 	for _, ipp := range ipps {
-		addr := ipp.String()
-		tests = append(tests, func() (bool, error) {
-			c, err := p.Dial("tcp", addr)
-			defer core.CloseConn(c)
-
-			ok := err == nil
-			if syserr := new(os.SyscallError); errors.As(err, &syserr) {
-				ok = syserr.Err == syscall.ECONNREFUSED
-			}
-			log.V("wg: %s router: %s reaches? %t; err? %v", p.ID(), addr, ok, err)
-			return ok, err
-		})
+		tests = append(tests,
+			tcpReaches(p, ipp.String()), icmpReaches(p, ipp),
+		)
 	}
 
 	if len(tests) <= 0 {
-		log.W("wg: %s router: %v; no tests", p.ID(), hostportOrIPPortCsv)
+		log.W("proxy: %s reaches: %v; no tests", p.ID(), hostportOrIPPortCsv)
 		return false
 	}
 
 	ok, who, err := core.Race("reach."+p.ID(), getproxytimeout, tests...)
 
-	log.D("wg: %s router: %v => %v reaches? %t; who: %d, err? %v",
+	log.D("proxy: %s reaches: %v => %v ok? %t; who: %d, err? %v",
 		p.ID(), hostportOrIPPortCsv, ipps, ok, who, err)
 
 	return ok
