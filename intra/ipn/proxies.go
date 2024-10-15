@@ -552,8 +552,12 @@ func (px *proxifier) TestWarp() (string, error) {
 
 			var c4, c6 protect.Conn
 			var err4, err6 error
-			c4, err4 = px.base.Dial("udp", v4.String())
-			c6, err6 = px.base.Dial("udp", v6.String())
+			// base can route back into netstack (settings.LoopingBack)
+			// in which  case all endpoints will "seem" reachable.
+			// exit, however, never routes back into netstack and has
+			// the true, unhindered path to the underlying network.
+			c4, err4 = px.exit.Dial("udp", v4.String())
+			c6, err6 = px.exit.Dial("udp", v6.String())
 			defer core.CloseConn(c4, c6)
 
 			// net.OpError => os.SyscallError => syscall.Errno
