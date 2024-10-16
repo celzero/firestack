@@ -72,6 +72,9 @@ func NewTLSTransport(ctx context.Context, id, rawurl string, addrs []string, px 
 	}
 	rd := protect.MakeNsRDial(id, ctl)
 	hostname := parsedurl.Hostname()
+	if len(hostname) <= 0 {
+		hostname = rawurl
+	}
 	// addrs are pre-determined ip addresses for url / hostname
 	ok := dnsx.RegisterAddrs(id, hostname, addrs)
 	// add sni to tls config
