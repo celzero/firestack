@@ -95,6 +95,7 @@ const (
 // type checks
 var _ Proxy = (*base)(nil)
 var _ Proxy = (*exit)(nil)
+var _ Proxy = (*auto)(nil)
 var _ Proxy = (*socks5)(nil)
 var _ Proxy = (*http1)(nil)
 var _ Proxy = (*wgproxy)(nil)
