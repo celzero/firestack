@@ -223,7 +223,7 @@ func newTransport(ctx context.Context, typ, id, rawurl, otargeturl string, addrs
 			MinVersion:                     tls.VersionTLS13, // must be 1.3
 			EncryptedClientHelloConfigList: ech,
 			SessionTicketsDisabled:         false,
-			ClientSessionCache:             tls.NewLRUClientSessionCache(32),
+			ClientSessionCache:             tls.NewLRUClientSessionCache(512),
 		}
 		t.client3.Transport = h2(t.dial, t.echconfig)
 	}
@@ -233,7 +233,7 @@ func newTransport(ctx context.Context, typ, id, rawurl, otargeturl string, addrs
 		// SNI (hostname) must always be inferred from http-request
 		// ServerName:         t.hostname,
 		SessionTicketsDisabled: false,
-		ClientSessionCache:     tls.NewLRUClientSessionCache(32),
+		ClientSessionCache:     tls.NewLRUClientSessionCache(512),
 	}
 	// Override the dial function.
 	t.client.Transport = h2(t.dial, t.tlsconfig)

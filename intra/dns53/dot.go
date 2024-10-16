@@ -79,7 +79,7 @@ func NewTLSTransport(ctx context.Context, id, rawurl string, addrs []string, px 
 	ok := dnsx.RegisterAddrs(id, hostname, addrs)
 	// add sni to tls config
 	tlscfg.ServerName = hostname
-	tlscfg.ClientSessionCache = tls.NewLRUClientSessionCache(32)
+	tlscfg.ClientSessionCache = tls.NewLRUClientSessionCache(512)
 	ctx, done := context.WithCancel(ctx)
 	t = &dot{
 		ctx:           ctx,
@@ -97,7 +97,7 @@ func NewTLSTransport(ctx context.Context, id, rawurl string, addrs []string, px 
 	}
 	ech := t.ech()
 	if len(ech) > 0 {
-		echcfg.ClientSessionCache = tls.NewLRUClientSessionCache(32)
+		echcfg.ClientSessionCache = tls.NewLRUClientSessionCache(512)
 		echcfg.EncryptedClientHelloConfigList = ech
 		t.c3 = dnsclient(echcfg)
 	}
