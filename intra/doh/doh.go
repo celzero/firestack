@@ -504,6 +504,7 @@ func (t *transport) do(pid string, req *http.Request) (ans []byte, blocklists, r
 	start := time.Now()
 	// either t.hostname or t.odohtargetname or t.odohproxy
 	hostname := req.URL.Hostname()
+	withech := false
 
 	// Error cleanup function.  If the query fails, this function will close the
 	// underlying socket and disconfirm the server IP.  Empirically, sockets often
@@ -554,6 +555,11 @@ func (t *transport) do(pid string, req *http.Request) (ans []byte, blocklists, r
 			start = time.Now() // re...start
 			log.VV("doh: connect-start(%s, %s)", network, addr)
 		},
+		TLSHandshakeDone: func(state tls.ConnectionState, err error) {
+			log.VV("doh: tls-handshake-done(resumed? %t, ech? %t); err? %v",
+				state.DidResume, state.ECHAccepted, err)
+			withech = state.ECHAccepted
+		},
 		WroteRequest: func(info httptrace.WroteRequestInfo) {
 			log.VV("doh: wrote-req(%v)", info)
 		},
@@ -578,7 +584,7 @@ func (t *transport) do(pid string, req *http.Request) (ans []byte, blocklists, r
 		return
 	}
 	core.Close(httpResponse.Body)
-	log.V("doh: closed response of sz %d", len(ans))
+	log.V("doh: closed response of sz %d; used ech? %t", len(ans), withech)
 
 	// update the hostname, which could have changed due to a redirect
 	hostname = httpResponse.Request.URL.Hostname()
