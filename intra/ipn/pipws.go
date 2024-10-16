@@ -8,6 +8,8 @@ package ipn
 
 import (
 	"context"
+	"crypto/tls"
+	"errors"
 	"net"
 	"net/http"
 	"net/url"
@@ -41,7 +43,9 @@ type pipws struct {
 	token         string              // hex, raw client token
 	toksig        string              // hex, authorizer (rdns) signed client token
 	rsasighash    string              // hex, authorizer sha256(unblinded signature)
+	echcfg        *tls.Config         // ech config
 	client        http.Client         // ws client
+	client3       *http.Client        // ws client for ech
 	outbound      *protect.RDial      // ws dialer
 	lastdial      time.Time           // last dial time
 	status        *core.Volatile[int] // proxy status: TOK, TKO, END
@@ -70,7 +74,7 @@ func (t *pipws) dial(network, addr string) (net.Conn, error) {
 
 func (t *pipws) wsconn(rurl, msg string) (c net.Conn, res *http.Response, err error) {
 	var ws *websocket.Conn
-	ctx := context.Background()
+	ctx := context.TODO()
 	msgmac := t.claim(msg) // msg is hex(sha256(url.Path)) or fixedMsgHex
 	hdrs := http.Header{}
 	hdrs.Set("User-Agent", "")
@@ -82,16 +86,45 @@ func (t *pipws) wsconn(rurl, msg string) (c net.Conn, res *http.Response, err er
 		// hdrs.Set("x-nile-pip-msg", msg)
 	}
 
-	log.D("connecting to %s", rurl)
+	log.D("pipws: connecting to %s", rurl)
 
-	ws, res, err = websocket.Dial(ctx, rurl, &websocket.DialOptions{
-		// compression does not work with Workers
-		// CompressionMode: websocket.CompressionNoContextTakeover,
-		HTTPClient: &t.client,
-		HTTPHeader: hdrs,
-	})
+	if c3 := t.client3; c3 != nil { // ech with tls v3
+		ws, res, err = websocket.Dial(ctx, rurl, &websocket.DialOptions{
+			HTTPClient: c3,
+			HTTPHeader: hdrs,
+		})
+
+		if eerr := new(tls.ECHRejectionError); errors.As(err, &eerr) {
+			closeWs(ws, "ech rejected")
+			ech := eerr.RetryConfigList
+			log.I("pipws: ech rejected; new? %d, err: %v", len(ech), eerr)
+			if len(ech) > 0 { // retry with new ech
+				t.echcfg.EncryptedClientHelloConfigList = ech
+				// TODO: is this necessary given echcfg is already set?
+				t.client3.Transport = t.h2(t.echcfg)
+				// retry with new ech
+				ws, res, err = websocket.Dial(ctx, rurl, &websocket.DialOptions{
+					HTTPClient: t.client3,
+					HTTPHeader: hdrs,
+				})
+			}
+		}
+	}
+	// err nil when there's no ech; err non-nil when ech fails
+	if err != nil || ws == nil { // fallback or use to tls v2
+		closeWs(ws, "fallback")
+
+		log.D("pipws: fallback to tls v2; err? %v", rurl, err)
+		ws, res, err = websocket.Dial(ctx, rurl, &websocket.DialOptions{
+			// compression does not work with Workers
+			// CompressionMode: websocket.CompressionNoContextTakeover,
+			HTTPClient: &t.client,
+			HTTPHeader: hdrs,
+		})
+	}
 	if err != nil {
-		log.E("websocket: %v\n", err)
+		closeWs(ws, "dial err")
+		log.E("pipws: dialing %s; err: %v\n", rurl, err)
 		return
 	}
 
@@ -119,13 +152,12 @@ func NewPipWsProxy(ctl protect.Controller, po *settings.ProxyOptions) (*pipws, e
 	}
 	portStr := parsedurl.Port()
 	var port int
-	if len(portStr) > 0 {
-		port, err = strconv.Atoi(portStr)
-		if err != nil {
-			return nil, err
-		}
-	} else {
-		port = 443
+	if len(portStr) <= 0 {
+		portStr = "443"
+	}
+	port, err = strconv.Atoi(portStr)
+	if err != nil {
+		return nil, err
 	}
 
 	splitpath := strings.Split(parsedurl.Path, "/")
@@ -133,7 +165,7 @@ func NewPipWsProxy(ctl protect.Controller, po *settings.ProxyOptions) (*pipws, e
 	if len(splitpath) < 3 {
 		return nil, errNoSig
 	}
-	if splitpath[1] != "ws" {
+	if (splitpath[1] != "ws" && splitpath[1] != "wss") || len(splitpath[3]) <= 0 {
 		return nil, errProxyConfig
 	}
 	dialer := protect.MakeNsRDial(RpnWs, ctl)
@@ -154,12 +186,35 @@ func NewPipWsProxy(ctl protect.Controller, po *settings.ProxyOptions) (*pipws, e
 		log.W("pipws: zero bootstrap ips %s", t.hostname)
 	}
 
-	t.client.Transport = &http.Transport{
+	tlscfg := &tls.Config{
+		MinVersion:             tls.VersionTLS12,
+		SessionTicketsDisabled: false,
+		ClientSessionCache:     tls.NewLRUClientSessionCache(64),
+	}
+	ech := t.ech()
+	if len(ech) > 0 {
+		t.client3 = new(http.Client)
+		t.echcfg = &tls.Config{
+			MinVersion:                     tls.VersionTLS13, // must be 1.3
+			EncryptedClientHelloConfigList: ech,
+			SessionTicketsDisabled:         false,
+			ClientSessionCache:             tls.NewLRUClientSessionCache(64),
+		}
+		t.client3.Transport = t.h2(t.echcfg)
+	}
+	t.client.Transport = t.h2(tlscfg)
+
+	log.I("pipws: host: %s:%s, sig: %s, ech? %t", t.hostname, portStr, t.rsasighash[:6], t.client3 != nil)
+	return t, nil
+}
+
+func (t *pipws) h2(cfg *tls.Config) *http.Transport {
+	return &http.Transport{
 		Dial:                  t.dial,
 		TLSHandshakeTimeout:   writeTimeout,
 		ResponseHeaderTimeout: writeTimeout,
+		TLSClientConfig:       cfg,
 	}
-	return t, nil
 }
 
 func (t *pipws) ID() string {
@@ -241,12 +296,14 @@ func (t *pipws) Dial(network, addr string) (protect.Conn, error) {
 	c, res, err := t.wsconn(rurl, msg)
 	t.lastdial = time.Now()
 	if err != nil {
-		log.E("pipws: req err: %v", err)
+		core.CloseConn(c)
+		log.E("pipws: req %s err: %v", rurl, err)
 		t.status.Store(TKO)
 		return nil, err
 	}
 	if res.StatusCode != 101 {
-		log.E("pipws: res not ws %d", res.StatusCode)
+		core.CloseConn(c)
+		log.E("pipws: %s res not ws %d", rurl, res.StatusCode)
 		t.status.Store(TKO)
 		return nil, err
 	}
@@ -263,4 +320,23 @@ func (h *pipws) Dialer() protect.RDialer {
 
 func (h *pipws) DNS() string {
 	return nodns
+}
+
+func (h *pipws) ech() []byte {
+	name := h.hostname
+	if len(name) <= 0 {
+		return nil
+	} else if v, err := dialers.ECH(name); err != nil {
+		log.W("pipws: ech(%s): %v", name, err)
+		return nil
+	} else {
+		log.V("pipws: ech(%s): sz %d", name, len(v))
+		return v
+	}
+}
+
+func closeWs(ws *websocket.Conn, reason string) {
+	if ws != nil {
+		_ = ws.Close(websocket.StatusNormalClosure, reason)
+	}
 }
