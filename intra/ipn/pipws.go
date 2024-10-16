@@ -189,7 +189,7 @@ func NewPipWsProxy(ctl protect.Controller, po *settings.ProxyOptions) (*pipws, e
 	tlscfg := &tls.Config{
 		MinVersion:             tls.VersionTLS12,
 		SessionTicketsDisabled: false,
-		ClientSessionCache:     tls.NewLRUClientSessionCache(512),
+		ClientSessionCache:     core.TlsSessionCache(),
 	}
 	ech := t.ech()
 	if len(ech) > 0 {
@@ -198,7 +198,7 @@ func NewPipWsProxy(ctl protect.Controller, po *settings.ProxyOptions) (*pipws, e
 			MinVersion:                     tls.VersionTLS13, // must be 1.3
 			EncryptedClientHelloConfigList: ech,
 			SessionTicketsDisabled:         false,
-			ClientSessionCache:             tls.NewLRUClientSessionCache(512),
+			ClientSessionCache:             core.TlsSessionCache(),
 		}
 		t.client3.Transport = t.h2(t.echcfg)
 	}

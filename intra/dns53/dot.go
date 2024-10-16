@@ -79,7 +79,7 @@ func NewTLSTransport(ctx context.Context, id, rawurl string, addrs []string, px 
 	ok := dnsx.RegisterAddrs(id, hostname, addrs)
 	// add sni to tls config
 	tlscfg.ServerName = hostname
-	tlscfg.ClientSessionCache = tls.NewLRUClientSessionCache(512)
+	tlscfg.ClientSessionCache = core.TlsSessionCache()
 	ctx, done := context.WithCancel(ctx)
 	t = &dot{
 		ctx:           ctx,
@@ -97,7 +97,7 @@ func NewTLSTransport(ctx context.Context, id, rawurl string, addrs []string, px 
 	}
 	ech := t.ech()
 	if len(ech) > 0 {
-		echcfg.ClientSessionCache = tls.NewLRUClientSessionCache(512)
+		echcfg.ClientSessionCache = core.TlsSessionCache()
 		echcfg.EncryptedClientHelloConfigList = ech
 		echcfg.EncryptedClientHelloRejectionVerify = t.echVerifyFn()
 		t.c3 = dnsclient(echcfg)
@@ -136,7 +136,7 @@ func (t *dot) echVerifyFn() func(tls.ConnectionState) error {
 			return nil // never reject
 		}
 	}
-	return nil
+	return nil // delegate to stdlib
 }
 
 func (t *dot) doQuery(pid string, q *dns.Msg) (response *dns.Msg, elapsed time.Duration, qerr *dnsx.QueryError) {

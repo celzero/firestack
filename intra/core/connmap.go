@@ -7,6 +7,7 @@
 package core
 
 import (
+	"crypto/tls"
 	"fmt"
 	"net"
 	"strings"
@@ -15,6 +16,12 @@ import (
 
 	"github.com/celzero/firestack/intra/log"
 )
+
+var globalTLSSessionCache = tls.NewLRUClientSessionCache(1024 * 2)
+
+func TlsSessionCache() tls.ClientSessionCache {
+	return globalTLSSessionCache
+}
 
 type ConnMapper interface {
 	// Clear untracks all conns.
