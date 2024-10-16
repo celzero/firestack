@@ -143,8 +143,6 @@ func setttl(c MinConn, v4 bool) (err error) {
 	var raw4 *ipv4.PacketConn
 	var raw6 *ipv6.PacketConn
 	switch x := c.(type) {
-	case *net.UDPConn:
-		return
 	case *icmp.PacketConn:
 		if v4 {
 			raw4 = x.IPv4PacketConn()
@@ -155,6 +153,12 @@ func setttl(c MinConn, v4 bool) (err error) {
 		raw4 = x
 	case *ipv6.PacketConn:
 		raw6 = x
+	case net.PacketConn:
+		if v4 {
+			raw4 = ipv4.NewPacketConn(x)
+		} else {
+			raw6 = ipv6.NewPacketConn(x)
+		}
 	default:
 		return
 	}
