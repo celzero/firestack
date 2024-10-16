@@ -509,9 +509,16 @@ func (px *proxifier) Contains(ipprefix string) bool {
 	return false
 }
 
-func (px *proxifier) Reaches(ippcsv string) bool {
-	// TODO: stub
-	return px.Contains(ippcsv)
+func (px *proxifier) Reaches(hostportOrIPPortCsv string) bool {
+	px.RLock()
+	defer px.RUnlock()
+
+	for _, p := range px.p {
+		if r := p.Router(); r != nil && r.Reaches(hostportOrIPPortCsv) {
+			return true
+		}
+	}
+	return false
 }
 
 // Implements x.Rpn.
