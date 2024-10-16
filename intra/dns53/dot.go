@@ -46,8 +46,14 @@ var _ dnsx.Transport = (*dot)(nil)
 
 // NewTLSTransport returns a DNS over TLS transport, ready for use.
 func NewTLSTransport(ctx context.Context, id, rawurl string, addrs []string, px ipn.Proxies, ctl protect.Controller) (t *dot, err error) {
-	tlscfg := &tls.Config{MinVersion: tls.VersionTLS12}
-	echcfg := &tls.Config{MinVersion: tls.VersionTLS13}
+	tlscfg := &tls.Config{
+		MinVersion:             tls.VersionTLS12,
+		SessionTicketsDisabled: false,
+	}
+	echcfg := &tls.Config{
+		MinVersion:             tls.VersionTLS13,
+		SessionTicketsDisabled: false,
+	}
 	// rawurl is either tls:host[:port] or tls://host[:port] or host[:port]
 	parsedurl, err := url.Parse(rawurl)
 	if err != nil {
@@ -70,6 +76,7 @@ func NewTLSTransport(ctx context.Context, id, rawurl string, addrs []string, px 
 	ok := dnsx.RegisterAddrs(id, hostname, addrs)
 	// add sni to tls config
 	tlscfg.ServerName = hostname
+	tlscfg.ClientSessionCache = tls.NewLRUClientSessionCache(32)
 	ctx, done := context.WithCancel(ctx)
 	t = &dot{
 		ctx:           ctx,
@@ -87,6 +94,7 @@ func NewTLSTransport(ctx context.Context, id, rawurl string, addrs []string, px 
 	}
 	ech := t.ech()
 	if len(ech) > 0 {
+		echcfg.ClientSessionCache = tls.NewLRUClientSessionCache(32)
 		echcfg.EncryptedClientHelloConfigList = ech
 		t.c3 = dnsclient(echcfg)
 	}
