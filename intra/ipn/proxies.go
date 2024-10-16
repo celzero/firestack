@@ -36,6 +36,7 @@ const (
 	OrbotH1 = x.OrbotH1
 	RpnWg   = x.RpnWg
 	RpnWs   = x.RpnWs
+	Rpn64   = x.Rpn64
 	RpnH2   = x.RpnH2
 
 	SOCKS5   = x.SOCKS5
@@ -525,14 +526,24 @@ func (px *proxifier) RegisterWarp(pub string) ([]byte, error) {
 	return id.Json()
 }
 
-// Implements x.Rpn.
+// Warp Implements x.Rpn.
 func (px *proxifier) Warp() (x.Proxy, error) {
 	return px.ProxyFor(RpnWg)
 }
 
-// Implements x.Rpn.
+// Pip Implements x.Rpn.
 func (px *proxifier) Pip() (x.Proxy, error) {
 	return px.ProxyFor(RpnWs)
+}
+
+// Exit Implements x.Rpn.
+func (px *proxifier) Exit() (x.Proxy, error) {
+	return px.ProxyFor(Exit)
+}
+
+// Exit64 Implements x.Rpn.
+func (px *proxifier) Exit64() (x.Proxy, error) {
+	return px.ProxyFor(Rpn64)
 }
 
 func (px *proxifier) TestWarp() (string, error) {
