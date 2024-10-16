@@ -122,10 +122,18 @@ func (t *piph2) dialtls(network, addr string, cfg *tls.Config) (net.Conn, error)
 	hostname := addr[:colonPos]
 
 	if cfg == nil {
-		cfg = &tls.Config{ServerName: hostname, MinVersion: tls.VersionTLS12}
+		cfg = &tls.Config{
+			ServerName:             hostname,
+			MinVersion:             tls.VersionTLS12,
+			SessionTicketsDisabled: false,
+			ClientSessionCache:     tls.NewLRUClientSessionCache(32),
+		}
 	} else if cfg.ServerName == "" {
 		if cfg = cfg.Clone(); cfg != nil {
 			cfg.ServerName = hostname
+			if cfg.ClientSessionCache == nil && !cfg.SessionTicketsDisabled {
+				cfg.ClientSessionCache = tls.NewLRUClientSessionCache(32)
+			}
 		}
 	}
 
