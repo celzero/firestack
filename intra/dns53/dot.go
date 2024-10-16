@@ -63,7 +63,7 @@ func NewTLSTransport(ctx context.Context, id, rawurl string, addrs []string, px 
 	if parsedurl.Scheme != "tls" {
 		log.I("dot: disabling tls verification for %s", rawurl)
 		tlscfg.InsecureSkipVerify = true
-		// echcfg.InsecureSkipVerify = true
+		echcfg.InsecureSkipVerify = true
 		skipTLSVerify = true
 	}
 	var relay ipn.Proxy
@@ -99,6 +99,7 @@ func NewTLSTransport(ctx context.Context, id, rawurl string, addrs []string, px 
 	if len(ech) > 0 {
 		echcfg.ClientSessionCache = tls.NewLRUClientSessionCache(512)
 		echcfg.EncryptedClientHelloConfigList = ech
+		echcfg.EncryptedClientHelloRejectionVerify = t.echVerifyFn()
 		t.c3 = dnsclient(echcfg)
 	}
 	// local dialer: protect.MakeNsDialer(id, ctl)
@@ -125,6 +126,16 @@ func (t *dot) ech() []byte {
 		return v
 	}
 	log.W("dot: ech(%s): not found", t.host)
+	return nil
+}
+
+func (t *dot) echVerifyFn() func(tls.ConnectionState) error {
+	if t.skipTLSVerify {
+		return func(info tls.ConnectionState) error {
+			log.V("doh: skip ech verify for %s via %s", t.addr, info.ServerName)
+			return nil // never reject
+		}
+	}
 	return nil
 }
 

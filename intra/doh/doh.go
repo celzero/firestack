@@ -219,11 +219,12 @@ func newTransport(ctx context.Context, typ, id, rawurl, otargeturl string, addrs
 	// }
 	if len(ech) > 0 {
 		t.echconfig = &tls.Config{
-			// todo: InsecureSkipVerify:    t.skipTLSVerify,
-			MinVersion:                     tls.VersionTLS13, // must be 1.3
-			EncryptedClientHelloConfigList: ech,
-			SessionTicketsDisabled:         false,
-			ClientSessionCache:             tls.NewLRUClientSessionCache(512),
+			InsecureSkipVerify:                  t.skipTLSVerify,
+			MinVersion:                          tls.VersionTLS13, // must be 1.3
+			EncryptedClientHelloConfigList:      ech,
+			SessionTicketsDisabled:              false,
+			ClientSessionCache:                  tls.NewLRUClientSessionCache(512),
+			EncryptedClientHelloRejectionVerify: t.echVerifyFn(),
 		}
 		t.client3.Transport = h2(t.dial, t.echconfig)
 	}
@@ -263,6 +264,16 @@ func (t *transport) ech() []byte {
 		log.V("doh: ech(%s): sz %d", name, len(v))
 		return v
 	}
+}
+
+func (t *transport) echVerifyFn() func(tls.ConnectionState) error {
+	if t.skipTLSVerify {
+		return func(info tls.ConnectionState) error {
+			log.V("doh: skip ech verify for %s via %s", t.hostname, info.ServerName)
+			return nil // never reject
+		}
+	}
+	return nil
 }
 
 func h2(d protect.DialFn, c *tls.Config) *http.Transport {
