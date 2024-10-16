@@ -111,10 +111,10 @@ func (t *pipws) wsconn(rurl, msg string) (c net.Conn, res *http.Response, err er
 		}
 	}
 	// err nil when there's no ech; err non-nil when ech fails
-	if err != nil || ws == nil { // fallback or use to tls v2
+	if err != nil || ws == nil || res == nil { // fallback or use tls v2
 		closeWs(ws, "fallback")
 
-		log.D("pipws: fallback to tls v2; err? %v", rurl, err)
+		log.D("pipws: fallback to tls v2; err? %v", rurl, err) // err maybe nil
 		ws, res, err = websocket.Dial(ctx, rurl, &websocket.DialOptions{
 			// compression does not work with Workers
 			// CompressionMode: websocket.CompressionNoContextTakeover,
@@ -122,9 +122,13 @@ func (t *pipws) wsconn(rurl, msg string) (c net.Conn, res *http.Response, err er
 			HTTPHeader: hdrs,
 		})
 	}
-	if err != nil {
+	if err != nil || ws == nil || res == nil {
 		closeWs(ws, "dial err")
-		log.E("pipws: dialing %s; err: %v\n", rurl, err)
+		if err == nil {
+			err = errNoProxyConn
+		}
+		log.E("pipws: dialing %s (ws? %t, hres? %t); err: %v\n",
+			rurl, ws == nil, res == nil, err)
 		return
 	}
 
