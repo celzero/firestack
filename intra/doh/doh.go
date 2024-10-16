@@ -217,12 +217,13 @@ func newTransport(ctx context.Context, typ, id, rawurl, otargeturl string, addrs
 	// 		ServerName:           t.hostname,
 	// 	}
 	// }
-	// TODO: ECH
 	if len(ech) > 0 {
 		t.echconfig = &tls.Config{
 			// todo: InsecureSkipVerify:    t.skipTLSVerify,
 			MinVersion:                     tls.VersionTLS13, // must be 1.3
 			EncryptedClientHelloConfigList: ech,
+			SessionTicketsDisabled:         false,
+			ClientSessionCache:             tls.NewLRUClientSessionCache(32),
 		}
 		t.client3.Transport = h2(t.dial, t.echconfig)
 	}
@@ -231,6 +232,8 @@ func newTransport(ctx context.Context, typ, id, rawurl, otargeturl string, addrs
 		MinVersion:         tls.VersionTLS12,
 		// SNI (hostname) must always be inferred from http-request
 		// ServerName:         t.hostname,
+		SessionTicketsDisabled: false,
+		ClientSessionCache:     tls.NewLRUClientSessionCache(32),
 	}
 	// Override the dial function.
 	t.client.Transport = h2(t.dial, t.tlsconfig)
@@ -564,7 +567,7 @@ func (t *transport) do(pid string, req *http.Request) (ans []byte, blocklists, r
 		return
 	}
 	core.Close(httpResponse.Body)
-	log.V("doh: closed response")
+	log.V("doh: closed response of sz %d", len(ans))
 
 	// update the hostname, which could have changed due to a redirect
 	hostname = httpResponse.Request.URL.Hostname()
