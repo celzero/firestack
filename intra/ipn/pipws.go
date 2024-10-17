@@ -116,6 +116,7 @@ func (t *pipws) wsconn(rurl, msg string) (c net.Conn, res *http.Response, err er
 
 		log.D("pipws: fallback to tls v2; err? %v", rurl, err) // err maybe nil
 		ws, res, err = websocket.Dial(ctx, rurl, &websocket.DialOptions{
+			// todo: igvita.com/2013/11/27/configuring-and-optimizing-websocket-compression/
 			// compression does not work with Workers
 			// CompressionMode: websocket.CompressionNoContextTakeover,
 			HTTPClient: &t.client,
