@@ -69,6 +69,7 @@ func (ln *icmplistener) listenICMP(network, address string) (net.PacketConn, err
 		syscall.Close(s)
 		return nil, os.NewSyscallError("bind", err)
 	}
+	// why? github.com/golang/go/issues/15021#issuecomment-308562480
 	f := os.NewFile(uintptr(s), "datagram-oriented icmp")
 	c, cerr = net.FilePacketConn(f)
 	f.Close()

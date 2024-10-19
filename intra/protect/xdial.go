@@ -29,6 +29,8 @@ type DialFn func(network, addr string) (net.Conn, error)
 
 type RDialer interface {
 	// Handle uniquely identifies the concrete type backing this dialer.
+	// Useful as a phantom reference to this dialer.
+	// github.com/hashicorp/terraform/blob/325d18262/internal/configs/configschema/decoder_spec.go#L32
 	Handle() uintptr
 	// Dial creates a connection to the given address,
 	// the resulting net.Conn must be a *net.TCPConn if
