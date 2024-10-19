@@ -223,10 +223,11 @@ func (c *ConnPool[T]) clean() {
 }
 
 func (c *ConnPool[T]) scrub() {
-	if c.closed.Load() {
-		return
-	}
 	for {
+		if c.closed.Load() {
+			return
+		}
+
 		select {
 		case conn := <-c.p:
 			if readable(conn) {
@@ -242,6 +243,7 @@ func (c *ConnPool[T]) scrub() {
 				clos(conn)
 			}
 		case <-c.ctx.Done():
+			return
 		default:
 			return
 		}
