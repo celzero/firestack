@@ -361,10 +361,3 @@ func url2addr(url string) string {
 	}
 	return url
 }
-
-func logev(err error) log.LogFn {
-	if err != nil {
-		return log.E
-	}
-	return log.V
-}
