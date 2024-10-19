@@ -184,7 +184,7 @@ func (t *dnsgateway) qs(t2 Transport, network string, msg *dns.Msg, t1res <-chan
 
 		qname := xdns.QName(msg)
 
-		r, ok := core.Grx("alg.qs."+qname, func() secans {
+		r, ok := core.Grx("alg.qs."+qname, func(_ context.Context) secans {
 			return t.querySecondary(t2, network, msg, t1res)
 		}, timeout)
 

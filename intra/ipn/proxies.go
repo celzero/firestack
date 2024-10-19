@@ -267,7 +267,7 @@ func (px *proxifier) ProxyFor(id string) (Proxy, error) {
 	}
 
 	// go.dev/play/p/xCug1W3OcMH
-	p, ok := core.Grx("pxr.ProxyFor: "+id, func() Proxy {
+	p, ok := core.Grx("pxr.ProxyFor: "+id, func(_ context.Context) Proxy {
 		px.RLock()
 		defer px.RUnlock()
 

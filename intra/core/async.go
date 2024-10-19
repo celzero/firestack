@@ -7,6 +7,7 @@
 package core
 
 import (
+	"context"
 	"errors"
 	"strconv"
 	"time"
@@ -64,11 +65,11 @@ func Gif(cond bool, who string, f func()) {
 	}
 }
 
-func Grx[T any](who string, f func() T, d time.Duration) (zz T, completed bool) {
+func Grx[T any](who string, f func(ctx context.Context) T, d time.Duration) (zz T, completed bool) {
 	ch := make(chan T)
 
-	done := make(chan struct{})
-	defer close(done)
+	ctx, cancel := context.WithTimeout(context.Background(), d)
+	defer cancel()
 
 	timer := time.NewTicker(d)
 	defer timer.Stop()
@@ -79,8 +80,8 @@ func Grx[T any](who string, f func() T, d time.Duration) (zz T, completed bool) 
 		defer close(ch)
 
 		select {
-		case ch <- f():
-		case <-done:
+		case ch <- f(ctx):
+		case <-timer.C:
 		}
 	}()
 

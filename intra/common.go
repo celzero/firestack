@@ -129,7 +129,7 @@ func (h *baseHandler) onFlow(localaddr, target netip.AddrPort) (fm *Mark, undidA
 	undidAlg, ips, doms, pdoms, blocklists = h.undoAlg(target.Addr())
 	hasOldIPs := len(ips) > 0
 	if undidAlg && !hasOldIPs {
-		pre, ok = core.Grx(h.proto+".preflow", func() *PreMark {
+		pre, ok = core.Grx(h.proto+".preflow", func(_ context.Context) *PreMark {
 			return h.listener.Preflow(proto, int32(uid), src, dst, doms)
 		}, onFlowTimeout)
 
@@ -177,7 +177,7 @@ func (h *baseHandler) onFlow(localaddr, target netip.AddrPort) (fm *Mark, undidA
 			h.proto, ips, doms, pdoms, localaddr, target)
 	}
 
-	fm, ok = core.Grx(h.proto+".flow", func() *Mark {
+	fm, ok = core.Grx(h.proto+".flow", func(_ context.Context) *Mark {
 		return h.listener.Flow(proto, int32(uid), src, dst, ips, doms, pdoms, blocklists)
 	}, onFlowTimeout)
 

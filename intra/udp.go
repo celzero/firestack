@@ -111,7 +111,7 @@ func (h *udpHandler) ReverseProxy(gconn *netstack.GUDPConn, in net.Conn, to, fro
 	nn := ntoa("udp")
 	// TODO: default fm as optionsBase or optionsBlock
 	// inflow does not go through nat/alg/dns/proxy
-	fm, ok := core.Grx("udp.inflow", func() *Mark {
+	fm, ok := core.Grx("udp.inflow", func(_ context.Context) *Mark {
 		return h.listener.Inflow(nn, int32(uid), to.String(), from.String())
 	}, onFlowTimeout)
 	if !ok || fm == nil {

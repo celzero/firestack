@@ -14,6 +14,7 @@
 package core
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"sync"
@@ -137,7 +138,7 @@ func (ba *Barrier[T, K]) Do(k K, once Work[T]) (*V[T, K], int) {
 	c = ba.addLocked(k)
 	ba.mu.Unlock()
 
-	if _, completed := Grx("ba.do."+c.id(), func() *V[T, K] {
+	if _, completed := Grx("ba.do."+c.id(), func(_ context.Context) *V[T, K] {
 		c.Val, c.Err = once()
 		return c
 	}, ba.to); !completed {
@@ -162,7 +163,7 @@ func (ba *Barrier[T, K]) Do1(k K, once Work1[T], arg T) (*V[T, K], int) {
 	c = ba.addLocked(k)
 	ba.mu.Unlock()
 
-	if _, completed := Grx("ba.do1."+c.id(), func() *V[T, K] {
+	if _, completed := Grx("ba.do1."+c.id(), func(_ context.Context) *V[T, K] {
 		c.Val, c.Err = once(arg)
 		return c
 	}, ba.to); !completed {
