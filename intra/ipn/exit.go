@@ -35,6 +35,11 @@ func NewExitProxy(c protect.Controller) *exit {
 	return h
 }
 
+// Handle implements Proxy.
+func (h *exit) Handle() uintptr {
+	return core.Loc(h)
+}
+
 // Dial implements Proxy.
 func (h *exit) Dial(network, addr string) (protect.Conn, error) {
 	if h.status.Load() == END {

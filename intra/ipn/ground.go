@@ -8,6 +8,7 @@ package ipn
 
 import (
 	x "github.com/celzero/firestack/intra/backend"
+	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/protect"
 )
 
@@ -28,6 +29,11 @@ func NewGroundProxy() *ground {
 		addr: "[::]:0",
 	}
 	return h
+}
+
+// Handle implements Proxy.
+func (h *ground) Handle() uintptr {
+	return core.Loc(h)
 }
 
 // Dial implements Proxy.

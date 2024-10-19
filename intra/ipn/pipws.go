@@ -267,6 +267,11 @@ func (t *pipws) claim(msg string) []string {
 	return []string{t.token, byte2hex(msgmac)}
 }
 
+// Handle implements Proxy.
+func (t *pipws) Handle() uintptr {
+	return core.Loc(t)
+}
+
 // Dial connects to addr via wsconn over this ws proxy
 func (t *pipws) Dial(network, addr string) (protect.Conn, error) {
 	if t.status.Load() == END {
@@ -319,16 +324,16 @@ func (t *pipws) Dial(network, addr string) (protect.Conn, error) {
 	return c, nil
 }
 
-func (h *pipws) Dialer() protect.RDialer {
-	return h
+func (t *pipws) Dialer() protect.RDialer {
+	return t
 }
 
-func (h *pipws) DNS() string {
+func (*pipws) DNS() string {
 	return nodns
 }
 
-func (h *pipws) ech() []byte {
-	name := h.hostname
+func (t *pipws) ech() []byte {
+	name := t.hostname
 	if len(name) <= 0 {
 		return nil
 	} else if v, err := dialers.ECH(name); err != nil {

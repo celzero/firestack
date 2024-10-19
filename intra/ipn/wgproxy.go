@@ -122,6 +122,11 @@ type WgProxy interface {
 	IpcSet(txt string) error
 }
 
+// Handle implements Proxy.
+func (h *wgproxy) Handle() uintptr {
+	return core.Loc(h)
+}
+
 // Dial implements WgProxy
 func (h *wgproxy) Dial(network, address string) (c protect.Conn, err error) {
 	// ProxyDial resolves address if needed; then dials into all resolved ips.

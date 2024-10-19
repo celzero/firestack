@@ -75,6 +75,11 @@ func NewHTTPProxy(id string, c protect.Controller, po *settings.ProxyOptions) (*
 	return h, nil
 }
 
+// Handle implements Proxy.
+func (h *http1) Handle() uintptr {
+	return core.Loc(h)
+}
+
 // Dial implements Proxy.
 func (h *http1) Dial(network, addr string) (c protect.Conn, err error) {
 	if h.status.Load() == END {

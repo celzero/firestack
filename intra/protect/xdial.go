@@ -28,6 +28,8 @@ type Listener = net.Listener
 type DialFn func(network, addr string) (net.Conn, error)
 
 type RDialer interface {
+	// Handle uniquely identifies the concrete type backing this dialer.
+	Handle() uintptr
 	// Dial creates a connection to the given address,
 	// the resulting net.Conn must be a *net.TCPConn if
 	// network is "tcp" or "tcp4" or "tcp6" and must be
@@ -73,6 +75,10 @@ var (
 	errAnnounce    = errors.New("cannot announce network")
 	errAccept      = errors.New("cannot accept network")
 )
+
+func (d *RDial) Handle() uintptr {
+	return core.Loc(d)
+}
 
 func (d *RDial) dial(network, addr string) (net.Conn, error) {
 	usedialer := d.dialer != nil

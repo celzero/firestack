@@ -280,6 +280,11 @@ func (t *piph2) claim(msg string) []string {
 	return []string{t.token, byte2hex(msgmac)}
 }
 
+// Handle implements Proxy.
+func (h *piph2) Handle() uintptr {
+	return core.Loc(h)
+}
+
 // Dial implements Proxy.
 func (t *piph2) Dial(network, addr string) (protect.Conn, error) {
 	if t.status.Load() == END {

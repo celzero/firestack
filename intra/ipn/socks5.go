@@ -142,6 +142,11 @@ func NewSocks5Proxy(id string, ctl protect.Controller, po *settings.ProxyOptions
 	return h, nil
 }
 
+// Handle implements Proxy.
+func (h *socks5) Handle() uintptr {
+	return core.Loc(h)
+}
+
 // Dial implements Proxy.
 func (h *socks5) Dial(network, addr string) (c protect.Conn, err error) {
 	if h.status == END {

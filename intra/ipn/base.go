@@ -37,6 +37,11 @@ func NewBaseProxy(c protect.Controller) *base {
 	return h
 }
 
+// Handle implements Proxy.
+func (h *base) Handle() uintptr {
+	return core.Loc(h)
+}
+
 // Dial implements the Proxy interface.
 func (h *base) Dial(network, addr string) (c protect.Conn, err error) {
 	if h.status.Load() == END {

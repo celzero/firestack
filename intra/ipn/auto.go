@@ -55,6 +55,11 @@ func NewAutoProxy(ctx context.Context, pxr Proxies) *auto {
 	return h
 }
 
+// Handle implements Proxy.
+func (h *auto) Handle() uintptr {
+	return core.Loc(h)
+}
+
 // Dial implements Proxy.
 func (h *auto) Dial(network, addr string) (protect.Conn, error) {
 	if h.status.Load() == END {
