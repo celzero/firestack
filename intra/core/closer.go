@@ -168,6 +168,17 @@ func CloseOp(c io.Closer, op CloserOp) {
 	}
 }
 
+func Loc(x any) uintptr {
+	v := reflect.ValueOf(x)
+	k := v.Kind()
+	switch k {
+	// [Chan], [Func], [Map], [Pointer], [Slice], [String] or [UnsafePointer]
+	case reflect.Pointer, reflect.UnsafePointer, reflect.String, reflect.Chan, reflect.Func, reflect.Map, reflect.Slice:
+		return v.Pointer()
+	}
+	return 0
+}
+
 // may panic or return false if x is not addressable
 func IsNotNil(x any) bool {
 	return !IsNil(x)
