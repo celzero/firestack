@@ -279,9 +279,11 @@ func canread(sc syscall.Conn) error {
 		return fmt.Errorf("pool: sysconn: %w", err)
 	}
 
-	if useread {
+	if useread { // stackoverflow.com/q/12741386
 		ctlErr = raw.Read(func(fd uintptr) bool {
-			// pitfall: github.com/redis/go-redis/issues/3137
+			// 0 byte reads do not work to detect readability:
+			// see: go-review.googlesource.com/c/go/+/23227
+			// pitfalls: github.com/redis/go-redis/issues/3137
 			var buf [1]byte
 			n, err := syscall.Read(int(fd), buf[:])
 			switch {
