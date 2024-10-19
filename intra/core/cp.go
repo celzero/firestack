@@ -21,6 +21,8 @@ func Pipe(dst io.Writer, src io.Reader) (int64, error) {
 		return 0, errNoPipe
 	}
 
+	// Prefer WriteTo/ReadFrom if available as they are zero-copy.
+	// also: github.com/acln0/zerocopy
 	if x, ok := src.(io.WriterTo); ok {
 		return x.WriteTo(dst)
 	} else if x, ok := dst.(io.ReaderFrom); ok {

@@ -215,5 +215,6 @@ func IsZero(x any) bool {
 		return true
 	}
 	v := reflect.ValueOf(x)
-	return v.IsZero() // panics if x == nil
+	// panics if x == nil: go.dev/play/p/jcJzdHF0JCq
+	return v.IsZero()
 }

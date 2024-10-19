@@ -233,6 +233,7 @@ func (c *ConnPool[T]) scrub() {
 	}
 }
 
+// github.com/golang/go/issues/15735
 func readable(c net.Conn) bool {
 	var err error
 	id := conn2str(c)
