@@ -209,3 +209,11 @@ func TypeEq(a, b any) bool {
 	}
 	return reflect.TypeOf(a) == reflect.TypeOf(b)
 }
+
+func IsZero(x any) bool {
+	if IsNil(x) {
+		return true
+	}
+	v := reflect.ValueOf(x)
+	return v.IsZero() // panics if x == nil
+}
