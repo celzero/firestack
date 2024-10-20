@@ -73,9 +73,7 @@ type DuplexConn interface {
 }
 
 // so it can be pooled by ConnPool.
-type PoolableConn interface {
-	syscall.Conn
-}
+type PoolableConn syscall.Conn
 
 type ICMPConn interface {
 	net.PacketConn
