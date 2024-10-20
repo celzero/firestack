@@ -64,7 +64,7 @@ func maybeGlobalUnicast(addr string, yn bool) bool {
 func ifbind(who string, ctl Controller) func(string, string, syscall.RawConn) error {
 	return func(network, addr string, c syscall.RawConn) (err error) {
 		// addr may be a wildcard aka ":<port>", in which case dst is a zero address.
-		log.D("control: netbinder: %s: %s(%s); err? %v", who, network, addr, err)
+		log.VV("control: netbinder: %s: %s(%s); err? %v", who, network, addr, err)
 		return c.Control(func(fd uintptr) {
 			sock := int(fd)
 			if !maybeGlobalUnicast(addr, true) {
@@ -91,7 +91,7 @@ func ipbind(p Protector) func(string, string, syscall.RawConn) error {
 		src := p.UIP(network)
 		ipaddr, _ := netip.AddrFromSlice(src)
 		origaddr, perr := netip.ParseAddrPort(addr)
-		log.D("control: ipbinder: %s(%s/%w), bindto(%s); err? %v", network, addr, origaddr, ipaddr, perr)
+		log.VV("control: ipbinder: %s(%s/%w), bindto(%s); err? %v", network, addr, origaddr, ipaddr, perr)
 
 		if !maybeGlobalUnicast(addr, true) {
 			// todo: protect fd?
