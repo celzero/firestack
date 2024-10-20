@@ -364,7 +364,7 @@ type DialerOpts struct {
 	// Retry is the retry strategy.
 	Retry int32
 	// LowerKeepAlive is the flag to enable low TCP keep-alive.
-	// Currently, 180s for idle, 5s for interval, and 4 probes.
+	// Currently, 600s for idle, 5s for interval, and 4 probes.
 	LowerKeepAlive bool
 }
 
