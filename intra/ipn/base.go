@@ -55,9 +55,7 @@ func (h *base) Dial(network, addr string) (c protect.Conn, err error) {
 	}
 	defer localDialStatus(h.status, err)
 
-	//Adjust TCP keepalive config if c is a TCPConn
-	protect.SetKeepAliveConfigSockOpt(c)
-
+	maybeKeepAlive(c)
 	log.I("proxy: base: dial(%s) to %s; err? %v", network, addr, err)
 	return
 }

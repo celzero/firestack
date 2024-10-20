@@ -9,6 +9,7 @@ package ipn
 import (
 	"context"
 	"math/rand"
+	"net"
 	"net/netip"
 	"time"
 
@@ -16,6 +17,7 @@ import (
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
+	"github.com/celzero/firestack/intra/settings"
 )
 
 var (
@@ -114,8 +116,7 @@ func (h *auto) Dial(network, addr string) (protect.Conn, error) {
 		h.exp.K(addr, who, ttl30s)
 		h.status.Store(TOK)
 	}
-	// adjust TCP keepalive config if c is a TCPConn
-	protect.SetKeepAliveConfigSockOpt(c)
+	maybeKeepAlive(c)
 	log.I("proxy: auto: w(%d) pin(%t/%d), dial(%s) %s; err? %v",
 		who, recent, previdx, network, addr, err)
 	return c, err
@@ -262,4 +263,11 @@ func ip4to6(prefix96 netip.Prefix, ip4 netip.Addr) netip.Addr {
 		return netip.Addr{}
 	}
 	return netip.AddrFrom16(s6)
+}
+
+func maybeKeepAlive(c net.Conn) {
+	if settings.GetDialerOpts().LowerKeepAlive {
+		// adjust TCP keepalive config if c is a TCPConn
+		core.SetKeepAliveConfigSockOpt(c)
+	}
 }

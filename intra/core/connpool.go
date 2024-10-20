@@ -26,7 +26,13 @@ const poolcapacity = 8                // default capacity
 const maxattempts = poolcapacity / 2  // max attempts to retrieve a conn from pool
 const Nobody = uintptr(0)             // nobody
 const scrubinterval = 5 * time.Minute // interval between subsequent scrubs
+const maxttl = 8 * time.Minute        // close unused pooled conns after this period
 
+// go.dev/play/p/ig2Zpk-LTSv
+var (
+	kaidle     = int(maxttl / 5 / time.Second)  // 8m / 5 => 96s
+	kainterval = int(maxttl / 10 / time.Second) // 8m / 10 => 48s
+)
 var errUnexpectedRead error = errors.New("pool: unexpected read")
 
 type superpool[T comparable] struct {
@@ -124,11 +130,16 @@ func (m *MultConnPool[T]) Put(id T, conn net.Conn) bool {
 	return super.pool.Put(conn)
 }
 
+type timedconn struct {
+	c   net.Conn
+	dob time.Time
+}
+
 // github.com/redis/go-redis/blob/d9eeed13/internal/pool/pool.go
 type ConnPool[T comparable] struct {
 	ctx    context.Context
 	id     T
-	p      chan net.Conn // never closed
+	p      chan timedconn // never closed
 	closed atomic.Bool
 }
 
@@ -136,7 +147,7 @@ func NewConnPool[T comparable](ctx context.Context, id T) *ConnPool[T] {
 	c := &ConnPool[T]{
 		ctx: ctx,
 		id:  id,
-		p:   make(chan net.Conn, poolcapacity),
+		p:   make(chan timedconn, poolcapacity),
 	}
 
 	context.AfterFunc(ctx, c.clean)
@@ -157,13 +168,13 @@ func (c *ConnPool[T]) Get() (zz net.Conn) {
 		for i < maxattempts {
 			i++
 			select {
-			case conn := <-c.p:
-				if readable(conn) {
-					// reset previous timeout
-					_ = conn.SetDeadline(time.Time{})
-					return conn
+			case tconn := <-c.p:
+				// if readable, return conn regardless of its freshness
+				if readable(tconn.c) {
+					nokeepalive(tconn.c)
+					return tconn.c
 				}
-				clos(conn)
+				CloseConn(tconn.c)
 			case <-ctx.Done():
 				return // signal stop
 			default:
@@ -189,8 +200,11 @@ func (c *ConnPool[T]) Put(conn net.Conn) (ok bool) {
 		return
 	}
 
+	tconn := timedconn{conn, time.Now()}
 	select {
-	case c.p <- conn:
+	case c.p <- tconn:
+		cleardeadline(conn) // reset any previous timeout
+		keepalive(conn)
 		return true
 	case <-c.ctx.Done(): // stop
 		return false
@@ -214,8 +228,8 @@ func (c *ConnPool[T]) clean() {
 	log.I("pool: %v closed? %t", c.id, ok)
 	for {
 		select {
-		case conn := <-c.p:
-			clos(conn)
+		case tconn := <-c.p:
+			CloseConn(tconn.c)
 		default:
 			return
 		}
@@ -229,18 +243,18 @@ func (c *ConnPool[T]) scrub() {
 		}
 
 		select {
-		case conn := <-c.p:
-			if readable(conn) {
+		case tconn := <-c.p:
+			if fresh(tconn.dob) && readable(tconn.c) {
 				select {
-				case c.p <- conn:
+				case c.p <- tconn: // update dob only on Put()
 				case <-c.ctx.Done(): // stop
-					clos(conn)
+					CloseConn(tconn.c)
 					return
 				default: // full
-					clos(conn)
+					CloseConn(tconn.c)
 				}
 			} else {
-				clos(conn)
+				CloseConn(tconn.c)
 			}
 		case <-c.ctx.Done():
 			return
@@ -248,6 +262,10 @@ func (c *ConnPool[T]) scrub() {
 			return
 		}
 	}
+}
+
+func fresh(t time.Time) bool {
+	return time.Since(t) < maxttl
 }
 
 // github.com/golang/go/issues/15735
@@ -262,10 +280,6 @@ func readable(c net.Conn) bool {
 	}
 	logev(err)("pool: %s readable? %t; err? %v", id, err == nil, err)
 	return err == nil
-}
-
-func clos(c net.Conn) {
-	CloseConn(c)
 }
 
 // github.com/go-sql-driver/mysql/blob/f20b28636/conncheck.go
@@ -315,6 +329,17 @@ func canread(sc syscall.Conn) error {
 		})
 	}
 	return errors.Join(ctlErr, checkErr) // may return nil
+}
+
+func keepalive(c net.Conn) bool {
+	return SetKeepAliveConfigSockOpt(c, kaidle, kainterval)
+}
+
+func nokeepalive(c net.Conn) bool {
+	if tc, ok := c.(*net.TCPConn); ok {
+		return tc.SetKeepAlive(false) == nil
+	}
+	return false
 }
 
 func logev(err error) log.LogFn {

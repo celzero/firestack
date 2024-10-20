@@ -180,6 +180,12 @@ func extend(c MinConn) {
 	}
 }
 
+func cleardeadline(c MinConn) {
+	if c != nil {
+		_ = c.SetDeadline(time.Time{})
+	}
+}
+
 func payload() (t []byte, tslen int, err error) {
 	randomPayload := make([]byte, 16)
 	_, err = rand.Read(randomPayload[:])

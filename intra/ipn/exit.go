@@ -49,8 +49,7 @@ func (h *exit) Dial(network, addr string) (protect.Conn, error) {
 	// exit always splits
 	c, err := localDialStrat(h.outbound, network, addr)
 	defer localDialStatus(h.status, err)
-	// adjust TCP keepalive config if c is a TCPConn
-	protect.SetKeepAliveConfigSockOpt(c)
+	maybeKeepAlive(c)
 	log.I("proxy: exit: dial(%s) to %s; err? %v", network, addr, err)
 	return c, err
 }
