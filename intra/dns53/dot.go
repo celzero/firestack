@@ -233,7 +233,7 @@ func (t *dot) fromPool(id uintptr) (c *dns.Conn) {
 		clos(pooled)
 		return
 	}
-	log.V("dot: pool: (%s) got conn from %v; %d", t.id, id)
+	log.V("dot: pool: (%s) got conn from %v", t.id, id)
 	return
 }
 
