@@ -18,6 +18,7 @@ import (
 	"io"
 	"net"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/celzero/firestack/intra/core"
@@ -143,3 +144,11 @@ func (s *splitter) CloseRead() error { core.CloseTCPRead(s.conn); return nil }
 
 // CloseWrite implements DuplexConn.
 func (s *splitter) CloseWrite() error { core.CloseTCPWrite(s.conn); return nil }
+
+// SyscallConn implements syscall.Conn.
+func (s *splitter) SyscallConn() (syscall.RawConn, error) {
+	if c := s.conn; c != nil {
+		return c.SyscallConn()
+	}
+	return nil, syscall.EINVAL
+}

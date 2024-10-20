@@ -8,6 +8,7 @@ package core
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"io"
@@ -18,10 +19,11 @@ import (
 	"time"
 
 	"github.com/celzero/firestack/intra/log"
+	"github.com/miekg/dns"
 	"golang.org/x/sys/unix"
 )
 
-const useread = false                 // always false; here for doc purposes
+const useread = false                 // never used; for documentation only
 const poolcapacity = 8                // default capacity
 const maxattempts = poolcapacity / 2  // max attempts to retrieve a conn from pool
 const Nobody = uintptr(0)             // nobody
@@ -33,7 +35,11 @@ var (
 	kaidle     = int(maxttl / 5 / time.Second)  // 8m / 5 => 96s
 	kainterval = int(maxttl / 10 / time.Second) // 8m / 10 => 48s
 )
-var errUnexpectedRead error = errors.New("pool: unexpected read")
+
+var (
+	errUnexpectedRead = errors.New("pool: unexpected read")
+	errNotSyscallConn = errors.New("pool: not a syscall.Conn")
+)
 
 type superpool[T comparable] struct {
 	quit context.CancelFunc
@@ -49,8 +55,9 @@ type MultConnPool[T comparable] struct {
 
 func NewMultConnPool[T comparable](ctx context.Context) *MultConnPool[T] {
 	return &MultConnPool[T]{
-		ctx: ctx,
-		m:   make(map[T]*superpool[T]),
+		ctx:       ctx,
+		m:         make(map[T]*superpool[T]),
+		scrubtime: time.Now(),
 	}
 }
 
@@ -83,7 +90,7 @@ func (m *MultConnPool[T]) scrub() {
 				delete(m.m, id)
 			} else {
 				nscrubbed++
-				Go("poo.scrub", super.pool.scrub)
+				Go("pool.scrub", super.pool.scrub)
 			}
 		}
 
@@ -107,7 +114,7 @@ func (m *MultConnPool[T]) Get(id T) net.Conn {
 	return nil
 }
 
-func (m *MultConnPool[T]) Put(id T, conn net.Conn) bool {
+func (m *MultConnPool[T]) Put(id T, conn net.Conn) (ok bool) {
 	if IsZero(id) || IsNil(conn) {
 		return false
 	}
@@ -130,16 +137,41 @@ func (m *MultConnPool[T]) Put(id T, conn net.Conn) bool {
 	return super.pool.Put(conn)
 }
 
-type timedconn struct {
+type agingconn struct {
 	c   net.Conn
+	sc  syscall.Conn
 	dob time.Time
+	str string
+}
+
+func newAgingConn(c net.Conn) agingconn {
+	s := conn2str(c)
+	if sc, ok := c.(syscall.Conn); ok {
+		return agingconn{c, sc, time.Now(), s}
+	} else if dc, ok := c.(*dns.Conn); ok {
+		if tc, ok := dc.Conn.(*tls.Conn); ok {
+			if sc, ok := tc.NetConn().(syscall.Conn); ok {
+				return agingconn{c, sc, time.Now(), s}
+			}
+			log.W("pool: dns.Conn not sys.Conn: %T", tc.NetConn())
+		} else if dc, ok := dc.Conn.(syscall.Conn); ok {
+			return agingconn{c, dc, time.Now(), s}
+		}
+		log.W("pool: dns.Conn not sys.Conn: %T", dc.Conn)
+	} else if tc, ok := c.(*tls.Conn); ok {
+		if sc, ok := tc.NetConn().(syscall.Conn); ok {
+			return agingconn{c, sc, time.Now(), s}
+		}
+		log.W("pool: conn not a sys.Conn: %T", c)
+	}
+	return agingconn{c, nil, time.Time{}, s}
 }
 
 // github.com/redis/go-redis/blob/d9eeed13/internal/pool/pool.go
 type ConnPool[T comparable] struct {
 	ctx    context.Context
 	id     T
-	p      chan timedconn // never closed
+	p      chan agingconn // never closed
 	closed atomic.Bool
 }
 
@@ -147,7 +179,7 @@ func NewConnPool[T comparable](ctx context.Context, id T) *ConnPool[T] {
 	c := &ConnPool[T]{
 		ctx: ctx,
 		id:  id,
-		p:   make(chan timedconn, poolcapacity),
+		p:   make(chan agingconn, poolcapacity),
 	}
 
 	context.AfterFunc(ctx, c.clean)
@@ -168,13 +200,13 @@ func (c *ConnPool[T]) Get() (zz net.Conn) {
 		for i < maxattempts {
 			i++
 			select {
-			case tconn := <-c.p:
+			case aconn := <-c.p:
 				// if readable, return conn regardless of its freshness
-				if readable(tconn.c) {
-					nokeepalive(tconn.c)
-					return tconn.c
+				if aconn.readable() {
+					aconn.nokeepalive()
+					return aconn.c
 				}
-				CloseConn(tconn.c)
+				(&aconn).close()
 			case <-ctx.Done():
 				return // signal stop
 			default:
@@ -192,7 +224,15 @@ func (c *ConnPool[T]) Get() (zz net.Conn) {
 	return pooled
 }
 
+// Put puts conn back in the pool.
+// Put takes ownership of the conn regardless of the return value.
 func (c *ConnPool[T]) Put(conn net.Conn) (ok bool) {
+	defer func() {
+		if !ok {
+			CloseConn(conn)
+		}
+	}()
+
 	if c.closed.Load() {
 		return
 	}
@@ -200,11 +240,14 @@ func (c *ConnPool[T]) Put(conn net.Conn) (ok bool) {
 		return
 	}
 
-	tconn := timedconn{conn, time.Now()}
+	aconn := newAgingConn(conn)
+	if !aconn.readable() {
+		return false
+	}
+
 	select {
-	case c.p <- tconn:
-		cleardeadline(conn) // reset any previous timeout
-		keepalive(conn)
+	case c.p <- aconn:
+		aconn.keepalive()
 		return true
 	case <-c.ctx.Done(): // stop
 		return false
@@ -218,18 +261,18 @@ func (c *ConnPool[T]) empty() bool {
 }
 
 func (c *ConnPool[T]) full() bool {
-	return len(c.p) >= poolcapacity
+	return len(c.p) > poolcapacity
 }
 
 func (c *ConnPool[T]) clean() {
-	// defer close(c.p)
+	// todo: defer close(c.p)
 
 	ok := c.closed.CompareAndSwap(false, true)
 	log.I("pool: %v closed? %t", c.id, ok)
 	for {
 		select {
-		case tconn := <-c.p:
-			CloseConn(tconn.c)
+		case aconn := <-c.p:
+			(&aconn).close()
 		default:
 			return
 		}
@@ -241,67 +284,89 @@ func (c *ConnPool[T]) scrub() {
 		return
 	}
 
-	staged := make([]timedconn, 0)
+	staged := make([]agingconn, 0)
 	defer func() {
-		for _, tconn := range staged {
+		for _, aconn := range staged {
 			kept := false
 			select {
 			case <-c.ctx.Done(): // closed
 			default:
 				select {
-				case c.p <- tconn: // put it back in
+				case c.p <- aconn: // put it back in
 					kept = true
 				case <-c.ctx.Done(): // closed
 				default: // pool full
 				}
 			}
 			if !kept {
-				CloseConn(tconn.c)
+				(&aconn).close()
 			}
 		}
 	}()
 
 	for {
 		select {
-		case tconn := <-c.p:
-			if fresh(tconn.dob) && readable(tconn.c) {
-				staged = append(staged, tconn)
+		case aconn := <-c.p:
+			if aconn.ok() {
+				staged = append(staged, aconn)
 			} else {
-				CloseConn(tconn.c)
+				(&aconn).close()
 			} // next
-		case <-c.ctx.Done():
+		case <-c.ctx.Done(): // closed
 			return
-		default:
+		default: // empty
 			return
 		}
 	}
 }
 
-func fresh(t time.Time) bool {
-	return time.Since(t) < maxttl
+func (a agingconn) ok() bool {
+	return a.fresh() &&
+		a.readable()
+}
+
+func (a agingconn) fresh() bool {
+	return a.dob != (time.Time{}) &&
+		time.Since(a.dob) < maxttl
+}
+
+func (a *agingconn) close() {
+	a.dob = time.Time{}
+	CloseConn(a.c)
 }
 
 // github.com/golang/go/issues/15735
-func readable(c net.Conn) bool {
-	var err error
-	id := conn2str(c)
-	// must use syscall.Conn: github.com/golang/go/issues/65143
-	switch x := c.(type) {
-	case syscall.Conn:
-		err = canread(x)
-	default:
-	}
-	logev(err)("pool: %s readable? %t; err? %v", id, err == nil, err)
+func (a agingconn) readable() bool {
+	err := a.canread()
+
+	logev(err)("pool: %s sysconn? %T readable? %t; err? %v",
+		a.str, a.c, err == nil, err)
 	return err == nil
+}
+
+func (a agingconn) keepalive() bool {
+	cleardeadline(a.c) // reset any previous timeout
+	return SetKeepAliveConfigSockOpt(a.c, kaidle, kainterval)
+}
+
+func (a agingconn) nokeepalive() bool {
+	if tc, ok := a.c.(*net.TCPConn); ok {
+		return tc.SetKeepAlive(false) == nil
+	}
+	return false
 }
 
 // github.com/go-sql-driver/mysql/blob/f20b28636/conncheck.go
 // github.com/redis/go-redis/blob/cc9bcb0c0/internal/pool/conn_check.go
-func canread(sc syscall.Conn) error {
+func (a agingconn) canread() error {
+	if a.sc == nil {
+		return errNotSyscallConn
+	}
+
 	var checkErr error
 	var ctlErr error
 
-	raw, err := sc.SyscallConn()
+	raw, err := a.sc.SyscallConn()
 	if err != nil {
 		return fmt.Errorf("pool: sysconn: %w", err)
 	}
@@ -342,17 +407,6 @@ func canread(sc syscall.Conn) error {
 		})
 	}
 	return errors.Join(ctlErr, checkErr) // may return nil
-}
-
-func keepalive(c net.Conn) bool {
-	return SetKeepAliveConfigSockOpt(c, kaidle, kainterval)
-}
-
-func nokeepalive(c net.Conn) bool {
-	if tc, ok := c.(*net.TCPConn); ok {
-		return tc.SetKeepAlive(false) == nil
-	}
-	return false
 }
 
 func logev(err error) log.LogFn {

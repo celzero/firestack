@@ -13,6 +13,7 @@ import (
 	"net"
 	"net/netip"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/celzero/firestack/intra/core"
@@ -321,6 +322,14 @@ func (s *overwriteSplitter) SetDeadline(t time.Time) error {
 		return c.SetDeadline(t)
 	}
 	return nil // no-op
+}
+
+// SyscallConn implements syscall.Conn.
+func (s *overwriteSplitter) SyscallConn() (syscall.RawConn, error) {
+	if c := s.conn; c != nil {
+		return c.SyscallConn()
+	}
+	return nil, syscall.EINVAL
 }
 
 // SetReadDeadline implements DuplexConn.

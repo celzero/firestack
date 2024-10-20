@@ -29,6 +29,7 @@ import (
 	"net"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/celzero/firestack/intra/core"
@@ -84,7 +85,7 @@ type retrier struct {
 	retryDoneCh chan struct{} // always unbuffered
 }
 
-var _ core.TCPConn = (*retrier)(nil)
+var _ core.DuplexConn = (*retrier)(nil)
 
 // Helper functions for reading flags.
 // In this package, a "flag" is a thread-safe single-use status indicator that
@@ -139,6 +140,14 @@ func DialWithSplitRetry(d *protect.RDial, addr *net.TCPAddr) (*retrier, error) {
 		return nil, err
 	}
 	return r, nil
+}
+
+func (r *retrier) SyscallConn() (syscall.RawConn, error) {
+	if sc, ok := r.conn.(syscall.Conn); ok {
+		return sc.SyscallConn()
+	}
+	log.W("retrier: not a syscall.Conn: %T", r.conn)
+	return nil, syscall.EINVAL
 }
 
 func (r *retrier) dialStratLocked() (strat int32, err error) {

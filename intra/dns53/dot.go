@@ -210,15 +210,17 @@ func (t *dot) pxdial(pid string) (*dns.Conn, uintptr, error) {
 	return t.tlsdial(px.Dialer())
 }
 
+// toPool takes ownership of c.
 func (t *dot) toPool(id uintptr, c *dns.Conn) {
 	if !usepool || id == core.Nobody {
 		clos(c)
 		return
 	}
 	ok := t.pool.Put(id, c)
-	log.V("dot: pool: (%s) put for %v; ok? %t", t.id, id, ok)
+	logwif(!ok)("dot: pool: (%s) put for %v; ok? %t", t.id, id, ok)
 }
 
+// fromPool returns a conn from the pool, if available.
 func (t *dot) fromPool(id uintptr) (c *dns.Conn) {
 	if !usepool || id == core.Nobody {
 		return
@@ -230,8 +232,7 @@ func (t *dot) fromPool(id uintptr) (c *dns.Conn) {
 	}
 	var ok bool
 	if c, ok = pooled.(*dns.Conn); !ok { // unlikely
-		clos(pooled)
-		return
+		return &dns.Conn{Conn: pooled, UDPSize: t.c.UDPSize}
 	}
 	log.V("dot: pool: (%s) got conn from %v", t.id, id)
 	return
@@ -360,4 +361,11 @@ func url2addr(url string) string {
 		url = net.JoinHostPort(url, DotPort)
 	}
 	return url
+}
+
+func logwif(cond bool) log.LogFn {
+	if cond {
+		return log.W
+	}
+	return log.V
 }

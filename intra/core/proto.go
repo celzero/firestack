@@ -9,6 +9,7 @@ package core
 import (
 	"io"
 	"net"
+	"syscall"
 	"time"
 )
 
@@ -67,7 +68,13 @@ type UDPConn interface {
 // DuplexConn represents a bidirectional stream socket.
 type DuplexConn interface {
 	TCPConn
+	PoolableConn
 	io.ReaderFrom
+}
+
+// so it can be pooled by ConnPool.
+type PoolableConn interface {
+	syscall.Conn
 }
 
 type ICMPConn interface {
