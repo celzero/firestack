@@ -237,25 +237,38 @@ func (c *ConnPool[T]) clean() {
 }
 
 func (c *ConnPool[T]) scrub() {
-	for {
-		if c.closed.Load() {
-			return
-		}
+	if c.closed.Load() {
+		return
+	}
 
+	staged := make([]timedconn, 0)
+	defer func() {
+		for _, tconn := range staged {
+			kept := false
+			select {
+			case <-c.ctx.Done(): // closed
+			default:
+				select {
+				case c.p <- tconn: // put it back in
+					kept = true
+				case <-c.ctx.Done(): // closed
+				default: // pool full
+				}
+			}
+			if !kept {
+				CloseConn(tconn.c)
+			}
+		}
+	}()
+
+	for {
 		select {
 		case tconn := <-c.p:
 			if fresh(tconn.dob) && readable(tconn.c) {
-				select {
-				case c.p <- tconn: // update dob only on Put()
-				case <-c.ctx.Done(): // stop
-					CloseConn(tconn.c)
-					return
-				default: // full
-					CloseConn(tconn.c)
-				}
+				staged = append(staged, tconn)
 			} else {
 				CloseConn(tconn.c)
-			}
+			} // next
 		case <-c.ctx.Done():
 			return
 		default:
