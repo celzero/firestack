@@ -417,5 +417,5 @@ func logevif(e bool) log.LogFn {
 	if e {
 		return log.E
 	}
-	return log.D
+	return log.V
 }
