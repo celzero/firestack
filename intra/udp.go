@@ -74,12 +74,12 @@ type rwext struct {
 	net.Conn
 }
 
-func (rw *rwext) Read(b []byte) (n int, err error) {
+func (rw rwext) Read(b []byte) (n int, err error) {
 	extend(rw.Conn, udptimeout)
 	return rw.Conn.Read(b)
 }
 
-func (rw *rwext) Write(b []byte) (n int, err error) {
+func (rw rwext) Write(b []byte) (n int, err error) {
 	extend(rw.Conn, udptimeout)
 	return rw.Conn.Write(b)
 }
@@ -126,7 +126,7 @@ func (h *udpHandler) ReverseProxy(gconn *netstack.GUDPConn, in net.Conn, to, fro
 	}
 
 	core.Go("udp.reverse:"+cid, func() {
-		h.forward(gconn, &rwext{in}, smm)
+		h.forward(gconn, rwext{in}, smm)
 	})
 	return true
 }
@@ -182,7 +182,7 @@ func (h *udpHandler) proxy(gconn *netstack.GUDPConn, src, dst netip.AddrPort, dm
 	}
 
 	core.Go("udp.forward: "+cid, func() {
-		h.forward(gconn, &rwext{remote}, smm)
+		h.forward(gconn, rwext{remote}, smm)
 	})
 	return true // ok
 }
