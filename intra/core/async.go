@@ -71,9 +71,6 @@ func Grx[T any](who string, f func(ctx context.Context) T, d time.Duration) (zz 
 	ctx, cancel := context.WithTimeout(context.Background(), d)
 	defer cancel()
 
-	timer := time.NewTicker(d)
-	defer timer.Stop()
-
 	// go.dev/play/p/VtWYJrxhXz6
 	go func() {
 		defer Recover(Exit11, who)
@@ -81,14 +78,14 @@ func Grx[T any](who string, f func(ctx context.Context) T, d time.Duration) (zz 
 
 		select {
 		case ch <- f(ctx):
-		case <-timer.C:
+		case <-ctx.Done(): // discard
 		}
 	}()
 
 	select {
 	case out := <-ch:
 		return out, true
-	case <-timer.C:
+	case <-time.After(d):
 	}
 	return zz, false
 }
