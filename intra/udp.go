@@ -107,20 +107,11 @@ func NewUDPHandler(pctx context.Context, resolver dnsx.Resolver, prox ipn.Proxie
 }
 
 func (h *udpHandler) ReverseProxy(gconn *netstack.GUDPConn, in net.Conn, to, from netip.AddrPort) (ok bool) {
-	uid := UNKNOWN_UID
-	nn := ntoa("udp")
-	// TODO: default fm as optionsBase or optionsBlock
-	// inflow does not go through nat/alg/dns/proxy
-	fm, ok := core.Grx("udp.inflow", func(_ context.Context) *Mark {
-		return h.listener.Inflow(nn, int32(uid), to.String(), from.String())
-	}, onFlowTimeout)
-	if !ok || fm == nil {
-		log.E("udp: reverse: inflow timeout %v <= %v", to, from)
-		return false
-	}
-	cid := fm.CID
+	fm := h.onInflow(to, from)
+	cid := fm.CID // may be empty
+	uid := fm.UID // may be empty or unknown
 	pid := fm.PID
-	smm := udpSummary(cid, pid, fm.UID, from.Addr())
+	smm := udpSummary(cid, pid, uid, from.Addr())
 	if pid == ipn.Block {
 		log.I("udp: %s reverse: block %s -> %s", cid, from, to)
 		clos(gconn, in)
@@ -154,7 +145,7 @@ func (h *udpHandler) Error(gconn *netstack.GUDPConn, src, target netip.AddrPort,
 		return
 	}
 	res, _, _, _ := h.onFlow(src, target)
-	cid, pid, uid := splitCidPidUid(res)
+	cid, pid, uid := splitCidPidUid(res) // cid & uid may be empty
 	smm := udpSummary(cid, pid, uid, target.Addr())
 
 	if pid == ipn.Block {
@@ -202,14 +193,11 @@ func (h *udpHandler) Connect(gconn *netstack.GUDPConn, src, target netip.AddrPor
 
 	if !target.IsValid() { // must call h.Bind
 		err = errUdpUnconnected
-	} else { // connect gconn right away, since we assume a duplex-stream from here on
-		// see: h.Connect -> dnsOverride
-		err = gconn.Establish()
-	} // err handled after onFlow, so that the listener knows about this gconn/flow
+	}
 
 	// flow is alg/nat-aware, do not change target or any addrs
 	res, undidAlg, realips, domains := h.onFlow(src, target)
-	cid, pid, uid := splitCidPidUid(res)
+	cid, pid, uid := splitCidPidUid(res) // cid & uid may be empty
 	smm = udpSummary(cid, pid, uid, target.Addr())
 
 	if h.status.Load() == HDLEND {

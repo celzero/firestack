@@ -96,7 +96,7 @@ func (h *tcpHandler) Error(gconn *netstack.GTCPConn, src, dst netip.AddrPort, er
 		return
 	}
 	res, _, _, _ := h.onFlow(src, dst)
-	cid, pid, uid := splitCidPidUid(res)
+	cid, pid, uid := splitCidPidUid(res) // cid & uid may be empty
 	smm := tcpSummary(cid, pid, uid, dst.Addr())
 
 	if pid == ipn.Block {
@@ -106,20 +106,12 @@ func (h *tcpHandler) Error(gconn *netstack.GTCPConn, src, dst netip.AddrPort, er
 }
 
 func (h *tcpHandler) ReverseProxy(gconn *netstack.GTCPConn, in net.Conn, to, from netip.AddrPort) (open bool) {
-	uid := UNKNOWN_UID
-	nn := ntoa("tcp")
-	// TODO: default fm as optionsBase or optionsBlock
-	// inflow does not go through nat/alg/dns/proxy
-	fm, ok := core.Grx("tcp.inflow", func(_ context.Context) *Mark {
-		return h.listener.Inflow(nn, int32(uid), to.String(), from.String())
-	}, onFlowTimeout)
-	if !ok || fm == nil {
-		log.E("tcp: reverse: inflow timeout %v <= %v", to, from)
-		return false
-	}
-	cid := fm.CID
+	fm := h.onInflow(to, from)
+	cid := fm.CID // may be empty
+	uid := fm.UID // may be empty
 	pid := fm.PID
-	smm := tcpSummary(cid, pid, fm.UID, from.Addr())
+	smm := tcpSummary(cid, pid, uid, from.Addr())
+
 	if pid == ipn.Block {
 		log.I("tcp: reverse: block %s => %s", from, to)
 		clos(gconn, in)
@@ -172,7 +164,7 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target netip.AddrPort)
 	// flow/dns-override are nat-aware, as in, they can deal with
 	// nat-ed ips just fine, and so, use target as-is instead of ipx4
 	res, undidAlg, realips, domains := h.onFlow(src, target)
-	cid, pid, uid := splitCidPidUid(res)
+	cid, pid, uid := splitCidPidUid(res) // cid & uid may be empty
 	smm = tcpSummary(cid, pid, uid, target.Addr())
 
 	if h.status.Load() == HDLEND {
