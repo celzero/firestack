@@ -139,9 +139,9 @@ func (ba *Barrier[T, K]) Do(k K, once Work[T]) (*V[T, K], int) {
 	c = ba.addLocked(k)
 	ba.mu.Unlock()
 
-	if _, completed := Grx("ba.do."+c.id(), func(_ context.Context) *V[T, K] {
+	if _, completed := Grx("ba.do."+c.id(), func(_ context.Context) (*V[T, K], error) {
 		c.Val, c.Err = once()
-		return c
+		return c, c.Err
 	}, ba.to); !completed {
 		c.Err = errTimeout
 	}
@@ -164,9 +164,9 @@ func (ba *Barrier[T, K]) Do1(k K, once Work1[T], arg T) (*V[T, K], int) {
 	c = ba.addLocked(k)
 	ba.mu.Unlock()
 
-	if _, completed := Grx("ba.do1."+c.id(), func(_ context.Context) *V[T, K] {
+	if _, completed := Grx("ba.do1."+c.id(), func(_ context.Context) (*V[T, K], error) {
 		c.Val, c.Err = once(arg)
-		return c
+		return c, c.Err
 	}, ba.to); !completed {
 		c.Err = errTimeout
 	}

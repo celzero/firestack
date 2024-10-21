@@ -91,13 +91,41 @@ func newBaseHandler(pctx context.Context, proto string, r dnsx.Resolver, tm *set
 	return h
 }
 
+// to is the local address, from is the remote address.
+func (h *baseHandler) onInflow(to, from netip.AddrPort) (fm *Mark) {
+	blockmode := h.tunMode.BlockMode.Load()
+	fm = optionsBlock
+	// BlockModeNone returns false, BlockModeSink returns true
+	if blockmode == settings.BlockModeSink {
+		return // blocks everything
+	} else if blockmode == settings.BlockModeNone {
+		fm = optionsBase
+	} // else: BlockModeFilter|BlockModeFilterProc
+
+	uid := UNKNOWN_UID  // todo: uid only known on egress?
+	nn := ntoa(h.proto) // -1 unsupported
+
+	// inflow does not go through nat/alg/dns/proxy
+	fm, ok := core.Grx(h.proto+".inflow", func(_ context.Context) (*Mark, error) {
+		return h.listener.Inflow(nn, int32(uid), to.String(), from.String()), nil
+	}, onFlowTimeout)
+
+	if !ok || fm == nil {
+		fm = optionsBlock // fail-safe: block everything
+		log.E("inFlow: %s: timeout %v <= %v", h.proto, to, from)
+		return
+	}
+	// todo: assert fm.PID == ipn.Ingress or ipn.Block
+	return
+}
+
 // onFlow calls listener.Flow to determine egress rules and routes; thread-safe.
 func (h *baseHandler) onFlow(localaddr, target netip.AddrPort) (fm *Mark, undidAlg bool, ips, doms string) {
 	blockmode := h.tunMode.BlockMode.Load()
-	fm = optionsBlock // fail-safe: block everything in the default case
+	fm = optionsBlock
 	// BlockModeNone returns false, BlockModeSink returns true
 	if blockmode == settings.BlockModeSink {
-		return
+		return // blocks
 	} else if blockmode == settings.BlockModeNone {
 		fm = optionsBase
 	} // else: BlockModeFilter|BlockModeFilterProc
@@ -129,8 +157,8 @@ func (h *baseHandler) onFlow(localaddr, target netip.AddrPort) (fm *Mark, undidA
 	undidAlg, ips, doms, pdoms, blocklists = h.undoAlg(target.Addr())
 	hasOldIPs := len(ips) > 0
 	if undidAlg && !hasOldIPs {
-		pre, ok = core.Grx(h.proto+".preflow", func(_ context.Context) *PreMark {
-			return h.listener.Preflow(proto, int32(uid), src, dst, doms)
+		pre, ok = core.Grx(h.proto+".preflow", func(_ context.Context) (*PreMark, error) {
+			return h.listener.Preflow(proto, int32(uid), src, dst, doms), nil
 		}, onFlowTimeout)
 
 		hasNewIPs := false
@@ -177,8 +205,8 @@ func (h *baseHandler) onFlow(localaddr, target netip.AddrPort) (fm *Mark, undidA
 			h.proto, ips, doms, pdoms, localaddr, target)
 	}
 
-	fm, ok = core.Grx(h.proto+".flow", func(_ context.Context) *Mark {
-		return h.listener.Flow(proto, int32(uid), src, dst, ips, doms, pdoms, blocklists)
+	fm, ok = core.Grx(h.proto+".flow", func(_ context.Context) (*Mark, error) {
+		return h.listener.Flow(proto, int32(uid), src, dst, ips, doms, pdoms, blocklists), nil
 	}, onFlowTimeout)
 
 	if fm == nil || !ok { // zeroListener returns nil

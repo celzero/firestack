@@ -449,8 +449,8 @@ func (r *resolver) forward(q []byte, chosenids ...string) (res0 []byte, err0 err
 		return nil, errMissingQueryName
 	}
 
-	pref, oqok := core.Grx("r.onQuery", func(_ context.Context) *x.DNSOpts {
-		return r.listener.OnQuery(qname, qtyp)
+	pref, oqok := core.Grx("r.onQuery", func(_ context.Context) (*x.DNSOpts, error) {
+		return r.listener.OnQuery(qname, qtyp), nil
 	}, onQueryTimeout)
 	if !oqok {
 		log.W("dns: fwd: no preferences for %s", qname)

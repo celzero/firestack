@@ -65,8 +65,8 @@ func Gif(cond bool, who string, f func()) {
 	}
 }
 
-func Grx[T any](who string, f func(ctx context.Context) T, d time.Duration) (zz T, completed bool) {
-	ch := make(chan T)
+func Grx[T any](who string, f WorkCtx[T], d time.Duration) (zz T, completed bool) {
+	ch := make(chan T) // synchronous
 
 	ctx, cancel := context.WithTimeout(context.Background(), d)
 	defer cancel()
@@ -76,10 +76,9 @@ func Grx[T any](who string, f func(ctx context.Context) T, d time.Duration) (zz 
 		defer Recover(Exit11, who)
 		defer close(ch)
 
-		select {
-		case ch <- f(ctx):
-		case <-ctx.Done(): // discard
-		}
+		if out, err := f(ctx); err == nil {
+			ch <- out
+		} // else: discard
 	}()
 
 	select {

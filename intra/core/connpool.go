@@ -37,8 +37,9 @@ var (
 )
 
 var (
-	errUnexpectedRead = errors.New("pool: unexpected read")
-	errNotSyscallConn = errors.New("pool: not a syscall.Conn")
+	errUnexpectedRead   = errors.New("pool: unexpected read")
+	errNotSyscallConn   = errors.New("pool: not a syscall.Conn")
+	errAttemptsExceeded = errors.New("pool: max attempts exceeded")
 )
 
 type superpool[T comparable] struct {
@@ -194,7 +195,7 @@ func (c *ConnPool[T]) Get() (zz net.Conn) {
 		return
 	}
 
-	pooled, complete := Grx("pool.get", func(ctx context.Context) (zz net.Conn) {
+	pooled, complete := Grx("pool.get", func(ctx context.Context) (zz net.Conn, err error) {
 		i := 0
 		for i < poolmaxattempts {
 			i++
@@ -203,7 +204,7 @@ func (c *ConnPool[T]) Get() (zz net.Conn) {
 				// if readable, return conn regardless of its freshness
 				if aconn.readable() {
 					aconn.keepalive(false)
-					return aconn.c
+					return aconn.c, nil
 				}
 				(&aconn).close()
 			case <-ctx.Done():
@@ -212,7 +213,7 @@ func (c *ConnPool[T]) Get() (zz net.Conn) {
 				return // empty
 			}
 		}
-		return // maxattempts exceeded
+		return nil, errAttemptsExceeded // maxattempts exceeded
 	}, timeout)
 
 	empty := IsNil(pooled) // or maxattempts exceeded
