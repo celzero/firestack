@@ -241,7 +241,8 @@ func (h *udpHandler) Connect(gconn *netstack.GUDPConn, src, target netip.AddrPor
 		return nil, smm, err // disconnect
 	}
 
-	if err != nil { // gconn.Establish() failed
+	// connect gconn right away, since we assume a duplex-stream from here on
+	if err = gconn.Establish(); err != nil {
 		log.W("udp: connect: %s gconn.Est, mux? %t, err %s => %s", src, target, mux, err)
 		return nil, smm, err // disconnect
 	}

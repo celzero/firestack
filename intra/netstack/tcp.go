@@ -29,6 +29,9 @@ const rcvwnd = 0
 
 const maxInFlight = 512 // arbitrary
 
+// syn-ack before delivering to handler?
+const earlyConnect = false
+
 var (
 	// defaults: github.com/google/gvisor/blob/fa49677e141db/pkg/tcpip/transport/tcp/protocol.go#L73
 	// idle: 2h; count: 9; interval: 75s
@@ -101,7 +104,7 @@ func tcpForwarder(s *stack.Stack, h GTCPConnHandler) *tcp.Forwarder {
 		gtcp := makeGTCPConn(s, req, src, dst)
 		// setup endpoint right away, so that netstack's internal state is consistent
 		// in case there are multiple forwarders dispatching from the TUN device.
-		if !settings.SingleThreaded.Load() {
+		if earlyConnect && !settings.SingleThreaded.Load() {
 			if open, err := gtcp.tryConnect(); err != nil || !open {
 				log.E("ns: tcp: forwarder: tryConnect err src(%v) => dst(%v); open? %t, err(%v)", src, dst, open, err)
 				if err == nil {
@@ -112,9 +115,16 @@ func tcpForwarder(s *stack.Stack, h GTCPConnHandler) *tcp.Forwarder {
 			}
 		}
 
-		// must always handle it in a separate goroutine as it may block netstack
+		// must not block forever as it may block netstack
 		// see: netstack/dispatcher.go:newReadvDispatcher
-		go h.Proxy(gtcp, src, dst)
+		if earlyConnect {
+			// if gtcp is connected, optimize and proxy async
+			go h.Proxy(gtcp, src, dst)
+		} else {
+			// call the handler in-line, blocking the netstack "processor",
+			// however; handler must r/w to/from src/dst async after connect.
+			h.Proxy(gtcp, src, dst)
+		}
 	})
 }
 

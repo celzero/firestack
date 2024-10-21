@@ -130,7 +130,7 @@ func udpForwarder(s *stack.Stack, h GUDPConnHandler) *udp.Forwarder {
 		gc := makeGUDPConn(s, req, src, dst)
 		// setup to recv right away, so that netstack's internal state is consistent
 		// in case there are multiple forwarders dispatching from the TUN device.
-		if !settings.SingleThreaded.Load() {
+		if earlyConnect && !settings.SingleThreaded.Load() {
 			if err := gc.Establish(); err != nil {
 				log.E("ns: udp: forwarder: connect: %v; src(%v) dst(%v)", err, src, dst)
 				go h.Error(gc, src, dst, err)
@@ -149,14 +149,25 @@ func udpForwarder(s *stack.Stack, h GUDPConnHandler) *udp.Forwarder {
 			return InboundUDP(s, ingress, src, newdst, h)
 		}
 
-		// proxy in a separate gorountine; return immediately
-		// why? netstack/dispatcher.go:newReadvDispatcher
-		if gc.eim {
-			go h.ProxyMux(gc, src, dst, demux)
+		// handler must return as soon as possible, or it'll end up blocking
+		// nestack processors; see: netstack/dispatcher.go:newReadvDispatcher
+		if earlyConnect {
+			// gc is already connected; safe to call the handler async
+			go handle(h, gc, src, dst, demux)
 		} else {
-			go h.Proxy(gc, src, dst)
+			// handler must connect sync; blocking netstack's processor
+			// but perform other ops like r/w to/from src/dst async.
+			handle(h, gc, src, dst, demux)
 		}
 	})
+}
+
+func handle(h GUDPConnHandler, gc *GUDPConn, src, dst netip.AddrPort, demux DemuxerFn) {
+	if gc.eim {
+		h.ProxyMux(gc, src, dst, demux)
+	} else {
+		h.Proxy(gc, src, dst)
+	}
 }
 
 func (g *GUDPConn) ok() bool {
