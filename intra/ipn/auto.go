@@ -19,7 +19,7 @@ import (
 )
 
 var ttl30s = 30 * time.Second
-var shortdelay = 150 * time.Millisecond
+var shortdelay = 200 * time.Millisecond
 
 // exit is a proxy that always dials out to the internet.
 type auto struct {
@@ -84,7 +84,7 @@ func (h *auto) Dial(network, addr string) (protect.Conn, error) {
 			select {
 			case <-ctx.Done():
 				return nil, ctx.Err()
-			case <-time.After(shortdelay * 2):
+			case <-time.After(shortdelay):
 			}
 			return warp.Dialer().Dial(network, addr)
 		}, func(ctx context.Context) (protect.Conn, error) {
@@ -99,7 +99,7 @@ func (h *auto) Dial(network, addr string) (protect.Conn, error) {
 			select {
 			case <-ctx.Done():
 				return nil, ctx.Err()
-			case <-time.After(shortdelay * 2):
+			case <-time.After(shortdelay):
 			}
 			return exit64.Dialer().Dial(network, addr)
 		},

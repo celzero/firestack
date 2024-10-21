@@ -164,6 +164,7 @@ func (t *gtunnel) Write([]byte) (int, error) {
 	return 0, errNoWriter
 }
 
+// fd must be non-blocking.
 func NewGTunnel(pctx context.Context, fd, mtu int, hdl netstack.GConnHandler) (t *gtunnel, rev netstack.GConnHandler, err error) {
 	dupfd, err := dup(fd) // tunnel will own dupfd
 	if err != nil {
