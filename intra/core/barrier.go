@@ -36,6 +36,7 @@ var errTimeout = errors.New("core: timeout")
 // Work is the type of the function to memoize.
 type Work[T any] func() (T, error)
 type Work1[T any] func(T) (T, error)
+type WorkCtx[T any] func(context.Context) (T, error)
 
 // V is an in-flight or completed Barrier.Do V
 type V[T any, K comparable] struct {

@@ -101,7 +101,7 @@ func errPanic(who string) error {
 // Panicking functions are considered as returning an error.
 // If the timeout is reached, errTimeout is returned.
 // Note that, zero value result could be returned if at least one function returns that without any error.
-func Race[T any](who string, timeout time.Duration, fs ...Work[T]) (zz T, fidx int, errs error) {
+func Race[T any](who string, timeout time.Duration, fs ...WorkCtx[T]) (zz T, fidx int, errs error) {
 	type res struct {
 		t   T
 		err error
@@ -109,21 +109,22 @@ func Race[T any](who string, timeout time.Duration, fs ...Work[T]) (zz T, fidx i
 	}
 
 	ch := make(chan *res, len(fs))
-	done := make(chan struct{}) // always unbuffered
-	defer close(done)
+
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
 
 	for i, f := range fs {
 		i, f := i, f
 		fid := who + ".race." + strconv.Itoa(i)
 		Gg(fid, func() {
-			out, err := f()
+			out, err := f(ctx)
 			select {
-			case <-done:
+			case <-ctx.Done(): // discard out, err
 			case ch <- &res{out, err, i}:
 			}
 		}, func() {
 			select {
-			case <-done:
+			case <-ctx.Done(): // discard out, err
 			case ch <- &res{zz, errPanic(fid), i}:
 			}
 		})
