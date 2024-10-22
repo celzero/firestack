@@ -164,6 +164,20 @@ func (ba *Barrier[T, K]) addLocked(k K) *V[T, K] {
 	return v
 }
 
+// DoIt is like Do but returns from once as-is.
+func (ba *Barrier[T, K]) DoIt(k K, once Work[T]) (zz T, err error) {
+	v, _ := ba.Do(k, once)
+	if v == nil || v.Err != nil {
+		if v == nil { // unlikely
+			err = errNoFruitOfLabour
+		} else {
+			err = v.Err
+		}
+		return
+	}
+	return v.Val, nil
+}
+
 // Do executes and returns the results of the given function, making
 // sure that only one execution is in-flight for a given key at a
 // time. If a duplicate comes in, the duplicate caller waits for the
