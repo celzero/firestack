@@ -31,7 +31,16 @@ const (
 	Shared
 )
 
-var errTimeout = errors.New("core: timeout")
+// scrub once per this duration
+var barrierscrubperiod = 5 * time.Minute
+
+// scrub no more than these many elements per cycle
+var barrierscrubcount = 30
+
+var (
+	errTimeout         = errors.New("core: timeout")
+	errNoFruitOfLabour = errors.New("core: Work did not yield results")
+)
 
 // Work is the type of the function to memoize.
 type Work[T any] func() (T, error)
@@ -71,11 +80,14 @@ func (v *V[t, k]) id() string {
 // Barrier represents a class of work and forms a namespace in
 // which units of work can be executed with duplicate suppression.
 type Barrier[T any, K comparable] struct {
-	mu  sync.Mutex     // protects m
-	m   map[K]*V[T, K] // caches in-flight and completed Vs
-	ttl time.Duration  // time-to-live for completed Vs in m
-	neg time.Duration  // time-to-live for errored Vs in m
-	to  time.Duration  // timeout for Do(), Do1(), Go()
+	mu sync.Mutex     // protects m
+	m  map[K]*V[T, K] // caches in-flight and completed Vs
+
+	ttl time.Duration // time-to-live for completed Vs in m
+	neg time.Duration // time-to-live for errored Vs in m
+	to  time.Duration // timeout for Do(), Do1(), Go()
+
+	lastscrub time.Time // last scrub time
 }
 
 func NewKeyedBarrier[T any, K comparable](ttl time.Duration) *Barrier[T, K] {
@@ -92,11 +104,40 @@ func NewBarrier[T any](ttl time.Duration) *Barrier[T, string] {
 // completed Vs (ttl) and errored Vs (neg).
 func NewBarrier2[T any, K comparable](ttl, neg time.Duration) *Barrier[T, K] {
 	return &Barrier[T, K]{
-		m:   make(map[K]*V[T, K]),
-		ttl: ttl,
-		neg: max(1*time.Second /*min neg*/, neg),
-		to:  ttl,
+		m:         make(map[K]*V[T, K]),
+		ttl:       ttl,
+		neg:       max(1*time.Second /*min neg*/, neg),
+		to:        ttl,
+		lastscrub: time.Now(),
 	}
+}
+
+func (ba *Barrier[T, K]) maybeScrubLocked() {
+	now := time.Now()
+	if now.Sub(ba.lastscrub) < barrierscrubperiod {
+		return
+	}
+	ba.lastscrub = now
+
+	Go("ba.scrub", func() {
+		ba.mu.Lock()
+		defer ba.mu.Unlock()
+
+		i := 0
+		for k, v := range ba.m {
+			if i > barrierscrubcount {
+				break
+			}
+			ttl := ba.ttl
+			if v.Err != nil {
+				ttl = ba.neg
+			}
+			if time.Since(v.dob.Add(ttl)) > 0 {
+				delete(ba.m, k)
+			}
+			i++
+		}
+	})
 }
 
 func (ba *Barrier[T, K]) getLocked(k K) (*V[T, K], bool) {
@@ -108,6 +149,7 @@ func (ba *Barrier[T, K]) getLocked(k K) (*V[T, K], bool) {
 		}
 		if time.Since(v.dob.Add(ttl)) > 0 {
 			delete(ba.m, k)
+			ba.maybeScrubLocked()
 			return nil, false
 		}
 	}
