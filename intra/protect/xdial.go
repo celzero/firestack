@@ -15,13 +15,19 @@ import (
 
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/log"
-	"golang.org/x/net/proxy"
+)
+
+var (
+	anyaddr4 = netip.IPv4Unspecified()
+	anyaddr6 = netip.IPv6Unspecified()
 )
 
 // Adapter to keep gomobile happy as it can't export net.Conn
 type Conn = net.Conn
 
 type PacketConn = net.PacketConn
+
+type MinConn = core.MinConn
 
 type Listener = net.Listener
 
@@ -37,6 +43,9 @@ type RDialer interface {
 	// network is "tcp" or "tcp4" or "tcp6" and must be
 	// a *net.UDPConn if network is "udp" or "udp4" or "udp6".
 	Dial(network, addr string) (Conn, error)
+	// DialBind is like Dial but creates a connection to
+	// the remote address bounded from the local address.
+	DialBind(network, local, remote string) (Conn, error)
 	// Announce announces the local address. network must be
 	// packet-oriented ("udp" or "udp4" or "udp6").
 	Announce(network, local string) (PacketConn, error)
@@ -54,7 +63,7 @@ type RDial struct {
 	owner string // owner tag
 
 	// local dialer
-	dialer     proxy.Dialer      // may be nil; used by exit, base, grounded
+	dialer     *net.Dialer       // may be nil; used by exit, base, grounded
 	listen     *net.ListenConfig // may be nil; used by exit, base, grounded
 	listenICMP *icmplistener     // may be nil; used by exit, base, grounded
 
@@ -91,7 +100,8 @@ func (d *RDial) dial(network, addr string) (net.Conn, error) {
 	if usedelegate {
 		return d.delegate.Dial(network, addr)
 	}
-	log.V("xdial: Dial: (r? %t / o: %s) %s %s", usedelegate, d.owner, network, addr)
+	log.V("xdial: Dial: (r? %t / o: %s) %s %s; err: %v",
+		usedelegate, d.owner, network, addr, errNoDialer)
 	return nil, errNoDialer
 }
 
@@ -103,6 +113,54 @@ func (d *RDial) Dial(network, addr string) (net.Conn, error) {
 func (d *RDial) DialContext(_ context.Context, network, addr string) (net.Conn, error) {
 	// TODO: use context to cancel dialing
 	return d.dial(network, addr)
+}
+
+func (d *RDial) DialBind(network, local, remote string) (net.Conn, error) {
+	usedialer := d.dialer != nil
+	usedelegate := d.delegate != nil && core.IsNotNil(d.delegate)
+	if usedialer {
+		var onlyport netip.AddrPort
+		var rd *net.Dialer = new(net.Dialer)
+
+		// shallow copy: go.dev/play/p/tuadSFN3glj
+		*rd = *d.dialer
+
+		if ipp, err := netip.ParseAddrPort(local); err == nil {
+			anyaddr := anyaddr4
+			if ipp.Addr().Is6() {
+				anyaddr = anyaddr6
+			}
+			// ip addr binding is left upto dialer's Control
+			// which is "namespace" aware (on Android)
+			onlyport = netip.AddrPortFrom(anyaddr, ipp.Port())
+		} else {
+			log.W("xdial: DialBind: (o: %s); %s %s=>%s; err: invalid laddr not bound",
+				d.owner, network, local, remote)
+		}
+
+		switch network {
+		case "tcp", "tcp4", "tcp6":
+			if onlyport.IsValid() {
+				rd.LocalAddr = net.TCPAddrFromAddrPort(onlyport)
+				log.V("xdial: DialBind: (o: %s); %s %s=>%s",
+					d.owner, network, rd.LocalAddr, remote)
+			}
+			return rd.Dial(network, remote)
+		case "udp", "udp4", "udp6":
+			if onlyport.IsValid() {
+				rd.LocalAddr = net.UDPAddrFromAddrPort(onlyport)
+				log.V("xdial: DialBind: (o: %s); %s %s=>%s",
+					d.owner, network, rd.LocalAddr, remote)
+			}
+			return rd.Dial(network, remote)
+		}
+	}
+	if usedelegate {
+		return d.delegate.DialBind(network, local, remote)
+	}
+	log.V("xdial: DialBind: (r? %t / o: %s) %s %s=>%s; err: %v",
+		usedelegate, d.owner, network, local, remote, errNoDialer)
+	return nil, errNoDialer
 }
 
 // Accept implements RDialer interface.
@@ -194,14 +252,14 @@ func (d *RDial) Probe(network, local string) (PacketConn, error) {
 func (d *RDial) DialTCP(network string, laddr, raddr *net.TCPAddr) (*net.TCPConn, error) {
 	// grab a mutex if mutating LocalAddr
 	// d.Dialer.LocalAddr = laddr
-	if c, err := d.Dial(network, raddr.String()); err != nil {
+	if c, err := d.DialBind(network, laddr.String(), raddr.String()); err != nil {
 		return nil, err
 	} else if tc, ok := c.(*net.TCPConn); ok {
 		// d.Dialer.LocalAddr = nil
 		return tc, nil
 	} else {
-		log.T("xdial: DialTCP: (%s) to %s, %T is not %T (ok? %t); other errs: %v",
-			d.owner, raddr, c, tc, ok, err)
+		log.T("xdial: DialTCP: (%s) to %s => %s, %T is not %T (ok? %t); other errs: %v",
+			d.owner, laddr, raddr, c, tc, ok, err)
 		// some proxies like wgproxy, socks5 do not vend *net.TCPConn
 		// also errors if retrier (core.DuplexConn) is looped back here
 		clos(c)
@@ -214,14 +272,14 @@ func (d *RDial) DialTCP(network string, laddr, raddr *net.TCPAddr) (*net.TCPConn
 func (d *RDial) DialUDP(network string, laddr, raddr *net.UDPAddr) (*net.UDPConn, error) {
 	// grab a mutex if mutating LocalAddr
 	// d.Dialer.LocalAddr = laddr
-	if c, err := d.Dial(network, raddr.String()); err != nil {
+	if c, err := d.DialBind(network, laddr.String(), raddr.String()); err != nil {
 		return nil, err
 	} else if uc, ok := c.(*net.UDPConn); ok {
 		// d.Dialer.LocalAddr = nil
 		return uc, nil
 	} else {
-		log.T("xdial: DialUDP: (%s) to %s, %T is not %T (ok? %t); other errs: %v",
-			d.owner, raddr, c, uc, ok, err)
+		log.T("xdial: DialUDP: (%s) to %s => %s, %T is not %T (ok? %t); other errs: %v",
+			d.owner, laddr, raddr, c, uc, ok, err)
 		// some proxies like wgproxy, socks5 do not vend *net.UDPConn
 		clos(c)
 		return nil, errNoUDP
