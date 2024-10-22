@@ -108,7 +108,7 @@ func fulladdr(addr string) (a *tcpip.FullAddress, pn tcpip.NetworkProtocolNumber
 	} else {
 		pn = ipv6.ProtocolNumber
 	}
-	if err != nil || !ipp.IsValid() || ipp.Addr().IsUnspecified() {
+	if err != nil || !ipp.IsValid() { // unlikely
 		log.V("tun: dial: invalid addr: proto(%d) %s; err? %v", pn, addr, err)
 		return nil, pn
 	}
