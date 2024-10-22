@@ -62,8 +62,8 @@ func (t *gtunnel) Announce(network, local string) (protect.PacketConn, error) {
 	return nil, &net.OpError{
 		Op:     "tun: announce",
 		Net:    network,
-		Source: netaddr(local),
-		Addr:   nil,
+		Addr:   netaddr(local),
+		Source: nil,
 		Err:    net.UnknownNetworkError(network),
 	}
 }
@@ -84,8 +84,8 @@ func (t *gtunnel) Accept(network, local string) (protect.Listener, error) {
 	return nil, &net.OpError{
 		Op:     "tun: accept",
 		Net:    network,
-		Source: netaddr(local),
-		Addr:   nil,
+		Addr:   netaddr(local),
+		Source: nil,
 		Err:    net.UnknownNetworkError(network),
 	}
 }
@@ -95,8 +95,8 @@ func (t *gtunnel) Probe(network, local string) (protect.PacketConn, error) {
 	// TODO: implement probe
 	return nil, &net.OpError{Op: "probe",
 		Net:    network,
-		Source: netaddr(local),
-		Addr:   nil,
+		Addr:   netaddr(local),
+		Source: nil,
 		Err:    net.UnknownNetworkError(network),
 	}
 }
