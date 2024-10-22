@@ -71,6 +71,7 @@ type Tunnel interface {
 }
 
 type gtunnel struct {
+	ctx    context.Context
 	stack  *stack.Stack              // a tcpip stack
 	ep     netstack.SeamlessEndpoint // endpoint for the stack
 	hdl    netstack.GConnHandler     // tcp, udp, and icmp handlers
@@ -191,6 +192,7 @@ func NewGTunnel(pctx context.Context, fd, mtu int, hdl netstack.GConnHandler) (t
 	log.I("tun: new netstack(%d) up; fd(%d), mtu(%d)", nic, fd, mtu)
 
 	t = &gtunnel{
+		ctx:    pctx,
 		stack:  stack,
 		ep:     ep,
 		hdl:    hdl,
