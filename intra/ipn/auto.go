@@ -38,6 +38,7 @@ func NewAutoProxy(ctx context.Context, pxr Proxies) *auto {
 		pxr:    pxr,
 		addr:   "127.5.51.52:5321",
 		exp:    core.NewExpiringMap2[string, int](ctx),
+		ba:     core.NewBarrier[bool](ttl30s),
 		status: core.NewVolatile(TUP),
 	}
 	return h
@@ -227,4 +228,18 @@ func maybeKeepAlive(c net.Conn) {
 		// adjust TCP keepalive config if c is a TCPConn
 		core.SetKeepAliveConfigSockOpt(c)
 	}
+}
+
+func (h *auto) dialAfterTest(p Proxy, network, local, remote string) (net.Conn, error) {
+	ipp, _ := netip.ParseAddrPort(remote)
+	if reachable, err := h.ba.DoIt(baID(p, remote), icmpReachesWork(p, ipp)); err != nil {
+		return nil, err
+	} else if !reachable {
+		return nil, errUnreachable
+	}
+	return dialProxy(p, network, local, remote)
+}
+
+func baID(p Proxy, ipp string) string {
+	return strconv.Itoa(int(p.Handle())) + ipp
 }
