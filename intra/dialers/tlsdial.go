@@ -34,5 +34,5 @@ func tlsConnect(d *tls.Dialer, proto string, local, remote netip.AddrPort) (net.
 
 func TlsDial(d *tls.Dialer, network, addr string) (net.Conn, error) {
 	d.Config = ensureSni(d.Config, addr)
-	return dialtls(d, d.Config, network, addr, adaptTlsDial(tlsConnect))
+	return dialtls(d, d.Config, network, "", addr, adaptTlsDial(tlsConnect))
 }
