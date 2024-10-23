@@ -14,7 +14,7 @@ import (
 
 var (
 	reapthreshold = 5 * time.Minute
-	maxreapiter   = 100
+	maxreapiter   = 50
 	sizethreshold = 500
 )
 

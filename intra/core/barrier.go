@@ -31,12 +31,6 @@ const (
 	Shared
 )
 
-// scrub once per this duration
-var barrierscrubperiod = 5 * time.Minute
-
-// scrub no more than these many elements per cycle
-var barrierscrubcount = 30
-
 var (
 	errTimeout         = errors.New("core: timeout")
 	errNoFruitOfLabour = errors.New("core: Work did not yield results")
@@ -114,7 +108,7 @@ func NewBarrier2[T any, K comparable](ttl, neg time.Duration) *Barrier[T, K] {
 
 func (ba *Barrier[T, K]) maybeScrubLocked() {
 	now := time.Now()
-	if now.Sub(ba.lastscrub) < barrierscrubperiod {
+	if now.Sub(ba.lastscrub) < reapthreshold {
 		return
 	}
 	ba.lastscrub = now
@@ -125,7 +119,7 @@ func (ba *Barrier[T, K]) maybeScrubLocked() {
 
 		i := 0
 		for k, v := range ba.m {
-			if i > barrierscrubcount {
+			if i > maxreapiter {
 				break
 			}
 			ttl := ba.ttl
