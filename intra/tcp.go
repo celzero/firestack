@@ -146,17 +146,18 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target netip.AddrPort)
 
 	defer func() {
 		if !open {
+			// closing gconn will RST if needed
 			clos(gconn) // gconn may be nil
 		}
 	}()
 
 	if !src.IsValid() || !target.IsValid() {
-		log.E("tcp: nil addr %v -> %v; close err? %v", src, target, err)
+		log.E("tcp: nil addr %s => %s; close err? %v", src, target, err)
 		return deny
 	}
 
 	defer func() {
-		if !open { // when open, smm instead queued by handle() -> forward()
+		if !open { // when open, smm instead queued by handle() => forward()
 			h.queueSummary(smm.done(err)) // smm may be nil
 		}
 	}()
@@ -169,7 +170,7 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target netip.AddrPort)
 
 	if h.status.Load() == HDLEND {
 		err = errTcpEnd
-		log.D("tcp: proxy: end %v -> %v", src, target)
+		log.D("tcp: proxy: end %s => %s", src, target)
 		return deny
 	}
 
@@ -192,7 +193,7 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target netip.AddrPort)
 		if len(actualTargets) > 0 {
 			smm.Target = actualTargets[0].Addr().String()
 		}
-		log.I("tcp: gconn %s firewalled from %s -> %s (dom: %s / real: %s) for %s; stall? %ds",
+		log.I("tcp: gconn %s firewalled from %s => %s (dom: %s / real: %s) for %s; stall? %ds",
 			cid, src, target, domains, realips, uid, secs)
 
 		return deny
@@ -200,8 +201,7 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target netip.AddrPort)
 
 	// handshake; since we assume a duplex-stream from here on
 	if open, err = gconn.Establish(); !open {
-		err = fmt.Errorf("tcp: %s connect err %v; %s -> %s for %s", cid, err, src, target, uid)
-		log.E("%v", err)
+		log.E("tcp: %s connect err %v; %s => %s for %s", cid, err, src, target, uid)
 		return deny // == !open
 	}
 
