@@ -920,7 +920,11 @@ func IPHints(msg *dns.Msg, x dns.SVCBKey) []*netip.Addr {
 			}
 		}
 	}
-	log.D("dnsutil: svcb/https(%s): ip hints %v from %d answers", qname, ips, len(msg.Answer))
+	note := log.D
+	if len(ips) > 0 {
+		note = log.VV
+	}
+	note("dnsutil: svcb/https(%s): ip hints %v from %d answers", qname, ips, len(msg.Answer))
 	return ips
 }
 
