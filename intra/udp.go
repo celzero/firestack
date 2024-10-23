@@ -191,10 +191,6 @@ func (h *udpHandler) proxy(gconn *netstack.GUDPConn, src, dst netip.AddrPort, dm
 func (h *udpHandler) Connect(gconn *netstack.GUDPConn, src, target netip.AddrPort, dmx netstack.DemuxerFn) (pc net.Conn, smm *SocketSummary, err error) {
 	mux := dmx != nil
 
-	if !target.IsValid() { // must call h.Bind
-		err = errUdpUnconnected
-	}
-
 	// flow is alg/nat-aware, do not change target or any addrs
 	res, undidAlg, realips, domains := h.onFlow(src, target)
 	cid, pid, uid := splitCidPidUid(res) // cid & uid may be empty
@@ -203,6 +199,10 @@ func (h *udpHandler) Connect(gconn *netstack.GUDPConn, src, target netip.AddrPor
 	if h.status.Load() == HDLEND {
 		log.D("udp: connect: %s %v => %v, end", cid, src, target)
 		return nil, smm, errUdpEnd // disconnect, no nat
+	}
+
+	if !target.IsValid() { // must call h.Bind?
+		return nil, smm, errUdpUnconnected
 	}
 
 	actualTargets := makeIPPorts(realips, target, 0)
