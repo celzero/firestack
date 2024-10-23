@@ -89,6 +89,10 @@ func (tnet *wgtun) LookupContextHost(ctx context.Context, host string) ([]netip.
 // --------------------------------------------------------------------
 
 func (tnet *wgtun) DialContext(_ context.Context, network, address string) (net.Conn, error) {
+	return tnet.dial(network, "", address)
+}
+
+func (tnet *wgtun) dial(network, local, remote string) (net.Conn, error) {
 	var acceptV4, acceptV6 bool
 	switch network {
 	case "tcp", "udp", "ping":
@@ -99,20 +103,20 @@ func (tnet *wgtun) DialContext(_ context.Context, network, address string) (net.
 	case "tcp6", "udp6", "ping6":
 		acceptV6 = true
 	default:
-		log.W("wg: dial: unknown network %q", network)
+		log.W("wg: dial: unknown network %q for %s => %s", network, local, remote)
 		return nil, &net.OpError{Op: "dial", Err: net.UnknownNetworkError(network)}
 	}
 
 	var host string
 	var port int
 	if network == "ping" || network == "ping4" || network == "ping6" {
-		host = address
+		host = remote
 	} else {
 		var sport string
 		var err error
-		host, sport, err = net.SplitHostPort(address)
+		host, sport, err = net.SplitHostPort(remote)
 		if err != nil {
-			log.W("wg: dial: invalid address %q: %v", address, err)
+			log.W("wg: dial: invalid address %q: %v", remote, err)
 			return nil, &net.OpError{Op: "dial", Err: err}
 		}
 		port, err = strconv.Atoi(sport)
@@ -140,30 +144,41 @@ func (tnet *wgtun) DialContext(_ context.Context, network, address string) (net.
 		return nil, &net.OpError{Op: "dial", Err: errNoSuitableAddress}
 	}
 
+	var laddr4, laddr6 netip.AddrPort
+	if _, port, err := net.SplitHostPort(local); err == nil {
+		portno, _ := strconv.Atoi(port)
+		laddr4 = netip.AddrPortFrom(anyaddr4, uint16(portno))
+		laddr6 = netip.AddrPortFrom(anyaddr6, uint16(portno))
+	}
+
 	var errs error
-	for i, addr := range addrs {
+	for i, raddr := range addrs {
+		laddr := laddr6 // laddr6 may be invalid
+		if raddr.Addr().Is4() {
+			laddr = laddr4 // laddr4 may be invalid
+		}
 		var c net.Conn
 		var err error
 		switch network {
 		case "tcp", "tcp4", "tcp6":
-			c, err = tnet.DialTCPAddrPort(addr)
+			c, err = tnet.DialTCPAddrPort(laddr, raddr)
 		case "udp", "udp4", "udp6":
-			c, err = tnet.DialUDPAddrPort(netip.AddrPort{}, addr)
+			c, err = tnet.DialUDPAddrPort(laddr, raddr)
 		case "ping", "ping4", "ping6":
-			c, err = tnet.DialPing(netip.Addr{}, addr.Addr())
+			c, err = tnet.DialPing(laddr, raddr)
 		}
-		log.I("wg: dial: %s: #%d %v", network, i, addr)
+		log.I("wg: dial: %s: #%d %s => %s", network, i, laddr, raddr)
 		if err == nil {
-			dialers.Confirm(host, addr.Addr())
+			dialers.Confirm(host, raddr.Addr())
 			return c, nil
 		}
-		dialers.Disconfirm(host, addr.Addr())
+		dialers.Disconfirm(host, raddr.Addr())
 		errs = errors.Join(errs, err)
 	}
 	if errs == nil {
 		errs = &net.OpError{Op: "dial", Err: errMissingAddress}
 	}
-	log.W("wg: dial: %s: %v failed: %v", network, addrs, errs)
+	log.W("wg: dial: %s: %s failed: %v", network, addrs, errs)
 	return nil, errs
 }
 
@@ -209,9 +224,18 @@ func (tnet *wgtun) DialContextTCPAddrPort(ctx context.Context, addr netip.AddrPo
 	return gonet.DialContextTCP(ctx, tnet.stack, faddr, protocol)
 }
 
-func (tnet *wgtun) DialTCPAddrPort(addr netip.AddrPort) (*gonet.TCPConn, error) {
-	faddr, protocol := fullAddrFrom(addr)
-	return gonet.DialTCP(tnet.stack, faddr, protocol)
+func (tnet *wgtun) DialTCPAddrPort(laddr, raddr netip.AddrPort) (*gonet.TCPConn, error) {
+	remote, protocol := fullAddrFrom(raddr) // prefer "proto" from remote
+	local, _ := fullAddrFrom(laddr)
+	ctx := context.Background()
+	// return gonet.DialTCP(tnet.stack, remote, protocol)
+	return gonet.DialTCPWithBind(
+		ctx,
+		tnet.stack,
+		local,  // may be zero value
+		remote, // should not be zero value
+		protocol,
+	)
 }
 
 func (tnet *wgtun) ListenTCPAddrPort(addr netip.AddrPort) (*gonet.TCPListener, error) {
@@ -263,6 +287,6 @@ func (tnet *wgtun) ListenPing(laddr netip.Addr) (*netstack.GICMPConn, error) {
 	return netstack.DialPingAddr(tnet.stack, wgnic, laddr, netip.Addr{})
 }
 
-func (tnet *wgtun) DialPing(laddr, raddr netip.Addr) (*netstack.GICMPConn, error) {
-	return netstack.DialPingAddr(tnet.stack, wgnic, laddr, raddr)
+func (tnet *wgtun) DialPing(local, remote netip.AddrPort) (*netstack.GICMPConn, error) {
+	return netstack.DialPingAddr(tnet.stack, wgnic, local.Addr(), remote.Addr())
 }

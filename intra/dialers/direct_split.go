@@ -23,7 +23,6 @@ import (
 
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/log"
-	"github.com/celzero/firestack/intra/protect"
 	"github.com/celzero/firestack/intra/settings"
 )
 
@@ -34,29 +33,6 @@ type splitter struct {
 }
 
 var _ core.DuplexConn = (*splitter)(nil)
-
-// dialWithSplitStrat returns a TCP connection that always splits the initial upstream segment
-// using the specified strategy, strat, which is one of the settings.Split* constants.
-func dialWithSplitStrat(dialStrat int32, d *protect.RDial, addr *net.TCPAddr) (core.DuplexConn, error) {
-	switch dialStrat {
-	case settings.SplitNever:
-		return d.DialTCP(addr.Network(), nil, addr)
-	case settings.SplitDesync:
-		return dialWithSplitAndDesync(d, addr.AddrPort())
-	case settings.SplitTCP, settings.SplitTCPOrTLS:
-		fallthrough
-	default:
-	}
-	conn, err := d.DialTCP(addr.Network(), nil, addr)
-	if err != nil {
-		return nil, err
-	}
-	if conn == nil {
-		return nil, errNoConn
-	}
-	// todo: strat must be tcp or tls
-	return &splitter{conn: conn, strat: dialStrat}, nil
-}
 
 // Write implements DuplexConn.
 func (s *splitter) Write(b []byte) (n int, err error) {

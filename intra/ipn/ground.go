@@ -41,6 +41,11 @@ func (h *ground) Dial(network, addr string) (protect.Conn, error) {
 	return nil, errNoProxyResponse
 }
 
+// DialBind implements Proxy.
+func (h *ground) DialBind(network, local, remote string) (protect.Conn, error) {
+	return nil, errNoProxyResponse
+}
+
 // Announce implements Proxy.
 func (h *ground) Announce(network, local string) (protect.PacketConn, error) {
 	return nil, errNoProxyResponse

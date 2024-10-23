@@ -8,6 +8,7 @@ package ipn
 
 import (
 	"math/rand"
+	"net"
 	"net/netip"
 
 	x "github.com/celzero/firestack/intra/backend"
@@ -27,6 +28,9 @@ var (
 		netip.MustParsePrefix("2001:67c:2960:6464::/96"),    // level66
 		netip.MustParsePrefix("2001:67c:2b0:db32:0:1::/96"), // trex
 	}
+
+	anyaddr4 = netip.IPv4Unspecified()
+	anyaddr6 = netip.IPv6Unspecified()
 )
 
 // exit64 is a proxy that always dials out to the internet
@@ -58,21 +62,33 @@ func (h *exit64) Handle() uintptr {
 
 // Dial implements Proxy.
 func (h *exit64) Dial(network, addr string) (protect.Conn, error) {
+	return h.dial(network, "", addr)
+}
+
+// DialBind implements Proxy.
+func (h *exit64) DialBind(network, local, remote string) (protect.Conn, error) {
+	return h.dial(network, local, remote)
+}
+
+func (h *exit64) dial(network, local, remote string) (protect.Conn, error) {
 	if h.status.Load() == END {
 		return nil, errProxyStopped
 	}
-	addr64 := addr4to6(addr)
 
-	if len(addr64) <= 0 {
+	addr64 := addr4to6(remote)
+	local64 := anyaddr4to6(local)
+	if len(addr64) <= 0 || (len(local) > 0 && len(local64) <= 0) {
 		return nil, errNoAuto464XLAT
 	}
 
 	// exit64 always splits
-	c, err := localDialStrat(h.outbound, network, addr64)
+	c, err := localDialStrat(h.outbound, network, local64, addr64)
 	defer localDialStatus(h.status, err)
-	maybeKeepAlive(c)
 
-	log.I("proxy: exit64: dial(%s) via %s to %s; err? %v", network, addr, addr64, err)
+	maybeKeepAlive(c)
+	log.I("proxy: exit64: dial(%s) %s via %s to %s; err? %v",
+		network, local64, remote, addr64, err)
+
 	return c, err
 }
 
@@ -229,4 +245,11 @@ func ip4to6(prefix96 netip.Prefix, ip4 netip.Addr) netip.Addr {
 		return netip.Addr{}
 	}
 	return netip.AddrFrom16(s6)
+}
+
+func anyaddr4to6(addr string) string {
+	if _, port, err := net.SplitHostPort(addr); err == nil {
+		return net.JoinHostPort(anyaddr6.String(), port)
+	}
+	return addr
 }

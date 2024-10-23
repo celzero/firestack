@@ -31,7 +31,6 @@ import (
 
 	x "github.com/celzero/firestack/intra/backend"
 	"github.com/celzero/firestack/intra/core"
-	"github.com/celzero/firestack/intra/dialers"
 	"github.com/celzero/firestack/intra/ipn/multihost"
 	"github.com/celzero/firestack/intra/ipn/warp"
 	"github.com/celzero/firestack/intra/ipn/wg"
@@ -127,21 +126,26 @@ func (h *wgproxy) Handle() uintptr {
 	return core.Loc(h)
 }
 
-// Dial implements WgProxy
+// Dial implements Proxy.
 func (h *wgproxy) Dial(network, address string) (c protect.Conn, err error) {
 	// ProxyDial resolves address if needed; then dials into all resolved ips.
-	return dialers.ProxyDial(h.wgtun, network, address)
+	// return dialers.ProxyDial(h.wgtun, network, address)
+	return h.wgtun.Dial(network, address)
+}
+
+// DialBind implements Proxy.
+func (h *wgproxy) DialBind(network, local, remote string) (c protect.Conn, err error) {
+	// return dialers.ProxyDialBindh.wgtun, network, local, remote)
+	return h.wgtun.DialBind(network, local, remote)
 }
 
 // Announce implements Proxy.
 func (h *wgproxy) Announce(network, local string) (net.PacketConn, error) {
-	// todo: dialers.ProxyListenPacket(h.wgtun, network, local)
 	return h.wgtun.Announce(network, local)
 }
 
 // Accept implements Proxy.
 func (h *wgproxy) Accept(network, local string) (net.Listener, error) {
-	// todo: dialers.ProxyListen(h.wgtun, network, local)
 	return h.wgtun.Accept(network, local)
 }
 
@@ -301,7 +305,7 @@ func (w *wgproxy) update(id, txt string) bool {
 
 	// reusing existing tunnel (interface config unchanged)
 	// but peer config may have changed!
-	log.I("proxy: wg: update(%s): reuse; allowed: %d->%d; peers: %d->%d; dns: %d->%d; endpoint: %d->%d",
+	log.I("proxy: wg: update(%s): reuse; allowed: %d=>%d; peers: %d=>%d; dns: %d=>%d; endpoint: %d=>%d",
 		w.id, w.rt.Len(), len(allowed), len(w.peers.Load()), len(peers), w.dns.Load().Len(), dnsh.Len(),
 		w.remote.Load().Len() /*remote.Load may return nil*/, peersh.Len())
 	w.peers.Store(peers) // re-assignment is okay (map entry modification is not)
@@ -783,7 +787,7 @@ func (tun *wgtun) BatchSize() int {
 
 // Dial implements proxy.Dialer and protect.RDialer
 func (h *wgtun) Dial(network, address string) (c net.Conn, err error) {
-	// wgproxy.Dial -> dialers.ProxyDial -> wgtun.Dial
+	// wgproxy.Dial => dialers.ProxyDial => wgtun.Dial
 	if h.status.Load() == END {
 		return nil, errProxyStopped
 	}
@@ -799,9 +803,27 @@ func (h *wgtun) Dial(network, address string) (c net.Conn, err error) {
 	return
 }
 
+// DialBind implements proxy.Dialer and protect.RDialer
+func (h *wgtun) DialBind(network, local, remote string) (c net.Conn, err error) {
+	// wgproxy.DialBind => wgtun.Dial
+	if h.status.Load() == END {
+		return nil, errProxyStopped
+	}
+
+	log.D("wg: %s dialbind: start %s %s=>%s", h.id, network, local, remote)
+
+	// DialContext resolves addr if needed; then dialing into all resolved ips.
+	if c, err = h.DialContext(context.TODO(), network, remote); err != nil {
+		h.status.Store(TKO)
+	} // else: status updated by h.listener
+
+	log.I("wg: %s dial: end %s %s; err %v", h.id, network, remote, err)
+	return
+}
+
 // Announce implements protect.RDialer
 func (h *wgtun) Announce(network, local string) (pc net.PacketConn, err error) {
-	// wgproxy.Dial -> dialers.ProxyListenPacket -> protect.AnnounceUDP -> wgtun.Announce
+	// wgproxy.Dial => dialers.ProxyListenPacket => protect.AnnounceUDP => wgtun.Announce
 	if h.status.Load() == END {
 		return nil, errProxyStopped
 	}
@@ -821,7 +843,7 @@ func (h *wgtun) Announce(network, local string) (pc net.PacketConn, err error) {
 
 // Accept implements protect.RDialer
 func (h *wgtun) Accept(network, local string) (ln net.Listener, err error) {
-	// wgproxy.Dial -> dialers.ProxyListen -> protect.AcceptTCP -> wgtun.Accept
+	// wgproxy.Dial => dialers.ProxyListen => protect.AcceptTCP => wgtun.Accept
 	if h.status.Load() == END {
 		return nil, errProxyStopped
 	}
@@ -841,7 +863,7 @@ func (h *wgtun) Accept(network, local string) (ln net.Listener, err error) {
 
 // Probe implements protect.RDialer
 func (h *wgtun) Probe(network, local string) (pc net.PacketConn, err error) {
-	// wgproxy.Dial -> dialers.ProxyListen -> protect.AcceptTCP -> wgtun.Accept
+	// wgproxy.Dial => dialers.ProxyListen => protect.AcceptTCP => wgtun.Accept
 	if h.status.Load() == END {
 		return nil, errProxyStopped
 	}

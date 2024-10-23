@@ -50,6 +50,30 @@ func (t *gtunnel) Dial(network, addr string) (protect.Conn, error) {
 	}
 }
 
+// Dial implements protect.RDialer.
+func (t *gtunnel) DialBind(network, local, remote string) (protect.Conn, error) {
+	taddr, proto := fulladdr(remote) // taddr may be nil
+	laddr, _ := fulladdr(local)      // stack must allow spoofing
+	switch network {
+	case "tcp", "tcp4", "tcp6":
+		if taddr == nil {
+			taddr = &tcpip.FullAddress{}
+		}
+		return gonet.DialTCPWithBind(t.ctx, t.stack, *laddr, *taddr, proto)
+	case "udp", "udp4", "udp6":
+		return gonet.DialUDP(t.stack, laddr, taddr, proto)
+	}
+
+	log.E("tun: dial: invalid network: %s to %s<=%s", network, remote, local)
+	return nil, &net.OpError{
+		Op:     "tun: dialbind",
+		Net:    network,
+		Source: netaddr(remote),
+		Addr:   netaddr(local),
+		Err:    net.UnknownNetworkError(network),
+	}
+}
+
 // Announce implements protect.RDialer.
 func (t *gtunnel) Announce(network, local string) (protect.PacketConn, error) {
 	taddr, proto := fulladdr(local) // taddr may be nil

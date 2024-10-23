@@ -42,7 +42,7 @@ var ttlcache = core.NewDefaultSieve[netip.Addr, int]()
 // Inspired by byedpi: github.com/hufrea/byedpi/blob/82e5229df00/desync.c#L69-L123
 type overwriteSplitter struct {
 	conn    *net.TCPConn // underlying connection
-	used    atomic.Bool  // ensures desync only runs once
+	used    atomic.Bool  // set to true to stop desync writer
 	ttl     int          // desync TTL
 	ip6     bool         // IPv6
 	payload []byte       // must be smaller than 1st written packet
@@ -175,32 +175,23 @@ func tracert(d *protect.RDial, ipp netip.AddrPort, basePort int) (*net.UDPConn, 
 // If `payload` is smaller than the initial upstream segment, it launches the attack and splits.
 // This traceroute is not accurate, because of time limit (TCP handshake).
 // Note: The path the UDP packet took to reach the destination may differ from the path the TCP packet took.
-func desyncWithTraceroute(d *protect.RDial, ipp netip.AddrPort) (*overwriteSplitter, error) {
+func desyncWithTraceroute(d *protect.RDial, local, remote netip.AddrPort) (*overwriteSplitter, error) {
+	const maxport = 65535
 	measureTTL := true
-	isIPv6 := ipp.Addr().Is6()
-	basePort := 1 + rand.Intn(65535-desync_max_ttl) //#nosec G404
+	isIPv6 := remote.Addr().Is6()
+	basePort := 1 + rand.Intn(maxport-desync_max_ttl) //#nosec G404
 
-	uc, udpFD, err := tracert(d, ipp, basePort)
+	uc, udpFD, err := tracert(d, remote, basePort)
 	defer core.Close(uc)
 
-	logeif(err)("desync: dialUDP %v %d: err? %v", ipp, udpFD, err)
+	logeif(err)("desync: dialUDP %s => %s %d: err? %v", local, remote, udpFD, err)
 	if err != nil {
 		measureTTL = false
 	}
 
-	proto := "tcp4"
-	if isIPv6 {
-		proto = "tcp6"
-	}
-
-	tcpConn, err := d.DialTCP(proto, nil, net.TCPAddrFromAddrPort(ipp))
+	oc, err := desyncWithFixedTtl(d, local, remote, desync_noop_ttl)
 	if err != nil {
-		log.E("desync: dialTCP %v err: %v", ipp, err)
 		return nil, err
-	}
-	if tcpConn == nil {
-		log.E("desync: dialTCP %v err: %v", ipp, errNoConn)
-		return nil, errNoConn
 	}
 
 	var msgBuf [probeSize]byte
@@ -213,25 +204,17 @@ func desyncWithTraceroute(d *protect.RDial, ipp netip.AddrPort) (*overwriteSplit
 		core.Recycle(bptr)
 	}()
 
-	oc := &overwriteSplitter{
-		conn:    tcpConn,
-		ttl:     desync_noop_ttl,
-		payload: []byte(desync_http1_1str),
-		ip6:     isIPv6,
-	}
-
-	processed := false
 	// after TCP handshake, check received ICMP messages, if measureTTL is true.
 	for i := 0; i < desync_max_ttl-1 && measureTTL; i += desync_delta_ttl {
 		_, cmsgN, _, from, err := unix.Recvmsg(udpFD, msgBuf[:], cmsgBuf[:], unix.MSG_ERRQUEUE)
 		if err != nil {
-			log.V("desync: recvmsg %v, err: %v", ipp, err)
+			log.V("desync: recvmsg %v, err: %v", remote, err)
 			break
 		}
 
 		cmsgs, err := unix.ParseSocketControlMessage(cmsgBuf[:cmsgN])
 		if err != nil {
-			log.W("desync: parseSocketControlMessage %v failed: %v", ipp, err)
+			log.W("desync: parseSocketControlMessage %v failed: %v", remote, err)
 			continue
 		}
 
@@ -241,7 +224,6 @@ func desyncWithTraceroute(d *protect.RDial, ipp netip.AddrPort) (*overwriteSplit
 				ttl := fromPort - basePort
 				if ttl <= desync_max_ttl {
 					oc.ttl = max(oc.ttl, ttl)
-					processed = true
 				} // else: corrupted packet?
 			}
 		} else {
@@ -250,39 +232,57 @@ func desyncWithTraceroute(d *protect.RDial, ipp netip.AddrPort) (*overwriteSplit
 				ttl := fromPort - basePort
 				if ttl <= desync_max_ttl {
 					oc.ttl = max(oc.ttl, ttl)
-					processed = true
 				} // else: corrupted packet?
 			}
 		}
 	}
 
-	if !processed {
-		// skip desync if no measurement is done
-		oc.used.Store(false)
-		oc.ttl = desync_invalid_ttl
-	}
+	// skip or apply desync depending on whether
+	// the measurement is successful.
+	avoidDesync := oc.ttl <= desync_noop_ttl
 
-	log.D("desync: done: %v, used? %t, ttl: %d", ipp, oc.used.Load(), oc.ttl)
+	oc.used.Store(avoidDesync)
+
+	log.D("desync: done: %v, do desync? %t, ttl: %d", remote, !avoidDesync, oc.ttl)
 
 	return oc, nil
 }
 
-func desyncWithFixedTtl(d *protect.RDial, ipp netip.AddrPort, initialTTL int) (*overwriteSplitter, error) {
-	tcpConn, err := d.DialTCP("tcp", nil, net.TCPAddrFromAddrPort(ipp))
+func desyncWithFixedTtl(d *protect.RDial, local, remote netip.AddrPort, initialTTL int) (*overwriteSplitter, error) {
+	var raddr *net.TCPAddr = net.TCPAddrFromAddrPort(remote)
+	var laddr *net.TCPAddr // nil is valid
+	if local.IsValid() {
+		laddr = net.TCPAddrFromAddrPort(local)
+	}
+
+	isIPv6 := remote.Addr().Is6()
+	// skip desync if no measurement is done
+	avoidDesync := initialTTL <= desync_noop_ttl
+
+	proto := "tcp4"
+	if isIPv6 {
+		proto = "tcp6"
+	}
+
+	tcpConn, err := d.DialTCP(proto, laddr, raddr)
+
+	logeif(err)("desync: dialTCP: %s => %s, do desync? %t, ttl: %d",
+		laddr, raddr, !avoidDesync, initialTTL)
+
 	if err != nil {
 		return nil, err
-	}
-	if tcpConn == nil {
+	} else if tcpConn == nil {
 		return nil, errNoConn
 	}
+
 	s := &overwriteSplitter{
 		conn:    tcpConn,
 		ttl:     initialTTL,
 		payload: []byte(desync_http1_1str),
-		ip6:     ipp.Addr().Is6(),
+		ip6:     isIPv6,
 	}
-	// skip desync if no measurement is done
-	s.used.Store(s.ttl == desync_invalid_ttl)
+	s.used.Store(avoidDesync)
+
 	return s, nil
 }
 
@@ -290,14 +290,22 @@ func desyncWithFixedTtl(d *protect.RDial, ipp netip.AddrPort, initialTTL int) (*
 // then returns a TCP connection that may launch TCB Desynchronization
 // and split the initial upstream segment.
 // ref: github.com/bol-van/zapret/blob/c369f11638/docs/readme.eng.md#dpi-desync-attack
-func dialWithSplitAndDesync(d *protect.RDial, ipp netip.AddrPort) (*overwriteSplitter, error) {
-	ttl, ok := ttlcache.Get(ipp.Addr())
-	if ok {
-		return desyncWithFixedTtl(d, ipp, ttl)
+func dialWithSplitAndDesync(d *protect.RDial, laddr, raddr *net.TCPAddr) (*overwriteSplitter, error) {
+	remote := raddr.AddrPort() // must not be invalid
+	local := laddr.AddrPort()  // can be invalid
+
+	if !remote.IsValid() {
+		log.E("desync: invalid raddr: conv %s to %s", raddr, remote)
+		return nil, errNoIps
 	}
-	conn, err := desyncWithTraceroute(d, ipp)
+
+	ttl, ok := ttlcache.Get(remote.Addr())
+	if ok {
+		return desyncWithFixedTtl(d, local, remote, ttl)
+	}
+	conn, err := desyncWithTraceroute(d, local, remote)
 	if err == nil && conn != nil { // go vet (incorrectly) complains conn being nil when err is nil
-		ttlcache.Put(ipp.Addr(), conn.ttl)
+		ttlcache.Put(remote.Addr(), conn.ttl)
 	}
 	return conn, err
 }
@@ -359,12 +367,13 @@ func (s *overwriteSplitter) Write(b []byte) (n int, err error) {
 	raddr := raddr(s.conn)
 
 	noop := len(b) == 0 // go vet has us handle this case
+	avoidDesync := s.ttl <= desync_noop_ttl
 	short := len(b) < len(s.payload)
 	swapped := false
-	used := s.used.Load() // also true when s.ttl == desync_invalid_ttl
+	used := s.used.Load() // also true when s.ttl <= desync_noop_ttl
 	if noop {
 		n, err = 0, nil
-	} else if used {
+	} else if used || avoidDesync {
 		// after the first write, there is no special write behavior.
 		// used may also be set to true to avoid desync.
 		n, err = conn.Write(b)

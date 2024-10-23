@@ -9,6 +9,8 @@ package ipn
 import (
 	"context"
 	"net"
+	"net/netip"
+	"strconv"
 	"time"
 
 	x "github.com/celzero/firestack/intra/backend"
@@ -29,6 +31,7 @@ type auto struct {
 	pxr    Proxies
 	addr   string
 	exp    *core.ExpMap[string, int]
+	ba     *core.Barrier[bool, string]
 	status *core.Volatile[int]
 }
 
@@ -51,6 +54,15 @@ func (h *auto) Handle() uintptr {
 
 // Dial implements Proxy.
 func (h *auto) Dial(network, addr string) (protect.Conn, error) {
+	return h.dial(network, "", addr)
+}
+
+// DialBind implements Proxy.
+func (h *auto) DialBind(network, local, remote string) (protect.Conn, error) {
+	return h.dial(network, local, remote)
+}
+
+func (h *auto) dial(network, local, remote string) (protect.Conn, error) {
 	if h.status.Load() == END {
 		return nil, errProxyStopped
 	}
@@ -59,27 +71,35 @@ func (h *auto) Dial(network, addr string) (protect.Conn, error) {
 	warp, waerr := h.pxr.ProxyFor(RpnWg)
 	exit64, ex64err := h.pxr.ProxyFor(Rpn64)
 
-	previdx, recent := h.exp.V(addr)
+	previdx, recent := h.exp.V(remote)
 
 	c, who, err := core.Race(
-		network+".dial-auto."+addr,
+		network+".dial-auto."+remote,
 		tlsHandshakeTimeout,
 		func(ctx context.Context) (protect.Conn, error) {
 			const myidx = 0
 			if exit == nil {
 				return nil, exerr
 			}
-			if recent && previdx != myidx {
-				return nil, errNotPinned
+			if recent {
+				if previdx != myidx {
+					return nil, errNotPinned
+				}
+				// ip pinned to this proxy
+				dialProxy(exit, network, local, remote)
 			}
-			return exit.Dialer().Dial(network, addr)
+			return h.dialAfterTest(exit, network, local, remote)
 		}, func(ctx context.Context) (protect.Conn, error) {
 			const myidx = 1
 			if warp == nil {
 				return nil, waerr
 			}
-			if recent && previdx != myidx {
-				return nil, errNotPinned
+			if recent {
+				if previdx != myidx {
+					return nil, errNotPinned
+				}
+				// ip pinned to this proxy
+				return dialProxy(warp, network, local, remote)
 			}
 
 			select {
@@ -87,14 +107,18 @@ func (h *auto) Dial(network, addr string) (protect.Conn, error) {
 				return nil, ctx.Err()
 			case <-time.After(shortdelay):
 			}
-			return warp.Dialer().Dial(network, addr)
+			return dialProxy(warp, network, local, remote)
 		}, func(ctx context.Context) (protect.Conn, error) {
 			const myidx = 2
 			if exit64 == nil {
 				return nil, ex64err
 			}
-			if recent && previdx != myidx {
-				return nil, errNotPinned
+			if recent {
+				if previdx != myidx {
+					return nil, errNotPinned
+				}
+				// ip pinned to this proxy
+				return dialProxy(exit64, network, local, remote)
 			}
 
 			select {
@@ -102,19 +126,19 @@ func (h *auto) Dial(network, addr string) (protect.Conn, error) {
 				return nil, ctx.Err()
 			case <-time.After(shortdelay):
 			}
-			return exit64.Dialer().Dial(network, addr)
+			return dialProxy(exit64, network, local, remote)
 		},
 	)
 
 	defer localDialStatus(h.status, err)
 	if err != nil {
-		h.exp.Delete(addr)
+		h.exp.Delete(remote)
 	} else {
-		h.exp.K(addr, who, ttl30s)
+		h.exp.K(remote, who, ttl30s)
 	}
 	maybeKeepAlive(c)
 	log.I("proxy: auto: w(%d) pin(%t/%d), dial(%s) %s; err? %v",
-		who, recent, previdx, network, addr, err)
+		who, recent, previdx, network, remote, err)
 	return c, err
 }
 
@@ -159,7 +183,8 @@ func (h *auto) Accept(network, local string) (l protect.Listener, err error) {
 	if h.status.Load() == END {
 		return nil, errProxyStopped
 	}
-	if exit, err := h.pxr.ProxyFor(Exit); err == nil {
+	exit, err := h.pxr.ProxyFor(Exit)
+	if err == nil {
 		l, err = exit.Dialer().Accept(network, local)
 	}
 	defer localDialStatus(h.status, err)
@@ -174,7 +199,8 @@ func (h *auto) Probe(network, local string) (pc protect.PacketConn, err error) {
 		return nil, errProxyStopped
 	}
 	// todo: rpnwg
-	if exit, err := h.pxr.ProxyFor(Exit); err == nil {
+	exit, err := h.pxr.ProxyFor(Exit)
+	if err == nil {
 		pc, err = exit.Dialer().Probe(network, local)
 	}
 	defer localDialStatus(h.status, err)

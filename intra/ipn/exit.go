@@ -42,15 +42,24 @@ func (h *exit) Handle() uintptr {
 
 // Dial implements Proxy.
 func (h *exit) Dial(network, addr string) (protect.Conn, error) {
+	return h.dial(network, "", addr)
+}
+
+func (h *exit) DialBind(network, local, remote string) (protect.Conn, error) {
+	return h.dial(network, local, remote)
+}
+
+func (h *exit) dial(network, local, remote string) (protect.Conn, error) {
 	if h.status.Load() == END {
 		return nil, errProxyStopped
 	}
 
 	// exit always splits
-	c, err := localDialStrat(h.outbound, network, addr)
+	c, err := localDialStrat(h.outbound, network, local, remote)
 	defer localDialStatus(h.status, err)
+
 	maybeKeepAlive(c)
-	log.I("proxy: exit: dial(%s) to %s; err? %v", network, addr, err)
+	log.I("proxy: exit: dial(%s) to %s=>%s; err? %v", network, local, remote, err)
 	return c, err
 }
 

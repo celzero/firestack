@@ -16,16 +16,17 @@ import (
 	"golang.org/x/net/proxy"
 )
 
-func proxyConnect(d *proxy.Dialer, proto string, ip netip.Addr, port int) (net.Conn, error) {
+// todo: dial bound to the local address if specified
+func proxyConnect(d *proxy.Dialer, proto string, local, remote netip.AddrPort) (net.Conn, error) {
 	if d == nil { // unlikely
 		log.E("pdial: proxyConnect: nil dialer")
 		return nil, errNoDialer
-	} else if !ipok(ip) {
-		log.E("pdial: proxyConnect: invalid ip", ip)
+	} else if !ipok(remote.Addr()) {
+		log.E("pdial: proxyConnect: invalid ip", remote)
 		return nil, errNoIps
 	}
 
-	return (*d).Dial(proto, addrstr(ip, port))
+	return (*d).Dial(proto, remote.String())
 }
 
 // ProxyDial tries to connect to addr using d

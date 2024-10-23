@@ -98,6 +98,13 @@ func (h *http1) Dial(network, addr string) (c protect.Conn, err error) {
 	return
 }
 
+// DialBind implements Proxy.
+func (h *http1) DialBind(network, local, remote string) (c protect.Conn, err error) {
+	log.D("http1: dialbind(%s) from %s to %s not supported", network, local, remote)
+	// TODO: error instead?
+	return h.Dial(network, remote)
+}
+
 func (h *http1) Dialer() protect.RDialer {
 	return h
 }

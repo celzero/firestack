@@ -52,18 +52,27 @@ func maybeFilter(ips []netip.Addr, alwaysExclude netip.Addr) ([]netip.Addr, bool
 	return filtered, !failingopen
 }
 
-func commondial[D rdial, C rconn](d D, network, addr string, connect dialFn[D, C]) (C, error) {
+func commondial[D rdials, C rconns](d D, network, addr string, connect dialFn[D, C]) (C, error) {
+	return commondial2(d, network, "", addr, connect)
+}
+
+func commondial2[D rdials, C rconns](d D, network, laddr, raddr string, connect dialFn[D, C]) (C, error) {
 	start := time.Now()
 
-	log.D("rdial: commondial: dialing (host:port) %s", addr)
-	domain, portstr, err := net.SplitHostPort(addr)
+	local, lerr := netip.ParseAddrPort(laddr) // okay if local is invalid
+	domain, portstr, err := net.SplitHostPort(raddr)
+
+	log.D("rdial: commondial: dialing (host:port) %s=>%s; errs? %v %v",
+		laddr, raddr, lerr, err)
+
 	if err != nil {
 		return nil, err
 	}
+
 	// cannot dial into a wildcard address
 	// while, listen is unsupported
 	if len(domain) == 0 {
-		return nil, net.InvalidAddrError(addr)
+		return nil, net.InvalidAddrError(raddr)
 	}
 	port, err := strconv.Atoi(portstr)
 	if err != nil {
@@ -79,29 +88,30 @@ func commondial[D rdial, C rconn](d D, network, addr string, connect dialFn[D, C
 
 	defer func() {
 		dur := time.Since(start)
-		log.D("rdial: duration: %s; addr %s; confirmed? %s, sz: %d", dur, addr, confirmed, ips.Size())
+		log.D("rdial: duration: %s; addr %s; confirmed? %s, sz: %d", dur, raddr, confirmed, ips.Size())
 	}()
 
 	if confirmedIPOK {
-		log.V("rdial: commondial: dialing confirmed ip %s for %s", confirmed, addr)
-		conn, err = connect(d, network, confirmed, port)
+		remote := netip.AddrPortFrom(confirmed, uint16(port))
+		log.V("rdial: commondial: dialing confirmed ip %s for %s", confirmed, remote)
+		conn, err = connect(d, network, local, remote)
 		// nilaway: tx.socks5 returns nil conn even if err == nil
 		if conn == nil && err == nil {
 			err = errNoConn
 		}
 		if err == nil {
-			log.V("rdial: commondial: ip %s works for %s", confirmed, addr)
+			log.V("rdial: commondial: ip %s works for %s", confirmed, remote)
 			return conn, nil
 		}
 		errs = errors.Join(errs, err)
 		ips.Disconfirm(confirmed)
 		logwd(err)("rdial: commondial: confirmed %s for %s failed; err %v",
-			confirmed, addr, err)
+			confirmed, remote, err)
 	}
 
 	if dontretry {
 		if !confirmedIPOK {
-			log.E("rdial: ip %s not ok for %s", confirmed, addr)
+			log.E("rdial: ip %s not ok for %s", confirmed, raddr)
 			errs = errors.Join(errs, errNoIps)
 		}
 		return nil, errs
@@ -115,32 +125,32 @@ func commondial[D rdial, C rconn](d D, network, addr string, connect dialFn[D, C
 			ipset = ips.Addrs()
 			allips, failingopen = maybeFilter(ipset, confirmed)
 		}
-		log.D("rdial: renew ips for %s; ok? %t, failingopen? %t", addr, ok, failingopen)
+		log.D("rdial: renew ips for %s; ok? %t, failingopen? %t", raddr, ok, failingopen)
 	}
 	log.D("rdial: commondial: trying all ips %d %v for %s, failingopen? %t",
-		len(allips), allips, addr, failingopen)
+		len(allips), allips, raddr, failingopen)
 	for _, ip := range allips {
 		end := time.Since(start)
 		if end > dialRetryTimeout {
-			log.D("rdial: commondial: timeout %s for %s", end, addr)
+			log.D("rdial: commondial: timeout %s for %s", end, raddr)
 			break
 		}
 		if ipok(ip) {
-			conn, err = connect(d, network, ip, port)
+			remote := netip.AddrPortFrom(ip, uint16(port))
+			conn, err = connect(d, network, local, remote)
 			// nilaway: tx.socks5 returns nil conn even if err == nil
 			if conn == nil && err == nil {
 				err = errNoConn
 			}
 			if err == nil {
-				log.V("rdial: commondial: dialing ip %s for %s", ip, addr)
 				confirm(ips, ip)
-				log.I("rdial: commondial: ip %s works for %s", ip, addr)
+				log.I("rdial: commondial: ip %s works for %s", ip, remote)
 				return conn, nil
 			}
 			errs = errors.Join(errs, err)
-			logwd(err)("rdial: commondial: ip %s for %s failed; err %v", ip, addr, err)
+			logwd(err)("rdial: commondial: ip %s for %s failed; err %v", ip, remote, err)
 		} else {
-			log.W("rdial: commondial: ip %s not ok for %s", ip, addr)
+			log.W("rdial: commondial: ip %s not ok for %s", ip, raddr)
 		}
 	}
 

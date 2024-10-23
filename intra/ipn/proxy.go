@@ -7,6 +7,7 @@
 package ipn
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net"
@@ -170,10 +171,11 @@ func Reaches(p Proxy, hostportOrIPPortCsv string) bool {
 			}
 		}
 	}
-	tests := make([]core.Work[bool], 0)
+	tests := make([]core.WorkCtx[bool], 0)
 	for _, ipp := range ipps {
 		tests = append(tests,
-			tcpReaches(p, ipp.String()), icmpReaches(p, ipp),
+			tcpReachesWorkCtx(p, ipp.String()),
+			icmpReachesWorkCtx(p, ipp),
 		)
 	}
 
@@ -190,6 +192,13 @@ func Reaches(p Proxy, hostportOrIPPortCsv string) bool {
 	return ok
 }
 
+func dialProxy(p Proxy, network, local, remote string) (net.Conn, error) {
+	if len(local) > 0 {
+		return p.Dialer().DialBind(network, local, remote)
+	}
+	return p.Dialer().Dial(network, remote)
+}
+
 func AnyAddrFor(ipp netip.AddrPort) (proto, anyaddr string) {
 	anyaddr = "0.0.0.0:0"
 	proto = "udp4"
@@ -200,51 +209,75 @@ func AnyAddrFor(ipp netip.AddrPort) (proto, anyaddr string) {
 	return
 }
 
-func tcpReaches(p Proxy, ippstr string) core.Work[bool] {
-	return func() (bool, error) {
-		start := time.Now()
-		c, err := p.Dial("tcp", ippstr)
-		defer core.CloseConn(c)
-
-		rtt := time.Since(start)
-		ok := err == nil
-		if syserr := new(os.SyscallError); errors.As(err, &syserr) {
-			ok = ok || syserr.Err == syscall.ECONNREFUSED
-		}
-
-		log.V("proxy: %s reaches: tcp: %s ok? %t, rtt: %s; err: %v",
-			p.ID(), ippstr, ok, rtt, err)
-		if ok { // wipe out err as it makes core.Race discard "ok"
-			err = nil
-		}
-		return ok, err
+func tcpReachesWorkCtx(p Proxy, ippstr string) core.WorkCtx[bool] {
+	return func(_ context.Context) (bool, error) {
+		return tcpReaches(p, ippstr)
 	}
 }
 
-func icmpReaches(p Proxy, ipp netip.AddrPort) core.Work[bool] {
+func tcpReachesWork(p Proxy, ippstr string) core.Work[bool] {
 	return func() (bool, error) {
-		proto, anyaddr := AnyAddrFor(ipp)
-		c, err := p.Probe(proto, anyaddr)
-		defer core.CloseConn(c)
-
-		if c == nil || err != nil {
-			if err == nil {
-				err = errNotUDPConn
-			}
-			return false, err
-		}
-
-		ok, rtt, err := core.Ping(c, ipp)
-
-		if syserr := new(os.SyscallError); errors.As(err, &syserr) {
-			ok = ok || syserr.Err == syscall.ECONNREFUSED
-		}
-
-		log.V("proxy: %s reaches: icmp: %s ok? %t, rtt: %v; err: %v",
-			p.ID(), ipp, ok, rtt, err)
-		if ok { // wipe out err as it makes core.Race discard "ok"
-			err = nil
-		}
-		return ok, err
+		return tcpReaches(p, ippstr)
 	}
+}
+
+func tcpReaches(p Proxy, ippstr string) (bool, error) {
+	start := time.Now()
+	c, err := p.Dial("tcp", ippstr)
+	defer core.CloseConn(c)
+
+	rtt := time.Since(start)
+	ok := err == nil
+	if syserr := new(os.SyscallError); errors.As(err, &syserr) {
+		ok = ok || syserr.Err == syscall.ECONNREFUSED
+	}
+
+	log.V("proxy: %s reaches: tcp: %s ok? %t, rtt: %s; err: %v",
+		p.ID(), ippstr, ok, rtt, err)
+	if ok { // wipe out err as it makes core.Race discard "ok"
+		err = nil
+	}
+	return ok, err
+}
+
+func icmpReachesWorkCtx(p Proxy, ipp netip.AddrPort) core.WorkCtx[bool] {
+	return func(_ context.Context) (bool, error) {
+		return icmpReaches(p, ipp)
+	}
+}
+
+func icmpReachesWork(p Proxy, ipp netip.AddrPort) core.Work[bool] {
+	return func() (bool, error) {
+		return icmpReaches(p, ipp)
+	}
+}
+
+func icmpReaches(p Proxy, ipp netip.AddrPort) (bool, error) {
+	if !ipp.IsValid() {
+		return false, errInvalidAddr
+	}
+
+	proto, anyaddr := AnyAddrFor(ipp)
+	c, err := p.Probe(proto, anyaddr)
+	defer core.CloseConn(c)
+
+	if c == nil || err != nil {
+		if err == nil {
+			err = errNotUDPConn
+		}
+		return false, err
+	}
+
+	ok, rtt, err := core.Ping(c, ipp)
+
+	if syserr := new(os.SyscallError); errors.As(err, &syserr) {
+		ok = ok || syserr.Err == syscall.ECONNREFUSED
+	}
+
+	log.V("proxy: %s reaches: icmp: %s ok? %t, rtt: %v; err: %v",
+		p.ID(), ipp, ok, rtt, err)
+	if ok { // wipe out err as it makes core.Race discard "ok"
+		err = nil
+	}
+	return ok, err
 }

@@ -14,15 +14,22 @@ import (
 	"github.com/celzero/firestack/intra/log"
 )
 
-func tlsConnect(d *tls.Dialer, proto string, ip netip.Addr, port int) (net.Conn, error) {
+func tlsConnect(d *tls.Dialer, proto string, local, remote netip.AddrPort) (net.Conn, error) {
 	if d == nil {
 		log.E("tlsdial: tlsConnect: nil dialer")
 		return nil, errNoDialer
-	} else if !ipok(ip) {
-		log.E("tlsdial: tlsConnect: invalid ip", ip)
+	} else if !ipok(remote.Addr()) {
+		log.E("tlsdial: tlsConnect: invalid ip", remote)
 		return nil, errNoIps
 	}
-	return d.Dial(proto, addrstr(ip, port))
+	if local.IsValid() {
+		cd := new(net.Dialer)
+		*cd = *d.NetDialer // shallow copy
+		cd.LocalAddr = net.TCPAddrFromAddrPort(local)
+		return cd.Dial(proto, remote.String())
+	} else {
+		return d.Dial(proto, remote.String())
+	}
 }
 
 func TlsDial(d *tls.Dialer, network, addr string) (net.Conn, error) {

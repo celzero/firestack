@@ -52,6 +52,7 @@ type retrier struct {
 	dialer     *protect.RDial
 	dialerOpts settings.DialerOpts
 	raddr      *net.TCPAddr
+	laddr      *net.TCPAddr // laddr may be nil; TCPAddr.IP may be nil.
 
 	// Flags indicating whether the caller has called CloseRead and CloseWrite.
 	readDone  atomic.Bool
@@ -125,11 +126,12 @@ func calcTimeout(rtt time.Duration) time.Duration {
 // Read and CloseRead, and another calling Write, ReadFrom, and CloseWrite.
 // `dialer` will be used to establish the connection.
 // `addr` is the destination.
-func DialWithSplitRetry(d *protect.RDial, addr *net.TCPAddr) (*retrier, error) {
+func DialWithSplitRetry(d *protect.RDial, laddr, raddr *net.TCPAddr) (*retrier, error) {
 	r := &retrier{
 		dialer:      d,
 		dialerOpts:  settings.GetDialerOpts(),
-		raddr:       addr,
+		laddr:       laddr, // may be nil
+		raddr:       raddr, // must not be nil
 		retryDoneCh: make(chan struct{}),
 	}
 
@@ -217,7 +219,7 @@ func (r *retrier) dialLocked() (c core.DuplexConn, err error) {
 	}
 
 	begin := time.Now()
-	c, err = dialWithSplitStrat(strat, r.dialer, r.raddr)
+	c, err = r.doDialLocked(strat)
 	if err == nil && c == nil {
 		err = errNoConn
 	}
@@ -230,6 +232,31 @@ func (r *retrier) dialLocked() (c core.DuplexConn, err error) {
 		r.dialerOpts, laddr(c), r.raddr, strat, rtt.Milliseconds(), err)
 
 	return
+}
+
+// dialStrat returns a core.DuplexConn to r.raddr using a specified strategy, strat,
+// which is one of the settings.Split* constants.
+func (r *retrier) doDialLocked(dialStrat int32) (_ core.DuplexConn, err error) {
+	var conn *net.TCPConn
+
+	// r.raddr may be nil or laddr.IP may be nil.
+	switch dialStrat {
+	case settings.SplitNever:
+		return r.dialer.DialTCP(r.raddr.Network(), r.laddr, r.raddr)
+	case settings.SplitDesync:
+		return dialWithSplitAndDesync(r.dialer, r.laddr, r.raddr)
+	case settings.SplitTCP, settings.SplitTCPOrTLS:
+		fallthrough
+	default:
+	}
+	conn, err = r.dialer.DialTCP(r.raddr.Network(), r.laddr, r.raddr)
+	if err != nil {
+		return nil, err
+	} else if conn == nil {
+		return nil, errNoConn
+	}
+	// todo: strat must be tcp or tls
+	return &splitter{conn: conn, strat: dialStrat}, nil
 }
 
 // retryWriteReadLocked closes the current connection, dials a new one, and writes

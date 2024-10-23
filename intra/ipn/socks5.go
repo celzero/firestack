@@ -127,7 +127,8 @@ func NewSocks5Proxy(id string, ctl protect.Controller, po *settings.ProxyOptions
 	}
 
 	if len(clients) == 0 && err != nil {
-		log.W("proxy: err creating socks5 for %v (opts: %v): %v", mh, po, err)
+		log.W("proxy: err creating socks5 for %v (opts: %v): %v",
+			mh, po, err)
 		return nil, err
 	}
 
@@ -137,7 +138,8 @@ func NewSocks5Proxy(id string, ctl protect.Controller, po *settings.ProxyOptions
 		opts:     po,
 	}
 
-	log.D("proxy: socks5: created %s with clients(%d), opts(%s)", h.ID(), len(clients), po)
+	log.D("proxy: socks5: created %s with clients(%d), opts(%s)",
+		h.ID(), len(clients), po)
 
 	return h, nil
 }
@@ -149,6 +151,17 @@ func (h *socks5) Handle() uintptr {
 
 // Dial implements Proxy.
 func (h *socks5) Dial(network, addr string) (c protect.Conn, err error) {
+	return h.dial(network, "", addr)
+}
+
+func (h *socks5) DialBind(network, local, remote string) (c protect.Conn, err error) {
+	log.D("proxy: socks5: %s dialbind(%s) %s => %s; not supported",
+		h.ID(), network, local, remote)
+	return h.dial(network, local, remote)
+}
+
+// todo: bind to local
+func (h *socks5) dial(network, _, remote string) (c protect.Conn, err error) {
 	if h.status == END {
 		return nil, errProxyStopped
 	}
@@ -156,7 +169,7 @@ func (h *socks5) Dial(network, addr string) (c protect.Conn, err error) {
 	h.lastdial = time.Now()
 	// todo: tx.Client can only dial in to ip:port and not host:port even for server addr
 	// tx.Client.Dial does not support dialing into client addr as hostnames
-	if c, err = dialers.ProxyDials(h.outbound, network, addr); err == nil {
+	if c, err = dialers.ProxyDials(h.outbound, network, remote); err == nil {
 		// github.com/txthinking/socks5/blob/39268fae/client.go#L15
 		if uc, ok := c.(*tx.Client); ok {
 			if uc.UDPConn != nil { // a udp conn will always have an embedded tcp conn
@@ -164,22 +177,26 @@ func (h *socks5) Dial(network, addr string) (c protect.Conn, err error) {
 			} else if uc.TCPConn != nil { // a tcp conn will never also have a udp conn
 				c = &socks5tcpconn{uc}
 			} else {
-				log.W("proxy: socks5: %s conn not tcp nor udp %s -> %s", h.ID(), h.GetAddr(), addr)
+				log.W("proxy: socks5: %s conn not tcp nor udp %s => %s",
+					h.ID(), h.GetAddr(), remote)
 				core.CloseConn(c)
 				c = nil
 				err = errNoProxyConn
 			}
 		} else {
-			log.W("proxy: socks5: %s conn not a tx.Client(%s) %s -> %s", h.ID(), network, h.GetAddr(), addr)
+			log.W("proxy: socks5: %s conn not a tx.Client(%s) %s => %s",
+				h.ID(), network, h.GetAddr(), remote)
 			core.CloseConn(c)
 			c = nil
 			err = errNoProxyConn
 		}
 	} else {
-		log.W("proxy: socks5: %s dial(%s) failed %s -> %s: %v", h.ID(), network, h.GetAddr(), addr, err)
+		log.W("proxy: socks5: %s dial(%s) failed %s => %s: %v",
+			h.ID(), network, h.GetAddr(), remote, err)
 	}
 	if err == nil {
-		log.I("proxy: socks5: %s dial(%s) from %s -> %s", h.ID(), network, h.GetAddr(), addr)
+		log.I("proxy: socks5: %s dial(%s) from %s => %s",
+			h.ID(), network, h.GetAddr(), remote)
 		h.status = TOK
 	} else {
 		h.status = TKO

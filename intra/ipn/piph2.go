@@ -287,6 +287,17 @@ func (h *piph2) Handle() uintptr {
 
 // Dial implements Proxy.
 func (t *piph2) Dial(network, addr string) (protect.Conn, error) {
+	return t.forward(network, addr)
+}
+
+// DialBind implements Proxy.
+func (t *piph2) DialBind(network, local, remote string) (protect.Conn, error) {
+	log.D("piph2: dialbind(%s) from %s to %s not supported", network, local, remote)
+	// TODO: error instead?
+	return t.forward(network, remote)
+}
+
+func (t *piph2) forward(network, addr string) (protect.Conn, error) {
 	if t.status.Load() == END {
 		return nil, errProxyStopped
 	}

@@ -63,25 +63,28 @@ const (
 )
 
 var (
-	errProxyScheme          = errors.New("unsupported proxy scheme")
-	errUnexpectedProxy      = errors.New("unexpected proxy type")
-	errAddProxy             = errors.New("add proxy failed")
-	errProxyNotFound        = errors.New("proxy not found")
-	errGetProxyTimeout      = errors.New("get proxy timeout")
-	errMissingProxyOpt      = errors.New("proxyopts nil")
-	errNoProxyConn          = errors.New("not a tcp/udp proxy conn")
+	errProxyScheme          = errors.New("proxy: unsupported scheme")
+	errUnexpectedProxy      = errors.New("proxy: unexpected type")
+	errAddProxy             = errors.New("proxy: add failed")
+	errProxyNotFound        = errors.New("proxy: not found")
+	errGetProxyTimeout      = errors.New("proxy: gettimeout")
+	errMissingProxyOpt      = errors.New("proxy: opts nil")
+	errNoProxyConn          = errors.New("proxy: not a tcp/udp conn")
 	errNotUDPConn           = errors.New("proxy: not a udp conn")
-	errAnnounceNotSupported = errors.New("announce not supported")
-	errProbeNotSupported    = errors.New("probe not supported")
-	errProxyStopped         = errors.New("proxy stopped")
-	errProxyConfig          = errors.New("invalid proxy config")
-	errNoProxyResponse      = errors.New("no response from proxy")
-	errNoSig                = errors.New("auth missing sig")
-	errNoMtu                = errors.New("no mtu")
-	errNoOpts               = errors.New("no proxy opts")
-	errMissingRev           = errors.New("missing reverse proxy")
-	errNoAuto464XLAT        = errors.New("no auto 464xlat")
-	errNotPinned            = errors.New("another auto proxy pinned")
+	errAnnounceNotSupported = errors.New("proxy: announce not supported")
+	errProbeNotSupported    = errors.New("proxy: probe not supported")
+	errProxyStopped         = errors.New("proxy: stopped")
+	errProxyConfig          = errors.New("proxy: invalid config")
+	errNoProxyResponse      = errors.New("proxy: no response from upstream")
+	errNoSig                = errors.New("proxy: auth missing sig")
+	errNoMtu                = errors.New("proxy: missing mtu")
+	errNoOpts               = errors.New("proxy: no opts")
+	errMissingRev           = errors.New("proxy: missing reverse proxy")
+	errNoAuto464XLAT        = errors.New("auto: no 464xlat")
+	errNotPinned            = errors.New("auto: another proxy pinned")
+	errInvalidAddr          = errors.New("proxy: invaild ip:port")
+	errAutoTestBarrierFail  = errors.New("auto: reachability barrier failed")
+	errUnreachable          = errors.New("proxy: destination unreachable")
 )
 
 const (
@@ -635,8 +638,8 @@ func idling(t time.Time) bool {
 	return time.Since(t) > tzzTimeout
 }
 
-func localDialStrat(d *protect.RDial, network, addr string) (protect.Conn, error) {
-	return dialers.SplitDial(d, network, addr)
+func localDialStrat(d *protect.RDial, network, local, remote string) (protect.Conn, error) {
+	return dialers.SplitDialBind(d, network, local, remote)
 }
 
 func closed[T any](ch <-chan T) bool {

@@ -18,63 +18,99 @@ import (
 	utls "github.com/refraction-networking/utls"
 )
 
-func netConnect2(d *protect.RDialer, proto string, ip netip.Addr, port int) (net.Conn, error) {
+func netConnect2(d *protect.RDialer, proto string, laddr, raddr netip.AddrPort) (net.Conn, error) {
 	if d == nil {
 		log.E("rdial: netConnect: nil dialer")
 		return nil, errNoDialer
-	} else if !ipok(ip) {
-		log.E("rdial: netConnect: invalid ip", ip)
+	} else if !ipok(raddr.Addr()) {
+		log.E("rdial: netConnect: invalid ip", raddr)
 		return nil, errNoIps
 	}
 
-	return (*d).Dial(proto, addrstr(ip, port))
+	if laddr.IsValid() {
+		return (*d).DialBind(proto, laddr.String(), raddr.String())
+	} else {
+		return (*d).Dial(proto, raddr.String())
+	}
 }
 
 // ipConnect dials into ip:port using the provided dialer and returns a net.Conn
 // net.Conn is guaranteed to be either net.UDPConn or net.TCPConn
-func ipConnect(d *protect.RDial, proto string, ip netip.Addr, port int) (net.Conn, error) {
+func ipConnect(d *protect.RDial, proto string, laddr, raddr netip.AddrPort) (net.Conn, error) {
 	if d == nil {
 		log.E("rdial: ipConnect: nil dialer")
 		return nil, errNoDialer
-	} else if !ipok(ip) {
-		log.E("rdial: ipConnect: invalid ip", ip)
+	} else if !ipok(raddr.Addr()) {
+		log.E("rdial: ipConnect: invalid ip", raddr)
 		return nil, errNoIps
 	}
 
-	switch proto {
-	case "tcp", "tcp4", "tcp6":
-		return d.DialTCP(proto, nil, tcpaddr(ip, port))
-	case "udp", "udp4", "udp6":
-		return d.DialUDP(proto, nil, udpaddr(ip, port))
-	default:
-		return d.Dial(proto, addrstr(ip, port))
+	if laddr.IsValid() {
+		switch proto {
+		case "tcp", "tcp4", "tcp6":
+			return d.DialTCP(proto, net.TCPAddrFromAddrPort(laddr), net.TCPAddrFromAddrPort(raddr))
+		case "udp", "udp4", "udp6":
+			return d.DialUDP(proto, net.UDPAddrFromAddrPort(laddr), net.UDPAddrFromAddrPort(raddr))
+		default:
+			return d.DialBind(proto, laddr.String(), raddr.String())
+		}
+	} else {
+		switch proto {
+		case "tcp", "tcp4", "tcp6":
+			return d.DialTCP(proto, nil, net.TCPAddrFromAddrPort(raddr))
+		case "udp", "udp4", "udp6":
+			return d.DialUDP(proto, nil, net.UDPAddrFromAddrPort(raddr))
+		default:
+			return d.Dial(proto, raddr.String())
+		}
 	}
 }
 
-func doSplit(ip netip.Addr, port int) bool {
+func doSplit(ipp netip.AddrPort) bool {
+	ip := ipp.Addr()
+	port := ipp.Port()
 	// HTTPS or DoT
 	return !ip.IsPrivate() && (port == 443 || port == 853)
 }
 
-func splitIpConnect(d *protect.RDial, proto string, ip netip.Addr, port int) (net.Conn, error) {
+func splitIpConnect(d *protect.RDial, proto string, laddr, raddr netip.AddrPort) (net.Conn, error) {
 	if d == nil {
 		log.E("rdial: splitIpConnect: nil dialer")
 		return nil, errNoDialer
-	} else if !ipok(ip) {
-		log.E("rdial: splitIpConnect: invalid ip", ip)
+	} else if !ipok(raddr.Addr()) {
+		log.E("rdial: splitIpConnect: invalid ip", raddr)
 		return nil, errNoIps
 	}
 
-	switch proto {
-	case "tcp", "tcp4", "tcp6":
-		if doSplit(ip, port) {
-			return DialWithSplitRetry(d, tcpaddr(ip, port))
+	if laddr.IsValid() {
+		switch proto {
+		case "tcp", "tcp4", "tcp6":
+			remote := net.TCPAddrFromAddrPort(raddr)
+			local := net.TCPAddrFromAddrPort(laddr)
+			if doSplit(raddr) {
+				return DialWithSplitRetry(d, local, remote)
+			}
+			return d.DialTCP(proto, local, remote)
+		case "udp", "udp4", "udp6":
+			remote := net.UDPAddrFromAddrPort(raddr)
+			local := net.UDPAddrFromAddrPort(laddr)
+			return d.DialUDP(proto, local, remote)
+		default:
+			return d.DialBind(proto, laddr.String(), raddr.String())
 		}
-		return d.DialTCP(proto, nil, tcpaddr(ip, port))
-	case "udp", "udp4", "udp6":
-		return d.DialUDP(proto, nil, udpaddr(ip, port))
-	default:
-		return d.Dial(proto, addrstr(ip, port))
+	} else {
+		switch proto {
+		case "tcp", "tcp4", "tcp6":
+			tcpaddr := net.TCPAddrFromAddrPort(raddr)
+			if doSplit(raddr) {
+				return DialWithSplitRetry(d, nil, tcpaddr)
+			}
+			return d.DialTCP(proto, nil, tcpaddr)
+		case "udp", "udp4", "udp6":
+			return d.DialUDP(proto, nil, net.UDPAddrFromAddrPort(raddr))
+		default:
+			return d.Dial(proto, raddr.String())
+		}
 	}
 }
 
@@ -117,19 +153,32 @@ func SplitDial(d *protect.RDial, network, addr string) (net.Conn, error) {
 	return unPtr(commondial(d, network, addr, adaptRDial(splitIpConnect)))
 }
 
-// DialWithTls dials into addr using the provided dialer and returns a tls.Conn
-func DialWithTls(d protect.RDialer, cfg *tls.Config, network, addr string) (net.Conn, error) {
-	return dialtls(&d, cfg, network, addr, adaptRDialer(netConnect2))
+func DialBind(d *protect.RDial, network, local, remote string) (net.Conn, error) {
+	return unPtr(commondial2(d, network, local, remote, adaptRDial(ipConnect)))
 }
 
-func dialtls[D rdial](d D, cfg *tls.Config, network, addr string, how dialFn[D, *net.Conn]) (net.Conn, error) {
-	c, err := unPtr(commondial(d, "tcp", addr, how))
+func SplitDialBind(d *protect.RDial, network, local, remote string) (net.Conn, error) {
+	return unPtr(commondial2(d, network, local, remote, adaptRDial(splitIpConnect)))
+}
+
+// DialWithTls dials into addr using the provided dialer and returns a tls.Conn
+func DialWithTls(d protect.RDialer, cfg *tls.Config, network, addr string) (net.Conn, error) {
+	return dialtls(&d, cfg, network, "", addr, adaptRDialer(netConnect2))
+}
+
+// DialWithTls dials into addr using the provided dialer and returns a tls.Conn
+func DialBindWithTls(d protect.RDialer, cfg *tls.Config, network, local, remote string) (net.Conn, error) {
+	return dialtls(&d, cfg, network, local, remote, adaptRDialer(netConnect2))
+}
+
+func dialtls[D rdials](d D, cfg *tls.Config, network, local, remote string, how dialFn[D, *net.Conn]) (net.Conn, error) {
+	c, err := unPtr(commondial2(d, network, local, remote, how))
 	if err != nil {
 		clos(c)
 		return nil, err
 	}
 
-	tlsconn, err := tlsHello(c, cfg, addr)
+	tlsconn, err := tlsHello(c, cfg, remote)
 
 	if eerr := new(tls.ECHRejectionError); errors.As(err, &eerr) {
 		clos(tlsconn)
@@ -138,12 +187,12 @@ func dialtls[D rdial](d D, cfg *tls.Config, network, addr string, how dialFn[D, 
 		log.I("rdial: tls: ech rejected; new? %d, err: %v", len(ech), eerr)
 		if len(ech) > 0 { // retry with new ech
 			cfg.EncryptedClientHelloConfigList = ech
-			c, err = unPtr(commondial(d, network, addr, how))
+			c, err = unPtr(commondial2(d, network, local, remote, how))
 			if err != nil {
 				clos(c)
 				return nil, err
 			}
-			tlsconn, err = tlsHello(c, cfg, addr)
+			tlsconn, err = tlsHello(c, cfg, remote)
 		}
 	}
 	if err != nil {

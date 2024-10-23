@@ -274,6 +274,17 @@ func (t *pipws) Handle() uintptr {
 
 // Dial connects to addr via wsconn over this ws proxy
 func (t *pipws) Dial(network, addr string) (protect.Conn, error) {
+	return t.forward(network, addr)
+}
+
+// DialBind implements Proxy.
+func (t *pipws) DialBind(network, local, remote string) (protect.Conn, error) {
+	log.D("pipws: dialbind(%s) from %s to %s not supported", network, local, remote)
+	// TODO: error instead?
+	return t.forward(network, remote)
+}
+
+func (t *pipws) forward(network, addr string) (protect.Conn, error) {
 	if t.status.Load() == END {
 		return nil, errProxyStopped
 	}

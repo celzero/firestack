@@ -42,21 +42,31 @@ func (h *base) Handle() uintptr {
 	return core.Loc(h)
 }
 
-// Dial implements the Proxy interface.
+// Dial implements Proxy.
 func (h *base) Dial(network, addr string) (c protect.Conn, err error) {
+	return h.dial(network, "", addr)
+}
+
+// DialBind implements Proxy.
+func (h *base) DialBind(network, local, remote string) (c protect.Conn, err error) {
+	return h.dial(network, local, remote)
+}
+
+func (h *base) dial(network, local, remote string) (c protect.Conn, err error) {
 	if h.status.Load() == END {
 		return nil, errProxyStopped
 	}
 
 	if settings.Loopingback.Load() { // loopback (rinr) mode
-		c, err = dialers.Dial(h.outbound, network, addr)
+		// TODO: test if binding to local address works in rinr mode
+		c, err = dialers.DialBind(h.outbound, network, local, remote)
 	} else {
-		c, err = localDialStrat(h.outbound, network, addr)
+		c, err = localDialStrat(h.outbound, network, local, remote)
 	}
 	defer localDialStatus(h.status, err)
 
 	maybeKeepAlive(c)
-	log.I("proxy: base: dial(%s) to %s; err? %v", network, addr, err)
+	log.I("proxy: base: dial(%s) to %s=>%s; err? %v", network, local, remote, err)
 	return
 }
 
