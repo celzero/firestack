@@ -36,7 +36,7 @@ const (
 
 // ttlcache stores the TTL for a given IP address for a limited time.
 // TODO: invalidate cache on network changes.
-var ttlcache = core.NewDefaultSieve[netip.Addr, int]()
+var ttlcache = core.NewSieve[netip.Addr, int](30 * time.Second)
 
 // Combines direct split with TCB Desynchronization Attack
 // Inspired by byedpi: github.com/hufrea/byedpi/blob/82e5229df00/desync.c#L69-L123

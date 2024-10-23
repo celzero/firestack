@@ -8,7 +8,6 @@ require (
 	github.com/jedisct1/xsecretbox v0.0.0-20190909160646-b731c21297f9
 	github.com/k-sone/critbitgo v1.4.0
 	github.com/miekg/dns v1.1.62
-	github.com/opencoff/go-sieve v0.2.1
 	golang.org/x/crypto v0.25.0
 	golang.org/x/sys v0.23.0
 )

@@ -15,7 +15,8 @@ import (
 var (
 	reapthreshold = 5 * time.Minute
 	maxreapiter   = 50
-	sizethreshold = 500
+	sizethreshold = 100
+	lifetime      = 0 * time.Millisecond
 )
 
 type val[V any] struct {
@@ -30,14 +31,20 @@ type ExpMap[P comparable, Q any] struct {
 	m          map[P]*val[Q]
 	sigreap    chan struct{}
 	lastreap   time.Time
+	minlife    time.Duration
 }
 
-// NewExpiringMap returns a new ExpMap.
+// NewExpiringMap returns a new ExpMap with min lifetime of 0.
 func NewExpiringMap[P comparable, Q any](ctx context.Context) *ExpMap[P, Q] {
+	return NewExpiringMapLifetime[P, Q](ctx, lifetime)
+}
+
+func NewExpiringMapLifetime[P comparable, Q any](ctx context.Context, min time.Duration) *ExpMap[P, Q] {
 	m := &ExpMap[P, Q]{
 		m:        make(map[P]*val[Q]),
 		sigreap:  make(chan struct{}),
 		lastreap: time.Now(),
+		minlife:  min,
 	}
 	go m.reaper(ctx)
 	// test: go.dev/play/p/EYq_STKvugb
@@ -66,7 +73,12 @@ func (m *ExpMap[P, Q]) Get(key P) uint32 {
 }
 
 // Set sets the expiry for the given key and returns the number of hits.
+// expiry must be greater than the minimum lifetime.
 func (m *ExpMap[P, Q]) Set(key P, expiry time.Duration) uint32 {
+	if expiry < m.minlife {
+		expiry = m.minlife
+	}
+
 	n := time.Now().Add(expiry)
 
 	m.Lock()
@@ -93,7 +105,12 @@ func (m *ExpMap[P, Q]) Set(key P, expiry time.Duration) uint32 {
 }
 
 // Set sets the (value, expiry) for the given key and returns the number of hits.
+// expiry must be greater than the minimum lifetime.
 func (m *ExpMap[P, Q]) K(key P, value Q, expiry time.Duration) uint32 {
+	if expiry < m.minlife {
+		expiry = m.minlife
+	}
+
 	n := time.Now().Add(expiry)
 
 	m.Lock()
@@ -175,6 +192,7 @@ func (m *ExpMap[P, Q]) reaper(ctx context.Context) {
 			return
 		case <-m.sigreap:
 		}
+
 		m.Lock()
 
 		l := len(m.m)

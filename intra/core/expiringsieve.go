@@ -1,59 +1,38 @@
+// Copyright (c) 2024 RethinkDNS and its authors.
+//
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
 package core
 
 import (
+	"context"
 	"time"
-
-	sieve "github.com/opencoff/go-sieve"
 )
 
-const (
-	capacity = 2048
-	lifetime = 30 * time.Second
-)
-
-type sval[T any] struct {
-	exp time.Time
-	v   T
-}
-
-// Sieve is a thread-safe map with expiring keys and fixed capacity.
-// Eviction is based on the SIEVE algorithm described in:
-// yazhuozhang.com/assets/pdf/nsdi24-sieve.pdf
+// Sieve is a thread-safe map with expiring keys.
 type Sieve[K comparable, V any] struct {
-	c *sieve.Sieve[K, sval[V]]
-	t time.Duration
+	c *ExpMap[K, V]
 }
 
-// NewDefaultSieve returns a new Sieve with default capacity (2048) and lifetime (30s).
-func NewDefaultSieve[K comparable, V any]() *Sieve[K, V] {
-	return NewSieve[K, V](capacity, lifetime)
-}
-
-// NewSieve returns a new Sieve with the given capacity and lifetime.
-func NewSieve[K comparable, V any](sz int, lifetime time.Duration) *Sieve[K, V] {
+// NewSieve returns a new Sieve with keys expiring after lifetime.
+func NewSieve[K comparable, V any](lifetime time.Duration) *Sieve[K, V] {
 	return &Sieve[K, V]{
-		c: sieve.New[K, sval[V]](sz),
-		t: lifetime,
+		// TODO: with context.TODO, expmap's reaper goroutine will leak.
+		c: NewExpiringMapLifetime[K, V](context.TODO(), lifetime),
 	}
 }
 
 // Get returns the value associated with the given key,
 // and a boolean indicating whether the key was found.
 func (s *Sieve[K, V]) Get(k K) (V, bool) {
-	r, ok := s.c.Get(k)
-	if !ok || time.Until(r.exp) < 0 {
-		var zz V // zero value
-		return zz, false
-	}
-	return r.v, true
+	return s.c.V(k)
 }
 
 // Put adds an element to the sieve with the given key and value.
 func (s *Sieve[K, V]) Put(k K, v V) (replaced bool) {
-	return s.c.Add(k, sval[V]{
-		exp: time.Now().Add(s.t),
-		v:   v,
-	})
+	return s.c.K(k, v, s.c.minlife) > 0
 }
 
 // Del removes the element with the given key from the sieve.
@@ -68,5 +47,5 @@ func (s *Sieve[K, V]) Len() int {
 
 // Clear removes all elements from the sieve.
 func (s *Sieve[K, V]) Clear() {
-	s.c.Purge()
+	s.c.Clear()
 }
