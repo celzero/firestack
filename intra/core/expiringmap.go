@@ -33,19 +33,7 @@ type ExpMap[P comparable, Q any] struct {
 }
 
 // NewExpiringMap returns a new ExpMap.
-func NewExpiringMap(ctx context.Context) *ExpMap[string, string] {
-	m := &ExpMap[string, string]{
-		m:        make(map[string]*val[string]),
-		sigreap:  make(chan struct{}),
-		lastreap: time.Now(),
-	}
-	go m.reaper(ctx)
-	// test: go.dev/play/p/EYq_STKvugb
-	return m
-}
-
-// NewExpiringMap2 returns a new ExpMap.
-func NewExpiringMap2[P comparable, Q any](ctx context.Context) *ExpMap[P, Q] {
+func NewExpiringMap[P comparable, Q any](ctx context.Context) *ExpMap[P, Q] {
 	m := &ExpMap[P, Q]{
 		m:        make(map[P]*val[Q]),
 		sigreap:  make(chan struct{}),
