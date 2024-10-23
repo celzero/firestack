@@ -126,13 +126,13 @@ func (tnet *wgtun) dial(network, local, remote string) (net.Conn, error) {
 		}
 	}
 
-	rv, _ := tnet.ba.Do(host, resolve(tnet, host))
-	if rv.Err != nil {
-		log.W("wg: dial: lookup failed %q: %v", host, rv.Err)
-		return nil, &net.OpError{Op: "dial", Err: rv.Err}
+	// allAddrs may be nil but shouldn't be when rverr is not nil
+	allAddrs, rverr := tnet.ba.DoIt(host, resolve(tnet, host))
+	if rverr != nil {
+		log.W("wg: dial: lookup failed %q: %v", host, rverr)
+		return nil, &net.OpError{Op: "dial", Err: rverr}
 	}
 
-	allAddrs := rv.Val // may be nil but shouldn't be if rv.Err is nil
 	var addrs []netip.AddrPort
 	for _, ip := range allAddrs {
 		if (ip.Is4() && acceptV4) || (ip.Is6() && acceptV6) {

@@ -270,18 +270,17 @@ func (t *rtunnel) SetTunMode(dnsmode, blockmode, ptmode int32) {
 }
 
 func (t *rtunnel) Stat() (*x.NetStat, error) {
-	v, _ := bar.Do("stat", func() (*x.NetStat, error) {
+	v, err := bar.DoIt("stat", func() (*x.NetStat, error) {
 		return t.stat()
 	})
-	if v == nil { // unlikely
-		return nil, errNoStat
-	} else if v.Err != nil {
-		return nil, v.Err
-	} else if v.Val == nil {
+
+	if err != nil {
+		return nil, err
+	} else if v == nil {
 		return nil, errNoStatCache
 	}
 
-	return v.Val, nil
+	return v, nil
 }
 
 func (t *rtunnel) stat() (*x.NetStat, error) {

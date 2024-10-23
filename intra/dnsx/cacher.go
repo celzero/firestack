@@ -334,7 +334,7 @@ func (t *ctransport) fetch(network string, q *dns.Msg, summary *x.DNSSummary, cb
 		fsmm.Type = t.Type()
 
 		cc := &cres{ans: nil, s: copySummary(fsmm)}
-		v, _ := t.reqbarrier.Do(key, func() (_ *cres, qerr error) {
+		v, err := t.reqbarrier.DoIt(key, func() (_ *cres, qerr error) {
 			// ans may be nil
 			cc.ans, qerr = Req(t.Transport, network, q, fsmm)
 			t.hangoverCheckpoint()
@@ -342,8 +342,6 @@ func (t *ctransport) fetch(network string, q *dns.Msg, summary *x.DNSSummary, cb
 			cb.put(key, cc.ans, fsmm)
 			return cc, qerr
 		})
-
-		err := v.Err
 
 		cachedres, fresh := cb.freshCopy(key) // always prefer value from cache
 		if cachedres == nil {                 // v.Val may be uncacheable (ex: rcode != 0)

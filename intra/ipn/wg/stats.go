@@ -117,14 +117,13 @@ func (s *ifstats) LatestRecentHandshake() int64 {
 }
 
 func ReadStats(id, config string) *ifstats {
-	v, _ := ba.Do(id, func() (*ifstats, error) {
+	v, err := ba.DoIt(id, func() (*ifstats, error) {
 		return readStats(config), nil
 	})
-	if v == nil || v.Val == nil { // v.Val is nil when ba.Do timesout
-		log.E("wg: ReadStats: nil for %s, e: %s", id, v.E())
-		return nil
+	if err != nil { // v is nil when ba.Do timesout
+		log.E("wg: ReadStats: nil for %s, err: %v", id, err)
 	}
-	return v.Val // may be nil
+	return v
 }
 
 // readStats parses a configuration string and returns a Statistics instance.
