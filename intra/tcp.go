@@ -121,7 +121,7 @@ func (h *tcpHandler) ReverseProxy(gconn *netstack.GTCPConn, in net.Conn, to, fro
 
 	// handshake; since we assume a duplex-stream from here on
 	if open, err := gconn.Establish(); !open {
-		err = fmt.Errorf("tcp: %s reverse: gconn.Est, err %v; %s => %s for %d",
+		err = fmt.Errorf("tcp: %s reverse: gconn.Est, err %v; %s => %s for %s",
 			cid, err, to, from, uid)
 		log.E("%v", err)
 		h.queueSummary(smm.done(err))

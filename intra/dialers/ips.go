@@ -9,7 +9,6 @@ package dialers
 import (
 	"net"
 	"net/netip"
-	"strconv"
 
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
@@ -142,20 +141,4 @@ func ipof(addr string) (zz netip.Addr) {
 		return ip
 	}
 	return
-}
-
-func addrstr(ip netip.Addr, port int) string {
-	return net.JoinHostPort(ip.String(), strconv.Itoa(port))
-}
-
-func tcpaddr(ip netip.Addr, port int) *net.TCPAddr {
-	// ip must never be a wildcard address and must be unmapped
-	// go.dev/play/p/UopgKYEMJtw
-	return &net.TCPAddr{IP: ip.AsSlice(), Port: port}
-}
-
-func udpaddr(ip netip.Addr, port int) *net.UDPAddr {
-	// ip must never be a wildcard address and must be unmapped
-	// go.dev/play/p/UopgKYEMJtw
-	return &net.UDPAddr{IP: ip.AsSlice(), Port: port}
 }

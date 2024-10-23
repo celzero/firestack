@@ -50,7 +50,6 @@ var bar = core.NewKeyedBarrier[*x.NetStat, string](30 * time.Second)
 
 var (
 	errNoStatCache = errors.New("netstat: stat in cache is nil")
-	errNoStat      = errors.New("netstat: no stat")
 	errClosed      = errors.New("tunnel closed for business")
 )
 

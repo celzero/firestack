@@ -83,7 +83,6 @@ var (
 	errNoAuto464XLAT        = errors.New("auto: no 464xlat")
 	errNotPinned            = errors.New("auto: another proxy pinned")
 	errInvalidAddr          = errors.New("proxy: invaild ip:port")
-	errAutoTestBarrierFail  = errors.New("auto: reachability barrier failed")
 	errUnreachable          = errors.New("proxy: destination unreachable")
 )
 

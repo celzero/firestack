@@ -103,9 +103,7 @@ func (h *baseHandler) onInflow(to, from netip.AddrPort) (fm *Mark) {
 	// BlockModeNone returns false, BlockModeSink returns true
 	if blockmode == settings.BlockModeSink {
 		return // blocks everything
-	} else if blockmode == settings.BlockModeNone {
-		fm = optionsBase
-	} // else: BlockModeFilter|BlockModeFilterProc
+	} // else: BlockModeNone|BlockModeFilter|BlockModeFilterProc
 
 	uid := UNKNOWN_UID  // todo: uid only known on egress?
 	nn := ntoa(h.proto) // -1 unsupported

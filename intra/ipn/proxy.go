@@ -215,12 +215,6 @@ func tcpReachesWorkCtx(p Proxy, ippstr string) core.WorkCtx[bool] {
 	}
 }
 
-func tcpReachesWork(p Proxy, ippstr string) core.Work[bool] {
-	return func() (bool, error) {
-		return tcpReaches(p, ippstr)
-	}
-}
-
 func tcpReaches(p Proxy, ippstr string) (bool, error) {
 	start := time.Now()
 	c, err := p.Dial("tcp", ippstr)
