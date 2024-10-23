@@ -140,8 +140,10 @@ func (ba *Barrier[T, K]) maybeScrubLocked() {
 	})
 }
 
-func (ba *Barrier[T, K]) getLocked(k K) (*V[T, K], bool) {
-	v, ok := ba.m[k]
+func (ba *Barrier[T, K]) getLocked(k K) (v *V[T, K], ok bool) {
+	defer ba.maybeScrubLocked()
+
+	v, ok = ba.m[k]
 	if v != nil {
 		ttl := ba.ttl
 		if v.Err != nil {
@@ -149,7 +151,6 @@ func (ba *Barrier[T, K]) getLocked(k K) (*V[T, K], bool) {
 		}
 		if time.Since(v.dob.Add(ttl)) > 0 {
 			delete(ba.m, k)
-			ba.maybeScrubLocked()
 			return nil, false
 		}
 	}
