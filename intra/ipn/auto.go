@@ -40,7 +40,7 @@ func NewAutoProxy(ctx context.Context, pxr Proxies) *auto {
 	h := &auto{
 		pxr:    pxr,
 		addr:   "127.5.51.52:5321",
-		exp:    core.NewExpiringMap2[string, int](ctx),
+		exp:    core.NewExpiringMap[string, int](ctx),
 		ba:     core.NewBarrier[bool](ttl30s),
 		status: core.NewVolatile(TUP),
 	}
