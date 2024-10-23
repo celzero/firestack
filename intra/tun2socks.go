@@ -99,7 +99,8 @@ func Slowdown(y bool) {
 func Experimental(y bool) {
 	// todo: move to its own method
 	wgok := settings.ExperimentalWireGuard.CompareAndSwap(!y, y)
-	log.I("tun: experimental settings? %t / wg? %t", y, wgok)
+	fwdok := settings.PortForward.CompareAndSwap(!y, y)
+	log.I("tun: experimental settings? %t / wg? %t, portfwd? %t", y, wgok, fwdok)
 }
 
 // Loopback informs the network stack that it must deal with packets

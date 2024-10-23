@@ -152,7 +152,7 @@ func extend(c core.MinConn, t time.Duration) {
 }
 
 func anyaddrFor(ipp netip.AddrPort) (proto, anyaddr string) {
-	return ipn.AnyAddrFor(ipp)
+	return ipn.AnyAddrForUDP(ipp)
 }
 
 func logei(err error) log.LogFn {

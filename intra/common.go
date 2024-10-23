@@ -39,6 +39,11 @@ const (
 	HDLEND
 )
 
+var (
+	anyaddr4 = netip.IPv4Unspecified()
+	anyaddr6 = netip.IPv6Unspecified()
+)
+
 // immediate is the wait time before sending a summary to the listener.
 var immediate = time.Duration(0)
 
@@ -397,6 +402,16 @@ func oneRealIPPort(realips string, origipp netip.AddrPort) netip.AddrPort {
 		return first[0]
 	}
 	return origipp
+}
+
+func makeAnyAddrPort(origipp netip.AddrPort) netip.AddrPort {
+	if !origipp.IsValid() {
+		return origipp
+	}
+	if origipp.Addr().Is4() {
+		return netip.AddrPortFrom(anyaddr4, origipp.Port())
+	}
+	return netip.AddrPortFrom(anyaddr6, origipp.Port())
 }
 
 // makeIPPorts returns a slice of valid, non-zero at most cap AddrPorts.

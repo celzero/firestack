@@ -266,6 +266,7 @@ func (h *udpHandler) Connect(gconn *netstack.GUDPConn, src, target netip.AddrPor
 		return nil, smm, err // disconnect
 	}
 
+	boundSrc := makeAnyAddrPort(src)
 	var errs error
 	var selectedTarget netip.AddrPort
 	// note: fake-dns-ips shouldn't be un-nated / un-alg'd
@@ -273,6 +274,8 @@ func (h *udpHandler) Connect(gconn *netstack.GUDPConn, src, target netip.AddrPor
 		selectedTarget = dstipp
 		if mux { // mux is not supported by all proxies (few like Exit, Base, WG support it)
 			pc, err = h.mux.associate(cid, pid, uid, src, selectedTarget, px.Dialer().Announce, vendor(dmx))
+		} else if settings.PortForward.Load() {
+			pc, err = px.Dialer().DialBind("udp", boundSrc.String(), selectedTarget.String())
 		} else {
 			pc, err = px.Dialer().Dial("udp", selectedTarget.String())
 		}

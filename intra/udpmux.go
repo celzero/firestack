@@ -18,6 +18,7 @@ import (
 
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/log"
+	"github.com/celzero/firestack/intra/settings"
 )
 
 // from: github.com/pion/transport/blob/03c807b/udp/conn.go
@@ -494,14 +495,27 @@ func newMuxTable() *muxTable {
 func (e *muxTable) associate(cid, pid, uid string, src, dst netip.AddrPort, mk assocFn, v vendor) (_ net.Conn, err error) {
 	e.Lock() // lock
 
-	var mxr *muxer
-	// dst may be of a different family than src (4to6, 6to4 etc)
-	// and so, rely on dst to determine the family to listen on.
-	proto, anyaddr := anyaddrFor(dst)
-	mxr = e.t[src]
+	mxr := e.t[src]
 	if mxr == nil {
 		var pc net.PacketConn
+
+		// dst may be of a different family than src (4to6, 6to4 etc)
+		// and so, rely on dst to determine the family to listen on.
+		proto, anyaddr := anyaddrFor(dst)
+		if settings.PortForward.Load() {
+			boundSrc := makeAnyAddrPort(src)
+			if boundSrc.IsValid() {
+				anyaddr = boundSrc.String()
+			}
+			if boundSrc.Addr().Is4() {
+				proto = "udp4"
+			} else {
+				proto = "udp6"
+			}
+		}
+
 		pc, err = mk(proto, anyaddr)
+
 		if err != nil {
 			core.Close(pc)
 			e.Unlock()      // unlock
@@ -511,7 +525,7 @@ func (e *muxTable) associate(cid, pid, uid string, src, dst netip.AddrPort, mk a
 			e.dissociate(cid, pid, src)
 		})
 		e.t[src] = mxr
-		log.I("udp: mux: %s new assoc for %s", cid, src)
+		log.I("udp: mux: %s new assoc for %s via %s", cid, src, anyaddr)
 	} else if mxr.pid != pid {
 		// client rules prevent from associating w/ a different proxy
 		log.E("udp: mux: %s assoc proxy mismatch: %s != %s or %s != %s",

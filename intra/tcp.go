@@ -91,7 +91,7 @@ func NewTCPHandler(pctx context.Context, resolver dnsx.Resolver, prox ipn.Proxie
 // Error implements netstack.GTCPConnHandler.
 // It must be called from a goroutine.
 func (h *tcpHandler) Error(gconn *netstack.GTCPConn, src, dst netip.AddrPort, err error) {
-	log.W("tcp: error: %v -> %v; err %v", src, dst, err)
+	log.W("tcp: error: %s => %s; err %v", src, dst, err)
 	if !src.IsValid() || !dst.IsValid() {
 		return
 	}
@@ -174,6 +174,7 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target netip.AddrPort)
 	}
 
 	actualTargets := makeIPPorts(realips, target, 0)
+	boundSrc := makeAnyAddrPort(src)
 
 	if pid == ipn.Block {
 		if undidAlg && len(realips) <= 0 && len(domains) > 0 {
@@ -218,7 +219,7 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target netip.AddrPort)
 
 	// pick all realips to connect to
 	for i, dstipp := range actualTargets {
-		if err = h.handle(px, gconn, dstipp, smm); err == nil {
+		if err = h.handle(px, gconn, boundSrc, dstipp, smm); err == nil {
 			return allow
 		} // else try the next realip
 		end := time.Since(smm.start)
@@ -233,7 +234,7 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target netip.AddrPort)
 }
 
 // handle connects to the target via the proxy, and pipes data between the src, target; thread-safe.
-func (h *tcpHandler) handle(px ipn.Proxy, src net.Conn, target netip.AddrPort, smm *SocketSummary) (err error) {
+func (h *tcpHandler) handle(px ipn.Proxy, src net.Conn, boundSrc, target netip.AddrPort, smm *SocketSummary) (err error) {
 	var pc protect.Conn
 
 	start := time.Now()
@@ -243,7 +244,12 @@ func (h *tcpHandler) handle(px ipn.Proxy, src net.Conn, target netip.AddrPort, s
 	// github.com/google/gvisor/blob/5ba35f516b5c2/test/benchmarks/tcp/tcp_proxy.go#L359
 	// ref: stackoverflow.com/questions/63656117
 	// ref: stackoverflow.com/questions/40328025
-	if pc, err = px.Dialer().Dial("tcp", target.String()); err == nil {
+	if settings.PortForward.Load() {
+		pc, err = px.Dialer().DialBind("tcp", boundSrc.String(), target.String())
+	} else {
+		pc, err = px.Dialer().Dial("tcp", target.String())
+	}
+	if err == nil {
 		smm.Rtt = int32(time.Since(start).Seconds() * 1000)
 		switch uc := pc.(type) {
 		case *net.TCPConn: // usual

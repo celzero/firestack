@@ -83,6 +83,10 @@ var Loopingback = atomic.Bool{}
 // in a single-threaded mode.
 var SingleThreaded = atomic.Bool{}
 
+// PortForward is a global flag to enable bound to the same port
+// for the outgoing conn as the incoming sockisfied conn.
+var PortForward = atomic.Bool{}
+
 // ExperimentalWireGuard is a global flag to enable experimental
 // settings for WireGuard.
 var ExperimentalWireGuard = atomic.Bool{}

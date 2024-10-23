@@ -199,7 +199,7 @@ func dialProxy(p Proxy, network, local, remote string) (net.Conn, error) {
 	return p.Dialer().Dial(network, remote)
 }
 
-func AnyAddrFor(ipp netip.AddrPort) (proto, anyaddr string) {
+func AnyAddrForUDP(ipp netip.AddrPort) (proto, anyaddr string) {
 	anyaddr = "0.0.0.0:0"
 	proto = "udp4"
 	if ipp.Addr().Is6() {
@@ -257,7 +257,7 @@ func icmpReaches(p Proxy, ipp netip.AddrPort) (bool, error) {
 		return false, errInvalidAddr
 	}
 
-	proto, anyaddr := AnyAddrFor(ipp)
+	proto, anyaddr := AnyAddrForUDP(ipp)
 	c, err := p.Probe(proto, anyaddr)
 	defer core.CloseConn(c)
 
