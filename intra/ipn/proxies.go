@@ -335,17 +335,20 @@ func (px *proxifier) ok(pid string) error {
 	}
 
 	if r := p.Router(); r != nil {
-		now := now()
-		lastOK := r.Stat().LastOK
-		lastOKNeverOK := lastOK <= 0
-		lastOKBeyondThres := now-lastOK > lastOKThreshold.Milliseconds()
-		if lastOKNeverOK || lastOKBeyondThres {
-			p.Ping()
-			return fmt.Errorf("proxy: %s not ok; lastOK: zz? %t / thres? %t",
-				pid, lastOKNeverOK, lastOKBeyondThres)
-		} else if now-lastOK > tzzTimeout.Milliseconds() {
-			p.Ping()
-		}
+		stat := r.Stat()
+		if stat != nil {
+			now := now()
+			lastOK := stat.LastOK
+			lastOKNeverOK := lastOK <= 0
+			lastOKBeyondThres := now-lastOK > lastOKThreshold.Milliseconds()
+			if lastOKNeverOK || lastOKBeyondThres {
+				p.Ping()
+				return fmt.Errorf("proxy: %s not ok; lastOK: zz? %t / thres? %t",
+					pid, lastOKNeverOK, lastOKBeyondThres)
+			} else if now-lastOK > tzzTimeout.Milliseconds() {
+				p.Ping()
+			}
+		} // else: fallthrough
 	}
 	if p.Status() == END {
 		return errProxyStopped

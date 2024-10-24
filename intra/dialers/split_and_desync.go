@@ -275,7 +275,8 @@ func desyncWithFixedTtl(d *protect.RDial, local, remote netip.AddrPort, initialT
 
 	if err != nil {
 		return nil, err
-	} else if tcpConn == nil {
+	}
+	if tcpConn == nil {
 		return nil, errNoConn
 	}
 

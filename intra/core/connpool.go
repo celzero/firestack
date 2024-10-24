@@ -368,8 +368,8 @@ func (a agingconn) canread() error {
 	var ctlErr error
 
 	raw, err := sc.SyscallConn()
-	if err != nil {
-		return fmt.Errorf("pool: sysconn: %w", err)
+	if err != nil || raw == nil { // nilaway
+		return fmt.Errorf("pool: sysconn nil; err? %w", err)
 	}
 
 	if pooluseread { // stackoverflow.com/q/12741386
