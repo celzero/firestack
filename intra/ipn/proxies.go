@@ -276,6 +276,11 @@ func (px *proxifier) PinOne(fid string, pids []string) (string, error) {
 	} else if len(fid) <= 0 {
 		return "", errMissingFlowID
 	} else if len(pids) == 1 {
+		pid := pids[0]
+		// ok is called to make sure the proxy is ready-to-go
+		// ignore err as there's no other pid to choose from
+		_ = px.ok(pid)
+		px.pinned.Put(fid, pid)
 		return pids[0], nil
 	}
 
