@@ -56,8 +56,11 @@ func (t *gtunnel) DialBind(network, local, remote string) (protect.Conn, error) 
 	laddr, _ := fulladdr(local)      // stack must allow spoofing
 	switch network {
 	case "tcp", "tcp4", "tcp6":
-		if taddr == nil {
+		if taddr == nil { // todo: error?
 			taddr = &tcpip.FullAddress{}
+		}
+		if laddr == nil { // ok
+			laddr = &tcpip.FullAddress{}
 		}
 		return gonet.DialTCPWithBind(t.ctx, t.stack, *laddr, *taddr, proto)
 	case "udp", "udp4", "udp6":

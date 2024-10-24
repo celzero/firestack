@@ -197,6 +197,9 @@ func desyncWithTraceroute(d *protect.RDial, local, remote netip.AddrPort) (*over
 	if err != nil {
 		return nil, err
 	}
+	if oc == nil { // nilaway
+		return nil, errNoDesyncConn
+	}
 
 	var msgBuf [probeSize]byte
 

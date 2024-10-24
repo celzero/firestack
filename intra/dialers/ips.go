@@ -16,14 +16,15 @@ import (
 )
 
 const (
-	errNilConn    = net.UnknownNetworkError("nil connection")
-	errNoConn     = net.UnknownNetworkError("no connection")
-	errNoSysConn  = net.UnknownNetworkError("no sys connection")
-	errNoIps      = net.UnknownNetworkError("no ips")
-	errNoEch      = net.UnknownNetworkError("no ech")
-	errNoDialer   = net.UnknownNetworkError("no dialer")
-	errNoRetrier  = net.UnknownNetworkError("no retrier")
-	errNoListener = net.UnknownNetworkError("no listener")
+	errNilConn      = net.UnknownNetworkError("nil connection")
+	errNoConn       = net.UnknownNetworkError("no connection")
+	errNoSysConn    = net.UnknownNetworkError("no sys connection")
+	errNoDesyncConn = net.UnknownNetworkError("no desync connection")
+	errNoIps        = net.UnknownNetworkError("no ips")
+	errNoEch        = net.UnknownNetworkError("no ech")
+	errNoDialer     = net.UnknownNetworkError("no dialer")
+	errNoRetrier    = net.UnknownNetworkError("no retrier")
+	errNoListener   = net.UnknownNetworkError("no listener")
 )
 
 var ipm ipmap.IPMap = ipmap.NewIPMap()
