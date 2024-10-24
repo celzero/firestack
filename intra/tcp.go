@@ -46,7 +46,6 @@ import (
 
 type tcpHandler struct {
 	*baseHandler
-	prox ipn.Proxies // proxy provider for egress
 }
 
 type ioinfo struct {
@@ -78,8 +77,7 @@ func NewTCPHandler(pctx context.Context, resolver dnsx.Resolver, prox ipn.Proxie
 	}
 
 	h := &tcpHandler{
-		baseHandler: newBaseHandler(pctx, dnsx.NetTypeTCP, resolver, tunMode, listener),
-		prox:        prox,
+		baseHandler: newBaseHandler(pctx, dnsx.NetTypeTCP, resolver, prox, tunMode, listener),
 	}
 
 	go h.processSummaries()
@@ -96,7 +94,7 @@ func (h *tcpHandler) Error(gconn *netstack.GTCPConn, src, dst netip.AddrPort, er
 		return
 	}
 	res, _, _, _ := h.onFlow(src, dst)
-	cid, pid, uid := splitCidPidUid(res) // cid & uid may be empty
+	cid, pid, uid, _ := h.judge(res)
 	smm := tcpSummary(cid, pid, uid, dst.Addr())
 
 	if pid == ipn.Block {
@@ -107,9 +105,7 @@ func (h *tcpHandler) Error(gconn *netstack.GTCPConn, src, dst netip.AddrPort, er
 
 func (h *tcpHandler) ReverseProxy(gconn *netstack.GTCPConn, in net.Conn, to, from netip.AddrPort) (open bool) {
 	fm := h.onInflow(to, from)
-	cid := fm.CID // may be empty
-	uid := fm.UID // may be empty
-	pid := fm.PID
+	cid, pid, uid, _ := h.judge(fm)
 	smm := tcpSummary(cid, pid, uid, from.Addr())
 
 	if pid == ipn.Block {
@@ -117,7 +113,7 @@ func (h *tcpHandler) ReverseProxy(gconn *netstack.GTCPConn, in net.Conn, to, fro
 		clos(gconn, in)
 		h.queueSummary(smm.done(errUdpInFirewalled))
 		return true
-	}
+	} // else: pid is ipn.Ingress
 
 	// handshake; since we assume a duplex-stream from here on
 	if open, err := gconn.Establish(); !open {
@@ -165,8 +161,14 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target netip.AddrPort)
 	// flow/dns-override are nat-aware, as in, they can deal with
 	// nat-ed ips just fine, and so, use target as-is instead of ipx4
 	res, undidAlg, realips, domains := h.onFlow(src, target)
-	cid, pid, uid := splitCidPidUid(res) // cid & uid may be empty
-	smm = tcpSummary(cid, pid, uid, target.Addr())
+	smmTarget := target.Addr()
+	actualTargets := makeIPPorts(realips, target, 0)
+	boundSrc := makeAnyAddrPort(src)
+	cid, pid, uid, fid := h.judge(res, domains, target.String())
+	if len(actualTargets) > 0 {
+		smmTarget = actualTargets[0].Addr()
+	}
+	smm = tcpSummary(cid, pid, uid, smmTarget)
 
 	if h.status.Load() == HDLEND {
 		err = errTcpEnd
@@ -174,25 +176,13 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target netip.AddrPort)
 		return deny
 	}
 
-	actualTargets := makeIPPorts(realips, target, 0)
-	boundSrc := makeAnyAddrPort(src)
-
 	if pid == ipn.Block {
 		if undidAlg && len(realips) <= 0 && len(domains) > 0 {
 			err = errNoIPsForDomain
 		} else {
 			err = errTcpFirewalled
 		}
-		var k string
-		if len(domains) > 0 {
-			k = uid + domains
-		} else {
-			k = uid + target.String()
-		}
-		secs := h.stall(k)
-		if len(actualTargets) > 0 {
-			smm.Target = actualTargets[0].Addr().String()
-		}
+		secs := h.stall(fid)
 		log.I("tcp: gconn %s firewalled from %s => %s (dom: %s / real: %s) for %s; stall? %ds",
 			cid, src, target, domains, realips, uid, secs)
 

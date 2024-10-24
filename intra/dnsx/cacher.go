@@ -9,6 +9,7 @@ package dnsx
 import (
 	"context"
 	"errors"
+	"fmt"
 	"hash/fnv"
 	"math/rand"
 	"strconv"
@@ -122,7 +123,7 @@ func NewCachingTransport(t Transport, ttl time.Duration) Transport {
 		reqbarrier: core.NewBarrier[*cres](battl),
 		hangover:   core.NewHangover(),
 	}
-	log.I("cache: (%s) setup: %s; opts: %s", ct.ID(), ct.GetAddr(), ct.str())
+	log.I("cache: (%s) setup: %s; opts: %s", ct.ID(), ct.GetAddr(), ct)
 	return ct
 }
 
@@ -139,16 +140,14 @@ func (c *cres) copy() *cres {
 	}
 }
 
+// String implements fmt.Stringer
 func (cr *cres) String() string {
-	return cr.str()
+	return fmt.Sprintf("bumps=%d; expiry=%s; s=%s", cr.bumps, cr.expiry, cr.s)
 }
 
-func (cr *cres) str() string {
-	return "bumps=" + strconv.Itoa(cr.bumps) + "; expiry=" + cr.expiry.String() + "; s=" + cr.s.Str()
-}
-
-func (t *ctransport) str() string {
-	return "ttl=" + t.ttl.String() + ";bumps=" + strconv.Itoa(t.bumps) + ";size=" + strconv.Itoa(t.size)
+// String implements fmt.Stringer
+func (t *ctransport) String() string {
+	return fmt.Sprintf("ttl=%s; bumps=%d; size=%d", t.ttl, t.bumps, t.size)
 }
 
 func hash(s string) uint8 {
@@ -269,7 +268,7 @@ func (cb *cache) put(key string, ans *dns.Msg, s *x.DNSSummary) (ok bool) {
 	}
 	cb.c[key] = v
 
-	log.D("cache: put(%s): l(%t/%d); %s", key, xdns.HasAnyAnswer(ans), xdns.Len(ans), v.str())
+	log.D("cache: put(%s): l(%t/%d); %s", key, xdns.HasAnyAnswer(ans), xdns.Len(ans), v)
 
 	ok = true
 	return
@@ -388,10 +387,10 @@ func (t *ctransport) fetch(network string, q *dns.Msg, summary *x.DNSSummary, cb
 		var cachedsummary *x.DNSSummary
 		hasans := v.ans != nil
 
-		log.D("cache: hit(k: %s / stale? %t / ans? %t): %s", key, !isfresh, hasans, v.str())
+		log.D("cache: hit(k: %s / stale? %t / ans? %t): %s", key, !isfresh, hasans, v)
 		r, cachedsummary, err := asResponse(q, v, isfresh) // return cached response, may be stale
 		if err != nil {
-			log.W("cache: hit(k: %s) %s, but err? %v", key, v.str(), err)
+			log.W("cache: hit(k: %s) %s, but err? %v", key, v, err)
 			if err == errCacheResponseMismatch {
 				// FIXME: this is a hack to fix the issue where the cache
 				// returns a response that does not match the query.

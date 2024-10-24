@@ -116,7 +116,7 @@ func TestOne(t *testing.T) {
 	// FIXME: querying always fails with EOF
 	ans, err := tr.Query(netw, q, smm)
 	if err != nil {
-		log.Output(2, smm.Str())
+		log.Output(2, smm.String())
 		t.Fatal(err)
 	}
 	if xdns.Len(ans) == 0 {

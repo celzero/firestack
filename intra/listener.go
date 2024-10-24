@@ -54,18 +54,18 @@ type SocketListener interface {
 }
 
 type PreMark struct {
-	// UID of the app which owns this flow.
+	// UID of the app which owns a flow.
 	UID string
 	// TIDCSV is a list of DNS transport IDs.
 	TIDCSV string
 }
 
 type Mark struct {
-	// PID of the proxy to forward the flow over.
-	PID string
-	// CID identifies this flow.
+	// PIDCSV is a list of proxies to forward a flow over.
+	PIDCSV string
+	// CID identifies a flow.
 	CID string
-	// UID of the app which owns this flow.
+	// UID of the app which owns a flow.
 	UID string
 }
 
@@ -76,8 +76,8 @@ const (
 )
 
 var (
-	optionsBlock = &Mark{PID: ipn.Block}
-	optionsBase  = &Mark{PID: ipn.Base}
+	optionsBlock = &Mark{PIDCSV: ipn.Block}
+	optionsExit  = &Mark{PIDCSV: ipn.Exit}
 
 	errNone = errors.New("no error")
 )
@@ -111,7 +111,8 @@ func udpSummary(id, pid, uid string, dst netip.Addr) *SocketSummary {
 	return s
 }
 
-func (s *SocketSummary) str() string {
+// String implements fmt.Stringer.
+func (s *SocketSummary) String() string {
 	if s != nil {
 		return fmt.Sprintf("socket-summary: id=%s pid=%s uid=%s down=%d up=%d dur=%d synack=%d msg=%s",
 			s.ID, s.PID, s.UID, s.Rx, s.Tx, s.Duration, s.Rtt, s.Msg)

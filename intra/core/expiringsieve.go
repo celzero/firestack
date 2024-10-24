@@ -17,10 +17,9 @@ type Sieve[K comparable, V any] struct {
 }
 
 // NewSieve returns a new Sieve with keys expiring after lifetime.
-func NewSieve[K comparable, V any](lifetime time.Duration) *Sieve[K, V] {
+func NewSieve[K comparable, V any](ctx context.Context, dur time.Duration) *Sieve[K, V] {
 	return &Sieve[K, V]{
-		// TODO: with context.TODO, expmap's reaper goroutine will leak.
-		c: NewExpiringMapLifetime[K, V](context.TODO(), lifetime),
+		c: NewExpiringMapLifetime[K, V](ctx, dur),
 	}
 }
 
@@ -46,6 +45,6 @@ func (s *Sieve[K, V]) Len() int {
 }
 
 // Clear removes all elements from the sieve.
-func (s *Sieve[K, V]) Clear() {
-	s.c.Clear()
+func (s *Sieve[K, V]) Clear() int {
+	return s.c.Clear()
 }

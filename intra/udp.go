@@ -95,8 +95,7 @@ func NewUDPHandler(pctx context.Context, resolver dnsx.Resolver, prox ipn.Proxie
 		listener = nooplistener
 	}
 	h := &udpHandler{
-		baseHandler: newBaseHandler(pctx, dnsx.NetTypeUDP, resolver, tunMode, listener),
-		prox:        prox,
+		baseHandler: newBaseHandler(pctx, dnsx.NetTypeUDP, resolver, prox, tunMode, listener),
 		mux:         newMuxTable(),
 	}
 
@@ -108,16 +107,14 @@ func NewUDPHandler(pctx context.Context, resolver dnsx.Resolver, prox ipn.Proxie
 
 func (h *udpHandler) ReverseProxy(gconn *netstack.GUDPConn, in net.Conn, to, from netip.AddrPort) (ok bool) {
 	fm := h.onInflow(to, from)
-	cid := fm.CID // may be empty
-	uid := fm.UID // may be empty or unknown
-	pid := fm.PID
+	cid, pid, uid, _ := h.judge(fm)
 	smm := udpSummary(cid, pid, uid, from.Addr())
 	if pid == ipn.Block {
 		log.I("udp: %s reverse: block %s -> %s", cid, from, to)
 		clos(gconn, in)
 		h.queueSummary(smm.done(errUdpInFirewalled))
 		return true
-	}
+	} // else: pid should only be ipn.Ingress
 
 	if err := gconn.Establish(); err != nil { // gconn.Establish() failed
 		log.W("udp: %s reverse: %s gconn.Est, err %s => %s", cid, to, from, err)
@@ -145,7 +142,7 @@ func (h *udpHandler) Error(gconn *netstack.GUDPConn, src, target netip.AddrPort,
 		return
 	}
 	res, _, _, _ := h.onFlow(src, target)
-	cid, pid, uid := splitCidPidUid(res) // cid & uid may be empty
+	cid, pid, uid, _ := h.judge(res)
 	smm := udpSummary(cid, pid, uid, target.Addr())
 
 	if pid == ipn.Block {
@@ -190,11 +187,16 @@ func (h *udpHandler) proxy(gconn *netstack.GUDPConn, src, dst netip.AddrPort, dm
 // Connect connects the proxy server; thread-safe.
 func (h *udpHandler) Connect(gconn *netstack.GUDPConn, src, target netip.AddrPort, dmx netstack.DemuxerFn) (pc net.Conn, smm *SocketSummary, err error) {
 	mux := dmx != nil
+	smmTarget := target.Addr()
 
 	// flow is alg/nat-aware, do not change target or any addrs
 	res, undidAlg, realips, domains := h.onFlow(src, target)
-	cid, pid, uid := splitCidPidUid(res) // cid & uid may be empty
-	smm = udpSummary(cid, pid, uid, target.Addr())
+	actualTargets := makeIPPorts(realips, target, 0)
+	cid, pid, uid, fid := h.judge(res, domains, target.String())
+	if len(actualTargets) > 0 {
+		smmTarget = actualTargets[0].Addr()
+	}
+	smm = udpSummary(cid, pid, uid, smmTarget)
 
 	if h.status.Load() == HDLEND {
 		log.D("udp: connect: %s %v => %v, end", cid, src, target)
@@ -205,25 +207,13 @@ func (h *udpHandler) Connect(gconn *netstack.GUDPConn, src, target netip.AddrPor
 		return nil, smm, errUdpUnconnected
 	}
 
-	actualTargets := makeIPPorts(realips, target, 0)
-
 	if pid == ipn.Block {
 		if undidAlg && len(realips) <= 0 && len(domains) > 0 {
 			err = errNoIPsForDomain
 		} else {
 			err = errUdpFirewalled
 		}
-		var k string
-		if len(domains) > 0 {
-			k = uid + domains
-		} else {
-			k = uid + target.String() // UID may be unknown
-		}
-
-		secs := h.stall(k)
-		if len(actualTargets) > 0 {
-			smm.Target = actualTargets[0].Addr().String()
-		}
+		secs := h.stall(fid)
 		log.I("udp: connect: %s conn firewalled from %s => %s (dom: %s / real: %s); stall? %ds for uid %s",
 			cid, src, target, domains, realips, secs, uid)
 		return nil, smm, err // disconnect

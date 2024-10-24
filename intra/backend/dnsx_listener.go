@@ -38,7 +38,8 @@ type DNSOpts struct {
 	NOBLOCK bool
 }
 
-func (s *DNSSummary) Str() string {
+// String implements fmt.Stringer.
+func (s *DNSSummary) String() string {
 	return fmt.Sprintf("type: %s, id: %s, latency: %f, qname: %s, rdata: %s, rcode: %d, rttl: %d, server: %s, relay: %s, status: %d, blocklists: %s, msg: %s, loc: %s",
 		s.Type, s.ID, s.Latency, s.QName, s.RData, s.RCode, s.RTtl, s.Server, s.RelayServer, s.Status, s.Blocklists, s.Msg, s.Region)
 }

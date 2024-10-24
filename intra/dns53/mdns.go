@@ -138,7 +138,7 @@ func (t *dnssd) Query(_ string, q *dns.Msg, smm *x.DNSSummary) (ans *dns.Msg, er
 	smm.Server = t.GetAddr()
 
 	defer func() {
-		log.D("mdns: err: %v; summary: %s", err, smm.Str())
+		log.D("mdns: err: %v; summary: %s", err, smm)
 	}()
 
 	start := time.Now()
@@ -253,8 +253,10 @@ type client struct {
 	closed atomic.Bool // 0: open, 1: closed
 }
 
-func (c *client) str() string {
-	return fmt.Sprintf("use4/6? %t/%t; oneshot? %t; tracked %d; closed %t", c.use4, c.use6, c.oneshot, len(c.tracker), c.closed.Load())
+// String implements fmt.Stringer
+func (c *client) String() string {
+	return fmt.Sprintf("use4/6? %t/%t; oneshot? %t; tracked %d; closed %t",
+		c.use4, c.use6, c.oneshot, len(c.tracker), c.closed.Load())
 }
 
 // newClient creates a new mdns unicast and multicast client
@@ -323,7 +325,7 @@ func (c *client) Close() error {
 	}
 	c.once.Do(func() {
 		c.closed.Store(true)
-		log.I("mdns: closing client %v", c.str())
+		log.I("mdns: closing client %s", c)
 
 		core.CloseUDP(c.unicast4)
 		core.CloseUDP(c.unicast6)

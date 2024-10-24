@@ -9,6 +9,8 @@ package ipn
 import (
 	"context"
 	"errors"
+	"fmt"
+	"math/rand/v2"
 	"net/netip"
 	"os"
 	"strings"
@@ -84,6 +86,7 @@ var (
 	errNotPinned            = errors.New("auto: another proxy pinned")
 	errInvalidAddr          = errors.New("proxy: invaild ip:port")
 	errUnreachable          = errors.New("proxy: destination unreachable")
+	errMissingFlowID        = errors.New("proxy: missing flow id")
 )
 
 const (
@@ -92,7 +95,8 @@ const (
 	getproxytimeout       time.Duration = 5 * time.Second
 	tlsHandshakeTimeout   time.Duration = 30 * time.Second // some proxies take a long time to handshake
 	responseHeaderTimeout time.Duration = 60 * time.Second
-	tzzTimeout            time.Duration = 2 * time.Minute // time between new connections before proxies transition to idle
+	tzzTimeout            time.Duration = 2 * time.Minute  // time between new connections before proxies transition to idle
+	lastOKThreshold       time.Duration = 10 * time.Minute // time between last OK and now before pinging & un-pinning
 )
 
 // type checks
@@ -126,6 +130,8 @@ type Proxies interface {
 	x.Proxies
 	// Get returns a transport from this multi-transport.
 	ProxyFor(id string) (Proxy, error)
+	// PinOne pins a proxy to one from the list of pids.
+	PinOne(fid string, pids []string) (string, error)
 	// RefreshProto broadcasts proto change to all active proxies.
 	RefreshProto(l3 string)
 	// LiveProxies returns a csv of active proxies.
@@ -136,16 +142,22 @@ type Proxies interface {
 
 type proxifier struct {
 	sync.RWMutex
-	p        map[string]Proxy
+	p map[string]Proxy
+
+	ctl protect.Controller    // dial control provider
+	rev netstack.GConnHandler // may be nil
+	obs x.ProxyListener       // proxy observer
+
+	pinned *core.Sieve[string, string] // flowid -> proxyid
+
+	// immutable proxies
 	exit     *exit   // exit proxy, never changes
 	base     *base   // base proxy, never changes
 	grounded *ground // grounded proxy, never changes
 	auto     *auto   // auto proxy, never changes
-	ctl      protect.Controller
-	rev      netstack.GConnHandler // may be nil
-	warpc    *warp.Client          // warp registration, never changes
-	obs      x.ProxyListener
-	protos   string
+
+	warpc  *warp.Client // warp registration, never changes
+	protos string       // ip4, ip6, ip46
 }
 
 var _ Proxies = (*proxifier)(nil)
@@ -170,6 +182,7 @@ func NewProxifier(pctx context.Context, c protect.Controller, o x.ProxyListener)
 	pxr.base = NewBaseProxy(c)
 	pxr.grounded = NewGroundProxy()
 	pxr.auto = NewAutoProxy(pctx, pxr)
+	pxr.pinned = core.NewSieve[string, string](pctx, 10*time.Minute)
 
 	pxr.warpc = warp.NewWarpClient(pctx, c)
 	pxr.add(pxr.exit)     // fixed
@@ -205,7 +218,7 @@ func (px *proxifier) add(p Proxy) (ok bool) {
 		}
 	}
 
-	if local(id) {
+	if immutable(id) {
 		switch id {
 		case Exit:
 			if x, typeok := p.(*exit); typeok {
@@ -222,6 +235,12 @@ func (px *proxifier) add(p Proxy) (ok bool) {
 		case Block:
 			if x, typeok := p.(*ground); typeok {
 				px.grounded = x
+				px.p[id] = p
+				ok = true
+			}
+		case Auto:
+			if x, typeok := p.(*auto); typeok {
+				px.auto = x
 				px.p[id] = p
 				ok = true
 			}
@@ -251,6 +270,85 @@ func (px *proxifier) RemoveProxy(id string) bool {
 	return false
 }
 
+func (px *proxifier) PinOne(fid string, pids []string) (string, error) {
+	if len(pids) <= 0 {
+		return "", errNotPinned
+	} else if len(fid) <= 0 {
+		return "", errMissingFlowID
+	} else if len(pids) == 1 {
+		return pids[0], nil
+	}
+
+	all := make(map[string]struct{}, len(pids))
+	for _, pid := range pids {
+		all[pid] = struct{}{}
+	}
+
+	if pid, pinok := px.pinned.Get(fid); pinok {
+		_, chosen := all[pid]
+
+		if !chosen {
+			px.pinned.Del(fid)
+			log.D("proxy: pin: unpinned %s from %s; not in %v", fid, pid, pids)
+			goto pinNew
+		}
+
+		delete(all, pid) // mark visited
+		err := px.ok(pid)
+
+		loged(err)("proxy: pin: %s from %s; err? %v", fid, pid, err)
+		if err == nil {
+			return pid, nil
+		} // else: fallthrough to pinNew
+	}
+
+pinNew:
+	notok := make([]string, 0)
+	for pid := range all {
+		if err := px.ok(pid); err != nil {
+			notok = append(notok, pid)
+			continue
+		}
+		px.pinned.Put(fid, pid)
+		log.I("proxy: pin: pinned %s to %s; discarded: %v", fid, pid, notok)
+		return pid, nil
+	}
+
+	randpid := pids[rand.IntN(len(all))]
+	log.W("proxy: pin: %s to random %s; all not ok: %v", fid, randpid, notok)
+	return randpid, nil
+}
+
+func (px *proxifier) ok(pid string) error {
+	if local(pid) { // fast path for local proxies which are always ok
+		return nil
+	}
+
+	p, err := px.ProxyFor(pid)
+	if err != nil {
+		return err
+	}
+
+	if r := p.Router(); r != nil {
+		now := now()
+		lastOK := r.Stat().LastOK
+		lastOKNeverOK := lastOK <= 0
+		lastOKBeyondThres := now-lastOK > lastOKThreshold.Milliseconds()
+		if lastOKNeverOK || lastOKBeyondThres {
+			p.Ping()
+			return fmt.Errorf("proxy: %s not ok; lastOK: zz? %t / thres? %t",
+				pid, lastOKNeverOK, lastOKBeyondThres)
+		} else if now-lastOK > tzzTimeout.Milliseconds() {
+			p.Ping()
+		}
+	}
+	if p.Status() == END {
+		return errProxyStopped
+	} // TODO: err on TNT, TKO?
+
+	return nil // ok
+}
+
 // ProxyFor returns the proxy for the given id or an error.
 // As a special case, if it takes longer than getproxytimeout, it returns an error.
 func (px *proxifier) ProxyFor(id string) (Proxy, error) {
@@ -258,14 +356,16 @@ func (px *proxifier) ProxyFor(id string) (Proxy, error) {
 		return nil, errProxyNotFound
 	}
 
-	if local(id) { // fast path for immutable proxies
+	if immutable(id) { // fast path for immutable proxies
 		if id == Exit {
 			return px.exit, nil
 		} else if id == Base {
 			return px.base, nil
 		} else if id == Block {
 			return px.grounded, nil
-		}
+		} else if id == Auto {
+			return px.auto, nil
+		} // Ingress & Exit64 do not have a fast path
 	}
 
 	// go.dev/play/p/xCug1W3OcMH
@@ -323,8 +423,10 @@ func (px *proxifier) RefreshProxies() (string, error) {
 	px.Lock()
 	defer px.Unlock()
 
+	ptot := px.pinned.Clear()
+
 	tot := len(px.p)
-	log.I("proxy: refresh all %d", tot)
+	log.I("proxy: refresh pxs: %d / remove pins: %d", tot, ptot)
 
 	var which = make([]string, 0, len(px.p))
 	for _, p := range px.p {
@@ -629,8 +731,13 @@ func isRPN(id string) bool {
 	return strings.Contains(id, RPN)
 }
 
+// Base, Block, Exit, Rpn64, Ingress
 func local(id string) bool {
-	return id == Base || id == Block || id == Exit
+	return id == Base || id == Block || id == Exit || id == Rpn64 || id == Ingress
+}
+
+func immutable(id string) bool {
+	return local(id) || id == Auto
 }
 
 func idling(t time.Time) bool {

@@ -65,6 +65,7 @@ type baseHandler struct {
 
 	tunMode  *settings.TunMode
 	resolver dnsx.Resolver // dns resolver to forward queries to
+	prox     ipn.Proxies   // proxy provider
 	smmch    chan *SocketSummary
 	listener SocketListener // listener for socket summaries
 
@@ -80,12 +81,13 @@ type baseHandler struct {
 
 var _ netstack.GBaseConnHandler = (*baseHandler)(nil)
 
-func newBaseHandler(pctx context.Context, proto string, r dnsx.Resolver, tm *settings.TunMode, l SocketListener) *baseHandler {
+func newBaseHandler(pctx context.Context, proto string, r dnsx.Resolver, px ipn.Proxies, tm *settings.TunMode, l SocketListener) *baseHandler {
 	h := &baseHandler{
 		ctx:         pctx,
 		proto:       proto,
 		tunMode:     tm,
 		resolver:    r,
+		prox:        px,
 		smmch:       make(chan *SocketSummary, smmchSize),
 		listener:    l,
 		fwtracker:   core.NewExpiringMap[string, string](pctx),
@@ -130,7 +132,7 @@ func (h *baseHandler) onFlow(localaddr, target netip.AddrPort) (fm *Mark, undidA
 	if blockmode == settings.BlockModeSink {
 		return // blocks
 	} else if blockmode == settings.BlockModeNone {
-		fm = optionsBase
+		fm = optionsExit
 	} // else: BlockModeFilter|BlockModeFilterProc
 
 	// Implicit: BlockModeFilter or BlockModeFilterProc
@@ -215,9 +217,9 @@ func (h *baseHandler) onFlow(localaddr, target netip.AddrPort) (fm *Mark, undidA
 	if fm == nil || !ok { // zeroListener returns nil
 		log.W("onFlow: %s empty res or on flow timeout %t; block!", h.proto, ok)
 		fm = optionsBlock
-	} else if len(fm.PID) <= 0 {
+	} else if len(fm.PIDCSV) <= 0 {
 		log.E("onFlow: %s no pid from kt; exit!", h.proto)
-		fm.PID = ipn.Exit
+		fm.PIDCSV = ipn.Exit
 	}
 
 	return
@@ -266,13 +268,13 @@ func (h *baseHandler) queueSummary(s *SocketSummary) {
 	log.VV("%s: queueSummary: %x %x %s", h.proto, h.smmch, h.ctx, s.ID)
 	select {
 	case <-h.ctx.Done():
-		log.D("%s: queueSummary: end: %s", h.proto, s.str())
+		log.D("%s: queueSummary: end: %s", h.proto, s)
 	default:
 		select {
 		case <-h.ctx.Done():
 		case h.smmch <- s:
 		default:
-			log.W("%s: sendSummary: dropped: %s", h.proto, s.str())
+			log.W("%s: sendSummary: dropped: %s", h.proto, s)
 		}
 	}
 }
@@ -303,7 +305,7 @@ func (h *baseHandler) sendSummary(s *SocketSummary, after time.Duration) {
 		time.Sleep(after)
 	}
 
-	log.VV("%s: end? sendNotif: %s", h.proto, s.str())
+	log.VV("%s: end? sendNotif: %s", h.proto, s)
 	h.listener.OnSocketClosed(s) // s.Duration may be uninitialized (zero)
 }
 
@@ -324,9 +326,22 @@ func (h *baseHandler) CloseConns(cids []string) (closed []string) {
 	return closed
 }
 
-// TODO: move this to ipn.Block
-func (h *baseHandler) stall(k string) (secs uint32) {
-	if n := h.fwtracker.Get(k); n <= 0 {
+// aux is usually dst domains, ip, ip:port
+func (h *baseHandler) flowID(uid string, aux ...string) (fid string) {
+	if len(uid) <= 0 { // uid may be empty
+		uid = UNKNOWN_UID_STR
+	} // or: uid may be unknown
+	fid = uid
+	for _, v := range aux {
+		if len(v) > 0 { // choose the first non-empty aux
+			return fid + v
+		}
+	}
+	return
+}
+
+func (h *baseHandler) stall(flowid string) (secs uint32) {
+	if n := h.fwtracker.Get(flowid); n <= 0 {
 		secs = 0 // no stall
 	} else if n > 30 {
 		secs = 30 // max up to 30s
@@ -338,7 +353,7 @@ func (h *baseHandler) stall(k string) (secs uint32) {
 	// track uid->target for n secs, or 30s if n is 0
 	life30s := ((29 + secs) % 30) + 1
 	newlife := time.Duration(life30s) * time.Second
-	h.fwtracker.Set(k, newlife)
+	h.fwtracker.Set(flowid, newlife)
 	if secs > 0 {
 		w := time.Duration(secs) * time.Second
 		time.Sleep(w)
@@ -521,12 +536,40 @@ func filterFamilyForDialing(ipcsv string) string {
 	return strings.Join(filtered, ",")
 }
 
-// returns proxy-id, conn-id, user-id
-func splitCidPidUid(decision *Mark) (cid, pid, uid string) {
+// returns conn-id,  proxy-id, user-id, flow-id.
+// conn-id may be empty.
+func (h *baseHandler) judge(decision *Mark, aux ...string) (cid, pid, uid, fid string) {
 	if decision == nil {
 		return
 	}
-	return decision.CID, decision.PID, decision.UID
+
+	if len(decision.UID) > 0 {
+		uid = decision.UID
+	} else {
+		uid = UNKNOWN_UID_STR
+	}
+	cid = decision.CID
+	fid = h.flowID(uid, aux...)
+	pid = h.selectPid(decision.PIDCSV, fid)
+	return
+}
+
+func (h *baseHandler) selectPid(pidcsv, fid string) string {
+	if len(pidcsv) <= 0 {
+		return ipn.Block
+	}
+	all := strings.Split(pidcsv, ",")
+	if firstEmpty(all) {
+		return ipn.Block
+	}
+
+	pid, err := h.prox.PinOne(fid, all)
+	logev(err)("intra: selectPid: %s for %s; err? %v", pid, fid, err)
+	if err != nil {
+		return ipn.Block
+	} else {
+		return pid
+	}
 }
 
 func conn2str(a net.Conn, b net.Conn) string {
@@ -553,4 +596,8 @@ func ntoa(n string) int32 {
 		return 58
 	}
 	return UNSUPPORTED_NETWORK
+}
+
+func firstEmpty(arr []string) bool {
+	return len(arr) <= 0 || len(arr[0]) <= 0
 }

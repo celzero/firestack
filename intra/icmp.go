@@ -25,7 +25,6 @@ import (
 
 type icmpHandler struct {
 	*baseHandler
-	prox ipn.Proxies
 }
 
 const (
@@ -37,8 +36,7 @@ var _ netstack.GICMPHandler = (*icmpHandler)(nil)
 
 func NewICMPHandler(pctx context.Context, resolver dnsx.Resolver, prox ipn.Proxies, tunMode *settings.TunMode, listener Listener) netstack.GICMPHandler {
 	h := &icmpHandler{
-		baseHandler: newBaseHandler(pctx, "icmp", resolver, tunMode, listener),
-		prox:        prox,
+		baseHandler: newBaseHandler(pctx, "icmp", resolver, prox, tunMode, listener),
 	}
 
 	go h.processSummaries()
@@ -69,7 +67,7 @@ func (h *icmpHandler) Ping(msg []byte, source, target netip.AddrPort) (echoed bo
 	res, undidAlg, realips, doms := h.flow(source, target)
 	dst := oneRealIPPort(realips, target)
 	// on Android, uid is always "unknown" for icmp
-	cid, pid, uid := splitCidPidUid(res)
+	cid, pid, uid, _ := h.judge(res, doms, target.String())
 	smm := icmpSummary(cid, pid, uid)
 
 	defer func() {
