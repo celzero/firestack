@@ -358,14 +358,14 @@ func (px *proxifier) ProxyTo(ipp netip.AddrPort, uid string, pids []string) (Pro
 			continue
 		}
 
-		if hasroute := p.Router().Contains(ippstr); hasroute {
+		if hasroute(p, ippstr) {
 			err := px.pin(uid, ipp, p)
 			if err == nil {
 				log.VV("proxy: pin: %s+%s; pinned: %s; from pids: %v", uid, ipp, pid, pids)
 				return p, nil
 			} // else: proxy not ok
 			notokproxies = append(notokproxies, pid)
-		} // else: proxy cannot route
+		} // else: proxy cannot route; split-tunnel
 		norouteproxies = append(norouteproxies, pid)
 	}
 
@@ -651,7 +651,7 @@ func (px *proxifier) Stat() *x.RouterStats {
 	px.RLock()
 	defer px.RUnlock()
 
-	var s *x.RouterStats
+	s := new(x.RouterStats)
 	for _, p := range px.p {
 		if local(p.ID()) {
 			continue
