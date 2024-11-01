@@ -401,8 +401,8 @@ func wgIfConfigOf(id string, txtptr *string) (ifaddrs []netip.Prefix, allowedadd
 				}
 				logev(err)("proxy: wg: %s v4 %s, v6 %s; added? %d; err? %v",
 					id, v4, v6, n, err)
-			}
-			if n < 0 {
+			} // else: load endpoints as-is
+			if n <= 0 { // if warp endpoints ar empty use config as-is
 				n = loadMH(endpointh, v)
 				log.D("proxy: wg: %s ifconfig: endpoint(%d) %s", id, n, v)
 			}
