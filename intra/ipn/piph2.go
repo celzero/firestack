@@ -59,7 +59,6 @@ type piph2 struct {
 
 // github.com/posener/h2conn/blob/13e7df33ed1/conn.go
 type pipconn struct {
-	core.TCPConn
 	id    string               // some identifier
 	rch   <-chan io.ReadCloser // reader provider
 	wch   chan<- int64         // first write len(data)
@@ -69,6 +68,8 @@ type pipconn struct {
 	laddr net.Addr             // local address, may be nil
 	raddr net.Addr             // remote address
 }
+
+var _ core.TCPConn = (*pipconn)(nil)
 
 func (c *pipconn) Read(b []byte) (int, error) {
 	log.V("piph2: read(%v/%s) waiting?(%t)", len(b), c.id, !c.ok)
@@ -100,19 +101,13 @@ func (c *pipconn) Close() (err error) {
 	return nil
 }
 
-func (c *pipconn) CloseRead() {
-	core.Close(c.r)
-}
-
-func (c *pipconn) CloseWrite() {
-	core.Close(c.w)
-}
-
-func (c *pipconn) LocalAddr() net.Addr           { return c.laddr }
-func (c *pipconn) RemoteAddr() net.Addr          { return c.raddr }
-func (c *pipconn) SetDeadline(t time.Time) error { return nil }
-func SetReadDeadline(t time.Time) error          { return nil }
-func SetWriteDeadline(t time.Time) error         { return nil }
+func (c *pipconn) CloseRead() error                   { core.Close(c.r); return nil }
+func (c *pipconn) CloseWrite() error                  { core.Close(c.w); return nil }
+func (c *pipconn) LocalAddr() net.Addr                { return c.laddr }
+func (c *pipconn) RemoteAddr() net.Addr               { return c.raddr }
+func (c *pipconn) SetDeadline(t time.Time) error      { return nil }
+func (c *pipconn) SetReadDeadline(t time.Time) error  { return nil }
+func (c *pipconn) SetWriteDeadline(t time.Time) error { return nil }
 
 func (t *piph2) dialtls(network, addr string, cfg *tls.Config) (net.Conn, error) {
 	rawConn, err := t.dial(network, addr)
@@ -333,8 +328,8 @@ func (t *piph2) claim(msg string) []string {
 }
 
 // Handle implements Proxy.
-func (h *piph2) Handle() uintptr {
-	return core.Loc(h)
+func (t *piph2) Handle() uintptr {
+	return core.Loc(t)
 }
 
 // Dial implements Proxy.
@@ -515,8 +510,8 @@ func (t *piph2) forward(network, addr string) (protect.Conn, error) {
 }
 
 // Dialer implements Proxy.
-func (h *piph2) Dialer() protect.RDialer {
-	return h
+func (t *piph2) Dialer() protect.RDialer {
+	return t
 }
 
 func closePipe(ps ...io.Closer) {
