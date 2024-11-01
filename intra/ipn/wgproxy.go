@@ -975,13 +975,10 @@ func (h *wgproxy) Hop(p Proxy) error {
 		return errProxyStopped
 	}
 
-	// todo: check route before via; healthy ping
-	if !isWG(p.ID()) {
+	if !isWG(p.ID()) { // for now, only wg can hop another wg
 		return errHopWireGuard
 	}
-	// if healthy(p)
-	// todo: wireguard hop for wireguard via
-
+	// todo: check if all routes for p & h overlap
 	old = h.via.Tango(p)
 	return nil
 }
@@ -1053,6 +1050,7 @@ func (h *wgtun) serve(network, local string) (pc net.PacketConn, err error) {
 		return nil, errProxyStopped
 	}
 
+	// todo: dial into both direct & via if via cannot handle all routes?
 	who := h.ID()
 	if v := h.via.Load(); v != nil {
 		if v.Status() != END { // dial via another proxy
