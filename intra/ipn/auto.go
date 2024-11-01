@@ -32,6 +32,8 @@ type auto struct {
 	pxr  Proxies
 	addr string
 
+	via *core.Volatile[Proxy] // via dialer
+
 	exp    *core.Sieve[string, int]
 	ba     *core.Barrier[bool, string]
 	status *core.Volatile[int]
@@ -41,6 +43,7 @@ type auto struct {
 func NewAutoProxy(ctx context.Context, pxr Proxies) *auto {
 	h := &auto{
 		pxr:    pxr,
+		via:    core.NewZeroVolatile[Proxy](),
 		addr:   "127.5.51.52:5321",
 		exp:    core.NewSieve[string, int](ctx, ttl30s),
 		ba:     core.NewBarrier[bool](ttl30s),
@@ -70,9 +73,16 @@ func (h *auto) dial(network, local, remote string) (protect.Conn, error) {
 	}
 
 	exit, exerr := h.pxr.ProxyFor(Exit)
-	warp, waerr := h.pxr.ProxyFor(RpnWg)
 	exit64, ex64err := h.pxr.ProxyFor(Rpn64)
+	warp, waerr := h.pxr.ProxyFor(RpnWg)
 	sep, seerr := h.pxr.ProxyFor(RpnSE)
+
+	if v := h.via.Load(); v != nil {
+		if v.Status() == END {
+			h.Hop(nil) // stale; unset
+			log.W("proxy: auto: via(%s) removed", idhandle(v))
+		}
+	}
 
 	previdx, recent := h.exp.Get(remote)
 
@@ -256,7 +266,38 @@ func (h *auto) Reaches(hostportOrIPPortCsv string) bool {
 	return Reaches(h, hostportOrIPPortCsv)
 }
 
-// GetAddr implements x.Router.
+func (h *auto) Hop(p Proxy) error {
+	if p == nil {
+		old := h.via.Tango(nil)
+		log.I("proxy: auto: hop(%s) removed", idhandle(old))
+		return nil
+	}
+	if p.Status() == END {
+		return errProxyStopped
+	}
+
+	var warp, sep Proxy
+	var waerr, seerr error
+	old := h.via.Tango(p)
+	if warp, waerr = h.pxr.ProxyFor(RpnWg); warp != nil {
+		warp.Hop(p)
+	}
+	if sep, seerr = h.pxr.ProxyFor(RpnSE); sep != nil {
+		sep.Hop(p)
+	}
+
+	log.I("proxy: auto: hop(%s) => %s; errs? %v %v", idhandle(old), idhandle(p), waerr, seerr)
+	return nil
+}
+
+func (h *auto) Via() (x.Proxy, error) {
+	if v := h.via.Load(); v != nil {
+		return v, nil
+	}
+	return nil, errNoHop
+}
+
+// GetAddr implements x.Proxy.
 func (h *auto) GetAddr() string {
 	return h.addr
 }

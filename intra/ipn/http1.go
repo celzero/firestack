@@ -70,6 +70,8 @@ func NewHTTPProxy(id string, ctx context.Context, c protect.Controller, po *sett
 
 	h := &http1{
 		outbound: hp, // does not support udp
+		via:      core.NewZeroVolatile[Proxy](),
+		status:   core.NewVolatile(TUP),
 		id:       id,
 		opts:     po,
 	}
@@ -91,14 +93,25 @@ func (h *http1) Dial(network, addr string) (c protect.Conn, err error) {
 	}
 
 	h.lastdial = time.Now()
-	// dialers.ProxyDial not needed, because
-	// tx.HttpTunnel.Dial() supports dialing into hostnames
-	if c, err = dialers.ProxyDial(h.outbound, network, addr); err != nil {
-		h.status.Store(TKO)
-	} else {
-		h.status.Store(TOK)
+
+	who := h.ID()
+	if v := h.via.Load(); v != nil {
+		if v.Status() != END { // dial via another proxy
+			who = v.ID()
+			c, err = v.Dial(network, addr)
+		} else {
+			h.Hop(nil) // stale; unset
+			log.W("http1: via(%s) removed", idhandle(v))
+		}
 	}
-	log.I("proxy: http1: dial(%s) from %s to %s; err? %v", network, h.GetAddr(), addr, err)
+	if who == h.ID() {
+		// actually, dialers.ProxyDial not needed, because
+		// tx.HttpTunnel.Dial() supports dialing into hostnames
+		c, err = dialers.ProxyDial(h.outbound, network, addr)
+	}
+	defer localDialStatus(h.status, err)
+
+	log.I("proxy: http1: dial(%s) from %s => %s (via %s); err? %v", network, h.GetAddr(), addr, who, err)
 	return
 }
 
@@ -128,6 +141,34 @@ func (h *http1) Router() x.Router {
 // Reaches implements x.Router.
 func (h *http1) Reaches(hostportOrIPPortCsv string) bool {
 	return Reaches(h, hostportOrIPPortCsv)
+}
+
+// Hop implements Proxy.
+func (h *http1) Hop(p Proxy) error {
+	if h.id == GlobalH1 {
+		return errNop // global proxy exits as-is
+	}
+
+	if p == nil {
+		old := h.via.Tango(nil)
+		log.I("proxy: http1: hop(%s) removed", idhandle(old))
+		return nil
+	}
+	if p.Status() == END {
+		return errProxyStopped
+	}
+
+	old := h.via.Tango(p)
+	log.I("http1: hop(%s) => %s", idhandle(old), idhandle(p))
+	return nil
+}
+
+// Via implements x.Router.
+func (h *http1) Via() (x.Proxy, error) {
+	if v := h.via.Load(); v != nil {
+		return v, nil
+	}
+	return nil, errNoHop
 }
 
 // GetAddr implements Proxy.

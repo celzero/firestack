@@ -153,12 +153,26 @@ func (t *piph2) dialtls(network, addr string, cfg *tls.Config) (net.Conn, error)
 
 // dial dials proxy addr using the proxydialer via dialers.SplitDial,
 // which is aware of proto changes.
-func (t *piph2) dial(network, addr string) (net.Conn, error) {
-	if settings.Loopingback.Load() { // no split in loopback (rinr) mode
-		return dialers.Dial(t.outbound, network, addr)
-	} else {
-		return dialers.SplitDial(t.outbound, network, addr)
+func (t *piph2) dial(network, addr string) (c net.Conn, err error) {
+	who := t.ID()
+	if v := t.via.Load(); v != nil {
+		if v.Status() != END { // dial via another proxy
+			who = v.ID()
+			c, err = v.Dial(network, addr)
+		} else {
+			t.Hop(nil) // stale; unset
+			log.W("piph2: via(%s) removed", idhandle(v))
+		}
 	}
+	if who == t.ID() {
+		if settings.Loopingback.Load() { // no split in loopback (rinr) mode
+			c, err = dialers.Dial(t.outbound, network, addr)
+		} else {
+			c, err = dialers.SplitDial(t.outbound, network, addr)
+		}
+	}
+	defer localDialStatus(t.status, err)
+	return
 }
 
 func NewPipProxy(ctx context.Context, ctl protect.Controller, po *settings.ProxyOptions) (*piph2, error) {
@@ -204,6 +218,7 @@ func NewPipProxy(ctx context.Context, ctl protect.Controller, po *settings.Proxy
 		hostname: parsedurl.Hostname(),
 		port:     port,
 		outbound: protect.MakeNsRDial(RpnH2, ctx, ctl),
+		via:      core.NewZeroVolatile[Proxy](),
 		token:    po.Auth.User,
 		toksig:   po.Auth.Password,
 		rsasig:   rsasig,
@@ -265,6 +280,30 @@ func (t *piph2) Router() x.Router {
 // Reaches implements x.Router.
 func (t *piph2) Reaches(hostportOrIPPortCsv string) bool {
 	return Reaches(t, hostportOrIPPortCsv)
+}
+
+// Hop implements Proxy.
+func (t *piph2) Hop(p Proxy) error {
+	if p == nil {
+		old := t.via.Tango(nil)
+		log.I("piph2: hop(%s) removed", idhandle(old))
+		return nil
+	}
+	if p.Status() == END {
+		return errProxyStopped
+	}
+
+	old := t.via.Tango(p)
+	log.I("piph2: hop(%s) => %s", idhandle(old), idhandle(p))
+	return nil
+}
+
+// Via implements x.Router.
+func (t *piph2) Via() (x.Proxy, error) {
+	if v := t.via.Load(); v != nil {
+		return v, nil
+	}
+	return nil, errNoHop
 }
 
 // Start implements Proxy.

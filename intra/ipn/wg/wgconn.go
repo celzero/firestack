@@ -14,7 +14,6 @@
 package wg
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -29,7 +28,6 @@ import (
 	"github.com/celzero/firestack/intra/ipn/multihost"
 
 	"github.com/celzero/firestack/intra/log"
-	"github.com/celzero/firestack/intra/protect"
 	"golang.org/x/sys/unix"
 	"golang.zx2c4.com/wireguard/conn"
 )
@@ -48,11 +46,12 @@ var (
 )
 
 type rwlistener func(op string, err error)
+type connector func(network, to string) (net.PacketConn, error)
 
 type StdNetBind struct {
-	id string
-	d  *net.ListenConfig
-	mh *multihost.MH
+	id      string
+	connect connector
+	mh      *multihost.MH
 
 	mu         sync.Mutex // protects following fields
 	ipv4       *net.UDPConn
@@ -64,9 +63,8 @@ type StdNetBind struct {
 	lastSendAddr netip.AddrPort // may be invalid
 }
 
-func NewEndpoint(id string, ctl protect.Controller, ep *multihost.MH, f rwlistener) *StdNetBind {
-	dialer := protect.MakeNsListener(id, ctl)
-	return &StdNetBind{id: id, d: dialer, mh: ep, listener: f}
+func NewEndpoint(id string, d connector, ep *multihost.MH, f rwlistener) *StdNetBind {
+	return &StdNetBind{id: id, connect: d, mh: ep, listener: f}
 }
 
 type StdNetEndpoint netip.AddrPort
@@ -133,9 +131,8 @@ func (s *StdNetBind) RemoteAddr() netip.AddrPort {
 }
 
 func (s *StdNetBind) listenNet(network string, port int) (*net.UDPConn, int, error) {
-	ctx := context.Background()
 	saddr := ":" + strconv.Itoa(port)
-	conn, err := s.d.ListenPacket(ctx, network, saddr)
+	conn, err := s.connect(network, saddr)
 	if err != nil {
 		log.E("wg: bind: %s %s: listen(%v); err: %v", s.id, network, saddr, err)
 		return nil, 0, err

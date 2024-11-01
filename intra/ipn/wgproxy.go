@@ -18,6 +18,7 @@ package ipn
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/netip"
@@ -88,17 +89,21 @@ type wgtun struct {
 
 	// mutable fields
 
+	via    *core.Volatile[Proxy] // via hop
+	direct protect.RDialer       // direct
+
 	peers  *core.Volatile[map[string]device.NoisePublicKey] // peer (remote endpoint) public keys
 	dns    *core.Volatile[*multihost.MH]                    // dns resolver for this interface
 	remote *core.Volatile[*multihost.MH]                    // peer (remote endpoint) addrs
 	rt     x.IpTree                                         // route table for this interface
 
-	status     *core.Volatile[int] // status of this interface
-	latestPing atomic.Int64        // last ping time in unix millis
-	latestRx   atomic.Int64        // last rx time in unix millis
-	latestTx   atomic.Int64        // last tx time in unix millis
-	errRx      atomic.Int64        // rx error count
-	errTx      atomic.Int64        // tx error count
+	status     *core.Volatile[int]         // status of this interface
+	refreshBa  *core.Barrier[bool, string] // refresh barrier
+	latestPing atomic.Int64                // last ping time in unix millis
+	latestRx   atomic.Int64                // last rx time in unix millis
+	latestTx   atomic.Int64                // last tx time in unix millis
+	errRx      atomic.Int64                // rx error count
+	errTx      atomic.Int64                // tx error count
 }
 
 type wgconn interface {
@@ -192,6 +197,12 @@ func (w *wgproxy) Ping() bool {
 		return false
 	}
 
+	var viaOK bool
+	via := w.via.Load()
+	if via != nil {
+		viaOK = via.Ping()
+	}
+
 	now := now()
 	then := w.latestPing.Load()
 	neversent := then == 0
@@ -206,18 +217,42 @@ func (w *wgproxy) Ping() bool {
 				peer.SendKeepalive()
 			}
 		}
-		log.D("proxy: wg: %s ping: %d/%d peers", w.id, pinged, tot)
+		log.D("proxy: wg: %s ping: %d/%d peers; via OK? %t", w.id, pinged, tot, viaOK)
 		return pinged > 0
 	} else {
-		log.VV("proxy: wg: %s ping: skipped; soon? %t / neversent? %t / concurrent %d", w.id, !recent, neversent, then)
+		log.VV("proxy: wg: %s ping: skipped; soon? %t / neversent? %t / concurrent %d; via OK? %t",
+			w.id, !recent, neversent, then, viaOK)
 	}
 	return false
 }
 
-// Refresh implements Proxy
+// onNotOK implements Proxy.
+func (w *wgproxy) onNotOK() (handled bool) {
+	var didRefresh, didPing bool
+	_, _ = w.refreshBa.DoIt(w.id, func() (bool, error) {
+		err := w.Refresh()
+		didRefresh = true
+		return err == nil, err
+	})
+	if !handled {
+		handled = w.Ping() // ping / sendkeepalive is async
+		didPing = true
+	}
+	log.D("proxy: wg: %s onNotOK: refresh? %t ping? %t; ok? %t",
+		w.id, didRefresh, didPing, handled)
+	return
+}
+
+// Refresh implements Proxy.
 func (w *wgproxy) Refresh() (err error) {
 	if w.status.Load() == END {
 		return errProxyStopped
+	}
+
+	var viaErr error
+	via := w.via.Load()
+	if via != nil {
+		viaErr = via.Refresh()
 	}
 
 	w.latestPing.Store(0) // reset latest ping time
@@ -231,16 +266,20 @@ func (w *wgproxy) Refresh() (err error) {
 		nn = mh.Refresh()
 	}
 	if err = w.Device.Down(); err != nil {
+		err = errors.Join(err, viaErr)
 		log.E("proxy: wg: !refresh(%s): down: len(dns): %d, len(peer): %d, err: %v", w.id, n, nn, err)
 		return
 	}
 	if err = w.Device.Up(); err != nil {
+		err = errors.Join(err, viaErr)
 		log.E("proxy: wg: !refresh(%s): up: len(dns): %d, len(peer): %d, err: %v", w.id, n, nn, err)
 		return
 	}
+	err = errors.Join(err, viaErr)
 	// not required since wgconn:NewBind() is namespace aware
 	// bindok := bindWgSockets(w.ID(), w.remote.AnyAddr(), w.wgdev, w.ctl)
-	log.I("proxy: wg: refresh(%s) done; len(dns): %d, len(peer): %d", w.id, n, nn)
+	log.I("proxy: wg: refresh(%s) done; len(dns): %d, len(peer): %d; err? %v", w.id, n, nn, err)
+
 	return
 }
 
@@ -476,7 +515,7 @@ func NewWgProxy(id string, ctl protect.Controller, rev netstack.GConnHandler, cf
 		return nil, err
 	}
 
-	wgtun, err := makeWgTun(id, ogcfg, rev, ifaddrs, allowedaddrs, peers, dnsh, endpointh, mtu)
+	wgtun, err := makeWgTun(id, ogcfg, ctl, rev, ifaddrs, allowedaddrs, peers, dnsh, endpointh, mtu)
 	if err != nil {
 		log.E("proxy: wg: %s failed to create tun %v", id, err)
 		return nil, err
@@ -486,9 +525,10 @@ func NewWgProxy(id string, ctl protect.Controller, rev netstack.GConnHandler, cf
 
 	var wgep wgconn
 	if wgtun.preferOffload {
+		// todo: use wgtun.serve fn instead of ctl
 		wgep = wg.NewEndpoint2(id, ctl, endpointh, wgtun.listener)
 	} else {
-		wgep = wg.NewEndpoint(id, ctl, endpointh, wgtun.listener)
+		wgep = wg.NewEndpoint(id, wgtun.serve, endpointh, wgtun.listener)
 	}
 
 	wgdev := device.NewDevice(wgtun, wgep, wglogger(id))
@@ -522,10 +562,12 @@ func NewWgProxy(id string, ctl protect.Controller, rev netstack.GConnHandler, cf
 }
 
 // ref: github.com/WireGuard/wireguard-go/blob/469159ecf7/tun/netstack/tun.go#L54
-func makeWgTun(id, cfg string, rev netstack.GConnHandler, ifaddrs, allowedaddrs []netip.Prefix, peers map[string]device.NoisePublicKey, dnsm, endpointm *multihost.MH, mtu int) (*wgtun, error) {
+func makeWgTun(id, cfg string, ctl protect.Controller, rev netstack.GConnHandler, ifaddrs, allowedaddrs []netip.Prefix, peers map[string]device.NoisePublicKey, dnsm, endpointm *multihost.MH, mtu int) (*wgtun, error) {
 	if rev == nil {
 		return nil, errMissingRev
 	}
+
+	ctx := context.TODO()
 
 	opts := stack.Options{
 		NetworkProtocols:   []stack.NetworkProtocolFactory{ipv4.NewProtocol, ipv6.NewProtocol},
@@ -551,6 +593,8 @@ func makeWgTun(id, cfg string, rev netstack.GConnHandler, ifaddrs, allowedaddrs 
 		events:        make(chan tun.Event, eventssize),
 		ingress:       make(chan *buffer.View, epsize),
 		finalize:      make(chan struct{}), // always unbuffered
+		direct:        protect.MakeNsRDial(id, ctx, ctl),
+		via:           core.NewZeroVolatile[Proxy](),
 		dns:           core.NewVolatile(dnsm),
 		remote:        core.NewVolatile(endpointm), // may be nil
 		peers:         core.NewVolatile(peers),     // its entries must never be modified
@@ -559,6 +603,7 @@ func makeWgTun(id, cfg string, rev netstack.GConnHandler, ifaddrs, allowedaddrs 
 		mtu:           tunmtu,
 		status:        core.NewVolatile(TUP),
 		preferOffload: preferOffload(id),
+		refreshBa:     core.NewBarrier[bool](2 * time.Minute),
 		since:         now(),
 	}
 
@@ -718,12 +763,12 @@ func (tun *wgtun) WriteNotify() {
 func (tun *wgtun) Close() error {
 	// wgproxy inherits h.status: go.dev/play/p/HeU5EvzAjnv
 	if tun.status.Load() == END {
-		log.W("proxy: wg: %s tun: already closed?", tun.id)
+		log.W("wg: %s tun: already closed?", tun.id)
 		return errProxyStopped
 	}
 	var err error
 	tun.once.Do(func() {
-		log.D("proxy: wg: %s tun: closing...", tun.id)
+		log.D("wg: %s tun: closing...", tun.id)
 
 		close(tun.finalize)   // unblock all receivers
 		tun.status.Store(END) // TODO: move this to wgproxy.Close()?
@@ -740,7 +785,7 @@ func (tun *wgtun) Close() error {
 		// tun.ep.Close()
 		// destroy waits for the stack to close
 		tun.stack.Destroy()
-		log.I("proxy: wg: %s tun: closed", tun.id)
+		log.I("wg: %s tun: closed", tun.id)
 	})
 	return err
 }
@@ -909,6 +954,46 @@ func (h *wgproxy) Reaches(hostportOrIPPortCsv string) bool {
 	return Reaches(h, hostportOrIPPortCsv)
 }
 
+// Hop implements Proxy.
+func (h *wgproxy) Hop(p Proxy) error {
+	var old Proxy
+
+	defer func() {
+		log.I("wg: %s hop old(%s) => new(%s)", h.id, idhandle(old), idhandle(p))
+
+		if Same(old, p) {
+			return
+		}
+		go h.Refresh() // reconnect
+	}()
+
+	if p == nil {
+		old = h.via.Tango(nil)
+		return nil
+	}
+	if p.Status() == END {
+		return errProxyStopped
+	}
+
+	// todo: check route before via; healthy ping
+	if !isWG(p.ID()) {
+		return errHopWireGuard
+	}
+	// if healthy(p)
+	// todo: wireguard hop for wireguard via
+
+	old = h.via.Tango(p)
+	return nil
+}
+
+// Via implements x.Router.
+func (h *wgproxy) Via() (x.Proxy, error) {
+	if v := h.via.Load(); v != nil {
+		return v, nil
+	}
+	return nil, errNoHop
+}
+
 // Stats implements Proxy.
 func (h *wgtun) Status() int {
 	return h.status.Load()
@@ -961,6 +1046,32 @@ func (h *wgtun) Contains(ippOrCidr string) bool {
 	y, err := h.rt.HasAny(ippOrCidr)
 	logev(err)("wg: %s router: %s contains? %t; err? %v", h.id, ippOrCidr, y, err)
 	return y
+}
+
+func (h *wgtun) serve(network, local string) (pc net.PacketConn, err error) {
+	if h.status.Load() == END {
+		return nil, errProxyStopped
+	}
+
+	who := h.ID()
+	if v := h.via.Load(); v != nil {
+		if v.Status() != END { // dial via another proxy
+			who = v.ID()
+			pc, err = v.Announce(network, local)
+		} else {
+			// wgproxy.Refresh() is not needed since serve is called
+			// at the time of wgproxy.Device.Up() anyway.
+			h.via.Store(nil) // stale; unset
+			log.W("wg: %s via(%s) removed", h.id, idhandle(v))
+		}
+	}
+	if who == h.ID() { // dial direct
+		pc, err = h.direct.Announce(network, local)
+	}
+	defer localDialStatus(h.status, err)
+
+	log.I("wg: %s serve: %s (via %s); err? %v", h.id, local, local, who, err)
+	return
 }
 
 func (h *wgtun) listener(op string, err error) {

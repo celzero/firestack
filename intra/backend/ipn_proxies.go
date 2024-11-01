@@ -97,6 +97,8 @@ type Proxies interface {
 	RemoveProxy(id string) bool
 	// GetProxy returns a transport from this multi-transport.
 	GetProxy(id string) (Proxy, error)
+	// Hop chains two proxies in the order of origin dialing through via.
+	Hop(via, origin string) error
 	// Router returns a lowest common denomination router for this multi-transport.
 	Router() Router
 	// RPN returns the Rethink Proxy Network interface.
@@ -113,7 +115,9 @@ type Router interface {
 	// MTU returns the MTU of this router.
 	MTU() (mtu int, err error)
 	// Stats returns the stats of this router.
-	Stat() *RouterStats
+	Stat() (s *RouterStats)
+	// Via returns the gateway for this router, if any.
+	Via() (gw Proxy, err error)
 	// Reaches returns true if any host:port or ip:port is dialable.
 	Reaches(hostportOrIPPortCsv string) (y bool)
 	// Contains returns true if this router can route ipprefix.

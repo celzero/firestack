@@ -121,8 +121,12 @@ type Proxy interface {
 	// not all Proxy instances implement DialTCP and DialUDP, though are
 	// guaranteed to implement Dial.
 	Dialer() protect.RDialer
+	// onNotOK is called by clients when the proxy is not responsive.
+	onNotOK() bool
 	// onProtoChange returns true if the proxy must be re-added with cfg on proto changes.
 	OnProtoChange() (cfg string, readd bool)
+	// Gateway sets proxy p as the gateway for this router.
+	Hop(p Proxy) error
 }
 
 type Proxies interface {
@@ -472,6 +476,34 @@ func (px *proxifier) ProxyFor(id string) (Proxy, error) {
 // GetProxy implements x.Proxies.
 func (px *proxifier) GetProxy(id string) (x.Proxy, error) {
 	return px.ProxyFor(id)
+}
+
+func (px *proxifier) Hop(via, origin string) error {
+	if len(origin) <= 0 {
+		return errMissingProxyID
+	}
+	origPx, err := px.ProxyFor(origin)
+	if err != nil || origPx == nil {
+		return core.OneErr(err, errProxyNotFound)
+	}
+
+	if len(via) <= 0 { // remove hop
+		return origPx.Hop(nil)
+	}
+
+	viaPx, err := px.ProxyFor(via)
+	if err != nil || viaPx == nil {
+		return core.OneErr(err, errProxyNotFound)
+	}
+	if viaPx.Status() == END || origPx.Status() == END {
+		return errProxyStopped
+	}
+	if viaPx.Router().IP4() != origPx.Router().IP4() ||
+		viaPx.Router().IP6() != origPx.Router().IP6() {
+		return errHopRoutesMismatch
+	}
+
+	return origPx.Hop(viaPx)
 }
 
 // Router implements x.Proxy.
@@ -842,6 +874,10 @@ func (px *proxifier) TestWarp() (string, error) {
 
 func isRPN(id string) bool {
 	return strings.Contains(id, RPN)
+}
+
+func isWG(id string) bool {
+	return strings.Contains(id, WG)
 }
 
 // Base, Block, Exit, Rpn64, Ingress

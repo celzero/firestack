@@ -72,6 +72,7 @@ var (
 )
 
 type authFn func() (cred string)
+type dialFn func(network, addr string) (net.Conn, error)
 
 type seproxy struct {
 	NoFwd
@@ -84,6 +85,7 @@ type seproxy struct {
 	sec       *seasy.SEApi
 	addrs     []netip.AddrPort
 	outbounds []proxy.Dialer
+	via       *core.Volatile[Proxy]
 
 	lastRefresh *core.Volatile[time.Time]
 	status      *core.Volatile[int]
@@ -93,7 +95,7 @@ type sedialer struct {
 	addr, sni string
 	auth      authFn
 	cert      *x509.Certificate
-	dialer    protect.RDialer
+	dialer    dialFn
 }
 
 var _ Proxy = (*seproxy)(nil)
@@ -133,25 +135,45 @@ func NewSEasyProxy(ctx context.Context, c protect.Controller, sec *seasy.SEApi) 
 		missingcert = nil
 	}
 
-	outbound := protect.MakeNsRDial(RpnSE, ctx, c)
-	seds := make([]proxy.Dialer, 0)
-	for _, ep := range endpoints {
-		seds = append(seds, newSEDialer(ep, authfn, missingcert, outbound))
-	}
-
-	log.I("proxy: se: started with %d endpoints %v", len(seds), endpoints)
-
-	return &seproxy{
+	sep := &seproxy{
 		done:        done,
 		sec:         sec,
 		addrs:       sec.Addrs(),
-		outbounds:   seds,
+		via:         core.NewZeroVolatile[Proxy](),
 		lastRefresh: core.NewVolatile(now),
 		status:      core.NewVolatile(TUP),
-	}, nil
+	}
+
+	outbound := protect.MakeNsRDial(RpnSE, ctx, c)
+	dialfn := func(network, addr string) (c net.Conn, err error) {
+		who := sep.ID()
+		if v := sep.via.Load(); v != nil {
+			if v.Status() != END {
+				who = v.ID()
+				c, err = v.Dial(network, addr)
+			} else {
+				sep.Hop(nil)
+				log.W("se: hop(%s) stopped", idhandle(v))
+			}
+		}
+		if who == sep.ID() {
+			c, err = outbound.Dial(network, addr)
+		}
+		return c, err
+	}
+
+	seds := make([]proxy.Dialer, 0)
+	for _, ep := range endpoints {
+		seds = append(seds, newSEDialer(ep, authfn, missingcert, dialfn))
+	}
+	sep.outbounds = seds
+
+	log.I("proxy: se: started with %d endpoints %v", len(seds), endpoints)
+
+	return sep, nil
 }
 
-func newSEDialer(ep se.SEIPEntry, auth authFn, x *x509.Certificate, d protect.RDialer) *sedialer {
+func newSEDialer(ep se.SEIPEntry, auth authFn, x *x509.Certificate, d dialFn) *sedialer {
 	return &sedialer{
 		addr:   ep.NetAddr(),
 		sni:    fmt.Sprintf("%s0.%s", ep.Geo.Country, seHostname),
@@ -169,7 +191,7 @@ func (sed *sedialer) Dial(network, dest string) (conn net.Conn, err error) {
 		return nil, errSEOnlyTcp
 	}
 
-	conn, err = sed.dialer.Dial(network, sed.addr)
+	conn, err = sed.dialer(network, sed.addr)
 
 	defer func() {
 		closif(err)(conn)
@@ -341,7 +363,8 @@ func (h *seproxy) Dial(network, addr string) (protect.Conn, error) {
 	c, err := dialers.ProxyDials(h.outbounds, network, addr)
 	defer localDialStatus(h.status, err)
 
-	if err != nil { // shuffle if any error
+	if err != nil {
+		// shuffle outbounds to avoid always trying the same one
 		h.outbounds = shuffle(h.outbounds)
 	}
 	return c, err
@@ -362,6 +385,30 @@ func (d *seproxy) Dialer() protect.RDialer {
 // Reaches implements x.Router.
 func (h *seproxy) Reaches(hostportOrIPPortCsv string) bool {
 	return Reaches(h, hostportOrIPPortCsv)
+}
+
+// Hop implements Proxy.
+func (h *seproxy) Hop(p Proxy) error {
+	if p == nil {
+		old := h.via.Tango(nil)
+		log.I("se: hop(%s) removed", idhandle(old))
+		return nil
+	}
+	if p.Status() == END {
+		return errProxyStopped
+	}
+
+	old := h.via.Tango(p)
+	log.I("se: hop(%s) => %s", idhandle(old), idhandle(p))
+	return nil
+}
+
+// Via implements x.Router.
+func (h *seproxy) Via() (x.Proxy, error) {
+	if v := h.via.Load(); v != nil {
+		return v, nil
+	}
+	return nil, nil
 }
 
 // GetAddr implements Proxy.

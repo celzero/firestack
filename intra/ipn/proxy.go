@@ -313,6 +313,10 @@ func icmpReaches(p Proxy, ipp netip.AddrPort) (bool, error) {
 	return ok, err
 }
 
+func hasroute(p Proxy, ipp string) bool {
+	return p.Router().Contains(ipp)
+}
+
 func healthy(p Proxy) error {
 	if p == nil {
 		return errProxyNotFound
@@ -333,11 +337,11 @@ func healthy(p Proxy) error {
 	lastOKNeverOK := lastOK <= 0
 	lastOKBeyondThres := now-lastOK > lastOKThreshold.Milliseconds()
 	if lastOKNeverOK || lastOKBeyondThres {
-		p.Ping()
+		go p.onNotOK()
 		return fmt.Errorf("proxy: %s not ok; lastOK: zz? %t / thres? %t",
 			pid, lastOKNeverOK, lastOKBeyondThres)
 	} else if now-lastOK > tzzTimeout.Milliseconds() {
-		p.Ping()
+		go p.onNotOK()
 	}
 
 	return nil // ok

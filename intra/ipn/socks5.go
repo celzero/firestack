@@ -100,15 +100,6 @@ func NewSocks5Proxy(id string, ctx context.Context, ctl protect.Controller, po *
 	}
 
 	ctx, done := context.WithCancel(ctx)
-	// always with a network namespace aware dialer
-	dialer := protect.MakeNsRDial(id, ctx, ctl)
-	// todo: support connecting from src
-	tx.DialTCP = func(n string, _, d string) (net.Conn, error) {
-		return dialer.Dial(n, d)
-	}
-	tx.DialUDP = func(n string, _, d string) (net.Conn, error) {
-		return dialer.Dial(n, d)
-	}
 
 	portnumber, _ := strconv.Atoi(po.Port)
 	mh := multihost.New(id)
@@ -138,17 +129,42 @@ func NewSocks5Proxy(id string, ctx context.Context, ctl protect.Controller, po *
 		return nil, err
 	}
 
+	// always with a network namespace aware dialer
+	dialer := protect.MakeNsRDial(id, ctx, ctl)
 	h := &socks5{
-		outbound: clients,
 		id:       id,
+		d:        dialer,
+		outbound: clients,
+		via:      core.NewZeroVolatile[Proxy](),
 		opts:     po,
 		done:     done,
 	}
+
+	tx.DialTCP = h.txdial // h.outbound uses this
+	tx.DialUDP = h.txdial // h.outbound uses this
 
 	log.D("proxy: socks5: created %s with clients(%d), opts(%s)",
 		h.ID(), len(clients), po)
 
 	return h, nil
+}
+
+func (h *socks5) txdial(n, src, dst string) (c net.Conn, err error) {
+	who := h.ID()
+	if v := h.via.Load(); v != nil {
+		if v.Status() != END { // dial via another proxy
+			who = v.ID()
+			c, err = v.DialBind(n, src, dst)
+		} else {
+			h.Hop(nil) // stale; unset
+			log.W("socks5: via(%s) removed", idhandle(v))
+		}
+	}
+	if who == h.ID() {
+		c, err = h.d.DialBind(n, src, dst)
+	}
+	log.I("proxy: socks5: dial(%s) from %s => %s (via %s); err? %v", n, h.GetAddr(), dst, who, err)
+	return
 }
 
 // Handle implements Proxy.
@@ -235,6 +251,30 @@ func (h *socks5) Router() x.Router {
 // Reaches implements x.Router.
 func (h *socks5) Reaches(hostportOrIPPortCsv string) bool {
 	return Reaches(h, hostportOrIPPortCsv)
+}
+
+// Hop implements Proxy.
+func (h *socks5) Hop(p Proxy) error {
+	if p == nil {
+		old := h.via.Tango(nil)
+		log.I("socks5: hop(%s) removed", idhandle(old))
+		return nil
+	}
+	if p.Status() == END {
+		return errProxyStopped
+	}
+
+	old := h.via.Tango(p)
+	log.I("socks5: hop(%s) => %s", idhandle(old), idhandle(p))
+	return nil
+}
+
+// Via implements x.Router.
+func (h *socks5) Via() (x.Proxy, error) {
+	if v := h.via.Load(); v != nil {
+		return v, nil
+	}
+	return nil, errNoHop
 }
 
 // GetAddr implements Proxy.
