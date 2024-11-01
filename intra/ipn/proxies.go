@@ -17,7 +17,6 @@ import (
 	x "github.com/celzero/firestack/intra/backend"
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/dialers"
-	"github.com/celzero/firestack/intra/ipn/nop"
 	"github.com/celzero/firestack/intra/ipn/seasy"
 	"github.com/celzero/firestack/intra/ipn/warp"
 	"github.com/celzero/firestack/intra/log"
@@ -142,6 +141,7 @@ type Proxies interface {
 
 type proxifier struct {
 	sync.RWMutex
+	NoVia
 
 	ctx context.Context
 	p   map[string]Proxy
@@ -173,7 +173,8 @@ var _ Proxies = (*proxifier)(nil)
 var _ x.Rpn = (*proxifier)(nil)
 var _ x.Router = (*proxifier)(nil)
 var _ protect.RDialer = (Proxy)(nil)
-var _ Proxy = (*nop.NoProxy)(nil)
+var _ Proxy = (*NoProxy)(nil)
+var _ x.Router = (*NoProxy)(nil)
 
 // NewProxifier returns a new Proxifier instance.
 func NewProxifier(pctx context.Context, c protect.Controller, o x.ProxyListener) *proxifier {
