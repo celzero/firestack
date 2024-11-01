@@ -316,6 +316,9 @@ func (h *auto) Stop() error {
 }
 
 func (h *auto) dialIfReachable(p Proxy, network, local, remote string) (net.Conn, error) {
+	if !hasroute(p, remote) {
+		return nil, errNoRouteToHost
+	}
 	ipp, _ := netip.ParseAddrPort(remote)
 	if reachable, err := h.ba.DoIt(baID(p, remote), icmpReachesWork(p, ipp)); err != nil {
 		return nil, err
