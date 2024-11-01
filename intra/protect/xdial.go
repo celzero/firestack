@@ -173,7 +173,7 @@ func (d *RDial) Accept(network, local string) (net.Listener, error) {
 	if network != "tcp" && network != "tcp4" && network != "tcp6" {
 		return nil, errAccept
 	}
-	return d.listen.Listen(context.Background(), network, local)
+	return d.listen.Listen(d.context(), network, local)
 }
 
 // Announce implements RDialer.
@@ -185,7 +185,7 @@ func (d *RDial) Announce(network, local string) (net.PacketConn, error) {
 	// todo: check if local is a local address or empty (any)
 	// diailing (proxy.Dial/net.Dial/etc) on wildcard addresses (ex: ":8080" or "" or "localhost:1025")
 	// is not equivalent to listening/announcing. see: github.com/golang/go/issues/22827
-	if pc, err := d.listen.ListenPacket(context.Background(), network, local); err == nil {
+	if pc, err := d.listen.ListenPacket(d.context(), network, local); err == nil {
 		switch x := pc.(type) {
 		case *net.UDPConn:
 			return x, nil
