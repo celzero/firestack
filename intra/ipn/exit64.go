@@ -15,7 +15,6 @@ import (
 	x "github.com/celzero/firestack/intra/backend"
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/dialers"
-	"github.com/celzero/firestack/intra/ipn/nop"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
 )
@@ -38,10 +37,10 @@ var (
 // exit64 is a proxy that always dials out to the internet
 // over well-known preset public NAT64 prefixes.
 type exit64 struct {
-	nop.NoDNS
-	nop.ProtoAgnostic
-	nop.SkipRefresh
-	nop.GW
+	NoDNS
+	ProtoAgnostic
+	SkipRefresh
+	GWNoVia
 	outbound *protect.RDial // outbound dialer
 	addr     string
 	status   *core.Volatile[int]

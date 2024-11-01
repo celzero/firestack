@@ -4,12 +4,11 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
-package nop
+package ipn
 
 import (
 	"errors"
 	"net/netip"
-	"time"
 
 	x "github.com/celzero/firestack/intra/backend"
 	"github.com/celzero/firestack/intra/core"
@@ -18,13 +17,17 @@ import (
 )
 
 var (
-	errNoMtu                = errors.New("proxy: missing mtu")
 	errProbeNotSupported    = errors.New("proxy: probe not supported")
 	errAnnounceNotSupported = errors.New("proxy: announce not supported")
 )
 
-const NOMTU = 0  // no MTU
 const nodns = "" // no DNS
+
+// todo: impl a baseproxy for common fns ID, GetAddr, Status, Via, Hop etc
+type GWNoVia struct {
+	NoVia
+	GW
+}
 
 // GW is a no-op/stub gateway that is either dualstack or not and has dummy stats.
 type GW struct {
@@ -32,7 +35,7 @@ type GW struct {
 	stats      x.RouterStats // zero stats
 }
 
-var _ x.Router = (*GW)(nil)
+var _ x.Router = (*GWNoVia)(nil)
 
 // IP4 implements Router.
 func (w *GW) IP4() bool { return !w.nov4 }
@@ -79,7 +82,7 @@ func (w *GW) Reaches(hostportOrIPPortCsv string) bool {
 }
 
 // ProxyNoGateway is a Router that routes nothing.
-var ProxyNoGateway = GW{nov4: true, nov6: true}
+var ProxyNoGateway = GWNoVia{GW: GW{nov4: true, nov6: true}}
 
 // ProtoAgnostic is a proxy that does not care about protocol changes.
 type ProtoAgnostic struct{}
@@ -92,6 +95,8 @@ type SkipRefresh struct{}
 
 // Refresh implements Proxy.
 func (SkipRefresh) Refresh() error { return nil }
+
+func (SkipRefresh) onNotOK() bool { return false }
 
 // Ping implements Proxy.
 func (SkipRefresh) Ping() bool { return false }
@@ -120,10 +125,10 @@ func (NoDNS) DNS() string {
 	return nodns
 }
 
-// now returns the current time in unix millis
-func now() int64 {
-	return time.Now().UnixMilli()
-}
+type NoVia struct{}
+
+func (NoVia) Via() (x.Proxy, error) { return nil, errNop }
+func (NoVia) Hop(Proxy) error       { return errNop }
 
 var errNop = errors.New("proxy: nop")
 
@@ -132,7 +137,7 @@ type NoProxy struct {
 	ProtoAgnostic
 	SkipRefresh
 	NoFwd
-	GW
+	GWNoVia
 }
 
 func (NoProxy) Handle() uintptr                                       { return core.Nobody }

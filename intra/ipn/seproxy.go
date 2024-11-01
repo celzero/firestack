@@ -36,7 +36,6 @@ import (
 	x "github.com/celzero/firestack/intra/backend"
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/dialers"
-	"github.com/celzero/firestack/intra/ipn/nop"
 	"github.com/celzero/firestack/intra/ipn/seasy"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
@@ -75,11 +74,11 @@ var (
 type authFn func() (cred string)
 
 type seproxy struct {
-	nop.NoFwd
-	nop.NoDNS
-	nop.SkipRefresh
-	nop.ProtoAgnostic
-	nop.GW
+	NoFwd
+	NoDNS
+	SkipRefresh
+	ProtoAgnostic
+	GW
 
 	done      context.CancelFunc
 	sec       *seasy.SEApi

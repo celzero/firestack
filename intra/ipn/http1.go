@@ -16,7 +16,6 @@ import (
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/dialers"
 	tx "github.com/celzero/firestack/intra/ipn/h1"
-	"github.com/celzero/firestack/intra/ipn/nop"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
 	"github.com/celzero/firestack/intra/settings"
@@ -24,15 +23,17 @@ import (
 )
 
 type http1 struct {
-	nop.NoFwd       // no forwarding/listening
-	nop.NoDNS       // no dns
-	nop.SkipRefresh // no refresh
-	nop.GW          // dual stack gateway
-	outbound        proxy.Dialer
-	id              string
-	opts            *settings.ProxyOptions
-	lastdial        time.Time
-	status          *core.Volatile[int]
+	NoFwd       // no forwarding/listening
+	NoDNS       // no dns
+	SkipRefresh // no refresh
+	GW          // dual stack gateway
+
+	id       string
+	outbound proxy.Dialer
+	via      *core.Volatile[Proxy]
+	opts     *settings.ProxyOptions
+	lastdial time.Time
+	status   *core.Volatile[int]
 }
 
 func NewHTTPProxy(id string, ctx context.Context, c protect.Controller, po *settings.ProxyOptions) (*http1, error) {

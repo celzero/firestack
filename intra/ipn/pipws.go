@@ -20,7 +20,6 @@ import (
 	x "github.com/celzero/firestack/intra/backend"
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/dialers"
-	"github.com/celzero/firestack/intra/ipn/nop"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
 	"github.com/celzero/firestack/intra/settings"
@@ -34,22 +33,24 @@ const (
 )
 
 type pipws struct {
-	nop.NoFwd                        // no forwarding/listening
-	nop.NoDNS                        // no dns
-	nop.ProtoAgnostic                // since dial is proto aware
-	nop.SkipRefresh                  // no refresh
-	nop.GW                           // dual stack gateway
-	url               string         // ws proxy url
-	hostname          string         // ws proxy hostname
-	port              int            // ws proxy port
-	token             string         // hex, raw client token
-	toksig            string         // hex, authorizer (rdns) signed client token
-	rsasighash        string         // hex, authorizer sha256(unblinded signature)
-	echcfg            *tls.Config    // ech config
-	client            http.Client    // ws client
-	client3           *http.Client   // ws client for ech
-	outbound          *protect.RDial // ws dialer
-	lastdial          time.Time      // last dial time
+	NoFwd         // no forwarding/listening
+	NoDNS         // no dns
+	ProtoAgnostic // since dial is proto aware
+	SkipRefresh   // no refresh
+	GW            // dual stack gateway
+
+	url        string                // ws proxy url
+	hostname   string                // ws proxy hostname
+	port       int                   // ws proxy port
+	token      string                // hex, raw client token
+	toksig     string                // hex, authorizer (rdns) signed client token
+	rsasighash string                // hex, authorizer sha256(unblinded signature)
+	echcfg     *tls.Config           // ech config
+	client     http.Client           // ws client
+	client3    *http.Client          // ws client for ech
+	outbound   *protect.RDial        // ws dialer
+	via        *core.Volatile[Proxy] // hop dialer
+	lastdial   time.Time             // last dial time
 
 	done context.CancelFunc // cancel func
 
@@ -69,12 +70,26 @@ func (c *pipwsconn) CloseWrite() error { return c.Close() }
 
 // connects to the ws proxy at addr over tcp; used by t.client
 // dial is aware of proto changes via dialers.SplitDial
-func (t *pipws) dial(network, addr string) (net.Conn, error) {
-	if settings.Loopingback.Load() { // no split in loopback (rinr) mode
-		return dialers.Dial(t.outbound, network, addr)
-	} else {
-		return dialers.SplitDial(t.outbound, network, addr)
+func (t *pipws) dial(network, addr string) (c net.Conn, err error) {
+	who := t.ID()
+	if v := t.via.Load(); v != nil {
+		if v.Status() != END { // dial via another proxy
+			who = v.ID()
+			c, err = v.Dial(network, addr)
+		} else {
+			t.Hop(nil) // stale; unset
+			log.W("piph2: via(%s) removed", idhandle(v))
+		}
 	}
+	if who == t.ID() {
+		if settings.Loopingback.Load() { // no split in loopback (rinr) mode
+			c, err = dialers.Dial(t.outbound, network, addr)
+		} else {
+			c, err = dialers.SplitDial(t.outbound, network, addr)
+		}
+	}
+	defer localDialStatus(t.status, err)
+	return
 }
 
 func (t *pipws) wsconn(rurl, msg string) (c net.Conn, res *http.Response, err error) {
@@ -183,6 +198,7 @@ func NewPipWsProxy(ctx context.Context, ctl protect.Controller, po *settings.Pro
 		hostname:   parsedurl.Hostname(),
 		port:       port,
 		outbound:   protect.MakeNsRDial(RpnWs, ctx, ctl),
+		via:        core.NewZeroVolatile[Proxy](),
 		token:      po.Auth.User,
 		toksig:     po.Auth.Password,
 		rsasighash: splitpath[2],
@@ -250,6 +266,30 @@ func (t *pipws) Router() x.Router {
 // Reaches implements x.Router.
 func (t *pipws) Reaches(hostportOrIPPortCsv string) bool {
 	return Reaches(t, hostportOrIPPortCsv)
+}
+
+// Hop implements Proxy.
+func (h *pipws) Hop(p Proxy) error {
+	if p == nil {
+		old := h.via.Tango(nil)
+		log.I("pipws: hop(%s) removed", idhandle(old))
+		return nil
+	}
+	if p.Status() == END {
+		return errProxyStopped
+	}
+
+	old := h.via.Tango(p)
+	log.I("pipws: hop(%s) => %s", idhandle(old), idhandle(p))
+	return nil
+}
+
+// Via implements x.Router.
+func (h *pipws) Via() (x.Proxy, error) {
+	if v := h.via.Load(); v != nil {
+		return v, nil
+	}
+	return nil, errNoHop
 }
 
 func (t *pipws) Stop() error {

@@ -351,3 +351,13 @@ func has[T comparable](pids []T, pid T) bool {
 	}
 	return false
 }
+
+func Same(a, b Proxy) bool {
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return a.Handle() == b.Handle()
+}

@@ -8,23 +8,23 @@ package ipn
 
 import (
 	"context"
+	"strconv"
 
 	x "github.com/celzero/firestack/intra/backend"
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/dialers"
-	"github.com/celzero/firestack/intra/ipn/nop"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
 )
 
 // exit is a proxy that always dials out to the internet.
 type exit struct {
-	nop.NoDNS
-	nop.ProtoAgnostic
-	nop.SkipRefresh
-	nop.GW
-	outbound *protect.RDial // outbound dialer
+	NoDNS
+	ProtoAgnostic
+	SkipRefresh
+	GWNoVia
 	addr     string
+	outbound *protect.RDial // outbound dialer
 	status   *core.Volatile[int]
 	done     context.CancelFunc
 }
@@ -51,6 +51,7 @@ func (h *exit) Dial(network, addr string) (protect.Conn, error) {
 	return h.dial(network, "", addr)
 }
 
+// DialBind implements Proxy.
 func (h *exit) DialBind(network, local, remote string) (protect.Conn, error) {
 	return h.dial(network, local, remote)
 }
@@ -59,7 +60,6 @@ func (h *exit) dial(network, local, remote string) (protect.Conn, error) {
 	if h.status.Load() == END {
 		return nil, errProxyStopped
 	}
-
 	// exit always splits
 	c, err := localDialStrat(h.outbound, network, local, remote)
 	defer localDialStatus(h.status, err)
@@ -99,18 +99,22 @@ func (h *exit) Probe(network, local string) (protect.PacketConn, error) {
 	return c, err
 }
 
+// Dialer implements Proxy.
 func (h *exit) Dialer() protect.RDialer {
 	return h
 }
 
+// ID implements x.Proxy.
 func (h *exit) ID() string {
 	return Exit
 }
 
+// Type implements x.Proxy.
 func (h *exit) Type() string {
 	return INTERNET
 }
 
+// Router implements x.Proxy.
 func (h *exit) Router() x.Router {
 	return h
 }
@@ -120,14 +124,17 @@ func (h *exit) Reaches(hostportOrIPPortCsv string) bool {
 	return Reaches(h, hostportOrIPPortCsv)
 }
 
+// GetAddr implements x.Proxy.
 func (h *exit) GetAddr() string {
 	return h.addr
 }
 
+// Status implements x.Proxy.
 func (h *exit) Status() int {
 	return h.status.Load()
 }
 
+// Stop implements x.Proxy.
 func (h *exit) Stop() error {
 	h.status.Store(END)
 	h.done()
@@ -144,4 +151,11 @@ func localDialStatus(status *core.Volatile[int], err error) {
 	} else {
 		status.Store(TOK)
 	}
+}
+
+func idhandle(p Proxy) string {
+	if p == nil || core.IsNil(p) {
+		return ""
+	}
+	return p.ID() + "@" + strconv.Itoa(int(p.Handle()))
 }

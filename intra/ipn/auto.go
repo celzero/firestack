@@ -15,7 +15,6 @@ import (
 
 	x "github.com/celzero/firestack/intra/backend"
 	"github.com/celzero/firestack/intra/core"
-	"github.com/celzero/firestack/intra/ipn/nop"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
 	"github.com/celzero/firestack/intra/settings"
@@ -26,10 +25,10 @@ const shortdelay = 100 * time.Millisecond
 
 // exit is a proxy that always dials out to the internet.
 type auto struct {
-	nop.NoDNS
-	nop.ProtoAgnostic
-	nop.SkipRefresh
-	nop.GW
+	NoDNS
+	ProtoAgnostic
+	SkipRefresh
+	GW
 	pxr  Proxies
 	addr string
 
@@ -232,18 +231,22 @@ func (h *auto) Probe(network, local string) (pc protect.PacketConn, err error) {
 	return pc, err
 }
 
+// Dialer implements Proxy.
 func (h *auto) Dialer() protect.RDialer {
 	return h
 }
 
+// ID implements x.Proxy.
 func (h *auto) ID() string {
 	return Auto
 }
 
+// Type implements x.Proxy.
 func (h *auto) Type() string {
 	return RPN
 }
 
+// Router implements x.Proxy.
 func (h *auto) Router() x.Router {
 	return h
 }
@@ -258,10 +261,12 @@ func (h *auto) GetAddr() string {
 	return h.addr
 }
 
+// Status implements x.Proxy.
 func (h *auto) Status() int {
 	return h.status.Load()
 }
 
+// Stop implements x.Proxy.
 func (h *auto) Stop() error {
 	h.status.Store(END)
 	h.exp.Clear()

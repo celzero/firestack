@@ -26,7 +26,6 @@ import (
 	x "github.com/celzero/firestack/intra/backend"
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/dialers"
-	"github.com/celzero/firestack/intra/ipn/nop"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
 	"github.com/celzero/firestack/intra/settings"
@@ -34,20 +33,22 @@ import (
 )
 
 type piph2 struct {
-	nop.NoFwd                        // no forwarding/listening
-	nop.NoDNS                        // no dns
-	nop.ProtoAgnostic                // since dial, dialts are proto aware
-	nop.SkipRefresh                  // no refresh
-	nop.GW                           // dual stack gateway
-	url               string         // h2 proxy url
-	hostname          string         // h2 proxy hostname
-	port              int            // h2 proxy port
-	token             string         // hex, client token
-	toksig            string         // hex, authorizer signed client token
-	rsasig            string         // hex, authorizer unblinded signature
-	client            http.Client    // h2 client, see trType
-	outbound          *protect.RDial // h2 dialer
-	opts              *settings.ProxyOptions
+	NoFwd         // no forwarding/listening
+	NoDNS         // no dns
+	ProtoAgnostic // since dial, dialts are proto aware
+	SkipRefresh   // no refresh
+	GW            // dual stack gateway
+
+	url      string                // h2 proxy url
+	hostname string                // h2 proxy hostname
+	port     int                   // h2 proxy port
+	token    string                // hex, client token
+	toksig   string                // hex, authorizer signed client token
+	rsasig   string                // hex, authorizer unblinded signature
+	client   http.Client           // h2 client, see trType
+	outbound *protect.RDial        // h2 dialer
+	via      *core.Volatile[Proxy] // hop dialer
+	opts     *settings.ProxyOptions
 
 	done context.CancelFunc
 

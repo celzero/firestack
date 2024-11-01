@@ -12,7 +12,6 @@ import (
 	x "github.com/celzero/firestack/intra/backend"
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/dialers"
-	"github.com/celzero/firestack/intra/ipn/nop"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
 	"github.com/celzero/firestack/intra/settings"
@@ -21,12 +20,13 @@ import (
 // base is no-op proxy that dials into the underlying network,
 // which typically is wifi or mobile but may also be a tun device.
 type base struct {
-	nop.NoDNS
-	nop.ProtoAgnostic
-	nop.SkipRefresh
-	nop.GW
-	outbound *protect.RDial // outbound dialer
+	NoDNS
+	ProtoAgnostic
+	SkipRefresh
+	GW
 	addr     string
+	outbound *protect.RDial        // outbound dialer
+	via      *core.Volatile[Proxy] // via dialer
 	status   *core.Volatile[int]
 	done     context.CancelFunc
 }
@@ -37,6 +37,7 @@ func NewBaseProxy(ctx context.Context, c protect.Controller) *base {
 	h := &base{
 		addr:     "127.8.4.5:3690",
 		outbound: protect.MakeNsRDial(Base, ctx, c),
+		via:      core.NewZeroVolatile[Proxy](),
 		status:   core.NewVolatile(TUP),
 		done:     done,
 	}
@@ -63,16 +64,28 @@ func (h *base) dial(network, local, remote string) (c protect.Conn, err error) {
 		return nil, errProxyStopped
 	}
 
-	if settings.Loopingback.Load() { // loopback (rinr) mode
-		// TODO: test if binding to local address works in rinr mode
-		c, err = dialers.DialBind(h.outbound, network, local, remote)
-	} else {
-		c, err = localDialStrat(h.outbound, network, local, remote)
+	who := h.ID()
+	if v := h.via.Load(); v != nil {
+		if v.Status() != END { // dial via another proxy
+			who = v.ID()
+			c, err = v.DialBind(network, local, remote)
+		} else {
+			h.Hop(nil) // stale; unset
+			log.W("proxy: base: via(%s) removed", idhandle(v))
+		}
+	}
+	if who == h.ID() {
+		if settings.Loopingback.Load() { // loopback (rinr) mode
+			// TODO: test if binding to local address works in rinr mode
+			c, err = dialers.DialBind(h.outbound, network, local, remote)
+		} else {
+			c, err = localDialStrat(h.outbound, network, local, remote)
+		}
 	}
 	defer localDialStatus(h.status, err)
 
 	maybeKeepAlive(c)
-	log.I("proxy: base: dial(%s) to %s=>%s; err? %v", network, local, remote, err)
+	log.I("proxy: base: dial(%s) to %s=>%s (via %s); err? %v", network, local, remote, who, err)
 	return
 }
 
@@ -125,6 +138,33 @@ func (h *base) Router() x.Router {
 // Reaches implements x.Router.
 func (h *base) Reaches(hostportOrIPPortCsv string) bool {
 	return Reaches(h, hostportOrIPPortCsv)
+}
+
+// Hop implements Proxy.
+func (h *base) Hop(p Proxy) error {
+	if p == nil {
+		old := h.via.Tango(nil)
+		log.I("proxy: base: hop(%s) removed", idhandle(old))
+		return nil
+	}
+	if p.Status() == END {
+		return errProxyStopped
+	}
+	if p.ID() != GlobalH1 {
+		return errHopGlobalProxy
+	}
+
+	old := h.via.Tango(p)
+	log.I("proxy: base: hop(%s) => %s", idhandle(old), idhandle(p))
+	return nil
+}
+
+// Via implements x.Router.
+func (h *base) Via() (x.Proxy, error) {
+	if v := h.via.Load(); v != nil {
+		return v, nil
+	}
+	return nil, errNoHop
 }
 
 func (h *base) GetAddr() string {

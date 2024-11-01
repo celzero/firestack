@@ -27,18 +27,19 @@ import (
 )
 
 const (
-	Block   = x.Block
-	Base    = x.Base
-	Exit    = x.Exit
-	Auto    = x.Auto
-	Ingress = x.Ingress // dummy
-	OrbotS5 = x.OrbotS5
-	OrbotH1 = x.OrbotH1
-	RpnWg   = x.RpnWg
-	RpnWs   = x.RpnWs
-	Rpn64   = x.Rpn64
-	RpnH2   = x.RpnH2
-	RpnSE   = x.RpnSE
+	Block    = x.Block
+	Base     = x.Base
+	Exit     = x.Exit
+	Auto     = x.Auto
+	Ingress  = x.Ingress // dummy
+	OrbotS5  = x.OrbotS5
+	OrbotH1  = x.OrbotH1
+	GlobalH1 = x.GlobalH1
+	RpnWg    = x.RpnWg
+	RpnWs    = x.RpnWs
+	Rpn64    = x.Rpn64
+	RpnH2    = x.RpnH2
+	RpnSE    = x.RpnSE
 
 	SOCKS5   = x.SOCKS5
 	HTTP1    = x.HTTP1
@@ -61,28 +62,33 @@ const (
 )
 
 var (
-	errProxyScheme     = errors.New("proxy: unsupported scheme")
-	errUnexpectedProxy = errors.New("proxy: unexpected type")
-	errAddProxy        = errors.New("proxy: add failed")
-	errProxyNotFound   = errors.New("proxy: not found")
-	errGetProxyTimeout = errors.New("proxy: get timeout")
-	errProxyAllDown    = errors.New("proxy: all down")
-	errNoProxyHealthy  = errors.New("proxy: no chosen healthy")
-	errMissingProxyOpt = errors.New("proxy: opts nil")
-	errNoProxyConn     = errors.New("proxy: not a tcp/udp conn")
-	errNotUDPConn      = errors.New("proxy: not a udp conn")
-	errProxyStopped    = errors.New("proxy: stopped")
-	errProxyConfig     = errors.New("proxy: invalid config")
-	errNoProxyResponse = errors.New("proxy: no response from upstream")
-	errNoSig           = errors.New("proxy: auth missing sig")
-	errNoMtu           = errors.New("proxy: missing mtu")
-	errNoOpts          = errors.New("proxy: no opts")
-	errMissingRev      = errors.New("proxy: missing reverse proxy")
-	errNoAuto464XLAT   = errors.New("auto: no 464xlat")
-	errNotPinned       = errors.New("auto: another proxy pinned")
-	errInvalidAddr     = errors.New("proxy: invaild ip:port")
-	errUnreachable     = errors.New("proxy: destination unreachable")
-	errMissingProxyID  = errors.New("proxy: missing proxy id")
+	errProxyScheme       = errors.New("proxy: unsupported scheme")
+	errUnexpectedProxy   = errors.New("proxy: unexpected type")
+	errAddProxy          = errors.New("proxy: add failed")
+	errProxyNotFound     = errors.New("proxy: not found")
+	errGetProxyTimeout   = errors.New("proxy: get timeout")
+	errProxyAllDown      = errors.New("proxy: all down")
+	errNoProxyHealthy    = errors.New("proxy: no chosen healthy")
+	errMissingProxyOpt   = errors.New("proxy: opts nil")
+	errNoProxyConn       = errors.New("proxy: not a tcp/udp conn")
+	errNotUDPConn        = errors.New("proxy: not a udp conn")
+	errProxyStopped      = errors.New("proxy: stopped")
+	errProxyConfig       = errors.New("proxy: invalid config")
+	errNoProxyResponse   = errors.New("proxy: no response from upstream")
+	errNoSig             = errors.New("proxy: auth missing sig")
+	errNoMtu             = errors.New("proxy: missing mtu")
+	errNoOpts            = errors.New("proxy: no opts")
+	errMissingRev        = errors.New("proxy: missing reverse proxy")
+	errNoAuto464XLAT     = errors.New("auto: no 464xlat")
+	errNotPinned         = errors.New("auto: another proxy pinned")
+	errInvalidAddr       = errors.New("proxy: invaild ip:port")
+	errUnreachable       = errors.New("proxy: destination unreachable")
+	errNoRouteToHost     = errors.New("proxy: no route to host")
+	errMissingProxyID    = errors.New("proxy: missing proxy id")
+	errHopRoutesMismatch = errors.New("proxy: hop routes mismatch")
+	errNoHop             = errors.New("proxy: no hop")
+	errHopWireGuard      = errors.New("proxy: hop must be wireguard")
+	errHopGlobalProxy    = errors.New("proxy: hop must be global proxy")
 )
 
 const (
@@ -109,9 +115,6 @@ var _ Proxy = (*piph2)(nil)
 
 type Proxy interface {
 	x.Proxy
-	// Dial(network, addr string) (protect.Conn, error)
-	// Announce(network, local string) (protect.PacketConn, error)
-	// Accept(network, local string) (protect.Listener, error)
 	protect.RDialer
 
 	// Dialer returns the dialer for this proxy, which is an
