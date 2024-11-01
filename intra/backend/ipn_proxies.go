@@ -10,18 +10,19 @@ const ( // see ipn/proxies.go
 	// nb: Base proxies are Catch-All / fallback proxies
 	// IDs for default proxies
 
-	Block   = "Block"       // blocks all traffic
-	Base    = "Base"        // does not proxy traffic; in sync w dnsx.NetNoProxy
-	Exit    = "Exit"        // always connects to the Internet (exit node); in sync w dnsx.NetExitProxy
-	Ingress = "Ingress"     // incoming connections
-	Auto    = "Auto"        // auto uses ipn.Exit or any of the RPN proxies
-	RpnWg   = WG + RPN      // RPN Warp
-	RpnWs   = PIPWS + RPN   // RPN WebSockets
-	RpnH2   = PIPH2 + RPN   // RPN HTTP/2
-	Rpn64   = NAT64 + RPN   // RPN Exit hopping over NAT64
-	RpnSE   = SE + RPN      // RPN SurfEasy
-	OrbotS5 = "OrbotSocks5" // Orbot: Base Tor-as-a-SOCKS5 proxy
-	OrbotH1 = "OrbotHttp1"  // Orbot: Base Tor-as-a-HTTP/1.1 proxy
+	Block    = "Block"       // blocks all traffic
+	Base     = "Base"        // does not proxy traffic; in sync w dnsx.NetNoProxy
+	Exit     = "Exit"        // always connects to the Internet (exit node); in sync w dnsx.NetExitProxy
+	Ingress  = "Ingress"     // incoming connections
+	Auto     = "Auto"        // auto uses ipn.Exit or any of the RPN proxies
+	RpnWg    = WG + RPN      // RPN Warp
+	RpnWs    = PIPWS + RPN   // RPN WebSockets
+	RpnH2    = PIPH2 + RPN   // RPN HTTP/2
+	Rpn64    = NAT64 + RPN   // RPN Exit hopping over NAT64
+	RpnSE    = SE + RPN      // RPN SurfEasy
+	OrbotS5  = "OrbotSocks5" // Orbot: Base Tor-as-a-SOCKS5 proxy
+	OrbotH1  = "OrbotHttp1"  // Orbot: Base Tor-as-a-HTTP/1.1 proxy
+	GlobalH1 = "GlobalHttp1" // Global: Global HTTP/1.1 proxy
 
 	// type of proxies
 
