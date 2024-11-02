@@ -986,6 +986,13 @@ func (h *wgproxy) Hop(p Proxy) error {
 	if !isWG(p.ID()) { // for now, only wg can hop another wg
 		return errHopWireGuard
 	}
+	// mtu needed to tunnel this wg
+	mtuNeeded := calcNetMtu(h.mtu)
+	// mtu affordable by this hop
+	if mtuAvail, err := p.Router().MTU(); err != nil || mtuNeeded > mtuAvail {
+		return core.OneErr(err, errHopMtuInsufficient)
+	}
+
 	// todo: check if all routes for p & h overlap
 	old = h.via.Tango(p)
 	return nil
