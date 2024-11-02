@@ -28,6 +28,7 @@ import (
 
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/ipn/multihost"
+	"github.com/celzero/firestack/intra/settings"
 
 	"github.com/celzero/firestack/intra/log"
 	"golang.org/x/sys/unix"
@@ -366,6 +367,7 @@ func (s *StdNetBind) Send(buf [][]byte, peer conn.Endpoint) (err error) {
 	s.mu.Unlock()
 
 	var overwriteReserved = s.overwriteReserved()
+	var experimentalWg = settings.ExperimentalWireGuard.Load()
 	var flooded, overwritten bool
 	var nn int
 	var errs error
@@ -381,17 +383,22 @@ func (s *StdNetBind) Send(buf [][]byte, peer conn.Endpoint) (err error) {
 			return syscall.EAFNOSUPPORT
 		}
 
+		// overwrite the 3 reserved bytes on non-random packets
 		if overwriteReserved {
+			if len(data) > 3 && isWgMsgType(data[0]) {
+				// from: github.com/bepass-org/warp-plus/blob/19ac233cc6/wireguard/device/peer.go#L138
+				copy(data[1:4], s.reserved)
+				overwritten = true
+			}
+		}
+		// flood the network with random packets if experimentalWg is enabled
+		if overwriteReserved && !overwritten && experimentalWg {
 			if !flooded && len(data) == device.MessageInitiationSize {
 				go s.flood(uc, dst, fkHandshake) // probably a handshake
 				flooded = true
 			} else if !flooded && len(data) == device.MessageKeepaliveSize {
 				go s.flood(uc, dst, fkKeepalive) // probably a keepalive
 				flooded = true
-			} else if len(data) > 3 && isWgMsgType(data[0]) {
-				// from: github.com/bepass-org/warp-plus/blob/19ac233cc6/wireguard/device/peer.go#L138
-				copy(data[1:4], s.reserved)
-				overwritten = true
 			}
 		}
 
