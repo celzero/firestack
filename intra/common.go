@@ -265,7 +265,7 @@ func (h *baseHandler) queueSummary(s *SocketSummary) {
 	// see panic from the select statement writing to ch; and hence
 	// the need to have this nested select statement.
 
-	log.VV("%s: queueSummary: %x %x %s", h.proto, h.smmch, h.ctx, s.ID)
+	// log.VV("%s: queueSummary: %x %x %s", h.proto, h.smmch, h.ctx, s.ID)
 	select {
 	case <-h.ctx.Done():
 		log.D("%s: queueSummary: end: %s", h.proto, s)
