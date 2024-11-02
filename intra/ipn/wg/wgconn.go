@@ -14,9 +14,11 @@
 package wg
 
 import (
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"io"
+	mrand "math/rand/v2"
 	"net"
 	"net/netip"
 	"strconv"
@@ -30,12 +32,38 @@ import (
 	"github.com/celzero/firestack/intra/log"
 	"golang.org/x/sys/unix"
 	"golang.zx2c4.com/wireguard/conn"
+	"golang.zx2c4.com/wireguard/device"
 )
 
 // from: github.com/WireGuard/wireguard-go/blob/ebbd4a433/conn/bind_std.go
 
 const maxbindtries = 50
 const wgtimeout = 60 * time.Second
+
+// github.com/WireGuard/wireguard-go/blob/19ac233cc6/wireguard/device/send.go#L96
+var (
+	// quic?
+	// github.com/hiddify/hiddify-sing-box/blob/17127b0535d/outbound/wireguard.go#L217
+	mlist = []byte{0xDC, 0xDE, 0xD3, 0xD9, 0xD0, 0xEC, 0xEE, 0xE3}
+	// github.com/WireGuard/wireguard-go/blob/12269c27617/device/send.go#L456
+	wgheader = []byte{ // size 18
+		/*00-03*/ 0x05, 0x00, 0x00, 0x00, // fieldType
+		/*04-07*/ 0x01, 0x08, 0x00, 0x00, // fieldReceiver
+		/*08-11*/ 0x00, 0x00, 0x00, 0x00, // fieldNonce
+		/*11-15*/ 0x00, 0x00, 0x00, 0x00, // fieldNonce
+		/*16-17*/ 0x44, 0xD0, // ???
+	}
+)
+
+const (
+	minFloodPkts     = 3
+	maxFloodPkts     = minFloodPkts * 10
+	maxFloodDuration = 3 * time.Second
+	minFloodInterval = 30 * time.Second // flood once every 30s
+
+	minFloodPktLen = 28  // bytes; must be > len(wgheader)
+	maxFloodPktLen = 138 // must be >> minFloodPktLen; < device.MessageInitiationSize?
+)
 
 var (
 	errInvalidEndpoint = errors.New("wg: bind: no endpoint")
@@ -44,6 +72,24 @@ var (
 	errNotUDP          = errors.New("wg: bind: not a UDP conn")
 	errNoListen        = errors.New("wg: bind: listen failed")
 )
+
+type floodkind int
+
+const (
+	fkHandshake floodkind = iota
+	fkKeepalive
+)
+
+func (k floodkind) String() string {
+	switch k {
+	case fkHandshake:
+		return "handshake"
+	case fkKeepalive:
+		return "keepalive"
+	default:
+		return "unknown"
+	}
+}
 
 type rwlistener func(op string, err error)
 type connector func(network, to string) (net.PacketConn, error)
@@ -54,6 +100,7 @@ type StdNetBind struct {
 	mh      *multihost.MH
 
 	reserved []byte // overwrite the 3 wg reserved bytes
+	floodBa  *core.Barrier[int, netip.AddrPort]
 
 	mu         sync.Mutex // protects following fields
 	ipv4       *net.UDPConn
@@ -67,7 +114,14 @@ type StdNetBind struct {
 
 // TODO: get d, ep, f, rb through an Opts bag?
 func NewEndpoint(id string, d connector, ep *multihost.MH, f rwlistener, rb [3]byte) *StdNetBind {
-	return &StdNetBind{id: id, connect: d, mh: ep, listener: f, reserved: rb[:3]}
+	return &StdNetBind{
+		id:       id,
+		connect:  d,
+		mh:       ep,
+		listener: f,
+		reserved: rb[:3],
+		floodBa:  core.NewKeyedBarrier[int, netip.AddrPort](minFloodInterval),
+	}
 }
 
 type StdNetEndpoint netip.AddrPort
@@ -312,6 +366,7 @@ func (s *StdNetBind) Send(buf [][]byte, peer conn.Endpoint) (err error) {
 	s.mu.Unlock()
 
 	var overwriteReserved = s.overwriteReserved()
+	var flooded, overwritten bool
 	var nn int
 	var errs error
 	for _, data := range buf {
@@ -326,14 +381,19 @@ func (s *StdNetBind) Send(buf [][]byte, peer conn.Endpoint) (err error) {
 			return syscall.EAFNOSUPPORT
 		}
 
-		// from: github.com/bepass-org/warp-plus/blob/19ac233cc6/wireguard/device/peer.go#L138
 		if overwriteReserved {
-			if len(data) > 3 && data[0] > 0 && data[0] < 5 {
+			if !flooded && len(data) == device.MessageInitiationSize {
+				go s.flood(uc, dst, fkHandshake) // probably a handshake
+				flooded = true
+			} else if !flooded && len(data) == device.MessageKeepaliveSize {
+				go s.flood(uc, dst, fkKeepalive) // probably a keepalive
+				flooded = true
+			} else if len(data) > 3 && isWgMsgType(data[0]) {
+				// from: github.com/bepass-org/warp-plus/blob/19ac233cc6/wireguard/device/peer.go#L138
 				copy(data[1:4], s.reserved)
+				overwritten = true
 			}
 		}
-
-		s.lastSendAddr = dst
 
 		extend(uc, wgtimeout)
 		n, serr := uc.WriteToUDPAddrPort(data, dst)
@@ -342,9 +402,74 @@ func (s *StdNetBind) Send(buf [][]byte, peer conn.Endpoint) (err error) {
 		nn += n
 	}
 
-	loge(err, "wg: bind: send: %s addr(%v) parcels(%d) tx(%d) overwrite(%t); err? %v",
-		s.id, dst, len(buf), nn, overwriteReserved, errs)
+	s.lastSendAddr = dst
+
+	loge(err, "wg: bind: send: %s addr(%v) parcels(%d) tx(%d) (flooded? %t / any-overwritten? %t); err? %v",
+		s.id, dst, len(buf), nn, flooded, overwritten, errs)
 	return err
+}
+
+// github.com/WireGuard/wireguard-go/blob/12269c2761/device/send.go#L456
+// github.com/WireGuard/wireguard-go/blob/12269c2761/device/noise-protocol.go#L56
+func isWgMsgType(x byte) bool {
+	// 1: MsgInitiation, 2: MsgResponse, 3: MsgCookieReply, 4: MsgTransport
+	return x >= 1 && x <= 4
+}
+
+// flood c with random-sized, non-sense (unencrypted) packets.
+// this is okay to do because wireguard silently drops packets that won't decrypt.
+// github.com/WireGuard/wireguard-go/blob/19ac233cc6/wireguard/device/send.go#L96
+// github.com/GFW-knocker/wireguard/blob/8bd9f582b4/device/send.go#L98
+func (s *StdNetBind) flood(c *net.UDPConn, dst netip.AddrPort, why floodkind) (int, error) {
+	return s.floodBa.DoIt(dst, func() (int, error) {
+		hdrlen := len(wgheader)
+		hdr := make([]byte, hdrlen)
+		copy(hdr, wgheader)
+
+		hdr[0] = mlist[mrand.UintN(uint(len(mlist)))]
+		_, _ = rand.Read(hdr[6:14])
+
+		tot := mrand.Uint64N(maxFloodPkts + 1)
+		if tot < minFloodPkts {
+			tot = minFloodPkts
+		}
+		// go.dev/play/p/NkLihAUTqUO
+		maxWaitMs := maxFloodDuration.Milliseconds() / int64(tot)
+		expectedsent := make([]int, tot)
+
+		// gfw-knocker generates much smaller pkts (18 + (10 to 30))
+		// github.com/GFW-knocker/wireguard/blob/8bd9f582b4/device/send.go#L141
+		padlen := uint64(maxFloodPktLen - hdrlen)
+		pkt := make([]byte, maxFloodPktLen)
+		var n int
+		for i := uint64(0); i < tot; i++ {
+			sz := mrand.Uint64N(padlen + 1)
+			if sz < minFloodPktLen {
+				sz = minFloodPktLen
+			}
+			_, _ = rand.Read(pkt[hdrlen:sz])
+			copy(pkt[0:], hdr)
+
+			extend(c, wgtimeout)
+			sent, err := c.WriteToUDPAddrPort(pkt, dst)
+
+			expectedsent[i] = hdrlen + int(sz)
+			n += sent
+
+			if err != nil {
+				log.E("wg: bind: %s flood %s %s: expected sent?(%v) / tot(%d); %v",
+					s.id, why, dst, expectedsent[:i], n, err)
+				return n, err
+			}
+
+			wait := time.Duration(mrand.Int64N(maxWaitMs)) * time.Millisecond
+			time.Sleep(wait)
+		}
+
+		log.I("wg: bind: %s flood %s %s: expected sent?(%v) / tot(%d)",
+			s.id, why, dst, expectedsent, n)
+		return n, nil
+	})
 }
 
 func (s *StdNetBind) overwriteReserved() bool {
