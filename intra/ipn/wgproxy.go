@@ -264,16 +264,13 @@ func (w *wgproxy) Refresh() (err error) {
 		nn = mh.Refresh()
 	}
 	if err = w.Device.Down(); err != nil {
-		err = errors.Join(err, viaErr)
 		log.E("proxy: wg: !refresh(%s): down: len(dns): %d, len(peer): %d, err: %v", w.id, n, nn, err)
 		return
 	}
 	if err = w.Device.Up(); err != nil {
-		err = errors.Join(err, viaErr)
 		log.E("proxy: wg: !refresh(%s): up: len(dns): %d, len(peer): %d, err: %v", w.id, n, nn, err)
 		return
 	}
-	err = errors.Join(err, viaErr)
 	// not required since wgconn:NewBind() is namespace aware
 	// bindok := bindWgSockets(w.ID(), w.remote.AnyAddr(), w.wgdev, w.ctl)
 	log.I("proxy: wg: refresh(%s) done; len(dns): %d, len(peer): %d; err? %v", w.id, n, nn, err)
