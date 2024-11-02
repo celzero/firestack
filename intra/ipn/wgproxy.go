@@ -228,18 +228,22 @@ func (w *wgproxy) Ping() bool {
 
 // onNotOK implements Proxy.
 func (w *wgproxy) onNotOK() (handled bool) {
-	var didRefresh, didPing bool
-	_, _ = w.refreshBa.DoIt(w.id, func() (bool, error) {
+	var didRefresh, didPing, didCallVia bool
+
+	if via := w.via.Load(); via != nil {
+		didCallVia = via.onNotOK()
+	}
+	handled, _ = w.refreshBa.DoIt(w.id, func() (bool, error) {
 		err := w.Refresh()
 		didRefresh = true
 		return err == nil, err
 	})
-	if !handled {
-		handled = w.Ping() // ping / sendkeepalive is async
+	if !didRefresh { // attempt Ping if refresh skipped by the barrier
+		handled = handled && w.Ping() // ping / sendkeepalive is async
 		didPing = true
 	}
-	log.D("proxy: wg: %s onNotOK: refresh? %t ping? %t; ok? %t",
-		w.id, didRefresh, didPing, handled)
+	log.D("proxy: wg: %s onNotOK: via? %t refresh? %t ping? %t; ok? %t",
+		w.id, didCallVia, didRefresh, didPing, handled)
 	return
 }
 
@@ -247,12 +251,6 @@ func (w *wgproxy) onNotOK() (handled bool) {
 func (w *wgproxy) Refresh() (err error) {
 	if w.status.Load() == END {
 		return errProxyStopped
-	}
-
-	var viaErr error
-	via := w.via.Load()
-	if via != nil {
-		viaErr = via.Refresh()
 	}
 
 	w.latestPing.Store(0) // reset latest ping time
