@@ -18,8 +18,8 @@ package ipn
 import (
 	"bufio"
 	"context"
-	"errors"
 	"fmt"
+	"math/rand/v2"
 	"net"
 	"net/netip"
 	"os"
@@ -518,12 +518,20 @@ func NewWgProxy(id string, ctl protect.Controller, rev netstack.GConnHandler, cf
 
 	id = wgtun.id // has stripped prefix FAST, if any
 
+	// github.com/bepass-org/warp-plus/blob/19ac233cc6/wiresocks/config.go#L184
+	var reservedBytes [3]byte
+	if isRPN(id) {
+		reservedBytes[0] = uint8(rand.UintN(0x100))
+		reservedBytes[1] = uint8(rand.UintN(0x100))
+		reservedBytes[2] = uint8(rand.UintN(0x100))
+	}
+
 	var wgep wgconn
 	if wgtun.preferOffload {
 		// todo: use wgtun.serve fn instead of ctl
 		wgep = wg.NewEndpoint2(id, ctl, endpointh, wgtun.listener)
 	} else {
-		wgep = wg.NewEndpoint(id, wgtun.serve, endpointh, wgtun.listener)
+		wgep = wg.NewEndpoint(id, wgtun.serve, endpointh, wgtun.listener, reservedBytes)
 	}
 
 	wgdev := device.NewDevice(wgtun, wgep, wglogger(id))
@@ -551,7 +559,8 @@ func NewWgProxy(id string, ctl protect.Controller, rev netstack.GConnHandler, cf
 		wgep,  // endpoint
 	}
 
-	log.D("proxy: wg: new %s; addrs(%v) mtu(%d/%d) peers(%d) / v4(%t) v6(%t)", id, ifaddrs, mtu, calcTunMtu(mtu), len(peers), wgtun.hasV4, wgtun.hasV6)
+	log.D("proxy: wg: new %s; addrs(%v) mtu(%d/%d) peers(%d) / v4(%t) v6(%t)",
+		id, ifaddrs, mtu, calcTunMtu(mtu), len(peers), wgtun.hasV4, wgtun.hasV6)
 
 	return w, nil
 }

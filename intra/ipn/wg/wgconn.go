@@ -53,6 +53,8 @@ type StdNetBind struct {
 	connect connector
 	mh      *multihost.MH
 
+	reserved []byte // overwrite the 3 wg reserved bytes
+
 	mu         sync.Mutex // protects following fields
 	ipv4       *net.UDPConn
 	ipv6       *net.UDPConn
@@ -63,8 +65,9 @@ type StdNetBind struct {
 	lastSendAddr netip.AddrPort // may be invalid
 }
 
-func NewEndpoint(id string, d connector, ep *multihost.MH, f rwlistener) *StdNetBind {
-	return &StdNetBind{id: id, connect: d, mh: ep, listener: f}
+// TODO: get d, ep, f, rb through an Opts bag?
+func NewEndpoint(id string, d connector, ep *multihost.MH, f rwlistener, rb [3]byte) *StdNetBind {
+	return &StdNetBind{id: id, connect: d, mh: ep, listener: f, reserved: rb[:3]}
 }
 
 type StdNetEndpoint netip.AddrPort
@@ -308,6 +311,7 @@ func (s *StdNetBind) Send(buf [][]byte, peer conn.Endpoint) (err error) {
 	}
 	s.mu.Unlock()
 
+	var overwriteReserved = s.overwriteReserved()
 	var nn int
 	var errs error
 	for _, data := range buf {
@@ -322,6 +326,13 @@ func (s *StdNetBind) Send(buf [][]byte, peer conn.Endpoint) (err error) {
 			return syscall.EAFNOSUPPORT
 		}
 
+		// from: github.com/bepass-org/warp-plus/blob/19ac233cc6/wireguard/device/peer.go#L138
+		if overwriteReserved {
+			if len(data) > 3 && data[0] > 0 && data[0] < 5 {
+				copy(data[1:4], s.reserved)
+			}
+		}
+
 		s.lastSendAddr = dst
 
 		extend(uc, wgtimeout)
@@ -331,8 +342,16 @@ func (s *StdNetBind) Send(buf [][]byte, peer conn.Endpoint) (err error) {
 		nn += n
 	}
 
-	loge(err, "wg: bind: send: %s addr(%v) parcels(%d) tx(%d); err? %v", s.id, dst, len(buf), nn, errs)
+	loge(err, "wg: bind: send: %s addr(%v) parcels(%d) tx(%d) overwrite(%t); err? %v",
+		s.id, dst, len(buf), nn, overwriteReserved, errs)
 	return err
+}
+
+func (s *StdNetBind) overwriteReserved() bool {
+	return len(s.reserved) == 3 &&
+		s.reserved[0] != 0 ||
+		s.reserved[1] != 0 ||
+		s.reserved[2] != 0
 }
 
 func (s *StdNetBind) BatchSize() int {
