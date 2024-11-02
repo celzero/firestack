@@ -84,6 +84,7 @@ func Ping(pc net.PacketConn, ipp netip.AddrPort) (ok bool, rtt time.Duration, er
 	case *icmp.Echo:
 		// IDs will never match for userspace icmp
 		// github.com/go-ping/ping/blob/caaf2b72e/utils_linux.go#L13
+		// github.com/tailscale/tailscale/blob/43138c7a5c/cmd/stunstamp/stunstamp_linux.go#L77
 		// if reply.ID != msgid {
 		// return fmt.Errorf("icmp: reply from [%v/%v] id %d; want %d",
 		// ipp, from, reply.ID, msgid)
@@ -95,6 +96,8 @@ func Ping(pc net.PacketConn, ipp netip.AddrPort) (ok bool, rtt time.Duration, er
 		}
 
 		start := bytesToTime(reply.Data[:tslen])
+		// TODO: ref kernel timestamping
+		// github.com/tailscale/tailscale/blob/43138c7a5c/cmd/stunstamp/stunstamp_linux.go#L279
 		rtt = end.Sub(start)
 		ok = true
 	default:

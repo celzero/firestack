@@ -17,6 +17,8 @@ import (
 	"github.com/k-sone/critbitgo"
 )
 
+// todo: use github.com/gaissmai/bart ?
+
 // A IpTree is a thread-safe trie that supports insertion, deletion, and route matching IP CIDRs.
 type IpTree interface {
 	// Adds value v to the cidr route.
