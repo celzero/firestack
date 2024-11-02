@@ -214,6 +214,10 @@ func (w *wgproxy) Ping() bool {
 		for _, k := range tracked {
 			if peer := w.LookupPeer(k); peer != nil {
 				pinged++
+				// keepalive are empty packets but always padded to 16 bytes
+				// github.com/bepass-org/warp-plus/blob/12269c2761/wireguard/device/noise-protocol.go#L67
+				// github.com/wireguard/wireguard-go/blob/12269c2761/wireguard/device/send.go#L543
+				// WireGuard: Next Generation Kernel Network Tunnel, rev e2da747, section 6.5
 				peer.SendKeepalive()
 			}
 		}
