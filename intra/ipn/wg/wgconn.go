@@ -308,27 +308,30 @@ func (s *StdNetBind) Send(buf [][]byte, peer conn.Endpoint) (err error) {
 	}
 	s.mu.Unlock()
 
-	var data []byte
-	if len(buf) > 0 && len(buf[0]) > 0 {
-		data = buf[0]
+	var nn int
+	var errs error
+	for _, data := range buf {
+		bufok := len(data) > 0
+
+		log.V("wg: bind: send: %s addr(%v) blackhole? %t; noconn? %t; hasbuf? %t", s.id, dst, blackhole, noconn, bufok)
+
+		if blackhole || !bufok {
+			return nil
+		}
+		if noconn {
+			return syscall.EAFNOSUPPORT
+		}
+
+		s.lastSendAddr = dst
+
+		extend(uc, wgtimeout)
+		n, serr := uc.WriteToUDPAddrPort(data, dst)
+
+		errs = errors.Join(errs, serr)
+		nn += n
 	}
-	bufok := len(data) > 0
 
-	log.V("wg: bind: send: %s addr(%v) blackhole? %t; noconn? %t; hasbuf? %t", s.id, dst, blackhole, noconn, bufok)
-
-	if blackhole || !bufok {
-		return nil
-	}
-	if noconn {
-		return syscall.EAFNOSUPPORT
-	}
-
-	s.lastSendAddr = dst
-
-	extend(uc, wgtimeout)
-	n, err := uc.WriteToUDPAddrPort(data, dst)
-
-	loge(err, "wg: bind: send: %s addr(%v) n(%d); err? %v", s.id, dst, n, err)
+	loge(err, "wg: bind: send: %s addr(%v) parcels(%d) tx(%d); err? %v", s.id, dst, len(buf), nn, errs)
 	return err
 }
 
