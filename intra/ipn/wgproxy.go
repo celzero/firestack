@@ -1053,6 +1053,7 @@ func (h *wgtun) serve(network, local string) (pc net.PacketConn, err error) {
 	if v := h.via.Load(); v != nil {
 		if v.Status() != END { // dial via another proxy
 			who = v.ID()
+			// TODO: use Dial if announce fails to "port-forward" on via
 			pc, err = v.Announce(network, local)
 		} else {
 			// wgproxy.Refresh() is not needed since serve is called
