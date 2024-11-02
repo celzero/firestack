@@ -391,12 +391,11 @@ func (s *StdNetBind) Send(buf [][]byte, peer conn.Endpoint) (err error) {
 				overwritten = true
 			}
 		}
-		// flood the network with random packets if experimentalWg is enabled
-		if overwriteReserved && !overwritten && experimentalWg {
-			if !flooded && len(data) == device.MessageInitiationSize {
+		if !flooded && !overwritten && (overwriteReserved || experimentalWg) {
+			if len(data) == device.MessageInitiationSize {
 				go s.flood(uc, dst, fkHandshake) // probably a handshake
 				flooded = true
-			} else if !flooded && len(data) == device.MessageKeepaliveSize {
+			} else if len(data) == device.MessageKeepaliveSize {
 				go s.flood(uc, dst, fkKeepalive) // probably a keepalive
 				flooded = true
 			}
