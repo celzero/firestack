@@ -1085,7 +1085,7 @@ func (h *wgtun) serve(network, local string) (pc net.PacketConn, err error) {
 	}
 	defer localDialStatus(h.status, err)
 
-	log.I("wg: %s serve: %s (via %s); err? %v", h.id, local, local, who, err)
+	log.I("wg: %s serve: %s (via %s); err? %v", h.id, local, who, err)
 	return
 }
 
