@@ -717,7 +717,7 @@ func HasAAAAAnswer(msg *dns.Msg) bool {
 	return false
 }
 
-func SubstAAAARecords(out *dns.Msg, subip6s []*netip.Addr, ttl int) bool {
+func SubstAAAARecords(out *dns.Msg, subip6s []netip.Addr, ttl int) bool {
 	if out == nil || len(subip6s) == 0 {
 		return false
 	}
@@ -751,7 +751,7 @@ func SubstAAAARecords(out *dns.Msg, subip6s []*netip.Addr, ttl int) bool {
 	return len(touched) > 0
 }
 
-func SubstARecords(out *dns.Msg, subip4s []*netip.Addr, ttl int) bool {
+func SubstARecords(out *dns.Msg, subip4s []netip.Addr, ttl int) bool {
 	if out == nil || len(subip4s) == 0 {
 		return false
 	}
@@ -809,7 +809,7 @@ func httpsstr(r *dns.HTTPS) (s string) {
 	return strings.TrimSpace(s)
 }
 
-func SubstSVCBRecordIPs(out *dns.Msg, x dns.SVCBKey, subiphints []*netip.Addr, ttl int) bool {
+func SubstSVCBRecordIPs(out *dns.Msg, x dns.SVCBKey, subiphints []netip.Addr, ttl int) bool {
 	if out == nil || len(subiphints) == 0 {
 		return false
 	}
@@ -868,7 +868,7 @@ func SubstSVCBRecordIPs(out *dns.Msg, x dns.SVCBKey, subiphints []*netip.Addr, t
 	return i > 0
 }
 
-func IPHints(msg *dns.Msg, x dns.SVCBKey) []*netip.Addr {
+func IPHints(msg *dns.Msg, x dns.SVCBKey) []netip.Addr {
 	if msg == nil {
 		return nil
 	}
@@ -880,7 +880,7 @@ func IPHints(msg *dns.Msg, x dns.SVCBKey) []*netip.Addr {
 
 	// extract ip hints from https / svcb records
 	// tools.ietf.org/html/draft-ietf-dnsop-svcb-https-02#section-8.1
-	ips := []*netip.Addr{}
+	ips := []netip.Addr{}
 	for _, answer := range msg.Answer {
 		if !(answer.Header().Rrtype == dns.TypeHTTPS) && !(answer.Header().Rrtype == dns.TypeSVCB) {
 			continue
@@ -896,7 +896,7 @@ func IPHints(msg *dns.Msg, x dns.SVCBKey) []*netip.Addr {
 				ipcsv := kv.String()
 				for _, ipstr := range strings.Split(ipcsv, ",") {
 					if v, err := netip.ParseAddr(ipstr); err == nil {
-						ips = append(ips, &v)
+						ips = append(ips, v)
 					} else {
 						log.W("dnsutil: svcb(%s): could not parse iphint %v", qname, ipstr)
 					}
@@ -912,7 +912,7 @@ func IPHints(msg *dns.Msg, x dns.SVCBKey) []*netip.Addr {
 				ipcsv := kv.String()
 				for _, ipstr := range strings.Split(ipcsv, ",") {
 					if v, err := netip.ParseAddr(ipstr); err == nil {
-						ips = append(ips, &v)
+						ips = append(ips, v)
 					} else {
 						log.W("dnsutil: https(%s): could not parse iphint %v", qname, ipstr)
 					}
@@ -928,8 +928,8 @@ func IPHints(msg *dns.Msg, x dns.SVCBKey) []*netip.Addr {
 	return ips
 }
 
-func AAnswer(msg *dns.Msg) []*netip.Addr {
-	a4 := []*netip.Addr{}
+func AAnswer(msg *dns.Msg) []netip.Addr {
+	a4 := []netip.Addr{}
 	if msg == nil {
 		return a4
 	}
@@ -937,7 +937,7 @@ func AAnswer(msg *dns.Msg) []*netip.Addr {
 		if answer.Header().Rrtype == dns.TypeA {
 			if rec, ok := answer.(*dns.A); ok {
 				if ipaddr, ok := netip.AddrFromSlice(rec.A); ok {
-					a4 = append(a4, &ipaddr)
+					a4 = append(a4, ipaddr)
 				}
 			}
 		}
@@ -945,8 +945,8 @@ func AAnswer(msg *dns.Msg) []*netip.Addr {
 	return a4
 }
 
-func AAAAAnswer(msg *dns.Msg) []*netip.Addr {
-	a6 := []*netip.Addr{}
+func AAAAAnswer(msg *dns.Msg) []netip.Addr {
+	a6 := []netip.Addr{}
 	if msg == nil {
 		return a6
 	}
@@ -954,7 +954,7 @@ func AAAAAnswer(msg *dns.Msg) []*netip.Addr {
 		if answer.Header().Rrtype == dns.TypeAAAA {
 			if rec, ok := answer.(*dns.AAAA); ok {
 				if ipaddr, ok := netip.AddrFromSlice(rec.AAAA); ok {
-					a6 = append(a6, &ipaddr)
+					a6 = append(a6, ipaddr)
 				}
 			}
 		}
@@ -1362,7 +1362,7 @@ func extractMDNSDomain(qname string) (svc, tld string) {
 	return
 }
 
-func netips2str(addrs []*netip.Addr) []string {
+func netips2str(addrs []netip.Addr) []string {
 	var str []string
 	for _, x := range addrs {
 		str = append(str, x.String())

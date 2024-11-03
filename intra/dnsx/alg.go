@@ -51,7 +51,9 @@ var (
 	rfc3068ip4 = netip.AddrFrom4([4]uint8{192, 88, 99, 114})
 	rfc3068ip6 = netip.AddrFrom16([16]byte{0x20, 0x02, 0xF1, 0x3D, 0x00, 0x01, 0xDA, 0x19, 0x01, 0x92, 0x00, 0x88, 0x00, 0x99, 0x01, 0x14})
 	// [192.88.99.114, 2002:f13d:1:da19:192:88:99:114] go.dev/play/p/-0MJenRF5pm
-	fixedRealIPs = []*netip.Addr{&rfc3068ip4, &rfc3068ip6}
+	fixedRealIPs = []netip.Addr{rfc3068ip4, rfc3068ip6}
+
+	zeroaddr = netip.Addr{}
 
 	errNoTransportAlg    = errors.New("no alg transport")
 	errNotAvailableAlg   = errors.New("no valid alg ips")
@@ -75,13 +77,13 @@ type Gateway interface {
 	// translate overwrites ip answers to alg ip & fixed ip answers
 	translate(yes bool)
 	// Query using t1 as primary transport and t2 as secondary and preset as pre-determined ip answers
-	q(t1 Transport, t2 Transport, preset []*netip.Addr, network string, q *dns.Msg, s *x.DNSSummary) (*dns.Msg, error)
+	q(t1 Transport, t2 Transport, preset []netip.Addr, network string, q *dns.Msg, s *x.DNSSummary) (*dns.Msg, error)
 	// clear obj state
 	stop()
 }
 
 type secans struct {
-	ips []*netip.Addr
+	ips []netip.Addr
 	smm *x.DNSSummary
 	pri bool
 }
@@ -90,7 +92,7 @@ func (sec *secans) initIfNeeded() {
 	// ptr reciever updates all secans in-place:
 	// go.dev/play/p/wjBd1TC59zN
 	if sec.ips == nil {
-		sec.ips = []*netip.Addr{}
+		sec.ips = []netip.Addr{}
 	}
 	if sec.smm == nil {
 		sec.smm = new(x.DNSSummary)
@@ -98,22 +100,22 @@ func (sec *secans) initIfNeeded() {
 }
 
 type ans struct {
-	algip        *netip.Addr   // generated answer, v6 or v4
-	realips      []*netip.Addr // all ip answers, v6+v4; may be nil
-	secondaryips []*netip.Addr // all ip answers from secondary, v6+v4; may be nil
-	domain       []string      // all domain names in an answer (incl qname)
-	qname        string        // the query domain name
-	blocklists   string        // csv blocklists containing qname per active config at the time
+	algip        netip.Addr   // generated answer, v6 or v4
+	realips      []netip.Addr // all ip answers, v6+v4; may be nil
+	secondaryips []netip.Addr // all ip answers from secondary, v6+v4; may be nil
+	domain       []string     // all domain names in an answer (incl qname)
+	qname        string       // the query domain name
+	blocklists   string       // csv blocklists containing qname per active config at the time
 	ttl          time.Time
 }
 
 type ansMulti struct {
-	algips       []*netip.Addr // generated answers, v6 or v4
-	realips      []*netip.Addr // all ip answers, v6+v4; may be nil
-	secondaryips []*netip.Addr // all ip answers from secondary, v6+v4; may be nil
-	domain       []string      // all domain names in an answer (incl qname)
-	qname        string        // the query domain name
-	blocklists   string        // csv blocklists containing qname per active config at the time
+	algips       []netip.Addr // generated answers, v6 or v4
+	realips      []netip.Addr // all ip answers, v6+v4; may be nil
+	secondaryips []netip.Addr // all ip answers from secondary, v6+v4; may be nil
+	domain       []string     // all domain names in an answer (incl qname)
+	qname        string       // the query domain name
+	blocklists   string       // csv blocklists containing qname per active config at the time
 	ttl          time.Time
 }
 
@@ -273,7 +275,7 @@ func (t *dnsgateway) querySecondary(t2 Transport, network string, msg *dns.Msg, 
 
 // Implements Gateway
 // preset may be nil
-func (t *dnsgateway) q(t1, t2 Transport, preset []*netip.Addr, network string, q *dns.Msg, smm *x.DNSSummary) (*dns.Msg, error) {
+func (t *dnsgateway) q(t1, t2 Transport, preset []netip.Addr, network string, q *dns.Msg, smm *x.DNSSummary) (*dns.Msg, error) {
 	var ansin *dns.Msg // answer got from transports
 	var err error
 
@@ -366,8 +368,8 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []*netip.Addr, network string, q
 	ip6hints := xdns.IPHints(ansin, dns.SVCB_IPV6HINT)
 	// TODO: generate one alg ip per target, synth one rec per target
 	targets := xdns.Targets(ansin)
-	realip := make([]*netip.Addr, 0)
-	algips := make([]*netip.Addr, 0)
+	realip := make([]netip.Addr, 0)
+	algips := make([]netip.Addr, 0)
 
 	// fetch secondary ips before locks
 	// these may be from primary when secans.pri is true
@@ -394,10 +396,10 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []*netip.Addr, network string, q
 	t.Lock()
 	defer t.Unlock()
 
-	algip4hints := make([]*netip.Addr, 0, len(ip4hints))
-	algip6hints := make([]*netip.Addr, 0, len(ip6hints))
-	algip4s := make([]*netip.Addr, 0, len(a4))
-	algip6s := make([]*netip.Addr, 0, len(a6))
+	algip4hints := make([]netip.Addr, 0, len(ip4hints))
+	algip6hints := make([]netip.Addr, 0, len(ip6hints))
+	algip4s := make([]netip.Addr, 0, len(a4))
+	algip6s := make([]netip.Addr, 0, len(a6))
 	for i, ip4 := range ip4hints {
 		realip = append(realip, ip4)
 		// 0th algip is reserved for A records
@@ -476,7 +478,7 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []*netip.Addr, network string, q
 	previp4s, previp6s, prevtargets := t.resolvLocked(qname, typreal)
 	targets = removeDups(targets, prevtargets)
 
-	var fixedips []*netip.Addr
+	var fixedips []netip.Addr
 	if usefixed {
 		// if usefixed, then realips are in fact fixedips
 		fixedips = realip
@@ -486,10 +488,10 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []*netip.Addr, network string, q
 		secres.ips = nil
 	}
 
-	realip = removeDups2(realip, previp4s, previp6s)
+	realip = removeDups(realip, previp4s, previp6s)
 	// get existing secondary ips for qname, from previous alg/nat
 	prevsec4s, prevsec6s, _ := t.resolvLocked(qname, typsecondary)
-	secres.ips = removeDups2(secres.ips, prevsec4s, prevsec6s)
+	secres.ips = removeDups(secres.ips, prevsec4s, prevsec6s)
 
 	log.D("alg: subst; for %s:%d / prev targets %s; prev ips (alg? %t / fix? %t); v4: %s, v6: %s; sec4: %s, sec6: %s",
 		qname, smm.QType, prevtargets, mod, usefixed, previp4s, previp6s, prevsec4s, prevsec6s)
@@ -530,7 +532,7 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []*netip.Addr, network string, q
 	}
 }
 
-func netip2csv(ips []*netip.Addr) (csv string) {
+func netip2csv(ips []netip.Addr) (csv string) {
 	for i, ip := range ips {
 		if i > 0 {
 			csv += ","
@@ -550,7 +552,7 @@ func withDNS64Summary(ans64 *dns.Msg, s *x.DNSSummary) {
 	}
 }
 
-func withAlgSummaryIfNeeded(algips []*netip.Addr, s *x.DNSSummary) {
+func withAlgSummaryIfNeeded(algips []netip.Addr, s *x.DNSSummary) {
 	if settings.Debug {
 		// convert algips to ipcsv
 		ipcsv := netip2csv(algips)
@@ -600,17 +602,17 @@ func (t *dnsgateway) registerMultiLocked(q string, am *ansMulti) bool {
 			return false
 		}
 		t.alg[k] = x
-		t.nat[*ip] = x
+		t.nat[ip] = x
 	}
 	// register mapping from realip -> algip+qname (ptr)
 	for i := range am.realips { // am.realip may be nil.
 		ip := am.realips[i] // todo: clone(am)?
-		t.ptr[*ip] = am     // am contains qname and the algips
+		t.ptr[ip] = am      // am contains qname and the algips
 	}
 	return true
 }
 
-func (t *dnsgateway) take4Locked(q string, idx int) (*netip.Addr, bool) {
+func (t *dnsgateway) take4Locked(q string, idx int) (netip.Addr, bool) {
 	k := q + key4 + strconv.Itoa(idx)
 	if ans, ok := t.alg[k]; ok {
 		ip := ans.algip
@@ -620,7 +622,7 @@ func (t *dnsgateway) take4Locked(q string, idx int) (*netip.Addr, bool) {
 		} else {
 			// shouldn't happen; if it does, rm erroneous entry
 			delete(t.alg, k)
-			delete(t.nat, *ip)
+			delete(t.nat, ip)
 		}
 	}
 
@@ -631,11 +633,11 @@ func (t *dnsgateway) take4Locked(q string, idx int) (*netip.Addr, bool) {
 				continue
 			}
 			if _, taken := t.nat[genip]; !taken {
-				return &genip, genip.IsValid()
+				return genip, genip.IsValid()
 			}
 		}
 		log.W("alg: gen: no more IP4s (%v)", q)
-		return nil, false
+		return zeroaddr, false
 	}
 
 	gen := true
@@ -658,7 +660,7 @@ func (t *dnsgateway) take4Locked(q string, idx int) (*netip.Addr, bool) {
 			if d := time.Since(ent.ttl); d > 0 {
 				log.I("alg: reuse stale alg %s for %s", kx, k)
 				delete(t.alg, kx)
-				delete(t.nat, *ent.algip)
+				delete(t.nat, ent.algip)
 				return ent.algip, true
 			}
 			i += 1
@@ -669,11 +671,11 @@ func (t *dnsgateway) take4Locked(q string, idx int) (*netip.Addr, bool) {
 		// 100.x.y.z: big endian is network-order, which netip expects
 		b4 := [4]byte{t.octets[0], t.octets[1], t.octets[2], t.octets[3]}
 		genip := netip.AddrFrom4(b4).Unmap()
-		return &genip, genip.IsValid()
+		return genip, genip.IsValid()
 	} else {
 		log.W("alg: no more IP4s (%v)", t.octets)
 	}
-	return nil, false
+	return zeroaddr, false
 }
 
 func gen4Locked(k string, hop int) netip.Addr {
@@ -691,7 +693,7 @@ func gen4Locked(k string, hop int) netip.Addr {
 	return netip.AddrFrom4(b4).Unmap()
 }
 
-func (t *dnsgateway) take6Locked(q string, idx int) (*netip.Addr, bool) {
+func (t *dnsgateway) take6Locked(q string, idx int) (netip.Addr, bool) {
 	k := q + key6 + strconv.Itoa(idx)
 	if ans, ok := t.alg[k]; ok {
 		ip := ans.algip
@@ -701,7 +703,7 @@ func (t *dnsgateway) take6Locked(q string, idx int) (*netip.Addr, bool) {
 		} else {
 			// shouldn't happen; if it does, rm erroneous entry
 			delete(t.alg, k)
-			delete(t.nat, *ip)
+			delete(t.nat, ip)
 		}
 	}
 
@@ -709,11 +711,11 @@ func (t *dnsgateway) take6Locked(q string, idx int) (*netip.Addr, bool) {
 		for i := 0; i < maxiter; i++ {
 			genip := gen6Locked(k, i)
 			if _, taken := t.nat[genip]; !taken {
-				return &genip, genip.IsValid()
+				return genip, genip.IsValid()
 			}
 		}
 		log.W("alg: gen: no more IP6s (%v)", q)
-		return nil, false
+		return zeroaddr, false
 	}
 
 	gen := true
@@ -739,11 +741,11 @@ func (t *dnsgateway) take6Locked(q string, idx int) (*netip.Addr, bool) {
 			binary.BigEndian.PutUint16(b16[i:i+2], hx)
 		}
 		genip := netip.AddrFrom16(b16)
-		return &genip, genip.IsValid()
+		return genip, genip.IsValid()
 	} else {
 		log.W("alg: no more IP6s (%x)", t.hexes)
 	}
-	return nil, false
+	return zeroaddr, false
 }
 
 func gen6Locked(k string, hop int) netip.Addr {
@@ -778,7 +780,7 @@ func (t *dnsgateway) X(maybeAlg netip.Addr) (ips string, undidAlg bool) {
 	if len(rip) > 0 {
 		var s []string
 		for _, r := range rip {
-			if r != nil && r.IsValid() {
+			if r.IsValid() {
 				s = append(s, r.String())
 			}
 		}
@@ -814,7 +816,7 @@ func (t *dnsgateway) RESOLV(domain string) (ipcsv string) {
 	if len(ips) > 0 {
 		var s []string
 		for _, ip := range ips {
-			if ip != nil && ip.IsValid() {
+			if ip.IsValid() {
 				s = append(s, ip.String())
 			}
 		}
@@ -830,8 +832,8 @@ func (t *dnsgateway) RDNSBL(algip netip.Addr) (blocklists string) {
 	return t.rdnsblLocked(algip, !t.mod.Load())
 }
 
-func (t *dnsgateway) xLocked(maybeAlg netip.Addr, usestale bool) ([]*netip.Addr, bool) {
-	var realips []*netip.Addr
+func (t *dnsgateway) xLocked(maybeAlg netip.Addr, usestale bool) ([]netip.Addr, bool) {
+	var realips []netip.Addr
 	var undidAlg, fresh bool
 	// alg ips are always unmappped; see take4Locked
 	unmapped := maybeAlg.Unmap() // aligip may also be origip / realip
@@ -850,11 +852,11 @@ func (t *dnsgateway) xLocked(maybeAlg netip.Addr, usestale bool) ([]*netip.Addr,
 			realips = append(ans.realips, ans.secondaryips...)
 		}
 	}
-	var unnated []*netip.Addr
+	var unnated []netip.Addr
 	if len(realips) == 0 { // algip is probably origip / realip
 		// unnat origip as it itself may have been synthesized from
 		// our DNS responses by apps doing funky things; like FreeFire
-		unnated = t.maybeUndoNat64(&unmapped)
+		unnated = t.maybeUndoNat64(unmapped)
 	} else {
 		unnated = t.maybeUndoNat64(realips...)
 	}
@@ -863,10 +865,10 @@ func (t *dnsgateway) xLocked(maybeAlg netip.Addr, usestale bool) ([]*netip.Addr,
 	if len(unnated) > 0 { // unnated is already de-duplicated
 		return unnated, undidAlg
 	}
-	return removeDups2(realips), undidAlg
+	return removeDups(realips), undidAlg
 }
 
-func (t *dnsgateway) maybeUndoNat64(realips ...*netip.Addr) (unnat []*netip.Addr) {
+func (t *dnsgateway) maybeUndoNat64(realips ...netip.Addr) (unnat []netip.Addr) {
 	for _, nip := range realips {
 		unmapped := nip.Unmap()
 		if !unmapped.Is6() {
@@ -883,9 +885,9 @@ func (t *dnsgateway) maybeUndoNat64(realips ...*netip.Addr) (unnat []*netip.Addr
 		}
 		log.D("alg: dns64: maybeUndoNat64: nat64 to ip4(%v) from ip6(%v)", ipx4, nip)
 		unmapped4 := ipx4.Unmap()
-		unnat = append(unnat, &unmapped4)
+		unnat = append(unnat, unmapped4)
 	}
-	return removeDups2(unnat)
+	return removeDups(unnat)
 }
 
 func (t *dnsgateway) ptrLocked(maybeAlg netip.Addr, useptr bool) (domains []string) {
@@ -907,14 +909,14 @@ func (t *dnsgateway) ptrLocked(maybeAlg netip.Addr, useptr bool) (domains []stri
 // If typ is typsecondary, it returns all secondaryips for domain.
 // ip4s and ip6s may overlap, and are segregated by the source algip
 // family (and not by the family of the resolved IPs themselves).
-func (t *dnsgateway) resolvLocked(domain string, typ iptype) (ip4s, ip6s []*netip.Addr, targets []string) {
+func (t *dnsgateway) resolvLocked(domain string, typ iptype) (ip4s, ip6s []netip.Addr, targets []string) {
 	partkey4 := domain + key4
 	partkey6 := domain + key6
 
-	ip4s = make([]*netip.Addr, 0)
-	ip6s = make([]*netip.Addr, 0)
+	ip4s = make([]netip.Addr, 0)
+	ip6s = make([]netip.Addr, 0)
 	targets = make([]string, 0)
-	staleips := make([]*netip.Addr, 0)
+	staleips := make([]netip.Addr, 0)
 	switch typ {
 	case typalg:
 		for i := 0; i < maxiter; i++ {
@@ -1033,7 +1035,7 @@ func hash48(s string) uint64 {
 	return (uint64(v64>>48) ^ uint64(v64)) & 0xFFFFFFFFFFFF // 48 bits
 }
 
-func synthesizeOrQuery(pre []*netip.Addr, tr Transport, msg *dns.Msg, network string, smm *x.DNSSummary, fixed bool) (*dns.Msg, error) {
+func synthesizeOrQuery(pre []netip.Addr, tr Transport, msg *dns.Msg, network string, smm *x.DNSSummary, fixed bool) (*dns.Msg, error) {
 	// synthesize a response with the given ips
 	if len(pre) == 0 {
 		return Req(tr, network, msg, smm)
@@ -1048,7 +1050,7 @@ func synthesizeOrQuery(pre []*netip.Addr, tr Transport, msg *dns.Msg, network st
 	isHTTPS := (!is4 && !is6) && xdns.IsHTTPSQType(qtyp)
 	isSVCB := (!is4 && !is6) && xdns.IsSVCBQType(qtyp)
 	if is4 || is6 {
-		preset := unptr(pre)
+		preset := pre
 		// if no ips are of the same family as the question xdns.AQuadAForQuery returns error
 		ans, err := xdns.AQuadAForQuery(msg, preset...)
 		if err != nil { // errors on invalid msg, question, or mismatched ips
@@ -1140,12 +1142,12 @@ func Req(t Transport, network string, q *dns.Msg, smm *x.DNSSummary) (*dns.Msg, 
 	return r, err
 }
 
-func splitIPFamilies(ips []*netip.Addr) (ip4s, ip6s []*netip.Addr) {
+func splitIPFamilies(ips []netip.Addr) (ip4s, ip6s []netip.Addr) {
 	for _, ip := range ips {
-		if ip == nil {
+		if !ip.IsValid() {
 			continue
 		}
-		*ip = ip.Unmap()
+		ip = ip.Unmap()
 		if ip.Is4() {
 			ip4s = append(ip4s, ip)
 		} else if ip.Is6() {
@@ -1155,21 +1157,15 @@ func splitIPFamilies(ips []*netip.Addr) (ip4s, ip6s []*netip.Addr) {
 	return
 }
 
-func v4only(ips []*netip.Addr) []*netip.Addr {
-	return filterLeft(ips, func(ip *netip.Addr) (ok bool) {
-		if ip != nil {
-			ok = ip.Is4()
-		}
-		return
+func v4only(ips []netip.Addr) []netip.Addr {
+	return filterLeft(ips, func(ip netip.Addr) bool {
+		return ip.Is4()
 	})
 }
 
-func v6only(ips []*netip.Addr) []*netip.Addr {
-	return filterLeft(ips, func(ip *netip.Addr) (ok bool) {
-		if ip != nil {
-			ok = ip.Is6()
-		}
-		return
+func v6only(ips []netip.Addr) []netip.Addr {
+	return filterLeft(ips, func(ip netip.Addr) bool {
+		return ip.Is6()
 	})
 }
 
@@ -1183,14 +1179,6 @@ func filterLeft[T any](arr []T, yes TestFn[T]) []T {
 		}
 	}
 	return out
-}
-
-// unptr removes pointer from a slice of pointers of type T
-func unptr[t any](p []*t) (v []t) {
-	for _, x := range p {
-		v = append(v, *x)
-	}
-	return
 }
 
 func withPresetSummary(smm *x.DNSSummary, reqSent, fixed bool) {
@@ -1234,25 +1222,6 @@ func removeDups[T comparable](a ...[]T) (out []T) {
 			// maintain incoming order
 			out = append(out, xx)
 			acc[xx] = struct{}{}
-		}
-	}
-	return
-}
-
-// go.dev/play/p/zI_9nYhEVJY
-func removeDups2[T comparable](all ...[]*T) (out []*T) {
-	acc := make(map[T]struct{}, 0)
-	out = make([]*T, 0)
-	for _, list := range all {
-		for _, e := range list {
-			if e == nil {
-				continue
-			}
-			if _, ok := acc[*e]; ok {
-				continue
-			}
-			out = append(out, e)
-			acc[*e] = struct{}{}
 		}
 	}
 	return
