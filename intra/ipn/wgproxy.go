@@ -606,7 +606,7 @@ func makeWgTun(id, cfg string, ctl protect.Controller, rev netstack.GConnHandler
 		dns:           core.NewVolatile(dnsm),
 		remote:        core.NewVolatile(endpointm), // may be nil
 		peers:         core.NewVolatile(peers),     // its entries must never be modified
-		rt:            x.NewIpTree(),
+		rt:            x.NewIpTree(),               // must be set to allowedaddrs
 		ba:            core.NewBarrier[[]netip.Addr](wgbarrierttl),
 		mtu:           tunmtu,
 		status:        core.NewVolatile(TUP),
@@ -614,6 +614,7 @@ func makeWgTun(id, cfg string, ctl protect.Controller, rev netstack.GConnHandler
 		refreshBa:     core.NewBarrier[bool](2 * time.Minute),
 		since:         now(),
 	}
+	t.allowedIPs(allowedaddrs)
 
 	// see WriteNotify below
 	ep.AddNotify(t)
