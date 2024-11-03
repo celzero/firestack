@@ -30,8 +30,7 @@ import (
 )
 
 // padQuery adds EDNS padding (RFC7830) to msg.
-func padQuery(msg *dns.Msg) *dns.Msg {
+func padQuery(msg *dns.Msg) {
 	defer core.Recover(core.DontExit, "doh.padQ")
 	xdns.AddEDNS0PaddingIfNoneFound(msg)
-	return msg
 }

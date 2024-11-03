@@ -369,7 +369,7 @@ func (t *transport) httpClientFor(p ipn.Proxy) (c3, c *http.Client) {
 // be determined.
 func (t *transport) doDoh(pid string, q *dns.Msg) (response *dns.Msg, blocklists, region string, elapsed time.Duration, qerr *dnsx.QueryError) {
 	start := time.Now()
-	q = padQuery(q)
+	padQuery(q)
 
 	// zero out the query id
 	id := q.Id
