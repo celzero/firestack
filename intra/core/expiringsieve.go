@@ -62,6 +62,10 @@ func (s *Sieve[K, V]) Del(k K) {
 
 // Len returns the number of elements in the sieve.
 func (s *Sieve[K, V]) Len() int {
+	if s.c == nil {
+		return 0
+	}
+
 	return s.c.Len()
 }
 
@@ -111,7 +115,7 @@ func (s *Sieve2K[K1, K2, V]) Del(k1 K1, k2 K2) {
 	if inn != nil {
 		inn.Del(k2)
 	}
-	empty := inn.Len() == 0
+	empty := inn.Len() == 0 // inn may be nil
 	s.mu.RUnlock()
 
 	if empty {
