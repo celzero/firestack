@@ -16,8 +16,9 @@ import (
 // while the inner expiring maps are keyed to K2.
 type Sieve2K[K1, K2 comparable, V any] struct {
 	ctx  context.Context
-	mu   sync.RWMutex // protects m
+	mu   sync.RWMutex // protects m, c
 	m    map[K1]*Sieve[K2, V]
+	d    map[K1]context.CancelFunc
 	life time.Duration
 }
 
@@ -26,6 +27,7 @@ func NewSieve2K[K1, K2 comparable, V any](ctx context.Context, dur time.Duration
 	return &Sieve2K[K1, K2, V]{
 		ctx:  ctx,
 		m:    make(map[K1]*Sieve[K2, V]),
+		d:    make(map[K1]context.CancelFunc),
 		life: dur,
 	}
 }
@@ -91,8 +93,10 @@ func (s *Sieve2K[K1, K2, V]) Put(k1 K1, k2 K2, v V) (replaced bool) {
 		s.mu.Lock()
 		inn = s.m[k1]
 		if inn == nil {
-			inn = NewSieve[K2, V](s.ctx, s.life)
+			ctx, done := context.WithCancel(s.ctx)
+			inn = NewSieve[K2, V](ctx, s.life)
 			s.m[k1] = inn
+			s.d[k1] = done
 		}
 		s.mu.Unlock()
 	}
@@ -112,9 +116,14 @@ func (s *Sieve2K[K1, K2, V]) Del(k1 K1, k2 K2) {
 
 	if empty {
 		s.mu.Lock()
-		inn = s.m[k1]
-		if inn != nil && inn.Len() == 0 {
+		inn = s.m[k1]   // inn may be nil
+		done := s.d[k1] // done may be nil
+		if inn == nil || inn.Len() == 0 {
 			delete(s.m, k1)
+			delete(s.d, k1)
+			if done != nil {
+				done()
+			}
 		}
 		s.mu.Unlock()
 	}
@@ -142,6 +151,11 @@ func (s *Sieve2K[K1, K2, V]) Clear() (n int) {
 	for _, inn := range s.m {
 		n += inn.Clear()
 	}
+	for _, done := range s.d {
+		done()
+	}
+
 	clear(s.m)
+	clear(s.d)
 	return
 }
