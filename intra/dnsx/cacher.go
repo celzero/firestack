@@ -349,11 +349,14 @@ func (t *ctransport) fetch(network string, q *dns.Msg, summary *x.DNSSummary, cb
 		})
 
 		cachedres, fresh := cb.freshCopy(key) // always prefer value from cache
-		if cachedres == nil {                 // v.Val may be uncacheable (ex: rcode != 0)
+		cachehit := cachedres != nil
+		if !cachehit { // v.Val may be uncacheable (ex: rcode != 0)
 			cachedres = cc.copy() // cc (cres) never nil; but cc.ans may be nil
-			log.D("cache: barrier: empty(k: %s); barrier: %s", key, v)
+			log.D("cache: barrier: empty(k: %s); barrier: %s; qerr? %v",
+				key, v, err)
 		} else if !fresh { // expect fresh values, except on verrs
-			log.W("cache: barrier: stale(k: %s); barrier: %s (cache: %s)", key, v, cachedres)
+			log.W("cache: barrier: stale(k: %s); barrier: %s (cache: %s); qerr? %v",
+				key, v, cachedres, err)
 		}
 
 		// nil ans when Transport returns err (no servfail) and cache is empty
@@ -364,7 +367,9 @@ func (t *ctransport) fetch(network string, q *dns.Msg, summary *x.DNSSummary, cb
 		if inhangover {
 			err = errors.Join(err, errHangover)
 			log.W("cache: barrier: hangover(k: %s); discard ans (has? %t)", key, hasans)
-			fillSummary(cachedres.s, fsmm)
+			if cachehit {
+				fillSummary(cachedres.s, fsmm)
+			}
 			// mimic send fail
 			fsmm.Msg = err.Error()
 			fsmm.RCode = dns.RcodeServerFailure
@@ -375,8 +380,9 @@ func (t *ctransport) fetch(network string, q *dns.Msg, summary *x.DNSSummary, cb
 
 		// fres may be nil
 		fres, cachedsmm, ferr := asResponse(q, cachedres, fresh)
-		// fill summary regardless of errors
-		fillSummary(cachedsmm, fsmm) // cachedsmm may itself be fsmm
+		if cachehit { // fill from cachedsmm despite any err if cache was hit
+			fillSummary(cachedsmm, fsmm) // cachedsmm may itself be fsmm
+		}
 
 		return fres, errors.Join(err, ferr)
 	}
