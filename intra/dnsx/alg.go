@@ -1061,7 +1061,7 @@ func synthesizeOrQuery(pre []*netip.Addr, tr Transport, msg *dns.Msg, network st
 		smm.RData = xdns.GetInterestingRData(ans)
 		smm.RTtl = xdns.RTtl(ans) // usually 1 per xdns.AnsTTL
 
-		log.D("alg: synthesize: q(4? %t / 6? %t), fixed? %t, rdata(%s)",
+		log.V("alg: synthesize: %s q(4? %t / 6? %t), fixed? %t, rdata(%s)",
 			qname, is4, is6, fixed, smm.RData)
 
 		return ans, nil // no error
