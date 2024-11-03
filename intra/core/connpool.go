@@ -154,14 +154,14 @@ func newAgingConn(c net.Conn) agingconn {
 	} else if dc, _ := c.(*dns.Conn); dc != nil {
 		if tc, _ := dc.Conn.(*tls.Conn); tc != nil {
 			if sc, _ = tc.NetConn().(PoolableConn); sc == nil {
-				log.W("pool: dnsconn != sysconn: %T", tc.NetConn())
+				log.VV("pool: dnsconn != sysconn: %T", tc.NetConn())
 			} // else: ok
 		} else if sc, _ = dc.Conn.(PoolableConn); sc == nil {
-			log.W("pool: dnsconn != sysconn: %T", dc.Conn)
+			log.VV("pool: dnsconn != sysconn: %T", dc.Conn)
 		} // else: ok
 	} else if tc, _ := c.(*tls.Conn); tc != nil {
 		if sc, _ = tc.NetConn().(PoolableConn); sc == nil {
-			log.W("pool: tlsconn != sysconn: %T", tc.NetConn())
+			log.VV("pool: tlsconn != sysconn: %T", tc.NetConn())
 		} // else: ok
 	} // sc is nil
 	return agingconn{c, sc, time.Time{}, s}
