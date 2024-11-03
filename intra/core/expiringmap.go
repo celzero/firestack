@@ -28,6 +28,7 @@ type val[V any] struct {
 // ExpMap holds expiring keys and read hits.
 type ExpMap[P comparable, Q any] struct {
 	sync.Mutex // guards ExpMap.
+	ctx        context.Context
 	m          map[P]*val[Q]
 	sigreap    chan struct{}
 	lastreap   time.Time
@@ -41,6 +42,7 @@ func NewExpiringMap[P comparable, Q any](ctx context.Context) *ExpMap[P, Q] {
 
 func NewExpiringMapLifetime[P comparable, Q any](ctx context.Context, min time.Duration) *ExpMap[P, Q] {
 	m := &ExpMap[P, Q]{
+		ctx:      ctx,
 		m:        make(map[P]*val[Q]),
 		sigreap:  make(chan struct{}),
 		lastreap: time.Now(),
@@ -53,6 +55,10 @@ func NewExpiringMapLifetime[P comparable, Q any](ctx context.Context, min time.D
 
 // Get returns the number of hits for the given key.
 func (m *ExpMap[P, Q]) Get(key P) uint32 {
+	if done(m.ctx) {
+		return 0
+	}
+
 	n := time.Now()
 
 	m.Lock()
@@ -75,6 +81,10 @@ func (m *ExpMap[P, Q]) Get(key P) uint32 {
 // Set sets the expiry for the given key and returns the number of hits.
 // expiry must be greater than the minimum lifetime.
 func (m *ExpMap[P, Q]) Set(key P, expiry time.Duration) uint32 {
+	if done(m.ctx) {
+		return 0
+	}
+
 	if expiry < m.minlife {
 		expiry = m.minlife
 	}
@@ -107,6 +117,10 @@ func (m *ExpMap[P, Q]) Set(key P, expiry time.Duration) uint32 {
 // Set sets the (value, expiry) for the given key and returns the number of hits.
 // expiry must be greater than the minimum lifetime.
 func (m *ExpMap[P, Q]) K(key P, value Q, expiry time.Duration) uint32 {
+	if done(m.ctx) {
+		return 0
+	}
+
 	if expiry < m.minlife {
 		expiry = m.minlife
 	}
@@ -136,6 +150,10 @@ func (m *ExpMap[P, Q]) K(key P, value Q, expiry time.Duration) uint32 {
 }
 
 func (m *ExpMap[P, Q]) V(key P) (zz Q, fresh bool) {
+	if done(m.ctx) {
+		return // zz, false
+	}
+
 	m.Lock()
 	defer m.Unlock()
 
@@ -143,10 +161,14 @@ func (m *ExpMap[P, Q]) V(key P) (zz Q, fresh bool) {
 	if v, ok := m.m[key]; ok && v != nil {
 		return v.v, now.Before(v.expiry)
 	}
-	return // zz
+	return // zz, false
 }
 
 func (m *ExpMap[P, Q]) Alive(key P) bool {
+	if done(m.ctx) {
+		return false
+	}
+
 	m.Lock()
 	defer m.Unlock()
 
@@ -222,4 +244,14 @@ func (m *ExpMap[P, Q]) reaper(ctx context.Context) {
 		}
 		m.Unlock()
 	}
+}
+
+// done returns true if the context is done.
+func done(ctx context.Context) bool {
+	select {
+	case <-ctx.Done():
+		return true
+	default:
+	}
+	return false
 }
