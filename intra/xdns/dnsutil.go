@@ -717,8 +717,8 @@ func HasAAAAAnswer(msg *dns.Msg) bool {
 	return false
 }
 
-func SubstAAAARecords(out *dns.Msg, subip6s []netip.Addr, ttl int) bool {
-	if out == nil || len(subip6s) == 0 {
+func SubstAAAARecords(out *dns.Msg, subip6s netip.Addr, ttl int) bool {
+	if out == nil || !subip6s.IsValid() {
 		return false
 	}
 	// substitute ips in any a / aaaa records
@@ -731,11 +731,11 @@ func SubstAAAARecords(out *dns.Msg, subip6s []netip.Addr, ttl int) bool {
 			// one aaaa rec per name
 			if _, ok := touched[rec.Hdr.Name]; !ok {
 				name := rec.Hdr.Name
-				ip6 := subip6s[i].String() // todo: use different ips for different names
+				ip6 := subip6s.String() // todo: use different ips for different names
 				touched[rec.Hdr.Name] = struct{}{}
 				if aaaanew := MakeAAAARecord(name, ip6, ttl); aaaanew != nil {
 					rrs = append(rrs, aaaanew)
-					i = (i + 1) % len(subip6s)
+					i++
 				} else {
 					log.D("dnsutil: subst AAAA rec fail for %s %s %d", name, ip6, ttl)
 				}
@@ -751,8 +751,8 @@ func SubstAAAARecords(out *dns.Msg, subip6s []netip.Addr, ttl int) bool {
 	return len(touched) > 0
 }
 
-func SubstARecords(out *dns.Msg, subip4s []netip.Addr, ttl int) bool {
-	if out == nil || len(subip4s) == 0 {
+func SubstARecords(out *dns.Msg, subip4s netip.Addr, ttl int) bool {
+	if out == nil || !subip4s.IsValid() {
 		return false
 	}
 	// substitute ips in any a / aaaa records
@@ -765,11 +765,11 @@ func SubstARecords(out *dns.Msg, subip4s []netip.Addr, ttl int) bool {
 			// one a rec per name
 			if _, ok := touched[rec.Hdr.Name]; !ok {
 				name := rec.Hdr.Name
-				ip4 := subip4s[i].Unmap().String() // todo: use different ips for different names
+				ip4 := subip4s.Unmap().String() // todo: use different ips for different names
 				touched[rec.Hdr.Name] = struct{}{}
 				if anew := MakeARecord(name, ip4, ttl); anew != nil {
 					rrs = append(rrs, anew)
-					i = (i + 1) % len(subip4s)
+					i++
 				} else {
 					log.D("dnsutil: subst A rec fail for %s %s %d", name, ip4, ttl)
 				}
@@ -809,8 +809,8 @@ func httpsstr(r *dns.HTTPS) (s string) {
 	return strings.TrimSpace(s)
 }
 
-func SubstSVCBRecordIPs(out *dns.Msg, x dns.SVCBKey, subiphints []netip.Addr, ttl int) bool {
-	if out == nil || len(subiphints) == 0 {
+func SubstSVCBRecordIPs(out *dns.Msg, x dns.SVCBKey, subiphints netip.Addr, ttl int) bool {
+	if out == nil || !subiphints.IsValid() {
 		return false
 	}
 	// substitute ip hints in https / svcb records
@@ -823,16 +823,16 @@ func SubstSVCBRecordIPs(out *dns.Msg, x dns.SVCBKey, subiphints []netip.Addr, tt
 				// replace with a single ip hint
 				if k == x && x == dns.SVCB_IPV6HINT {
 					rec.Value[j] = &dns.SVCBIPv6Hint{
-						Hint: []net.IP{subiphints[i].AsSlice()},
+						Hint: []net.IP{subiphints.AsSlice()},
 					}
 					rec.Hdr.Ttl = uint32(ttl)
-					i = (i + 1) % len(subiphints)
+					i++
 				} else if k == x && x == dns.SVCB_IPV4HINT {
 					rec.Value[j] = &dns.SVCBIPv4Hint{
-						Hint: []net.IP{subiphints[i].AsSlice()},
+						Hint: []net.IP{subiphints.AsSlice()},
 					}
 					rec.Hdr.Ttl = uint32(ttl)
-					i = (i + 1) % len(subiphints)
+					i++
 				}
 			}
 		case *dns.HTTPS:
@@ -846,16 +846,16 @@ func SubstSVCBRecordIPs(out *dns.Msg, x dns.SVCBKey, subiphints []netip.Addr, tt
 				// replace with a single ip hint
 				if k == x && x == dns.SVCB_IPV6HINT {
 					rec.Value[j] = &dns.SVCBIPv6Hint{
-						Hint: []net.IP{subiphints[i].AsSlice()},
+						Hint: []net.IP{subiphints.AsSlice()},
 					}
 					rec.Hdr.Ttl = uint32(ttl)
-					i = (i + 1) % len(subiphints)
+					i++
 				} else if k == x && x == dns.SVCB_IPV4HINT {
 					rec.Value[j] = &dns.SVCBIPv4Hint{
-						Hint: []net.IP{subiphints[i].AsSlice()},
+						Hint: []net.IP{subiphints.AsSlice()},
 					}
 					rec.Hdr.Ttl = uint32(ttl)
-					i = (i + 1) % len(subiphints)
+					i++
 				}
 			}
 		}
