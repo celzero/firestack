@@ -102,17 +102,40 @@ func (sec *secans) initIfNeeded() {
 }
 
 type xips struct {
-	latest []netip.Addr // most recently resolved v6+v4; may be nil
-	prev   []netip.Addr // ips relegated from latest, v6+v4; may be nil
-	aux    []netip.Addr // all ips from secondary, v6+v4; may be nil
+	mu *sync.RWMutex
+	// resolved v6 or v4 by some tid; may be nil
+	pri map[string][]netip.Addr
+	// resolved by secondary tid, v6 or v4; may be nil
+	aux []netip.Addr
 }
 
-// x returns ips to translated to, with preference to latest
-func (p xips) x() []netip.Addr {
-	s := p.prev
-	if len(p.latest) > 0 {
-		s = p.latest
+func NewXips(id string, pri []netip.Addr, sec []netip.Addr) *xips {
+	x := &xips{
+		mu:  new(sync.RWMutex),
+		pri: make(map[string][]netip.Addr),
+		aux: sec,
 	}
+	x.pri[id] = pri
+	return x
+}
+
+func flatten[K comparable, V any](m map[K][]V, upto uint) ([]K, []V) {
+	outv := make([]V, 0, upto)
+	outk := make([]K, 0, upto)
+	for k, v := range m {
+		if upto != 0 && uint(len(outv)) >= upto {
+			break
+		}
+		outk = append(outk, k)
+		outv = append(outv, v...)
+	}
+	return outk, outv
+}
+
+// x returns ips to translated to
+func (p *xips) x() []netip.Addr {
+	_, s := flatten(p.pri, 0)
+
 	if p.block() {
 		return append(s, anyaddr4, anyaddr6)
 	}
@@ -120,21 +143,31 @@ func (p xips) x() []netip.Addr {
 }
 
 // all returns all translatabale ips
-func (p xips) all() []netip.Addr {
-	return append(p.prev, p.latest...)
+func (p *xips) all() []netip.Addr {
+	return append(p.x(), p.sec()...)
+}
+
+func (p *xips) of(tid string) []netip.Addr {
+	if tid == notransport {
+		return p.all()
+	}
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	return p.pri[tid]
 }
 
 // sec returns all secondary ips
-func (p xips) sec() []netip.Addr {
+func (p *xips) sec() []netip.Addr {
 	return p.aux
 }
 
 // block returns true if any secondary ip is unspecified
-func (p xips) block() bool {
+func (p *xips) block() bool {
 	// todo: is block ip in latest/prev or aux?
 	// todo: what if block ip is in both latest/prev and aux?
 	// todo: what if aux/latest is nil? (nxdomain)
-	for _, ip := range p.aux {
+	for _, ip := range p.sec() {
 		if ip.IsUnspecified() {
 			return true
 		}
@@ -142,28 +175,32 @@ func (p xips) block() bool {
 	return false
 }
 
-func (p xips) each(f func(ip netip.Addr)) {
-	for _, ip := range p.latest {
-		f(ip)
-	}
-	for _, ip := range p.prev {
-		f(ip)
-	}
-	for _, ip := range p.aux {
+func (p *xips) each(f func(ip netip.Addr)) {
+	for _, ip := range p.all() {
 		f(ip)
 	}
 }
 
-func (p xips) len() int {
-	return len(p.prev)
-}
+func (p *xips) merge(q *xips) {
+	if q == nil {
+		return
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	q.mu.RLock()
+	defer q.mu.RUnlock()
 
-func (p xips) seclen() int {
-	return len(p.aux)
+	for k, v := range q.pri {
+		if aa := p.pri[k]; aa == nil {
+			p.pri[k] = v
+		} else if len(v) > 0 {
+			p.pri[k] = removeDups(aa, v)
+		}
+	}
 }
 
 type baseans struct {
-	ips        xips     // all ip answers, v6+v4; may be nil
+	ips        *xips    // all ip answers, v6+v4; may be nil
 	domains    []string // all domain names in an answer (incl qname)
 	blocklists string   // csv blocklists containing qname per active config at the time
 	ttl        time.Time
@@ -172,6 +209,22 @@ type baseans struct {
 type algans struct {
 	algip netip.Addr // generated answer, v6 or v4
 	*baseans
+}
+
+func (a *algans) merge(b *algans) {
+	if a == nil || b == nil {
+		return
+	}
+	if a.ips != nil {
+		a.ips.merge(b.ips)
+	} else {
+		a.ips = b.ips
+	}
+	a.domains = removeDups(a.domains, b.domains)
+	a.blocklists = b.blocklists // TODO: merge?
+	if b.ttl.After(a.ttl) {
+		a.ttl = b.ttl
+	}
 }
 
 // TODO: Keep a context here so that queries can be canceled.
@@ -303,10 +356,11 @@ func (t *dnsgateway) querySecondary(t2 Transport, network string, msg *dns.Msg, 
 		// when rdns.blockA blocks, A/AAAA must be 0.0.0.0/::
 		// and HTTPS/SVCB is an empty answer section
 		// see: xdns.RefusedResponseFromMessage
-		if len(a.Answer) > 0 {
-			result.ips = append(result.ips, xdns.AAnswer(a)...)
-			result.ips = append(result.ips, xdns.AAAAAnswer(a)...)
-		} // noop: for HTTPS/SVCB, the answer section is empty
+		// if len(a.Answer) > 0 {
+		//	result.ips = append(result.ips, xdns.AAnswer(a)...)
+		//	result.ips = append(result.ips, xdns.AAAAAnswer(a)...)
+		// }
+		result.ips = append(result.ips, anyaddr4, anyaddr6)
 		return
 	} else {
 		if len(blocklistnames) > 0 {
@@ -315,8 +369,9 @@ func (t *dnsgateway) querySecondary(t2 Transport, network string, msg *dns.Msg, 
 		if xdns.AQuadAUnspecified(r) {
 			// A/AAAA must be 0.0.0.0/::, when UpstreamBlocks is true
 			result.smm.UpstreamBlocks = true
-		}
-		if xdns.HasAnyAnswer(r) {
+			// discard all other answers
+			result.ips = append(result.ips, anyaddr4, anyaddr6)
+		} else if xdns.HasAnyAnswer(r) {
 			ip4hints := xdns.IPHints(r, dns.SVCB_IPV4HINT)
 			ip6hints := xdns.IPHints(r, dns.SVCB_IPV6HINT)
 			result.ips = append(result.ips, xdns.AAnswer(r)...)
@@ -425,7 +480,7 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []netip.Addr, network string, q 
 	// TODO: generate one alg ip per target, synth one rec per target
 	targets := xdns.Targets(ansin)
 	realip := make([]netip.Addr, 0)
-	algips := make([]netip.Addr, 0)
+	var algip4, algip6 netip.Addr
 
 	// fetch secondary ips before locks
 	// these may be from primary when secans.pri is true
@@ -452,45 +507,50 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []netip.Addr, network string, q 
 	t.Lock()
 	defer t.Unlock()
 
-	algip4hints := make([]netip.Addr, 0, len(ip4hints))
-	algip6hints := make([]netip.Addr, 0, len(ip6hints))
-	algip4s := make([]netip.Addr, 0, len(a4))
-	algip6s := make([]netip.Addr, 0, len(a6))
-	for i, ip4 := range ip4hints {
-		realip = append(realip, ip4)
-		// 0th algip is reserved for A records
-		algip, ipok := t.take4Locked(qname, i+1)
-		if !ipok {
-			return ansin, errNotAvailableAlg
-		}
-		algip4hints = append(algip4hints, algip)
-	}
-	for i, ip6 := range ip6hints {
-		realip = append(realip, ip6)
-		// 0th algip is reserved for AAAA records
-		algip, ipok := t.take6Locked(qname, i+1)
-		if !ipok {
-			return ansin, errNotAvailableAlg
-		}
-		algip6hints = append(algip6hints, algip)
-	}
+	var algip4hints, algip6hints, algip4s, algip6s netip.Addr
 	if len(a6) > 0 {
 		realip = append(realip, a6...)
-		// choose the first alg ip6; may've been generated by ip6hints
+		// choose the first alg ip6; may've been generated by a6
 		algip, ipok := t.take6Locked(qname, 0)
 		if !ipok {
 			return ansin, errNotAvailableAlg
 		}
-		algip6s = append(algip6s, algip)
+		algip6s = algip
 	}
 	if len(a4) > 0 {
 		realip = append(realip, a4...)
-		// choose the first alg ip4; may've been generated by ip4hints
 		algip, ipok := t.take4Locked(qname, 0)
 		if !ipok {
 			return ansin, errNotAvailableAlg
 		}
-		algip4s = append(algip4s, algip)
+		algip4s = algip
+	}
+	if len(ip4hints) > 0 {
+		realip = append(realip, ip4hints...)
+		// choose the first alg ip4; may've been generated by a4
+		if !algip4s.IsValid() {
+			// 0th algip is reserved for A records
+			algip, ipok := t.take4Locked(qname, 0)
+			if !ipok {
+				return ansin, errNotAvailableAlg
+			}
+			algip4hints = algip
+		} else {
+			algip4hints = algip4s
+		}
+	}
+	if len(ip6hints) > 0 {
+		realip = append(realip, ip6hints...)
+		if !algip6s.IsValid() {
+			// 0th algip is reserved for AAAA records
+			algip, ipok := t.take6Locked(qname, 0)
+			if !ipok {
+				return ansin, errNotAvailableAlg
+			}
+			algip6hints = algip
+		} else {
+			algip6hints = algip6s
+		}
 	}
 
 	substok4 := false
@@ -500,19 +560,19 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []netip.Addr, network string, q 
 	mustsubst := false || usefixed
 	ansout := ansin.Copy()
 	// TODO: substitute ips in additional section
-	if len(algip4hints) > 0 {
+	if algip4hints.IsValid() {
 		substok4 = xdns.SubstSVCBRecordIPs( /*out*/ ansout, dns.SVCB_IPV4HINT, algip4hints, algttl) || substok4
 		mustsubst = true
 	}
-	if len(algip6hints) > 0 {
+	if algip6hints.IsValid() {
 		substok6 = xdns.SubstSVCBRecordIPs( /*out*/ ansout, dns.SVCB_IPV6HINT, algip6hints, algttl) || substok6
 		mustsubst = true
 	}
-	if len(algip4s) > 0 {
+	if algip4s.IsValid() {
 		substok4 = xdns.SubstARecords( /*out*/ ansout, algip4s, algttl) || substok4
 		mustsubst = true
 	}
-	if len(algip6s) > 0 {
+	if algip6s.IsValid() {
 		substok6 = xdns.SubstAAAARecords( /*out*/ ansout, algip6s, algttl) || substok6
 		mustsubst = true
 	}
@@ -531,8 +591,8 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []netip.Addr, network string, q 
 	}
 
 	// get existing real ips for qname, from previous alg/nat
-	previp4s, previp6s, prevtargets := t.resolvLocked(qname, typreal)
-	targets = removeDups(targets, prevtargets)
+	// previp4s, previp6s, prevtargets := t.resolvLocked(qname, typreal, t1.ID())
+	// targets = removeDups(targets, prevtargets)
 
 	var fixedips []netip.Addr
 	if usefixed {
@@ -544,42 +604,30 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []netip.Addr, network string, q 
 		secres.ips = nil
 	}
 
-	allrealips := removeDups(realip, previp4s, previp6s)
+	// allrealips := removeDups(realip, previp4s, previp6s)
 	// get existing secondary ips for qname, from previous alg/nat
-	prevsec4s, prevsec6s, _ := t.resolvLocked(qname, typsecondary)
-	secres.ips = removeDups(secres.ips, prevsec4s, prevsec6s)
-
-	log.D("alg: subst; for %s:%d / prev targets %s; prev ips (alg? %t / fix? %t); v4: %s, v6: %s; sec4: %s, sec6: %s",
-		qname, smm.QType, prevtargets, mod, usefixed, previp4s, previp6s, prevsec4s, prevsec6s)
-	// TODO: just like w/ previps/prevtargets, get blocklists for qname and merge w/ new ones?
+	// prevsec4s, prevsec6s, _ := t.resolvLocked(qname, typsecondary, notransport)
+	// secres.ips = removeDups(secres.ips, prevsec4s, prevsec6s)
 
 	ansttl := time.Duration(xdns.RTtl(ansin)) * time.Second
-	algips = append(algips, algip4s...)
-	algips = append(algips, algip6s...)
-	algips = append(algips, algip4hints...)
-	algips = append(algips, algip6hints...)
-	x := &baseans{
-		// secres.ips may be empty on timeout errors, or
-		// or same as realips if t2 is nil
-		ips: xips{
-			latest: realip,
-			prev:   allrealips,
-			aux:    secres.ips,
-		},
-		domains:    targets, // may be nil
-		blocklists: secres.smm.Blocklists,
-		// qname->realip valid for next ttl seconds
-		// but algips are valid for algttl seconds
-		ttl: time.Now().Add(max(ttl2m, ansttl)),
+	if algip4s.IsValid() {
+		algip4 = algip4s
+	} else {
+		algip4 = algip4hints
+	}
+	if algip6s.IsValid() {
+		algip6 = algip6s
+	} else {
+		algip6 = algip6hints
 	}
 
-	log.D("alg: ok; domains %s real: %s / fix: %s => subst %s; mod? %t; sec %s",
-		targets, realip, fixedips, algips, mod, secres.ips)
+	log.D("alg: ok; for %s:%d, domains %s real: %s / fix: %s => subst %s | %s; (mod? %t / fix? %t); sec %s",
+		qname, smm.QType, targets, realip, fixedips, algip4, algip6, mod, usefixed, secres.ips)
 
-	if t.registerMultiLocked(qname, algips, x) {
+	if t.registerLocked(qname, t1.ID(), algip4, algip6, realip, ansttl, targets, secres) {
 		// if mod is set, send modified answer
 		if mod {
-			withAlgSummaryIfNeeded(algips, smm)
+			withAlgSummaryIfNeeded(smm, algip4, algip6)
 			return ansout, nil
 		} else {
 			return ansin, nil
@@ -590,13 +638,13 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []netip.Addr, network string, q 
 }
 
 func netip2csv(ips []netip.Addr) (csv string) {
-	for i, ip := range ips {
-		if i > 0 {
-			csv += ","
+	out := make([]string, 0, len(ips))
+	for _, ip := range ips {
+		if ip.IsValid() {
+			out = append(out, ip.String())
 		}
-		csv += ip.String()
 	}
-	return strings.TrimSuffix(csv, ",")
+	return strings.Join(out, ",")
 }
 
 func withDNS64Summary(ans64 *dns.Msg, s *x.DNSSummary) {
@@ -609,9 +657,9 @@ func withDNS64Summary(ans64 *dns.Msg, s *x.DNSSummary) {
 	}
 }
 
-func withAlgSummaryIfNeeded(algips []netip.Addr, s *x.DNSSummary) {
+func withAlgSummaryIfNeeded(s *x.DNSSummary, algips ...netip.Addr) {
 	if settings.Debug {
-		// convert algips to ipcsv
+		// convert algips to ipcsv; any algips may be invalid
 		ipcsv := netip2csv(algips)
 
 		if len(s.RData) > 0 {
@@ -628,35 +676,73 @@ func withAlgSummaryIfNeeded(algips []netip.Addr, s *x.DNSSummary) {
 	}
 }
 
-func (t *dnsgateway) registerMultiLocked(q string, algips []netip.Addr, am *baseans) bool {
-	if len(algips) <= 0 { // defensive; should not happen
+func (t *dnsgateway) registerLocked(q, tid string, algip4, algip6 netip.Addr, realips []netip.Addr, ttl time.Duration, targets []string, secres secans) bool {
+	if !algip4.IsValid() && !algip6.IsValid() { // defensive; should not happen
 		log.E("alg: no algips for %s; real? %d, sec? %d",
-			q, am.ips.len(), am.ips.seclen())
+			q, len(realips), len(secres.ips))
 		return false
 	}
 
-	// register mapping from qname -> algip+realip (alg) and algip -> qname+realip (nat)
-	for i := range algips { // algips may be nil?
-		x := &algans{
-			algip:   algips[i],
-			baseans: am,
-		}
-		ip := x.algip
-		var k string
-		if ip.Is4() {
-			k = q + key4 + strconv.Itoa(i)
-		} else if ip.Is6() {
-			k = q + key6 + strconv.Itoa(i)
-		} else {
-			return false
-		}
-		t.alg[k] = x
-		t.nat[ip] = am
+	am4 := &baseans{
+		// secres.ips may be empty on timeout errors, or
+		// or same as realips if t2 is nil
+		ips:        NewXips(tid, v4only(realips), v4only(secres.ips)),
+		domains:    targets, // may be nil
+		blocklists: secres.smm.Blocklists,
+		// qname->realip valid for next ttl seconds
+		// but algips are valid for algttl seconds
+		ttl: time.Now().Add(max(ttl2m, ttl)),
 	}
-	// am.ips.latest may be nil; ex: when preset fixed ips are used
-	for _, ip := range am.ips.latest {
+
+	am6 := &baseans{
+		// secres.ips may be empty on timeout errors, or
+		// or same as realips if t2 is nil
+		ips:        NewXips(tid, v6only(realips), v6only(secres.ips)),
+		domains:    targets, // may be nil
+		blocklists: secres.smm.Blocklists,
+		// qname->realip valid for next ttl seconds
+		// but algips are valid for algttl seconds
+		ttl: time.Now().Add(max(ttl2m, ttl)),
+	}
+
+	// register mapping from qname -> algip+realip (alg) and algip -> qname+realip (nat)
+	for _, ip := range []netip.Addr{algip4, algip6} { // algips may be nil?
+		var k string
+		var x *algans
+		if ip.Is4() {
+			k = q + key4 + strconv.Itoa(0)
+			x = &algans{
+				algip:   ip,
+				baseans: am4,
+			}
+		} else if ip.Is6() {
+			k = q + key6 + strconv.Itoa(0)
+			x = &algans{
+				algip:   ip,
+				baseans: am6,
+			}
+		} // else: ip invalid
+		if x == nil { // no valid algans
+			continue
+		}
+		if prevans := t.alg[k]; prevans != nil {
+			// merge prevans in to x
+			prevans.merge(x)
+		} else {
+			t.alg[k] = x
+			t.nat[ip] = x.baseans
+		}
+	}
+	// am.ips.x() may return nil; ex: when preset fixed ips are used
+	for _, ip := range realips {
 		// register mapping from realip -> algip+qname (ptr)
-		t.ptr[ip] = am
+		if prevam := t.ptr[ip]; prevam == nil {
+			if ip.Is4() {
+				t.ptr[ip] = am4
+			} else if ip.Is6() {
+				t.ptr[ip] = am6
+			}
+		} // else prevam is merged into am4/am6 by t.alg above
 	}
 	return true
 }
@@ -841,17 +927,7 @@ func (t *dnsgateway) X(maybeAlg netip.Addr) (ips string, undidAlg bool) {
 	// stale IPs are okay iff !mod; as then maybeAlg itself is a realip
 	usestale := !t.mod.Load()
 	rip, undidAlg := t.xLocked(maybeAlg, usestale)
-	if len(rip) > 0 {
-		var s []string
-		for _, r := range rip {
-			if r.IsValid() {
-				s = append(s, r.String())
-			}
-		}
-		ips = strings.Join(s, ",")
-	} // else: algip isn't really an alg ip, nothing to do
-
-	return ips, undidAlg
+	return netip2csv(rip), undidAlg // rip may be 0 len
 }
 
 func (t *dnsgateway) PTR(maybeAlg netip.Addr, force bool) (domains string, didForce bool) {
@@ -875,18 +951,8 @@ func (t *dnsgateway) RESOLV(domain string) (ipcsv string) {
 	if !t.mod.Load() {
 		typ = typreal
 	}
-	ip4s, ip6s, _ := t.resolvLocked(domain, typ)
-	ips := append(ip4s, ip6s...)
-	if len(ips) > 0 {
-		var s []string
-		for _, ip := range ips {
-			if ip.IsValid() {
-				s = append(s, ip.String())
-			}
-		}
-		ipcsv = strings.Join(s, ",")
-	}
-	return
+	ip4s, ip6s, _ := t.resolvLocked(domain, typ, notransport)
+	return netip2csv(append(ip4s, ip6s...))
 }
 
 func (t *dnsgateway) RDNSBL(algip netip.Addr) (blocklists string) {
@@ -968,12 +1034,12 @@ func (t *dnsgateway) ptrLocked(maybeAlg netip.Addr, useptr bool) (domains []stri
 
 // resolvLocked returns IPs and related targets for domain
 // depending on typ.
-// If typ is typalg, it returns all algips for domain.
-// If typ is typreal, it returns all realips for domain.
-// If typ is typsecondary, it returns all secondaryips for domain.
+// If typ is typalg, returns all algips for domain.
+// If typ is typreal, returns all realips for domain resolved by tid.
+// If typ is typsecondary, returns all secondaryips for domain.
 // ip4s and ip6s may overlap, and are segregated by the source algip
 // family (and not by the family of the resolved IPs themselves).
-func (t *dnsgateway) resolvLocked(domain string, typ iptype) (ip4s, ip6s []netip.Addr, targets []string) {
+func (t *dnsgateway) resolvLocked(domain string, typ iptype, tid string) (ip4s, ip6s []netip.Addr, targets []string) {
 	partkey4 := domain + key4
 	partkey6 := domain + key6
 
@@ -983,7 +1049,7 @@ func (t *dnsgateway) resolvLocked(domain string, typ iptype) (ip4s, ip6s []netip
 	staleips := make([]netip.Addr, 0)
 	switch typ {
 	case typalg:
-		for i := 0; i < maxiter; i++ {
+		for i := 0; i < 2; i++ {
 			k4 := partkey4 + strconv.Itoa(i)
 			if ans, ok := t.alg[k4]; ok {
 				if time.Until(ans.ttl) > 0 { // not stale
@@ -996,7 +1062,7 @@ func (t *dnsgateway) resolvLocked(domain string, typ iptype) (ip4s, ip6s []netip
 				break
 			}
 		}
-		for i := 0; i < maxiter; i++ {
+		for i := 0; i < 2; i++ {
 			k6 := partkey6 + strconv.Itoa(i)
 			if ans, ok := t.alg[k6]; ok {
 				if time.Until(ans.ttl) > 0 { // not stale
@@ -1009,16 +1075,17 @@ func (t *dnsgateway) resolvLocked(domain string, typ iptype) (ip4s, ip6s []netip
 				break
 			}
 		}
-		log.V("alg: resolv: %s -> alg ip4 %d, ip6 %d; stale %v", domain, len(ip4s), len(ip6s), staleips)
+		log.V("alg: resolv: %s -> alg ip4 %d, ip6 %d; stale %v",
+			domain, len(ip4s), len(ip6s), staleips)
 	case typreal:
 		for i := 0; i < 2; i++ { // a = 0, https/svcb = 1+
 			k4 := partkey4 + strconv.Itoa(i)
 			if ans, ok := t.alg[k4]; ok {
 				if time.Until(ans.ttl) > 0 { // not stale
-					ip4s = append(ip4s, v4only(ans.ips.all())...)
+					ip4s = append(ip4s, v4only(ans.ips.of(tid))...)
 					targets = append(targets, ans.domains...)
 				} else {
-					staleips = append(staleips, ans.ips.all()...)
+					staleips = append(staleips, ans.ips.of(tid)...)
 				}
 				// all ans{} have all realips; pick the first one
 				break
@@ -1028,16 +1095,17 @@ func (t *dnsgateway) resolvLocked(domain string, typ iptype) (ip4s, ip6s []netip
 			k6 := partkey6 + strconv.Itoa(i)
 			if ans, ok := t.alg[k6]; ok {
 				if time.Until(ans.ttl) > 0 { // not stale
-					ip6s = append(ip6s, v6only(ans.ips.all())...)
+					ip6s = append(ip6s, v6only(ans.ips.of(tid))...)
 					targets = append(targets, ans.domains...)
 				} else {
-					staleips = append(staleips, ans.ips.all()...)
+					staleips = append(staleips, ans.ips.of(tid)...)
 				}
 				// all ans{} have all realips; pick the first one
 				break
 			} // continue
 		}
-		log.V("alg: resolv: %s -> real ip4 %d, ip6 %d; stale %v", domain, len(ip4s), len(ip6s), staleips)
+		log.V("alg: resolv: %s -> real %s ip4 %d, ip6 %d; stale %v",
+			domain, tid, len(ip4s), len(ip6s), staleips)
 	case typsecondary:
 		for i := 0; i < 2; i++ { // a = 0, https/svcb = 1+
 			k4 := partkey4 + strconv.Itoa(i)
@@ -1065,7 +1133,8 @@ func (t *dnsgateway) resolvLocked(domain string, typ iptype) (ip4s, ip6s []netip
 				break
 			} // continue
 		}
-		log.V("alg: resolv: %s -> secondary ip4 %d, ip6 %d; stale %v", domain, len(ip4s), len(ip6s), staleips)
+		log.V("alg: resolv: %s -> secondary ip4 %d, ip6 %d; stale %v",
+			domain, len(ip4s), len(ip6s), staleips)
 	}
 
 	return
@@ -1141,10 +1210,10 @@ func synthesizeOrQuery(preset []netip.Addr, tr Transport, msg *dns.Msg, network 
 		ttl := int(xdns.AnsTTL)
 		ip4s, ip6s := splitIPFamilies(preset)
 		if len(ip4s) > 0 {
-			ok4 = xdns.SubstSVCBRecordIPs( /*out*/ ans, dns.SVCB_IPV4HINT, ip4s, ttl)
+			ok4 = xdns.SubstSVCBRecordIPs( /*out*/ ans, dns.SVCB_IPV4HINT, ip4s[0], ttl)
 		}
 		if len(ip6s) > 0 {
-			ok6 = xdns.SubstSVCBRecordIPs( /*out*/ ans, dns.SVCB_IPV6HINT, ip6s, ttl)
+			ok6 = xdns.SubstSVCBRecordIPs( /*out*/ ans, dns.SVCB_IPV6HINT, ip6s[0], ttl)
 		}
 
 		withPresetSummary(smm, true /*req sent?*/, fixed)
