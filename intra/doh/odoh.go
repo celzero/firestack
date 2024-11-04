@@ -44,7 +44,7 @@ var (
 
 // targets:  github.com/DNSCrypt/dnscrypt-resolvers/blob/master/v3/odoh-servers.md
 // endpoints:  github.com/DNSCrypt/dnscrypt-resolvers/blob/master/v3/odoh-relays.md
-func (d *transport) doOdoh(pid string, q *dns.Msg) (res *dns.Msg, elapsed time.Duration, qerr *dnsx.QueryError) {
+func (d *transport) doOdoh(pid string, q *dns.Msg) (res *dns.Msg, ech bool, elapsed time.Duration, qerr *dnsx.QueryError) {
 	var ans []byte
 	viaproxy := len(d.odohproxyurl) > 0
 
@@ -62,8 +62,9 @@ func (d *transport) doOdoh(pid string, q *dns.Msg) (res *dns.Msg, elapsed time.D
 		return
 	}
 
-	ans, _, _, elapsed, qerr = d.do(pid, req)
-	log.V("odoh: send; proxy? %t, elapsed: %s; err? %v", viaproxy, elapsed, qerr)
+	ans, _, _, ech, elapsed, qerr = d.do(pid, req)
+	log.V("odoh: send; proxy? %t, ech? %t, elapsed: %s; err? %v",
+		viaproxy, ech, elapsed, qerr)
 	if qerr != nil {
 		// datatracker.ietf.org/doc/rfc9230 section 4.3 and section 7
 		// 401 authorization error on hpke failure
@@ -244,7 +245,7 @@ func (d *transport) refreshTargetKeyDNS() (ocfg *odoh.ObliviousDoHConfig, exp ti
 		var req *http.Request
 		// fetch odoh-config from odohconfigdns
 		if req, err = d.asDohRequest(cmsg); err == nil {
-			cres, _, _, _, err = d.send(dnsx.NetNoProxy, req)
+			cres, _, _, _, _, err = d.send(dnsx.NetNoProxy, req)
 		}
 	}
 

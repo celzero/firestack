@@ -367,7 +367,7 @@ func (t *transport) httpClientFor(p ipn.Proxy) (c3, c *http.Client) {
 // Independent of the query's success or failure, this function also returns the
 // address of the server on a best-effort basis, or nil if the address could not
 // be determined.
-func (t *transport) doDoh(pid string, q *dns.Msg) (response *dns.Msg, blocklists, region string, elapsed time.Duration, qerr *dnsx.QueryError) {
+func (t *transport) doDoh(pid string, q *dns.Msg) (response *dns.Msg, blocklists, region string, ech bool, elapsed time.Duration, qerr *dnsx.QueryError) {
 	start := time.Now()
 	padQuery(q)
 
@@ -383,7 +383,7 @@ func (t *transport) doDoh(pid string, q *dns.Msg) (response *dns.Msg, blocklists
 		return
 	}
 
-	response, blocklists, region, elapsed, qerr = t.send(pid, req)
+	response, blocklists, region, ech, elapsed, qerr = t.send(pid, req)
 
 	// restore dns query id
 	q.Id = id
@@ -420,7 +420,8 @@ func (t *transport) fetch(pid string, req *http.Request) (*http.Response, error)
 
 	r, err := t.multifetch(req, c3, c)
 	if err != nil {
-		log.W("doh: fetch: %s, err: %v", ustr, err)
+		log.W("doh: fetch: %s, mayech? %t, err: %v",
+			ustr, t.echconfig != nil, err)
 		return r, uerr(err)
 	}
 	return r, nil
@@ -500,13 +501,12 @@ func (t *transport) prepare(pid string) (c3, c *http.Client, err error) {
 	return
 }
 
-func (t *transport) do(pid string, req *http.Request) (ans []byte, blocklists, region string, elapsed time.Duration, qerr *dnsx.QueryError) {
+func (t *transport) do(pid string, req *http.Request) (ans []byte, blocklists, region string, withech bool, elapsed time.Duration, qerr *dnsx.QueryError) {
 	var server net.Addr
 	var conn net.Conn
 	start := time.Now()
 	// either t.hostname or t.odohtargetname or t.odohproxy
 	hostname := req.URL.Hostname()
-	withech := false
 
 	// Error cleanup function.  If the query fails, this function will close the
 	// underlying socket and disconfirm the server IP.  Empirically, sockets often
@@ -608,10 +608,10 @@ func (t *transport) do(pid string, req *http.Request) (ans []byte, blocklists, r
 	return
 }
 
-func (t *transport) send(pid string, req *http.Request) (msg *dns.Msg, blocklists, region string, elapsed time.Duration, qerr *dnsx.QueryError) {
+func (t *transport) send(pid string, req *http.Request) (msg *dns.Msg, blocklists, region string, ech bool, elapsed time.Duration, qerr *dnsx.QueryError) {
 	var ans []byte
 	var err error
-	ans, blocklists, region, elapsed, qerr = t.do(pid, req)
+	ans, blocklists, region, ech, elapsed, qerr = t.do(pid, req)
 	if qerr != nil {
 		return
 	}
@@ -671,17 +671,21 @@ func (t *transport) Type() string {
 
 func (t *transport) Query(network string, q *dns.Msg, smm *x.DNSSummary) (r *dns.Msg, err error) {
 	var blocklists, region string
+	var ech bool
 	var elapsed time.Duration
 	var qerr *dnsx.QueryError
 
 	_, pid := xdns.Net2ProxyID(network)
 	if t.typ == dnsx.DOH {
-		r, blocklists, region, elapsed, qerr = t.doDoh(pid, q)
-		smm.Server = t.GetAddr()
+		r, blocklists, region, ech, elapsed, qerr = t.doDoh(pid, q)
 	} else {
-		r, elapsed, qerr = t.doOdoh(pid, q)
-		smm.Server = t.GetAddr()
+		r, ech, elapsed, qerr = t.doOdoh(pid, q)
 		smm.RelayServer = t.odohproxyname
+	}
+
+	smm.Server = t.GetAddr()
+	if ech {
+		smm.Server = dnsx.EchPrefix + smm.Server
 	}
 
 	status := dnsx.Complete
@@ -726,9 +730,7 @@ func (t *transport) GetAddr() string {
 		addr = t.odohtargetname
 	}
 
-	if t.echconfig != nil {
-		addr = dnsx.EchPrefix + addr
-	} else if t.skipTLSVerify {
+	if t.skipTLSVerify {
 		addr = dnsx.NoPkiPrefix + addr
 	}
 	// doh transports could be "dnsx.Bootstrap"
