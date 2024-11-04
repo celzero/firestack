@@ -374,8 +374,8 @@ func (s *StdNetBind) Send(buf [][]byte, peer conn.Endpoint) (err error) {
 	for _, data := range buf {
 		bufok := len(data) > 0
 
-		log.V("wg: bind: send: %s addr(%v) blackhole? %t; noconn? %t; hasbuf? %t",
-			s.id, dst, blackhole, noconn, bufok)
+		log.V("wg: bind: send: %s addr(%v) exp? %t, blackhole? %t; noconn? %t; hasbuf? %t",
+			s.id, dst, experimentalWg, blackhole, noconn, bufok)
 
 		if blackhole || !bufok {
 			return nil
@@ -384,21 +384,23 @@ func (s *StdNetBind) Send(buf [][]byte, peer conn.Endpoint) (err error) {
 			return syscall.EAFNOSUPPORT
 		}
 
-		// overwrite the 3 reserved bytes on non-random packets
-		if overwriteReserved {
-			if len(data) > 3 && isWgMsgType(data[0]) {
-				// from: github.com/bepass-org/warp-plus/blob/19ac233cc6/wireguard/device/peer.go#L138
-				copy(data[1:4], s.reserved)
-				overwritten = true
-			}
-		}
-		if !flooded && !overwritten && (overwriteReserved || experimentalWg) {
-			if len(data) == device.MessageInitiationSize {
-				go s.flood(uc, dst, fkHandshake) // probably a handshake
-				flooded = true
-			} else if len(data) == device.MessageKeepaliveSize {
-				go s.flood(uc, dst, fkKeepalive) // probably a keepalive
-				flooded = true
+		if experimentalWg {
+			// overwrite the 3 reserved bytes on non-random packets
+			if overwriteReserved {
+				if len(data) > 3 && isWgMsgType(data[0]) {
+					// from: github.com/bepass-org/warp-plus/blob/19ac233cc6/wireguard/device/peer.go#L138
+					copy(data[1:4], s.reserved)
+					overwritten = true
+				}
+				if !flooded && !overwritten {
+					if len(data) == device.MessageInitiationSize {
+						go s.flood(uc, dst, fkHandshake) // probably a handshake
+						flooded = true
+					} else if len(data) == device.MessageKeepaliveSize {
+						go s.flood(uc, dst, fkKeepalive) // probably a keepalive
+						flooded = true
+					}
+				}
 			}
 		}
 
@@ -411,8 +413,8 @@ func (s *StdNetBind) Send(buf [][]byte, peer conn.Endpoint) (err error) {
 
 	s.lastSendAddr = dst
 
-	loge(err, "wg: bind: send: %s addr(%v) parcels(%d) tx(%d) (flooded? %t / any-overwritten? %t); err? %v",
-		s.id, dst, len(buf), nn, flooded, overwritten, errs)
+	loge(err, "wg: bind: send: %s addr(%v) parcels(%d) tx(%d) (exp? %t: flooded? %t / any-overwritten? %t); err? %v",
+		s.id, dst, len(buf), nn, experimentalWg, flooded, overwritten, errs)
 	return err
 }
 
