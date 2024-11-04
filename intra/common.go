@@ -189,7 +189,7 @@ func (h *baseHandler) onFlow(localaddr, target netip.AddrPort) (fm *Mark, undidA
 				newips, err := dialers.ResolveOn(d, tids...)
 				hasNewIPs = err == nil && len(newips) > 0
 				if hasNewIPs { // fetch alg result if resolve succeeded
-					_, ips, doms, pdoms, blocklists = h.undoAlg(target.Addr())
+					_, ips, doms, pdoms, blocklists = h.undoAlg(target.Addr(), tids...)
 					break
 				} // else: either no known transport or preflow failed
 			}
@@ -473,7 +473,7 @@ func makeIPPorts(realips string, origipp netip.AddrPort, cap int) []netip.AddrPo
 }
 
 // algip may or may not be an actual alg ip.
-func (h *baseHandler) undoAlg(algip netip.Addr) (undidAlg bool, realips, domains, probableDomains, blocklists string) {
+func (h *baseHandler) undoAlg(algip netip.Addr, tids ...string) (undidAlg bool, realips, domains, probableDomains, blocklists string) {
 	r := h.resolver
 	didForce := false
 	forcePTR := true // force PTR resolution?
@@ -487,7 +487,7 @@ func (h *baseHandler) undoAlg(algip netip.Addr) (undidAlg bool, realips, domains
 		// but we end up dailing into a v6 (or v4) address (which was unaccounted for).
 		// Dialing into v6 (or v4) address may succeed in such scenarios thereby
 		// resulting in a perceived "leak".
-		realips, undidAlg = gw.X(algip)
+		realips, undidAlg = gw.X(algip, tids...)
 		realips = filterFamilyForDialing(realips)
 		blocklists = gw.RDNSBL(algip)
 	} else {

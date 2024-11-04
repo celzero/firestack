@@ -69,7 +69,7 @@ func isAlgErr(err error) bool {
 
 type Gateway interface {
 	// given an alg or real ip, retrieves assoc real ips as csv, if any
-	X(maybeAlg netip.Addr) (realipcsv string, undidAlg bool)
+	X(maybeAlg netip.Addr, tids ...string) (realipcsv string, undidAlg bool)
 	// given an alg or real ip, retrieves assoc dns names as csv, if any
 	PTR(maybeAlg netip.Addr, force bool) (domaincsv string, didForce bool)
 	// given domain, retrieve assoc alg ips or real ips as csv, if any
@@ -132,14 +132,22 @@ func flatten[K comparable, V any](m map[K][]V, upto uint) ([]K, []V) {
 	return outk, outv
 }
 
+func (p *xips) primary() []netip.Addr {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	_, v := flatten(p.pri, 0)
+	return v
+}
+
 // x returns ips to translated to
 func (p *xips) x() []netip.Addr {
-	_, s := flatten(p.pri, 0)
+	pri := p.primary()
 
 	if p.block() {
-		return append(s, anyaddr4, anyaddr6)
+		return append(pri, anyaddr4, anyaddr6)
 	}
-	return s
+	return pri
 }
 
 // all returns all translatabale ips
@@ -149,7 +157,7 @@ func (p *xips) all() []netip.Addr {
 
 func (p *xips) of(tid string) []netip.Addr {
 	if tid == notransport {
-		return p.all()
+		return p.x()
 	}
 	p.mu.RLock()
 	defer p.mu.RUnlock()
@@ -175,6 +183,7 @@ func (p *xips) block() bool {
 	return false
 }
 
+// each iterates over each pri and aux ip
 func (p *xips) each(f func(ip netip.Addr)) {
 	for _, ip := range p.all() {
 		f(ip)
@@ -920,13 +929,13 @@ func gen6Locked(k string, hop int) netip.Addr {
 	return netip.AddrFrom16(b16)
 }
 
-func (t *dnsgateway) X(maybeAlg netip.Addr) (ips string, undidAlg bool) {
+func (t *dnsgateway) X(maybeAlg netip.Addr, tids ...string) (ips string, undidAlg bool) {
 	t.RLock()
 	defer t.RUnlock()
 
 	// stale IPs are okay iff !mod; as then maybeAlg itself is a realip
 	usestale := !t.mod.Load()
-	rip, undidAlg := t.xLocked(maybeAlg, usestale)
+	rip, undidAlg := t.xLocked(maybeAlg, usestale, tids...)
 	return netip2csv(rip), undidAlg // rip may be 0 len
 }
 
@@ -962,14 +971,20 @@ func (t *dnsgateway) RDNSBL(algip netip.Addr) (blocklists string) {
 	return t.rdnsblLocked(algip, !t.mod.Load())
 }
 
-func (t *dnsgateway) xLocked(maybeAlg netip.Addr, usestale bool) ([]netip.Addr, bool) {
+func (t *dnsgateway) xLocked(maybeAlg netip.Addr, usestale bool, tids ...string) ([]netip.Addr, bool) {
 	var realips []netip.Addr
 	var undidAlg, fresh bool
 	// alg ips are always unmappped; see take4Locked
 	unmapped := maybeAlg.Unmap() // aligip may also be origip / realip
 	if ans, ok := t.nat[unmapped]; ok {
 		if fresh = time.Until(ans.ttl) > 0; fresh || usestale {
-			realips = ans.ips.x()
+			if len(tids) <= 0 {
+				realips = ans.ips.x()
+			} else {
+				for _, tid := range tids {
+					realips = append(realips, ans.ips.of(tid)...)
+				}
+			}
 		}
 		undidAlg = true
 	} else if ans, ok := t.ptr[unmapped]; ok {
@@ -979,7 +994,13 @@ func (t *dnsgateway) xLocked(maybeAlg netip.Addr, usestale bool) ([]netip.Addr, 
 		// nb: both realips & secondaryips may be nil, but that's okay:
 		// go.dev/play/p/fSjRjMSAS2m
 		if fresh = time.Until(ans.ttl) > 0; fresh || usestale {
-			realips = ans.ips.x()
+			if len(tids) <= 0 {
+				realips = ans.ips.x()
+			} else {
+				for _, tid := range tids {
+					realips = append(realips, ans.ips.of(tid)...)
+				}
+			}
 		}
 	}
 	var unnated []netip.Addr
