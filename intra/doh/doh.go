@@ -331,7 +331,7 @@ func (t *transport) httpClientFor(p ipn.Proxy) (c3, c *http.Client) {
 	pxtr, ok := t.pxclients[p.ID()]
 	t.pxcmu.RUnlock()
 
-	same := pxtr != nil && pxtr.p == p
+	same := pxtr != nil && pxtr.p.Handle() == p.Handle()
 	if ok && same {
 		return pxtr.c3, pxtr.c
 	}
