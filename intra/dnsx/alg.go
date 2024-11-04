@@ -113,9 +113,11 @@ func NewXips(id string, pri []netip.Addr, sec []netip.Addr) *xips {
 	x := &xips{
 		mu:  new(sync.RWMutex),
 		pri: make(map[string][]netip.Addr),
-		aux: sec,
+		aux: sec, // sec may be nil
 	}
-	x.pri[id] = pri
+	if len(pri) > 0 { // pri may be nil
+		x.pri[id] = pri
+	}
 	return x
 }
 
@@ -150,13 +152,8 @@ func (p *xips) x() []netip.Addr {
 	return pri
 }
 
-// all returns all translatabale ips
-func (p *xips) all() []netip.Addr {
-	return append(p.x(), p.sec()...)
-}
-
-func (p *xips) of(tid string) []netip.Addr {
-	if tid == notransport {
+func (p *xips) xof(tid string) []netip.Addr {
+	if tid == notransport || len(tid) <= 0 {
 		return p.x()
 	}
 	p.mu.RLock()
@@ -172,9 +169,8 @@ func (p *xips) sec() []netip.Addr {
 
 // block returns true if any secondary ip is unspecified
 func (p *xips) block() bool {
-	// todo: is block ip in latest/prev or aux?
-	// todo: what if block ip is in both latest/prev and aux?
-	// todo: what if aux/latest is nil? (nxdomain)
+	// unspecified ips expected to be in aux
+	// primary must never have unspecified ips
 	for _, ip := range p.sec() {
 		if ip.IsUnspecified() {
 			return true
@@ -241,7 +237,7 @@ type dnsgateway struct {
 	sync.RWMutex                         // locks alg, nat, octets, hexes
 	alg          map[string]*algans      // domain+type -> ans
 	nat          map[netip.Addr]*baseans // algip -> baseans
-	ptr          map[netip.Addr]*baseans // realip -> baseans
+	ptr          map[netip.Addr]*baseans // primaryip -> baseans
 	octets       []uint8                 // ip4 octets, 100.x.y.z
 	hexes        []uint16                // ip6 hex, 64:ff9b:1:da19:0100.x.y.z
 
@@ -599,10 +595,6 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []netip.Addr, network string, q 
 		return ansin, err // ansin is nil if no alg ips
 	}
 
-	// get existing real ips for qname, from previous alg/nat
-	// previp4s, previp6s, prevtargets := t.resolvLocked(qname, typreal, t1.ID())
-	// targets = removeDups(targets, prevtargets)
-
 	var fixedips []netip.Addr
 	if usefixed {
 		// if usefixed, then realips are in fact fixedips
@@ -612,11 +604,6 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []netip.Addr, network string, q 
 		realip = nil
 		secres.ips = nil
 	}
-
-	// allrealips := removeDups(realip, previp4s, previp6s)
-	// get existing secondary ips for qname, from previous alg/nat
-	// prevsec4s, prevsec6s, _ := t.resolvLocked(qname, typsecondary, notransport)
-	// secres.ips = removeDups(secres.ips, prevsec4s, prevsec6s)
 
 	ansttl := time.Duration(xdns.RTtl(ansin)) * time.Second
 	if algip4s.IsValid() {
@@ -735,7 +722,7 @@ func (t *dnsgateway) registerLocked(q, tid string, algip4, algip6 netip.Addr, re
 			continue
 		}
 		if prevans := t.alg[k]; prevans != nil {
-			// merge prevans in to x
+			// merge x into prevam
 			prevans.merge(x)
 		} else {
 			t.alg[k] = x
@@ -982,7 +969,7 @@ func (t *dnsgateway) xLocked(maybeAlg netip.Addr, usestale bool, tids ...string)
 				realips = ans.ips.x()
 			} else {
 				for _, tid := range tids {
-					realips = append(realips, ans.ips.of(tid)...)
+					realips = append(realips, ans.ips.xof(tid)...)
 				}
 			}
 		}
@@ -998,7 +985,7 @@ func (t *dnsgateway) xLocked(maybeAlg netip.Addr, usestale bool, tids ...string)
 				realips = ans.ips.x()
 			} else {
 				for _, tid := range tids {
-					realips = append(realips, ans.ips.of(tid)...)
+					realips = append(realips, ans.ips.xof(tid)...)
 				}
 			}
 		}
@@ -1103,10 +1090,10 @@ func (t *dnsgateway) resolvLocked(domain string, typ iptype, tid string) (ip4s, 
 			k4 := partkey4 + strconv.Itoa(i)
 			if ans, ok := t.alg[k4]; ok {
 				if time.Until(ans.ttl) > 0 { // not stale
-					ip4s = append(ip4s, v4only(ans.ips.of(tid))...)
+					ip4s = append(ip4s, v4only(ans.ips.xof(tid))...)
 					targets = append(targets, ans.domains...)
 				} else {
-					staleips = append(staleips, ans.ips.of(tid)...)
+					staleips = append(staleips, ans.ips.xof(tid)...)
 				}
 				// all ans{} have all realips; pick the first one
 				break
@@ -1116,10 +1103,10 @@ func (t *dnsgateway) resolvLocked(domain string, typ iptype, tid string) (ip4s, 
 			k6 := partkey6 + strconv.Itoa(i)
 			if ans, ok := t.alg[k6]; ok {
 				if time.Until(ans.ttl) > 0 { // not stale
-					ip6s = append(ip6s, v6only(ans.ips.of(tid))...)
+					ip6s = append(ip6s, v6only(ans.ips.xof(tid))...)
 					targets = append(targets, ans.domains...)
 				} else {
-					staleips = append(staleips, ans.ips.of(tid)...)
+					staleips = append(staleips, ans.ips.xof(tid)...)
 				}
 				// all ans{} have all realips; pick the first one
 				break
