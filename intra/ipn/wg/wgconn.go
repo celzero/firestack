@@ -395,23 +395,21 @@ func (s *StdNetBind) Send(buf [][]byte, peer conn.Endpoint) (err error) {
 			return syscall.EAFNOSUPPORT
 		}
 
-		if experimentalWg {
-			// overwrite the 3 reserved bytes on non-random packets
-			if overwriteReserved {
-				if len(data) > 3 && isWgMsgType(data[0]) {
-					// from: github.com/bepass-org/warp-plus/blob/19ac233cc6/wireguard/device/peer.go#L138
-					copy(data[1:4], s.reserved)
-					overwritten = true
-				}
-				if !flooded && !overwritten {
-					if len(data) == device.MessageInitiationSize {
-						go s.flood(uc, dst, fkHandshake) // probably a handshake
-						flooded = true
-					} else if len(data) == device.MessageKeepaliveSize {
-						go s.flood(uc, dst, fkKeepalive) // probably a keepalive
-						flooded = true
-					}
-				}
+		// overwrite the 3 reserved bytes on non-random packets
+		if overwriteReserved {
+			if len(data) > 3 && isWgMsgType(data[0]) {
+				// from: github.com/bepass-org/warp-plus/blob/19ac233cc6/wireguard/device/peer.go#L138
+				copy(data[1:4], s.reserved)
+				overwritten = true
+			}
+		}
+		if !flooded && !overwritten && (experimentalWg || overwriteReserved) {
+			if len(data) == device.MessageInitiationSize {
+				go s.flood(uc, dst, fkHandshake) // probably a handshake
+				flooded = true
+			} else if len(data) == device.MessageKeepaliveSize {
+				go s.flood(uc, dst, fkKeepalive) // probably a keepalive
+				flooded = true
 			}
 		}
 

@@ -431,7 +431,7 @@ func wgIfConfigOf(id string, txtptr *string) (ifaddrs []netip.Prefix, allowedadd
 		case "endpoint": // may exist more than once
 			// TODO: endpoint could be v4 or v6 or a hostname
 			n := 0
-			if isRPN(id) && settings.ExperimentalWireGuard.Load() {
+			if isRPN(id) {
 				v4, v6, err := warp.Endpoints()
 				if err == nil {
 					warpipcsv := v4.String() + "," + v6.String()
