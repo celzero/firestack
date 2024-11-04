@@ -190,6 +190,11 @@ func (p *xips) merge(q *xips) {
 	if q == nil {
 		return
 	}
+
+	if len(q.aux) > 0 {
+		p.aux = removeDups(p.aux, q.aux)
+	}
+
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	q.mu.RLock()
