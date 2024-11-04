@@ -736,6 +736,9 @@ func (t *dnsgateway) registerLocked(q, tid string, algip4, algip6 netip.Addr, re
 	}
 	// am.ips.x() may return nil; ex: when preset fixed ips are used
 	for _, ip := range realips {
+		if ip.IsUnspecified() || !ip.IsValid() { // should never happen
+			continue
+		}
 		// register mapping from realip -> algip+qname (ptr)
 		if prevam := t.ptr[ip]; prevam == nil {
 			if ip.Is4() {
