@@ -54,6 +54,7 @@ var (
 		/*11-15*/ 0x00, 0x00, 0x00, 0x00, // fieldNonce
 		/*16-17*/ 0x44, 0xD0, // ???
 	}
+	reservedZeros = []byte{0x00, 0x00, 0x00}
 )
 
 const (
@@ -304,11 +305,15 @@ func (bind *StdNetBind) Close() error {
 }
 
 func (s *StdNetBind) makeReceiveFn(uc *net.UDPConn) conn.ReceiveFunc {
+	sendOverwritten := s.overwriteReserved() // note for debug
+
 	// github.com/WireGuard/wireguard-go/blob/469159ecf/device/device.go#L531
 	return func(bufs [][]byte, sizes []int, eps []conn.Endpoint) (n int, err error) {
 		defer func() {
 			s.listener("r", err)
 		}()
+
+		recvOverwritten := false
 
 		numMsgs := 0
 		b := bufs[0]
@@ -316,6 +321,11 @@ func (s *StdNetBind) makeReceiveFn(uc *net.UDPConn) conn.ReceiveFunc {
 		extend(uc, wgtimeout)
 		n, addr, err := uc.ReadFromUDPAddrPort(b)
 		if err == nil {
+			recvOverwritten = isReservedOverwitten(b)
+			// github.com/bepass-org/warp-plus/blob/19ac233cc6/wireguard/device/receive.go#L138
+			if n > 3 && isWgMsgType(b[0]) && recvOverwritten {
+				copy(b[1:4], reservedZeros)
+			}
 			numMsgs++
 		}
 
@@ -324,7 +334,8 @@ func (s *StdNetBind) makeReceiveFn(uc *net.UDPConn) conn.ReceiveFunc {
 			eps[i] = asEndpoint(addr)
 		}
 
-		s := fmt.Sprintf("wg: bind: %s recvFrom(%v): %d / err? %v", s.id, addr, n, err)
+		s := fmt.Sprintf("wg: bind: %s recvFrom(%v): %d / ov? %t<=%t / err? %v",
+			s.id, addr, n, sendOverwritten, recvOverwritten, err)
 		if err == nil || timedout(err) {
 			log.D(s)
 		} else {
@@ -482,10 +493,12 @@ func (s *StdNetBind) flood(c *net.UDPConn, dst netip.AddrPort, why floodkind) (i
 }
 
 func (s *StdNetBind) overwriteReserved() bool {
-	return len(s.reserved) == 3 &&
-		s.reserved[0] != 0 ||
-		s.reserved[1] != 0 ||
-		s.reserved[2] != 0
+	return len(s.reserved) == 3 && (s.reserved[0] != 0 ||
+		s.reserved[1] != 0 || s.reserved[2] != 0)
+}
+
+func isReservedOverwitten(b []byte) bool {
+	return len(b) > 3 && (b[1] != 0 || b[2] != 0 || b[3] != 0)
 }
 
 func (s *StdNetBind) BatchSize() int {
