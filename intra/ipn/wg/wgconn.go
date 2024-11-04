@@ -538,49 +538,6 @@ func (s *StdNetBind) SetMark(mark uint32) (err error) {
 	return nil
 }
 
-// from: github.com/WireGuard/wireguard-go/1417a47c8/conn/boundif_android.go
-func (s *StdNetBind) PeekLookAtSocketFd4() (fd int, err error) {
-	raw4, err := s.ipv4.SyscallConn()
-	if err != nil {
-		log.W("wg: bind: peek4: %s syscall conn; err? %v", s.id, err)
-		return -1, err
-	}
-	if raw4 == nil {
-		log.W("wg: bind: peek4: %s raw conn nil", s.id)
-		return -1, errNoRawConn
-	}
-	err = raw4.Control(func(f uintptr) {
-		fd = int(f)
-	})
-	if err != nil {
-		log.W("wg: bind: control4: %s syscall conn; err? %v", s.id, err)
-		return -1, err
-	}
-	log.D("wg: bind: peek4: %s fd(%d)", s.id, fd)
-	return
-}
-
-func (s *StdNetBind) PeekLookAtSocketFd6() (fd int, err error) {
-	raw6, err := s.ipv6.SyscallConn()
-	if err != nil {
-		log.W("wg: bind: peek6: %s syscall conn; err? %v", s.id, err)
-		return -1, err
-	}
-	if raw6 == nil {
-		log.W("wg: bind: peek6: %s raw conn nil", s.id)
-		return -1, errNoRawConn
-	}
-	err = raw6.Control(func(f uintptr) {
-		fd = int(f)
-	})
-	if err != nil {
-		log.W("wg: bind: control6: %s syscall conn; err? %v", s.id, err)
-		return -1, err
-	}
-	log.D("wg: bind: peek6: %s fd(%d)", s.id, fd)
-	return
-}
-
 // asEndpoint returns an Endpoint containing ap.
 // pooling disabled due to data race:
 // github.com/WireGuard/wireguard-go/commit/334b605e726
