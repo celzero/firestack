@@ -431,7 +431,7 @@ func wgIfConfigOf(id string, txtptr *string) (ifaddrs []netip.Prefix, allowedadd
 		case "endpoint": // may exist more than once
 			// TODO: endpoint could be v4 or v6 or a hostname
 			n := 0
-			if isRPN(id) {
+			if isRPN(id) && settings.ExperimentalWireGuard.Load() {
 				v4, v6, err := warp.Endpoints()
 				if err == nil {
 					warpipcsv := v4.String() + "," + v6.String()
@@ -439,11 +439,9 @@ func wgIfConfigOf(id string, txtptr *string) (ifaddrs []netip.Prefix, allowedadd
 				}
 				logev(err)("proxy: wg: %s v4 %s, v6 %s; added? %d; err? %v",
 					id, v4, v6, n, err)
-			} // else: load endpoints as-is
-			if n <= 0 { // if warp endpoints ar empty use config as-is
-				n = loadMH(endpointh, v)
-				log.D("proxy: wg: %s ifconfig: endpoint(%d) %s", id, n, v)
 			}
+			n += loadMH(endpointh, v) // append more endpoints
+			log.D("proxy: wg: %s ifconfig: endpoints(%d) %s", id, n, v)
 
 			// peer config: carry over endpoints
 			log.D("proxy: wg: %s ifconfig: skipping key %q", id, k)

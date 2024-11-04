@@ -374,7 +374,8 @@ func (s *StdNetBind) Send(buf [][]byte, peer conn.Endpoint) (err error) {
 	for _, data := range buf {
 		bufok := len(data) > 0
 
-		log.V("wg: bind: send: %s addr(%v) blackhole? %t; noconn? %t; hasbuf? %t", s.id, dst, blackhole, noconn, bufok)
+		log.V("wg: bind: send: %s addr(%v) blackhole? %t; noconn? %t; hasbuf? %t",
+			s.id, dst, blackhole, noconn, bufok)
 
 		if blackhole || !bufok {
 			return nil
