@@ -179,9 +179,9 @@ func (p *xips) block() bool {
 	return false
 }
 
-// each iterates over each pri and aux ip
+// each iterates over each primary ip
 func (p *xips) each(f func(ip netip.Addr)) {
-	for _, ip := range p.all() {
+	for _, ip := range p.x() {
 		f(ip)
 	}
 }
