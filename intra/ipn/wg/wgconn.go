@@ -337,7 +337,7 @@ func (s *StdNetBind) makeReceiveFn(uc *net.UDPConn) conn.ReceiveFunc {
 		s := fmt.Sprintf("wg: bind: %s recvFrom(%v): %d / ov? %t<=%t / err? %v",
 			s.id, addr, n, sendOverwritten, recvOverwritten, err)
 		if err == nil || timedout(err) {
-			log.D(s)
+			log.V(s)
 		} else {
 			log.E(s)
 		}
@@ -424,7 +424,7 @@ func (s *StdNetBind) Send(buf [][]byte, peer conn.Endpoint) (err error) {
 
 	s.lastSendAddr = dst
 
-	loge(err, "wg: bind: send: %s addr(%v) parcels(%d) tx(%d) (exp? %t: flooded? %t / any-overwritten? %t); err? %v",
+	loge(err)("wg: bind: send: %s addr(%v) parcels(%d) tx(%d) (exp? %t: flooded? %t / any-overwritten? %t); err? %v",
 		s.id, dst, len(buf), nn, experimentalWg, flooded, overwritten, errs)
 	return err
 }
@@ -590,12 +590,12 @@ func asEndpoint(ap netip.AddrPort) conn.Endpoint {
 	return StdNetEndpoint(ap)
 }
 
-func loge(err error, msg string, rest ...any) {
+func loge(err error) log.LogFn {
 	l := log.V
 	if err != nil {
 		l = log.W
 	}
-	l(msg, rest...)
+	return l
 }
 
 func extend(c net.Conn, t time.Duration) {

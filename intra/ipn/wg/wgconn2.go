@@ -260,7 +260,7 @@ again:
 	// v4
 	v4conn, port, err = s.listenNet("udp4", port)
 	no4 := errors.Is(err, syscall.EAFNOSUPPORT)
-	loge(err, "wg: bind2: %s #%d: listen4(%d); no4? %t err? %v", s.id, tries, port, no4, err)
+	loge(err)("wg: bind2: %s #%d: listen4(%d); no4? %t err? %v", s.id, tries, port, no4, err)
 	if err != nil && !no4 {
 		return nil, 0, err
 	}
@@ -269,7 +269,7 @@ again:
 	v6conn, port, err = s.listenNet("udp6", port)
 	busy := errors.Is(err, syscall.EADDRINUSE)
 	no6 := errors.Is(err, syscall.EAFNOSUPPORT)
-	loge(err, "wg: bind2: %s #%d listen6(%d); busy? %t no6? %t err? %v", s.id, tries, port, busy, no6, err)
+	loge(err)("wg: bind2: %s #%d listen6(%d); busy? %t no6? %t err? %v", s.id, tries, port, busy, no6, err)
 	if uport == 0 && busy && tries < maxbindtries {
 		clos(v4conn)
 		tries++
@@ -352,19 +352,19 @@ func (s *StdNetBind2) receiveIP(
 			readAt := len(*msgs) - (IdealBatchSize / udpSegmentMaxDatagrams)
 			numMsgs, err = br.ReadBatch((*msgs)[readAt:], 0)
 			waddr := msgAddr(msgs)
-			loge(err, "wg: bind2: %s GRO: readAt(%d) addr(%v) numMsgs(%d) err(%v)", s.id, readAt, waddr, numMsgs, err)
+			loge(err)("wg: bind2: %s GRO: readAt(%d) addr(%v) numMsgs(%d) err(%v)", s.id, readAt, waddr, numMsgs, err)
 			if err != nil {
 				return 0, err
 			}
 
 			numMsgs, err = splitCoalescedMessages(*msgs, readAt, getGSOSize)
-			loge(err, "wg: bind2: %s GRO: splitCoalescedMessages(at: %d; from: %v) numMsgs(%d) err(%v)", s.id, readAt, waddr, numMsgs, err)
+			loge(err)("wg: bind2: %s GRO: splitCoalescedMessages(at: %d; from: %v) numMsgs(%d) err(%v)", s.id, readAt, waddr, numMsgs, err)
 			if err != nil {
 				return 0, err
 			}
 		} else {
 			numMsgs, err = br.ReadBatch(*msgs, 0)
-			loge(err, "wg: bind2: %s ReadBatch(sz: %d; from: %s) numMsgs(%d) err(%v)", s.id, len(*msgs), msgAddr(msgs), numMsgs, err)
+			loge(err)("wg: bind2: %s ReadBatch(sz: %d; from: %s) numMsgs(%d) err(%v)", s.id, len(*msgs), msgAddr(msgs), numMsgs, err)
 			if err != nil {
 				return 0, err
 			}
@@ -372,7 +372,7 @@ func (s *StdNetBind2) receiveIP(
 	} else {
 		msg := &(*msgs)[0]
 		msg.N, msg.NN, _, msg.Addr, err = conn.ReadMsgUDP(msg.Buffers[0], msg.OOB)
-		loge(err, "wg: bind2: %s ReadMsgUDP(sz: %d; from: %v) err(%v)", s.id, msg.N, msg.Addr, err)
+		loge(err)("wg: bind2: %s ReadMsgUDP(sz: %d; from: %v) err(%v)", s.id, msg.N, msg.Addr, err)
 		if err != nil {
 			return 0, err
 		}
@@ -552,7 +552,7 @@ retry:
 		n := coalesceMessages(ua, ep, bufs, *msgs, setGSOSize)
 		// send coalesced msgs; ie, len(*msgs) <= len(bufs)
 		err = s.send(c, br, (*msgs)[:n])
-		loge(err, "wg: bind2: %s GSO: send(%d/%d) to %s; err(%v)", s.id, n, len(bufs), ua, err)
+		loge(err)("wg: bind2: %s GSO: send(%d/%d) to %s; err(%v)", s.id, n, len(bufs), ua, err)
 
 		if shouldDisableUDPGSOOnError(err) { // err may be nil
 			offload = false
@@ -577,7 +577,7 @@ retry:
 		}
 		// send all msgs
 		err = s.send(c, br, (*msgs)[:len(bufs)])
-		loge(err, "wg: bind2: %s send(%d) to %s (retry? %t); err(%v)", s.id, len(bufs), ua, retried, err)
+		loge(err)("wg: bind2: %s send(%d) to %s (retry? %t); err(%v)", s.id, len(bufs), ua, retried, err)
 	}
 	if retried {
 		x := zeroaddr
@@ -615,7 +615,7 @@ func (s *StdNetBind2) send(conn *net.UDPConn, pc batchWriter, msgs []ipv6.Messag
 			}
 		}
 	}
-	loge(err, "wg: bind2: %s send: n(%d); err? %v", s.id, n, err)
+	loge(err)("wg: bind2: %s send: n(%d); err? %v", s.id, n, err)
 	return err
 }
 
