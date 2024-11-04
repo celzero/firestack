@@ -29,7 +29,7 @@ const poolmaxattempts = poolcapacity / 2  // max attempts to retrieve a conn fro
 const Nobody = uintptr(0)                 // nobody
 const poolscrubinterval = 5 * time.Minute // interval between subsequent scrubs
 const poolmaxidle = 8 * time.Minute       // close unused pooled conns after this period
-const poolfreshttl = 2 * time.Minute      // considered fresh if less than this period
+const poolfreshttl = 1 * time.Minute      // considered fresh if less than this period
 
 // go.dev/play/p/ig2Zpk-LTSv
 var (
@@ -321,7 +321,7 @@ func (c *ConnPool[T]) scrub() {
 	for {
 		select {
 		case aconn := <-c.p:
-			if aconn.old() || !aconn.readable() {
+			if aconn.old() || !aconn.ok() {
 				(&aconn).close()
 			} else {
 				staged = append(staged, aconn)
