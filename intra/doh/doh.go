@@ -398,7 +398,7 @@ func (t *transport) doDoh(pid string, q *dns.Msg) (response *dns.Msg, blocklists
 	return
 }
 
-func (t *transport) fetch(pid string, req *http.Request) (*http.Response, error) {
+func (t *transport) fetch(pid string, req *http.Request) (*http.Response, bool, error) {
 	ustr := req.URL.String()
 
 	uerr := func(e error) *url.Error {
@@ -415,19 +415,19 @@ func (t *transport) fetch(pid string, req *http.Request) (*http.Response, error)
 		}
 	}
 
-	r, err := t.multifetch(req, pid)
+	r, echdialer, err := t.multifetch(req, pid)
 	if err != nil {
-		log.W("doh: fetch: %s, mayech? %t, err: %v",
-			ustr, t.echconfig != nil, err)
-		return r, uerr(err)
+		log.W("doh: fetch: %s, mayech? %t / echdialer? %t, err: %v",
+			ustr, t.echconfig != nil, echdialer, err)
+		return r, echdialer, uerr(err)
 	}
-	return r, nil
+	return r, echdialer, nil
 }
 
-func (t *transport) multifetch(req *http.Request, pid string) (res *http.Response, err error) {
+func (t *transport) multifetch(req *http.Request, pid string) (res *http.Response, echdialer bool, err error) {
 	c3, c0, px, err := t.prepare(pid) // c3 may be nil
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	clients := []*http.Client{c3, c0}
 
@@ -442,7 +442,7 @@ func (t *transport) multifetch(req *http.Request, pid string) (res *http.Respons
 			cont = false
 			sent = true
 			if res, err = c.Do(req); err == nil {
-				return res, nil // res is never nil here
+				return res, c == c3, nil // res is never nil here
 			}
 			if eerr := new(tls.ECHRejectionError); errors.As(err, &eerr) {
 				cont = true
@@ -468,7 +468,7 @@ func (t *transport) multifetch(req *http.Request, pid string) (res *http.Respons
 				eof := uerr.Err == io.EOF
 				if eof && res != nil {
 					log.D("doh: fetch #%d: EOF; but res exists! %t", i)
-					return res, nil
+					return res, c == c3, nil
 				} // continue if EOF
 				cont = eof || uerr.Err == io.ErrUnexpectedEOF
 			} // terminate if not EOF
@@ -477,9 +477,9 @@ func (t *transport) multifetch(req *http.Request, pid string) (res *http.Respons
 	}
 	if !sent && err == nil { // should never happen
 		log.E("doh: fetch: no client sent request %d", len(clients))
-		return nil, errNoClient
+		return nil, false, errNoClient
 	}
-	return nil, err
+	return nil, false, err
 }
 
 func (t *transport) prepare(pid string) (c3, c *http.Client, px ipn.Proxy, err error) {
@@ -582,7 +582,9 @@ func (t *transport) do(pid string, req *http.Request) (ans []byte, blocklists, r
 
 	log.VV("doh: sending query to: %s", t.hostname)
 
-	res, err := t.fetch(pid, req)
+	res, echdialer, err := t.fetch(pid, req)
+
+	withech = withech || echdialer
 
 	if err != nil || res == nil {
 		qerr = dnsx.NewSendFailedQueryError(err)
