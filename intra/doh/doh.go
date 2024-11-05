@@ -455,10 +455,11 @@ func (t *transport) multifetch(req *http.Request, pid string) (res *http.Respons
 				}
 				if len(ech) > 0 && useech {
 					t.echconfig.EncryptedClientHelloConfigList = ech
-					// update the local dialer
-					t.client3.Transport = h2(t.dial, t.echconfig)
-					// and the proxy dialer
-					c.Transport = h2(px.Dialer().Dial, t.echconfig)
+					if px != nil { // a proxy dialer
+						c.Transport = h2(px.Dialer().Dial, t.echconfig)
+					} else { // a local dialer
+						c.Transport = h2(t.dial, t.echconfig)
+					}
 				}
 				n := t.echrejects.Add(1)
 				log.I("doh: fetch #%d: ech rejected; retry? %t, ech? %t; total rejects: %d",
@@ -500,7 +501,7 @@ func (t *transport) prepare(pid string) (c3, c *http.Client, px ipn.Proxy, err e
 			}
 		}
 		if px == nil {
-			return nil, nil, nil, dnsx.ErrNoProxyProvider
+			return c3, c, nil, dnsx.ErrNoProxyProvider
 		}
 		c3, c = t.httpClientFor(px) // c3 may be nil
 
