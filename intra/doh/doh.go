@@ -451,7 +451,7 @@ func (t *transport) multifetch(req *http.Request, pid string) (res *http.Respons
 				if len(ech) <= 0 && useech {
 					ech = t.ech() // todo: use t.echconfig.ServerName?
 					log.I("doh: fetch #%d: err %v; grab new ech? %t",
-						eerr, len(ech) > 0)
+						i, eerr, len(ech) > 0)
 				}
 				if len(ech) > 0 && useech {
 					t.echconfig.EncryptedClientHelloConfigList = ech
@@ -496,12 +496,10 @@ func (t *transport) prepare(pid string) (c3, c *http.Client, px ipn.Proxy, err e
 		if userelay { // relay takes precedence
 			px = t.relay
 		} else if hasproxy { // use proxy, if specified
-			if px, err = t.proxies.ProxyFor(pid); err != nil {
-				return
-			}
+			px, err = t.proxies.ProxyFor(pid)
 		}
-		if px == nil {
-			return c3, c, nil, dnsx.ErrNoProxyProvider
+		if err != nil || px == nil {
+			return c3, c, nil, core.OneError(err, dnsx.ErrNoProxyProvider)
 		}
 		c3, c = t.httpClientFor(px) // c3 may be nil
 
