@@ -323,7 +323,7 @@ func (s *StdNetBind) makeReceiveFn(uc *net.UDPConn) conn.ReceiveFunc {
 		if err == nil {
 			recvOverwritten = isReservedOverwitten(b)
 			// github.com/bepass-org/warp-plus/blob/19ac233cc6/wireguard/device/receive.go#L138
-			if n > 3 && isWgMsgType(b[0]) && recvOverwritten {
+			if n > 3 && isWgMsgInit(b[0]) && recvOverwritten {
 				copy(b[1:4], reservedZeros)
 			}
 			numMsgs++
@@ -397,7 +397,7 @@ func (s *StdNetBind) Send(buf [][]byte, peer conn.Endpoint) (err error) {
 
 		// overwrite the 3 reserved bytes on non-random packets
 		if overwriteReserved {
-			if len(data) > 3 && isWgMsgType(data[0]) {
+			if len(data) > 3 && isWgMsgInit(data[0]) {
 				// from: github.com/bepass-org/warp-plus/blob/19ac233cc6/wireguard/device/peer.go#L138
 				copy(data[1:4], s.reserved)
 				overwritten = true
@@ -429,9 +429,18 @@ func (s *StdNetBind) Send(buf [][]byte, peer conn.Endpoint) (err error) {
 
 // github.com/WireGuard/wireguard-go/blob/12269c2761/device/send.go#L456
 // github.com/WireGuard/wireguard-go/blob/12269c2761/device/noise-protocol.go#L56
-func isWgMsgType(x byte) bool {
+func isWgMsgInit(x byte) bool {
 	// 1: MsgInitiation, 2: MsgResponse, 3: MsgCookieReply, 4: MsgTransport
-	return x >= 1 && x <= 4
+	// blog.cloudflare.com/warp-technical-challenges/
+	// Handshakes have to be performed every two minutes to rotate keys making
+	// them insufficiently persistent. We could have forked the protocol to add
+	// any number of additional fields, but it is important to us to remain wire
+	// compatible with other WireGuard clients. Fortunately, WireGuard has a three
+	// byte block in its header which is not currently used by other clients.
+	// We decided to put our identifier in this region and still support messages
+	// from other WireGuard clients (albeit with less reliable routing than we can
+	// offer).
+	return x == device.MessageInitiationType
 }
 
 // flood c with random-sized, non-sense (unencrypted) packets.
