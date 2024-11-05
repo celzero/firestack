@@ -61,7 +61,7 @@ func RecoverFn(aux string, fn Finally) (didpanic bool) {
 
 // Recover must be called as a defered function, and must be the first
 // defer called at the start of a new goroutine.
-func Recover(code ExitCode, aux string) (didpanic bool) {
+func Recover(code ExitCode, aux any) (didpanic bool) {
 	recovered := recover()
 	didpanic = recovered != nil
 	if !didpanic { // nothing to recover from
