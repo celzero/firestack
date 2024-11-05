@@ -183,8 +183,14 @@ func dialtls[D rdials](d D, cfg *tls.Config, network, local, remote string, how 
 	if eerr := new(tls.ECHRejectionError); errors.As(err, &eerr) {
 		clos(tlsconn)
 
+		manual := false
 		ech := eerr.RetryConfigList
-		log.I("rdial: tls: ech rejected; new? %d, err: %v", len(ech), eerr)
+		if len(ech) <= 0 {
+			ech, _ = ECH(cfg.ServerName)
+			manual = true
+		}
+		log.I("rdial: tls: ech rejected; new? %d / manual? %t, err: %v",
+			len(ech), manual, eerr)
 		if len(ech) > 0 { // retry with new ech
 			cfg.EncryptedClientHelloConfigList = ech
 			c, err = unPtr(commondial2(d, network, local, remote, how))

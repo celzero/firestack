@@ -116,8 +116,14 @@ func (t *pipws) wsconn(rurl, msg string) (c net.Conn, res *http.Response, err er
 
 		if eerr := new(tls.ECHRejectionError); errors.As(err, &eerr) {
 			closeWs(ws, "ech rejected")
+			manual := false
 			ech := eerr.RetryConfigList
-			log.I("pipws: ech rejected; new? %d, err: %v", len(ech), eerr)
+			if len(ech) <= 0 {
+				ech = t.ech()
+				manual = true
+			}
+			log.I("pipws: ech rejected; new? %d / manual? %t, err: %v",
+				len(ech), manual, eerr)
 			if len(ech) > 0 { // retry with new ech
 				t.echcfg.EncryptedClientHelloConfigList = ech
 				// TODO: is this necessary given echcfg is already set?

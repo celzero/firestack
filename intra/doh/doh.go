@@ -37,6 +37,7 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	x "github.com/celzero/firestack/intra/backend"
@@ -85,6 +86,7 @@ type transport struct {
 	client3        http.Client                // only for use with ech
 	tlsconfig      *tls.Config                // preset tlsconfig for the endpoint
 	echconfig      *tls.Config                // preset echconfig for the endpoint
+	echrejects     atomic.Uint32              // number of running ech rejections
 	pxcmu          sync.RWMutex               // protects pxclients
 	pxclients      map[string]*proxytransport // todo: use weak pointers for Proxy
 	lastpurge      *core.Volatile[time.Time]  // last scrubbed time for stale pxclients
@@ -253,6 +255,7 @@ type proxytransport struct {
 }
 
 func (t *transport) ech() []byte {
+	// todo: host http.Client connects to, may change on redirects
 	name := t.hostname
 	if t.typ == dnsx.ODOH {
 		name = t.odohproxyname
@@ -412,13 +415,7 @@ func (t *transport) fetch(pid string, req *http.Request) (*http.Response, error)
 		}
 	}
 
-	c3, c, err := t.prepare(pid) // c3 may be nil
-	if err != nil {
-		log.E("doh: fetch: prepare (%s) for %s, err: %v", pid, ustr, err)
-		return nil, uerr(err)
-	}
-
-	r, err := t.multifetch(req, c3, c)
+	r, err := t.multifetch(req, pid)
 	if err != nil {
 		log.W("doh: fetch: %s, mayech? %t, err: %v",
 			ustr, t.echconfig != nil, err)
@@ -427,9 +424,14 @@ func (t *transport) fetch(pid string, req *http.Request) (*http.Response, error)
 	return r, nil
 }
 
-func (t *transport) multifetch(req *http.Request, clients ...*http.Client) (res *http.Response, err error) {
-	var cont, sent bool
+func (t *transport) multifetch(req *http.Request, pid string) (res *http.Response, err error) {
+	c3, c0, px, err := t.prepare(pid) // c3 may be nil
+	if err != nil {
+		return nil, err
+	}
+	clients := []*http.Client{c3, c0}
 
+	var cont, sent bool
 	for _, c := range clients {
 		if c == nil { // c may be nil (ex: if no ech)
 			continue
@@ -446,11 +448,21 @@ func (t *transport) multifetch(req *http.Request, clients ...*http.Client) (res 
 				cont = true
 				ech := eerr.RetryConfigList
 				useech := t.echconfig != nil
+				if len(ech) <= 0 && useech {
+					ech = t.ech() // todo: use t.echconfig.ServerName?
+					log.I("doh: fetch #%d: err %v; grab new ech? %t",
+						eerr, len(ech) > 0)
+				}
 				if len(ech) > 0 && useech {
 					t.echconfig.EncryptedClientHelloConfigList = ech
+					// update the local dialer
 					t.client3.Transport = h2(t.dial, t.echconfig)
+					// and the proxy dialer
+					c.Transport = h2(px.Dialer().Dial, t.echconfig)
 				}
-				log.I("doh: fetch #%d: ech rejected; retry? %t ech? %t", i, len(ech) > 0, useech)
+				n := t.echrejects.Add(1)
+				log.I("doh: fetch #%d: ech rejected; retry? %t, ech? %t; total rejects: %d",
+					i, len(ech) > 0, useech, n)
 			} else if uerr, ok := err.(*url.Error); ok {
 				eof := uerr.Err == io.EOF
 				if eof && res != nil {
@@ -469,7 +481,7 @@ func (t *transport) multifetch(req *http.Request, clients ...*http.Client) (res 
 	return nil, err
 }
 
-func (t *transport) prepare(pid string) (c3, c *http.Client, err error) {
+func (t *transport) prepare(pid string) (c3, c *http.Client, px ipn.Proxy, err error) {
 	userelay := t.relay != nil
 	hasproxy := t.proxies != nil
 	useproxy := len(pid) != 0 // if pid == dnsx.NetNoProxy, then px is ipn.Base
@@ -480,7 +492,6 @@ func (t *transport) prepare(pid string) (c3, c *http.Client, err error) {
 		c3 = &t.client3
 	}
 	if userelay || useproxy {
-		var px ipn.Proxy
 		if userelay { // relay takes precedence
 			px = t.relay
 		} else if hasproxy { // use proxy, if specified
@@ -489,7 +500,7 @@ func (t *transport) prepare(pid string) (c3, c *http.Client, err error) {
 			}
 		}
 		if px == nil {
-			return nil, nil, dnsx.ErrNoProxyProvider
+			return nil, nil, nil, dnsx.ErrNoProxyProvider
 		}
 		c3, c = t.httpClientFor(px) // c3 may be nil
 
