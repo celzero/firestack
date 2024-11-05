@@ -40,6 +40,7 @@ import (
 
 const maxbindtries = 50
 const wgtimeout = 60 * time.Second
+const useBepassTrick = false // don't seem to work as of now
 
 // github.com/WireGuard/wireguard-go/blob/19ac233cc6/wireguard/device/send.go#L96
 var (
@@ -502,12 +503,12 @@ func (s *StdNetBind) flood(c *net.UDPConn, dst netip.AddrPort, why floodkind) (i
 }
 
 func (s *StdNetBind) overwriteReserved() bool {
-	return len(s.reserved) == 3 && (s.reserved[0] != 0 ||
-		s.reserved[1] != 0 || s.reserved[2] != 0)
+	return isReservedOverwitten(s.reserved)
 }
 
 func isReservedOverwitten(b []byte) bool {
-	return len(b) > 3 && (b[1] != 0 || b[2] != 0 || b[3] != 0)
+	return useBepassTrick && len(b) > 3 &&
+		(b[1] != 0 || b[2] != 0 || b[3] != 0)
 }
 
 func (s *StdNetBind) BatchSize() int {
