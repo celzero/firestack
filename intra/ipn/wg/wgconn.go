@@ -40,7 +40,7 @@ import (
 
 const maxbindtries = 50
 const wgtimeout = 60 * time.Second
-const useBepassTrick = false // don't seem to work as of now
+const useWarpClientID = true
 
 // github.com/WireGuard/wireguard-go/blob/19ac233cc6/wireguard/device/send.go#L96
 var (
@@ -122,7 +122,7 @@ func NewEndpoint(id string, d connector, ep *multihost.MH, f rwlistener, rb [3]b
 		connect:  d,
 		mh:       ep,
 		listener: f,
-		reserved: rb[:3],
+		reserved: rb[:3], // github.com/bepass-org/warp-plus/blob/19ac233cc6/wiresocks/config.go#L184
 		floodBa:  core.NewKeyedBarrier[int, netip.AddrPort](minFloodInterval),
 	}
 }
@@ -507,7 +507,7 @@ func (s *StdNetBind) overwriteReserved() bool {
 }
 
 func isReservedOverwitten(b []byte) bool {
-	return useBepassTrick && len(b) > 3 &&
+	return useWarpClientID && len(b) > 3 &&
 		(b[1] != 0 || b[2] != 0 || b[3] != 0)
 }
 
