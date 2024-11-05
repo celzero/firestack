@@ -255,7 +255,7 @@ type proxytransport struct {
 }
 
 func (t *transport) ech() []byte {
-	// todo: host http.Client connects to, may change on redirects
+	// host http.Client connects to may change on redirects
 	name := t.hostname
 	if t.typ == dnsx.ODOH {
 		name = t.odohproxyname
@@ -531,6 +531,10 @@ func (t *transport) do(pid string, req *http.Request) (ans []byte, blocklists, r
 		usedproxy := !dnsx.IsLocalProxy(pid) // pid == dnsx.NetNoProxy => ipn.Base
 		hasserveraddr := server != nil && !usedrelay && !usedproxy
 
+		if hostname != t.hostname {
+			log.I("doh: redirected %s => %s", t.hostname, hostname)
+			t.hostname = hostname
+		}
 		if hasserveraddr {
 			if qerr == nil {
 				// record a working IP address for this server
@@ -542,11 +546,8 @@ func (t *transport) do(pid string, req *http.Request) (ans []byte, blocklists, r
 			}
 		}
 		if qerr != nil {
-			log.E("doh: query failed: %v", qerr)
-			if conn != nil {
-				log.I("doh: close failing doh conn to %s", hostname)
-				core.CloseConn(conn)
-			}
+			log.I("doh: close failing doh conn %s; why? %v", hostname, qerr)
+			core.CloseConn(conn)
 		}
 	}()
 
