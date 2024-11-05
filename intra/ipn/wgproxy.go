@@ -523,9 +523,12 @@ func NewWgProxy(id string, ctl protect.Controller, rev netstack.GConnHandler, cf
 	// github.com/bepass-org/warp-plus/blob/19ac233cc6/wiresocks/config.go#L184
 	var reservedBytes [3]byte
 	if isRPN(id) {
-		reservedBytes[0] = uint8(rand.UintN(0x100))
-		reservedBytes[1] = uint8(rand.UintN(0x100))
-		reservedBytes[2] = uint8(rand.UintN(0x100))
+		// reservedBytes[0] = uint8(rand.UintN(0x100))
+		// reservedBytes[1] = uint8(rand.UintN(0x100))
+		// reservedBytes[2] = uint8(rand.UintN(0x100))
+		reservedBytes[0] = uint8(rand.UintN(0x1))
+		reservedBytes[1] = uint8(rand.UintN(0x2))
+		reservedBytes[2] = uint8(rand.UintN(0x3))
 	}
 
 	var wgep wgconn

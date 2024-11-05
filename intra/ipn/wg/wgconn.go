@@ -440,6 +440,8 @@ func isWgMsgInit(x byte) bool {
 	// We decided to put our identifier in this region and still support messages
 	// from other WireGuard clients (albeit with less reliable routing than we can
 	// offer).
+	// Though the open source Cloudflare WARP boring-tun impl does not do so:
+	// github.com/cloudflare/boringtun/blob/64a2fc7c63/boringtun/src/noise/handshake.rs#L734
 	return x == device.MessageInitiationType
 }
 
