@@ -323,7 +323,7 @@ func (s *StdNetBind) makeReceiveFn(uc *net.UDPConn) conn.ReceiveFunc {
 		if err == nil {
 			recvOverwritten = isReservedOverwitten(b)
 			// github.com/bepass-org/warp-plus/blob/19ac233cc6/wireguard/device/receive.go#L138
-			if n > 3 && isWgMsgInit(b[0]) && recvOverwritten {
+			if n > 3 && isWgMsgType(b[0]) && recvOverwritten {
 				copy(b[1:4], reservedZeros)
 			}
 			numMsgs++
@@ -397,7 +397,7 @@ func (s *StdNetBind) Send(buf [][]byte, peer conn.Endpoint) (err error) {
 
 		// overwrite the 3 reserved bytes on non-random packets
 		if overwriteReserved {
-			if len(data) > 3 && isWgMsgInit(data[0]) {
+			if len(data) > 3 && isWgMsgType(data[0]) {
 				// from: github.com/bepass-org/warp-plus/blob/19ac233cc6/wireguard/device/peer.go#L138
 				copy(data[1:4], s.reserved)
 				overwritten = true
@@ -429,7 +429,7 @@ func (s *StdNetBind) Send(buf [][]byte, peer conn.Endpoint) (err error) {
 
 // github.com/WireGuard/wireguard-go/blob/12269c2761/device/send.go#L456
 // github.com/WireGuard/wireguard-go/blob/12269c2761/device/noise-protocol.go#L56
-func isWgMsgInit(x byte) bool {
+func isWgMsgType(x byte) bool {
 	// 1: MsgInitiation, 2: MsgResponse, 3: MsgCookieReply, 4: MsgTransport
 	// blog.cloudflare.com/warp-technical-challenges/
 	// Handshakes have to be performed every two minutes to rotate keys making
@@ -442,7 +442,7 @@ func isWgMsgInit(x byte) bool {
 	// offer).
 	// Though the open source Cloudflare WARP boring-tun impl does not do so:
 	// github.com/cloudflare/boringtun/blob/64a2fc7c63/boringtun/src/noise/handshake.rs#L734
-	return x == device.MessageInitiationType
+	return x >= device.MessageInitiationType && x <= device.MessageTransportType
 }
 
 // flood c with random-sized, non-sense (unencrypted) packets.
