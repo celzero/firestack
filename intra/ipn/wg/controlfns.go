@@ -14,11 +14,11 @@
 package wg
 
 import (
-	"errors"
 	"fmt"
 	"runtime"
 	"syscall"
 
+	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/protect"
 	"golang.org/x/sys/unix"
 )
@@ -81,7 +81,7 @@ func init() {
 			default:
 				errs = fmt.Errorf("unhandled network: %s: %w", network, unix.EINVAL)
 			}
-			loge(errors.Join(errc, errs), "wg: control: done; IP_PKTINFO/IPV6_RECVPKTINFO")
+			loge(core.OneErr(errs, errc))("wg: control: done; IP_PKTINFO/IPV6_RECVPKTINFO")
 			return errs // discard errc
 		},
 
