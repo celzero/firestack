@@ -499,7 +499,7 @@ func (t *transport) prepare(pid string) (c3, c *http.Client, px ipn.Proxy, err e
 			px, err = t.proxies.ProxyFor(pid)
 		}
 		if err != nil || px == nil {
-			return c3, c, nil, core.OneError(err, dnsx.ErrNoProxyProvider)
+			return c3, c, nil, core.OneErr(err, dnsx.ErrNoProxyProvider)
 		}
 		c3, c = t.httpClientFor(px) // c3 may be nil
 
