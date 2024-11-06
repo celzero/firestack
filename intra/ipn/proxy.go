@@ -43,14 +43,13 @@ func (pxr *proxifier) addProxy(id, txt string) (p Proxy, err error) {
 	if strings.HasPrefix(id, WG) || strings.Compare(id, RpnWg) == 0 {
 		if p, _ = pxr.ProxyFor(id); p != nil {
 			if wgp, ok := p.(WgProxy); ok && wgp.update(id, txt) {
-				log.I("proxy: updating wg %s/%s", id, p.GetAddr())
+				opts, err0 := wgIfConfigOf(id, &txt) // removes wg ifconfig from txt
 
-				ifaddrs, _, _, dnsh, _, mtu, _, err0 := wgIfConfigOf(id, &txt) // removes wg ifconfig from txt
+				logev(err0)("proxy: updating wg(%s); ifaddrs(%v), dns(%v), mtu(%d); err? %v",
+					id, opts.ifaddrs, opts.dns, opts.mtu, err)
+
 				if err0 != nil {
-					log.W("proxy: err0 updating wg(%s); %v", id, err0)
 					return nil, err0
-				} else {
-					log.V("proxy: updating wg(%s); ifaddrs(%v), dns(%v), mtu(%d)", id, ifaddrs, dnsh, mtu)
 				}
 
 				err1 := wgp.IpcSet(txt)
@@ -67,6 +66,8 @@ func (pxr *proxifier) addProxy(id, txt string) (p Proxy, err error) {
 					log.W("proxy: err2 updating wg(%s); %v", id, err2)
 					return nil, err2
 				}
+
+				log.I("proxy: updated wg %s/%s", id, p.GetAddr())
 				return
 			} // else: create anew
 		}
