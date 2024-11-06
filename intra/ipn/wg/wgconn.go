@@ -94,7 +94,7 @@ func (k floodkind) String() string {
 	}
 }
 
-type rwlistener func(op string, err error)
+type rwobserver func(op string, err error)
 type connector func(network, to string) (net.PacketConn, error)
 
 type StdNetBind struct {
@@ -102,8 +102,9 @@ type StdNetBind struct {
 	connect connector
 	mh      *multihost.MH
 
-	reserved []byte // overwrite the 3 wg reserved bytes
-	floodBa  *core.Barrier[int, netip.AddrPort]
+	reserved         []byte // overwrite the 3 wg reserved bytes
+	overwriteReserve bool
+	floodBa          *core.Barrier[int, netip.AddrPort]
 
 	mu         sync.Mutex // protects following fields
 	ipv4       *net.UDPConn
@@ -111,20 +112,23 @@ type StdNetBind struct {
 	blackhole4 bool
 	blackhole6 bool
 
-	listener     rwlistener
-	lastSendAddr netip.AddrPort // may be invalid
+	observer rwobserver
+	sendAddr *core.Volatile[netip.AddrPort] // may be invalid
 }
 
 // TODO: get d, ep, f, rb through an Opts bag?
-func NewEndpoint(id string, d connector, ep *multihost.MH, f rwlistener, rb [3]byte) *StdNetBind {
-	return &StdNetBind{
+func NewEndpoint(id string, d connector, ep *multihost.MH, f rwobserver, rb [3]byte) *StdNetBind {
+	s := &StdNetBind{
 		id:       id,
 		connect:  d,
 		mh:       ep,
-		listener: f,
+		observer: f,
 		reserved: rb[:3], // github.com/bepass-org/warp-plus/blob/19ac233cc6/wiresocks/config.go#L184
 		floodBa:  core.NewKeyedBarrier[int, netip.AddrPort](minFloodInterval),
+		sendAddr: core.NewZeroVolatile[netip.AddrPort](),
 	}
+	s.overwriteReserve = isReservedOverwitten(s.reserved)
+	return s
 }
 
 type StdNetEndpoint netip.AddrPort
@@ -187,7 +191,7 @@ func (e StdNetEndpoint) SrcToString() string {
 }
 
 func (s *StdNetBind) RemoteAddr() netip.AddrPort {
-	return s.lastSendAddr
+	return s.sendAddr.Load()
 }
 
 func (s *StdNetBind) listenNet(network string, port int) (*net.UDPConn, int, error) {
@@ -306,12 +310,10 @@ func (bind *StdNetBind) Close() error {
 }
 
 func (s *StdNetBind) makeReceiveFn(uc *net.UDPConn) conn.ReceiveFunc {
-	sendOverwritten := s.overwriteReserved() // note for debug
-
 	// github.com/WireGuard/wireguard-go/blob/469159ecf/device/device.go#L531
 	return func(bufs [][]byte, sizes []int, eps []conn.Endpoint) (n int, err error) {
 		defer func() {
-			s.listener("r", err)
+			s.observer("r", err)
 		}()
 
 		recvOverwritten := false
@@ -336,7 +338,7 @@ func (s *StdNetBind) makeReceiveFn(uc *net.UDPConn) conn.ReceiveFunc {
 		}
 
 		s := fmt.Sprintf("wg: bind: %s recvFrom(%v): %d / ov? %t<=%t / err? %v",
-			s.id, addr, n, sendOverwritten, recvOverwritten, err)
+			s.id, addr, n, s.overwriteReserve, recvOverwritten, err)
 		if err == nil || timedout(err) {
 			log.V(s)
 		} else {
@@ -356,7 +358,7 @@ func timedout(err error) bool {
 
 func (s *StdNetBind) Send(buf [][]byte, peer conn.Endpoint) (err error) {
 	defer func() {
-		s.listener("w", err)
+		s.observer("w", err)
 	}()
 
 	where, ok := peer.(StdNetEndpoint)
@@ -378,7 +380,6 @@ func (s *StdNetBind) Send(buf [][]byte, peer conn.Endpoint) (err error) {
 	}
 	s.mu.Unlock()
 
-	var overwriteReserved = s.overwriteReserved()
 	var experimentalWg = settings.ExperimentalWireGuard.Load()
 	var flooded, overwritten bool
 	var nn int
@@ -397,14 +398,14 @@ func (s *StdNetBind) Send(buf [][]byte, peer conn.Endpoint) (err error) {
 		}
 
 		// overwrite the 3 reserved bytes on non-random packets
-		if overwriteReserved {
+		if s.overwriteReserve {
 			if len(data) > 3 && isWgMsgType(data[0]) {
 				// from: github.com/bepass-org/warp-plus/blob/19ac233cc6/wireguard/device/peer.go#L138
 				copy(data[1:4], s.reserved)
 				overwritten = true
 			}
 		}
-		if !flooded && !overwritten && (experimentalWg || overwriteReserved) {
+		if !flooded && !overwritten && (experimentalWg || s.overwriteReserve) {
 			if len(data) == device.MessageInitiationSize {
 				go s.flood(uc, dst, fkHandshake) // probably a handshake
 				flooded = true
@@ -421,7 +422,7 @@ func (s *StdNetBind) Send(buf [][]byte, peer conn.Endpoint) (err error) {
 		nn += n
 	}
 
-	s.lastSendAddr = dst
+	s.sendAddr.Store(dst)
 
 	loge(err)("wg: bind: send: %s addr(%v) parcels(%d) tx(%d) (exp? %t: flooded? %t / any-overwritten? %t); err? %v",
 		s.id, dst, len(buf), nn, experimentalWg, flooded, overwritten, errs)
@@ -500,10 +501,6 @@ func (s *StdNetBind) flood(c *net.UDPConn, dst netip.AddrPort, why floodkind) (i
 			s.id, why, dst, expectedsent, n)
 		return n, nil
 	})
-}
-
-func (s *StdNetBind) overwriteReserved() bool {
-	return isReservedOverwitten(s.reserved)
 }
 
 func isReservedOverwitten(b []byte) bool {

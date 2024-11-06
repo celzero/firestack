@@ -69,17 +69,17 @@ func isAlgErr(err error) bool {
 
 type Gateway interface {
 	// given an alg or real ip, retrieves assoc real ips as csv, if any
-	X(maybeAlg netip.Addr, tids ...string) (realipcsv string, undidAlg bool)
+	X(maybeAlg netip.Addr, tids ...string) (realips []netip.Addr, undidAlg bool)
 	// given an alg or real ip, retrieves assoc dns names as csv, if any
 	PTR(maybeAlg netip.Addr, force bool) (domaincsv string, didForce bool)
 	// given domain, retrieve assoc alg ips or real ips as csv, if any
-	RESOLV(domain string) (ipcsv string)
+	RESOLV(domain string) []netip.Addr
 	// given an alg or real ip, retrieve assoc blocklists as csv, if any
 	RDNSBL(maybeAlg netip.Addr) (blocklistcsv string)
 	// translate overwrites ip answers to alg ip & fixed ip answers
 	translate(yes bool)
 	// Query using t1 as primary transport and t2 as secondary and preset as pre-determined ip answers
-	q(t1 Transport, t2 Transport, preset []netip.Addr, network string, q *dns.Msg, s *x.DNSSummary) (*dns.Msg, error)
+	q(t1, t2 Transport, preset []netip.Addr, network string, q *dns.Msg, s *x.DNSSummary) (*dns.Msg, error)
 	// clear obj state
 	stop()
 }
@@ -924,14 +924,13 @@ func gen6Locked(k string, hop int) netip.Addr {
 	return netip.AddrFrom16(b16)
 }
 
-func (t *dnsgateway) X(maybeAlg netip.Addr, tids ...string) (ips string, undidAlg bool) {
+func (t *dnsgateway) X(maybeAlg netip.Addr, tids ...string) (ips []netip.Addr, undidAlg bool) {
 	t.RLock()
 	defer t.RUnlock()
 
 	// stale IPs are okay iff !mod; as then maybeAlg itself is a realip
 	usestale := !t.mod.Load()
-	rip, undidAlg := t.xLocked(maybeAlg, usestale, tids...)
-	return netip2csv(rip), undidAlg // rip may be 0 len
+	return t.xLocked(maybeAlg, usestale, tids...) // ips may be 0 len
 }
 
 func (t *dnsgateway) PTR(maybeAlg netip.Addr, force bool) (domains string, didForce bool) {
@@ -947,7 +946,7 @@ func (t *dnsgateway) PTR(maybeAlg netip.Addr, force bool) (domains string, didFo
 	return domains, useptr
 }
 
-func (t *dnsgateway) RESOLV(domain string) (ipcsv string) {
+func (t *dnsgateway) RESOLV(domain string) []netip.Addr {
 	t.RLock()
 	defer t.RUnlock()
 
@@ -956,7 +955,7 @@ func (t *dnsgateway) RESOLV(domain string) (ipcsv string) {
 		typ = typreal
 	}
 	ip4s, ip6s, _ := t.resolvLocked(domain, typ, notransport)
-	return netip2csv(append(ip4s, ip6s...))
+	return append(ip4s, ip6s...)
 }
 
 func (t *dnsgateway) RDNSBL(algip netip.Addr) (blocklists string) {

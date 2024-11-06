@@ -39,12 +39,12 @@ import (
 // methods for sending and receiving multiple datagrams per-syscall. See the
 // proposal in https://github.com/golang/go/issues/45886#issuecomment-1218301564.
 type StdNetBind2 struct {
-	mu           sync.Mutex // protects following fields
-	id           string
-	ctl          protect.Controller
-	listener     rwlistener
-	lastSendAddr netip.AddrPort // may be invalid
-	mh           *multihost.MH
+	mu       sync.Mutex // protects following fields
+	id       string
+	ctl      protect.Controller
+	observer rwobserver
+	sendAddr *core.Volatile[netip.AddrPort] // may be invalid
+	mh       *multihost.MH
 
 	ipv4 *net.UDPConn
 	ipv6 *net.UDPConn
@@ -121,11 +121,11 @@ func (e ErrUDPGSODisabled) Unwrap() error {
 	return e.RetryErr
 }
 
-func NewEndpoint2(id string, ctl protect.Controller, ep *multihost.MH, f rwlistener) *StdNetBind2 {
+func NewEndpoint2(id string, ctl protect.Controller, ep *multihost.MH, f rwobserver) *StdNetBind2 {
 	return &StdNetBind2{
 		id:       id,
 		ctl:      ctl,
-		listener: f,
+		observer: f,
 		mh:       ep,
 
 		udpAddrPool: sync.Pool{
@@ -135,6 +135,8 @@ func NewEndpoint2(id string, ctl protect.Controller, ep *multihost.MH, f rwliste
 				}
 			},
 		},
+
+		sendAddr: core.NewZeroVolatile[netip.AddrPort](),
 
 		msgsPool: sync.Pool{
 			New: func() any {
@@ -201,7 +203,7 @@ func (e *StdNetEndpoint2) DstToString() string {
 }
 
 func (s *StdNetBind2) RemoteAddr() netip.AddrPort {
-	return s.lastSendAddr
+	return s.sendAddr.Load()
 }
 
 func (s *StdNetBind2) listenNet(network string, port int) (*net.UDPConn, int, error) {
@@ -320,7 +322,7 @@ func (s *StdNetBind2) receiveIP(
 	eps []conn.Endpoint,
 ) (n int, err error) {
 	defer func() {
-		s.listener("r", err)
+		s.observer("r", err)
 	}()
 
 	if conn == nil && br == nil {
@@ -493,9 +495,9 @@ func (s *StdNetBind2) Send(bufs [][]byte, peer conn.Endpoint) (err error) {
 	defer func() {
 		target := &ErrUDPGSODisabled{}
 		if errors.As(err, target) {
-			s.listener("w", target.Unwrap())
+			s.observer("w", target.Unwrap())
 		} else {
-			s.listener("w", err)
+			s.observer("w", err)
 		}
 	}()
 
@@ -544,7 +546,7 @@ func (s *StdNetBind2) Send(bufs [][]byte, peer conn.Endpoint) (err error) {
 	ua := s.getUDPAddr() // from udpAddrPool
 	defer s.putUDPAddr(ua)
 	*ua = *net.UDPAddrFromAddrPort(dst)
-	s.lastSendAddr = dst
+	s.sendAddr.Store(dst)
 
 	var retried bool
 retry:

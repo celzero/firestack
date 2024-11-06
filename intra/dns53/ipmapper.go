@@ -219,35 +219,17 @@ func (m *ipmapper) undoAlg(ip64 []netip.Addr) []netip.Addr {
 		log.D("ipmapper: undoAlg: no-op; no gateway")
 		return ip64
 	}
-	ips := make([]netip.Addr, 0, len(ip64))
-	realips := make([]string, 0, len(ip64))
+	realips := make([]netip.Addr, 0, len(ip64))
 	for _, addr := range ip64 {
-		var csv string
-		if addr.IsValid() {
-			if csv, _ = gw.X(addr); len(csv) > 0 {
-				// may contain duplicates due to how alg maps domains and ips
-				realips = append(realips, strings.Split(csv, ",")...)
-				continue // skip log.W below
-			}
+		var xips []netip.Addr
+		if xips, _ = gw.X(addr); len(xips) > 0 {
+			// may contain duplicates due to how alg maps domains and ips
+			realips = append(realips, xips...)
+			continue // skip log.W below
 		}
-		log.W("ipmapper: undoAlg: no algip => realip? (%s => %s)", addr, csv)
+		log.W("ipmapper: undoAlg: no algip => realip? (%s => %v)", addr, xips)
 	}
-	dups := 0
-	seen := make(map[string]bool) // track duplicates
-	for _, x := range realips {
-		if y, ok := seen[x]; y && ok {
-			dups++
-			continue
-		}
-		seen[x] = true
-		if ip, err := str2ip(x); err == nil {
-			ips = append(ips, ip)
-		} else {
-			log.W("ipmapper: undoAlg: str2ip %s err: %v", x, err)
-		}
-	}
-	log.D("ipmapper: undoAlg(%d): %v => %v", dups, ip64, ips)
-	return ips
+	return removeDups(realips)
 }
 
 func key(name, typ string, oth ...string) string {
@@ -286,4 +268,21 @@ func dnsmsg(host string, qtype uint16) ([]byte, error) {
 
 func firstEmpty(arr []string) bool {
 	return len(arr) <= 0 || len(arr[0]) <= 0
+}
+
+// go.dev/play/p/WJXpAa-nmep
+func removeDups[T comparable](a ...[]T) (out []T) {
+	acc := make(map[T]struct{}, 0)
+	out = make([]T, 0)
+	for _, x := range a {
+		for _, xx := range x {
+			if _, ok := acc[xx]; ok {
+				continue
+			}
+			// maintain incoming order
+			out = append(out, xx)
+			acc[xx] = struct{}{}
+		}
+	}
+	return
 }

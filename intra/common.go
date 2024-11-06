@@ -482,13 +482,14 @@ func (h *baseHandler) undoAlg(algip netip.Addr, tids ...string) (undidAlg bool, 
 		if !didForce && len(domains) <= 0 {
 			probableDomains, _ = gw.PTR(algip, forcePTR)
 		}
+		var ips []netip.Addr
 		// prevent scenarios where the tunnel only has v4 (or v6) routes and
 		// all the routing decisions by listener.Flow() are made based on those routes
 		// but we end up dailing into a v6 (or v4) address (which was unaccounted for).
 		// Dialing into v6 (or v4) address may succeed in such scenarios thereby
 		// resulting in a perceived "leak".
-		realips, undidAlg = gw.X(algip, tids...)
-		realips = filterFamilyForDialing(realips)
+		ips, undidAlg = gw.X(algip, tids...)
+		realips = filterFamilyForDialing(ips)
 		blocklists = gw.RDNSBL(algip)
 	} else {
 		log.W("alg: undoAlg: no gw(%t) or dst(%v)", gw == nil, algip)
@@ -498,32 +499,29 @@ func (h *baseHandler) undoAlg(algip netip.Addr, tids ...string) (undidAlg bool, 
 
 // filterFamilyForDialing filters out invalid IPs and IPs that are not
 // of the family that the dialer is configured to use.
-func filterFamilyForDialing(ipcsv string) string {
-	if len(ipcsv) <= 0 {
-		return ipcsv
+func filterFamilyForDialing(ips []netip.Addr) string {
+	if len(ips) <= 0 {
+		return ""
 	}
 	// assume ipv4 is available on ipv6-only network by the way of
 	// any of the 4to6 mechanisms like 464Xlat, DNS64/NAT64, Teredo etc.
 	fallback := false
-	ips := strings.Split(ipcsv, ",")
 	use4 := dialers.Use4()
 	use6 := dialers.Use6()
-	var filtered, unfiltered, invalids []string
-	for _, v := range ips {
-		if len(v) <= 0 {
+	invalids := 0
+	var filtered, unfiltered []string
+	for _, ip := range ips {
+		if !ip.IsValid() {
+			invalids++
 			continue
 		}
-		ip, err := netip.ParseAddr(v)
-		if err == nil && ip.IsValid() {
-			// always include unspecified IPs as it is used by the client
-			// to make block/no-block decisions
-			if ip.IsUnspecified() || use4 && ip.Is4() || use6 && ip.Is6() {
-				filtered = append(filtered, v)
-			} else {
-				unfiltered = append(unfiltered, v)
-			}
-		} else { // else: discard ip
-			invalids = append(invalids, v)
+		ipstr := ip.String()
+		// always include unspecified IPs as it is used by the client
+		// to make block/no-block decisions
+		if ip.IsUnspecified() || use4 && ip.Is4() || use6 && ip.Is6() {
+			filtered = append(filtered, ipstr)
+		} else {
+			unfiltered = append(unfiltered, ipstr)
 		}
 	}
 	logger := log.VV
@@ -534,7 +532,8 @@ func filterFamilyForDialing(ipcsv string) string {
 		unfiltered = nil
 		logger = log.W
 	}
-	logger("intra: filterFamily(v4? %t, v6? %t, fallback? %t): filtered: %d/%d; in: %v, out: %v, ignored: %v + %v", use4, use6, fallback, len(filtered), len(ips), ips, filtered, unfiltered, invalids)
+	logger("intra: filterFamily(v4? %t, v6? %t, fallback? %t): filtered: %d/%d; in: %v, out: %v, ignored: %v + %d",
+		use4, use6, fallback, len(filtered), len(ips), ips, filtered, unfiltered, invalids)
 	return strings.Join(filtered, ",")
 }
 
