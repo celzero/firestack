@@ -299,7 +299,10 @@ func resolve(network string, data *dns.Msg, si *serverinfo, smm *x.DNSSummary) (
 
 	proto, pids := xdns.Net2ProxyID(network)
 	useudp := proto == dnsx.NetTypeUDP
-	pid := si.chooseProxy(pids)
+	pid := dnsx.NetNoProxy
+	if si != nil {
+		pid = si.chooseProxy(pids)
+	}
 
 	// ans, si may be nil
 	ans, anonrelayaddr, qerr = query(pid, data, si, useudp)
