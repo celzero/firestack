@@ -24,6 +24,6 @@ type Controller interface {
 }
 
 type Protector interface {
-	// Returns ip to bind given a network, n
-	UIP(n string) []byte
+	// Returns ip to bind given a local/remote ip:port
+	UIP(ipp string) []byte
 }

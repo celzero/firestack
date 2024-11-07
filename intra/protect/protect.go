@@ -89,10 +89,11 @@ func ifbind(who string, ctl Controller) func(string, string, syscall.RawConn) er
 // unused: Binds a socket to a local ip.
 func ipbind(p Protector) func(string, string, syscall.RawConn) error {
 	return func(network, addr string, c syscall.RawConn) (err error) {
-		src := p.UIP(network)
+		src := p.UIP(addr)
 		ipaddr, _ := netip.AddrFromSlice(src)
 		origaddr, perr := netip.ParseAddrPort(addr)
-		log.VV("control: ipbinder: %s(%s/%w), bindto(%s); err? %v", network, addr, origaddr, ipaddr, perr)
+		log.VV("control: ipbinder: %s(%s/%w), bindto(%s); err? %v",
+			network, addr, origaddr, ipaddr, perr)
 
 		if !maybeGlobalUnicast(addr, true) {
 			// todo: protect fd?
