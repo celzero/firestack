@@ -28,8 +28,8 @@ type DNSSummary struct {
 }
 
 type DNSOpts struct {
-	// pid is the proxy to use for this query.
-	PID string
+	// csv of proxy ids to use for this query.
+	PIDCSV string
 	// csv of ips to answer for this query; incl unspecified.
 	IPCSV string
 	// csv of transports ids to use for this query.

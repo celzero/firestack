@@ -34,7 +34,9 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptrace"
+	"net/netip"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -55,6 +57,8 @@ import (
 
 const dohmimetype = "application/dns-message"
 
+const DohPortU16 = uint16(443)
+
 const maxEOFTries = uint8(2)
 
 const purgethreshold = 1 * time.Minute
@@ -65,6 +69,7 @@ type odohtransport struct {
 	omu              sync.RWMutex // protects odohConfig
 	odohproxyurl     string       // proxy url
 	odohproxyname    string       // proxy hostname
+	odohproxyport    uint16       // proxy port
 	odohtargetname   string       // target hostname
 	odohtargetpath   string       // target path
 	odohConfig       *odoh.ObliviousDoHConfig
@@ -78,9 +83,10 @@ type transport struct {
 	ctx            context.Context
 	done           context.CancelFunc
 	id             string
-	typ            string                     // dnsx.DOH / dnsx.ODOH
-	url            string                     // endpoint URL
-	hostname       string                     // endpoint hostname
+	typ            string // dnsx.DOH / dnsx.ODOH
+	url            string // endpoint URL
+	hostname       string // endpoint hostname
+	port           uint16
 	skipTLSVerify  bool                       // skips tls verification
 	client         http.Client                // only for use with the endpoint
 	client3        http.Client                // only for use with ech
@@ -172,6 +178,10 @@ func newTransport(ctx context.Context, typ, id, rawurl, otargeturl string, addrs
 		}
 		t.url = parsedurl.String()
 		t.hostname = parsedurl.Hostname()
+		t.port = DohPortU16
+		if port, _ := strconv.ParseUint(parsedurl.Port(), 10, 16); port > 0 {
+			t.port = uint16(port)
+		}
 		// addrs are pre-determined ip addresses for url / hostname
 		renewed = dnsx.RegisterAddrs(t.id, t.hostname, addrs)
 	} else {
@@ -196,12 +206,17 @@ func newTransport(ctx context.Context, typ, id, rawurl, otargeturl string, addrs
 			}
 			t.odohproxyurl = proxyurl.String()
 			t.odohproxyname = proxyurl.Hostname()
+			t.odohproxyport = DohPortU16
+			if port, _ := strconv.ParseUint(proxyurl.Port(), 10, 16); port > 0 {
+				t.odohproxyport = uint16(port)
+			}
 		} else {
 			renewed = dnsx.RegisterAddrs(id, targeturl.Hostname(), addrs)
 		}
 
 		t.url = configurl.String()        // odohconfigdns
 		t.hostname = configurl.Hostname() // 1.1.1.1
+		t.port = DohPortU16               // TODO: grab port from configUrl
 		t.odohtargetname = targeturl.Hostname()
 		if len(targeturl.Path) > 1 { // should not be "" or "/"
 			t.odohtargetpath = targeturl.Path
@@ -682,13 +697,38 @@ func (t *transport) Type() string {
 	return t.typ
 }
 
+func (t *transport) chooseProxy(pids []string) string {
+	foundProxy := false
+	pid := dnsx.NetNoProxy
+	addr := t.hostname
+	port := t.port
+	if t.typ == dnsx.ODOH {
+		addr = t.odohproxyname
+		port = t.odohproxyport
+	}
+	for _, ip := range dialers.For(addr) {
+		ipp := netip.AddrPortFrom(ip, port)
+		if px, err := t.proxies.ProxyTo(ipp, core.UNKNOWN_UID_STR, pids); err == nil {
+			pid = px.ID()
+			foundProxy = true
+			log.VV("doh: (%s) proxy(%s) for %s@%s; among %v",
+				t.id, pid, addr, ipp, pids)
+		}
+	}
+	if !foundProxy {
+		log.W("doh: (%s) no proxy for %s; among %v", t.id, addr, pids)
+	}
+	return pid
+}
+
 func (t *transport) Query(network string, q *dns.Msg, smm *x.DNSSummary) (r *dns.Msg, err error) {
 	var blocklists, region string
 	var ech bool
 	var elapsed time.Duration
 	var qerr *dnsx.QueryError
 
-	_, pid := xdns.Net2ProxyID(network)
+	_, pids := xdns.Net2ProxyID(network)
+	pid := t.chooseProxy(pids)
 	if t.typ == dnsx.DOH {
 		r, blocklists, region, ech, elapsed, qerr = t.doDoh(pid, q)
 	} else {

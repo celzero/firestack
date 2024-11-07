@@ -10,7 +10,9 @@ import (
 	"crypto/tls"
 	"fmt"
 	"net"
+	"net/netip"
 	"net/url"
+	"strconv"
 	"time"
 
 	x "github.com/celzero/firestack/intra/backend"
@@ -32,7 +34,8 @@ type dot struct {
 	done          context.CancelFunc
 	id            string // id of the transport
 	url           string // full url
-	addr          string // ip:port or hostname:port
+	addrport      string // ip:port or hostname:port
+	port          uint16 // port number
 	host          string // hostname from the url
 	skipTLSVerify bool
 	status        int
@@ -83,6 +86,7 @@ func NewTLSTransport(ctx context.Context, id, rawurl string, addrs []string, px 
 	// add sni to tls config
 	tlscfg.ServerName = hostname
 	tlscfg.ClientSessionCache = core.TlsSessionCache()
+	addrport, port := url2addrport(rawurl)
 	t = &dot{
 		ctx:           ctx,
 		done:          done,
@@ -90,7 +94,8 @@ func NewTLSTransport(ctx context.Context, id, rawurl string, addrs []string, px 
 		url:           rawurl,
 		host:          hostname,
 		skipTLSVerify: skipTLSVerify,
-		addr:          url2addr(rawurl), // may or may not be ipaddr
+		addrport:      addrport, // may or may not be ipaddr
+		port:          port,
 		status:        x.Start,
 		proxies:       px,
 		rd:            protect.MakeNsRDial(id, ctx, ctl),
@@ -135,7 +140,7 @@ func (t *dot) ech() []byte {
 func (t *dot) echVerifyFn() func(tls.ConnectionState) error {
 	if t.skipTLSVerify {
 		return func(info tls.ConnectionState) error {
-			log.V("doh: skip ech verify for %s via %s", t.addr, info.ServerName)
+			log.V("doh: skip ech verify for %s via %s", t.addrport, info.ServerName)
 			return nil // never reject
 		}
 	}
@@ -164,7 +169,7 @@ func (t *dot) tlsdial(rd protect.RDialer) (_ *dns.Conn, who uintptr, err error) 
 
 	var usingech bool
 	var c net.Conn = nil // dot is always tcp
-	addr := t.addr       // t.addr may be ip or hostname
+	addr := t.addrport   // t.addr may be ip or hostname
 	if t.c3 != nil {     // may be nil if ech is not available
 		cfg := t.c3.TLSConfig // don't clone; may be modified by dialers.DialWithTls
 		c, err = dialers.DialWithTls(rd, cfg, "tcp", addr)
@@ -278,11 +283,30 @@ func (t *dot) sendRequest(pid string, q *dns.Msg) (ans *dns.Msg, elapsed time.Du
 	return
 }
 
+func (t *dot) chooseProxy(pids []string) string {
+	foundProxy := false
+	pid := dnsx.NetNoProxy
+	for _, ip := range dialers.For(t.addrport) {
+		ipp := netip.AddrPortFrom(ip, t.port)
+		if px, err := t.proxies.ProxyTo(ipp, core.UNKNOWN_UID_STR, pids); err == nil {
+			pid = px.ID()
+			foundProxy = true
+			log.VV("dot: (%s) proxy(%s) for %s@%s; among %v",
+				t.id, pid, t.addrport, ipp, pids)
+		}
+	}
+	if !foundProxy {
+		log.W("dot: (%s) no proxy for %s; among %v", t.id, t.addrport, pids)
+	}
+	return pid
+}
+
 func (t *dot) Query(network string, q *dns.Msg, smm *x.DNSSummary) (ans *dns.Msg, err error) {
 	var qerr *dnsx.QueryError
 	var elapsed time.Duration
 
-	_, pid := xdns.Net2ProxyID(network)
+	_, pids := xdns.Net2ProxyID(network)
+	pid := t.chooseProxy(pids)
 
 	ans, elapsed, qerr = t.doQuery(pid, q)
 
@@ -330,11 +354,11 @@ func (t *dot) P50() int64 {
 
 func (t *dot) GetAddr() (addr string) {
 	if t.c3 != nil {
-		addr = dnsx.EchPrefix + t.addr
+		addr = dnsx.EchPrefix + t.addrport
 	} else if t.skipTLSVerify {
-		addr = dnsx.NoPkiPrefix + t.addr
+		addr = dnsx.NoPkiPrefix + t.addrport
 	} else {
-		addr = t.addr
+		addr = t.addrport
 	}
 	return addr
 }
@@ -348,7 +372,7 @@ func (t *dot) Stop() error {
 	return nil
 }
 
-func url2addr(url string) string {
+func url2addrport(url string) (string, uint16) {
 	// url is of type "tls://host:port" or "tls:host:port" or "host:port" or "host"
 	if len(url) > 6 && url[:6] == "tls://" {
 		url = url[6:]
@@ -356,11 +380,17 @@ func url2addr(url string) string {
 	if len(url) > 4 && url[:4] == "tls:" {
 		url = url[4:]
 	}
+	port := DotPortU16
 	// add port 853 if not present
-	if _, _, err := net.SplitHostPort(url); err != nil {
+	if _, p, err := net.SplitHostPort(url); err != nil {
 		url = net.JoinHostPort(url, DotPort)
+	} else {
+		v, err := strconv.Atoi(p)
+		if err != nil && v > 0 {
+			port = uint16(v)
+		}
 	}
-	return url
+	return url, port
 }
 
 func logwif(cond bool) log.LogFn {

@@ -27,9 +27,10 @@ import (
 )
 
 const (
-	Port       = "53"       // default DNS port
-	PortU16    = uint16(53) // default DNS port as uint16
-	DotPort    = "853"      // default DNS over TLS port
+	Port       = "53"        // default DNS port
+	PortU16    = uint16(53)  // default DNS port as uint16
+	DotPort    = "853"       // default DNS over TLS port
+	DotPortU16 = uint16(853) // default DNS over TLS port as uint16
 	timeout    = 5 * time.Second
 	dottimeout = 8 * time.Second
 )
@@ -42,6 +43,7 @@ type transport struct {
 	done     context.CancelFunc
 	id       string
 	addrport string // hostname, ip:port, protect.UidSelf:53, protect.System:53
+	port     uint16
 	client   *dns.Client
 	dialer   *protect.RDial
 	pool     *core.MultConnPool[uintptr]
@@ -89,6 +91,7 @@ func newTransport(pctx context.Context, id string, do *settings.DNSOptions, px i
 		done:     done,
 		id:       id,
 		addrport: do.AddrPort(), // may be hostname:port or ip:port
+		port:     do.Port(),
 		status:   core.NewVolatile(dnsx.Start),
 		lastaddr: core.NewZeroVolatile[string](),
 		dialer:   protect.MakeNsRDial(id, ctx, ctl),
@@ -273,8 +276,27 @@ func (t *transport) send(network, pid string, q *dns.Msg) (ans *dns.Msg, elapsed
 	return
 }
 
+func (t *transport) chooseProxy(pids []string) string {
+	foundProxy := false
+	pid := dnsx.NetNoProxy
+	for _, ip := range dialers.For(t.addrport) {
+		ipp := netip.AddrPortFrom(ip, t.port)
+		if px, err := t.proxies.ProxyTo(ipp, core.UNKNOWN_UID_STR, pids); err == nil {
+			pid = px.ID()
+			foundProxy = true
+			log.VV("dns53: proxy: choose: (%s) proxy(%s) for %s@%s; among %v",
+				t.id, pid, t.addrport, ipp, pids)
+		}
+	}
+	if !foundProxy {
+		log.W("dns53: proxy: choose: (%s) no proxy for %s; among %v", t.id, t.addrport, pids)
+	}
+	return pid
+}
+
 func (t *transport) Query(network string, q *dns.Msg, smm *x.DNSSummary) (ans *dns.Msg, err error) {
-	proto, pid := xdns.Net2ProxyID(network)
+	proto, pids := xdns.Net2ProxyID(network)
+	pid := t.chooseProxy(pids)
 
 	ans, elapsed, qerr := t.send(proto, pid, q)
 	if qerr != nil { // only on send-request errors

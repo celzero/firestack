@@ -429,3 +429,27 @@ func (s *serverinfo) dialpx(pid, proto string, addr string) (net.Conn, error) {
 	}
 	return nil, err
 }
+
+func (s *serverinfo) chooseProxy(pids []string) string {
+	foundProxy := false
+	pid := dnsx.NetNoProxy
+	addrstr := s.TCPAddr.String()
+	if relay := s.RelayTCPAddrs.Load(); len(relay) > 0 {
+		if addr := chooseAny(relay); addr != nil {
+			addrstr = addr.String()
+		}
+	}
+	if ipp, err := netip.ParseAddrPort(addrstr); err == nil {
+		if px, err := s.proxies.ProxyTo(ipp, core.UNKNOWN_UID_STR, pids); err == nil {
+			pid = px.ID()
+			foundProxy = true
+			log.VV("dnscrypt: proxy: choose: (%s) proxy(%s) for %s@%s; among %v",
+				s.ID(), pid, addrstr, ipp, pids)
+		}
+	}
+	if !foundProxy {
+		log.W("dnscrypt: proxy: choose: (%s) no proxy for %s; among %v",
+			s.ID(), addrstr, pids)
+	}
+	return pid
+}

@@ -94,7 +94,7 @@ var (
 // Net2ProxyID splits network string into proto and pid;
 // proto is the network protocol and pid is the proxy ID.
 // May return empty strings.
-func Net2ProxyID(network string) (proto, pid string) {
+func Net2ProxyID(network string) (proto string, pids []string) {
 	x := strings.Split(network, ":")
 	if len(x) <= 0 {
 		return // empty
@@ -103,7 +103,10 @@ func Net2ProxyID(network string) (proto, pid string) {
 		proto = x[0]
 	}
 	if len(x) >= 2 {
-		pid = x[1]
+		pids = strings.Split(x[1], ",")
+		if firstEmpty(pids) {
+			pids = nil
+		}
 	}
 	return
 }
@@ -111,8 +114,8 @@ func Net2ProxyID(network string) (proto, pid string) {
 // NetAndProxyID joins proto and pid into a network string.
 // proto is the network protocol and pid is the proxy ID.
 // May return just the separator ":", if both proto, pid are empty.
-func NetAndProxyID(proto, pid string) string {
-	return fmt.Sprintf("%s:%s", proto, pid)
+func NetAndProxyID(proto string, pidcsv ...string) string {
+	return fmt.Sprintf("%s:%s", proto, strings.Join(pidcsv, ","))
 }
 
 func PrefixWithSize(packet []byte) ([]byte, error) {
@@ -248,4 +251,8 @@ func DnsIPPort(s string) (ipp netip.AddrPort, err error) {
 		}
 	}
 	return
+}
+
+func firstEmpty(arr []string) bool {
+	return len(arr) <= 0 || len(arr[0]) <= 0
 }

@@ -297,8 +297,9 @@ func resolve(network string, data *dns.Msg, si *serverinfo, smm *x.DNSSummary) (
 
 	before := time.Now()
 
-	proto, pid := xdns.Net2ProxyID(network)
+	proto, pids := xdns.Net2ProxyID(network)
 	useudp := proto == dnsx.NetTypeUDP
+	pid := si.chooseProxy(pids)
 
 	// ans, si may be nil
 	ans, anonrelayaddr, qerr = query(pid, data, si, useudp)

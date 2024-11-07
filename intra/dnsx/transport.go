@@ -460,10 +460,11 @@ func (r *resolver) forward(q []byte, chosenids ...string) (res0 []byte, err0 err
 		return nil, errOnQueryTimeout
 	}
 
-	id, sid, pid, presetIPs := r.preferencesFrom(qname, uint16(qtyp), pref, chosenids...)
+	id, sid, pids, presetIPs := r.preferencesFrom(qname, uint16(qtyp), pref, chosenids...)
 	t := r.determineTransport(id) // id may be empty if pref is nil
 
-	log.V("dns: fwd: query %s [prefs:%v; chosen:%v]; id? %s, sid? %s, pid? %s, ips? %v", qname, pref, chosenids, id, sid, pid, presetIPs)
+	log.V("dns: fwd: query %s [prefs:%v; chosen:%v]; id? %s, sid? %s, pid? %s, ips? %v",
+		qname, pref, chosenids, id, sid, pids, presetIPs)
 
 	if t == nil || core.IsNil(t) {
 		smm.Latency = time.Since(starttime).Seconds()
@@ -502,7 +503,7 @@ func (r *resolver) forward(q []byte, chosenids ...string) (res0 []byte, err0 err
 	var res2 []byte
 	var ans1 *dns.Msg
 
-	netid := xdns.NetAndProxyID(NetTypeUDP, pid)
+	netid := xdns.NetAndProxyID(NetTypeUDP, pids)
 
 	// with t2 as the secondary transport, which could be nil
 	ans1, err = r.gateway.q(t, t2, presetIPs, netid, msg, smm)
@@ -829,7 +830,7 @@ func (r *resolver) LiveTransports() string {
 	return trimcsv(s)
 }
 
-func (r *resolver) preferencesFrom(qname string, qtyp uint16, s *x.DNSOpts, chosenids ...string) (id1, id2, pid string, ips []netip.Addr) {
+func (r *resolver) preferencesFrom(qname string, qtyp uint16, s *x.DNSOpts, chosenids ...string) (id1, id2, pidcsv string, ips []netip.Addr) {
 	var x []string
 	if s == nil { // should never happen; but it has during testing (on End())
 		log.W("dns: pref: no ns opts for %s", qname)
@@ -904,7 +905,7 @@ func (r *resolver) preferencesFrom(qname string, qtyp uint16, s *x.DNSOpts, chos
 			id2 = Preferred
 		}
 		// s.NOBLOCK must be respected
-		// s.PID must be respected
+		// s.PIDCSV must be respected
 	}
 	if isAnyLocal(id1, id2) { // use one transport, Local, if set
 		id1 = Local
@@ -915,10 +916,10 @@ func (r *resolver) preferencesFrom(qname string, qtyp uint16, s *x.DNSOpts, chos
 		s.NOBLOCK = true // skip blocks if ips are set (even if unspecified ips)
 		id2 = ""         // no secondary transport
 	}
-	if len(s.PID) > 0 {
-		pid = overrideProxyIfNeeded(s.PID, id1, id2)
+	if len(s.PIDCSV) > 0 {
+		pidcsv = overrideProxyIfNeeded(s.PIDCSV, id1, id2)
 	} else {
-		pid = NetNoProxy
+		pidcsv = NetNoProxy
 	}
 	return
 }

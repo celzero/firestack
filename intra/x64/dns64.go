@@ -176,7 +176,8 @@ func (d *dns64) eval(network string, force64 bool, ansin *dns.Msg, r dnsx.Transp
 	if !hasq6 || (hasans6 && !force64) || ans00006 {
 		// nb: has-aaaa-answer should cover for cases where
 		// the response is blocked by dnsx.RDNS
-		log.D("dns64: net(%s), no-op q(%s), q6(%t), ans6(%t), force64(%t), ans0000(%t)", network, qname, hasq6, hasans6, force64, ans00006)
+		log.D("dns64: net(%s), no-op q(%s), q6(%t), ans6(%t), force64(%t), ans0000(%t)",
+			network, qname, hasq6, hasans6, force64, ans00006)
 		return nil
 	}
 
@@ -198,7 +199,8 @@ func (d *dns64) eval(network string, force64 bool, ansin *dns.Msg, r dnsx.Transp
 	hasans := xdns.HasAnyAnswer(ans4)
 	ans0000 := xdns.AQuadAUnspecified(ans4)
 	if err != nil || ans4 == nil || !hasans || ans0000 {
-		log.W("dns64: skip: query(n:%s / a? %t) to resolver(%s/%s), code(good? %t / blocked? %t), err(%v)", qname, hasans, id, network, rgood, ans0000, err)
+		log.W("dns64: skip: query(n:%s / a? %t) to resolver(%s/%s), code(good? %t / blocked? %t), err(%v)",
+			qname, hasans, id, network, rgood, ans0000, err)
 		return nil
 	}
 
@@ -251,7 +253,7 @@ func (d *dns64) query64(network string, msg6 *dns.Msg, r dnsx.Transport) (*dns.M
 		return nil, errQuery
 	}
 
-	proto, pid := xdns.Net2ProxyID(network)
+	proto, pids := xdns.Net2ProxyID(network)
 
 	q4 := xdns.QName(msg4)
 	smm := new(x.DNSSummary)
@@ -263,7 +265,8 @@ func (d *dns64) query64(network string, msg6 *dns.Msg, r dnsx.Transport) (*dns.M
 	}()
 
 	hasAns := xdns.HasAnyAnswer(res)
-	log.D("dns64: upstream(%s/%s): q(%s) / a(%t) / e(%v) / e-not-nil(%t)", proto, pid, q4, hasAns, err, err != nil)
+	log.D("dns64: upstream(%s): q(%s) / a(%t) / e(%v) / e-not-nil(%t)",
+		proto, q4, hasAns, err, err != nil)
 	if err != nil {
 		return nil, err
 	}
@@ -273,10 +276,11 @@ func (d *dns64) query64(network string, msg6 *dns.Msg, r dnsx.Transport) (*dns.M
 	// res.Truncated never likely happens w/ DOH, ODOH, DOT?
 	if res.Truncated && proto != dnsx.NetTypeTCP {
 		// else if: returned response is truncated dns ans, retry over tcp
-		network = xdns.NetAndProxyID(dnsx.NetTypeTCP, pid)
+		network = xdns.NetAndProxyID(dnsx.NetTypeTCP, pids...)
 		res, err = dnsx.Req(r, network, msg4, smm)
 		hasAns = xdns.HasAnyAnswer(res)
-		log.D("dns64: tcp: upstream q(%s) / a(%d) / e(%v) / e-not-nil(%t)", q4, hasAns, err, err != nil)
+		log.D("dns64: tcp: upstream q(%s) / a(%d) / e(%v) / e-not-nil(%t)",
+			q4, hasAns, err, err != nil)
 		if err != nil {
 			return nil, err
 		} else if !hasAns {

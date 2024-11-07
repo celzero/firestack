@@ -29,9 +29,9 @@ import (
 
 const (
 	smmchSize           = 24
-	UNKNOWN_UID         = -1
-	UNKNOWN_UID_STR     = "-1"
-	UNSUPPORTED_NETWORK = -1
+	UNKNOWN_UID         = core.UNKNOWN_UID
+	UNKNOWN_UID_STR     = core.UNKNOWN_UID_STR
+	UNSUPPORTED_NETWORK = core.UNSUPPORTED_NETWORK
 )
 
 const (

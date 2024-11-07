@@ -15,6 +15,12 @@ import (
 
 // from: github.com/eycorsican/go-tun2socks/blob/301549c435/core/conn.go#LL3C9-L3C9
 
+const (
+	UNKNOWN_UID         = -1
+	UNKNOWN_UID_STR     = "-1"
+	UNSUPPORTED_NETWORK = -1
+)
+
 // TCPConn abstracts a TCP connection coming from TUN. This connection
 // should be handled by a registered TCP proxy handler.
 type TCPConn interface {

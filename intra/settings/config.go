@@ -194,6 +194,7 @@ type DNSOptions struct {
 	ipp      string
 	hostport string
 	hostips  string
+	port     uint16
 }
 
 func (d *DNSOptions) String() string {
@@ -212,6 +213,10 @@ func (d *DNSOptions) AddrPort() string {
 		return d.hostport
 	}
 	return ""
+}
+
+func (d *DNSOptions) Port() uint16 {
+	return d.port
 }
 
 func (d *DNSOptions) ResolvedAddrs() string {
@@ -243,7 +248,8 @@ func NewDNSOptions(ipport string) (*DNSOptions, error) {
 	}
 	if ipp, err = addrport(ip, port); err == nil {
 		return &DNSOptions{
-			ipp: ipp.String(),
+			ipp:  ipp.String(),
+			port: ipp.Port(),
 		}, nil
 	}
 	log.D("dnsopt(%s:%s); err(%v)", ip, port, err)
@@ -255,7 +261,8 @@ func NewDNSOptionsFromNetIp(ipp netip.AddrPort) (*DNSOptions, error) {
 		return nil, errors.New("dnsopt: empty ipport")
 	}
 	return &DNSOptions{
-		ipp: ipp.String(),
+		ipp:  ipp.String(),
+		port: ipp.Port(),
 	}, nil
 }
 
@@ -265,16 +272,23 @@ func NewDNSOptionsFromHostname(hostOrHostPort, ipcsv string) (*DNSOptions, error
 	}
 
 	domain, port, _ := net.SplitHostPort(hostOrHostPort)
+
 	if len(domain) <= 0 {
 		domain = hostOrHostPort
 	}
+	portu16 := uint16(53)
 	if len(port) == 0 {
 		port = "53"
+	} else {
+		if u64, _ := strconv.ParseUint(port, 10, 16); u64 > 0 {
+			portu16 = uint16(u64)
+		}
 	}
 
 	return &DNSOptions{
 		hostport: net.JoinHostPort(domain, port),
 		hostips:  ipcsv, // may be empty, and may be ip:port
+		port:     portu16,
 	}, nil
 }
 
