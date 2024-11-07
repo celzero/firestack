@@ -27,10 +27,10 @@ import (
 	"github.com/miekg/dns"
 )
 
-const PaddingBlockSize = 128 // RFC8467 recommendation
+const paddingBlockSize = 128 // RFC8467 recommendation
 
 // OPTION-CODE + OPTION-LENGTH
-const kOptPaddingHeaderLen int = 2 + 2
+const optPaddingHeaderLen int = 2 + 2
 
 func AsMsg(packet []byte) *dns.Msg {
 	msg, err := AsMsg2(packet)
@@ -503,10 +503,10 @@ func ComputePaddingSize(msg *dns.Msg) int {
 	// label-compressed.
 	msgLen := msg.Len()
 	// always add a new padding header inside the OPT RR's data.
-	extraPadding := kOptPaddingHeaderLen
+	extraPadding := optPaddingHeaderLen
 
-	padSize := PaddingBlockSize - (msgLen+extraPadding)%PaddingBlockSize
-	return padSize % PaddingBlockSize
+	padSize := paddingBlockSize - (msgLen+extraPadding)%paddingBlockSize
+	return padSize % paddingBlockSize
 }
 
 func AddEDNS0PaddingIfNoneFound(msg *dns.Msg) {
