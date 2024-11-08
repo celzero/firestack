@@ -25,6 +25,7 @@ import (
 // from: github.com/pion/transport/blob/03c807b/udp/conn.go
 
 const maxtimeouterrors = 3
+const maxInFlight = 128
 
 type flowkind int32
 
@@ -326,13 +327,13 @@ func (x *muxer) extend(t time.Time) {
 // new creates a demuxed conn to r.
 func (x *muxer) newLocked(r netip.AddrPort) *demuxconn {
 	return &demuxconn{
-		remux:      x,                          // muxer
-		laddr:      x.mxconn.LocalAddr(),       // listen addr
-		raddr:      net.UDPAddrFromAddrPort(r), // remote addr
-		key:        r,                          // key (same as raddr)
-		incomingCh: make(chan *slice, 32),      // read from muxer
-		overflowCh: make(chan *slice, 16),      // overflow from read
-		closed:     make(chan struct{}),        // always unbuffered
+		remux:      x,                              // muxer
+		laddr:      x.mxconn.LocalAddr(),           // listen addr
+		raddr:      net.UDPAddrFromAddrPort(r),     // remote addr
+		key:        r,                              // key (same as raddr)
+		incomingCh: make(chan *slice, maxInFlight), // read from muxer
+		overflowCh: make(chan *slice, 16),          // overflow from read
+		closed:     make(chan struct{}),            // always unbuffered
 		wt:         time.NewTicker(udptimeout),
 		rt:         time.NewTicker(udptimeout),
 		wto:        udptimeout,
