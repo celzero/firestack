@@ -408,40 +408,51 @@ func (proxy *DcMulti) start() error {
 	curve25519.ScalarBaseMult(&proxy.proxyPublicKey, &proxy.proxySecretKey)
 
 	_, err := proxy.Refresh()
-	if proxy.serversInfo.len() > 0 {
-		core.Gg("dcmulti.start", func() {
-			for {
-				select {
-				case <-proxy.ctx.Done():
-					log.I("dnscrypt: cert refresh stopped")
-					return
-				default:
-					hasServers := proxy.serversInfo.len() > 0
-					allDead := len(proxy.liveServers) == 0
-					delay := certRefreshDelay
-					if hasServers && allDead {
-						delay = certRefreshDelayAfterFailure
-					}
-					time.Sleep(delay)
-					proxy.liveServers, _ = proxy.serversInfo.refresh(proxy)
-					if someAlive := len(proxy.liveServers) > 0; someAlive {
-						proxy.certIgnoreTimestamp = false
-					}
-				}
+	_ = core.Every("dcmulti.start", proxy.ctx, certRefreshDelay, func() {
+		maxtries := 10
+		i := 0
+		for {
+			i++
+			if i > maxtries {
+				log.E("dnscrypt: cert refresh failed after %d tries", maxtries)
+				return
 			}
-		}, proxy.notifyRestart)
-	}
+			select {
+			case <-proxy.ctx.Done():
+				log.I("dnscrypt: cert refresh stopped")
+				return
+			default:
+			}
+
+			hasServers := proxy.serversInfo.len() > 0
+			if !hasServers {
+				log.D("dnscrypt: no servers; next check after %v", certRefreshDelayAfterFailure)
+				return
+			}
+			proxy.liveServers, _ = proxy.serversInfo.refresh(proxy)
+			if someAlive := len(proxy.liveServers) > 0; someAlive {
+				log.I("dnscrypt: some servers alive; retry #%d; next check after",
+					i, certRefreshDelayAfterFailure)
+				proxy.certIgnoreTimestamp = false
+				return
+			}
+			proxy.certIgnoreTimestamp = true
+			backoff := time.Duration(i) * time.Second
+			wait := certRefreshDelayAfterFailure * backoff
+			log.W("dnscrypt: all servers dead; retry #%d in %v", i, wait)
+			time.Sleep(wait)
+			continue
+
+		}
+	})
+	// todo: on error: context.AfterFunc(refreshCtx, proxy.notifyRestart)
 	return err
 }
 
-func (proxy *DcMulti) notifyRestart() {
-	defer proxy.stop()
-	log.U("DNSCrypt stopped; restart the app")
-}
-
-func (proxy *DcMulti) stop() {
-	_ = proxy.Stop()
-}
+// func (proxy *DcMulti) notifyRestart() {
+// 	defer proxy.Stop()
+// 	log.U("DNSCrypt stopped; restart the app")
+// }
 
 // Stop stops this dnscrypt proxy
 func (proxy *DcMulti) Stop() error {
