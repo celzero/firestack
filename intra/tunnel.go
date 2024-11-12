@@ -136,11 +136,11 @@ func NewTunnel(fd, mtu int, fakedns string, tunmode *settings.TunMode, dtr Defau
 	}
 
 	resolver := dnsx.NewResolver(ctx, fakedns, tunmode, dtr, bdg, natpt)
-	resolver.Add(newGoosTransport(ctx, bdg, proxies))     // os-resolver; fixed
-	resolver.Add(newBlockAllTransport())                  // fixed
-	resolver.Add(newFixedTransport())                     // fixed
-	resolver.Add(newDNSCryptTransport(ctx, proxies, bdg)) // fixed
-	resolver.Add(newMDNSTransport(ctx, settings.IP46))    // fixed
+	resolver.Add(newGoosTransport(ctx, proxies))                // os-resolver; fixed
+	resolver.Add(newBlockAllTransport())                        // fixed
+	resolver.Add(newFixedTransport())                           // fixed
+	resolver.Add(newDNSCryptTransport(ctx, proxies, bdg))       // fixed
+	resolver.Add(newMDNSTransport(ctx, settings.IP46, proxies)) // fixed
 
 	addIPMapper(ctx, resolver, settings.IP46) // namespace aware os-resolver for pkg dialers
 
@@ -214,7 +214,7 @@ func (t *rtunnel) SetLinkAndRoutes(fd, mtu, engine int) error {
 				// dialers.IPProtos must always preced calls to other refreshes
 				// as it carries the global state for dialers and ipn/multihost
 				go t.proxies.RefreshProto(l3)
-				t.resolver.Add(newMDNSTransport(t.ctx, l3))
+				t.resolver.Add(newMDNSTransport(t.ctx, l3, t.proxies))
 			}
 		})
 	}()
