@@ -15,6 +15,12 @@ Firestack supports DNS over HTTPS, DNS over TLS, Oblivious DNS over HTTPS, DNSCr
 Firestack runs WireGuard in userspace. When running *multiple* WireGuard tunnels at once, only TCP and UDP are forwarded to the tunnels; but otherwise
 ICMP and DNS are as well. ARP / IGMP / SCTP / RTP and other IP protocols are *not* forwarded to WireGuard tunnels.
 
+[<img src="https://fossunited.org/files/fossunited-white.svg"
+     alt="FOSS United"
+     height="40">](https://fossunited.org/grants)&emsp;
+
+WireGuard integration was sponsored by [FOSS United](https://fossunited.org/grants).
+
 ## Releases
 
 [![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/celzero/firestack/badge)](https://securityscorecards.dev/viewer/?uri=github.com/celzero/firestack)
