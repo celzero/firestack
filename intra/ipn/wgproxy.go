@@ -1184,5 +1184,5 @@ func logev(err error) log.LogFn {
 	if err != nil {
 		return log.E
 	}
-	return log.V
+	return log.VV
 }

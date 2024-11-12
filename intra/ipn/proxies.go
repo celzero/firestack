@@ -302,7 +302,7 @@ func (px *proxifier) RemoveProxy(id string) bool {
 // ProxyTo implements Proxies.
 // May return both a Proxy and an error, in which case, the error
 // denotes that while the Proxy is not healthy, it is still registered.
-func (px *proxifier) ProxyTo(ipp netip.AddrPort, uid string, pids []string) (Proxy, error) {
+func (px *proxifier) ProxyTo(ipp netip.AddrPort, uid string, pids []string) (_ Proxy, err error) {
 	if len(pids) <= 0 || firstEmpty(pids) {
 		return nil, errMissingProxyID
 	}
@@ -343,6 +343,11 @@ func (px *proxifier) ProxyTo(ipp netip.AddrPort, uid string, pids []string) (Pro
 	if len(lopinned) > 0 { // lopinned may be empty
 		loproxies = append(loproxies, lopinned)
 	}
+
+	defer func() {
+		logev(err)("proxy: pin: %s+%s; miss: %v; notok: %v; noroute: %v; ended %v",
+			uid, ipp, missproxies, notokproxies, norouteproxies, endproxies)
+	}()
 
 	for _, pid := range pids {
 		if pid == pinnedpid { // already tried above
@@ -391,8 +396,6 @@ func (px *proxifier) ProxyTo(ipp netip.AddrPort, uid string, pids []string) (Pro
 		missproxies = append(missproxies, pid)
 	}
 
-	log.VV("proxy: pin: %s+%s; miss: %v; notok: %v; noroute: %v; ended %v",
-		uid, ipp, missproxies, notokproxies, norouteproxies, endproxies)
 	return nil, errProxyAllDown
 }
 
