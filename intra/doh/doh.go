@@ -425,8 +425,8 @@ func (t *transport) fetch(pid string, req *http.Request) (*http.Response, bool, 
 
 func (t *transport) multifetch(req *http.Request, pid string) (res *http.Response, echdialer bool, err error) {
 	px, err := t.prepare(pid)
-	if err != nil {
-		return nil, false, err
+	if err != nil || px == nil {
+		return nil, false, core.OneErr(err, dnsx.ErrNoProxyProvider)
 	}
 
 	c3, c0 := t.httpClientsFor(px) // c3 may be nil
@@ -493,9 +493,8 @@ func (t *transport) prepare(pid string) (px ipn.Proxy, err error) {
 			px = t.relay
 		} else if hasproxy { // use proxy, if specified
 			px, err = t.proxies.ProxyFor(pid)
-		}
-		if err != nil || px == nil {
-			return nil, core.OneErr(err, dnsx.ErrNoProxyProvider)
+		} else {
+			err = dnsx.ErrNoProxyProvider
 		}
 	} else {
 		err = dnsx.ErrNoProxyProvider

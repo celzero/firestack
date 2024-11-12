@@ -19,6 +19,7 @@ require (
 	github.com/elazarl/goproxy v0.0.0-20230808193330-2592e75ae04a
 	github.com/noql-net/certpool v0.0.0-20240719060413-a5ed62ecc62a
 	github.com/refraction-networking/utls v1.3.3
+	github.com/tailscale/depaware v0.0.0-20240804103531-585336c3e1b3
 	github.com/txthinking/socks5 v0.0.0-20230325130024-4230056ae301
 	go4.org/unsafe/assume-no-moving-gc v0.0.0-20231121144256-b99613f794b6
 	golang.org/x/mobile v0.0.0-20220518205345-8578da9835fd
@@ -42,7 +43,6 @@ require (
 	github.com/klauspost/compress v1.16.7 // indirect
 	github.com/patrickmn/go-cache v2.1.0+incompatible // indirect
 	github.com/pkg/diff v0.0.0-20200914180035-5b29258ca4f7 // indirect
-	github.com/tailscale/depaware v0.0.0-20240804103531-585336c3e1b3 // indirect
 	github.com/txthinking/runnergroup v0.0.0-20210608031112-152c7c4432bf // indirect
 	golang.org/x/mod v0.21.0 // indirect
 	golang.org/x/sync v0.8.0 // indirect

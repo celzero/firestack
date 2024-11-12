@@ -186,7 +186,7 @@ func (h *baseHandler) onFlow(localaddr, target netip.AddrPort) (fm *Mark, undidA
 
 		if !ok || !hasPre || !hasNewIPs {
 			log.W("onFlow: %s alg, but no preflow? %t / %t, ips? %t for %s; block!",
-				h.proto, ok, hasPre, hasNewIPs, pre.UID)
+				h.proto, ok, hasPre, hasNewIPs, pre)
 			// either optionsBase (BlockModeNone) or optionsBlock
 			return fm, undidAlg, "", ""
 		} // else: if we've got target and/or old ips, dial them

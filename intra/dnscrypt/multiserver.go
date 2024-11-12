@@ -84,7 +84,10 @@ var (
 	errNoConn          = errors.New("dnscrypt: no connection")
 )
 
-func chooseAny[T any](s []T) T {
+func chooseAny[T any](s []T) (zz T) {
+	if len(s) <= 0 {
+		return // zz
+	}
 	return s[rand.Intn(len(s))]
 }
 

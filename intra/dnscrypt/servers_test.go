@@ -87,6 +87,9 @@ func TestOne(t *testing.T) {
 	obs := &fakeObs{}
 	// bdg := &fakeBdg{Controller: ctl}
 	pxr := ipn.NewProxifier(ctx, ctl, obs)
+	if pxr == nil {
+		t.Fatal("nil proxifier")
+	}
 	ilog.SetLevel(0)
 	resolver := fakeResolver{r}
 	dialers.Mapper(resolver)
