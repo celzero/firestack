@@ -7,6 +7,7 @@
 package dns53
 
 import (
+	"context"
 	"crypto/tls"
 	"fmt"
 	"net"
@@ -41,7 +42,6 @@ type dot struct {
 	status        int
 	c             *dns.Client
 	c3            *dns.Client // with ech
-	rd            *protect.RDial
 	pool          *core.MultConnPool[uintptr]
 	proxies       ipn.Proxies // may be nil
 	relay         ipn.Proxy   // may be nil
@@ -51,7 +51,7 @@ type dot struct {
 var _ dnsx.Transport = (*dot)(nil)
 
 // NewTLSTransport returns a DNS over TLS transport, ready for use.
-func NewTLSTransport(ctx context.Context, id, rawurl string, addrs []string, px ipn.Proxies, ctl protect.Controller) (t *dot, err error) {
+func NewTLSTransport(ctx context.Context, id, rawurl string, addrs []string, px ipn.Proxies) (t *dot, err error) {
 	tlscfg := &tls.Config{
 		MinVersion:             tls.VersionTLS12,
 		SessionTicketsDisabled: false,
@@ -98,7 +98,6 @@ func NewTLSTransport(ctx context.Context, id, rawurl string, addrs []string, px 
 		port:          port,
 		status:        x.Start,
 		proxies:       px,
-		rd:            protect.MakeNsRDial(id, ctx, ctl),
 		relay:         relay,
 		pool:          core.NewMultConnPool[uintptr](ctx),
 		est:           core.NewP50Estimator(ctx),
@@ -255,11 +254,11 @@ func (t *dot) sendRequest(pid string, q *dns.Msg) (ans *dns.Msg, elapsed time.Du
 	var conn *dns.Conn
 	var who uintptr
 	userelay := t.relay != nil
-	useproxy := len(pid) != 0 // pid == dnsx.NetNoProxy => ipn.Base
-	if useproxy || userelay {
+	useproxy := len(pid) != 0 // pid == dnsx.NetNoProxy => ipn.Block
+	if useproxy || userelay { // ref dns.Client.Dial
 		conn, who, err = t.pxdial(pid)
-	} else { // ref dns.Client.Dial
-		conn, who, err = t.tlsdial(t.rd)
+	} else {
+		err = dnsx.ErrNoProxyProvider
 	}
 
 	if err == nil {

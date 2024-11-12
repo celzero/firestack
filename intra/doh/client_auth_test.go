@@ -376,7 +376,7 @@ type fakeBdg struct {
 }
 
 var (
-	baseNsOpts = &x.DNSOpts{PID: dnsx.NetNoProxy, IPCSV: "", TIDCSV: x.CT + "test0"}
+	baseNsOpts = &x.DNSOpts{PID: dnsx.NetBaseProxy, IPCSV: "", TIDCSV: x.CT + "test0"}
 	baseTab    = &rnet.Tab{CID: "testcid", Block: false}
 )
 
@@ -406,7 +406,7 @@ func TestDoh(t *testing.T) {
 	b6, _ := q6.Pack()
 	// smm := &x.DNSSummary{}
 	// smm6 := &x.DNSSummary{}
-	_ = xdns.NetAndProxyID("tcp", ipn.Base)
+	_ = xdns.NetAndProxyID("tcp", dnsx.NetBaseProxy)
 	tm := &settings.TunMode{
 		DNSMode:   settings.DNSModePort,
 		BlockMode: settings.BlockModeNone,

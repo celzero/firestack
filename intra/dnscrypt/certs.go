@@ -23,7 +23,7 @@ import (
 	"time"
 
 	"github.com/celzero/firestack/intra/core"
-	"github.com/celzero/firestack/intra/dialers"
+	"github.com/celzero/firestack/intra/dnsx"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
 	"github.com/miekg/dns"
@@ -53,6 +53,11 @@ var (
 )
 
 func fetchCurrentDNSCryptCert(proxy *DcMulti, serverName *string, pk ed25519.PublicKey, serverAddress string, providerName string) (certinfo, error) {
+	exit := proxy.exit
+
+	if exit == nil {
+		return certinfo{}, dnsx.ErrNoProxyProvider
+	}
 	if len(pk) != ed25519.PublicKeySize {
 		return certinfo{}, errors.New("invalid public key length")
 	}
@@ -62,13 +67,14 @@ func fetchCurrentDNSCryptCert(proxy *DcMulti, serverName *string, pk ed25519.Pub
 	if serverName == nil {
 		serverName = &providerName
 	}
+
 	query := dns.Msg{}
 	query.SetQuestion(providerName, dns.TypeTXT)
 	if !strings.HasPrefix(providerName, "2.dnscrypt-cert.") {
 		log.W("dnscrypt: [%v] is not v2, ('%v' doesn't start with '2.dnscrypt-cert.')", *serverName, providerName)
 	}
 	log.I("dnscrypt: [%v] Fetching DNSCrypt certificate for [%s] at [%v]", *serverName, providerName, serverAddress)
-	in, rtt, err := dnsExchange(proxy.dialer, &query, serverAddress, serverName)
+	in, rtt, err := dnsExchange(exit.Dialer(), &query, serverAddress, serverName)
 	if err != nil || in == nil {
 		log.W("dnscrypt: [%s] TIMEOUT %v", *serverName, err)
 		return certinfo{}, core.OneErr(err, errFetchingCerts)
@@ -206,7 +212,7 @@ func packTxtString(s string) []byte {
 	return msg
 }
 
-func dnsExchange(dialer *protect.RDial, query *dns.Msg, serverAddress string, serverName *string) (*dns.Msg, time.Duration, error) {
+func dnsExchange(dialer protect.RDialer, query *dns.Msg, serverAddress string, serverName *string) (*dns.Msg, time.Duration, error) {
 	// always use udp to fetch certs since most servers like adguard, cleanbrowsing
 	// don't support fetching certs over tcp
 	proto := "udp"
@@ -276,7 +282,7 @@ func dnsExchange(dialer *protect.RDial, query *dns.Msg, serverAddress string, se
 
 // _dnsExchange sends query and returns an answer from serverAddress using dialer.
 // It can be called from multiple goroutines.
-func _dnsExchange(dialer *protect.RDial, proto string, query *dns.Msg, serverAddress string, paddedLen int) dnsExchangeResponse {
+func _dnsExchange(dialer protect.RDialer, proto string, query *dns.Msg, serverAddress string, paddedLen int) dnsExchangeResponse {
 	var packet []byte
 	var rtt time.Duration
 
@@ -303,7 +309,7 @@ func _dnsExchange(dialer *protect.RDial, proto string, query *dns.Msg, serverAdd
 		}
 
 		now := time.Now()
-		pc, err := dialers.Dial(dialer, "udp", serverAddress)
+		pc, err := dialer.Dial("udp", serverAddress)
 		if err != nil {
 			return dnsExchangeResponse{err: err}
 		} else if pc == nil || core.IsNil(pc) {
@@ -340,7 +346,7 @@ func _dnsExchange(dialer *protect.RDial, proto string, query *dns.Msg, serverAdd
 		*/
 		now := time.Now()
 		var pc net.Conn
-		pc, err = dialers.Dial(dialer, "tcp", serverAddress)
+		pc, err = dialer.Dial("tcp", serverAddress)
 		if err != nil {
 			return dnsExchangeResponse{err: err}
 		} else if pc == nil || core.IsNil(pc) {

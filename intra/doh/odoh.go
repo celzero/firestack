@@ -207,7 +207,7 @@ func (d *transport) refreshTargetKeyWellKnown() (ocfg *odoh.ObliviousDoHConfig, 
 		return
 	}
 	// may use insecure TLS if user opts in; ref: d.tlsconfig
-	resp, err = d.client.Do(req)
+	resp, _, err = d.fetch(dnsx.NetBaseProxy, req)
 	if err != nil {
 		return
 	}
@@ -245,7 +245,7 @@ func (d *transport) refreshTargetKeyDNS() (ocfg *odoh.ObliviousDoHConfig, exp ti
 		var req *http.Request
 		// fetch odoh-config from odohconfigdns
 		if req, err = d.asDohRequest(cmsg); err == nil {
-			cres, _, _, _, _, err = d.send(dnsx.NetNoProxy, req)
+			cres, _, _, _, _, err = d.send(dnsx.NetBaseProxy, req)
 		}
 	}
 

@@ -56,7 +56,7 @@ type DcMulti struct {
 	lastStatus          int
 	lastAddr            string
 	ctl                 protect.Controller
-	dialer              *protect.RDial
+	exit                ipn.Proxy // may be nil
 	est                 core.P2QuantileEstimator
 }
 
@@ -662,6 +662,10 @@ func stamp2str(s stamps.ServerStamp) string {
 // NewDcMult creates a dnscrypt proxy
 func NewDcMult(pctx context.Context, px ipn.Proxies, ctl protect.Controller) *DcMulti {
 	ctx, cancel := context.WithCancel(pctx)
+	exit, err := px.ProxyFor(ipn.Exit)
+	if err != nil {
+		log.W("dnscrypt: no exit proxy: %v", err)
+	}
 	dc := &DcMulti{
 		ctx:                 ctx,
 		sigterm:             cancel,
@@ -674,10 +678,10 @@ func NewDcMult(pctx context.Context, px ipn.Proxies, ctl protect.Controller) *Dc
 		proxies:             px,
 		lastAddr:            "",
 		ctl:                 ctl,
-		dialer:              protect.MakeNsRDial(dnsx.DcProxy, ctx, ctl),
+		exit:                exit, // may be nil
 		est:                 core.NewP50Estimator(ctx),
 	}
-	err := dc.start()
+	err = dc.start()
 	if err != nil {
 		log.E("dnscrypt: start failed: %v", err)
 	}

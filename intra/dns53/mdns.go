@@ -27,6 +27,7 @@ import (
 	x "github.com/celzero/firestack/intra/backend"
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/dnsx"
+	"github.com/celzero/firestack/intra/ipn"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/settings"
 	"github.com/celzero/firestack/intra/xdns"
@@ -43,6 +44,7 @@ var (
 type dnssd struct {
 	ctx    context.Context
 	done   context.CancelFunc
+	dialer ipn.Proxy
 	id     string // ID of this transport
 	ipport string // IP:Port queries are sent to (v4)
 	use4   bool   // Use IPv4
@@ -54,12 +56,22 @@ type dnssd struct {
 var _ dnsx.Transport = (*dnssd)(nil)
 
 // NewMDNSTransport returns a DNS transport that sends all DNS queries to mDNS endpoint.
-func NewMDNSTransport(pctx context.Context, protos string) *dnssd {
+func NewMDNSTransport(pctx context.Context, protos string, pxr ipn.Proxies) *dnssd {
 	ctx, done := context.WithCancel(pctx)
+
+	// mdns always dials exit (and never loops back)
+	exit, err := pxr.ProxyFor(ipn.Exit)
+	if err != nil {
+		log.E("mdns: no exit proxy: %v", err)
+		done()
+		return nil
+	}
+
 	t := &dnssd{
 		ctx:    ctx,
 		done:   done,
 		id:     dnsx.Local,
+		dialer: exit,
 		use4:   use4(protos),
 		use6:   use6(protos),
 		ipport: xdns.MDNSAddr4.String(), // ip6: ff02::fb:5353
@@ -244,10 +256,8 @@ type client struct {
 	use4 bool
 	use6 bool
 
-	unicast4   *net.UDPConn
-	unicast6   *net.UDPConn
-	multicast4 *net.UDPConn
-	multicast6 *net.UDPConn
+	unicast4, unicast6     net.PacketConn
+	multicast4, multicast6 net.PacketConn
 
 	tracker map[string]*dnssdanswer
 	msgCh   chan *dns.Msg // never closed
@@ -276,18 +286,18 @@ func (t *dnssd) newClient(oneshot bool) (*client, error) {
 		return nil, errNoProtos
 	}
 
-	var uconn4 *net.UDPConn // bind to higher port for unicast
-	var uconn6 *net.UDPConn
-	var mconn4 *net.UDPConn // bind to port 5353 for multicast
-	var mconn6 *net.UDPConn
+	var uconn4, uconn6 net.PacketConn // bind to higher port for unicast
+	var mconn4, mconn6 net.PacketConn // bind to port 5353 for multicast
 	var err error
 
 	if t.use4 {
-		uconn4, err = net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4zero, Port: 0})
+		uconn4, err = t.dialer.Announce("udp4", "0.0.0.0:0")
 		if err != nil {
 			log.E("mdns: new-client: unicast4 bind fail: %v", err)
 		}
 		if !oneshot {
+			// won't work when in rethink-within-rethink (loopback) mode
+			// TODO: add support for multicast in protect.RDialer / ipn.Proxy
 			mconn4, err = net.ListenMulticastUDP("udp4", nil, xdns.MDNSAddr4)
 			if err != nil {
 				log.E("mdns: new-client: multicast4 bind fail: %v", err)
@@ -296,11 +306,12 @@ func (t *dnssd) newClient(oneshot bool) (*client, error) {
 	}
 
 	if t.use6 {
-		uconn6, err = net.ListenUDP("udp6", &net.UDPAddr{IP: net.IPv6zero, Port: 0})
+		uconn6, err = t.dialer.Announce("udp6", "[::]:0")
 		if err != nil {
 			log.E("mdns: new-client: unicast6 bind fail: %v", err)
 		}
 		if !oneshot {
+			// TODO: add support for multicast in protect.RDialer / ipn.Proxy
 			mconn6, err = net.ListenMulticastUDP("udp6", nil, xdns.MDNSAddr6)
 			if err != nil {
 				log.E("mdns: new-client: multicast6 bind fail: %v", err)
@@ -338,10 +349,10 @@ func (c *client) Close() error {
 		c.closed.Store(true)
 		log.I("mdns: closing client %s", c)
 
-		core.CloseUDP(c.unicast4)
-		core.CloseUDP(c.unicast6)
-		core.CloseUDP(c.multicast4)
-		core.CloseUDP(c.multicast6)
+		core.CloseConn(c.unicast4)
+		core.CloseConn(c.unicast6)
+		core.CloseConn(c.multicast4)
+		core.CloseConn(c.multicast6)
 	})
 
 	return nil
@@ -489,14 +500,14 @@ func (c *client) send(q *dns.Msg) *dnsx.QueryError {
 		qname := xdns.QName(q)
 		if c.unicast4 != nil {
 			extend(c.unicast4, timeout)
-			if _, err = c.unicast4.WriteToUDP(buf, xdns.MDNSAddr4); err != nil {
+			if _, err = c.unicast4.WriteTo(buf, xdns.MDNSAddr4); err != nil {
 				return dnsx.NewSendFailedQueryError(err)
 			}
 			log.D("mdns: send: sent query4 %s", qname)
 		}
 		if c.unicast6 != nil {
 			extend(c.unicast6, timeout)
-			if _, err = c.unicast6.WriteToUDP(buf, xdns.MDNSAddr6); err != nil {
+			if _, err = c.unicast6.WriteTo(buf, xdns.MDNSAddr6); err != nil {
 				return dnsx.NewSendFailedQueryError(err)
 			}
 			log.D("mdns: send: sent query6 %s", qname)
@@ -507,7 +518,7 @@ func (c *client) send(q *dns.Msg) *dnsx.QueryError {
 
 // recv forwards bytes to msgCh read from conn until error or shutdown.
 // Must be called from a goroutine.
-func (c *client) recv(conn *net.UDPConn) {
+func (c *client) recv(conn net.PacketConn) {
 	if conn == nil {
 		return
 	}
@@ -524,10 +535,9 @@ func (c *client) recv(conn *net.UDPConn) {
 		core.Recycle(bptr)
 	}()
 
-	raddr := conn.RemoteAddr()
 	for !c.closed.Load() {
 		extend(conn, timeout)
-		n, err := conn.Read(buf)
+		n, raddr, err := conn.ReadFrom(buf)
 
 		if c.closed.Load() {
 			log.W("mdns: recv: from(%v); closed; bytes(%d), err(%v)", raddr, n, err)
@@ -591,7 +601,7 @@ func (c *client) alias(src, dst string) {
 	c.tracker[dst] = se
 }
 
-func extend(c net.Conn, t time.Duration) {
+func extend(c net.PacketConn, t time.Duration) {
 	if c != nil && core.IsNotNil(c) {
 		_ = c.SetDeadline(time.Now().Add(t))
 	}

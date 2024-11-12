@@ -46,7 +46,6 @@ type transport struct {
 	addrport string // hostname, ip:port, protect.UidSelf:53, protect.System:53
 	port     uint16
 	client   *dns.Client
-	dialer   *protect.RDial
 	pool     *core.MultConnPool[uintptr]
 	proxies  ipn.Proxies // should never be nil
 	relay    ipn.Proxy   // may be nil
@@ -59,27 +58,27 @@ type transport struct {
 var _ dnsx.Transport = (*transport)(nil)
 
 // NewTransportFromHostname returns a DNS53 transport serving from hostname, ready for use.
-func NewTransportFromHostname(ctx context.Context, id, hostOrHostport string, ipcsv string, px ipn.Proxies, ctl protect.Controller) (t *transport, err error) {
+func NewTransportFromHostname(ctx context.Context, id, hostOrHostport string, ipcsv string, px ipn.Proxies) (t *transport, err error) {
 	// ipcsv may contain port, eg: 10.1.1.3:53
 	do, err := settings.NewDNSOptionsFromHostname(hostOrHostport, ipcsv)
 	if err != nil {
 		return
 	}
-	return newTransport(ctx, id, do, px, ctl)
+	return newTransport(ctx, id, do, px)
 }
 
 // NewTransport returns a DNS53 transport serving from ip & port, ready for use.
-func NewTransport(ctx context.Context, id, ip, port string, px ipn.Proxies, ctl protect.Controller) (t *transport, err error) {
+func NewTransport(ctx context.Context, id, ip, port string, px ipn.Proxies) (t *transport, err error) {
 	ipport := net.JoinHostPort(ip, port)
 	do, err := settings.NewDNSOptions(ipport)
 	if err != nil {
 		return
 	}
 
-	return newTransport(ctx, id, do, px, ctl)
+	return newTransport(ctx, id, do, px)
 }
 
-func newTransport(pctx context.Context, id string, do *settings.DNSOptions, px ipn.Proxies, ctl protect.Controller) (*transport, error) {
+func newTransport(pctx context.Context, id string, do *settings.DNSOptions, px ipn.Proxies) (*transport, error) {
 	// cannot be nil, see: ipn.Exit which the only proxy guaranteed to be connected to the internet;
 	// ex: ipn.Base routed back within the tunnel (rethink's traffic routed back into rethink).
 	if px == nil {
@@ -95,7 +94,6 @@ func newTransport(pctx context.Context, id string, do *settings.DNSOptions, px i
 		port:     do.Port(),
 		status:   core.NewVolatile(dnsx.Start),
 		lastaddr: core.NewZeroVolatile[string](),
-		dialer:   protect.MakeNsRDial(id, ctx, ctl),
 		pool:     core.NewMultConnPool[uintptr](ctx),
 		proxies:  px,    // never nil; see above
 		relay:    relay, // may be nil
@@ -120,13 +118,13 @@ func newTransport(pctx context.Context, id string, do *settings.DNSOptions, px i
 }
 
 // NewTransportFrom returns a DNS53 transport serving from ipp, ready for use.
-func NewTransportFrom(ctx context.Context, id string, ipp netip.AddrPort, px ipn.Proxies, ctl protect.Controller) (t dnsx.Transport, err error) {
+func NewTransportFrom(ctx context.Context, id string, ipp netip.AddrPort, px ipn.Proxies) (t dnsx.Transport, err error) {
 	do, err := settings.NewDNSOptionsFromNetIp(ipp)
 	if err != nil {
 		return
 	}
 
-	return newTransport(ctx, id, do, px, ctl)
+	return newTransport(ctx, id, do, px)
 }
 
 func (t *transport) pxdial(network, pid string) (*dns.Conn, uintptr, error) {
@@ -164,22 +162,6 @@ func (t *transport) pxdial(network, pid string) (*dns.Conn, uintptr, error) {
 	return &dns.Conn{Conn: pxconn}, who, nil
 }
 
-func (t *transport) dial(network string) (*dns.Conn, uintptr, error) {
-	who := t.dialer.Handle()
-	if c := t.fromPool(who); c != nil {
-		return c, who, nil
-	}
-	// protect.dialers resolves t.addrport, if necessary
-	c, err := dialers.Dial(t.dialer, network, t.addrport)
-	if err != nil {
-		return nil, core.Nobody, err
-	} else if c == nil || core.IsNil(c) {
-		return nil, core.Nobody, errNoNet
-	} else {
-		return &dns.Conn{Conn: c}, who, nil
-	}
-}
-
 // toPool takes ownership of c.
 func (t *transport) toPool(id uintptr, c *dns.Conn) {
 	if !usepool || id == core.Nobody {
@@ -211,7 +193,7 @@ func (t *transport) fromPool(id uintptr) (c *dns.Conn) {
 func (t *transport) connect(network, pid string) (conn *dns.Conn, who uintptr, err error) {
 	useudp := network == dnsx.NetTypeUDP
 	userelay := t.relay != nil
-	useproxy := len(pid) != 0 // pid == dnsx.NetNoProxy => ipn.Base
+	useproxy := len(pid) != 0 // pid == dnsx.NetNoProxy => ipn.Block
 
 	// if udp is unreachable, try tcp: github.com/celzero/rethink-app/issues/839
 	// note that some proxies do not support udp (eg pipws, piph2)
@@ -223,12 +205,7 @@ func (t *transport) connect(network, pid string) (conn *dns.Conn, who uintptr, e
 			conn, who, err = t.pxdial(network, pid)
 		}
 	} else {
-		conn, who, err = t.dial(network)
-		if err != nil && useudp {
-			clos(conn)
-			network = dnsx.NetTypeTCP
-			conn, who, err = t.dial(network)
-		}
+		err = dnsx.ErrNoProxyProvider
 	}
 	return
 }

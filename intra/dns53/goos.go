@@ -37,7 +37,7 @@ type goosr struct {
 var _ dnsx.Transport = (*goosr)(nil)
 
 // NewGoosTransport returns the default Go DNS resolver
-func NewGoosTransport(pctx context.Context, pxs ipn.Proxies, ctl protect.Controller) (t *goosr, err error) {
+func NewGoosTransport(pctx context.Context, pxs ipn.Proxies) (t *goosr, err error) {
 	// cannot be nil, see: ipn.Exit which the only proxy guaranteed to be connected to the internet;
 	// ex: ipn.Base routed back within the tunnel (rethink's traffic routed back into rethink)
 	// but it doesn't work for goos because the traffic to localhost:53 is routed back in as if

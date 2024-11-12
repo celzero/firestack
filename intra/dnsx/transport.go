@@ -62,7 +62,8 @@ const (
 	NetTypeTCP = "tcp"
 	// preferred forwarding network, if any
 	// ipn.Base is treated as a no-proxy
-	NetNoProxy   = x.Base
+	NetBaseProxy = x.Base
+	NetNoProxy   = x.Block
 	NetExitProxy = x.Exit
 
 	ttl10m = 10 * time.Minute
@@ -957,7 +958,10 @@ func writePrefixed(w io.Writer, b []byte, l int) (int, error) {
 }
 
 func IsLocalProxy(pid string) bool {
-	return len(pid) <= 0 || pid == NetNoProxy || pid == NetExitProxy
+	return len(pid) <= 0 ||
+		pid == NetBaseProxy ||
+		pid == NetExitProxy ||
+		pid == NetNoProxy
 }
 
 // RegisterAddrs registers IP ports with all dialers for a given hostname.
@@ -1033,14 +1037,14 @@ func overrideProxyIfNeeded(pid string, ids ...string) string {
 	for _, id := range ids {
 		switch id {
 		// note: Goos is anyway hard-coded to use NetExitProxy
-		case Goos: // exit
-			return NetNoProxy
-		case CT + Goos: // exit
-			return NetNoProxy
-		case Bootstrap, Default, System, Local, Preset: // base
-			return NetNoProxy
-		case CT + Bootstrap, CT + Default, CT + System, CT + Local, CT + Preset: // base
-			return NetNoProxy
+		case Goos, Local: // exit
+			return NetExitProxy
+		case CT + Goos, CT + Local: // exit
+			return NetExitProxy
+		case Bootstrap, Default, System, Preset: // base
+			return NetBaseProxy
+		case CT + Bootstrap, CT + Default, CT + System, CT + Preset: // base
+			return NetBaseProxy
 		}
 	}
 	return pid // as-is

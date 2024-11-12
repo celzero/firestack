@@ -78,17 +78,17 @@ func NewDefaultDNS(typ, url, ips string) (DefaultDNS, error) {
 	return b, nil
 }
 
-func newDefaultDohTransport(ctx context.Context, url string, ipcsv string, p ipn.Proxies, g Bridge) (dnsx.Transport, error) {
+func newDefaultDohTransport(ctx context.Context, url string, ipcsv string, p ipn.Proxies) (dnsx.Transport, error) {
 	ips := strings.Split(ipcsv, ",")
 	if len(url) > 0 && len(ips) > 0 {
-		return doh.NewTransport(ctx, bootid, url, ips, p, g)
+		return doh.NewTransport(ctx, bootid, url, ips, p)
 	}
 	return nil, errCannotStart
 }
 
-func newDefaultTransport(ctx context.Context, ipcsv string, p ipn.Proxies, g Bridge) (dnsx.Transport, error) {
+func newDefaultTransport(ctx context.Context, ipcsv string, p ipn.Proxies) (dnsx.Transport, error) {
 	if len(ipcsv) > 0 {
-		return dns53.NewTransportFromHostname(ctx, bootid, specialHostname, ipcsv, p, g)
+		return dns53.NewTransportFromHostname(ctx, bootid, specialHostname, ipcsv, p)
 	}
 	return nil, errCannotStart
 }
@@ -169,16 +169,17 @@ func (b *bootstrap) kickstart(px ipn.Proxies, g Bridge) error {
 	var err error
 	switch b.typ {
 	case dnsx.DNS53:
-		tr, err = newDefaultTransport(b.ctx, b.ipports, px, g)
+		tr, err = newDefaultTransport(b.ctx, b.ipports, px)
 	case dnsx.DOH:
-		tr, err = newDefaultDohTransport(b.ctx, b.url, b.ipports, px, g)
+		tr, err = newDefaultDohTransport(b.ctx, b.url, b.ipports, px)
 	default:
 		err = errDefaultTransportType
 	}
 
 	if prev := b.tr; prev != nil {
 		prev.Stop() // stop after new transport is ready
-		log.I("dns: default: removing %s %s[%s]", b.typ, b.hostname, b.GetAddr())
+		log.I("dns: default: removing %s %s[%s]",
+			b.typ, b.hostname, b.GetAddr())
 	}
 
 	// always override previous transport with (new) tr; even if nil
@@ -192,7 +193,8 @@ func (b *bootstrap) kickstart(px ipn.Proxies, g Bridge) error {
 		return errCannotStart
 	}
 
-	log.I("dns: default: start; %s with %s[%s]; ok? %t", b.typ, b.hostname, b.GetAddr(), len(b.ipports) > 0)
+	log.I("dns: default: start; %s with %s[%s]; ok? %t",
+		b.typ, b.hostname, b.GetAddr(), len(b.ipports) > 0)
 	return nil
 }
 

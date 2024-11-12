@@ -42,25 +42,23 @@ func AddDNSProxy(t Tunnel, id, ip, port string) error {
 	if rerr != nil || perr != nil {
 		return errors.Join(rerr, perr)
 	}
-	g := t.getBridge()
 	ctx := t.internalCtx()
-	if dns, err := dns53.NewTransport(ctx, id, ip, port, p, g); err != nil {
+	if dns, err := dns53.NewTransport(ctx, id, ip, port, p); err != nil {
 		return err
 	} else {
 		return addDNSTransport(r, dns)
 	}
 }
 
-func newSystemDNSProxy(ctx context.Context, g Bridge, p ipn.Proxies, ipcsv string) (d dnsx.Transport, err error) {
+func newSystemDNSProxy(ctx context.Context, p ipn.Proxies, ipcsv string) (d dnsx.Transport, err error) {
 	specialHostname := protect.UidSystem // never resolved by ipmap:LookupNetIP
-	return dns53.NewTransportFromHostname(ctx, dnsx.System, specialHostname, ipcsv, p, g)
+	return dns53.NewTransportFromHostname(ctx, dnsx.System, specialHostname, ipcsv, p)
 }
 
 // SetSystemDNS creates and adds a DNS53 transport of the specified IP addresses.
 func SetSystemDNS(t Tunnel, ipcsv string) error {
 	r, rerr := t.internalResolver()
 	p, perr := t.internalProxies()
-	g := t.getBridge()
 	ctx := t.internalCtx()
 	n := len(ipcsv)
 	if r == nil || p == nil || n <= 0 {
@@ -76,7 +74,7 @@ func SetSystemDNS(t Tunnel, ipcsv string) error {
 	}
 
 	var ok bool
-	if sdns, err := newSystemDNSProxy(ctx, g, p, ipcsv); err == nil {
+	if sdns, err := newSystemDNSProxy(ctx, p, ipcsv); err == nil {
 		ok = r.Add(sdns)
 	} else {
 		return err
@@ -86,8 +84,8 @@ func SetSystemDNS(t Tunnel, ipcsv string) error {
 	return nil
 }
 
-func newGoosTransport(ctx context.Context, g Bridge, p ipn.Proxies) (d dnsx.Transport) {
-	d, _ = dns53.NewGoosTransport(ctx, p, g)
+func newGoosTransport(ctx context.Context, px ipn.Proxies) (d dnsx.Transport) {
+	d, _ = dns53.NewGoosTransport(ctx, px)
 	return
 }
 
@@ -104,8 +102,8 @@ func newDNSCryptTransport(ctx context.Context, px ipn.Proxies, bdg Bridge) (p dn
 	return
 }
 
-func newMDNSTransport(ctx context.Context, protos string) (d dnsx.Transport) {
-	return dns53.NewMDNSTransport(ctx, protos)
+func newMDNSTransport(ctx context.Context, protos string, px ipn.Proxies) (d dnsx.Transport) {
+	return dns53.NewMDNSTransport(ctx, protos, px)
 }
 
 // AddDefaultTransport adds a special default transport to the tunnel's resolver
@@ -134,7 +132,6 @@ func AddProxyDNS(t Tunnel, p x.Proxy) error {
 	if rerr != nil || perr != nil {
 		return errors.Join(rerr, perr)
 	}
-	g := t.getBridge()
 	ctx := t.internalCtx()
 	ipOrHostCsv := p.DNS() // may return csv(host:port), csv(ip:port), csv(ips), csv(host)
 	if len(ipOrHostCsv) == 0 {
@@ -150,13 +147,13 @@ func AddProxyDNS(t Tunnel, p x.Proxy) error {
 	ipport, err := xdns.DnsIPPort(first)
 	hostOrHostport := first // could be multiple hostnames or host:ports, but choose the first
 	if err != nil {         // use hostname
-		if dns, err := dns53.NewTransportFromHostname(ctx, p.ID(), hostOrHostport, "", pxr, g); err != nil {
+		if dns, err := dns53.NewTransportFromHostname(ctx, p.ID(), hostOrHostport, "", pxr); err != nil {
 			return err
 		} else {
 			return addDNSTransport(r, dns)
 		}
 		// use ipports; register with same id as the proxy p
-	} else if dns, err := dns53.NewTransportFrom(ctx, p.ID(), ipport, pxr, g); err != nil {
+	} else if dns, err := dns53.NewTransportFrom(ctx, p.ID(), ipport, pxr); err != nil {
 		return err
 	} else {
 		return addDNSTransport(r, dns)
@@ -171,13 +168,12 @@ func AddDoHTransport(t Tunnel, id, url, ips string) error {
 	if rerr != nil || perr != nil {
 		return errors.Join(rerr, perr)
 	}
-	g := t.getBridge()
 	ctx := t.internalCtx()
 	split := []string{}
 	if len(ips) > 0 {
 		split = strings.Split(ips, ",")
 	}
-	if dns, err := doh.NewTransport(ctx, id, url, split, pxr, g); err != nil {
+	if dns, err := doh.NewTransport(ctx, id, url, split, pxr); err != nil {
 		return err
 	} else {
 		return addDNSTransport(r, dns)
@@ -212,13 +208,12 @@ func AddDoTTransport(t Tunnel, id, url, ips string) error {
 	if rerr != nil || perr != nil {
 		return errors.Join(rerr, perr)
 	}
-	g := t.getBridge()
 	ctx := t.internalCtx()
 	split := []string{}
 	if len(ips) > 0 {
 		split = strings.Split(ips, ",")
 	}
-	if dns, err := dns53.NewTLSTransport(ctx, id, url, split, pxr, g); err != nil {
+	if dns, err := dns53.NewTLSTransport(ctx, id, url, split, pxr); err != nil {
 		return err
 	} else {
 		return addDNSTransport(r, dns)
