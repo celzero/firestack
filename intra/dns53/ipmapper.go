@@ -288,7 +288,3 @@ func addrs(a []byte) []netip.Addr {
 func dnsmsg(host string, qtype uint16) ([]byte, error) {
 	return xdns.Question(host, qtype)
 }
-
-func firstEmpty(arr []string) bool {
-	return len(arr) <= 0 || len(arr[0]) <= 0
-}
