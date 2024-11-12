@@ -20,6 +20,7 @@ require (
 	github.com/noql-net/certpool v0.0.0-20240719060413-a5ed62ecc62a
 	github.com/refraction-networking/utls v1.3.3
 	github.com/txthinking/socks5 v0.0.0-20230325130024-4230056ae301
+	go4.org/unsafe/assume-no-moving-gc v0.0.0-20231121144256-b99613f794b6
 	golang.org/x/mobile v0.0.0-20220518205345-8578da9835fd
 	golang.org/x/net v0.30.0
 	golang.zx2c4.com/wireguard v0.0.0-20231211153847-12269c276173

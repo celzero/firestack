@@ -24,7 +24,7 @@ import (
 	"github.com/celzero/firestack/intra/protect"
 	"github.com/celzero/firestack/intra/xdns"
 	"github.com/miekg/dns"
-	"golang.org/x/net/context"
+	_ "go4.org/unsafe/assume-no-moving-gc"
 )
 
 const usepool = true
