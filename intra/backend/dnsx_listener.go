@@ -32,8 +32,10 @@ type DNSOpts struct {
 	PIDCSV string
 	// csv of ips to answer for this query; incl unspecified.
 	IPCSV string
-	// csv of transports ids to use for this query.
+	// primary csv of transports ids to use for this query.
 	TIDCSV string
+	// secondary transport ids to use for this query.
+	TIDSECCSV string
 	// bypass on-device blocklists.
 	NOBLOCK bool
 }
@@ -52,7 +54,7 @@ type DNSListener interface {
 	ResolverListener
 	// OnQuery is called when a DNS query is received. The listener
 	// can return a DNSOpts to modify
-	OnQuery(domain string, qtyp int) *DNSOpts
+	OnQuery(uid, domain string, qtyp int) *DNSOpts
 	// OnResponse is called when a DNS response is received.
 	OnResponse(*DNSSummary)
 }

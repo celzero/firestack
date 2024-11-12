@@ -228,7 +228,7 @@ func (t *transport) send(network, pid string, q *dns.Msg) (ans *dns.Msg, elapsed
 		network, t.id, t.addrport, qname, useudp, useproxy, userelay, err)
 
 	if err != nil {
-		qerr = dnsx.NewClientQueryError(err)
+		qerr = dnsx.NewSendFailedQueryError(err)
 		return
 	} // else: send query
 

@@ -217,7 +217,7 @@ func query(pid string, packet *dns.Msg, serverInfo *serverinfo, useudp bool) (an
 	}
 
 	if serverInfo == nil {
-		qerr = dnsx.NewInternalQueryError(errNoServers)
+		qerr = dnsx.NewTransportQueryError(errNoServers)
 		return // nil ans
 	}
 

@@ -14,11 +14,11 @@ import (
 	"github.com/miekg/dns"
 )
 
-// ResolveOn resolves nom to IPs on given DNS transport IDs, tids.
-func ResolveOn(nom string, tids ...string) ([]netip.Addr, error) {
+// ResolveFor resolves nom to IPs using transport designated for given uid.
+func ResolveFor(nom string, uid string) ([]netip.Addr, error) {
 	// ipm.LookupNetIP itself has a short-term cache (ipmapper.go:battl)
 	// and since TIDs are specified, the ipmap cache is not used.
-	return ipm.LookupNetIPOn(context.Background(), "ip", nom, tids...)
+	return ipm.LookupNetIPFor(context.Background(), "ip", nom, uid)
 }
 
 // Resolve resolves hostname to IP addresses, bypassing cache.

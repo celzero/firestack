@@ -12,7 +12,6 @@ import (
 	"math/rand"
 	"net"
 	"net/netip"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -167,37 +166,27 @@ func (h *baseHandler) onFlow(localaddr, target netip.AddrPort) (fm *Mark, undidA
 		}, onFlowTimeout)
 
 		hasNewIPs := false
-		hasPre := pre != nil && len(pre.TIDCSV) > 0
+		hasPre := pre != nil
 		if ok && hasPre {
-			if newuid, err := strconv.Atoi(pre.UID); err == nil {
-				uid = newuid
-			} else {
-				log.W("onFlow: %s preflow: invalid uid %s; using %d, err? %v",
-					h.proto, pre.UID, uid, err)
-			}
-			// empty pre.TIDCSV will result in len(tids) == 1
-			// go.dev/play/p/67cd88Y1lUE
-			tids := strings.Split(pre.TIDCSV, ",")
 			for _, d := range strings.Split(doms, ",") {
 				if len(d) <= 0 {
 					log.V("onFlow: %s preflow: empty domain in %v from %v => %v for %s; skip!",
 						h.proto, doms, src, target, pre.UID)
 					continue
 				}
-				// ResolveOn will use dnsx.Default if TID is empty
-				// see: dns53.ipmapper:queryIP & dnsx.transport:Lookup
-				newips, err := dialers.ResolveOn(d, tids...)
+				newips, err := dialers.ResolveFor(d, pre.UID)
 				hasNewIPs = err == nil && len(newips) > 0
-				if hasNewIPs { // fetch alg result if resolve succeeded
-					_, ips, doms, pdoms, blocklists = h.undoAlg(target.Addr(), tids...)
+				if hasNewIPs { // already unalg'd by ipmapper
+					// _, ips, doms, pdoms, blocklists = h.undoAlg(target.Addr())
+					ips = dnsx.Netip2Csv(newips)
 					break
 				} // else: either no known transport or preflow failed
 			}
 		} // else: either no known transport or preflow failed
 
 		if !ok || !hasPre || !hasNewIPs {
-			log.W("onFlow: %s alg, but no preflow? %t / %t, ips? %t for %s over %s; block!",
-				h.proto, ok, hasPre, hasNewIPs, pre.UID, pre.TIDCSV)
+			log.W("onFlow: %s alg, but no preflow? %t / %t, ips? %t for %s; block!",
+				h.proto, ok, hasPre, hasNewIPs, pre.UID)
 			// either optionsBase (BlockModeNone) or optionsBlock
 			return fm, undidAlg, "", ""
 		} // else: if we've got target and/or old ips, dial them

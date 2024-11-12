@@ -136,12 +136,14 @@ type Resolver interface {
 	GetMult(id string) (TransportMult, error)
 
 	IsDnsAddr(ipport netip.AddrPort) bool
-	// Lookup performs resolution on Default and/or Goos DNSes
-	LocalLookup(q []byte) ([]byte, error)
-	// LookupIPs performs resolution on chosen Transport.
-	Lookup([]byte, ...string) ([]byte, error)
+	// LocalLookup performs resolution on Default and/or Goos DNSes
+	LocalLookup(q []byte) (a []byte, tid string, err error)
+	// Lookup performs resolution on chosen Transport.
+	Lookup(q []byte, chosen ...string) (a []byte, tid string, err error)
+	// LookupPref performs resolution for uid.
+	LookupFor(q []byte, uid string) (a []byte, tid string, err error)
 	// Forward performs resolution on any DNS transport
-	Forward(q []byte) ([]byte, error)
+	Forward(q []byte) (a []byte, tid string, err error)
 	// Serve reads DNS query from conn and writes DNS answer to conn
 	Serve(proto string, conn protect.Conn)
 
@@ -371,21 +373,25 @@ func (r *resolver) IsDnsAddr(ipport netip.AddrPort) bool {
 	return r.isDns(ipport)
 }
 
-func (r *resolver) Lookup(q []byte, chosenids ...string) ([]byte, error) {
+func (r *resolver) Lookup(q []byte, tids ...string) ([]byte, string, error) {
 	if len(q) <= 0 {
-		return nil, errNoQuestion
+		return nil, NoDNS, errNoQuestion
 	}
-	if firstEmpty(chosenids) {
-		log.W("dns: no transport ids %v; using dnsx.Default", chosenids)
-		chosenids = []string{Default}
-	}
-
-	return r.forward(q, chosenids...)
+	// if len(tids) == 0, use transport from preferences
+	return r.forward(q, tids...)
 }
 
-func (r *resolver) LocalLookup(q []byte) ([]byte, error) {
+func (r *resolver) LookupFor(q []byte, uid string) ([]byte, string, error) {
+	if len(q) <= 0 {
+		return nil, NoDNS, errNoQuestion
+	}
+
+	return r.forward(q, uid)
+}
+
+func (r *resolver) LocalLookup(q []byte) ([]byte, string, error) {
 	if r.closed.Load() {
-		return nil, errResolverClosed
+		return nil, NoDNS, errResolverClosed
 	}
 
 	defaultIsSystemDNS := false
@@ -396,28 +402,33 @@ func (r *resolver) LocalLookup(q []byte) ([]byte, error) {
 	}
 
 	// including dns64 and/or alg
-	ans, err := r.forward(q, Default)
+	ans, tid, err := r.forward(q, Default)
 	if defaultIsSystemDNS {
-		return ans, err
+		return ans, tid, err
 	} // else: retry with Goos/System, if needed
 
 	// msg may be nil
 	if msg := xdns.AsMsg(ans); err != nil || xdns.IsNXDomain(msg) || !xdns.HasRcodeSuccess(msg) {
 		log.I("dns: nxdomain via Default (err? %v); using Goos for %s", err, xdns.QName(msg))
-		return r.forward(q, Goos) // Goos is System; see: determineTransport
+		ans, tid, err = r.forward(q, Goos) // Goos is System; see: determineTransport
 	} // else: rcode success and nil err; do not fallback on Goos/System
-	return ans, nil
+
+	return ans, tid, err
 }
 
-func (r *resolver) Forward(q []byte) ([]byte, error) {
+func (r *resolver) Forward(q []byte) ([]byte, string, error) {
 	if r.closed.Load() {
-		return nil, errResolverClosed
+		return nil, NoDNS, errResolverClosed
 	}
 
 	return r.forward(q)
 }
 
-func (r *resolver) forward(q []byte, chosenids ...string) (res0 []byte, err0 error) {
+func (r *resolver) forward(q []byte, chosenids ...string) ([]byte, string, error) {
+	return r.forward2(q, core.UNKNOWN_UID_STR, chosenids...)
+}
+
+func (r *resolver) forward2(q []byte, uid string, chosenids ...string) (res0 []byte, tid0 string, err0 error) {
 	starttime := time.Now()
 	smm := &x.DNSSummary{
 		QName:  invalidQname,
@@ -432,6 +443,11 @@ func (r *resolver) forward(q []byte, chosenids ...string) (res0 []byte, err0 err
 		if len(smm.Msg) <= 0 {
 			smm.Msg = errNop.Error()
 		}
+		if len(smm.ID) > 0 {
+			tid0 = smm.ID
+		} else {
+			tid0 = NoDNS
+		}
 		r.queueSummary(smm)
 	}()
 
@@ -441,7 +457,7 @@ func (r *resolver) forward(q []byte, chosenids ...string) (res0 []byte, err0 err
 		smm.Latency = time.Since(starttime).Seconds()
 		smm.Status = BadQuery
 		smm.Msg = err.Error()
-		return nil, err
+		return nil, NoDNS, err
 	}
 
 	// figure out transport to use
@@ -454,18 +470,18 @@ func (r *resolver) forward(q []byte, chosenids ...string) (res0 []byte, err0 err
 		smm.Latency = time.Since(starttime).Seconds()
 		smm.Status = BadQuery
 		smm.Msg = errMissingQueryName.Error()
-		return nil, errMissingQueryName
+		return nil, NoDNS, errMissingQueryName
 	}
 
 	pref, oqok := core.Grx("r.onQuery", func(_ context.Context) (*x.DNSOpts, error) {
-		return r.listener.OnQuery(qname, qtyp), nil
+		return r.listener.OnQuery(uid, qname, qtyp), nil
 	}, onQueryTimeout)
 	if !oqok {
 		log.W("dns: fwd: no preferences for %s", qname)
 		smm.Latency = time.Since(starttime).Seconds()
 		smm.Status = ClientError
 		smm.Msg = errOnQueryTimeout.Error()
-		return nil, errOnQueryTimeout
+		return nil, NoDNS, errOnQueryTimeout
 	}
 
 	id, sid, pids, presetIPs := r.preferencesFrom(qname, uint16(qtyp), pref, chosenids...)
@@ -478,7 +494,7 @@ func (r *resolver) forward(q []byte, chosenids ...string) (res0 []byte, err0 err
 		smm.Latency = time.Since(starttime).Seconds()
 		smm.Status = TransportError
 		smm.Msg = errNoSuchTransport.Error()
-		return nil, errNoSuchTransport
+		return nil, NoDNS, errNoSuchTransport
 	}
 	var t2 Transport
 	if len(sid) > 0 {
@@ -526,7 +542,7 @@ func (r *resolver) forward(q []byte, chosenids ...string) (res0 []byte, err0 err
 	if err != nil && !algerr {
 		// both err and res2 are set when res2 has rcode error or servfail
 		// summary latency, ips, response, status already set by transport t
-		return res2, err
+		return res2, smm.ID, err
 	}
 	if ans1 == nil {
 		// very unlikely that ans1 is nil but err is not
@@ -535,14 +551,14 @@ func (r *resolver) forward(q []byte, chosenids ...string) (res0 []byte, err0 err
 			smm.Msg = err.Error()
 		}
 		smm.Status = NoResponse // TODO: servfail?
-		return res2, err
+		return res2, smm.ID, err
 	} // discard alg err
 
 	res2, err = ans1.Pack()
 	if err != nil {
 		smm.Status = BadResponse // TODO: servfail?
 		smm.Msg = err.Error()
-		return res2, err
+		return res2, smm.ID, err
 	}
 
 	ans2, blocklistnames := r.blockA(t, t2, msg, ans1, smm.Blocklists)
@@ -556,7 +572,7 @@ func (r *resolver) forward(q []byte, chosenids ...string) (res0 []byte, err0 err
 		if err != nil {
 			smm.Status = BadResponse // TODO: servfail?
 			smm.Msg = err.Error()
-			return res2, err
+			return res2, smm.ID, err
 		}
 		// summary latency, response, status, ips also set by transport t
 		smm.RData = xdns.GetInterestingRData(ans2)
@@ -573,7 +589,7 @@ func (r *resolver) forward(q []byte, chosenids ...string) (res0 []byte, err0 err
 	log.V("dns: fwd: query %s; new-ans? %t, blocklists? %t, blocked? %t",
 		qname, isnewans, hasblocklists, ansblocked)
 
-	return res2, nil
+	return res2, smm.ID, nil
 }
 
 func (r *resolver) Serve(proto string, c protect.Conn) {
@@ -646,7 +662,7 @@ func (r *resolver) determineTransport(id string) Transport {
 
 // dnstcp queries the transport and writes answers to w, prefixed by length.
 func (r *resolver) dnstcp(q []byte, w io.WriteCloser) error {
-	ans, err := r.forward(q)
+	ans, _, err := r.forward(q)
 
 	rlen := len(ans)
 	if rlen <= 0 && err != nil {
@@ -666,7 +682,7 @@ func (r *resolver) dnstcp(q []byte, w io.WriteCloser) error {
 
 // dnsudp queries the transport and writes answers to w.
 func (r *resolver) dnsudp(q []byte, w io.WriteCloser) error {
-	ans, err := r.forward(q)
+	ans, _, err := r.forward(q)
 
 	rlen := len(ans)
 	if rlen <= 0 && err != nil {
@@ -840,12 +856,14 @@ func (r *resolver) LiveTransports() string {
 }
 
 func (r *resolver) preferencesFrom(qname string, qtyp uint16, s *x.DNSOpts, chosenids ...string) (id1, id2, pidcsv string, ips []netip.Addr) {
-	var x []string
-	if s == nil { // should never happen; but it has during testing (on End())
+	var x []string  // primary
+	var xx []string // secondary
+	if s == nil {   // should never happen; but it has during testing (on End())
 		log.W("dns: pref: no ns opts for %s", qname)
 		return // no-op
 	} else {
 		x = strings.Split(s.TIDCSV, ",")
+		xx = strings.Split(s.TIDSECCSV, ",")
 		if y := strings.Split(s.IPCSV, ","); len(y) > 0 {
 			ips = make([]netip.Addr, 0, len(y))
 			for _, a := range y {
@@ -876,17 +894,12 @@ func (r *resolver) preferencesFrom(qname string, qtyp uint16, s *x.DNSOpts, chos
 		}
 	}
 
-	l := len(x)
-	if x == nil || l <= 0 { // x may be nil
+	if x == nil || len(x) <= 0 { // x may be nil
 		log.W("dns: pref: no tids for %s", qname)
 		// no-op
-	} else if l == 1 {
-		id1 = x[0] // id for transport t1
-	} else if l == 2 {
-		id1, id2 = x[0], x[1] // ids for transport t1, t2
 	} else {
-		log.W("dns: pref: too many tids; upto 2, got %d", l)
-		id1, id2 = x[0], x[1] // ids for transport t1, t2
+		id1 = r.chooseOne(x...)
+		id2 = r.chooseOne(xx...) // mostly, just 0 or 1 secondary
 	}
 
 	// chosen ID overrides all
@@ -897,15 +910,16 @@ func (r *resolver) preferencesFrom(qname string, qtyp uint16, s *x.DNSOpts, chos
 			id2 = chosenids[1] // may be empty, but that's ok
 		}
 		log.D("dns: pref: use chosen tr(%s, %s) for %s", id1, id2, qname)
-	} else if isAnyBlockAll(id1, id2) || isAnyIPUnspecified(ips) { // just one transport, BlockAll, if set
-		id1 = BlockAll
+	} else if isAnyIPUnspecified(ips) || isAnyBlockAll(x...) {
+		// BlockAll must appear in primary TIDCSV
+		id1 = BlockAll // just one transport, BlockAll, if set
 		id2 = ""
-	} else if reqid := r.requiresGoosOrLocal(qname); len(reqid) > 0 { // use approp transport given a qname
+	} else if reqid := r.requiresGoosOrLocal(qname); len(reqid) > 0 {
+		// use approp transport given a qname
 		log.D("dns: pref: use suggested tr(%s) for %s", reqid, qname)
 		id1 = reqid
 		id2 = ""
-	} else if isAnyFixed(id1, id2) {
-		log.VV("dns: pref: use fixed tr (%s, %s) for %s", id1, id2, qname)
+	} else if isAnyFixed(x...) || isAnyFixed(xx...) {
 		if id1 != Fixed { // Fixed must always be the primary transport
 			id2 = id1
 			id1 = Fixed
@@ -913,24 +927,66 @@ func (r *resolver) preferencesFrom(qname string, qtyp uint16, s *x.DNSOpts, chos
 		if len(id2) <= 0 {
 			id2 = Preferred
 		}
+		log.VV("dns: pref: use fixed tr(%s, %s) for %s", id1, id2, qname)
 		// s.NOBLOCK must be respected
 		// s.PIDCSV must be respected
-	}
-	if isAnyLocal(id1, id2) { // use one transport, Local, if set
-		id1 = Local
-		id2 = ""
 	}
 	if len(ips) > 0 {
 		log.D("dns: pref: preset ips (no block) %v for %s", ips, qname)
 		s.NOBLOCK = true // skip blocks if ips are set (even if unspecified ips)
 		id2 = ""         // no secondary transport
 	}
+	if isAnyLocal(id1, id2) { // use one transport, Local, if set
+		id1 = Local
+		id2 = ""
+	}
+
 	if len(s.PIDCSV) > 0 {
 		pidcsv = overrideProxyIfNeeded(s.PIDCSV, id1, id2)
 	} else {
 		pidcsv = NetNoProxy
 	}
 	return
+}
+
+func (r *resolver) chooseOne(ids ...string) string {
+	if len(ids) <= 0 {
+		return ""
+	} else if len(ids) == 1 {
+		return ids[0]
+	}
+
+	preferred := make([]string, 0)
+	recoverables := make([]string, 0)
+	errored := make([]string, 0)
+
+	r.RLock()
+	for _, id := range ids {
+		if t := r.transports[id]; t != nil {
+			switch t.Status() {
+			case Complete:
+				return id
+			case Start, NoResponse:
+				preferred = append(preferred, id)
+			case BadResponse, BadQuery:
+				preferred = append(preferred, id)
+			case InternalError, TransportError, Unknown:
+				recoverables = append(recoverables, id)
+			default: // ClientError, SendFailed
+				errored = append(errored, id)
+			}
+		}
+	}
+	r.RUnlock()
+
+	if len(preferred) > 0 {
+		return preferred[0]
+	} else if len(recoverables) > 0 {
+		return recoverables[0]
+	} else if len(errored) > 0 {
+		return errored[0]
+	}
+	return ""
 }
 
 func (r *resolver) loadaddrs(csvaddr string) {

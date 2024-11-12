@@ -56,8 +56,6 @@ type SocketListener interface {
 type PreMark struct {
 	// UID of the app which owns a flow.
 	UID string
-	// TIDCSV is a list of DNS transport IDs.
-	TIDCSV string
 }
 
 type Mark struct {

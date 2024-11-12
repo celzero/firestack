@@ -638,7 +638,7 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []netip.Addr, network string, q 
 	}
 }
 
-func netip2csv(ips []netip.Addr) (csv string) {
+func Netip2Csv(ips []netip.Addr) (csv string) {
 	out := make([]string, 0, len(ips))
 	for _, ip := range ips {
 		if ip.IsValid() {
@@ -661,7 +661,7 @@ func withDNS64Summary(ans64 *dns.Msg, s *x.DNSSummary) {
 func withAlgSummaryIfNeeded(s *x.DNSSummary, algips ...netip.Addr) {
 	if settings.Debug {
 		// convert algips to ipcsv; any algips may be invalid
-		ipcsv := netip2csv(algips)
+		ipcsv := Netip2Csv(algips)
 
 		if len(s.RData) > 0 {
 			s.RData = s.RData + "," + ipcsv

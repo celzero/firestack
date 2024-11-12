@@ -21,6 +21,7 @@ const (
 	InternalError  = x.InternalError
 	TransportError = x.TransportError
 	ClientError    = x.ClientError
+	Unknown        = 100
 )
 
 var errNop = errors.New("no error")
@@ -46,7 +47,7 @@ func (e *QueryError) Unwrap() error {
 
 func (e *QueryError) Status() int {
 	if e == nil {
-		return 100 // unknown
+		return Unknown // unknown
 	}
 	return e.status
 }

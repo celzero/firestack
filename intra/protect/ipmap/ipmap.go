@@ -70,9 +70,8 @@ func (h IPSetType) String() string {
 // For internal used by firestack.
 type IPMapper interface {
 	Lookup(q []byte) ([]byte, error)
-	LookupOn(q []byte, tids ...string) ([]byte, error)
 	LookupNetIP(ctx context.Context, network, host string) ([]netip.Addr, error)
-	LookupNetIPOn(ctx context.Context, network, host string, tids ...string) ([]netip.Addr, error)
+	LookupNetIPFor(ctx context.Context, network, host, uid string) ([]netip.Addr, error)
 }
 
 // IPMap maps hostnames to IPSets.
@@ -189,20 +188,12 @@ func (m *ipmap) Lookup(q []byte) ([]byte, error) {
 	return r.Lookup(q)
 }
 
-func (m *ipmap) LookupOn(q []byte, tids ...string) ([]byte, error) {
-	r := m.r // actual ipmapper implementation
-	if r == nil {
-		return nil, &net.DNSError{Err: "no resolver", Name: "LookupOn", Server: "localhost"}
-	}
-	return r.LookupOn(q, tids...)
-}
-
-func (m *ipmap) LookupNetIPOn(ctx context.Context, network, host string, tids ...string) ([]netip.Addr, error) {
+func (m *ipmap) LookupNetIPFor(ctx context.Context, network, host, uid string) ([]netip.Addr, error) {
 	r := m.r // actual ipmapper implementation
 	if r == nil {
 		return nil, &net.DNSError{Err: "no resolver", Name: host, Server: "localhost"}
 	}
-	return r.LookupNetIPOn(ctx, network, host, tids...)
+	return r.LookupNetIPFor(ctx, network, host, uid)
 }
 
 func (m *ipmap) Add(hostOrIP string) *IPSet {
