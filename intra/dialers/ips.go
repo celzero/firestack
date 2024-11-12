@@ -91,6 +91,15 @@ func For(hostOrIP string) []netip.Addr {
 	return nil
 }
 
+// Addrs returns addresses for hostOrIP from cache. Use Resolve() to bypass cache.
+func Addrs(hostOrIP string) []netip.Addr {
+	ipset := ipm.GetAny(hostOrIP)
+	if ipset != nil || !ipset.Empty() {
+		return ipset.Addrs()
+	}
+	return nil
+}
+
 // Mapper is a hostname to IP (a/aaaa) resolver for the network engine; may be nil.
 func Mapper(m ipmap.IPMapper) {
 	log.I("dialers: ips: mapper ok? %t", m != nil)

@@ -188,13 +188,12 @@ func AddODoHTransport(t Tunnel, id, endpoint, resolver, epips string) error {
 	if rerr != nil || perr != nil {
 		return errors.Join(rerr, perr)
 	}
-	g := t.getBridge()
 	ctx := t.internalCtx()
 	split := []string{}
 	if len(epips) > 0 {
 		split = strings.Split(epips, ",")
 	}
-	if dns, err := doh.NewOdohTransport(ctx, id, endpoint, resolver, split, pxr, g); err != nil {
+	if dns, err := doh.NewOdohTransport(ctx, id, endpoint, resolver, split, pxr); err != nil {
 		return err
 	} else {
 		return addDNSTransport(r, dns)

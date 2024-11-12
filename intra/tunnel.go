@@ -80,8 +80,6 @@ type Tunnel interface {
 	GetProxies() (x.Proxies, error)
 	// Get the internal proxies.
 	internalProxies() (ipn.Proxies, error)
-	// A bridge to the client code.
-	getBridge() Bridge
 	// Sets new default routes for the given engine, where engine is
 	// one of the constants (Ns4, Ns6, Ns46) defined in package settings.
 	SetRoute(engine int) error
@@ -99,7 +97,6 @@ type rtunnel struct {
 	ctx      context.Context
 	done     context.CancelFunc
 	tunmode  *settings.TunMode
-	bridge   Bridge
 	proxies  ipn.Proxies
 	resolver dnsx.Resolver
 	services rnet.Services
@@ -130,7 +127,7 @@ func NewTunnel(fd, mtu int, fakedns string, tunmode *settings.TunMode, dtr Defau
 		return nil, fmt.Errorf("tun: no proxies? %t or services? %t", proxies == nil, services == nil)
 	}
 
-	if err := dtr.kickstart(proxies, bdg); err != nil {
+	if err := dtr.kickstart(proxies); err != nil {
 		log.I("tun: <<< new >>>; kickstart err(%v)", err)
 		return nil, err
 	}
@@ -163,7 +160,6 @@ func NewTunnel(fd, mtu int, fakedns string, tunmode *settings.TunMode, dtr Defau
 		ctx:      ctx,
 		done:     cancel,
 		tunmode:  tunmode,
-		bridge:   bdg,
 		proxies:  proxies,
 		resolver: resolver,
 		services: services,
@@ -171,10 +167,6 @@ func NewTunnel(fd, mtu int, fakedns string, tunmode *settings.TunMode, dtr Defau
 
 	log.I("tun: <<< new >>>; ok")
 	return t, nil
-}
-
-func (t *rtunnel) getBridge() Bridge {
-	return t.bridge // may return nil, esp after Disconnect()
 }
 
 func (t *rtunnel) Disconnect() {
@@ -187,7 +179,6 @@ func (t *rtunnel) Disconnect() {
 	t.once.Do(func() {
 		t.closed.Store(true)
 		t.done()
-		t.bridge = nil // "free" ref to the client
 		log.I("tun: <<< disconnect >>>")
 	})
 }

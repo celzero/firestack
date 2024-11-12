@@ -43,7 +43,7 @@ var (
 // DefaultDNS is the resolver used by all dialers.
 type DefaultDNS interface {
 	x.DNSTransport
-	kickstart(px ipn.Proxies, g Bridge) error
+	kickstart(px ipn.Proxies) error
 	reinit(typ, ipOrUrl, ips string) error
 }
 
@@ -51,7 +51,6 @@ type bootstrap struct {
 	ctx      context.Context
 	tr       dnsx.Transport // the underlying transport
 	proxies  ipn.Proxies    // never nil if underlying transport is set
-	bridge   Bridge         // never nil if underlying transport is set
 	typ      string         // DOH or DNS53
 	ipports  string         // never empty for DNS53
 	url      string         // never empty for DOH
@@ -147,24 +146,23 @@ func (b *bootstrap) reinit(trtype, ippOrUrl, ipcsv string) error {
 
 	log.I("dns: default: %s reinit %s %s w/ %s", trtype, b.url, b.hostname, b.ipports)
 
-	// if proxies and bridges are set, restart to create new transport
-	if b.proxies != nil && b.bridge != nil {
+	// if proxies is set, restart to create new transport
+	if b.proxies != nil {
 		return b.recreate()
 	}
 	return nil
 }
 
 func (b *bootstrap) recreate() error {
-	return b.kickstart(b.proxies, b.bridge)
+	return b.kickstart(b.proxies)
 }
 
-func (b *bootstrap) kickstart(px ipn.Proxies, g Bridge) error {
-	if px == nil || g == nil {
+func (b *bootstrap) kickstart(px ipn.Proxies) error {
+	if px == nil {
 		return errCannotStart
 	}
 
 	b.proxies = px
-	b.bridge = g
 	var tr dnsx.Transport
 	var err error
 	switch b.typ {
