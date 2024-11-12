@@ -309,7 +309,7 @@ func (px *proxifier) ProxyTo(ipp netip.AddrPort, uid string, pids []string) (Pro
 		return nil, errMissingAddress
 	}
 	if len(pids) == 1 { // there's no other pid to choose from
-		return px.pinID(uid, ipp, pids[0])
+		return px.pinID(uid, ipp, pids[0]) // repin
 	}
 
 	var lopinned string
@@ -325,10 +325,10 @@ func (px *proxifier) ProxyTo(ipp netip.AddrPort, uid string, pids []string) (Pro
 		// always favour remote proxy pins over local, if any
 		lopinned = pinnedpid
 	} else if pinok && chosen {
-		p, err := px.pinID(uid, ipp, pinnedpid)
+		p, err := px.pinID(uid, ipp, pinnedpid) // repin
 		if err == nil {
 			return p, nil
-		} // else: fallthrough
+		} // else: pinnedpid not ok
 	} else if pinok && !chosen {
 		px.delpin(uid, ipp)
 	}
@@ -364,7 +364,7 @@ func (px *proxifier) ProxyTo(ipp netip.AddrPort, uid string, pids []string) (Pro
 		}
 
 		if hasroute(p, ippstr) {
-			err := px.pin(uid, ipp, p)
+			err := px.pin(uid, ipp, p) // repin
 			if err == nil {
 				log.VV("proxy: pin: %s+%s; pinned: %s; from pids: %v", uid, ipp, pid, pids)
 				return p, nil
@@ -384,7 +384,7 @@ func (px *proxifier) ProxyTo(ipp netip.AddrPort, uid string, pids []string) (Pro
 		// ignore err, as it unlikely for local proxies
 		// that are always available, and are presumed to
 		// be gateways (route all ips)
-		if p, _ := px.pinID(uid, ipp, pid); p != nil {
+		if p, _ := px.pinID(uid, ipp, pid); p != nil { // repin
 			return p, nil
 		}
 		missproxies = append(missproxies, pid)

@@ -44,6 +44,7 @@ import (
 )
 
 // from: https://github.com/Snawoot/opera-proxy/blob/27b3da3004/upstream.go
+// reddit.com/r/operabrowser/comments/18jnxbt/is_opera_a_spyware
 
 const (
 	protoH1       = "HTTP/1.1"
