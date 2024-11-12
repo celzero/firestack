@@ -163,6 +163,7 @@ func (id *Identity) genWgConf() {
 	}
 	id.WgConf = fmt.Sprintf(`[Interface]
 PublicKey = %s
+ClientID = %s
 Address = %s
 Address = %s
 DNS = %s
@@ -175,6 +176,7 @@ Endpoint = %s
 AllowedIPs = %s
 AllowedIPs = %s`,
 		id.Key,
+		id.Config.ClientID,
 		id.Config.Interface.Addresses.V4,
 		id.Config.Interface.Addresses.V6,
 		// developers.cloudflare.com/1.1.1.1/ip-addresses/
