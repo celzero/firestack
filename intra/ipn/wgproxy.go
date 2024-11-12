@@ -982,22 +982,27 @@ func (h *wgproxy) Reaches(hostportOrIPPortCsv string) bool {
 }
 
 // Hop implements Proxy.
-func (h *wgproxy) Hop(p Proxy) error {
+func (h *wgproxy) Hop(p Proxy) (err error) {
 	var old Proxy
 
 	defer func() {
-		log.I("wg: %s hop old(%s) => new(%s)", h.id, idhandle(old), idhandle(p))
+		log.I("wg: %s hop old(%s@%s) => new(%s@%s); err? %v",
+			h.id, idhandle(old), idhandle(p), err)
 
 		if Same(old, p) {
 			return
 		}
-		go h.Refresh() // reconnect
+		if err == nil {
+			go h.Refresh() // reconnect
+		}
 	}()
 
 	if p == nil {
 		old = h.via.Tango(nil)
+		log.I("wg: %s hop: %s removed", h.id, idhandle(old))
 		return nil
 	}
+
 	if p.Status() == END {
 		return errProxyStopped
 	}
@@ -1005,6 +1010,11 @@ func (h *wgproxy) Hop(p Proxy) error {
 	if !isWG(p.ID()) { // for now, only wg can hop another wg
 		return errHopWireGuard
 	}
+
+	if h.Router().IP4() != p.Router().IP4() || h.Router().IP6() != p.Router().IP6() {
+		return errHopGateway
+	}
+
 	// mtu needed to tunnel this wg
 	mtuNeeded := calcNetMtu(h.mtu)
 	// mtu affordable by this hop
