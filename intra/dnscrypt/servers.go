@@ -384,6 +384,13 @@ func (s *serverinfo) GetAddr() string {
 	return s.HostName
 }
 
+func (s *serverinfo) IPPorts() []netip.AddrPort {
+	if relay := s.RelayUDPAddrs.Load(); relay != nil {
+		return addr2ipp(relay...)
+	}
+	return addr2ipp(s.UDPAddr)
+}
+
 func (s *serverinfo) Status() int {
 	return s.status.Load()
 }
@@ -433,23 +440,29 @@ func (s *serverinfo) dialpx(pid, proto string, addr string) (net.Conn, error) {
 func (s *serverinfo) chooseProxy(pids []string) string {
 	foundProxy := false
 	pid := dnsx.NetNoProxy
-	addrstr := s.TCPAddr.String()
-	if relay := s.RelayTCPAddrs.Load(); len(relay) > 0 {
-		if addr := chooseAny(relay); addr != nil {
-			addrstr = addr.String()
-		}
+	ipp := chooseAny(s.IPPorts())
+	if px, err := s.proxies.ProxyTo(ipp, core.UNKNOWN_UID_STR, pids); err == nil {
+		pid = px.ID()
+		foundProxy = true
+		log.VV("dnscrypt: proxy: choose: (%s) proxy(%s) for %s; among %v",
+			s.ID(), pid, ipp, pids)
 	}
-	if ipp, err := netip.ParseAddrPort(addrstr); err == nil {
-		if px, err := s.proxies.ProxyTo(ipp, core.UNKNOWN_UID_STR, pids); err == nil {
-			pid = px.ID()
-			foundProxy = true
-			log.VV("dnscrypt: proxy: choose: (%s) proxy(%s) for %s@%s; among %v",
-				s.ID(), pid, addrstr, ipp, pids)
-		}
-	}
+
 	if !foundProxy {
 		log.W("dnscrypt: proxy: choose: (%s) no proxy for %s; among %v",
-			s.ID(), addrstr, pids)
+			s.ID(), ipp, pids)
 	}
 	return pid
+}
+
+func addr2ipp(u ...*net.UDPAddr) (ipps []netip.AddrPort) {
+	if len(u) <= 0 {
+		return dnsx.NoIPPort
+	}
+	for _, x := range u {
+		if x != nil {
+			ipps = append(ipps, x.AddrPort())
+		}
+	}
+	return // may be nil
 }

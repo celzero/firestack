@@ -8,6 +8,7 @@ package dns53
 
 import (
 	"errors"
+	"net/netip"
 
 	x "github.com/celzero/firestack/intra/backend"
 	"github.com/celzero/firestack/intra/dnsx"
@@ -62,6 +63,10 @@ func (*errorer) P50() int64 {
 
 func (t *errorer) GetAddr() string {
 	return t.ipport
+}
+
+func (t *errorer) IPPorts() []netip.AddrPort {
+	return dnsx.NoIPPort
 }
 
 func (*errorer) Status() int {

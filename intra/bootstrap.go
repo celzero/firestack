@@ -9,6 +9,7 @@ package intra
 import (
 	"context"
 	"errors"
+	"net/netip"
 	"net/url"
 	"strings"
 
@@ -223,7 +224,14 @@ func (b *bootstrap) GetAddr() string {
 	if tr := b.tr; tr != nil {
 		return tr.GetAddr()
 	}
-	return ""
+	return dnsx.NoDNS
+}
+
+func (b *bootstrap) IPPorts() []netip.AddrPort {
+	if tr := b.tr; tr != nil {
+		return tr.IPPorts()
+	}
+	return dnsx.NoIPPort
 }
 
 func (b *bootstrap) Status() int {

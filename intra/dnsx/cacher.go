@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"hash/fnv"
 	"math/rand"
+	"net/netip"
 	"strconv"
 	"strings"
 	"sync"
@@ -466,6 +467,10 @@ func (t *ctransport) P50() int64 {
 func (t *ctransport) GetAddr() string {
 	prefix := PrefixFor(CT)
 	return prefix + t.Transport.GetAddr()
+}
+
+func (t *ctransport) IPPorts() []netip.AddrPort {
+	return t.Transport.IPPorts()
 }
 
 func (t *ctransport) Status() int {

@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"math/rand"
 	"net"
+	"net/netip"
 	"strings"
 	"sync"
 	"time"
@@ -642,6 +643,11 @@ func (p *DcMulti) Query(network string, q *dns.Msg, smm *x.DNSSummary) (r *dns.M
 // GetAddr returns the last server address
 func (p *DcMulti) GetAddr() string {
 	return p.lastAddr
+}
+
+func (p *DcMulti) IPPorts() []netip.AddrPort {
+	// TODO: get ipports from all servers
+	return dnsx.NoIPPort
 }
 
 // Status implements dnsx.TransportMult

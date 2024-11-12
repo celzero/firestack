@@ -18,6 +18,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/netip"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -185,6 +186,13 @@ func (t *dnssd) P50() int64 {
 
 func (t *dnssd) GetAddr() string {
 	return t.ipport
+}
+
+func (t *dnssd) IPPorts() []netip.AddrPort {
+	return []netip.AddrPort{
+		xdns.MDNSAddr4.AddrPort(),
+		xdns.MDNSAddr6.AddrPort(),
+	}
 }
 
 func (t *dnssd) Status() int {

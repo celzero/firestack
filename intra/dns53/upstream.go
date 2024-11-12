@@ -280,8 +280,7 @@ func (t *transport) send(network, pid string, q *dns.Msg) (ans *dns.Msg, elapsed
 func (t *transport) chooseProxy(pids []string) string {
 	foundProxy := false
 	pid := dnsx.NetNoProxy
-	for _, ip := range dialers.For(t.addrport) {
-		ipp := netip.AddrPortFrom(ip, t.port)
+	for _, ipp := range t.IPPorts() {
 		if px, err := t.proxies.ProxyTo(ipp, core.UNKNOWN_UID_STR, pids); err == nil {
 			pid = px.ID()
 			foundProxy = true
@@ -359,6 +358,13 @@ func (t *transport) GetAddr() string {
 	}
 
 	return addr
+}
+
+func (t *transport) IPPorts() (ipps []netip.AddrPort) {
+	for _, ip := range dialers.For(t.addrport) {
+		ipps = append(ipps, netip.AddrPortFrom(ip, t.port))
+	}
+	return
 }
 
 func (t *transport) Status() int {

@@ -36,8 +36,10 @@ const (
 	DOT      = x.DOT
 	ODOH     = x.ODOH
 
+	// DNS decorators
 	CT = x.CT
 
+	// DNS transport IDs
 	Goos      = x.Goos
 	System    = x.System
 	Local     = x.Local
@@ -51,6 +53,7 @@ const (
 	Alg       = x.Alg
 	DcProxy   = x.DcProxy
 	IpMapper  = x.IpMapper
+	NoDNS     = ""
 
 	invalidQname = "invalid.query"
 
@@ -81,6 +84,8 @@ var (
 	fixedprefix   = "fix."
 	EchPrefix     = "ech."
 	NoPkiPrefix   = "nopki."
+
+	NoIPPort []netip.AddrPort = nil
 )
 
 var (
@@ -106,6 +111,8 @@ type Transport interface {
 	// ID, or an error if no response was received.  The error may be accompanied
 	// by a SERVFAIL response if appropriate.
 	Query(network string, q *dns.Msg, summary *x.DNSSummary) (*dns.Msg, error)
+	// IPPorts returns all ip:ports of this server.
+	IPPorts() []netip.AddrPort
 	// Stop closes the transport.
 	Stop() error
 }
@@ -477,6 +484,9 @@ func (r *resolver) forward(q []byte, chosenids ...string) (res0 []byte, err0 err
 		t2 = r.determineTransport(sid)
 	}
 
+	smm.Type = t.Type()
+	smm.ID = t.ID()
+
 	res1, blocklists, err := r.blockQ(t, t2, msg) // skips if the t, t2 are alg/block-free
 	if err == nil {
 		if pref.NOBLOCK { // only add blocklists and do not actually block
@@ -492,14 +502,12 @@ func (r *resolver) forward(q []byte, chosenids ...string) (res0 []byte, err0 err
 			}
 			log.V("dns: fwd: query blocked %s by %s", qname, blocklists)
 
-			return b, e
+			return b, smm.ID, e
 		}
 	} else {
 		log.V("dns: fwd: query NOT blocked %s; why? %v", qname, err)
 	}
 
-	smm.Type = t.Type()
-	smm.ID = t.ID()
 	var res2 []byte
 	var ans1 *dns.Msg
 

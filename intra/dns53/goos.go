@@ -179,6 +179,10 @@ func (t *goosr) GetAddr() string {
 	return protect.Localhost + ":53" // dummy
 }
 
+func (t *goosr) IPPorts() []netip.AddrPort {
+	return []netip.AddrPort{netip.AddrPortFrom(netip.IPv6Loopback(), uint16(53))}
+}
+
 func (t *goosr) Status() int {
 	return t.status.Load()
 }

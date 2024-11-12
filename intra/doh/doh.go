@@ -700,23 +700,16 @@ func (t *transport) Type() string {
 func (t *transport) chooseProxy(pids []string) string {
 	foundProxy := false
 	pid := dnsx.NetNoProxy
-	addr := t.hostname
-	port := t.port
-	if t.typ == dnsx.ODOH {
-		addr = t.odohproxyname
-		port = t.odohproxyport
-	}
-	for _, ip := range dialers.For(addr) {
-		ipp := netip.AddrPortFrom(ip, port)
+	for _, ipp := range t.IPPorts() {
 		if px, err := t.proxies.ProxyTo(ipp, core.UNKNOWN_UID_STR, pids); err == nil {
 			pid = px.ID()
 			foundProxy = true
 			log.VV("doh: (%s) proxy(%s) for %s@%s; among %v",
-				t.id, pid, addr, ipp, pids)
+				t.id, pid, t.GetAddr(), ipp, pids)
 		}
 	}
 	if !foundProxy {
-		log.W("doh: (%s) no proxy for %s; among %v", t.id, addr, pids)
+		log.W("doh: (%s) no proxy for %s; among %v", t.id, t.GetAddr(), pids)
 	}
 	return pid
 }
@@ -792,6 +785,19 @@ func (t *transport) GetAddr() string {
 		addr = prefix + addr
 	}
 	return addr
+}
+
+func (t *transport) IPPorts() (ipps []netip.AddrPort) {
+	addr := t.hostname
+	port := t.port
+	if t.typ == dnsx.ODOH {
+		addr = t.odohproxyname
+		port = t.odohproxyport
+	}
+	for _, ip := range dialers.For(addr) {
+		ipps = append(ipps, netip.AddrPortFrom(ip, port))
+	}
+	return // may be nil
 }
 
 func (t *transport) Status() int {

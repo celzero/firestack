@@ -7,6 +7,7 @@
 package dns53
 
 import (
+	"net/netip"
 	"time"
 
 	x "github.com/celzero/firestack/intra/backend"
@@ -71,6 +72,10 @@ func (t *grounded) P50() int64 {
 
 func (t *grounded) GetAddr() string {
 	return t.ipport
+}
+
+func (t *grounded) IPPorts() []netip.AddrPort {
+	return dnsx.NoIPPort
 }
 
 func (t *grounded) Status() int {
