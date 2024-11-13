@@ -666,10 +666,10 @@ func (px *proxifier) MTU() (out int, err error) {
 		if local(p.ID()) {
 			continue
 		}
-		var r x.Router
-		if r = p.Router(); r == nil {
+		r := p.Router() // never nil
+		if hopping(r) { // skip proxies hopping via another
 			continue
-		}
+		} // inner tunnel MTUs should not have any bearing on outer MTU
 		if m, err1 := r.MTU(); err1 == nil {
 			if p.Type() == WG {
 				m = calcNetMtu(m)
@@ -888,6 +888,11 @@ func isWG(id string) bool {
 // Base, Block, Exit, Rpn64, Ingress
 func local(id string) bool {
 	return id == Base || id == Block || id == Exit || id == Rpn64 || id == Ingress
+}
+
+func hopping(r x.Router) bool {
+	hop, _ := r.Via()
+	return hop != nil
 }
 
 func immutable(id string) bool {
