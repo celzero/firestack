@@ -989,6 +989,7 @@ func (h *wgproxy) Hop(p Proxy) (err error) {
 	}()
 
 	if p == nil {
+		// TODO: undo MTU enforced due to any prior hops
 		old = h.via.Tango(nil)
 		log.I("wg: %s hop: %s removed", h.id, idhandle(old))
 		return nil
@@ -1010,8 +1011,17 @@ func (h *wgproxy) Hop(p Proxy) (err error) {
 	mtuNeeded := calcNetMtu(int(h.ep.MTU()))
 
 	// mtu affordable by this hop
-	if mtuAvail, err := p.Router().MTU(); err != nil || mtuNeeded > mtuAvail {
-		return core.OneErr(err, errHopMtuInsufficient)
+	if mtuAvail, err := p.Router().MTU(); err != nil {
+		return err
+	} else if mtuNeeded > mtuAvail {
+		if mtuNeeded > minmtu6 && mtuAvail > minmtu6 {
+			tunmtu := calcTunMtu(minmtu6)
+			h.ep.SetMTU(uint32(tunmtu))
+			log.I("wg: %s hop: mtu(needed: %d >> avail: %d); set to min: %d",
+				h.id, mtuNeeded, mtuAvail, tunmtu)
+		} else {
+			return errHopMtuInsufficient
+		}
 	}
 
 	// todo: check if all routes for p & h overlap
