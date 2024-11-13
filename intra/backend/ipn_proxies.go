@@ -7,7 +7,6 @@
 package backend
 
 const ( // see ipn/proxies.go
-	// nb: Base proxies are Catch-All / fallback proxies
 	// IDs for default proxies
 
 	Block    = "Block"       // blocks all traffic
@@ -40,12 +39,18 @@ const ( // see ipn/proxies.go
 
 	// status of proxies
 
-	TNT = 2  // proxy UP but not responding
-	TZZ = 1  // proxy idle
-	TUP = 0  // proxy UP but not yet OK
-	TOK = -1 // proxy OK
-	TKO = -2 // proxy not OK
-	END = -3 // proxy stopped
+	// proxy UP but not responding
+	TNT = 2
+	// proxy idle
+	TZZ = 1
+	// proxy UP but not yet OK
+	TUP = 0
+	// proxy OK
+	TOK = -1
+	// proxy not OK
+	TKO = -2
+	// proxy stopped
+	END = -3
 )
 
 type Rpn interface {
