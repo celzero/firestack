@@ -90,8 +90,6 @@ type wgtun struct {
 	ingress       chan *buffer.View // pipes ep writes to wg
 	events        chan tun.Event    // wg specific tun (interface) events
 	clientid      [3]byte           // client id; applicable only for warp
-	mtu           int               // mtu of this interface
-	hasV4, hasV6  bool              // interface has ipv4/ipv6 routes?
 	finalize      chan struct{}     // close signal for incomingPacket
 	once          sync.Once         // closer fn; exec exactly once
 	preferOffload bool              // UDP GRO/GSO offloads
@@ -104,6 +102,8 @@ type wgtun struct {
 
 	via    *core.Volatile[Proxy] // via hop
 	direct protect.RDialer       // direct
+
+	hasV4, hasV6 atomic.Bool // interface has ipv4/ipv6 routes?
 
 	peers  *core.Volatile[map[string]device.NoisePublicKey] // peer (remote endpoint) public keys
 	dns    *core.Volatile[*multihost.MH]                    // dns resolver for this interface
@@ -332,51 +332,35 @@ func (w *wgproxy) update(id, txt string) bool {
 		return anew
 	}
 
-	if len(opts.ifaddrs) != len(w.addrs) {
-		log.D("proxy: wg: !update(%s): len(ifaddrs) %d != %d", w.id, len(opts.ifaddrs), len(w.addrs))
-		return anew
-	}
-
 	if !bytes.Equal(opts.clientid[:], w.clientid[:]) {
 		log.D("proxy: wg: !update(%s): clientid %v != %v", w.id, opts.clientid, w.clientid)
 		return anew
 	}
 
-	actualmtu := calcTunMtu(opts.mtu)
-	if w.mtu != actualmtu {
-		log.D("proxy: wg: !update(%s): mtu %d != %d", w.id, actualmtu, w.mtu)
-		return anew
-	}
-	if opts.dns != nil && !opts.dns.EqualAddrs(w.dns.Load()) {
-		log.D("proxy: wg: !update(%s): new/mismatched dns", w.id)
+	if err := w.setRoutes(opts.ifaddrs); err != nil {
+		log.W("proxy: wg: !update(%s): setRoutes: %v", w.id, err)
 		return anew
 	}
 
-	for _, inifaddr := range opts.ifaddrs {
-		var ipok bool
-		for _, a := range w.addrs {
-			if inifaddr.Masked() == a.Masked() {
-				if inifaddr.Addr().Compare(a.Addr()) == 0 {
-					ipok = true
-					break
-				}
-			}
-		}
-		if !ipok {
-			log.D("proxy: wg: !update(%s): new ifaddrs (%s) != (%s)", w.id, opts.ifaddrs, w.addrs)
-			return anew
-		}
+	if settings.Debug {
+		if opts.dns != nil && !opts.dns.EqualAddrs(w.dns.Load()) {
+			log.D("proxy: wg: !update(%s): new/mismatched dns", w.id)
+		} // nb: client code MUST re-add wg DNS, not our responsibility
 	}
+
+	maybeNewMtu := calcTunMtu(opts.mtu)
 
 	// reusing existing tunnel (interface config unchanged)
 	// but peer config may have changed!
-	log.I("proxy: wg: update(%s): reuse; allowed: %d=>%d; peers: %d=>%d; dns: %d=>%d; endpoint: %d=>%d",
-		w.id, w.rt.Len(), len(opts.allowed), len(w.peers.Load()), len(opts.peers), w.dns.Load().Len(), opts.dns.Len(),
+	log.I("proxy: wg: update(%s): reuse; mtu: %d=>%d, allowed: %d=>%d; peers: %d=>%d; dns: %d=>%d; endpoint: %d=>%d",
+		w.id, w.ep.MTU(), maybeNewMtu, w.rt.Len(), len(opts.allowed), len(w.peers.Load()), len(opts.peers), w.dns.Load().Len(), opts.dns.Len(),
 		w.remote.Load().Len() /*remote.Load may return nil*/, opts.ep.Len())
+
 	w.peers.Store(opts.peers) // re-assignment is okay (map entry modification is not)
 	w.allowedIPs(opts.allowed)
 	w.remote.Store(opts.ep) // requires refresh
 	w.dns.Store(opts.dns)   // requires refresh
+	w.ep.SetMTU(uint32(maybeNewMtu))
 
 	return reuse
 }
@@ -581,7 +565,7 @@ func NewWgProxy(id string, ctl protect.Controller, rev netstack.GConnHandler, cf
 	}
 
 	log.D("proxy: wg: new %s; addrs(%v) mtu(%d/%d) peers(%d) / v4(%t) v6(%t)",
-		id, opts.ifaddrs, opts.mtu, calcTunMtu(opts.mtu), len(opts.peers), wgtun.hasV4, wgtun.hasV6)
+		id, opts.ifaddrs, opts.mtu, calcTunMtu(opts.mtu), len(opts.peers), wgtun.hasV4.Load(), wgtun.hasV6.Load())
 
 	return w, nil
 }
@@ -625,7 +609,6 @@ func makeWgTun(id, cfg string, ctl protect.Controller, rev netstack.GConnHandler
 		peers:         core.NewVolatile(ifopts.peers), // its entries must never be modified
 		rt:            x.NewIpTree(),                  // must be set to allowedaddrs
 		ba:            core.NewBarrier[[]netip.Addr](wgbarrierttl),
-		mtu:           tunmtu,
 		clientid:      ifopts.clientid,
 		status:        core.NewVolatile(TUP),
 		preferOffload: preferOffload(id),
@@ -648,11 +631,27 @@ func makeWgTun(id, cfg string, ctl protect.Controller, rev netstack.GConnHandler
 		_ = s.SetPromiscuousMode(wgnic, true)
 	}
 
+	if err := t.setRoutes(ifopts.ifaddrs); err != nil {
+		return nil, err
+	}
+
+	// commence the wireguard state machine
+	t.events <- tun.EventUp
+
+	if4, if6 := netstack.StackAddrs(s, wgnic)
+	log.I("proxy: wg: %s tun: created; dns[%s]; dst[%s]; mtu[%d]; ifaddrs[%v / %v]",
+		t.id, ifopts.dns, ifopts.ep, tunmtu, if4, if6)
+
+	return t, nil
+}
+
+func (t *wgtun) setRoutes(ifaddrs []netip.Prefix) error {
 	processed := make(map[netip.Prefix]bool)
-	for _, ipnet := range ifopts.ifaddrs {
+	for _, ipnet := range ifaddrs {
 		ip := ipnet.Addr()
 		if processed[ipnet] {
-			log.W("proxy: wg: %s skipping duplicate ip %v for ifaddr %v", t.id, ip, ipnet)
+			log.W("proxy: wg: %s skipping duplicate ip %v for ifaddr %v",
+				t.id, ip, ipnet)
 			continue
 		}
 		processed[ipnet] = true
@@ -674,28 +673,20 @@ func makeWgTun(id, cfg string, ctl protect.Controller, rev netstack.GConnHandler
 			Protocol:          protoid,
 			AddressWithPrefix: ap,
 		}
-		if err := s.AddProtocolAddress(wgnic, protoaddr, stack.AddressProperties{}); err != nil {
-			return nil, fmt.Errorf("wg: %s add addr(%v): %v", t.id, ip, err)
+		if err := t.stack.AddProtocolAddress(wgnic, protoaddr, stack.AddressProperties{}); err != nil {
+			return fmt.Errorf("wg: %s add addr(%v): %v", t.id, ip, err)
 		}
-		t.hasV4 = t.hasV4 || ip.Is4()
-		t.hasV6 = t.hasV6 || ip.Is6()
+		t.hasV4.Store(t.hasV4.Load() || ip.Is4())
+		t.hasV6.Store(t.hasV6.Load() || ip.Is6())
 		log.D("proxy: wg: %s added ifaddr(%v)", t.id, ip)
 	}
-	if t.hasV4 {
-		s.AddRoute(tcpip.Route{Destination: header.IPv4EmptySubnet, NIC: wgnic})
+	if t.hasV4.Load() {
+		t.stack.AddRoute(tcpip.Route{Destination: header.IPv4EmptySubnet, NIC: wgnic})
 	}
-	if t.hasV6 {
-		s.AddRoute(tcpip.Route{Destination: header.IPv6EmptySubnet, NIC: wgnic})
+	if t.hasV6.Load() {
+		t.stack.AddRoute(tcpip.Route{Destination: header.IPv6EmptySubnet, NIC: wgnic})
 	}
-
-	// commence the wireguard state machine
-	t.events <- tun.EventUp
-
-	if4, if6 := netstack.StackAddrs(s, wgnic)
-	log.I("proxy: wg: %s tun: created; dns[%s]; dst[%s]; mtu[%d]; ifaddrs[%v / %v]",
-		t.id, ifopts.dns, ifopts.ep, tunmtu, if4, if6)
-
-	return t, nil
+	return nil
 }
 
 // implements tun.Device
@@ -856,7 +847,7 @@ func (w *wgtun) IfAddr() string {
 }
 
 func (tun *wgtun) MTU() (int, error) {
-	return tun.mtu, nil
+	return int(tun.ep.MTU()), nil
 }
 
 func (tun *wgtun) BatchSize() int {
@@ -1016,7 +1007,8 @@ func (h *wgproxy) Hop(p Proxy) (err error) {
 	}
 
 	// mtu needed to tunnel this wg
-	mtuNeeded := calcNetMtu(h.mtu)
+	mtuNeeded := calcNetMtu(int(h.ep.MTU()))
+
 	// mtu affordable by this hop
 	if mtuAvail, err := p.Router().MTU(); err != nil || mtuNeeded > mtuAvail {
 		return core.OneErr(err, errHopMtuInsufficient)
@@ -1079,8 +1071,8 @@ func (h *wgtun) DNS() string {
 }
 
 // Implements x.Router.
-func (h *wgtun) IP4() bool { return h.hasV4 }
-func (h *wgtun) IP6() bool { return h.hasV6 }
+func (h *wgtun) IP4() bool { return h.hasV4.Load() }
+func (h *wgtun) IP6() bool { return h.hasV6.Load() }
 
 // Contains implements x.Router.
 func (h *wgtun) Contains(ippOrCidr string) bool {

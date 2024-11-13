@@ -61,7 +61,7 @@ func (net *wgtun) LookupHost(host string) (addrs []netip.Addr, err error) {
 }
 
 func (tnet *wgtun) LookupContextHost(ctx context.Context, host string) ([]netip.Addr, error) {
-	if len(host) <= 0 || (!tnet.hasV6 && !tnet.hasV4) {
+	if len(host) <= 0 || (!tnet.hasV6.Load() && !tnet.hasV4.Load()) {
 		return nil, &net.DNSError{Err: errNoSuchHost.Error(), Name: host, IsNotFound: true}
 	}
 	zlen := len(host)
