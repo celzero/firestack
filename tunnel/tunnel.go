@@ -57,8 +57,10 @@ type Tunnel interface {
 	Write(data []byte) (int, error)
 	// Close connections
 	CloseConns(activecsv string) (closedcsv string)
-	// Creates a new link using fd (tun device) and mtu.
-	SetLink(fd, mtu int) error
+	// Creates a new link using fd (tun device).
+	SetLink(fd int) error
+	// Sets the MTU.
+	SetMTU(mtu int32)
 	// Unsets existing link and closes the fd (tun device).
 	Unlink() error
 	// Creates the link and updates the routes
@@ -244,7 +246,8 @@ func (t *gtunnel) SetPcap(fp string) error {
 func (t *gtunnel) SetLinkAndRoutes(fd, mtu, engine int) (err error) {
 	// route is always dual-stack (settings.IP46); never changed
 	log.I("tun: requested route (%s); unchanged", settings.L3(engine))
-	return t.SetLink(fd, mtu)
+	t.SetMTU(int32(mtu))
+	return t.SetLink(fd)
 }
 
 func (t *gtunnel) Unlink() error {
@@ -253,7 +256,7 @@ func (t *gtunnel) Unlink() error {
 	return t.ep.Dispose()
 }
 
-func (t *gtunnel) SetLink(fd, mtu int) error {
+func (t *gtunnel) SetLink(fd int) error {
 	defer core.Recover(core.Exit11, "g.SetLink")
 
 	dupfd, err := dup(fd) // tunnel will own dupfd
@@ -262,10 +265,15 @@ func (t *gtunnel) SetLink(fd, mtu int) error {
 		return err
 	}
 
-	err = t.ep.Swap(dupfd, mtu) // swap fd and mtu
+	err = t.ep.Swap(dupfd) // swap fd and mtu
 
-	log.I("tun: new link; fd(%d), mtu(%d); err? %v", dupfd, mtu, err)
+	log.I("tun: new link, fd(%d); err? %v", dupfd, err)
 	return err
+}
+
+func (t *gtunnel) SetMTU(mtu int32) {
+	t.ep.SetMTU(uint32(mtu))
+	log.I("tun: new mtu; %d", mtu)
 }
 
 func (t *gtunnel) SetRoute(engine int) error {

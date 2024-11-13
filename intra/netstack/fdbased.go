@@ -53,8 +53,8 @@ var _ FdSwapper = (*linkFdSwap)(nil)
 const invalidfd int = -1
 
 type FdSwapper interface {
-	// Swap closes existing FDs; uses new fd and mtu.
-	Swap(fd, mtu int) error
+	// Swap closes existing FDs; uses new fd.
+	Swap(fd int) error
 	// Dispose closes all existing FDs.
 	Dispose() error
 }
@@ -212,7 +212,9 @@ func NewFdbasedInjectableEndpoint(opts *Options) (SeamlessEndpoint, error) {
 		return nil, fmt.Errorf("len(opts.FDs) = %d, expected 1", len(opts.FDs))
 	}
 
-	if err := e.Swap(opts.FDs[0], int(opts.MTU)); err != nil {
+	e.SetMTU(opts.MTU)
+
+	if err := e.Swap(opts.FDs[0]); err != nil {
 		return nil, err
 	}
 
@@ -252,9 +254,7 @@ func (e *endpoint) Dispose() (err error) {
 }
 
 // Implements Swapper.
-func (e *endpoint) Swap(fd, mtu int) (err error) {
-	e.SetMTU(uint32(mtu))
-
+func (e *endpoint) Swap(fd int) (err error) {
 	if err = unix.SetNonblock(fd, true); err != nil {
 		clos(fd)
 		return fmt.Errorf("unix.SetNonblock(%v) failed: %v", fd, err)
@@ -262,7 +262,7 @@ func (e *endpoint) Swap(fd, mtu int) (err error) {
 
 	prevfd := e.fds.Swap(fd) // commence WritePackets() on fd
 
-	log.D("ns: swapping tun... fd: %d => %d, mtu: %d", prevfd, fd, mtu)
+	log.D("ns: swapping tun... fd: %d => %d", prevfd, fd)
 
 	e.Lock()
 	defer e.Unlock()
@@ -277,7 +277,8 @@ func (e *endpoint) Swap(fd, mtu int) (err error) {
 	if err == nil && hasDispatcher { // attached?
 		go e.dispatchLoop(e.inboundDispatcher)
 	} else {
-		log.W("ns: tun(%d => %d): Swap: no dispatcher? %t for new fd; err %v", prevfd, fd, !hasDispatcher, err)
+		log.W("ns: tun(%d => %d): Swap: no dispatcher? %t for new fd; err %v",
+			prevfd, fd, !hasDispatcher, err)
 	}
 	return
 }

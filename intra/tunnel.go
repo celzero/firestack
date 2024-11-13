@@ -209,7 +209,8 @@ func (t *rtunnel) SetLinkAndRoutes(fd, mtu, engine int) error {
 			}
 		})
 	}()
-	return t.Tunnel.SetLink(fd, mtu) // route is always dual-stack
+	t.Tunnel.SetMTU(int32(mtu))
+	return t.Tunnel.SetLink(fd) // route is always dual-stack
 }
 
 func (t *rtunnel) internalCtx() context.Context {
