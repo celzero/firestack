@@ -237,7 +237,7 @@ func (x *muxer) readers() {
 			default: // dst probably closed, but not yet unrouted
 				log.W("udp: mux: %s read: drop(sz: %d); route to %s", x.cid, n, dst.raddr)
 			}
-			log.V("udp: mux: %s read: n(%d) from %v <= %v; err %v", x.cid, n, dst, who, err)
+			log.VV("udp: mux: %s read: n(%d) from %v <= %v; err %v", x.cid, n, dst.raddr, who, err)
 		} // else: ignore (who is invalid or x is closed)
 	}
 }
@@ -475,7 +475,7 @@ func (c *demuxconn) io(out *[]byte, in *slice) (int, error) {
 			log.W("udp: mux: %s demux: read: %v <= %v overflow(sz: %d)", id, c.laddr, c.raddr, q)
 		}
 	} else {
-		log.V("udp: mux: %s demux: read: %v <= %v done(sz: %d)", id, c.laddr, c.raddr, n)
+		log.VV("udp: mux: %s demux: read: %v <= %v done(sz: %d)", id, c.laddr, c.raddr, n)
 		in.free()
 	}
 	return n, nil
