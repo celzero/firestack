@@ -386,7 +386,7 @@ func (r *resolver) LookupFor(q []byte, uid string) ([]byte, string, error) {
 		return nil, NoDNS, errNoQuestion
 	}
 
-	return r.forward(q, uid)
+	return r.forward2(q, uid)
 }
 
 func (r *resolver) LocalLookup(q []byte) ([]byte, string, error) {
