@@ -116,7 +116,7 @@ func (h *baseHandler) onInflow(to, from netip.AddrPort) (fm *Mark) {
 
 	if !ok || fm == nil {
 		fm = optionsBlock // fail-safe: block everything
-		log.E("inFlow: %s: timeout %v <= %v", h.proto, to, from)
+		log.E("com: %s: inFlow: timeout %v <= %v", h.proto, to, from)
 		return
 	}
 	// todo: assert fm.PID == ipn.Ingress or ipn.Block
@@ -170,7 +170,7 @@ func (h *baseHandler) onFlow(localaddr, target netip.AddrPort) (fm *Mark, undidA
 		if ok && hasPre {
 			for _, d := range strings.Split(doms, ",") {
 				if len(d) <= 0 {
-					log.V("onFlow: %s preflow: empty domain in %v from %v => %v for %s; skip!",
+					log.V("com: %s: onFlow: preflow: empty domain in %v from %v => %v for %s; skip!",
 						h.proto, doms, src, target, pre.UID)
 					continue
 				}
@@ -185,17 +185,17 @@ func (h *baseHandler) onFlow(localaddr, target netip.AddrPort) (fm *Mark, undidA
 		} // else: either no known transport or preflow failed
 
 		if !ok || !hasPre || !hasNewIPs {
-			log.W("onFlow: %s alg, but no preflow? %t / %t, ips? %t for %s; block!",
-				h.proto, ok, hasPre, hasNewIPs, pre)
+			log.E("com: %s: onFlow: alg, but no preflow? %t / %t, ips? %t for %v; uid: %s; block!",
+				h.proto, ok, hasPre, hasNewIPs, doms, pre)
 			// either optionsBase (BlockModeNone) or optionsBlock
 			return fm, undidAlg, "", ""
 		} // else: if we've got target and/or old ips, dial them
 	} else {
-		log.D("onFlow: %s noalg? %t or hasips? %t", h.proto, undidAlg, hasOldIPs)
+		log.D("com: %s: onFlow: noalg? %t or hasips? %t", h.proto, undidAlg, hasOldIPs)
 	}
 
 	if len(ips) <= 0 || len(doms) <= 0 {
-		log.D("onFlow: %s no realips(%s) or domains(%s + %s), for src=%s dst=%s",
+		log.D("com: %s: onFlow: no realips(%s) or domains(%s + %s), for src=%s dst=%s",
 			h.proto, ips, doms, pdoms, localaddr, target)
 	}
 
@@ -204,10 +204,10 @@ func (h *baseHandler) onFlow(localaddr, target netip.AddrPort) (fm *Mark, undidA
 	}, onFlowTimeout)
 
 	if fm == nil || !ok { // zeroListener returns nil
-		log.W("onFlow: %s empty res or on flow timeout %t; block!", h.proto, ok)
+		log.W("com: %s: onFlow: empty res or on flow timeout %t; block!", h.proto, ok)
 		fm = optionsBlock
 	} else if len(fm.PIDCSV) <= 0 {
-		log.E("onFlow: %s no pid from kt; exit!", h.proto)
+		log.E("com: %s: onFlow: no pid for (%s => %s) from kt (alg: %v + %v); exit!", h.proto, src, dst, ips, doms)
 		fm.PIDCSV = ipn.Exit
 	}
 
@@ -223,7 +223,7 @@ func (h *baseHandler) forward(local, remote net.Conn, smm *SocketSummary) {
 
 	tup := conn2str(local, remote)
 
-	log.I("%s: new conn %s via proxy(%s); %s for %s",
+	log.I("com: %s: forward: new conn %s via proxy(%s); %s for %s",
 		h.proto, cid, via, tup, uid)
 
 	h.conntracker.Track(cid, local, remote)
@@ -254,7 +254,7 @@ func (h *baseHandler) queueSummary(s *SocketSummary) {
 	// see panic from the select statement writing to ch; and hence
 	// the need to have this nested select statement.
 
-	// log.VV("%s: queueSummary: %x %x %s", h.proto, h.smmch, h.ctx, s.ID)
+	// log.VV("com: %s: queueSummary: %x %x %s", h.proto, h.smmch, h.ctx, s.ID)
 	select {
 	case <-h.ctx.Done():
 		log.D("%s: queueSummary: end: %s", h.proto, s)
@@ -263,7 +263,7 @@ func (h *baseHandler) queueSummary(s *SocketSummary) {
 		case <-h.ctx.Done():
 		case h.smmch <- s:
 		default:
-			log.W("%s: sendSummary: dropped: %s", h.proto, s)
+			log.W("com: %s: sendSummary: dropped: %s", h.proto, s)
 		}
 	}
 }
@@ -294,7 +294,7 @@ func (h *baseHandler) sendSummary(s *SocketSummary, after time.Duration) {
 		time.Sleep(after)
 	}
 
-	log.VV("%s: end? sendNotif: %s", h.proto, s)
+	log.VV("com: %s: end? sendNotif: %s", h.proto, s)
 	h.listener.OnSocketClosed(s) // s.Duration may be uninitialized (zero)
 }
 
@@ -311,7 +311,7 @@ func (h *baseHandler) CloseConns(cids []string) (closed []string) {
 		closed = h.conntracker.UntrackBatch(cids)
 	}
 
-	log.I("%s: closed %d/%d", h.proto, len(closed), len(cids))
+	log.I("com: %s: closed %d/%d", h.proto, len(closed), len(cids))
 	return closed
 }
 
@@ -369,7 +369,7 @@ func (h *baseHandler) End() {
 		h.CloseConns(nil)
 		h.status.Store(HDLEND)
 		close(h.smmch) // close listener chan
-		log.I("%s: handler end %x %x", h.proto, h.ctx, h.smmch)
+		log.I("com: %s: handler end %x %x", h.proto, h.ctx, h.smmch)
 	})
 }
 
@@ -380,7 +380,7 @@ func upload(cid, proto string, local net.Conn, remote net.Conn, ioch chan<- ioin
 	ci := conn2str(local, remote)
 
 	n, err := core.Pipe(remote, local)
-	log.D("%s: %s upload(%d) done(%v) b/w %s", proto, cid, n, err, ci)
+	log.D("com: %s: %s upload(%d) done(%v) b/w %s", proto, cid, n, err, ci)
 
 	core.CloseOp(local, core.CopR)
 	core.CloseOp(remote, core.CopW)
@@ -391,7 +391,7 @@ func download(cid, proto string, local net.Conn, remote net.Conn) (n int64, err 
 	ci := conn2str(local, remote)
 
 	n, err = core.Pipe(local, remote)
-	log.D("%s: %s download(%d) done(%v) b/w %s", proto, cid, n, err, ci)
+	log.D("com: %s: %s download(%d) done(%v) b/w %s", proto, cid, n, err, ci)
 
 	core.CloseOp(local, core.CopW)
 	core.CloseOp(remote, core.CopR)
@@ -426,7 +426,7 @@ func makeIPPorts(realips string, origipp netip.AddrPort, cap int) []netip.AddrPo
 
 	ips := strings.Split(realips, ",")
 	if len(ips) <= 0 {
-		log.VV("intra: makeIPPorts(v4? %t, v6? %t): no realips; out: %s", use4, use6, origipp)
+		log.VV("com: makeIPPorts(v4? %t, v6? %t): no realips; out: %s", use4, use6, origipp)
 		return []netip.AddrPort{origipp}
 	}
 	if cap <= 0 || cap > len(ips) {
@@ -447,7 +447,7 @@ func makeIPPorts(realips string, origipp netip.AddrPort, cap int) []netip.AddrPo
 		} // else: next v
 	}
 
-	log.VV("intra: makeIPPorts(v4? %t, v6? %t); tot: %d; in: %v, out: %v", use4, use6, len(ips), ips, r)
+	log.VV("com: makeIPPorts(v4? %t, v6? %t); tot: %d; in: %v, out: %v", use4, use6, len(ips), ips, r)
 
 	if len(r) > 0 {
 		rand.Shuffle(len(r), func(i, j int) {
@@ -456,7 +456,7 @@ func makeIPPorts(realips string, origipp netip.AddrPort, cap int) []netip.AddrPo
 		return r
 	}
 
-	log.VV("intra: makeIPPorts(v4? %t, v6? %t): using origip; all: %d; out: %s",
+	log.VV("com: makeIPPorts(v4? %t, v6? %t): using origip; all: %d; out: %s",
 		use4, use6, len(ips), origipp)
 	return []netip.AddrPort{origipp}
 }
@@ -481,8 +481,10 @@ func (h *baseHandler) undoAlg(algip netip.Addr, tids ...string) (undidAlg bool, 
 		realips = filterFamilyForDialing(ips)
 		blocklists = gw.RDNSBL(algip)
 	} else {
-		log.W("alg: undoAlg: no gw(%t) or dst(%v)", gw == nil, algip)
+		log.W("com: %s: alg: undoAlg: no gw(%t) or dst(%v)", h.proto, gw == nil, algip)
 	}
+	log.VV("com: %s: alg: undoAlg: (ok? %t, force? %t, withForce? %t) %s => %v (for %s / block: %s)",
+		h.proto, undidAlg, didForce, forcePTR, algip, realips, domains, blocklists)
 	return
 }
 
@@ -521,7 +523,7 @@ func filterFamilyForDialing(ips []netip.Addr) string {
 		unfiltered = nil
 		logger = log.W
 	}
-	logger("intra: filterFamily(v4? %t, v6? %t, fallback? %t): filtered: %d/%d; in: %v, out: %v, ignored: %v + %d",
+	logger("com: filterFamily(v4? %t, v6? %t, fallback? %t): filtered: %d/%d; in: %v, out: %v, ignored: %v + %d",
 		use4, use6, fallback, len(filtered), len(ips), ips, filtered, unfiltered, invalids)
 	return strings.Join(filtered, ",")
 }
