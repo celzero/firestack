@@ -190,17 +190,12 @@ func resolve(tnet *wgtun, host string) core.Work[[]netip.Addr] {
 // tcp and udp dialers
 // --------------------------------------------------------------------
 
-// addrok return true if the address is valid and not unspecified.
-func addrok(ipp netip.AddrPort) bool {
-	return ipp.IsValid() && !ipp.Addr().IsUnspecified() && ipp.Port() > 0
-}
-
-func fullAddrFrom(ipp netip.AddrPort) (tcpip.FullAddress, tcpip.NetworkProtocolNumber) {
+func fullAddrFrom(ipp netip.AddrPort) (tcpip.FullAddress, tcpip.NetworkProtocolNumber, bool) {
 	var protoNumber tcpip.NetworkProtocolNumber
 	var nsdaddr tcpip.Address
 	if !ipp.IsValid() {
 		// TODO: use unspecified address like in PingConn?
-		return tcpip.FullAddress{}, 0
+		return tcpip.FullAddress{}, 0, false
 	}
 	if ipp.Addr().Is4() {
 		protoNumber = ipv4.ProtocolNumber
@@ -214,17 +209,20 @@ func fullAddrFrom(ipp netip.AddrPort) (tcpip.FullAddress, tcpip.NetworkProtocolN
 		NIC:  wgnic,
 		Addr: nsdaddr,
 		Port: ipp.Port(), // may be 0
-	}, protoNumber
+	}, protoNumber, true
 }
 
 func (tnet *wgtun) DialContextTCPAddrPort(ctx context.Context, addr netip.AddrPort) (*gonet.TCPConn, error) {
-	faddr, protocol := fullAddrFrom(addr)
-	return gonet.DialContextTCP(ctx, tnet.stack, faddr, protocol)
+	if faddr, protocol, ok := fullAddrFrom(addr); ok {
+		return gonet.DialContextTCP(ctx, tnet.stack, faddr, protocol)
+	}
+	log.W("wg: %s: tcp: dial: invalid addr %s", tnet.id, addr)
+	return nil, errInvalidAddr
 }
 
 func (tnet *wgtun) DialTCPAddrPort(laddr, raddr netip.AddrPort) (*gonet.TCPConn, error) {
-	remote, protocol := fullAddrFrom(raddr) // prefer "proto" from remote
-	local, _ := fullAddrFrom(laddr)
+	remote, protocol, _ := fullAddrFrom(raddr) // prefer "proto" from remote
+	local, _, _ := fullAddrFrom(laddr)
 	ctx := context.Background()
 	// return gonet.DialTCP(tnet.stack, remote, protocol)
 	return gonet.DialTCPWithBind(
@@ -237,23 +235,35 @@ func (tnet *wgtun) DialTCPAddrPort(laddr, raddr netip.AddrPort) (*gonet.TCPConn,
 }
 
 func (tnet *wgtun) ListenTCPAddrPort(addr netip.AddrPort) (*gonet.TCPListener, error) {
-	fa, pn := fullAddrFrom(addr)
-	return gonet.ListenTCP(tnet.stack, fa, pn)
+	if fa, pn, ok := fullAddrFrom(addr); ok {
+		return gonet.ListenTCP(tnet.stack, fa, pn)
+	}
+	log.W("wg: %s: tcp: listen: invalid addr %s", tnet.id, addr)
+	return nil, errInvalidAddr
 }
 
 func (tnet *wgtun) DialUDPAddrPort(laddr, raddr netip.AddrPort) (*gonet.UDPConn, error) {
 	var src, dst *tcpip.FullAddress
 	var protocol tcpip.NetworkProtocolNumber
-	if addrok(laddr) {
-		var addr tcpip.FullAddress
-		addr, protocol = fullAddrFrom(laddr)
-		src = &addr
-	} // else: unbound; src must be left nil
-	if addrok(raddr) {
-		var addr tcpip.FullAddress
-		addr, protocol = fullAddrFrom(raddr)
-		dst = &addr
-	} // else: unconnected; dst must be left nil
+
+	if srcaddr, srcprotocol, ok := fullAddrFrom(laddr); ok {
+		protocol = srcprotocol
+		if !srcaddr.Addr.Unspecified() {
+			src = &srcaddr
+		} // else: unbound; src must be left nil
+	} // else: laddr not valid
+	if dstaddr, dstprotocol, ok := fullAddrFrom(raddr); ok {
+		protocol = dstprotocol
+		if !dstaddr.Addr.Unspecified() {
+			dst = &dstaddr
+		} // else: unconnected; dst must be left nil
+	} // else: raddr not valid
+
+	// iana.org/assignments/ieee-802-numbers/ieee-802-numbers.xhtml
+	if protocol == 0 { // gonet.DialUDP panics on unsupported protos
+		log.W("wg: %s: udp: dial: zero proto; %s => %s", tnet.id, laddr, raddr)
+		return nil, errInvalidAddr
+	}
 
 	// if src is non-nil, addrs are acquired on wgnic;
 	// ep.Bind -> ep.BindAndThen -> ep.net.BindAndThen -> ep.checkV4Mapped
