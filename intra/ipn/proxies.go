@@ -322,22 +322,23 @@ func (px *proxifier) ProxyTo(ipp netip.AddrPort, uid string, pids []string) (_ P
 	chosen := has(pids, pinnedpid)
 	lo := local(pinnedpid)
 
+	ippstr := ipp.String()
+
 	log.VV("proxy: pin: %s+%s; pinned: %s; chosen? %t / local? %t; from pids: %v",
-		uid, ipp, pinnedpid, chosen, lo, pids)
+		uid, ippstr, pinnedpid, chosen, lo, pids)
 
 	if pinok && chosen && lo {
 		// always favour remote proxy pins over local, if any
 		lopinned = pinnedpid
 	} else if pinok && chosen {
 		p, err := px.pinID(uid, ipp, pinnedpid) // repin
-		if err == nil {
+		if err == nil && hasroute(p, ippstr) {
 			return p, nil
-		} // else: pinnedpid not ok
+		} // else: pinnedpid not ok or no route
 	} else if pinok && !chosen {
 		px.delpin(uid, ipp)
 	}
 
-	ippstr := ipp.String()
 	notokproxies := make([]string, 0)
 	endproxies := make([]string, 0)
 	norouteproxies := make([]string, 0)
