@@ -680,7 +680,7 @@ func (t *transport) Type() string {
 func (t *transport) chooseProxy(pids []string) string {
 	foundProxy := false
 	pid := dnsx.NetNoProxy
-	if len(pid) > 0 {
+	if len(pids) > 0 {
 		pid = pids[0]
 	}
 	for _, ipp := range t.IPPorts() {

@@ -436,7 +436,7 @@ func (s *serverinfo) dialpx(pid, proto string, addr string) (net.Conn, error) {
 func (s *serverinfo) chooseProxy(pids []string) string {
 	foundProxy := false
 	pid := dnsx.NetNoProxy
-	if len(pid) > 0 {
+	if len(pids) > 0 {
 		pid = pids[0]
 	}
 	ipp := chooseAny(s.IPPorts())
