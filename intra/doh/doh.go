@@ -677,6 +677,9 @@ func (t *transport) Type() string {
 func (t *transport) chooseProxy(pids []string) string {
 	foundProxy := false
 	pid := dnsx.NetNoProxy
+	if len(pid) > 0 {
+		pid = pids[0]
+	}
 	for _, ipp := range t.IPPorts() {
 		if px, err := t.proxies.ProxyTo(ipp, core.UNKNOWN_UID_STR, pids); err == nil {
 			pid = px.ID()
@@ -686,7 +689,8 @@ func (t *transport) chooseProxy(pids []string) string {
 		}
 	}
 	if !foundProxy {
-		log.W("doh: (%s) no proxy for %s; among %v", t.id, t.GetAddr(), pids)
+		log.W("doh: (%s) no proxy for %s; choosing %s among %v",
+			t.id, t.GetAddr(), pid, pids)
 	}
 	return pid
 }

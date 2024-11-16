@@ -257,6 +257,9 @@ func (t *transport) send(network, pid string, q *dns.Msg) (ans *dns.Msg, elapsed
 func (t *transport) chooseProxy(pids []string) string {
 	foundProxy := false
 	pid := dnsx.NetNoProxy
+	if len(pid) > 0 {
+		pid = pids[0]
+	}
 	for _, ipp := range t.IPPorts() {
 		if px, err := t.proxies.ProxyTo(ipp, core.UNKNOWN_UID_STR, pids); err == nil {
 			pid = px.ID()
@@ -266,7 +269,8 @@ func (t *transport) chooseProxy(pids []string) string {
 		}
 	}
 	if !foundProxy {
-		log.W("dns53: proxy: choose: (%s) no proxy for %s; among %v", t.id, t.addrport, pids)
+		log.W("dns53: proxy: choose: (%s) no proxy for %s; choosing %s among %v",
+			t.id, t.addrport, pid, pids)
 	}
 	return pid
 }
