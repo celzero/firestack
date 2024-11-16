@@ -678,8 +678,8 @@ func makeWgTun(id, cfg string, ctl protect.Controller, rev netstack.GConnHandler
 	t.events <- tun.EventUp
 
 	if4, if6 := netstack.StackAddrs(s, wgnic)
-	log.I("proxy: wg: %s tun: created; dns[%s]; dst[%s]; mtu[%d]; ifaddrs[%v / %v]",
-		t.id, ifopts.dns, ifopts.ep, tunmtu, if4, if6)
+	log.I("proxy: wg: %s tun: created; dns[%s]; dst[%s]; mtu[%d]; ifaddrs[%v / %v]; clientid[%v]; amnezia[%t]",
+		t.id, ifopts.dns, ifopts.ep, tunmtu, if4, if6, ifopts.clientid, ifopts.amnezia.Set())
 
 	return t, nil
 }
