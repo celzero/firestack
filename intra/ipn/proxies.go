@@ -284,6 +284,8 @@ func (px *proxifier) add(p Proxy) (ok bool) {
 }
 
 func (px *proxifier) RemoveProxy(id string) bool {
+	defer core.Recover(core.Exit11, "pxr.RemoveProxy."+id)
+
 	px.Lock()
 	defer px.Unlock()
 
@@ -310,6 +312,7 @@ func (px *proxifier) ProxyTo(ipp netip.AddrPort, uid string, pids []string) (_ P
 		return nil, errMissingAddress
 	}
 	if len(pids) == 1 { // there's no other pid to choose from
+		// skip hasroute, as there is only one pid to route to
 		return px.pinID(uid, ipp, pids[0]) // repin
 	}
 
@@ -440,7 +443,10 @@ func (px *proxifier) clearpins() (int, int) {
 
 // ProxyFor returns the proxy for the given id or an error.
 // As a special case, if it takes longer than getproxytimeout, it returns an error.
+// ProxyFor implements Proxies.
 func (px *proxifier) ProxyFor(id string) (Proxy, error) {
+	defer core.Recover(core.Exit11, "pxr.ProxyFor."+id)
+
 	if len(id) <= 0 {
 		return nil, errProxyNotFound
 	}
@@ -483,7 +489,10 @@ func (px *proxifier) GetProxy(id string) (x.Proxy, error) {
 	return px.ProxyFor(id)
 }
 
+// Hop implements Proxies.
 func (px *proxifier) Hop(via, origin string) error {
+	defer core.Recover(core.Exit11, "pxr.Hop."+via+">>"+origin)
+
 	if len(origin) <= 0 {
 		return errMissingProxyID
 	}
@@ -544,6 +553,8 @@ func (px *proxifier) stopProxies() {
 
 // RefreshProxies implements x.Proxies.
 func (px *proxifier) RefreshProxies() (string, error) {
+	defer core.Recover(core.Exit11, "pxr.RefreshProxies")
+
 	ptot, ptotu := px.clearpins()
 
 	px.Lock()

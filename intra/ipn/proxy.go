@@ -31,7 +31,9 @@ func (pxr *proxifier) NewSocks5Proxy(id, user, pwd, ip, port string) (p *socks5,
 	return NewSocks5Proxy(id, pxr.ctx, pxr.ctl, opts)
 }
 
+// AddProxy implements Proxifier.
 func (pxr *proxifier) AddProxy(id, txt string) (x.Proxy, error) {
+	defer core.Recover(core.Exit11, "prx.AddProxy."+id)
 	return pxr.addProxy(id, txt)
 }
 
