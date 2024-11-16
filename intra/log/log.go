@@ -93,39 +93,50 @@ func Of(tag string, l LogFn2) LogFn {
 	return N
 }
 
-func N(string, ...any)       {}
+// N is a no-op logger.
+func N(string, ...any) {}
+
+// N2 is a no-op logger.
 func N2(int, string, ...any) {}
 
+// V logs a verbose message.
 func V(msg string, args ...any) {
 	V2(LogFnCallerDepth, msg, args...)
 }
 
+// VV logs a very verbose message.
 func VV(msg string, args ...any) {
 	VV2(LogFnCallerDepth, msg, args...)
 }
 
+// D logs a debug message.
 func D(msg string, args ...any) {
 	D2(LogFnCallerDepth, msg, args...)
 }
 
+// I logs an info message.
 func I(msg string, args ...any) {
 	I2(LogFnCallerDepth, msg, args...)
 }
 
+// W logs a warning message.
 func W(msg string, args ...any) {
 	W2(LogFnCallerDepth, msg, args...)
 }
 
+// E logs an error message.
 func E(msg string, args ...any) {
 	E2(LogFnCallerDepth, msg, args...)
 }
 
+// P logs a private message.
 func P(msg string, args ...any) {
 	if Glogger != nil {
 		Glogger.Piif(CallerDepth, "P "+msg, args...)
 	}
 }
 
+// Wtf logs a fatal message.
 func Wtf(msg string, args ...any) {
 	if Glogger != nil {
 		Glogger.Fatalf(CallerDepth, "F "+msg, args...)
@@ -141,6 +152,7 @@ func C(msg string, scratch []byte) {
 	}
 }
 
+// U logs a user message (notifies the user).
 func U(msg string) {
 	if Glogger != nil {
 		Glogger.Usr(msg)
@@ -159,6 +171,7 @@ func T(msg string, args ...any) {
 	}
 }
 
+// TALL logs the stack trace of all active goroutines.
 func TALL(msg string, scratch64k []byte) {
 	if Glogger != nil {
 		E2(LogFnCallerDepth, "----START----")
