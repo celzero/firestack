@@ -104,6 +104,7 @@ type StdNetBind struct {
 
 	reserved         []byte // overwrite the 3 wg reserved bytes
 	overwriteReserve bool
+	amnezia          *Amnezia
 	floodBa          *core.Barrier[int, netip.AddrPort]
 
 	mu         sync.Mutex // protects following fields
@@ -117,17 +118,18 @@ type StdNetBind struct {
 }
 
 // TODO: get d, ep, f, rb through an Opts bag?
-func NewEndpoint(id string, d connector, ep *multihost.MH, f rwobserver, rb [3]byte) *StdNetBind {
+func NewEndpoint(id string, d connector, ep *multihost.MH, f rwobserver, a *Amnezia, rb [3]byte) *StdNetBind {
 	s := &StdNetBind{
 		id:       id,
 		connect:  d,
 		mh:       ep,
 		observer: f,
+		amnezia:  a,
 		reserved: rb[:3], // github.com/bepass-org/warp-plus/blob/19ac233cc6/wiresocks/config.go#L184
 		floodBa:  core.NewKeyedBarrier[int, netip.AddrPort](minFloodInterval),
 		sendAddr: core.NewZeroVolatile[netip.AddrPort](),
 	}
-	s.overwriteReserve = isReservedOverwitten(s.reserved)
+	s.overwriteReserve = a.Set() || isReservedOverwitten(s.reserved)
 	return s
 }
 
@@ -324,10 +326,14 @@ func (s *StdNetBind) makeReceiveFn(uc *net.UDPConn) conn.ReceiveFunc {
 		extend(uc, wgtimeout)
 		n, addr, err := uc.ReadFromUDPAddrPort(b)
 		if err == nil {
-			recvOverwritten = isReservedOverwitten(b)
-			// github.com/bepass-org/warp-plus/blob/19ac233cc6/wireguard/device/receive.go#L138
-			if n > 3 && isWgMsgType(b[0]) && recvOverwritten {
-				copy(b[1:4], reservedZeros)
+			if isReservedOverwitten(b) {
+				if s.amnezia.Set() {
+					recvOverwritten = s.amnezia.recv(&b)
+				} else if n > 3 && isWgMsgType(b[0]) && recvOverwritten {
+					// github.com/bepass-org/warp-plus/blob/19ac233cc6/wireguard/device/receive.go#L138
+					copy(b[1:4], reservedZeros)
+					recvOverwritten = true
+				}
 			}
 			numMsgs++
 		}
@@ -397,14 +403,17 @@ func (s *StdNetBind) Send(buf [][]byte, peer conn.Endpoint) (err error) {
 			return syscall.EAFNOSUPPORT
 		}
 
-		// overwrite the 3 reserved bytes on non-random packets
 		if s.overwriteReserve {
-			if len(data) > 3 && isWgMsgType(data[0]) {
+			if s.amnezia.Set() {
+				overwritten = s.amnezia.send(&data)
+			} else if len(data) > 3 && isWgMsgType(data[0]) {
+				// overwrite the 3 reserved bytes on non-random packets
 				// from: github.com/bepass-org/warp-plus/blob/19ac233cc6/wireguard/device/peer.go#L138
 				copy(data[1:4], s.reserved)
 				overwritten = true
 			}
 		}
+
 		if !flooded && !overwritten && (experimentalWg || s.overwriteReserve) {
 			if len(data) == device.MessageInitiationSize {
 				go s.flood(uc, dst, fkHandshake) // probably a handshake
@@ -560,6 +569,13 @@ func loge(err error) log.LogFn {
 		l = log.W
 	}
 	return l
+}
+
+func logif(warn bool) log.LogFn {
+	if warn {
+		return log.W
+	}
+	return log.N
 }
 
 func extend(c net.Conn, t time.Duration) {

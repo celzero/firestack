@@ -78,6 +78,7 @@ type wgifopts struct {
 	dns, ep          *multihost.MH
 	mtu              int
 	clientid         [3]byte
+	amnezia          *wg.Amnezia
 }
 
 type wgtun struct {
@@ -89,6 +90,7 @@ type wgtun struct {
 	ep            *channel.Endpoint // reads and writes packets to/from stack
 	ingress       chan *buffer.View // pipes ep writes to wg
 	events        chan tun.Event    // wg specific tun (interface) events
+	amnezia       *wg.Amnezia       // amnezia config, if any
 	clientid      [3]byte           // client id; applicable only for warp
 	finalize      chan struct{}     // close signal for incomingPacket
 	once          sync.Once         // closer fn; exec exactly once
@@ -343,6 +345,9 @@ func (w *wgproxy) update(id, txt string) bool {
 	}
 
 	if settings.Debug {
+		if !w.amnezia.Same(opts.amnezia) {
+			log.D("proxy: wg: !update(%s): amnezia %v != %v", w.id, opts.amnezia, w.amnezia)
+		}
 		if opts.dns != nil && !opts.dns.EqualAddrs(w.dns.Load()) {
 			log.D("proxy: wg: !update(%s): new/mismatched dns", w.id)
 		} // nb: client code MUST re-add wg DNS, not our responsibility
@@ -361,6 +366,7 @@ func (w *wgproxy) update(id, txt string) bool {
 	w.remote.Store(opts.ep) // requires refresh
 	w.dns.Store(opts.dns)   // requires refresh
 	w.ep.SetMTU(uint32(maybeNewMtu))
+	w.amnezia = opts.amnezia // TODO: core.Volatile?
 
 	return reuse
 }
@@ -391,6 +397,7 @@ func wgIfConfigOf(id string, txtptr *string) (opts wgifopts, err error) {
 	opts.dns = multihost.New(id + "dns")
 	opts.ep = multihost.New(id + "endpoint")
 	opts.peers = make(map[string]device.NoisePublicKey)
+	opts.amnezia = wg.NewAmnezia(id)
 	for r.Scan() {
 		line := r.Text()
 		if len(line) <= 0 {
@@ -466,10 +473,41 @@ func wgIfConfigOf(id string, txtptr *string) (opts wgifopts, err error) {
 			// peer config: carry over public keys
 			log.D("proxy: wg: %s ifconfig: processing key %q, err? %v", id, k, exx)
 			pcfg.WriteString(line + "\n")
+		case "jc":
+			// github.com/amnezia-vpn/amneziawg-go/blob/2e3f7d122c/device/uapi.go#L286
+			jc, _ := strconv.Atoi(v)
+			opts.amnezia.Jc = uint16(jc)
+		case "jmin":
+			jmin, _ := strconv.Atoi(v)
+			opts.amnezia.Jmin = uint16(jmin)
+		case "jmax":
+			jmax, _ := strconv.Atoi(v)
+			opts.amnezia.Jmax = uint16(jmax)
+		case "s1":
+			s1, _ := strconv.Atoi(v)
+			opts.amnezia.S1 = uint16(s1)
+		case "s2":
+			s2, _ := strconv.Atoi(v)
+			opts.amnezia.S2 = uint16(s2)
+		case "h1":
+			h1, _ := strconv.Atoi(v)
+			opts.amnezia.H1 = uint32(h1)
+		case "h2":
+			h2, _ := strconv.Atoi(v)
+			opts.amnezia.H2 = uint32(h2)
+		case "h3":
+			h3, _ := strconv.Atoi(v)
+			opts.amnezia.H3 = uint32(h3)
+		case "h4":
+			h4, _ := strconv.Atoi(v)
+			opts.amnezia.H4 = uint32(h4)
 		default:
 			log.D("proxy: wg: %s ifconfig: skipping key %q", id, k)
 			pcfg.WriteString(line + "\n")
 		}
+	}
+	if opts.amnezia.Set() {
+		log.I("proxy: wg: %s amnezia: %s", id, opts.amnezia)
 	}
 	*txtptr = pcfg.String()
 	if err == nil && len(opts.ifaddrs) <= 0 || opts.dns.Len() <= 0 || opts.mtu <= 0 {
@@ -536,7 +574,7 @@ func NewWgProxy(id string, ctl protect.Controller, rev netstack.GConnHandler, cf
 		// todo: use wgtun.serve fn instead of ctl
 		wgep = wg.NewEndpoint2(id, ctl, opts.ep, wgtun.listener)
 	} else {
-		wgep = wg.NewEndpoint(id, wgtun.serve, opts.ep, wgtun.listener, wgtun.clientid)
+		wgep = wg.NewEndpoint(id, wgtun.serve, opts.ep, wgtun.listener, wgtun.amnezia, wgtun.clientid)
 	}
 
 	wgdev := device.NewDevice(wgtun, wgep, wglogger(id))
@@ -609,6 +647,7 @@ func makeWgTun(id, cfg string, ctl protect.Controller, rev netstack.GConnHandler
 		peers:         core.NewVolatile(ifopts.peers), // its entries must never be modified
 		rt:            x.NewIpTree(),                  // must be set to allowedaddrs
 		ba:            core.NewBarrier[[]netip.Addr](wgbarrierttl),
+		amnezia:       ifopts.amnezia,
 		clientid:      ifopts.clientid,
 		status:        core.NewVolatile(TUP),
 		preferOffload: preferOffload(id),
