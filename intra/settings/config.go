@@ -103,6 +103,10 @@ var EndpointIndependentFiltering = atomic.Bool{}
 // for undelegated domains.
 var SystemDNSForUndelegatedDomains = atomic.Bool{}
 
+// SetUserAgentForDoH is a global flag to set User-Agent for DoH requests
+// to "Intra".
+var SetUserAgentForDoH = atomic.Bool{}
+
 // L3 returns the string'd repr of engine.
 func L3(engine int) string {
 	switch engine {

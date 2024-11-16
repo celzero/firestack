@@ -49,6 +49,7 @@ import (
 	"github.com/celzero/firestack/intra/ipn"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
+	"github.com/celzero/firestack/intra/settings"
 	"github.com/celzero/firestack/intra/xdns"
 	"github.com/cloudflare/odoh-go"
 	"github.com/miekg/dns"
@@ -662,7 +663,9 @@ func (t *transport) asDohRequest(msg *dns.Msg) (req *http.Request, err error) {
 	}
 	req.Header.Set("content-type", dohmimetype)
 	req.Header.Set("accept", dohmimetype)
-	req.Header.Set("user-agent", "")
+	if settings.SetUserAgentForDoH.Load() {
+		req.Header.Set("user-agent", "Intra")
+	}
 	return
 }
 
