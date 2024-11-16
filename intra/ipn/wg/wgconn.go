@@ -515,8 +515,16 @@ func (s *StdNetBind) flood(c *net.UDPConn, dst netip.AddrPort, why floodkind) (i
 }
 
 func isReservedOverwitten(b []byte) bool {
-	return useWarpClientID && len(b) == 3 &&
-		(b[1] != 0 || b[2] != 0 || b[3] != 0)
+	if !useWarpClientID {
+		return false
+	}
+
+	if n := len(b); n == 3 { // client-id
+		return b[0] != 0 || b[1] != 0 || b[2] != 0
+	} else if n > 3 { // wg message
+		return b[1] != 0 || b[2] != 0 || b[3] != 0
+	}
+	return false
 }
 
 func (s *StdNetBind) BatchSize() int {
