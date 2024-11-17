@@ -40,7 +40,6 @@ import (
 
 const maxbindtries = 50
 const wgtimeout = 60 * time.Second
-const useWarpClientID = true
 
 // github.com/WireGuard/wireguard-go/blob/19ac233cc6/wireguard/device/send.go#L96
 var (
@@ -55,7 +54,6 @@ var (
 		/*11-15*/ 0x00, 0x00, 0x00, 0x00, // fieldNonce
 		/*16-17*/ 0x44, 0xD0, // ???
 	}
-	reservedZeros = []byte{0x00, 0x00, 0x00}
 )
 
 const (
@@ -473,19 +471,6 @@ func (s *StdNetBind) flood(c *net.UDPConn, dst netip.AddrPort, why floodkind) (i
 			s.id, why, dst, expectedsent, n)
 		return n, nil
 	})
-}
-
-func isReservedOverwitten(b []byte) bool {
-	if !useWarpClientID {
-		return false
-	}
-
-	if n := len(b); n == 3 { // client-id
-		return b[0] != 0 || b[1] != 0 || b[2] != 0
-	} else if n > 3 { // wg message
-		return b[1] != 0 || b[2] != 0 || b[3] != 0
-	}
-	return false
 }
 
 func (s *StdNetBind) BatchSize() int {
