@@ -17,9 +17,9 @@ package ipn
 
 import (
 	"bufio"
-	"bytes"
 	"context"
 	"encoding/base64"
+	"encoding/binary"
 	"fmt"
 	"net"
 	"net/netip"
@@ -77,7 +77,6 @@ type wgifopts struct {
 	peers            map[string]device.NoisePublicKey
 	dns, ep          *multihost.MH
 	mtu              int
-	clientid         [3]byte
 	amnezia          *wg.Amnezia
 }
 
@@ -91,7 +90,6 @@ type wgtun struct {
 	ingress       chan *buffer.View // pipes ep writes to wg
 	events        chan tun.Event    // wg specific tun (interface) events
 	amnezia       *wg.Amnezia       // amnezia config, if any
-	clientid      [3]byte           // client id; applicable only for warp
 	finalize      chan struct{}     // close signal for incomingPacket
 	once          sync.Once         // closer fn; exec exactly once
 	preferOffload bool              // UDP GRO/GSO offloads
@@ -334,11 +332,6 @@ func (w *wgproxy) update(id, txt string) bool {
 		return anew
 	}
 
-	if !bytes.Equal(opts.clientid[:], w.clientid[:]) {
-		log.D("proxy: wg: !update(%s): clientid %v != %v", w.id, opts.clientid, w.clientid)
-		return anew
-	}
-
 	if err := w.setRoutes(opts.ifaddrs); err != nil {
 		log.W("proxy: wg: !update(%s): setRoutes: %v", w.id, err)
 		return anew
@@ -430,15 +423,6 @@ func wgIfConfigOf(id string, txtptr *string) (opts wgifopts, err error) {
 			if opts.mtu, err = strconv.Atoi(v); err != nil {
 				return
 			}
-		case "client_id":
-			// only for warp: blog.cloudflare.com/warp-technical-challenges
-			// When we begin a WireGuard session we include our clientid field
-			// which is provided by our authentication server which has to be
-			// communicated with to begin a WARP session.
-			if b, err := base64.StdEncoding.DecodeString(v); err == nil {
-				n := copy(opts.clientid[:], b)
-				log.D("proxy: wg: %s ifconfig: clientid(%d) %v", id, n, opts.clientid)
-			}
 		case "allowed_ip": // may exist more than once
 			if err = loadIPNets(&opts.allowed, v); err != nil {
 				return
@@ -473,6 +457,31 @@ func wgIfConfigOf(id string, txtptr *string) (opts wgifopts, err error) {
 			// peer config: carry over public keys
 			log.D("proxy: wg: %s ifconfig: processing key %q, err? %v", id, k, exx)
 			pcfg.WriteString(line + "\n")
+		case "client_id":
+			// only for warp: blog.cloudflare.com/warp-technical-challenges
+			// When we begin a WireGuard session we include our clientid field
+			// which is provided by our authentication server which has to be
+			// communicated with to begin a WARP session.
+			// Though the open source Cloudflare WARP boring-tun impl does not do so:
+			// github.com/cloudflare/boringtun/blob/64a2fc7c63/boringtun/src/noise/handshake.rs#L734
+			if b, err := base64.StdEncoding.DecodeString(v); err == nil && len(b) == 3 {
+				// github.com/WireGuard/wireguard-go/blob/12269c2761/device/send.go#L456
+				// github.com/WireGuard/wireguard-go/blob/12269c2761/device/noise-protocol.go#L56
+				h1 := append([]byte{device.MessageInitiationType}, b...)
+				h2 := append([]byte{device.MessageResponseType}, b...)
+				h3 := append([]byte{device.MessageCookieReplyType}, b...)
+				h4 := append([]byte{device.MessageTransportType}, b...)
+				// overwrite the 3 reserved bytes on all packets
+				// github.com/bepass-org/warp-plus/blob/19ac233cc6/wireguard/device/receive.go#L138
+				opts.amnezia.H1 = binary.LittleEndian.Uint32(h1)
+				opts.amnezia.H2 = binary.LittleEndian.Uint32(h2)
+				opts.amnezia.H3 = binary.LittleEndian.Uint32(h3)
+				opts.amnezia.H4 = binary.LittleEndian.Uint32(h4)
+				log.D("proxy: wg: %s ifconfig: clientid(%d) %v", id, len(b), b)
+			} else {
+				log.W("proxy: wg: %s ifconfig: clientid(%v) %d == 3?; err: %v",
+					id, v, len(b), err)
+			}
 		case "jc":
 			// github.com/amnezia-vpn/amneziawg-go/blob/2e3f7d122c/device/uapi.go#L286
 			jc, _ := strconv.Atoi(v)
@@ -506,9 +515,7 @@ func wgIfConfigOf(id string, txtptr *string) (opts wgifopts, err error) {
 			pcfg.WriteString(line + "\n")
 		}
 	}
-	if opts.amnezia.Set() {
-		log.I("proxy: wg: %s amnezia: %s", id, opts.amnezia)
-	}
+	log.D("proxy: wg: %s amnezia: %s", id, opts.amnezia)
 	*txtptr = pcfg.String()
 	if err == nil && len(opts.ifaddrs) <= 0 || opts.dns.Len() <= 0 || opts.mtu <= 0 {
 		err = errProxyConfig
@@ -574,7 +581,7 @@ func NewWgProxy(id string, ctl protect.Controller, rev netstack.GConnHandler, cf
 		// todo: use wgtun.serve fn instead of ctl
 		wgep = wg.NewEndpoint2(id, ctl, opts.ep, wgtun.listener)
 	} else {
-		wgep = wg.NewEndpoint(id, wgtun.serve, opts.ep, wgtun.listener, wgtun.amnezia, wgtun.clientid)
+		wgep = wg.NewEndpoint(id, wgtun.serve, opts.ep, wgtun.listener, wgtun.amnezia)
 	}
 
 	wgdev := device.NewDevice(wgtun, wgep, wglogger(id))
@@ -648,7 +655,6 @@ func makeWgTun(id, cfg string, ctl protect.Controller, rev netstack.GConnHandler
 		rt:            x.NewIpTree(),                  // must be set to allowedaddrs
 		ba:            core.NewBarrier[[]netip.Addr](wgbarrierttl),
 		amnezia:       ifopts.amnezia,
-		clientid:      ifopts.clientid,
 		status:        core.NewVolatile(TUP),
 		preferOffload: preferOffload(id),
 		refreshBa:     core.NewBarrier[bool](2 * time.Minute),
@@ -678,8 +684,8 @@ func makeWgTun(id, cfg string, ctl protect.Controller, rev netstack.GConnHandler
 	t.events <- tun.EventUp
 
 	if4, if6 := netstack.StackAddrs(s, wgnic)
-	log.I("proxy: wg: %s tun: created; dns[%s]; dst[%s]; mtu[%d]; ifaddrs[%v / %v]; clientid[%v]; amnezia[%t]",
-		t.id, ifopts.dns, ifopts.ep, tunmtu, if4, if6, ifopts.clientid, ifopts.amnezia.Set())
+	log.I("proxy: wg: %s tun: created; dns[%s]; dst[%s]; mtu[%d]; ifaddrs[%v / %v]; amnezia[%t]",
+		t.id, ifopts.dns, ifopts.ep, tunmtu, if4, if6, ifopts.amnezia.Set())
 
 	return t, nil
 }

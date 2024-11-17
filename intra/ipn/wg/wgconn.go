@@ -102,10 +102,8 @@ type StdNetBind struct {
 	connect connector
 	mh      *multihost.MH
 
-	reserved         []byte // overwrite the 3 wg reserved bytes
-	overwriteReserve bool
-	amnezia          *Amnezia
-	floodBa          *core.Barrier[int, netip.AddrPort]
+	amnezia *Amnezia
+	floodBa *core.Barrier[int, netip.AddrPort]
 
 	mu         sync.Mutex // protects following fields
 	ipv4       *net.UDPConn
@@ -118,18 +116,16 @@ type StdNetBind struct {
 }
 
 // TODO: get d, ep, f, rb through an Opts bag?
-func NewEndpoint(id string, d connector, ep *multihost.MH, f rwobserver, a *Amnezia, rb [3]byte) *StdNetBind {
+func NewEndpoint(id string, d connector, ep *multihost.MH, f rwobserver, a *Amnezia) *StdNetBind {
 	s := &StdNetBind{
 		id:       id,
 		connect:  d,
 		mh:       ep,
 		observer: f,
 		amnezia:  a,
-		reserved: rb[:3], // github.com/bepass-org/warp-plus/blob/19ac233cc6/wiresocks/config.go#L184
 		floodBa:  core.NewKeyedBarrier[int, netip.AddrPort](minFloodInterval),
 		sendAddr: core.NewZeroVolatile[netip.AddrPort](),
 	}
-	s.overwriteReserve = a.Set() || isReservedOverwitten(s.reserved)
 	return s
 }
 
@@ -326,15 +322,7 @@ func (s *StdNetBind) makeReceiveFn(uc *net.UDPConn) conn.ReceiveFunc {
 		extend(uc, wgtimeout)
 		n, addr, err := uc.ReadFromUDPAddrPort(b)
 		if err == nil {
-			if isReservedOverwitten(b) {
-				if s.amnezia.Set() {
-					recvOverwritten = s.amnezia.recv(&b)
-				} else if n > 3 && isWgMsgType(b[0]) && recvOverwritten {
-					// github.com/bepass-org/warp-plus/blob/19ac233cc6/wireguard/device/receive.go#L138
-					copy(b[1:4], reservedZeros)
-					recvOverwritten = true
-				}
-			}
+			recvOverwritten = s.amnezia.recv(&b)
 			numMsgs++
 		}
 
@@ -344,7 +332,7 @@ func (s *StdNetBind) makeReceiveFn(uc *net.UDPConn) conn.ReceiveFunc {
 		}
 
 		s := fmt.Sprintf("wg: bind: %s recvFrom(%v): %d / ov? %t<=%t / err? %v",
-			s.id, addr, n, s.overwriteReserve, recvOverwritten, err)
+			s.id, addr, n, s.amnezia.Set(), recvOverwritten, err)
 		if err == nil || timedout(err) {
 			log.V(s)
 		} else {
@@ -405,18 +393,9 @@ func (s *StdNetBind) Send(buf [][]byte, peer conn.Endpoint) (err error) {
 
 		datalen := len(data) // grab the length before we overwrite it
 
-		if s.overwriteReserve {
-			if s.amnezia.Set() {
-				overwritten = s.amnezia.send(&data)
-			} else if datalen > 3 && isWgMsgType(data[0]) {
-				// overwrite the 3 reserved bytes on non-random packets
-				// from: github.com/bepass-org/warp-plus/blob/19ac233cc6/wireguard/device/peer.go#L138
-				copy(data[1:4], s.reserved)
-				overwritten = true
-			}
-		}
+		overwritten = s.amnezia.send(&data)
 
-		if !flooded && (experimentalWg || s.overwriteReserve) {
+		if !flooded && (experimentalWg || s.amnezia.Set()) {
 			if datalen == device.MessageInitiationSize {
 				s.flood(uc, dst, fkHandshake) // was probably a handshake
 				flooded = true
@@ -438,24 +417,6 @@ func (s *StdNetBind) Send(buf [][]byte, peer conn.Endpoint) (err error) {
 	loge(err)("wg: bind: send: %s addr(%v) parcels(%d) tx(%d) (exp? %t: flooded? %t / any-overwritten? %t); err? %v",
 		s.id, dst, len(buf), nn, experimentalWg, flooded, overwritten, errs)
 	return err
-}
-
-// github.com/WireGuard/wireguard-go/blob/12269c2761/device/send.go#L456
-// github.com/WireGuard/wireguard-go/blob/12269c2761/device/noise-protocol.go#L56
-func isWgMsgType(x byte) bool {
-	// 1: MsgInitiation, 2: MsgResponse, 3: MsgCookieReply, 4: MsgTransport
-	// blog.cloudflare.com/warp-technical-challenges/
-	// Handshakes have to be performed every two minutes to rotate keys making
-	// them insufficiently persistent. We could have forked the protocol to add
-	// any number of additional fields, but it is important to us to remain wire
-	// compatible with other WireGuard clients. Fortunately, WireGuard has a three
-	// byte block in its header which is not currently used by other clients.
-	// We decided to put our identifier in this region and still support messages
-	// from other WireGuard clients (albeit with less reliable routing than we can
-	// offer).
-	// Though the open source Cloudflare WARP boring-tun impl does not do so:
-	// github.com/cloudflare/boringtun/blob/64a2fc7c63/boringtun/src/noise/handshake.rs#L734
-	return x >= device.MessageInitiationType && x <= device.MessageTransportType
 }
 
 // flood c with random-sized, non-sense (unencrypted) packets.

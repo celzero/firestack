@@ -49,6 +49,9 @@ func (a *Amnezia) String() string {
 	if a == nil {
 		return "<nil>"
 	}
+	if !a.Set() {
+		return "<unset>"
+	}
 	return fmt.Sprintf("%s: amnezia: jc(%d), jmin(%d), jmax(%d), s1(%d), s2(%d), h1(%d), h2(%d), h3(%d), h4(%d)",
 		a.id, a.Jc, a.Jmin, a.Jmax, a.S1, a.S2, a.H1, a.H2, a.H3, a.H4)
 }
@@ -113,16 +116,16 @@ func (a *Amnezia) recv(pktptr *[]byte) (ok bool) {
 	pkt, typ = a.strip(pkt)
 
 	switch typ {
-	case a.H1:
+	case device.MessageInitiationType, a.H1:
 		typ = device.MessageInitiationType
 		binary.LittleEndian.PutUint32(pkt[:h], device.MessageInitiationType)
-	case a.H2:
+	case device.MessageResponseType, a.H2:
 		typ = device.MessageResponseType
 		binary.LittleEndian.PutUint32(pkt[:h], device.MessageResponseType)
-	case a.H3:
+	case device.MessageCookieReplyType, a.H3:
 		typ = device.MessageCookieReplyType
 		binary.LittleEndian.PutUint32(pkt[:h], device.MessageCookieReplyType)
-	case a.H4:
+	case device.MessageTransportType, a.H4: // must be default?
 		typ = device.MessageTransportType
 		binary.LittleEndian.PutUint32(pkt[:h], device.MessageTransportType)
 	}
@@ -192,7 +195,9 @@ func (a *Amnezia) instate(pkt []byte) ([]byte, uint32) {
 func (a *Amnezia) strip(pkt []byte) ([]byte, uint32) {
 	size := uint16(len(pkt))
 	h := uint16(device.MessageTransportOffsetReceiver)
-	defaultType := binary.LittleEndian.Uint32(pkt[:h])
+	// assume the correct msg type is in just the first byte:
+	// github.com/WireGuard/wireguard-go/blob/12269c2761/device/noise-protocol.go#L56
+	defaultType := uint8(pkt[0])
 
 	var discard uint16 = 0
 	var possibleType uint32 = 0
@@ -211,13 +216,13 @@ func (a *Amnezia) strip(pkt []byte) ([]byte, uint32) {
 
 	if maybeStrip {
 		hdr := pkt[discard : discard+h]
-		strippedType := binary.LittleEndian.Uint32(hdr)
-		if strippedType == possibleType {
-			return pkt[discard:], strippedType
-		} // else: sizes match but msg types do not
+		obsType := binary.LittleEndian.Uint32(hdr)
+		if obsType == possibleType {
+			return pkt[discard:], obsType
+		} // else: msg type mismatch, but size matched
 	} // else: nothing to discard
 
-	return pkt, defaultType
+	return pkt, uint32(defaultType)
 }
 
 func (a *Amnezia) logIfNeeded(dir string, typ uint32, n int) {
