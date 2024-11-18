@@ -27,22 +27,31 @@ func NewZeroVolatile[T any]() *Volatile[T] {
 	return new(Volatile[T])
 }
 
+func (a *Volatile[T]) safeLoad() (t T) {
+	if a == nil {
+		return // zz
+	}
+	aa := (*atomic.Value)(a)
+	if x := aa.Load(); x != nil && !IsNil(x) {
+		t, _ = x.(T)
+	}
+	return
+}
+
 // Load returns the value of a. May return zero value.
 // This func is atomic.
 func (a *Volatile[T]) Load() (t T) {
 	if a == nil {
-		return
+		return // zz
 	}
-	aa := (*atomic.Value)(a)
-	t, _ = aa.Load().(T)
-	return
+	return a.safeLoad()
 }
 
 // Store stores the value t; creates a new Volatile[T] if t is nil.
 // If a is nil, does nothing. This func is not atomic.
 func (a *Volatile[T]) Store(t T) {
 	if a == nil {
-		return
+		return // zz
 	}
 	a.safeStore(a.Load(), t)
 }
@@ -95,11 +104,10 @@ func (a *Volatile[T]) Cas(old, new T) (ok bool) {
 // If old & new are not of the same concrete type, it panics.
 func (a *Volatile[T]) Swap(new T) (old T) {
 	if a == nil {
-		return
+		return // zz
 	}
 	if IsNil(new) {
-		aa := (*atomic.Value)(a)
-		old = aa.Load().(T)
+		old = a.safeLoad()
 
 		*a = *NewZeroVolatile[T]()
 		return
@@ -115,11 +123,10 @@ func (a *Volatile[T]) Swap(new T) (old T) {
 // old & new need not be the same concrete type. This func is not atomic.
 func (a *Volatile[T]) Tango(new T) (old T) {
 	if a == nil {
-		return
+		return // zz
 	}
 
 	defer a.safeStore(old, new)
 
-	aa := (*atomic.Value)(a)
-	return aa.Load().(T)
+	return a.safeLoad()
 }
