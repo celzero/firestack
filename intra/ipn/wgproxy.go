@@ -499,16 +499,16 @@ func wgIfConfigOf(id string, txtptr *string) (opts wgifopts, err error) {
 			s2, _ := strconv.Atoi(v)
 			opts.amnezia.S2 = uint16(s2)
 		case "h1":
-			h1, _ := strconv.Atoi(v)
+			h1, _ := strconv.ParseUint(v, 10, 32)
 			opts.amnezia.H1 = uint32(h1)
 		case "h2":
-			h2, _ := strconv.Atoi(v)
+			h2, _ := strconv.ParseUint(v, 10, 32)
 			opts.amnezia.H2 = uint32(h2)
 		case "h3":
-			h3, _ := strconv.Atoi(v)
+			h3, _ := strconv.ParseUint(v, 10, 32)
 			opts.amnezia.H3 = uint32(h3)
 		case "h4":
-			h4, _ := strconv.Atoi(v)
+			h4, _ := strconv.ParseUint(v, 10, 32)
 			opts.amnezia.H4 = uint32(h4)
 		default:
 			log.D("proxy: wg: %s ifconfig: skipping key %q", id, k)
