@@ -152,26 +152,26 @@ func (a *Amnezia) instate(pkt []byte) ([]byte, uint32) {
 			// github.com/amnezia-vpn/amneziawg-go/blob/2e3f7d122c/device/send.go#L130
 			pad = a.S1
 			obsType = a.H1
-			maybeInstate = true
+			maybeInstate = obsType > 0
 		}
 	case device.MessageResponseType:
 		if n == device.MessageResponseSize {
 			// github.com/amnezia-vpn/amneziawg-go/blob/2e3f7d122c/device/send.go#L198
 			pad = a.S2
 			obsType = a.H2
-			maybeInstate = true
+			maybeInstate = obsType > 0
 		}
 	case device.MessageCookieReplyType:
 		if n == device.MessageCookieReplySize {
 			pad = sNoop
 			obsType = a.H3
-			maybeInstate = true
+			maybeInstate = obsType > 0
 		}
 	case device.MessageTransportType:
 		if n >= device.MinMessageSize {
 			pad = sNoop
 			obsType = a.H4
-			maybeInstate = true
+			maybeInstate = obsType > 0
 		}
 	}
 
