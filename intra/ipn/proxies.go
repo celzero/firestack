@@ -380,8 +380,9 @@ func (px *proxifier) ProxyTo(ipp netip.AddrPort, uid string, pids []string) (_ P
 				return p, nil
 			} // else: proxy not ok
 			notokproxies = append(notokproxies, pid)
-		} // else: proxy cannot route; split-tunnel
-		norouteproxies = append(norouteproxies, pid)
+		} else { // else: proxy cannot route; split-tunnel
+			norouteproxies = append(norouteproxies, pid)
+		}
 	}
 
 	// can route but not healthy; drop
