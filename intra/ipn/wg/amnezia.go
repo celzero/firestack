@@ -91,8 +91,7 @@ func (a *Amnezia) send(pktptr *[]byte) (ok bool) {
 		return
 	}
 
-	h := uint16(device.MessageTransportOffsetReceiver)
-	typ := binary.LittleEndian.Uint32(pkt[:h])
+	typ := binary.LittleEndian.Uint32(pkt)
 
 	defer a.logIfNeeded("send", typ, n)
 
@@ -111,23 +110,23 @@ func (a *Amnezia) recv(pktptr *[]byte) (ok bool) {
 	if len(pkt) < device.MinMessageSize {
 		return
 	}
-	h := uint16(device.MessageTransportOffsetReceiver)
+	// h := uint16(device.MessageTransportOffsetReceiver)
 
 	pkt, typ = a.strip(pkt)
 
 	switch typ {
 	case device.MessageInitiationType, a.H1:
 		typ = device.MessageInitiationType
-		binary.LittleEndian.PutUint32(pkt[:h], device.MessageInitiationType)
+		binary.LittleEndian.PutUint32(pkt, device.MessageInitiationType)
 	case device.MessageResponseType, a.H2:
 		typ = device.MessageResponseType
-		binary.LittleEndian.PutUint32(pkt[:h], device.MessageResponseType)
+		binary.LittleEndian.PutUint32(pkt, device.MessageResponseType)
 	case device.MessageCookieReplyType, a.H3:
 		typ = device.MessageCookieReplyType
-		binary.LittleEndian.PutUint32(pkt[:h], device.MessageCookieReplyType)
+		binary.LittleEndian.PutUint32(pkt, device.MessageCookieReplyType)
 	case device.MessageTransportType, a.H4: // must be default?
 		typ = device.MessageTransportType
-		binary.LittleEndian.PutUint32(pkt[:h], device.MessageTransportType)
+		binary.LittleEndian.PutUint32(pkt, device.MessageTransportType)
 	}
 
 	defer a.logIfNeeded("recv", typ, len(pkt))
@@ -139,8 +138,7 @@ func (a *Amnezia) recv(pktptr *[]byte) (ok bool) {
 func (a *Amnezia) instate(pkt []byte) ([]byte, uint32) {
 	n := len(pkt)
 
-	h := uint16(device.MessageTransportOffsetReceiver)
-	defaultType := binary.LittleEndian.Uint32(pkt[:h])
+	defaultType := binary.LittleEndian.Uint32(pkt)
 
 	var pad uint16 = 0
 	var obsType uint32 = 0
@@ -181,7 +179,7 @@ func (a *Amnezia) instate(pkt []byte) ([]byte, uint32) {
 			log.E("wg: %s: amnezia: instate: %v", a.id, err)
 			return pkt, defaultType
 		}
-		binary.LittleEndian.PutUint32(pkt[:h], obsType)
+		binary.LittleEndian.PutUint32(pkt, obsType)
 		if len(random) <= 0 {
 			return pkt, obsType
 		} else {
