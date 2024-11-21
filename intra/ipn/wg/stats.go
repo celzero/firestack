@@ -28,8 +28,12 @@ import (
 // from: github.com/WireGuard/wireguard-android/blob/4ba87947ae/tunnel/src/main/java/com/wireguard/android/backend/GoBackend.java#L119
 
 var (
-	errNoSuchPeer = errors.New("no such peer")
-	ba            = core.NewBarrier[*ifstats](30 * time.Second)
+	errNoSuchPeer    = errors.New("wg: no such peer")
+	errAllStatsNotOK = errors.New("wg: all stats not OK")
+
+	baTtl    = 30 * time.Second
+	baNegTtl = 2 * time.Second
+	ba       = core.NewBarrier2[*ifstats, string](baTtl, baNegTtl)
 )
 
 // peerstats represents the statistics for a peer.
@@ -66,9 +70,10 @@ func newStats() *ifstats {
 }
 
 // add adds a new peer's statistics to the map.
-func (s *ifstats) add(key string, rx, tx, latestHandshake int64) {
+func (s *ifstats) add(key string, rx, tx, latestHandshake int64) bool {
 	log.VV("wg: ReadStats: add %s, %d, %d, %d", key, rx, tx, latestHandshake)
 	s.stats[key] = peerstats{RxBytes: rx, TxBytes: tx, LatestHandshakeEpochMillis: latestHandshake}
+	return latestHandshake > 0
 }
 
 // IsStale checks if the statistics are older than 15 minutes.
@@ -127,7 +132,7 @@ func ReadStats(id string, cfn core.Work[string]) *ifstats {
 			log.W("wg: %s stats: ipcget: %v", id, err)
 			return nil, err
 		}
-		return readStats(cfg), nil
+		return readStats(cfg)
 	})
 	if err != nil { // v is nil when ba.Do timesout
 		log.E("wg: ReadStats: nil for %s, err: %v", id, err)
@@ -136,10 +141,11 @@ func ReadStats(id string, cfn core.Work[string]) *ifstats {
 }
 
 // readStats parses a configuration string and returns a Statistics instance.
-func readStats(config string) *ifstats {
+func readStats(config string) (*ifstats, error) {
 	stats := newStats()
 	var key string
 	var rx, tx, latestHandshakeMillis int64
+	var anyStatOK bool
 
 	// see: github.com/WireGuard/wireguard-go/blob/12269c27/device/uapi.go#L51
 	lines := strings.Split(config, "\n")
@@ -149,7 +155,7 @@ func readStats(config string) *ifstats {
 		if strings.HasPrefix(line, "public_key=") {
 			if key != "" {
 				k++
-				stats.add(key, rx, tx, latestHandshakeMillis)
+				anyStatOK = stats.add(key, rx, tx, latestHandshakeMillis) || anyStatOK
 			}
 			rx = 0
 			tx = 0
@@ -181,9 +187,15 @@ func readStats(config string) *ifstats {
 	}
 	if key != "" {
 		k++
-		stats.add(key, rx, tx, latestHandshakeMillis)
+		anyStatOK = stats.add(key, rx, tx, latestHandshakeMillis) || anyStatOK
 	}
 	stats.lastTouched = time.Now()
-	log.V("wg: ReadStats: %d peers, %d lines", n, k)
-	return stats
+
+	log.V("wg: ReadStats: %d peers, %d lines, any OK? %t", n, k, anyStatOK)
+
+	if !anyStatOK {
+		return stats, errAllStatsNotOK // negative ttl on barrier
+	}
+
+	return stats, nil
 }
