@@ -233,5 +233,15 @@ func JoinErr(errs ...error) error {
 	if len(errs) <= 0 {
 		return nil
 	}
+	if len(errs) == 1 {
+		return errs[0]
+	}
 	return fmt.Errorf("%v", errs)
+}
+
+func JoinErrIf(y bool, errs ...error) error {
+	if y {
+		return JoinErr(errs...)
+	}
+	return nil
 }

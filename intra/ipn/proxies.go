@@ -422,9 +422,11 @@ func (px *proxifier) pin(uid string, ipp netip.AddrPort, p Proxy) error {
 		px.uidPins.Put(uid, ipp, p.ID())
 		px.ipPins.Put(ipp, p.ID())
 	}
+	ok := err == nil
 	logev(err)("proxy: pin: ok? %t; %s from %s; err? %v",
-		err == nil, ipp, p.ID(), err)
-	return core.JoinErr(err, errCannotPin)
+		ok, ipp, p.ID(), err)
+
+	return core.JoinErrIf(!ok, err, errCannotPin)
 }
 
 func (px *proxifier) delpin(uid string, ipp netip.AddrPort) {
