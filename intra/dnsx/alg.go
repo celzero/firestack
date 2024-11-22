@@ -706,17 +706,18 @@ func (t *dnsgateway) registerLocked(q, tid string, algip4, algip6 netip.Addr, re
 		ttl: time.Now().Add(max(ttl2m, ttl)),
 	}
 
+	didRegister := false
 	// register mapping from qname -> algip+realip (alg) and algip -> qname+realip (nat)
 	for _, ip := range []netip.Addr{algip4, algip6} { // algips may be nil?
 		var k string
 		var x *algans
-		if ip.Is4() {
+		if ip.IsValid() && ip.Is4() {
 			k = q + key4 + strconv.Itoa(0)
 			x = &algans{
 				algip:   ip,
 				baseans: am4,
 			}
-		} else if ip.Is6() {
+		} else if ip.IsValid() && ip.Is6() {
 			k = q + key6 + strconv.Itoa(0)
 			x = &algans{
 				algip:   ip,
@@ -733,6 +734,12 @@ func (t *dnsgateway) registerLocked(q, tid string, algip4, algip6 netip.Addr, re
 			t.alg[k] = x
 			t.nat[ip] = x.baseans
 		}
+		didRegister = true
+	}
+	if !didRegister {
+		log.W("alg: no algips 2 for %s; real? %d, sec? %d",
+			q, len(realips), len(secres.ips))
+		return false
 	}
 	// am.ips.x() may return nil; ex: when preset fixed ips are used
 	for _, ip := range realips {
