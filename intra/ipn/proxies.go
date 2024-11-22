@@ -80,6 +80,7 @@ var (
 	errMissingRev         = errors.New("proxy: missing reverse proxy")
 	errNoAuto464XLAT      = errors.New("auto: no 464xlat")
 	errNotPinned          = errors.New("auto: another proxy pinned")
+	errCannotPin          = errors.New("proxy: cannot pin")
 	errInvalidAddr        = errors.New("proxy: invaild ip:port")
 	errUnreachable        = errors.New("proxy: destination unreachable")
 	errNoRouteToHost      = errors.New("proxy: no route to host")
@@ -407,7 +408,7 @@ func (px *proxifier) ProxyTo(ipp netip.AddrPort, uid string, pids []string) (_ P
 func (px *proxifier) pinID(uid string, ipp netip.AddrPort, id string) (Proxy, error) {
 	p, err := px.ProxyFor(id)
 	if err != nil {
-		return nil, err
+		return nil, core.JoinErr(err, errCannotPin)
 	}
 	err = px.pin(uid, ipp, p)
 	return p, err
@@ -421,7 +422,7 @@ func (px *proxifier) pin(uid string, ipp netip.AddrPort, p Proxy) error {
 	}
 	logev(err)("proxy: pin: ok? %t; %s from %s; err? %v",
 		err == nil, ipp, p.ID(), err)
-	return err
+	return core.JoinErr(err, errCannotPin)
 }
 
 func (px *proxifier) delpin(uid string, ipp netip.AddrPort) {
@@ -481,6 +482,7 @@ func (px *proxifier) ProxyFor(id string) (Proxy, error) {
 		return nil, errGetProxyTimeout
 	}
 	if p == nil || core.IsNil(p) {
+		log.W("proxy: for: %s; not found", id)
 		return nil, errProxyNotFound
 	}
 	return p, nil
