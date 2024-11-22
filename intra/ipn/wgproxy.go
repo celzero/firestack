@@ -864,7 +864,7 @@ func (w *wgproxy) Stat() (out *x.RouterStats) {
 		return // zz
 	}
 
-	stat := wg.ReadStats(w.id, w.IpcGet)
+	stat := wg.ReadStats(w.Handle(), w.IpcGet)
 	if stat == nil { // unlikely
 		log.W("proxy: wg: %s stats: readstats: nil", w.id)
 		return // zz
