@@ -335,7 +335,7 @@ func (px *proxifier) ProxyTo(ipp netip.AddrPort, uid string, pids []string) (_ P
 		lopinned = pinnedpid
 	} else if pinok && chosen {
 		p, err := px.pinID(uid, ipp, pinnedpid) // repin
-		if err == nil && hasroute(p, ippstr) {
+		if p != nil && err == nil && hasroute(p, ippstr) {
 			return p, nil
 		} // else: pinnedpid not ok or no route
 	} else if pinok && !chosen {

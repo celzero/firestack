@@ -317,6 +317,9 @@ func icmpReaches(p Proxy, ipp netip.AddrPort) (bool, error) {
 }
 
 func hasroute(p Proxy, ipp string) bool {
+	if p == nil {
+		return false
+	}
 	return p.Router().Contains(ipp)
 }
 
