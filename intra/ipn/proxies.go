@@ -221,6 +221,7 @@ func NewProxifier(pctx context.Context, c protect.Controller, o x.ProxyListener)
 }
 
 func (px *proxifier) add(p Proxy) (ok bool) {
+	var old Proxy
 	id := p.ID()
 
 	px.Lock()
@@ -228,20 +229,21 @@ func (px *proxifier) add(p Proxy) (ok bool) {
 
 	defer func() {
 		if ok {
-			core.Go("pxr.add: "+id, func() { px.obs.OnProxyAdded(id) })
+			core.Go("pxr.add: "+id, func() {
+				px.obs.OnProxyAdded(id)
+			})
+			// new proxy, invoke Stop on old proxy
+			if old != nil && old.Handle() != p.Handle() {
+				// holding px.lock, so exec stop in a goroutine
+				core.Go("pxr.add.stop: "+id, func() {
+					_ = old.Stop()
+					// onRmv is not sent here, as one has just been added
+				})
+			}
 		}
 	}()
 
-	if pp := px.p[id]; pp != nil {
-		// new proxy, invoke Stop on old proxy
-		if pp != p {
-			core.Go("pxr.add: "+id, func() { // holding px.lock, so exec stop in a goroutine
-				_ = pp.Stop()
-				// onRmv is not sent here, as new proxy will be added
-			})
-		}
-	}
-
+	old = px.p[id]
 	if immutable(id) {
 		switch id {
 		case Exit:
@@ -280,7 +282,7 @@ func (px *proxifier) add(p Proxy) (ok bool) {
 		ok = true
 	}
 
-	log.D("proxy: add: proxy %s ok? %t", id, ok)
+	logeif(ok)("proxy: add: proxy %s ok? %t", id, ok)
 	return ok
 }
 
