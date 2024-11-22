@@ -12,7 +12,6 @@ import (
 	"crypto/sha256"
 	"crypto/tls"
 	"encoding/hex"
-	"errors"
 	"io"
 	"net"
 	"net/http"
@@ -112,7 +111,7 @@ func (c *pipconn) SetWriteDeadline(t time.Time) error { return nil }
 func (t *piph2) dialtls(network, addr string, cfg *tls.Config) (net.Conn, error) {
 	rawConn, err := t.dial(network, addr)
 	if err != nil || rawConn == nil || core.IsNil(rawConn) {
-		return nil, errors.Join(err, errNoProxyConn)
+		return nil, core.JoinErr(err, errNoProxyConn)
 	}
 
 	colonPos := strings.LastIndex(addr, ":")

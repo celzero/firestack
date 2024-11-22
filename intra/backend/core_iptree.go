@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/k-sone/critbitgo"
 )
@@ -450,7 +451,7 @@ func ip2cidr(ippOrCidr string) (*net.IPNet, error) {
 			ipaddr = ip
 		} else {
 			log.W("iptree: ip2cidr: cidr %v / ipp %v / ip %v", err, err1, err2)
-			return nil, errors.Join(err, err1, err2)
+			return nil, core.JoinErr(err, err1, err2)
 		}
 		ip := ipaddr.AsSlice()
 		mask := net.CIDRMask(ipaddr.BitLen(), ipaddr.BitLen())

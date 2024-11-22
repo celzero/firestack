@@ -8,11 +8,11 @@ package intra
 
 import (
 	"context"
-	"errors"
 	"strings"
 	"sync"
 
 	x "github.com/celzero/firestack/intra/backend"
+	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/dns53"
 	"github.com/celzero/firestack/intra/dnscrypt"
 	"github.com/celzero/firestack/intra/dnsx"
@@ -40,7 +40,7 @@ func AddDNSProxy(t Tunnel, id, ip, port string) error {
 	p, perr := t.internalProxies()
 	r, rerr := t.internalResolver()
 	if rerr != nil || perr != nil {
-		return errors.Join(rerr, perr)
+		return core.JoinErr(rerr, perr)
 	}
 	ctx := t.internalCtx()
 	if dns, err := dns53.NewTransport(ctx, id, ip, port, p); err != nil {
@@ -63,7 +63,7 @@ func SetSystemDNS(t Tunnel, ipcsv string) error {
 	n := len(ipcsv)
 	if r == nil || p == nil || n <= 0 {
 		log.W("dns: cannot set system dns; n: %d, errs: %v %v", n, rerr, perr)
-		return errors.Join(dnsx.ErrAddFailed, rerr, perr)
+		return core.JoinErr(dnsx.ErrAddFailed, rerr, perr)
 	}
 
 	// if the ipcsv is localhost, use loopback addresses.
@@ -130,7 +130,7 @@ func AddProxyDNS(t Tunnel, p x.Proxy) error {
 	pxr, perr := t.internalProxies()
 	r, rerr := t.internalResolver()
 	if rerr != nil || perr != nil {
-		return errors.Join(rerr, perr)
+		return core.JoinErr(rerr, perr)
 	}
 	ctx := t.internalCtx()
 	ipOrHostCsv := p.DNS() // may return csv(host:port), csv(ip:port), csv(ips), csv(host)
@@ -166,7 +166,7 @@ func AddDoHTransport(t Tunnel, id, url, ips string) error {
 	pxr, perr := t.internalProxies()
 	r, rerr := t.internalResolver()
 	if rerr != nil || perr != nil {
-		return errors.Join(rerr, perr)
+		return core.JoinErr(rerr, perr)
 	}
 	ctx := t.internalCtx()
 	split := []string{}
@@ -186,7 +186,7 @@ func AddODoHTransport(t Tunnel, id, endpoint, resolver, epips string) error {
 	pxr, perr := t.internalProxies()
 	r, rerr := t.internalResolver()
 	if rerr != nil || perr != nil {
-		return errors.Join(rerr, perr)
+		return core.JoinErr(rerr, perr)
 	}
 	ctx := t.internalCtx()
 	split := []string{}
@@ -205,7 +205,7 @@ func AddDoTTransport(t Tunnel, id, url, ips string) error {
 	pxr, perr := t.internalProxies()
 	r, rerr := t.internalResolver()
 	if rerr != nil || perr != nil {
-		return errors.Join(rerr, perr)
+		return core.JoinErr(rerr, perr)
 	}
 	ctx := t.internalCtx()
 	split := []string{}

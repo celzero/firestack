@@ -16,7 +16,6 @@ package seasy
 import (
 	"context"
 	"crypto/tls"
-	"errors"
 	"fmt"
 	"net/http"
 	"net/netip"
@@ -150,7 +149,7 @@ func (sec *SEApi) Start(ctx context.Context) (ok bool, err error) {
 				}
 			}
 		} else {
-			err = errors.Join(err, discoerr)
+			err = core.JoinErr(err, discoerr)
 		}
 	}
 	if err != nil {

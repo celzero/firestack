@@ -434,7 +434,7 @@ func (a agingconn) canread() error {
 			}
 		})
 	}
-	return errors.Join(ctlErr, checkErr) // may return nil
+	return JoinErr(ctlErr, checkErr) // may return nil
 }
 
 func logev(err error) log.LogFn {

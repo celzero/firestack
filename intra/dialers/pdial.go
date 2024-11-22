@@ -7,7 +7,6 @@
 package dialers
 
 import (
-	"errors"
 	"net"
 	"net/netip"
 	"time"
@@ -40,29 +39,30 @@ func ProxyDial(d proxy.Dialer, network, addr string) (net.Conn, error) {
 }
 
 // ProxyDials tries to connect to addr using each dialer in dd
-func ProxyDials(dd []proxy.Dialer, network, addr string) (c net.Conn, err error) {
+func ProxyDials(dd []proxy.Dialer, network, addr string) (c net.Conn, errs error) {
 	start := time.Now()
 	tot := len(dd)
 	for i, d := range dd {
 		if time.Since(start) > dialRetryTimeout {
-			err = errors.Join(err, errRetryTimeout)
+			errs = core.JoinErr(errs, errRetryTimeout)
 			break
 		}
-		c, err = ProxyDial(d, network, addr)
-		if c == nil && err == nil {
-			err = errors.Join(err, errNoConn)
+		conn, err := ProxyDial(d, network, addr)
+		c = conn
+		if conn == nil && err == nil {
+			errs = core.JoinErr(errs, errNoConn)
 		} else if err != nil {
-			clos(c)
+			clos(conn)
 			log.W("pdial: trying %s dialer of %d / %d to %s", network, i, tot, addr)
-			err = errors.Join(err)
-		} else if c != nil {
-			err = nil
+			errs = core.JoinErr(errs, err)
+		} else if conn != nil {
+			errs = nil
 			return
 		}
 	}
-	if c == nil && err == nil {
+	if c == nil {
 		log.W("pdial: no dialer (sz: %d) succeeded for %s", tot, addr)
-		return nil, errNoDialer
+		return nil, core.OneErr(errs, errNoDialer)
 	}
 	return
 }

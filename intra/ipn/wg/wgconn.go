@@ -302,7 +302,7 @@ func (bind *StdNetBind) Close() error {
 	bind.blackhole6 = false
 
 	log.I("wg: bind: %s close; err4? %v err6? %v", bind.id, err1, err2)
-	return errors.Join(err1, err2)
+	return core.JoinErr(err1, err2)
 }
 
 func (s *StdNetBind) makeReceiveFn(uc *net.UDPConn) conn.ReceiveFunc {
@@ -406,7 +406,7 @@ func (s *StdNetBind) Send(buf [][]byte, peer conn.Endpoint) (err error) {
 		extend(uc, wgtimeout)
 		n, serr := uc.WriteToUDPAddrPort(data, dst)
 
-		errs = errors.Join(errs, serr)
+		errs = core.JoinErr(errs, serr)
 		nn += n
 	}
 

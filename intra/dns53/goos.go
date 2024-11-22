@@ -8,7 +8,6 @@ package dns53
 
 import (
 	"context"
-	"errors"
 	"net"
 	"net/netip"
 	"time"
@@ -119,7 +118,7 @@ func (t *goosr) send(msg *dns.Msg) (ans *dns.Msg, elapsed time.Duration, qerr *d
 				log.D("dns53: goosr: go resolver (why? %v) for %s => %s", errl, host, ips)
 				ans, err = xdns.AQuadAForQuery(msg, ips...)
 			} else {
-				err = errors.Join(errl, errc)
+				err = core.JoinErr(errl, errc)
 			}
 			// TODO: if len(ips) <= 0 synthesize a NXDOMAIN?
 		}

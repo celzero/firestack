@@ -13,6 +13,7 @@ import (
 	"net/netip"
 	"syscall"
 
+	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/settings"
 	"gvisor.dev/gvisor/pkg/tcpip"
@@ -202,7 +203,7 @@ func addIfAddrs(s *stack.Stack, nic tcpip.NICID) error {
 	ifaddr6, err6 := netip.ParsePrefix("fd66:f83a:c650::1/120")
 
 	if err4 != nil || err6 != nil { // should never happen
-		return errors.Join(err4, err6)
+		return core.JoinErr(err4, err6)
 	}
 
 	// go.dev/play/p/Clg4geOwXMf

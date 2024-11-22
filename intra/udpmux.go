@@ -7,7 +7,6 @@
 package intra
 
 import (
-	"errors"
 	"fmt"
 	"net"
 	"net/netip"
@@ -429,7 +428,7 @@ func (c *demuxconn) RemoteAddr() net.Addr {
 func (c *demuxconn) SetDeadline(t time.Time) error {
 	werr := c.SetReadDeadline(t)
 	rerr := c.SetReadDeadline(t)
-	return errors.Join(werr, rerr)
+	return core.JoinErr(werr, rerr)
 }
 
 // SetReadDeadline implements core.UDPConn.SetReadDeadline

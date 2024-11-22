@@ -16,12 +16,12 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"math/big"
 	"strings"
 
+	"github.com/celzero/firestack/intra/core"
 	brsa "github.com/celzero/firestack/intra/core/brsa"
 	"github.com/celzero/firestack/intra/log"
 	// "github.com/cloudflare/circl/blindsign/blindrsa"
@@ -112,7 +112,7 @@ func NewPipKey(pubjwk string, msgOrExistingState string) (PipKey, error) {
 	c, err1 := brsa.NewClient(brsa.SHA384PSSDeterministic, pub)
 	v, err2 := brsa.NewVerifier(brsa.SHA384PSSDeterministic, pub)
 	if err1 != nil || err2 != nil {
-		err := errors.Join(err1, err2)
+		err := core.JoinErr(err1, err2)
 		log.E("pipkey: new: sha384-pss-det verifier err %v", err)
 		return nil, err
 	}

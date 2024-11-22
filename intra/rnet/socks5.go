@@ -8,7 +8,6 @@ package rnet
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -328,7 +327,7 @@ func (h *socks5) tcphandle(s *tx.Server, ingress *net.TCPConn, r *tx.Request) (e
 		finrx := <-finrxch
 		fintx := <-fintxch
 
-		err = errors.Join(finrx.err, fintx.err)
+		err = core.JoinErr(finrx.err, fintx.err)
 
 		summary.Rx = finrx.ex
 		summary.Tx = fintx.ex

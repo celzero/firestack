@@ -7,11 +7,11 @@
 package core
 
 import (
-	"fmt"
 	"io"
 	"net"
 	"os"
 	"reflect"
+	"strings"
 	"syscall"
 
 	"gvisor.dev/gvisor/pkg/tcpip/adapters/gonet"
@@ -230,13 +230,21 @@ func OneErr(errs ...error) error {
 }
 
 func JoinErr(errs ...error) error {
-	if len(errs) <= 0 {
+	var all []error
+	for _, err := range errs {
+		if err == nil {
+			continue
+		}
+		all = append(all, err)
+	}
+	if len(all) <= 0 {
 		return nil
 	}
-	if len(errs) == 1 {
-		return errs[0]
+	if len(all) == 1 {
+		return all[0]
 	}
-	return fmt.Errorf("%v", errs)
+
+	return &errMult{errs: all}
 }
 
 func JoinErrIf(y bool, errs ...error) error {
@@ -244,4 +252,27 @@ func JoinErrIf(y bool, errs ...error) error {
 		return JoinErr(errs...)
 	}
 	return nil
+}
+
+type errMult struct {
+	errs []error
+}
+
+func (e *errMult) Error() string {
+	if len(e.errs) <= 0 {
+		return "<nil>"
+	} else if len(e.errs) == 1 {
+		return e.errs[0].Error()
+	}
+
+	b := strings.Builder{}
+	for _, err := range e.errs {
+		_, _ = b.WriteString(err.Error())
+		_, _ = b.WriteString(" | ")
+	}
+	return b.String()
+}
+
+func (e *errMult) Unwrap() []error {
+	return e.errs
 }

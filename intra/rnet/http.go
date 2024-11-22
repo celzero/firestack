@@ -8,7 +8,6 @@ package rnet
 
 import (
 	"context"
-	"errors"
 	"io"
 	"net"
 	"net/http"
@@ -239,7 +238,7 @@ func http502(w io.WriteCloser, err1 error, ssu *ServerSummary) {
 	if ssu != nil {
 		ssu.done(err1, err2, err3)
 	}
-	log.D("svchttp: http502: done http-connect; errs? %v", errors.Join(err1, err2, err3))
+	log.D("svchttp: http502: done http-connect; errs? %v", core.JoinErr(err1, err2, err3))
 }
 
 func pipeconn(dst net.Conn, src net.Conn, ssu *ServerSummary, wg *sync.WaitGroup) {

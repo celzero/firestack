@@ -789,7 +789,7 @@ func (px *proxifier) RegisterWarp(pub string) ([]byte, error) {
 func (px *proxifier) RegisterSE() error {
 	sec := px.sec
 	if sec == nil {
-		return errors.Join(errMissingSEClient, px.lastSeErr)
+		return core.JoinErr(errMissingSEClient, px.lastSeErr)
 	}
 
 	sep, err := NewSEasyProxy(px.ctx, px.ctl, sec)
@@ -808,7 +808,7 @@ func (px *proxifier) RegisterSE() error {
 func (px *proxifier) Warp() (x.Proxy, error) {
 	warp, err := px.ProxyFor(RpnWg)
 	if warp == nil {
-		return nil, errors.Join(err, px.lastWarpErr)
+		return nil, core.JoinErr(err, px.lastWarpErr)
 	}
 	return warp, err
 }
@@ -832,7 +832,7 @@ func (px *proxifier) Exit64() (x.Proxy, error) {
 func (px *proxifier) SE() (x.Proxy, error) {
 	sep, err := px.ProxyFor(RpnWg)
 	if sep == nil {
-		return nil, errors.Join(err, px.lastSeErr)
+		return nil, core.JoinErr(err, px.lastSeErr)
 	}
 	return sep, err
 }
@@ -860,7 +860,7 @@ func (px *proxifier) TestSE() (string, error) {
 	}
 
 	if len(oks) <= 0 {
-		return "", errors.Join(errNoSuitableAddress, px.lastSeErr)
+		return "", core.JoinErr(errNoSuitableAddress, px.lastSeErr)
 	}
 	return strings.Join(oks, ","), nil
 }
@@ -891,7 +891,7 @@ func (px *proxifier) TestWarp() (string, error) {
 	}
 
 	if len(oks) <= 0 {
-		return "", errors.Join(errNoSuitableAddress, px.lastWarpErr)
+		return "", core.JoinErr(errNoSuitableAddress, px.lastWarpErr)
 	}
 	return strings.Join(oks, ","), nil
 }

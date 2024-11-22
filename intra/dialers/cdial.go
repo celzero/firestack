@@ -105,7 +105,7 @@ func commondial2[D rdials, C rconns](d D, network, laddr, raddr string, connect 
 			log.V("commondial: ip %s works for %s", confirmed, remote)
 			return conn, nil
 		}
-		errs = errors.Join(errs, err)
+		errs = core.JoinErr(errs, err)
 		ips.Disconfirm(confirmed)
 		logwd(err)("rdial: commondial: confirmed %s for %s failed; err %v",
 			confirmed, remote, err)
@@ -114,7 +114,7 @@ func commondial2[D rdials, C rconns](d D, network, laddr, raddr string, connect 
 	if dontretry {
 		if !confirmedIPOK {
 			log.E("commondial: ip %s not ok for %s", confirmed, raddr)
-			errs = errors.Join(errs, errNoIps)
+			errs = core.JoinErr(errs, errNoIps)
 		}
 		return nil, errs
 	}
@@ -134,7 +134,7 @@ func commondial2[D rdials, C rconns](d D, network, laddr, raddr string, connect 
 	for _, ip := range allips {
 		end := time.Since(start)
 		if end > dialRetryTimeout {
-			errs = errors.Join(errs, errRetryTimeout)
+			errs = core.JoinErr(errs, errRetryTimeout)
 			log.D("commondial: timeout %s for %s", end, raddr)
 			break
 		}
@@ -150,7 +150,7 @@ func commondial2[D rdials, C rconns](d D, network, laddr, raddr string, connect 
 				log.I("commondial: ip %s works for %s", ip, remote)
 				return conn, nil
 			}
-			errs = errors.Join(errs, err)
+			errs = core.JoinErr(errs, err)
 			logwd(err)("rdial: commondial: ip %s for %s failed; err %v", ip, remote, err)
 		} else {
 			log.W("commondial: ip %s not ok for %s", ip, raddr)

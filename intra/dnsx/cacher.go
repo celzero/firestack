@@ -366,7 +366,7 @@ func (t *ctransport) fetch(network string, q *dns.Msg, summary *x.DNSSummary, cb
 		// return cached/barriered response, instead return an error
 		inhangover := t.hangover.Exceeds(httl)
 		if inhangover {
-			err = errors.Join(err, errHangover)
+			err = core.JoinErr(err, errHangover)
 			log.W("cache: barrier: hangover(k: %s); discard ans (has? %t)", key, hasans)
 			if cachehit {
 				fillSummary(cachedres.s, fsmm)
@@ -385,7 +385,7 @@ func (t *ctransport) fetch(network string, q *dns.Msg, summary *x.DNSSummary, cb
 			fillSummary(cachedsmm, fsmm) // cachedsmm may itself be fsmm
 		}
 
-		return fres, errors.Join(err, ferr)
+		return fres, core.JoinErr(err, ferr)
 	}
 
 	// check if underlying transport can connect fine, if not treat cache

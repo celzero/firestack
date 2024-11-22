@@ -488,7 +488,7 @@ func (s *StdNetBind2) Close() error {
 
 	log.I("wg: bind2: %s close; err4? %v err6? %v", s.id, err4, err6)
 
-	return errors.Join(err4, err6)
+	return core.JoinErr(err4, err6)
 }
 
 func (s *StdNetBind2) Send(bufs [][]byte, peer conn.Endpoint) (err error) {

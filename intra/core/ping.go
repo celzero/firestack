@@ -173,11 +173,11 @@ func setttl(c MinConn, v4 bool) (err error) {
 	if raw4 != nil {
 		err1 := raw4.SetControlMessage(ipv4.FlagTTL, true)
 		err2 := raw4.SetTTL(ttl)
-		err = errors.Join(err1, err2)
+		err = JoinErr(err1, err2)
 	} else if raw6 != nil {
 		err1 := raw6.SetControlMessage(ipv6.FlagHopLimit, true)
 		err2 := raw6.SetHopLimit(ttl)
-		err = errors.Join(err1, err2)
+		err = JoinErr(err1, err2)
 	}
 	return
 }

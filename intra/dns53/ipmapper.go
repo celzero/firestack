@@ -128,7 +128,7 @@ func (m *ipmapper) queryIP2(_ context.Context, network, host, uid string) ([]net
 	}
 
 	if err4 != nil || err6 != nil {
-		errs := errors.Join(err4, err6)
+		errs := core.JoinErr(err4, err6)
 		log.E("ipmapper: lookup: query %s err %v", host, errs)
 		return nil, errs
 	}
@@ -164,14 +164,14 @@ func (m *ipmapper) queryIP2(_ context.Context, network, host, uid string) ([]net
 	}
 
 	if lerr4 != nil && lerr6 != nil { // all errors
-		errs := errors.Join(lerr4, lerr6)
+		errs := core.JoinErr(lerr4, lerr6)
 		log.E("ipmapper: lookup: %s: err %v", host, errs)
 		return nil, errs
 	} else if noval4 && noval6 { // typecast failed or no answer
 		log.E("ipmapper: lookup: no answers for %s; len(4)? %d len(6)? %d", host, len(r4), len(r6))
 		return nil, errNoAns
 	} else if len(r4) <= 0 && len(r6) <= 0 { // empty answer
-		errs := errors.Join(errNoAns, lerr4, lerr6)
+		errs := core.JoinErr(errNoAns, lerr4, lerr6)
 		log.E("ipmapper: lookup: no answers for %s, err %v", host, errs)
 		return nil, errs
 	}

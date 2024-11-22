@@ -24,7 +24,6 @@
 package dialers
 
 import (
-	"errors"
 	"io"
 	"net"
 	"sync"
@@ -475,7 +474,7 @@ func (r *retrier) CloseWrite() error {
 // Close closes the connection and the read and write flags.
 func (r *retrier) Close() error {
 	// also close the read and write flags
-	return errors.Join(r.CloseRead(), r.CloseWrite())
+	return core.JoinErr(r.CloseRead(), r.CloseWrite())
 }
 
 // LocalAddr behaves slightly strangely: its value may change as a
@@ -529,5 +528,5 @@ func (r *retrier) SetWriteDeadline(t time.Time) error {
 func (r *retrier) SetDeadline(t time.Time) error {
 	e1 := r.SetReadDeadline(t)
 	e2 := r.SetWriteDeadline(t)
-	return errors.Join(e1, e2)
+	return core.JoinErr(e1, e2)
 }

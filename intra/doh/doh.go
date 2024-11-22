@@ -178,11 +178,11 @@ func newTransport(ctx context.Context, typ, id, rawurl, otargeturl string, addrs
 		proxy := rawurl // may be empty
 		configurl, err := url.Parse(odohconfigdns)
 		if err != nil || configurl == nil || configurl.Hostname() == "" {
-			return nil, errors.Join(errNoOdohConfigUrl, err)
+			return nil, core.JoinErr(errNoOdohConfigUrl, err)
 		}
 		targeturl, err := url.Parse(otargeturl)
 		if err != nil || targeturl == nil || targeturl.Hostname() == "" {
-			return nil, errors.Join(errNoOdohTarget, err)
+			return nil, core.JoinErr(errNoOdohTarget, err)
 		}
 		proxyurl, _ := url.Parse(proxy) // ignore err as proxy may be empty
 

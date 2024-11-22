@@ -134,12 +134,12 @@ outer:
 		select {
 		case r := <-ch:
 			if r.err != nil {
-				errs = errors.Join(errs, r.err)
+				errs = JoinErr(errs, r.err)
 			} else {
 				return r.t, r.i, r.err
 			}
 		case <-time.After(timeout):
-			errs = errors.Join(errs, errTimeout)
+			errs = JoinErr(errs, errTimeout)
 			break outer
 		}
 	}

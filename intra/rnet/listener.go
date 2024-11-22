@@ -10,6 +10,8 @@ import (
 	"errors"
 	"fmt"
 	"time"
+
+	"github.com/celzero/firestack/intra/core"
 )
 
 var errNop = errors.New("no error")
@@ -34,7 +36,7 @@ func (s *ServerSummary) done(errs ...error) {
 
 	s.Duration = int32(time.Since(s.start).Seconds())
 
-	err := errors.Join(errs...) // errs may be nil
+	err := core.JoinErr(errs...) // errs may be nil
 	if err != nil {
 		if s.Msg == errNop.Error() {
 			s.Msg = err.Error()

@@ -12,6 +12,7 @@ import (
 	"net/netip"
 	"time"
 
+	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/ipn"
 )
 
@@ -139,7 +140,7 @@ func (s *SocketSummary) done(errs ...error) *SocketSummary {
 		return s
 	}
 
-	err := errors.Join(errs...) // errs may be nil
+	err := core.JoinErr(errs...) // errs may be nil
 	if err != nil {
 		if s.Msg == errNone.Error() {
 			s.Msg = err.Error()

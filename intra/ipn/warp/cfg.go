@@ -14,7 +14,6 @@
 package warp
 
 import (
-	"errors"
 	"math/rand"
 	"net/netip"
 	"time"
@@ -119,7 +118,7 @@ func Endpoints() (v4 netip.AddrPort, v6 netip.AddrPort, err error) {
 	ip4, err4 := core.RandomIPFromPrefix(cidr4)
 	ip6, err6 := core.RandomIPFromPrefix(cidr6)
 	if err4 != nil && err6 != nil {
-		err = errors.Join(err4, err6)
+		err = core.JoinErr(err4, err6)
 		return
 	}
 	v4ok, v6ok := ip4.IsValid(), ip6.IsValid()
