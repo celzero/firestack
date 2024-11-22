@@ -150,14 +150,14 @@ func (a *Amnezia) instate(pkt []byte) ([]byte, uint32) {
 			// github.com/amnezia-vpn/amneziawg-go/blob/2e3f7d122c/device/send.go#L130
 			pad = a.S1
 			obsType = a.H1
-			maybeInstate = obsType > 0
+			maybeInstate = obsType > 0 || pad > 0
 		}
 	case device.MessageResponseType:
 		if n == device.MessageResponseSize {
 			// github.com/amnezia-vpn/amneziawg-go/blob/2e3f7d122c/device/send.go#L198
 			pad = a.S2
 			obsType = a.H2
-			maybeInstate = obsType > 0
+			maybeInstate = obsType > 0 || pad > 0
 		}
 	case device.MessageCookieReplyType:
 		if n == device.MessageCookieReplySize {
@@ -173,20 +173,22 @@ func (a *Amnezia) instate(pkt []byte) ([]byte, uint32) {
 		}
 	}
 
-	if maybeInstate {
-		random, err := blob(pad) // pad may be 0
-		if err != nil {          // unlikely
-			log.E("wg: %s: amnezia: instate: %v", a.id, err)
-			return pkt, defaultType
-		}
+	log.VV("wg: %s: amnezia: instate: msg size: %d, msg typ: (d: %d, o: %d), s1/s2: %d/%d, do? %t",
+		a.id, n, defaultType, obsType, pad, a.S1, a.S2, maybeInstate)
+
+	if obsType > 0 {
 		binary.LittleEndian.PutUint32(pkt, obsType)
-		if len(random) <= 0 {
-			return pkt, obsType
-		} else {
-			return append(random, pkt...), obsType
-		}
+	}
+	// pad may be 0
+	if random, err := blob(pad); err != nil { // unlikely
+		log.E("wg: %s: amnezia: instate: %v", a.id, err)
+	} else if len(random) > 0 {
+		pkt = append(random, pkt...)
 	}
 
+	if obsType > 0 {
+		return pkt, obsType
+	}
 	return pkt, defaultType
 }
 
@@ -205,12 +207,15 @@ func (a *Amnezia) strip(pkt []byte) ([]byte, uint32) {
 	if size == a.S1+device.MessageInitiationSize {
 		discard = a.S1
 		possibleType = a.H1
-		maybeStrip = true
+		maybeStrip = discard > 0
 	} else if size == a.S2+device.MessageResponseSize {
 		discard = a.S2
 		possibleType = a.H2
-		maybeStrip = true
+		maybeStrip = discard > 0
 	} // else: default
+
+	log.VV("wg: %s: amnezia: strip: msg size: %d, msg typ (d: %d / o: %d), s1/s2: %d/%d, do? %t",
+		a.id, size, defaultType, possibleType, a.S1, a.S2, maybeStrip)
 
 	if maybeStrip {
 		hdr := pkt[discard : discard+h]
@@ -218,6 +223,7 @@ func (a *Amnezia) strip(pkt []byte) ([]byte, uint32) {
 		if obsType == possibleType {
 			return pkt[discard:], obsType
 		} // else: msg type mismatch, but size matched
+		log.W("wg: %s: amnezia: strip: mismatched msg type %d != %d", a.id, obsType, possibleType)
 	} // else: nothing to discard
 
 	return pkt, uint32(defaultType)
