@@ -8,6 +8,7 @@ package ipn
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"net/netip"
 	"strconv"
@@ -91,7 +92,7 @@ func (h *auto) dial(network, local, remote string) (protect.Conn, error) {
 		tlsHandshakeTimeout,
 		func(ctx context.Context) (protect.Conn, error) {
 			const myidx = 0
-			if exit == nil {
+			if exit == nil { // exit must always be present
 				return nil, exerr
 			}
 			if recent {
@@ -169,7 +170,7 @@ func (h *auto) dial(network, local, remote string) (protect.Conn, error) {
 		h.exp.Put(remote, who)
 	}
 	maybeKeepAlive(c)
-	log.I("proxy: auto: w(%d) pin(%t/%d), dial(%s) %s; err? %v",
+	logeif(err != nil)("proxy: auto: w(%d) pin(%t/%d), dial(%s) %s; err? %v",
 		who, recent, previdx, network, remote, err)
 	return c, err
 }
@@ -317,20 +318,20 @@ func (h *auto) Stop() error {
 
 func (h *auto) dialIfReachable(p Proxy, network, local, remote string) (net.Conn, error) {
 	if !hasroute(p, remote) {
-		return nil, errNoRouteToHost
+		return nil, fmt.Errorf("auto; %s: %v", p.ID(), errNoRouteToHost)
 	}
 	ipp, _ := netip.ParseAddrPort(remote)
 	if reachable, err := h.ba.DoIt(baID(p, remote), icmpReachesWork(p, ipp)); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("auto; %s ping %s: %v", p.ID(), remote, err)
 	} else if !reachable {
-		return nil, errUnreachable
+		return nil, fmt.Errorf("auto; %s: %v: %s", p.ID(), errNoRouteToHost, remote)
 	}
 	return h.dialIfHealthy(p, network, local, remote)
 }
 
 func (*auto) dialIfHealthy(p Proxy, network, local, remote string) (net.Conn, error) {
 	if err := healthy(p); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("auto; %s not ok; %v: %s", p.ID(), err, remote)
 	}
 	if len(local) > 0 {
 		return p.Dialer().DialBind(network, local, remote)
