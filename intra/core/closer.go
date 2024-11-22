@@ -7,6 +7,7 @@
 package core
 
 import (
+	"fmt"
 	"io"
 	"net"
 	"os"
@@ -226,4 +227,11 @@ func OneErr(errs ...error) error {
 		}
 	}
 	return nil
+}
+
+func JoinErr(errs ...error) error {
+	if len(errs) <= 0 {
+		return nil
+	}
+	return fmt.Errorf("%v", errs)
 }
