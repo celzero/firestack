@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"math/big"
 	"math/rand"
+	"net"
 	"net/netip"
 	"time"
 )
@@ -66,4 +67,38 @@ func RandomIPFromPrefix(cidr netip.Prefix) (netip.Addr, error) {
 
 	// Unmap any mapped v4 addresses before return
 	return randomAddress.Unmap(), nil
+}
+
+func IP2Cidr(ippOrCidr string) (*net.IPNet, error) {
+	var ipaddr netip.Addr
+	if _, ipnet, err := net.ParseCIDR(ippOrCidr); err == nil {
+		return ipnet, err
+	} else {
+		if ipp, err1 := netip.ParseAddrPort(ippOrCidr); err1 == nil {
+			ipaddr = ipp.Addr()
+		} else if ip, err2 := netip.ParseAddr(ippOrCidr); err2 == nil {
+			ipaddr = ip
+		} else {
+			return nil, fmt.Errorf("ip2cidr: errs: cidr %v / ipp %v / ip %v", err, err1, err2)
+		}
+		ip := ipaddr.AsSlice()
+		mask := net.CIDRMask(ipaddr.BitLen(), ipaddr.BitLen())
+		return &net.IPNet{IP: ip, Mask: mask}, nil
+	}
+}
+
+func IP2Cidr2(ippOrCidr string) (zz netip.Prefix, err error) {
+	var ipaddr netip.Addr
+	if prefix, err := netip.ParsePrefix(ippOrCidr); err == nil {
+		return prefix, err
+	} else {
+		if ipp, err1 := netip.ParseAddrPort(ippOrCidr); err1 == nil {
+			ipaddr = ipp.Addr()
+		} else if ip, err2 := netip.ParseAddr(ippOrCidr); err2 == nil {
+			ipaddr = ip
+		} else {
+			return zz, fmt.Errorf("ip2cidr2: errs: cidr %v / ipp %v / ip %v", err, err1, err2)
+		}
+		return netip.PrefixFrom(ipaddr, ipaddr.BitLen()), nil
+	}
 }

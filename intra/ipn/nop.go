@@ -55,12 +55,12 @@ func (w *GW) Stat() *x.RouterStats {
 }
 
 // Contains implements Router.
-func (w *GW) Contains(prefix string) bool {
-	ipnet, err := netip.ParsePrefix(prefix)
+func (w *GW) Contains(ippOrCidr string) bool {
+	prefix, err := core.IP2Cidr2(ippOrCidr)
 	if err != nil {
 		return false
 	}
-	return (w.ok(ipnet.Addr()))
+	return w.ok(prefix.Addr())
 }
 
 func (w *GW) ok(ip netip.Addr) bool  { return w.ok4(ip) || w.ok6(ip) }

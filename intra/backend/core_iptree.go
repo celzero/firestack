@@ -9,12 +9,10 @@ package backend
 import (
 	"errors"
 	"net"
-	"net/netip"
 	"strings"
 	"sync"
 
 	"github.com/celzero/firestack/intra/core"
-	"github.com/celzero/firestack/intra/log"
 	"github.com/k-sone/critbitgo"
 )
 
@@ -441,20 +439,5 @@ func (c *iptree) Len() int {
 }
 
 func ip2cidr(ippOrCidr string) (*net.IPNet, error) {
-	var ipaddr netip.Addr
-	if _, ipnet, err := net.ParseCIDR(ippOrCidr); err == nil {
-		return ipnet, err
-	} else {
-		if ipp, err1 := netip.ParseAddrPort(ippOrCidr); err1 == nil {
-			ipaddr = ipp.Addr()
-		} else if ip, err2 := netip.ParseAddr(ippOrCidr); err2 == nil {
-			ipaddr = ip
-		} else {
-			log.W("iptree: ip2cidr: cidr %v / ipp %v / ip %v", err, err1, err2)
-			return nil, core.JoinErr(err, err1, err2)
-		}
-		ip := ipaddr.AsSlice()
-		mask := net.CIDRMask(ipaddr.BitLen(), ipaddr.BitLen())
-		return &net.IPNet{IP: ip, Mask: mask}, nil
-	}
+	return core.IP2Cidr(ippOrCidr)
 }
