@@ -10,6 +10,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/rand"
 	"net/netip"
 	"strings"
 	"sync"
@@ -81,9 +82,7 @@ var (
 	errMissingRev         = errors.New("proxy: missing reverse proxy")
 	errNoAuto464XLAT      = errors.New("auto: no 464xlat")
 	errNotPinned          = errors.New("auto: another proxy pinned")
-	errCannotPin          = errors.New("proxy: cannot pin")
 	errInvalidAddr        = errors.New("proxy: invaild ip:port")
-	errUnreachable        = errors.New("proxy: destination unreachable")
 	errNoRouteToHost      = errors.New("proxy: no route to host")
 	errMissingProxyID     = errors.New("proxy: missing proxy id")
 	errHopDefaultRoutes   = errors.New("proxy: hop must route all ip4/ip6")
@@ -103,6 +102,7 @@ const (
 	tzzTimeout            time.Duration = 2 * time.Minute  // time between new connections before proxies transition to idle
 	lastOKThreshold       time.Duration = 10 * time.Minute // time between last OK and now before pinging & un-pinning
 	pintimeout            time.Duration = 10 * time.Minute // time to keep a pin
+	alwaysPin             bool          = true             // always pin to a proxy no matter the errors
 )
 
 // type checks
@@ -158,6 +158,7 @@ type proxifier struct {
 	rev netstack.GConnHandler // may be nil
 	obs x.ProxyListener       // proxy observer
 
+	staller *core.ExpMap[string, string]                  // uid+dst(domainOrIP) -> stallSecs
 	ipPins  *core.Sieve[netip.AddrPort, string]           // ipp -> proxyid
 	uidPins *core.Sieve2K[string, netip.AddrPort, string] // uid -> [dst -> proxyid]
 
@@ -203,6 +204,7 @@ func NewProxifier(pctx context.Context, c protect.Controller, o x.ProxyListener)
 	pxr.base = NewBaseProxy(pctx, c)
 	pxr.grounded = NewGroundProxy()
 	pxr.auto = NewAutoProxy(pctx, pxr)
+	pxr.staller = core.NewExpiringMap[string, string](pctx)
 	pxr.ipPins = core.NewSieve[netip.AddrPort, string](pctx, pintimeout)
 	pxr.uidPins = core.NewSieve2K[string, netip.AddrPort, string](pctx, pintimeout)
 
@@ -315,18 +317,28 @@ func (px *proxifier) ProxyTo(ipp netip.AddrPort, uid string, pids []string) (_ P
 	if !ipp.IsValid() {
 		return nil, errMissingAddress
 	}
+
+	ippstr := ipp.String()
+
 	if len(pids) == 1 { // there's no other pid to choose from
 		// skip hasroute, as there is only one pid to route to
-		return px.pinID(uid, ipp, pids[0]) // repin
+		p, err := px.pinID(uid, ipp, pids[0]) // repin
+		if err != nil {
+			px.stall(uid + ippstr)
+		}
+		// alwaysPin is set to true, so return p even if err is not nil
+		if alwaysPin && p != nil {
+			err = nil
+		}
+		return p, err
 	}
 
 	var lopinned string
+	var someproxy Proxy
 
 	pinnedpid, pinok := px.getpin(uid, ipp)
 	chosen := has(pids, pinnedpid)
 	lo := local(pinnedpid)
-
-	ippstr := ipp.String()
 
 	log.VV("proxy: pin: %s+%s; pinned: %s; chosen? %t / local? %t; from pids: %v",
 		uid, ippstr, pinnedpid, chosen, lo, pids)
@@ -384,13 +396,20 @@ func (px *proxifier) ProxyTo(ipp netip.AddrPort, uid string, pids []string) (_ P
 				return p, nil
 			} // else: proxy not ok
 			notokproxies = append(notokproxies, pid)
+			if someproxy == nil {
+				someproxy = p
+			}
 		} else { // else: proxy cannot route; split-tunnel
 			norouteproxies = append(norouteproxies, pid)
 		}
 	}
 
-	// can route but not healthy; drop
+	// can route but not healthy; choose any one on random
 	if len(notokproxies) > 0 {
+		px.stall(uid + ippstr)
+		if alwaysPin && someproxy != nil {
+			return someproxy, nil
+		}
 		return nil, errNoProxyHealthy
 	}
 
@@ -405,7 +424,24 @@ func (px *proxifier) ProxyTo(ipp netip.AddrPort, uid string, pids []string) (_ P
 		missproxies = append(missproxies, pid)
 	}
 
+	px.stall(uid + ippstr)
 	return nil, errProxyAllDown
+}
+func (px *proxifier) stall(k string) (secs uint32) {
+	if n := px.staller.Get(k); n <= 5 {
+		secs = (rand.Uint32() % 5) + 1 // up to 5s
+	} else if n > 10 {
+		secs = 10 // max up to 10s
+	} else {
+		secs = n
+	}
+	// track uid->target for 30 secs
+	px.staller.Set(k, 30*time.Second)
+	if secs > 0 {
+		w := time.Duration(secs) * time.Second
+		time.Sleep(w)
+	}
+	return
 }
 
 func (px *proxifier) pinID(uid string, ipp netip.AddrPort, id string) (Proxy, error) {
@@ -552,6 +588,7 @@ func (px *proxifier) stopProxies() {
 		})
 	}
 	clear(px.p)
+	px.staller.Clear()
 	px.ipPins.Clear()
 	px.uidPins.Clear()
 
