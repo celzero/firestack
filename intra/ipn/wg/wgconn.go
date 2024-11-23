@@ -60,7 +60,7 @@ const (
 	minFloodPkts     = 3
 	maxFloodPkts     = minFloodPkts * 10
 	maxFloodDuration = 3 * time.Second
-	minFloodInterval = 30 * time.Second // flood once every 30s
+	minFloodInterval = 1 * time.Minute // flood once every min
 
 	minFloodPktLen = 28  // bytes; must be > len(wgheader)
 	maxFloodPktLen = 138 // must be >> minFloodPktLen; < device.MessageInitiationSize?
