@@ -462,7 +462,10 @@ func (px *proxifier) pin(uid string, ipp netip.AddrPort, p Proxy) error {
 	logev(err)("proxy: pin: ok? %t; %s from %s; err? %v",
 		err == nil, ipp, p.ID(), err)
 
-	return fmt.Errorf("proxy: pin: %s; err: %v", p.ID(), err)
+	if err != nil {
+		return fmt.Errorf("proxy: pin: %s; err: %v", p.ID(), err)
+	}
+	return nil
 }
 
 func (px *proxifier) delpin(uid string, ipp netip.AddrPort) {
