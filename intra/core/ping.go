@@ -25,7 +25,8 @@ import (
 var errNotICMPEchoReply = errors.New("icmp: expecting echo reply")
 
 const (
-	padlen           = 0
+	payloadSize      = 32 // bytes
+	padlen           = 16 // bytes
 	ttl              = 64
 	timeout          = 3 * time.Second
 	protocolICMP     = 1
@@ -195,7 +196,7 @@ func cleardeadline(c MinConn) {
 }
 
 func payload() (t []byte, tslen int, err error) {
-	randomPayload := make([]byte, 16)
+	randomPayload := make([]byte, payloadSize)
 	_, err = rand.Read(randomPayload[:])
 	if err != nil {
 		return
