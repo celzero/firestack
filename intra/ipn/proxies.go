@@ -9,6 +9,7 @@ package ipn
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/netip"
 	"strings"
 	"sync"
@@ -409,8 +410,8 @@ func (px *proxifier) ProxyTo(ipp netip.AddrPort, uid string, pids []string) (_ P
 
 func (px *proxifier) pinID(uid string, ipp netip.AddrPort, id string) (Proxy, error) {
 	p, err := px.ProxyFor(id)
-	if err != nil {
-		return nil, core.JoinErr(err, errCannotPin)
+	if err != nil || p == nil {
+		return nil, fmt.Errorf("proxy: pin: id %s; err: %v", id, err)
 	}
 	err = px.pin(uid, ipp, p)
 	return p, err
@@ -422,11 +423,10 @@ func (px *proxifier) pin(uid string, ipp netip.AddrPort, p Proxy) error {
 		px.uidPins.Put(uid, ipp, p.ID())
 		px.ipPins.Put(ipp, p.ID())
 	}
-	ok := err == nil
 	logev(err)("proxy: pin: ok? %t; %s from %s; err? %v",
-		ok, ipp, p.ID(), err)
+		err == nil, ipp, p.ID(), err)
 
-	return core.JoinErrIf(!ok, err, errCannotPin)
+	return fmt.Errorf("proxy: pin: %s; err: %v", p.ID(), err)
 }
 
 func (px *proxifier) delpin(uid string, ipp netip.AddrPort) {

@@ -247,13 +247,6 @@ func JoinErr(errs ...error) error {
 	return &errMult{errs: all}
 }
 
-func JoinErrIf(y bool, errs ...error) error {
-	if y {
-		return JoinErr(errs...)
-	}
-	return nil
-}
-
 type errMult struct {
 	errs []error
 }
