@@ -10,7 +10,6 @@ import (
 	"context"
 	"fmt"
 	"net"
-	"net/netip"
 	"strconv"
 	"time"
 
@@ -320,12 +319,14 @@ func (h *auto) dialIfReachable(p Proxy, network, local, remote string) (net.Conn
 	if !hasroute(p, remote) {
 		return nil, fmt.Errorf("auto; %s: %v", p.ID(), errNoRouteToHost)
 	}
-	ipp, _ := netip.ParseAddrPort(remote)
-	if reachable, err := h.ba.DoIt(baID(p, remote), icmpReachesWork(p, ipp)); err != nil {
-		return nil, fmt.Errorf("auto; %s ping %s: %v", p.ID(), remote, err)
-	} else if !reachable {
-		return nil, fmt.Errorf("auto; %s: %v: %s", p.ID(), errNoRouteToHost, remote)
-	}
+	// some IPs never respond to ping; ex: 34.245.245.138:443, 63.32.2.144:80
+	// even if they respond over tcp/udp on the same ip:port.
+	// ipp, _ := netip.ParseAddrPort(remote)
+	// if reachable, err := h.ba.DoIt(baID(p, remote), icmpReachesWork(p, ipp)); err != nil {
+	// 	return nil, fmt.Errorf("auto; %s ping %s: %v", p.ID(), remote, err)
+	// } else if !reachable {
+	//	return nil, fmt.Errorf("auto; %s: %v: %s", p.ID(), errNoRouteToHost, remote)
+	// }
 	return h.dialIfHealthy(p, network, local, remote)
 }
 
