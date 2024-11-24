@@ -277,17 +277,17 @@ func udpReaches(p Proxy, ippstr string) (bool, error) {
 
 func icmpReachesWorkCtx(p Proxy, ipp netip.AddrPort) core.WorkCtx[bool] {
 	return func(_ context.Context) (bool, error) {
-		return icmpReaches(p, ipp)
+		return IcmpReaches(p, ipp)
 	}
 }
 
 func icmpReachesWork(p Proxy, ipp netip.AddrPort) core.Work[bool] {
 	return func() (bool, error) {
-		return icmpReaches(p, ipp)
+		return IcmpReaches(p, ipp)
 	}
 }
 
-func icmpReaches(p Proxy, ipp netip.AddrPort) (bool, error) {
+func IcmpReaches(p Proxy, ipp netip.AddrPort) (bool, error) {
 	if !ipp.IsValid() {
 		return false, errInvalidAddr
 	}
