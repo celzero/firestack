@@ -10,7 +10,6 @@ import (
 	"context"
 	"fmt"
 	"net"
-	"strconv"
 	"time"
 
 	x "github.com/celzero/firestack/intra/backend"
@@ -322,7 +321,7 @@ func (h *auto) dialIfReachable(p Proxy, network, local, remote string) (net.Conn
 	// some IPs never respond to ping; ex: 34.245.245.138:443, 63.32.2.144:80
 	// even if they respond over tcp/udp on the same ip:port.
 	// ipp, _ := netip.ParseAddrPort(remote)
-	// if reachable, err := h.ba.DoIt(baID(p, remote), icmpReachesWork(p, ipp)); err != nil {
+	// if reachable, err := h.ba.DoIt(p.ID()+remote, remote), icmpReachesWork(p, ipp)); err != nil {
 	// 	return nil, fmt.Errorf("auto; %s ping %s: %v", p.ID(), remote, err)
 	// } else if !reachable {
 	//	return nil, fmt.Errorf("auto; %s: %v: %s", p.ID(), errNoRouteToHost, remote)
@@ -345,8 +344,4 @@ func maybeKeepAlive(c net.Conn) {
 		// adjust TCP keepalive config if c is a TCPConn
 		core.SetKeepAliveConfigSockOpt(c)
 	}
-}
-
-func baID(p Proxy, ipp string) string {
-	return strconv.Itoa(int(p.Handle())) + ipp
 }

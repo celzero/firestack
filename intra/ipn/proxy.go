@@ -281,12 +281,6 @@ func icmpReachesWorkCtx(p Proxy, ipp netip.AddrPort) core.WorkCtx[bool] {
 	}
 }
 
-func icmpReachesWork(p Proxy, ipp netip.AddrPort) core.Work[bool] {
-	return func() (bool, error) {
-		return IcmpReaches(p, ipp)
-	}
-}
-
 func IcmpReaches(p Proxy, ipp netip.AddrPort) (bool, error) {
 	if !ipp.IsValid() {
 		return false, errInvalidAddr
