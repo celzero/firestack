@@ -499,14 +499,14 @@ func (c *client) send(q *dns.Msg) *dnsx.QueryError {
 	} else {
 		qname := xdns.QName(q)
 		if c.unicast4 != nil {
-			extend(c.unicast4, timeout)
+			extend(c.unicast4, mdnstimeout)
 			if _, err = c.unicast4.WriteTo(buf, xdns.MDNSAddr4); err != nil {
 				return dnsx.NewSendFailedQueryError(err)
 			}
 			log.D("mdns: send: sent query4 %s", qname)
 		}
 		if c.unicast6 != nil {
-			extend(c.unicast6, timeout)
+			extend(c.unicast6, mdnstimeout)
 			if _, err = c.unicast6.WriteTo(buf, xdns.MDNSAddr6); err != nil {
 				return dnsx.NewSendFailedQueryError(err)
 			}
@@ -536,7 +536,7 @@ func (c *client) recv(conn net.PacketConn) {
 	}()
 
 	for !c.closed.Load() {
-		extend(conn, timeout)
+		extend(conn, mdnstimeout)
 		n, raddr, err := conn.ReadFrom(buf)
 
 		if c.closed.Load() {
@@ -554,7 +554,7 @@ func (c *client) recv(conn net.PacketConn) {
 			continue
 		}
 
-		timesup := time.After(timeout)
+		timesup := time.After(mdnstimeout)
 		// ideally, the writer would close the channel, but in this
 		// case there are potentially 4 writers (2 unicast, 2 multicast)
 		// also see: go.dev/play/p/gzwnGAFlTDV

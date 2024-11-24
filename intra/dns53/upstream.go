@@ -32,8 +32,11 @@ const (
 	PortU16    = uint16(53)  // default DNS port as uint16
 	DotPort    = "853"       // default DNS over TLS port
 	DotPortU16 = uint16(853) // default DNS over TLS port as uint16
-	timeout    = 5 * time.Second
-	dottimeout = 8 * time.Second
+
+	// timeouts slightly higher than stalls in ipn.Proxies.ProxyTo
+	timeout     = 15 * time.Second // default timeout for DNS53
+	dottimeout  = 20 * time.Second // default timeout for DNS over TLS
+	mdnstimeout = 5 * time.Second  // default timeout for MDNS
 )
 
 var errQueryParse = errors.New("dns53: err parse query")
@@ -105,8 +108,8 @@ func newTransport(pctx context.Context, id string, do *settings.DNSOptions, px i
 	ok := dnsx.RegisterAddrs(id, tx.addrport, ips) // addrport may be protect.UidSelf or protect.System
 	log.I("dns53: (%s) pre-resolved %s to %s; ok? %t", id, tx.addrport, ipcsv, ok)
 	tx.client = &dns.Client{
-		Net:     "udp",   // default transport type
-		Timeout: timeout, // default timeout
+		Net:     "udp", // default transport type
+		Timeout: timeout,
 		// instead using custom dialer rdial
 		// Dialer:  d,
 		// TODO: set it to MTU? or no more than 512 bytes?
