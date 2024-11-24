@@ -113,7 +113,7 @@ func (h *icmpHandler) Ping(msg []byte, source, target netip.AddrPort) (echoed bo
 	defer h.conntracker.Untrack(cid)
 
 	// todo: construct ICMP header? github.com/prometheus-community/pro-bing/blob/0bacb2d5e7/ping.go#L717
-	reply, from := core.Echo(uc, msg, net.UDPAddrFromAddrPort(dst), target.Addr().Is4())
+	reply, from, err := core.Echo(uc, msg, net.UDPAddrFromAddrPort(dst), target.Addr().Is4())
 	// todo: ignore non-ICMP replies in b: github.com/prometheus-community/pro-bing/blob/0bacb2d5e7/ping.go#L630
 	log.D("t.icmp: ingress: read(%v <= %v / %v) ping done %d; err? %v",
 		source, from, dst, len(reply), err)

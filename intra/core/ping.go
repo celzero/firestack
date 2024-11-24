@@ -25,8 +25,8 @@ import (
 var errNotICMPEchoReply = errors.New("icmp: expecting echo reply")
 
 const (
-	payloadSize      = 48 // bytes
-	padlen           = 16 // bytes
+	payloadSize      = 16 // bytes
+	padlen           = 0  // bytes
 	ttl              = 64
 	timeout          = 3 * time.Second
 	protocolICMP     = 1
@@ -68,7 +68,11 @@ func Ping(pc net.PacketConn, ipp netip.AddrPort) (ok bool, rtt time.Duration, er
 		return
 	}
 
-	pkt, _ = Echo(pc, pkt, net.UDPAddrFromAddrPort(ipp), v4)
+	pkt, _, err = Echo(pc, pkt, net.UDPAddrFromAddrPort(ipp), v4)
+
+	if err != nil {
+		return
+	}
 
 	var m *icmp.Message
 	if m, err = icmp.ParseMessage(proto, pkt); err != nil {
@@ -107,13 +111,14 @@ func Ping(pc net.PacketConn, ipp netip.AddrPort) (ok bool, rtt time.Duration, er
 	return
 }
 
-func Echo(pc net.PacketConn, pkt []byte, dst net.Addr, v4 bool) (reply []byte, from net.Addr) {
-	err := setttl(pc, v4)
-	if err != nil {
-		log.D("core: icmp: setttl failed: %v", err)
+func Echo(pc net.PacketConn, pkt []byte, dst net.Addr, v4 bool) (reply []byte, from net.Addr, err error) {
+	var n int
+
+	if ttlerr := setttl(pc, v4); ttlerr != nil {
+		log.D("core: icmp: setttl failed: %v", ttlerr)
 	}
 
-	n, err := pc.WriteTo(pkt, dst)
+	n, err = pc.WriteTo(pkt, dst)
 	log.D("core: icmp: egress: write(=> %v) ping; done %d/%d; err? %v",
 		dst, n, len(pkt), err)
 	if err != nil {
