@@ -323,7 +323,8 @@ func (px *proxifier) ProxyTo(ipp netip.AddrPort, uid string, pids []string) (_ P
 	if len(pids) == 1 { // there's no other pid to choose from
 		// skip hasroute, as there is only one pid to route to
 		p, err := px.pinID(uid, ipp, pids[0]) // repin
-		if err != nil {
+		if err != nil || p == nil {
+			err = core.OneErr(err, errProxyNotFound)
 			px.stall(uid + ippstr)
 		}
 		// alwaysPin is set to true, so return p even if err is not nil
@@ -447,6 +448,7 @@ func (px *proxifier) stall(k string) (secs uint32) {
 func (px *proxifier) pinID(uid string, ipp netip.AddrPort, id string) (Proxy, error) {
 	p, err := px.ProxyFor(id)
 	if err != nil || p == nil {
+		err = core.OneErr(err, errProxyNotFound)
 		return nil, fmt.Errorf("proxy: pin: id %s; err: %v", id, err)
 	}
 	err = px.pin(uid, ipp, p)
