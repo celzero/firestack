@@ -25,7 +25,7 @@ import (
 var errNotICMPEchoReply = errors.New("icmp: expecting echo reply")
 
 const (
-	payloadSize      = 32 // bytes
+	payloadSize      = 48 // bytes
 	padlen           = 16 // bytes
 	ttl              = 64
 	timeout          = 3 * time.Second
