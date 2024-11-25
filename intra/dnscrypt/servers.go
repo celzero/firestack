@@ -441,7 +441,7 @@ func (s *serverinfo) chooseProxy(pids []string) string {
 	}
 	ipp := chooseAny(s.IPPorts())
 	if px, err := s.proxies.ProxyTo(ipp, core.UNKNOWN_UID_STR, pids); err == nil {
-		pid = px.ID()
+		pid = proxyID(px) // px is never nil, but nilaway complains
 		foundProxy = true
 		log.VV("dnscrypt: proxy: choose: (%s) proxy(%s) for %s; among %v",
 			s.ID(), pid, ipp, pids)
@@ -451,6 +451,13 @@ func (s *serverinfo) chooseProxy(pids []string) string {
 			s.ID(), ipp, pid, pids)
 	}
 	return pid
+}
+
+func proxyID(p ipn.Proxy) string {
+	if p == nil {
+		return dnsx.NetNoProxy
+	}
+	return p.ID()
 }
 
 func addr2ipp(u ...*net.UDPAddr) (ipps []netip.AddrPort) {
