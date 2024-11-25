@@ -17,6 +17,7 @@ import (
 
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/dialers"
+	"github.com/celzero/firestack/intra/ipn"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/settings"
 )
@@ -89,6 +90,7 @@ type muxer struct {
 
 // demuxconn writes to addr and reads from the muxer
 type demuxconn struct {
+	cid   string         // connection id
 	remux sender         // promiscuous sender
 	key   netip.AddrPort // promiscuous factor (same as raddr)
 	raddr net.Addr       // remote address connected to
@@ -118,7 +120,7 @@ var _ core.UDPConn = (*demuxconn)(nil)
 // newMuxer creates a muxer/demuxer for a connectionless conn.
 func newMuxer(cid, pid, uid string, conn net.PacketConn, vnd vendor, f func()) *muxer {
 	x := &muxer{
-		cid:      cid,
+		cid:      cid, // same as cid of the first demuxed conn
 		pid:      pid,
 		uid:      uid,
 		mxconn:   conn,
@@ -141,7 +143,7 @@ func (x *muxer) awaiters() {
 	for {
 		select {
 		case c := <-x.dxconns:
-			log.D("udp: mux: %s awaiter: watching %s => %s", x.cid, c.laddr, c.raddr)
+			log.D("udp: mux: %s awaiter: watching %s => %s", c.cid, c.laddr, c.raddr)
 			x.dxconnWG.Add(1) // accept
 			core.Gx("udpmux.vend.close", func() {
 				<-c.closed // conn closed
@@ -229,14 +231,17 @@ func (x *muxer) readers() {
 			continue
 		}
 
+		const todoCid = "todo"
 		// may be an existing route or a new route
-		if dst := x.route(addr2netip(who), ingress); dst != nil {
+		if dst := x.route(todoCid, addr2netip(who), ingress); dst != nil {
 			select {
 			case dst.incomingCh <- &slice{v: b[:n], free: free}: // incomingCh is never closed
 			default: // dst probably closed, but not yet unrouted
-				log.W("udp: mux: %s read: drop(sz: %d); route to %s", x.cid, n, dst.raddr)
+				log.W("udp: mux: %s read: drop(sz: %d); route to %s",
+					dst.cid, n, dst.raddr)
 			}
-			log.VV("udp: mux: %s read: n(%d) from %v <= %v; err %v", x.cid, n, dst.raddr, who, err)
+			log.VV("udp: mux: %s read: n(%d) from %v <= %v; err %v",
+				dst.cid, n, dst.raddr, who, err)
 		} // else: ignore (who is invalid or x is closed)
 	}
 }
@@ -247,9 +252,9 @@ func (x *muxer) findRoute(to netip.AddrPort) *demuxconn {
 	return x.routes[to]
 }
 
-func (x *muxer) route(to netip.AddrPort, flo flowkind) *demuxconn {
+func (x *muxer) route(cid string, to netip.AddrPort, flo flowkind) *demuxconn {
 	if !to.IsValid() {
-		log.W("udp: mux: %s route: %s invalid addr %s", x.cid, flo, to)
+		log.W("udp: mux: %s route: %s invalid addr %s", cid, flo, to)
 		return nil
 	}
 
@@ -265,11 +270,11 @@ func (x *muxer) route(to netip.AddrPort, flo flowkind) *demuxconn {
 		// new routes created here won't really exist in netstack if
 		// settings.EndpointIndependentMapping or settings.EndpointIndependentFiltering
 		// is set to false.
-		conn = x.newLocked(to)
+		conn = x.newLocked(cid, to)
 		select {
 		case <-x.doneCh:
 			clos(conn)
-			log.W("udp: mux: %s route: %s for %s; muxer closed", x.cid, flo, to)
+			log.W("udp: mux: %s route: %s for %s; muxer closed", conn.cid, flo, to)
 			return nil
 		case x.dxconns <- conn:
 			n := x.stats.dxcount.Add(1)
@@ -282,11 +287,12 @@ func (x *muxer) route(to netip.AddrPort, flo flowkind) *demuxconn {
 				core.Go("udpmux.vend", func() { // a fork in the road
 					if verr := x.vnd(conn, to); verr != nil {
 						clos(conn)
-						log.E("udp: mux: %s route: %s vend failure %s; err %v", x.cid, flo, to, verr)
+						log.E("udp: mux: %s route: %s vend failure %s; err %v", conn.cid, flo, to, verr)
 					}
 				})
 			}
-			log.I("udp: mux: %s route: %s #%d new for %s; stats: %d", x.cid, flo, n, to, x.stats)
+			log.I("udp: mux: %s route: %s #%d new for %s; stats: %d",
+				conn.cid, flo, n, to, x.stats)
 		}
 	}
 	return conn
@@ -324,8 +330,12 @@ func (x *muxer) extend(t time.Time) {
 }
 
 // new creates a demuxed conn to r.
-func (x *muxer) newLocked(r netip.AddrPort) *demuxconn {
+func (x *muxer) newLocked(cid string, r netip.AddrPort) *demuxconn {
+	if len(cid) > 0 {
+		cid = x.cid + ":" + cid
+	}
 	return &demuxconn{
+		cid:        cid,
 		remux:      x,                              // muxer
 		laddr:      x.mxconn.LocalAddr(),           // listen addr
 		raddr:      net.UDPAddrFromAddrPort(r),     // remote addr
@@ -527,7 +537,7 @@ func (e *muxTable) associate(cid, pid, uid string, src, dst netip.AddrPort, mk a
 			anyaddr = anyaddr4
 		}
 		anyaddrport := netip.AddrPortFrom(anyaddr, 0)
-		if settings.PortForward.Load() {
+		if settings.PortForward.Load() || ipn.Remote(pid) {
 			anyaddrport = netip.AddrPortFrom(anyaddr, src.Port())
 		}
 
@@ -562,9 +572,9 @@ func (e *muxTable) associate(cid, pid, uid string, src, dst netip.AddrPort, mk a
 
 	e.Unlock() // unlock
 	// do not hold e.lock on calls into mxr
-	c := mxr.route(dst, egress)
+	c := mxr.route(cid, dst, egress)
 	if c == nil {
-		log.E("udp: mux: %s vend: no conn for %s", mxr.cid, dst)
+		log.E("udp: mux: %s vend: no conn for %s", cid, dst)
 		return nil, errUdpSetupConn
 	}
 	return c, nil
