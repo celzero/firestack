@@ -244,11 +244,12 @@ func JoinErr(errs ...error) error {
 		return all[0]
 	}
 
-	return &errMult{errs: all}
+	return &errMult{errs: all, sep: " | "}
 }
 
 type errMult struct {
 	errs []error
+	sep  string
 }
 
 func (e *errMult) Error() string {
@@ -259,9 +260,11 @@ func (e *errMult) Error() string {
 	}
 
 	b := strings.Builder{}
-	for _, err := range e.errs {
+	for i, err := range e.errs {
+		if i != 0 { // except for first entry, add separator
+			_, _ = b.WriteString(e.sep)
+		}
 		_, _ = b.WriteString(err.Error())
-		_, _ = b.WriteString(" | ")
 	}
 	return b.String()
 }
