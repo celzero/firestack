@@ -951,6 +951,10 @@ func local(id string) bool {
 	return id == Base || id == Block || id == Exit || id == Rpn64 || id == Ingress
 }
 
+func Remote(id string) bool {
+	return !local(id)
+}
+
 func hopping(r x.Router) bool {
 	hop, _ := r.Via()
 	return hop != nil
