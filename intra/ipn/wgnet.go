@@ -77,7 +77,7 @@ func (tnet *wgtun) LookupContextHost(ctx context.Context, host string) ([]netip.
 	// TODO: resolve via wireguard's DNS
 	// dialers.For returns from cache (which may be stale)
 	if ips := dialers.For(host); len(ips) <= 0 {
-		log.D("wg: dial: lookup failed %q: no ips %v", host, ips)
+		log.D("wg: %s dial: lookup failed %q: no ips %v", tnet.id, host, ips)
 		return nil, &net.DNSError{Err: errNoSuchHost.Error(), Name: host, IsNotFound: true}
 	} else {
 		return ips, nil
@@ -103,7 +103,7 @@ func (tnet *wgtun) dial(network, local, remote string) (net.Conn, error) {
 	case "tcp6", "udp6", "ping6":
 		acceptV6 = true
 	default:
-		log.W("wg: dial: unknown network %q for %s => %s", network, local, remote)
+		log.W("wg: %s dial: unknown network %q for %s => %s", tnet.id, network, local, remote)
 		return nil, &net.OpError{Op: "dial", Err: net.UnknownNetworkError(network)}
 	}
 
@@ -116,12 +116,12 @@ func (tnet *wgtun) dial(network, local, remote string) (net.Conn, error) {
 		var err error
 		host, sport, err = net.SplitHostPort(remote)
 		if err != nil {
-			log.W("wg: dial: invalid address %q: %v", remote, err)
+			log.W("wg: %s dial: invalid address %q: %v", tnet.id, remote, err)
 			return nil, &net.OpError{Op: "dial", Err: err}
 		}
 		port, err = strconv.Atoi(sport)
 		if err != nil || port < 0 || port > 65535 {
-			log.W("wg: dial: invalid port %q: %v", sport, err)
+			log.W("wg: %s dial: invalid port %q: %v", tnet.id, sport, err)
 			return nil, &net.OpError{Op: "dial", Err: errNumericPort}
 		}
 	}
@@ -129,7 +129,7 @@ func (tnet *wgtun) dial(network, local, remote string) (net.Conn, error) {
 	// allAddrs may be nil but shouldn't be when rverr is not nil
 	allAddrs, rverr := tnet.ba.DoIt(host, resolve(tnet, host))
 	if rverr != nil {
-		log.W("wg: dial: lookup failed %q: %v", host, rverr)
+		log.W("wg: %s dial: lookup failed %q: %v", tnet.id, host, rverr)
 		return nil, &net.OpError{Op: "dial", Err: rverr}
 	}
 
@@ -140,7 +140,7 @@ func (tnet *wgtun) dial(network, local, remote string) (net.Conn, error) {
 		}
 	}
 	if len(addrs) == 0 && len(allAddrs) != 0 {
-		log.W("wg: dial: no suitable address for %q / %v", host, allAddrs)
+		log.W("wg: %s dial: no suitable address for %q / %v", tnet.id, host, allAddrs)
 		return nil, &net.OpError{Op: "dial", Err: errNoSuitableAddress}
 	}
 
@@ -167,7 +167,7 @@ func (tnet *wgtun) dial(network, local, remote string) (net.Conn, error) {
 		case "ping", "ping4", "ping6":
 			c, err = tnet.DialPing(laddr, raddr)
 		}
-		log.I("wg: dial: %s: #%d %s => %s", network, i, laddr, raddr)
+		log.I("wg: %s dial: %s: #%d %s => %s", tnet.id, network, i, laddr, raddr)
 		if err == nil {
 			dialers.Confirm(host, raddr.Addr())
 			return c, nil
@@ -176,7 +176,7 @@ func (tnet *wgtun) dial(network, local, remote string) (net.Conn, error) {
 		errs = core.JoinErr(errs, err)
 	}
 	errs = core.OneErr(errs, errMissingAddress)
-	log.W("wg: dial: %s: %s failed: %v", network, addrs, errs)
+	log.W("wg: %s dial: %s: %s failed: %v", tnet.id, network, addrs, errs)
 	return nil, errs
 }
 

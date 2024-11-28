@@ -229,7 +229,7 @@ func (h *auto) Probe(network, local string) (pc protect.PacketConn, err error) {
 	if h.status.Load() == END {
 		return nil, errProxyStopped
 	}
-	// todo: rpnwg
+	// todo: rpnwg, rpnamz
 	exit, err := h.pxr.ProxyFor(Exit)
 	if err == nil {
 		pc, err = exit.Dialer().Probe(network, local)

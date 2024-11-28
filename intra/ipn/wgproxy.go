@@ -434,7 +434,7 @@ func wgIfConfigOf(id string, txtptr *string) (opts wgifopts, err error) {
 			// TODO: endpoint could be v4 or v6 or a hostname
 			n := 0
 			if isRPN(id) {
-				v4, v6, err := warp.Endpoints()
+				v4, v6, err := warp.WarpEndpoints()
 				if err == nil {
 					warpipcsv := v4.String() + "," + v6.String()
 					n = loadMH(opts.ep, warpipcsv)
@@ -1022,7 +1022,7 @@ func (h *wgproxy) Hop(p Proxy) (err error) {
 	var old Proxy
 
 	defer func() {
-		log.I("wg: %s hop old(%s@%s) => new(%s@%s); err? %v",
+		log.I("wg: %s hop old(%s) => new(%s); err? %v",
 			h.id, idhandle(old), idhandle(p), err)
 
 		if Same(old, p) {

@@ -31,17 +31,24 @@ import (
 )
 
 type Client struct {
-	c http.Client
-	d *protect.RDial
+	cf http.Client
+	h2 http.Client
+	d  *protect.RDial
 }
 
-func NewWarpClient(ctx context.Context, ctl protect.Controller) *Client {
-	d := protect.MakeNsRDial("warpclient", ctx, ctl)
+func NewWarpClient(ctx context.Context, c protect.Controller) *Client {
+	d := protect.MakeNsRDial("warpclient", ctx, c)
 	w := &Client{
 		d: d,
 	}
-	w.c.Transport = &http.Transport{
+	w.cf.Transport = &http.Transport{
 		DialTLSContext: w.utlsDial,
+	}
+	w.h2.Transport = &http.Transport{
+		Dial:                  d.Dial,
+		ForceAttemptHTTP2:     true,
+		ResponseHeaderTimeout: 15 * time.Second,
+		IdleConnTimeout:       30 * time.Second,
 	}
 	return w
 }
@@ -60,7 +67,7 @@ func (w *Client) utlsDial(ctx context.Context, network, addr string) (net.Conn, 
 }
 
 func (w *Client) GetAcct(tok, deviceID string) (IdentityAccount, error) {
-	reqUrl := fmt.Sprintf("%s/reg/%s/account", apiBase, deviceID)
+	reqUrl := fmt.Sprintf("%s/reg/%s/account", warpApiUrl, deviceID)
 	method := "GET"
 
 	req, err := http.NewRequest(method, reqUrl, nil)
@@ -73,7 +80,7 @@ func (w *Client) GetAcct(tok, deviceID string) (IdentityAccount, error) {
 	}
 	req.Header.Set("Authorization", "Bearer "+tok)
 
-	resp, err := w.c.Do(req)
+	resp, err := w.cf.Do(req)
 	if err != nil || resp == nil {
 		err = core.OneErr(err, errNoApiResponse)
 		return IdentityAccount{}, err
@@ -81,7 +88,7 @@ func (w *Client) GetAcct(tok, deviceID string) (IdentityAccount, error) {
 	defer core.Close(resp.Body)
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return IdentityAccount{}, fmt.Errorf("API request failed with status: %s", resp.Status)
+		return IdentityAccount{}, fmt.Errorf("warp: api request failed: %s", resp.Status)
 	}
 
 	b, err := io.ReadAll(resp.Body)
@@ -99,7 +106,7 @@ func (w *Client) GetAcct(tok, deviceID string) (IdentityAccount, error) {
 }
 
 func (w *Client) reg(publicKey string) (Identity, error) {
-	reqUrl := fmt.Sprintf("%s/reg", apiBase)
+	reqUrl := fmt.Sprintf("%s/reg", warpApiUrl)
 	method := "POST"
 
 	data := map[string]interface{}{
@@ -127,7 +134,7 @@ func (w *Client) reg(publicKey string) (Identity, error) {
 		req.Header.Set(k, v)
 	}
 
-	resp, err := w.c.Do(req)
+	resp, err := w.cf.Do(req)
 	if err != nil || resp == nil {
 		err = core.OneErr(err, errNoApiResponse)
 		return Identity{}, err
@@ -135,7 +142,7 @@ func (w *Client) reg(publicKey string) (Identity, error) {
 	defer core.Close(resp.Body)
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return Identity{}, fmt.Errorf("API request failed with status: %s", resp.Status)
+		return Identity{}, fmt.Errorf("warp: api request failed: %s", resp.Status)
 	}
 
 	b, err := io.ReadAll(resp.Body)
@@ -153,7 +160,7 @@ func (w *Client) reg(publicKey string) (Identity, error) {
 }
 
 func (w *Client) ResetLicense(authToken, deviceID string) (License, error) {
-	reqUrl := fmt.Sprintf("%s/reg/%s/account/license", apiBase, deviceID)
+	reqUrl := fmt.Sprintf("%s/reg/%s/account/license", warpApiUrl, deviceID)
 	method := "POST"
 
 	req, err := http.NewRequest(method, reqUrl, nil)
@@ -166,7 +173,7 @@ func (w *Client) ResetLicense(authToken, deviceID string) (License, error) {
 	}
 	req.Header.Set("Authorization", "Bearer "+authToken)
 
-	resp, err := w.c.Do(req)
+	resp, err := w.cf.Do(req)
 	if err != nil || resp == nil {
 		err = core.OneErr(err, errNoApiResponse)
 		return License{}, err
@@ -174,7 +181,7 @@ func (w *Client) ResetLicense(authToken, deviceID string) (License, error) {
 	defer core.Close(resp.Body)
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return License{}, fmt.Errorf("API request failed with response: %s", resp.Status)
+		return License{}, fmt.Errorf("warp: api request failed: %s", resp.Status)
 	}
 
 	b, err := io.ReadAll(resp.Body)
@@ -192,7 +199,7 @@ func (w *Client) ResetLicense(authToken, deviceID string) (License, error) {
 }
 
 func (w *Client) UpdateAcct(authToken, deviceID, license string) (IdentityAccount, error) {
-	reqUrl := fmt.Sprintf("%s/reg/%s/account", apiBase, deviceID)
+	reqUrl := fmt.Sprintf("%s/reg/%s/account", warpApiUrl, deviceID)
 	method := "PUT"
 
 	jsonBody, err := json.Marshal(map[string]interface{}{"license": license})
@@ -210,7 +217,7 @@ func (w *Client) UpdateAcct(authToken, deviceID, license string) (IdentityAccoun
 	}
 	req.Header.Set("Authorization", "Bearer "+authToken)
 
-	resp, err := w.c.Do(req)
+	resp, err := w.cf.Do(req)
 	if err != nil || resp == nil {
 		err = core.OneErr(err, errNoApiResponse)
 		return IdentityAccount{}, err
@@ -218,7 +225,7 @@ func (w *Client) UpdateAcct(authToken, deviceID, license string) (IdentityAccoun
 	defer core.Close(resp.Body)
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return IdentityAccount{}, fmt.Errorf("API request failed with status: %s", resp.Status)
+		return IdentityAccount{}, fmt.Errorf("warp: api request failed: %s", resp.Status)
 	}
 
 	b, err := io.ReadAll(resp.Body)
@@ -239,7 +246,7 @@ func (w *Client) UpdateAcct(authToken, deviceID, license string) (IdentityAccoun
 
 func (w *Client) Load(id Identity, license string) (*Identity, error) {
 	if license != "" && id.Account.License != license {
-		log.I("updating account license key")
+		log.I("warp: load: updating license")
 		_, err := w.UpdateAcct(id.Token, id.ID, license)
 		if err != nil {
 			return nil, err
@@ -252,19 +259,19 @@ func (w *Client) Load(id Identity, license string) (*Identity, error) {
 		id.Account = iAcc
 	}
 
-	log.I("successfully loaded warp identity")
+	log.I("warp: load: successful")
 	return &id, nil
 }
 
-func (w *Client) Make(pub, license string) (*Identity, error) {
-	log.I("creating new identity %s", pub)
+func (w *Client) MakeWarp(pub, license string) (*Identity, error) {
+	log.I("warp: make: identity for %s", pub)
 	id, err := w.reg(pub)
 	if err != nil {
 		return nil, err
 	}
 
 	if license != "" {
-		log.I("updating account license key for %s", pub)
+		log.I("warp: make: updating license for %s", pub)
 		_, err := w.UpdateAcct(id.Token, id.ID, license)
 		if err != nil {
 			return nil, err

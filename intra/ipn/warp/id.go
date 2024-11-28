@@ -97,7 +97,7 @@ type Identity struct {
 	Created         string          `json:"created"`
 	Updated         string          `json:"updated"`
 	WaitlistEnabled bool            `json:"waitlist_enabled"`
-	WgConf          string          `json:"wgconf"`
+	WgConf          string          `json:"wgconf"` // gen
 }
 
 type IdentityDevice struct {

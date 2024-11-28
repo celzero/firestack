@@ -42,7 +42,7 @@ func (pxr *proxifier) addProxy(id, txt string) (p Proxy, err error) {
 		return nil, errAddProxy
 	}
 	// wireguard proxies have IDs starting with "wg"
-	if strings.HasPrefix(id, WG) || strings.Compare(id, RpnWg) == 0 {
+	if isWG(id) {
 		if p, _ = pxr.ProxyFor(id); p != nil {
 			if wgp, ok := p.(WgProxy); ok && wgp.update(id, txt) {
 				opts, err0 := wgIfConfigOf(id, &txt) // removes wg ifconfig from txt

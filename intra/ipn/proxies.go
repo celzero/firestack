@@ -37,6 +37,7 @@ const (
 	OrbotH1  = x.OrbotH1
 	GlobalH1 = x.GlobalH1
 	RpnWg    = x.RpnWg
+	RpnAmz   = x.RpnAmz
 	RpnWs    = x.RpnWs
 	Rpn64    = x.Rpn64
 	RpnH2    = x.RpnH2
@@ -169,11 +170,12 @@ type proxifier struct {
 	grounded *ground // grounded proxy, never changes
 	auto     *auto   // auto proxy, never changes
 
-	warpc *warp.Client // warp registration, never changes
-	sec   *seasy.SEApi // se proxy registration, never changes; may be nil
+	extc *warp.Client // external wg registration, never changes
+	sec  *seasy.SEApi // se proxy registration, never changes; may be nil
 
 	lastSeErr   error // se proxy registration error
 	lastWarpErr error // warp registration error
+	lastAmzErr  error // amnezia registration error
 
 	protos string // ip4, ip6, ip46
 }
@@ -208,7 +210,7 @@ func NewProxifier(pctx context.Context, c protect.Controller, o x.ProxyListener)
 	pxr.ipPins = core.NewSieve[netip.AddrPort, string](pctx, pintimeout)
 	pxr.uidPins = core.NewSieve2K[string, netip.AddrPort, string](pctx, pintimeout)
 
-	pxr.warpc = warp.NewWarpClient(pctx, c)
+	pxr.extc = warp.NewWarpClient(pctx, c)
 	pxr.sec, pxr.lastSeErr = seasy.NewSEasyClient(pxr.exit)
 	pxr.add(pxr.exit)     // fixed
 	pxr.add(pxr.exit64)   // fixed
@@ -816,14 +818,23 @@ func (px *proxifier) Reaches(hostportOrIPPortCsv string) bool {
 
 // RegisterWarp implements x.Rpn.
 func (px *proxifier) RegisterWarp(pub string) ([]byte, error) {
-	id, err := px.warpc.Make(pub, "")
+	id, err := px.extc.MakeWarp(pub, "")
 	px.lastWarpErr = err // may be nil
 	if err != nil {
 		log.E("proxy: warp: make for %s failed: %v", pub, err)
 		return nil, err
 	}
-	// create a byte writer and write the identity to it
+	return id.Json()
+}
 
+// RegisterWarp implements x.Rpn.
+func (px *proxifier) RegisterAmnezia(pub string) ([]byte, error) {
+	id, err := px.extc.MakeAmzWg(pub)
+	px.lastAmzErr = err // may be nil
+	if err != nil {
+		log.E("proxy: amz: make for %s failed: %v", pub, err)
+		return nil, err
+	}
 	return id.Json()
 }
 
@@ -855,6 +866,15 @@ func (px *proxifier) Warp() (x.Proxy, error) {
 	return warp, err
 }
 
+// Warp implements x.Rpn.
+func (px *proxifier) Amnezia() (x.Proxy, error) {
+	amz, err := px.ProxyFor(RpnAmz)
+	if amz == nil {
+		return nil, core.JoinErr(err, px.lastAmzErr)
+	}
+	return amz, err
+}
+
 // Pip implements x.Rpn.
 func (px *proxifier) Pip() (x.Proxy, error) {
 	return px.ProxyFor(RpnWs)
@@ -872,13 +892,14 @@ func (px *proxifier) Exit64() (x.Proxy, error) {
 
 // SE implements x.Rpn.
 func (px *proxifier) SE() (x.Proxy, error) {
-	sep, err := px.ProxyFor(RpnWg)
+	sep, err := px.ProxyFor(RpnSE)
 	if sep == nil {
 		return nil, core.JoinErr(err, px.lastSeErr)
 	}
 	return sep, err
 }
 
+// TestSE implements x.Rpn.
 func (px *proxifier) TestSE() (string, error) {
 	sec := px.sec
 	if sec == nil {
@@ -907,13 +928,14 @@ func (px *proxifier) TestSE() (string, error) {
 	return strings.Join(oks, ","), nil
 }
 
+// TestWarp implements x.Rpn
 func (px *proxifier) TestWarp() (string, error) {
 	const totalpings = 5
 
 	oks := make([]string, 0, totalpings*2)
 
 	for i := 0; i < totalpings; i++ {
-		v4, v6, err := warp.Endpoints()
+		v4, v6, err := warp.WarpEndpoints()
 		if err != nil {
 			log.W("proxy: warp: ping#%d: %v", i, err)
 			continue
@@ -934,6 +956,59 @@ func (px *proxifier) TestWarp() (string, error) {
 
 	if len(oks) <= 0 {
 		return "", core.JoinErr(errNoSuitableAddress, px.lastWarpErr)
+	}
+	return strings.Join(oks, ","), nil
+}
+
+// TestAmnezia implements x.Rpn.
+func (px *proxifier) TestAmnezia() (ips string, errs error) {
+	v4, _, err := warp.AmzEndpoints()
+	if err != nil {
+		log.W("proxy: amz: err testing endpoints: %v", err)
+		return "", err
+	}
+
+	// todo: amnezia presently does not support ipv6
+	oks := make([]string, 0, len(v4))
+	for _, ip := range v4 {
+		ipstr := ip.String()
+		// base can route back into netstack (settings.LoopingBack)
+		// in which  case all endpoints will "seem" reachable.
+		// exit, however, never routes back into netstack and has
+		// the true, unhindered path to the underlying network.
+		if Reaches(px.exit, ipstr, "tcp") {
+			oks = append(oks, ipstr)
+		}
+	}
+
+	if len(oks) <= 0 {
+		return "", core.JoinErr(errNoSuitableAddress, px.lastAmzErr)
+	}
+	return strings.Join(oks, ","), nil
+}
+
+// TestExit64 implements x.Rpn.
+func (px *proxifier) TestExit64() (ips string, errs error) {
+	v6, err := warp.Exit64Endpoints()
+	if err != nil {
+		log.W("proxy: exit64: err testing endpoints %v", err)
+		return "", err
+	}
+
+	oks := make([]string, 0, len(v6))
+	for _, ip := range v6 {
+		ipstr := ip.String()
+		// base can route back into netstack (settings.LoopingBack)
+		// in which  case all endpoints will "seem" reachable.
+		// exit, however, never routes back into netstack and has
+		// the true, unhindered path to the underlying network.
+		if Reaches(px.exit, ipstr, "icmp") {
+			oks = append(oks, ipstr)
+		}
+	}
+
+	if len(oks) <= 0 {
+		return "", errNoSuitableAddress
 	}
 	return strings.Join(oks, ","), nil
 }

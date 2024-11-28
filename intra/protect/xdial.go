@@ -125,7 +125,17 @@ func (d *RDial) DialBind(network, local, remote string) (net.Conn, error) {
 	if _, port, err := net.SplitHostPort(local); err == nil {
 		// uport may be 0, which is "valid"
 		uport, _ := strconv.Atoi(port) // should not error
+
 		anyaddr := anyaddr6
+		if !alwaysDualStack {
+			anyaddr = anyaddr4
+		}
+		switch network {
+		case "tcp4":
+			anyaddr = anyaddr4
+		case "tcp6":
+			anyaddr = anyaddr6
+		}
 		if !alwaysDualStack {
 			// ipp invalid when local is without ip; ex: ":port"
 			if ipp, _ := netip.ParseAddrPort(local); ipp.Addr().Is4() {

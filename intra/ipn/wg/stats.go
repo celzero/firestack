@@ -191,7 +191,7 @@ func readStats(config string) (*ifstats, error) {
 	}
 	stats.lastTouched = time.Now()
 
-	log.V("wg: ReadStats: %d peers, %d lines, any OK? %t", n, k, anyStatOK)
+	log.V("wg: ReadStats: %d peers, %d lines, any OK? %t", k, n, anyStatOK)
 
 	if !anyStatOK {
 		return stats, errAllStatsNotOK // negative ttl on barrier

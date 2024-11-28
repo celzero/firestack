@@ -263,3 +263,10 @@ func blob(sz uint16) ([]byte, error) {
 	n, err := rand.Read(junk)
 	return junk[:n], err
 }
+
+func logif(cond bool) log.LogFn {
+	if cond {
+		return log.D
+	}
+	return log.N
+}

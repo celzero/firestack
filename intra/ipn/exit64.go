@@ -15,21 +15,12 @@ import (
 	x "github.com/celzero/firestack/intra/backend"
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/dialers"
+	"github.com/celzero/firestack/intra/ipn/warp"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
 )
 
 var (
-	// preset 6to4 NATs; from: nat64.xyz
-	net6to4 = []netip.Prefix{
-		netip.MustParsePrefix("2a00:1098:2b::/96"),          // kasper
-		netip.MustParsePrefix("2a00:1098:2c:1::/96"),        // kasper
-		netip.MustParsePrefix("2a01:4f8:c2c:123f:64::/96"),  // kasper
-		netip.MustParsePrefix("2a01:4f9:c010:3f02:64::/96"), // kasper
-		netip.MustParsePrefix("2001:67c:2960:6464::/96"),    // level66
-		netip.MustParsePrefix("2001:67c:2b0:db32:0:1::/96"), // trex
-	}
-
 	anyaddr4 = netip.IPv4Unspecified()
 	anyaddr6 = netip.IPv6Unspecified()
 )
@@ -238,7 +229,7 @@ func addr4to6(addr string) string {
 		return ""
 	}
 	// convert IPv4 to IPv6
-	ippre := net6to4[rand.Intn(len(net6to4))]
+	ippre := warp.Net6to4[rand.Intn(len(warp.Net6to4))]
 	ip6 := ip4to6(ippre, ip4)
 	if !ip6.IsValid() {
 		log.W("proxy: auto: addr64: failed to convert(%s) to IPv6", ip4)

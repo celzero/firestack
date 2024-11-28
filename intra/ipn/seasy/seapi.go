@@ -100,9 +100,9 @@ type SEApi struct {
 	ipps []netip.AddrPort
 }
 
-func NewSEasyClient(exit protect.RDialer) (sec *SEApi, err error) {
+func NewSEasyClient(d protect.RDialer) (sec *SEApi, err error) {
 	c, err := se.NewSEClient(API_LOGIN, API_CRED, &http.Transport{
-		Dial:                  exit.Dial, // resolves addrs if needed
+		Dial:                  d.Dial, // resolves addrs if needed
 		ForceAttemptHTTP2:     true,
 		MaxIdleConns:          10,
 		IdleConnTimeout:       2 * time.Minute,
