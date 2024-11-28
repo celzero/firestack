@@ -136,7 +136,7 @@ func (sec *SEApi) Start(ctx context.Context) (ok bool, err error) {
 	}
 
 	for _, geo := range geos {
-		if discovered, discoerr := sec.Discover(ctx, fmt.Sprintf("\"%s\",,", geo.CountryCode)); err == nil {
+		if discovered, discoerr := sec.Discover(ctx, fmt.Sprintf("\"%s\",,", geo.CountryCode)); discoerr == nil {
 			for _, ep := range discovered {
 				if !sec.hasEp(ep) {
 					addr := ep.NetAddr()
@@ -146,8 +146,8 @@ func (sec *SEApi) Start(ctx context.Context) (ok bool, err error) {
 					} else {
 						log.W("se: %s: err parsing %s: %v", geo.Country, addr, err)
 					}
-				}
-			}
+				} // else: already in eps
+			} // else: discoerr
 		} else {
 			err = core.JoinErr(err, discoerr)
 		}
