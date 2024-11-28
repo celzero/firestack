@@ -74,6 +74,7 @@ func (h *auto) dial(network, local, remote string) (protect.Conn, error) {
 	exit, exerr := h.pxr.ProxyFor(Exit)
 	exit64, ex64err := h.pxr.ProxyFor(Rpn64)
 	warp, waerr := h.pxr.ProxyFor(RpnWg)
+	amz, amzerr := h.pxr.ProxyFor(RpnAmz)
 	sep, seerr := h.pxr.ProxyFor(RpnSE)
 
 	if v := h.via.Load(); v != nil {
@@ -141,6 +142,25 @@ func (h *auto) dial(network, local, remote string) (protect.Conn, error) {
 			return h.dialIfHealthy(exit64, network, local, remote)
 		}, func(ctx context.Context) (protect.Conn, error) {
 			const myidx = 3
+			if amz == nil {
+				return nil, amzerr
+			}
+			if recent {
+				if previdx != myidx {
+					return nil, errNotPinned
+				}
+				// ip pinned to this proxy
+				return h.dialIfHealthy(amz, network, local, remote)
+			}
+
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(shortdelay * 3): // 300ms
+			}
+			return h.dialIfHealthy(amz, network, local, remote)
+		}, func(ctx context.Context) (protect.Conn, error) {
+			const myidx = 4
 			if sep == nil {
 				return nil, seerr
 			}
@@ -155,7 +175,7 @@ func (h *auto) dial(network, local, remote string) (protect.Conn, error) {
 			select {
 			case <-ctx.Done():
 				return nil, ctx.Err()
-			case <-time.After(shortdelay * 3): // 300ms
+			case <-time.After(shortdelay * 4): // 400ms
 			}
 			return h.dialIfHealthy(sep, network, local, remote)
 		},
@@ -181,26 +201,63 @@ func (h *auto) Announce(network, local string) (protect.PacketConn, error) {
 
 	exit, exerr := h.pxr.ProxyFor(Exit)
 	warp, waerr := h.pxr.ProxyFor(RpnWg)
+	amz, amzerr := h.pxr.ProxyFor(RpnAmz)
 
-	// auto always splits
+	previdx, recent := h.exp.Get(local)
+
+	// TODO: announceIfHealthy
 	c, who, err := core.Race(
 		network+".announce-auto."+local,
 		tlsHandshakeTimeout,
 		func(ctx context.Context) (protect.PacketConn, error) {
+			const myidx = 0
 			if exit == nil {
 				return nil, exerr
 			}
-			return exit.Dialer().Announce(network, local)
+			if recent {
+				if previdx != myidx {
+					return nil, errNotPinned
+				}
+				// ip pinned to this proxy
+				return h.announceIfHealthy(exit, network, local)
+			}
+			return h.announceIfHealthy(exit, network, local)
 		}, func(ctx context.Context) (protect.PacketConn, error) {
+			const myidx = 1
 			if warp == nil {
 				return nil, waerr
+			}
+			if recent {
+				if previdx != myidx {
+					return nil, errNotPinned
+				}
+				// ip pinned to this proxy
+				return h.announceIfHealthy(warp, network, local)
 			}
 			select {
 			case <-ctx.Done():
 				return nil, ctx.Err()
-			case <-time.After(shortdelay):
+			case <-time.After(shortdelay): // 100ms
 			}
-			return warp.Dialer().Announce(network, local)
+			return h.announceIfHealthy(warp, network, local)
+		}, func(ctx context.Context) (protect.PacketConn, error) {
+			const myidx = 2
+			if amz == nil {
+				return nil, amzerr
+			}
+			if recent {
+				if previdx != myidx {
+					return nil, errNotPinned
+				}
+				// ip pinned to this proxy
+				return h.announceIfHealthy(amz, network, local)
+			}
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(shortdelay * 2): // 200ms
+			}
+			return h.announceIfHealthy(amz, network, local)
 		}, // seasy-proxy does not support udp?
 	)
 	defer localDialStatus(h.status, err)
@@ -275,17 +332,21 @@ func (h *auto) Hop(p Proxy) error {
 		return errProxyStopped
 	}
 
-	var warp, sep Proxy
-	var waerr, seerr error
+	var warp, sep, amz Proxy
+	var waerr, seerr, amzerr error
 	old := h.via.Tango(p)
 	if warp, waerr = h.pxr.ProxyFor(RpnWg); warp != nil {
 		warp.Hop(p)
+	}
+	if amz, amzerr = h.pxr.ProxyFor(RpnAmz); amz != nil {
+		amz.Hop(p)
 	}
 	if sep, seerr = h.pxr.ProxyFor(RpnSE); sep != nil {
 		sep.Hop(p)
 	}
 
-	log.I("proxy: auto: hop(%s) => %s; errs? %v %v", idhandle(old), idhandle(p), waerr, seerr)
+	log.I("proxy: auto: hop(%s) => %s; errs? %v",
+		idhandle(old), idhandle(p), core.JoinErr(waerr, seerr, amzerr))
 	return nil
 }
 
@@ -331,12 +392,19 @@ func (h *auto) dialIfReachable(p Proxy, network, local, remote string) (net.Conn
 
 func (*auto) dialIfHealthy(p Proxy, network, local, remote string) (net.Conn, error) {
 	if err := healthy(p); err != nil {
-		return nil, fmt.Errorf("auto; %s not ok; %v: %s", p.ID(), err, remote)
+		return nil, fmt.Errorf("auto dial; %s %s not ok; %v: %s", p.ID(), network, err, remote)
 	}
 	if len(local) > 0 {
 		return p.Dialer().DialBind(network, local, remote)
 	}
 	return p.Dialer().Dial(network, remote)
+}
+
+func (*auto) announceIfHealthy(p Proxy, network, local string) (net.PacketConn, error) {
+	if err := healthy(p); err != nil {
+		return nil, fmt.Errorf("auto announce; %s %s not ok; %v: %s", p.ID(), network, err, local)
+	}
+	return p.Dialer().Announce(network, local)
 }
 
 func maybeKeepAlive(c net.Conn) {
