@@ -33,6 +33,7 @@ import (
 var (
 	errNoAgwConfig        = errors.New("agw: no config")
 	errInvalidRsaKey      = errors.New("agw: invalid RSA key")
+	errInvalidRsaPubKey   = errors.New("agw: invalid RSA public key")
 	errInvalidPKCSPadding = errors.New("agw: invalid padding size")
 	errInvalidPKCSData    = errors.New("agw: invalid padding data")
 	errAesCipherLen       = errors.New("agw: len(ciphertext) != x*blockSize")
@@ -77,6 +78,7 @@ type agwc struct {
 	uuid          string
 	http          *http.Client
 	key, iv, salt []byte
+	rsaPub        *rsa.PublicKey
 	apiPayload    map[string]string
 	btoa          *base64.Encoding
 }
@@ -372,24 +374,12 @@ func prandom(sz int) ([]byte, error) {
 }
 
 // wrap encrypts data encryption keys in data using RSA public key.
-func (a *agwc) wrap(data []byte, publicKey, typ string) ([]byte, error) {
-	block, _ := pem.Decode([]byte(publicKey))
-	if block == nil {
-		return nil, errInvalidRsaKey
-	}
-	pub, err := x509.ParsePKIXPublicKey(block.Bytes)
-	if err != nil {
-		return nil, err
-	}
-	rsaPub, ok := pub.(*rsa.PublicKey)
-	if !ok {
-		return nil, errors.New("invalid RSA public key")
-	}
+func (a *agwc) wrap(data []byte, typ string) ([]byte, error) {
 	switch typ {
 	case "oeap":
-		return rsa.EncryptOAEP(sha512.New(), rand.Reader, rsaPub, data, nil)
+		return rsa.EncryptOAEP(sha512.New(), rand.Reader, a.rsaPub, data, nil)
 	default:
-		return rsa.EncryptPKCS1v15(rand.Reader, rsaPub, data)
+		return rsa.EncryptPKCS1v15(rand.Reader, a.rsaPub, data)
 	}
 }
 
@@ -429,6 +419,22 @@ func newAgwc(pubkey string, c *http.Client) (*agwc, error) {
 	if err != nil {
 		return nil, err
 	}
+	publicKey := agwDevRsaPublicKey
+	if prod {
+		publicKey = agwProdRsaPublicKey
+	}
+	block, _ := pem.Decode([]byte(publicKey))
+	if block == nil {
+		return nil, errInvalidRsaKey
+	}
+	pub, err := x509.ParsePKIXPublicKey(block.Bytes)
+	if err != nil {
+		return nil, err
+	}
+	rsaPub, ok := pub.(*rsa.PublicKey)
+	if !ok {
+		return nil, errInvalidRsaPubKey
+	}
 	uuid, cc, svc, os, ver := uuid4(), "ru", "amnezia-free", "android", "4.0.8"
 	apiPayload := map[string]string{
 		"user_country_code": cc,
@@ -447,6 +453,7 @@ func newAgwc(pubkey string, c *http.Client) (*agwc, error) {
 		key:        key,
 		iv:         iv,
 		salt:       salt,
+		rsaPub:     rsaPub,
 		apiPayload: apiPayload,
 		// https://doc.qt.io/qt-6/qbytearray.html#toBase64
 		btoa: base64.StdEncoding,
@@ -486,11 +493,7 @@ func (a *agwc) encryptKeyPayload() ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	if !prod {
-		return a.wrap(keyPayloadJSON, agwDevRsaPublicKey, "pkcsv15")
-	} else {
-		return a.wrap(keyPayloadJSON, agwProdRsaPublicKey, "pkcsv15")
-	}
+	return a.wrap(keyPayloadJSON, "pkcsv15")
 }
 
 func (a *agwc) url() string {
