@@ -87,6 +87,7 @@ var (
 	errNoRouteToHost      = errors.New("proxy: no route to host")
 	errMissingProxyID     = errors.New("proxy: missing proxy id")
 	errHopDefaultRoutes   = errors.New("proxy: hop must route all ip4/ip6")
+	errHopHopping         = errors.New("proxy: hop must not be hopping")
 	errNoHop              = errors.New("proxy: no hop")
 	errHopWireGuard       = errors.New("proxy: hop must be wireguard")
 	errHopMtuInsufficient = errors.New("proxy: hop mtu insufficient")
@@ -563,8 +564,12 @@ func (px *proxifier) Hop(via, origin string) error {
 	if viaPx.Status() == END || origPx.Status() == END {
 		return errProxyStopped
 	}
-	// via must either route all ip4 or all ip6; ideally both
-	if !viaPx.Router().IP4() && !viaPx.Router().IP6() {
+
+	viaRouter := viaPx.Router()
+	if viaViaVia, _ := viaRouter.Via(); viaViaVia != nil {
+		return errHopHopping
+	} else if !viaPx.Router().IP4() && !viaPx.Router().IP6() {
+		// via must either route all ip4 or all ip6; ideally both
 		return errHopDefaultRoutes
 	}
 
