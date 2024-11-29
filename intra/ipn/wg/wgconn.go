@@ -112,7 +112,7 @@ type StdNetBind struct {
 	blackhole6 bool
 
 	epmu sync.RWMutex
-	eps  map[net.Addr]StdNetEndpoint
+	eps  map[net.Addr]StdNetEndpoint // peer-addr => std-net-endpoint
 
 	observer rwobserver
 	sendAddr *core.Volatile[netip.AddrPort] // may be invalid
@@ -127,6 +127,7 @@ func NewEndpoint(id string, d connector, ep *multihost.MH, f rwobserver, a *Amne
 		observer: f,
 		amnezia:  a,
 		floodBa:  core.NewKeyedBarrier[int, netip.AddrPort](minFloodInterval),
+		eps:      make(map[net.Addr]StdNetEndpoint),
 		sendAddr: core.NewZeroVolatile[netip.AddrPort](),
 	}
 	return s
