@@ -213,7 +213,7 @@ func (s *StdNetBind) RemoteAddr() netip.AddrPort {
 	return s.sendAddr.Load()
 }
 
-func (s *StdNetBind) listenNet(network string, port int) (*net.UDPConn, int, error) {
+func (s *StdNetBind) listenNet(network string, port int) (net.PacketConn, int, error) {
 	anyaddr := anyaddr6
 	if network == "udp4" {
 		anyaddr = anyaddr4
@@ -247,12 +247,7 @@ func (s *StdNetBind) listenNet(network string, port int) (*net.UDPConn, int, err
 	}
 	log.V("wg: bind: %s %s: listen(%v)", s.id, network, laddr)
 	// typecast is safe, because "network" is always udp[4|6]; see: Open
-	if udpconn, ok := conn.(*net.UDPConn); ok {
-		return udpconn, uaddr.Port, nil
-	} else {
-		clos(conn)
-		return nil, 0, errNotUDP
-	}
+	return conn, uaddr.Port, nil
 }
 
 func (bind *StdNetBind) Open(uport uint16) ([]conn.ReceiveFunc, uint16, error) {
@@ -305,7 +300,8 @@ again:
 		fns = append(fns, bind.makeReceiveFn(ipv6))
 	}
 
-	log.I("wg: bind: %s opened port(%d) for v4? %t v6? %t", bind.id, port, ipv4 != nil, ipv6 != nil)
+	log.I("wg: bind: %s opened port(%d) for v4? %t v6? %t",
+		bind.id, port, ipv4 != nil, ipv6 != nil)
 	if len(fns) == 0 {
 		return nil, 0, syscall.EAFNOSUPPORT
 	}
