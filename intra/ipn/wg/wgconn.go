@@ -332,6 +332,7 @@ func (bind *StdNetBind) Close() error {
 func (s *StdNetBind) makeReceiveFn(uc net.PacketConn) conn.ReceiveFunc {
 	// github.com/WireGuard/wireguard-go/blob/469159ecf/device/device.go#L531
 	return func(bufs [][]byte, sizes []int, eps []conn.Endpoint) (n int, err error) {
+		defer core.Recover(core.Exit11, "wgconn.recv."+s.id)
 		defer func() {
 			s.observer("r", err)
 		}()
@@ -373,6 +374,7 @@ func timedout(err error) bool {
 }
 
 func (s *StdNetBind) Send(buf [][]byte, peer conn.Endpoint) (err error) {
+	defer core.Recover(core.Exit11, "wgconn.send."+s.id)
 	defer func() {
 		s.observer("w", err)
 	}()
@@ -547,18 +549,20 @@ func (s *StdNetBind) asEndpoint(ap net.Addr) conn.Endpoint {
 		return invalidStdNetEndpoint
 	}
 	s.epmu.RLock()
-	if ep, ok := s.eps[ap]; ok {
+	ep, ok := s.eps[ap]
+	s.epmu.RUnlock()
+
+	if ok {
 		return ep
 	}
-	s.epmu.RUnlock()
 
 	s.epmu.Lock()
 	defer s.epmu.Unlock()
-	if ep, ok := s.eps[ap]; ok {
+	ep, ok = s.eps[ap]
+	if ok {
 		return ep
 	}
 
-	var ep StdNetEndpoint
 	if tcp, ok := ap.(*net.TCPAddr); ok {
 		ipp := tcp.AddrPort()
 		ep = StdNetEndpoint{ipp, udpaddr(ipp)}
