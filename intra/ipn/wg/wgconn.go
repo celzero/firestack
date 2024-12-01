@@ -411,7 +411,7 @@ func (s *StdNetBind) Send(buf [][]byte, peer conn.Endpoint) (err error) {
 		if blackhole || !bufok {
 			return nil
 		}
-		if noconn {
+		if noconn || uc == nil {
 			return syscall.EAFNOSUPPORT
 		}
 

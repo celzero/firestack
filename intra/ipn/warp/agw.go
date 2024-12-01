@@ -529,8 +529,8 @@ func (a *agwc) reg() (*AmzWgConfig, error) {
 	req.Header.Set("Accept", "application/json")
 
 	resp, err := a.http.Do(req)
-	if err != nil {
-		return nil, err
+	if err != nil || resp == nil {
+		return nil, core.OneErr(err, errNoApiResponse)
 	}
 	defer resp.Body.Close()
 
