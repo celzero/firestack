@@ -37,6 +37,7 @@ const (
 	OrbotH1  = x.OrbotH1
 	GlobalH1 = x.GlobalH1
 	RpnWg    = x.RpnWg
+	RpnPro   = x.RpnPro
 	RpnAmz   = x.RpnAmz
 	RpnWs    = x.RpnWs
 	Rpn64    = x.Rpn64
@@ -174,9 +175,10 @@ type proxifier struct {
 	extc *warp.Client // external wg registration, never changes
 	sec  *seasy.SEApi // se proxy registration, never changes; may be nil
 
-	lastSeErr   error // se proxy registration error
-	lastWarpErr error // warp registration error
-	lastAmzErr  error // amnezia registration error
+	lastSeErr     error // se proxy registration error
+	lastWarpErr   error // warp registration error
+	lastAmzErr    error // amnezia registration error
+	lastProtonErr error // proton registration error
 
 	protos string // ip4, ip6, ip46
 }
@@ -832,12 +834,30 @@ func (px *proxifier) RegisterWarp(pub string) ([]byte, error) {
 	return id.Json()
 }
 
-// RegisterWarp implements x.Rpn.
+// RegisterAmnezia implements x.Rpn.
 func (px *proxifier) RegisterAmnezia(pub string) ([]byte, error) {
 	id, err := px.extc.MakeAmzWg(pub)
 	px.lastAmzErr = err // may be nil
 	if err != nil {
 		log.E("proxy: amz: make for %s failed: %v", pub, err)
+		return nil, err
+	}
+	return id.Json()
+}
+
+// RegisterProton implements x.Rpn.
+func (px *proxifier) RegisterProton(existingStateJson []byte, serversFile string) (stateJson []byte, err error) {
+	var id *warp.ProtonWgConfig // may be nil
+
+	redo := len(existingStateJson) > 0
+	if redo {
+		id, err = px.extc.MakeProtonWgFrom(px.ctx, existingStateJson, serversFile)
+	} else {
+		id, err = px.extc.MakeProtonWg(px.ctx, serversFile)
+	}
+	px.lastProtonErr = err // may be nil
+	if err != nil {
+		log.E("proxy: proton: make (redo? %t) failed: %v", redo, err)
 		return nil, err
 	}
 	return id.Json()
@@ -871,7 +891,16 @@ func (px *proxifier) Warp() (x.Proxy, error) {
 	return warp, err
 }
 
-// Warp implements x.Rpn.
+// Proton implements x.Rpn.
+func (px *proxifier) Proton() (x.Proxy, error) {
+	pro, err := px.ProxyFor(RpnPro)
+	if pro == nil {
+		return nil, core.JoinErr(err, px.lastProtonErr)
+	}
+	return pro, err
+}
+
+// Amnezia implements x.Rpn.
 func (px *proxifier) Amnezia() (x.Proxy, error) {
 	amz, err := px.ProxyFor(RpnAmz)
 	if amz == nil {
@@ -961,6 +990,33 @@ func (px *proxifier) TestWarp() (string, error) {
 
 	if len(oks) <= 0 {
 		return "", core.JoinErr(errNoSuitableAddress, px.lastWarpErr)
+	}
+	return strings.Join(oks, ","), nil
+}
+
+// TestProton implements x.Rpn.
+func (px *proxifier) TestProton() (string, error) {
+	v4, _, err := warp.ProtonEndpoints()
+	if err != nil {
+		log.W("proxy: proton: err testing endpoints: %v", err)
+		return "", err
+	}
+
+	// todo: proton does not use ipv6 for api servers
+	oks := make([]string, 0, len(v4))
+	for _, ip := range v4 {
+		ipstr := ip.String()
+		// base can route back into netstack (settings.LoopingBack)
+		// in which  case all endpoints will "seem" reachable.
+		// exit, however, never routes back into netstack and has
+		// the true, unhindered path to the underlying network.
+		if Reaches(px.exit, ipstr, "tcp") {
+			oks = append(oks, ipstr)
+		}
+	}
+
+	if len(oks) <= 0 {
+		return "", core.JoinErr(errNoSuitableAddress, px.lastProtonErr)
 	}
 	return strings.Join(oks, ","), nil
 }

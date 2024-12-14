@@ -455,7 +455,7 @@ func newAgwc(pubkey string, c *http.Client) (*agwc, error) {
 		salt:       salt,
 		rsaPub:     rsaPub,
 		apiPayload: apiPayload,
-		// https://doc.qt.io/qt-6/qbytearray.html#toBase64
+		// doc.qt.io/qt-6/qbytearray.html#toBase64
 		btoa: base64.StdEncoding,
 	}, nil
 }

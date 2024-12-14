@@ -74,6 +74,7 @@ func (h *auto) dial(network, local, remote string) (protect.Conn, error) {
 	exit, exerr := h.pxr.ProxyFor(Exit)
 	exit64, ex64err := h.pxr.ProxyFor(Rpn64)
 	warp, waerr := h.pxr.ProxyFor(RpnWg)
+	pro, proerr := h.pxr.ProxyFor(RpnPro)
 	amz, amzerr := h.pxr.ProxyFor(RpnAmz)
 	sep, seerr := h.pxr.ProxyFor(RpnSE)
 
@@ -104,6 +105,25 @@ func (h *auto) dial(network, local, remote string) (protect.Conn, error) {
 			return h.dialIfReachable(exit, network, local, remote)
 		}, func(ctx context.Context) (protect.Conn, error) {
 			const myidx = 1
+			if pro == nil { // exit must always be present
+				return nil, proerr
+			}
+			if recent {
+				if previdx != myidx {
+					return nil, errNotPinned
+				}
+				// ip pinned to this proxy
+				h.dialIfHealthy(pro, network, local, remote)
+			}
+
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(shortdelay * myidx): // 100ms
+			}
+			return h.dialIfReachable(pro, network, local, remote)
+		}, func(ctx context.Context) (protect.Conn, error) {
+			const myidx = 2
 			if warp == nil {
 				return nil, waerr
 			}
@@ -118,11 +138,11 @@ func (h *auto) dial(network, local, remote string) (protect.Conn, error) {
 			select {
 			case <-ctx.Done():
 				return nil, ctx.Err()
-			case <-time.After(shortdelay): // 100ms
+			case <-time.After(shortdelay * myidx): // 200ms
 			}
 			return h.dialIfHealthy(warp, network, local, remote)
 		}, func(ctx context.Context) (protect.Conn, error) {
-			const myidx = 2
+			const myidx = 3
 			if exit64 == nil {
 				return nil, ex64err
 			}
@@ -137,11 +157,11 @@ func (h *auto) dial(network, local, remote string) (protect.Conn, error) {
 			select {
 			case <-ctx.Done():
 				return nil, ctx.Err()
-			case <-time.After(shortdelay * 2): // 200ms
+			case <-time.After(shortdelay * myidx): // 300ms
 			}
 			return h.dialIfHealthy(exit64, network, local, remote)
 		}, func(ctx context.Context) (protect.Conn, error) {
-			const myidx = 3
+			const myidx = 4
 			if amz == nil {
 				return nil, amzerr
 			}
@@ -156,11 +176,11 @@ func (h *auto) dial(network, local, remote string) (protect.Conn, error) {
 			select {
 			case <-ctx.Done():
 				return nil, ctx.Err()
-			case <-time.After(shortdelay * 3): // 300ms
+			case <-time.After(shortdelay * myidx): // 400ms
 			}
 			return h.dialIfHealthy(amz, network, local, remote)
 		}, func(ctx context.Context) (protect.Conn, error) {
-			const myidx = 4
+			const myidx = 5
 			if sep == nil {
 				return nil, seerr
 			}
@@ -175,7 +195,7 @@ func (h *auto) dial(network, local, remote string) (protect.Conn, error) {
 			select {
 			case <-ctx.Done():
 				return nil, ctx.Err()
-			case <-time.After(shortdelay * 4): // 400ms
+			case <-time.After(shortdelay * myidx): // 500ms
 			}
 			return h.dialIfHealthy(sep, network, local, remote)
 		},
@@ -201,6 +221,7 @@ func (h *auto) Announce(network, local string) (protect.PacketConn, error) {
 
 	exit, exerr := h.pxr.ProxyFor(Exit)
 	warp, waerr := h.pxr.ProxyFor(RpnWg)
+	pro, proerr := h.pxr.ProxyFor(RpnPro)
 	amz, amzerr := h.pxr.ProxyFor(RpnAmz)
 
 	previdx, recent := h.exp.Get(local)
@@ -224,6 +245,24 @@ func (h *auto) Announce(network, local string) (protect.PacketConn, error) {
 			return h.announceIfHealthy(exit, network, local)
 		}, func(ctx context.Context) (protect.PacketConn, error) {
 			const myidx = 1
+			if pro == nil {
+				return nil, proerr
+			}
+			if recent {
+				if previdx != myidx {
+					return nil, errNotPinned
+				}
+				// ip pinned to this proxy
+				return h.announceIfHealthy(pro, network, local)
+			}
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(shortdelay * myidx): // 100ms
+			}
+			return h.announceIfHealthy(pro, network, local)
+		}, func(ctx context.Context) (protect.PacketConn, error) {
+			const myidx = 2
 			if warp == nil {
 				return nil, waerr
 			}
@@ -237,11 +276,11 @@ func (h *auto) Announce(network, local string) (protect.PacketConn, error) {
 			select {
 			case <-ctx.Done():
 				return nil, ctx.Err()
-			case <-time.After(shortdelay): // 100ms
+			case <-time.After(shortdelay * myidx): // 200ms
 			}
 			return h.announceIfHealthy(warp, network, local)
 		}, func(ctx context.Context) (protect.PacketConn, error) {
-			const myidx = 2
+			const myidx = 3
 			if amz == nil {
 				return nil, amzerr
 			}
@@ -255,7 +294,7 @@ func (h *auto) Announce(network, local string) (protect.PacketConn, error) {
 			select {
 			case <-ctx.Done():
 				return nil, ctx.Err()
-			case <-time.After(shortdelay * 2): // 200ms
+			case <-time.After(shortdelay * myidx): // 300ms
 			}
 			return h.announceIfHealthy(amz, network, local)
 		}, // seasy-proxy does not support udp?
@@ -286,7 +325,7 @@ func (h *auto) Probe(network, local string) (pc protect.PacketConn, err error) {
 	if h.status.Load() == END {
 		return nil, errProxyStopped
 	}
-	// todo: rpnwg, rpnamz
+	// todo: rpnwg, rpnamz, rpnpro
 	exit, err := h.pxr.ProxyFor(Exit)
 	if err == nil {
 		pc, err = exit.Dialer().Probe(network, local)
@@ -332,21 +371,24 @@ func (h *auto) Hop(p Proxy) error {
 		return errProxyStopped
 	}
 
-	var warp, sep, amz Proxy
-	var waerr, seerr, amzerr error
+	var warp, sep, amz, pro Proxy
+	var waerr, seerr, amzerr, proerr error
 	old := h.via.Tango(p)
 	if warp, waerr = h.pxr.ProxyFor(RpnWg); warp != nil {
-		warp.Hop(p)
+		waerr = warp.Hop(p)
+	}
+	if pro, proerr = h.pxr.ProxyFor(RpnPro); pro != nil {
+		proerr = pro.Hop(p)
 	}
 	if amz, amzerr = h.pxr.ProxyFor(RpnAmz); amz != nil {
-		amz.Hop(p)
+		amzerr = amz.Hop(p)
 	}
 	if sep, seerr = h.pxr.ProxyFor(RpnSE); sep != nil {
-		sep.Hop(p)
+		seerr = sep.Hop(p)
 	}
 
 	log.I("proxy: auto: hop(%s) => %s; errs? %v",
-		idhandle(old), idhandle(p), core.JoinErr(waerr, seerr, amzerr))
+		idhandle(old), idhandle(p), core.JoinErr(waerr, seerr, amzerr, proerr))
 	return nil
 }
 

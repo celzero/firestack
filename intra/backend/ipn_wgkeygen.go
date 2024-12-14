@@ -14,6 +14,7 @@
 package backend
 
 import (
+	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/base64"
@@ -26,7 +27,7 @@ import (
 
 // from: github.com/WireGuard/wireguard-windows/blob/dcc0eb72a/conf/parser.go#L121
 
-const klen = 32
+const klen = ed25519.SeedSize
 
 type (
 	eckey [klen]byte
@@ -81,6 +82,12 @@ func NewWgPrivateKey() (WgKey, error) {
 	k[0] &= 248
 	k[31] = (k[31] & 127) | 64
 	return k, nil
+}
+
+func NewWgPrivateKeyFrom(k [klen]byte) WgKey {
+	k[0] &= 248
+	k[31] = (k[31] & 127) | 64
+	return (*eckey)(&k)
 }
 
 func parseKeyBase64(s string) (*eckey, error) {

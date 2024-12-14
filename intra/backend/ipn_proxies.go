@@ -16,6 +16,7 @@ const ( // see ipn/proxies.go
 	Auto     = "Auto"         // auto uses ipn.Exit or any of the RPN proxies
 	RpnWg    = WG + "w" + RPN // RPN Warp
 	RpnAmz   = WG + "a" + RPN // RPN Amnezia
+	RpnPro   = WG + "p" + RPN // RPN Proton
 	RpnWs    = PIPWS + RPN    // RPN WebSockets
 	RpnH2    = PIPH2 + RPN    // RPN HTTP/2
 	Rpn64    = NAT64 + RPN    // RPN Exit hopping over NAT64
@@ -61,16 +62,22 @@ type Rpn interface {
 	RegisterSE() error
 	// RegisterAmnezia registers a new Amnezia installation.
 	RegisterAmnezia(publicKeyBase64 string) (json []byte, err error)
+	// RegisterProton registers a new Proton installation.
+	RegisterProton(existingStateJson []byte, serversFile string) (json []byte, err error)
 	// TestWarp connects to some Warp IPs and returns reachable ones.
 	TestWarp() (ips string, errs error)
 	// TestAmnezia connects to the Amnezia gateway and returns its IP if reachable.
 	TestAmnezia() (ips string, errs error)
+	// TestProton connects to the Proton gateway and returns its IP if reachable.
+	TestProton() (ips string, errs error)
 	// TestSE connects to some SurfEasy IPs and returns reachable ones.
 	TestSE() (ips string, errs error)
 	// TestExit64 connects to public NAT64 endpoints and returns reachable ones.
 	TestExit64() (ips string, errs error)
 	// Warp returns a RpnWg proxy.
 	Warp() (wg Proxy, err error)
+	// Proton returns a Proton WireGuard proxy.
+	Proton() (wg Proxy, err error)
 	// Amnezia returns a Amnezia WireGuard proxy.
 	Amnezia() (awg Proxy, err error)
 	// Pip returns a RpnWs proxy.
