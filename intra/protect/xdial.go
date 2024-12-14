@@ -24,6 +24,8 @@ var (
 	alwaysDualStack = true
 )
 
+// type alias: go.dev/blog/alias-names / archive.vn/IZjgc
+
 // Adapter to keep gomobile happy as it can't export net.Conn
 type Conn = net.Conn
 
