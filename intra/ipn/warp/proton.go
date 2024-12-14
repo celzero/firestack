@@ -577,7 +577,7 @@ func (a *protongw) refreshConf() error {
 		// expect it to be the same when the key is the same
 	}
 	// wg info
-	for _, r := range a.config.RegionalWgConfs {
+	for _, r := range pc.RegionalWgConfs {
 		r.genWgConf()
 	}
 	return nil // ok
@@ -690,8 +690,8 @@ retryAfterRefresh:
 	a.addRegistrationHeaders(req)
 
 	res, err := a.http.Do(req)
-	if err != nil {
-		return err
+	if err != nil || res == nil {
+		return core.OneErr(err, errNoApiResponse)
 	}
 	defer res.Body.Close()
 
@@ -786,8 +786,8 @@ func (a *protongw) fetchCreds() error {
 	a.addSessionHeaders(req)
 
 	res, err := a.http.Do(req)
-	if err != nil {
-		return err
+	if err != nil || res == nil {
+		return core.OneErr(err, errNoApiResponse)
 	}
 	defer res.Body.Close()
 
@@ -864,8 +864,8 @@ func (a *protongw) beginSession() error {
 	protonHeaders(req)
 
 	res, err := a.http.Do(req)
-	if err != nil {
-		return err
+	if err != nil || res == nil {
+		return core.OneErr(err, errNoApiResponse)
 	}
 	defer res.Body.Close()
 
@@ -934,8 +934,8 @@ func (a *protongw) refreshCreds() error {
 	protonHeaders(req)
 
 	res, err := a.http.Do(req)
-	if err != nil {
-		return err
+	if err != nil || res == nil {
+		return core.OneErr(err, errNoApiResponse)
 	}
 	defer res.Body.Close()
 
@@ -1195,7 +1195,8 @@ func protonServersFrom(allServersFilePath string, c *http.Client) []ProtonLogica
 			protonHeaders(req)
 			protonNetZoneHeaders(req)
 			res, err := c.Do(req)
-			if err != nil {
+			if err != nil || res == nil {
+				err = core.OneErr(err, errNoApiResponse)
 				log.E("proton: servers: do: %v", err)
 			} else {
 				defer res.Body.Close()

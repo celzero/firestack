@@ -23,7 +23,7 @@ import (
 )
 
 var (
-	errNoApiResponse = errors.New("warp/agw: no api response")
+	errNoApiResponse = errors.New("ipn: no api response")
 	errNoApiData     = errors.New("warp: no api data")
 	errZeroIdentity  = errors.New("warp: identity content empty")
 	errZeroPeers     = errors.New("warp: no peers")
