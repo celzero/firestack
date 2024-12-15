@@ -846,14 +846,15 @@ func (px *proxifier) RegisterAmnezia(pub string) ([]byte, error) {
 }
 
 // RegisterProton implements x.Rpn.
-func (px *proxifier) RegisterProton(existingStateJson []byte, serversFile string) (stateJson []byte, err error) {
+func (px *proxifier) RegisterProton(existingStateJson []byte) (stateJson []byte, err error) {
+	const nostore = ""
 	var id *warp.ProtonWgConfig // may be nil
 
 	redo := len(existingStateJson) > 0
 	if redo {
-		id, err = px.extc.MakeProtonWgFrom(px.ctx, existingStateJson, serversFile)
+		id, err = px.extc.MakeProtonWgFrom(px.ctx, existingStateJson, nostore)
 	} else {
-		id, err = px.extc.MakeProtonWg(px.ctx, serversFile)
+		id, err = px.extc.MakeProtonWg(px.ctx, nostore)
 	}
 	px.lastProtonErr = err // may be nil
 	if err != nil {

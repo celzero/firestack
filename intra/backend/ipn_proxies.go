@@ -63,7 +63,7 @@ type Rpn interface {
 	// RegisterAmnezia registers a new Amnezia installation.
 	RegisterAmnezia(publicKeyBase64 string) (json []byte, err error)
 	// RegisterProton registers a new Proton installation.
-	RegisterProton(existingStateJson []byte, serversFile string) (json []byte, err error)
+	RegisterProton(existingStateJson []byte) (json []byte, err error)
 	// TestWarp connects to some Warp IPs and returns reachable ones.
 	TestWarp() (ips string, errs error)
 	// TestAmnezia connects to the Amnezia gateway and returns its IP if reachable.
