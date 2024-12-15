@@ -1075,10 +1075,6 @@ func (px *proxifier) TestExit64() (ips string, errs error) {
 	return strings.Join(oks, ","), nil
 }
 
-func isRPN(id string) bool {
-	return strings.Contains(id, RPN)
-}
-
 func isWG(id string) bool {
 	return strings.Contains(id, WG)
 }

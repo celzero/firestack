@@ -433,7 +433,7 @@ func wgIfConfigOf(id string, txtptr *string) (opts wgifopts, err error) {
 		case "endpoint": // may exist more than once
 			// TODO: endpoint could be v4 or v6 or a hostname
 			n := 0
-			if isRPN(id) {
+			if id == RpnWg { // warp
 				v4, v6, err := warp.WarpEndpoints()
 				if err == nil {
 					warpipcsv := v4.String() + "," + v6.String()
