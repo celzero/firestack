@@ -993,9 +993,15 @@ func protonLogicalsUrl() string {
 	return protonBaseUrl + serversV1UrlPath
 }
 
-func protonHeaders(req *http.Request) {
+func protonContentHeaders(req *http.Request) {
 	req.Header.Set("Content-Type", "application/vnd.protonmail.v1+json")
 	req.Header.Set("Accept", "application/vnd.protonmail.v1+json")
+}
+
+func protonHeaders(req *http.Request) {
+	protonContentHeaders(req)
+	// using x-pm-appversion with some APIs like logicals
+	// will result in 401; but omitting it will work fine
 	req.Header.Set("x-pm-appversion", "android-vpn@5.6.38")
 	req.Header.Set("x-pm-locale", "en-US")
 	req.Header.Set("User-Agent", "ProtonVPN/5.6.38 (Android 34b5; Google Pixel9")
@@ -1236,7 +1242,7 @@ func protonServersFrom(allServersFilePath string, c *http.Client) []ProtonLogica
 		}
 	}
 	if len(all.R) == 0 {
-		//curl -X GET "https://vpn-api.proton.me/vpn/v1/logicals?WithState=true&Tier=2&WithEntriesForProtocols=WireGuard" \
+		// curl -X GET "https://vpn-api.proton.me/vpn/v1/logicals?WithState=true&Tier=2&WithEntriesForProtocols=WireGuard" \
 		// -H "Content-Type: application/vnd.protonmail.v1+json" \
 		// -H "x-pm-netzone: 1.1.0.0" \
 		// -H "x-pm-country: us" \
@@ -1246,7 +1252,8 @@ func protonServersFrom(allServersFilePath string, c *http.Client) []ProtonLogica
 		if err != nil {
 			log.E("proton: servers: req: %v", err)
 		} else {
-			protonHeaders(req)
+			// protonHeaders (esp x-pm-appversion) results in 401
+			protonContentHeaders(req)
 			protonNetZoneHeaders(req)
 			res, err := c.Do(req)
 			if err != nil || res == nil {
