@@ -1189,12 +1189,12 @@ func protonServersByCountry(logicals []ProtonLogicals) map[string][]ProtonServer
 }
 
 func protonServersPrebuilt() []ProtonLogicals {
-	var prebuilts []ProtonLogicals
+	var prebuilts ProtonServerResponse
 	err := json.Unmarshal(prebuiltProtonServersJson, &prebuilts)
 	if err != nil {
 		log.E("proton: servers: %d unmarshal: %v", len(prebuiltProtonServersJson), err)
 	}
-	return prebuilts
+	return prebuilts.R
 }
 
 // go.dev/play/p/9kapzPiG72r
