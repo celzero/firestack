@@ -116,8 +116,7 @@ var defaultHeaders = map[string]string{
 }
 
 // raw.githubusercontent.com/ProtonVPN/android-app/81a6dfb9a0/app/src/main/assets/GuestHoleServers.json
-var prebuiltProtonServersJson = []byte(`{
-[
+var prebuiltProtonServersJson = []byte(`[
     {
         "Name": "CH#134",
         "EntryCountry": "CH",

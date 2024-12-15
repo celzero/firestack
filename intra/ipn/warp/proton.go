@@ -275,7 +275,8 @@ type ProtonCertResponse struct {
 
 // github.com/ProtonVPN/android-app/blob/master/app/src/b9c6e59de40/assets/GuestHoleServers.json
 type ProtonServerResponse struct {
-	R []ProtonLogicals `json:"ProtonLogicals"`
+	Code int              `json:"Code"`
+	R    []ProtonLogicals `json:"LogicalServers"`
 }
 
 //	{
@@ -328,9 +329,10 @@ type ProtonLogicals struct {
 	VPNGatewayID string  `json:"VPNGatewayID"`
 	ID           string  `json:"ID"`
 	Load         int     `json:"Load"`
-	Location     ProtonServerLocation
-	Status       int `json:"Status"`
-	Servers      []ProtonServer
+	Status       int     `json:"Status"`
+
+	Location ProtonServerLocation `json:"Location"`
+	Servers  []ProtonServer       `json:"Servers"`
 }
 
 //	"Location": {
@@ -1195,12 +1197,12 @@ func protonServersByCountry(logicals []ProtonLogicals) map[string][]ProtonServer
 }
 
 func protonServersPrebuilt() []ProtonLogicals {
-	var prebuilts ProtonServerResponse
+	var prebuilts []ProtonLogicals
 	err := json.Unmarshal(prebuiltProtonServersJson, &prebuilts)
 	if err != nil {
 		log.E("proton: servers: %d unmarshal: %v", len(prebuiltProtonServersJson), err)
 	}
-	return prebuilts.R
+	return prebuilts
 }
 
 // go.dev/play/p/9kapzPiG72r
