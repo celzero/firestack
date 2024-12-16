@@ -617,8 +617,12 @@ func NewWgProxy(id string, ctl protect.Controller, rev netstack.GConnHandler, cf
 
 // ref: github.com/WireGuard/wireguard-go/blob/469159ecf7/tun/netstack/tun.go#L54
 func makeWgTun(id, cfg string, ctl protect.Controller, rev netstack.GConnHandler, ifopts wgifopts) (*wgtun, error) {
-	if rev == nil {
-		return nil, errMissingRev
+	if settings.ExperimentalWireGuard.Load() && settings.EndpointIndependentFiltering.Load() {
+		if rev == nil {
+			return nil, errMissingRev
+		}
+	} else { // do not use reverser
+		rev = nil
 	}
 
 	ctx := context.TODO()
@@ -634,7 +638,7 @@ func makeWgTun(id, cfg string, ctl protect.Controller, rev netstack.GConnHandler
 	s := stack.New(opts)
 	ep := channel.New(epsize, uint32(tunmtu), "")
 	netstack.SetNetstackOpts(s)
-	if settings.ExperimentalWireGuard.Load() && settings.EndpointIndependentFiltering.Load() {
+	if rev != nil { // inbound (aka reverse outbound)
 		netstack.OutboundTCP(s, rev.TCP())
 		netstack.OutboundUDP(s, rev.UDP())
 	}
