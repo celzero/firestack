@@ -165,6 +165,8 @@ type proxifier struct {
 	ipPins  *core.Sieve[netip.AddrPort, string]           // ipp -> proxyid
 	uidPins *core.Sieve2K[string, netip.AddrPort, string] // uid -> [dst -> proxyid]
 
+	sched *core.Scheduler
+
 	// immutable proxies
 	exit     *exit   // exit proxy, never changes
 	exit64   *exit64 // rpn64 proxy, never changes
@@ -202,6 +204,7 @@ func NewProxifier(pctx context.Context, c protect.Controller, o x.ProxyListener)
 		ctl:    c,
 		obs:    o,
 		protos: settings.IP46, // assume all routes ok (fail open)
+		sched:  core.NewScheduler(pctx),
 	}
 
 	pxr.exit = NewExitProxy(pctx, c)
@@ -852,9 +855,9 @@ func (px *proxifier) RegisterProton(existingStateJson []byte) (stateJson []byte,
 
 	redo := len(existingStateJson) > 0
 	if redo {
-		id, err = px.extc.MakeProtonWgFrom(px.ctx, existingStateJson, nostore)
+		id, err = px.extc.MakeProtonWgFrom(existingStateJson, nostore, px.sched)
 	} else {
-		id, err = px.extc.MakeProtonWg(px.ctx, nostore)
+		id, err = px.extc.MakeProtonWg(nostore, px.sched)
 	}
 	px.lastProtonErr = err // may be nil
 	if err != nil {

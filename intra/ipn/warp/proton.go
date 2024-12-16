@@ -460,37 +460,13 @@ func (id *ProtonWgConfig) writeJson(w io.Writer) error {
 	return enc.Encode(id)
 }
 
-func (id *RegionalWgConf) genWgConf() {
-	if id == nil {
-		return
-	}
-	id.WgConf = fmt.Sprintf(`[Interface]
-PrivateKey = %s
-PublicKey = %s
-Address = %s
-DNS = %s
-[Peer]
-PublicKey = %s
-Endpoint = %s
-Endpoint = %s
-AllowedIPs = %s`,
-		id.ClientPrivKey,
-		id.ClientPubKey,
-		id.ClientAddr4,
-		id.ClientDNS4,
-		id.ServerPubKey,
-		id.ServerIPPort4,
-		id.ServerDomainPort,
-		id.AllowedIPs,
-	)
-}
-
 type protongw struct {
 	http *http.Client
 	key  ProtonKey
 
+	sched *core.Scheduler
+
 	servers map[string][]ProtonServer // country => endpoints
-	sched   *core.Scheduler
 
 	sess struct { // unauthenticated
 		uid          string
@@ -511,7 +487,7 @@ type protongw struct {
 	config *ProtonWgConfig
 }
 
-func newProtonGw(ctx context.Context, k ProtonKey, logicals []ProtonLogicals, h2 *http.Client) (*protongw, error) {
+func newProtonGw(k ProtonKey, logicals []ProtonLogicals, h2 *http.Client, sched *core.Scheduler) (*protongw, error) {
 	if k == nil || len(logicals) <= 0 || h2 == nil {
 		return nil, errInvalidProtonGwArgs
 	}
@@ -527,7 +503,7 @@ func newProtonGw(ctx context.Context, k ProtonKey, logicals []ProtonLogicals, h2
 		http:    h2,
 		key:     k,
 		servers: m, // may be empty
-		sched:   core.NewScheduler(ctx),
+		sched:   sched,
 		sess: struct {
 			uid          string
 			accessToken  string
@@ -1084,14 +1060,14 @@ func (a *protongw) rereg() error {
 	return a.refreshConf()
 }
 
-func (w *Client) MakeProtonWg(ctx context.Context, allServersFilePath string) (*ProtonWgConfig, error) {
+func (w *Client) MakeProtonWg(allServersFilePath string, sched *core.Scheduler) (*ProtonWgConfig, error) {
 	k, err := newProtonKeyPair()
 	if err != nil {
 		return nil, err
 	}
 
 	svcs := protonServersFrom(allServersFilePath, &w.h2)
-	a, err := newProtonGw(ctx, k, svcs, &w.h2)
+	a, err := newProtonGw(k, svcs, &w.h2, sched)
 	if err != nil {
 		return nil, err
 	}
@@ -1104,7 +1080,7 @@ func (w *Client) MakeProtonWg(ctx context.Context, allServersFilePath string) (*
 	return a.config, nil
 }
 
-func (w *Client) MakeProtonWgFrom(ctx context.Context, fromConfigJson []byte, allServersFilePath string) (*ProtonWgConfig, error) {
+func (w *Client) MakeProtonWgFrom(fromConfigJson []byte, allServersFilePath string, sched *core.Scheduler) (*ProtonWgConfig, error) {
 	if len(fromConfigJson) <= 0 {
 		return nil, errNoProtonJsonConfig
 	}
@@ -1125,7 +1101,7 @@ func (w *Client) MakeProtonWgFrom(ctx context.Context, fromConfigJson []byte, al
 	}
 
 	svcs := protonServersPrebuilt() // refreshed if needed later
-	a, err := newProtonGw(ctx, k, svcs, &w.h2)
+	a, err := newProtonGw(k, svcs, &w.h2, sched)
 	if err != nil {
 		return nil, err
 	}
@@ -1206,6 +1182,7 @@ func protonServersPrebuilt() []ProtonLogicals {
 }
 
 // go.dev/play/p/9kapzPiG72r
+// go.dev/play/p/YbhTb6xBwKg
 func protonServersFrom(allServersFilePath string, c *http.Client) []ProtonLogicals {
 	var all ProtonServerResponse
 

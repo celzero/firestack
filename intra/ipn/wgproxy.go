@@ -524,7 +524,7 @@ func wgIfConfigOf(id string, txtptr *string) (opts wgifopts, err error) {
 }
 
 func loadMH(mh *multihost.MH, v string) int {
-	if mh == nil {
+	if mh == nil || len(v) <= 0 {
 		return 0
 	}
 	vv := strings.Split(v, ",")
@@ -564,7 +564,7 @@ func NewWgProxy(id string, ctl protect.Controller, rev netstack.GConnHandler, cf
 	opts, err := wgIfConfigOf(id, &cfg)
 	uapicfg := cfg
 	if err != nil {
-		log.E("proxy: wg: %s failed to get addrs from config %v", id, err)
+		log.E("proxy: wg: %s failure getting opts from config %v", id, err)
 		return nil, err
 	}
 
