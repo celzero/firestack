@@ -8,6 +8,7 @@ COMMIT_ID=$(shell git rev-parse --short HEAD)
 DATESTR=$(shell date -u +'%Y%m%d%H%M%S')
 XGO_LDFLAGS='-s -w -X main.version=$(COMMIT_ID)'
 # github.com/xjasonlyu/tun2socks/blob/bf745d0e0/Makefile#L14
+LDFLAGS_DEBUG='-X $(IMPORT_PATH)/intra/core.Date=$(DATESTR) -X $(IMPORT_PATH)/intra/core.Commit=$(COMMIT_ID)'
 LDFLAGS='-w -s -X $(IMPORT_PATH)/intra/core.Date=$(DATESTR) -X $(IMPORT_PATH)/intra/core.Commit=$(COMMIT_ID)'
 
 GOBIND=bind -v -a
@@ -22,7 +23,8 @@ LINUX_BUILDDIR=$(BUILDDIR)/linux
 ANDROID_BUILD_CMD=env PATH=$(GOBIN):$(PATH) $(GOMOBILE) $(GOBIND) $(ANDROID23) \
 				-ldflags $(LDFLAGS) -gcflags='-trimpath=${HOME}'
 # built without stripping dwarf/symbols
-ANDROID_DEBUG_BUILD_CMD=env PATH=$(GOBIN):$(PATH) $(GOMOBILE) $(GOBIND) $(ANDROID23)
+ANDROID_DEBUG_BUILD_CMD=env PATH=$(GOBIN):$(PATH) $(GOMOBILE) $(GOBIND) $(ANDROID23) \
+				-ldflags $(LDFLAGS_DEBUG)
 # exported pkgs
 INTRA_BUILD_CMD=$(IMPORT_PATH)/intra $(IMPORT_PATH)/intra/backend $(IMPORT_PATH)/intra/rnet $(IMPORT_PATH)/intra/settings
 
