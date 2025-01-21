@@ -138,8 +138,9 @@ func Build(full bool) string {
 	return v
 }
 
-// PrintStack logs the stack trace of all active goroutines.
-func PrintStack() {
+// PrintStack logs the stack trace of all active goroutines
+// to stdout if onConsole is false, otherwise to Console.
+func PrintStack(onConsole bool) {
 	bptr := core.LOB()
 	b := *bptr
 	b = b[:cap(b)]
@@ -147,7 +148,11 @@ func PrintStack() {
 		*bptr = b
 		core.Recycle(bptr)
 	}()
-	log.TALL("tun: trace", b)
+	if onConsole {
+		log.C("tun: trace", b)
+	} else {
+		log.TALL("tun: trace", b)
+	}
 }
 
 // SetCrashFd sets output file to go runtime crashes to.
