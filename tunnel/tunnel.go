@@ -63,8 +63,6 @@ type Tunnel interface {
 	SetMTU(mtu int32)
 	// Unsets existing link and closes the fd (tun device).
 	Unlink() error
-	// Creates the link and updates the routes
-	SetLinkAndRoutes(fd, mtu, engine int) error
 	// New route
 	SetRoute(engine int) error
 	// Set or unset the pcap sink
@@ -241,13 +239,6 @@ func (t *gtunnel) SetPcap(fp string) error {
 		log.E("netstack: pcap(%s); (err? %v)", fp, err)
 		return err // no pcap
 	}
-}
-
-func (t *gtunnel) SetLinkAndRoutes(fd, mtu, engine int) (err error) {
-	// route is always dual-stack (settings.IP46); never changed
-	log.I("tun: requested route (%s); unchanged", settings.L3(engine))
-	t.SetMTU(int32(mtu))
-	return t.SetLink(fd)
 }
 
 func (t *gtunnel) Unlink() error {
