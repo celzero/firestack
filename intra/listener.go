@@ -22,6 +22,7 @@ type SocketSummary struct {
 	Proto    string    // tcp, udp, icmp, etc.
 	ID       string    // Unique ID for this socket.
 	PID      string    // Proxy ID that handled this socket.
+	RPID     string    // Relay Proxy ID that tunneled PID.
 	UID      string    // UID of the app that owns this socket (sans ICMP).
 	Target   string    // Remote IP, if dialed in.
 	Rx       int64     // Total bytes downloaded (sans ICMP).

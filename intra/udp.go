@@ -304,6 +304,7 @@ func (h *udpHandler) Connect(gconn *netstack.GUDPConn, src, target netip.AddrPor
 	smm.Target = selectedTarget.Addr().String()
 	if px != nil { // nil when all ProxyTo attempts for actualTargets fail
 		smm.PID = px.ID()
+		smm.RPID = ipn.ViaID(px)
 	}
 
 	if errs != nil {

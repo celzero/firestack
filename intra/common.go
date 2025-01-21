@@ -219,7 +219,7 @@ func (h *baseHandler) onFlow(localaddr, target netip.AddrPort) (fm *Mark, undidA
 func (h *baseHandler) forward(local, remote net.Conn, smm *SocketSummary) {
 	cid := smm.ID
 	uid := smm.UID
-	via := smm.Proto + ":" + smm.PID
+	via := strings.Join([]string{smm.Proto, smm.PID, smm.RPID}, ":")
 
 	tup := conn2str(local, remote)
 

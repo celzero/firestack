@@ -100,6 +100,7 @@ func (h *icmpHandler) Ping(msg []byte, source, target netip.AddrPort) (echoed bo
 	ucnil := uc == nil || core.IsNil(uc)
 
 	smm.PID = px.ID()
+	smm.RPID = ipn.ViaID(px)
 
 	// nilaway: tx.socks5 returns nil conn even if err == nil
 	if err != nil || ucnil {

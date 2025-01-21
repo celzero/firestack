@@ -257,6 +257,7 @@ func (h *tcpHandler) handle(px ipn.Proxy, src net.Conn, boundSrc, target netip.A
 	// ex: pc.RemoteAddr is 127.0.0.1 for Orbot
 	smm.Target = target.Addr().String()
 	smm.PID = px.ID()
+	smm.RPID = ipn.ViaID(px)
 
 	if err != nil {
 		log.W("tcp: err dialing %s proxy(%s) to dst(%v) for %s: %v", smm.ID, px.ID(), target, smm.UID, err)
