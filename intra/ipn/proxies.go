@@ -608,8 +608,9 @@ func (px *proxifier) Hop(via, origin string) error {
 
 	viaRouter := viaPx.Router()
 	if viaViaVia, _ := viaRouter.Via(); viaViaVia != nil {
+		log.W("proxy: triple hop: %s => %s => %s; not allowed", origin, via, viaViaVia.ID())
 		return errHopHopping
-	} else if !viaPx.Router().IP4() && !viaPx.Router().IP6() {
+	} else if !viaRouter.IP4() && !viaRouter.IP6() {
 		// via must either route all ip4 or all ip6; ideally both
 		return errHopDefaultRoutes
 	}
