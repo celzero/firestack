@@ -41,8 +41,13 @@ func (pxr *proxifier) addProxy(id, txt string) (p Proxy, err error) {
 	if len(txt) <= 0 {
 		return nil, errAddProxy
 	}
+
 	// wireguard proxies have IDs starting with "wg"
 	if isWG(id) {
+		pxr.Lock()
+		reverser := pxr.rev
+		lp := pxr.lp
+		pxr.Unlock()
 		if p, _ = pxr.ProxyFor(id); p != nil {
 			if wgp, ok := p.(WgProxy); ok && wgp.update(id, txt) {
 				opts, err0 := wgIfConfigOf(id, &txt) // removes wg ifconfig from txt
@@ -63,18 +68,18 @@ func (pxr *proxifier) addProxy(id, txt string) (p Proxy, err error) {
 					log.P("proxy: updating wg(%s) len(peercfg(%d))", id, len(txt))
 				}
 
-				err2 := wgp.Refresh()
-				if err2 != nil {
-					log.W("proxy: err2 updating wg(%s); %v", id, err2)
-					return nil, err2
+				newcfg, readd := wgp.OnProtoChange(lp)
+				if readd || len(newcfg) > 0 {
+					log.W("proxy: cannot update wg(%s); readd it!", id)
+					return nil, errProxyReadd
 				}
 
-				log.I("proxy: updated wg %s/%s", id, p.GetAddr())
+				log.I("proxy: updated wg %s/%s/%s", id, lp, p.GetAddr())
 				return
-			} // else: create anew
-		}
+			} // else: recreate
+		} // else: new
 		// txt is both wg ifconfig and peercfg
-		p, err = NewWgProxy(id, pxr.ctl, pxr.rev, txt)
+		p, err = NewWgProxy(id, pxr.ctl, lp, reverser, txt)
 	} else {
 		var strurl string
 		var usr string
@@ -364,4 +369,15 @@ func Same(a, b Proxy) bool {
 		return false
 	}
 	return a.Handle() == b.Handle()
+}
+
+func ViaID(p Proxy) string {
+	const novia = ""
+	if p == nil {
+		return novia
+	}
+	if v, _ := p.Router().Via(); v != nil {
+		return v.ID()
+	}
+	return novia
 }

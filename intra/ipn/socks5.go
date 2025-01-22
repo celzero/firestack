@@ -300,6 +300,9 @@ func (h *socks5) Stop() error {
 }
 
 // OnProtoChange implements Proxy.
-func (h *socks5) OnProtoChange() (string, bool) {
+func (h *socks5) OnProtoChange(_ LinkProps) (string, bool) {
+	if h.status.Load() == END {
+		return "", false
+	}
 	return h.opts.FullUrl(), true
 }

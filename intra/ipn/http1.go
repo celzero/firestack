@@ -193,7 +193,7 @@ func (h *http1) Stop() error {
 }
 
 // OnProtoChange implements Proxy.
-func (h *http1) OnProtoChange() (string, bool) {
+func (h *http1) OnProtoChange(_ LinkProps) (string, bool) {
 	if h.status.Load() == END {
 		return "", false
 	}

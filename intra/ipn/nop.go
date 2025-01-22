@@ -88,7 +88,7 @@ var ProxyNoGateway = GWNoVia{GW: GW{nov4: true, nov6: true}}
 type ProtoAgnostic struct{}
 
 // OnProtoChange implements Proxy.
-func (ProtoAgnostic) OnProtoChange() (string, bool) { return "", false }
+func (ProtoAgnostic) OnProtoChange(_ LinkProps) (string, bool) { return "", false }
 
 // SkipRefresh is a proxy that does not need to be refreshed or pinged on network changes.
 type SkipRefresh struct{}

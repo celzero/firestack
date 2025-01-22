@@ -105,6 +105,9 @@ type wgtun struct {
 
 	hasV4, hasV6 atomic.Bool // interface has ipv4/ipv6 routes?
 
+	desiredmtu atomic.Uint32 // desired mtu
+	netmtu     atomic.Uint32 // underlay network mtu
+
 	peers  *core.Volatile[map[string]device.NoisePublicKey] // peer (remote endpoint) public keys
 	dns    *core.Volatile[*multihost.MH]                    // dns resolver for this interface
 	remote *core.Volatile[*multihost.MH]                    // peer (remote endpoint) addrs
@@ -195,10 +198,14 @@ func (h *wgproxy) GetAddr() string {
 }
 
 // onProtoChange implements Proxy
-func (w *wgproxy) OnProtoChange() (string, bool) {
-	_ = w.Refresh() // refresh on proto changes
-	// todo: on refresh err, re-add?
-	// return w.cfg, true
+func (w *wgproxy) OnProtoChange(lp LinkProps) (string, bool) {
+	oldmtu := w.netmtu.Swap(uint32(lp.mtu))
+	log.V("proxy: wg: %s; lp changed; l3: %s, mtu %d=>%d",
+		w.id, lp.l3, lp.mtu, oldmtu)
+	if err := w.Refresh(); err != nil {
+		log.W("proxy: wg: %s; lp changed; err: %v", w.id, err)
+		// TODO: return w.cfg, true
+	}
 	return "", false // do not re-add this refreshed wg
 }
 
@@ -280,6 +287,12 @@ func (w *wgproxy) Refresh() (err error) {
 	if mh := w.remote.Load(); mh != nil {
 		nn = mh.Refresh()
 	}
+
+	if err := w.resetMtu(w.via.Load()); err != nil {
+		log.E("proxy: wg: !refresh(%s): resetMtu: len(dns): %d, len(peer): %d, err: %v", w.id, n, nn, err)
+		return err
+	}
+
 	if err = w.Device.Down(); err != nil {
 		log.E("proxy: wg: !refresh(%s): down: len(dns): %d, len(peer): %d, err: %v", w.id, n, nn, err)
 		return
@@ -346,7 +359,7 @@ func (w *wgproxy) update(id, txt string) bool {
 		} // nb: client code MUST re-add wg DNS, not our responsibility
 	}
 
-	maybeNewMtu := calcTunMtu(opts.mtu)
+	maybeNewMtu := calcTunMtu(opts.mtu) // only for logging
 
 	// reusing existing tunnel (interface config unchanged)
 	// but peer config may have changed!
@@ -358,8 +371,9 @@ func (w *wgproxy) update(id, txt string) bool {
 	w.allowedIPs(opts.allowed)
 	w.remote.Store(opts.ep) // requires refresh
 	w.dns.Store(opts.dns)   // requires refresh
-	w.ep.SetMTU(uint32(maybeNewMtu))
+	w.desiredmtu.Store(uint32(opts.mtu))
 	w.amnezia = opts.amnezia // TODO: core.Volatile?
+	w.resetMtu(w.via.Load())
 
 	return reuse
 }
@@ -553,13 +567,8 @@ func loadIPNets(out *[]netip.Prefix, v string) (err error) {
 	return
 }
 
-func (w *wgproxy) StopThenNew(ctl protect.Controller, rev netstack.GConnHandler) (*wgproxy, error) {
-	w.Stop()
-	return NewWgProxy(w.id, ctl, rev, w.cfg)
-}
-
 // ref: github.com/WireGuard/wireguard-android/blob/713947e432/tunnel/tools/libwg-go/api-android.go#L76
-func NewWgProxy(id string, ctl protect.Controller, rev netstack.GConnHandler, cfg string) (*wgproxy, error) {
+func NewWgProxy(id string, ctl protect.Controller, lp LinkProps, rev netstack.GConnHandler, cfg string) (*wgproxy, error) {
 	ogcfg := cfg
 	opts, err := wgIfConfigOf(id, &cfg)
 	uapicfg := cfg
@@ -568,7 +577,7 @@ func NewWgProxy(id string, ctl protect.Controller, rev netstack.GConnHandler, cf
 		return nil, err
 	}
 
-	wgtun, err := makeWgTun(id, ogcfg, ctl, rev, opts)
+	wgtun, err := makeWgTun(id, ogcfg, ctl, lp, rev, opts)
 	if err != nil {
 		log.E("proxy: wg: %s failed to create tun %v", id, err)
 		return nil, err
@@ -610,13 +619,13 @@ func NewWgProxy(id string, ctl protect.Controller, rev netstack.GConnHandler, cf
 	}
 
 	log.D("proxy: wg: new %s; addrs(%v) mtu(%d/%d) peers(%d) / v4(%t) v6(%t)",
-		id, opts.ifaddrs, opts.mtu, calcTunMtu(opts.mtu), len(opts.peers), wgtun.hasV4.Load(), wgtun.hasV6.Load())
+		id, opts.ifaddrs, opts.mtu, w.ep.MTU(), len(opts.peers), wgtun.hasV4.Load(), wgtun.hasV6.Load())
 
 	return w, nil
 }
 
 // ref: github.com/WireGuard/wireguard-go/blob/469159ecf7/tun/netstack/tun.go#L54
-func makeWgTun(id, cfg string, ctl protect.Controller, rev netstack.GConnHandler, ifopts wgifopts) (*wgtun, error) {
+func makeWgTun(id, cfg string, ctl protect.Controller, lp LinkProps, rev netstack.GConnHandler, ifopts wgifopts) (*wgtun, error) {
 	if settings.ExperimentalWireGuard.Load() && settings.EndpointIndependentFiltering.Load() {
 		if rev == nil {
 			return nil, errMissingRev
@@ -632,11 +641,10 @@ func makeWgTun(id, cfg string, ctl protect.Controller, rev netstack.GConnHandler
 		TransportProtocols: []stack.TransportProtocolFactory{tcp.NewProtocol, udp.NewProtocol, icmp.NewProtocol6, icmp.NewProtocol4},
 		HandleLocal:        true,
 	}
-	// github.com/tailscale/tailscale/blob/92d3f64e95/net/tstun/mtu.go
-	tunmtu := calcTunMtu(ifopts.mtu)
+	tunMtu := reconcileMtu(lp.mtu, ifopts.mtu)
 
 	s := stack.New(opts)
-	ep := channel.New(epsize, uint32(tunmtu), "")
+	ep := channel.New(epsize, uint32(tunMtu), "")
 	netstack.SetNetstackOpts(s)
 	if rev != nil { // inbound (aka reverse outbound)
 		netstack.OutboundTCP(s, rev.TCP())
@@ -664,6 +672,8 @@ func makeWgTun(id, cfg string, ctl protect.Controller, rev netstack.GConnHandler
 		refreshBa:     core.NewBarrier[bool](2 * time.Minute),
 		since:         now(),
 	}
+	t.desiredmtu.Store(uint32(ifopts.mtu))
+	t.netmtu.Store(uint32(lp.mtu))
 	t.allowedIPs(ifopts.allowed)
 
 	// see WriteNotify below
@@ -689,7 +699,7 @@ func makeWgTun(id, cfg string, ctl protect.Controller, rev netstack.GConnHandler
 
 	if4, if6 := netstack.StackAddrs(s, wgnic)
 	log.I("proxy: wg: %s tun: created; dns[%s]; dst[%s]; mtu[%d]; ifaddrs[%v / %v]; amnezia[%t]",
-		t.id, ifopts.dns, ifopts.ep, tunmtu, if4, if6, ifopts.amnezia.Set())
+		t.id, ifopts.dns, ifopts.ep, tunMtu, if4, if6, ifopts.amnezia.Set())
 
 	return t, nil
 }
@@ -896,7 +906,7 @@ func (w *wgtun) IfAddr() string {
 }
 
 func (tun *wgtun) MTU() (int, error) {
-	return int(tun.ep.MTU()), nil
+	return calcNetMtu(int(tun.ep.MTU())), nil
 }
 
 func (tun *wgtun) BatchSize() int {
@@ -1052,28 +1062,16 @@ func (h *wgproxy) Hop(p Proxy) (err error) {
 		return errHopWireGuard
 	}
 
+	// todo: check if all routes for p & h overlap
 	if h.Router().IP4() != p.Router().IP4() || h.Router().IP6() != p.Router().IP6() {
 		return errHopGateway
 	}
 
 	// mtu needed to tunnel this wg
-	mtuNeeded := calcNetMtu(int(h.ep.MTU()))
-
-	// mtu affordable by this hop
-	if mtuAvail, err := p.Router().MTU(); err != nil {
-		return err
-	} else if mtuNeeded > mtuAvail {
-		if mtuNeeded > minmtu6 && mtuAvail > minmtu6 {
-			tunmtu := calcTunMtu(minmtu6)
-			h.ep.SetMTU(uint32(tunmtu))
-			log.I("wg: %s hop: mtu(needed: %d >> avail: %d); set to min: %d",
-				h.id, mtuNeeded, mtuAvail, tunmtu)
-		} else {
-			return errHopMtuInsufficient
-		}
+	if err := h.resetMtu(p); err != nil {
+		return err // could not set mtu
 	}
 
-	// todo: check if all routes for p & h overlap
 	old = h.via.Tango(p)
 	return nil
 }
@@ -1216,13 +1214,51 @@ func now() int64 {
 	return time.Now().UnixMilli()
 }
 
+func (w *wgproxy) resetMtu(via Proxy) error {
+	// mtu needed to tunnel this wg
+	mtuNeededByUs := int(w.desiredmtu.Load())
+	mtuAvailable := int(w.netmtu.Load())
+	hopping := false // tunnled via another proxy
+
+	if via != nil {
+		// mtu affordable by via
+		if mtuAvailFromHop, err := via.Router().MTU(); err != nil {
+			return err
+		} else {
+			mtuAvailable = calcTunMtu(mtuAvailFromHop)
+			hopping = true
+		}
+	}
+
+	if hopping && mtuNeededByUs > mtuAvailable {
+		log.I("wg: %s proxy: hopping mtu(needed: %d >> avail: %d); set to min: %d",
+			w.id, mtuNeededByUs, mtuAvailable, minmtu6)
+		mtuNeededByUs = mtuAvailable
+	} // else: mtu needed is well within the hop's / network's capacity
+
+	finalMtu := reconcileMtu(mtuAvailable, mtuNeededByUs)
+	if finalMtu <= NOMTU {
+		log.W("wg: %s proxy: mtu(%d or %d) <= NOMTU(%d)", w.id, mtuNeededByUs, mtuAvailable, finalMtu)
+		return errHopMtuInsufficient
+	}
+	w.ep.SetMTU(uint32(finalMtu))
+	return nil
+}
+
+func reconcileMtu(underlay, overlay int) int {
+	if underlay < overlay { // underlay may be NOMTU
+		return underlay - 80 // underlay may be way smaller than overlay
+	}
+	return calcTunMtu(overlay) // overlay may be NOMTU, but that's okay
+}
+
+// github.com/tailscale/tailscale/blob/92d3f64e95/net/tstun/mtu.go
 func calcTunMtu(netmtu int) int {
 	// uint32(mtu) - 80 is the maximum payload size of a WireGuard packet.
 	return max(minmtu6-80, netmtu-80) // 80 is the overhead of the WireGuard header
 }
 
 func calcNetMtu(tunmtu int) int {
-	// uint32(mtu) - 80 is the maximum payload size of a WireGuard packet.
 	return max(minmtu6, tunmtu+80) // 80 is the overhead of the WireGuard header
 }
 

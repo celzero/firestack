@@ -111,7 +111,7 @@ var defaultLoginPayload = ProtonLoginPayload{
 //
 // UID is aliased as "sessionID" in protoncore_android.
 type ProtonLoginResponse struct {
-	Code         int      `json:"Code"`
+	Code         int32    `json:"Code"`
 	Error        string   `json:"Error"`
 	Details      string   `json:"Details"`
 	AccessToken  string   `json:"AccessToken"`
@@ -119,7 +119,7 @@ type ProtonLoginResponse struct {
 	TokenType    string   `json:"TokenType"`
 	Scopes       []string `json:"Scopes"`
 	UID          string   `json:"UID"`
-	LocalID      int      `json:"LocalID"`
+	LocalID      int32    `json:"LocalID"`
 }
 
 // ProtonLoginPayload represents the payload to be sent to ProtonVPN's login API.
@@ -153,9 +153,9 @@ type LoginProductFramePrefix0 struct {
 	V                    string   `json:"v"`
 	AppLang              string   `json:"appLang"`
 	Timezone             string   `json:"timezone"`
-	DeviceName           int      `json:"deviceName"`
+	DeviceName           int64    `json:"deviceName"`
 	RegionCode           string   `json:"regionCode"`
-	TimezoneOffset       int      `json:"timezoneOffset"`
+	TimezoneOffset       int32    `json:"timezoneOffset"`
 	IsJailbreak          bool     `json:"isJailbreak"`
 	PreferredContentSize string   `json:"preferredContentSize"`
 	StorageCapacity      float64  `json:"storageCapacity"`
@@ -175,12 +175,12 @@ type LoginProductFramePrefix0 struct {
 //		"RefreshToken": base32 (new token)
 //	}
 type ProtonCredentialResponse struct {
-	Code         int      `json:"Code"`
+	Code         int32    `json:"Code"`
 	Error        string   `json:"Error"`
 	Details      string   `json:"Details"`
 	UID          string   `json:"UID"`
 	UserID       string   `json:"UserID"`
-	LocalID      int      `json:"LocalID"`
+	LocalID      int32    `json:"LocalID"`
 	Scopes       []string `json:"Scopes"`
 	EventID      string   `json:"EventID"`
 	TokenType    string   `json:"TokenType"`
@@ -219,16 +219,16 @@ type ProtonRefreshRequest struct {
 //		"RefreshCounter": 0,
 //	}
 type ProtonRefreshResponse struct {
-	Code           int      `json:"Code"`
+	Code           int32    `json:"Code"`
 	Error          string   `json:"Error"`
 	AccessToken    string   `json:"AccessToken"`
 	RefreshToken   string   `json:"RefreshToken"`
-	ExpiresIn      int      `json:"ExpiresIn"`
+	ExpiresIn      int64    `json:"ExpiresIn"`
 	TokenType      string   `json:"TokenType"`
 	Scopes         []string `json:"Scopes"`
 	UID            string   `json:"UID"`
-	LocalID        int      `json:"LocalID"`
-	RefreshCounter int      `json:"RefreshCounter"`
+	LocalID        int32    `json:"LocalID"`
+	RefreshCounter int32    `json:"RefreshCounter"`
 }
 
 //	{
@@ -261,15 +261,15 @@ type ProtonCertRequest struct {
 //		"ServerPublicKey":"-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEANm3aIvkeaMO9ctcIeEfM4K1ME3bU9feum5sWQ3Sdx+o=\n-----END PUBLIC KEY-----"
 //	}
 type ProtonCertResponse struct {
-	Code                 int      `json:"Code"`
+	Code                 int64    `json:"Code"`
 	Error                string   `json:"Error"`
 	Details              string   `json:"Details"`
 	SerialNumber         string   `json:"SerialNumber"`
 	ClientKeyFingerprint string   `json:"ClientKeyFingerprint"`
 	ClientKey            string   `json:"ClientKey"`
 	Certificate          string   `json:"Certificate"`
-	ExpirationTime       int      `json:"ExpirationTime"` // 24 hours
-	RefreshTime          int      `json:"RefreshTime"`    // 18 hours
+	ExpirationTime       int64    `json:"ExpirationTime"` // 24 hours
+	RefreshTime          int64    `json:"RefreshTime"`    // 18 hours
 	Mode                 string   `json:"Mode"`
 	DeviceName           string   `json:"DeviceName"`
 	Features             []string `json:"Features"`
@@ -323,8 +323,8 @@ type ProtonLogicals struct {
 	EntryCountry string  `json:"EntryCountry"`
 	ExitCountry  string  `json:"ExitCountry"`
 	Domain       string  `json:"Domain"`
-	Tier         int     `json:"Tier"`
-	Features     int     `json:"Features"`
+	Tier         int32   `json:"Tier"`
+	Features     int32   `json:"Features"`
 	Region       string  `json:"Region"`
 	City         string  `json:"City"`
 	Score        float64 `json:"Score"`
@@ -332,8 +332,8 @@ type ProtonLogicals struct {
 	Organization string  `json:"OrganizationID"`
 	VPNGatewayID string  `json:"VPNGatewayID"`
 	ID           string  `json:"ID"`
-	Load         int     `json:"Load"`
-	Status       int     `json:"Status"`
+	Load         int32   `json:"Load"`
+	Status       int32   `json:"Status"`
 
 	Location ProtonServerLocation `json:"Location"`
 	Servers  []ProtonServer       `json:"Servers"`
@@ -362,16 +362,16 @@ type ProtonServerLocation struct {
 //	}
 type ProtonServer struct {
 	Name               string `json:"Name"`
-	Load               int    `json:"Load"`
+	Load               int32  `json:"Load"`
 	EntryIP            string `json:"EntryIP"`
 	ExitIP             string `json:"ExitIP"`
 	Domain             string `json:"Domain"`
 	ID                 string `json:"ID"`
 	Label              string `json:"Label"`
 	X25519PublicKey    string `json:"X25519PublicKey"`
-	Generation         int    `json:"Generation"`
-	Status             int    `json:"Status"`
-	ServicesDown       int    `json:"ServicesDown"`
+	Generation         int32  `json:"Generation"`
+	Status             int32  `json:"Status"`
+	ServicesDown       int32  `json:"ServicesDown"`
 	ServicesDownReason string `json:"ServicesDownReason"`
 }
 
@@ -409,8 +409,8 @@ type ProtonWgConfig struct {
 	CredsRefreshToken string `json:"UserRefreshToken"`
 
 	CertSerialNumber string `json:"CertSerialNumber"`
-	CertExpTime      int    `json:"CertExpTime"`
-	CertRefreshTime  int    `json:"CertRefreshTime"`
+	CertExpTime      int64  `json:"CertExpTime"`
+	CertRefreshTime  int64  `json:"CertRefreshTime"`
 
 	CreateTimestamp int64             `json:"CreateTimestamp"`
 	RegionalWgConfs []*RegionalWgConf `json:"RegionalWgConfs"`
@@ -538,11 +538,9 @@ func (id *ProtonWgConfig) writeJson(w io.Writer) error {
 	return enc.Encode(id)
 }
 
-type protongw struct {
+type ProtonClient struct {
 	http *http.Client
 	key  ProtonKey
-
-	sched *core.Scheduler
 
 	servers map[string][]ProtonServer // country => endpoints
 
@@ -558,14 +556,14 @@ type protongw struct {
 	}
 	cert struct {
 		SerialNumber   string
-		ExpirationTime int
-		RefreshTime    int
+		ExpirationTime int64
+		RefreshTime    int64
 	}
 
 	config *ProtonWgConfig
 }
 
-func newProtonGw(k ProtonKey, logicals []ProtonLogicals, h2 *http.Client, sched *core.Scheduler) (*protongw, error) {
+func newProtonGw(k ProtonKey, logicals []ProtonLogicals, h2 *http.Client) (*ProtonClient, error) {
 	if k == nil || len(logicals) <= 0 || h2 == nil {
 		return nil, errInvalidProtonGwArgs
 	}
@@ -577,11 +575,10 @@ func newProtonGw(k ProtonKey, logicals []ProtonLogicals, h2 *http.Client, sched 
 
 	m := protonServersByCountry(logicals)
 
-	a := &protongw{
+	a := &ProtonClient{
 		http:    h2,
 		key:     k,
 		servers: m, // may be empty
-		sched:   sched,
 		sess: struct {
 			uid          string
 			accessToken  string
@@ -600,7 +597,14 @@ func newProtonGw(k ProtonKey, logicals []ProtonLogicals, h2 *http.Client, sched 
 	return a, nil
 }
 
-func (a *protongw) refreshConf() error {
+func (a *ProtonClient) Config() (*ProtonWgConfig, error) {
+	if c := a.config; c != nil {
+		return c, nil
+	}
+	return nil, errNoProtonConfig
+}
+
+func (a *ProtonClient) refreshConf() error {
 	pc := a.config
 	if pc == nil {
 		return errNoProtonConfig
@@ -633,7 +637,7 @@ func (a *protongw) refreshConf() error {
 	return nil // ok
 }
 
-func (a *protongw) newConf() error {
+func (a *ProtonClient) newConf() error {
 	a.config = nil // reset
 
 	pc := new(ProtonWgConfig)
@@ -705,7 +709,7 @@ func (a *protongw) newConf() error {
 	return nil // success
 }
 
-func (a *protongw) registerCert() error {
+func (a *ProtonClient) registerCert() error {
 	tries := 0
 
 retryAfterRefresh:
@@ -793,15 +797,28 @@ retryAfterRefresh:
 	a.cert.RefreshTime = certResponse.RefreshTime
 
 	refreshAt := time.Unix(int64(a.cert.RefreshTime), 0)
-	// github.com/ProtonVPN/android-app/blob/b9c6e59de40/app/src/main/java/com/protonvpn/android/vpn/CertificateRepository.kt#L183-L188
-	a.sched.At(a.cert.SerialNumber, refreshAt, a.registerCert)
 
-	log.I("proton: regcert: success: serial(%s): next refresh(%s)", certResponse.SerialNumber, refreshAt.Format(time.RFC1123))
+	log.I("proton: regcert: success: serial(%s): next refresh(%s)",
+		certResponse.SerialNumber, refreshAt.Format(time.RFC1123))
 
 	return nil
 }
 
-func (a *protongw) fetchCreds() error {
+func (a *ProtonClient) Refresh() error {
+	err := a.rereg(true)
+	if err != nil {
+		return err
+	}
+
+	err = a.refreshServers()
+	if err != nil {
+		return err
+	}
+
+	return a.refreshConf()
+}
+
+func (a *ProtonClient) fetchCreds() error {
 	/*
 		curl -X POST "https://vpn-api.proton.me/auth/v4/credentialless" \
 		-H "Content-Type: application/vnd.protonmail.v1+json" \
@@ -882,7 +899,7 @@ func (a *protongw) fetchCreds() error {
 	return nil
 }
 
-func (a *protongw) beginSession() error {
+func (a *ProtonClient) beginSession() error {
 	/*
 	   curl -X POST "https://vpn-api.proton.me/auth/v4/sessions" \
 	   -H "Content-Type: application/vnd.protonmail.v1+json" \
@@ -957,7 +974,7 @@ func (a *protongw) beginSession() error {
 	return nil
 }
 
-func (a *protongw) refreshCreds() error {
+func (a *ProtonClient) refreshCreds() error {
 	/*
 		curl -X POST "https://vpn-api.proton.me/auth/v4/refresh" \
 		-H "Content-Type: application/vnd.protonmail.v1+json" \
@@ -1029,19 +1046,19 @@ func (a *protongw) refreshCreds() error {
 	return nil
 }
 
-func (a *protongw) sessionUrl() string {
+func (a *ProtonClient) sessionUrl() string {
 	return protonBaseUrl + sessionV4UrlPath
 }
 
-func (a *protongw) refreshCredsUrl() string {
+func (a *ProtonClient) refreshCredsUrl() string {
 	return protonBaseUrl + refreshV4UrlPath
 }
 
-func (a *protongw) credsUrl() string {
+func (a *ProtonClient) credsUrl() string {
 	return protonBaseUrl + credsV4UrlPath
 }
 
-func (a *protongw) certUrl() string {
+func (a *ProtonClient) certUrl() string {
 	return protonBaseUrl + certV1UrlPath
 }
 
@@ -1063,12 +1080,12 @@ func protonHeaders(req *http.Request) {
 	req.Header.Set("User-Agent", "ProtonVPN/5.6.38 (Android 34b5; Google Pixel9")
 }
 
-func (a *protongw) addSessionHeaders(req *http.Request) {
+func (a *ProtonClient) addSessionHeaders(req *http.Request) {
 	req.Header.Set("Authorization", "Bearer "+a.sess.accessToken)
 	req.Header.Set("x-pm-uid", a.sess.uid)
 }
 
-func (a *protongw) addRegistrationHeaders(req *http.Request) {
+func (a *ProtonClient) addRegistrationHeaders(req *http.Request) {
 	req.Header.Set("Authorization", "Bearer "+a.creds.accessToken)
 	req.Header.Set("x-pm-uid", a.sess.uid)
 }
@@ -1082,7 +1099,7 @@ func protonNetZoneHeaders(req *http.Request) {
 	}
 }
 
-func (a *protongw) reg() error {
+func (a *ProtonClient) reg() error {
 	log.I("proton: reg")
 
 	err := a.beginSession()
@@ -1103,7 +1120,7 @@ func (a *protongw) reg() error {
 	return a.newConf()
 }
 
-func (a *protongw) refreshServers() error {
+func (a *ProtonClient) refreshServers() error {
 	const nofile = ""
 
 	oldEnough := time.Since(protonLogicalsUpdateTime) > maxProtonLogicalsRefreshThreshold
@@ -1117,35 +1134,38 @@ func (a *protongw) refreshServers() error {
 	return nil
 }
 
-func (a *protongw) rereg() error {
+func (a *ProtonClient) rereg(force bool) error {
 	if len(a.sess.uid) <= 0 {
-		log.W("proton: re-reg: no session; initiating reg")
+		log.W("proton: re-reg: no session; new reg...")
 		return a.reg()
 	}
 
-	log.I("proton: re-reg")
+	now := time.Now().Unix()
+	fresh := a.config.CertRefreshTime-now > 0
+
+	log.I("proton: re-reg %s (exp? %t, force? %t)",
+		a.cert.SerialNumber, !fresh, force)
+
+	if !force && fresh {
+		return nil // ok
+	}
 
 	err := a.refreshCreds() // new creds
 	if err != nil {
 		return err
 	}
 
-	err = a.registerCert() // re-register
-	if err != nil {
-		return err
-	}
-
-	return a.refreshConf()
+	return a.registerCert() // re-register
 }
 
-func (w *Client) MakeProtonWg(allServersFilePath string, sched *core.Scheduler) (*ProtonWgConfig, error) {
+func (w *Client) MakeProtonWg(allServersFilePath string) (*ProtonClient, error) {
 	k, err := newProtonKeyPair()
 	if err != nil {
 		return nil, err
 	}
 
 	svcs := protonServersFrom(allServersFilePath, &w.h2)
-	a, err := newProtonGw(k, svcs, &w.h2, sched)
+	a, err := newProtonGw(k, svcs, &w.h2)
 	if err != nil {
 		return nil, err
 	}
@@ -1155,41 +1175,41 @@ func (w *Client) MakeProtonWg(allServersFilePath string, sched *core.Scheduler) 
 		return nil, err
 	}
 
-	return a.config, nil
+	return a, nil
 }
 
-func (w *Client) MakeProtonWgFrom(fromConfigJson []byte, allServersFilePath string, sched *core.Scheduler) (*ProtonWgConfig, error) {
+func (w *Client) MakeProtonWgFrom(fromConfigJson []byte, allServersFilePath string) (*ProtonClient, error) {
 	if len(fromConfigJson) <= 0 {
 		return nil, errNoProtonJsonConfig
 	}
 
-	var conf ProtonWgConfig
-	err := json.Unmarshal(fromConfigJson, &conf)
+	var existingConf ProtonWgConfig
+	err := json.Unmarshal(fromConfigJson, &existingConf)
 	if err != nil {
 		return nil, err
 	}
 
-	if len(conf.Ed25519PrivBase64) <= 0 {
+	if len(existingConf.Ed25519PrivBase64) <= 0 {
 		return nil, errNoProtonClientInfo
 	}
 
-	k, err := newProtonKeyPairFrom(conf.Ed25519PrivBase64)
+	k, err := newProtonKeyPairFrom(existingConf.Ed25519PrivBase64)
 	if err != nil {
 		return nil, err
 	}
 
 	svcs := protonServersPrebuilt() // refreshed if needed later
-	a, err := newProtonGw(k, svcs, &w.h2, sched)
+	a, err := newProtonGw(k, svcs, &w.h2)
 	if err != nil {
 		return nil, err
 	}
 
-	err = a.load(&conf)
+	err = a.assignConfig(&existingConf)
 	if err != nil {
 		return nil, err
 	}
 
-	err = a.rereg()
+	err = a.rereg(false)
 	if err != nil {
 		return nil, err
 	}
@@ -1199,10 +1219,15 @@ func (w *Client) MakeProtonWgFrom(fromConfigJson []byte, allServersFilePath stri
 		return nil, err
 	}
 
-	return a.config, nil
+	err = a.refreshConf()
+	if err != nil {
+		return nil, err
+	}
+
+	return a, nil
 }
 
-func (a *protongw) load(conf *ProtonWgConfig) error {
+func (a *ProtonClient) assignConfig(conf *ProtonWgConfig) error {
 	a.config = conf
 
 	// session info
@@ -1292,12 +1317,13 @@ func protonServersFrom(allServersFilePath string, c *http.Client) []ProtonLogica
 						} else {
 							log.I("proton: servers: read from file %s (age: %d): %d",
 								fp, fage.Hours(), len(all.R))
-						}
-					}
-				}
-			}
-		}
-	}
+						} // may be preloaded all.R
+					} // json unmarshaled
+				} // file read
+			} // file stats
+		} // file opened
+	} // else: no file
+
 	if len(all.R) == 0 {
 		// curl -X GET "https://vpn-api.proton.me/vpn/v1/logicals?WithState=true&Tier=2&WithEntriesForProtocols=WireGuard" \
 		// -H "Content-Type: application/vnd.protonmail.v1+json" \
@@ -1344,13 +1370,13 @@ func protonServersFrom(allServersFilePath string, c *http.Client) []ProtonLogica
 										log.E("proton: servers: write %s, err: %v", fp, err)
 									} // else: written
 								}
-							} // else: no-store
+							} // else: no file
 							protonLogicalsUpdateTime = time.Now()
-						}
-					}
-				}
-			}
-		}
-	} // else: contains remote servers
+						} // json may be persisted
+					} // json unmarshaled
+				} // body read
+			} // res ok
+		} // req ok
+	} // else: preloaded
 	return append(all.R, prebuilts...)
 }

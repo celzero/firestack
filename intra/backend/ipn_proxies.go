@@ -56,14 +56,22 @@ const ( // see ipn/proxies.go
 )
 
 type Rpn interface {
-	// RegisterWarp registers a new Warp public key.
-	RegisterWarp(publicKeyBase64 string) (json []byte, err error)
+	// RegisterWarp registers a new Warp installation.
+	RegisterWarp(existingStateJson []byte) (json []byte, err error)
 	// RegisterSE registers a new SurfEasy user.
 	RegisterSE() error
 	// RegisterAmnezia registers a new Amnezia installation.
-	RegisterAmnezia(publicKeyBase64 string) (json []byte, err error)
+	RegisterAmnezia(existingStateJson []byte) (json []byte, err error)
 	// RegisterProton registers a new Proton installation.
 	RegisterProton(existingStateJson []byte) (json []byte, err error)
+	// UnregisterWarp unregisters a Warp public key.
+	UnregisterWarp() bool
+	// UnregisterAmnezia unregisters an Amnezia installation.
+	UnregisterAmnezia() bool
+	// UnregisterProton unregisters a Proton installation.
+	UnregisterProton() bool
+	// UnregisterSE unregisters a SurfEasy user.
+	UnregisterSE() bool
 	// TestWarp connects to some Warp IPs and returns reachable ones.
 	TestWarp() (ips string, errs error)
 	// TestAmnezia connects to the Amnezia gateway and returns its IP if reachable.
@@ -147,14 +155,24 @@ type Router interface {
 
 // ProxyListener is a listener for proxy events.
 type ProxyListener interface {
+	RpnListener
 	// OnProxyAdded is called when a proxy is added.
 	OnProxyAdded(id string)
 	// OnProxyRemoved is called when a proxy is removed except when all
 	// proxies are stopped, in which case OnProxiesStopped is called.
 	OnProxyRemoved(id string)
+	// OnProxyStopped is called when a proxy is stopped.
+	OnProxyStopped(id string)
 	// OnProxiesStopped is called when all proxies are stopped.
 	// Note: OnProxyRemoved is not called for each proxy.
 	OnProxiesStopped()
+}
+
+// RpnListener is a listener for events exclusive to RPN.
+// ProxyListener is the listener for non-exclusive RPN events.
+type RpnListener interface {
+	// OnRpnUpdated is called when a Rpn proxy is updated.
+	OnRpnUpdated(rpnId string, updatedStateJson []byte)
 }
 
 // RouterStats lists interesting stats of a Router.

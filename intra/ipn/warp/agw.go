@@ -24,8 +24,10 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"time"
 	"unicode/utf8"
 
+	x "github.com/celzero/firestack/intra/backend"
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/log"
 )
@@ -72,15 +74,25 @@ NgVt5S/FaVjYuzFUifJ12ToChXFgESKFmuso7WluEaWvMIGREdrMrKQKHfYLOzWF
 2B5ZJDqw4o03fU4J/6rw61M1b+rjVpXMjPnzc2A+RgcjTvXv955gfZkwe4lt5wk/
 3j8zMVo3+zLrMTAaEeIUM0UCAwEAAQ==
 -----END PUBLIC KEY-----`
+
+	agwCountryCode = "ru"
+	agwService     = "amnezia-free"
+	agwOs          = "android"
+	agwVersion     = "4.0.8"
 )
 
+type agwuser struct {
+	wgpriv, wgpub string // base64 wgkey
+	uuid          string // v4
+}
+
 type agwc struct {
-	uuid          string
+	*agwuser
 	http          *http.Client
 	key, iv, salt []byte
 	rsaPub        *rsa.PublicKey
-	apiPayload    map[string]string
 	btoa          *base64.Encoding
+	cfg           *AmzWgConfig // may be nil
 }
 
 type AmzRegResponse struct {
@@ -139,7 +151,10 @@ type AmzWgConfig struct {
 	PskKey        string   `json:"psk_key"`
 	ServerPubKey  string   `json:"server_pub_key"`
 	AllowedIPs    []string `json:"allowed_ips"`
-	WgConf        string   `json:"wgconf"` // gen
+
+	UUID             string `json:"uuid"`              // from agwc
+	ExpiresTimestamp int64  `json:"expires_timestamp"` // gen; seconds since epoch
+	WgConf           string `json:"wgconf"`            // gen
 }
 
 func (c *AmzWgConfig) genWgConf() {
@@ -147,6 +162,7 @@ func (c *AmzWgConfig) genWgConf() {
 		c.AllowedIPs = []string{"0.0.0.0/0", "::/0"}
 	}
 	c.WgConf = fmt.Sprintf(`[Interface]
+PrivateKey = %s
 PublicKey = %s
 Jc = %s
 Jmin = %s
@@ -165,13 +181,14 @@ PresharedKey = %s
 PublicKey = %s
 Endpoint = %s
 AllowedIPs = %s`,
-		c.ClientPubKey,       // private key to be filled by kt-land
+		c.ClientPrivKey, // private key always filled by agw
+		c.ClientPubKey,
 		c.Jc, c.Jmin, c.Jmax, // unused
 		c.S1, c.S2,
 		c.H1, c.H2, c.H3, c.H4,
 		c.ClientIP,
-		"1.1.1.1", // developers.cloudflare.com/1.1.1.1/ip-addresses/
-		"1.0.0.1",
+		"1.1.1.1",  // developers.cloudflare.com/1.1.1.1/ip-addresses/
+		"9.9.9.10", // quad9.net
 		c.PskKey,
 		c.ServerPubKey,
 		net.JoinHostPort(c.HostName, fmt.Sprintf("%d", c.Port)),
@@ -263,7 +280,19 @@ func (a *agwc) unravel(decompressedData []byte) ([]AmzWgConfig, error) {
 		return nil, err
 	}
 
-	log.VV("agw: %s unravel: data: %v", a.uuid, data)
+	uuid, wgpriv := a.uuid, a.wgpriv
+
+	log.VV("agw: %s unravel: data: %v", uuid, data)
+
+	now := time.Now()
+	weekFromNow := now.AddDate(0, 0, 7)
+	// go.dev/play/p/IypBxD2Yerp
+	// expires_at: 2024-11-28 16:08:36.582729+00:00
+	expiresAt, err := time.Parse(time.DateTime+"+00:00", data.APIConfig.PublicKey.ExpiresAt)
+	if err != nil || expiresAt.IsZero() || now.Sub(expiresAt) > 0 {
+		expiresAt = weekFromNow
+	}
+	expiresTimestamp := expiresAt.Unix()
 
 	cfgs := make([]AmzWgConfig, 0, len(data.Containers))
 	var errs error
@@ -272,9 +301,12 @@ func (a *agwc) unravel(decompressedData []byte) ([]AmzWgConfig, error) {
 		err := json.Unmarshal([]byte(container.AWG.LastConfig), &lcfg)
 		if err != nil {
 			errs = core.JoinErr(errs, err)
-			log.W("agw: %s unravel: cfg %s err: %v", a.uuid, container.AWG.LastConfig, err)
+			log.W("agw: %s unravel: cfg %s err: %v", uuid, container.AWG.LastConfig, err)
 			continue
 		}
+		lcfg.ClientPrivKey = wgpriv
+		lcfg.ExpiresTimestamp = expiresTimestamp
+		lcfg.UUID = uuid
 		cfgs = append(cfgs, lcfg)
 	}
 
@@ -403,7 +435,7 @@ func (a *agwc) wrap(data []byte, typ string) ([]byte, error) {
 //	_ = json.Unmarshal(d, &r)
 // }
 
-func newAgwc(pubkey string, c *http.Client) (*agwc, error) {
+func newAgwc(wgkey x.WgKey, uuid string, c *http.Client) (*agwc, error) {
 	key, err := prandom(32)
 	if err != nil {
 		return nil, err
@@ -435,34 +467,40 @@ func newAgwc(pubkey string, c *http.Client) (*agwc, error) {
 	if !ok {
 		return nil, errInvalidRsaPubKey
 	}
-	uuid, cc, svc, os, ver := uuid4(), "ru", "amnezia-free", "android", "4.0.8"
-	apiPayload := map[string]string{
-		"user_country_code": cc,
-		"installation_uuid": uuid,
-		"service_type":      svc,
-		"public_key":        pubkey,
-		"os_version":        os,
-		"app_version":       ver,
-		// "protocol":          "awg",
-		// "server_country_code": "",
-		// "auth_data":           "",
-	}
+
 	return &agwc{
-		uuid:       uuid,
-		http:       c,
-		key:        key,
-		iv:         iv,
-		salt:       salt,
-		rsaPub:     rsaPub,
-		apiPayload: apiPayload,
+		agwuser: &agwuser{
+			wgpriv: wgkey.Base64(),
+			wgpub:  wgkey.Mult().Base64(),
+			uuid:   uuid,
+		},
+		http:   c,
+		key:    key,
+		iv:     iv,
+		salt:   salt,
+		rsaPub: rsaPub,
 		// doc.qt.io/qt-6/qbytearray.html#toBase64
 		btoa: base64.StdEncoding,
 	}, nil
 }
 
+func (a *agwc) apiPayload() map[string]string {
+	return map[string]string{
+		"user_country_code": agwCountryCode,
+		"installation_uuid": a.uuid,
+		"service_type":      agwService,
+		"public_key":        a.wgpub,
+		"os_version":        agwOs,
+		"app_version":       agwVersion,
+		// "protocol":          "awg",
+		// "server_country_code": "",
+		// "auth_data":           "",
+	}
+}
+
 // encrypt API payload using AES256 CBC; salt is not used
 func (a *agwc) encryptApiPayload() ([]byte, error) {
-	apiPayloadJSON, _ := json.Marshal(a.apiPayload)
+	apiPayloadJSON, _ := json.Marshal(a.apiPayload())
 	return a.encryptAesBlockCipher(apiPayloadJSON)
 }
 
@@ -503,18 +541,44 @@ func (a *agwc) url() string {
 	return agwDevUrl
 }
 
+func (u *agwuser) chUser() error {
+	prevuuid := u.uuid
+	wgkey, err := x.NewWgPrivateKey()
+	if err != nil {
+		return err
+	}
+	u.wgpriv = wgkey.Base64()
+	u.wgpub = wgkey.Mult().Base64()
+	u.uuid = uuid4()
+
+	log.I("agw: change user %s => %s", prevuuid, u.uuid)
+
+	return nil // ok
+}
+
+func (a *agwc) renew() error {
+	err := a.chUser()
+	if err != nil {
+		return err
+	}
+	return a.reg()
+}
+
 // github.com/amnezia-vpn/amnezia-client/blob/8547de82ea9/client/core/controllers/apiController.cpp#L383
-func (a *agwc) reg() (*AmzWgConfig, error) {
+func (a *agwc) reg() error {
+	a.cfg = nil // clean slate
+
+	uuid := a.uuid
 	encryptedAPIPayload, err := a.encryptApiPayload()
 	if err != nil {
-		return nil, err
+		return err
 	}
 	encryptedKeyPayload, err := a.encryptKeyPayload()
 	if err != nil {
-		return nil, err
+		return err
 	}
 
-	log.VV("agw: %s reg: len(key) %d, len(api) %d", a.uuid, len(encryptedKeyPayload), len(encryptedAPIPayload))
+	log.VV("agw: %s reg: len(key) %d, len(api) %d", uuid, len(encryptedKeyPayload), len(encryptedAPIPayload))
 
 	requestBody := map[string]string{
 		"api_payload": toRune(a.btoa.EncodeToString(encryptedAPIPayload)),
@@ -523,50 +587,52 @@ func (a *agwc) reg() (*AmzWgConfig, error) {
 	requestBodyJSON, _ := json.Marshal(requestBody)
 	req, err := http.NewRequest("POST", a.url(), bytes.NewReader(requestBodyJSON))
 	if err != nil {
-		return nil, err
+		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
 
 	resp, err := a.http.Do(req)
 	if err != nil || resp == nil {
-		return nil, core.OneErr(err, errNoApiResponse)
+		return core.OneErr(err, errNoApiResponse)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		b, rerr := io.ReadAll(resp.Body)
 		log.E("agw: %s reg: fail: status(%d/%s) hdrs(%v) body(%s) err(%v)",
-			a.uuid, resp.StatusCode, resp.Status, resp.Header, b, rerr)
-		return nil, fmt.Errorf("agw: reg: err status(%d/%s)", resp.StatusCode, resp.Status)
+			uuid, resp.StatusCode, resp.Status, resp.Header, b, rerr)
+		return fmt.Errorf("agw: reg: err status(%d/%s)", resp.StatusCode, resp.Status)
 	}
 
 	encryptedResponseBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		log.E("agw: %s reg: read body", a.uuid, err)
-		return nil, err
+		log.E("agw: %s reg: read body", uuid, err)
+		return err
 	}
 
 	decryptedResponseBody, err := a.decryptAesBlockCipher(encryptedResponseBody)
 	if err != nil {
-		log.E("agw: %s reg: unseal", a.uuid, err)
-		return nil, err
+		log.E("agw: %s reg: unseal", uuid, err)
+		return err
 	}
 
 	data, err := a.decodeApiResponse(decryptedResponseBody)
 	if err != nil {
-		log.E("agw: %s reg: decode", a.uuid, err)
-		return nil, err
+		log.E("agw: %s reg: decode", uuid, err)
+		return err
 	}
 
 	cfgs, err := a.unravel(data)
 	if err != nil || len(cfgs) <= 0 {
-		log.E("agw: %s reg: cfg", a.uuid, err)
-		return nil, core.OneErr(err, errNoAgwConfig)
+		log.E("agw: %s reg: cfg", uuid, err)
+		return core.OneErr(err, errNoAgwConfig)
 	}
 
-	log.I("agw: %s reg: got cfgs %d", a.uuid, len(cfgs))
-	return &cfgs[0], nil
+	a.cfg = &cfgs[0]
+
+	log.I("agw: %s reg: got cfgs %d", uuid, len(cfgs))
+	return nil
 }
 
 // encryptAesBlockCipher encrypts data using AES with a given mode, key, and IV.
@@ -636,13 +702,61 @@ func unpadPKCS7(data []byte, blockSize int) ([]byte, error) {
 	return data[:len(data)-padding], nil
 }
 
-func (w *Client) MakeAmzWg(publicKeyBase64 string) (*AmzWgConfig, error) {
-	log.I("agw: make: %s", publicKeyBase64)
-
-	a, err := newAgwc(publicKeyBase64, &w.h2)
+func (w *Client) MakeAmzWg() (*AmzWgConfig, error) {
+	k, err := x.NewWgPrivateKey()
 	if err != nil {
 		return nil, err
 	}
 
-	return a.reg()
+	uuid := uuid4()
+	publicKeyBase64 := k.Mult().Base64()
+	log.I("agw: make: %s", publicKeyBase64)
+
+	a, err := newAgwc(k, uuid, &w.h2)
+	if err != nil {
+		return nil, err
+	}
+
+	err = a.reg()
+	if err != nil {
+		return nil, err
+	}
+
+	return a.cfg, nil
+}
+
+func (w *Client) MakeAmzWgFrom(existingStateJson []byte) (*AmzWgConfig, error) {
+	log.I("agw: make: from: %d", len(existingStateJson))
+
+	var config AmzWgConfig
+
+	if err := json.Unmarshal(existingStateJson, &config); err != nil {
+		return nil, err
+	}
+
+	if len(config.UUID) <= 0 {
+		log.W("agw: make: from: missing uuid; make new")
+		return w.MakeAmzWg()
+	}
+
+	now := time.Now().Unix()
+	if config.ExpiresTimestamp-now <= 0 {
+		log.W("agw: make: from: creds expired; make new")
+		return w.MakeAmzWg()
+	}
+
+	uuid := config.UUID
+	wgkey, err := x.NewWgPrivateKeyOf(config.ClientPrivKey)
+	if err != nil {
+		return nil, err
+	}
+
+	a, err := newAgwc(wgkey, uuid, &w.h2)
+	if err != nil {
+		return nil, err
+	}
+
+	a.cfg = &config
+
+	return a.cfg, nil
 }

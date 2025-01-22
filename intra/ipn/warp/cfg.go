@@ -467,7 +467,8 @@ var prebuiltProtonServersJson = []byte(`[
         ],
         "Load": 33
     }
-]`)
+]
+}`)
 
 func anyCidrs() (v4 netip.Prefix, v6 netip.Prefix) {
 	return cidrs4[rand.Intn(len(cidrs4))], cidrs6[rand.Intn(len(cidrs6))]

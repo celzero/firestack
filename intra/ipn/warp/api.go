@@ -24,6 +24,7 @@ import (
 	"net/netip"
 	"time"
 
+	x "github.com/celzero/firestack/intra/backend"
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/dialers"
 	"github.com/celzero/firestack/intra/log"
@@ -31,19 +32,45 @@ import (
 )
 
 type Client struct {
-	cf http.Client
-	h2 http.Client
 	d  *protect.RDial
+	h2 http.Client
 }
 
-func NewWarpClient(ctx context.Context, c protect.Controller) *Client {
-	d := protect.MakeNsRDial("warpclient", ctx, c)
-	w := &Client{
-		d: d,
+type warpclient struct {
+	k  x.WgKey
+	h  http.Client
+	d  *protect.RDial
+	id *Identity
+}
+
+func newWarpClient(k x.WgKey, d *protect.RDial, id *Identity) (*warpclient, error) {
+	if k == nil || core.IsNil(k) {
+		return nil, errNoWgKey
 	}
-	w.cf.Transport = &http.Transport{
-		DialTLSContext: w.utlsDial,
+	if d == nil {
+		return nil, errNoDialer
 	}
+
+	pub := k.Mult().Base64()
+	log.I("warp: make: client for %s; new? %t", pub, id == nil)
+
+	// if id == nil, reg() creates identity
+	wc := &warpclient{
+		k:  k,
+		d:  d,
+		id: id,
+	}
+
+	wc.h.Transport = &http.Transport{
+		DialTLSContext: wc.utlsDial,
+	}
+
+	return wc, nil
+}
+
+func NewExtClient(ctx context.Context, c protect.Controller) *Client {
+	d := protect.MakeNsRDial("extclient", ctx, c)
+	w := &Client{d: d}
 	w.h2.Transport = &http.Transport{
 		Dial:                  d.Dial,
 		ForceAttemptHTTP2:     true,
@@ -53,7 +80,7 @@ func NewWarpClient(ctx context.Context, c protect.Controller) *Client {
 	return w
 }
 
-func (w *Client) utlsDial(ctx context.Context, network, addr string) (net.Conn, error) {
+func (w *warpclient) utlsDial(ctx context.Context, network, addr string) (net.Conn, error) {
 	host, _, err := net.SplitHostPort(addr)
 	if err != nil {
 		return nil, err
@@ -66,13 +93,22 @@ func (w *Client) utlsDial(ctx context.Context, network, addr string) (net.Conn, 
 	return dialers.DialWithUTls(w.d, dialers.NewUTLSCfg(host), network, ipp.String())
 }
 
-func (w *Client) GetAcct(tok, deviceID string) (IdentityAccount, error) {
+// unused
+func (w *warpclient) GetAcct() error {
+	id := w.id
+	if id == nil {
+		return errZeroIdentity
+	}
+
+	tok := id.Token
+	deviceID := id.ID
+
 	reqUrl := fmt.Sprintf("%s/reg/%s/account", warpApiUrl, deviceID)
 	method := "GET"
 
 	req, err := http.NewRequest(method, reqUrl, nil)
 	if err != nil {
-		return IdentityAccount{}, err
+		return err
 	}
 
 	for k, v := range defaultHeaders {
@@ -80,34 +116,43 @@ func (w *Client) GetAcct(tok, deviceID string) (IdentityAccount, error) {
 	}
 	req.Header.Set("Authorization", "Bearer "+tok)
 
-	resp, err := w.cf.Do(req)
+	resp, err := w.h.Do(req)
 	if err != nil || resp == nil {
 		err = core.OneErr(err, errNoApiResponse)
-		return IdentityAccount{}, err
+		return err
 	}
 	defer core.Close(resp.Body)
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return IdentityAccount{}, fmt.Errorf("warp: api request failed: %s", resp.Status)
+		return fmt.Errorf("warp: api request failed: %s", resp.Status)
 	}
 
 	b, err := io.ReadAll(resp.Body)
 	if err != nil || len(b) == 0 {
 		err = core.OneErr(err, errNoApiData)
-		return IdentityAccount{}, err
+		return err
 	}
 
 	var ia = IdentityAccount{}
 	if err := json.Unmarshal(b, &ia); err != nil {
-		return IdentityAccount{}, err
+		return err
 	}
 
-	return ia, nil
+	id.Account = ia
+
+	log.I("warp: get acct successful %s @ %s", deviceID, id.Account.ID)
+
+	return nil
 }
 
-func (w *Client) reg(publicKey string) (Identity, error) {
+func (w *warpclient) reg() error {
+	if w.id != nil { // registered; call update/get/reset?
+		return nil
+	}
+
 	reqUrl := fmt.Sprintf("%s/reg", warpApiUrl)
 	method := "POST"
+	publicKey := w.k.Mult().Base64()
 
 	data := map[string]interface{}{
 		"install_id":   "",
@@ -121,51 +166,69 @@ func (w *Client) reg(publicKey string) (Identity, error) {
 	}
 
 	jsonBody, err := json.Marshal(data)
-	if err != nil {
-		return Identity{}, err
+	if err != nil { // unlikely
+		return err
 	}
 
 	req, err := http.NewRequest(method, reqUrl, bytes.NewBuffer(jsonBody))
-	if err != nil {
-		return Identity{}, err
+	if err != nil { // unlikely
+		log.E("warp: reg: creating req %v", err)
+		return err
 	}
 
 	for k, v := range defaultHeaders {
 		req.Header.Set(k, v)
 	}
 
-	resp, err := w.cf.Do(req)
-	if err != nil || resp == nil {
+	resp, err := w.h.Do(req)
+	if err != nil || resp == nil { // unlikely
 		err = core.OneErr(err, errNoApiResponse)
-		return Identity{}, err
+		log.E("warp: reg: no res %v", err)
+		return err
 	}
 	defer core.Close(resp.Body)
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return Identity{}, fmt.Errorf("warp: api request failed: %s", resp.Status)
+		log.E("warp: reg: api err %s %d", resp.Status, resp.StatusCode)
+		return fmt.Errorf("warp: api request failed: %s", resp.Status)
 	}
 
 	b, err := io.ReadAll(resp.Body)
 	if err != nil || len(b) == 0 {
 		err = core.OneErr(err, errNoApiData)
-		return Identity{}, err
+		log.E("warp: reg: no api data %v", err)
+		return err
 	}
 
-	var id = Identity{}
-	if err := json.Unmarshal(b, &id); err != nil {
-		return Identity{}, err
+	w.id = &Identity{}
+	if err := json.Unmarshal(b, &w.id); err != nil { // unlikely
+		log.E("warp: reg: unmarshal res %v", err)
+		return err
 	}
 
-	return id, nil
+	w.id.PrivateKey = w.k.Base64()
+
+	log.I("warp: reg: successful %s for %s", w.id.Created, w.id.ID)
+
+	return nil
 }
 
-func (w *Client) ResetLicense(authToken, deviceID string) (License, error) {
+// unused
+func (w *warpclient) ResetLicense() error {
+	id := w.id
+	if id == nil {
+		return errZeroIdentity
+	}
+
+	authToken := id.Token
+	deviceID := id.ID
+
 	reqUrl := fmt.Sprintf("%s/reg/%s/account/license", warpApiUrl, deviceID)
 	method := "POST"
 
 	req, err := http.NewRequest(method, reqUrl, nil)
 	if err != nil {
-		return License{}, err
+		return err
 	}
 
 	for k, v := range defaultHeaders {
@@ -173,43 +236,59 @@ func (w *Client) ResetLicense(authToken, deviceID string) (License, error) {
 	}
 	req.Header.Set("Authorization", "Bearer "+authToken)
 
-	resp, err := w.cf.Do(req)
+	resp, err := w.h.Do(req)
 	if err != nil || resp == nil {
 		err = core.OneErr(err, errNoApiResponse)
-		return License{}, err
+		return err
 	}
 	defer core.Close(resp.Body)
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return License{}, fmt.Errorf("warp: api request failed: %s", resp.Status)
+		return fmt.Errorf("warp: api request failed: %s", resp.Status)
 	}
 
 	b, err := io.ReadAll(resp.Body)
 	if err != nil || len(b) == 0 {
 		err = core.OneErr(err, errNoApiData)
-		return License{}, err
+		return err
 	}
 
 	var lc = License{}
 	if err := json.Unmarshal(b, &lc); err != nil {
-		return License{}, err
+		return err
 	}
 
-	return lc, nil
+	id.Account.License = lc.License
+
+	log.I("warp: reset license successful %s @ %s", deviceID, id.Account.ID)
+
+	return nil
 }
 
-func (w *Client) UpdateAcct(authToken, deviceID, license string) (IdentityAccount, error) {
+// unused
+func (w *warpclient) UpdateAcct(license string) error {
+	id := w.id
+	if id == nil {
+		return errZeroIdentity
+	}
+
+	authToken := id.Token
+	deviceID := id.ID
+	if len(license) <= 0 || id.Account.License != license {
+		license = id.Account.License
+	}
+
 	reqUrl := fmt.Sprintf("%s/reg/%s/account", warpApiUrl, deviceID)
 	method := "PUT"
 
 	jsonBody, err := json.Marshal(map[string]interface{}{"license": license})
 	if err != nil {
-		return IdentityAccount{}, err
+		return err
 	}
 
 	req, err := http.NewRequest(method, reqUrl, bytes.NewBuffer(jsonBody))
 	if err != nil {
-		return IdentityAccount{}, err
+		return err
 	}
 
 	for k, v := range defaultHeaders {
@@ -217,71 +296,79 @@ func (w *Client) UpdateAcct(authToken, deviceID, license string) (IdentityAccoun
 	}
 	req.Header.Set("Authorization", "Bearer "+authToken)
 
-	resp, err := w.cf.Do(req)
+	resp, err := w.h.Do(req)
 	if err != nil || resp == nil {
 		err = core.OneErr(err, errNoApiResponse)
-		return IdentityAccount{}, err
+		return err
 	}
 	defer core.Close(resp.Body)
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return IdentityAccount{}, fmt.Errorf("warp: api request failed: %s", resp.Status)
+		return fmt.Errorf("warp: api request failed: %s", resp.Status)
 	}
 
 	b, err := io.ReadAll(resp.Body)
 	if err != nil || len(b) == 0 {
 		err = core.OneErr(err, errNoApiData)
-		return IdentityAccount{}, err
+		return err
 	}
 
 	var ia = IdentityAccount{}
 	if err := json.Unmarshal(b, &ia); err != nil {
-		return IdentityAccount{}, err
+		return err
 	}
 
-	return ia, nil
+	id.Account = ia
+
+	log.I("warp: update: successful %s @ %s", deviceID, id.Account.ID)
+
+	return nil
 }
 
 // from: github.com/bepass-org/warp-plus/blob/19ac233cc/warp/account.go
 
-func (w *Client) Load(id Identity, license string) (*Identity, error) {
-	if license != "" && id.Account.License != license {
-		log.I("warp: load: updating license")
-		_, err := w.UpdateAcct(id.Token, id.ID, license)
-		if err != nil {
-			return nil, err
-		}
-
-		iAcc, err := w.GetAcct(id.Token, id.ID)
-		if err != nil {
-			return nil, err
-		}
-		id.Account = iAcc
-	}
-
-	log.I("warp: load: successful")
-	return &id, nil
-}
-
-func (w *Client) MakeWarp(pub, license string) (*Identity, error) {
-	log.I("warp: make: identity for %s", pub)
-	id, err := w.reg(pub)
+func (w *Client) MakeWarp() (*Identity, error) {
+	k, err := x.NewWgPrivateKey()
 	if err != nil {
 		return nil, err
 	}
 
-	if license != "" {
-		log.I("warp: make: updating license for %s", pub)
-		_, err := w.UpdateAcct(id.Token, id.ID, license)
-		if err != nil {
-			return nil, err
-		}
+	wc, err := newWarpClient(k, w.d, nil)
+	if err != nil {
+		return nil, err
+	}
 
-		ac, err := w.GetAcct(id.Token, id.ID)
-		if err != nil {
-			return nil, err
-		}
-		id.Account = ac
+	err = wc.reg()
+	if err != nil {
+		return nil, err
+	}
+
+	id := wc.id
+	if id == nil {
+		return nil, errZeroIdentity
+	}
+
+	return id, nil
+}
+
+func (w *Client) MakeWarpFrom(existingStateJson []byte) (*Identity, error) {
+	var id Identity
+	err := json.Unmarshal(existingStateJson, &id)
+	if err != nil {
+		log.W("warp: make: restore failed %v; new warp ...", err)
+		return w.MakeWarp()
+	}
+
+	if len(id.ID) <= 0 {
+		log.W("warp: make: no device-id %v; new warp ...", err)
+		return w.MakeWarp()
+	}
+
+	// test key sanity
+	_, err = x.NewWgPrivateKeyOf(id.PrivateKey)
+	if err != nil {
+		log.E("warp: make: restore key failed %v; new warp ...", err)
+		return w.MakeWarp()
 	}
 
 	return &id, nil

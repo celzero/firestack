@@ -120,7 +120,7 @@ func NewTunnel(fd, mtu int, fakedns string, tunmode *settings.TunMode, dtr Defau
 
 	log.SetConsole(bdg)
 	natpt := x64.NewNatPt(tunmode, bdg)
-	proxies := ipn.NewProxifier(ctx, bdg, bdg)
+	proxies := ipn.NewProxifier(ctx, mtu, bdg, bdg)
 	services := rnet.NewServices(ctx, proxies, bdg, bdg)
 
 	if proxies == nil || services == nil {
@@ -204,7 +204,7 @@ func (t *rtunnel) SetLinkAndRoutes(fd, mtu, engine int) error {
 			if diff := dialers.IPProtos(l3); diff {
 				// dialers.IPProtos must always preced calls to other refreshes
 				// as it carries the global state for dialers and ipn/multihost
-				go t.proxies.RefreshProto(l3)
+				go t.proxies.RefreshProto(l3, mtu)
 				t.resolver.Add(newMDNSTransport(t.ctx, l3, t.proxies))
 			}
 		})
