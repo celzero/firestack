@@ -79,6 +79,8 @@ func (r fakeResolver) LookupNetIPFor(_ context.Context, _, _, _ string) ([]netip
 	return nil, errors.New("not implemented")
 }
 
+const minmtu = 1280
+
 func TestOne(t *testing.T) {
 	ctx := context.TODO()
 	r := &net.Resolver{}
@@ -86,7 +88,7 @@ func TestOne(t *testing.T) {
 	ctl := &fakeCtl{}
 	obs := &fakeObs{}
 	// bdg := &fakeBdg{Controller: ctl}
-	pxr := ipn.NewProxifier(ctx, ctl, obs)
+	pxr := ipn.NewProxifier(ctx, minmtu, ctl, obs)
 	if pxr == nil {
 		t.Fatal("nil proxifier")
 	}

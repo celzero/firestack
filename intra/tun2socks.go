@@ -52,7 +52,7 @@ func (t traceout) s() string { return string(t) }
 
 func init() {
 	// increase garbage collection frequency: archive.is/WQBf7
-	debug.SetGCPercent(10)
+	debug.SetGCPercent(25)
 	debug.SetMemoryLimit(1024 * 1024 * 1024 * 4) // 4GB
 	debug.SetPanicOnFault(true)
 }
