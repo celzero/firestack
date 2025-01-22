@@ -50,7 +50,7 @@ var _ ipmap.IPMapper = (*ipmapper)(nil)
 
 // AddIPMapper adds or removes the IPMapper.
 func AddIPMapper(r dnsx.Resolver, protos string, clear bool) {
-	var m ipmap.IPMapper
+	var m ipmap.IPMapper // nil
 	ok := r != nil
 	if ok {
 		m = &ipmapper{
