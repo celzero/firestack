@@ -66,7 +66,7 @@ type simpleLogger struct {
 	sync.Mutex // guards stcount
 	level      LogLevel
 	tag        string
-	c          atomic.Value      // Console
+	c          Console           // Console
 	clevel     LogLevel          // may be different from level
 	msgC       chan *conMsg      // never closed
 	stcount    map[string]uint32 // stack trace counter for identical traces
@@ -160,11 +160,7 @@ func (l *simpleLogger) SetConsoleLevel(n LogLevel) {
 func (l *simpleLogger) SetConsole(c Console) {
 	l.clearStCounts()
 
-	if c == nil || isNil(c) {
-		l.c = atomic.Value{}
-	} else {
-		l.c.Store(c)
-	}
+	l.c = c
 }
 
 func (l *simpleLogger) clearStCounts() {
@@ -192,7 +188,7 @@ func (l *simpleLogger) fromConsole() {
 			continue
 		}
 		load := (len(l.msgC) / cap(l.msgC) * 100) // load percentage
-		if c := l.getConsole(); c != nil {        // look for l.c on every msg
+		if c := l.c; c != nil {                   // look for l.c on every msg
 			switch m.t {
 			case NONE:
 				// drop
@@ -327,7 +323,7 @@ func (l *simpleLogger) Fatalf(at int, msg string, args ...any) {
 func (l *simpleLogger) emitStack(at int, msgs ...string) {
 	sendtoconsole := at == 0
 
-	c := l.getConsole()
+	c := l.c
 	for _, msg := range msgs {
 		if len(msg) <= 0 {
 			continue
@@ -347,15 +343,6 @@ func (l *simpleLogger) emitStack(at int, msgs ...string) {
 			l.drops.Add(1)
 		}
 	}
-}
-
-// getConsole returns the external log console, if any; else nil.
-func (l *simpleLogger) getConsole() Console {
-	v := l.c.Load()
-	if c, ok := v.(Console); ok && c != nil && isNotNil(c) {
-		return c
-	}
-	return nil
 }
 
 func (l *simpleLogger) Stack(at int, msg string, scratch []byte) {
