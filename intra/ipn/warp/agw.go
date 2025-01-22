@@ -541,6 +541,7 @@ func (a *agwc) url() string {
 	return agwDevUrl
 }
 
+/*
 func (u *agwuser) chUser() error {
 	prevuuid := u.uuid
 	wgkey, err := x.NewWgPrivateKey()
@@ -563,6 +564,7 @@ func (a *agwc) renew() error {
 	}
 	return a.reg()
 }
+*/
 
 // github.com/amnezia-vpn/amnezia-client/blob/8547de82ea9/client/core/controllers/apiController.cpp#L383
 func (a *agwc) reg() error {

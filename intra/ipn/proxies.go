@@ -95,6 +95,8 @@ var (
 	errHopMtuInsufficient = errors.New("proxy: hop mtu insufficient")
 	errHopGateway         = errors.New("proxy: hop cannot route")
 	errHopGlobalProxy     = errors.New("proxy: hop must be global proxy")
+	errNilAmzId           = errors.New("proxy: amz id nil")
+	errNilProtonCfg       = errors.New("proxy: proton cfg nil")
 )
 
 const (
@@ -931,6 +933,10 @@ func (px *proxifier) registerAmnezia(existingStateJson []byte) (stateJson []byte
 		id, err = px.extc.MakeAmzWg()
 	}
 
+	if id == nil {
+		err = errNilAmzId
+	}
+
 	if err != nil {
 		log.E("proxy: amz: make (restore? %t) failed: %v", restore, err)
 		return nil, err
@@ -973,6 +979,9 @@ func (px *proxifier) RegisterProton(existingStateJson []byte) (stateJson []byte,
 		p, err = px.extc.MakeProtonWgFrom(existingStateJson, nostore)
 	} else {
 		p, err = px.extc.MakeProtonWg(nostore)
+	}
+	if p == nil {
+		err = errNilProtonCfg
 	}
 	if err != nil {
 		log.E("proxy: proton: make (restore? %t) failed: %v", restore, err)

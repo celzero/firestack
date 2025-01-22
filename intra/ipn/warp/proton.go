@@ -1135,8 +1135,12 @@ func (a *ProtonClient) refreshServers() error {
 }
 
 func (a *ProtonClient) rereg(force bool) error {
-	if len(a.sess.uid) <= 0 {
-		log.W("proton: re-reg: no session; new reg...")
+	hasConf := a.config != nil
+	hasSess := len(a.sess.uid) > 0
+
+	if !hasConf || !hasSess {
+		log.W("proton: re-reg: session? %t; config? %t; new reg...",
+			hasSess, hasConf)
 		return a.reg()
 	}
 
