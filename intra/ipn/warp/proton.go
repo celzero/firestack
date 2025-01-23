@@ -1145,7 +1145,8 @@ func (a *ProtonClient) rereg(force bool) error {
 	}
 
 	now := time.Now().Unix()
-	fresh := a.config.CertRefreshTime-now > 0
+	// redundant nilcheck for nilaway
+	fresh := a.config != nil && a.config.CertRefreshTime-now > 0
 
 	log.I("proton: re-reg %s (exp? %t, force? %t)",
 		a.cert.SerialNumber, !fresh, force)

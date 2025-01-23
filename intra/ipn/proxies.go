@@ -932,7 +932,7 @@ func (px *proxifier) registerAmnezia(existingStateJson []byte) (stateJson []byte
 	}
 
 	if id == nil {
-		err = errNilAmzId
+		return nil, errNilAmzId
 	}
 
 	if err != nil {
@@ -979,7 +979,7 @@ func (px *proxifier) RegisterProton(existingStateJson []byte) (stateJson []byte,
 		p, err = px.extc.MakeProtonWg(nostore)
 	}
 	if p == nil {
-		err = errNilProtonCfg
+		return nil, errNilProtonCfg
 	}
 	if err != nil {
 		log.E("proxy: proton: make (restore? %t) failed: %v", restore, err)
