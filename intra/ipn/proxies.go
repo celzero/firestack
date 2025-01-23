@@ -24,7 +24,6 @@ import (
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/netstack"
 	"github.com/celzero/firestack/intra/protect"
-	"github.com/celzero/firestack/intra/settings"
 )
 
 const (
@@ -202,7 +201,7 @@ var _ Proxy = (*NoProxy)(nil)
 var _ x.Router = (*NoProxy)(nil)
 
 // NewProxifier returns a new Proxifier instance.
-func NewProxifier(pctx context.Context, mtu int, c protect.Controller, o x.ProxyListener) *proxifier {
+func NewProxifier(pctx context.Context, l3 string, mtu int, c protect.Controller, o x.ProxyListener) *proxifier {
 	if c == nil || o == nil {
 		return nil
 	}
@@ -214,8 +213,7 @@ func NewProxifier(pctx context.Context, mtu int, c protect.Controller, o x.Proxy
 		obs:   o,
 		sched: core.NewScheduler(pctx),
 
-		// assume all routes (ipv4/ipv6) ok (fail open)
-		lp: LinkProps{l3: settings.IP46, mtu: mtu},
+		lp: LinkProps{l3: l3, mtu: mtu},
 
 		lastSeErr:     core.NewZeroVolatile[error](),
 		lastWarpErr:   core.NewZeroVolatile[error](),

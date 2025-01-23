@@ -83,6 +83,8 @@ type Tunnel interface {
 	// Sets new default routes for the given engine, where engine is
 	// one of the constants (Ns4, Ns6, Ns46) defined in package settings.
 	SetRoute(engine int) error
+	// SetLinkAndRoutes sets the tun fd as link with mtu & engine as routes for the tunnel.
+	SetLinkAndRoutes(fd, mtu, engine int) error
 	// Sets pcap output to fpcap which is the absolute filepath
 	// to which a PCAP file will be written to.
 	// If len(fpcap) is 0, no PCAP file will be written.
@@ -118,9 +120,11 @@ func NewTunnel(fd, mtu int, fakedns string, tunmode *settings.TunMode, dtr Defau
 		}
 	}()
 
+	const dualstack = settings.IP46
+
 	log.SetConsole(bdg)
 	natpt := x64.NewNatPt(tunmode, bdg)
-	proxies := ipn.NewProxifier(ctx, mtu, bdg, bdg)
+	proxies := ipn.NewProxifier(ctx, dualstack, mtu, bdg, bdg)
 	services := rnet.NewServices(ctx, proxies, bdg, bdg)
 
 	if proxies == nil || services == nil {
@@ -133,27 +137,28 @@ func NewTunnel(fd, mtu int, fakedns string, tunmode *settings.TunMode, dtr Defau
 	}
 
 	resolver := dnsx.NewResolver(ctx, fakedns, tunmode, dtr, bdg, natpt)
-	resolver.Add(newGoosTransport(ctx, proxies))                // os-resolver; fixed
-	resolver.Add(newBlockAllTransport())                        // fixed
-	resolver.Add(newFixedTransport())                           // fixed
-	resolver.Add(newDNSCryptTransport(ctx, proxies, bdg))       // fixed
-	resolver.Add(newMDNSTransport(ctx, settings.IP46, proxies)) // fixed
+	resolver.Add(newGoosTransport(ctx, proxies))            // os-resolver; fixed
+	resolver.Add(newBlockAllTransport())                    // fixed
+	resolver.Add(newFixedTransport())                       // fixed
+	resolver.Add(newDNSCryptTransport(ctx, proxies, bdg))   // fixed
+	resolver.Add(newMDNSTransport(ctx, dualstack, proxies)) // fixed
 
-	addIPMapper(ctx, resolver, settings.IP46) // namespace aware os-resolver for pkg dialers
+	dialers.IPProtos(dualstack)           // assume dual-stack
+	addIPMapper(ctx, resolver, dualstack) // namespace aware os-resolver for pkg dialers
 
 	tcph := NewTCPHandler(ctx, resolver, proxies, tunmode, bdg)
 	udph := NewUDPHandler(ctx, resolver, proxies, tunmode, bdg)
 	icmph := NewICMPHandler(ctx, resolver, proxies, tunmode, bdg)
 	hdl := netstack.NewGConnHandler(tcph, udph, icmph)
 
-	gt, revhdl, err := tunnel.NewGTunnel(ctx, fd, mtu, hdl)
+	gt, revhdl, err := tunnel.NewGTunnel(ctx, fd, mtu, dualstack, hdl)
 
 	if err != nil {
 		log.I("tun: <<< new >>>; err(%v)", err)
 		return nil, err
 	}
 
-	proxies.Reverser(revhdl)
+	rerr := proxies.Reverser(revhdl)
 
 	t = &rtunnel{
 		Tunnel:   gt,
@@ -165,7 +170,7 @@ func NewTunnel(fd, mtu int, fakedns string, tunmode *settings.TunMode, dtr Defau
 		services: services,
 	}
 
-	log.I("tun: <<< new >>>; ok")
+	log.I("tun: <<< new >>>; ok; reverser? %v", rerr)
 	return t, nil
 }
 
@@ -183,34 +188,31 @@ func (t *rtunnel) Disconnect() {
 	})
 }
 
-func (t *rtunnel) SetRoute(engine int) error {
-	if t.closed.Load() {
-		log.W("tun: <<< set route >>>; already closed")
-		return errClosed
-	}
-
-	return t.Tunnel.SetRoute(engine)
-}
-
 func (t *rtunnel) SetLinkAndRoutes(fd, mtu, engine int) error {
 	if t.closed.Load() {
 		log.W("tun: <<< set link and route >>>; already closed")
 		return errClosed
 	}
 
-	defer func() {
-		core.Gx("i.setLinkAndRoutes", func() {
-			l3 := settings.L3(engine)
-			if diff := dialers.IPProtos(l3); diff {
-				// dialers.IPProtos must always preced calls to other refreshes
-				// as it carries the global state for dialers and ipn/multihost
-				go t.proxies.RefreshProto(l3, mtu)
-				t.resolver.Add(newMDNSTransport(t.ctx, l3, t.proxies))
-			}
-		})
-	}()
+	t.onLinkChange(mtu, engine) // before making any changes
 	t.Tunnel.SetMTU(int32(mtu))
 	return t.Tunnel.SetLink(fd) // route is always dual-stack
+}
+
+func (t *rtunnel) onLinkChange(mtu, engine int) {
+	core.Gx("i.setLinkAndRoutes", func() {
+		l3 := settings.L3(engine)
+		mtudiff := t.Tunnel.Mtu() != int32(mtu)
+		l3diff := dialers.IPProtos(l3)
+		if l3diff || mtudiff {
+			// dialers.IPProtos must always preced calls to other refreshes
+			// as it carries the global state for dialers and ipn/multihost
+			go t.proxies.RefreshProto(l3, mtu)
+		}
+		if l3diff {
+			t.resolver.Add(newMDNSTransport(t.ctx, l3, t.proxies))
+		}
+	})
 }
 
 func (t *rtunnel) internalCtx() context.Context {
