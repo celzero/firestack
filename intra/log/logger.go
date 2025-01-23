@@ -36,7 +36,6 @@ import (
 	"fmt"
 	golog "log"
 	"os"
-	"reflect"
 	"runtime"
 	"strings"
 	"sync"
@@ -411,27 +410,4 @@ func (l *simpleLogger) out(at int, msg string) {
 func (l *simpleLogger) err(at int, msg string) {
 	_ = l.e.Output(at, msg) // may error
 	l.q.Push(msg)
-}
-
-// from: core/closer.go
-
-func isNotNil(x any) bool {
-	return !isNil(x)
-}
-
-// isNil reports whether x is nil if its Chan, Func, Map,
-// Pointer, UnsafePointer, Interface, and Slice;
-// may panic if x is not addressable
-func isNil(x any) bool {
-	// from: stackoverflow.com/a/76595928
-	if x == nil {
-		return true
-	}
-	v := reflect.ValueOf(x)
-	k := v.Kind()
-	switch k {
-	case reflect.Pointer, reflect.UnsafePointer, reflect.Interface, reflect.Chan, reflect.Func, reflect.Map, reflect.Slice:
-		return v.IsNil()
-	}
-	return false
 }
