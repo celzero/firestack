@@ -155,6 +155,13 @@ func PrintStack(onConsole bool) {
 	}
 }
 
+// PanicAtRandom instruct portions under test of the network engine
+// to panic at random.
+func PanicAtRandom(y bool) {
+	settings.PanicAtRandom.Store(y)
+	log.I("tun: panic at random? %t", y)
+}
+
 // SetCrashFd sets output file to go runtime crashes to.
 func SetCrashFd(fp string) (ok bool) {
 	defer func() {

@@ -173,7 +173,7 @@ func (p *processor) deliverPackets() {
 			pkt.DecRef()
 		}
 		p.mu.Lock()
-		if false && settings.Debug && rand10pc() {
+		if settings.PanicAtRandom.Load() && rand10pc() {
 			panic("ns: tun: forwarder: deliverPackets rand10pc")
 		}
 	}

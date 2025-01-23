@@ -107,6 +107,10 @@ var SystemDNSForUndelegatedDomains = atomic.Bool{}
 // to "Intra".
 var SetUserAgentForDoH = atomic.Bool{}
 
+// PanicAtRandom is a global flag to panic the network engine
+// every once in a while (for testing).
+var PanicAtRandom = atomic.Bool{}
+
 // L3 returns the string'd repr of engine.
 func L3(engine int) string {
 	switch engine {
