@@ -61,10 +61,10 @@ type Tunnel interface {
 	SetLink(fd int) error
 	// Sets the MTU.
 	SetMTU(mtu int32)
-	// Unsets existing link and closes the fd (tun device).
-	Unlink() error
 	// New route
 	SetRoute(engine int) error
+	// Unsets existing link and closes the fd (tun device).
+	Unlink() error
 	// Set or unset the pcap sink
 	SetPcap(fpcap string) error
 	// NIC, IP, TCP, UDP, and ICMP stats.
@@ -167,7 +167,7 @@ func (t *gtunnel) Write([]byte) (int, error) {
 }
 
 // fd must be non-blocking.
-func NewGTunnel(pctx context.Context, fd, mtu int, hdl netstack.GConnHandler) (t *gtunnel, rev netstack.GConnHandler, err error) {
+func NewGTunnel(pctx context.Context, fd, mtu int, l3 string, hdl netstack.GConnHandler) (t *gtunnel, rev netstack.GConnHandler, err error) {
 	dupfd, err := dup(fd) // tunnel will own dupfd
 	if err != nil {
 		return nil, nil, err
@@ -180,7 +180,11 @@ func NewGTunnel(pctx context.Context, fd, mtu int, hdl netstack.GConnHandler) (t
 	if eerr != nil {
 		return nil, nil, eerr
 	}
-	netstack.Route(stack, settings.IP46) // always dual-stack
+
+	if l3 != settings.IP46 {
+		log.W("tun: new netstack(%d) l3 is %s needed %s", fd, l3, settings.IP46)
+	}
+	netstack.Route(stack, l3)
 
 	var nic tcpip.NICID
 	// Enabled() may temporarily return false when Up() is in progress.
