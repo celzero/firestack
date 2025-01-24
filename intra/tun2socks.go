@@ -70,10 +70,13 @@ func Connect(fd, mtu int, fakedns string, dtr DefaultDNS, bdg Bridge) (t Tunnel,
 	return NewTunnel(fd, mtu, fakedns, settings.DefaultTunMode(), dtr, bdg)
 }
 
-// Change log level to log.VERYVERBOSE, log.VERBOSE, log.DEBUG, log.INFO, log.WARN, log.ERROR.
-func LogLevel(level, consolelevel int32) {
-	dlvl := log.LevelOf(level)
-	clvl := log.LevelOf(consolelevel)
+// Change log level to very verbose (0), verbose (1), debug (2), info (3), warn (4), error (5),
+// stacktraces (6), user notifications (7), or no logs (8). gologLevel and consolelogLevel can
+// be set independently; ex: LogLevel(/*debug golog*/ 2, /*stacktrace consolelog*/ 6) or
+// LogLevel(/*no-op golog*/ 8, /*very-verbose consolelog*/ 0) etc.
+func LogLevel(gologLevel, consolelogLevel int32) {
+	dlvl := log.LevelOf(gologLevel)
+	clvl := log.LevelOf(consolelogLevel)
 	log.SetLevel(dlvl)
 	log.SetConsoleLevel(clvl)
 	settings.Debug = dlvl <= log.DEBUG
@@ -82,7 +85,7 @@ func LogLevel(level, consolelevel int32) {
 	} else {
 		debug.SetTraceback(one.s())
 	}
-	log.I("tun: new lvl: %d, clvl: %d", dlvl, clvl)
+	log.I("tun: new levels; golog: %d, consolelog: %d", dlvl, clvl)
 }
 
 // LowMem triggers Go's garbage collection cycle.
@@ -96,6 +99,7 @@ func Slowdown(y bool) {
 	log.I("tun: slowdown? %t / ok? %t", y, ok)
 }
 
+// Experimental enables/disables experimental features. For testing only.
 func Experimental(y bool) {
 	// todo: move to its own method
 	wgok := settings.ExperimentalWireGuard.CompareAndSwap(!y, y)
@@ -112,6 +116,7 @@ func Loopback(y bool) {
 	log.I("tun: loopback? %t / ok? %t", y, ok)
 }
 
+// If set, use SystemDNS to resolve undelegated (.lan, .internal, .arpa etc) domains.
 func UndelegatedDomains(useSystemDNS bool) {
 	ok := settings.SystemDNSForUndelegatedDomains.CompareAndSwap(!useSystemDNS, useSystemDNS)
 	log.I("tun: resolve undelegated with system DNS? %t / ok? %t", useSystemDNS, ok)
@@ -140,6 +145,7 @@ func Build(full bool) string {
 
 // PrintStack logs the stack trace of all active goroutines
 // to stdout if onConsole is false, otherwise to Console.
+// For testing only.
 func PrintStack(onConsole bool) {
 	bptr := core.LOB()
 	b := *bptr
