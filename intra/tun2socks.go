@@ -88,9 +88,12 @@ func LogLevel(gologLevel, consolelogLevel int32) {
 	log.I("tun: new levels; golog: %d, consolelog: %d", dlvl, clvl)
 }
 
-// LowMem triggers Go's garbage collection cycle.
-func LowMem() {
+// LowMem triggers garbage collection cycle & allows for
+// setting maximum memory limit, if limit > 0.
+func LowMem(limitBytes int64) {
+	prevLimit := debug.SetMemoryLimit(limitBytes)
 	go debug.FreeOSMemory()
+	log.I("tun: lowmem; limits => new: %d, prev: %d", limitBytes, prevLimit)
 }
 
 // Slowdown sets the TUN forwarder in single-threaded mode.
