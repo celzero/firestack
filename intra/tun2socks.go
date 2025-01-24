@@ -72,8 +72,7 @@ func Connect(fd, mtu int, fakedns string, dtr DefaultDNS, bdg Bridge) (t Tunnel,
 
 // Change log level to very verbose (0), verbose (1), debug (2), info (3), warn (4), error (5),
 // stacktraces (6), user notifications (7), or no logs (8). gologLevel and consolelogLevel can
-// be set independently; ex: LogLevel(/*debug golog*/ 2, /*stacktrace consolelog*/ 6) or
-// LogLevel(/*no-op golog*/ 8, /*very-verbose consolelog*/ 0) etc.
+// be set independently; ex: LogLevel(2, 6) or LogLevel(8, 0) etc.
 func LogLevel(gologLevel, consolelogLevel int32) {
 	dlvl := log.LevelOf(gologLevel)
 	clvl := log.LevelOf(consolelogLevel)
