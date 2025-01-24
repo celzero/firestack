@@ -63,7 +63,7 @@ func init() {
 // `mtu` is the MTU of the TUN device.
 // `fakedns` are the DNS servers that the system believes it is using, in "host:port" style.
 // `bdg` is a kotlin object that implements the Bridge interface.
-// `dtr` is a kotlin object that implements the DefaultDNS interface.
+// `dtr` is the DefaultDNS (see: intra.NewDefaultDNS); can be nil. Changeable via intra.AddDefaultTransport.
 // Throws an exception if the TUN file descriptor cannot be opened, or if the tunnel fails to
 // connect.
 func Connect(fd, mtu int, fakedns string, dtr DefaultDNS, bdg Bridge) (t Tunnel, err error) {

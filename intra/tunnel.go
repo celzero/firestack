@@ -109,6 +109,10 @@ type rtunnel struct {
 func NewTunnel(fd, mtu int, fakedns string, tunmode *settings.TunMode, dtr DefaultDNS, bdg Bridge) (t Tunnel, err error) {
 	defer core.Recover(core.Exit11, "i.newTunnel")
 
+	if dtr == nil || core.IsNil(dtr) {
+		dtr, _ = NewBuiltinDefaultDNS()
+	}
+
 	if bdg == nil || dtr == nil {
 		return nil, fmt.Errorf("tun: no bridge? %t or default-dns? %t", bdg == nil, dtr == nil)
 	}

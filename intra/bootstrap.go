@@ -25,8 +25,9 @@ import (
 )
 
 const (
-	bootid          = dnsx.Bootstrap
-	specialHostname = protect.UidSelf
+	bootid            = dnsx.Bootstrap
+	protectedHostname = protect.UidSelf // or protect.UidSystem
+	builtinHostname   = protect.Localhost
 )
 
 var (
@@ -77,28 +78,50 @@ func NewDefaultDNS(typ, url, ips string) (DefaultDNS, error) {
 	return b, nil
 }
 
-func newDefaultDohTransport(ctx context.Context, url string, ipcsv string, p ipn.Proxies) (dnsx.Transport, error) {
-	ips := strings.Split(ipcsv, ",")
-	if len(url) > 0 && len(ips) > 0 {
-		return doh.NewTransport(ctx, bootid, url, ips, p)
+// NewBuiltinDefaultDNS creates a new DefaultDNS resolver of type dnsx.DNS53.
+// It may either use OS provided or network provided DNS resolver, & will not
+// work if the tunnel is in "Loopback" mode; create w/ NewDefaultDNS instead.
+func NewBuiltinDefaultDNS() (DefaultDNS, error) {
+	b := new(bootstrap)
+	b.ctx = context.TODO()
+
+	if err := b.reinit("", "", ""); err != nil {
+		return nil, err
+	}
+
+	// context.AfterFunc(b.ctx, func() { b.Stop() })
+	log.I("dns: default: built-in")
+
+	return b, nil
+}
+
+func (b *bootstrap) newDefaultDohTransport() (dnsx.Transport, error) {
+	ips := strings.Split(b.ipports, ",")
+	if len(b.url) > 0 && len(ips) > 0 {
+		return doh.NewTransport(b.ctx, bootid, b.url, ips, b.proxies)
 	}
 	return nil, errCannotStart
 }
 
-func newDefaultTransport(ctx context.Context, ipcsv string, p ipn.Proxies) (dnsx.Transport, error) {
-	if len(ipcsv) > 0 {
-		return dns53.NewTransportFromHostname(ctx, bootid, specialHostname, ipcsv, p)
+func (b *bootstrap) newDefaultTransport() (dnsx.Transport, error) {
+	if ipcsv := b.ipports; len(ipcsv) > 0 {
+		return dns53.NewTransportFromHostname(b.ctx, bootid, b.hostname, ipcsv, b.proxies)
 	}
 	return nil, errCannotStart
 }
 
 func (b *bootstrap) reinit(trtype, ippOrUrl, ipcsv string) error {
-	if len(ippOrUrl) <= 0 {
-		log.E("dns: default: reinit: empty url %s! ips? %s", ippOrUrl, ipcsv)
-		return dnsx.ErrNotDefaultTransport
-	}
+	if len(trtype) <= 0 && len(ippOrUrl) <= 0 && len(ipcsv) <= 0 {
+		b.url = ""
+		b.hostname = builtinHostname
+		b.ipports = localip4 + "," + localip6
+		b.typ = dnsx.DNS53
+	} else if trtype == dnsx.DOH {
+		if len(ippOrUrl) <= 0 {
+			log.E("dns: default: reinit: empty url %s! ips? %s", ippOrUrl, ipcsv)
+			return dnsx.ErrNotDefaultTransport
+		}
 
-	if trtype == dnsx.DOH {
 		// note: plain ip4 address is a valid url; ex: 1.2.3.4
 		if parsed, err := url.Parse(ippOrUrl); err != nil { // ippOrUrl is a url?
 			log.E("dns: default: reinit: not %s url %s", trtype, ippOrUrl)
@@ -121,9 +144,19 @@ func (b *bootstrap) reinit(trtype, ippOrUrl, ipcsv string) error {
 			log.E("dns: default: reinit: ipport %s; %s != %s", ippOrUrl, trtype, dnsx.DNS53)
 			return dnsx.ErrNotDefaultTransport
 		}
+		if len(ippOrUrl) <= 0 {
+			log.I("dns: default: reinit: empty ipport %s; using: ", ippOrUrl, ipcsv)
+			ippOrUrl = ipcsv
+		}
+		if len(ippOrUrl) <= 0 {
+			log.E("dns: default: reinit: empty url %s! ips? %s", ippOrUrl, ipcsv)
+			return dnsx.ErrNotDefaultTransport
+		}
+
 		// may be set to localhost (in which case it is equivalent to x.Goos)
 		// when no other system resolver could be determined
-		if strings.HasPrefix(ippOrUrl, "localhost") {
+		if strings.HasPrefix(ippOrUrl, builtinHostname) {
+			// note: this is not goos; for goos, trtype, ippOrUrl, ipcsv are all empty!
 			log.I("dns: default: reinit: loopback %s", ippOrUrl)
 			ippOrUrl = localip4 + "," + localip6 // see also dns53/ipmapper.go
 		}
@@ -138,8 +171,8 @@ func (b *bootstrap) reinit(trtype, ippOrUrl, ipcsv string) error {
 			return err
 		} else {
 			b.url = ""
-			b.hostname = specialHostname
-			b.ipports = ippOrUrl // always ipaddrs or csv(ipaddrs), never empty
+			b.hostname = protectedHostname // override all incoming hostnames
+			b.ipports = ippOrUrl           // always ipaddrs or csv(ipaddrs), never empty
 			b.typ = dnsx.DNS53
 		}
 	}
@@ -167,9 +200,13 @@ func (b *bootstrap) kickstart(px ipn.Proxies) error {
 	var err error
 	switch b.typ {
 	case dnsx.DNS53:
-		tr, err = newDefaultTransport(b.ctx, b.ipports, px)
+		if b.hostname == builtinHostname {
+			tr, err = dns53.NewGoosTransport(b.ctx, px)
+		} else {
+			tr, err = b.newDefaultTransport()
+		}
 	case dnsx.DOH:
-		tr, err = newDefaultDohTransport(b.ctx, b.url, b.ipports, px)
+		tr, err = b.newDefaultDohTransport()
 	default:
 		err = errDefaultTransportType
 	}
