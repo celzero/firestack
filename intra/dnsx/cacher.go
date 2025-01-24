@@ -330,10 +330,6 @@ func (t *ctransport) hangoverCheckpoint() {
 
 func (t *ctransport) fetch(network string, q *dns.Msg, summary *x.DNSSummary, cb *cache, key string) (*dns.Msg, error) {
 	sendRequest := func(fsmm *x.DNSSummary) (*dns.Msg, error) {
-		if settings.PanicAtRandom.Load() && rand10pc() {
-			panic("dns: cache: fetch: rand10pc")
-		}
-
 		fsmm.QName = summary.QName
 		fsmm.QType = summary.QType
 		fsmm.ID = t.ID()
@@ -414,7 +410,15 @@ func (t *ctransport) fetch(network string, q *dns.Msg, summary *x.DNSSummary, cb
 			// fallthrough to sendRequest
 		} else if cachedsummary != nil {
 			if !isfresh { // not fresh, fetch in the background
-				core.Gx("c.sendRequest: "+t.ID()+t.Type(), func() {
+				testpanic := settings.PanicAtRandom.Load() && rand10pc()
+				g := core.Gx
+				if testpanic {
+					g = core.Go // does not exit on panic
+				}
+				g("c.sendRequest: "+t.ID()+t.Type(), func() {
+					if testpanic {
+						panic("dns: cache: fetch: sendRequest: rand10pc")
+					}
 					_, _ = sendRequest(new(x.DNSSummary))
 				})
 			}

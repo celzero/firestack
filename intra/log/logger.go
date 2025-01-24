@@ -62,10 +62,10 @@ type Logger interface {
 
 // based on github.com/eycorsican/go-tun2socks/blob/301549c43/common/log/simple/logger.go
 type simpleLogger struct {
-	sync.Mutex // guards stcount
-	level      LogLevel
+	sync.Mutex          // guards stcount
+	level      LogLevel // golog (internal log) level
 	tag        string
-	c          Console           // Console
+	c          Console
 	clevel     LogLevel          // may be different from level
 	msgC       chan *conMsg      // never closed
 	stcount    map[string]uint32 // stack trace counter for identical traces
