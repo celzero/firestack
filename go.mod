@@ -23,7 +23,7 @@ require (
 	github.com/txthinking/socks5 v0.0.0-20230325130024-4230056ae301
 	go4.org/unsafe/assume-no-moving-gc v0.0.0-20231121144256-b99613f794b6
 	golang.org/x/mobile v0.0.0-20220518205345-8578da9835fd
-	golang.org/x/net v0.30.0
+	golang.org/x/net v0.33.0
 	golang.zx2c4.com/wireguard v0.0.0-20231211153847-12269c276173
 	gvisor.dev/gvisor v0.0.0-20241009022347-94b16c128c1c
 	nhooyr.io/websocket v1.8.7
