@@ -99,7 +99,6 @@ func (t *goosr) send(msg *dns.Msg) (ans *dns.Msg, elapsed time.Duration, qerr *d
 		log.V("dns53: goosr: no-op; host %s is ipaddr", host)
 		ans, err = xdns.AQuadAForQuery(msg, ip)
 	} else {
-		bgctx := context.Background()
 		aquadaq := xdns.HasAQuadAQuestion(msg)
 
 		if !aquadaq { // TODO: support queries other than A/AAAA
@@ -111,10 +110,10 @@ func (t *goosr) send(msg *dns.Msg) (ans *dns.Msg, elapsed time.Duration, qerr *d
 			if xdns.HasAAAAQuestion(msg) {
 				proto = "ip6"
 			}
-			if ips, errc := t.rcgo.LookupNetIP(bgctx, proto, host); errc == nil {
+			if ips, errc := t.rcgo.LookupNetIP(t.ctx, proto, host); errc == nil {
 				log.D("dns53: goosr: cgo resolver for %s => %s", host, ips)
 				ans, err = xdns.AQuadAForQuery(msg, ips...)
-			} else if ips, errl := t.r.LookupNetIP(bgctx, proto, host); errl == nil && xdns.HasAnyAnswer(msg) {
+			} else if ips, errl := t.r.LookupNetIP(t.ctx, proto, host); errl == nil && xdns.HasAnyAnswer(msg) {
 				log.D("dns53: goosr: go resolver (why? %v) for %s => %s", errl, host, ips)
 				ans, err = xdns.AQuadAForQuery(msg, ips...)
 			} else {
