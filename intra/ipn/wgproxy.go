@@ -369,10 +369,10 @@ func (w *wgproxy) update(id, txt string) bool {
 
 	w.peers.Store(opts.peers) // re-assignment is okay (map entry modification is not)
 	w.allowedIPs(opts.allowed)
-	w.remote.Store(opts.ep) // requires refresh
-	w.dns.Store(opts.dns)   // requires refresh
-	w.desiredmtu.Store(uint32(opts.mtu))
-	w.amnezia = opts.amnezia // TODO: core.Volatile?
+	w.remote.Store(opts.ep)              // requires refresh
+	w.dns.Store(opts.dns)                // requires refresh
+	w.desiredmtu.Store(uint32(opts.mtu)) // requires reset; [NOMTU, MAXMTU)
+	w.amnezia = opts.amnezia             // TODO: core.Volatile?
 	w.resetMtu(w.via.Load())
 
 	return reuse
@@ -434,9 +434,19 @@ func wgIfConfigOf(id string, txtptr *string) (opts wgifopts, err error) {
 			n := loadMH(opts.dns, v)
 			log.D("proxy: wg: %s ifconfig: dns(%d) %s", id, n, v)
 		case "mtu":
-			if opts.mtu, err = strconv.Atoi(v); err != nil {
+			maxxed := false
+			if len(v) <= 0 || v == "auto" || v == "(auto)" {
+				opts.mtu = MAXMTU
+				maxxed = true
+			} else if opts.mtu, err = strconv.Atoi(v); err != nil {
 				return
 			}
+			if opts.mtu < NOMTU { // negative
+				opts.mtu = MAXMTU
+				maxxed = true
+			}
+			log.D("proxy: wg: %s ifconfig: mtu %s => %d; maxxed? %t",
+				id, v, opts.mtu, maxxed)
 		case "allowed_ip": // may exist more than once
 			if err = loadIPNets(&opts.allowed, v); err != nil {
 				return
@@ -531,7 +541,7 @@ func wgIfConfigOf(id string, txtptr *string) (opts wgifopts, err error) {
 	}
 	log.D("proxy: wg: %s amnezia: %s", id, opts.amnezia)
 	*txtptr = pcfg.String()
-	if err == nil && len(opts.ifaddrs) <= 0 || opts.dns.Len() <= 0 || opts.mtu <= 0 {
+	if err == nil && len(opts.ifaddrs) <= 0 || opts.dns.Len() <= 0 || opts.mtu <= NOMTU {
 		err = errProxyConfig
 	}
 	return
