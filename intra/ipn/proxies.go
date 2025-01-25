@@ -774,7 +774,6 @@ func (px *proxifier) MTU() (out int, err error) {
 	defer px.RUnlock()
 
 	out = MAXMTU
-	safemtu := minmtu6
 	for _, p := range px.p {
 		if local(p.ID()) {
 			continue
@@ -784,10 +783,7 @@ func (px *proxifier) MTU() (out int, err error) {
 			continue
 		} // inner tunnel MTUs should not have any bearing on outer MTU
 		if m, err1 := r.MTU(); err1 == nil {
-			if p.Type() == WG {
-				m = calcNetMtu(m)
-			}
-			out = min(out, max(m, safemtu))
+			out = min(out, max(m, minmtu6))
 		} // else: NOMTU
 	}
 	if out == MAXMTU || out == NOMTU { // unchanged or unknown
