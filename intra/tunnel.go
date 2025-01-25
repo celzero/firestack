@@ -110,7 +110,9 @@ func NewTunnel(fd, mtu int, fakedns string, tunmode *settings.TunMode, dtr Defau
 	defer core.Recover(core.Exit11, "i.newTunnel")
 
 	if dtr == nil || core.IsNil(dtr) {
-		dtr, _ = NewBuiltinDefaultDNS()
+		dtr, err = NewBuiltinDefaultDNS()
+		log.D("tun: using builtin default dns; err? %v", err)
+		err = nil // used only for logging
 	}
 
 	if bdg == nil || dtr == nil {
