@@ -100,9 +100,9 @@ type fakeBdg struct {
 }
 
 var (
-	baseNsOpts = &x.DNSOpts{PIDCSV: dnsx.NetBaseProxy, IPCSV: "", TIDCSV: x.CT + "test0"}
-	baseTab    = &rnet.Tab{CID: "testcid", Block: false}
-	seNsOpts   = &x.DNSOpts{PIDCSV: ipn.RpnSE, IPCSV: "", TIDCSV: x.CT + "test0"}
+	// baseNsOpts = &x.DNSOpts{PIDCSV: dnsx.NetBaseProxy, IPCSV: "", TIDCSV: x.CT + "test0"}
+	baseTab  = &rnet.Tab{CID: "testcid", Block: false}
+	seNsOpts = &x.DNSOpts{PIDCSV: ipn.RpnSE, IPCSV: "", TIDCSV: x.CT + "test0"}
 )
 
 func (*fakeBdg) OnQuery(_, _ string, _ int) *x.DNSOpts { return seNsOpts }
