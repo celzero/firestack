@@ -90,8 +90,11 @@ var (
 )
 
 func (t *gtunnel) Mtu() int32 {
-	// return int32(t.stack.NICInfo()[0].MTU)
-	return int32(t.ep.MTU())
+	if t.IsConnected() {
+		// return int32(t.stack.NICInfo()[0].MTU)
+		return int32(t.ep.MTU())
+	}
+	return -1
 }
 
 func (t *gtunnel) waitForEndpoint() {
