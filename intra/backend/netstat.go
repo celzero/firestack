@@ -112,12 +112,16 @@ type UDPStat struct {
 }
 
 type RDNSInfo struct {
-	Open         bool
-	Debug        bool
-	Looping      bool
-	Slowdown     bool
-	NewWireGuard bool
-	Transparency bool
+	Open  bool
+	Debug bool
+
+	Looping                 bool
+	Slowdown                bool
+	NewWireGuard            bool
+	Transparency            bool
+	PanicTest               bool
+	SystemDNSForUndelegated bool
+	SendDohUserAgent        bool
 
 	Dialer4    bool
 	Dialer6    bool
