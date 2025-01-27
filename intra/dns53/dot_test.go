@@ -53,6 +53,9 @@ func (r fakeResolver) Lookup(q []byte) ([]byte, error) {
 	}
 	// make a dns answer for addrs
 	ans := xdns.EmptyResponseFromMessage(msg)
+	if ans == nil {
+		return nil, errors.New("fakeresolver: nil pkt")
+	}
 	rrs := make([]dns.RR, 0)
 	for _, a := range addrs {
 		if network == "ip4" {
@@ -152,6 +155,9 @@ func TestDot(t *testing.T) {
 	// tr, _ := NewTLSTransport(ctx, "test0", "max.rethinkdns.com", []string{"213.188.216.9"}, pxr, ctl)
 	dtr, _ := NewTransport(ctx, x.Default, "1.1.1.1", "53", pxr)
 	tr, _ := NewTransport(ctx, "test0", "1.0.0.2", "53", pxr)
+	if tr == nil || dtr == nil {
+		t.Fatal("nil transports")
+	}
 
 	natpt := x64.NewNatPt(tm, bdg)
 	resolv := dnsx.NewResolver(ctx, "10.111.222.3:53", tm, dtr, bdg, natpt)
@@ -186,6 +192,9 @@ func TestProxyReaches(t *testing.T) {
 	obs := &fakeObs{}
 	bdg := &fakeBdg{Controller: ctl}
 	pxr := ipn.NewProxifier(ctx, dualstack, minmtu, ctl, obs)
+	if pxr == nil {
+		t.Fatal("nil proxifier")
+	}
 	ilog.SetLevel(0)
 	settings.Debug = true
 	dialers.Mapper(netr)
@@ -205,6 +214,9 @@ func TestProxyReaches(t *testing.T) {
 	resolv.Add(tr)
 
 	exit, _ := pxr.ProxyFor(ipn.Exit)
+	if exit == nil {
+		t.Fatal("proxy: exit proxy nil")
+	}
 	c, cerr := exit.Dial("tcp", "34.245.245.138:443")
 	core.Close(c)
 	if cerr != nil {
@@ -223,6 +235,9 @@ func TestSEProxy(t *testing.T) {
 	obs := &fakeObs{}
 	bdg := &fakeBdg{Controller: ctl}
 	pxr := ipn.NewProxifier(ctx, dualstack, minmtu, ctl, obs)
+	if pxr == nil {
+		t.Fatal("nil proxifier")
+	}
 	ilog.SetLevel(0)
 	settings.Debug = true
 	dialers.Mapper(netr)
@@ -236,6 +251,9 @@ func TestSEProxy(t *testing.T) {
 
 	tr, _ := doh.NewTransport(ctx, "test0", "http://zero.rethinkdns.com/dns-query/", []string{"104.21.83.62"}, pxr)
 	dtr, _ := doh.NewTransport(ctx, x.Default, "http://zero.rethinkdns.com/dns-query/", []string{"172.67.214.246"}, pxr)
+	if tr == nil || dtr == nil {
+		t.Fatal("nil transports")
+	}
 
 	natpt := x64.NewNatPt(tm, bdg)
 	resolv := dnsx.NewResolver(ctx, "10.111.222.3", tm, dtr, bdg, natpt)
@@ -251,6 +269,10 @@ func TestSEProxy(t *testing.T) {
 	}*/
 
 	se, _ := pxr.ProxyFor(ipn.RpnSE)
+	if se == nil {
+		t.Fatal("proxy: se proxy nil")
+	}
+
 	if ok := ipn.Reaches(se, "google.com", "tcp"); !ok {
 		t.Fail()
 	}
@@ -279,7 +301,6 @@ func TestSEProxy(t *testing.T) {
 	}
 	log.Output(10, xdns.Ans(ans))
 	log.Output(10, xdns.Ans(ans6))
-
 }
 
 func TestProtonReaches(t *testing.T) {
@@ -289,6 +310,9 @@ func TestProtonReaches(t *testing.T) {
 	obs := &fakeObs{}
 	bdg := &fakeBdg{Controller: ctl}
 	pxr := ipn.NewProxifier(ctx, dualstack, minmtu, ctl, obs)
+	if pxr == nil {
+		t.Fatal("nil proxifier")
+	}
 	ilog.SetLevel(0)
 	settings.Debug = true
 	dialers.Mapper(netr)
@@ -302,6 +326,9 @@ func TestProtonReaches(t *testing.T) {
 
 	tr, _ := NewTLSTransport(ctx, "test0", "1.1.1.1", nil, pxr)
 	dtr, _ := NewTransport(ctx, x.Default, "1.1.1.1", "53", pxr)
+	if tr == nil || dtr == nil {
+		t.Fatal("nil transports")
+	}
 
 	natpt := x64.NewNatPt(tm, bdg)
 	resolv := dnsx.NewResolver(ctx, "10.111.222.3", tm, dtr, bdg, natpt)
@@ -344,6 +371,9 @@ func TestProtonReaches(t *testing.T) {
 
 	propx, _ := pxr.ProxyFor(ipn.RpnPro)
 	propx2, _ := pxr.ProxyFor(ipn.RpnPro + "MX")
+	if propx == nil || propx2 == nil {
+		t.Fatal("nil proxies")
+	}
 	ilog.I("proxies 1: %t; 2: %t", propx != nil, propx2 != nil)
 	if ok := ipn.Reaches(propx, "google.com:443", "tcp"); !ok {
 		t.Fail()
@@ -361,16 +391,19 @@ func TestPinger(t *testing.T) {
 	obs := &fakeObs{}
 	_ = &fakeBdg{Controller: ctl}
 	pxr := ipn.NewProxifier(ctx, dualstack, minmtu, ctl, obs)
+	if pxr == nil {
+		t.Fatal("nil proxifier")
+	}
 	ilog.SetLevel(0)
 	settings.Debug = true
 	dialers.Mapper(netr)
 
 	p, err := pxr.ProxyFor(ipn.Exit)
-	if err != nil {
+	if err != nil || p == nil {
 		t.Fatal(err)
 	}
 	pc, err := p.Probe("udp", "0.0.0.0:0")
-	if err != nil {
+	if err != nil || pc == nil {
 		t.Fatal(err)
 	}
 	ok, rtt, err := core.Ping(pc, netip.MustParseAddrPort("1.1.1.1:53"))
