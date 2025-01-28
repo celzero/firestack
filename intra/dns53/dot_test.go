@@ -156,7 +156,7 @@ func TestDot(t *testing.T) {
 	dtr, _ := NewTransport(ctx, x.Default, "1.1.1.1", "53", pxr)
 	tr, _ := NewTransport(ctx, "test0", "1.0.0.2", "53", pxr)
 	if tr == nil || dtr == nil {
-		t.Fatal("nil transports")
+		t.Fatal("nil dns transports")
 	}
 
 	natpt := x64.NewNatPt(tm, bdg)
@@ -208,6 +208,9 @@ func TestProxyReaches(t *testing.T) {
 
 	tr, _ := NewTLSTransport(ctx, "test0", "1.1.1.1", nil, pxr)
 	dtr, _ := NewTransport(ctx, x.Default, "1.1.1.1", "53", pxr)
+	if tr == nil || dtr == nil {
+		t.Fatal("nil dns transports")
+	}
 
 	natpt := x64.NewNatPt(tm, bdg)
 	resolv := dnsx.NewResolver(ctx, "10.111.222.3", tm, dtr, bdg, natpt)
@@ -252,7 +255,7 @@ func TestSEProxy(t *testing.T) {
 	tr, _ := doh.NewTransport(ctx, "test0", "http://zero.rethinkdns.com/dns-query/", []string{"104.21.83.62"}, pxr)
 	dtr, _ := doh.NewTransport(ctx, x.Default, "http://zero.rethinkdns.com/dns-query/", []string{"172.67.214.246"}, pxr)
 	if tr == nil || dtr == nil {
-		t.Fatal("nil transports")
+		t.Fatal("nil dns transports")
 	}
 
 	natpt := x64.NewNatPt(tm, bdg)
@@ -327,7 +330,7 @@ func TestProtonReaches(t *testing.T) {
 	tr, _ := NewTLSTransport(ctx, "test0", "1.1.1.1", nil, pxr)
 	dtr, _ := NewTransport(ctx, x.Default, "1.1.1.1", "53", pxr)
 	if tr == nil || dtr == nil {
-		t.Fatal("nil transports")
+		t.Fatal("nil dns transports")
 	}
 
 	natpt := x64.NewNatPt(tm, bdg)
