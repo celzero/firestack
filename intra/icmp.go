@@ -10,7 +10,6 @@ import (
 	"context"
 	"net"
 	"net/netip"
-	"time"
 
 	"golang.org/x/sys/unix"
 
@@ -120,22 +119,4 @@ func (h *icmpHandler) Ping(msg []byte, source, target netip.AddrPort) (echoed bo
 		source, from, dst, len(reply), err)
 
 	return true // echoed; even if err != nil
-}
-
-func extend(c core.MinConn, t time.Duration) {
-	if c != nil && core.IsNotNil(c) {
-		_ = c.SetDeadline(time.Now().Add(t))
-	}
-}
-
-func anyaddrFor(ipp netip.AddrPort) (proto, anyaddr string) {
-	return ipn.AnyAddrForUDP(ipp)
-}
-
-func logev(err error) log.LogFn {
-	f := log.E
-	if err == nil {
-		f = log.VV
-	}
-	return f
 }

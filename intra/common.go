@@ -223,6 +223,8 @@ func (h *baseHandler) forward(local, remote net.Conn, smm *SocketSummary) {
 
 	tup := conn2str(local, remote)
 
+	timeouts(remote)
+
 	log.I("com: %s: forward: new conn %s via proxy(%s); %s for %s",
 		h.proto, cid, via, tup, uid)
 
@@ -599,4 +601,48 @@ func containsPid(pids []string, pid string) bool {
 		}
 	}
 	return false
+}
+
+func timeouts(c net.Conn) {
+	dopt := settings.GetDialerOpts()
+	// -ve ints go higher than 2^31 w/ uint: go.dev/play/p/Rrqk_V8a7W0
+	r := uint32(dopt.ReadTimeoutSec)
+	w := uint32(dopt.WriteTimeoutSec)
+
+	if r == w {
+		extend(c, time.Second*time.Duration(r))
+	} else {
+		extendr(c, time.Second*time.Duration(r))
+		extendw(c, time.Second*time.Duration(w))
+	}
+}
+
+func extend(c core.MinConn, t time.Duration) {
+	if c != nil && core.IsNotNil(c) {
+		_ = c.SetDeadline(time.Now().Add(t))
+	}
+}
+
+func extendr(c core.MinConn, t time.Duration) {
+	if c != nil && core.IsNotNil(c) {
+		_ = c.SetReadDeadline(time.Now().Add(t))
+	}
+}
+
+func extendw(c core.MinConn, t time.Duration) {
+	if c != nil && core.IsNotNil(c) {
+		_ = c.SetWriteDeadline(time.Now().Add(t))
+	}
+}
+
+func anyaddrFor(ipp netip.AddrPort) (proto, anyaddr string) {
+	return ipn.AnyAddrForUDP(ipp)
+}
+
+func logev(err error) log.LogFn {
+	f := log.E
+	if err == nil {
+		f = log.VV
+	}
+	return f
 }

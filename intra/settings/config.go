@@ -401,6 +401,10 @@ type DialerOpts struct {
 	// LowerKeepAlive is the flag to enable low TCP keep-alive.
 	// Currently, 600s for idle, 5s for interval, and 4 probes.
 	LowerKeepAlive bool
+	// Read timeout for outgoing tcp & udp connections.
+	ReadTimeoutSec int32
+	// Write timeout for outgoing tcp & udp connections.
+	WriteTimeoutSec int32
 }
 
 func newDialerOpts() *DialerOpts {
@@ -442,8 +446,13 @@ func (d DialerOpts) String() string {
 		}
 		return ""
 	}()
+	tmo := func() string {
+		return strconv.Itoa(int(d.ReadTimeoutSec)) +
+			"s ," + strconv.Itoa(int(d.WriteTimeoutSec)) +
+			"s"
+	}()
 
-	return strings.Join([]string{s, r, ka}, ",")
+	return strings.Join([]string{s, r, ka, tmo}, ",")
 }
 
 // Dial strategies
@@ -474,7 +483,7 @@ const (
 var dialerOpts = newDialerOpts()
 
 // SetDialerOpts sets the dialer options to use.
-func SetDialerOpts(strat, retry int32, keepalive bool) bool {
+func SetDialerOpts(strat, retry, timeoutsec int32, keepalive bool) bool {
 	s := dialerOpts
 	ok := true
 	switch strat {
@@ -492,6 +501,11 @@ func SetDialerOpts(strat, retry int32, keepalive bool) bool {
 		ok = false
 	}
 	s.LowerKeepAlive = keepalive
+	if timeoutsec < 0 {
+		timeoutsec = 0
+	}
+	s.ReadTimeoutSec = timeoutsec
+	s.WriteTimeoutSec = timeoutsec
 	return ok
 }
 
