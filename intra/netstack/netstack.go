@@ -94,7 +94,7 @@ func LogFile(y bool) (ok bool) {
 }
 
 // ref: github.com/brewlin/net-protocol/blob/ec64e5f899/internal/endpoint/endpoint.go#L20
-func Up(s *stack.Stack, ep stack.LinkEndpoint, h GConnHandler) (tcpip.NICID, error) {
+func Up(who string, s *stack.Stack, ep stack.LinkEndpoint, h GConnHandler) (tcpip.NICID, error) {
 	nic := tcpip.NICID(settings.NICID)
 
 	// fetch existing routes before adding removing nic, which wipes out routes
@@ -103,9 +103,9 @@ func Up(s *stack.Stack, ep stack.LinkEndpoint, h GConnHandler) (tcpip.NICID, err
 	// also closes its netstack protos (ip4, ip6), closes link-endpoint (ep), if any
 	if ferr := s.RemoveNIC(nic); ferr != nil {
 		_, newnic = ferr.(*tcpip.ErrUnknownNICID)
-		log.I("netstack: new nic? %t; remove nic? err(%v)", newnic, ferr)
+		log.I("netstack: %s: new nic? %t; remove nic? err(%v)", who, newnic, ferr)
 	} else {
-		log.I("netstack: removed nic(%d)", nic)
+		log.I("netstack: %s: removed nic(%d)", who, nic)
 	}
 
 	// TODO? Pause and resume?
@@ -118,18 +118,19 @@ func Up(s *stack.Stack, ep stack.LinkEndpoint, h GConnHandler) (tcpip.NICID, err
 
 	if newnic {
 		// github.com/google/gvisor/blob/a7dcce93/pkg/tcpip/sample/tun_tcp_connect/main.go
-		OutboundTCP(s, h.TCP())
-		OutboundUDP(s, h.UDP())
+		OutboundTCP(who, s, h.TCP())
+		OutboundUDP(who, s, h.UDP())
 	}
 	// icmp needs link endpoint, which is always new
-	OutboundICMP(s, ep, h.ICMP())
+	OutboundICMP(who, s, ep, h.ICMP())
 
 	if settings.Debug {
 		tcp := s.TransportProtocolInstance(tcp.ProtocolNumber) != nil     // 6
 		udp := s.TransportProtocolInstance(udp.ProtocolNumber) != nil     // 17
 		icmp4 := s.TransportProtocolInstance(icmp.ProtocolNumber4) != nil // 1
 		icmp6 := s.TransportProtocolInstance(icmp.ProtocolNumber6) != nil // 58
-		log.D("netstack: transport instances: icmp4/6? %t/%t, tcp/udp %t/%t", icmp4, icmp6, tcp, udp)
+		log.D("netstack: %s: transport instances: icmp4/6? %t/%t, tcp/udp %t/%t",
+			who, icmp4, icmp6, tcp, udp)
 	}
 
 	// creates and enables a fake nic for netstack s
@@ -162,12 +163,12 @@ func Up(s *stack.Stack, ep stack.LinkEndpoint, h GConnHandler) (tcpip.NICID, err
 	// s.SetNICMulticastForwarding(nic, ipv6.ProtocolNumber, nicfwd)
 	// use existing routes if the nic is being recycled
 	if !newnic && len(existingroutes) > 0 {
-		log.I("netstack: up(%d)! addrs: %v %v; existing routes? %s; new routes: %s",
-			nic, if4, if6, s.GetRouteTable(), existingroutes)
+		log.I("netstack: %s: up(%d)! addrs: %v %v; existing routes? %s; new routes: %s",
+			who, nic, if4, if6, s.GetRouteTable(), existingroutes)
 		s.SetRouteTable(existingroutes)
 	} else {
-		log.I("netstack: up(%d)! new? %t; addrs: %v %v; routes? %s",
-			nic, newnic, if4, if6, s.GetRouteTable())
+		log.I("netstack: %s: up(%d)! new? %t; addrs: %v %v; routes? %s",
+			who, nic, newnic, if4, if6, s.GetRouteTable())
 	}
 
 	return nic, nil
@@ -231,10 +232,10 @@ func addIfAddrs(s *stack.Stack, nic tcpip.NICID) error {
 
 	// at: github.com/google/gvisor/blob/1f4299ee3f/pkg/tcpip/stack/addressable_endpoint_state.go#L177
 	if err := s.AddProtocolAddress(nic, protoaddr4, asMainAddr); err != nil {
-		return fmt.Errorf("wg: %d add addr(%v): %v", nic, ifaddr6, err)
+		return fmt.Errorf("netstack: %d add addr(%v): %v", nic, ifaddr6, err)
 	}
 	if err := s.AddProtocolAddress(nic, protoaddr6, asMainAddr); err != nil {
-		return fmt.Errorf("wg: %d add addr(%v): %v", nic, ifaddr4, err)
+		return fmt.Errorf("netstack: %d add addr(%v): %v", nic, ifaddr4, err)
 	}
 	return nil
 }

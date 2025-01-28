@@ -39,6 +39,7 @@ type GUDPConnHandler interface {
 var _ core.UDPConn = (*GUDPConn)(nil)
 
 type GUDPConn struct {
+	o     string // owner
 	stack *stack.Stack
 
 	// conn exposes UDP semantics atop endpoint
@@ -57,8 +58,9 @@ type GUDPConn struct {
 }
 
 // ref: github.com/google/gvisor/blob/e89e736f1/pkg/tcpip/adapters/gonet/gonet_test.go#L373
-func makeGUDPConn(s *stack.Stack, r *udp.ForwarderRequest, src, dst netip.AddrPort) *GUDPConn {
+func makeGUDPConn(who string, s *stack.Stack, r *udp.ForwarderRequest, src, dst netip.AddrPort) *GUDPConn {
 	return &GUDPConn{
+		o:     who,
 		stack: s,
 		c:     core.NewZeroVolatile[*gonet.UDPConn](),
 		src:   src,
@@ -69,15 +71,16 @@ func makeGUDPConn(s *stack.Stack, r *udp.ForwarderRequest, src, dst netip.AddrPo
 	}
 }
 
-func OutboundUDP(s *stack.Stack, h GUDPConnHandler) {
-	s.SetTransportProtocolHandler(udp.ProtocolNumber, udpForwarder(s, h).HandlePacket)
+func OutboundUDP(id string, s *stack.Stack, h GUDPConnHandler) {
+	s.SetTransportProtocolHandler(udp.ProtocolNumber, udpForwarder(id, s, h).HandlePacket)
 }
 
-func InboundUDP(s *stack.Stack, in net.Conn, to, from netip.AddrPort, h GUDPConnHandler) error {
-	newgc := makeGUDPConn(s, nil /*not a forwarder req*/, to, from)
+func InboundUDP(who string, s *stack.Stack, in net.Conn, to, from netip.AddrPort, h GUDPConnHandler) error {
+	newgc := makeGUDPConn(who, s, nil /*not a forwarder req*/, to, from)
 	if !settings.SingleThreaded.Load() {
 		if err := newgc.Establish(); err != nil {
-			log.E("ns: udp: inbound: dial: %v; src(%v) dst(%v)", err, to, from)
+			log.E("ns: udp: %s: inbound: dial: %v; src(%v) dst(%v)",
+				who, err, to, from)
 			go h.Error(newgc, to, from, err)
 			return err
 		}
@@ -97,10 +100,10 @@ func InboundUDP(s *stack.Stack, in net.Conn, to, from netip.AddrPort, h GUDPConn
 // via: github.com/google/gvisor/blob/be6ffa7/pkg/tcpip/adapters/gonet/gonet.go#L315
 // fin: github.com/google/gvisor/blob/be6ffa7/pkg/tcpip/transport/udp/endpoint.go#L220
 // but: github.com/google/gvisor/blob/be6ffa7/pkg/tcpip/transport/udp/endpoint.go#L180
-func udpForwarder(s *stack.Stack, h GUDPConnHandler) *udp.Forwarder {
+func udpForwarder(who string, s *stack.Stack, h GUDPConnHandler) *udp.Forwarder {
 	return udp.NewForwarder(s, func(req *udp.ForwarderRequest) {
 		if req == nil {
-			log.E("ns: udp: forwarder: nil request")
+			log.E("ns: udp: %s: forwarder: nil request", who)
 			return
 		}
 
@@ -127,24 +130,26 @@ func udpForwarder(s *stack.Stack, h GUDPConnHandler) *udp.Forwarder {
 		// multiple dst in the unconnected udp case.
 		dst := localAddrPort(id)
 
-		gc := makeGUDPConn(s, req, src, dst)
+		gc := makeGUDPConn(who, s, req, src, dst)
 
 		demux := func(ingress net.Conn, newdst netip.AddrPort) error {
 			if newdst.Compare(dst) == 0 {
-				log.D("ns: udp: demuxer: no-op; src(%v) same as dst(%v)", src, newdst)
+				log.D("ns: udp: %s: demuxer: no-op; src(%v) same as dst(%v)",
+					who, src, newdst)
 				return nil
 			}
 			if !gc.eif {
 				return errFilteredOut
 			}
-			return InboundUDP(s, ingress, src, newdst, h)
+			return InboundUDP(who, s, ingress, src, newdst, h)
 		}
 
 		// setup to recv right away, so that netstack's internal state is consistent
 		// in case there are multiple forwarders dispatching from the TUN device.
 		if earlyConnect && !settings.SingleThreaded.Load() {
 			if err := gc.Establish(); err != nil {
-				log.E("ns: udp: forwarder: connect: %v; src(%v) dst(%v)", err, src, dst)
+				log.E("ns: udp: %s: forwarder: connect: %v; src(%v) dst(%v)",
+					who, err, src, dst)
 				go h.Error(gc, src, dst, err)
 			} else { // gc already connected; safe to call the handler async
 				go handle(h, gc, src, dst, demux)
@@ -189,7 +194,8 @@ func (g *GUDPConn) Establish() error {
 		dst, _ := addrport2nsaddr(g.src)     // local addr is remote addr in netstack
 		// ingress socket w/ gonet.DialUDP
 		if conn, err := gonet.DialUDP(g.stack, &src, &dst, proto); err != nil {
-			log.E("ns: udp: dial: endpoint for %v => %v; err(%v)", g.src, g.dst, err)
+			log.E("ns: udp: %s: dial: endpoint for %v => %v; err(%v)",
+				g.o, g.src, g.dst, err)
 			return err
 		} else {
 			g.c.Store(conn)
@@ -198,7 +204,8 @@ func (g *GUDPConn) Establish() error {
 		wq := new(waiter.Queue)
 		if ep, err := g.req.CreateEndpoint(wq); err != nil || ep == nil {
 			// ex: CONNECT endpoint for [fd66:f83a:c650::1]:15753 => [fd66:f83a:c650::3]:53; err(no route to host)
-			log.E("ns: udp: connect: endpoint(ok? %t) for %v => %v; err(%v)", ep != nil, g.src, g.dst, err)
+			log.E("ns: udp: %s: connect: endpoint(ok? %t) for %v => %v; err(%v)",
+				g.o, ep != nil, g.src, g.dst, err)
 			return e(err)
 		} else {
 			g.c.Store(gonet.NewUDPConn(wq, ep))
@@ -236,28 +243,28 @@ func (g *GUDPConn) Write(data []byte) (int, error) {
 		// g.ep may be nil: log.V("ns: writeFrom: from(%v) / ep(state %v / info %v / stats %v)", addr, g.ep.State(), g.ep.Info(), g.ep.Stats())
 		return c.Write(data)
 	}
-	return 0, netError(g, "udp", "write", io.ErrClosedPipe)
+	return 0, netError(g, "udp", g.o+":write", io.ErrClosedPipe)
 }
 
 func (g *GUDPConn) Read(data []byte) (int, error) {
 	if c := g.conn(); c != nil {
 		return c.Read(data)
 	}
-	return 0, netError(g, "udp", "read", io.ErrNoProgress)
+	return 0, netError(g, "udp", g.o+":read", io.ErrNoProgress)
 }
 
 func (g *GUDPConn) WriteTo(data []byte, addr net.Addr) (int, error) {
 	if c := g.conn(); c != nil {
 		return c.WriteTo(data, addr)
 	}
-	return 0, netError(g, "udp", "writeTo", net.ErrWriteToConnected)
+	return 0, netError(g, "udp", g.o+":writeTo", net.ErrWriteToConnected)
 }
 
 func (g *GUDPConn) ReadFrom(data []byte) (int, net.Addr, error) {
 	if c := g.conn(); c != nil {
 		return c.ReadFrom(data)
 	}
-	return 0, nil, netError(g, "udp", "readFrom", io.ErrNoProgress)
+	return 0, nil, netError(g, "udp", g.o+":readFrom", io.ErrNoProgress)
 }
 
 func (g *GUDPConn) SetDeadline(t time.Time) error {

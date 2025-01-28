@@ -19,6 +19,7 @@ import (
 )
 
 type revbase[T gconns] struct {
+	o     string // owner
 	ended atomic.Bool
 }
 
@@ -49,22 +50,22 @@ var _ GTCPConnHandler = (*revtcp)(nil)
 var _ GUDPConnHandler = (*revudp)(nil)
 var _ GICMPHandler = (*revicmp)(nil)
 
-func NewReverseGConnHandler(pctx context.Context, to *stack.Stack, of tcpip.NICID, ep stack.LinkEndpoint, via GConnHandler) *gconnhandler {
+func NewReverseGConnHandler(id string, pctx context.Context, to *stack.Stack, of tcpip.NICID, ep stack.LinkEndpoint, via GConnHandler) *gconnhandler {
 	h := &gconnhandler{
-		tcp:  newReverseTCP(to, of, via.TCP()),
-		udp:  newReverseUDP(to, of, via.UDP()),
-		icmp: newReverseICMP(to, ep, via.ICMP()),
+		tcp:  newReverseTCP(id, to, of, via.TCP()),
+		udp:  newReverseUDP(id, to, of, via.UDP()),
+		icmp: newReverseICMP(id, to, ep, via.ICMP()),
 	}
-	log.I("rev: newReverseGConnHandler %d @ %x", of, to)
+	log.I("rev: %s: newReverseGConnHandler %d @ %x", id, of, to)
 	context.AfterFunc(pctx, h.end)
 	return h
 }
 
-func newReverseTCP(s *stack.Stack, nic tcpip.NICID, h GTCPConnHandler) *revtcp {
+func newReverseTCP(id string, s *stack.Stack, nic tcpip.NICID, h GTCPConnHandler) *revtcp {
 	ip4, ip6 := StackAddrs(s, nic)
-	log.I("rev: nic %d newReverseTCP %v %v", nic, ip4, ip6)
+	log.I("rev: %s: nic %d newReverseTCP %v %v", id, nic, ip4, ip6)
 	return &revtcp{
-		revbase:  &revbase[*GTCPConn]{},
+		revbase:  &revbase[*GTCPConn]{o: id},
 		revstack: s,
 		reverser: h,
 		stackip4: ip4,
@@ -72,11 +73,11 @@ func newReverseTCP(s *stack.Stack, nic tcpip.NICID, h GTCPConnHandler) *revtcp {
 	}
 }
 
-func newReverseUDP(s *stack.Stack, nic tcpip.NICID, h GUDPConnHandler) *revudp {
+func newReverseUDP(id string, s *stack.Stack, nic tcpip.NICID, h GUDPConnHandler) *revudp {
 	ip4, ip6 := StackAddrs(s, nic)
-	log.I("rev: nic %d newReverseUDP %v %v", nic, ip4, ip6)
+	log.I("rev: %s: nic %d newReverseUDP %v %v", id, nic, ip4, ip6)
 	return &revudp{
-		revbase:  &revbase[*GUDPConn]{},
+		revbase:  &revbase[*GUDPConn]{o: id},
 		revstack: s,
 		reverser: h,
 		stackip4: ip4,
@@ -84,9 +85,9 @@ func newReverseUDP(s *stack.Stack, nic tcpip.NICID, h GUDPConnHandler) *revudp {
 	}
 }
 
-func newReverseICMP(s *stack.Stack, ep stack.LinkEndpoint, h GICMPHandler) *revicmp {
+func newReverseICMP(id string, s *stack.Stack, ep stack.LinkEndpoint, h GICMPHandler) *revicmp {
 	return &revicmp{
-		revbase:  &revbase[*GICMPConn]{},
+		revbase:  &revbase[*GICMPConn]{o: id},
 		revstack: s,
 		revep:    ep,
 		reverser: h,
@@ -110,14 +111,14 @@ func (g *gconnhandler) end() {
 
 // Base
 
-func (*revbase[T]) ReverseProxy(out T, in net.Conn, src, dst netip.AddrPort) bool {
+func (b *revbase[T]) ReverseProxy(out T, in net.Conn, src, dst netip.AddrPort) bool {
 	// TODO: stub
-	log.E("rev: revbase: %T ReverseProxy not implemented %v <= %v", out, src, dst)
+	log.E("rev: %s: revbase: %T ReverseProxy not implemented %v <= %v", b.o, out, src, dst)
 	return false
 }
 
-func (*revbase[T]) Error(in T, src, dst netip.AddrPort, err error) {
-	log.E("rev: revbase: %T Error %v <= %v: %v", in, src, dst, err)
+func (b *revbase[T]) Error(in T, src, dst netip.AddrPort, err error) {
+	log.E("rev: %s: revbase: %T Error %v <= %v: %v", b.o, in, src, dst, err)
 }
 
 func (*revbase[T]) OpenConns() string {
@@ -138,15 +139,15 @@ func (r *revbase[T]) End() {
 
 func (t *revtcp) Proxy(in *GTCPConn, src, dst netip.AddrPort) bool {
 	end := t.ended.Load()
-	log.D("rev: revtcp: Proxy %v <= %v; end? %t", src, dst, end)
+	log.D("rev: %s: revtcp: Proxy %v <= %v; end? %t", t.o, src, dst, end)
 	if end {
 		return false
 	}
 	// dst is local (just the port number assuming listening sockets)
 	// to t.revstack to dial into; src is remote to t.revstack
 	// ex: src 1.1.1.1:5555 / dst 10.0.1.1:1111
-	err := InboundTCP(t.revstack, in, t.revipp(dst), src, t.reverser)
-	logeif(err)("rev: revtcp: Proxy %v <= %v; err? %v", src, dst, err)
+	err := InboundTCP(t.o, t.revstack, in, t.revipp(dst), src, t.reverser)
+	logeif(err)("rev: %s: revtcp: Proxy %v <= %v; err? %v", t.o, src, dst, err)
 	return err == nil
 }
 
@@ -162,25 +163,25 @@ func (r *revtcp) revipp(ipp netip.AddrPort) netip.AddrPort {
 
 func (u *revudp) Proxy(in *GUDPConn, src, dst netip.AddrPort) bool {
 	end := u.ended.Load()
-	log.D("rev: revudp: Proxy %v <= %v; end? %t", src, dst, end)
+	log.D("rev: %s: revudp: Proxy %v <= %v; end? %t", u.o, src, dst, end)
 	if end {
 		return false
 	}
 	// see: revtcp.Proxy
-	err := InboundUDP(u.revstack, in, u.revipp(dst), src, u.reverser)
-	logeif(err)("rev: revudp: Proxy %v <= %v; err? %v", src, dst, err)
+	err := InboundUDP(u.o, u.revstack, in, u.revipp(dst), src, u.reverser)
+	logeif(err)("rev: %s: revudp: Proxy %v <= %v; err? %v", u.o, src, dst, err)
 	return err == nil
 }
 
 func (u *revudp) ProxyMux(in *GUDPConn, src, dst netip.AddrPort, mux DemuxerFn) bool {
 	end := u.ended.Load()
-	log.D("rev: revudp: ProxyMux %v <= %v; end? %t", src, dst, end)
+	log.D("rev: %s: revudp: ProxyMux %v <= %v; end? %t", u.o, src, dst, end)
 	if end {
 		return false
 	}
 	// TODO: impl mux/demux
-	err := InboundUDP(u.revstack, in, u.revipp(dst), src, u.reverser)
-	logeif(err)("rev: revudp: ProxyMux %v <= %v; err? %v", src, dst, err)
+	err := InboundUDP(u.o, u.revstack, in, u.revipp(dst), src, u.reverser)
+	logeif(err)("rev: %s: revudp: ProxyMux %v <= %v; err? %v", u.o, src, dst, err)
 	return err == nil
 }
 
@@ -196,7 +197,7 @@ func (r *revudp) revipp(ipp netip.AddrPort) netip.AddrPort {
 
 func (i *revicmp) Ping(msg []byte, src, dst netip.AddrPort) bool {
 	// TODO: stub
-	log.E("rev: revicmp: Ping not implemented %v <= %v; err? %v", src, dst)
+	log.E("rev: %s: revicmp: Ping not implemented %v <= %v; err? %v", i.o, src, dst)
 	return false
 }
 

@@ -22,29 +22,30 @@ type GICMPHandler interface {
 }
 
 type icmpForwarder struct {
+	o  string
 	s  *stack.Stack
 	ep stack.LinkEndpoint
 	h  GICMPHandler
 }
 
 // ref: github.com/SagerNet/LibSagerNetCore/blob/632d6b892e/gvisor/icmp.go
-func OutboundICMP(s *stack.Stack, ep stack.LinkEndpoint, hdl GICMPHandler) {
+func OutboundICMP(id string, s *stack.Stack, ep stack.LinkEndpoint, hdl GICMPHandler) {
 	// remove default handlers
 	s.SetTransportProtocolHandler(icmp.ProtocolNumber4, nil)
 	s.SetTransportProtocolHandler(icmp.ProtocolNumber6, nil)
 
 	if hdl == nil {
-		log.E("icmp: no handler")
+		log.E("icmp: %s: no handler", id)
 		return
 	}
 
-	forwarder := newIcmpForwarder(s, ep, hdl)
+	forwarder := newIcmpForwarder(id, s, ep, hdl)
 	s.SetTransportProtocolHandler(icmp.ProtocolNumber4, forwarder.reply4)
 	s.SetTransportProtocolHandler(icmp.ProtocolNumber6, forwarder.reply6)
 }
 
-func newIcmpForwarder(s *stack.Stack, ep stack.LinkEndpoint, h GICMPHandler) *icmpForwarder {
-	return &icmpForwarder{s, ep, h}
+func newIcmpForwarder(owner string, s *stack.Stack, ep stack.LinkEndpoint, h GICMPHandler) *icmpForwarder {
+	return &icmpForwarder{owner, s, ep, h}
 }
 
 // sendICMP: github.com/google/gvisor/blob/8035cf9ed/pkg/tcpip/transport/tcp/testing/context/context.go#L404
@@ -53,14 +54,14 @@ func newIcmpForwarder(s *stack.Stack, ep stack.LinkEndpoint, h GICMPHandler) *ic
 func (f *icmpForwarder) reply4(id stack.TransportEndpointID, pkt *stack.PacketBuffer) (handled bool) {
 	var err tcpip.Error
 
-	log.VV("icmp: v4: packet? %v", pkt)
+	log.VV("icmp: v4: %s: packet? %v", f.o, pkt)
 
 	if pkt == nil {
-		log.E("icmp: v4: nil packet")
+		log.E("icmp: v4: %s: nil packet", f.o)
 		return // not handled
 	}
 	if !f.ep.IsAttached() {
-		log.D("icmp: v4: endpoint not attached")
+		log.D("icmp: v4: %s: endpoint not attached", f.o)
 		return // not handled
 	}
 
@@ -71,18 +72,19 @@ func (f *icmpForwarder) reply4(id stack.TransportEndpointID, pkt *stack.PacketBu
 	hdr := header.ICMPv4(pkt.TransportHeader().Slice())
 	if hdr.Type() != header.ICMPv4Echo {
 		// netstack handles other msgs except echo / ping
-		log.D("icmp: v4: type %v passthrough", hdr.Type())
+		log.D("icmp: v4: %s: type %v passthrough", f.o, hdr.Type())
 		return // not handled
 	}
 
 	// github.com/google/gvisor/blob/9b4a7aa00/pkg/tcpip/network/ipv6/icmp.go#L1180
 	data, derr := l4l7(pkt, f.ep.MTU())
 	if derr != nil {
-		log.E("icmp: v4: err getting payload: %v", derr)
+		log.E("icmp: v4: %s: err getting payload: %v", f.o, derr)
 		return // not handled
 	}
 
-	log.D("icmp: v4: type %v/%v sz [%v]; src(%v) => dst(%v)", hdr.Type(), hdr.Code(), len(data), src, dst)
+	log.D("icmp: v4: %s: type %v/%v sz [%v]; src(%v) => dst(%v)",
+		f.o, hdr.Type(), hdr.Code(), len(data), src, dst)
 
 	l3 := pkt.Network()
 	route, err := f.s.FindRoute(pkt.NICID, l3.DestinationAddress(), l3.SourceAddress(), pkt.NetworkProtocolNumber, false /* multicastLoop */)
@@ -94,7 +96,7 @@ func (f *icmpForwarder) reply4(id stack.TransportEndpointID, pkt *stack.PacketBu
 	// see: netstack/dispatcher.go:newReadvDispatcher
 	pkt.IncRef()
 
-	core.Go("icmp4.pinger", func() {
+	core.Go("icmp4.pinger."+f.o, func() {
 		defer route.Release()
 
 		if !f.h.Ping(data, src, dst) { // unreachable
@@ -106,7 +108,8 @@ func (f *icmpForwarder) reply4(id stack.TransportEndpointID, pkt *stack.PacketBu
 			hdr.SetType(header.ICMPv4EchoReply)
 			hdr.SetChecksum(0)
 			hdr.SetChecksum(header.ICMPv4Checksum(hdr, pkt.Data().Checksum()))
-			log.D("icmp: v4: ok type %v/%v sz[%d] from %v <= %v", hdr.Type(), hdr.Code(), len(hdr), src, dst)
+			log.D("icmp: v4: %s: ok type %v/%v sz[%d] from %v <= %v",
+				f.o, hdr.Type(), hdr.Code(), len(hdr), src, dst)
 
 			var pout stack.PacketBufferList
 			pout.PushBack(pkt)
@@ -114,27 +117,27 @@ func (f *icmpForwarder) reply4(id stack.TransportEndpointID, pkt *stack.PacketBu
 
 			_, err = f.ep.WritePackets(pout)
 		}
-		loge(err)("icmp: v4: wrote reply to tun; err? %v", err)
+		loge(err)("icmp: v4: %s: wrote reply to tun; err? %v", f.o, err)
 	})
 
 	return true // handled
 }
 
 func (f *icmpForwarder) reply6(id stack.TransportEndpointID, pkt *stack.PacketBuffer) (handled bool) {
-	log.VV("icmp: v6 packet? %v", pkt)
+	log.VV("icmp: v6: %s: packet? %v", f.o, pkt)
 
 	if pkt == nil {
-		log.E("icmp: v6: nil packet")
+		log.E("icmp: v6: %s: nil packet", f.o)
 		return // not handled
 	}
 	if !f.ep.IsAttached() {
-		log.D("icmp: v6: endpoint not attached")
+		log.D("icmp: v6: %s: endpoint not attached", f.o)
 		return // not handled
 	}
 
 	hdr := header.ICMPv6(pkt.TransportHeader().Slice())
 	if hdr.Type() != header.ICMPv6EchoRequest {
-		log.D("icmp: v6: type %v/%v passthrough", hdr.Type(), hdr.Code())
+		log.D("icmp: v6: %s: type %v/%v passthrough", f.o, hdr.Type(), hdr.Code())
 		return false // netstack to handle other msgs except echo / ping
 	}
 
@@ -143,15 +146,16 @@ func (f *icmpForwarder) reply6(id stack.TransportEndpointID, pkt *stack.PacketBu
 	// github.com/google/gvisor/blob/9b4a7aa00/pkg/tcpip/network/ipv6/icmp.go#L1180
 	data, derr := l4l7(pkt, f.ep.MTU())
 	if derr != nil {
-		log.E("icmp: v6: err getting payload: %v", derr)
+		log.E("icmp: v6: %s: err getting payload: %v", f.o, derr)
 		return // not handled
 	}
 
-	log.D("icmp: v6: type %v/%v sz[%d] from src(%v) => dst(%v)", hdr.Type(), hdr.Code(), len(data), src, dst)
+	log.D("icmp: v6: %s: type %v/%v sz[%d] from src(%v) => dst(%v)",
+		f.o, hdr.Type(), hdr.Code(), len(data), src, dst)
 	// always forward in a goroutine to avoid blocking netstack
 	// see: netstack/dispatcher.go:newReadvDispatcher
 	pkt.IncRef()
-	core.Go("icmp6.pinger", func() {
+	core.Go("icmp6.pinger."+f.o, func() {
 		var err tcpip.Error
 		if !f.h.Ping(data, src, dst) { // unreachable
 			defer pkt.DecRef()
@@ -166,7 +170,8 @@ func (f *icmpForwarder) reply6(id stack.TransportEndpointID, pkt *stack.PacketBu
 				PayloadCsum: pkt.Data().Checksum(),
 				PayloadLen:  pkt.Data().Size(),
 			}))
-			log.D("icmp: v6: ok type %v/%v sz[%d] from %v <= %v", hdr.Type(), hdr.Code(), len(hdr), src, dst)
+			log.D("icmp: v6: %s: ok type %v/%v sz[%d] from %v <= %v",
+				f.o, hdr.Type(), hdr.Code(), len(hdr), src, dst)
 
 			var pout stack.PacketBufferList
 			pout.PushBack(pkt)
@@ -174,7 +179,7 @@ func (f *icmpForwarder) reply6(id stack.TransportEndpointID, pkt *stack.PacketBu
 
 			_, err = f.ep.WritePackets(pout)
 		}
-		loge(err)("icmp: v6: wrote reply to tun; err? %v", err)
+		loge(err)("icmp: v6: %s: wrote reply to tun; err? %v", f.o, err)
 	})
 
 	return true
@@ -189,7 +194,7 @@ func (f *icmpForwarder) icmpErr4(pkt *stack.PacketBuffer, icmpType header.ICMPv4
 	// TODO(gvisor.dev/issues/4058): Make sure we don't send ICMP errors in
 	// response to a non-initial fragment, but it currently can not happen.
 	if pkt.NetworkPacketInfo.LocalAddressBroadcast || header.IsV4MulticastAddress(origIPHdrDst) || origIPHdrSrc == header.IPv4Any {
-		log.W("icmp: v4: skip broadcast/multicast dst(%s) <= src(%s)", origIPHdrDst, origIPHdrSrc)
+		log.W("icmp: v4: %s: skip broadcast/multicast dst(%s) <= src(%s)", f.o, origIPHdrDst, origIPHdrSrc)
 		return &tcpip.ErrAddressFamilyNotSupported{}
 	}
 
@@ -203,7 +208,7 @@ func (f *icmpForwarder) icmpErr4(pkt *stack.PacketBuffer, icmpType header.ICMPv4
 		// of protocol to not respond to unknown non-error packets than to respond
 		// to unknown error packets so we take the first approach.
 		if len(transportHeader) < header.ICMPv4MinimumSize {
-			log.D("icmp: v4: l4 header too small: %d", len(transportHeader))
+			log.D("icmp: v4: %s: l4 header too small: %d", f.o, len(transportHeader))
 			return &tcpip.ErrMalformedHeader{}
 		}
 		x := header.ICMPv4(transportHeader)
@@ -217,7 +222,7 @@ func (f *icmpForwarder) icmpErr4(pkt *stack.PacketBuffer, icmpType header.ICMPv4
 			header.ICMPv4InfoReply:
 		default:
 			// Assume any type we don't know about may be an error type.
-			log.W("icmp: v4: skip ICMP error packet %d", x.Type())
+			log.W("icmp: v4: %s: skip ICMP error packet %d", f.o, x.Type())
 			return &tcpip.ErrNotSupported{}
 		}
 	}
@@ -233,7 +238,7 @@ func (f *icmpForwarder) icmpErr4(pkt *stack.PacketBuffer, icmpType header.ICMPv4
 	case header.ICMPv4HostUnreachable: // or: header.ICMPv4ReassemblyTimeout
 	case header.ICMPv4FragmentationNeeded:
 	default:
-		log.W("icmp: v4: unsupported code %d", icmpCode)
+		log.W("icmp: v4: %s: unsupported code %d", f.o, icmpCode)
 		return &tcpip.ErrNotSupported{}
 	}
 
@@ -259,7 +264,8 @@ func (f *icmpForwarder) icmpErr4(pkt *stack.PacketBuffer, icmpType header.ICMPv4
 	payloadLen := len(origIPHdr) + len(transportHeader) + pkt.Data().Size()
 
 	if available < needed {
-		log.W("icmp: v4: no space for orig IP header has: %d < want: %d; total %d", available, needed, payloadLen)
+		log.W("icmp: v4: %s: no space for orig IP header has: %d < want: %d; total %d",
+			f.o, available, needed, payloadLen)
 		return &tcpip.ErrNoBufferSpace{}
 	}
 
@@ -304,7 +310,7 @@ func (f *icmpForwarder) icmpErr4(pkt *stack.PacketBuffer, icmpType header.ICMPv4
 
 	n, werr := f.ep.WritePackets(pout)
 
-	loge(werr)("icmp: v4: sent %d bytes to tun; err? %v", n, werr)
+	loge(werr)("icmp: v4: %s: sent %d bytes to tun; err? %v", f.o, n, werr)
 
 	return werr
 }
@@ -339,13 +345,13 @@ func (f *icmpForwarder) icmpErr6(id stack.TransportEndpointID, pkt *stack.Packet
 	allowResponseToMulticast := false // TODO: reason.respondsToMulticast()
 	isOrigDstMulticast := header.IsV6MulticastAddress(origIPHdrDst)
 	if (!allowResponseToMulticast && isOrigDstMulticast) || origIPHdrSrc == header.IPv6Any {
-		log.W("icmp: v6: skip multicast dst(%s) <= src(%s)", origIPHdrDst, origIPHdrSrc)
+		log.W("icmp: v6: %s: skip multicast dst(%s) <= src(%s)", f.o, origIPHdrDst, origIPHdrSrc)
 		return &tcpip.ErrAddressFamilyNotSupported{}
 	}
 
 	if pkt.TransportProtocolNumber == header.ICMPv6ProtocolNumber {
 		if typ := header.ICMPv6(pkt.TransportHeader().Slice()).Type(); typ.IsErrorType() || typ == header.ICMPv6RedirectMsg {
-			log.W("icmp: v6: skip ICMP error packet %d", typ)
+			log.W("icmp: v6: %s: skip ICMP error packet %d", f.o, typ)
 			return nil
 		}
 	}
@@ -360,7 +366,7 @@ func (f *icmpForwarder) icmpErr6(id stack.TransportEndpointID, pkt *stack.Packet
 		// or: ICMPv6ReassemblyTimeout -> ICMPv6PacketTooBig
 	case header.ICMPv6AddressUnreachable: // ICMPv6DstUnreachable
 	default:
-		log.W("icmp: v6: unsupported code %d", icmpCode)
+		log.W("icmp: v6: %s: unsupported code %d", f.o, icmpCode)
 		return &tcpip.ErrNotSupported{}
 	}
 
@@ -382,7 +388,8 @@ func (f *icmpForwarder) icmpErr6(id stack.TransportEndpointID, pkt *stack.Packet
 	needed := header.IPv6MinimumSize
 	payloadLen := network.Size() + transport.Size() + pkt.Data().Size()
 	if available < needed {
-		log.W("icmp: v6: no space for orig IP header has: %d < want: %d; total %d", available, needed, payloadLen)
+		log.W("icmp: v6: %s: no space for orig IP header; has: %d < want: %d; total %d",
+			f.o, available, needed, payloadLen)
 		return &tcpip.ErrNoBufferSpace{}
 	}
 	if payloadLen > available {
@@ -391,7 +398,7 @@ func (f *icmpForwarder) icmpErr6(id stack.TransportEndpointID, pkt *stack.Packet
 
 	payload, err := l3l4(pkt, int64(payloadLen))
 	if err != nil {
-		log.E("icmp: v6: err getting payload: %v", err)
+		log.E("icmp: v6: %s: err getting payload: %v", f.o, err)
 		return &tcpip.ErrNoBufferSpace{}
 	}
 
@@ -421,7 +428,7 @@ func (f *icmpForwarder) icmpErr6(id stack.TransportEndpointID, pkt *stack.Packet
 
 	n, werr := f.ep.WritePackets(pout)
 
-	loge(werr)("icmp: v6: sent %d bytes to tun; err? %v", n, werr)
+	loge(werr)("icmp: v6: %s: sent %d bytes to tun; err? %v", f.o, n, werr)
 
 	return werr
 }

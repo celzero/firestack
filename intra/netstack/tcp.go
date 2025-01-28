@@ -49,6 +49,7 @@ type GTCPConnHandler interface {
 var _ core.TCPConn = (*GTCPConn)(nil)
 
 type GTCPConn struct {
+	o     string // owner
 	stack *stack.Stack
 	c     *core.Volatile[*gonet.TCPConn] // conn exposes TCP semantics atop endpoint
 	src   netip.AddrPort                 // local addr (remote addr in netstack)
@@ -63,12 +64,12 @@ type GTCPConn struct {
 // from (dst) is local (to netstack, s).
 // h is the handler that handles connection in into netstack, s, by
 // dialing to from (dst) from to (src).
-func InboundTCP(s *stack.Stack, in net.Conn, to, from netip.AddrPort, h GTCPConnHandler) error {
-	newgc := makeGTCPConn(s, nil /*not a forwarder req*/, to, from)
+func InboundTCP(who string, s *stack.Stack, in net.Conn, to, from netip.AddrPort, h GTCPConnHandler) error {
+	newgc := makeGTCPConn(who, s, nil /*not a forwarder req*/, to, from)
 	if !settings.SingleThreaded.Load() {
 		if open, err := newgc.tryConnect(); err != nil || !open {
-			log.E("ns: tcp: inbound: tryConnect err src(%v) => dst(%v); open? %t, err(%v)",
-				to, from, open, err)
+			log.E("ns: tcp: %s: inbound: tryConnect err src(%v) => dst(%v); open? %t, err(%v)",
+				newgc.o, to, from, open, err)
 			if err == nil {
 				err = errMissingEp
 			}
@@ -80,16 +81,16 @@ func InboundTCP(s *stack.Stack, in net.Conn, to, from netip.AddrPort, h GTCPConn
 	return nil
 }
 
-func OutboundTCP(s *stack.Stack, h GTCPConnHandler) {
-	s.SetTransportProtocolHandler(tcp.ProtocolNumber, tcpForwarder(s, h).HandlePacket)
+func OutboundTCP(id string, s *stack.Stack, h GTCPConnHandler) {
+	s.SetTransportProtocolHandler(tcp.ProtocolNumber, tcpForwarder(id, s, h).HandlePacket)
 }
 
 // nic.deliverNetworkPacket -> no existing matching endpoints -> tcpForwarder.HandlePacket
 // ref: github.com/google/gvisor/blob/e89e736f1/pkg/tcpip/adapters/gonet/gonet_test.go#L189
-func tcpForwarder(s *stack.Stack, h GTCPConnHandler) *tcp.Forwarder {
+func tcpForwarder(who string, s *stack.Stack, h GTCPConnHandler) *tcp.Forwarder {
 	return tcp.NewForwarder(s, rcvwnd, maxInFlight, func(req *tcp.ForwarderRequest) {
 		if req == nil {
-			log.E("ns: tcp: forwarder: nil request")
+			log.E("ns: tcp: %s: forwarder: nil request", who)
 			return
 		}
 		id := req.ID()
@@ -101,14 +102,15 @@ func tcpForwarder(s *stack.Stack, h GTCPConnHandler) *tcp.Forwarder {
 		// read/writes are routed using 5-tuple to the same conn (endpoint)
 		// demuxer.handlePacket -> find matching endpoint -> queue-packet -> send/recv conn (ep)
 		// ref: github.com/google/gvisor/blob/be6ffa7/pkg/tcpip/stack/transport_demuxer.go#L180
-		gtcp := makeGTCPConn(s, req, src, dst)
+		gtcp := makeGTCPConn(who, s, req, src, dst)
 
 		// setup endpoint right away, so that netstack's internal state is consistent
 		// in case there are multiple forwarders dispatching from the TUN device.
 		if earlyConnect && !settings.SingleThreaded.Load() {
 			opened, err := gtcp.tryConnect()
 			if err != nil || !opened {
-				log.E("ns: tcp: forwarder: tryConnect err src(%v) => dst(%v); open? %t, err(%v)", src, dst, opened, err)
+				log.E("ns: tcp: %s: forwarder: tryConnect err src(%v) => dst(%v); open? %t, err(%v)",
+					who, src, dst, opened, err)
 				go h.Error(gtcp, src, dst, core.OneErr(err, errMissingEp)) // error
 			} else { // gtcp is connected, optimize and proxy async
 				go h.Proxy(gtcp, src, dst)
@@ -121,9 +123,10 @@ func tcpForwarder(s *stack.Stack, h GTCPConnHandler) *tcp.Forwarder {
 	})
 }
 
-func makeGTCPConn(s *stack.Stack, req *tcp.ForwarderRequest, src, dst netip.AddrPort) *GTCPConn {
+func makeGTCPConn(who string, s *stack.Stack, req *tcp.ForwarderRequest, src, dst netip.AddrPort) *GTCPConn {
 	// set sock-opts? github.com/xjasonlyu/tun2socks/blob/31468620e/core/tcp.go#L82
 	return &GTCPConn{
+		o:     who,
 		stack: s,
 		c:     core.NewZeroVolatile[*gonet.TCPConn](),
 		src:   src,
@@ -143,14 +146,15 @@ func (g *GTCPConn) conn() *gonet.TCPConn {
 func (g *GTCPConn) Establish() (open bool, err error) {
 	rst, err := g.synack(true)
 
-	log.VV("ns: tcp: forwarder: connect src(%v) => dst(%v); fin? %t", g.LocalAddr(), g.RemoteAddr(), rst)
+	log.VV("ns: tcp: %s: forwarder: connect src(%v) => dst(%v); fin? %t",
+		g.o, g.LocalAddr(), g.RemoteAddr(), rst)
 	return !rst, err
 }
 
 func (g *GTCPConn) tryConnect() (open bool, err error) {
 	rst, err := g.synack(false)
 
-	log.VV("ns: tcp: forwarder: proxy src(%v) => dst(%v); fin? %t", g.LocalAddr(), g.RemoteAddr(), rst)
+	log.VV("ns: tcp: %s: forwarder: proxy src(%v) => dst(%v); fin? %t", g.o, g.LocalAddr(), g.RemoteAddr(), rst)
 	return !rst, err // open or closed
 }
 
@@ -159,8 +163,8 @@ func (g *GTCPConn) tryConnect() (open bool, err error) {
 func (g *GTCPConn) complete(rst bool) {
 	g.once.Do(func() {
 		req := g.req
-		log.D("ns: tcp: forwarder: complete src(%v) => dst(%v); req? %t, rst? %t",
-			g.LocalAddr(), g.RemoteAddr(), req != nil, rst)
+		log.D("ns: tcp: %s: forwarder: complete src(%v) => dst(%v); req? %t, rst? %t",
+			g.o, g.LocalAddr(), g.RemoteAddr(), req != nil, rst)
 		if req != nil {
 			req.Complete(rst)
 		}
@@ -183,22 +187,25 @@ func (g *GTCPConn) synack(complete bool) (rst bool, err error) {
 		wq := new(waiter.Queue)
 		// the passive-handshake (SYN) may not successful for a non-existent route (say, ipv6)
 		if ep, err := g.req.CreateEndpoint(wq); err != nil || ep == nil {
-			log.E("ns: tcp: forwarder: synack(complete? %t / ep? %t) src(%v) => dst(%v); err(%v)", complete, ep != nil, g.LocalAddr(), g.RemoteAddr(), err)
+			log.E("ns: tcp: %s: forwarder: synack(complete? %t / ep? %t) src(%v) => dst(%v); err(%v)",
+				g.o, complete, ep != nil, g.LocalAddr(), g.RemoteAddr(), err)
 			// prevent potential half-open TCP connection leak.
 			// hopefully doesn't break happy-eyeballs datatracker.ietf.org/doc/html/rfc8305#section-5
 			// ie, apps that expect network-unreachable ICMP msgs instead of TCP RSTs?
 			// TCP RST here is indistinguishable to an app from being firewalled.
 			return true, e(err) // close, err
 		} else {
-			g.c.Store(gonet.NewTCPConn(wq, ep))
 			keepalive(ep)
+			conn := gonet.NewTCPConn(wq, ep)
+			g.c.Store(conn)
 		}
 	} else { // ingressing (process a conn into tun)
 		src, proto := addrport2nsaddr(g.dst) // remote addr is local addr in netstack
 		dst, _ := addrport2nsaddr(g.src)     // local addr is remote addr in netstack
 		bg := context.Background()
 		if conn, err := gonet.DialTCPWithBind(bg, g.stack, src, dst, proto); err != nil {
-			log.E("ns: tcp: forwarder: synack(complete? %t) src(%v) => dst(%v); err(%v)", complete, g.LocalAddr(), g.RemoteAddr(), err)
+			log.E("ns: tcp: %s: forwarder: synack(complete? %t) src(%v) => dst(%v); err(%v)",
+				g.o, complete, g.LocalAddr(), g.RemoteAddr(), err)
 			return true, err // close, err
 		} else {
 			g.c.Store(conn)
@@ -255,28 +262,28 @@ func (g *GTCPConn) Write(data []byte) (int, error) {
 	if c := g.conn(); c != nil {
 		return c.Write(data)
 	}
-	return 0, netError(g, "tcp", "write", io.ErrClosedPipe)
+	return 0, netError(g, "tcp", g.o+":write", io.ErrClosedPipe)
 }
 
 func (g *GTCPConn) Read(data []byte) (int, error) {
 	if c := g.conn(); c != nil {
 		return c.Read(data)
 	}
-	return 0, netError(g, "tcp", "read", io.ErrNoProgress)
+	return 0, netError(g, "tcp", g.o+":read", io.ErrNoProgress)
 }
 
 func (g *GTCPConn) CloseWrite() error {
 	if c := g.conn(); c != nil {
 		return c.CloseWrite()
 	}
-	return netError(g, "tcp", "close", net.ErrClosed)
+	return netError(g, "tcp", g.o+":close", net.ErrClosed)
 }
 
 func (g *GTCPConn) CloseRead() error {
 	if c := g.conn(); c != nil {
 		return c.CloseRead()
 	}
-	return netError(g, "tcp", "close", net.ErrClosed)
+	return netError(g, "tcp", g.o+":close", net.ErrClosed)
 }
 
 func (g *GTCPConn) SetDeadline(t time.Time) error {

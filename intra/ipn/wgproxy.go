@@ -657,8 +657,8 @@ func makeWgTun(id, cfg string, ctl protect.Controller, lp LinkProps, rev netstac
 	ep := channel.New(epsize, uint32(tunMtu), "")
 	netstack.SetNetstackOpts(s)
 	if rev != nil { // inbound (aka reverse outbound)
-		netstack.OutboundTCP(s, rev.TCP())
-		netstack.OutboundUDP(s, rev.UDP())
+		netstack.OutboundTCP(id, s, rev.TCP())
+		netstack.OutboundUDP(id, s, rev.UDP())
 	}
 	t := &wgtun{
 		id:            stripPrefixIfNeeded(id),

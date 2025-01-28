@@ -53,6 +53,8 @@ var _ FdSwapper = (*linkFdSwap)(nil)
 const invalidfd int = -1
 
 type FdSwapper interface {
+	// Cur returns the current FD.
+	Cur() int
 	// Swap closes existing FDs; uses new fd.
 	Swap(fd int) error
 	// Dispose closes all existing FDs.
@@ -229,6 +231,10 @@ func createInboundDispatcher(e *endpoint, fd int) (linkDispatcher, error) {
 		return nil, fmt.Errorf("newReadVDispatcher(%d, %+v) = %v", fd, e, err)
 	}
 	return d, nil
+}
+
+func (e *endpoint) Cur() int {
+	return e.fd()
 }
 
 func (e *endpoint) Dispose() (err error) {
