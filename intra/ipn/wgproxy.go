@@ -1080,9 +1080,21 @@ func (h *wgproxy) Hop(p Proxy) (err error) {
 		return errHopWireGuard
 	}
 
+	pxCan4 := p.Router().IP4()
+	hopCan4 := h.Router().IP4()
+	pxCan6 := p.Router().IP6()
+	hopCan6 := h.Router().IP6()
 	// todo: check if all routes for p & h overlap
-	if h.Router().IP4() != p.Router().IP4() || h.Router().IP6() != p.Router().IP6() {
-		return errHopGateway
+	if pxCan4 { // suffices if px's ip4 is routable over hop
+		if !hopCan4 {
+			return errHop4Gateway
+		} // else: do not need to check for ip6 routes
+	} else if pxCan6 { // ip6 ok & px does not need ip4
+		if !hopCan6 {
+			return errHop6Gateway
+		} // else: can at least route ip6, which is enough for px
+	} else { // unlikely that px cannot do both ip4 & ip6
+		return errHopProxyRoutes
 	}
 
 	// mtu needed to tunnel this wg
