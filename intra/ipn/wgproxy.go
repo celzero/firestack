@@ -1057,10 +1057,6 @@ func (h *wgproxy) Hop(p Proxy) (err error) {
 		}
 	}()
 
-	if h.id == p.ID() {
-		return errHopSelf
-	}
-
 	if p == nil {
 		old = h.via.Tango(nil)
 		// undo MTU enforced due to any prior hops
@@ -1070,6 +1066,8 @@ func (h *wgproxy) Hop(p Proxy) (err error) {
 		log.I("wg: %s hop: %s removed; mtu reset err? %v",
 			h.id, idhandle(old), err)
 		return nil
+	} else if h.id == p.ID() {
+		return errHopSelf
 	}
 
 	if p.Status() == END {
