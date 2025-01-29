@@ -377,6 +377,10 @@ func ViaID(p Proxy) string {
 		return novia
 	}
 	if v, _ := p.Router().Via(); v != nil {
+		if v.ID() == p.ID() {
+			log.W("proxy: %s via %s; loop detected", p.ID(), v.ID())
+			return novia
+		}
 		return v.ID()
 	}
 	return novia

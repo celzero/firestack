@@ -90,6 +90,7 @@ var (
 	errHopDefaultRoutes   = errors.New("proxy: hop must route all ip4/ip6")
 	errHopHopping         = errors.New("proxy: hop must not be hopping")
 	errNoHop              = errors.New("proxy: no hop")
+	errHopSelf            = errors.New("proxy: hop looping back onto hop")
 	errHopWireGuard       = errors.New("proxy: hop must be wireguard")
 	errHopMtuInsufficient = errors.New("proxy: hop mtu insufficient")
 	errHopGateway         = errors.New("proxy: hop cannot route")
@@ -596,6 +597,10 @@ func (px *proxifier) Hop(via, origin string) error {
 
 	if len(via) <= 0 { // remove hop
 		return origPx.Hop(nil)
+	}
+
+	if via == origin {
+		return errHopSelf
 	}
 
 	viaPx, err := px.ProxyFor(via)
