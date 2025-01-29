@@ -51,6 +51,7 @@ var (
 	errIcmpFirewalled  = errors.New("icmp: firewalled")
 	errUdpFirewalled   = errors.New("udp: firewalled")
 	errUdpInFirewalled = errors.New("udp: ingress firewalled")
+	errUdpInEstErr     = errors.New("udp: ingress establish error")
 	errUdpSetupConn    = errors.New("udp: could not create conn")
 	errProxyMismatch   = errors.New("udp: proxy mismatch")
 	errUidMismatch     = errors.New("udp: uid mismatch")
@@ -109,16 +110,17 @@ func (h *udpHandler) ReverseProxy(gconn *netstack.GUDPConn, in net.Conn, to, fro
 	cid, uid, _, pids := h.judge(fm)
 	smm := udpSummary(cid, uid, from.Addr())
 	if isAnyBlockPid(pids) {
-		log.I("udp: %s reverse: block %s -> %s", cid, from, to)
-		clos(gconn, in)
+		log.I("udp: %s reverse: block %s => %s", cid, from, to)
+		clos(gconn, in) // blocked
 		h.queueSummary(smm.done(errUdpInFirewalled))
-		return true
+		return true // ok
 	} // else: pid should only be ipn.Ingress
 
 	if err := gconn.Establish(); err != nil { // gconn.Establish() failed
 		log.W("udp: %s reverse: %s gconn.Est, err %s => %s", cid, to, from, err)
-		h.queueSummary(smm.done(errUdpInFirewalled))
-		return false
+		clos(gconn, in) // teardown
+		h.queueSummary(smm.done(errUdpInEstErr))
+		return false // not ok
 	}
 
 	core.Go("udp.reverse:"+cid, func() {
@@ -136,7 +138,9 @@ func (h *udpHandler) ProxyMux(gconn *netstack.GUDPConn, src, dst netip.AddrPort,
 // Error implements netstack.GUDPConnHandler.
 // Must be called from a goroutine.
 func (h *udpHandler) Error(gconn *netstack.GUDPConn, src, target netip.AddrPort, err error) {
-	log.W("udp: proxy: %v ->  %v; err %v", src, target, err)
+	defer clos(gconn) // if open
+
+	log.W("udp: proxy: %v =>  %v; err %v", src, target, err)
 	if !src.IsValid() || !target.IsValid() {
 		return
 	}
@@ -163,7 +167,7 @@ func (h *udpHandler) proxy(gconn *netstack.GUDPConn, src, dst netip.AddrPort, dm
 	remote, smm, err := h.Connect(gconn, src, dst, dmx)
 
 	if err != nil {
-		clos(gconn, remote)
+		clos(gconn, remote) // teardown
 		// smm may be nil; in which case this is a no-op
 		h.queueSummary(smm.done(err))
 		return false // not ok
@@ -328,7 +332,7 @@ func (h *udpHandler) Connect(gconn *netstack.GUDPConn, src, target netip.AddrPor
 		return nil, smm, errUdpSetupConn // disconnect
 	}
 
-	log.I("udp: connect: %s (proxy? %s@%s) %v -> %s/%s; mux? %t, uid %s",
+	log.I("udp: connect: %s (proxy? %s@%s) %v => %s/%s; mux? %t, uid %s",
 		cid, px.ID(), px.GetAddr(), laddr, target, selectedTarget, mux, uid)
 
 	return pc, smm, nil // connect
