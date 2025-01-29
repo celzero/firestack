@@ -118,7 +118,7 @@ func (b *bootstrap) reinit(trtype, ippOrUrl, ipcsv string) error {
 		b.typ = dnsx.DNS53
 	} else if trtype == dnsx.DOH {
 		if len(ippOrUrl) <= 0 {
-			log.E("dns: default: reinit: empty url %s! ips? %s", ippOrUrl, ipcsv)
+			log.E("dns: default: reinit: empty url! ips? %s", ipcsv)
 			return dnsx.ErrNotDefaultTransport
 		}
 
@@ -149,7 +149,7 @@ func (b *bootstrap) reinit(trtype, ippOrUrl, ipcsv string) error {
 			ippOrUrl = ipcsv
 		}
 		if len(ippOrUrl) <= 0 {
-			log.E("dns: default: reinit: empty url %s! ips? %s", ippOrUrl, ipcsv)
+			log.E("dns: default: reinit: empty url! ips? %s", ipcsv)
 			return dnsx.ErrNotDefaultTransport
 		}
 
