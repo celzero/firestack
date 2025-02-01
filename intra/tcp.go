@@ -261,7 +261,8 @@ func (h *tcpHandler) handle(px ipn.Proxy, src net.Conn, boundSrc, target netip.A
 
 	if err != nil {
 		clos(pc)
-		log.W("tcp: err dialing %s proxy(%s) to dst(%v) for %s: %v", smm.ID, px.ID(), target, smm.UID, err)
+		log.W("tcp: err dialing %s proxy(%s) to dst(%v) for %s: %v",
+			smm.ID, px.ID(), target, smm.UID, err)
 		return err
 	}
 
