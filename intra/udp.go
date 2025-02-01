@@ -273,6 +273,8 @@ func (h *udpHandler) Connect(gconn *netstack.GUDPConn, src, target netip.AddrPor
 	}
 	// note: fake-dns-ips shouldn't be un-nated / un-alg'd
 	for i, dstipp := range actualTargets {
+		rttstart := time.Now()
+
 		if px, err = h.prox.ProxyTo(dstipp, uid, pids); err != nil || px == nil {
 			log.W("udp: connect: %s failed to get proxy from %s: %v", cid, pids, err)
 			errs = err // disconnect if loop terminates
@@ -296,6 +298,8 @@ func (h *udpHandler) Connect(gconn *netstack.GUDPConn, src, target netip.AddrPor
 
 		errs = err // store just the last err; complicates logging
 		end := time.Since(smm.start)
+		rtt := time.Since(rttstart)
+		smm.Rtt = int32(rtt.Seconds() * 1000)
 		log.W("udp: connect: #%d: %s failed; mux? %t, addr(%s); for uid %s (%dms) w err(%v)",
 			i, cid, mux, dstipp, uid, end.Milliseconds(), err)
 		if end > retrytimeout {
