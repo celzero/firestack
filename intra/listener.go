@@ -25,11 +25,11 @@ type SocketSummary struct {
 	RPID     string    // Relay Proxy ID that tunneled PID.
 	UID      string    // UID of the app that owns this socket (sans ICMP).
 	Target   string    // Remote IP, if dialed in.
-	Rx       int64     // Total bytes downloaded (sans ICMP).
-	Tx       int64     // Total bytes uploaded (sans ICMP).
+	Rx       int64     // Total bytes downloaded.
+	Tx       int64     // Total bytes uploaded.
 	Duration int32     // Duration in seconds.
 	start    time.Time // Tracks start time; unexported.
-	Rtt      int32     // Round-trip time (ms); (sans ICMP).
+	Rtt      int32     // Round-trip time (millis).
 	Msg      string    // Err or other messages, if any.
 }
 

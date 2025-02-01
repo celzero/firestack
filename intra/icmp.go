@@ -10,6 +10,7 @@ import (
 	"context"
 	"net"
 	"net/netip"
+	"time"
 
 	"golang.org/x/sys/unix"
 
@@ -52,6 +53,7 @@ func (h *icmpHandler) Ping(msg []byte, source, target netip.AddrPort) (echoed bo
 	var px ipn.Proxy = nil
 	var err error
 	var tx, rx int
+	var rtt time.Duration
 
 	// flow is alg/nat-aware, do not change target or any addrs
 	res, undidAlg, realips, doms := h.onFlow(source, target)
@@ -63,6 +65,7 @@ func (h *icmpHandler) Ping(msg []byte, source, target netip.AddrPort) (echoed bo
 	defer func() {
 		smm.Tx = int64(tx)
 		smm.Rx = int64(rx)
+		smm.Rtt = int32(rtt.Seconds() * 1000)
 		smm.Target = dst.Addr().String()
 		h.queueSummary(smm.done(err)) // err may be nil
 	}()
@@ -92,6 +95,7 @@ func (h *icmpHandler) Ping(msg []byte, source, target netip.AddrPort) (echoed bo
 		return false // denied
 	}
 
+	rttstart := time.Now()
 	proto, anyaddr := anyaddrFor(dst)
 
 	uc, err := px.Dialer().Probe(proto, anyaddr)
@@ -112,11 +116,14 @@ func (h *icmpHandler) Ping(msg []byte, source, target netip.AddrPort) (echoed bo
 	h.conntracker.Track(cid, uc)
 	defer h.conntracker.Untrack(cid)
 
+	tx = len(msg)
 	// todo: construct ICMP header? github.com/prometheus-community/pro-bing/blob/0bacb2d5e7/ping.go#L717
 	reply, from, err := core.Echo(uc, msg, net.UDPAddrFromAddrPort(dst), target.Addr().Is4())
+	rx = len(reply)
+	rtt = time.Since(rttstart)
 	// todo: ignore non-ICMP replies in b: github.com/prometheus-community/pro-bing/blob/0bacb2d5e7/ping.go#L630
-	log.D("t.icmp: ingress: read(%v <= %v / %v) ping done %d; err? %v",
-		source, from, dst, len(reply), err)
+	log.D("t.icmp: ingress: read(%v <= %v / %v) ping done (send: %d, recv: %d, rtt: %dms); err? %v",
+		source, from, dst, tx, rx, rtt.Milliseconds(), err)
 
 	return true // echoed; even if err != nil
 }
