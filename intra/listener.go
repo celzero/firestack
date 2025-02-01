@@ -34,21 +34,22 @@ type SocketSummary struct {
 }
 
 type SocketListener interface {
-	// Preflow is called before a new connection is established; return "transport id" of a
-	// registered DNS transport to to re-resolve egress domain (as mapped by alg at actual
-	// resolution time against a "fake" IP) to determine the real egress IP to connect to.
+	// Preflow is called before a new connection is established; return owner "uid", which is
+	// later used by dnsx.Resolver to determine the DNS transport to use for that "uid". That
+	// DNS transport will re-resolve "domains" (iff previously resolved to a "fake IP" by
+	// dnsx.alg) to determine the real egress IP to connect to.
 	Preflow(protocol, uid int32, src, dst, domains string) *PreMark
-	// Flow is called on a new connection; return "proxyid,connid" to forward the connection
-	// to a pre-registered proxy; "Base" to allow the connection; "Block" to block the connection.
+	// Flow is called on a new connection; return Proxy IDs to forward the connection
+	// to a pre-registered proxy; "Base" or "Exit" to allow the connection; "Block" to block it.
 	// "connid" is used to uniquely identify a connection across all proxies, and a summary of the
 	// connection is sent back to a pre-registered listener.
 	// protocol is 6 for TCP, 17 for UDP, 1 for ICMP.
 	// uid is -1 in case owner-uid of the connection couldn't be determined.
 	// src and dst are string'd representation of net.TCPAddr and net.UDPAddr.
 	// origdsts is a comma-separated list of original source IPs, this may be same as dst.
-	// domains is a comma-separated list of domain names associated with origsrcs, if any.
-	// probableDomains is a comma-separated list of probable domain names associated with origsrcs, if any.
-	// blocklists is a comma-separated list of blocklist names, if any.
+	// domains is a comma-separated list of domain names associated with origdsts, if any.
+	// probableDomains is a comma-separated list of probable domain names associated with origdsts, if any.
+	// blocklists is a comma-separated list of rdns blocklist names that apply, if any.
 	Flow(protocol, uid int32, src, dst, origdsts, domains, probableDomains, blocklists string) *Mark
 	Inflow(protocol, uid int32, src, dst string) *Mark
 	// OnSocketClosed reports summary after a socket closes.
@@ -56,16 +57,16 @@ type SocketListener interface {
 }
 
 type PreMark struct {
-	// UID of the app which owns a flow.
+	// UID of the app which owns the flow.
 	UID string
 }
 
 type Mark struct {
-	// PIDCSV is a list of proxies to forward a flow over.
+	// PIDCSV is a list of proxies to forward the flow over.
 	PIDCSV string
-	// CID identifies a flow.
+	// CID uniquely identifies the flow.
 	CID string
-	// UID of the app which owns a flow.
+	// UID of the app which owns the flow.
 	UID string
 }
 
