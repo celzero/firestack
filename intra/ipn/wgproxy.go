@@ -68,6 +68,8 @@ const (
 	noaddr = ""
 	// min mtu for ipv6
 	minmtu6 = 1280
+	// min mtu for ipv4
+	minmtu4 = 576
 
 	FAST = x.WGFAST
 )
@@ -656,7 +658,16 @@ func makeWgTun(id, cfg string, ctl protect.Controller, lp LinkProps, ifopts wgif
 		TransportProtocols: []stack.TransportProtocolFactory{tcp.NewProtocol, udp.NewProtocol, icmp.NewProtocol6, icmp.NewProtocol4},
 		HandleLocal:        true,
 	}
-	tunMtu := reconcileMtu(lp.mtu, ifopts.mtu)
+
+	minmtu := minmtu6 // ip6 or ip6 or ip4+ip6
+	if lp.l3 == settings.IP4 {
+		minmtu = minmtu4 // ip4
+	}
+
+	tunMtu := reconcileMtu(lp.mtu, ifopts.mtu, minmtu)
+	if tunMtu <= NOMTU {
+		return nil, errNoMtu
+	}
 
 	s := stack.New(opts)
 	ep := channel.New(epsize, uint32(tunMtu), "")
@@ -1261,13 +1272,22 @@ func (w *wgproxy) resetMtu(via Proxy) error {
 		}
 	}
 
+	minmtu := minmtu4
+	if has6 := w.IP6(); has6 {
+		minmtu = minmtu6
+	}
+	if mtuAvailable < minmtu {
+		log.W("wg: %s proxy: needs %d; mtu(%d) < min(%d)", w.id, mtuAvailable, minmtu)
+		return errHopMtuInsufficient
+	}
+
 	if hopping && mtuNeededByUs > mtuAvailable {
-		log.I("wg: %s proxy: hopping mtu(needed: %d >> avail: %d); set to min: %d",
-			w.id, mtuNeededByUs, mtuAvailable, minmtu6)
+		log.I("wg: %s proxy: hopping mtu(needed: %d >> avail: %d); set to avail",
+			w.id, mtuNeededByUs, mtuAvailable)
 		mtuNeededByUs = mtuAvailable
 	} // else: mtu needed is well within the hop's / network's capacity
 
-	finalMtu := reconcileMtu(mtuAvailable, mtuNeededByUs)
+	finalMtu := reconcileMtu(mtuAvailable, mtuNeededByUs, minmtu)
 	if finalMtu <= NOMTU {
 		log.W("wg: %s proxy: mtu(%d or %d) <= NOMTU(%d)", w.id, mtuNeededByUs, mtuAvailable, finalMtu)
 		return errHopMtuInsufficient
@@ -1276,17 +1296,25 @@ func (w *wgproxy) resetMtu(via Proxy) error {
 	return nil
 }
 
-func reconcileMtu(underlay, overlay int) int {
+// Returns wg header (80 bytes) minus min(underlay, overlay).
+// Returns NOMTU if underlay is <= NOMTU.
+// Returns minoverlay if overlay is <= NOMTU.
+func reconcileMtu(underlay, overlay, minoverlay int) int {
 	if underlay < overlay { // underlay may be NOMTU
-		return underlay - 80 // underlay may be way smaller than overlay
+		return max(underlay-80, NOMTU) // underlay may be way smaller than overlay
 	}
-	return calcTunMtu(overlay) // overlay may be NOMTU, but that's okay
+	return calcTunMtu2(overlay, minoverlay) // overlay may be NOMTU, but that's okay
+}
+
+// May return NOMTU if netmtu-size(wg header) is <= NOMTU.
+func calcTunMtu(netmtu int) int {
+	return calcTunMtu2(netmtu, NOMTU)
 }
 
 // github.com/tailscale/tailscale/blob/92d3f64e95/net/tstun/mtu.go
-func calcTunMtu(netmtu int) int {
+func calcTunMtu2(netmtu, min int) int {
 	// uint32(mtu) - 80 is the maximum payload size of a WireGuard packet.
-	return max(minmtu6-80, netmtu-80) // 80 is the overhead of the WireGuard header
+	return max(min-80, netmtu-80) // 80 is the overhead of the WireGuard header
 }
 
 func calcNetMtu(tunmtu int) int {

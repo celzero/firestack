@@ -786,16 +786,22 @@ func (px *proxifier) MTU() (out int, err error) {
 	defer px.RUnlock()
 
 	out = MAXMTU
+	only4 := false
+	minmtu := minmtu6
 	for _, p := range px.p {
 		if local(p.ID()) {
 			continue
 		}
 		r := p.Router() // never nil
+		only4 = only4 || r.IP4() && !r.IP6()
+		if only4 && minmtu > minmtu4 {
+			minmtu = minmtu4
+		}
 		if hopping(r) { // skip proxies hopping via another
 			continue
 		} // inner tunnel MTUs should not have any bearing on outer MTU
 		if m, err1 := r.MTU(); err1 == nil {
-			out = min(out, max(m, minmtu6))
+			out = min(out, max(m, minmtu))
 		} // else: NOMTU
 	}
 	if out == MAXMTU || out == NOMTU { // unchanged or unknown
