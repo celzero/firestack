@@ -45,7 +45,6 @@ func (pxr *proxifier) addProxy(id, txt string) (p Proxy, err error) {
 	// wireguard proxies have IDs starting with "wg"
 	if isWG(id) {
 		pxr.Lock()
-		reverser := pxr.rev
 		lp := pxr.lp
 		pxr.Unlock()
 		if p, _ = pxr.ProxyFor(id); p != nil {
@@ -79,7 +78,7 @@ func (pxr *proxifier) addProxy(id, txt string) (p Proxy, err error) {
 			} // else: recreate
 		} // else: new
 		// txt is both wg ifconfig and peercfg
-		p, err = NewWgProxy(id, pxr.ctl, lp, reverser, txt)
+		p, err = NewWgProxy(id, pxr.ctl, lp, txt)
 	} else {
 		var strurl string
 		var usr string

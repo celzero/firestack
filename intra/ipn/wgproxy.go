@@ -200,8 +200,9 @@ func (h *wgproxy) GetAddr() string {
 // onProtoChange implements Proxy
 func (w *wgproxy) OnProtoChange(lp LinkProps) (string, bool) {
 	oldmtu := w.netmtu.Swap(uint32(lp.mtu))
-	log.V("proxy: wg: %s; lp changed; l3: %s, mtu %d=>%d",
-		w.id, lp.l3, lp.mtu, oldmtu)
+	setupReverserIfNeeded(w.id, w.stack, lp.rev)
+	log.V("proxy: wg: %s; lp changed; l3: %s, mtu %d=>%d, rev %X",
+		w.id, lp.l3, lp.mtu, oldmtu, lp.rev)
 	if err := w.Refresh(); err != nil {
 		log.W("proxy: wg: %s; lp changed; err: %v", w.id, err)
 		// TODO: return w.cfg, true
@@ -578,7 +579,7 @@ func loadIPNets(out *[]netip.Prefix, v string) (err error) {
 }
 
 // ref: github.com/WireGuard/wireguard-android/blob/713947e432/tunnel/tools/libwg-go/api-android.go#L76
-func NewWgProxy(id string, ctl protect.Controller, lp LinkProps, rev netstack.GConnHandler, cfg string) (*wgproxy, error) {
+func NewWgProxy(id string, ctl protect.Controller, lp LinkProps, cfg string) (*wgproxy, error) {
 	ogcfg := cfg
 	opts, err := wgIfConfigOf(id, &cfg)
 	uapicfg := cfg
@@ -587,7 +588,7 @@ func NewWgProxy(id string, ctl protect.Controller, lp LinkProps, rev netstack.GC
 		return nil, err
 	}
 
-	wgtun, err := makeWgTun(id, ogcfg, ctl, lp, rev, opts)
+	wgtun, err := makeWgTun(id, ogcfg, ctl, lp, opts)
 	if err != nil {
 		log.E("proxy: wg: %s failed to create tun %v", id, err)
 		return nil, err
@@ -634,16 +635,20 @@ func NewWgProxy(id string, ctl protect.Controller, lp LinkProps, rev netstack.GC
 	return w, nil
 }
 
-// ref: github.com/WireGuard/wireguard-go/blob/469159ecf7/tun/netstack/tun.go#L54
-func makeWgTun(id, cfg string, ctl protect.Controller, lp LinkProps, rev netstack.GConnHandler, ifopts wgifopts) (*wgtun, error) {
-	if settings.ExperimentalWireGuard.Load() && settings.EndpointIndependentFiltering.Load() {
-		if rev == nil {
-			return nil, errMissingRev
-		}
-	} else { // do not use reverser
-		rev = nil
-	}
+func setupReverserIfNeeded(id string, s *stack.Stack, rev netstack.GConnHandler) {
+	if rev != nil && settings.ExperimentalWireGuard.Load() && settings.EndpointIndependentFiltering.Load() {
+		// inbound (aka reverse outbound)
+		netstack.OutboundTCP(id, s, rev.TCP())
+		netstack.OutboundUDP(id, s, rev.UDP())
+		log.I("proxy: wg: %s rev @ %X enabled", id, rev)
+	} // do not use reverser
+	log.W("proxy: wg: %s remove rev %X", id, rev)
+	netstack.OutboundTCP(id, s, nil)
+	netstack.OutboundUDP(id, s, nil)
+}
 
+// ref: github.com/WireGuard/wireguard-go/blob/469159ecf7/tun/netstack/tun.go#L54
+func makeWgTun(id, cfg string, ctl protect.Controller, lp LinkProps, ifopts wgifopts) (*wgtun, error) {
 	ctx := context.TODO()
 
 	opts := stack.Options{
@@ -656,10 +661,8 @@ func makeWgTun(id, cfg string, ctl protect.Controller, lp LinkProps, rev netstac
 	s := stack.New(opts)
 	ep := channel.New(epsize, uint32(tunMtu), "")
 	netstack.SetNetstackOpts(s)
-	if rev != nil { // inbound (aka reverse outbound)
-		netstack.OutboundTCP(id, s, rev.TCP())
-		netstack.OutboundUDP(id, s, rev.UDP())
-	}
+	setupReverserIfNeeded(id, s, lp.rev) // rev may be nil
+
 	t := &wgtun{
 		id:            stripPrefixIfNeeded(id),
 		cfg:           cfg,

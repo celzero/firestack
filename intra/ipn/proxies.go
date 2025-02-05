@@ -162,9 +162,8 @@ type proxifier struct {
 	ctx context.Context
 	p   map[string]Proxy
 
-	ctl protect.Controller    // dial control provider
-	rev netstack.GConnHandler // reverse proxifier; may be nil
-	obs x.ProxyListener       // proxy observer
+	ctl protect.Controller // dial control provider
+	obs x.ProxyListener    // proxy observer
 
 	lp LinkProps // link properties; protected by mu
 
@@ -194,6 +193,11 @@ type proxifier struct {
 type LinkProps struct {
 	l3  string // ip4, ip6, ip46
 	mtu int
+	rev netstack.GConnHandler // downstream; may be nil
+}
+
+func (lp LinkProps) String() string {
+	return fmt.Sprintf("l3:%s/mtu:%d/rev:%X", lp.l3, lp.mtu, lp.rev)
 }
 
 var _ Proxies = (*proxifier)(nil)
@@ -715,7 +719,7 @@ func (px *proxifier) RefreshProto(l3 string, mtu int) {
 		return
 	}
 
-	newlp := LinkProps{l3: l3, mtu: mtu}
+	newlp := LinkProps{l3: l3, mtu: mtu, rev: px.lp.rev} // copy
 	px.lp = newlp
 	for _, p := range px.p {
 		curp := p
@@ -728,7 +732,8 @@ func (px *proxifier) RefreshProto(l3 string, mtu int) {
 			if cfg, readd := curp.OnProtoChange(newlp); readd {
 				// px.addProxy -> px.add -> px.Lock() -> deadlock
 				_, err := px.addProxy(id, cfg)
-				log.I("proxy: refreshProto (%s/%s/%s) re-add; err? %v", id, curp.Type(), curp.GetAddr(), err)
+				log.I("proxy: refreshProto (%s/%s/%s) re-add; err? %v",
+					id, curp.Type(), curp.GetAddr(), err)
 			}
 		})
 	}
@@ -738,7 +743,7 @@ func (px *proxifier) Reverser(rhdl netstack.GConnHandler) error {
 	px.Lock()
 	defer px.Unlock()
 
-	px.rev = rhdl
+	px.lp.rev = rhdl
 	return nil
 }
 
