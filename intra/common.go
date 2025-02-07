@@ -603,17 +603,18 @@ func containsPid(pids []string, pid string) bool {
 	return false
 }
 
-func timeouts(c net.Conn) {
-	dopt := settings.GetDialerOpts()
-	// -ve ints go higher than 2^31 w/ uint: go.dev/play/p/Rrqk_V8a7W0
-	r := uint32(dopt.ReadTimeoutSec)
-	w := uint32(dopt.WriteTimeoutSec)
-
-	if r == w {
-		extend(c, time.Second*time.Duration(r))
-	} else {
-		extendr(c, time.Second*time.Duration(r))
-		extendw(c, time.Second*time.Duration(w))
+func extendc(c net.Conn, r time.Duration, w time.Duration) {
+	if c != nil {
+		if r == w {
+			extend(c, r)
+		} else {
+			if r > 0 {
+				extendr(c, r)
+			}
+			if w > 0 {
+				extendw(c, w)
+			}
+		}
 	}
 }
 

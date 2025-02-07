@@ -60,28 +60,59 @@ var (
 	errIcmpEnd         = errors.New("icmp: stopped")
 )
 
-var (
+const (
 	// RFC 4787 REQ-5 requires a timeout no shorter than 5 minutes; but most
 	// routers do not keep udp mappings for that long (usually just for 30s)
-	udptimeout, _ = time.ParseDuration("2m")
+	udptimeout = 2 * 60 // seconds
+	// TODO: 2h 40m?
+	tcptimeout = 0 // no timeout
 )
 
 var _ netstack.GUDPConnHandler = (*udpHandler)(nil)
 
-// rwext wraps MinConn and extends deadline by
-// udptimeout on read and write.
+// rwext wraps MinConn and extends deadline to minimum(min, settings.DialerOpts)
+// on every read and write.
 type rwext struct {
-	net.Conn
+	net.Conn        // underlying conn
+	min      uint32 // min idle timeout in secs
+}
+
+func (rw rwext) IsZeroDeadline() bool {
+	r, w := rw.deadlines()
+	return r == 0 && w == 0
+}
+
+func (rw rwext) Unwrap() net.Conn {
+	return rw.Conn
 }
 
 func (rw rwext) Read(b []byte) (n int, err error) {
-	extend(rw.Conn, udptimeout)
+	rw.extend()
 	return rw.Conn.Read(b)
 }
 
 func (rw rwext) Write(b []byte) (n int, err error) {
-	extend(rw.Conn, udptimeout)
+	rw.extend()
 	return rw.Conn.Write(b)
+}
+
+func (rw rwext) deadlines() (r, w uint32) {
+	dopt := settings.GetDialerOpts()
+	// -ve ints go higher than 2^31 w/ uint: go.dev/play/p/Rrqk_V8a7W0
+	return max(rw.min, uint32(dopt.ReadTimeoutSec)),
+		max(rw.min, uint32(dopt.WriteTimeoutSec))
+}
+
+func (rw rwext) extend() {
+	r, w := rw.deadlines()
+	if r == 0 && w == 0 {
+		return
+	}
+
+	tw := time.Second * time.Duration(w)
+	tr := time.Second * time.Duration(r)
+
+	extendc(rw.Conn, tr, tw)
 }
 
 // NewUDPHandler makes a UDP handler with Intra-style DNS redirection:
@@ -124,7 +155,7 @@ func (h *udpHandler) ReverseProxy(gconn *netstack.GUDPConn, in net.Conn, to, fro
 	}
 
 	core.Go("udp.reverse:"+cid, func() {
-		h.forward(gconn, rwext{in}, smm)
+		h.forward(gconn, rwext{in, udptimeout}, smm)
 	})
 	return true
 }
@@ -181,7 +212,7 @@ func (h *udpHandler) proxy(gconn *netstack.GUDPConn, src, dst netip.AddrPort, dm
 
 	cid := smm.ID
 	core.Go("udp.forward."+cid, func() {
-		h.forward(gconn, rwext{remote}, smm)
+		h.forward(gconn, rwext{remote, udptimeout}, smm)
 	})
 	return true // ok
 }

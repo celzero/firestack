@@ -125,7 +125,7 @@ func (h *tcpHandler) ReverseProxy(gconn *netstack.GTCPConn, in net.Conn, to, fro
 	}
 
 	core.Go("tcp.reverse:"+cid, func() {
-		h.forward(gconn, rwext{in}, smm)
+		h.forward(gconn, rwext{in, tcptimeout}, smm)
 	})
 	return true
 }
@@ -267,7 +267,7 @@ func (h *tcpHandler) handle(px ipn.Proxy, src net.Conn, boundSrc, target netip.A
 	}
 
 	core.Go("tcp.forward."+smm.ID, func() {
-		h.forward(src, dst, smm) // src always *gonet.TCPConn
+		h.forward(src, rwext{dst, tcptimeout}, smm) // src always *gonet.TCPConn
 	})
 	return nil // handled; takes ownership of src
 }
