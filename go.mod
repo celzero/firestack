@@ -25,7 +25,7 @@ require (
 	golang.org/x/mobile v0.0.0-20220518205345-8578da9835fd
 	golang.org/x/net v0.33.0
 	golang.zx2c4.com/wireguard v0.0.0-20231211153847-12269c276173
-	gvisor.dev/gvisor v0.0.0-20241009022347-94b16c128c1c
+	gvisor.dev/gvisor v0.0.0-20250205023644-9414b50a5633
 	nhooyr.io/websocket v1.8.7
 )
 
@@ -47,7 +47,7 @@ require (
 	golang.org/x/mod v0.21.0 // indirect
 	golang.org/x/sync v0.10.0 // indirect
 	golang.org/x/text v0.21.0 // indirect
-	golang.org/x/time v0.5.0 // indirect
+	golang.org/x/time v0.7.0 // indirect
 	golang.org/x/tools v0.26.0 // indirect
 	golang.zx2c4.com/wintun v0.0.0-20230126152724-0fa3db229ce2 // indirect
 )
