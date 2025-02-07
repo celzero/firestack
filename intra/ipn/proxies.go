@@ -81,7 +81,6 @@ var (
 	errNoSig              = errors.New("proxy: auth missing sig")
 	errNoMtu              = errors.New("proxy: missing mtu")
 	errNoOpts             = errors.New("proxy: no opts")
-	errMissingRev         = errors.New("proxy: missing reverse proxy")
 	errNoAuto464XLAT      = errors.New("auto: no 464xlat")
 	errNotPinned          = errors.New("auto: another proxy pinned")
 	errInvalidAddr        = errors.New("proxy: invaild ip:port")
