@@ -113,6 +113,8 @@ func (h *MH) PreferredAddrs() []netip.AddrPort {
 // prefers v4; see: github.com/WireGuard/wireguard-android/blob/4ba87947a/tunnel/src/main/java/com/wireguard/config/InetEndpoint.java#L97
 func (h *MH) PreferredAddr() netip.AddrPort {
 	out6 := zeroaddr
+	fallback4 := zeroaddr
+	fallback6 := zeroaddr
 	has4Or46 := dialers.Use4()
 	has6Or46 := dialers.Use6()
 	hasOnly6 := has6Or46 && !has4Or46
@@ -123,6 +125,8 @@ func (h *MH) PreferredAddr() netip.AddrPort {
 		}
 		if ip.Addr().Is4() && has4Or46 {
 			return ip // the first v4 addr
+		} else if !fallback4.IsValid() {
+			fallback4 = ip // note the first valid addr
 		}
 		if ip.Addr().Is6() {
 			if hasOnly6 {
@@ -130,10 +134,23 @@ func (h *MH) PreferredAddr() netip.AddrPort {
 			}
 			if has6Or46 && !out6.IsValid() {
 				out6 = ip // note the first valid v6 addr
+			} else if !fallback6.IsValid() {
+				fallback6 = ip // note the first valid addr
 			}
+
 		}
 	}
-	return out6 // may be zero addr or unspecified
+
+	if out6.IsValid() {
+		return out6
+	}
+
+	log.W("multihost: %s: no preferred; v4(use? %t, fallback? %s), v6(use? %t, fallback? %s)",
+		h.id, has4Or46, fallback4, has6Or46, fallback6)
+	if fallback4.IsValid() {
+		return fallback4
+	}
+	return fallback6 // may be zero addr or unspecified
 }
 
 func (h *MH) Len() int {
