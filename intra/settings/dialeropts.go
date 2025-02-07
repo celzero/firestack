@@ -67,7 +67,7 @@ func (d DialerOpts) String() string {
 	}()
 	tmo := func() string {
 		return strconv.Itoa(int(d.ReadTimeoutSec)) +
-			"s ," + strconv.Itoa(int(d.WriteTimeoutSec)) +
+			"s," + strconv.Itoa(int(d.WriteTimeoutSec)) +
 			"s"
 	}()
 

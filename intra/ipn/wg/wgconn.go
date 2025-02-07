@@ -164,7 +164,7 @@ func (e *StdNetBind) ParseEndpoint(s string) (conn.Endpoint, error) {
 	// d.Add([]string{host}) // resolves host if needed
 	ipport := d.PreferredAddr()
 	if !ipport.IsValid() || ipport.Addr().IsUnspecified() {
-		log.E("wg: bind: %s invalid endpoint addr %v in(%s); out(%s, %s)", e.id, ipport, s, d.Names(), d.Addrs())
+		log.E("wg: bind: %s invalid endpoint; chosen(%v) => in(%s) => out(%s, %s)", e.id, ipport, s, d.Names(), d.Addrs())
 		// erroring out from here prevents PostConfig (handshake for this peer endpoint will always be zero)
 		// github.com/WireGuard/wireguard-go/blob/12269c276173/device/uapi.go#L183
 		return nil, errInvalidEndpoint
