@@ -16,7 +16,7 @@ var ipProto *core.Volatile[string] = core.NewVolatile(settings.IP46)
 
 func Use4() bool {
 	d := true // by default, use4
-	switch ipProto.Load() {
+	switch x := ipProto.Load(); x {
 	case settings.IP6:
 		return false
 	case settings.IP4:
@@ -24,13 +24,14 @@ func Use4() bool {
 	case settings.IP46:
 		return true
 	default:
+		log.W("dialers: use4: invalid protos %s; default: %s", x, d)
 		return d
 	}
 }
 
 func Use6() bool {
 	d := false // by default, use4 instead
-	switch ipProto.Load() {
+	switch x := ipProto.Load(); x {
 	case settings.IP4:
 		return false
 	case settings.IP6:
@@ -38,6 +39,7 @@ func Use6() bool {
 	case settings.IP46:
 		return true
 	default:
+		log.W("dialers: use6: invalid protos %s; default: %s", x, d)
 		return d
 	}
 }
