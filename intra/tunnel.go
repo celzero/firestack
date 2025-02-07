@@ -200,16 +200,14 @@ func (t *rtunnel) SetLinkAndRoutes(fd, mtu, engine int) error {
 		return errClosed
 	}
 
-	t.onLinkChange(mtu, engine) // before making any changes
-	t.Tunnel.SetMTU(int32(mtu))
-	return t.Tunnel.SetLink(fd) // route is always dual-stack
-}
+	mtudiff := t.Tunnel.Mtu() != int32(mtu)
+	l3 := settings.L3(engine)
+	l3diff := dialers.IPProtos(l3)
 
-func (t *rtunnel) onLinkChange(mtu, engine int) {
-	core.Gx("i.setLinkAndRoutes", func() {
-		l3 := settings.L3(engine)
-		mtudiff := t.Tunnel.Mtu() != int32(mtu)
-		l3diff := dialers.IPProtos(l3)
+	t.Tunnel.SetMTU(int32(mtu))
+	err := t.Tunnel.SetLink(fd) // route is always dual-stack
+
+	core.Gx("i.setLinkAndRoutesRefresh", func() {
 		if l3diff || mtudiff {
 			// dialers.IPProtos must always preced calls to other refreshes
 			// as it carries the global state for dialers and ipn/multihost
@@ -219,6 +217,8 @@ func (t *rtunnel) onLinkChange(mtu, engine int) {
 			t.resolver.Add(newMDNSTransport(t.ctx, l3, t.proxies))
 		}
 	})
+
+	return err
 }
 
 func (t *rtunnel) internalCtx() context.Context {
