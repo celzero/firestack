@@ -135,7 +135,7 @@ func ReadStats(id uintptr, cfn core.Work[string]) *ifstats {
 		return readStats(cfg)
 	})
 	if err != nil { // v is nil when ba.Do timesout
-		log.E("wg: ReadStats: nil for %s, err: %v", id, err)
+		log.E("wg: ReadStats: nil for %d, err: %v", id, err)
 	}
 	return v
 }
