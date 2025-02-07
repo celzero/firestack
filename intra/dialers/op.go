@@ -229,3 +229,11 @@ func logeor(e error, d log.LogFn) log.LogFn {
 	}
 	return d
 }
+
+func logedcond(x bool) log.LogFn {
+	if x {
+		return log.E
+	} else {
+		return log.D
+	}
+}

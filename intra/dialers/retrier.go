@@ -224,7 +224,7 @@ func (r *retrier) dialLocked() (c core.DuplexConn, err error) {
 	r.conn = c // c may be nil
 	r.timeout = calcTimeout(rtt)
 
-	logeif(err)("retrier: dial(%s) %s->%s; strat: %d, rtt: %dms; err? %v",
+	logeif(err)("retrier: dial(%s) %s=>%s; strat: %d, rtt: %dms; err? %v",
 		r.dialerOpts, laddr(c), r.raddr, strat, rtt.Milliseconds(), err)
 
 	return
@@ -265,7 +265,7 @@ func (r *retrier) retryWriteReadLocked(buf []byte) (int, error) {
 
 	var nw int
 	nw, r.retryErr = newConn.Write(r.tee)
-	logeif(r.retryErr)("retrier: retryLocked: strat(%s) %s->%s; write? %d/%d; err? %v",
+	logeif(r.retryErr)("retrier: retryLocked: strat(%s) %s=>%s; write? %d/%d; err? %v",
 		r.dialerOpts, laddr(newConn), r.raddr, nw, len(r.tee), r.retryErr)
 	if r.retryErr != nil {
 		return 0, r.retryErr
@@ -288,6 +288,9 @@ func (r *retrier) retryWriteReadLocked(buf []byte) (int, error) {
 	} else {
 		_ = newConn.SetWriteDeadline(r.writeDeadline)
 	}
+
+	logedcond(readdone || writedone)("retrier: retryLocked: done! strat(%s) %s=>%s; write? %d/%d; closed r/w? %t/%t; deadline r/w: %v/%v",
+		r.dialerOpts, laddr(newConn), r.raddr, nw, len(r.tee), readdone, writedone, time.Since(r.readDeadline).Seconds(), time.Since(r.writeDeadline).Seconds())
 
 	return newConn.Read(buf)
 }
@@ -389,7 +392,7 @@ func (r *retrier) Write(b []byte) (int, error) {
 
 		if sentAndCopied {
 			// since Write() does not wait for <-retryDoneCh if there are no errors,
-			// it is possible that ReadFrom() -> copyOnce() is called before retryDoneCh
+			// it is possible that ReadFrom() => copyOnce() is called before retryDoneCh
 			// is closed, resulting in two Write() calls, and r.tee containing buffers
 			// the size of two Writes()
 			if err == nil {
@@ -407,7 +410,7 @@ func (r *retrier) Write(b []byte) (int, error) {
 			if r.retryErr != nil {
 				r.mutex.Unlock()
 				// r.conn may be nil or closed
-				log.E("retrier: write: retry failed [%s=>%s] in %dms; old -> new: %v => %v",
+				log.E("retrier: write: retry failed [%s=>%s] in %dms; old => new: %v => %v",
 					laddr(r.conn), r.raddr, elapsed, err, r.retryErr)
 				return n, err // pass on the og error
 			}
