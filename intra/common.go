@@ -235,6 +235,8 @@ func (h *baseHandler) forward(local, remote net.Conn, smm *SocketSummary) {
 	if r, ok := remote.(rwext); ok {
 		if r.IsZeroDeadline() {
 			remote = r.Unwrap()
+		} else if c, ok := r.SetAsTCPSockOpt(); ok {
+			remote = c
 		}
 	}
 

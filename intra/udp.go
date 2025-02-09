@@ -74,12 +74,22 @@ var _ netstack.GUDPConnHandler = (*udpHandler)(nil)
 // on every read and write.
 type rwext struct {
 	net.Conn        // underlying conn
-	min      uint32 // min idle timeout in secs
+	minidle  uint32 // min idle timeout in secs
 }
 
 func (rw rwext) IsZeroDeadline() bool {
 	r, w := rw.deadlines()
 	return r == 0 && w == 0
+}
+
+func (rw rwext) SetAsTCPSockOpt() (core.TCPConn, bool) {
+	r, _ := rw.deadlines()
+	c, ok := rw.Conn.(core.TCPConn) // no-op for tcp conns
+	if ok && r > 0 {
+		// always returns false for udp conns
+		ok = core.SetTimeoutSockOpt(c, int(r)*1000)
+	}
+	return c, ok
 }
 
 func (rw rwext) Unwrap() net.Conn {
@@ -99,8 +109,8 @@ func (rw rwext) Write(b []byte) (n int, err error) {
 func (rw rwext) deadlines() (r, w uint32) {
 	dopt := settings.GetDialerOpts()
 	// -ve ints go higher than 2^31 w/ uint: go.dev/play/p/Rrqk_V8a7W0
-	return max(rw.min, uint32(dopt.ReadTimeoutSec)),
-		max(rw.min, uint32(dopt.WriteTimeoutSec))
+	return max(rw.minidle, uint32(dopt.ReadTimeoutSec)),
+		max(rw.minidle, uint32(dopt.WriteTimeoutSec))
 }
 
 func (rw rwext) extend() {
