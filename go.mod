@@ -1,6 +1,6 @@
 module github.com/celzero/firestack
 
-go 1.23.2
+go 1.24
 
 require (
 	github.com/celzero/gotrie v0.0.0-20240214185511-300735a8f01f
