@@ -894,7 +894,7 @@ func (r *resolver) preferencesFrom(qname string, qtyp uint16, s *x.DNSOpts, chos
 		}
 	}
 
-	if x == nil || len(x) <= 0 { // x may be nil
+	if len(x) <= 0 { // x may be nil
 		log.W("dns: pref: no tids for %s", qname)
 		// no-op
 	} else {
