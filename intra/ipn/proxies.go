@@ -100,6 +100,8 @@ var (
 	errHopGlobalProxy     = errors.New("proxy: hop must be global proxy")
 	errNilAmzId           = errors.New("proxy: amz id nil")
 	errNilProtonCfg       = errors.New("proxy: proton cfg nil")
+	errNilWarpId          = errors.New("proxy: warp id nil")
+	errNilSEProxy         = errors.New("proxy: se proxy nil")
 	errNotRpnProxy        = errors.New("proxy: not rpn")
 	errNotRpnID           = errors.New("proxy: not rpn id")
 	errNotRpnAcc          = errors.New("proxy: not rpn account")
@@ -966,7 +968,7 @@ func (px *proxifier) RegisterWarp(existingStateJson []byte) (stateJson []byte, e
 
 	wc, err := px.registerWarp(existingStateJson)
 	if err != nil || wc == nil {
-		return nil, core.OneErr(err, errNotRpnProxy)
+		return nil, core.OneErr(err, errNilWarpId)
 	}
 	state, err := wc.State()
 	if err != nil {
@@ -1099,7 +1101,7 @@ func (px *proxifier) RegisterSE() (err error) {
 
 	if err != nil || sep == nil {
 		log.E("proxy: se: make failed: %v", err)
-		return core.OneErr(err, errNotRpnProxy)
+		return core.OneErr(err, errNilSEProxy)
 	}
 
 	if p, err := px.addRpnProxy2(sep, sep, defaultCountryCode); p == nil || err != nil { // unlikely
