@@ -399,6 +399,10 @@ func (s *overwriteSplitter) Write(b []byte) (n int, err error) {
 		return n, err
 	}
 
+	if len(b) <= len(s.payload) { // same as "short == true"
+		return n, err // redundant check for nilaway
+	}
+
 	rawConn, err := conn.SyscallConn()
 	if err != nil {
 		return 0, err

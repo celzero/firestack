@@ -1181,7 +1181,7 @@ func (a *ProtonClient) Created() int64 {
 	if cfg == nil {
 		return 0
 	}
-	createdAt := time.Unix(int64(a.config.CreateTimestamp), 0)
+	createdAt := time.Unix(int64(cfg.CreateTimestamp), 0)
 	return createdAt.UnixMilli()
 }
 
@@ -1192,7 +1192,7 @@ func (a *ProtonClient) Expires() int64 {
 		return 0
 	}
 	// github.com/ProtonVPN/android-app/blob/b9c6e59de40/app/src/main/java/com/protonvpn/android/vpn/CertificateRepository.kt#L183-L188
-	refreshAt := time.Unix(int64(a.config.CertRefreshTime), 0)
+	refreshAt := time.Unix(int64(cfg.CertRefreshTime), 0)
 	return refreshAt.UnixMilli()
 }
 

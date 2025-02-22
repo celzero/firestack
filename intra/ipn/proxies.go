@@ -988,17 +988,10 @@ func (px *proxifier) registerWarp(existingStateJson []byte) (wc RpnAcc, err erro
 	restore := len(existingStateJson) > 0
 
 	if restore {
-		wc, err = px.extc.MakeWarpFrom(existingStateJson)
+		return px.extc.MakeWarpFrom(existingStateJson)
 	} else {
-		wc, err = px.extc.MakeWarp()
+		return px.extc.MakeWarp()
 	}
-
-	if err != nil {
-		log.E("proxy: warp: make failed: %v", err)
-		return nil, err
-	}
-
-	return
 }
 
 // RegisterAmnezia implements x.Rpn.
@@ -1013,9 +1006,9 @@ func (px *proxifier) RegisterAmnezia(existingStateJson []byte) (stateJson []byte
 
 	ac, err := px.registerAmnezia(existingStateJson)
 
-	if err != nil {
+	if err != nil || ac == nil {
 		log.E("proxy: amz: make (restore? %t) failed: %v", restore, err)
-		return nil, err
+		return nil, core.OneErr(err, errNilAmzId)
 	}
 
 	state, err := ac.State()
@@ -1036,18 +1029,12 @@ func (px *proxifier) RegisterAmnezia(existingStateJson []byte) (stateJson []byte
 
 func (px *proxifier) registerAmnezia(existingStateJson []byte) (ac RpnAcc, err error) {
 	restore := len(existingStateJson) > 0
-	var id *warp.AgwClient // may be nil
 
 	if restore {
-		id, err = px.extc.MakeAmzWgFrom(existingStateJson)
+		return px.extc.MakeAmzWgFrom(existingStateJson)
 	} else {
-		id, err = px.extc.MakeAmzWg()
+		return px.extc.MakeAmzWg()
 	}
-
-	if id == nil {
-		return nil, core.OneErr(err, errNilAmzId)
-	}
-	return id, nil
 }
 
 // RegisterProton implements x.Rpn.
@@ -1061,9 +1048,9 @@ func (px *proxifier) RegisterProton(existingStateJson []byte) (stateJson []byte,
 	restore := len(existingStateJson) > 0
 
 	pro, err := px.registerProton(existingStateJson)
-	if err != nil {
+	if err != nil || pro == nil {
 		log.E("proxy: proton: make failed: %v", err)
-		return nil, err
+		return nil, core.OneErr(err, errNilProtonCfg)
 	}
 
 	state, err := pro.State()
@@ -1087,15 +1074,10 @@ func (px *proxifier) registerProton(existingStateJson []byte) (p RpnAcc, err err
 	const nostore = ""
 
 	if restore {
-		p, err = px.extc.MakeProtonWgFrom(existingStateJson, nostore)
+		return px.extc.MakeProtonWgFrom(existingStateJson, nostore)
 	} else {
-		p, err = px.extc.MakeProtonWg(nostore)
+		return px.extc.MakeProtonWg(nostore)
 	}
-	if p == nil {
-		return nil, core.OneErr(err, errNilProtonCfg)
-	}
-
-	return p, nil
 }
 
 // RegisterSE implements x.Rpn.
@@ -1115,9 +1097,9 @@ func (px *proxifier) RegisterSE() (err error) {
 
 	sep, err := NewSEasyProxy(px.ctx, px.ctl, sec)
 
-	if err != nil {
+	if err != nil || sep == nil {
 		log.E("proxy: se: make failed: %v", err)
-		return err
+		return core.OneErr(err, errNotRpnProxy)
 	}
 
 	if p, err := px.addRpnProxy2(sep, sep, defaultCountryCode); p == nil || err != nil { // unlikely
