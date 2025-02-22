@@ -15,12 +15,11 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/netip"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
+	x "github.com/celzero/firestack/intra/backend"
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/log"
 )
@@ -44,7 +43,6 @@ const (
 	protonDNSAddr4    = "10.2.0.1"
 	// github.com/ProtonVPN/android-app/blob/b9c6e59de40/app/src/main/java/com/protonvpn/android/models/vpn/ConnectionParamsWireguard.kt#L96
 	protonAllowedIPs = "0.0.0.0/0"
-	protonFixedMtu   = 1280
 )
 
 // github.com/ProtonVPN/android-app/blob/b9c6e59de40/app/src/main/java/com/protonvpn/android/models/vpn/Server.kt#L28
@@ -64,6 +62,7 @@ var (
 	errNoProtonClientInfo   = errors.New("proton: no client key")
 	errNoProtonConfig       = errors.New("proton: no wg config")
 	errNoProtonJsonConfig   = errors.New("proton: no json config")
+	errNoProtonCcConf       = errors.New("proton: no cc conf")
 	errProtonKeyMismatch    = errors.New("proton: key mismatch")
 	errProtonUidMismatch    = errors.New("proton: uid mismatch")
 	errProtonUserIDMismatch = errors.New("proton: userid mismatch")
@@ -435,7 +434,8 @@ type RegionalWgConf struct {
 	ServerDomainPort string `json:"ServerDomainPort"`
 	AllowedIPs       string `json:"AllowedIPs"` // csv
 
-	WgConf string `json:"WgConf"` // generated
+	WgConf     string `json:"wgconf"`     // generated
+	UapiWgConf string `json:"uapiwgconf"` // generated
 }
 
 func (rwg *RegionalWgConf) String() string {
@@ -456,23 +456,19 @@ func toHex(b64 string) string {
 func (rwg *RegionalWgConf) UapiConfig() string {
 	// github.com/WireGuard/wireguard-android/blob/4ba87947ae/tunnel/src/main/java/com/wireguard/config/Config.java#L179
 	// github.com/WireGuard/wireguard-android/blob/4ba87947ae/tunnel/src/main/java/com/wireguard/config/Interface.java#L257
-	// not added: listen_port, persistent_keepalive_interval, preshared_key
-	var allowedip string
-	if ips := strings.Split(rwg.AllowedIPs, ","); len(ips) > 0 {
-		pre, err := netip.ParsePrefix(ips[0])
-		if err != nil && pre.IsValid() {
-			allowedip = ips[0]
-		}
-	}
+	// allowedip must be individual entries in uapi, but our custom impl can handle csv
+	// see: wgproxy.go:wgIfConfigOf => wgproxy.go:loadIPNets
+	allowedip := rwg.AllowedIPs
 	if len(allowedip) <= 0 {
 		allowedip = protonAllowedIPs
 	}
 
+	// not added: listen_port, persistent_keepalive_interval, preshared_key
 	return fmt.Sprintf(`private_key=%s
 replace_peers=true
 address=%s
 dns=%s
-mtu=%d
+mtu=(auto)
 public_key=%s
 allowed_ip=%s
 endpoint=%s
@@ -480,7 +476,6 @@ endpoint=%s`,
 		toHex(rwg.ClientPrivKey),
 		rwg.ClientAddr4,
 		rwg.ClientDNS4,
-		protonFixedMtu,
 		toHex(rwg.ServerPubKey),
 		allowedip,
 		rwg.ServerIPPort4,
@@ -510,6 +505,7 @@ AllowedIPs = %s`,
 		rwg.ServerDomainPort,
 		rwg.AllowedIPs,
 	)
+	rwg.UapiWgConf = rwg.UapiConfig()
 }
 
 func (id *ProtonWgConfig) Json() ([]byte, error) {
@@ -528,17 +524,14 @@ func (id *ProtonWgConfig) writeJson(w io.Writer) error {
 	if id == nil {
 		return errNoProtonConfig
 	}
-
-	for _, r := range id.RegionalWgConfs {
-		r.genWgConf()
-	}
-
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
 	return enc.Encode(id)
 }
 
 type ProtonClient struct {
+	RpnMultiCountry
+
 	http *http.Client
 	key  ProtonKey
 
@@ -700,6 +693,9 @@ func (a *ProtonClient) newConf() error {
 	pc.CertExpTime = a.cert.ExpirationTime
 	pc.CertRefreshTime = a.cert.RefreshTime
 	// wg info
+	for _, c := range rwgConfs {
+		c.genWgConf()
+	}
 	pc.RegionalWgConfs = rwgConfs
 
 	pc.CreateTimestamp = time.Now().Unix()
@@ -1161,6 +1157,61 @@ func (a *ProtonClient) rereg(force bool) error {
 	}
 
 	return a.registerCert() // re-register
+}
+
+// Who implements x.RpnAcc.
+func (a *ProtonClient) Who() string {
+	if a == nil {
+		return ""
+	}
+	return a.sess.uid
+}
+
+// ProviderID implements RpnAcc.
+func (*ProtonClient) ProviderID() string { return x.RpnPro }
+
+// State implements x.RpnAcc.
+func (a *ProtonClient) State() ([]byte, error) {
+	return a.config.Json()
+}
+
+// Created implements x.RpnAcc.
+func (a *ProtonClient) Created() int64 {
+	createdAt := time.Unix(int64(a.config.CreateTimestamp), 0)
+	return createdAt.UnixMilli()
+}
+
+// Expires implements x.RpnAcc.
+func (a *ProtonClient) Expires() int64 {
+	// github.com/ProtonVPN/android-app/blob/b9c6e59de40/app/src/main/java/com/protonvpn/android/vpn/CertificateRepository.kt#L183-L188
+	refreshAt := time.Unix(int64(a.config.CertRefreshTime), 0)
+	return refreshAt.UnixMilli()
+}
+
+// Update implements x.RpnAcc.
+func (a *ProtonClient) Update() (newstate []byte, err error) {
+	err = a.Refresh()
+	if err != nil {
+		log.W("proton: update: re-reg failed %v", err)
+		return nil, err
+	}
+	return a.config.Json()
+}
+
+// Conf implements RpnAcc.
+func (a *ProtonClient) Conf(cc string) (string, error) {
+	if len(cc) > 0 {
+		log.D("proton: conf: cc %s ignored", cc)
+	}
+	c := 0
+	for _, rc := range a.config.RegionalWgConfs {
+		if rc.CC == cc {
+			return rc.UapiWgConf, nil
+		}
+		c++
+	}
+	log.D("proton: conf: cc %s not found (tot: %d)", cc, c)
+	return "", errNoProtonCcConf
 }
 
 func (w *Client) MakeProtonWg(allServersFilePath string) (*ProtonClient, error) {

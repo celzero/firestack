@@ -408,6 +408,7 @@ func wgIfConfigOf(id string, txtptr *string) (opts wgifopts, err error) {
 	opts.ep = multihost.New(id + "endpoint")
 	opts.peers = make(map[string]device.NoisePublicKey)
 	opts.amnezia = wg.NewAmnezia(id)
+	opts.mtu = MAXMTU // auto
 	for r.Scan() {
 		line := r.Text()
 		if len(line) <= 0 {
@@ -438,7 +439,7 @@ func wgIfConfigOf(id string, txtptr *string) (opts wgifopts, err error) {
 			log.D("proxy: wg: %s ifconfig: dns(%d) %s", id, n, v)
 		case "mtu":
 			maxxed := false
-			if len(v) <= 0 || v == "auto" || v == "(auto)" {
+			if len(v) <= 0 || v == AUTOMTU || v == AUTOMTU2 {
 				opts.mtu = MAXMTU
 				maxxed = true
 			} else if opts.mtu, err = strconv.Atoi(v); err != nil {

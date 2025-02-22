@@ -86,13 +86,14 @@ type agwuser struct {
 	uuid          string // v4
 }
 
-type agwc struct {
+type AgwClient struct {
+	RpnCountryless
 	*agwuser
+	*AmzWgConfig  // may be nil
 	http          *http.Client
 	key, iv, salt []byte
 	rsaPub        *rsa.PublicKey
 	btoa          *base64.Encoding
-	cfg           *AmzWgConfig // may be nil
 }
 
 type AmzRegResponse struct {
@@ -154,7 +155,10 @@ type AmzWgConfig struct {
 
 	UUID             string `json:"uuid"`              // from agwc
 	ExpiresTimestamp int64  `json:"expires_timestamp"` // gen; seconds since epoch
-	WgConf           string `json:"wgconf"`            // gen
+	CreateTimestamp  int64  `json:"create_timestamp"`  // gen; seconds since epoch
+
+	WgConf     string `json:"wgconf"`     // gen
+	UapiWgConf string `json:"uapiwgconf"` // gen
 }
 
 func (c *AmzWgConfig) genWgConf() {
@@ -201,7 +205,6 @@ func (c *AmzWgConfig) writeJson(w io.Writer) error {
 	if c == nil {
 		return errNoAgwConfig
 	}
-	c.genWgConf()
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
 	return enc.Encode(c)
@@ -273,7 +276,7 @@ func (c *AmzWgConfig) Json() ([]byte, error) {
 //		  }
 //		}
 //	}
-func (a *agwc) unravel(decompressedData []byte) ([]AmzWgConfig, error) {
+func (a *AgwClient) unravel(decompressedData []byte) ([]AmzWgConfig, error) {
 	var data AmzWgData
 	err := json.Unmarshal(decompressedData, &data)
 	if err != nil {
@@ -306,7 +309,9 @@ func (a *agwc) unravel(decompressedData []byte) ([]AmzWgConfig, error) {
 		}
 		lcfg.ClientPrivKey = wgpriv
 		lcfg.ExpiresTimestamp = expiresTimestamp
+		lcfg.CreateTimestamp = now.Unix()
 		lcfg.UUID = uuid
+		lcfg.genWgConf()
 		cfgs = append(cfgs, lcfg)
 	}
 
@@ -316,7 +321,7 @@ func (a *agwc) unravel(decompressedData []byte) ([]AmzWgConfig, error) {
 	return cfgs, nil
 }
 
-func (a *agwc) qUncompressVpnUri(data []byte) ([]byte, error) {
+func (a *AgwClient) qUncompressVpnUri(data []byte) ([]byte, error) {
 	acfg := strings.ReplaceAll(string(data), "vpn://", "")
 
 	decodedData, err := base64.URLEncoding.DecodeString(string(acfg))
@@ -346,7 +351,7 @@ func (a *agwc) qUncompressVpnUri(data []byte) ([]byte, error) {
 	return decompressedData.Bytes(), nil
 }
 
-func (a *agwc) decodeApiResponse(data []byte) ([]byte, error) {
+func (a *AgwClient) decodeApiResponse(data []byte) ([]byte, error) {
 	// {
 	// 	"config": "vpn://<base64url>",
 	// 	"service_info": {
@@ -406,7 +411,7 @@ func prandom(sz int) ([]byte, error) {
 }
 
 // wrap encrypts data encryption keys in data using RSA public key.
-func (a *agwc) wrap(data []byte, typ string) ([]byte, error) {
+func (a *AgwClient) wrap(data []byte, typ string) ([]byte, error) {
 	switch typ {
 	case "oeap":
 		return rsa.EncryptOAEP(sha512.New(), rand.Reader, a.rsaPub, data, nil)
@@ -435,7 +440,7 @@ func (a *agwc) wrap(data []byte, typ string) ([]byte, error) {
 //	_ = json.Unmarshal(d, &r)
 // }
 
-func newAgwc(wgkey x.WgKey, uuid string, c *http.Client) (*agwc, error) {
+func newAgwc(wgkey x.WgKey, uuid string, c *http.Client) (*AgwClient, error) {
 	key, err := prandom(32)
 	if err != nil {
 		return nil, err
@@ -468,7 +473,7 @@ func newAgwc(wgkey x.WgKey, uuid string, c *http.Client) (*agwc, error) {
 		return nil, errInvalidRsaPubKey
 	}
 
-	return &agwc{
+	return &AgwClient{
 		agwuser: &agwuser{
 			wgpriv: wgkey.Base64(),
 			wgpub:  wgkey.Mult().Base64(),
@@ -484,7 +489,7 @@ func newAgwc(wgkey x.WgKey, uuid string, c *http.Client) (*agwc, error) {
 	}, nil
 }
 
-func (a *agwc) apiPayload() map[string]string {
+func (a *AgwClient) apiPayload() map[string]string {
 	return map[string]string{
 		"user_country_code": agwCountryCode,
 		"installation_uuid": a.uuid,
@@ -499,7 +504,7 @@ func (a *agwc) apiPayload() map[string]string {
 }
 
 // encrypt API payload using AES256 CBC; salt is not used
-func (a *agwc) encryptApiPayload() ([]byte, error) {
+func (a *AgwClient) encryptApiPayload() ([]byte, error) {
 	apiPayloadJSON, _ := json.Marshal(a.apiPayload())
 	return a.encryptAesBlockCipher(apiPayloadJSON)
 }
@@ -517,7 +522,7 @@ func toRune(s string) string {
 	return string(r)
 }
 
-func (a *agwc) encryptKeyPayload() ([]byte, error) {
+func (a *AgwClient) encryptKeyPayload() ([]byte, error) {
 	keyb64 := a.btoa.EncodeToString(a.key)
 	ivb64 := a.btoa.EncodeToString(a.iv)
 	saltb64 := a.btoa.EncodeToString(a.salt)
@@ -534,15 +539,65 @@ func (a *agwc) encryptKeyPayload() ([]byte, error) {
 	return a.wrap(keyPayloadJSON, "pkcsv15")
 }
 
-func (a *agwc) url() string {
+func (a *AgwClient) url() string {
 	if prod {
 		return agwProdUrl
 	}
 	return agwDevUrl
 }
 
-/*
-func (u *agwuser) chUser() error {
+// Who implements x.RpnAcc.
+func (a *AgwClient) Who() string {
+	if a == nil {
+		return ""
+	}
+	return a.uuid
+}
+
+// ProviderID implements RpnAcc.
+func (*AgwClient) ProviderID() string { return x.RpnAmz }
+
+// State implements x.RpnAcc.
+func (a *AgwClient) State() ([]byte, error) {
+	return a.AmzWgConfig.Json()
+}
+
+// Created implements x.RpnAcc.
+func (a *AgwClient) Created() int64 {
+	const twentyFourHoursInSecs = 24 * 60 * 60
+	dob := time.Unix(a.AmzWgConfig.CreateTimestamp, 0)
+	if dob.IsZero() { // if unknown, assume it was created 24h before expiry
+		return a.Expires() - twentyFourHoursInSecs
+	}
+	return dob.UnixMilli()
+}
+
+// Expires implements x.RpnAcc.
+func (a *AgwClient) Expires() int64 {
+	const twelveHoursInSecs = 12 * 60 * 60 // 12h before expiry
+	newAt := time.Unix(a.AmzWgConfig.ExpiresTimestamp-twelveHoursInSecs, 0)
+	return newAt.UnixMilli()
+}
+
+// Update implements x.RpnAcc.
+func (a *AgwClient) Update() (newstate []byte, err error) {
+	err = a.rereg()
+	if err != nil {
+		log.W("agw: update: re-reg failed %v", err)
+		return nil, err
+	}
+	return a.AmzWgConfig.Json()
+}
+
+// Conf implements RpnAcc.
+func (a *AgwClient) Conf(cc string) (string, error) {
+	if len(cc) > 0 {
+		log.D("agw: conf: cc %s ignored", cc)
+	}
+	return a.UapiWgConf, nil
+}
+
+func (u *agwuser) rotate() error {
 	prevuuid := u.uuid
 	wgkey, err := x.NewWgPrivateKey()
 	if err != nil {
@@ -557,18 +612,17 @@ func (u *agwuser) chUser() error {
 	return nil // ok
 }
 
-func (a *agwc) renew() error {
-	err := a.chUser()
+func (a *AgwClient) rereg() error {
+	err := a.rotate()
 	if err != nil {
 		return err
 	}
 	return a.reg()
 }
-*/
 
 // github.com/amnezia-vpn/amnezia-client/blob/8547de82ea9/client/core/controllers/apiController.cpp#L383
-func (a *agwc) reg() error {
-	a.cfg = nil // clean slate
+func (a *AgwClient) reg() error {
+	a.AmzWgConfig = nil // clean slate
 
 	uuid := a.uuid
 	encryptedAPIPayload, err := a.encryptApiPayload()
@@ -631,14 +685,16 @@ func (a *agwc) reg() error {
 		return core.OneErr(err, errNoAgwConfig)
 	}
 
-	a.cfg = &cfgs[0]
+	first := &cfgs[0]
+	first.genWgConf()
+	a.AmzWgConfig = first
 
 	log.I("agw: %s reg: got cfgs %d", uuid, len(cfgs))
 	return nil
 }
 
 // encryptAesBlockCipher encrypts data using AES with a given mode, key, and IV.
-func (a *agwc) encryptAesBlockCipher(data []byte) ([]byte, error) {
+func (a *AgwClient) encryptAesBlockCipher(data []byte) ([]byte, error) {
 	block, err := aes.NewCipher(a.key)
 	if err != nil {
 		return nil, fmt.Errorf("agw: err create cipher: %w", err)
@@ -662,7 +718,7 @@ func padPKCS7(data []byte, blockSize int) []byte {
 }
 
 // decryptAesBlockCipher decrypts data using AES with a given mode, key, and IV.
-func (a *agwc) decryptAesBlockCipher(ciphertext []byte) ([]byte, error) {
+func (a *AgwClient) decryptAesBlockCipher(ciphertext []byte) ([]byte, error) {
 	block, err := aes.NewCipher(a.key)
 	if err != nil {
 		return nil, fmt.Errorf("agw: err create cipher: %w", err)
@@ -704,7 +760,7 @@ func unpadPKCS7(data []byte, blockSize int) ([]byte, error) {
 	return data[:len(data)-padding], nil
 }
 
-func (w *Client) MakeAmzWg() (*AmzWgConfig, error) {
+func (w *Client) MakeAmzWg() (*AgwClient, error) {
 	k, err := x.NewWgPrivateKey()
 	if err != nil {
 		return nil, err
@@ -724,10 +780,10 @@ func (w *Client) MakeAmzWg() (*AmzWgConfig, error) {
 		return nil, err
 	}
 
-	return a.cfg, nil
+	return a, nil
 }
 
-func (w *Client) MakeAmzWgFrom(existingStateJson []byte) (*AmzWgConfig, error) {
+func (w *Client) MakeAmzWgFrom(existingStateJson []byte) (*AgwClient, error) {
 	log.I("agw: make: from: %d", len(existingStateJson))
 
 	var config AmzWgConfig
@@ -758,7 +814,8 @@ func (w *Client) MakeAmzWgFrom(existingStateJson []byte) (*AmzWgConfig, error) {
 		return nil, err
 	}
 
-	a.cfg = &config
+	config.genWgConf()
+	a.AmzWgConfig = &config
 
-	return a.cfg, nil
+	return a, nil
 }

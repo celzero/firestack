@@ -161,14 +161,9 @@ type Identity struct {
 	Errors   []string `json:"errors"`
 	Messages []string `json:"messages"`
 
-	WgConf string `json:"wgconf"` // gen
-}
-
-func (id *Identity) Of() string {
-	if id == nil {
-		return "<nil>"
-	}
-	return id.ID
+	// generated
+	WgConf     string `json:"wgconf"`
+	UapiWgConf string `json:"uapiwgconf"`
 }
 
 type IdentityDevice struct {
@@ -222,7 +217,6 @@ func (id *Identity) writeJson(w io.Writer) error {
 	if id == nil || len(id.ID) <= 0 {
 		return errZeroIdentity
 	}
-	id.genWgConf()
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
 	return enc.Encode(id)
@@ -235,19 +229,37 @@ func (id *Identity) Expires() (zz time.Time) {
 		return
 	}
 
+	if t := id.Since(); t.IsZero() {
+		return
+	} else {
+		return t.Add(22 * time.Hour)
+	}
+}
+
+func (id *Identity) Since() (zz time.Time) {
+	if id == nil {
+		return
+	}
+
 	// go.dev/play/p/I2SYDu_8bOx
 	// created: "2023-03-23T21:45:58.993726274Z"
 	t, err := time.Parse(time.RFC3339Nano, id.Created)
 	if err != nil {
 		return
 	}
-	return t.Add(22 * time.Hour)
+
+	return t
 }
 
 func (id *Identity) genWgConf() {
 	if id == nil || len(id.Config.Peers) < 1 {
 		return
 	}
+	const gw4 = "0.0.0.0/0"
+	const gw6 = "::/0"
+	// developers.cloudflare.com/1.1.1.1/ip-addresses/
+	const cfdns4 = "1.1.1.1"
+	const cfdns6 = "2606:4700:4700::1001"
 	id.WgConf = fmt.Sprintf(`[Interface]
 PrivateKey = %s
 PublicKey = %s
@@ -269,15 +281,38 @@ AllowedIPs = %s`,
 		id.Config.Interface.Addresses.V4,
 		id.Config.Interface.Addresses.V6,
 		// developers.cloudflare.com/1.1.1.1/ip-addresses/
-		"1.1.1.1",
-		"2606:4700:4700::1001",
+		cfdns4,
+		cfdns6,
 		id.Config.Peers[0].PublicKey,
 		id.Config.Peers[0].Endpoint.V4,
 		id.Config.Peers[0].Endpoint.V6,
 		id.Config.Peers[0].Endpoint.Host,
-		"0.0.0.0/0",
-		"::/0",
+		gw4,
+		gw6,
 	)
+
+	// github.com/WireGuard/wireguard-android/blob/4ba87947ae/tunnel/src/main/java/com/wireguard/config/Config.java#L179
+	// github.com/WireGuard/wireguard-android/blob/4ba87947ae/tunnel/src/main/java/com/wireguard/config/Interface.java#L257
+	// not added: listen_port, persistent_keepalive_interval, preshared_key
+	id.UapiWgConf = fmt.Sprintf(`private_key=%s
+	replace_peers=true
+	client_id=%s
+	address=%s,%s
+	dns=%s,%s
+	mtu=(auto)
+	public_key=%s
+	allowed_ip=%s,%s
+	endpoint=%s,%s
+	endpoint=%s`,
+		toHex(id.PrivateKey),
+		id.Config.ClientID,
+		id.Config.Interface.Addresses.V4, id.Config.Interface.Addresses.V6,
+		cfdns4, cfdns6,
+		toHex(id.Key),
+		gw4, gw6,
+		id.Config.Peers[0].Endpoint.V4, id.Config.Peers[0].Endpoint.V6,
+		id.Config.Peers[0].Endpoint.Host)
+
 }
 
 func Load(b []byte) (Identity, error) {

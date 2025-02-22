@@ -26,6 +26,9 @@ import (
 	"github.com/celzero/firestack/intra/settings"
 )
 
+const defaultCountryCode = "US" // always uppercase
+const noCountryForOldMen = ""   // zz
+
 func (pxr *proxifier) NewSocks5Proxy(id, user, pwd, ip, port string) (p *socks5, err error) {
 	opts := settings.NewAuthProxyOptions("socks5", user, pwd, ip, port, nil)
 	return NewSocks5Proxy(id, pxr.ctx, pxr.ctl, opts)
@@ -35,6 +38,82 @@ func (pxr *proxifier) NewSocks5Proxy(id, user, pwd, ip, port string) (p *socks5,
 func (pxr *proxifier) AddProxy(id, txt string) (x.Proxy, error) {
 	defer core.Recover(core.Exit11, "prx.AddProxy."+id)
 	return pxr.addProxy(id, txt)
+}
+
+func (pxr *proxifier) removeRpnProxy(acc RpnAcc, cc string) bool {
+	if acc == nil || core.IsNil(acc) {
+		log.W("proxy: remove: no rpn acc for cc %s", cc)
+		return false
+	}
+	typ := acc.ProviderID()
+	if !acc.MultiCountry() && cc != noCountryForOldMen {
+		log.I("proxy: remove: %s not multi-country; cc %s ignored", typ, cc)
+		cc = noCountryForOldMen
+	}
+
+	if cc == noCountryForOldMen { // remove all
+		group := make(chan string)
+		pxr.Lock()
+		for _, p := range pxr.p {
+			if strings.HasPrefix(p.ID(), typ) {
+				group <- p.ID()
+			}
+		}
+		pxr.Unlock()
+
+		log.I("proxy: rpn: remove all! %s; tot? %d", typ, len(group))
+		for len(group) > 0 {
+			single := <-group
+			log.V("proxy: rpn: remove %s", single)
+			pxr.removeProxy(single, true /*force*/)
+		}
+		return true
+	} else {
+		log.V("proxy: rpn: remove %s/%s", typ, cc)
+		return pxr.removeProxy(typ+cc, true /*force*/)
+	}
+}
+
+func (pxr *proxifier) addRpnProxy(acc RpnAcc, cc string) (RpnProxy, error) {
+	typ := acc.ProviderID()
+
+	if !isRPN(typ) {
+		return nil, errNotRpnID
+	}
+	if acc == nil || core.IsNil(acc) {
+		return nil, errNotRpnAcc
+	}
+
+	if !acc.MultiCountry() && cc != noCountryForOldMen {
+		log.I("proxy: %s not multi-country; cc %s ignored", typ, cc)
+		cc = noCountryForOldMen
+	}
+	txt, err := acc.Conf(cc)
+	if err != nil {
+		return nil, err
+	}
+
+	p, err := pxr.addProxy(typ+cc, txt)
+	if err != nil {
+		return nil, err
+	}
+
+	return AsRpnProxy(p, acc, pxr)
+}
+
+func (pxr *proxifier) addRpnProxy2(p Proxy, acc RpnAcc, cc string) (RpnProxy, error) {
+	proxyid := p.ID()
+	providerid := acc.ProviderID()
+	if !isRPN(proxyid) || !isRPN(providerid) {
+		return nil, errNotRpnProxy
+	}
+
+	ok := pxr.add(p)
+	if !ok {
+		return nil, errAddProxy
+	}
+
+	return AsRpnProxy(p, acc, pxr)
 }
 
 func (pxr *proxifier) addProxy(id, txt string) (p Proxy, err error) {

@@ -83,19 +83,17 @@ type Rpn interface {
 	// TestExit64 connects to public NAT64 endpoints and returns reachable ones.
 	TestExit64() (ips string, errs error)
 	// Warp returns a RpnWg proxy.
-	Warp() (wg Proxy, err error)
+	Warp() (wg RpnProxy, err error)
 	// Proton returns a Proton WireGuard proxy.
-	Proton() (wg Proxy, err error)
+	Proton() (wg RpnProxy, err error)
 	// Amnezia returns a Amnezia WireGuard proxy.
-	Amnezia() (awg Proxy, err error)
+	Amnezia() (awg RpnProxy, err error)
 	// Pip returns a RpnWs proxy.
-	Pip() (ws Proxy, err error)
-	// Exit returns the Exit proxy.
-	Exit() (exit Proxy, err error)
+	Pip() (ws RpnProxy, err error)
 	// Exit64 returns a Exit proxy hopping over NAT64.
-	Exit64() (nat64 Proxy, err error)
+	Exit64() (nat64 RpnProxy, err error)
 	// SE returns a SurfEasy proxy.
-	SE() (se Proxy, err error)
+	SE() (se RpnProxy, err error)
 }
 
 type Proxy interface {
@@ -117,6 +115,29 @@ type Proxy interface {
 	Stop() error
 	// Refresh re-registers this proxy, if necessary.
 	Refresh() error
+}
+
+type RpnProxy interface {
+	Proxy
+	// Fork adds proxy for country code, cc.
+	Fork(cc string) (RpnProxy, error)
+	// Prune removes proxy for country code, cc.
+	Purge(cc string) bool
+	// Get returns proxy for country code, cc.
+	Get(cc string) (RpnProxy, error)
+}
+
+type RpnAcc interface {
+	// Who returns identifier for this account; may be empty.
+	Who() string
+	// State returns the state (as json) of the account.
+	State() ([]byte, error)
+	// Created returns the time (unix millis) currently active account was created.
+	Created() int64
+	// Expires returns the time (unix millis) currently active account expires.
+	Expires() int64
+	// Update updates the account creating new state.
+	Update() (newstate []byte, err error)
 }
 
 type Proxies interface {
@@ -155,7 +176,6 @@ type Router interface {
 
 // ProxyListener is a listener for proxy events.
 type ProxyListener interface {
-	RpnListener
 	// OnProxyAdded is called when a proxy is added.
 	OnProxyAdded(id string)
 	// OnProxyRemoved is called when a proxy is removed except when all
@@ -166,13 +186,9 @@ type ProxyListener interface {
 	// OnProxiesStopped is called when all proxies are stopped.
 	// Note: OnProxyRemoved is not called for each proxy.
 	OnProxiesStopped()
-}
-
-// RpnListener is a listener for events exclusive to RPN.
-// ProxyListener is the listener for non-exclusive RPN events.
-type RpnListener interface {
-	// OnRpnUpdated is called when a Rpn proxy is updated.
-	OnRpnUpdated(rpnId string, updatedStateJson []byte)
+	// OnRpnUpdated is called when the RPN state is updated on the fly
+	// (without prompting).
+	OnRpnUpdated(provider string, stateJson []byte)
 }
 
 // RouterStats lists interesting stats of a Router.

@@ -17,6 +17,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -31,38 +32,93 @@ import (
 	"github.com/celzero/firestack/intra/protect"
 )
 
+var (
+	errRpnStateless = errors.New("rpn has no state or config")
+)
+
+type RpnAcc interface {
+	x.RpnAcc
+	ProviderID() string // x.RpnWg, x.RpnPro, x.RpnAmz
+	MultiCountry() bool
+	Conf(key string) (string, error)
+}
+
+var _ RpnAcc = (*AgwClient)(nil)
+var _ RpnAcc = (*ProtonClient)(nil)
+var _ RpnAcc = (*WarpClient)(nil)
+
 type Client struct {
 	d  *protect.RDial
 	h2 http.Client
 }
 
-type warpclient struct {
-	k  x.WgKey
-	h  http.Client
-	d  *protect.RDial
-	id *Identity
+var dob = time.Now()
+var neverEver = time.Date(5253, time.March, 6, 0, 0, 0, 0, time.UTC)
+
+type RpnForever struct{}
+
+func (RpnForever) Created() int64 { return dob.UnixMilli() }
+func (RpnForever) Expires() int64 { return neverEver.UnixMilli() }
+
+type RpnMultiCountry struct{}
+
+func (RpnMultiCountry) MultiCountry() bool { return true }
+
+type RpnCountryless struct{}
+
+func (c RpnCountryless) MultiCountry() bool { return false }
+
+type RpnStateless struct{}
+
+func (RpnStateless) State() ([]byte, error)         { return nil, errRpnStateless }
+func (RpnStateless) Conf(cc string) (string, error) { return "", errRpnStateless }
+func (RpnStateless) Update() ([]byte, error)        { return nil, errRpnStateless }
+
+type WarpClient struct {
+	RpnCountryless
+	*Identity
+	k x.WgKey
+	h http.Client
+	d *protect.RDial
 }
 
-func newWarpClient(k x.WgKey, d *protect.RDial, id *Identity) (*warpclient, error) {
-	if k == nil || core.IsNil(k) {
-		return nil, errNoWgKey
-	}
+func newWarpClient(d *protect.RDial, id *Identity) (wc *WarpClient, err error) {
 	if d == nil {
 		return nil, errNoDialer
+	}
+
+	restoring := false
+
+	var k x.WgKey
+	if id == nil || len(id.PrivateKey) <= 0 {
+		k, err = x.NewWgPrivateKey()
+	} else if len(id.PrivateKey) > 0 {
+		restoring = true
+		k, err = x.NewWgPrivateKeyOf(id.PrivateKey)
+	} else {
+		return nil, errNoWgKey
+	}
+
+	if err != nil {
+		return nil, err
 	}
 
 	pub := k.Mult().Base64()
 	log.I("warp: make: client for %s; new? %t", pub, id == nil)
 
 	// if id == nil, reg() creates identity
-	wc := &warpclient{
-		k:  k,
-		d:  d,
-		id: id,
+	wc = &WarpClient{
+		k:        k,
+		d:        d,
+		Identity: id,
 	}
 
 	wc.h.Transport = &http.Transport{
 		DialTLSContext: wc.utlsDial,
+	}
+
+	if restoring {
+		wc.genWgConf()
 	}
 
 	return wc, nil
@@ -80,7 +136,7 @@ func NewExtClient(ctx context.Context, c protect.Controller) *Client {
 	return w
 }
 
-func (w *warpclient) utlsDial(ctx context.Context, network, addr string) (net.Conn, error) {
+func (w *WarpClient) utlsDial(ctx context.Context, network, addr string) (net.Conn, error) {
 	host, _, err := net.SplitHostPort(addr)
 	if err != nil {
 		return nil, err
@@ -94,8 +150,8 @@ func (w *warpclient) utlsDial(ctx context.Context, network, addr string) (net.Co
 }
 
 // unused
-func (w *warpclient) GetAcct() error {
-	id := w.id
+func (w *WarpClient) GetAcct() error {
+	id := w.Identity
 	if id == nil {
 		return errZeroIdentity
 	}
@@ -145,8 +201,13 @@ func (w *warpclient) GetAcct() error {
 	return nil
 }
 
-func (w *warpclient) reg() error {
-	if w.id != nil { // registered; call update/get/reset?
+func (w *WarpClient) rereg() error {
+	w.Identity = nil
+	return w.reg()
+}
+
+func (w *WarpClient) reg() error {
+	if w.Identity != nil { // registered; call update/get/reset?
 		return nil
 	}
 
@@ -200,22 +261,23 @@ func (w *warpclient) reg() error {
 		return err
 	}
 
-	w.id = &Identity{}
-	if err := json.Unmarshal(b, &w.id); err != nil { // unlikely
+	w.Identity = &Identity{}
+	if err := json.Unmarshal(b, &w.Identity); err != nil { // unlikely
 		log.E("warp: reg: unmarshal res %v", err)
 		return err
 	}
 
-	w.id.PrivateKey = w.k.Base64()
+	w.Identity.PrivateKey = w.k.Base64()
+	w.Identity.genWgConf()
 
-	log.I("warp: reg: successful %s for %s", w.id.Created, w.id.ID)
+	log.I("warp: reg: successful %s for %s", w.Identity.Created, w.Identity.ID)
 
 	return nil
 }
 
 // unused
-func (w *warpclient) ResetLicense() error {
-	id := w.id
+func (w *WarpClient) ResetLicense() error {
+	id := w.Identity
 	if id == nil {
 		return errZeroIdentity
 	}
@@ -266,8 +328,8 @@ func (w *warpclient) ResetLicense() error {
 }
 
 // unused
-func (w *warpclient) UpdateAcct(license string) error {
-	id := w.id
+func (w *WarpClient) UpdateAcct(license string) error {
+	id := w.Identity
 	if id == nil {
 		return errZeroIdentity
 	}
@@ -325,15 +387,54 @@ func (w *warpclient) UpdateAcct(license string) error {
 	return nil
 }
 
-// from: github.com/bepass-org/warp-plus/blob/19ac233cc/warp/account.go
+// Who implements x.RpnAcc.
+func (w *WarpClient) Who() string {
+	if w == nil || w.Identity == nil {
+		return ""
+	}
+	return w.Identity.ID
+}
 
-func (w *Client) MakeWarp() (*Identity, error) {
-	k, err := x.NewWgPrivateKey()
+// Provider implements RpnAcc.
+func (*WarpClient) ProviderID() string { return x.RpnWg }
+
+// State implements x.RpnAcc.
+func (w *WarpClient) State() ([]byte, error) {
+	return w.Identity.Json()
+}
+
+// Created implements x.RpnAcc.
+func (w *WarpClient) Created() int64 {
+	return w.Identity.Since().UnixMilli()
+}
+
+// Expires implements x.RpnAcc.
+func (w *WarpClient) Expires() int64 {
+	return w.Identity.Expires().UnixMilli()
+}
+
+// Update implements x.RpnAcc.
+func (w *WarpClient) Update() (newstate []byte, err error) {
+	err = w.rereg()
 	if err != nil {
+		log.W("warp: update: re-reg failed %v", err)
 		return nil, err
 	}
+	return w.Identity.Json()
+}
 
-	wc, err := newWarpClient(k, w.d, nil)
+// Conf implements RpnAcc.
+func (w *WarpClient) Conf(cc string) (string, error) {
+	if len(cc) > 0 {
+		log.D("warp: conf: cc %s ignored", cc)
+	}
+	return w.Identity.UapiWgConf, nil
+}
+
+// from: github.com/bepass-org/warp-plus/blob/19ac233cc/warp/account.go
+
+func (w *Client) MakeWarp() (*WarpClient, error) {
+	wc, err := newWarpClient(w.d, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -343,15 +444,14 @@ func (w *Client) MakeWarp() (*Identity, error) {
 		return nil, err
 	}
 
-	id := wc.id
-	if id == nil {
+	if wc.Identity == nil {
 		return nil, errZeroIdentity
 	}
 
-	return id, nil
+	return wc, nil
 }
 
-func (w *Client) MakeWarpFrom(existingStateJson []byte) (*Identity, error) {
+func (w *Client) MakeWarpFrom(existingStateJson []byte) (*WarpClient, error) {
 	var id Identity
 	err := json.Unmarshal(existingStateJson, &id)
 	if err != nil {
@@ -364,12 +464,5 @@ func (w *Client) MakeWarpFrom(existingStateJson []byte) (*Identity, error) {
 		return w.MakeWarp()
 	}
 
-	// test key sanity
-	_, err = x.NewWgPrivateKeyOf(id.PrivateKey)
-	if err != nil {
-		log.E("warp: make: restore key failed %v; new warp ...", err)
-		return w.MakeWarp()
-	}
-
-	return &id, nil
+	return newWarpClient(w.d, &id)
 }

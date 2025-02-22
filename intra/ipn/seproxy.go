@@ -37,6 +37,7 @@ import (
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/dialers"
 	"github.com/celzero/firestack/intra/ipn/seasy"
+	"github.com/celzero/firestack/intra/ipn/warp"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
 	"github.com/noql-net/certpool"
@@ -82,6 +83,9 @@ type seproxy struct {
 	ProtoAgnostic
 	GW
 
+	warp.RpnStateless
+	warp.RpnCountryless
+
 	done      context.CancelFunc
 	sec       *seasy.SEApi
 	addrs     []netip.AddrPort
@@ -99,6 +103,7 @@ type sedialer struct {
 	dialer    dialFn
 }
 
+var _ RpnAcc = (*seproxy)(nil)
 var _ Proxy = (*seproxy)(nil)
 var _ proxy.Dialer = (*sedialer)(nil)
 
@@ -432,6 +437,27 @@ func (h *seproxy) Stop() error {
 	h.done()
 	log.I("proxy: se: stopped")
 	return nil
+}
+
+// Who implements x.RpnAcc.
+func (h *seproxy) Who() string {
+	if h == nil || h.sec == nil {
+		return ""
+	}
+	return h.sec.AssignedDeviceID
+}
+
+// Provider implements RpnAcc.
+func (*seproxy) ProviderID() string { return RpnSE }
+
+// Created implements x.RpnAcc.
+func (h *seproxy) Created() int64 {
+	return h.lastRefresh.Load().UnixMilli()
+}
+
+// Expires implements x.RpnAcc.
+func (h *seproxy) Expires() int64 {
+	return h.lastRefresh.Load().Add(fourHours).UnixMilli()
 }
 
 func closif(err error) func(io.Closer) {

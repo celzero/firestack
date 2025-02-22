@@ -59,8 +59,10 @@ const (
 	TKO = x.TKO
 	END = x.END
 
-	NOMTU  = 0
-	MAXMTU = 65535
+	NOMTU    = 0
+	MAXMTU   = 65535
+	AUTOMTU  = "auto"
+	AUTOMTU2 = "(auto)"
 )
 
 var (
@@ -98,6 +100,9 @@ var (
 	errHopGlobalProxy     = errors.New("proxy: hop must be global proxy")
 	errNilAmzId           = errors.New("proxy: amz id nil")
 	errNilProtonCfg       = errors.New("proxy: proton cfg nil")
+	errNotRpnProxy        = errors.New("proxy: not rpn")
+	errNotRpnID           = errors.New("proxy: not rpn id")
+	errNotRpnAcc          = errors.New("proxy: not rpn account")
 )
 
 const (
@@ -140,8 +145,19 @@ type Proxy interface {
 	Hop(p Proxy) error
 }
 
+type Rpn interface {
+	x.Rpn
+	// rpnProxyFor returns an RPN proxy from this multi-transport.
+	rpnProxyFor(acc RpnAcc, cc string) (RpnProxy, error)
+	// addRpnProxy adds an RPN proxy to this multi-transport.
+	addRpnProxy(acc RpnAcc, cc string) (RpnProxy, error)
+	// removeRpnProxy removes an RPN proxy from this multi-transport.
+	removeRpnProxy(acc RpnAcc, cc string) bool
+}
+
 type Proxies interface {
 	x.Proxies
+	Rpn
 	// ProxyFor returns a transport from this multi-transport.
 	ProxyFor(id string) (Proxy, error)
 	// ProxyTo returns the proxy to use for ipp from given pids.
@@ -161,6 +177,9 @@ type proxifier struct {
 	ctx context.Context
 	p   map[string]Proxy
 
+	rpnmu  sync.RWMutex      // protects rp
+	rpnacc map[string]RpnAcc // rpn accounts
+
 	ctl protect.Controller // dial control provider
 	obs x.ProxyListener    // proxy observer
 
@@ -171,8 +190,6 @@ type proxifier struct {
 	ipPins  *core.Sieve[netip.AddrPort, string]           // ipp -> proxyid
 	uidPins *core.Sieve2K[string, netip.AddrPort, string] // uid -> [dst -> proxyid]
 
-	sched *core.Scheduler
-
 	// immutable proxies
 	exit     *exit   // exit proxy, never changes
 	exit64   *exit64 // rpn64 proxy, never changes
@@ -181,7 +198,8 @@ type proxifier struct {
 	auto     *auto   // auto proxy, never changes
 
 	extc *warp.Client // external wg registration, never changes
-	sec  *seasy.SEApi // se proxy registration, never changes; may be nil
+
+	sec *seasy.SEApi // se proxy registration, never changes; may be nil
 
 	lastSeErr     *core.Volatile[error] // se proxy registration error
 	lastWarpErr   *core.Volatile[error] // warp registration error
@@ -213,14 +231,14 @@ func NewProxifier(pctx context.Context, l3 string, mtu int, c protect.Controller
 	}
 
 	pxr := &proxifier{
-		ctx:   pctx,
-		p:     make(map[string]Proxy),
-		ctl:   c,
-		obs:   o,
-		sched: core.NewScheduler(pctx),
+		ctx: pctx,
+		p:   make(map[string]Proxy),
+		ctl: c,
+		obs: o,
 
 		lp: LinkProps{l3: l3, mtu: mtu},
 
+		rpnacc:        make(map[string]RpnAcc),
 		lastSeErr:     core.NewZeroVolatile[error](),
 		lastWarpErr:   core.NewZeroVolatile[error](),
 		lastAmzErr:    core.NewZeroVolatile[error](),
@@ -244,10 +262,12 @@ func NewProxifier(pctx context.Context, l3 string, mtu int, c protect.Controller
 	}
 
 	pxr.add(pxr.exit)     // fixed
-	pxr.add(pxr.exit64)   // fixed
 	pxr.add(pxr.base)     // fixed
 	pxr.add(pxr.grounded) // fixed
 	pxr.add(pxr.auto)     // fixed
+
+	pxr.addRpnProxy2(pxr.exit64, pxr.exit64, defaultCountryCode) // fixed
+	pxr.addRpnAcc(pxr.exit64)
 
 	log.I("proxy: new")
 
@@ -583,6 +603,62 @@ func (px *proxifier) ProxyFor(id string) (Proxy, error) {
 	return p, nil
 }
 
+func (px *proxifier) removeRpnAcc(provider string) bool {
+	px.rpnmu.Lock()
+	delete(px.rpnacc, provider)
+	px.rpnmu.Unlock()
+
+	return true
+}
+
+func (px *proxifier) addRpnAcc(acc RpnAcc) bool {
+	px.rpnmu.Lock()
+	px.rpnacc[acc.ProviderID()] = acc
+	px.rpnmu.Unlock()
+
+	return true
+}
+
+func (px *proxifier) rpnAccFor(provider string) (RpnAcc, bool) {
+	px.rpnmu.RLock()
+	defer px.rpnmu.RUnlock()
+	acc, ok := px.rpnacc[provider]
+	return acc, ok
+}
+
+func (px *proxifier) rpnProxyOf(provider string) (RpnProxy, error) {
+	if !isRPN(provider) {
+		return nil, errNotRpnID
+	}
+
+	acc, _ := px.rpnAccFor(provider)
+	if acc == nil {
+		return nil, errNotRpnAcc
+	}
+	cc := noCountryForOldMen
+	if acc.MultiCountry() {
+		cc = defaultCountryCode
+	}
+	return px.rpnProxyFor(acc, cc)
+}
+
+func (px *proxifier) rpnProxyFor(acc RpnAcc, cc string) (RpnProxy, error) {
+	typ := acc.ProviderID()
+	if !acc.MultiCountry() && cc != noCountryForOldMen {
+		return nil, errRpnNotMultiCC
+	}
+	id := typ + cc
+	p, err := px.ProxyFor(id)
+	if p == nil {
+		return nil, core.OneErr(err, errProxyNotFound)
+	}
+	if rpn, ok := p.(RpnProxy); ok {
+		return rpn, nil
+	}
+	// TODO: make rpn-proxy from acc and p?
+	return nil, errNotRpnProxy
+}
+
 // GetProxy implements x.Proxies.
 func (px *proxifier) GetProxy(id string) (x.Proxy, error) {
 	return px.ProxyFor(id)
@@ -655,7 +731,6 @@ func (px *proxifier) stopProxies() {
 	px.staller.Clear()
 	px.ipPins.Clear()
 	px.uidPins.Clear()
-	px.sched.Clear()
 
 	core.Go("pxr.onStop", func() { px.obs.OnProxiesStopped() })
 	log.I("proxy: all(%d) stopped and removed", l)
@@ -881,62 +956,87 @@ func (px *proxifier) Reaches(hostportOrIPPortCsv string) bool {
 
 // RegisterWarp implements x.Rpn.
 func (px *proxifier) RegisterWarp(existingStateJson []byte) (stateJson []byte, err error) {
-	return px.registerWarp(existingStateJson)
-}
-
-func (px *proxifier) registerWarp(existingStateJson []byte) (stateJson []byte, err error) {
 	defer func() {
+		if err != nil {
+			go px.obs.OnRpnUpdated(RpnWg, stateJson)
+		}
 		px.lastWarpErr.Store(err) // may be nil
 	}()
-
 	restore := len(existingStateJson) > 0
-	var id *warp.Identity // may be nil
+
+	wc, err := px.registerWarp(existingStateJson)
+	if err != nil || wc == nil {
+		return nil, core.OneErr(err, errNotRpnProxy)
+	}
+	state, err := wc.State()
+	if err != nil {
+		return nil, err
+	}
+
+	p, err := px.addRpnProxy(wc, defaultCountryCode)
+	if err != nil || p == nil {
+		log.E("proxy: warp: add wg failed: %v", err)
+		return nil, core.OneErr(err, errNotRpnProxy)
+	}
+	px.addRpnAcc(wc) // acc is removed on unregister only
+
+	log.I("proxy: warp: registered: %s / %d, new? %t", wc.Who(), len(state), !restore)
+	return state, nil
+}
+
+func (px *proxifier) registerWarp(existingStateJson []byte) (wc RpnAcc, err error) {
+	restore := len(existingStateJson) > 0
 
 	if restore {
-		id, err = px.extc.MakeWarpFrom(existingStateJson)
+		wc, err = px.extc.MakeWarpFrom(existingStateJson)
 	} else {
-		id, err = px.extc.MakeWarp()
+		wc, err = px.extc.MakeWarp()
 	}
 
 	if err != nil {
-		log.E("proxy: warp: make for %s failed: %v", id.Of(), err)
+		log.E("proxy: warp: make for % failed: %v", wc.Who(), err)
 		return nil, err
 	}
 
-	state, err := id.Json()
-	if err != nil {
-		return nil, err
-	}
-
-	go px.obs.OnRpnUpdated(RpnWg, state)
-
-	const retrydelay = 10 * time.Minute
-	const retries = 6 // [1..6]*10m => (6*(6+1)/2)*10m => 210m
-
-	px.sched.Retry(RpnWg, id.Expires(), func() error {
-		_, err := px.registerWarp(nil)
-		logev(err)("proxy: warp: sched: update: id(%s) until: %s; err? %v",
-			id.Of(), id.Expires().Format(time.RFC1123), err)
-		return err
-	}, retries, retrydelay)
-
-	// TODO: add RpnWg proxy
-
-	return state, nil
+	return
 }
 
 // RegisterAmnezia implements x.Rpn.
 func (px *proxifier) RegisterAmnezia(existingStateJson []byte) (stateJson []byte, err error) {
-	return px.registerAmnezia(existingStateJson)
-}
-
-func (px *proxifier) registerAmnezia(existingStateJson []byte) (stateJson []byte, err error) {
 	defer func() {
+		if err != nil {
+			go px.obs.OnRpnUpdated(RpnAmz, stateJson)
+		}
 		px.lastAmzErr.Store(err) // may be nil
 	}()
-
 	restore := len(existingStateJson) > 0
-	var id *warp.AmzWgConfig // may be nil
+
+	ac, err := px.registerAmnezia(existingStateJson)
+
+	if err != nil {
+		log.E("proxy: amz: make (restore? %t) failed: %v", restore, err)
+		return nil, err
+	}
+
+	state, err := ac.State()
+	if err != nil {
+		return nil, err
+	}
+
+	rp, err := px.addRpnProxy(ac, defaultCountryCode)
+	if err != nil || rp == nil {
+		log.E("proxy: amz: add wg for %s failed: %v", ac.Who(), err)
+		return nil, core.OneErr(err, errNotRpnProxy)
+	}
+	px.addRpnAcc(ac) // acc is removed on unregister only
+
+	log.I("proxy: amz: registered: %s / %d; new? %t", ac.Who(), len(state), !restore)
+	return state, nil
+}
+
+func (px *proxifier) registerAmnezia(existingStateJson []byte) (ac RpnAcc, err error) {
+	restore := len(existingStateJson) > 0
+	var id *warp.AgwClient // may be nil
 
 	if restore {
 		id, err = px.extc.MakeAmzWgFrom(existingStateJson)
@@ -945,168 +1045,132 @@ func (px *proxifier) registerAmnezia(existingStateJson []byte) (stateJson []byte
 	}
 
 	if id == nil {
-		return nil, errNilAmzId
+		return nil, core.OneErr(err, errNilAmzId)
 	}
-
-	if err != nil {
-		log.E("proxy: amz: make (restore? %t) failed: %v", restore, err)
-		return nil, err
-	}
-
-	state, err := id.Json()
-	if err != nil {
-		return nil, err
-	}
-
-	go px.obs.OnRpnUpdated(RpnAmz, state)
-
-	const retrydelay = 10 * time.Minute
-	const retries = 6 // [1..6]*10m => (6*(6+1)/2)*10m => 210m
-	const twelveHoursInSecs = 12 * 60 * 60
-
-	newAt := time.Unix(id.ExpiresTimestamp-twelveHoursInSecs, 0)
-	px.sched.Retry(RpnAmz, newAt, func() error {
-		_, errs := px.registerAmnezia(nil)
-		logev(errs)("proxy: amz: sched: update: id(%s); err? %v", id.UUID, errs)
-		return errs
-	}, retries, retrydelay)
-
-	log.I("proxy: amz: registered: %s / %d; new? %t", id.UUID, len(state), !restore)
-
-	return state, nil
+	return id, nil
 }
 
 // RegisterProton implements x.Rpn.
 func (px *proxifier) RegisterProton(existingStateJson []byte) (stateJson []byte, err error) {
 	defer func() {
+		if err != nil {
+			go px.obs.OnRpnUpdated(RpnPro, stateJson)
+		}
 		px.lastProtonErr.Store(err) // may be nil
 	}()
-
-	const nostore = ""
-	var p *warp.ProtonClient // may be nil
-
 	restore := len(existingStateJson) > 0
+
+	pro, err := px.registerProton(existingStateJson)
+	if err != nil {
+		log.E("proxy: proton: make failed: %v", err)
+		return nil, err
+	}
+
+	state, err := pro.State()
+	if err != nil { // TODO: RpnAcc may be stateless
+		return nil, err
+	}
+
+	rp, err := px.addRpnProxy(pro, defaultCountryCode)
+	if err != nil || rp == nil {
+		log.E("proxy: proton: add wg for %s failed: %v", pro.Who(), err)
+		return nil, core.OneErr(err, errNotRpnProxy)
+	}
+	px.addRpnAcc(pro) // acc is removed on unregister only
+
+	log.I("proxy: proton: registered: %s / %d; new? %t", pro.Who(), len(state), !restore)
+	return state, nil
+}
+
+func (px *proxifier) registerProton(existingStateJson []byte) (p RpnAcc, err error) {
+	restore := len(existingStateJson) > 0
+	const nostore = ""
+
 	if restore {
 		p, err = px.extc.MakeProtonWgFrom(existingStateJson, nostore)
 	} else {
 		p, err = px.extc.MakeProtonWg(nostore)
 	}
 	if p == nil {
-		return nil, errNilProtonCfg
-	}
-	if err != nil {
-		log.E("proxy: proton: make (restore? %t) failed: %v", restore, err)
-		return nil, err
-	}
-	cfg, err := p.Config()
-	if err != nil {
-		return nil, err
+		return nil, core.OneErr(err, errNilProtonCfg)
 	}
 
-	state, err := cfg.Json()
-	if err != nil {
-		return nil, err
-	}
-
-	go px.obs.OnRpnUpdated(RpnPro, state)
-
-	n := time.Minute // multiplier
-	const retrydelay = 10 * time.Minute
-	const retryduration = 210 * time.Minute // [1..6]*10m => (6*(6+1)/2)*10m => 210m
-	// github.com/ProtonVPN/android-app/blob/b9c6e59de40/app/src/main/java/com/protonvpn/android/vpn/CertificateRepository.kt#L183-L188
-	refreshAt := time.Unix(int64(cfg.CertRefreshTime), 0)
-
-	px.sched.Shift(RpnPro, refreshAt, func(next core.CheckIn) (errs error) {
-		defer func() {
-			px.lastProtonErr.Store(errs) // may be nil
-			if errs == nil {
-				n = time.Minute
-				next(refreshAt)
-			} else {
-				w := n * retrydelay
-				if w <= retryduration {
-					n = n + 1
-					next(time.Now().Add(w))
-				} else {
-					log.W("proxy: proton: sched: shift over for serial(%s) n: %d; err? %v",
-						cfg.CertSerialNumber, n, errs)
-				}
-			}
-		}()
-
-		if errs = p.Refresh(); errs == nil {
-			if updatedCfg, err := p.Config(); err == nil {
-				refreshAt = time.Unix(int64(cfg.CertRefreshTime), 0)
-
-				if updatedState, err := updatedCfg.Json(); err == nil {
-					px.obs.OnRpnUpdated(RpnPro, updatedState)
-				}
-				errs = core.JoinErr(errs, err)
-			}
-			errs = core.JoinErr(errs, err)
-		}
-		logev(err)("proxy: proton: sched: update: serial(%s); err? %v",
-			cfg.CertSerialNumber, errs)
-		return errs
-	})
-
-	return state, nil
+	return p, nil
 }
 
 // RegisterSE implements x.Rpn.
-func (px *proxifier) RegisterSE() error {
+func (px *proxifier) RegisterSE() (err error) {
+	defer func() {
+		if err != nil {
+			// TODO: are nil updates required to be notified?
+			go px.obs.OnRpnUpdated(RpnSE, nil)
+		}
+		px.lastSeErr.Store(err) // err may be nil, which unsets lastSeErr
+	}()
+
 	sec := px.sec
 	if sec == nil {
 		return core.JoinErr(errMissingSEClient, px.lastSeErr.Load())
 	}
 
 	sep, err := NewSEasyProxy(px.ctx, px.ctl, sec)
-	px.lastSeErr.Store(err) // err may be nil, which unsets lastSeErr
 
 	if err != nil {
 		log.E("proxy: se: make failed: %v", err)
 		return err
-	} else if !px.add(sep) { // unlikely
-		return errAddProxy
 	}
+
+	if p, err := px.addRpnProxy2(sep, sep, defaultCountryCode); p == nil || err != nil { // unlikely
+		return core.OneErr(err, errAddProxy)
+	}
+	px.addRpnAcc(sep) // acc is removed on unregister only
+
+	log.I("proxy: se: registered: %s", sep.Who())
 	return nil
 }
 
 // RegisterExit implements x.Rpn.
 func (px *proxifier) UnregisterWarp() bool {
-	px.sched.Clear(RpnWg)
-	return px.removeProxy(RpnWg, true)
+	return px.unregisterRpn(RpnWg)
 }
 
 // UnregisterAmnezia implements x.Rpn.
 func (px *proxifier) UnregisterAmnezia() bool {
-	px.sched.Clear(RpnAmz)
-	return px.removeProxy(RpnAmz, true)
+	return px.unregisterRpn(RpnAmz)
 }
 
 // UnregisterProton implements x.Rpn.
 func (px *proxifier) UnregisterProton() bool {
-	px.sched.Clear(RpnPro)
-	return px.removeProxy(RpnPro, true)
+	return px.unregisterRpn(RpnPro)
 }
 
 // UnregisterSE implements x.Rpn.
 func (px *proxifier) UnregisterSE() bool {
-	return px.removeProxy(RpnSE, true)
+	return px.unregisterRpn(RpnSE)
+}
+
+func (px *proxifier) unregisterRpn(provider string) bool {
+	acc, _ := px.rpnAccFor(provider)
+	if acc == nil {
+		return false
+	}
+	all := noCountryForOldMen
+	px.removeRpnAcc(provider)
+	return px.removeRpnProxy(acc, all)
 }
 
 // Warp implements x.Rpn.
-func (px *proxifier) Warp() (x.Proxy, error) {
-	warp, err := px.ProxyFor(RpnWg)
-	if warp == nil {
+func (px *proxifier) Warp() (x.RpnProxy, error) {
+	rp, err := px.rpnProxyOf(RpnWg)
+	if rp == nil {
 		return nil, core.JoinErr(err, px.lastWarpErr.Load())
 	}
-	return warp, err
+	return rp, err
 }
 
 // Proton implements x.Rpn.
-func (px *proxifier) Proton() (x.Proxy, error) {
-	pro, err := px.ProxyFor(RpnPro)
+func (px *proxifier) Proton() (x.RpnProxy, error) {
+	pro, err := px.rpnProxyOf(RpnPro)
 	if pro == nil {
 		return nil, core.JoinErr(err, px.lastProtonErr.Load())
 	}
@@ -1114,8 +1178,8 @@ func (px *proxifier) Proton() (x.Proxy, error) {
 }
 
 // Amnezia implements x.Rpn.
-func (px *proxifier) Amnezia() (x.Proxy, error) {
-	amz, err := px.ProxyFor(RpnAmz)
+func (px *proxifier) Amnezia() (x.RpnProxy, error) {
+	amz, err := px.rpnProxyOf(RpnAmz)
 	if amz == nil {
 		return nil, core.JoinErr(err, px.lastAmzErr.Load())
 	}
@@ -1123,23 +1187,20 @@ func (px *proxifier) Amnezia() (x.Proxy, error) {
 }
 
 // Pip implements x.Rpn.
-func (px *proxifier) Pip() (x.Proxy, error) {
-	return px.ProxyFor(RpnWs)
-}
-
-// Exit implements x.Rpn.
-func (px *proxifier) Exit() (x.Proxy, error) {
-	return px.ProxyFor(Exit)
+func (px *proxifier) Pip() (x.RpnProxy, error) {
+	// TODO: Register and Unregister for Pip
+	// TODO: Pip asRpnProxy (with multi-country support)
+	return px.rpnProxyOf(RpnWs)
 }
 
 // Exit64 implements x.Rpn.
-func (px *proxifier) Exit64() (x.Proxy, error) {
-	return px.ProxyFor(Rpn64)
+func (px *proxifier) Exit64() (x.RpnProxy, error) {
+	return px.rpnProxyOf(Rpn64)
 }
 
 // SE implements x.Rpn.
-func (px *proxifier) SE() (x.Proxy, error) {
-	sep, err := px.ProxyFor(RpnSE)
+func (px *proxifier) SE() (x.RpnProxy, error) {
+	sep, err := px.rpnProxyOf(RpnSE)
 	if sep == nil {
 		return nil, core.JoinErr(err, px.lastSeErr.Load())
 	}

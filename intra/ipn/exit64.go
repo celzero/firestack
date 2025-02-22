@@ -11,6 +11,7 @@ import (
 	"math/rand"
 	"net"
 	"net/netip"
+	"time"
 
 	x "github.com/celzero/firestack/intra/backend"
 	"github.com/celzero/firestack/intra/core"
@@ -32,11 +33,19 @@ type exit64 struct {
 	ProtoAgnostic
 	SkipRefresh
 	GWNoVia
+
+	warp.RpnForever
+	warp.RpnStateless
+	warp.RpnCountryless
+
 	outbound *protect.RDial // outbound dialer
 	addr     string
+	since    time.Time
 	status   *core.Volatile[int]
 	done     context.CancelFunc
 }
+
+var _ RpnAcc = (*exit64)(nil)
 
 // NewExit64Proxy returns a new exit64 proxy.
 func NewExit64Proxy(ctx context.Context, c protect.Controller) *exit64 {
@@ -46,6 +55,7 @@ func NewExit64Proxy(ctx context.Context, c protect.Controller) *exit64 {
 		// "Exit" as "id" to have all its sockets "protected"
 		outbound: protect.MakeNsRDial(Exit, ctx, c),
 		status:   core.NewVolatile(TUP),
+		since:    time.Now(),
 		done:     done,
 	}
 	return h
@@ -202,6 +212,14 @@ func (h *exit64) Stop() error {
 	log.I("proxy: exit64: stopped")
 	return nil
 }
+
+// Who implements x.RpnAcc.
+func (h *exit64) Who() string {
+	return Rpn64
+}
+
+// Provider implements RpnAcc.
+func (*exit64) ProviderID() string { return Rpn64 }
 
 // go.dev/play/p/GtLCDAXeeLJ
 func addr4to6(addr string) string {
