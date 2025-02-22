@@ -1,5 +1,5 @@
 jdk:
-  - openjdk14
+  - openjdk17
 env:
   PACK: "aar"
   CLASSFULL: "full"
@@ -12,8 +12,9 @@ env:
 before_install:
 # - sdk install java 17.0.8-jbr
 # - sdk use java 17.0.8-jbr
-  - yes | $ANDROID_HOME/tools/bin/sdkmanager "platforms;android-33"
-  - yes | $ANDROID_HOME/tools/bin/sdkmanager "build-tools;33.0.0"
+# developer.android.com/tools/releases/platform-tools
+  - yes | $ANDROID_HOME/tools/bin/sdkmanager "platforms;android-35"
+  - yes | $ANDROID_HOME/tools/bin/sdkmanager "build-tools;35.0.0"
 # ndk works, for now: github.com/jitpack/jitpack.io/issues/4638
 # - yes | $ANDROID_HOME/tools/bin/sdkmanager --install "ndk;23.1.7779620"
   - ./make-aar
