@@ -389,10 +389,13 @@ func (w *WarpClient) UpdateAcct(license string) error {
 
 // Who implements x.RpnAcc.
 func (w *WarpClient) Who() string {
-	if w == nil || w.Identity == nil {
+	if w == nil {
 		return ""
 	}
-	return w.Identity.ID
+	if id := w.Identity; id != nil {
+		return id.ID
+	}
+	return ""
 }
 
 // Provider implements RpnAcc.
@@ -425,10 +428,14 @@ func (w *WarpClient) Update() (newstate []byte, err error) {
 
 // Conf implements RpnAcc.
 func (w *WarpClient) Conf(cc string) (string, error) {
+	id := w.Identity
+	if id == nil {
+		return "", errZeroIdentity
+	}
 	if len(cc) > 0 {
 		log.D("warp: conf: cc %s ignored", cc)
 	}
-	return w.Identity.UapiWgConf, nil
+	return id.UapiWgConf, nil
 }
 
 // from: github.com/bepass-org/warp-plus/blob/19ac233cc/warp/account.go

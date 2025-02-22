@@ -1177,12 +1177,20 @@ func (a *ProtonClient) State() ([]byte, error) {
 
 // Created implements x.RpnAcc.
 func (a *ProtonClient) Created() int64 {
+	cfg := a.config
+	if cfg == nil {
+		return 0
+	}
 	createdAt := time.Unix(int64(a.config.CreateTimestamp), 0)
 	return createdAt.UnixMilli()
 }
 
 // Expires implements x.RpnAcc.
 func (a *ProtonClient) Expires() int64 {
+	cfg := a.config
+	if cfg == nil {
+		return 0
+	}
 	// github.com/ProtonVPN/android-app/blob/b9c6e59de40/app/src/main/java/com/protonvpn/android/vpn/CertificateRepository.kt#L183-L188
 	refreshAt := time.Unix(int64(a.config.CertRefreshTime), 0)
 	return refreshAt.UnixMilli()
@@ -1200,11 +1208,15 @@ func (a *ProtonClient) Update() (newstate []byte, err error) {
 
 // Conf implements RpnAcc.
 func (a *ProtonClient) Conf(cc string) (string, error) {
+	cfg := a.config
+	if cfg == nil {
+		return "", errNoProtonConfig
+	}
 	if len(cc) > 0 {
 		log.D("proton: conf: cc %s ignored", cc)
 	}
 	c := 0
-	for _, rc := range a.config.RegionalWgConfs {
+	for _, rc := range cfg.RegionalWgConfs {
 		if rc.CC == cc {
 			return rc.UapiWgConf, nil
 		}

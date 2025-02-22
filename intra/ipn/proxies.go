@@ -975,7 +975,7 @@ func (px *proxifier) RegisterWarp(existingStateJson []byte) (stateJson []byte, e
 
 	p, err := px.addRpnProxy(wc, defaultCountryCode)
 	if err != nil || p == nil {
-		log.E("proxy: warp: add wg failed: %v", err)
+		log.E("proxy: warp: add wg for %s failed: %v", wc.Who(), err)
 		return nil, core.OneErr(err, errNotRpnProxy)
 	}
 	px.addRpnAcc(wc) // acc is removed on unregister only
@@ -994,7 +994,7 @@ func (px *proxifier) registerWarp(existingStateJson []byte) (wc RpnAcc, err erro
 	}
 
 	if err != nil {
-		log.E("proxy: warp: make for % failed: %v", wc.Who(), err)
+		log.E("proxy: warp: make failed: %v", err)
 		return nil, err
 	}
 

@@ -564,8 +564,13 @@ func (a *AgwClient) State() ([]byte, error) {
 
 // Created implements x.RpnAcc.
 func (a *AgwClient) Created() int64 {
+	cfg := a.AmzWgConfig
+	if cfg == nil {
+		return 0
+	}
+
 	const twentyFourHoursInSecs = 24 * 60 * 60
-	dob := time.Unix(a.AmzWgConfig.CreateTimestamp, 0)
+	dob := time.Unix(cfg.CreateTimestamp, 0)
 	if dob.IsZero() { // if unknown, assume it was created 24h before expiry
 		return a.Expires() - twentyFourHoursInSecs
 	}
@@ -574,8 +579,12 @@ func (a *AgwClient) Created() int64 {
 
 // Expires implements x.RpnAcc.
 func (a *AgwClient) Expires() int64 {
+	cfg := a.AmzWgConfig
+	if cfg == nil {
+		return 0
+	}
 	const twelveHoursInSecs = 12 * 60 * 60 // 12h before expiry
-	newAt := time.Unix(a.AmzWgConfig.ExpiresTimestamp-twelveHoursInSecs, 0)
+	newAt := time.Unix(cfg.ExpiresTimestamp-twelveHoursInSecs, 0)
 	return newAt.UnixMilli()
 }
 
@@ -586,7 +595,7 @@ func (a *AgwClient) Update() (newstate []byte, err error) {
 		log.W("agw: update: re-reg failed %v", err)
 		return nil, err
 	}
-	return a.AmzWgConfig.Json()
+	return a.AmzWgConfig.Json() // Json() handles nil configs
 }
 
 // Conf implements RpnAcc.
