@@ -129,12 +129,12 @@ func ReadStats(id uintptr, cfn core.Work[string]) *ifstats {
 	v, err := ba.DoIt(id, func() (*ifstats, error) {
 		cfg, err := cfn()
 		if err != nil || len(cfg) <= 0 {
-			log.W("wg: %s stats: ipcget: %v", id, err)
+			log.W("wg: ReadStats: %d: ipcget: %v", id, err)
 			return nil, err
 		}
 		return readStats(cfg)
 	})
-	if err != nil { // v is nil when ba.Do timesout
+	if err != nil { // v is nil when ba.Do timesout or no handshake yet
 		log.E("wg: ReadStats: nil for %d, err: %v", id, err)
 	}
 	return v
