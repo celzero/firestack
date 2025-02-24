@@ -644,10 +644,11 @@ func setupReverserIfNeeded(id string, s *stack.Stack, rev netstack.GConnHandler)
 		netstack.OutboundTCP(id, s, rev.TCP())
 		netstack.OutboundUDP(id, s, rev.UDP())
 		log.I("proxy: wg: %s rev @ %X enabled", id, rev)
+		return
 	} // do not use reverser
 	log.W("proxy: wg: %s remove rev %X", id, rev)
-	netstack.OutboundTCP(id, s, nil)
-	netstack.OutboundUDP(id, s, nil)
+	netstack.OutboundTCP(id, s, nil) // unset
+	netstack.OutboundUDP(id, s, nil) // unset
 }
 
 // ref: github.com/WireGuard/wireguard-go/blob/469159ecf7/tun/netstack/tun.go#L54
