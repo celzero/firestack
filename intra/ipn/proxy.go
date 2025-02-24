@@ -101,7 +101,7 @@ func (pxr *proxifier) addRpnProxy(acc RpnAcc, cc string) (RpnProxy, error) {
 	return AsRpnProxy(p, acc, pxr)
 }
 
-func (pxr *proxifier) addRpnProxy2(p Proxy, acc RpnAcc, cc string) (RpnProxy, error) {
+func (pxr *proxifier) addRpnProxy2(p Proxy, acc RpnAcc) (RpnProxy, error) {
 	proxyid := p.ID()
 	providerid := acc.ProviderID()
 	if !isRPN(proxyid) || !isRPN(providerid) {

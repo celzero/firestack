@@ -22,19 +22,21 @@ type rpnp struct {
 	Proxy
 	RpnAcc
 
-	pxr Proxies
+	pxr Rpn
 }
 
 var _ RpnProxy = (*rpnp)(nil)
 
 var (
-	errRpnBadArgs     = errors.New("proxy: rpn: bad args")
-	errRpnBadCC       = errors.New("proxy: rpn: bad country code")
-	errRpnNotMultiCC  = errors.New("proxy: rpn: not multi-country")
-	errRpnIDsMismatch = errors.New("proxy: rpn: provider x proxy mismatch")
+	errRpnBadArgs          = errors.New("proxy: rpn: bad args")
+	errRpnBadCC            = errors.New("proxy: rpn: bad country code")
+	errRpnNotMultiCC       = errors.New("proxy: rpn: not multi-country")
+	errRpnIDsMismatch      = errors.New("proxy: rpn: provider x proxy mismatch")
+	errRpnForkFromMain     = errors.New("proxy: rpn: must call fork on main")
+	errRpnMainProxyStopped = errors.New("proxy: rpn: cannot fork; main proxy stopped")
 )
 
-func AsRpnProxy(e Proxy, acc RpnAcc, pxr Proxies) (RpnProxy, error) {
+func AsRpnProxy(e Proxy, acc RpnAcc, pxr Rpn) (RpnProxy, error) {
 	if e == nil || acc == nil || pxr == nil {
 		return nil, errRpnBadArgs
 	}
@@ -47,15 +49,20 @@ func AsRpnProxy(e Proxy, acc RpnAcc, pxr Proxies) (RpnProxy, error) {
 	return &rpnp{e, acc, pxr}, nil
 }
 
-func (r *rpnp) IsMain() bool {
-	pid := r.Proxy.ID()
-	typ := r.RpnAcc.ProviderID()
+func mainRpnProxyID(acc RpnAcc) string {
+	typ := acc.ProviderID()
 	cc := noCountryForOldMen
-	if !r.RpnAcc.MultiCountry() {
+	if !acc.MultiCountry() {
 		cc = defaultCountryCode
 	}
-	y := typ+cc == pid
-	log.VV("proxy: rpn: %s (by %s) is main? %t", pid, typ, y)
+	return typ + cc
+}
+
+func (r *rpnp) IsMain() bool {
+	pid := r.Proxy.ID()
+	mid := mainRpnProxyID(r.RpnAcc)
+	y := mid == pid
+	log.VV("proxy: rpn: %s (by %s) is main? %t", pid, mid, y)
 	return y
 }
 
@@ -76,6 +83,12 @@ func (r *rpnp) Fork(cc string) (x.RpnProxy, error) {
 		return r, nil
 	}
 
+	if !r.IsMain() {
+		return nil, errRpnForkFromMain
+	}
+	if r.Proxy.Status() == END {
+		return nil, errRpnMainProxyStopped
+	}
 	// re-adds + updates if the proxy already exists
 	return r.pxr.addRpnProxy(r.RpnAcc, cc)
 }

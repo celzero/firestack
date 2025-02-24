@@ -149,6 +149,8 @@ type Proxy interface {
 
 type Rpn interface {
 	x.Rpn
+	// mainRpnProxyFor returns the main (default) RPN proxy from this multi-transport.
+	mainRpnProxyOf(provider string) (RpnProxy, error)
 	// rpnProxyFor returns an RPN proxy from this multi-transport.
 	rpnProxyFor(acc RpnAcc, cc string) (RpnProxy, error)
 	// addRpnProxy adds an RPN proxy to this multi-transport.
@@ -268,7 +270,7 @@ func NewProxifier(pctx context.Context, l3 string, mtu int, c protect.Controller
 	pxr.add(pxr.grounded) // fixed
 	pxr.add(pxr.auto)     // fixed
 
-	pxr.addRpnProxy2(pxr.exit64, pxr.exit64, defaultCountryCode) // fixed
+	pxr.addRpnProxy2(pxr.exit64, pxr.exit64) // fixed
 	pxr.addRpnAcc(pxr.exit64)
 
 	log.I("proxy: new")
@@ -628,7 +630,7 @@ func (px *proxifier) rpnAccFor(provider string) (RpnAcc, bool) {
 	return acc, ok
 }
 
-func (px *proxifier) rpnProxyOf(provider string) (RpnProxy, error) {
+func (px *proxifier) mainRpnProxyOf(provider string) (RpnProxy, error) {
 	if !isRPN(provider) {
 		return nil, errNotRpnID
 	}
@@ -637,11 +639,7 @@ func (px *proxifier) rpnProxyOf(provider string) (RpnProxy, error) {
 	if acc == nil {
 		return nil, errNotRpnAcc
 	}
-	cc := noCountryForOldMen
-	if acc.MultiCountry() {
-		cc = defaultCountryCode
-	}
-	return px.rpnProxyFor(acc, cc)
+	return px.rpnProxyFor(acc, mainRpnProxyID(acc))
 }
 
 func (px *proxifier) rpnProxyFor(acc RpnAcc, cc string) (RpnProxy, error) {
@@ -1099,7 +1097,7 @@ func (px *proxifier) RegisterSE() (err error) {
 		return core.OneErr(err, errNilSEProxy)
 	}
 
-	if p, err := px.addRpnProxy2(sep, sep, defaultCountryCode); p == nil || err != nil { // unlikely
+	if p, err := px.addRpnProxy2(sep, sep); p == nil || err != nil { // unlikely
 		return core.OneErr(err, errAddProxy)
 	}
 	px.addRpnAcc(sep) // acc is removed on unregister only
@@ -1140,7 +1138,7 @@ func (px *proxifier) unregisterRpn(provider string) bool {
 
 // Warp implements x.Rpn.
 func (px *proxifier) Warp() (x.RpnProxy, error) {
-	rp, err := px.rpnProxyOf(RpnWg)
+	rp, err := px.mainRpnProxyOf(RpnWg)
 	if rp == nil {
 		return nil, core.JoinErr(err, px.lastWarpErr.Load())
 	}
@@ -1149,7 +1147,7 @@ func (px *proxifier) Warp() (x.RpnProxy, error) {
 
 // Proton implements x.Rpn.
 func (px *proxifier) Proton() (x.RpnProxy, error) {
-	pro, err := px.rpnProxyOf(RpnPro)
+	pro, err := px.mainRpnProxyOf(RpnPro)
 	if pro == nil {
 		return nil, core.JoinErr(err, px.lastProtonErr.Load())
 	}
@@ -1158,7 +1156,7 @@ func (px *proxifier) Proton() (x.RpnProxy, error) {
 
 // Amnezia implements x.Rpn.
 func (px *proxifier) Amnezia() (x.RpnProxy, error) {
-	amz, err := px.rpnProxyOf(RpnAmz)
+	amz, err := px.mainRpnProxyOf(RpnAmz)
 	if amz == nil {
 		return nil, core.JoinErr(err, px.lastAmzErr.Load())
 	}
@@ -1169,17 +1167,17 @@ func (px *proxifier) Amnezia() (x.RpnProxy, error) {
 func (px *proxifier) Pip() (x.RpnProxy, error) {
 	// TODO: Register and Unregister for Pip
 	// TODO: Pip asRpnProxy (with multi-country support)
-	return px.rpnProxyOf(RpnWs)
+	return px.mainRpnProxyOf(RpnWs)
 }
 
 // Exit64 implements x.Rpn.
 func (px *proxifier) Exit64() (x.RpnProxy, error) {
-	return px.rpnProxyOf(Rpn64)
+	return px.mainRpnProxyOf(Rpn64)
 }
 
 // SE implements x.Rpn.
 func (px *proxifier) SE() (x.RpnProxy, error) {
-	sep, err := px.rpnProxyOf(RpnSE)
+	sep, err := px.mainRpnProxyOf(RpnSE)
 	if sep == nil {
 		return nil, core.JoinErr(err, px.lastSeErr.Load())
 	}
