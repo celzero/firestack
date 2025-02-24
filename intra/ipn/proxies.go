@@ -967,7 +967,7 @@ func (px *proxifier) RegisterWarp(existingStateJson []byte) (stateJson []byte, e
 	restore := len(existingStateJson) > 0
 
 	wc, err := px.registerWarp(existingStateJson)
-	if err != nil || wc == nil {
+	if err != nil || core.IsNil(wc) {
 		return nil, core.OneErr(err, errNilWarpId)
 	}
 	state, err := wc.State()
@@ -987,9 +987,7 @@ func (px *proxifier) RegisterWarp(existingStateJson []byte) (stateJson []byte, e
 }
 
 func (px *proxifier) registerWarp(existingStateJson []byte) (wc RpnAcc, err error) {
-	restore := len(existingStateJson) > 0
-
-	if restore {
+	if len(existingStateJson) > 0 {
 		return px.extc.MakeWarpFrom(existingStateJson)
 	} else {
 		return px.extc.MakeWarp()
@@ -1008,7 +1006,7 @@ func (px *proxifier) RegisterAmnezia(existingStateJson []byte) (stateJson []byte
 
 	ac, err := px.registerAmnezia(existingStateJson)
 
-	if err != nil || ac == nil {
+	if err != nil || core.IsNil(ac) {
 		log.E("proxy: amz: make (restore? %t) failed: %v", restore, err)
 		return nil, core.OneErr(err, errNilAmzId)
 	}
@@ -1029,10 +1027,8 @@ func (px *proxifier) RegisterAmnezia(existingStateJson []byte) (stateJson []byte
 	return state, nil
 }
 
-func (px *proxifier) registerAmnezia(existingStateJson []byte) (ac RpnAcc, err error) {
-	restore := len(existingStateJson) > 0
-
-	if restore {
+func (px *proxifier) registerAmnezia(existingStateJson []byte) (RpnAcc, error) {
+	if len(existingStateJson) > 0 { // restore
 		return px.extc.MakeAmzWgFrom(existingStateJson)
 	} else {
 		return px.extc.MakeAmzWg()
@@ -1050,7 +1046,7 @@ func (px *proxifier) RegisterProton(existingStateJson []byte) (stateJson []byte,
 	restore := len(existingStateJson) > 0
 
 	pro, err := px.registerProton(existingStateJson)
-	if err != nil || pro == nil {
+	if err != nil || core.IsNil(pro) {
 		log.E("proxy: proton: make failed: %v", err)
 		return nil, core.OneErr(err, errNilProtonCfg)
 	}
@@ -1071,11 +1067,9 @@ func (px *proxifier) RegisterProton(existingStateJson []byte) (stateJson []byte,
 	return state, nil
 }
 
-func (px *proxifier) registerProton(existingStateJson []byte) (p RpnAcc, err error) {
-	restore := len(existingStateJson) > 0
+func (px *proxifier) registerProton(existingStateJson []byte) (RpnAcc, error) {
 	const nostore = ""
-
-	if restore {
+	if len(existingStateJson) > 0 {
 		return px.extc.MakeProtonWgFrom(existingStateJson, nostore)
 	} else {
 		return px.extc.MakeProtonWg(nostore)
