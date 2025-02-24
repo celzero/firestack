@@ -47,6 +47,18 @@ func AsRpnProxy(e Proxy, acc RpnAcc, pxr Proxies) (RpnProxy, error) {
 	return &rpnp{e, acc, pxr}, nil
 }
 
+func (r *rpnp) IsMain() bool {
+	pid := r.Proxy.ID()
+	typ := r.RpnAcc.ProviderID()
+	cc := noCountryForOldMen
+	if !r.RpnAcc.MultiCountry() {
+		cc = defaultCountryCode
+	}
+	y := typ+cc == pid
+	log.VV("proxy: rpn: %s (by %s) is main? %t", pid, typ, y)
+	return y
+}
+
 func (r *rpnp) Fork(cc string) (x.RpnProxy, error) {
 	if !r.RpnAcc.MultiCountry() {
 		return nil, errRpnNotMultiCC

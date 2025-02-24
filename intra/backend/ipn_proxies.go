@@ -120,9 +120,11 @@ type Proxy interface {
 type RpnProxy interface {
 	Proxy
 	RpnAcc
+	// IsMain returns true if this proxy is the main (default) proxy.
+	IsMain() bool
 	// Fork adds proxy for country code, cc.
 	Fork(cc string) (RpnProxy, error)
-	// Prune removes proxy for country code, cc.
+	// Purge removes proxy for country code, cc.
 	Purge(cc string) bool
 	// Get returns proxy for country code, cc.
 	Get(cc string) (RpnProxy, error)

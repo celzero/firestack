@@ -1052,7 +1052,8 @@ func (px *proxifier) RegisterProton(existingStateJson []byte) (stateJson []byte,
 	}
 
 	state, err := pro.State()
-	if err != nil { // TODO: RpnAcc may be stateless
+	if err != nil {
+		// TODO: RpnAcc may be stateless, in which case err is expected & could be ignored
 		return nil, err
 	}
 
