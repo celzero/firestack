@@ -119,6 +119,7 @@ type Proxy interface {
 
 type RpnProxy interface {
 	Proxy
+	RpnAcc
 	// Fork adds proxy for country code, cc.
 	Fork(cc string) (RpnProxy, error)
 	// Prune removes proxy for country code, cc.
