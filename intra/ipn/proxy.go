@@ -45,10 +45,10 @@ func (pxr *proxifier) AddProxy(id, txt string) (x.Proxy, error) {
 	return pxr.addProxy(id, txt)
 }
 
-func (pxr *proxifier) removeRpnProxy(acc RpnAcc, cc string) bool {
+func (pxr *proxifier) removeRpnProxy(acc RpnAcc, cc string) (n uint32) {
 	if acc == nil || core.IsNil(acc) {
 		log.W("proxy: remove: no rpn acc for cc %s", cc)
-		return false
+		return
 	}
 	typ := acc.ProviderID()
 	if !acc.MultiCountry() && cc != noCountryForOldMen {
@@ -70,13 +70,17 @@ func (pxr *proxifier) removeRpnProxy(acc RpnAcc, cc string) bool {
 		for len(group) > 0 {
 			single := <-group
 			log.V("proxy: rpn: remove %s", single)
-			pxr.removeProxy(single, true /*force*/)
+			if pxr.removeProxy(single, true /*force*/) {
+				n++
+			}
 		}
-		return true
 	} else {
 		log.V("proxy: rpn: remove %s/%s", typ, cc)
-		return pxr.removeProxy(typ+cc, true /*force*/)
+		if pxr.removeProxy(typ+cc, true /*force*/) {
+			n++
+		}
 	}
+	return
 }
 
 func (pxr *proxifier) addRpnProxy(acc RpnAcc, cc string) (RpnProxy, error) {

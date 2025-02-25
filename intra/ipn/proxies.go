@@ -157,7 +157,7 @@ type Rpn interface {
 	// addRpnProxy adds an RPN proxy to this multi-transport.
 	addRpnProxy(acc RpnAcc, cc string) (RpnProxy, error)
 	// removeRpnProxy removes an RPN proxy from this multi-transport.
-	removeRpnProxy(acc RpnAcc, cc string) bool
+	removeRpnProxy(acc RpnAcc, cc string) (n uint32)
 }
 
 type Proxies interface {
@@ -1121,7 +1121,7 @@ func (px *proxifier) unregisterRpn(provider string) bool {
 	}
 	all := noCountryForOldMen
 	px.removeRpnAcc(provider)
-	return px.removeRpnProxy(acc, all)
+	return px.removeRpnProxy(acc, all) > 0
 }
 
 // Warp implements x.Rpn.
