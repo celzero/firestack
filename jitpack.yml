@@ -1,5 +1,5 @@
 jdk:
-  - openjdk17
+  - openjdk14
 env:
   PACK: "aar"
   CLASSFULL: "full"
