@@ -37,6 +37,11 @@ func (pxr *proxifier) NewSocks5Proxy(id, user, pwd, ip, port string) (p *socks5,
 // AddProxy implements Proxifier.
 func (pxr *proxifier) AddProxy(id, txt string) (x.Proxy, error) {
 	defer core.Recover(core.Exit11, "prx.AddProxy."+id)
+
+	if isRPN(id) { // must call addRpnProxy instead
+		return nil, errAddProxyAsRpn
+	}
+
 	return pxr.addProxy(id, txt)
 }
 
