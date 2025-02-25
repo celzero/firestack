@@ -189,9 +189,6 @@ type ProxyListener interface {
 	// OnProxiesStopped is called when all proxies are stopped.
 	// Note: OnProxyRemoved is not called for each proxy.
 	OnProxiesStopped()
-	// OnRpnUpdated is called when the RPN state is updated on the fly
-	// (without prompting).
-	OnRpnUpdated(provider string, stateJson []byte)
 }
 
 // RouterStats lists interesting stats of a Router.

@@ -957,9 +957,6 @@ func (px *proxifier) Reaches(hostportOrIPPortCsv string) bool {
 // RegisterWarp implements x.Rpn.
 func (px *proxifier) RegisterWarp(existingStateJson []byte) (stateJson []byte, err error) {
 	defer func() {
-		if err != nil {
-			go px.obs.OnRpnUpdated(RpnWg, stateJson)
-		}
 		px.lastWarpErr.Store(err) // may be nil
 	}()
 	restore := len(existingStateJson) > 0
@@ -995,9 +992,6 @@ func (px *proxifier) registerWarp(existingStateJson []byte) (wc RpnAcc, err erro
 // RegisterAmnezia implements x.Rpn.
 func (px *proxifier) RegisterAmnezia(existingStateJson []byte) (stateJson []byte, err error) {
 	defer func() {
-		if err != nil {
-			go px.obs.OnRpnUpdated(RpnAmz, stateJson)
-		}
 		px.lastAmzErr.Store(err) // may be nil
 	}()
 	restore := len(existingStateJson) > 0
@@ -1036,9 +1030,6 @@ func (px *proxifier) registerAmnezia(existingStateJson []byte) (RpnAcc, error) {
 // RegisterProton implements x.Rpn.
 func (px *proxifier) RegisterProton(existingStateJson []byte) (stateJson []byte, err error) {
 	defer func() {
-		if err != nil {
-			go px.obs.OnRpnUpdated(RpnPro, stateJson)
-		}
 		px.lastProtonErr.Store(err) // may be nil
 	}()
 	restore := len(existingStateJson) > 0
@@ -1078,10 +1069,6 @@ func (px *proxifier) registerProton(existingStateJson []byte) (RpnAcc, error) {
 // RegisterSE implements x.Rpn.
 func (px *proxifier) RegisterSE() (err error) {
 	defer func() {
-		if err != nil {
-			// TODO: are nil updates required to be notified?
-			go px.obs.OnRpnUpdated(RpnSE, nil)
-		}
 		px.lastSeErr.Store(err) // err may be nil, which unsets lastSeErr
 	}()
 
