@@ -679,8 +679,8 @@ func withAlgSummaryIfNeeded(s *x.DNSSummary, algips ...netip.Addr) {
 
 func (t *dnsgateway) registerLocked(q, tid string, algip4, algip6 netip.Addr, realips []netip.Addr, ttl time.Duration, targets []string, secres secans) bool {
 	if !algip4.IsValid() && !algip6.IsValid() { // defensive; should not happen
-		log.E("alg: no algips for %s; real? %d, sec? %d",
-			q, len(realips), len(secres.ips))
+		log.E("alg: no algips for %s@%s; real? %d, sec? %d",
+			q, tid, len(realips), len(secres.ips))
 		return false
 	}
 
@@ -737,8 +737,8 @@ func (t *dnsgateway) registerLocked(q, tid string, algip4, algip6 netip.Addr, re
 		didRegister = true
 	}
 	if !didRegister {
-		log.W("alg: no algips 2 for %s; real? %d, sec? %d",
-			q, len(realips), len(secres.ips))
+		log.W("alg: no algips 2 for %s@%s; real? %d, sec? %d",
+			q, tid, len(realips), len(secres.ips))
 		return false
 	}
 	// am.ips.x() may return nil; ex: when preset fixed ips are used
@@ -1012,8 +1012,8 @@ func (t *dnsgateway) xLocked(maybeAlg netip.Addr, usestale bool, tids ...string)
 	} else {
 		unnated = t.maybeUndoNat64(realips...)
 	}
-	log.D("alg: dns64: (fresh? %t / staleok? %t) algip(%v) -> realips(%v) -> unnated(%v)",
-		fresh, usestale, unmapped, realips, unnated)
+	log.D("alg: dns64: for %s (fresh? %t / staleok? %t) algip(%v) -> realips(%v) -> unnated(%v)",
+		tids, fresh, usestale, unmapped, realips, unnated)
 	if len(unnated) > 0 { // unnated is already de-duplicated
 		return unnated, undidAlg
 	}
@@ -1071,7 +1071,7 @@ func (t *dnsgateway) resolvLocked(domain string, typ iptype, tid string) (ip4s, 
 	staleips := make([]netip.Addr, 0)
 	switch typ {
 	case typalg:
-		for i := 0; i < 2; i++ {
+		for i := range 2 {
 			k4 := partkey4 + strconv.Itoa(i)
 			if ans, ok := t.alg[k4]; ok {
 				if time.Until(ans.ttl) > 0 { // not stale
@@ -1084,7 +1084,7 @@ func (t *dnsgateway) resolvLocked(domain string, typ iptype, tid string) (ip4s, 
 				break
 			}
 		}
-		for i := 0; i < 2; i++ {
+		for i := range 2 {
 			k6 := partkey6 + strconv.Itoa(i)
 			if ans, ok := t.alg[k6]; ok {
 				if time.Until(ans.ttl) > 0 { // not stale
@@ -1100,7 +1100,7 @@ func (t *dnsgateway) resolvLocked(domain string, typ iptype, tid string) (ip4s, 
 		log.V("alg: resolv: %s -> alg ip4 %d, ip6 %d; stale %v",
 			domain, len(ip4s), len(ip6s), staleips)
 	case typreal:
-		for i := 0; i < 2; i++ { // a = 0, https/svcb = 1+
+		for i := range 2 { // a = 0, https/svcb = 1+
 			k4 := partkey4 + strconv.Itoa(i)
 			if ans, ok := t.alg[k4]; ok {
 				if time.Until(ans.ttl) > 0 { // not stale
@@ -1113,7 +1113,7 @@ func (t *dnsgateway) resolvLocked(domain string, typ iptype, tid string) (ip4s, 
 				break
 			} // continue
 		}
-		for i := 0; i < 2; i++ { // aaaa = 0, https/svcb = 1+
+		for i := range 2 { // aaaa = 0, https/svcb = 1+
 			k6 := partkey6 + strconv.Itoa(i)
 			if ans, ok := t.alg[k6]; ok {
 				if time.Until(ans.ttl) > 0 { // not stale
@@ -1129,7 +1129,7 @@ func (t *dnsgateway) resolvLocked(domain string, typ iptype, tid string) (ip4s, 
 		log.V("alg: resolv: %s -> real %s ip4 %d, ip6 %d; stale %v",
 			domain, tid, len(ip4s), len(ip6s), staleips)
 	case typsecondary:
-		for i := 0; i < 2; i++ { // a = 0, https/svcb = 1+
+		for i := range 2 { // a = 0, https/svcb = 1+
 			k4 := partkey4 + strconv.Itoa(i)
 			if ans, ok := t.alg[k4]; ok {
 				if time.Until(ans.ttl) > 0 { // not stale
@@ -1142,7 +1142,7 @@ func (t *dnsgateway) resolvLocked(domain string, typ iptype, tid string) (ip4s, 
 				break
 			} // continue
 		}
-		for i := 0; i < 2; i++ { // aaaa = 0, https/svcb = 1+
+		for i := range 2 { // aaaa = 0, https/svcb = 1+
 			k6 := partkey6 + strconv.Itoa(i)
 			if ans, ok := t.alg[k6]; ok {
 				if time.Until(ans.ttl) > 0 { // not stale
