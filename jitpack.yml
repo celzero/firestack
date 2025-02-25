@@ -13,8 +13,8 @@ before_install:
 # - sdk install java 17.0.8-jbr
 # - sdk use java 17.0.8-jbr
 # developer.android.com/tools/releases/platform-tools
-  - yes | $ANDROID_HOME/tools/bin/sdkmanager "platforms;android-35"
-  - yes | $ANDROID_HOME/tools/bin/sdkmanager "build-tools;35.0.0"
+  - yes | $ANDROID_HOME/tools/bin/sdkmanager "platforms;android-34"
+  - yes | $ANDROID_HOME/tools/bin/sdkmanager "build-tools;34.0.0"
 # gomobile: failed to find android SDK platform: open /opt/android-sdk-linux/platforms: no such file or directory
   - yes | $ANDROID_HOME/tools/bin/sdkmanager --licenses
 # ndk works, for now: github.com/jitpack/jitpack.io/issues/4638
