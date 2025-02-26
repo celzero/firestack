@@ -157,7 +157,7 @@ func (h *baseHandler) onFlow(localaddr, target netip.AddrPort) (fm *Mark, undidA
 	var ok bool
 
 	// alg happens after nat64, and so, alg knows nat-ed ips
-	// that is, realips are un-nated
+	// that is, real ips ("ips") are un-nated
 	undidAlg, ips, doms, pdoms, blocklists = h.undoAlg(target.Addr())
 	hasOldIPs := len(ips) > 0
 	if undidAlg && !hasOldIPs {
@@ -492,10 +492,10 @@ func (h *baseHandler) undoAlg(algip netip.Addr, tids ...string) (undidAlg bool, 
 		realips = filterFamilyForDialing(ips)
 		blocklists = gw.RDNSBL(algip)
 	} else {
-		log.W("com: %s: alg: undoAlg: no gw(%t) or dst(%v)", h.proto, gw == nil, algip)
+		log.W("com: %s: alg: undoAlg: for %v; no gw(%t) or dst(%v)", h.proto, tids, gw == nil, algip)
 	}
-	log.VV("com: %s: alg: undoAlg: (ok? %t, force? %t, withForce? %t) %s => %v (for %s / block: %s)",
-		h.proto, undidAlg, didForce, forcePTR, algip, realips, domains, blocklists)
+	log.VV("com: %s: alg: undoAlg: for %v (ok? %t, force? %t, withForce? %t) %s => %v (for %s / block: %s)",
+		h.proto, tids, undidAlg, didForce, forcePTR, algip, realips, domains, blocklists)
 	return
 }
 
