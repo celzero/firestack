@@ -115,9 +115,8 @@ func (rw rwext) deadlines() (r, w uint32) {
 
 func (rw rwext) extend() {
 	r, w := rw.deadlines()
-
-	tw := time.Second * time.Duration(w)
 	tr := time.Second * time.Duration(r)
+	tw := time.Second * time.Duration(w)
 
 	extendc(rw.Conn, tr, tw)
 }

@@ -317,10 +317,14 @@ func (x *muxer) sendto(p []byte, addr net.Addr) (int, error) {
 }
 
 func (x *muxer) extend(t time.Time) {
-	if t.IsZero() || x.until.IsZero() {
+	if t.IsZero() {
+		x.until = t
+		extend(x.mxconn, 0)
+		return
+	}
+	if x.until.IsZero() {
 		x.until = t
 		extend(x.mxconn, time.Until(t))
-		return
 	}
 	// extend if t is after existing deadline at x.until
 	if x.until.Before(t) {
