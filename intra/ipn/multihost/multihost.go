@@ -13,11 +13,14 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/dialers"
 	"github.com/celzero/firestack/intra/log"
 )
+
+const refreshInterval time.Duration = 2 * time.Minute
 
 var errNoIps error = errors.New("multihost: no ips")
 
@@ -29,6 +32,7 @@ type MH struct {
 	id           string
 	names        []string         // host:port
 	addrs        []netip.AddrPort // ip:port
+	mtime        time.Time        // modified time
 }
 
 // New returns a new multihost with the given id.
@@ -37,6 +41,7 @@ func New(id string) *MH {
 		id:    id,
 		names: make([]string, 0),
 		addrs: make([]netip.AddrPort, 0),
+		mtime: time.Now(),
 	}
 }
 
@@ -175,6 +180,27 @@ func (h *MH) Refresh() int {
 	return h.Add(h.Names())
 }
 
+func (h *MH) MaybeRefresh() int {
+	if h == nil {
+		log.W("multihost: refresh: nil")
+		return 0
+	}
+
+	if names, stale := h.stale(); len(names) > 0 && stale {
+		// resolve ip from domain names (auto removes dups)
+		return h.Add(names)
+	}
+	return 0
+}
+
+func (h *MH) stale() ([]string, bool) {
+	h.RLock()
+	thres := h.mtime.Add(refreshInterval)
+	names := h.names
+	h.RUnlock()
+	return names, time.Since(thres) > 0
+}
+
 // Add appends the list of IPs, hostnames, and hostname's IPs as resolved.
 // It returns the total number of IPs.
 // Removes duplicates.
@@ -191,9 +217,10 @@ func (h *MH) Add(domainsOrIps []string) int {
 	defer h.Unlock()
 	h.names = append(h.names, names...)
 	h.addrs = append(h.addrs, addrs...)
+	h.mtime = time.Now()
 	// remove dups from h.addrs and h.names
-	h.uniqIPLocked()
 	h.uniqAddrsLocked()
+	h.uniqNamesLocked()
 	log.D("multihost: %s with %s => %s", h.id, h.names, h.addrs)
 	return len(h.addrs)
 }
@@ -209,7 +236,7 @@ func resolv(id string, domainsOrIps []string) ([]string, []netip.AddrPort) {
 			continue
 		}
 		if ip, err := netip.ParseAddr(dip); err != nil { // may be hostname
-			names = append(names, ep) // add hostname regardless of resolution
+			names = append(names, ep) // add hostname regardless of resolution success
 			log.D("multihost: %s resolving: %q", id, ep)
 			if resolvedips, err := dialers.Resolve(dip); err == nil && len(resolvedips) > 0 {
 				eps := addrport(port, resolvedips...)
@@ -281,11 +308,11 @@ func (h *MH) EqualAddrs(other *MH) bool {
 	return eq
 }
 
-func (h *MH) uniqAddrsLocked() {
+func (h *MH) uniqNamesLocked() {
 	h.names = removeDups(h.names)
 }
 
-func (h *MH) uniqIPLocked() {
+func (h *MH) uniqAddrsLocked() {
 	h.addrs = removeDups(h.addrs)
 }
 
