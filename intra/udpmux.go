@@ -194,14 +194,14 @@ func (x *muxer) drain() {
 //  2. Creating a new Conn when receiving from a new remote.
 func (x *muxer) readers() {
 	// todo: recover must call "free()" if it wasn't.
-	defer core.Recover(core.Exit11, "udpmux.read")
+	defer core.Recover(core.Exit11, "udpmux.read."+x.pid+x.cid)
 	defer func() {
 		_ = x.stop() // stop muxer
 	}()
 
 	timeouterrors := 0
 	for {
-		bptr := core.AllocRegion(core.B65536)
+		bptr := core.Alloc()
 		b := *bptr
 		b = b[:cap(b)]
 		// todo: if panics are recovered above, free() may never be called
