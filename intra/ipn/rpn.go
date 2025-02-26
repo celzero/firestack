@@ -16,7 +16,8 @@ import (
 	"github.com/celzero/firestack/intra/log"
 )
 
-type RpnProxy = x.RpnProxy
+type RpnProxy = warp.RpnProxy
+
 type RpnAcc = warp.RpnAcc
 
 // TODO: override Probe, Ping, Announce, Accept, Dial, DialBind
@@ -38,8 +39,8 @@ var (
 	errRpnBadCC            = errors.New("proxy: rpn: bad country code")
 	errRpnNotMultiCC       = errors.New("proxy: rpn: not multi-country")
 	errRpnIDsMismatch      = errors.New("proxy: rpn: provider x proxy mismatch")
-	errRpnForkFromMain     = errors.New("proxy: rpn: must call fork on main")
 	errRpnMainProxyStopped = errors.New("proxy: rpn: cannot fork; main proxy stopped")
+	errRpnNotForked        = errors.New("proxy: rpn: not forked")
 )
 
 func AsRpnProxy(e Proxy, acc RpnAcc, pxr Rpn) (RpnProxy, error) {
@@ -55,28 +56,10 @@ func AsRpnProxy(e Proxy, acc RpnAcc, pxr Rpn) (RpnProxy, error) {
 	return &rpnp{e, acc, pxr, make(map[string]struct{}, 0), sync.RWMutex{}}, nil
 }
 
-func mainRpnProxyID(acc RpnAcc) string {
-	typ := acc.ProviderID()
-	cc := noCountryForOldMen
-	if !acc.MultiCountry() {
-		cc = defaultCountryCode
-	}
-	return typ + cc
-}
-
-func (r *rpnp) isMain() bool {
-	pid := r.Proxy.ID()
-	mid := mainRpnProxyID(r.RpnAcc)
-	y := mid == pid
-	log.VV("proxy: rpn: %s (by %s) is main? %t", pid, mid, y)
-	return y
-}
-
 func (r *rpnp) Fork(cc string) (x.Proxy, error) {
 	if !r.RpnAcc.MultiCountry() {
 		return nil, errRpnNotMultiCC
 	}
-
 	if len(cc) < 2 {
 		return nil, errRpnBadCC
 	}
@@ -89,23 +72,33 @@ func (r *rpnp) Fork(cc string) (x.Proxy, error) {
 		return r, nil
 	}
 
-	if !r.isMain() {
-		return nil, errRpnForkFromMain
-	}
 	if r.Proxy.Status() == END {
 		return nil, errRpnMainProxyStopped
 	}
 
 	// re-adds + updates if the proxy already exists
-	p, err := r.pxr.addRpnProxy(r.RpnAcc, cc)
+	rp, err := r.pxr.addRpnProxy(r.RpnAcc, cc)
 
-	if p != nil {
+	if rp != nil {
 		r.kmu.Lock()
 		r.kids[cc] = struct{}{}
 		r.kmu.Unlock()
 	}
 
-	return p, err
+	return rp, err
+}
+
+func (r *rpnp) PurgeAll() (n uint32) {
+	for _, cc := range r.flattenKids() {
+		if r.Purge(cc) {
+			n++
+		}
+	}
+
+	if r.pxr.removeRpnProxy(r.RpnAcc, mainCountryCode) {
+		n++
+	}
+	return
 }
 
 // Purge implements x.RpnProxy.
@@ -114,22 +107,16 @@ func (r *rpnp) Purge(cc string) bool {
 	if !r.RpnAcc.MultiCountry() {
 		log.D("proxy: rpn: purge: %s not multi-country %s", cc, provider)
 		return false
-	} else if cc == defaultCountryCode {
+	} else if cc == mainCountryCode {
 		log.W("proxy: rpn: purge: %s is main; call unregister instead", cc, provider)
 		return false
 	}
-	if !r.isMain() { // only main can call purge
-		log.W("proxy: rpn: purge: %s not called on main %s", cc, provider)
-		return false
-	}
 
-	n := r.pxr.removeRpnProxy(r.RpnAcc, cc) // n is expected to be 0 or 1
-	if n == 1 {
-		delete(r.kids, cc)
-	} // else: shouldn't happen as only unregistering "main" will rmv 1+
+	rmv := r.pxr.removeRpnProxy(r.RpnAcc, cc)
+	delete(r.kids, cc)
 
-	log.D("proxy: rpn: purge: %s removed from %s? (1 == %d)", cc, provider, n)
-	return n > 0
+	log.D("proxy: rpn: purge: %s[%s]? %t", provider, cc, rmv)
+	return rmv
 }
 
 // Get implements x.RpnProxy.
@@ -138,16 +125,19 @@ func (r *rpnp) Get(cc string) (x.Proxy, error) {
 		return nil, errRpnNotMultiCC
 	}
 
-	cc = strings.ToUpper(cc)
-	return r.pxr.rpnProxyFor(r.RpnAcc, cc)
+	if _, ok := r.kids[cc]; ok {
+		cc = strings.ToUpper(cc)
+		return r.pxr.rpnProxyFor(r.RpnAcc.ProviderID(), cc)
+	}
+	return nil, errRpnNotForked
 }
 
 // Kids implements x.RpnProxy.
 func (r *rpnp) Kids() string {
-	return strings.Join(r.kiddies(), ",")
+	return strings.Join(r.flattenKids(), ",")
 }
 
-func (r *rpnp) kiddies() (ids []string) {
+func (r *rpnp) flattenKids() (ids []string) {
 	r.kmu.RLock()
 	defer r.kmu.RUnlock()
 

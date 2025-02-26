@@ -36,6 +36,11 @@ var (
 	errRpnStateless = errors.New("rpn has no state or config")
 )
 
+type RpnProxy interface {
+	x.RpnProxy
+	PurgeAll() (n uint32)
+}
+
 type RpnAcc interface {
 	x.RpnAcc
 	ProviderID() string // x.RpnWg, x.RpnPro, x.RpnAmz

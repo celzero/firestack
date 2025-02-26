@@ -26,8 +26,8 @@ import (
 	"github.com/celzero/firestack/intra/settings"
 )
 
-const defaultCountryCode = "US" // always uppercase
-const noCountryForOldMen = ""   // zz
+const mainCountryCode = "US"  // always uppercase
+const noCountryForOldMen = "" // zz
 
 func (pxr *proxifier) NewSocks5Proxy(id, user, pwd, ip, port string) (p *socks5, err error) {
 	opts := settings.NewAuthProxyOptions("socks5", user, pwd, ip, port, nil)
@@ -45,56 +45,36 @@ func (pxr *proxifier) AddProxy(id, txt string) (x.Proxy, error) {
 	return pxr.addProxy(id, txt)
 }
 
-func (pxr *proxifier) removeRpnProxy(acc RpnAcc, cc string) (n uint32) {
+func (pxr *proxifier) removeRpnProxy(acc RpnAcc, cc string) bool {
 	if acc == nil || core.IsNil(acc) {
-		log.W("proxy: remove: no rpn acc for cc %s", cc)
-		return
+		return false
 	}
 	typ := acc.ProviderID()
+	if !isRPN(typ) {
+		return false
+	}
 	if !acc.MultiCountry() && cc != noCountryForOldMen {
-		log.I("proxy: remove: %s not multi-country; cc %s ignored", typ, cc)
+		log.W("proxy: rpn: remove: %s not multi-country; [%s] ignored", typ, cc)
 		cc = noCountryForOldMen
 	}
 
-	if cc == noCountryForOldMen { // remove all
-		group := make(chan string)
-		pxr.Lock()
-		for _, p := range pxr.p {
-			if strings.HasPrefix(p.ID(), typ) {
-				group <- p.ID()
-			}
-		}
-		pxr.Unlock()
+	log.V("proxy: rpn: remove: %s[%s]", typ, cc)
 
-		log.I("proxy: rpn: remove all! %s; tot? %d", typ, len(group))
-		for len(group) > 0 {
-			single := <-group
-			log.V("proxy: rpn: remove %s", single)
-			if pxr.removeProxy(single, true /*force*/) {
-				n++
-			}
-		}
-	} else {
-		log.V("proxy: rpn: remove %s/%s", typ, cc)
-		if pxr.removeProxy(typ+cc, true /*force*/) {
-			n++
-		}
-	}
-	return
+	return pxr.removeProxy(typ+cc, true /*force*/)
 }
 
-func (pxr *proxifier) addRpnProxy(acc RpnAcc, cc string) (RpnProxy, error) {
-	typ := acc.ProviderID()
-
-	if !isRPN(typ) {
-		return nil, errNotRpnID
-	}
+func (pxr *proxifier) addRpnProxy(acc RpnAcc, cc string) (Proxy, error) {
 	if acc == nil || core.IsNil(acc) {
 		return nil, errNotRpnAcc
 	}
 
+	typ := acc.ProviderID()
+	if !isRPN(typ) {
+		return nil, errNotRpnID
+	}
+
 	if !acc.MultiCountry() && cc != noCountryForOldMen {
-		log.I("proxy: %s not multi-country; cc %s ignored", typ, cc)
+		log.W("proxy: rpn: add: %s not multi-country; [%s] ignored", typ, cc)
 		cc = noCountryForOldMen
 	}
 	txt, err := acc.Conf(cc)
@@ -103,18 +83,33 @@ func (pxr *proxifier) addRpnProxy(acc RpnAcc, cc string) (RpnProxy, error) {
 	}
 
 	p, err := pxr.addProxy(typ+cc, txt)
-	if err != nil {
-		return nil, err
+	if p == nil {
+		return nil, core.OneErr(err, errAddProxy)
 	}
 
-	return AsRpnProxy(p, acc, pxr)
+	rp, err := AsRpnProxy(p, acc, pxr)
+	if rp == nil {
+		defer pxr.removeProxy(p.ID(), true /*force*/)
+		return nil, core.OneErr(err, errAddProxyAsRpn)
+	}
+
+	pxr.rpnmu.Lock()
+	pxr.rp[acc.ProviderID()] = rp // removed on unregister
+	pxr.rpnmu.Unlock()
+
+	return p, nil
 }
 
-func (pxr *proxifier) addRpnProxy2(p Proxy, acc RpnAcc) (RpnProxy, error) {
+func (pxr *proxifier) addRpnProxy2(p Proxy, acc RpnAcc) (Proxy, error) {
 	proxyid := p.ID()
 	providerid := acc.ProviderID()
 	if !isRPN(proxyid) || !isRPN(providerid) {
 		return nil, errNotRpnProxy
+	}
+
+	rp, err := AsRpnProxy(p, acc, pxr)
+	if rp == nil {
+		return nil, core.OneErr(err, errAddProxyAsRpn)
 	}
 
 	ok := pxr.add(p)
@@ -122,7 +117,11 @@ func (pxr *proxifier) addRpnProxy2(p Proxy, acc RpnAcc) (RpnProxy, error) {
 		return nil, errAddProxy
 	}
 
-	return AsRpnProxy(p, acc, pxr)
+	pxr.rpnmu.Lock()
+	pxr.rp[acc.ProviderID()] = rp // removed on unregister
+	pxr.rpnmu.Unlock()
+
+	return p, nil
 }
 
 func (pxr *proxifier) addProxy(id, txt string) (p Proxy, err error) {
