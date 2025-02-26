@@ -217,7 +217,7 @@ func (x *muxer) readers() {
 		if timedout(err) {
 			timeouterrors++
 			if timeouterrors < maxtimeouterrors {
-				x.extend(time.Now().Add(udptimeout))
+				x.extend(time.Now().Add(time.Second * udptimeout))
 				log.D("udp: mux: %s read timeout(%d): %v", x.cid, timeouterrors, err)
 				continue
 			} // else: err out
