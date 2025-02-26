@@ -1012,7 +1012,7 @@ func (t *dnsgateway) xLocked(maybeAlg netip.Addr, usestale bool, tids ...string)
 	} else {
 		unnated = t.maybeUndoNat64(realips...)
 	}
-	log.D("alg: dns64: for %s (fresh? %t / staleok? %t) algip(%v) -> realips(%v) -> unnated(%v)",
+	log.D("alg: dns64: for %v (fresh? %t / staleok? %t) algip(%v) => realips(%v) => unnated(%v)",
 		tids, fresh, usestale, unmapped, realips, unnated)
 	if len(unnated) > 0 { // unnated is already de-duplicated
 		return unnated, undidAlg
@@ -1097,7 +1097,7 @@ func (t *dnsgateway) resolvLocked(domain string, typ iptype, tid string) (ip4s, 
 				break
 			}
 		}
-		log.V("alg: resolv: %s -> alg ip4 %d, ip6 %d; stale %v",
+		log.V("alg: resolv: %s => alg ip4 %d, ip6 %d; stale %v",
 			domain, len(ip4s), len(ip6s), staleips)
 	case typreal:
 		for i := range 2 { // a = 0, https/svcb = 1+
@@ -1126,7 +1126,7 @@ func (t *dnsgateway) resolvLocked(domain string, typ iptype, tid string) (ip4s, 
 				break
 			} // continue
 		}
-		log.V("alg: resolv: %s -> real %s ip4 %d, ip6 %d; stale %v",
+		log.V("alg: resolv: %s => real(%s) ip4 %d, ip6 %d; stale %v",
 			domain, tid, len(ip4s), len(ip6s), staleips)
 	case typsecondary:
 		for i := range 2 { // a = 0, https/svcb = 1+
@@ -1155,7 +1155,7 @@ func (t *dnsgateway) resolvLocked(domain string, typ iptype, tid string) (ip4s, 
 				break
 			} // continue
 		}
-		log.V("alg: resolv: %s -> secondary ip4 %d, ip6 %d; stale %v",
+		log.V("alg: resolv: %s => secondary ip4 %d, ip6 %d; stale %v",
 			domain, len(ip4s), len(ip6s), staleips)
 	}
 
