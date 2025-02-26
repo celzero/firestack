@@ -76,7 +76,7 @@ func Recover(code ExitCode, aux any) (didpanic bool) {
 }
 
 func trace(code ExitCode, msg string) {
-	// Have all managed goroutines checkin here, and prevent them from exiting
+	// have all managed goroutines checkin here, and prevent them from exiting
 	// if there's a panic in progress. While this can't lock the entire runtime
 	// to block progress, we can prevent some cases where firestack may return
 	// early before the panic has been printed out.

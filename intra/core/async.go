@@ -59,12 +59,14 @@ func Gx(who string, f func()) {
 	}()
 }
 
+// Gif runs f in a goroutine if cond is true.
 func Gif(cond bool, who string, f func()) {
 	if cond {
 		Go(who, f)
 	}
 }
 
+// Grx runs work function f in a goroutine, blocking until it returns or timesout.
 func Grx[T any](who string, f WorkCtx[T], d time.Duration) (zz T, completed bool) {
 	ch := make(chan T) // synchronous
 
