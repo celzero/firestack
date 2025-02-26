@@ -643,7 +643,7 @@ func extendr(c core.MinConn, t time.Duration) {
 func extendw(c core.MinConn, t time.Duration) {
 	if c != nil && core.IsNotNil(c) {
 		if t.Milliseconds() <= 0 {
-			_ = c.SetDeadline(0)
+			_ = c.SetDeadline(time.Time{})
 		} else {
 			_ = c.SetWriteDeadline(time.Now().Add(t))
 		}

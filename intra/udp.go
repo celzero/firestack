@@ -300,10 +300,8 @@ func (h *udpHandler) Connect(gconn *netstack.GUDPConn, src, target netip.AddrPor
 	var errs error
 	var selectedTarget netip.AddrPort
 
-	muxpid := h.mux.pid(src) // may be empty
-	if mux && len(muxpid) > 0 {
-		ok := containsPid(pids, muxpid)
-		if ok {
+	if mux {
+		if muxpid := h.mux.pid(src); len(muxpid) > 0 && containsPid(pids, muxpid) {
 			log.D("udp: connect: %s mux: %s => %s using muxed-pid %s; discard pids %s",
 				cid, src, target, muxpid, pids)
 			pids = []string{muxpid}
