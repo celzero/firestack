@@ -617,31 +617,39 @@ func extendc(c net.Conn, r time.Duration, w time.Duration) {
 		if r == w {
 			extend(c, r)
 		} else {
-			if r > 0 {
-				extendr(c, r)
-			}
-			if w > 0 {
-				extendw(c, w)
-			}
+			extendr(c, r)
+			extendw(c, w)
 		}
 	}
 }
 
 func extend(c core.MinConn, t time.Duration) {
 	if c != nil && core.IsNotNil(c) {
-		_ = c.SetDeadline(time.Now().Add(t))
+		if t.Milliseconds() <= 0 {
+			_ = c.SetDeadline(time.Time{})
+		} else {
+			_ = c.SetDeadline(time.Now().Add(t))
+		}
 	}
 }
 
 func extendr(c core.MinConn, t time.Duration) {
 	if c != nil && core.IsNotNil(c) {
-		_ = c.SetReadDeadline(time.Now().Add(t))
+		if t.Milliseconds() <= 0 {
+			_ = c.SetDeadline(time.Time{})
+		} else {
+			_ = c.SetReadDeadline(time.Now().Add(t))
+		}
 	}
 }
 
 func extendw(c core.MinConn, t time.Duration) {
 	if c != nil && core.IsNotNil(c) {
-		_ = c.SetWriteDeadline(time.Now().Add(t))
+		if t.Milliseconds() <= 0 {
+			_ = c.SetDeadline(0)
+		} else {
+			_ = c.SetWriteDeadline(time.Now().Add(t))
+		}
 	}
 }
 
