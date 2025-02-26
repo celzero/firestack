@@ -85,14 +85,18 @@ func InboundTCP(who string, s *stack.Stack, in net.Conn, to, from netip.AddrPort
 // OutboundTCP sets up a TCP forwarder h to handle TCP packets.
 // If h is nil, s uses the (built-in) default TCP forwarding logic.
 func OutboundTCP(id string, s *stack.Stack, h GTCPConnHandler) {
-	s.SetTransportProtocolHandler(tcp.ProtocolNumber, tcpForwarder(id, s, h).HandlePacket)
+	if fwd := tcpForwarder(id, s, h); fwd != nil {
+		s.SetTransportProtocolHandler(tcp.ProtocolNumber, fwd.HandlePacket)
+	} else { // unset
+		log.I("ns: tcp: %s: forwarder: nil handler; unsetting forwarder...", id)
+		s.SetTransportProtocolHandler(tcp.ProtocolNumber, nil)
+	}
 }
 
 // nic.deliverNetworkPacket -> no existing matching endpoints -> tcpForwarder.HandlePacket
 // ref: github.com/google/gvisor/blob/e89e736f1/pkg/tcpip/adapters/gonet/gonet_test.go#L189
 func tcpForwarder(who string, s *stack.Stack, h GTCPConnHandler) *tcp.Forwarder {
 	if h == nil {
-		log.I("ns: tcp: %s: forwarder: nil stack/handler; unsetting forwarder...", who)
 		return nil
 	}
 

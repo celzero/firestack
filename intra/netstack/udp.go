@@ -74,7 +74,12 @@ func makeGUDPConn(who string, s *stack.Stack, r *udp.ForwarderRequest, src, dst 
 // OutboundUDP sets up a UDP forwarder h for outbound UDP packets.
 // If h is nil, s uses the (built-in) default UDP forwarding logic.
 func OutboundUDP(id string, s *stack.Stack, h GUDPConnHandler) {
-	s.SetTransportProtocolHandler(udp.ProtocolNumber, udpForwarder(id, s, h).HandlePacket)
+	if fwd := udpForwarder(id, s, h); fwd != nil {
+		s.SetTransportProtocolHandler(udp.ProtocolNumber, fwd.HandlePacket)
+	} else { // unset
+		log.I("ns: udp: %s: forwarder: nil handler; unsetting forwarder...", id)
+		s.SetTransportProtocolHandler(udp.ProtocolNumber, nil)
+	}
 }
 
 func InboundUDP(who string, s *stack.Stack, in net.Conn, to, from netip.AddrPort, h GUDPConnHandler) error {
@@ -104,7 +109,6 @@ func InboundUDP(who string, s *stack.Stack, in net.Conn, to, from netip.AddrPort
 // but: github.com/google/gvisor/blob/be6ffa7/pkg/tcpip/transport/udp/endpoint.go#L180
 func udpForwarder(who string, s *stack.Stack, h GUDPConnHandler) *udp.Forwarder {
 	if h == nil {
-		log.I("ns: udp: %s: forwarder: nil handler; unsetting forwarder...", who)
 		return nil
 	}
 
