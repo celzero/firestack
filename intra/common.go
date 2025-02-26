@@ -16,6 +16,8 @@ import (
 	"sync"
 	"time"
 
+	"slices"
+
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/dialers"
 	"github.com/celzero/firestack/intra/dnsx"
@@ -604,12 +606,7 @@ func isAnyBasePid(pids []string) bool {
 }
 
 func containsPid(pids []string, pid string) bool {
-	for _, v := range pids {
-		if v == pid {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(pids, pid)
 }
 
 func extendc(c net.Conn, r time.Duration, w time.Duration) {
