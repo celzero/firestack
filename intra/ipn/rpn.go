@@ -51,6 +51,7 @@ func asRpnProxy(e Proxy, acc RpnAcc, pxr Rpn) (RpnProxy, error) {
 	proxyid := e.ID() // must be of form "provider-id + country-code"
 	providerid := acc.ProviderID()
 	if !strings.HasPrefix(proxyid, providerid) {
+		log.W("proxy: rpn: make: %s <> %s mismatch", proxyid, providerid)
 		return nil, errRpnIDsMismatch
 	}
 	log.D("proxy: rpn: make: %s[%s]", providerid, proxyid)

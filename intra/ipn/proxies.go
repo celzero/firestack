@@ -332,9 +332,9 @@ func (px *proxifier) add(p Proxy) (ok bool) {
 			if x, typeok := p.(*exit64); typeok {
 				px.exit64 = x
 				px.p[id] = p
-				_, err := px.addRpnProxy2(x, x)
-				ok = err == nil
-				logeif(!ok)("proxy: add: rpn64: err? %v", err)
+				// do not addRpnProxy from here
+				// it will result in a loop of calls
+				ok = true
 			}
 		case Auto:
 			if x, typeok := p.(*auto); typeok {
