@@ -167,7 +167,7 @@ func Every(id string, pctx context.Context, d time.Duration, f func()) context.C
 	return ctx
 }
 
-func EitherOr(either <-chan struct{}, or context.CancelFunc, until time.Duration) bool {
+func EitherOr(either <-chan struct{}, or Callback, until time.Duration) bool {
 	select {
 	case <-time.Tick(until):
 		or()

@@ -46,6 +46,8 @@ import (
 	"github.com/celzero/firestack/tunnel"
 )
 
+const mktunTimeout = 8 * time.Second
+
 var bar = core.NewKeyedBarrier[*x.NetStat, string](30 * time.Second)
 
 var (
@@ -126,6 +128,16 @@ func NewTunnel(fd, mtu int, fakedns string, tunmode *settings.TunMode, dtr Defau
 		}
 	}()
 
+	countdown := make(chan struct{})
+	defer close(countdown)
+
+	ontimeout := func() {
+		log.E("tun: <<< new >>>; timed out ...")
+		cancel()
+	}
+
+	go core.EitherOr(countdown, ontimeout, mktunTimeout)
+
 	const dualstack = settings.IP46
 
 	log.SetConsole(bdg)
@@ -138,9 +150,11 @@ func NewTunnel(fd, mtu int, fakedns string, tunmode *settings.TunMode, dtr Defau
 	}
 
 	if err := dtr.kickstart(proxies); err != nil {
-		log.I("tun: <<< new >>>; kickstart err(%v)", err)
+		log.W("tun: <<< new >>>; kickstart err(%v)", err)
 		return nil, err
 	}
+
+	log.D("tun: <<< new >>>; proxies, svcs, bootstrap: ok")
 
 	resolver := dnsx.NewResolver(ctx, fakedns, tunmode, dtr, bdg, natpt)
 	resolver.Add(newGoosTransport(ctx, proxies))            // os-resolver; fixed
@@ -148,6 +162,8 @@ func NewTunnel(fd, mtu int, fakedns string, tunmode *settings.TunMode, dtr Defau
 	resolver.Add(newFixedTransport())                       // fixed
 	resolver.Add(newDNSCryptTransport(ctx, proxies, bdg))   // fixed
 	resolver.Add(newMDNSTransport(ctx, dualstack, proxies)) // fixed
+
+	log.D("tun: <<< new >>>; resolvers: ok")
 
 	dialers.IPProtos(dualstack)           // assume dual-stack
 	addIPMapper(ctx, resolver, dualstack) // namespace aware os-resolver for pkg dialers
@@ -157,12 +173,16 @@ func NewTunnel(fd, mtu int, fakedns string, tunmode *settings.TunMode, dtr Defau
 	icmph := NewICMPHandler(ctx, resolver, proxies, tunmode, bdg)
 	hdl := netstack.NewGConnHandler(tcph, udph, icmph)
 
+	log.D("tun: <<< new >>>; protocol handlers: ok")
+
 	gt, revhdl, err := tunnel.NewGTunnel(ctx, fd, mtu, dualstack, hdl)
 
 	if err != nil {
-		log.I("tun: <<< new >>>; err(%v)", err)
+		log.W("tun: <<< new >>>; err(%v)", err)
 		return nil, err
 	}
+
+	log.D("tun: <<< new >>>; netstack: ok")
 
 	rerr := proxies.Reverser(revhdl)
 
@@ -176,7 +196,7 @@ func NewTunnel(fd, mtu int, fakedns string, tunmode *settings.TunMode, dtr Defau
 		services: services,
 	}
 
-	log.I("tun: <<< new >>>; ok; reverser? %v", rerr)
+	log.I("tun: <<< new >>>; tunnel ok; reverser? %v", rerr)
 	return t, nil
 }
 

@@ -37,6 +37,7 @@ var (
 )
 
 // Work is the type of the function to memoize.
+type Callback func()
 type Work[T any] func() (T, error)
 type Work1[T any] func(T) (T, error)
 type WorkCtx[T any] func(context.Context) (T, error)
