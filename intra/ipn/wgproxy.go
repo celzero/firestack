@@ -1247,7 +1247,7 @@ func (h *wgtun) listener(op string, err error) {
 		}
 	}
 
-	if s != TOK || s != TUP {
+	if s != TOK && s != TUP {
 		if n := h.remote.Load().MaybeRefresh(); n > 0 {
 			log.I("wg: %s listener: %s; refreshed n domains: %d", h.id, op, n)
 		}
