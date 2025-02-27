@@ -84,13 +84,13 @@ func (pxr *proxifier) addRpnProxy(acc RpnAcc, cc string) (Proxy, error) {
 
 	p, err := pxr.addProxy(typ+cc, txt)
 	if p == nil {
-		return nil, core.OneErr(err, errAddProxy)
+		return nil, core.JoinErr(err, errAddProxy)
 	}
 
-	rp, err := AsRpnProxy(p, acc, pxr)
+	rp, err := asRpnProxy(p, acc, pxr)
 	if rp == nil {
 		defer pxr.removeProxy(p.ID(), true /*force*/)
-		return nil, core.OneErr(err, errAddProxyAsRpn)
+		return nil, core.JoinErr(err, errAddProxyAsRpn)
 	}
 
 	pxr.rpnmu.Lock()
@@ -107,9 +107,9 @@ func (pxr *proxifier) addRpnProxy2(p Proxy, acc RpnAcc) (Proxy, error) {
 		return nil, errNotRpnProxy
 	}
 
-	rp, err := AsRpnProxy(p, acc, pxr)
+	rp, err := asRpnProxy(p, acc, pxr)
 	if rp == nil {
-		return nil, core.OneErr(err, errAddProxyAsRpn)
+		return nil, core.JoinErr(err, errAddProxyAsRpn)
 	}
 
 	ok := pxr.add(p)

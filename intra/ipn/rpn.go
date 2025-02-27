@@ -43,7 +43,7 @@ var (
 	errRpnNotForked        = errors.New("proxy: rpn: not forked")
 )
 
-func AsRpnProxy(e Proxy, acc RpnAcc, pxr Rpn) (RpnProxy, error) {
+func asRpnProxy(e Proxy, acc RpnAcc, pxr Rpn) (RpnProxy, error) {
 	if e == nil || acc == nil || pxr == nil {
 		return nil, errRpnBadArgs
 	}
@@ -53,6 +53,7 @@ func AsRpnProxy(e Proxy, acc RpnAcc, pxr Rpn) (RpnProxy, error) {
 	if !strings.HasPrefix(proxyid, providerid) {
 		return nil, errRpnIDsMismatch
 	}
+	log.D("proxy: rpn: make: %s[%s]", providerid, proxyid)
 	return &rpnp{e, acc, pxr, make(map[string]struct{}, 0), sync.RWMutex{}}, nil
 }
 

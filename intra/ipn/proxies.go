@@ -951,7 +951,7 @@ func (px *proxifier) RegisterWarp(existingStateJson []byte) (stateJson []byte, e
 
 	wc, err := px.registerWarp(existingStateJson)
 	if err != nil || core.IsNil(wc) {
-		return nil, core.OneErr(err, errNilWarpId)
+		return nil, core.JoinErr(err, errNilWarpId)
 	}
 	state, err := wc.State()
 	if err != nil {
@@ -961,7 +961,7 @@ func (px *proxifier) RegisterWarp(existingStateJson []byte) (stateJson []byte, e
 	rp, err := px.addRpnProxy(wc, mainCountryCode)
 	if err != nil || rp == nil {
 		log.E("proxy: warp: add wg for %s failed: %v", wc.Who(), err)
-		return nil, core.OneErr(err, errNotRpnProxy)
+		return nil, core.JoinErr(err, errNotRpnProxy)
 	}
 
 	log.I("proxy: warp: registered: %s / %d, new? %t", wc.Who(), len(state), !restore)
@@ -987,7 +987,7 @@ func (px *proxifier) RegisterAmnezia(existingStateJson []byte) (stateJson []byte
 
 	if err != nil || core.IsNil(ac) {
 		log.E("proxy: amz: make (restore? %t) failed: %v", restore, err)
-		return nil, core.OneErr(err, errNilAmzId)
+		return nil, core.JoinErr(err, errNilAmzId)
 	}
 
 	state, err := ac.State()
@@ -998,7 +998,7 @@ func (px *proxifier) RegisterAmnezia(existingStateJson []byte) (stateJson []byte
 	rp, err := px.addRpnProxy(ac, mainCountryCode)
 	if err != nil || rp == nil {
 		log.E("proxy: amz: add wg for %s failed: %v", ac.Who(), err)
-		return nil, core.OneErr(err, errNotRpnProxy)
+		return nil, core.JoinErr(err, errNotRpnProxy)
 	}
 
 	log.I("proxy: amz: registered: %s / %d; new? %t", ac.Who(), len(state), !restore)
@@ -1023,7 +1023,7 @@ func (px *proxifier) RegisterProton(existingStateJson []byte) (stateJson []byte,
 	pro, err := px.registerProton(existingStateJson)
 	if err != nil || core.IsNil(pro) {
 		log.E("proxy: proton: make failed: %v", err)
-		return nil, core.OneErr(err, errNilProtonCfg)
+		return nil, core.JoinErr(err, errNilProtonCfg)
 	}
 
 	state, err := pro.State()
@@ -1035,7 +1035,7 @@ func (px *proxifier) RegisterProton(existingStateJson []byte) (stateJson []byte,
 	rp, err := px.addRpnProxy(pro, mainCountryCode)
 	if err != nil || rp == nil {
 		log.E("proxy: proton: add wg for %s failed: %v", pro.Who(), err)
-		return nil, core.OneErr(err, errNotRpnProxy)
+		return nil, core.JoinErr(err, errNotRpnProxy)
 	}
 
 	log.I("proxy: proton: registered: %s / %d; new? %t", pro.Who(), len(state), !restore)
@@ -1066,11 +1066,11 @@ func (px *proxifier) RegisterSE() (err error) {
 
 	if err != nil || sep == nil {
 		log.E("proxy: se: make failed: %v", err)
-		return core.OneErr(err, errNilSEProxy)
+		return core.JoinErr(err, errNilSEProxy)
 	}
 
 	if p, err := px.addRpnProxy2(sep, sep); p == nil || err != nil { // unlikely
-		return core.OneErr(err, errAddProxy)
+		return core.JoinErr(err, errAddProxy)
 	}
 
 	log.I("proxy: se: registered: %s", sep.Who())
