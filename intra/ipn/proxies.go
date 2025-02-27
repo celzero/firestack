@@ -272,7 +272,10 @@ func NewProxifier(pctx context.Context, l3 string, mtu int, c protect.Controller
 	pxr.add(pxr.grounded) // fixed
 	pxr.add(pxr.auto)     // fixed
 
-	pxr.addRpnProxy2(pxr.exit64, pxr.exit64) // fixed
+	if _, err := pxr.addRpnProxy2(pxr.exit64, pxr.exit64); err != nil { // fixed
+		// TODO: lastExit64Err?
+		log.W("proxy: rpn64: add: %v", err)
+	}
 
 	log.I("proxy: new")
 
@@ -329,8 +332,9 @@ func (px *proxifier) add(p Proxy) (ok bool) {
 			if x, typeok := p.(*exit64); typeok {
 				px.exit64 = x
 				px.p[id] = p
-				px.addRpnProxy2(x, x)
-				ok = true
+				_, err := px.addRpnProxy2(x, x)
+				ok = err == nil
+				logeif(!ok)("proxy: add: rpn64: err? %v", err)
 			}
 		case Auto:
 			if x, typeok := p.(*auto); typeok {
@@ -344,7 +348,7 @@ func (px *proxifier) add(p Proxy) (ok bool) {
 		ok = true
 	}
 
-	logeif(ok)("proxy: add: proxy %s ok? %t", id, ok)
+	logeif(!ok)("proxy: add: proxy %s ok? %t", id, ok)
 	return ok
 }
 
