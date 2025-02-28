@@ -301,7 +301,7 @@ func (h *udpHandler) Connect(gconn *netstack.GUDPConn, src, target netip.AddrPor
 
 	if mux {
 		if muxpid := h.mux.pid(src); len(muxpid) > 0 && containsPid(pids, muxpid) {
-			log.D("udp: connect: %s mux: %s => %s using muxed-pid %s; discard pids %s",
+			log.D("udp: connect: %s mux: %s => %s using muxed-pid %s; all pids %s",
 				cid, src, target, muxpid, pids)
 			pids = []string{muxpid}
 		} // else: mxr will dial this conn with a different pid

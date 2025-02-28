@@ -335,6 +335,7 @@ func (x *muxer) extend(t time.Time) {
 
 // new creates a demuxed conn to r.
 func (x *muxer) newLocked(cid string, r netip.AddrPort) *demuxconn {
+	const timeout = time.Second * udptimeout
 	if len(cid) > 0 {
 		cid = x.cid + ":" + cid
 	}
@@ -347,20 +348,25 @@ func (x *muxer) newLocked(cid string, r netip.AddrPort) *demuxconn {
 		incomingCh: make(chan *slice, maxInFlight), // read from muxer
 		overflowCh: make(chan *slice, 16),          // overflow from read
 		closed:     make(chan struct{}),            // always unbuffered
-		wt:         time.NewTicker(udptimeout),
-		rt:         time.NewTicker(udptimeout),
-		wto:        udptimeout,
-		rto:        udptimeout,
+		wt:         time.NewTicker(timeout),
+		rt:         time.NewTicker(timeout),
+		wto:        timeout,
+		rto:        timeout,
 	}
 }
 
 // Read implements core.UDPConn.Read
 func (c *demuxconn) Read(p []byte) (int, error) {
 	defer c.rt.Reset(c.rto)
+	sz := len(p)
 	select {
 	case <-c.rt.C:
+		log.W("udp: mux: %s demux: read: %v <= %v; timeout (sz: %d)",
+			c.remux.id(), c.laddr, c.raddr, sz)
 		return 0, os.ErrDeadlineExceeded
 	case <-c.closed:
+		log.W("udp: mux: %s demux: read: %v <= %v; closed (sz: %d)",
+			c.remux.id(), c.laddr, c.raddr, sz)
 		return 0, net.ErrClosed
 	case sx := <-c.overflowCh:
 		return c.io(&p, sx)
