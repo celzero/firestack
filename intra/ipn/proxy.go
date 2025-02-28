@@ -256,7 +256,7 @@ func Reaches(p Proxy, hostportOrIPPortCsv string, protos ...string) bool {
 	//	upstream = pdns
 	// }
 	ipps := make([]netip.AddrPort, 0)
-	for _, x := range strings.Split(hostportOrIPPortCsv, ",") {
+	for x := range strings.SplitSeq(hostportOrIPPortCsv, ",") {
 		host, port, err := net.SplitHostPort(x)
 		if err != nil {
 			port = "80"
