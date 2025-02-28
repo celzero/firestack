@@ -60,19 +60,27 @@ type Logger interface {
 	Stack(at int, msg string, scratch []byte)
 }
 
+const pcbuckets = 512
+
 // based on github.com/eycorsican/go-tun2socks/blob/301549c43/common/log/simple/logger.go
 type simpleLogger struct {
-	sync.Mutex          // guards stcount
-	level      LogLevel // golog (internal log) level
-	tag        string
-	c          Console
-	clevel     LogLevel          // may be different from level
-	msgC       chan *conMsg      // never closed
-	stcount    map[string]uint32 // stack trace counter for identical traces
-	drops      atomic.Uint32     // number of dropped logs
-	e          *golog.Logger
-	o          *golog.Logger
-	q          *ring[string] // todo: use []byte instead of string for gc?
+	level   LogLevel // golog (internal log) level
+	tag     string
+	c       Console
+	clevel  LogLevel          // may be different from level
+	msgC    chan *conMsg      // never closed
+	stmu    sync.Mutex        // guards stcount
+	stcount map[string]uint32 // stack trace counter for identical traces
+	drops   atomic.Uint32     // number of dropped logs
+	e       *golog.Logger
+	o       *golog.Logger
+	q       *ring[string] // todo: use []byte instead of string for gc?
+	clock                 // a clock-like spam rate limiter
+}
+
+type clock struct {
+	l2 [NONE + 1][pcbuckets]uint8
+	l1 [NONE + 1]uint8
 }
 
 var _ Logger = (*simpleLogger)(nil)
@@ -163,18 +171,17 @@ func (l *simpleLogger) SetConsole(c Console) {
 }
 
 func (l *simpleLogger) clearStCounts() {
-	l.Lock()
-	defer l.Unlock()
+	l.stmu.Lock()
+	defer l.stmu.Unlock()
 	clear(l.stcount)
 }
 
 func (l *simpleLogger) incrStCount(id string) (c uint32) {
-	l.Lock()
-	defer l.Unlock()
+	l.stmu.Lock()
+	defer l.stmu.Unlock()
 
 	c = l.stcount[id]
-	c++
-	l.stcount[id] = c
+	l.stcount[id]++
 	return c
 }
 
@@ -242,78 +249,36 @@ func (l *simpleLogger) Printf(msg string, args ...any) {
 }
 
 func (l *simpleLogger) VeryVerbosef(at int, msg string, args ...any) {
-	msg = l.msgstr(msg, args...)
-	if l.level <= VVERBOSE {
-		l.out(at, msg)
-	}
-	if l.clevel <= VVERBOSE {
-		l.toConsole(&conMsg{msg, VVERBOSE})
-	}
+	l.writelog(VVERBOSE, at+1, msg, args...)
 }
 
 func (l *simpleLogger) Verbosef(at int, msg string, args ...any) {
-	msg = l.msgstr(msg, args...)
-	if l.level <= VERBOSE {
-		l.out(at, msg)
-	}
-	if l.clevel <= VERBOSE {
-		l.toConsole(&conMsg{msg, VERBOSE})
-	}
+	l.writelog(VERBOSE, at+1, msg, args...)
 }
 
 func (l *simpleLogger) Debugf(at int, msg string, args ...any) {
-	msg = l.msgstr(msg, args...)
-	if l.level <= DEBUG {
-		l.out(at, msg)
-	}
-	if l.clevel <= DEBUG {
-		l.toConsole(&conMsg{msg, DEBUG})
-	}
+	l.writelog(DEBUG, at+1, msg, args...)
 }
 
 func (l *simpleLogger) Piif(at int, msg string, args ...any) {
-	msg = l.msgstr(msg, args...)
-	if l.level <= VVERBOSE {
-		l.out(at, msg)
-	}
-	if l.clevel <= VVERBOSE {
-		l.toConsole(&conMsg{msg, DEBUG})
-	}
+	l.writelog(INFO, at+1, msg, args...)
 }
 
 func (l *simpleLogger) Infof(at int, msg string, args ...any) {
-	msg = l.msgstr(msg, args...)
-	if l.level <= INFO {
-		l.out(at, msg)
-	}
-	if l.clevel <= INFO {
-		l.toConsole(&conMsg{msg, INFO})
-	}
+	l.writelog(INFO, at+1, msg, args...)
 }
 
 func (l *simpleLogger) Warnf(at int, msg string, args ...any) {
-	msg = l.msgstr(msg, args...)
-	if l.level <= WARN {
-		l.err(at, msg)
-	}
-	if l.clevel <= WARN {
-		l.toConsole(&conMsg{msg, WARN})
-	}
+	l.writelog(WARN, at+1, msg, args...)
 }
 
 func (l *simpleLogger) Errorf(at int, msg string, args ...any) {
-	msg = l.msgstr(msg, args...)
-	if l.level <= ERROR {
-		l.err(at, msg)
-	}
-	if l.clevel <= ERROR {
-		l.toConsole(&conMsg{msg, ERROR})
-	}
+	l.writelog(ERROR, at+1, msg, args...)
 }
 
 func (l *simpleLogger) Fatalf(at int, msg string, args ...any) {
 	// todo: log to console?
-	l.err(at, l.msgstr(msg, args...))
+	l.err(at+1, l.msgstr(msg, args...))
 	os.Exit(1)
 }
 
@@ -410,4 +375,66 @@ func (l *simpleLogger) out(at int, msg string) {
 func (l *simpleLogger) err(at int, msg string) {
 	_ = l.e.Output(at, msg) // may error
 	l.q.Push(msg)
+}
+
+func (l *simpleLogger) writelog(lvl LogLevel, at int, msg string, args ...any) {
+	if l.spammy(lvl, at) {
+		return
+	}
+	ll := l.level <= lvl
+	cc := l.clevel <= lvl
+	if ll || cc {
+		msg = l.msgstr(msg, args...)
+		if ll {
+			l.out(at, msg)
+		}
+		if cc {
+			l.toConsole(&conMsg{msg, lvl})
+		}
+	}
+}
+
+// not thread-safe for performance reasons
+// go.dev/play/p/6CkoACJ1bYz
+func (l *simpleLogger) spammy(lvl LogLevel, at int) (y bool) {
+	l.clock.l1[lvl]++ // tick the level clock
+	t := l.clock.l1[lvl]
+	pc, _, _, ok := runtime.Caller(at + 1)
+	if !ok || pc == 0 {
+		return false // not spammy
+	}
+
+	l2 := l.clock.l2[lvl]
+	bkt := pc % pcbuckets
+
+	defer func() {
+		if !y { // age bkt when not spammy
+			l2[bkt]++
+		}
+	}()
+
+	// reset if pc clock (l2) out ticks level clock (l1);
+	// ie, t has probably overflowed to next generation
+	// and in that generation, bkt has not yet born.
+	// and so reset bkt to 0 or any value < t
+	resync := l2[bkt] > t
+	if resync {
+		l2[bkt] = t / 2 // set to 0?
+		return false    // not spammy
+	}
+
+	tt := uint16(t)
+	v := l2[bkt]
+	if t < 256>>4 { // for upto 16 ticks
+		tt = tt * 70 / 100 // allow upto 70% of ticks
+	} else if t < 256>>3 { // for upto 32 ticks
+		tt = tt * 60 / 100 // allow upto 60% of ticks
+	} else if t < 256>>2 { // for upto 64 ticks
+		tt = tt * 50 / 100 // allow upto 50% of ticks
+	} else if t < 256>>1 { // for upto 128 ticks
+		tt = tt * 40 / 100 // allow upto 40% of ticks
+	} else { // for upto 256 ticks
+		tt = tt * 30 / 100 // allow upto 30% of ticks
+	}
+	return uint16(v) > tt
 }
