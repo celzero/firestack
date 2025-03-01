@@ -384,16 +384,19 @@ func (l *simpleLogger) err(at int, msg string) {
 }
 
 func (l *simpleLogger) writelog(lvl LogLevel, at int, msg string, args ...any) {
+	ll := l.level <= lvl
+	cc := l.clevel <= lvl
+
 	if l.spammy(lvl, at) {
 		l.skips[lvl].Add(1)
 		return
 	} else if n := l.skips[lvl].Load(); n > 0 {
 		ok := l.skips[lvl].CompareAndSwap(n, 0)
-		l.out(at, l.msgstr("spammy... dropped %d msgs [swap? %t]", n, ok))
+		if ok && ll {
+			l.out(at, l.msgstr("spammy... dropped %d msgs", n))
+		}
 	}
 
-	ll := l.level <= lvl
-	cc := l.clevel <= lvl
 	if ll || cc {
 		msg = l.msgstr(msg, args...)
 		if ll {
