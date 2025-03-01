@@ -182,7 +182,7 @@ func (h *exit64) ID() string {
 
 // Type implements Proxy.
 func (h *exit64) Type() string {
-	return RPN
+	return INTERNET
 }
 
 // Router implements Proxy.

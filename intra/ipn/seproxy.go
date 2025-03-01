@@ -350,7 +350,7 @@ func (*seproxy) ID() string {
 
 // Type implements Proxy.
 func (*seproxy) Type() string {
-	return RPN
+	return HTTP1
 }
 
 // Router implements Proxy.
