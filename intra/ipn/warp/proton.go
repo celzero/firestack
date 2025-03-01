@@ -1212,9 +1212,6 @@ func (a *ProtonClient) Conf(cc string) (string, error) {
 	if cfg == nil {
 		return "", errNoProtonConfig
 	}
-	if len(cc) > 0 {
-		log.D("proton: conf: cc %s ignored", cc)
-	}
 	c := 0
 	for _, rc := range cfg.RegionalWgConfs {
 		if rc.CC == cc {

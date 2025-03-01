@@ -102,6 +102,7 @@ func errPanic(who string) error {
 // Panicking functions are considered as returning an error.
 // If the timeout is reached, errTimeout is returned.
 // Note that, zero value result could be returned if at least one function returns that without any error.
+// go.dev/play/p/GVW-dXcZORr
 func Race[T any](who string, timeout time.Duration, fs ...WorkCtx[T]) (zz T, fidx int, errs error) {
 	type res struct {
 		t   T
@@ -131,8 +132,8 @@ func Race[T any](who string, timeout time.Duration, fs ...WorkCtx[T]) (zz T, fid
 		})
 	}
 
-outer:
-	for i := 0; i < len(fs); i++ {
+loop:
+	for range fs {
 		select {
 		case r := <-ch:
 			if r.err != nil {
@@ -141,8 +142,11 @@ outer:
 				return r.t, r.i, r.err
 			}
 		case <-time.After(timeout):
+			// if one of WorkCtx functions times out, it
+			// means the rest have also lost the race.
+			// break out of the loop and return errTimeout.
 			errs = JoinErr(errs, errTimeout)
-			break outer
+			break loop
 		}
 	}
 	return // zz
