@@ -171,7 +171,8 @@ func (pxr *proxifier) addProxy(id, txt string) (p Proxy, err error) {
 		var usr string
 		var pwd string
 		var u *url.URL
-		// scheme://usr:pwd@domain.tld:8080/p/a/t/h?q&u=e&r=y
+		// go.dev/play/p/2DTBGO0Wisj
+		// scheme://usr:pwd@domain.tld:8080/p/a/t/h?q&u=e&r=y#f,r
 		u, err = url.Parse(txt)
 		if err != nil {
 			return nil, err
