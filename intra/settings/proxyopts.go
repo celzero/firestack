@@ -65,9 +65,9 @@ func NewAuthProxyOptions(scheme, username, password, ip, port string, addrs []st
 		Host:   host,   // may be empty or hostname (without port)
 		IP:     ipstr,  // may be empty or ipaddr
 		Port:   port,   // port number
-		IPPort: ippstr, // mmay be ip4:port, [ip::6]:port, host:port, or :port
+		IPPort: ippstr, // may be ip4:port, [ip::6]:port, host:port, or :port
 		Scheme: scheme,
-		Addrs:  addrs,
+		Addrs:  addrs, // may be empty
 	}
 }
 

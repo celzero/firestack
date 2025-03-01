@@ -42,7 +42,7 @@ const (
 	protonClientAddr4 = "10.2.0.2/32"
 	protonDNSAddr4    = "10.2.0.1"
 	// github.com/ProtonVPN/android-app/blob/b9c6e59de40/app/src/main/java/com/protonvpn/android/models/vpn/ConnectionParamsWireguard.kt#L96
-	protonAllowedIPs = "0.0.0.0/0"
+	protonAllowedIPs = gw4
 )
 
 // github.com/ProtonVPN/android-app/blob/b9c6e59de40/app/src/main/java/com/protonvpn/android/models/vpn/Server.kt#L28

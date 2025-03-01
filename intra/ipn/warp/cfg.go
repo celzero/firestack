@@ -30,6 +30,9 @@ const cfdns6 = "2606:4700:4700::1001"
 
 const quad9dns4 = "9.9.9.10"
 
+const gw4 = "0.0.0.0/0" // netip.ParsePrefix("0.0.0.0/0")
+const gw6 = "::/0"      // netip.ParsePrefix("::/0")
+
 // 141.101.113.0 cloudflare ip fronting
 var cfip141 = netip.MustParsePrefix("141.101.113.0/24")
 

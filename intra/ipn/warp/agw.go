@@ -163,7 +163,7 @@ type AmzWgConfig struct {
 
 func (c *AmzWgConfig) genWgConf() {
 	if len(c.AllowedIPs) <= 0 {
-		c.AllowedIPs = []string{"0.0.0.0/0", "::/0"}
+		c.AllowedIPs = []string{gw4, gw6}
 	}
 	server := net.JoinHostPort(c.HostName, fmt.Sprintf("%d", c.Port))
 	c.WgConf = fmt.Sprintf(`[Interface]
@@ -216,7 +216,6 @@ dns=%s,%s
 mtu=(auto)
 preshared_key=%s
 public_key=%s
-allowed_ip=%s
 endpoint=%s`,
 		toHex(c.ClientPrivKey),
 		c.Jc, c.Jmin, c.Jmax,
@@ -226,8 +225,11 @@ endpoint=%s`,
 		cfdns4, quad9dns4,
 		c.PskKey,
 		toHex(c.ServerPubKey),
-		strings.Join(c.AllowedIPs, ","),
 		server)
+
+	for _, ip := range c.AllowedIPs {
+		c.UapiWgConf += fmt.Sprintf("\nallowed_ip=%s", ip)
+	}
 }
 
 func (c *AmzWgConfig) writeJson(w io.Writer) error {

@@ -255,8 +255,7 @@ func (id *Identity) genWgConf() {
 	if id == nil || len(id.Config.Peers) < 1 {
 		return
 	}
-	const gw4 = "0.0.0.0/0"
-	const gw6 = "::/0"
+
 	id.WgConf = fmt.Sprintf(`[Interface]
 PrivateKey = %s
 PublicKey = %s
@@ -277,7 +276,6 @@ AllowedIPs = %s`,
 		id.Config.ClientID,
 		id.Config.Interface.Addresses.V4,
 		id.Config.Interface.Addresses.V6,
-		// developers.cloudflare.com/1.1.1.1/ip-addresses/
 		cfdns4,
 		cfdns6,
 		id.Config.Peers[0].PublicKey,
@@ -298,18 +296,21 @@ address=%s,%s
 dns=%s,%s
 mtu=(auto)
 public_key=%s
-allowed_ip=%s,%s
-endpoint=%s,%s
+allowed_ip=%s
+allowed_ip=%s
+endpoint=%s
+endpoint=%s
 endpoint=%s`,
 		toHex(id.PrivateKey),
 		id.Config.ClientID,
 		id.Config.Interface.Addresses.V4, id.Config.Interface.Addresses.V6,
 		cfdns4, cfdns6,
 		toHex(id.Key),
-		gw4, gw6,
-		id.Config.Peers[0].Endpoint.V4, id.Config.Peers[0].Endpoint.V6,
+		gw4,
+		gw6,
+		id.Config.Peers[0].Endpoint.V4,
+		id.Config.Peers[0].Endpoint.V6,
 		id.Config.Peers[0].Endpoint.Host)
-
 }
 
 func Load(b []byte) (Identity, error) {
