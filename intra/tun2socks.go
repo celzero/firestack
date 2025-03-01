@@ -157,9 +157,9 @@ func PrintStack(onConsole bool) {
 		core.Recycle(bptr)
 	}()
 	if onConsole {
-		log.C("tun: trace", b)
+		log.C("tun: debug trace (not a crash)", b)
 	} else {
-		log.TALL("tun: trace", b)
+		log.TALL("tun: debug trace (not a crash)", b)
 	}
 }
 
