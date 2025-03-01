@@ -7,6 +7,7 @@
 package core
 
 import (
+	"errors"
 	"io"
 	"net"
 	"os"
@@ -230,10 +231,39 @@ func OneErr(errs ...error) error {
 }
 
 func JoinErr(errs ...error) error {
+	return joinErr(false /*uniq*/, errs...)
+}
+
+func UniqErr(errs ...error) error {
+	return joinErr(true /*uniq*/, errs...)
+}
+
+func joinErr(uniq bool, errs ...error) error {
 	var all []error
+	var m map[error]struct{}
+
+	if uniq {
+		m = make(map[error]struct{}, len(errs))
+	}
 	for _, err := range errs {
 		if err == nil {
 			continue
+		}
+		if m != nil { // uniq
+			haserr := false
+			if _, haserr = m[err]; haserr {
+				continue
+			}
+			for k := range m {
+				if haserr = errors.Is(k, err); haserr {
+					break
+				}
+			}
+			if haserr {
+				m[err] = struct{}{}
+				continue
+			}
+			m[err] = struct{}{}
 		}
 		all = append(all, err)
 	}
