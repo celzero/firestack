@@ -64,18 +64,24 @@ const pcbuckets = 512
 
 // based on github.com/eycorsican/go-tun2socks/blob/301549c43/common/log/simple/logger.go
 type simpleLogger struct {
-	level   LogLevel // golog (internal log) level
-	tag     string
-	c       Console
-	clevel  LogLevel          // may be different from level
-	msgC    chan *conMsg      // never closed
+	tag string
+
+	level LogLevel // golog (internal log) level
+
+	c      Console
+	clevel LogLevel      // may be different from level
+	cmsgC  chan *conMsg  // never closed
+	cskips atomic.Uint32 // number of dropped console msgs
+
 	stmu    sync.Mutex        // guards stcount
 	stcount map[string]uint32 // stack trace counter for identical traces
-	drops   atomic.Uint32     // number of dropped logs
-	e       *golog.Logger
-	o       *golog.Logger
-	q       *ring[string] // todo: use []byte instead of string for gc?
-	clock                 // a clock-like spam rate limiter
+
+	e *golog.Logger
+	o *golog.Logger
+	q *ring[string] // todo: use []byte instead of string for gc?
+
+	clock                         // a clock-like spam rate limiter
+	skips [NONE + 1]atomic.Uint32 // number of per-level dropped (spammy) logs
 }
 
 type clock struct {
@@ -125,7 +131,7 @@ func defaultLogger() *simpleLogger {
 	l := &simpleLogger{
 		level:   defaultLevel,
 		clevel:  defaultClevel,
-		msgC:    make(chan *conMsg, consoleChSize),
+		cmsgC:   make(chan *conMsg, consoleChSize),
 		stcount: make(map[string]uint32),
 		// gomobile redirects stderr and stdout to logcat
 		// github.com/golang/mobile/blob/fa72addaaa/internal/mobileinit/mobileinit_android.go#L74-L92
@@ -189,12 +195,12 @@ func (l *simpleLogger) incrStCount(id string) (c uint32) {
 // It may drop logs on high load (50% for conNorm, 80% for conErr).
 // Must be called once from a goroutine.
 func (l *simpleLogger) fromConsole() {
-	for m := range l.msgC {
+	for m := range l.cmsgC {
 		if m == nil || len(m.m) <= 0 { // no msg
 			continue
 		}
-		load := (len(l.msgC) / cap(l.msgC) * 100) // load percentage
-		if c := l.c; c != nil {                   // look for l.c on every msg
+		load := (len(l.cmsgC) / cap(l.cmsgC) * 100) // load percentage
+		if c := l.c; c != nil {                     // look for l.c on every msg
 			switch m.t {
 			case NONE:
 				// drop
@@ -205,9 +211,9 @@ func (l *simpleLogger) fromConsole() {
 				} // drop
 			case WARN, ERROR:
 				if load < 5 {
-					d := l.drops.Swap(0)
+					d := l.cskips.Swap(0)
 					if d > 0 {
-						c.Log(int32(WARN), l.msgstr("dropped %d msgs", d))
+						c.Log(int32(WARN), l.msgstr("backpressure... dropped %d msgs", d))
 					}
 				}
 				if load < 80 {
@@ -222,14 +228,14 @@ func (l *simpleLogger) fromConsole() {
 				continue
 			}
 		} // dropped
-		l.drops.Add(1)
+		l.cskips.Add(1)
 	}
 }
 
 // toConsole sends msg m to l.msgC, dropping if full.
 func (l *simpleLogger) toConsole(m *conMsg) {
 	select {
-	case l.msgC <- m:
+	case l.cmsgC <- m:
 	default: // drop
 	}
 }
@@ -304,7 +310,7 @@ func (l *simpleLogger) emitStack(at int, msgs ...string) {
 			// is pooled; but the caller owns []byte and so it
 			// cannot be used asynchronously (ex: over channels).
 			// l.toConsole(&conMsg{msg, STACKTRACE})
-			l.drops.Add(1)
+			l.cskips.Add(1)
 		}
 	}
 }
@@ -379,8 +385,13 @@ func (l *simpleLogger) err(at int, msg string) {
 
 func (l *simpleLogger) writelog(lvl LogLevel, at int, msg string, args ...any) {
 	if l.spammy(lvl, at) {
+		l.skips[lvl].Add(1)
 		return
+	} else if n := l.skips[lvl].Load(); n > 0 {
+		ok := l.skips[lvl].CompareAndSwap(n, 0)
+		l.out(at, l.msgstr("spammy... dropped %d msgs [swap? %t]", n, ok))
 	}
+
 	ll := l.level <= lvl
 	cc := l.clevel <= lvl
 	if ll || cc {
