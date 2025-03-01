@@ -292,15 +292,15 @@ AllowedIPs = %s`,
 	// github.com/WireGuard/wireguard-android/blob/4ba87947ae/tunnel/src/main/java/com/wireguard/config/Interface.java#L257
 	// not added: listen_port, persistent_keepalive_interval, preshared_key
 	id.UapiWgConf = fmt.Sprintf(`private_key=%s
-	replace_peers=true
-	client_id=%s
-	address=%s,%s
-	dns=%s,%s
-	mtu=(auto)
-	public_key=%s
-	allowed_ip=%s,%s
-	endpoint=%s,%s
-	endpoint=%s`,
+replace_peers=true
+client_id=%s
+address=%s,%s
+dns=%s,%s
+mtu=(auto)
+public_key=%s
+allowed_ip=%s,%s
+endpoint=%s,%s
+endpoint=%s`,
 		toHex(id.PrivateKey),
 		id.Config.ClientID,
 		id.Config.Interface.Addresses.V4, id.Config.Interface.Addresses.V6,
