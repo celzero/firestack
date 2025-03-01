@@ -258,7 +258,7 @@ func (r *retrier) doDialLocked(dialStrat int32) (_ core.DuplexConn, err error) {
 // Returns an error if the dial fails or if the splits could not be written.
 func (r *retrier) retryWriteReadLocked(buf []byte) (int, error) {
 	// r.dialLocked also closes provisional socket
-	newConn, err := r.dialLocked()
+	newConn, err := r.dialLocked() // errs on dial strat = no retries, too
 	if err != nil || newConn == nil {
 		return 0, core.OneErr(err, errNoConn)
 	}
@@ -328,16 +328,17 @@ func (r *retrier) Read(buf []byte) (n int, err error) {
 
 		if !r.retryCompleted() {
 			defer close(r.retryDoneCh) // signal that retry is complete or unnecessary
+			var retryerr error
 			// retry on errs like timeouts or connection resets
 			for (c == nil || err != nil) && r.retryCount < maxRetryCount {
 				r.retryCount++
-				n, err = r.retryWriteReadLocked(buf)
+				n, retryerr = r.retryWriteReadLocked(buf)
 				c = r.conn // re-assign c to newConn, if any; may be nil
 				if c == nil {
-					err = core.OneErr(err, errNoConn)
+					err = core.UniqErr(err, retryerr)
 				}
-				logeor(err, log.I)("retrier: read# %d: [%s<=%s] %d; err? %v",
-					r.retryCount, laddr(c), r.raddr, n, err)
+				logeor(retryerr, log.I)("retrier: read# %d: [%s<=%s] %d; err? %v",
+					r.retryCount, laddr(c), r.raddr, n, retryerr)
 			}
 			if c != nil && core.IsNotNil(c) {
 				_ = c.SetReadDeadline(r.readDeadline)
