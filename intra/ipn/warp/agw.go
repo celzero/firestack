@@ -214,7 +214,6 @@ h4=%s
 address=%s
 dns=%s,%s
 mtu=(auto)
-preshared_key=%s
 public_key=%s
 endpoint=%s`,
 		toHex(c.ClientPrivKey),
@@ -223,10 +222,11 @@ endpoint=%s`,
 		c.H1, c.H2, c.H3, c.H4,
 		c.ClientIP,
 		cfdns4, quad9dns4,
-		c.PskKey,
 		toHex(c.ServerPubKey),
 		server)
-
+	if len(c.PskKey) > 0 {
+		c.UapiWgConf += "\npreshared_key=" + toHex(c.PskKey)
+	}
 	for _, ip := range c.AllowedIPs {
 		c.UapiWgConf += fmt.Sprintf("\nallowed_ip=%s", ip)
 	}
