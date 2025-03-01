@@ -218,14 +218,14 @@ preshared_key=%s
 public_key=%s
 allowed_ip=%s
 endpoint=%s`,
-		c.ClientPrivKey,
+		toHex(c.ClientPrivKey),
 		c.Jc, c.Jmin, c.Jmax,
 		c.S1, c.S2,
 		c.H1, c.H2, c.H3, c.H4,
 		c.ClientIP,
 		cfdns4, quad9dns4,
 		c.PskKey,
-		c.ServerPubKey,
+		toHex(c.ServerPubKey),
 		strings.Join(c.AllowedIPs, ","),
 		server)
 }
