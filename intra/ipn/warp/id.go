@@ -257,9 +257,6 @@ func (id *Identity) genWgConf() {
 	}
 	const gw4 = "0.0.0.0/0"
 	const gw6 = "::/0"
-	// developers.cloudflare.com/1.1.1.1/ip-addresses/
-	const cfdns4 = "1.1.1.1"
-	const cfdns6 = "2606:4700:4700::1001"
 	id.WgConf = fmt.Sprintf(`[Interface]
 PrivateKey = %s
 PublicKey = %s

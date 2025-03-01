@@ -24,6 +24,12 @@ import (
 
 const warpApiUrl string = "https://api.cloudflareclient.com/v0a4005"
 
+// developers.cloudflare.com/1.1.1.1/ip-addresses/
+const cfdns4 = "1.1.1.1"
+const cfdns6 = "2606:4700:4700::1001"
+
+const quad9dns4 = "9.9.9.10"
+
 // 141.101.113.0 cloudflare ip fronting
 var cfip141 = netip.MustParsePrefix("141.101.113.0/24")
 

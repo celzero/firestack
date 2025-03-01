@@ -165,6 +165,7 @@ func (c *AmzWgConfig) genWgConf() {
 	if len(c.AllowedIPs) <= 0 {
 		c.AllowedIPs = []string{"0.0.0.0/0", "::/0"}
 	}
+	server := net.JoinHostPort(c.HostName, fmt.Sprintf("%d", c.Port))
 	c.WgConf = fmt.Sprintf(`[Interface]
 PrivateKey = %s
 PublicKey = %s
@@ -191,14 +192,42 @@ AllowedIPs = %s`,
 		c.S1, c.S2,
 		c.H1, c.H2, c.H3, c.H4,
 		c.ClientIP,
-		"1.1.1.1",  // developers.cloudflare.com/1.1.1.1/ip-addresses/
-		"9.9.9.10", // quad9.net
+		cfdns4, quad9dns4,
 		c.PskKey,
 		c.ServerPubKey,
-		net.JoinHostPort(c.HostName, fmt.Sprintf("%d", c.Port)),
+		server,
 		strings.Join(c.AllowedIPs, ", "),
 		// ignore PersistentKeepalive
 	)
+	// github.com/WireGuard/wireguard-go/blob/12269c27/device/uapi.go#L180
+	c.UapiWgConf = fmt.Sprintf(`private_key=%s
+replace_peers=true
+jc=%s
+jmin=%s
+jmax=%s
+s1=%s
+s2=%s
+h1=%s
+h2=%s
+h3=%s
+h4=%s
+address=%s
+dns=%s,%s
+mtu=(auto)
+preshared_key=%s
+public_key=%s
+allowed_ip=%s
+endpoint=%s`,
+		c.ClientPrivKey,
+		c.Jc, c.Jmin, c.Jmax,
+		c.S1, c.S2,
+		c.H1, c.H2, c.H3, c.H4,
+		c.ClientIP,
+		cfdns4, quad9dns4,
+		c.PskKey,
+		c.ServerPubKey,
+		strings.Join(c.AllowedIPs, ","),
+		server)
 }
 
 func (c *AmzWgConfig) writeJson(w io.Writer) error {
