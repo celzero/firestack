@@ -104,7 +104,6 @@ var (
 	errNilWarpId          = errors.New("proxy: warp id nil")
 	errNilSEProxy         = errors.New("proxy: se proxy nil")
 	errNotRpnProxy        = errors.New("proxy: not rpn")
-	errNoRpnProvider      = errors.New("proxy: no such rpn provider")
 	errNotRpnID           = errors.New("proxy: not rpn id")
 	errNotRpnAcc          = errors.New("proxy: not rpn account")
 )
