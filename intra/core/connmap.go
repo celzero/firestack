@@ -86,6 +86,7 @@ func (h *cm) addLocked(cid string, conns []MinConn) (n int) {
 	} else { // should not happen?
 		v.c = append(v.c, conns...)
 		n = len(v.c)
+		h.trac[cid] = v
 	}
 
 	h.sz += len(conns)
@@ -119,7 +120,7 @@ func (h *cm) UntrackBatch(cids []string) (out []string) {
 		n += h.delLocked(id)
 		out = append(out, id)
 	}
-	log.D("connmap: untrack: batch %d conns / %d cids", n, len(out))
+	log.D("connmap: untrack: batch %d conns for %d cids", n, len(out))
 	return
 }
 
