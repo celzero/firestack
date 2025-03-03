@@ -141,7 +141,8 @@ func (h *cm) String() string {
 
 	var s strings.Builder
 	for _, cs := range h.trac {
-		s.WriteString(fmt.Sprintf("%s\n", cs.String()))
+		s.WriteString(cs.String())
+		s.WriteString("\n")
 	}
 	return s.String()
 }
@@ -189,6 +190,7 @@ func minconn2str(c ...MinConn) (csv string) {
 	if len(c) == 0 {
 		return ""
 	}
+
 	s := make([]string, 0, len(c))
 	for _, v := range c {
 		if v == nil || IsNil(v) {
