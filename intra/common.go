@@ -170,7 +170,7 @@ func (h *baseHandler) onFlow(localaddr, target netip.AddrPort) (fm *Mark, undidA
 		hasNewIPs := false
 		hasPre := pre != nil
 		if ok && hasPre {
-			for _, d := range strings.Split(doms, ",") {
+			for d := range strings.SplitSeq(doms, ",") {
 				if len(d) <= 0 {
 					log.V("com: %s: onFlow: preflow: empty domain in %v from %v => %v for %s; skip!",
 						h.proto, doms, src, target, pre.UID)
@@ -557,7 +557,7 @@ func (h *baseHandler) judge(decision *Mark, aux ...string) (cid, uid, fid string
 	fid = h.flowID(uid, aux...)
 
 	if len(decision.PIDCSV) > 0 {
-		for _, v := range strings.Split(decision.PIDCSV, ",") {
+		for v := range strings.SplitSeq(decision.PIDCSV, ",") {
 			if v == ipn.Block { // block overrides all other pids
 				pids = []string{ipn.Block}
 				return
@@ -576,7 +576,10 @@ func conn2str(a net.Conn, b net.Conn) string {
 	br := b.RemoteAddr()
 	al := a.LocalAddr()
 	bl := b.LocalAddr()
-	return fmt.Sprintf("a(%v->%v) => b(%v<-%v)", al, ar, bl, br)
+	// may empty out? go.dev/blog/unique
+	// (a footnote about interning strings)
+	s := core.UniqStr(fmt.Sprintf("a(%v->%v) => b(%v<-%v)", al, ar, bl, br))
+	return s
 }
 
 func clos(c ...core.MinConn) {

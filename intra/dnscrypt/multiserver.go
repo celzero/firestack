@@ -659,7 +659,7 @@ func (p *DcMulti) Status() int {
 }
 
 func stamp2str(s stamps.ServerStamp) string {
-	return fmt.Sprintf("name:%s, addr:%s, path:%s", s.ProviderName, s.ServerAddrStr, s.Path)
+	return core.UniqStr(fmt.Sprintf("name:%s, addr:%s, path:%s", s.ProviderName, s.ServerAddrStr, s.Path))
 }
 
 // NewDcMult creates a dnscrypt proxy

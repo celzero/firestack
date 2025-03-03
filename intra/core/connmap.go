@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unique"
 
 	"github.com/celzero/firestack/intra/log"
 )
@@ -100,9 +101,9 @@ func (h *cm) getLocked(cid string) *connstat {
 
 func (h *cm) delLocked(cid string) (n int) {
 	if v, ok := h.trac[cid]; ok {
+		n = len(v.c)
 		CloseConn(v.c...)
 		delete(h.trac, cid)
-		n = len(v.c)
 	}
 	h.sz -= n
 	return
@@ -181,7 +182,7 @@ func formatTime(t time.Time) string {
 	}
 }
 
-func conn2str(c ...MinConn) (csv string) {
+func minconn2str(c ...MinConn) (csv string) {
 	if len(c) == 0 {
 		return ""
 	}
@@ -199,4 +200,20 @@ func conn2str(c ...MinConn) (csv string) {
 		}
 	}
 	return strings.Join(s, ",")
+}
+
+// use unique.Handle to handle conn2str
+func conn2str(c ...MinConn) string {
+	return UniqStr(minconn2str(c...))
+}
+
+func UniqStringer(s fmt.Stringer) string {
+	return UniqStr(s.String())
+}
+
+// not always optimal: go.dev/blog/unique
+// (a footnote about interning strings)
+func UniqStr(s string) string {
+	h := unique.Make(s)
+	return h.Value()
 }

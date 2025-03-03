@@ -894,7 +894,7 @@ func IPHints(msg *dns.Msg, x dns.SVCBKey) []netip.Addr {
 				}
 				// ipcsv may be "<nil>" or a csv of ips
 				ipcsv := kv.String()
-				for _, ipstr := range strings.Split(ipcsv, ",") {
+				for ipstr := range strings.SplitSeq(ipcsv, ",") {
 					if v, err := netip.ParseAddr(ipstr); err == nil {
 						ips = append(ips, v)
 					} else {
@@ -910,7 +910,7 @@ func IPHints(msg *dns.Msg, x dns.SVCBKey) []netip.Addr {
 				}
 				// ipcsv may be "<nil>" or a csv of ips
 				ipcsv := kv.String()
-				for _, ipstr := range strings.Split(ipcsv, ",") {
+				for ipstr := range strings.SplitSeq(ipcsv, ",") {
 					if v, err := netip.ParseAddr(ipstr); err == nil {
 						ips = append(ips, v)
 					} else {
@@ -1365,14 +1365,14 @@ func extractMDNSDomain(qname string) (svc, tld string) {
 func netips2str(addrs []netip.Addr) []string {
 	var str []string
 	for _, x := range addrs {
-		str = append(str, x.String())
+		str = append(str, core.UniqStringer(x))
 	}
 	return str
 }
 
-func ip2str(ip net.IP) string {
+func ip2str(ip fmt.Stringer) string {
 	if ip == nil {
 		return ""
 	}
-	return ip.String()
+	return core.UniqStringer(ip)
 }
