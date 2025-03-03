@@ -217,6 +217,7 @@ func (x *muxer) readers() {
 		if timedout(err) {
 			timeouterrors++
 			if timeouterrors < maxtimeouterrors {
+				// extend by preset (min) udp timeout
 				x.extend(time.Now().Add(time.Second * udptimeout))
 				log.D("udp: mux: %s read timeout(%d): %v", x.cid, timeouterrors, err)
 				continue
@@ -335,7 +336,10 @@ func (x *muxer) extend(t time.Time) {
 
 // new creates a demuxed conn to r.
 func (x *muxer) newLocked(cid string, r netip.AddrPort) *demuxconn {
-	const timeout = time.Second * udptimeout
+	dopt := settings.GetDialerOpts() // TODO: update timeouts when opts change
+	readtimeout := time.Second * time.Duration(max(udptimeout, dopt.ReadTimeoutSec))
+	writetimeout := time.Second * time.Duration(max(udptimeout, dopt.WriteTimeoutSec))
+
 	if len(cid) > 0 {
 		cid = x.cid + ":" + cid
 	}
@@ -348,10 +352,10 @@ func (x *muxer) newLocked(cid string, r netip.AddrPort) *demuxconn {
 		incomingCh: make(chan *slice, maxInFlight), // read from muxer
 		overflowCh: make(chan *slice, 16),          // overflow from read
 		closed:     make(chan struct{}),            // always unbuffered
-		wt:         time.NewTicker(timeout),
-		rt:         time.NewTicker(timeout),
-		wto:        timeout,
-		rto:        timeout,
+		wt:         time.NewTicker(writetimeout),
+		rt:         time.NewTicker(readtimeout),
+		wto:        readtimeout,
+		rto:        writetimeout,
 	}
 }
 
