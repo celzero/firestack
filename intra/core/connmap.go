@@ -101,12 +101,13 @@ func (h *cm) getLocked(cid string) *connstat {
 }
 
 func (h *cm) delLocked(cid string) (n int) {
+	defer delete(h.trac, cid)
+
 	if v, ok := h.trac[cid]; ok {
 		n = len(v.c)
 		CloseConn(v.c...)
-		delete(h.trac, cid)
+		h.sz -= n
 	}
-	h.sz -= n
 	return
 }
 
@@ -139,8 +140,8 @@ func (h *cm) String() string {
 	defer h.RUnlock()
 
 	var s strings.Builder
-	for _, v := range h.trac {
-		s.WriteString(fmt.Sprintf("%s\n", v.String()))
+	for _, cs := range h.trac {
+		s.WriteString(fmt.Sprintf("%s\n", cs.String()))
 	}
 	return s.String()
 }
@@ -155,6 +156,7 @@ func (h *cm) Clear() (cids []string) {
 		cids = append(cids, k)
 	}
 	clear(h.trac)
+	h.sz = 0
 	log.D("connmap: clear: %d conns", len(cids))
 	return
 }
