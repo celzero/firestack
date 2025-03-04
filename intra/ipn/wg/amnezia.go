@@ -173,7 +173,7 @@ func (a *Amnezia) instate(pkt []byte) ([]byte, uint32) {
 		}
 	}
 
-	log.VV("wg: %s: amnezia: instate: msg size: %d, msg typ: (d: %d, o: %d), s1/s2: %d/%d, do? %t",
+	log.VV("wg: %s: amnezia: instate: msg size: %d, msg typ: (d: %d, o: %d), pad? %t, s1/s2: %d/%d, do? %t",
 		a.id, n, defaultType, obsType, pad, a.S1, a.S2, maybeInstate)
 
 	if obsType > 0 {

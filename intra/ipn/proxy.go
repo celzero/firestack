@@ -429,7 +429,7 @@ func healthy(p Proxy) error {
 	lastOKNeverOK := lastOK <= 0
 	lastOKBeyondThres := now-lastOK > lastOKThreshold.Milliseconds()
 	if lastOKNeverOK || lastOKBeyondThres {
-		go p.onNotOK()
+		go p.onNotOK() // not ok for too long
 		return fmt.Errorf("proxy: %s not ok; lastOK: zz? %t / thres? %t",
 			pid, lastOKNeverOK, lastOKBeyondThres)
 	} else if now-lastOK > tzzTimeout.Milliseconds() {
