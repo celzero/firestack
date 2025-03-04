@@ -227,15 +227,19 @@ func addr4to6(addr string) string {
 	ipport, err := netip.ParseAddrPort(addr)
 	if err != nil { // hostname?
 		resolved := dialers.For(addr)
-		logeif(len(resolved) == 0)("proxy: auto: addr64: is host? %s resolved? %v; err: %v",
-			addr, resolved, err)
+		ok := len(resolved) > 0
+
 		for _, ip := range resolved {
 			if !ip.IsValid() || ip.Is6() {
 				continue
 			}
 			ipport = netip.AddrPortFrom(ip, ipport.Port())
-			break
+			break // break on first valid IPv4 ipport
 		}
+
+		logeif(!ok)("proxy: auto: exit64: addr64: is host? %s; chosen? %v, resolved? %v; err: %v",
+			addr, ipport, resolved, err)
+
 		if !ipport.IsValid() {
 			return ""
 		}
@@ -243,14 +247,14 @@ func addr4to6(addr string) string {
 
 	ip4 := ipport.Addr()
 	if !ip4.Is4() {
-		log.VV("proxy: auto: addr64: not IPv4(%s)", addr)
+		log.VV("proxy: auto: exit64: addr64: chosen addr not v4(%s)", addr)
 		return ""
 	}
-	// convert IPv4 to IPv6
+	// embed IPv4 in IPv6
 	ippre := warp.Net6to4[rand.Intn(len(warp.Net6to4))]
 	ip6 := ip4to6(ippre, ip4)
 	if !ip6.IsValid() {
-		log.W("proxy: auto: addr64: failed to convert(%s) to IPv6", ip4)
+		log.W("proxy: auto: exit64: addr64: failed to embed(%s) in v6(%s)", ip4, ippre)
 		return ""
 	}
 	return netip.AddrPortFrom(ip6, ipport.Port()).String()
@@ -268,7 +272,7 @@ func ip4to6(prefix96 netip.Prefix, ip4 netip.Addr) netip.Addr {
 	s4 := ip4.As4()
 	n := copy(s6[prefixLen:], s4[:hostLen])
 	if n != hostLen {
-		log.W("proxy: auto: ip4to6(%v, %v) failed; pre:%d host:%d for net:%v ip4:%v",
+		log.W("proxy: auto: exit64: ip4to6(%v, %v) failed; pre:%d host:%d for net:%v ip4:%v",
 			s6, s4, prefixLen, hostLen, prefix96, ip4)
 		return netip.Addr{}
 	}
