@@ -1013,6 +1013,7 @@ func writePrefixed(w io.Writer, b []byte, l int) (int, error) {
 	return max(0, n-pre), err
 }
 
+// meta proxies like pid == Auto are not considered local.
 func IsLocalProxy(pid string) bool {
 	return len(pid) <= 0 ||
 		pid == NetBaseProxy ||
