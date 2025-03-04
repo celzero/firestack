@@ -105,7 +105,7 @@ func (h *auto) dial(network, local, remote string) (protect.Conn, error) {
 			return h.dialIfReachable(exit, network, local, remote)
 		}, func(ctx context.Context) (protect.Conn, error) {
 			const myidx = 1
-			if pro == nil { // exit must always be present
+			if pro == nil {
 				return nil, proerr
 			}
 			if recent {
@@ -121,7 +121,7 @@ func (h *auto) dial(network, local, remote string) (protect.Conn, error) {
 				return nil, ctx.Err()
 			case <-time.After(shortdelay * myidx): // 100ms
 			}
-			return h.dialIfReachable(pro, network, local, remote)
+			return h.dialIfHealthy(pro, network, local, remote)
 		}, func(ctx context.Context) (protect.Conn, error) {
 			const myidx = 2
 			if warp == nil {
