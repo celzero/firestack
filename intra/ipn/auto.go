@@ -417,10 +417,14 @@ func (h *auto) Stop() error {
 	return nil
 }
 
+// dialIfReachable currently aliases dialIfHealthy.
 func (h *auto) dialIfReachable(p Proxy, network, local, remote string) (net.Conn, error) {
-	if !hasroute(p, remote) {
-		return nil, fmt.Errorf("auto; %s: %v", p.ID(), errNoRouteToHost)
-	}
+	// remote is oftimes a hostname; in which case hasroute would error out (as it
+	// works with ip addresses only). The alternative is to get the ipmap from dialers pkg
+	// but that would be redundant to what the individual proxy implementations already do.
+	// if !hasroute(p, remote) {
+	//	return nil, fmt.Errorf("auto; %s: %v", p.ID(), errNoRouteToHost)
+	// }
 	// some IPs never respond to ping; ex: 34.245.245.138:443, 63.32.2.144:80
 	// even if they respond over tcp/udp on the same ip:port.
 	// ipp, _ := netip.ParseAddrPort(remote)

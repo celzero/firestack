@@ -87,7 +87,6 @@ var (
 	errNoAuto464XLAT      = errors.New("auto: no 464xlat")
 	errNotPinned          = errors.New("auto: another proxy pinned")
 	errInvalidAddr        = errors.New("proxy: invaild ip:port")
-	errNoRouteToHost      = errors.New("proxy: no route to host")
 	errMissingProxyID     = errors.New("proxy: missing proxy id")
 	errHopDefaultRoutes   = errors.New("proxy: hop must route all ip4/ip6")
 	errHopHopping         = errors.New("proxy: hop must not be hopping")
