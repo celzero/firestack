@@ -622,10 +622,11 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []netip.Addr, network string, q 
 		algip6 = algip6hints
 	}
 
-	log.D("alg: ok; for %s:%d, domains %s real: %s / fix: %s => subst %s | %s; (mod? %t / fix? %t); sec %s",
-		qname, smm.QType, targets, realip, fixedips, algip4, algip6, mod, usefixed, secres.ips)
+	tid1 := idstr(t1)
+	log.D("alg: ok; for %s:%s:%d, domains %s real: %s / fix: %s => subst %s | %s; (mod? %t / fix? %t); sec %s",
+		tid1, qname, smm.QType, targets, realip, fixedips, algip4, algip6, mod, usefixed, secres.ips)
 
-	if t.registerLocked(qname, t1.ID(), algip4, algip6, realip, ansttl, targets, secres) {
+	if t.registerLocked(qname, tid1, algip4, algip6, realip, ansttl, targets, secres) {
 		// if mod is set, send modified answer
 		if mod {
 			withAlgSummaryIfNeeded(smm, algip4, algip6)
@@ -944,7 +945,8 @@ func (t *dnsgateway) PTR(maybeAlg netip.Addr, force bool) (domains string, didFo
 	t.RLock()
 	defer t.RUnlock()
 
-	// do not use t.ptr (realip -> ans) in mod mode, unless forced
+	// do not use t.ptr (realip -> ans) in mod (alg) mode, unless forced;
+	// as t.nat (algip -> ans) is a more accurate translation.
 	useptr := !t.mod.Load() || force
 	d := t.ptrLocked(maybeAlg, useptr)
 	if len(d) > 0 {
