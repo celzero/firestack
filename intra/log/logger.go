@@ -139,7 +139,7 @@ func defaultLogger() *simpleLogger {
 		o: golog.New(os.Stdout, "", defaultFlags),
 		q: newRing[string](context.TODO(), qSize),
 	}
-	go l.fromConsole()
+	go l.consoleDispatcher()
 	return l
 }
 
@@ -191,10 +191,10 @@ func (l *simpleLogger) incrStCount(id string) (c uint32) {
 	return c
 }
 
-// fromConsole sends msgs from l.msgC to external log console.
+// consoleDispatcher sends msgs from l.msgC to external log console.
 // It may drop logs on high load (50% for conNorm, 80% for conErr).
 // Must be called once from a goroutine.
-func (l *simpleLogger) fromConsole() {
+func (l *simpleLogger) consoleDispatcher() {
 	for m := range l.cmsgC {
 		if m == nil || len(m.m) <= 0 { // no msg
 			continue
@@ -231,8 +231,8 @@ func (l *simpleLogger) fromConsole() {
 	}
 }
 
-// toConsole sends msg m to l.msgC, dropping if full.
-func (l *simpleLogger) toConsole(m *conMsg) {
+// consoleQueue sends msg m to l.msgC, dropping if full.
+func (l *simpleLogger) consoleQueue(m *conMsg) {
 	select {
 	case l.cmsgC <- m:
 	default: // drop
@@ -244,7 +244,7 @@ func (l *simpleLogger) Usr(msg string) {
 		if count := l.incrStCount(msg); count > similarUsrMsgThreshold {
 			return
 		}
-		l.toConsole(&conMsg{msg, USR})
+		l.consoleQueue(&conMsg{msg, USR})
 	}
 }
 
@@ -395,7 +395,7 @@ func (l *simpleLogger) writelog(lvl LogLevel, at int, msg string, args ...any) {
 			l.out(at, spammsg)
 		}
 		if cc {
-			l.toConsole(&conMsg{spammsg, lvl})
+			l.consoleQueue(&conMsg{spammsg, lvl})
 		}
 	}
 
@@ -405,7 +405,7 @@ func (l *simpleLogger) writelog(lvl LogLevel, at int, msg string, args ...any) {
 			l.out(at, msg)
 		}
 		if cc {
-			l.toConsole(&conMsg{msg, lvl})
+			l.consoleQueue(&conMsg{msg, lvl})
 		}
 	}
 }
