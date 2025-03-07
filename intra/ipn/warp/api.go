@@ -476,5 +476,10 @@ func (w *Client) MakeWarpFrom(existingStateJson []byte) (*WarpClient, error) {
 		return w.MakeWarp()
 	}
 
+	if exp := id.Expires(); exp.IsZero() || exp.Before(time.Now()) {
+		log.W("warp: make: expired %s; new warp ...", exp.Format(time.Stamp))
+		return w.MakeWarp()
+	}
+
 	return newWarpClient(w.d, &id)
 }
