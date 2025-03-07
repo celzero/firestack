@@ -101,77 +101,145 @@ func (sec *secans) initIfNeeded() {
 	}
 }
 
-type xips struct {
-	mu *sync.RWMutex
-	// resolved v6 or v4 by some tid; may be nil
-	pri map[string][]netip.Addr
-	// resolved by secondary tid, v6 or v4; may be nil
-	aux []netip.Addr
+type expaddr struct {
+	ips []netip.Addr
+	ttl time.Time
 }
 
-func NewXips(id string, pri []netip.Addr, sec []netip.Addr) *xips {
-	x := &xips{
-		mu:  new(sync.RWMutex),
-		pri: make(map[string][]netip.Addr),
-		aux: sec, // sec may be nil
+func (a expaddr) all() []netip.Addr {
+	return a.get(false /*live*/)
+}
+
+func (a expaddr) alive() []netip.Addr {
+	return a.get(true /*live*/)
+}
+
+func (a expaddr) fresh() bool {
+	return !a.ttl.IsZero() && time.Now().Before(a.ttl)
+}
+
+func (a expaddr) after(b expaddr) bool {
+	if a.ttl.IsZero() {
+		return b.ttl.IsZero()
 	}
+	return a.ttl.After(b.ttl)
+}
+
+func (a expaddr) get(s xaddrstatus) []netip.Addr {
+	if a.ips == nil {
+		return nil
+	}
+	if s == xalive && !a.fresh() {
+		return nil
+	}
+	return a.ips
+}
+
+type xips struct {
+	// protects pri
+	pmu *sync.RWMutex
+	// resolved v6 or v4 by tid; may be nil
+	pri map[string]expaddr
+	// resolved by secondary tid, v6 or v4; may be nil
+	aux []netip.Addr
+	// true any IPs in aux are unspecified
+	zz bool
+}
+
+type xaddrstatus bool
+
+const (
+	xalive xaddrstatus = true
+	xall   xaddrstatus = false
+)
+
+func makeXipStatus(alive bool) xaddrstatus {
+	return xaddrstatus(alive)
+}
+
+func NewXips(id string, pri, sec []netip.Addr, ttl time.Time) *xips {
+	x := &xips{
+		pmu: new(sync.RWMutex),
+		pri: make(map[string]expaddr),
+		aux: sec, // sec may be nil
+		zz:  anyUnspecified(sec),
+	}
+	// id == "" for dnsx.NoDNS, in which case pri should be empty
 	if len(pri) > 0 { // pri may be nil
-		x.pri[id] = pri
+		x.pri[id] = expaddr{pri, ttl}
 	}
 	return x
 }
 
-func flatten[K comparable, V any](m map[K][]V, upto uint) ([]K, []V) {
+func flatten[K comparable, V any](m map[K]V, upto uint) []V {
 	outv := make([]V, 0, upto)
-	outk := make([]K, 0, upto)
-	for k, v := range m {
+	for _, v := range m {
 		if upto != 0 && uint(len(outv)) >= upto {
 			break
 		}
-		outk = append(outk, k)
-		outv = append(outv, v...)
+		outv = append(outv, v)
 	}
-	return outk, outv
+	return outv
 }
 
-func (p *xips) primary() []netip.Addr {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
+func (p *xips) primary(s xaddrstatus) (out []netip.Addr) {
+	p.pmu.RLock()
+	defer p.pmu.RUnlock()
 
-	_, v := flatten(p.pri, 0)
-	return v
+	const all = 0
+	for _, v := range flatten(p.pri, all) {
+		out = append(out, v.get(s)...)
+	}
+	return
 }
 
-// x returns ips to translated to
-func (p *xips) x() []netip.Addr {
-	pri := p.primary()
+// x returns all live primary ips
+func (p *xips) x(s xaddrstatus) []netip.Addr {
+	if p == nil {
+		return nil
+	}
 
-	if p.block() {
+	pri := p.primary(s)
+
+	if (s == xalive && len(pri) > 0) && p.zz {
+		// if aux had unspecified ips, then append those to
+		// primary ips. if aux has proper ips or no ips,
+		// those are made redundant by primary.
 		return append(pri, anyaddr4, anyaddr6)
 	}
-	return pri
+	return pri // may be nil / empty
 }
 
-func (p *xips) xof(tid string) []netip.Addr {
-	if tid == notransport || len(tid) <= 0 {
-		return p.x()
+// xof returns all live primary ips for a given tid
+func (p *xips) xof(tid string, s xaddrstatus) []netip.Addr {
+	if p == nil {
+		return nil
 	}
-	p.mu.RLock()
-	defer p.mu.RUnlock()
+	if tid == notransport || len(tid) <= 0 {
+		return p.x(s)
+	}
+	p.pmu.RLock()
+	defer p.pmu.RUnlock()
 
-	return p.pri[tid]
+	if s == xalive {
+		return p.pri[tid].alive()
+	}
+	return p.pri[tid].all()
 }
 
 // sec returns all secondary ips
 func (p *xips) sec() []netip.Addr {
+	if p == nil {
+		return nil
+	}
 	return p.aux
 }
 
 // block returns true if any secondary ip is unspecified
-func (p *xips) block() bool {
+func anyUnspecified(ips []netip.Addr) bool {
 	// unspecified ips expected to be in aux
 	// primary must never have unspecified ips
-	for _, ip := range p.sec() {
+	for _, ip := range ips {
 		if ip.IsUnspecified() {
 			return true
 		}
@@ -181,44 +249,73 @@ func (p *xips) block() bool {
 
 // each iterates over each primary ip
 func (p *xips) each(f func(ip netip.Addr)) {
-	for _, ip := range p.x() {
+	for _, ip := range p.x(xall) {
 		f(ip)
 	}
 }
 
 func (p *xips) merge(q *xips) {
-	if q == nil {
+	if p == nil || q == nil {
 		return
 	}
 
 	if len(q.aux) > 0 {
-		p.aux = removeDups(p.aux, q.aux)
+		p.aux = copyUniq(p.aux, q.aux)
+		p.zz = anyUnspecified(p.aux)
 	}
 
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	q.mu.RLock()
-	defer q.mu.RUnlock()
+	p.pmu.Lock() // write lock on p
+	defer p.pmu.Unlock()
+	q.pmu.RLock() // read lock on q
+	defer q.pmu.RUnlock()
 
 	for k, v := range q.pri {
-		if aa := p.pri[k]; aa == nil {
+		if aa := p.pri[k]; !aa.fresh() {
 			p.pri[k] = v
-		} else if len(v) > 0 {
-			p.pri[k] = removeDups(aa, v)
+		} else {
+			ips := copyUniq(aa.alive(), v.alive())
+			ttl := aa.ttl
+			if !aa.after(v) {
+				// ips from aa & v both get assigned the latest ttl
+				// which is strictly incorrect, but for accounting
+				// purposes (that is, algip->realip translations),
+				// it is preferable to keep as many realips around
+				// as possible (even at the slight cost of correctness).
+				ttl = v.ttl
+			}
+			p.pri[k] = expaddr{ips, ttl}
 		}
 	}
 }
 
 type baseans struct {
-	ips        *xips    // all ip answers, v6+v4; may be nil
-	domains    []string // all domain names in an answer (incl qname)
-	blocklists string   // csv blocklists containing qname per active config at the time
-	ttl        time.Time
+	ips        *xips     // all ip answers, v6+v4; may be nil
+	domains    []string  // all domain names in an answer (incl qname)
+	blocklists string    // csv blocklists containing qname per active config at the time
+	ttl        time.Time // ttl for this alg translation
+}
+
+func (a *baseans) fresh() bool {
+	if a == nil {
+		return false
+	}
+	return !a.ttl.IsZero() && a.ttl.After(time.Now())
 }
 
 type algans struct {
 	algip netip.Addr // generated answer, v6 or v4
 	*baseans
+}
+
+func (a *algans) extend(by time.Duration) {
+	a.ttl = time.Now().Add(by)
+}
+
+func (a *algans) after(b *algans) bool {
+	if a.ttl.IsZero() {
+		return b.ttl.IsZero()
+	}
+	return a.ttl.After(b.ttl)
 }
 
 func (a *algans) merge(b *algans) {
@@ -230,9 +327,9 @@ func (a *algans) merge(b *algans) {
 	} else {
 		a.ips = b.ips
 	}
-	a.domains = removeDups(a.domains, b.domains)
+	a.domains = copyUniq(a.domains, b.domains)
 	a.blocklists = b.blocklists // TODO: merge?
-	if b.ttl.After(a.ttl) {
+	if b.after(a) {
 		a.ttl = b.ttl
 	}
 }
@@ -695,26 +792,24 @@ func (t *dnsgateway) registerLocked(q, tid string, algip4, algip6 netip.Addr, re
 		return false
 	}
 
+	// ttl is used for algans and xips, but the alg'fied dns answer
+	// has a lower ttl as defined by const algttl (currently, 15s).
+	ansttl := time.Now().Add(max(ttl2m, ttl))
+	xipsttl := time.Now().Add(ttl)
+	// secres.ips may be empty on timeout errors, or
+	// or same as realips if t2 is nil; realips can be nil
+	// if fixedips is being used.
 	am4 := &baseans{
-		// secres.ips may be empty on timeout errors, or
-		// or same as realips if t2 is nil
-		ips:        NewXips(tid, v4only(realips), v4only(secres.ips)),
+		ips:        NewXips(tid, v4only(realips), v4only(secres.ips), xipsttl),
 		domains:    targets, // may be nil
 		blocklists: secres.smm.Blocklists,
-		// qname->realip valid for next ttl seconds
-		// but algips are valid for algttl seconds
-		ttl: time.Now().Add(max(ttl2m, ttl)),
+		ttl:        ansttl, // extended by 2m on every use
 	}
-
 	am6 := &baseans{
-		// secres.ips may be empty on timeout errors, or
-		// or same as realips if t2 is nil
-		ips:        NewXips(tid, v6only(realips), v6only(secres.ips)),
+		ips:        NewXips(tid, v6only(realips), v6only(secres.ips), xipsttl),
 		domains:    targets, // may be nil
 		blocklists: secres.smm.Blocklists,
-		// qname->realip valid for next ttl seconds
-		// but algips are valid for algttl seconds
-		ttl: time.Now().Add(max(ttl2m, ttl)),
+		ttl:        ansttl, // extended by 2m on every use
 	}
 
 	didRegister := false
@@ -774,7 +869,7 @@ func (t *dnsgateway) take4Locked(q string, idx int) (netip.Addr, bool) {
 	if ans, ok := t.alg[k]; ok {
 		ip := ans.algip
 		if ip.Is4() {
-			ans.ttl = time.Now().Add(ttl2m)
+			ans.extend(ttl2m)
 			return ip, true
 		} else {
 			// shouldn't happen; if it does, rm erroneous entry
@@ -789,7 +884,7 @@ func (t *dnsgateway) take4Locked(q string, idx int) (netip.Addr, bool) {
 	}
 
 	if t.chash {
-		for i := 0; i < maxiter; i++ {
+		for i := range maxiter {
 			genip := gen4Locked(k, i)
 			if !genip.IsGlobalUnicast() {
 				continue
@@ -865,7 +960,7 @@ func (t *dnsgateway) take6Locked(q string, idx int) (netip.Addr, bool) {
 	if ans, ok := t.alg[k]; ok {
 		ip := ans.algip
 		if ip.Is6() {
-			ans.ttl = time.Now().Add(ttl2m)
+			ans.extend(ttl2m)
 			return ip, true
 		} else {
 			// shouldn't happen; if it does, rm erroneous entry
@@ -880,7 +975,7 @@ func (t *dnsgateway) take6Locked(q string, idx int) (netip.Addr, bool) {
 	}
 
 	if t.chash {
-		for i := 0; i < maxiter; i++ {
+		for i := range maxiter {
 			genip := gen6Locked(k, i)
 			if _, taken := t.nat[genip]; !taken {
 				return genip, genip.IsValid()
@@ -987,18 +1082,19 @@ func (t *dnsgateway) RDNSBL(algip netip.Addr) (blocklists string) {
 func (t *dnsgateway) xLocked(maybeAlg netip.Addr, usestale bool, tids ...string) ([]netip.Addr, bool) {
 	var realips []netip.Addr
 	var undidAlg, fresh bool
+	xst := makeXipStatus(!usestale)
 	// alg ips are always unmappped; see take4Locked
 	unmapped := maybeAlg.Unmap() // aligip may also be origip / realip
 	if ans, ok := t.nat[unmapped]; ok {
-		if fresh = time.Until(ans.ttl) > 0; fresh || usestale {
-			if len(tids) <= 0 {
-				realips = ans.ips.x()
-			} else {
-				for _, tid := range tids {
-					realips = append(realips, ans.ips.xof(tid)...)
-				}
+		if len(tids) <= 0 {
+			realips = ans.ips.x(xst)
+		} else {
+			for _, tid := range tids {
+				realips = append(realips, ans.ips.xof(tid, xst)...)
 			}
 		}
+		// undidAlg is really "hasAnyAlgEntry"; set it to true
+		// regardless of len(realips) or freshness of ans.ips
 		undidAlg = true
 	} else if ans, ok := t.ptr[unmapped]; ok {
 		// for IPs (unlike domains), it is okay to fallback on ptr as the
@@ -1006,33 +1102,33 @@ func (t *dnsgateway) xLocked(maybeAlg netip.Addr, usestale bool, tids ...string)
 		// app is connecting to a cached IP addr from before t.mod was set)
 		// nb: both realips & secondaryips may be nil, but that's okay:
 		// go.dev/play/p/fSjRjMSAS2m
-		if fresh = time.Until(ans.ttl) > 0; fresh || usestale {
-			if len(tids) <= 0 {
-				realips = ans.ips.x()
-			} else {
-				for _, tid := range tids {
-					realips = append(realips, ans.ips.xof(tid)...)
-				}
+		if len(tids) <= 0 {
+			realips = ans.ips.x(xst)
+		} else {
+			for _, tid := range tids {
+				realips = append(realips, ans.ips.xof(tid, xst)...)
 			}
 		}
 	}
+
+	hasrealips := len(realips) > 0
 	var unnated []netip.Addr
-	if len(realips) == 0 { // algip is probably origip / realip
+	if !hasrealips { // algip is probably origip / realip
 		// unnat origip as it itself may have been synthesized from
 		// our DNS responses by apps doing funky things; like FreeFire
 		unnated = t.maybeUndoNat64(unmapped)
 	} else {
 		unnated = t.maybeUndoNat64(realips...)
-	}
-	log.D("alg: dns64: for %v (fresh? %t / staleok? %t) algip(%v) => realips(%v) => unnated(%v)",
+	} // else: send realips as is
+	logeif(hasrealips)("alg: dns64: for %v (fresh? %t / staleok? %t) algip(%v) => realips(%v) => unnated(%v)",
 		tids, fresh, usestale, unmapped, realips, unnated)
 	if len(unnated) > 0 { // unnated is already de-duplicated
 		return unnated, undidAlg
 	}
-	return removeDups(realips), undidAlg
+	return copyUniq(realips), undidAlg
 }
 
-func (t *dnsgateway) maybeUndoNat64(realips ...netip.Addr) (unnat []netip.Addr) {
+func (t *dnsgateway) maybeUndoNat64(realips ...netip.Addr) (unnateds []netip.Addr) {
 	for _, nip := range realips {
 		unmapped := nip.Unmap()
 		if !unmapped.Is6() {
@@ -1049,9 +1145,9 @@ func (t *dnsgateway) maybeUndoNat64(realips ...netip.Addr) (unnat []netip.Addr) 
 		}
 		log.D("alg: dns64: maybeUndoNat64: nat64 to ip4(%v) from ip6(%v)", ipx4, nip)
 		unmapped4 := ipx4.Unmap()
-		unnat = append(unnat, unmapped4)
+		unnateds = append(unnateds, unmapped4)
 	}
-	return removeDups(unnat)
+	return copyUniq(unnateds)
 }
 
 func (t *dnsgateway) ptrLocked(maybeAlg netip.Addr, useptr bool) (domains []string) {
@@ -1063,7 +1159,7 @@ func (t *dnsgateway) ptrLocked(maybeAlg netip.Addr, useptr bool) (domains []stri
 		// translate from realip only if not in mod mode
 		domains = ans.domains
 	}
-	return removeDups(domains)
+	return copyUniq(domains)
 }
 
 // resolvLocked returns IPs and related targets for domain
@@ -1086,7 +1182,7 @@ func (t *dnsgateway) resolvLocked(domain string, typ iptype, tid string) (ip4s, 
 		for i := range 2 {
 			k4 := partkey4 + strconv.Itoa(i)
 			if ans, ok := t.alg[k4]; ok {
-				if time.Until(ans.ttl) > 0 { // not stale
+				if ans.fresh() { // not stale
 					ip4s = append(ip4s, ans.algip)
 					targets = append(targets, ans.domains...)
 				} else {
@@ -1099,7 +1195,7 @@ func (t *dnsgateway) resolvLocked(domain string, typ iptype, tid string) (ip4s, 
 		for i := range 2 {
 			k6 := partkey6 + strconv.Itoa(i)
 			if ans, ok := t.alg[k6]; ok {
-				if time.Until(ans.ttl) > 0 { // not stale
+				if ans.fresh() { // not stale
 					ip6s = append(ip6s, ans.algip)
 					targets = append(targets, ans.domains...)
 				} else {
@@ -1115,11 +1211,11 @@ func (t *dnsgateway) resolvLocked(domain string, typ iptype, tid string) (ip4s, 
 		for i := range 2 { // a = 0, https/svcb = 1+
 			k4 := partkey4 + strconv.Itoa(i)
 			if ans, ok := t.alg[k4]; ok {
-				if time.Until(ans.ttl) > 0 { // not stale
-					ip4s = append(ip4s, v4only(ans.ips.xof(tid))...)
+				if ans.fresh() { // not stale
+					ip4s = append(ip4s, v4only(ans.ips.xof(tid, xalive))...)
 					targets = append(targets, ans.domains...)
 				} else {
-					staleips = append(staleips, ans.ips.xof(tid)...)
+					staleips = append(staleips, ans.ips.xof(tid, xall)...)
 				}
 				// all ans{} have all realips; pick the first one
 				break
@@ -1128,11 +1224,11 @@ func (t *dnsgateway) resolvLocked(domain string, typ iptype, tid string) (ip4s, 
 		for i := range 2 { // aaaa = 0, https/svcb = 1+
 			k6 := partkey6 + strconv.Itoa(i)
 			if ans, ok := t.alg[k6]; ok {
-				if time.Until(ans.ttl) > 0 { // not stale
-					ip6s = append(ip6s, v6only(ans.ips.xof(tid))...)
+				if ans.fresh() { // not stale
+					ip6s = append(ip6s, v6only(ans.ips.xof(tid, xalive))...)
 					targets = append(targets, ans.domains...)
 				} else {
-					staleips = append(staleips, ans.ips.xof(tid)...)
+					staleips = append(staleips, ans.ips.xof(tid, xall)...)
 				}
 				// all ans{} have all realips; pick the first one
 				break
@@ -1144,7 +1240,7 @@ func (t *dnsgateway) resolvLocked(domain string, typ iptype, tid string) (ip4s, 
 		for i := range 2 { // a = 0, https/svcb = 1+
 			k4 := partkey4 + strconv.Itoa(i)
 			if ans, ok := t.alg[k4]; ok {
-				if time.Until(ans.ttl) > 0 { // not stale
+				if ans.fresh() { // not stale
 					ip4s = append(ip4s, v4only(ans.ips.sec())...)
 					targets = append(targets, ans.domains...)
 				} else {
@@ -1157,7 +1253,7 @@ func (t *dnsgateway) resolvLocked(domain string, typ iptype, tid string) (ip4s, 
 		for i := range 2 { // aaaa = 0, https/svcb = 1+
 			k6 := partkey6 + strconv.Itoa(i)
 			if ans, ok := t.alg[k6]; ok {
-				if time.Until(ans.ttl) > 0 { // not stale
+				if ans.fresh() { // not stale
 					ip6s = append(ip6s, v6only(ans.ips.sec())...)
 					targets = append(targets, ans.domains...)
 				} else {
@@ -1376,10 +1472,18 @@ func ipok(ip netip.Addr) bool {
 	return !ip.IsUnspecified() && ip.IsValid()
 }
 
+// flattens and returns a copy with dups removed, if any.
 // go.dev/play/p/WJXpAa-nmep
-func removeDups[T comparable](a ...[]T) (out []T) {
-	acc := make(map[T]struct{}, 0)
+func copyUniq[T comparable](a ...[]T) (out []T) {
 	out = make([]T, 0)
+	if len(a) <= 0 {
+		return
+	}
+	if len(a) == 1 {
+		out = append(out, a[0]...)
+		return
+	}
+	acc := make(map[T]struct{}, 0)
 	for _, x := range a {
 		for _, xx := range x {
 			if _, ok := acc[xx]; ok {
@@ -1391,4 +1495,11 @@ func removeDups[T comparable](a ...[]T) (out []T) {
 		}
 	}
 	return
+}
+
+func logeif(cond bool) log.LogFn {
+	if cond {
+		return log.E
+	}
+	return log.D
 }
