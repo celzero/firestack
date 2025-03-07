@@ -420,12 +420,13 @@ func (l *simpleLogger) spammy(lvl LogLevel, at int) (y bool) {
 		return false // not spammy
 	}
 
-	l2 := l.clock.l2[lvl]
+	// won't work:  l2 := l.clock.l2[lvl]
+	// go.dev/play/p/QgqEdE7KIAZ
 	bkt := pc % pcbuckets
 
 	defer func() {
 		if !y { // age bkt when not spammy
-			l2[bkt]++
+			l.clock.l2[lvl][bkt]++
 		}
 	}()
 
@@ -433,14 +434,13 @@ func (l *simpleLogger) spammy(lvl LogLevel, at int) (y bool) {
 	// ie, t has probably overflowed to next generation
 	// and in that generation, bkt has not yet born.
 	// and so reset bkt to 0 or any value < t
-	resync := l2[bkt] > t
-	if resync {
-		l2[bkt] = t / 2 // set to 0?
-		return false    // not spammy
+	if resync := l.clock.l2[lvl][bkt] > t; resync {
+		l.clock.l2[lvl][bkt] = t / 2 // set to 0?
+		return false                 // not spammy
 	}
 
 	tt := uint16(t)
-	v := l2[bkt]
+	v := l.clock.l2[lvl][bkt]
 	if t < 256>>4 { // for upto 16 ticks
 		tt = tt * 70 / 100 // allow upto 70% of ticks
 	} else if t < 256>>3 { // for upto 32 ticks
