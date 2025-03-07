@@ -74,29 +74,31 @@ type muxer struct {
 	uid    string // user id owner of mxconn
 	stats  *stats
 
-	until time.Time // deadline extension
+	until *core.Volatile[time.Time] // deadline extension
 
-	dxconns chan *demuxconn // never closed
-	doneCh  chan struct{}   // stop vending, reading, and routing
-	once    sync.Once
-	cb      func() // muxer.stop() callback (in a new goroutine)
-	vnd     vendor // for new routes in netstack
+	dxconns  chan *demuxconn // never closed
+	dxconnWG *sync.WaitGroup // wait group for demuxed conns
+
+	vnd vendor // endpoint-independent mapping (new routes in netstack)
+
+	doneCh chan struct{} // stop vending, reading, and routing
+	once   sync.Once     // muxer.stop() once
+	cb     core.Finally  // muxer.stop()/cleanup callback (in a new goroutine)
 
 	rmu    sync.RWMutex                  // protects routes
-	routes map[netip.AddrPort]*demuxconn // remote addr -> demuxed conn
-
-	dxconnWG *sync.WaitGroup // wait group for demuxed conns
+	routes map[netip.AddrPort]*demuxconn // remote addr => demuxed conn
 }
 
-// demuxconn writes to addr and reads from the muxer
+// demuxconn writes to raddr and reads from the muxer
 type demuxconn struct {
-	cid   string         // connection id
-	remux sender         // promiscuous sender
+	cid string // connection id
+
+	out   sender         // promiscuous sender (remuxer)
 	key   netip.AddrPort // promiscuous factor (same as raddr)
 	raddr net.Addr       // remote address connected to
 	laddr net.Addr       // local address connected from
 
-	incomingCh chan *slice // incoming data, never closed
+	inCh       chan *slice // incoming data from muxer, never closed
 	overflowCh chan *slice // overflow data, never closed
 
 	closed chan struct{} // close signal
@@ -118,13 +120,14 @@ var _ sender = (*muxer)(nil)
 var _ core.UDPConn = (*demuxconn)(nil)
 
 // newMuxer creates a muxer/demuxer for a connectionless conn.
-func newMuxer(cid, pid, uid string, conn net.PacketConn, vnd vendor, f func()) *muxer {
+func newMuxer(cid, pid, uid string, conn net.PacketConn, vnd vendor, f core.Finally) *muxer {
 	x := &muxer{
 		cid:      cid, // same as cid of the first demuxed conn
 		pid:      pid,
 		uid:      uid,
 		mxconn:   conn,
 		stats:    &stats{start: time.Now()},
+		until:    core.NewZeroVolatile[time.Time](),
 		routes:   make(map[netip.AddrPort]*demuxconn),
 		rmu:      sync.RWMutex{},
 		dxconns:  make(chan *demuxconn),
@@ -236,7 +239,7 @@ func (x *muxer) readers() {
 		// may be an existing route or a new route
 		if dst := x.route(todoCid, addr2netip(who), ingress); dst != nil {
 			select {
-			case dst.incomingCh <- &slice{v: b[:n], free: free}: // incomingCh is never closed
+			case dst.inCh <- &slice{v: b[:n], free: free}: // incomingCh is never closed
 			default: // dst probably closed, but not yet unrouted
 				log.W("udp: mux: %s read: drop(sz: %d); route to %s",
 					dst.cid, n, dst.raddr)
@@ -318,19 +321,14 @@ func (x *muxer) sendto(p []byte, addr net.Addr) (int, error) {
 }
 
 func (x *muxer) extend(t time.Time) {
+	c := x.until.Load()
 	if t.IsZero() {
-		x.until = t
 		extend(x.mxconn, 0)
-		return
-	}
-	if x.until.IsZero() {
-		x.until = t
+		x.until.Store(t)
+	} else if c.IsZero() || c.Before(t) {
+		// extend if t is after existing deadline at x.until
 		extend(x.mxconn, time.Until(t))
-	}
-	// extend if t is after existing deadline at x.until
-	if x.until.Before(t) {
-		x.until = t
-		extend(x.mxconn, time.Until(t))
+		x.until.Store(t)
 	}
 }
 
@@ -345,17 +343,17 @@ func (x *muxer) newLocked(cid string, r netip.AddrPort) *demuxconn {
 	}
 	return &demuxconn{
 		cid:        cid,
-		remux:      x,                              // muxer
+		out:        x,                              // muxer
 		laddr:      x.mxconn.LocalAddr(),           // listen addr
 		raddr:      net.UDPAddrFromAddrPort(r),     // remote addr
 		key:        r,                              // key (same as raddr)
-		incomingCh: make(chan *slice, maxInFlight), // read from muxer
+		inCh:       make(chan *slice, maxInFlight), // read from muxer
 		overflowCh: make(chan *slice, 16),          // overflow from read
 		closed:     make(chan struct{}),            // always unbuffered
 		wt:         time.NewTicker(writetimeout),
 		rt:         time.NewTicker(readtimeout),
-		wto:        readtimeout,
-		rto:        writetimeout,
+		wto:        writetimeout,
+		rto:        readtimeout,
 	}
 }
 
@@ -366,15 +364,15 @@ func (c *demuxconn) Read(p []byte) (int, error) {
 	select {
 	case <-c.rt.C:
 		log.W("udp: mux: %s demux: read: %v <= %v; timeout (sz: %d)",
-			c.remux.id(), c.laddr, c.raddr, sz)
+			c.out.id(), c.laddr, c.raddr, sz)
 		return 0, os.ErrDeadlineExceeded
 	case <-c.closed:
 		log.W("udp: mux: %s demux: read: %v <= %v; closed (sz: %d)",
-			c.remux.id(), c.laddr, c.raddr, sz)
+			c.out.id(), c.laddr, c.raddr, sz)
 		return 0, net.ErrClosed
 	case sx := <-c.overflowCh:
 		return c.io(&p, sx)
-	case sx := <-c.incomingCh:
+	case sx := <-c.inCh:
 		return c.io(&p, sx)
 	}
 }
@@ -386,16 +384,16 @@ func (c *demuxconn) Write(p []byte) (n int, err error) {
 	select {
 	case <-c.wt.C:
 		log.W("udp: mux: %s demux: write: %v => %v; timeout (sz: %d)",
-			c.remux.id(), c.laddr, c.raddr, sz)
+			c.out.id(), c.laddr, c.raddr, sz)
 		return 0, os.ErrDeadlineExceeded
 	case <-c.closed:
 		log.W("udp: mux: %s demux: write: %v => %v; closed (sz: %d)",
-			c.remux.id(), c.laddr, c.raddr, sz)
+			c.out.id(), c.laddr, c.raddr, sz)
 		return 0, net.ErrClosed
 	default:
-		n, err = c.remux.sendto(p, c.raddr)
+		n, err = c.out.sendto(p, c.raddr)
 		logev(err)("udp: mux: %s demux: write: %v => %v; done(sz: %d/%d); err? %v",
-			c.remux.id(), c.laddr, c.raddr, n, sz, err)
+			c.out.id(), c.laddr, c.raddr, n, sz, err)
 		return n, err
 	}
 }
@@ -418,19 +416,19 @@ func (c *demuxconn) WriteTo(p []byte, to net.Addr) (int, error) {
 // Close implements core.UDPConn.Close
 func (c *demuxconn) Close() error {
 	log.D("udp: mux: %s demux %s => %s close, in: %d, over: %d",
-		c.remux.id(), c.laddr, c.raddr, len(c.incomingCh), len(c.overflowCh))
+		c.out.id(), c.laddr, c.raddr, len(c.inCh), len(c.overflowCh))
 	c.once.Do(func() {
 		close(c.closed) // sig close
 		defer c.wt.Stop()
 		defer c.rt.Stop()
 		for {
 			select {
-			case sx := <-c.incomingCh:
+			case sx := <-c.inCh:
 				sx.free()
 			case sx := <-c.overflowCh:
 				sx.free()
 			default:
-				log.I("udp: mux: %s demux from %s => %s closed", c.remux.id(), c.laddr, c.raddr)
+				log.I("udp: mux: %s demux from %s => %s closed", c.out.id(), c.laddr, c.raddr)
 				return
 			}
 		}
@@ -460,9 +458,9 @@ func (c *demuxconn) SetReadDeadline(t time.Time) error {
 	if d := time.Until(t); d > 0 {
 		c.rto = d
 		c.rt.Reset(d)
-		c.remux.extend(t)
+		c.out.extend(t)
 	} else {
-		c.remux.extend(time.Time{}) // no deadline
+		c.out.extend(time.Time{}) // no deadline
 		c.rt.Stop()
 	}
 	return nil
@@ -473,9 +471,9 @@ func (c *demuxconn) SetWriteDeadline(t time.Time) error {
 	if d := time.Until(t); d > 0 {
 		c.wto = d
 		c.wt.Reset(d)
-		c.remux.extend(t)
+		c.out.extend(t)
 	} else {
-		c.remux.extend(time.Time{}) // no deadline
+		c.out.extend(time.Time{}) // no deadline
 		c.wt.Stop()
 	}
 	// Write deadline of underlying connection should not be changed
@@ -484,7 +482,7 @@ func (c *demuxconn) SetWriteDeadline(t time.Time) error {
 }
 
 func (c *demuxconn) io(out *[]byte, in *slice) (int, error) {
-	id := c.remux.id()
+	id := c.out.id()
 	// todo: handle the case where len(b) > len(p)
 	n := copy(*out, in.v)
 	q := len(in.v) - n
