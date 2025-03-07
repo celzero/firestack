@@ -211,8 +211,7 @@ func (l *simpleLogger) fromConsole() {
 				} // drop
 			case WARN, ERROR:
 				if load < 5 {
-					d := l.cskips.Swap(0)
-					if d > 0 {
+					if d := l.cskips.Swap(0); d > 0 {
 						c.Log(int32(WARN), l.msgstr("backpressure... dropped %d msgs", d))
 					}
 				}
@@ -390,10 +389,13 @@ func (l *simpleLogger) writelog(lvl LogLevel, at int, msg string, args ...any) {
 	if l.spammy(lvl, at) {
 		l.skips[lvl].Add(1)
 		return
-	} else if n := l.skips[lvl].Load(); n > 0 {
-		ok := l.skips[lvl].CompareAndSwap(n, 0)
-		if ok && ll {
-			l.out(at, l.msgstr("spammy... dropped %d msgs", n))
+	} else if n := l.skips[lvl].Swap(0); n > 0 && (cc || ll) {
+		spammsg := l.msgstr("spammy... dropped %d msgs", n)
+		if ll {
+			l.out(at, spammsg)
+		}
+		if cc {
+			l.toConsole(&conMsg{spammsg, lvl})
 		}
 	}
 
