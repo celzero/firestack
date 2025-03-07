@@ -140,7 +140,8 @@ func (h *cm) String() string {
 	defer h.RUnlock()
 
 	var s strings.Builder
-	for _, cs := range h.trac {
+	for id, cs := range h.trac {
+		s.WriteString(id)
 		s.WriteString(cs.String())
 		s.WriteString("\n")
 	}
@@ -173,7 +174,7 @@ func (c *connstat) String() string {
 	if c == nil {
 		return "<nil>"
 	}
-	return fmt.Sprintf("%s:%d[%s]", formatTime(c.t), len(c.c), conn2str(c.c...))
+	return fmt.Sprintf(":%s:%d[%s]", formatTime(c.t), len(c.c), conn2str(c.c...))
 }
 
 func formatTime(t time.Time) string {
