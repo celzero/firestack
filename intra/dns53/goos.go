@@ -18,6 +18,7 @@ import (
 	"github.com/celzero/firestack/intra/ipn"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
+	"github.com/celzero/firestack/intra/settings"
 	"github.com/celzero/firestack/intra/xdns"
 	"github.com/miekg/dns"
 )
@@ -62,9 +63,8 @@ func NewGoosTransport(pctx context.Context, pxs ipn.Proxies) (t *goosr, err erro
 		PreferGo: true,
 		Dial:     tx.pxdial, // dials in to ipn.Exit, always
 	}
-	tx.rcgo = &net.Resolver{
+	tx.rcgo = &net.Resolver{ // loopbacks into the tunnel in rinr mode
 		PreferGo: false,
-		Dial:     tx.pxdial, // dials in to ipn.Exit, always
 	}
 	log.I("dns53: goosr: setup done")
 	return tx, nil
@@ -110,14 +110,21 @@ func (t *goosr) send(msg *dns.Msg) (ans *dns.Msg, elapsed time.Duration, qerr *d
 			if xdns.HasAAAAQuestion(msg) {
 				proto = "ip6"
 			}
-			if ips, errc := t.rcgo.LookupNetIP(t.ctx, proto, host); errc == nil {
-				log.D("dns53: goosr: cgo resolver for %s => %s", host, ips)
-				ans, err = xdns.AQuadAForQuery(msg, ips...)
-			} else if ips, errl := t.r.LookupNetIP(t.ctx, proto, host); errl == nil && xdns.HasAnyAnswer(msg) {
-				log.D("dns53: goosr: go resolver (why? %v) for %s => %s", errl, host, ips)
-				ans, err = xdns.AQuadAForQuery(msg, ips...)
+
+			if settings.Loopingback.Load() {
+				if ips, errl := t.r.LookupNetIP(t.ctx, proto, host); errl == nil && xdns.HasAnyAnswer(msg) {
+					log.D("dns53: goosr: go resolver (why? %v) for %s => %s", errl, host, ips)
+					ans, err = xdns.AQuadAForQuery(msg, ips...)
+				} else {
+					err = errl
+				}
 			} else {
-				err = core.JoinErr(errl, errc)
+				if ips, errc := t.rcgo.LookupNetIP(t.ctx, proto, host); errc == nil {
+					log.D("dns53: goosr: cgo resolver for %s => %s", host, ips)
+					ans, err = xdns.AQuadAForQuery(msg, ips...)
+				} else {
+					err = errc
+				}
 			}
 			// TODO: if len(ips) <= 0 synthesize a NXDOMAIN?
 		}
