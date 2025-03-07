@@ -148,7 +148,7 @@ func (t *gtunnel) Disconnect() {
 	// no core.Recover here as the tunnel is disconnecting anyway
 	t.once.Do(func() {
 		t.closed.Store(true)
-		go t.Unlink() // may block?
+		// go t.Unlink() // may block? takes more time?
 		t.stack.Destroy()
 		log.I("tun: netstack closed")
 	})
