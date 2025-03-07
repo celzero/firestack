@@ -230,7 +230,8 @@ func (h *udpHandler) Connect(gconn *netstack.GUDPConn, src, target netip.AddrPor
 
 	// flow is alg/nat-aware, do not change target or any addrs
 	res, undidAlg, realips, domains := h.onFlow(src, target)
-	actualTargets := makeIPPorts(realips, target, 0)
+	first, _, fallingback := filterFamilyForDialing(realips)
+	actualTargets := makeIPPorts(first, target, 0)
 	cid, uid, fid, pids := h.judge(res, domains, target.String())
 	if len(actualTargets) > 0 {
 		smmTarget = actualTargets[0].Addr()
@@ -335,8 +336,8 @@ func (h *udpHandler) Connect(gconn *netstack.GUDPConn, src, target netip.AddrPor
 		end := time.Since(smm.start)
 		rtt := time.Since(rttstart)
 		smm.Rtt = int32(rtt.Seconds() * 1000)
-		log.W("udp: connect: #%d: %s failed; mux? %t, addr(%s); for uid %s (%dms) w err(%v)",
-			i, cid, mux, dstipp, uid, end.Milliseconds(), err)
+		log.W("udp: connect: #%d: %s failed; mux? %t, addr(%s) / fallback? %t; for uid %s (%dms) w err(%v)",
+			i, cid, mux, dstipp, fallingback, uid, end.Milliseconds(), err)
 		if end > retrytimeout {
 			break
 		}
@@ -371,8 +372,8 @@ func (h *udpHandler) Connect(gconn *netstack.GUDPConn, src, target netip.AddrPor
 		return nil, smm, errUdpSetupConn // disconnect
 	}
 
-	log.I("udp: connect: %s (proxy? %s@%s) %v => %s/%s; mux? %t, uid %s",
-		cid, px.ID(), px.GetAddr(), laddr, target, selectedTarget, mux, uid)
+	log.I("udp: connect: %s (proxy? %s@%s) %v => %s/%s; fallback? %t / mux? %t, uid %s",
+		cid, px.ID(), px.GetAddr(), laddr, target, selectedTarget, fallingback, mux, uid)
 
 	return pc, smm, nil // connect
 }

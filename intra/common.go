@@ -411,7 +411,7 @@ func download(cid, proto string, local net.Conn, remote net.Conn) (n int64, err 
 	return
 }
 
-func oneRealIPPort(realips string, origipp netip.AddrPort) netip.AddrPort {
+func oneRealIPPort(realips []netip.Addr, origipp netip.AddrPort) netip.AddrPort {
 	if len(realips) <= 0 {
 		return origipp
 	}
@@ -433,15 +433,10 @@ func makeAnyAddrPort(origipp netip.AddrPort) netip.AddrPort {
 
 // makeIPPorts returns a slice of valid, non-zero at most cap AddrPorts.
 // The first element may be origipp AddrPort, if realips is empty or contains only unspecified IPs.
-func makeIPPorts(realips string, origipp netip.AddrPort, cap int) []netip.AddrPort {
+func makeIPPorts(ips []netip.Addr, origipp netip.AddrPort, cap int) []netip.AddrPort {
 	use4 := dialers.Use4()
 	use6 := dialers.Use6()
 
-	ips := strings.Split(realips, ",")
-	if len(ips) <= 0 {
-		log.VV("com: makeIPPorts(v4? %t, v6? %t): no realips; out: %s", use4, use6, origipp)
-		return []netip.AddrPort{origipp}
-	}
 	if cap <= 0 || cap > len(ips) {
 		cap = len(ips)
 	}
@@ -452,12 +447,9 @@ func makeIPPorts(realips string, origipp netip.AddrPort, cap int) []netip.AddrPo
 		if len(r) >= cap {
 			break
 		}
-		if len(v) > 0 { // len may be zero when realips is "," or ""
-			ip, err := netip.ParseAddr(v)
-			if err == nil && ip.IsValid() && !ip.IsUnspecified() {
-				r = append(r, netip.AddrPortFrom(ip, origipp.Port()))
-			} // else: discard ip
-		} // else: next v
+		if v.IsValid() && !v.IsUnspecified() {
+			r = append(r, netip.AddrPortFrom(v, origipp.Port()))
+		} // else: discard ip
 	}
 
 	log.VV("com: makeIPPorts(v4? %t, v6? %t); tot: %d; in: %v, out: %v", use4, use6, len(ips), ips, r)
@@ -475,27 +467,27 @@ func makeIPPorts(realips string, origipp netip.AddrPort, cap int) []netip.AddrPo
 }
 
 // algip may or may not be an actual alg ip.
+// returned realips may be incoming algip itself or translated from algip,
+// depending on whether alg is enabled (ref: undidAlg).
 func (h *baseHandler) undoAlg(algip netip.Addr, tids ...string) (undidAlg bool, realips, domains, probableDomains, blocklists string) {
 	r := h.resolver
 	didForce := false
-	forcePTR := true // force PTR resolution?
+	forcePTR := true // force PTR (realip => algans) translation?
 	if gw := r.Gateway(); !algip.IsUnspecified() && algip.IsValid() && gw != nil {
-		domains, didForce = gw.PTR(algip, !forcePTR)
+		domains, didForce = gw.PTR(algip, !forcePTR) // does NAT (algip => algans) translation
 		if !didForce && len(domains) <= 0 {
 			probableDomains, _ = gw.PTR(algip, forcePTR)
 		}
 		var ips []netip.Addr
-		// prevent scenarios where the tunnel only has v4 (or v6) routes and
-		// all the routing decisions by listener.Flow() are made based on those routes
-		// but we end up dailing into a v6 (or v4) address (which was unaccounted for).
-		// Dialing into v6 (or v4) address may succeed in such scenarios thereby
-		// resulting in a perceived "leak".
+		// ips will contain the incoming "algip" arg, in cases where alg is NOT enabled.
 		ips, undidAlg = gw.X(algip, tids...)
-		realips = filterFamilyForDialing(ips)
+		realips = dnsx.Netip2Csv(ips)
 		blocklists = gw.RDNSBL(algip)
 	} else {
 		log.W("com: %s: alg: undoAlg: for %v; no gw(%t) or dst(%v)", h.proto, tids, gw == nil, algip)
+		return
 	}
+
 	log.VV("com: %s: alg: undoAlg: for %v (ok? %t, force? %t, withForce? %t) %s => %v (for %s / block: %s)",
 		h.proto, tids, undidAlg, didForce, forcePTR, algip, realips, domains, blocklists)
 	return
@@ -503,42 +495,41 @@ func (h *baseHandler) undoAlg(algip netip.Addr, tids ...string) (undidAlg bool, 
 
 // filterFamilyForDialing filters out invalid IPs and IPs that are not
 // of the family that the dialer is configured to use.
-func filterFamilyForDialing(ips []netip.Addr) string {
-	if len(ips) <= 0 {
-		return ""
+func filterFamilyForDialing(ipcsv string) (included []netip.Addr, excluded []netip.Addr, excludedIsIncluded bool) {
+	if len(ipcsv) <= 0 {
+		return
 	}
+	ips := dnsx.Csv2Netip(ipcsv)
 	// assume ipv4 is available on ipv6-only network by the way of
 	// any of the 4to6 mechanisms like 464Xlat, DNS64/NAT64, Teredo etc.
-	fallback := false
 	use4 := dialers.Use4()
 	use6 := dialers.Use6()
 	invalids := 0
-	var filtered, unfiltered []string
+	var filtered, unfiltered []netip.Addr
 	for _, ip := range ips {
 		if !ip.IsValid() {
 			invalids++
 			continue
 		}
-		ipstr := ip.String()
 		// always include unspecified IPs as it is used by the client
 		// to make block/no-block decisions
 		if ip.IsUnspecified() || use4 && ip.Is4() || use6 && ip.Is6() {
-			filtered = append(filtered, ipstr)
+			filtered = append(filtered, ip)
 		} else {
-			unfiltered = append(unfiltered, ipstr)
+			unfiltered = append(unfiltered, ip)
 		}
 	}
 	logger := log.VV
 	// fail open: if no ipv4 then fallback to ipv6, and vice-versa.
 	if len(filtered) <= 0 {
-		fallback = true
+		excludedIsIncluded = true
 		filtered = unfiltered
 		unfiltered = nil
 		logger = log.W
 	}
 	logger("com: filterFamily(v4? %t, v6? %t, fallback? %t): filtered: %d/%d; in: %v, out: %v, ignored: %v + %d",
-		use4, use6, fallback, len(filtered), len(ips), ips, filtered, unfiltered, invalids)
-	return strings.Join(filtered, ",")
+		use4, use6, excludedIsIncluded, len(filtered), len(ips), ips, filtered, unfiltered, invalids)
+	return filtered, unfiltered, excludedIsIncluded
 }
 
 // returns conn-id, user-id, flow-id.

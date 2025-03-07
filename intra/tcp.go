@@ -150,7 +150,8 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target netip.AddrPort)
 	// nat-ed ips just fine, and so, use target as-is instead of ipx4
 	res, undidAlg, realips, domains := h.onFlow(src, target)
 	smmTarget := target.Addr()
-	actualTargets := makeIPPorts(realips, target, 0)
+	first, _, fallingback := filterFamilyForDialing(realips)
+	actualTargets := makeIPPorts(first, target, 0)
 	boundSrc := makeAnyAddrPort(src)
 	cid, uid, fid, pids := h.judge(res, domains, target.String())
 	if len(actualTargets) > 0 {
@@ -211,7 +212,8 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target netip.AddrPort)
 		} // else try the next realip
 		end := time.Since(smm.start)
 		elapsed := int32(end.Seconds() * 1000)
-		log.W("tcp: dial: #%d: %s failed; addr(%s); for uid %s (%d); w err(%v)", i, cid, dstipp, uid, elapsed, err)
+		log.W("tcp: dial: #%d: %s failed; addr(%s) / fallback? %t; for uid %s (%d); w err(%v)",
+			i, cid, dstipp, fallingback, uid, elapsed, err)
 		if end > retrytimeout {
 			break
 		}

@@ -649,6 +649,16 @@ func Netip2Csv(ips []netip.Addr) (csv string) {
 	return strings.Join(out, ",")
 }
 
+func Csv2Netip(csv string) (ips []netip.Addr) {
+	out := make([]netip.Addr, 0, len(ips))
+	for ip := range strings.SplitSeq(csv, ",") {
+		if ipaddr, err := netip.ParseAddr(ip); ipaddr.IsValid() && err == nil {
+			out = append(out, ipaddr)
+		}
+	}
+	return out
+}
+
 func withDNS64Summary(ans64 *dns.Msg, s *x.DNSSummary) {
 	s.RCode = xdns.Rcode(ans64)
 	s.RData = xdns.GetInterestingRData(ans64)
