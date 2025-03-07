@@ -289,7 +289,7 @@ func (h *udpHandler) Connect(gconn *netstack.GUDPConn, src, target netip.AddrPor
 	// to be marked ipn.Base for queries sent to tunnel's fake DNS addr
 	// and ipn.Exit for anywhere else.
 	if isAnyBasePid(pids) {
-		if h.dnsOverride(gconn, target) {
+		if h.dnsOverride(gconn, target, uid) {
 			// SocketSummary is not sent to listener; x.DNSSummary is
 			return nil, nil, nil // connect override, no dst
 		} // else: not a dns query or target is not a dns addr

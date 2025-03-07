@@ -192,7 +192,7 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target netip.AddrPort)
 	}
 
 	if isAnyBasePid(pids) { // see udp.go:Connect
-		if h.dnsOverride(gconn, target) {
+		if h.dnsOverride(gconn, target, uid) {
 			// SocketSummary not sent; x.DNSSummary supercedes it
 			return allow
 		} // else not a dns request

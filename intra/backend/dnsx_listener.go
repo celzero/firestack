@@ -12,6 +12,7 @@ import "fmt"
 type DNSSummary struct {
 	Type           string  // dnscrypt, dns53, doh, odoh, dot, preset, fixed
 	ID             string  // transport id
+	UID            string  // owner uid that sent this request
 	Latency        float64 // Response (or failure) latency in seconds
 	QName          string  // query domain
 	QType          int     // A, AAAA, SVCB, HTTPS, etc.

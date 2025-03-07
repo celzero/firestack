@@ -145,7 +145,7 @@ type Resolver interface {
 	// Forward performs resolution on any DNS transport
 	Forward(q []byte) (a []byte, tid string, err error)
 	// Serve reads DNS query from conn and writes DNS answer to conn
-	Serve(proto string, conn protect.Conn)
+	Serve(proto string, conn protect.Conn, uid string)
 
 	// stopResolvers stops all transports.
 	stopResolvers()
@@ -431,6 +431,8 @@ func (r *resolver) forward(q []byte, chosenids ...string) ([]byte, string, error
 func (r *resolver) forward2(q []byte, uid string, chosenids ...string) (res0 []byte, tid0 string, err0 error) {
 	starttime := time.Now()
 	smm := &x.DNSSummary{
+		ID:     NoDNS,
+		UID:    uid,
 		QName:  invalidQname,
 		Status: Start,
 		Msg:    errNop.Error(),
@@ -443,11 +445,7 @@ func (r *resolver) forward2(q []byte, uid string, chosenids ...string) (res0 []b
 		if len(smm.Msg) <= 0 {
 			smm.Msg = errNop.Error()
 		}
-		if len(smm.ID) > 0 {
-			tid0 = smm.ID
-		} else {
-			tid0 = NoDNS
-		}
+		tid0 = smm.ID
 		r.queueSummary(smm)
 	}()
 
@@ -592,7 +590,8 @@ func (r *resolver) forward2(q []byte, uid string, chosenids ...string) (res0 []b
 	return res2, smm.ID, nil
 }
 
-func (r *resolver) Serve(proto string, c protect.Conn) {
+// Serve implements Resolver.
+func (r *resolver) Serve(proto string, c protect.Conn, uid string) {
 	if r.closed.Load() {
 		log.W("dns: serve: closed for business")
 		return
@@ -600,9 +599,9 @@ func (r *resolver) Serve(proto string, c protect.Conn) {
 
 	switch proto {
 	case NetTypeTCP:
-		r.accept(c)
+		r.accept(c, uid)
 	case NetTypeUDP:
-		r.reply(c)
+		r.reply(c, uid)
 	default:
 		log.W("dns: unknown proto: %s", proto)
 	}
@@ -661,8 +660,8 @@ func (r *resolver) determineTransport(id string) Transport {
 }
 
 // dnstcp queries the transport and writes answers to w, prefixed by length.
-func (r *resolver) dnstcp(q []byte, w io.WriteCloser) error {
-	ans, _, err := r.forward(q)
+func (r *resolver) dnstcp(q []byte, w io.WriteCloser, uid string) error {
+	ans, _, err := r.forward2(q, uid)
 
 	rlen := len(ans)
 	if rlen <= 0 && err != nil {
@@ -675,14 +674,14 @@ func (r *resolver) dnstcp(q []byte, w io.WriteCloser) error {
 		return err
 	} else if n != rlen {
 		// do not close on incomplete writes
-		return fmt.Errorf("dns: tcp: incomplete write: n(%d) != r(%d)", n, rlen)
+		return fmt.Errorf("dns: tcp: for %s incomplete write: n(%d) != r(%d)", uid, n, rlen)
 	}
 	return nil // ok
 }
 
 // dnsudp queries the transport and writes answers to w.
-func (r *resolver) dnsudp(q []byte, w io.WriteCloser) error {
-	ans, _, err := r.forward(q)
+func (r *resolver) dnsudp(q []byte, w io.WriteCloser, uid string) error {
+	ans, _, err := r.forward2(q, uid)
 
 	rlen := len(ans)
 	if rlen <= 0 && err != nil {
@@ -695,14 +694,14 @@ func (r *resolver) dnsudp(q []byte, w io.WriteCloser) error {
 		return err
 	} else if n != rlen {
 		// do not close on incomplete writes
-		return fmt.Errorf("dns: udp: incomplete write: n(%d) != r(%d)", n, rlen)
+		return fmt.Errorf("dns: udp: for %s incomplete write: n(%d) != r(%d)", uid, n, rlen)
 	}
 
 	return nil // ok
 }
 
 // reply DNS-over-UDP from a stub resolver.
-func (r *resolver) reply(c protect.Conn) {
+func (r *resolver) reply(c protect.Conn, uid string) {
 	defer clos(c)
 
 	start := time.Now()
@@ -722,13 +721,14 @@ func (r *resolver) reply(c protect.Conn) {
 		n, err := c.Read(q)
 
 		do := func() {
-			_ = r.dnsudp(q[:n], c)
-			free()
+			defer free()
+			_ = r.dnsudp(q[:n], c, uid)
 		}
 
 		if err != nil {
 			millis := int(time.Since(start).Seconds() * 1000)
-			log.VV("dns: udp: done; tot: %d, t: %dms, err: %v", cnt, millis, err)
+			log.VV("dns: udp: for %s done; tot: %d, t: %dms, err: %v",
+				uid, cnt, millis, err)
 			free()
 			break
 		}
@@ -739,7 +739,7 @@ func (r *resolver) reply(c protect.Conn) {
 
 // Accept a DNS-over-TCP socket from a stub resolver, and connect the socket
 // to this DNSTransport.
-func (r *resolver) accept(c io.ReadWriteCloser) {
+func (r *resolver) accept(c io.ReadWriteCloser, uid string) {
 	defer clos(c)
 
 	start := time.Now()
@@ -748,16 +748,16 @@ func (r *resolver) accept(c io.ReadWriteCloser) {
 	for {
 		n, err := c.Read(qlbuf)
 		if n == 0 {
-			log.D("dns: tcp: query socket shutdown")
+			log.D("dns: tcp: for %s query socket shutdown", uid)
 			break
 		}
 		if err != nil {
-			log.W("dns: tcp: err reading from socket: %v", err)
+			log.W("dns: tcp: for %s err reading from socket: %v", uid, err)
 			break // close on read errs
 		}
 		// TODO: inform the listener?
 		if n < 2 {
-			log.W("dns: tcp: incomplete query length")
+			log.W("dns: tcp: for %s incomplete query length", uid)
 			break // close on incorrect lengths
 		}
 		qlen := binary.BigEndian.Uint16(qlbuf)
@@ -772,17 +772,17 @@ func (r *resolver) accept(c io.ReadWriteCloser) {
 
 		n, err = c.Read(q)
 		if err != nil {
-			log.D("dns: tcp: done; err: %v", err)
+			log.D("dns: tcp: for %s done; err: %v", uid, err)
 			free()
 			break // close on read errs
 		}
 		do := func() {
-			_ = r.dnstcp(q[:n], c)
-			free()
+			defer free()
+			_ = r.dnstcp(q[:n], c, uid)
 		}
 
 		if n != int(qlen) {
-			log.W("dns: tcp: incomplete query: %d < %d", n, qlen)
+			log.W("dns: tcp: for %s incomplete query: %d < %d", uid, n, qlen)
 			free()
 			break // close on incomplete reads
 		}
@@ -790,7 +790,7 @@ func (r *resolver) accept(c io.ReadWriteCloser) {
 		cnt++
 	}
 	ms := int(time.Since(start).Seconds() * 1000)
-	log.D("dns: tcp: done; tot: %d, t: %ds", cnt, ms)
+	log.VV("dns: tcp: for %s done; tot: %d, t: %ds", uid, cnt, ms)
 	// TODO: Cancel outstanding queries.
 }
 
