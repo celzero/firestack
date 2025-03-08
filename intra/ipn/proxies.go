@@ -144,7 +144,7 @@ type Proxy interface {
 	// onProtoChange returns true if the proxy must be re-added with cfg on proto changes.
 	OnProtoChange(lp LinkProps) (cfg string, readd bool)
 	// Gateway sets proxy p as the gateway for this router.
-	Hop(p Proxy) error
+	Hop(p Proxy, dryrun bool) error
 }
 
 type Rpn interface {
@@ -638,8 +638,21 @@ func (px *proxifier) GetProxy(id string) (x.Proxy, error) {
 	return px.ProxyFor(id)
 }
 
+// TestHop implements Proxies.
+func (px *proxifier) TestHop(via, origin string) string {
+	defer core.Recover(core.Exit11, "pxr.TestHop."+via+">>"+origin)
+	if err := px.hop(origin, via, true /*dryrun*/); err != nil {
+		return err.Error()
+	}
+	return "" // all ok
+}
+
 // Hop implements Proxies.
 func (px *proxifier) Hop(via, origin string) error {
+	return px.hop(via, origin, false /*dryrun*/)
+}
+
+func (px *proxifier) hop(via, origin string, dryrun bool) error {
 	defer core.Recover(core.Exit11, "pxr.Hop."+via+">>"+origin)
 
 	if len(origin) <= 0 {
@@ -650,8 +663,8 @@ func (px *proxifier) Hop(via, origin string) error {
 		return core.OneErr(err, errProxyNotFound)
 	}
 
-	if len(via) <= 0 { // remove hop
-		return origPx.Hop(nil)
+	if len(via) <= 0 { // remove hop if needed
+		return origPx.Hop(nil, dryrun)
 	}
 
 	if via == origin {
@@ -675,7 +688,7 @@ func (px *proxifier) Hop(via, origin string) error {
 		return errHopDefaultRoutes
 	}
 
-	return origPx.Hop(viaPx)
+	return origPx.Hop(viaPx, dryrun)
 }
 
 // Router implements x.Proxy.

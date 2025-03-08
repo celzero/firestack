@@ -80,7 +80,7 @@ func (h *auto) dial(network, local, remote string) (protect.Conn, error) {
 
 	if v := h.via.Load(); v != nil {
 		if v.Status() == END {
-			h.Hop(nil) // stale; unset
+			h.Hop(nil, false /*dryrun*/) // stale; unset
 			log.W("proxy: auto: via(%s) removed", idhandle(v))
 		}
 	}
@@ -361,10 +361,13 @@ func (h *auto) Reaches(hostportOrIPPortCsv string) bool {
 	return Reaches(h, hostportOrIPPortCsv)
 }
 
-func (h *auto) Hop(p Proxy) error {
+// Hop implements Proxy.
+func (h *auto) Hop(p Proxy, dryrun bool) error {
 	if p == nil {
-		old := h.via.Tango(nil)
-		log.I("proxy: auto: hop(%s) removed", idhandle(old))
+		if !dryrun {
+			old := h.via.Tango(nil)
+			log.I("proxy: auto: hop(%s) removed", idhandle(old))
+		}
 		return nil
 	}
 	if p.Status() == END {
@@ -375,21 +378,24 @@ func (h *auto) Hop(p Proxy) error {
 	var waerr, seerr, amzerr, proerr error
 	old := h.via.Tango(p)
 	if warp, waerr = h.pxr.ProxyFor(RpnWg); warp != nil {
-		waerr = warp.Hop(p)
+		waerr = warp.Hop(p, dryrun)
 	}
 	if pro, proerr = h.pxr.ProxyFor(RpnPro); pro != nil {
-		proerr = pro.Hop(p)
+		proerr = pro.Hop(p, dryrun)
 	}
 	if amz, amzerr = h.pxr.ProxyFor(RpnAmz); amz != nil {
-		amzerr = amz.Hop(p)
+		amzerr = amz.Hop(p, dryrun)
 	}
 	if sep, seerr = h.pxr.ProxyFor(RpnSE); sep != nil {
-		seerr = sep.Hop(p)
+		seerr = sep.Hop(p, dryrun)
 	}
 
+	errs := core.JoinErr(waerr, seerr, amzerr, proerr) // may be nil
+
 	log.I("proxy: auto: hop(%s) => %s; errs? %v",
-		idhandle(old), idhandle(p), core.JoinErr(waerr, seerr, amzerr, proerr))
-	return nil
+		idhandle(old), idhandle(p), errs)
+
+	return errs
 }
 
 func (h *auto) Via() (x.Proxy, error) {

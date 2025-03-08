@@ -100,7 +100,7 @@ func (h *http1) Dial(network, addr string) (c protect.Conn, err error) {
 			who = v.ID()
 			c, err = v.Dial(network, addr)
 		} else {
-			h.Hop(nil) // stale; unset
+			h.Hop(nil, false /*dryrun*/) // stale; unset
 			log.W("http1: via(%s) removed", idhandle(v))
 		}
 	}
@@ -144,22 +144,26 @@ func (h *http1) Reaches(hostportOrIPPortCsv string) bool {
 }
 
 // Hop implements Proxy.
-func (h *http1) Hop(p Proxy) error {
+func (h *http1) Hop(p Proxy, dryrun bool) error {
 	if h.id == GlobalH1 {
 		return errNop // global proxy exits as-is
 	}
 
 	if p == nil {
-		old := h.via.Tango(nil)
-		log.I("proxy: http1: hop(%s) removed", idhandle(old))
+		if !dryrun {
+			old := h.via.Tango(nil)
+			log.I("proxy: http1: hop(%s) removed", idhandle(old))
+		}
 		return nil
 	}
 	if p.Status() == END {
 		return errProxyStopped
 	}
 
-	old := h.via.Tango(p)
-	log.I("http1: hop(%s) => %s", idhandle(old), idhandle(p))
+	if !dryrun {
+		old := h.via.Tango(p)
+		log.I("http1: hop(%s) => %s", idhandle(old), idhandle(p))
+	}
 	return nil
 }
 

@@ -1058,14 +1058,18 @@ func (h *wgproxy) Reaches(hostportOrIPPortCsv string) bool {
 }
 
 // Hop implements Proxy.
-func (h *wgproxy) Hop(p Proxy) (err error) {
+func (h *wgproxy) Hop(via Proxy, dryrun bool) (err error) {
 	var old Proxy
 
 	defer func() {
-		log.I("wg: %s hop old(%s) => new(%s); err? %v",
-			h.id, idhandle(old), idhandle(p), err)
+		if dryrun {
+			return
+		}
 
-		if Same(old, p) {
+		log.I("wg: %s hop old(%s) => new(%s); err? %v",
+			h.id, idhandle(old), idhandle(via), err)
+
+		if Same(old, via) {
 			return
 		}
 		if err == nil {
@@ -1073,50 +1077,41 @@ func (h *wgproxy) Hop(p Proxy) (err error) {
 		}
 	}()
 
-	if p == nil {
-		old = h.via.Tango(nil)
-		// undo MTU enforced due to any prior hops
-		if old != nil {
-			err = h.resetMtu(nil)
+	if via == nil {
+		if !dryrun {
+			old = h.via.Tango(nil)
+			// undo MTU enforced due to any prior hops
+			if old != nil {
+				err = h.resetMtu(nil)
+			}
+			log.I("wg: %s hop: %s removed; mtu reset err? %v",
+				h.id, idhandle(old), err)
 		}
-		log.I("wg: %s hop: %s removed; mtu reset err? %v",
-			h.id, idhandle(old), err)
 		return nil
-	} else if h.id == p.ID() {
+	} else if h.id == via.ID() {
 		return errHopSelf
 	}
 
-	if p.Status() == END {
+	if via.Status() == END {
 		return errProxyStopped
 	}
 
-	if !isWG(p.ID()) { // for now, only wg can hop another wg
+	if !isWG(via.ID()) { // for now, only wg can hop another wg
 		return errHopWireGuard
 	}
 
-	pxCan4 := p.Router().IP4()
-	hopCan4 := h.Router().IP4()
-	pxCan6 := p.Router().IP6()
-	hopCan6 := h.Router().IP6()
-	// todo: check if all routes for p & h overlap
-	if pxCan4 { // suffices if px's ip4 is routable over hop
-		if !hopCan4 {
-			return errHop4Gateway
-		} // else: do not need to check for ip6 routes
-	} else if pxCan6 { // ip6 ok & px does not need ip4
-		if !hopCan6 {
-			return errHop6Gateway
-		} // else: can at least route ip6, which is enough for px
-	} else { // unlikely that px cannot do both ip4 & ip6
-		return errHopProxyRoutes
+	if err := hopCanRoute(h, via); err != nil {
+		return err
 	}
 
 	// mtu needed to tunnel this wg
-	if err := h.resetMtu(p); err != nil {
+	if err := h.maybeResetMtu(via, dryrun); err != nil {
 		return err // could not set mtu
 	}
 
-	old = h.via.Tango(p)
+	if !dryrun {
+		old = h.via.Tango(via)
+	}
 	return nil
 }
 
@@ -1265,18 +1260,30 @@ func now() int64 {
 }
 
 func (w *wgproxy) resetMtu(via Proxy) error {
+	return w.maybeResetMtu(via, false /*dryrun*/)
+}
+
+func (w *wgproxy) maybeResetMtu(via Proxy, dryrun bool) error {
 	// mtu needed to tunnel this wg
 	mtuNeededByUs := int(w.desiredmtu.Load())
-	mtuAvailable := int(w.netmtu.Load())
+	mtuAvailFromNet := int(w.netmtu.Load())
+	mtuAvailable := mtuAvailFromNet
 	hopping := false // tunnled via another proxy
 
+	note := log.I
+	if dryrun {
+		note = log.D
+	}
+
 	if via != nil {
-		// mtu affordable by via
+		// mtu affordable by via (routerMtu = endpointMtu + wgHeader)
 		if mtuAvailFromHop, err := via.Router().MTU(); err != nil {
 			return err
 		} else {
 			mtuAvailable = calcTunMtu(mtuAvailFromHop)
 			hopping = true
+			note("wg: %s proxy: hopping mtu(needed: %d / net: %d); hopmtu(avail: %d / tot: %d)",
+				w.id, mtuNeededByUs, mtuAvailFromNet, mtuAvailable, mtuAvailFromHop)
 		}
 	}
 
@@ -1290,7 +1297,7 @@ func (w *wgproxy) resetMtu(via Proxy) error {
 	}
 
 	if hopping && mtuNeededByUs > mtuAvailable {
-		log.I("wg: %s proxy: hopping mtu(needed: %d >> avail: %d); set to avail",
+		note("wg: %s proxy: hopping mtu(needed: %d >> avail: %d); set to avail",
 			w.id, mtuNeededByUs, mtuAvailable)
 		mtuNeededByUs = mtuAvailable
 	} // else: mtu needed is well within the hop's / network's capacity
@@ -1300,7 +1307,12 @@ func (w *wgproxy) resetMtu(via Proxy) error {
 		log.W("wg: %s proxy: mtu(%d or %d) <= NOMTU(%d)", w.id, mtuNeededByUs, mtuAvailable, finalMtu)
 		return errHopMtuInsufficient
 	}
-	w.ep.SetMTU(uint32(finalMtu))
+
+	if !dryrun {
+		w.ep.SetMTU(uint32(finalMtu))
+	}
+	note("wg: %s proxy: mtu(needed:%d, avail: %d => final: %d); hopping? %t, dryrun? %t",
+		w.id, mtuNeededByUs, mtuAvailable, finalMtu, hopping, dryrun)
 	return nil
 }
 

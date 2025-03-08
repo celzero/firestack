@@ -77,7 +77,7 @@ func (t *pipws) dial(network, addr string) (c net.Conn, err error) {
 			who = v.ID()
 			c, err = v.Dial(network, addr)
 		} else {
-			t.Hop(nil) // stale; unset
+			t.Hop(nil, false /*dryrun*/) // stale; unset
 			log.W("piph2: via(%s) removed", idhandle(v))
 		}
 	}
@@ -275,18 +275,22 @@ func (t *pipws) Reaches(hostportOrIPPortCsv string) bool {
 }
 
 // Hop implements Proxy.
-func (h *pipws) Hop(p Proxy) error {
+func (h *pipws) Hop(p Proxy, dryrun bool) error {
 	if p == nil {
-		old := h.via.Tango(nil)
-		log.I("pipws: hop(%s) removed", idhandle(old))
+		if !dryrun {
+			old := h.via.Tango(nil)
+			log.I("pipws: hop(%s) removed", idhandle(old))
+		}
 		return nil
 	}
 	if p.Status() == END {
 		return errProxyStopped
 	}
 
-	old := h.via.Tango(p)
-	log.I("pipws: hop(%s) => %s", idhandle(old), idhandle(p))
+	if !dryrun {
+		old := h.via.Tango(p)
+		log.I("pipws: hop(%s) => %s", idhandle(old), idhandle(p))
+	}
 	return nil
 }
 

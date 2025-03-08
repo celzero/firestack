@@ -70,7 +70,7 @@ func (h *base) dial(network, local, remote string) (c protect.Conn, err error) {
 			who = v.ID()
 			c, err = v.DialBind(network, local, remote)
 		} else {
-			h.Hop(nil) // stale; unset
+			h.Hop(nil, false /*dryrun*/) // stale; unset
 			log.W("proxy: base: via(%s) removed", idhandle(v))
 		}
 	}
@@ -141,10 +141,12 @@ func (h *base) Reaches(hostportOrIPPortCsv string) bool {
 }
 
 // Hop implements Proxy.
-func (h *base) Hop(p Proxy) error {
+func (h *base) Hop(p Proxy, dryrun bool) error {
 	if p == nil {
-		old := h.via.Tango(nil)
-		log.I("proxy: base: hop(%s) removed", idhandle(old))
+		if !dryrun {
+			old := h.via.Tango(nil)
+			log.I("proxy: base: hop(%s) removed", idhandle(old))
+		}
 		return nil
 	}
 	if p.Status() == END {
@@ -154,8 +156,10 @@ func (h *base) Hop(p Proxy) error {
 		return errHopGlobalProxy
 	}
 
-	old := h.via.Tango(p)
-	log.I("proxy: base: hop(%s) => %s", idhandle(old), idhandle(p))
+	if !dryrun {
+		old := h.via.Tango(p)
+		log.I("proxy: base: hop(%s) => %s", idhandle(old), idhandle(p))
+	}
 	return nil
 }
 

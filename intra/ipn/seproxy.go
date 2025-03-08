@@ -158,7 +158,7 @@ func NewSEasyProxy(ctx context.Context, c protect.Controller, sec *seasy.SEApi) 
 				who = v.ID()
 				c, err = v.Dial(network, addr)
 			} else {
-				sep.Hop(nil)
+				sep.Hop(nil, false /*dryrun*/)
 				log.W("se: hop(%s) stopped", idhandle(v))
 			}
 		}
@@ -394,18 +394,22 @@ func (h *seproxy) Reaches(hostportOrIPPortCsv string) bool {
 }
 
 // Hop implements Proxy.
-func (h *seproxy) Hop(p Proxy) error {
+func (h *seproxy) Hop(p Proxy, dryrun bool) error {
 	if p == nil {
-		old := h.via.Tango(nil)
-		log.I("se: hop(%s) removed", idhandle(old))
+		if !dryrun {
+			old := h.via.Tango(nil)
+			log.I("se: hop(%s) removed", idhandle(old))
+		}
 		return nil
 	}
 	if p.Status() == END {
 		return errProxyStopped
 	}
 
-	old := h.via.Tango(p)
-	log.I("se: hop(%s) => %s", idhandle(old), idhandle(p))
+	if !dryrun {
+		old := h.via.Tango(p)
+		log.I("se: hop(%s) => %s", idhandle(old), idhandle(p))
+	}
 	return nil
 }
 

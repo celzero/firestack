@@ -150,6 +150,9 @@ type Proxies interface {
 	RemoveProxy(id string) bool
 	// GetProxy returns a transport from this multi-transport.
 	GetProxy(id string) (Proxy, error)
+	// TestHop returns empty diag if origin can hop to via,
+	// otherwise returns a diagnosis of why it couldn't.
+	TestHop(via, origin string) (diag string)
 	// Hop chains two proxies in the order of origin dialing through via.
 	Hop(via, origin string) error
 	// Router returns a lowest common denomination router for this multi-transport.

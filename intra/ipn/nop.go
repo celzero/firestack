@@ -128,7 +128,7 @@ func (NoDNS) DNS() string {
 type NoVia struct{}
 
 func (NoVia) Via() (x.Proxy, error) { return nil, errNop }
-func (NoVia) Hop(Proxy) error       { return errNop }
+func (NoVia) Hop(Proxy, bool) error { return errNop }
 
 var errNop = errors.New("proxy: nop")
 

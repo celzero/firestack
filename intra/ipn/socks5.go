@@ -156,7 +156,7 @@ func (h *socks5) txdial(n, src, dst string) (c net.Conn, err error) {
 			who = v.ID()
 			c, err = v.DialBind(n, src, dst)
 		} else {
-			h.Hop(nil) // stale; unset
+			h.Hop(nil, false /*dryrun*/) // stale; unset
 			log.W("socks5: via(%s) removed", idhandle(v))
 		}
 	}
@@ -254,18 +254,22 @@ func (h *socks5) Reaches(hostportOrIPPortCsv string) bool {
 }
 
 // Hop implements Proxy.
-func (h *socks5) Hop(p Proxy) error {
+func (h *socks5) Hop(p Proxy, dryrun bool) error {
 	if p == nil {
-		old := h.via.Tango(nil)
-		log.I("socks5: hop(%s) removed", idhandle(old))
+		if !dryrun {
+			old := h.via.Tango(nil)
+			log.I("socks5: hop(%s) removed", idhandle(old))
+		}
 		return nil
 	}
 	if p.Status() == END {
 		return errProxyStopped
 	}
 
-	old := h.via.Tango(p)
-	log.I("socks5: hop(%s) => %s", idhandle(old), idhandle(p))
+	if !dryrun {
+		old := h.via.Tango(p)
+		log.I("socks5: hop(%s) => %s", idhandle(old), idhandle(p))
+	}
 	return nil
 }
 
