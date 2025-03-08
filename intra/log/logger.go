@@ -387,6 +387,16 @@ func (l *simpleLogger) err(at int, msg string) {
 	l.q.Push(msg)
 }
 
+func caller(at int) (pc uintptr, who string) {
+	pc, file, line, _ := runtime.Caller(at + 1)
+	if len(file) <= 0 {
+		file = "???"
+	} else {
+		file = shortfile(file) + ":" + fmt.Sprint(line) + ": "
+	}
+	return pc, file
+}
+
 func shortfile(file string) string {
 	if i := strings.LastIndexByte(file, '/'); i >= 0 {
 		file = file[i+1:]
@@ -398,14 +408,9 @@ func (l *simpleLogger) writelog(lvl LogLevel, at int, msg string, args ...any) {
 	ll := l.level <= lvl
 	cc := l.clevel <= lvl
 
-	pc, file, line, _ := runtime.Caller(at + 1)
-	if len(file) <= 0 {
-		file = "???"
-	} else {
-		file = shortfile(file) + ":" + fmt.Sprint(line) + ": "
-	}
+	pc, file := caller(at)
 
-	if l.spammy(lvl, pc, at) {
+	if l.spammy(lvl, pc) {
 		l.skips[lvl].Add(1)
 		return
 	} else if n := l.skips[lvl].Swap(0); n > 0 && (cc || ll) {
@@ -431,7 +436,7 @@ func (l *simpleLogger) writelog(lvl LogLevel, at int, msg string, args ...any) {
 
 // not thread-safe for performance reasons
 // go.dev/play/p/6CkoACJ1bYz
-func (l *simpleLogger) spammy(lvl LogLevel, pc uintptr, at int) (y bool) {
+func (l *simpleLogger) spammy(lvl LogLevel, pc uintptr) (y bool) {
 	l.clock.l1[lvl]++ // tick the level clock
 	t := l.clock.l1[lvl]
 
