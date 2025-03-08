@@ -87,6 +87,7 @@ type simpleLogger struct {
 // a clock-like spam rate limiter
 // maps level+pc to its age in ticks
 type clock struct {
+	sync.Mutex
 	l2 [NONE + 1][pcbuckets]uint8 // level+pc clock
 	l1 [NONE + 1]uint8            // level clock
 }
@@ -120,7 +121,10 @@ var _ Logger = (*simpleLogger)(nil)
 // const logcatLineSize = 1024
 
 // qSize is the number of recent log msgs to keep in the ring buffer.
-const qSize = 128
+const qSize = 256
+
+// consoleChSize is the size of the console channel.
+const consoleChSize = 256
 
 // similarTraceThreshold is the no. of similar stacktraces to report before suppressing.
 const similarTraceThreshold = 8
@@ -388,7 +392,7 @@ func (l *simpleLogger) err(at int, msg string) {
 }
 
 func caller(at int) (pc uintptr, who string) {
-	pc, file, line, _ := runtime.Caller(at + 1)
+	pc, file, line, _ := runtime.Caller(at)
 	if len(file) <= 0 {
 		file = "???"
 	} else {
@@ -437,6 +441,10 @@ func (l *simpleLogger) writelog(lvl LogLevel, at int, msg string, args ...any) {
 // not thread-safe for performance reasons
 // go.dev/play/p/6CkoACJ1bYz
 func (l *simpleLogger) spammy(lvl LogLevel, pc uintptr) (y bool) {
+	// expensive, but golog's internal logger also grabs a mutex before every write
+	l.clock.Lock()
+	defer l.clock.Unlock()
+
 	l.clock.l1[lvl]++ // tick the level clock
 	t := l.clock.l1[lvl]
 
