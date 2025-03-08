@@ -29,6 +29,10 @@ func UniqErr(errs ...error) error {
 }
 
 func joinErr(uniq bool, errs ...error) error {
+	if len(errs) <= 0 {
+		return nil
+	}
+
 	var all []error
 	var m map[error]struct{}
 
