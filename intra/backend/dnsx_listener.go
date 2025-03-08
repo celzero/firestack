@@ -10,22 +10,38 @@ import "fmt"
 
 // DNSSummary is a summary of a DNS transaction, reported when it is complete.
 type DNSSummary struct {
-	Type           string  // dnscrypt, dns53, doh, odoh, dot, preset, fixed
-	ID             string  // transport id
-	UID            string  // owner uid that sent this request
-	Latency        float64 // Response (or failure) latency in seconds
-	QName          string  // query domain
-	QType          int     // A, AAAA, SVCB, HTTPS, etc.
-	RData          string  // response data, usually a csv of ips
-	RCode          int     // response code
-	RTtl           int     // response ttl
-	Server         string
-	RelayServer    string // hop, if any; proxy or a relay server
-	Status         int
-	Blocklists     string // csv separated list of blocklists names, if any.
-	UpstreamBlocks bool   // true if any among upstream transports returned blocked ans.
-	Msg            string // final status message, if any
-	Region         string // region of the rethinkdns server (if used)
+	// dnscrypt, dns53, doh, odoh, dot, preset, fixed, etc.
+	Type string
+	// DNS Transport ID
+	ID string
+	// owner uid that sent this request. May be empty.
+	UID string
+	// Response (or failure) latency in seconds
+	Latency float64
+	// Queried domain name
+	QName string
+	// Query type: A, AAAA, SVCB, HTTPS, etc. May be 0.
+	QType int
+	// DNS Response data, ex: a csv of ips for A, AAAA.
+	RData string
+	// DNS Response code
+	RCode int
+	// DNS Response TTL
+	RTtl int
+	// DNS Server (ip, ip:port, host, host:port)
+	Server string
+	// Hop, if any; proxy or a relay server address
+	RelayServer string
+	// Transport status (Start, Complete, SendFailed, NoResponse, BadQuery, BadResponse, etc)
+	Status int
+	// CSV of Rethink DNS+ blocklists (local or remote) names (if used).
+	Blocklists string
+	// True if any among upstream transports (primary or secondary) returned blocked ans.
+	UpstreamBlocks bool
+	// Diag message from Transport, if any. Typically, "no error"
+	Msg string
+	// Region of the Rethink DNS+ server (if used)
+	Region string
 }
 
 type DNSOpts struct {
