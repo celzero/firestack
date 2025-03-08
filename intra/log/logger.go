@@ -132,8 +132,7 @@ const similarTraceThreshold = 8
 // similarUsrMsgThreshold is the no. of similar user msgs to report before suppressing.
 const similarUsrMsgThreshold = 3
 
-const defaultFlags = golog.LstdFlags // golog.Lshortfile
-const defaultCallerDepth = 2
+const defaultFlags = 0 // no flags
 
 var _ = RegisterLogger(defaultLogger())
 
