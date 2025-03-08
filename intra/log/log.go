@@ -36,11 +36,8 @@ import "fmt"
 // based on: github.com/eycorsican/go-tun2socks/blob/301549c43/common/log/log.go#L5
 var Glogger Logger
 
-// caller -> intra/log.go (this file) -> intra/logger.go -> golang/log.go
-var CallerDepth = 4
-
-// caller -> LogFn -> intra/log.go (this file) -> intra/logger.go -> golang/log.go
-var LogFnCallerDepth = CallerDepth + 1
+// caller -> intra/log.go*2 (this file) -> intra/logger.go -> golang/log.go
+const callerat = 1
 
 // Console is an external logger.
 type Console interface {
@@ -85,7 +82,8 @@ func SetConsole(c Console) {
 func Of(tag string, l LogFn2) LogFn {
 	if l != nil {
 		return func(msg string, args ...any) {
-			l(LogFnCallerDepth, tag+" "+msg, args...)
+			// caller -> LogFn (parent fn) -> intra/log.go*2(this file) -> intra/logger.go -> golang/log.go
+			l(callerat, tag+" "+msg, args...)
 		}
 	}
 	return N
@@ -99,54 +97,54 @@ func N2(int, string, ...any) {}
 
 // V logs a verbose message.
 func V(msg string, args ...any) {
-	V2(LogFnCallerDepth, msg, args...)
+	V2(callerat, msg, args...)
 }
 
 // VV logs a very verbose message.
 func VV(msg string, args ...any) {
-	VV2(LogFnCallerDepth, msg, args...)
+	VV2(callerat, msg, args...)
 }
 
 // D logs a debug message.
 func D(msg string, args ...any) {
-	D2(LogFnCallerDepth, msg, args...)
+	D2(callerat, msg, args...)
 }
 
 // I logs an info message.
 func I(msg string, args ...any) {
-	I2(LogFnCallerDepth, msg, args...)
+	I2(callerat, msg, args...)
 }
 
 // W logs a warning message.
 func W(msg string, args ...any) {
-	W2(LogFnCallerDepth, msg, args...)
+	W2(callerat, msg, args...)
 }
 
 // E logs an error message.
 func E(msg string, args ...any) {
-	E2(LogFnCallerDepth, msg, args...)
+	E2(callerat, msg, args...)
 }
 
 // P logs a private message.
 func P(msg string, args ...any) {
 	if Glogger != nil {
-		Glogger.Piif(CallerDepth, "P "+msg, args...)
+		Glogger.Piif(callerat, "P "+msg, args...)
 	}
 }
 
 // Wtf logs a fatal message.
 func Wtf(msg string, args ...any) {
 	if Glogger != nil {
-		Glogger.Fatalf(CallerDepth, "F "+msg, args...)
+		Glogger.Fatalf(callerat, "F "+msg, args...)
 	}
 }
 
 // C logs the stack trace of the current goroutine to Console.
 func C(msg string, scratch []byte) {
 	if Glogger != nil {
-		E2(LogFnCallerDepth, "----START----")
+		E2(callerat, "----START----")
 		Glogger.Stack( /*console-only*/ 0, "F "+msg, scratch)
-		E2(LogFnCallerDepth, "----STOPP----")
+		E2(callerat, "----STOPP----")
 	}
 }
 
@@ -163,54 +161,54 @@ func T(msg string, args ...any) {
 		if len(args) > 0 {
 			msg = fmt.Sprintf(msg, args...)
 		}
-		E2(LogFnCallerDepth, "----START----")
-		Glogger.Stack(LogFnCallerDepth, "F "+msg, make([]byte, 4096))
-		E2(LogFnCallerDepth, "----STOPP----")
+		E2(callerat, "----START----")
+		Glogger.Stack(callerat, "F "+msg, make([]byte, 4096))
+		E2(callerat, "----STOPP----")
 	}
 }
 
 // TALL logs the stack trace of all active goroutines.
 func TALL(msg string, scratch64k []byte) {
 	if Glogger != nil {
-		E2(LogFnCallerDepth, "----START----")
-		Glogger.Stack(LogFnCallerDepth, "F "+msg, scratch64k)
-		E2(LogFnCallerDepth, "----STOPP----")
+		E2(callerat, "----START----")
+		Glogger.Stack(callerat, "F "+msg, scratch64k)
+		E2(callerat, "----STOPP----")
 	}
 }
 
 func VV2(at int, msg string, args ...any) {
 	if Glogger != nil {
-		Glogger.VeryVerbosef(at, "VV "+msg, args...)
+		Glogger.VeryVerbosef(at+callerat, "VV "+msg, args...)
 	}
 }
 
 func V2(at int, msg string, args ...any) {
 	if Glogger != nil {
-		Glogger.Verbosef(at, "V "+msg, args...)
+		Glogger.Verbosef(at+callerat, "V "+msg, args...)
 	}
 }
 
 func D2(at int, msg string, args ...any) {
 	if Glogger != nil {
-		Glogger.Debugf(at, "D "+msg, args...)
+		Glogger.Debugf(at+callerat, "D "+msg, args...)
 	}
 }
 
 func I2(at int, msg string, args ...any) {
 	if Glogger != nil {
-		Glogger.Infof(at, "I "+msg, args...)
+		Glogger.Infof(at+callerat, "I "+msg, args...)
 	}
 }
 
 func W2(at int, msg string, args ...any) {
 	if Glogger != nil {
-		Glogger.Warnf(at, "W "+msg, args...)
+		Glogger.Warnf(at+callerat, "W "+msg, args...)
 	}
 }
 
 func E2(at int, msg string, args ...any) {
 	if Glogger != nil {
-		Glogger.Errorf(at, "E "+msg, args...)
+		Glogger.Errorf(at+callerat, "E "+msg, args...)
 	}
 }
 

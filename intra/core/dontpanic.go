@@ -38,7 +38,7 @@ const DontExit ExitCode = 0
 // is able to print the panic message and exit the process.
 var _pmu sync.RWMutex
 
-var parentCallerDepthAt = log.LogFnCallerDepth + 1
+var parentCallerDepthAt = 1
 
 // fn is called in a separate goroutine, if a panic is recovered.
 // RecoverFn must be called as a defered function, and must be the first
@@ -53,7 +53,7 @@ func RecoverFn(aux string, fn Finally) (didpanic bool) {
 	defer Gif(didpanic, "fin."+aux, fn)
 
 	msg := fmt.Sprintf("%s [%d] %v\n", aux, DontExit, recovered)
-	log.E2(parentCallerDepthAt, msg)
+	log.E2(parentCallerDepthAt+1, msg)
 
 	trace(DontExit, msg)
 	return didpanic

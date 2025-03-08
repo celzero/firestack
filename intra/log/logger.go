@@ -132,8 +132,9 @@ const similarTraceThreshold = 8
 // similarUsrMsgThreshold is the no. of similar user msgs to report before suppressing.
 const similarUsrMsgThreshold = 3
 
-var defaultFlags = golog.LstdFlags // golog.Lshortfile
-var defaultCallerDepth = 2
+const defaultFlags = golog.LstdFlags // golog.Lshortfile
+const defaultCallerDepth = 2
+
 var _ = RegisterLogger(defaultLogger())
 
 func defaultLogger() *simpleLogger {
@@ -259,47 +260,47 @@ func (l *simpleLogger) Usr(msg string) {
 
 // Printf exists to satisfy rnet/http's Logger interface
 func (l *simpleLogger) Printf(msg string, args ...any) {
-	l.Debugf(defaultCallerDepth, msg, args...)
+	l.Debugf(callerat, msg, args...)
 }
 
 func (l *simpleLogger) VeryVerbosef(at int, msg string, args ...any) {
-	l.writelog(VVERBOSE, at+1, msg, args...)
+	l.writelog(VVERBOSE, at+callerat, msg, args...)
 }
 
 func (l *simpleLogger) Verbosef(at int, msg string, args ...any) {
-	l.writelog(VERBOSE, at+1, msg, args...)
+	l.writelog(VERBOSE, at+callerat, msg, args...)
 }
 
 func (l *simpleLogger) Debugf(at int, msg string, args ...any) {
-	l.writelog(DEBUG, at+1, msg, args...)
+	l.writelog(DEBUG, at+callerat, msg, args...)
 }
 
 func (l *simpleLogger) Piif(at int, msg string, args ...any) {
-	l.writelog(INFO, at+1, msg, args...)
+	l.writelog(INFO, at+callerat, msg, args...)
 }
 
 func (l *simpleLogger) Infof(at int, msg string, args ...any) {
-	l.writelog(INFO, at+1, msg, args...)
+	l.writelog(INFO, at+callerat, msg, args...)
 }
 
 func (l *simpleLogger) Warnf(at int, msg string, args ...any) {
-	l.writelog(WARN, at+1, msg, args...)
+	l.writelog(WARN, at+callerat, msg, args...)
 }
 
 func (l *simpleLogger) Errorf(at int, msg string, args ...any) {
-	l.writelog(ERROR, at+1, msg, args...)
+	l.writelog(ERROR, at+callerat, msg, args...)
 }
 
 func (l *simpleLogger) Fatalf(at int, msg string, args ...any) {
 	// todo: log to console?
-	l.err(at+1, l.msgstr(msg, args...))
+	l.err(at+callerat, l.msgstr(msg, args...))
 	os.Exit(1)
 }
 
 // emitStack sends stacktrace to console or log.
 // Empty msgs are ignored.
 func (l *simpleLogger) emitStack(at int, msgs ...string) {
-	sendtoconsole := at == 0
+	sendtoconsole := at == callerat
 
 	c := l.c
 	for _, msg := range msgs {
@@ -307,7 +308,7 @@ func (l *simpleLogger) emitStack(at int, msgs ...string) {
 			continue
 		}
 		if !sendtoconsole {
-			l.err(at+1, msg)
+			l.err(at+callerat, msg)
 		} else if c != nil {
 			// c.Stack() on the same go routine, since
 			// the caller (ex: core.Recover) may exit
@@ -324,6 +325,7 @@ func (l *simpleLogger) emitStack(at int, msgs ...string) {
 }
 
 func (l *simpleLogger) Stack(at int, msg string, scratch []byte) {
+	at += callerat
 	if len(l.tag) > 0 {
 		msg = l.tag + msg
 	}
@@ -387,12 +389,14 @@ func (l *simpleLogger) out(msg string) {
 
 // err logs to stderr and pushes msg into ring buffer.
 func (l *simpleLogger) err(at int, msg string) {
-	_ = l.e.Output(at, msg) // may error
+	_, file := caller(at + callerat)
+	msg = file + msg
+	_ = l.e.Output(0 /*unused*/, msg) // may error
 	l.q.Push(msg)
 }
 
 func caller(at int) (pc uintptr, who string) {
-	pc, file, line, _ := runtime.Caller(at)
+	pc, file, line, _ := runtime.Caller(at + callerat)
 	if len(file) <= 0 {
 		file = "???"
 	} else {
@@ -412,7 +416,7 @@ func (l *simpleLogger) writelog(lvl LogLevel, at int, msg string, args ...any) {
 	ll := l.level <= lvl
 	cc := l.clevel <= lvl
 
-	pc, file := caller(at)
+	pc, file := caller(at + callerat)
 
 	if l.spammy(lvl, pc) {
 		l.skips[lvl].Add(1)
