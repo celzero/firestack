@@ -76,18 +76,23 @@ type simpleLogger struct {
 	stmu    sync.Mutex        // guards stcount
 	stcount map[string]uint32 // stack trace counter for identical traces
 
-	e *golog.Logger
 	o *golog.Logger
+	e *golog.Logger
 	q *ring[string] // todo: use []byte instead of string for gc?
 
-	clock                         // a clock-like spam rate limiter
-	skips [NONE + 1]atomic.Uint32 // number of per-level dropped (spammy) logs
+	clock
+	skips
 }
 
+// a clock-like spam rate limiter
+// maps level+pc to its age in ticks
 type clock struct {
-	l2 [NONE + 1][pcbuckets]uint8
-	l1 [NONE + 1]uint8
+	l2 [NONE + 1][pcbuckets]uint8 // level+pc clock
+	l1 [NONE + 1]uint8            // level clock
 }
+
+// number of per-level dropped (spammy) logs
+type skips [NONE + 1]atomic.Uint32
 
 var _ Logger = (*simpleLogger)(nil)
 
