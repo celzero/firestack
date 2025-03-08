@@ -128,7 +128,7 @@ const similarTraceThreshold = 8
 // similarUsrMsgThreshold is the no. of similar user msgs to report before suppressing.
 const similarUsrMsgThreshold = 3
 
-var defaultFlags = golog.Lshortfile
+var defaultFlags = golog.LstdFlags // golog.Lshortfile
 var defaultCallerDepth = 2
 var _ = RegisterLogger(defaultLogger())
 
@@ -376,8 +376,8 @@ func (l *simpleLogger) msgstr(f string, args ...any) string {
 
 // out logs to stdout and pushes msg into ring buffer.
 // ref: github.com/golang/mobile/blob/c713f31d/internal/mobileinit/mobileinit_android.go#L51
-func (l *simpleLogger) out(at int, msg string) {
-	_ = l.o.Output(at, msg) // may error
+func (l *simpleLogger) out(msg string) {
+	_ = l.o.Output(0 /*not used*/, msg) // may error
 	l.q.Push(msg)
 }
 
@@ -387,17 +387,31 @@ func (l *simpleLogger) err(at int, msg string) {
 	l.q.Push(msg)
 }
 
+func shortfile(file string) string {
+	if i := strings.LastIndexByte(file, '/'); i >= 0 {
+		file = file[i+1:]
+	}
+	return file
+}
+
 func (l *simpleLogger) writelog(lvl LogLevel, at int, msg string, args ...any) {
 	ll := l.level <= lvl
 	cc := l.clevel <= lvl
 
-	if l.spammy(lvl, at) {
+	pc, file, line, _ := runtime.Caller(at + 1)
+	if len(file) <= 0 {
+		file = "???"
+	} else {
+		file = shortfile(file) + ":" + fmt.Sprint(line) + ": "
+	}
+
+	if l.spammy(lvl, pc, at) {
 		l.skips[lvl].Add(1)
 		return
 	} else if n := l.skips[lvl].Swap(0); n > 0 && (cc || ll) {
-		spammsg := l.msgstr("spammy... dropped %d msgs", n)
+		spammsg := file + l.msgstr("spammy... dropped %d msgs", n)
 		if ll {
-			l.out(at, spammsg)
+			l.out(spammsg)
 		}
 		if cc {
 			l.consoleQueue(&conMsg{spammsg, lvl})
@@ -405,9 +419,9 @@ func (l *simpleLogger) writelog(lvl LogLevel, at int, msg string, args ...any) {
 	}
 
 	if ll || cc {
-		msg = l.msgstr(msg, args...)
+		msg = file + l.msgstr(msg, args...)
 		if ll {
-			l.out(at, msg)
+			l.out(msg)
 		}
 		if cc {
 			l.consoleQueue(&conMsg{msg, lvl})
@@ -417,14 +431,13 @@ func (l *simpleLogger) writelog(lvl LogLevel, at int, msg string, args ...any) {
 
 // not thread-safe for performance reasons
 // go.dev/play/p/6CkoACJ1bYz
-func (l *simpleLogger) spammy(lvl LogLevel, at int) (y bool) {
+func (l *simpleLogger) spammy(lvl LogLevel, pc uintptr, at int) (y bool) {
 	l.clock.l1[lvl]++ // tick the level clock
 	t := l.clock.l1[lvl]
-	pc, _, _, ok := runtime.Caller(at + 1)
-	if !ok || pc == 0 {
-		return false // not spammy
-	}
 
+	if pc == 0 {
+		return false
+	}
 	// won't work:  l2 := l.clock.l2[lvl]
 	// go.dev/play/p/QgqEdE7KIAZ
 	bkt := pc % pcbuckets
