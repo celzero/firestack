@@ -188,6 +188,9 @@ type proxifier struct {
 	rpnmu sync.RWMutex        // protects rp
 	rp    map[string]RpnProxy // rpn proxies
 
+	hmu sync.RWMutex        // protects hp
+	hp  map[string][]string // hopproxy => [proxyid]
+
 	ctl protect.Controller // dial control provider
 	obs x.ProxyListener    // proxy observer
 
@@ -375,6 +378,7 @@ func (px *proxifier) removeProxy(id string, force bool) bool {
 			delete(px.p, id)
 		}
 		core.Go("pxr.removeProxy: "+id, func() {
+			px.unmapHopFrom(p, false /*dryrun*/)
 			_ = p.Stop()
 			if !perma {
 				px.obs.OnProxyRemoved(id)
@@ -667,8 +671,11 @@ func (px *proxifier) hop(via, origin string, dryrun bool) error {
 		return core.OneErr(err, errProxyNotFound)
 	}
 
+	oldViaPx, _ := origPx.Router().Via() // may be nil
+
 	if len(via) <= 0 { // remove hop if needed
-		return origPx.Hop(nil, dryrun)
+		err = origPx.Hop(nil, dryrun)
+		_ = px.unmapHop(oldViaPx, origPx, err != nil || dryrun)
 	}
 
 	if via == origin {
@@ -683,6 +690,14 @@ func (px *proxifier) hop(via, origin string, dryrun bool) error {
 		return errProxyStopped
 	}
 
+	if idstr(oldViaPx) == idstr(viaPx) {
+		if !dryrun {
+			go origPx.Refresh()
+		}
+		log.I("proxy: hop: %s => %s (no change)", origin, via)
+		return nil // no change
+	}
+
 	viaRouter := viaPx.Router()
 	if viaViaVia, _ := viaRouter.Via(); viaViaVia != nil {
 		log.W("proxy: triple hop: %s => %s => %s; not allowed", origin, via, viaViaVia.ID())
@@ -692,7 +707,83 @@ func (px *proxifier) hop(via, origin string, dryrun bool) error {
 		return errHopDefaultRoutes
 	}
 
-	return origPx.Hop(viaPx, dryrun)
+	_ = px.unmapHop(oldViaPx, origPx, dryrun)
+	err = origPx.Hop(viaPx, dryrun)
+	_ = px.mapHop(viaPx, origPx, err != nil || dryrun)
+
+	return err
+}
+
+func (px *proxifier) mapHop(hop x.Proxy, orig x.Proxy, dryrun bool) (mapped bool) {
+	if dryrun {
+		return
+	}
+
+	hopID := idstr(hop)
+	origID := idstr(orig)
+	if len(hopID) <= 0 || len(origID) <= 0 {
+		return
+	}
+
+	px.hmu.Lock()
+	defer px.hmu.Unlock()
+	px.hp[hopID] = append(px.hp[hopID], origID)
+	return true
+}
+
+func (px *proxifier) unmapHopFrom(orig x.Proxy, dryrun bool) (unmapped bool) {
+	via, _ := orig.Router().Via() // may be nil
+	return px.unmapHop(via, orig, dryrun)
+}
+
+func (px *proxifier) unmapHop(hop x.Proxy, orig x.Proxy, dryrun bool) (unmapped bool) {
+	if dryrun {
+		return
+	}
+
+	hopID := idstr(hop)
+	origID := idstr(orig)
+	if len(hopID) <= 0 || len(origID) <= 0 {
+		return
+	}
+
+	px.hmu.Lock()
+	defer px.hmu.Unlock()
+
+	if in, ok := px.hp[hopID]; ok {
+		out := removeElem(in, origID)
+		px.hp[hopID] = out
+		unmapped = len(out) < len(in)
+	}
+	return
+}
+
+func (px *proxifier) refreshHopOriginsIfAny(hop Proxy, why string) (n int) {
+	hopID := idstr(hop)
+	if len(hopID) <= 0 {
+		return
+	}
+
+	px.hmu.RLock()
+	origins := px.hp[hopID]
+	px.hmu.RUnlock()
+
+	if len(origins) <= 0 {
+		log.D("proxy: refreshHopOrigins for %s: no-op", why)
+		return
+	}
+
+	px.RLock()
+	for _, origin := range origins {
+		if p := px.p[origin]; p != nil {
+			n++
+			go p.Refresh()
+		}
+	}
+	px.RUnlock()
+
+	log.I("proxy: refreshHopOrigins for %s: %d[%v]", why, n, origins)
+	return
 }
 
 // Router implements x.Proxy.

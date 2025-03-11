@@ -19,6 +19,8 @@ import (
 	"syscall"
 	"time"
 
+	"slices"
+
 	x "github.com/celzero/firestack/intra/backend"
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/dialers"
@@ -100,6 +102,7 @@ func (pxr *proxifier) addRpnProxy(acc RpnAcc, cc string) (Proxy, error) {
 	return p, nil
 }
 
+// TODO: on add / update a via proxy; refresh all dependent origins
 func (pxr *proxifier) addRpnProxy2(p Proxy, acc RpnAcc) (Proxy, error) {
 	proxyid := p.ID()
 	providerid := acc.ProviderID()
@@ -121,6 +124,8 @@ func (pxr *proxifier) addRpnProxy2(p Proxy, acc RpnAcc) (Proxy, error) {
 	pxr.rp[acc.ProviderID()] = rp // removed on unregister
 	pxr.rpnmu.Unlock()
 
+	go pxr.refreshHopOriginsIfAny(p, "addRpnProxy2."+proxyid)
+
 	return p, nil
 }
 
@@ -128,6 +133,12 @@ func (pxr *proxifier) addProxy(id, txt string) (p Proxy, err error) {
 	if len(txt) <= 0 {
 		return nil, errAddProxy
 	}
+
+	defer func() {
+		if err != nil {
+			go pxr.refreshHopOriginsIfAny(p, "addProxy."+id)
+		}
+	}()
 
 	// wireguard proxies have IDs starting with "wg"
 	if isWG(id) {
@@ -525,4 +536,17 @@ func swapVia(who string, new Proxy, on *core.Volatile[string], ref *core.WeakRef
 
 func viaok(p *Proxy) bool {
 	return p != nil && core.IsNotNil(*p) && (*p).Status() != END
+}
+
+// removeElem removes the all occurrences of rmv from s.
+func removeElem[T comparable](s []T, rmv T) []T {
+	if len(s) <= 0 {
+		return s
+	}
+	for i, v := range s {
+		if v == rmv {
+			return removeElem(slices.Delete(s, i, i+1), rmv)
+		}
+	}
+	return s
 }
