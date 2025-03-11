@@ -132,6 +132,9 @@ const similarTraceThreshold = 8
 // similarUsrMsgThreshold is the no. of similar user msgs to report before suppressing.
 const similarUsrMsgThreshold = 3
 
+// spamMsgThreshold is the min. no. of spammy msgs to report.
+const spammsgThreshold = 24
+
 const defaultFlags = 0 // no flags
 
 var _ = RegisterLogger(defaultLogger())
@@ -420,7 +423,7 @@ func (l *simpleLogger) writelog(lvl LogLevel, at int, msg string, args ...any) {
 	if l.spammy(lvl, pc) {
 		l.skips[lvl].Add(1)
 		return
-	} else if n := l.skips[lvl].Swap(0); n > 0 && (cc || ll) {
+	} else if n := l.skips[lvl].Swap(0); n > spammsgThreshold && (cc || ll) {
 		spammsg := file + l.msgstr("spammy... dropped %d msgs", n)
 		if ll {
 			l.out(spammsg)
