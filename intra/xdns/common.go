@@ -53,9 +53,13 @@ const (
 	MaxDNSPacketSize        = 4096
 	MaxDNSUDPPacketSize     = 4096
 	MaxDNSUDPSafePacketSize = 1252
-	BlockTTL                = uint32(1)
-	AnsTTL                  = uint32(60)
-	MaxMTU                  = 0xffff // 65k, ought to be enough for everybody
+	// 0 TTL means no caching:
+	// cs.android.com/android/platform/superproject/main/+/main:packages/modules/DnsResolver/res_cache.cpp;l=770;drc=5483e926ea7753866350b1681fef8f3214708261
+	BlockTTL = uint32(0)
+	// Some short-lived TTL for synthesized answers.
+	AnsTTL = uint32(60)
+	// Network MTU
+	MaxMTU = 0xffff // 65k, ought to be enough for everybody
 )
 
 var (
