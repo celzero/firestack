@@ -37,7 +37,11 @@ import "fmt"
 var Glogger Logger
 
 // caller -> intra/log.go*2 (this file) -> intra/logger.go -> golang/log.go
-const callerat = 1
+const (
+	nextframe = 1
+	// see: pkg.go.dev/log#Output
+	callerat = 2
+)
 
 // Console is an external logger.
 type Console interface {
@@ -83,7 +87,7 @@ func Of(tag string, l LogFn2) LogFn {
 	if l != nil {
 		return func(msg string, args ...any) {
 			// caller -> LogFn (parent fn) -> intra/log.go*2(this file) -> intra/logger.go -> golang/log.go
-			l(callerat, tag+" "+msg, args...)
+			l(callerat+nextframe, tag+" "+msg, args...)
 		}
 	}
 	return N
@@ -178,37 +182,37 @@ func TALL(msg string, scratch64k []byte) {
 
 func VV2(at int, msg string, args ...any) {
 	if Glogger != nil {
-		Glogger.VeryVerbosef(at+callerat, "VV "+msg, args...)
+		Glogger.VeryVerbosef(at+nextframe, "VV "+msg, args...)
 	}
 }
 
 func V2(at int, msg string, args ...any) {
 	if Glogger != nil {
-		Glogger.Verbosef(at+callerat, "V "+msg, args...)
+		Glogger.Verbosef(at+nextframe, "V "+msg, args...)
 	}
 }
 
 func D2(at int, msg string, args ...any) {
 	if Glogger != nil {
-		Glogger.Debugf(at+callerat, "D "+msg, args...)
+		Glogger.Debugf(at+nextframe, "D "+msg, args...)
 	}
 }
 
 func I2(at int, msg string, args ...any) {
 	if Glogger != nil {
-		Glogger.Infof(at+callerat, "I "+msg, args...)
+		Glogger.Infof(at+nextframe, "I "+msg, args...)
 	}
 }
 
 func W2(at int, msg string, args ...any) {
 	if Glogger != nil {
-		Glogger.Warnf(at+callerat, "W "+msg, args...)
+		Glogger.Warnf(at+nextframe, "W "+msg, args...)
 	}
 }
 
 func E2(at int, msg string, args ...any) {
 	if Glogger != nil {
-		Glogger.Errorf(at+callerat, "E "+msg, args...)
+		Glogger.Errorf(at+nextframe, "E "+msg, args...)
 	}
 }
 
