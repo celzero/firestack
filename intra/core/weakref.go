@@ -7,9 +7,12 @@
 package core
 
 import (
+	"errors"
 	"sync"
 	"weak"
 )
+
+var errNoCreat = errors.New("weak: create fn nil")
 
 type reffactory[V any] func() *V
 type reftest[V any] func(*V) bool
