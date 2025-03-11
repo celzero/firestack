@@ -65,8 +65,8 @@ type baseHandler struct {
 	ctx   context.Context
 
 	tunMode  *settings.TunMode
-	resolver dnsx.Resolver // dns resolver to forward queries to
-	prox     ipn.Proxies   // proxy provider
+	resolver dnsx.Resolver     // dns resolver to forward queries to
+	prox     ipn.ProxyProvider // proxy provider
 	smmch    chan *SocketSummary
 	listener SocketListener // listener for socket summaries
 
