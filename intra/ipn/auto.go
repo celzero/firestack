@@ -28,10 +28,11 @@ type auto struct {
 	ProtoAgnostic
 	SkipRefresh
 	GW
-	pxr  Proxies
+	pxr  ProxyProvider
 	addr string
 
-	via *core.Volatile[Proxy] // via dialer
+	via   *core.WeakRef[Proxy]   // via dialer
+	viaID *core.Volatile[string] // via ID
 
 	exp    *core.Sieve[string, int]
 	ba     *core.Barrier[bool, string]
@@ -40,15 +41,29 @@ type auto struct {
 
 // NewAutoProxy returns a new exit proxy.
 func NewAutoProxy(ctx context.Context, pxr Proxies) *auto {
+	var err error
+
 	h := &auto{
 		pxr:    pxr,
-		via:    core.NewZeroVolatile[Proxy](),
+		viaID:  core.NewZeroVolatile[string](),
 		addr:   "127.5.51.52:5321",
 		exp:    core.NewSieve[string, int](ctx, ttl30s),
 		ba:     core.NewBarrier[bool](ttl30s),
 		status: core.NewVolatile(TUP),
 	}
+	h.via, err = core.NewWeakRef[Proxy](h.viafor, viaok)
+	if err != nil {
+		panic(err) // unlikely
+	}
 	return h
+}
+
+func (h *auto) viafor() *Proxy {
+	return viafor(h.ID(), h.viaID.Load(), h.pxr)
+}
+
+func (h *auto) swapVia(new Proxy) Proxy {
+	return swapVia(h.ID(), new, h.viaID, h.via)
 }
 
 // Handle implements Proxy.
@@ -78,10 +93,12 @@ func (h *auto) dial(network, local, remote string) (protect.Conn, error) {
 	amz, amzerr := h.pxr.ProxyFor(RpnAmz)
 	sep, seerr := h.pxr.ProxyFor(RpnSE)
 
-	if v := h.via.Load(); v != nil {
-		if v.Status() == END {
-			h.Hop(nil, false /*dryrun*/) // stale; unset
-			log.W("proxy: auto: via(%s) removed", idhandle(v))
+	if usevia(h.viaID) {
+		if v, vok := h.via.Get(); !vok {
+			if removeViaOnErrors {
+				h.Hop(nil, false /*dryrun*/) // stale; unset
+			}
+			log.W("proxy: auto: via(%s@%s) failing...", idstr(v), idhandle(v))
 		}
 	}
 
@@ -208,7 +225,7 @@ func (h *auto) dial(network, local, remote string) (protect.Conn, error) {
 		h.exp.Put(remote, who)
 	}
 	maybeKeepAlive(c)
-	logeif(err != nil)("proxy: auto: w(%d) pin(%t/%d), dial(%s) %s; err? %v",
+	logei(err)("proxy: auto: w(%d) pin(%t/%d), dial(%s) %s; err? %v",
 		who, recent, previdx, network, remote, err)
 	return c, err
 }
@@ -365,8 +382,8 @@ func (h *auto) Reaches(hostportOrIPPortCsv string) bool {
 func (h *auto) Hop(p Proxy, dryrun bool) error {
 	if p == nil {
 		if !dryrun {
-			old := h.via.Tango(nil)
-			log.I("proxy: auto: hop(%s) removed", idhandle(old))
+			old := h.swapVia(nil)
+			log.I("proxy: auto: hop(%s@%s) removed", idstr(old), idhandle(old))
 		}
 		return nil
 	}
@@ -376,7 +393,7 @@ func (h *auto) Hop(p Proxy, dryrun bool) error {
 
 	var warp, sep, amz, pro Proxy
 	var waerr, seerr, amzerr, proerr error
-	old := h.via.Tango(p)
+	old := h.swapVia(p)
 	if warp, waerr = h.pxr.ProxyFor(RpnWg); warp != nil {
 		waerr = warp.Hop(p, dryrun)
 	}
@@ -392,8 +409,8 @@ func (h *auto) Hop(p Proxy, dryrun bool) error {
 
 	errs := core.JoinErr(waerr, seerr, amzerr, proerr) // may be nil
 
-	log.I("proxy: auto: hop(%s) => %s; errs? %v",
-		idhandle(old), idhandle(p), errs)
+	logei(errs)("proxy: auto: hop(%s@%s) => %s@%s; errs? %v",
+		idstr(old), idhandle(old), idstr(p), idhandle(p), errs)
 
 	return errs
 }

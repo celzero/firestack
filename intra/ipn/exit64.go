@@ -292,3 +292,10 @@ func logeif(e bool) log.LogFn {
 	}
 	return log.D
 }
+
+func logei(err error) log.LogFn {
+	if err != nil {
+		return log.E
+	}
+	return log.I
+}

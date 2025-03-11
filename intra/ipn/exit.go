@@ -159,3 +159,10 @@ func idhandle(p Proxy) string {
 	}
 	return p.ID() + "@" + strconv.Itoa(int(p.Handle()))
 }
+
+func idstr(p Proxy) string {
+	if p == nil || core.IsNil(p) {
+		return ""
+	}
+	return p.ID()
+}

@@ -38,15 +38,17 @@ type piph2 struct {
 	SkipRefresh   // no refresh
 	GW            // dual stack gateway
 
-	url      string                // h2 proxy url
-	hostname string                // h2 proxy hostname
-	port     int                   // h2 proxy port
-	token    string                // hex, client token
-	toksig   string                // hex, authorizer signed client token
-	rsasig   string                // hex, authorizer unblinded signature
-	client   http.Client           // h2 client, see trType
-	outbound *protect.RDial        // h2 dialer
-	via      *core.Volatile[Proxy] // hop dialer
+	url      string         // h2 proxy url
+	hostname string         // h2 proxy hostname
+	port     int            // h2 proxy port
+	token    string         // hex, client token
+	toksig   string         // hex, authorizer signed client token
+	rsasig   string         // hex, authorizer unblinded signature
+	client   http.Client    // h2 client, see trType
+	outbound *protect.RDial // h2 dialer
+	px       ProxyProvider
+	via      *core.WeakRef[Proxy]   // hop dialer
+	viaID    *core.Volatile[string] // hop proxy ID
 	opts     *settings.ProxyOptions
 
 	done context.CancelFunc
@@ -149,16 +151,18 @@ func (t *piph2) dialtls(network, addr string, cfg *tls.Config) (net.Conn, error)
 // which is aware of proto changes.
 func (t *piph2) dial(network, addr string) (c net.Conn, err error) {
 	who := t.ID()
-	if v := t.via.Load(); v != nil {
-		if v.Status() != END { // dial via another proxy
+	if usevia(t.viaID) {
+		if v, vok := t.via.Get(); vok { // dial via another proxy
 			who = v.ID()
 			c, err = v.Dial(network, addr)
 		} else {
-			t.Hop(nil, false /*dryrun*/) // stale; unset
-			log.W("piph2: via(%s) removed", idhandle(v))
+			err = errNoHop
+			if removeViaOnErrors {
+				t.Hop(nil, false /*dryrun*/) // stale; unset
+			}
+			log.W("piph2: via(%s@%s) failing...", idstr(v), idhandle(v))
 		}
-	}
-	if who == t.ID() {
+	} else {
 		if settings.Loopingback.Load() { // no split in loopback (rinr) mode
 			c, err = dialers.Dial(t.outbound, network, addr)
 		} else {
@@ -166,10 +170,11 @@ func (t *piph2) dial(network, addr string) (c net.Conn, err error) {
 		}
 	}
 	defer localDialStatus(t.status, err)
+	logei(err)("piph2: dial(%s) %s (via %s); err? %v", network, addr, who, err)
 	return
 }
 
-func NewPipProxy(ctx context.Context, ctl protect.Controller, po *settings.ProxyOptions) (*piph2, error) {
+func NewPipProxy(ctx context.Context, ctl protect.Controller, px ProxyProvider, po *settings.ProxyOptions) (*piph2, error) {
 	if po == nil {
 		return nil, errMissingProxyOpt
 	}
@@ -212,7 +217,8 @@ func NewPipProxy(ctx context.Context, ctl protect.Controller, po *settings.Proxy
 		hostname: parsedurl.Hostname(),
 		port:     port,
 		outbound: protect.MakeNsRDial(RpnH2, ctx, ctl),
-		via:      core.NewZeroVolatile[Proxy](),
+		px:       px,
+		viaID:    core.NewZeroVolatile[string](),
 		token:    po.Auth.User,
 		toksig:   po.Auth.Password,
 		rsasig:   rsasig,
@@ -220,6 +226,10 @@ func NewPipProxy(ctx context.Context, ctl protect.Controller, po *settings.Proxy
 		done:     done,
 		lastdial: core.NewVolatile(time.Time{}),
 		opts:     po,
+	}
+	t.via, err = core.NewWeakRef[Proxy](t.viafor, viaok)
+	if err != nil {
+		return nil, err
 	}
 
 	_, ok := dialers.New(t.hostname, po.Addrs) // po.Addrs may be nil or empty
@@ -251,6 +261,14 @@ func NewPipProxy(ctx context.Context, ctl protect.Controller, po *settings.Proxy
 	return t, nil
 }
 
+func (t *piph2) viafor() *Proxy {
+	return viafor(t.ID(), t.viaID.Load(), t.px)
+}
+
+func (t *piph2) swapVia(new Proxy) Proxy {
+	return swapVia(t.ID(), new, t.viaID, t.via)
+}
+
 // ID implements Proxy.
 func (t *piph2) ID() string {
 	return RpnH2
@@ -280,8 +298,8 @@ func (t *piph2) Reaches(hostportOrIPPortCsv string) bool {
 func (t *piph2) Hop(p Proxy, dryrun bool) error {
 	if p == nil {
 		if !dryrun {
-			old := t.via.Tango(nil)
-			log.I("piph2: hop(%s) removed", idhandle(old))
+			old := t.swapVia(nil)
+			log.I("piph2: hop(%s@%s) removed", idstr(old), idhandle(old))
 		}
 		return nil
 	}
@@ -290,8 +308,9 @@ func (t *piph2) Hop(p Proxy, dryrun bool) error {
 	}
 
 	if !dryrun {
-		old := t.via.Tango(p)
-		log.I("piph2: hop(%s) => %s", idhandle(old), idhandle(p))
+		old := t.swapVia(p)
+		log.I("piph2: hop(%s@%s) => %s@%s",
+			idstr(old), idhandle(old), idstr(p), idhandle(p))
 	}
 	return nil
 }

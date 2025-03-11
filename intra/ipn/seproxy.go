@@ -90,7 +90,9 @@ type seproxy struct {
 	sec       *seasy.SEApi
 	addrs     []netip.AddrPort
 	outbounds []proxy.Dialer
-	via       *core.Volatile[Proxy]
+	px        ProxyProvider
+	viaID     *core.Volatile[string]
+	via       *core.WeakRef[Proxy]
 
 	lastRefresh *core.Volatile[time.Time]
 	status      *core.Volatile[int]
@@ -108,7 +110,7 @@ var _ Proxy = (*seproxy)(nil)
 var _ proxy.Dialer = (*sedialer)(nil)
 
 // NewSEasyProxy returns a new seproxy.
-func NewSEasyProxy(ctx context.Context, c protect.Controller, sec *seasy.SEApi) (*seproxy, error) {
+func NewSEasyProxy(ctx context.Context, c protect.Controller, px ProxyProvider, sec *seasy.SEApi) (*seproxy, error) {
 	if sec == nil {
 		return nil, errMissingSEClient
 	}
@@ -145,26 +147,36 @@ func NewSEasyProxy(ctx context.Context, c protect.Controller, sec *seasy.SEApi) 
 		done:        done,
 		sec:         sec,
 		addrs:       sec.Addrs(),
-		via:         core.NewZeroVolatile[Proxy](),
+		px:          px,
+		viaID:       core.NewZeroVolatile[string](),
 		lastRefresh: core.NewVolatile(now),
 		status:      core.NewVolatile(TUP),
+	}
+	var err error
+	sep.via, err = core.NewWeakRef[Proxy](sep.viafor, viaok)
+	if err != nil { // unlikely
+		return nil, err
 	}
 
 	outbound := protect.MakeNsRDial(RpnSE, ctx, c)
 	dialfn := func(network, addr string) (c net.Conn, err error) {
 		who := sep.ID()
-		if v := sep.via.Load(); v != nil {
-			if v.Status() != END {
-				who = v.ID()
+		if usevia(sep.viaID) {
+			if v, vok := sep.via.Get(); vok {
+				who = idstr(v)
 				c, err = v.Dial(network, addr)
 			} else {
-				sep.Hop(nil, false /*dryrun*/)
-				log.W("se: hop(%s) stopped", idhandle(v))
+				err = errNoHop
+				if removeViaOnErrors {
+					sep.Hop(nil, false /*dryrun*/)
+				}
+				log.W("proxy: se: via(%s@%s) failing...", idstr(v), idhandle(v))
 			}
-		}
-		if who == sep.ID() {
+		} else {
 			c, err = outbound.Dial(network, addr)
 		}
+		logei(err)("proxy: se: %s dial(%s) from %s => %s (via %s); err? %v",
+			sep.ID(), network, sep.GetAddr(), addr, who, err)
 		return c, err
 	}
 
@@ -393,12 +405,20 @@ func (h *seproxy) Reaches(hostportOrIPPortCsv string) bool {
 	return Reaches(h, hostportOrIPPortCsv)
 }
 
+func (h *seproxy) viafor() *Proxy {
+	return viafor(h.ID(), h.viaID.Load(), h.px)
+}
+
+func (h *seproxy) swapVia(new Proxy) Proxy {
+	return swapVia(h.ID(), new, h.viaID, h.via)
+}
+
 // Hop implements Proxy.
 func (h *seproxy) Hop(p Proxy, dryrun bool) error {
 	if p == nil {
 		if !dryrun {
-			old := h.via.Tango(nil)
-			log.I("se: hop(%s) removed", idhandle(old))
+			old := h.swapVia(nil)
+			log.I("se: hop(%s@%s) removed", idstr(old), idhandle(old))
 		}
 		return nil
 	}
@@ -407,8 +427,9 @@ func (h *seproxy) Hop(p Proxy, dryrun bool) error {
 	}
 
 	if !dryrun {
-		old := h.via.Tango(p)
-		log.I("se: hop(%s) => %s", idhandle(old), idhandle(p))
+		old := h.swapVia(p)
+		log.I("se: hop(%s@%s) => %s@%s",
+			idstr(old), idhandle(old), idstr(p), idhandle(p))
 	}
 	return nil
 }

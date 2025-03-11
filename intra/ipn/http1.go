@@ -30,13 +30,15 @@ type http1 struct {
 
 	id       string
 	outbound proxy.Dialer
-	via      *core.Volatile[Proxy]
+	via      *core.WeakRef[Proxy]
+	viaID    *core.Volatile[string]
+	px       ProxyProvider
 	opts     *settings.ProxyOptions
 	lastdial time.Time
 	status   *core.Volatile[int]
 }
 
-func NewHTTPProxy(id string, ctx context.Context, c protect.Controller, po *settings.ProxyOptions) (*http1, error) {
+func NewHTTPProxy(id string, ctx context.Context, c protect.Controller, px ProxyProvider, po *settings.ProxyOptions) (*http1, error) {
 	var err error
 	if po == nil {
 		log.W("proxy: err setting up http1 w(%v): %v", po, err)
@@ -70,15 +72,26 @@ func NewHTTPProxy(id string, ctx context.Context, c protect.Controller, po *sett
 
 	h := &http1{
 		outbound: hp, // does not support udp
-		via:      core.NewZeroVolatile[Proxy](),
+		px:       px,
+		viaID:    core.NewZeroVolatile[string](),
 		status:   core.NewVolatile(TUP),
 		id:       id,
 		opts:     po,
 	}
+	h.via, err = core.NewWeakRef[Proxy](h.viafor, viaok)
 
-	log.D("proxy: http1: created %s with opts(%s)", h.ID(), po)
+	logeif(err != nil)("proxy: http1: created %s with opts(%s); err? %v",
+		h.ID(), po, err)
 
 	return h, nil
+}
+
+func (h *http1) viafor() *Proxy {
+	return viafor(h.id, h.viaID.Load(), h.px)
+}
+
+func (h *http1) swapVia(new Proxy) Proxy {
+	return swapVia(h.id, new, h.viaID, h.via)
 }
 
 // Handle implements Proxy.
@@ -95,16 +108,18 @@ func (h *http1) Dial(network, addr string) (c protect.Conn, err error) {
 	h.lastdial = time.Now()
 
 	who := h.ID()
-	if v := h.via.Load(); v != nil {
-		if v.Status() != END { // dial via another proxy
-			who = v.ID()
+	if usevia(h.viaID) {
+		if v, vok := h.via.Get(); vok { // dial via another proxy
+			who = idstr(v)
 			c, err = v.Dial(network, addr)
 		} else {
-			h.Hop(nil, false /*dryrun*/) // stale; unset
-			log.W("http1: via(%s) removed", idhandle(v))
+			err = errNoHop
+			if removeViaOnErrors {
+				h.Hop(nil, false /*dryrun*/) // stale; unset
+			}
+			log.W("http1: via(%s@%s) failing...", idstr(v), idhandle(v))
 		}
-	}
-	if who == h.ID() {
+	} else {
 		// actually, dialers.ProxyDial not needed, because
 		// tx.HttpTunnel.Dial() supports dialing into hostnames
 		c, err = dialers.ProxyDial(h.outbound, network, addr)
@@ -151,8 +166,8 @@ func (h *http1) Hop(p Proxy, dryrun bool) error {
 
 	if p == nil {
 		if !dryrun {
-			old := h.via.Tango(nil)
-			log.I("proxy: http1: hop(%s) removed", idhandle(old))
+			old := h.swapVia(nil)
+			log.I("proxy: http1: hop(%s@%s) removed", idstr(old), idhandle(old))
 		}
 		return nil
 	}
@@ -161,8 +176,9 @@ func (h *http1) Hop(p Proxy, dryrun bool) error {
 	}
 
 	if !dryrun {
-		old := h.via.Tango(p)
-		log.I("http1: hop(%s) => %s", idhandle(old), idhandle(p))
+		old := h.swapVia(p)
+		log.I("http1: hop(%s@%s) => %s@%s",
+			idstr(old), idhandle(old), idstr(p), idhandle(p))
 	}
 	return nil
 }

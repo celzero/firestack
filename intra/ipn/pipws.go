@@ -39,18 +39,20 @@ type pipws struct {
 	SkipRefresh   // no refresh
 	GW            // dual stack gateway
 
-	url        string                // ws proxy url
-	hostname   string                // ws proxy hostname
-	port       int                   // ws proxy port
-	token      string                // hex, raw client token
-	toksig     string                // hex, authorizer (rdns) signed client token
-	rsasighash string                // hex, authorizer sha256(unblinded signature)
-	echcfg     *tls.Config           // ech config
-	client     http.Client           // ws client
-	client3    *http.Client          // ws client for ech
-	outbound   *protect.RDial        // ws dialer
-	via        *core.Volatile[Proxy] // hop dialer
-	lastdial   time.Time             // last dial time
+	url        string         // ws proxy url
+	hostname   string         // ws proxy hostname
+	port       int            // ws proxy port
+	token      string         // hex, raw client token
+	toksig     string         // hex, authorizer (rdns) signed client token
+	rsasighash string         // hex, authorizer sha256(unblinded signature)
+	echcfg     *tls.Config    // ech config
+	client     http.Client    // ws client
+	client3    *http.Client   // ws client for ech
+	outbound   *protect.RDial // ws dialer
+	px         ProxyProvider
+	via        *core.WeakRef[Proxy] // hop dialer
+	viaID      *core.Volatile[string]
+	lastdial   time.Time // last dial time
 
 	done context.CancelFunc // cancel func
 
@@ -72,16 +74,18 @@ func (c *pipwsconn) CloseWrite() error { return c.Close() }
 // dial is aware of proto changes via dialers.SplitDial
 func (t *pipws) dial(network, addr string) (c net.Conn, err error) {
 	who := t.ID()
-	if v := t.via.Load(); v != nil {
-		if v.Status() != END { // dial via another proxy
-			who = v.ID()
+	if usevia(t.viaID) {
+		if v, vok := t.via.Get(); vok { // dial via another proxy
+			who = idstr(v)
 			c, err = v.Dial(network, addr)
 		} else {
-			t.Hop(nil, false /*dryrun*/) // stale; unset
-			log.W("piph2: via(%s) removed", idhandle(v))
+			err = errNoHop
+			if removeViaOnErrors {
+				t.Hop(nil, false /*dryrun*/) // stale; unset
+			}
+			log.W("pipws: via(%s@%s) failing...", idstr(v), idhandle(v))
 		}
-	}
-	if who == t.ID() {
+	} else {
 		if settings.Loopingback.Load() { // no split in loopback (rinr) mode
 			c, err = dialers.Dial(t.outbound, network, addr)
 		} else {
@@ -89,6 +93,7 @@ func (t *pipws) dial(network, addr string) (c net.Conn, err error) {
 		}
 	}
 	defer localDialStatus(t.status, err)
+	logei(err)("pipws: dial(%s) to %s (via: %s); err? %v", network, addr, who, err)
 	return
 }
 
@@ -166,7 +171,7 @@ func (t *pipws) wsconn(rurl, msg string) (c net.Conn, res *http.Response, err er
 // The proxy options must contain a valid URL, and the URL must have a path with the format "/ws/<sha256(rsasig)>".
 // The proxy options must also contain a valid auth user (raw client token) and
 // password (expiry + signed raw client token).
-func NewPipWsProxy(ctx context.Context, ctl protect.Controller, po *settings.ProxyOptions) (*pipws, error) {
+func NewPipWsProxy(ctx context.Context, ctl protect.Controller, px ProxyProvider, po *settings.ProxyOptions) (*pipws, error) {
 	if po == nil {
 		return nil, errMissingProxyOpt
 	}
@@ -204,13 +209,18 @@ func NewPipWsProxy(ctx context.Context, ctl protect.Controller, po *settings.Pro
 		hostname:   parsedurl.Hostname(),
 		port:       port,
 		outbound:   protect.MakeNsRDial(RpnWs, ctx, ctl),
-		via:        core.NewZeroVolatile[Proxy](),
+		px:         px,
+		viaID:      core.NewZeroVolatile[string](),
 		token:      po.Auth.User,
 		toksig:     po.Auth.Password,
 		rsasighash: splitpath[2],
 		status:     core.NewVolatile(TUP),
 		done:       done,
 		opts:       po,
+	}
+	t.via, err = core.NewWeakRef[Proxy](t.viafor, viaok)
+	if err != nil {
+		return nil, err
 	}
 
 	_, ok := dialers.New(t.hostname, po.Addrs) // po.Addrs may be nil or empty
@@ -249,6 +259,14 @@ func (t *pipws) h2(cfg *tls.Config) *http.Transport {
 	}
 }
 
+func (t *pipws) viafor() *Proxy {
+	return viafor(t.ID(), t.viaID.Load(), t.px)
+}
+
+func (t *pipws) swapVia(new Proxy) Proxy {
+	return swapVia(t.ID(), new, t.viaID, t.via)
+}
+
 // ID implements Proxy.
 func (t *pipws) ID() string {
 	return RpnWs
@@ -278,8 +296,8 @@ func (t *pipws) Reaches(hostportOrIPPortCsv string) bool {
 func (h *pipws) Hop(p Proxy, dryrun bool) error {
 	if p == nil {
 		if !dryrun {
-			old := h.via.Tango(nil)
-			log.I("pipws: hop(%s) removed", idhandle(old))
+			old := h.swapVia(nil)
+			log.I("pipws: hop(%s@%s) removed", idstr(old), idhandle(old))
 		}
 		return nil
 	}
@@ -288,8 +306,9 @@ func (h *pipws) Hop(p Proxy, dryrun bool) error {
 	}
 
 	if !dryrun {
-		old := h.via.Tango(p)
-		log.I("pipws: hop(%s) => %s", idhandle(old), idhandle(p))
+		old := h.swapVia(p)
+		log.I("pipws: hop(%s@%s) => %s",
+			idstr(old), idhandle(old), idstr(p), idhandle(p))
 	}
 	return nil
 }

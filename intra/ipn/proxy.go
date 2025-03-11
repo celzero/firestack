@@ -31,7 +31,7 @@ const noCountryForOldMen = "" // zz
 
 func (pxr *proxifier) NewSocks5Proxy(id, user, pwd, ip, port string) (p *socks5, err error) {
 	opts := settings.NewAuthProxyOptions("socks5", user, pwd, ip, port, nil)
-	return NewSocks5Proxy(id, pxr.ctx, pxr.ctl, opts)
+	return NewSocks5Proxy(id, pxr.ctx, pxr.ctl, pxr, opts)
 }
 
 // AddProxy implements Proxifier.
@@ -165,7 +165,7 @@ func (pxr *proxifier) addProxy(id, txt string) (p Proxy, err error) {
 			} // else: recreate
 		} // else: new
 		// txt is both wg ifconfig and peercfg
-		p, err = NewWgProxy(id, pxr.ctl, lp, txt)
+		p, err = NewWgProxy(id, pxr.ctl, pxr, lp, txt)
 	} else {
 		var strurl string
 		var usr string
@@ -215,17 +215,17 @@ func (pxr *proxifier) fromOpts(id string, opts *settings.ProxyOptions) (Proxy, e
 	var err error = nil
 	switch opts.Scheme {
 	case "socks5":
-		p, err = NewSocks5Proxy(id, pxr.ctx, pxr.ctl, opts)
+		p, err = NewSocks5Proxy(id, pxr.ctx, pxr.ctl, pxr, opts)
 	case "http":
 		fallthrough
 	case "https":
-		p, err = NewHTTPProxy(id, pxr.ctx, pxr.ctl, opts)
+		p, err = NewHTTPProxy(id, pxr.ctx, pxr.ctl, pxr, opts)
 	case "piph2":
 		// todo: assert id == RpnH2
-		p, err = NewPipProxy(pxr.ctx, pxr.ctl, opts)
+		p, err = NewPipProxy(pxr.ctx, pxr.ctl, pxr, opts)
 	case "pipws":
 		// todo: assert id == RpnWs
-		p, err = NewPipWsProxy(pxr.ctx, pxr.ctl, opts)
+		p, err = NewPipWsProxy(pxr.ctx, pxr.ctl, pxr, opts)
 	case "wg":
 		err = fmt.Errorf("proxy: id must be prefixed with %s in %s for [%s]", WG, id, opts)
 	default:
@@ -491,4 +491,38 @@ func ViaID(p Proxy) string {
 		return v.ID()
 	}
 	return novia
+}
+
+func usevia(viaID *core.Volatile[string]) bool {
+	return viaID != nil && len(viaID.Load()) > 0
+}
+
+func viafor(who, viaID string, px ProxyProvider) *Proxy {
+	if len(viaID) <= 0 {
+		return nil
+	}
+	via, err := px.ProxyFor(viaID)
+	logei(err)("proxy: %s: viafor %s@%s; err? %v", who, viaID, idhandle(via), err)
+
+	if err != nil || via == nil || core.IsNil(via) {
+		return nil
+	}
+	return &via
+}
+
+func swapVia(who string, new Proxy, on *core.Volatile[string], ref *core.WeakRef[Proxy]) (old Proxy) {
+	newID := idstr(new)
+	old = ref.Load()         // old may be nil
+	oldID := on.Tango(newID) // newID/oldID may be empty
+	if idstr(old) != oldID {
+		log.W("proxy: wg: %s setVia(%s) old(%s != %s)",
+			who, newID, idstr(old), oldID)
+		return nil
+	}
+	log.I("proxy: wg: %s setVia(%s); remove old(%s)", who, newID, oldID)
+	return old
+}
+
+func viaok(p *Proxy) bool {
+	return p != nil && core.IsNotNil(*p) && (*p).Status() != END
 }

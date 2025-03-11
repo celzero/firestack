@@ -159,13 +159,17 @@ type Rpn interface {
 	removeRpnProxy(acc RpnAcc, cc string) bool
 }
 
-type Proxies interface {
-	x.Proxies
-	Rpn
+type ProxyProvider interface {
 	// ProxyFor returns a transport from this multi-transport.
 	ProxyFor(id string) (Proxy, error)
 	// ProxyTo returns the proxy to use for ipp from given pids.
 	ProxyTo(ipp netip.AddrPort, uid string, pids []string) (Proxy, error)
+}
+
+type Proxies interface {
+	x.Proxies
+	ProxyProvider
+	Rpn
 	// RefreshProto broadcasts proto change to all active proxies.
 	RefreshProto(l3 string, mtu int)
 	// LiveProxies returns a csv of active proxies.
@@ -251,7 +255,7 @@ func NewProxifier(pctx context.Context, l3 string, mtu int, c protect.Controller
 
 	pxr.exit = NewExitProxy(pctx, c)
 	pxr.exit64 = NewExit64Proxy(pctx, c)
-	pxr.base = NewBaseProxy(pctx, c)
+	pxr.base = NewBaseProxy(pctx, c, pxr)
 	pxr.grounded = NewGroundProxy()
 	pxr.auto = NewAutoProxy(pctx, pxr)
 	pxr.staller = core.NewExpiringMap[string, string](pctx)
@@ -1073,7 +1077,7 @@ func (px *proxifier) RegisterSE() (err error) {
 		return core.JoinErr(errMissingSEClient, px.lastSeErr.Load())
 	}
 
-	sep, err := NewSEasyProxy(px.ctx, px.ctl, sec)
+	sep, err := NewSEasyProxy(px.ctx, px.ctl, px, sec)
 
 	if err != nil || sep == nil {
 		log.E("proxy: se: make failed: %v", err)

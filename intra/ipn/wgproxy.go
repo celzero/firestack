@@ -71,6 +71,8 @@ const (
 	// min mtu for ipv4
 	minmtu4 = 576
 
+	removeViaOnErrors = false
+
 	FAST = x.WGFAST
 )
 
@@ -100,10 +102,12 @@ type wgtun struct {
 	// request barrier for dns lookups
 	ba *core.Barrier[[]netip.Addr, string]
 
+	px ProxyProvider
 	// mutable fields
 
-	via    *core.Volatile[Proxy] // via hop
-	direct protect.RDialer       // direct
+	via    *core.WeakRef[Proxy]
+	viaID  *core.Volatile[string]
+	direct protect.RDialer
 
 	hasV4, hasV6 atomic.Bool // interface has ipv4/ipv6 routes?
 
@@ -582,7 +586,7 @@ func loadIPNets(out *[]netip.Prefix, v string) (err error) {
 }
 
 // ref: github.com/WireGuard/wireguard-android/blob/713947e432/tunnel/tools/libwg-go/api-android.go#L76
-func NewWgProxy(id string, ctl protect.Controller, lp LinkProps, cfg string) (*wgproxy, error) {
+func NewWgProxy(id string, ctl protect.Controller, px ProxyProvider, lp LinkProps, cfg string) (*wgproxy, error) {
 	ogcfg := cfg
 	opts, err := wgIfConfigOf(id, &cfg)
 	uapicfg := cfg
@@ -591,7 +595,7 @@ func NewWgProxy(id string, ctl protect.Controller, lp LinkProps, cfg string) (*w
 		return nil, err
 	}
 
-	wgtun, err := makeWgTun(id, ogcfg, ctl, lp, opts)
+	wgtun, err := makeWgTun(id, ogcfg, ctl, px, lp, opts)
 	if err != nil {
 		log.E("proxy: wg: %s failed to create tun %v", id, err)
 		return nil, err
@@ -651,8 +655,16 @@ func setupReverserIfNeeded(id string, s *stack.Stack, rev netstack.GConnHandler)
 	netstack.OutboundUDP(id, s, nil) // unset
 }
 
+func (w *wgtun) swapVia(new Proxy) (old Proxy) {
+	return swapVia(w.id, new, w.viaID, w.via)
+}
+
+func (w *wgtun) viafor() *Proxy {
+	return viafor(w.id, w.viaID.Load(), w.px)
+}
+
 // ref: github.com/WireGuard/wireguard-go/blob/469159ecf7/tun/netstack/tun.go#L54
-func makeWgTun(id, cfg string, ctl protect.Controller, lp LinkProps, ifopts wgifopts) (*wgtun, error) {
+func makeWgTun(id, cfg string, ctl protect.Controller, px ProxyProvider, lp LinkProps, ifopts wgifopts) (*wgtun, error) {
 	ctx := context.TODO()
 
 	opts := stack.Options{
@@ -686,7 +698,8 @@ func makeWgTun(id, cfg string, ctl protect.Controller, lp LinkProps, ifopts wgif
 		ingress:       make(chan *buffer.View, epsize),
 		finalize:      make(chan struct{}), // always unbuffered
 		direct:        protect.MakeNsRDial(id, ctx, ctl),
-		via:           core.NewZeroVolatile[Proxy](),
+		px:            px,
+		viaID:         core.NewZeroVolatile[string](),
 		dns:           core.NewVolatile(ifopts.dns),
 		remote:        core.NewVolatile(ifopts.ep),    // may be nil
 		peers:         core.NewVolatile(ifopts.peers), // its entries must never be modified
@@ -701,6 +714,12 @@ func makeWgTun(id, cfg string, ctl protect.Controller, lp LinkProps, ifopts wgif
 	t.desiredmtu.Store(uint32(ifopts.mtu))
 	t.netmtu.Store(uint32(lp.mtu))
 	t.allowedIPs(ifopts.allowed)
+
+	if viaref, verr := core.NewWeakRef[Proxy](t.viafor, viaok); verr != nil {
+		return nil, fmt.Errorf("wg: %s create tun (via ref): %v", t.id, verr)
+	} else {
+		t.via = viaref
+	}
 
 	// see WriteNotify below
 	ep.AddNotify(t)
@@ -1066,8 +1085,8 @@ func (h *wgproxy) Hop(via Proxy, dryrun bool) (err error) {
 			return
 		}
 
-		log.I("wg: %s hop old(%s) => new(%s); err? %v",
-			h.id, idhandle(old), idhandle(via), err)
+		log.I("wg: %s hop old(%s@%s) => new(%s@%s); err? %v",
+			h.id, idstr(old), idhandle(old), idstr(via), idhandle(via), err)
 
 		if Same(old, via) {
 			return
@@ -1079,13 +1098,13 @@ func (h *wgproxy) Hop(via Proxy, dryrun bool) (err error) {
 
 	if via == nil {
 		if !dryrun {
-			old = h.via.Tango(nil)
+			old = h.swapVia(nil)
 			// undo MTU enforced due to any prior hops
 			if old != nil {
 				err = h.resetMtu(nil)
 			}
-			log.I("wg: %s hop: %s removed; mtu reset err? %v",
-				h.id, idhandle(old), err)
+			log.I("wg: %s hop: %s@%s removed; mtu reset err? %v",
+				h.id, idstr(old), idhandle(old), err)
 		}
 		return nil
 	} else if h.id == via.ID() {
@@ -1110,7 +1129,7 @@ func (h *wgproxy) Hop(via Proxy, dryrun bool) (err error) {
 	}
 
 	if !dryrun {
-		old = h.via.Tango(via)
+		old = h.swapVia(via)
 	}
 	return nil
 }
@@ -1184,24 +1203,27 @@ func (h *wgtun) serve(network, local string) (pc net.PacketConn, err error) {
 
 	// todo: dial into both direct & via if via cannot handle all routes?
 	who := h.ID()
-	if v := h.via.Load(); v != nil {
-		if v.Status() != END { // dial via another proxy
-			who = v.ID()
+	if usevia(h.viaID) {
+		if v, vok := h.via.Get(); vok {
+			who = idstr(v) // should be == viaID
 			// TODO: use Dial if announce fails to "port-forward" on via
 			pc, err = v.Announce(network, local)
 		} else {
+			err = errNoHop
 			// wgproxy.Refresh() is not needed since serve is called
 			// at the time of wgproxy.Device.Up() anyway.
-			h.via.Store(nil) // stale; unset
-			log.W("wg: %s via(%s) removed", h.id, idhandle(v))
+			if removeViaOnErrors {
+				// todo: ideally, must call h.Hop(nil) here
+				h.swapVia(nil) // stale; unset
+			}
+			log.W("wg: %s via(%s@%s) failing...", h.id, idstr(v), idhandle(v))
 		}
-	}
-	if who == h.ID() { // dial direct
+	} else { // dial direct
 		pc, err = h.direct.Announce(network, local)
 	}
 	defer localDialStatus(h.status, err)
 
-	log.I("wg: %s serve: %s (via %s); err? %v", h.id, local, who, err)
+	logei(err)("wg: %s serve: %s (via %s); err? %v", h.id, local, who, err)
 	return
 }
 
