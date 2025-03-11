@@ -75,8 +75,11 @@ func (w *WeakRef[V]) Ref() (v *V, valid bool) {
 	return w.loadOrStore()
 }
 
-func (w *WeakRef[V]) Get() (V, bool) {
+func (w *WeakRef[V]) Get() (zz V, valid bool) {
 	v, valid := w.loadOrStore()
+	if v == nil || IsNil(v) {
+		return zz, false
+	}
 	return *v, valid
 }
 
