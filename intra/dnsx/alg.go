@@ -27,13 +27,18 @@ import (
 )
 
 const (
-	timeout     = 15 * time.Second
-	ttl2m       = 2 * time.Minute // 2m ttl for alg/nat ip
-	algttl      = 15              // 15s ttl for alg dns
-	key4        = ":a"
-	key6        = ":aaaa"
+	timeout = 15 * time.Second
+	ttl2m   = 2 * time.Minute // 2m ttl for alg/nat ip
+
+	algXlatTtl     = xdns.BlockTTL
+	algFixedAnsTtl = xdns.AnsTTL
+
+	key4 = ":a"
+	key6 = ":aaaa"
+
 	notransport = "NoTransport"
-	maxiter     = 100 // max number alg/nat evict iterations
+
+	maxiter = 100 // max number alg/nat evict iterations
 )
 
 type iptype int
@@ -668,19 +673,19 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []netip.Addr, network string, q 
 	ansout := ansin.Copy()
 	// TODO: substitute ips in additional section
 	if algip4hints.IsValid() {
-		substok4 = xdns.SubstSVCBRecordIPs( /*out*/ ansout, dns.SVCB_IPV4HINT, algip4hints, algttl) || substok4
+		substok4 = xdns.SubstSVCBRecordIPs( /*out*/ ansout, dns.SVCB_IPV4HINT, algip4hints, algXlatTtl) || substok4
 		mustsubst = true
 	}
 	if algip6hints.IsValid() {
-		substok6 = xdns.SubstSVCBRecordIPs( /*out*/ ansout, dns.SVCB_IPV6HINT, algip6hints, algttl) || substok6
+		substok6 = xdns.SubstSVCBRecordIPs( /*out*/ ansout, dns.SVCB_IPV6HINT, algip6hints, algXlatTtl) || substok6
 		mustsubst = true
 	}
 	if algip4s.IsValid() {
-		substok4 = xdns.SubstARecords( /*out*/ ansout, algip4s, algttl) || substok4
+		substok4 = xdns.SubstARecords( /*out*/ ansout, algip4s, algXlatTtl) || substok4
 		mustsubst = true
 	}
 	if algip6s.IsValid() {
-		substok6 = xdns.SubstAAAARecords( /*out*/ ansout, algip6s, algttl) || substok6
+		substok6 = xdns.SubstAAAARecords( /*out*/ ansout, algip6s, algXlatTtl) || substok6
 		mustsubst = true
 	}
 
@@ -1337,13 +1342,12 @@ func synthesizeOrQuery(preset []netip.Addr, tr Transport, msg *dns.Msg, network 
 			return nil, errNoAnswer
 		}
 		var ok4, ok6 bool
-		ttl := int(xdns.AnsTTL)
 		ip4s, ip6s := splitIPFamilies(preset)
 		if len(ip4s) > 0 {
-			ok4 = xdns.SubstSVCBRecordIPs( /*out*/ ans, dns.SVCB_IPV4HINT, ip4s[0], ttl)
+			ok4 = xdns.SubstSVCBRecordIPs( /*out*/ ans, dns.SVCB_IPV4HINT, ip4s[0], algXlatTtl)
 		}
 		if len(ip6s) > 0 {
-			ok6 = xdns.SubstSVCBRecordIPs( /*out*/ ans, dns.SVCB_IPV6HINT, ip6s[0], ttl)
+			ok6 = xdns.SubstSVCBRecordIPs( /*out*/ ans, dns.SVCB_IPV6HINT, ip6s[0], algXlatTtl)
 		}
 
 		withPresetSummary(smm, true /*req sent?*/, fixed)

@@ -717,7 +717,7 @@ func HasAAAAAnswer(msg *dns.Msg) bool {
 	return false
 }
 
-func SubstAAAARecords(out *dns.Msg, subip6s netip.Addr, ttl int) bool {
+func SubstAAAARecords(out *dns.Msg, subip6s netip.Addr, ttl uint32) bool {
 	if out == nil || !subip6s.IsValid() {
 		return false
 	}
@@ -751,7 +751,7 @@ func SubstAAAARecords(out *dns.Msg, subip6s netip.Addr, ttl int) bool {
 	return len(touched) > 0
 }
 
-func SubstARecords(out *dns.Msg, subip4s netip.Addr, ttl int) bool {
+func SubstARecords(out *dns.Msg, subip4s netip.Addr, ttl uint32) bool {
 	if out == nil || !subip4s.IsValid() {
 		return false
 	}
@@ -809,7 +809,7 @@ func httpsstr(r *dns.HTTPS) (s string) {
 	return strings.TrimSpace(s)
 }
 
-func SubstSVCBRecordIPs(out *dns.Msg, x dns.SVCBKey, subiphints netip.Addr, ttl int) bool {
+func SubstSVCBRecordIPs(out *dns.Msg, x dns.SVCBKey, subiphints netip.Addr, ttl uint32) bool {
 	if out == nil || !subiphints.IsValid() {
 		return false
 	}
@@ -825,13 +825,13 @@ func SubstSVCBRecordIPs(out *dns.Msg, x dns.SVCBKey, subiphints netip.Addr, ttl 
 					rec.Value[j] = &dns.SVCBIPv6Hint{
 						Hint: []net.IP{subiphints.AsSlice()},
 					}
-					rec.Hdr.Ttl = uint32(ttl)
+					rec.Hdr.Ttl = ttl
 					i++
 				} else if k == x && x == dns.SVCB_IPV4HINT {
 					rec.Value[j] = &dns.SVCBIPv4Hint{
 						Hint: []net.IP{subiphints.AsSlice()},
 					}
-					rec.Hdr.Ttl = uint32(ttl)
+					rec.Hdr.Ttl = ttl
 					i++
 				}
 			}
@@ -848,13 +848,13 @@ func SubstSVCBRecordIPs(out *dns.Msg, x dns.SVCBKey, subiphints netip.Addr, ttl 
 					rec.Value[j] = &dns.SVCBIPv6Hint{
 						Hint: []net.IP{subiphints.AsSlice()},
 					}
-					rec.Hdr.Ttl = uint32(ttl)
+					rec.Hdr.Ttl = ttl
 					i++
 				} else if k == x && x == dns.SVCB_IPV4HINT {
 					rec.Value[j] = &dns.SVCBIPv4Hint{
 						Hint: []net.IP{subiphints.AsSlice()},
 					}
-					rec.Hdr.Ttl = uint32(ttl)
+					rec.Hdr.Ttl = ttl
 					i++
 				}
 			}
@@ -1043,11 +1043,10 @@ func HasHTTPQuestion(msg *dns.Msg) (ok bool) {
 	return
 }
 
-func MakeARecord(name string, ip4 string, expiry int) *dns.A {
+func MakeARecord(name string, ip4 string, ttl uint32) *dns.A {
 	if len(ip4) <= 0 || len(name) <= 0 {
 		return nil
 	}
-	ttl := uint32(expiry)
 
 	b := net.ParseIP(ip4)
 	if len(b) <= 0 {
@@ -1065,11 +1064,10 @@ func MakeARecord(name string, ip4 string, expiry int) *dns.A {
 	return rec
 }
 
-func MakeAAAARecord(name string, ip6 string, expiry int) *dns.AAAA {
+func MakeAAAARecord(name string, ip6 string, ttl uint32) *dns.AAAA {
 	if len(ip6) <= 0 || len(name) <= 0 {
 		return nil
 	}
-	ttl := uint32(expiry)
 
 	b := net.ParseIP(ip6)
 	if len(b) <= 0 {
