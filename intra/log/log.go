@@ -87,7 +87,7 @@ func Of(tag string, l LogFn2) LogFn {
 	if l != nil {
 		return func(msg string, args ...any) {
 			// caller -> LogFn (parent fn) -> intra/log.go*2(this file) -> intra/logger.go -> golang/log.go
-			l(callerat+nextframe, tag+" "+msg, args...)
+			l(callerat, tag+" "+msg, args...)
 		}
 	}
 	return N
