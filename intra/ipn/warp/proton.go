@@ -549,9 +549,9 @@ type ProtonClient struct {
 		refreshToken string
 	}
 	cert struct {
-		SerialNumber   string
-		ExpirationTime int64
-		RefreshTime    int64
+		serialNumber   string
+		expirationTime int64
+		refreshTime    int64
 	}
 
 	config *ProtonWgConfig
@@ -598,7 +598,7 @@ func (a *ProtonClient) Config() (*ProtonWgConfig, error) {
 	return nil, errNoProtonConfig
 }
 
-func (a *ProtonClient) refreshConf() error {
+func (a *ProtonClient) refreshWgConfig() error {
 	pc := a.config
 	if pc == nil {
 		return errNoProtonConfig
@@ -619,9 +619,9 @@ func (a *ProtonClient) refreshConf() error {
 		return errProtonCredsMismatch
 	}
 	// cert info
-	if pc.CertSerialNumber != a.cert.SerialNumber {
+	if pc.CertSerialNumber != a.cert.serialNumber {
 		log.W("proton: refresh: serial number mismatch conf(%s) != struct(%s)",
-			pc.CertSerialNumber, a.cert.SerialNumber)
+			pc.CertSerialNumber, a.cert.serialNumber)
 		// expect it to be the same when the key is the same
 	}
 	// wg info
@@ -679,6 +679,8 @@ func (a *ProtonClient) newConf() error {
 		return errNoProtonServerInfo
 	}
 
+	// reverse of restoreConfigFrom()
+
 	// key
 	pc.Ed25519PrivBase64 = a.key.PrivateKeyBase64()
 	// session info
@@ -690,10 +692,10 @@ func (a *ProtonClient) newConf() error {
 	pc.CredsAccessToken = a.creds.accessToken
 	pc.CredsRefreshToken = a.creds.refreshToken
 	// cert info
-	pc.CertSerialNumber = a.cert.SerialNumber
-	pc.CertExpTime = a.cert.ExpirationTime
-	pc.CertRefreshTime = a.cert.RefreshTime
-	// wg info
+	pc.CertSerialNumber = a.cert.serialNumber
+	pc.CertExpTime = a.cert.expirationTime
+	pc.CertRefreshTime = a.cert.refreshTime
+	// wg info; similar: refreshWgConfig
 	for _, c := range rwgConfs {
 		c.genWgConf()
 	}
@@ -790,11 +792,15 @@ retryAfterRefresh:
 	}
 	// TODO: certResponse.ClientPublicKey == a.key.PublicKeyPKIXPem()
 
-	a.cert.SerialNumber = certResponse.SerialNumber
-	a.cert.ExpirationTime = certResponse.ExpirationTime
-	a.cert.RefreshTime = certResponse.RefreshTime
+	a.cert.serialNumber = certResponse.SerialNumber
+	a.cert.expirationTime = certResponse.ExpirationTime
+	a.cert.refreshTime = certResponse.RefreshTime
+	pc := a.config
+	pc.CertSerialNumber = a.cert.serialNumber
+	pc.CertExpTime = a.cert.expirationTime
+	pc.CertRefreshTime = a.cert.refreshTime
 
-	refreshAt := time.Unix(int64(a.cert.RefreshTime), 0)
+	refreshAt := time.Unix(int64(a.cert.refreshTime), 0)
 
 	log.I("proton: regcert: success: serial(%s): next refresh(%s)",
 		certResponse.SerialNumber, refreshAt.Format(time.RFC1123))
@@ -813,7 +819,7 @@ func (a *ProtonClient) Refresh() error {
 		return err
 	}
 
-	return a.refreshConf()
+	return a.refreshWgConfig()
 }
 
 func (a *ProtonClient) fetchCreds() error {
@@ -1041,6 +1047,11 @@ func (a *ProtonClient) refreshCreds() error {
 
 	a.creds.accessToken = refreshCredResponse.AccessToken
 	a.creds.refreshToken = refreshCredResponse.RefreshToken
+	pc := a.config
+	pc.CredsAccessToken = a.creds.accessToken
+	pc.CredsRefreshToken = a.creds.refreshToken
+
+	log.I("proton: refreshcreds: ok; new access+refresh tokens")
 
 	return nil
 }
@@ -1148,7 +1159,7 @@ func (a *ProtonClient) rereg(force bool) error {
 	fresh := a.config != nil && a.config.CertRefreshTime-now > 0
 
 	log.I("proton: re-reg %s (exp? %t, force? %t)",
-		a.cert.SerialNumber, !fresh, force)
+		a.cert.serialNumber, !fresh, force)
 
 	if !force && fresh {
 		return nil // ok
@@ -1254,13 +1265,13 @@ func (w *Client) MakeProtonWg(allServersFilePath string) (*ProtonClient, error) 
 	return a, nil
 }
 
-func (w *Client) MakeProtonWgFrom(fromConfigJson []byte, allServersFilePath string) (*ProtonClient, error) {
-	if len(fromConfigJson) <= 0 {
+func (w *Client) MakeProtonWgFrom(existingConfigJson []byte, allServersFilePath string) (*ProtonClient, error) {
+	if len(existingConfigJson) <= 0 {
 		return nil, errNoProtonJsonConfig
 	}
 
 	var existingConf ProtonWgConfig
-	err := json.Unmarshal(fromConfigJson, &existingConf)
+	err := json.Unmarshal(existingConfigJson, &existingConf)
 	if err != nil {
 		return nil, err
 	}
@@ -1280,7 +1291,7 @@ func (w *Client) MakeProtonWgFrom(fromConfigJson []byte, allServersFilePath stri
 		return nil, err
 	}
 
-	err = a.assignConfig(&existingConf)
+	err = a.restoreConfigFrom(&existingConf)
 	if err != nil {
 		return nil, err
 	}
@@ -1295,7 +1306,7 @@ func (w *Client) MakeProtonWgFrom(fromConfigJson []byte, allServersFilePath stri
 		return nil, err
 	}
 
-	err = a.refreshConf()
+	err = a.refreshWgConfig()
 	if err != nil {
 		return nil, err
 	}
@@ -1303,7 +1314,8 @@ func (w *Client) MakeProtonWgFrom(fromConfigJson []byte, allServersFilePath stri
 	return a, nil
 }
 
-func (a *ProtonClient) assignConfig(conf *ProtonWgConfig) error {
+func (a *ProtonClient) restoreConfigFrom(conf *ProtonWgConfig) error {
+	// top-level config
 	a.config = conf
 
 	// session info
@@ -1315,9 +1327,9 @@ func (a *ProtonClient) assignConfig(conf *ProtonWgConfig) error {
 	a.creds.accessToken = conf.CredsAccessToken
 	a.creds.refreshToken = conf.CredsRefreshToken
 	// cert info
-	a.cert.SerialNumber = conf.CertSerialNumber
-	a.cert.ExpirationTime = conf.CertExpTime
-	a.cert.RefreshTime = conf.CertRefreshTime
+	a.cert.serialNumber = conf.CertSerialNumber
+	a.cert.expirationTime = conf.CertExpTime
+	a.cert.refreshTime = conf.CertRefreshTime
 
 	protonLogicalsUpdateTime = time.Unix(conf.CreateTimestamp, 0)
 
