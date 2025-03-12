@@ -14,6 +14,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math/rand/v2"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -71,7 +72,7 @@ var (
 
 const (
 	maxProtonLogicalsRefreshThreshold = 72 * time.Hour
-	maxPerRegionWgConfs               = 6
+	maxPerRegionWgConfs               = 3
 	maxRegisterCertTries              = 3
 )
 
@@ -700,6 +701,7 @@ func (a *ProtonClient) newConf() error {
 
 	pc.CreateTimestamp = time.Now().Unix()
 
+	// top-level config
 	a.config = pc
 
 	return nil // success
@@ -891,6 +893,7 @@ func (a *ProtonClient) fetchCreds() error {
 	a.creds.userid = credResponse.UserID
 	a.creds.accessToken = credResponse.AccessToken
 	a.creds.refreshToken = credResponse.RefreshToken
+	// members of a.creds are assigned to a.config by "newConf()"
 
 	return nil
 }
@@ -1212,14 +1215,22 @@ func (a *ProtonClient) Conf(cc string) (string, error) {
 	if cfg == nil {
 		return "", errNoProtonConfig
 	}
+	tot := 0
 	c := 0
+	out := make([]string, 0, maxPerRegionWgConfs)
 	for _, rc := range cfg.RegionalWgConfs {
-		if rc.CC == cc {
-			return rc.UapiWgConf, nil
+		if rc.CC == cc && c < maxPerRegionWgConfs {
+			out = append(out, rc.UapiWgConf)
+			c++
 		}
-		c++
+		tot++
 	}
-	log.D("proton: conf: cc %s not found (tot: %d)", cc, c)
+	if len(out) > 0 {
+		r := rand.IntN(len(out))
+		log.I("proton: conf: cc %s: %d/%d => chosen: %d", cc, c, len(out), r)
+		return out[r], nil
+	}
+	log.D("proton: conf: cc %s not found (tot: %d)", cc, tot)
 	return "", errNoProtonCcConf
 }
 
