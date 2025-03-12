@@ -793,18 +793,21 @@ retryAfterRefresh:
 	}
 	// TODO: certResponse.ClientPublicKey == a.key.PublicKeyPKIXPem()
 
+	extupdated := false
 	a.cert.serialNumber = certResponse.SerialNumber
 	a.cert.expirationTime = certResponse.ExpirationTime
 	a.cert.refreshTime = certResponse.RefreshTime
-	pc := a.configExt
-	pc.CertSerialNumber = a.cert.serialNumber
-	pc.CertExpTime = a.cert.expirationTime
-	pc.CertRefreshTime = a.cert.refreshTime
+	if pc := a.configExt; pc != nil {
+		extupdated = true
+		pc.CertSerialNumber = a.cert.serialNumber
+		pc.CertExpTime = a.cert.expirationTime
+		pc.CertRefreshTime = a.cert.refreshTime
+	}
 
 	refreshAt := time.Unix(int64(a.cert.refreshTime), 0)
 
-	log.I("proton: regcert: success: serial(%s): next refresh(%s)",
-		certResponse.SerialNumber, refreshAt.Format(time.RFC1123))
+	log.I("proton: regcert: success (updated ext? %t): serial(%s): next refresh(%s)",
+		extupdated, certResponse.SerialNumber, refreshAt.Format(time.RFC1123))
 
 	return nil
 }
@@ -1046,13 +1049,16 @@ func (a *ProtonClient) refreshCreds() error {
 	// todo: refreshCredResponse.Scopes contains "vpn"
 	// todo: refreshCredResponse.TokenType == "Bearer"
 
+	extupdated := false
 	a.creds.accessToken = refreshCredResponse.AccessToken
 	a.creds.refreshToken = refreshCredResponse.RefreshToken
-	pc := a.configExt
-	pc.CredsAccessToken = a.creds.accessToken
-	pc.CredsRefreshToken = a.creds.refreshToken
+	if pc := a.configExt; pc != nil {
+		extupdated = true
+		pc.CredsAccessToken = a.creds.accessToken
+		pc.CredsRefreshToken = a.creds.refreshToken
+	}
 
-	log.I("proton: refreshcreds: ok; new access+refresh tokens")
+	log.I("proton: refreshcreds: ok (updated ext? %t); new access+refresh tokens", extupdated)
 
 	return nil
 }
