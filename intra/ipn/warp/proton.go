@@ -554,7 +554,8 @@ type ProtonClient struct {
 		refreshTime    int64
 	}
 
-	config *ProtonWgConfig
+	// external / exported config
+	configExt *ProtonWgConfig
 }
 
 func newProtonGw(k ProtonKey, logicals []ProtonLogicals, h2 *http.Client) (*ProtonClient, error) {
@@ -583,7 +584,7 @@ func newProtonGw(k ProtonKey, logicals []ProtonLogicals, h2 *http.Client) (*Prot
 			accessToken  string
 			refreshToken string
 		}{},
-		config: nil,
+		configExt: nil,
 	}
 
 	log.I("proton: gw: new: %s / %d", publicKeyPem, len(m))
@@ -592,14 +593,14 @@ func newProtonGw(k ProtonKey, logicals []ProtonLogicals, h2 *http.Client) (*Prot
 }
 
 func (a *ProtonClient) Config() (*ProtonWgConfig, error) {
-	if c := a.config; c != nil {
+	if c := a.configExt; c != nil {
 		return c, nil
 	}
 	return nil, errNoProtonConfig
 }
 
 func (a *ProtonClient) refreshWgConfig() error {
-	pc := a.config
+	pc := a.configExt
 	if pc == nil {
 		return errNoProtonConfig
 	}
@@ -632,7 +633,7 @@ func (a *ProtonClient) refreshWgConfig() error {
 }
 
 func (a *ProtonClient) newConf() error {
-	a.config = nil // reset
+	a.configExt = nil // reset
 
 	pc := new(ProtonWgConfig)
 
@@ -704,7 +705,7 @@ func (a *ProtonClient) newConf() error {
 	pc.CreateTimestamp = time.Now().Unix()
 
 	// top-level config
-	a.config = pc
+	a.configExt = pc
 
 	return nil // success
 }
@@ -795,7 +796,7 @@ retryAfterRefresh:
 	a.cert.serialNumber = certResponse.SerialNumber
 	a.cert.expirationTime = certResponse.ExpirationTime
 	a.cert.refreshTime = certResponse.RefreshTime
-	pc := a.config
+	pc := a.configExt
 	pc.CertSerialNumber = a.cert.serialNumber
 	pc.CertExpTime = a.cert.expirationTime
 	pc.CertRefreshTime = a.cert.refreshTime
@@ -1047,7 +1048,7 @@ func (a *ProtonClient) refreshCreds() error {
 
 	a.creds.accessToken = refreshCredResponse.AccessToken
 	a.creds.refreshToken = refreshCredResponse.RefreshToken
-	pc := a.config
+	pc := a.configExt
 	pc.CredsAccessToken = a.creds.accessToken
 	pc.CredsRefreshToken = a.creds.refreshToken
 
@@ -1134,7 +1135,7 @@ func (a *ProtonClient) refreshServers() error {
 	const nofile = ""
 
 	oldEnough := time.Since(protonLogicalsUpdateTime) > maxProtonLogicalsRefreshThreshold
-	missingConfig := a.config == nil || len(a.config.RegionalWgConfs) <= 0
+	missingConfig := a.configExt == nil || len(a.configExt.RegionalWgConfs) <= 0
 	if oldEnough || missingConfig {
 		t := protonLogicalsUpdateTime.Format(time.RFC1123)
 		log.I("proton: refresh servers; old(%s)? %t / missing? %t", oldEnough, t, missingConfig)
@@ -1145,7 +1146,7 @@ func (a *ProtonClient) refreshServers() error {
 }
 
 func (a *ProtonClient) rereg(force bool) error {
-	hasConf := a.config != nil
+	hasConf := a.configExt != nil
 	hasSess := len(a.sess.uid) > 0
 
 	if !hasConf || !hasSess {
@@ -1156,7 +1157,7 @@ func (a *ProtonClient) rereg(force bool) error {
 
 	now := time.Now().Unix()
 	// redundant nilcheck for nilaway
-	fresh := a.config != nil && a.config.CertRefreshTime-now > 0
+	fresh := a.configExt != nil && a.configExt.CertRefreshTime-now > 0
 
 	log.I("proton: re-reg %s (exp? %t, force? %t)",
 		a.cert.serialNumber, !fresh, force)
@@ -1186,12 +1187,12 @@ func (*ProtonClient) ProviderID() string { return x.RpnPro }
 
 // State implements x.RpnAcc.
 func (a *ProtonClient) State() ([]byte, error) {
-	return a.config.Json()
+	return a.configExt.Json()
 }
 
 // Created implements x.RpnAcc.
 func (a *ProtonClient) Created() int64 {
-	cfg := a.config
+	cfg := a.configExt
 	if cfg == nil {
 		return 0
 	}
@@ -1201,7 +1202,7 @@ func (a *ProtonClient) Created() int64 {
 
 // Expires implements x.RpnAcc.
 func (a *ProtonClient) Expires() int64 {
-	cfg := a.config
+	cfg := a.configExt
 	if cfg == nil {
 		return 0
 	}
@@ -1217,12 +1218,12 @@ func (a *ProtonClient) Update() (newstate []byte, err error) {
 		log.W("proton: update: re-reg failed %v", err)
 		return nil, err
 	}
-	return a.config.Json()
+	return a.configExt.Json()
 }
 
 // Conf implements RpnAcc.
 func (a *ProtonClient) Conf(cc string) (string, error) {
-	cfg := a.config
+	cfg := a.configExt
 	if cfg == nil {
 		return "", errNoProtonConfig
 	}
@@ -1316,7 +1317,7 @@ func (w *Client) MakeProtonWgFrom(existingConfigJson []byte, allServersFilePath 
 
 func (a *ProtonClient) restoreConfigFrom(conf *ProtonWgConfig) error {
 	// top-level config
-	a.config = conf
+	a.configExt = conf
 
 	// session info
 	a.sess.uid = conf.UID
