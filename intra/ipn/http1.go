@@ -78,7 +78,7 @@ func NewHTTPProxy(id string, ctx context.Context, c protect.Controller, px Proxy
 		id:       id,
 		opts:     po,
 	}
-	h.via, err = core.NewWeakRef[Proxy](h.viafor, viaok)
+	h.via, err = core.NewWeakRef(h.viafor, viaok)
 
 	logeif(err != nil)("proxy: http1: created %s with opts(%s); err? %v",
 		h.ID(), po, err)

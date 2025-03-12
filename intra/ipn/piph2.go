@@ -227,7 +227,7 @@ func NewPipProxy(ctx context.Context, ctl protect.Controller, px ProxyProvider, 
 		lastdial: core.NewVolatile(time.Time{}),
 		opts:     po,
 	}
-	t.via, err = core.NewWeakRef[Proxy](t.viafor, viaok)
+	t.via, err = core.NewWeakRef(t.viafor, viaok)
 	if err != nil {
 		return nil, err
 	}

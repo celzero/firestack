@@ -715,7 +715,7 @@ func makeWgTun(id, cfg string, ctl protect.Controller, px ProxyProvider, lp Link
 	t.netmtu.Store(uint32(lp.mtu))
 	t.allowedIPs(ifopts.allowed)
 
-	if viaref, verr := core.NewWeakRef[Proxy](t.viafor, viaok); verr != nil {
+	if viaref, verr := core.NewWeakRef(t.viafor, viaok); verr != nil {
 		return nil, fmt.Errorf("wg: %s create tun (via ref): %v", t.id, verr)
 	} else {
 		t.via = viaref

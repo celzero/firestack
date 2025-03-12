@@ -45,7 +45,7 @@ func NewBaseProxy(ctx context.Context, c protect.Controller, px ProxyProvider) *
 		done:     done,
 	}
 	var err error
-	h.via, err = core.NewWeakRef[Proxy](h.viafor, viaok)
+	h.via, err = core.NewWeakRef(h.viafor, viaok)
 	if err != nil {
 		panic(err) // unlikely
 	}

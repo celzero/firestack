@@ -51,7 +51,7 @@ func NewAutoProxy(ctx context.Context, pxr Proxies) *auto {
 		ba:     core.NewBarrier[bool](ttl30s),
 		status: core.NewVolatile(TUP),
 	}
-	h.via, err = core.NewWeakRef[Proxy](h.viafor, viaok)
+	h.via, err = core.NewWeakRef(h.viafor, viaok)
 	if err != nil {
 		panic(err) // unlikely
 	}

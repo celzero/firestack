@@ -153,7 +153,7 @@ func NewSEasyProxy(ctx context.Context, c protect.Controller, px ProxyProvider, 
 		status:      core.NewVolatile(TUP),
 	}
 	var err error
-	sep.via, err = core.NewWeakRef[Proxy](sep.viafor, viaok)
+	sep.via, err = core.NewWeakRef(sep.viafor, viaok)
 	if err != nil { // unlikely
 		return nil, err
 	}

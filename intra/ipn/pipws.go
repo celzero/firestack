@@ -218,7 +218,7 @@ func NewPipWsProxy(ctx context.Context, ctl protect.Controller, px ProxyProvider
 		done:       done,
 		opts:       po,
 	}
-	t.via, err = core.NewWeakRef[Proxy](t.viafor, viaok)
+	t.via, err = core.NewWeakRef(t.viafor, viaok)
 	if err != nil {
 		return nil, err
 	}
