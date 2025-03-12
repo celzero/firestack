@@ -985,6 +985,7 @@ func (a *ProtonClient) beginSession() error {
 
 func (a *ProtonClient) refreshCreds() error {
 	/*
+		see: github.com/ProtonMail/protoncore_android/blob/c3598ea9e72/auth/data/src/main/kotlin/me/proton/core/auth/data/repository/AuthRepositoryImpl.kt#L189
 		curl -X POST "https://vpn-api.proton.me/auth/v4/refresh" \
 		-H "Content-Type: application/vnd.protonmail.v1+json" \
 		-H "Accept: application/vnd.protonmail.v1+json" \
