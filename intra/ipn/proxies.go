@@ -249,6 +249,8 @@ func NewProxifier(pctx context.Context, l3 string, mtu int, c protect.Controller
 
 		lp: LinkProps{l3: l3, mtu: mtu},
 
+		hp: make(map[string][]string),
+
 		rp:            make(map[string]RpnProxy),
 		lastSeErr:     core.NewZeroVolatile[error](),
 		lastWarpErr:   core.NewZeroVolatile[error](),
