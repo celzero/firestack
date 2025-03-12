@@ -550,3 +550,14 @@ func removeElem[T comparable](s []T, rmv T) []T {
 	}
 	return s
 }
+
+// addElem adds add to s if it is not already present.
+func addElem[T comparable](s []T, add T) []T {
+	if len(s) <= 0 {
+		return []T{add}
+	}
+	if slices.Contains(s, add) {
+		return s
+	}
+	return append(s, add)
+}

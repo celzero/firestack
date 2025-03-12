@@ -729,7 +729,7 @@ func (px *proxifier) mapHop(hop x.Proxy, orig x.Proxy, dryrun bool) (mapped bool
 
 	px.hmu.Lock()
 	defer px.hmu.Unlock()
-	px.hp[hopID] = append(px.hp[hopID], origID)
+	px.hp[hopID] = addElem(px.hp[hopID], origID)
 	return true
 }
 
