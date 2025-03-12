@@ -49,6 +49,9 @@ const wrapttl = 5 * time.Second // wrapttl is the time to wait for wrapup() to c
 var BufConfig = []int{128, 256, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768}
 
 type iovecBuffer struct {
+	// serializes access to all members
+	sync.Mutex
+
 	// buffer is the actual buffer that holds the packet contents. Some contents
 	// are reused across calls to pullBuffer if number of requested bytes is
 	// smaller than the number of bytes allocated in the buffer.
@@ -88,6 +91,9 @@ func newIovecBuffer(sizes []int) *iovecBuffer {
 }
 
 func (b *iovecBuffer) nextIovecs() []unix.Iovec {
+	b.Lock()
+	defer b.Unlock()
+
 	vnetHdrOff := 0
 
 	for i := range b.views {
@@ -103,6 +109,9 @@ func (b *iovecBuffer) nextIovecs() []unix.Iovec {
 }
 
 func (b *iovecBuffer) release() {
+	b.Lock()
+	defer b.Unlock()
+
 	for _, v := range b.views {
 		if v != nil {
 			v.Release()
@@ -116,11 +125,16 @@ func (b *iovecBuffer) release() {
 // that holds the storage, and updates pulledIndex to indicate which part
 // of b.buffer's storage must be reallocated during the next call to
 // nextIovecs.
-func (b *iovecBuffer) pullBuffer(n int) buffer.Buffer {
+func (b *iovecBuffer) pullBuffer(n int) (pulled buffer.Buffer, ok bool) {
 	var views []*buffer.View
 	c := 0
+
+	b.Lock()
 	// Remove the used views from the buffer.
 	for i, v := range b.views {
+		if v == nil {
+			continue
+		}
 		c += v.Size()
 		if c >= n {
 			b.views[i].CapLength(v.Size() - (c - n))
@@ -131,15 +145,17 @@ func (b *iovecBuffer) pullBuffer(n int) buffer.Buffer {
 	for i := range views {
 		b.views[i] = nil
 	}
-	pulled := buffer.Buffer{}
+	b.Unlock()
+
 	for i, v := range views {
 		if err := pulled.Append(v); err != nil {
 			log.W("ns: dispatch: iov: err append view# %d: %v", i, err)
 			continue
 		}
 	}
+	ok = pulled.Size() >= int64(n)
 	pulled.Truncate(int64(n))
-	return pulled
+	return
 }
 
 // readVDispatcher uses readv() system call to read inbound packets and
@@ -288,8 +304,13 @@ func (d *readVDispatcher) io(fds *fds) (bool, tcpip.Error) {
 		return abort, tcpip.TranslateErrno(errno)
 	}
 
+	b, ok := d.buf.pullBuffer(n)
+	if !ok {
+		return abort, new(tcpip.ErrBadBuffer)
+	}
+
 	pkt := stack.NewPacketBuffer(stack.PacketBufferOptions{
-		Payload: d.buf.pullBuffer(n),
+		Payload: b,
 	})
 	defer pkt.DecRef()
 
