@@ -811,6 +811,10 @@ func (px *proxifier) stopProxies() {
 	clear(px.rp)
 	px.rpnmu.Unlock()
 
+	px.hmu.Lock()
+	clear(px.hp)
+	px.hmu.Unlock()
+
 	px.Lock()
 	defer px.Unlock()
 
