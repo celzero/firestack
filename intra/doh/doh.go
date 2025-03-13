@@ -95,7 +95,7 @@ type transport struct {
 	pxclients      map[string]*proxytransport // todo: use weak pointers for Proxy
 	lastpurge      *core.Volatile[time.Time]  // last scrubbed time for stale pxclients
 	preferGET      bool                       // saw 405 Method Not Allowed
-	proxies        ipn.Proxies                // proxy provider, may be nil
+	proxies        ipn.ProxyProvider          // proxy provider, may be nil
 	relay          ipn.Proxy                  // dial doh via relay, may be nil
 	status         int
 	est            core.P2QuantileEstimator
@@ -108,7 +108,7 @@ var _ dnsx.Transport = (*transport)(nil)
 // `rawurl` is the DoH template in string form.
 // `addrs` is a list of IP addresses to bootstrap dialers.
 // `px` is the proxy provider, may be nil (eg for id == dnsx.Default)
-func NewTransport(ctx context.Context, id, rawurl string, addrs []string, px ipn.Proxies) (*transport, error) {
+func NewTransport(ctx context.Context, id, rawurl string, addrs []string, px ipn.ProxyProvider) (*transport, error) {
 	return newTransport(ctx, dnsx.DOH, id, rawurl, "", addrs, px)
 }
 
@@ -118,11 +118,11 @@ func NewTransport(ctx context.Context, id, rawurl string, addrs []string, px ipn
 // `target` is the ODoH resolver.
 // `addrs` is a list of IP addresses to bootstrap endpoint dialers.
 // `px` is the proxy provider, never nil.
-func NewOdohTransport(ctx context.Context, id, endpoint, target string, addrs []string, px ipn.Proxies) (*transport, error) {
+func NewOdohTransport(ctx context.Context, id, endpoint, target string, addrs []string, px ipn.ProxyProvider) (*transport, error) {
 	return newTransport(ctx, dnsx.ODOH, id, endpoint, target, addrs, px)
 }
 
-func newTransport(ctx context.Context, typ, id, rawurl, otargeturl string, addrs []string, px ipn.Proxies) (*transport, error) {
+func newTransport(ctx context.Context, typ, id, rawurl, otargeturl string, addrs []string, px ipn.ProxyProvider) (*transport, error) {
 	isodoh := typ == dnsx.ODOH
 
 	var renewed bool

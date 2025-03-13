@@ -57,8 +57,8 @@ type serverinfo struct {
 	HostName           string
 	UDPAddr            *net.UDPAddr
 	TCPAddr            *net.TCPAddr
-	proxies            ipn.Proxies // proxy-provider, may be nil
-	relay              ipn.Proxy   // proxy relay to use, may be nil
+	proxies            ipn.ProxyProvider // proxy-provider, may be nil
+	relay              ipn.Proxy         // proxy relay to use, may be nil
 	est                core.P2QuantileEstimator
 
 	// fields below are mutable

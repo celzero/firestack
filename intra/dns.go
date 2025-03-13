@@ -44,7 +44,7 @@ func AddDNSProxy(t Tunnel, id, ip, port string) error {
 	}
 }
 
-func newSystemDNSProxy(ctx context.Context, p ipn.Proxies, ipcsv string) (d dnsx.Transport, err error) {
+func newSystemDNSProxy(ctx context.Context, p ipn.ProxyProvider, ipcsv string) (d dnsx.Transport, err error) {
 	specialHostname := protect.UidSystem // never resolved by ipmap:LookupNetIP
 	return dns53.NewTransportFromHostname(ctx, dnsx.System, specialHostname, ipcsv, p)
 }
@@ -78,7 +78,7 @@ func SetSystemDNS(t Tunnel, ipcsv string) error {
 	return nil
 }
 
-func newGoosTransport(ctx context.Context, px ipn.Proxies) (d dnsx.Transport) {
+func newGoosTransport(ctx context.Context, px ipn.ProxyProvider) (d dnsx.Transport) {
 	d, _ = dns53.NewGoosTransport(ctx, px)
 	return
 }
@@ -91,12 +91,12 @@ func newFixedTransport() dnsx.Transport {
 	return dns53.NewErrorerTransport(dnsx.Fixed)
 }
 
-func newDNSCryptTransport(ctx context.Context, px ipn.Proxies, bdg Bridge) (p dnsx.TransportMult) {
+func newDNSCryptTransport(ctx context.Context, px ipn.ProxyProvider, bdg Bridge) (p dnsx.TransportMult) {
 	p = dnscrypt.NewDcMult(ctx, px, bdg)
 	return
 }
 
-func newMDNSTransport(ctx context.Context, protos string, px ipn.Proxies) (d dnsx.Transport) {
+func newMDNSTransport(ctx context.Context, protos string, px ipn.ProxyProvider) (d dnsx.Transport) {
 	return dns53.NewMDNSTransport(ctx, protos, px)
 }
 

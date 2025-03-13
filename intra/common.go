@@ -82,7 +82,7 @@ type baseHandler struct {
 
 var _ netstack.GBaseConnHandler = (*baseHandler)(nil)
 
-func newBaseHandler(pctx context.Context, proto string, r dnsx.Resolver, px ipn.Proxies, tm *settings.TunMode, l SocketListener) *baseHandler {
+func newBaseHandler(pctx context.Context, proto string, r dnsx.Resolver, px ipn.ProxyProvider, tm *settings.TunMode, l SocketListener) *baseHandler {
 	h := &baseHandler{
 		ctx:         pctx,
 		proto:       proto,

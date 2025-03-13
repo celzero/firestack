@@ -56,7 +56,7 @@ type dnssd struct {
 var _ dnsx.Transport = (*dnssd)(nil)
 
 // NewMDNSTransport returns a DNS transport that sends all DNS queries to mDNS endpoint.
-func NewMDNSTransport(pctx context.Context, protos string, pxr ipn.Proxies) *dnssd {
+func NewMDNSTransport(pctx context.Context, protos string, pxr ipn.ProxyProvider) *dnssd {
 	ctx, done := context.WithCancel(pctx)
 
 	// mdns always dials exit (and never loops back)

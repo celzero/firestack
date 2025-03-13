@@ -126,7 +126,7 @@ func (rw rwext) extend() {
 // `timeout` controls the effective NAT mapping lifetime.
 // `config` is used to bind new external UDP ports.
 // `listener` receives a summary about each UDP binding when it expires.
-func NewUDPHandler(pctx context.Context, resolver dnsx.Resolver, prox ipn.Proxies, tunMode *settings.TunMode, listener SocketListener) netstack.GUDPConnHandler {
+func NewUDPHandler(pctx context.Context, resolver dnsx.Resolver, prox ipn.ProxyProvider, tunMode *settings.TunMode, listener SocketListener) netstack.GUDPConnHandler {
 	if listener == nil || core.IsNil(listener) {
 		log.W("udp: using noop listener")
 		listener = nooplistener

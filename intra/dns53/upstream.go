@@ -50,8 +50,8 @@ type transport struct {
 	port     uint16
 	client   *dns.Client
 	pool     *core.MultConnPool[uintptr]
-	proxies  ipn.Proxies // should never be nil
-	relay    ipn.Proxy   // may be nil
+	proxies  ipn.ProxyProvider // should never be nil
+	relay    ipn.Proxy         // may be nil
 	est      core.P2QuantileEstimator
 
 	lastaddr *core.Volatile[string] // last resolved addr
@@ -61,7 +61,7 @@ type transport struct {
 var _ dnsx.Transport = (*transport)(nil)
 
 // NewTransportFromHostname returns a DNS53 transport serving from hostname, ready for use.
-func NewTransportFromHostname(ctx context.Context, id, hostOrHostport string, ipcsv string, px ipn.Proxies) (t *transport, err error) {
+func NewTransportFromHostname(ctx context.Context, id, hostOrHostport string, ipcsv string, px ipn.ProxyProvider) (t *transport, err error) {
 	// ipcsv may contain port, eg: 10.1.1.3:53
 	do, err := settings.NewDNSOptionsFromHostname(hostOrHostport, ipcsv)
 	if err != nil {
@@ -71,7 +71,7 @@ func NewTransportFromHostname(ctx context.Context, id, hostOrHostport string, ip
 }
 
 // NewTransport returns a DNS53 transport serving from ip & port, ready for use.
-func NewTransport(ctx context.Context, id, ip, port string, px ipn.Proxies) (t *transport, err error) {
+func NewTransport(ctx context.Context, id, ip, port string, px ipn.ProxyProvider) (t *transport, err error) {
 	ipport := net.JoinHostPort(ip, port)
 	do, err := settings.NewDNSOptions(ipport)
 	if err != nil {
@@ -81,7 +81,7 @@ func NewTransport(ctx context.Context, id, ip, port string, px ipn.Proxies) (t *
 	return newTransport(ctx, id, do, px)
 }
 
-func newTransport(pctx context.Context, id string, do *settings.DNSOptions, px ipn.Proxies) (*transport, error) {
+func newTransport(pctx context.Context, id string, do *settings.DNSOptions, px ipn.ProxyProvider) (*transport, error) {
 	// cannot be nil, see: ipn.Exit which the only proxy guaranteed to be connected to the internet;
 	// ex: ipn.Base routed back within the tunnel (rethink's traffic routed back into rethink).
 	if px == nil {

@@ -43,15 +43,15 @@ type dot struct {
 	c             *dns.Client
 	c3            *dns.Client // with ech
 	pool          *core.MultConnPool[uintptr]
-	proxies       ipn.Proxies // may be nil
-	relay         ipn.Proxy   // may be nil
+	proxies       ipn.ProxyProvider // may be nil
+	relay         ipn.Proxy         // may be nil
 	est           core.P2QuantileEstimator
 }
 
 var _ dnsx.Transport = (*dot)(nil)
 
 // NewTLSTransport returns a DNS over TLS transport, ready for use.
-func NewTLSTransport(ctx context.Context, id, rawurl string, addrs []string, px ipn.Proxies) (t *dot, err error) {
+func NewTLSTransport(ctx context.Context, id, rawurl string, addrs []string, px ipn.ProxyProvider) (t *dot, err error) {
 	tlscfg := &tls.Config{
 		MinVersion:             tls.VersionTLS12,
 		SessionTicketsDisabled: false,

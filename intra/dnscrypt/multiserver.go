@@ -50,7 +50,7 @@ type DcMulti struct {
 	registeredServers   map[string]registeredserver
 	routes              []string
 	liveServers         []string
-	proxies             ipn.Proxies
+	proxies             ipn.ProxyProvider
 	ctx                 context.Context
 	sigterm             context.CancelFunc
 	lastStatus          int
@@ -663,7 +663,7 @@ func stamp2str(s stamps.ServerStamp) string {
 }
 
 // NewDcMult creates a dnscrypt proxy
-func NewDcMult(pctx context.Context, px ipn.Proxies, ctl protect.Controller) *DcMulti {
+func NewDcMult(pctx context.Context, px ipn.ProxyProvider, ctl protect.Controller) *DcMulti {
 	ctx, cancel := context.WithCancel(pctx)
 	exit, err := px.ProxyFor(ipn.Exit)
 	if err != nil {

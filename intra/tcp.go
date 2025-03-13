@@ -70,7 +70,7 @@ var _ netstack.GTCPConnHandler = (*tcpHandler)(nil)
 // Connections to `fakedns` are redirected to DOH.
 // All other traffic is forwarded using `dialer`.
 // `listener` is provided with a summary of each socket when it is closed.
-func NewTCPHandler(pctx context.Context, resolver dnsx.Resolver, prox ipn.Proxies, tunMode *settings.TunMode, listener SocketListener) netstack.GTCPConnHandler {
+func NewTCPHandler(pctx context.Context, resolver dnsx.Resolver, prox ipn.ProxyProvider, tunMode *settings.TunMode, listener SocketListener) netstack.GTCPConnHandler {
 	if listener == nil || core.IsNil(listener) {
 		log.W("tcp: using noop listener")
 		listener = nooplistener

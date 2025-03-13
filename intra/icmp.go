@@ -29,7 +29,7 @@ type icmpHandler struct {
 
 var _ netstack.GICMPHandler = (*icmpHandler)(nil)
 
-func NewICMPHandler(pctx context.Context, resolver dnsx.Resolver, prox ipn.Proxies, tunMode *settings.TunMode, listener Listener) netstack.GICMPHandler {
+func NewICMPHandler(pctx context.Context, resolver dnsx.Resolver, prox ipn.ProxyProvider, tunMode *settings.TunMode, listener Listener) netstack.GICMPHandler {
 	h := &icmpHandler{
 		baseHandler: newBaseHandler(pctx, "icmp", resolver, prox, tunMode, listener),
 	}
