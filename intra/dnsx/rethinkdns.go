@@ -115,7 +115,9 @@ func newRDNSLocal(t string, rank string,
 		return nil, errTrieArgs
 	}
 
-	ft, err := trie.Build(t, rank, conf, filetagjson)
+	const usemmap = true // TODO: make it user configurable?
+
+	ft, err := trie.Build(t, rank, conf, filetagjson, usemmap)
 	if err != nil {
 		return nil, err
 	}

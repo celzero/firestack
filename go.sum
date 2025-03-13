@@ -13,6 +13,10 @@ github.com/andybalholm/brotli v1.0.5 h1:8uQZIdzKmjc/iuPu7O2ioW48L81FgatrcpfFmiq/
 github.com/andybalholm/brotli v1.0.5/go.mod h1:fO7iG3H7G2nSZ7m0zPUDn85XEX2GTukHGRSepvi9Eig=
 github.com/celzero/gotrie v0.0.0-20240214185511-300735a8f01f h1:rwXlAFp6Qtg4LiF2VMYtr5qdaJlCdWYZiB4ddUBqYNw=
 github.com/celzero/gotrie v0.0.0-20240214185511-300735a8f01f/go.mod h1:zndDQUpFxXZAXZhfOquUw7KRLjYRgI6GxjnaKijAfGE=
+github.com/celzero/gotrie v0.0.0-20250313152800-99453ca7ac69 h1:RInuVh7MFS1YihfNRXkhOLi03PIA73RYSxbL7Z8OTE8=
+github.com/celzero/gotrie v0.0.0-20250313152800-99453ca7ac69/go.mod h1:zndDQUpFxXZAXZhfOquUw7KRLjYRgI6GxjnaKijAfGE=
+github.com/cenkalti/backoff v2.2.1+incompatible/go.mod h1:90ReRw6GdpyfrHakVjL/QHaoyV4aDUVVkXQJJJ3NXXM=
+github.com/cilium/ebpf v0.12.3/go.mod h1:TctK1ivibvI3znr66ljgi4hqOT8EYQjz1KWBfb1UVgM=
 github.com/cisco/go-hpke v0.0.0-20210215210317-01c430f1f302 h1:unAbn7dpE8eeUfWRaOPl1qTfffhIcCNuKQuECGNGWtk=
 github.com/cisco/go-hpke v0.0.0-20210215210317-01c430f1f302/go.mod h1:RSsoIHRMBe69FbF/fIbmWYa3rrC6vuPyC0MbNUpel3Q=
 github.com/cisco/go-tls-syntax v0.0.0-20200617162716-46b0cfb76b9b h1:Ves2turKTX7zruivAcUOQg155xggcbv3suVdbKCBQNM=
