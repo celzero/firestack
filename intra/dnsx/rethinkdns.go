@@ -558,7 +558,7 @@ func (r *rethinkdns) flagtostamp(fl []uint16) ([]uint16, error) {
 		}
 		hmask := *h & ww[mm]
 		databit := *h >> (15 - hindex)
-		dataindex := r.countSetBits(hmask) + 1
+		dataindex := countSetBits(hmask) + 1
 		datafound := (databit & 0x1) == 1
 		// if !datafound {
 		// log too verbose
@@ -646,6 +646,6 @@ func uint16tobyte(u16 []uint16) []byte {
 }
 
 // return the count of set bits in n
-func (r *rethinkdns) countSetBits(n uint16) int {
+func countSetBits(n uint16) int {
 	return (trie.BitsSetTable256[n&0xff] + trie.BitsSetTable256[(n>>8)&0xff])
 }
