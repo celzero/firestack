@@ -433,13 +433,16 @@ func (l *simpleLogger) writelog(lvl LogLevel, at int, msg string, args ...any) {
 	if l.spammy(lvl, pc) {
 		l.skips[lvl].Add(1)
 		return
-	} else if n := l.skips[lvl].Swap(0); n > spammsgThreshold[lvl] && (cc || ll) {
-		spammsg := file + l.msgstr("spammy... dropped %d msgs", n)
-		if ll {
-			l.out(spammsg)
-		}
-		if cc {
-			l.consoleQueue(&conMsg{spammsg, lvl})
+	} else if n := l.skips[lvl].Load(); n > spammsgThreshold[lvl] {
+		swapped := l.skips[lvl].CompareAndSwap(n, 0)
+		if swapped && (cc || ll) {
+			spammsg := file + l.msgstr("spammy... dropped %d msgs", n)
+			if ll {
+				l.out(spammsg)
+			}
+			if cc {
+				l.consoleQueue(&conMsg{spammsg, lvl})
+			}
 		}
 	}
 
