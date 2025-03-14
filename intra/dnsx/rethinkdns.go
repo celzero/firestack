@@ -25,6 +25,8 @@ import (
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/xdns"
 
+	"slices"
+
 	"github.com/celzero/gotrie/trie"
 )
 
@@ -115,9 +117,7 @@ func newRDNSLocal(t string, rank string,
 		return nil, errTrieArgs
 	}
 
-	const usemmap = true // TODO: make it user configurable?
-
-	ft, err := trie.Build(t, rank, conf, filetagjson, usemmap)
+	ft, err := trie.Build(t, rank, conf, filetagjson, trie.Fmmap)
 	if err != nil {
 		return nil, err
 	}
@@ -478,7 +478,7 @@ func (r *rethinkdns) flagstoinfo(flags []uint16) ([]*listinfo, error) {
 
 	// read first 16 header bits from msb to lsb
 	// and capture indices of set bits in tagIndices
-	for i := 0; i < 16; i++ {
+	for i := range 16 {
 		if (header << i) == 0 {
 			break
 		}
@@ -507,7 +507,7 @@ func (r *rethinkdns) flagstoinfo(flags []uint16) ([]*listinfo, error) {
 		// for each of the 16 bits in the flag
 		// capture the set bits and calculate
 		// its actual decimal value, the blocklist-id
-		for j := 0; j < 16; j++ {
+		for j := range 16 {
 			if (flag << j) == 0 {
 				break
 			}
@@ -552,7 +552,7 @@ func (r *rethinkdns) flagtostamp(fl []uint16) ([]uint16, error) {
 		}
 
 		mm := int(uw - hindex)
-		ww := trie.MaskBottom[w]
+		ww := trie.MaskLo[w]
 		if mm < 0 || len(ww) <= 0 || mm >= len(ww) {
 			continue // should not happen
 		}
@@ -573,7 +573,7 @@ func (r *rethinkdns) flagtostamp(fl []uint16) ([]uint16, error) {
 			*h |= u1 << (15 - hindex)
 			n |= u1 << (15 - pos)
 			// insert 'n' between res[:dataindex] and r[dataindex:]
-			nxt := append([]uint16{}, res[:dataindex]...)
+			nxt := slices.Clone(res[:dataindex])
 			nxt = append(nxt, n)
 			if dataindex < len(res) {
 				nxt = append(nxt, res[dataindex:]...)
@@ -647,5 +647,5 @@ func uint16tobyte(u16 []uint16) []byte {
 
 // return the count of set bits in n
 func countSetBits(n uint16) int {
-	return (trie.BitsSetTable256[n&0xff] + trie.BitsSetTable256[(n>>8)&0xff])
+	return (trie.BitsetTable256[n&0xff] + trie.BitsetTable256[(n>>8)&0xff])
 }

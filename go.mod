@@ -3,7 +3,7 @@ module github.com/celzero/firestack
 go 1.24
 
 require (
-	github.com/celzero/gotrie v0.0.0-20250313152800-99453ca7ac69
+	github.com/celzero/gotrie v0.0.0-20250314130138-a2756ab2f6bd
 	github.com/jedisct1/go-dnsstamps v0.0.0-20200621175006-302248eecc94
 	github.com/jedisct1/xsecretbox v0.0.0-20190909160646-b731c21297f9
 	github.com/k-sone/critbitgo v1.4.0
