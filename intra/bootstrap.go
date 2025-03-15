@@ -44,18 +44,18 @@ var (
 // DefaultDNS is the resolver used by all dialers.
 type DefaultDNS interface {
 	x.DNSTransport
-	kickstart(px ipn.Proxies) error
+	kickstart(px ipn.ProxyProvider) error
 	reinit(typ, ipOrUrl, ips string) error
 }
 
 type bootstrap struct {
 	ctx      context.Context
-	tr       dnsx.Transport // the underlying transport
-	proxies  ipn.Proxies    // never nil if underlying transport is set
-	typ      string         // DOH or DNS53
-	ipports  string         // never empty for DNS53
-	url      string         // never empty for DOH
-	hostname string         // never empty
+	tr       dnsx.Transport    // the underlying transport
+	proxies  ipn.ProxyProvider // never nil if underlying transport is set
+	typ      string            // DOH or DNS53
+	ipports  string            // never empty for DNS53
+	url      string            // never empty for DOH
+	hostname string            // never empty
 }
 
 var _ DefaultDNS = (*bootstrap)(nil)
@@ -111,11 +111,11 @@ func (b *bootstrap) newDefaultTransport() (dnsx.Transport, error) {
 }
 
 func (b *bootstrap) reinit(trtype, ippOrUrl, ipcsv string) error {
-	if len(trtype) <= 0 && len(ippOrUrl) <= 0 && len(ipcsv) <= 0 {
+	if len(ippOrUrl) <= 0 && len(ipcsv) <= 0 {
 		b.url = ""
-		b.hostname = builtinHostname
+		b.hostname = builtinHostname // use Goos
 		b.ipports = localip4 + "," + localip6
-		b.typ = dnsx.DNS53
+		b.typ = dnsx.DNS53 // ignore trtype
 	} else if trtype == dnsx.DOH {
 		if len(ippOrUrl) <= 0 {
 			log.E("dns: default: reinit: empty url! ips? %s", ipcsv)
@@ -190,7 +190,7 @@ func (b *bootstrap) recreate() error {
 	return b.kickstart(b.proxies)
 }
 
-func (b *bootstrap) kickstart(px ipn.Proxies) error {
+func (b *bootstrap) kickstart(px ipn.ProxyProvider) error {
 	if px == nil {
 		return errCannotStart
 	}
