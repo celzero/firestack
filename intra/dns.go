@@ -55,9 +55,15 @@ func SetSystemDNS(t Tunnel, ipcsv string) error {
 	p, perr := t.internalProxies()
 	ctx := t.internalCtx()
 	n := len(ipcsv)
-	if r == nil || p == nil || n <= 0 {
+	if r == nil || p == nil {
 		log.W("dns: cannot set system dns; n: %d, errs: %v %v", n, rerr, perr)
 		return core.JoinErr(dnsx.ErrAddFailed, rerr, perr)
+	}
+
+	if n <= 0 {
+		log.W("dns: no system dns IPs to set; fallback to Goos")
+		r.Remove(dnsx.System)
+		return nil
 	}
 
 	// if the ipcsv is localhost, use loopback addresses.
