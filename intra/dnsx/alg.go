@@ -851,10 +851,11 @@ func (t *dnsgateway) registerLocked(q, tid string, algip4, algip6 netip.Addr, re
 		return false
 	}
 
+	now := time.Now()
 	// ttl is used for algans and xips, but the alg'fied dns answer
 	// has a lower ttl as defined by const algttl (currently, 15s).
-	ansttl := time.Now().Add(max(ttl2m, ttl))
-	xipsttl := time.Now().Add(ttl)
+	ansttl := now.Add(max(ttl2m, ttl))
+	xipsttl := now.Add(ttl)
 	// secres.ips may be empty on timeout errors, or
 	// or same as realips if t2 is nil; realips can be nil
 	// if fixedips is being used.
