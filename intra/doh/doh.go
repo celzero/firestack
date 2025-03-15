@@ -689,6 +689,7 @@ func (t *transport) chooseProxy(pids []string) string {
 			foundProxy = true
 			log.VV("doh: (%s) proxy(%s) for %s@%s; among %v",
 				t.id, pid, t.GetAddr(), ipp, pids)
+			break
 		}
 	}
 	if !foundProxy {

@@ -294,6 +294,7 @@ func (t *dot) chooseProxy(pids []string) string {
 			foundProxy = true
 			log.VV("dot: (%s) proxy(%s) for %s@%s; among %v",
 				t.id, pid, t.addrport, ipp, pids)
+			break
 		}
 	}
 	if !foundProxy {

@@ -269,6 +269,7 @@ func (t *transport) chooseProxy(pids []string) string {
 			foundProxy = true
 			log.VV("dns53: proxy: choose: (%s) proxy(%s) for %s@%s; among %v",
 				t.id, pid, t.addrport, ipp, pids)
+			break
 		}
 	}
 	if !foundProxy {
