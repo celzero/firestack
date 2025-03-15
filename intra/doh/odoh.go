@@ -268,8 +268,7 @@ func (d *transport) refreshTargetKeyDNS() (ocfg *odoh.ObliviousDoHConfig, exp ti
 		}
 		ttlsec := time.Duration(rec.Header().Ttl) * time.Second
 		for _, kv := range https.Value {
-			// up until draft-06, the key was 0x8001
-			if kv.Key() != 32769 {
+			if kv.Key() != 32769 { // up until draft-06, the key was 0x8001
 				log.D("odoh: refresh-target: unexpected https record key; next")
 				continue
 			}

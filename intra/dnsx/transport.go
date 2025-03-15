@@ -1027,7 +1027,7 @@ func IsLocalProxy(pid string) bool {
 func RegisterAddrs(id, hostname string, ipps []string) (ok bool) {
 	id, _ = strings.CutPrefix(id, CT)
 	if id == Bootstrap || id == System || id == Default || id == Local {
-		log.I("dnsx: bootstrap! %s -> %v", hostname, ipps)
+		log.I("dns: bootstrap! %s => %v", hostname, ipps)
 		_, ok = dialers.NewProtected(hostname, ipps)
 	} else {
 		_, ok = dialers.New(hostname, ipps)
