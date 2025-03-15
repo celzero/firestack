@@ -157,10 +157,10 @@ func (m *ipmapper) queryIP2(_ context.Context, network, host, uid string) ([]net
 	if val6 == nil {
 		noval6 = true
 	} else {
-		noval4 = len(val4.Val.a) <= 0
+		noval6 = len(val6.Val.a) <= 0
 		r6 = val6.Val.a     // may be nil
 		lerr6 = val6.Err    // may be nil
-		tid6 = val4.Val.tid // may be empty
+		tid6 = val6.Val.tid // may be empty
 	}
 
 	if lerr4 != nil && lerr6 != nil { // all errors
@@ -172,7 +172,7 @@ func (m *ipmapper) queryIP2(_ context.Context, network, host, uid string) ([]net
 		return nil, errNoAns
 	} else if len(r4) <= 0 && len(r6) <= 0 { // empty answer
 		errs := core.JoinErr(errNoAns, lerr4, lerr6)
-		log.E("ipmapper: lookup: no answers for %s, err %v", host, errs)
+		log.E("ipmapper: lookup: no answers for %s (by: %s+%s), err %v", host, tid4, tid6, errs)
 		return nil, errs
 	}
 
@@ -182,7 +182,8 @@ func (m *ipmapper) queryIP2(_ context.Context, network, host, uid string) ([]net
 	ips = append(ips, ip4...)
 	ips = append(ips, ip6...)
 
-	log.D("ipmapper: host %s => ips %s; err4: %v, err6: %v", host, ips, lerr4, lerr6)
+	log.D("ipmapper: host %s => ips (out: %v / in: %v+%v); tids: %s+%s; err4: %v, err6: %v",
+		host, ips, r4, r6, tid4, tid6, lerr4, lerr6)
 	return ips, nil
 }
 
@@ -239,18 +240,19 @@ func (m *ipmapper) undoAlg(ip64 []netip.Addr, tid string) []netip.Addr {
 	// based on the dialers.Use4/Use6 settings.
 	gw := m.r.Gateway()
 	if gw == nil {
-		log.D("ipmapper: undoAlg: no-op; no gateway")
+		log.V("ipmapper: undoAlg: no-op for %v on %s; no gateway", ip64, tid)
 		return ip64
 	}
 	realips := make([]netip.Addr, 0, len(ip64))
 	for _, addr := range ip64 {
-		var xips []netip.Addr
-		if xips, _ = gw.X(addr, tid); len(xips) > 0 {
+		if xips, undidAlg := gw.X(addr, tid); len(xips) > 0 {
 			// may contain duplicates due to how alg maps domains and ips
 			realips = append(realips, xips...)
 			continue // skip log.W below
+		} else {
+			log.W("ipmapper: undoAlg: no algip => realip? (%s => %v); undidAlg? %t; tid? %s",
+				addr, xips, undidAlg, tid)
 		}
-		log.W("ipmapper: undoAlg: no algip => realip? (%s => %v)", addr, xips)
 	}
 	return realips // no dups
 }
