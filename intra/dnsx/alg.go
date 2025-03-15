@@ -158,6 +158,13 @@ const (
 	xall   xaddrstatus = false
 )
 
+func (xst xaddrstatus) String() string {
+	if xst {
+		return "alive"
+	}
+	return "all"
+}
+
 func makeXipStatus(alive bool) xaddrstatus {
 	return xaddrstatus(alive)
 }
@@ -199,37 +206,43 @@ func (p *xips) primary(s xaddrstatus) (out []netip.Addr) {
 }
 
 // x returns all live primary ips
-func (p *xips) x(s xaddrstatus) []netip.Addr {
+func (p *xips) x(s xaddrstatus) (pri []netip.Addr) {
 	if p == nil {
 		return nil
 	}
 
-	pri := p.primary(s)
+	pri = p.primary(s)
 
 	if (s == xalive && len(pri) > 0) && p.zz {
 		// if aux had unspecified ips, then append those to
 		// primary ips. if aux has proper ips or no ips,
 		// those are made redundant by primary.
-		return append(pri, anyaddr4, anyaddr6)
+		pri = append(pri, anyaddr4, anyaddr6)
 	}
+	log.VV("alg: xips: x(%s): zz? %t; %v", s, p.zz, pri)
 	return pri // may be nil / empty
 }
 
 // xof returns all live primary ips for a given tid
-func (p *xips) xof(tid string, s xaddrstatus) []netip.Addr {
+func (p *xips) xof(tid string, s xaddrstatus) (pri []netip.Addr) {
 	if p == nil {
 		return nil
 	}
-	if tid == notransport || len(tid) <= 0 {
-		return p.x(s)
+	if tid == notransport || tid == NoDNS || len(tid) <= 0 {
+		pri = p.x(s)
+		log.VV("alg: xips: xof(%s): no tid; %s; returning all %v", s, tid, pri)
+		return
 	}
 	p.pmu.RLock()
 	defer p.pmu.RUnlock()
 
 	if s == xalive {
-		return p.pri[tid].alive()
+		pri = p.pri[tid].alive()
 	}
-	return p.pri[tid].all()
+	pri = p.pri[tid].all()
+
+	log.VV("alg: xips: xof(%s): tid %s; %v", s, tid, pri)
+	return
 }
 
 // sec returns all secondary ips
