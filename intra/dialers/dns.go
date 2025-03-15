@@ -27,7 +27,7 @@ func Resolve(hostname string) ([]netip.Addr, error) {
 	// ipm.LookupNetIP itself has a short-term cache (ipmapper.go:battl)
 	addrs, err := ipm.LookupNetIP(context.Background(), "ip", hostname)
 	if len(addrs) <= 0 { // check cache
-		if addrs = ipm.GetAny(hostname).Addrs(); len(addrs) > 0 {
+		if addrs = CachedAddrs(hostname); len(addrs) > 0 {
 			return addrs, nil
 		} // else: no cached addrs
 	}

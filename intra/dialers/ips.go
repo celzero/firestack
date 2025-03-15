@@ -92,6 +92,13 @@ func For(hostOrIP string) []netip.Addr {
 	return nil
 }
 
+func Confirmed(hostOrIP string) (zz netip.Addr) {
+	if ipset := ipm.GetAny(hostOrIP); ipset != nil {
+		return ipset.Confirmed()
+	}
+	return
+}
+
 func ForUrl(s string) []netip.Addr {
 	u, err := url.Parse(s)
 	if err != nil {
@@ -100,8 +107,8 @@ func ForUrl(s string) []netip.Addr {
 	return For(u.Hostname())
 }
 
-// Addrs returns addresses for hostOrIP from cache. Use Resolve() to bypass cache.
-func Addrs(hostOrIP string) []netip.Addr {
+// CachedAddrs returns addresses for hostOrIP from cache. Use Resolve() to bypass cache.
+func CachedAddrs(hostOrIP string) []netip.Addr {
 	ipset := ipm.GetAny(hostOrIP)
 	if ipset != nil || !ipset.Empty() {
 		return ipset.Addrs()
