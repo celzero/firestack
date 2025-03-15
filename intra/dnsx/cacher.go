@@ -76,6 +76,7 @@ type cres struct {
 	bumps  int
 }
 
+// todo: 0s answer ttl? native caching in alg?
 type ctransport struct {
 	sync.RWMutex // protects store
 	Transport    // the underlying transport
@@ -146,7 +147,11 @@ func (cr *cres) String() string {
 	if cr == nil {
 		return "<nil>"
 	}
-	return fmt.Sprintf("bumps=%d; expiry=%s; s=%s", cr.bumps, cr.expiry, cr.s)
+	return fmt.Sprintf("bumps=%d; expiry=%s; s=%s", cr.bumps, timestamp(cr.expiry), cr.s)
+}
+
+func timestamp(t time.Time) string {
+	return t.Format(time.Stamp)
 }
 
 // String implements fmt.Stringer
@@ -294,8 +299,8 @@ func asResponse(q *dns.Msg, v *cres, fresh bool) (a *dns.Msg, s *x.DNSSummary, e
 		err = errNilCacheResponse
 		return
 	}
-	aname, _ := xdns.NormalizeQName(xdns.QName(q))
-	qname, _ := xdns.NormalizeQName(xdns.QName(a))
+	aname := qname(a)
+	qname := qname(q)
 	if aname != qname {
 		log.E("cache: asResponse: qname mismatch: a(%s) != q(%s)", aname, qname)
 		err = errCacheResponseMismatch
