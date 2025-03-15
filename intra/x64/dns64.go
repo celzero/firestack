@@ -42,8 +42,6 @@ var (
 	// _, rfc6052WKP, _ = net.ParseCIDR("64:ff9b::/96")
 	// _, rfc8215WKP, _ = net.ParseCIDR("64:ff9b:1:fffe::/96")
 
-	ttl64 = uint32(180)
-
 	ipv6bits = 8 * net.IPv6len
 
 	errQuery        = errors.New("invalid dns64 query")
@@ -221,7 +219,7 @@ func (d *dns64) eval(network string, force64 bool, ansin *dns.Msg, r dnsx.Transp
 			continue
 		}
 		for _, ipnet := range ip64 {
-			if rec := xdns.MaybeToQuadA(answer, ipnet, ttl64); rec != nil {
+			if rec := xdns.MaybeToQuadA(answer, ipnet); rec != nil {
 				rr64 = append(rr64, rec)
 				didTranslate = true
 			}

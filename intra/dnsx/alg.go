@@ -30,9 +30,6 @@ const (
 	timeout = 15 * time.Second
 	ttl2m   = 2 * time.Minute // 2m ttl for alg/nat ip
 
-	algXlatTtl     = xdns.BlockTTL
-	algFixedAnsTtl = xdns.AnsTTL
-
 	key4 = ":a"
 	key6 = ":aaaa"
 
@@ -719,6 +716,7 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []netip.Addr, network string, q 
 		}
 	}
 
+	algXlatTtl := xdns.ZeroTTL
 	substok4 := false
 	substok6 := false
 	// substituions needn't happen when no alg ips to begin with
@@ -778,9 +776,11 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []netip.Addr, network string, q 
 		algip6 = algip6hints
 	}
 
+	bustcache := xdns.BustAndroidCacheIfNeeded(ansin)
+
 	tid1 := idstr(t1)
-	log.D("alg: ok; for %s:%s:%d, domains %s real: %s / fix: %s => subst %s | %s; (mod? %t / fix? %t); sec %s",
-		tid1, qname, smm.QType, targets, realip, fixedips, algip4, algip6, mod, usefixed, secres.ips)
+	log.D("alg: ok; for %s:%s:%d, domains %s real: %s / fix: %s => subst %s | %s; (mod? %t / fix? %t / bustcache? %t); sec %s",
+		tid1, qname, smm.QType, targets, realip, fixedips, algip4, algip6, mod, usefixed, bustcache, secres.ips)
 
 	if t.registerLocked(qname, tid1, algip4, algip6, realip, ansttl, targets, secres) {
 		// if mod is set, send modified answer
@@ -1369,7 +1369,8 @@ func synthesizeOrQuery(preset []netip.Addr, tr Transport, msg *dns.Msg, network 
 	if msg == nil || !xdns.HasAnyQuestion(msg) {
 		return nil, errNoQuestion
 	}
-	qname := xdns.QName(msg)
+	algXlatTtl := xdns.ZeroTTL
+	qname := qname(msg)
 	qtyp := uint16(qtype(msg))
 	is4 := xdns.IsAQType(qtyp)
 	is6 := !is4 && xdns.IsAAAAQType(qtyp)

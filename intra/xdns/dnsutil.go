@@ -554,7 +554,7 @@ func RefusedResponseFromMessage(srcMsg *dns.Msg) (dstMsg *dns.Msg, err error) {
 		return nil, errNoPacket
 	}
 	dstMsg.Rcode = dns.RcodeSuccess
-	ttl := BlockTTL
+	ttl := blockTTL
 
 	questions := srcMsg.Question
 	if len(questions) == 0 {
@@ -625,7 +625,7 @@ func AQuadAForQuery(q *dns.Msg, ips ...netip.Addr) (a *dns.Msg, err error) {
 		return nil, errNoPacket
 	}
 	a.Rcode = dns.RcodeSuccess
-	ttl := AnsTTL
+	ttl := ansTTL
 
 	questions := q.Question
 	if len(questions) == 0 {
@@ -928,6 +928,25 @@ func IPHints(msg *dns.Msg, x dns.SVCBKey) []netip.Addr {
 	return ips
 }
 
+func AQuadAAnswers(msg *dns.Msg) (ips []netip.Addr) {
+	if msg == nil {
+		return ips
+	}
+	for _, answer := range msg.Answer {
+		switch rec := answer.(type) {
+		case *dns.A:
+			if ipaddr, ok := netip.AddrFromSlice(rec.A); ok {
+				ips = append(ips, ipaddr)
+			}
+		case *dns.AAAA:
+			if ipaddr, ok := netip.AddrFromSlice(rec.AAAA); ok {
+				ips = append(ips, ipaddr)
+			}
+		}
+	}
+	return ips
+}
+
 func AAnswer(msg *dns.Msg) []netip.Addr {
 	a4 := []netip.Addr{}
 	if msg == nil {
@@ -1088,7 +1107,7 @@ func MakeAAAARecord(name string, ip6 string, ttl uint32) *dns.AAAA {
 // MaybeToQuadA translates an A record to a AAAA record if the prefix is not nil.
 // The ttl of the new record is the minimum of the original ttl and minttl.
 // If the prefix is nil or answer has an empty A record, it returns nil.
-func MaybeToQuadA(answer dns.RR, prefix *net.IPNet, minttl uint32) *dns.AAAA {
+func MaybeToQuadA(answer dns.RR, prefix *net.IPNet) *dns.AAAA {
 	header := answer.Header()
 	if prefix == nil || header.Rrtype != dns.TypeA {
 		return nil
@@ -1101,7 +1120,7 @@ func MaybeToQuadA(answer dns.RR, prefix *net.IPNet, minttl uint32) *dns.AAAA {
 	if ipv4 == nil { // TODO: do not translate bogons?
 		return nil
 	}
-	ttl := min(minttl, header.Ttl)
+	ttl := min(ansTTL, header.Ttl)
 
 	ipv6 := ip4to6(*prefix, ipv4)
 
@@ -1140,7 +1159,7 @@ func ToIp6Hint(answer dns.RR, prefix *net.IPNet) dns.RR {
 	if len(kv) <= 0 {
 		return nil
 	}
-	ttl := uint32(300) // 5 minutes
+	ttl := ansTTL
 
 	hint4 := make([]string, 0)
 	rest := make([]dns.SVCBKeyValue, 0)

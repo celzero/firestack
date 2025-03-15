@@ -22,6 +22,8 @@ import (
 	"net/netip"
 	"net/url"
 	"strings"
+
+	"github.com/miekg/dns"
 )
 
 type CryptoConstruction uint16
@@ -53,14 +55,31 @@ const (
 	MaxDNSPacketSize        = 4096
 	MaxDNSUDPPacketSize     = 4096
 	MaxDNSUDPSafePacketSize = 1252
+
 	// 0 TTL means no caching:
 	// cs.android.com/android/platform/superproject/main/+/main:packages/modules/DnsResolver/res_cache.cpp;l=770;drc=5483e926ea7753866350b1681fef8f3214708261
-	BlockTTL = uint32(0)
-	// Some short-lived TTL for synthesized answers.
-	AnsTTL = uint32(60)
+	ZeroTTL = uint32(0)
+
 	// Network MTU
 	MaxMTU = 0xffff // 65k, ought to be enough for everybody
+
+	// disable Android dnsproxyd caches
+	BustDnsproxydResNetCache = true
 )
+
+var (
+	// 0 TTL means no caching
+	blockTTL = uint32(5)
+	// some short-lived TTL for synthesized answers
+	ansTTL = uint32(15)
+)
+
+func init() {
+	if BustDnsproxydResNetCache {
+		blockTTL = uint32(0)
+		ansTTL = uint32(0)
+	}
+}
 
 var (
 	ip4zero = net.IPv4zero
@@ -116,6 +135,14 @@ func Net2ProxyID(network string) (proto string, pids []string) {
 		}
 	}
 	return
+}
+
+func BustAndroidCacheIfNeeded(ans *dns.Msg) bool {
+	if BustDnsproxydResNetCache {
+		// TODO: skip negative records (SOA, NXDOMAIN, etc)
+		return WithTtl(ans, ZeroTTL)
+	}
+	return false
 }
 
 // NetAndProxyID joins proto and pid into a network string.
