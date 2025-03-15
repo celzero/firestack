@@ -231,6 +231,8 @@ type ProtonRefreshResponse struct {
 	RefreshCounter int32    `json:"RefreshCounter"`
 }
 
+// github.com/ProtonVPN/android-app/blob/2eb1c4c960a/app/src/main/java/com/protonvpn/android/api/ProtonApiRetroFit.kt#L134
+//
 //	{
 //		"ClientPublicKey": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAFJ2 ... MRmdSNTikbTzToQWw=\n-----END PUBLIC KEY-----",
 //		"ClientPublicKeyMode": "EC",
@@ -246,6 +248,8 @@ type ProtonCertRequest struct {
 	Features            []string `json:"Features"`
 }
 
+// github.com/ProtonVPN/android-app/blob/2eb1c4c960a/app/src/main/java/com/protonvpn/android/models/vpn/CertificateResponse.kt#L26
+//
 //	{
 //		"Code":1000,
 //		"SerialNumber":"4000000007",
@@ -710,6 +714,8 @@ func (a *ProtonClient) newConf() error {
 	return nil // success
 }
 
+// refresh and register are the same api call:
+// github.com/ProtonVPN/android-app/blob/2eb1c4c960a/app/src/main/java/com/protonvpn/android/vpn/CertificateRepository.kt#L183
 func (a *ProtonClient) registerCert() error {
 	tries := 0
 
@@ -1010,7 +1016,7 @@ func (a *ProtonClient) refreshCreds() error {
 	if err != nil {
 		return err
 	}
-	req, err := http.NewRequest("POST", a.refreshCredsUrl(), bytes.NewReader(payloadJson))
+	req, err := http.NewRequest("POST", a.refreshTokensUrl(), bytes.NewReader(payloadJson))
 	if err != nil {
 		return err
 	}
@@ -1068,7 +1074,7 @@ func (a *ProtonClient) sessionUrl() string {
 	return protonBaseUrl + sessionV4UrlPath
 }
 
-func (a *ProtonClient) refreshCredsUrl() string {
+func (a *ProtonClient) refreshTokensUrl() string {
 	return protonBaseUrl + refreshV4UrlPath
 }
 
