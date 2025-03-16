@@ -82,6 +82,8 @@ type Gateway interface {
 	translate(yes bool)
 	// Query using t1 as primary transport and t2 as secondary and preset as pre-determined ip answers
 	q(t1, t2 Transport, preset []netip.Addr, network string, q *dns.Msg, s *x.DNSSummary) (*dns.Msg, error)
+	// onStopped is called when a transport tid is stopped. Gateway invalidates its local caches, if any.
+	onStopped(tid string)
 	// clear obj state
 	stop()
 }
@@ -116,6 +118,7 @@ func (a expaddr) alive() []netip.Addr {
 	return a.get(true /*live*/)
 }
 
+// fresh returns false if a has expired or if a is zero-value.
 func (a expaddr) fresh() bool {
 	return !a.ttl.IsZero() && time.Now().Before(a.ttl)
 }
@@ -248,6 +251,20 @@ func (p *xips) sec() []netip.Addr {
 		return nil
 	}
 	return p.aux
+}
+
+func (p *xips) rmv(tid string) (done bool) {
+	if p == nil {
+		return
+	}
+	p.pmu.Lock()
+	defer p.pmu.Unlock()
+	if xaddr := p.pri[tid]; xaddr.fresh() {
+		done = true
+		xaddr.ttl = time.Now() // mark as expired
+		p.pri[tid] = xaddr
+	}
+	return
 }
 
 // block returns true if any secondary ip is unspecified
@@ -397,6 +414,33 @@ func NewDNSGateway(pctx context.Context, outer RdnsResolver, dns64 NatPt) (t *dn
 func (t *dnsgateway) translate(yes bool) {
 	prev := t.mod.Swap(yes)
 	log.I("alg: translate? prev(%t) > now(%t)", prev, yes)
+}
+
+func (t *dnsgateway) onStopped(tid string) {
+	if len(tid) <= 0 {
+		return
+	}
+
+	ach := make(chan *xips, len(t.alg))
+	defer close(ach)
+
+	go func() {
+		n := 0
+		for x := range ach {
+			if x.rmv(tid) {
+				n++
+			}
+		}
+		log.I("alg: onStopped(%s): removed %d alg<>realip translations", tid, n)
+	}()
+
+	t.RLock()
+	defer t.RUnlock()
+	for _, algans := range t.alg {
+		if algans != nil {
+			ach <- algans.ips
+		}
+	}
 }
 
 // Implements Gateway

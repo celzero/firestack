@@ -249,6 +249,9 @@ func (r *resolver) Translate(b bool) {
 func (r *resolver) stopIfExistsLocked(id string) {
 	if t, ok := r.transports[id]; ok && t != nil {
 		err := t.Stop() // todo: async?
+		core.Go("r.gateway.stopTid", func() {
+			r.gateway.onStopped(id)
+		})
 		log.VV("dns: stop: %s; err? %v", id, err)
 		delete(r.transports, id)
 	}
