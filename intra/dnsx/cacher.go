@@ -341,8 +341,16 @@ func (t *ctransport) fetch(network string, q *dns.Msg, summary *x.DNSSummary, cb
 		fsmm.ID = t.ID()
 		fsmm.Type = t.Type()
 
+		reqsent := false
+
+		defer func() {
+			// fill after summaries are filled
+			fsmm.Cached = !reqsent
+		}()
+
 		cc := &cres{ans: nil, s: copySummary(fsmm)}
 		v, err := t.reqbarrier.DoIt(key, func() (_ *cres, qerr error) {
+			reqsent = true
 			// ans may be nil
 			cc.ans, qerr = Req(t.Transport, network, q, fsmm)
 			t.hangoverCheckpoint()
@@ -355,11 +363,11 @@ func (t *ctransport) fetch(network string, q *dns.Msg, summary *x.DNSSummary, cb
 		cachehit := cachedres != nil
 		if !cachehit { // v.Val may be uncacheable (ex: rcode != 0)
 			cachedres = cc.copy() // cc (cres) never nil; but cc.ans may be nil
-			log.D("cache: barrier: empty(k: %s); barrier: %s; qerr? %v",
-				key, v, err)
+			log.D("cache: barrier: empty(k: %s); sent? %t; barrier: %s; qerr? %v",
+				key, reqsent, v, err)
 		} else if !fresh { // expect fresh values, except on verrs
-			log.W("cache: barrier: stale(k: %s); barrier: %s (cache: %s); qerr? %v",
-				key, v, cachedres, err)
+			log.W("cache: barrier: stale(k: %s); sent? %t, barrier: %s (cache: %s); qerr? %v",
+				key, reqsent, v, cachedres, err)
 		}
 
 		// nil ans when Transport returns err (no servfail) and cache is empty
@@ -369,7 +377,8 @@ func (t *ctransport) fetch(network string, q *dns.Msg, summary *x.DNSSummary, cb
 		inhangover := t.hangover.Exceeds(httl)
 		if inhangover {
 			err = core.JoinErr(err, errHangover)
-			log.W("cache: barrier: hangover(k: %s); discard ans (has? %t)", key, hasans)
+			log.W("cache: barrier: hangover(k: %s); sent? %t, discard ans (has? %t)",
+				key, reqsent, hasans)
 			if cachehit {
 				fillSummary(cachedres.s, fsmm)
 			}
@@ -431,6 +440,7 @@ func (t *ctransport) fetch(network string, q *dns.Msg, summary *x.DNSSummary, cb
 			// change summary fields to reflect cached response, except for latency
 			fillSummary(cachedsummary, summary)
 			summary.Latency = 0 // don't use cached latency
+			summary.Cached = true
 			return r, nil
 		} // else: fallthrough to sendRequest
 	} else {
@@ -530,6 +540,7 @@ func fillSummary(s *x.DNSSummary, out *x.DNSSummary) {
 		out.RData = s.RData
 	}
 
+	out.Cached = s.Cached
 	out.RCode = s.RCode
 	out.RTtl = s.RTtl
 	out.Server = s.Server

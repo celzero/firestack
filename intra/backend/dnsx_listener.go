@@ -22,6 +22,8 @@ type DNSSummary struct {
 	QName string
 	// Query type: A, AAAA, SVCB, HTTPS, etc. May be 0.
 	QType int
+	// Cached response
+	Cached bool
 	// DNS Response data, ex: a csv of ips for A, AAAA.
 	RData string
 	// DNS Response code

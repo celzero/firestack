@@ -442,6 +442,7 @@ func (t *dnsgateway) cachedAnswer(tid string, q *dns.Msg, typ iptype) (ans *dns.
 func (t *dnsgateway) qp(t1 Transport, network string, q *dns.Msg, innersummary *x.DNSSummary) (ans *dns.Msg, err error) {
 	// For A/AAAA queries, check if xips has an answer for the qname.
 	if ans, err := t.cachedAnswer(idstr(t1), q, typreal); err == nil {
+		innersummary.Cached = true
 		return ans, nil
 	}
 	return Req(t1, network, q, innersummary)
