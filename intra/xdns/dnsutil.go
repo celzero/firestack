@@ -95,7 +95,7 @@ func EmptyResponseFromMessage(srcMsg *dns.Msg) *dns.Msg {
 		return nil
 	}
 	dstMsg := dns.Msg{
-		MsgHdr:   srcMsg.MsgHdr,
+		MsgHdr:   srcMsg.MsgHdr, // copy id, flags, etc
 		Compress: true,
 	}
 	dstMsg.Question = srcMsg.Question
@@ -174,12 +174,25 @@ func Rcode(msg *dns.Msg) int {
 	return dns.RcodeFormatError
 }
 
-func WithTtl(msg *dns.Msg, secs uint32) (ok bool) {
+func WithTtl(msg *dns.Msg, secs uint32, typ ...uint16) (ok bool) {
 	if !HasAnyAnswer(msg) {
 		return ok
 	}
 	for _, a := range msg.Answer {
-		if a.Header().Ttl > 0 {
+		if a == nil {
+			continue
+		}
+		if a.Header().Ttl <= 0 || a.Header().Ttl == secs {
+			continue
+		}
+		resetTtl := len(typ) <= 0
+		for _, t := range typ {
+			if a.Header().Rrtype == t {
+				resetTtl = true
+				break
+			}
+		}
+		if resetTtl {
 			a.Header().Ttl = secs
 			ok = true
 		}
@@ -620,7 +633,7 @@ func AQuadAForQuery(q *dns.Msg, ips ...netip.Addr) (a *dns.Msg, err error) {
 	if q == nil {
 		return nil, errNoPacket
 	}
-	a = EmptyResponseFromMessage(q) // may be nil
+	a = EmptyResponseFromMessage(q) // may return nil
 	if a == nil {
 		return nil, errNoPacket
 	}
