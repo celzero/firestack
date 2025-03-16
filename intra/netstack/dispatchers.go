@@ -45,8 +45,8 @@ import (
 
 const wrapttl = 5 * time.Second // wrapttl is the time to wait for wrapup() to complete.
 
-// BufConfig defines the shape of the vectorised view used to read packets from the NIC.
-var BufConfig = []int{128, 256, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768}
+// bufcfg defines the shape of the vectorised view used to read packets from the NIC.
+var bufcfg = []int{128, 256, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768}
 
 type iovecBuffer struct {
 	// serializes access to all members
@@ -182,7 +182,7 @@ func newReadVDispatcher(fd int, e *endpoint) (linkDispatcher, error) {
 	d := &readVDispatcher{
 		e:   e,
 		fds: core.NewVolatile(tun),
-		buf: newIovecBuffer(BufConfig),
+		buf: newIovecBuffer(bufcfg),
 		mgr: newSupervisor(e, fd),
 	}
 	d.mgr.start()
