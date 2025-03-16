@@ -285,7 +285,7 @@ func (p *xips) merge(q *xips) {
 	defer q.pmu.RUnlock()
 
 	for k, v := range q.pri {
-		if aa := p.pri[k]; !aa.fresh() {
+		if aa, ok := p.pri[k]; !ok || !aa.fresh() {
 			p.pri[k] = v
 		} else {
 			ips := copyUniq(aa.alive(), v.alive())
@@ -310,6 +310,7 @@ type baseans struct {
 	ttl        time.Time // ttl for this alg translation
 }
 
+// fresh returns false if a has expired or if a is nil
 func (a *baseans) fresh() bool {
 	if a == nil {
 		return false
