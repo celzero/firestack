@@ -268,10 +268,12 @@ func (d *readVDispatcher) wrapup(fds *fds, noMoreThan30s time.Duration) {
 		log.I("ns: tun(%d): drain: start w timeout in %dsecs", fds.tun(), secs)
 		for {
 			cont, err := d.io(fds)
-			if err != nil || !cont {
-				log.W("ns: tun(%d): drain: exit; err %v", fds.tun(), err)
+			if fd := fds.tun(); !cont {
+				log.W("ns: tun(%d): drain: exit; err? %v", fd, err)
 				return
-			}
+			} else if err != nil {
+				log.W("ns: tun(%d): drain: continue on err: %v", fd, err)
+			} // else: continue draining
 		}
 	}()
 }

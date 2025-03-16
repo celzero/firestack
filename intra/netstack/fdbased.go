@@ -33,6 +33,7 @@ import (
 	"fmt"
 	"sync/atomic"
 	"syscall"
+	"time"
 
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/log"
@@ -195,7 +196,7 @@ func NewFdbasedInjectableEndpoint(opts *Options) (SeamlessEndpoint, error) {
 
 	e := &endpoint{
 		mtu:     atomic.Uint32{},
-		fds:     core.NewVolatile[int](invalidfd),
+		fds:     core.NewVolatile(invalidfd),
 		caps:    caps,
 		addr:    opts.Address,
 		hdrSize: hdrSize,
@@ -263,12 +264,12 @@ func (e *endpoint) Dispose() (err error) {
 func (e *endpoint) Swap(fd int) (err error) {
 	if err = unix.SetNonblock(fd, true); err != nil {
 		clos(fd)
-		return fmt.Errorf("unix.SetNonblock(%v) failed: %v", fd, err)
+		return fmt.Errorf("ns: tun: set non blocking(%d) failed: %v", fd, err)
 	}
 
 	prevfd := e.fds.Swap(fd) // commence WritePackets() on fd
 
-	log.D("ns: swapping tun... fd: %d => %d", prevfd, fd)
+	log.D("ns: swap: tun fd %d => %d", prevfd, fd)
 
 	e.Lock()
 	defer e.Unlock()
@@ -281,9 +282,11 @@ func (e *endpoint) Swap(fd int) (err error) {
 
 	hasDispatcher := e.dispatcher != nil
 	if err == nil && hasDispatcher { // attached?
+		log.I("ns: tun(%d => %d): swap: restart looper %t for new fd",
+			prevfd, fd, hasDispatcher)
 		go e.dispatchLoop(e.inboundDispatcher)
 	} else {
-		log.W("ns: tun(%d => %d): Swap: no dispatcher? %t for new fd; err %v",
+		log.W("ns: tun(%d => %d): swap: no dispatcher? %t for new fd; err %v",
 			prevfd, fd, !hasDispatcher, err)
 	}
 	return
@@ -313,17 +316,17 @@ func (e *endpoint) Attach(dispatcher stack.NetworkDispatcher) {
 	if dispatcher == nil && e.dispatcher != nil {
 		log.I("ns: tun(%d): attach: detach dispatcher (and inbound? %t)", fd, pipe)
 		if rx != nil {
-			go rx.stop() // avoid mutex
+			go rx.stop() // avoid mutex; closes fd
 			e.Wait()     // on all inboundDispatcher w/ mutex locked?
 		}
 		e.dispatcher = nil
-		e.inboundDispatcher = nil
-		e.fds = nil
+		e.inboundDispatcher = nil // rx
+		e.fds.Store(invalidfd)
 		log.I("ns: tun(%d): attach: done detaching dispatcher", fd)
 		return
 	}
 	if dispatcher != nil && e.dispatcher == nil {
-		log.I("ns: tun(%d): attach: attach new dispatcher", fd)
+		log.I("ns: tun(%d): attach: new dispatcher & looper", fd)
 		e.dispatcher = dispatcher
 		go e.dispatchLoop(rx)
 		return
@@ -484,13 +487,17 @@ func (e *endpoint) dispatchLoop(inbound linkDispatcher) tcpip.Error {
 		return &tcpip.ErrUnknownDevice{}
 	}
 
+	start := time.Now()
 	log.I("ns: tun(%d): dispatchLoop: start", fd)
 	for {
 		cont, err := inbound.dispatch()
-		if err != nil || !cont {
-			log.W("ns: tun(%d): dispatchLoop: exit; err %v", fd, err)
+		if !cont {
+			elapsed := time.Since(start)
+			log.W("ns: tun(%d): dispatchLoop: exit; dur: %s; err? %v", fd, elapsed, err)
 			return err
-		}
+		} else if err != nil {
+			log.W("ns: tun(%d): dispatchLoop: continue on err: %v", fd, err)
+		} // else: continue dispatching
 	}
 }
 
