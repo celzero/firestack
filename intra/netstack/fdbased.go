@@ -328,6 +328,12 @@ func (e *endpoint) Attach(dispatcher stack.NetworkDispatcher) {
 	if dispatcher != nil && e.dispatcher == nil {
 		log.I("ns: tun(%d): attach: new dispatcher & looper", fd)
 		e.dispatcher = dispatcher
+		if e.inboundDispatcher == nil && fd != invalidfd { // unlikely
+			var err error
+			e.inboundDispatcher, err = createInboundDispatcher(e, fd)
+			logeif(err)("ns: tun(%d): attach: just-in-time createInboundDispatcher; err? %v", fd, err)
+			rx = e.inboundDispatcher
+		}
 		go e.dispatchLoop(rx)
 		return
 	}
