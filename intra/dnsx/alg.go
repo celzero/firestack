@@ -369,10 +369,10 @@ func (a *algans) merge(b *algans) {
 
 // TODO: Keep a context here so that queries can be canceled.
 type dnsgateway struct {
-	sync.RWMutex                         // locks alg, nat, octets, hexes
-	alg          map[string]*algans      // domain+type -> ans
-	nat          map[netip.Addr]*baseans // algip -> baseans
-	ptr          map[netip.Addr]*baseans // primaryip -> baseans
+	sync.RWMutex                         // protects alg, nat, octets, hexes
+	alg          map[string]*algans      // domain+type => ans
+	nat          map[netip.Addr]*baseans // algip => baseans
+	ptr          map[netip.Addr]*baseans // primaryip => baseans
 	octets       []uint8                 // ip4 octets, 100.x.y.z
 	hexes        []uint16                // ip6 hex, 64:ff9b:1:da19:0100.x.y.z
 
