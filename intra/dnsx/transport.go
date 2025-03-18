@@ -721,21 +721,18 @@ func (r *resolver) reply(c protect.Conn, uid string) {
 		tm := time.Now().Add(ttl2m)
 		_ = c.SetDeadline(tm)
 
-		n, err := c.Read(q)
-
-		do := func() {
-			defer free()
-			_ = r.dnsudp(q[:n], c, uid)
-		}
-
-		if err != nil {
+		if n, err := c.Read(q); err != nil {
 			millis := int(time.Since(start).Seconds() * 1000)
 			log.VV("dns: udp: for %s done; tot: %d, t: %dms, err: %v",
 				uid, cnt, millis, err)
 			free()
 			break
+		} else {
+			core.Gx("r.reply.do", func() {
+				defer free()
+				_ = r.dnsudp(q[:n], c, uid)
+			})
 		}
-		core.Gx("r.reply.do", do)
 		cnt++
 	}
 }
@@ -779,17 +776,16 @@ func (r *resolver) accept(c io.ReadWriteCloser, uid string) {
 			free()
 			break // close on read errs
 		}
-		do := func() {
-			defer free()
-			_ = r.dnstcp(q[:n], c, uid)
-		}
 
 		if n != int(qlen) {
 			log.W("dns: tcp: for %s incomplete query: %d < %d", uid, n, qlen)
 			free()
 			break // close on incomplete reads
 		}
-		core.Gx("r.accept.do", do)
+		core.Gx("r.accept.do", func() {
+			defer free()
+			_ = r.dnstcp(q[:n], c, uid)
+		})
 		cnt++
 	}
 	ms := int(time.Since(start).Seconds() * 1000)
