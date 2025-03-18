@@ -49,7 +49,7 @@ func AllocRegion(size int) *[]byte {
 	return &b
 }
 
-// Alloc returns a truncated byte slice of size 2048
+// Alloc returns a truncated byte slice of size 4096
 func Alloc() *[]byte {
 	return AllocRegion(B4096)
 }
