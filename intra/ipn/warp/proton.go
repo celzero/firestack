@@ -782,23 +782,23 @@ retryAfterRefresh:
 			return err
 		}
 	}
-	if res.StatusCode != http.StatusOK {
-		b, rerr := io.ReadAll(res.Body)
-		log.E("proton: regcert: fail: status(%d/%s) hdrs(%v) body(%s) err(%v)",
-			res.StatusCode, res.Status, res.Header, b, rerr)
-		return fmt.Errorf("proton: regcert: err status(%d/%s)", res.StatusCode, res.Status)
-	}
-
-	certResponseBytes, err := io.ReadAll(res.Body)
-	if err != nil {
-		log.E("proton: regcert: readall: %v", err)
-		return err
-	}
 
 	var certResponse ProtonCertResponse
-	if err = json.Unmarshal(certResponseBytes, &certResponse); err != nil {
-		log.E("proton: regcert: unmarshal: %v", err)
-		return err
+	certResponseBytes, certErr := io.ReadAll(res.Body)
+	if certErr == nil {
+		certErr = json.Unmarshal(certResponseBytes, &certResponse)
+	}
+
+	if res.StatusCode != http.StatusOK {
+		log.E("proton: regcert: fail: status(%d/%s) hdrs(%v) body(%s) err(%v)",
+			res.StatusCode, res.Status, res.Header, string(certResponseBytes), certErr)
+		return core.JoinErr(fmt.Errorf("proton: regcert: err status(%d/%d/%s)",
+			res.StatusCode, certResponse.Code, certResponse.Error), certErr)
+	}
+
+	if certErr != nil {
+		log.E("proton: regcert: read/unmarshal: %v", certErr)
+		return certErr
 	}
 
 	if certResponse.Code != 1000 {
@@ -887,23 +887,22 @@ func (a *ProtonClient) fetchCreds() error {
 	}
 	defer res.Body.Close()
 
-	if res.StatusCode != http.StatusOK {
-		b, rerr := io.ReadAll(res.Body)
-		log.E("proton: creds: fail: status(%d/%s) hdrs(%v) body(%s) err(%v)",
-			res.StatusCode, res.Status, res.Header, b, rerr)
-		return fmt.Errorf("proton: creds: err status(%d/%s)", res.StatusCode, res.Status)
-	}
-
-	credResponseBytes, err := io.ReadAll(res.Body)
-	if err != nil {
-		log.E("proton: creds: readall: %v", err)
-		return err
-	}
-
 	var credResponse ProtonCredentialResponse
-	if err := json.Unmarshal(credResponseBytes, &credResponse); err != nil {
-		log.E("proton: creds: unmarshal: %v", err)
-		return err
+	credResponseBytes, credsErr := io.ReadAll(res.Body)
+	if credsErr == nil {
+		credsErr = json.Unmarshal(credResponseBytes, &credResponse)
+	}
+
+	if res.StatusCode != http.StatusOK {
+		log.E("proton: creds: fail: status(%d/%s) hdrs(%v) body(%s) err(%v)",
+			res.StatusCode, res.Status, res.Header, string(credResponseBytes), credsErr)
+		return core.JoinErr(fmt.Errorf("proton: creds: err status(%d/%d/%s)",
+			res.StatusCode, credResponse.Code, credResponse.Error), credsErr)
+	}
+
+	if credsErr != nil {
+		log.E("proton: creds: read/unmarshal: %v", credsErr)
+		return credsErr
 	}
 
 	if credResponse.Code != 1000 {
@@ -967,23 +966,22 @@ func (a *ProtonClient) beginSession() error {
 	}
 	defer res.Body.Close()
 
-	if res.StatusCode != http.StatusOK {
-		b, rerr := io.ReadAll(res.Body)
-		log.E("proton: session: fail: status(%d/%s) hdrs(%v) body(%s) err(%v)",
-			res.StatusCode, res.Status, res.Header, b, rerr)
-		return fmt.Errorf("proton: session: err status(%d/%s)", res.StatusCode, res.Status)
-	}
-
-	sessionResponseBytes, err := io.ReadAll(res.Body)
-	if err != nil {
-		log.E("proton: session: readall: %v", err)
-		return err
-	}
-
 	var sessionResponse ProtonLoginResponse
-	if err := json.Unmarshal(sessionResponseBytes, &sessionResponse); err != nil {
-		log.E("proton: session: unmarshal: %v", err)
-		return err
+	sessionResponseBytes, sessionErr := io.ReadAll(res.Body)
+	if sessionErr == nil {
+		sessionErr = json.Unmarshal(sessionResponseBytes, &sessionResponse)
+	}
+
+	if res.StatusCode != http.StatusOK {
+		log.E("proton: session: fail: status(%d/%s) hdrs(%v) body(%s) err(%v)",
+			res.StatusCode, res.Status, res.Header, string(sessionResponseBytes), sessionErr)
+		return core.JoinErr(fmt.Errorf("proton: session: err status(%d/%d/%s)",
+			res.StatusCode, sessionResponse.Code, sessionResponse.Error), sessionErr)
+	}
+
+	if sessionErr != nil {
+		log.E("proton: session: read/unmarshal: %v", sessionErr)
+		return sessionErr
 	}
 
 	if sessionResponse.Code != 1000 {
