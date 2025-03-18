@@ -156,6 +156,8 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target netip.AddrPort)
 	cid, uid, fid, pids := h.judge(res, domains, target.String())
 	if len(actualTargets) > 0 {
 		smmTarget = actualTargets[0].Addr()
+	} else { // unlikely
+		actualTargets = []netip.AddrPort{target}
 	}
 	smm = tcpSummary(cid, uid, smmTarget)
 
@@ -220,7 +222,7 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target netip.AddrPort)
 	}
 
 	h.queueSummary(smm.done(err))
-	clos(gconn)
+	clos(gconn) // denied
 	return deny
 }
 

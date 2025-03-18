@@ -56,6 +56,7 @@ var (
 	errProxyMismatch   = errors.New("udp: proxy mismatch")
 	errUidMismatch     = errors.New("udp: uid mismatch")
 	errUdpUnconnected  = errors.New("udp: cannot connect")
+	errUdpNoTarget     = errors.New("udp: no target addr")
 	errUdpEnd          = errors.New("udp: stopped")
 	errIcmpEnd         = errors.New("icmp: stopped")
 )
@@ -235,6 +236,8 @@ func (h *udpHandler) Connect(gconn *netstack.GUDPConn, src, target netip.AddrPor
 	cid, uid, fid, pids := h.judge(res, domains, target.String())
 	if len(actualTargets) > 0 {
 		smmTarget = actualTargets[0].Addr()
+	} else { // unlikely
+		actualTargets = []netip.AddrPort{target}
 	}
 	smm = udpSummary(cid, uid, smmTarget)
 
@@ -341,6 +344,11 @@ func (h *udpHandler) Connect(gconn *netstack.GUDPConn, src, target netip.AddrPor
 		if end > retrytimeout {
 			break
 		}
+	}
+
+	if !selectedTarget.IsValid() {
+		log.E("udp: connect: %s no target addr for %s from %v; uid %s", cid, target, actualTargets, uid)
+		return nil, smm, errUdpNoTarget
 	}
 
 	// pc.RemoteAddr may be that of the proxy, not the actual dst
