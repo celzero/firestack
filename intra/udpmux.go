@@ -223,15 +223,18 @@ func (x *muxer) readers() {
 				// extend by preset (min) udp timeout
 				x.extend(time.Now().Add(time.Second * udptimeout))
 				log.D("udp: mux: %s read timeout(%d): %v", x.cid, timeouterrors, err)
+				free()
 				continue
 			} // else: err out
 		}
 		if err != nil {
 			log.I("udp: mux: %s read done n(%d): %v", x.cid, n, err)
+			free()
 			return
 		}
 		if who == nil || n == 0 {
 			log.W("udp: mux: %s read done n(%d): nil remote addr; skip", x.cid, n)
+			free()
 			continue
 		}
 
@@ -247,6 +250,7 @@ func (x *muxer) readers() {
 			log.VV("udp: mux: %s read: n(%d) from %v <= %v; err %v",
 				dst.cid, n, dst.raddr, who, err)
 		} // else: ignore (who is invalid or x is closed)
+		free()
 	}
 }
 
@@ -295,7 +299,7 @@ func (x *muxer) route(cid string, to netip.AddrPort, flo flowkind) *demuxconn {
 					}
 				})
 			}
-			log.I("udp: mux: %s route: %s #%d new for %s; stats: %d",
+			log.I("udp: mux: %s route: %s #%d new for %s; stats: %s",
 				conn.cid, flo, n, to, x.stats)
 		}
 	}

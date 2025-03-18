@@ -776,7 +776,6 @@ func (r *resolver) accept(c io.ReadWriteCloser, uid string) {
 			free()
 			break // close on read errs
 		}
-
 		if n != int(qlen) {
 			log.W("dns: tcp: for %s incomplete query: %d < %d", uid, n, qlen)
 			free()
