@@ -827,7 +827,7 @@ retryAfterRefresh:
 	return nil
 }
 
-func (a *ProtonClient) Refresh() error {
+func (a *ProtonClient) refresh() error {
 	err := a.rereg(true)
 	if err != nil {
 		return err
@@ -1273,7 +1273,7 @@ func (a *ProtonClient) Expires() int64 {
 
 // Update implements x.RpnAcc.
 func (a *ProtonClient) Update() (newstate []byte, err error) {
-	err = a.Refresh()
+	err = a.refresh()
 	if err != nil {
 		log.W("proton: update: re-reg failed %v", err)
 		return nil, err
