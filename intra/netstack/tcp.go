@@ -67,7 +67,7 @@ type GTCPConn struct {
 // dialing to from (dst) from to (src).
 func InboundTCP(who string, s *stack.Stack, in net.Conn, to, from netip.AddrPort, h GTCPConnHandler) error {
 	newgc := makeGTCPConn(who, s, nil /*not a forwarder req*/, to, from)
-	if !settings.SingleThreaded.Load() {
+	if earlyConnect && !settings.SingleThreaded.Load() {
 		if open, err := newgc.tryConnect(); err != nil || !open {
 			log.E("ns: tcp: %s: inbound: tryConnect err src(%v) => dst(%v); open? %t, err(%v)",
 				newgc.o, to, from, open, err)

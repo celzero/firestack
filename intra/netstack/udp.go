@@ -84,7 +84,7 @@ func OutboundUDP(id string, s *stack.Stack, h GUDPConnHandler) {
 
 func InboundUDP(who string, s *stack.Stack, in net.Conn, to, from netip.AddrPort, h GUDPConnHandler) error {
 	newgc := makeGUDPConn(who, s, nil /*not a forwarder req*/, to, from)
-	if !settings.SingleThreaded.Load() {
+	if earlyConnect && !settings.SingleThreaded.Load() {
 		if err := newgc.Establish(); err != nil {
 			log.E("ns: udp: %s: inbound: dial: %v; src(%v) dst(%v)",
 				who, err, to, from)
