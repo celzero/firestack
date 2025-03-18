@@ -174,6 +174,14 @@ type LoginProductFramePrefix0 struct {
 //		"AccessToken": base32 (new token),
 //		"RefreshToken": base32 (new token)
 //	}
+//
+// or:
+//
+//	{
+//		"Code":2011,
+//		"Error":"Session already tied to a user",
+//		"Details":{}
+//	}
 type ProtonCredentialResponse struct {
 	Code         int32    `json:"Code"`
 	Error        string   `json:"Error"`
@@ -407,10 +415,12 @@ type ProtonWgConfig struct {
 	UID                 string `json:"UID"`
 	SessionAccessToken  string `json:"SessionAccessToken"`
 	SessionRefreshToken string `json:"SessionRefreshToken"`
+	SessionExpTime      int64  `json:"SessionExpTime"`
 
 	UserID            string `json:"UserID"`
 	CredsAccessToken  string `json:"UserAccessToken"`
 	CredsRefreshToken string `json:"UserRefreshToken"`
+	CredsExpTime      int64  `json:"UserExpTime"`
 
 	CertSerialNumber string `json:"CertSerialNumber"`
 	CertExpTime      int64  `json:"CertExpTime"`
@@ -543,19 +553,21 @@ type ProtonClient struct {
 	servers map[string][]ProtonServer // country => endpoints
 
 	sess struct { // unauthenticated
-		uid          string
-		accessToken  string
-		refreshToken string
+		uid            string
+		accessToken    string
+		refreshToken   string
+		expirationTime int64 // unix secs
 	}
 	creds struct { // authenticated
-		userid       string
-		accessToken  string
-		refreshToken string
+		userid         string
+		accessToken    string
+		refreshToken   string
+		expirationTime int64 // unix secs
 	}
 	cert struct {
 		serialNumber   string
-		expirationTime int64
-		refreshTime    int64
+		expirationTime int64 // unix secs
+		refreshTime    int64 // unix secs
 	}
 
 	// external / exported config
@@ -579,14 +591,16 @@ func newProtonGw(k ProtonKey, logicals []ProtonLogicals, h2 *http.Client) (*Prot
 		key:     k,
 		servers: m, // may be empty
 		sess: struct {
-			uid          string
-			accessToken  string
-			refreshToken string
+			uid            string
+			accessToken    string
+			refreshToken   string
+			expirationTime int64
 		}{},
 		creds: struct {
-			userid       string
-			accessToken  string
-			refreshToken string
+			userid         string
+			accessToken    string
+			refreshToken   string
+			expirationTime int64
 		}{},
 		configExt: nil,
 	}
@@ -594,13 +608,6 @@ func newProtonGw(k ProtonKey, logicals []ProtonLogicals, h2 *http.Client) (*Prot
 	log.I("proton: gw: new: %s / %d", publicKeyPem, len(m))
 
 	return a, nil
-}
-
-func (a *ProtonClient) Config() (*ProtonWgConfig, error) {
-	if c := a.configExt; c != nil {
-		return c, nil
-	}
-	return nil, errNoProtonConfig
 }
 
 func (a *ProtonClient) refreshWgConfig() error {
@@ -692,10 +699,12 @@ func (a *ProtonClient) newConf() error {
 	pc.UID = a.sess.uid
 	pc.SessionAccessToken = a.sess.accessToken
 	pc.SessionRefreshToken = a.sess.refreshToken
+	pc.SessionExpTime = a.sess.expirationTime
 	// creds info
 	pc.UserID = a.creds.userid
 	pc.CredsAccessToken = a.creds.accessToken
 	pc.CredsRefreshToken = a.creds.refreshToken
+	pc.CredsExpTime = a.creds.expirationTime
 	// cert info
 	pc.CertSerialNumber = a.cert.serialNumber
 	pc.CertExpTime = a.cert.expirationTime
@@ -909,6 +918,7 @@ func (a *ProtonClient) fetchCreds() error {
 	a.creds.userid = credResponse.UserID
 	a.creds.accessToken = credResponse.AccessToken
 	a.creds.refreshToken = credResponse.RefreshToken
+	a.creds.expirationTime = dayFromNow().Unix()
 	// members of a.creds are assigned to a.config by "newConf()"
 
 	return nil
@@ -985,11 +995,15 @@ func (a *ProtonClient) beginSession() error {
 	a.sess.uid = sessionResponse.UID
 	a.sess.accessToken = sessionResponse.AccessToken
 	a.sess.refreshToken = sessionResponse.RefreshToken
+	a.sess.expirationTime = dayFromNow().Unix()
 
 	return nil
 }
 
 func (a *ProtonClient) refreshCreds() error {
+	if len(a.sess.uid) <= 0 {
+		return errNoProtonConfig
+	}
 	/*
 		see: github.com/ProtonMail/protoncore_android/blob/c3598ea9e72/auth/data/src/main/kotlin/me/proton/core/auth/data/repository/AuthRepositoryImpl.kt#L189
 		curl -X POST "https://vpn-api.proton.me/auth/v4/refresh" \
@@ -1005,67 +1019,101 @@ func (a *ProtonClient) refreshCreds() error {
 		  "RedirectURI": "http://protonmail.ch"
 		}'
 	*/
-	payload := ProtonRefreshRequest{
+	// refresh unauthenticated (loginless) session
+	unauthenticatedPayload := ProtonRefreshRequest{
 		UID:          a.sess.uid,
+		RefreshToken: a.sess.refreshToken,
+		ResponseType: "token",
+		GrantType:    "refresh_token",
+		RedirectURI:  "http://protonmail.ch",
+	}
+	// refresh credentials authenticated with session
+	authenticatedPayload := ProtonRefreshRequest{
+		UID:          a.sess.uid, // same as a.creds.userid
 		RefreshToken: a.creds.refreshToken,
 		ResponseType: "token",
 		GrantType:    "refresh_token",
 		RedirectURI:  "http://protonmail.ch",
 	}
-	payloadJson, err := json.Marshal(payload)
-	if err != nil {
-		return err
-	}
-	req, err := http.NewRequest("POST", a.refreshTokensUrl(), bytes.NewReader(payloadJson))
-	if err != nil {
-		return err
-	}
-	protonHeaders(req)
 
-	res, err := a.http.Do(req)
-	if err != nil || res == nil {
-		return core.OneErr(err, errNoApiResponse)
-	}
-	defer res.Body.Close()
+	for what, payload := range []ProtonRefreshRequest{unauthenticatedPayload, authenticatedPayload} {
+		payloadJson, err := json.Marshal(payload)
+		if err != nil {
+			log.E("proton: refreshcreds: #%d marshal: %v", what, err)
+			return err
+		}
+		req, err := http.NewRequest("POST", a.refreshTokensUrl(), bytes.NewReader(payloadJson))
+		if err != nil {
+			log.E("proton: refreshcreds: #%d newreq: %v", what, err)
+			return err
+		}
+		protonHeaders(req)
 
-	if res.StatusCode != http.StatusOK {
-		b, rerr := io.ReadAll(res.Body)
-		log.E("proton: refreshcreds: fail: status(%d/%s) hdrs(%v) body(%s) err(%v)",
-			res.StatusCode, res.Status, res.Header, b, rerr)
-		return fmt.Errorf("proton: refreshcreds: err status(%d/%s)", res.StatusCode, res.Status)
-	}
+		res, err := a.http.Do(req)
+		if err != nil || res == nil {
+			return core.OneErr(err, errNoApiResponse)
+		}
+		defer res.Body.Close()
 
-	refreshCredResponseBytes, err := io.ReadAll(res.Body)
-	if err != nil {
-		log.E("proton: refreshcreds: readall: %v", err)
-		return err
-	}
+		var refreshCredResponse ProtonRefreshResponse
+		refreshCredResponseBytes, refreshErr := io.ReadAll(res.Body)
+		if refreshErr != nil {
+			refreshErr = json.Unmarshal(refreshCredResponseBytes, &refreshCredResponse)
+		}
 
-	var refreshCredResponse ProtonRefreshResponse
-	if err := json.Unmarshal(refreshCredResponseBytes, &refreshCredResponse); err != nil {
-		log.E("proton: refreshcreds: unmarshal: %v", err)
-		return err
-	}
+		if res.StatusCode != http.StatusOK {
+			log.E("proton: refreshcreds: #%d fail: status(%d/%s) hdrs(%v) body(%s) err(%v)",
+				what, res.StatusCode, res.Status, res.Header, string(refreshCredResponseBytes), refreshErr)
+			return core.JoinErr(fmt.Errorf("proton: refreshcreds: #%d err status(%d/%d/%s)",
+				what, res.StatusCode, refreshCredResponse.Code, refreshCredResponse.Error), refreshErr)
+		}
 
-	if refreshCredResponse.Code != 1000 {
-		log.E("proton: refreshcreds: code: %d / raw: %s", refreshCredResponse.Code, string(refreshCredResponseBytes))
-		// TODO: refresh with refresh-token
-		return fmt.Errorf("proton: refreshcreds: err %d: %s", refreshCredResponse.Code, refreshCredResponse.Error)
-	}
-	// todo: refreshCredResponse.UID == a.sess.uid
-	// todo: refreshCredResponse.Scopes contains "vpn"
-	// todo: refreshCredResponse.TokenType == "Bearer"
+		if refreshErr != nil {
+			log.E("proton: refreshcreds: #%d read/unmarshal: %v", what, refreshErr)
+			return err
+		}
 
-	extupdated := false
-	a.creds.accessToken = refreshCredResponse.AccessToken
-	a.creds.refreshToken = refreshCredResponse.RefreshToken
-	if pc := a.configExt; pc != nil {
-		extupdated = true
-		pc.CredsAccessToken = a.creds.accessToken
-		pc.CredsRefreshToken = a.creds.refreshToken
-	}
+		if refreshCredResponse.Code != 1000 {
+			log.E("proton: refreshcreds: #%d code: %d / raw: %s",
+				what, refreshCredResponse.Code, string(refreshCredResponseBytes))
+			// TODO: refresh with refresh-token
+			return fmt.Errorf("proton: refreshcreds: #%d err %d: %s",
+				what, refreshCredResponse.Code, refreshCredResponse.Error)
+		}
+		// todo: refreshCredResponse.UID == a.sess.uid
+		// todo: refreshCredResponse.Scopes contains "vpn"
+		// todo: refreshCredResponse.TokenType == "Bearer"
 
-	log.I("proton: refreshcreds: ok (updated ext? %t); new access+refresh tokens", extupdated)
+		expiry := elapsedFromNow(refreshCredResponse.ExpiresIn, time.Second)
+		extupdated := false
+		switch what {
+		case 0: // unauthenticated creds
+			a.sess.accessToken = refreshCredResponse.AccessToken
+			a.sess.refreshToken = refreshCredResponse.RefreshToken
+			a.sess.expirationTime = expiry.Unix()
+			// always equal? a.sess.uid = refreshCredResponse.UID
+			if pc := a.configExt; pc != nil {
+				extupdated = true
+				pc.SessionAccessToken = a.sess.accessToken
+				pc.SessionRefreshToken = a.sess.refreshToken
+				pc.SessionExpTime = a.sess.expirationTime
+			}
+		case 1: // authenticated creds
+			a.creds.accessToken = refreshCredResponse.AccessToken
+			a.creds.refreshToken = refreshCredResponse.RefreshToken
+			a.creds.expirationTime = expiry.Unix()
+			// always equal? a.creds.userid = refreshCredResponse.UID
+			if pc := a.configExt; pc != nil {
+				extupdated = true
+				pc.CredsAccessToken = a.creds.accessToken
+				pc.CredsRefreshToken = a.creds.refreshToken
+				pc.CredsExpTime = a.creds.expirationTime
+			}
+		}
+
+		log.I("proton: refreshcreds: #%d ok (updated ext? %t); new access+refresh tokens #%d until %s",
+			what, extupdated, refreshCredResponse.RefreshCounter, expiry.Format(time.Stamp))
+	}
 
 	return nil
 }
@@ -1169,18 +1217,19 @@ func (a *ProtonClient) rereg(force bool) error {
 	}
 
 	now := time.Now().Unix()
-	// redundant nilcheck for nilaway
-	fresh := a.configExt != nil && a.configExt.CertRefreshTime-now > 0
+	certok := a.cert.refreshTime-now > 0
+	sessok := a.sess.expirationTime-now > 0
+	credsok := a.creds.expirationTime-now > 0
+	log.I("proton: re-reg %s; certexp? %t, sessexp? %t, credsexp? %t (force? %t)",
+		a.cert.serialNumber, !certok, !sessok, !credsok, force)
 
-	log.I("proton: re-reg %s (exp? %t, force? %t)",
-		a.cert.serialNumber, !fresh, force)
-
-	if !force && fresh {
+	if !force && certok && sessok && credsok {
 		return nil // ok
 	}
 
-	err := a.refreshCreds() // new creds
+	err := a.refreshCreds() // new access tokens + refreshed certs
 	if err != nil {
+		// TODO: reg?
 		return err
 	}
 
@@ -1336,10 +1385,12 @@ func (a *ProtonClient) restoreConfigFrom(conf *ProtonWgConfig) error {
 	a.sess.uid = conf.UID
 	a.sess.accessToken = conf.SessionAccessToken
 	a.sess.refreshToken = conf.SessionRefreshToken
+	a.sess.expirationTime = conf.SessionExpTime
 	// creds info
 	a.creds.userid = conf.UserID
 	a.creds.accessToken = conf.CredsAccessToken
 	a.creds.refreshToken = conf.CredsRefreshToken
+	a.creds.expirationTime = conf.CredsExpTime
 	// cert info
 	a.cert.serialNumber = conf.CertSerialNumber
 	a.cert.expirationTime = conf.CertExpTime
@@ -1481,4 +1532,12 @@ func protonServersFrom(allServersFilePath string, c *http.Client) []ProtonLogica
 		} // req ok
 	} // else: preloaded
 	return append(all.R, prebuilts...)
+}
+
+func elapsedFromNow(until int64, kind time.Duration) time.Time {
+	return time.Now().Add(kind * time.Duration(until))
+}
+
+func dayFromNow() time.Time {
+	return elapsedFromNow(24, time.Hour)
 }
