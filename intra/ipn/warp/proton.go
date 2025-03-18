@@ -1413,9 +1413,9 @@ func protonServersByCountry(logicals []ProtonLogicals) map[string][]ProtonServer
 			skips++
 			continue
 		}
-		for _, s := range x.Servers {
-			s.Load = x.Load
-			s.Name = x.Name
+		for i := range x.Servers {
+			x.Servers[i].Load = x.Load
+			x.Servers[i].Name = x.Name
 		}
 		if c, ok := m[x.EntryCountry]; ok {
 			m[x.EntryCountry] = append(c, x.Servers...)
