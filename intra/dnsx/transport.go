@@ -428,7 +428,12 @@ func (r *resolver) Forward(q []byte) ([]byte, string, error) {
 }
 
 func (r *resolver) forward(q []byte, chosenids ...string) ([]byte, string, error) {
-	return r.forward2(q, core.UNKNOWN_UID_STR, chosenids...)
+	// todo: if chosenids are not empty, should uid be set to "Rethink"?
+	uid := core.UNKNOWN_UID_STR
+	if len(chosenids) > 0 {
+		uid = protect.UidSelf
+	}
+	return r.forward2(q, uid, chosenids...)
 }
 
 func (r *resolver) forward2(q []byte, uid string, chosenids ...string) (res0 []byte, tid0 string, err0 error) {
@@ -488,8 +493,8 @@ func (r *resolver) forward2(q []byte, uid string, chosenids ...string) (res0 []b
 	id, sid, pids, presetIPs := r.preferencesFrom(qname, uint16(qtyp), pref, chosenids...)
 	t := r.determineTransport(id) // id may be empty if pref is nil
 
-	log.V("dns: fwd: query %s [prefs:%v; chosen:%v]; id? %s, sid? %s, pid? %s, ips? %v",
-		qname, pref, chosenids, id, sid, pids, presetIPs)
+	log.V("dns: fwd: query %s [prefs:%v; chosen:%v]; id? %s, sid? %s, pid? %s, ips? %v, uid? %s",
+		qname, pref, chosenids, id, sid, pids, presetIPs, uid)
 
 	if t == nil || core.IsNil(t) {
 		smm.Latency = time.Since(starttime).Seconds()
@@ -518,12 +523,12 @@ func (r *resolver) forward2(q []byte, uid string, chosenids ...string) (res0 []b
 			if e != nil {
 				smm.Msg = e.Error()
 			}
-			log.V("dns: fwd: query blocked %s by %s", qname, blocklists)
+			log.V("dns: fwd: %s query blocked %s by %s", uid, qname, blocklists)
 
 			return b, smm.ID, e
 		}
 	} else {
-		log.V("dns: fwd: query NOT blocked %s; why? %v", qname, err)
+		log.V("dns: fwd: %s query NOT blocked %s; why? %v", uid, qname, err)
 	}
 
 	var res2 []byte
@@ -587,8 +592,8 @@ func (r *resolver) forward2(q []byte, uid string, chosenids ...string) (res0 []b
 	}
 	ansblocked := xdns.AQuadAUnspecified(ans1)
 
-	log.V("dns: fwd: query %s; new-ans? %t, blocklists? %t, blocked? %t",
-		qname, isnewans, hasblocklists, ansblocked)
+	log.V("dns: fwd: %s query %s; new-ans? %t, blocklists? %t, blocked? %t",
+		uid, qname, isnewans, hasblocklists, ansblocked)
 
 	return res2, smm.ID, nil
 }
