@@ -629,8 +629,8 @@ func (px *proxifier) mainRpnProxyOf(provider string) (RpnProxy, error) {
 		return nil, errNotRpnID
 	}
 	px.rpnmu.RLock()
-	defer px.rpnmu.RUnlock()
 	rp := px.rp[provider]
+	px.rpnmu.RUnlock()
 	if rp == nil {
 		return nil, errNotRpnProxy
 	}
