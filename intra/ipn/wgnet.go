@@ -75,7 +75,7 @@ func (tnet *wgtun) LookupContextHost(ctx context.Context, host string) ([]netip.
 	}
 
 	// dialers.Resolve returns from cache (which may be stale)
-	if ips, err := dialers.Resolve(host, tnet.id); len(ips) <= 0 {
+	if ips, err := dialers.Resolve(host, tnet.ID()); len(ips) <= 0 {
 		log.D("wg: %s dial: lookup failed %q: no ips; err: %v", tnet.id, host, err)
 		return nil, &net.DNSError{Err: err.Error(), Name: host, IsNotFound: true}
 	} else {
