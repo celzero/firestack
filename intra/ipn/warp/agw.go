@@ -88,6 +88,7 @@ type agwuser struct {
 
 type AgwClient struct {
 	RpnCountryless
+	RpnUpdateless
 	*agwuser
 	*AmzWgConfig  // may be nil
 	http          *http.Client
@@ -619,45 +620,12 @@ func (a *AgwClient) Expires() int64 {
 	return newAt.UnixMilli()
 }
 
-// Update implements x.RpnAcc.
-func (a *AgwClient) Update() (newstate []byte, err error) {
-	err = a.rereg()
-	if err != nil {
-		log.W("agw: update: re-reg failed %v", err)
-		return nil, err
-	}
-	return a.AmzWgConfig.Json() // Json() handles nil configs
-}
-
 // Conf implements RpnAcc.
 func (a *AgwClient) Conf(cc string) (string, error) {
 	if len(cc) > 0 {
 		log.D("agw: conf: cc %s ignored", cc)
 	}
 	return a.UapiWgConf, nil
-}
-
-func (u *agwuser) rotate() error {
-	prevuuid := u.uuid
-	wgkey, err := x.NewWgPrivateKey()
-	if err != nil {
-		return err
-	}
-	u.wgpriv = wgkey.Base64()
-	u.wgpub = wgkey.Mult().Base64()
-	u.uuid = uuid4()
-
-	log.I("agw: change user %s => %s", prevuuid, u.uuid)
-
-	return nil // ok
-}
-
-func (a *AgwClient) rereg() error {
-	err := a.rotate()
-	if err != nil {
-		return err
-	}
-	return a.reg()
 }
 
 // github.com/amnezia-vpn/amnezia-client/blob/8547de82ea9/client/core/controllers/apiController.cpp#L383

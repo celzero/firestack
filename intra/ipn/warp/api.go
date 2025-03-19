@@ -33,7 +33,8 @@ import (
 )
 
 var (
-	errRpnStateless = errors.New("rpn has no state or config")
+	errRpnStateless  = errors.New("rpn has no state or config")
+	errRpnUpdateless = errors.New("rpn cannot be updated only registered")
 )
 
 type RpnProxy interface {
@@ -73,14 +74,20 @@ type RpnCountryless struct{}
 
 func (c RpnCountryless) MultiCountry() bool { return false }
 
-type RpnStateless struct{}
+type RpnStateless struct {
+	RpnUpdateless
+}
 
 func (RpnStateless) State() ([]byte, error)         { return nil, errRpnStateless }
 func (RpnStateless) Conf(cc string) (string, error) { return "", errRpnStateless }
-func (RpnStateless) Update() ([]byte, error)        { return nil, errRpnStateless }
+
+type RpnUpdateless struct{}
+
+func (RpnUpdateless) Update() ([]byte, error) { return nil, errRpnUpdateless }
 
 type WarpClient struct {
 	RpnCountryless
+	RpnUpdateless
 	*Identity
 	k x.WgKey
 	h http.Client
@@ -204,11 +211,6 @@ func (w *WarpClient) GetAcct() error {
 	log.I("warp: get acct successful %s @ %s", deviceID, id.Account.ID)
 
 	return nil
-}
-
-func (w *WarpClient) rereg() error {
-	w.Identity = nil
-	return w.reg()
 }
 
 func (w *WarpClient) reg() error {
@@ -419,16 +421,6 @@ func (w *WarpClient) Created() int64 {
 // Expires implements x.RpnAcc.
 func (w *WarpClient) Expires() int64 {
 	return w.Identity.Expires().UnixMilli()
-}
-
-// Update implements x.RpnAcc.
-func (w *WarpClient) Update() (newstate []byte, err error) {
-	err = w.rereg()
-	if err != nil {
-		log.W("warp: update: re-reg failed %v", err)
-		return nil, err
-	}
-	return w.Identity.Json()
 }
 
 // Conf implements RpnAcc.

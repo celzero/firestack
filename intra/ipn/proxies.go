@@ -291,6 +291,9 @@ func NewProxifier(pctx context.Context, l3 string, mtu int, c protect.Controller
 	return pxr
 }
 
+// add adds a proxy to the proxifier and invokes OnProxyAdded.
+// It returns true if the proxy was added successfully.
+// It stops old proxy if a new one with the same ID is added.
 func (px *proxifier) add(p Proxy) (ok bool) {
 	var old Proxy
 	id := p.ID()
