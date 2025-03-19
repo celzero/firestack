@@ -102,7 +102,7 @@ var (
 	errNilProtonCfg       = errors.New("proxy: proton cfg nil")
 	errNilWarpId          = errors.New("proxy: warp id nil")
 	errNilSEProxy         = errors.New("proxy: se proxy nil")
-	errNotRpnProxy        = errors.New("proxy: not rpn")
+	errNotRpnProxy        = errors.New("proxy: rpn not found")
 	errNotRpnID           = errors.New("proxy: not rpn id")
 	errNotRpnAcc          = errors.New("proxy: not rpn account")
 )
