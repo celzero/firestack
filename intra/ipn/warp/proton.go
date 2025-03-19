@@ -1218,8 +1218,8 @@ func (a *ProtonClient) rereg(force bool) error {
 	certok := a.cert.refreshTime-now > 0
 	sessok := a.sess.expirationTime-now > 0
 	credsok := a.creds.expirationTime-now > 0
-	log.I("proton: re-reg %s; certexp? %t, sessexp? %t, credsexp? %t (force? %t)",
-		a.cert.serialNumber, !certok, !sessok, !credsok, force)
+	log.I("proton: re-reg %s [%s]; certexp? %t, sessexp? %t, credsexp? %t (force? %t)",
+		a.Who(), a.cert.serialNumber, !certok, !sessok, !credsok, force)
 
 	if !force && certok && sessok && credsok {
 		return nil // ok
@@ -1374,6 +1374,9 @@ func (w *Client) MakeProtonWgFrom(existingConfigJson []byte, allServersFilePath 
 	if err != nil {
 		return nil, err
 	}
+
+	log.I("proton: restored config for %s; from: %s until: %s",
+		a.Who(), fmtUnixMillis(a.Created()), fmtUnixMillis(a.Expires()))
 
 	return a, nil
 }

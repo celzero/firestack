@@ -115,15 +115,15 @@ func newWarpClient(d *protect.RDial, id *Identity) (wc *WarpClient, err error) {
 		return nil, err
 	}
 
-	pub := k.Mult().Base64()
-	log.I("warp: make: client for %s; new? %t", pub, id == nil)
-
 	// if id == nil, reg() creates identity
 	wc = &WarpClient{
 		k:        k,
 		d:        d,
 		Identity: id,
 	}
+
+	log.I("warp: make: client for %s; new? %t; from: %s until: %s",
+		wc.Who(), id == nil, fmtUnixMillis(wc.Created()), fmtUnixMillis(wc.Expires()))
 
 	wc.h.Transport = &http.Transport{
 		DialTLSContext: wc.utlsDial,

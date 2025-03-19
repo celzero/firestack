@@ -825,5 +825,12 @@ func (w *Client) MakeAmzWgFrom(existingStateJson []byte) (*AgwClient, error) {
 	config.genWgConf()
 	a.AmzWgConfig = &config
 
+	log.I("agw: make: restored for: %s; from: %s until %s",
+		a.Who(), fmtUnixMillis(a.Created()), (a.Expires()))
+
 	return a, nil
+}
+
+func fmtUnixMillis(ms int64) string {
+	return time.UnixMilli(ms).Format(time.Stamp)
 }
