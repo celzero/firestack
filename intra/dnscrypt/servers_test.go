@@ -79,6 +79,10 @@ func (r fakeResolver) LookupNetIPFor(_ context.Context, _, _, _ string) ([]netip
 	return nil, errors.New("not implemented")
 }
 
+func (r fakeResolver) LookupNetIPOn(_ context.Context, _, _ string, _ ...string) ([]netip.Addr, error) {
+	return nil, errors.New("not implemented")
+}
+
 const minmtu = 1280
 const dualstack = settings.IP46
 

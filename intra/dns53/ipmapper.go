@@ -85,8 +85,13 @@ func (m *ipmapper) LookupNetIPFor(ctx context.Context, network, host, uid string
 	return m.queryIP(ctx, network, host, uid)
 }
 
-func (m *ipmapper) queryIP(_ context.Context, network, host string, uid string) ([]netip.Addr, error) {
-	return m.queryIP2(context.Background(), network, host, uid)
+// Implements IPMapper.
+func (m *ipmapper) LookupNetIPOn(ctx context.Context, network, host string, tid ...string) ([]netip.Addr, error) {
+	return m.queryIP2(ctx, network, host, core.UNKNOWN_UID_STR, tid...)
+}
+
+func (m *ipmapper) queryIP(ctx context.Context, network, host string, uid string) ([]netip.Addr, error) {
+	return m.queryIP2(ctx, network, host, uid)
 }
 
 func (m *ipmapper) queryAny(q []byte) ([]byte, error) {
@@ -94,7 +99,7 @@ func (m *ipmapper) queryAny(q []byte) ([]byte, error) {
 }
 
 // todo: use context
-func (m *ipmapper) queryIP2(_ context.Context, network, host, uid string) ([]netip.Addr, error) {
+func (m *ipmapper) queryIP2(_ context.Context, network, host, uid string, tid ...string) ([]netip.Addr, error) {
 	if len(host) <= 0 {
 		return nil, errNoHost
 	}
@@ -110,7 +115,7 @@ func (m *ipmapper) queryIP2(_ context.Context, network, host, uid string) ([]net
 		return []netip.Addr{ip}, nil
 	}
 
-	log.V("ipmapper: lookup: host %s:%s for %s", network, host, uid)
+	log.V("ipmapper: lookup: host %s:%s for %s on %v", network, host, uid, tid)
 
 	var q4, q6 []byte
 	var err4, err6 error
@@ -134,12 +139,15 @@ func (m *ipmapper) queryIP2(_ context.Context, network, host, uid string) ([]net
 	}
 
 	var val4, val6 *core.V[answer, string]
-	if uid != core.UNKNOWN_UID_STR {
-		val4, _ = m.ba.Do(key(host, "ip4", uid), m.lookupfor(q4, uid))
-		val6, _ = m.ba.Do(key(host, "ip6", uid), m.lookupfor(q6, uid))
+	if len(tid) > 0 {
+		val4, _ = m.ba.Do(key4(host, tid...), m.lookupon(q4, tid...))
+		val6, _ = m.ba.Do(key6(host, tid...), m.lookupon(q6, tid...))
+	} else if uid != core.UNKNOWN_UID_STR {
+		val4, _ = m.ba.Do(key4(host, uid), m.lookupfor(q4, uid))
+		val6, _ = m.ba.Do(key6(host, uid), m.lookupfor(q6, uid))
 	} else {
-		val4, _ = m.ba.Do(key(host, "ip4"), m.locallookup(q4))
-		val6, _ = m.ba.Do(key(host, "ip6"), m.locallookup(q6))
+		val4, _ = m.ba.Do(key4(host), m.locallookup(q4))
+		val6, _ = m.ba.Do(key6(host), m.locallookup(q6))
 	}
 
 	var noval4, noval6 bool
@@ -225,6 +233,13 @@ func (m *ipmapper) lookupfor(q []byte, uid string) func() (answer, error) {
 	}
 }
 
+func (m *ipmapper) lookupon(q []byte, tid ...string) func() (answer, error) {
+	return func() (answer, error) {
+		a, tid, err := m.r.Lookup(q, tid...)
+		return answer{a, tid}, err
+	}
+}
+
 func (m *ipmapper) locallookup(q []byte) func() (answer, error) {
 	return func() (answer, error) {
 		a, tid, err := m.r.LocalLookup(q)
@@ -262,6 +277,14 @@ func key(name string, oth ...string) string {
 		return name
 	}
 	return name + ":" + strings.Join(oth, ":")
+}
+
+func key4(name string, oth ...string) string {
+	return key(name, append(oth, "ip4")...)
+}
+
+func key6(name string, oth ...string) string {
+	return key(name, append(oth, "ip6")...)
 }
 
 func addrs(a []byte) []netip.Addr {

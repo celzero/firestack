@@ -74,11 +74,10 @@ func (tnet *wgtun) LookupContextHost(ctx context.Context, host string) ([]netip.
 		return []netip.Addr{ip}, nil
 	}
 
-	// TODO: resolve via wireguard's DNS
-	// dialers.For returns from cache (which may be stale)
-	if ips := dialers.For(host); len(ips) <= 0 {
-		log.D("wg: %s dial: lookup failed %q: no ips %v", tnet.id, host, ips)
-		return nil, &net.DNSError{Err: errNoSuchHost.Error(), Name: host, IsNotFound: true}
+	// dialers.Resolve returns from cache (which may be stale)
+	if ips, err := dialers.Resolve(host, tnet.id); len(ips) <= 0 {
+		log.D("wg: %s dial: lookup failed %q: no ips; err: %v", tnet.id, host, err)
+		return nil, &net.DNSError{Err: err.Error(), Name: host, IsNotFound: true}
 	} else {
 		return ips, nil
 	}

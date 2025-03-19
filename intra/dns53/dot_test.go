@@ -42,6 +42,9 @@ func (r fakeResolver) Lookup(q []byte) ([]byte, error) {
 	if msg == nil {
 		return nil, errors.New("fakeresolver: nil dns msg")
 	}
+	if !xdns.HasAQuadAQuestion(msg) {
+		return nil, errors.New("fakeresolver: A/AAAA only")
+	}
 	qname := xdns.QName(msg)
 	network := "ip4"
 	if xdns.HasAAAAQuestion(msg) {
@@ -79,6 +82,10 @@ func (r fakeResolver) LookupNetIP(ctx context.Context, network, host string) ([]
 func (r fakeResolver) LookupNetIPFor(ctx context.Context, network, host, uid string) ([]netip.Addr, error) {
 	// return nil, errors.New("lookup net ip for: not implemented")
 	return r.Resolver.LookupNetIP(ctx, network, host)
+}
+
+func (r fakeResolver) LookupNetIPOn(ctx context.Context, network, host string, tid ...string) ([]netip.Addr, error) {
+	return nil, errors.New("fakeResolver: lookup net ip on not implemented")
 }
 
 type fakeCtl struct {

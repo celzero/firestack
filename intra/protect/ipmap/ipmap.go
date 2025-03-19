@@ -72,6 +72,7 @@ type IPMapper interface {
 	Lookup(q []byte) ([]byte, error)
 	LookupNetIP(ctx context.Context, network, host string) ([]netip.Addr, error)
 	LookupNetIPFor(ctx context.Context, network, host, uid string) ([]netip.Addr, error)
+	LookupNetIPOn(ctx context.Context, network, host string, tid ...string) ([]netip.Addr, error)
 }
 
 // IPMap maps hostnames to IPSets.
@@ -188,12 +189,22 @@ func (m *ipmap) Lookup(q []byte) ([]byte, error) {
 	return r.Lookup(q)
 }
 
+// Implements IPMapper.
 func (m *ipmap) LookupNetIPFor(ctx context.Context, network, host, uid string) ([]netip.Addr, error) {
 	r := m.r // actual ipmapper implementation
 	if r == nil {
 		return nil, &net.DNSError{Err: "no resolver", Name: host, Server: "localhost"}
 	}
 	return r.LookupNetIPFor(ctx, network, host, uid)
+}
+
+// Implements IPMapper.
+func (m *ipmap) LookupNetIPOn(ctx context.Context, network, host string, tid ...string) ([]netip.Addr, error) {
+	r := m.r // actual ipmapper implementation
+	if r == nil {
+		return nil, &net.DNSError{Err: "no resolver", Name: host, Server: "localhost"}
+	}
+	return r.LookupNetIPOn(ctx, network, host, tid...)
 }
 
 func (m *ipmap) Add(hostOrIP string) *IPSet {
