@@ -462,7 +462,7 @@ func (r *resolver) forward2(q []byte, uid string, chosenids ...string) (res0 []b
 
 	msg, err := unpack(q)
 	if err != nil {
-		log.W("dns: fwd: not a dns packet %v", err)
+		log.W("dns: fwd: for %s; %d not a dns packet %v", uid, len(q), err)
 		smm.Latency = time.Since(starttime).Seconds()
 		smm.Status = BadQuery
 		smm.Msg = err.Error()
@@ -486,7 +486,7 @@ func (r *resolver) forward2(q []byte, uid string, chosenids ...string) (res0 []b
 		return r.listener.OnQuery(uid, qname, qtyp), nil
 	}, onQueryTimeout)
 	if !oqok {
-		log.W("dns: fwd: no preferences for %s", qname)
+		log.W("dns: fwd: for %s; no preferences for %s:%d", uid, qname, qtyp)
 		smm.Latency = time.Since(starttime).Seconds()
 		smm.Status = ClientError
 		smm.Msg = errOnQueryTimeout.Error()
@@ -496,8 +496,8 @@ func (r *resolver) forward2(q []byte, uid string, chosenids ...string) (res0 []b
 	id, sid, pids, presetIPs := r.preferencesFrom(qname, uint16(qtyp), pref, chosenids...)
 	t := r.determineTransport(id) // id may be empty if pref is nil
 
-	log.V("dns: fwd: query %s [prefs:%v; chosen:%v]; id? %s, sid? %s, pid? %s, ips? %v, uid? %s",
-		qname, pref, chosenids, id, sid, pids, presetIPs, uid)
+	log.V("dns: fwd: for %s; query %s [prefs:%v; chosen:%v]; id? %s, sid? %s, pid? %s, ips? %v",
+		uid, qname, pref, chosenids, id, sid, pids, presetIPs)
 
 	if t == nil || core.IsNil(t) {
 		smm.Latency = time.Since(starttime).Seconds()
@@ -526,12 +526,12 @@ func (r *resolver) forward2(q []byte, uid string, chosenids ...string) (res0 []b
 			if e != nil {
 				smm.Msg = e.Error()
 			}
-			log.V("dns: fwd: %s query blocked %s by %s", uid, qname, blocklists)
+			log.V("dns: fwd: for %s; query blocked %s by %s", uid, qname, blocklists)
 
 			return b, smm.ID, e
 		}
 	} else {
-		log.V("dns: fwd: %s query NOT blocked %s; why? %v", uid, qname, err)
+		log.V("dns: fwd: for %s; query NOT blocked %s; why? %v", uid, qname, err)
 	}
 
 	var res2 []byte
@@ -544,7 +544,7 @@ func (r *resolver) forward2(q []byte, uid string, chosenids ...string) (res0 []b
 
 	algerr := isAlgErr(err) // not set when gw.translate is off
 	if algerr {
-		log.W("dns: fwd: alg error %s for %s", err, qname)
+		log.W("dns: fwd: for %s; alg error %s for %s", uid, err, qname)
 	}
 	// in the case of an alg transport, if there's no-alg,
 	// err is set which should be ignored if res2 is not nil
@@ -595,7 +595,7 @@ func (r *resolver) forward2(q []byte, uid string, chosenids ...string) (res0 []b
 	}
 	ansblocked := xdns.AQuadAUnspecified(ans1)
 
-	log.V("dns: fwd: %s query %s; new-ans? %t, blocklists? %t, blocked? %t",
+	log.V("dns: fwd: for %s; query %s; new-ans? %t, blocklists? %t, blocked? %t",
 		uid, qname, isnewans, hasblocklists, ansblocked)
 
 	return res2, smm.ID, nil

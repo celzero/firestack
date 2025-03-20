@@ -102,7 +102,7 @@ func (t *goosr) send(msg *dns.Msg) (ans *dns.Msg, elapsed time.Duration, qerr *d
 		aquadaq := xdns.HasAQuadAQuestion(msg)
 
 		if !aquadaq { // TODO: support queries other than A/AAAA
-			log.E("dns53: goosr: not A/AAAA query type for %s", host)
+			log.E("dns53: goosr: not A/AAAA query type for %d:%s", xdns.QType(msg), host)
 			ans = xdns.Servfail(msg)
 			err = errQueryParse
 		} else {
