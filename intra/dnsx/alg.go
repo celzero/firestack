@@ -595,7 +595,7 @@ func (t *dnsgateway) querySecondary(t2 Transport, network string, msg *dns.Msg, 
 
 // Implements Gateway
 // preset may be nil
-func (t *dnsgateway) q(t1, t2 Transport, preset []netip.Addr, network string, q *dns.Msg, smm *x.DNSSummary) (*dns.Msg, error) {
+func (t *dnsgateway) q(t1, t2 Transport, preset []netip.Addr, network string, q *dns.Msg, smm *x.DNSSummary) (outmsg *dns.Msg, outerr error) {
 	var ansin *dns.Msg // answer got from transports
 	var err error
 
@@ -707,6 +707,10 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []netip.Addr, network string, q 
 	}
 
 	defer func() {
+		// answers in outmsg may not have been cached at all by xips
+		// since register may not have happened at all
+		xdns.BustAndroidCacheIfNeeded(outmsg)
+
 		if isAlgErr(err) && !mod {
 			log.D("alg: %s:%d no mod; suppress err %v", qname, smm.QType, err)
 			err = nil // ignore alg errors if no modification is desired
@@ -822,11 +826,9 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []netip.Addr, network string, q 
 		algip6 = algip6hints
 	}
 
-	bustcache := xdns.BustAndroidCacheIfNeeded(ansin)
-
 	tid1 := idstr(t1)
-	log.D("alg: ok; for %s:%s:%d, domains %s real: %s / fix: %s => subst %s | %s; (mod? %t / fix? %t / bustcache? %t); sec %s",
-		tid1, qname, smm.QType, targets, realip, fixedips, algip4, algip6, mod, usefixed, bustcache, secres.ips)
+	log.D("alg: ok; for %s:%s:%d, domains %s real: %s / fix: %s => subst %s | %s; (mod? %t / fix? %t); sec %s",
+		tid1, qname, smm.QType, targets, realip, fixedips, algip4, algip6, mod, usefixed, secres.ips)
 
 	if t.registerLocked(qname, tid1, algip4, algip6, realip, ansttl, targets, secres) {
 		// if mod is set, send modified answer
