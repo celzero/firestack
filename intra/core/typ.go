@@ -9,6 +9,9 @@ package core
 import "reflect"
 
 func Loc(x any) uintptr {
+	if x == nil {
+		return 0
+	}
 	v := reflect.ValueOf(x)
 	k := v.Kind()
 	switch k {
