@@ -28,7 +28,7 @@ func UniqErr(errs ...error) error {
 	return joinErr(true /*uniq*/, errs...)
 }
 
-func joinErr(uniq bool, errs ...error) *errMult {
+func joinErr(uniq bool, errs ...error) error {
 	if len(errs) <= 0 {
 		return nil
 	}
