@@ -428,7 +428,9 @@ func (r *resolver) Forward(q []byte) ([]byte, string, error) {
 }
 
 func (r *resolver) forward(q []byte, chosenids ...string) ([]byte, string, error) {
-	// todo: if chosenids are not empty, should uid be set to "Rethink"?
+	// if chosenids are not empty, uid is set to protect.UidSelf
+	// Today, such queries are only sent by the ipmapper, which is solely
+	// used by firestack for its queries (for ex: to resolve doh hostnames)
 	uid := core.UNKNOWN_UID_STR
 	if len(chosenids) > 0 {
 		uid = protect.UidSelf
