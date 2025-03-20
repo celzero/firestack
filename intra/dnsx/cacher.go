@@ -520,8 +520,13 @@ func fillSummary(s *x.DNSSummary, out *x.DNSSummary) {
 	if len(s.ID) != 0 {
 		out.ID = s.ID
 	}
+
 	if s.Latency != 0 {
 		out.Latency = s.Latency
+	}
+
+	if len(out.UID) <= 0 {
+		out.UID = s.UID
 	}
 
 	// query portions are only filled in if they are empty

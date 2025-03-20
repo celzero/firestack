@@ -1222,6 +1222,7 @@ func (t *dnsgateway) xLocked(maybeAlg netip.Addr, usestale bool, tids ...string)
 		undidAlg = false
 	}
 
+	// todo: ignore & return the fake dns address as-is (ex: 10.111.222.3:53)
 	hasrealips := len(realips) > 0
 	var unnated []netip.Addr
 	if !hasrealips { // algip is probably origip / realip

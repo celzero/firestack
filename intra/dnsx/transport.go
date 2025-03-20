@@ -440,7 +440,7 @@ func (r *resolver) forward2(q []byte, uid string, chosenids ...string) (res0 []b
 	starttime := time.Now()
 	smm := &x.DNSSummary{
 		ID:     NoDNS,
-		UID:    uid,
+		UID:    uid, // may be overwritten to by Cacher via fillSummary
 		QName:  invalidQname,
 		Status: Start,
 		Msg:    errNop.Error(),
@@ -450,6 +450,7 @@ func (r *resolver) forward2(q []byte, uid string, chosenids ...string) (res0 []b
 		if settings.Debug {
 			smm.Latency = time.Since(starttime).Seconds()
 		}
+		smm.UID = uid
 		if len(smm.Msg) <= 0 {
 			smm.Msg = errNop.Error()
 		}
