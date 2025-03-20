@@ -389,25 +389,25 @@ func (h *baseHandler) End() {
 // TODO: Propagate TCP RST using local.Abort(), on appropriate errors.
 func upload(cid, proto string, local net.Conn, remote net.Conn, ioch chan<- ioinfo) {
 	defer core.Recover(core.Exit11, "c.upload: "+cid)
-
-	ci := conn2str(local, remote)
+	defer core.CloseOp(local, core.CopR)
+	defer core.CloseOp(remote, core.CopW)
+	defer close(ioch)
 
 	n, err := core.Pipe(remote, local)
-	log.D("com: %s: %s upload(%d) done(%v) b/w %s", proto, cid, n, err, ci)
 
-	core.CloseOp(local, core.CopR)
-	core.CloseOp(remote, core.CopW)
+	log.D("com: %s: %s upload(%d) done(%v) b/w %s",
+		proto, cid, n, err, conn2str(local, remote))
 	ioch <- ioinfo{n, err}
 }
 
 func download(cid, proto string, local net.Conn, remote net.Conn) (n int64, err error) {
-	ci := conn2str(local, remote)
+	defer core.CloseOp(local, core.CopW)
+	defer core.CloseOp(remote, core.CopR)
 
 	n, err = core.Pipe(local, remote)
-	log.D("com: %s: %s download(%d) done(%v) b/w %s", proto, cid, n, err, ci)
 
-	core.CloseOp(local, core.CopW)
-	core.CloseOp(remote, core.CopR)
+	log.D("com: %s: %s download(%d) done(%v) b/w %s",
+		proto, cid, n, err, conn2str(local, remote))
 	return
 }
 
