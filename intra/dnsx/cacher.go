@@ -311,7 +311,8 @@ func asResponse(q *dns.Msg, v *cres, fresh bool) (a *dns.Msg, s *x.DNSSummary, e
 	// dns 0x20 may mangle the question section, so preserve it
 	// github.com/jedisct1/edgedns#correct-support-for-the-dns0x20-extension
 	a.Question = q.Question
-	if !fresh { // if the v is not fresh, set the ttl to the minimum
+	a.Response = true // just to be sure
+	if !fresh {       // if the v is not fresh, set the ttl to the minimum
 		xdns.WithTtl(a, stalettl) // only set for Answer records
 	}
 	return
