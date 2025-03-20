@@ -132,14 +132,14 @@ func E(msg string, args ...any) {
 // P logs a private message.
 func P(msg string, args ...any) {
 	if Glogger != nil {
-		Glogger.Piif(callerat, "P "+msg, args...)
+		Glogger.Piif(callerat, msg, args...)
 	}
 }
 
 // Wtf logs a fatal message.
 func Wtf(msg string, args ...any) {
 	if Glogger != nil {
-		Glogger.Fatalf(callerat, "F "+msg, args...)
+		Glogger.Fatalf(callerat, msg, args...)
 	}
 }
 
@@ -147,7 +147,7 @@ func Wtf(msg string, args ...any) {
 func C(msg string, scratch []byte) {
 	if Glogger != nil {
 		E2(callerat, "----START----")
-		Glogger.Stack( /*console-only*/ 0, "F "+msg, scratch)
+		Glogger.Stack( /*console-only*/ 0, msg, scratch)
 		E2(callerat, "----STOPP----")
 	}
 }
@@ -166,7 +166,7 @@ func T(msg string, args ...any) {
 			msg = fmt.Sprintf(msg, args...)
 		}
 		E2(callerat, "----START----")
-		Glogger.Stack(callerat, "F "+msg, make([]byte, 4096))
+		Glogger.Stack(callerat, msg, make([]byte, 4096))
 		E2(callerat, "----STOPP----")
 	}
 }
@@ -175,44 +175,44 @@ func T(msg string, args ...any) {
 func TALL(msg string, scratch64k []byte) {
 	if Glogger != nil {
 		E2(callerat, "----START----")
-		Glogger.Stack(callerat, "F "+msg, scratch64k)
+		Glogger.Stack(callerat, msg, scratch64k)
 		E2(callerat, "----STOPP----")
 	}
 }
 
 func VV2(at int, msg string, args ...any) {
 	if Glogger != nil {
-		Glogger.VeryVerbosef(at+nextframe, "VV "+msg, args...)
+		Glogger.VeryVerbosef(at+nextframe, msg, args...)
 	}
 }
 
 func V2(at int, msg string, args ...any) {
 	if Glogger != nil {
-		Glogger.Verbosef(at+nextframe, "V "+msg, args...)
+		Glogger.Verbosef(at+nextframe, msg, args...)
 	}
 }
 
 func D2(at int, msg string, args ...any) {
 	if Glogger != nil {
-		Glogger.Debugf(at+nextframe, "D "+msg, args...)
+		Glogger.Debugf(at+nextframe, msg, args...)
 	}
 }
 
 func I2(at int, msg string, args ...any) {
 	if Glogger != nil {
-		Glogger.Infof(at+nextframe, "I "+msg, args...)
+		Glogger.Infof(at+nextframe, msg, args...)
 	}
 }
 
 func W2(at int, msg string, args ...any) {
 	if Glogger != nil {
-		Glogger.Warnf(at+nextframe, "W "+msg, args...)
+		Glogger.Warnf(at+nextframe, msg, args...)
 	}
 }
 
 func E2(at int, msg string, args ...any) {
 	if Glogger != nil {
-		Glogger.Errorf(at+nextframe, "E "+msg, args...)
+		Glogger.Errorf(at+nextframe, msg, args...)
 	}
 }
 

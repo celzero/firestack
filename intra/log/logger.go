@@ -112,6 +112,31 @@ const (
 	NONE                       // NONE no-ops the logger.
 )
 
+func (l LogLevel) s() string {
+	switch l {
+	case VVERBOSE:
+		return "VV "
+	case VERBOSE:
+		return "V "
+	case DEBUG:
+		return "D "
+	case INFO:
+		return "I "
+	case WARN:
+		return "W "
+	case ERROR:
+		return "E "
+	case STACKTRACE:
+		return "F "
+	case USR:
+		return "U "
+	case NONE:
+		return ""
+	default:
+		return " ? "
+	}
+}
+
 const defaultLevel = INFO
 const defaultClevel = STACKTRACE
 
@@ -234,7 +259,7 @@ func (l *simpleLogger) consoleDispatcher() {
 			case WARN, ERROR:
 				if load < 5 {
 					if d := l.cskips.Swap(0); d > 0 {
-						c.Log(int32(WARN), l.msgstr("backpressure... dropped %d msgs", d))
+						c.Log(int32(WARN), l.msgstr(WARN, "backpressure... dropped %d msgs", d))
 					}
 				}
 				if load < 80 {
@@ -305,7 +330,7 @@ func (l *simpleLogger) Errorf(at int, msg string, args ...any) {
 
 func (l *simpleLogger) Fatalf(at int, msg string, args ...any) {
 	// todo: log to console?
-	l.err(at+nextframe, l.msgstr(msg, args...))
+	l.err(at+nextframe, l.msgstr(STACKTRACE, msg, args...))
 	os.Exit(1)
 }
 
@@ -384,12 +409,12 @@ func (l *simpleLogger) Stack(at int, msg string, scratch []byte) {
 	l.emitStack(at, appendix, msg, unsafe.String(&scratch[0], n))
 }
 
-func (l *simpleLogger) msgstr(f string, args ...any) string {
+func (l *simpleLogger) msgstr(lvl LogLevel, f string, args ...any) string {
 	msg := fmt.Sprintf(f, args...)
 	if len(l.tag) > 0 {
 		msg = l.tag + msg
 	}
-	return msg
+	return lvl.s() + msg
 }
 
 // out logs to stdout and pushes msg into ring buffer.
@@ -436,7 +461,7 @@ func (l *simpleLogger) writelog(lvl LogLevel, at int, msg string, args ...any) {
 	} else if n := l.skips[lvl].Load(); n > spammsgThreshold[lvl] {
 		swapped := l.skips[lvl].CompareAndSwap(n, 0)
 		if swapped && (cc || ll) {
-			spammsg := file + l.msgstr("spammy... dropped %d msgs", n)
+			spammsg := file + l.msgstr(lvl, "spammy... dropped %d msgs", n)
 			if ll {
 				l.out(spammsg)
 			}
@@ -447,7 +472,7 @@ func (l *simpleLogger) writelog(lvl LogLevel, at int, msg string, args ...any) {
 	}
 
 	if ll || cc {
-		msg = file + l.msgstr(msg, args...)
+		msg = file + l.msgstr(lvl, msg, args...)
 		if ll {
 			l.out(msg)
 		}
