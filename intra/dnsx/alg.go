@@ -111,11 +111,11 @@ type expaddr struct {
 }
 
 func (a expaddr) all() []netip.Addr {
-	return a.get(false /*live*/)
+	return a.get(xall)
 }
 
 func (a expaddr) alive() []netip.Addr {
-	return a.get(true /*live*/)
+	return a.get(xalive)
 }
 
 // fresh returns false if a has expired or if a is zero-value.
