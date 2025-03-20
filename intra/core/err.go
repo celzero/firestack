@@ -28,7 +28,7 @@ func UniqErr(errs ...error) error {
 	return joinErr(true /*uniq*/, errs...)
 }
 
-func joinErr(uniq bool, errs ...error) error {
+func joinErr(uniq bool, errs ...error) *errMult {
 	if len(errs) <= 0 {
 		return nil
 	}
@@ -61,9 +61,6 @@ func joinErr(uniq bool, errs ...error) error {
 	if len(all) <= 0 {
 		return nil
 	}
-	if len(all) == 1 {
-		return all[0]
-	}
 
 	return &errMult{errs: all, sep: " | "}
 }
@@ -74,6 +71,9 @@ type errMult struct {
 }
 
 func (e *errMult) Error() string {
+	if e == nil {
+		return "<nil>"
+	}
 	if len(e.errs) <= 0 {
 		return "<nil>"
 	} else if len(e.errs) == 1 {
@@ -91,5 +91,8 @@ func (e *errMult) Error() string {
 }
 
 func (e *errMult) Unwrap() []error {
+	if e == nil {
+		return nil
+	}
 	return e.errs
 }
