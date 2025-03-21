@@ -60,10 +60,6 @@ func (f *icmpForwarder) reply4(id stack.TransportEndpointID, pkt *stack.PacketBu
 		log.E("icmp: v4: %s: nil packet", f.o)
 		return // not handled
 	}
-	if !f.ep.IsAttached() {
-		log.D("icmp: v4: %s: endpoint not attached", f.o)
-		return // not handled
-	}
 
 	src := remoteAddrPort(id)
 	dst := localAddrPort(id)
@@ -89,6 +85,7 @@ func (f *icmpForwarder) reply4(id stack.TransportEndpointID, pkt *stack.PacketBu
 	l3 := pkt.Network()
 	route, err := f.s.FindRoute(pkt.NICID, l3.DestinationAddress(), l3.SourceAddress(), pkt.NetworkProtocolNumber, false /* multicastLoop */)
 	if err != nil {
+		log.W("icmp: v4: %s: no route to %s <= %s", f.o, l3.DestinationAddress(), l3.SourceAddress())
 		return false // not handled
 	}
 
@@ -98,9 +95,9 @@ func (f *icmpForwarder) reply4(id stack.TransportEndpointID, pkt *stack.PacketBu
 
 	core.Go("icmp4.pinger."+f.o, func() {
 		defer route.Release()
+		defer pkt.DecRef()
 
 		if !f.h.Ping(data, src, dst) { // unreachable
-			defer pkt.DecRef()
 			// make unreachable icmp packet for req and l7
 			err = f.icmpErr4(pkt, header.ICMPv4DstUnreachable, header.ICMPv4HostUnreachable)
 		} else { // reachable
@@ -111,11 +108,12 @@ func (f *icmpForwarder) reply4(id stack.TransportEndpointID, pkt *stack.PacketBu
 			log.D("icmp: v4: %s: ok type %v/%v sz[%d] from %v <= %v",
 				f.o, hdr.Type(), hdr.Code(), len(hdr), src, dst)
 
-			var pout stack.PacketBufferList
-			pout.PushBack(pkt)
-			defer pout.DecRef()
-
-			_, err = f.ep.WritePackets(pout)
+			// github.com/google/gvisor/blob/738e1d995f64d/pkg/tcpip/network/ipv4/icmp.go#L794
+			err = route.WritePacket(stack.NetworkHeaderParams{
+				Protocol: header.ICMPv4ProtocolNumber,
+				TTL:      route.DefaultTTL(),
+				TOS:      stack.DefaultTOS,
+			}, pkt)
 		}
 		loge(err)("icmp: v4: %s: wrote reply to tun; err? %v", f.o, err)
 	})
@@ -130,15 +128,11 @@ func (f *icmpForwarder) reply6(id stack.TransportEndpointID, pkt *stack.PacketBu
 		log.E("icmp: v6: %s: nil packet", f.o)
 		return // not handled
 	}
-	if !f.ep.IsAttached() {
-		log.D("icmp: v6: %s: endpoint not attached", f.o)
-		return // not handled
-	}
 
 	hdr := header.ICMPv6(pkt.TransportHeader().Slice())
 	if hdr.Type() != header.ICMPv6EchoRequest {
 		log.D("icmp: v6: %s: type %v/%v passthrough", f.o, hdr.Type(), hdr.Code())
-		return false // netstack to handle other msgs except echo / ping
+		return // netstack to handle other msgs except echo / ping
 	}
 
 	src := remoteAddrPort(id)
@@ -150,15 +144,26 @@ func (f *icmpForwarder) reply6(id stack.TransportEndpointID, pkt *stack.PacketBu
 		return // not handled
 	}
 
+	l3 := pkt.Network() // l3.Dst == id.LocalAddr and l3.Src == id.RemoteAddr
+	route, err := f.s.FindRoute(pkt.NICID, l3.DestinationAddress(), l3.SourceAddress(), pkt.NetworkProtocolNumber, false)
+	if err != nil {
+		log.W("icmp: v6: %s: no route to %s <= %s", f.o, l3.DestinationAddress(), l3.SourceAddress())
+		return // not handled
+	}
+
 	log.D("icmp: v6: %s: type %v/%v sz[%d] from src(%v) => dst(%v)",
 		f.o, hdr.Type(), hdr.Code(), len(data), src, dst)
+
 	// always forward in a goroutine to avoid blocking netstack
 	// see: netstack/dispatcher.go:newReadvDispatcher
 	pkt.IncRef()
+
 	core.Go("icmp6.pinger."+f.o, func() {
+		defer route.Release()
+		defer pkt.DecRef()
+
 		var err tcpip.Error
 		if !f.h.Ping(data, src, dst) { // unreachable
-			defer pkt.DecRef()
 			err = f.icmpErr6(id, pkt, header.ICMPv6DstUnreachable, header.ICMPv6NetworkUnreachable)
 		} else { // reachable
 			hdr.SetType(header.ICMPv6EchoReply)
@@ -173,11 +178,12 @@ func (f *icmpForwarder) reply6(id stack.TransportEndpointID, pkt *stack.PacketBu
 			log.D("icmp: v6: %s: ok type %v/%v sz[%d] from %v <= %v",
 				f.o, hdr.Type(), hdr.Code(), len(hdr), src, dst)
 
-			var pout stack.PacketBufferList
-			pout.PushBack(pkt)
-			defer pout.DecRef()
-
-			_, err = f.ep.WritePackets(pout)
+			// github.com/google/gvisor/blob/738e1d995f64d/pkg/tcpip/network/ipv4/icmp.go#L794
+			err = route.WritePacket(stack.NetworkHeaderParams{
+				Protocol: header.ICMPv4ProtocolNumber,
+				TTL:      route.DefaultTTL(),
+				TOS:      stack.DefaultTOS,
+			}, pkt)
 		}
 		loge(err)("icmp: v6: %s: wrote reply to tun; err? %v", f.o, err)
 	})
@@ -269,6 +275,13 @@ func (f *icmpForwarder) icmpErr4(pkt *stack.PacketBuffer, icmpType header.ICMPv4
 		return &tcpip.ErrNoBufferSpace{}
 	}
 
+	// origIPDst == id.LocalAddr and origIPSrc == id.RemoteAddr
+	route, err := f.s.FindRoute(pkt.NICID, origIPHdrDst, origIPHdrSrc, pkt.NetworkProtocolNumber, false)
+	if err != nil {
+		log.W("icmp: v4: %s: no route to %s <= %s", f.o, origIPHdrDst, origIPHdrSrc)
+		return &tcpip.ErrNoNet{}
+	}
+
 	if payloadLen > available {
 		payloadLen = available
 	}
@@ -281,20 +294,18 @@ func (f *icmpForwarder) icmpErr4(pkt *stack.PacketBuffer, icmpType header.ICMPv4
 	// required. This is now the payload of the new ICMP packet and no longer
 	// considered a packet in its own right.
 
-	payload := buffer.MakeWithView(pkt.NetworkHeader().View())
-	payload.Append(pkt.TransportHeader().View())
-	if dataCap := payloadLen - int(payload.Size()); dataCap > 0 {
-		buf := pkt.Data().ToBuffer()
-		buf.Truncate(int64(dataCap))
-		payload.Merge(&buf)
-	} else {
-		payload.Truncate(int64(payloadLen))
+	payload, perr := l3l4(pkt, int64(payloadLen))
+	if perr != nil {
+		log.E("icmp: v4: %s: err getting payload: %v", f.o, perr)
+		return &tcpip.ErrNoBufferSpace{}
 	}
 
 	icmpPkt := stack.NewPacketBuffer(stack.PacketBufferOptions{
 		ReserveHeaderBytes: int(f.ep.MaxHeaderLength()) + header.ICMPv4MinimumSize,
 		Payload:            payload,
 	})
+	icmpPkt.IncRef()
+	defer icmpPkt.DecRef()
 
 	icmpPkt.TransportProtocolNumber = header.ICMPv4ProtocolNumber
 
@@ -304,13 +315,9 @@ func (f *icmpForwarder) icmpErr4(pkt *stack.PacketBuffer, icmpType header.ICMPv4
 	icmpHdr.SetPointer(pointer)
 	icmpHdr.SetChecksum(header.ICMPv4Checksum(icmpHdr, icmpPkt.Data().Checksum()))
 
-	var pout stack.PacketBufferList
-	pout.PushBack(icmpPkt)
-	defer pout.DecRef()
+	werr := route.WriteHeaderIncludedPacket(icmpPkt)
 
-	n, werr := f.ep.WritePackets(pout)
-
-	loge(werr)("icmp: v4: %s: sent %d bytes to tun; err? %v", f.o, n, werr)
+	loge(werr)("icmp: v4: %s: sent %d bytes to tun; err? %v", f.o, icmpPkt.Size(), werr)
 
 	return werr
 }
@@ -396,24 +403,33 @@ func (f *icmpForwarder) icmpErr6(id stack.TransportEndpointID, pkt *stack.Packet
 		payloadLen = available
 	}
 
-	payload, err := l3l4(pkt, int64(payloadLen))
+	// origIPDst == id.LocalAddr and origIPSrc == id.RemoteAddr
+	route, err := f.s.FindRoute(pkt.NICID, origIPHdrDst, origIPHdrSrc, pkt.NetworkProtocolNumber, false)
 	if err != nil {
-		log.E("icmp: v6: %s: err getting payload: %v", f.o, err)
+		log.W("icmp: v6: %s: no route to %s <= %s", f.o, origIPHdrDst, origIPHdrSrc)
+		return &tcpip.ErrNoNet{}
+	}
+
+	payload, perr := l3l4(pkt, int64(payloadLen))
+	if perr != nil {
+		log.E("icmp: v6: %s: err getting payload: %v", f.o, perr)
 		return &tcpip.ErrNoBufferSpace{}
 	}
 
-	newPkt := stack.NewPacketBuffer(stack.PacketBufferOptions{
+	icmpPkt := stack.NewPacketBuffer(stack.PacketBufferOptions{
 		ReserveHeaderBytes: int(f.ep.MaxHeaderLength()) + header.ICMPv6ErrorHeaderSize,
 		Payload:            payload,
 	})
-	newPkt.TransportProtocolNumber = header.ICMPv6ProtocolNumber
+	icmpPkt.TransportProtocolNumber = header.ICMPv6ProtocolNumber
+	icmpPkt.IncRef()
+	defer icmpPkt.DecRef()
 
-	icmpHdr := header.ICMPv6(newPkt.TransportHeader().Push(header.ICMPv6DstUnreachableMinimumSize))
+	icmpHdr := header.ICMPv6(icmpPkt.TransportHeader().Push(header.ICMPv6DstUnreachableMinimumSize))
 	icmpHdr.SetType(icmpType)
 	icmpHdr.SetCode(icmpCode)
 	icmpHdr.SetTypeSpecific(pointer)
 
-	pktData := newPkt.Data()
+	pktData := icmpPkt.Data()
 	icmpHdr.SetChecksum(header.ICMPv6Checksum(header.ICMPv6ChecksumParams{
 		Header:      icmpHdr,
 		Src:         id.LocalAddress,
@@ -422,13 +438,9 @@ func (f *icmpForwarder) icmpErr6(id stack.TransportEndpointID, pkt *stack.Packet
 		PayloadLen:  pktData.Size(),
 	}))
 
-	var pout stack.PacketBufferList
-	pout.PushBack(newPkt)
-	defer pout.DecRef()
+	werr := route.WriteHeaderIncludedPacket(icmpPkt)
 
-	n, werr := f.ep.WritePackets(pout)
-
-	loge(werr)("icmp: v6: %s: sent %d bytes to tun; err? %v", f.o, n, werr)
+	loge(werr)("icmp: v6: %s: sent %d bytes to tun; err? %v", f.o, icmpPkt.Size(), werr)
 
 	return werr
 }
