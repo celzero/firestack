@@ -120,9 +120,8 @@ func Up(who string, s *stack.Stack, ep stack.LinkEndpoint, h GConnHandler) (tcpi
 		// github.com/google/gvisor/blob/a7dcce93/pkg/tcpip/sample/tun_tcp_connect/main.go
 		OutboundTCP(who, s, h.TCP())
 		OutboundUDP(who, s, h.UDP())
+		OutboundICMP(who, s, h.ICMP())
 	}
-	// icmp needs link endpoint, which is always new
-	OutboundICMP(who, s, ep, h.ICMP())
 
 	if settings.Debug {
 		tcp := s.TransportProtocolInstance(tcp.ProtocolNumber) != nil     // 6
