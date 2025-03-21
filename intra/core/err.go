@@ -28,6 +28,13 @@ func UniqErr(errs ...error) error {
 	return joinErr(true /*uniq*/, errs...)
 }
 
+// must always return the interface "error" and not
+// a *errMult, as client code checks for err == nil
+// for a nil *errMult returned from here is always false.
+// ie, if *errMult was the return type, then the "error"
+// interface returned by JoinErr and UniqErr is not "nil"
+// even if *errMult returned by joinErr was "nil".
+// see also: IsNil() and IsNotNil()
 func joinErr(uniq bool, errs ...error) error {
 	if len(errs) <= 0 {
 		return nil
@@ -72,7 +79,7 @@ type errMult struct {
 
 func (e *errMult) Error() string {
 	if e == nil {
-		return "<nil>"
+		return "{nil}"
 	}
 	if len(e.errs) <= 0 {
 		return "<nil>"
