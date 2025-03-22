@@ -452,11 +452,11 @@ func (l *simpleLogger) err(at int, msg string) {
 }
 
 func caller(at int) (pc uintptr, who string) {
-	return caller2(at, ":", ": ")
+	return caller2(at+nextframe, ":", ": ")
 }
 
 func caller1(at int, sep string) (pc uintptr, who string) {
-	return caller2(at, ":", sep)
+	return caller2(at+nextframe, ":", sep)
 }
 
 func caller2(at int, sep1, sep2 string) (pc uintptr, who string) {
@@ -501,9 +501,9 @@ func (l *simpleLogger) writelog(lvl LogLevel, at int, msg string, args ...any) {
 
 	if ll || cc {
 		if lvl == ERROR {
-			_, file2 := caller1(at+nextframe+1, "> ")
-			_, file3 := caller1(at+nextframe+2, "> ")
-			_, file4 := caller1(at+nextframe+3, "> ")
+			_, file2 := caller1(at+nextframe+1, ">>")
+			_, file3 := caller1(at+nextframe+2, ">>")
+			_, file4 := caller1(at+nextframe+3, ": ")
 			trace = file2 + file3 + file4
 		}
 		msg = l.msgstr(lvl, file1+trace+msg, args...)
