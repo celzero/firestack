@@ -63,7 +63,7 @@ func (d DialerOpts) String() string {
 		if d.LowerKeepAlive {
 			return "LowerKeepAlive"
 		}
-		return ""
+		return "DefaultKeepAlive"
 	}()
 	tmo := func() string {
 		return strconv.Itoa(int(d.ReadTimeoutSec)) +
