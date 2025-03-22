@@ -22,7 +22,7 @@ type DNSSummary struct {
 	QName string
 	// Query type: A, AAAA, SVCB, HTTPS, etc. May be 0.
 	QType int
-	// Cached response
+	// Was this response returned from cache?
 	Cached bool
 	// DNS Response data, ex: a csv of ips for A, AAAA.
 	RData string
@@ -39,6 +39,7 @@ type DNSSummary struct {
 	// CSV of Rethink DNS+ blocklists (local or remote) names (if used).
 	Blocklists string
 	// True if any among upstream transports (primary or secondary) returned blocked ans.
+	// Only valid for A/AAAA queries. Unspecified IPs are considered as "blocked ans".
 	UpstreamBlocks bool
 	// Diag message from Transport, if any. Typically, "no error"
 	Msg string
@@ -49,13 +50,20 @@ type DNSSummary struct {
 type DNSOpts struct {
 	// csv of proxy ids to use for this query.
 	PIDCSV string
-	// csv of ips to answer for this query; incl unspecified.
+	// csv of ips to answer for this query; incl unspecified ips, if any.
 	IPCSV string
 	// primary csv of transports ids to use for this query.
+	// dictated by user preferences (dnsx.Preferred, dnsx.System etc) or
+	// or user set rules (dnsx.BlockAll, dnsx.BlockFree, dnsx.Fixed etc)
 	TIDCSV string
 	// secondary transport ids to use for this query.
+	// usually, user-set DNS (dnsx.Preferred or dnsx.System) when primary is
+	// dnsx.BlockFree or dnsx.Fixed. Mostly, left unset.
 	TIDSECCSV string
-	// bypass on-device blocklists.
+	// If set, query bypasses on-device blocklists only, independent of wheter TIDCSV
+	// has dnsx.BlockFree or not. The difference is, dnsx.BlockFree is set to a
+	// non-content-blocking resolver (like one.one.one.one or dns.google) which
+	// bypasses both on-device and upstream blocklists.
 	NOBLOCK bool
 }
 
