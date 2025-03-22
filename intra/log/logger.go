@@ -60,8 +60,6 @@ type Logger interface {
 	Stack(at int, msg string, scratch []byte)
 }
 
-const pcbuckets = 512
-
 // based on github.com/eycorsican/go-tun2socks/blob/301549c43/common/log/simple/logger.go
 type simpleLogger struct {
 	tag string
@@ -84,16 +82,34 @@ type simpleLogger struct {
 	skips
 }
 
+const pcbuckets = 512
+
 // a clock-like spam rate limiter
 // maps level+pc to its age in ticks
 type clock struct {
-	sync.Mutex
-	l2 [NONE + 1][pcbuckets]uint8 // level+pc clock
-	l1 [NONE + 1]uint8            // level clock
+	l2 [NONE + 1][pcbuckets]uatom[uint8] // level+pc clock
+	l1 [NONE + 1]uatom[uint8]            // level clock
 }
 
 // number of per-level dropped (spammy) logs
 type skips [NONE + 1]atomic.Uint32
+
+type uatom[T uint8 | uint16] atomic.Uint32
+
+func (a *uatom[T]) v() T {
+	aa := (*atomic.Uint32)(a)
+	return T(aa.Load())
+}
+
+func (a *uatom[T]) inc() T {
+	aa := (*atomic.Uint32)(a)
+	return T(aa.Add(1))
+}
+
+func (a *uatom[T]) cas(old, new T) bool {
+	aa := (*atomic.Uint32)(a)
+	return aa.CompareAndSwap(uint32(old), uint32(new))
+}
 
 var _ Logger = (*simpleLogger)(nil)
 
@@ -482,15 +498,12 @@ func (l *simpleLogger) writelog(lvl LogLevel, at int, msg string, args ...any) {
 	}
 }
 
-// not thread-safe for performance reasons
 // go.dev/play/p/6CkoACJ1bYz
 func (l *simpleLogger) spammy(lvl LogLevel, pc uintptr) (y bool) {
-	// expensive, but golog's internal logger also grabs a mutex before every write
-	l.clock.Lock()
-	defer l.clock.Unlock()
+	resyncAttempts := 0
 
-	l.clock.l1[lvl]++ // tick the level clock
-	t := l.clock.l1[lvl]
+top:
+	t := (l.clock.l1[lvl]).inc() // tick the level clock
 
 	if pc == 0 {
 		return false
@@ -501,21 +514,29 @@ func (l *simpleLogger) spammy(lvl LogLevel, pc uintptr) (y bool) {
 
 	defer func() {
 		if !y { // age bkt when not spammy
-			l.clock.l2[lvl][bkt]++
+			(l.clock.l2[lvl][bkt]).inc()
 		}
 	}()
+
+	v := (l.clock.l2[lvl][bkt]).v()
 
 	// reset if pc clock (l2) out ticks level clock (l1);
 	// ie, t has probably overflowed to next generation
 	// and in that generation, bkt has not yet born.
 	// and so reset bkt to 0 or any value < t
-	if resync := l.clock.l2[lvl][bkt] > t; resync {
-		l.clock.l2[lvl][bkt] = t / 2 // set to 0?
-		return false                 // not spammy
+	if v > t {
+		resyncd := (l.clock.l2[lvl][bkt]).cas(t, t/2) // set to 0?
+		if resyncd {
+			return false // not spammy
+		} // else: someone else won the race
+		resyncAttempts++
+		if resyncAttempts > 3 {
+			return false // permissively assume not spammy
+		}
+		goto top
 	}
 
-	tt := uint16(t)
-	v := l.clock.l2[lvl][bkt]
+	tt := uint16(t) // tolerable ticks
 	if t < 256>>4 { // for upto 16 ticks
 		tt = tt * 70 / 100 // allow upto 70% of ticks
 	} else if t < 256>>3 { // for upto 32 ticks
