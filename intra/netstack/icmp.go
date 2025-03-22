@@ -578,6 +578,12 @@ func (f *icmpForwarder) processIPOptions(pkt *stack.PacketBuffer, opts header.IP
 		if done || optProblem != nil {
 			return optIter.Finalize(), optProblem
 		}
+		if option == nil { // nilaway
+			return nil, &header.IPv4OptParameterProblem{
+				Pointer:  optIter.ErrCursor,
+				NeedICMP: true,
+			}
+		}
 		optType := option.Type()
 		if optType == header.IPv4OptionNOPType {
 			optIter.PushNOPOrEnd(optType)
