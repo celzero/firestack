@@ -452,11 +452,19 @@ func (l *simpleLogger) err(at int, msg string) {
 }
 
 func caller(at int) (pc uintptr, who string) {
+	return caller2(at, ":", ": ")
+}
+
+func caller1(at int, sep string) (pc uintptr, who string) {
+	return caller2(at, ":", sep)
+}
+
+func caller2(at int, sep1, sep2 string) (pc uintptr, who string) {
 	pc, file, line, _ := runtime.Caller(at)
 	if len(file) <= 0 {
 		file = "???"
 	} else {
-		file = shortfile(file) + ":" + fmt.Sprint(line) + ": "
+		file = shortfile(file) + sep1 + fmt.Sprint(line) + sep2
 	}
 	return pc, file
 }
@@ -473,7 +481,7 @@ func (l *simpleLogger) writelog(lvl LogLevel, at int, msg string, args ...any) {
 	cc := l.clevel <= lvl
 
 	pc, file1 := caller(at + nextframe)
-	file2 := ""
+	trace := ""
 
 	if l.spammy(lvl, pc) {
 		l.skips[lvl].Add(1)
@@ -493,9 +501,12 @@ func (l *simpleLogger) writelog(lvl LogLevel, at int, msg string, args ...any) {
 
 	if ll || cc {
 		if lvl == ERROR {
-			_, file2 = caller(at + nextframe*2)
+			_, file2 := caller1(at+nextframe+1, "> ")
+			_, file3 := caller1(at+nextframe+2, "> ")
+			_, file4 := caller1(at+nextframe+3, "> ")
+			trace = file2 + file3 + file4
 		}
-		msg = l.msgstr(lvl, file1+file2+msg, args...)
+		msg = l.msgstr(lvl, file1+trace+msg, args...)
 		if ll {
 			// go's internal logger grabs mutex before every write
 			l.out(msg)
@@ -538,10 +549,11 @@ top:
 			return false // not spammy
 		} // else: someone else won the race
 		resyncAttempts++
-		if resyncAttempts > 3 {
-			return false // permissively assume not spammy
-		}
-		goto top
+		if resyncAttempts <= 3 {
+			goto top
+		} // else: so many calls that atomic updates won't go through
+		// assume spammy as that's most likely to be the case
+		return false
 	}
 
 	tt := uint16(t) // tolerable ticks
