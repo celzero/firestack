@@ -225,22 +225,26 @@ func (h *baseHandler) forward(local, remote net.Conn, smm *SocketSummary) {
 
 	tup := conn2str(local, remote)
 
-	log.I("com: %s: forward: new conn %s via proxy(%s); %s for %s",
-		h.proto, cid, via, tup, uid)
-
 	h.conntracker.Track(cid, local, remote)
 	defer h.conntracker.Untrack(cid)
 
+	var r rwext
+	var c core.TCPConn
+	isrwext := false
+	iszerodeadline := false
+	istcpconn := false
 	// enable core.Pipe (sendfile/zero-copy) optimizations on TCP if
 	// read & write deadlines are not set (as in rwext is effectively
 	// a no-op) by unwrapping the underlying remote conn from rwext.
-	if r, ok := remote.(rwext); ok {
-		if r.IsZeroDeadline() {
+	if r, isrwext = remote.(rwext); isrwext {
+		if iszerodeadline = r.IsZeroDeadline(); iszerodeadline {
 			remote = r.Unwrap()
-		} else if c, ok := r.SetAsTCPSockOpt(); ok && c != nil {
+		} else if c, istcpconn = r.SetAsTCPSockOpt(); istcpconn && c != nil {
 			remote = c
 		}
 	}
+	log.I("com: %s: forward: new conn %s (via: %s) rwext? %t, zerodeadline? %t, tcpconn? %t; %s for %s",
+		h.proto, cid, via, isrwext, iszerodeadline, istcpconn, tup, uid)
 
 	uploadch := make(chan ioinfo)
 
