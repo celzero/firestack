@@ -7,7 +7,6 @@
 package intra
 
 import (
-	"errors"
 	"fmt"
 	"net/netip"
 	"time"
@@ -19,18 +18,30 @@ import (
 // SocketSummary reports information about each TCP socket
 // or a non-DNS UDP association, or ICMP echo when it is closed.
 type SocketSummary struct {
-	Proto    string    // tcp, udp, icmp, etc.
-	ID       string    // Unique ID for this socket.
-	PID      string    // Proxy ID that handled this socket.
-	RPID     string    // Relay Proxy ID that tunneled PID.
-	UID      string    // UID of the app that owns this socket (sans ICMP).
-	Target   string    // Remote IP, if dialed in.
-	Rx       int64     // Total bytes downloaded.
-	Tx       int64     // Total bytes uploaded.
-	Duration int32     // Duration in seconds.
-	start    time.Time // Tracks start time; unexported.
-	Rtt      int32     // Round-trip time (millis).
-	Msg      string    // Err or other messages, if any.
+	// tcp, udp, or icmp.
+	Proto string
+	// Unique ID for this socket.
+	ID string
+	// Proxy ID that handled this socket.
+	PID string
+	// Relay Proxy ID that tunneled PID.
+	RPID string
+	// UID of the app that owns this socket (sans ICMP).
+	UID string
+	// Remote IP, if dialed in.
+	Target string
+	// Total bytes downloaded.
+	Rx int64
+	// Total bytes uploaded.
+	Tx int64
+	// Duration in milliseconds.
+	Duration int64
+	// Tracks start time; unexported.
+	start time.Time
+	// Round-trip time (millis).
+	Rtt int32
+	// Err or other messages, if any.
+	Msg string
 }
 
 type SocketListener interface {
@@ -47,10 +58,16 @@ type SocketListener interface {
 	// uid is -1 in case owner-uid of the connection couldn't be determined.
 	// src and dst are string'd representation of net.TCPAddr and net.UDPAddr.
 	// origdsts is a comma-separated list of original source IPs, this may be same as dst.
+	// origdsts may contain unspecified IPv4 or IPv6 addresses, which denote that the domain
+	// was blocked by a rdns blocklist (but the resolution was allowed to go through). Listener
+	// may choose to "Block" this connection based on that information.
 	// domains is a comma-separated list of domain names associated with origdsts, if any.
 	// probableDomains is a comma-separated list of probable domain names associated with origdsts, if any.
 	// blocklists is a comma-separated list of rdns blocklist names that apply, if any.
 	Flow(protocol, uid int32, src, dst, origdsts, domains, probableDomains, blocklists string) *Mark
+	// Inflow is called on a new incoming connection. Returned *Mark values have no discernable effect on these connections,
+	// except for the CID field, which is sent back via OnSocketClosed, and "Block" proxy which
+	// will drop this connection on the floor.
 	Inflow(protocol, uid int32, src, dst string) *Mark
 	// OnSocketClosed reports summary after a socket closes.
 	OnSocketClosed(*SocketSummary)
@@ -79,9 +96,15 @@ const (
 var (
 	optionsBlock = &Mark{PIDCSV: ipn.Block}
 	optionsExit  = &Mark{PIDCSV: ipn.Exit}
-
-	errNone = errors.New("no error")
 )
+
+var errNone noerror
+
+type noerror struct{}
+
+var _ error = noerror{}
+
+func (noerror) Error() string { return "no error" }
 
 func icmpSummary(id, uid string) *SocketSummary {
 	return &SocketSummary{
