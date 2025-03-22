@@ -88,8 +88,8 @@ func (f *icmpForwarder) reply4(id stack.TransportEndpointID, pkt *stack.PacketBu
 		localAddr = tcpip.Address{}
 	}
 
-	l3 := pkt.Network()
-	route, err := f.s.FindRoute(pkt.NICID, l3.DestinationAddress(), l3.SourceAddress(), pkt.NetworkProtocolNumber, false /* multicastLoop */)
+	l3 := pkt.Network() // same as ipHdr; l3.Dst == id.LocalAddr and l3.Src == id.RemoteAddr
+	route, err := f.s.FindRoute(pkt.NICID, localAddr, l3.SourceAddress(), pkt.NetworkProtocolNumber, false /* multicastLoop */)
 	if err != nil {
 		log.W("icmp: v4: %s: no route on %v to %s <= %s", f.o, pkt.NICID, l3.DestinationAddress(), l3.SourceAddress())
 		return false // not handled
