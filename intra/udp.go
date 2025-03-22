@@ -290,7 +290,7 @@ func (h *udpHandler) Connect(gconn *netstack.GUDPConn, src, target netip.AddrPor
 		smm.Rtt = int32(rtt.Seconds() * 1000)
 		log.W("udp: connect: #%d: %s failed; mux? %t, addr(%s) / fallback? %t; for uid %s (%dms) w err(%v)",
 			i, cid, mux, dstipp, fallingback, uid, end.Milliseconds(), err)
-		if end > retrytimeout {
+		if end > retryTimeout {
 			break
 		}
 	}

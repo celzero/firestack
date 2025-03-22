@@ -54,7 +54,7 @@ type ioinfo struct {
 }
 
 const (
-	retrytimeout  = 15 * time.Second
+	retryTimeout  = 15 * time.Second
 	onFlowTimeout = 5 * time.Second
 )
 
@@ -216,7 +216,7 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target netip.AddrPort)
 		elapsed := int32(end.Seconds() * 1000)
 		log.W("tcp: dial: #%d: %s failed; addr(%s) / fallback? %t; for uid %s (%d); w err(%v)",
 			i, cid, dstipp, fallingback, uid, elapsed, err)
-		if end > retrytimeout {
+		if end > retryTimeout {
 			break
 		}
 	}
