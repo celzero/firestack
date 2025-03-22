@@ -29,7 +29,7 @@ import (
 )
 
 const (
-	smmchSize           = 24
+	smmchSize           = 64
 	UNKNOWN_UID         = core.UNKNOWN_UID
 	UNKNOWN_UID_STR     = core.UNKNOWN_UID_STR
 	UNSUPPORTED_NETWORK = core.UNSUPPORTED_NETWORK
