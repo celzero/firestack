@@ -144,7 +144,7 @@ func (s *SocketSummary) String() string {
 
 func (s *SocketSummary) elapsed() {
 	if s != nil {
-		s.Duration = int32(time.Since(s.start).Seconds())
+		s.Duration = time.Since(s.start).Milliseconds()
 	}
 }
 
