@@ -472,7 +472,8 @@ func (l *simpleLogger) writelog(lvl LogLevel, at int, msg string, args ...any) {
 	ll := l.level <= lvl
 	cc := l.clevel <= lvl
 
-	pc, file := caller(at + nextframe)
+	pc, file1 := caller(at + nextframe)
+	file2 := ""
 
 	if l.spammy(lvl, pc) {
 		l.skips[lvl].Add(1)
@@ -480,7 +481,7 @@ func (l *simpleLogger) writelog(lvl LogLevel, at int, msg string, args ...any) {
 	} else if n := l.skips[lvl].Load(); n > spammsgThreshold[lvl] {
 		swapped := l.skips[lvl].CompareAndSwap(n, 0)
 		if swapped && (cc || ll) {
-			spammsg := file + l.msgstr(lvl, "spammy... dropped %d msgs", n)
+			spammsg := l.msgstr(lvl, file1+"spammy... dropped %d msgs", n)
 			if ll {
 				l.out(spammsg)
 			}
@@ -491,8 +492,12 @@ func (l *simpleLogger) writelog(lvl LogLevel, at int, msg string, args ...any) {
 	}
 
 	if ll || cc {
-		msg = file + l.msgstr(lvl, msg, args...)
+		if lvl == ERROR {
+			_, file2 = caller(at + nextframe*2)
+		}
+		msg = l.msgstr(lvl, file1+file2+msg, args...)
 		if ll {
+			// go's internal logger grabs mutex before every write
 			l.out(msg)
 		}
 		if cc {
