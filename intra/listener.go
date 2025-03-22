@@ -165,7 +165,7 @@ func (s *SocketSummary) done(errs ...error) *SocketSummary {
 		return s
 	}
 
-	err := core.JoinErr(errs...) // errs may be nil
+	err := core.UniqErr(errs...) // errs may be nil
 	if err != nil {
 		if s.Msg == errNone.Error() {
 			s.Msg = err.Error()
