@@ -167,6 +167,9 @@ const qSize = 256
 // consoleChSize is the size of the console channel.
 const consoleChSize = 256
 
+// minNeededForFullStacktrace is the size needed for a full stacktrace.
+const minNeededForFullStacktrace = 16 << 10 // 16KB
+
 // similarTraceThreshold is the no. of similar stacktraces to report before suppressing.
 const similarTraceThreshold = 8
 
@@ -414,7 +417,7 @@ func (l *simpleLogger) Stack(at int, msg string, scratch []byte) {
 	}
 
 	// full stacktrace iff large enough scratch
-	full := len(scratch) > 16384 // 16KB
+	full := len(scratch) > minNeededForFullStacktrace // 16KB
 	n := runtime.Stack(scratch, full)
 
 	if n == len(scratch) {
