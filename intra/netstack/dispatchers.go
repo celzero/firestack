@@ -45,6 +45,9 @@ import (
 
 const wrapttl = 5 * time.Second // wrapttl is the time to wait for wrapup() to complete.
 
+// is the dispatcher thread safe?
+const threadSafe = false
+
 // bufcfg defines the shape of the vectorised view used to read packets from the NIC.
 var bufcfg = []int{128, 256, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768}
 
@@ -91,8 +94,10 @@ func newIovecBuffer(sizes []int) *iovecBuffer {
 }
 
 func (b *iovecBuffer) nextIovecs() []unix.Iovec {
-	b.Lock()
-	defer b.Unlock()
+	if threadSafe {
+		b.Lock()
+		defer b.Unlock()
+	}
 
 	vnetHdrOff := 0
 
@@ -109,8 +114,10 @@ func (b *iovecBuffer) nextIovecs() []unix.Iovec {
 }
 
 func (b *iovecBuffer) release() {
-	b.Lock()
-	defer b.Unlock()
+	if threadSafe {
+		b.Lock()
+		defer b.Unlock()
+	}
 
 	for _, v := range b.views {
 		if v != nil {
@@ -129,7 +136,9 @@ func (b *iovecBuffer) pullBuffer(n int) (pulled buffer.Buffer, ok bool) {
 	var views []*buffer.View
 	c := 0
 
-	b.Lock()
+	if threadSafe {
+		b.Lock()
+	}
 	// Remove the used views from the buffer.
 	for i, v := range b.views {
 		if v == nil {
@@ -145,7 +154,9 @@ func (b *iovecBuffer) pullBuffer(n int) (pulled buffer.Buffer, ok bool) {
 	for i := range views {
 		b.views[i] = nil
 	}
-	b.Unlock()
+	if threadSafe {
+		b.Unlock()
+	}
 
 	for i, v := range views {
 		if err := pulled.Append(v); err != nil {
@@ -222,7 +233,6 @@ func (d *readVDispatcher) stop() {
 	d.once.Do(func() {
 		d.closed.Store(true)
 		d.fds.Load().stop()
-		d.buf.release()
 		d.mgr.stop()
 		log.I("ns: dispatch: closed!")
 	})
@@ -249,7 +259,7 @@ func (d *readVDispatcher) wrapup(fds *fds, noMoreThan30s time.Duration) {
 	// only go away if the tunnel is recreated (via stop/start or pause/unpause).
 	// This behaviour is seen when the device either connects to internet after
 	// quite a while or the device switches to a new network (on Android 14+).
-	if settings.Loopingback.Load() {
+	if !threadSafe || settings.Loopingback.Load() {
 		log.I("ns: tun(%d): wrapup: immediate (loopback)", fds.tun())
 		fds.stop()
 		return
@@ -279,18 +289,20 @@ func (d *readVDispatcher) wrapup(fds *fds, noMoreThan30s time.Duration) {
 }
 
 // io reads packets from fds and dispatches it to netstack.
+// not thread safe (see: threadSafe).
 func (d *readVDispatcher) io(fds *fds) (bool, tcpip.Error) {
+	done := d.closed.Load()
+	log.VV("ns: tun(%d): dispatch: done? %t", fds.tun(), done)
+	if done {
+		d.buf.release() // not thread safe
+		return abort, new(tcpip.ErrAborted)
+	}
+
 	if !fds.ok() {
 		return abort, new(tcpip.ErrNoSuchFile)
 	}
 
-	done := d.closed.Load()
-	log.VV("ns: tun(%d): dispatch: done? %t", fds.tun(), done)
-	if done {
-		return abort, new(tcpip.ErrAborted)
-	}
-
-	iov := d.buf.nextIovecs()
+	iov := d.buf.nextIovecs() // not thread safe
 	if len(iov) == 0 {
 		return abort, new(tcpip.ErrBadBuffer)
 	}
@@ -306,7 +318,7 @@ func (d *readVDispatcher) io(fds *fds) (bool, tcpip.Error) {
 		return abort, tcpip.TranslateErrno(errno)
 	}
 
-	b, ok := d.buf.pullBuffer(n)
+	b, ok := d.buf.pullBuffer(n) // not thread safe
 	if !ok {
 		return abort, new(tcpip.ErrBadBuffer)
 	}
