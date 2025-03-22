@@ -115,7 +115,10 @@ func (r *rpnp) Purge(cc string) bool {
 	}
 
 	rmv := r.pxr.removeRpnProxy(r.RpnAcc, cc)
+
+	r.kmu.Lock()
 	delete(r.kids, cc)
+	r.kmu.Unlock()
 
 	log.D("proxy: rpn: purge: %s[%s]? %t", provider, cc, rmv)
 	return rmv
@@ -127,7 +130,11 @@ func (r *rpnp) Get(cc string) (x.Proxy, error) {
 		return nil, errRpnNotMultiCC
 	}
 
-	if _, ok := r.kids[cc]; ok {
+	r.kmu.RLock()
+	_, gotCC := r.kids[cc]
+	r.kmu.RUnlock()
+
+	if gotCC {
 		cc = strings.ToUpper(cc)
 		return r.pxr.rpnProxyFor(r.RpnAcc.ProviderID(), cc)
 	}
