@@ -82,6 +82,8 @@ type Tunnel interface {
 	GetProxies() (x.Proxies, error)
 	// Get the internal proxies.
 	internalProxies() (ipn.Proxies, error)
+	// Get local services.
+	GetServices() (x.Services, error)
 	// Sets new default routes for the given engine, where engine is
 	// one of the constants (Ns4, Ns6, Ns46) defined in package settings.
 	SetRoute(engine int) error
@@ -269,7 +271,7 @@ func (t *rtunnel) internalProxies() (ipn.Proxies, error) {
 	return t.proxies, nil
 }
 
-func (t *rtunnel) GetServices() (rnet.Services, error) {
+func (t *rtunnel) GetServices() (x.Services, error) {
 	ko := t.closed.Load()
 
 	if ko || t.proxies == nil {
