@@ -244,6 +244,15 @@ func (x *muxer) readers() {
 		if dst := x.route(todoCid, addr2netip(who), ingress); dst == nil {
 			free()
 			continue
+		} else {
+			select {
+			case dst.inCh <- &slice{v: b[:n], fin: recycle}: // incomingCh is never closed
+			default: // dst probably closed, but not yet unrouted
+				err = errUdpIncomingDrop
+				recycle()
+			}
+			logev(err)("udp: mux: %s read: n(%d) from %v <= %v; dropped? %v",
+				dst.cid, n, dst.raddr, who, err)
 		}
 		select {
 		case dst.inCh <- &slice{v: b[:n], free: free}: // incomingCh is never closed
