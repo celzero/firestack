@@ -53,3 +53,28 @@ type Services interface {
 	// Refresh re-registers servces and returns a csv of active ones.
 	RefreshServers() (active string)
 }
+
+// Summary is a summary of a DNS transaction, reported when it is complete.
+type ServerSummary struct {
+	Type     string // http1, socks5, etc.
+	SID      string // Server ID.
+	PID      string // Proxy ID (hop) that handled egress, if any.
+	CID      string // Connection id
+	Tx       int64  // Total uploaded (bytes).
+	Rx       int64  // Total downloaded (bytes).
+	Duration int64  // Conn open duration (millis).
+	Msg      string // Error message, if any.
+}
+
+// ServerListener receives Server events.
+type ServerListener interface {
+	// SvcRoute decides how to forward an incoming connection over service (sid).
+	SvcRoute(sid, pid, network, sipport, dipport string) *Tab
+	// OnSvcComplete reports summary after a connection closes.
+	OnSvcComplete(*ServerSummary)
+}
+
+type Tab struct {
+	CID   string // CID is the ID of this connection.
+	Block bool   // Block is true if this connection should be blocked.
+}

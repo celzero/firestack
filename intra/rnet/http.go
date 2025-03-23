@@ -138,7 +138,7 @@ func (h *httpx) route(req *http.Request, ctx *tx.ProxyCtx) (*http.Request, *http
 	src := req.RemoteAddr
 	sid := h.id
 	pid := h.pid()
-	tab := h.listener.Route(sid, pid, "tcp", src, req.Host)
+	tab := h.listener.SvcRoute(sid, pid, "tcp", src, req.Host)
 	log.D("svchttp: route: tab(%v) id(%s) p(%s) src(%s) dst(%s)", tab, h.id, pid, src, req.Host)
 	if tab.Block {
 		return req, tx.NewResponse(req, tx.ContentTypeText, http.StatusForbidden, "Forbidden")
@@ -161,12 +161,12 @@ func (h *httpx) summarize(res *http.Response, ctx *tx.ProxyCtx) *http.Response {
 		log.W("svchttp: summarize: invalid userdata %v", ctx.UserData)
 		return res
 	}
-	ssu.Rx = int(res.ContentLength)
+	ssu.Rx = res.ContentLength
 	if req != nil {
-		ssu.Tx = int(req.ContentLength)
+		ssu.Tx = req.ContentLength
 	}
 	ssu.done(errNop)
-	go h.listener.OnComplete(ssu)
+	go h.listener.OnSvcComplete(ssu.ServerSummary)
 	return res
 }
 
@@ -175,7 +175,7 @@ func (h *httpx) routeConnect(host string, ctx *tx.ProxyCtx) (*tx.ConnectAction, 
 	dst := ctx.Req.Host
 	sid := h.id
 	pid := h.pid()
-	tab := h.listener.Route(sid, pid, "tcp", src, host)
+	tab := h.listener.SvcRoute(sid, pid, "tcp", src, host)
 	log.D("svchttp: routeConnect: tab(%v) id(%s) p(%s) src(%s) dst(%s)", tab, h.id, pid, src, dst)
 	if tab.Block {
 		return tx.RejectConnect, host
@@ -224,7 +224,7 @@ func (h *httpx) hijackConnect(req *http.Request, client net.Conn, ctx *tx.ProxyC
 			wg.Wait()
 			clos(client, target)
 		}
-		h.listener.OnComplete(ssu)
+		h.listener.OnSvcComplete(ssu.ServerSummary)
 	}()
 }
 

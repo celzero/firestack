@@ -25,7 +25,6 @@ import (
 	"github.com/celzero/firestack/intra/ipn/warp"
 	ilog "github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
-	"github.com/celzero/firestack/intra/rnet"
 	"github.com/celzero/firestack/intra/settings"
 	"github.com/celzero/firestack/intra/x64"
 	"github.com/celzero/firestack/intra/xdns"
@@ -111,7 +110,7 @@ type fakeBdg struct {
 
 var (
 	// baseNsOpts = &x.DNSOpts{PIDCSV: dnsx.NetBaseProxy, IPCSV: "", TIDCSV: x.CT + "test0"}
-	baseTab  = &rnet.Tab{CID: "testcid", Block: false}
+	baseTab  = &x.Tab{CID: "testcid", Block: false}
 	seNsOpts = &x.DNSOpts{PIDCSV: ipn.RpnSE, IPCSV: "", TIDCSV: x.CT + "test0"}
 )
 
@@ -121,8 +120,8 @@ func (*fakeBdg) OnDNSAdded(string)                     {}
 func (*fakeBdg) OnDNSRemoved(string)                   {}
 func (*fakeBdg) OnDNSStopped()                         {}
 
-func (*fakeBdg) Route(a, b, c, d, e string) *rnet.Tab { return baseTab }
-func (*fakeBdg) OnComplete(*rnet.ServerSummary)       {}
+func (*fakeBdg) Route(a, b, c, d, e string) *x.Tab { return baseTab }
+func (*fakeBdg) OnComplete(*x.ServerSummary)       {}
 
 const minmtu = 1280
 const dualstack = settings.IP46

@@ -49,9 +49,11 @@ var (
 
 // todo: github.com/txthinking/brook/blob/master/pac.go
 
-type Server = x.Server
+type Server x.Server
 
 type Services x.Services
+
+type ServerListener x.ServerListener
 
 var _ Services = (*services)(nil)
 var _ Server = (*httpx)(nil)
@@ -79,7 +81,7 @@ func NewServices(pctx context.Context, proxies ipn.Proxies, ctl protect.Controll
 	return svc
 }
 
-func (s *services) AddServer(id, url string) (svc Server, err error) {
+func (s *services) AddServer(id, url string) (svc x.Server, err error) {
 	s.RemoveServer(id)
 
 	switch id {
@@ -146,7 +148,7 @@ func (s *services) RemoveServer(id string) bool {
 	return false
 }
 
-func (s *services) GetServer(id string) (Server, error) {
+func (s *services) GetServer(id string) (x.Server, error) {
 	s.RLock()
 	defer s.RUnlock()
 
