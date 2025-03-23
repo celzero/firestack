@@ -136,8 +136,10 @@ func (b *iovecBuffer) pullBuffer(n int) (pulled buffer.Buffer, ok bool) {
 	var views []*buffer.View
 	c := 0
 
+	needsUnlock := false
 	if threadSafe {
 		b.Lock()
+		needsUnlock = true
 	}
 	// Remove the used views from the buffer.
 	for i, v := range b.views {
@@ -154,7 +156,7 @@ func (b *iovecBuffer) pullBuffer(n int) (pulled buffer.Buffer, ok bool) {
 	for i := range views {
 		b.views[i] = nil
 	}
-	if threadSafe {
+	if needsUnlock {
 		b.Unlock()
 	}
 
