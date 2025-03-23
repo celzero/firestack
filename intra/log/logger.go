@@ -191,8 +191,6 @@ var spammsgThreshold = [NONE + 1]uint32{
 
 const defaultFlags = 0 // no flags
 
-var _ = RegisterLogger(defaultLogger())
-
 func defaultLogger() *simpleLogger {
 	l := &simpleLogger{
 		level:   defaultLevel,

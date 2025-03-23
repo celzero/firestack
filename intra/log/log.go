@@ -34,7 +34,7 @@ package log
 import "fmt"
 
 // based on: github.com/eycorsican/go-tun2socks/blob/301549c43/common/log/log.go#L5
-var Glogger Logger
+var Glogger Logger = defaultLogger()
 
 // caller -> intra/log.go*2 (this file) -> intra/logger.go -> golang/log.go
 const (
@@ -57,30 +57,23 @@ type conMsg struct {
 type LogFn func(string, ...any)
 type LogFn2 func(int, string, ...any)
 
-func RegisterLogger(l Logger) bool {
-	Glogger = l
-	l.SetLevel(INFO)
-	l.SetConsoleLevel(STACKTRACE)
-	return true
+func init() {
+	Glogger.SetLevel(INFO)
+	Glogger.SetConsoleLevel(STACKTRACE)
 }
 
 func SetLevel(level LogLevel) {
-	if Glogger != nil {
-		Glogger.SetLevel(level)
-	}
+	Glogger.SetLevel(level)
 }
 
 func SetConsoleLevel(level LogLevel) {
-	if Glogger != nil {
-		Glogger.SetConsoleLevel(level)
-	}
+	Glogger.SetConsoleLevel(level)
 }
 
 // SetConsole sets external console to redirect log output to.
 func SetConsole(c Console) {
-	if Glogger != nil {
-		Glogger.SetConsole(c)
-	}
+	Glogger.SetConsole(c)
+
 }
 
 func Of(tag string, l LogFn2) LogFn {
@@ -131,89 +124,77 @@ func E(msg string, args ...any) {
 
 // P logs a private message.
 func P(msg string, args ...any) {
-	if Glogger != nil {
-		Glogger.Piif(callerat, msg, args...)
-	}
+	Glogger.Piif(callerat, msg, args...)
+
 }
 
 // Wtf logs a fatal message.
 func Wtf(msg string, args ...any) {
-	if Glogger != nil {
-		Glogger.Fatalf(callerat, msg, args...)
-	}
+	Glogger.Fatalf(callerat, msg, args...)
+
 }
 
 // C logs the stack trace of the current goroutine to Console.
 func C(msg string, scratch []byte) {
-	if Glogger != nil {
-		E2(callerat, "----START----")
-		Glogger.Stack( /*console-only*/ 0, msg, scratch)
-		E2(callerat, "----STOPP----")
-	}
+	E2(callerat, "----START----")
+	Glogger.Stack( /*console-only*/ 0, msg, scratch)
+	E2(callerat, "----STOPP----")
+
 }
 
 // U logs a user message (notifies the user).
 func U(msg string) {
-	if Glogger != nil {
-		Glogger.Usr(msg)
-	}
+	Glogger.Usr(msg)
+
 }
 
 // T logs the stack trace of the current goroutine.
 func T(msg string, args ...any) {
-	if Glogger != nil {
-		if len(args) > 0 {
-			msg = fmt.Sprintf(msg, args...)
-		}
-		E2(callerat, "----START----")
-		Glogger.Stack(callerat, msg, make([]byte, 4096))
-		E2(callerat, "----STOPP----")
+	if len(args) > 0 {
+		msg = fmt.Sprintf(msg, args...)
 	}
+	E2(callerat, "----START----")
+	Glogger.Stack(callerat, msg, make([]byte, 4096))
+	E2(callerat, "----STOPP----")
+
 }
 
 // TALL logs the stack trace of all active goroutines.
 func TALL(msg string, scratch64k []byte) {
-	if Glogger != nil {
-		E2(callerat, "----START----")
-		Glogger.Stack(callerat, msg, scratch64k)
-		E2(callerat, "----STOPP----")
-	}
+	E2(callerat, "----START----")
+	Glogger.Stack(callerat, msg, scratch64k)
+	E2(callerat, "----STOPP----")
+
 }
 
 func VV2(at int, msg string, args ...any) {
-	if Glogger != nil {
-		Glogger.VeryVerbosef(at+nextframe, msg, args...)
-	}
+	Glogger.VeryVerbosef(at+nextframe, msg, args...)
+
 }
 
 func V2(at int, msg string, args ...any) {
-	if Glogger != nil {
-		Glogger.Verbosef(at+nextframe, msg, args...)
-	}
+	Glogger.Verbosef(at+nextframe, msg, args...)
+
 }
 
 func D2(at int, msg string, args ...any) {
-	if Glogger != nil {
-		Glogger.Debugf(at+nextframe, msg, args...)
-	}
+	Glogger.Debugf(at+nextframe, msg, args...)
+
 }
 
 func I2(at int, msg string, args ...any) {
-	if Glogger != nil {
-		Glogger.Infof(at+nextframe, msg, args...)
-	}
+	Glogger.Infof(at+nextframe, msg, args...)
+
 }
 
 func W2(at int, msg string, args ...any) {
-	if Glogger != nil {
-		Glogger.Warnf(at+nextframe, msg, args...)
-	}
+	Glogger.Warnf(at+nextframe, msg, args...)
+
 }
 
 func E2(at int, msg string, args ...any) {
-	if Glogger != nil {
-		Glogger.Errorf(at+nextframe, msg, args...)
-	}
+	Glogger.Errorf(at+nextframe, msg, args...)
+
 }
 
 func LevelOf(level int32) LogLevel {
