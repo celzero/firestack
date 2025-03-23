@@ -66,7 +66,7 @@ type simpleLogger struct {
 
 	level LogLevel // golog (internal log) level
 
-	c      Console
+	c      atom[Console]
 	clevel LogLevel      // may be different from level
 	cmsgC  chan *conMsg  // never closed
 	cskips atomic.Uint32 // number of dropped console msgs
@@ -80,6 +80,18 @@ type simpleLogger struct {
 
 	clock
 	skips
+}
+
+type atom[T any] atomic.Value
+
+func (a *atom[T]) get() T {
+	aa := (*atomic.Value)(a)
+	return aa.Load().(T)
+}
+
+func (a *atom[T]) set(t T) {
+	aa := (*atomic.Value)(a)
+	aa.Store(t)
 }
 
 const pcbuckets = 512
@@ -237,7 +249,7 @@ func (l *simpleLogger) SetConsoleLevel(n LogLevel) {
 func (l *simpleLogger) SetConsole(c Console) {
 	l.clearStCounts()
 
-	l.c = c
+	l.c.set(c)
 }
 
 func (l *simpleLogger) clearStCounts() {
@@ -264,7 +276,7 @@ func (l *simpleLogger) consoleDispatcher() {
 			continue
 		}
 		load := (len(l.cmsgC) / cap(l.cmsgC) * 100) // load percentage
-		if c := l.c; c != nil {                     // look for l.c on every msg
+		if c := l.c.get(); c != nil {               // look for l.c on every msg
 			switch m.t {
 			case NONE:
 				// drop
@@ -356,7 +368,7 @@ func (l *simpleLogger) Fatalf(at int, msg string, args ...any) {
 func (l *simpleLogger) emitStack(at int, msgs ...string) {
 	sendtoconsole := at <= callerat
 
-	c := l.c
+	c := l.c.get()
 	for _, msg := range msgs {
 		if len(msg) <= 0 {
 			continue
