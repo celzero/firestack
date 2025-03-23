@@ -52,17 +52,7 @@ var BlockMode atomic.Int32
 var PtMode atomic.Int32
 
 // SetMode re-assigns d to DNSMode, b to BlockMode, pt to NatPtMode.
-func SetMode(d, b, pt int32) {
-	DNSMode.Store(d)
-	BlockMode.Store(b)
-	PtMode.Store(pt)
-}
-
-// NewTunMode returns a new TunMode object.
-// `d` sets dns-mode.
-// `b` sets block-mode.
-// `pt` sets natpt-mode.
-func NewTunMode(d, b, pt int32) {
+func SetTunMode(d, b, pt int32) {
 	DNSMode.Store(d)
 	BlockMode.Store(b)
 	PtMode.Store(pt)
@@ -74,7 +64,7 @@ func NewTunMode(d, b, pt int32) {
 // is captured and replayed to the remote DoH server)
 // and with firewall disabled.
 func DefaultTunMode() {
-	NewTunMode(DNSModeIP, BlockModeNone, PtModeNo46)
+	SetTunMode(DNSModeIP, BlockModeNone, PtModeNo46)
 }
 
 func init() {
