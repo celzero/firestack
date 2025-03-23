@@ -240,17 +240,18 @@ func (x *muxer) readers() {
 
 		const todoCid = "todo"
 		// may be an existing route or a new route
-		if dst := x.route(todoCid, addr2netip(who), ingress); dst != nil {
-			select {
-			case dst.inCh <- &slice{v: b[:n], free: free}: // incomingCh is never closed
-			default: // dst probably closed, but not yet unrouted
-				log.W("udp: mux: %s read: drop(sz: %d); route to %s",
-					dst.cid, n, dst.raddr)
-			}
-			log.VV("udp: mux: %s read: n(%d) from %v <= %v; err %v",
-				dst.cid, n, dst.raddr, who, err)
+		if dst := x.route(todoCid, addr2netip(who), ingress); dst == nil {
+			free()
+			continue
 		} // else: ignore (who is invalid or x is closed)
-		free()
+		select {
+		case dst.inCh <- &slice{v: b[:n], free: free}: // incomingCh is never closed
+		default: // dst probably closed, but not yet unrouted
+			log.W("udp: mux: %s read: drop(sz: %d); route to %s",
+				dst.cid, n, dst.raddr)
+		}
+		log.VV("udp: mux: %s read: n(%d) from %v <= %v; err %v",
+			dst.cid, n, dst.raddr, who, err)
 	}
 }
 
