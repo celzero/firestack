@@ -67,7 +67,7 @@ func init() {
 // Throws an exception if the TUN file descriptor cannot be opened, or if the tunnel fails to
 // connect.
 func Connect(fd, mtu int, fakedns string, dtr DefaultDNS, bdg Bridge) (t Tunnel, err error) {
-	return NewTunnel(fd, mtu, fakedns, settings.DefaultTunMode(), dtr, bdg)
+	return NewTunnel(fd, mtu, fakedns, dtr, bdg)
 }
 
 // Change log level to very verbose (0), verbose (1), debug (2), info (3), warn (4), error (5),

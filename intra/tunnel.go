@@ -92,15 +92,12 @@ type Tunnel interface {
 	// If len(fpcap) is 0, no PCAP file will be written.
 	// If len(fpcap) is 1, PCAP be written to stdout.
 	SetPcap(fpcap string) error
-	// Set DNSMode, BlockMode, PtMode.
-	SetTunMode(dnsmode, blockmode, ptmode int32)
 }
 
 type rtunnel struct {
 	tunnel.Tunnel
 	ctx      context.Context
 	done     context.CancelFunc
-	tunmode  *settings.TunMode
 	proxies  ipn.Proxies
 	resolver dnsx.Resolver
 	services rnet.Services
@@ -108,7 +105,7 @@ type rtunnel struct {
 	once     sync.Once
 }
 
-func NewTunnel(fd, mtu int, fakedns string, tunmode *settings.TunMode, dtr DefaultDNS, bdg Bridge) (t Tunnel, err error) {
+func NewTunnel(fd, mtu int, fakedns string, dtr DefaultDNS, bdg Bridge) (t Tunnel, err error) {
 	defer core.Recover(core.Exit11, "i.newTunnel")
 
 	if dtr == nil || core.IsNil(dtr) {
@@ -141,7 +138,7 @@ func NewTunnel(fd, mtu int, fakedns string, tunmode *settings.TunMode, dtr Defau
 	const dualstack = settings.IP46
 
 	log.SetConsole(bdg)
-	natpt := x64.NewNatPt(tunmode, bdg)
+	natpt := x64.NewNatPt(bdg)
 	proxies := ipn.NewProxifier(ctx, dualstack, mtu, bdg, bdg)
 	services := rnet.NewServices(ctx, proxies, bdg, bdg)
 
@@ -156,7 +153,7 @@ func NewTunnel(fd, mtu int, fakedns string, tunmode *settings.TunMode, dtr Defau
 
 	log.D("tun: <<< new >>>; proxies, svcs, bootstrap: ok")
 
-	resolver := dnsx.NewResolver(ctx, fakedns, tunmode, dtr, bdg, natpt)
+	resolver := dnsx.NewResolver(ctx, fakedns, dtr, bdg, natpt)
 	resolver.Add(newGoosTransport(ctx, proxies))            // os-resolver; fixed
 	resolver.Add(newBlockAllTransport())                    // fixed
 	resolver.Add(newFixedTransport())                       // fixed
@@ -168,9 +165,9 @@ func NewTunnel(fd, mtu int, fakedns string, tunmode *settings.TunMode, dtr Defau
 	dialers.IPProtos(dualstack)           // assume dual-stack
 	addIPMapper(ctx, resolver, dualstack) // namespace aware os-resolver for pkg dialers
 
-	tcph := NewTCPHandler(ctx, resolver, proxies, tunmode, bdg)
-	udph := NewUDPHandler(ctx, resolver, proxies, tunmode, bdg)
-	icmph := NewICMPHandler(ctx, resolver, proxies, tunmode, bdg)
+	tcph := NewTCPHandler(ctx, resolver, proxies, bdg)
+	udph := NewUDPHandler(ctx, resolver, proxies, bdg)
+	icmph := NewICMPHandler(ctx, resolver, proxies, bdg)
 	hdl := netstack.NewGConnHandler(tcph, udph, icmph)
 
 	log.D("tun: <<< new >>>; protocol handlers: ok")
@@ -190,7 +187,6 @@ func NewTunnel(fd, mtu int, fakedns string, tunmode *settings.TunMode, dtr Defau
 		Tunnel:   gt,
 		ctx:      ctx,
 		done:     cancel,
-		tunmode:  tunmode,
 		proxies:  proxies,
 		resolver: resolver,
 		services: services,
@@ -284,10 +280,6 @@ func (t *rtunnel) GetServices() (rnet.Services, error) {
 	return t.services, nil
 }
 
-func (t *rtunnel) SetTunMode(dnsmode, blockmode, ptmode int32) {
-	t.tunmode.SetMode(dnsmode, blockmode, ptmode)
-}
-
 func (t *rtunnel) Stat() (*x.NetStat, error) {
 	v, err := bar.DoIt("stat", func() (*x.NetStat, error) {
 		return t.stat()
@@ -321,7 +313,11 @@ func (t *rtunnel) stat() (*x.NetStat, error) {
 	out.RDNSIn.Dialer4 = dialers.Use4()
 	out.RDNSIn.Dialer6 = dialers.Use6()
 	out.RDNSIn.DialerOpts = csv2ssv(settings.GetDialerOpts().String())
-	out.RDNSIn.TunMode = csv2ssv(t.tunmode.String())
+
+	firewall := settings.BlockMode.Load()
+	dns := settings.DNSMode.Load()
+	pt := settings.PtMode.Load()
+	out.RDNSIn.TunMode = fmt.Sprintf("%d;%d;%d", firewall, dns, pt)
 
 	var mm runtime.MemStats
 	runtime.ReadMemStats(&mm) // stw & expensive

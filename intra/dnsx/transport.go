@@ -159,7 +159,6 @@ type resolver struct {
 	dnsaddrs     []netip.AddrPort
 	transports   map[string]Transport
 	gateway      Gateway
-	tunmode      *settings.TunMode
 	localdomains x.RadixTree
 	listener     x.DNSListener
 	smms         chan *x.DNSSummary
@@ -175,16 +174,15 @@ type resolver struct {
 
 var _ Resolver = (*resolver)(nil)
 
-func NewResolver(pctx context.Context, fakeaddrs string, tunmode *settings.TunMode, dtr x.DNSTransport, l x.DNSListener, pt NatPt) *resolver {
+func NewResolver(pctx context.Context, fakeaddrs string, dtr x.DNSTransport, l x.DNSListener, pt NatPt) *resolver {
 	ctx, cancel := context.WithCancel(pctx)
 	r := &resolver{
 		ctx:          ctx,
 		done:         cancel,
 		NatPt:        pt,
 		listener:     l,
-		smms:         make(chan *x.DNSSummary, 32),
+		smms:         make(chan *x.DNSSummary, 64),
 		transports:   make(map[string]Transport),
-		tunmode:      tunmode,
 		localdomains: newUndelegatedDomainsTrie(),
 	}
 	r.gateway = NewDNSGateway(ctx, r, pt)
@@ -628,7 +626,7 @@ func (r *resolver) determineTransport(id string) Transport {
 		id0 = Local
 	} else if id == Alg {
 		// if no firewall is setup, alg isn't possible
-		if r.tunmode.BlockMode.Load() == settings.BlockModeNone {
+		if settings.BlockMode.Load() == settings.BlockModeNone {
 			id0 = CT + Preferred
 		} else {
 			id0 = CT + BlockFree

@@ -20,7 +20,6 @@ import (
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/ipn"
 	"github.com/celzero/firestack/intra/netstack"
-	"github.com/celzero/firestack/intra/settings"
 )
 
 type icmpHandler struct {
@@ -29,9 +28,9 @@ type icmpHandler struct {
 
 var _ netstack.GICMPHandler = (*icmpHandler)(nil)
 
-func NewICMPHandler(pctx context.Context, resolver dnsx.Resolver, prox ipn.ProxyProvider, tunMode *settings.TunMode, listener Listener) netstack.GICMPHandler {
+func NewICMPHandler(pctx context.Context, resolver dnsx.Resolver, prox ipn.ProxyProvider, listener Listener) netstack.GICMPHandler {
 	h := &icmpHandler{
-		baseHandler: newBaseHandler(pctx, "icmp", resolver, prox, tunMode, listener),
+		baseHandler: newBaseHandler(pctx, "icmp", resolver, prox, listener),
 	}
 
 	go h.processSummaries()

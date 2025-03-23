@@ -64,7 +64,6 @@ type baseHandler struct {
 	proto string // tcp, udp, icmp
 	ctx   context.Context
 
-	tunMode  *settings.TunMode
 	resolver dnsx.Resolver     // dns resolver to forward queries to
 	prox     ipn.ProxyProvider // proxy provider
 	smmch    chan *SocketSummary
@@ -82,11 +81,10 @@ type baseHandler struct {
 
 var _ netstack.GBaseConnHandler = (*baseHandler)(nil)
 
-func newBaseHandler(pctx context.Context, proto string, r dnsx.Resolver, px ipn.ProxyProvider, tm *settings.TunMode, l SocketListener) *baseHandler {
+func newBaseHandler(pctx context.Context, proto string, r dnsx.Resolver, px ipn.ProxyProvider, l SocketListener) *baseHandler {
 	h := &baseHandler{
 		ctx:         pctx,
 		proto:       proto,
-		tunMode:     tm,
 		resolver:    r,
 		prox:        px,
 		smmch:       make(chan *SocketSummary, smmchSize),
@@ -101,7 +99,7 @@ func newBaseHandler(pctx context.Context, proto string, r dnsx.Resolver, px ipn.
 
 // to is the local address, from is the remote address.
 func (h *baseHandler) onInflow(to, from netip.AddrPort) (fm *Mark) {
-	blockmode := h.tunMode.BlockMode.Load()
+	blockmode := settings.BlockMode.Load()
 	fm = optionsBlock
 	// BlockModeNone returns false, BlockModeSink returns true
 	if blockmode == settings.BlockModeSink {
@@ -127,7 +125,7 @@ func (h *baseHandler) onInflow(to, from netip.AddrPort) (fm *Mark) {
 
 // onFlow calls listener.Flow to determine egress rules and routes; thread-safe.
 func (h *baseHandler) onFlow(localaddr, target netip.AddrPort) (fm *Mark, undidAlg bool, ips, doms string) {
-	blockmode := h.tunMode.BlockMode.Load()
+	blockmode := settings.BlockMode.Load()
 	fm = optionsBlock
 	// BlockModeNone returns false, BlockModeSink returns true
 	if blockmode == settings.BlockModeSink {

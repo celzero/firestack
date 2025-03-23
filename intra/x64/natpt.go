@@ -36,9 +36,8 @@ import (
 type natPt struct {
 	*nat64
 	*dns64
-	tunmode *settings.TunMode
-	ip4s    []net.IP
-	ip6s    []net.IP
+	ip4s []net.IP
+	ip6s []net.IP
 }
 
 var _ dnsx.NatPt = (*natPt)(nil)
@@ -49,20 +48,19 @@ var (
 )
 
 // NewNatPt returns a new NatPt.
-func NewNatPt(tunmode *settings.TunMode, l x.DNSListener) *natPt {
-	log.I("natpt: new; mode(%v)", tunmode)
+func NewNatPt(l x.DNSListener) *natPt {
+	log.I("natpt: new; mode(%v)", settings.PtMode.Load())
 	return &natPt{
-		nat64:   newNat64(),
-		dns64:   newDns64(l),
-		tunmode: tunmode,
-		ip4s:    nil,
-		ip6s:    nil,
+		nat64: newNat64(),
+		dns64: newDns64(l),
+		ip4s:  nil,
+		ip6s:  nil,
 	}
 }
 
 // D64 Implements DNS64.
 func (pt *natPt) D64(network string, ans6 *dns.Msg, f dnsx.Transport) *dns.Msg {
-	ptmode := pt.tunmode.PtMode.Load()
+	ptmode := settings.PtMode.Load()
 	if ptmode != settings.PtModeNo46 { // do64
 		force64 := ptmode == settings.PtModeForce64
 		return pt.dns64.eval(network, force64, ans6, f)

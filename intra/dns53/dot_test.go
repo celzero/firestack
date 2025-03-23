@@ -153,12 +153,6 @@ func TestDot(t *testing.T) {
 	// smm := &x.DNSSummary{}
 	// smm6 := &x.DNSSummary{}
 	_ = xdns.NetAndProxyID("tcp", dnsx.NetBaseProxy)
-	tm := settings.NewTunMode(
-		settings.DNSModePort,
-		settings.BlockModeNone,
-		settings.PtModeAuto,
-	)
-
 	// tr, _ := NewTLSTransport(ctx, "test0", "max.rethinkdns.com", []string{"213.188.216.9"}, pxr, ctl)
 	dtr, _ := NewTransport(ctx, x.Default, "1.1.1.1", "53", pxr)
 	tr, _ := NewTransport(ctx, "test0", "1.0.0.2", "53", pxr)
@@ -166,8 +160,8 @@ func TestDot(t *testing.T) {
 		t.Fatal("nil dns transports")
 	}
 
-	natpt := x64.NewNatPt(tm, bdg)
-	resolv := dnsx.NewResolver(ctx, "10.111.222.3:53", tm, dtr, bdg, natpt)
+	natpt := x64.NewNatPt(bdg)
+	resolv := dnsx.NewResolver(ctx, "10.111.222.3:53", dtr, bdg, natpt)
 	resolv.Add(tr)
 	r4, _, err := resolv.Forward(b4)
 	r6, _, err6 := resolv.Forward(b6)
@@ -207,20 +201,14 @@ func TestProxyReaches(t *testing.T) {
 	dialers.Mapper(netr)
 
 	_ = xdns.NetAndProxyID("tcp", dnsx.NetBaseProxy)
-	tm := settings.NewTunMode(
-		settings.DNSModePort,
-		settings.BlockModeNone,
-		settings.PtModeAuto,
-	)
-
 	tr, _ := NewTLSTransport(ctx, "test0", "1.1.1.1", nil, pxr)
 	dtr, _ := NewTransport(ctx, x.Default, "1.1.1.1", "53", pxr)
 	if tr == nil || dtr == nil {
 		t.Fatal("nil dns transports")
 	}
 
-	natpt := x64.NewNatPt(tm, bdg)
-	resolv := dnsx.NewResolver(ctx, "10.111.222.3", tm, dtr, bdg, natpt)
+	natpt := x64.NewNatPt(bdg)
+	resolv := dnsx.NewResolver(ctx, "10.111.222.3", dtr, bdg, natpt)
 	resolv.Add(tr)
 
 	exit, _ := pxr.ProxyFor(ipn.Exit)
@@ -253,11 +241,6 @@ func TestSEProxy(t *testing.T) {
 	dialers.Mapper(netr)
 
 	_ = xdns.NetAndProxyID("tcp", dnsx.NetBaseProxy)
-	tm := settings.NewTunMode(
-		settings.DNSModePort,
-		settings.BlockModeNone,
-		settings.PtModeAuto,
-	)
 
 	tr, _ := doh.NewTransport(ctx, "test0", "http://zero.rethinkdns.com/dns-query/", []string{"104.21.83.62"}, pxr)
 	dtr, _ := doh.NewTransport(ctx, x.Default, "http://zero.rethinkdns.com/dns-query/", []string{"172.67.214.246"}, pxr)
@@ -265,8 +248,8 @@ func TestSEProxy(t *testing.T) {
 		t.Fatal("nil dns transports")
 	}
 
-	natpt := x64.NewNatPt(tm, bdg)
-	resolv := dnsx.NewResolver(ctx, "10.111.222.3", tm, dtr, bdg, natpt)
+	natpt := x64.NewNatPt(bdg)
+	resolv := dnsx.NewResolver(ctx, "10.111.222.3", dtr, bdg, natpt)
 	resolv.Add(tr)
 
 	if err := pxr.RegisterSE(); err != nil {
@@ -328,11 +311,6 @@ func TestProtonReaches(t *testing.T) {
 	dialers.Mapper(netr)
 
 	_ = xdns.NetAndProxyID("tcp", ipn.Base)
-	tm := settings.NewTunMode(
-		settings.DNSModePort,
-		settings.BlockModeNone,
-		settings.PtModeAuto,
-	)
 
 	tr, _ := NewTLSTransport(ctx, "test0", "1.1.1.1", nil, pxr)
 	dtr, _ := NewTransport(ctx, x.Default, "1.1.1.1", "53", pxr)
@@ -340,8 +318,8 @@ func TestProtonReaches(t *testing.T) {
 		t.Fatal("nil dns transports")
 	}
 
-	natpt := x64.NewNatPt(tm, bdg)
-	resolv := dnsx.NewResolver(ctx, "10.111.222.3", tm, dtr, bdg, natpt)
+	natpt := x64.NewNatPt(bdg)
+	resolv := dnsx.NewResolver(ctx, "10.111.222.3", dtr, bdg, natpt)
 	resolv.Add(tr)
 
 	var projson []byte

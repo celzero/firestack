@@ -7,7 +7,6 @@
 package settings
 
 import (
-	"strings"
 	"sync/atomic"
 )
 
@@ -43,69 +42,30 @@ const (
 	PtModeNo46 int32 = 2
 )
 
-// TunMode specifies dns, firewall, xlat, and ip modes
-type TunMode struct {
-	// DNSMode specifies the kind of DNS traffic to be trapped and routed to DoH servers
-	DNSMode atomic.Int32
-	// BlockMode instructs change in firewall behaviour.
-	BlockMode atomic.Int32
-	// PtMode determines 6to4 translation heuristics.
-	PtMode atomic.Int32
-}
+// DNSMode specifies the kind of DNS traffic to be trapped and routed to DoH servers
+var DNSMode atomic.Int32
 
-func (t *TunMode) String() string {
-	if t == nil {
-		return "<nil>"
-	}
-	d := func() string {
-		switch t.DNSMode.Load() {
-		case DNSModeIP:
-			return "IP"
-		case DNSModePort:
-			return "IPPort"
-		}
-		return "None"
-	}()
-	b := func() string {
-		switch t.BlockMode.Load() {
-		case BlockModeFilter:
-			return "Filter"
-		case BlockModeSink:
-			return "Sink"
-		case BlockModeFilterProc:
-			return "FilterProc"
-		}
-		return "None"
-	}()
-	pt := func() string {
-		switch t.PtMode.Load() {
-		case PtModeForce64:
-			return "Force64"
-		case PtModeNo46:
-			return "No46"
-		}
-		return "Auto"
-	}()
-	return strings.Join([]string{d, b, pt}, ",")
-}
+// BlockMode instructs change in firewall behaviour.
+var BlockMode atomic.Int32
+
+// PtMode determines 6to4 translation heuristics.
+var PtMode atomic.Int32
 
 // SetMode re-assigns d to DNSMode, b to BlockMode, pt to NatPtMode.
-func (t *TunMode) SetMode(d, b, pt int32) {
-	t.DNSMode.Store(d)
-	t.BlockMode.Store(b)
-	t.PtMode.Store(pt)
+func SetMode(d, b, pt int32) {
+	DNSMode.Store(d)
+	BlockMode.Store(b)
+	PtMode.Store(pt)
 }
 
 // NewTunMode returns a new TunMode object.
 // `d` sets dns-mode.
 // `b` sets block-mode.
 // `pt` sets natpt-mode.
-func NewTunMode(d, b, pt int32) *TunMode {
-	tm := &TunMode{}
-	tm.DNSMode.Store(d)
-	tm.BlockMode.Store(b)
-	tm.PtMode.Store(pt)
-	return tm
+func NewTunMode(d, b, pt int32) {
+	DNSMode.Store(d)
+	BlockMode.Store(b)
+	PtMode.Store(pt)
 }
 
 // DefaultTunMode returns a new default TunMode with
@@ -113,6 +73,10 @@ func NewTunMode(d, b, pt int32) *TunMode {
 // only the DNS traffic sent to [tcp/udp]handler.fakedns
 // is captured and replayed to the remote DoH server)
 // and with firewall disabled.
-func DefaultTunMode() *TunMode {
-	return NewTunMode(DNSModeIP, BlockModeNone, PtModeNo46)
+func DefaultTunMode() {
+	NewTunMode(DNSModeIP, BlockModeNone, PtModeNo46)
+}
+
+func init() {
+	DefaultTunMode()
 }
