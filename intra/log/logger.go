@@ -188,6 +188,9 @@ const similarTraceThreshold = 8
 // similarUsrMsgThreshold is the no. of similar user msgs to report before suppressing.
 const similarUsrMsgThreshold = 3
 
+// charsPerLine is max no. of characters per log line.
+const charsPerLine = 4500
+
 // spamMsgThreshold is the min. no. of spammy msgs to report.
 var spammsgThreshold = [NONE + 1]uint32{
 	VVERBOSE:   256 >> 1, // 128
@@ -435,15 +438,37 @@ func (l *simpleLogger) Stack(at int, msg string, scratch []byte) {
 	}
 	// byt2str accepted proposal: github.com/golang/go/issues/19367
 	// previous discussion: github.com/golang/go/issues/25484
-	l.emitStack(at, appendix, msg, unsafe.String(&scratch[0], n))
+	trace := unsafe.String(&scratch[0], n)
+	l.emitStack(at, appendix, msg, trace)
 }
 
-func (l *simpleLogger) msgstr(lvl LogLevel, f string, args ...any) string {
-	msg := fmt.Sprintf(f, args...)
-	if len(l.tag) > 0 {
-		msg = l.tag + msg
+func (l *simpleLogger) msgstr(lvl LogLevel, f string, args ...any) (msg string) {
+	level := lvl.s()
+
+	if len(f) <= 0 {
+		return level + l.tag + "<empty>"
 	}
-	return lvl.s() + msg
+	if len(args) <= 0 {
+		return level + l.tag + f
+	}
+	msg = fmt.Sprintf(f, args...)
+	if len(msg) <= charsPerLine {
+		return level + l.tag + msg
+	}
+
+	var s strings.Builder
+	for i := 0; i < len(msg); i += charsPerLine {
+		if i > 0 {
+			s.WriteByte('\n')
+		}
+		s.WriteString(level)
+		if len(l.tag) > 0 {
+			s.WriteString(l.tag)
+		}
+		end := min(i+charsPerLine, len(msg))
+		s.WriteString(msg[i:end])
+	}
+	return s.String()
 }
 
 // out logs to stdout and pushes msg into ring buffer.
