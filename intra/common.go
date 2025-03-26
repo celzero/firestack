@@ -161,7 +161,7 @@ func (h *baseHandler) onFlow(localaddr, target netip.AddrPort) (fm *Mark, undidA
 
 	hasPre := pre != nil
 	preuid := UNKNOWN_UID_STR
-	if hasPre && len(pre.UID) > 0 {
+	if hasPre && pre != nil /*nilaway*/ && len(pre.UID) > 0 {
 		preuid = pre.UID
 		if c, cerr := strconv.Atoi(pre.UID); cerr == nil {
 			uid = c
