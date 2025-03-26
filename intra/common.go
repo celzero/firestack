@@ -12,6 +12,7 @@ import (
 	"math/rand"
 	"net"
 	"net/netip"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -162,6 +163,9 @@ func (h *baseHandler) onFlow(localaddr, target netip.AddrPort) (fm *Mark, undidA
 	preuid := UNKNOWN_UID_STR
 	if hasPre && len(pre.UID) > 0 {
 		preuid = pre.UID
+		if c, cerr := strconv.Atoi(pre.UID); cerr == nil {
+			uid = c
+		}
 	}
 
 	// alg happens after nat64, and so, alg knows nat-ed ips and un-nats them;
