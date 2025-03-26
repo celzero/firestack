@@ -185,8 +185,8 @@ func (m *ipmapper) queryIP2(_ context.Context, network, host, uid string, tid ..
 	}
 
 	ips := make([]netip.Addr, 0, len(r4)+len(r6))
-	ip4 := m.undoAlg(addrs(r4), tid4)
-	ip6 := m.undoAlg(addrs(r6), tid6)
+	ip4 := m.undoAlg(addrs(r4), tid4, uid)
+	ip6 := m.undoAlg(addrs(r6), tid6, uid)
 	ips = append(ips, ip4...)
 	ips = append(ips, ip6...)
 
