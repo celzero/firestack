@@ -247,7 +247,7 @@ func (m *ipmapper) locallookup(q []byte) func() (answer, error) {
 	}
 }
 
-func (m *ipmapper) undoAlg(ip64 []netip.Addr, tid string) []netip.Addr {
+func (m *ipmapper) undoAlg(ip64 []netip.Addr, tid, uid string) []netip.Addr {
 	// unlike common.go:undoAlg, we do not filter out ipaddrs
 	// based on dialers.Use4/Use6. This is because the ipmapper
 	// is used for DNS queries, and the dialers are used for
@@ -255,18 +255,18 @@ func (m *ipmapper) undoAlg(ip64 []netip.Addr, tid string) []netip.Addr {
 	// based on the dialers.Use4/Use6 settings.
 	gw := m.r.Gateway()
 	if gw == nil {
-		log.V("ipmapper: undoAlg: no-op for %v on %s; no gateway", ip64, tid)
+		log.V("ipmapper: undoAlg: no-op for %v on %s[%s]; no gateway", ip64, tid, uid)
 		return ip64
 	}
 	realips := make([]netip.Addr, 0, len(ip64))
 	for _, addr := range ip64 {
-		if xips, undidAlg := gw.X(addr, tid); len(xips) > 0 {
+		if xips, undidAlg := gw.X(addr, uid, tid); len(xips) > 0 {
 			// may contain duplicates due to how alg maps domains and ips
 			realips = append(realips, xips...)
 			continue // skip log.W below
 		} else {
-			log.W("ipmapper: undoAlg: no algip => realip? (%s => %v); undidAlg? %t; tid? %s",
-				addr, xips, undidAlg, tid)
+			log.W("ipmapper: undoAlg: no algip => realip? (%s => %v); undidAlg? %t; tid? %s[%s]",
+				addr, xips, undidAlg, tid, uid)
 		}
 	}
 	return realips // no dups

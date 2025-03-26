@@ -56,6 +56,7 @@ var (
 	errNoAnswer              = errors.New("no answer")
 	errHangover              = errors.New("no connectivity")
 	errNilCacheResponse      = errors.New("nil cache response")
+	errSkipInternalCache     = errors.New("skip internal cache")
 	errCacheResponseMismatch = errors.New("cache response mismatch")
 )
 

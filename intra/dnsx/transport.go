@@ -538,7 +538,7 @@ func (r *resolver) forward2(q []byte, uid string, chosenids ...string) (res0 []b
 	netid := xdns.NetAndProxyID(NetTypeUDP, pids)
 
 	// with t2 as the secondary transport, which could be nil
-	ans1, err = r.gateway.q(t, t2, presetIPs, netid, msg, smm)
+	ans1, err = r.gateway.q(t, t2, presetIPs, netid, uid, msg, smm)
 
 	algerr := isAlgErr(err) // not set when gw.translate is off
 	if algerr {
@@ -604,6 +604,13 @@ func (r *resolver) Serve(proto string, c protect.Conn, uid string) {
 	if r.closed.Load() {
 		log.W("dns: serve: closed for business")
 		return
+	}
+
+	// if Serve (which is called by common.go:dnsOverride) calls in with a uid
+	// that is not UNKNOWN_UID_STR, then we know that the query is from an app
+	// and we can presume per app split tunnel is working as expected.
+	if uid != core.UNKNOWN_UID_STR && len(uid) > 4 && uid != core.DNS_UID_STR {
+		r.gateway.splitTunnel()
 	}
 
 	switch proto {
@@ -1124,6 +1131,10 @@ func skipBlock(tr ...Transport) bool {
 		}
 	}
 	return false
+}
+
+func skipInternalCache(tids ...string) bool {
+	return isAnyBlockAll(tids...)
 }
 
 func unpack(q []byte) (*dns.Msg, error) {

@@ -18,6 +18,7 @@ import (
 const (
 	UNKNOWN_UID         = -1
 	UNKNOWN_UID_STR     = "-1"
+	DNS_UID_STR         = "1051"
 	UNSUPPORTED_NETWORK = -1
 )
 

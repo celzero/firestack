@@ -153,28 +153,31 @@ func (h *baseHandler) onFlow(localaddr, target netip.AddrPort) (fm *Mark, undidA
 	dst := target.String()
 
 	var pdoms, blocklists string
-	var pre *PreMark
-	var ok bool
 
-	// alg happens after nat64, and so, alg knows nat-ed ips
-	// that is, real ips ("ips") are un-nated
-	undidAlg, ips, doms, pdoms, blocklists = h.undoAlg(target.Addr())
+	pre, _ := core.Grx(h.proto+".preflow", func(_ context.Context) (*PreMark, error) {
+		return h.listener.Preflow(proto, int32(uid), src, dst, doms), nil
+	}, onFlowTimeout)
+
+	hasPre := pre != nil
+	preuid := UNKNOWN_UID_STR
+	if hasPre && len(pre.UID) > 0 {
+		preuid = pre.UID
+	}
+
+	// alg happens after nat64, and so, alg knows nat-ed ips and un-nats them;
+	// that is, real ips ("ips") are already un-nated where applicable.
+	undidAlg, ips, doms, pdoms, blocklists = h.undoAlg(target.Addr(), preuid)
 	hasOldIPs := len(ips) > 0
 	if undidAlg && !hasOldIPs {
-		pre, ok = core.Grx(h.proto+".preflow", func(_ context.Context) (*PreMark, error) {
-			return h.listener.Preflow(proto, int32(uid), src, dst, doms), nil
-		}, onFlowTimeout)
-
 		hasNewIPs := false
-		hasPre := pre != nil
-		if ok && hasPre {
+		if hasPre {
 			for d := range strings.SplitSeq(doms, ",") {
 				if len(d) <= 0 {
 					log.V("com: %s: onFlow: preflow: empty domain in %v from %v => %v for %s; skip!",
-						h.proto, doms, src, target, pre.UID)
+						h.proto, doms, src, target, preuid)
 					continue
 				}
-				newips, err := dialers.ResolveFor(d, pre.UID)
+				newips, err := dialers.ResolveFor(d, preuid)
 				hasNewIPs = err == nil && len(newips) > 0
 				if hasNewIPs { // already unalg'd by ipmapper
 					// _, ips, doms, pdoms, blocklists = h.undoAlg(target.Addr())
@@ -184,9 +187,9 @@ func (h *baseHandler) onFlow(localaddr, target netip.AddrPort) (fm *Mark, undidA
 			}
 		} // else: either no known transport or preflow failed
 
-		if !ok || !hasPre || !hasNewIPs {
-			log.E("com: %s: onFlow: alg, but no preflow? %t / %t, ips? %t for %v; uid: %s; block!",
-				h.proto, ok, hasPre, hasNewIPs, doms, pre)
+		if !hasPre || !hasNewIPs {
+			log.E("com: %s: onFlow: alg, but no preflow? %t, ips? %t for %v; uid: %s; block!",
+				h.proto, hasPre, hasNewIPs, doms, pre)
 			// either optionsBase (BlockModeNone) or optionsBlock
 			return fm, undidAlg, "", ""
 		} // else: if we've got target and/or old ips, dial them
@@ -199,7 +202,7 @@ func (h *baseHandler) onFlow(localaddr, target netip.AddrPort) (fm *Mark, undidA
 			h.proto, ips, doms, pdoms, localaddr, target)
 	}
 
-	fm, ok = core.Grx(h.proto+".flow", func(_ context.Context) (*Mark, error) {
+	fm, ok := core.Grx(h.proto+".flow", func(_ context.Context) (*Mark, error) {
 		return h.listener.Flow(proto, int32(uid), src, dst, ips, doms, pdoms, blocklists), nil
 	}, onFlowTimeout)
 
@@ -471,7 +474,7 @@ func makeIPPorts(ips []netip.Addr, origipp netip.AddrPort, cap int) []netip.Addr
 // algip may or may not be an actual alg ip.
 // returned realips may be incoming algip itself or translated from algip,
 // depending on whether alg is enabled (ref: undidAlg).
-func (h *baseHandler) undoAlg(algip netip.Addr, tids ...string) (undidAlg bool, realips, domains, probableDomains, blocklists string) {
+func (h *baseHandler) undoAlg(algip netip.Addr, uid string, tids ...string) (undidAlg bool, realips, domains, probableDomains, blocklists string) {
 	r := h.resolver
 	didForce := false
 	forcePTR := true // force PTR (realip => algans) translation?
@@ -482,16 +485,16 @@ func (h *baseHandler) undoAlg(algip netip.Addr, tids ...string) (undidAlg bool, 
 		}
 		var ips []netip.Addr
 		// ips will contain the incoming "algip" arg, in cases where alg is NOT enabled.
-		ips, undidAlg = gw.X(algip, tids...)
+		ips, undidAlg = gw.X(algip, uid, tids...)
 		realips = dnsx.Netip2Csv(ips)
 		blocklists = gw.RDNSBL(algip)
 	} else {
-		log.W("com: %s: alg: undoAlg: for %v; no gw(%t) or dst(%v)", h.proto, tids, gw == nil, algip)
+		log.W("com: %s: alg: undoAlg: for %v[%s]; no gw(%t) or dst(%v)", h.proto, tids, uid, gw == nil, algip)
 		return
 	}
 
-	log.VV("com: %s: alg: undoAlg: for %v (ok? %t, force? %t, withForce? %t) %s => %v (for %s / block: %s)",
-		h.proto, tids, undidAlg, didForce, forcePTR, algip, realips, domains, blocklists)
+	log.VV("com: %s: alg: undoAlg: for %v[%s] (ok? %t, force? %t, withForce? %t) %s => %v (for %s / block: %s)",
+		h.proto, tids, uid, undidAlg, didForce, forcePTR, algip, realips, domains, blocklists)
 	return
 }
 

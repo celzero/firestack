@@ -71,17 +71,19 @@ func isAlgErr(err error) bool {
 
 type Gateway interface {
 	// given an alg or real ip, retrieves assoc real ips as csv, if any
-	X(maybeAlg netip.Addr, tids ...string) (realips []netip.Addr, undidAlg bool)
+	X(maybeAlg netip.Addr, uid string, tids ...string) (realips []netip.Addr, undidAlg bool)
 	// given an alg or real ip, retrieves assoc dns names as csv, if any
 	PTR(maybeAlg netip.Addr, force bool) (domaincsv string, didForce bool)
 	// given domain, retrieve assoc alg ips or real ips as csv, if any
-	RESOLV(domain string) []netip.Addr
+	RESOLV(domain, uid string) []netip.Addr
 	// given an alg or real ip, retrieve assoc blocklists as csv, if any
 	RDNSBL(maybeAlg netip.Addr) (blocklistcsv string)
 	// translate overwrites ip answers to alg ip & fixed ip answers
 	translate(yes bool)
+	// splitTunnel sets per-app split tunneling on/off
+	splitTunnel()
 	// Query using t1 as primary transport and t2 as secondary and preset as pre-determined ip answers
-	q(t1, t2 Transport, preset []netip.Addr, network string, q *dns.Msg, s *x.DNSSummary) (*dns.Msg, error)
+	q(t1, t2 Transport, preset []netip.Addr, network, uid string, q *dns.Msg, s *x.DNSSummary) (*dns.Msg, error)
 	// onStopped is called when a transport tid is stopped. Gateway invalidates its local caches, if any.
 	onStopped(tid string)
 	// clear obj state
@@ -91,7 +93,7 @@ type Gateway interface {
 type secans struct {
 	ips []netip.Addr
 	smm *x.DNSSummary
-	pri bool
+	pri bool // is secans got from primary transport?
 }
 
 func (sec *secans) initIfNeeded() {
@@ -141,14 +143,12 @@ func (a expaddr) get(s xaddrstatus) []netip.Addr {
 }
 
 type xips struct {
-	// protects pri
+	// protects pri, aux
 	pmu *sync.RWMutex
 	// resolved v6 or v4 by tid; may be nil
 	pri map[string]expaddr
-	// resolved by secondary tid, v6 or v4; may be nil
-	aux []netip.Addr
-	// true any IPs in aux are unspecified
-	zz bool
+	// resolved by secondary tid for a uid, v6 or v4; may be nil
+	aux map[string]expaddr
 }
 
 type xaddrstatus bool
@@ -157,6 +157,24 @@ const (
 	xalive xaddrstatus = true
 	xall   xaddrstatus = false
 )
+
+type xaddrtyp uint8
+
+const (
+	xpri xaddrtyp = 0
+	xsec xaddrtyp = 1
+)
+
+func (xat xaddrtyp) String() string {
+	switch xat {
+	case xpri:
+		return "pri"
+	case xsec:
+		return "sec"
+	default:
+		return "???"
+	}
+}
 
 func (xst xaddrstatus) String() string {
 	if xst {
@@ -169,16 +187,27 @@ func makeXipStatus(alive bool) xaddrstatus {
 	return xaddrstatus(alive)
 }
 
-func NewXips(id string, pri, sec []netip.Addr, ttl time.Time) *xips {
+// NewXips returns a new xips object with primary and secondary ips.
+// May return nil if tid is empty.
+func NewXips(tid, uid string, pri, sec []netip.Addr, ttl time.Time) *xips {
+	if len(tid) <= 0 {
+		panic("alg: xips: tid cannot be empty")
+	}
+
 	x := &xips{
 		pmu: new(sync.RWMutex),
 		pri: make(map[string]expaddr),
-		aux: sec, // sec may be nil
-		zz:  anyUnspecified(sec),
+		aux: make(map[string]expaddr), // sec may be nil
 	}
 	// id == "" for dnsx.NoDNS, in which case pri should be empty
 	if len(pri) > 0 { // pri may be nil
-		x.pri[id] = expaddr{pri, ttl}
+		x.pri[tid] = expaddr{pri, ttl}
+	}
+	if len(uid) <= 0 {
+		uid = core.UNKNOWN_UID_STR
+	}
+	if len(sec) > 0 { // sec may be same as pri
+		x.aux[tid+uid] = expaddr{sec, ttl}
 	}
 	return x
 }
@@ -194,77 +223,134 @@ func flatten[K comparable, V any](m map[K]V, upto uint) []V {
 	return outv
 }
 
+// primary ips from all tids
 func (p *xips) primary(s xaddrstatus) (out []netip.Addr) {
+	return p.ips(xpri, s)
+}
+
+// secondary ips for all tids+uids
+func (p *xips) sec(s xaddrstatus) (out []netip.Addr) {
+	// as far as secondary is concerned, only live ips matter;
+	// expired ips should not be used for allow/deny decisions.
+	return p.ips(xsec, s)
+}
+
+// secondary ip by a given tid+uid pair
+func (p *xips) secof(tid, uid string) (out []netip.Addr) {
+	// as far as secondary is concerned, only live ips matter;
+	// expired ips should not be used for allow/deny decisions.
+	return p.ipsFor(tid, uid, xsec, xalive)
+}
+
+func (p *xips) ips(t xaddrtyp, s xaddrstatus) (out []netip.Addr) {
 	p.pmu.RLock()
 	defer p.pmu.RUnlock()
 
+	g := p.pri
+	if t == xsec {
+		g = p.aux
+	}
 	const all = 0
-	for _, v := range flatten(p.pri, all) {
+	for _, v := range flatten(g, all) {
 		out = append(out, v.get(s)...)
 	}
 	return
 }
 
-// x returns all live primary ips
-func (p *xips) x(s xaddrstatus) (pri []netip.Addr) {
+// realips returns all live primary ips for a given uid
+func (p *xips) realips(uid string, s xaddrstatus) (pri []netip.Addr) {
 	if p == nil {
 		return nil
 	}
 
 	pri = p.primary(s)
 
-	if (s == xalive && len(pri) > 0) && p.zz {
+	zz := p.zz(uid)
+	if (s == xalive && len(pri) > 0) && zz {
 		// if aux had unspecified ips, then append those to
 		// primary ips. if aux has proper ips or no ips,
 		// those are made redundant by primary.
 		pri = append(pri, anyaddr4, anyaddr6)
 	}
-	log.VV("alg: xips: x(%s): zz? %t; %v", s, p.zz, pri)
+	log.VV("alg: xips: x(%s): zz(%s)? %t; %v", s, uid, zz, pri)
 	return pri // may be nil / empty
 }
 
-// xof returns all live primary ips for a given tid
-func (p *xips) xof(tid string, s xaddrstatus) (pri []netip.Addr) {
+func (p *xips) zz(uid string) bool {
+	if p == nil {
+		return false
+	}
+	return anyUnspecified(p.secof(notransport, uid))
+}
+
+// realipsFor returns all live primary ips for a given tid+uid pair
+func (p *xips) realipsFor(tid, uid string, s xaddrstatus) (pri []netip.Addr) {
+	return p.ipsFor(tid, uid, xpri, s)
+}
+
+func (p *xips) ipsFor(tid, uid string, t xaddrtyp, s xaddrstatus) (out []netip.Addr) {
 	if p == nil {
 		return nil
 	}
-	if tid == notransport || tid == NoDNS || len(tid) <= 0 {
-		pri = p.x(s)
-		log.VV("alg: xips: xof(%s): no tid; %s; returning all %v", s, tid, pri)
+
+	if t == xpri && (tid == notransport || tid == NoDNS || len(tid) <= 0) {
+		out = p.realips(uid, s)
+		log.VV("alg: xips: xof(%s,%s): no tid? %s[%s]; returning all %v", t, s, tid, uid, out)
 		return
 	}
+
 	p.pmu.RLock()
 	defer p.pmu.RUnlock()
 
-	if s == xalive {
-		pri = p.pri[tid].alive()
+	if t == xsec { // ignore alive for secondary
+		if len(uid) <= 0 {
+			uid = core.UNKNOWN_UID_STR
+		}
+		if tid == notransport || tid == NoDNS || len(tid) <= 0 {
+			for k, v := range p.aux {
+				if strings.HasSuffix(k, uid) {
+					out = append(out, v.get(s)...)
+				}
+			}
+		} else if v, ok := p.aux[tid+uid]; ok {
+			out = v.get(s)
+		}
+	} else if s == xalive {
+		out = p.pri[tid].alive()
+	} else {
+		out = p.pri[tid].all()
 	}
-	pri = p.pri[tid].all()
 
-	log.VV("alg: xips: xof(%s): tid %s; %v", s, tid, pri)
+	log.VV("alg: xips: xof(%s,%s): tid %s + uid %s; %v", t, s, tid, uid, out)
 	return
-}
-
-// sec returns all secondary ips
-func (p *xips) sec() []netip.Addr {
-	if p == nil {
-		return nil
-	}
-	return p.aux
 }
 
 func (p *xips) rmv(tid string) (done bool) {
 	if p == nil {
 		return
 	}
+	if len(tid) <= 0 || tid == NoDNS || tid == notransport {
+		return
+	}
+
+	i, j := 0, 0
 	p.pmu.Lock()
 	defer p.pmu.Unlock()
 	if xaddr := p.pri[tid]; xaddr.fresh() {
-		done = true
+		i++
 		xaddr.ttl = time.Now() // mark as expired
 		p.pri[tid] = xaddr
 	}
-	return
+	for k, v := range p.aux {
+		if strings.HasPrefix(k, tid) && v.fresh() {
+			j++
+			done = done || true
+			v.ttl = time.Now() // mark as expired
+			p.aux[k] = v
+		}
+	}
+	log.VV("alg: xips: rmv(%s): pri(%d), sec(%d); ok? %t", tid, i, j, done)
+	return i > 0 || j > 0
 }
 
 // block returns true if any secondary ip is unspecified
@@ -281,7 +367,10 @@ func anyUnspecified(ips []netip.Addr) bool {
 
 // each iterates over each primary ip
 func (p *xips) each(f func(ip netip.Addr)) {
-	for _, ip := range p.x(xall) {
+	for _, ip := range p.primary(xall) {
+		f(ip)
+	}
+	for _, ip := range p.sec(xall) {
 		f(ip)
 	}
 }
@@ -291,31 +380,39 @@ func (p *xips) merge(q *xips) {
 		return
 	}
 
-	if len(q.aux) > 0 {
-		p.aux = copyUniq(p.aux, q.aux)
-		p.zz = anyUnspecified(p.aux)
-	}
-
 	p.pmu.Lock() // write lock on p
 	defer p.pmu.Unlock()
 	q.pmu.RLock() // read lock on q
 	defer q.pmu.RUnlock()
 
-	for k, v := range q.pri {
-		if aa, ok := p.pri[k]; !ok || !aa.fresh() {
-			p.pri[k] = v
+	for qk, qv := range q.pri {
+		if pv, ok := p.pri[qk]; !ok || !pv.fresh() {
+			p.pri[qk] = qv // copy v from q
 		} else {
-			ips := copyUniq(aa.alive(), v.alive())
-			ttl := aa.ttl
-			if !aa.after(v) {
+			ips := copyUniq(pv.alive(), qv.alive())
+			ttl := pv.ttl
+			if !pv.after(qv) {
 				// ips from aa & v both get assigned the latest ttl
 				// which is strictly incorrect, but for accounting
 				// purposes (that is, algip->realip translations),
 				// it is preferable to keep as many realips around
 				// as possible (even at the slight cost of correctness).
-				ttl = v.ttl
+				ttl = qv.ttl
 			}
-			p.pri[k] = expaddr{ips, ttl}
+			p.pri[qk] = expaddr{ips, ttl}
+		}
+	}
+
+	for qk, qv := range q.aux {
+		if pv, ok := p.aux[qk]; !ok || !pv.fresh() {
+			p.pri[qk] = qv
+		} else {
+			ips := copyUniq(pv.alive(), qv.alive())
+			ttl := pv.ttl
+			if !pv.after(qv) {
+				ttl = qv.ttl
+			}
+			p.pri[qk] = expaddr{ips, ttl}
 		}
 	}
 }
@@ -384,7 +481,8 @@ type dnsgateway struct {
 
 	// fields below are mutable
 
-	mod atomic.Bool // modify realip to algip
+	mod   atomic.Bool // modify realip to algip
+	split atomic.Bool // per-app split tunneling
 }
 
 var _ Gateway = (*dnsgateway)(nil)
@@ -414,6 +512,14 @@ func NewDNSGateway(pctx context.Context, outer RdnsResolver, dns64 NatPt) (t *dn
 func (t *dnsgateway) translate(yes bool) {
 	prev := t.mod.Swap(yes)
 	log.I("alg: translate? prev(%t) > now(%t)", prev, yes)
+}
+
+func (t *dnsgateway) splitTunnel() {
+	if t.split.Load() {
+		return
+	}
+	t.split.Store(true)
+	log.I("alg: splitTunnel turned on")
 }
 
 func (t *dnsgateway) onStopped(tid string) {
@@ -455,7 +561,10 @@ func (t *dnsgateway) stop() {
 	t.hexes = rfc8215a
 }
 
-func (t *dnsgateway) cachedAnswer(tid string, q *dns.Msg, typ iptype) (ans *dns.Msg, err error) {
+func (t *dnsgateway) fromInternalCache(tid, uid string, q *dns.Msg, typ iptype) (ans *dns.Msg, err error) {
+	if skipInternalCache(tid) {
+		return nil, errSkipInternalCache
+	}
 	a, aaaa := xdns.HasAQuestion(q), xdns.HasAAAAQuestion(q)
 	if !a || !aaaa {
 		return nil, errNilCacheResponse
@@ -464,7 +573,7 @@ func (t *dnsgateway) cachedAnswer(tid string, q *dns.Msg, typ iptype) (ans *dns.
 	domain := qname(q)
 
 	t.RLock()
-	cached4s, cached6s, stale, _ := t.resolvLocked(domain, typ, tid)
+	cached4s, cached6s, stale, _ := t.resolvLocked(domain, typ, tid, uid)
 	t.RUnlock()
 
 	var cachedips []netip.Addr
@@ -483,16 +592,16 @@ func (t *dnsgateway) cachedAnswer(tid string, q *dns.Msg, typ iptype) (ans *dns.
 	return xdns.AQuadAForQuery(q, cachedips...)
 }
 
-func (t *dnsgateway) qp(t1 Transport, network string, q *dns.Msg, innersummary *x.DNSSummary) (ans *dns.Msg, err error) {
+func (t *dnsgateway) qp(t1 Transport, uid, network string, q *dns.Msg, innersummary *x.DNSSummary) (ans *dns.Msg, err error) {
 	// For A/AAAA queries, check if xips has an answer for the qname.
-	if ans, err := t.cachedAnswer(idstr(t1), q, typreal); err == nil {
+	if ans, err := t.fromInternalCache(idstr(t1), uid, q, typreal); err == nil {
 		innersummary.Cached = true
 		return ans, nil
 	}
 	return Req(t1, network, q, innersummary)
 }
 
-func (t *dnsgateway) qs(t2 Transport, network string, msg *dns.Msg, t1res <-chan *dns.Msg) <-chan secans {
+func (t *dnsgateway) qs(t2 Transport, uid, network string, msg *dns.Msg, t1res <-chan *dns.Msg) <-chan secans {
 	t2res := make(chan secans, 1)
 
 	go func() {
@@ -501,7 +610,7 @@ func (t *dnsgateway) qs(t2 Transport, network string, msg *dns.Msg, t1res <-chan
 		qname := xdns.QName(msg)
 
 		r, ok := core.Grx("alg.qs."+qname, func(_ context.Context) (secans, error) {
-			return t.querySecondary(t2, network, msg, t1res), nil
+			return t.querySecondary(t2, uid, network, msg, t1res), nil
 		}, timeout)
 
 		if !ok {
@@ -515,7 +624,7 @@ func (t *dnsgateway) qs(t2 Transport, network string, msg *dns.Msg, t1res <-chan
 	return t2res
 }
 
-func (t *dnsgateway) querySecondary(t2 Transport, network string, msg *dns.Msg, t1res <-chan *dns.Msg) (result secans) {
+func (t *dnsgateway) querySecondary(t2 Transport, uid, network string, msg *dns.Msg, t1res <-chan *dns.Msg) (result secans) {
 	var r *dns.Msg
 	var err error
 
@@ -546,7 +655,7 @@ func (t *dnsgateway) querySecondary(t2 Transport, network string, msg *dns.Msg, 
 	} else {
 		// check if there's already a cached answer to work with
 		// note: secondary ips are not cached per-transport (see xips.sec())
-		if r, err = t.cachedAnswer(idstr(t2), msg, typsecondary); err != nil {
+		if r, err = t.fromInternalCache(idstr(t2), uid, msg, typsecondary); err != nil {
 			// else: query secondary to get answer for q
 			r, err = Req(t2, network, msg, result.smm)
 		}
@@ -576,7 +685,7 @@ func (t *dnsgateway) querySecondary(t2 Transport, network string, msg *dns.Msg, 
 			result.smm.Blocklists = blocklistnames
 		}
 		if xdns.AQuadAUnspecified(r) {
-			// A/AAAA must be 0.0.0.0/::, when UpstreamBlocks is true
+			// A/AAAA must be 0.0.0.0/::, set UpstreamBlocks to true
 			result.smm.UpstreamBlocks = true
 			// discard all other answers
 			result.ips = append(result.ips, anyaddr4, anyaddr6)
@@ -595,55 +704,72 @@ func (t *dnsgateway) querySecondary(t2 Transport, network string, msg *dns.Msg, 
 
 // Implements Gateway
 // preset may be nil
-func (t *dnsgateway) q(t1, t2 Transport, preset []netip.Addr, network string, q *dns.Msg, smm *x.DNSSummary) (outmsg *dns.Msg, outerr error) {
+func (t *dnsgateway) q(t1, t2 Transport, preset []netip.Addr, network, uid string, q *dns.Msg, smm *x.DNSSummary) (outmsg *dns.Msg, outerr error) {
 	var ansin *dns.Msg // answer got from transports
 	var err error
 
 	usepreset := len(preset) > 0                    // preset may be nil
 	mod := t.mod.Load()                             // allow alg?
+	discarduid := !t.split.Load()                   // do not split tunnel?
 	usefixed := !usepreset && isAnyFixed(idstr(t1)) // fixed realips?
+	skipcache := skipInternalCache(idstr(t1), idstr(t2))
+	// do not perform alg or use its "xip" caches by the way of ptr, nat, alg
+	// maps for synthesized response and block-all transport. That's because
+	// BlockAll and synth responses are "ephemeral" in that, they may be based
+	// on a UID and not just a tid + qname + qtype (cf: DNSListener.OnQuery)
+	// but ptr, nat, alg maps are only tied to (tid, qname, qtype) tuple. Also,
+	// it isn't necessary that if a qname is blocked right now will be blocked
+	// by the next OnQuery() as the rules are dynamic (for instance, a uid+qname
+	// may be blocked because device is in keyguard/locked state but allowed
+	// when the user is present (device is unlocked).
+	dontalg := usepreset || skipcache
+	synthAns := usepreset || usefixed
+
+	if discarduid {
+		uid = core.UNKNOWN_UID_STR
+	}
+	// fixed ip responses must always be alg'd unlike preset / blockall
 	if usefixed {
 		preset = fixedRealIPs
 		mod = true // assert mod == true?
-		usepreset = true
-		t1 = t2 // assert t2 != nil?
+		t1 = t2    // assert t2 != nil?
 	}
 	if t1 == nil || core.IsNil(t1) {
-		log.W("alg: no primary transport; t1 %s, t2 %s, preset? %t fixed? %t",
-			idstr(t1), idstr(t2), usepreset, usefixed)
+		log.W("alg: no primary transport; t1 %s, t2 %s, uid %s, preset? %t fixed? %t synth? %t nouid? %t",
+			idstr(t1), idstr(t2), uid, usepreset, usefixed, synthAns, discarduid)
 		return nil, errAlgNoTransport
 	}
 
-	// presets override both t1 and t2:
+	// when synthesizing answers, override both t1 and t2:
 	// discard t2 as with preset we don't care about additional ips and blocklists;
 	// t1 is not discarded entirely as it is needed to subst ips in https/svcb responses
-	if usepreset {
+	if synthAns {
 		t2 = nil // assert t2 == nil?
 	}
 	t1res := make(chan *dns.Msg, 1)
 	innersummary := new(x.DNSSummary)
 	// todo: use context?
-	secch := t.qs(t2, network, q, t1res) // t2 may be nil
+	secch := t.qs(t2, uid, network, q, t1res) // t2 may be nil
 
-	if usepreset {
+	if synthAns {
 		ansin, err = synthesizeOrQuery(preset, t1, q, network, innersummary, usefixed)
 	} else {
-		ansin, err = t.qp(t1, network, q, innersummary)
+		ansin, err = t.qp(t1, uid, network, q, innersummary)
 	}
 	t1res <- ansin // ansin may be nil; but that's ok
 
-	// override relevant values in summary
+	// override relevant values in smm
 	fillSummary(innersummary, smm)
 
 	if err != nil {
 		if ansin == nil {
-			log.I("alg: abort; r: 0, qerr %v", err)
+			log.I("alg: abort no ans on %s+%s[%s]; qerr %v", idstr(t1), idstr(t2), uid, err)
 			return nil, err
 		}
 		if !xdns.HasRcodeSuccess(ansin) {
 			return ansin, err
 		}
-		log.D("alg: err but r ok; ans: %d, qerr %v", xdns.Len(ansin), err)
+		log.D("alg: err but ans ok: %d; qerr %v", xdns.Len(ansin), err)
 	}
 
 	if ansin == nil { // may be nil on errors
@@ -651,14 +777,14 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []netip.Addr, network string, q 
 	}
 
 	qname := qname(ansin)
-
+	qtyp := qtype(ansin)
 	smm.QName = qname
-	smm.QType = qtype(ansin)
+	smm.QType = qtyp
 
 	// if usefixed is true, then d64 is no-op, as preset fixed ip does have ipv6
 	ans64 := t.dns64.D64(network, ansin, t1) // ans64 may be nil if no D64 or error
 	if ans64 != nil {
-		log.D("alg: %s:%d dns64; s/ans(%d)/ans64(%d)", qname, smm.QType, xdns.Len(ansin), xdns.Len(ans64))
+		log.D("alg: %s:%d dns64; s/ans(%d)/ans64(%d)", qname, qtyp, xdns.Len(ansin), xdns.Len(ans64))
 		withDNS64Summary(ans64, smm)
 		ansin = ans64
 	} // else: no dns64, or error; continue with ansin
@@ -667,18 +793,19 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []netip.Addr, network string, q 
 		xdns.HasSVCBQuestion(ansin) || xdns.HasHTTPQuestion(ansin)
 	hasans := xdns.HasAnyAnswer(ansin)
 	rgood := xdns.HasRcodeSuccess(ansin)
-	// for t1, ansin's already evaluated for ans0000 in querySecondary,
-	// when secans.pri is true (may be superceded by answer from t2,
-	// if t2 != nil), & so only ans64 is checked for 0.0.0.0 / :: here.
+	// for t1, ansin's already evaluated for ans0000 in querySecondary
+	// (secans.pri is set to true). ansin may be from t2 (if t2 != nil),
+	// ans64, which is a modified ansin, is the only ans checked for
+	// unspecified ips (0.0.0.0 / ::) as it covers ans from both t1 / t2.
 	ans640000 := xdns.AQuadAUnspecified(ans64) // ans64 may be nil
 
 	if ans640000 {
 		smm.UpstreamBlocks = true
 	}
 
-	if !hasq || !hasans || !rgood || ans640000 {
-		log.D("alg: skip; query %s:%d / a:%d, hasq(%t) hasans(%t) rgood(%t), ans0000(%t)",
-			qname, smm.QType, xdns.Len(ansin), hasq, hasans, rgood, ans640000)
+	if !hasq || !hasans || !rgood || ans640000 || dontalg {
+		log.D("alg: skip; query %s:%d / a:%d, dontalg(%t) hasq(%t) hasans(%t) rgood(%t), ans0000(%t)",
+			qname, qtyp, xdns.Len(ansin), dontalg, hasq, hasans, rgood, ans640000)
 		return ansin, nil
 	}
 
@@ -703,7 +830,7 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []netip.Addr, network string, q 
 		smsg := secres.smm.Msg
 		spri := secres.pri
 		log.V("alg: %s:%d upstream blocks: primary? %t / sec? %t; secres: pri? %t, msg: %s",
-			qname, smm.QType, secres.smm.UpstreamBlocks, smm.UpstreamBlocks, spri, smsg)
+			qname, qtyp, secres.smm.UpstreamBlocks, smm.UpstreamBlocks, spri, smsg)
 	}
 
 	defer func() {
@@ -712,7 +839,7 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []netip.Addr, network string, q 
 		xdns.BustAndroidCacheIfNeeded(outmsg)
 
 		if isAlgErr(err) && !mod {
-			log.D("alg: %s:%d no mod; suppress err %v", qname, smm.QType, err)
+			log.D("alg: %s:%d no mod; suppress err %v", qname, qtyp, err)
 			err = nil // ignore alg errors if no modification is desired
 		}
 	}()
@@ -791,16 +918,16 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []netip.Addr, network string, q 
 		mustsubst = true
 	}
 
-	log.D("alg: %s:%d a6(a %d / h %d / s %t) : a4(a %d / h %d / s %t)",
-		qname, smm.QType, len(a6), len(ip6hints), substok6, len(a4), len(ip4hints), substok4)
+	log.D("alg: %s; %s:%d a6(a %d / h %d / s %t) : a4(a %d / h %d / s %t)",
+		uid, qname, qtyp, len(a6), len(ip6hints), substok6, len(a4), len(ip4hints), substok4)
 	if !substok4 && !substok6 {
 		if mustsubst {
 			err = errAlgCannotSubst
 		} else { // no algips
 			err = nil
 		}
-		log.D("alg: skip; err(%v); ips subst %s:%d; fixed? %t",
-			err, qname, smm.QType, usefixed)
+		log.D("alg: %s skip; err(%v); ips subst %s:%d; fixed? %t",
+			uid, err, qname, qtyp, usefixed)
 		return ansin, err // ansin is nil if no alg ips
 	}
 
@@ -827,10 +954,10 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []netip.Addr, network string, q 
 	}
 
 	tid1 := idstr(t1)
-	log.D("alg: ok; for %s:%s:%d, domains %s real: %s / fix: %s => subst %s | %s; (mod? %t / fix? %t); sec %s",
-		tid1, qname, smm.QType, targets, realip, fixedips, algip4, algip6, mod, usefixed, secres.ips)
+	log.D("alg: ok; for %s[%s]:%s:%d, domains %s real: %s / fix: %s => subst %s | %s; (mod? %t / fix? %t / synth? %t); sec %s",
+		tid1, uid, qname, qtyp, targets, realip, fixedips, algip4, algip6, mod, usefixed, synthAns, secres.ips)
 
-	if t.registerLocked(qname, tid1, algip4, algip6, realip, ansttl, targets, secres) {
+	if t.registerLocked(qname, tid1, uid, algip4, algip6, realip, ansttl, targets, secres) {
 		// if mod is set, send modified answer
 		if mod {
 			withAlgSummaryIfNeeded(smm, algip4, algip6)
@@ -892,10 +1019,15 @@ func withAlgSummaryIfNeeded(s *x.DNSSummary, algips ...netip.Addr) {
 	}
 }
 
-func (t *dnsgateway) registerLocked(q, tid string, algip4, algip6 netip.Addr, realips []netip.Addr, ttl time.Duration, targets []string, secres secans) bool {
+func (t *dnsgateway) registerLocked(q, tid, uid string, algip4, algip6 netip.Addr, realips []netip.Addr, ttl time.Duration, targets []string, secres secans) bool {
+	if tid == notransport || tid == NoDNS || len(tid) <= 0 {
+		log.E("alg: no tid for %s@%s[%s]; real? %d, sec? %d",
+			q, tid, uid, len(realips), len(secres.ips))
+		return false
+	}
 	if !algip4.IsValid() && !algip6.IsValid() { // defensive; should not happen
-		log.E("alg: no algips for %s@%s; real? %d, sec? %d",
-			q, tid, len(realips), len(secres.ips))
+		log.E("alg: no algips for %s@%s[%s]; real? %d, sec? %d",
+			q, tid, uid, len(realips), len(secres.ips))
 		return false
 	}
 
@@ -908,13 +1040,13 @@ func (t *dnsgateway) registerLocked(q, tid string, algip4, algip6 netip.Addr, re
 	// or same as realips if t2 is nil; realips can be nil
 	// if fixedips is being used.
 	am4 := &baseans{
-		ips:        NewXips(tid, v4only(realips), v4only(secres.ips), xipsttl),
+		ips:        NewXips(tid, uid, v4only(realips), v4only(secres.ips), xipsttl),
 		domains:    targets, // may be nil
 		blocklists: secres.smm.Blocklists,
 		ttl:        ansttl, // extended by 2m on every use
 	}
 	am6 := &baseans{
-		ips:        NewXips(tid, v6only(realips), v6only(secres.ips), xipsttl),
+		ips:        NewXips(tid, uid, v6only(realips), v6only(secres.ips), xipsttl),
 		domains:    targets, // may be nil
 		blocklists: secres.smm.Blocklists,
 		ttl:        ansttl, // extended by 2m on every use
@@ -951,11 +1083,11 @@ func (t *dnsgateway) registerLocked(q, tid string, algip4, algip6 netip.Addr, re
 		didRegister = true
 	}
 	if !didRegister {
-		log.W("alg: no algips 2 for %s@%s; real? %d, sec? %d",
-			q, tid, len(realips), len(secres.ips))
+		log.W("alg: no algips 2 for %s@%s[%s]; real? %d, sec? %d",
+			q, tid, uid, len(realips), len(secres.ips))
 		return false
 	}
-	// am.ips.x() may return nil; ex: when preset fixed ips are used
+	// am.ips.realips() may return nil; ex: when preset fixed ips are used
 	for _, ip := range realips {
 		if ip.IsUnspecified() || !ip.IsValid() { // should never happen
 			continue
@@ -1145,13 +1277,16 @@ func gen6Locked(k string, hop int) netip.Addr {
 	return netip.AddrFrom16(b16)
 }
 
-func (t *dnsgateway) X(maybeAlg netip.Addr, tids ...string) (ips []netip.Addr, undidAlg bool) {
+func (t *dnsgateway) X(maybeAlg netip.Addr, uid string, tids ...string) (ips []netip.Addr, undidAlg bool) {
 	t.RLock()
 	defer t.RUnlock()
 
+	if !t.split.Load() {
+		uid = core.UNKNOWN_UID_STR
+	}
 	// stale IPs are okay iff !mod; as then maybeAlg itself is a realip
 	usestale := !t.mod.Load()
-	return t.xLocked(maybeAlg, usestale, tids...) // ips may be 0 len
+	return t.xLocked(maybeAlg, usestale, uid, tids...) // ips may be 0 len
 }
 
 func (t *dnsgateway) PTR(maybeAlg netip.Addr, force bool) (domains string, didForce bool) {
@@ -1168,7 +1303,7 @@ func (t *dnsgateway) PTR(maybeAlg netip.Addr, force bool) (domains string, didFo
 	return domains, useptr
 }
 
-func (t *dnsgateway) RESOLV(domain string) []netip.Addr {
+func (t *dnsgateway) RESOLV(domain, uid string) []netip.Addr {
 	t.RLock()
 	defer t.RUnlock()
 
@@ -1176,7 +1311,10 @@ func (t *dnsgateway) RESOLV(domain string) []netip.Addr {
 	if !t.mod.Load() {
 		typ = typreal
 	}
-	ip4s, ip6s, _, _ := t.resolvLocked(domain, typ, notransport)
+	if !t.split.Load() {
+		uid = core.UNKNOWN_UID_STR
+	}
+	ip4s, ip6s, _, _ := t.resolvLocked(domain, typ, notransport, uid)
 	return append(ip4s, ip6s...)
 }
 
@@ -1187,7 +1325,7 @@ func (t *dnsgateway) RDNSBL(algip netip.Addr) (blocklists string) {
 	return t.rdnsblLocked(algip, !t.mod.Load())
 }
 
-func (t *dnsgateway) xLocked(maybeAlg netip.Addr, usestale bool, tids ...string) ([]netip.Addr, bool) {
+func (t *dnsgateway) xLocked(maybeAlg netip.Addr, usestale bool, uid string, tids ...string) ([]netip.Addr, bool) {
 	var realips []netip.Addr
 	var undidAlg, fresh bool
 	xst := makeXipStatus(!usestale)
@@ -1195,10 +1333,10 @@ func (t *dnsgateway) xLocked(maybeAlg netip.Addr, usestale bool, tids ...string)
 	unmapped := maybeAlg.Unmap() // aligip may also be origip / realip
 	if ans, ok := t.nat[unmapped]; ok {
 		if len(tids) <= 0 {
-			realips = ans.ips.x(xst)
+			realips = ans.ips.realips(uid, xst)
 		} else {
 			for _, tid := range tids {
-				realips = append(realips, ans.ips.xof(tid, xst)...)
+				realips = append(realips, ans.ips.realipsFor(tid, uid, xst)...)
 			}
 		}
 		fresh = ans.fresh()
@@ -1212,10 +1350,10 @@ func (t *dnsgateway) xLocked(maybeAlg netip.Addr, usestale bool, tids ...string)
 		// nb: both realips & secondaryips may be nil, but that's okay:
 		// go.dev/play/p/fSjRjMSAS2m
 		if len(tids) <= 0 {
-			realips = ans.ips.x(xst)
+			realips = ans.ips.realips(uid, xst)
 		} else {
 			for _, tid := range tids {
-				realips = append(realips, ans.ips.xof(tid, xst)...)
+				realips = append(realips, ans.ips.realipsFor(tid, uid, xst)...)
 			}
 		}
 		fresh = ans.fresh()
@@ -1232,8 +1370,8 @@ func (t *dnsgateway) xLocked(maybeAlg netip.Addr, usestale bool, tids ...string)
 	} else {
 		unnated = t.maybeUndoNat64(realips...)
 	} // else: send realips as is
-	logeif(!hasrealips)("alg: dns64: for %v (fresh? %t / undidAlg? %t / staleok? %t) algip(%v) => realips(%v) => unnated(%v)",
-		tids, fresh, undidAlg, usestale, unmapped, realips, unnated)
+	logeif(!hasrealips)("alg: dns64: for %v[%s] (fresh? %t / undidAlg? %t / staleok? %t) algip(%v) => realips(%v) => unnated(%v)",
+		tids, uid, fresh, undidAlg, usestale, unmapped, realips, unnated)
 	if len(unnated) > 0 { // unnated is already de-duplicated
 		return unnated, undidAlg
 	}
@@ -1281,7 +1419,7 @@ func (t *dnsgateway) ptrLocked(maybeAlg netip.Addr, useptr bool) (domains []stri
 // If typ is typsecondary, returns all secondaryips for domain (disregarding tid).
 // ip4s and ip6s may overlap, and are segregated by the source algip
 // family (and not by the family of the resolved IPs themselves).
-func (t *dnsgateway) resolvLocked(domain string, typ iptype, tid string) (ip4s, ip6s, staleips []netip.Addr, targets []string) {
+func (t *dnsgateway) resolvLocked(domain string, typ iptype, tid, uid string) (ip4s, ip6s, staleips []netip.Addr, targets []string) {
 	partkey4 := domain + key4
 	partkey6 := domain + key6
 
@@ -1317,17 +1455,17 @@ func (t *dnsgateway) resolvLocked(domain string, typ iptype, tid string) (ip4s, 
 				break
 			}
 		}
-		log.V("alg: resolv: %s => alg ip4 %d, ip6 %d; stale %v",
-			domain, len(ip4s), len(ip6s), staleips)
+		log.V("alg: resolv: %s:%s[%s] => alg ip4 %d, ip6 %d; stale %v",
+			domain, tid, uid, len(ip4s), len(ip6s), staleips)
 	case typreal:
 		for i := range 2 { // a = 0, https/svcb = 1+
 			k4 := partkey4 + strconv.Itoa(i)
 			if ans, ok := t.alg[k4]; ok {
 				if ans.fresh() { // not stale
-					ip4s = append(ip4s, v4only(ans.ips.xof(tid, xalive))...)
+					ip4s = append(ip4s, v4only(ans.ips.realipsFor(tid, uid, xalive))...)
 					targets = append(targets, ans.domains...)
 				} else {
-					staleips = append(staleips, ans.ips.xof(tid, xall)...)
+					staleips = append(staleips, ans.ips.realipsFor(tid, uid, xall)...)
 				}
 				// all ans{} have all realips; pick the first one
 				break
@@ -1337,26 +1475,26 @@ func (t *dnsgateway) resolvLocked(domain string, typ iptype, tid string) (ip4s, 
 			k6 := partkey6 + strconv.Itoa(i)
 			if ans, ok := t.alg[k6]; ok {
 				if ans.fresh() { // not stale
-					ip6s = append(ip6s, v6only(ans.ips.xof(tid, xalive))...)
+					ip6s = append(ip6s, v6only(ans.ips.realipsFor(tid, uid, xalive))...)
 					targets = append(targets, ans.domains...)
 				} else {
-					staleips = append(staleips, ans.ips.xof(tid, xall)...)
+					staleips = append(staleips, ans.ips.realipsFor(tid, uid, xall)...)
 				}
 				// all ans{} have all realips; pick the first one
 				break
 			} // continue
 		}
-		log.V("alg: resolv: %s => real(%s) ip4 %d, ip6 %d; stale %v",
-			domain, tid, len(ip4s), len(ip6s), staleips)
+		log.V("alg: resolv: %s:%s[%s] => real(%s) ip4 %d, ip6 %d; stale %v",
+			domain, tid, uid, len(ip4s), len(ip6s), staleips)
 	case typsecondary:
 		for i := range 2 { // a = 0, https/svcb = 1+
 			k4 := partkey4 + strconv.Itoa(i)
 			if ans, ok := t.alg[k4]; ok {
 				if ans.fresh() { // not stale
-					ip4s = append(ip4s, v4only(ans.ips.sec())...)
+					ip4s = append(ip4s, v4only(ans.ips.secof(tid, uid))...)
 					targets = append(targets, ans.domains...)
 				} else {
-					staleips = append(staleips, ans.ips.sec()...)
+					staleips = append(staleips, ans.ips.sec(xall)...)
 				}
 				// all ans{} have all secondaryips; pick the first one
 				break
@@ -1366,17 +1504,17 @@ func (t *dnsgateway) resolvLocked(domain string, typ iptype, tid string) (ip4s, 
 			k6 := partkey6 + strconv.Itoa(i)
 			if ans, ok := t.alg[k6]; ok {
 				if ans.fresh() { // not stale
-					ip6s = append(ip6s, v6only(ans.ips.sec())...)
+					ip6s = append(ip6s, v6only(ans.ips.secof(tid, uid))...)
 					targets = append(targets, ans.domains...)
 				} else {
-					staleips = append(staleips, ans.ips.sec()...)
+					staleips = append(staleips, ans.ips.sec(xall)...)
 				}
 				// all ans{} have all secondaryips; pick the first one
 				break
 			} // continue
 		}
-		log.V("alg: resolv: %s => secondary ip4 %d, ip6 %d; stale %v",
-			domain, len(ip4s), len(ip6s), staleips)
+		log.V("alg: resolv: %s:%s[%s] => secondary ip4 %d, ip6 %d; stale %v",
+			domain, tid, uid, len(ip4s), len(ip6s), staleips)
 	}
 
 	return
