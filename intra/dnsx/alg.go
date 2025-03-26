@@ -28,7 +28,10 @@ import (
 
 const (
 	timeout = 15 * time.Second
-	ttl2m   = 2 * time.Minute // 2m ttl for alg/nat ip
+	// 2m max ttl for alg/nat ip
+	ttl2m = 2 * time.Minute
+	// 15s min ttl for alg/nat ip; chosen to be closer to transport timeouts
+	ttl15s = 15 * time.Second
 
 	key4 = ":a"
 	key6 = ":aaaa"
@@ -844,6 +847,8 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []netip.Addr, network, uid strin
 		}
 	}()
 
+	ansttl := time.Duration(xdns.RTtl(ansin)) * time.Second
+
 	t.Lock()
 	defer t.Unlock()
 
@@ -918,8 +923,8 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []netip.Addr, network, uid strin
 		mustsubst = true
 	}
 
-	log.D("alg: %s; %s:%d a6(a %d / h %d / s %t) : a4(a %d / h %d / s %t)",
-		uid, qname, qtyp, len(a6), len(ip6hints), substok6, len(a4), len(ip4hints), substok4)
+	log.D("alg: %s; %s:%d a6(a %d / h %d / s %t) : a4(a %d / h %d / s %t); ttl: %s",
+		uid, qname, qtyp, len(a6), len(ip6hints), substok6, len(a4), len(ip4hints), substok4, ansttl)
 	if !substok4 && !substok6 {
 		if mustsubst {
 			err = errAlgCannotSubst
@@ -941,7 +946,6 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []netip.Addr, network, uid strin
 		secres.ips = nil
 	}
 
-	ansttl := time.Duration(xdns.RTtl(ansin)) * time.Second
 	if algip4s.IsValid() {
 		algip4 = algip4s
 	} else {
@@ -954,8 +958,8 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []netip.Addr, network, uid strin
 	}
 
 	tid1 := idstr(t1)
-	log.D("alg: ok; for %s[%s]:%s:%d, domains %s real: %s / fix: %s => subst %s | %s; (mod? %t / fix? %t / synth? %t); sec %s",
-		tid1, uid, qname, qtyp, targets, realip, fixedips, algip4, algip6, mod, usefixed, synthAns, secres.ips)
+	log.D("alg: ok; for %s[%s]:%s:%d, domains %s real: %s / fix: %s => subst %s | %s; (mod? %t / fix? %t / synth? %t); sec %s; ttl %s",
+		tid1, uid, qname, qtyp, targets, realip, fixedips, algip4, algip6, mod, usefixed, synthAns, secres.ips, ansttl)
 
 	if t.registerLocked(qname, tid1, uid, algip4, algip6, realip, ansttl, targets, secres) {
 		// if mod is set, send modified answer
@@ -1030,6 +1034,12 @@ func (t *dnsgateway) registerLocked(q, tid, uid string, algip4, algip6 netip.Add
 			q, tid, uid, len(realips), len(secres.ips))
 		return false
 	}
+
+	// some domain set very low ttl (ex: 1s for news.ycombinator.com) which
+	// is too short for translations; use a minimum of 15s to account
+	// for just-in-time re-resolution of the same domain by common.go via
+	// dialers.ResolverFor(uid) which may be called on new tcp / udp conn.
+	ttl = min(ttl15s, ttl)
 
 	now := time.Now()
 	// ttl is used for algans and xips, but the alg'fied dns answer
