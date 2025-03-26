@@ -265,12 +265,12 @@ func (cb *cache) put(key string, ans *dns.Msg, s *x.DNSSummary) (ok bool) {
 		log.W("cache: put: cache overflow %d > %d", len(cb.c), cb.size)
 	}
 
-	// ansttl is 0 for synthesized "block" answers (see xdns.BlockTTL)
+	// 1. ansttl is 0 for synthesized "block" answers (see xdns.BlockTTL)
+	// 2. for most empty ans (like qtype:65), ansttl is 0
 	ansttl := time.Duration(xdns.RTtl(ans)) * time.Second
 	if ansttl < cb.ttl {
 		ansttl = cb.ttl
-	} else {
-		// bump up a bit longer than the ttl
+	} else { // bump up a bit longer than the ttl
 		ansttl = ansttl + cb.halflife
 	}
 	exp := time.Now().Add(ansttl)

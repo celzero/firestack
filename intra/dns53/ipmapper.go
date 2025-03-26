@@ -190,8 +190,8 @@ func (m *ipmapper) queryIP2(_ context.Context, network, host, uid string, tid ..
 	ips = append(ips, ip4...)
 	ips = append(ips, ip6...)
 
-	log.D("ipmapper: host %s => ips (out: %v / in: %v+%v); tids: %s+%s; err4: %v, err6: %v",
-		host, ips, r4, r6, tid4, tid6, lerr4, lerr6)
+	log.D("ipmapper: host %s => ips (out: %v / in: %d+%d); tids: %s+%s; err4: %v, err6: %v",
+		host, ips, len(r4), len(r6), tid4, tid6, lerr4, lerr6)
 	return ips, nil
 }
 
