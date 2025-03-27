@@ -434,30 +434,7 @@ func (s *serverinfo) dialpx(pid, proto string, addr string) (net.Conn, error) {
 }
 
 func (s *serverinfo) chooseProxy(pids []string) string {
-	foundProxy := false
-	pid := dnsx.NetNoProxy
-	if len(pids) > 0 {
-		pid = pids[0]
-	}
-	ipp := chooseAny(s.IPPorts())
-	if px, err := s.proxies.ProxyTo(ipp, core.UNKNOWN_UID_STR, pids); err == nil {
-		pid = proxyID(px) // px is never nil, but nilaway complains
-		foundProxy = true
-		log.VV("dnscrypt: proxy: choose: (%s) proxy(%s) for %s; among %v",
-			s.ID(), pid, ipp, pids)
-	}
-	if !foundProxy {
-		log.W("dnscrypt: proxy: choose: (%s) no proxy for %s; choosing %s among %v",
-			s.ID(), ipp, pid, pids)
-	}
-	return pid
-}
-
-func proxyID(p ipn.Proxy) string {
-	if p == nil {
-		return dnsx.NetNoProxy
-	}
-	return p.ID()
+	return dnsx.ChooseProxy("dnscrypt: "+s.ID(), s.IPPorts(), pids, s.proxies)
 }
 
 func addr2ipp(u ...*net.UDPAddr) (ipps []netip.AddrPort) {

@@ -678,32 +678,18 @@ func (t *transport) Type() string {
 }
 
 func (t *transport) chooseProxy(pids []string) string {
-	foundProxy := false
-	pid := dnsx.NetNoProxy
-	if len(pids) > 0 {
-		pid = pids[0]
-	}
-	for _, ipp := range t.IPPorts() {
-		if px, err := t.proxies.ProxyTo(ipp, core.UNKNOWN_UID_STR, pids); err == nil {
-			pid = proxyID(px) // px is never nil, but nilaway complains
-			foundProxy = true
-			log.VV("doh: (%s) proxy(%s) for %s@%s; among %v",
-				t.id, pid, t.GetAddr(), ipp, pids)
-			break
-		}
-	}
-	if !foundProxy {
-		log.W("doh: (%s) no proxy for %s; choosing %s among %v",
-			t.id, t.GetAddr(), pid, pids)
-	}
-	return pid
+	host, port := t.hostport()
+	return dnsx.ChooseProxyHostPort("doh: "+t.id, host, port, pids, t.proxies)
 }
 
-func proxyID(p ipn.Proxy) string {
-	if p == nil {
-		return dnsx.NetNoProxy
+func (t *transport) hostport() (addr string, port uint16) {
+	addr = t.hostname
+	port = t.port
+	if t.typ == dnsx.ODOH {
+		addr = t.odohproxyname
+		port = t.odohproxyport
 	}
-	return p.ID()
+	return
 }
 
 func (t *transport) Query(network string, q *dns.Msg, smm *x.DNSSummary) (r *dns.Msg, err error) {

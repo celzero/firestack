@@ -11,6 +11,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"hash/fnv"
+	"net"
 	"net/netip"
 	"strconv"
 	"strings"
@@ -20,7 +21,10 @@ import (
 
 	x "github.com/celzero/firestack/intra/backend"
 	"github.com/celzero/firestack/intra/core"
+	"github.com/celzero/firestack/intra/dialers"
+	"github.com/celzero/firestack/intra/ipn"
 	"github.com/celzero/firestack/intra/log"
+	"github.com/celzero/firestack/intra/protect"
 	"github.com/celzero/firestack/intra/settings"
 	"github.com/celzero/firestack/intra/xdns"
 	"github.com/miekg/dns"
@@ -1662,6 +1666,54 @@ func Req(t Transport, network string, q *dns.Msg, smm *x.DNSSummary) (*dns.Msg, 
 
 	log.V("alg: Req: %s servfail; rcode %d", qname, xdns.Rcode(r))
 	return r, err
+}
+
+func ChooseProxy(who string, ipps []netip.AddrPort, pids []string, px ipn.ProxyProvider) (pid string) {
+	pid = NetNoProxy
+	if len(pids) > 0 {
+		pid = pids[0]
+	}
+	foundProxy := false
+	cipp := netip.AddrPort{}
+	for _, ipp := range ipps {
+		if !ipp.IsValid() {
+			continue
+		}
+		if px, err := px.ProxyTo(ipp, protect.UidSelf, pids); err == nil {
+			pid = proxyID(px)
+			foundProxy = pid != NetNoProxy
+			cipp = ipp
+			break
+		}
+	}
+	logeif(!foundProxy)("%s: proxy for %s(%d); choosing %s among %v",
+		who, cipp, len(ipps), pid, pids)
+	return
+}
+
+func ChooseProxyHostPort(who string, host string, port uint16, pids []string, px ipn.ProxyProvider) (pid string) {
+	var ipps []netip.AddrPort
+
+	splithost, _, _ := net.SplitHostPort(host)
+	if len(splithost) > 0 {
+		host = splithost
+	}
+
+	c := dialers.Confirmed(host)
+	ipps = append(ipps, netip.AddrPortFrom(c, port))
+
+	for _, ip := range dialers.For(host) {
+		ipps = append(ipps, netip.AddrPortFrom(ip, port))
+	}
+
+	return ChooseProxy(who+" : "+host, ipps, pids, px)
+}
+
+func proxyID(p ipn.Proxy) string {
+	if p == nil {
+		return NetNoProxy
+	}
+	return p.ID()
 }
 
 func splitIPFamilies(ips []netip.Addr) (ip4s, ip6s []netip.Addr) {

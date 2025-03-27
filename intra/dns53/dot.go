@@ -283,32 +283,7 @@ func (t *dot) sendRequest(pid string, q *dns.Msg) (ans *dns.Msg, elapsed time.Du
 }
 
 func (t *dot) chooseProxy(pids []string) string {
-	foundProxy := false
-	pid := dnsx.NetNoProxy
-	if len(pids) > 0 {
-		pid = pids[0]
-	}
-	for _, ipp := range t.IPPorts() {
-		if px, err := t.proxies.ProxyTo(ipp, core.UNKNOWN_UID_STR, pids); err == nil {
-			pid = proxyID(px) // px is never nil, but nilaway complains
-			foundProxy = true
-			log.VV("dot: (%s) proxy(%s) for %s@%s; among %v",
-				t.id, pid, t.addrport, ipp, pids)
-			break
-		}
-	}
-	if !foundProxy {
-		log.W("dot: (%s) no proxy for %s; choosing %s among %v",
-			t.id, t.addrport, pid, pids)
-	}
-	return pid
-}
-
-func proxyID(p ipn.Proxy) string {
-	if p == nil {
-		return dnsx.NetNoProxy
-	}
-	return p.ID()
+	return dnsx.ChooseProxyHostPort("dot: "+t.id, t.addrport, t.port, pids, t.proxies)
 }
 
 func (t *dot) Query(network string, q *dns.Msg, smm *x.DNSSummary) (ans *dns.Msg, err error) {
