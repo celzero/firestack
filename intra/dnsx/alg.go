@@ -1605,6 +1605,7 @@ func synthesizeOrQuery(preset []netip.Addr, tr Transport, msg *dns.Msg, network 
 			return Req(tr, network, msg, smm)
 		}
 		withPresetSummary(smm, false /*req sent?*/, fixed)
+		smm.ID = Preset
 		smm.RCode = xdns.Rcode(ans)
 		smm.RData = xdns.GetInterestingRData(ans)
 		smm.RTtl = xdns.RTtl(ans) // usually 1 per xdns.AnsTTL
@@ -1665,6 +1666,7 @@ func Req(t Transport, network string, q *dns.Msg, smm *x.DNSSummary) (*dns.Msg, 
 		discarded := new(x.DNSSummary)
 		smm = discarded
 	}
+	smm.ID = idstr(t)
 	if len(smm.QName) <= 0 {
 		smm.QName = qname
 	}
