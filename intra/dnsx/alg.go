@@ -128,8 +128,13 @@ func (a expaddr) alive() []netip.Addr {
 }
 
 // fresh returns false if a has expired or if a is zero-value.
-func (a expaddr) fresh() bool {
-	return !a.ttl.IsZero() && time.Now().Before(a.ttl)
+func (a expaddr) fresh() (rem time.Duration, y bool) {
+	if a.ttl.IsZero() {
+		return
+	}
+	rem = time.Until(a.ttl)
+	y = rem > 0
+	return
 }
 
 func (a expaddr) after(b expaddr) bool {
@@ -432,11 +437,13 @@ type baseans struct {
 }
 
 // fresh returns false if a has expired or if a is nil
-func (a *baseans) fresh() bool {
-	if a == nil {
-		return false
+func (a *baseans) fresh() (rem time.Duration, y bool) {
+	if a == nil || a.ttl.IsZero() {
+		return
 	}
-	return !a.ttl.IsZero() && a.ttl.After(time.Now())
+	rem = time.Until(a.ttl)
+	y = rem > 0
+	return
 }
 
 type algans struct {
@@ -580,7 +587,7 @@ func (t *dnsgateway) fromInternalCache(tid, uid string, q *dns.Msg, typ iptype) 
 	domain := qname(q)
 
 	t.RLock()
-	cached4s, cached6s, stale, _ := t.resolvLocked(domain, typ, tid, uid)
+	cached4s, cached6s, stale, until, _ := t.resolvLocked(domain, typ, tid, uid)
 	t.RUnlock()
 
 	var cachedips []netip.Addr
@@ -590,13 +597,14 @@ func (t *dnsgateway) fromInternalCache(tid, uid string, q *dns.Msg, typ iptype) 
 		cachedips = cached6s
 	}
 
-	log.VV("alg: response for %s (v4? %t / v6? %t) realip; in cache? %v (or stale? %v)",
-		domain, a, aaaa, cachedips, stale)
+	ttl := uint32(until.Seconds())
+	log.VV("alg: response for %s (v4? %t / v6? %t) realip; in cache? %v [until: %s] (or stale? %v)",
+		domain, a, aaaa, cachedips, ttl, stale)
 
 	if len(cachedips) <= 0 {
 		return nil, errNilCacheResponse
 	}
-	return xdns.AQuadAForQuery(q, cachedips...)
+	return xdns.AQuadAForQueryTTL(q, ttl, cachedips...)
 }
 
 func (t *dnsgateway) qp(t1 Transport, uid, network string, q *dns.Msg, innersummary *x.DNSSummary) (ans *dns.Msg, err error) {
@@ -1333,7 +1341,7 @@ func (t *dnsgateway) RESOLV(domain, uid string) []netip.Addr {
 	if !t.split.Load() {
 		uid = core.UNKNOWN_UID_STR
 	}
-	ip4s, ip6s, _, _ := t.resolvLocked(domain, typ, notransport, uid)
+	ip4s, ip6s, _, _, _ := t.resolvLocked(domain, typ, notransport, uid)
 	return append(ip4s, ip6s...)
 }
 
@@ -1358,7 +1366,7 @@ func (t *dnsgateway) xLocked(maybeAlg netip.Addr, usestale bool, uid string, tid
 				realips = append(realips, ans.ips.realipsFor(tid, uid, xst)...)
 			}
 		}
-		fresh = ans.fresh()
+		_, fresh = ans.fresh()
 		// undidAlg is really "hasAnyAlgEntry"; set it to true
 		// regardless of len(realips) or freshness of ans.ips
 		undidAlg = true
@@ -1375,7 +1383,7 @@ func (t *dnsgateway) xLocked(maybeAlg netip.Addr, usestale bool, uid string, tid
 				realips = append(realips, ans.ips.realipsFor(tid, uid, xst)...)
 			}
 		}
-		fresh = ans.fresh()
+		_, fresh = ans.fresh()
 		undidAlg = false
 	}
 
@@ -1438,7 +1446,7 @@ func (t *dnsgateway) ptrLocked(maybeAlg netip.Addr, useptr bool) (domains []stri
 // If typ is typsecondary, returns all secondaryips for domain (disregarding tid).
 // ip4s and ip6s may overlap, and are segregated by the source algip
 // family (and not by the family of the resolved IPs themselves).
-func (t *dnsgateway) resolvLocked(domain string, typ iptype, tid, uid string) (ip4s, ip6s, staleips []netip.Addr, targets []string) {
+func (t *dnsgateway) resolvLocked(domain string, typ iptype, tid, uid string) (ip4s, ip6s, staleips []netip.Addr, until time.Duration, targets []string) {
 	partkey4 := domain + key4
 	partkey6 := domain + key6
 
@@ -1451,9 +1459,10 @@ func (t *dnsgateway) resolvLocked(domain string, typ iptype, tid, uid string) (i
 		for i := range 2 {
 			k4 := partkey4 + strconv.Itoa(i)
 			if ans, ok := t.alg[k4]; ok {
-				if ans.fresh() { // not stale
+				if life, fresh := ans.fresh(); fresh { // not stale
 					ip4s = append(ip4s, ans.algip)
 					targets = append(targets, ans.domains...)
+					until = min(until, life)
 				} else {
 					staleips = append(staleips, ans.algip)
 				}
@@ -1464,9 +1473,10 @@ func (t *dnsgateway) resolvLocked(domain string, typ iptype, tid, uid string) (i
 		for i := range 2 {
 			k6 := partkey6 + strconv.Itoa(i)
 			if ans, ok := t.alg[k6]; ok {
-				if ans.fresh() { // not stale
+				if life, fresh := ans.fresh(); fresh { // not stale
 					ip6s = append(ip6s, ans.algip)
 					targets = append(targets, ans.domains...)
+					until = min(until, life)
 				} else {
 					staleips = append(staleips, ans.algip)
 				}
@@ -1474,15 +1484,16 @@ func (t *dnsgateway) resolvLocked(domain string, typ iptype, tid, uid string) (i
 				break
 			}
 		}
-		log.V("alg: resolv: %s:%s[%s] => alg ip4 %d, ip6 %d; stale %v",
-			domain, tid, uid, len(ip4s), len(ip6s), staleips)
+		log.V("alg: resolv: %s:%s[%s] => alg ip4 %d, ip6 %d (until: %s); stale %v",
+			domain, tid, uid, len(ip4s), len(ip6s), until, staleips)
 	case typreal:
 		for i := range 2 { // a = 0, https/svcb = 1+
 			k4 := partkey4 + strconv.Itoa(i)
 			if ans, ok := t.alg[k4]; ok {
-				if ans.fresh() { // not stale
+				if life, fresh := ans.fresh(); fresh { // not stale
 					ip4s = append(ip4s, v4only(ans.ips.realipsFor(tid, uid, xalive))...)
 					targets = append(targets, ans.domains...)
+					until = min(until, life)
 				} else {
 					staleips = append(staleips, ans.ips.realipsFor(tid, uid, xall)...)
 				}
@@ -1493,9 +1504,10 @@ func (t *dnsgateway) resolvLocked(domain string, typ iptype, tid, uid string) (i
 		for i := range 2 { // aaaa = 0, https/svcb = 1+
 			k6 := partkey6 + strconv.Itoa(i)
 			if ans, ok := t.alg[k6]; ok {
-				if ans.fresh() { // not stale
+				if life, fresh := ans.fresh(); fresh { // not stale
 					ip6s = append(ip6s, v6only(ans.ips.realipsFor(tid, uid, xalive))...)
 					targets = append(targets, ans.domains...)
+					until = min(until, life)
 				} else {
 					staleips = append(staleips, ans.ips.realipsFor(tid, uid, xall)...)
 				}
@@ -1503,15 +1515,16 @@ func (t *dnsgateway) resolvLocked(domain string, typ iptype, tid, uid string) (i
 				break
 			} // continue
 		}
-		log.V("alg: resolv: %s:%s[%s] => real(%s) ip4 %d, ip6 %d; stale %v",
-			domain, tid, uid, len(ip4s), len(ip6s), staleips)
+		log.V("alg: resolv: %s:%s[%s] => real(%s) ip4 %d, ip6 %d (until: %s); stale %v",
+			domain, tid, uid, len(ip4s), len(ip6s), until, staleips)
 	case typsecondary:
 		for i := range 2 { // a = 0, https/svcb = 1+
 			k4 := partkey4 + strconv.Itoa(i)
 			if ans, ok := t.alg[k4]; ok {
-				if ans.fresh() { // not stale
+				if life, fresh := ans.fresh(); fresh { // not stale
 					ip4s = append(ip4s, v4only(ans.ips.secof(tid, uid))...)
 					targets = append(targets, ans.domains...)
+					until = min(until, life)
 				} else {
 					staleips = append(staleips, ans.ips.sec(xall)...)
 				}
@@ -1522,9 +1535,10 @@ func (t *dnsgateway) resolvLocked(domain string, typ iptype, tid, uid string) (i
 		for i := range 2 { // aaaa = 0, https/svcb = 1+
 			k6 := partkey6 + strconv.Itoa(i)
 			if ans, ok := t.alg[k6]; ok {
-				if ans.fresh() { // not stale
+				if life, fresh := ans.fresh(); fresh { // not stale
 					ip6s = append(ip6s, v6only(ans.ips.secof(tid, uid))...)
 					targets = append(targets, ans.domains...)
+					until = min(until, life)
 				} else {
 					staleips = append(staleips, ans.ips.sec(xall)...)
 				}
@@ -1532,8 +1546,8 @@ func (t *dnsgateway) resolvLocked(domain string, typ iptype, tid, uid string) (i
 				break
 			} // continue
 		}
-		log.V("alg: resolv: %s:%s[%s] => secondary ip4 %d, ip6 %d; stale %v",
-			domain, tid, uid, len(ip4s), len(ip6s), staleips)
+		log.V("alg: resolv: %s:%s[%s] => secondary ip4 %d, ip6 %d (until: %s); stale %v",
+			domain, tid, uid, len(ip4s), len(ip6s), until, staleips)
 	}
 
 	return
