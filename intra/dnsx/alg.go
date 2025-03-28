@@ -1066,6 +1066,7 @@ func (t *dnsgateway) registerLocked(q, tid, uid string, algip4, algip6 netip.Add
 		ttl:        ansttl, // extended by 2m on every use
 	}
 
+	newEntry := false
 	didRegister := false
 	// register mapping from qname -> algip+realip (alg) and algip -> qname+realip (nat)
 	for _, ip := range []netip.Addr{algip4, algip6} { // algips may be nil?
@@ -1093,14 +1094,18 @@ func (t *dnsgateway) registerLocked(q, tid, uid string, algip4, algip6 netip.Add
 		} else {
 			t.alg[k] = x
 			t.nat[ip] = x.baseans
+			newEntry = true
 		}
 		didRegister = true
 	}
+
+	logeif(!didRegister)("alg: algips (reg? %t / new? %t) %s+%s for %s@%s[%s]; real? %d, sec? %d; until (ans: %s / xips: %s)",
+		didRegister, newEntry, algip4, algip6, q, tid, uid, len(realips), len(secres.ips), ansttl, xipsttl)
+
 	if !didRegister {
-		log.W("alg: no algips 2 for %s@%s[%s]; real? %d, sec? %d",
-			q, tid, uid, len(realips), len(secres.ips))
 		return false
 	}
+
 	// am.ips.realips() may return nil; ex: when preset fixed ips are used
 	for _, ip := range realips {
 		if ip.IsUnspecified() || !ip.IsValid() { // should never happen
