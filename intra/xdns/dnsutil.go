@@ -630,6 +630,10 @@ func RefusedResponseFromMessage(srcMsg *dns.Msg) (dstMsg *dns.Msg, err error) {
 }
 
 func AQuadAForQuery(q *dns.Msg, ips ...netip.Addr) (a *dns.Msg, err error) {
+	return AQuadAForQueryTTL(q, ansTTL, ips...)
+}
+
+func AQuadAForQueryTTL(q *dns.Msg, ttl uint32, ips ...netip.Addr) (a *dns.Msg, err error) {
 	if q == nil {
 		return nil, errNoPacket
 	}
@@ -638,7 +642,6 @@ func AQuadAForQuery(q *dns.Msg, ips ...netip.Addr) (a *dns.Msg, err error) {
 		return nil, errNoPacket
 	}
 	a.Rcode = dns.RcodeSuccess
-	ttl := ansTTL
 
 	questions := q.Question
 	if len(questions) == 0 {
@@ -1118,7 +1121,7 @@ func MakeAAAARecord(name string, ip6 string, ttl uint32) *dns.AAAA {
 }
 
 // MaybeToQuadA translates an A record to a AAAA record if the prefix is not nil.
-// The ttl of the new record is the minimum of the original ttl and minttl.
+// The ttl of the new record is the max of the original ttl and minttl.
 // If the prefix is nil or answer has an empty A record, it returns nil.
 func MaybeToQuadA(answer dns.RR, prefix *net.IPNet) *dns.AAAA {
 	header := answer.Header()
@@ -1133,7 +1136,7 @@ func MaybeToQuadA(answer dns.RR, prefix *net.IPNet) *dns.AAAA {
 	if ipv4 == nil { // TODO: do not translate bogons?
 		return nil
 	}
-	ttl := min(ansTTL, header.Ttl)
+	ttl := max(ansTTL, header.Ttl)
 
 	ipv6 := ip4to6(*prefix, ipv4)
 
@@ -1172,7 +1175,7 @@ func ToIp6Hint(answer dns.RR, prefix *net.IPNet) dns.RR {
 	if len(kv) <= 0 {
 		return nil
 	}
-	ttl := ansTTL
+	ttl := max(ansTTL, header.Ttl)
 
 	hint4 := make([]string, 0)
 	rest := make([]dns.SVCBKeyValue, 0)
@@ -1236,7 +1239,7 @@ func ip4to6(prefix6 net.IPNet, ip4 net.IP) net.IP {
 	copy(ip6, prefix6.IP)
 	n, _ := prefix6.Mask.Size()
 	ipShift := n / 8
-	for i := 0; i < net.IPv4len; i++ {
+	for i := range net.IPv4len {
 		// skip byte 8, datatracker.ietf.org/doc/html/rfc6052#section-2.2
 		if ipShift+i == 8 {
 			ipShift++
