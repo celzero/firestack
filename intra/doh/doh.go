@@ -786,10 +786,3 @@ func (t *transport) Stop() error {
 	t.done()
 	return nil
 }
-
-func logwif(cond bool) log.LogFn {
-	if cond {
-		return log.W
-	}
-	return log.V
-}
