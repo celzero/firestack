@@ -144,14 +144,15 @@ func (a expaddr) after(b expaddr) bool {
 	return a.ttl.After(b.ttl)
 }
 
-func (a expaddr) get(s xaddrstatus) []netip.Addr {
+func (a expaddr) get(s xaddrstatus) (out []netip.Addr) {
 	if a.ips == nil {
-		return nil
+		return
 	}
-	if s == xalive && !a.fresh() {
-		return nil
+	_, fresh := a.fresh()
+	if s == xalive && fresh {
+		return a.ips
 	}
-	return a.ips
+	return
 }
 
 type xips struct {
@@ -348,13 +349,17 @@ func (p *xips) rmv(tid string) (done bool) {
 	i, j := 0, 0
 	p.pmu.Lock()
 	defer p.pmu.Unlock()
-	if xaddr := p.pri[tid]; xaddr.fresh() {
+	xaddr := p.pri[tid]
+	if _, y := xaddr.fresh(); y {
 		i++
 		xaddr.ttl = time.Now() // mark as expired
 		p.pri[tid] = xaddr
 	}
 	for k, v := range p.aux {
-		if strings.HasPrefix(k, tid) && v.fresh() {
+		if _, ok := v.fresh(); !ok {
+			continue
+		}
+		if strings.HasPrefix(k, tid) {
 			j++
 			done = done || true
 			v.ttl = time.Now() // mark as expired
@@ -398,8 +403,9 @@ func (p *xips) merge(q *xips) {
 	defer q.pmu.RUnlock()
 
 	for qk, qv := range q.pri {
-		if pv, ok := p.pri[qk]; !ok || !pv.fresh() {
-			p.pri[qk] = qv // copy v from q
+		pv := p.pri[qk]
+		if _, y := pv.fresh(); !y {
+			p.pri[qk] = qv // copy v from q into p
 		} else {
 			ips := copyUniq(pv.alive(), qv.alive())
 			ttl := pv.ttl
@@ -416,8 +422,9 @@ func (p *xips) merge(q *xips) {
 	}
 
 	for qk, qv := range q.aux {
-		if pv, ok := p.aux[qk]; !ok || !pv.fresh() {
-			p.pri[qk] = qv
+		pv := p.aux[qk]
+		if _, y := pv.fresh(); !y {
+			p.pri[qk] = qv // copy v from q into p
 		} else {
 			ips := copyUniq(pv.alive(), qv.alive())
 			ttl := pv.ttl
