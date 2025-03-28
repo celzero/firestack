@@ -455,7 +455,7 @@ func NormalizeQName(str string) (string, error) {
 	hasUpper := false
 	str = strings.TrimSuffix(str, ".")
 	strLen := len(str)
-	for i := 0; i < strLen; i++ {
+	for i := range strLen {
 		c := str[i]
 		if c >= utf8.RuneSelf {
 			return str, errNotAscii
@@ -467,7 +467,7 @@ func NormalizeQName(str string) (string, error) {
 	}
 	var b strings.Builder
 	b.Grow(len(str))
-	for i := 0; i < strLen; i++ {
+	for i := range strLen {
 		c := str[i]
 		if 'A' <= c && c <= 'Z' {
 			c += 'a' - 'A'
