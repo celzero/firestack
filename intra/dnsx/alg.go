@@ -916,22 +916,22 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []netip.Addr, network, uid strin
 	// substituions needn't happen when no alg ips to begin with
 	// but must happen if (real) ips are fixed
 	mustsubst := false || usefixed
-	ansout := ansin.Copy()
+	ansmod := ansin.Copy()
 	// TODO: substitute ips in additional section
 	if algip4hints.IsValid() {
-		substok4 = xdns.SubstSVCBRecordIPs( /*out*/ ansout, dns.SVCB_IPV4HINT, algip4hints, algXlatTtl) || substok4
+		substok4 = xdns.SubstSVCBRecordIPs( /*out*/ ansmod, dns.SVCB_IPV4HINT, algip4hints, algXlatTtl) || substok4
 		mustsubst = true
 	}
 	if algip6hints.IsValid() {
-		substok6 = xdns.SubstSVCBRecordIPs( /*out*/ ansout, dns.SVCB_IPV6HINT, algip6hints, algXlatTtl) || substok6
+		substok6 = xdns.SubstSVCBRecordIPs( /*out*/ ansmod, dns.SVCB_IPV6HINT, algip6hints, algXlatTtl) || substok6
 		mustsubst = true
 	}
 	if algip4s.IsValid() {
-		substok4 = xdns.SubstARecords( /*out*/ ansout, algip4s, algXlatTtl) || substok4
+		substok4 = xdns.SubstARecords( /*out*/ ansmod, algip4s, algXlatTtl) || substok4
 		mustsubst = true
 	}
 	if algip6s.IsValid() {
-		substok6 = xdns.SubstAAAARecords( /*out*/ ansout, algip6s, algXlatTtl) || substok6
+		substok6 = xdns.SubstAAAARecords( /*out*/ ansmod, algip6s, algXlatTtl) || substok6
 		mustsubst = true
 	}
 
@@ -977,7 +977,7 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []netip.Addr, network, uid strin
 		// if mod is set, send modified answer
 		if mod {
 			withAlgSummaryIfNeeded(smm, algip4, algip6)
-			return ansout, nil
+			return ansmod, nil
 		} else {
 			return ansin, nil
 		}
