@@ -189,7 +189,7 @@ const similarTraceThreshold = 8
 const similarUsrMsgThreshold = 3
 
 // charsPerLine is max no. of characters per log line.
-const charsPerLine = 4500
+const charsPerLine = 300
 
 // spamMsgThreshold is the min. no. of spammy msgs to report.
 var spammsgThreshold = [NONE + 1]uint32{
@@ -452,7 +452,7 @@ func (l *simpleLogger) msgstr(lvl LogLevel, f string, args ...any) (msg string) 
 		return level + l.tag + f
 	}
 	msg = fmt.Sprintf(f, args...)
-	if len(msg) <= charsPerLine {
+	if len(msg) <= charsPerLine { // excl tag+level
 		return level + l.tag + msg
 	}
 

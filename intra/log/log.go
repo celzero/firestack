@@ -145,7 +145,6 @@ func C(msg string, scratch []byte) {
 // U logs a user message (notifies the user).
 func U(msg string) {
 	Glogger.Usr(msg)
-
 }
 
 // T logs the stack trace of the current goroutine.
