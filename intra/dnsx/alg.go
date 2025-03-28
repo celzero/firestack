@@ -34,8 +34,8 @@ const (
 	timeout = 15 * time.Second
 	// 2m max ttl for alg/nat ip
 	ttl2m = 2 * time.Minute
-	// 15s min ttl for alg/nat ip; chosen to be closer to transport timeouts
-	ttl15s = 15 * time.Second
+	// 8s min ttl for alg/nat ip; chosen to be closer to transport timeouts
+	ttl8s = 8 * time.Second
 
 	key4 = ":a"
 	key6 = ":aaaa"
@@ -1043,7 +1043,7 @@ func (t *dnsgateway) registerLocked(q, tid, uid string, algip4, algip6 netip.Add
 	// is too short for translations; use a minimum of 15s to account
 	// for just-in-time re-resolution of the same domain by common.go via
 	// dialers.ResolverFor(uid) which may be called on new tcp / udp conn.
-	ttl = min(ttl15s, ttl)
+	ttl = max(ttl8s, ttl)
 
 	now := time.Now()
 	// ttl is used for algans and xips, but the alg'fied dns answer
