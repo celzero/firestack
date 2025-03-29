@@ -849,17 +849,16 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []netip.Addr, network, uid strin
 	rgood := xdns.HasRcodeSuccess(ansin)
 	// for t1, ansin's already evaluated for ans0000 in querySecondary
 	// (secans.pri is set to true). ansin may be from t2 (if t2 != nil),
-	// ans64, which is a modified ansin, is the only ans checked for
-	// unspecified ips (0.0.0.0 / ::) as it covers ans from both t1 / t2.
-	ans640000 := xdns.AQuadAUnspecified(ans64) // ans64 may be nil
+	// ans64, which is a modified ansin, depending on settings.PtMode
+	ans0000 := xdns.AQuadAUnspecified(ansin) // ansin is not nil; ans64 may be nil
 
-	if ans640000 {
+	if ans0000 {
 		smm.UpstreamBlocks = true
 	}
 
-	if !hasq || !hasans || !rgood || ans640000 || dontalg {
+	if !hasq || !hasans || !rgood || ans0000 || dontalg {
 		log.D("alg: skip; query %s:%d / a:%d, dontalg(%t) hasq(%t) hasans(%t) rgood(%t), ans0000(%t)",
-			qname, qtyp, xdns.Len(ansin), dontalg, hasq, hasans, rgood, ans640000)
+			qname, qtyp, xdns.Len(ansin), dontalg, hasq, hasans, rgood, ans0000)
 		return ansin, nil
 	}
 
