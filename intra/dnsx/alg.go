@@ -1007,11 +1007,16 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []netip.Addr, network, uid strin
 		algip6 = algip6hints
 	}
 
-	tid1 := idstr(t1)
-	log.D("alg: ok; for %s[%s]:%s:%d, domains %s real: %s / fix: %s => subst %s | %s; (mod? %t / fix? %t / synth? %t); sec %s; ttl %s",
-		tid1, uid, qname, qtyp, targets, realip, fixedips, algip4, algip6, mod, usefixed, synthAns, secres.ips, ansttl)
+	// always use the ID as set in the summary; which may or may not match
+	// the primary t1.ID(). For instance, a caching dnsx.Transport (cacher)
+	// may set DNSSummary.ID of the underlying dnsx.Transport that fetched
+	// the answer, whose ID != to t1 (cacher) itself. OTOH, dnsx.Resolver
+	// uses DNSSummary.ID when returning ans to the caller (ex: ipmapper)
+	tidToReg := smm.ID
+	log.D("alg: ok; for %s<>%s[%s]:%s:%d, domains %s real: %s / fix: %s => subst %s | %s; (mod? %t / fix? %t / synth? %t); sec %s; ttl %s",
+		tidToReg, idstr(t1), uid, qname, qtyp, targets, realip, fixedips, algip4, algip6, mod, usefixed, synthAns, secres.ips, ansttl)
 
-	if t.registerLocked(qname, tid1, uid, algip4, algip6, realip, ansttl, targets, secres) {
+	if t.registerLocked(qname, tidToReg, uid, algip4, algip6, realip, ansttl, targets, secres) {
 		// if mod is set, send modified answer
 		if mod {
 			withAlgSummaryIfNeeded(smm, algip4, algip6)
