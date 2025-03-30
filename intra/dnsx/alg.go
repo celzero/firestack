@@ -121,7 +121,7 @@ type expaddr struct {
 }
 
 func (a expaddr) String() string {
-	return fmt.Sprintf("addrs(%v / ttl: %s)", a.ips, a.ttl.Format(time.Stamp))
+	return fmt.Sprintf("addrs(%v / ttl: %s)", a.ips, time.Until(a.ttl))
 }
 
 func (a expaddr) all() []netip.Addr {
@@ -460,7 +460,7 @@ func (a *baseans) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("xips(%v) domains(%v) blocklists(%s) ttl(%s)",
-		a.ips, a.domains, a.blocklists, a.ttl.Format(time.Stamp))
+		a.ips, a.domains, a.blocklists, time.Until(a.ttl))
 }
 
 // fresh returns false if a has expired or if a is nil
@@ -837,8 +837,8 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []netip.Addr, network, uid strin
 	// if usefixed is true, then d64 is no-op, as preset fixed ip does have ipv6
 	ans64 := t.dns64.D64(network, ansin, t1) // ans64 may be nil if no D64 or error
 	if ans64 != nil {
-		log.D("alg: %s:%s[%s] %d dns64; s/ans(%d)/ans64(%d)",
-			qname, idstr(t1), uid, qtyp, xdns.Len(ansin), xdns.Len(ans64))
+		log.D("alg: %s<>%s:%s[%s] %d dns64; s/ans(%d)/ans64(%d)",
+			qname, smm.ID, idstr(t1), uid, qtyp, xdns.Len(ansin), xdns.Len(ans64))
 		withDNS64Summary(ans64, smm)
 		ansin = ans64
 	} // else: no dns64, or error; continue with ansin
@@ -857,8 +857,8 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []netip.Addr, network, uid strin
 	}
 
 	if !hasq || !hasans || !rgood || ans0000 || dontalg {
-		log.D("alg: skip; query %s:%d / a:%d, dontalg(%t) hasq(%t) hasans(%t) rgood(%t), ans0000(%t)",
-			qname, qtyp, xdns.Len(ansin), dontalg, hasq, hasans, rgood, ans0000)
+		log.D("alg: skip; query %s<>%s[%s]:%s:%d / a:%d, dontalg(%t) hasq(%t) hasans(%t) rgood(%t), ans0000(%t)",
+			smm.ID, idstr(t1), uid, qname, qtyp, xdns.Len(ansin), dontalg, hasq, hasans, rgood, ans0000)
 		return ansin, nil
 	}
 
@@ -882,8 +882,8 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []netip.Addr, network, uid strin
 	if smm.UpstreamBlocks || len(secres.smm.Msg) > 0 {
 		smsg := secres.smm.Msg
 		spri := secres.pri
-		log.V("alg: %s:%d upstream blocks: primary? %t / sec? %t; secres: pri? %t, msg: %s",
-			qname, qtyp, secres.smm.UpstreamBlocks, smm.UpstreamBlocks, spri, smsg)
+		log.V("alg: %s<>%s[%s]:%s:%d upstream blocks: primary? %t / sec? %t; secres: pri? %t, msg: %s",
+			smm.ID, idstr(t1), uid, qname, qtyp, secres.smm.UpstreamBlocks, smm.UpstreamBlocks, spri, smsg)
 	}
 
 	defer func() {
@@ -892,7 +892,8 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []netip.Addr, network, uid strin
 		xdns.BustAndroidCacheIfNeeded(outmsg)
 
 		if isAlgErr(err) && !mod {
-			log.D("alg: %s:%d no mod; suppress err %v", qname, qtyp, err)
+			log.D("alg: %s<>%s[%s]:%s:%d no mod; suppress err %v",
+				smm.ID, idstr(t1), uid, qname, qtyp, err)
 			err = nil // ignore alg errors if no modification is desired
 		}
 	}()
@@ -973,16 +974,16 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []netip.Addr, network, uid strin
 		mustsubst = true
 	}
 
-	log.D("alg: %s; %s:%d a6(a %d / h %d / s %t) : a4(a %d / h %d / s %t); ttl: %s",
-		uid, qname, qtyp, len(a6), len(ip6hints), substok6, len(a4), len(ip4hints), substok4, ansttl)
+	log.D("alg: %s<>%s[%s]; %s:%d a6(a %d / h %d / s %t) : a4(a %d / h %d / s %t); ttl: %s",
+		smm.ID, idstr(t1), uid, qname, qtyp, len(a6), len(ip6hints), substok6, len(a4), len(ip4hints), substok4, ansttl)
 	if !substok4 && !substok6 {
 		if mustsubst {
 			err = errAlgCannotSubst
 		} else { // no algips
 			err = nil
 		}
-		log.D("alg: %s skip; err(%v); ips subst %s:%d; fixed? %t",
-			uid, err, qname, qtyp, usefixed)
+		log.D("alg: %s<>%s[%s]: skip; err(%v); ips subst %s:%d; fixed? %t",
+			smm.ID, idstr(t1), uid, err, qname, qtyp, usefixed)
 		return ansin, err // ansin is nil if no alg ips
 	}
 
@@ -1151,7 +1152,7 @@ func (t *dnsgateway) registerLocked(q, tid, uid string, algip4, algip6 netip.Add
 	}
 
 	logeif(!didRegister)("alg: algips (reg? %t / new? %t) %s+%s for %s@%s[%s]; real? %d, sec? %d; until (ans: %s / xips: %s)",
-		didRegister, newEntry, algip4, algip6, q, tid, uid, len(realips), len(secres.ips), ansttl, xipsttl)
+		didRegister, newEntry, algip4, algip6, q, tid, uid, len(realips), len(secres.ips), time.Until(ansttl), time.Until(xipsttl))
 
 	if !didRegister {
 		return false
@@ -1444,8 +1445,8 @@ func (t *dnsgateway) xLocked(maybeAlg netip.Addr, usestale bool, uid string, tid
 	} else {
 		unnated = t.maybeUndoNat64(realips...)
 	} // else: send realips as is
-	logeif(!hasrealips)("alg: dns64: for %v[%s] (fresh? %t / undidAlg? %t / staleok? %t) algip(%v) => realips(%v) => unnated(%v); until: %s",
-		tids, uid, fresh, undidAlg, usestale, unmapped, realips, unnated, until)
+	logeif(!hasrealips)("alg: dns64: for %s:%v[%s] (fresh? %t / undidAlg? %t / staleok? %t) algip(%v) => realips(%v) => unnated(%v); until: %s",
+		qname, tids, uid, fresh, undidAlg, usestale, unmapped, realips, unnated, until)
 	if len(unnated) > 0 { // unnated is already de-duplicated
 		return unnated, undidAlg
 	}
