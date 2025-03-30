@@ -373,7 +373,7 @@ func (r *resolver) Lookup(q []byte, tids ...string) ([]byte, string, error) {
 		return nil, NoDNS, errNoQuestion
 	}
 	// if len(tids) == 0, use transport from preferences
-	return r.forward2(q, protect.UidSelf, tids...)
+	return r.forward(q, protect.UidSelf, tids...)
 }
 
 func (r *resolver) LookupFor(q []byte, uid string) ([]byte, string, error) {
@@ -381,7 +381,7 @@ func (r *resolver) LookupFor(q []byte, uid string) ([]byte, string, error) {
 		return nil, NoDNS, errNoQuestion
 	}
 
-	return r.forward2(q, uid)
+	return r.forward(q, uid)
 }
 
 func (r *resolver) LocalLookup(q []byte) ([]byte, string, error) {
@@ -397,7 +397,7 @@ func (r *resolver) LocalLookup(q []byte) ([]byte, string, error) {
 	}
 
 	// including dns64 and/or alg
-	ans, tid, err := r.forward2(q, protect.UidSelf, Default)
+	ans, tid, err := r.forward(q, protect.UidSelf, Default)
 	if defaultIsSystemDNS {
 		return ans, tid, err
 	} // else: retry with Goos/System, if needed
@@ -405,24 +405,13 @@ func (r *resolver) LocalLookup(q []byte) ([]byte, string, error) {
 	// msg may be nil
 	if msg := xdns.AsMsg(ans); err != nil || xdns.IsNXDomain(msg) || !xdns.HasRcodeSuccess(msg) {
 		log.I("dns: nxdomain via Default (err? %v); using Goos for %s", err, xdns.QName(msg))
-		ans, tid, err = r.forward2(q, protect.UidSelf, Goos) // Goos is System; see: determineTransport
+		ans, tid, err = r.forward(q, protect.UidSelf, Goos) // Goos is System; see: determineTransport
 	} // else: rcode success and nil err; do not fallback on Goos/System
 
 	return ans, tid, err
 }
 
-func (r *resolver) forward(q []byte, chosenids ...string) ([]byte, string, error) {
-	// if chosenids are not empty, uid is set to protect.UidSelf
-	// Today, such queries are only sent by the ipmapper, which is solely
-	// used by firestack for its queries (for ex: to resolve doh hostnames)
-	uid := core.UNKNOWN_UID_STR
-	if len(chosenids) > 0 {
-		uid = protect.UidSelf
-	}
-	return r.forward2(q, uid, chosenids...)
-}
-
-func (r *resolver) forward2(q []byte, uid string, chosenids ...string) (res0 []byte, tid0 string, err0 error) {
+func (r *resolver) forward(q []byte, uid string, chosenids ...string) (res0 []byte, tid0 string, err0 error) {
 	starttime := time.Now()
 	smm := &x.DNSSummary{
 		ID:     NoDNS,
@@ -663,7 +652,7 @@ func (r *resolver) determineTransport(id string) Transport {
 
 // dnstcp queries the transport and writes answers to w, prefixed by length.
 func (r *resolver) dnstcp(q []byte, w io.WriteCloser, uid string) error {
-	ans, _, err := r.forward2(q, uid)
+	ans, _, err := r.forward(q, uid)
 
 	rlen := len(ans)
 	if rlen <= 0 && err != nil {
@@ -683,7 +672,7 @@ func (r *resolver) dnstcp(q []byte, w io.WriteCloser, uid string) error {
 
 // dnsudp queries the transport and writes answers to w.
 func (r *resolver) dnsudp(q []byte, w io.WriteCloser, uid string) error {
-	ans, _, err := r.forward2(q, uid)
+	ans, _, err := r.forward(q, uid)
 
 	rlen := len(ans)
 	if rlen <= 0 && err != nil {
