@@ -35,7 +35,7 @@ type fakeResolver struct {
 	*net.Resolver
 }
 
-func (r fakeResolver) Lookup(q []byte) ([]byte, error) {
+func (r fakeResolver) Lookup(q []byte, tids ...string) ([]byte, error) {
 	// return nil, errors.New("lookup: not implemented")
 	msg := xdns.AsMsg(q)
 	if msg == nil {
@@ -162,12 +162,12 @@ func TestDot(t *testing.T) {
 	natpt := x64.NewNatPt(bdg)
 	resolv := dnsx.NewResolver(ctx, "10.111.222.3:53", dtr, bdg, natpt)
 	resolv.Add(tr)
-	r4, _, err := resolv.Forward(b4)
-	r6, _, err6 := resolv.Forward(b6)
-	_, _, _ = resolv.Forward(b24)
-	_, _, _ = resolv.Forward(b26)
+	r4, _, err := resolv.Lookup(b4)
+	r6, _, err6 := resolv.Lookup(b6)
+	_, _, _ = resolv.Lookup(b24)
+	_, _, _ = resolv.Lookup(b26)
 	time.Sleep(1 * time.Second)
-	_, _, _ = resolv.Forward(b6)
+	_, _, _ = resolv.Lookup(b6)
 	if err != nil {
 		// log.Output(2, smm.Str())
 		t.Fatal(err)
@@ -276,8 +276,8 @@ func TestSEProxy(t *testing.T) {
 	b4, _ := q.Pack()
 	b6, _ := q6.Pack()
 
-	r4, _, err := resolv.Forward(b4)
-	r6, _, err6 := resolv.Forward(b6)
+	r4, _, err := resolv.Lookup(b4)
+	r6, _, err6 := resolv.Lookup(b6)
 	if err != nil {
 		// log.Output(2, smm.Str())
 		t.Fatal(err)

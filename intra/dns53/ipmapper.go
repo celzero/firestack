@@ -71,8 +71,8 @@ func str2ip(host string) (netip.Addr, error) {
 }
 
 // Implements IPMapper.
-func (m *ipmapper) Lookup(q []byte) ([]byte, error) {
-	return m.queryAny(q)
+func (m *ipmapper) Lookup(q []byte, tids ...string) ([]byte, error) {
+	return m.queryAny(q, tids...)
 }
 
 // Implements IPMapper.
@@ -94,8 +94,8 @@ func (m *ipmapper) queryIP(ctx context.Context, network, host string, uid string
 	return m.queryIP2(ctx, network, host, uid)
 }
 
-func (m *ipmapper) queryAny(q []byte) ([]byte, error) {
-	return m.queryAny2(q, core.UNKNOWN_UID_STR)
+func (m *ipmapper) queryAny(q []byte, tids ...string) ([]byte, error) {
+	return m.queryAny2(q, core.UNKNOWN_UID_STR, tids...)
 }
 
 // todo: use context
@@ -146,8 +146,8 @@ func (m *ipmapper) queryIP2(_ context.Context, network, host, uid string, tid ..
 		val4, _ = m.ba.Do(key4(host, uid), m.lookupfor(q4, uid))
 		val6, _ = m.ba.Do(key6(host, uid), m.lookupfor(q6, uid))
 	} else {
-		val4, _ = m.ba.Do(key4(host), m.locallookup(q4))
-		val6, _ = m.ba.Do(key6(host), m.locallookup(q6))
+		val4, _ = m.ba.Do(key4(host, dnsx.Default), m.locallookup(q4))
+		val6, _ = m.ba.Do(key6(host, dnsx.Default), m.locallookup(q6))
 	}
 
 	var noval4, noval6 bool
@@ -195,7 +195,7 @@ func (m *ipmapper) queryIP2(_ context.Context, network, host, uid string, tid ..
 	return ips, nil
 }
 
-func (m *ipmapper) queryAny2(q []byte, uid string) ([]byte, error) {
+func (m *ipmapper) queryAny2(q []byte, uid string, tids ...string) ([]byte, error) {
 	msg := xdns.AsMsg(q)
 	if msg == nil {
 		log.W("ipmapper: not a dns query sz(%d)", len(q))
@@ -207,14 +207,17 @@ func (m *ipmapper) queryAny2(q []byte, uid string) ([]byte, error) {
 		return nil, errNoHost
 	}
 	qtype := int(xdns.QType(msg))
+	qtypestr := strconv.Itoa(qtype)
 
 	log.V("ipmapper: lookup: host %s, uid: %v", qname, uid)
 
 	var v *core.V[answer, string]
-	if uid != core.UNKNOWN_UID_STR {
-		v, _ = m.ba.Do(key(qname, strconv.Itoa(qtype)), m.lookupfor(q, uid))
+	if len(tids) > 0 {
+		v, _ = m.ba.Do(key(qname, qtypestr, tids...), m.lookupon(q, tids...))
+	} else if uid != core.UNKNOWN_UID_STR {
+		v, _ = m.ba.Do(key(qname, qtypestr, uid), m.lookupfor(q, uid))
 	} else {
-		v, _ = m.ba.Do(key(qname, strconv.Itoa(qtype)), m.locallookup(q))
+		v, _ = m.ba.Do(key(qname, qtypestr, dnsx.Default), m.locallookup(q))
 	}
 
 	if v == nil || len(v.Val.a) <= 0 || v.Err != nil {
@@ -233,9 +236,9 @@ func (m *ipmapper) lookupfor(q []byte, uid string) func() (answer, error) {
 	}
 }
 
-func (m *ipmapper) lookupon(q []byte, tid ...string) func() (answer, error) {
+func (m *ipmapper) lookupon(q []byte, tids ...string) func() (answer, error) {
 	return func() (answer, error) {
-		a, tid, err := m.r.Lookup(q, tid...)
+		a, tid, err := m.r.Lookup(q, tids...)
 		return answer{a, tid}, err
 	}
 }
@@ -272,19 +275,19 @@ func (m *ipmapper) undoAlg(ip64 []netip.Addr, tid, uid string) []netip.Addr {
 	return realips // no dups
 }
 
-func key(name string, oth ...string) string {
+func key(name string, typ string, oth ...string) string {
 	if len(oth) <= 0 {
 		return name
 	}
-	return name + ":" + strings.Join(oth, ":")
+	return name + ":" + typ + ":" + strings.Join(oth, ":")
 }
 
 func key4(name string, oth ...string) string {
-	return key(name, append(oth, "ip4")...)
+	return key(name, "ip4", oth...)
 }
 
 func key6(name string, oth ...string) string {
-	return key(name, append(oth, "ip6")...)
+	return key(name, "ip6", oth...)
 }
 
 func addrs(a []byte) []netip.Addr {

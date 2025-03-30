@@ -69,7 +69,7 @@ func (h IPSetType) String() string {
 // IPMapper is an interface for resolving hostnames to IP addresses.
 // For internal used by firestack.
 type IPMapper interface {
-	Lookup(q []byte) ([]byte, error)
+	Lookup(q []byte, tid ...string) ([]byte, error)
 	LookupNetIP(ctx context.Context, network, host string) ([]netip.Addr, error)
 	LookupNetIPFor(ctx context.Context, network, host, uid string) ([]netip.Addr, error)
 	LookupNetIPOn(ctx context.Context, network, host string, tid ...string) ([]netip.Addr, error)
@@ -181,12 +181,12 @@ func (m *ipmap) LookupNetIP(ctx context.Context, network, host string) ([]netip.
 }
 
 // Implements IPMapper.
-func (m *ipmap) Lookup(q []byte) ([]byte, error) {
+func (m *ipmap) Lookup(q []byte, tids ...string) ([]byte, error) {
 	r := m.r // actual ipmapper implementation
 	if r == nil {
 		return nil, &net.DNSError{Err: "no resolver", Name: "Lookup", Server: "localhost"}
 	}
-	return r.Lookup(q)
+	return r.Lookup(q, tids...)
 }
 
 // Implements IPMapper.

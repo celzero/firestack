@@ -126,6 +126,7 @@ type TransportMult interface {
 
 type Resolver interface {
 	x.DNSTransportMult
+	ResolverSelf
 	RdnsResolver
 	NatPt
 
@@ -136,14 +137,7 @@ type Resolver interface {
 	GetMult(id string) (TransportMult, error)
 
 	IsDnsAddr(ipport netip.AddrPort) bool
-	// LocalLookup performs resolution on Default and/or Goos DNSes
-	LocalLookup(q []byte) (a []byte, tid string, err error)
-	// Lookup performs resolution on chosen Transport.
-	Lookup(q []byte, chosen ...string) (a []byte, tid string, err error)
-	// LookupPref performs resolution for uid.
-	LookupFor(q []byte, uid string) (a []byte, tid string, err error)
-	// Forward performs resolution on any DNS transport
-	Forward(q []byte) (a []byte, tid string, err error)
+
 	// Serve reads DNS query from conn and writes DNS answer to conn
 	Serve(proto string, conn protect.Conn, uid string)
 
@@ -415,14 +409,6 @@ func (r *resolver) LocalLookup(q []byte) ([]byte, string, error) {
 	} // else: rcode success and nil err; do not fallback on Goos/System
 
 	return ans, tid, err
-}
-
-func (r *resolver) Forward(q []byte) ([]byte, string, error) {
-	if r.closed.Load() {
-		return nil, NoDNS, errResolverClosed
-	}
-
-	return r.forward(q)
 }
 
 func (r *resolver) forward(q []byte, chosenids ...string) ([]byte, string, error) {
