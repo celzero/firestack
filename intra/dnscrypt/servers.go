@@ -253,7 +253,7 @@ func fetchDNSCryptServerInfo(proxy *DcMulti, name string, stamp stamps.ServerSta
 		proxies:            px,
 		relay:              relay,
 		est:                core.NewP50Estimator(ctx),
-		status:             core.NewVolatile[int](dnsx.Start),
+		status:             core.NewVolatile(dnsx.Start),
 	}
 	log.I("dnscrypt: (%s) setup: %s; anonrelay? %t, proxy? %t", name, si.HostName, relay != nil)
 	return si, nil
