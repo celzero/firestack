@@ -303,8 +303,10 @@ func addrs(a []byte) []netip.Addr {
 			if ip6, ok := netip.AddrFromSlice(rr.AAAA); ok {
 				ips = append(ips, ip6)
 			}
+		case *dns.CNAME:
+			log.V("ipmapper: cname %s => %s", rr.Hdr.Name, rr.Target)
 		default:
-			log.V("ipmapper: unexpected ans type: %v", rr)
+			log.V("ipmapper: unexpected ans type: %v... skip", rr)
 		}
 	}
 	return ips
