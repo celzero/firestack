@@ -347,7 +347,10 @@ func (t *ctransport) fetch(network string, q *dns.Msg, summary *x.DNSSummary, cb
 
 		defer func() {
 			// fill after summaries are filled
-			fsmm.Cached = !reqsent
+			if !reqsent {
+				summary.ID = t.ID()
+				fsmm.Cached = true
+			}
 		}()
 
 		cc := &cres{ans: nil, s: copySummary(fsmm)}
@@ -436,13 +439,14 @@ func (t *ctransport) fetch(network string, q *dns.Msg, summary *x.DNSSummary, cb
 					if testpanic {
 						panic("dns: cache: fetch: sendRequest: rand10pc")
 					}
-					_, _ = sendRequest(new(x.DNSSummary))
+					_, _ = sendRequest(new(x.DNSSummary)) // summary may be cached
 				})
 			}
 			// change summary fields to reflect cached response, except for latency
 			fillSummary(cachedsummary, summary)
 			summary.Latency = 0 // don't use cached latency
 			summary.Cached = true
+			summary.ID = t.ID()
 			return r, nil
 		} // else: fallthrough to sendRequest
 	} else {
