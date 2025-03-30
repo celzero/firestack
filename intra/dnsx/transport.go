@@ -429,6 +429,8 @@ func (r *resolver) forward(q []byte, uid string, chosenids ...string) (res0 []by
 		if len(smm.Msg) <= 0 {
 			smm.Msg = errNop.Error()
 		}
+		// must match w/ ID used by alg.go:registerLocked (alg/nat/ptr caches)
+		// as ipmapper uses this ID (tid0) subsequently to undoAlg
 		tid0 = smm.ID
 		r.queueSummary(smm)
 	}()
