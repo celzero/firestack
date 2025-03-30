@@ -242,11 +242,15 @@ func (b *bootstrap) Type() string {
 	return b.typ // DOH or DNS53
 }
 
-func (b *bootstrap) Query(network string, q *dns.Msg, summary *x.DNSSummary) (*dns.Msg, error) {
+func (b *bootstrap) Query(network string, q *dns.Msg, smm *x.DNSSummary) (*dns.Msg, error) {
+	smm.ID = dnsx.Default
+	smm.Type = b.typ
+	smm.UID = protect.UidSelf
 	if tr := b.tr; tr != nil {
 		log.V("dns: default: %s query? %t", network, q != nil)
-		return dnsx.Req(tr, network, q, summary)
+		return dnsx.Req(tr, network, q, smm)
 	}
+	smm.Status = dnsx.TransportError // InternalError?
 	return nil, errDefaultTransportNotReady
 }
 
