@@ -246,7 +246,7 @@ func (d *dns64) query64(network string, msg6 *dns.Msg, r string) (*dns.Msg, erro
 		return nil, errQuery
 	}
 
-	proto, pids := xdns.Net2ProxyID(network)
+	proto, _ := xdns.Net2ProxyID(network)
 
 	q4 := xdns.QName(msg4)
 
@@ -264,8 +264,6 @@ func (d *dns64) query64(network string, msg6 *dns.Msg, r string) (*dns.Msg, erro
 	// res.Truncated never likely happens w/ DOH, ODOH, DOT?
 	if res.Truncated && proto != dnsx.NetTypeTCP {
 		// else if: returned response is truncated dns ans, retry over tcp
-		network = xdns.NetAndProxyID(dnsx.NetTypeTCP, pids...)
-
 		res, err = dialers.Query(msg4, r)
 
 		hasAns = xdns.HasAnyAnswer(res)
