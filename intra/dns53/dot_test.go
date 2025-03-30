@@ -159,7 +159,7 @@ func TestDot(t *testing.T) {
 		t.Fatal("nil dns transports")
 	}
 
-	natpt := x64.NewNatPt(bdg)
+	natpt := x64.NewNatPt()
 	resolv := dnsx.NewResolver(ctx, "10.111.222.3:53", dtr, bdg, natpt)
 	resolv.Add(tr)
 	r4, _, err := resolv.Lookup(b4)
@@ -206,7 +206,7 @@ func TestProxyReaches(t *testing.T) {
 		t.Fatal("nil dns transports")
 	}
 
-	natpt := x64.NewNatPt(bdg)
+	natpt := x64.NewNatPt()
 	resolv := dnsx.NewResolver(ctx, "10.111.222.3", dtr, bdg, natpt)
 	resolv.Add(tr)
 
@@ -247,7 +247,7 @@ func TestSEProxy(t *testing.T) {
 		t.Fatal("nil dns transports")
 	}
 
-	natpt := x64.NewNatPt(bdg)
+	natpt := x64.NewNatPt()
 	resolv := dnsx.NewResolver(ctx, "10.111.222.3", dtr, bdg, natpt)
 	resolv.Add(tr)
 
@@ -317,7 +317,7 @@ func TestProtonReaches(t *testing.T) {
 		t.Fatal("nil dns transports")
 	}
 
-	natpt := x64.NewNatPt(bdg)
+	natpt := x64.NewNatPt()
 	resolv := dnsx.NewResolver(ctx, "10.111.222.3", dtr, bdg, natpt)
 	resolv.Add(tr)
 

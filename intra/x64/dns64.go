@@ -21,8 +21,8 @@ import (
 	"net"
 	"sync"
 
-	x "github.com/celzero/firestack/intra/backend"
 	"github.com/celzero/firestack/intra/core"
+	"github.com/celzero/firestack/intra/dialers"
 	"github.com/celzero/firestack/intra/dnsx"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/xdns"
@@ -61,14 +61,12 @@ type dns64 struct {
 	ip64 map[string][]*net.IPNet
 	// dns-resolver -> unique nat64-ips
 	uniqIP64 map[string]map[string]struct{}
-	l        x.DNSListener
 }
 
-func newDns64(l x.DNSListener) *dns64 {
+func newDns64() *dns64 {
 	d := &dns64{
 		ip64:     make(map[string][]*net.IPNet),
 		uniqIP64: make(map[string]map[string]struct{}),
-		l:        l,
 	}
 	core.Gx("dns64.init", d.init)
 	return d
@@ -99,34 +97,31 @@ func (d *dns64) register(id string) {
 	d.uniqIP64[id] = make(map[string]struct{})
 }
 
-func (d *dns64) AddResolver(id string, r dnsx.Transport) (ok bool) {
+func (d *dns64) AddResolver(id string, r string) (ok bool) {
 	d.register(id)
 
-	// todo: send summary to the listener
-	smm := new(x.DNSSummary)
-
-	netw := xdns.NetAndProxyID(dnsx.NetTypeUDP, dnsx.NetExitProxy)
-	ans, err := dnsx.Req(r, netw, arpa64, smm)
-
 	defer func() {
-		core.Go("dns64."+id, func() { d.l.OnResponse(smm) })
+		if !ok {
+			d.RemoveResolver(id)
+		}
 	}()
 
+	ans, err := dialers.Query(arpa64, r)
+
 	if err != nil || ans == nil || !xdns.HasAnyAnswer(ans) {
-		log.W("dns64: udp: could not query %s or empty ans; err %v", id, err)
+		log.W("dns64: udp: could not query %s[%s] or empty ans; err %v", r, id, err)
 		return
 	}
 
 	if ans.Truncated { // should never be the case for DOH, ODOH, DOT
 		// else if: returned response is truncated dns ans, retry over tcp
-		netw := xdns.NetAndProxyID(dnsx.NetTypeTCP, dnsx.NetExitProxy)
-		ans, err = dnsx.Req(r, netw, arpa64, smm)
+		ans, err = dialers.Query(arpa64, r)
 		if err != nil {
-			log.W("dns64: tcp: could not query resolver %s; err %v", id, err)
+			log.W("dns64: tcp: could not query resolver %s[%s]; err %v", r, id, err)
 			return
 		}
 		if !xdns.HasAnyAnswer(ans) {
-			log.W("dns64: tcp: invalid response from resolver %s", id)
+			log.W("dns64: tcp: invalid response from resolver %s[%s]", r, id)
 			return
 		}
 	}
@@ -157,7 +152,7 @@ func (d *dns64) RemoveResolver(id string) bool {
 
 // TODO: handle svcb/https ipv4hint/ipv6hint
 // datatracker.ietf.org/doc/html/draft-ietf-dnsop-svcb-https-10#section-7.4
-func (d *dns64) eval(network string, force64 bool, ansin *dns.Msg, r dnsx.Transport) *dns.Msg {
+func (d *dns64) eval(network string, force64 bool, ansin *dns.Msg, r string) *dns.Msg {
 	qname := xdns.QName(ansin)
 	// if question is AAAA, then answer must have AAAA; for example CNAME,
 	// records pointing no where must not be considered as AAAA answers
@@ -179,7 +174,7 @@ func (d *dns64) eval(network string, force64 bool, ansin *dns.Msg, r dnsx.Transp
 		return nil
 	}
 
-	id := ID64(r)
+	id := id64(r)
 	ip64 := d.get(id)
 	if len(ip64) <= 0 {
 		if ip64 = d.ip64[dnsx.UnderlayResolver]; len(ip64) <= 0 {
@@ -187,9 +182,9 @@ func (d *dns64) eval(network string, force64 bool, ansin *dns.Msg, r dnsx.Transp
 				ip64 = d.ip64[dnsx.Local464Resolver]
 			}
 		}
-		log.D("dns64: attempt underlay/local464 resolver ip64 w len(%d)", len(ip64))
+		log.D("dns64: attempt underlay/local464 resolver %s ip64 w len(%d)", r, len(ip64))
 	} else {
-		log.V("dns64: no resolver id(%s) registered", id)
+		log.V("dns64: no resolver id(%s[%s]) registered", r, id)
 	}
 
 	ans4, err := d.query64(network, ansin, r)
@@ -197,8 +192,8 @@ func (d *dns64) eval(network string, force64 bool, ansin *dns.Msg, r dnsx.Transp
 	hasans := xdns.HasAnyAnswer(ans4)
 	ans0000 := xdns.AQuadAUnspecified(ans4)
 	if err != nil || ans4 == nil || !hasans || ans0000 {
-		log.W("dns64: skip: query(n:%s / a? %t) to resolver(%s/%s), code(good? %t / blocked? %t), err(%v)",
-			qname, hasans, id, network, rgood, ans0000, err)
+		log.W("dns64: skip: query(n:%s / a? %t) on resolver(%s[%s]/%s), code(good? %t / blocked? %t), err(%v)",
+			qname, hasans, r, id, network, rgood, ans0000, err)
 		return nil
 	}
 
@@ -229,15 +224,15 @@ func (d *dns64) eval(network string, force64 bool, ansin *dns.Msg, r dnsx.Transp
 	if !didTranslate {
 		// may be there were no A records in ans4; or,
 		// xdns.ToQuadA failed for every A ans4 record
-		log.W("dns64: no rr64 translations done")
+		log.W("dns64: no rr64 translations done on %s[%s]", r, id)
 		return nil
 	} else {
-		log.D("dns64: translated response(%v)", rr64)
+		log.D("dns64: translated on %s[%s] response(%v)", r, id, rr64)
 	}
 
 	ans64 := xdns.EmptyResponseFromMessage(ansin) // may be nil
 	if ans64 == nil {
-		log.W("dns64: err synth ans64 for q %s", qname)
+		log.W("dns64: err synth ans64 on %s[%s] for q %s", r, id, qname)
 		return nil
 	}
 	ans64.Answer = append(ans64.Answer, rr64...)
@@ -245,7 +240,7 @@ func (d *dns64) eval(network string, force64 bool, ansin *dns.Msg, r dnsx.Transp
 }
 
 // query64 answers IPv4 query from the given IPv6 query.
-func (d *dns64) query64(network string, msg6 *dns.Msg, r dnsx.Transport) (*dns.Msg, error) {
+func (d *dns64) query64(network string, msg6 *dns.Msg, r string) (*dns.Msg, error) {
 	msg4 := xdns.Request4FromResponse6(msg6) // may be nil
 	if msg4 == nil || !xdns.HasAnyQuestion(msg4) {
 		return nil, errQuery
@@ -254,17 +249,12 @@ func (d *dns64) query64(network string, msg6 *dns.Msg, r dnsx.Transport) (*dns.M
 	proto, pids := xdns.Net2ProxyID(network)
 
 	q4 := xdns.QName(msg4)
-	smm := new(x.DNSSummary)
 
-	res, err := dnsx.Req(r, network, msg4, smm)
-
-	defer func() {
-		core.Go("dns64.q4."+q4, func() { d.l.OnResponse(smm) })
-	}()
+	res, err := dialers.Query(msg4, r)
 
 	hasAns := xdns.HasAnyAnswer(res)
-	log.D("dns64: upstream(%s): q(%s) / a(%t) / e(%v) / e-not-nil(%t)",
-		proto, q4, hasAns, err, err != nil)
+	log.D("dns64: upstream(%s): %s q(%s) / a(%t) / e(%v) / e-not-nil(%t)",
+		proto, r, q4, hasAns, err, err != nil)
 	if err != nil {
 		return nil, err
 	}
@@ -275,10 +265,12 @@ func (d *dns64) query64(network string, msg6 *dns.Msg, r dnsx.Transport) (*dns.M
 	if res.Truncated && proto != dnsx.NetTypeTCP {
 		// else if: returned response is truncated dns ans, retry over tcp
 		network = xdns.NetAndProxyID(dnsx.NetTypeTCP, pids...)
-		res, err = dnsx.Req(r, network, msg4, smm)
+
+		res, err = dialers.Query(msg4, r)
+
 		hasAns = xdns.HasAnyAnswer(res)
-		log.D("dns64: tcp: upstream q(%s) / a(%d) / e(%v) / e-not-nil(%t)",
-			q4, hasAns, err, err != nil)
+		log.D("dns64: tcp: upstream %s q(%s) / a(%d) / e(%v) / e-not-nil(%t)",
+			r, q4, hasAns, err, err != nil)
 		if err != nil {
 			return nil, err
 		} else if !hasAns {
@@ -370,10 +362,10 @@ func (d *dns64) add(serverid string, nat64 []net.IP) error {
 	}
 }
 
-func (d *dns64) get(sid string) []*net.IPNet {
+func (d *dns64) get(serverid string) []*net.IPNet {
 	d.RLock()
 	defer d.RUnlock()
-	return d.ip64[sid]
+	return d.ip64[serverid]
 }
 
 func (d *dns64) addNat64Prefix(id string, ipxx *net.IPNet) error {

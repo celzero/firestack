@@ -835,7 +835,7 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []netip.Addr, network, uid strin
 	smm.QType = qtyp
 
 	// if usefixed is true, then d64 is no-op, as preset fixed ip does have ipv6
-	ans64 := t.dns64.D64(network, ansin, t1) // ans64 may be nil if no D64 or error
+	ans64 := t.dns64.D64(network, t1.ID(), ansin) // ans64 may be nil if no D64 or error
 	if ans64 != nil {
 		log.D("alg: %s<>%s:%s[%s] %d dns64; s/ans(%d)/ans64(%d)",
 			qname, smm.ID, idstr(t1), uid, qtyp, xdns.Len(ansin), xdns.Len(ans64))

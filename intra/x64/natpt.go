@@ -10,7 +10,6 @@ import (
 	"net"
 	"net/netip"
 
-	x "github.com/celzero/firestack/intra/backend"
 	"github.com/celzero/firestack/intra/dnsx"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/settings"
@@ -48,22 +47,22 @@ var (
 )
 
 // NewNatPt returns a new NatPt.
-func NewNatPt(l x.DNSListener) *natPt {
+func NewNatPt() *natPt {
 	log.I("natpt: new; mode(%v)", settings.PtMode.Load())
 	return &natPt{
 		nat64: newNat64(),
-		dns64: newDns64(l),
+		dns64: newDns64(),
 		ip4s:  nil,
 		ip6s:  nil,
 	}
 }
 
 // D64 Implements DNS64.
-func (pt *natPt) D64(network string, ans6 *dns.Msg, f dnsx.Transport) *dns.Msg {
+func (pt *natPt) D64(network, id string, ans6 *dns.Msg) *dns.Msg {
 	ptmode := settings.PtMode.Load()
 	if ptmode != settings.PtModeNo46 { // do64
 		force64 := ptmode == settings.PtModeForce64
-		return pt.dns64.eval(network, force64, ans6, f)
+		return pt.dns64.eval(network, force64, ans6, id)
 	}
 	return nil
 }
@@ -119,8 +118,8 @@ func (n *natPt) X64(id string, ip6 netip.Addr) (ip4 netip.Addr) {
 }
 
 // Add64 implements DNS64.
-func (h *natPt) Add64(f dnsx.Transport) bool {
-	return h.dns64.AddResolver(ID64(f), f)
+func (h *natPt) Add64(id string) bool {
+	return h.dns64.AddResolver(id64(id), id)
 }
 
 // Remove64 implements DNS64.
