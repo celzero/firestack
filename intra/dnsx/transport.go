@@ -373,7 +373,7 @@ func (r *resolver) Lookup(q []byte, tids ...string) ([]byte, string, error) {
 		return nil, NoDNS, errNoQuestion
 	}
 	// if len(tids) == 0, use transport from preferences
-	return r.forward(q, tids...)
+	return r.forward2(q, protect.UidSelf, tids...)
 }
 
 func (r *resolver) LookupFor(q []byte, uid string) ([]byte, string, error) {
@@ -397,7 +397,7 @@ func (r *resolver) LocalLookup(q []byte) ([]byte, string, error) {
 	}
 
 	// including dns64 and/or alg
-	ans, tid, err := r.forward(q, Default)
+	ans, tid, err := r.forward2(q, protect.UidSelf, Default)
 	if defaultIsSystemDNS {
 		return ans, tid, err
 	} // else: retry with Goos/System, if needed
@@ -405,7 +405,7 @@ func (r *resolver) LocalLookup(q []byte) ([]byte, string, error) {
 	// msg may be nil
 	if msg := xdns.AsMsg(ans); err != nil || xdns.IsNXDomain(msg) || !xdns.HasRcodeSuccess(msg) {
 		log.I("dns: nxdomain via Default (err? %v); using Goos for %s", err, xdns.QName(msg))
-		ans, tid, err = r.forward(q, Goos) // Goos is System; see: determineTransport
+		ans, tid, err = r.forward2(q, protect.UidSelf, Goos) // Goos is System; see: determineTransport
 	} // else: rcode success and nil err; do not fallback on Goos/System
 
 	return ans, tid, err
