@@ -76,13 +76,13 @@ func ECH(hostname string) ([]byte, error) {
 
 // Query sends a DNS query to the Default DNS and
 // returns the answer.
-func Query(msg *dns.Msg) (*dns.Msg, error) {
+func Query(msg *dns.Msg, tids ...string) (*dns.Msg, error) {
 	q, err := msg.Pack()
 	if err != nil {
 		return nil, err
 	}
 
-	r, err := ipm.Lookup(q)
+	r, err := ipm.Lookup(q, tids...)
 	if err != nil {
 		return nil, err
 	}
