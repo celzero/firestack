@@ -201,10 +201,7 @@ func (e StdNetEndpoint) SrcToString() string {
 
 func udpaddr(ipp netip.AddrPort) *net.UDPAddr {
 	if ipp.IsValid() {
-		return &net.UDPAddr{
-			IP:   ipp.Addr().AsSlice(),
-			Port: int(ipp.Port()),
-		}
+		return net.UDPAddrFromAddrPort(ipp)
 	}
 	return nil
 }
@@ -250,15 +247,15 @@ func (s *StdNetBind) listenNet(network string, port int) (net.PacketConn, int, e
 	return conn, uaddr.Port, nil
 }
 
-func (bind *StdNetBind) Open(uport uint16) ([]conn.ReceiveFunc, uint16, error) {
-	bind.mu.Lock()
-	defer bind.mu.Unlock()
+func (s *StdNetBind) Open(uport uint16) ([]conn.ReceiveFunc, uint16, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
 	var err error
 	var tries int
 
-	if bind.ipv4 != nil || bind.ipv6 != nil {
-		log.W("wg: bind: %s already open", bind.id)
+	if s.ipv4 != nil || s.ipv6 != nil {
+		log.W("wg: bind: %s already open", s.id)
 		return nil, 0, conn.ErrBindAlreadyOpen
 	}
 
@@ -268,18 +265,18 @@ again:
 	port := int(uport)
 	var ipv4, ipv6 net.PacketConn
 
-	ipv4, port, err = bind.listenNet("udp4", port)
+	ipv4, port, err = s.listenNet("udp4", port)
 	no4 := errors.Is(err, syscall.EAFNOSUPPORT)
-	log.D("wg: bind: %s #%d listen4(%d); no4? %t err? %v", bind.id, tries, port, no4, err)
+	log.D("wg: bind: %s #%d listen4(%d); no4? %t err? %v", s.id, tries, port, no4, err)
 	if err != nil && !no4 {
 		return nil, 0, err
 	}
 
 	// Listen on the same port as we're using for ipv4.
-	ipv6, port, err = bind.listenNet("udp6", port)
+	ipv6, port, err = s.listenNet("udp6", port)
 	busy := errors.Is(err, syscall.EADDRINUSE)
 	no6 := errors.Is(err, syscall.EAFNOSUPPORT)
-	log.D("wg: bind: %s #%d listen6(%d); busy? %t no6? %t err? %v", bind.id, tries, port, busy, no6, err)
+	log.D("wg: bind: %s #%d listen6(%d); busy? %t no6? %t err? %v", s.id, tries, port, busy, no6, err)
 	if uport == 0 && busy && tries < maxbindtries {
 		clos(ipv4)
 		tries++
@@ -292,40 +289,40 @@ again:
 
 	var fns []conn.ReceiveFunc
 	if ipv4 != nil {
-		bind.ipv4 = ipv4
-		fns = append(fns, bind.makeReceiveFn(ipv4))
+		s.ipv4 = ipv4
+		fns = append(fns, s.makeReceiveFn(ipv4))
 	}
 	if ipv6 != nil {
-		bind.ipv6 = ipv6
-		fns = append(fns, bind.makeReceiveFn(ipv6))
+		s.ipv6 = ipv6
+		fns = append(fns, s.makeReceiveFn(ipv6))
 	}
 
 	log.I("wg: bind: %s opened port(%d) for v4? %t v6? %t",
-		bind.id, port, ipv4 != nil, ipv6 != nil)
+		s.id, port, ipv4 != nil, ipv6 != nil)
 	if len(fns) == 0 {
 		return nil, 0, syscall.EAFNOSUPPORT
 	}
 	return fns, uint16(port), nil
 }
 
-func (bind *StdNetBind) Close() error {
-	bind.mu.Lock()
-	defer bind.mu.Unlock()
+func (s *StdNetBind) Close() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
 	var err1, err2 error
-	v4, v6 := bind.ipv4, bind.ipv6
+	v4, v6 := s.ipv4, s.ipv6
 	if v4 != nil {
 		err1 = v4.Close()
-		bind.ipv4 = nil
+		s.ipv4 = nil
 	}
 	if v6 != nil {
 		err2 = v6.Close()
-		bind.ipv6 = nil
+		s.ipv6 = nil
 	}
-	bind.blackhole4 = false
-	bind.blackhole6 = false
+	s.blackhole4 = false
+	s.blackhole6 = false
 
-	log.I("wg: bind: %s close; err4? %v err6? %v", bind.id, err1, err2)
+	log.I("wg: bind: %s close; err4? %v err6? %v", s.id, err1, err2)
 	return core.JoinErr(err1, err2)
 }
 
@@ -349,18 +346,13 @@ func (s *StdNetBind) makeReceiveFn(uc net.PacketConn) conn.ReceiveFunc {
 			numMsgs++
 		}
 
-		for i := 0; i < numMsgs; i++ {
+		for i := range numMsgs {
 			sizes[i] = n
 			eps[i] = s.asEndpoint(addr)
 		}
 
-		s := fmt.Sprintf("wg: bind: %s recvFrom(%v): %d / ov? %t<=%t / err? %v",
+		logeif(err != nil && !timedout(err))("wg: bind: %s recvFrom(%v): %d / ov? %t<=%t / err? %v",
 			s.id, addr, n, s.amnezia.Set(), recvOverwritten, err)
-		if err == nil || timedout(err) {
-			log.V(s)
-		} else {
-			log.E(s)
-		}
 		return numMsgs, err
 	}
 }
@@ -470,10 +462,7 @@ func (s *StdNetBind) flood(c net.PacketConn, dst StdNetEndpoint, why floodkind) 
 		pkt := make([]byte, maxFloodPktLen)
 		var n int
 		for i := uint64(0); i < tot; i++ {
-			sz := mrand.Uint64N(padlen + 1)
-			if sz < minFloodPktLen {
-				sz = minFloodPktLen
-			}
+			sz := max(mrand.Uint64N(padlen+1), minFloodPktLen)
 			_, _ = rand.Read(pkt[hdrlen:sz])
 			copy(pkt[0:], hdr)
 
@@ -582,6 +571,13 @@ func loge(err error) log.LogFn {
 		l = log.W
 	}
 	return l
+}
+
+func logeif(cond bool) log.LogFn {
+	if cond {
+		return log.E
+	}
+	return log.V
 }
 
 func extend(c core.MinConn, t time.Duration) {
