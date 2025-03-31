@@ -761,10 +761,11 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []netip.Addr, network, uid strin
 	var ansin *dns.Msg // answer got from transports
 	var err error
 
-	usepreset := len(preset) > 0                    // preset may be nil
-	mod := t.mod.Load()                             // allow alg?
-	discarduid := !t.split.Load()                   // do not split tunnel?
-	usefixed := !usepreset && isAnyFixed(idstr(t1)) // fixed realips?
+	usepreset := len(preset) > 0              // preset may be nil
+	mod := t.mod.Load()                       // allow alg?
+	discarduid := !t.split.Load()             // do not split tunnel?
+	hasfixed := isAnyFixed(idstr(t1))         // fixed transport?
+	usefixed := !usepreset && mod && hasfixed // use preset fixed realips?
 	skipcache := skipInternalCache(idstr(t1), idstr(t2))
 	// do not perform alg or use its "xip" caches by the way of ptr, nat, alg
 	// maps for synthesized response and block-all transport. That's because
@@ -781,8 +782,12 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []netip.Addr, network, uid strin
 	if discarduid {
 		uid = core.UNKNOWN_UID_STR
 	}
-	// fixed ip responses must always be alg'd unlike preset / blockall
-	if usefixed {
+	if hasfixed && !usefixed {
+		log.W("alg: dnsx.Fixed must be used with mod & without preset, instead using...", idstr(t2))
+		t1 = t2 // assert t2 != nil?
+	} else if usefixed {
+		// fixed ip responses must always be alg'd unlike preset / blockall
+		dontalg = false
 		preset = fixedRealIPs
 		mod = true // assert mod == true?
 		t1 = t2    // assert t2 != nil?
