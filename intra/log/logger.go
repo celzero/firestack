@@ -579,7 +579,7 @@ top:
 	// and in that generation, bkt has not yet born.
 	// and so reset bkt to 0 or any value < t
 	if v > t {
-		resyncd := (l.clock.l2[lvl][bkt]).cas(t, t/2) // set to 0?
+		resyncd := (l.clock.l2[lvl][bkt]).cas(t, 0) // set to t/2?
 		if resyncd {
 			return false // not spammy
 		} // else: someone else won the race
