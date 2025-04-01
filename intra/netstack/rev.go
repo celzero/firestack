@@ -57,7 +57,7 @@ func NewReverseGConnHandler(id string, pctx context.Context, to *stack.Stack, of
 		udp:  newReverseUDP(id, to, of, via.UDP()),
 		icmp: newReverseICMP(id, to, ep, via.ICMP()),
 	}
-	log.I("rev: %s: newReverseGConnHandler %d @ %x", id, of, to)
+	log.I("rev: %s: newReverseGConnHandler %d @ %d", id, of, core.Loc(to))
 	context.AfterFunc(pctx, h.end)
 	return h
 }

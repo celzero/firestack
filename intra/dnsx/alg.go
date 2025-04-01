@@ -163,9 +163,9 @@ func (a expaddr) get(s xaddrstatus) (out []netip.Addr) {
 type xips struct {
 	// protects pri, aux
 	pmu *sync.RWMutex
-	// resolved v6 or v4 by tid; may be nil
+	// resolved expaddr(v6 or v4) by tid; may be nil
 	pri map[string]expaddr
-	// resolved by secondary tid for a uid, v6 or v4; may be nil
+	// resolved expaddr(v6 or v4) by secondary tid for a uid; may be nil
 	aux map[string]expaddr
 }
 

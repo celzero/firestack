@@ -570,8 +570,8 @@ func (r *resolver) forward(q []byte, uid string, chosenids ...string) (res0 []by
 	}
 	ansblocked := xdns.AQuadAUnspecified(ans1)
 
-	log.V("dns: fwd: for %s; query %s; new-ans? %t, blocklists? %t, blocked? %t",
-		uid, qname, isnewans, hasblocklists, ansblocked)
+	log.V("dns: fwd: for %s[%s]; query %s; new-ans? %t, blocklists? %t, blocked? %t",
+		smm.ID, uid, qname, isnewans, hasblocklists, ansblocked)
 
 	return res2, smm.ID, nil
 }
