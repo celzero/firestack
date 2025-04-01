@@ -198,7 +198,7 @@ func (h *baseHandler) onFlow(localaddr, target netip.AddrPort) (fm *Mark, undidA
 			return fm, undidAlg, "", ""
 		} // else: if we've got target and/or old ips, dial them
 	} else {
-		log.D("com: %s: onFlow: noalg? %t or hasips? %t", h.proto, undidAlg, hasOldIPs)
+		log.D("com: %s: onFlow: noalg? %t or hasips? %t", h.proto, !undidAlg, hasOldIPs)
 	}
 
 	if len(ips) <= 0 || len(doms) <= 0 {
@@ -461,7 +461,8 @@ func makeIPPorts(ips []netip.Addr, origipp netip.AddrPort, cap int) []netip.Addr
 		} // else: discard ip
 	}
 
-	log.VV("com: makeIPPorts(v4? %t, v6? %t); tot: %d; in: %v, out: %v", use4, use6, len(ips), ips, r)
+	log.VV("com: makeIPPorts(v4? %t, v6? %t) for %v; tot: %d; in: %v, out: %v",
+		use4, use6, origipp, len(ips), ips, r)
 
 	if len(r) > 0 {
 		rand.Shuffle(len(r), func(i, j int) {
@@ -469,9 +470,6 @@ func makeIPPorts(ips []netip.Addr, origipp netip.AddrPort, cap int) []netip.Addr
 		})
 		return r
 	}
-
-	log.VV("com: makeIPPorts(v4? %t, v6? %t): using origip; all: %d; out: %s",
-		use4, use6, len(ips), origipp)
 	return []netip.AddrPort{origipp}
 }
 

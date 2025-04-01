@@ -92,7 +92,8 @@ func (f *fds) stop() {
 	if f.ok() {
 		f.stopFd.stop()
 		err := syscall.Close(f.tunFd)
-		log.I("ns: dispatch: fds: stop: eve(%d) tun(%d); err? %v", f.stopFd.efd, f.tunFd, err)
+		log.I("ns: dispatch: fds: stop: eve(%d) tun(%d); err? %v",
+			f.stopFd.efd, f.tunFd, err)
 	} else {
 		log.W("ns: dispatch: fds: stop: no-op")
 	}

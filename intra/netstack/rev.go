@@ -12,6 +12,7 @@ import (
 	"net/netip"
 	"sync/atomic"
 
+	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/log"
 	"gvisor.dev/gvisor/pkg/tcpip"
 	"gvisor.dev/gvisor/pkg/tcpip/header"
