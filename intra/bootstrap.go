@@ -9,9 +9,11 @@ package intra
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/netip"
 	"net/url"
 	"strings"
+	"sync"
 
 	x "github.com/celzero/firestack/intra/backend"
 	"github.com/celzero/firestack/intra/dns53"
@@ -49,13 +51,15 @@ type DefaultDNS interface {
 }
 
 type bootstrap struct {
-	ctx      context.Context
-	tr       dnsx.Transport    // the underlying transport
-	proxies  ipn.ProxyProvider // never nil if underlying transport is set
-	typ      string            // DOH or DNS53
-	ipports  string            // never empty for DNS53
-	url      string            // never empty for DOH
-	hostname string            // never empty
+	ctx     context.Context
+	proxies ipn.ProxyProvider // never nil if underlying transport is set
+
+	mu       sync.RWMutex   // protects following fields:
+	tr       dnsx.Transport // the underlying transport
+	typ      string         // DOH or DNS53
+	ipports  string         // never empty for DNS53
+	url      string         // never empty for DOH
+	hostname string         // never empty
 }
 
 var _ DefaultDNS = (*bootstrap)(nil)
@@ -95,7 +99,7 @@ func NewBuiltinDefaultDNS() (DefaultDNS, error) {
 	return b, nil
 }
 
-func (b *bootstrap) newDefaultDohTransport() (dnsx.Transport, error) {
+func (b *bootstrap) newDefaultDohTransportLocked() (dnsx.Transport, error) {
 	ips := strings.Split(b.ipports, ",")
 	if len(b.url) > 0 && len(ips) > 0 {
 		return doh.NewTransport(b.ctx, bootid, b.url, ips, b.proxies)
@@ -103,7 +107,7 @@ func (b *bootstrap) newDefaultDohTransport() (dnsx.Transport, error) {
 	return nil, errCannotStart
 }
 
-func (b *bootstrap) newDefaultTransport() (dnsx.Transport, error) {
+func (b *bootstrap) newDefaultTransportLocked() (dnsx.Transport, error) {
 	if ipcsv := b.ipports; len(ipcsv) > 0 {
 		return dns53.NewTransportFromHostname(b.ctx, bootid, b.hostname, ipcsv, b.proxies)
 	}
@@ -111,6 +115,9 @@ func (b *bootstrap) newDefaultTransport() (dnsx.Transport, error) {
 }
 
 func (b *bootstrap) reinit(trtype, ippOrUrl, ipcsv string) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
 	if len(ippOrUrl) <= 0 && len(ipcsv) <= 0 {
 		b.url = ""
 		b.hostname = builtinHostname // use Goos
@@ -181,49 +188,58 @@ func (b *bootstrap) reinit(trtype, ippOrUrl, ipcsv string) error {
 
 	// if proxies is set, restart to create new transport
 	if b.proxies != nil {
-		return b.recreate()
+		return b.recreateLocked()
 	}
 	return nil
 }
 
-func (b *bootstrap) recreate() error {
-	return b.kickstart(b.proxies)
+func (b *bootstrap) recreateLocked() error {
+	return b.kickstartLocked(b.proxies) // restart with new proxies
 }
 
 func (b *bootstrap) kickstart(px ipn.ProxyProvider) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	return b.kickstartLocked(px)
+}
+
+func (b *bootstrap) kickstartLocked(px ipn.ProxyProvider) error {
 	if px == nil {
 		return errCannotStart
 	}
 
 	b.proxies = px
+	useGoos := b.hostname == builtinHostname
+
 	var tr dnsx.Transport
 	var err error
 	switch b.typ {
 	case dnsx.DNS53:
-		if b.hostname == builtinHostname {
+		if useGoos {
 			tr, err = dns53.NewGoosTransport(b.ctx, px)
 		} else {
-			tr, err = b.newDefaultTransport()
+			tr, err = b.newDefaultTransportLocked()
 		}
 	case dnsx.DOH:
-		tr, err = b.newDefaultDohTransport()
+		tr, err = b.newDefaultDohTransportLocked()
 	default:
 		err = errDefaultTransportType
 	}
 
 	if prev := b.tr; prev != nil {
 		prev.Stop() // stop after new transport is ready
-		log.I("dns: default: removing %s %s[%s]",
-			b.typ, b.hostname, b.GetAddr())
+		log.I("dns: default: removing %s %s[%s]; using %s %s",
+			b.typ, b.hostname, b.IPPorts(), typstr(tr), ippstr(tr))
 	}
 
 	// always override previous transport with (new) tr; even if nil
 	b.tr = tr
+
 	if err != nil {
 		log.E("dns: default: start; err %v", err)
 		return err
-	}
-	if b.tr == nil {
+	} else if b.tr == nil {
 		log.W("dns: default: start; nil transport %s %s", b.typ, b.hostname)
 		return errCannotStart
 	}
@@ -283,8 +299,23 @@ func (b *bootstrap) Status() int {
 }
 
 func (b *bootstrap) Stop() error {
+	log.I("dns: default: stopping %s %s", b.typ, b.hostname)
 	if tr := b.tr; tr != nil {
 		return tr.Stop()
 	}
 	return nil
+}
+
+func typstr(tr dnsx.Transport) string {
+	if tr == nil {
+		return "<notype>"
+	}
+	return tr.Type()
+}
+
+func ippstr(tr dnsx.Transport) string {
+	if tr == nil {
+		return "<noaddr>"
+	}
+	return fmt.Sprintf("%v", tr.IPPorts())
 }
