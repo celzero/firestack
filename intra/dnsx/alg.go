@@ -378,7 +378,8 @@ func (p *xips) rmv(tid string) (done bool) {
 			p.aux[k] = v
 		}
 	}
-	log.VV("alg: xips: rmv(%s): pri(%d), sec(%d); ok? %t", tid, i, j, done)
+	// too verbose
+	// log.VV("alg: xips: rmv(%s): pri(%d), sec(%d); ok? %t", tid, i, j, done)
 	return i > 0 || j > 0
 }
 
@@ -579,6 +580,9 @@ func (t *dnsgateway) onStopped(tid string) {
 		return
 	}
 
+	t.RLock()
+	defer t.RUnlock()
+
 	ach := make(chan *xips, len(t.alg))
 	defer close(ach)
 
@@ -592,8 +596,6 @@ func (t *dnsgateway) onStopped(tid string) {
 		log.I("alg: onStopped(%s): removed %d alg<>realip translations", tid, n)
 	}()
 
-	t.RLock()
-	defer t.RUnlock()
 	for _, algans := range t.alg {
 		if algans != nil {
 			ach <- algans.ips
