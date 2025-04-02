@@ -245,7 +245,7 @@ func (h *baseHandler) forward(local, remote net.Conn, smm *SocketSummary) {
 	if r, isrwext = remote.(rwext); isrwext {
 		if iszerodeadline = r.IsZeroDeadline(); iszerodeadline {
 			remote = r.Unwrap()
-		} else if c, done = r.SetAsTCPSockOpt(); c != nil && done {
+		} else if c, done = r.SetAsTCPSockOpt(); c != nil {
 			remote = c // c is *net.TCPConn
 		}
 	}
