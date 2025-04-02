@@ -138,6 +138,7 @@ func (m *ipmapper) queryIP2(_ context.Context, network, host, uid string, tid ..
 		return nil, errs
 	}
 
+	skipAlgUndo := uid == protect.UidSelf
 	var val4, val6 *core.V[answer, string]
 	if len(tid) > 0 {
 		val4, _ = m.ba.Do(key4(host, tid...), m.lookupon(q4, tid...))
@@ -184,14 +185,16 @@ func (m *ipmapper) queryIP2(_ context.Context, network, host, uid string, tid ..
 		return nil, errs
 	}
 
-	ips := make([]netip.Addr, 0, len(r4)+len(r6))
-	ip4 := m.undoAlg(addrs(r4), tid4, uid)
-	ip6 := m.undoAlg(addrs(r6), tid6, uid)
-	ips = append(ips, ip4...)
-	ips = append(ips, ip6...)
+	ip4 := addrs(r4)
+	ip6 := addrs(r6)
+	if skipAlgUndo {
+		ip4 = m.undoAlg(ip4, tid4, uid)
+		ip6 = m.undoAlg(ip6, tid6, uid)
+	}
+	ips := append(ip4, ip6...)
 
-	log.D("ipmapper: host %s => ips (out: %v / in: %d+%d); tids: %s+%s; err4: %v, err6: %v",
-		host, ips, len(r4), len(r6), tid4, tid6, lerr4, lerr6)
+	log.D("ipmapper: host %s => ips (out: %v / in: %d+%d); tids: %s+%s[%s]; err4: %v, err6: %v",
+		host, ips, len(r4), len(r6), uid, tid4, tid6, uid, lerr4, lerr6)
 	return ips, nil
 }
 

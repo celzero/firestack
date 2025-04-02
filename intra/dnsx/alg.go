@@ -764,6 +764,7 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []netip.Addr, network, uid strin
 	usepreset := len(preset) > 0              // preset may be nil
 	mod := t.mod.Load()                       // allow alg?
 	discarduid := !t.split.Load()             // do not split tunnel?
+	uidself := uid == protect.UidSelf         // us?
 	hasfixed := isAnyFixed(idstr(t1))         // fixed transport?
 	usefixed := !usepreset && mod && hasfixed // use preset fixed realips?
 	skipcache := skipInternalCache(idstr(t1), idstr(t2))
@@ -772,11 +773,15 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []netip.Addr, network, uid strin
 	// BlockAll and synth responses are "ephemeral" in that, they may be based
 	// on a UID and not just a tid + qname + qtype (cf: DNSListener.OnQuery)
 	// but ptr, nat, alg maps are only tied to (tid, qname, qtype) tuple. Also,
-	// it isn't necessary that if a qname is blocked right now will be blocked
-	// by the next OnQuery() as the rules are dynamic (for instance, a uid+qname
+	// it isn't necessary that if a qname is blocked right now, it will be blocked
+	// by subsequent OnQuery()s as the rules are dynamic (for instance, a uid+qname
 	// may be blocked because device is in keyguard/locked state but allowed
-	// when the user is present (device is unlocked).
-	dontalg := usepreset || skipcache
+	// when the user is present (device is unlocked). In the cases where the
+	// uid is protect.UidSelf (that is, requests sent by dns64.go or ipmapper.go)
+	// should not be alg'd as the alg'd ips will end up as "realips" in xips caches.
+	// nb: setting mod = false will achieve the same effect but it goes through
+	// the effort of setting up alg/ptr/nat caches which is wasteful in this case.
+	dontalg := usepreset || skipcache || uidself
 	synthAns := usepreset || usefixed
 
 	if discarduid {
@@ -787,14 +792,17 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []netip.Addr, network, uid strin
 		t1 = t2 // assert t2 != nil?
 	} else if usefixed {
 		// fixed ip responses must always be alg'd unlike preset / blockall
+		// even when uid == protect.UidSelf as dnsx.Fixed overrides all other
+		// settings & must respond with modded (alg'd) ips. It is another thing
+		// that protect.UidSelf requests should never need dnsx.Fixed.
 		dontalg = false
 		preset = fixedRealIPs
 		mod = true // assert mod == true?
 		t1 = t2    // assert t2 != nil?
 	}
 	if t1 == nil || core.IsNil(t1) {
-		log.W("alg: no primary transport; t1 %s, t2 %s, uid %s, preset? %t fixed? %t synth? %t nouid? %t",
-			idstr(t1), idstr(t2), uid, usepreset, usefixed, synthAns, discarduid)
+		log.W("alg: no primary transport; t1 %s, t2 %s, uid %s, self? %t preset? %t fixed? %t synth? %t nouid? %t",
+			idstr(t1), idstr(t2), uid, uidself, usepreset, usefixed, synthAns, discarduid)
 		return nil, errAlgNoTransport
 	}
 
@@ -821,13 +829,15 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []netip.Addr, network, uid strin
 
 	if err != nil {
 		if ansin == nil {
-			log.I("alg: abort no ans on %s+%s[%s]; synth? %t; qerr %v", idstr(t1), idstr(t2), uid, synthAns, err)
+			log.I("alg: abort no ans on %s+%s[%s]; self? %t synth? %t; qerr %v",
+				idstr(t1), idstr(t2), uid, uidself, synthAns, err)
 			return nil, err
 		}
 		if !xdns.HasRcodeSuccess(ansin) {
 			return ansin, err
 		}
-		log.D("alg: err but ans ok: %d; synth? %t; qerr %v", xdns.Len(ansin), synthAns, err)
+		log.D("alg: err but ans ok: %d; self? %t synth? %t; qerr %v",
+			xdns.Len(ansin), uidself, synthAns, err)
 	}
 
 	if ansin == nil { // may be nil on errors
@@ -862,8 +872,8 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []netip.Addr, network, uid strin
 	}
 
 	if !hasq || !hasans || !rgood || ans0000 || dontalg {
-		log.D("alg: skip; query %s<>%s[%s]:%s:%d / a:%d, dontalg(%t) hasq(%t) hasans(%t) rgood(%t), ans0000(%t)",
-			smm.ID, idstr(t1), uid, qname, qtyp, xdns.Len(ansin), dontalg, hasq, hasans, rgood, ans0000)
+		log.D("alg: skip; query %s<>%s[%s]:%s:%d / a:%d, self(%t) dontalg(%t) hasq(%t) hasans(%t) rgood(%t), ans0000(%t)",
+			smm.ID, idstr(t1), uid, qname, qtyp, xdns.Len(ansin), uidself, dontalg, hasq, hasans, rgood, ans0000)
 		return ansin, nil
 	}
 
@@ -987,7 +997,7 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []netip.Addr, network, uid strin
 		} else { // no algips
 			err = nil
 		}
-		log.D("alg: %s<>%s[%s]: skip; err(%v); ips subst %s:%d; fixed? %t",
+		logeif(err != nil)("alg: %s<>%s[%s]: skip; err(%v); ips subst %s:%d; fixed? %t",
 			smm.ID, idstr(t1), uid, err, qname, qtyp, usefixed)
 		return ansin, err // ansin is nil if no alg ips
 	}
@@ -1450,8 +1460,8 @@ func (t *dnsgateway) xLocked(maybeAlg netip.Addr, usestale bool, uid string, tid
 	} else {
 		unnated = t.maybeUndoNat64(realips...)
 	} // else: send realips as is
-	logeif(!hasrealips)("alg: dns64: for %s:%v[%s] (fresh? %t / undidAlg? %t / staleok? %t) algip(%v) => realips(%v) => unnated(%v); until: %s",
-		qname, tids, uid, fresh, undidAlg, usestale, unmapped, realips, unnated, until)
+	logeif(!hasrealips)("alg: dns64: for %v[%s] (fresh? %t / undidAlg? %t / staleok? %t) algip(%v) => realips(%v) => unnated(%v); until: %s",
+		tids, uid, fresh, undidAlg, usestale, unmapped, realips, unnated, until)
 	if len(unnated) > 0 { // unnated is already de-duplicated
 		return unnated, undidAlg
 	}
