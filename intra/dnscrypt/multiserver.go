@@ -198,10 +198,6 @@ func query(pid string, packet *dns.Msg, serverInfo *serverinfo, useudp bool) (an
 		qerr = dnsx.NewBadQueryError(errQueryTooShort)
 		return // nil ans
 	}
-	if serverInfo.status.Load() == dnsx.DEnd {
-		qerr = dnsx.NewEndQueryError()
-		return // nil ans
-	}
 
 	intercept := newIntercept()
 	intercepted, err := intercept.handleRequest(packet)
@@ -225,6 +221,11 @@ func query(pid string, packet *dns.Msg, serverInfo *serverinfo, useudp bool) (an
 
 	if serverInfo == nil {
 		qerr = dnsx.NewTransportQueryError(errNoServers)
+		return // nil ans
+	}
+
+	if serverInfo.status.Load() == dnsx.DEnd {
+		qerr = dnsx.NewEndQueryError()
 		return // nil ans
 	}
 

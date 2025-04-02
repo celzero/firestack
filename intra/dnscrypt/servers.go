@@ -115,6 +115,7 @@ func (serversInfo *ServersInfo) getOne() (serverInfo *serverinfo) {
 	}
 	selectAny := false
 	candidate := rand.Intn(serversCount)
+retry:
 	i := 0
 	for _, si := range serversInfo.inner {
 		if i == candidate || selectAny {
@@ -122,11 +123,14 @@ func (serversInfo *ServersInfo) getOne() (serverInfo *serverinfo) {
 				log.V("dnscrypt: candidate [%v]", si) // may be nil?
 				serverInfo = si
 				break
-			} else {
-				selectAny = true
 			}
 		}
 		i++
+	}
+
+	if serverInfo == nil && !selectAny {
+		selectAny = true
+		goto retry
 	}
 
 	return serverInfo
