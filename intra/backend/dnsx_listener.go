@@ -51,8 +51,10 @@ type DNSOpts struct {
 	// csv of proxy ids to use for this query.
 	PIDCSV string
 	// csv of ips to answer for this query; incl unspecified ips, if any.
+	// applicable only for A/AAAA queries.
+	// if set, query bypasses on-device blocklists.
 	IPCSV string
-	// primary csv of transports ids to use for this query.
+	// primary transport ids to use for this query.
 	// dictated by user preferences (dnsx.Preferred, dnsx.System etc) or
 	// or user set rules (dnsx.BlockAll, dnsx.BlockFree, dnsx.Fixed etc)
 	TIDCSV string
@@ -61,9 +63,9 @@ type DNSOpts struct {
 	// dnsx.BlockFree or dnsx.Fixed. Mostly, left unset.
 	TIDSECCSV string
 	// If set, query bypasses on-device blocklists only, independent of wheter TIDCSV
-	// has dnsx.BlockFree or not. The difference is, dnsx.BlockFree is set to a
-	// non-content-blocking resolver (like one.one.one.one or dns.google) which
-	// bypasses both on-device and upstream blocklists.
+	// has dnsx.BlockFree or not. The difference is, dnsx.BlockFree if pointing to a
+	// non-blocking resolver (like one.one.one.one or dns.google)
+	// will bypass both on-device & upstream blocklists.
 	NOBLOCK bool
 }
 

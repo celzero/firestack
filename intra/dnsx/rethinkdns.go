@@ -68,11 +68,13 @@ type RdnsResolver interface {
 	blockA(Transport, Transport, *dns.Msg, *dns.Msg, string) (*dns.Msg, string)
 }
 
-// ResolverSelf is for use by us (protect.UidSelf)
+// ResolverSelf is for internal resolution needs.
 type ResolverSelf interface {
-	// LocalLookup performs resolution on Default and/or Goos DNSes
+	// LocalLookup performs resolution on Default and/or Goos DNSes.
+	// To be only used by protect.UidSelf.
 	LocalLookup(q []byte) (a []byte, tid string, err error)
 	// Lookup performs resolution on chosen Transport.
+	// To be only used by protect.UidSelf.
 	Lookup(q []byte, chosen ...string) (a []byte, tid string, err error)
 	// LookupFor performs resolution for uid.
 	LookupFor(q []byte, uid string) (a []byte, tid string, err error)
