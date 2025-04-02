@@ -26,10 +26,10 @@ func (rw rwext) IsZeroDeadline() bool {
 	return r == 0 && w == 0
 }
 
-func (rw rwext) SetAsTCPSockOpt() (core.TCPConn, bool) {
+func (rw rwext) SetAsTCPSockOpt() (c *net.TCPConn, ok bool) {
 	r, w := rw.deadlines()
 	timeout := max(int(r), int(w))
-	c, ok := rw.Conn.(core.TCPConn) // no-op for tcp conns
+	c, ok = rw.Conn.(*net.TCPConn) // no-op for tcp conns
 	if ok && r > 0 {
 		// always returns false for udp conns
 		ok = core.SetTimeoutSockOpt(c, timeout*1000)
