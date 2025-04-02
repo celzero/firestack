@@ -220,6 +220,11 @@ func (t *transport) send(network, pid string, q *dns.Msg) (ans *dns.Msg, elapsed
 		qerr = dnsx.NewBadQueryError(errQueryParse)
 		return
 	}
+	if t.status.Load() == dnsx.DEnd {
+		qerr = dnsx.NewEndQueryError()
+		return
+	}
+
 	qname := xdns.QName(q)
 	useudp := network == dnsx.NetTypeUDP
 	userelay := t.relay != nil
@@ -339,6 +344,7 @@ func (t *transport) Status() int {
 }
 
 func (t *transport) Stop() error {
+	t.status.Store(dnsx.DEnd)
 	t.done()
 	return nil
 }

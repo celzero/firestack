@@ -21,6 +21,7 @@ const (
 	InternalError  = x.InternalError
 	TransportError = x.TransportError
 	ClientError    = x.ClientError
+	DEnd           = x.DEnd
 	Unknown        = 100
 )
 
@@ -75,6 +76,8 @@ func (e *QueryError) strstatus() string {
 		return "TransportError"
 	case ClientError:
 		return "ClientError"
+	case DEnd:
+		return "End"
 	default:
 		return "Unknown" // 100
 	}
@@ -119,4 +122,8 @@ func NewTransportQueryError(err error) *QueryError {
 // with http, for 4xx errors
 func NewClientQueryError(err error) *QueryError {
 	return newQueryError(ClientError, err)
+}
+
+func NewEndQueryError() *QueryError {
+	return newQueryError(DEnd, errTransportEnd)
 }

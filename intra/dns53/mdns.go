@@ -45,11 +45,11 @@ type dnssd struct {
 	ctx    context.Context
 	done   context.CancelFunc
 	dialer ipn.Proxy
-	id     string // ID of this transport
-	ipport string // IP:Port queries are sent to (v4)
-	use4   bool   // Use IPv4
-	use6   bool   // Use IPv6
-	status int    // Status of this transport
+	id     string              // ID of this transport
+	ipport string              // IP:Port queries are sent to (v4)
+	use4   bool                // Use IPv4
+	use6   bool                // Use IPv6
+	status *core.Volatile[int] // Status of this transport
 	est    core.P2QuantileEstimator
 }
 
@@ -75,7 +75,7 @@ func NewMDNSTransport(pctx context.Context, protos string, pxr ipn.ProxyProvider
 		use4:   use4(protos),
 		use6:   use6(protos),
 		ipport: xdns.MDNSAddr4.String(), // ip6: ff02::fb:5353
-		status: dnsx.Start,
+		status: core.NewVolatile(dnsx.Start),
 		est:    core.NewP50Estimator(ctx),
 	}
 	log.I("mdns: setup: %s", protos)
@@ -101,6 +101,9 @@ func use6(l3 string) bool {
 }
 
 func (t *dnssd) oneshotQuery(msg *dns.Msg) (*dns.Msg, *dnsx.QueryError) {
+	if t.status.Load() == dnsx.DEnd {
+		return nil, dnsx.NewEndQueryError()
+	}
 	service, tld := xdns.ExtractMDNSDomain(msg)
 	// always buffered; otherwise c.listen may block on writes into ansch / resch.
 	// go.dev/play/p/gzwnGAFlTDV
@@ -158,16 +161,16 @@ func (t *dnssd) Query(_ string, q *dns.Msg, smm *x.DNSSummary) (ans *dns.Msg, er
 
 	if q == nil || !xdns.HasAnyQuestion(q) {
 		smm.Status = dnsx.BadQuery
-		t.status = dnsx.BadQuery
+		t.status.Store(dnsx.BadQuery)
 		return
 	}
 
 	ans, qerr := t.oneshotQuery(q)
 	if qerr != nil {
 		err = qerr.Unwrap()
-		t.status = qerr.Status()
+		t.status.Store(qerr.Status())
 	} else {
-		t.status = dnsx.Complete
+		t.status.Store(dnsx.Complete)
 	}
 
 	elapsed := time.Since(start)
@@ -208,10 +211,11 @@ func (t *dnssd) IPPorts() []netip.AddrPort {
 }
 
 func (t *dnssd) Status() int {
-	return t.status
+	return t.status.Load()
 }
 
 func (t *dnssd) Stop() error {
+	t.status.Store(dnsx.DEnd)
 	t.done()
 	return nil
 }

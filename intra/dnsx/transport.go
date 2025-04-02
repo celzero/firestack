@@ -96,6 +96,7 @@ var (
 	ErrNoProxyDNS          = errors.New("no proxy dns")
 	ErrAddFailed           = errors.New("dns add failed")
 	errNoSuchTransport     = errors.New("missing dns transport")
+	errTransportEnd        = errors.New("transport ended")
 	errOnQueryTimeout      = errors.New("timeout fetching dns prefs")
 	errBlockFreeTransport  = errors.New("block free transport")
 	errNoRdns              = errors.New("no rdns")

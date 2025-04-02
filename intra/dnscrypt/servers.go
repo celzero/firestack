@@ -113,13 +113,18 @@ func (serversInfo *ServersInfo) getOne() (serverInfo *serverinfo) {
 	if serversCount <= 0 {
 		return nil
 	}
-	candidate := rand.Intn(xdns.Min(serversCount, 5))
+	selectAny := false
+	candidate := rand.Intn(serversCount)
 	i := 0
 	for _, si := range serversInfo.inner {
-		if i == candidate {
-			log.V("dnscrypt: candidate [%v]", si) // may be nil?
-			serverInfo = si
-			break
+		if i == candidate || selectAny {
+			if si != nil && si.status.Load() != dnsx.DEnd {
+				log.V("dnscrypt: candidate [%v]", si) // may be nil?
+				serverInfo = si
+				break
+			} else {
+				selectAny = true
+			}
 		}
 		i++
 	}
@@ -393,6 +398,7 @@ func (s *serverinfo) Status() int {
 
 func (s *serverinfo) Stop() error {
 	if s != nil {
+		s.status.Store(dnsx.DEnd)
 		s.done()
 	}
 	return nil

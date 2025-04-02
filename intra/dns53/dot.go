@@ -39,7 +39,7 @@ type dot struct {
 	port          uint16 // port number
 	host          string // hostname from the url
 	skipTLSVerify bool
-	status        int
+	status        *core.Volatile[int]
 	c             *dns.Client
 	c3            *dns.Client // with ech
 	pool          *core.MultConnPool[uintptr]
@@ -96,7 +96,7 @@ func NewTLSTransport(ctx context.Context, id, rawurl string, addrs []string, px 
 		skipTLSVerify: skipTLSVerify,
 		addrport:      addrport, // may or may not be ipaddr
 		port:          port,
-		status:        x.Start,
+		status:        core.NewVolatile(x.Start),
 		proxies:       px,
 		relay:         relay,
 		pool:          core.NewMultConnPool[uintptr](ctx),
@@ -149,6 +149,11 @@ func (t *dot) echVerifyFn() func(tls.ConnectionState) error {
 func (t *dot) doQuery(pid string, q *dns.Msg) (response *dns.Msg, elapsed time.Duration, qerr *dnsx.QueryError) {
 	if q == nil || !xdns.HasAnyQuestion(q) {
 		qerr = dnsx.NewBadQueryError(fmt.Errorf("err len(query) %d", xdns.Len(q)))
+		return
+	}
+
+	if t.status.Load() == dnsx.DEnd {
+		qerr = dnsx.NewEndQueryError()
 		return
 	}
 
@@ -301,7 +306,7 @@ func (t *dot) Query(network string, q *dns.Msg, smm *x.DNSSummary) (ans *dns.Msg
 		status = qerr.Status()
 		log.W("dot: ans? %v err(%v) / ans(%d)", ans, err, xdns.Len(ans))
 	}
-	t.status = status
+	t.status.Store(status)
 
 	smm.Latency = elapsed.Seconds()
 	smm.RData = xdns.GetInterestingRData(ans)
@@ -356,10 +361,11 @@ func (t *dot) IPPorts() (ipps []netip.AddrPort) {
 }
 
 func (t *dot) Status() int {
-	return t.status
+	return t.status.Load()
 }
 
 func (t *dot) Stop() error {
+	t.status.Store(dnsx.DEnd)
 	t.done()
 	return nil
 }

@@ -97,7 +97,7 @@ type transport struct {
 	preferGET      bool                       // saw 405 Method Not Allowed
 	proxies        ipn.ProxyProvider          // proxy provider, may be nil
 	relay          ipn.Proxy                  // dial doh via relay, may be nil
-	status         int
+	status         *core.Volatile[int]
 	est            core.P2QuantileEstimator
 }
 
@@ -140,7 +140,7 @@ func newTransport(ctx context.Context, typ, id, rawurl, otargeturl string, addrs
 		typ:       typ,
 		proxies:   px,    // may be nil
 		relay:     relay, // may be nil
-		status:    dnsx.Start,
+		status:    core.NewVolatile(dnsx.Start),
 		pxclients: make(map[string]*proxytransport),
 		lastpurge: core.NewVolatile(time.Now()),
 		est:       core.NewP50Estimator(ctx),
@@ -372,6 +372,11 @@ func (t *transport) httpClientsFor(p ipn.Proxy) (c3, c *http.Client) {
 // be determined.
 func (t *transport) doDoh(pid string, q *dns.Msg) (response *dns.Msg, blocklists, region string, ech bool, elapsed time.Duration, qerr *dnsx.QueryError) {
 	start := time.Now()
+	if t.status.Load() == dnsx.DEnd {
+		elapsed = time.Since(start)
+		qerr = dnsx.NewEndQueryError()
+		return
+	}
 	padQuery(q)
 
 	// zero out the query id
@@ -718,7 +723,7 @@ func (t *transport) Query(network string, q *dns.Msg, smm *x.DNSSummary) (r *dns
 		status = qerr.Status()
 		err = qerr.Unwrap()
 	}
-	t.status = status
+	t.status.Store(status)
 
 	t.est.Add(elapsed.Seconds())
 	smm.Latency = elapsed.Seconds()
@@ -779,10 +784,11 @@ func (t *transport) IPPorts() (ipps []netip.AddrPort) {
 }
 
 func (t *transport) Status() int {
-	return t.status
+	return t.status.Load()
 }
 
 func (t *transport) Stop() error {
+	t.status.Store(dnsx.DEnd)
 	t.done()
 	return nil
 }

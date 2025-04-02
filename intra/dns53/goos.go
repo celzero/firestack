@@ -85,6 +85,10 @@ func (t *goosr) send(msg *dns.Msg) (ans *dns.Msg, elapsed time.Duration, qerr *d
 		qerr = dnsx.NewBadQueryError(errQueryParse)
 		return
 	}
+	if t.status.Load() == dnsx.DEnd {
+		qerr = dnsx.NewEndQueryError()
+		return
+	}
 
 	start := time.Now()
 
@@ -195,6 +199,7 @@ func (t *goosr) Status() int {
 }
 
 func (t *goosr) Stop() error {
+	t.status.Store(dnsx.DEnd)
 	t.done()
 	return nil
 }

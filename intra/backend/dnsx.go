@@ -53,6 +53,8 @@ const ( // from dnsx/queryerror.go
 	TransportError
 	// ClientError: Client has issues
 	ClientError
+	// DEnd: Transport stopped
+	DEnd
 )
 
 const ( // from: dnsx/rethinkdns.go
