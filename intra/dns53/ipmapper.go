@@ -138,15 +138,24 @@ func (m *ipmapper) queryIP2(_ context.Context, network, host, uid string, tid ..
 		return nil, errs
 	}
 
-	skipAlgUndo := uid == protect.UidSelf
+	// skip alg undo for ResolverSelf fns (LookupFor, Lookup, LocalLookup)
+	// when uid is not specified; as alg.go does not perform translations
+	// when invoked by those ResovlerSelf fns (as they set uid to protect.UidSelf).
+	skipAlgUndo := false
 	var val4, val6 *core.V[answer, string]
 	if len(tid) > 0 {
+		skipAlgUndo = true
 		val4, _ = m.ba.Do(key4(host, tid...), m.lookupon(q4, tid...))
 		val6, _ = m.ba.Do(key6(host, tid...), m.lookupon(q6, tid...))
 	} else if uid != core.UNKNOWN_UID_STR {
+		// unlikey uid is protect.UidSelf, as dailers.ResolveFor (which calls this)
+		// uses integer uid... and so, firestack must first know the integer uid
+		// assigned to it (which it does not know as of now).
+		skipAlgUndo = uid == protect.UidSelf
 		val4, _ = m.ba.Do(key4(host, uid), m.lookupfor(q4, uid))
 		val6, _ = m.ba.Do(key6(host, uid), m.lookupfor(q6, uid))
 	} else {
+		skipAlgUndo = true
 		val4, _ = m.ba.Do(key4(host, dnsx.Default), m.locallookup(q4))
 		val6, _ = m.ba.Do(key6(host, dnsx.Default), m.locallookup(q6))
 	}
@@ -193,8 +202,8 @@ func (m *ipmapper) queryIP2(_ context.Context, network, host, uid string, tid ..
 	}
 	ips := append(ip4, ip6...)
 
-	log.D("ipmapper: host %s => ips (out: %v / in: %d+%d); tids: %s+%s[%s]; err4: %v, err6: %v",
-		host, ips, len(r4), len(r6), uid, tid4, tid6, uid, lerr4, lerr6)
+	log.D("ipmapper: host %s => ips (out: %v / in: %d+%d); tids: %s+%s[%s]; skipalg? %t; err4: %v, err6: %v",
+		host, ips, len(r4), len(r6), uid, tid4, tid6, uid, skipAlgUndo, lerr4, lerr6)
 	return ips, nil
 }
 

@@ -1420,6 +1420,7 @@ func (t *dnsgateway) xLocked(maybeAlg netip.Addr, usestale bool, uid string, tid
 	var realips []netip.Addr
 	var until time.Duration
 	var undidAlg, fresh bool
+
 	xst := makeXipStatus(!usestale)
 	// alg ips are always unmappped; see take4Locked
 	unmapped := maybeAlg.Unmap() // aligip may also be origip / realip
