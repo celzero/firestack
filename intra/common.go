@@ -226,11 +226,12 @@ func (h *baseHandler) onFlow(localaddr, target netip.AddrPort) (fm *Mark, undidA
 func (h *baseHandler) forward(local, remote net.Conn, smm *SocketSummary) {
 	cid := smm.ID
 	uid := smm.UID
+	pid := smm.PID
 	via := strings.Join([]string{smm.Proto, smm.PID, smm.RPID}, ":")
 
 	tup := conn2str(local, remote)
 
-	h.conntracker.Track(cid, local, remote)
+	h.conntracker.Track(cid, uid, pid, local, remote)
 	defer h.conntracker.Untrack(cid)
 
 	var r rwext
@@ -326,15 +327,15 @@ func (h *baseHandler) OpenConns() string {
 }
 
 // CloseConns implements netstack.GBaseConnHandler
-func (h *baseHandler) CloseConns(cids []string) (closed []string) {
-	if len(cids) <= 0 {
-		closed = h.conntracker.Clear()
+func (h *baseHandler) CloseConns(cidsOrPidsOrUids []string) (closedCids []string) {
+	if len(cidsOrPidsOrUids) <= 0 {
+		closedCids = h.conntracker.Clear()
 	} else {
-		closed = h.conntracker.UntrackBatch(cids)
+		closedCids = h.conntracker.UntrackBatch(cidsOrPidsOrUids)
 	}
 
-	log.I("com: %s: closed %d/%d", h.proto, len(closed), len(cids))
-	return closed
+	log.I("com: %s: closed %d/%d", h.proto, len(closedCids), len(cidsOrPidsOrUids))
+	return closedCids
 }
 
 // aux is usually dst domains, ip, ip:port

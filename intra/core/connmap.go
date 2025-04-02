@@ -15,6 +15,8 @@ import (
 	"time"
 	"unique"
 
+	"slices"
+
 	"github.com/celzero/firestack/intra/log"
 )
 
@@ -28,13 +30,15 @@ type ConnMapper interface {
 	// Clear untracks all conns.
 	Clear() []string
 	// Track maps x[] to cid.
-	Track(cid string, x ...MinConn) int
+	Track(cid, uid, pid string, x ...MinConn) int
 	// Get returns a conn mapped to connection id, cid.
 	Get(cid string) []MinConn
+	// GetAll returns all conns mapped to pid or uid.
+	GetAll(uidOrPid string) []MinConn
 	// Untrack closes all conns with connection id, cid.
 	Untrack(cid string) int
 	// UntrackBatch untracks one cid at a time.
-	UntrackBatch(cids []string) []string
+	UntrackBatch(cidsOrUidsOrPids []string) []string
 	// Len returns the number of tracked conns.
 	Len() int
 	// String returns a string repr of all tracked conns.
@@ -44,29 +48,35 @@ type ConnMapper interface {
 type connstat struct {
 	c []MinConn
 	t time.Time
+
+	uid, pid string
 }
 
 type cm struct {
 	sync.RWMutex
-	trac map[string]connstat // id -> conns
-	sz   int
+	tracc map[string]connstat // cid -> conns
+	tracp map[string][]string // pid -> cid
+	tracu map[string][]string // uid -> cid
+	sz    int
 }
 
 var _ ConnMapper = (*cm)(nil)
 
 func NewConnMap() *cm {
 	return &cm{
-		trac: make(map[string]connstat),
+		tracc: make(map[string]connstat),
+		tracp: make(map[string][]string),
+		tracu: make(map[string][]string),
 	}
 }
 
-func (h *cm) Track(cid string, conns ...MinConn) (n int) {
+func (h *cm) Track(cid, uid, pid string, conns ...MinConn) (n int) {
 	h.Lock()
 	defer h.Unlock()
 
-	n = h.addLocked(cid, conns)
+	n = h.addLocked(cid, uid, pid, conns)
 
-	log.D("connmap: track: %d/%d conns for %s", n, h.sz, cid)
+	log.D("connmap: track: %d/%d conns for %s+%s+%s", n, h.sz, cid, uid, pid)
 	return
 }
 
@@ -79,49 +89,144 @@ func (h *cm) Untrack(cid string) (n int) {
 	return
 }
 
-func (h *cm) addLocked(cid string, conns []MinConn) (n int) {
-	if v, ok := h.trac[cid]; !ok {
-		h.trac[cid] = connstat{conns, time.Now()}
+func (h *cm) addLocked(cid, uid, pid string, conns []MinConn) (n int) {
+	if v, ok := h.tracc[cid]; !ok {
+		h.tracc[cid] = connstat{conns, time.Now(), uid, pid}
 		n = len(conns)
 	} else { // should not happen?
+		// TODO: append uid and pid?
 		v.c = append(v.c, conns...)
 		n = len(v.c)
-		h.trac[cid] = v
+		h.tracc[cid] = v
 	}
+	h.addByPidLocked(pid, cid)
+	h.addByUidLocked(uid, cid)
 
 	h.sz += len(conns)
 	return
 }
 
+func (h *cm) addByPidLocked(pid, cid string) {
+	if len(pid) <= 0 || len(cid) <= 0 {
+		return
+	}
+	// TODO: remove duplicates
+	h.tracp[pid] = append(h.tracp[pid], cid)
+}
+
+func (h *cm) addByUidLocked(uid, cid string) {
+	if len(uid) <= 0 || len(cid) <= 0 {
+		return
+	}
+	// TODO: remove duplicates
+	h.tracu[uid] = append(h.tracu[uid], cid)
+}
+
 func (h *cm) getLocked(cid string) *connstat {
-	if v, ok := h.trac[cid]; ok {
+	if v, ok := h.tracc[cid]; ok {
 		return &v
 	}
 	return nil
 }
 
-func (h *cm) delLocked(cid string) (n int) {
-	defer delete(h.trac, cid)
+func (h *cm) getByUidLocked(uid string) []string {
+	if v, ok := h.tracu[uid]; ok {
+		return v
+	}
+	return nil
+}
 
-	if v, ok := h.trac[cid]; ok {
+func (h *cm) getByPidLocked(pid string) []string {
+	if v, ok := h.tracp[pid]; ok {
+		return v
+	}
+	return nil
+}
+
+func (h *cm) delLocked(id string) (n int) {
+	if v, ok := h.tracc[id]; ok {
+		defer delete(h.tracc, id)
+		defer h.delByPidLocked(v.pid, id)
+		defer h.delByUidLocked(v.uid, id)
+
 		n = len(v.c)
 		CloseConn(v.c...)
+
 		h.sz -= n
+	} else { // id maybe pid or uid
+		cidsByPid := h.getByPidLocked(id)
+		cidsByUid := h.getByUidLocked(id)
+		return len(h.untrackBatchLocked(append(cidsByPid, cidsByUid...)))
+	}
+
+	return
+}
+
+func (h *cm) delByPidLocked(pid, cid string) (deleted []string) {
+	if len(pid) <= 0 {
+		return
+	}
+	cids := h.tracp[pid]
+	if len(cid) <= 0 { // delete all
+		deleted = cids
+		delete(h.tracp, pid)
+		return
+	}
+	for i, id := range cids {
+		if id == cid {
+			deleted = append(deleted, id)
+			if rem := slices.Delete(cids, i, i+1); len(rem) <= 0 {
+				delete(h.tracp, pid)
+				break
+			} else {
+				h.tracp[pid] = rem
+			}
+		}
 	}
 	return
 }
 
-func (h *cm) UntrackBatch(cids []string) (out []string) {
+func (h *cm) delByUidLocked(uid, cid string) (deleted []string) {
+	if len(uid) <= 0 {
+		return
+	}
+	cids := h.tracu[uid]
+	if len(cid) <= 0 { // delete all
+		deleted = cids
+		delete(h.tracu, uid)
+		return
+	}
+	for i, id := range cids {
+		if id == cid {
+			deleted = append(deleted, id)
+			if rem := slices.Delete(cids, i, i+1); len(rem) <= 0 {
+				delete(h.tracp, uid)
+				break
+			} else {
+				h.tracp[uid] = rem
+			}
+		}
+	}
+	return
+}
+
+func (h *cm) UntrackBatch(cidsOrUidsOrPids []string) (closedCids []string) {
 	h.Lock()
 	defer h.Unlock()
 
+	return h.untrackBatchLocked(cidsOrUidsOrPids)
+}
+
+func (h *cm) untrackBatchLocked(cidsOrUidsOrPids []string) (out []string) {
+	processed := 0
 	n := 0
-	out = make([]string, 0, len(cids))
-	for _, id := range cids {
+	out = make([]string, 0, len(cidsOrUidsOrPids))
+	for _, id := range cidsOrUidsOrPids {
 		n += h.delLocked(id)
 		out = append(out, id)
+		processed++
 	}
-	log.D("connmap: untrack: batch %d conns for %d cids", n, len(out))
+	log.D("connmap: untrack: %d batches of %d/%d (conns/cids)", processed, n, len(out))
 	return
 }
 
@@ -135,12 +240,29 @@ func (h *cm) Get(cid string) (conns []MinConn) {
 	return nil
 }
 
+func (h *cm) GetAll(uidOrPid string) (conns []MinConn) {
+	h.RLock()
+	defer h.RUnlock()
+
+	if len(uidOrPid) <= 0 {
+		return
+	}
+	cidsByPid := h.getByPidLocked(uidOrPid)
+	cidsByUid := h.getByUidLocked(uidOrPid)
+	for _, cid := range append(cidsByPid, cidsByUid...) {
+		if cs := h.getLocked(cid); cs != nil {
+			conns = append(conns, cs.c...)
+		}
+	}
+	return
+}
+
 func (h *cm) String() string {
 	h.RLock()
 	defer h.RUnlock()
 
 	var s strings.Builder
-	for id, cs := range h.trac {
+	for id, cs := range h.tracc {
 		s.WriteString(id)
 		s.WriteString(cs.String())
 		s.WriteString("\n")
@@ -152,14 +274,18 @@ func (h *cm) Clear() (cids []string) {
 	h.Lock()
 	defer h.Unlock()
 
-	cids = make([]string, 0, len(h.trac))
-	for k, v := range h.trac {
+	cids = make([]string, 0, len(h.tracc))
+	for k, v := range h.tracc {
 		CloseConn(v.c...)
 		cids = append(cids, k)
 	}
-	clear(h.trac)
+	clear(h.tracc)
+	clear(h.tracu)
+	clear(h.tracp)
+	sz := h.sz
+	closed := len(cids)
 	h.sz = 0
-	log.D("connmap: clear: %d conns", len(cids))
+	log.D("connmap: clear: closed %d/%d conns", closed, sz)
 	return
 }
 

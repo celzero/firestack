@@ -102,7 +102,8 @@ func (h *icmpHandler) Ping(msg []byte, source, target netip.AddrPort) (echoed bo
 	defer core.Close(uc)
 	ucnil := uc == nil || core.IsNil(uc)
 
-	smm.PID = px.ID()
+	pid := px.ID()
+	smm.PID = pid
 	smm.RPID = ipn.ViaID(px)
 
 	// nilaway: tx.socks5 returns nil conn even if err == nil
@@ -113,7 +114,7 @@ func (h *icmpHandler) Ping(msg []byte, source, target netip.AddrPort) (echoed bo
 		return false // unhandled
 	}
 
-	h.conntracker.Track(cid, uc)
+	h.conntracker.Track(cid, uid, pid, uc)
 	defer h.conntracker.Untrack(cid)
 
 	tx = len(msg)

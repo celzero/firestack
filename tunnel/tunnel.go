@@ -56,7 +56,7 @@ type Tunnel interface {
 	Enabled() bool
 	// Write writes input data to the TUN interface.
 	Write(data []byte) (int, error)
-	// Close connections
+	// Close connections by pid, cid, uid.
 	CloseConns(activecsv string) (closedcsv string)
 	// Creates a new link using fd (tun device).
 	SetLink(fd int) error

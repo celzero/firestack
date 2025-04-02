@@ -494,14 +494,15 @@ func ViaID(p Proxy) string {
 	if p == nil {
 		return novia
 	}
-	if v, _ := p.Router().Via(); v != nil {
-		if v.ID() == p.ID() {
-			log.W("proxy: %s via %s; loop detected", p.ID(), v.ID())
-			return novia
-		}
-		return v.ID()
+	v, _ := p.Router().Via()
+	if v == nil {
+		return novia
 	}
-	return novia
+	if v.ID() == p.ID() {
+		log.W("proxy: %s via %s; loop detected", p.ID(), v.ID())
+		return novia
+	}
+	return v.ID()
 }
 
 func usevia(viaID *core.Volatile[string]) bool {
