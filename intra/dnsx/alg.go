@@ -94,8 +94,6 @@ type Gateway interface {
 	q(t1, t2 Transport, preset []netip.Addr, network, uid string, q *dns.Msg, s *x.DNSSummary) (*dns.Msg, error)
 	// onStopped is called when a transport tid is stopped. Gateway invalidates its local caches, if any.
 	onStopped(tid string)
-	// clear obj state
-	stop()
 }
 
 type secans struct {
@@ -378,9 +376,10 @@ func (p *xips) rmv(tid string) (done bool) {
 			p.aux[k] = v
 		}
 	}
-	// too verbose
-	// log.VV("alg: xips: rmv(%s): pri(%d), sec(%d); ok? %t", tid, i, j, done)
-	return i > 0 || j > 0
+	if done = i > 0 || j > 0; done {
+		log.D("alg: xips: rmv(%s): pri(%d), sec(%d); ok? %t", tid, i, j, done)
+	}
+	return
 }
 
 // block returns true if any secondary ip is unspecified
@@ -603,7 +602,7 @@ func (t *dnsgateway) onStopped(tid string) {
 	}
 }
 
-// Implements Gateway
+// clears alg states
 func (t *dnsgateway) stop() {
 	t.Lock()
 	defer t.Unlock()
