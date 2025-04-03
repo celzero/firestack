@@ -79,7 +79,8 @@ const (
 type wgifopts struct {
 	ifaddrs, allowed []netip.Prefix
 	peers            map[string]device.NoisePublicKey
-	dns, ep          *multihost.MH
+	dns              *multihost.MH
+	eps              *multihost.MHMap
 	mtu              int
 	amnezia          *wg.Amnezia
 }
@@ -116,7 +117,7 @@ type wgtun struct {
 
 	peers  *core.Volatile[map[string]device.NoisePublicKey] // peer (remote endpoint) public keys
 	dns    *core.Volatile[*multihost.MH]                    // dns resolver for this interface
-	remote *core.Volatile[*multihost.MH]                    // peer (remote endpoint) addrs
+	remote *core.Volatile[*multihost.MHMap]                 // peer (remote endpoint) addrs
 	rt     x.IpTree                                         // route table for this interface
 
 	status     *core.Volatile[int]         // status of this interface
@@ -290,7 +291,7 @@ func (w *wgproxy) Refresh() (err error) {
 	if mh := w.dns.Load(); mh != nil {
 		n = mh.Refresh()
 	}
-	nn := 0
+	nn := int64(0)
 	if mh := w.remote.Load(); mh != nil {
 		nn = mh.Refresh()
 	}
@@ -372,11 +373,11 @@ func (w *wgproxy) update(id, txt string) bool {
 	// but peer config may have changed!
 	log.I("proxy: wg: update(%s): reuse; mtu: %d=>%d, allowed: %d=>%d; peers: %d=>%d; dns: %d=>%d; endpoint: %d=>%d",
 		w.id, w.ep.MTU(), maybeNewMtu, w.rt.Len(), len(opts.allowed), len(w.peers.Load()), len(opts.peers), w.dns.Load().Len(), opts.dns.Len(),
-		w.remote.Load().Len() /*remote.Load may return nil*/, opts.ep.Len())
+		w.remote.Load().Len() /*remote.Load may return nil*/, opts.eps.Len())
 
 	w.peers.Store(opts.peers) // re-assignment is okay (map entry modification is not)
 	w.allowedIPs(opts.allowed)
-	w.remote.Store(opts.ep)              // requires refresh
+	w.remote.Store(opts.eps)             // requires refresh
 	w.dns.Store(opts.dns)                // requires refresh
 	w.desiredmtu.Store(uint32(opts.mtu)) // requires reset; [NOMTU, MAXMTU)
 	w.amnezia = opts.amnezia             // TODO: core.Volatile?
@@ -409,10 +410,12 @@ func wgIfConfigOf(id string, txtptr *string) (opts wgifopts, err error) {
 	pcfg := strings.Builder{}
 	r := bufio.NewScanner(strings.NewReader(txt))
 	opts.dns = multihost.New(id + "dns")
-	opts.ep = multihost.New(id + "endpoint")
+	opts.eps = multihost.NewMap(id + "endpoint")
 	opts.peers = make(map[string]device.NoisePublicKey)
 	opts.amnezia = wg.NewAmnezia(id)
 	opts.mtu = MAXMTU // auto
+
+	var currentPeer *multihost.MH
 	for r.Scan() {
 		line := r.Text()
 		if len(line) <= 0 {
@@ -469,12 +472,12 @@ func wgIfConfigOf(id string, txtptr *string) (opts wgifopts, err error) {
 				v4, v6, err := warp.WarpEndpoints()
 				if err == nil {
 					warpipcsv := v4.String() + "," + v6.String()
-					n = loadMH(opts.ep, warpipcsv)
+					n = loadMH(currentPeer, warpipcsv)
 				}
 				logev(err)("proxy: wg: %s v4 %s, v6 %s; added? %d; err? %v",
 					id, v4, v6, n, err)
 			}
-			n += loadMH(opts.ep, v) // append more endpoints
+			n += loadMH(currentPeer, v) // append more endpoints
 			log.D("proxy: wg: %s ifconfig: endpoints(%d) %s", id, n, v)
 
 			// peer config: carry over endpoints
@@ -489,6 +492,13 @@ func wgIfConfigOf(id string, txtptr *string) (opts wgifopts, err error) {
 			// peer config: carry over public keys
 			log.D("proxy: wg: %s ifconfig: processing key %q, err? %v", id, k, exx)
 			pcfg.WriteString(line + "\n")
+			finalizeMH(opts.eps, currentPeer)
+			if len(v) > 6 {
+				v = v[:6]
+			}
+			// a public_key line points to a transition to a new peer
+			// github.com/WireGuard/wireguard-go/blob/12269c2761/device/uapi.go#L295
+			currentPeer = multihost.New(id + ":" + v) // next peer
 		case "client_id":
 			// only for warp: blog.cloudflare.com/warp-technical-challenges
 			// When we begin a WireGuard session we include our clientid field
@@ -555,6 +565,10 @@ func wgIfConfigOf(id string, txtptr *string) (opts wgifopts, err error) {
 	return
 }
 
+func finalizeMH(m *multihost.MHMap, currentPeer *multihost.MH) bool {
+	return m.Put(currentPeer)
+}
+
 func loadMH(mh *multihost.MH, v string) int {
 	if mh == nil || len(v) <= 0 {
 		return 0
@@ -601,14 +615,14 @@ func NewWgProxy(id string, ctl protect.Controller, px ProxyProvider, lp LinkProp
 		return nil, err
 	}
 
-	id = wgtun.id // has stripped prefix FAST, if any
+	id = wgtun.id // has stripped prefixes (like FAST), if any
 
 	var wgep wgconn
 	if wgtun.preferOffload {
 		// todo: use wgtun.serve fn instead of ctl
-		wgep = wg.NewEndpoint2(id, ctl, opts.ep, wgtun.listener)
+		wgep = wg.NewEndpoint2(id, ctl, opts.eps, wgtun.listener)
 	} else {
-		wgep = wg.NewEndpoint(id, wgtun.serve, opts.ep, wgtun.listener, wgtun.amnezia)
+		wgep = wg.NewEndpoint(id, wgtun.serve, opts.eps, wgtun.listener, wgtun.amnezia)
 	}
 
 	wgdev := device.NewDevice(wgtun, wgep, wglogger(id))
@@ -701,7 +715,7 @@ func makeWgTun(id, cfg string, ctl protect.Controller, px ProxyProvider, lp Link
 		px:            px,
 		viaID:         core.NewZeroVolatile[string](),
 		dns:           core.NewVolatile(ifopts.dns),
-		remote:        core.NewVolatile(ifopts.ep),    // may be nil
+		remote:        core.NewVolatile(ifopts.eps),   // may be nil
 		peers:         core.NewVolatile(ifopts.peers), // its entries must never be modified
 		rt:            x.NewIpTree(),                  // must be set to allowedaddrs
 		ba:            core.NewBarrier[[]netip.Addr](wgbarrierttl),
@@ -744,7 +758,7 @@ func makeWgTun(id, cfg string, ctl protect.Controller, px ProxyProvider, lp Link
 
 	if4, if6 := netstack.StackAddrs(s, wgnic)
 	log.I("proxy: wg: %s tun: created; dns[%s]; dst[%s]; mtu[%d]; ifaddrs[%v / %v]; amnezia[%t]",
-		t.id, ifopts.dns, ifopts.ep, tunMtu, if4, if6, ifopts.amnezia.Set())
+		t.id, ifopts.dns, ifopts.eps, tunMtu, if4, if6, ifopts.amnezia.Set())
 
 	return t, nil
 }

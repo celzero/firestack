@@ -44,7 +44,7 @@ type StdNetBind2 struct {
 	ctl      protect.Controller
 	observer rwobserver
 	sendAddr *core.Volatile[netip.AddrPort] // may be invalid
-	mh       *multihost.MH
+	pm       *multihost.MHMap               // peer ip:port or host => preferred-addrs
 
 	ipv4 *net.UDPConn
 	ipv6 *net.UDPConn
@@ -121,12 +121,12 @@ func (e ErrUDPGSODisabled) Unwrap() error {
 	return e.RetryErr
 }
 
-func NewEndpoint2(id string, ctl protect.Controller, ep *multihost.MH, f rwobserver) *StdNetBind2 {
+func NewEndpoint2(id string, ctl protect.Controller, pm *multihost.MHMap, f rwobserver) *StdNetBind2 {
 	return &StdNetBind2{
 		id:       id,
 		ctl:      ctl,
 		observer: f,
-		mh:       ep,
+		pm:       pm,
 
 		udpAddrPool: sync.Pool{
 			New: func() any {
@@ -154,7 +154,6 @@ func NewEndpoint2(id string, ctl protect.Controller, ep *multihost.MH, f rwobser
 }
 
 func (e *StdNetBind2) ParseEndpoint(s string) (conn.Endpoint, error) {
-	d := e.mh
 	/*host, portstr, err := net.SplitHostPort(s)
 	if err != nil {
 		log.E("wg: bind2: %s invalid endpoint in(%s); err: %v", e.id, s, err)
@@ -168,9 +167,15 @@ func (e *StdNetBind2) ParseEndpoint(s string) (conn.Endpoint, error) {
 	// do what tailscale does, and share a preferred endpoint regardless of "s"
 	// github.com/tailscale/tailscale/blob/3a6d3f1a5b7/wgengine/magicsock/magicsock.go#L2568
 	// d.Add([]string{host}) // resolves host if needed
+	d, err := e.pm.Get(s)
+	if err != nil {
+		log.E("wg: bind2: %s parse: invalid endpoint in(%s); err: %v", e.id, s, err)
+		return nil, err
+	}
+
 	ipport := d.PreferredAddr()
 	if !ipport.IsValid() || ipport.Addr().IsUnspecified() {
-		log.E("wg: bind2: %s invalid endpoint addr %v in(%s); out(%s, %s)", e.id, ipport, s, d.Names(), d.Addrs())
+		log.E("wg: bind2: %s parse: invalid endpoint addr %v in(%s); out(%s, %s)", e.id, ipport, s, d.Names(), d.Addrs())
 		// erroring out from here prevents PostConfig (handshake for this peer endpoint will always be zero)
 		// github.com/WireGuard/wireguard-go/blob/12269c276173/device/uapi.go#L183
 		return nil, errInvalidEndpoint

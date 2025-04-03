@@ -100,7 +100,7 @@ type connector func(network, to string) (net.PacketConn, error)
 type StdNetBind struct {
 	id      string
 	connect connector
-	mh      *multihost.MH
+	pm      *multihost.MHMap // peer ip:port or host => preferred-addrs
 
 	amnezia *Amnezia
 	floodBa *core.Barrier[int, netip.AddrPort]
@@ -119,11 +119,11 @@ type StdNetBind struct {
 }
 
 // TODO: get d, ep, f, rb through an Opts bag?
-func NewEndpoint(id string, d connector, ep *multihost.MH, f rwobserver, a *Amnezia) *StdNetBind {
+func NewEndpoint(id string, d connector, pm *multihost.MHMap, f rwobserver, a *Amnezia) *StdNetBind {
 	s := &StdNetBind{
 		id:       id,
 		connect:  d,
-		mh:       ep,
+		pm:       pm,
 		observer: f,
 		amnezia:  a,
 		floodBa:  core.NewKeyedBarrier[int, netip.AddrPort](minFloodInterval),
@@ -146,7 +146,6 @@ var (
 )
 
 func (e *StdNetBind) ParseEndpoint(s string) (conn.Endpoint, error) {
-	d := e.mh
 	/*
 		host, portstr, err := net.SplitHostPort(s)
 		if err != nil {
@@ -162,9 +161,15 @@ func (e *StdNetBind) ParseEndpoint(s string) (conn.Endpoint, error) {
 	// do what tailscale does, and share a preferred endpoint regardless of "s"
 	// github.com/tailscale/tailscale/blob/3a6d3f1a5b7/wgengine/magicsock/magicsock.go#L2568
 	// d.Add([]string{host}) // resolves host if needed
+	d, err := e.pm.Get(s)
+	if err != nil {
+		log.E("wg: bind: %s parse: invalid endpoint in(%s); err: %v", e.id, s, err)
+		return nil, err
+	}
+
 	ipport := d.PreferredAddr()
 	if !ipport.IsValid() || ipport.Addr().IsUnspecified() {
-		log.E("wg: bind: %s invalid endpoint; chosen(%v) => in(%s) => out(%s, %s)", e.id, ipport, s, d.Names(), d.Addrs())
+		log.E("wg: bind: %s parse: invalid endpoint; chosen(%v) => in(%s) => out(%s, %s)", e.id, ipport, s, d.Names(), d.Addrs())
 		// erroring out from here prevents PostConfig (handshake for this peer endpoint will always be zero)
 		// github.com/WireGuard/wireguard-go/blob/12269c276173/device/uapi.go#L183
 		return nil, errInvalidEndpoint
