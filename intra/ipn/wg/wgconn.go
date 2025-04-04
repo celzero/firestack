@@ -162,7 +162,7 @@ func (e *StdNetBind) ParseEndpoint(s string) (conn.Endpoint, error) {
 	// github.com/tailscale/tailscale/blob/3a6d3f1a5b7/wgengine/magicsock/magicsock.go#L2568
 	// d.Add([]string{host}) // resolves host if needed
 	d, err := e.pm.Get(s)
-	if err != nil {
+	if err != nil || d == nil /*nilaway; can't happen*/ {
 		log.E("wg: bind: %s parse: invalid endpoint in(%s); err: %v", e.id, s, err)
 		return nil, err
 	}
