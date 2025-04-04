@@ -56,13 +56,18 @@ func (m *MHMap) Put(h *MH) (ok bool) {
 		return
 	}
 
+	m.Lock()
+	defer m.Unlock()
+	return m.putLocked(h)
+}
+
+func (m *MHMap) putLocked(h *MH) (ok bool) {
 	ipps := h.Addrs()
 	names := h.Names()
 	ok = len(ipps) > 0 || len(names) > 0
 
-	m.Lock()
-	m.uniq[h] = struct{}{}
 	if ok { // overwrites all existing
+		m.uniq[h] = struct{}{}
 		for _, ip := range ipps {
 			m.byIpp[ip] = h
 		}
@@ -70,7 +75,6 @@ func (m *MHMap) Put(h *MH) (ok bool) {
 			m.byName[name] = h
 		}
 	}
-	m.Unlock()
 
 	logeif(!ok)("multihost: %s map: put: ipps %d, names %d",
 		m.k, h.o, len(ipps), len(names))
@@ -79,17 +83,22 @@ func (m *MHMap) Put(h *MH) (ok bool) {
 }
 
 func (m *MHMap) Del(h *MH) (ok bool) {
-	if h == nil {
-		log.W("multihost: %s map: del: nil", m.k)
+	if m == nil || h == nil {
+		log.W("multihost: %s map: del: nil (map? %t; mh? %t)", m == nil, h == nil)
 		return
 	}
 
+	m.Lock()
+	defer m.Unlock()
+	return m.delLocked(h)
+}
+
+func (m *MHMap) delLocked(h *MH) (ok bool) {
 	ipps := h.Addrs()
 	names := h.Names()
 	ok = len(ipps) > 0 || len(names) > 0
 
 	if ok {
-		m.Lock()
 		delete(m.uniq, h)
 		for _, ip := range ipps {
 			if x := m.byIpp[ip]; x == h {
@@ -101,7 +110,6 @@ func (m *MHMap) Del(h *MH) (ok bool) {
 				delete(m.byName, name)
 			}
 		}
-		m.Unlock()
 	}
 
 	logeif(!ok)("multihost: %s map: del: ipps %d, names %d",
@@ -128,10 +136,12 @@ func (m *MHMap) Refresh() (n int64) {
 		return
 	}
 
-	m.RLock()
-	defer m.RUnlock()
+	m.Lock()
+	defer m.Unlock()
 	for h := range m.uniq {
+		m.delLocked(h)
 		n += int64(h.Refresh())
+		m.putLocked(h)
 	}
 	return
 }
@@ -141,10 +151,12 @@ func (m *MHMap) MaybeRefresh() (n int64) {
 		return
 	}
 
-	m.RLock()
-	defer m.RUnlock()
+	m.Lock()
+	defer m.Unlock()
 	for h := range m.uniq {
+		m.delLocked(h)
 		n += int64(h.MaybeRefresh())
+		m.putLocked(h)
 	}
 	return
 }
