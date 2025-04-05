@@ -143,7 +143,7 @@ const (
 func (l LogLevel) s() string {
 	switch l {
 	case VVERBOSE:
-		return "VV "
+		return "Y "
 	case VERBOSE:
 		return "V "
 	case DEBUG:
@@ -159,9 +159,9 @@ func (l LogLevel) s() string {
 	case USR:
 		return "U "
 	case NONE:
-		return ""
+		return "  "
 	default:
-		return " ? "
+		return "? "
 	}
 }
 
