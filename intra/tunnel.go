@@ -381,8 +381,15 @@ func csv2ssv(csv string) string {
 }
 
 func fetchaddr(r dnsx.Resolver, id string) string {
-	if tr, rerr := r.Get(id); rerr == nil {
-		return tr.GetAddr()
+	if tr, rerr := r.GetInternal(id); rerr == nil {
+		var sb strings.Builder
+		for _, ipp := range tr.IPPorts() {
+			if ipp.IsValid() {
+				sb.WriteString(ipp.Addr().String())
+				sb.WriteString(";")
+			}
+		}
+		return sb.String()
 	} else {
 		return rerr.Error()
 	}

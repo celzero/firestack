@@ -23,6 +23,7 @@ import (
 	"github.com/celzero/firestack/intra/dialers"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
+	"github.com/celzero/firestack/intra/protect/ipmap"
 	"github.com/celzero/firestack/intra/settings"
 	"github.com/celzero/firestack/intra/xdns"
 	"github.com/miekg/dns"
@@ -125,25 +126,33 @@ type TransportMult interface {
 	Transport
 }
 
-type Resolver interface {
+type TransportMultInternal interface {
 	x.DNSTransportMult
+}
+
+type Resolver interface {
+	TransportMultInternal
 	ResolverSelf
 	RdnsResolver
 	NatPt
 
-	// special purpose pre-defined transports
+	// GetInternal returns the internal transport interface for the given ID.
+	GetInternal(id string) (Transport, error)
+
+	// special purpose pre-defined transports:
+
 	// Gateway implements a DNS ALG transport
 	Gateway() Gateway
 	// GetMult returns multi-transport, if available
 	GetMult(id string) (TransportMult, error)
 
+	// IsDnsAddr returns true if the ip:port is resolver's fake endpoint
 	IsDnsAddr(ipport netip.AddrPort) bool
-
 	// Serve reads DNS query from conn and writes DNS answer to conn
 	Serve(proto string, conn protect.Conn, uid string)
 
-	// stopResolvers stops all transports.
-	stopResolvers()
+	// StopAll stops all transports.
+	StopAll()
 }
 
 type resolver struct {
@@ -180,8 +189,8 @@ func NewResolver(pctx context.Context, fakeaddrs string, dtr x.DNSTransport, l x
 		transports:   make(map[string]Transport),
 		localdomains: newUndelegatedDomainsTrie(),
 	}
-	r.gateway = NewDNSGateway(ctx, r, pt)
 	r.loadaddrs(fakeaddrs)
+	r.gateway = NewDNSGateway(ctx, r.dnsaddrs, r, pt)
 	if dtr.ID() != Default {
 		log.W("dns: not default; ignoring %s @ %s", dtr.ID(), dtr.GetAddr())
 	} else if tr, ok := dtr.(Transport); !ok {
@@ -200,7 +209,7 @@ func NewResolver(pctx context.Context, fakeaddrs string, dtr x.DNSTransport, l x
 	log.I("dns: new! gw? %t; default? %s", r.gateway != nil, dtr.GetAddr())
 
 	core.Go("r.Listener", r.sendSummaries)
-	context.AfterFunc(ctx, r.stopResolvers)
+	context.AfterFunc(ctx, r.StopAll)
 	return r
 }
 
@@ -317,7 +326,7 @@ func (r *resolver) dcProxy() (TransportMult, error) {
 	return r.GetMult(DcProxy)
 }
 
-func (r *resolver) Get(id string) (x.DNSTransport, error) {
+func (r *resolver) GetInternal(id string) (Transport, error) {
 	if r.closed.Load() {
 		return nil, errResolverClosed
 	}
@@ -327,6 +336,10 @@ func (r *resolver) Get(id string) (x.DNSTransport, error) {
 	} else {
 		return t, nil
 	}
+}
+
+func (r *resolver) Get(id string) (x.DNSTransport, error) {
+	return r.GetInternal(id)
 }
 
 func (r *resolver) Remove(id string) (ok bool) {
@@ -783,7 +796,9 @@ func (r *resolver) accept(c io.ReadWriteCloser, uid string) {
 	// TODO: Cancel outstanding queries.
 }
 
-func (r *resolver) stopResolvers() {
+// StopAll implements TransportMult.
+// StopAll stops all transports and closes the resolver.
+func (r *resolver) StopAll() {
 	r.once.Do(func() {
 		core.Go("r.onStop", func() { r.listener.OnDNSStopped() })
 		r.done()
