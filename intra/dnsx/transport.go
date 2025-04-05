@@ -250,11 +250,11 @@ func (r *resolver) Translate(b bool) {
 // then deletes it from the map.
 func (r *resolver) stopIfExistsLocked(id string) {
 	if t, ok := r.transports[id]; ok && t != nil {
-		err := t.Stop() // todo: async?
 		core.Go("r.gateway.stopTid", func() {
+			err := t.Stop()
 			r.gateway.onStopped(id)
+			log.VV("dns: stop: %s; err? %v", id, err)
 		})
-		log.VV("dns: stop: %s; err? %v", id, err)
 		delete(r.transports, id)
 	}
 }
@@ -292,6 +292,7 @@ func (r *resolver) Add(dt x.DNSTransport) (ok bool) {
 		r.Unlock()
 
 		if tid == System {
+			// always add64 after having added the system transport
 			core.Gx("r.Add64", func() { r.Add64(System) })
 		}
 
