@@ -312,7 +312,7 @@ func (r *resolver) GetMult(id string) (TransportMult, error) {
 	}
 	r.RLock()
 	t, ok := r.transports[id]
-	defer r.RUnlock()
+	r.RUnlock()
 
 	if ok {
 		if tm, ok := t.(TransportMult); ok {
@@ -822,15 +822,19 @@ func (r *resolver) StopAll() {
 
 func (r *resolver) refresh() {
 	r.RLock()
-	defer r.RUnlock()
-
+	all := make([]Transport, 0, len(r.transports))
 	for _, t := range r.transports {
-		// skip cached transports
+		all = append(all, t)
+	}
+	r.RUnlock()
+
+	for _, t := range all {
+		// skip cached transports:
+		// re-adding regular transports also creates NEW cached transports
+		// doing so is anyway equivalent to a cache flush; and so, there
+		// isn't any need to re-add cached transports, specifically.
 		if !cachedTransport(t) {
-			curt := t
-			// re-adding creates NEW cached transports
-			// which is akin to a cache flush
-			core.Gx("r.Add", func() { r.Add(curt) })
+			r.Add(t) // add one at a time...
 		}
 	}
 }
@@ -973,24 +977,30 @@ func (r *resolver) chooseOne(ids ...string) string {
 	recoverables := make([]string, 0)
 	errored := make([]string, 0)
 
+	trs := make([]Transport, 0, len(ids))
 	r.RLock()
 	for _, id := range ids {
 		if t := r.transports[id]; t != nil {
-			switch t.Status() {
-			case Complete:
-				return id
-			case Start, NoResponse:
-				preferred = append(preferred, id)
-			case BadResponse, BadQuery:
-				preferred = append(preferred, id)
-			case InternalError, TransportError, Unknown:
-				recoverables = append(recoverables, id)
-			default: // ClientError, SendFailed
-				errored = append(errored, id)
-			}
+			trs = append(trs, t)
 		}
 	}
 	r.RUnlock()
+
+	for _, t := range trs {
+		id := t.ID()
+		switch t.Status() {
+		case Complete:
+			return id
+		case Start, NoResponse:
+			preferred = append(preferred, id)
+		case BadResponse, BadQuery:
+			preferred = append(preferred, id)
+		case InternalError, TransportError, Unknown:
+			recoverables = append(recoverables, id)
+		default: // ClientError, SendFailed
+			errored = append(errored, id)
+		}
+	}
 
 	if len(preferred) > 0 {
 		return preferred[0]
