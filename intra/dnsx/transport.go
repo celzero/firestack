@@ -734,7 +734,10 @@ func (r *resolver) reply(c protect.Conn, uid string) {
 		} else {
 			core.Gx("r.reply.do", func() {
 				defer free()
-				_ = r.dnsudp(q[:n], c, uid)
+				err = r.dnsudp(q[:n], c, uid)
+				millis := int(time.Since(start).Seconds() * 1000)
+				logeif(err != nil)("dns: udp: for %s err! tot: %d, t: %dms, %v",
+					uid, cnt, millis, err)
 			})
 		}
 		cnt++
@@ -781,13 +784,18 @@ func (r *resolver) accept(c io.ReadWriteCloser, uid string) {
 			break // close on read errs
 		}
 		if n != int(qlen) {
-			log.W("dns: tcp: for %s incomplete query: %d < %d", uid, n, qlen)
+			ms := int(time.Since(start).Seconds() * 1000)
+			log.W("dns: tcp: for %s incomplete query: %d < %d; tot: %d, t: %dms",
+				uid, n, qlen, cnt, ms)
 			free()
 			break // close on incomplete reads
 		}
 		core.Gx("r.accept.do", func() {
 			defer free()
-			_ = r.dnstcp(q[:n], c, uid)
+			err = r.dnstcp(q[:n], c, uid)
+			ms := int(time.Since(start).Seconds() * 1000)
+			logeif(err != nil)("dns: tcp: for %s err! tot: %d, t: %dms, %v",
+				uid, cnt, ms, err)
 		})
 		cnt++
 	}
