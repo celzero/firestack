@@ -483,11 +483,13 @@ func (r *resolver) forward(q []byte, uid string, chosenids ...string) (res0 []by
 		return nil, NoDNS, errOnQueryTimeout
 	}
 
+	log.V("dns: fwd: 1 for %s; query %s:%d [prefs:%v; chosen:%v]", uid, qname, qtyp, pref, chosenids)
+
 	id, sid, pids, presetIPs := r.preferencesFrom(qname, uint16(qtyp), pref, chosenids...)
 	t := r.determineTransport(id) // id may be empty if pref is nil
 
-	log.V("dns: fwd: for %s; query %s [prefs:%v; chosen:%v]; id? %s, sid? %s, pid? %s, ips? %v",
-		uid, qname, pref, chosenids, id, sid, pids, presetIPs)
+	log.V("dns: fwd: 2 for %s; query %s:%d [prefs:%v; chosen:%v]; id? %s, sid? %s, pid? %s, ips? %v",
+		uid, qname, qtyp, pref, chosenids, id, sid, pids, presetIPs)
 
 	if t == nil || core.IsNil(t) {
 		smm.Latency = time.Since(starttime).Seconds()
@@ -516,12 +518,12 @@ func (r *resolver) forward(q []byte, uid string, chosenids ...string) (res0 []by
 			if e != nil {
 				smm.Msg = e.Error()
 			}
-			log.V("dns: fwd: for %s; query blocked %s by %s", uid, qname, blocklists)
+			log.V("dns: fwd: 3 for %s; query blocked %s by %s", uid, qname, blocklists)
 
 			return b, smm.ID, e
 		}
 	} else {
-		log.V("dns: fwd: for %s; query NOT blocked %s; why? %v", uid, qname, err)
+		log.V("dns: fwd: 4 for %s; query NOT blocked %s; why? %v", uid, qname, err)
 	}
 
 	var res2 []byte
@@ -585,7 +587,7 @@ func (r *resolver) forward(q []byte, uid string, chosenids ...string) (res0 []by
 	}
 	ansblocked := xdns.AQuadAUnspecified(ans1)
 
-	log.V("dns: fwd: for %s[%s]; query %s; new-ans? %t, blocklists? %t, blocked? %t",
+	log.V("dns: fwd: 5 for %s[%s]; query %s; new-ans? %t, blocklists? %t, blocked? %t",
 		smm.ID, uid, qname, isnewans, hasblocklists, ansblocked)
 
 	return res2, smm.ID, nil

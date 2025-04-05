@@ -219,8 +219,8 @@ func (m *ipmapper) queryAny2(q []byte, uid string, tids ...string) ([]byte, erro
 	}
 
 	if v == nil || len(v.Val.a) <= 0 || v.Err != nil {
-		log.W("ipmapper: query: noans? %t [err %v] for %s / typ %d; for: %s",
-			v == nil, v.Err, qname, qtype, uid)
+		log.W("ipmapper: query: noans? %t [err %v] for %s / typ %d; for: %s [on %v]",
+			v == nil, v.Err, qname, qtype, uid, tids)
 		return nil, core.OneErr(v.Err, errNoAns)
 	} else {
 		return v.Val.a, nil
