@@ -61,13 +61,17 @@ var (
 )
 
 type cache struct {
-	c         map[string]*cres // query -> response
-	mu        *sync.RWMutex    // protects the cache
-	ttl       time.Duration    // how long to cache the valid dns response
-	halflife  time.Duration    // how much to increment ttl on each read
-	bumps     int              // max bumps before we stop bumping a response
-	size      int              // max size of the cache
-	scrubtime time.Time        // last time cache was scrubbed / purged
+	mu *sync.RWMutex    // protects cache, cres, and scrubtime
+	c  map[string]*cres // query -> response
+
+	scrubtime time.Time // last time cache was scrubbed / purged
+
+	// constants:
+
+	ttl      time.Duration // how long to cache the valid dns response
+	halflife time.Duration // how much to increment ttl on each read
+	bumps    int           // max bumps before we stop bumping a response
+	size     int           // max size of the cache
 }
 
 type cres struct {
