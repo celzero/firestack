@@ -647,7 +647,8 @@ func (t *transport) rdnsHeaders(h *http.Header) (blocklistStamp, region string) 
 			_, region, _ = strings.Cut(ck, "-")
 		}
 	}
-	log.VV("doh: header %s; region %s; stamp %v", h, region, blocklistStamp)
+	// too long:
+	// log.VV("doh: header %s; region %s; stamp %v", h, region, blocklistStamp)
 	return
 }
 
