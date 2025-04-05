@@ -867,6 +867,8 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []netip.Addr, network, uid strin
 		log.D("alg: %s<>%s:%s[%s] %d dns64; s/ans(%d)/ans64(%d)",
 			qname, smm.ID, idstr(t1), uid, qtyp, xdns.Len(ansin), xdns.Len(ans64))
 		withDNS64Summary(ans64, smm)
+		// todo: for uidself, skip dns64? see: ipmapper.go:undoAlgAndOrNat64
+		// todo: skip for for undelegated domains like ipv4only.arpa?
 		ansin = ans64
 	} // else: no dns64, or error; continue with ansin
 
@@ -883,6 +885,7 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []netip.Addr, network, uid strin
 		smm.UpstreamBlocks = true
 	}
 
+	// todo: skip alg for undelegated domains like ipv4only.arpa?
 	if !hasq || !hasans || !rgood || ans0000 || dontalg {
 		log.D("alg: skip; query %s<>%s[%s]:%s:%d / a:%d, self(%t) dontalg(%t) hasq(%t) hasans(%t) rgood(%t), ans0000(%t)",
 			smm.ID, idstr(t1), uid, qname, qtyp, xdns.Len(ansin), uidself, dontalg, hasq, hasans, rgood, ans0000)
@@ -1469,15 +1472,14 @@ func (t *dnsgateway) xLocked(maybeAlg netip.Addr, usestale bool, uid string, tid
 		undidAlg = false
 	}
 
-	// todo: ignore & return the fake dns address as-is (ex: 10.111.222.3:53)
 	hasrealips := len(realips) > 0
 	var unnated []netip.Addr
 	if !hasrealips { // algip is probably origip / realip
 		// unnat origip as it itself may have been synthesized from
 		// our DNS responses by apps doing funky things; like FreeFire
-		unnated = t.maybeUndoNat64(unmapped)
+		unnated = t.maybeUndoNat64Locked(unmapped)
 	} else {
-		unnated = t.maybeUndoNat64(realips...)
+		unnated = t.maybeUndoNat64Locked(realips...)
 	} // else: send realips as is
 	logeif(!hasrealips)("alg: dns64: for %v[%s] (fresh? %t / undidAlg? %t / staleok? %t) algip(%v) => realips(%v) => unnated(%v); until: %s",
 		tids, uid, fresh, undidAlg, usestale, unmapped, realips, unnated, until)
@@ -1487,7 +1489,7 @@ func (t *dnsgateway) xLocked(maybeAlg netip.Addr, usestale bool, uid string, tid
 	return copyUniq(realips), undidAlg
 }
 
-func (t *dnsgateway) maybeUndoNat64(realips ...netip.Addr) (unnateds []netip.Addr) {
+func (t *dnsgateway) maybeUndoNat64Locked(realips ...netip.Addr) (unnateds []netip.Addr) {
 	for _, nip := range realips {
 		unmapped := nip.Unmap()
 		if !unmapped.Is6() {
