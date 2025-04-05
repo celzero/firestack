@@ -37,6 +37,8 @@ const (
 	ttl2m = 2 * time.Minute
 	// 8s min ttl for alg/nat ip; chosen to be closer to transport timeouts
 	ttl8s = 8 * time.Second
+	// 3s timeout to undo dns64/nat64
+	ttl3s = 3 * time.Second
 
 	key4 = ":a"
 	key6 = ":aaaa"
@@ -1499,12 +1501,16 @@ func (t *dnsgateway) maybeUndoNat64Locked(realips ...netip.Addr) (unnateds []net
 		// DNS query is not available. But, we needn't worry about UN-NAT64'ing other resolvers
 		// except the one we "force" onto the clients (aka dnsx.Local464Resolver).
 		// whether the active network has ipv4 connectivity is checked by dialers.filter()
-		ipx4 := t.dns64.X64(Local464Resolver, unmapped) // ipx4 may be zero addr
-		if !ipok(ipx4) {                                // no nat?
-			log.V("alg: dns64: maybeUndoNat64: no local nat64 to ip4(%v) for ip6(%v); ip4 not ok", ipx4, nip)
+		ipx4, completed := core.Grx("undoNat64."+unmapped.String(), func(ctx context.Context) (netip.Addr, error) {
+			// with async+timeout to avoid blocking on mutex
+			return t.dns64.X64(Local464Resolver, unmapped), nil // ipx4 may be zero addr
+		}, ttl3s)
+
+		logeif(!completed)("alg: dns64: maybeUndoNat64: nat64 to ip4(%v) for ip6(%v); timedout? %t",
+			ipx4, nip, !completed)
+		if !completed || !ipok(ipx4) { // no nat?
 			continue
 		}
-		log.D("alg: dns64: maybeUndoNat64: nat64 to ip4(%v) from ip6(%v)", ipx4, nip)
 		unmapped4 := ipx4.Unmap()
 		unnateds = append(unnateds, unmapped4)
 	}
