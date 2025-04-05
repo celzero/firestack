@@ -1037,13 +1037,16 @@ func IsLocalProxy(pid string) bool {
 // If id is dnsx.Bootstrap, the hostname is "protected" from re-resolutions.
 // hostname is a domain name, and as a special case, can be protect.UidSelf or protect.UidSystem.
 func RegisterAddrs(id, hostname string, ipps []string) (ok bool) {
+	var ipset *ipmap.IPSet
 	id, _ = strings.CutPrefix(id, CT)
 	if id == Bootstrap || id == System || id == Default || id == Local {
-		log.I("dns: bootstrap! %s => %v", hostname, ipps)
-		_, ok = dialers.NewProtected(hostname, ipps)
+		log.I("dns: protected %s! %s => %v", id, hostname, ipps)
+		ipset, ok = dialers.NewProtected(hostname, ipps)
 	} else {
-		_, ok = dialers.New(hostname, ipps)
+		log.I("dns: regular %s! %s => %v", id, hostname, ipps)
+		ipset, ok = dialers.New(hostname, ipps)
 	}
+	log.I("dns: reg regular/protected done %s! %s[+%v] => %v", id, hostname, ipps, ipset.Addrs())
 	return
 }
 
