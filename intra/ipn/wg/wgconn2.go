@@ -164,8 +164,6 @@ func (e *StdNetBind2) ParseEndpoint(s string) (conn.Endpoint, error) {
 		log.E("wg: bind2: %s invalid port in(%s); err: %v", e.id, s, err)
 		return nil, err
 	}*/
-	// do what tailscale does, and share a preferred endpoint regardless of "s"
-	// github.com/tailscale/tailscale/blob/3a6d3f1a5b7/wgengine/magicsock/magicsock.go#L2568
 	// d.Add([]string{host}) // resolves host if needed
 	d, err := e.pm.Get(s)
 	if err != nil || d == nil /*nilaway; can't happen*/ {
@@ -173,6 +171,8 @@ func (e *StdNetBind2) ParseEndpoint(s string) (conn.Endpoint, error) {
 		return nil, err
 	}
 
+	// do what tailscale does, and share a preferred endpoint regardless of "s"
+	// github.com/tailscale/tailscale/blob/3a6d3f1a5b7/wgengine/magicsock/magicsock.go#L2568
 	ipport := d.PreferredAddr()
 	if !ipport.IsValid() || ipport.Addr().IsUnspecified() {
 		log.E("wg: bind2: %s parse: invalid endpoint addr %v in(%s); out(%s, %s)", e.id, ipport, s, d.Names(), d.Addrs())
