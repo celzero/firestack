@@ -375,7 +375,7 @@ func (s *IPSet) add(hostOrIP string) bool {
 		return false
 	}
 
-	resolved, err := r.LookupNetIP(context.Background(), "ip", hostOrIP)
+	resolved, err := r.LookupNetIPFor(context.Background(), "ip", hostOrIP, protect.UidSelf)
 	if err != nil {
 		log.W("ipmap: Add: err resolving %s: %v", hostOrIP, err)
 		return false
