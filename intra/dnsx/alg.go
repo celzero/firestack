@@ -394,6 +394,15 @@ func anyUnspecified(ips []netip.Addr) bool {
 	return false
 }
 
+func anyAddrEqual(ipps []netip.AddrPort, ip netip.Addr) bool {
+	for _, ipp := range ipps {
+		if ipp.Addr().Compare(ip) == 0 {
+			return true
+		}
+	}
+	return false
+}
+
 // each iterates over each primary ip
 func (p *xips) each(f func(ip netip.Addr)) {
 	for _, ip := range p.primary(xall) {
@@ -527,9 +536,10 @@ type dnsgateway struct {
 
 	// fields below are never reassigned
 
-	rdns  RdnsResolver // local and remote rdns blocks
-	dns64 NatPt        // dns64/nat64
-	chash bool         // use consistent hashing to generate alg ips
+	fake  []netip.AddrPort // fake DNS addrs to ignore for "undoAlg"
+	rdns  RdnsResolver     // local and remote rdns blocks
+	dns64 NatPt            // dns64/nat64
+	chash bool             // use consistent hashing to generate alg ips
 
 	// fields below are mutable
 
@@ -540,7 +550,7 @@ type dnsgateway struct {
 var _ Gateway = (*dnsgateway)(nil)
 
 // NewDNSGateway returns a DNS ALG, ready for use.
-func NewDNSGateway(pctx context.Context, outer RdnsResolver, dns64 NatPt) (t *dnsgateway) {
+func NewDNSGateway(pctx context.Context, fakeaddrs []netip.AddrPort, outer RdnsResolver, dns64 NatPt) (t *dnsgateway) {
 	alg := make(map[string]*algans)
 	nat := make(map[netip.Addr]*baseans)
 	ptr := make(map[netip.Addr]*baseans)
@@ -549,6 +559,7 @@ func NewDNSGateway(pctx context.Context, outer RdnsResolver, dns64 NatPt) (t *dn
 		alg:    alg,
 		nat:    nat,
 		ptr:    ptr,
+		fake:   fakeaddrs,
 		rdns:   outer,
 		dns64:  dns64,
 		octets: rfc6598,
@@ -1423,6 +1434,12 @@ func (t *dnsgateway) xLocked(maybeAlg netip.Addr, usestale bool, uid string, tid
 	xst := makeXipStatus(!usestale)
 	// alg ips are always unmappped; see take4Locked
 	unmapped := maybeAlg.Unmap() // aligip may also be origip / realip
+
+	// ignore & return the fake dns address as-is (ex: 10.111.222.3:53)
+	if anyAddrEqual(t.fake, unmapped) {
+		return []netip.Addr{maybeAlg}, false
+	}
+
 	if ans, ok := t.nat[unmapped]; ok {
 		if len(tids) <= 0 {
 			realips = ans.ips.realips(uid, xst)
