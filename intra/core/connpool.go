@@ -252,7 +252,7 @@ func (c *ConnPool[T]) Put(conn net.Conn) (ok bool) {
 
 	aconn := newAgingConn(conn)
 	if !aconn.ok() {
-		return false
+		return
 	}
 
 	select {
@@ -260,9 +260,9 @@ func (c *ConnPool[T]) Put(conn net.Conn) (ok bool) {
 		aconn.keepalive(true)
 		return true
 	case <-c.ctx.Done(): // stop
-		return false
+		return
 	default: // pool full
-		return false
+		return
 	}
 }
 
