@@ -73,23 +73,23 @@ func (m *MHMap) putLocked(h *MH) (ok bool) {
 
 	if ok { // overwrites all existing
 		m.uniq[h] = struct{}{}
-		for _, ip := range ipps {
-			m.byIpp[ip] = h
+		for _, ipp := range ipps {
+			m.byIpp[ipp] = h
 		}
 		for _, name := range names {
 			m.byName[name] = h
 		}
 	}
 
-	logeif(!ok)("multihost: %s map: put: ipps %d, names %d",
-		m.k, h.o, len(ipps), len(names))
+	logeif(!ok)("multihost: %s map: %s put: ipps %d, names %d; ok? %t",
+		m.k, h.o, len(ipps), len(names), ok)
 
 	return
 }
 
 func (m *MHMap) Del(h *MH) (ok bool) {
-	if m == nil || h == nil {
-		log.W("multihost: %s map: del: nil (map? %t; mh? %t)", m == nil, h == nil)
+	if h == nil {
+		log.W("multihost: %s map: del: nil? %t", m.k, h == nil)
 		return
 	}
 
@@ -181,6 +181,7 @@ func (m *MHMap) String() string {
 	sb.WriteString(m.k + ": ")
 	for h := range m.uniq {
 		sb.WriteString(h.String())
+		sb.WriteString("  /  ")
 	}
 	return sb.String()
 }
