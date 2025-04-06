@@ -35,14 +35,14 @@ func (m *MHMap) Get(hostOrIpport string) (h *MH, err error) {
 	}
 
 	ipp, err := netip.ParseAddrPort(hostOrIpport)
-	if err != nil { // may be ip
+	if err == nil { // may be ip
 		h = m.byIpp[ipp]
 	} else { // may be hostname
 		h = m.byName[host]
 	}
 
-	logeif(h == nil)("multihost: %s map: get: for %s; mh? %t, by ip? %t; parse-err: %v",
-		m.k, host, h != nil, err == nil, err)
+	logeif(h == nil)("multihost: %s map: get: for %s [%s]; mh? %t, by ip? %t; parse-err: %v",
+		m.k, hostOrIpport, ipp, h != nil, err == nil, err)
 
 	if h == nil {
 		return nil, core.JoinErr(err, errMhNotFound)
