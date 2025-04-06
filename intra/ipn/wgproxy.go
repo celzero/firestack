@@ -493,8 +493,8 @@ func wgIfConfigOf(id string, txtptr *string) (opts wgifopts, err error) {
 			log.D("proxy: wg: %s ifconfig: processing key %q, err? %v", id, k, exx)
 			pcfg.WriteString(line + "\n")
 			finalizeMH(opts.eps, currentPeer)
-			if len(v) > 6 {
-				v = v[:6]
+			if len(v) > 8 {
+				v = v[:8]
 			}
 			// a public_key line points to a transition to a new peer
 			// github.com/WireGuard/wireguard-go/blob/12269c2761/device/uapi.go#L295
@@ -566,6 +566,9 @@ func wgIfConfigOf(id string, txtptr *string) (opts wgifopts, err error) {
 }
 
 func finalizeMH(m *multihost.MHMap, currentPeer *multihost.MH) bool {
+	if currentPeer == nil {
+		return false
+	}
 	return m.Put(currentPeer)
 }
 
