@@ -28,6 +28,7 @@ import (
 	"errors"
 	"fmt"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -358,9 +359,9 @@ func (t *rtunnel) stat() (*x.NetStat, error) {
 	out.GOSt.NumCPU = int64(runtime.NumCPU())
 
 	if r := t.resolver; r != nil {
-		out.RDNSIn.DNSPreferred = fetchaddr(r, x.Preferred)
-		out.RDNSIn.DNSDefault = fetchaddr(r, x.Default)
-		out.RDNSIn.DNSSystem = fetchaddr(r, x.System)
+		out.RDNSIn.DNSPreferred = fetchDNSInfo(r, x.Preferred)
+		out.RDNSIn.DNSDefault = fetchDNSInfo(r, x.Default)
+		out.RDNSIn.DNSSystem = fetchDNSInfo(r, x.System)
 		out.RDNSIn.DNS = csv2ssv(r.LiveTransports())
 	}
 	if p := t.proxies; p != nil {
@@ -380,9 +381,16 @@ func csv2ssv(csv string) string {
 	return strings.ReplaceAll(csv, ",", ";")
 }
 
-func fetchaddr(r dnsx.Resolver, id string) string {
+func fetchDNSInfo(r dnsx.Resolver, id string) string {
 	if tr, rerr := r.GetInternal(id); rerr == nil {
 		var sb strings.Builder
+		sb.WriteString(tr.GetAddr())
+		sb.WriteString("[")
+		sb.WriteString(tr.Type())
+		sb.WriteString("/")
+		sb.WriteString(dnsx.Status2Str(tr.Status()))
+		sb.WriteString(strconv.FormatInt(tr.P50(), 10))
+		sb.WriteString("ms] ")
 		for _, ipp := range tr.IPPorts() {
 			if ipp.IsValid() {
 				sb.WriteString(ipp.Addr().String())
