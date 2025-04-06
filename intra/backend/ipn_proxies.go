@@ -9,35 +9,63 @@ package backend
 const ( // see ipn/proxies.go
 	// IDs for default proxies
 
-	Block    = "Block"        // blocks all traffic
-	Base     = "Base"         // does not proxy traffic; in sync w dnsx.NetNoProxy
-	Exit     = "Exit"         // always connects to the Internet (exit node); in sync w dnsx.NetExitProxy
-	Ingress  = "Ingress"      // incoming connections
-	Auto     = "Auto"         // auto uses ipn.Exit or any of the RPN proxies
-	RpnWg    = WG + "w" + RPN // RPN Warp
-	RpnAmz   = WG + "a" + RPN // RPN Amnezia
-	RpnPro   = WG + "p" + RPN // RPN Proton
-	RpnWs    = PIPWS + RPN    // RPN WebSockets
-	RpnH2    = PIPH2 + RPN    // RPN HTTP/2
-	Rpn64    = NAT64 + RPN    // RPN Exit hopping over NAT64
-	RpnSE    = SE + RPN       // RPN SurfEasy
-	OrbotS5  = "OrbotSocks5"  // Orbot: Base Tor-as-a-SOCKS5 proxy
-	OrbotH1  = "OrbotHttp1"   // Orbot: Base Tor-as-a-HTTP/1.1 proxy
-	GlobalH1 = "GlobalHttp1"  // Global: Global HTTP/1.1 proxy
+	// blocks all traffic (built-in)
+	Block = "Block"
+	// may send traffic out via underlying network (built-in)
+	// see: tun2socks.Loopback; alias for dnsx.NetNoProxy
+	Base = "Base"
+	// always sends traffic out via underlying network (built-in)
+	// see: Controller.Protect; alias for dnsx.NetExitProxy
+	Exit = "Exit"
+	// proxies incoming connections (built-in)
+	Ingress = "Ingress"
+	// Auto uses ipn.Exit or any of the RPN proxies (built-in)
+	Auto = "Auto"
+	// RPN Warp (must be registered by Rpn.RegisterWarp)
+	RpnWg = WG + "w" + RPN
+	// RPN Amnezia (must be registered by Rpn.RegisterAmnezia)
+	RpnAmz = WG + "a" + RPN
+	// RPN Proton (must be registered by Rpn.RegisterProton)
+	RpnPro = WG + "p" + RPN
+	// RPN WebSockets (unused)
+	RpnWs = PIPWS + RPN
+	// RPN HTTP/2 (unused)
+	RpnH2 = PIPH2 + RPN
+	// RPN Exit hopping over NAT64 (built-in)
+	Rpn64 = NAT64 + RPN
+	// RPN SurfEasy (must be registered by Rpn.RegisterSE)
+	RpnSE = SE + RPN
+	// Orbot: Base Tor-as-a-SOCKS5 proxy
+	OrbotS5 = "OrbotSocks5"
+	// Orbot: Base Tor-as-a-HTTP/1.1 proxy
+	OrbotH1 = "OrbotHttp1"
+	// Global: HTTP/1.1 proxy if required by underlying network.
+	GlobalH1 = "GlobalHttp1"
 
 	// type of proxies
 
-	SOCKS5   = "socks5" // SOCKS5 proxy
-	HTTP1    = "http1"  // HTTP/1.1 proxy
-	WG       = "wg"     // WireGuard-as-a-proxy
-	WGFAST   = "gsro"   // WireGuard-as-a-proxy w/ UDP GRO/GSO prefix
-	PIPH2    = "piph2"  // PIP: HTTP/2 proxy
-	PIPWS    = "pipws"  // PIP: WebSockets proxy
-	NOOP     = "noop"   // No proxy, ex: Base, Block
-	INTERNET = "net"    // egress network, ex: Exit
-	RPN      = "rpn"    // Rethink Proxy Network
-	NAT64    = "nat64"  // A NAT64 router
-	SE       = "se"     // SurfEasy
+	// SOCKS5 proxy type
+	SOCKS5 = "socks5"
+	// HTTP/1.1 proxy type
+	HTTP1 = "http1"
+	// WireGuard-as-a-proxy type and prefix
+	WG = "wg"
+	// No proxy (uses underlying network), ex: Base, Block, Ingress
+	NOOP = "noop"
+	// Egress, ex: Exit
+	INTERNET = "net"
+	// WireGuard-as-a-proxy w/ UDP GRO/GSO prefix (experimental)
+	WGFAST = "gsro"
+	// PIP: HTTP/2 proxy prefix (unused)
+	PIPH2 = "piph2"
+	// PIP: WebSockets proxy prefix (unused)
+	PIPWS = "pipws"
+	// A NAT64 router (prefix)
+	NAT64 = "nat64"
+	// SurfEasy proxy (prefix)
+	SE = "se"
+	// Rethink Proxy Network (suffix)
+	RPN = "rpn"
 
 	// status of proxies
 
@@ -196,13 +224,22 @@ type ProxyListener interface {
 
 // RouterStats lists interesting stats of a Router.
 type RouterStats struct {
-	Addr   string // address of the router
-	Rx     int64  // bytes received
-	Tx     int64  // bytes transmitted
-	ErrRx  int64  // receive errors
-	ErrTx  int64  // transmit errors
-	LastRx int64  // last receive in millis
-	LastTx int64  // last transmit in millis
-	LastOK int64  // last handshake or ping or connect millis
-	Since  int64  // uptime in millis
+	// address of the router
+	Addr string
+	// bytes received
+	Rx int64
+	// bytes transmitted
+	Tx int64
+	// receive errors
+	ErrRx int64
+	// transmit errors
+	ErrTx int64
+	// last (most recent) receive in millis
+	LastRx int64
+	// last (most recent) transmit in millis
+	LastTx int64
+	// last (most recent) handshake or ping or connect millis
+	LastOK int64
+	// uptime in millis
+	Since int64
 }

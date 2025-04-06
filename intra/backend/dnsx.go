@@ -17,19 +17,36 @@ const ( // see dnsx/transport.go
 	CT = "Cache" // cached transport prefix
 
 	// special singleton DNS transports (IDs)
-	Goos      = "Goos"      // Go determined default resolver
-	System    = "System"    // network/os provided dns
-	Local     = "mdns"      // mdns; never cached!
-	Default   = "Default"   // default (fallback) dns
-	Preferred = "Preferred" // user preferred dns, primary for alg
-	Preset    = "Preset"    // synthesizes answers from presets (ex: IPs)
-	Fixed     = "Fixed"     // synthesizes A/AAAA from a single fixed IP
-	BlockFree = "BlockFree" // no local blocks; if not set, default is used
-	BlockAll  = "BlockAll"  // all blocks; never cached!
-	Bootstrap = "Bootstrap" // bootstrap dns; always encapsulted by Default
-	Alg       = "Alg"       // dns application-level gateway
-	DcProxy   = "DcProxy"   // dnscrypt.Proxy as a transport
-	IpMapper  = "IpMapper"  // dns resolver for dns resolvers
+
+	// Go determined default resolver (built-in)
+	Goos = "Goos"
+	// network/os provided dns (init using intra.SetSystemDNS)
+	System = "System"
+	// mdns; never cached! (built-in)
+	Local = "mdns"
+	// default (fallback) dns, used in place of special transports when unavailable
+	// (init using intra.AddDefaultTransport)
+	Default = "Default"
+	// client preferred dns
+	Preferred = "Preferred"
+	// synthesizes answers from presets (built-in)
+	Preset = "Preset"
+	// synthesizes A/AAAA from a single fixed IP (built-in)
+	Fixed = "Fixed"
+	// a transport that bypasses local blocklists (dnsx.SetRdnsLocal);
+	// if not set, Default is used
+	BlockFree = "BlockFree"
+	// all queries are blocked, answers never cached (built-in)
+	BlockAll = "BlockAll"
+	// Bootstrap DNS (built-in); encapsulates Default, if set; or Goos, otherwise.
+	Bootstrap = "Bootstrap"
+	// Application-level gateway
+	Alg = "Alg"
+	// dnscrypt.Proxy as a DNS Transport
+	DcProxy = "DcProxy"
+	// dns resolver for dns resolvers and for firestack (built-in)
+	// delegates queries to Bootstrap.
+	IpMapper = "IpMapper"
 
 	SummaryProxyLabel = "proxy:"
 )

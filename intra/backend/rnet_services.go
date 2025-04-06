@@ -8,16 +8,26 @@ package backend
 
 const (
 	// type of services
-	SVCSOCKS5 = "svcsocks5" // SOCKS5
-	SVCHTTP   = "svchttp"   // HTTP
-	PXSOCKS5  = "pxsocks5"  // SOCKS5 with forwarding proxy
-	PXHTTP    = "pxhttp"    // HTTP with forwarding proxy
+
+	// SOCKS5
+	SVCSOCKS5 = "svcsocks5"
+	// HTTP
+	SVCHTTP = "svchttp"
+	// SOCKS5 with forwarding proxy
+	PXSOCKS5 = "pxsocks5"
+	// HTTP with forwarding proxy
+	PXHTTP = "pxhttp"
 
 	// status of proxies
-	SUP = 0  // svc UP
-	SOK = 1  // svc OK
-	SKO = -1 // svc not OK
-	SOP = -2 // svc stopped
+
+	// svc UP
+	SUP = 0
+	// svc OK
+	SOK = 1
+	// svc not OK
+	SKO = -1
+	// svc stopped
+	SOP = -2
 )
 
 type Server interface {
@@ -54,16 +64,23 @@ type Services interface {
 	RefreshServers() (active string)
 }
 
-// Summary is a summary of a DNS transaction, reported when it is complete.
 type ServerSummary struct {
-	Type     string // http1, socks5, etc.
-	SID      string // Server ID.
-	PID      string // Proxy ID (hop) that handled egress, if any.
-	CID      string // Connection id
-	Tx       int64  // Total uploaded (bytes).
-	Rx       int64  // Total downloaded (bytes).
-	Duration int64  // Conn open duration (millis).
-	Msg      string // Error message, if any.
+	// http1, socks5, etc.
+	Type string
+	// Server ID.
+	SID string
+	// Proxy ID (hop) that handled egress, if any.
+	PID string
+	// Connection id
+	CID string
+	// Total uploaded (bytes).
+	Tx int64
+	// Total downloaded (bytes).
+	Rx int64
+	// Conn open duration (millis).
+	Duration int64
+	// Error messages, if any.
+	Msg string
 }
 
 // ServerListener receives Server events.
@@ -75,6 +92,8 @@ type ServerListener interface {
 }
 
 type Tab struct {
-	CID   string // CID is the ID of this connection.
-	Block bool   // Block is true if this connection should be blocked.
+	// CID is the ID of this connection.
+	CID string
+	// Block is true if this connection should be blocked.
+	Block bool
 }

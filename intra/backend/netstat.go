@@ -8,15 +8,24 @@ package backend
 
 // NICStat is a collection of network interface statistics for the current tunnel.
 type NICStat struct {
-	Rx        string // bytes received
-	RxPkts    int64  // packets received
-	Tx        string // bytes sent
-	TxPkts    int64  // packets sent
-	Invalid   int64  // invalid packets
-	L4Unknown int64  // unknown l4 packets
-	L3Unknown int64  // unknown l3 packets
-	L4Drops   int64  // l4 drops
-	Drops     int64  // drops
+	// bytes received
+	Rx string
+	// packets received
+	RxPkts int64
+	// bytes sent
+	Tx string
+	// packets sent
+	TxPkts int64
+	// invalid packets
+	Invalid int64
+	// unknown l4 packets
+	L4Unknown int64
+	// unknown l3 packets
+	L3Unknown int64
+	// l4 drops
+	L4Drops int64
+	// drops
+	Drops int64
 }
 
 type NICInfo struct {
@@ -35,26 +44,42 @@ type NICInfo struct {
 
 // IPFwdStat is a collection of IP forwarding statistics for the current tunnel.
 type IPFwdStat struct {
-	Errs     int64 // errors
-	Unrch    int64 // unreachable
-	NoRoute  int64 // no route
-	NoHop    int64 // no endpoint
-	PTB      int64 // packet too big
-	Timeouts int64 // TTL timeouts
-	Drops    int64 // drops
+	// errors
+	Errs int64
+	// unreachable
+	Unrch int64
+	// no route
+	NoRoute int64
+	// no endpoint
+	NoHop int64
+	// packet too big
+	PTB int64
+	// TTL timeouts
+	Timeouts int64
+	// drops
+	Drops int64
 }
 
 // IPStat is a collection of IP statistics for the current tunnel.
 type IPStat struct {
-	InvalidDst  int64 // invalid destination addresses
-	InvalidSrc  int64 // invalid source addresses
-	InvalidFrag int64 // invalid fragments
-	InvalidPkt  int64 // invalid packets
-	Errs        int64 // packet errors
-	Rcv         int64 // packets received from l2
-	Snd         int64 // packets sent to l4
-	ErrRcv      int64 // packet receive errors from l2
-	ErrSnd      int64 // packet send errors to l4
+	// invalid destination addresses
+	InvalidDst int64
+	// invalid source addresses
+	InvalidSrc int64
+	// invalid fragments
+	InvalidFrag int64
+	// invalid packets
+	InvalidPkt int64
+	// packet errors
+	Errs int64
+	// packets received from l2
+	Rcv int64
+	// packets sent to l4
+	Snd int64
+	// packet receive errors from l2
+	ErrRcv int64
+	// packet send errors to l4
+	ErrSnd int64
 }
 
 // ICMPStat is a collection of ICMP statistics for the current tunnel.
