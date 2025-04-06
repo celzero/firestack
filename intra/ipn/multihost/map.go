@@ -51,8 +51,8 @@ func (m *MHMap) Get(hostOrIpport string) (h *MH, err error) {
 }
 
 func (m *MHMap) Put(h *MH) (ok bool) {
-	if m == nil || h == nil {
-		log.W("multihost: %s map: put: nil? (map: %t, mh: %t)", m == nil, h == nil)
+	if h == nil {
+		log.W("multihost: %s map: put: nil? %t", m.k, h == nil)
 		return
 	}
 
@@ -62,6 +62,11 @@ func (m *MHMap) Put(h *MH) (ok bool) {
 }
 
 func (m *MHMap) putLocked(h *MH) (ok bool) {
+	if _, dup := m.uniq[h]; dup {
+		log.W("multihost: %s map: put: dup; call refresh instead?", m.k, dup)
+		return h.Len() > 0
+	}
+
 	ipps := h.Addrs()
 	names := h.Names()
 	ok = len(ipps) > 0 || len(names) > 0
