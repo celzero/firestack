@@ -125,7 +125,6 @@ func E(msg string, args ...any) {
 // P logs a private message.
 func P(msg string, args ...any) {
 	Glogger.Piif(callerat, msg, args...)
-
 }
 
 // Wtf logs a fatal message.

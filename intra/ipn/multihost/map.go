@@ -41,8 +41,9 @@ func (m *MHMap) Get(hostOrIpport string) (h *MH, err error) {
 		h = m.byName[host]
 	}
 
-	logeif(h == nil)("multihost: %s map: get: for %s [%s]; mh? %t, by ip? %t; parse-err: %v",
-		m.k, hostOrIpport, ipp, h != nil, err == nil, err)
+	ok := h != nil
+	logeif(!ok)("multihost: %s map: get: for %s [%s]; ok? %t, by ip? %t; parse-err: %v",
+		m.k, hostOrIpport, ipp, ok, err == nil, err)
 
 	if h == nil {
 		return nil, core.JoinErr(err, errMhNotFound)

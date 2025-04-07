@@ -557,7 +557,8 @@ func wgIfConfigOf(id string, txtptr *string) (opts wgifopts, err error) {
 			pcfg.WriteString(line + "\n")
 		}
 	}
-	log.D("proxy: wg: %s amnezia: %s", id, opts.amnezia)
+	finalizeMH(opts.eps, currentPeer)
+	log.D("proxy: wg: %s; eps: %d; amnezia: %s", id, opts.eps.Len(), opts.amnezia)
 	*txtptr = pcfg.String()
 	if err == nil && len(opts.ifaddrs) <= 0 || opts.dns.Len() <= 0 || opts.mtu <= NOMTU {
 		err = errProxyConfig
