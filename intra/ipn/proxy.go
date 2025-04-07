@@ -310,7 +310,7 @@ func Reaches(p Proxy, hostportOrIPPortCsv string, protos ...string) bool {
 
 	ok, who, err := core.Race("reach."+p.ID(), getproxytimeout, tests...)
 
-	log.D("proxy: %s reaches: %v => %v ok? %t; who: %d, err? %v",
+	logeif(!ok)("proxy: %s reaches: %v => %v ok? %t; who: %d, err? %v",
 		p.ID(), hostportOrIPPortCsv, ipps, ok, who, err)
 
 	return ok
@@ -370,7 +370,7 @@ func udpReaches(p Proxy, ippstr string) (bool, error) {
 		ok = ok || syserr.Err == syscall.ECONNREFUSED
 	}
 
-	log.V("proxy: %s reaches: tcp: %s ok? %t, rtt: %s; err: %v",
+	log.V("proxy: %s reaches: udp: %s ok? %t, rtt: %s; err: %v",
 		p.ID(), ippstr, ok, rtt, err)
 	if ok { // wipe out err as it makes core.Race discard "ok"
 		err = nil

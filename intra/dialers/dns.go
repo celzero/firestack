@@ -66,11 +66,11 @@ func ECH(hostname string) ([]byte, error) {
 				if kv.Key() == dns.SVCB_ECHCONFIG {
 					if v, ok := rr.Value[i].(*dns.SVCBECHConfig); ok {
 						return v.ECH, nil
-					}
-				}
-			}
-		}
-	}
+					} // else: unlikely
+				} // else: not ech config
+			} // done iter https rr
+		} // else: not https rr
+	} // done iter answers
 	return nil, errNoEch
 }
 
