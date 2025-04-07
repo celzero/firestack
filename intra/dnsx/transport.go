@@ -1051,6 +1051,7 @@ func IsLocalProxy(pid string) bool {
 // hostname is a domain name, and as a special case, can be protect.UidSelf or protect.UidSystem.
 func RegisterAddrs(id, hostname string, ipps []string) (ok bool) {
 	var ipset *ipmap.IPSet
+	var addrs []netip.Addr
 	id, _ = strings.CutPrefix(id, CT)
 	if id == Bootstrap || id == System || id == Default || id == Local {
 		log.I("dns: protected %s! %s => %v", id, hostname, ipps)
@@ -1059,7 +1060,10 @@ func RegisterAddrs(id, hostname string, ipps []string) (ok bool) {
 		log.I("dns: regular %s! %s => %v", id, hostname, ipps)
 		ipset, ok = dialers.New(hostname, ipps)
 	}
-	log.I("dns: reg regular/protected done %s! %s[+%v] => %v", id, hostname, ipps, ipset.Addrs())
+	if ipset != nil {
+		addrs = ipset.Addrs()
+	}
+	log.I("dns: reg regular/protected done %s! %s[+%v] => %v", id, hostname, ipps, addrs)
 	return
 }
 
