@@ -17,12 +17,15 @@ import (
 	"github.com/celzero/firestack/intra/protect"
 )
 
+const fakeExitAddr = "127.0.0.127:1337"
+
 // exit is a proxy that always dials out to the internet.
 type exit struct {
 	NoDNS
 	ProtoAgnostic
 	SkipRefresh
 	GWNoVia
+	id       string
 	addr     string
 	outbound *protect.RDial // outbound dialer
 	status   *core.Volatile[int]
@@ -31,9 +34,14 @@ type exit struct {
 
 // NewExitProxy returns a new exit proxy.
 func NewExitProxy(ctx context.Context, c protect.Controller) *exit {
+	return newExitProxy(Exit, fakeExitAddr, ctx, c)
+}
+
+func newExitProxy(id, addr string, ctx context.Context, c protect.Controller) *exit {
 	ctx, done := context.WithCancel(ctx)
 	h := &exit{
-		addr:     "127.0.0.127:1337",
+		id:       id,
+		addr:     addr,
 		outbound: protect.MakeNsRDial(Exit, ctx, c),
 		status:   core.NewVolatile(TUP),
 		done:     done,
@@ -106,7 +114,7 @@ func (h *exit) Dialer() protect.RDialer {
 
 // ID implements x.Proxy.
 func (h *exit) ID() string {
-	return Exit
+	return h.id
 }
 
 // Type implements x.Proxy.

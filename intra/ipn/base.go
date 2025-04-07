@@ -17,6 +17,8 @@ import (
 	"github.com/celzero/firestack/intra/settings"
 )
 
+const fakeBaseAddr = "127.8.4.5:3690"
+
 // base is no-op proxy that dials into the underlying network,
 // which typically is wifi or mobile but may also be a tun device.
 type base struct {
@@ -24,6 +26,7 @@ type base struct {
 	ProtoAgnostic
 	SkipRefresh
 	GW
+	id       string
 	addr     string
 	outbound *protect.RDial         // outbound dialer
 	via      *core.WeakRef[Proxy]   // via dialer
@@ -35,9 +38,14 @@ type base struct {
 
 // Base returns a base proxy.
 func NewBaseProxy(ctx context.Context, c protect.Controller, px ProxyProvider) *base {
+	return newBasicProxy(Base, fakeBaseAddr, ctx, c, px)
+}
+
+func newBasicProxy(id, addr string, ctx context.Context, c protect.Controller, px ProxyProvider) *base {
 	ctx, done := context.WithCancel(ctx)
 	h := &base{
-		addr:     "127.8.4.5:3690",
+		id:       id,
+		addr:     addr,
 		px:       px,
 		outbound: protect.MakeNsRDial(Base, ctx, c),
 		viaID:    core.NewZeroVolatile[string](),
@@ -50,6 +58,10 @@ func NewBaseProxy(ctx context.Context, c protect.Controller, px ProxyProvider) *
 		panic(err) // unlikely
 	}
 	return h
+}
+
+func NewBasicProxy(id string, ctx context.Context, c protect.Controller, px ProxyProvider) Proxy {
+	return newBasicProxy(id, fakeBaseAddr, ctx, c, px)
 }
 
 func (h *base) viafor() *Proxy {

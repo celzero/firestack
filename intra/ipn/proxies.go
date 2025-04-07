@@ -481,6 +481,11 @@ func (px *proxifier) ProxyTo(ipp netip.AddrPort, uid string, pids []string) (_ P
 			continue
 		}
 
+		if noop(p.Type()) {
+			loproxies = append(loproxies, pid)
+			continue
+		}
+
 		if hasroute(p, ippstr) {
 			err := px.pin(uid, ipp, p) // repin
 			if err == nil {
@@ -930,7 +935,7 @@ func (px *proxifier) IP4() bool {
 	defer px.RUnlock()
 
 	for _, p := range px.p {
-		if local(p.ID()) {
+		if local(p.ID()) || noop(p.Type()) {
 			continue
 		}
 		if r := p.Router(); r != nil && !r.IP4() {
@@ -946,7 +951,7 @@ func (px *proxifier) IP6() bool {
 	defer px.RUnlock()
 
 	for _, p := range px.p {
-		if local(p.ID()) {
+		if local(p.ID()) || noop(p.Type()) {
 			continue
 		}
 		if r := p.Router(); r != nil && !r.IP6() {
@@ -966,7 +971,7 @@ func (px *proxifier) MTU() (out int, err error) {
 	only4 := false
 	minmtu := minmtu6
 	for _, p := range px.p {
-		if local(p.ID()) {
+		if local(p.ID()) || noop(p.Type()) {
 			continue
 		}
 		r := p.Router() // never nil
@@ -994,7 +999,7 @@ func (px *proxifier) Stat() *x.RouterStats {
 
 	s := new(x.RouterStats)
 	for _, p := range px.p {
-		if local(p.ID()) {
+		if local(p.ID()) || noop(p.Type()) {
 			continue
 		}
 		if r := p.Router(); r != nil {
@@ -1034,7 +1039,7 @@ func (px *proxifier) Contains(ipprefix string) bool {
 	for _, p := range px.p {
 		// always present local proxies route either everything or
 		// nothing: not useful for making routing decisions
-		if local(p.ID()) {
+		if local(p.ID()) || noop(p.Type()) {
 			continue
 		}
 		if r := p.Router(); r != nil && r.Contains(ipprefix) {
@@ -1426,6 +1431,12 @@ func local(id string) bool {
 	return id == Base || id == Block || id == Exit || id == Rpn64 || id == Ingress
 }
 
+func noop(typ string) bool {
+	return typ == NOOP
+}
+
+// TODO: check for hops on "noop" transports; if those
+// are NOT hoppping, then those are NOT remote, either
 func Remote(id string) bool {
 	return !local(id)
 }

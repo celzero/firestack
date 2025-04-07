@@ -130,7 +130,7 @@ func (pxr *proxifier) addRpnProxy2(p Proxy, acc RpnAcc) (Proxy, error) {
 }
 
 func (pxr *proxifier) addProxy(id, txt string) (p Proxy, err error) {
-	if len(txt) <= 0 {
+	if len(id) <= 0 {
 		return nil, errAddProxy
 	}
 
@@ -177,6 +177,9 @@ func (pxr *proxifier) addProxy(id, txt string) (p Proxy, err error) {
 		} // else: new
 		// txt is both wg ifconfig and peercfg
 		p, err = NewWgProxy(id, pxr.ctl, pxr, lp, txt)
+	} else if len(txt) <= 0 {
+		p = NewBasicProxy(id, pxr.ctx, pxr.ctl, pxr)
+		err = nil
 	} else {
 		var strurl string
 		var usr string
@@ -446,7 +449,8 @@ func healthy(p Proxy) error {
 	}
 
 	pid := p.ID()
-	if local(pid) { // fast path for local proxies which are always ok
+	typ := p.Type()
+	if local(pid) || noop(typ) { // fast path for local proxies which are always ok
 		return nil
 	}
 
