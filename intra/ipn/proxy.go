@@ -186,7 +186,7 @@ func (pxr *proxifier) addProxy(id, txt string) (p Proxy, err error) {
 		var pwd string
 		var u *url.URL
 		// go.dev/play/p/2DTBGO0Wisj
-		// scheme://usr:pwd@domain.tld:8080/p/a/t/h?q&u=e&r=y#f,r
+		// scheme://usr:pwd@domain.tld:port/p/a/t/h?q&u=e&r=y#f,r
 		u, err = url.Parse(txt)
 		if err != nil {
 			return nil, err
@@ -196,7 +196,7 @@ func (pxr *proxifier) addProxy(id, txt string) (p Proxy, err error) {
 			usr = u.User.Username()    // usr
 			pwd, _ = u.User.Password() // pwd
 		}
-		strurl = u.Host + u.RequestURI() // domain.tld:8080/p/a/t/h?q&u=e&r=y#f,r
+		strurl = u.Host + u.RequestURI() // domain.tld:port/p/a/t/h?q&u=e&r=y#f,r
 		addrs := strings.Split(u.Fragment, ",")
 		// opts may be nil
 		opts := settings.NewAuthProxyOptions(u.Scheme, usr, pwd, strurl, u.Port(), addrs)

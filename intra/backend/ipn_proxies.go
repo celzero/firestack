@@ -110,7 +110,7 @@ type Rpn interface {
 	TestSE() (ips string, errs error)
 	// TestExit64 connects to public NAT64 endpoints and returns reachable ones.
 	TestExit64() (ips string, errs error)
-	// Warp returns a RpnWg proxy.
+	// Warp returns a Cloudflare Warp WireGuard proxy.
 	Warp() (wg RpnProxy, err error)
 	// Proton returns a Proton WireGuard proxy.
 	Proton() (wg RpnProxy, err error)
@@ -118,7 +118,8 @@ type Rpn interface {
 	Amnezia() (awg RpnProxy, err error)
 	// Pip returns a RpnWs proxy.
 	Pip() (ws RpnProxy, err error)
-	// Exit64 returns a Exit proxy hopping over NAT64.
+	// Exit64 returns a Exit proxy hopping over preset publicly-available
+	// NAT64 proxies.
 	Exit64() (nat64 RpnProxy, err error)
 	// SE returns a SurfEasy proxy.
 	SE() (se RpnProxy, err error)
@@ -173,6 +174,13 @@ type RpnAcc interface {
 
 type Proxies interface {
 	// Add adds a proxy to this multi-transport.
+	// "id" is a free-form unique identifier for this proxy, except:
+	// "id" for WireGuard proxies must be prefixed with [backend.WG]
+	// "url" is WireGuard UAPI configuration.
+	// For HTTP1 and SOCKS5 proxies, "url" must be of the form:
+	// scheme://usr:pwd@domain.tld:port/p/a/t/h?q&u=e&r=y#f,r
+	// where scheme is "http" or "socks5", usr and/or pwd are optional
+	// port is the port number, and domain.tld could also be ip address.
 	AddProxy(id, url string) (Proxy, error)
 	// Remove removes a transport from this multi-transport.
 	RemoveProxy(id string) bool
@@ -180,12 +188,14 @@ type Proxies interface {
 	GetProxy(id string) (Proxy, error)
 	// TestHop returns empty diag if origin can hop to via,
 	// otherwise returns a diagnosis of why it couldn't.
+	// Only WireGuard via & origin are supported, for now.
 	TestHop(via, origin string) (diag string)
 	// Hop chains two proxies in the order of origin dialing through via.
+	// Only WireGuard via & origin are supported, for now.
 	Hop(via, origin string) error
 	// Router returns a lowest common denomination router for this multi-transport.
 	Router() Router
-	// RPN returns the Rethink Proxy Network interface.
+	// RPN returns the Rethink Proxy Network api.
 	Rpn() Rpn
 	// Refresh re-registers proxies and returns a csv of active ones.
 	RefreshProxies() (string, error)
