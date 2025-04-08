@@ -101,9 +101,9 @@ func (t *gtunnel) Mtu() int32 {
 func (t *gtunnel) waitForEndpoint() {
 	defer core.Recover(core.Exit11, "g.wait")
 
+	const maxchecks = 5
 	const betweenChecks = 3 * time.Second
 	const uptimeThreshold = 10 * time.Second
-	const maxchecks = 3
 
 	waitStart := time.Now()
 	i := 0
