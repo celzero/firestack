@@ -173,9 +173,13 @@ type RpnAcc interface {
 }
 
 type Proxies interface {
+	// Underlay creates a [NOOP] proxy (that always connects over underlying network),
+	// but one that uses a custom Controller.
+	// This proxy is not tracked (APIs like GetProxy won't return these).
+	Underlay(id string, c Controller) Proxy
 	// Add adds a proxy to this multi-transport.
 	// "id" is a free-form unique identifier for this proxy, except:
-	// "id" for WireGuard proxies must be prefixed with [backend.WG]
+	// "id" for WireGuard proxies must be prefixed with [WG]
 	// "url" is WireGuard UAPI configuration.
 	// For HTTP1 and SOCKS5 proxies, "url" must be of the form:
 	// scheme://usr:pwd@domain.tld:port/p/a/t/h?q&u=e&r=y#f,r

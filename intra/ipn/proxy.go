@@ -36,6 +36,10 @@ func (pxr *proxifier) NewSocks5Proxy(id, user, pwd, ip, port string) (p *socks5,
 	return NewSocks5Proxy(id, pxr.ctx, pxr.ctl, pxr, opts)
 }
 
+func (pxr *proxifier) Underlay(id string, c x.Controller) x.Proxy {
+	return newBasicProxy(id, fakeBaseAddr, pxr.ctx, c, pxr)
+}
+
 // AddProxy implements Proxifier.
 func (pxr *proxifier) AddProxy(id, txt string) (x.Proxy, error) {
 	defer core.Recover(core.Exit11, "prx.AddProxy."+id)
