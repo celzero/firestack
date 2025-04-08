@@ -28,7 +28,9 @@ import (
 	"path/filepath"
 	"runtime/debug"
 
+	x "github.com/celzero/firestack/intra/backend"
 	"github.com/celzero/firestack/intra/core"
+	"github.com/celzero/firestack/intra/rnet"
 	"github.com/celzero/firestack/intra/settings"
 
 	"github.com/celzero/firestack/intra/log"
@@ -40,6 +42,11 @@ var buildinfo, _ = debug.ReadBuildInfo()
 type traceout string
 
 type Console log.Console
+type Controller x.Controller
+
+type ProxyListener x.ProxyListener
+type DNSListener x.DNSListener
+type ServerListener rnet.ServerListener
 
 const (
 	one  traceout = "single" // offending go routine

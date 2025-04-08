@@ -58,7 +58,7 @@ var (
 
 type Bridge interface {
 	Listener
-	x.Controller
+	Controller
 	Console
 }
 
@@ -75,6 +75,7 @@ type Listener interface {
 type Tunnel interface {
 	tunnel.Tunnel
 	internalCtx() context.Context
+
 	// Get the resolver.
 	GetResolver() (x.DNSResolver, error)
 	// Get the internal resolver.
@@ -85,11 +86,13 @@ type Tunnel interface {
 	internalProxies() (ipn.Proxies, error)
 	// Get local services.
 	GetServices() (x.Services, error)
+
 	// Sets new default routes for the given engine, where engine is
 	// one of the constants (Ns4, Ns6, Ns46) defined in package settings.
 	SetRoute(engine int) error
 	// SetLinkAndRoutes sets the tun fd as link with mtu & engine as routes for the tunnel.
 	SetLinkAndRoutes(fd, mtu, engine int) error
+
 	// Sets pcap output to fpcap which is the absolute filepath
 	// to which a PCAP file will be written to.
 	// If len(fpcap) is 0, no PCAP file will be written.
