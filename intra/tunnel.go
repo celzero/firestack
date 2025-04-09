@@ -392,6 +392,7 @@ func fetchDNSInfo(r dnsx.Resolver, id string) string {
 		sb.WriteString(tr.Type())
 		sb.WriteString("/")
 		sb.WriteString(dnsx.Status2Str(tr.Status()))
+		sb.WriteString("/")
 		sb.WriteString(strconv.FormatInt(tr.P50(), 10))
 		sb.WriteString("ms] ")
 		for _, ipp := range tr.IPPorts() {
