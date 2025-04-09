@@ -975,10 +975,6 @@ func (r *resolver) chooseOne(ids ...string) string {
 		return ids[0]
 	}
 
-	preferred := make([]string, 0)
-	recoverables := make([]string, 0)
-	errored := make([]string, 0)
-
 	trs := make([]Transport, 0, len(ids))
 	r.RLock()
 	for _, id := range ids {
@@ -988,30 +984,38 @@ func (r *resolver) chooseOne(ids ...string) string {
 	}
 	r.RUnlock()
 
-	for _, t := range trs {
-		id := t.ID()
+	best, preferred, recoverables, errored, ended := Categorize(trs)
+	if len(best) > 0 {
+		return best[0].ID()
+	} else if len(preferred) > 0 {
+		return preferred[0].ID()
+	} else if len(recoverables) > 0 {
+		return recoverables[0].ID()
+	} else if len(errored) > 0 {
+		return errored[0].ID()
+	}
+	log.E("dns: pref: no transports for %v [all ended? %v]", ids, ended)
+	return ""
+}
+
+func Categorize(ts []Transport) (best []Transport, preferred []Transport, recoverables []Transport, errored []Transport, ended []Transport) {
+	for _, t := range ts {
 		switch t.Status() {
 		case Complete:
-			return id
+			best = append(best, t)
 		case Start, NoResponse:
-			preferred = append(preferred, id)
+			preferred = append(preferred, t)
 		case BadResponse, BadQuery:
-			preferred = append(preferred, id)
+			preferred = append(preferred, t)
 		case InternalError, TransportError, Unknown:
-			recoverables = append(recoverables, id)
+			recoverables = append(recoverables, t)
+		case DEnd: // discard
+			ended = append(ended, t)
 		default: // ClientError, SendFailed
-			errored = append(errored, id)
+			errored = append(errored, t)
 		}
 	}
-
-	if len(preferred) > 0 {
-		return preferred[0]
-	} else if len(recoverables) > 0 {
-		return recoverables[0]
-	} else if len(errored) > 0 {
-		return errored[0]
-	}
-	return ""
+	return
 }
 
 func (r *resolver) loadaddrs(csvaddr string) {
