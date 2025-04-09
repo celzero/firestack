@@ -34,7 +34,7 @@ type DNS64 interface {
 	// D64 synthesizes ans64 (AAAA) from ans6 if required, using resolver f.
 	// Returned ans64 is nil if no DNS64 synthesis is needed (not AAAA).
 	// Returned ans64 is ans6 if it already has AAAA records.
-	D64(network, id string, ans6 *dns.Msg) *dns.Msg
+	D64(network, id, uid string, ans6 *dns.Msg) *dns.Msg
 }
 
 type NAT64 interface {

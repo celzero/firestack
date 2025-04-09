@@ -152,7 +152,7 @@ func (d *dns64) RemoveResolver(id string) bool {
 
 // TODO: handle svcb/https ipv4hint/ipv6hint
 // datatracker.ietf.org/doc/html/draft-ietf-dnsop-svcb-https-10#section-7.4
-func (d *dns64) eval(network string, force64 bool, ansin *dns.Msg, r string) *dns.Msg {
+func (d *dns64) eval(network string, force64 bool, ansin *dns.Msg, r, uid string) *dns.Msg {
 	qname := xdns.QName(ansin)
 	// if question is AAAA, then answer must have AAAA; for example CNAME,
 	// records pointing no where must not be considered as AAAA answers
@@ -169,8 +169,8 @@ func (d *dns64) eval(network string, force64 bool, ansin *dns.Msg, r string) *dn
 	if !hasq6 || (hasans6 && !force64) || ans00006 {
 		// nb: has-aaaa-answer should cover for cases where
 		// the response is blocked by dnsx.RDNS
-		log.D("dns64: net(%s), no-op q(%s), q6(%t), ans6(%t), force64(%t), ans0000(%t)",
-			network, qname, hasq6, hasans6, force64, ans00006)
+		log.D("dns64: for(%s %s), no-op q(%s), q6(%t), ans6(%t), force64(%t), ans0000(%t)",
+			network, uid, qname, hasq6, hasans6, force64, ans00006)
 		return nil
 	}
 
@@ -182,18 +182,18 @@ func (d *dns64) eval(network string, force64 bool, ansin *dns.Msg, r string) *dn
 				ip64 = d.ip64[dnsx.Local464Resolver]
 			}
 		}
-		log.D("dns64: attempt underlay/local464 resolver %s ip64 w len(%d)", r, len(ip64))
+		log.D("dns64: attempt underlay/local464 resolver [%s@%s] ip64 w len(%d)", r, uid, len(ip64))
 	} else {
-		log.V("dns64: no resolver id(%s[%s]) registered", r, id)
+		log.V("dns64: for %s, no resolver id(%s[%s]) registered", uid, r, id)
 	}
 
-	ans4, err := d.query64(network, ansin, r)
+	ans4, err := d.query64(network, ansin, r, uid)
 	rgood := xdns.HasRcodeSuccess(ans4)
 	hasans := xdns.HasAnyAnswer(ans4)
 	ans0000 := xdns.AQuadAUnspecified(ans4)
 	if err != nil || ans4 == nil || !hasans || ans0000 {
-		log.W("dns64: skip: query(n:%s / a? %t) on resolver(%s[%s]/%s), code(good? %t / blocked? %t), err(%v)",
-			qname, hasans, r, id, network, rgood, ans0000, err)
+		log.W("dns64: skip: for %s, query(n:%s / a? %t) on resolver(%s[%s]/%s), code(good? %t / blocked? %t), err(%v)",
+			uid, qname, hasans, r, id, network, rgood, ans0000, err)
 		return nil
 	}
 
@@ -224,15 +224,15 @@ func (d *dns64) eval(network string, force64 bool, ansin *dns.Msg, r string) *dn
 	if !didTranslate {
 		// may be there were no A records in ans4; or,
 		// xdns.ToQuadA failed for every A ans4 record
-		log.W("dns64: no rr64 translations done on %s[%s]", r, id)
+		log.W("dns64: for %s: no rr64 translations done on %s[%s]", uid, r, id)
 		return nil
 	} else {
-		log.D("dns64: translated on %s[%s] response(%v)", r, id, rr64)
+		log.D("dns64: for %s: translated on %s[%s] response(%v)", uid, r, id, rr64)
 	}
 
 	ans64 := xdns.EmptyResponseFromMessage(ansin) // may be nil
 	if ans64 == nil {
-		log.W("dns64: err synth ans64 on %s[%s] for q %s", r, id, qname)
+		log.W("dns64: for %s: err synth ans64 on %s[%s] for q %s", uid, r, id, qname)
 		return nil
 	}
 	ans64.Answer = append(ans64.Answer, rr64...)
@@ -240,7 +240,7 @@ func (d *dns64) eval(network string, force64 bool, ansin *dns.Msg, r string) *dn
 }
 
 // query64 answers IPv4 query from the given IPv6 query.
-func (d *dns64) query64(network string, msg6 *dns.Msg, r string) (*dns.Msg, error) {
+func (d *dns64) query64(network string, msg6 *dns.Msg, r, uid string) (*dns.Msg, error) {
 	msg4 := xdns.Request4FromResponse6(msg6) // may be nil
 	if msg4 == nil || !xdns.HasAnyQuestion(msg4) {
 		return nil, errQuery
@@ -250,11 +250,11 @@ func (d *dns64) query64(network string, msg6 *dns.Msg, r string) (*dns.Msg, erro
 
 	q4 := xdns.QName(msg4)
 
-	res, err := dialers.Query(msg4, r)
+	res, err := dialers.QueryFor(msg4, uid, r)
 
 	hasAns := xdns.HasAnyAnswer(res)
-	log.D("dns64: upstream(%s): %s q(%s) / a(%t) / e(%v) / e-not-nil(%t)",
-		proto, r, q4, hasAns, err, err != nil)
+	log.D("dns64: for %s over %s: %s q(%s) / a(%t) / e(%v) / e-not-nil(%t)",
+		uid, proto, r, q4, hasAns, err, err != nil)
 	if err != nil {
 		return nil, err
 	}
@@ -264,11 +264,11 @@ func (d *dns64) query64(network string, msg6 *dns.Msg, r string) (*dns.Msg, erro
 	// res.Truncated never likely happens w/ DOH, ODOH, DOT?
 	if res.Truncated && proto != dnsx.NetTypeTCP {
 		// else if: returned response is truncated dns ans, retry over tcp
-		res, err = dialers.Query(msg4, r)
+		res, err = dialers.QueryFor(msg4, uid, r)
 
 		hasAns = xdns.HasAnyAnswer(res)
-		log.D("dns64: tcp: upstream %s q(%s) / a(%d) / e(%v) / e-not-nil(%t)",
-			r, q4, hasAns, err, err != nil)
+		log.D("dns64: tcp: for %s over %s: q(%s) / a(%d) / e(%v) / e-not-nil(%t)",
+			uid, r, q4, hasAns, err, err != nil)
 		if err != nil {
 			return nil, err
 		} else if !hasAns {

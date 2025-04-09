@@ -35,7 +35,7 @@ type fakeResolver struct {
 	*net.Resolver
 }
 
-func (r fakeResolver) Lookup(q []byte, tids ...string) ([]byte, error) {
+func (r fakeResolver) Lookup(q []byte, _ ...string) ([]byte, error) {
 	// return nil, errors.New("lookup: not implemented")
 	msg := xdns.AsMsg(q)
 	if msg == nil {
@@ -71,6 +71,10 @@ func (r fakeResolver) Lookup(q []byte, tids ...string) ([]byte, error) {
 	ans.Answer = rrs
 
 	return ans.Pack()
+}
+
+func (r fakeResolver) LookupFor(q []byte, _ string) ([]byte, error) {
+	return r.Lookup(q)
 }
 
 func (r fakeResolver) LookupNetIP(ctx context.Context, network, host string) ([]netip.Addr, error) {

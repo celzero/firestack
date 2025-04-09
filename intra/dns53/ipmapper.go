@@ -76,6 +76,11 @@ func (m *ipmapper) Lookup(q []byte, tids ...string) ([]byte, error) {
 }
 
 // Implements IPMapper.
+func (m *ipmapper) LookupFor(q []byte, uid string) ([]byte, error) {
+	return m.queryAny2(q, uid)
+}
+
+// Implements IPMapper.
 func (m *ipmapper) LookupNetIP(ctx context.Context, network, host string) ([]netip.Addr, error) {
 	return m.queryIP(ctx, network, host, core.UNKNOWN_UID_STR)
 }

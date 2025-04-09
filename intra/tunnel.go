@@ -66,9 +66,9 @@ type Bridge interface {
 // or a DNS query is completed.
 type Listener interface {
 	SocketListener
-	x.DNSListener
-	rnet.ServerListener
-	x.ProxyListener
+	DNSListener
+	ServerListener
+	ProxyListener
 }
 
 // Tunnel represents an Intra session.

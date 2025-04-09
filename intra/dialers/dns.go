@@ -93,3 +93,30 @@ func Query(msg *dns.Msg, tids ...string) (*dns.Msg, error) {
 	}
 	return ans, nil
 }
+
+// QueryFor forward a DNS request for uid (if set)
+// or to chosen transport, tid (if uid is not set).
+func QueryFor(msg *dns.Msg, uid, tid string) (*dns.Msg, error) {
+	q, qerr := msg.Pack()
+	if qerr != nil {
+		return nil, qerr
+	}
+
+	var r []byte
+	var rerr error
+	if uid == core.UNKNOWN_UID_STR {
+		r, rerr = ipm.Lookup(q, tid)
+	} else {
+		r, rerr = ipm.LookupFor(q, uid)
+	}
+
+	if rerr != nil {
+		return nil, rerr
+	}
+
+	ans := &dns.Msg{}
+	if aerr := ans.Unpack(r); aerr != nil {
+		return nil, aerr
+	}
+	return ans, nil
+}

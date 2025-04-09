@@ -70,6 +70,7 @@ func (h IPSetType) String() string {
 // For internal used by firestack.
 type IPMapper interface {
 	Lookup(q []byte, tid ...string) ([]byte, error)
+	LookupFor(q []byte, uid string) ([]byte, error)
 	LookupNetIP(ctx context.Context, network, host string) ([]netip.Addr, error)
 	LookupNetIPFor(ctx context.Context, network, host, uid string) ([]netip.Addr, error)
 	LookupNetIPOn(ctx context.Context, network, host string, tid ...string) ([]netip.Addr, error)
@@ -187,6 +188,15 @@ func (m *ipmap) Lookup(q []byte, tids ...string) ([]byte, error) {
 		return nil, &net.DNSError{Err: "no resolver", Name: "Lookup", Server: "localhost"}
 	}
 	return r.Lookup(q, tids...)
+}
+
+// Implements IPMapper.
+func (m *ipmap) LookupFor(q []byte, uid string) ([]byte, error) {
+	r := m.r // actual ipmapper implementation
+	if r == nil {
+		return nil, &net.DNSError{Err: "no resolver", Name: "LookupFor", Server: "localhost"}
+	}
+	return r.LookupFor(q, uid)
 }
 
 // Implements IPMapper.
