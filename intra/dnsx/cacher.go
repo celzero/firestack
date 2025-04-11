@@ -54,11 +54,17 @@ const (
 var (
 	errNoQuestion            = errors.New("no question")
 	errNoAnswer              = errors.New("no answer")
+	errServFail              = errors.New("answer servfail")
 	errHangover              = errors.New("no connectivity")
 	errNilCacheResponse      = errors.New("nil cache response")
 	errSkipInternalCache     = errors.New("skip internal cache")
 	errCacheResponseMismatch = errors.New("cache response mismatch")
 )
+
+type Cacher interface {
+	Transport
+	Clear()
+}
 
 type cache struct {
 	mu *sync.RWMutex    // protects cache, cres, and scrubtime
@@ -84,7 +90,7 @@ type cres struct {
 // todo: 0s answer ttl? native caching in alg?
 type ctransport struct {
 	sync.RWMutex // protects store
-	Transport    // the underlying transport
+	Transport    // embeds the underlying transport
 
 	ctx        context.Context
 	done       context.CancelFunc
@@ -97,6 +103,8 @@ type ctransport struct {
 	reqbarrier *core.Barrier[*cres, string] // coalesce requests for the same query
 	hangover   *core.Hangover               // tracks send failure threshold
 }
+
+var _ Cacher = (*ctransport)(nil)
 
 func NewDefaultCachingTransport(t Transport) Transport {
 	return NewCachingTransport(t, defttl)
@@ -130,6 +138,7 @@ func NewCachingTransport(t Transport, ttl time.Duration) Transport {
 		reqbarrier: core.NewBarrier[*cres](battl),
 		hangover:   core.NewHangover(),
 	}
+	context.AfterFunc(ctx, ct.Clear)
 	log.I("cache: (%s) setup: %s; opts: %s", ct.ID(), ct.GetAddr(), ct)
 	return ct
 }
@@ -509,7 +518,23 @@ func (t *ctransport) Status() int {
 
 func (t *ctransport) Stop() error {
 	t.done()
-	return t.Transport.Stop()
+	// does not call stop on underlying transport as
+	// it does not "own" it but merely "decorates" it
+	return nil
+}
+
+func (t *ctransport) Clear() {
+	t.Lock()
+	defer t.Unlock()
+
+	defer clear(t.store)
+	for _, c := range t.store {
+		if c != nil {
+			c.mu.Lock()
+			clear(c.c)
+			c.mu.Unlock()
+		}
+	}
 }
 
 func copySummary(from *x.DNSSummary) (to *x.DNSSummary) {
