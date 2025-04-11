@@ -368,7 +368,10 @@ func (r *resolver) Remove(id string) (ok bool) {
 		log.I("dns: removing reserved transport %s", id)
 	}
 
+	r.RLock()
 	_, hasTransport := r.transports[id]
+	r.RUnlock()
+
 	if hasTransport {
 		if id == System {
 			core.Gx("r.Remove64", func() { r.Remove64(System) })
