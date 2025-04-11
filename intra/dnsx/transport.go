@@ -283,14 +283,20 @@ func (r *resolver) Add(dt x.DNSTransport) (ok bool) {
 
 	switch t.Type() {
 	case DNS53, DNSCrypt, DOH, DOT, ODOH:
-		ct := NewCachingTransport(t, ttl10m)
 		tid := t.ID()
+
 		r.Lock()
-		r.stopIfExistsLocked(tid)
-		r.transports[tid] = t // regular
-		if ct != nil {
-			r.stopIfExistsLocked(ct.ID())
-			r.transports[ct.ID()] = ct // cached
+		// stop existing transport if different
+		if oldt := r.transports[tid]; t != oldt {
+			r.stopIfExistsLocked(tid)
+			r.transports[tid] = t
+		}
+		// always recreate caching transport
+		if ct := NewCachingTransport(t, ttl10m); ct != nil {
+			ctid := ct.ID()
+			r.stopIfExistsLocked(ctid)
+			r.transports[ctid] = ct
+			caching = true
 		}
 		r.Unlock()
 
@@ -300,7 +306,8 @@ func (r *resolver) Add(dt x.DNSTransport) (ok bool) {
 		}
 
 		core.Go("r.onAdd", func() { r.listener.OnDNSAdded(tid) })
-		log.I("dns: add transport %s@%s; cache? %t", t.ID(), t.GetAddr(), ct != nil)
+		log.I("dns: add transport %s@%s; caching? %t",
+			t.ID(), t.GetAddr(), caching)
 
 		return true
 	default:
@@ -825,25 +832,29 @@ func (r *resolver) StopAll() {
 			_ = dc.Stop()
 		}
 
+		if p, err := r.plus(); err == nil {
+			_ = p.Stop()
+		}
+
 		close(r.smms) // close listener chan
 	})
 }
 
-func (r *resolver) refresh() {
+func (r *resolver) all() []Transport {
 	r.RLock()
-	all := make([]Transport, 0, len(r.transports))
+	out := make([]Transport, 0, len(r.transports))
 	for _, t := range r.transports {
-		all = append(all, t)
+		out = append(out, t)
 	}
 	r.RUnlock()
+	return out
+}
 
-	for _, t := range all {
-		// skip cached transports:
-		// re-adding regular transports also creates NEW cached transports
-		// doing so is anyway equivalent to a cache flush; and so, there
-		// isn't any need to re-add cached transports, specifically.
-		if !cachedTransport(t) {
-			r.Add(t) // add one at a time...
+func (r *resolver) refresh() {
+	for _, t := range r.all() {
+		// clear caches of cached transports:
+		if ct := asCachedTransport(t); ct != nil {
+			ct.Clear() // one at a time ...
 		}
 	}
 }
@@ -857,9 +868,14 @@ func (r *resolver) Refresh() (string, error) {
 
 	go r.refresh()
 	go dialers.Clear()
-	s := map2csv(r.transports)
+	s := tr2csv(r.all())
 	if dc, err := r.dcProxy(); err == nil {
 		if x, err := dc.Refresh(); err == nil {
+			s += "," + x
+		}
+	}
+	if p, err := r.plus(); err == nil {
+		if x, err := p.Refresh(); err == nil {
 			s += "," + x
 		}
 	}
@@ -871,12 +887,14 @@ func (r *resolver) LiveTransports() string {
 		log.W("dns: liveTransports: closed for business")
 		return ""
 	}
-	s := map2csv(r.transports)
+	s := tr2csv(r.all())
 	if dc, err := r.dcProxy(); err == nil {
 		x := dc.LiveTransports()
-		if len(x) > 0 {
-			s += x
-		}
+		s += "," + x
+	}
+	if p, err := r.plus(); err == nil {
+		x := p.LiveTransports()
+		s += "," + x
 	}
 	return trimcsv(s)
 }
@@ -1185,10 +1203,12 @@ func qtype(msg *dns.Msg) int {
 	return int(xdns.QType(msg))
 }
 
-func map2csv(ts map[string]Transport) string {
+func tr2csv(ts []Transport) string {
 	s := ""
 	for _, t := range ts {
-		s += t.ID() + ","
+		if activeTransport(t) {
+			s += t.ID() + ","
+		}
 	}
 	return trimcsv(s)
 }
@@ -1217,6 +1237,13 @@ func PrefixFor(id string) string {
 		return fixedprefix
 	}
 	return ""
+}
+
+func asCachedTransport(t Transport) Cacher {
+	if ct, ok := t.(Cacher); ok {
+		return ct
+	}
+	return nil
 }
 
 func cachedTransport(t Transport) bool {
