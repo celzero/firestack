@@ -24,15 +24,12 @@ func ResolveFor(nom string, uid string) ([]netip.Addr, error) {
 
 // Resolve resolves hostname to IP addresses, bypassing cache.
 // If resolution fails, entries from the cache are returned, if any.
-func Resolve(hostname string, tid ...string) (addrs []netip.Addr, err error) {
+func Resolve(hostname string, tids ...string) (addrs []netip.Addr, err error) {
 	ctx := context.Background()
 	// both lookups may return addrs = nil, err = nil
 	// (see: ipmapper.go:queryIP2 and protect.NeverResolve)
-	if len(tid) > 0 {
-		addrs, err = ipm.LookupNetIPOn(ctx, "ip", hostname, tid...)
-	} else { // ipm.LookupNetIP itself has a short-term cache (ipmapper.go:battl)
-		addrs, err = ipm.LookupNetIP(ctx, "ip", hostname)
-	}
+	// ipm.LookupNetIPxxx itself has a short-term cache (ipmapper.go:battl)
+	addrs, err = ipm.LookupNetIPOn(ctx, "ip", hostname, tids...)
 
 	if len(addrs) <= 0 { // check cache
 		if addrs = CachedAddrs(hostname); len(addrs) > 0 {
