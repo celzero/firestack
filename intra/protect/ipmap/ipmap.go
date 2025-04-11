@@ -32,6 +32,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	x "github.com/celzero/firestack/intra/backend"
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
@@ -69,11 +70,21 @@ func (h IPSetType) String() string {
 // IPMapper is an interface for resolving hostnames to IP addresses.
 // For internal used by firestack.
 type IPMapper interface {
-	Lookup(q []byte, tid ...string) ([]byte, error)
+	// Lookup resolves q over one of the tids. If tids is empty, either
+	// dnsx.Default, and if that fails, dnsx.System or dnsx.Goos tids.
+	Lookup(q []byte, tids ...string) ([]byte, error)
+	// LookupFor resolves q over client-code preferred tid conveyed via
+	// DNSOpts returned from DNSListener.OnQuery. As a special case, UID
+	// may be protect.UidSelf ("rethink") or core.UNKNOWN_UID_STR ("-1")
+	// but otherwise it is usually a Linux user-id assigned to a process
+	// which presumably is requesting this lookup.
 	LookupFor(q []byte, uid string) ([]byte, error)
+	// LookupNetIP is like Lookup but with empty tids.
 	LookupNetIP(ctx context.Context, network, host string) ([]netip.Addr, error)
+	// LookupNetIPFor is like LookupFor
 	LookupNetIPFor(ctx context.Context, network, host, uid string) ([]netip.Addr, error)
-	LookupNetIPOn(ctx context.Context, network, host string, tid ...string) ([]netip.Addr, error)
+	// LookupNetIPOn is like Lookup but with tids set to some preset IDs.
+	LookupNetIPOn(ctx context.Context, network, host string, tids ...string) ([]netip.Addr, error)
 }
 
 // IPMap maps hostnames to IPSets.
@@ -385,7 +396,19 @@ func (s *IPSet) add(hostOrIP string) bool {
 		return false
 	}
 
-	resolved, err := r.LookupNetIPFor(context.Background(), "ip", hostOrIP, protect.UidSelf)
+	ctx := context.Background()
+
+	var resolved []netip.Addr
+	var err error
+	if s.typ == Protected {
+		// dnsx.System is "never resolved" and hence can be used to resolve
+		// "protected" IPSets like the one used by bootstrap's DoH (x.Default)
+		// see: protect.NeverResolve and dnsx.RegisterAddrs
+		resolved, err = r.LookupNetIPOn(ctx, "ip", hostOrIP, x.System)
+	} else if s.typ == Regular || s.typ == AutoType {
+		resolved, err = r.LookupNetIP(ctx, "ip", hostOrIP)
+	}
+
 	if err != nil {
 		log.W("ipmap: Add: err resolving %s: %v", hostOrIP, err)
 		return false
