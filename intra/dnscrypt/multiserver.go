@@ -406,7 +406,8 @@ func (proxy *DcMulti) Refresh() (string, error) {
 		return "", err
 	}
 	go proxy.refreshRoutes()
-	return proxy.LiveTransports(), nil
+
+	return proxy.ID(), nil
 }
 
 // start starts this dnscrypt proxy
