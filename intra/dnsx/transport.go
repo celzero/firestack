@@ -656,6 +656,12 @@ func (r *resolver) determineTransport(id string) Transport {
 	if len(id) <= 0 {
 		return nil
 	}
+	if id == Default || id == CT+Default {
+		r.RLock()
+		d := r.transports[Default]
+		r.RUnlock()
+		return d
+	}
 
 	var id0, id1 string
 	if id == Local || id == CT+Local { // mdns never cached
@@ -695,12 +701,13 @@ func (r *resolver) determineTransport(id string) Transport {
 	tf = r.transports[Default]
 	r.RUnlock()
 
-	if t0 != nil {
+	if t0 != nil && activeTransport(t0) {
 		return t0
 	} else if t1 != nil {
 		return t1
 	} else if canUseDefaultDNS(id0) {
-		return tf
+		log.W("dns: fwd: %s is missing; using default", id0)
+		return tf // todo: assert tf != nil?
 	}
 
 	return nil
