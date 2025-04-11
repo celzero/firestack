@@ -227,7 +227,7 @@ func AddDNSCryptTransport(t Tunnel, id, stamp string) (err error) {
 	}
 
 	var tm dnsx.TransportMult
-	if tm, err = r.GetMult(dnsx.DcProxy); err != nil {
+	if tm, err = r.GetMultInternal(dnsx.DcProxy); err != nil {
 		return err
 	}
 	// todo: unexpose DcMulti, cast to TransportMult
@@ -250,7 +250,7 @@ func AddDNSCryptRelay(t Tunnel, stamp string) error {
 	if rerr != nil {
 		return rerr
 	}
-	if tm, err = r.GetMult(dnsx.DcProxy); err != nil {
+	if tm, err = r.GetMultInternal(dnsx.DcProxy); err != nil {
 		return err
 	}
 	if p, ok := tm.(*dnscrypt.DcMulti); ok {
@@ -259,7 +259,6 @@ func AddDNSCryptRelay(t Tunnel, stamp string) error {
 	} else {
 		return dnsx.ErrNoDcProxy
 	}
-
 }
 
 func addDNSTransport(r dnsx.Resolver, t dnsx.Transport) error {

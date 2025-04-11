@@ -130,21 +130,24 @@ type TransportMultInternal interface {
 	x.DNSTransportMult
 }
 
-type Resolver interface {
-	TransportMultInternal
-	ResolverSelf
-	RdnsResolver
-	NatPt
-
+type TransportProviderInternal interface {
 	// GetInternal returns the internal transport interface for the given ID.
 	GetInternal(id string) (Transport, error)
 
 	// special purpose pre-defined transports:
 
+	// GetMultInternal returns multi-transport, if available
+	GetMultInternal(id string) (TransportMult, error)
 	// Gateway implements a DNS ALG transport
 	Gateway() Gateway
-	// GetMult returns multi-transport, if available
-	GetMult(id string) (TransportMult, error)
+}
+
+type Resolver interface {
+	TransportProviderInternal
+	TransportMultInternal
+	ResolverSelf
+	RdnsResolver
+	NatPt
 
 	// IsDnsAddr returns true if the ip:port is resolver's fake endpoint
 	IsDnsAddr(ipport netip.AddrPort) bool
@@ -306,7 +309,7 @@ func (r *resolver) Add(dt x.DNSTransport) (ok bool) {
 	return false
 }
 
-func (r *resolver) GetMult(id string) (TransportMult, error) {
+func (r *resolver) GetMultInternal(id string) (TransportMult, error) {
 	if r.closed.Load() {
 		return nil, errResolverClosed
 	}
@@ -324,7 +327,11 @@ func (r *resolver) GetMult(id string) (TransportMult, error) {
 }
 
 func (r *resolver) dcProxy() (TransportMult, error) {
-	return r.GetMult(DcProxy)
+	return r.GetMultInternal(DcProxy)
+}
+
+func (r *resolver) plus() (TransportMult, error) {
+	return r.GetMultInternal(Plus)
 }
 
 func (r *resolver) GetInternal(id string) (Transport, error) {
