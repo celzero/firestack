@@ -20,6 +20,8 @@ import (
 	"github.com/miekg/dns"
 )
 
+const plusSupportsCachedTransports = false
+
 const plusMaxTries = 6
 
 const ttl10s = 10 * time.Second
@@ -192,8 +194,9 @@ func (t *plus) forward(network string, q *dns.Msg, smm *x.DNSSummary, all ...Tra
 		}
 
 		id := tr.ID()
-		// todo: remove cached transport prefix? see also: Add()
-		// id, _ := strings.CutPrefix(tr.ID(), CT)
+		if plusSupportsCachedTransports {
+			id, _ = strings.CutPrefix(id, CT)
+		}
 		if _, ok := visited[id]; ok {
 			continue
 		}
@@ -264,7 +267,9 @@ func (t *plus) Add(tr x.DNSTransport) bool {
 		return false
 	}
 
-	if cachedTransport(newt) {
+	cachingTransport := cachedTransport(newt)
+	oldTransportStopped := false
+	if !plusSupportsCachedTransports && cachingTransport {
 		log.W("plus: add %s@%s: err no cached transports", newt.ID(), newt.GetAddr())
 		return false
 	}
@@ -274,26 +279,35 @@ func (t *plus) Add(tr x.DNSTransport) bool {
 
 	if oldt, ok := t.transports[tr.ID()]; ok {
 		if oldt == newt {
+			log.I("plus: add %s@%s: already present", newt.ID(), newt.GetAddr())
 			return true
 		}
 		go oldt.Stop()
+		oldTransportStopped = true
 	}
 
 	t.transports[tr.ID()] = newt
+
+	log.I("plus: add %s@%s; old stopped? %t, cacher? %t",
+		newt.ID(), newt.GetAddr(), oldTransportStopped, cachingTransport)
 	return true
 }
 
 // Remove implements TransportMult.
-func (t *plus) Remove(id string) bool {
+func (t *plus) Remove(id string) (y bool) {
 	t.mu.Lock()
-	defer t.mu.Unlock()
+	tr := t.transports[id]
+	delete(t.transports, id)
+	t.mu.Unlock()
 
-	if tr, ok := t.transports[id]; ok {
-		go tr.Stop()
-		delete(t.transports, id)
-		return true
+	if tr != nil {
+		tr.Stop()
+		y = true
 	}
-	return false
+
+	log.I("plus: remove: %s? %t", id, y)
+
+	return
 }
 
 // Get implements TransportMult.
@@ -309,12 +323,8 @@ func (t *plus) Get(id string) (x.DNSTransport, error) {
 
 // Refresh implements TransportMult.
 func (t *plus) Refresh() (string, error) {
-	go func() {
-		for _, tr := range t.all() { // may be 0 len
-			t.Add(tr) // add one at a time...
-		}
-	}()
-
+	// no-op as dialers.Clear in transport.go already clears the cache
+	// that holds ips <> doh hostnames mapping.
 	return t.ID(), nil
 }
 
