@@ -53,7 +53,7 @@ type DcMulti struct {
 	proxies             ipn.ProxyProvider
 	ctx                 context.Context
 	sigterm             context.CancelFunc
-	lastStatus          int
+	lastStatus          *core.Volatile[int]
 	lastAddr            string
 	ctl                 protect.Controller
 	exit                ipn.Proxy // may be nil
@@ -466,6 +466,7 @@ func (proxy *DcMulti) start() error {
 
 // Stop stops this dnscrypt proxy
 func (proxy *DcMulti) Stop() error {
+	proxy.lastStatus.Store(dnsx.DEnd)
 	proxy.sigterm()
 	return nil
 }
@@ -642,8 +643,9 @@ func (p *DcMulti) Type() string {
 
 // Query implements dnsx.TransportMult
 func (p *DcMulti) Query(network string, q *dns.Msg, smm *x.DNSSummary) (r *dns.Msg, err error) {
+	// TODO: check if server is active (status != DEnd)
 	r, err = resolve(network, q, p.serversInfo.getOne(), smm)
-	p.lastStatus = smm.Status
+	p.lastStatus.Store(smm.Status)
 	p.lastAddr = smm.Server
 	p.est.Add(smm.Latency)
 	return
@@ -661,7 +663,7 @@ func (p *DcMulti) IPPorts() []netip.AddrPort {
 
 // Status implements dnsx.TransportMult
 func (p *DcMulti) Status() int {
-	return p.lastStatus
+	return p.lastStatus.Load()
 }
 
 func stamp2str(s stamps.ServerStamp) string {
@@ -683,7 +685,7 @@ func NewDcMult(pctx context.Context, px ipn.ProxyProvider, ctl protect.Controlle
 		certIgnoreTimestamp: false,
 		serversInfo:         newServersInfo(),
 		liveServers:         nil,
-		lastStatus:          dnsx.Start,
+		lastStatus:          core.NewVolatile(dnsx.Start),
 		proxies:             px,
 		lastAddr:            "",
 		ctl:                 ctl,
