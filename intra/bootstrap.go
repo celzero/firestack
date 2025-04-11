@@ -299,7 +299,7 @@ func (b *bootstrap) Status() int {
 	if tr := b.tr; tr != nil {
 		return tr.Status()
 	}
-	return dnsx.ClientError
+	return dnsx.ClientError // see also: dnsx/plus.go
 }
 
 func (b *bootstrap) Stop() error {

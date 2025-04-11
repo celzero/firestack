@@ -53,6 +53,7 @@ const (
 	BlockAll  = x.BlockAll
 	Alg       = x.Alg
 	DcProxy   = x.DcProxy
+	Plus      = x.Plus
 	IpMapper  = x.IpMapper
 	NoDNS     = ""
 
@@ -80,6 +81,7 @@ var (
 	systemprefix  = protect.UidSystem + "."
 	algprefix     = "alg."
 	cacheprefix   = "cached."
+	plusprefix    = "plus."
 	d64prefix     = "64."
 	defaultprefix = "d."
 	presetprefix  = "pre."
@@ -281,6 +283,17 @@ func (r *resolver) Add(dt x.DNSTransport) (ok bool) {
 		return false
 	}
 
+	if plusTransport(t) {
+		plus, err := r.plus()
+		if err != nil {
+			log.W("dns: plus: cannot add %s; %v", t.ID(), err)
+			return false
+		}
+		plus.Add(t) // onDNSAdded listener is not called
+		return true
+	}
+
+	caching := false
 	switch t.Type() {
 	case DNS53, DNSCrypt, DOH, DOT, ODOH:
 		tid := t.ID()
@@ -385,6 +398,11 @@ func (r *resolver) Remove(id string) (ok bool) {
 	}
 
 	if tm, err := r.dcProxy(); err == nil { // remove from dc-proxy, if any
+		hasTransport = tm.Remove(id) || hasTransport
+		hasTransport = tm.Remove(CT+id) || hasTransport
+	}
+
+	if tm, err := r.plus(); err == nil { // remove from plus, if any
 		hasTransport = tm.Remove(id) || hasTransport
 		hasTransport = tm.Remove(CT+id) || hasTransport
 	}
@@ -662,6 +680,8 @@ func (r *resolver) determineTransport(id string) Transport {
 			id0 = System
 			id1 = Goos
 		}
+	} else if isPlus(id) {
+		id0 = Plus // replace it with its mult equivalent
 	} else {
 		id0 = id
 	}
@@ -1105,9 +1125,9 @@ func IsEncrypted(t Transport) bool {
 
 func isReserved(id string) bool {
 	switch id {
-	case Default, Goos, System, Local, Alg, DcProxy, BlockAll, Preferred, Bootstrap, BlockFree, Fixed, Preset:
+	case Default, Goos, System, Local, Alg, Plus, DcProxy, BlockAll, Preferred, Bootstrap, BlockFree, Fixed, Preset:
 		return true
-	case CT + Default, CT + Goos, CT + System, CT + Local, CT + Alg, CT + DcProxy, CT + BlockAll,
+	case CT + Default, CT + Goos, CT + System, CT + Local, CT + Alg, CT + Plus, CT + DcProxy, CT + BlockAll,
 		CT + Bootstrap, CT + Preferred, CT + BlockFree, CT + Fixed, CT + Preset:
 		return true
 	}
@@ -1116,9 +1136,15 @@ func isReserved(id string) bool {
 
 func canUseDefaultDNS(id string) bool {
 	switch id {
-	case System, Local, Alg, Preferred, BlockFree:
+	// system can never be subst by default; only by Goos
+	case System, CT + System:
+		return false
+	// no other transport can do what mdns does
+	case Local, CT + Local:
+		return false
+	case Alg, Preferred, Plus, BlockFree:
 		return true
-	case CT + System, CT + Local, CT + Alg, CT + Preferred, CT + BlockFree:
+	case CT + Alg, CT + Preferred, CT + Plus, CT + BlockFree:
 		return true
 	}
 	return false
@@ -1162,9 +1188,9 @@ func overrideProxyIfNeeded(pid string, ids ...string) string {
 			return NetExitProxy
 		case CT + Goos, CT + Local: // exit
 			return NetExitProxy
-		case Bootstrap, Default, System, Preset: // base
+		case Bootstrap, Default, Plus, System, Preset: // base
 			return NetBaseProxy
-		case CT + Bootstrap, CT + Default, CT + System, CT + Preset: // base
+		case CT + Bootstrap, CT + Default, CT + Plus, CT + System, CT + Preset: // base
 			return NetBaseProxy
 		}
 	}
@@ -1177,9 +1203,9 @@ func skipBlock(tr ...Transport) bool {
 			continue
 		}
 		switch t.ID() {
-		case Default, BlockFree, Alg, Bootstrap:
+		case Default, Plus, BlockFree, Alg, Bootstrap:
 			return true
-		case CT + Default, CT + BlockFree, CT + Alg, CT + Bootstrap:
+		case CT + Default, CT + Plus, CT + BlockFree, CT + Alg, CT + Bootstrap:
 			return true
 		}
 	}
@@ -1234,6 +1260,8 @@ func PrefixFor(id string) string {
 		return d64prefix
 	case Default, CT + Default:
 		return defaultprefix
+	case Plus, CT + Plus:
+		return plusprefix
 	case Preset:
 		return presetprefix
 	case Fixed:
@@ -1251,6 +1279,18 @@ func asCachedTransport(t Transport) Cacher {
 
 func cachedTransport(t Transport) bool {
 	return strings.HasSuffix(t.ID(), CT) || strings.HasPrefix(t.GetAddr(), cacheprefix)
+}
+
+func plusTransport(t Transport) bool {
+	return isPlus(t.ID()) || strings.HasPrefix(t.GetAddr(), plusprefix)
+}
+
+func isPlus(id string) bool {
+	return strings.HasPrefix(id, Plus) || strings.HasPrefix(id, CT+Plus)
+}
+
+func activeTransport(t Transport) bool {
+	return t.Status() != DEnd
 }
 
 func clos(c io.Closer) {

@@ -149,7 +149,8 @@ func NewTunnel(fd, mtu int, fakedns string, dtr DefaultDNS, bdg Bridge) (t Tunne
 	services := rnet.NewServices(ctx, proxies, bdg, bdg)
 
 	if proxies == nil || services == nil {
-		return nil, fmt.Errorf("tun: no proxies? %t or services? %t", proxies == nil, services == nil)
+		return nil, fmt.Errorf("tun: no proxies? %t or services? %t",
+			proxies == nil, services == nil)
 	}
 
 	if err := dtr.kickstart(proxies); err != nil {
@@ -163,6 +164,7 @@ func NewTunnel(fd, mtu int, fakedns string, dtr DefaultDNS, bdg Bridge) (t Tunne
 	resolver.Add(newGoosTransport(ctx, proxies))            // os-resolver; fixed
 	resolver.Add(newBlockAllTransport())                    // fixed
 	resolver.Add(newFixedTransport())                       // fixed
+	resolver.Add(newPlusTransport(ctx))                     // fixed
 	resolver.Add(newDNSCryptTransport(ctx, proxies, bdg))   // fixed
 	resolver.Add(newMDNSTransport(ctx, dualstack, proxies)) // fixed
 

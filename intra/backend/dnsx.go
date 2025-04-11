@@ -18,6 +18,8 @@ const ( // see dnsx/transport.go
 
 	// special singleton DNS transports (IDs)
 
+	// Multiple DoH, DoT, ODoH resolvers
+	Plus = "Plus"
 	// Go determined default resolver (built-in)
 	Goos = "Goos"
 	// network/os provided dns (init using intra.SetSystemDNS)
