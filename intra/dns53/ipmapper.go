@@ -144,13 +144,13 @@ func (m *ipmapper) queryIP2(_ context.Context, network, host, uid string, tid ..
 	}
 
 	var val4, val6 *core.V[answer, string]
-	if len(tid) > 0 {
+	if len(tid) > 0 { // always choose one among these tids
 		val4, _ = m.ba.Do(key4(host, tid...), m.lookupon(q4, tid...))
 		val6, _ = m.ba.Do(key6(host, tid...), m.lookupon(q6, tid...))
-	} else if uid != core.UNKNOWN_UID_STR {
+	} else if uid != core.UNKNOWN_UID_STR { // client code chooses a tid
 		val4, _ = m.ba.Do(key4(host, uid), m.lookupfor(q4, uid))
 		val6, _ = m.ba.Do(key6(host, uid), m.lookupfor(q6, uid))
-	} else {
+	} else { // either Default or System/Goos
 		val4, _ = m.ba.Do(key4(host, dnsx.Default), m.locallookup(q4))
 		val6, _ = m.ba.Do(key6(host, dnsx.Default), m.locallookup(q6))
 	}
@@ -232,6 +232,10 @@ func (m *ipmapper) queryAny2(q []byte, uid string, tids ...string) ([]byte, erro
 	}
 }
 
+// lookupfor resolves q given a uid. If uid is protect.SelfUid, the client
+// code (via DNSListener.OnQuery) may or may not choose dnsx.Default. If uid
+// is any other "integer" including "-1" (core.UNKNOWN_UID_STR), the client
+// code is free to choose a transport as it sees fit.
 func (m *ipmapper) lookupfor(q []byte, uid string) func() (answer, error) {
 	return func() (answer, error) {
 		a, tid, err := m.r.LookupFor(q, uid)
@@ -239,6 +243,9 @@ func (m *ipmapper) lookupfor(q []byte, uid string) func() (answer, error) {
 	}
 }
 
+// lookupon always resolves on one of the chosen tids
+// (if empty, it may or may not use dnsx.Default;
+// see: dnsx.transport.go:determineTransport)
 func (m *ipmapper) lookupon(q []byte, tids ...string) func() (answer, error) {
 	return func() (answer, error) {
 		a, tid, err := m.r.Lookup(q, tids...)
@@ -246,6 +253,8 @@ func (m *ipmapper) lookupon(q []byte, tids ...string) func() (answer, error) {
 	}
 }
 
+// locallookup resolves on dnsx.Default and then on dnsx.System or dnsx.Goos
+// if dnsx.Default fails.
 func (m *ipmapper) locallookup(q []byte) func() (answer, error) {
 	return func() (answer, error) {
 		a, tid, err := m.r.LocalLookup(q)

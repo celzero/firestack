@@ -27,9 +27,13 @@ import (
 )
 
 const (
-	bootid            = dnsx.Bootstrap
+	// bootid marks the transports as "Protected" with internal
+	// hostname to ip cache (in ipmap.go via dnsx.RegisterAddrs)
+	bootid = dnsx.Bootstrap
+	// protected hostnames are only used by dnsx.DNS53 transport.
 	protectedHostname = protect.UidSelf // or protect.UidSystem
-	builtinHostname   = protect.Localhost
+	// special hostname is used only by dnsx.Goos transport.
+	builtinHostname = protect.Localhost
 )
 
 var (
