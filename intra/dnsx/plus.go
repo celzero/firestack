@@ -126,6 +126,10 @@ func (t *plus) systemdns() (Transport, error) {
 	return t.r.GetInternal(System) // may return Goos or Default
 }
 
+func (t *plus) preferreddns() (Transport, error) {
+	return t.r.GetInternal(Preferred) // may return Default
+}
+
 func (t *plus) ordered() ([]Transport, error) {
 	best, preferred, recov, errored, ended := Categorize(t.all())
 
@@ -142,8 +146,12 @@ func (t *plus) ordered() ([]Transport, error) {
 		ord = append(ord, d)
 	}
 	sys, _ := t.systemdns()
-	if sys != nil && d.ID() != sys.ID() {
+	if sys != nil && idstr(d) != idstr(sys) {
 		ord = append(ord, sys)
+	}
+	p, _ := t.preferreddns()
+	if p != nil && idstr(d) != idstr(p) {
+		ord = append(ord, p)
 	}
 	ord = append(ord, preferred...)
 	ord = append(ord, recov...)
