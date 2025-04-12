@@ -106,6 +106,8 @@ type IPMap interface {
 	// or IP:Ports. Subsequent calls to MakeIPSet return a new, overridden IPSet.
 	// hostOrIP may be host:port, or ip:port, or host, or ip.
 	MakeIPSet(hostOrIP string, ipps []string, typ IPSetType) *IPSet
+	// Reverse lookup; returns hostnames for the given IP address.
+	ReverseGet(ip netip.Addr) []string
 	// With sets the default resolver to use for hostname resolution.
 	With(r IPMapper)
 	// Clear removes all IPSets from the map.
@@ -113,11 +115,18 @@ type IPMap interface {
 }
 
 type ipmap struct {
-	sync.RWMutex
+	sync.RWMutex // protects m, p, ip
+
+	// hostOrIP => ips
 	m  map[string]*IPSet // regular type
 	p  map[string]*IPSet // protected ips; immutable, never cleared
 	ip map[string]*IPSet // ipaddrs
-	r  IPMapper          // always the default system resolver
+
+	// ip => host
+	rptr x.IpTree // regular => hostname
+	pptr x.IpTree // protected => hostname
+
+	r *core.Volatile[IPMapper] // resolver
 }
 
 // IPSet represents an unordered collection of IP addresses for a single host.
@@ -144,13 +153,17 @@ func NewIPMapFor(r IPMapper) *ipmap {
 		m:  make(map[string]*IPSet),
 		p:  make(map[string]*IPSet),
 		ip: make(map[string]*IPSet),
-		r:  r, // may be nil
+
+		rptr: x.NewIpTree(),
+		pptr: x.NewIpTree(),
+
+		r: core.NewVolatile(r), // r may be nil
 	}
 }
 
 func (m *ipmap) With(r IPMapper) {
 	log.I("ipmap: new resolver; ok? %t", r != nil)
-	m.r = r // may be nil
+	m.r.Store(r) // may be nil
 }
 
 func (m *ipmap) Clear() {
@@ -179,13 +192,15 @@ func (m *ipmap) Clear() {
 		purge <- s // only clears confirmed ip
 		n++
 	}
+
+	go m.rptr.Clear()
 	// ipaddr type is not "cleared"
 	log.I("ipmap: clear: requested %d/%d sets", n, sz)
 }
 
 // Implements IPMapper.
 func (m *ipmap) LookupNetIP(ctx context.Context, network, host string) ([]netip.Addr, error) {
-	r := m.r // actual ipmapper implementation
+	r := m.r.Load() // actual ipmapper implementation
 	if r == nil {
 		return nil, &net.DNSError{Err: "no resolver", Name: host, Server: "localhost"}
 	}
@@ -194,7 +209,7 @@ func (m *ipmap) LookupNetIP(ctx context.Context, network, host string) ([]netip.
 
 // Implements IPMapper.
 func (m *ipmap) Lookup(q []byte, tids ...string) ([]byte, error) {
-	r := m.r // actual ipmapper implementation
+	r := m.r.Load() // actual ipmapper implementation
 	if r == nil {
 		return nil, &net.DNSError{Err: "no resolver", Name: "Lookup", Server: "localhost"}
 	}
@@ -203,7 +218,7 @@ func (m *ipmap) Lookup(q []byte, tids ...string) ([]byte, error) {
 
 // Implements IPMapper.
 func (m *ipmap) LookupFor(q []byte, uid string) ([]byte, error) {
-	r := m.r // actual ipmapper implementation
+	r := m.r.Load() // actual ipmapper implementation
 	if r == nil {
 		return nil, &net.DNSError{Err: "no resolver", Name: "LookupFor", Server: "localhost"}
 	}
@@ -212,7 +227,7 @@ func (m *ipmap) LookupFor(q []byte, uid string) ([]byte, error) {
 
 // Implements IPMapper.
 func (m *ipmap) LookupNetIPFor(ctx context.Context, network, host, uid string) ([]netip.Addr, error) {
-	r := m.r // actual ipmapper implementation
+	r := m.r.Load() // actual ipmapper implementation
 	if r == nil {
 		return nil, &net.DNSError{Err: "no resolver", Name: host, Server: "localhost"}
 	}
@@ -221,7 +236,7 @@ func (m *ipmap) LookupNetIPFor(ctx context.Context, network, host, uid string) (
 
 // Implements IPMapper.
 func (m *ipmap) LookupNetIPOn(ctx context.Context, network, host string, tid ...string) ([]netip.Addr, error) {
-	r := m.r // actual ipmapper implementation
+	r := m.r.Load() // actual ipmapper implementation
 	if r == nil {
 		return nil, &net.DNSError{Err: "no resolver", Name: host, Server: "localhost"}
 	}
@@ -231,18 +246,34 @@ func (m *ipmap) LookupNetIPOn(ctx context.Context, network, host string, tid ...
 func (m *ipmap) Add(hostOrIP string) *IPSet {
 	s := m.get(hostOrIP, AutoType)
 	log.I("ipmap: Add: resolving %s", hostOrIP)
-	if ok := s.add(hostOrIP); !ok {
+	if _, ok := s.add(hostOrIP); !ok {
 		log.W("ipmap: Add: zero ips for %s", hostOrIP)
+	} else {
+		m.revmap(hostOrIP, s, nil)
 	}
 	return s
+}
+
+func (m *ipmap) ReverseGet(ip netip.Addr) []string {
+	hosts, _ := m.rptr.Get(ip.String())
+	if len(hosts) > 0 {
+		return strings.Split(hosts, x.Vsep)
+	}
+	hosts, _ = m.pptr.Get(ip.String())
+	if len(hosts) > 0 {
+		return strings.Split(hosts, x.Vsep)
+	}
+	return nil
 }
 
 func (m *ipmap) Get(hostOrIP string) *IPSet {
 	s := m.get(hostOrIP, AutoType)
 	if s.Empty() {
 		log.I("ipmap: Get: resolving %s", hostOrIP)
-		if ok := s.add(hostOrIP); !ok {
+		if _, ok := s.add(hostOrIP); !ok {
 			log.W("ipmap: Get: zero ips for %s", hostOrIP)
+		} else {
+			m.revmap(hostOrIP, s, nil)
 		}
 	}
 	log.D("ipmap: Get: %s => %s", hostOrIP, s.ips)
@@ -324,7 +355,7 @@ func (m *ipmap) makeIPSet(hostname string, ipps []string, typ IPSetType) *IPSet 
 	s := &IPSet{
 		confirmed: core.NewZeroVolatile[netip.Addr](),
 		typ:       typ,
-		r:         m,
+		r:         m, // m stays constant, but m.r may change
 		seed:      ipps,
 		fails:     atomic.Uint32{},
 	}
@@ -336,18 +367,66 @@ func (m *ipmap) makeIPSet(hostname string, ipps []string, typ IPSetType) *IPSet 
 		s.confirmed.Store(zeroaddr)
 	}
 
-	totalseeds := s.bootstrap()
+	totalseeds := s.bootstrap() // seed addrs only
 
 	// if typ is Protected, then seeds must never be empty
 	if typ == Protected && totalseeds <= 0 {
 		log.W("ipmap: makeIPSet: zero seeds; %s for type %s discarded", hostname, typ)
 	} else {
 		m.Lock()
-		mm[hostname] = s
+		prev := mm[hostname] // prev may be nil
+		mm[hostname] = s     // overwrites existing
 		m.Unlock()
+		m.revmap(hostname, s, prev)
 	}
 
 	return s
+}
+
+func (m *ipmap) revmap(hostOrIP string, new *IPSet, old *IPSet) {
+	if host, _, err := net.SplitHostPort(hostOrIP); err == nil {
+		hostOrIP = host
+	}
+	if maybeip, _ := netip.ParseAddr(hostOrIP); maybeip.IsValid() {
+		return // no-op
+	}
+	host := hostOrIP
+
+	add := new.Addrs()    // new may be nil or addrs() may be empty
+	remove := old.Addrs() // old may be nil or addrs() may be empty
+
+	addtree, rmvtree := m.rptr, m.rptr
+	if new != nil {
+		if new.typ == Protected {
+			addtree = m.pptr
+		}
+	}
+	if old != nil {
+		if old.typ == Protected {
+			rmvtree = m.pptr
+		}
+	}
+
+	var errs []error
+	r, a := 0, 0
+	for _, ip := range remove {
+		if ip.IsValid() {
+			if rmvtree.Esc(ip.String(), host) {
+				r++
+			}
+		}
+	}
+	for _, ip := range add {
+		if ip.IsValid() {
+			if err := addtree.Add(ip.String(), host); err == nil {
+				a++
+			} else {
+				errs = append(errs, err)
+			}
+		}
+	}
+	log.D("ipmap: rev: for %s: added %d/%d; removed %d/%d; errs: %v",
+		host, a, len(add), r, len(remove), core.UniqErr(errs...))
 }
 
 // Reports whether ip is in the set.  Must be called under RLock.
@@ -382,9 +461,9 @@ func (s *IPSet) Seed() []string {
 
 // add one or more IP addresses to the set.
 // The hostname can be a domain name or an IP address.
-func (s *IPSet) add(hostOrIP string) bool {
+func (s *IPSet) add(hostOrIP string) ([]netip.Addr, bool) {
 	if s.typ == IPAddr { // nothing to do as this ipset only has one ipaddr
-		return false
+		return nil, false
 	}
 
 	if host, _, err := net.SplitHostPort(hostOrIP); err == nil {
@@ -393,7 +472,7 @@ func (s *IPSet) add(hostOrIP string) bool {
 	r := s.r
 	if r == nil { // unlikely; s.r is never nil
 		log.W("ipmap: Add: no resolver for %s", hostOrIP)
-		return false
+		return nil, false
 	}
 
 	ctx := context.Background()
@@ -411,7 +490,7 @@ func (s *IPSet) add(hostOrIP string) bool {
 
 	if err != nil {
 		log.W("ipmap: Add: err resolving %s: %v", hostOrIP, err)
-		return false
+		return nil, false
 	} else {
 		log.D("ipmap: Add: resolved? %s => %s", hostOrIP, resolved)
 	}
@@ -425,7 +504,7 @@ func (s *IPSet) add(hostOrIP string) bool {
 		s.fails.Store(0) // reset fails, since we have a new ips
 	}
 
-	return ok
+	return resolved, ok // resolved may be nil, even if ok == true
 }
 
 // Adds seed IP addresses to the set, if any.
@@ -472,6 +551,10 @@ func (s *IPSet) Size() uint32 {
 // Addrs returns a copy of the IP set as a slice in random order.
 // The slice is owned by the caller, but the elements are owned by the set.
 func (s *IPSet) Addrs() []netip.Addr {
+	if s == nil {
+		return []netip.Addr{}
+	}
+
 	if s.typ == IPAddr { // fast path for ipaddrs
 		return []netip.Addr{s.confirmed.Load()}
 	}

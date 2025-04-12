@@ -92,6 +92,11 @@ func For(hostOrIP string) []netip.Addr {
 	return nil
 }
 
+// Ptr returns hostnames from the ipmap cache, given an IP address.
+func Ptr(ip netip.Addr) []string {
+	return ipm.ReverseGet(ip)
+}
+
 func Confirmed(hostOrIP string) (zz netip.Addr) {
 	if ipset := ipm.GetAny(hostOrIP); ipset != nil {
 		return ipset.Confirmed()

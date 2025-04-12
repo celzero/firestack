@@ -40,7 +40,7 @@ type IpTree interface {
 	GetAny(cidr string) (string, error)
 	// Returns true if any route matches cidr.
 	HasAny(cidr string) (bool, error)
-	// Removes values like v for cidr.
+	// Removes values like v ("*v*") for cidr.
 	EscLike(cidr, likev string) int32
 	// Returns csv of all routes with any value like v matching cidr.
 	RoutesLike(cidr, likev string) string

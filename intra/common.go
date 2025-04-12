@@ -482,7 +482,10 @@ func (h *baseHandler) undoAlg(algip netip.Addr, uid string, tids ...string) (und
 	r := h.resolver
 	didForce := false
 	forcePTR := true // force PTR (realip => algans) translation?
-	if gw := r.Gateway(); !algip.IsUnspecified() && algip.IsValid() && gw != nil {
+	gw := r.Gateway()
+	ipok := !algip.IsUnspecified() && algip.IsValid()
+	canalg := ipok && gw != nil
+	if canalg {
 		domains, didForce = gw.PTR(algip, !forcePTR) // does NAT (algip => algans) translation
 		if !didForce && len(domains) <= 0 {
 			probableDomains, _ = gw.PTR(algip, forcePTR)
@@ -492,13 +495,14 @@ func (h *baseHandler) undoAlg(algip netip.Addr, uid string, tids ...string) (und
 		ips, undidAlg = gw.X(algip, uid, tids...)
 		realips = dnsx.Netip2Csv(ips)
 		blocklists = gw.RDNSBL(algip)
-	} else {
-		log.W("com: %s: alg: undoAlg: for %v[%s]; no gw(%t) or dst(%v)", h.proto, tids, uid, gw == nil, algip)
-		return
+	} else if ipok {
+		if hosts := dialers.Ptr(algip); len(hosts) > 0 {
+			probableDomains = strings.Join(hosts, ",")
+		}
 	}
 
-	log.VV("com: %s: alg: undoAlg: for %v[%s] (ok? %t, force? %t, withForce? %t) %s => %v (for %s / block: %s)",
-		h.proto, tids, uid, undidAlg, didForce, forcePTR, algip, realips, domains, blocklists)
+	logwif(canalg)("com: %s: alg: undoAlg: for %v[%s] (gw? %t ok? %t, force? %t, withForce? %t) %s => %v (for %s + %s / block: %s)",
+		h.proto, tids, uid, gw != nil, undidAlg, didForce, forcePTR, algip, realips, domains, probableDomains, blocklists)
 	return
 }
 
@@ -663,4 +667,11 @@ func logev(err error) log.LogFn {
 		f = log.VV
 	}
 	return f
+}
+
+func logwif(cond bool) log.LogFn {
+	if cond {
+		return log.W
+	}
+	return log.VV
 }
