@@ -428,7 +428,7 @@ func (s *IPSet) add(hostOrIP string) bool {
 	return ok
 }
 
-// Adds one or more IP addresses to the set.
+// Adds seed IP addresses to the set, if any.
 func (s *IPSet) bootstrap() (n int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -477,16 +477,15 @@ func (s *IPSet) Addrs() []netip.Addr {
 	}
 
 	s.mu.RLock()
-	ips := s.ips
-	s.mu.RUnlock()
-
-	sz := len(ips)
+	sz := len(s.ips)
 	if sz <= 0 {
+		s.mu.RUnlock()
 		return []netip.Addr{}
 	}
-
 	c := make([]netip.Addr, 0, sz)
-	c = append(c, ips...)
+	c = append(c, s.ips...)
+	s.mu.RUnlock()
+
 	if len(c) > 1 {
 		rand.Shuffle(len(c), func(i, j int) {
 			c[i], c[j] = c[j], c[i]
