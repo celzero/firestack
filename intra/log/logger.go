@@ -174,10 +174,10 @@ var _ Logger = (*simpleLogger)(nil)
 // const logcatLineSize = 1024
 
 // qSize is the number of recent log msgs to keep in the ring buffer.
-const qSize = 256
+const qSize = 512
 
 // consoleChSize is the size of the console channel.
-const consoleChSize = 256
+const consoleChSize = 512
 
 // minNeededForFullStacktrace is the size needed for a full stacktrace.
 const minNeededForFullStacktrace = 16 << 10 // 16KB
@@ -414,20 +414,7 @@ func (l *simpleLogger) Stack(at int, msg string, scratch []byte) {
 		return
 	}
 
-	i := 0
-	// todo: interned strings github.com/golang/go/issues/62483
-	lines := make([]string, qSize)
-	for recent := range l.q.Iter() {
-		lines[i] = recent
-		i++
-		if i >= len(lines) {
-			break
-		}
-	}
-	var appendix string
-	if i > 0 {
-		appendix = strings.Join(lines[:i], "\n")
-	}
+	prev := l.queued()
 
 	// full stacktrace iff large enough scratch
 	full := len(scratch) > minNeededForFullStacktrace // 16KB
@@ -439,7 +426,24 @@ func (l *simpleLogger) Stack(at int, msg string, scratch []byte) {
 	// byt2str accepted proposal: github.com/golang/go/issues/19367
 	// previous discussion: github.com/golang/go/issues/25484
 	trace := unsafe.String(&scratch[0], n)
-	l.emitStack(at, appendix, msg, trace)
+	l.emitStack(at, prev, msg, trace)
+}
+
+func (l *simpleLogger) queued() (appendix string) {
+	i := 0
+	// todo: interned strings github.com/golang/go/issues/62483
+	lines := make([]string, qSize)
+	for recent := range l.q.Iter() {
+		lines[i] = recent
+		i++
+		if i >= len(lines) {
+			break
+		}
+	}
+	if i > 0 {
+		appendix = strings.Join(lines[:i], "\n")
+	}
+	return
 }
 
 func (l *simpleLogger) msgstr(lvl LogLevel, f string, args ...any) (msg string) {
