@@ -686,6 +686,7 @@ func (px *proxifier) hop(via, origin string, dryrun bool) error {
 	if len(via) <= 0 { // remove hop if needed
 		err = origPx.Hop(nil, dryrun)
 		_ = px.unmapHop(oldViaPx, origPx, err != nil || dryrun)
+		return err
 	}
 
 	if via == origin {
