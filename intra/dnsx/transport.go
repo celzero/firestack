@@ -1112,7 +1112,7 @@ func RegisterAddrs(id, hostname string, ipps []string) (ok bool) {
 	var ipset *ipmap.IPSet
 	var addrs []netip.Addr
 	id, _ = strings.CutPrefix(id, CT)
-	if id == Bootstrap || id == System || id == Default || id == Local {
+	if id == Bootstrap || id == System || id == Default || id == Local || isPlus(id) {
 		log.I("dns: protected %s! %s => %v", id, hostname, ipps)
 		ipset, ok = dialers.NewProtected(hostname, ipps)
 	} else {
