@@ -86,13 +86,13 @@ func (c *iptree) Add(cidr string, v string) error {
 		return nil
 	} else if len(x) == 0 {
 		return c.Set(cidr, v)
-	} else if strings.Contains(x, v) {
-		cur := strings.Split(x, Vsep)
-		for _, val := range cur {
-			if val == v {
+	} else if strings.Contains(x, v) { // is ~v in x?
+		cur := strings.SplitSeq(x, Vsep)
+		for val := range cur {
+			if val == v { // v is definitely in x
 				return nil
 			}
-		}
+		} // v is not in x, but something resembling ~v was.
 		return c.Set(cidr, x+Vsep+v)
 	} else {
 		return c.Set(cidr, x+Vsep+v)

@@ -11,12 +11,17 @@ func Test192(tst *testing.T) {
 	log := tst.Log
 	t := NewIpTree()
 	t.Add("192.0.0.0/8", "app192:443")
+	t.Add("192.0.0.0/8", "dup192:443")
 	t.Add("192.1.0.0/16", "app192:80")
 	t.Add("1.1.1.0/24", "*:80")
 	t.Add("192.1.0.0/16", "app1921:80")
 	t.Set("192.2.0.0/16", "app1922:0")
 	t.Add("192.1.1.1/32", "app192111:0")
 	t.Add("0.0.0.0/0", "test0000")
+
+	g8, err := t.Get("192.0.0.0/8")
+	ko(tst, err)
+	log("g8", g8) // app192:443 dup192:443
 
 	g16, err := t.Get("192.1.0.0/16")
 	rmv := t.Esc("1.1.0.0/16", "test16.2") // false
