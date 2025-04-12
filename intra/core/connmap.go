@@ -153,10 +153,13 @@ func (h *cm) delLocked(id string) (n int) {
 		CloseConn(v.c...)
 
 		h.sz -= n
-	} else { // id maybe pid or uid
-		cidsByPid := h.getByPidLocked(id)
-		cidsByUid := h.getByUidLocked(id)
-		return len(h.untrackBatchLocked(append(cidsByPid, cidsByUid...)))
+		// id maybe pid or uid
+	} else if cidsByUid := h.getByUidLocked(id); len(cidsByUid) > 0 {
+		return len(h.untrackBatchLocked(cidsByUid))
+	} else if cidsByPid := h.getByPidLocked(id); len(cidsByPid) > 0 {
+		return len(h.untrackBatchLocked(cidsByPid))
+	} else {
+		log.W("connmap: untrack: id not tracked %s", id)
 	}
 
 	return
