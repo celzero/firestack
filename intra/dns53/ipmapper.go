@@ -42,7 +42,8 @@ type answer struct {
 
 type ipmapper struct {
 	id string
-	r  dnsx.Resolver
+	r  dnsx.ResolverSelf
+	g  dnsx.Gateway
 	ba *core.Barrier[answer, string]
 }
 
@@ -56,6 +57,7 @@ func AddIPMapper(r dnsx.Resolver, protos string, clear bool) {
 		m = &ipmapper{
 			id: dnsx.IpMapper,
 			r:  r,
+			g:  r.Gateway(),
 			ba: core.NewBarrier[answer](battl),
 		}
 	} // else remove; m is nil
@@ -268,7 +270,7 @@ func (m *ipmapper) undoAlgAndOrNat64(ip64 []netip.Addr, tid, uid string) []netip
 	// is used for DNS queries, and the dialers are used for
 	// actual connections. The dialers will filter out ipaddrs
 	// based on the dialers.Use4/Use6 settings.
-	gw := m.r.Gateway()
+	gw := m.g
 	if gw == nil {
 		log.V("ipmapper: undoAlg: no-op for %v on %s[%s]; no gateway", ip64, tid, uid)
 		return ip64
