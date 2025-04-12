@@ -25,7 +25,7 @@ import (
 // from: github.com/pion/transport/blob/03c807b/udp/conn.go
 
 const maxtimeouterrors = 3
-const maxInFlight = 128
+const maxInFlight = 512
 const maxOverflow = maxInFlight / 4
 
 type flowkind int32
@@ -253,7 +253,7 @@ func (x *muxer) readers() {
 				recycle()
 			}
 			logev(err)("udp: mux: %s read: n(%d) from %v <= %v; dropped? %v",
-				dst.cid, n, dst.raddr, who, err)
+				dst.cid, n, dst.laddr, who, err)
 		}
 	}
 }
