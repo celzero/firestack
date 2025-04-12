@@ -21,10 +21,10 @@ type MHMap struct {
 	k      string // uniq identifier
 	uniq   map[*MH]struct{}
 	byIpp  map[netip.AddrPort]*MH // ip:port => MH
-	byName map[string]*MH         // host => MH
+	byName map[string]*MH         // host:port => MH
 }
 
-func (m *MHMap) Get(hostOrIpport string) (h *MH, err error) {
+func (m *MHMap) Get(hostOrIpport string) (h *MH, _ error) {
 	m.RLock()
 	defer m.RUnlock()
 
@@ -35,10 +35,10 @@ func (m *MHMap) Get(hostOrIpport string) (h *MH, err error) {
 	}
 
 	ipp, err := netip.ParseAddrPort(hostOrIpport)
-	if err == nil { // may be ip
+	if err == nil { // is ip:port
 		h = m.byIpp[ipp]
-	} else { // may be hostname
-		h = m.byName[host]
+	} else { // may be host:port
+		h = m.byName[hostOrIpport]
 	}
 
 	ok := h != nil
