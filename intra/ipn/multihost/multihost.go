@@ -313,27 +313,12 @@ func (h *MH) EqualAddrs(other *MH) bool {
 }
 
 func (h *MH) uniqNamesLocked() {
-	h.names = removeDups(h.names)
+	h.names = core.CopyUniq(h.names)
+
 }
 
 func (h *MH) uniqAddrsLocked() {
-	h.addrs = removeDups(h.addrs)
-}
-
-// go.dev/play/p/WJXpAa-nmep
-func removeDups[T comparable](a []T) []T {
-	if len(a) <= 0 {
-		return a
-	}
-	acc := make(map[T]struct{}, len(a))
-	for _, s := range a {
-		acc[s] = struct{}{}
-	}
-	uniq := make([]T, 0, len(acc))
-	for s := range acc { // not stable; randomizes order
-		uniq = append(uniq, s)
-	}
-	return uniq
+	h.addrs = core.CopyUniq(h.addrs)
 }
 
 func logeif(cond bool) log.LogFn {
