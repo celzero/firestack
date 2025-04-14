@@ -26,3 +26,15 @@ func CopyUniq[T comparable](a ...[]T) (out []T) {
 	}
 	return
 }
+
+type TestFn[T any] func(T) bool
+
+func FilterLeft[T any](arr []T, test TestFn[T]) (out []T) {
+	out = make([]T, 0)
+	for _, x := range arr {
+		if test(x) {
+			out = append(out, x)
+		}
+	}
+	return out
+}
