@@ -730,7 +730,7 @@ func (t *dnsgateway) querySecondary(t2 Transport, uid, network string, msg *dns.
 
 	// check if answer r is blocked; r is either from t2 or from <-in
 	if err != nil || r == nil || !xdns.HasAnyAnswer(r) { // not a valid dns answer
-		log.D("alg: skip; sec transport %s; nores? %t, err? %v", idstr(t2), r == nil, err)
+		log.V("alg: querySecondary: skip; sec transport %s; nores? %t, err? %v", idstr(t2), r == nil, err)
 		result.smm.Msg = errNotEnoughAnswers.Error()
 		return
 	} else if a, blocklistnames := t.rdns.blockA( /*may be nil*/ t2, nil, msg, r, result.smm.Blocklists); a != nil {
@@ -1843,27 +1843,15 @@ func splitIPFamilies(ips []netip.Addr) (ip4s, ip6s []netip.Addr) {
 }
 
 func v4only(ips []netip.Addr) []netip.Addr {
-	return filterLeft(ips, func(ip netip.Addr) bool {
+	return core.FilterLeft(ips, func(ip netip.Addr) bool {
 		return ip.Is4()
 	})
 }
 
 func v6only(ips []netip.Addr) []netip.Addr {
-	return filterLeft(ips, func(ip netip.Addr) bool {
+	return core.FilterLeft(ips, func(ip netip.Addr) bool {
 		return ip.Is6()
 	})
-}
-
-type TestFn[T any] func(T) bool
-
-func filterLeft[T any](arr []T, yes TestFn[T]) []T {
-	out := make([]T, 0)
-	for _, x := range arr {
-		if yes(x) {
-			out = append(out, x)
-		}
-	}
-	return out
 }
 
 func withPresetSummary(smm *x.DNSSummary, reqSent, fixed bool) {
