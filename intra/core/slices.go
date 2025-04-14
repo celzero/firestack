@@ -6,6 +6,8 @@
 
 package core
 
+import "slices"
+
 // flattens and returns a (stable) copy with dups removed, if any.
 // go.dev/play/p/OzJs4s6XvQe
 func CopyUniq[T comparable](a ...[]T) (out []T) {
@@ -37,4 +39,31 @@ func FilterLeft[T any](arr []T, test TestFn[T]) (out []T) {
 		}
 	}
 	return out
+}
+
+// WithoutElem returns arr (may be a copy) removing all occurrences of elem.
+func WithoutElem[T comparable](arr []T, elem T) (out []T) {
+	if !slices.Contains(arr, elem) {
+		return arr
+	}
+
+	out = make([]T, 0)
+	for _, x := range arr {
+		if x == elem {
+			continue
+		}
+		out = append(out, x)
+	}
+	return out
+}
+
+// WithElem returns arr with elem added to it.
+func WithElem[T comparable](s []T, add T) []T {
+	if len(s) <= 0 {
+		return []T{add}
+	}
+	if slices.Contains(s, add) {
+		return s
+	}
+	return append(s, add)
 }

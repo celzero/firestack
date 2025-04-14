@@ -19,8 +19,6 @@ import (
 	"syscall"
 	"time"
 
-	"slices"
-
 	x "github.com/celzero/firestack/intra/backend"
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/dialers"
@@ -549,24 +547,10 @@ func viaok(p *Proxy) bool {
 
 // removeElem removes the all occurrences of rmv from s.
 func removeElem[T comparable](s []T, rmv T) []T {
-	if len(s) <= 0 {
-		return s
-	}
-	for i, v := range s {
-		if v == rmv {
-			return removeElem(slices.Delete(s, i, i+1), rmv)
-		}
-	}
-	return s
+	return core.WithoutElem(s, rmv)
 }
 
 // addElem adds add to s if it is not already present.
 func addElem[T comparable](s []T, add T) []T {
-	if len(s) <= 0 {
-		return []T{add}
-	}
-	if slices.Contains(s, add) {
-		return s
-	}
-	return append(s, add)
+	return core.WithElem(s, add)
 }
