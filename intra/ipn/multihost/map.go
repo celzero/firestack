@@ -18,10 +18,10 @@ import (
 
 type MHMap struct {
 	sync.RWMutex
-	k      string // uniq identifier
-	uniq   map[*MH]struct{}
-	byIpp  map[netip.AddrPort]*MH // ip:port => MH
-	byName map[string]*MH         // host:port => MH
+	k          string // uniq identifier
+	uniq       map[*MH]struct{}
+	byIpp      map[netip.AddrPort]*MH // ip:port => MH
+	byHostport map[string]*MH         // host:port => MH
 }
 
 func (m *MHMap) Get(hostOrIpport string) (h *MH, _ error) {
@@ -38,7 +38,7 @@ func (m *MHMap) Get(hostOrIpport string) (h *MH, _ error) {
 	if err == nil { // is ip:port
 		h = m.byIpp[ipp]
 	} else { // may be host:port
-		h = m.byName[hostOrIpport]
+		h = m.byHostport[hostOrIpport]
 	}
 
 	ok := h != nil
@@ -78,7 +78,7 @@ func (m *MHMap) putLocked(h *MH) (ok bool) {
 			m.byIpp[ipp] = h
 		}
 		for _, name := range names {
-			m.byName[name] = h
+			m.byHostport[name] = h
 		}
 	}
 
@@ -112,8 +112,8 @@ func (m *MHMap) delLocked(h *MH) (ok bool) {
 			}
 		}
 		for _, name := range names {
-			if x := m.byName[name]; x == h {
-				delete(m.byName, name)
+			if x := m.byHostport[name]; x == h {
+				delete(m.byHostport, name)
 			}
 		}
 	}
@@ -189,9 +189,9 @@ func (m *MHMap) String() string {
 
 func NewMap(id string) *MHMap {
 	return &MHMap{
-		k:      id,
-		uniq:   make(map[*MH]struct{}),
-		byIpp:  make(map[netip.AddrPort]*MH),
-		byName: make(map[string]*MH),
+		k:          id,
+		uniq:       make(map[*MH]struct{}),
+		byIpp:      make(map[netip.AddrPort]*MH),
+		byHostport: make(map[string]*MH),
 	}
 }
