@@ -197,45 +197,26 @@ func (d *dns64) eval(network string, force64 bool, ansin *dns.Msg, r, uid string
 		return nil
 	}
 
-	var didTranslate bool
-	rr64 := make([]dns.RR, 0)
-	for _, answer := range ans4.Answer {
+	ans64, didTranslate := xdns.TranslateRecords(ans4, dns.TypeA, func(r dns.RR) (rx []dns.RR, stop bool) {
 		if len(ip64) <= 0 { // can never be the case, see Local464Resolver
-			continue
-		}
-		if !xdns.IsARecord(answer) {
-			// could be a CNAME record which must be preserved as-is
-			// to maintain the integrity of the response; as MaybeToQuadA
-			// will reject any non-A records.
-			// qname: a.com
-			// ans: a.com -> cname -> b.com -> ipv4
-			// translated: a.com -> cname -> b.com -> ipv4
-			rr64 = append(rr64, answer)
-			continue
+			return nil, false
 		}
 		for _, ipnet := range ip64 {
-			if rec := xdns.MaybeToQuadA(answer, ipnet); rec != nil {
-				rr64 = append(rr64, rec)
-				didTranslate = true
+			if x := xdns.MaybeToQuadA(r, ipnet); x != nil {
+				rx = append(rx, x)
 			}
 		}
-	}
+		return
+	})
+
+	logwif(!didTranslate)("dns64: %s for %s: translated on %s[%s] response(%d)",
+		qname, uid, r, id, xdns.Len(ans64))
 
 	if !didTranslate {
 		// may be there were no A records in ans4; or,
-		// xdns.ToQuadA failed for every A ans4 record
-		log.W("dns64: for %s: no rr64 translations done on %s[%s]", uid, r, id)
-		return nil
-	} else {
-		log.D("dns64: for %s: translated on %s[%s] response(%v)", uid, r, id, rr64)
-	}
-
-	ans64 := xdns.EmptyResponseFromMessage(ansin) // may be nil
-	if ans64 == nil {
-		log.W("dns64: for %s: err synth ans64 on %s[%s] for q %s", uid, r, id, qname)
+		// xdns.MaybeToQuadA failed for every A ans4 record
 		return nil
 	}
-	ans64.Answer = append(ans64.Answer, rr64...)
 	return ans64
 }
 
@@ -391,4 +372,11 @@ func (d *dns64) addNat64Prefix(id string, ipxx *net.IPNet) error {
 	d.ip64[id] = ip64
 
 	return nil
+}
+
+func logwif(cond bool) log.LogFn {
+	if cond {
+		return log.W
+	}
+	return log.V
 }
