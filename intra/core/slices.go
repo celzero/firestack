@@ -6,15 +6,11 @@
 
 package core
 
-// flattens (not stable) and returns a copy with dups removed, if any.
-// go.dev/play/p/WJXpAa-nmep
+// flattens and returns a (stable) copy with dups removed, if any.
+// go.dev/play/p/OzJs4s6XvQe
 func CopyUniq[T comparable](a ...[]T) (out []T) {
 	out = make([]T, 0)
 	if len(a) <= 0 {
-		return
-	}
-	if len(a) == 1 {
-		out = append(out, a[0]...)
 		return
 	}
 	acc := make(map[T]struct{}, 0)
