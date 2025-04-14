@@ -801,6 +801,44 @@ func SubstARecords(out *dns.Msg, subip4s netip.Addr, ttl uint32) bool {
 	return len(touched) > 0
 }
 
+func TranslateRecords(ansin *dns.Msg, typ uint16, translate func(dns.RR) (x []dns.RR, stop bool)) (ansout *dns.Msg, didTranslate bool) {
+	if !HasAnyAnswer(ansin) {
+		return
+	}
+	ansout = EmptyResponseFromMessage(ansin) // may be nil
+	if ansout == nil {
+		return
+	}
+	rrout := make([]dns.RR, 0, len(ansin.Answer))
+	for _, rr := range ansin.Answer {
+		if rr.Header().Rrtype != typ {
+			// could be a CNAME record which must be preserved as-is
+			// to maintain the integrity of the response; as MaybeToQuadA
+			// will reject any non-A records.
+			// qname: a.com
+			// ans: a.com -> cname -> b.com -> ipv4
+			// translated: a.com -> cname -> b.com -> ipv4
+			rrout = append(rrout, rr)
+		} else {
+			rrx, stop := translate(rr)
+			if rrx == nil {
+				rrout = append(rrout, rr)
+				if stop {
+					break
+				}
+			} else {
+				didTranslate = true
+				rrout = append(rrout, rrx...)
+				if stop {
+					break
+				}
+			}
+		}
+	}
+	ansout.Answer = append(ansout.Answer, rrout...)
+	return
+}
+
 func svcbstr(r *dns.SVCB) (s string) {
 	if r == nil {
 		return
@@ -1149,6 +1187,46 @@ func MaybeToQuadA(answer dns.RR, prefix *net.IPNet) *dns.AAAA {
 	}
 	trec.AAAA = ipv6
 	return trec
+}
+
+func CloneA(base dns.RR, ip4 netip.Addr) *dns.A {
+	header := base.Header()
+	if !ip4.IsValid() || !ip4.Is4() || header.Rrtype != dns.TypeA {
+		return nil
+	}
+	ipxx, aok := base.(*dns.A)
+	if !aok || ipxx == nil || ipxx.A == nil {
+		return nil // only clone if the record has A data
+	}
+	c := new(dns.A)
+	c.Hdr = dns.RR_Header{
+		Name:   header.Name,
+		Rrtype: dns.TypeA,
+		Class:  header.Class,
+		Ttl:    max(ansTTL, header.Ttl),
+	}
+	c.A = ip4.Unmap().AsSlice()
+	return c
+}
+
+func CloneAAAA(base dns.RR, ip6 netip.Addr) *dns.AAAA {
+	header := base.Header()
+	if !ip6.IsValid() || !ip6.Is6() || header.Rrtype != dns.TypeAAAA {
+		return nil
+	}
+	ipxx, aok := base.(*dns.AAAA)
+	if !aok || ipxx == nil || ipxx.AAAA == nil {
+		return nil // only clone if the record has AAAA data
+	}
+	c := new(dns.AAAA)
+	c.Hdr = dns.RR_Header{
+		Name:   header.Name,
+		Rrtype: dns.TypeAAAA,
+		Class:  header.Class,
+		Ttl:    max(ansTTL, header.Ttl),
+	}
+	c.AAAA = ip6.AsSlice()
+	return c
 }
 
 func ToIp6Hint(answer dns.RR, prefix *net.IPNet) dns.RR {

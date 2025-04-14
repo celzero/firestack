@@ -191,8 +191,10 @@ func (m *ipmapper) queryIP2(_ context.Context, network, host, uid string, tid ..
 		return nil, errs
 	}
 
-	ip4 := m.undoAlgAndOrNat64(addrs(r4), tid4, uid)
-	ip6 := m.undoAlgAndOrNat64(addrs(r6), tid6, uid) // nat64 cannot really be "undone" for ip6!
+	_, ip4 := addrs(r4)
+	_, ip6 := addrs(r6)
+	ip4 = m.undoAlgAndOrNat64(ip4, tid4, uid)
+	ip6 = m.undoAlgAndOrNat64(ip6, tid6, uid) // nat64 cannot really be "undone" for ip6!
 	ips := append(ip4, ip6...)
 
 	log.D("ipmapper: host %s => ips (out: %v / in: %d+%d); tids: %s+%s[%s]; err4: %v, err6: %v",
@@ -229,9 +231,9 @@ func (m *ipmapper) queryAny2(q []byte, uid string, tids ...string) ([]byte, erro
 		log.W("ipmapper: query: noans? %t [err %v] for %s / typ %d; for: %s [on %v]",
 			v == nil, v.Err, qname, qtype, uid, tids)
 		return nil, core.OneErr(v.Err, errNoAns)
-	} else {
-		return v.Val.a, nil
 	}
+
+	return m.undoAlg(v.Val.a, v.Val.tid, uid)
 }
 
 // lookupfor resolves q given a uid. If uid is protect.SelfUid, the client
@@ -262,6 +264,80 @@ func (m *ipmapper) locallookup(q []byte) func() (answer, error) {
 		a, tid, err := m.r.LocalLookup(q)
 		return answer{a, tid}, err
 	}
+}
+
+func (m *ipmapper) undoAlg(ans []byte, tid, uid string) ([]byte, error) {
+	gw := m.g
+	if gw == nil {
+		log.V("ipmapper: undoAlg: no-op for %s[%s]; no gateway", tid, uid)
+		return ans, nil
+	}
+
+	msg := &dns.Msg{}
+	if err := msg.Unpack(ans); err != nil {
+		log.W("ipmapper: undoAlg: unpack err %v", err)
+		return ans, nil
+	}
+
+	qname, possiblyalgips := addrs(ans) // usually only 1 if alg'd
+
+	noips := len(possiblyalgips) <= 0
+	is4 := xdns.HasAAnswer(msg)
+	is6 := !is4 && xdns.HasAAAAQuestion(msg)
+
+	if !is4 && !is6 || noips {
+		log.VV("ipmapper: undoAlg: no a? (%t), aaaa? (%t), ans? (%t); no-op",
+			!is4, !is6, noips)
+		return ans, nil
+	}
+
+	var realips []netip.Addr
+	var undidAlg bool
+	for _, maybealgip := range possiblyalgips {
+		if ips, undid := gw.X(maybealgip, uid, tid); undid {
+			// expecting homogeneous addr family; ie, all realips
+			// to be either v4 or v6
+			realips = append(realips, ips...)
+			undidAlg = true
+		}
+	}
+
+	if len(realips) <= 0 {
+		logwif(undidAlg)("ipmapper: undoAlg: no algip => realip; return orig (qname: %s / ips: %d / undidAlg? %t); tid? %s[%s]",
+			qname, len(possiblyalgips), undidAlg, tid, uid)
+		// TODO: return error if undidAlg == true?
+		return ans, nil
+	}
+
+	var msgout *dns.Msg
+	var didTranslate bool
+	if is4 {
+		msgout, didTranslate = xdns.TranslateRecords(msg, dns.TypeA, func(r dns.RR) (rx []dns.RR, done bool) {
+			for _, ip4 := range realips {
+				if x := xdns.CloneA(r, ip4); x != nil {
+					rx = append(rx, x)
+				}
+			}
+			return rx, len(rx) > 0 // a single translated rrs is enough
+		})
+	} else if is6 {
+		msgout, didTranslate = xdns.TranslateRecords(msg, dns.TypeAAAA, func(r dns.RR) (rx []dns.RR, done bool) {
+			for _, ip6 := range realips {
+				if x := xdns.CloneAAAA(r, ip6); x != nil {
+					rx = append(rx, x)
+				}
+			}
+			return rx, len(rx) > 0 // a single translated rrs is enough
+		})
+	} // else: msgout is nil
+
+	logwif(!didTranslate || msgout == nil)("ipmapper: undoAlg: %s => ips (out: %v / in: %d); tids: %s[%s]",
+		qname, realips, xdns.Len(msgout), tid, uid)
+
+	if msgout != nil {
+		return msgout.Pack()
+	}
+	return ans, nil
 }
 
 func (m *ipmapper) undoAlgAndOrNat64(ip64 []netip.Addr, tid, uid string) []netip.Addr {
@@ -304,12 +380,13 @@ func key6(name string, oth ...string) string {
 	return key(name, "ip6", oth...)
 }
 
-func addrs(a []byte) []netip.Addr {
+// TODO: handle HTTPS/SVCB
+func addrs(a []byte) (qname string, ips []netip.Addr) {
 	msg := xdns.AsMsg(a)
 	if msg == nil {
-		return nil
+		return
 	}
-	ips := make([]netip.Addr, 0, len(msg.Answer))
+	ips = make([]netip.Addr, 0, len(msg.Answer))
 	for _, a := range msg.Answer {
 		switch rr := a.(type) {
 		case *dns.A:
@@ -326,7 +403,7 @@ func addrs(a []byte) []netip.Addr {
 			log.V("ipmapper: unexpected ans type: %v... skip", rr)
 		}
 	}
-	return ips
+	return xdns.QName(msg), ips
 }
 
 func dnsmsg(host string, qtype uint16) ([]byte, error) {
