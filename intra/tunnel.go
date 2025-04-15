@@ -164,7 +164,7 @@ func NewTunnel(fd, mtu int, fakedns string, dtr DefaultDNS, bdg Bridge) (t Tunne
 	resolver.Add(newGoosTransport(ctx, proxies))            // os-resolver; fixed
 	resolver.Add(newBlockAllTransport())                    // fixed
 	resolver.Add(newFixedTransport())                       // fixed
-	resolver.Add(newPlusTransport(ctx))                     // fixed
+	resolver.Add(newPlusTransport(ctx, resolver))           // fixed
 	resolver.Add(newDNSCryptTransport(ctx, proxies, bdg))   // fixed
 	resolver.Add(newMDNSTransport(ctx, dualstack, proxies)) // fixed
 

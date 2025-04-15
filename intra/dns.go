@@ -97,8 +97,8 @@ func newFixedTransport() dnsx.Transport {
 	return dns53.NewErrorerTransport(dnsx.Fixed)
 }
 
-func newPlusTransport(ctx context.Context) dnsx.Transport {
-	return dnsx.NewPlusTransport(ctx, nil /*todo*/)
+func newPlusTransport(ctx context.Context, r dnsx.Resolver) dnsx.Transport {
+	return dnsx.NewPlusTransport(ctx, r /*and zero transports*/)
 }
 
 func newDNSCryptTransport(ctx context.Context, px ipn.ProxyProvider, bdg Bridge) (p dnsx.TransportMult) {
