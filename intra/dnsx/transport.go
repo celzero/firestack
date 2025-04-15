@@ -283,7 +283,10 @@ func (r *resolver) Add(dt x.DNSTransport) (ok bool) {
 		return false
 	}
 
-	if plusTransport(t) {
+	// add transports that are prefixed with "Plus" to the plus()
+	// multi-transport, while the supervisor plus() multi-transport
+	// itself must be added to r.transports (below)
+	if t.ID() != Plus && isPlus(t.ID()) {
 		plus, err := r.plus()
 		if err != nil {
 			log.W("dns: plus: cannot add %s; %v", t.ID(), err)
