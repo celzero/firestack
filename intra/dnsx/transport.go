@@ -1291,10 +1291,6 @@ func cachedTransport(t Transport) bool {
 	return strings.HasSuffix(t.ID(), CT) || strings.HasPrefix(t.GetAddr(), cacheprefix)
 }
 
-func plusTransport(t Transport) bool {
-	return isPlus(t.ID()) || strings.HasPrefix(t.GetAddr(), plusprefix)
-}
-
 func isPlus(id string) bool {
 	return strings.HasPrefix(id, Plus) || strings.HasPrefix(id, CT+Plus)
 }
