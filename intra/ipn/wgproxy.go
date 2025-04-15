@@ -74,6 +74,8 @@ const (
 	removeViaOnErrors = false
 
 	FAST = x.WGFAST
+
+	refreshInterval = 2 * time.Minute
 )
 
 type wgifopts struct {
@@ -121,7 +123,7 @@ type wgtun struct {
 	rt     x.IpTree                                         // route table for this interface
 
 	status     *core.Volatile[int]         // status of this interface
-	refreshBa  *core.Barrier[bool, string] // refresh barrier
+	refreshBa  *core.Barrier[bool, string] // 2mins refresh barrier
 	latestPing atomic.Int64                // last ping time in unix millis
 	latestRx   atomic.Int64                // last rx time in unix millis
 	latestTx   atomic.Int64                // last tx time in unix millis
@@ -281,20 +283,15 @@ func (w *wgproxy) onNotOK() (handled bool) {
 
 // Refresh implements Proxy.
 func (w *wgproxy) Refresh() (err error) {
+	// todo: Refresh may be called by hop-related changes which may result in one Refresh calls too many.
 	if w.status.Load() == END {
 		return errProxyStopped
 	}
 
 	w.latestPing.Store(0) // reset latest ping time
 
-	n := 0
-	if mh := w.dns.Load(); mh != nil {
-		n = mh.Refresh()
-	}
-	nn := int64(0)
-	if mh := w.remote.Load(); mh != nil {
-		nn = mh.Refresh()
-	}
+	n := w.dns.Load().Refresh()
+	nn := w.remote.Load().Refresh()
 
 	if err := w.resetMtu(w.via.Load()); err != nil {
 		log.E("proxy: wg: !refresh(%s): resetMtu: len(dns): %d, len(peer): %d, err: %v", w.id, n, nn, err)
@@ -726,7 +723,7 @@ func makeWgTun(id, cfg string, ctl protect.Controller, px ProxyProvider, lp Link
 		amnezia:       ifopts.amnezia,
 		status:        core.NewVolatile(TUP),
 		preferOffload: preferOffload(id),
-		refreshBa:     core.NewBarrier[bool](2 * time.Minute),
+		refreshBa:     core.NewBarrier[bool](refreshInterval),
 		since:         now(),
 	}
 	t.desiredmtu.Store(uint32(ifopts.mtu))
