@@ -176,6 +176,10 @@ var _ Logger = (*simpleLogger)(nil)
 // qSize is the number of recent log msgs to keep in the ring buffer.
 const qSize = 512
 
+// minQSize is the minimum most number of recent log msgs to actually log.
+// by default, all msgs in the qSize'd ring buffer are logged.
+const minQSize = 16
+
 // consoleChSize is the size of the console channel.
 const consoleChSize = 512
 
@@ -414,8 +418,6 @@ func (l *simpleLogger) Stack(at int, msg string, scratch []byte) {
 		return
 	}
 
-	prev := l.queued()
-
 	// full stacktrace iff large enough scratch
 	full := len(scratch) > minNeededForFullStacktrace // 16KB
 	n := runtime.Stack(scratch, full)
@@ -423,16 +425,23 @@ func (l *simpleLogger) Stack(at int, msg string, scratch []byte) {
 	if n == len(scratch) {
 		msg += "[trunc]"
 	}
+
+	prev := l.queued(full)
+
 	// byt2str accepted proposal: github.com/golang/go/issues/19367
 	// previous discussion: github.com/golang/go/issues/25484
 	trace := unsafe.String(&scratch[0], n)
 	l.emitStack(at, prev, msg, trace)
 }
 
-func (l *simpleLogger) queued() (appendix string) {
+func (l *simpleLogger) queued(all bool) (appendix string) {
+	maxlines := qSize
+	if !all {
+		maxlines = minQSize
+	}
 	i := 0
 	// todo: interned strings github.com/golang/go/issues/62483
-	lines := make([]string, qSize)
+	lines := make([]string, maxlines)
 	for recent := range l.q.Iter() {
 		lines[i] = recent
 		i++
