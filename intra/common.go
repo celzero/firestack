@@ -495,7 +495,8 @@ func (h *baseHandler) undoAlg(algip netip.Addr, uid string, tids ...string) (und
 		ips, undidAlg = gw.X(algip, uid, tids...)
 		realips = dnsx.Netip2Csv(ips)
 		blocklists = gw.RDNSBL(algip)
-	} else if ipok {
+	}
+	if ipok && len(domains) <= 0 && len(probableDomains) <= 0 {
 		if hosts := dialers.Ptr(algip); len(hosts) > 0 {
 			probableDomains = strings.Join(hosts, ",")
 		}
