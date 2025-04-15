@@ -1810,11 +1810,14 @@ func ChooseProxyHostPort(who string, host string, port uint16, pids []string, px
 		host = splithost
 	}
 
-	c := dialers.Confirmed(host)
-	ipps = append(ipps, netip.AddrPortFrom(c, port))
+	if c := dialers.Confirmed(host); c.IsValid() {
+		ipps = append(ipps, netip.AddrPortFrom(c, port))
+	}
 
 	for _, ip := range dialers.For(host) {
-		ipps = append(ipps, netip.AddrPortFrom(ip, port))
+		if ip.IsValid() {
+			ipps = append(ipps, netip.AddrPortFrom(ip, port))
+		}
 	}
 
 	return ChooseProxy(who+" : "+host, ipps, pids, px)
