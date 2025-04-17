@@ -118,7 +118,7 @@ func (m *MHMap) delLocked(h *MH) (ok bool) {
 		}
 	}
 
-	logeif(!ok)("multihost: %s map: del: ipps %d, names %d",
+	logeif(!ok)("multihost: %s map: %s del: ipps %d, names %d",
 		m.k, h.o, len(ipps), len(names))
 
 	return
