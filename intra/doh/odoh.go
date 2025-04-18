@@ -62,7 +62,7 @@ func (d *transport) doOdoh(pid string, q *dns.Msg) (res *dns.Msg, ech bool, elap
 		return
 	}
 
-	ans, _, _, ech, elapsed, qerr = d.do(pid, req)
+	ans, _, _, _, ech, elapsed, qerr = d.do(pid, req)
 	log.V("odoh: send; proxy? %t, ech? %t, elapsed: %s; err? %v",
 		viaproxy, ech, elapsed, qerr)
 	if qerr != nil {
@@ -207,7 +207,7 @@ func (d *transport) refreshTargetKeyWellKnown() (ocfg *odoh.ObliviousDoHConfig, 
 		return
 	}
 	// may use insecure TLS if user opts in; ref: d.tlsconfig
-	resp, _, err = d.fetch(dnsx.NetBaseProxy, req)
+	resp, _, _, err = d.fetch(dnsx.NetBaseProxy, req)
 	if err != nil {
 		return
 	}
@@ -245,7 +245,7 @@ func (d *transport) refreshTargetKeyDNS() (ocfg *odoh.ObliviousDoHConfig, exp ti
 		var req *http.Request
 		// fetch odoh-config from odohconfigdns
 		if req, err = d.asDohRequest(cmsg); err == nil {
-			cres, _, _, _, _, err = d.send(dnsx.NetBaseProxy, req)
+			cres, _, _, _, _, _, err = d.send(dnsx.NetBaseProxy, req)
 		}
 	}
 

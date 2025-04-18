@@ -370,7 +370,7 @@ func (t *transport) httpClientsFor(p ipn.Proxy) (c3, c *http.Client) {
 // Independent of the query's success or failure, this function also returns the
 // address of the server on a best-effort basis, or nil if the address could not
 // be determined.
-func (t *transport) doDoh(pid string, q *dns.Msg) (response *dns.Msg, blocklists, region string, ech bool, elapsed time.Duration, qerr *dnsx.QueryError) {
+func (t *transport) doDoh(pid string, q *dns.Msg) (response *dns.Msg, rpid, blocklists, region string, ech bool, elapsed time.Duration, qerr *dnsx.QueryError) {
 	start := time.Now()
 	if t.status.Load() == dnsx.DEnd {
 		elapsed = time.Since(start)
@@ -391,7 +391,7 @@ func (t *transport) doDoh(pid string, q *dns.Msg) (response *dns.Msg, blocklists
 		return
 	}
 
-	response, blocklists, region, ech, elapsed, qerr = t.send(pid, req)
+	response, rpid, blocklists, region, ech, elapsed, qerr = t.send(pid, req)
 
 	// restore dns query id
 	q.Id = id
@@ -403,7 +403,7 @@ func (t *transport) doDoh(pid string, q *dns.Msg) (response *dns.Msg, blocklists
 	return
 }
 
-func (t *transport) fetch(pid string, req *http.Request) (*http.Response, bool, error) {
+func (t *transport) fetch(pid string, req *http.Request) (*http.Response, string, bool, error) {
 	ustr := req.URL.String()
 
 	uerr := func(e error) *url.Error {
@@ -420,25 +420,26 @@ func (t *transport) fetch(pid string, req *http.Request) (*http.Response, bool, 
 		}
 	}
 
-	r, echdialer, err := t.multifetch(req, pid)
+	r, rpid, echdialer, err := t.multifetch(req, pid)
 	if err != nil {
 		log.W("doh: fetch: %s, mayech? %t / echdialer? %t, err: %v",
 			ustr, t.echconfig != nil, echdialer, err)
-		return r, echdialer, uerr(err)
+		return r, rpid, echdialer, uerr(err)
 	}
-	return r, echdialer, nil
+	return r, rpid, echdialer, nil
 }
 
-func (t *transport) multifetch(req *http.Request, pid string) (res *http.Response, echdialer bool, err error) {
+func (t *transport) multifetch(req *http.Request, pid string) (res *http.Response, rpid string, echdialer bool, err error) {
 	px, err := t.prepare(pid)
 	if err != nil || px == nil {
-		return nil, false, core.OneErr(err, dnsx.ErrNoProxyProvider)
+		return nil, "", false, core.OneErr(err, dnsx.ErrNoProxyProvider)
 	}
 
+	rpid = ipn.ViaID(px)
 	c3, c0 := t.httpClientsFor(px) // c3 may be nil
 
-	log.VV("doh: using proxy %s:%s ech? %t / other? %t",
-		px.ID(), px.GetAddr(), c3 != nil, c0 != nil)
+	log.VV("doh: using proxy %s+%s:%s ech? %t / other? %t",
+		px.ID(), rpid, px.GetAddr(), c3 != nil, c0 != nil)
 
 	clients := []*http.Client{c3, c0}
 
@@ -453,7 +454,7 @@ func (t *transport) multifetch(req *http.Request, pid string) (res *http.Respons
 			cont = false
 			sent = true
 			if res, err = c.Do(req); err == nil {
-				return res, c == c3, nil // res is never nil here
+				return res, rpid, c == c3, nil // res is never nil here
 			}
 			if eerr := new(tls.ECHRejectionError); errors.As(err, &eerr) {
 				cont = true
@@ -475,7 +476,7 @@ func (t *transport) multifetch(req *http.Request, pid string) (res *http.Respons
 				eof := uerr.Err == io.EOF
 				if eof && res != nil {
 					log.D("doh: fetch #%d: EOF; but res exists! %t", i)
-					return res, c == c3, nil
+					return res, rpid, c == c3, nil
 				} // continue if EOF
 				cont = eof || uerr.Err == io.ErrUnexpectedEOF
 			} // terminate if not EOF
@@ -485,7 +486,7 @@ func (t *transport) multifetch(req *http.Request, pid string) (res *http.Respons
 	if !sent && err == nil { // should never happen
 		log.E("doh: fetch: no client sent request %d", len(clients))
 	}
-	return nil, false, core.OneErr(err, errNoClient)
+	return nil, rpid, false, core.OneErr(err, errNoClient)
 }
 
 func (t *transport) prepare(pid string) (px ipn.Proxy, err error) {
@@ -509,7 +510,7 @@ func (t *transport) prepare(pid string) (px ipn.Proxy, err error) {
 	return
 }
 
-func (t *transport) do(pid string, req *http.Request) (ans []byte, blocklists, region string, withech bool, elapsed time.Duration, qerr *dnsx.QueryError) {
+func (t *transport) do(pid string, req *http.Request) (ans []byte, rpid, blocklists, region string, withech bool, elapsed time.Duration, qerr *dnsx.QueryError) {
 	var server net.Addr
 	var conn net.Conn
 	start := time.Now()
@@ -579,7 +580,7 @@ func (t *transport) do(pid string, req *http.Request) (ans []byte, blocklists, r
 
 	log.VV("doh: sending query to: %s", t.hostname)
 
-	res, echdialer, err := t.fetch(pid, req)
+	res, rpid, echdialer, err := t.fetch(pid, req)
 
 	withech = withech || echdialer
 
@@ -619,10 +620,10 @@ func (t *transport) do(pid string, req *http.Request) (ans []byte, blocklists, r
 	return
 }
 
-func (t *transport) send(pid string, req *http.Request) (msg *dns.Msg, blocklists, region string, ech bool, elapsed time.Duration, qerr *dnsx.QueryError) {
+func (t *transport) send(pid string, req *http.Request) (msg *dns.Msg, rpid, blocklists, region string, ech bool, elapsed time.Duration, qerr *dnsx.QueryError) {
 	var ans []byte
 	var err error
-	ans, blocklists, region, ech, elapsed, qerr = t.do(pid, req)
+	ans, rpid, blocklists, region, ech, elapsed, qerr = t.do(pid, req)
 	if qerr != nil {
 		return
 	}
@@ -699,18 +700,22 @@ func (t *transport) hostport() (addr string, port uint16) {
 }
 
 func (t *transport) Query(network string, q *dns.Msg, smm *x.DNSSummary) (r *dns.Msg, err error) {
-	var blocklists, region string
+	var rpid, pid, blocklists, region string
 	var ech bool
 	var elapsed time.Duration
 	var qerr *dnsx.QueryError
 
-	_, pids := xdns.Net2ProxyID(network)
-	pid := t.chooseProxy(pids)
+	if t.relay != nil {
+		pid = t.relay.ID()
+	} else {
+		_, pids := xdns.Net2ProxyID(network)
+		pid = t.chooseProxy(pids)
+	}
+
 	if t.typ == dnsx.DOH {
-		r, blocklists, region, ech, elapsed, qerr = t.doDoh(pid, q)
+		r, rpid, blocklists, region, ech, elapsed, qerr = t.doDoh(pid, q)
 	} else {
 		r, ech, elapsed, qerr = t.doOdoh(pid, q)
-		smm.RelayServer = t.odohproxyname
 	}
 
 	smm.Server = t.GetAddr()
@@ -734,19 +739,18 @@ func (t *transport) Query(network string, q *dns.Msg, smm *x.DNSSummary) (r *dns
 	smm.Status = status
 	smm.Region = region
 	smm.Blocklists = blocklists
-	noOdohRelay := len(smm.RelayServer) <= 0
-	if noOdohRelay {
-		if t.relay != nil {
-			smm.RelayServer = x.SummaryProxyLabel + t.relay.ID()
-		} else if !dnsx.IsLocalProxy(pid) {
-			smm.RelayServer = x.SummaryProxyLabel + pid
-		}
+	if t.typ == dnsx.ODOH {
+		smm.PID = t.odohproxyname // odoh proxy
+		smm.RPID = pid            // other proxy, if any
+	} else {
+		smm.PID = pid   // proxy, if any
+		smm.RPID = rpid // hopping proxy, if any
 	}
 	if err != nil {
 		smm.Msg = err.Error()
 	}
-	log.V("doh: (p/px %s/%s); a:%d/sz:%d/pad:%d, q: %s, data: %s, via: %s, err? %v",
-		network, pid, xdns.Len(r), xdns.Size(r), xdns.EDNS0PadLen(r), smm.QName, smm.RData, smm.RelayServer, err)
+	log.V("doh: (p/px/via %s/%s/%s); a:%d/sz:%d/pad:%d, q: %s, data: %s, via: %s, err? %v",
+		network, pid, rpid, xdns.Len(r), xdns.Size(r), xdns.EDNS0PadLen(r), smm.QName, smm.RData, smm.PID, err)
 	return r, err
 }
 

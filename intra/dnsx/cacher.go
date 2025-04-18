@@ -584,7 +584,8 @@ func fillSummary(s *x.DNSSummary, out *x.DNSSummary) {
 	out.RCode = s.RCode
 	out.RTtl = s.RTtl
 	out.Server = s.Server
-	out.RelayServer = s.RelayServer
+	out.PID = s.PID
+	out.RPID = s.RPID
 	out.Status = s.Status
 	out.Blocklists = s.Blocklists
 	out.Msg = s.Msg

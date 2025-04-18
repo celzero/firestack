@@ -146,7 +146,7 @@ func (t *dot) echVerifyFn() func(tls.ConnectionState) error {
 	return nil // delegate to stdlib
 }
 
-func (t *dot) doQuery(pid string, q *dns.Msg) (response *dns.Msg, elapsed time.Duration, qerr *dnsx.QueryError) {
+func (t *dot) doQuery(pid string, q *dns.Msg) (response *dns.Msg, rpid string, elapsed time.Duration, qerr *dnsx.QueryError) {
 	if q == nil || !xdns.HasAnyQuestion(q) {
 		qerr = dnsx.NewBadQueryError(fmt.Errorf("err len(query) %d", xdns.Len(q)))
 		return
@@ -157,7 +157,7 @@ func (t *dot) doQuery(pid string, q *dns.Msg) (response *dns.Msg, elapsed time.D
 		return
 	}
 
-	response, elapsed, qerr = t.sendRequest(pid, q)
+	response, rpid, elapsed, qerr = t.sendRequest(pid, q)
 
 	if qerr != nil { // only on send-request errors
 		response = xdns.Servfail(q)
@@ -196,24 +196,26 @@ func (t *dot) tlsdial(rd protect.RDialer) (_ *dns.Conn, who uintptr, err error) 
 	return nil, who, err
 }
 
-func (t *dot) pxdial(pid string) (*dns.Conn, uintptr, error) {
+func (t *dot) pxdial(pid string) (*dns.Conn, string, uintptr, error) {
 	var px ipn.Proxy
 	if t.relay != nil { // relay takes precedence
 		px = t.relay
 	} else if t.proxies != nil { // use proxy, if specified
 		var err error
 		if px, err = t.proxies.ProxyFor(pid); err != nil {
-			return nil, core.Nobody, err
+			return nil, "", core.Nobody, err
 		}
 	}
 	if px == nil {
-		return nil, core.Nobody, dnsx.ErrNoProxyProvider
+		return nil, "", core.Nobody, dnsx.ErrNoProxyProvider
 	}
 	pid = px.ID()
-	log.V("dot: pxdial: (%s) using relay/proxy %s at %s",
-		t.id, pid, px.GetAddr())
+	rpid := ipn.ViaID(px)
+	log.V("dot: pxdial: (%s) using relay/proxy %s (via: %s) at %s",
+		t.id, pid, rpid, px.GetAddr())
 
-	return t.tlsdial(px.Dialer())
+	c, who, err := t.tlsdial(px.Dialer())
+	return c, rpid, who, err
 }
 
 // toPool takes ownership of c.
@@ -248,7 +250,7 @@ func clos(c net.Conn) {
 	core.CloseConn(c)
 }
 
-func (t *dot) sendRequest(pid string, q *dns.Msg) (ans *dns.Msg, elapsed time.Duration, qerr *dnsx.QueryError) {
+func (t *dot) sendRequest(pid string, q *dns.Msg) (ans *dns.Msg, rpid string, elapsed time.Duration, qerr *dnsx.QueryError) {
 	var err error
 
 	if q == nil || !xdns.HasAnyQuestion(q) {
@@ -261,7 +263,7 @@ func (t *dot) sendRequest(pid string, q *dns.Msg) (ans *dns.Msg, elapsed time.Du
 	userelay := t.relay != nil
 	useproxy := len(pid) != 0 // pid == dnsx.NetNoProxy => ipn.Block
 	if useproxy || userelay { // ref dns.Client.Dial
-		conn, who, err = t.pxdial(pid)
+		conn, rpid, who, err = t.pxdial(pid)
 	} else {
 		err = dnsx.ErrNoProxyProvider
 	}
@@ -294,11 +296,16 @@ func (t *dot) chooseProxy(pids []string) string {
 func (t *dot) Query(network string, q *dns.Msg, smm *x.DNSSummary) (ans *dns.Msg, err error) {
 	var qerr *dnsx.QueryError
 	var elapsed time.Duration
+	var pid, rpid string
 
-	_, pids := xdns.Net2ProxyID(network)
-	pid := t.chooseProxy(pids)
+	if t.relay != nil {
+		pid = t.relay.ID()
+	} else {
+		_, pids := xdns.Net2ProxyID(network)
+		pid = t.chooseProxy(pids)
+	}
 
-	ans, elapsed, qerr = t.doQuery(pid, q)
+	ans, rpid, elapsed, qerr = t.doQuery(pid, q)
 
 	status := dnsx.Complete
 	if qerr != nil {
@@ -313,11 +320,8 @@ func (t *dot) Query(network string, q *dns.Msg, smm *x.DNSSummary) (ans *dns.Msg
 	smm.RCode = xdns.Rcode(ans)
 	smm.RTtl = xdns.RTtl(ans)
 	smm.Server = t.GetAddr()
-	if t.relay != nil {
-		smm.RelayServer = x.SummaryProxyLabel + t.relay.ID()
-	} else if !dnsx.IsLocalProxy(pid) {
-		smm.RelayServer = x.SummaryProxyLabel + pid
-	}
+	smm.PID = pid   // may be local dnsx.IsLocalProxy
+	smm.RPID = rpid // may be empty
 	if err != nil {
 		smm.Msg = err.Error()
 	}
@@ -325,7 +329,7 @@ func (t *dot) Query(network string, q *dns.Msg, smm *x.DNSSummary) (ans *dns.Msg
 	t.est.Add(smm.Latency)
 
 	log.V("dot: len(res): a:%d/sz:%d/pad:%d, data: %s, via: %s, err? %v",
-		xdns.Len(ans), xdns.Size(ans), xdns.EDNS0PadLen(ans), smm.RData, smm.RelayServer, err)
+		xdns.Len(ans), xdns.Size(ans), xdns.EDNS0PadLen(ans), smm.RData, smm.PID, err)
 
 	return
 }

@@ -49,8 +49,6 @@ const ( // see dnsx/transport.go
 	// dns resolver for dns resolvers and for firestack (built-in)
 	// delegates queries to Bootstrap.
 	IpMapper = "IpMapper"
-
-	SummaryProxyLabel = "proxy:"
 )
 
 const ( // from dnsx/queryerror.go

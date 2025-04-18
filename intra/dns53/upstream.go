@@ -130,23 +130,24 @@ func NewTransportFrom(ctx context.Context, id string, ipp netip.AddrPort, px ipn
 	return newTransport(ctx, id, do, px)
 }
 
-func (t *transport) pxdial(network, pid string) (*dns.Conn, uintptr, error) {
+func (t *transport) pxdial(network, pid string) (*dns.Conn, string, uintptr, error) {
 	var px ipn.Proxy
 	if t.relay != nil { // relay takes precedence
 		px = t.relay
 	} else if t.proxies != nil { // use proxy, if specified
 		var err error
 		if px, err = t.proxies.ProxyFor(pid); err != nil {
-			return nil, core.Nobody, err
+			return nil, "", core.Nobody, err
 		}
 	}
 	if px == nil {
-		return nil, core.Nobody, dnsx.ErrNoProxyProvider
+		return nil, "", core.Nobody, dnsx.ErrNoProxyProvider
 	}
 
+	rpid := ipn.ViaID(px)
 	who := px.Handle()
 	if c := t.fromPool(who); c != nil {
-		return c, who, nil
+		return c, rpid, who, nil
 	}
 
 	log.V("dns53: pxdial: (%s) using %s relay/proxy %s at %s",
@@ -155,14 +156,14 @@ func (t *transport) pxdial(network, pid string) (*dns.Conn, uintptr, error) {
 	pxconn, err := px.Dialer().Dial(network, t.addrport)
 	if err != nil {
 		clos(pxconn)
-		return nil, core.Nobody, err
+		return nil, rpid, core.Nobody, err
 	} else if pxconn == nil {
 		log.E("dns53: pxdial: (%s) no %s conn for relay/proxy %s at %s",
 			t.id, network, px.ID(), px.GetAddr())
 		err = errNoNet
-		return nil, core.Nobody, err
+		return nil, rpid, core.Nobody, err
 	}
-	return &dns.Conn{Conn: pxconn}, who, nil
+	return &dns.Conn{Conn: pxconn}, rpid, who, nil
 }
 
 // toPool takes ownership of c.
@@ -193,7 +194,7 @@ func (t *transport) fromPool(id uintptr) (c *dns.Conn) {
 	return
 }
 
-func (t *transport) connect(network, pid string) (conn *dns.Conn, who uintptr, err error) {
+func (t *transport) connect(network, pid string) (conn *dns.Conn, rpid string, who uintptr, err error) {
 	useudp := network == dnsx.NetTypeUDP
 	userelay := t.relay != nil
 	useproxy := len(pid) != 0 // pid == dnsx.NetNoProxy => ipn.Block
@@ -201,11 +202,11 @@ func (t *transport) connect(network, pid string) (conn *dns.Conn, who uintptr, e
 	// if udp is unreachable, try tcp: github.com/celzero/rethink-app/issues/839
 	// note that some proxies do not support udp (eg pipws, piph2)
 	if userelay || useproxy {
-		conn, who, err = t.pxdial(network, pid)
+		conn, rpid, who, err = t.pxdial(network, pid)
 		if err != nil && useudp {
 			clos(conn)
 			network = dnsx.NetTypeTCP
-			conn, who, err = t.pxdial(network, pid)
+			conn, rpid, who, err = t.pxdial(network, pid)
 		}
 	} else {
 		err = dnsx.ErrNoProxyProvider
@@ -214,7 +215,7 @@ func (t *transport) connect(network, pid string) (conn *dns.Conn, who uintptr, e
 }
 
 // ref: github.com/celzero/midway/blob/77ede02c/midway/server.go#L179
-func (t *transport) send(network, pid string, q *dns.Msg) (ans *dns.Msg, elapsed time.Duration, qerr *dnsx.QueryError) {
+func (t *transport) send(network, pid string, q *dns.Msg) (ans *dns.Msg, rpid string, elapsed time.Duration, qerr *dnsx.QueryError) {
 	var err error
 	if q == nil || !xdns.HasAnyQuestion(q) {
 		qerr = dnsx.NewBadQueryError(errQueryParse)
@@ -230,7 +231,7 @@ func (t *transport) send(network, pid string, q *dns.Msg) (ans *dns.Msg, elapsed
 	userelay := t.relay != nil
 	useproxy := len(pid) != 0 // pid == dnsx.NetNoProxy => ipn.Base
 
-	conn, who, err := t.connect(network, pid)
+	conn, rpid, who, err := t.connect(network, pid)
 
 	logev(err)("dns53: send: (%s / %s) to %s for %s using udp? %t / px? %t / relay? %t; err? %v",
 		network, t.id, t.addrport, qname, useudp, useproxy, userelay, err)
@@ -267,10 +268,16 @@ func (t *transport) chooseProxy(pids []string) string {
 }
 
 func (t *transport) Query(network string, q *dns.Msg, smm *x.DNSSummary) (ans *dns.Msg, err error) {
+	var pid string
 	proto, pids := xdns.Net2ProxyID(network)
-	pid := t.chooseProxy(pids)
 
-	ans, elapsed, qerr := t.send(proto, pid, q)
+	if t.relay != nil {
+		pid = t.relay.ID()
+	} else {
+		pid = t.chooseProxy(pids)
+	}
+
+	ans, rpid, elapsed, qerr := t.send(proto, pid, q)
 	if qerr != nil { // only on send-request errors
 		ans = xdns.Servfail(q)
 	}
@@ -288,11 +295,8 @@ func (t *transport) Query(network string, q *dns.Msg, smm *x.DNSSummary) (ans *d
 	smm.RCode = xdns.Rcode(ans)
 	smm.RTtl = xdns.RTtl(ans)
 	smm.Server = t.GetAddr()
-	if t.relay != nil {
-		smm.RelayServer = x.SummaryProxyLabel + t.relay.ID()
-	} else if !dnsx.IsLocalProxy(pid) {
-		smm.RelayServer = x.SummaryProxyLabel + pid
-	}
+	smm.PID = pid
+	smm.RPID = rpid
 	if err != nil {
 		smm.Msg = err.Error()
 	}
@@ -300,7 +304,7 @@ func (t *transport) Query(network string, q *dns.Msg, smm *x.DNSSummary) (ans *d
 	t.est.Add(smm.Latency)
 
 	log.V("dns53: (%s) len(res): %d, data: %s, via: %s, err? %v",
-		t.id, xdns.Len(ans), smm.RData, smm.RelayServer, err)
+		t.id, xdns.Len(ans), smm.RData, smm.PID, err)
 
 	return ans, err
 }

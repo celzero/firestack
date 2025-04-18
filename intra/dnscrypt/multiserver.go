@@ -310,7 +310,11 @@ func resolve(network string, data *dns.Msg, si *serverinfo, smm *x.DNSSummary) (
 	useudp := proto == dnsx.NetTypeUDP
 	pid := dnsx.NetNoProxy
 	if si != nil {
-		pid = si.chooseProxy(pids)
+		if si.relay != nil {
+			pid = si.relay.ID()
+		} else {
+			pid = si.chooseProxy(pids)
+		}
 	}
 
 	// ans, si may be nil
@@ -340,22 +344,17 @@ func resolve(network string, data *dns.Msg, si *serverinfo, smm *x.DNSSummary) (
 	smm.RCode = xdns.Rcode(ans)
 	smm.RTtl = xdns.RTtl(ans)
 	smm.Server = resolver
-	smm.RelayServer = anonrelay // may be empty
+	smm.PID = anonrelay // may be empty
 	smm.Status = status
 	if err != nil {
 		smm.Msg = err.Error()
 	}
-
-	noAnonRelay := len(anonrelay) <= 0
-	if si != nil && noAnonRelay {
-		if si.relay != nil {
-			smm.RelayServer = x.SummaryProxyLabel + si.relay.ID()
-		} else if !dnsx.IsLocalProxy(pid) {
-			smm.RelayServer = x.SummaryProxyLabel + pid
-		}
+	if len(anonrelay) <= 0 {
+		smm.PID = pid
 	}
 
-	log.V("dnscrypt: len(res): %d, data: %s, via: %s, err? %v", xdns.Len(ans), smm.RData, smm.RelayServer, err)
+	log.V("dnscrypt: len(res): %d, data: %s, via: %s, err? %v",
+		xdns.Len(ans), smm.RData, smm.PID, err)
 
 	return // ans, err
 }

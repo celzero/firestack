@@ -1871,8 +1871,9 @@ func withPresetSummary(smm *x.DNSSummary, reqSent, fixed bool) {
 		smm.Server = "127.5.3.9"
 	}
 	smm.Server = PrefixFor(id) + smm.Server
-	smm.Blocklists = ""  // blocklists are not honoured
-	smm.RelayServer = "" // no relay is used
+	smm.Blocklists = "" // blocklists are not honoured
+	smm.PID = ""        // no relay is used
+	smm.RPID = ""       // no hops either
 }
 
 func idstr(t Transport) string {

@@ -29,7 +29,7 @@ type goosr struct {
 	r    *net.Resolver
 	rcgo *net.Resolver
 	// dialer *protect.RDial
-	px ipn.Proxy // the only supported proxy is ipn.Exit
+	exit ipn.Proxy // the only supported proxy is ipn.Exit
 
 	status *core.Volatile[int]
 }
@@ -59,7 +59,7 @@ func NewGoosTransport(pctx context.Context, pxs ipn.ProxyProvider) (t *goosr, er
 		done:   cancel,
 		status: core.NewVolatile(x.Start),
 		// dialer: d,
-		px: px,
+		exit: px,
 	}
 	tx.r = &net.Resolver{
 		PreferGo: true,
@@ -74,8 +74,9 @@ func NewGoosTransport(pctx context.Context, pxs ipn.ProxyProvider) (t *goosr, er
 
 func (t *goosr) pxdial(ctx context.Context, network, addr string) (conn net.Conn, err error) {
 	// addr must be ip:port
-	log.VV("dns53: goosr: pxdial: using %s proxy for %s:%s => %s", ipn.Exit, network, t.px.GetAddr(), addr)
-	return t.px.Dialer().Dial(network, addr)
+	log.VV("dns53: goosr: pxdial: using %s proxy for %s:%s => %s",
+		t.exit.ID(), network, t.exit.GetAddr(), addr)
+	return t.exit.Dialer().Dial(network, addr)
 }
 
 func (t *goosr) send(msg *dns.Msg) (ans *dns.Msg, elapsed time.Duration, qerr *dnsx.QueryError) {
@@ -165,11 +166,13 @@ func (t *goosr) Query(_ string, q *dns.Msg, smm *x.DNSSummary) (r *dns.Msg, err 
 	smm.RTtl = xdns.RTtl(r)
 	smm.Server = t.GetAddr()
 	smm.Status = status
+	smm.PID = t.exit.ID()
 	if err != nil {
 		smm.Msg = err.Error()
 	}
 
-	log.V("dns53: goosr: len(res): %d, data: %s, via: %s, err? %v", xdns.Len(r), smm.RData, smm.RelayServer, err)
+	log.V("dns53: goosr: len(res): %d, data: %s, err? %v",
+		xdns.Len(r), smm.RData, err)
 
 	return r, err
 }

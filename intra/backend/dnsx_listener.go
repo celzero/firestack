@@ -32,8 +32,10 @@ type DNSSummary struct {
 	RTtl int
 	// DNS Server (ip, ip:port, host, host:port)
 	Server string
-	// Hop, if any; proxy or a relay server address
-	RelayServer string
+	// Proxy or a relay server address
+	PID string
+	// Relay server PID hops over, if any
+	RPID string
 	// Transport status (Start, Complete, SendFailed, NoResponse, BadQuery, BadResponse, etc)
 	Status int
 	// CSV of Rethink DNS+ blocklists (local or remote) names (if used).
@@ -75,7 +77,7 @@ func (s *DNSSummary) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("type: %s, id: %s, latency: %f, qname: %s, rdata: %s, rcode: %d, rttl: %d, server: %s, relay: %s, status: %d, blocklists: %s, msg: %s, loc: %s",
-		s.Type, s.ID, s.Latency, s.QName, s.RData, s.RCode, s.RTtl, s.Server, s.RelayServer, s.Status, s.Blocklists, s.Msg, s.Region)
+		s.Type, s.ID, s.Latency, s.QName, s.RData, s.RCode, s.RTtl, s.Server, s.PID, s.Status, s.Blocklists, s.Msg, s.Region)
 }
 
 // DNSListener receives Summaries.
