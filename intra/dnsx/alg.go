@@ -248,26 +248,22 @@ func (p *xips) String() string {
 	return fmt.Sprintf("xips: pri(%v) sec(%v)", p.pri, p.aux)
 }
 
-// primary ips from all tids
-func (p *xips) primary(s xaddrstatus) (out []netip.Addr) {
-	return p.ips(xpri, s)
-}
-
 // secondary ips for all tids+uids
-func (p *xips) sec(s xaddrstatus) (out []netip.Addr) {
+func (p *xips) secips(s xaddrstatus) (out []netip.Addr) {
 	// as far as secondary is concerned, only live ips matter;
 	// expired ips should not be used for allow/deny decisions.
-	return p.ips(xsec, s)
+	// that is, s should almost always be set to xalive.
+	return p.allips(xsec, s)
 }
 
 // secondary ip by a given tid+uid pair
-func (p *xips) secof(tid, uid string) (out []netip.Addr) {
+func (p *xips) secipsFor(tid, uid string) (out []netip.Addr) {
 	// as far as secondary is concerned, only live ips matter;
 	// expired ips should not be used for allow/deny decisions.
 	return p.ipsFor(tid, uid, xsec, xalive)
 }
 
-func (p *xips) ips(t xaddrtyp, s xaddrstatus) (out []netip.Addr) {
+func (p *xips) allips(t xaddrtyp, s xaddrstatus) (out []netip.Addr) {
 	p.pmu.RLock()
 	defer p.pmu.RUnlock()
 
@@ -282,14 +278,17 @@ func (p *xips) ips(t xaddrtyp, s xaddrstatus) (out []netip.Addr) {
 	return
 }
 
-// realips returns all live primary ips for a given uid
+// realips returns all live primary ips for a given uid.
+// returns all tracked live primary ips.
+// and returns unspecified ips, if uid had a "block" response.
 func (p *xips) realips(uid string, s xaddrstatus) (pri []netip.Addr) {
 	if p == nil {
 		return nil
 	}
 
-	pri = p.primary(s)
+	pri = p.allips(xpri, s)
 
+	// check for "block" responses for just this uid
 	zz := p.zz(uid)
 	if (s == xalive && len(pri) > 0) && zz {
 		// if aux had unspecified ips, then append those to
@@ -305,7 +304,7 @@ func (p *xips) zz(uid string) bool {
 	if p == nil {
 		return false
 	}
-	return anyUnspecified(p.secof(notransport, uid))
+	return anyUnspecified(p.secipsFor(notransport, uid))
 }
 
 // realipsFor returns all live primary ips for a given tid+uid pair
@@ -318,8 +317,12 @@ func (p *xips) ipsFor(tid, uid string, t xaddrtyp, s xaddrstatus) (out []netip.A
 		return nil
 	}
 
+	if len(uid) <= 0 {
+		uid = core.UNKNOWN_UID_STR
+	}
+
 	if t == xpri && (tid == notransport || tid == NoDNS || len(tid) <= 0) {
-		out = p.realips(uid, s)
+		out = p.allips(xpri, s)
 		log.VV("alg: xips: xof(%s,%s): no tid? %s[%s]; returning all %v", t, s, tid, uid, out)
 		return
 	}
@@ -328,9 +331,6 @@ func (p *xips) ipsFor(tid, uid string, t xaddrtyp, s xaddrstatus) (out []netip.A
 	defer p.pmu.RUnlock()
 
 	if t == xsec { // ignore alive for secondary
-		if len(uid) <= 0 {
-			uid = core.UNKNOWN_UID_STR
-		}
 		if tid == notransport || tid == NoDNS || len(tid) <= 0 {
 			for k, v := range p.aux {
 				if strings.HasSuffix(k, uid) {
@@ -407,10 +407,10 @@ func anyAddrEqual(ipps []netip.AddrPort, ip netip.Addr) bool {
 
 // each iterates over each primary ip
 func (p *xips) each(f func(ip netip.Addr)) {
-	for _, ip := range p.primary(xall) {
+	for _, ip := range p.allips(xpri, xall) {
 		f(ip)
 	}
-	for _, ip := range p.sec(xall) {
+	for _, ip := range p.allips(xsec, xall) {
 		f(ip)
 	}
 }
@@ -1612,11 +1612,11 @@ func (t *dnsgateway) resolvLocked(domain string, typ iptype, tid, uid string) (i
 			k4 := partkey4 + strconv.Itoa(i)
 			if ans, ok := t.alg[k4]; ok {
 				if life, fresh := ans.fresh(); fresh { // not stale
-					ip4s = append(ip4s, v4only(ans.ips.secof(tid, uid))...)
+					ip4s = append(ip4s, v4only(ans.ips.secipsFor(tid, uid))...)
 					targets = append(targets, ans.domains...)
 					until = min(until, life)
 				} else {
-					staleips = append(staleips, ans.ips.sec(xall)...)
+					staleips = append(staleips, ans.ips.secips(xall)...)
 				}
 				// all ans{} have all secondaryips; pick the first one
 				break
@@ -1626,11 +1626,11 @@ func (t *dnsgateway) resolvLocked(domain string, typ iptype, tid, uid string) (i
 			k6 := partkey6 + strconv.Itoa(i)
 			if ans, ok := t.alg[k6]; ok {
 				if life, fresh := ans.fresh(); fresh { // not stale
-					ip6s = append(ip6s, v6only(ans.ips.secof(tid, uid))...)
+					ip6s = append(ip6s, v6only(ans.ips.secipsFor(tid, uid))...)
 					targets = append(targets, ans.domains...)
 					until = min(until, life)
 				} else {
-					staleips = append(staleips, ans.ips.sec(xall)...)
+					staleips = append(staleips, ans.ips.secips(xall)...)
 				}
 				// all ans{} have all secondaryips; pick the first one
 				break
