@@ -75,7 +75,10 @@ type SocketListener interface {
 
 type PreMark struct {
 	// UID of the app which owns the flow.
+	// Set it to "-1" if unknown.
 	UID string
+	// Is the UID us (our app / process)?
+	IsUidSelf bool
 }
 
 type Mark struct {

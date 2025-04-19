@@ -26,6 +26,7 @@ import (
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/netstack"
 	"github.com/celzero/firestack/intra/netstat"
+	"github.com/celzero/firestack/intra/protect"
 	"github.com/celzero/firestack/intra/settings"
 )
 
@@ -33,6 +34,7 @@ const (
 	smmchSize           = 64
 	UNKNOWN_UID         = core.UNKNOWN_UID
 	UNKNOWN_UID_STR     = core.UNKNOWN_UID_STR
+	SELF_UID            = protect.UidSelf
 	UNSUPPORTED_NETWORK = core.UNSUPPORTED_NETWORK
 )
 
@@ -137,10 +139,12 @@ func (h *baseHandler) onFlow(localaddr, target netip.AddrPort) (fm *Mark, undidA
 
 	// Implicit: BlockModeFilter or BlockModeFilterProc
 	uid := UNKNOWN_UID
+	preuid := UNKNOWN_UID_STR
 	if blockmode == settings.BlockModeFilterProc {
 		procEntry := netstat.FindProcNetEntry(h.proto, localaddr, target)
 		if procEntry != nil {
 			uid = procEntry.UserID
+			preuid = strconv.Itoa(uid)
 		}
 	}
 
@@ -160,11 +164,18 @@ func (h *baseHandler) onFlow(localaddr, target netip.AddrPort) (fm *Mark, undidA
 	}, onFlowTimeout)
 
 	hasPre := pre != nil
-	preuid := UNKNOWN_UID_STR
 	if hasPre && pre != nil /*nilaway*/ && len(pre.UID) > 0 {
-		preuid = pre.UID
 		if c, cerr := strconv.Atoi(pre.UID); cerr == nil {
 			uid = c
+			// alg.go, for its per-uid cache, uses a special UID to denote
+			// our own process (protect.UidSelf) and so make sure to use it.
+			if pre.IsUidSelf {
+				preuid = SELF_UID
+			} else {
+				preuid = pre.UID
+			}
+		} else {
+			log.W("com: %s: onFlow: preflow: uid %s is not a number; use %s", h.proto, pre.UID, uid)
 		}
 	}
 
@@ -478,7 +489,7 @@ func makeIPPorts(ips []netip.Addr, origipp netip.AddrPort, cap int) []netip.Addr
 // algip may or may not be an actual alg ip.
 // returned realips may be incoming algip itself or translated from algip,
 // depending on whether alg is enabled (ref: undidAlg).
-func (h *baseHandler) undoAlg(algip netip.Addr, uid string, tids ...string) (undidAlg bool, realips, domains, probableDomains, blocklists string) {
+func (h *baseHandler) undoAlg(algip netip.Addr, uid string) (undidAlg bool, realips, domains, probableDomains, blocklists string) {
 	r := h.resolver
 	didForce := false
 	forcePTR := true // force PTR (realip => algans) translation?
@@ -492,7 +503,7 @@ func (h *baseHandler) undoAlg(algip netip.Addr, uid string, tids ...string) (und
 		}
 		var ips []netip.Addr
 		// ips will contain the incoming "algip" arg, in cases where alg is NOT enabled.
-		ips, undidAlg = gw.X(algip, uid, tids...)
+		ips, undidAlg = gw.X(algip, uid)
 		realips = dnsx.Netip2Csv(ips)
 		blocklists = gw.RDNSBL(algip)
 	}
@@ -502,8 +513,8 @@ func (h *baseHandler) undoAlg(algip netip.Addr, uid string, tids ...string) (und
 		}
 	}
 
-	logwif(canalg)("com: %s: alg: undoAlg: for %v[%s] (gw? %t ok? %t, force? %t, withForce? %t) %s => %v (for %s + %s / block: %s)",
-		h.proto, tids, uid, gw != nil, undidAlg, didForce, forcePTR, algip, realips, domains, probableDomains, blocklists)
+	logwif(canalg)("com: %s: alg: undoAlg: for [%s] (gw? %t ok? %t, force? %t, withForce? %t) %s => %v (for %s + %s / block: %s)",
+		h.proto, uid, gw != nil, undidAlg, didForce, forcePTR, algip, realips, domains, probableDomains, blocklists)
 	return
 }
 
