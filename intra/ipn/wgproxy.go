@@ -102,9 +102,6 @@ type wgtun struct {
 	preferOffload bool              // UDP GRO/GSO offloads
 	since         int64             // start time in unix millis
 
-	// request barrier for dns lookups
-	ba *core.Barrier[[]netip.Addr, string]
-
 	px ProxyProvider
 	// mutable fields
 
@@ -719,7 +716,6 @@ func makeWgTun(id, cfg string, ctl protect.Controller, px ProxyProvider, lp Link
 		remote:        core.NewVolatile(ifopts.eps),   // may be nil
 		peers:         core.NewVolatile(ifopts.peers), // its entries must never be modified
 		rt:            x.NewIpTree(),                  // must be set to allowedaddrs
-		ba:            core.NewBarrier[[]netip.Addr](wgbarrierttl),
 		amnezia:       ifopts.amnezia,
 		status:        core.NewVolatile(TUP),
 		preferOffload: preferOffload(id),

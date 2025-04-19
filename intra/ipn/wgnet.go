@@ -128,11 +128,11 @@ func (tnet *wgtun) dial(network, local, remote string) (net.Conn, error) {
 		}
 	}
 
-	// allAddrs may be nil but shouldn't be when rverr is not nil
-	allAddrs, rverr := tnet.ba.DoIt(host, resolve(tnet, host))
-	if rverr != nil {
-		log.W("wg: %s dial: lookup failed %q: %v", tnet.id, host, rverr)
-		return nil, &net.OpError{Op: "dial", Err: rverr}
+	// allAddrs may be nil but shouldn't be when reserr is not nil
+	allAddrs, reserr := tnet.LookupHost(host)
+	if reserr != nil {
+		log.W("wg: %s dial: lookup failed %q: %v", tnet.id, host, reserr)
+		return nil, &net.OpError{Op: "dial", Err: reserr}
 	}
 
 	var addrs []netip.AddrPort
@@ -180,12 +180,6 @@ func (tnet *wgtun) dial(network, local, remote string) (net.Conn, error) {
 	errs = core.OneErr(errs, errMissingAddress)
 	log.W("wg: %s dial: %s: %s failed: %v", tnet.id, network, addrs, errs)
 	return nil, errs
-}
-
-func resolve(tnet *wgtun, host string) core.Work[[]netip.Addr] {
-	return func() ([]netip.Addr, error) {
-		return tnet.LookupHost(host)
-	}
 }
 
 // --------------------------------------------------------------------
