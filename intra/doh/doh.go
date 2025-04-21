@@ -686,7 +686,7 @@ func (t *transport) Type() string {
 
 func (t *transport) chooseProxy(pids []string) string {
 	host, port := t.hostport()
-	return dnsx.ChooseProxyHostPort("doh: "+t.id, host, port, pids, t.proxies)
+	return dnsx.ChooseHealthyProxyHostPort("doh: "+t.id, host, port, pids, t.proxies)
 }
 
 func (t *transport) hostport() (addr string, port uint16) {
@@ -705,8 +705,8 @@ func (t *transport) Query(network string, q *dns.Msg, smm *x.DNSSummary) (r *dns
 	var elapsed time.Duration
 	var qerr *dnsx.QueryError
 
-	if t.relay != nil {
-		pid = t.relay.ID()
+	if r := t.relay; r != nil {
+		pid = t.chooseProxy([]string{r.ID()})
 	} else {
 		_, pids := xdns.Net2ProxyID(network)
 		pid = t.chooseProxy(pids)

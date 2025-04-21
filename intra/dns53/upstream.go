@@ -264,15 +264,15 @@ func (t *transport) send(network, pid string, q *dns.Msg) (ans *dns.Msg, rpid st
 }
 
 func (t *transport) chooseProxy(pids []string) string {
-	return dnsx.ChooseProxyHostPort("dns53: "+t.id, t.addrport, t.port, pids, t.proxies)
+	return dnsx.ChooseHealthyProxyHostPort("dns53: "+t.id, t.addrport, t.port, pids, t.proxies)
 }
 
 func (t *transport) Query(network string, q *dns.Msg, smm *x.DNSSummary) (ans *dns.Msg, err error) {
 	var pid string
 	proto, pids := xdns.Net2ProxyID(network)
 
-	if t.relay != nil {
-		pid = t.relay.ID()
+	if r := t.relay; r != nil {
+		pid = t.chooseProxy([]string{r.ID()})
 	} else {
 		pid = t.chooseProxy(pids)
 	}

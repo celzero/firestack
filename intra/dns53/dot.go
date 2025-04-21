@@ -290,7 +290,7 @@ func (t *dot) sendRequest(pid string, q *dns.Msg) (ans *dns.Msg, rpid string, el
 }
 
 func (t *dot) chooseProxy(pids []string) string {
-	return dnsx.ChooseProxyHostPort("dot: "+t.id, t.addrport, t.port, pids, t.proxies)
+	return dnsx.ChooseHealthyProxyHostPort("dot: "+t.id, t.addrport, t.port, pids, t.proxies)
 }
 
 func (t *dot) Query(network string, q *dns.Msg, smm *x.DNSSummary) (ans *dns.Msg, err error) {
@@ -298,8 +298,8 @@ func (t *dot) Query(network string, q *dns.Msg, smm *x.DNSSummary) (ans *dns.Msg
 	var elapsed time.Duration
 	var pid, rpid string
 
-	if t.relay != nil {
-		pid = t.relay.ID()
+	if r := t.relay; r != nil {
+		pid = t.chooseProxy([]string{r.ID()})
 	} else {
 		_, pids := xdns.Net2ProxyID(network)
 		pid = t.chooseProxy(pids)

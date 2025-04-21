@@ -444,7 +444,7 @@ func (s *serverinfo) dialpx(pid, proto string, addr string) (net.Conn, error) {
 }
 
 func (s *serverinfo) chooseProxy(pids []string) string {
-	return dnsx.ChooseProxy("dnscrypt: "+s.ID(), s.IPPorts(), pids, s.proxies)
+	return dnsx.ChooseHealthyProxy("dnscrypt: "+s.ID(), s.IPPorts(), pids, s.proxies)
 }
 
 func addr2ipp(u ...*net.UDPAddr) (ipps []netip.AddrPort) {

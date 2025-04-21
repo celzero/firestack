@@ -35,9 +35,9 @@ import (
 	"github.com/celzero/firestack/intra/protect"
 	"github.com/celzero/firestack/intra/xdns"
 	"github.com/miekg/dns"
+	"golang.org/x/crypto/curve25519"
 
 	stamps "github.com/jedisct1/go-dnsstamps"
-	"golang.org/x/crypto/curve25519"
 )
 
 // DcMulti is a dnsx.TransportMult supporting dnscrypt servers and relays
@@ -310,8 +310,8 @@ func resolve(network string, data *dns.Msg, si *serverinfo, smm *x.DNSSummary) (
 	useudp := proto == dnsx.NetTypeUDP
 	pid := dnsx.NetNoProxy
 	if si != nil {
-		if si.relay != nil {
-			pid = si.relay.ID()
+		if r := si.relay; r != nil {
+			pid = si.chooseProxy([]string{r.ID()})
 		} else {
 			pid = si.chooseProxy(pids)
 		}

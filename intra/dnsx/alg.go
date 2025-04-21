@@ -1779,7 +1779,8 @@ func Req(t Transport, network string, q *dns.Msg, smm *x.DNSSummary) (*dns.Msg, 
 	return r, err
 }
 
-func ChooseProxy(who string, ipps []netip.AddrPort, pids []string, px ipn.ProxyProvider) (pid string) {
+func ChooseHealthyProxy(who string, ipps []netip.AddrPort, pids []string, px ipn.ProxyProvider) (pid string) {
+	var errs []error
 	pid = NetNoProxy
 	if len(pids) > 0 {
 		pid = pids[0]
@@ -1795,14 +1796,16 @@ func ChooseProxy(who string, ipps []netip.AddrPort, pids []string, px ipn.ProxyP
 			foundProxy = pid != NetNoProxy
 			cipp = ipp
 			break
+		} else {
+			errs = append(errs, err)
 		}
 	}
-	logeif(!foundProxy)("%s: proxy for %s(%d); choosing %s among %v",
-		who, cipp, len(ipps), pid, pids)
+	logeif(!foundProxy)("%s: proxy for %s(%d); choosing %s among %v; errs? %v",
+		who, cipp, len(ipps), pid, pids, core.JoinErr(errs...))
 	return
 }
 
-func ChooseProxyHostPort(who string, host string, port uint16, pids []string, px ipn.ProxyProvider) (pid string) {
+func ChooseHealthyProxyHostPort(who string, host string, port uint16, pids []string, px ipn.ProxyProvider) (pid string) {
 	var ipps []netip.AddrPort
 
 	splithost, _, _ := net.SplitHostPort(host)
@@ -1820,7 +1823,7 @@ func ChooseProxyHostPort(who string, host string, port uint16, pids []string, px
 		}
 	}
 
-	return ChooseProxy(who+" : "+host, ipps, pids, px)
+	return ChooseHealthyProxy(who+" : "+host, ipps, pids, px)
 }
 
 func proxyID(p ipn.Proxy) string {
