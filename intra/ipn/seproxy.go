@@ -212,7 +212,7 @@ func (sed *sedialer) Dial(network, dest string) (conn net.Conn, err error) {
 	conn, err = sed.dialer(network, sed.addr)
 
 	defer func() {
-		closif(err)(conn)
+		closeOnErr(err, conn)
 	}()
 
 	if err != nil {
@@ -485,11 +485,9 @@ func (h *seproxy) Expires() int64 {
 	return h.lastRefresh.Load().Add(fourHours).UnixMilli()
 }
 
-func closif(err error) func(io.Closer) {
-	return func(c io.Closer) {
-		if err != nil {
-			core.Close(c)
-		}
+func closeOnErr(err error, c io.Closer) {
+	if err != nil {
+		core.Close(c)
 	}
 }
 
