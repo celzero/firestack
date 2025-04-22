@@ -102,6 +102,8 @@ func (h *auto) dial(network, local, remote string) (protect.Conn, error) {
 		}
 	}
 
+	remoteOnly := settings.AutoAlwaysRemote.Load()
+
 	previdx, recent := h.exp.Get(remote)
 
 	c, who, err := core.Race(
@@ -111,6 +113,15 @@ func (h *auto) dial(network, local, remote string) (protect.Conn, error) {
 			const myidx = 0
 			if exit == nil { // exit must always be present
 				return nil, exerr
+			}
+			if !remoteOnly {
+				select {
+				case <-ctx.Done():
+					return nil, ctx.Err()
+				default: // dial ahead
+				}
+			} else {
+				return nil, errNotRemote
 			}
 			if recent {
 				if previdx != myidx {
@@ -133,10 +144,13 @@ func (h *auto) dial(network, local, remote string) (protect.Conn, error) {
 				h.dialIfHealthy(pro, network, local, remote)
 			}
 
-			select {
-			case <-ctx.Done():
-				return nil, ctx.Err()
-			case <-time.After(shortdelay * myidx): // 100ms
+			// wait only if exit was used
+			if !remoteOnly {
+				select {
+				case <-ctx.Done():
+					return nil, ctx.Err()
+				case <-time.After(shortdelay * myidx): // 100ms
+				}
 			}
 			return h.dialIfHealthy(pro, network, local, remote)
 		}, func(ctx context.Context) (protect.Conn, error) {
@@ -162,6 +176,9 @@ func (h *auto) dial(network, local, remote string) (protect.Conn, error) {
 			const myidx = 3
 			if exit64 == nil {
 				return nil, ex64err
+			}
+			if remoteOnly {
+				return nil, errNotRemote
 			}
 			if recent {
 				if previdx != myidx {

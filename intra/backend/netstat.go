@@ -164,6 +164,8 @@ type RDNSInfo struct {
 	ProxySinceMs  int64
 	Proxies       string
 
+	AutoAlwaysRemote bool
+
 	OpenConnsTCP  string
 	OpenConnsUDP  string
 	OpenConnsICMP string

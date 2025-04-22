@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/url"
 	"strings"
+	"sync/atomic"
 
 	"github.com/celzero/firestack/intra/log"
 	"golang.org/x/net/proxy"
@@ -105,4 +106,12 @@ func (p *ProxyOptions) FullUrl() string {
 // Url returns the url without auth.
 func (p *ProxyOptions) Url() string {
 	return p.Scheme + "://" + p.IPPort
+}
+
+// AutoAlwaysRemote is a global variable to instruct ipn.Auto proxy
+// to always use remote proxies and never use local (ex: ipn.Exit) ones.
+var AutoAlwaysRemote atomic.Bool
+
+func SetAutoAlwaysRemote(y bool) (prev bool) {
+	return AutoAlwaysRemote.Swap(y)
 }

@@ -321,6 +321,7 @@ func (t *rtunnel) stat() (*x.NetStat, error) {
 	out.RDNSIn.Dialer4 = dialers.Use4()
 	out.RDNSIn.Dialer6 = dialers.Use6()
 	out.RDNSIn.DialerOpts = csv2ssv(settings.GetDialerOpts().String())
+	out.RDNSIn.AutoAlwaysRemote = settings.AutoAlwaysRemote.Load()
 
 	firewall := settings.BlockMode.Load()
 	dns := settings.DNSMode.Load()

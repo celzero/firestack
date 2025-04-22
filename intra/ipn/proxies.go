@@ -105,6 +105,7 @@ var (
 	errNotRpnProxy        = errors.New("proxy: rpn not found")
 	errNotRpnID           = errors.New("proxy: not rpn id")
 	errNotRpnAcc          = errors.New("proxy: not rpn account")
+	errNotRemote          = errors.New("proxy: not a remote proxy")
 )
 
 const (
