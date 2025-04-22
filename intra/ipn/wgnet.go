@@ -22,7 +22,6 @@ import (
 	"net/netip"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/dialers"
@@ -39,11 +38,6 @@ var (
 	errNumericPort       = errors.New("port must be numeric")
 	errNoSuitableAddress = errors.New("no suitable address found")
 	errMissingAddress    = errors.New("missing address")
-)
-
-const (
-	wgdnstimeout = time.Second * 5
-	wgbarrierttl = time.Second * 10
 )
 
 // intra/tcp expects dst conns to confirm to core.TCPConn
