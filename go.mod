@@ -1,6 +1,7 @@
 module github.com/celzero/firestack
 
 go 1.24
+toolchain go1.24.1
 
 require (
 	github.com/celzero/gotrie v0.0.0-20250314130138-a2756ab2f6bd
@@ -18,7 +19,7 @@ require (
 	github.com/crazy-max/xgo v0.31.0
 	github.com/elazarl/goproxy v0.0.0-20230808193330-2592e75ae04a
 	github.com/noql-net/certpool v0.0.0-20240719060413-a5ed62ecc62a
-	github.com/refraction-networking/utls v1.3.3
+	github.com/refraction-networking/utls v1.7.0
 	github.com/tailscale/depaware v0.0.0-20240804103531-585336c3e1b3
 	github.com/txthinking/socks5 v0.0.0-20230325130024-4230056ae301
 	go4.org/unsafe/assume-no-moving-gc v0.0.0-20231121144256-b99613f794b6
@@ -34,13 +35,12 @@ require (
 	github.com/Snawoot/go-http-digest-auth-client v1.1.3 // indirect
 	github.com/aead/chacha20 v0.0.0-20180709150244-8b13a72661da // indirect
 	github.com/aead/poly1305 v0.0.0-20180717145839-3fee0db0b635 // indirect
-	github.com/andybalholm/brotli v1.0.5 // indirect
+	github.com/andybalholm/brotli v1.0.6 // indirect
 	github.com/cisco/go-hpke v0.0.0-20210215210317-01c430f1f302 // indirect
 	github.com/cisco/go-tls-syntax v0.0.0-20200617162716-46b0cfb76b9b // indirect
-	github.com/cloudflare/circl v1.3.8 // indirect
-	github.com/gaukas/godicttls v0.0.4 // indirect
+	github.com/cloudflare/circl v1.5.0 // indirect
 	github.com/google/btree v1.1.2 // indirect
-	github.com/klauspost/compress v1.16.7 // indirect
+	github.com/klauspost/compress v1.17.4 // indirect
 	github.com/patrickmn/go-cache v2.1.0+incompatible // indirect
 	github.com/pkg/diff v0.0.0-20200914180035-5b29258ca4f7 // indirect
 	github.com/txthinking/runnergroup v0.0.0-20210608031112-152c7c4432bf // indirect
