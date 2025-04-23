@@ -44,7 +44,7 @@ type dot struct {
 	c3            *dns.Client // with ech
 	pool          *core.MultConnPool[uintptr]
 	proxies       ipn.ProxyProvider // may be nil
-	relay         ipn.Proxy         // may be nil
+	relay         string            // may be empty
 	est           core.P2QuantileEstimator
 }
 
@@ -72,9 +72,11 @@ func NewTLSTransport(ctx context.Context, id, rawurl string, addrs []string, px 
 		echcfg.InsecureSkipVerify = true
 		skipTLSVerify = true
 	}
-	var relay ipn.Proxy
+	var relay string
 	if px != nil {
-		relay, _ = px.ProxyFor(id)
+		if p, _ := px.ProxyFor(id); p != nil {
+			relay = p.ID()
+		}
 	}
 	ctx, done := context.WithCancel(ctx)
 	hostname := parsedurl.Hostname()
@@ -112,7 +114,7 @@ func NewTLSTransport(ctx context.Context, id, rawurl string, addrs []string, px 
 	// local dialer: protect.MakeNsDialer(id, ctl)
 	t.c = dnsclient(tlscfg)
 	log.I("dot: (%s) setup: %s; relay? %t; resolved? %t, ech? %t",
-		id, rawurl, relay != nil, ok, len(ech) > 0)
+		id, rawurl, len(relay) > 0, ok, len(ech) > 0)
 	return t, nil
 }
 
@@ -198,9 +200,10 @@ func (t *dot) tlsdial(rd protect.RDialer) (_ *dns.Conn, who uintptr, err error) 
 
 func (t *dot) pxdial(pid string) (*dns.Conn, string, uintptr, error) {
 	var px ipn.Proxy
-	if t.relay != nil { // relay takes precedence
-		px = t.relay
-	} else if t.proxies != nil { // use proxy, if specified
+	if len(t.relay) > 0 { // relay takes precedence
+		pid = t.relay
+	}
+	if t.proxies != nil { // err if t.proxies is nil
 		var err error
 		if px, err = t.proxies.ProxyFor(pid); err != nil {
 			return nil, "", core.Nobody, err
@@ -260,7 +263,7 @@ func (t *dot) sendRequest(pid string, q *dns.Msg) (ans *dns.Msg, rpid string, el
 
 	var conn *dns.Conn
 	var who uintptr
-	userelay := t.relay != nil
+	userelay := len(t.relay) > 0
 	useproxy := len(pid) != 0 // pid == dnsx.NetNoProxy => ipn.Block
 	if useproxy || userelay { // ref dns.Client.Dial
 		conn, rpid, who, err = t.pxdial(pid)
@@ -289,7 +292,7 @@ func (t *dot) sendRequest(pid string, q *dns.Msg) (ans *dns.Msg, rpid string, el
 	return
 }
 
-func (t *dot) chooseProxy(pids []string) string {
+func (t *dot) chooseProxy(pids ...string) string {
 	return dnsx.ChooseHealthyProxyHostPort("dot: "+t.id, t.addrport, t.port, pids, t.proxies)
 }
 
@@ -298,11 +301,11 @@ func (t *dot) Query(network string, q *dns.Msg, smm *x.DNSSummary) (ans *dns.Msg
 	var elapsed time.Duration
 	var pid, rpid string
 
-	if r := t.relay; r != nil {
-		pid = t.chooseProxy([]string{r.ID()})
+	if r := t.relay; len(r) > 0 {
+		pid = t.chooseProxy(r)
 	} else {
 		_, pids := xdns.Net2ProxyID(network)
-		pid = t.chooseProxy(pids)
+		pid = t.chooseProxy(pids...)
 	}
 
 	ans, rpid, elapsed, qerr = t.doQuery(pid, q)

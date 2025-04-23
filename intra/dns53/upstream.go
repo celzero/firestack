@@ -51,7 +51,7 @@ type transport struct {
 	client   *dns.Client
 	pool     *core.MultConnPool[uintptr]
 	proxies  ipn.ProxyProvider // should never be nil
-	relay    ipn.Proxy         // may be nil
+	relay    string            // may be empty
 	est      core.P2QuantileEstimator
 
 	lastaddr *core.Volatile[string] // last resolved addr
@@ -88,7 +88,10 @@ func newTransport(pctx context.Context, id string, do *settings.DNSOptions, px i
 		return nil, dnsx.ErrNoProxyProvider
 	}
 	ctx, done := context.WithCancel(pctx)
-	relay, _ := px.ProxyFor(id)
+	var relay string
+	if p, _ := px.ProxyFor(id); p != nil {
+		relay = p.ID()
+	}
 	tx := &transport{
 		ctx:      ctx,
 		done:     done,
@@ -99,7 +102,7 @@ func newTransport(pctx context.Context, id string, do *settings.DNSOptions, px i
 		lastaddr: core.NewZeroVolatile[string](),
 		pool:     core.NewMultConnPool[uintptr](ctx),
 		proxies:  px,    // never nil; see above
-		relay:    relay, // may be nil
+		relay:    relay, // may be empty
 		est:      core.NewP50Estimator(ctx),
 	}
 	ipcsv := do.ResolvedAddrs()
@@ -116,7 +119,7 @@ func newTransport(pctx context.Context, id string, do *settings.DNSOptions, px i
 		// ref: github.com/miekg/dns/blob/b3dfea071/server.go#L207
 		// UDPSize: dns.DefaultMsgSize,
 	}
-	log.I("dns53: (%s) setup: %s; pre-ips? %t; relay? %t", id, tx.addrport, hasips, relay != nil)
+	log.I("dns53: (%s) setup: %s; pre-ips? %t; relay? %t", id, tx.addrport, hasips, len(relay) > 0)
 	return tx, nil
 }
 
@@ -131,16 +134,13 @@ func NewTransportFrom(ctx context.Context, id string, ipp netip.AddrPort, px ipn
 }
 
 func (t *transport) pxdial(network, pid string) (*dns.Conn, string, uintptr, error) {
-	var px ipn.Proxy
-	if t.relay != nil { // relay takes precedence
-		px = t.relay
-	} else if t.proxies != nil { // use proxy, if specified
-		var err error
-		if px, err = t.proxies.ProxyFor(pid); err != nil {
-			return nil, "", core.Nobody, err
-		}
+	if len(t.relay) > 0 { // relay takes precedence
+		pid = t.relay
 	}
-	if px == nil {
+	px, err := t.proxies.ProxyFor(pid)
+	if err != nil {
+		return nil, "", core.Nobody, err
+	} else if px == nil {
 		return nil, "", core.Nobody, dnsx.ErrNoProxyProvider
 	}
 
@@ -196,7 +196,7 @@ func (t *transport) fromPool(id uintptr) (c *dns.Conn) {
 
 func (t *transport) connect(network, pid string) (conn *dns.Conn, rpid string, who uintptr, err error) {
 	useudp := network == dnsx.NetTypeUDP
-	userelay := t.relay != nil
+	userelay := len(t.relay) > 0
 	useproxy := len(pid) != 0 // pid == dnsx.NetNoProxy => ipn.Block
 
 	// if udp is unreachable, try tcp: github.com/celzero/rethink-app/issues/839
@@ -227,14 +227,11 @@ func (t *transport) send(network, pid string, q *dns.Msg) (ans *dns.Msg, rpid st
 	}
 
 	qname := xdns.QName(q)
-	useudp := network == dnsx.NetTypeUDP
-	userelay := t.relay != nil
-	useproxy := len(pid) != 0 // pid == dnsx.NetNoProxy => ipn.Base
 
 	conn, rpid, who, err := t.connect(network, pid)
 
-	logev(err)("dns53: send: (%s / %s) to %s for %s using udp? %t / px? %t / relay? %t; err? %v",
-		network, t.id, t.addrport, qname, useudp, useproxy, userelay, err)
+	logev(err)("dns53: send: (%s / %s) to %s for %s; px? %s / hop? %s; err? %v",
+		network, t.id, t.addrport, qname, pid, rpid, err)
 
 	if err != nil {
 		qerr = dnsx.NewSendFailedQueryError(err)
@@ -263,7 +260,7 @@ func (t *transport) send(network, pid string, q *dns.Msg) (ans *dns.Msg, rpid st
 	return
 }
 
-func (t *transport) chooseProxy(pids []string) string {
+func (t *transport) chooseProxy(pids ...string) string {
 	return dnsx.ChooseHealthyProxyHostPort("dns53: "+t.id, t.addrport, t.port, pids, t.proxies)
 }
 
@@ -271,10 +268,10 @@ func (t *transport) Query(network string, q *dns.Msg, smm *x.DNSSummary) (ans *d
 	var pid string
 	proto, pids := xdns.Net2ProxyID(network)
 
-	if r := t.relay; r != nil {
-		pid = t.chooseProxy([]string{r.ID()})
+	if r := t.relay; len(r) > 0 {
+		pid = t.chooseProxy(r)
 	} else {
-		pid = t.chooseProxy(pids)
+		pid = t.chooseProxy(pids...)
 	}
 
 	ans, rpid, elapsed, qerr := t.send(proto, pid, q)

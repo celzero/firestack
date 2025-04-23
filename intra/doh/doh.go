@@ -96,7 +96,7 @@ type transport struct {
 	lastpurge      *core.Volatile[time.Time]  // last scrubbed time for stale pxclients
 	preferGET      bool                       // saw 405 Method Not Allowed
 	proxies        ipn.ProxyProvider          // proxy provider, may be nil
-	relay          ipn.Proxy                  // dial doh via relay, may be nil
+	relay          string                     // dial doh via relay, may be empty
 	status         *core.Volatile[int]
 	est            core.P2QuantileEstimator
 }
@@ -126,9 +126,11 @@ func newTransport(ctx context.Context, typ, id, rawurl, otargeturl string, addrs
 	isodoh := typ == dnsx.ODOH
 
 	var renewed bool
-	var relay ipn.Proxy
+	var relay string
 	if px != nil {
-		relay, _ = px.ProxyFor(id)
+		if p, _ := px.ProxyFor(id); p != nil {
+			relay = p.ID()
+		}
 	}
 
 	ctx, done := context.WithCancel(ctx)
@@ -139,7 +141,7 @@ func newTransport(ctx context.Context, typ, id, rawurl, otargeturl string, addrs
 		id:        id,
 		typ:       typ,
 		proxies:   px,    // may be nil
-		relay:     relay, // may be nil
+		relay:     relay, // may be empty
 		status:    core.NewVolatile(dnsx.Start),
 		pxclients: make(map[string]*proxytransport),
 		lastpurge: core.NewVolatile(time.Now()),
@@ -244,7 +246,7 @@ func newTransport(ctx context.Context, typ, id, rawurl, otargeturl string, addrs
 	}
 
 	log.I("doh: new transport(%s): %s; relay? %t; addrs? %v; resolved? %t, ech? %t",
-		t.typ, t.url, relay != nil, addrs, renewed, len(ech) > 0)
+		t.typ, t.url, len(relay) > 0, addrs, renewed, len(ech) > 0)
 	return t, nil
 }
 
@@ -490,15 +492,16 @@ func (t *transport) multifetch(req *http.Request, pid string) (res *http.Respons
 }
 
 func (t *transport) prepare(pid string) (px ipn.Proxy, err error) {
-	userelay := t.relay != nil
+	userelay := len(t.relay) > 0
 	hasproxy := t.proxies != nil
 	useproxy := len(pid) != 0 // if pid == dnsx.NetNoProxy, then px is ipn.Block
 	useech := t.echconfig != nil
 
 	if userelay || useproxy {
 		if userelay { // relay takes precedence
-			px = t.relay
-		} else if hasproxy { // use proxy, if specified
+			pid = t.relay
+		}
+		if hasproxy {
 			px, err = t.proxies.ProxyFor(pid)
 		} else {
 			err = dnsx.ErrNoProxyProvider
@@ -524,7 +527,7 @@ func (t *transport) do(pid string, req *http.Request) (ans []byte, rpid, blockli
 		elapsed = time.Since(start)
 
 		// server addr would be of relay / proxy (ex: 127.0.0.1:9050) if used
-		usedrelay := t.relay != nil
+		usedrelay := len(t.relay) > 0
 		usedproxy := !dnsx.IsLocalProxy(pid) // pid == dnsx.NetNoProxy => ipn.Block
 		hasserveraddr := server != nil && !usedrelay && !usedproxy
 
@@ -684,7 +687,7 @@ func (t *transport) Type() string {
 	return t.typ
 }
 
-func (t *transport) chooseProxy(pids []string) string {
+func (t *transport) chooseProxy(pids ...string) string {
 	host, port := t.hostport()
 	return dnsx.ChooseHealthyProxyHostPort("doh: "+t.id, host, port, pids, t.proxies)
 }
@@ -705,11 +708,11 @@ func (t *transport) Query(network string, q *dns.Msg, smm *x.DNSSummary) (r *dns
 	var elapsed time.Duration
 	var qerr *dnsx.QueryError
 
-	if r := t.relay; r != nil {
-		pid = t.chooseProxy([]string{r.ID()})
+	if r := t.relay; len(r) > 0 {
+		pid = t.chooseProxy(r)
 	} else {
 		_, pids := xdns.Net2ProxyID(network)
-		pid = t.chooseProxy(pids)
+		pid = t.chooseProxy(pids...)
 	}
 
 	if t.typ == dnsx.DOH {
