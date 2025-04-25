@@ -125,23 +125,23 @@ func (s *ifstats) LatestRecentHandshake() int64 {
 	return least
 }
 
-func ReadStats(id uintptr, cfn core.Work[string]) *ifstats {
+func ReadStats(who string, id uintptr, cfn core.Work[string]) *ifstats {
 	v, err := ba.DoIt(id, func() (*ifstats, error) {
 		cfg, err := cfn()
 		if err != nil || len(cfg) <= 0 {
-			log.W("wg: ReadStats: %d: ipcget: %v", id, err)
+			log.W("wg: ReadStats: %s: %d: ipcget: %v", who, id, err)
 			return nil, err
 		}
-		return readStats(cfg)
+		return readStats(who, cfg)
 	})
 	if err != nil { // v is nil when ba.Do timesout or no handshake yet
-		log.E("wg: ReadStats: nil for %d, err: %v", id, err)
+		log.W("wg: ReadStats: %s nil for %d, err: %v", who, id, err)
 	}
 	return v
 }
 
 // readStats parses a configuration string and returns a Statistics instance.
-func readStats(config string) (*ifstats, error) {
+func readStats(who, config string) (*ifstats, error) {
 	stats := newStats()
 	var key string
 	var rx, tx, latestHandshakeMillis int64
@@ -191,7 +191,7 @@ func readStats(config string) (*ifstats, error) {
 	}
 	stats.lastTouched = time.Now()
 
-	log.V("wg: ReadStats: %d peers, %d lines, any OK? %t", k, n, anyStatOK)
+	log.V("wg: ReadStats: %s: %d peers, %d lines, any OK? %t", who, k, n, anyStatOK)
 
 	if !anyStatOK {
 		return stats, errAllStatsNotOK // negative ttl on barrier
