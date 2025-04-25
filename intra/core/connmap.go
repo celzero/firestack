@@ -159,7 +159,7 @@ func (h *cm) delLocked(id string) (n int) {
 	} else if cidsByPid := h.getByPidLocked(id); len(cidsByPid) > 0 {
 		return len(h.untrackBatchLocked(cidsByPid))
 	} else {
-		log.W("connmap: untrack: id not tracked %s", id)
+		log.VV("connmap: untrack: id not tracked %s", id)
 	}
 
 	return
@@ -225,8 +225,11 @@ func (h *cm) untrackBatchLocked(cidsOrUidsOrPids []string) (out []string) {
 	n := 0
 	out = make([]string, 0, len(cidsOrUidsOrPids))
 	for _, id := range cidsOrUidsOrPids {
-		n += h.delLocked(id)
-		out = append(out, id)
+		connsclosed := h.delLocked(id)
+		if connsclosed > 0 {
+			out = append(out, id)
+			n += connsclosed
+		}
 		processed++
 	}
 	log.D("connmap: untrack: %d batches of %d/%d (conns/cids)", processed, n, len(out))

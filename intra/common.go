@@ -346,7 +346,7 @@ func (h *baseHandler) CloseConns(cidsOrPidsOrUids []string) (closedCids []string
 		closedCids = h.conntracker.UntrackBatch(cidsOrPidsOrUids)
 	}
 
-	log.I("com: %s: closed %d/%d", h.proto, len(closedCids), len(cidsOrPidsOrUids))
+	log.I("com: %s: conns closed %d/%d", h.proto, len(closedCids), len(cidsOrPidsOrUids))
 	return closedCids
 }
 
