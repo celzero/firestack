@@ -306,7 +306,8 @@ func (c *connstat) String() string {
 	if c == nil {
 		return "<nil>"
 	}
-	return fmt.Sprintf(":%s:%d[%s]", formatTime(c.t), len(c.c), conn2str(c.c...))
+	return fmt.Sprintf(":%s+%s:%s:%d[%s]",
+		c.pid, c.uid, formatTime(c.t), len(c.c), conn2str(c.c...))
 }
 
 func formatTime(t time.Time) string {
