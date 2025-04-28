@@ -307,10 +307,10 @@ func (c *connstat) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf(":%s+%s:%s:%d[%s]",
-		c.pid, c.uid, formatTime(c.t), len(c.c), conn2str(c.c...))
+		c.pid, c.uid, time2duration(c.t), len(c.c), conn2str(c.c...))
 }
 
-func formatTime(t time.Time) string {
+func time2duration(t time.Time) string {
 	if s := int64(time.Since(t).Seconds()); s < 60 {
 		return fmt.Sprintf("%ds", s)
 	} else if s < 3600 {
