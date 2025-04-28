@@ -1135,8 +1135,8 @@ func (h *wgproxy) Hop(via Proxy, dryrun bool) (err error) {
 			return
 		}
 
-		log.I("wg: %s hop old(%s@%s) => new(%s@%s); err? %v",
-			h.id, idstr(old), idhandle(old), idstr(via), idhandle(via), err)
+		log.I("wg: %s hop: old(%s) => new(%s); err? %v",
+			h.id, idhandle(old), idhandle(via), err)
 
 		if Same(old, via) {
 			return
@@ -1153,8 +1153,8 @@ func (h *wgproxy) Hop(via Proxy, dryrun bool) (err error) {
 			if old != nil {
 				err = h.resetMtu(nil)
 			}
-			log.I("wg: %s hop: %s@%s removed; mtu reset err? %v",
-				h.id, idstr(old), idhandle(old), err)
+			log.I("wg: %s hop: %s removed; mtu reset err? %v",
+				h.id, idhandle(old), err)
 		}
 		return nil
 	} else if h.id == via.ID() {

@@ -83,7 +83,7 @@ func (t *pipws) dial(network, addr string) (c net.Conn, err error) {
 			if removeViaOnErrors {
 				t.Hop(nil, false /*dryrun*/) // stale; unset
 			}
-			log.W("pipws: via(%s@%s) failing...", idstr(v), idhandle(v))
+			log.W("pipws: via(%s) failing...", idhandle(v))
 		}
 	} else {
 		if settings.Loopingback.Load() { // no split in loopback (rinr) mode
@@ -297,7 +297,7 @@ func (h *pipws) Hop(p Proxy, dryrun bool) error {
 	if p == nil {
 		if !dryrun {
 			old := h.swapVia(nil)
-			log.I("pipws: hop(%s@%s) removed", idstr(old), idhandle(old))
+			log.I("pipws: hop(%s) removed", idhandle(old))
 		}
 		return nil
 	}
@@ -307,8 +307,7 @@ func (h *pipws) Hop(p Proxy, dryrun bool) error {
 
 	if !dryrun {
 		old := h.swapVia(p)
-		log.I("pipws: hop(%s@%s) => %s",
-			idstr(old), idhandle(old), idstr(p), idhandle(p))
+		log.I("pipws: hop %s => %s", idhandle(old), idhandle(p))
 	}
 	return nil
 }

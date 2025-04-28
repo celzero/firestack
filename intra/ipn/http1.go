@@ -117,7 +117,7 @@ func (h *http1) Dial(network, addr string) (c protect.Conn, err error) {
 			if removeViaOnErrors {
 				h.Hop(nil, false /*dryrun*/) // stale; unset
 			}
-			log.W("http1: via(%s@%s) failing...", idstr(v), idhandle(v))
+			log.W("http1: via(%s) failing...", idhandle(v))
 		}
 	} else {
 		// actually, dialers.ProxyDial not needed, because
@@ -167,7 +167,7 @@ func (h *http1) Hop(p Proxy, dryrun bool) error {
 	if p == nil {
 		if !dryrun {
 			old := h.swapVia(nil)
-			log.I("proxy: http1: hop(%s@%s) removed", idstr(old), idhandle(old))
+			log.I("proxy: http1: hop(%s) removed", idhandle(old))
 		}
 		return nil
 	}
@@ -177,8 +177,7 @@ func (h *http1) Hop(p Proxy, dryrun bool) error {
 
 	if !dryrun {
 		old := h.swapVia(p)
-		log.I("http1: hop(%s@%s) => %s@%s",
-			idstr(old), idhandle(old), idstr(p), idhandle(p))
+		log.I("http1: hop %s => %s", idhandle(old), idhandle(p))
 	}
 	return nil
 }

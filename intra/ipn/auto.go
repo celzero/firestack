@@ -98,7 +98,7 @@ func (h *auto) dial(network, local, remote string) (protect.Conn, error) {
 			if removeViaOnErrors {
 				h.Hop(nil, false /*dryrun*/) // stale; unset
 			}
-			log.W("proxy: auto: via(%s@%s) failing...", idstr(v), idhandle(v))
+			log.W("proxy: auto: via(%s) failing...", idhandle(v))
 		}
 	}
 
@@ -400,7 +400,7 @@ func (h *auto) Hop(p Proxy, dryrun bool) error {
 	if p == nil {
 		if !dryrun {
 			old := h.swapVia(nil)
-			log.I("proxy: auto: hop(%s@%s) removed", idstr(old), idhandle(old))
+			log.I("proxy: auto: hop(%s) removed", idhandle(old))
 		}
 		return nil
 	}
@@ -426,8 +426,8 @@ func (h *auto) Hop(p Proxy, dryrun bool) error {
 
 	errs := core.JoinErr(waerr, seerr, amzerr, proerr) // may be nil
 
-	logei(errs)("proxy: auto: hop(%s@%s) => %s@%s; errs? %v",
-		idstr(old), idhandle(old), idstr(p), idhandle(p), errs)
+	logei(errs)("proxy: auto: hop(%s) => %s; errs? %v",
+		idhandle(old), idhandle(p), errs)
 
 	return errs
 }

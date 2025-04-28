@@ -160,7 +160,7 @@ func (t *piph2) dial(network, addr string) (c net.Conn, err error) {
 			if removeViaOnErrors {
 				t.Hop(nil, false /*dryrun*/) // stale; unset
 			}
-			log.W("piph2: via(%s@%s) failing...", idstr(v), idhandle(v))
+			log.W("piph2: via(%s) failing...", idhandle(v))
 		}
 	} else {
 		if settings.Loopingback.Load() { // no split in loopback (rinr) mode
@@ -299,7 +299,7 @@ func (t *piph2) Hop(p Proxy, dryrun bool) error {
 	if p == nil {
 		if !dryrun {
 			old := t.swapVia(nil)
-			log.I("piph2: hop(%s@%s) removed", idstr(old), idhandle(old))
+			log.I("piph2: hop(%s) removed", idhandle(old))
 		}
 		return nil
 	}
@@ -309,8 +309,7 @@ func (t *piph2) Hop(p Proxy, dryrun bool) error {
 
 	if !dryrun {
 		old := t.swapVia(p)
-		log.I("piph2: hop(%s@%s) => %s@%s",
-			idstr(old), idhandle(old), idstr(p), idhandle(p))
+		log.I("piph2: hop %s => %s", idhandle(old), idhandle(p))
 	}
 	return nil
 }

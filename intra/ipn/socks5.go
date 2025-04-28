@@ -179,7 +179,7 @@ func (h *socks5) txdial(n, src, dst string) (c net.Conn, err error) {
 			if removeViaOnErrors {
 				h.Hop(nil, false /*dryrun*/) // stale; unset
 			}
-			log.W("proxy: socks5: %s via(%s@%s) failing...", h.id, idstr(v), idhandle(v))
+			log.W("proxy: socks5: %s via(%s) failing...", h.id, idhandle(v))
 		}
 	} else {
 		c, err = h.d.DialBind(n, src, dst)
@@ -279,7 +279,7 @@ func (h *socks5) Hop(p Proxy, dryrun bool) error {
 	if p == nil {
 		if !dryrun {
 			old := h.swapVia(nil)
-			log.I("socks5: hop(%s@%s) removed", idstr(old), idhandle(old))
+			log.I("socks5: hop(%s) removed", idhandle(old))
 		}
 		return nil
 	}
@@ -289,8 +289,7 @@ func (h *socks5) Hop(p Proxy, dryrun bool) error {
 
 	if !dryrun {
 		old := h.swapVia(p)
-		log.I("socks5: hop(%s@%s) => %s@%s",
-			idstr(old), idhandle(old), idstr(p), idhandle(p))
+		log.I("socks5: hop %s => %s", idhandle(old), idhandle(p))
 	}
 	return nil
 }
