@@ -170,7 +170,7 @@ func NewSEasyProxy(ctx context.Context, c protect.Controller, px ProxyProvider, 
 				if removeViaOnErrors {
 					sep.Hop(nil, false /*dryrun*/)
 				}
-				log.W("proxy: se: via(%s@%s) failing...", idstr(v), idhandle(v))
+				log.W("proxy: se: via(%s) failing...", idhandle(v))
 			}
 		} else {
 			c, err = outbound.Dial(network, addr)
@@ -418,7 +418,7 @@ func (h *seproxy) Hop(p Proxy, dryrun bool) error {
 	if p == nil {
 		if !dryrun {
 			old := h.swapVia(nil)
-			log.I("se: hop(%s@%s) removed", idstr(old), idhandle(old))
+			log.I("se: hop(%s) removed", idhandle(old))
 		}
 		return nil
 	}
@@ -428,8 +428,7 @@ func (h *seproxy) Hop(p Proxy, dryrun bool) error {
 
 	if !dryrun {
 		old := h.swapVia(p)
-		log.I("se: hop(%s@%s) => %s@%s",
-			idstr(old), idhandle(old), idstr(p), idhandle(p))
+		log.I("se: hop %s => %s", idhandle(old), idhandle(p))
 	}
 	return nil
 }
