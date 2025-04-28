@@ -173,6 +173,9 @@ var _ Logger = (*simpleLogger)(nil)
 // github.com/golang/mobile/blob/fa72addaaa/internal/mobileinit/mobileinit_android.go#L52
 // const logcatLineSize = 1024
 
+const allowSpam = true // enable spammy logs
+const logPiif = false  // enable sensitive logs
+
 // qSize is the number of recent log msgs to keep in the ring buffer.
 const qSize = 512
 
@@ -349,7 +352,9 @@ func (l *simpleLogger) Debugf(at int, msg string, args ...any) {
 }
 
 func (l *simpleLogger) Piif(at int, msg string, args ...any) {
-	l.writelog(INFO, at+nextframe, msg, args...)
+	if logPiif {
+		l.writelog(INFO, at+nextframe, msg, args...)
+	}
 }
 
 func (l *simpleLogger) Infof(at int, msg string, args ...any) {
@@ -567,6 +572,10 @@ func (l *simpleLogger) writelog(lvl LogLevel, at int, msg string, args ...any) {
 
 // go.dev/play/p/6CkoACJ1bYz
 func (l *simpleLogger) spammy(lvl LogLevel, pc uintptr) (y bool) {
+	if allowSpam {
+		return false
+	}
+
 	resyncAttempts := 0
 
 top:
