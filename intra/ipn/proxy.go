@@ -97,6 +97,8 @@ func (pxr *proxifier) addRpnProxy(acc RpnAcc, cc string) (Proxy, error) {
 		return nil, core.JoinErr(err, errAddProxyAsRpn)
 	}
 
+	// TODO: setup hop from mainCountryCode to forked rpn proxies
+
 	pxr.rpnmu.Lock()
 	pxr.rp[acc.ProviderID()] = rp // removed on unregister
 	pxr.rpnmu.Unlock()
@@ -126,6 +128,7 @@ func (pxr *proxifier) addRpnProxy2(p Proxy, acc RpnAcc) (Proxy, error) {
 	pxr.rp[acc.ProviderID()] = rp // removed on unregister
 	pxr.rpnmu.Unlock()
 
+	// TODO: setup hop from mainCountryCode to forked rpn proxies
 	go pxr.refreshHopOriginsIfAny(p, "addRpnProxy2."+proxyid)
 
 	return p, nil
@@ -520,7 +523,7 @@ func viafor(who, viaID string, px ProxyProvider) *Proxy {
 		return nil
 	}
 	via, err := px.ProxyFor(viaID)
-	logei(err)("proxy: %s: viafor %s@%s; err? %v", who, viaID, idhandle(via), err)
+	logei(err)("proxy: %s: viafor %s; err? %v", who, idhandle(via), err)
 
 	if err != nil || via == nil || core.IsNil(via) {
 		return nil

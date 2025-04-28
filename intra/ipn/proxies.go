@@ -98,6 +98,7 @@ var (
 	errHop4Gateway        = errors.New("proxy: hop cannot route ip4")
 	errHop6Gateway        = errors.New("proxy: hop cannot route ip6")
 	errHopGlobalProxy     = errors.New("proxy: hop must be global proxy")
+	errHopNotConnected    = errors.New("proxy: set but not connected over hop")
 	errNilAmzId           = errors.New("proxy: amz id nil")
 	errNilProtonCfg       = errors.New("proxy: proton cfg nil")
 	errNilWarpId          = errors.New("proxy: warp id nil")

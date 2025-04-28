@@ -76,6 +76,8 @@ const (
 	FAST = x.WGFAST
 
 	refreshInterval = 2 * time.Minute
+
+	noviaid = ""
 )
 
 type wgifopts struct {
@@ -226,8 +228,7 @@ func (w *wgproxy) Ping() bool {
 	}
 
 	var viaOK bool
-	via := w.via.Load()
-	if via != nil {
+	if via := w.getViaIfDialed(); via != nil {
 		viaOK = via.Ping()
 	}
 
@@ -249,11 +250,11 @@ func (w *wgproxy) Ping() bool {
 				peer.SendKeepalive()
 			}
 		}
-		log.D("proxy: wg: %s ping: %d/%d peers; via OK? %t", w.id, pinged, tot, viaOK)
+		log.D("proxy: wg: %s (%s) ping: %d/%d peers; via OK? %t", w.id, w.viaStatus(), pinged, tot, viaOK)
 		return pinged > 0
 	} else {
-		log.VV("proxy: wg: %s ping: skipped; soon? %t / neversent? %t / concurrent %d; via OK? %t",
-			w.id, !recent, neversent, then, viaOK)
+		log.VV("proxy: wg: %s (%s) ping: skipped; soon? %t / neversent? %t / concurrent %d; via OK? %t",
+			w.id, w.viaStatus(), !recent, neversent, then, viaOK)
 	}
 	return false
 }
@@ -262,9 +263,10 @@ func (w *wgproxy) Ping() bool {
 func (w *wgproxy) onNotOK() (handled bool) {
 	var didRefresh, didPing, didCallVia bool
 
-	if via := w.via.Load(); via != nil {
+	if via := w.getViaIfDialed(); via != nil {
 		didCallVia = via.onNotOK()
 	}
+
 	handled, _ = w.refreshBa.DoIt(w.id, func() (bool, error) {
 		err := w.Refresh()
 		didRefresh = true
@@ -291,7 +293,7 @@ func (w *wgproxy) Refresh() (err error) {
 	n := w.dns.Load().Refresh()
 	nn := w.remote.Load().Refresh()
 
-	if err := w.resetMtu(w.via.Load()); err != nil {
+	if err := w.resetMtu(w.getVia()); err != nil {
 		log.E("proxy: wg: refresh(%s / %s): failed; resetMtu: len(dns): %d, len(peer): %d, err: %v",
 			w.id, w.viaStatus(), n, nn, err)
 		return err
@@ -380,7 +382,7 @@ func (w *wgproxy) update(id, txt string) bool {
 	w.dns.Store(opts.dns)                // requires refresh
 	w.desiredmtu.Store(uint32(opts.mtu)) // requires reset; [NOMTU, MAXMTU)
 	w.amnezia = opts.amnezia             // TODO: core.Volatile?
-	w.resetMtu(w.via.Load())
+	w.resetMtu(w.getVia())
 
 	return reuse
 }
@@ -680,6 +682,23 @@ func (w *wgtun) viafor() *Proxy {
 	return viafor(w.id, w.viaID.Load(), w.px)
 }
 
+func (w *wgtun) getVia() (v Proxy) {
+	return w.via.Load()
+}
+
+func (w *wgtun) getViaWithStatus() (v Proxy, up bool) {
+	up = w.viaUp.Load()
+	v = w.getVia()
+	return
+}
+
+func (w *wgtun) getViaIfDialed() Proxy {
+	if v, up := w.getViaWithStatus(); up {
+		return v
+	}
+	return nil
+}
+
 func (w *wgtun) viaStatus() (s string) {
 	if vid := w.viaID.Load(); len(vid) > 0 {
 		s += vid
@@ -937,8 +956,7 @@ func (tun *wgtun) Close() error {
 		// close(tun.events) }
 		close(tun.ingress)
 
-		const novia = ""
-		tun.viaID.Store(novia) // via is nil
+		tun.viaID.Store(noviaid) // via is nil
 		tun.viaUp.Store(false)
 
 		// github.com/tailscale/tailscale/blob/836f932e/wgengine/netstack/netstack.go#L223
@@ -1186,10 +1204,13 @@ func (h *wgproxy) Hop(via Proxy, dryrun bool) (err error) {
 
 // Via implements x.Router.
 func (h *wgproxy) Via() (x.Proxy, error) {
-	if v := h.via.Load(); v != nil {
+	if v, up := h.getViaWithStatus(); v == nil {
+		return nil, errNoHop
+	} else if !up {
+		return nil, errHopNotConnected
+	} else {
 		return v, nil
 	}
-	return nil, errNoHop
 }
 
 // Stats implements Proxy.
@@ -1258,12 +1279,15 @@ func (h *wgtun) serve(network, local string) (pc net.PacketConn, err error) {
 
 	// todo: dial into both direct & via if via cannot handle all routes?
 	who := h.ID()
-	if usevia(h.viaID) {
-		if v, vok := h.via.Get(); vok {
+	var v Proxy // may be nil
+	hasvia, usingvia := false, false
+	if hasvia = usevia(h.viaID); hasvia {
+		if v, usingvia = h.via.Get(); usingvia {
 			who = idstr(v) // should be == viaID
 			// TODO: use Dial if announce fails to "port-forward" on via
 			pc, err = v.Announce(network, local)
 		} else {
+			usingvia = false
 			err = errNoHop
 			// wgproxy.Refresh() is not needed since serve is called
 			// at the time of wgproxy.Device.Up() anyway.
@@ -1271,16 +1295,16 @@ func (h *wgtun) serve(network, local string) (pc net.PacketConn, err error) {
 				// todo: ideally, must call h.Hop(nil) here
 				h.swapVia(nil) // stale; unset
 			}
-			log.W("wg: %s via(%s@%s) failing...", h.id, idstr(v), idhandle(v))
+			log.W("wg: %s via(%s) failing...", h.id, idhandle(v))
 		}
-		h.viaUp.Store(true)
 	} else { // dial direct
 		pc, err = h.direct.Announce(network, local)
-		h.viaUp.Store(false)
 	}
+	h.viaUp.Store(usingvia)
 	defer localDialStatus(h.status, err)
 
-	logei(err)("wg: %s serve: %s (via %s); err? %v", h.id, local, who, err)
+	logei(err)("wg: %s serve: %s (id? %s / via? %s / usingVia? %t); err? %v",
+		h.id, local, who, idstr(v), usingvia, err)
 	return
 }
 
@@ -1349,6 +1373,7 @@ func (w *wgproxy) maybeResetMtu(via Proxy, dryrun bool) error {
 	mtuAvailFromNet := int(w.netmtu.Load())
 	mtuAvailable := mtuAvailFromNet
 	hopping := false // tunnled via another proxy
+	viaid := idstr(via)
 
 	note := log.I
 	if dryrun {
@@ -1362,8 +1387,8 @@ func (w *wgproxy) maybeResetMtu(via Proxy, dryrun bool) error {
 		} else {
 			mtuAvailable = calcTunMtu(mtuAvailFromHop)
 			hopping = true
-			note("wg: %s proxy: hopping mtu(needed: %d / net: %d); hopmtu(avail: %d / tot: %d)",
-				w.id, mtuNeededByUs, mtuAvailFromNet, mtuAvailable, mtuAvailFromHop)
+			note("wg: %s proxy: maybe hopping %s; mtu(needed: %d / net: %d); hopmtu(avail: %d / tot: %d)",
+				w.id, viaid, mtuNeededByUs, mtuAvailFromNet, mtuAvailable, mtuAvailFromHop)
 		}
 	}
 
@@ -1372,27 +1397,27 @@ func (w *wgproxy) maybeResetMtu(via Proxy, dryrun bool) error {
 		minmtu = minmtu6
 	}
 	if mtuAvailable < minmtu {
-		log.W("wg: %s proxy: needs %d; mtu(%d) < min(%d)", w.id, mtuAvailable, minmtu)
+		log.W("wg: %s proxy: not hopping %s; needs %d; mtu(%d) < min(%d)", w.id, viaid, mtuAvailable, minmtu)
 		return errHopMtuInsufficient
 	}
 
 	if hopping && mtuNeededByUs > mtuAvailable {
-		note("wg: %s proxy: hopping mtu(needed: %d >> avail: %d); set to avail",
-			w.id, mtuNeededByUs, mtuAvailable)
+		note("wg: %s proxy: maybe hopping %s; mtu(needed: %d >> avail: %d << min: %d); set to avail",
+			w.id, viaid, mtuNeededByUs, mtuAvailable, minmtu)
 		mtuNeededByUs = mtuAvailable
 	} // else: mtu needed is well within the hop's / network's capacity
 
 	finalMtu := reconcileMtu(mtuAvailable, mtuNeededByUs, minmtu)
 	if finalMtu <= NOMTU {
-		log.W("wg: %s proxy: mtu(%d or %d) <= NOMTU(%d)", w.id, mtuNeededByUs, mtuAvailable, finalMtu)
+		log.W("wg: %s proxy: not hopping %s; mtu(%d or %d) <= NOMTU(%d)", w.id, viaid, mtuNeededByUs, mtuAvailable, finalMtu)
 		return errHopMtuInsufficient
 	}
 
 	if !dryrun {
 		w.ep.SetMTU(uint32(finalMtu))
 	}
-	note("wg: %s proxy: mtu(needed:%d, avail: %d => final: %d); hopping? %t, dryrun? %t",
-		w.id, mtuNeededByUs, mtuAvailable, finalMtu, hopping, dryrun)
+	note("wg: %s proxy: hopping %s; mtu(needed:%d, avail: %d => final: %d); hopping? %t, dryrun? %t",
+		w.id, viaid, mtuNeededByUs, mtuAvailable, finalMtu, hopping, dryrun)
 	return nil
 }
 
