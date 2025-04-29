@@ -110,15 +110,17 @@ var (
 )
 
 const (
-	udptimeoutsec         int           = 5 * 60                    // 5m
-	tcptimeoutsec         int           = (2 * 60 * 60) + (40 * 60) // 2h40m
-	getproxytimeout       time.Duration = 5 * time.Second
-	tlsHandshakeTimeout   time.Duration = 30 * time.Second // some proxies take a long time to handshake
-	responseHeaderTimeout time.Duration = 60 * time.Second
-	tzzTimeout            time.Duration = 2 * time.Minute  // time between new connections before proxies transition to idle
-	lastOKThreshold       time.Duration = 10 * time.Minute // time between last OK and now before pinging & un-pinning
-	pintimeout            time.Duration = 10 * time.Minute // time to keep a pin
-	alwaysPin             bool          = true             // always pin to a proxy no matter the errors
+	udptimeoutsec         = 5 * 60                    // 5m
+	tcptimeoutsec         = (2 * 60 * 60) + (40 * 60) // 2h40m
+	getproxytimeout       = 5 * time.Second
+	tlsHandshakeTimeout   = 30 * time.Second // some proxies take a long time to handshake
+	responseHeaderTimeout = 60 * time.Second
+	tzzTimeout            = 2 * time.Minute  // time between new connections before proxies transition to idle
+	lastOKThreshold       = 10 * time.Minute // time between last OK and now before pinging & un-pinning
+	pintimeout            = 10 * time.Minute // time to keep a pin
+	alwaysPin             = true             // always pin to a proxy no matter the errors
+	maxFailingPinTrackTTl = 30 * time.Second // max period to track a failing to-be-pinned proxy
+	maxStallPeriodSec     = 10               // max duration to stall a failing proxy
 )
 
 // type checks
@@ -416,13 +418,13 @@ func (px *proxifier) ProxyTo(ipp netip.AddrPort, uid string, pids []string) (_ P
 	if len(pids) == 1 { // there's no other pid to choose from
 		// skip hasroute, as there is only one pid to route to
 		p, err := px.pinID(uid, ipp, pids[0]) // repin
-		if err != nil || p == nil {
-			err = core.OneErr(err, errProxyNotFound)
-			px.stall(uid + ippstr)
-		}
 		// alwaysPin is set to true, so return p even if err is not nil
 		if alwaysPin && p != nil {
 			err = nil
+		}
+		if err != nil || p == nil {
+			err = core.OneErr(err, errProxyNotFound)
+			px.stall(uid + ippstr)
 		}
 		return p, err
 	}
@@ -526,17 +528,15 @@ func (px *proxifier) ProxyTo(ipp netip.AddrPort, uid string, pids []string) (_ P
 	px.stall(uid + ippstr)
 	return nil, errProxyAllDown
 }
+
 func (px *proxifier) stall(k string) (secs uint32) {
-	if n := px.staller.Get(k); n <= 5 {
-		secs = (rand.Uint32() % 5) + 1 // up to 5s
-	} else if n > 10 {
-		secs = 10 // max up to 10s
+	if n := px.staller.Get(k); n <= 3 {
+		secs = (rand.Uint32() % 3) + 1 // up to 3s
 	} else {
 		secs = n
 	}
-	// track uid->target for 30 secs
-	px.staller.Set(k, 30*time.Second)
-	if secs > 0 {
+	px.staller.Set(k, maxFailingPinTrackTTl)           // track uid=>target for 30s
+	if secs = min(maxStallPeriodSec, secs); secs > 0 { // max up to 10s
 		w := time.Duration(secs) * time.Second
 		time.Sleep(w)
 	}
