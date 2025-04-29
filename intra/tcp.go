@@ -186,14 +186,6 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target netip.AddrPort)
 		return deny
 	}
 
-	// handshake; since we assume a duplex-stream from here on
-	if open, err = gconn.Establish(); !open {
-		log.E("tcp: %s connect err %v; %s => %s for %s", cid, err, src, target, uid)
-		clos(gconn)
-		h.queueSummary(smm.done(err))
-		return deny // == !open
-	}
-
 	if isAnyBasePid(pids) { // see udp.go:Connect
 		if h.dnsOverride(gconn, target, uid) {
 			// SocketSummary not sent; x.DNSSummary supercedes it
@@ -267,6 +259,11 @@ func (h *tcpHandler) handle(px ipn.Proxy, src net.Conn, boundSrc, target netip.A
 		clos(pc)
 		log.W("tcp: err dialing %s proxy(%s) to dst(%v) for %s: %v",
 			smm.ID, px.ID(), target, smm.UID, err)
+		return err
+	}
+
+	gconn := src.(*netstack.GTCPConn)
+	if open, err := gconn.Establish(); !open {
 		return err
 	}
 
