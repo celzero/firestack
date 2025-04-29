@@ -413,6 +413,7 @@ func (px *proxifier) ProxyTo(ipp netip.AddrPort, uid string, pids []string) (_ P
 		return nil, errMissingAddress
 	}
 
+	stalledSec := uint32(0)
 	ippstr := ipp.String()
 
 	if len(pids) == 1 { // there's no other pid to choose from
@@ -424,8 +425,10 @@ func (px *proxifier) ProxyTo(ipp netip.AddrPort, uid string, pids []string) (_ P
 		}
 		if err != nil || p == nil {
 			err = core.OneErr(err, errProxyNotFound)
-			px.stall(uid + ippstr)
+			stalledSec = px.stall(uid + ippstr)
 		}
+		logev(err)("proxy: pin: %s+%s; pin pid0: %s (stalled? %ds); err? %v",
+			uid, ippstr, pids[0], stalledSec, err)
 		return p, err
 	}
 
@@ -461,8 +464,8 @@ func (px *proxifier) ProxyTo(ipp netip.AddrPort, uid string, pids []string) (_ P
 	}
 
 	defer func() {
-		logev(err)("proxy: pin: %s+%s; miss: %v; notok: %v; noroute: %v; ended %v",
-			uid, ipp, missproxies, notokproxies, norouteproxies, endproxies)
+		logev(err)("proxy: pin: %s+%s; stalled? %ds; miss: %v; notok: %v; noroute: %v; ended %v",
+			uid, ipp, stalledSec, missproxies, notokproxies, norouteproxies, endproxies)
 	}()
 
 	for _, pid := range pids {
@@ -493,7 +496,8 @@ func (px *proxifier) ProxyTo(ipp netip.AddrPort, uid string, pids []string) (_ P
 		if hasroute(p, ippstr) {
 			err := px.pin(uid, ipp, p) // repin
 			if err == nil {
-				log.VV("proxy: pin: %s+%s; pinned: %s; from pids: %v", uid, ipp, pid, pids)
+				log.VV("proxy: pin: %s+%s; pinned: %s; from pids: %v",
+					uid, ipp, pid, pids)
 				return p, nil
 			} // else: proxy not ok
 			notokproxies = append(notokproxies, pid)
@@ -507,7 +511,7 @@ func (px *proxifier) ProxyTo(ipp netip.AddrPort, uid string, pids []string) (_ P
 
 	// can route but not healthy; choose any one on random
 	if len(notokproxies) > 0 {
-		px.stall(uid + ippstr)
+		stalledSec = px.stall(uid + ippstr)
 		if alwaysPin && someproxy != nil {
 			return someproxy, nil
 		}
@@ -525,7 +529,7 @@ func (px *proxifier) ProxyTo(ipp netip.AddrPort, uid string, pids []string) (_ P
 		missproxies = append(missproxies, pid)
 	}
 
-	px.stall(uid + ippstr)
+	stalledSec = px.stall(uid + ippstr)
 	return nil, errProxyAllDown
 }
 
