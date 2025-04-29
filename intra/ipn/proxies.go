@@ -311,9 +311,12 @@ func (px *proxifier) add(p Proxy) (ok bool) {
 				px.obs.OnProxyAdded(id)
 			})
 			// new proxy, invoke Stop on old proxy
-			if old != nil && old.Handle() != p.Handle() {
+			if old != nil && !Same(old, p) {
 				// holding px.lock, so exec stop in a goroutine
 				core.Go("pxr.add.stop: "+id, func() {
+					if oldVia, _ := old.Router().Via(); oldVia != nil {
+						px.Hop(oldVia.ID(), p.ID())
+					}
 					_ = old.Stop()
 					// onRmv is not sent here, as one has just been added
 				})
@@ -921,6 +924,7 @@ func (px *proxifier) RefreshProto(l3 string, mtu int) {
 			if cfg, readd := curp.OnProtoChange(newlp); readd {
 				// px.addProxy -> px.add -> px.Lock() -> deadlock
 				_, err := px.addProxy(id, cfg)
+				// TODO: preserve hop?
 				log.I("proxy: refreshProto (%s/%s/%s) re-add; err? %v",
 					id, curp.Type(), curp.GetAddr(), err)
 			}
