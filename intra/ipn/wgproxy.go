@@ -1284,8 +1284,7 @@ func (h *wgtun) serve(network, local string) (pc net.PacketConn, err error) {
 	var v Proxy // may be nil
 	hasvia, usingvia := false, false
 	if hasvia = usevia(h.viaID); hasvia {
-		if v, usingvia = h.via.Get(); usingvia {
-			who = idstr(v) // should be == viaID
+		if v, usingvia = h.via.Get(); v != nil && usingvia {
 			// TODO: use Dial if announce fails to "port-forward" on via
 			pc, err = v.Announce(network, local)
 		} else {
