@@ -376,9 +376,8 @@ func (t *rtunnel) stat() (*x.NetStat, error) {
 		out.RDNSIn.Proxies = csv2ssv(p.LiveProxies())
 		out.RDNSIn.ProxiesHas4 = rr.IP4()
 		out.RDNSIn.ProxiesHas6 = rr.IP6()
-		out.RDNSIn.ProxyLastOKMs = ss.LastOK
-		out.RDNSIn.ProxySinceMs = ss.Since
-
+		out.RDNSIn.ProxyLastOK = core.FmtUnixMillisAsPeriod(ss.LastOK)
+		out.RDNSIn.ProxySince = core.FmtUnixMillisAsPeriod(ss.Since)
 	}
 	return out, nil
 }

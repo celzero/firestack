@@ -36,3 +36,19 @@ func FmtTimeNs(ns uint64) string {
 func FmtTimeSecs(ns uint64) int64 {
 	return int64(time.Duration(ns).Seconds())
 }
+
+func FmtTimeAsPeriod(t time.Time) string {
+	if s := int64(time.Since(t).Seconds()); s < 60 {
+		return fmt.Sprintf("%ds", s)
+	} else if s < 60*60 { // 60m
+		return fmt.Sprintf("%dm %ds", s/60, s%60)
+	} else if s < 60*60*24 { // 24h
+		return fmt.Sprintf("%dh %dm %ds", s/3600, (s%3600)/60, s%60)
+	} else { // > 1d
+		return fmt.Sprintf("%dd %dh %dm %ds", s/86400, (s%86400)/3600, (s%3600)/60, s%60)
+	}
+}
+
+func FmtUnixMillisAsPeriod(ms int64) string {
+	return FmtTimeAsPeriod(time.UnixMilli(ms))
+}

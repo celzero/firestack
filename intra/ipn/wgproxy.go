@@ -996,7 +996,8 @@ func (w *wgproxy) Stat() (out *x.RouterStats) {
 	out.LastTx = w.latestTx.Load()
 	out.Since = w.since
 
-	log.VV("proxy: wg: %s stats: rx: %d, tx: %d, lastok: %d", w.id, out.Rx, out.Tx, out.LastOK)
+	log.VV("proxy: wg: %s stats: rx: %d, tx: %d, lastok: %d",
+		w.id, out.Rx, out.Tx, core.FmtUnixMillisAsPeriod(out.LastOK))
 	return out
 }
 
