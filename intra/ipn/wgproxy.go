@@ -285,6 +285,7 @@ func (w *wgproxy) onNotOK() (handled bool) {
 func (w *wgproxy) Refresh() (err error) {
 	// todo: Refresh may be called by hop-related changes which may result in one Refresh calls too many.
 	if w.status.Load() == END {
+		log.W("proxy: wg: (%s / %s) refresh failed; end status(%d)", w.id, w.viaStatus(), w.status)
 		return errProxyStopped
 	}
 
@@ -294,24 +295,24 @@ func (w *wgproxy) Refresh() (err error) {
 	nn := w.remote.Load().Refresh()
 
 	if err := w.resetMtu(w.getVia()); err != nil {
-		log.E("proxy: wg: refresh(%s / %s): failed; resetMtu: len(dns): %d, len(peer): %d, err: %v",
+		log.E("proxy: wg: (%s / %s) refresh failed; resetMtu: len(dns): %d, len(peer): %d, err: %v",
 			w.id, w.viaStatus(), n, nn, err)
 		return err
 	}
 
 	if err = w.Device.Down(); err != nil {
-		log.E("proxy: wg: refresh(%s / %s): failed; down: len(dns): %d, len(peer): %d, err: %v",
+		log.E("proxy: wg: (%s / %s) refresh failed; down: len(dns): %d, len(peer): %d, err: %v",
 			w.id, w.viaStatus(), n, nn, err)
 		return
 	}
 	if err = w.Device.Up(); err != nil {
-		log.E("proxy: wg: refresh(%s / %s): failed; up: len(dns): %d, len(peer): %d, err: %v",
+		log.E("proxy: wg: (%s / %s) refresh failed; up: len(dns): %d, len(peer): %d, err: %v",
 			w.id, w.viaStatus(), n, nn, err)
 		return
 	}
 	// not required since wgconn:NewBind() is namespace aware
 	// bindok := bindWgSockets(w.ID(), w.remote.AnyAddr(), w.wgdev, w.ctl)
-	log.I("proxy: wg: refresh(%s / %s): done; len(dns): %d, len(peer): %d; err? %v",
+	log.I("proxy: wg: (%s / %s): refresh done; len(dns): %d, len(peer): %d; err? %v",
 		w.id, w.viaStatus(), n, nn, err)
 
 	return
