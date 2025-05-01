@@ -10,6 +10,7 @@ import (
 	"errors"
 	"net"
 	"net/netip"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -29,14 +30,35 @@ var (
 
 var zeroaddr = netip.AddrPort{}
 
+type MHAddOp int
+
+const (
+	// Reset replaces the existing IPs with the new IPs.
+	Reset MHAddOp = iota
+	// Append appends the new IPs to the existing IPs.
+	Append
+)
+
+func (op MHAddOp) String() string {
+	switch op {
+	case Reset:
+		return "reset"
+	case Append:
+		return "append"
+	default:
+		return "unknown"
+	}
+}
+
 // MH is a list of hostnames and/or ip addresses for one endpoint.
 type MH struct {
 	sync.RWMutex // protects names and addrs
 
-	o     string           // owner tag
-	names []string         // host:port
-	addrs []netip.AddrPort // ip:port
-	mtime time.Time        // modified time
+	o           string           // owner tag
+	names       []string         // host:port
+	addrs       []netip.AddrPort // ip:port
+	preresolved []netip.AddrPort // ip:port; pre-resolved
+	mtime       time.Time        // modified time
 }
 
 // New returns a new multihost with the given id.
@@ -80,8 +102,7 @@ func (h *MH) Addrs() []netip.AddrPort {
 	h.RLock()
 	defer h.RUnlock()
 
-	// copying h.addrs is not required as netip.AddrPort is immutable
-	return h.addrs
+	return slices.Concat(h.addrs, h.preresolved)
 }
 
 func (h *MH) splitFamily() (out4, out6, og []netip.AddrPort) {
@@ -170,7 +191,7 @@ func (h *MH) Len() int {
 	h.RLock()
 	defer h.RUnlock()
 	// names may exist without addrs and vice versa
-	return max(len(h.addrs), len(h.names))
+	return max(len(h.addrs)+len(h.preresolved), len(h.names))
 }
 
 // Refresh re-adds the list of IPs, hostnames, and re-resolves the hostname.
@@ -208,33 +229,67 @@ func (h *MH) stale() ([]string, bool) {
 	return names, time.Since(thres) > 0
 }
 
+// Add appends to the existing list of IPs, hostnames, and hostname's IPs if resolved.
+func (h *MH) Add(domainsOrIps []string) int {
+	return h.add(domainsOrIps, Append)
+}
+
+// Set replaces the existing list of IPs, hostnames, and hostname's IPs if resolved.
+func (h *MH) Set(domainsOrIps []string) int {
+	return h.add(domainsOrIps, Reset)
+}
+
 // Add appends the list of IPs, hostnames, and hostname's IPs as resolved.
 // It returns the total number of IPs.
 // Removes duplicates.
-func (h *MH) Add(domainsOrIps []string) int {
+func (h *MH) add(domainsOrIps []string, op MHAddOp) int {
 	id := h.o
 	if len(domainsOrIps) <= 0 {
 		log.D("multihost: %s add: no domains or ips; existing n? %d", id, h.Len())
 		return 0
 	}
 
-	names, addrs := resolv(id, domainsOrIps)
+	names, pre, addrs := resolv(id, domainsOrIps)
 
 	h.Lock()
 	defer h.Unlock()
-	h.names = append(h.names, names...)
-	h.addrs = append(h.addrs, addrs...)
+
+	if len(addrs) > 0 {
+		if op == Reset {
+			if len(names) > 0 {
+				h.names = names
+				h.addrs = addrs
+			}
+			if len(pre) > 0 {
+				h.preresolved = pre
+			}
+		} else if op == Append {
+			if len(names) > 0 {
+				h.names = append(h.names, names...)
+				h.addrs = append(h.addrs, addrs...)
+			}
+			if len(pre) > 0 {
+				h.preresolved = append(h.preresolved, pre...)
+			}
+		} else {
+			log.E("multihost: %s add: %v => %v [+ %v]; unknown op %d", id, names, addrs, pre, op)
+			return 0
+		}
+	}
 	h.mtime = time.Now()
 	// remove dups from h.addrs and h.names
 	h.uniqAddrsLocked()
+	h.uniqPreLocked()
 	h.uniqNamesLocked()
-	log.D("multihost: %s with %s => %s", h.o, h.names, h.addrs)
-	return len(h.addrs)
+	log.D("multihost: %s add: op %s; names: %v (new: %v) => resolved: %v (new: %v) + pre: %v (new: %v)",
+		h.o, op, h.names, names, h.addrs, addrs, h.preresolved, pre)
+	return len(h.addrs) + len(h.preresolved)
 }
 
-func resolv(id string, domainsOrIps []string) ([]string, []netip.AddrPort) {
-	names := make([]string, 0)
-	addrs := make([]netip.AddrPort, 0)
+func resolv(id string, domainsOrIps []string) (names []string, pre []netip.AddrPort, addrs []netip.AddrPort) {
+	names = make([]string, 0)
+	pre = make([]netip.AddrPort, 0) // pre-resolved
+	addrs = make([]netip.AddrPort, 0)
 	for _, ep := range domainsOrIps {
 		// ep is host or ip or host:port or ip:port
 		dip, port := normalize(ep) // port may be 0
@@ -255,10 +310,10 @@ func resolv(id string, domainsOrIps []string) ([]string, []netip.AddrPort) {
 				log.W("multihost: %s no ips for %q; err? %v", id, dip, err)
 			}
 		} else { // may be ip
-			addrs = append(addrs, addrport(port, ip)...)
+			pre = append(pre, addrport(port, ip)...)
 		}
 	}
-	return names, addrs
+	return
 }
 
 // dip can be host or ip or host:port or ip:port
@@ -322,6 +377,10 @@ func (h *MH) uniqNamesLocked() {
 
 func (h *MH) uniqAddrsLocked() {
 	h.addrs = core.CopyUniq(h.addrs)
+}
+
+func (h *MH) uniqPreLocked() {
+	h.preresolved = core.CopyUniq(h.preresolved)
 }
 
 func logeif(cond bool) log.LogFn {
