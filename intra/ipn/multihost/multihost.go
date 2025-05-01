@@ -180,18 +180,21 @@ func (h *MH) Refresh() int {
 		log.W("multihost: refresh: nil")
 		return 0
 	}
-	// resolve ip from domain names (auto removes dups)
-	return h.Add(h.Names())
+	if names := h.Names(); len(names) > 0 {
+		// reset all ips; resolve from names
+		return h.Set(names)
+	} // nothing to refresh
+	return 0
 }
 
-func (h *MH) MaybeRefresh() int {
+func (h *MH) SoftRefresh() int {
 	if h == nil {
 		log.W("multihost: refresh: nil")
 		return 0
 	}
 
 	if names, stale := h.stale(); len(names) > 0 && stale {
-		// resolve ip from domain names (auto removes dups)
+		// resolve ip from domain names (auto removes dups); then append
 		return h.Add(names)
 	}
 	return 0
