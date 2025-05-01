@@ -259,6 +259,10 @@ func (w *wgproxy) Ping() bool {
 	return false
 }
 
+func waitForViaHandshake() {
+	time.Sleep(5 * time.Second)
+}
+
 // onNotOK implements Proxy.
 func (w *wgproxy) onNotOK() (handled bool) {
 	var didRefresh, didPing, didCallVia bool
@@ -267,17 +271,25 @@ func (w *wgproxy) onNotOK() (handled bool) {
 		didCallVia = via.onNotOK()
 	}
 
-	handled, _ = w.refreshBa.DoIt(w.id, func() (bool, error) {
-		err := w.Refresh()
+	var err error
+	if didCallVia {
+		waitForViaHandshake() // wait for via to be OK
+		err = w.Refresh()
 		didRefresh = true
-		return err == nil, err
-	})
+		handled = err == nil
+	} else {
+		handled, err = w.refreshBa.DoIt(w.id, func() (bool, error) {
+			rerr := w.Refresh()
+			didRefresh = true
+			return rerr == nil, rerr
+		})
+	}
 	if !didRefresh { // attempt Ping if refresh skipped by the barrier
 		handled = handled && w.Ping() // ping / sendkeepalive is async
 		didPing = true
 	}
-	log.D("proxy: wg: %s (%s); onNotOK: via? %t refresh? %t ping? %t; ok? %t",
-		w.id, w.viaStatus(), didCallVia, didRefresh, didPing, handled)
+	loged(err)("proxy: wg: %s (%s); onNotOK: via? %t refresh? %t ping? %t; ok? %t; err? %v",
+		w.id, w.viaStatus(), didCallVia, didRefresh, didPing, handled, err)
 	return
 }
 
@@ -294,7 +306,17 @@ func (w *wgproxy) Refresh() (err error) {
 	n := w.dns.Load().Refresh()
 	nn := w.remote.Load().Refresh()
 
-	if err := w.resetMtu(w.getVia()); err != nil {
+	via := w.getVia()
+
+	viaHandled, didWait := false, false
+	if via != nil {
+		if viaHandled = via.onNotOK(); viaHandled {
+			waitForViaHandshake()
+			didWait = true
+		}
+	}
+
+	if err := w.resetMtu(via); err != nil {
 		log.E("proxy: wg: (%s / %s) refresh failed; resetMtu: len(dns): %d, len(peer): %d, err: %v",
 			w.id, w.viaStatus(), n, nn, err)
 		return err
@@ -312,8 +334,8 @@ func (w *wgproxy) Refresh() (err error) {
 	}
 	// not required since wgconn:NewBind() is namespace aware
 	// bindok := bindWgSockets(w.ID(), w.remote.AnyAddr(), w.wgdev, w.ctl)
-	log.I("proxy: wg: (%s / %s): refresh done; len(dns): %d, len(peer): %d; err? %v",
-		w.id, w.viaStatus(), n, nn, err)
+	log.I("proxy: wg: (%s / %s): refresh done; len(dns): %d, len(peer): %d; viaHandled? %t, didWait? %t; err? %v",
+		w.id, w.viaStatus(), n, nn, viaHandled, didWait, err)
 
 	return
 }
@@ -1457,4 +1479,11 @@ func logev(err error) log.LogFn {
 		return log.E
 	}
 	return log.VV
+}
+
+func loged(err error) log.LogFn {
+	if err != nil {
+		return log.E
+	}
+	return log.D
 }
