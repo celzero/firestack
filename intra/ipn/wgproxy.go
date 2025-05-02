@@ -724,15 +724,16 @@ func (w *wgtun) getViaIfDialed() Proxy {
 }
 
 func (w *wgtun) viaStatus() (s string) {
-	if vid := w.viaID.Load(); len(vid) > 0 {
+	v, up := w.getViaWithStatus()
+	if vid := idstr(v); len(vid) > 0 {
 		s += vid
-		if w.viaUp.Load() {
+		if up {
 			s += "/y"
 		} else {
 			s += "/n"
 		}
 	} else {
-		s += "novia"
+		s += "novia/n"
 	}
 	return s
 }
@@ -774,6 +775,7 @@ func makeWgTun(id, cfg string, ctl protect.Controller, px ProxyProvider, lp Link
 		direct:        protect.MakeNsRDial(id, ctx, ctl),
 		px:            px,
 		viaID:         core.NewZeroVolatile[string](),
+		viaUp:         core.NewZeroVolatile[bool](),
 		dns:           core.NewVolatile(ifopts.dns),
 		remote:        core.NewVolatile(ifopts.eps),   // may be nil
 		peers:         core.NewVolatile(ifopts.peers), // its entries must never be modified
