@@ -64,10 +64,11 @@ type MH struct {
 // New returns a new multihost with the given id.
 func New(id string) *MH {
 	return &MH{
-		o:     id,
-		names: make([]string, 0),
-		addrs: make([]netip.AddrPort, 0),
-		mtime: time.Now(),
+		o:           id,
+		names:       make([]string, 0),
+		addrs:       make([]netip.AddrPort, 0),
+		preresolved: make([]netip.AddrPort, 0),
+		mtime:       time.Now(),
 	}
 }
 
@@ -254,28 +255,26 @@ func (h *MH) add(domainsOrIps []string, op MHAddOp) int {
 	h.Lock()
 	defer h.Unlock()
 
-	if len(addrs) > 0 {
-		if op == Reset {
-			if len(names) > 0 {
-				h.names = names
-				h.addrs = addrs
-			}
-			if len(pre) > 0 {
-				h.preresolved = pre
-			}
-		} else if op == Append {
-			if len(names) > 0 {
-				h.names = append(h.names, names...)
-				h.addrs = append(h.addrs, addrs...)
-			}
-			if len(pre) > 0 {
-				h.preresolved = append(h.preresolved, pre...)
-			}
-		} else {
-			log.E("multihost: %s add: %v => %v [+ %v]; unknown op %d", id, names, addrs, pre, op)
-			return 0
+	if op == Reset { // reset whatever is non-empty
+		if len(names) > 0 {
+			h.names = names
 		}
+		if len(addrs) > 0 {
+			h.addrs = addrs
+		}
+		if len(pre) > 0 {
+			h.preresolved = pre
+		}
+	} else if op == Append {
+		h.names = append(h.names, names...)
+		h.addrs = append(h.addrs, addrs...)
+		h.preresolved = append(h.preresolved, pre...)
+
+	} else {
+		log.E("multihost: %s add: %v => %v [+ %v]; unknown op %d", id, names, addrs, pre, op)
+		return 0
 	}
+
 	h.mtime = time.Now()
 	// remove dups from h.addrs and h.names
 	h.uniqAddrsLocked()
@@ -301,9 +300,9 @@ func resolv(id string, domainsOrIps []string) (names []string, pre []netip.AddrP
 			names = append(names, ep) // add hostname regardless of resolution success
 			log.D("multihost: %s resolving: %q", id, ep)
 			if resolvedips, err := dialers.Resolve(dip); err == nil && len(resolvedips) > 0 {
-				eps := addrport(port, resolvedips...)
-				addrs = append(addrs, eps...)
-				log.V("multihost: %s resolved: %q => %s", id, dip, eps)
+				reps := addrport(port, resolvedips...)
+				addrs = append(addrs, reps...)
+				log.V("multihost: %s resolved: %q => %s", id, dip, reps)
 			} else {
 				// err may be nil even on zero answers
 				err = core.OneErr(err, errNoIps)
