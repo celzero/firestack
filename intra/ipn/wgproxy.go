@@ -1022,7 +1022,7 @@ func (w *wgproxy) Stat() (out *x.RouterStats) {
 	out.LastTx = w.latestTx.Load()
 	out.Since = w.since
 
-	log.VV("proxy: wg: %s stats: rx: %d, tx: %d, lastok: %d",
+	log.VV("proxy: wg: %s stats: rx: %d, tx: %d, lastok: %s",
 		w.id, out.Rx, out.Tx, core.FmtUnixMillisAsPeriod(out.LastOK))
 	return out
 }
@@ -1413,7 +1413,7 @@ func (w *wgproxy) maybeResetMtu(via Proxy, dryrun bool) error {
 		} else {
 			mtuAvailable = calcTunMtu(mtuAvailFromHop)
 			hopping = true
-			note("wg: %s proxy: maybe hopping %s; mtu(needed: %d / net: %d); hopmtu(avail: %d / tot: %d)",
+			note("wg: %s proxy: hopping %s; mtu(needed: %d / net: %d); hopmtu(avail: %d / tot: %d)",
 				w.id, viaid, mtuNeededByUs, mtuAvailFromNet, mtuAvailable, mtuAvailFromHop)
 		}
 	}

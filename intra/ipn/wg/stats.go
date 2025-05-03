@@ -121,7 +121,7 @@ func (s *ifstats) LatestRecentHandshake() int64 {
 	for _, stats := range s.stats {
 		least = max(least, stats.LatestHandshakeEpochMillis)
 	}
-	log.VV("wg: ReadStats: LatestRecentHandshake: %d, Peers: %d",
+	log.VV("wg: ReadStats: LatestRecentHandshake: %s, Peers: %d",
 		core.FmtUnixMillisAsPeriod(least), len(s.stats))
 	return least
 }
