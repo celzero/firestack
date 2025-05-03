@@ -728,12 +728,16 @@ func (w *wgtun) viaStatus() (s string) {
 	if vid := idstr(v); len(vid) > 0 {
 		s += vid
 		if up {
-			s += "/y"
+			s += "/up"
 		} else {
-			s += "/n"
+			s += "/down"
 		}
 	} else {
-		s += "novia/n"
+		if vid = w.viaID.Load(); len(vid) > 0 {
+			s += vid + "/mia"
+		} else {
+			s += "novia/zz"
+		}
 	}
 	return s
 }
