@@ -341,12 +341,20 @@ func (s *overwriteSplitter) SetDeadline(t time.Time) error {
 	return nil // no-op
 }
 
-// SyscallConn implements core.PoolableConn.
+// SyscallConn implements core.DuplexConn.
 func (s *overwriteSplitter) SyscallConn() (syscall.RawConn, error) {
 	if c := s.conn; c != nil {
 		return c.SyscallConn()
 	}
 	return nil, syscall.EINVAL
+}
+
+// SetKeepAlive implements core.DuplexConn.
+func (s *overwriteSplitter) SetKeepAlive(y bool) error {
+	if c := s.conn; c != nil {
+		return c.SetKeepAlive(y)
+	}
+	return nil // no-op
 }
 
 // SetReadDeadline implements core.DuplexConn.
