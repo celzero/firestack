@@ -188,9 +188,10 @@ func (t *transport) fromPool(id uintptr) (c *dns.Conn) {
 	}
 	var ok bool
 	if c, ok = pooled.(*dns.Conn); !ok { // unlikely
+		log.W("dns53: pool: (%s) not a dns.Conn for %d!", t.id, id)
 		return &dns.Conn{Conn: pooled}
 	}
-	log.V("dns53: pool: (%s) got conn from %v", t.id, id)
+	log.V("dns53: pool: (%s) got conn for %d", t.id, id)
 	return
 }
 

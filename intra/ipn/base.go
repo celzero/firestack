@@ -102,7 +102,7 @@ func (h *base) dial(network, local, remote string) (c protect.Conn, err error) {
 			if removeViaOnErrors {
 				h.Hop(nil, false /*dryrun*/) // stale; unset
 			}
-			log.W("proxy: base: via(%s@%s) failing...", idstr(v), idhandle(v))
+			log.W("proxy: base: via(%s) failing...", idhandle(v))
 		}
 	} else {
 		if settings.Loopingback.Load() { // loopback (rinr) mode
@@ -175,7 +175,7 @@ func (h *base) Hop(p Proxy, dryrun bool) error {
 	if p == nil {
 		if !dryrun {
 			old := h.swapVia(nil)
-			log.I("proxy: base: hop(%s@%s) removed", idstr(old), idhandle(old))
+			log.I("proxy: base: hop(%s) removed", idhandle(old))
 		}
 		return nil
 	}
@@ -188,7 +188,7 @@ func (h *base) Hop(p Proxy, dryrun bool) error {
 
 	if !dryrun {
 		old := h.swapVia(nil)
-		log.I("proxy: base: hop(%s@%s) => %s", idstr(old), idhandle(old), idhandle(p))
+		log.I("proxy: base: hop %s => %s", idhandle(old), idhandle(p))
 	}
 	return nil
 }
