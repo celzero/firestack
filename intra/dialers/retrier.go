@@ -524,7 +524,7 @@ func (r *retrier) SetReadDeadline(t time.Time) error {
 	// deadline, and we don't want this to interfere.
 	if r.retryCompleted() {
 		if c := r.conn; c != nil && core.IsNotNil(c) {
-			return c.SetWriteDeadline(t)
+			return c.SetReadDeadline(t)
 		}
 		return errNoConn
 	}
