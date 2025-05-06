@@ -28,7 +28,8 @@ import (
 	_ "go4.org/unsafe/assume-no-moving-gc"
 )
 
-const usepool = true
+// TODO: enable this
+const usepool = false
 
 type dot struct {
 	ctx           context.Context
