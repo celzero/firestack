@@ -146,10 +146,13 @@ func DialWithSplitRetry(d *protect.RDial, laddr, raddr *net.TCPAddr) (*retrier, 
 }
 
 func (r *retrier) SyscallConn() (syscall.RawConn, error) {
-	if sc, ok := r.conn.(syscall.Conn); ok {
+	r.mu.Lock()
+	c := r.conn
+	r.mu.Unlock()
+	if sc, ok := c.(syscall.Conn); ok {
 		return sc.SyscallConn()
 	}
-	log.W("retrier: not a syscall.Conn: %T", r.conn)
+	log.W("retrier: not a syscall.Conn: %T", c)
 	return nil, syscall.EINVAL
 }
 
@@ -160,7 +163,7 @@ func (r *retrier) SetKeepAlive(y bool) error {
 	if c, ok := c.(core.KeepAliveConn); ok {
 		return c.SetKeepAlive(y)
 	}
-	log.W("retrier: not a net.Conn: %T", r.conn)
+	log.W("retrier: not a net.Conn: %T", c)
 	return syscall.EINVAL
 }
 
@@ -420,15 +423,15 @@ func (r *retrier) Write(b []byte) (int, error) {
 			<-r.retryDoneCh
 
 			r.mu.Lock()
+			defer r.mu.Unlock()
+
 			elapsed := time.Since(start).Milliseconds()
 			if r.retryErr != nil {
-				r.mu.Unlock()
 				// r.conn may be nil or closed
 				log.E("retrier: write: retry failed [%s=>%s] in %dms; old => new: %v => %v",
 					laddr(r.conn), r.raddr, elapsed, err, r.retryErr)
 				return n, err // pass on the og error
 			}
-			r.mu.Unlock()
 
 			// if len(leftover) > 0 {
 			//	m, err = newConn.Write(leftover)
@@ -464,13 +467,12 @@ func (r *retrier) ReadFrom(reader io.Reader) (bytes int64, err error) {
 		}
 	}
 
-	c := r.conn
+	c := r.conn // reader thread does not need the mutex
 	if c == nil || core.IsNil(c) {
 		log.E("retrier: readfrom: [] <= %s, no conn; after# %d: sz(%d)", r.raddr, copies, bytes)
 		return bytes, io.ErrUnexpectedEOF
 	}
 
-	// retryCompleted() is true, so r.conn is final and doesn't need locking
 	var b int64
 	b, err = c.ReadFrom(reader)
 	bytes += b
