@@ -376,8 +376,8 @@ func (a agingconn) keepalive(y bool) bool {
 		cleardeadline(a.c) // reset any previous timeout
 		return SetKeepAliveConfigSockOpt(a.c, kaidle, kainterval)
 	} else {
-		if tc, ok := a.c.(*net.TCPConn); ok {
-			return tc.SetKeepAlive(false) == nil
+		if c, ok := a.c.(KeepAliveConn); ok {
+			return c.SetKeepAlive(false) == nil
 		}
 		return false
 	}

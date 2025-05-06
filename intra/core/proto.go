@@ -76,11 +76,16 @@ type UDPConn interface {
 type DuplexConn interface {
 	TCPConn
 	PoolableConn
+	KeepAliveConn
 	io.ReaderFrom
 }
 
 // so it can be pooled by ConnPool.
 type PoolableConn syscall.Conn
+
+type KeepAliveConn interface {
+	SetKeepAlive(bool) error
+}
 
 type ICMPConn interface {
 	net.PacketConn

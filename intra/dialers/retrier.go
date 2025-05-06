@@ -87,6 +87,8 @@ type retrier struct {
 
 var _ core.DuplexConn = (*retrier)(nil)
 
+var _ core.DuplexConn = (*net.TCPConn)(nil)
+
 // Helper functions for reading flags.
 // In this package, a "flag" is a thread-safe single-use status indicator that
 // starts in the "open" state and transitions to "closed" when close() is called.
@@ -149,6 +151,17 @@ func (r *retrier) SyscallConn() (syscall.RawConn, error) {
 	}
 	log.W("retrier: not a syscall.Conn: %T", r.conn)
 	return nil, syscall.EINVAL
+}
+
+func (r *retrier) SetKeepAlive(y bool) error {
+	r.mu.RLock()
+	c := r.conn
+	r.mu.RUnlock()
+	if c, ok := c.(core.KeepAliveConn); ok {
+		return c.SetKeepAlive(y)
+	}
+	log.W("retrier: not a net.Conn: %T", r.conn)
+	return syscall.EINVAL
 }
 
 func (r *retrier) dialStratLocked() (strat int32, err error) {
