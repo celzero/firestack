@@ -57,11 +57,11 @@ type retrier struct {
 	readDone  atomic.Bool
 	writeDone atomic.Bool
 
-	// mutex is a lock that guards conn, retryCount, tee, timeout,
+	// mu is a lock that guards conn, retryCount, tee, timeout,
 	// retryErr, retryDoneCh, readDeadline, and writeDeadline.
 	// After retryDoneCh is closed, these values will not be
 	// modified again so locking is no longer required for reads.
-	mutex sync.Mutex
+	mu sync.Mutex
 
 	// the current underlying connection.  It is only modified by the reader
 	// thread, so the reader functions may access it without acquiring a lock.
@@ -136,8 +136,8 @@ func DialWithSplitRetry(d *protect.RDial, laddr, raddr *net.TCPAddr) (*retrier, 
 		retryDoneCh: make(chan struct{}),
 	}
 
-	r.mutex.Lock()
-	defer r.mutex.Unlock()
+	r.mu.Lock()
+	defer r.mu.Unlock()
 
 	if _, err := r.dialLocked(); err != nil {
 		return nil, err
@@ -154,9 +154,9 @@ func (r *retrier) SyscallConn() (syscall.RawConn, error) {
 }
 
 func (r *retrier) SetKeepAlive(y bool) error {
-	r.mu.RLock()
+	r.mu.Lock()
 	c := r.conn
-	r.mu.RUnlock()
+	r.mu.Unlock()
 	if c, ok := c.(core.KeepAliveConn); ok {
 		return c.SetKeepAlive(y)
 	}
@@ -311,8 +311,8 @@ func (r *retrier) retryWriteReadLocked(buf []byte) (int, error) {
 // CloseRead closes r.conn for reads, and the read flag.
 func (r *retrier) CloseRead() error {
 	r.readDone.Store(true)
-	r.mutex.Lock()
-	defer r.mutex.Unlock()
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	core.CloseOp(r.conn, core.CopR)
 	return nil
 }
@@ -336,8 +336,8 @@ func (r *retrier) Read(buf []byte) (n int, err error) {
 
 	note = log.D
 	if !r.retryCompleted() {
-		r.mutex.Lock()
-		defer r.mutex.Unlock()
+		r.mu.Lock()
+		defer r.mu.Unlock()
 
 		if !r.retryCompleted() {
 			defer close(r.retryDoneCh) // signal that retry is complete or unnecessary
@@ -366,8 +366,8 @@ func (r *retrier) Read(buf []byte) (n int, err error) {
 }
 
 func (r *retrier) teeSend(b []byte) (n int, didWrite bool, src net.Addr, err error) {
-	r.mutex.Lock()
-	defer r.mutex.Unlock()
+	r.mu.Lock()
+	defer r.mu.Unlock()
 
 	c := r.conn
 	if c == nil || core.IsNil(c) {
@@ -419,16 +419,16 @@ func (r *retrier) Write(b []byte) (int, error) {
 			// already have replayed r.tee), and retry.
 			<-r.retryDoneCh
 
-			r.mutex.Lock()
+			r.mu.Lock()
 			elapsed := time.Since(start).Milliseconds()
 			if r.retryErr != nil {
-				r.mutex.Unlock()
+				r.mu.Unlock()
 				// r.conn may be nil or closed
 				log.E("retrier: write: retry failed [%s=>%s] in %dms; old => new: %v => %v",
 					laddr(r.conn), r.raddr, elapsed, err, r.retryErr)
 				return n, err // pass on the og error
 			}
-			r.mutex.Unlock()
+			r.mu.Unlock()
 
 			// if len(leftover) > 0 {
 			//	m, err = newConn.Write(leftover)
@@ -482,8 +482,8 @@ func (r *retrier) ReadFrom(reader io.Reader) (bytes int64, err error) {
 // CloseWrite closes r.conn for writes, the write flag.
 func (r *retrier) CloseWrite() error {
 	r.writeDone.Store(true)
-	r.mutex.Lock()
-	defer r.mutex.Unlock()
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	core.CloseOp(r.conn, core.CopW)
 	return nil
 }
@@ -498,8 +498,8 @@ func (r *retrier) Close() error {
 // result of a retry.  However, LocalAddr is largely useless for
 // TCP client sockets anyway, so nothing should be relying on this.
 func (r *retrier) LocalAddr() net.Addr {
-	r.mutex.Lock()
-	defer r.mutex.Unlock()
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	if c := r.conn; c != nil && core.IsNotNil(c) {
 		return c.LocalAddr()
 	}
@@ -514,8 +514,8 @@ func (r *retrier) RemoteAddr() net.Addr {
 // SetReadDeadline sets the read deadline for the connection
 // if the retry is complete, otherwise it does so after the retry.
 func (r *retrier) SetReadDeadline(t time.Time) error {
-	r.mutex.Lock()
-	defer r.mutex.Unlock()
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	r.readDeadline = t
 	// Don't enforce read deadlines until after the retry
 	// is complete. Retry relies on setting its own read
@@ -531,8 +531,8 @@ func (r *retrier) SetReadDeadline(t time.Time) error {
 
 // SetWriteDeadline sets the write deadline for the connection.
 func (r *retrier) SetWriteDeadline(t time.Time) error {
-	r.mutex.Lock()
-	defer r.mutex.Unlock()
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	r.writeDeadline = t
 	if c := r.conn; c != nil && core.IsNotNil(c) {
 		return c.SetWriteDeadline(t)
