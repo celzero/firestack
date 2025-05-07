@@ -43,17 +43,22 @@ var errQueryParse = errors.New("dns53: err parse query")
 
 // TODO: Keep a context here so that queries can be canceled.
 type transport struct {
-	ctx      context.Context
-	done     context.CancelFunc
-	id       string
+	ctx  context.Context
+	done context.CancelFunc
+
+	id string
+
 	addrport string // hostname, ip:port, protect.UidSelf:53, protect.System:53
 	port     uint16
-	client   *dns.Client
-	pool     *core.MultConnPool[uintptr]
-	proxies  ipn.ProxyProvider // should never be nil
-	relay    string            // may be empty
-	est      core.P2QuantileEstimator
 
+	client  *dns.Client
+	proxies ipn.ProxyProvider // should never be nil
+	relay   string            // may be empty
+
+	pool    *core.MultConnPool[uintptr]
+	usepool bool
+
+	est      core.P2QuantileEstimator
 	lastaddr *core.Volatile[string] // last resolved addr
 	status   *core.Volatile[int]    // status of the transport
 }
@@ -101,9 +106,11 @@ func newTransport(pctx context.Context, id string, do *settings.DNSOptions, px i
 		status:   core.NewVolatile(dnsx.Start),
 		lastaddr: core.NewZeroVolatile[string](),
 		pool:     core.NewMultConnPool[uintptr](ctx),
-		proxies:  px,    // never nil; see above
-		relay:    relay, // may be empty
-		est:      core.NewP50Estimator(ctx),
+		// todo: renable once we know why pooled wireguard dns conns are troublesome
+		usepool: false,
+		proxies: px,    // never nil; see above
+		relay:   relay, // may be empty
+		est:     core.NewP50Estimator(ctx),
 	}
 	ipcsv := do.ResolvedAddrs()
 	hasips := len(ipcsv) > 0
@@ -168,7 +175,7 @@ func (t *transport) pxdial(network, pid string) (*dns.Conn, string, uintptr, err
 
 // toPool takes ownership of c.
 func (t *transport) toPool(id uintptr, c *dns.Conn) {
-	if !usepool || id == core.Nobody {
+	if !t.usepool || id == core.Nobody {
 		clos(c)
 		return
 	}
@@ -178,7 +185,7 @@ func (t *transport) toPool(id uintptr, c *dns.Conn) {
 
 // fromPool returns a conn from the pool, if available.
 func (t *transport) fromPool(id uintptr) (c *dns.Conn) {
-	if !usepool || id == core.Nobody {
+	if !t.usepool || id == core.Nobody {
 		return
 	}
 

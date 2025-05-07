@@ -27,25 +27,30 @@ import (
 	_ "go4.org/unsafe/assume-no-moving-gc"
 )
 
-// TODO: enable this
-const usepool = false
+const usepool = true
 
 type dot struct {
-	ctx           context.Context
-	done          context.CancelFunc
-	id            string // id of the transport
-	url           string // full url
-	addrport      string // ip:port or hostname:port
-	port          uint16 // port number
-	host          string // hostname from the url
-	skipTLSVerify bool
-	status        *core.Volatile[int]
+	ctx  context.Context
+	done context.CancelFunc
+
+	id string // id of the transport
+
+	url      string // full url
+	addrport string // ip:port or hostname:port
+	port     uint16 // port number
+	host     string // hostname from the url
+
 	c             *dns.Client
-	c3            *dns.Client // with ech
-	pool          *core.MultConnPool[uintptr]
+	c3            *dns.Client       // with ech
 	proxies       ipn.ProxyProvider // may be nil
 	relay         string            // may be empty
-	est           core.P2QuantileEstimator
+	skipTLSVerify bool
+
+	pool    *core.MultConnPool[uintptr]
+	usepool bool
+
+	est    core.P2QuantileEstimator
+	status *core.Volatile[int]
 }
 
 var _ dnsx.Transport = (*dot)(nil)
@@ -102,6 +107,7 @@ func NewTLSTransport(ctx context.Context, id, rawurl string, addrs []string, px 
 		proxies:       px,
 		relay:         relay,
 		pool:          core.NewMultConnPool[uintptr](ctx),
+		usepool:       usepool,
 		est:           core.NewP50Estimator(ctx),
 	}
 	ech := t.ech()
@@ -223,7 +229,7 @@ func (t *dot) pxdial(pid string) (*dns.Conn, string, uintptr, error) {
 
 // toPool takes ownership of c.
 func (t *dot) toPool(id uintptr, c *dns.Conn) {
-	if !usepool || id == core.Nobody {
+	if !t.usepool || id == core.Nobody {
 		clos(c)
 		return
 	}
@@ -233,7 +239,7 @@ func (t *dot) toPool(id uintptr, c *dns.Conn) {
 
 // fromPool returns a conn from the pool, if available.
 func (t *dot) fromPool(id uintptr) (c *dns.Conn) {
-	if !usepool || id == core.Nobody {
+	if !t.usepool || id == core.Nobody {
 		return
 	}
 
