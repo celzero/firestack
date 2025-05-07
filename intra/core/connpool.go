@@ -27,9 +27,9 @@ const pooluseread = false                 // never used; for documentation only
 const poolcapacity = 8                    // default capacity
 const poolmaxattempts = poolcapacity / 2  // max attempts to retrieve a conn from pool
 const Nobody = uintptr(0)                 // nobody
-const poolscrubinterval = 5 * time.Minute // interval between subsequent scrubs
 const poolmaxidle = 8 * time.Minute       // close unused pooled conns after this period
 const poolfreshttl = 1 * time.Minute      // considered fresh if less than this period
+const poolscrubinterval = poolmaxidle / 3 // interval between subsequent scrubs
 
 // go.dev/play/p/ig2Zpk-LTSv
 var (
@@ -211,7 +211,7 @@ func (c *ConnPool[T]) Get() (zz net.Conn) {
 			i++
 			select {
 			case aconn := <-c.p:
-				// if readable, return conn regardless of its freshness
+				// if readable/fresh, return conn regardless of its freshness
 				if aconn.ok() {
 					aconn.keepalive(false)
 					return aconn.c, nil
