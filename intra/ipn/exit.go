@@ -54,6 +54,11 @@ func (h *exit) Handle() uintptr {
 	return core.Loc(h)
 }
 
+// DialerHandle implements Proxy.
+func (h *exit) DialerHandle() uintptr {
+	return core.Loc(h.outbound)
+}
+
 // Dial implements Proxy.
 func (h *exit) Dial(network, addr string) (protect.Conn, error) {
 	return h.dial(network, "", addr)

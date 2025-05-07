@@ -37,6 +37,11 @@ func (h *ground) Handle() uintptr {
 	return core.Loc(h)
 }
 
+// DialerHandle implements Proxy.
+func (h *ground) DialerHandle() uintptr {
+	return h.Handle()
+}
+
 // Dial implements Proxy.
 func (h *ground) Dial(network, addr string) (protect.Conn, error) {
 	return nil, errNoProxyResponse

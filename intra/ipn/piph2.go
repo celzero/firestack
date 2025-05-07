@@ -353,6 +353,11 @@ func (t *piph2) Handle() uintptr {
 	return core.Loc(t)
 }
 
+// DialerHandle implements Proxy.
+func (t *piph2) DialerHandle() uintptr {
+	return core.Loc(t.outbound)
+}
+
 // Dial implements Proxy.
 func (t *piph2) Dial(network, addr string) (protect.Conn, error) {
 	return t.forward(network, addr)

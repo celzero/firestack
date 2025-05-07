@@ -22,7 +22,6 @@ import (
 	"github.com/celzero/firestack/intra/dnsx"
 	"github.com/celzero/firestack/intra/ipn"
 	"github.com/celzero/firestack/intra/log"
-	"github.com/celzero/firestack/intra/protect"
 	"github.com/celzero/firestack/intra/xdns"
 	"github.com/miekg/dns"
 	_ "go4.org/unsafe/assume-no-moving-gc"
@@ -168,8 +167,8 @@ func (t *dot) doQuery(pid string, q *dns.Msg) (response *dns.Msg, rpid string, e
 	return
 }
 
-func (t *dot) tlsdial(rd protect.RDialer) (_ *dns.Conn, who uintptr, err error) {
-	who = rd.Handle()
+func (t *dot) tlsdial(p ipn.Proxy) (_ *dns.Conn, who uintptr, err error) {
+	who = p.Handle()
 	if c := t.fromPool(who); c != nil {
 		return c, who, nil
 	}
@@ -179,12 +178,12 @@ func (t *dot) tlsdial(rd protect.RDialer) (_ *dns.Conn, who uintptr, err error) 
 	addr := t.addrport   // t.addr may be ip or hostname
 	if t.c3 != nil {     // may be nil if ech is not available
 		cfg := t.c3.TLSConfig // don't clone; may be modified by dialers.DialWithTls
-		c, err = dialers.DialWithTls(rd, cfg, "tcp", addr)
+		c, err = dialers.DialWithTls(p.Dialer(), cfg, "tcp", addr)
 		usingech = true
 	}
 	if c == nil && core.IsNil(c) { // no ech or ech failed
 		cfg := t.c.TLSConfig
-		c, err = dialers.DialWithTls(rd, cfg, "tcp", addr)
+		c, err = dialers.DialWithTls(p.Dialer(), cfg, "tcp", addr)
 	}
 	if c != nil && core.IsNotNil(c) {
 		_ = c.SetDeadline(time.Now().Add(dottimeout))
@@ -218,7 +217,7 @@ func (t *dot) pxdial(pid string) (*dns.Conn, string, uintptr, error) {
 	log.V("dot: pxdial: (%s) using relay/proxy %s (via: %s) at %s",
 		t.id, pid, rpid, px.GetAddr())
 
-	c, who, err := t.tlsdial(px.Dialer())
+	c, who, err := t.tlsdial(px)
 	return c, rpid, who, err
 }
 

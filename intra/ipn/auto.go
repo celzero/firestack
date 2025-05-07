@@ -71,6 +71,33 @@ func (h *auto) Handle() uintptr {
 	return core.Loc(h)
 }
 
+// DialerHandle implements Proxy.
+func (h *auto) DialerHandle() (mix uintptr) {
+	remoteOnly := settings.AutoAlwaysRemote.Load()
+	if !remoteOnly {
+		if exit, _ := h.pxr.ProxyFor(Exit); exit != nil {
+			mix ^= exit.DialerHandle()
+		}
+		if exit64, _ := h.pxr.ProxyFor(Rpn64); exit64 != nil {
+			mix ^= exit64.DialerHandle()
+		}
+	}
+	if warp, _ := h.pxr.ProxyFor(RpnWg); warp != nil {
+		mix ^= warp.DialerHandle()
+	}
+	if pro, _ := h.pxr.ProxyFor(RpnPro); pro != nil {
+		mix ^= pro.DialerHandle()
+	}
+	if amz, _ := h.pxr.ProxyFor(RpnAmz); amz != nil {
+		mix ^= amz.DialerHandle()
+	}
+	if sep, _ := h.pxr.ProxyFor(RpnSE); sep != nil {
+		mix ^= sep.DialerHandle()
+	}
+
+	return mix
+}
+
 // Dial implements Proxy.
 func (h *auto) Dial(network, addr string) (protect.Conn, error) {
 	return h.dial(network, "", addr)

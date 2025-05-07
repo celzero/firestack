@@ -99,6 +99,11 @@ func (h *http1) Handle() uintptr {
 	return core.Loc(h)
 }
 
+// DialerHandle implements Proxy.
+func (h *http1) DialerHandle() uintptr {
+	return core.Loc(h.outbound)
+}
+
 // Dial implements Proxy.
 func (h *http1) Dial(network, addr string) (c protect.Conn, err error) {
 	if h.status.Load() == END {

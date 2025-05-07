@@ -156,6 +156,15 @@ func (h *wgproxy) Handle() uintptr {
 	return core.Loc(h)
 }
 
+// DialerHandle implements Proxy.
+func (h *wgproxy) DialerHandle() uintptr {
+	via, up := h.getViaWithStatus()
+	if up {
+		return via.Handle()
+	}
+	return core.Loc(h.direct)
+}
+
 // Dial implements Proxy.
 func (h *wgproxy) Dial(network, address string) (c protect.Conn, err error) {
 	// ProxyDial resolves address if needed; then dials into all resolved ips.

@@ -141,6 +141,7 @@ type NoProxy struct {
 }
 
 func (NoProxy) Handle() uintptr                                       { return core.Nobody }
+func (NoProxy) DialerHandle() uintptr                                 { return core.Nobody }
 func (NoProxy) ID() string                                            { return "" }
 func (NoProxy) Type() string                                          { return "" }
 func (NoProxy) Router() x.Router                                      { return nil }

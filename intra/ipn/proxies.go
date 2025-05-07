@@ -126,10 +126,12 @@ const (
 // type checks
 var _ Proxy = (*base)(nil)
 var _ Proxy = (*exit)(nil)
+var _ Proxy = (*exit64)(nil)
 var _ Proxy = (*auto)(nil)
 var _ Proxy = (*socks5)(nil)
 var _ Proxy = (*http1)(nil)
 var _ Proxy = (*wgproxy)(nil)
+var _ Proxy = (*seproxy)(nil)
 var _ Proxy = (*ground)(nil)
 var _ Proxy = (*pipws)(nil)
 var _ Proxy = (*piph2)(nil)
@@ -138,6 +140,12 @@ type Proxy interface {
 	x.Proxy
 	protect.RDialer
 
+	// DialerHandle uniquely identifies the concrete type backing this proxy's dialer.
+	// Useful as a phantom reference to this dialer.
+	// github.com/hashicorp/terraform/blob/325d18262/internal/configs/configschema/decoder_spec.go#L32
+	DialerHandle() uintptr
+	// Handle uniquely identifies the concrete type backing this proxy.
+	Handle() uintptr
 	// Dialer returns the dialer for this proxy, which is an
 	// adapter for protect.RDialer interface, but with the caveat that
 	// not all Proxy instances implement DialTCP and DialUDP, though are

@@ -193,6 +193,11 @@ func (h *socks5) Handle() uintptr {
 	return core.Loc(h)
 }
 
+// DialerHandle implements Proxy.
+func (h *socks5) DialerHandle() uintptr {
+	return core.Loc(h.d)
+}
+
 // Dial implements Proxy.
 func (h *socks5) Dial(network, addr string) (c protect.Conn, err error) {
 	return h.dial(network, "", addr)

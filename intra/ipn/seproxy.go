@@ -355,6 +355,11 @@ func (h *seproxy) Handle() uintptr {
 	return core.Loc(h)
 }
 
+// DialerHandle implements Proxy.
+func (h *seproxy) DialerHandle() uintptr {
+	return core.Loc(h.outbounds)
+}
+
 // ID implements Proxy.
 func (*seproxy) ID() string {
 	return RpnSE

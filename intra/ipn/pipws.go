@@ -351,6 +351,11 @@ func (t *pipws) Handle() uintptr {
 	return core.Loc(t)
 }
 
+// DialerHandle implements Proxy.
+func (t *pipws) DialerHandle() uintptr {
+	return core.Loc(t.outbound)
+}
+
 // Dial connects to addr via wsconn over this ws proxy
 func (t *pipws) Dial(network, addr string) (protect.Conn, error) {
 	return t.forward(network, addr)
