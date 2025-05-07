@@ -83,6 +83,7 @@ type DuplexConn interface {
 // so it can be pooled by ConnPool.
 type PoolableConn syscall.Conn
 
+// KeepAliveConn supports keep-alive probes.
 type KeepAliveConn interface {
 	SetKeepAlive(bool) error
 }
