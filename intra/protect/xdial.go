@@ -95,17 +95,9 @@ func (d *RDial) context() context.Context {
 	return context.Background()
 }
 
-func (d *RDial) dial(network, addr string) (net.Conn, error) {
-	return d.dialer.DialContext(d.context(), network, addr)
-}
-
 // Dial implements RDialer.
 func (d *RDial) Dial(network, addr string) (net.Conn, error) {
-	return d.dial(network, addr)
-}
-
-func (d *RDial) DialContext(ctx context.Context, network, addr string) (net.Conn, error) {
-	return d.dialer.DialContext(ctx, network, addr)
+	return d.dialer.DialContext(d.context(), network, addr)
 }
 
 func (d *RDial) cloneDialer() *net.Dialer {
@@ -227,7 +219,7 @@ func (d *RDial) Probe(network, local string) (PacketConn, error) {
 		local = ip
 	}
 
-	return d.listenICMP.listenICMP(network, local)
+	return d.listenICMP.listenICMP(d.context(), network, local)
 }
 
 // DialTCP creates a net.TCPConn to raddr.
