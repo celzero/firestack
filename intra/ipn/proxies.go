@@ -152,7 +152,7 @@ type Proxy interface {
 	// guaranteed to implement Dial.
 	Dialer() protect.RDialer
 	// onNotOK is called by clients when the proxy is not responsive.
-	onNotOK() bool
+	onNotOK() (refreshed, allok bool)
 	// onProtoChange returns true if the proxy must be re-added with cfg on proto changes.
 	OnProtoChange(lp LinkProps) (cfg string, readd bool)
 	// Gateway sets proxy p as the gateway for this router.

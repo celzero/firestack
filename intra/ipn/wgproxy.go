@@ -277,32 +277,32 @@ func waitForViaHandshake() {
 }
 
 // onNotOK implements Proxy.
-func (w *wgproxy) onNotOK() (handled bool) {
-	var didRefresh, didPing, didCallVia bool
+func (w *wgproxy) onNotOK() (didRefresh, allok bool) {
+	var didPing, viaDidRefresh, viaOK bool
 
 	if via := w.getViaIfDialed(); via != nil {
-		didCallVia = via.onNotOK()
+		viaDidRefresh, viaOK = via.onNotOK()
 	}
 
 	var err error
-	if didCallVia {
+	if viaDidRefresh {
 		waitForViaHandshake() // wait for via to be OK
 		err = w.Refresh()
 		didRefresh = true
-		handled = err == nil
+		allok = err == nil
 	} else {
-		handled, err = w.refreshBa.DoIt(w.id, func() (bool, error) {
+		allok, err = w.refreshBa.DoIt(w.id, func() (bool, error) {
 			rerr := w.Refresh()
 			didRefresh = true
 			return rerr == nil, rerr
 		})
 	}
 	if !didRefresh { // attempt Ping if refresh skipped by the barrier
-		handled = handled && w.Ping() // ping / sendkeepalive is async
+		allok = allok && w.Ping() // ping / sendkeepalive is async
 		didPing = true
 	}
-	loged(err)("proxy: wg: %s (%s); onNotOK: via? %t refresh? %t ping? %t; ok? %t; err? %v",
-		w.id, w.viaStatus(), didCallVia, didRefresh, didPing, handled, err)
+	loged(err)("proxy: wg: (%s + %s); onNotOK: refresh? %t+%t; ping? %t; ok? %t+%t; err? %v",
+		w.id, w.viaStatus(), viaDidRefresh, didRefresh, didPing, viaOK, allok, err)
 	return
 }
 
@@ -320,36 +320,25 @@ func (w *wgproxy) Refresh() (err error) {
 	nn := w.remote.Load().Refresh()
 
 	via := w.getVia()
-
-	viaHandled, didWait := false, false
+	viaOK, didWait := false, false
 	if via != nil {
-		if viaHandled = via.onNotOK(); viaHandled {
+		var viaDidRefresh bool
+		if viaDidRefresh, viaOK = via.onNotOK(); viaDidRefresh {
 			waitForViaHandshake()
 			didWait = true
 		}
 	}
 
-	if err := w.resetMtu(via); err != nil {
-		log.E("proxy: wg: (%s / %s) refresh failed; resetMtu: len(dns): %d, len(peer): %d, err: %v",
-			w.id, w.viaStatus(), n, nn, err)
-		return err
+	if err = w.resetMtu(via); err == nil {
+		if err = w.Device.Down(); err == nil {
+			err = w.Device.Up()
+		}
 	}
 
-	if err = w.Device.Down(); err != nil {
-		log.E("proxy: wg: (%s / %s) refresh failed; down: len(dns): %d, len(peer): %d, err: %v",
-			w.id, w.viaStatus(), n, nn, err)
-		return
-	}
-	if err = w.Device.Up(); err != nil {
-		log.E("proxy: wg: (%s / %s) refresh failed; up: len(dns): %d, len(peer): %d, err: %v",
-			w.id, w.viaStatus(), n, nn, err)
-		return
-	}
 	// not required since wgconn:NewBind() is namespace aware
 	// bindok := bindWgSockets(w.ID(), w.remote.AnyAddr(), w.wgdev, w.ctl)
-	log.I("proxy: wg: (%s / %s): refresh done; len(dns): %d, len(peer): %d; viaHandled? %t, didWait? %t; err? %v",
-		w.id, w.viaStatus(), n, nn, viaHandled, didWait, err)
-
+	logei(err)("proxy: wg: (%s + %s): refresh done; len(dns): %d, len(peer): %d; viaOK? %t, didWait? %t; err? %v",
+		w.id, w.viaStatus(), n, nn, viaOK, didWait, err)
 	return
 }
 
