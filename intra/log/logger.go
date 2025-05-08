@@ -173,8 +173,8 @@ var _ Logger = (*simpleLogger)(nil)
 // github.com/golang/mobile/blob/fa72addaaa/internal/mobileinit/mobileinit_android.go#L52
 // const logcatLineSize = 1024
 
-const allowSpam = true // enable spammy logs
-const logPiif = false  // enable sensitive logs
+const spamConsole = false // send spammy logs to console
+const logPiif = false     // enable sensitive logs
 
 // qSize is the number of recent log msgs to keep in the ring buffer.
 const qSize = 512
@@ -536,17 +536,20 @@ func (l *simpleLogger) writelog(lvl LogLevel, at int, msg string, args ...any) {
 	pc, file1 := caller(at + nextframe)
 	trace := ""
 
-	if l.spammy(lvl, pc) {
+	isspam := l.spammy(lvl, pc)
+	if isspam {
 		l.skips[lvl].Add(1)
-		return
-	} else if n := l.skips[lvl].Load(); n > spammsgThreshold[lvl] {
+	}
+
+	if n := l.skips[lvl].Load(); n > spammsgThreshold[lvl] {
 		swapped := l.skips[lvl].CompareAndSwap(n, 0)
 		if swapped && (cc || ll) {
-			spammsg := l.msgstr(lvl, file1+"spammy... dropped %d msgs", n)
+			spammsg := l.msgstr(lvl, file1+"spammy... %d msgs; dropped? %t", n, !spamConsole)
 			if ll {
 				l.out(spammsg)
 			}
-			if cc {
+			// print spammsg only if spamming is not allowed
+			if cc && !spamConsole {
 				l.consoleQueue(&conMsg{spammsg, lvl})
 			}
 		}
@@ -564,7 +567,7 @@ func (l *simpleLogger) writelog(lvl LogLevel, at int, msg string, args ...any) {
 			// go's internal logger grabs mutex before every write
 			l.out(msg)
 		}
-		if cc {
+		if cc && (!isspam || spamConsole) {
 			l.consoleQueue(&conMsg{msg, lvl})
 		}
 	}
@@ -572,10 +575,6 @@ func (l *simpleLogger) writelog(lvl LogLevel, at int, msg string, args ...any) {
 
 // go.dev/play/p/6CkoACJ1bYz
 func (l *simpleLogger) spammy(lvl LogLevel, pc uintptr) (y bool) {
-	if allowSpam {
-		return false
-	}
-
 	resyncAttempts := 0
 
 top:
