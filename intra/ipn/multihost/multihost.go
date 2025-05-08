@@ -195,31 +195,33 @@ func (h *MH) Len() int {
 	return max(len(h.addrs)+len(h.preresolved), len(h.names))
 }
 
-// Refresh re-adds the list of IPs, hostnames, and re-resolves the hostname.
+// Refresh resets the list of IPs, hostnames, and re-resolves the hostname.
 // It returns the total number of IPs.
 func (h *MH) Refresh() int {
 	if h == nil {
 		log.W("multihost: refresh: nil")
-		return 0
+		return -1
 	}
 	if names := h.Names(); len(names) > 0 {
 		// reset all ips; resolve from names
 		return h.Set(names)
 	} // nothing to refresh
-	return 0
+	return h.Len()
 }
 
+// SoftRefresh appends to the list of IPs, hostnames by re-resolving the hostname.
+// It returns the total number of IPs.
 func (h *MH) SoftRefresh() int {
 	if h == nil {
 		log.W("multihost: refresh: nil")
-		return 0
+		return -1
 	}
 
 	if names, stale := h.stale(); len(names) > 0 && stale {
 		// resolve ip from domain names (auto removes dups); then append
 		return h.Add(names)
 	}
-	return 0
+	return h.Len()
 }
 
 func (h *MH) stale() ([]string, bool) {
