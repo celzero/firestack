@@ -556,13 +556,20 @@ func (l *simpleLogger) writelog(lvl LogLevel, at int, msg string, args ...any) {
 	}
 
 	if ll || cc {
-		if lvl == ERROR {
-			_, file2 := caller1(at+nextframe+1, ">>")
-			_, file3 := caller1(at+nextframe+2, ">>")
-			_, file4 := caller1(at+nextframe+3, ": ")
-			trace = file2 + file3 + file4
+		switch lvl {
+		case ERROR:
+			_, x := caller1(at+nextframe+3, ">>")
+			trace += x
+			fallthrough
+		case WARN:
+			_, y := caller1(at+nextframe+2, ">>")
+			trace += y
+			fallthrough
+		case INFO:
+			_, z := caller1(at+nextframe+1, ">>")
+			trace += z
 		}
-		msg = l.msgstr(lvl, file1+trace+msg, args...)
+		msg = l.msgstr(lvl, trace+file1+": "+msg, args...)
 		if ll {
 			// go's internal logger grabs mutex before every write
 			l.out(msg)
