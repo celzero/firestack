@@ -287,10 +287,9 @@ func (h *udpHandler) Connect(gconn *netstack.GUDPConn, src, target netip.AddrPor
 
 		errs = err // store just the last err; complicates logging
 		end := time.Since(smm.start)
-		rtt := time.Since(rttstart)
-		smm.Rtt = int32(rtt.Seconds() * 1000)
-		log.W("udp: connect: #%d: %s failed; mux? %t, addr(%s) / fallback? %t; for uid %s (%dms) w err(%v)",
-			i, cid, mux, dstipp, fallingback, uid, end.Milliseconds(), err)
+		smm.Rtt = time.Since(rttstart).Milliseconds()
+		log.W("udp: connect: #%d: %s failed; mux? %t, addr(%s) / fallback? %t; for uid %s (rtt:%dms, dur:%dms) w err(%v)",
+			i, cid, mux, dstipp, fallingback, uid, smm.Rtt, end.Milliseconds(), err)
 		if end > retryTimeout {
 			break
 		}

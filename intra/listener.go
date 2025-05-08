@@ -39,7 +39,7 @@ type SocketSummary struct {
 	// Tracks start time; unexported.
 	start time.Time
 	// Round-trip time (millis).
-	Rtt int32
+	Rtt int64
 	// Err or other messages, if any.
 	Msg string
 }

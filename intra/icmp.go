@@ -65,7 +65,7 @@ func (h *icmpHandler) Ping(msg []byte, source, target netip.AddrPort) (echoed bo
 	defer func() {
 		smm.Tx = int64(tx)
 		smm.Rx = int64(rx)
-		smm.Rtt = int32(rtt.Seconds() * 1000)
+		smm.Rtt = rtt.Milliseconds()
 		smm.Target = dst.Addr().String()
 		h.queueSummary(smm.done(err)) // err may be nil
 	}()

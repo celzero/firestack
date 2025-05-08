@@ -242,7 +242,7 @@ func (h *tcpHandler) handle(px ipn.Proxy, src net.Conn, boundSrc, target netip.A
 		pc, err = px.Dialer().Dial("tcp", target.String())
 	}
 	if err == nil {
-		smm.Rtt = int32(time.Since(start).Seconds() * 1000)
+		smm.Rtt = time.Since(start).Milliseconds()
 		switch uc := pc.(type) {
 		case *net.TCPConn: // usual
 			dst = uc
