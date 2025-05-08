@@ -310,7 +310,7 @@ func (w *wgproxy) onNotOK() (didRefresh, allok bool) {
 func (w *wgproxy) Refresh() (err error) {
 	// todo: Refresh may be called by hop-related changes which may result in one Refresh calls too many.
 	if w.status.Load() == END {
-		log.W("proxy: wg: (%s / %s) refresh failed; end status(%d)", w.id, w.viaStatus(), w.status)
+		log.W("proxy: wg: (%s + %s) refresh failed; end status(%d)", w.id, w.viaStatus(), w.status)
 		return errProxyStopped
 	}
 
