@@ -242,9 +242,8 @@ func (h *MH) Set(domainsOrIps []string) int {
 	return h.add(domainsOrIps, Reset)
 }
 
-// Add appends the list of IPs, hostnames, and hostname's IPs as resolved.
+// Add appends the list of de-duplicated IPs, hostnames, and hostname's IPs as resolved.
 // It returns the total number of IPs.
-// Removes duplicates.
 func (h *MH) add(domainsOrIps []string, op MHAddOp) int {
 	id := h.o
 	if len(domainsOrIps) <= 0 {
