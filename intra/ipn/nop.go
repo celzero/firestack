@@ -96,7 +96,7 @@ type SkipRefresh struct{}
 // Refresh implements Proxy.
 func (SkipRefresh) Refresh() error { return nil }
 
-func (SkipRefresh) onNotOK() bool { return false }
+func (SkipRefresh) onNotOK() (didRefresh bool, allOK bool) { return false, true }
 
 // Ping implements Proxy.
 func (SkipRefresh) Ping() bool { return false }

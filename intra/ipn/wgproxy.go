@@ -71,6 +71,9 @@ const (
 	// min mtu for ipv4
 	minmtu4 = 576
 
+	pingThresholdMillis          = 5 * 1000 // 5s
+	arbitraryWaitForViaHandshake = 5 * time.Second
+
 	removeViaOnErrors = false
 
 	FAST = x.WGFAST
@@ -122,13 +125,14 @@ type wgtun struct {
 	remote *core.Volatile[*multihost.MHMap]                 // peer (remote endpoint) addrs
 	rt     x.IpTree                                         // route table for this interface
 
-	status     *core.Volatile[int]         // status of this interface
-	refreshBa  *core.Barrier[bool, string] // 2mins refresh barrier
-	latestPing atomic.Int64                // last ping time in unix millis
-	latestRx   atomic.Int64                // last rx time in unix millis
-	latestTx   atomic.Int64                // last tx time in unix millis
-	errRx      atomic.Int64                // rx error count
-	errTx      atomic.Int64                // tx error count
+	refreshBa *core.Barrier[bool, string] // 2mins refresh barrier
+
+	status     *core.Volatile[int] // status of this interface
+	latestPing atomic.Int64        // last ping time in unix millis
+	latestRx   atomic.Int64        // last rx time in unix millis
+	latestTx   atomic.Int64        // last tx time in unix millis
+	errRx      atomic.Int64        // rx error count
+	errTx      atomic.Int64        // tx error count
 }
 
 type wgconn interface {
@@ -229,7 +233,7 @@ func (w *wgproxy) OnProtoChange(lp LinkProps) (string, bool) {
 }
 
 // Ping implements Proxy
-// As backpressure, pings are sent once in a 30s period.
+// As backpressure, pings are sent once in a 5s period.
 func (w *wgproxy) Ping() bool {
 	if w.status.Load() == END {
 		log.V("proxy: wg: %s ping: ENDed, status(%d)", w.id, w.status)
@@ -244,7 +248,7 @@ func (w *wgproxy) Ping() bool {
 	now := now()
 	then := w.latestPing.Load()
 	neversent := then == 0
-	recent := then+30*1000 < now
+	recent := then+pingThresholdMillis < now
 	if (neversent || !recent) && w.latestPing.CompareAndSwap(then, now) {
 		tracked := w.peers.Load()
 		tot := len(tracked)
@@ -269,7 +273,7 @@ func (w *wgproxy) Ping() bool {
 }
 
 func waitForViaHandshake() {
-	time.Sleep(5 * time.Second)
+	time.Sleep(arbitraryWaitForViaHandshake)
 }
 
 // onNotOK implements Proxy.
