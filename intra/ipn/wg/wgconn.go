@@ -260,7 +260,7 @@ func (s *StdNetBind) Open(uport uint16) ([]conn.ReceiveFunc, uint16, error) {
 	var tries int
 
 	if s.ipv4 != nil || s.ipv6 != nil {
-		log.W("wg: bind: %s already open", s.id)
+		log.W("wg: bind: %s already open at :%d", s.id, uport)
 		return nil, 0, conn.ErrBindAlreadyOpen
 	}
 
@@ -302,8 +302,8 @@ again:
 		fns = append(fns, s.makeReceiveFn(ipv6))
 	}
 
-	log.I("wg: bind: %s opened port(%d) for v4? %t v6? %t",
-		s.id, port, ipv4 != nil, ipv6 != nil)
+	log.I("wg: bind: %s opened port(requested %d => using %d) for v4? %t v6? %t",
+		s.id, uport, port, ipv4 != nil, ipv6 != nil)
 	if len(fns) == 0 {
 		return nil, 0, syscall.EAFNOSUPPORT
 	}

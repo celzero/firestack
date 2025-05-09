@@ -1800,8 +1800,8 @@ func ChooseHealthyProxy(who string, ipps []netip.AddrPort, pids []string, px ipn
 			errs = append(errs, err)
 		}
 	}
-	logeif(!foundProxy)("%s: proxy for %s(%d); choosing %s among %v; errs? %v",
-		who, cipp, len(ipps), pid, pids, core.JoinErr(errs...))
+	logeif(!foundProxy)("%s: proxy for %s [among %v]; choosing %s among %v; errs? %v",
+		who, cipp, ipps, pid, pids, core.JoinErr(errs...))
 	return
 }
 

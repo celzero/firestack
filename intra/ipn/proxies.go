@@ -430,17 +430,17 @@ func (px *proxifier) ProxyTo(ipp netip.AddrPort, uid string, pids []string) (_ P
 	if len(pids) == 1 { // there's no other pid to choose from
 		// skip hasroute, as there is only one pid to route to
 		p, err := px.pinID(uid, ipp, pids[0]) // repin
-		// alwaysPin is set to true, so return p even if err is not nil
-		if alwaysPin && p != nil {
-			err = nil
-		}
 		if err != nil || p == nil {
 			err = core.OneErr(err, errProxyNotFound)
 			stalledSec = px.stall(uid + ippstr)
 		}
 		logev(err)("proxy: pin: %s+%s; pin pid0: %s (stalled? %ds); err? %v",
 			uid, ippstr, pids[0], stalledSec, err)
-		return p, err
+		// alwaysPin is set to true, so wipe out err; return p, even if err is not nil
+		if alwaysPin && p != nil {
+			return p, nil
+		}
+		return nil, err
 	}
 
 	var lopinned string
