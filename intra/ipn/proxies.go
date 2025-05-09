@@ -575,10 +575,10 @@ func (px *proxifier) pin(uid string, ipp netip.AddrPort, p Proxy) error {
 		px.ipPins.Put(ipp, p.ID())
 	}
 	logev(err)("proxy: pin: ok? %t; %s from %s; err? %v",
-		err == nil, ipp, p.ID(), err)
+		err == nil, ipp, idstr(p), err)
 
 	if err != nil {
-		return fmt.Errorf("proxy: pin: %s; err: %v", p.ID(), err)
+		return fmt.Errorf("proxy: pin: %s; err: %v", idstr(p), err)
 	}
 	return nil
 }
