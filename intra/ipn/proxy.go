@@ -474,6 +474,8 @@ func healthy(p Proxy) error {
 			pid, lastOKNeverOK, lastOKBeyondThres)
 	} else if now-lastOK > tzzTimeout.Milliseconds() {
 		go p.onNotOK()
+	} else if p.Status() != TOK {
+		go p.Ping()
 	}
 
 	return nil // ok
