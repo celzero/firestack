@@ -676,7 +676,7 @@ func (px *proxifier) GetProxy(id string) (x.Proxy, error) {
 // TestHop implements Proxies.
 func (px *proxifier) TestHop(via, origin string) string {
 	defer core.Recover(core.Exit11, "pxr.TestHop."+via+">>"+origin)
-	if err := px.hop(origin, via, true /*dryrun*/); err != nil {
+	if err := px.hop(via, origin, true /*dryrun*/); err != nil {
 		return err.Error()
 	}
 	return "" // all ok
