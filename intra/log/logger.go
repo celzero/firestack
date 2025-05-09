@@ -569,7 +569,7 @@ func (l *simpleLogger) writelog(lvl LogLevel, at int, msg string, args ...any) {
 			_, z := caller1(at+nextframe+1, ">>")
 			trace += z
 		}
-		msg = l.msgstr(lvl, trace+file1+": "+msg, args...)
+		msg = l.msgstr(lvl, trace+file1+msg, args...)
 		if ll {
 			// go's internal logger grabs mutex before every write
 			l.out(msg)
