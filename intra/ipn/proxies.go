@@ -1018,7 +1018,9 @@ func (px *proxifier) Stat() *x.RouterStats {
 
 	s := new(x.RouterStats)
 	for _, p := range px.p {
-		if local(p.ID()) || noop(p.Type()) {
+		pid := p.ID()
+		ptyp := p.Type()
+		if local(pid) || isInternal(pid) || noop(ptyp) {
 			continue
 		}
 		if r := p.Router(); r != nil {
