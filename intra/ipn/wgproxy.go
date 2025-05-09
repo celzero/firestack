@@ -1208,7 +1208,7 @@ func (h *wgproxy) Hop(via Proxy, dryrun bool) (err error) {
 				h.id, idhandle(old), err)
 		}
 		return nil
-	} else if h.id == via.ID() {
+	} else if Same(h, via) {
 		return errHopSelf
 	}
 
