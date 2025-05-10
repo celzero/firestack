@@ -690,7 +690,7 @@ func (r *resolver) determineTransport(id string) Transport {
 			id1 = Goos
 		}
 	} else if isPlus(id) {
-		id0 = Plus // replace it with its mult equivalent
+		id0 = Plus // replace a plus transport with its mult equivalent
 	} else {
 		id0 = id
 	}
@@ -979,14 +979,21 @@ func (r *resolver) preferencesFrom(qname string, qtyp uint16, s *x.DNSOpts, chos
 		id2 = r.chooseOne(xx...) // mostly, just 0 or 1 secondary
 	}
 
-	// chosen ID overrides all
 	if !firstEmpty(chosenids) && len(chosenids) > 0 {
-		id1 = chosenids[0] // never empty
-		id2 = ""           // wipe out id2 if not set; use just id1
-		if len(chosenids) > 1 {
-			id2 = chosenids[1] // may be empty, but that's ok
+		// chosen ID overrides all except:
+		if (isPlus(id1) || isPlus(id2)) && isAnyDefault(chosenids...) {
+			// Plus overrides Default
+			id1 = Plus
+			id2 = ""
+			log.D("dns: pref: use Plus instead of Default for %s", qname)
+		} else {
+			id1 = chosenids[0] // never empty
+			id2 = ""           // wipe out id2 if not set; use just id1
+			if len(chosenids) > 1 {
+				id2 = chosenids[1] // may be empty, but that's ok
+			}
+			log.D("dns: pref: use chosen tr(%s, %s) for %s", id1, id2, qname)
 		}
-		log.D("dns: pref: use chosen tr(%s, %s) for %s", id1, id2, qname)
 	} else if isAnyIPUnspecified(ips) || isAnyBlockAll(x...) {
 		// BlockAll must appear in primary TIDCSV
 		id1 = BlockAll // just one transport, BlockAll, if set
@@ -1029,7 +1036,11 @@ func (r *resolver) preferencesFrom(qname string, qtyp uint16, s *x.DNSOpts, chos
 func (r *resolver) chooseOne(ids ...string) string {
 	if len(ids) <= 0 {
 		return ""
-	} else if len(ids) == 1 {
+	}
+	if isAnyPlus(ids...) { // prefer Plus, if set
+		return Plus
+	}
+	if len(ids) == 1 {
 		return ids[0]
 	}
 
@@ -1115,7 +1126,7 @@ func RegisterAddrs(id, hostname string, ipps []string) (ok bool) {
 	var ipset *ipmap.IPSet
 	var addrs []netip.Addr
 	id, _ = strings.CutPrefix(id, CT)
-	if id == Bootstrap || id == System || id == Default || id == Local || isPlus(id) {
+	if isProtected(id) {
 		log.I("dns: protected %s! %s => %v", id, hostname, ipps)
 		ipset, ok = dialers.NewProtected(hostname, ipps)
 	} else {
@@ -1131,6 +1142,10 @@ func RegisterAddrs(id, hostname string, ipps []string) (ok bool) {
 
 func IsEncrypted(t Transport) bool {
 	return t.Type() == DOT || t.Type() == DOH || t.Type() == DNSCrypt || t.Type() == ODOH
+}
+
+func isProtected(id string) bool {
+	return id == Bootstrap || id == System || id == Default || id == Local || isPlus(id)
 }
 
 func isReserved(id string) bool {
@@ -1188,6 +1203,19 @@ func isAnyIPUnspecified(ips []netip.Addr) bool {
 
 func isAnyLocal(ids ...string) bool {
 	return isTransportID(Local, ids...)
+}
+
+func isAnyPlus(ids ...string) bool {
+	for _, id := range ids {
+		if isPlus(id) {
+			return true
+		}
+	}
+	return false
+}
+
+func isAnyDefault(ids ...string) bool {
+	return isTransportID(Default, ids...)
 }
 
 func overrideProxyIfNeeded(pid string, ids ...string) string {
