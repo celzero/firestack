@@ -24,12 +24,14 @@
 package intra
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"runtime/debug"
 
 	x "github.com/celzero/firestack/intra/backend"
 	"github.com/celzero/firestack/intra/core"
+	"github.com/celzero/firestack/intra/ipn"
 	"github.com/celzero/firestack/intra/rnet"
 	"github.com/celzero/firestack/intra/settings"
 
@@ -75,6 +77,14 @@ func init() {
 // connect.
 func Connect(fd, mtu int, fakedns string, dtr DefaultDNS, bdg Bridge) (t Tunnel, err error) {
 	return NewTunnel(fd, mtu, fakedns, dtr, bdg)
+}
+
+// ControlledRouter creates a [backend.Router] over a [backend.Internet] proxy (like [backend.Exit]),
+// but one that uses custom Controller c. id and addrport are used only for
+// diagnostics and logging, and could be left empty. Typical usage is to use
+// Router.Reaches() to check if a host:port is reachable over this Controller c.
+func ControlledRouter(c Controller, id, addrport string) x.Router {
+	return ipn.NewExitProxyWithID(id, addrport, context.Background(), c).Router()
 }
 
 // Change log level to very verbose (0), verbose (1), debug (2), info (3), warn (4), error (5),

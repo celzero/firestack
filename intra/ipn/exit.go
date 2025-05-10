@@ -8,6 +8,9 @@ package ipn
 
 import (
 	"context"
+	"encoding/hex"
+	"math/rand/v2"
+	"net"
 	"strconv"
 
 	x "github.com/celzero/firestack/intra/backend"
@@ -17,7 +20,14 @@ import (
 	"github.com/celzero/firestack/intra/protect"
 )
 
-const fakeExitAddr = "127.0.0.127:1337"
+const (
+	fakeExitAddr = "127.0.0.127"
+	fakeExitPort = "1337"
+)
+
+var (
+	fakeExitAddrPort = net.JoinHostPort(fakeExitAddr, fakeExitPort)
+)
 
 // exit is a proxy that always dials out to the internet.
 type exit struct {
@@ -35,6 +45,16 @@ type exit struct {
 // NewExitProxy returns a new exit proxy.
 func NewExitProxy(ctx context.Context, c protect.Controller) *exit {
 	return newExitProxy(Exit, fakeExitAddr, ctx, c)
+}
+
+func NewExitProxyWithID(id, addr string, ctx context.Context, c protect.Controller) *exit {
+	if len(id) <= 0 {
+		id = hex8()
+	}
+	if len(addr) <= 0 {
+		addr = net.JoinHostPort(fakeExitAddr, no65535())
+	}
+	return newExitProxy(id, addr, ctx, c)
 }
 
 func newExitProxy(id, addr string, ctx context.Context, c protect.Controller) *exit {
@@ -178,4 +198,18 @@ func idstr(p x.Proxy) string {
 		return ""
 	}
 	return p.ID()
+}
+
+// create a random hex character string of length 8
+func hex8() string {
+	b := make([]byte, 4)
+	if _, err := rand.Read(b); err != nil {
+		return "deadbeef"
+	}
+	return hex.EncodeToString(b)
+}
+
+func no65535() string {
+	no := max(rand.IntN(65535), 1024)
+	return strconv.Itoa(no)
 }
