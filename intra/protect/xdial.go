@@ -38,6 +38,7 @@ type Listener = net.Listener
 type DialFn func(network, addr string) (net.Conn, error)
 
 type RDialer interface {
+	ID() string
 	// Dial creates a connection to the given address,
 	// the resulting net.Conn must be a *net.TCPConn if
 	// network is "tcp" or "tcp4" or "tcp6" and must be
@@ -83,16 +84,19 @@ var (
 	errAccept    = errors.New("cannot accept network")
 )
 
-// Handle implements RDialer.
-func (d *RDial) Handle() uintptr {
-	return core.Loc(d)
-}
-
 func (d *RDial) context() context.Context {
 	if d.ctx != nil {
 		return d.ctx
 	}
 	return context.Background()
+}
+
+// ID implements RDialer.
+func (d *RDial) ID() string {
+	if d.owner != "" {
+		return d.owner
+	}
+	return "xdial" // ownerless
 }
 
 // Dial implements RDialer.
@@ -190,7 +194,8 @@ func (d *RDial) Announce(network, local string) (net.PacketConn, error) {
 		case *net.UDPConn:
 			return x, nil
 		default:
-			log.T("xdial: Announce (o: %s): addr(%s) failed; %T is not net.UDPConn; other errs: %v", d.owner, local, x, err)
+			log.T("xdial: Announce (o: %s): addr(%s) failed; %T is not net.UDPConn; other errs: %v",
+				d.owner, local, x, err)
 			clos(pc)
 			return nil, errNoUDPMux
 		}
@@ -225,13 +230,17 @@ func (d *RDial) Probe(network, local string) (PacketConn, error) {
 // DialTCP creates a net.TCPConn to raddr.
 // Helper method for d.Dial("tcp", laddr.String(), raddr.String())
 func (d *RDial) DialTCP(network string, laddr, raddr *net.TCPAddr) (*net.TCPConn, error) {
+	return DialTCP(d, network, laddr, raddr)
+}
+
+func DialTCP(d RDialer, network string, laddr, raddr *net.TCPAddr) (*net.TCPConn, error) {
 	if c, err := d.DialBind(network, laddr.String(), raddr.String()); err != nil {
 		return nil, err
 	} else if tc, ok := c.(*net.TCPConn); ok {
 		return tc, nil
 	} else {
 		log.T("xdial: DialTCP: (%s) to %s => %s, %T is not %T (ok? %t); other errs: %v",
-			d.owner, laddr, raddr, c, tc, ok, err)
+			d.ID(), laddr, raddr, c, tc, ok, err)
 		// some proxies like wgproxy, socks5 do not vend *net.TCPConn
 		// also errors if retrier (core.DuplexConn) is looped back here
 		clos(c)
@@ -242,13 +251,17 @@ func (d *RDial) DialTCP(network string, laddr, raddr *net.TCPAddr) (*net.TCPConn
 // DialUDP creates a net.UDPConn to raddr.
 // Helper method for d.Dial("udp", laddr.String(), raddr.String())
 func (d *RDial) DialUDP(network string, laddr, raddr *net.UDPAddr) (*net.UDPConn, error) {
+	return DialUDP(d, network, laddr, raddr)
+}
+
+func DialUDP(d RDialer, network string, laddr, raddr *net.UDPAddr) (*net.UDPConn, error) {
 	if c, err := d.DialBind(network, laddr.String(), raddr.String()); err != nil {
 		return nil, err
 	} else if uc, ok := c.(*net.UDPConn); ok {
 		return uc, nil
 	} else {
 		log.T("xdial: DialUDP: (%s) to %s => %s, %T is not %T (ok? %t); other errs: %v",
-			d.owner, laddr, raddr, c, uc, ok, err)
+			d.ID(), laddr, raddr, c, uc, ok, err)
 		// some proxies like wgproxy, socks5 do not vend *net.UDPConn
 		clos(c)
 		return nil, errNoUDP
@@ -258,13 +271,17 @@ func (d *RDial) DialUDP(network string, laddr, raddr *net.UDPAddr) (*net.UDPConn
 // AnnounceUDP announces the local address. network must be "udp" or "udp4" or "udp6".
 // Helper method for d.Announce("udp", local)
 func (d *RDial) AnnounceUDP(network, local string) (*net.UDPConn, error) {
+	return AnnounceUDP(d, network, local)
+}
+
+func AnnounceUDP(d RDialer, network, local string) (*net.UDPConn, error) {
 	if c, err := d.Announce(network, local); err != nil {
 		return nil, err
 	} else if uc, ok := c.(*net.UDPConn); ok {
 		return uc, nil
 	} else {
 		log.T("xdial: AnnounceUDP: (%s) from %s, %T is not %T (ok? %t); other errs: %v",
-			d.owner, local, c, uc, ok, err)
+			d.ID(), local, c, uc, ok, err)
 		clos(c)
 		return nil, errNoUDPMux
 	}
@@ -273,13 +290,17 @@ func (d *RDial) AnnounceUDP(network, local string) (*net.UDPConn, error) {
 // AcceptTCP creates a listener on the local address. network must be "tcp" or "tcp4" or "tcp6".
 // Helper method for d.Accept("tcp", local)
 func (d *RDial) AcceptTCP(network string, local string) (*net.TCPListener, error) {
+	return AcceptTCP(d, network, local)
+}
+
+func AcceptTCP(d RDialer, network string, local string) (*net.TCPListener, error) {
 	if ln, err := d.Accept(network, local); err != nil {
 		return nil, err
 	} else if tl, ok := ln.(*net.TCPListener); ok {
 		return tl, nil
 	} else {
 		log.T("xdial: AcceptTCP: (%s) from %s, %T is not %T (ok? %t); other errs: %v",
-			d.owner, local, ln, tl, ok, err)
+			d.ID(), local, ln, tl, ok, err)
 		clos(ln)
 		return nil, errNoTCPMux
 	}

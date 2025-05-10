@@ -48,7 +48,7 @@ const maxRetryCount = 3
 // be typecastable to *net.TCPConn (see: xdial.DialTCP)
 // inheritance: go.dev/play/p/mMiQgXsPM7Y
 type retrier struct {
-	dialer     *protect.RDial
+	dialers    []protect.RDialer
 	dialerOpts settings.DialerOpts
 	raddr      *net.TCPAddr
 	laddr      *net.TCPAddr // laddr may be nil; TCPAddr.IP may be nil.
@@ -79,8 +79,9 @@ type retrier struct {
 	// and is cleared when the first byte is received.
 	tee []byte
 	// retryErr is set to the error from the last retry, if any.
-	retryErr   error
-	retryCount uint8
+	retryErr    error
+	retryCount  uint8
+	dialerCount int
 	// Flag indicating when retry is finished or unnecessary.
 	retryDoneCh chan struct{} // always unbuffered
 }
@@ -129,7 +130,7 @@ func calcTimeout(rtt time.Duration) time.Duration {
 // `addr` is the destination.
 func DialWithSplitRetry(d *protect.RDial, laddr, raddr *net.TCPAddr) (*retrier, error) {
 	r := &retrier{
-		dialer:      d,
+		dialers:     []protect.RDialer{d},
 		dialerOpts:  settings.GetDialerOpts(),
 		laddr:       laddr, // may be nil
 		raddr:       raddr, // must not be nil
@@ -236,6 +237,7 @@ func (r *retrier) dialLocked() (c core.DuplexConn, err error) {
 	begin := time.Now()
 	c, err = r.doDialLocked(strat)
 	rtt := time.Since(begin)
+	r.dialerCount++
 
 	r.conn = c // c may be nil
 	r.timeout = calcTimeout(rtt)
@@ -251,17 +253,19 @@ func (r *retrier) dialLocked() (c core.DuplexConn, err error) {
 func (r *retrier) doDialLocked(dialStrat int32) (_ core.DuplexConn, err error) {
 	var conn *net.TCPConn
 
+	di := r.dialerCount % len(r.dialers)
+
 	// r.raddr may be nil or laddr.IP may be nil.
 	switch dialStrat {
 	case settings.SplitNever:
-		return r.dialer.DialTCP(r.raddr.Network(), r.laddr, r.raddr)
+		return protect.DialTCP(r.dialers[di], r.raddr.Network(), r.laddr, r.raddr)
 	case settings.SplitDesync:
-		return dialWithSplitAndDesync(r.dialer, r.laddr, r.raddr)
+		return dialWithSplitAndDesync(r.dialers[di], r.laddr, r.raddr)
 	case settings.SplitTCP, settings.SplitTCPOrTLS:
 		fallthrough
 	default:
 	}
-	conn, err = r.dialer.DialTCP(r.raddr.Network(), r.laddr, r.raddr)
+	conn, err = protect.DialTCP(r.dialers[di], r.raddr.Network(), r.laddr, r.raddr)
 	if err != nil || conn == nil {
 		return nil, err
 	}
