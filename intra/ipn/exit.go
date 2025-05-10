@@ -8,6 +8,7 @@ package ipn
 
 import (
 	"context"
+	crand "crypto/rand"
 	"encoding/hex"
 	"math/rand/v2"
 	"net"
@@ -203,7 +204,7 @@ func idstr(p x.Proxy) string {
 // create a random hex character string of length 8
 func hex8() string {
 	b := make([]byte, 4)
-	if _, err := rand.Read(b); err != nil {
+	if _, err := crand.Read(b); err != nil {
 		return "deadbeef"
 	}
 	return hex.EncodeToString(b)
