@@ -50,8 +50,9 @@ const maxRetryCount = 3
 type retrier struct {
 	dialers    []protect.RDialer
 	dialerOpts settings.DialerOpts
-	raddr      *net.TCPAddr
-	laddr      *net.TCPAddr // laddr may be nil; TCPAddr.IP may be nil.
+	racing     bool
+	raddr      net.Addr
+	laddr      net.Addr // laddr may be nil; TCPAddr.IP may be nil.
 
 	// Flags indicating whether the caller has called CloseRead and CloseWrite.
 	readDone  atomic.Bool
@@ -119,7 +120,7 @@ func calcTimeout(rtt time.Duration) time.Duration {
 	// These values were chosen to have a <1% false positive rate based on test data.
 	// False positives trigger an unnecessary retry, which can make connections slower, so they are
 	// worth avoiding.  However, overly long timeouts make retry slower and less useful.
-	return 800*time.Millisecond + max(2*rtt, 100*time.Millisecond)
+	return 400*time.Millisecond + max(2*rtt, 100*time.Millisecond)
 }
 
 // DialWithSplitRetry returns a TCP connection that transparently retries by
@@ -146,6 +147,33 @@ func DialWithSplitRetry(d *protect.RDial, laddr, raddr *net.TCPAddr) (*retrier, 
 	return r, nil
 }
 
+func dialerOptsForRace() settings.DialerOpts {
+	return settings.DialerOpts{
+		Strat: settings.SplitNever,
+		Retry: settings.RetryWithSplit,
+	}
+}
+
+func DialRace(ds []protect.RDialer, laddr, raddr net.Addr) (*retrier, error) {
+	r := &retrier{
+		dialers:     ds,
+		dialerOpts:  dialerOptsForRace(),
+		racing:      true,
+		laddr:       laddr, // may be nil
+		raddr:       raddr, // must not be nil
+		retryDoneCh: make(chan struct{}),
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if _, err := r.dialLocked(); err != nil {
+		return nil, err
+	}
+	return r, nil
+}
+
+// SycallConn implements core.DuplexConn.
 func (r *retrier) SyscallConn() (syscall.RawConn, error) {
 	r.mu.Lock()
 	c := r.conn
@@ -157,6 +185,7 @@ func (r *retrier) SyscallConn() (syscall.RawConn, error) {
 	return nil, syscall.EINVAL
 }
 
+// SetKeepAlive implements core.DuplexConn.
 func (r *retrier) SetKeepAlive(y bool) error {
 	r.mu.Lock()
 	c := r.conn
@@ -242,8 +271,8 @@ func (r *retrier) dialLocked() (c core.DuplexConn, err error) {
 	r.conn = c // c may be nil
 	r.timeout = calcTimeout(rtt)
 
-	logeif(err)("retrier: dial(%s) %s=>%s; strat: %d, rtt: %dms; err? %v",
-		r.dialerOpts, laddr(c), r.raddr, strat, rtt.Milliseconds(), err)
+	logeif(err)("retrier: dial(%s) %s=>%s; strat: %d (race? %t), rtt: %dms; err? %v",
+		r.dialerOpts, laddr(c), r.raddr, strat, r.racing, rtt.Milliseconds(), err)
 
 	return
 }
@@ -285,8 +314,8 @@ func (r *retrier) retryWriteReadLocked(buf []byte) (int, error) {
 
 	var nw int
 	nw, r.retryErr = newConn.Write(r.tee)
-	logeif(r.retryErr)("retrier: retryLocked: strat(%s) %s=>%s; write? %d/%d; err? %v",
-		r.dialerOpts, laddr(newConn), r.raddr, nw, len(r.tee), r.retryErr)
+	logeif(r.retryErr)("retrier: retryLocked: strat(%s, racing? %t) %s=>%s; write? %d/%d; err? %v",
+		r.dialerOpts, r.racing, laddr(newConn), r.raddr, nw, len(r.tee), r.retryErr)
 	if r.retryErr != nil {
 		return 0, r.retryErr
 	}
@@ -309,8 +338,8 @@ func (r *retrier) retryWriteReadLocked(buf []byte) (int, error) {
 		_ = newConn.SetWriteDeadline(r.writeDeadline)
 	}
 
-	logedcond(readdone || writedone)("retrier: retryLocked: done! strat(%s) %s=>%s; write? %d/%d; closed r/w? %t/%t; deadline r/w: %v/%v",
-		r.dialerOpts, laddr(newConn), r.raddr, nw, len(r.tee), readdone, writedone, time.Since(r.readDeadline).Seconds(), time.Since(r.writeDeadline).Seconds())
+	logedcond(readdone || writedone)("retrier: retryLocked: done! strat(%s; racing? %t) %s=>%s; write? %d/%d; closed r/w? %t/%t; deadline r/w: %v/%v",
+		r.dialerOpts, r.racing, laddr(newConn), r.raddr, nw, len(r.tee), readdone, writedone, time.Since(r.readDeadline).Seconds(), time.Since(r.writeDeadline).Seconds())
 
 	return newConn.Read(buf)
 }
@@ -349,16 +378,20 @@ func (r *retrier) Read(buf []byte) (n int, err error) {
 		if !r.retryCompleted() {
 			defer close(r.retryDoneCh) // signal that retry is complete or unnecessary
 			var retryerr error
+			canRetry := r.retryCount < maxRetryCount
+			if r.racing {
+				canRetry = r.dialerCount < len(r.dialers)
+			}
 			// retry on errs like timeouts or connection resets
-			for (c == nil || err != nil) && r.retryCount < maxRetryCount {
+			for (c == nil || err != nil) && canRetry {
 				r.retryCount++
 				n, retryerr = r.retryWriteReadLocked(buf)
 				c = r.conn // re-assign c to newConn, if any; may be nil
 				if c == nil {
 					err = core.UniqErr(err, retryerr)
 				}
-				logeor(retryerr, log.I)("retrier: read# %d: [%s<=%s] %d; err? %v",
-					r.retryCount, laddr(c), r.raddr, n, retryerr)
+				logeor(retryerr, log.I)("retrier: read# %d + (racing? %t / c: %d): [%s<=%s] %d; err? %v",
+					r.retryCount, r.racing, r.dialerCount, laddr(c), r.raddr, n, retryerr)
 			}
 			if c != nil && core.IsNotNil(c) {
 				_ = c.SetReadDeadline(r.readDeadline)

@@ -298,9 +298,9 @@ func desyncWithFixedTtl(d protect.RDialer, local, remote netip.AddrPort, initial
 // then returns a TCP connection that may launch TCB Desynchronization
 // and split the initial upstream segment.
 // ref: github.com/bol-van/zapret/blob/c369f11638/docs/readme.eng.md#dpi-desync-attack
-func dialWithSplitAndDesync(d protect.RDialer, laddr, raddr *net.TCPAddr) (*overwriteSplitter, error) {
-	remote := raddr.AddrPort() // must not be invalid
-	local := laddr.AddrPort()  // can be invalid
+func dialWithSplitAndDesync(d protect.RDialer, laddr, raddr net.Addr) (*overwriteSplitter, error) {
+	remote := netip.MustParseAddrPort(raddr.String()) // must not be invalid
+	local := netip.MustParseAddrPort(laddr.String())  // can be invalid
 
 	if !remote.IsValid() {
 		log.E("desync: invalid raddr: conv %s to %s", raddr, remote)

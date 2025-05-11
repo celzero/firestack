@@ -11,7 +11,9 @@ import (
 	"errors"
 	"fmt"
 	"math/rand"
+	"net"
 	"net/netip"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -1485,6 +1487,35 @@ func idling(t time.Time) bool {
 
 func localDialStrat(d *protect.RDial, network, local, remote string) (protect.Conn, error) {
 	return dialers.SplitDialBind(d, network, local, remote)
+}
+
+func parallelDialStrat(all []protect.RDialer, network, local, remote string) (protect.Conn, error) {
+	return dialers.DialRace(all, str2addr(network, local), str2addr(network, remote))
+}
+
+func str2addr(network, addrport string) net.Addr {
+	ip, port, err := net.SplitHostPort(addrport)
+	if err != nil {
+		return nil
+	}
+	portno, err := strconv.Atoi(port)
+	if err != nil {
+		return nil
+	}
+	switch network {
+	case "tcp", "tcp4", "tcp6":
+		return &net.TCPAddr{
+			IP:   net.ParseIP(ip),
+			Port: portno,
+		}
+	case "udp", "udp4", "udp6":
+		fallthrough
+	default:
+		return &net.UDPAddr{
+			IP:   net.ParseIP(ip),
+			Port: portno,
+		}
+	}
 }
 
 func firstEmpty(arr []string) bool {

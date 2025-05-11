@@ -233,7 +233,7 @@ func (d *RDial) DialTCP(network string, laddr, raddr *net.TCPAddr) (*net.TCPConn
 	return DialTCP(d, network, laddr, raddr)
 }
 
-func DialTCP(d RDialer, network string, laddr, raddr *net.TCPAddr) (*net.TCPConn, error) {
+func DialTCP(d RDialer, network string, laddr, raddr net.Addr) (*net.TCPConn, error) {
 	if c, err := d.DialBind(network, laddr.String(), raddr.String()); err != nil {
 		return nil, err
 	} else if tc, ok := c.(*net.TCPConn); ok {
@@ -254,7 +254,7 @@ func (d *RDial) DialUDP(network string, laddr, raddr *net.UDPAddr) (*net.UDPConn
 	return DialUDP(d, network, laddr, raddr)
 }
 
-func DialUDP(d RDialer, network string, laddr, raddr *net.UDPAddr) (*net.UDPConn, error) {
+func DialUDP(d RDialer, network string, laddr, raddr net.Addr) (*net.UDPConn, error) {
 	if c, err := d.DialBind(network, laddr.String(), raddr.String()); err != nil {
 		return nil, err
 	} else if uc, ok := c.(*net.UDPConn); ok {
