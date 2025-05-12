@@ -26,10 +26,6 @@ const (
 	fakeExitPort = "1337"
 )
 
-var (
-	fakeExitAddrPort = net.JoinHostPort(fakeExitAddr, fakeExitPort)
-)
-
 // exit is a proxy that always dials out to the internet.
 type exit struct {
 	NoDNS
@@ -45,7 +41,7 @@ type exit struct {
 
 // NewExitProxy returns a new exit proxy.
 func NewExitProxy(ctx context.Context, c protect.Controller) *exit {
-	return newExitProxy(Exit, fakeExitAddr, ctx, c)
+	return newExitProxy(Exit, net.JoinHostPort(fakeExitAddr, fakeExitPort), ctx, c)
 }
 
 func NewExitProxyWithID(id, addr string, ctx context.Context, c protect.Controller) *exit {
