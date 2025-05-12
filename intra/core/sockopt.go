@@ -66,8 +66,17 @@ func SetTimeoutSockOpt(c MinConn, timeoutms int) bool {
 }
 
 func DisableKeepAlive(c MinConn) bool {
-	if tc, ok := c.(*net.TCPConn); ok {
-		tc.SetKeepAlive(false)
+	if sc, ok := c.(syscall.Conn); ok {
+		raw, err := sc.SyscallConn()
+		if err != nil {
+			return false
+		}
+		err = raw.Control(func(fd uintptr) {
+			syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_KEEPALIVE, 0)
+		})
+		if err != nil {
+			return false
+		}
 		return true
 	}
 	return false
