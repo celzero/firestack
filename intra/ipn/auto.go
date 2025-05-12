@@ -22,7 +22,7 @@ import (
 const (
 	ttl30s       = 30 * time.Second
 	shortdelay   = 100 * time.Millisecond
-	parallelDial = true
+	parallelDial = false
 )
 
 // exit is a proxy that always dials out to the internet.
@@ -134,13 +134,13 @@ func (h *auto) dial(network, local, remote string) (protect.Conn, error) {
 
 	remoteOnly := settings.AutoAlwaysRemote.Load()
 
-	if parallelDial {
+	if !parallelDial {
 		all := []protect.RDialer{exit, exit64, pro, warp, amz, sep}
 		if remoteOnly {
 			all = []protect.RDialer{pro, warp, amz, sep}
 		}
 		// TODO: pinning IPs
-		return parallelDialStrat(all, network, local, remote)
+		return dialAny(all, network, local, remote)
 	}
 
 	previdx, recent := h.exp.Get(remote)

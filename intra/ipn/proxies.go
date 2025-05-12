@@ -1489,8 +1489,8 @@ func localDialStrat(d *protect.RDial, network, local, remote string) (protect.Co
 	return dialers.SplitDialBind(d, network, local, remote)
 }
 
-func parallelDialStrat(all []protect.RDialer, network, local, remote string) (protect.Conn, error) {
-	return dialers.DialRace(all, str2addr(network, local), str2addr(network, remote))
+func dialAny(all []protect.RDialer, network, local, remote string) (protect.Conn, error) {
+	return dialers.DialAny(all, str2addr(network, local), str2addr(network, remote))
 }
 
 func str2addr(network, addrport string) net.Addr {

@@ -50,7 +50,7 @@ const maxRetryCount = 3
 type retrier struct {
 	dialers    []protect.RDialer
 	dialerOpts settings.DialerOpts
-	racing     bool
+	multidial  bool
 	raddr      net.Addr
 	laddr      net.Addr // laddr may be nil; TCPAddr.IP may be nil.
 
@@ -114,6 +114,14 @@ func (r *retrier) retryCompleted() bool {
 	return closed(r.retryDoneCh)
 }
 
+func (r *retrier) canRetryLocked() bool {
+	if r.multidial {
+		return r.dialerCount < len(r.dialers)
+	} else {
+		return r.retryCount < maxRetryCount
+	}
+}
+
 // Given rtt of a successful socket connection (SYN sent - SYNACK received),
 // returns a timeout for replies to the first segment sent on this socket.
 func calcTimeout(rtt time.Duration) time.Duration {
@@ -154,11 +162,11 @@ func dialerOptsForRace() settings.DialerOpts {
 	}
 }
 
-func DialRace(ds []protect.RDialer, laddr, raddr net.Addr) (*retrier, error) {
+func DialAny(ds []protect.RDialer, laddr, raddr net.Addr) (*retrier, error) {
 	r := &retrier{
 		dialers:     ds,
 		dialerOpts:  dialerOptsForRace(),
-		racing:      true,
+		multidial:   true,
 		laddr:       laddr, // may be nil
 		raddr:       raddr, // must not be nil
 		retryDoneCh: make(chan struct{}),
@@ -271,8 +279,8 @@ func (r *retrier) dialLocked() (c core.DuplexConn, err error) {
 	r.conn = c // c may be nil
 	r.timeout = calcTimeout(rtt)
 
-	logeif(err)("retrier: dial(%s) %s=>%s; strat: %d (race? %t), rtt: %dms; err? %v",
-		r.dialerOpts, laddr(c), r.raddr, strat, r.racing, rtt.Milliseconds(), err)
+	logeif(err)("retrier: dial(%s) %s=>%s; strat: %d (mult? %t), rtt: %dms; err? %v",
+		r.dialerOpts, laddr(c), r.raddr, strat, r.multidial, rtt.Milliseconds(), err)
 
 	return
 }
@@ -314,8 +322,8 @@ func (r *retrier) retryWriteReadLocked(buf []byte) (int, error) {
 
 	var nw int
 	nw, r.retryErr = newConn.Write(r.tee)
-	logeif(r.retryErr)("retrier: retryLocked: strat(%s, racing? %t) %s=>%s; write? %d/%d; err? %v",
-		r.dialerOpts, r.racing, laddr(newConn), r.raddr, nw, len(r.tee), r.retryErr)
+	logeif(r.retryErr)("retrier: retryLocked: strat(%s, mult? %t) %s=>%s; write? %d/%d; err? %v",
+		r.dialerOpts, r.multidial, laddr(newConn), r.raddr, nw, len(r.tee), r.retryErr)
 	if r.retryErr != nil {
 		return 0, r.retryErr
 	}
@@ -338,8 +346,8 @@ func (r *retrier) retryWriteReadLocked(buf []byte) (int, error) {
 		_ = newConn.SetWriteDeadline(r.writeDeadline)
 	}
 
-	logedcond(readdone || writedone)("retrier: retryLocked: done! strat(%s; racing? %t) %s=>%s; write? %d/%d; closed r/w? %t/%t; deadline r/w: %v/%v",
-		r.dialerOpts, r.racing, laddr(newConn), r.raddr, nw, len(r.tee), readdone, writedone, time.Since(r.readDeadline).Seconds(), time.Since(r.writeDeadline).Seconds())
+	logedcond(readdone || writedone)("retrier: retryLocked: done! strat(%s; mult? %t) %s=>%s; write? %d/%d; closed r/w? %t/%t; deadline r/w: %v/%v",
+		r.dialerOpts, r.multidial, laddr(newConn), r.raddr, nw, len(r.tee), readdone, writedone, time.Since(r.readDeadline).Seconds(), time.Since(r.writeDeadline).Seconds())
 
 	return newConn.Read(buf)
 }
@@ -378,20 +386,16 @@ func (r *retrier) Read(buf []byte) (n int, err error) {
 		if !r.retryCompleted() {
 			defer close(r.retryDoneCh) // signal that retry is complete or unnecessary
 			var retryerr error
-			canRetry := r.retryCount < maxRetryCount
-			if r.racing {
-				canRetry = r.dialerCount < len(r.dialers)
-			}
 			// retry on errs like timeouts or connection resets
-			for (c == nil || err != nil) && canRetry {
+			for (c == nil || err != nil) && r.canRetryLocked() {
 				r.retryCount++
 				n, retryerr = r.retryWriteReadLocked(buf)
 				c = r.conn // re-assign c to newConn, if any; may be nil
 				if c == nil {
 					err = core.UniqErr(err, retryerr)
 				}
-				logeor(retryerr, log.I)("retrier: read# %d + (racing? %t / c: %d): [%s<=%s] %d; err? %v",
-					r.retryCount, r.racing, r.dialerCount, laddr(c), r.raddr, n, retryerr)
+				logeor(retryerr, log.I)("retrier: read# %d + (mult? %t / c: %d): [%s<=%s] %d; err? %v",
+					r.retryCount, r.multidial, r.dialerCount, laddr(c), r.raddr, n, retryerr)
 			}
 			if c != nil && core.IsNotNil(c) {
 				_ = c.SetReadDeadline(r.readDeadline)
