@@ -299,8 +299,8 @@ func desyncWithFixedTtl(d protect.RDialer, local, remote netip.AddrPort, initial
 // and split the initial upstream segment.
 // ref: github.com/bol-van/zapret/blob/c369f11638/docs/readme.eng.md#dpi-desync-attack
 func dialWithSplitAndDesync(d protect.RDialer, laddr, raddr net.Addr) (*overwriteSplitter, error) {
-	remote := netip.MustParseAddrPort(raddr.String()) // must not be invalid
-	local := netip.MustParseAddrPort(laddr.String())  // can be invalid
+	remote := asAddrPort(raddr) // must not be invalid
+	local := asAddrPort(laddr)  // can be invalid
 
 	if !remote.IsValid() {
 		log.E("desync: invalid raddr: conv %s to %s", raddr, remote)
@@ -502,4 +502,9 @@ func (s *overwriteSplitter) ReadFrom(reader io.Reader) (bytes int64, err error) 
 	log.V("desync: readfrom: done; sz: %d; err: %v", bytes, err)
 
 	return
+}
+
+func asAddrPort(a net.Addr) (n netip.AddrPort) {
+	n, _ = netip.ParseAddrPort(a.String())
+	return n
 }

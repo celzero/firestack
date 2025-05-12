@@ -24,8 +24,10 @@
 package dialers
 
 import (
+	"context"
 	"io"
 	"net"
+	"net/netip"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -44,15 +46,22 @@ func (zeroNetAddr) String() string  { return "none" }
 
 const maxRetryCount = 3
 
+// ippPins maintains a limited-time mapping between ip:port addresses and dialer IDs.
+// TODO: invalidate cache on network changes.
+// TODO: with context.TODO, expmap's reaper goroutine will leak.
+var ippPins = core.NewSieve[netip.AddrPort, string](context.TODO(), desync_cache_ttl)
+
 // retrier implements the DuplexConn interface and must
 // be typecastable to *net.TCPConn (see: xdial.DialTCP)
 // inheritance: go.dev/play/p/mMiQgXsPM7Y
 type retrier struct {
-	dialers    []protect.RDialer
-	dialerOpts settings.DialerOpts
-	multidial  bool
-	raddr      net.Addr
-	laddr      net.Addr // laddr may be nil; TCPAddr.IP may be nil.
+	dialers       []protect.RDialer
+	dialerOpts    settings.DialerOpts
+	nextDialerIdx int
+	multidial     bool
+
+	raddr net.Addr
+	laddr net.Addr // laddr may be nil; TCPAddr.IP may be nil.
 
 	// Flags indicating whether the caller has called CloseRead and CloseWrite.
 	readDone  atomic.Bool
@@ -80,9 +89,8 @@ type retrier struct {
 	// and is cleared when the first byte is received.
 	tee []byte
 	// retryErr is set to the error from the last retry, if any.
-	retryErr    error
-	retryCount  uint8
-	dialerCount int
+	retryErr   error
+	retryCount uint8
 	// Flag indicating when retry is finished or unnecessary.
 	retryDoneCh chan struct{} // always unbuffered
 }
@@ -116,7 +124,7 @@ func (r *retrier) retryCompleted() bool {
 
 func (r *retrier) canRetryLocked() bool {
 	if r.multidial {
-		return r.dialerCount < len(r.dialers)
+		return r.nextDialerIdx < len(r.dialers)
 	} else {
 		return r.retryCount < maxRetryCount
 	}
@@ -162,9 +170,27 @@ func dialerOptsForRace() settings.DialerOpts {
 	}
 }
 
+func reprioritize(ds []protect.RDialer, ipp netip.AddrPort) []protect.RDialer {
+	// reprioritize the dialers based on the IP:port pair
+	if !ipp.IsValid() {
+		return ds
+	}
+	id, ok := ippPins.Get(ipp)
+	if !ok || len(id) <= 0 {
+		return ds
+	}
+	for i, d := range ds {
+		if d.ID() == id {
+			ds[i], ds[0] = ds[0], ds[i]
+			break
+		}
+	}
+	return ds
+}
+
 func DialAny(ds []protect.RDialer, laddr, raddr net.Addr) (*retrier, error) {
 	r := &retrier{
-		dialers:     ds,
+		dialers:     reprioritize(ds, asAddrPort(raddr)),
 		dialerOpts:  dialerOptsForRace(),
 		multidial:   true,
 		laddr:       laddr, // may be nil
@@ -274,7 +300,6 @@ func (r *retrier) dialLocked() (c core.DuplexConn, err error) {
 	begin := time.Now()
 	c, err = r.doDialLocked(strat)
 	rtt := time.Since(begin)
-	r.dialerCount++
 
 	r.conn = c // c may be nil
 	r.timeout = calcTimeout(rtt)
@@ -290,7 +315,13 @@ func (r *retrier) dialLocked() (c core.DuplexConn, err error) {
 func (r *retrier) doDialLocked(dialStrat int32) (_ core.DuplexConn, err error) {
 	var conn *net.TCPConn
 
-	di := r.dialerCount % len(r.dialers)
+	di := r.nextDialerIdx
+	if r.multidial {
+		if di >= len(r.dialers) {
+			return nil, errNoDialer
+		}
+	}
+	r.nextDialerIdx = di + 1
 
 	// r.raddr may be nil or laddr.IP may be nil.
 	switch dialStrat {
@@ -395,7 +426,7 @@ func (r *retrier) Read(buf []byte) (n int, err error) {
 					err = core.UniqErr(err, retryerr)
 				}
 				logeor(retryerr, log.I)("retrier: read# %d + (mult? %t / c: %d): [%s<=%s] %d; err? %v",
-					r.retryCount, r.multidial, r.dialerCount, laddr(c), r.raddr, n, retryerr)
+					r.retryCount, r.multidial, r.nextDialerIdx, laddr(c), r.raddr, n, retryerr)
 			}
 			if c != nil && core.IsNotNil(c) {
 				_ = c.SetReadDeadline(r.readDeadline)
@@ -404,7 +435,8 @@ func (r *retrier) Read(buf []byte) (n int, err error) {
 			r.tee = nil // discard teed data
 			return
 		}
-		logeor(err, note)("retrier: read: already retried! [%s<=%s] %d; err? %v", laddr(c), r.raddr, n, err)
+		logeor(err, note)("retrier: read: already retried! [%s<=%s] %s; err? %v",
+			laddr(c), r.raddr, n, err)
 	} // else: just one read is enough; no retry needed
 	return
 }
@@ -514,11 +546,24 @@ func (r *retrier) ReadFrom(reader io.Reader) (bytes int64, err error) {
 		return bytes, io.ErrUnexpectedEOF
 	}
 
+	pinned := false
+	pinnedID := ""
+	if r.multidial {
+		if ipp := asAddrPort(r.raddr); ipp.IsValid() {
+			// cache the dialer ID for the IP:port pair
+			di := max(0, r.nextDialerIdx-1) % len(r.dialers)
+			pinnedID = r.dialers[di].ID()
+			ippPins.Put(ipp, pinnedID)
+			pinned = true
+		}
+	}
+
 	var b int64
 	b, err = c.ReadFrom(reader)
 	bytes += b
 
-	logeif(err)("retrier: readfrom: done; sz: %d; err: %v", bytes, err)
+	logeif(err)("retrier: readfrom: done (id: %s, pinned? %t); sz: %d; err: %v",
+		pinnedID, pinned, bytes, err)
 	return
 }
 
