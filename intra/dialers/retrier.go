@@ -315,13 +315,14 @@ func (r *retrier) dialLocked() (c core.DuplexConn, err error) {
 func (r *retrier) doDialLocked(dialStrat int32) (_ core.DuplexConn, err error) {
 	var conn *net.TCPConn
 
-	di := r.nextDialerIdx
+	di := 0 // di is always 0 if not multidial
 	if r.multidial {
+		di = r.nextDialerIdx
 		if di >= len(r.dialers) {
 			return nil, errNoDialer
 		}
+		r.nextDialerIdx = di + 1
 	}
-	r.nextDialerIdx = di + 1
 
 	// r.raddr may be nil or laddr.IP may be nil.
 	switch dialStrat {
