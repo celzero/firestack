@@ -65,15 +65,22 @@ func SetTimeoutSockOpt(c MinConn, timeoutms int) bool {
 	return false
 }
 
+func DisableKeepAlive(c MinConn) bool {
+	if tc, ok := c.(*net.TCPConn); ok {
+		tc.SetKeepAlive(false)
+		return true
+	}
+	return false
+}
+
 // SetKeepAliveConfigSockOpt sets for a TCP connection, SO_KEEPALIVE,
 // TCP_KEEPIDLE, TCP_KEEPINTVL, TCP_KEEPCNT, TCP_USER_TIMEOUT.
 // args is optional, and should be in the order of idle, interval, count.
 func SetKeepAliveConfigSockOpt(c MinConn, args ...int) (ok bool) {
-	var tc *net.TCPConn
-	if tc, ok = c.(*net.TCPConn); ok {
-		id := conn2str(tc)
+	if pc, ok := c.(PoolableConn); ok {
+		id := conn2str(c)
 
-		rawConn, err := tc.SyscallConn()
+		rawConn, err := pc.SyscallConn()
 		if err != nil || rawConn == nil {
 			ok = false
 			return ok

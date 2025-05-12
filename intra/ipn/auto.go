@@ -536,5 +536,8 @@ func maybeKeepAlive(c net.Conn) {
 	if settings.GetDialerOpts().LowerKeepAlive {
 		// adjust TCP keepalive config if c is a TCPConn
 		core.SetKeepAliveConfigSockOpt(c)
+	} else {
+		// disable TCP keepalive config if c is a TCPConn
+		core.DisableKeepAlive(c)
 	}
 }
