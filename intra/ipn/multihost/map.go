@@ -25,6 +25,9 @@ type MHMap struct {
 }
 
 func (m *MHMap) Get(hostOrIpport string) (h *MH, _ error) {
+	if m == nil {
+		return nil, errMhNotFound
+	}
 	m.RLock()
 	defer m.RUnlock()
 
