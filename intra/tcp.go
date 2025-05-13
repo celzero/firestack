@@ -187,8 +187,17 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target netip.AddrPort)
 	}
 
 	if isAnyBasePid(pids) { // see udp.go:Connect
-		if h.dnsOverride(gconn, target, uid) {
+		if target.IsValid() && h.resolver.IsDnsAddr(target) {
 			// SocketSummary not sent; x.DNSSummary supercedes it
+			if _, err := gconn.Establish(); err != nil {
+				clos(gconn)
+				h.queueSummary(smm.done(err))
+				return deny // == !open
+			}
+			// conn closed by the resolver
+			core.Gx(h.proto+".dns", func() {
+				h.resolver.Serve(h.proto, gconn, uid)
+			})
 			return allow
 		} // else not a dns request
 	} // if ipn.Exit then let it connect as-is (aka exit)
@@ -263,7 +272,8 @@ func (h *tcpHandler) handle(px ipn.Proxy, src net.Conn, boundSrc, target netip.A
 	}
 
 	gconn := src.(*netstack.GTCPConn)
-	if open, err := gconn.Establish(); !open {
+	if _, err := gconn.Establish(); err != nil {
+		clos(pc)
 		return err
 	}
 
