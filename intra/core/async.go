@@ -86,7 +86,7 @@ func Grx[T any](who string, f WorkCtx[T], d time.Duration) (zz T, completed bool
 	select {
 	case out := <-ch:
 		return out, true
-	case <-time.After(d):
+	case <-ctx.Done(): // timeout
 	}
 	return zz, false
 }
