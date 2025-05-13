@@ -68,7 +68,7 @@ func Gif(cond bool, who string, f func()) {
 
 // Grx runs work function f in a goroutine, blocking until it returns or timesout.
 func Grx[T any](who string, f WorkCtx[T], d time.Duration) (zz T, completed bool) {
-	ch := make(chan T) // synchronous
+	ch := make(chan T, 1) // non-blocking
 
 	ctx, cancel := context.WithTimeout(context.Background(), d)
 	defer cancel()
