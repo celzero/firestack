@@ -505,6 +505,9 @@ func (s *overwriteSplitter) ReadFrom(reader io.Reader) (bytes int64, err error) 
 }
 
 func asAddrPort(a net.Addr) (n netip.AddrPort) {
+	if a == nil {
+		return
+	}
 	n, _ = netip.ParseAddrPort(a.String())
-	return n
+	return
 }
