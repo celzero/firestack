@@ -232,7 +232,7 @@ func (b *bootstrap) kickstartLocked(px ipn.ProxyProvider) error {
 	}
 
 	if prev := b.tr; prev != nil {
-		go prev.Stop() // stop after new transport is ready
+		go stopTransport(prev) // stop after new transport is ready
 		log.I("dns: default: removing %s %s[%s]; using %s %s",
 			b.typ, b.hostname, b.IPPorts(), typstr(tr), ippstr(tr))
 	}
@@ -322,4 +322,10 @@ func ippstr(tr dnsx.Transport) string {
 		return "<noaddr>"
 	}
 	return fmt.Sprintf("%v", tr.IPPorts())
+}
+
+func stopTransport(t dnsx.Transport) {
+	if t != nil {
+		_ = t.Stop()
+	}
 }
