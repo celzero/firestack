@@ -64,10 +64,14 @@ type iptree struct {
 }
 
 const (
-	Vsep   = "," // Vsep is a values separator (csv)
-	Ksep   = "," // Ksep is a key separator (csv)
-	Kdelim = "@" // Kdelim is a key@csv(v) delimiter
-	KVsep  = "|" // KVsep is a k1:v1|k2:v2 separator
+	// Vsep is a values separator (csv)
+	Vsep = ","
+	// Ksep is a key separator (csv)
+	Ksep = ","
+	// Kdelim is a key@csv(v) delimiter
+	Kdelim = "@"
+	// KVsep is a k1:v1|k2:v2 separator
+	KVsep = "|"
 )
 
 var (
@@ -80,7 +84,9 @@ func NewIpTree() IpTree {
 }
 
 func (c *iptree) Add(cidr string, v string) error {
-	if x, err := c.Get(cidr); err != nil {
+	x, err := c.Get(cidr)
+
+	if err != nil {
 		return err
 	} else if len(v) == 0 || x == v {
 		return nil
@@ -94,9 +100,8 @@ func (c *iptree) Add(cidr string, v string) error {
 			}
 		} // v is not in x, but something resembling ~v was.
 		return c.Set(cidr, x+Vsep+v)
-	} else {
-		return c.Set(cidr, x+Vsep+v)
 	}
+	return c.Set(cidr, x+Vsep+v)
 }
 
 func (c *iptree) Set(cidr string, v string) error {
@@ -144,9 +149,8 @@ func (c *iptree) Esc(cidr string, v string) bool {
 			return c.Del(cidr)
 		}
 		return c.Set(cidr, strings.Join(cur, Vsep)) == nil
-	} else {
-		return false
 	}
+	return false
 }
 
 func (c *iptree) Has(cidr string) (bool, error) {
@@ -227,16 +231,16 @@ func (c *iptree) GetAny(cidr string) (rv string, err error) {
 	c.RLock()
 	defer c.RUnlock()
 
-	if m, v, err := c.t.Match(r); err != nil {
+	m, v, err := c.t.Match(r)
+	if err != nil {
 		return "", err
-	} else {
-		if m != nil {
-			rv = m.String()
-		}
-		if v != nil {
-			if s, ok := v.(string); ok {
-				rv = rv + Kdelim + s
-			}
+	}
+	if m != nil {
+		rv = m.String()
+	}
+	if v != nil {
+		if s, ok := v.(string); ok {
+			rv = rv + Kdelim + s
 		}
 	}
 	return
@@ -277,7 +281,7 @@ func (c *iptree) Routes(cidr string) string {
 	defer c.RUnlock()
 
 	rt := make([]string, 0)
-	c.t.WalkMatch(r, func(k *net.IPNet, v any) bool {
+	c.t.WalkMatch(r, func(k *net.IPNet, _ any) bool {
 		if k != nil {
 			rt = append(rt, k.String())
 		}
@@ -296,7 +300,7 @@ func (c *iptree) Values(cidr string) string {
 	defer c.RUnlock()
 
 	vt := make([]string, 0)
-	c.t.WalkMatch(r, func(k *net.IPNet, v any) bool {
+	c.t.WalkMatch(r, func(_ *net.IPNet, v any) bool {
 		if v != nil {
 			if s, ok := v.(string); ok && len(s) > 0 {
 				vt = append(vt, s)
@@ -337,9 +341,8 @@ func (c *iptree) EscLike(cidr, like string) int32 {
 			_ = c.Set(cidr, strings.Join(cur, Vsep))
 		}
 		return n
-	} else {
-		return 0 // not found
 	}
+	return 0 // not found
 }
 
 func (c *iptree) GetLike(cidr, like string) string {
@@ -359,9 +362,8 @@ func (c *iptree) GetLike(cidr, like string) string {
 			}
 		}
 		return strings.Join(grab, Vsep)
-	} else {
-		return "" // not found
 	}
+	return "" // not found
 }
 
 func (c *iptree) RoutesLike(cidr, like string) string {
