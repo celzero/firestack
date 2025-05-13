@@ -629,14 +629,14 @@ func (px *proxifier) ProxyFor(id string) (Proxy, error) {
 	}
 
 	// go.dev/play/p/xCug1W3OcMH
-	p, ok := core.Grx("pxr.ProxyFor: "+id, func(_ context.Context) (Proxy, error) {
+	p, completed := core.Grx("pxr.ProxyFor: "+id, func(_ context.Context) (Proxy, error) {
 		px.RLock()
 		defer px.RUnlock()
 
 		return px.p[id], nil
 	}, getproxytimeout)
 
-	if !ok {
+	if !completed {
 		log.W("proxy: for: %s; timeout!", id)
 		// possibly a deadlock, so return an error
 		return nil, errGetProxyTimeout

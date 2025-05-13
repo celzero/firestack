@@ -195,7 +195,7 @@ func (ba *Barrier[T, K]) Do(k K, once Work[T]) (*V[T, K], int) {
 		c.Val, c.Err = once()
 		return c, c.Err
 	}, ba.to); !completed {
-		c.Err = errTimeout
+		c.Err = JoinErr(c.Err, errTimeout)
 	}
 
 	c.wg.Done() // unblock all waiters
@@ -220,7 +220,7 @@ func (ba *Barrier[T, K]) Do1(k K, once Work1[T], arg T) (*V[T, K], int) {
 		c.Val, c.Err = once(arg)
 		return c, c.Err
 	}, ba.to); !completed {
-		c.Err = errTimeout
+		c.Err = JoinErr(c.Err, errTimeout)
 	}
 
 	c.wg.Done() // unblock all waiters

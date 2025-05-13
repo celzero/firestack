@@ -510,11 +510,11 @@ func (r *resolver) forward(q []byte, uid string, chosenids ...string) (res0 []by
 		return nil, NoDNS, errMissingQueryName
 	}
 
-	pref, oqok := core.Grx("r.onQuery", func(_ context.Context) (*x.DNSOpts, error) {
+	pref, oqcompleted := core.Grx("r.onQuery", func(_ context.Context) (*x.DNSOpts, error) {
 		return r.listener.OnQuery(uid, qname, qtyp), nil
 	}, onQueryTimeout)
-	if !oqok {
-		log.W("dns: fwd: for %s; no preferences for %s:%d", uid, qname, qtyp)
+	if !oqcompleted || pref == nil {
+		log.W("dns: fwd: for %s; no preferences (%t) for %s:%d", uid, pref == nil, qname, qtyp)
 		smm.Latency = time.Since(starttime).Seconds()
 		smm.Status = ClientError
 		smm.Msg = errOnQueryTimeout.Error()

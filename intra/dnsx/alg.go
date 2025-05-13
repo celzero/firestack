@@ -676,15 +676,15 @@ func (t *dnsgateway) qs(t2 Transport, uid, network string, msg *dns.Msg, t1res <
 
 		qname := xdns.QName(msg)
 
-		r, ok := core.Grx("alg.qs."+qname, func(_ context.Context) (secans, error) {
+		r, completed := core.Grx("alg.qs."+qname, func(_ context.Context) (secans, error) {
 			return t.querySecondary(t2, uid, network, msg, t1res), nil
 		}, timeout)
 
-		if !ok {
+		if !completed {
 			log.W("alg: skip; qs timeout; tr2: %s, qname: %s", idstr(t2), qname)
 		}
 
-		r.initIfNeeded() // r may be nil on Grx:timeout
+		r.initIfNeeded() // r may be nil value on Grx:timeout
 
 		t2res <- r // may be zero secans
 	}()

@@ -78,9 +78,8 @@ func Grx[T any](who string, f WorkCtx[T], d time.Duration) (zz T, completed bool
 		defer Recover(Exit11, who)
 		defer close(ch)
 
-		if out, err := f(ctx); err == nil {
-			ch <- out
-		} // else: discard
+		out, _ := f(ctx) // TODO: log error?
+		ch <- out
 	}()
 
 	select {
