@@ -135,10 +135,25 @@ func (h *auto) dial(network, laddr, raddr string) (protect.Conn, error) {
 	remoteOnly := settings.AutoAlwaysRemote.Load()
 
 	if !parallelDial {
-		all := []protect.RDialer{exit, exit64, pro, warp, amz, sep}
-		if remoteOnly {
-			all = []protect.RDialer{pro, warp, amz, sep}
-		}
+		all := core.Map(
+			core.FilterLeft(
+				[]Proxy{pro, warp, amz, sep},
+				func(p Proxy) bool {
+					if p == nil || core.IsNil(p) {
+						return false // nil proxies out
+					}
+					if remoteOnly && local(p.ID()) {
+						return false // local proxies out
+					}
+					if err := healthy(p); err != nil {
+						log.D("auto: dial; %s %s not ok; %v: %s", p.ID(), network, err, raddr)
+						return false // not healthy out
+					}
+					return true // ok
+				}),
+			func(p Proxy) protect.RDialer {
+				return p.Dialer()
+			})
 		// TODO: pinning IPs
 		return dialAny(all, network, laddr, raddr)
 	}
