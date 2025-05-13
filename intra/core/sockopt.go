@@ -65,21 +65,18 @@ func SetTimeoutSockOpt(c MinConn, timeoutms int) bool {
 	return false
 }
 
-func DisableKeepAlive(c MinConn) bool {
-	if sc, ok := c.(syscall.Conn); ok {
+func DisableKeepAlive(c MinConn) (done bool) {
+	if sc, ok := c.(PoolableConn); ok {
 		raw, err := sc.SyscallConn()
-		if err != nil {
-			return false
+		if raw == nil || err != nil {
+			return
 		}
 		err = raw.Control(func(fd uintptr) {
-			syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_KEEPALIVE, 0)
+			err = syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_KEEPALIVE, 0)
 		})
-		if err != nil {
-			return false
-		}
-		return true
+		return err == nil
 	}
-	return false
+	return
 }
 
 // SetKeepAliveConfigSockOpt sets for a TCP connection, SO_KEEPALIVE,
