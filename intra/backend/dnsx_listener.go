@@ -64,7 +64,7 @@ type DNSOpts struct {
 	// usually, user-set DNS (dnsx.Preferred or dnsx.System) when primary is
 	// dnsx.BlockFree or dnsx.Fixed. Mostly, left unset.
 	TIDSECCSV string
-	// If set, query bypasses on-device blocklists only, independent of wheter TIDCSV
+	// If set, query bypasses on-device blocklists only, independent of whether TIDCSV
 	// has dnsx.BlockFree or not. The difference is, dnsx.BlockFree if pointing to a
 	// non-blocking resolver (like one.one.one.one or dns.google)
 	// will bypass both on-device & upstream blocklists.
