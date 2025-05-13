@@ -100,9 +100,9 @@ type connector func(network, to string) (net.PacketConn, error)
 type StdNetBind struct {
 	id      string
 	connect connector
-	pm      *multihost.MHMap // peer ip:port or host => preferred-addrs
+	pm      *core.Volatile[*multihost.MHMap] // peer ip:port or host => preferred-addrs
 
-	amnezia *Amnezia
+	amnezia *core.Volatile[*Amnezia] // may return nil *Amnezia
 	floodBa *core.Barrier[int, netip.AddrPort]
 
 	mu         sync.Mutex     // protects following fields
@@ -119,7 +119,7 @@ type StdNetBind struct {
 }
 
 // TODO: get d, ep, f, rb through an Opts bag?
-func NewEndpoint(id string, d connector, pm *multihost.MHMap, f rwobserver, a *Amnezia) *StdNetBind {
+func NewEndpoint(id string, d connector, pm *core.Volatile[*multihost.MHMap], f rwobserver, a *core.Volatile[*Amnezia]) *StdNetBind {
 	s := &StdNetBind{
 		id:       id,
 		connect:  d,
@@ -161,7 +161,7 @@ func (e *StdNetBind) ParseEndpoint(s string) (conn.Endpoint, error) {
 	// do what tailscale does, and share a preferred endpoint regardless of "s"
 	// github.com/tailscale/tailscale/blob/3a6d3f1a5b7/wgengine/magicsock/magicsock.go#L2568
 	// d.Add([]string{host}) // resolves host if needed
-	d, err := e.pm.Get(s)
+	d, err := e.pm.Load().Get(s)
 	if err != nil || d == nil /*nilaway; can't happen*/ {
 		log.E("wg: bind: %s parse: invalid endpoint in(%s); err: %v", e.id, s, err)
 		return nil, err
@@ -347,7 +347,7 @@ func (s *StdNetBind) makeReceiveFn(uc net.PacketConn) conn.ReceiveFunc {
 		extend(uc, wgtimeout)
 		n, addr, err := uc.ReadFrom(b)
 		if err == nil {
-			recvOverwritten = s.amnezia.recv(&b)
+			recvOverwritten = s.amnezia.Load().recv(&b)
 			numMsgs++
 		}
 
@@ -357,7 +357,7 @@ func (s *StdNetBind) makeReceiveFn(uc net.PacketConn) conn.ReceiveFunc {
 		}
 
 		logeif(err != nil && !timedout(err))("wg: bind: %s recvFrom(%v): %d / ov? %t<=%t / err? %v",
-			s.id, addr, n, s.amnezia.Set(), recvOverwritten, err)
+			s.id, addr, n, s.amnezia.Load().Set(), recvOverwritten, err)
 		return numMsgs, err
 	}
 }
@@ -414,9 +414,9 @@ func (s *StdNetBind) Send(buf [][]byte, peer conn.Endpoint) (err error) {
 
 		datalen := len(data) // grab the length before we overwrite it
 
-		overwritten = s.amnezia.send(&data)
+		overwritten = s.amnezia.Load().send(&data)
 
-		if !flooded && (experimentalWg || s.amnezia.Set()) {
+		if !flooded && (experimentalWg || s.amnezia.Load().Set()) {
 			if datalen == device.MessageInitiationSize {
 				s.flood(uc, ep, fkHandshake) // was probably a handshake
 				flooded = true

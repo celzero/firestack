@@ -101,7 +101,6 @@ type wgtun struct {
 	ep            *channel.Endpoint // reads and writes packets to/from stack
 	ingress       chan *buffer.View // pipes ep writes to wg
 	events        chan tun.Event    // wg specific tun (interface) events
-	amnezia       *wg.Amnezia       // amnezia config, if any
 	finalize      chan struct{}     // close signal for incomingPacket
 	once          sync.Once         // closer fn; exec exactly once
 	preferOffload bool              // UDP GRO/GSO offloads
@@ -120,10 +119,12 @@ type wgtun struct {
 	desiredmtu atomic.Uint32 // desired mtu
 	netmtu     atomic.Uint32 // underlay network mtu
 
-	peers  *core.Volatile[map[string]device.NoisePublicKey] // peer (remote endpoint) public keys
-	dns    *core.Volatile[*multihost.MH]                    // dns resolver for this interface
-	remote *core.Volatile[*multihost.MHMap]                 // peer (remote endpoint) addrs
-	rt     x.IpTree                                         // route table for this interface
+	peers   *core.Volatile[map[string]device.NoisePublicKey] // peer (remote endpoint) public keys
+	dns     *core.Volatile[*multihost.MH]                    // dns resolver for this interface
+	remote  *core.Volatile[*multihost.MHMap]                 // peer (remote endpoint) addrs
+	amnezia *core.Volatile[*wg.Amnezia]                      // amnezia/warp config, if any
+
+	rt x.IpTree // route table for this interface
 
 	refreshBa *core.Barrier[bool, string] // 2mins refresh barrier
 
@@ -385,8 +386,9 @@ func (w *wgproxy) update(id, txt string) bool {
 	}
 
 	if settings.Debug {
-		if !w.amnezia.Same(opts.amnezia) {
-			log.D("proxy: wg: update(%s): failed; amnezia %v != %v", w.id, opts.amnezia, w.amnezia)
+		if !w.amnezia.Load().Same(opts.amnezia) {
+			log.D("proxy: wg: update(%s): failed; amnezia %v != %v",
+				w.id, opts.amnezia, w.amnezia.Load())
 		}
 		if opts.dns != nil && !opts.dns.EqualAddrs(w.dns.Load()) {
 			log.D("proxy: wg: update(%s): failed; new/mismatched dns", w.id)
@@ -403,10 +405,10 @@ func (w *wgproxy) update(id, txt string) bool {
 
 	w.peers.Store(opts.peers) // re-assignment is okay (map entry modification is not)
 	w.allowedIPs(opts.allowed)
-	w.remote.Store(opts.eps)             // requires refresh
-	w.dns.Store(opts.dns)                // requires refresh
+	w.remote.Store(opts.eps)             // requires refresh (wg.Conn:ParseEndpoint must be re-called)
+	w.dns.Store(opts.dns)                // requires refresh (client must also re-add via intra.AddDNSProxy)
 	w.desiredmtu.Store(uint32(opts.mtu)) // requires reset; [NOMTU, MAXMTU)
-	w.amnezia = opts.amnezia             // TODO: core.Volatile?
+	w.amnezia.Store(opts.amnezia)
 	w.resetMtu(w.getVia())
 
 	return reuse
@@ -651,9 +653,11 @@ func NewWgProxy(id string, ctl protect.Controller, px ProxyProvider, lp LinkProp
 	var wgep wgconn
 	if wgtun.preferOffload {
 		// todo: use wgtun.serve fn instead of ctl
+		// todo: wgtun.remote instead of opts.eps
+		// todo: amnezia/warp config
 		wgep = wg.NewEndpoint2(id, ctl, opts.eps, wgtun.listener)
 	} else {
-		wgep = wg.NewEndpoint(id, wgtun.serve, opts.eps, wgtun.listener, wgtun.amnezia)
+		wgep = wg.NewEndpoint(id, wgtun.serve, wgtun.remote, wgtun.listener, wgtun.amnezia)
 	}
 
 	wgdev := device.NewDevice(wgtun, wgep, wglogger(id))
@@ -786,7 +790,7 @@ func makeWgTun(id, cfg string, ctl protect.Controller, px ProxyProvider, lp Link
 		remote:        core.NewVolatile(ifopts.eps),   // may be nil
 		peers:         core.NewVolatile(ifopts.peers), // its entries must never be modified
 		rt:            x.NewIpTree(),                  // must be set to allowedaddrs
-		amnezia:       ifopts.amnezia,
+		amnezia:       core.NewVolatile(ifopts.amnezia),
 		status:        core.NewVolatile(TUP),
 		preferOffload: preferOffload(id),
 		refreshBa:     core.NewBarrier[bool](refreshInterval),
