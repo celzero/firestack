@@ -111,7 +111,7 @@ func (h *auto) DialBind(network, local, remote string) (protect.Conn, error) {
 	return h.dial(network, local, remote)
 }
 
-func (h *auto) dial(network, local, remote string) (protect.Conn, error) {
+func (h *auto) dial(network, laddr, raddr string) (protect.Conn, error) {
 	if h.status.Load() == END {
 		return nil, errProxyStopped
 	}
@@ -140,13 +140,13 @@ func (h *auto) dial(network, local, remote string) (protect.Conn, error) {
 			all = []protect.RDialer{pro, warp, amz, sep}
 		}
 		// TODO: pinning IPs
-		return dialAny(all, network, local, remote)
+		return dialAny(all, network, laddr, raddr)
 	}
 
-	previdx, recent := h.exp.Get(remote)
+	previdx, recent := h.exp.Get(raddr)
 
 	c, who, err := core.Race(
-		network+".dial-auto."+remote,
+		network+".dial-auto."+raddr,
 		tlsHandshakeTimeout,
 		func(ctx context.Context) (protect.Conn, error) {
 			const myidx = 0
@@ -167,9 +167,9 @@ func (h *auto) dial(network, local, remote string) (protect.Conn, error) {
 					return nil, errNotPinned
 				}
 				// ip pinned to this proxy
-				h.dialIfHealthy(exit, network, local, remote)
+				h.dialIfHealthy(exit, network, laddr, raddr)
 			}
-			return h.dialIfReachable(exit, network, local, remote)
+			return h.dialIfReachable(exit, network, laddr, raddr)
 		}, func(ctx context.Context) (protect.Conn, error) {
 			const myidx = 1
 			if pro == nil {
@@ -180,7 +180,7 @@ func (h *auto) dial(network, local, remote string) (protect.Conn, error) {
 					return nil, errNotPinned
 				}
 				// ip pinned to this proxy
-				h.dialIfHealthy(pro, network, local, remote)
+				h.dialIfHealthy(pro, network, laddr, raddr)
 			}
 
 			// wait only if exit was used
@@ -191,7 +191,7 @@ func (h *auto) dial(network, local, remote string) (protect.Conn, error) {
 				case <-time.After(shortdelay * myidx): // 100ms
 				}
 			}
-			return h.dialIfHealthy(pro, network, local, remote)
+			return h.dialIfHealthy(pro, network, laddr, raddr)
 		}, func(ctx context.Context) (protect.Conn, error) {
 			const myidx = 2
 			if warp == nil {
@@ -202,7 +202,7 @@ func (h *auto) dial(network, local, remote string) (protect.Conn, error) {
 					return nil, errNotPinned
 				}
 				// ip pinned to this proxy
-				return h.dialIfHealthy(warp, network, local, remote)
+				return h.dialIfHealthy(warp, network, laddr, raddr)
 			}
 
 			select {
@@ -210,7 +210,7 @@ func (h *auto) dial(network, local, remote string) (protect.Conn, error) {
 				return nil, ctx.Err()
 			case <-time.After(shortdelay * myidx): // 200ms
 			}
-			return h.dialIfHealthy(warp, network, local, remote)
+			return h.dialIfHealthy(warp, network, laddr, raddr)
 		}, func(ctx context.Context) (protect.Conn, error) {
 			const myidx = 3
 			if exit64 == nil {
@@ -224,7 +224,7 @@ func (h *auto) dial(network, local, remote string) (protect.Conn, error) {
 					return nil, errNotPinned
 				}
 				// ip pinned to this proxy
-				return h.dialIfHealthy(exit64, network, local, remote)
+				return h.dialIfHealthy(exit64, network, laddr, raddr)
 			}
 
 			select {
@@ -232,7 +232,7 @@ func (h *auto) dial(network, local, remote string) (protect.Conn, error) {
 				return nil, ctx.Err()
 			case <-time.After(shortdelay * myidx): // 300ms
 			}
-			return h.dialIfHealthy(exit64, network, local, remote)
+			return h.dialIfHealthy(exit64, network, laddr, raddr)
 		}, func(ctx context.Context) (protect.Conn, error) {
 			const myidx = 4
 			if amz == nil {
@@ -243,7 +243,7 @@ func (h *auto) dial(network, local, remote string) (protect.Conn, error) {
 					return nil, errNotPinned
 				}
 				// ip pinned to this proxy
-				return h.dialIfHealthy(amz, network, local, remote)
+				return h.dialIfHealthy(amz, network, laddr, raddr)
 			}
 
 			select {
@@ -251,7 +251,7 @@ func (h *auto) dial(network, local, remote string) (protect.Conn, error) {
 				return nil, ctx.Err()
 			case <-time.After(shortdelay * myidx): // 400ms
 			}
-			return h.dialIfHealthy(amz, network, local, remote)
+			return h.dialIfHealthy(amz, network, laddr, raddr)
 		}, func(ctx context.Context) (protect.Conn, error) {
 			const myidx = 5
 			if sep == nil {
@@ -262,7 +262,7 @@ func (h *auto) dial(network, local, remote string) (protect.Conn, error) {
 					return nil, errNotPinned
 				}
 				// ip pinned to this proxy
-				return h.dialIfHealthy(sep, network, local, remote)
+				return h.dialIfHealthy(sep, network, laddr, raddr)
 			}
 
 			select {
@@ -270,19 +270,19 @@ func (h *auto) dial(network, local, remote string) (protect.Conn, error) {
 				return nil, ctx.Err()
 			case <-time.After(shortdelay * myidx): // 500ms
 			}
-			return h.dialIfHealthy(sep, network, local, remote)
+			return h.dialIfHealthy(sep, network, laddr, raddr)
 		},
 	)
 
 	defer localDialStatus(h.status, err)
 	if err != nil {
-		h.exp.Del(remote)
+		h.exp.Del(raddr)
 	} else {
-		h.exp.Put(remote, who)
+		h.exp.Put(raddr, who)
 	}
 	maybeKeepAlive(c)
 	logei(err)("proxy: auto: w(%d) pin(%t/%d), dial(%s) %s; err? %v",
-		who, recent, previdx, network, remote, err)
+		who, recent, previdx, network, raddr, err)
 	return c, err
 }
 
