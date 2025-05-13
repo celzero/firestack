@@ -276,6 +276,7 @@ func (d *RDial) AnnounceUDP(network, local string) (*net.UDPConn, error) {
 	return AnnounceUDP(d, network, local)
 }
 
+// AnnounceUDP announces the local address. network must be "udp" or "udp4" or "udp6".
 func AnnounceUDP(d RDialer, network, local string) (*net.UDPConn, error) {
 	if c, err := d.Announce(network, local); err != nil {
 		return nil, err
@@ -295,14 +296,15 @@ func (d *RDial) AcceptTCP(network string, local string) (*net.TCPListener, error
 	return AcceptTCP(d, network, local)
 }
 
-func AcceptTCP(d RDialer, network string, local string) (*net.TCPListener, error) {
-	if ln, err := d.Accept(network, local); err != nil {
+// AcceptTCP creates a listener on localaddr. network must be "tcp" or "tcp4" or "tcp6".
+func AcceptTCP(d RDialer, network string, localaddr string) (*net.TCPListener, error) {
+	if ln, err := d.Accept(network, localaddr); err != nil {
 		return nil, err
 	} else if tl, ok := ln.(*net.TCPListener); ok {
 		return tl, nil
 	} else {
 		log.T("xdial: AcceptTCP: (%s) from %s, %T is not %T (ok? %t); other errs: %v",
-			d.ID(), local, ln, tl, ok, err)
+			d.ID(), localaddr, ln, tl, ok, err)
 		clos(ln)
 		return nil, errNoTCPMux
 	}
