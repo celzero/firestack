@@ -41,6 +41,14 @@ func FilterLeft[T any](arr []T, test TestFn[T]) (out []T) {
 	return out
 }
 
+func Map[T, U any](arr []T, transform func(T) U) (out []U) {
+	out = make([]U, 0)
+	for _, x := range arr {
+		out = append(out, transform(x))
+	}
+	return out
+}
+
 // WithoutElem returns arr (may be a copy) removing all occurrences of elem.
 func WithoutElem[T comparable](arr []T, elem T) (out []T) {
 	if !slices.Contains(arr, elem) {
@@ -66,4 +74,14 @@ func WithElem[T comparable](s []T, add T) []T {
 		return s
 	}
 	return append(s, add)
+}
+
+func WithoutNils[T any](arr []T) (out []T) {
+	for _, x := range arr {
+		if IsNil(x) {
+			continue
+		}
+		out = append(out, x)
+	}
+	return out
 }
