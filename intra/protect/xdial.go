@@ -233,8 +233,9 @@ func (d *RDial) DialTCP(network string, laddr, raddr *net.TCPAddr) (*net.TCPConn
 	return DialTCP(d, network, laddr, raddr)
 }
 
+// DialTCP creates a net.TCPConn to raddr bound to laddr using dialer d; laddr may be nil.
 func DialTCP(d RDialer, network string, laddr, raddr net.Addr) (*net.TCPConn, error) {
-	if c, err := d.DialBind(network, laddr.String(), raddr.String()); err != nil {
+	if c, err := d.DialBind(network, addr2str(laddr), addr2str(raddr)); err != nil {
 		return nil, err
 	} else if tc, ok := c.(*net.TCPConn); ok {
 		return tc, nil
@@ -254,8 +255,9 @@ func (d *RDial) DialUDP(network string, laddr, raddr *net.UDPAddr) (*net.UDPConn
 	return DialUDP(d, network, laddr, raddr)
 }
 
+// DialUDP creates a net.UDPConn to raddr bound to laddr using dialer d; laddr may be left nil.
 func DialUDP(d RDialer, network string, laddr, raddr net.Addr) (*net.UDPConn, error) {
-	if c, err := d.DialBind(network, laddr.String(), raddr.String()); err != nil {
+	if c, err := d.DialBind(network, addr2str(laddr), addr2str(raddr)); err != nil {
 		return nil, err
 	} else if uc, ok := c.(*net.UDPConn); ok {
 		return uc, nil
@@ -314,4 +316,11 @@ func (d *RDial) ProbeICMP(network, local string) (net.PacketConn, error) {
 
 func clos(c io.Closer) {
 	core.Close(c)
+}
+
+func addr2str(a net.Addr) string {
+	if a == nil || core.IsNil(a) {
+		return ""
+	}
+	return a.String()
 }
