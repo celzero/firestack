@@ -20,9 +20,8 @@ import (
 )
 
 const (
-	ttl30s       = 30 * time.Second
-	shortdelay   = 100 * time.Millisecond
-	parallelDial = false
+	ttl30s     = 30 * time.Second
+	shortdelay = 100 * time.Millisecond
 )
 
 // exit is a proxy that always dials out to the internet.
@@ -133,6 +132,7 @@ func (h *auto) dial(network, laddr, raddr string) (protect.Conn, error) {
 	}
 
 	remoteOnly := settings.AutoAlwaysRemote.Load()
+	parallelDial := settings.AutoDialsParallel.Load()
 
 	if !parallelDial {
 		all := core.Map(

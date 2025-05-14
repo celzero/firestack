@@ -112,6 +112,18 @@ func (p *ProxyOptions) Url() string {
 // to always use remote proxies and never use local (ex: ipn.Exit) ones.
 var AutoAlwaysRemote atomic.Bool
 
+// SetAutoAlwaysRemote puts backend.Auto in remote-only mode if y is true.
+// That is, backend.Auto will never use local proxies (ex: ipn.Exit).
 func SetAutoAlwaysRemote(y bool) (prev bool) {
 	return AutoAlwaysRemote.Swap(y)
+}
+
+// AutoDialsParallel is a global variable to instruct ipn.Auto proxy
+// to use parallel dialing for all proxies.
+var AutoDialsParallel atomic.Bool
+
+// SetAutoDialsParallel puts backend.Auto in parallel-dial mode if y is true.
+// That is, backend.Auto will dial all (available) RPN proxies in parallel.
+func SetAutoDialsParallel(y bool) (prev bool) {
+	return AutoDialsParallel.Swap(y)
 }
