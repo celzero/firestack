@@ -119,8 +119,9 @@ func (h *base) dial(network, local, remote string) (c protect.Conn, err error) {
 	}
 	defer localDialStatus(h.status, err)
 
-	maybeKeepAlive(c)
-	log.I("proxy: base: dial(%s) to %s=>%s (via %s); err? %v", network, local, remote, who, err)
+	kaenabled := maybeKeepAlive(c)
+	log.I("proxy: base: dial(%s) to %s=>%s (via %s), ka? %t; err? %v",
+		network, local, remote, who, kaenabled, err)
 	return
 }
 

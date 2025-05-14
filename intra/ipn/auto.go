@@ -295,9 +295,9 @@ func (h *auto) dial(network, laddr, raddr string) (protect.Conn, error) {
 	} else {
 		h.exp.Put(raddr, who)
 	}
-	maybeKeepAlive(c)
-	logei(err)("proxy: auto: w(%d) pin(%t/%d), dial(%s) %s; err? %v",
-		who, recent, previdx, network, raddr, err)
+	kaenabled := maybeKeepAlive(c)
+	logei(err)("proxy: auto: w(%d) pin(%t/%d), dial(%s) %s, ka? %t; err? %v",
+		who, recent, previdx, network, raddr, kaenabled, err)
 	return c, err
 }
 
@@ -547,12 +547,22 @@ func (*auto) announceIfHealthy(p Proxy, network, local string) (net.PacketConn, 
 	return p.Dialer().Announce(network, local)
 }
 
-func maybeKeepAlive(c net.Conn) {
+func maybeKeepAlive(c net.Conn) (keepingalive bool) {
+	keepingalive, _ = maybeKeepAlive2(c)
+	return
+}
+
+func maybeKeepAlive2(c net.Conn) (keepingalive, ok bool) {
 	if settings.GetDialerOpts().LowerKeepAlive {
-		// adjust TCP keepalive config if c is a TCPConn
-		core.SetKeepAliveConfigSockOpt(c)
-	} else {
-		// disable TCP keepalive config if c is a TCPConn
-		core.DisableKeepAlive(c)
+		// adjust socket's keepalive config
+		lowered := core.SetKeepAliveConfigSockOpt(c)
+		keepingalive = lowered
+		ok = lowered
+		return
 	}
+	// disable socket keepalive
+	disabled := core.DisableKeepAlive(c)
+	keepingalive = !disabled
+	ok = disabled
+	return
 }

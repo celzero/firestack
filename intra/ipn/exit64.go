@@ -96,9 +96,9 @@ func (h *exit64) dial(network, local, remote string) (protect.Conn, error) {
 	c, err := localDialStrat(h.outbound, network, local64, addr64)
 	defer localDialStatus(h.status, err)
 
-	maybeKeepAlive(c)
-	log.I("proxy: exit64: dial(%s) %s via %s to %s; err? %v",
-		network, local64, remote, addr64, err)
+	kaenabled := maybeKeepAlive(c)
+	log.I("proxy: exit64: dial(%s) %s via %s to %s, ka? %t; err? %v",
+		network, local64, remote, addr64, kaenabled, err)
 
 	return c, err
 }
