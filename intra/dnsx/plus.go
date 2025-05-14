@@ -179,17 +179,27 @@ func (t *plus) Query(network string, q *dns.Msg, smm *x.DNSSummary) (ans *dns.Ms
 	return t.forward(network, q, smm, ord...)
 }
 
-func (t *plus) forward(network string, q *dns.Msg, smm *x.DNSSummary, all ...Transport) (*dns.Msg, error) {
-	var errs []error
+func (t *plus) forward(network string, q *dns.Msg, outSmm *x.DNSSummary, all ...Transport) (*dns.Msg, error) {
+	var errs error
+	qname := qname(q)
+	qtyp := qtype(q)
 	tries := plusMaxTries
 	visited := make(map[string]struct{}, len(all))
+	var curSmm *x.DNSSummary
+
+	defer func() {
+		fillSummary(curSmm, outSmm)
+	}()
+
 	for _, tr := range all {
+		curSmm = new(x.DNSSummary)
+
 		if len(visited) > tries {
 			break
 		}
 
 		if tr == nil { // unlikely
-			errs = append(errs, errNoSuchTransport)
+			errs = core.JoinErr(errs, errNoSuchTransport)
 			continue
 		}
 
@@ -202,19 +212,26 @@ func (t *plus) forward(network string, q *dns.Msg, smm *x.DNSSummary, all ...Tra
 		}
 		visited[id] = struct{}{}
 
-		ans, err := tr.Query(network, q, smm)
+		ans, err := tr.Query(network, q, curSmm)
+
+		failed := xdns.IsServFailOrInvalid(ans)
+		noans := !failed && !xdns.HasAnyAnswer(ans)
+
+		loged(err != nil || failed || noans)("plus: queried %s for %s:%d; data: %s, code: %d, err? %v",
+			idstr(tr), qname, qtyp, curSmm.RData, curSmm.RCode, err)
+
 		if err != nil {
-			errs = append(errs, err)
+			errs = core.JoinErr(errs, err)
 			continue
 		}
-		if xdns.IsServFailOrInvalid(ans) {
-			errs = append(errs, errServFail)
+		if failed {
+			errs = core.JoinErr(errs, errServFail)
 			continue
 		}
-		if !xdns.HasAnyAnswer(ans) {
-			errs = append(errs, errNoAnswer)
+		if noans {
+			errs = core.JoinErr(errs, errNoAnswer)
 			// wind down faster if multiple transports return no answer
-			if len(visited) >= tries/2 {
+			if len(visited) > tries/2 {
 				return ans, nil
 			}
 			continue
@@ -225,7 +242,7 @@ func (t *plus) forward(network string, q *dns.Msg, smm *x.DNSSummary, all ...Tra
 	}
 
 	log.W("plus: [exp: %d / tried: %d]: all transports failed: %v", len(all), len(visited), errs)
-	return nil, core.UniqErr(errs...)
+	return nil, errs
 }
 
 func (t *plus) P50() int64 {
@@ -338,4 +355,11 @@ func (t *plus) LiveTransports() string {
 	}
 
 	return strings.Join(ids, ",")
+}
+
+func loged(cond bool) log.LogFn {
+	if cond {
+		return log.E
+	}
+	return log.D
 }
