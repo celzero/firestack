@@ -1308,11 +1308,12 @@ func (px *proxifier) SE() (x.RpnProxy, error) {
 func (px *proxifier) TestSE() (string, error) {
 	sec := px.sec
 	if sec == nil {
-		return "", px.lastSeErr.Load()
+		return "", core.OneErr(px.lastSeErr.Load(), errNilSEProxy)
 	}
 
 	const maxpings = 5
 	oks := make([]string, 0, maxpings)
+	notoks := make([]string, 0, maxpings)
 	for i, v := range shuffle(sec.Addrs()) {
 		if i > maxpings {
 			break
@@ -1324,10 +1325,13 @@ func (px *proxifier) TestSE() (string, error) {
 		// the true, unhindered path to the underlying network.
 		if Reaches(px.exit, ippstr, "tcp") {
 			oks = append(oks, ippstr)
+		} else {
+			notoks = append(notoks, ippstr)
 		}
 	}
 
 	if len(oks) <= 0 {
+		log.E("proxy: se: no reachable addrs among %v", notoks)
 		return "", core.JoinErr(errNoSuitableAddress, px.lastSeErr.Load())
 	}
 	return strings.Join(oks, ","), nil
@@ -1338,6 +1342,7 @@ func (px *proxifier) TestWarp() (string, error) {
 	const totalpings = 5
 
 	oks := make([]string, 0, totalpings*2)
+	notoks := make([]string, 0, totalpings)
 
 	for i := 0; i < totalpings; i++ {
 		v4, v6, err := warp.WarpEndpoints()
@@ -1353,13 +1358,18 @@ func (px *proxifier) TestWarp() (string, error) {
 		// the true, unhindered path to the underlying network.
 		if Reaches(px.exit, v4str, "udp") {
 			oks = append(oks, v4str)
+		} else {
+			notoks = append(notoks, v4str)
 		}
 		if Reaches(px.exit, v6str, "udp") {
 			oks = append(oks, v6str)
+		} else {
+			notoks = append(notoks, v6str)
 		}
 	}
 
 	if len(oks) <= 0 {
+		log.E("proxy: warp: no reachable addrs among %v", notoks)
 		return "", core.JoinErr(errNoSuitableAddress, px.lastWarpErr.Load())
 	}
 	return strings.Join(oks, ","), nil
@@ -1387,6 +1397,7 @@ func (px *proxifier) TestProton() (string, error) {
 	}
 
 	if len(oks) <= 0 {
+		log.E("proxy: proton: no reachable addrs among %v", v4)
 		return "", core.JoinErr(errNoSuitableAddress, px.lastProtonErr.Load())
 	}
 	return strings.Join(oks, ","), nil
@@ -1414,6 +1425,7 @@ func (px *proxifier) TestAmnezia() (ips string, errs error) {
 	}
 
 	if len(oks) <= 0 {
+		log.E("proxy: amz: no reachable addrs among %v", v4)
 		return "", core.JoinErr(errNoSuitableAddress, px.lastAmzErr.Load())
 	}
 	return strings.Join(oks, ","), nil
@@ -1440,6 +1452,7 @@ func (px *proxifier) TestExit64() (ips string, errs error) {
 	}
 
 	if len(oks) <= 0 {
+		log.E("proxy: exit64: no reachable addrs among %v", v6)
 		return "", errNoSuitableAddress
 	}
 	return strings.Join(oks, ","), nil
