@@ -9,6 +9,7 @@ package dialers
 import (
 	"context"
 	"net/netip"
+	"net/url"
 
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/xdns"
@@ -40,6 +41,14 @@ func Resolve(hostname string, tids ...string) (addrs []netip.Addr, err error) {
 		err = core.OneErr(err, errNoIps)
 	}
 	return addrs, err
+}
+
+func ResolveForUrl(s string) []netip.Addr {
+	u, err := url.Parse(s)
+	if err != nil {
+		return For(s) // fallback on hostOrIP
+	}
+	return For(u.Hostname())
 }
 
 // ECH returns the ECH config, if any, for the given hostname.

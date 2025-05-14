@@ -511,7 +511,7 @@ func WarpEndpoints() (v4 netip.AddrPort, v6 netip.AddrPort, err error) {
 
 func ProtonEndpoints() (v4 []netip.AddrPort, v6 []netip.AddrPort, err error) {
 	var v4ok, v6ok bool
-	for _, ip := range dialers.ForUrl(protonBaseUrl) {
+	for _, ip := range dialers.ResolveForUrl(protonBaseUrl) {
 		if ipok(ip) {
 			if ip.Is4() {
 				v4 = append(v4, netip.AddrPortFrom(ip, uint16(80)))
@@ -530,7 +530,7 @@ func ProtonEndpoints() (v4 []netip.AddrPort, v6 []netip.AddrPort, err error) {
 
 func AmzEndpoints() (v4 []netip.AddrPort, v6 []netip.AddrPort, err error) {
 	var v4ok, v6ok bool
-	for _, ip := range dialers.ForUrl(agwProdUrl) {
+	for _, ip := range dialers.ResolveForUrl(agwProdUrl) {
 		if ipok(ip) {
 			if ip.Is4() {
 				v4 = append(v4, netip.AddrPortFrom(ip, uint16(80)))
