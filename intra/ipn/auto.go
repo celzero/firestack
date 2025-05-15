@@ -190,7 +190,7 @@ func (h *auto) dial(network, laddr, raddr string) (protect.Conn, error) {
 					return nil, errNotPinned
 				}
 				// ip pinned to this proxy
-				h.dialIfHealthy(exit, network, laddr, raddr)
+				return h.dialAlways(exit, network, laddr, raddr)
 			}
 			return h.dialIfReachable(exit, network, laddr, raddr)
 		}, func(ctx context.Context) (protect.Conn, error) {
@@ -203,7 +203,7 @@ func (h *auto) dial(network, laddr, raddr string) (protect.Conn, error) {
 					return nil, errNotPinned
 				}
 				// ip pinned to this proxy
-				h.dialIfHealthy(pro, network, laddr, raddr)
+				return h.dialIfHealthy(pro, network, laddr, raddr)
 			}
 
 			// wait only if exit was used
@@ -247,7 +247,7 @@ func (h *auto) dial(network, laddr, raddr string) (protect.Conn, error) {
 					return nil, errNotPinned
 				}
 				// ip pinned to this proxy
-				return h.dialIfHealthy(exit64, network, laddr, raddr)
+				return h.dialAlways(exit64, network, laddr, raddr)
 			}
 
 			select {
@@ -536,6 +536,17 @@ func (h *auto) dialIfReachable(p Proxy, network, local, remote string) (net.Conn
 	//	return nil, fmt.Errorf("auto; %s: %v: %s", p.ID(), errNoRouteToHost, remote)
 	// }
 	return h.dialIfHealthy(p, network, local, remote)
+}
+
+func (*auto) dialAlways(p Proxy, network, local, remote string) (net.Conn, error) {
+	err := healthy(p)
+	if err != nil {
+		log.E("auto dial; %s %s not ok; to %s; err: %v", idstr(p), network, remote, err)
+	}
+	if len(local) > 0 {
+		return p.Dialer().DialBind(network, local, remote)
+	}
+	return p.Dialer().Dial(network, remote)
 }
 
 func (*auto) dialIfHealthy(p Proxy, network, local, remote string) (net.Conn, error) {
