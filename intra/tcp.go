@@ -248,9 +248,12 @@ func (h *tcpHandler) handle(px ipn.Proxy, src net.Conn, boundSrc, target netip.A
 			dst = uc
 		case *gonet.TCPConn: // from wgproxy
 			dst = uc
+		case core.DuplexConn: // using retrier (local proxies like: exit & base)
+			dst = uc
 		case core.TCPConn: // from confirming proxy dialers
 			dst = uc
 		case net.Conn: // from non-confirming proxy dialers
+			// TODO: log warn?
 			dst = uc
 		default:
 			err = errTcpSetupConn
