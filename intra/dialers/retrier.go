@@ -519,7 +519,7 @@ func (r *retrier) Write(b []byte) (int, error) {
 	}
 
 	// retryCompleted() is true, so r.conn is final and doesn't need locking
-	if c := r.conn; c == nil {
+	if c := r.conn; c == nil || core.IsNil(c) {
 		log.E("retrier: write: [] => %s, no conn", r.raddr)
 		return 0, errNilConn
 	} else {
