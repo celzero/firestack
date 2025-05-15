@@ -506,7 +506,7 @@ func (r *retrier) Write(b []byte) (int, error) {
 				// r.conn may be nil or closed
 				log.E("retrier: write: retry failed [%s=>%s] in %dms; old => new: %v => %v",
 					laddr(r.conn), r.raddr, elapsed, err, r.retryErr)
-				return n, err // pass on the og error
+				return n, core.UniqErr(err, r.retryErr) // pass on the og error, too
 			}
 
 			// if len(leftover) > 0 {
