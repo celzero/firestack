@@ -419,14 +419,14 @@ func (r *retrier) Read(buf []byte) (n int, err error) {
 			defer close(r.retryDoneCh) // signal that retry is complete or unnecessary
 			var retryerr error
 			// retry on errs like timeouts or connection resets
-			for (c == nil || err != nil) && r.canRetryLocked() {
+			for (c == nil || core.IsNil(c) || err != nil) && r.canRetryLocked() {
 				r.retryCount++
 				n, retryerr = r.retryWriteReadLocked(buf)
 				c = r.conn // re-assign c to newConn, if any; may be nil
-				if c == nil {
+				if c == nil || core.IsNil(c) {
 					err = core.UniqErr(err, retryerr)
 				}
-				logeor(retryerr, log.I)("retrier: read# %d + (mult? %t / c: %d): [%s<=%s] %d; err? %v",
+				logeor(retryerr, log.I)("retrier: read#%d + (mult? %t / c: %d): [%s<=%s] %d; err? %v",
 					r.retryCount, r.multidial, r.nextDialerIdx, laddr(c), r.raddr, n, retryerr)
 			}
 			if c != nil && core.IsNotNil(c) {
@@ -478,7 +478,7 @@ func (r *retrier) Write(b []byte) (int, error) {
 			note = log.I
 		}
 
-		logeor(err, note)("retrier: write: first?(%t) [%s=>%s] %d; 1st write-err? %v",
+		logeor(err, note)("retrier: write: first?(%t) [%v=>%s] %d; 1st write-err? %v",
 			sentAndCopied, src, r.raddr, n, err)
 
 		if sentAndCopied {
