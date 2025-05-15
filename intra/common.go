@@ -428,7 +428,7 @@ func download(cid, proto string, local net.Conn, remote net.Conn) (n int64, err 
 
 	n, err = core.Pipe(local, remote)
 
-	log.D("com: %s: %s download(%d) done(%v) b/w %s",
+	log.D("com: %s %s download(%d) done(%v) b/w %s",
 		proto, cid, n, err, conn2str(local, remote))
 	return
 }
