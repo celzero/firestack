@@ -37,11 +37,6 @@ var (
 	errRpnUpdateless = errors.New("rpn cannot be updated only registered")
 )
 
-type RpnProxy interface {
-	x.RpnProxy
-	PurgeAll() (n uint32)
-}
-
 type RpnAcc interface {
 	x.RpnAcc
 	ProviderID() string // x.RpnWg, x.RpnPro, x.RpnAmz

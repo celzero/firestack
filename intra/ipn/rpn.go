@@ -16,7 +16,11 @@ import (
 	"github.com/celzero/firestack/intra/log"
 )
 
-type RpnProxy = warp.RpnProxy
+type RpnProxy interface {
+	x.RpnProxy
+	Proxy
+	PurgeAll() (n uint32)
+}
 
 type RpnAcc = warp.RpnAcc
 

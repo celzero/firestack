@@ -84,16 +84,16 @@ func (h *auto) DialerHandle() (mix uintptr) {
 			mix ^= exit64.DialerHandle()
 		}
 	}
-	if warp, _ := h.pxr.ProxyFor(RpnWg); warp != nil {
+	if warp, _ := h.pxr.mainRpnProxyOf(RpnWg); warp != nil {
 		mix ^= warp.DialerHandle()
 	}
-	if pro, _ := h.pxr.ProxyFor(RpnPro); pro != nil {
+	if pro, _ := h.pxr.mainRpnProxyOf(RpnPro); pro != nil {
 		mix ^= pro.DialerHandle()
 	}
-	if amz, _ := h.pxr.ProxyFor(RpnAmz); amz != nil {
+	if amz, _ := h.pxr.mainRpnProxyOf(RpnAmz); amz != nil {
 		mix ^= amz.DialerHandle()
 	}
-	if sep, _ := h.pxr.ProxyFor(RpnSE); sep != nil {
+	if sep, _ := h.pxr.mainRpnProxyOf(RpnSE); sep != nil {
 		mix ^= sep.DialerHandle()
 	}
 
@@ -117,10 +117,10 @@ func (h *auto) dial(network, laddr, raddr string) (protect.Conn, error) {
 
 	exit, exerr := h.pxr.ProxyFor(Exit)
 	exit64, ex64err := h.pxr.ProxyFor(Rpn64)
-	warp, waerr := h.pxr.ProxyFor(RpnWg)
-	pro, proerr := h.pxr.ProxyFor(RpnPro)
-	amz, amzerr := h.pxr.ProxyFor(RpnAmz)
-	sep, seerr := h.pxr.ProxyFor(RpnSE)
+	warp, waerr := h.pxr.mainRpnProxyOf(RpnWg)
+	pro, proerr := h.pxr.mainRpnProxyOf(RpnPro)
+	amz, amzerr := h.pxr.mainRpnProxyOf(RpnAmz)
+	sep, seerr := h.pxr.mainRpnProxyOf(RpnSE)
 
 	if usevia(h.viaID) {
 		if v, vok := h.via.Get(); !vok {
@@ -316,9 +316,9 @@ func (h *auto) Announce(network, local string) (protect.PacketConn, error) {
 	}
 
 	exit, exerr := h.pxr.ProxyFor(Exit)
-	warp, waerr := h.pxr.ProxyFor(RpnWg)
-	pro, proerr := h.pxr.ProxyFor(RpnPro)
-	amz, amzerr := h.pxr.ProxyFor(RpnAmz)
+	warp, waerr := h.pxr.mainRpnProxyOf(RpnWg)
+	pro, proerr := h.pxr.mainRpnProxyOf(RpnPro)
+	amz, amzerr := h.pxr.mainRpnProxyOf(RpnAmz)
 
 	previdx, recent := h.exp.Get(local)
 
@@ -473,16 +473,16 @@ func (h *auto) Hop(p Proxy, dryrun bool) error {
 	var warp, sep, amz, pro Proxy
 	var waerr, seerr, amzerr, proerr error
 	old := h.swapVia(p)
-	if warp, waerr = h.pxr.ProxyFor(RpnWg); warp != nil {
+	if warp, waerr = h.pxr.mainRpnProxyOf(RpnWg); warp != nil {
 		waerr = warp.Hop(p, dryrun)
 	}
-	if pro, proerr = h.pxr.ProxyFor(RpnPro); pro != nil {
+	if pro, proerr = h.pxr.mainRpnProxyOf(RpnPro); pro != nil {
 		proerr = pro.Hop(p, dryrun)
 	}
-	if amz, amzerr = h.pxr.ProxyFor(RpnAmz); amz != nil {
+	if amz, amzerr = h.pxr.mainRpnProxyOf(RpnAmz); amz != nil {
 		amzerr = amz.Hop(p, dryrun)
 	}
-	if sep, seerr = h.pxr.ProxyFor(RpnSE); sep != nil {
+	if sep, seerr = h.pxr.mainRpnProxyOf(RpnSE); sep != nil {
 		seerr = sep.Hop(p, dryrun)
 	}
 

@@ -163,17 +163,22 @@ type Proxy interface {
 
 type Rpn interface {
 	x.Rpn
-	// mainRpnProxyFor returns the main (default) RPN proxy from this multi-transport.
-	mainRpnProxyOf(provider string) (RpnProxy, error)
-	// rpnProxyFor returns a country-specific RPN proxy from this multi-transport.
-	rpnProxyFor(provider, cc string) (Proxy, error)
+	rpnProxyProvider
 	// addRpnProxy adds an RPN proxy to this multi-transport.
 	addRpnProxy(acc RpnAcc, cc string) (Proxy, error)
 	// removeRpnProxy removes an RPN proxy from this multi-transport.
 	removeRpnProxy(acc RpnAcc, cc string) bool
 }
 
+type rpnProxyProvider interface {
+	// mainRpnProxyFor returns the main (default) RPN proxy from this multi-transport.
+	mainRpnProxyOf(provider string) (RpnProxy, error)
+	// rpnProxyFor returns a country-specific RPN proxy from this multi-transport.
+	rpnProxyFor(provider, cc string) (Proxy, error)
+}
+
 type ProxyProvider interface {
+	rpnProxyProvider
 	// ProxyFor returns a transport from this multi-transport.
 	ProxyFor(id string) (Proxy, error)
 	// ProxyTo returns the proxy to use for ipp from given pids.
