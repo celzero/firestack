@@ -406,6 +406,10 @@ func (h *auto) Accept(network, local string) (l protect.Listener, err error) {
 	if h.status.Load() == END {
 		return nil, errProxyStopped
 	}
+	if settings.AutoAlwaysRemote.Load() {
+		log.E("proxy: auto: accept(%s) on %s remote-dial unimplemented", network, local)
+		return nil, errNotRemote
+	}
 	exit, err := h.pxr.ProxyFor(Exit)
 	if err == nil {
 		l, err = exit.Dialer().Accept(network, local)
@@ -420,6 +424,10 @@ func (h *auto) Accept(network, local string) (l protect.Listener, err error) {
 func (h *auto) Probe(network, local string) (pc protect.PacketConn, err error) {
 	if h.status.Load() == END {
 		return nil, errProxyStopped
+	}
+	if settings.AutoAlwaysRemote.Load() {
+		log.E("proxy: auto: probe(%s) on %s remote-dial unimplemented", network, local)
+		return nil, errNotRemote
 	}
 	// todo: rpnwg, rpnamz, rpnpro
 	exit, err := h.pxr.ProxyFor(Exit)
