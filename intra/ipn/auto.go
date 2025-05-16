@@ -20,8 +20,9 @@ import (
 )
 
 const (
-	ttl30s     = 30 * time.Second
-	shortdelay = 100 * time.Millisecond
+	ttl30s                   = 30 * time.Second
+	shortdelay               = 100 * time.Millisecond
+	delayForUnhealthyProxies = 2 * time.Second
 )
 
 // exit is a proxy that always dials out to the internet.
@@ -557,9 +558,10 @@ func (*auto) dialAlways(p Proxy, network, local, remote string) (net.Conn, error
 	return p.Dialer().Dial(network, remote)
 }
 
-func (*auto) dialIfHealthy(p Proxy, network, local, remote string) (net.Conn, error) {
+func (a *auto) dialIfHealthy(p Proxy, network, local, remote string) (net.Conn, error) {
 	if err := healthy(p); err != nil {
-		return nil, fmt.Errorf("auto dial; %s %s not ok; %v: %s", p.ID(), network, err, remote)
+		log.E("auto dial; %s %s not ok; %v: %s", p.ID(), network, err, remote)
+		time.Sleep(delayForUnhealthyProxies)
 	}
 	if len(local) > 0 {
 		return p.Dialer().DialBind(network, local, remote)
