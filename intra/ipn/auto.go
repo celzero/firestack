@@ -203,7 +203,7 @@ func (h *auto) dial(network, laddr, raddr string) (protect.Conn, error) {
 					return nil, errNotPinned
 				}
 				// ip pinned to this proxy
-				return h.dialIfHealthy(pro, network, laddr, raddr)
+				return h.dialAlways(pro, network, laddr, raddr)
 			}
 
 			// wait only if exit was used
@@ -225,7 +225,7 @@ func (h *auto) dial(network, laddr, raddr string) (protect.Conn, error) {
 					return nil, errNotPinned
 				}
 				// ip pinned to this proxy
-				return h.dialIfHealthy(warp, network, laddr, raddr)
+				return h.dialAlways(warp, network, laddr, raddr)
 			}
 
 			select {
@@ -266,7 +266,7 @@ func (h *auto) dial(network, laddr, raddr string) (protect.Conn, error) {
 					return nil, errNotPinned
 				}
 				// ip pinned to this proxy
-				return h.dialIfHealthy(amz, network, laddr, raddr)
+				return h.dialAlways(amz, network, laddr, raddr)
 			}
 
 			select {
@@ -285,7 +285,7 @@ func (h *auto) dial(network, laddr, raddr string) (protect.Conn, error) {
 					return nil, errNotPinned
 				}
 				// ip pinned to this proxy
-				return h.dialIfHealthy(sep, network, laddr, raddr)
+				return h.dialAlways(sep, network, laddr, raddr)
 			}
 
 			select {
