@@ -77,7 +77,7 @@ type retrier struct {
 	// thread, so the reader functions may access it without acquiring a lock.
 	// nb: if embedding TCPConn; override its WriteTo instead of just ReadFrom
 	// as io.Copy prefers WriteTo over ReadFrom; or use core.Pipe
-	conn core.DuplexConn
+	conn protect.Conn
 
 	// External read and write deadlines.  These need to be stored here so that
 	// they can be re-applied in the event of a retry.
@@ -289,7 +289,7 @@ func (r *retrier) dialStratLocked() (strat int32, err error) {
 
 // dialLocked establishes a new connection to r.raddr and closes existing, if any.
 // Sets r.conn on non-errors and timeout as calculated from round-trip time.
-func (r *retrier) dialLocked() (c core.DuplexConn, err error) {
+func (r *retrier) dialLocked() (c protect.Conn, err error) {
 	clos(r.conn) // close existing connection, if any
 
 	strat, err := r.dialStratLocked()
@@ -312,16 +312,21 @@ func (r *retrier) dialLocked() (c core.DuplexConn, err error) {
 
 // dialStrat returns a core.DuplexConn to r.raddr using a specified strategy, strat,
 // which is one of the settings.Split* constants.
-func (r *retrier) doDialLocked(dialStrat int32) (_ core.DuplexConn, err error) {
+func (r *retrier) doDialLocked(dialStrat int32) (_ protect.Conn, err error) {
 	var conn *net.TCPConn
 
 	di := 0 // di is always 0 if not multidial
+
 	if r.multidial {
 		di = r.nextDialerIdx
 		if di >= len(r.dialers) {
 			return nil, errNoDialer
 		}
 		r.nextDialerIdx = di + 1
+		if r.laddr != nil {
+			return r.dialers[di].DialBind(r.raddr.Network(), r.laddr.String(), r.raddr.String())
+		}
+		return r.dialers[di].Dial(r.raddr.Network(), r.raddr.String())
 	}
 
 	// r.raddr may be nil or laddr.IP may be nil.
@@ -338,7 +343,7 @@ func (r *retrier) doDialLocked(dialStrat int32) (_ core.DuplexConn, err error) {
 	if err != nil || conn == nil {
 		return nil, err
 	}
-	// todo: strat must be tcp or tls
+	// todo: assert strat must be tcp or tls?
 	return &splitter{conn: conn, strat: dialStrat}, nil
 }
 
@@ -367,13 +372,13 @@ func (r *retrier) retryWriteReadLocked(buf []byte) (int, error) {
 	readdone := r.readDone.Load()
 	writedone := r.writeDone.Load()
 	if readdone {
-		core.CloseTCPRead(newConn)
+		core.CloseOp(newConn, core.CopR)
 	} else {
 		_ = newConn.SetReadDeadline(r.readDeadline)
 	}
 	// caller might have set read or write deadlines before the retry.
 	if writedone {
-		core.CloseTCPWrite(newConn)
+		core.CloseOp(newConn, core.CopW)
 	} else {
 		_ = newConn.SetWriteDeadline(r.writeDeadline)
 	}
@@ -561,12 +566,28 @@ func (r *retrier) ReadFrom(reader io.Reader) (bytes int64, err error) {
 		}
 	}
 
+	optimizedReadFrom := true
 	var b int64
-	b, err = c.ReadFrom(reader)
-	bytes += b
+	switch x := c.(type) {
+	case *net.TCPConn:
+		b, err = x.ReadFrom(reader)
+		bytes += b
+	case *splitter:
+		b, err = x.ReadFrom(reader)
+		bytes += b
+	case io.ReaderFrom:
+		b, err = x.ReadFrom(reader)
+		bytes += b
+	default:
+		// *net.UDPConn, net.PacketConn etc?
+		optimizedReadFrom = false
+		// read from reader until EOF
+		b, err = core.Stream(c, reader)
+		bytes += b
+	}
 
-	logeif(err)("retrier: readfrom: done (id: %s, pinned? %t); sz: %d; err: %v",
-		pinnedID, pinned, bytes, err)
+	logeif(err)("retrier: readfrom: (optimized? %t) done (id: %s, pinned? %t); sz: %d; err: %v",
+		optimizedReadFrom, pinnedID, pinned, bytes, err)
 	return
 }
 
