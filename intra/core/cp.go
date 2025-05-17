@@ -11,7 +11,10 @@ import (
 	"io"
 )
 
-var errNoPipe = errors.New("src or dst nil")
+var (
+	errNoPipe   = errors.New("pipe: src or dst nil")
+	errNoStream = errors.New("stream: reader or writer nil")
+)
 
 // Pipe copies data from src to dst, and returns the number of bytes copied.
 // Prefers src.WriteTo(dst) and dst.ReadFrom(src) if available.
@@ -28,6 +31,16 @@ func Pipe(dst io.Writer, src io.Reader) (int64, error) {
 	} else if x, ok := dst.(io.ReaderFrom); ok {
 		return x.ReadFrom(src)
 	}
+	return Stream(dst, src)
+}
+
+// Stream reads data from src in to dst until error, and returns the no. of bytes read.
+// Internally, it uses io.CopyBuffer, recycling buffers from global pool.
+func Stream(dst io.Writer, src io.Reader) (int64, error) {
+	if IsNil(src) || IsNil(dst) {
+		return 0, errNoStream
+	}
+
 	bptr := Alloc()
 	b := *bptr
 	b = b[:cap(b)]
