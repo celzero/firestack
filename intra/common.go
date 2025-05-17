@@ -225,23 +225,23 @@ func (h *baseHandler) onFlow(localaddr, target netip.AddrPort) (fm *Mark, undidA
 		log.W("com: %s: onFlow: empty res or on flow timeout %t; block!", h.proto, ok)
 		fm = optionsBlock
 	} else if len(fm.PIDCSV) <= 0 {
-		if pre.IsUidSelf {
+		if preuid == SELF_UID {
 			fm.PIDCSV = ipn.Exit
 		} else if h.prox.AutoActive() {
 			fm.PIDCSV = ipn.Auto
 		} else {
 			fm.PIDCSV = ipn.Exit
 		}
-		log.E("com: %s: onFlow: no pid for (%s => %s) from kt (alg: %v + %v); %s!",
-			h.proto, src, dst, ips, doms, fm.PIDCSV)
+		log.E("com: %s: onFlow: missing proxyid for preuid %s (%s => %s) from kt (alg: %v + %v); %s!",
+			h.proto, preuid, src, dst, ips, doms, fm.PIDCSV)
 	}
-	if pre.IsUidSelf && !ipn.IsAnyLocalProxy(strings.Split(fm.PIDCSV, ",")...) {
+	if preuid == SELF_UID && !ipn.IsAnyLocalProxy(strings.Split(fm.PIDCSV, ",")...) {
 		egress := ipn.Exit
 		if h.resolver.IsDnsAddr(target) {
 			egress = ipn.Base // see: udp.go:dnsOverride
 		}
-		log.W("com: %s: onFlow: preflow: pid (%s => %s) is rethink! override %s to %s!",
-			h.proto, src, dst, fm.PIDCSV, egress)
+		log.W("com: %s: onFlow: preflow: preuid %s (%s => %s) is rethink! override %s to %s!",
+			h.proto, preuid, src, dst, fm.PIDCSV, egress)
 		fm.PIDCSV = egress
 	}
 
