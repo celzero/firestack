@@ -539,6 +539,7 @@ func (r *retrier) Write(b []byte) (int, error) {
 // retries are done; before which reads are delegated to copyOnce.
 func (r *retrier) ReadFrom(reader io.Reader) (bytes int64, err error) {
 	copies := 0
+	// TODO: skip copyOnce if r.multidial set or if strat is SplitNever?
 	for !r.retryCompleted() {
 		b, e := copyOnce(r, reader)
 		copies++
@@ -547,6 +548,7 @@ func (r *retrier) ReadFrom(reader io.Reader) (bytes int64, err error) {
 		if e != nil {
 			return bytes, e
 		}
+		// TODO: return after first copyOnce if strat is RetryNever?
 	}
 
 	c := r.conn // reader thread does not need the mutex
