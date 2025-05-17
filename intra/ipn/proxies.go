@@ -1474,6 +1474,15 @@ func isWG(id string) bool {
 	return strings.Contains(id, WG)
 }
 
+func IsAnyLocalProxy(ids ...string) bool {
+	for _, id := range ids {
+		if local(id) {
+			return true
+		}
+	}
+	return false
+}
+
 // Base, Block, Exit, Rpn64, Ingress
 func local(id string) bool {
 	return id == Base || id == Block || id == Exit || id == Rpn64 || id == Ingress
