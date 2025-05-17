@@ -429,9 +429,10 @@ func (r *retrier) Read(buf []byte) (n int, err error) {
 				n, retryerr = r.retryWriteReadLocked(buf)
 				c = r.conn // re-assign c to newConn, if any; may be nil
 				if c == nil || core.IsNil(c) {
-					err = core.UniqErr(err, retryerr)
+					retryerr = core.OneErr(retryerr, errNoConn)
+					err = core.JoinErr(err, retryerr)
 				} else {
-					err = nil
+					err = nil // break
 				}
 				logeor(retryerr, log.I)("retrier: read#%d + (mult? %t / c: %d): [%s<=%s] %d; err? %v",
 					r.retryCount, r.multidial, r.nextDialerIdx, laddr(c), r.raddr, n, retryerr)
