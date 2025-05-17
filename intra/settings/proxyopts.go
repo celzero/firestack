@@ -108,14 +108,54 @@ func (p *ProxyOptions) Url() string {
 	return p.Scheme + "://" + p.IPPort
 }
 
-// AutoAlwaysRemote is a global variable to instruct ipn.Auto proxy
-// to always use remote proxies and never use local (ex: ipn.Exit) ones.
-var AutoAlwaysRemote atomic.Bool
+// AutoMode is a global variable to instruct if backend.Auto proxy
+// is in local, remote, or hybrid mode. In local mode, backend.Auto
+// uses local proxies (ex: ipn.Exit) only. In remote mode,
+// backend.Auto uses remote proxies (ex: RPN).
+var AutoMode atomic.Int32
 
-// SetAutoAlwaysRemote puts backend.Auto in remote-only mode if y is true.
-// That is, backend.Auto will never use local proxies (ex: ipn.Exit).
-func SetAutoAlwaysRemote(y bool) (prev bool) {
-	return AutoAlwaysRemote.Swap(y)
+const (
+	// local mode: backend.Auto uses local proxies (ex: ipn.Exit) only.
+	AutoModeLocal = iota
+	// remote mode: backend.Auto uses remote proxies (ex: RPN) only.
+	AutoModeRemote
+	// hybrid mode: backend.Auto uses local and remote proxies.
+	AutoModeHybrid
+)
+
+// SetAutoMode sets the global AutoMode variable to y.
+// Indicates if backend.Auto proxy is in local, remote, or hybrid mode.
+func SetAutoMode(m int32) (ok bool) {
+	s := max(m, AutoModeLocal)
+	s = min(m, AutoModeHybrid)
+	if m != s {
+		return false
+	}
+	AutoMode.Store(m)
+	return true
+}
+
+func AutoModeStr() string {
+	switch AutoMode.Load() {
+	case AutoModeLocal:
+		return "local"
+	case AutoModeRemote:
+		return "remote"
+	case AutoModeHybrid:
+		return "hybrid"
+	default:
+		return "unknown"
+	}
+}
+
+// backend.Auto must use remote proxies and never use local (ex: ipn.Exit) ones.
+func AutoAlwaysRemote() bool {
+	return AutoMode.Load() == AutoModeRemote
+}
+
+// backend.Auto is effecively not active.
+func AutoActive() bool {
+	return AutoMode.Load() != AutoModeLocal
 }
 
 // AutoDialsParallel is a global variable to instruct ipn.Auto proxy

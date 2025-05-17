@@ -26,6 +26,7 @@ import (
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/netstack"
 	"github.com/celzero/firestack/intra/protect"
+	"github.com/celzero/firestack/intra/settings"
 )
 
 const (
@@ -175,6 +176,8 @@ type rpnProxyProvider interface {
 	mainRpnProxyOf(provider string) (RpnProxy, error)
 	// rpnProxyFor returns a country-specific RPN proxy from this multi-transport.
 	rpnProxyFor(provider, cc string) (Proxy, error)
+	// AutoActive returns true if any of the RPN proxies are in-use by ipn.Auto.
+	AutoActive() bool
 }
 
 type ProxyProvider interface {
@@ -651,6 +654,10 @@ func (px *proxifier) ProxyFor(id string) (Proxy, error) {
 		return nil, errProxyNotFound
 	}
 	return p, nil
+}
+
+func (px *proxifier) AutoActive() bool {
+	return settings.AutoActive()
 }
 
 func (px *proxifier) mainRpnProxyOf(provider string) (RpnProxy, error) {

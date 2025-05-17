@@ -76,7 +76,7 @@ func (h *auto) Handle() uintptr {
 
 // DialerHandle implements Proxy.
 func (h *auto) DialerHandle() (mix uintptr) {
-	remoteOnly := settings.AutoAlwaysRemote.Load()
+	remoteOnly := settings.AutoAlwaysRemote()
 	if !remoteOnly {
 		if exit, _ := h.pxr.ProxyFor(Exit); exit != nil {
 			mix ^= exit.DialerHandle()
@@ -132,7 +132,7 @@ func (h *auto) dial(network, laddr, raddr string) (protect.Conn, error) {
 		}
 	}
 
-	remoteOnly := settings.AutoAlwaysRemote.Load()
+	remoteOnly := settings.AutoAlwaysRemote()
 	parallelDial := settings.AutoDialsParallel.Load()
 
 	if !parallelDial {
@@ -407,7 +407,7 @@ func (h *auto) Accept(network, local string) (l protect.Listener, err error) {
 	if h.status.Load() == END {
 		return nil, errProxyStopped
 	}
-	if settings.AutoAlwaysRemote.Load() {
+	if settings.AutoAlwaysRemote() {
 		log.E("proxy: auto: accept(%s) on %s remote-dial unimplemented", network, local)
 		return nil, errNotRemote
 	}
@@ -426,7 +426,7 @@ func (h *auto) Probe(network, local string) (pc protect.PacketConn, err error) {
 	if h.status.Load() == END {
 		return nil, errProxyStopped
 	}
-	if settings.AutoAlwaysRemote.Load() {
+	if settings.AutoAlwaysRemote() {
 		log.E("proxy: auto: probe(%s) on %s remote-dial unimplemented", network, local)
 		return nil, errNotRemote
 	}

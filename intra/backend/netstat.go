@@ -164,7 +164,7 @@ type RDNSInfo struct {
 	ProxySince  string
 	Proxies     string
 
-	AutoAlwaysRemote  bool
+	AutoMode          string
 	AutoDialsParallel bool
 
 	OpenConnsTCP  string
