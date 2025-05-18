@@ -394,7 +394,7 @@ func (a agingconn) canread() error {
 	var checkErr error
 	var ctlErr error
 
-	raw, err := sc.SyscallConn()
+	raw, err := sc.SyscallConn()  // some conns embed in retrier.go will err
 	if err != nil || raw == nil { // nilaway
 		return fmt.Errorf("pool: sysconn nil; err? %w", err)
 	}
