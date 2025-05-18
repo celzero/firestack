@@ -361,7 +361,7 @@ func (r *retrier) doDialLocked(dialStrat int32) (protect.Conn, error) {
 func (r *retrier) retryWriteReadLocked(buf []byte) (int, error) {
 	// r.dialLocked also closes provisional socket
 	newConn, err := r.dialLocked() // errs on dial strat = no retries, too
-	if err != nil || newConn == nil {
+	if err != nil || newConn == nil || core.IsNil(newConn) {
 		return 0, core.OneErr(err, errNoConn)
 	}
 
