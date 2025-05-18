@@ -28,6 +28,7 @@ import (
 	"io"
 	"net"
 	"net/netip"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -312,39 +313,46 @@ func (r *retrier) dialLocked() (c protect.Conn, err error) {
 
 // dialStrat returns a core.DuplexConn to r.raddr using a specified strategy, strat,
 // which is one of the settings.Split* constants.
-func (r *retrier) doDialLocked(dialStrat int32) (_ protect.Conn, err error) {
-	var conn *net.TCPConn
-
-	di := 0 // di is always 0 if not multidial
-
+func (r *retrier) doDialLocked(dialStrat int32) (protect.Conn, error) {
+	network := r.laddr.Network()
 	if r.multidial {
-		di = r.nextDialerIdx
-		if di >= len(r.dialers) {
-			return nil, errNoDialer
+		var errs error
+		for ; r.nextDialerIdx < len(r.dialers); r.nextDialerIdx++ {
+			c, err := protect.Dial(r.dialers[r.nextDialerIdx], r.laddr, r.raddr)
+			if err == nil {
+				return c, nil
+			} else {
+				clos(c)
+				errs = core.JoinErr(errs, err)
+				logeif(err)("retrier: mult: #%d dial(%s) %s=>%s; strat: %d, err? %v",
+					r.nextDialerIdx, r.dialerOpts, laddr(c), r.raddr, dialStrat, err)
+			}
 		}
-		r.nextDialerIdx = di + 1
-		if r.laddr != nil {
-			return r.dialers[di].DialBind(r.raddr.Network(), r.laddr.String(), r.raddr.String())
-		}
-		return r.dialers[di].Dial(r.raddr.Network(), r.raddr.String())
+		return nil, core.OneErr(errs, errNoDialer)
 	}
 
-	// r.raddr may be nil or laddr.IP may be nil.
+	di := r.dialers[0] // always use the first dialer when not multidialing
+
+	if isTCP := strings.HasPrefix(network, "tcp"); !isTCP {
+		return protect.Dial(di, r.laddr, r.raddr)
+	}
+
+	// r.laddr may be nil or laddr.IP may be nil.
 	switch dialStrat {
 	case settings.SplitNever:
-		return protect.DialTCP(r.dialers[di], r.raddr.Network(), r.laddr, r.raddr)
+		return protect.Dial(di, r.laddr, r.raddr)
 	case settings.SplitDesync:
-		return dialWithSplitAndDesync(r.dialers[di], r.laddr, r.raddr)
+		return dialWithSplitAndDesync(di, r.laddr, r.raddr)
 	case settings.SplitTCP, settings.SplitTCPOrTLS:
 		fallthrough
 	default:
 	}
-	conn, err = protect.DialTCP(r.dialers[di], r.raddr.Network(), r.laddr, r.raddr)
-	if err != nil || conn == nil {
-		return nil, err
+	tc, terr := protect.DialTCP(di, r.raddr.Network(), r.laddr, r.raddr)
+	if terr != nil || tc == nil {
+		return nil, core.JoinErr(terr, errNilConn)
 	}
 	// todo: assert strat must be tcp or tls?
-	return &splitter{conn: conn, strat: dialStrat}, nil
+	return &splitter{conn: tc, strat: dialStrat}, nil
 }
 
 // retryWriteReadLocked closes the current connection, dials a new one, and writes
