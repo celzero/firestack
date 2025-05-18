@@ -272,9 +272,9 @@ func (h *baseHandler) forward(local, remote net.Conn, smm *SocketSummary) {
 		if r.IsZeroDeadline() {
 			iszerodeadline = true
 			remote = r.Unwrap()
-		} else if c, ok := r.SetAsTCPSockOpt(); ok {
+		} else if r.SetAsTCPSockOpt() {
 			withsockopt = true
-			remote = c // c is *net.TCPConn
+			remote = r.Unwrap() // c may be *net.TCPConn
 		}
 	}
 	log.I("com: %s: forward: new conn %s rwext? %t, zerodeadline? %t, sockopt? %t; %s for %s",

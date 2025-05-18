@@ -74,6 +74,8 @@ type RDial struct {
 var _ RDialer = (*RDial)(nil)
 
 var (
+	errNoDialer  = errors.New("not a dialer")
+	errNoRAddr   = errors.New("missing remote addr")
 	errNoTCP     = errors.New("not a tcp dialer")
 	errNoUDP     = errors.New("not a udp dialer")
 	errNoUDPMux  = errors.New("not a udp announcer")
@@ -225,6 +227,19 @@ func (d *RDial) Probe(network, local string) (PacketConn, error) {
 	}
 
 	return d.listenICMP.listenICMP(d.context(), network, local)
+}
+
+func Dial(d RDialer, laddr, raddr net.Addr) (Conn, error) {
+	if d == nil {
+		return nil, errNoDialer
+	}
+	if raddr == nil {
+		return nil, errNoRAddr
+	}
+	if laddr == nil {
+		return d.Dial(raddr.Network(), raddr.String())
+	}
+	return d.DialBind(raddr.Network(), laddr.String(), raddr.String())
 }
 
 // DialTCP creates a net.TCPConn to raddr.
