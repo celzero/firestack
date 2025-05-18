@@ -254,7 +254,7 @@ func (h *baseHandler) forward(local, remote net.Conn, smm *SocketSummary) {
 	cid := smm.ID
 	uid := smm.UID
 	pid := smm.PID
-	via := strings.Join([]string{smm.Proto, smm.PID, smm.RPID}, ":")
+	via := strings.Join([]string{smm.Proto, smm.PID, smm.RPID, smm.ID}, ":")
 
 	tup := conn2str(local, remote)
 
@@ -277,13 +277,13 @@ func (h *baseHandler) forward(local, remote net.Conn, smm *SocketSummary) {
 			remote = c // c is *net.TCPConn
 		}
 	}
-	log.I("com: %s: forward: new conn %s (via: %s) rwext? %t, zerodeadline? %t, sockopt? %t; %s for %s",
-		h.proto, cid, via, isrwext, iszerodeadline, withsockopt, tup, uid)
+	log.I("com: %s: forward: new conn %s rwext? %t, zerodeadline? %t, sockopt? %t; %s for %s",
+		h.proto, via, isrwext, iszerodeadline, withsockopt, tup, uid)
 
 	uploadch := make(chan ioinfo)
 
-	go upload(cid, via, local, remote, uploadch)
-	dbytes, derr := download(cid, via, local, remote)
+	go upload(via, local, remote, uploadch)
+	dbytes, derr := download(via, local, remote)
 
 	upload := <-uploadch
 
@@ -425,27 +425,27 @@ func (h *baseHandler) End() {
 }
 
 // TODO: Propagate TCP RST using local.Abort(), on appropriate errors.
-func upload(cid, proto string, local net.Conn, remote net.Conn, ioch chan<- ioinfo) {
-	defer core.Recover(core.Exit11, "c.upload: "+cid)
+func upload(id string, local, remote net.Conn, ioch chan<- ioinfo) {
+	defer core.Recover(core.Exit11, "c.upload."+id)
 	defer core.CloseOp(local, core.CopR)
 	defer core.CloseOp(remote, core.CopW)
 	defer close(ioch)
 
 	n, err := core.Pipe(remote, local)
 
-	log.D("com: %s: %s upload(%d) done(%v) b/w %s",
-		proto, cid, n, err, conn2str(local, remote))
+	log.D("com: %s upload(%d) done(%v) b/w %s",
+		id, n, err, conn2str(local, remote))
 	ioch <- ioinfo{n, err}
 }
 
-func download(cid, proto string, local net.Conn, remote net.Conn) (n int64, err error) {
+func download(id string, local, remote net.Conn) (n int64, err error) {
 	defer core.CloseOp(local, core.CopW)
 	defer core.CloseOp(remote, core.CopR)
 
 	n, err = core.Pipe(local, remote)
 
-	log.D("com: %s %s download(%d) done(%v) b/w %s",
-		proto, cid, n, err, conn2str(local, remote))
+	log.D("com: %s download(%d) done(%v) b/w %s",
+		id, n, err, conn2str(local, remote))
 	return
 }
 
