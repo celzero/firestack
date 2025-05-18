@@ -430,20 +430,20 @@ func (r *retrier) Read(buf []byte) (n int, err error) {
 
 		if !r.retryCompleted() {
 			defer close(r.retryDoneCh) // signal that retry is complete or unnecessary
-			var retryerr error
+			var retryReadErr error
 			// retry on errs like timeouts or connection resets
 			for (c == nil || core.IsNil(c) || err != nil) && r.canRetryLocked() {
 				r.retryCount++
-				n, retryerr = r.retryWriteReadLocked(buf)
+				n, retryReadErr = r.retryWriteReadLocked(buf)
 				c = r.conn // re-assign c to newConn, if any; may be nil
 				if c == nil || core.IsNil(c) {
-					retryerr = core.OneErr(retryerr, errNoConn)
-					err = core.JoinErr(err, retryerr)
+					retryReadErr = core.OneErr(retryReadErr, errNoConn)
+					err = core.JoinErr(err, retryReadErr)
 				} else {
 					err = nil // break
 				}
-				logeor(retryerr, log.I)("retrier: read#%d + (mult? %t / c: %d): [%s<=%s] %d; err? %v",
-					r.retryCount, r.multidial, r.nextDialerIdx, laddr(c), r.raddr, n, retryerr)
+				logeor(retryReadErr, log.I)("retrier: read#%d + (mult? %t / c: %d): [%s<=%s] %d; err? %v",
+					r.retryCount, r.multidial, r.nextDialerIdx, laddr(c), r.raddr, n, retryReadErr)
 			}
 			if c != nil && core.IsNotNil(c) {
 				_ = c.SetReadDeadline(r.readDeadline)
