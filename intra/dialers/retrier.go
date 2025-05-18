@@ -89,9 +89,9 @@ type retrier struct {
 	// tee is the contents written before the first read.  It is initially empty,
 	// and is cleared when the first byte is received.
 	tee []byte
-	// retryErr is set to the error from the last retry, if any.
-	retryErr   error
-	retryCount uint8
+	// retryWriteErr is set to the error from the last retry, if any.
+	retryWriteErr error
+	retryCount    uint8
 	// Flag indicating when retry is finished or unnecessary.
 	retryDoneCh chan struct{} // always unbuffered
 }
@@ -366,11 +366,11 @@ func (r *retrier) retryWriteReadLocked(buf []byte) (int, error) {
 	}
 
 	var nw int
-	nw, r.retryErr = newConn.Write(r.tee)
-	logeif(r.retryErr)("retrier: retryLocked: strat(%s, mult? %t) %s=>%s; write? %d/%d; err? %v",
-		r.dialerOpts, r.multidial, laddr(newConn), r.raddr, nw, len(r.tee), r.retryErr)
-	if r.retryErr != nil {
-		return 0, r.retryErr
+	nw, r.retryWriteErr = newConn.Write(r.tee)
+	logeif(r.retryWriteErr)("retrier: retryLocked: strat(%s, mult? %t) %s=>%s; write? %d/%d; err? %v",
+		r.dialerOpts, r.multidial, laddr(newConn), r.raddr, nw, len(r.tee), r.retryWriteErr)
+	if r.retryWriteErr != nil {
+		return 0, r.retryWriteErr
 	}
 
 	// while we were creating the new socket, the caller might have called CloseRead
