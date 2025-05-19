@@ -136,7 +136,7 @@ func (h *auto) dial(network, laddr, raddr string) (protect.Conn, error) {
 	parallelDial := settings.AutoDialsParallel.Load()
 
 	if !parallelDial {
-		rpns := []Proxy{pro, warp, amz, sep}
+		rpns := []Proxy{exit, pro, warp, amz, exit64, sep}
 		healthy := core.Map(
 			core.FilterLeft(
 				rpns,
@@ -159,13 +159,16 @@ func (h *auto) dial(network, laddr, raddr string) (protect.Conn, error) {
 		// TODO: pinning IPs
 		if len(healthy) <= 0 {
 			// no healthy proxies; fail open
-			all := core.Map(rpns, func(p Proxy) protect.RDialer {
+			d := core.Map(rpns, func(p Proxy) protect.RDialer {
 				if p == nil || core.IsNil(p) {
 					return nil // nil proxies out
 				}
+				if remoteOnly && local(p.ID()) {
+					return nil // local proxies out
+				}
 				return p.Dialer()
 			})
-			return dialAny(core.WithoutNils(all), network, laddr, raddr)
+			return dialAny(core.WithoutNils(d), network, laddr, raddr)
 		}
 		return dialAny(healthy, network, laddr, raddr)
 	}
