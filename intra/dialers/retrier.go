@@ -623,6 +623,13 @@ func (r *retrier) ReadFrom(reader io.Reader) (bytes int64, err error) {
 		bytes += b
 	}
 
+	if optimizedReadFrom {
+		// disable read and write deadlines as io.ReaderFrom does not
+		// rely on io.Read and io.Write semantics from which deadlines
+		// are usually extended to avoid timeouts (see also: rwconn.go)
+		r.SetDeadline(time.Time{})
+	}
+
 	logeif(err)("retrier: readfrom: (optimized? %t) done (id: %s, pinned? %t); sz: %d; err: %v",
 		optimizedReadFrom, pinnedID, pinned, bytes, err)
 	return
