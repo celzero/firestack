@@ -272,8 +272,8 @@ func (h *baseHandler) forward(local, remote net.Conn, smm *SocketSummary) {
 		isrwext = true
 		if iszerodeadline = r.IsZeroDeadline(); iszerodeadline {
 			remote = r.Unwrap()
-		} else if timeoutsecs, withsockopt = r.SetTimeoutSockOpt(); withsockopt {
-			remote = r.Unwrap() // c may be *net.TCPConn
+		} else if timeoutsecs, withsockopt = r.SetTimeoutSockOpt(); withsockopt || timeoutsecs <= 0 {
+			remote = r.Unwrap() // c may be *net.TCPConn or retrier or splitter
 		}
 	}
 	log.I("com: %s: forward: new conn %s rwext? %t, zerodeadline? %t, sockopt? %t (%ds); %s for %s",
