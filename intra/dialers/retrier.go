@@ -415,8 +415,6 @@ func (r *retrier) Read(buf []byte) (n int, err error) {
 
 	c := r.conn // r.conn may be provisional or final connection
 	if c != nil && core.IsNotNil(c) {
-		log.W("retrier: read: [] <= %s, no conn", r.raddr)
-
 		for reads := range maxEmptyReads {
 			n, err = c.Read(buf)
 			if n == 0 && err == nil { // no data and no error
