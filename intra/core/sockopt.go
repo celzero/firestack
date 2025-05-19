@@ -41,8 +41,8 @@ func SetKeepAliveConfig(c MinConn) bool {
 }
 
 func SetTimeoutSockOpt(c MinConn, timeoutms int) bool {
-	if tc, ok := c.(*net.TCPConn); ok {
-		id := conn2str(tc)
+	if tc, ok := c.(PoolableConn); ok {
+		id := conn2str(c)
 		rawConn, err := tc.SyscallConn()
 		if err != nil || rawConn == nil {
 			return false
