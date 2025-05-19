@@ -317,7 +317,6 @@ func (r *retrier) dialLocked() (c protect.Conn, err error) {
 // dialStrat returns a core.DuplexConn to r.raddr using a specified strategy, strat,
 // which is one of the settings.Split* constants.
 func (r *retrier) doDialLocked(dialStrat int32) (protect.Conn, error) {
-	network := r.laddr.Network()
 	if r.multidial {
 		var errs error
 		for ; r.nextDialerIdx < len(r.dialers); r.nextDialerIdx++ {
@@ -336,6 +335,7 @@ func (r *retrier) doDialLocked(dialStrat int32) (protect.Conn, error) {
 
 	di := r.dialers[0] // always use the first dialer when not multidialing
 
+	network := r.raddr.Network()
 	if isTCP := strings.HasPrefix(network, "tcp"); !isTCP {
 		return protect.Dial(di, r.laddr, r.raddr)
 	}
@@ -350,7 +350,7 @@ func (r *retrier) doDialLocked(dialStrat int32) (protect.Conn, error) {
 		fallthrough
 	default:
 	}
-	tc, terr := protect.DialTCP(di, r.raddr.Network(), r.laddr, r.raddr)
+	tc, terr := protect.DialTCP(di, network, r.laddr, r.raddr)
 	if terr != nil || tc == nil {
 		return nil, core.JoinErr(terr, errNilConn)
 	}
