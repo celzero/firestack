@@ -49,5 +49,45 @@ func Stream(dst io.Writer, src io.Reader) (int64, error) {
 		*bptr = b
 		Recycle(bptr)
 	}()
-	return io.CopyBuffer(dst, src, b)
+	return io.CopyBuffer(
+		writerNoReadFrom{Writer: dst},
+		readerNoWriteTo{Reader: src},
+		b,
+	)
+}
+
+// from: go-review.googlesource.com/c/go/+/472475/20/src/net/net.go
+
+// noReadFrom can be embedded alongside another type to
+// hide the ReadFrom method of that other type.
+type noReadFrom struct{}
+
+// ReadFrom hides another ReadFrom method.
+// It should never be called.
+func (noReadFrom) ReadFrom(io.Reader) (int64, error) {
+	panic("noReadFrom: hidden func; should not be called")
+}
+
+// noWriteTo can be embedded alongside another type to
+// hide the WriterTo method of that other type.
+type noWriteTo struct{}
+
+func (noWriteTo) WriteTo(io.Writer) (int64, error) {
+	panic("noWriteTo: hidden func; should not be called")
+}
+
+// writerNoReadFrom implements all the methods of io.Writer other
+// than ReadFrom. This is used to permit ReadFrom to call io.Copy
+// without leading to a recursive call to ReadFrom.
+type writerNoReadFrom struct {
+	noReadFrom
+	io.Writer
+}
+
+// readerNoWriteTo implements all the methods of io.Reader other
+// than WriteTo. This is used to permit WriteTo to call io.Copy
+// without leading to a recursive call to WriteTo.
+type readerNoWriteTo struct {
+	noWriteTo
+	io.Reader
 }
