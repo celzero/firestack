@@ -535,15 +535,15 @@ func (r *retrier) Write(b []byte) (int, error) {
 			//  return n + m, err
 			// }
 
-			// retry succeeded, nil error
-			// all of b was written to r.tee which was replayed
+			// retry write succeeded, nil error
+			// ie, all of b was written to r.tee which was replayed
 			return len(b), nil
-		} // not sent by teeSend; do a normal write
+		} // not sent by teedFirstWrite; do a normal write
 	}
 
 	// retryCompleted() is true, so r.conn is final and doesn't need locking
 	if c := r.conn; c == nil || core.IsNil(c) {
-		log.E("retrier: write: [] => %s, no conn", r.raddr)
+		log.E("retrier: write: [] => %s, not retrying, but no conn", r.raddr)
 		return 0, errNilConn
 	} else {
 		return c.Write(b)
@@ -555,7 +555,7 @@ func (r *retrier) Write(b []byte) (int, error) {
 func (r *retrier) ReadFrom(reader io.Reader) (bytes int64, err error) {
 	copies := 0
 	// TODO: skip copyOnce if r.multidial set or if strat is SplitNever?
-	for !r.retryCompleted() {
+	for !r.retryCompleted() { // should iter only once
 		b, e := copyOnce(r, reader)
 		copies++
 		bytes += b
@@ -596,8 +596,7 @@ func (r *retrier) ReadFrom(reader io.Reader) (bytes int64, err error) {
 	case io.ReaderFrom:
 		b, err = x.ReadFrom(reader)
 		bytes += b
-	default:
-		// *net.UDPConn, net.PacketConn etc?
+	default: // net.UDPConn, net.PacketConn etc?
 		optimizedReadFrom = false
 		// read from reader until EOF
 		b, err = core.Stream(c, reader)
