@@ -7,6 +7,7 @@
 package intra
 
 import (
+	"io"
 	"net"
 	"time"
 
@@ -21,10 +22,7 @@ type rwext struct {
 	minidle  uint32 // min idle timeout in secs
 }
 
-func (rw rwext) IsZeroDeadline() bool {
-	r, w := rw.deadlines()
-	return r == 0 && w == 0
-}
+var _ core.RetrierConn = (*rwext)(nil)
 
 func (rw rwext) SetTimeoutSockOpt() (secs int, didSet bool) {
 	r, w := rw.deadlines()
@@ -41,13 +39,33 @@ func (rw rwext) Unwrap() net.Conn {
 }
 
 func (rw rwext) Read(b []byte) (n int, err error) {
-	rw.extend()
+	rw.extendr()
 	return rw.Conn.Read(b)
 }
 
 func (rw rwext) Write(b []byte) (n int, err error) {
-	rw.extend()
+	rw.extendw()
 	return rw.Conn.Write(b)
+}
+
+// ReadFrom implements core.RetrierConn.
+func (rw rwext) ReadFrom(r io.Reader) (n int64, err error) {
+	switch c := rw.Unwrap().(type) {
+	case io.ReaderFrom:
+		// disable read and write deadlines for rw.Conn as
+		// io.ReaderFrom does not support io.Reader+io.Writer
+		// semantics which rwext relies on to extend deadlines.
+		rw.extendForever()
+		return c.ReadFrom(r)
+	default:
+	}
+	bptr := core.Alloc()
+	b := *bptr
+	defer func() {
+		*bptr = b
+		core.Recycle(bptr)
+	}()
+	return io.CopyBuffer(rw, r, b)
 }
 
 func (rw rwext) deadlines() (r, w uint32) {
@@ -57,10 +75,20 @@ func (rw rwext) deadlines() (r, w uint32) {
 		max(rw.minidle, uint32(dopt.WriteTimeoutSec))
 }
 
-func (rw rwext) extend() {
-	r, w := rw.deadlines()
-	tr := time.Second * time.Duration(r)
+func (rw rwext) extendForever() {
+	extendc(rw, 0, 0)
+}
+
+func (rw rwext) extendw() {
+	_, w := rw.deadlines()
 	tw := time.Second * time.Duration(w)
 
-	extendc(rw.Conn, tr, tw)
+	extendw(rw.Conn, tw)
+}
+
+func (rw rwext) extendr() {
+	r, _ := rw.deadlines()
+	tr := time.Second * time.Duration(r)
+
+	extendr(rw.Conn, tr)
 }
