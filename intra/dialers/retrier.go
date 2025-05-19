@@ -499,19 +499,20 @@ func (r *retrier) Write(b []byte) (int, error) {
 			sentAndCopied, src, r.raddr, n, err)
 
 		if sentAndCopied {
-			// since Write() does not wait for <-retryDoneCh if there are no errors,
-			// it is possible that ReadFrom() => copyOnce() is called before retryDoneCh
-			// is closed, resulting in two Write() calls, and r.tee containing buffers
-			// the size of two Writes()
-			if err == nil {
-				return n, nil
-			}
-
 			start := time.Now()
 			// write error on the provisional socket should be handled
 			// by the retry procedure. Block until we have a final socket (which will
 			// already have replayed r.tee), and retry.
+			// ie, wait until first write is done on the final socket.
 			<-r.retryDoneCh
+
+			// if Write() does not wait for <-retryDoneCh in absence of errors,
+			// it is possible that ReadFrom() => copyOnce() is called before retryDoneCh
+			// is closed, resulting in two Write() calls, and r.tee containing buffers
+			// the size of two Writes()
+			if err == nil {
+				return n, nil // 1st write + read succeeded
+			} // 1st write failed, but retry is complete
 
 			r.mu.Lock()
 			defer r.mu.Unlock()
