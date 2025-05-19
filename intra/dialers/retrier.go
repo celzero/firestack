@@ -308,8 +308,8 @@ func (r *retrier) dialLocked() (c protect.Conn, err error) {
 	r.conn = c // c may be nil
 	r.timeout = calcTimeout(rtt)
 
-	logeif(err)("retrier: dial(%s) %s=>%s; strat: %d (mult? %t), rtt: %dms; err? %v",
-		r.dialerOpts, laddr(c), r.raddr, strat, r.multidial, rtt.Milliseconds(), err)
+	logeif(err)("retrier: dial(%s) %s=>%s; strat: %d (mult? %d), rtt: %dms; err? %v",
+		r.dialerOpts, laddr(c), r.raddr, strat, len(r.dialers), rtt.Milliseconds(), err)
 
 	return
 }
@@ -321,13 +321,15 @@ func (r *retrier) doDialLocked(dialStrat int32) (protect.Conn, error) {
 		var errs error
 		for ; r.nextDialerIdx < len(r.dialers); r.nextDialerIdx++ {
 			c, err := protect.Dial(r.dialers[r.nextDialerIdx], r.laddr, r.raddr)
+
+			logeif(err)("retrier: mult: #%d/%d dial(%s) %s=>%s; strat: %d, err? %v",
+				r.nextDialerIdx, len(r.dialers), r.dialerOpts, laddr(c), r.raddr, dialStrat, err)
+
 			if err == nil {
 				return c, nil
 			} else {
 				clos(c)
 				errs = core.JoinErr(errs, err)
-				logeif(err)("retrier: mult: #%d dial(%s) %s=>%s; strat: %d, err? %v",
-					r.nextDialerIdx, r.dialerOpts, laddr(c), r.raddr, dialStrat, err)
 			}
 		}
 		return nil, core.OneErr(errs, errNoDialer)
@@ -438,26 +440,28 @@ func (r *retrier) Read(buf []byte) (n int, err error) {
 		if !r.retryCompleted() {
 			note = log.I
 			defer close(r.retryDoneCh) // signal that retry is complete or unnecessary
-			var retryReadErr error
+
+			retryReadErr := err
 			// retry on errs like timeouts or connection resets
-			for (c == nil || core.IsNil(c) || err != nil) && r.canRetryLocked() {
+			for (c == nil || core.IsNil(c) || retryReadErr != nil) && r.canRetryLocked() {
 				r.retryCount++
 				n, retryReadErr = r.retryWriteReadLocked(buf)
 				c = r.conn // re-assign c to newConn, if any; may be nil
-				if c == nil || core.IsNil(c) {
+				if c == nil || core.IsNil(c) || retryReadErr != nil {
 					retryReadErr = core.OneErr(retryReadErr, errNoConn)
 					err = core.JoinErr(err, retryReadErr)
 				} else {
-					err = nil // break
+					retryReadErr = nil // break
+					err = nil          // return no error
 				}
-				logeor(retryReadErr, note)("retrier: read#%d + (mult? %t / c: %d): [%s<=%s] %d; err? %v",
+				logeor(retryReadErr, note)("retrier: read: #%d + (mult? %t / c: %d): [%s<=%s] %d; err? %v",
 					r.retryCount, r.multidial, r.nextDialerIdx, laddr(c), r.raddr, n, retryReadErr)
 			}
 			if c != nil && core.IsNotNil(c) {
 				_ = c.SetReadDeadline(r.readDeadline)
 				_ = c.SetWriteDeadline(r.writeDeadline)
 			}
-			logeor(err, note)("retrier: read#%d + (mult? %d / %d) [%s<=%s] %d; err? %v",
+			logeor(err, note)("retrier: read: #%d + (mult? %d / %d) [%s<=%s] %d; err? %v",
 				r.retryCount, len(r.dialers), r.nextDialerIdx, laddr(c), r.raddr, n, err)
 			r.tee = nil // discard teed data
 			return
