@@ -436,6 +436,7 @@ func (r *retrier) Read(buf []byte) (n int, err error) {
 		defer r.mu.Unlock()
 
 		if !r.retryCompleted() {
+			note = log.I
 			defer close(r.retryDoneCh) // signal that retry is complete or unnecessary
 			var retryReadErr error
 			// retry on errs like timeouts or connection resets
@@ -449,13 +450,15 @@ func (r *retrier) Read(buf []byte) (n int, err error) {
 				} else {
 					err = nil // break
 				}
-				logeor(retryReadErr, log.I)("retrier: read#%d + (mult? %t / c: %d): [%s<=%s] %d; err? %v",
+				logeor(retryReadErr, note)("retrier: read#%d + (mult? %t / c: %d): [%s<=%s] %d; err? %v",
 					r.retryCount, r.multidial, r.nextDialerIdx, laddr(c), r.raddr, n, retryReadErr)
 			}
 			if c != nil && core.IsNotNil(c) {
 				_ = c.SetReadDeadline(r.readDeadline)
 				_ = c.SetWriteDeadline(r.writeDeadline)
 			}
+			logeor(err, note)("retrier: read#%d + (mult? %d / %d) [%s<=%s] %d; err? %v",
+				r.retryCount, len(r.dialers), r.nextDialerIdx, laddr(c), r.raddr, n, err)
 			r.tee = nil // discard teed data
 			return
 		}
