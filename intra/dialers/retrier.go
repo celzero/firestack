@@ -513,7 +513,17 @@ func (r *retrier) Write(b []byte) (int, error) {
 			// by the retry procedure. Block until we have a final socket (which will
 			// already have replayed r.tee), and retry.
 			// ie, wait until first write is done on the final socket.
-			<-r.retryDoneCh
+			maxExpectedReadTimeout := r.timeout * maxRetryCount
+			if r.multidial {
+				maxExpectedReadTimeout = r.timeout * time.Duration(len(r.dialers))
+			}
+			select {
+			case <-r.retryDoneCh:
+			case <-time.After(3 * maxExpectedReadTimeout): // arb high timeout; it should rarely if ever needed
+				log.W("retrier: write: 1st write timed-out waiting for %d [calc-rtt: %d] 1st read b/w [%s=>%s], mult: %d, n: %d, err: %v",
+					3*maxExpectedReadTimeout, r.timeout, src, r.raddr, len(r.dialers), n, err)
+				return n, core.JoinErr(err, errRetryTimeout)
+			}
 
 			// if Write() does not wait for <-retryDoneCh in absence of errors,
 			// it is possible that ReadFrom() => copyOnce() is called before retryDoneCh
