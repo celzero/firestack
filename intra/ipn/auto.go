@@ -160,6 +160,9 @@ func (h *auto) dial(network, laddr, raddr string) (protect.Conn, error) {
 		if len(healthy) <= 0 {
 			// no healthy proxies; fail open
 			all := core.Map(rpns, func(p Proxy) protect.RDialer {
+				if p == nil || core.IsNil(p) {
+					return nil // nil proxies out
+				}
 				return p.Dialer()
 			})
 			return dialAny(core.WithoutNils(all), network, laddr, raddr)
