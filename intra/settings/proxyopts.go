@@ -141,6 +141,8 @@ func (m AutoModeType) String() string {
 // SetAutoMode sets the global AutoMode variable to y.
 // Indicates if backend.Auto proxy is in local, remote, or hybrid mode.
 func SetAutoMode(m int32) (prev int32) {
+	m = max(m, AutoModeLocal)
+	m = min(m, AutoModeHybrid)
 	return AutoMode.Swap(m)
 }
 
