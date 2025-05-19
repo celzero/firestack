@@ -59,13 +59,8 @@ func (rw rwext) ReadFrom(r io.Reader) (n int64, err error) {
 		return c.ReadFrom(r)
 	default:
 	}
-	bptr := core.Alloc()
-	b := *bptr
-	defer func() {
-		*bptr = b
-		core.Recycle(bptr)
-	}()
-	return io.CopyBuffer(rw, r, b)
+	// nb: stream rw (which extends deadlines) not rw.Conn
+	return core.Stream(rw, r)
 }
 
 func (rw rwext) deadlines() (r, w uint32) {
