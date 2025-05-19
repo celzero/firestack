@@ -45,7 +45,10 @@ type zeroNetAddr struct{}
 func (zeroNetAddr) Network() string { return "no" }
 func (zeroNetAddr) String() string  { return "none" }
 
-const maxRetryCount = 3
+const (
+	maxRetryCount = 3
+	maxEmptyReads = 3
+)
 
 // ippPins maintains a limited-time mapping between ip:port addresses and dialer IDs.
 // TODO: invalidate cache on network changes.
@@ -408,22 +411,28 @@ func (r *retrier) CloseRead() error {
 
 // Read data from r.conn into buf
 func (r *retrier) Read(buf []byte) (n int, err error) {
-	c := r.conn
-	if c == nil || core.IsNil(c) { // should rarely happen
-		log.E("retrier: read: [] <= %s, no conn", r.raddr)
-		return 0, errNoConn
-	}
-
 	note := log.V
 
-	n, err = c.Read(buf)      // r.conn may be provisional or final connection
-	if n == 0 && err == nil { // no data and no error
-		note("retrier: read: no data; retrying [%s<=%s]", laddr(c), r.raddr)
-		return // nothing yet to retry; on to next read
-	}
-	logeor(err, note)("retrier: read: [%s<=%s] %d; err: %v", laddr(c), r.raddr, n, err)
+	c := r.conn // r.conn may be provisional or final connection
+	if c != nil && core.IsNotNil(c) {
+		log.W("retrier: read: [] <= %s, no conn", r.raddr)
+
+		for reads := range maxEmptyReads {
+			n, err = c.Read(buf)
+			if n == 0 && err == nil { // no data and no error
+				note("retrier: read: no data #%d; retrying [%s<=%s]", reads, laddr(c), r.raddr)
+				continue // nothing yet to retry; on to next read
+			} // else: check if retry is needed (c == nil or err != nil)
+			break
+		}
+		if n == 0 && err == nil {
+			err = io.ErrNoProgress
+		}
+		logeor(err, note)("retrier: read: [%s<=%s] %d; err: %v", laddr(c), r.raddr, n, err)
+	} // else: needs retry as c == nil
 
 	note = log.D
+
 	if !r.retryCompleted() {
 		r.mu.Lock()
 		defer r.mu.Unlock()
