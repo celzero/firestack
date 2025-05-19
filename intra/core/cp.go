@@ -56,6 +56,7 @@ func Stream(dst io.Writer, src io.Reader) (int64, error) {
 	)
 }
 
+// ref: github.com/golang/go/issues/58808
 // from: go-review.googlesource.com/c/go/+/472475/20/src/net/net.go
 
 // noReadFrom can be embedded alongside another type to
