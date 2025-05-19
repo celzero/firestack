@@ -46,11 +46,11 @@ func Stream(dst io.Writer, src io.Reader) (written int64, err error) {
 	}
 
 	if _, ok := src.(io.WriterTo); ok {
-		// hide WriteTo method of src
+		// hide WriteTo func of src
 		src = readerNoWriteTo{Reader: src}
 	}
 	if _, ok := dst.(io.ReaderFrom); ok {
-		// hide ReadFrom method of dst
+		// hide ReadFrom func of dst
 		dst = writerNoReadFrom{Writer: dst}
 	}
 
@@ -62,6 +62,8 @@ func Stream(dst io.Writer, src io.Reader) (written int64, err error) {
 		Recycle(bptr)
 	}()
 	// implementation from: io.CopyBuffer
+	// laid out here since "hiding" ReadFrom/WriteTo funcs
+	// did not work as expected and led to recursive calls.
 	for {
 		nr, er := src.Read(buf)
 		if nr > 0 {
