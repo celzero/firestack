@@ -458,7 +458,7 @@ func (r *retrier) Read(buf []byte) (n int, err error) {
 	return
 }
 
-func (r *retrier) teeSend(b []byte) (n int, didWrite bool, src net.Addr, err error) {
+func (r *retrier) teedFirstWrite(b []byte) (n int, didWrite bool, src net.Addr, err error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -487,7 +487,8 @@ func (r *retrier) Write(b []byte) (int, error) {
 	// every packet after retry completes, while also ensuring that r.tee is
 	// empty at steady-state.
 	if !r.retryCompleted() {
-		n, sentAndCopied, src, err := r.teeSend(b)
+		// todo: what if sentAndCopied is false and err != nil?
+		n, sentAndCopied, src, err := r.teedFirstWrite(b)
 
 		note := log.D
 		if sentAndCopied {
