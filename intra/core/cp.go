@@ -18,7 +18,7 @@ var (
 
 // Pipe copies data from src to dst, and returns the number of bytes copied.
 // Prefers src.WriteTo(dst) and dst.ReadFrom(src) if available.
-// Otherwise, uses io.CopyBuffer, recycling buffers from global pool.
+// Otherwise, it uses core.Stream.
 func Pipe(dst io.Writer, src io.Reader) (int64, error) {
 	if IsNil(src) || IsNil(dst) {
 		return 0, errNoPipe
@@ -35,7 +35,8 @@ func Pipe(dst io.Writer, src io.Reader) (int64, error) {
 }
 
 // Stream reads data from src in to dst until error, and returns the no. of bytes read.
-// Internally, it uses io.CopyBuffer, recycling buffers from global pool.
+// Internally, it bypasses io.ReaderFrom and io.WriterTo but uses io.CopyBuffer,
+// recycling buffers from a global pool.
 func Stream(dst io.Writer, src io.Reader) (int64, error) {
 	if IsNil(src) || IsNil(dst) {
 		return 0, errNoStream
