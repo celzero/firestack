@@ -42,6 +42,15 @@ func Stream(dst io.Writer, src io.Reader) (int64, error) {
 		return 0, errNoStream
 	}
 
+	if _, ok := src.(io.WriterTo); ok {
+		// hide WriteTo method of src
+		src = readerNoWriteTo{Reader: src}
+	}
+	if _, ok := dst.(io.ReaderFrom); ok {
+		// hide ReadFrom method of dst
+		dst = writerNoReadFrom{Writer: dst}
+	}
+
 	bptr := Alloc()
 	b := *bptr
 	b = b[:cap(b)]
@@ -49,11 +58,7 @@ func Stream(dst io.Writer, src io.Reader) (int64, error) {
 		*bptr = b
 		Recycle(bptr)
 	}()
-	return io.CopyBuffer(
-		writerNoReadFrom{Writer: dst},
-		readerNoWriteTo{Reader: src},
-		b,
-	)
+	return io.CopyBuffer(dst, src, b)
 }
 
 // ref: github.com/golang/go/issues/58808
