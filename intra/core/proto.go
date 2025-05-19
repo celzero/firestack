@@ -77,8 +77,10 @@ type DuplexConn interface {
 	TCPConn
 	PoolableConn
 	KeepAliveConn
-	io.ReaderFrom
 }
+
+// so it can be used by dialers/retrier.go
+type RetrierConn io.ReaderFrom
 
 // so it can be pooled by ConnPool.
 type PoolableConn syscall.Conn
