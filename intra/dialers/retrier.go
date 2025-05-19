@@ -517,11 +517,16 @@ func (r *retrier) Write(b []byte) (int, error) {
 			defer r.mu.Unlock()
 
 			elapsed := time.Since(start).Milliseconds()
-			if r.retryErr != nil {
-				// r.conn may be nil or closed
-				log.E("retrier: write: retry failed [%s=>%s] in %dms; old => new: %v => %v",
-					laddr(r.conn), r.raddr, elapsed, err, r.retryErr)
-				return n, core.UniqErr(err, r.retryErr) // pass on the og error, too
+			// r.conn may be nil or closed by the time we get here
+			finalConn := r.conn
+			noconn := finalConn == nil || core.IsNil(finalConn)
+			if r.retryWriteErr != nil || noconn { // check if retried writes also failed
+				if noconn {
+					err = core.JoinErr(err, errNilConn)
+				}
+				log.E("retrier: write: retry failed [%s=>%s] in %dms; old => new: %v => %v; noconn? %t",
+					laddr(r.conn), r.raddr, elapsed, err, r.retryWriteErr, noconn)
+				return n, core.JoinErr(err, r.retryWriteErr) // pass on the og error, too
 			}
 
 			// if len(leftover) > 0 {
