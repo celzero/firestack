@@ -262,7 +262,6 @@ func (h *baseHandler) forward(local, remote net.Conn, smm *SocketSummary) {
 	defer h.conntracker.Untrack(cid)
 
 	isrwext := false
-	iszerodeadline := false
 	withsockopt := false
 	timeoutsecs := 0
 	// enable core.Pipe (sendfile/zero-copy) optimizations on TCP if
@@ -270,14 +269,12 @@ func (h *baseHandler) forward(local, remote net.Conn, smm *SocketSummary) {
 	// a no-op) by unwrapping the underlying remote conn from rwext.
 	if r, ok := remote.(rwext); ok {
 		isrwext = true
-		if iszerodeadline = r.IsZeroDeadline(); iszerodeadline {
-			remote = r.Unwrap()
-		} else if timeoutsecs, withsockopt = r.SetTimeoutSockOpt(); withsockopt || timeoutsecs <= 0 {
+		if timeoutsecs, withsockopt = r.SetTimeoutSockOpt(); withsockopt || timeoutsecs <= 0 {
 			remote = r.Unwrap() // c may be *net.TCPConn or retrier or splitter
 		}
 	}
-	log.I("com: %s: forward: new conn %s rwext? %t, zerodeadline? %t, sockopt? %t (%ds); %s for %s",
-		h.proto, via, isrwext, iszerodeadline, withsockopt, timeoutsecs, tup, uid)
+	log.I("com: %s: forward: new conn %s rwext? %t, sockopt? %t (%ds); %s for %s",
+		h.proto, via, isrwext, withsockopt, timeoutsecs, tup, uid)
 
 	uploadch := make(chan ioinfo)
 
