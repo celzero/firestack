@@ -312,7 +312,12 @@ func (r *retrier) dialLocked() error {
 	c, err := r.doDialLocked(strat)
 	rtt := time.Since(begin)
 
-	r.conn = c // c may be nil
+	if c != nil && core.IsNotNil(c) { // c may be deep nil
+		r.conn = c
+	} else {
+		r.conn = nil
+	}
+
 	r.timeout = calcTimeout(rtt)
 
 	logeif(err)("retrier: dial(%s) %s=>%s; strat: %d (mult? %d %T), rtt: %dms; err? %v",
