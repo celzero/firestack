@@ -91,17 +91,23 @@ func (pxr *proxifier) addRpnProxy(acc RpnAcc, cc string) (Proxy, error) {
 		return nil, core.JoinErr(err, errAddProxy)
 	}
 
-	rp, err := asRpnProxy(p, acc, pxr)
-	if rp == nil {
-		defer pxr.removeProxy(p.ID(), true /*force*/)
-		return nil, core.JoinErr(err, errAddProxyAsRpn)
+	// add rpn proxy iff rpn proxy isn't multicountry (in which case only one
+	// instance of it can exist and hence it is being re-added if already present)
+	// or, if it is multicountry, add it only if the country code is the main country,
+	// as forked children countries only need be added as plain-old proxies (done above).
+	if !acc.MultiCountry() || strings.HasSuffix(p.ID(), mainCountryCode) {
+		rp, err := asRpnProxy(p, acc, pxr)
+		if rp == nil {
+			defer pxr.removeProxy(p.ID(), true /*force*/)
+			return nil, core.JoinErr(err, errAddProxyAsRpn)
+		}
+
+		// TODO: setup hop from mainCountryCode to forked rpn proxies
+
+		pxr.rpnmu.Lock()
+		pxr.rp[acc.ProviderID()] = rp // removed on unregister
+		pxr.rpnmu.Unlock()
 	}
-
-	// TODO: setup hop from mainCountryCode to forked rpn proxies
-
-	pxr.rpnmu.Lock()
-	pxr.rp[acc.ProviderID()] = rp // removed on unregister
-	pxr.rpnmu.Unlock()
 
 	return p, nil
 }
@@ -124,9 +130,12 @@ func (pxr *proxifier) addRpnProxy2(p Proxy, acc RpnAcc) (Proxy, error) {
 		return nil, errAddProxy
 	}
 
-	pxr.rpnmu.Lock()
-	pxr.rp[acc.ProviderID()] = rp // removed on unregister
-	pxr.rpnmu.Unlock()
+	// see: addRpnProxy() above
+	if !acc.MultiCountry() || strings.HasSuffix(p.ID(), mainCountryCode) {
+		pxr.rpnmu.Lock()
+		pxr.rp[acc.ProviderID()] = rp // removed on unregister
+		pxr.rpnmu.Unlock()
+	}
 
 	// TODO: setup hop from mainCountryCode to forked rpn proxies
 	go pxr.refreshHopOriginsIfAny(p, "addRpnProxy2."+proxyid)
