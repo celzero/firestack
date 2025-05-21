@@ -18,7 +18,11 @@ import (
 // https://github.com/amnezia-vpn/amneziawg-go/pull/2/files
 
 const (
-	sNoop = 0 // no-op size
+	// TODO: re-enable after figuring out how to account for
+	// changing the message header values for cookies mac1 & mac2
+	// here: github.com/amnezia-vpn/amneziawg-go/blob/27e661d68e/device/send.go#L167
+	disableAmenzia = true
+	sNoop          = 0 // no-op size
 )
 
 // Jc (Junk packet count) - number of packets with random data that are sent before the start of the session
@@ -49,6 +53,9 @@ func (a *Amnezia) String() string {
 	if a == nil {
 		return "<nil>"
 	}
+	if disableAmenzia {
+		return "<disabled>"
+	}
 	if !a.Set() {
 		return "<unset>"
 	}
@@ -57,7 +64,7 @@ func (a *Amnezia) String() string {
 }
 
 func (a *Amnezia) Set() bool {
-	if a == nil {
+	if a == nil || disableAmenzia {
 		return false
 	}
 
@@ -93,9 +100,10 @@ func (a *Amnezia) send(pktptr *[]byte) (ok bool) {
 
 	typ := binary.LittleEndian.Uint32(pkt)
 
-	a.logIfNeeded("send", typ, n)
-
 	*pktptr, _ = a.instate(pkt)
+
+	a.logIfNeeded("send", typ, n, len(*pktptr))
+
 	return true
 }
 
@@ -107,13 +115,15 @@ func (a *Amnezia) recv(pktptr *[]byte) (ok bool) {
 	var typ uint32
 	pkt := *pktptr
 
-	if len(pkt) < device.MinMessageSize {
+	recvLen := len(pkt)
+	if recvLen < device.MinMessageSize {
 		return
 	}
 	// h := uint16(device.MessageTransportOffsetReceiver)
 
 	pkt, typ = a.strip(pkt)
 
+	stripLen := len(pkt)
 	switch typ {
 	case device.MessageInitiationType, a.H1:
 		typ = device.MessageInitiationType
@@ -129,7 +139,7 @@ func (a *Amnezia) recv(pktptr *[]byte) (ok bool) {
 		binary.LittleEndian.PutUint32(pkt, device.MessageTransportType)
 	}
 
-	a.logIfNeeded("recv", typ, len(pkt))
+	a.logIfNeeded("recv", typ, recvLen, stripLen)
 
 	*pktptr = pkt
 	return true
@@ -176,17 +186,17 @@ func (a *Amnezia) instate(pkt []byte) ([]byte, uint32) {
 	log.VV("wg: %s: amnezia: instate: msg size: %d, msg typ: (d: %d, o: %d), pad? %t, s1/s2: %d/%d, do? %t",
 		a.id, n, defaultType, obsType, pad > 0, a.S1, a.S2, maybeInstate)
 
-	if obsType > 0 {
+	if defaultType != obsType {
 		binary.LittleEndian.PutUint32(pkt, obsType)
 	}
 	// pad may be 0
 	if random, err := blob(pad); err != nil { // unlikely
-		log.E("wg: %s: amnezia: instate: %v", a.id, err)
+		log.E("wg: %s: amnezia: instate: pad err %v", a.id, err)
 	} else if len(random) > 0 && len(random) == int(pad) {
 		pkt = append(random, pkt...)
 	}
 
-	if obsType > 0 {
+	if defaultType != obsType {
 		return pkt, obsType
 	}
 	return pkt, defaultType
@@ -229,27 +239,27 @@ func (a *Amnezia) strip(pkt []byte) ([]byte, uint32) {
 	return pkt, uint32(defaultType)
 }
 
-func (a *Amnezia) logIfNeeded(dir string, typ uint32, n int) {
+func (a *Amnezia) logIfNeeded(dir string, typ uint32, n int, newn int) {
 	switch typ {
 	case device.MessageInitiationType:
 		notok := n != device.MessageInitiationSize
-		logif(notok)("wg: %s: amnezia: %s: err initiation %d != %d",
-			a.id, dir, n, device.MessageInitiationSize)
+		logif(notok)("wg: %s: amnezia: %s: err initiation %d != %d (=> %d)",
+			a.id, dir, n, device.MessageInitiationSize, newn)
 	case device.MessageResponseType:
 		notok := n != device.MessageResponseSize
-		logif(notok)("wg: %s: amnezia: %s: err response %d != %d",
-			a.id, dir, n, device.MessageResponseSize)
+		logif(notok)("wg: %s: amnezia: %s: err response %d != %d (=> %d)",
+			a.id, dir, n, device.MessageResponseSize, newn)
 	case device.MessageCookieReplyType:
 		notok := n != device.MessageCookieReplySize
-		logif(notok)("wg: %s: amnezia: %s: err cookie %d != %d",
-			a.id, dir, n, device.MessageCookieReplySize)
+		logif(notok)("wg: %s: amnezia: %s: err cookie %d != %d (=> %d)",
+			a.id, dir, n, device.MessageCookieReplySize, newn)
 	case device.MessageTransportType:
 		notok := n < device.MinMessageSize
-		logif(notok)("wg: %s: amnezia: %s: err data %d < %d",
-			a.id, dir, n, device.MinMessageSize)
+		logif(notok)("wg: %s: amnezia: %s: err data %d < %d (=> %d)",
+			a.id, dir, n, device.MinMessageSize, newn)
 	default:
-		log.W("wg: %s: amnezia: %s: unexpected type %d; sz(pkt): %d",
-			a.id, dir, typ, n)
+		log.W("wg: %s: amnezia: %s: unexpected type %d; sz(pkt): %d => %d",
+			a.id, dir, typ, n, newn)
 	}
 }
 
@@ -268,5 +278,5 @@ func logif(cond bool) log.LogFn {
 	if cond {
 		return log.D
 	}
-	return log.VV
+	return log.N
 }
