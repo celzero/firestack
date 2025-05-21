@@ -339,7 +339,8 @@ func (s *StdNetBind) makeReceiveFn(uc net.PacketConn) conn.ReceiveFunc {
 			s.observer("r", err)
 		}()
 
-		recvOverwritten := false
+		usingamz := s.amnezia.Load().Set()
+		overwritten := false
 
 		numMsgs := 0
 		b := bufs[0] // usually sized device.MaxMessageSize
@@ -347,23 +348,22 @@ func (s *StdNetBind) makeReceiveFn(uc net.PacketConn) conn.ReceiveFunc {
 		extend(uc, wgtimeout)
 		n, addr, err := uc.ReadFrom(b)
 		if err == nil {
-			b, recvOverwritten = s.amnezia.Load().recv(b, n)
+			b, overwritten = s.amnezia.Load().recv(b, n)
 			numMsgs++
-			if recvOverwritten {
-				n = len(b)
-			}
 		}
 
 		for i := range numMsgs {
-			if recvOverwritten {
+			if overwritten {
 				copy(bufs[i], b)
+				sizes[i] = len(b)
+			} else { // bufs remained unchanged
+				sizes[i] = n
 			}
-			sizes[i] = n
 			eps[i] = s.asEndpoint(addr)
 		}
 
 		logeif(err != nil && !timedout(err))("wg: bind: %s recvFrom(%v): %d / ov? %t<=%t / err? %v",
-			s.id, addr, n, s.amnezia.Load().Set(), recvOverwritten, err)
+			s.id, addr, n, usingamz, overwritten, err)
 		return numMsgs, err
 	}
 }
