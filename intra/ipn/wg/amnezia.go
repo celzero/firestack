@@ -184,7 +184,8 @@ func (a *Amnezia) instate(pkt []byte) ([]byte, uint32) {
 	log.VV("wg: %s: amnezia: instate: msg size: %d, msg typ: (d: %d, o: %d), pad? %t, s1/s2: %d/%d, do? %t",
 		a.id, n, defaultType, obsType, pad > 0, a.S1, a.S2, maybeInstate)
 
-	if defaultType != obsType {
+	useObsType := obsType > 0 && defaultType != obsType
+	if useObsType {
 		binary.LittleEndian.PutUint32(pkt, obsType)
 	}
 	// pad may be 0
@@ -194,7 +195,7 @@ func (a *Amnezia) instate(pkt []byte) ([]byte, uint32) {
 		pkt = append(random, pkt...)
 	}
 
-	if defaultType != obsType {
+	if useObsType {
 		return pkt, obsType
 	}
 	return pkt, defaultType
