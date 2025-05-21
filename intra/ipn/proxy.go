@@ -122,6 +122,7 @@ func (pxr *proxifier) addRpnProxy2(p Proxy, acc RpnAcc) (Proxy, error) {
 
 	rp, err := asRpnProxy(p, acc, pxr)
 	if rp == nil {
+		defer pxr.removeProxy(p.ID(), true /*force*/)
 		return nil, core.JoinErr(err, errAddProxyAsRpn)
 	}
 
