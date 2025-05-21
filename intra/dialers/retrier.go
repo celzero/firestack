@@ -127,7 +127,7 @@ func (r *retrier) retryCompleted() bool {
 }
 
 func (r *retrier) canRetryLocked() bool {
-	return r.retryCount < maxRetryCount
+	return r.dialerOpts.Retry != settings.RetryNever && r.retryCount < maxRetryCount
 }
 
 // Given rtt of a successful socket connection (SYN sent - SYNACK received),
