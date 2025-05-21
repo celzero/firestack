@@ -613,8 +613,7 @@ func loadMH(mh *multihost.MH, v string) int {
 func loadIPNets(out *[]netip.Prefix, v string) (err error) {
 	var ip netip.Addr
 	// may be a csv: "172.1.0.2/32, 2000:db8::2/128"
-	vv := strings.Split(v, ",")
-	for _, str := range vv {
+	for str := range strings.SplitSeq(v, ",") {
 		var ipnet netip.Prefix
 		str = strings.TrimSpace(str)
 		if ip, err = netip.ParseAddr(str); err != nil {
