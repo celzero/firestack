@@ -208,7 +208,7 @@ type proxifier struct {
 	p   map[string]Proxy
 
 	rpnmu sync.RWMutex        // protects rp
-	rp    map[string]RpnProxy // rpn proxies
+	rp    map[string]RpnProxy // main rpn proxies
 
 	hmu sync.RWMutex        // protects hp
 	hp  map[string][]string // hopproxy => [proxyid]
@@ -634,6 +634,20 @@ func (px *proxifier) ProxyFor(id string) (Proxy, error) {
 		} else if id == Rpn64 {
 			return px.exit64, nil
 		} // Ingress do not have a fast path
+	}
+
+	if isRPN(id) {
+		rpn, _ := core.Grx("pxr.mainRpnProxyFor: "+id, func(_ context.Context) (RpnProxy, error) {
+			// id here must be non-countrycode "rpn provider"
+			// ex: x.RpnPro; not "rpn+cc": x.RpnPro+US, x.RpnPro+MX
+			if p, err := px.mainRpnProxyOf(id); err == nil {
+				return p, nil
+			}
+			return nil, errNotRpnID
+		}, getproxytimeout/2)
+		if rpn != nil && core.IsNotNil(rpn) {
+			return rpn, nil
+		} // else: search for id in px.p, which includes rpn+cc proxies
 	}
 
 	// go.dev/play/p/xCug1W3OcMH
