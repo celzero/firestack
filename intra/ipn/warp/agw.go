@@ -41,6 +41,12 @@ var (
 	errAesCipherLen       = errors.New("agw: len(ciphertext) != x*blockSize")
 )
 
+var (
+	twentyFourHoursInMillis = (24 * time.Hour).Milliseconds()
+	twelveHoursInSecs       = int64((12 * time.Hour).Seconds())
+	twentyTwoHours          = 22 * time.Hour
+)
+
 const (
 	prod = true
 
@@ -601,10 +607,9 @@ func (a *AgwClient) Created() int64 {
 		return 0
 	}
 
-	const twentyFourHoursInSecs = 24 * 60 * 60
 	dob := time.Unix(cfg.CreateTimestamp, 0)
 	if dob.IsZero() { // if unknown, assume it was created 24h before expiry
-		return a.Expires() - twentyFourHoursInSecs
+		return a.Expires() - twentyFourHoursInMillis
 	}
 	return dob.UnixMilli()
 }
@@ -615,7 +620,7 @@ func (a *AgwClient) Expires() int64 {
 	if cfg == nil {
 		return 0
 	}
-	const twelveHoursInSecs = 12 * 60 * 60 // 12h before expiry
+	// 12h before expiry
 	newAt := time.Unix(cfg.ExpiresTimestamp-twelveHoursInSecs, 0)
 	return newAt.UnixMilli()
 }
@@ -826,11 +831,11 @@ func (w *Client) MakeAmzWgFrom(existingStateJson []byte) (*AgwClient, error) {
 	a.AmzWgConfig = &config
 
 	log.I("agw: make: restored for: %s; from: %s until %s",
-		a.Who(), fmtUnixMillis(a.Created()), (a.Expires()))
+		a.Who(), fmtUnixMillis(a.Created()), fmtUnixMillis(a.Expires()))
 
 	return a, nil
 }
 
 func fmtUnixMillis(ms int64) string {
-	return time.UnixMilli(ms).Format(time.Stamp)
+	return core.FmtUnixMillisAsTimestamp(ms)
 }

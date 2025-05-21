@@ -354,7 +354,7 @@ func (t *rtunnel) stat() (*x.NetStat, error) {
 	out.GOSt.OtherSys = core.FmtBytes(mm.OtherSys)
 	out.GOSt.NextGC = core.FmtTimeNs(mm.NextGC)
 	out.GOSt.LastGC = core.FmtTimeNs(mm.LastGC)
-	out.GOSt.PauseSecs = core.FmtTimeSecs(mm.PauseTotalNs)
+	out.GOSt.PauseSecs = core.Nano2Sec(mm.PauseTotalNs)
 	out.GOSt.NumGC = int32(mm.NumGC)
 	out.GOSt.NumForcedGC = int32(mm.NumForcedGC)
 	out.GOSt.GCCPUFraction = fmt.Sprintf("%0.4f", mm.GCCPUFraction)
@@ -377,8 +377,16 @@ func (t *rtunnel) stat() (*x.NetStat, error) {
 		out.RDNSIn.Proxies = csv2ssv(p.LiveProxies())
 		out.RDNSIn.ProxiesHas4 = rr.IP4()
 		out.RDNSIn.ProxiesHas6 = rr.IP6()
-		out.RDNSIn.ProxyLastOK = core.FmtUnixMillisAsPeriod(ss.LastOK)
-		out.RDNSIn.ProxySince = core.FmtUnixMillisAsPeriod(ss.Since)
+		if ss.LastOK > 0 {
+			out.RDNSIn.ProxyLastOK = core.FmtUnixMillisAsPeriod(ss.LastOK)
+		} else {
+			out.RDNSIn.ProxyLastOK = "unknown"
+		}
+		if ss.Since > 0 {
+			out.RDNSIn.ProxySince = core.FmtUnixMillisAsPeriod(ss.Since)
+		} else {
+			out.RDNSIn.ProxySince = "down"
+		}
 	}
 	return out, nil
 }

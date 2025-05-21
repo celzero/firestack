@@ -232,7 +232,7 @@ func (id *Identity) Expires() (zz time.Time) {
 	if t := id.Since(); t.IsZero() {
 		return
 	} else {
-		return t.Add(22 * time.Hour)
+		return t.Add(twentyTwoHours)
 	}
 }
 
