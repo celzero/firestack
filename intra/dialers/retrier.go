@@ -399,19 +399,15 @@ func (r *retrier) retryWriteReadLocked(buf []byte) (int, error) {
 	writedone := r.writeDone.Load()
 	if readdone {
 		core.CloseOp(newConn, core.CopR)
-	} else {
-		_ = newConn.SetReadDeadline(r.readDeadline)
 	}
-	// caller might have set read or write deadlines before the retry.
 	if writedone {
 		core.CloseOp(newConn, core.CopW)
-	} else {
-		_ = newConn.SetWriteDeadline(r.writeDeadline)
 	}
 
 	logedcond(readdone || writedone)("retrier: retryLocked: done! strat(%s; mult? %d %T) %s=>%s; write? %d/%d; closed r/w? %t/%t; deadline r/w: %v/%v",
 		r.dialerID(), len(r.dialers), newConn, laddr(newConn), r.raddr, nw, len(r.tee), readdone, writedone, core.FmtTimeAsPeriod(r.readDeadline), core.FmtTimeAsPeriod(r.writeDeadline))
 
+	newConn.SetReadDeadline(time.Now().Add(r.timeout))
 	return newConn.Read(buf)
 }
 
@@ -473,6 +469,7 @@ func (r *retrier) Read(buf []byte) (n int, err error) {
 					r.dialerID(), r.retryCount, len(r.dialers), c, r.nextDialerIdx, laddr(c), r.raddr, n, len(buf), retryReadErr)
 			}
 			if c != nil && core.IsNotNil(c) {
+				// caller might have set read or write deadlines before the retry
 				_ = c.SetReadDeadline(r.readDeadline)
 				_ = c.SetWriteDeadline(r.writeDeadline)
 			}
