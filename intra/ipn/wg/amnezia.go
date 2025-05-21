@@ -107,23 +107,19 @@ func (a *Amnezia) send(pktptr *[]byte) (ok bool) {
 	return true
 }
 
-func (a *Amnezia) recv(pktptr *[]byte) (ok bool) {
+func (a *Amnezia) recv(pkt []byte, upto int) (out []byte, ok bool) {
 	if a == nil || !a.Set() {
+		return
+	}
+	if upto < device.MinMessageSize {
 		return
 	}
 
 	var typ uint32
-	pkt := *pktptr
-
-	recvLen := len(pkt)
-	if recvLen < device.MinMessageSize {
-		return
-	}
 	// h := uint16(device.MessageTransportOffsetReceiver)
+	pkt, typ = a.strip(pkt[:upto])
+	strippedSz := len(pkt)
 
-	pkt, typ = a.strip(pkt)
-
-	stripLen := len(pkt)
 	switch typ {
 	case device.MessageInitiationType, a.H1:
 		typ = device.MessageInitiationType
@@ -137,12 +133,14 @@ func (a *Amnezia) recv(pktptr *[]byte) (ok bool) {
 	case device.MessageTransportType, a.H4: // must be default?
 		typ = device.MessageTransportType
 		binary.LittleEndian.PutUint32(pkt, device.MessageTransportType)
+	default:
+		log.W("wg: %s: amnezia: recv: unexpected type %d", a.id, typ)
+		// TODO: error?
 	}
 
-	a.logIfNeeded("recv", typ, recvLen, stripLen)
+	a.logIfNeeded("recv", typ, strippedSz, upto)
 
-	*pktptr = pkt
-	return true
+	return pkt, true
 }
 
 func (a *Amnezia) instate(pkt []byte) ([]byte, uint32) {
@@ -207,7 +205,7 @@ func (a *Amnezia) strip(pkt []byte) ([]byte, uint32) {
 	h := uint16(device.MessageTransportOffsetReceiver)
 	// assume the correct msg type is in just the first byte:
 	// github.com/WireGuard/wireguard-go/blob/12269c2761/device/noise-protocol.go#L56
-	defaultType := uint8(pkt[0])
+	defaultType := binary.LittleEndian.Uint32(pkt[:h])
 
 	var discard uint16 = 0
 	var possibleType uint32 = 0
@@ -236,7 +234,7 @@ func (a *Amnezia) strip(pkt []byte) ([]byte, uint32) {
 		log.W("wg: %s: amnezia: strip: mismatched msg type %d != %d", a.id, obsType, possibleType)
 	} // else: nothing to discard
 
-	return pkt, uint32(defaultType)
+	return pkt, defaultType
 }
 
 func (a *Amnezia) logIfNeeded(dir string, typ uint32, n int, newn int) {
