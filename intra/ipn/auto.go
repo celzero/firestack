@@ -156,7 +156,6 @@ func (h *auto) dial(network, laddr, raddr string) (protect.Conn, error) {
 			func(p Proxy) protect.RDialer {
 				return p.Dialer()
 			})
-		// TODO: pinning IPs
 		if len(healthy) <= 0 {
 			// no healthy proxies; fail open
 			d := core.Map(rpns, func(p Proxy) protect.RDialer {
@@ -168,6 +167,8 @@ func (h *auto) dial(network, laddr, raddr string) (protect.Conn, error) {
 				}
 				return p.Dialer()
 			})
+			// dialAny delegates to dialers.DialAny which pins IPs
+			// to proxies (against their IDs) for 30s.
 			return dialAny(core.WithoutNils(d), network, laddr, raddr)
 		}
 		return dialAny(healthy, network, laddr, raddr)
