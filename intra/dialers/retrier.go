@@ -484,10 +484,11 @@ func (r *retrier) Read(buf []byte) (n int, err error) {
 	return
 }
 
-func (r *retrier) teedFirstWrite(b []byte) (n int, didWrite bool, src net.Addr, err error) {
+func (r *retrier) teedFirstWrite(b []byte) (n int, firstWrite, didWrite bool, src net.Addr, err error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
+	firstWrite = len(r.tee) <= 0
 	c := r.conn
 	if c == nil || core.IsNil(c) {
 		err = errNilConn
@@ -515,7 +516,7 @@ func (r *retrier) Write(b []byte) (int, error) {
 	// empty at steady-state.
 	if !r.retryCompleted() {
 		// todo: what if sentAndCopied is false and err != nil?
-		n, sentAndCopied, src, err := r.teedFirstWrite(b)
+		n, first, sentAndCopied, src, err := r.teedFirstWrite(b)
 
 		note := log.D
 		if sentAndCopied {
