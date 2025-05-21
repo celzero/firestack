@@ -77,6 +77,35 @@ const (
 	maxRegisterCertTries              = 3
 )
 
+type apiStatus int
+
+const (
+	outcomeOK apiStatus = iota
+	outcomeErr
+	outcomeTryAnew
+)
+
+func (o apiStatus) ok() bool {
+	return o == outcomeOK
+}
+
+func (o apiStatus) tryNew() bool {
+	return o == outcomeTryAnew
+}
+
+func (o apiStatus) String() string {
+	switch o {
+	case outcomeOK:
+		return "ok"
+	case outcomeErr:
+		return "err"
+	case outcomeTryAnew:
+		return "anew"
+	default:
+		return "unknown"
+	}
+}
+
 var protonLogicalsUpdateTime = time.Time{}
 
 var defaultLoginPayload = ProtonLoginPayload{
@@ -226,6 +255,14 @@ type ProtonRefreshRequest struct {
 //		"Scopes":[],
 //		"LocalID":0,
 //		"RefreshCounter": 0,
+//	}
+//
+// or:
+//
+//	{
+//	    "Code":10013,
+//	    "Error:"Invalid refresh token",
+//	    "Details":{}
 //	}
 type ProtonRefreshResponse struct {
 	Code           int32    `json:"Code"`
@@ -726,7 +763,7 @@ func (a *ProtonClient) newConf() error {
 
 // refresh and register are the same api call:
 // github.com/ProtonVPN/android-app/blob/2eb1c4c960a/app/src/main/java/com/protonvpn/android/vpn/CertificateRepository.kt#L183
-func (a *ProtonClient) registerCert() error {
+func (a *ProtonClient) registerCert() (apiStatus, error) {
 	tries := 0
 
 retryAfterRefresh:
@@ -757,30 +794,31 @@ retryAfterRefresh:
 	}
 	payloadJson, err := json.Marshal(payload)
 	if err != nil {
-		return err
+		log.W("proton: regcert: json malformed: %v", err)
+		return outcomeTryAnew, err
 	}
 	req, err := http.NewRequest("POST", a.certUrl(), bytes.NewReader(payloadJson))
 	if err != nil {
-		return err
+		return outcomeErr, err
 	}
 	protonHeaders(req)
 	a.addRegistrationHeaders(req)
 
 	res, err := a.http.Do(req)
 	if err != nil || res == nil {
-		return core.OneErr(err, errNoApiResponse)
+		return outcomeErr, core.OneErr(err, errNoApiResponse)
 	}
 	defer res.Body.Close()
 
 	if res.StatusCode == http.StatusUnauthorized && tries <= maxRegisterCertTries {
-		err := a.refreshCreds()
+		outcome, err := a.refreshCreds()
 		if err == nil {
 			log.I("proton: regcert: retrying after creds refresh try# %d", tries)
 			goto retryAfterRefresh
 		} else {
-			log.E("proton: regcert: fail: try# %d, creds refresh status(%d/%s)",
-				tries, res.StatusCode, res.Status)
-			return err
+			log.E("proton: regcert: fail: try# %d, creds refresh status(%d/%s); outcome? %s; err: %v",
+				tries, res.StatusCode, res.Status, outcome, err)
+			return outcome, err
 		}
 	}
 
@@ -793,19 +831,19 @@ retryAfterRefresh:
 	if res.StatusCode != http.StatusOK {
 		log.E("proton: regcert: fail: status(%d/%s) hdrs(%v) body(%s) err(%v)",
 			res.StatusCode, res.Status, res.Header, string(certResponseBytes), certErr)
-		return core.JoinErr(fmt.Errorf("proton: regcert: err status(%d/%d/%s)",
+		return outcomeTryAnew, core.JoinErr(fmt.Errorf("proton: regcert: err status(%d/%d/%s)",
 			res.StatusCode, certResponse.Code, certResponse.Error), certErr)
 	}
 
 	if certErr != nil {
 		log.E("proton: regcert: read/unmarshal: %v", certErr)
-		return certErr
+		return outcomeTryAnew, certErr
 	}
 
 	if certResponse.Code != 1000 {
 		log.E("proton: regcert: code: %d / raw: %s", certResponse.Code, string(certResponseBytes))
 		// TODO: refresh with refresh-token
-		return fmt.Errorf("proton: regcert: err %d: %s", certResponse.Code, certResponse.Error)
+		return outcomeTryAnew, fmt.Errorf("proton: regcert: err %d: %s", certResponse.Code, certResponse.Error)
 	}
 	// TODO: certResponse.ClientPublicKey == a.key.PublicKeyPKIXPem()
 
@@ -825,21 +863,21 @@ retryAfterRefresh:
 	log.I("proton: regcert: success (updated ext? %t): serial(%s): next refresh(%s)",
 		extupdated, certResponse.SerialNumber, refreshAt.Format(time.RFC1123))
 
-	return nil
+	return outcomeOK, nil
 }
 
-func (a *ProtonClient) refresh() error {
-	err := a.rereg(true)
-	if err != nil {
-		return err
+func (a *ProtonClient) refresh() (apiStatus, error) {
+	outcome, err := a.rereg(true)
+	if !outcome.ok() || err != nil {
+		return outcome, err
 	}
 
 	err = a.refreshServers()
 	if err != nil {
-		return err
+		return outcomeErr, err
 	}
 
-	return a.refreshWgConfig()
+	return outcomeOK, a.refreshWgConfig()
 }
 
 func (a *ProtonClient) fetchCreds() error {
@@ -999,9 +1037,9 @@ func (a *ProtonClient) beginSession() error {
 	return nil
 }
 
-func (a *ProtonClient) refreshCreds() error {
+func (a *ProtonClient) refreshCreds() (apiStatus, error) {
 	if len(a.sess.uid) <= 0 {
-		return errNoProtonConfig
+		return outcomeTryAnew, errNoProtonConfig
 	}
 	/*
 		see: github.com/ProtonMail/protoncore_android/blob/c3598ea9e72/auth/data/src/main/kotlin/me/proton/core/auth/data/repository/AuthRepositoryImpl.kt#L189
@@ -1026,7 +1064,7 @@ func (a *ProtonClient) refreshCreds() error {
 		GrantType:    "refresh_token",
 		RedirectURI:  "http://protonmail.ch",
 	}
-	// refresh credentials authenticated with session
+	// refresh authenticated (credentials) session
 	authenticatedPayload := ProtonRefreshRequest{
 		UID:          a.sess.uid, // same as a.creds.userid
 		RefreshToken: a.creds.refreshToken,
@@ -1039,56 +1077,58 @@ func (a *ProtonClient) refreshCreds() error {
 		payloadJson, err := json.Marshal(payload)
 		if err != nil {
 			log.E("proton: refreshcreds: #%d marshal: %v", what, err)
-			return err
+			return outcomeTryAnew, err
 		}
 		req, err := http.NewRequest("POST", a.refreshTokensUrl(), bytes.NewReader(payloadJson))
 		if err != nil {
 			log.E("proton: refreshcreds: #%d newreq: %v", what, err)
-			return err
+			return outcomeErr, err
 		}
 		protonHeaders(req)
 
 		res, err := a.http.Do(req)
 		if err != nil || res == nil {
-			return core.OneErr(err, errNoApiResponse)
+			return outcomeErr, core.OneErr(err, errNoApiResponse)
 		}
 		defer res.Body.Close()
 
-		var refreshCredResponse ProtonRefreshResponse
+		var refResponse ProtonRefreshResponse
 		refreshCredResponseBytes, refreshErr := io.ReadAll(res.Body)
 		if refreshErr != nil {
-			refreshErr = json.Unmarshal(refreshCredResponseBytes, &refreshCredResponse)
+			// todo: outcome to be set to TryAnew instead of Err (see below)?
+			refreshErr = json.Unmarshal(refreshCredResponseBytes, &refResponse)
 		}
 
+		// E proxies.go:1217>>proton.go:1376>>proton.go:1241>>proton.go:1073: proton: refreshcreds: #0 fail: status(400/400 Bad Request)
 		if res.StatusCode != http.StatusOK {
 			log.E("proton: refreshcreds: #%d fail: status(%d/%s) hdrs(%v) body(%s) err(%v)",
 				what, res.StatusCode, res.Status, res.Header, string(refreshCredResponseBytes), refreshErr)
-			return core.JoinErr(fmt.Errorf("proton: refreshcreds: #%d err status(%d/%d/%s)",
-				what, res.StatusCode, refreshCredResponse.Code, refreshCredResponse.Error), refreshErr)
+			return outcomeTryAnew, core.JoinErr(fmt.Errorf("proton: refreshcreds: #%d err status(%d/%d/%s)",
+				what, res.StatusCode, refResponse.Code, refResponse.Error), refreshErr)
 		}
 
 		if refreshErr != nil {
 			log.E("proton: refreshcreds: #%d read/unmarshal: %v", what, refreshErr)
-			return err
+			return outcomeErr, err
 		}
 
-		if refreshCredResponse.Code != 1000 {
+		if refResponse.Code != 1000 {
 			log.E("proton: refreshcreds: #%d code: %d / raw: %s",
-				what, refreshCredResponse.Code, string(refreshCredResponseBytes))
+				what, refResponse.Code, string(refreshCredResponseBytes))
 			// TODO: refresh with refresh-token
-			return fmt.Errorf("proton: refreshcreds: #%d err %d: %s",
-				what, refreshCredResponse.Code, refreshCredResponse.Error)
+			return outcomeTryAnew, fmt.Errorf("proton: refreshcreds: #%d err %d: %s",
+				what, refResponse.Code, refResponse.Error)
 		}
 		// todo: refreshCredResponse.UID == a.sess.uid
 		// todo: refreshCredResponse.Scopes contains "vpn"
 		// todo: refreshCredResponse.TokenType == "Bearer"
 
-		expiry := elapsedFromNow(refreshCredResponse.ExpiresIn, time.Second)
+		expiry := elapsedFromNow(refResponse.ExpiresIn, time.Second)
 		extupdated := false
 		switch what {
 		case 0: // unauthenticated creds
-			a.sess.accessToken = refreshCredResponse.AccessToken
-			a.sess.refreshToken = refreshCredResponse.RefreshToken
+			a.sess.accessToken = refResponse.AccessToken
+			a.sess.refreshToken = refResponse.RefreshToken
 			a.sess.expirationTime = expiry.Unix()
 			// always equal? a.sess.uid = refreshCredResponse.UID
 			if pc := a.configExt; pc != nil {
@@ -1098,8 +1138,8 @@ func (a *ProtonClient) refreshCreds() error {
 				pc.SessionExpTime = a.sess.expirationTime
 			}
 		case 1: // authenticated creds
-			a.creds.accessToken = refreshCredResponse.AccessToken
-			a.creds.refreshToken = refreshCredResponse.RefreshToken
+			a.creds.accessToken = refResponse.AccessToken
+			a.creds.refreshToken = refResponse.RefreshToken
 			a.creds.expirationTime = expiry.Unix()
 			// always equal? a.creds.userid = refreshCredResponse.UID
 			if pc := a.configExt; pc != nil {
@@ -1111,10 +1151,10 @@ func (a *ProtonClient) refreshCreds() error {
 		}
 
 		log.I("proton: refreshcreds: #%d ok (updated ext? %t); new access+refresh tokens #%d until %s",
-			what, extupdated, refreshCredResponse.RefreshCounter, expiry.Format(time.Stamp))
+			what, extupdated, refResponse.RefreshCounter, expiry.Format(time.Stamp))
 	}
 
-	return nil
+	return outcomeOK, nil
 }
 
 func (a *ProtonClient) sessionUrl() string {
@@ -1183,8 +1223,9 @@ func (a *ProtonClient) reg() error {
 		return err
 	}
 
-	err = a.registerCert()
+	_, err = a.registerCert()
 	if err != nil {
+		// todo: on outcomeTryAnew; retry
 		return err
 	}
 
@@ -1205,31 +1246,38 @@ func (a *ProtonClient) refreshServers() error {
 	return nil
 }
 
-func (a *ProtonClient) rereg(force bool) error {
+func (a *ProtonClient) rereg(force bool) (apiStatus, error) {
 	hasConf := a.configExt != nil
 	hasSess := len(a.sess.uid) > 0
 
 	if !hasConf || !hasSess {
 		log.W("proton: re-reg: session? %t; config? %t; new reg...",
 			hasSess, hasConf)
-		return a.reg()
+		return outcomeTryAnew, errNoProtonConfig
 	}
 
 	now := time.Now().Unix()
-	certok := a.cert.refreshTime-now > 0
-	sessok := a.sess.expirationTime-now > 0
-	credsok := a.creds.expirationTime-now > 0
-	log.I("proton: re-reg %s [%s]; certexp? %t, sessexp? %t, credsexp? %t (force? %t)",
-		a.Who(), a.cert.serialNumber, !certok, !sessok, !credsok, force)
+	certage := a.cert.refreshTime - now
+	sessage := a.sess.expirationTime - now
+	credsage := a.creds.expirationTime - now
+	certok := certage > 0
+	sessok := sessage > 0
+	credsok := credsage > 0
+	log.I("proton: re-reg %s [%s]; cert(age: %s / exp? %t), sess(age: %s / exp? %t), creds (age: %s / exp? %t), force? %t",
+		a.Who(), a.cert.serialNumber, core.FmtSecs(certage), !certok, core.FmtSecs(sessage), !sessok, core.FmtSecs(credsage), !credsok, force)
 
 	if !force && certok && sessok && credsok {
-		return nil // ok
+		return outcomeOK, nil
 	}
 
-	err := a.refreshCreds() // new access tokens + refreshed certs
+	outcome, err := a.refreshCreds() // new access tokens + refreshed certs
+	if !outcome.ok() {
+		log.I("proton: re-reg: failed; do a new reg")
+		return outcome, err
+	}
+
 	if err != nil {
-		// TODO: reg?
-		return err
+		return outcome, err
 	}
 
 	return a.registerCert() // re-register
@@ -1277,9 +1325,10 @@ func (a *ProtonClient) Expires() int64 {
 
 // Update implements x.RpnAcc.
 func (a *ProtonClient) Update() (newstate []byte, err error) {
-	err = a.refresh()
+	outcome, err := a.refresh()
 	if err != nil {
-		log.W("proton: update: re-reg failed %v", err)
+		// todo: on outcomeTryAnew; retry
+		log.W("proton: update: re-reg failed %s %v", outcome, err)
 		return nil, err
 	}
 	return a.configExt.Json()
@@ -1361,7 +1410,11 @@ func (w *Client) MakeProtonWgFrom(existingConfigJson []byte, allServersFilePath 
 		return nil, err
 	}
 
-	err = a.rereg(false)
+	outcome, err := a.rereg(false)
+	if outcome.tryNew() {
+		log.I("proton: restore: failed %s %v; making new...", outcome, err)
+		return w.MakeProtonWg(allServersFilePath)
+	}
 	if err != nil {
 		return nil, err
 	}
