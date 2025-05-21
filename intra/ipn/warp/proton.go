@@ -112,6 +112,9 @@ func (o apiStatus) String() string {
 	}
 }
 
+// mostly ... for tests
+const usePrebuiltLogicalsOnly = false
+
 var protonLogicalsUpdateTime = time.Time{}
 
 var defaultLoginPayload = ProtonLoginPayload{
@@ -1292,6 +1295,11 @@ func (a *ProtonClient) reg() error {
 }
 
 func (a *ProtonClient) refreshServers() error {
+	if usePrebuiltLogicalsOnly {
+		log.I("proton: refresh servers: no-op; only prebuilts")
+		return nil
+	}
+
 	const nofile = ""
 
 	oldEnough := time.Since(protonLogicalsUpdateTime) > maxProtonLogicalsRefreshThreshold
@@ -1561,6 +1569,11 @@ func protonServersFrom(allServersFilePath string, c *http.Client) []ProtonLogica
 	var all ProtonServerResponse
 
 	prebuilts := protonServersPrebuilt()
+
+	if usePrebuiltLogicalsOnly {
+		log.I("proton: servers: using prebuilt servers only")
+		return prebuilts
+	}
 
 	if len(allServersFilePath) > 0 {
 		fp := filepath.Clean(allServersFilePath)
