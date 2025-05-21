@@ -175,6 +175,9 @@ func reprioritize(ds []protect.RDialer, ipp netip.AddrPort) []protect.RDialer {
 	if !ipp.IsValid() {
 		return ds
 	}
+	if len(ds) <= 1 {
+		return ds
+	}
 	id, ok := ippPins.Get(ipp)
 	if !ok || len(id) <= 0 {
 		return ds
