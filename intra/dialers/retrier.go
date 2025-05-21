@@ -163,7 +163,7 @@ func DialWithSplitRetry(d *protect.RDial, laddr, raddr *net.TCPAddr) (*retrier, 
 	return r, nil
 }
 
-func dialerOptsForRace() settings.DialerOpts {
+func dialerOptsForMultiDialers() settings.DialerOpts {
 	return settings.DialerOpts{
 		Strat: settings.SplitNever,
 		Retry: settings.RetryWithSplit,
@@ -194,7 +194,7 @@ func reprioritize(ds []protect.RDialer, ipp netip.AddrPort) []protect.RDialer {
 func DialAny(ds []protect.RDialer, laddr, raddr net.Addr) (*retrier, error) {
 	r := &retrier{
 		dialers:     reprioritize(ds, asAddrPort(raddr)),
-		dialerOpts:  dialerOptsForRace(),
+		dialerOpts:  dialerOptsForMultiDialers(),
 		multidial:   true,
 		laddr:       laddr, // may be nil
 		raddr:       raddr, // must not be nil
