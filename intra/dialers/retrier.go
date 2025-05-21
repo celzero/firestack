@@ -484,11 +484,12 @@ func (r *retrier) Read(buf []byte) (n int, err error) {
 	return
 }
 
-func (r *retrier) teedFirstWrite(b []byte) (n int, firstWrite, didWrite bool, src net.Addr, err error) {
+func (r *retrier) teedFirstWrite(b []byte) (n int, firstWrite, didAttemptWrite bool, src net.Addr, err error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	firstWrite = len(r.tee) <= 0
+
 	c := r.conn
 	if c == nil || core.IsNil(c) {
 		err = errNilConn
@@ -496,16 +497,26 @@ func (r *retrier) teedFirstWrite(b []byte) (n int, firstWrite, didWrite bool, sr
 			r.dialerID(), r.raddr, len(b))
 		return
 	}
+
 	src = laddr(c)
 	if !r.retryCompleted() { // first write
+		_ = c.SetWriteDeadline(r.writeDeadline)
+
 		n, err = c.Write(b)
+
 		// capture first write, aka "hello"
 		r.tee = append(r.tee, b...)
+		didAttemptWrite = true
+
 		// all of b was written to r.tee if not to c
 		// require a response or another write within a short timeout.
-		_ = c.SetReadDeadline(time.Now().Add(r.timeout))
-		didWrite = true
+		if r.dialerOpts.Retry != settings.RetryNever {
+			_ = c.SetReadDeadline(r.readDeadline)
+		} else {
+			_ = c.SetReadDeadline(time.Now().Add(r.timeout))
+		}
 	}
+
 	return
 }
 
