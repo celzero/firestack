@@ -527,6 +527,14 @@ func (r *retrier) Write(b []byte) (int, error) {
 			r.dialerID(), first, sentAndCopied, r.timeout.Milliseconds(), src, r.raddr, n, len(b), len(r.tee), err)
 
 		if sentAndCopied {
+			// if Write() does not wait for <-retryDoneCh in absence of errors,
+			// it is possible that ReadFrom() => copyOnce() is called before retryDoneCh
+			// is closed, resulting in two Write() calls, and r.tee containing buffers
+			// the size of two Writes()
+			if err == nil {
+				return n, nil
+			} // write failed, wait for retry to complete
+
 			start := time.Now()
 			// write error on the provisional socket should be handled
 			// by the retry procedure. Block until we have a final socket (which will
@@ -539,18 +547,10 @@ func (r *retrier) Write(b []byte) (int, error) {
 			select {
 			case <-r.retryDoneCh:
 			case <-time.After(3 * maxExpectedReadTimeout): // arb high timeout; it should rarely if ever needed
-				log.W("retrier: write: 1st write timed-out waiting for %d [calc-rtt: %d] 1st read b/w [%s=>%s], mult: %d, n: %d, err: %v",
-					3*maxExpectedReadTimeout, r.timeout, src, r.raddr, len(r.dialers), n, err)
+				log.W("retrier: write: %s: 1st write timed-out waiting for %dms [calc-rtt: %dms] 1st read b/w [%s=>%s], mult: %d, b: %d/%d, err: %v",
+					r.dialerID(), (3 * maxExpectedReadTimeout).Milliseconds(), r.timeout.Milliseconds(), src, r.raddr, len(r.dialers), n, len(b), err)
 				return n, core.JoinErr(err, errRetryTimeout)
 			}
-
-			// if Write() does not wait for <-retryDoneCh in absence of errors,
-			// it is possible that ReadFrom() => copyOnce() is called before retryDoneCh
-			// is closed, resulting in two Write() calls, and r.tee containing buffers
-			// the size of two Writes()
-			if err == nil {
-				return n, nil // 1st write + read succeeded
-			} // 1st write failed, but retry is complete
 
 			r.mu.Lock()
 			defer r.mu.Unlock()
