@@ -93,7 +93,7 @@ func (a *Amnezia) send(pktptr *[]byte) (ok bool) {
 
 	typ := binary.LittleEndian.Uint32(pkt)
 
-	defer a.logIfNeeded("send", typ, n)
+	a.logIfNeeded("send", typ, n)
 
 	*pktptr, _ = a.instate(pkt)
 	return true
@@ -129,7 +129,7 @@ func (a *Amnezia) recv(pktptr *[]byte) (ok bool) {
 		binary.LittleEndian.PutUint32(pkt, device.MessageTransportType)
 	}
 
-	defer a.logIfNeeded("recv", typ, len(pkt))
+	a.logIfNeeded("recv", typ, len(pkt))
 
 	*pktptr = pkt
 	return true
@@ -140,8 +140,8 @@ func (a *Amnezia) instate(pkt []byte) ([]byte, uint32) {
 
 	defaultType := binary.LittleEndian.Uint32(pkt)
 
-	var pad uint16 = 0
-	var obsType uint32 = 0
+	pad := uint16(0)
+	obsType := uint32(0)
 	maybeInstate := false
 
 	switch defaultType {
@@ -182,7 +182,7 @@ func (a *Amnezia) instate(pkt []byte) ([]byte, uint32) {
 	// pad may be 0
 	if random, err := blob(pad); err != nil { // unlikely
 		log.E("wg: %s: amnezia: instate: %v", a.id, err)
-	} else if len(random) > 0 {
+	} else if len(random) > 0 && len(random) == int(pad) {
 		pkt = append(random, pkt...)
 	}
 
@@ -268,5 +268,5 @@ func logif(cond bool) log.LogFn {
 	if cond {
 		return log.D
 	}
-	return log.N
+	return log.VV
 }
