@@ -127,11 +127,7 @@ func (r *retrier) retryCompleted() bool {
 }
 
 func (r *retrier) canRetryLocked() bool {
-	if r.multidial {
-		return r.nextDialerIdx < len(r.dialers)
-	} else {
-		return r.retryCount < maxRetryCount
-	}
+	return r.retryCount < maxRetryCount
 }
 
 // Given rtt of a successful socket connection (SYN sent - SYNACK received),
@@ -319,18 +315,24 @@ func (r *retrier) dialLocked() (c protect.Conn, err error) {
 func (r *retrier) doDialLocked(dialStrat int32) (protect.Conn, error) {
 	if r.multidial {
 		var errs error
-		for ; r.nextDialerIdx < len(r.dialers); r.nextDialerIdx++ {
-			c, err := protect.Dial(r.dialers[r.nextDialerIdx], r.laddr, r.raddr)
+		if r.nextDialerIdx >= len(r.dialers) && r.retryCount < maxRetryCount {
+			r.nextDialerIdx = 0
+			log.D("retrier: mult: %s: reset dialer index; retry # %d / %d",
+				r.dialerID(), r.retryCount, maxRetryCount)
+		}
+		for r.nextDialerIdx < len(r.dialers) {
+			d := r.dialers[r.nextDialerIdx]
+			c, err := protect.Dial(d, r.laddr, r.raddr)
+			logeif(err)("retrier: mult: #%d/%d dial(%s: %s) %s=>%s; err? %v",
+				r.nextDialerIdx, len(r.dialers), d.ID(), r.dialerOpts, laddr(c), r.raddr, err)
 
-			logeif(err)("retrier: mult: #%d/%d dial(%s) %s=>%s; strat: %d, err? %v",
-				r.nextDialerIdx, len(r.dialers), r.dialerOpts, laddr(c), r.raddr, dialStrat, err)
+			r.nextDialerIdx++ // incr regardless of err
 
 			if err == nil {
 				return c, nil
-			} else {
-				clos(c)
-				errs = core.JoinErr(errs, err)
 			}
+			clos(c)
+			errs = core.JoinErr(errs, err)
 		}
 		return nil, core.OneErr(errs, errNoDialer)
 	}
