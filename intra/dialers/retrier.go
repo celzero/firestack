@@ -290,6 +290,14 @@ func (r *retrier) dialStratLocked() (strat int32, err error) {
 	return
 }
 
+func (r *retrier) dialerID() string {
+	di := 0
+	if r.multidial {
+		di = min(max(di, r.nextDialerIdx-1), len(r.dialers)-1)
+	}
+	return r.dialers[di].ID()
+}
+
 // dialLocked establishes a new connection to r.raddr and closes existing, if any.
 // Sets r.conn on non-errors and timeout as calculated from round-trip time.
 func (r *retrier) dialLocked() (c protect.Conn, err error) {
@@ -307,8 +315,8 @@ func (r *retrier) dialLocked() (c protect.Conn, err error) {
 	r.conn = c // c may be nil
 	r.timeout = calcTimeout(rtt)
 
-	logeif(err)("retrier: dial(%s) %s=>%s; strat: %d (mult? %d), rtt: %dms; err? %v",
-		r.dialerOpts, laddr(c), r.raddr, strat, len(r.dialers), rtt.Milliseconds(), err)
+	logeif(err)("retrier: dial(%s) %s=>%s; strat: %d (mult? %d %T), rtt: %dms; err? %v",
+		r.dialerID(), laddr(c), r.raddr, strat, len(r.dialers), c, rtt.Milliseconds(), err)
 
 	return
 }
@@ -377,8 +385,8 @@ func (r *retrier) retryWriteReadLocked(buf []byte) (int, error) {
 
 	var nw int
 	nw, r.retryWriteErr = newConn.Write(r.tee)
-	logeif(r.retryWriteErr)("retrier: retryLocked: strat(%s, mult? %t) %s=>%s; write? %d/%d; err? %v",
-		r.dialerOpts, r.multidial, laddr(newConn), r.raddr, nw, len(r.tee), r.retryWriteErr)
+	logeif(r.retryWriteErr)("retrier: retryLocked: strat(%s, mult? %d %T) %s=>%s; write? %d/%d; err? %v",
+		r.dialerID(), len(r.dialers), newConn, laddr(newConn), r.raddr, nw, len(r.tee), r.retryWriteErr)
 	if r.retryWriteErr != nil {
 		return 0, r.retryWriteErr
 	}
@@ -401,8 +409,8 @@ func (r *retrier) retryWriteReadLocked(buf []byte) (int, error) {
 		_ = newConn.SetWriteDeadline(r.writeDeadline)
 	}
 
-	logedcond(readdone || writedone)("retrier: retryLocked: done! strat(%s; mult? %t) %s=>%s; write? %d/%d; closed r/w? %t/%t; deadline r/w: %v/%v",
-		r.dialerOpts, r.multidial, laddr(newConn), r.raddr, nw, len(r.tee), readdone, writedone, time.Since(r.readDeadline).Seconds(), time.Since(r.writeDeadline).Seconds())
+	logedcond(readdone || writedone)("retrier: retryLocked: done! strat(%s; mult? %d %T) %s=>%s; write? %d/%d; closed r/w? %t/%t; deadline r/w: %v/%v",
+		r.dialerID(), len(r.dialers), newConn, laddr(newConn), r.raddr, nw, len(r.tee), readdone, writedone, core.FmtTimeAsPeriod(r.readDeadline), core.FmtTimeAsPeriod(r.writeDeadline))
 
 	return newConn.Read(buf)
 }
@@ -425,7 +433,8 @@ func (r *retrier) Read(buf []byte) (n int, err error) {
 		for reads := range maxEmptyReads {
 			n, err = c.Read(buf)
 			if n == 0 && err == nil { // no data and no error
-				note("retrier: read: no data #%d; retrying [%s<=%s]", reads, laddr(c), r.raddr)
+				note("retrier: read: %s: no data #%d; retrying [%s<=%s], b: 0/%d",
+					r.dialerID(), reads, laddr(c), r.raddr, len(buf))
 				continue // nothing yet to retry; on to next read
 			} // else: check if retry is needed (c == nil or err != nil)
 			break
@@ -433,7 +442,8 @@ func (r *retrier) Read(buf []byte) (n int, err error) {
 		if n == 0 && err == nil {
 			err = io.ErrNoProgress
 		}
-		logeor(err, note)("retrier: read: [%s<=%s] %d; err: %v", laddr(c), r.raddr, n, err)
+		logeor(err, note)("retrier: read: %s: [%s<=%s] b: %d/%d (tee: %d); err: %v",
+			r.dialerID(), laddr(c), r.raddr, n, len(buf), len(r.tee), err)
 	} // else: needs retry as c == nil
 
 	note = log.D
@@ -459,20 +469,20 @@ func (r *retrier) Read(buf []byte) (n int, err error) {
 					retryReadErr = nil // break
 					err = nil          // return no error
 				}
-				logeor(retryReadErr, note)("retrier: read: #%d + (mult? %t / c: %d): [%s<=%s] %d; err? %v",
-					r.retryCount, r.multidial, r.nextDialerIdx, laddr(c), r.raddr, n, retryReadErr)
+				logeor(retryReadErr, note)("retrier: read: %s: #%d + (mult? %d %T / c: %d): [%s<=%s] b:%d/%d; err? %v",
+					r.dialerID(), r.retryCount, len(r.dialers), c, r.nextDialerIdx, laddr(c), r.raddr, n, len(buf), retryReadErr)
 			}
 			if c != nil && core.IsNotNil(c) {
 				_ = c.SetReadDeadline(r.readDeadline)
 				_ = c.SetWriteDeadline(r.writeDeadline)
 			}
-			logeor(err, note)("retrier: read: #%d + (mult? %d / %d) [%s<=%s] %d; err? %v",
-				r.retryCount, len(r.dialers), r.nextDialerIdx, laddr(c), r.raddr, n, err)
+			logeor(err, note)("retrier: read: %s: #%d + (mult? %d / %d) [%s<=%s] b: %d/%d; err? %v",
+				r.dialerID(), r.retryCount, len(r.dialers), r.nextDialerIdx, laddr(c), r.raddr, n, len(buf), err)
 			r.tee = nil // discard teed data
 			return
 		}
-		logeor(err, note)("retrier: read: already retried! [%s<=%s] %s; err? %v",
-			laddr(c), r.raddr, n, err)
+		logeor(err, note)("retrier: read: %s already retried! [%s<=%s] b: %d/%d; err? %v",
+			r.dialerID(), laddr(c), r.raddr, n, len(buf), err)
 	} // else: just one read is enough; no retry needed
 	return
 }
@@ -484,7 +494,8 @@ func (r *retrier) teedFirstWrite(b []byte) (n int, didWrite bool, src net.Addr, 
 	c := r.conn
 	if c == nil || core.IsNil(c) {
 		err = errNilConn
-		log.E("retrier: send(tee): [] => %s, no conn; sz(%d)", r.raddr, len(b))
+		log.E("retrier: send: %s: tee [] => %s, no conn; sz(%d)",
+			r.dialerID(), r.raddr, len(b))
 		return
 	}
 	src = laddr(c)
@@ -514,8 +525,8 @@ func (r *retrier) Write(b []byte) (int, error) {
 			note = log.I
 		}
 
-		logeor(err, note)("retrier: write: first?(%t) [%v=>%s] %d; 1st write-err? %v",
-			sentAndCopied, src, r.raddr, n, err)
+		logeor(err, note)("retrier: write: %s: (first? %t, sent? %t) (rtimeout: %dms) [%v=>%s] b: %d/%d (tee: %d); write-err? %v",
+			r.dialerID(), first, sentAndCopied, r.timeout.Milliseconds(), src, r.raddr, n, len(b), len(r.tee), err)
 
 		if sentAndCopied {
 			start := time.Now()
@@ -554,8 +565,8 @@ func (r *retrier) Write(b []byte) (int, error) {
 				if noconn {
 					err = core.JoinErr(err, errNilConn)
 				}
-				log.E("retrier: write: retry failed [%s=>%s] in %dms; old => new: %v => %v; noconn? %t",
-					laddr(r.conn), r.raddr, elapsed, err, r.retryWriteErr, noconn)
+				log.E("retrier: write: %s: retry failed [%s=>%s] b: %d/%d (tee: %d) in %dms; old => new: %v => %v; noconn? %t",
+					r.dialerID(), laddr(r.conn), r.raddr, n, len(b), len(r.tee), elapsed, err, r.retryWriteErr, noconn)
 				return n, core.JoinErr(err, r.retryWriteErr) // pass on the og error, too
 			}
 
@@ -572,7 +583,7 @@ func (r *retrier) Write(b []byte) (int, error) {
 
 	// retryCompleted() is true, so r.conn is final and doesn't need locking
 	if c := r.conn; c == nil || core.IsNil(c) {
-		log.E("retrier: write: [] => %s, not retrying, but no conn", r.raddr)
+		log.E("retrier: write: %s: [] => %s (b: %d, tee: %d), not retrying, but no conn", r.dialerID(), r.raddr, len(b), len(r.tee))
 		return 0, errNilConn
 	} else {
 		return c.Write(b)
@@ -588,7 +599,8 @@ func (r *retrier) ReadFrom(reader io.Reader) (bytes int64, err error) {
 		b, e := copyOnce(r, reader)
 		copies++
 		bytes += b
-		logeif(err)("retrier: readfrom: copyOnce #%d; sz: %d/%d; err: %v", copies, b, bytes, err)
+		logeif(err)("retrier: readfrom: %s: copyOnce #%d; sz: %d/%d; err: %v",
+			r.dialerID(), copies, b, bytes, err)
 		if e != nil {
 			return bytes, e
 		}
@@ -597,7 +609,8 @@ func (r *retrier) ReadFrom(reader io.Reader) (bytes int64, err error) {
 
 	c := r.conn // reader thread does not need the mutex
 	if c == nil || core.IsNil(c) {
-		log.E("retrier: readfrom: [] <= %s, no conn; after# %d: sz(%d)", r.raddr, copies, bytes)
+		log.E("retrier: readfrom: %s: [] <= %s, no conn; after# %d: sz(%d) tee(%d)",
+			r.dialerID(), r.raddr, copies, bytes, len(r.tee))
 		return bytes, io.ErrUnexpectedEOF
 	}
 
@@ -606,8 +619,7 @@ func (r *retrier) ReadFrom(reader io.Reader) (bytes int64, err error) {
 	if r.multidial {
 		if ipp := asAddrPort(r.raddr); ipp.IsValid() {
 			// cache the dialer ID for the IP:port pair
-			di := max(0, r.nextDialerIdx-1) % len(r.dialers)
-			pinnedID = r.dialers[di].ID()
+			pinnedID = r.dialerID()
 			ippPins.Put(ipp, pinnedID)
 			pinned = true
 		}
@@ -639,8 +651,8 @@ func (r *retrier) ReadFrom(reader io.Reader) (bytes int64, err error) {
 		r.SetDeadline(time.Time{})
 	}
 
-	logeif(err)("retrier: readfrom: (optimized? %t) done (id: %s, pinned? %t); sz: %d; err: %v",
-		optimizedReadFrom, pinnedID, pinned, bytes, err)
+	logeif(err)("retrier: readfrom: %s: (optimized? %t for %T) done (id: %s, pinned? %t); sz: %d; err: %v",
+		r.dialerID(), optimizedReadFrom, c, pinnedID, pinned, bytes, err)
 	return
 }
 
