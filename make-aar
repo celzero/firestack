@@ -32,6 +32,8 @@ ARG2="${2:-debug}"
 # debug
 printenv
 ls -ltr $ANDROID_HOME/**
+# print ndk version
+head $ANDROID_HOME/ndk-bundle/source.properties || true
 
 if [ "$ARG1" = "go" ]; then
   # download from go.dev/dl
