@@ -94,8 +94,15 @@ func (k floodkind) String() string {
 	}
 }
 
-type rwobserver func(op string, err error)
+type rwobserver func(op PktDir, err error)
 type connector func(network, to string) (net.PacketConn, error)
+
+type PktDir string
+
+const (
+	Rcv PktDir = "recv"
+	Snd PktDir = "send"
+)
 
 type StdNetBind struct {
 	id      string
@@ -336,7 +343,7 @@ func (s *StdNetBind) makeReceiveFn(uc net.PacketConn) conn.ReceiveFunc {
 	return func(bufs [][]byte, sizes []int, eps []conn.Endpoint) (n int, err error) {
 		defer core.Recover(core.Exit11, "wgconn.recv."+s.id)
 		defer func() {
-			s.observer("r", err)
+			s.observer(Rcv, err)
 		}()
 
 		usingamz := s.amnezia.Load().Set()
@@ -379,7 +386,7 @@ func timedout(err error) bool {
 func (s *StdNetBind) Send(buf [][]byte, peer conn.Endpoint) (err error) {
 	defer core.Recover(core.Exit11, "wgconn.send."+s.id)
 	defer func() {
-		s.observer("w", err)
+		s.observer(Snd, err)
 	}()
 
 	// the peer endpoint

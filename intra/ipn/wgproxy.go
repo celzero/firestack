@@ -1343,7 +1343,7 @@ func (h *wgtun) serve(network, local string) (pc net.PacketConn, err error) {
 	return
 }
 
-func (h *wgtun) listener(op string, err error) {
+func (h *wgtun) listener(op wg.PktDir, err error) {
 	if h.status.Load() == END {
 		return
 	}
@@ -1362,9 +1362,9 @@ func (h *wgtun) listener(op string, err error) {
 	}
 
 	if s == TOK {
-		if op == "r" {
+		if op == wg.Rcv { // read
 			h.latestRx.Store(now())
-		} else if op == "w" {
+		} else if op == wg.Snd { // write
 			h.latestTx.Store(now())
 		}
 		writeElapsedMs := h.latestTx.Load() - h.latestRx.Load() // may be negative
@@ -1373,17 +1373,17 @@ func (h *wgtun) listener(op string, err error) {
 			s = TNT
 		}
 	} else if s == TKO {
-		if op == "r" {
+		if op == wg.Rcv {
 			h.errRx.Add(1)
-		} else if op == "w" {
+		} else if op == wg.Snd {
 			h.errTx.Add(1)
 		}
 	}
 
 	if s != TOK && s != TUP {
 		if n := h.remote.Load().MaybeRefresh(); n > 0 {
-			log.I("wg: %s (%s) listener: %s; refreshed n domains: %d",
-				h.id, h.viaStatus(), op, n)
+			log.I("wg: %s (%s) listener: %s, state: %s; refreshed n domains: %d",
+				h.id, h.viaStatus(), op, pxstatus(s), n)
 		}
 	}
 

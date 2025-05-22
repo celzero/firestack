@@ -68,6 +68,27 @@ const (
 	AUTOMTU2 = "(auto)"
 )
 
+type pxstatus int
+
+func (s pxstatus) String() string {
+	switch s {
+	case TKO:
+		return "notok"
+	case TOK:
+		return "ok"
+	case TUP:
+		return "up"
+	case TZZ:
+		return "idle"
+	case TNT:
+		return "unresponsive"
+	case END:
+		return "ended"
+	default:
+		return "unknown"
+	}
+}
+
 var (
 	errProxyScheme        = errors.New("proxy: unsupported scheme")
 	errUnexpectedProxy    = errors.New("proxy: unexpected type")
