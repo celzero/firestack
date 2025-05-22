@@ -382,6 +382,10 @@ func TestProtonReaches(t *testing.T) {
 	_, err = pxr.Amnezia()
 	ko(t, err)
 
+	if proton == nil {
+		t.Fatal("nil main proton proxy")
+	}
+
 	// _, err = proton.Fork("UK")
 	// ko(t, err)
 	// _, err = proton.Fork("CH")
@@ -425,7 +429,7 @@ func TestProtonReaches(t *testing.T) {
 	}
 
 	ans := xdns.AsMsg(r4)
-	if xdns.Len(ans) == 0 && xdns.Len(ans) == 0 {
+	if xdns.Len(ans) <= 0 {
 		t.Fatal("no ans")
 	}
 	ilog.D("dns", xdns.Ans(ans))
