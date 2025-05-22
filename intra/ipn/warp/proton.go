@@ -50,7 +50,7 @@ const (
 	// github.com/ProtonVPN/android-app/blob/b9c6e59de40/app/src/main/java/com/protonvpn/android/models/vpn/ConnectionParamsWireguard.kt#L96
 	protonAllowedIPs = gw4
 
-	protonAllowedIP6Optional = gw6
+	protonAllowedIPv6s = gw6
 )
 
 // github.com/ProtonVPN/android-app/blob/b9c6e59de40/app/src/main/java/com/protonvpn/android/models/vpn/Server.kt#L28
@@ -776,7 +776,7 @@ func (a *ProtonClient) newConf() error {
 				if s.ipv6() {
 					wc.ClientAddr6 = protonClientAddr6
 					wc.ClientDNS6 = protonDNSAddr6
-					wc.AllowedIPs = append(wc.AllowedIPs, gw6)
+					wc.AllowedIPs = append(wc.AllowedIPs, protonAllowedIPv6s)
 				}
 
 				rwgConfs = append(rwgConfs, wc)
