@@ -448,9 +448,9 @@ func (s *StdNetBind) Send(buf [][]byte, peer conn.Endpoint) (err error) {
 
 	s.sendAddr.Store(dstIpp)
 
-	loge(err)("wg: bind: send: %s addr(%v) parcels(%d) tx(%d) (exp? %t: flood? %t / overw? %t); err? %v",
+	loge(errs)("wg: bind: send: %s addr(%v) parcels(%d) tx(%d) (exp? %t / flood? %t / overw? %t); err? %v",
 		s.id, dstIpp, len(buf), nn, experimentalWg, flooded, overwritten, errs)
-	return err
+	return errs
 }
 
 // flood c with random-sized, non-sense (unencrypted) packets.
