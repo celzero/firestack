@@ -466,10 +466,7 @@ func (s *StdNetBind) flood(c net.PacketConn, dst StdNetEndpoint, why floodkind) 
 		hdr[0] = mlist[mrand.UintN(uint(len(mlist)))]
 		_, _ = rand.Read(hdr[6:14])
 
-		tot := mrand.Uint64N(maxFloodPkts + 1)
-		if tot < minFloodPkts {
-			tot = minFloodPkts
-		}
+		tot := max(mrand.Uint64N(maxFloodPkts+1), minFloodPkts)
 		// go.dev/play/p/NkLihAUTqUO
 		maxWaitMs := maxFloodDuration.Milliseconds() / int64(tot)
 		expectedsent := make([]int, tot)

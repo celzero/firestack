@@ -866,7 +866,7 @@ func (t *wgtun) setRoutes(ifaddrs []netip.Prefix) error {
 		}
 		t.hasV4.Store(t.hasV4.Load() || ip.Is4())
 		t.hasV6.Store(t.hasV6.Load() || ip.Is6())
-		log.D("proxy: wg: %s added ifaddr(%v)", t.id, ip)
+		log.D("proxy: wg: %s added ifaddr(%v)", t.id, ap)
 	}
 	if t.hasV4.Load() {
 		t.stack.AddRoute(tcpip.Route{Destination: header.IPv4EmptySubnet, NIC: wgnic})
