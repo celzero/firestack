@@ -13,6 +13,7 @@ import (
 	"log"
 	"net"
 	"net/netip"
+	"os"
 	"testing"
 	"time"
 
@@ -114,11 +115,11 @@ type fakeBdg struct {
 
 var (
 	// baseNsOpts = &x.DNSOpts{PIDCSV: dnsx.NetBaseProxy, IPCSV: "", TIDCSV: x.CT + "test0"}
-	baseTab  = &x.Tab{CID: "testcid", Block: false}
-	seNsOpts = &x.DNSOpts{PIDCSV: ipn.RpnSE, IPCSV: "", TIDCSV: x.CT + "test0"}
+	baseTab    = &x.Tab{CID: "testcid", Block: false}
+	autoNsOpts = &x.DNSOpts{PIDCSV: x.RpnSE, IPCSV: "", TIDCSV: x.CT + "test0"}
 )
 
-func (*fakeBdg) OnQuery(_, _ string, _ int) *x.DNSOpts { return seNsOpts }
+func (*fakeBdg) OnQuery(_, _ string, _ int) *x.DNSOpts { return autoNsOpts }
 func (*fakeBdg) OnResponse(*x.DNSSummary)              {}
 func (*fakeBdg) OnDNSAdded(string)                     {}
 func (*fakeBdg) OnDNSRemoved(string)                   {}
@@ -252,7 +253,7 @@ func TestSEProxy(t *testing.T) {
 	}
 
 	natpt := x64.NewNatPt()
-	resolv := dnsx.NewResolver(ctx, "10.111.222.3", dtr, bdg, natpt)
+	resolv := dnsx.NewResolver(ctx, "10.111.222.3:53", dtr, bdg, natpt)
 	resolv.Add(tr)
 
 	if err := pxr.RegisterSE(); err != nil {
@@ -313,65 +314,123 @@ func TestProtonReaches(t *testing.T) {
 	settings.Debug = true
 	dialers.Mapper(netr)
 
-	_ = xdns.NetAndProxyID("tcp", ipn.Base)
+	_ = xdns.NetAndProxyID("tcp", ipn.Auto)
 
-	tr, _ := NewTLSTransport(ctx, "test0", "1.1.1.1", nil, pxr)
+	tr, _ := NewTLSTransport(ctx, "test0", "8.8.8.8", nil, pxr)
 	dtr, _ := NewTransport(ctx, x.Default, "1.1.1.1", "53", pxr)
 	if tr == nil || dtr == nil {
 		t.Fatal("nil dns transports")
 	}
 
 	natpt := x64.NewNatPt()
-	resolv := dnsx.NewResolver(ctx, "10.111.222.3", dtr, bdg, natpt)
+	resolv := dnsx.NewResolver(ctx, "10.111.222.3:53", dtr, bdg, natpt)
 	resolv.Add(tr)
 
-	var projson []byte
-	var err error
-	if projson, err = pxr.RegisterProton(nil); err != nil {
-		t.Fatal(err)
+	projson, err := os.ReadFile("proton.json")
+	if err != nil {
+		projson = nil
 	}
-	if ips, err := pxr.TestProton(); err != nil {
+
+	ilog.D("proton: read file: err? %v", err)
+	if projson, err = pxr.RegisterProton(projson); err != nil {
 		t.Fatal(err)
 	} else {
-		ilog.D("se: %v", ips)
+		_ = os.WriteFile("proton.json", projson, 0644)
+		ilog.D("proton: setup %d", len(projson))
 	}
+
+	amzjson, err := os.ReadFile("amz.json")
+	if err != nil {
+		amzjson = nil
+	}
+
+	ilog.D("amz: read file: err? %v", err)
+	if amzjson, err = pxr.RegisterAmnezia(amzjson); err != nil {
+		t.Fatal(err)
+	} else {
+		_ = os.WriteFile("amz.json", amzjson, 0644)
+		ilog.D("amz: setup %d", len(amzjson))
+	}
+
+	// if ips, err := pxr.TestProton(); err != nil {
+	// 	t.Fatal(err)
+	// } else {
+	// 	ilog.D("se: %v", ips)
+	// }
 
 	var pro warp.ProtonWgConfig
 	if err = json.Unmarshal(projson, &pro); err != nil {
 		t.Fatal(err)
 	}
 
-	const maxVisited = 6
-	once := false
+	const maxVisited = 10
 	visited := make(map[string]struct{}, 0)
 	for _, c := range pro.RegionalWgConfs {
 		if _, ok := visited[c.CC]; !ok {
-			ilog.I("adding proxy %s %s", c.CC, c.Name)
-			_, _ = pxr.AddProxy(ipn.RpnPro+c.CC, c.UapiConfig())
+			// _, _ = pxr.AddProxy(ipn.RpnPro+c.CC, c.UapiConfig())
 			visited[c.CC] = struct{}{}
-		}
-		if !once {
-			ilog.I("adding default proxy %s", ipn.RpnPro, c.Name)
-			pxr.AddProxy(ipn.RpnPro, c.UapiConfig())
-			once = true
 		}
 		if len(visited) >= maxVisited {
 			break
 		}
 	}
+	ilog.I("available proxy CCs (limited to 10): %v", visited)
+
+	proton, err := pxr.Proton()
+	ko(t, err)
+
+	_, err = pxr.Amnezia()
+	ko(t, err)
+
+	// _, err = proton.Fork("UK")
+	// ko(t, err)
+	// _, err = proton.Fork("CH")
+	// ko(t, err)
+	_, err = proton.Fork("CH")
+	ko(t, err)
+
+	settings.SetAutoDialsParallel(false)
+	settings.SetAutoMode(settings.AutoModeRemote)
 
 	propx, _ := pxr.ProxyFor(ipn.RpnPro)
-	propx2, _ := pxr.ProxyFor(ipn.RpnPro + "MX")
-	if propx == nil || propx2 == nil {
+	propx2, _ := pxr.ProxyFor(ipn.RpnPro + "CH")
+	amzpx, _ := pxr.ProxyFor(ipn.RpnAmz)
+	auto, _ := pxr.ProxyFor(ipn.Auto)
+	if propx == nil || propx2 == nil || amzpx == nil || auto == nil {
 		t.Fatal("nil proxies")
 	}
-	ilog.I("proxies 1: %t; 2: %t", propx != nil, propx2 != nil)
+
+	/*ilog.VV("-----------------------MAIN--------------------------")
+	ilog.I("proxies 1: %t; 2: %t, 3: %t", propx != nil, propx2 != nil, auto != nil)
 	if ok := ipn.Reaches(propx, "google.com:443", "tcp"); !ok {
 		t.Fail()
 	}
+	ilog.VV("-----------------------MXCO--------------------------")
 	if ok := ipn.Reaches(propx2, "cloudflare.com:443", "tcp"); !ok {
 		t.Fail()
 	}
+	ilog.VV("-----------------------AUTO--------------------------")
+	if ok := ipn.Reaches(auto, "x.com:443", "tcp"); !ok {
+		t.Fail()
+	}*/
+	ilog.VV("-----------------------DNSX--------------------------")
+	b4, _ := aquery("skysports.com").Pack()
+	r4, _, err := resolv.Lookup(b4) // must use "test0"
+
+	ilog.D("%v", propx2.Router().Stat())
+	time.Sleep(2 * time.Second)
+
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ans := xdns.AsMsg(r4)
+	if xdns.Len(ans) == 0 && xdns.Len(ans) == 0 {
+		t.Fatal("no ans")
+	}
+	ilog.D("dns", xdns.Ans(ans))
+	ilog.VV("-----------------------END0--------------------------")
+
 	t.Log("proxy reaches")
 }
 
@@ -416,4 +475,10 @@ func aaaaquery(d string) *dns.Msg {
 	msg.SetQuestion(dns.Fqdn(d), dns.TypeAAAA)
 	msg.Id = 3456
 	return msg
+}
+
+func ko(t *testing.T, err error) {
+	if err != nil {
+		t.Fatal(err)
+	}
 }
