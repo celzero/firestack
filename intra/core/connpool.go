@@ -255,6 +255,8 @@ func (c *ConnPool[T]) Put(conn net.Conn) (ok bool) {
 		return
 	}
 
+	aconn.resetDeadline()
+
 	select {
 	case c.p <- aconn:
 		aconn.keepalive(true)
@@ -435,6 +437,10 @@ func (a agingconn) canread() error {
 		})
 	}
 	return JoinErr(ctlErr, checkErr) // may return nil
+}
+
+func (a agingconn) resetDeadline() {
+	a.c.SetDeadline(time.Time{})
 }
 
 func logev(err error) log.LogFn {
