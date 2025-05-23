@@ -227,7 +227,7 @@ func (f *icmpForwarder) reply6(id stack.TransportEndpointID, pkt *stack.PacketBu
 			// github.com/google/gvisor/blob/738e1d995f/pkg/tcpip/network/ipv6/icmp.go#L694
 			replyclass, _ := l3.TOS()
 			err = route.WritePacket(stack.NetworkHeaderParams{
-				Protocol: header.ICMPv4ProtocolNumber,
+				Protocol: header.ICMPv6ProtocolNumber,
 				TTL:      route.DefaultTTL(),
 				TOS:      replyclass,
 			}, pkt)
