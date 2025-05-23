@@ -28,9 +28,10 @@ func Version() string {
 
 func stamp() string {
 	if buildinfo != nil {
+		// github.com/golang/go/issues/50603
 		return buildinfo.Main.Path + "@v" + buildinfo.Main.Version
 	}
-	return Date + "-" + Commit
+	return "v" + Date + "-" + Commit
 }
 
 func BuildInfo() string {
