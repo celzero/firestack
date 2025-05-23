@@ -8,8 +8,8 @@ COMMIT_ID=$(shell git rev-parse --short HEAD)
 DATESTR=$(shell date -u +'%Y%m%d%H%M%S')
 XGO_LDFLAGS='-s -w -X main.version=$(COMMIT_ID)'
 # github.com/xjasonlyu/tun2socks/blob/bf745d0e0/Makefile#L14
-LDFLAGS_DEBUG='-X $(IMPORT_PATH)/intra/core.Date=$(DATESTR) -X $(IMPORT_PATH)/intra/core.Commit=$(COMMIT_ID)'
-LDFLAGS='-w -s -X $(IMPORT_PATH)/intra/core.Date=$(DATESTR) -X $(IMPORT_PATH)/intra/core.Commit=$(COMMIT_ID)'
+LDFLAGS_DEBUG='-buildid= -X $(IMPORT_PATH)/intra/core.Date=$(DATESTR) -X $(IMPORT_PATH)/intra/core.Commit=$(COMMIT_ID)'
+LDFLAGS='-w -s -buildid= -X $(IMPORT_PATH)/intra/core.Date=$(DATESTR) -X $(IMPORT_PATH)/intra/core.Commit=$(COMMIT_ID)'
 
 GOBIND=bind -v -a
 # -work: keep the temporary directory for debugging
@@ -21,7 +21,7 @@ LINUX_BUILDDIR=$(BUILDDIR)/linux
 # stack traces are not affected by ldflags -s -w: github.com/golang/go/issues/25035#issuecomment-495004689
 # trimpath: github.com/skycoin/skycoin/issues/719
 ANDROID_BUILD_CMD=env PATH=$(GOBIN):$(PATH) $(GOMOBILE) $(GOBIND) $(ANDROID23) \
-				-ldflags $(LDFLAGS) -gcflags='-trimpath=${HOME}'
+				-ldflags $(LDFLAGS) -gcflags='-trimpath'
 # built without stripping dwarf/symbols
 ANDROID_DEBUG_BUILD_CMD=env PATH=$(GOBIN):$(PATH) $(GOMOBILE) $(GOBIND) $(ANDROID23) \
 				-ldflags $(LDFLAGS_DEBUG)
