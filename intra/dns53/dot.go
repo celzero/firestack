@@ -173,10 +173,21 @@ func (t *dot) doQuery(pid string, q *dns.Msg) (response *dns.Msg, rpid string, e
 	return
 }
 
-func (t *dot) tlsdial(p ipn.Proxy) (_ *dns.Conn, who uintptr, err error) {
+func (t *dot) tlsdial(p ipn.Proxy) (dc *dns.Conn, who uintptr, err error) {
 	who = p.Handle()
-	if c := t.fromPool(who); c != nil {
-		return c, who, nil
+
+	defer func() {
+		if dc != nil {
+			// todo: higher timeout for if using proxy dialer
+			// _ = c.SetDeadline(time.Now().Add(dottimeout * 2))
+			if c := dc.Conn; c != nil {
+				_ = c.SetDeadline(time.Now().Add(dottimeout))
+			}
+		}
+	}()
+
+	if dc = t.fromPool(who); dc != nil {
+		return
 	}
 
 	var usingech bool
@@ -192,9 +203,6 @@ func (t *dot) tlsdial(p ipn.Proxy) (_ *dns.Conn, who uintptr, err error) {
 		c, err = dialers.DialWithTls(p.Dialer(), cfg, "tcp", addr)
 	}
 	if c != nil && core.IsNotNil(c) {
-		_ = c.SetDeadline(time.Now().Add(dottimeout))
-		// todo: higher timeout for if using proxy dialer
-		// _ = c.SetDeadline(time.Now().Add(dottimeout * 2))
 		return &dns.Conn{Conn: c}, who, err
 	} else {
 		err = core.OneErr(err, errNoNet)
