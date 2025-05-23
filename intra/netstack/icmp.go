@@ -115,17 +115,18 @@ func (f *icmpForwarder) reply4(id stack.TransportEndpointID, pkt *stack.PacketBu
 		defer pkt.DecRef()
 
 		if !f.h.Ping(data, src, dst) { // unreachable
-			// make unreachable icmp packet for req and l7
 			err = f.icmpErr4(pkt, header.ICMPv4DstUnreachable, header.ICMPv4HostUnreachable)
 		} else { // reachable
 			newOptions := f.ipOpts(pkt, ipHdr)
-			// if unhandled by the handler, send a reply ourselves
+
+			// Correct IP header length (IHL in 32-bit words).
 			replyHeaderLength := uint8(header.IPv4MinimumSize + len(newOptions))
 			replyIPHdrView := buffer.NewView(int(replyHeaderLength))
 			replyIPHdrView.Write(ipHdr[:header.IPv4MinimumSize])
 			replyIPHdrView.Write(newOptions)
+
 			replyIPHdr := header.IPv4(replyIPHdrView.AsSlice())
-			replyIPHdr.SetHeaderLength(replyHeaderLength)
+			replyIPHdr.SetHeaderLength(replyHeaderLength >> 2) // IHL in 32-bit words.
 			replyIPHdr.SetSourceAddress(route.LocalAddress())
 			replyIPHdr.SetDestinationAddress(route.RemoteAddress())
 			replyIPHdr.SetTTL(route.DefaultTTL())
@@ -135,6 +136,7 @@ func (f *icmpForwarder) reply4(id stack.TransportEndpointID, pkt *stack.PacketBu
 
 			replyICMPHdr := header.ICMPv4(replyData.AsSlice())
 			replyICMPHdr.SetType(header.ICMPv4EchoReply)
+			replyICMPHdr.SetCode(0) // EchoReply must have Code=0.
 			replyICMPHdr.SetChecksum(0)
 			replyICMPHdr.SetChecksum(^checksum.Checksum(replyData.AsSlice(), 0))
 
