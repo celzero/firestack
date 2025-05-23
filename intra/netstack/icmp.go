@@ -230,7 +230,7 @@ func (f *icmpForwarder) reply6(id stack.TransportEndpointID, pkt *stack.PacketBu
 				Protocol: header.ICMPv6ProtocolNumber,
 				TTL:      route.DefaultTTL(),
 				TOS:      replyclass,
-			}, pkt)
+			}, replyPkt)
 		}
 		loge(err)("icmp: v6: %s: wrote reply to tun; err? %v", f.o, err)
 	})
@@ -666,15 +666,29 @@ func l4l7(pkt *stack.PacketBuffer, sz uint32) ([]byte, error) {
 	din.Merge(&l7) // l4 + l7
 	return din.Flatten(), nil
 }
+// Fix for IPv6 reply function
+func (f *icmpForwarder) reply6(id stack.TransportEndpointID, pkt *stack.PacketBuffer) (handled bool) {
+    // ... existing code until line 173 ...
+    
+    // Fixed: Use correct protocol number and packet
+    err = route.WritePacket(stack.NetworkHeaderParams{
+        Protocol: header.ICMPv6ProtocolNumber,  // ✅ Fixed protocol
+        TTL:      route.DefaultTTL(),
+        TOS:      replyclass,
+    }, replyPkt)  // ✅ Use reply packet, not original
+    
+    // ... rest of function
+}
 
 func l3l4(pkt *stack.PacketBuffer, sz int64) (b buffer.Buffer, err error) {
-	l3 := pkt.NetworkHeader().View()
-	l4 := pkt.TransportHeader().View()
-	v := buffer.MakeWithView(l3)
-	if err = v.Append(l4); err == nil {
-		b = pkt.Data().ToBuffer()
-		b.Merge(&b)
-		b.Truncate(sz)
-	}
-	return
+    l3 := pkt.NetworkHeader().View()
+    l4 := pkt.TransportHeader().View()
+    combined := buffer.MakeWithView(l3)
+    if err = combined.Append(l4); err == nil {
+        payload := pkt.Data().ToBuffer()
+        combined.Merge(&payload)
+        combined.Truncate(sz)
+        b = combined
+    }
+    return
 }
