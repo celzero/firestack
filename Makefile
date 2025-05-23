@@ -11,7 +11,8 @@ XGO_LDFLAGS='-s -w -X main.version=$(COMMIT_ID)'
 LDFLAGS_DEBUG='-buildid= -X $(IMPORT_PATH)/intra/core.Date=$(DATESTR) -X $(IMPORT_PATH)/intra/core.Commit=$(COMMIT_ID)'
 LDFLAGS='-w -s -buildid= -X $(IMPORT_PATH)/intra/core.Date=$(DATESTR) -X $(IMPORT_PATH)/intra/core.Commit=$(COMMIT_ID)'
 
-GOBIND=bind -v -a
+# github.com/golang/mobile/blob/a1d90793fc/cmd/gomobile/bind.go#L36
+GOBIND=bind -trimpath -v -x -a -javapkg com.celzero.firestack
 # -work: keep the temporary directory for debugging
 ANDROID23=-androidapi 23 -target=android -tags='android' -work
 
