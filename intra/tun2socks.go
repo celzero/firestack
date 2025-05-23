@@ -38,8 +38,6 @@ import (
 	"github.com/celzero/firestack/intra/log"
 )
 
-var buildinfo, _ = debug.ReadBuildInfo()
-
 // pkg.go.dev/runtime#hdr-Environment_Variables
 type traceout string
 
@@ -151,12 +149,11 @@ func Transparency(eim, eif bool) {
 }
 
 // Build returns the build information.
-func Build(full bool) string {
-	v := "unknown"
+func Build(full bool) (v string) {
 	if !full {
 		v = core.Version()
-	} else if buildinfo != nil {
-		v = buildinfo.String()
+	} else {
+		v = core.BuildInfo()
 	}
 	log.V("tun: build version %s", v)
 	return v

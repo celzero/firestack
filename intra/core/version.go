@@ -10,7 +10,10 @@ package core
 import (
 	"fmt"
 	"runtime"
+	"runtime/debug"
 )
+
+var buildinfo, _ = debug.ReadBuildInfo()
 
 var (
 	// Commit set at link time by git rev-parse --short HEAD
@@ -20,5 +23,19 @@ var (
 )
 
 func Version() string {
-	return fmt.Sprintf("v%s-%s (%s/%s@%s)", Date, Commit, runtime.GOOS, runtime.GOARCH, runtime.Version())
+	return fmt.Sprintf("%s (%s/%s@%s)", stamp(), runtime.GOOS, runtime.GOARCH, runtime.Version())
+}
+
+func stamp() string {
+	if buildinfo != nil {
+		return buildinfo.Main.Path + "@v" + buildinfo.Main.Version
+	}
+	return Date + "-" + Commit
+}
+
+func BuildInfo() string {
+	if buildinfo == nil {
+		return "unknown"
+	}
+	return buildinfo.String()
 }
