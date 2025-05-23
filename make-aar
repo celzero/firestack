@@ -25,15 +25,22 @@ CLASSFULL="${CLASSFULL:-full}" # unused
 CLASSDBG="${CLASSDBG:-debug}"
 # artifact bytecode sources
 SOURCES="${SOURCES:-build/intra/tun2socks-sources.jar}"
+# android sdk/ndk versions
+NDKVER="${NDKVER:-28.1.13356709}"
+SDKVER="${SDKVER:-35}"
 
 ARG1="${1:-go}"
 ARG2="${2:-debug}"
 
+ANDROID_NDK_HOME="${ANDROID_HOME}/ndk/${NDKVER}"
+ANDROID_NDK_ROOT="${ANDROID_NDK_HOME}"
+
 # debug
 printenv
 ls -ltr $ANDROID_HOME/**
-# print ndk version
 head $ANDROID_HOME/ndk-bundle/source.properties || true
+ltr -ltr $ANDROID_NDK_HOME
+head $ANDROID_NDK_HOME/source.properties || true
 
 if [ "$ARG1" = "go" ]; then
   # download from go.dev/dl

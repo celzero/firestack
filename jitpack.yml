@@ -9,18 +9,21 @@ env:
   BOUT: "build/intra/tun2socks.aar"
   BOUTDBG: "build/intra/tun2socks-debug.aar"
   SOURCES: "build/intra/tun2socks-sources.jar"
+  NDKVER: "28.1.13356709"
+  SDKVER: "35"
 before_install:
 # - sdk install java 17.0.8-jbr
 # - sdk use java 17.0.8-jbr
 # developer.android.com/tools/releases/platform-tools
-  - yes | $ANDROID_HOME/tools/bin/sdkmanager "platforms;android-35"
-  - yes | $ANDROID_HOME/tools/bin/sdkmanager "build-tools;35.0.0"
-# gomobile: failed to find android SDK platform: open /opt/android-sdk-linux/platforms: no such file or directory
   - yes | $ANDROID_HOME/tools/bin/sdkmanager --licenses
+# gomobile: failed to find android SDK platform: open /opt/android-sdk-linux/platforms: no such file or directory
+  - $ANDROID_HOME/tools/bin/sdkmanager "platforms;android-${SDKVER}"
+  - $ANDROID_HOME/tools/bin/sdkmanager "build-tools;${SDKVER}.0.0"
 # ndk is at v22, for now: github.com/jitpack/jitpack.io/issues/4638
 # developer.android.com/ndk/downloads
 # github.com/android/ndk-samples/wiki/Configure-NDK-Path#the-sdkmanager-command-line-tool
-  - yes | $ANDROID_HOME/tools/bin/sdkmanager --install "ndk;28.1.13356709"
+# github.com/AgregoreWeb/gomobile-android-docker/blob/3720e727fa/Dockerfile
+  - $ANDROID_HOME/tools/bin/sdkmanager --install "ndk;${NDKVER}"
   - ./make-aar
 install:
   - ./mvn-install
