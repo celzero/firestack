@@ -44,8 +44,8 @@ head $ANDROID_NDK_HOME/source.properties || true
 
 if [ "$ARG1" = "go" ]; then
   # download from go.dev/dl
-  curl -Lso go.tar.gz https://go.dev/dl/go1.24.2.linux-amd64.tar.gz
-  echo "68097bd680839cbc9d464a0edce4f7c333975e27a90246890e9f1078c7e702ad go.tar.gz" | sha256sum -c -
+  curl -Lso go.tar.gz https://go.dev/dl/go1.24.3.linux-amd64.tar.gz
+  echo "3333f6ea53afa971e9078895eaa4ac7204a8c6b5c68c10e6bc9a33e8e391bdd8 go.tar.gz" | sha256sum -c -
 
   # HOME=/home/jitpack
   # PWD=/home/jitpack/build
