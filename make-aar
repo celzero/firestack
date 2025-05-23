@@ -39,7 +39,7 @@ ANDROID_NDK_ROOT="${ANDROID_NDK_HOME}"
 printenv
 ls -ltr $ANDROID_HOME/**
 head $ANDROID_HOME/ndk-bundle/source.properties || true
-ltr -ltr $ANDROID_NDK_HOME
+ls -ltr $ANDROID_NDK_HOME
 head $ANDROID_NDK_HOME/source.properties || true
 
 if [ "$ARG1" = "go" ]; then
