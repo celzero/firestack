@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"runtime"
 	"runtime/debug"
+	"strings"
 )
 
 var buildinfo, _ = debug.ReadBuildInfo()
@@ -27,11 +28,15 @@ func Version() string {
 }
 
 func stamp() string {
-	if buildinfo != nil {
-		// github.com/golang/go/issues/50603
-		return buildinfo.Main.Path + "@v" + buildinfo.Main.Version
+	path := ""
+	v := "v" + Date + "-" + Commit
+	if buildinfo != nil { // github.com/golang/go/issues/50603
+		path = buildinfo.Main.Path + "@"
+		if len(buildinfo.Main.Version) > 0 && !strings.Contains(buildinfo.Main.Version, "devel") {
+			v = "v" + buildinfo.Main.Version
+		}
 	}
-	return "v" + Date + "-" + Commit
+	return path + v
 }
 
 func BuildInfo() string {
