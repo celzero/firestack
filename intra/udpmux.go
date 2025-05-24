@@ -8,6 +8,7 @@ package intra
 
 import (
 	"fmt"
+	"io"
 	"net"
 	"net/netip"
 	"os"
@@ -226,13 +227,16 @@ func (x *muxer) readers() {
 				log.D("udp: mux: %s read timeout(%d): %v", x.cid, timeouterrors, err)
 				recycle()
 				continue
-			} // else: err out
+			}
 		}
 		if err != nil {
 			log.I("udp: mux: %s read done n(%d): %v", x.cid, n, err)
 			recycle()
 			return
 		}
+
+		timeouterrors = 0 // reset on successful reads
+
 		if who == nil || n == 0 {
 			log.W("udp: mux: %s read done n(%d): nil remote addr; skip", x.cid, n)
 			recycle()
@@ -456,7 +460,7 @@ func (c *demuxconn) RemoteAddr() net.Addr {
 
 // SetDeadline implements core.UDPConn.SetDeadline
 func (c *demuxconn) SetDeadline(t time.Time) error {
-	werr := c.SetReadDeadline(t)
+	werr := c.SetWriteDeadline(t)
 	rerr := c.SetReadDeadline(t)
 	return core.JoinErr(werr, rerr)
 }
@@ -499,8 +503,12 @@ func (c *demuxconn) io(out *[]byte, in *slice) (int, error) {
 		case <-c.closed:
 			log.W("udp: mux: %s demux: read: %v <= %v drop(sz: %d)", id, c.laddr, c.raddr, q)
 			in.fin()
-		case c.overflowCh <- &slice{v: in.v[n:], fin: in.fin}: // overflowCh is never closed
+		case c.overflowCh <- &slice{v: in.v[n:], fin: in.fin}:
 			log.W("udp: mux: %s demux: read: %v <= %v overflow(sz: %d)", id, c.laddr, c.raddr, q)
+		default:
+			log.E("udp: mux: %s demux: read: %v <= %v dropped(sz: %d)", id, c.laddr, c.raddr, q)
+			in.fin()
+			return n, io.ErrShortWrite
 		}
 	} else {
 		log.VV("udp: mux: %s demux: read: %v <= %v done(sz: %d)", id, c.laddr, c.raddr, n)
