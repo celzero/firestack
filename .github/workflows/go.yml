@@ -111,7 +111,7 @@ jobs:
         echo
         echo "=== ELF alignment ==="
 
-        matches="$(find jni/arm64-v8a/ -type f)"
+        matches="$(find jni/ -type f)"
         IFS=$'\n'
         for match in $matches; do
           [[ $(file "${match}") == *"ELF"* ]] || continue
