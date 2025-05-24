@@ -92,7 +92,7 @@ func Grx[T any](who string, f WorkCtx[T], d time.Duration) (zz T, completed bool
 
 // errPanic returns an error indicating that the function at index i panicked.
 func errPanic(who string) error {
-	return errors.New(who + "fn panicked")
+	return errors.New(who + " fn panicked")
 }
 
 // Race runs all the functions in fs concurrently and returns the first non-error result.
@@ -140,7 +140,7 @@ loop:
 			} else {
 				return r.t, r.i, r.err
 			}
-		case <-time.After(timeout):
+		case <-ctx.Done():
 			// if one of WorkCtx functions times out, it
 			// means the rest have also lost the race.
 			// break out of the loop and return errTimeout.
