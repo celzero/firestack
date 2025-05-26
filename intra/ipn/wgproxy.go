@@ -153,7 +153,6 @@ type WgProxy interface {
 	Proxy
 	tun.Device
 	update(id, txt string) bool
-	IpcSet(txt string) error
 }
 
 // Handle implements Proxy.
@@ -359,8 +358,8 @@ func stripPrefixIfNeeded(id string) string {
 // that is, incoming interface config is compatible with the existing tunnel,
 // regardless of whether peer config has changed (which can be updated in-place).
 func (w *wgproxy) update(id, txt string) bool {
-	const reuse = true // can update in-place; reuse existing tunnel
-	const anew = false // cannot update in-place; create new tunnel
+	const reused = true // can update in-place; reuse existing tunnel
+	const anew = false  // cannot update in-place; create new tunnel
 	if w.status.Load() == END {
 		log.W("proxy: wg: update(%s<>%s): END; status(%d)", id, w.id, w.status)
 		return anew
@@ -411,7 +410,13 @@ func (w *wgproxy) update(id, txt string) bool {
 	w.amnezia.Store(opts.amnezia)
 	w.resetMtu(w.getVia())
 
-	return reuse
+	ipcerr := w.IpcSet(cptxt)
+	if ipcerr != nil {
+		log.W("proxy: updating wg(%s) ipcset; err %v", id, ipcerr)
+		return anew
+	}
+
+	return reused
 }
 
 func (w *wgtun) allowedIPs(allowed []netip.Prefix) {

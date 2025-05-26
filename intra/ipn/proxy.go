@@ -162,24 +162,6 @@ func (pxr *proxifier) addProxy(id, txt string) (p Proxy, err error) {
 		pxr.Unlock()
 		if p, _ = pxr.ProxyFor(id); p != nil {
 			if wgp, ok := p.(WgProxy); ok && wgp.update(id, txt) {
-				opts, err0 := wgIfConfigOf(id, &txt) // removes wg ifconfig from txt
-
-				logev(err0)("proxy: updating wg(%s); ifaddrs(%v), dns(%v), mtu(%d); err? %v",
-					id, opts.ifaddrs, opts.dns, opts.mtu, err)
-
-				if err0 != nil {
-					return nil, err0
-				}
-
-				err1 := wgp.IpcSet(txt)
-				if err1 != nil {
-					log.W("proxy: err1 updating wg(%s); %v", id, err1)
-					return nil, err1
-				} else {
-					// sensitive log: peercfg contains private key
-					log.P("proxy: updating wg(%s) len(peercfg(%d))", id, len(txt))
-				}
-
 				newcfg, readd := wgp.OnProtoChange(lp)
 				if readd || len(newcfg) > 0 {
 					log.W("proxy: cannot update wg(%s); readd it!", id)
