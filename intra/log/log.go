@@ -130,7 +130,6 @@ func P(msg string, args ...any) {
 // Wtf logs a fatal message.
 func Wtf(msg string, args ...any) {
 	Glogger.Fatalf(callerat, msg, args...)
-
 }
 
 // C logs the stack trace of the current goroutine to Console.
@@ -154,7 +153,6 @@ func T(msg string, args ...any) {
 	E2(callerat, "----START----")
 	Glogger.Stack(callerat, msg, make([]byte, 4096))
 	E2(callerat, "----STOPP----")
-
 }
 
 // TALL logs the stack trace of all active goroutines.
@@ -162,37 +160,30 @@ func TALL(msg string, scratch64k []byte) {
 	E2(callerat, "----START----")
 	Glogger.Stack(callerat, msg, scratch64k)
 	E2(callerat, "----STOPP----")
-
 }
 
 func VV2(at int, msg string, args ...any) {
 	Glogger.VeryVerbosef(at+nextframe, msg, args...)
-
 }
 
 func V2(at int, msg string, args ...any) {
 	Glogger.Verbosef(at+nextframe, msg, args...)
-
 }
 
 func D2(at int, msg string, args ...any) {
 	Glogger.Debugf(at+nextframe, msg, args...)
-
 }
 
 func I2(at int, msg string, args ...any) {
 	Glogger.Infof(at+nextframe, msg, args...)
-
 }
 
 func W2(at int, msg string, args ...any) {
 	Glogger.Warnf(at+nextframe, msg, args...)
-
 }
 
 func E2(at int, msg string, args ...any) {
 	Glogger.Errorf(at+nextframe, msg, args...)
-
 }
 
 func LevelOf(level int32) LogLevel {
