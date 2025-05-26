@@ -802,7 +802,7 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []netip.Addr, network, uid strin
 		uid = core.UNKNOWN_UID_STR
 	}
 	if hasfixed && !usefixed {
-		log.W("alg: dnsx.Fixed must be used with mod & without preset, instead using...", idstr(t2))
+		log.W("alg: dnsx.Fixed must be used with mod & without preset, instead using... %s", idstr(t2))
 		t1 = t2 // assert t2 != nil?
 	} else if usefixed {
 		// fixed ip responses must always be alg'd unlike preset / blockall
