@@ -192,6 +192,10 @@ func reprioritize(ds []protect.RDialer, ipp netip.AddrPort) []protect.RDialer {
 }
 
 func DialAny(ds []protect.RDialer, laddr, raddr net.Addr) (*retrier, error) {
+	if len(ds) <= 0 {
+		return nil, errNoDialer
+	}
+
 	r := &retrier{
 		dialers:     reprioritize(ds, asAddrPort(raddr)),
 		dialerOpts:  dialerOptsForMultiDialers(),

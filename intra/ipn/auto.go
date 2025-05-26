@@ -123,6 +123,8 @@ func (h *auto) dial(network, laddr, raddr string) (protect.Conn, error) {
 	amz, amzerr := h.pxr.mainRpnProxyOf(RpnAmz)
 	sep, seerr := h.pxr.mainRpnProxyOf(RpnSE)
 
+	pxrerrs := core.JoinErr(exerr, waerr, proerr, amzerr, seerr, ex64err)
+
 	if usevia(h.viaID) {
 		if v, vok := h.via.Get(); !vok {
 			if removeViaOnErrors {
@@ -167,9 +169,12 @@ func (h *auto) dial(network, laddr, raddr string) (protect.Conn, error) {
 				}
 				return p.Dialer()
 			})
-			// dialAny delegates to dialers.DialAny which pins IPs
-			// to proxies (against their IDs) for 30s.
-			return dialAny(core.WithoutNils(d), network, laddr, raddr)
+			if len(d) > 0 {
+				// dialAny delegates to dialers.DialAny which pins IPs
+				// to proxies (against their IDs) for 30s.
+				return dialAny(core.WithoutNils(d), network, laddr, raddr)
+			}
+			return nil, core.OneErr(pxrerrs, errNoProxyHealthy)
 		}
 		return dialAny(healthy, network, laddr, raddr)
 	}
@@ -312,8 +317,9 @@ func (h *auto) dial(network, laddr, raddr string) (protect.Conn, error) {
 		h.exp.Put(raddr, who)
 	}
 	kaenabled := maybeKeepAlive(c)
-	logei(err)("proxy: auto: w(%d) pin(%t/%d), dial(%s) %s, ka? %t; err? %v",
-		who, recent, previdx, network, raddr, kaenabled, err)
+	logei(err)("proxy: auto: w(%d) pin(%t/%d), dial(%s) %s, ka? %t; errs? %v+%v",
+		who, recent, previdx, network, raddr, kaenabled, err, pxrerrs)
+
 	return c, err
 }
 
