@@ -125,7 +125,6 @@ func (a *uatom[T]) cas(old, new T) bool {
 
 var _ Logger = (*simpleLogger)(nil)
 
-// based on: github.com/eycorsican/go-tun2socks/blob/301549c43/common/log/logger.go
 type LogLevel uint32
 
 const (
@@ -170,6 +169,8 @@ const defaultClevel = STACKTRACE
 
 var _ Logger = (*simpleLogger)(nil)
 
+// runtime crashes "E Go ..." are sent to logd / /dev/log from here:
+// github.com/golang/go/blob/3fd729b2a1/src/runtime/write_err_android.go#L13
 // github.com/golang/mobile/blob/fa72addaaa/internal/mobileinit/mobileinit_android.go#L52
 // const logcatLineSize = 1024
 
@@ -186,8 +187,8 @@ const minQSize = 16
 // consoleChSize is the size of the console channel.
 const consoleChSize = 512
 
-// minNeededForFullStacktrace is the size needed for a full stacktrace.
-const minNeededForFullStacktrace = 16 << 10 // 16KB
+// minBytesForFullStacktrace is the size needed for a full stacktrace.
+const minBytesForFullStacktrace = 16 << 10 // 16KB
 
 // similarTraceThreshold is the no. of similar stacktraces to report before suppressing.
 const similarTraceThreshold = 8
@@ -219,7 +220,7 @@ func defaultLogger() *simpleLogger {
 		clevel:  defaultClevel,
 		cmsgC:   make(chan *conMsg, consoleChSize),
 		stcount: make(map[string]uint32),
-		// gomobile redirects stderr and stdout to logcat
+		// gomobile pipes stderr & stdout to logcat
 		// github.com/golang/mobile/blob/fa72addaaa/internal/mobileinit/mobileinit_android.go#L74-L92
 		e: golog.New(os.Stderr, "", defaultFlags),
 		o: golog.New(os.Stdout, "", defaultFlags),
@@ -424,7 +425,7 @@ func (l *simpleLogger) Stack(at int, msg string, scratch []byte) {
 	}
 
 	// full stacktrace iff large enough scratch
-	full := len(scratch) > minNeededForFullStacktrace // 16KB
+	full := len(scratch) > minBytesForFullStacktrace // 16KB
 	n := runtime.Stack(scratch, full)
 
 	if n == len(scratch) {
