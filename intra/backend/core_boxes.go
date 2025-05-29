@@ -7,6 +7,7 @@
 package backend
 
 import (
+	"hash/maphash"
 	"sync"
 	"unique"
 	"weak"
@@ -59,20 +60,32 @@ reload:
 	return nil, false
 }
 
-var interns = &strmap{} // unique.Handle[string] => Gostr
+var (
+	interns = &strmap{} // unique.Handle[string] => Gostr
+
+	mseed = maphash.MakeSeed()
+)
 
 // Gostr & Gobytes are a workaround for:
 // github.com/golang/go/issues/46893
 
 type Gostr struct {
 	v unique.Handle[string]
+	// hash of Gostr's string (exported for java/kt equals())
+	H uint64
+	// length of Gostr's string (exported for java/kt hashCode())
+	L int
 }
 
 func (s *Gostr) String() string {
 	return s.V()
 }
 
-func StrOf(v string) (r *Gostr) {
+func StrOf(v string) *Gostr {
+	return strof(v, internstr)
+}
+
+func strof(v string, internstr bool) (r *Gostr) {
 	if len(v) == 0 {
 		return nil
 	}
@@ -84,7 +97,7 @@ func StrOf(v string) (r *Gostr) {
 			r = *s
 		}
 		if r == nil {
-			new := &Gostr{v: hdl}
+			new := &Gostr{v: hdl, H: maphash.String(mseed, v), L: len(v)}
 			if s, ok := interns.put(hdl, &new); ok {
 				r = *s
 			}
@@ -92,7 +105,7 @@ func StrOf(v string) (r *Gostr) {
 		// TODO: panic if r == nil && v != ""?
 		return r // may be nil
 	}
-	return &Gostr{v: hdl}
+	return &Gostr{v: hdl, H: maphash.String(mseed, v), L: len(v)}
 }
 
 func (s *Gostr) V() string {
@@ -100,10 +113,6 @@ func (s *Gostr) V() string {
 		return ""
 	}
 	return s.v.Value()
-}
-
-func (s *Gostr) Len() int {
-	return len(s.V())
 }
 
 func OfFunc[T *Gostr | *Gobyte, R string | []byte](f func() (R, error)) (T, error) {
@@ -151,10 +160,17 @@ func StrOfFunc2[P any, Q any](f func(P, Q) (string, error), p P, q Q) (*Gostr, e
 
 type Gobyte struct {
 	v []byte
+	// hash of Gobyte's bytes (exported for java/kt equals())
+	H uint64
+	// length of Gobyte's bytes (exported for java/kt hashCode())
+	L int
 }
 
 func BytesOf(v []byte) *Gobyte {
-	return &Gobyte{v: v}
+	if len(v) == 0 {
+		return nil
+	}
+	return &Gobyte{v: v, H: maphash.Bytes(mseed, v), L: len(v)}
 }
 
 func (b *Gobyte) V() []byte {
@@ -165,7 +181,10 @@ func (b *Gobyte) V() []byte {
 }
 
 func (b *Gobyte) Len() int {
-	return len(b.V())
+	if b == nil {
+		return 0
+	}
+	return b.L
 }
 
 func BytesOfFunc(f func() ([]byte, error)) (*Gobyte, error) {
