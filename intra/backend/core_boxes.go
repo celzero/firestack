@@ -69,6 +69,26 @@ var (
 // Gostr & Gobytes are a workaround for:
 // github.com/golang/go/issues/46893
 
+// String wrapped in struct Gomsg is a workaround for:
+// github.com/golang/go/issues/46893
+type Gomsg struct {
+	S string
+}
+
+func (m *Gomsg) String() string {
+	if m == nil {
+		return ""
+	}
+	return m.S
+}
+
+func MsgOf(v string) *Gomsg {
+	if len(v) == 0 {
+		return nil
+	}
+	return &Gomsg{S: v}
+}
+
 type Gostr struct {
 	v unique.Handle[string]
 	// hash of Gostr's string (exported for java/kt equals())
