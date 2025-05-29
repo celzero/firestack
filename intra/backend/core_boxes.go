@@ -12,12 +12,54 @@ import (
 	"weak"
 )
 
-const internstr = true
-
-var (
-	internmu = new(sync.Mutex)
-	interns  = make(map[unique.Handle[string]]weak.Pointer[Gostr])
+const (
+	internstr         = true
+	maxinternattempts = 3 // max no. of times to try load/store interned Gostr
 )
+
+type strmap sync.Map
+
+// pointer to pointer v pointer to Gostr both come out
+// with equal behaviour: go.dev/play/p/4qT1JACgdHG
+func (s *strmap) get(k unique.Handle[string]) (**Gostr, bool) {
+	m := (*sync.Map)(s)
+	if w, ok := m.Load(k); ok {
+		if v, ok := w.(weak.Pointer[Gostr]); ok {
+			if out := v.Value(); out != nil {
+				return &out, true
+			} else { // if weak value is gone, delete key
+				m.CompareAndDelete(k, w)
+			}
+		}
+	}
+	return nil, false
+}
+
+func (s *strmap) put(k unique.Handle[string], v **Gostr) (**Gostr, bool) {
+	m := (*sync.Map)(s)
+	w := weak.Make(*v)
+
+	tries := 0
+reload:
+	if tries > maxinternattempts { // circuit breaker
+		return nil, false
+	}
+	tries += 1
+
+	x, _ := m.LoadOrStore(k, w)
+	if v, ok := x.(weak.Pointer[Gostr]); ok {
+		// if the value is already present, return it
+		if out := v.Value(); out != nil {
+			return &out, true
+		} else { // if weak value is gone, delete key
+			m.CompareAndDelete(k, w)
+			goto reload
+		}
+	}
+	return nil, false
+}
+
+var interns = &strmap{} // unique.Handle[string] => Gostr
 
 // Gostr & Gobytes are a workaround for:
 // github.com/golang/go/issues/46893
@@ -38,18 +80,17 @@ func StrOf(v string) (r *Gostr) {
 	// go.dev/play/p/LFqxCEZSo62
 	hdl := unique.Make(v)
 	if internstr {
-		internmu.Lock()
-		defer internmu.Unlock()
-
-		if s, ok := interns[hdl]; ok {
-			r = s.Value()
+		if s, ok := interns.get(hdl); ok {
+			r = *s
 		}
 		if r == nil {
-			r = &Gostr{v: hdl}
-			interns[hdl] = weak.Make(r)
+			new := &Gostr{v: hdl}
+			if s, ok := interns.put(hdl, &new); ok {
+				r = *s
+			}
 		}
-
-		return r
+		// TODO: panic if r == nil && v != ""?
+		return r // may be nil
 	}
 	return &Gostr{v: hdl}
 }
