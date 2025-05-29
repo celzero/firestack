@@ -43,7 +43,7 @@ const (
 	callerat = 2
 )
 
-// String as a ptr to struct Logmsg is a workaround for:
+// String wrapped in struct Logmsg is a workaround for:
 // github.com/golang/go/issues/46893
 type Logmsg struct {
 	S string
@@ -63,7 +63,7 @@ type Console interface {
 }
 
 type conMsg struct {
-	m string
+	m Logmsg
 	t LogLevel
 }
 

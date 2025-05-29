@@ -283,7 +283,7 @@ func (l *simpleLogger) incrStCount(id string) (c uint32) {
 // Must be called once from a goroutine.
 func (l *simpleLogger) consoleDispatcher() {
 	for m := range l.cmsgC {
-		if m == nil || len(m.m) <= 0 { // no msg
+		if m == nil || len(m.m.S) <= 0 { // no msg
 			continue
 		}
 		load := (len(l.cmsgC) / cap(l.cmsgC) * 100) // load percentage
@@ -293,7 +293,7 @@ func (l *simpleLogger) consoleDispatcher() {
 				// drop
 			case VVERBOSE, VERBOSE, DEBUG, INFO:
 				if load < 50 {
-					c.Log(int32(m.t), &Logmsg{m.m})
+					c.Log(int32(m.t), &m.m)
 					continue
 				} // drop
 			case WARN, ERROR:
@@ -303,14 +303,14 @@ func (l *simpleLogger) consoleDispatcher() {
 					}
 				}
 				if load < 80 {
-					c.Log(int32(m.t), &Logmsg{m.m})
+					c.Log(int32(m.t), &m.m)
 					continue
 				} // drop
 			case STACKTRACE:
-				c.Log(int32(m.t), &Logmsg{m.m})
+				c.Log(int32(m.t), &m.m)
 				continue
 			case USR:
-				c.Log(int32(m.t), &Logmsg{m.m})
+				c.Log(int32(m.t), &m.m)
 				continue
 			}
 		} // dropped
@@ -331,7 +331,7 @@ func (l *simpleLogger) Usr(msg string) {
 		if count := l.incrStCount(msg); count > similarUsrMsgThreshold {
 			return
 		}
-		l.consoleQueue(&conMsg{msg, USR})
+		l.consoleQueue(&conMsg{Logmsg{msg}, USR})
 	}
 }
 
@@ -551,7 +551,7 @@ func (l *simpleLogger) writelog(lvl LogLevel, at int, msg string, args ...any) {
 			}
 			// print spammsg only if spamming is not allowed
 			if cc && !spamConsole {
-				l.consoleQueue(&conMsg{spammsg, lvl})
+				l.consoleQueue(&conMsg{Logmsg{spammsg}, lvl})
 			}
 		}
 	}
@@ -576,7 +576,7 @@ func (l *simpleLogger) writelog(lvl LogLevel, at int, msg string, args ...any) {
 			l.out(msg)
 		}
 		if cc && (!isspam || spamConsole) {
-			l.consoleQueue(&conMsg{msg, lvl})
+			l.consoleQueue(&conMsg{Logmsg{msg}, lvl})
 		}
 	}
 }
