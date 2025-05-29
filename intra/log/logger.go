@@ -293,24 +293,24 @@ func (l *simpleLogger) consoleDispatcher() {
 				// drop
 			case VVERBOSE, VERBOSE, DEBUG, INFO:
 				if load < 50 {
-					c.Log(int32(m.t), m.m)
+					c.Log(m.t, m.m)
 					continue
 				} // drop
 			case WARN, ERROR:
 				if load < 5 {
 					if d := l.cskips.Swap(0); d > 0 {
-						c.Log(int32(WARN), Logmsg(l.msgstr(WARN, "backpressure... dropped %d msgs", d)))
+						c.Log(WARN, Logmsg(l.msgstr(WARN, "backpressure... dropped %d msgs", d)))
 					}
 				}
 				if load < 80 {
-					c.Log(int32(m.t), m.m)
+					c.Log(m.t, m.m)
 					continue
 				} // drop
 			case STACKTRACE:
-				c.Log(int32(m.t), m.m)
+				c.Log(m.t, m.m)
 				continue
 			case USR:
-				c.Log(int32(m.t), m.m)
+				c.Log(m.t, m.m)
 				continue
 			}
 		} // dropped
@@ -392,7 +392,7 @@ func (l *simpleLogger) emitStack(at int, msgs ...string) {
 			// c.Stack() on the same go routine, since
 			// the caller (ex: core.Recover) may exit
 			// immediately once simpleLogger.Stack() returns
-			c.Log(int32(STACKTRACE), Logmsg(msg))
+			c.Log(STACKTRACE, Logmsg(msg))
 		} else {
 			// msg, which is unsafely type-coerced from []byte,
 			// is pooled; but the caller owns []byte and so it

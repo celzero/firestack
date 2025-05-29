@@ -48,7 +48,7 @@ type Logmsg string
 // Console is an external logger.
 type Console interface {
 	// Log logs a multi-line msg.
-	Log(level int32, msg Logmsg)
+	Log(level LogLevel, msg Logmsg)
 }
 
 type conMsg struct {
