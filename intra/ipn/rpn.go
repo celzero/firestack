@@ -178,10 +178,6 @@ func (r *rpnp) flattenKids() (ids []string) {
 	return
 }
 
-func (r *rpnp) state() (existingState *x.Gobyte, err error) {
-	return r.RpnAcc.State()
-}
-
 func (r *rpnp) Created() int64 {
 	return r.RpnAcc.Created()
 }
