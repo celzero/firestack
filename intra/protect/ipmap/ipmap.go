@@ -245,11 +245,11 @@ func (m *ipmap) LookupNetIPOn(ctx context.Context, network, host string, tid ...
 
 func (m *ipmap) Add(hostOrIP string) *IPSet {
 	s := m.get(hostOrIP, AutoType)
-	log.I("ipmap: Add: resolving %s", hostOrIP)
-	if _, ok := s.add(hostOrIP); !ok {
-		log.W("ipmap: Add: zero ips for %s", hostOrIP)
-	} else {
+	if _, ok := s.add(hostOrIP); ok {
+		log.I("ipmap: Add: resolving %s", hostOrIP)
 		m.revmap(hostOrIP, s, nil)
+	} else {
+		log.W("ipmap: Add: zero ips for %s", hostOrIP)
 	}
 	return s
 }
@@ -361,7 +361,7 @@ func (m *ipmap) makeIPSet(hostname string, ipps []string, typ IPSetType) *IPSet 
 		confirmed: core.NewZeroVolatile[netip.Addr](),
 		typ:       typ,
 		r:         m, // m stays constant, but m.r may change
-		seed:      ipps,
+		seed:      core.CopyUniq(ipps),
 		fails:     atomic.Uint32{},
 	}
 	if typ == IPAddr {
@@ -449,12 +449,13 @@ func (s *IPSet) hasLocked(ip netip.Addr) bool {
 // Adds an IP to the set if it is not present.  Must be called under Lock.
 func (s *IPSet) addLocked(ips ...netip.Addr) {
 	for i, ip := range ips {
+		// always unmapped; github.com/golang/go/issues/53607
+		ip = ip.Unmap()
 		uns := !ip.IsUnspecified()
 		valip := ip.IsValid()
-		newip := !s.hasLocked(ip.Unmap())
+		newip := !s.hasLocked(ip)
 		if uns && valip && newip {
-			// always unmapped; github.com/golang/go/issues/53607
-			s.ips = append(s.ips, ip.Unmap())
+			s.ips = append(s.ips, ip)
 		} else {
 			log.D("ipmap: add #%d: fail %s; !uns? %t, val? %t, !new? %t", i, ip, uns, valip, newip)
 		}
