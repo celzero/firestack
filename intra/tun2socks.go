@@ -42,6 +42,7 @@ import (
 type traceout string
 
 type Console log.Console
+type Logmsg log.Logmsg
 type Controller x.Controller
 
 type ProxyListener x.ProxyListener
