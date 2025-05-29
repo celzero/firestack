@@ -513,7 +513,7 @@ func (r *resolver) forward(q []byte, uid string, chosenids ...string) (res0 []by
 	}
 
 	pref, oqcompleted := core.Grx("r.onQuery", func(_ context.Context) (*x.DNSOpts, error) {
-		return r.listener.OnQuery(uid, qname, qtyp), nil
+		return r.listener.OnQuery(x.StrOf(uid), x.StrOf(qname), qtyp), nil
 	}, onQueryTimeout)
 	if !oqcompleted || pref == nil {
 		log.W("dns: fwd: for %s; no preferences (%t) for %s:%d", uid, pref == nil, qname, qtyp)

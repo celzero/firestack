@@ -85,7 +85,7 @@ type DNSListener interface {
 	ResolverListener
 	// OnQuery is called when a DNS query is received. The listener
 	// can return a DNSOpts to modify
-	OnQuery(uid, domain string, qtyp int) *DNSOpts
+	OnQuery(uid, domain *Gostr, qtyp int) *DNSOpts
 	// OnResponse is called when a DNS response is received.
 	OnResponse(*DNSSummary)
 }
