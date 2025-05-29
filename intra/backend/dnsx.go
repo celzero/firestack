@@ -82,13 +82,13 @@ const ( // from: dnsx/rethinkdns.go
 // DNSTransport exports necessary methods from dnsx.Transport
 type DNSTransport interface {
 	// uniquely identifies this transport
-	ID() string
+	ID() *Gostr
 	// one of DNS53, DOH, DNSCrypt, System
-	Type() string
+	Type() *Gostr
 	// Median round-trip time for this transport, in millis.
 	P50() int64
 	// Return the server host address used to initialize this transport.
-	GetAddr() string
+	GetAddr() *Gostr
 	// State of the transport after previous query (see: queryerror.go)
 	Status() int
 }
@@ -97,26 +97,26 @@ type DNSTransportMult interface {
 	// Add adds a transport to this multi-transport.
 	Add(t DNSTransport) bool
 	// Remove removes a transport from this multi-transport.
-	Remove(id string) bool
+	Remove(id *Gostr) bool
 	// Get returns a transport from this multi-transport.
-	Get(id string) (DNSTransport, error)
+	Get(id *Gostr) (DNSTransport, error)
 	// Refresh re-registers transports and returns a csv of active ones.
-	Refresh() (string, error)
+	Refresh() (*Gostr, error)
 	// LiveTransports returns a csv of active transports.
-	LiveTransports() string
+	LiveTransports() *Gostr
 }
 
 type RDNS interface {
 	// SetStamp sets the rethinkdns blockstamp.
-	SetStamp(string) error
+	SetStamp(*Gostr) error
 	// GetStamp returns the current rethinkdns blockstamp.
-	GetStamp() (string, error)
+	GetStamp() (*Gostr, error)
 	// StampToNames returns csv group:names of blocklists in the given stamp s.
-	StampToNames(s string) (string, error)
+	StampToNames(s *Gostr) (*Gostr, error)
 	// FlagsToStamp returns a blockstamp for given csv blocklist-ids, if valid.
-	FlagsToStamp(csv string, enctyp int) (string, error)
+	FlagsToStamp(csv *Gostr, enctyp int) (*Gostr, error)
 	// StampToFlags retruns csv blocklist-ids given a valid blockstamp s.
-	StampToFlags(s string) (string, error)
+	StampToFlags(s *Gostr) (*Gostr, error)
 }
 
 type RDNSResolver interface {
@@ -139,10 +139,10 @@ type DNSResolver interface {
 
 type ResolverListener interface {
 	// OnDNSAdded is called when a new DNS transport with id is added.
-	OnDNSAdded(id string)
+	OnDNSAdded(id *Gostr)
 	// OnDNSRemoved is called when a DNS transport with id is removed, except
 	// when the transport is stopped, then OnDNSStopped is called instead.
-	OnDNSRemoved(id string)
+	OnDNSRemoved(id *Gostr)
 	// OnDNSStopped is called when the DNS transport is stopped. Note:
 	// OnDNSRemoved is not called for each transport before this.
 	OnDNSStopped()

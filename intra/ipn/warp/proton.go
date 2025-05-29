@@ -743,8 +743,8 @@ func (a *ProtonClient) newConf() error {
 	pc := new(ProtonWgConfig)
 
 	wgkey := a.key.ToX25519()
-	clientPrivKey := wgkey.Base64()
-	clientPubKey := wgkey.Mult().Base64()
+	clientPrivKey := wgkey.Base64().V()
+	clientPubKey := wgkey.Mult().Base64().V()
 
 	if len(clientPubKey) < 6 {
 		return errNoProtonClientInfo
@@ -1351,19 +1351,19 @@ func (a *ProtonClient) rereg(force bool) (apiStatus, error) {
 }
 
 // Who implements x.RpnAcc.
-func (a *ProtonClient) Who() string {
+func (a *ProtonClient) Who() *x.Gostr {
 	if a == nil {
-		return ""
+		return nil
 	}
-	return a.sess.uid
+	return x.StrOf(a.sess.uid)
 }
 
 // ProviderID implements RpnAcc.
 func (*ProtonClient) ProviderID() string { return x.RpnPro }
 
 // State implements x.RpnAcc.
-func (a *ProtonClient) State() ([]byte, error) {
-	return a.configExt.Json()
+func (a *ProtonClient) State() (*x.Gobyte, error) {
+	return x.BytesOfFunc(a.configExt.Json)
 }
 
 // Created implements x.RpnAcc.
@@ -1391,14 +1391,14 @@ func (a *ProtonClient) Expires() int64 {
 }
 
 // Update implements x.RpnAcc.
-func (a *ProtonClient) Update() (newstate []byte, err error) {
+func (a *ProtonClient) Update() (newstate *x.Gobyte, err error) {
 	outcome, err := a.refresh()
 	if err != nil {
 		// todo: on outcomeTryAnew; retry
 		log.W("proton: update: re-reg failed %s %v", outcome, err)
 		return nil, err
 	}
-	return a.configExt.Json()
+	return x.BytesOfFunc(a.configExt.Json)
 }
 
 // Conf implements RpnAcc.

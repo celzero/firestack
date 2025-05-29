@@ -120,7 +120,7 @@ func NewCachingTransport(t Transport, ttl time.Duration) Transport {
 		log.I("cache: (%s) no-op: %s", t.ID(), t.GetAddr())
 		return t
 	}
-	if strings.HasPrefix(t.GetAddr(), algprefix) {
+	if strings.HasPrefix(t.GetAddr().V(), algprefix) {
 		log.W("cache: (%s) no-op for alg: %s", t.ID(), t.GetAddr())
 		return t
 	}
@@ -332,12 +332,12 @@ func asResponse(q *dns.Msg, v *cres, fresh bool) (a *dns.Msg, s *x.DNSSummary, e
 	return
 }
 
-func (t *ctransport) ID() string {
+func (t *ctransport) ID() *x.Gostr {
 	// must match with how wrapping transports like DcProxy / Gateway rely on the ID
-	return CT + t.Transport.ID()
+	return x.StrOf(CT + t.Transport.ID().V())
 }
 
-func (t *ctransport) Type() string {
+func (t *ctransport) Type() *x.Gostr {
 	return t.Transport.Type()
 }
 
@@ -353,15 +353,15 @@ func (t *ctransport) fetch(network string, q *dns.Msg, summary *x.DNSSummary, cb
 	sendRequest := func(fsmm *x.DNSSummary) (*dns.Msg, error) {
 		fsmm.QName = summary.QName
 		fsmm.QType = summary.QType
-		fsmm.ID = t.ID()
-		fsmm.Type = t.Type()
+		fsmm.ID = t.ID().V()
+		fsmm.Type = t.Type().V()
 
 		reqsent := false
 
 		defer func() {
 			// fill after summaries are filled
 			if !reqsent {
-				summary.ID = t.ID()
+				summary.ID = t.ID().V()
 				fsmm.Cached = true
 			}
 		}()
@@ -448,7 +448,7 @@ func (t *ctransport) fetch(network string, q *dns.Msg, summary *x.DNSSummary, cb
 				if testpanic {
 					g = core.Go // does not exit on panic
 				}
-				g("c.sendRequest: "+t.ID()+t.Type(), func() {
+				g("c.sendRequest: "+t.ID().V()+t.Type().V(), func() {
 					if testpanic {
 						panic("dns: cache: fetch: sendRequest: rand10pc")
 					}
@@ -459,7 +459,7 @@ func (t *ctransport) fetch(network string, q *dns.Msg, summary *x.DNSSummary, cb
 			fillSummary(cachedsummary, summary)
 			summary.Latency = 0 // don't use cached latency
 			summary.Cached = true
-			summary.ID = t.ID()
+			summary.ID = t.ID().V()
 			return r, nil
 		} // else: fallthrough to sendRequest
 	} else {
@@ -503,9 +503,9 @@ func (t *ctransport) P50() int64 {
 	return 0
 }
 
-func (t *ctransport) GetAddr() string {
+func (t *ctransport) GetAddr() *x.Gostr {
 	prefix := PrefixFor(CT)
-	return prefix + t.Transport.GetAddr()
+	return x.StrOf(prefix + t.Transport.GetAddr().V())
 }
 
 func (t *ctransport) IPPorts() []netip.AddrPort {

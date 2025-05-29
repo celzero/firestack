@@ -339,7 +339,7 @@ func NewProxifier(pctx context.Context, l3 string, mtu int, c protect.Controller
 // It stops old proxy if a new one with the same ID is added.
 func (px *proxifier) add(p Proxy) (ok bool) {
 	var old Proxy
-	id := p.ID()
+	id := idstr(p)
 
 	px.Lock()
 	defer px.Unlock()
@@ -347,7 +347,7 @@ func (px *proxifier) add(p Proxy) (ok bool) {
 	defer func() {
 		if ok {
 			core.Go("pxr.add: "+id, func() {
-				px.obs.OnProxyAdded(id)
+				px.obs.OnProxyAdded(p.ID())
 			})
 			// new proxy, invoke Stop on old proxy
 			if old != nil && !Same(old, p) {
@@ -408,10 +408,11 @@ func (px *proxifier) add(p Proxy) (ok bool) {
 	return ok
 }
 
-func (px *proxifier) RemoveProxy(id string) bool {
-	defer core.Recover(core.Exit11, "pxr.RemoveProxy."+id)
+// RemoveProxy implements x.Proxies.
+func (px *proxifier) RemoveProxy(id *x.Gostr) bool {
+	defer core.Recover(core.Exit11, "pxr.RemoveProxy."+id.V())
 
-	return px.removeProxy(id, false /*force remove?*/)
+	return px.removeProxy(id.V(), false /*force remove?*/)
 }
 
 func (px *proxifier) removeProxy(id string, force bool) bool {
@@ -432,10 +433,10 @@ func (px *proxifier) removeProxy(id string, force bool) bool {
 			px.unmapHopFrom(p, false /*dryrun*/)
 			_ = p.Stop()
 			if !perma {
-				px.obs.OnProxyRemoved(id)
+				px.obs.OnProxyRemoved(x.StrOf(id))
 				log.I("proxy: removed %s", id)
 			} else {
-				px.obs.OnProxyStopped(id)
+				px.obs.OnProxyStopped(x.StrOf(id))
 				log.I("proxy: stopped (not removed) %s", id)
 			}
 		})
@@ -530,7 +531,7 @@ func (px *proxifier) ProxyTo(ipp netip.AddrPort, uid string, pids []string) (_ P
 			continue
 		}
 
-		if noop(p.Type()) {
+		if noop(typstr(p)) {
 			loproxies = append(loproxies, pid)
 			continue
 		}
@@ -600,16 +601,18 @@ func (px *proxifier) pinID(uid string, ipp netip.AddrPort, id string) (Proxy, er
 }
 
 func (px *proxifier) pin(uid string, ipp netip.AddrPort, p Proxy) error {
+	pid := idstr(p)
+
 	err := healthy(p) // called to ensure p is ready-to-go
 	if err == nil {
-		px.uidPins.Put(uid, ipp, p.ID())
-		px.ipPins.Put(ipp, p.ID())
+		px.uidPins.Put(uid, ipp, pid)
+		px.ipPins.Put(ipp, pid)
 	}
 	logev(err)("proxy: pin: ok? %t; %s from %s; err? %v",
-		err == nil, ipp, idstr(p), err)
+		err == nil, ipp, pid, err)
 
 	if err != nil {
-		return fmt.Errorf("proxy: pin: %s; err: %v", idstr(p), err)
+		return fmt.Errorf("proxy: pin: %s; err: %v", pid, err)
 	}
 	return nil
 }
@@ -718,22 +721,22 @@ func (px *proxifier) rpnProxyFor(provider, cc string) (Proxy, error) {
 }
 
 // GetProxy implements x.Proxies.
-func (px *proxifier) GetProxy(id string) (x.Proxy, error) {
-	return px.ProxyFor(id)
+func (px *proxifier) GetProxy(id *x.Gostr) (x.Proxy, error) {
+	return px.ProxyFor(id.V())
 }
 
 // TestHop implements Proxies.
-func (px *proxifier) TestHop(via, origin string) string {
-	defer core.Recover(core.Exit11, "pxr.TestHop."+via+">>"+origin)
-	if err := px.hop(via, origin, true /*dryrun*/); err != nil {
-		return err.Error()
+func (px *proxifier) TestHop(via, origin *x.Gostr) *x.Gostr {
+	defer core.Recover(core.Exit11, "pxr.TestHop."+via.V()+">>"+origin.V())
+	if err := px.hop(via.V(), origin.V(), true /*dryrun*/); err != nil {
+		return x.StrOf(err.Error())
 	}
-	return "" // all ok
+	return nil // all ok
 }
 
-// Hop implements Proxies.
-func (px *proxifier) Hop(via, origin string) error {
-	return px.hop(via, origin, false /*dryrun*/)
+// Hop implements x.Proxies.
+func (px *proxifier) Hop(via, origin *x.Gostr) error {
+	return px.hop(via.V(), origin.V(), false /*dryrun*/)
 }
 
 func (px *proxifier) hop(via, origin string, dryrun bool) error {
@@ -878,7 +881,7 @@ func (px *proxifier) stopProxies() {
 	n := len(px.rp)
 	for _, rp := range px.rp {
 		x := rp
-		id := x.ID()
+		id := idstr(x)
 		core.Go("pxr.stopProxies.purgeRpn: "+id, func() {
 			_ = x.PurgeAll()
 		})
@@ -896,7 +899,7 @@ func (px *proxifier) stopProxies() {
 	l := len(px.p)
 	for _, p := range px.p {
 		curp := p
-		id := curp.ID()
+		id := idstr(curp)
 
 		core.Go("pxr.stopProxies: "+id, func() {
 			_ = curp.Stop()
@@ -912,7 +915,7 @@ func (px *proxifier) stopProxies() {
 }
 
 // RefreshProxies implements x.Proxies.
-func (px *proxifier) RefreshProxies() (string, error) {
+func (px *proxifier) RefreshProxies() (*x.Gostr, error) {
 	defer core.Recover(core.Exit11, "pxr.RefreshProxies")
 
 	ptot, ptotu := px.clearpins()
@@ -926,7 +929,7 @@ func (px *proxifier) RefreshProxies() (string, error) {
 	var which = make([]string, 0, len(px.p))
 	for _, p := range px.p {
 		curp := p
-		id := curp.ID()
+		id := idstr(curp)
 		which = append(which, id)
 		// some proxy.Refershes may be slow due to network requests, hence
 		// preferred to run in a goroutine to avoid blocking the caller.
@@ -940,7 +943,7 @@ func (px *proxifier) RefreshProxies() (string, error) {
 
 	log.I("proxy: refreshed %d / %d: %v", len(which), tot, which)
 
-	return strings.Join(which, ","), nil
+	return x.StrOf(strings.Join(which, ",")), nil
 }
 
 // LiveProxies implements x.Proxies.
@@ -972,7 +975,7 @@ func (px *proxifier) RefreshProto(l3 string, mtu int) {
 	px.lp = newlp
 	for _, p := range px.p {
 		curp := p
-		id := curp.ID()
+		id := idstr(curp)
 		core.Gx("pxr.RefreshProto: "+id, func() {
 			// always run in a goroutine (or there is a deadlock)
 			// wgproxy.onProtoChange -> multihost.Refresh -> dialers.Resolve
@@ -1003,7 +1006,7 @@ func (px *proxifier) IP4() bool {
 	defer px.RUnlock()
 
 	for _, p := range px.p {
-		if local(p.ID()) || noop(p.Type()) {
+		if local(idstr(p)) || noop(typstr(p)) {
 			continue
 		}
 		if r := p.Router(); r != nil && !r.IP4() {
@@ -1019,7 +1022,7 @@ func (px *proxifier) IP6() bool {
 	defer px.RUnlock()
 
 	for _, p := range px.p {
-		if local(p.ID()) || noop(p.Type()) {
+		if local(idstr(p)) || noop(typstr(p)) {
 			continue
 		}
 		if r := p.Router(); r != nil && !r.IP6() {
@@ -1039,7 +1042,7 @@ func (px *proxifier) MTU() (out int, err error) {
 	only4 := false
 	minmtu := minmtu6
 	for _, p := range px.p {
-		if local(p.ID()) || noop(p.Type()) {
+		if local(idstr(p)) || noop(typstr(p)) {
 			continue
 		}
 		r := p.Router() // never nil
@@ -1067,8 +1070,8 @@ func (px *proxifier) Stat() *x.RouterStats {
 
 	s := new(x.RouterStats)
 	for _, p := range px.p {
-		pid := p.ID()
-		ptyp := p.Type()
+		pid := idstr(p)
+		ptyp := typstr(p)
 		if local(pid) || isInternal(pid) || noop(ptyp) {
 			continue
 		}
@@ -1102,14 +1105,14 @@ func accStats(a, b *x.RouterStats) (c *x.RouterStats) {
 }
 
 // Contains implements x.Router.
-func (px *proxifier) Contains(ipprefix string) bool {
+func (px *proxifier) Contains(ipprefix *x.Gostr) bool {
 	px.RLock()
 	defer px.RUnlock()
 
 	for _, p := range px.p {
 		// always present local proxies route either everything or
 		// nothing: not useful for making routing decisions
-		if local(p.ID()) || noop(p.Type()) {
+		if local(idstr(p)) || noop(typstr(p)) {
 			continue
 		}
 		if r := p.Router(); r != nil && r.Contains(ipprefix) {
@@ -1120,7 +1123,7 @@ func (px *proxifier) Contains(ipprefix string) bool {
 }
 
 // Reaches implements x.Router.
-func (px *proxifier) Reaches(hostportOrIPPortCsv string) bool {
+func (px *proxifier) Reaches(hostportOrIPPortCsv *x.Gostr) bool {
 	px.RLock()
 	defer px.RUnlock()
 
@@ -1133,10 +1136,11 @@ func (px *proxifier) Reaches(hostportOrIPPortCsv string) bool {
 }
 
 // RegisterWarp implements x.Rpn.
-func (px *proxifier) RegisterWarp(existingStateJson []byte) (stateJson []byte, err error) {
+func (px *proxifier) RegisterWarp(existingState *x.Gobyte) (stateJson *x.Gobyte, err error) {
 	defer func() {
 		px.lastWarpErr.Store(err) // may be nil
 	}()
+	existingStateJson := existingState.V()
 	restore := len(existingStateJson) > 0
 
 	wc, err := px.registerWarp(existingStateJson)
@@ -1154,7 +1158,7 @@ func (px *proxifier) RegisterWarp(existingStateJson []byte) (stateJson []byte, e
 		return nil, core.JoinErr(err, errNotRpnProxy)
 	}
 
-	log.I("proxy: warp: registered: %s / %d, new? %t", wc.Who(), len(state), !restore)
+	log.I("proxy: warp: registered: %s / %d, new? %t", wc.Who(), state.Len(), !restore)
 	return state, nil
 }
 
@@ -1167,10 +1171,11 @@ func (px *proxifier) registerWarp(existingStateJson []byte) (wc RpnAcc, err erro
 }
 
 // RegisterAmnezia implements x.Rpn.
-func (px *proxifier) RegisterAmnezia(existingStateJson []byte) (stateJson []byte, err error) {
+func (px *proxifier) RegisterAmnezia(existingState *x.Gobyte) (stateJson *x.Gobyte, err error) {
 	defer func() {
 		px.lastAmzErr.Store(err) // may be nil
 	}()
+	existingStateJson := existingState.V()
 	restore := len(existingStateJson) > 0
 
 	ac, err := px.registerAmnezia(existingStateJson)
@@ -1191,7 +1196,7 @@ func (px *proxifier) RegisterAmnezia(existingStateJson []byte) (stateJson []byte
 		return nil, core.JoinErr(err, errNotRpnProxy)
 	}
 
-	log.I("proxy: amz: registered: %s / %d; new? %t", ac.Who(), len(state), !restore)
+	log.I("proxy: amz: registered: %s / %d; new? %t", ac.Who(), state.Len(), !restore)
 	return state, nil
 }
 
@@ -1204,10 +1209,11 @@ func (px *proxifier) registerAmnezia(existingStateJson []byte) (RpnAcc, error) {
 }
 
 // RegisterProton implements x.Rpn.
-func (px *proxifier) RegisterProton(existingStateJson []byte) (stateJson []byte, err error) {
+func (px *proxifier) RegisterProton(existingState *x.Gobyte) (stateJson *x.Gobyte, err error) {
 	defer func() {
 		px.lastProtonErr.Store(err) // may be nil
 	}()
+	existingStateJson := existingState.V()
 	restore := len(existingStateJson) > 0
 
 	pro, err := px.registerProton(existingStateJson)
@@ -1228,7 +1234,7 @@ func (px *proxifier) RegisterProton(existingStateJson []byte) (stateJson []byte,
 		return nil, core.JoinErr(err, errNotRpnProxy)
 	}
 
-	log.I("proxy: proton: registered: %s / %d; new? %t", pro.Who(), len(state), !restore)
+	log.I("proxy: proton: registered: %s / %d; new? %t", pro.Who(), state.Len(), !restore)
 	return state, nil
 }
 
@@ -1352,7 +1358,11 @@ func (px *proxifier) SE() (x.RpnProxy, error) {
 }
 
 // TestSE implements x.Rpn.
-func (px *proxifier) TestSE() (string, error) {
+func (px *proxifier) TestSE() (*x.Gostr, error) {
+	return x.StrOfFunc(px.testSE)
+}
+
+func (px *proxifier) testSE() (string, error) {
 	sec := px.sec
 	if sec == nil {
 		return "", core.OneErr(px.lastSeErr.Load(), errNilSEProxy)
@@ -1385,7 +1395,11 @@ func (px *proxifier) TestSE() (string, error) {
 }
 
 // TestWarp implements x.Rpn
-func (px *proxifier) TestWarp() (string, error) {
+func (px *proxifier) TestWarp() (*x.Gostr, error) {
+	return x.StrOfFunc(px.testWarp)
+}
+
+func (px *proxifier) testWarp() (string, error) {
 	const totalpings = 5
 
 	oks := make([]string, 0, totalpings*2)
@@ -1423,7 +1437,11 @@ func (px *proxifier) TestWarp() (string, error) {
 }
 
 // TestProton implements x.Rpn.
-func (px *proxifier) TestProton() (string, error) {
+func (px *proxifier) TestProton() (*x.Gostr, error) {
+	return x.StrOfFunc(px.testProton)
+}
+
+func (px *proxifier) testProton() (string, error) {
 	v4, _, err := warp.ProtonEndpoints()
 	if err != nil {
 		log.W("proxy: proton: err testing endpoints: %v", err)
@@ -1451,7 +1469,11 @@ func (px *proxifier) TestProton() (string, error) {
 }
 
 // TestAmnezia implements x.Rpn.
-func (px *proxifier) TestAmnezia() (ips string, errs error) {
+func (px *proxifier) TestAmnezia() (*x.Gostr, error) {
+	return x.StrOfFunc(px.testAmnezia)
+}
+
+func (px *proxifier) testAmnezia() (ips string, errs error) {
 	v4, _, err := warp.AmzEndpoints()
 	if err != nil {
 		log.W("proxy: amz: err testing endpoints: %v", err)
@@ -1479,7 +1501,11 @@ func (px *proxifier) TestAmnezia() (ips string, errs error) {
 }
 
 // TestExit64 implements x.Rpn.
-func (px *proxifier) TestExit64() (ips string, errs error) {
+func (px *proxifier) TestExit64() (*x.Gostr, error) {
+	return x.StrOfFunc(px.testExit64)
+}
+
+func (px *proxifier) testExit64() (ips string, errs error) {
 	v6, err := warp.Exit64Endpoints()
 	if err != nil {
 		log.W("proxy: exit64: err testing endpoints %v", err)

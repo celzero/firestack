@@ -255,11 +255,16 @@ func (m *ipmap) Add(hostOrIP string) *IPSet {
 }
 
 func (m *ipmap) ReverseGet(ip netip.Addr) []string {
-	hosts, _ := m.rptr.Get(ip.String())
+	q := x.StrOf(ip.String())
+
+	s, _ := m.rptr.Get(q)
+	hosts := s.V()
 	if len(hosts) > 0 {
 		return strings.Split(hosts, x.Vsep)
 	}
-	hosts, _ = m.pptr.Get(ip.String())
+
+	s, _ = m.pptr.Get(q)
+	hosts = s.V()
 	if len(hosts) > 0 {
 		return strings.Split(hosts, x.Vsep)
 	}
@@ -390,7 +395,7 @@ func (m *ipmap) revmap(hostOrIP string, new *IPSet, old *IPSet) {
 	if maybeip, _ := netip.ParseAddr(hostOrIP); maybeip.IsValid() {
 		return // no-op
 	}
-	host := hostOrIP
+	host := x.StrOf(hostOrIP)
 
 	add := new.Addrs()    // new may be nil or addrs() may be empty
 	remove := old.Addrs() // old may be nil or addrs() may be empty
@@ -411,14 +416,16 @@ func (m *ipmap) revmap(hostOrIP string, new *IPSet, old *IPSet) {
 	r, a := 0, 0
 	for _, ip := range remove {
 		if ip.IsValid() {
-			if rmvtree.Esc(ip.String(), host) {
+			q := x.StrOf(ip.String())
+			if rmvtree.Esc(q, host) {
 				r++
 			}
 		}
 	}
 	for _, ip := range add {
 		if ip.IsValid() {
-			if err := addtree.Add(ip.String(), host); err == nil {
+			q := x.StrOf(ip.String())
+			if err := addtree.Add(q, host); err == nil {
 				a++
 			} else {
 				errs = append(errs, err)

@@ -62,11 +62,11 @@ func NewAutoProxy(ctx context.Context, pxr Proxies) *auto {
 }
 
 func (h *auto) viafor() *Proxy {
-	return viafor(h.ID(), h.viaID.Load(), h.pxr)
+	return viafor(idstr(h), h.viaID.Load(), h.pxr)
 }
 
 func (h *auto) swapVia(new Proxy) Proxy {
-	return swapVia(h.ID(), new, h.viaID, h.via)
+	return swapVia(idstr(h), new, h.viaID, h.via)
 }
 
 // Handle implements Proxy.
@@ -146,7 +146,7 @@ func (h *auto) dial(network, laddr, raddr string) (protect.Conn, error) {
 					if p == nil || core.IsNil(p) {
 						return false // nil proxies out
 					}
-					if remoteOnly && local(p.ID()) {
+					if remoteOnly && local(idstr(p)) {
 						return false // local proxies out
 					}
 					if err := healthy(p); err != nil {
@@ -164,7 +164,7 @@ func (h *auto) dial(network, laddr, raddr string) (protect.Conn, error) {
 				if p == nil || core.IsNil(p) {
 					return nil // nil proxies out
 				}
-				if remoteOnly && local(p.ID()) {
+				if remoteOnly && local(idstr(p)) {
 					return nil // local proxies out
 				}
 				return p.Dialer()
@@ -460,13 +460,13 @@ func (h *auto) Dialer() protect.RDialer {
 }
 
 // ID implements x.Proxy.
-func (h *auto) ID() string {
-	return Auto
+func (h *auto) ID() *x.Gostr {
+	return x.StrOf(Auto)
 }
 
 // Type implements x.Proxy.
-func (h *auto) Type() string {
-	return RPN
+func (h *auto) Type() *x.Gostr {
+	return x.StrOf(RPN)
 }
 
 // Router implements x.Proxy.
@@ -475,8 +475,8 @@ func (h *auto) Router() x.Router {
 }
 
 // Reaches implements x.Router.
-func (h *auto) Reaches(hostportOrIPPortCsv string) bool {
-	return Reaches(h, hostportOrIPPortCsv)
+func (h *auto) Reaches(hostportOrIPPortCsv *x.Gostr) bool {
+	return Reaches(h, hostportOrIPPortCsv.V())
 }
 
 // Hop implements Proxy.
@@ -524,8 +524,8 @@ func (h *auto) Via() (x.Proxy, error) {
 }
 
 // GetAddr implements x.Proxy.
-func (h *auto) GetAddr() string {
-	return h.addr
+func (h *auto) GetAddr() *x.Gostr {
+	return x.StrOf(h.addr)
 }
 
 // Status implements x.Proxy.

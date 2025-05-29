@@ -37,16 +37,16 @@ type GW struct {
 
 var _ x.Router = (*GWNoVia)(nil)
 
-// IP4 implements Router.
+// IP4 implements x.Router.
 func (w *GW) IP4() bool { return !w.nov4 }
 
-// IP6 implements Router.
+// IP6 implements x.Router.
 func (w *GW) IP6() bool { return !w.nov6 }
 
-// MTU implements Router.
+// MTU implements x.Router.
 func (w *GW) MTU() (int, error) { return NOMTU, errNoMtu }
 
-// Stat implements Router.
+// Stat implements x.Router.
 func (w *GW) Stat() *x.RouterStats {
 	if !w.nov4 || !w.nov6 {
 		w.stats.LastOK = now() // always OK
@@ -54,9 +54,9 @@ func (w *GW) Stat() *x.RouterStats {
 	return &w.stats
 }
 
-// Contains implements Router.
-func (w *GW) Contains(ippOrCidr string) bool {
-	prefix, err := core.IP2Cidr2(ippOrCidr)
+// Contains implements x.Router.
+func (w *GW) Contains(ippOrCidr *x.Gostr) bool {
+	prefix, err := core.IP2Cidr2(ippOrCidr.V())
 	if err != nil {
 		return false
 	}
@@ -68,7 +68,9 @@ func (w *GW) ok4(ip netip.Addr) bool { return w.IP4() && ip.IsValid() && ip.Is4(
 func (w *GW) ok6(ip netip.Addr) bool { return w.IP6() && ip.IsValid() && ip.Is6() }
 
 // Reaches implements Router.
-func (w *GW) Reaches(hostportOrIPPortCsv string) bool {
+func (w *GW) Reaches(hostportOrIPPortCsvStr *x.Gostr) bool {
+	hostportOrIPPortCsv := hostportOrIPPortCsvStr.V()
+
 	if len(hostportOrIPPortCsv) <= 0 {
 		return true
 	}
@@ -121,8 +123,8 @@ func (NoFwd) Probe(string, string) (protect.PacketConn, error) {
 
 type NoDNS struct{}
 
-func (NoDNS) DNS() string {
-	return nodns
+func (NoDNS) DNS() *x.Gostr {
+	return x.StrOf(nodns)
 }
 
 type NoVia struct{}
@@ -142,13 +144,13 @@ type NoProxy struct {
 
 func (NoProxy) Handle() uintptr                                       { return core.Nobody }
 func (NoProxy) DialerHandle() uintptr                                 { return core.Nobody }
-func (NoProxy) ID() string                                            { return "" }
-func (NoProxy) Type() string                                          { return "" }
+func (NoProxy) ID() *x.Gostr                                          { return nil }
+func (NoProxy) Type() *x.Gostr                                        { return nil }
 func (NoProxy) Router() x.Router                                      { return nil }
-func (NoProxy) Reaches(string) bool                                   { return false }
+func (NoProxy) Reaches(*x.Gostr) bool                                 { return false }
 func (NoProxy) Dial(string, string) (protect.Conn, error)             { return nil, errNop }
 func (NoProxy) DialBind(string, string, string) (protect.Conn, error) { return nil, errNop }
 func (NoProxy) Dialer() protect.RDialer                               { return nil }
 func (NoProxy) Status() int                                           { return 0 }
-func (NoProxy) GetAddr() string                                       { return "" }
+func (NoProxy) GetAddr() *x.Gostr                                     { return nil }
 func (NoProxy) Stop() error                                           { return nil }

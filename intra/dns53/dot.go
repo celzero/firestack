@@ -80,7 +80,7 @@ func NewTLSTransport(ctx context.Context, id, rawurl string, addrs []string, px 
 	var relay string
 	if px != nil {
 		if p, _ := px.ProxyFor(id); p != nil {
-			relay = p.ID()
+			relay = p.ID().V()
 		}
 	}
 	ctx, done := context.WithCancel(ctx)
@@ -226,7 +226,7 @@ func (t *dot) pxdial(pid string) (*dns.Conn, string, uintptr, error) {
 	if px == nil {
 		return nil, "", core.Nobody, dnsx.ErrNoProxyProvider
 	}
-	pid = px.ID()
+	pid = px.ID().V()
 	rpid := ipn.ViaID(px)
 	log.V("dot: pxdial: (%s) using relay/proxy %s (via: %s) at %s",
 		t.id, pid, rpid, px.GetAddr())
@@ -336,7 +336,7 @@ func (t *dot) Query(network string, q *dns.Msg, smm *x.DNSSummary) (ans *dns.Msg
 	smm.RData = xdns.GetInterestingRData(ans)
 	smm.RCode = xdns.Rcode(ans)
 	smm.RTtl = xdns.RTtl(ans)
-	smm.Server = t.GetAddr()
+	smm.Server = t.getAddr()
 	smm.PID = pid   // may be local dnsx.IsLocalProxy
 	smm.RPID = rpid // may be empty
 	if err != nil {
@@ -351,19 +351,23 @@ func (t *dot) Query(network string, q *dns.Msg, smm *x.DNSSummary) (ans *dns.Msg
 	return
 }
 
-func (t *dot) ID() string {
-	return t.id
+func (t *dot) ID() *x.Gostr {
+	return x.StrOf(t.id)
 }
 
-func (t *dot) Type() string {
-	return dnsx.DOT
+func (t *dot) Type() *x.Gostr {
+	return x.StrOf(dnsx.DOT)
 }
 
 func (t *dot) P50() int64 {
 	return t.est.Get()
 }
 
-func (t *dot) GetAddr() (addr string) {
+func (t *dot) GetAddr() *x.Gostr {
+	return x.StrOf(t.getAddr())
+}
+
+func (t *dot) getAddr() (addr string) {
 	if t.c3 != nil {
 		addr = dnsx.EchPrefix + t.addrport
 	} else if t.skipTLSVerify {

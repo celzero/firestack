@@ -36,16 +36,16 @@ const (
 
 type PipKey interface {
 	// Token gnerates a 32 byte randomized token (auths dataplane ops; see: tokensize)
-	Token() string
+	Token() *Gostr
 	// Blind generates id:blindMsg:blindingFactor:salt:msg
 	// id is a 64 byte hmac tying blindMsg to the public key
 	// blindMsg is a 256 byte blinded message
 	// blindingFactor is upto 256 byte random blinding factor
 	// salt is 48 bytes random salt (see: hashfn)
 	// msg is a 32 byte random message (see: msgsize)
-	Blind() (string, error)
+	Blind() (*Gostr, error)
 	// Finalize returns msg:sig for a finalized blind-signature
-	Finalize(blindSig string) (string, error)
+	Finalize(blindSig *Gostr) (*Gostr, error)
 }
 
 //	{
@@ -81,7 +81,11 @@ type pipkey struct {
 // NewPipKey creates a new PipKey instance.
 // pubjwk: JWK string of the public key of the RSA-PSS signer (for which modulus must be 2048 bits, and hash-fn must be SHA384).
 // msgOrExistingState: if empty, a new PipKey is created with a random message, if not empty, it's the state of an existing PipKey.
-func NewPipKey(pubjwk string, msgOrExistingState string) (PipKey, error) {
+func NewPipKey(pubjwk *Gostr, msgOrExistingState *Gostr) (PipKey, error) {
+	return newPipKey(pubjwk.V(), msgOrExistingState.V())
+}
+
+func newPipKey(pubjwk string, msgOrExistingState string) (PipKey, error) {
 	jwk := &pubKeyJwk{}
 	pubbytes := []byte(pubjwk)
 	err := json.Unmarshal(pubbytes, jwk)
@@ -170,7 +174,11 @@ func NewPipKey(pubjwk string, msgOrExistingState string) (PipKey, error) {
 }
 
 // Implements PipKey.
-func (k *pipkey) Blind() (string, error) {
+func (k *pipkey) Blind() (*Gostr, error) {
+	return StrOfFunc(k.blind)
+}
+
+func (k *pipkey) blind() (string, error) {
 	if k.state != nil {
 		log.E("pipkey: blind: already blinded")
 		return "", brsa.ErrInvalidBlind
@@ -203,7 +211,11 @@ func (k *pipkey) Blind() (string, error) {
 }
 
 // Implements PipKey.
-func (k *pipkey) Finalize(blindSig string) (msgsighash string, err error) {
+func (k *pipkey) Finalize(blindSig *Gostr) (*Gostr, error) {
+	return StrOfFunc1(k.finalize, blindSig.V())
+}
+
+func (k *pipkey) finalize(blindSig string) (msgsighash string, err error) {
 	if k.state == nil {
 		log.E("pipkey: finalize: not blinded")
 		err = brsa.ErrInvalidBlind
@@ -231,7 +243,11 @@ func (k *pipkey) Finalize(blindSig string) (msgsighash string, err error) {
 }
 
 // Implements PipKey.
-func (k *pipkey) Token() string {
+func (k *pipkey) Token() *Gostr {
+	return StrOf(k.token())
+}
+
+func (k *pipkey) token() string {
 	nonce := make([]byte, tokensize)
 	_, err := rand.Read(nonce)
 	if err != nil {

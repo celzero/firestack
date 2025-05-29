@@ -102,7 +102,7 @@ func (h *icmpHandler) Ping(msg []byte, source, target netip.AddrPort) (echoed bo
 	defer core.Close(uc)
 	ucnil := uc == nil || core.IsNil(uc)
 
-	pid := px.ID()
+	pid := px.ID().V()
 	smm.PID = pid
 	smm.RPID = ipn.ViaID(px)
 

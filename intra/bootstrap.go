@@ -253,13 +253,13 @@ func (b *bootstrap) kickstartLocked(px ipn.ProxyProvider) error {
 	return nil
 }
 
-func (*bootstrap) ID() string {
+func (*bootstrap) ID() *x.Gostr {
 	// never assume underlying transport's identity
-	return dnsx.Default
+	return x.StrOf(dnsx.Default)
 }
 
-func (b *bootstrap) Type() string {
-	return b.typ // DOH or DNS53
+func (b *bootstrap) Type() *x.Gostr {
+	return x.StrOf(b.typ) // DOH or DNS53
 }
 
 func (b *bootstrap) Query(network string, q *dns.Msg, smm *x.DNSSummary) (*dns.Msg, error) {
@@ -281,11 +281,11 @@ func (b *bootstrap) P50() int64 {
 	return 0
 }
 
-func (b *bootstrap) GetAddr() string {
+func (b *bootstrap) GetAddr() *x.Gostr {
 	if tr := b.tr; tr != nil {
 		return tr.GetAddr()
 	}
-	return dnsx.NoDNS
+	return x.StrOf(dnsx.NoDNS)
 }
 
 func (b *bootstrap) IPPorts() []netip.AddrPort {
@@ -314,7 +314,7 @@ func typstr(tr dnsx.Transport) string {
 	if tr == nil {
 		return "<notype>"
 	}
-	return tr.Type()
+	return tr.Type().V()
 }
 
 func ippstr(tr dnsx.Transport) string {

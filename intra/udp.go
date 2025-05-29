@@ -249,6 +249,7 @@ func (h *udpHandler) Connect(gconn *netstack.GUDPConn, src, target netip.AddrPor
 		} // else: not a dns query or target is not a dns addr
 	} // else: proxy src to dst
 
+	var pxid string
 	var px ipn.Proxy
 	var errs error
 	var selectedTarget netip.AddrPort
@@ -269,9 +270,10 @@ func (h *udpHandler) Connect(gconn *netstack.GUDPConn, src, target netip.AddrPor
 			errs = err // disconnect if loop terminates
 			continue
 		}
+		pxid = px.ID().V()
 		selectedTarget = dstipp
 		if mux { // mux is not supported by all proxies (few like Exit, Base, WG support it)
-			pc, err = h.mux.associate(cid, px.ID(), uid, src, selectedTarget, px.Dialer().Announce, vendor(dmx))
+			pc, err = h.mux.associate(cid, pxid, uid, src, selectedTarget, px.Dialer().Announce, vendor(dmx))
 		} else {
 			if settings.PortForward.Load() {
 				boundSrc := makeAnyAddrPort(src)
@@ -304,7 +306,7 @@ func (h *udpHandler) Connect(gconn *netstack.GUDPConn, src, target netip.AddrPor
 	// ex: pc.RemoteAddr is 127.0.0.1 for Orbot
 	smm.Target = selectedTarget.Addr().String()
 	if px != nil { // nil when all ProxyTo attempts for actualTargets fail
-		smm.PID = px.ID()
+		smm.PID = pxid
 		smm.RPID = ipn.ViaID(px)
 	}
 

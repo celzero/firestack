@@ -369,7 +369,7 @@ func (t *rtunnel) stat() (*x.NetStat, error) {
 		out.RDNSIn.DNSPreferred = fetchDNSInfo(r, x.Preferred)
 		out.RDNSIn.DNSDefault = fetchDNSInfo(r, x.Default)
 		out.RDNSIn.DNSSystem = fetchDNSInfo(r, x.System)
-		out.RDNSIn.DNS = csv2ssv(r.LiveTransports())
+		out.RDNSIn.DNS = csv2ssv(r.LiveTransports().V())
 	}
 	if p := t.proxies; p != nil {
 		rr := p.Router()
@@ -398,9 +398,9 @@ func csv2ssv(csv string) string {
 func fetchDNSInfo(r dnsx.Resolver, id string) string {
 	if tr, rerr := r.GetInternal(id); rerr == nil {
 		var sb strings.Builder
-		sb.WriteString(tr.GetAddr())
+		sb.WriteString(tr.GetAddr().V())
 		sb.WriteString("[")
-		sb.WriteString(tr.Type())
+		sb.WriteString(tr.Type().V())
 		sb.WriteString("/")
 		sb.WriteString(dnsx.Status2Str(tr.Status()))
 		sb.WriteString("/")

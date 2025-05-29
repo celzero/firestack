@@ -11,6 +11,7 @@ import (
 	"net/netip"
 	"time"
 
+	x "github.com/celzero/firestack/intra/backend"
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/ipn"
 )
@@ -49,7 +50,7 @@ type SocketListener interface {
 	// later used by dnsx.Resolver to determine the DNS transport to use for that "uid". That
 	// DNS transport will re-resolve "domains" (iff previously resolved to a "fake IP" by
 	// dnsx.alg) to determine the real egress IP to connect to.
-	Preflow(protocol, uid int32, src, dst, domains string) *PreMark
+	Preflow(protocol, uid int32, src, dst, domains *x.Gostr) *PreMark
 	// Flow is called on a new connection; return Proxy IDs to forward the connection
 	// to a pre-registered proxy; "Base" or "Exit" to allow the connection; "Block" to block it.
 	// "connid" is used to uniquely identify a connection across all proxies, and a summary of the
@@ -64,11 +65,11 @@ type SocketListener interface {
 	// domains is a comma-separated list of domain names associated with origdsts, if any.
 	// probableDomains is a comma-separated list of probable domain names associated with origdsts, if any.
 	// blocklists is a comma-separated list of rdns blocklist names that apply, if any.
-	Flow(protocol, uid int32, src, dst, origdsts, domains, probableDomains, blocklists string) *Mark
+	Flow(protocol, uid int32, src, dst, origdsts, domains, probableDomains, blocklists *x.Gostr) *Mark
 	// Inflow is called on a new incoming connection. Returned *Mark values have no discernable effect on these connections,
 	// except for the CID field, which is sent back via OnSocketClosed, and "Block" proxy which
 	// will drop this connection on the floor.
-	Inflow(protocol, uid int32, src, dst string) *Mark
+	Inflow(protocol, uid int32, src, dst *x.Gostr) *Mark
 	// OnSocketClosed reports summary after a socket closes.
 	OnSocketClosed(*SocketSummary)
 }

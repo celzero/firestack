@@ -129,7 +129,7 @@ func newTransport(ctx context.Context, typ, id, rawurl, otargeturl string, addrs
 	var relay string
 	if px != nil {
 		if p, _ := px.ProxyFor(id); p != nil {
-			relay = p.ID()
+			relay = p.ID().V()
 		}
 	}
 
@@ -332,8 +332,9 @@ func (t *transport) purgeProxyClients() {
 }
 
 func (t *transport) httpClientsFor(p ipn.Proxy) (c3, c *http.Client) {
+	pid := p.ID().V()
 	t.pxcmu.RLock()
-	pxtr, ok := t.pxclients[p.ID()]
+	pxtr, ok := t.pxclients[pid]
 	t.pxcmu.RUnlock()
 
 	same := pxtr != nil && pxtr.p.Handle() == p.Handle()
@@ -353,7 +354,7 @@ func (t *transport) httpClientsFor(p ipn.Proxy) (c3, c *http.Client) {
 
 	// last writer wins
 	t.pxcmu.Lock()
-	t.pxclients[p.ID()] = &proxytransport{
+	t.pxclients[pid] = &proxytransport{
 		p:  p,
 		c:  &client,
 		c3: client3, // may be nil
@@ -679,12 +680,12 @@ func (t *transport) asDohRequest(msg *dns.Msg) (req *http.Request, err error) {
 	return
 }
 
-func (t *transport) ID() string {
-	return t.id
+func (t *transport) ID() *x.Gostr {
+	return x.StrOf(t.id)
 }
 
-func (t *transport) Type() string {
-	return t.typ
+func (t *transport) Type() *x.Gostr {
+	return x.StrOf(t.typ)
 }
 
 func (t *transport) chooseProxy(pids ...string) string {
@@ -721,7 +722,7 @@ func (t *transport) Query(network string, q *dns.Msg, smm *x.DNSSummary) (r *dns
 		r, ech, elapsed, qerr = t.doOdoh(pid, q)
 	}
 
-	smm.Server = t.GetAddr()
+	smm.Server = t.getAddr()
 	if ech {
 		smm.Server = dnsx.EchPrefix + smm.Server
 	}
@@ -761,7 +762,11 @@ func (t *transport) P50() int64 {
 	return t.est.Get()
 }
 
-func (t *transport) GetAddr() string {
+func (t *transport) GetAddr() *x.Gostr {
+	return x.StrOf(t.getAddr())
+}
+
+func (t *transport) getAddr() string {
 	addr := t.hostname
 	if t.typ == dnsx.ODOH {
 		addr = t.odohtargetname

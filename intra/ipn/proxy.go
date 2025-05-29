@@ -34,19 +34,20 @@ func (pxr *proxifier) NewSocks5Proxy(id, user, pwd, ip, port string) (p *socks5,
 	return NewSocks5Proxy(id, pxr.ctx, pxr.ctl, pxr, opts)
 }
 
-func (pxr *proxifier) Underlay(id string, c x.Controller) x.Proxy {
-	return newBasicProxy(id, fakeBaseAddr, pxr.ctx, c, pxr)
+func (pxr *proxifier) Underlay(id *x.Gostr, c x.Controller) x.Proxy {
+	return newBasicProxy(id.V(), fakeBaseAddr, pxr.ctx, c, pxr)
 }
 
 // AddProxy implements Proxifier.
-func (pxr *proxifier) AddProxy(id, txt string) (x.Proxy, error) {
-	defer core.Recover(core.Exit11, "prx.AddProxy."+id)
+func (pxr *proxifier) AddProxy(id, txt *x.Gostr) (x.Proxy, error) {
+	defer core.Recover(core.Exit11, "prx.AddProxy."+id.V())
 
-	if isRPN(id) { // must call addRpnProxy instead
+	pid := id.V()
+	if isRPN(pid) { // must call addRpnProxy instead
 		return nil, errAddProxyAsRpn
 	}
 
-	return pxr.addProxy(id, txt)
+	return pxr.addProxy(pid, txt.V())
 }
 
 func (pxr *proxifier) removeRpnProxy(acc RpnAcc, cc string) bool {
@@ -95,10 +96,11 @@ func (pxr *proxifier) addRpnProxy(acc RpnAcc, cc string) (Proxy, error) {
 	// instance of it can exist and hence it is being re-added if already present)
 	// or, if it is multicountry, add it only if the country code is the main country,
 	// as forked children countries only need be added as plain-old proxies (done above).
-	if !acc.MultiCountry() || strings.HasSuffix(p.ID(), mainCountryCode) {
+	pid := idstr(p)
+	if !acc.MultiCountry() || strings.HasSuffix(pid, mainCountryCode) {
 		rp, err := asRpnProxy(p, acc, pxr)
 		if rp == nil {
-			defer pxr.removeProxy(p.ID(), true /*force*/)
+			defer pxr.removeProxy(pid, true /*force*/)
 			return nil, core.JoinErr(err, errAddProxyAsRpn)
 		}
 
@@ -114,7 +116,7 @@ func (pxr *proxifier) addRpnProxy(acc RpnAcc, cc string) (Proxy, error) {
 
 // TODO: on add / update a via proxy; refresh all dependent origins
 func (pxr *proxifier) addRpnProxy2(p Proxy, acc RpnAcc) (Proxy, error) {
-	proxyid := p.ID()
+	proxyid := idstr(p)
 	providerid := acc.ProviderID()
 	if !isRPN(proxyid) || !isRPN(providerid) {
 		return nil, errNotRpnProxy
@@ -122,7 +124,7 @@ func (pxr *proxifier) addRpnProxy2(p Proxy, acc RpnAcc) (Proxy, error) {
 
 	rp, err := asRpnProxy(p, acc, pxr)
 	if rp == nil {
-		defer pxr.removeProxy(p.ID(), true /*force*/)
+		defer pxr.removeProxy(proxyid, true /*force*/)
 		return nil, core.JoinErr(err, errAddProxyAsRpn)
 	}
 
@@ -132,7 +134,7 @@ func (pxr *proxifier) addRpnProxy2(p Proxy, acc RpnAcc) (Proxy, error) {
 	}
 
 	// see: addRpnProxy() above
-	if !acc.MultiCountry() || strings.HasSuffix(p.ID(), mainCountryCode) {
+	if !acc.MultiCountry() || strings.HasSuffix(proxyid, mainCountryCode) {
 		pxr.rpnmu.Lock()
 		pxr.rp[acc.ProviderID()] = rp // removed on unregister
 		pxr.rpnmu.Unlock()
@@ -302,16 +304,17 @@ func Reaches(p Proxy, hostportOrIPPortCsv string, protos ...string) bool {
 		}
 	}
 
+	pid := idstr(p)
 	if len(tests) <= 0 {
 		log.W("proxy: %s reaches: %v / %v; no tests for %s",
-			p.ID(), hostportOrIPPortCsv, ipps, protos)
+			pid, hostportOrIPPortCsv, ipps, protos)
 		return false
 	}
 
-	ok, who, err := core.Race("reach."+p.ID(), getproxytimeout, tests...)
+	ok, who, err := core.Race("reach."+pid, getproxytimeout, tests...)
 
 	logeif(!ok)("proxy: %s reaches: %v => %v ok? %t; who: %d, err? %v",
-		p.ID(), hostportOrIPPortCsv, ipps, ok, who, err)
+		pid, hostportOrIPPortCsv, ipps, ok, who, err)
 
 	return ok
 }
@@ -437,7 +440,7 @@ func hasroute(p Proxy, ipp string) bool {
 	if p == nil {
 		return false
 	}
-	return p.Router().Contains(ipp)
+	return p.Router().Contains(x.StrOf(ipp))
 }
 
 func healthy(p Proxy) error {
@@ -445,8 +448,8 @@ func healthy(p Proxy) error {
 		return errProxyNotFound
 	}
 
-	pid := p.ID()
-	typ := p.Type()
+	pid := idstr(p)
+	typ := typstr(p)
 	if local(pid) || noop(typ) { // fast path for local proxies which are always ok
 		return nil
 	}
@@ -501,11 +504,14 @@ func ViaID(p Proxy) string {
 	if v == nil {
 		return novia
 	}
-	if v.ID() == p.ID() {
+	// TODO: change all equality checks on ID() to use idstr
+	vid := idstr(v)
+	pid := idstr(p)
+	if vid == pid {
 		log.W("proxy: %s via %s; loop detected", p.ID(), v.ID())
 		return novia
 	}
-	return v.ID()
+	return vid
 }
 
 func usevia(viaID *core.Volatile[string]) bool {

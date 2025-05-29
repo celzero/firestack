@@ -73,7 +73,7 @@ func (c *pipwsconn) CloseWrite() error { return c.Close() }
 // connects to the ws proxy at addr over tcp; used by t.client
 // dial is aware of proto changes via dialers.SplitDial
 func (t *pipws) dial(network, addr string) (c net.Conn, err error) {
-	who := t.ID()
+	who := idstr(t)
 	if usevia(t.viaID) {
 		if v, vok := t.via.Get(); vok { // dial via another proxy
 			who = idstr(v)
@@ -260,26 +260,26 @@ func (t *pipws) h2(cfg *tls.Config) *http.Transport {
 }
 
 func (t *pipws) viafor() *Proxy {
-	return viafor(t.ID(), t.viaID.Load(), t.px)
+	return viafor(idstr(t), t.viaID.Load(), t.px)
 }
 
 func (t *pipws) swapVia(new Proxy) Proxy {
-	return swapVia(t.ID(), new, t.viaID, t.via)
+	return swapVia(idstr(t), new, t.viaID, t.via)
 }
 
 // ID implements Proxy.
-func (t *pipws) ID() string {
-	return RpnWs
+func (t *pipws) ID() *x.Gostr {
+	return x.StrOf(RpnWs)
 }
 
 // Type implements Proxy.
-func (t *pipws) Type() string {
-	return PIPWS
+func (t *pipws) Type() *x.Gostr {
+	return x.StrOf(PIPWS)
 }
 
 // GetAddr implements Proxy.
-func (t *pipws) GetAddr() string {
-	return t.hostname + ":" + strconv.Itoa(t.port)
+func (t *pipws) GetAddr() *x.Gostr {
+	return x.StrOf(t.hostname + ":" + strconv.Itoa(t.port))
 }
 
 // Router implements Proxy.
@@ -288,8 +288,8 @@ func (t *pipws) Router() x.Router {
 }
 
 // Reaches implements x.Router.
-func (t *pipws) Reaches(hostportOrIPPortCsv string) bool {
-	return Reaches(t, hostportOrIPPortCsv)
+func (t *pipws) Reaches(hostportOrIPPortCsv *x.Gostr) bool {
+	return Reaches(t, hostportOrIPPortCsv.V())
 }
 
 // Hop implements Proxy.

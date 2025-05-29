@@ -196,16 +196,16 @@ func NewResolver(pctx context.Context, fakeaddrs string, dtr x.DNSTransport, l x
 	}
 	r.loadaddrs(fakeaddrs)
 	r.gateway = NewDNSGateway(ctx, r.dnsaddrs, r, pt)
-	if dtr.ID() != Default {
+	if dtr.ID().V() != Default {
 		log.W("dns: not default; ignoring %s @ %s", dtr.ID(), dtr.GetAddr())
 	} else if tr, ok := dtr.(Transport); !ok {
 		log.W("dns: not a transport; ignoring", dtr.ID(), dtr.GetAddr())
 	} else {
 		ctr := NewCachingTransport(tr, ttl10m)
 		r.Lock()
-		r.transports[tr.ID()] = tr // regular
+		r.transports[tr.ID().V()] = tr // regular
 		if ctr != nil {
-			r.transports[ctr.ID()] = ctr // cached
+			r.transports[ctr.ID().V()] = ctr // cached
 		} else {
 			log.W("dns: no caching transport for %s", tr.ID())
 		}
@@ -278,7 +278,8 @@ func (r *resolver) Add(dt x.DNSTransport) (ok bool) {
 	if !ok { // unlikely
 		return false
 	}
-	if t.ID() == Default || cachedTransport(t) {
+	tid := t.ID().V()
+	if tid == Default || cachedTransport(t) {
 		log.W("dns: cannot re-add default/cached transports; ignoring: %s", t.GetAddr())
 		return false
 	}
@@ -286,10 +287,10 @@ func (r *resolver) Add(dt x.DNSTransport) (ok bool) {
 	// add transports that are prefixed with "Plus" to the plus()
 	// multi-transport, while the supervisor plus() multi-transport
 	// itself must be added to r.transports (below)
-	if t.ID() != Plus && isPlus(t.ID()) {
+	if tid != Plus && isPlus(tid) {
 		plus, err := r.plus()
 		if err != nil {
-			log.W("dns: plus: cannot add %s; %v", t.ID(), err)
+			log.W("dns: plus: cannot add %s; %v", tid, err)
 			return false
 		}
 		plus.Add(t) // onDNSAdded listener is not called
@@ -297,9 +298,9 @@ func (r *resolver) Add(dt x.DNSTransport) (ok bool) {
 	}
 
 	caching := false
-	switch t.Type() {
+	switch t.Type().V() {
 	case DNS53, DNSCrypt, DOH, DOT, ODOH:
-		tid := t.ID()
+		tid := t.ID().V()
 
 		r.Lock()
 		// stop existing transport if different
@@ -309,7 +310,7 @@ func (r *resolver) Add(dt x.DNSTransport) (ok bool) {
 		}
 		// always recreate caching transport
 		if ct := NewCachingTransport(t, ttl10m); ct != nil {
-			ctid := ct.ID()
+			ctid := ct.ID().V()
 			r.stopIfExistsLocked(ctid)
 			r.transports[ctid] = ct
 			caching = true
@@ -321,7 +322,7 @@ func (r *resolver) Add(dt x.DNSTransport) (ok bool) {
 			core.Gx("r.Add64", func() { r.Add64(System) })
 		}
 
-		core.Go("r.onAdd", func() { r.listener.OnDNSAdded(tid) })
+		core.Go("r.onAdd", func() { r.listener.OnDNSAdded(x.StrOf(tid)) })
 		log.I("dns: add transport %s@%s; caching? %t",
 			t.ID(), t.GetAddr(), caching)
 
@@ -369,16 +370,17 @@ func (r *resolver) GetInternal(id string) (Transport, error) {
 	}
 }
 
-func (r *resolver) Get(id string) (x.DNSTransport, error) {
-	return r.GetInternal(id)
+func (r *resolver) Get(id *x.Gostr) (x.DNSTransport, error) {
+	return r.GetInternal(id.V())
 }
 
-func (r *resolver) Remove(id string) (ok bool) {
+func (r *resolver) Remove(tid *x.Gostr) (ok bool) {
 	if r.closed.Load() {
 		log.W("dns: remove: closed for business")
 		return false
 	}
 
+	id := tid.V()
 	// these IDs are reserved for internal use
 	if isReserved(id) {
 		log.I("dns: removing reserved transport %s", id)
@@ -401,17 +403,17 @@ func (r *resolver) Remove(id string) (ok bool) {
 	}
 
 	if tm, err := r.dcProxy(); err == nil { // remove from dc-proxy, if any
-		hasTransport = tm.Remove(id) || hasTransport
-		hasTransport = tm.Remove(CT+id) || hasTransport
+		hasTransport = tm.Remove(tid) || hasTransport
+		hasTransport = tm.Remove(x.StrOf(CT+id)) || hasTransport
 	}
 
 	if tm, err := r.plus(); err == nil { // remove from plus, if any
-		hasTransport = tm.Remove(id) || hasTransport
-		hasTransport = tm.Remove(CT+id) || hasTransport
+		hasTransport = tm.Remove(tid) || hasTransport
+		hasTransport = tm.Remove(x.StrOf(CT+id)) || hasTransport
 	}
 
 	if hasTransport {
-		core.Go("r.onRemove", func() { r.listener.OnDNSRemoved(id) })
+		core.Go("r.onRemove", func() { r.listener.OnDNSRemoved(x.StrOf(id)) })
 	}
 
 	return hasTransport
@@ -443,10 +445,10 @@ func (r *resolver) LocalLookup(q []byte) ([]byte, string, error) {
 	}
 
 	defaultIsSystemDNS := false
-	if dtr, _ := r.Get(Default); dtr != nil {
+	if dtr, _ := r.Get(x.StrOf(Default)); dtr != nil {
 		// todo: a better way to determine whether Default is SystemDNS
 		// Default is usually SystemDNS if it is of type DNS53
-		defaultIsSystemDNS = dtr.Type() == DNS53
+		defaultIsSystemDNS = dtr.Type().V() == DNS53
 	}
 
 	// including dns64 and/or alg
@@ -540,8 +542,8 @@ func (r *resolver) forward(q []byte, uid string, chosenids ...string) (res0 []by
 		t2 = r.determineTransport(sid)
 	}
 
-	smm.Type = t.Type()
-	smm.ID = t.ID()
+	smm.Type = t.Type().V()
+	smm.ID = t.ID().V()
 
 	res1, blocklists, err := r.blockQ(t, t2, msg) // skips if the t, t2 are alg/block-free
 	if err == nil {
@@ -892,7 +894,11 @@ func (r *resolver) refresh() {
 	}
 }
 
-func (r *resolver) Refresh() (string, error) {
+func (r *resolver) Refresh() (*x.Gostr, error) {
+	return x.StrOfFunc(r.refreshAll)
+}
+
+func (r *resolver) refreshAll() (string, error) {
 	if r.closed.Load() {
 		return "", errResolverClosed
 	}
@@ -904,32 +910,32 @@ func (r *resolver) Refresh() (string, error) {
 	s := tr2csv(r.all())
 	if dc, err := r.dcProxy(); err == nil {
 		if x, err := dc.Refresh(); err == nil {
-			s += "," + x
+			s += "," + x.V()
 		}
 	}
 	if p, err := r.plus(); err == nil {
 		if x, err := p.Refresh(); err == nil {
-			s += "," + x
+			s += "," + x.V()
 		}
 	}
 	return trimcsv(s), nil
 }
 
-func (r *resolver) LiveTransports() string {
+func (r *resolver) LiveTransports() *x.Gostr {
 	if r.closed.Load() {
 		log.W("dns: liveTransports: closed for business")
-		return ""
+		return nil
 	}
 	s := tr2csv(r.all())
 	if dc, err := r.dcProxy(); err == nil {
 		x := dc.LiveTransports()
-		s += "," + x
+		s += "," + x.V()
 	}
 	if p, err := r.plus(); err == nil {
 		x := p.LiveTransports()
-		s += "," + x
+		s += "," + x.V()
 	}
-	return trimcsv(s)
+	return x.StrOf(trimcsv(s))
 }
 
 func (r *resolver) preferencesFrom(qname string, qtyp uint16, s *x.DNSOpts, chosenids ...string) (id1, id2, pidcsv string, ips []netip.Addr) {
@@ -1055,13 +1061,13 @@ func (r *resolver) chooseOne(ids ...string) string {
 
 	best, preferred, recoverables, errored, ended := Categorize(trs)
 	if len(best) > 0 {
-		return best[0].ID()
+		return best[0].ID().V()
 	} else if len(preferred) > 0 {
-		return preferred[0].ID()
+		return preferred[0].ID().V()
 	} else if len(recoverables) > 0 {
-		return recoverables[0].ID()
+		return recoverables[0].ID().V()
 	} else if len(errored) > 0 {
-		return errored[0].ID()
+		return errored[0].ID().V()
 	}
 	log.E("dns: pref: no transports for %v [all ended? %v]", ids, ended)
 	return ""
@@ -1141,7 +1147,11 @@ func RegisterAddrs(id, hostname string, ipps []string) (ok bool) {
 }
 
 func IsEncrypted(t Transport) bool {
-	return t.Type() == DOT || t.Type() == DOH || t.Type() == DNSCrypt || t.Type() == ODOH
+	return t != nil && isEncrypted(t.Type().V())
+}
+
+func isEncrypted(t string) bool {
+	return t == DOT || t == DOH || t == DNSCrypt || t == ODOH
 }
 
 func isProtected(id string) bool {
@@ -1240,7 +1250,7 @@ func skipBlock(tr ...Transport) bool {
 		if t == nil {
 			continue
 		}
-		switch t.ID() {
+		switch t.ID().V() {
 		case Default, Plus, BlockFree, Alg, Bootstrap:
 			return true
 		case CT + Default, CT + Plus, CT + BlockFree, CT + Alg, CT + Bootstrap:
@@ -1274,7 +1284,7 @@ func tr2csv(ts []Transport) string {
 	s := ""
 	for _, t := range ts {
 		if activeTransport(t) {
-			s += t.ID() + ","
+			s += t.ID().V() + ","
 		}
 	}
 	return trimcsv(s)
@@ -1316,7 +1326,8 @@ func asCachedTransport(t Transport) Cacher {
 }
 
 func cachedTransport(t Transport) bool {
-	return strings.HasSuffix(t.ID(), CT) || strings.HasPrefix(t.GetAddr(), cacheprefix)
+	return strings.HasSuffix(t.ID().V(), CT) ||
+		strings.HasPrefix(t.GetAddr().V(), cacheprefix)
 }
 
 func isPlus(id string) bool {

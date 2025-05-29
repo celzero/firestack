@@ -210,13 +210,13 @@ func (w *wgproxy) Stop() error {
 	return w.Close()
 }
 
-// GetAddr implements Proxy
-func (h *wgproxy) GetAddr() string {
+// GetAddr implements x.Proxy
+func (h *wgproxy) GetAddr() *x.Gostr {
 	dst := h.wgep.RemoteAddr()
 	if !dst.IsValid() {
-		return noaddr
+		return x.StrOf(noaddr)
 	}
-	return dst.String()
+	return x.StrOf(dst.String())
 }
 
 // onProtoChange implements Proxy
@@ -422,7 +422,7 @@ func (w *wgproxy) update(id, txt string) bool {
 func (w *wgtun) allowedIPs(allowed []netip.Prefix) {
 	w.rt.Clear()
 	for _, ipnet := range allowed {
-		w.rt.Set(ipnet.String(), w.id)
+		w.rt.Set(x.StrOf(ipnet.String()), x.StrOf(w.id))
 	}
 }
 
@@ -1163,14 +1163,14 @@ func (h *wgtun) Probe(network, local string) (pc net.PacketConn, err error) {
 	return
 }
 
-// ID implements Proxy.
-func (h *wgtun) ID() string {
-	return h.id
+// ID implements x.Proxy.
+func (h *wgtun) ID() *x.Gostr {
+	return x.StrOf(h.id)
 }
 
-// Type implements Proxy.
-func (h *wgtun) Type() string {
-	return WG
+// Type implements x.Proxy.
+func (h *wgtun) Type() *x.Gostr {
+	return x.StrOf(WG)
 }
 
 // Router implements Proxy.
@@ -1181,8 +1181,8 @@ func (h *wgproxy) Router() x.Router {
 
 // Reaches implements x.Router.
 // TODO: make wgtun a Router; see Stats()
-func (h *wgproxy) Reaches(hostportOrIPPortCsv string) bool {
-	return Reaches(h, hostportOrIPPortCsv)
+func (h *wgproxy) Reaches(hostportOrIPPortCsv *x.Gostr) bool {
+	return Reaches(h, hostportOrIPPortCsv.V())
 }
 
 // Hop implements Proxy.
@@ -1224,7 +1224,7 @@ func (h *wgproxy) Hop(via Proxy, dryrun bool) (err error) {
 		return errProxyStopped
 	}
 
-	if !isWG(via.ID()) { // for now, only wg can hop another wg
+	if !isWG(idstr(via)) { // for now, only wg can hop another wg
 		return errHopWireGuard
 	}
 
@@ -1259,8 +1259,12 @@ func (h *wgtun) Status() int {
 	return h.status.Load()
 }
 
-// DNS implements Proxy.
-func (h *wgtun) DNS() string {
+// DNS implements x.Proxy.
+func (h *wgtun) DNS() *x.Gostr {
+	return x.StrOf(h.dnsResolvers())
+}
+
+func (h *wgtun) dnsResolvers() string {
 	var s string
 	// prefer hostnames over IPs:
 	// hostnames may resolve to different IPs on different networks;
@@ -1306,7 +1310,7 @@ func (h *wgtun) IP4() bool { return h.hasV4.Load() }
 func (h *wgtun) IP6() bool { return h.hasV6.Load() }
 
 // Contains implements x.Router.
-func (h *wgtun) Contains(ippOrCidr string) bool {
+func (h *wgtun) Contains(ippOrCidr *x.Gostr) bool {
 	y, err := h.rt.HasAny(ippOrCidr)
 	logev(err)("wg: %s (%s) router: %s contains? %t; err? %v",
 		h.id, h.viaStatus(), ippOrCidr, y, err)
@@ -1319,7 +1323,7 @@ func (h *wgtun) serve(network, local string) (pc net.PacketConn, err error) {
 	}
 
 	// todo: dial into both direct & via if via cannot handle all routes?
-	who := h.ID()
+	who := h.id
 	var v Proxy // may be nil
 	hasvia, usingvia := false, false
 	if hasvia = usevia(h.viaID); hasvia {

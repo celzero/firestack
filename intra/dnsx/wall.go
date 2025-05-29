@@ -152,7 +152,7 @@ func (r *resolver) blockA(t, t2 Transport, q, ans *dns.Msg, blocklistStamp strin
 	qname := xdns.QName(q)
 
 	if len(blocklistStamp) > 0 && br != nil { // remote block resolution, if any
-		blocklistNames, err = br.StampToNames(blocklistStamp)
+		blocklistNames, err = br.stampToNames(blocklistStamp)
 		if err == nil {
 			log.D("wall: for %s blocklists %s", qname, blocklistNames)
 			return

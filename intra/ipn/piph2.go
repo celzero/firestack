@@ -150,10 +150,10 @@ func (t *piph2) dialtls(network, addr string, cfg *tls.Config) (net.Conn, error)
 // dial dials proxy addr using the proxydialer via dialers.SplitDial,
 // which is aware of proto changes.
 func (t *piph2) dial(network, addr string) (c net.Conn, err error) {
-	who := t.ID()
+	who := idstr(t)
 	if usevia(t.viaID) {
 		if v, vok := t.via.Get(); vok { // dial via another proxy
-			who = v.ID()
+			who = idstr(v)
 			c, err = v.Dial(network, addr)
 		} else {
 			err = errNoHop
@@ -262,26 +262,26 @@ func NewPipProxy(ctx context.Context, ctl protect.Controller, px ProxyProvider, 
 }
 
 func (t *piph2) viafor() *Proxy {
-	return viafor(t.ID(), t.viaID.Load(), t.px)
+	return viafor(idstr(t), t.viaID.Load(), t.px)
 }
 
 func (t *piph2) swapVia(new Proxy) Proxy {
-	return swapVia(t.ID(), new, t.viaID, t.via)
+	return swapVia(idstr(t), new, t.viaID, t.via)
 }
 
 // ID implements Proxy.
-func (t *piph2) ID() string {
-	return RpnH2
+func (t *piph2) ID() *x.Gostr {
+	return x.StrOf(RpnH2)
 }
 
 // Type implements Proxy.
-func (t *piph2) Type() string {
-	return PIPH2
+func (t *piph2) Type() *x.Gostr {
+	return x.StrOf(PIPH2)
 }
 
 // GetAddr implements Proxy.
-func (t *piph2) GetAddr() string {
-	return t.hostname + ":" + strconv.Itoa(t.port)
+func (t *piph2) GetAddr() *x.Gostr {
+	return x.StrOf(t.hostname + ":" + strconv.Itoa(t.port))
 }
 
 // Router implements Proxy.
@@ -290,8 +290,8 @@ func (t *piph2) Router() x.Router {
 }
 
 // Reaches implements x.Router.
-func (t *piph2) Reaches(hostportOrIPPortCsv string) bool {
-	return Reaches(t, hostportOrIPPortCsv)
+func (t *piph2) Reaches(hostportOrIPPortCsv *x.Gostr) bool {
+	return Reaches(t, hostportOrIPPortCsv.V())
 }
 
 // Hop implements Proxy.

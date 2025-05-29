@@ -136,13 +136,13 @@ func (h *exit) Dialer() protect.RDialer {
 }
 
 // ID implements x.Proxy.
-func (h *exit) ID() string {
-	return h.id
+func (h *exit) ID() *x.Gostr {
+	return x.StrOf(h.id)
 }
 
 // Type implements x.Proxy.
-func (h *exit) Type() string {
-	return INTERNET
+func (h *exit) Type() *x.Gostr {
+	return x.StrOf(INTERNET)
 }
 
 // Router implements x.Proxy.
@@ -151,13 +151,13 @@ func (h *exit) Router() x.Router {
 }
 
 // Reaches implements x.Router.
-func (h *exit) Reaches(hostportOrIPPortCsv string) bool {
-	return Reaches(h, hostportOrIPPortCsv)
+func (h *exit) Reaches(hostportOrIPPortCsv *x.Gostr) bool {
+	return Reaches(h, hostportOrIPPortCsv.V())
 }
 
 // GetAddr implements x.Proxy.
-func (h *exit) GetAddr() string {
-	return h.addr
+func (h *exit) GetAddr() *x.Gostr {
+	return x.StrOf(h.addr)
 }
 
 // Status implements x.Proxy.
@@ -188,14 +188,21 @@ func idhandle(p Proxy) string {
 	if p == nil || core.IsNil(p) {
 		return ""
 	}
-	return p.ID() + "@" + strconv.Itoa(int(p.Handle()))
+	return idstr(p) + "@" + strconv.Itoa(int(p.Handle()))
 }
 
 func idstr(p x.Proxy) string {
 	if p == nil || core.IsNil(p) {
 		return ""
 	}
-	return p.ID()
+	return p.ID().V()
+}
+
+func typstr(p x.Proxy) string {
+	if p == nil || core.IsNil(p) {
+		return ""
+	}
+	return p.Type().V()
 }
 
 // create a random hex character string of length 8

@@ -183,7 +183,7 @@ func reprioritize(ds []protect.RDialer, ipp netip.AddrPort) []protect.RDialer {
 		return ds
 	}
 	for i, d := range ds {
-		if d.ID() == id {
+		if d.ID().V() == id {
 			ds[i], ds[0] = ds[0], ds[i]
 			break
 		}
@@ -299,7 +299,7 @@ func (r *retrier) dialerID() string {
 	if r.multidial {
 		di = min(max(di, r.nextDialerIdx-1), len(r.dialers)-1)
 	}
-	return r.dialers[di].ID()
+	return r.dialers[di].ID().V()
 }
 
 // dialLocked establishes a new connection to r.raddr and closes existing, if any.

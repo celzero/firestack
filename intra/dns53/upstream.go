@@ -95,7 +95,7 @@ func newTransport(pctx context.Context, id string, do *settings.DNSOptions, px i
 	ctx, done := context.WithCancel(pctx)
 	var relay string
 	if p, _ := px.ProxyFor(id); p != nil {
-		relay = p.ID()
+		relay = p.ID().V()
 	}
 	tx := &transport{
 		ctx:      ctx,
@@ -299,7 +299,7 @@ func (t *transport) Query(network string, q *dns.Msg, smm *x.DNSSummary) (ans *d
 	smm.RData = xdns.GetInterestingRData(ans)
 	smm.RCode = xdns.Rcode(ans)
 	smm.RTtl = xdns.RTtl(ans)
-	smm.Server = t.GetAddr()
+	smm.Server = t.getAddr()
 	smm.PID = pid
 	smm.RPID = rpid
 	if err != nil {
@@ -314,19 +314,23 @@ func (t *transport) Query(network string, q *dns.Msg, smm *x.DNSSummary) (ans *d
 	return ans, err
 }
 
-func (t *transport) ID() string {
-	return t.id
+func (t *transport) ID() *x.Gostr {
+	return x.StrOf(t.id)
 }
 
-func (t *transport) Type() string {
-	return dnsx.DNS53
+func (t *transport) Type() *x.Gostr {
+	return x.StrOf(dnsx.DNS53)
 }
 
 func (t *transport) P50() int64 {
 	return t.est.Get()
 }
 
-func (t *transport) GetAddr() string {
+func (t *transport) GetAddr() *x.Gostr {
+	return x.StrOf(t.getAddr())
+}
+
+func (t *transport) getAddr() string {
 	addr := t.lastaddr.Load()
 	if len(addr) == 0 {
 		// may be protect.UidSelf (for bootstrap/default) or protect.System

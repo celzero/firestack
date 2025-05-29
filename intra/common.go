@@ -19,6 +19,7 @@ import (
 
 	"slices"
 
+	x "github.com/celzero/firestack/intra/backend"
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/dialers"
 	"github.com/celzero/firestack/intra/dnsx"
@@ -56,10 +57,10 @@ type zeroListener struct{}
 
 var _ SocketListener = (*zeroListener)(nil)
 
-func (*zeroListener) Preflow(_, _ int32, _, _, _ string) *PreMark    { return nil }
-func (*zeroListener) Flow(_, _ int32, _, _, _, _, _, _ string) *Mark { return nil }
-func (*zeroListener) Inflow(_, _ int32, _, _ string) *Mark           { return nil }
-func (*zeroListener) OnSocketClosed(*SocketSummary)                  {}
+func (*zeroListener) Preflow(_, _ int32, _, _, _ *x.Gostr) *PreMark    { return nil }
+func (*zeroListener) Flow(_, _ int32, _, _, _, _, _, _ *x.Gostr) *Mark { return nil }
+func (*zeroListener) Inflow(_, _ int32, _, _ *x.Gostr) *Mark           { return nil }
+func (*zeroListener) OnSocketClosed(*SocketSummary)                    {}
 
 var nooplistener = new(zeroListener)
 
@@ -114,7 +115,7 @@ func (h *baseHandler) onInflow(to, from netip.AddrPort) (fm *Mark) {
 
 	// inflow does not go through nat/alg/dns/proxy
 	fm, ok := core.Grx(h.proto+".inflow", func(_ context.Context) (*Mark, error) {
-		return h.listener.Inflow(nn, int32(uid), to.String(), from.String()), nil
+		return h.listener.Inflow(nn, int32(uid), x.StrOf(to.String()), x.StrOf(from.String())), nil
 	}, onFlowTimeout)
 
 	if !ok || fm == nil {
@@ -160,7 +161,7 @@ func (h *baseHandler) onFlow(localaddr, target netip.AddrPort) (fm *Mark, undidA
 	var pdoms, blocklists string
 
 	pre, _ := core.Grx(h.proto+".preflow", func(_ context.Context) (*PreMark, error) {
-		return h.listener.Preflow(proto, int32(uid), src, dst, doms), nil
+		return h.listener.Preflow(proto, int32(uid), x.StrOf(src), x.StrOf(dst), x.StrOf(doms)), nil
 	}, onFlowTimeout)
 
 	hasPre := pre != nil
@@ -218,7 +219,7 @@ func (h *baseHandler) onFlow(localaddr, target netip.AddrPort) (fm *Mark, undidA
 	}
 
 	fm, ok := core.Grx(h.proto+".flow", func(_ context.Context) (*Mark, error) {
-		return h.listener.Flow(proto, int32(uid), src, dst, ips, doms, pdoms, blocklists), nil
+		return h.listener.Flow(proto, int32(uid), x.StrOf(src), x.StrOf(dst), x.StrOf(ips), x.StrOf(doms), x.StrOf(pdoms), x.StrOf(blocklists)), nil
 	}, onFlowTimeout)
 
 	if fm == nil || !ok { // zeroListener returns nil

@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/netip"
 
+	x "github.com/celzero/firestack/intra/backend"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
 	"github.com/celzero/firestack/intra/settings"
@@ -22,8 +23,8 @@ import (
 var _ protect.RDialer = (*gtunnel)(nil)
 
 // ID implements protect.RDialer.
-func (h *gtunnel) ID() string {
-	return "gtunnel"
+func (h *gtunnel) ID() *x.Gostr {
+	return x.StrOf("gtunnel")
 }
 
 // Dial implements protect.RDialer.

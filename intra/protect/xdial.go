@@ -14,6 +14,7 @@ import (
 	"net/netip"
 	"strconv"
 
+	x "github.com/celzero/firestack/intra/backend"
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/log"
 )
@@ -38,7 +39,7 @@ type Listener = net.Listener
 type DialFn func(network, addr string) (net.Conn, error)
 
 type RDialer interface {
-	ID() string
+	ID() *x.Gostr
 	// Dial creates a connection to the given address,
 	// the resulting net.Conn must be a *net.TCPConn if
 	// network is "tcp" or "tcp4" or "tcp6" and must be
@@ -94,11 +95,11 @@ func (d *RDial) context() context.Context {
 }
 
 // ID implements RDialer.
-func (d *RDial) ID() string {
+func (d *RDial) ID() *x.Gostr {
 	if d.owner != "" {
-		return d.owner
+		return x.StrOf(d.owner)
 	}
-	return "xdial" // ownerless
+	return x.StrOf("xdial") // ownerless
 }
 
 // Dial implements RDialer.

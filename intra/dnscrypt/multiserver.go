@@ -311,7 +311,7 @@ func resolve(network string, data *dns.Msg, si *serverinfo, smm *x.DNSSummary) (
 	pid := dnsx.NetNoProxy
 	if si != nil {
 		if r := si.relay; r != nil {
-			pid = si.chooseProxy([]string{r.ID()})
+			pid = si.chooseProxy([]string{r.ID().V()})
 		} else {
 			pid = si.chooseProxy(pids)
 		}
@@ -360,11 +360,11 @@ func resolve(network string, data *dns.Msg, si *serverinfo, smm *x.DNSSummary) (
 }
 
 // LiveTransports returns csv of dnscrypt server-names currently in-use
-func (proxy *DcMulti) LiveTransports() string {
+func (proxy *DcMulti) LiveTransports() *x.Gostr {
 	if len(proxy.liveServers) <= 0 {
-		return ""
+		return nil
 	}
-	return strings.Join(proxy.liveServers[:], ",")
+	return x.StrOf(strings.Join(proxy.liveServers[:], ","))
 }
 
 func (proxy *DcMulti) refreshOne(uid string) bool {
@@ -384,7 +384,7 @@ func (proxy *DcMulti) refreshOne(uid string) bool {
 }
 
 // Refresh re-registers servers
-func (proxy *DcMulti) Refresh() (string, error) {
+func (proxy *DcMulti) Refresh() (*x.Gostr, error) {
 	var servers []*registeredserver
 	proxy.RLock()
 	for _, s := range proxy.registeredServers {
@@ -402,7 +402,7 @@ func (proxy *DcMulti) Refresh() (string, error) {
 		proxy.certIgnoreTimestamp = false
 	} else if err != nil {
 		// ignore error if live-servers are around
-		return "", err
+		return nil, err
 	}
 	go proxy.refreshRoutes()
 
@@ -543,10 +543,10 @@ func (proxy *DcMulti) removeOne(uid string) int {
 }
 
 // Remove removes a dnscrypt server / relay, if any
-func (proxy *DcMulti) Remove(uid string) bool {
+func (proxy *DcMulti) Remove(uid *x.Gostr) bool {
 	// may be a gateway / relay or a dnscrypt server
-	n := proxy.removeOne(uid)
-	nr, nerr := proxy.RemoveGateways(uid)
+	n := proxy.removeOne(uid.V())
+	nr, nerr := proxy.RemoveGateways(uid.V())
 	log.D("dnscrypt: removed %s; %d servers; %d relays [err %v]", uid, n, nr, nerr)
 	return true
 }
@@ -595,8 +595,8 @@ func (proxy *DcMulti) Add(t x.DNSTransport) bool {
 }
 
 // Get implements dnsx.TransportMult
-func (proxy *DcMulti) Get(id string) (x.DNSTransport, error) {
-	if t := proxy.serversInfo.get(id); t != nil {
+func (proxy *DcMulti) Get(id *x.Gostr) (x.DNSTransport, error) {
+	if t := proxy.serversInfo.get(id.V()); t != nil {
 		return t, nil
 	}
 	return nil, errNoServers
@@ -631,13 +631,13 @@ func (p *DcMulti) P50() int64 {
 }
 
 // ID implements dnsx.TransportMult
-func (p *DcMulti) ID() string {
-	return dnsx.DcProxy
+func (p *DcMulti) ID() *x.Gostr {
+	return x.StrOf(dnsx.DcProxy)
 }
 
 // Type implements dnsx.TransportMult
-func (p *DcMulti) Type() string {
-	return dnsx.DNSCrypt
+func (p *DcMulti) Type() *x.Gostr {
+	return x.StrOf(dnsx.DNSCrypt)
 }
 
 // Query implements dnsx.TransportMult
@@ -651,7 +651,11 @@ func (p *DcMulti) Query(network string, q *dns.Msg, smm *x.DNSSummary) (r *dns.M
 }
 
 // GetAddr returns the last server address
-func (p *DcMulti) GetAddr() string {
+func (p *DcMulti) GetAddr() *x.Gostr {
+	return x.StrOf(p.getAddr())
+}
+
+func (p *DcMulti) getAddr() string {
 	return p.lastAddr
 }
 

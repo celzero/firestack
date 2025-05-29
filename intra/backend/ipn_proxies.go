@@ -85,13 +85,13 @@ const ( // see ipn/proxies.go
 
 type Rpn interface {
 	// RegisterWarp registers a new Warp installation.
-	RegisterWarp(existingStateJson []byte) (json []byte, err error)
+	RegisterWarp(existingStateJson *Gobyte) (json *Gobyte, err error)
 	// RegisterSE registers a new SurfEasy user.
 	RegisterSE() error
 	// RegisterAmnezia registers a new Amnezia installation.
-	RegisterAmnezia(existingStateJson []byte) (json []byte, err error)
+	RegisterAmnezia(existingStateJson *Gobyte) (json *Gobyte, err error)
 	// RegisterProton registers a new Proton installation.
-	RegisterProton(existingStateJson []byte) (json []byte, err error)
+	RegisterProton(existingStateJson *Gobyte) (json *Gobyte, err error)
 	// UnregisterWarp unregisters a Warp public key.
 	UnregisterWarp() bool
 	// UnregisterAmnezia unregisters an Amnezia installation.
@@ -101,15 +101,15 @@ type Rpn interface {
 	// UnregisterSE unregisters a SurfEasy user.
 	UnregisterSE() bool
 	// TestWarp connects to some Warp IPs and returns reachable ones.
-	TestWarp() (ips string, errs error)
+	TestWarp() (ips *Gostr, errs error)
 	// TestAmnezia connects to the Amnezia gateway and returns its IP if reachable.
-	TestAmnezia() (ips string, errs error)
+	TestAmnezia() (ips *Gostr, errs error)
 	// TestProton connects to the Proton gateway and returns its IP if reachable.
-	TestProton() (ips string, errs error)
+	TestProton() (ips *Gostr, errs error)
 	// TestSE connects to some SurfEasy IPs and returns reachable ones.
-	TestSE() (ips string, errs error)
+	TestSE() (ips *Gostr, errs error)
 	// TestExit64 connects to public NAT64 endpoints and returns reachable ones.
-	TestExit64() (ips string, errs error)
+	TestExit64() (ips *Gostr, errs error)
 	// Warp returns a Cloudflare Warp WireGuard proxy.
 	Warp() (wg RpnProxy, err error)
 	// Proton returns a Proton WireGuard proxy.
@@ -127,15 +127,15 @@ type Rpn interface {
 
 type Proxy interface {
 	// ID returns the ID of this proxy.
-	ID() string
+	ID() *Gostr
 	// Type returns the type of this proxy.
-	Type() string
+	Type() *Gostr
 	// Returns x.Router.
 	Router() Router
 	// GetAddr returns the address of this proxy.
-	GetAddr() string
+	GetAddr() *Gostr
 	// DNS returns the ip:port or doh/dot url or dnscrypt stamp for this proxy.
-	DNS() string
+	DNS() *Gostr
 	// Status returns the status of this proxy.
 	Status() int
 	// Ping pings this proxy.
@@ -150,33 +150,33 @@ type RpnProxy interface {
 	Proxy
 	RpnAcc
 	// Fork adds proxy for country code, cc.
-	Fork(cc string) (Proxy, error)
+	Fork(cc *Gostr) (Proxy, error)
 	// Purge removes proxy for country code, cc.
-	Purge(cc string) bool
+	Purge(cc *Gostr) bool
 	// Get returns proxy for country code, cc.
-	Get(cc string) (Proxy, error)
+	Get(cc *Gostr) (Proxy, error)
 	// Kids returns csv of forked proxy PIDs, excluding this one.
-	Kids() (csvpids string)
+	Kids() (csvpids *Gostr)
 }
 
 type RpnAcc interface {
 	// Who returns identifier for this account; may be empty.
-	Who() string
+	Who() *Gostr
 	// State returns the state (as json) of the account.
-	State() ([]byte, error)
+	State() (*Gobyte, error)
 	// Created returns the time (unix millis) currently active account was created.
 	Created() int64
 	// Expires returns the time (unix millis) currently active account expires.
 	Expires() int64
 	// Update updates the account creating new state.
-	Update() (newstate []byte, err error)
+	Update() (newstate *Gobyte, err error)
 }
 
 type Proxies interface {
 	// Underlay creates a [NOOP] proxy (that always connects over underlying network),
 	// but one that uses a custom Controller.
 	// This proxy is not tracked (APIs like GetProxy won't return these).
-	Underlay(id string, c Controller) Proxy
+	Underlay(id *Gostr, c Controller) Proxy
 	// Add adds a proxy to this multi-transport.
 	// "id" is a free-form unique identifier for this proxy, except:
 	// "id" for WireGuard proxies must be prefixed with [WG]
@@ -185,24 +185,24 @@ type Proxies interface {
 	// scheme://usr:pwd@domain.tld:port/p/a/t/h?q&u=e&r=y#f,r
 	// where scheme is "http" or "socks5", usr and/or pwd are optional
 	// port is the port number, and domain.tld could also be ip address.
-	AddProxy(id, url string) (Proxy, error)
+	AddProxy(id, url *Gostr) (Proxy, error)
 	// Remove removes a transport from this multi-transport.
-	RemoveProxy(id string) bool
+	RemoveProxy(id *Gostr) bool
 	// GetProxy returns a transport from this multi-transport.
-	GetProxy(id string) (Proxy, error)
+	GetProxy(id *Gostr) (Proxy, error)
 	// TestHop returns empty diag if origin can hop to via,
 	// otherwise returns a diagnosis of why it couldn't.
 	// Only WireGuard via & origin are supported, for now.
-	TestHop(via, origin string) (diag string)
+	TestHop(via, origin *Gostr) (diag *Gostr)
 	// Hop chains two proxies in the order of origin dialing through via.
 	// Only WireGuard via & origin are supported, for now.
-	Hop(via, origin string) error
+	Hop(via, origin *Gostr) error
 	// Router returns a lowest common denomination router for this multi-transport.
 	Router() Router
 	// RPN returns the Rethink Proxy Network api.
 	Rpn() Rpn
 	// Refresh re-registers proxies and returns a csv of active ones.
-	RefreshProxies() (string, error)
+	RefreshProxies() (*Gostr, error)
 }
 
 type Router interface {
@@ -217,20 +217,20 @@ type Router interface {
 	// Via returns the gateway for this router, if any.
 	Via() (gw Proxy, err error)
 	// Reaches returns true if any host:port or ip:port is dialable.
-	Reaches(hostportOrIPPortCsv string) (y bool)
+	Reaches(hostportOrIPPortCsv *Gostr) (y bool)
 	// Contains returns true if this router can route ipprefix.
-	Contains(ipprefix string) (y bool)
+	Contains(ipprefix *Gostr) (y bool)
 }
 
 // ProxyListener is a listener for proxy events.
 type ProxyListener interface {
 	// OnProxyAdded is called when a proxy is added.
-	OnProxyAdded(id string)
+	OnProxyAdded(id *Gostr)
 	// OnProxyRemoved is called when a proxy is removed except when all
 	// proxies are stopped, in which case OnProxiesStopped is called.
-	OnProxyRemoved(id string)
+	OnProxyRemoved(id *Gostr)
 	// OnProxyStopped is called when a proxy is stopped.
-	OnProxyStopped(id string)
+	OnProxyStopped(id *Gostr)
 	// OnProxiesStopped is called when all proxies are stopped.
 	// Note: OnProxyRemoved is not called for each proxy.
 	OnProxiesStopped()

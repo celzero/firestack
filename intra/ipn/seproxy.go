@@ -160,7 +160,7 @@ func NewSEasyProxy(ctx context.Context, c protect.Controller, px ProxyProvider, 
 
 	outbound := protect.MakeNsRDial(RpnSE, ctx, c)
 	dialfn := func(network, addr string) (c net.Conn, err error) {
-		who := sep.ID()
+		who := idstr(sep)
 		if usevia(sep.viaID) {
 			if v, vok := sep.via.Get(); vok {
 				who = idstr(v)
@@ -176,7 +176,7 @@ func NewSEasyProxy(ctx context.Context, c protect.Controller, px ProxyProvider, 
 			c, err = outbound.Dial(network, addr)
 		}
 		logei(err)("proxy: se: %s dial(%s) from %s => %s (via %s); err? %v",
-			sep.ID(), network, sep.GetAddr(), addr, who, err)
+			idstr(sep), network, sep.GetAddr(), addr, who, err)
 		return c, err
 	}
 
@@ -361,13 +361,13 @@ func (h *seproxy) DialerHandle() uintptr {
 }
 
 // ID implements Proxy.
-func (*seproxy) ID() string {
-	return RpnSE
+func (*seproxy) ID() *x.Gostr {
+	return x.StrOf(RpnSE)
 }
 
 // Type implements Proxy.
-func (*seproxy) Type() string {
-	return HTTP1
+func (*seproxy) Type() *x.Gostr {
+	return x.StrOf(HTTP1)
 }
 
 // Router implements Proxy.
@@ -406,16 +406,16 @@ func (d *seproxy) Dialer() protect.RDialer {
 }
 
 // Reaches implements x.Router.
-func (h *seproxy) Reaches(hostportOrIPPortCsv string) bool {
-	return Reaches(h, hostportOrIPPortCsv)
+func (h *seproxy) Reaches(hostportOrIPPortCsv *x.Gostr) bool {
+	return Reaches(h, hostportOrIPPortCsv.V())
 }
 
 func (h *seproxy) viafor() *Proxy {
-	return viafor(h.ID(), h.viaID.Load(), h.px)
+	return viafor(idstr(h), h.viaID.Load(), h.px)
 }
 
 func (h *seproxy) swapVia(new Proxy) Proxy {
-	return swapVia(h.ID(), new, h.viaID, h.via)
+	return swapVia(idstr(h), new, h.viaID, h.via)
 }
 
 // Hop implements Proxy.
@@ -447,12 +447,12 @@ func (h *seproxy) Via() (x.Proxy, error) {
 }
 
 // GetAddr implements Proxy.
-func (h *seproxy) GetAddr() string {
+func (h *seproxy) GetAddr() *x.Gostr {
 	if len(h.addrs) <= 0 {
-		return ""
+		return nil
 	}
 	n := rand.IntN(len(h.addrs))
-	return h.addrs[n].String()
+	return x.StrOf(h.addrs[n].String())
 }
 
 // Status implements Proxy.
@@ -469,11 +469,11 @@ func (h *seproxy) Stop() error {
 }
 
 // Who implements x.RpnAcc.
-func (h *seproxy) Who() string {
+func (h *seproxy) Who() *x.Gostr {
 	if h == nil || h.sec == nil {
-		return ""
+		return nil
 	}
-	return h.sec.AssignedDeviceID
+	return x.StrOf(h.sec.AssignedDeviceID)
 }
 
 // Provider implements RpnAcc.

@@ -62,7 +62,7 @@ func SetSystemDNS(t Tunnel, ipcsv string) error {
 
 	if n <= 0 {
 		log.W("dns: no system dns IPs to set; fallback to Goos")
-		r.Remove(dnsx.System)
+		r.Remove(x.StrOf(dnsx.System))
 		return nil
 	}
 
@@ -117,7 +117,7 @@ func AddDefaultTransport(t Tunnel, typ, ippOrUrl, ips string) error {
 	if rerr != nil {
 		return rerr
 	}
-	tr, err := r.Get(dnsx.Default)
+	tr, err := r.Get(x.StrOf(dnsx.Default))
 	if err != nil {
 		return err
 	}
@@ -136,28 +136,29 @@ func AddProxyDNS(t Tunnel, p x.Proxy) error {
 	if rerr != nil || perr != nil {
 		return core.JoinErr(rerr, perr)
 	}
+	pid := p.ID().V()
 	ctx := t.internalCtx()
-	ipOrHostCsv := p.DNS() // may return csv(host:port), csv(ip:port), csv(ips), csv(host)
+	ipOrHostCsv := p.DNS().V() // may return csv(host:port), csv(ip:port), csv(ips), csv(host)
 	if len(ipOrHostCsv) == 0 {
-		log.W("dns: no proxy dns for %s @ %s", p.ID(), p.GetAddr())
+		log.W("dns: no proxy dns for %s @ %s", pid, p.GetAddr())
 		return dnsx.ErrNoProxyDNS
 	}
 	ipsOrHost := strings.Split(ipOrHostCsv, ",")
 	if len(ipsOrHost) == 0 {
-		log.W("dns: no dns for %s @ %s", p.ID(), p.GetAddr())
+		log.W("dns: no dns for %s @ %s", pid, p.GetAddr())
 		return dnsx.ErrNoProxyDNS
 	}
 	first := ipsOrHost[0]
 	ipport, err := xdns.DnsIPPort(first)
 	hostOrHostport := first // could be multiple hostnames or host:ports, but choose the first
 	if err != nil {         // use hostname
-		if dns, err := dns53.NewTransportFromHostname(ctx, p.ID(), hostOrHostport, "", pxr); err != nil {
+		if dns, err := dns53.NewTransportFromHostname(ctx, pid, hostOrHostport, "", pxr); err != nil {
 			return err
 		} else {
 			return addDNSTransport(r, dns)
 		}
 		// use ipports; register with same id as the proxy p
-	} else if dns, err := dns53.NewTransportFrom(ctx, p.ID(), ipport, pxr); err != nil {
+	} else if dns, err := dns53.NewTransportFrom(ctx, pid, ipport, pxr); err != nil {
 		return err
 	} else {
 		return addDNSTransport(r, dns)

@@ -175,7 +175,7 @@ func match(nets []*net.IPNet, ip net.IP) *net.IPNet {
 }
 
 func ID64(t dnsx.Transport) string {
-	return id64(t.ID())
+	return id64(t.ID().V())
 }
 
 func id64(tid string) string {

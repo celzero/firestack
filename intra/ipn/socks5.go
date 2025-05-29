@@ -155,7 +155,7 @@ func NewSocks5Proxy(id string, ctx context.Context, ctl protect.Controller, px P
 	h.via = via
 
 	log.D("proxy: socks5: created %s with clients(%d), opts(%s)",
-		h.ID(), len(clients), po)
+		h.id, len(clients), po)
 
 	return h, nil
 }
@@ -169,7 +169,7 @@ func (h *socks5) swapVia(new Proxy) (old Proxy) {
 }
 
 func (h *socks5) txdial(n, src, dst string) (c net.Conn, err error) {
-	who := h.ID()
+	who := idstr(h)
 	if usevia(h.viaID) {
 		if v, vok := h.via.Get(); vok {
 			who = idstr(v)
@@ -259,24 +259,24 @@ func (h *socks5) Dialer() protect.RDialer {
 	return h
 }
 
-// ID implements Proxy.
-func (h *socks5) ID() string {
-	return h.id
+// ID implements x.Proxy.
+func (h *socks5) ID() *x.Gostr {
+	return x.StrOf(h.id)
 }
 
-// Type implements Proxy.
-func (h *socks5) Type() string {
-	return SOCKS5
+// Type implements x.Proxy.
+func (h *socks5) Type() *x.Gostr {
+	return x.StrOf(SOCKS5)
 }
 
-// Router implements Proxy.
+// Router implements x.Proxy.
 func (h *socks5) Router() x.Router {
 	return h
 }
 
 // Reaches implements x.Router.
-func (h *socks5) Reaches(hostportOrIPPortCsv string) bool {
-	return Reaches(h, hostportOrIPPortCsv)
+func (h *socks5) Reaches(hostportOrIPPortCsv *x.Gostr) bool {
+	return Reaches(h, hostportOrIPPortCsv.V())
 }
 
 // Hop implements Proxy.
@@ -307,9 +307,9 @@ func (h *socks5) Via() (x.Proxy, error) {
 	return nil, errNoHop
 }
 
-// GetAddr implements Proxy.
-func (h *socks5) GetAddr() string {
-	return h.opts.IPPort
+// GetAddr implements x.Proxy.
+func (h *socks5) GetAddr() *x.Gostr {
+	return x.StrOf(h.opts.IPPort)
 }
 
 // Status implements Proxy.

@@ -112,7 +112,7 @@ func (h *http1) Dial(network, addr string) (c protect.Conn, err error) {
 
 	h.lastdial = time.Now()
 
-	who := h.ID()
+	who := idstr(h)
 	if usevia(h.viaID) {
 		if v, vok := h.via.Get(); vok { // dial via another proxy
 			who = idstr(v)
@@ -146,12 +146,12 @@ func (h *http1) Dialer() protect.RDialer {
 	return h
 }
 
-func (h *http1) ID() string {
-	return h.id
+func (h *http1) ID() *x.Gostr {
+	return x.StrOf(h.id)
 }
 
-func (h *http1) Type() string {
-	return HTTP1
+func (h *http1) Type() *x.Gostr {
+	return x.StrOf(HTTP1)
 }
 
 func (h *http1) Router() x.Router {
@@ -159,8 +159,8 @@ func (h *http1) Router() x.Router {
 }
 
 // Reaches implements x.Router.
-func (h *http1) Reaches(hostportOrIPPortCsv string) bool {
-	return Reaches(h, hostportOrIPPortCsv)
+func (h *http1) Reaches(hostportOrIPPortCsv *x.Gostr) bool {
+	return Reaches(h, hostportOrIPPortCsv.V())
 }
 
 // Hop implements Proxy.
@@ -196,8 +196,8 @@ func (h *http1) Via() (x.Proxy, error) {
 }
 
 // GetAddr implements Proxy.
-func (h *http1) GetAddr() string {
-	return h.opts.IPPort
+func (h *http1) GetAddr() *x.Gostr {
+	return x.StrOf(h.opts.IPPort)
 }
 
 // Status implements Proxy.

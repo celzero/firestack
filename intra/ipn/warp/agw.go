@@ -513,8 +513,8 @@ func newAgwc(wgkey x.WgKey, uuid string, c *http.Client) (*AgwClient, error) {
 
 	return &AgwClient{
 		agwuser: &agwuser{
-			wgpriv: wgkey.Base64(),
-			wgpub:  wgkey.Mult().Base64(),
+			wgpriv: wgkey.Base64().V(),
+			wgpub:  wgkey.Mult().Base64().V(),
 			uuid:   uuid,
 		},
 		http:   c,
@@ -585,19 +585,19 @@ func (a *AgwClient) url() string {
 }
 
 // Who implements x.RpnAcc.
-func (a *AgwClient) Who() string {
+func (a *AgwClient) Who() *x.Gostr {
 	if a == nil {
-		return ""
+		return nil
 	}
-	return a.uuid
+	return x.StrOf(a.uuid)
 }
 
 // ProviderID implements RpnAcc.
 func (*AgwClient) ProviderID() string { return x.RpnAmz }
 
 // State implements x.RpnAcc.
-func (a *AgwClient) State() ([]byte, error) {
-	return a.AmzWgConfig.Json()
+func (a *AgwClient) State() (*x.Gobyte, error) {
+	return x.BytesOfFunc(a.AmzWgConfig.Json)
 }
 
 // Created implements x.RpnAcc.
@@ -780,7 +780,7 @@ func (w *Client) MakeAmzWg() (*AgwClient, error) {
 	}
 
 	uuid := uuid4()
-	publicKeyBase64 := k.Mult().Base64()
+	publicKeyBase64 := k.Mult().Base64().V()
 	log.I("agw: make: %s", publicKeyBase64)
 
 	a, err := newAgwc(k, uuid, &w.h2)

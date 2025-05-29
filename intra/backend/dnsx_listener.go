@@ -89,3 +89,6 @@ type DNSListener interface {
 	// OnResponse is called when a DNS response is received.
 	OnResponse(*DNSSummary)
 }
+
+// args (string, string, int) is OK with cgo?
+// github.com/golang/go/issues/46893#issuecomment-868749896

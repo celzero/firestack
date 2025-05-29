@@ -73,12 +73,12 @@ type RpnStateless struct {
 	RpnUpdateless
 }
 
-func (RpnStateless) State() ([]byte, error)         { return nil, errRpnStateless }
+func (RpnStateless) State() (*x.Gobyte, error)      { return nil, errRpnStateless }
 func (RpnStateless) Conf(cc string) (string, error) { return "", errRpnStateless }
 
 type RpnUpdateless struct{}
 
-func (RpnUpdateless) Update() ([]byte, error) { return nil, errRpnUpdateless }
+func (RpnUpdateless) Update() (*x.Gobyte, error) { return nil, errRpnUpdateless }
 
 type WarpClient struct {
 	RpnCountryless
@@ -215,7 +215,7 @@ func (w *WarpClient) reg() error {
 
 	reqUrl := fmt.Sprintf("%s/reg", warpApiUrl)
 	method := "POST"
-	publicKey := w.k.Mult().Base64()
+	publicKey := w.k.Mult().Base64().V()
 
 	data := map[string]interface{}{
 		"install_id":   "",
@@ -269,7 +269,7 @@ func (w *WarpClient) reg() error {
 		return err
 	}
 
-	w.Identity.PrivateKey = w.k.Base64()
+	w.Identity.PrivateKey = w.k.Base64().V()
 	w.Identity.genWgConf()
 
 	log.I("warp: reg: successful %s for %s", w.Identity.Created, w.Identity.ID)
@@ -390,22 +390,22 @@ func (w *WarpClient) UpdateAcct(license string) error {
 }
 
 // Who implements x.RpnAcc.
-func (w *WarpClient) Who() string {
+func (w *WarpClient) Who() *x.Gostr {
 	if w == nil {
-		return ""
+		return nil
 	}
 	if id := w.Identity; id != nil {
-		return id.ID
+		return x.StrOf(id.ID)
 	}
-	return ""
+	return nil
 }
 
 // Provider implements RpnAcc.
 func (*WarpClient) ProviderID() string { return x.RpnWg }
 
 // State implements x.RpnAcc.
-func (w *WarpClient) State() ([]byte, error) {
-	return w.Identity.Json()
+func (w *WarpClient) State() (*x.Gobyte, error) {
+	return x.BytesOfFunc(w.Identity.Json)
 }
 
 // Created implements x.RpnAcc.

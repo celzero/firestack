@@ -65,11 +65,11 @@ func NewBasicProxy(id string, ctx context.Context, c protect.Controller, px Prox
 }
 
 func (h *base) viafor() *Proxy {
-	return viafor(h.ID(), h.viaID.Load(), h.px)
+	return viafor(idstr(h), h.viaID.Load(), h.px)
 }
 
 func (h *base) swapVia(new Proxy) (old Proxy) {
-	return swapVia(h.ID(), new, h.viaID, h.via)
+	return swapVia(idstr(h), new, h.viaID, h.via)
 }
 
 // Handle implements Proxy.
@@ -97,7 +97,7 @@ func (h *base) dial(network, local, remote string) (c protect.Conn, err error) {
 		return nil, errProxyStopped
 	}
 
-	who := h.ID()
+	who := idstr(h)
 	if usevia(h.viaID) {
 		if v, vok := h.via.Get(); vok { // dial via another proxy
 			who = idstr(v)
@@ -159,12 +159,12 @@ func (h *base) Dialer() protect.RDialer {
 	return h
 }
 
-func (h *base) ID() string {
-	return Base
+func (h *base) ID() *x.Gostr {
+	return x.StrOf(Base)
 }
 
-func (h *base) Type() string {
-	return NOOP
+func (h *base) Type() *x.Gostr {
+	return x.StrOf(NOOP)
 }
 
 func (h *base) Router() x.Router {
@@ -172,8 +172,8 @@ func (h *base) Router() x.Router {
 }
 
 // Reaches implements x.Router.
-func (h *base) Reaches(hostportOrIPPortCsv string) bool {
-	return Reaches(h, hostportOrIPPortCsv)
+func (h *base) Reaches(hostportOrIPPortCsv *x.Gostr) bool {
+	return Reaches(h, hostportOrIPPortCsv.V())
 }
 
 // Hop implements Proxy.
@@ -188,7 +188,7 @@ func (h *base) Hop(p Proxy, dryrun bool) error {
 	if p.Status() == END {
 		return errProxyStopped
 	}
-	if p.ID() != GlobalH1 {
+	if idstr(p) != GlobalH1 {
 		return errHopGlobalProxy
 	}
 
@@ -207,8 +207,8 @@ func (h *base) Via() (x.Proxy, error) {
 	return nil, errNoHop
 }
 
-func (h *base) GetAddr() string {
-	return h.addr
+func (h *base) GetAddr() *x.Gostr {
+	return x.StrOf(h.addr)
 }
 
 func (h *base) Status() int {

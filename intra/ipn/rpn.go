@@ -52,7 +52,7 @@ func asRpnProxy(e Proxy, acc RpnAcc, pxr Rpn) (RpnProxy, error) {
 		return nil, errRpnBadArgs
 	}
 
-	proxyid := e.ID() // must be of form "provider-id + country-code"
+	proxyid := e.ID().V() // must be of form "provider-id + country-code"
 	providerid := acc.ProviderID()
 	if !strings.HasPrefix(proxyid, providerid) {
 		log.W("proxy: rpn: make: %s <> %s mismatch", proxyid, providerid)
@@ -62,7 +62,12 @@ func asRpnProxy(e Proxy, acc RpnAcc, pxr Rpn) (RpnProxy, error) {
 	return &rpnp{e, acc, pxr, make(map[string]struct{}, 0), sync.RWMutex{}}, nil
 }
 
-func (r *rpnp) Fork(cc string) (x.Proxy, error) {
+// Fork implements x.RpnProxy.
+func (r *rpnp) Fork(cc *x.Gostr) (x.Proxy, error) {
+	return r.fork(cc.V())
+}
+
+func (r *rpnp) fork(cc string) (x.Proxy, error) {
 	if !r.RpnAcc.MultiCountry() {
 		return nil, errRpnNotMultiCC
 	}
@@ -72,7 +77,7 @@ func (r *rpnp) Fork(cc string) (x.Proxy, error) {
 	cc = strings.ToUpper(cc)
 	provider := r.RpnAcc.ProviderID()
 
-	pid := r.Proxy.ID()
+	pid := r.Proxy.ID().V()
 	if strings.HasSuffix(pid, cc) {
 		log.W("proxy: rpn: fork: %s already cc %s", provider, cc)
 		return r, nil
@@ -96,7 +101,7 @@ func (r *rpnp) Fork(cc string) (x.Proxy, error) {
 
 func (r *rpnp) PurgeAll() (n uint32) {
 	for _, cc := range r.flattenKids() {
-		if r.Purge(cc) {
+		if r.purge(cc) {
 			n++
 		}
 	}
@@ -108,7 +113,11 @@ func (r *rpnp) PurgeAll() (n uint32) {
 }
 
 // Purge implements x.RpnProxy.
-func (r *rpnp) Purge(cc string) bool {
+func (r *rpnp) Purge(cc *x.Gostr) bool {
+	return r.purge(cc.V())
+}
+
+func (r *rpnp) purge(cc string) bool {
 	provider := r.RpnAcc.ProviderID()
 	if !r.RpnAcc.MultiCountry() {
 		log.D("proxy: rpn: purge: %s not multi-country %s", cc, provider)
@@ -129,7 +138,11 @@ func (r *rpnp) Purge(cc string) bool {
 }
 
 // Get implements x.RpnProxy.
-func (r *rpnp) Get(cc string) (x.Proxy, error) {
+func (r *rpnp) Get(cc *x.Gostr) (x.Proxy, error) {
+	return r.get(cc.V())
+}
+
+func (r *rpnp) get(cc string) (x.Proxy, error) {
 	if !r.RpnAcc.MultiCountry() {
 		return nil, errRpnNotMultiCC
 	}
@@ -146,7 +159,11 @@ func (r *rpnp) Get(cc string) (x.Proxy, error) {
 }
 
 // Kids implements x.RpnProxy.
-func (r *rpnp) Kids() string {
+func (r *rpnp) Kids() (csvpids *x.Gostr) {
+	return x.StrOf(r.kidsCsv())
+}
+
+func (r *rpnp) kidsCsv() string {
 	return strings.Join(r.flattenKids(), ",")
 }
 
@@ -161,7 +178,7 @@ func (r *rpnp) flattenKids() (ids []string) {
 	return
 }
 
-func (r *rpnp) State() (existingState []byte, err error) {
+func (r *rpnp) state() (existingState *x.Gobyte, err error) {
 	return r.RpnAcc.State()
 }
 
@@ -173,6 +190,6 @@ func (r *rpnp) Expires() int64 {
 	return r.RpnAcc.Expires()
 }
 
-func (r *rpnp) Update() (newState []byte, err error) {
+func (r *rpnp) Update() (newState *x.Gobyte, err error) {
 	return r.RpnAcc.Update()
 }

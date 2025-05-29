@@ -181,13 +181,13 @@ func (h *exit64) Dialer() protect.RDialer {
 }
 
 // ID implements Proxy.
-func (h *exit64) ID() string {
-	return Rpn64
+func (h *exit64) ID() *x.Gostr {
+	return x.StrOf(Rpn64)
 }
 
 // Type implements Proxy.
-func (h *exit64) Type() string {
-	return INTERNET
+func (h *exit64) Type() *x.Gostr {
+	return x.StrOf(INTERNET)
 }
 
 // Router implements Proxy.
@@ -196,13 +196,13 @@ func (h *exit64) Router() x.Router {
 }
 
 // Reaches implements x.Router.
-func (h *exit64) Reaches(hostportOrIPPortCsv string) bool {
-	return Reaches(h, hostportOrIPPortCsv)
+func (h *exit64) Reaches(hostportOrIPPortCsv *x.Gostr) bool {
+	return Reaches(h, hostportOrIPPortCsv.V())
 }
 
 // GetAddr implements Proxy.
-func (h *exit64) GetAddr() string {
-	return h.addr
+func (h *exit64) GetAddr() *x.Gostr {
+	return x.StrOf(h.addr)
 }
 
 // Status implements Proxy.
@@ -219,8 +219,8 @@ func (h *exit64) Stop() error {
 }
 
 // Who implements x.RpnAcc.
-func (h *exit64) Who() string {
-	return Rpn64
+func (h *exit64) Who() *x.Gostr {
+	return x.StrOf(Rpn64)
 }
 
 // Provider implements RpnAcc.

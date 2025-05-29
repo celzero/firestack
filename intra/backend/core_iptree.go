@@ -21,37 +21,37 @@ import (
 // A IpTree is a thread-safe trie that supports insertion, deletion, and route matching IP CIDRs.
 type IpTree interface {
 	// Adds value v to the cidr route.
-	Add(cidr, v string) error
+	Add(cidr, v *Gostr) error
 	// Sets cidr route to v, overwriting any previous value.
-	Set(cidr, v string) error
+	Set(cidr, v *Gostr) error
 	// Removes value v, if found.
-	Esc(cidr, v string) bool
+	Esc(cidr, v *Gostr) bool
 	// Deletes cidr route. Returns true if cidr was found.
-	Del(cidr string) bool
+	Del(cidr *Gostr) bool
 	// Gets the value of cidr or "" if cidr is not found.
-	Get(cidr string) (string, error)
+	Get(cidr *Gostr) (*Gostr, error)
 	// Returns true if the cidr route is found.
-	Has(cidr string) (bool, error)
+	Has(cidr *Gostr) (bool, error)
 	// Returns csv of all routes matching cidr or "".
-	Routes(cidr string) string
+	Routes(cidr *Gostr) *Gostr
 	// Returns csv of values of all routes matching cidr or "".
-	Values(cidr string) string
+	Values(cidr *Gostr) *Gostr
 	// Returns the route@csv(value) of any route matching cidr or "".
-	GetAny(cidr string) (string, error)
+	GetAny(cidr *Gostr) (*Gostr, error)
 	// Returns true if any route matches cidr.
-	HasAny(cidr string) (bool, error)
+	HasAny(cidr *Gostr) (bool, error)
 	// Removes values like v ("*v*") for cidr.
-	EscLike(cidr, likev string) int32
+	EscLike(cidr, likev *Gostr) int32
 	// Returns csv of all routes with any value like v matching cidr.
-	RoutesLike(cidr, likev string) string
+	RoutesLike(cidr, likev *Gostr) *Gostr
 	// Returns csv of all routes with values like v for cidr.
-	ValuesLike(cidr, likev string) string
+	ValuesLike(cidr, likev *Gostr) *Gostr
 	// Returns csv of all values like v for cidr.
-	GetLike(cidr, likev string) string
+	GetLike(cidr, likev *Gostr) *Gostr
 	// Returns the longest route for cidr as "r1@csv(v)|r2@csv(v2)" or "".
-	GetAll(cidr string) (string, error)
+	GetAll(cidr *Gostr) (*Gostr, error)
 	// Deletes all routes matching cidr. Returns the number of routes deleted.
-	DelAll(cidr string) int32
+	DelAll(cidr *Gostr) int32
 	// Clears the trie.
 	Clear()
 	// Returns the number of routes.
@@ -83,15 +83,19 @@ func NewIpTree() IpTree {
 	return &iptree{t: critbitgo.NewNet()}
 }
 
-func (c *iptree) Add(cidr string, v string) error {
-	x, err := c.Get(cidr)
+func (c *iptree) Add(cidr *Gostr, v *Gostr) error {
+	return c.add(cidr.V(), v.V())
+}
+
+func (c *iptree) add(cidr string, v string) error {
+	x, err := c.get(cidr)
 
 	if err != nil {
 		return err
 	} else if len(v) == 0 || x == v {
 		return nil
 	} else if len(x) == 0 {
-		return c.Set(cidr, v)
+		return c.set(cidr, v)
 	} else if strings.Contains(x, v) { // is ~v in x?
 		cur := strings.SplitSeq(x, Vsep)
 		for val := range cur {
@@ -99,12 +103,16 @@ func (c *iptree) Add(cidr string, v string) error {
 				return nil
 			}
 		} // v is not in x, but something resembling ~v was.
-		return c.Set(cidr, x+Vsep+v)
+		return c.set(cidr, x+Vsep+v)
 	}
-	return c.Set(cidr, x+Vsep+v)
+	return c.set(cidr, x+Vsep+v)
 }
 
-func (c *iptree) Set(cidr string, v string) error {
+func (c *iptree) Set(cidr *Gostr, v *Gostr) error {
+	return c.add(cidr.V(), v.V())
+}
+
+func (c *iptree) set(cidr string, v string) error {
 	r, err := ip2cidr(cidr)
 	if err != nil {
 		return err
@@ -116,7 +124,11 @@ func (c *iptree) Set(cidr string, v string) error {
 	return c.t.Add(r, v)
 }
 
-func (c *iptree) Del(cidr string) bool {
+func (c *iptree) Del(cidr *Gostr) bool {
+	return c.del(cidr.V())
+}
+
+func (c *iptree) del(cidr string) bool {
 	r, err := ip2cidr(cidr)
 	if err != nil {
 		return false
@@ -129,13 +141,17 @@ func (c *iptree) Del(cidr string) bool {
 	return ok && err == nil
 }
 
-func (c *iptree) Esc(cidr string, v string) bool {
-	if x, err := c.Get(cidr); err != nil {
+func (c *iptree) Esc(cidr *Gostr, v *Gostr) bool {
+	return c.esc(cidr.V(), v.V())
+}
+
+func (c *iptree) esc(cidr string, v string) bool {
+	if x, err := c.get(cidr); err != nil {
 		return false
 	} else if len(x) == 0 || len(v) == 0 {
 		return false
 	} else if x == v {
-		return c.Del(cidr)
+		return c.del(cidr)
 	} else if strings.Contains(x, v) {
 		// remove all occurrences of v in csv x
 		old := strings.Split(x, Vsep)
@@ -146,14 +162,18 @@ func (c *iptree) Esc(cidr string, v string) bool {
 			}
 		}
 		if len(cur) == 0 {
-			return c.Del(cidr)
+			return c.del(cidr)
 		}
-		return c.Set(cidr, strings.Join(cur, Vsep)) == nil
+		return c.set(cidr, strings.Join(cur, Vsep)) == nil
 	}
 	return false
 }
 
-func (c *iptree) Has(cidr string) (bool, error) {
+func (c *iptree) Has(cidr *Gostr) (bool, error) {
+	return c.has(cidr.V())
+}
+
+func (c *iptree) has(cidr string) (bool, error) {
 	r, err := ip2cidr(cidr)
 	if err != nil {
 		return false, err
@@ -166,7 +186,11 @@ func (c *iptree) Has(cidr string) (bool, error) {
 	return ok, err
 }
 
-func (c *iptree) DelAll(cidr string) (n int32) {
+func (c *iptree) DelAll(cidr *Gostr) (n int32) {
+	return c.delAll(cidr.V())
+}
+
+func (c *iptree) delAll(cidr string) (n int32) {
 	r, err := ip2cidr(cidr)
 	if r == nil || err != nil {
 		return
@@ -189,7 +213,11 @@ func (c *iptree) DelAll(cidr string) (n int32) {
 	return
 }
 
-func (c *iptree) HasAny(cidr string) (bool, error) {
+func (c *iptree) HasAny(cidr *Gostr) (bool, error) {
+	return c.hasAny(cidr.V())
+}
+
+func (c *iptree) hasAny(cidr string) (bool, error) {
 	r, err := ip2cidr(cidr)
 	if err != nil {
 		return false, err
@@ -202,7 +230,15 @@ func (c *iptree) HasAny(cidr string) (bool, error) {
 	return m != nil, err
 }
 
-func (c *iptree) Get(cidr string) (v string, err error) {
+func (c *iptree) Get(cidr *Gostr) (*Gostr, error) {
+	r, err := c.get(cidr.V())
+	if err != nil {
+		return nil, err
+	}
+	return StrOf(r), nil // r may be empty
+}
+
+func (c *iptree) get(cidr string) (v string, err error) {
 	r, err := ip2cidr(cidr)
 	if err != nil {
 		return "", err
@@ -222,7 +258,15 @@ func (c *iptree) Get(cidr string) (v string, err error) {
 	return
 }
 
-func (c *iptree) GetAny(cidr string) (rv string, err error) {
+func (c *iptree) GetAny(cidr *Gostr) (*Gostr, error) {
+	r, err := c.getAny(cidr.V())
+	if err != nil {
+		return nil, err
+	}
+	return StrOf(r), nil // r may be empty
+}
+
+func (c *iptree) getAny(cidr string) (rv string, err error) {
 	r, err := ip2cidr(cidr)
 	if err != nil {
 		return "", err
@@ -246,7 +290,15 @@ func (c *iptree) GetAny(cidr string) (rv string, err error) {
 	return
 }
 
-func (c *iptree) GetAll(cidr string) (rv string, errs error) {
+func (c *iptree) GetAll(cidr *Gostr) (*Gostr, error) {
+	r, err := c.getAll(cidr.V())
+	if err != nil {
+		return nil, err
+	}
+	return StrOf(r), nil // r may be empty
+}
+
+func (c *iptree) getAll(cidr string) (rv string, err error) {
 	r, err := ip2cidr(cidr)
 	if err != nil {
 		return "", err
@@ -271,7 +323,11 @@ func (c *iptree) GetAll(cidr string) (rv string, errs error) {
 	return strings.TrimRight(rv, KVsep), nil
 }
 
-func (c *iptree) Routes(cidr string) string {
+func (c *iptree) Routes(cidr *Gostr) *Gostr {
+	return StrOf(c.routes(cidr.V()))
+}
+
+func (c *iptree) routes(cidr string) string {
 	r, err := ip2cidr(cidr)
 	if err != nil {
 		return ""
@@ -290,7 +346,11 @@ func (c *iptree) Routes(cidr string) string {
 	return strings.Join(rt, Ksep)
 }
 
-func (c *iptree) Values(cidr string) string {
+func (c *iptree) Values(cidr *Gostr) *Gostr {
+	return StrOf(c.values(cidr.V()))
+}
+
+func (c *iptree) values(cidr string) string {
 	r, err := ip2cidr(cidr)
 	if err != nil {
 		return ""
@@ -311,15 +371,19 @@ func (c *iptree) Values(cidr string) string {
 	return strings.Join(vt, Vsep)
 }
 
-func (c *iptree) EscLike(cidr, like string) int32 {
-	if x, err := c.Get(cidr); err != nil {
+func (c *iptree) EscLike(cidr, like *Gostr) int32 {
+	return c.escLike(cidr.V(), like.V())
+}
+
+func (c *iptree) escLike(cidr, like string) int32 {
+	if x, err := c.get(cidr); err != nil {
 		return -1 // error
 	} else if len(x) == 0 {
 		return 0
 	} else if len(like) == 0 {
-		return c.DelAll(cidr)
+		return c.delAll(cidr)
 	} else if x == like {
-		if rmv := c.Del(cidr); rmv {
+		if rmv := c.del(cidr); rmv {
 			return 1
 		}
 		return 0
@@ -336,17 +400,21 @@ func (c *iptree) EscLike(cidr, like string) int32 {
 			}
 		}
 		if len(cur) == 0 { // no values left
-			_ = c.Del(cidr)
+			_ = c.del(cidr)
 		} else if len(cur) != len(old) { // no change; n == 0
-			_ = c.Set(cidr, strings.Join(cur, Vsep))
+			_ = c.set(cidr, strings.Join(cur, Vsep))
 		}
 		return n
 	}
 	return 0 // not found
 }
 
-func (c *iptree) GetLike(cidr, like string) string {
-	if x, err := c.Get(cidr); err != nil {
+func (c *iptree) GetLike(cidr, like *Gostr) *Gostr {
+	return StrOf(c.getLike(cidr.V(), like.V()))
+}
+
+func (c *iptree) getLike(cidr, like string) string {
+	if x, err := c.get(cidr); err != nil {
 		return "" // error
 	} else if len(x) == 0 {
 		return ""
@@ -366,7 +434,11 @@ func (c *iptree) GetLike(cidr, like string) string {
 	return "" // not found
 }
 
-func (c *iptree) RoutesLike(cidr, like string) string {
+func (c *iptree) RoutesLike(cidr, like *Gostr) *Gostr {
+	return StrOf(c.routesLike(cidr.V(), like.V()))
+}
+
+func (c *iptree) routesLike(cidr, like string) string {
 	r, err := ip2cidr(cidr)
 	if err != nil {
 		return ""
@@ -396,7 +468,11 @@ func (c *iptree) RoutesLike(cidr, like string) string {
 	return strings.Join(rt, Ksep)
 }
 
-func (c *iptree) ValuesLike(cidr, like string) string {
+func (c *iptree) ValuesLike(cidr, like *Gostr) *Gostr {
+	return StrOf(c.valuesLike(cidr.V(), like.V()))
+}
+
+func (c *iptree) valuesLike(cidr, like string) string {
 	r, err := ip2cidr(cidr)
 	if err != nil {
 		return ""

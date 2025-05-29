@@ -104,9 +104,9 @@ type fakeObs struct {
 	x.ProxyListener
 }
 
-func (*fakeObs) OnProxyAdded(string)   {}
-func (*fakeObs) OnProxyRemoved(string) {}
-func (*fakeObs) OnProxiesStopped()     {}
+func (*fakeObs) OnProxyAdded(*x.Gostr)   {}
+func (*fakeObs) OnProxyRemoved(*x.Gostr) {}
+func (*fakeObs) OnProxiesStopped()       {}
 
 type fakeBdg struct {
 	protect.Controller
@@ -121,8 +121,8 @@ var (
 
 func (*fakeBdg) OnQuery(_, _ string, _ int) *x.DNSOpts { return autoNsOpts }
 func (*fakeBdg) OnResponse(*x.DNSSummary)              {}
-func (*fakeBdg) OnDNSAdded(string)                     {}
-func (*fakeBdg) OnDNSRemoved(string)                   {}
+func (*fakeBdg) OnDNSAdded(*x.Gostr)                   {}
+func (*fakeBdg) OnDNSRemoved(*x.Gostr)                 {}
 func (*fakeBdg) OnDNSStopped()                         {}
 
 func (*fakeBdg) Route(a, b, c, d, e string) *x.Tab { return baseTab }
@@ -332,9 +332,10 @@ func TestProtonReaches(t *testing.T) {
 	}
 
 	ilog.D("proton: read file: err? %v", err)
-	if projson, err = pxr.RegisterProton(projson); err != nil {
+	if proreg, err := pxr.RegisterProton(x.BytesOf(projson)); err != nil {
 		t.Fatal(err)
 	} else {
+		projson = proreg.V()
 		_ = os.WriteFile("proton.json", projson, 0644)
 		ilog.D("proton: setup %d", len(projson))
 	}
@@ -345,9 +346,10 @@ func TestProtonReaches(t *testing.T) {
 	}
 
 	ilog.D("amz: read file: err? %v", err)
-	if amzjson, err = pxr.RegisterAmnezia(amzjson); err != nil {
+	if amzreg, err := pxr.RegisterAmnezia(x.BytesOf(amzjson)); err != nil {
 		t.Fatal(err)
 	} else {
+		amzjson = amzreg.V()
 		_ = os.WriteFile("amz.json", amzjson, 0644)
 		ilog.D("amz: setup %d", len(amzjson))
 	}
@@ -390,7 +392,7 @@ func TestProtonReaches(t *testing.T) {
 	// ko(t, err)
 	// _, err = proton.Fork("CH")
 	// ko(t, err)
-	_, err = proton.Fork("CH")
+	_, err = proton.Fork(x.StrOf("CH"))
 	ko(t, err)
 
 	settings.SetAutoDialsParallel(false)

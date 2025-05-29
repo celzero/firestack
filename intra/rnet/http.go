@@ -335,9 +335,8 @@ func (h *httpx) Refresh() error {
 }
 
 func (h *httpx) pid() (x string) {
-
 	if px := h.hdl.px.Load(); px != nil && core.IsNotNil(px) {
-		x = px.ID()
+		x = px.ID().V()
 	}
 	return
 }
@@ -348,7 +347,7 @@ func (h *httpx) ID() string {
 
 func (h *httpx) GetAddr() string {
 	if px := h.hdl.px.Load(); px != nil && core.IsNotNil(px) {
-		return px.GetAddr()
+		return px.GetAddr().V()
 	}
 	return h.host
 }

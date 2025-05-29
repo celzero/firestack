@@ -9,7 +9,7 @@ package dnsx
 import (
 	"strings"
 
-	c "github.com/celzero/firestack/intra/backend"
+	x "github.com/celzero/firestack/intra/backend"
 	"github.com/celzero/firestack/intra/settings"
 	"github.com/celzero/firestack/intra/xdns"
 )
@@ -162,10 +162,10 @@ var undelegatedSet = []string{
 	".zghjccbob3n0",
 }
 
-func newUndelegatedDomainsTrie() c.RadixTree {
-	t := c.NewRadixTree()
+func newUndelegatedDomainsTrie() x.RadixTree {
+	t := x.NewRadixTree()
 	for _, domain := range undelegatedSet {
-		t.Add(domain)
+		t.Add(x.StrOf(domain))
 	}
 	return t
 }
@@ -177,7 +177,7 @@ func (r *resolver) requiresGoosOrLocal(qname string) (id string) {
 		// todo: remove this once we let users "pin" domains to resolvers
 		// github.com/celzero/rethink-app/issues/1153
 		// skip override when preventing DNS capture on port53 is turned off
-	} else if len(qname) > 0 && r.localdomains.HasAny(qname) {
+	} else if len(qname) > 0 && r.localdomains.HasAny(x.StrOf(qname)) {
 		id = Goos // system is primary; see: transport.go:determineTransports()
 	}
 	return
