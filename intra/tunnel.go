@@ -143,7 +143,7 @@ func NewTunnel(fd, mtu int, fakedns string, dtr DefaultDNS, bdg Bridge) (t Tunne
 
 	const dualstack = settings.IP46
 
-	log.SetConsole(bdg)
+	log.SetConsole(&clogAdapter{bdg})
 	natpt := x64.NewNatPt()
 	proxies := ipn.NewProxifier(ctx, dualstack, mtu, bdg, bdg)
 	services := rnet.NewServices(ctx, proxies, bdg, bdg)
@@ -416,4 +416,14 @@ func fetchDNSInfo(r dnsx.Resolver, id string) string {
 	} else {
 		return rerr.Error()
 	}
+}
+
+type clogAdapter struct {
+	b Bridge
+}
+
+var _ log.Console = (*clogAdapter)(nil)
+
+func (l *clogAdapter) Log(lvl int32, msg log.Logmsg) {
+	l.b.Log(lvl, x.MsgOf(string(msg))) // adopt the log message
 }

@@ -43,23 +43,12 @@ const (
 	callerat = 2
 )
 
-// String wrapped in struct Logmsg is a workaround for:
-// github.com/golang/go/issues/46893
-type Logmsg struct {
-	S string
-}
-
-func (m *Logmsg) String() string {
-	if m == nil {
-		return ""
-	}
-	return m.S
-}
+type Logmsg string
 
 // Console is an external logger.
 type Console interface {
 	// Log logs a multi-line msg.
-	Log(level int32, msg *Logmsg)
+	Log(level int32, msg Logmsg)
 }
 
 type conMsg struct {
