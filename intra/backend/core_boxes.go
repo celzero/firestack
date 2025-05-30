@@ -92,13 +92,13 @@ func MsgOf(v string) *Gomsg {
 type Gostr struct {
 	v unique.Handle[string]
 	// hash of Gostr's string (exported for java/kt equals())
-	H uint64
+	H int64
 	// length of Gostr's string (exported for java/kt hashCode())
 	L int
 }
 
 func (s *Gostr) String() string {
-	return s.V()
+	return s.M().S
 }
 
 func StrOf(v string) *Gostr {
@@ -117,7 +117,7 @@ func strof(v string, internstr bool) (r *Gostr) {
 			r = *s
 		}
 		if r == nil {
-			new := &Gostr{v: hdl, H: maphash.String(mseed, v), L: len(v)}
+			new := &Gostr{v: hdl, H: hashstr(v), L: len(v)}
 			if s, ok := interns.put(hdl, &new); ok {
 				r = *s
 			}
@@ -125,7 +125,7 @@ func strof(v string, internstr bool) (r *Gostr) {
 		// TODO: panic if r == nil && v != ""?
 		return r // may be nil
 	}
-	return &Gostr{v: hdl, H: maphash.String(mseed, v), L: len(v)}
+	return &Gostr{v: hdl, H: hashstr(v), L: len(v)}
 }
 
 func (s *Gostr) V() string {
@@ -133,6 +133,15 @@ func (s *Gostr) V() string {
 		return ""
 	}
 	return s.v.Value()
+}
+
+var emptyGomsg = &Gomsg{S: ""}
+
+func (s *Gostr) M() *Gomsg {
+	if s != nil && s.v.Value() != "" {
+		return &Gomsg{S: s.v.Value()}
+	}
+	return emptyGomsg
 }
 
 func OfFunc[T *Gostr | *Gobyte, R string | []byte](f func() (R, error)) (T, error) {
@@ -179,7 +188,7 @@ func StrOfFunc2[P any, Q any](f func(P, Q) (string, error), p P, q Q) (*Gostr, e
 }
 
 type Gobyte struct {
-	v []byte
+	B []byte
 	// hash of Gobyte's bytes (exported for java/kt equals())
 	H uint64
 	// length of Gobyte's bytes (exported for java/kt hashCode())
@@ -190,14 +199,14 @@ func BytesOf(v []byte) *Gobyte {
 	if len(v) == 0 {
 		return nil
 	}
-	return &Gobyte{v: v, H: maphash.Bytes(mseed, v), L: len(v)}
+	return &Gobyte{B: v, H: maphash.Bytes(mseed, v), L: len(v)}
 }
 
 func (b *Gobyte) V() []byte {
 	if b == nil {
 		return nil
 	}
-	return b.v
+	return b.B
 }
 
 func (b *Gobyte) Len() int {
@@ -213,4 +222,14 @@ func BytesOfFunc(f func() ([]byte, error)) (*Gobyte, error) {
 		return nil, err
 	}
 	return BytesOf(s), nil
+}
+
+func hashstr(s string) int64 {
+	if len(s) == 0 {
+		return 0
+	}
+	// need to preserve just the bit pattern
+	// as uint64 isn't exportable to java/kt
+	// while int64 (as long) is.
+	return int64(maphash.String(mseed, s))
 }
