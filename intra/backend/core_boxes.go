@@ -83,9 +83,9 @@ func MsgOf(v string) *Gomsg {
 // Gostr2 is like Gostr but the raw string is not exported to Java/Kotlin.
 type Gostr2 struct {
 	v unique.Handle[string]
-	// hash of Gostr's string (exported for java/kt equals())
+	// hash of Gostr's string (exported for java/kt equals() & hashCode())
 	H int64
-	// length of Gostr's string (exported for java/kt hashCode())
+	// length of Gostr's string (exported for java/kt equals() & hashCode())
 	L int
 }
 
@@ -152,14 +152,6 @@ func strof2(v string) (r *Gostr2) {
 	return &Gostr2{v: hdl, H: hashstr(v), L: len(v)}
 }
 
-// Do not use from Java/Kotlin; instead call M() and use Gomsg.S
-func (s *Gostr2) V() string {
-	if s == nil {
-		return ""
-	}
-	return s.v.Value()
-}
-
 var emptyGomsg = &Gomsg{S: ""}
 
 func (s *Gostr2) M() *Gomsg {
@@ -216,17 +208,13 @@ func StrOfFunc2[P any, Q any](f func(P, Q) (string, error), p P, q Q) (*Gostr, e
 // github.com/golang/go/issues/46893
 type Gobyte struct {
 	B []byte
-	// hash of Gobyte's bytes (exported for java/kt equals())
-	H uint64
-	// length of Gobyte's bytes (exported for java/kt hashCode())
-	L int
 }
 
 func BytesOf(v []byte) *Gobyte {
 	if len(v) == 0 {
 		return nil
 	}
-	return &Gobyte{B: v, H: maphash.Bytes(mseed, v), L: len(v)}
+	return &Gobyte{B: v}
 }
 
 // Do not use from Java/Kotlin; instead use Gobyte.B.
@@ -241,7 +229,7 @@ func (b *Gobyte) Len() int {
 	if b == nil {
 		return 0
 	}
-	return b.L
+	return len(b.B)
 }
 
 func BytesOfFunc(f func() ([]byte, error)) (*Gobyte, error) {
