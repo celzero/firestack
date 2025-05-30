@@ -61,25 +61,16 @@ reload:
 }
 
 var (
-	interns = &strmap{} // unique.Handle[string] => Gostr
+	interns  = &strmap[Gostr]{}  // unique.Handle[string] => Gostr
+	interns2 = &strmap[Gostr2]{} // unique.Handle[string] => Gostr2
 
 	mseed = maphash.MakeSeed()
 )
-
-// Gostr & Gobytes are a workaround for:
-// github.com/golang/go/issues/46893
 
 // String wrapped in struct Gomsg is a workaround for:
 // github.com/golang/go/issues/46893
 type Gomsg struct {
 	S string
-}
-
-func (m *Gomsg) String() string {
-	if m == nil {
-		return ""
-	}
-	return m.S
 }
 
 func MsgOf(v string) *Gomsg {
