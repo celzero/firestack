@@ -102,6 +102,14 @@ func (s *Gostr) String() string {
 	return s.S
 }
 
+// Do not use from Java/Kotlin; instead use Gostr.S.
+func (s *Gostr) V() string {
+	if s == nil {
+		return ""
+	}
+	return s.S
+}
+
 func StrOf(v string) *Gostr {
 	return strof(v)
 }
