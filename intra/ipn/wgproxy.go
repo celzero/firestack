@@ -336,11 +336,11 @@ func (w *wgproxy) Refresh() (err error) {
 
 	if err = w.resetMtu(via); err == nil {
 		err = w.Device.Down()
+		resetDevice = resetDevice && w.wgtun.ignoreTUNClose.CompareAndSwap(false, true)
 		if resetDevice && err == nil {
 			var newdev *device.Device
 			const useExistingCfg = ""
 			if newdev, err = newdevice(w.wgtun, w.wgep, useExistingCfg); err == nil {
-				w.wgtun.ignoreTUNClose.CompareAndSwap(false, true)
 				w.Device.Close() // will end up calling wgtun.Close() which hopefully is ignored
 				w.Device = newdev
 			} // newdevice calls w.Device.Up() internally
