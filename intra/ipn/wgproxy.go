@@ -201,7 +201,7 @@ func (w *wgproxy) BatchSize() int {
 
 // Close implements WgProxy
 func (w *wgproxy) Close() error {
-	// w.wgtun.Close() called by device.Close()?
+	// w.wgtun.Close() called by device.Close() via device.tun.Close()
 	w.Device.Close()
 	return nil
 }
@@ -255,6 +255,7 @@ func (w *wgproxy) Ping() bool {
 		tracked := w.peers.Load()
 		tot := len(tracked)
 		pinged := 0
+		// or: w.Device.SendKeepalivesToPeersWithCurrentKeypair()
 		for _, k := range tracked {
 			if peer := w.LookupPeer(k); peer != nil {
 				pinged++
@@ -303,7 +304,7 @@ func (w *wgproxy) onNotOK() (didRefresh, allok bool) {
 		allok = allok && w.Ping() // ping / sendkeepalive is async
 		didPing = true
 	}
-	loged(err)("proxy: wg: (%s + %s); onNotOK: refresh? %t+%t; ping? %t; ok? %t+%t; err? %v",
+	loged(err)("proxy: wg: %s (%s); onNotOK: refresh? %t+%t; ping? %t; ok? %t+%t; err? %v",
 		w.id, w.viaStatus(), viaDidRefresh, didRefresh, didPing, viaOK, allok, err)
 	return
 }
@@ -312,7 +313,7 @@ func (w *wgproxy) onNotOK() (didRefresh, allok bool) {
 func (w *wgproxy) Refresh() (err error) {
 	// todo: Refresh may be called by hop-related changes which may result in one Refresh calls too many.
 	if w.status.Load() == END {
-		log.W("proxy: wg: (%s + %s) refresh failed; end status(%d)", w.id, w.viaStatus(), w.status)
+		log.W("proxy: wg: %s (%s) refresh failed; end status(%d)", w.id, w.viaStatus(), w.status)
 		return errProxyStopped
 	}
 
@@ -349,7 +350,7 @@ func (w *wgproxy) Refresh() (err error) {
 	}
 	// not required since wgconn:NewBind() is namespace aware
 	// bindok := bindWgSockets(w.ID(), w.remote.AnyAddr(), w.wgdev, w.ctl)
-	logei(err)("proxy: wg: (%s + %s): refresh done; len(dns): %d, len(peer): %d; viaOK? %t, didWait? %t / reset? %t; err? %v",
+	logei(err)("proxy: wg: %s (%s): refresh done; len(dns): %d, len(peer): %d; viaOK? %t, didWait? %t / reset? %t; err? %v",
 		w.id, w.viaStatus(), n, nn, viaOK, didWait, resetDevice, err)
 	return
 }
@@ -410,7 +411,7 @@ func (w *wgproxy) update(id, txt string) bool {
 
 	// reusing existing tunnel (interface config unchanged)
 	// but peer config may have changed!
-	log.I("proxy: wg: update(%s / %s): reuse; mtu: %d=>%d, allowed: %d=>%d; peers: %d=>%d; dns: %d=>%d; endpoint: %d=>%d",
+	log.I("proxy: wg: update: %s (%s): reuse; mtu: %d=>%d, allowed: %d=>%d; peers: %d=>%d; dns: %d=>%d; endpoint: %d=>%d",
 		w.id, w.viaStatus(), w.ep.MTU(), maybeNewMtu, w.rt.Len(), len(opts.allowed), len(w.peers.Load()), len(opts.peers), w.dns.Load().Len(), opts.dns.Len(),
 		w.remote.Load().Len() /*remote.Load may return nil*/, opts.eps.Len())
 
@@ -855,7 +856,7 @@ func makeWgTun(id, cfg string, ctl protect.Controller, px ProxyProvider, lp Link
 		return nil, err
 	}
 
-	// commence the wireguard state machine
+	// commence the wireguard state machine the second Device is created
 	t.events <- tun.EventUp
 
 	if4, if6 := netstack.StackAddrs(s, wgnic)
@@ -926,18 +927,18 @@ func (tun *wgtun) Events() <-chan tun.Event {
 func (tun *wgtun) Read(buf [][]byte, sizes []int, offset int) (int, error) {
 	view, ok := <-tun.ingress
 	if !ok {
-		log.W("wg: %s / %s tun: read closed", tun.id, tun.viaStatus())
+		log.W("wg: %s (%s) tun: read closed", tun.id, tun.viaStatus())
 		return 0, os.ErrClosed
 	}
 
 	n, err := view.Read(buf[0][offset:])
 	if err != nil {
-		log.W("wg: %s / %s tun: read(%d): %v",
+		log.W("wg: %s (%s) tun: read(%d): %v",
 			tun.id, tun.viaStatus(), n, err)
 		return 0, err
 	}
 
-	log.VV("wg: %s / %s tun: read(%d)", tun.id, tun.viaStatus(), n)
+	log.VV("wg: %s (%s) tun: read(%d)", tun.id, tun.viaStatus(), n)
 	sizes[0] = n
 	return 1, nil
 }
@@ -946,7 +947,7 @@ func (tun *wgtun) Write(bufs [][]byte, offset int) (int, error) {
 	for _, buf := range bufs {
 		pkt := buf[offset:]
 		if len(pkt) == 0 {
-			log.D("wg: %s %s tun: write: empty packet", tun.id, tun.viaStatus())
+			log.D("wg: %s (%s) tun: write: empty packet", tun.id, tun.viaStatus())
 			continue
 		}
 
@@ -962,11 +963,11 @@ func (tun *wgtun) Write(bufs [][]byte, offset int) (int, error) {
 		case 6: // IPv6
 			tun.ep.InjectInbound(header.IPv6ProtocolNumber, pkb) // write to ep
 		default:
-			log.W("wg: %s %s tun: write: unknown proto %d; discard %d",
+			log.W("wg: %s (%s) tun: write: unknown proto %d; discard %d",
 				tun.id, tun.viaStatus(), protoid, sz)
 			return 0, syscall.EAFNOSUPPORT
 		}
-		log.VV("wg: %s %s tun: write: sz(%d); proto %d",
+		log.VV("wg: %s (%s) tun: write: sz(%d); proto %d",
 			tun.id, tun.viaStatus(), sz, protoid)
 	}
 
@@ -988,17 +989,17 @@ func (tun *wgtun) WriteNotify() {
 
 	select {
 	case <-tun.finalize: // dave.cheney.net/2013/04/30/curious-channels
-		log.I("wg: %s / %s tun: write: finalize; dropped pkt; sz(%d)",
+		log.I("wg: %s (%s) tun: write: finalize; dropped pkt; sz(%d)",
 			tun.id, tun.viaStatus(), sz)
 	default:
 		select {
 		case <-tun.finalize:
 		case tun.ingress <- view: // closed chans panic on send: groups.google.com/g/golang-nuts/c/SDIBFSkDlK4
-			log.VV("wg: %s / %s tun: write: notify sz(%d)",
+			log.VV("wg: %s (%s) tun: write: notify sz(%d)",
 				tun.id, tun.viaStatus(), sz)
 		default: // ingress is full and finalize is blocked
-			e := tun.status.Load() == END
-			log.W("wg: %s / %s tun: write: closed? %t; dropped pkt; sz(%d)",
+			e := tun.status.Load()
+			log.W("wg: %s (%s) tun: write: closed? %t; dropped pkt; sz(%d)",
 				tun.id, tun.viaStatus(), e, sz)
 		}
 	}
@@ -1011,13 +1012,13 @@ func (tun *wgtun) Close() error {
 		return errProxyStopped
 	}
 	if tun.ignoreTUNClose.CompareAndSwap(true, false) {
-		log.W("wg: %s (%s) tun: ignore close this once", tun.id, tun.viaStatus())
-
+		log.I("wg: %s (%s) tun: ignore close this once", tun.id, tun.viaStatus())
 		return nil // ignore
 	}
+
 	var err error
 	tun.once.Do(func() {
-		log.D("wg: %s / %s tun: closing...", tun.id, tun.viaStatus())
+		log.D("wg: %s (%s) tun: closing...", tun.id, tun.viaStatus())
 
 		close(tun.finalize)   // unblock all receivers
 		tun.status.Store(END) // TODO: move this to wgproxy.Close()?
