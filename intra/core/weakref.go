@@ -8,8 +8,7 @@ package core
 
 import (
 	"errors"
-	"sync"
-	"weak"
+	"unique"
 )
 
 var errNoCreat = errors.New("weak: create fn nil")
@@ -19,9 +18,10 @@ type reftest[V any] func(*V) bool
 
 func refpass[V any](_ *V) bool { return true }
 
+// WeakRef is a weak reference to a value of type V.
 type WeakRef[V any] struct {
-	mu    sync.RWMutex
-	weak  weak.Pointer[V]
+	// unique.Handle holds a weak reference to *V.
+	weak  unique.Handle[*V]
 	creat reffactory[V]
 	test  reftest[V]
 }
@@ -41,19 +41,15 @@ func NewWeakRef[V any](creat reffactory[V], test reftest[V]) (*WeakRef[V], error
 }
 
 func (w *WeakRef[V]) load() (v *V, valid bool) {
-	defer func() { // test without lock held
-		valid = v != nil && w.test(v)
-	}()
-
-	w.mu.RLock()
-	defer w.mu.RUnlock()
 	v = w.weak.Value()
+	valid = v != nil && w.test(v)
 	return
 }
 
-func (w *WeakRef[V]) storeLocked() (v *V) {
+func (w *WeakRef[V]) store() (v *V, valid bool) {
 	v = w.creat()
-	w.weak = weak.Make(v)
+	w.weak = unique.Make(v)
+	valid = v != nil && w.test(v)
 	return
 }
 
@@ -61,17 +57,7 @@ func (w *WeakRef[V]) loadOrStore() (v *V, valid bool) {
 	if v, valid = w.load(); valid {
 		return
 	}
-
-	defer func() { // test without lock held
-		valid = v != nil && w.test(v)
-	}()
-
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	if v = w.weak.Value(); v == nil { // gc won
-		v = w.storeLocked() // new v
-	} // else: use existing v
-	return
+	return w.store() // new v
 }
 
 func (w *WeakRef[V]) Ref() (v *V, valid bool) {
