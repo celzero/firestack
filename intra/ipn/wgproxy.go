@@ -116,6 +116,8 @@ type wgtun struct {
 
 	hasV4, hasV6 atomic.Bool // interface has ipv4/ipv6 routes?
 
+	ignoreTUNClose atomic.Bool // set when re-using existing wgtun+wgep but with a new Device
+
 	desiredmtu atomic.Uint32 // desired mtu
 	netmtu     atomic.Uint32 // underlay network mtu
 
@@ -314,6 +316,8 @@ func (w *wgproxy) Refresh() (err error) {
 		return errProxyStopped
 	}
 
+	resetDevice := w.status.Load() == TNT
+
 	w.latestPing.Store(0) // reset latest ping time
 
 	n := w.dns.Load().Refresh()
@@ -330,15 +334,23 @@ func (w *wgproxy) Refresh() (err error) {
 	}
 
 	if err = w.resetMtu(via); err == nil {
-		if err = w.Device.Down(); err == nil {
+		err = w.Device.Down()
+		if resetDevice && err == nil {
+			var newdev *device.Device
+			const useExistingCfg = ""
+			if newdev, err = newdevice(w.wgtun, w.wgep, useExistingCfg); err == nil {
+				w.wgtun.ignoreTUNClose.CompareAndSwap(false, true)
+				w.Device.Close() // will end up calling wgtun.Close() which hopefully is ignored
+				w.Device = newdev
+			} // newdevice calls w.Device.Up() internally
+		} else if err == nil {
 			err = w.Device.Up()
 		}
 	}
-
 	// not required since wgconn:NewBind() is namespace aware
 	// bindok := bindWgSockets(w.ID(), w.remote.AnyAddr(), w.wgdev, w.ctl)
-	logei(err)("proxy: wg: (%s + %s): refresh done; len(dns): %d, len(peer): %d; viaOK? %t, didWait? %t; err? %v",
-		w.id, w.viaStatus(), n, nn, viaOK, didWait, err)
+	logei(err)("proxy: wg: (%s + %s): refresh done; len(dns): %d, len(peer): %d; viaOK? %t, didWait? %t / reset? %t; err? %v",
+		w.id, w.viaStatus(), n, nn, viaOK, didWait, resetDevice, err)
 	return
 }
 
@@ -664,22 +676,8 @@ func NewWgProxy(id string, ctl protect.Controller, px ProxyProvider, lp LinkProp
 		wgep = wg.NewEndpoint(id, wgtun.serve, wgtun.remote, wgtun.listener, wgtun.amnezia)
 	}
 
-	wgdev := device.NewDevice(wgtun, wgep, wglogger(id))
-
-	err = wgdev.IpcSet(uapicfg)
+	wgdev, err := newdevice(wgtun, wgep, uapicfg)
 	if err != nil {
-		defer wgdev.Close()
-		log.E("proxy: wg: %s failed to ipc-set %v", id, err)
-		return nil, err
-	}
-
-	// github.com/WireGuard/wireguard-android/blob/713947e432/tunnel/tools/libwg-go/api-android.go#L99
-	wgdev.DisableSomeRoamingForBrokenMobileSemantics()
-
-	err = wgdev.Up()
-	if err != nil {
-		defer wgdev.Close()
-		log.E("proxy: wg: %s failed init %v", id, err)
 		return nil, err
 	}
 
@@ -693,6 +691,35 @@ func NewWgProxy(id string, ctl protect.Controller, px ProxyProvider, lp LinkProp
 		id, opts.ifaddrs, opts.mtu, w.ep.MTU(), len(opts.peers), wgtun.hasV4.Load(), wgtun.hasV6.Load())
 
 	return w, nil
+}
+
+func newdevice(wgtun *wgtun, wgep wgconn, uapicfg string) (*device.Device, error) {
+	wgdev := device.NewDevice(wgtun, wgep, wglogger(wgtun.id))
+
+	if len(uapicfg) <= 0 {
+		uapicfg = wgtun.cfg // copy
+		if _, err := wgIfConfigOf(wgtun.id, &uapicfg); err != nil {
+			return nil, err
+		}
+	}
+
+	err := wgdev.IpcSet(uapicfg)
+	if err != nil {
+		defer wgdev.Close()
+		log.E("proxy: wg: %s failed to ipc-set %v", wgtun.id, err)
+		return nil, err
+	}
+
+	// github.com/WireGuard/wireguard-android/blob/713947e432/tunnel/tools/libwg-go/api-android.go#L99
+	wgdev.DisableSomeRoamingForBrokenMobileSemantics()
+
+	err = wgdev.Up()
+	if err != nil {
+		defer wgdev.Close()
+		log.E("proxy: wg: %s failed init %v", wgtun.id, err)
+		return nil, err
+	}
+	return wgdev, nil
 }
 
 func setupReverserIfNeeded(id string, s *stack.Stack, rev netstack.GConnHandler) {
@@ -982,6 +1009,11 @@ func (tun *wgtun) Close() error {
 	if tun.status.Load() == END {
 		log.W("wg: %s (%s) tun: already closed?", tun.id, tun.viaStatus())
 		return errProxyStopped
+	}
+	if tun.ignoreTUNClose.CompareAndSwap(true, false) {
+		log.W("wg: %s (%s) tun: ignore close this once", tun.id, tun.viaStatus())
+
+		return nil // ignore
 	}
 	var err error
 	tun.once.Do(func() {
