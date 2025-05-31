@@ -22,11 +22,11 @@ const (
 	maxinternattempts = 3
 )
 
-type strmap[T any] sync.Map
+type comap[T any] sync.Map
 
 // pointer to pointer v pointer to Gostr both come out
 // with equal behaviour: go.dev/play/p/4qT1JACgdHG
-func (s *strmap[T]) get(k unique.Handle[string]) (**T, bool) {
+func (s *comap[T]) get(k unique.Handle[string]) (**T, bool) {
 	m := (*sync.Map)(s)
 	if w, ok := m.Load(k); ok {
 		if v, ok := w.(weak.Pointer[T]); ok {
@@ -40,7 +40,7 @@ func (s *strmap[T]) get(k unique.Handle[string]) (**T, bool) {
 	return nil, false
 }
 
-func (s *strmap[T]) put(k unique.Handle[string], v **T) (**T, bool) {
+func (s *comap[T]) put(k unique.Handle[string], v **T) (**T, bool) {
 	m := (*sync.Map)(s)
 	w := weak.Make(*v)
 
@@ -65,8 +65,8 @@ reload:
 }
 
 var (
-	interns  = &strmap[Gostr]{}  // unique.Handle[string] => Gostr
-	interns2 = &strmap[Gostr2]{} // unique.Handle[string] => Gostr2
+	interns  = &comap[Gostr]{}  // unique.Handle[string] => Gostr
+	interns2 = &comap[Gostr2]{} // unique.Handle[string] => Gostr2
 
 	mseed = maphash.MakeSeed()
 )
