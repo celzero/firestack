@@ -714,7 +714,7 @@ func newdevice(wgtun *wgtun, wgep wgconn, uapicfg string) (*device.Device, error
 	// github.com/WireGuard/wireguard-android/blob/713947e432/tunnel/tools/libwg-go/api-android.go#L99
 	wgdev.DisableSomeRoamingForBrokenMobileSemantics()
 
-	err = wgdev.Up()
+	err = wgdev.Up() // needed? tun.EventUp is already queued by makeWgTun()
 	if err != nil {
 		defer wgdev.Close()
 		log.E("proxy: wg: %s failed init %v", wgtun.id, err)
@@ -1492,6 +1492,7 @@ func (w *wgproxy) maybeResetMtu(via Proxy, dryrun bool) error {
 
 	if !dryrun {
 		w.ep.SetMTU(uint32(finalMtu))
+		w.wgtun.events <- tun.EventMTUUpdate
 	}
 	note("wg: %s proxy: hopping %s; mtu(needed:%d, avail: %d => final: %d); hopping? %t, dryrun? %t",
 		w.id, viaid, mtuNeededByUs, mtuAvailable, finalMtu, hopping, dryrun)
