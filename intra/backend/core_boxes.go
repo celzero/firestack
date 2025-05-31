@@ -14,8 +14,12 @@ import (
 )
 
 const (
-	internstr         = true
-	maxinternattempts = 3 // max no. of times to try load/store interned Gostr
+	// interning Gostr preserves equality bijection:
+	// (if s1 == s2, then gs1 == gs2 && *gs1 == *gs2 == s1 == s2)
+	// go.dev/play/p/y-om36_xjQR
+	internstr = true
+	// max no. of times to try load/store interned Gostr
+	maxinternattempts = 3
 )
 
 type strmap[T any] sync.Map
