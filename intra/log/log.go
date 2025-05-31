@@ -43,7 +43,7 @@ const (
 	callerat = 2
 )
 
-type Logmsg string
+type Logmsg = string
 
 // Console is an external logger.
 type Console interface {

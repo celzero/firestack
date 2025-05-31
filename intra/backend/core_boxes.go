@@ -71,19 +71,6 @@ var (
 	mseed = maphash.MakeSeed()
 )
 
-// String wrapped in struct Gomsg is a workaround for:
-// github.com/golang/go/issues/46893
-type Gomsg struct {
-	S string
-}
-
-func MsgOf(v string) *Gomsg {
-	if len(v) == 0 {
-		return nil
-	}
-	return &Gomsg{S: v}
-}
-
 // Gostr2 is like Gostr but the raw string is not exported to Java/Kotlin.
 type Gostr2 struct {
 	v unique.Handle[string]
@@ -164,13 +151,13 @@ func strof2(v string) (r *Gostr2) {
 	return &Gostr2{v: hdl, H: hashstr(v), L: len(v)}
 }
 
-var emptyGomsg = &Gomsg{S: ""}
+var emptyGostr = &Gostr{S: ""}
 
-func (s *Gostr2) M() *Gomsg {
+func (s *Gostr2) S() *Gostr {
 	if s != nil && s.v.Value() != "" {
-		return &Gomsg{S: s.v.Value()}
+		return &Gostr{S: s.v.Value()}
 	}
-	return emptyGomsg
+	return emptyGostr
 }
 
 func OfFunc[T *Gostr2 | *Gobyte, R string | []byte](f func() (R, error)) (T, error) {

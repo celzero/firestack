@@ -41,10 +41,7 @@ import (
 // pkg.go.dev/runtime#hdr-Environment_Variables
 type traceout string
 
-type Console interface {
-	Log(int32, *x.Gomsg)
-}
-
+type Console x.Console
 type Controller x.Controller
 type ProxyListener x.ProxyListener
 type DNSListener x.DNSListener

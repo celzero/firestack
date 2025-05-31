@@ -425,5 +425,5 @@ type clogAdapter struct {
 var _ log.Console = (*clogAdapter)(nil)
 
 func (l *clogAdapter) Log(lvl log.LogLevel, msg log.Logmsg) {
-	l.b.Log(int32(lvl), x.MsgOf(string(msg))) // adopt the log message
+	l.b.Log(int32(lvl), x.StrOf(msg)) // adopt the log message
 }

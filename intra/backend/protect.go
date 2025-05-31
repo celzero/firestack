@@ -12,6 +12,10 @@ const ( // see protect/protect.go
 	Localhost = "localhost"
 )
 
+type Console interface {
+	Log(int32, *Gostr)
+}
+
 // Controller provides a way to bind and protect socket file descriptors.
 type Controller interface {
 	// Bind4 binds fd to any internet-capable IPv4 interface.
