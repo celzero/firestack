@@ -73,6 +73,7 @@ const (
 
 	pingThresholdMillis          = 5 * 1000 // 5s
 	arbitraryWaitForViaHandshake = 5 * time.Second
+	markTNTAfterMillis           = 20 * 1000 // TNT after 20s of no rcv after snd
 
 	removeViaOnErrors = false
 
@@ -1391,16 +1392,18 @@ func (h *wgtun) listener(op wg.PktDir, err error) {
 	}
 
 	s := TOK // assume err == nil
-	if op == "r" && timedout(err) {
-		// if status is "up" but writes (op == "w") have not yet happened
-		// then reads ("r") are expected to timeout; so ignore them
-		if h.latestRx.Load() <= 0 {
-			s = TNT // writes succeeded; but reads have never
+	if op == wg.Rcv && timedout(err) {
+		lastSuccessfulRead := h.latestRx.Load()
+		writeElapsedMs := h.latestTx.Load() - lastSuccessfulRead // may be negative
+		// if status is "up" but writes (Snd) have not yet happened
+		// then reads (Rcv) are expected to timeout; so ignore them
+		if lastSuccessfulRead <= 0 || writeElapsedMs > markTNTAfterMillis {
+			s = TNT // writes succeeded; but reads have never or not in the past 20s
 		} else {
-			s = TZZ // wirtes and reads have succeeded in the past
+			s = TZZ // wirtes and reads have succeeded in the recent past
 		}
 	} else if err != nil {
-		s = TKO
+		s = TKO // failing
 	}
 
 	if s == TOK {
@@ -1410,19 +1413,16 @@ func (h *wgtun) listener(op wg.PktDir, err error) {
 			h.latestTx.Store(now())
 		}
 		writeElapsedMs := h.latestTx.Load() - h.latestRx.Load() // may be negative
-		// if no reads in 20s since last write, then mark as unresponsive
-		if writeElapsedMs > 20*1000 {
+		// if no reads since last write, mark as unresponsive
+		if writeElapsedMs > markTNTAfterMillis {
 			s = TNT
 		}
-	} else if s == TKO {
+	} else if s != TUP {
 		if op == wg.Rcv {
 			h.errRx.Add(1)
 		} else if op == wg.Snd {
 			h.errTx.Add(1)
 		}
-	}
-
-	if s != TOK && s != TUP {
 		if n := h.remote.Load().MaybeRefresh(); n > 0 {
 			log.I("wg: %s (%s) listener: %s, state: %s; refreshed n domains: %d",
 				h.id, h.viaStatus(), op, pxstatus(s), n)
