@@ -85,7 +85,8 @@ type Gostr struct {
 	S string
 }
 
-// Do not use from Java/Kotlin.
+var emptyGostr = &Gostr{S: ""}
+
 func (s *Gostr) String() string {
 	if s == nil {
 		return ""
@@ -93,7 +94,6 @@ func (s *Gostr) String() string {
 	return s.S
 }
 
-// Do not use from Java/Kotlin; instead use Gostr.S.
 func (s *Gostr) V() string {
 	if s == nil {
 		return ""
@@ -150,8 +150,6 @@ func strof2(v string) (r *Gostr2) {
 	}
 	return &Gostr2{v: hdl, H: hashstr(v), L: len(v)}
 }
-
-var emptyGostr = &Gostr{S: ""}
 
 func (s *Gostr2) S() *Gostr {
 	if s != nil && s.v.Value() != "" {
@@ -216,7 +214,6 @@ func BytesOf(v []byte) *Gobyte {
 	return &Gobyte{B: v}
 }
 
-// Do not use from Java/Kotlin; instead use Gobyte.B.
 func (b *Gobyte) V() []byte {
 	if b == nil {
 		return nil
