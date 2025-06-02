@@ -35,6 +35,7 @@ func NewWeakRef[V any](creat reffactory[V], test reftest[V]) (*WeakRef[V], error
 	}
 
 	return &WeakRef[V]{
+		weak:  unique.Make[*V](nil), // initially nil
 		creat: creat,
 		test:  test,
 	}, nil
