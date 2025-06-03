@@ -204,7 +204,7 @@ func (h *baseHandler) onFlow(localaddr, target netip.AddrPort) (fm *Mark, undidA
 		} // else: either no known transport or preflow failed
 
 		if !hasPre || !hasNewIPs {
-			log.E("com: %s: onFlow: alg, preflow? %t, ips? %t for %v; uid: %s; block!",
+			log.E("com: %s: onFlow: alg, preflow? %t, ips? %t for %s; pre: %v; block!",
 				h.proto, hasPre, hasNewIPs, doms, pre)
 			// either optionsBase (BlockModeNone) or optionsBlock
 			return fm, undidAlg, "", ""
