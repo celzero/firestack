@@ -36,7 +36,10 @@ const (
 	hashfn     = crypto.SHA384 // 48 byte hash fn for RSA-PSS
 )
 
-var errEmptyPipKeyState = errors.New("pipkey: empty pip key state")
+var (
+	errEmptyPipKeyState = errors.New("pipkey: empty pip key state")
+	errTokenCreat       = errors.New("pipkey: cannot create token")
+)
 
 type PipKeyProvider interface {
 	// Blind generates id:blindMsg:blindingFactor:salt:msg
@@ -352,9 +355,12 @@ func (k *pkgen) finalize(blindSig string) (*PipKey, error) {
 }
 
 // Token gnerates a 32 byte random as hex (auths dataplane ops)
-func Token() *PipToken {
-	tok := PipToken(*StrOf(token()))
-	return &tok
+func Token() (*PipToken, error) {
+	if tokstr := StrOf(token()); tokstr != nil && tokstr.Len() > 0 {
+		tok := PipToken(*tokstr)
+		return &tok, nil
+	}
+	return nil, errTokenCreat
 }
 
 func token() string {
