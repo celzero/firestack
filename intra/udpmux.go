@@ -215,6 +215,7 @@ func (x *muxer) readers() {
 			core.Recycle(bptr)
 		}
 
+		// on muxer.stop(), x.doneCh is also closed and x.mxconn.ReadFrom will error out.
 		n, who, err := x.mxconn.ReadFrom(b)
 
 		x.stats.tx.Add(uint32(n)) // upload
@@ -246,10 +247,7 @@ func (x *muxer) readers() {
 		const todoCid = "todo"
 		// may be an existing route or a new route;
 		// recycle() if who is invalid or x is closed.
-		if dst := x.route(todoCid, addr2netip(who), ingress); dst == nil {
-			recycle()
-			continue
-		} else {
+		if dst := x.route(todoCid, addr2netip(who), ingress); dst != nil {
 			select {
 			case dst.inCh <- &slice{v: b[:n], fin: recycle}: // incomingCh is never closed
 			default: // dst probably closed, but not yet unrouted
@@ -258,7 +256,9 @@ func (x *muxer) readers() {
 			}
 			logev(err)("udp: mux: %s read: n(%d) from %v <= %v; dropped? %v",
 				dst.cid, n, dst.laddr, who, err)
-		}
+		} else { // dst may be nil when x.doneCh is closed by muxer.stop().
+			recycle()
+		} // looping back is okay, as x.mxconn.ReadFrom should error out.
 	}
 }
 
