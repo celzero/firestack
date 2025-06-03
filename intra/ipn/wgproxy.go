@@ -210,7 +210,7 @@ func (w *wgproxy) Close() error {
 
 // Stop implements Proxy
 func (w *wgproxy) Stop() error {
-	log.I("proxy: wg: stopping(%s); status(%d)", w.id, w.status)
+	log.I("proxy: wg: stopping(%s); status(%s)", w.id, pxstatus(w.status.Load()))
 	return w.Close()
 }
 
@@ -239,8 +239,9 @@ func (w *wgproxy) OnProtoChange(lp LinkProps) (string, bool) {
 // Ping implements Proxy
 // As backpressure, pings are sent once in a 5s period.
 func (w *wgproxy) Ping() bool {
-	if w.status.Load() == END {
-		log.V("proxy: wg: %s ping: ENDed, status(%d)", w.id, w.status)
+	status := w.status.Load()
+	if status == END {
+		log.V("proxy: wg: %s ping: ENDed, status(%d)", w.id, pxstatus(status))
 		return false
 	}
 
@@ -313,9 +314,10 @@ func (w *wgproxy) onNotOK() (didRefresh, allok bool) {
 
 // Refresh implements Proxy.
 func (w *wgproxy) Refresh() (err error) {
+	status := w.status.Load()
 	// todo: Refresh may be called by hop-related changes which may result in one Refresh calls too many.
-	if w.status.Load() == END {
-		log.W("proxy: wg: %s (%s) refresh failed; end status(%d)", w.id, w.viaStatus(), w.status)
+	if status == END {
+		log.W("proxy: wg: %s (%s) refresh failed; end status(%s)", w.id, w.viaStatus(), pxstatus(status))
 		return errProxyStopped
 	}
 
@@ -352,8 +354,8 @@ func (w *wgproxy) Refresh() (err error) {
 	}
 	// not required since wgconn:NewBind() is namespace aware
 	// bindok := bindWgSockets(w.ID(), w.remote.AnyAddr(), w.wgdev, w.ctl)
-	logei(err)("proxy: wg: %s (%s): refresh done; len(dns): %d, len(peer): %d; viaOK? %t, didWait? %t / reset? %t; err? %v",
-		w.id, w.viaStatus(), n, nn, viaOK, didWait, resetDevice, err)
+	logei(err)("proxy: wg: %s (%s): refresh done; len(dns): %d, len(peer): %d; viaOK? %t, didWait? %t / reset? %t / status: %s; err? %v",
+		w.id, w.viaStatus(), n, nn, viaOK, didWait, resetDevice, pxstatus(w.Status()), err)
 	return
 }
 
@@ -375,8 +377,9 @@ func stripPrefixIfNeeded(id string) string {
 func (w *wgproxy) update(id, txt string) bool {
 	const reused = true // can update in-place; reuse existing tunnel
 	const anew = false  // cannot update in-place; create new tunnel
-	if w.status.Load() == END {
-		log.W("proxy: wg: update(%s<>%s): END; status(%d)", id, w.id, w.status)
+	status := w.status.Load()
+	if status == END {
+		log.W("proxy: wg: update(%s<>%s): END; status(%s)", id, w.id, status)
 		return anew
 	}
 
@@ -1001,8 +1004,8 @@ func (tun *wgtun) WriteNotify() {
 				tun.id, tun.viaStatus(), sz)
 		default: // ingress is full and finalize is blocked
 			e := tun.status.Load()
-			log.W("wg: %s (%s) tun: write: closed? %t; dropped pkt; sz(%d)",
-				tun.id, tun.viaStatus(), e, sz)
+			log.W("wg: %s (%s) tun: write: closed? %s; dropped pkt; sz(%d)",
+				tun.id, tun.viaStatus(), pxstatus(e), sz)
 		}
 	}
 }
