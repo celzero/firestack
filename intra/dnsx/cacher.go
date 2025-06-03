@@ -459,7 +459,6 @@ func (t *ctransport) fetch(network string, q *dns.Msg, summary *x.DNSSummary, cb
 			fillSummary(cachedsummary, summary)
 			summary.Latency = 0 // don't use cached latency
 			summary.Cached = true
-			summary.ID = t.ID().V()
 			return r, nil
 		} // else: fallthrough to sendRequest
 	} else {
@@ -548,33 +547,36 @@ func fillSummary(s *x.DNSSummary, out *x.DNSSummary) {
 	if out == nil || s == out {
 		return
 	}
-	if len(s.Type) != 0 {
+
+	// pefer out
+
+	if len(out.Type) != 0 {
 		out.Type = s.Type
 	}
-	if len(s.ID) != 0 {
+	if len(out.ID) <= 0 {
 		out.ID = s.ID
+		out.Server = s.Server
+		out.PID = s.PID
+		out.RPID = s.RPID
 	}
-
-	if s.Latency != 0 {
+	if out.Latency <= 0 {
 		out.Latency = s.Latency
 	}
-
 	if len(out.UID) <= 0 {
 		out.UID = s.UID
 	}
-
-	// query portions are only filled in if they are empty
 	if len(out.QName) == 0 {
+		// query portions are only filled in if they are empty
 		out.QName = s.QName
 	}
-	// dns.TypeNone = 0
-	if out.QType == 0 {
+	if out.QType == 0 { // dns.TypeNone = 0
 		out.QType = s.QType
 	}
-	// fill in region if empty
-	if len(out.Region) == 0 {
+	if len(out.Region) == 0 { // fill in region if empty
 		out.Region = s.Region
 	}
+
+	// prefer s
 
 	if len(s.RData) != 0 {
 		out.RData = s.RData
@@ -583,9 +585,6 @@ func fillSummary(s *x.DNSSummary, out *x.DNSSummary) {
 	out.Cached = s.Cached
 	out.RCode = s.RCode
 	out.RTtl = s.RTtl
-	out.Server = s.Server
-	out.PID = s.PID
-	out.RPID = s.RPID
 	out.Status = s.Status
 	out.Blocklists = s.Blocklists
 	out.Msg = s.Msg
