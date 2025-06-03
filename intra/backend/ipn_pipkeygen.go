@@ -21,6 +21,7 @@ import (
 	"io"
 	"math/big"
 	"strings"
+	"sync"
 
 	"github.com/celzero/firestack/intra/core"
 	brsa "github.com/celzero/firestack/intra/core/brsa"
@@ -163,10 +164,14 @@ type pubKeyJwk struct {
 
 // pkgen is a struct that implements the PipKeyProvider interface.
 type pkgen struct {
-	pubkey   *rsa.PublicKey
-	v        *brsa.Verifier
-	state    *brsa.State
-	c        *brsa.Client
+	mu sync.Mutex // protects all fields below
+
+	pubkey *rsa.PublicKey
+
+	v     *brsa.Verifier
+	state *brsa.State
+	c     *brsa.Client
+
 	id       []byte // 64 bytes id derived from hmac(m=blindMsg, k=pubkey)
 	msg      []byte // min 32 bytes random msg specific to this key
 	blindMsg []byte // 256 bytes blindMsg derived from msg, r, salt
@@ -269,6 +274,9 @@ func newPipKey(bjwk []byte, msgOrExistingState string) (PipKeyProvider, error) {
 
 // Implements PipKey.
 func (k *pkgen) Blind() (*PipKeyState, error) {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+
 	if k.state != nil {
 		log.E("pipkey: blind: already blinded")
 		return nil, brsa.ErrInvalidBlind
@@ -314,6 +322,9 @@ func (k *pkgen) Finalize(blindSig *Gostr) (*PipKey, error) {
 }
 
 func (k *pkgen) finalize(blindSig string) (*PipKey, error) {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+
 	if k.state == nil {
 		log.E("pipkey: finalize: not blinded")
 		return nil, brsa.ErrInvalidBlind
