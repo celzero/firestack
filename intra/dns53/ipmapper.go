@@ -36,8 +36,8 @@ var (
 )
 
 type answer struct {
-	a   []byte
-	tid string
+	a        []byte
+	tid, uid string
 }
 
 type ipmapper struct {
@@ -197,8 +197,8 @@ func (m *ipmapper) queryIP2(_ context.Context, network, host, uid string, tid ..
 	ip6 = m.undoAlgAndOrNat64(ip6, tid6, uid) // nat64 cannot really be "undone" for ip6!
 	ips := append(ip4, ip6...)
 
-	log.D("ipmapper: host %s => ips (out: %v / in: %d+%d); tids: %s+%s[%s]; err4: %v, err6: %v",
-		host, ips, len(r4), len(r6), uid, tid4, tid6, uid, lerr4, lerr6)
+	log.D("ipmapper: host %s => ips (out: %v / in: %d+%d); uid: %s, tids: %s+%s; err4: %v, err6: %v",
+		host, ips, len(r4), len(r6), uid, tid4, tid6, lerr4, lerr6)
 	return ips, nil
 }
 
@@ -243,7 +243,7 @@ func (m *ipmapper) queryAny2(q []byte, uid string, tids ...string) ([]byte, erro
 func (m *ipmapper) lookupfor(q []byte, uid string) func() (answer, error) {
 	return func() (answer, error) {
 		a, tid, err := m.r.LookupFor(q, uid)
-		return answer{a, tid}, err
+		return answer{a, tid, uid}, err
 	}
 }
 
@@ -253,7 +253,7 @@ func (m *ipmapper) lookupfor(q []byte, uid string) func() (answer, error) {
 func (m *ipmapper) lookupon(q []byte, tids ...string) func() (answer, error) {
 	return func() (answer, error) {
 		a, tid, err := m.r.Lookup(q, tids...)
-		return answer{a, tid}, err
+		return answer{a, tid, core.UNKNOWN_UID_STR}, err
 	}
 }
 
@@ -262,7 +262,7 @@ func (m *ipmapper) lookupon(q []byte, tids ...string) func() (answer, error) {
 func (m *ipmapper) locallookup(q []byte) func() (answer, error) {
 	return func() (answer, error) {
 		a, tid, err := m.r.LocalLookup(q)
-		return answer{a, tid}, err
+		return answer{a, tid, protect.UidSelf}, err
 	}
 }
 
@@ -361,6 +361,11 @@ func (m *ipmapper) undoAlgAndOrNat64(ip64 []netip.Addr, tid, uid string) []netip
 			log.W("ipmapper: undoAlg: no algip => realip? (%s => %v); undidAlg? %t; tid? %s[%s]",
 				addr, xips, undidAlg, tid, uid)
 		}
+	}
+	if len(realips) <= 0 {
+		log.W("ipmapper: undoAlg: no algip => realip; return orig (%v); tid? %s[%s]",
+			ip64, tid, uid)
+		return core.CopyUniq(ip64)
 	}
 	return realips // no dups
 }
