@@ -1417,6 +1417,14 @@ func (t *dnsgateway) RESOLV(domain, uid, tid string) []netip.Addr {
 	if !t.split.Load() {
 		uid = core.UNKNOWN_UID_STR
 	}
+	// TODO: handle Preset IPs which aren't alg'd
+	// TODO: for some skipInternalCache(tid) and uid == protect.UidSelf
+	// alg caches (nat/ptr) won't have any entries
+	// See: dontalg var in dnsgateway.q() and dnsgateway.xLocked()
+	if uid == protect.UidSelf {
+		uid = core.UNKNOWN_UID_STR // wildcard, so xips searches across all UIDs
+		tid = notransport          // wildcard, so xips searches across all TIDs
+	}
 	if len(tid) <= 0 {
 		tid = notransport
 	}
@@ -1445,33 +1453,41 @@ func (t *dnsgateway) xLocked(maybeAlg netip.Addr, usestale bool, uid string, tid
 		return []netip.Addr{maybeAlg}, false
 	}
 
-	if ans, ok := t.nat[unmapped]; ok {
-		if len(tids) <= 0 {
-			realips = ans.ips.realips(uid, xst)
-		} else {
-			for _, tid := range tids {
-				realips = append(realips, ans.ips.realipsFor(tid, uid, xst)...)
+	// see: dontalg var in dnsgateway.q()
+	// TODO: handle preset IPs that won't be in the ptr/nat caches
+	uidself := uid == protect.UidSelf
+	skippedcache := skipInternalCache(tids...)
+	didnotAlg := skippedcache || uidself
+
+	if !didnotAlg {
+		if ans, ok := t.nat[unmapped]; ok {
+			if len(tids) <= 0 {
+				realips = ans.ips.realips(uid, xst)
+			} else {
+				for _, tid := range tids {
+					realips = append(realips, ans.ips.realipsFor(tid, uid, xst)...)
+				}
 			}
-		}
-		until, fresh = ans.fresh()
-		// undidAlg is really "hasAnyAlgEntry"; set it to true
-		// regardless of len(realips) or freshness of ans.ips
-		undidAlg = true
-	} else if ans, ok := t.ptr[unmapped]; ok {
-		// for IPs (unlike domains), it is okay to fallback on ptr as the
-		// maybeAlg may be an algip OR realip (latter in the case where an
-		// app is connecting to a cached IP addr from before t.mod was set)
-		// nb: both realips & secondaryips may be nil, but that's okay:
-		// go.dev/play/p/fSjRjMSAS2m
-		if len(tids) <= 0 {
-			realips = ans.ips.realips(uid, xst)
-		} else {
-			for _, tid := range tids {
-				realips = append(realips, ans.ips.realipsFor(tid, uid, xst)...)
+			until, fresh = ans.fresh()
+			// undidAlg is really "hasAnyAlgEntry"; set it to true
+			// regardless of len(realips) or freshness of ans.ips
+			undidAlg = true
+		} else if ans, ok := t.ptr[unmapped]; ok {
+			// for IPs (unlike domains), it is okay to fallback on ptr as the
+			// maybeAlg may be an algip OR realip (latter in the case where an
+			// app is connecting to a cached IP addr from before t.mod was set)
+			// nb: both realips & secondaryips may be nil, but that's okay:
+			// go.dev/play/p/fSjRjMSAS2m
+			if len(tids) <= 0 {
+				realips = ans.ips.realips(uid, xst)
+			} else {
+				for _, tid := range tids {
+					realips = append(realips, ans.ips.realipsFor(tid, uid, xst)...)
+				}
 			}
+			until, fresh = ans.fresh()
+			undidAlg = false
 		}
-		until, fresh = ans.fresh()
-		undidAlg = false
 	}
 
 	hasrealips := len(realips) > 0
@@ -1483,8 +1499,8 @@ func (t *dnsgateway) xLocked(maybeAlg netip.Addr, usestale bool, uid string, tid
 	} else {
 		unnated = t.maybeUndoNat64Locked(realips...)
 	} // else: send realips as is
-	logeif(!hasrealips)("alg: dns64: for %v[%s] (fresh? %t / undidAlg? %t / staleok? %t) algip(%v) => realips(%v) => unnated(%v); until: %s",
-		tids, uid, fresh, undidAlg, usestale, unmapped, realips, unnated, until)
+	logeif(!hasrealips)("alg: dns64: for %v[%s] (didnotAlg? %t / fresh? %t / undidAlg? %t / staleok? %t) algip(%v) => realips(%v) => unnated(%v); until: %s",
+		tids, uid, didnotAlg, fresh, undidAlg, usestale, unmapped, realips, unnated, until)
 	if len(unnated) > 0 { // unnated is already de-duplicated
 		return unnated, undidAlg
 	}
