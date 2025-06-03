@@ -76,6 +76,7 @@ const (
 	markTNTAfterMillis           = 20 * 1000 // TNT after 20s of no rcv after snd
 
 	removeViaOnErrors = false
+	resetDeviceOnTNT  = false
 
 	FAST = x.WGFAST
 
@@ -318,7 +319,7 @@ func (w *wgproxy) Refresh() (err error) {
 		return errProxyStopped
 	}
 
-	resetDevice := w.status.Load() == TNT
+	resetDevice := resetDeviceOnTNT && status == TNT
 
 	w.latestPing.Store(0) // reset latest ping time
 
@@ -342,8 +343,8 @@ func (w *wgproxy) Refresh() (err error) {
 			var newdev *device.Device
 			const useExistingCfg = ""
 			if newdev, err = newdevice(w.wgtun, w.wgep, useExistingCfg); err == nil {
-				w.Device.Close() // will end up calling wgtun.Close() which hopefully is ignored
-				w.Device = newdev
+				w.Device.Close()  // will end up calling wgtun.Close() which hopefully is ignored
+				w.Device = newdev // TODO: core.Volatile[device.Device]
 			} // newdevice calls w.Device.Up() internally
 		} else if err == nil {
 			err = w.Device.Up()
