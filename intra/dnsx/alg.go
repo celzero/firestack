@@ -1504,6 +1504,9 @@ func (t *dnsgateway) xLocked(maybeAlg netip.Addr, usestale bool, uid string, tid
 	if len(unnated) > 0 { // unnated is already de-duplicated
 		return unnated, undidAlg
 	}
+	if len(realips) <= 0 { // no algip, no realips, no unnated; return unmapped as-is
+		return []netip.Addr{unmapped}, undidAlg
+	}
 	return copyUniq(realips), undidAlg
 }
 
