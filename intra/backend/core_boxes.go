@@ -101,6 +101,13 @@ func (s *Gostr) V() string {
 	return s.S
 }
 
+func (st *Gostr) Len() int {
+	if st == nil {
+		return 0
+	}
+	return len(st.S)
+}
+
 func StrOf(v string) *Gostr {
 	return strof(v)
 }
