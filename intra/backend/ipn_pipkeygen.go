@@ -18,7 +18,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"math/big"
 	"strings"
 	"sync"
@@ -30,12 +29,13 @@ import (
 )
 
 const (
-	delim      = ":"
-	minmsgsize = 32            // min msg size in bytes; >= pipkey.c.prefixLen
-	tokensize  = 32            // token size in bytes
-	bidsize    = 64            // blind id size in bytes; hmac(msg, pubkey)
-	blindsize  = 256           // blinded message size in bytes
-	hashfn     = crypto.SHA384 // 48 byte hash fn for RSA-PSS
+	delim     = ":"
+	msgsize   = 32            // min msg size in bytes; >= pipkey.c.prefixLen
+	cidsize   = 32            // client identifier size in bytes
+	tokensize = 32            // token size in bytes
+	bidsize   = 64            // blind id size in bytes; hmac(msg, pubkey)
+	blindsize = 256           // blinded message size in bytes
+	hashfn    = crypto.SHA384 // 48 byte hash fn for RSA-PSS
 
 	pipkeyOpaqueCtx = "pipkey-message-opaque" // context for opaque messages
 )
@@ -46,6 +46,9 @@ var (
 )
 
 type PipKeyProvider interface {
+	// Msg returns the PipMsg that this PipKeyProvider is associated with.
+	// Never nil.
+	Msg() *PipMsg
 	// Bid uniquely identifies a blinded PipKeyProvider.
 	// PipKeyProviders created from same blinded PipKeyState have the same identity.
 	// If this PipKeyProvider is not yet blinded, it returns nil.
@@ -68,13 +71,14 @@ type PipToken Gostr
 
 type PipMsg Gostr
 
-func pipmsgof(s string) *PipMsg {
-	if len(s) < minmsgsize {
-		log.E("pipkey: msgof: invalid msg size; min %d; got %d", minmsgsize, len(s))
+func pipmsgof(m string) *PipMsg {
+	// 2 chars per byte in hex
+	if sz := 2 * (msgsize + cidsize); len(m) < sz {
+		log.E("pipkey: fromv: invalid msg size; want %d, got %d", sz, len(m))
 		return nil
 	}
-	// TODO: s must be hex encoded 32 byte string
-	return &PipMsg{S: s}
+	// m is a 64 byte hex encoded string
+	return &PipMsg{S: m}
 }
 
 func (p *PipMsg) v() string {
@@ -84,14 +88,39 @@ func (p *PipMsg) v() string {
 	return p.S
 }
 
-// Opaque returns a 32 byte hex derived from the PipMsg.
+func (p *PipMsg) ok() bool {
+	return p != nil && len(p.S) >= 2*(msgsize+cidsize)
+}
+
+func (p *PipMsg) msg() []byte {
+	if p == nil || !p.ok() {
+		log.E("pipkey: msg: invalid; got %d", len(p.S))
+		return nil
+	}
+	// first 32 bytes are the message
+	return hex2byte(p.S[:2*msgsize])
+}
+
+func (p *PipMsg) cid() []byte {
+	if p == nil || !p.ok() {
+		log.E("pipkey: cid: invalid; got %d", len(p.S))
+		return nil
+	}
+	// next 32 bytes are the client identifier
+	return hex2byte(p.S[2*msgsize : 2*(msgsize+cidsize)])
+}
+
+// Opaque returns the client id part of the PipMsg as hex string.
 func (p *PipMsg) Opaque() *Gostr {
-	oq := hmac256([]byte(pipkeyOpaqueCtx), hex2byte(p.S))
-	return StrOf(byte2hex(oq))
+	if p == nil || !p.ok() {
+		log.E("pipkey: opaque: invalid; got %d", len(p.S))
+		return nil
+	}
+	return StrOf(p.S[2*(msgsize) : 2*(msgsize+cidsize)])
 }
 
 type PipKey struct {
-	// hex encoded 32 byte msg (random)
+	// hex encoded 64 byte msg (random)
 	Msg *PipMsg
 	// hex encoded 256 byte sig (unblinded signature)
 	Sig string
@@ -104,20 +133,19 @@ func (p *PipKey) V() *Gostr {
 		return nil
 	}
 
-	msg := p.Msg.v()
-	if len(msg) < minmsgsize {
+	if !p.Msg.ok() {
 		return nil
 	}
 
-	// msg:sig:sigHash
+	// msg+cid:sig:sigHash
 	return StrOf(strings.Join([]string{
-		msg,
+		p.Msg.v(),
 		p.Sig,
 		p.SigHash,
 	}, delim))
 }
 
-func NewPipKey(v *Gostr) (*PipKey, error) {
+func PipKeyFrom(v *Gostr) (*PipKey, error) {
 	if v == nil {
 		return nil, errEmptyPipKeyState
 	}
@@ -134,7 +162,7 @@ func NewPipKey(v *Gostr) (*PipKey, error) {
 	}
 
 	msg := pipmsgof(parts[0])
-	if msg == nil {
+	if msg == nil || !msg.ok() {
 		return nil, brsa.ErrInvalidMessageLength
 	}
 
@@ -155,6 +183,7 @@ type PipKeyState struct {
 	// hex encoded 48 byte salt (random)
 	Salt string
 	// hex encoded 32 byte (client) msg (usually, random)
+	// concatenated with 32 byte (client identifier) token
 	Msg *PipMsg
 }
 
@@ -256,7 +285,8 @@ type pkgen struct {
 	state *brsa.State
 	c     *brsa.Client
 
-	id       []byte // 64 bytes id derived from hmac(m=blindMsg, k=pubkey)
+	bid      []byte // 64 bytes id derived from hmac(m=blindMsg, k=pubkey)
+	cid      []byte // 32 bytes client identifier (token); not used in this impl
 	msg      []byte // min 32 bytes random msg specific to this key
 	blindMsg []byte // 256 bytes blindMsg derived from msg, r, salt
 }
@@ -274,8 +304,8 @@ func NewPipKeyProvider(pubjwk *Gobyte, msgOrExistingState *Gostr) (PipKeyProvide
 // NewPipKeyProviderFromMsg creates a new PipKeyProvider instance from a JWK and a msg hex string.
 // Generating Blind() for the same msg with the same JWK will NOT result in the same PipKeyState.
 // To restore a previous state, use NewPipKeyProvider() with the PipKeyState.V() string.
-func NewPipKeyProviderFromMsg(pubjwk *Gobyte, msg *Gostr) (PipKeyProvider, error) {
-	return newPipKey(pubjwk.V(), msg.V(), true)
+func NewPipKeyProviderFromMsg(pubjwk *Gobyte, msg *PipMsg) (PipKeyProvider, error) {
+	return newPipKey(pubjwk.V(), msg.v(), true)
 }
 
 func newPipKey(bjwk []byte, msgOrExistingState string, msgOnly bool) (PipKeyProvider, error) {
@@ -318,16 +348,16 @@ func newPipKey(bjwk []byte, msgOrExistingState string, msgOnly bool) (PipKeyProv
 		c:      &c,
 	}
 	if msgOrExistingState != "" {
-		// id : blindMsg : r : salt : msg
+		// id : blindMsg : r : salt : msg+cid
 		parts := strings.Split(msgOrExistingState, delim)
-		if len(parts) == 1 {
-			// if there's only one part, it's the message
-			// todo: check if len(msg bytes) == 32
-			k.msg = hex2byte(parts[0])
-			if len(k.msg) < minmsgsize {
-				log.E("pipkey: new: invalid msg size; min %d; got %d", minmsgsize, len(k.msg))
-				return nil, brsa.ErrUnexpectedSize
+		if len(parts) == 1 { // if there's only one part, it's the message
+			pipmsg := pipmsgof(parts[0])
+			if pipmsg == nil || !pipmsg.ok() {
+				log.E("pipkey: new: invalid msg; got %d", len(parts[0]))
+				return nil, brsa.ErrInvalidMessageLength
 			}
+			k.msg = pipmsg.msg()
+			k.cid = pipmsg.cid()
 			return k, nil
 		}
 		if msgOnly || len(parts) != 5 {
@@ -335,7 +365,7 @@ func newPipKey(bjwk []byte, msgOrExistingState string, msgOnly bool) (PipKeyProv
 			// and so we at least 4 parts
 			return nil, brsa.ErrInvalidMessageLength
 		}
-		k.id = hex2byte(parts[0]) // unique id; hmac(msg, pubkey)
+		k.bid = hex2byte(parts[0]) // unique id; hmac(msg, pubkey)
 		k.blindMsg = hex2byte(parts[1])
 		r := hex2BigInt(parts[2]) // blinding factor
 		rInv, err := modInv(r, k.pubkey.N)
@@ -344,25 +374,51 @@ func newPipKey(bjwk []byte, msgOrExistingState string, msgOnly bool) (PipKeyProv
 			return nil, err
 		}
 		salt := hex2byte(parts[3])
-		k.msg = hex2byte(parts[4]) // no need to k.c.Prepare() if SHA384PSSDeterministic
+		pipmsg := pipmsgof(parts[4])
+		if pipmsg == nil || !pipmsg.ok() {
+			log.E("pipkey: new: invalid msg; got %d", len(parts[0]))
+			return nil, brsa.ErrInvalidMessageLength
+		}
+		k.msg = pipmsg.msg()
+		k.cid = pipmsg.cid()
+		// no need to k.c.Prepare() if SHA384PSSDeterministic
 		if bmsg, state, err := k.c.FixedBlind(k.msg, salt, r, rInv); err != nil {
 			return nil, err
 		} else {
 			k.state = &state
 			if !bytes.Equal(k.blindMsg, bmsg) { // sanity check
-				log.E("pipkey: new: invalid blindMsg")
+				log.E("pipkey: new: invalid blindMsg: got(%s) != want(%s)",
+					byte2hex(k.blindMsg), byte2hex(bmsg))
 				return nil, brsa.ErrInvalidBlind
 			}
 		}
 	} else {
-		k.msg = make([]byte, minmsgsize)
-		// k.c.Prepare() is unused for SHA384PSSDeterministic
-		if _, err := io.ReadFull(rand.Reader, k.msg); err != nil {
+		k.msg, err = brand(msgsize)
+		if err == nil {
+			k.cid, err = brand(cidsize)
+		}
+		if err != nil {
 			log.E("pipkey: new: gen err, %v", err)
 			return nil, err
 		}
+		k.cid, err = brand(cidsize)
+		// k.c.Prepare() is unused for SHA384PSSDeterministic
 	}
 	return k, nil
+}
+
+// Msg implements PipKeyProvider.
+func (k *pkgen) Msg() *PipMsg {
+	if k == nil {
+		log.E("pipkey: msg: nil PipKeyProvider")
+		return nil
+	}
+	pipmsg := pipmsgof(byte2hex(k.msg) + byte2hex(k.cid))
+	if pipmsg == nil || !pipmsg.ok() {
+		log.E("pipkey: msg: invalid PipMsg; got %d", len(k.msg)+len(k.cid))
+		return nil
+	}
+	return pipmsg
 }
 
 // Bid implements PipKeyProvider.
@@ -370,17 +426,17 @@ func (k *pkgen) Bid() *Gostr {
 	k.mu.Lock()
 	defer k.mu.Unlock()
 
-	if k.id == nil {
+	if k.bid == nil {
 		log.E("pipkey: who: not blinded")
 		return nil
 	}
 
-	if len(k.id) != 64 {
-		log.E("pipkey: who: invalid id size %d", len(k.id))
+	if len(k.bid) != bidsize {
+		log.E("pipkey: who: invalid size %d; expected: %d", len(k.bid), bidsize)
 		return nil
 	}
 
-	return StrOf(byte2hex(k.id))
+	return StrOf(byte2hex(k.bid))
 }
 
 // Blind implements PipKeyProvider.
@@ -408,22 +464,22 @@ func (k *pkgen) Blind() (*PipKeyState, error) {
 	}
 
 	k.blindMsg = blindMsg
-	k.id = hmac256(k.blindMsg, k.pubkey.N.Bytes()) // must match with server-side impl
+	k.bid = hmac256(k.blindMsg, k.pubkey.N.Bytes()) // must match with server-side impl
 	k.state = &verifierState
 
-	if len(k.id) != bidsize || len(k.blindMsg) != blindsize || len(r.Bytes()) > 256 || len(salt) != 48 || len(k.msg) != minmsgsize {
-		log.E("pipkey: blind: invalid state; id %d, blindMsg %d, r %d, salt %d, msg %d",
-			len(k.id), len(k.blindMsg), len(r.Bytes()), len(salt), len(k.msg))
+	if len(k.bid) != bidsize || len(k.blindMsg) != blindsize || len(r.Bytes()) > 256 || len(salt) != 48 || len(k.msg) != msgsize || len(k.cid) != cidsize {
+		log.E("pipkey: blind: invalid state; id %d, blindMsg %d, r %d, salt %d, msg %d+%d",
+			len(k.bid), len(k.blindMsg), len(r.Bytes()), len(salt), len(k.msg), len(k.cid))
 		return nil, brsa.ErrUnexpectedSize
 	}
 
-	// existing state; id : blindMsg : r : salt : msg
+	// existing state; id : blindMsg : r : salt : msg+cid
 	return newPipKeyState(
-		byte2hex(k.id),
+		byte2hex(k.bid),
 		byte2hex(blindMsg),
 		bigInt2hex(r),
 		byte2hex(salt),
-		byte2hex(k.msg),
+		k.Msg().v(), // msg + cid
 	), nil
 }
 
@@ -456,7 +512,7 @@ func (k *pkgen) finalize(blindSig string) (*PipKey, error) {
 	hashedsigbytes := sha256sum(sigbytes)
 
 	return &PipKey{
-		Msg:     pipmsgof(byte2hex(k.msg)),
+		Msg:     k.Msg(),
 		Sig:     byte2hex(sigbytes),
 		SigHash: byte2hex(hashedsigbytes),
 	}, nil
@@ -472,13 +528,18 @@ func Token() (*PipToken, error) {
 }
 
 func token() string {
-	nonce := make([]byte, tokensize)
-	_, err := rand.Read(nonce)
+	tok, err := brand(tokensize)
 	if err != nil {
 		log.W("pipkey: no token; err: %v", err)
 		return ""
 	}
-	return byte2hex(nonce)
+	return byte2hex(tok)
+}
+
+func brand(sz int) ([]byte, error) {
+	r := make([]byte, sz)
+	_, err := rand.Read(r)
+	return r, err
 }
 
 // hex2byte returns the byte slice represented by the hex string s.
