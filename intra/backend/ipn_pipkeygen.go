@@ -36,8 +36,6 @@ const (
 	bidsize   = 64            // blind id size in bytes; hmac(msg, pubkey)
 	blindsize = 256           // blinded message size in bytes
 	hashfn    = crypto.SHA384 // 48 byte hash fn for RSA-PSS
-
-	pipkeyOpaqueCtx = "pipkey-message-opaque" // context for opaque messages
 )
 
 var (
@@ -69,8 +67,12 @@ type PipKeyProvider interface {
 // PipToken is a 32 byte random token for bespoke auth.
 type PipToken Gostr
 
+// PipMsg is a 64 byte hex encoded string that contains:
+// - first 32 bytes as message (random)
+// - next 32 bytes as client identifier (random)
 type PipMsg Gostr
 
+// go.dev/play/p/OTMIv7FLtVs
 func pipmsgof(m string) *PipMsg {
 	// 2 chars per byte in hex
 	if sz := 2 * (msgsize + cidsize); len(m) < sz {
@@ -120,7 +122,7 @@ func (p *PipMsg) Opaque() *Gostr {
 }
 
 type PipKey struct {
-	// hex encoded 64 byte msg (random)
+	// hex encoded 64 byte msg+cid (random)
 	Msg *PipMsg
 	// hex encoded 256 byte sig (unblinded signature)
 	Sig string
