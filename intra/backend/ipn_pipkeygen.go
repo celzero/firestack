@@ -395,15 +395,13 @@ func newPipKey(bjwk []byte, msgOrExistingState string, msgOnly bool) (PipKeyProv
 			}
 		}
 	} else {
-		k.msg, err = brand(msgsize)
-		if err == nil {
+		if k.msg, err = brand(msgsize); err == nil {
 			k.cid, err = brand(cidsize)
 		}
 		if err != nil {
 			log.E("pipkey: new: gen err, %v", err)
 			return nil, err
 		}
-		k.cid, err = brand(cidsize)
 		// k.c.Prepare() is unused for SHA384PSSDeterministic
 	}
 	return k, nil
