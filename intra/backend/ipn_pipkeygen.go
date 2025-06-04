@@ -33,7 +33,11 @@ const (
 	delim      = ":"
 	minmsgsize = 32            // min msg size in bytes; >= pipkey.c.prefixLen
 	tokensize  = 32            // token size in bytes
+	bidsize    = 64            // blind id size in bytes; hmac(msg, pubkey)
+	blindsize  = 256           // blinded message size in bytes
 	hashfn     = crypto.SHA384 // 48 byte hash fn for RSA-PSS
+
+	pipkeyOpaqueCtx = "pipkey-message-opaque" // context for opaque messages
 )
 
 var (
@@ -42,6 +46,10 @@ var (
 )
 
 type PipKeyProvider interface {
+	// Bid uniquely identifies a blinded PipKeyProvider.
+	// PipKeyProviders created from same blinded PipKeyState have the same identity.
+	// If this PipKeyProvider is not yet blinded, it returns nil.
+	Bid() *Gostr
 	// Blind generates id:blindMsg:blindingFactor:salt:msg
 	// id is a 64 byte hmac tying blindMsg to the public key
 	// blindMsg is a 256 byte blinded message
@@ -53,11 +61,22 @@ type PipKeyProvider interface {
 	Finalize(blingSig *Gostr) (*PipKey, error)
 }
 
+// nb: PipToken inherits fields from Gostr but not its methods.
+
+// PipToken is a 32 byte random token for bespoke auth.
 type PipToken Gostr
+
+type PipMsg string
+
+// Opaque returns a 32 byte hex derived from the PipMsg.
+func (p PipMsg) Opaque() *Gostr {
+	oq := hmac256([]byte(pipkeyOpaqueCtx), []byte(p))
+	return StrOf(byte2hex(oq))
+}
 
 type PipKey struct {
 	// hex encoded 32 byte msg (random)
-	Msg string
+	Msg PipMsg
 	// hex encoded 256 byte sig (unblinded signature)
 	Sig string
 	// hex encoded 32 byte sha256(sig) (msg signature hash)
@@ -65,8 +84,8 @@ type PipKey struct {
 }
 
 type PipKeyState struct {
-	// hex encoded 64 byte id, tied to Msg and pubjwk.
-	Id string
+	// hex encoded 64 byte id that identifies BlindMsg.
+	Bid string
 	// hex encoded 256 byte blind(Msg)
 	BlindMsg string
 	// hex encoded blinding factor (up to 256 bytes)
@@ -74,16 +93,16 @@ type PipKeyState struct {
 	// hex encoded 48 byte salt (random)
 	Salt string
 	// hex encoded 32 byte (client) msg (usually, random)
-	Msg string
+	Msg PipMsg
 }
 
 func newPipKeyState(id, blindMsg, r, salt, msg string) *PipKeyState {
 	return &PipKeyState{
-		Id:       id,
+		Bid:      id,
 		BlindMsg: blindMsg,
 		R:        r,
 		Salt:     salt,
-		Msg:      msg,
+		Msg:      PipMsg(msg),
 	}
 }
 
@@ -101,15 +120,15 @@ func NewPipKeyStateFrom(v *Gostr) (*PipKeyState, error) {
 	if len(parts) == 1 {
 		// if there's only one part, it's the message
 		return &PipKeyState{
-			Msg: parts[0],
+			Msg: PipMsg(parts[0]),
 		}, nil
 	} else if len(parts) == 5 {
 		return &PipKeyState{
-			Id:       parts[0],
+			Bid:      parts[0],
 			BlindMsg: parts[1],
 			R:        parts[2],
 			Salt:     parts[3],
-			Msg:      parts[4],
+			Msg:      PipMsg(parts[4]),
 		}, nil
 
 	}
@@ -131,16 +150,16 @@ func (p *PipKeyState) v() string {
 		return ""
 	}
 
-	if len(p.BlindMsg) != 256 {
-		return p.Msg // may be empty, but that's ok
+	if len(p.BlindMsg) != blindsize {
+		return string(p.Msg) // may be empty, but that's ok
 	}
 
 	return strings.Join([]string{
-		p.Id,
+		p.Bid,
 		p.BlindMsg,
 		p.R,
 		p.Salt,
-		p.Msg,
+		string(p.Msg),
 	},
 		delim,
 	)
@@ -179,6 +198,8 @@ type pkgen struct {
 	msg      []byte // min 32 bytes random msg specific to this key
 	blindMsg []byte // 256 bytes blindMsg derived from msg, r, salt
 }
+
+var _ PipKeyProvider = (*pkgen)(nil)
 
 // NewPipKeyProvider creates a new PipKeyProvider instance.
 // pubjwk: JWK string of the public key of the RSA-PSS signer (for which modulus must be 2048 bits, and hash-fn must be SHA384).
@@ -282,7 +303,25 @@ func newPipKey(bjwk []byte, msgOrExistingState string, msgOnly bool) (PipKeyProv
 	return k, nil
 }
 
-// Implements PipKey.
+// Bid implements PipKeyProvider.
+func (k *pkgen) Bid() *Gostr {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+
+	if k.id == nil {
+		log.E("pipkey: who: not blinded")
+		return nil
+	}
+
+	if len(k.id) != 64 {
+		log.E("pipkey: who: invalid id size %d", len(k.id))
+		return nil
+	}
+
+	return StrOf(byte2hex(k.id))
+}
+
+// Blind implements PipKeyProvider.
 func (k *pkgen) Blind() (*PipKeyState, error) {
 	k.mu.Lock()
 	defer k.mu.Unlock()
@@ -310,7 +349,7 @@ func (k *pkgen) Blind() (*PipKeyState, error) {
 	k.id = hmac256(k.blindMsg, k.pubkey.N.Bytes()) // must match with server-side impl
 	k.state = &verifierState
 
-	if len(k.id) != 64 || len(k.blindMsg) != 256 || len(r.Bytes()) > 256 || len(salt) != 48 || len(k.msg) != 32 {
+	if len(k.id) != bidsize || len(k.blindMsg) != blindsize || len(r.Bytes()) > 256 || len(salt) != 48 || len(k.msg) != minmsgsize {
 		log.E("pipkey: blind: invalid state; id %d, blindMsg %d, r %d, salt %d, msg %d",
 			len(k.id), len(k.blindMsg), len(r.Bytes()), len(salt), len(k.msg))
 		return nil, brsa.ErrUnexpectedSize
@@ -326,7 +365,7 @@ func (k *pkgen) Blind() (*PipKeyState, error) {
 	), nil
 }
 
-// Implements PipKey.
+// Finalize implements PipKeyProvider.
 func (k *pkgen) Finalize(blindSig *Gostr) (*PipKey, error) {
 	return k.finalize(blindSig.V())
 }
@@ -355,7 +394,7 @@ func (k *pkgen) finalize(blindSig string) (*PipKey, error) {
 	hashedsigbytes := sha256sum(sigbytes)
 
 	return &PipKey{
-		Msg:     byte2hex(k.msg),
+		Msg:     PipMsg(byte2hex(k.msg)),
 		Sig:     byte2hex(sigbytes),
 		SigHash: byte2hex(hashedsigbytes),
 	}, nil
