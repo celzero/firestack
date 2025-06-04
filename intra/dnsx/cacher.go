@@ -350,30 +350,24 @@ func (t *ctransport) hangoverCheckpoint() {
 }
 
 func (t *ctransport) fetch(network string, q *dns.Msg, summary *x.DNSSummary, cb *cache, key string) (*dns.Msg, error) {
-	sendRequest := func(fsmm *x.DNSSummary) (*dns.Msg, error) {
-		fsmm.QName = summary.QName
-		fsmm.QType = summary.QType
-		fsmm.ID = t.ID().V()
-		fsmm.Type = t.Type().V()
-
+	sendRequest := func(smm2 *x.DNSSummary) (*dns.Msg, error) {
 		reqsent := false
 
 		defer func() {
 			// fill after summaries are filled
 			if !reqsent {
-				summary.ID = t.ID().V()
-				fsmm.Cached = true
+				smm2.Cached = true
 			}
 		}()
 
-		cc := &cres{ans: nil, s: copySummary(fsmm)}
+		cc := &cres{ans: nil, s: copySummary(smm2)}
 		v, err := t.reqbarrier.DoIt(key, func() (_ *cres, qerr error) {
 			reqsent = true
 			// ans may be nil
-			cc.ans, qerr = Req(t.Transport, network, q, fsmm)
+			cc.ans, qerr = Req(t.Transport, network, q, smm2)
 			t.hangoverCheckpoint()
 			// cb.put no-ops when ans is nil or xdns.Len(ans) is 0
-			cb.put(key, cc.ans, fsmm)
+			cb.put(key, cc.ans, smm2)
 			return cc, qerr
 		})
 
@@ -398,12 +392,12 @@ func (t *ctransport) fetch(network string, q *dns.Msg, summary *x.DNSSummary, cb
 			log.W("cache: barrier: hangover(k: %s); sent? %t, discard ans (has? %t)",
 				key, reqsent, hasans)
 			if cachehit {
-				fillSummary(cachedres.s, fsmm)
+				fillSummary(cachedres.s, smm2)
 			}
 			// mimic send fail
-			fsmm.Msg = err.Error()
-			fsmm.RCode = dns.RcodeServerFailure
-			fsmm.Status = SendFailed
+			smm2.Msg = err.Error()
+			smm2.RCode = dns.RcodeServerFailure
+			smm2.Status = SendFailed
 			// do not return any response (stall / drop silently)
 			return nil, err
 		}
@@ -411,7 +405,7 @@ func (t *ctransport) fetch(network string, q *dns.Msg, summary *x.DNSSummary, cb
 		// fres may be nil
 		fres, cachedsmm, ferr := asResponse(q, cachedres, fresh)
 		if cachehit { // fill from cachedsmm despite any err if cache was hit
-			fillSummary(cachedsmm, fsmm) // cachedsmm may itself be fsmm
+			fillSummary(cachedsmm, smm2) // cachedsmm may itself be smm2
 		}
 
 		return fres, core.JoinErr(err, ferr)
@@ -434,8 +428,8 @@ func (t *ctransport) fetch(network string, q *dns.Msg, summary *x.DNSSummary, cb
 		if err != nil {
 			log.W("cache: hit(k: %s) %s, but err? %v", key, v, err)
 			if err == errCacheResponseMismatch {
-				// FIXME: this is a hack to fix the issue where the cache
-				// returns a response that does not match the query.
+				// FIXME: this is a hack to fix an issue where the cache
+				// returns a response that does not match the fqdn in query.
 				cb.mu.Lock()
 				delete(cb.c, key) // del the corrupted entry
 				cb.mu.Unlock()
@@ -452,7 +446,7 @@ func (t *ctransport) fetch(network string, q *dns.Msg, summary *x.DNSSummary, cb
 					if testpanic {
 						panic("dns: cache: fetch: sendRequest: rand10pc")
 					}
-					_, _ = sendRequest(new(x.DNSSummary)) // summary may be cached
+					_, _ = sendRequest(copySummary(summary)) // summary may be cached
 				})
 			}
 			// change summary fields to reflect cached response, except for latency
