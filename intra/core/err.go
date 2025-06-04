@@ -12,6 +12,7 @@ import (
 )
 
 func OneErr(errs ...error) error {
+	// or: cmp.Or(errs...)
 	for _, err := range errs {
 		if err != nil {
 			return err
