@@ -57,27 +57,27 @@ type PipToken Gostr
 
 type PipKey struct {
 	// hex encoded 32 byte msg (random)
-	Msg *Gostr
+	Msg string
 	// hex encoded 256 byte sig (unblinded signature)
-	Sig *Gostr
+	Sig string
 	// hex encoded 32 byte sha256(sig) (msg signature hash)
-	Hsig *Gostr
+	SigHash string
 }
 
 type PipKeyState struct {
 	// hex encoded 64 byte id, tied to Msg and pubjwk.
-	Id *Gostr
+	Id string
 	// hex encoded 256 byte blind(Msg)
-	BlindMsg *Gostr
+	BlindMsg string
 	// hex encoded blinding factor (up to 256 bytes)
-	R *Gostr
+	R string
 	// hex encoded 48 byte salt (random)
-	Salt *Gostr
+	Salt string
 	// hex encoded 32 byte (client) msg (usually, random)
-	Msg *Gostr
+	Msg string
 }
 
-func newPipKeyState(id, blindMsg, r, salt, msg *Gostr) *PipKeyState {
+func newPipKeyState(id, blindMsg, r, salt, msg string) *PipKeyState {
 	return &PipKeyState{
 		Id:       id,
 		BlindMsg: blindMsg,
@@ -92,7 +92,7 @@ func NewPipKeyStateFrom(v *Gostr) (*PipKeyState, error) {
 		return nil, errEmptyPipKeyState
 	}
 	state := v.V()
-	if state == "" {
+	if len(state) <= 0 {
 		return nil, errEmptyPipKeyState
 	}
 
@@ -101,15 +101,15 @@ func NewPipKeyStateFrom(v *Gostr) (*PipKeyState, error) {
 	if len(parts) == 1 {
 		// if there's only one part, it's the message
 		return &PipKeyState{
-			Msg: StrOf(parts[0]),
+			Msg: parts[0],
 		}, nil
 	} else if len(parts) == 5 {
 		return &PipKeyState{
-			Id:       StrOf(parts[0]),
-			BlindMsg: StrOf(parts[1]),
-			R:        StrOf(parts[2]),
-			Salt:     StrOf(parts[3]),
-			Msg:      StrOf(parts[4]),
+			Id:       parts[0],
+			BlindMsg: parts[1],
+			R:        parts[2],
+			Salt:     parts[3],
+			Msg:      parts[4],
 		}, nil
 
 	}
@@ -131,16 +131,16 @@ func (p *PipKeyState) v() string {
 		return ""
 	}
 
-	if len(p.BlindMsg.V()) != 256 {
-		return p.Msg.V() // may be empty, but that's ok
+	if len(p.BlindMsg) != 256 {
+		return p.Msg // may be empty, but that's ok
 	}
 
 	return strings.Join([]string{
-		p.Id.V(),
-		p.BlindMsg.V(),
-		p.R.V(),
-		p.Salt.V(),
-		p.Msg.V(),
+		p.Id,
+		p.BlindMsg,
+		p.R,
+		p.Salt,
+		p.Msg,
 	},
 		delim,
 	)
@@ -185,10 +185,17 @@ type pkgen struct {
 // msgOrExistingState: if empty, a new PipKeyProvider is created with a random message, if not empty, it's the state of an existing PipKey.
 // Typically, msgOrExistingState is got from PipKeyState.V()
 func NewPipKeyProvider(pubjwk *Gobyte, msgOrExistingState *Gostr) (PipKeyProvider, error) {
-	return newPipKey(pubjwk.V(), msgOrExistingState.V())
+	return newPipKey(pubjwk.V(), msgOrExistingState.V(), false)
 }
 
-func newPipKey(bjwk []byte, msgOrExistingState string) (PipKeyProvider, error) {
+// NewPipKeyProviderFromMsg creates a new PipKeyProvider instance from a JWK and a msg hex string.
+// Generating Blind() for the same msg with the same JWK will NOT result in the same PipKeyState.
+// To restore a previous state, use NewPipKeyProvider() with the PipKeyState.V() string.
+func NewPipKeyProviderFromMsg(pubjwk *Gobyte, msg *Gostr) (PipKeyProvider, error) {
+	return newPipKey(pubjwk.V(), msg.V(), true)
+}
+
+func newPipKey(bjwk []byte, msgOrExistingState string, msgOnly bool) (PipKeyProvider, error) {
 	jwk := &pubKeyJwk{}
 	err := json.Unmarshal(bjwk, jwk)
 	if err != nil {
@@ -240,7 +247,7 @@ func newPipKey(bjwk []byte, msgOrExistingState string) (PipKeyProvider, error) {
 			}
 			return k, nil
 		}
-		if len(parts) != 5 {
+		if msgOnly || len(parts) != 5 {
 			// if there's more than one part, it's the state
 			// and so we at least 4 parts
 			return nil, brsa.ErrInvalidMessageLength
@@ -311,11 +318,11 @@ func (k *pkgen) Blind() (*PipKeyState, error) {
 
 	// existing state; id : blindMsg : r : salt : msg
 	return newPipKeyState(
-		StrOf(byte2hex(k.id)),
-		StrOf(byte2hex(blindMsg)),
-		StrOf(bigInt2hex(r)),
-		StrOf(byte2hex(salt)),
-		StrOf(byte2hex(k.msg)),
+		byte2hex(k.id),
+		byte2hex(blindMsg),
+		bigInt2hex(r),
+		byte2hex(salt),
+		byte2hex(k.msg),
 	), nil
 }
 
@@ -348,9 +355,9 @@ func (k *pkgen) finalize(blindSig string) (*PipKey, error) {
 	hashedsigbytes := sha256sum(sigbytes)
 
 	return &PipKey{
-		Msg:  StrOf(byte2hex(k.msg)),
-		Sig:  StrOf(byte2hex(sigbytes)),
-		Hsig: StrOf(byte2hex(hashedsigbytes)),
+		Msg:     byte2hex(k.msg),
+		Sig:     byte2hex(sigbytes),
+		SigHash: byte2hex(hashedsigbytes),
 	}, nil
 }
 
