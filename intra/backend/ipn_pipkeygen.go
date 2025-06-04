@@ -99,6 +99,52 @@ type PipKey struct {
 	SigHash string
 }
 
+func (p *PipKey) V() *Gostr {
+	if p == nil {
+		return nil
+	}
+
+	msg := p.Msg.v()
+	if len(msg) < minmsgsize {
+		return nil
+	}
+
+	// msg:sig:sigHash
+	return StrOf(strings.Join([]string{
+		msg,
+		p.Sig,
+		p.SigHash,
+	}, delim))
+}
+
+func NewPipKey(v *Gostr) (*PipKey, error) {
+	if v == nil {
+		return nil, errEmptyPipKeyState
+	}
+	state := v.V()
+	if len(state) <= 0 {
+		return nil, errEmptyPipKeyState
+	}
+
+	// msg:sig:sigHash
+	parts := strings.Split(state, delim)
+	if len(parts) != 3 {
+		log.E("pipkey: fromv: expected 3 parts, got %d", len(parts))
+		return nil, brsa.ErrInvalidMessageLength
+	}
+
+	msg := pipmsgof(parts[0])
+	if msg == nil {
+		return nil, brsa.ErrInvalidMessageLength
+	}
+
+	return &PipKey{
+		Msg:     msg,
+		Sig:     parts[1],
+		SigHash: parts[2],
+	}, nil
+}
+
 type PipKeyState struct {
 	// hex encoded 64 byte id that identifies BlindMsg.
 	Bid string
