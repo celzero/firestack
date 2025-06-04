@@ -66,17 +66,33 @@ type PipKeyProvider interface {
 // PipToken is a 32 byte random token for bespoke auth.
 type PipToken Gostr
 
-type PipMsg string
+type PipMsg Gostr
+
+func pipmsgof(s string) *PipMsg {
+	if len(s) < minmsgsize {
+		log.E("pipkey: msgof: invalid msg size; min %d; got %d", minmsgsize, len(s))
+		return nil
+	}
+	// TODO: s must be hex encoded 32 byte string
+	return &PipMsg{S: s}
+}
+
+func (p *PipMsg) v() string {
+	if p == nil {
+		return ""
+	}
+	return p.S
+}
 
 // Opaque returns a 32 byte hex derived from the PipMsg.
-func (p PipMsg) Opaque() *Gostr {
-	oq := hmac256([]byte(pipkeyOpaqueCtx), []byte(p))
+func (p *PipMsg) Opaque() *Gostr {
+	oq := hmac256([]byte(pipkeyOpaqueCtx), hex2byte(p.S))
 	return StrOf(byte2hex(oq))
 }
 
 type PipKey struct {
 	// hex encoded 32 byte msg (random)
-	Msg PipMsg
+	Msg *PipMsg
 	// hex encoded 256 byte sig (unblinded signature)
 	Sig string
 	// hex encoded 32 byte sha256(sig) (msg signature hash)
@@ -93,7 +109,7 @@ type PipKeyState struct {
 	// hex encoded 48 byte salt (random)
 	Salt string
 	// hex encoded 32 byte (client) msg (usually, random)
-	Msg PipMsg
+	Msg *PipMsg
 }
 
 func newPipKeyState(id, blindMsg, r, salt, msg string) *PipKeyState {
@@ -102,7 +118,7 @@ func newPipKeyState(id, blindMsg, r, salt, msg string) *PipKeyState {
 		BlindMsg: blindMsg,
 		R:        r,
 		Salt:     salt,
-		Msg:      PipMsg(msg),
+		Msg:      pipmsgof(msg),
 	}
 }
 
@@ -120,7 +136,7 @@ func NewPipKeyStateFrom(v *Gostr) (*PipKeyState, error) {
 	if len(parts) == 1 {
 		// if there's only one part, it's the message
 		return &PipKeyState{
-			Msg: PipMsg(parts[0]),
+			Msg: pipmsgof(parts[0]),
 		}, nil
 	} else if len(parts) == 5 {
 		return &PipKeyState{
@@ -128,7 +144,7 @@ func NewPipKeyStateFrom(v *Gostr) (*PipKeyState, error) {
 			BlindMsg: parts[1],
 			R:        parts[2],
 			Salt:     parts[3],
-			Msg:      PipMsg(parts[4]),
+			Msg:      pipmsgof(parts[4]),
 		}, nil
 
 	}
@@ -151,7 +167,7 @@ func (p *PipKeyState) v() string {
 	}
 
 	if len(p.BlindMsg) != blindsize {
-		return string(p.Msg) // may be empty, but that's ok
+		return p.Msg.v()
 	}
 
 	return strings.Join([]string{
@@ -159,7 +175,7 @@ func (p *PipKeyState) v() string {
 		p.BlindMsg,
 		p.R,
 		p.Salt,
-		string(p.Msg),
+		p.Msg.v(),
 	},
 		delim,
 	)
@@ -394,7 +410,7 @@ func (k *pkgen) finalize(blindSig string) (*PipKey, error) {
 	hashedsigbytes := sha256sum(sigbytes)
 
 	return &PipKey{
-		Msg:     PipMsg(byte2hex(k.msg)),
+		Msg:     pipmsgof(byte2hex(k.msg)),
 		Sig:     byte2hex(sigbytes),
 		SigHash: byte2hex(hashedsigbytes),
 	}, nil
