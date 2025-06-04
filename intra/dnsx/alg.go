@@ -1439,10 +1439,9 @@ func (t *dnsgateway) RDNSBL(algip netip.Addr) (blocklists string) {
 	return t.rdnsblLocked(algip, !t.mod.Load())
 }
 
-func (t *dnsgateway) xLocked(maybeAlg netip.Addr, usestale bool, uid string, tids ...string) ([]netip.Addr, bool) {
-	var realips []netip.Addr
+func (t *dnsgateway) xLocked(maybeAlg netip.Addr, usestale bool, uid string, tids ...string) (realips []netip.Addr, _ bool) {
 	var until time.Duration
-	var undidAlg, fresh bool
+	var undidAlg, undidPtr, fresh bool
 
 	xst := makeXipStatus(!usestale)
 	// alg ips are always unmappped; see take4Locked
@@ -1460,7 +1459,10 @@ func (t *dnsgateway) xLocked(maybeAlg netip.Addr, usestale bool, uid string, tid
 	didnotAlg := skippedcache || uidself
 
 	if !didnotAlg {
-		if ans, ok := t.nat[unmapped]; ok {
+		var ans *baseans
+		// undidAlg is really "hasAnyAlgEntry"; set it to true
+		// regardless of len(realips) or freshness of ans.ips
+		if ans, undidAlg = t.nat[unmapped]; undidAlg {
 			if len(tids) <= 0 {
 				realips = ans.ips.realips(uid, xst)
 			} else {
@@ -1469,10 +1471,8 @@ func (t *dnsgateway) xLocked(maybeAlg netip.Addr, usestale bool, uid string, tid
 				}
 			}
 			until, fresh = ans.fresh()
-			// undidAlg is really "hasAnyAlgEntry"; set it to true
-			// regardless of len(realips) or freshness of ans.ips
-			undidAlg = true
-		} else if ans, ok := t.ptr[unmapped]; ok {
+
+		} else if ans, undidPtr = t.ptr[unmapped]; undidPtr {
 			// for IPs (unlike domains), it is okay to fallback on ptr as the
 			// maybeAlg may be an algip OR realip (latter in the case where an
 			// app is connecting to a cached IP addr from before t.mod was set)
@@ -1486,7 +1486,6 @@ func (t *dnsgateway) xLocked(maybeAlg netip.Addr, usestale bool, uid string, tid
 				}
 			}
 			until, fresh = ans.fresh()
-			undidAlg = false
 		}
 	}
 
@@ -1499,14 +1498,29 @@ func (t *dnsgateway) xLocked(maybeAlg netip.Addr, usestale bool, uid string, tid
 	} else {
 		unnated = t.maybeUndoNat64Locked(realips...)
 	} // else: send realips as is
-	logeif(!hasrealips)("alg: dns64: for %v[%s] (didnotAlg? %t / fresh? %t / undidAlg? %t / staleok? %t) algip(%v) => realips(%v) => unnated(%v); until: %s",
-		tids, uid, didnotAlg, fresh, undidAlg, usestale, unmapped, realips, unnated, until)
+
+	logeif(!hasrealips)("alg: dns64: for %v[%s] (didnotAlg? %t / fresh? %t / undidAlg? %t / undidPtr? %t / staleok? %t) algip(%v) => realips(%v) => unnated(%v); until: %s",
+		tids, uid, didnotAlg, fresh, undidPtr, undidAlg, usestale, unmapped, realips, unnated, until)
+
 	if len(unnated) > 0 { // unnated is already de-duplicated
 		return unnated, undidAlg
 	}
-	if len(realips) <= 0 { // no algip, no realips, no unnated; return unmapped as-is
+
+	if !hasrealips {
+		// when realips are empty but one of undidAlg / undidPtr is not false,
+		// it means the client code may retry re-resolving the corresponding
+		// domain to freshen up alg mapping; which is to say, sending empty
+		// realips instead of unmapped as-is is a way to signal that
+		// the alg mapping is stale.
+		if undidAlg || undidPtr {
+			return realips, undidAlg
+		}
+		// no algip, no realips, no unnated;
+		// ptr + nat alg mapping do not exist / apply;
+		// return unmapped as-is to the client code.
 		return []netip.Addr{unmapped}, undidAlg
 	}
+
 	return copyUniq(realips), undidAlg
 }
 
