@@ -33,8 +33,10 @@ const (
 	msgsize   = 32            // min msg size in bytes; >= pipkey.c.prefixLen
 	cidsize   = 32            // client identifier size in bytes
 	tokensize = 32            // token size in bytes
-	bidsize   = 64            // blind id size in bytes; hmac(msg, pubkey)
+	bidsize   = 32            // blind id size in bytes; hmac(msg, pubkey)
 	blindsize = 256           // blinded message size in bytes
+	rsizemax  = 256           // max blinding factor size in bytes
+	saltsize  = 48            // salt size in bytes; see: hashfn
 	hashfn    = crypto.SHA384 // 48 byte hash fn for RSA-PSS
 )
 
@@ -432,7 +434,8 @@ func (k *pkgen) Bid() *Gostr {
 	}
 
 	if len(k.bid) != bidsize {
-		log.E("pipkey: who: invalid size %d; expected: %d", len(k.bid), bidsize)
+		log.E("pipkey: who: invalid size %d; expected: %d",
+			len(k.bid), bidsize)
 		return nil
 	}
 
@@ -467,7 +470,7 @@ func (k *pkgen) Blind() (*PipKeyState, error) {
 	k.bid = hmac256(k.blindMsg, k.pubkey.N.Bytes()) // must match with server-side impl
 	k.state = &verifierState
 
-	if len(k.bid) != bidsize || len(k.blindMsg) != blindsize || len(r.Bytes()) > 256 || len(salt) != 48 || len(k.msg) != msgsize || len(k.cid) != cidsize {
+	if len(k.bid) != bidsize || len(k.blindMsg) != blindsize || len(r.Bytes()) > rsizemax || len(salt) != saltsize || len(k.msg) != msgsize || len(k.cid) != cidsize {
 		log.E("pipkey: blind: invalid state; id %d, blindMsg %d, r %d, salt %d, msg %d+%d",
 			len(k.bid), len(k.blindMsg), len(r.Bytes()), len(salt), len(k.msg), len(k.cid))
 		return nil, brsa.ErrUnexpectedSize
