@@ -163,9 +163,11 @@ func (m *MHMap) MaybeRefresh() (n int64) {
 	m.Lock()
 	defer m.Unlock()
 	for h := range m.uniq {
-		m.delLocked(h)
-		n += int64(h.SoftRefresh())
-		m.putLocked(h)
+		if _, stale := h.stale(); stale {
+			m.delLocked(h)
+			n += int64(h.Refresh())
+			m.putLocked(h)
+		}
 	}
 	return
 }
