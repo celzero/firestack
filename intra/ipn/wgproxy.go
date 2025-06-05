@@ -1110,9 +1110,8 @@ func (h *wgtun) Dial(network, address string) (c net.Conn, err error) {
 	log.D("wg: %s dial: start %s %s", h.tag(), network, address)
 
 	// DialContext resolves addr if needed; then dialing into all resolved ips.
-	if c, err = h.DialContext(context.TODO(), network, address); err != nil {
-		h.status.Store(TKO)
-	} // else: status updated by h.listener
+	c, err = h.DialContext(context.TODO(), network, address)
+	defer h.listener(wg.Con, err) // status updated by h.listener
 
 	log.I("wg: %s dial: end %s %s; err %v", h.tag(), network, address, err)
 	return
@@ -1128,11 +1127,10 @@ func (h *wgtun) DialBind(network, local, remote string) (c net.Conn, err error) 
 	log.D("wg: %s dialbind: start %s %s=>%s", h.tag(), network, local, remote)
 
 	// DialContext resolves addr if needed; then dialing into all resolved ips.
-	if c, err = h.DialContext(context.TODO(), network, remote); err != nil {
-		h.status.Store(TKO)
-	} // else: status updated by h.listener
+	c, err = h.DialContext(context.TODO(), network, remote)
+	defer h.listener(wg.Con, err) // status updated by h.listener when creating conns
 
-	log.I("wg: %s dial: end %s %s; err %v", h.tag(), network, remote, err)
+	log.I("wg: %s dialbind: end %s %s=>%s; err %v", h.tag(), network, local, remote, err)
 	return
 }
 
@@ -1147,9 +1145,8 @@ func (h *wgtun) Announce(network, local string) (pc net.PacketConn, err error) {
 
 	var addr netip.AddrPort
 	if addr, err = netip.ParseAddrPort(local); err == nil {
-		if pc, err = h.ListenUDPAddrPort(addr); err != nil {
-			h.status.Store(TKO)
-		} // else: status updated by h.listener
+		pc, err = h.ListenUDPAddrPort(addr)
+		defer h.listener(wg.Con, err)
 	} // else: expect local to always be ipaddr
 
 	log.I("wg: %s announce: end %s %s; err %v", h.tag(), network, local, err)
@@ -1167,9 +1164,8 @@ func (h *wgtun) Accept(network, local string) (ln net.Listener, err error) {
 
 	var addr netip.AddrPort
 	if addr, err = netip.ParseAddrPort(local); err == nil {
-		if ln, err = h.ListenTCPAddrPort(addr); err != nil {
-			h.status.Store(TKO)
-		} // else: status updated by h.listener
+		ln, err = h.ListenTCPAddrPort(addr)
+		defer h.listener(wg.Con, err)
 	} // else: expect local to always be ipaddr
 
 	log.I("wg: %s accept: end %s %s; err %v", h.tag(), network, local, err)
@@ -1187,9 +1183,8 @@ func (h *wgtun) Probe(network, local string) (pc net.PacketConn, err error) {
 
 	var addr netip.AddrPort
 	if addr, err = netip.ParseAddrPort(local); err == nil {
-		if pc, err = h.ListenUDPAddrPort(addr); err != nil {
-			h.status.Store(TKO)
-		} // else: status updated by h.listener
+		pc, err = h.ListenUDPAddrPort(addr)
+		defer h.listener(wg.Con, err)
 	} // else: expect local to always be ipaddr
 
 	log.I("wg: %s probe: end %s %s; err %v", h.tag(), network, local, err)
@@ -1373,7 +1368,7 @@ func (h *wgtun) serve(network, local string) (pc net.PacketConn, err error) {
 		pc, err = h.direct.Announce(network, local)
 	}
 	h.viaUp.Store(usingvia)
-	defer localDialStatus(h.status, err)
+	defer h.listener(wg.Opn, err)
 
 	logei(err)("wg: %s serve: %s (id? %s / via? %s / usingVia? %t); err? %v",
 		h.id, local, who, idstr(v), usingvia, err)
@@ -1381,42 +1376,52 @@ func (h *wgtun) serve(network, local string) (pc net.PacketConn, err error) {
 }
 
 func (h *wgtun) listener(op wg.PktDir, err error) {
-	if h.status.Load() == END {
+	s := h.status.Load()
+	if s == END {
 		return
 	}
 
-	s := TOK // assume err == nil
-	if op == wg.Rcv && timedout(err) {
+	if s == TUP && op != wg.Opn { // ignore all else but open
+		return
+	}
+
+	if err != nil { // failing
+		s = TKO
+		if op == wg.Opn { // could not open conn to wg endpoint
+			s = TNT
+		}
+		if op == wg.Rcv && timedout(err) {
+			s = TZZ // wirtes and reads have succeeded in the recent past
+		}
+	} else { // ok
+		s = TOK
+		if op == wg.Rcv { // read ok
+			h.latestRx.Store(now())
+		} else if op == wg.Snd { // write ok
+			h.latestTx.Store(now())
+		}
+	}
+
+	if s != TNT {
 		lastSuccessfulRead := h.latestRx.Load()
 		writeElapsedMs := h.latestTx.Load() - lastSuccessfulRead // may be negative
+		// if no reads since last write, mark as unresponsive
 		// if status is "up" but writes (Snd) have not yet happened
 		// then reads (Rcv) are expected to timeout; so ignore them
 		if lastSuccessfulRead <= 0 || writeElapsedMs > markTNTAfterMillis {
 			s = TNT // writes succeeded; but reads have never or not in the past 20s
-		} else {
-			s = TZZ // wirtes and reads have succeeded in the recent past
 		}
-	} else if err != nil {
-		s = TKO // failing
 	}
 
-	if s == TOK {
-		if op == wg.Rcv { // read
-			h.latestRx.Store(now())
-		} else if op == wg.Snd { // write
-			h.latestTx.Store(now())
-		}
-		writeElapsedMs := h.latestTx.Load() - h.latestRx.Load() // may be negative
-		// if no reads since last write, mark as unresponsive
-		if writeElapsedMs > markTNTAfterMillis {
-			s = TNT
-		}
-	} else if s != TUP {
+	if s != TOK {
 		if op == wg.Rcv {
 			h.errRx.Add(1)
 		} else if op == wg.Snd {
 			h.errTx.Add(1)
 		}
+	}
+
+	if s == TNT {
 		if n := h.remote.Load().MaybeRefresh(); n > 0 {
 			log.I("wg: %s listener: %s, state: %s; refreshed n domains: %d",
 				h.tag(), op, pxstatus(s), n)

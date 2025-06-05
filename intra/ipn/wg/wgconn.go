@@ -102,6 +102,8 @@ type PktDir string
 const (
 	Rcv PktDir = "recv"
 	Snd PktDir = "send"
+	Con PktDir = "conn" // e.g. dial, announce, accept
+	Opn PktDir = "open" // open conn to the wg endpoint
 )
 
 type StdNetBind struct {
