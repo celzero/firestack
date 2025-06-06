@@ -31,10 +31,10 @@ func (m *MHMap) Get(hostOrIpport string) (h *MH, _ error) {
 	m.RLock()
 	defer m.RUnlock()
 
-	host, port := normalize(hostOrIpport) // port may be 0
-	if len(host) <= 0 {
-		log.D("multihost: %s map: get for %s => %s:%d", m.k, hostOrIpport, host, port)
-		return nil, url.InvalidHostError(hostOrIpport)
+	host, port, err := normalize(hostOrIpport) // port may be 0
+	if err != nil || len(host) <= 0 {
+		log.D("multihost: %s map: get for %s => %s:%d / err: %v", m.k, hostOrIpport, host, port, err)
+		return nil, core.JoinErr(err, url.InvalidHostError(hostOrIpport))
 	}
 
 	ipp, err := netip.ParseAddrPort(hostOrIpport)
