@@ -168,7 +168,6 @@ func (h *MH) PreferredAddr() netip.AddrPort {
 			} else if !fallback6.IsValid() {
 				fallback6 = ip // note the first valid addr
 			}
-
 		}
 	}
 
@@ -270,7 +269,6 @@ func (h *MH) add(domainsOrIps []string, op MHAddOp) int {
 		h.names = append(h.names, names...)
 		h.addrs = append(h.addrs, addrs...)
 		h.preresolved = append(h.preresolved, pre...)
-
 	} else {
 		log.E("multihost: %s add: %v => %v [+ %v]; unknown op %d", id, names, addrs, pre, op)
 		return 0
