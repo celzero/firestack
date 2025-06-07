@@ -541,7 +541,7 @@ func (px *proxifier) ProxyTo(ipp netip.AddrPort, uid string, pids []string) (_ P
 			err := px.pin(uid, ipp, p) // repin
 			if err == nil {
 				log.VV("proxy: pin: %s+%s; pinned: %s; from pids: %v",
-					uid, ipp, pid, pids)
+					uid, ippstr, pid, pids)
 				return p, nil
 			} // else: proxy not ok
 			notokproxies = append(notokproxies, pid)
@@ -886,10 +886,10 @@ func (px *proxifier) stopProxies() {
 	px.rpnmu.Lock()
 	n := len(px.rp)
 	for _, rp := range px.rp {
-		x := rp
-		id := idstr(x)
+		curpRp := rp
+		id := idstr(curpRp)
 		core.Go("pxr.stopProxies.purgeRpn: "+id, func() {
-			_ = x.PurgeAll()
+			_ = curpRp.PurgeAll()
 		})
 	}
 	clear(px.rp)
