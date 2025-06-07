@@ -74,6 +74,18 @@ type PipToken Gostr
 // - next 32 bytes as client identifier (random)
 type PipMsg Gostr
 
+// AsPipMsg typecast Gostr m to PipMsg.
+// m must be a 64 bytes hex string
+// (32b for msg + 32b for opaque-id).
+// Returns nil if the string m is nil or not a valid PipMsg.
+func AsPipMsg(m *Gostr) *PipMsg {
+	p := (*PipMsg)(m)
+	if !p.ok() {
+		return nil
+	}
+	return p
+}
+
 // go.dev/play/p/OTMIv7FLtVs
 func pipmsgof(m string) *PipMsg {
 	// 2 chars per byte in hex
@@ -83,6 +95,15 @@ func pipmsgof(m string) *PipMsg {
 	}
 	// m is a 64 byte hex encoded string
 	return &PipMsg{S: m}
+}
+
+// Returns empty Gostr if p is nil or invalid PipMsg.
+func (p *PipMsg) AsGostr() *Gostr {
+	if !p.ok() {
+		return emptyGostr
+	}
+	// go.dev/play/p/hPFgE9s9tMP
+	return (*Gostr)(p)
 }
 
 func (p *PipMsg) v() string {
