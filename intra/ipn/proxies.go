@@ -431,6 +431,7 @@ func (px *proxifier) removeProxy(id string, force bool) bool {
 		}
 		core.Go("pxr.removeProxy: "+id, func() {
 			px.unmapHopFrom(p, false /*dryrun*/)
+
 			_ = p.Stop()
 			if !perma {
 				px.obs.OnProxyRemoved(x.StrOf(id))
@@ -795,10 +796,6 @@ func (px *proxifier) hop(via, origin string, dryrun bool) error {
 }
 
 func (px *proxifier) mapHop(hop x.Proxy, orig x.Proxy, dryrun bool) (mapped bool) {
-	if dryrun {
-		return
-	}
-
 	hopID := idstr(hop)
 	origID := idstr(orig)
 	if len(hopID) <= 0 || len(origID) <= 0 {
@@ -807,8 +804,13 @@ func (px *proxifier) mapHop(hop x.Proxy, orig x.Proxy, dryrun bool) (mapped bool
 
 	px.hmu.Lock()
 	defer px.hmu.Unlock()
-	px.hp[hopID] = addElem(px.hp[hopID], origID)
-	return true
+	in := px.hp[hopID] // in may be nil
+	out := addElem(in, origID)
+	if !dryrun {
+		px.hp[hopID] = out
+	}
+	log.I("proxy: mapHop: %s => %s; remaining origins: %v", hopID, origID, out)
+	return len(out) > len(in)
 }
 
 func (px *proxifier) unmapHopFrom(orig x.Proxy, dryrun bool) (unmapped bool) {
@@ -817,10 +819,6 @@ func (px *proxifier) unmapHopFrom(orig x.Proxy, dryrun bool) (unmapped bool) {
 }
 
 func (px *proxifier) unmapHop(hop x.Proxy, orig x.Proxy, dryrun bool) (unmapped bool) {
-	if dryrun {
-		return
-	}
-
 	hopID := idstr(hop)
 	origID := idstr(orig)
 	if len(hopID) <= 0 || len(origID) <= 0 {
@@ -832,7 +830,15 @@ func (px *proxifier) unmapHop(hop x.Proxy, orig x.Proxy, dryrun bool) (unmapped 
 
 	if in, ok := px.hp[hopID]; ok {
 		out := removeElem(in, origID)
-		px.hp[hopID] = out
+		if !dryrun {
+			if len(out) <= 0 {
+				log.I("proxy: unmapHop: %s => %s; no more origins, removing hop", hopID, origID)
+				delete(px.hp, hopID) // remove hop if no origins left
+			} else {
+				log.I("proxy: unmapHop: %s => %s; remaining origins: %v", hopID, origID, out)
+				px.hp[hopID] = out
+			}
+		}
 		unmapped = len(out) < len(in)
 	}
 	return
