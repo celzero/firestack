@@ -24,10 +24,9 @@ import (
 const refreshInterval time.Duration = 2 * time.Minute
 
 var (
-	errNoIps        = errors.New("multihost: no ips")
-	errMhNotFound   = errors.New("multihost: not found")
-	errNilMultiHost = errors.New("multihost: nil multihost")
-	errInvalidPort  = errors.New("multihost: invalid port")
+	errNoIps       = errors.New("multihost: no ips")
+	errMhNotFound  = errors.New("multihost: not found")
+	errInvalidPort = errors.New("multihost: invalid port")
 )
 
 var zeroaddr = netip.AddrPort{}
