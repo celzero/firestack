@@ -50,6 +50,8 @@ var (
 const (
 	prod = true
 
+	agwAlwaysAllowAllIPs = true
+
 	agwDevUrl          = "http://gw.dev.amzsvc.com/v1/config"
 	agwProdUrl         = "http://gw.amnezia.org/v1/config"
 	agwDevRsaPublicKey = `-----BEGIN PUBLIC KEY-----
@@ -169,7 +171,7 @@ type AmzWgConfig struct {
 }
 
 func (c *AmzWgConfig) genWgConf() {
-	if len(c.AllowedIPs) <= 0 {
+	if len(c.AllowedIPs) <= 0 || agwAlwaysAllowAllIPs {
 		c.AllowedIPs = []string{gw4, gw6}
 	}
 	server := net.JoinHostPort(c.HostName, fmt.Sprintf("%d", c.Port))
