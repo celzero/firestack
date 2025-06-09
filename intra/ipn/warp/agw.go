@@ -314,11 +314,11 @@ func (c *AmzWgConfig) Json() ([]byte, error) {
 //		  }
 //		}
 //	}
-func (a *AgwClient) unravel(decompressedData []byte) ([]AmzWgConfig, error) {
+func (a *AgwClient) unravel(decompressedData []byte) (cfgs []AmzWgConfig, expiresTimestamp int64, err error) {
 	var data AmzWgData
-	err := json.Unmarshal(decompressedData, &data)
+	err = json.Unmarshal(decompressedData, &data)
 	if err != nil {
-		return nil, err
+		return
 	}
 
 	uuid, wgpriv := a.uuid, a.wgpriv
@@ -333,9 +333,9 @@ func (a *AgwClient) unravel(decompressedData []byte) ([]AmzWgConfig, error) {
 	if err != nil || expiresAt.IsZero() || now.Sub(expiresAt) > 0 {
 		expiresAt = weekFromNow
 	}
-	expiresTimestamp := expiresAt.Unix()
+	expiresTimestamp = expiresAt.Unix()
 
-	cfgs := make([]AmzWgConfig, 0, len(data.Containers))
+	cfgs = make([]AmzWgConfig, 0, len(data.Containers))
 	var errs error
 	for _, container := range data.Containers {
 		var lcfg AmzWgConfig
@@ -354,9 +354,9 @@ func (a *AgwClient) unravel(decompressedData []byte) ([]AmzWgConfig, error) {
 	}
 
 	if len(cfgs) <= 0 {
-		return nil, core.OneErr(errs, errNoAgwConfig)
+		err = core.OneErr(errs, errNoAgwConfig)
 	}
-	return cfgs, nil
+	return
 }
 
 func (a *AgwClient) qUncompressVpnUri(data []byte) ([]byte, error) {
@@ -692,7 +692,7 @@ func (a *AgwClient) reg() error {
 		return err
 	}
 
-	cfgs, err := a.unravel(data)
+	cfgs, expires, err := a.unravel(data)
 	if err != nil || len(cfgs) <= 0 {
 		log.E("agw: %s reg: cfg", uuid, err)
 		return core.OneErr(err, errNoAgwConfig)
@@ -702,7 +702,7 @@ func (a *AgwClient) reg() error {
 	first.genWgConf()
 	a.AmzWgConfig = first
 
-	log.I("agw: %s reg: got cfgs %d", uuid, len(cfgs))
+	log.I("agw: %s reg: got cfgs %d until %s", uuid, len(cfgs), core.FmtUnixEpochAsPeriod(expires))
 	return nil
 }
 

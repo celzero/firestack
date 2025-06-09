@@ -71,3 +71,7 @@ func FmtSecs(s int64) string {
 func FmtUnixMillisAsTimestamp(ms int64) string {
 	return time.UnixMilli(ms).Format(time.Stamp)
 }
+
+func FmtUnixEpochAsPeriod(secs int64) string {
+	return FmtTimeAsPeriod(time.Unix(secs, 0))
+}
