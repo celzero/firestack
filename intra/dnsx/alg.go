@@ -617,26 +617,22 @@ func (t *dnsgateway) onStopped(tid string) {
 	}
 
 	t.RLock()
-	defer t.RUnlock()
-
-	ach := make(chan *xips, len(t.alg))
-	defer close(ach)
-
-	go func() {
-		n := 0
-		for x := range ach {
-			if x.rmv(tid) {
-				n++
-			}
-		}
-		log.I("alg: onStopped(%s): removed %d alg<>realip translations", tid, n)
-	}()
-
+	algEntries := make([]*xips, 0, len(t.alg))
 	for _, algans := range t.alg {
-		if algans != nil {
-			ach <- algans.ips
+		if algans != nil && algans.ips != nil {
+			algEntries = append(algEntries, algans.ips)
 		}
 	}
+	t.RUnlock()
+
+	// Process outside the lock to avoid holding it too long
+	n := 0
+	for _, xip := range algEntries {
+		if xip.rmv(tid) {
+			n++
+		}
+	}
+	log.I("alg: onStopped(%s): removed %d alg<>realip translations", tid, n)
 }
 
 // clears alg states
@@ -947,10 +943,10 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []netip.Addr, network, uid strin
 		// since register may not have happened at all
 		xdns.BustAndroidCacheIfNeeded(outmsg)
 
-		if isAlgErr(err) && !mod {
+		if isAlgErr(outerr) && !mod {
 			log.D("alg: %s<>%s[%s]:%s:%d no mod; suppress err %v",
-				smm.ID, idstr(t1), uid, qname, qtyp, err)
-			err = nil // ignore alg errors if no modification is desired
+				smm.ID, idstr(t1), uid, qname, qtyp, outerr)
+			outerr = nil // ignore alg errors if no modification is desired
 		}
 	}()
 
@@ -1097,7 +1093,7 @@ func Netip2Csv(ips []netip.Addr) (csv string) {
 }
 
 func Csv2Netip(csv string) (ips []netip.Addr) {
-	out := make([]netip.Addr, 0, len(ips))
+	out := make([]netip.Addr, 0)
 	for ip := range strings.SplitSeq(csv, ",") {
 		if ipaddr, err := netip.ParseAddr(ip); ipaddr.IsValid() && err == nil {
 			out = append(out, ipaddr)
