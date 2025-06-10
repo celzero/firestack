@@ -508,8 +508,8 @@ func (h *baseHandler) undoAlg(algip netip.Addr, uid string) (undidAlg bool, real
 	forcePTR := true // force PTR (realip => algans) translation?
 	gw := r.Gateway()
 	ipok := !algip.IsUnspecified() && algip.IsValid()
-	canalg := ipok && gw != nil
-	if canalg {
+	hasreal := false
+	if ipok && gw != nil {
 		domains, didForce = gw.PTR(algip, !forcePTR) // does NAT (algip => algans) translation
 		if !didForce && len(domains) <= 0 {
 			probableDomains, _ = gw.PTR(algip, forcePTR)
@@ -518,6 +518,7 @@ func (h *baseHandler) undoAlg(algip netip.Addr, uid string) (undidAlg bool, real
 		// ips will contain the incoming "algip" arg, in cases where alg is NOT enabled.
 		ips, undidAlg = gw.X(algip, uid)
 		realips = dnsx.Netip2Csv(ips)
+		hasreal = len(realips) > 0
 		blocklists = gw.RDNSBL(algip)
 	}
 	if ipok && len(domains) <= 0 && len(probableDomains) <= 0 {
@@ -526,7 +527,7 @@ func (h *baseHandler) undoAlg(algip netip.Addr, uid string) (undidAlg bool, real
 		}
 	}
 
-	logwif(canalg)("com: %s: alg: undoAlg: for [%s] (gw? %t ok? %t, force? %t, withForce? %t) %s => %v (for %s + %s / block: %s)",
+	logwif(!hasreal)("com: %s: alg: undoAlg: for [%s] (gw? %t ok? %t, force? %t, withForce? %t) %s => %v (for %s + %s / block: %s)",
 		h.proto, uid, gw != nil, undidAlg, didForce, forcePTR, algip, realips, domains, probableDomains, blocklists)
 	return
 }
