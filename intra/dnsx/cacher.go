@@ -349,7 +349,7 @@ func (t *ctransport) hangoverCheckpoint() {
 	}
 }
 
-func (t *ctransport) fetch(network string, q *dns.Msg, summary *x.DNSSummary, cb *cache, key string) (*dns.Msg, error) {
+func (t *ctransport) fetch(network string, q *dns.Msg, smmout *x.DNSSummary, cb *cache, key string) (*dns.Msg, error) {
 	sendRequest := func(smm2 *x.DNSSummary) (*dns.Msg, error) {
 		reqsent := false
 
@@ -420,11 +420,11 @@ func (t *ctransport) fetch(network string, q *dns.Msg, summary *x.DNSSummary, cb
 	trok := t.hangover.Within(httl)
 
 	if v, isfresh := cb.freshCopy(key); trok && v != nil {
-		var cachedsummary *x.DNSSummary
+		var cachedsmm *x.DNSSummary
 		hasans := v.ans != nil
 
 		log.D("cache: hit(k: %s / stale? %t / ans? %t): %s", key, !isfresh, hasans, v)
-		r, cachedsummary, err := asResponse(q, v, isfresh) // return cached response, may be stale
+		r, cachedsmm, err := asResponse(q, v, isfresh) // return cached response, may be stale
 		if err != nil {
 			log.W("cache: hit(k: %s) %s, but err? %v", key, v, err)
 			if err == errCacheResponseMismatch {
@@ -435,7 +435,7 @@ func (t *ctransport) fetch(network string, q *dns.Msg, summary *x.DNSSummary, cb
 				cb.mu.Unlock()
 			}
 			// fallthrough to sendRequest
-		} else if cachedsummary != nil {
+		} else if cachedsmm != nil {
 			if !isfresh { // not fresh, fetch in the background
 				testpanic := settings.PanicAtRandom.Load() && rand10pc()
 				g := core.Gx
@@ -446,20 +446,20 @@ func (t *ctransport) fetch(network string, q *dns.Msg, summary *x.DNSSummary, cb
 					if testpanic {
 						panic("dns: cache: fetch: sendRequest: rand10pc")
 					}
-					_, _ = sendRequest(copySummary(summary)) // summary may be cached
+					_, _ = sendRequest(copySummary(smmout)) // summary may be cached
 				})
 			}
 			// change summary fields to reflect cached response, except for latency
-			fillSummary(cachedsummary, summary)
-			summary.Latency = 0 // don't use cached latency
-			summary.Cached = true
+			fillSummary(cachedsmm, smmout)
+			smmout.Latency = 0 // don't use cached latency
+			smmout.Cached = true
 			return r, nil
 		} // else: fallthrough to sendRequest
 	} else {
 		log.D("cache: miss(k: %s): cached? %t, hangover? %t, stale? %t", key, v != nil, !trok, !isfresh)
 	}
 
-	return sendRequest(summary) // summary is filled by underlying transport
+	return sendRequest(smmout) // summary is filled by underlying transport
 }
 
 func (t *ctransport) Query(network string, q *dns.Msg, smm *x.DNSSummary) (*dns.Msg, error) {
@@ -549,6 +549,10 @@ func fillSummary(s *x.DNSSummary, out *x.DNSSummary) {
 	}
 	if len(out.ID) <= 0 {
 		out.ID = s.ID
+		out.Server = s.Server
+		out.PID = s.PID
+		out.RPID = s.RPID
+	} else if len(out.Server) <= 0 {
 		out.Server = s.Server
 		out.PID = s.PID
 		out.RPID = s.RPID
