@@ -652,7 +652,7 @@ func (t *dnsgateway) fromInternalCache(tid, uid string, q *dns.Msg, typ iptype) 
 		return nil, errSkipInternalCache
 	}
 	a, aaaa := xdns.HasAQuestion(q), xdns.HasAAAAQuestion(q)
-	if !a || !aaaa {
+	if !a && !aaaa {
 		return nil, errNilCacheResponse
 	}
 
@@ -1850,8 +1850,8 @@ func ChooseHealthyProxy(who string, ipps []netip.AddrPort, pids []string, px ipn
 		if !ipp.IsValid() {
 			continue
 		}
-		if px, err := px.ProxyTo(ipp, protect.UidSelf, pids); err == nil {
-			pid = proxyID(px)
+		if p, err := px.ProxyTo(ipp, protect.UidSelf, pids); err == nil {
+			pid = proxyID(p)
 			foundProxy = pid != NetNoProxy
 			cipp = ipp
 			break
