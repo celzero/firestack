@@ -220,7 +220,8 @@ func makeXipStatus(alive bool) xaddrstatus {
 // May return nil if tid is empty.
 func NewXips(tid, uid string, pri, sec []netip.Addr, ttl time.Time) *xips {
 	if len(tid) <= 0 {
-		panic("alg: xips: tid cannot be empty")
+		log.W("alg: xips: tid cannot be empty")
+		return nil
 	}
 
 	x := &xips{
@@ -463,7 +464,7 @@ func (p *xips) merge(q *xips) (szprialiv, szpri, szsecaliv, szsec int) {
 	for qk, qv := range q.aux {
 		pv := p.aux[qk]
 		if _, y := pv.fresh(); !y {
-			p.pri[qk] = qv // copy v from q into p
+			p.aux[qk] = qv // copy v from q into p
 			szsecaliv, szsec = qv.sizes()
 		} else {
 			ips := copyUniq(pv.alive(), qv.alive())
@@ -472,7 +473,7 @@ func (p *xips) merge(q *xips) (szprialiv, szpri, szsecaliv, szsec int) {
 				ttl = qv.ttl
 			}
 			v := expaddr{ips, ttl}
-			p.pri[qk] = v
+			p.aux[qk] = v
 			szsecaliv, szsec = v.sizes()
 		}
 	}
@@ -534,7 +535,7 @@ func (a *algans) merge(b *algans) {
 		return
 	}
 
-	log.VV("alg: merge: a(%s) into b(%s)", a, b)
+	log.VV("alg: merge: b(%s) into a(%s)", b, a)
 
 	if a.ips == nil {
 		a.ips = b.ips
@@ -1173,6 +1174,13 @@ func (t *dnsgateway) registerLocked(q, tid, uid string, algip4, algip6 netip.Add
 		ttl:        ansttl, // extended by 2m on every use
 	}
 
+	// Check if NewXips failed to create valid xips objects
+	if am4.ips == nil || am6.ips == nil {
+		log.E("alg: failed to create xips for %s@%s[%s]; am4.ips: %v, am6.ips: %v",
+			q, tid, uid, am4.ips, am6.ips)
+		return false
+	}
+
 	newEntry := false
 	didRegister := false
 	// register mapping from qname -> algip+realip (alg) and algip -> qname+realip (nat)
@@ -1660,7 +1668,7 @@ func (t *dnsgateway) resolvLocked(domain string, typ iptype, tid, uid string) (i
 				break
 			} // continue
 		}
-		log.V("alg: resolv: %s:%s[%s] => real(%s) ip4 %d, ip6 %d (until: %s); stale %v",
+		log.V("alg: resolv: %s:%s[%s] => real(ip4 %d, ip6 %d) until: %s; stale %v",
 			domain, tid, uid, len(ip4s), len(ip6s), until, staleips)
 	case typsecondary:
 		for i := range 2 { // a = 0, https/svcb = 1+
