@@ -241,7 +241,7 @@ func NewXips(tid, uid string, pri, sec []netip.Addr, ttl time.Time) *xips {
 	return x
 }
 
-func flatten[K comparable, V any](m map[K]V, upto uint) []V {
+func vals[K comparable, V any](m map[K]V, upto uint) []V {
 	outv := make([]V, 0, upto)
 	for _, v := range m {
 		if upto != 0 && uint(len(outv)) >= upto {
@@ -283,7 +283,7 @@ func (p *xips) allips(t xaddrtyp, s xaddrstatus) (out []netip.Addr) {
 		g = p.aux
 	}
 	const all = 0
-	for _, v := range flatten(g, all) {
+	for _, v := range vals(g, all) {
 		out = append(out, v.get(s)...)
 	}
 	return

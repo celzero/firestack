@@ -93,7 +93,7 @@ func (t *plus) all() []Transport {
 	defer t.mu.RUnlock()
 
 	const all = 0
-	return flatten(t.transports, all)
+	return vals(t.transports, all)
 }
 
 func (t *plus) ID() *x.Gostr {
