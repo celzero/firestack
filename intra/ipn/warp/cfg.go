@@ -36,7 +36,10 @@ const gw6 = "::/0"      // netip.ParsePrefix("::/0")
 // 141.101.113.0 cloudflare ip fronting
 var cfip141 = netip.MustParsePrefix("141.101.113.0/24")
 
-var ports = []uint16{
+// use random but valid warp ip:port
+const usePooledWarpEndpoints = false
+
+var warpPorts = []uint16{
 	500,
 	854,
 	859,
@@ -93,7 +96,7 @@ var ports = []uint16{
 	8886,
 }
 
-var cidrs4 = []netip.Prefix{
+var warpCidrs4 = []netip.Prefix{
 	netip.MustParsePrefix("162.159.192.0/24"),
 	netip.MustParsePrefix("162.159.193.0/24"),
 	netip.MustParsePrefix("162.159.195.0/24"),
@@ -103,7 +106,7 @@ var cidrs4 = []netip.Prefix{
 	netip.MustParsePrefix("188.114.99.0/24"),
 }
 
-var cidrs6 = []netip.Prefix{
+var warpCidrs6 = []netip.Prefix{
 	netip.MustParsePrefix("2606:4700:d0::/64"),
 	netip.MustParsePrefix("2606:4700:d1::/64"),
 }
@@ -118,7 +121,7 @@ var Net6to4 = []netip.Prefix{
 	netip.MustParsePrefix("2001:67c:2b0:db32:0:1::/96"), // trex
 }
 
-var defaultHeaders = map[string]string{
+var warpDefaultHeaders = map[string]string{
 	"Content-Type":      "application/json; charset=UTF-8",
 	"User-Agent":        "okhttp/3.12.1",
 	"CF-Client-Version": "a-6.30-3596",
@@ -478,17 +481,21 @@ var prebuiltProtonServersJson = []byte(`[
     }
 ]`)
 
-func anyCidrs() (v4 netip.Prefix, v6 netip.Prefix) {
-	return cidrs4[rand.Intn(len(cidrs4))], cidrs6[rand.Intn(len(cidrs6))]
+func randomWarpCidrs() (v4 netip.Prefix, v6 netip.Prefix) {
+	return warpCidrs4[rand.Intn(len(warpCidrs4))], warpCidrs6[rand.Intn(len(warpCidrs6))]
 }
 
-func anyPort() uint16 {
+func randomWarpPort() uint16 {
 	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
-	return ports[rng.Intn(len(ports))]
+	return warpPorts[rng.Intn(len(warpPorts))]
 }
 
 func WarpEndpoints() (v4 netip.AddrPort, v6 netip.AddrPort, err error) {
-	cidr4, cidr6 := anyCidrs()
+	if usePooledWarpEndpoints {
+		err = errDisabledRandomEp
+		return
+	}
+	cidr4, cidr6 := randomWarpCidrs()
 	ip4, err4 := core.RandomIPFromPrefix(cidr4)
 	ip6, err6 := core.RandomIPFromPrefix(cidr6)
 	if err4 != nil && err6 != nil {
@@ -501,10 +508,10 @@ func WarpEndpoints() (v4 netip.AddrPort, v6 netip.AddrPort, err error) {
 		return
 	}
 	if v4ok {
-		v4 = netip.AddrPortFrom(ip4, anyPort())
+		v4 = netip.AddrPortFrom(ip4, randomWarpPort())
 	}
 	if v6ok {
-		v6 = netip.AddrPortFrom(ip6, anyPort())
+		v6 = netip.AddrPortFrom(ip6, randomWarpPort())
 	}
 	return
 }

@@ -174,7 +174,7 @@ func (w *WarpClient) GetAcct() error {
 		return err
 	}
 
-	for k, v := range defaultHeaders {
+	for k, v := range warpDefaultHeaders {
 		req.Header.Set(k, v)
 	}
 	req.Header.Set("Authorization", "Bearer "+tok)
@@ -239,7 +239,7 @@ func (w *WarpClient) reg() error {
 		return err
 	}
 
-	for k, v := range defaultHeaders {
+	for k, v := range warpDefaultHeaders {
 		req.Header.Set(k, v)
 	}
 
@@ -295,7 +295,7 @@ func (w *WarpClient) ResetLicense() error {
 		return err
 	}
 
-	for k, v := range defaultHeaders {
+	for k, v := range warpDefaultHeaders {
 		req.Header.Set(k, v)
 	}
 	req.Header.Set("Authorization", "Bearer "+authToken)
@@ -355,7 +355,7 @@ func (w *WarpClient) UpdateAcct(license string) error {
 		return err
 	}
 
-	for k, v := range defaultHeaders {
+	for k, v := range warpDefaultHeaders {
 		req.Header.Set(k, v)
 	}
 	req.Header.Set("Authorization", "Bearer "+authToken)

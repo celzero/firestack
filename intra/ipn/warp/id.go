@@ -24,13 +24,14 @@ import (
 )
 
 var (
-	errNoWgKey       = errors.New("warp: no wg key")
-	errNoDialer      = errors.New("warp: no dialer")
-	errNoApiResponse = errors.New("ipn: no api response")
-	errNoApiData     = errors.New("warp: no api data")
-	errZeroIdentity  = errors.New("warp: identity content empty")
-	errZeroPeers     = errors.New("warp: no peers")
-	errZeroRandomEp  = errors.New("warp: zero random endpoint")
+	errNoWgKey          = errors.New("warp: no wg key")
+	errNoDialer         = errors.New("warp: no dialer")
+	errNoApiResponse    = errors.New("ipn: no api response")
+	errNoApiData        = errors.New("warp: no api data")
+	errZeroIdentity     = errors.New("warp: identity content empty")
+	errZeroPeers        = errors.New("warp: no peers")
+	errZeroRandomEp     = errors.New("warp: zero random endpoint")
+	errDisabledRandomEp = errors.New("warp: random eps disabled")
 )
 
 /*

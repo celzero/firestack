@@ -525,7 +525,7 @@ func wgIfConfigOf(id string, txtptr *string) (opts wgifopts, err error) {
 			n := 0
 			if id == RpnWg { // warp
 				v4, v6, err := warp.WarpEndpoints()
-				if err == nil {
+				if err == nil { // may err if random warp endpoints are disabled
 					warpipcsv := v4.String() + "," + v6.String()
 					n = loadMH(currentPeer, warpipcsv)
 				}
