@@ -124,6 +124,13 @@ func (a expaddr) String() string {
 	return fmt.Sprintf("addrs(%v / ttl: %s)", a.ips, time.Until(a.ttl))
 }
 
+func (a expaddr) sizes() (alive, tot int) {
+	if a.ips == nil {
+		return
+	}
+	return len(a.get(xalive)), len(a.ips)
+}
+
 func (a expaddr) all() []netip.Addr {
 	return a.get(xall)
 }
@@ -154,8 +161,12 @@ func (a expaddr) get(s xaddrstatus) (out []netip.Addr) {
 		return
 	}
 	_, fresh := a.fresh()
-	if s == xalive && fresh {
+	if s == xall {
 		return a.ips
+	} else if s == xalive {
+		if fresh {
+			return a.ips
+		}
 	}
 	return
 }
@@ -415,7 +426,9 @@ func (p *xips) each(f func(ip netip.Addr)) {
 	}
 }
 
-func (p *xips) merge(q *xips) {
+func (p *xips) merge(q *xips) (szprialiv, szpri, szsecaliv, szsec int) {
+	szprialiv, szpri, szsecaliv, szsec = -1, -1, -1, -1 // -1 means no change
+
 	if p == nil || q == nil {
 		return
 	}
@@ -429,6 +442,7 @@ func (p *xips) merge(q *xips) {
 		pv := p.pri[qk]
 		if _, y := pv.fresh(); !y {
 			p.pri[qk] = qv // copy v from q into p
+			szprialiv, szpri = qv.sizes()
 		} else {
 			ips := copyUniq(pv.alive(), qv.alive())
 			ttl := pv.ttl
@@ -440,7 +454,9 @@ func (p *xips) merge(q *xips) {
 				// as possible (even at the slight cost of correctness).
 				ttl = qv.ttl
 			}
-			p.pri[qk] = expaddr{ips, ttl}
+			v := expaddr{ips, ttl}
+			p.pri[qk] = v
+			szprialiv, szpri = v.sizes()
 		}
 	}
 
@@ -448,15 +464,20 @@ func (p *xips) merge(q *xips) {
 		pv := p.aux[qk]
 		if _, y := pv.fresh(); !y {
 			p.pri[qk] = qv // copy v from q into p
+			szsecaliv, szsec = qv.sizes()
 		} else {
 			ips := copyUniq(pv.alive(), qv.alive())
 			ttl := pv.ttl
 			if !pv.after(qv) {
 				ttl = qv.ttl
 			}
-			p.pri[qk] = expaddr{ips, ttl}
+			v := expaddr{ips, ttl}
+			p.pri[qk] = v
+			szsecaliv, szsec = v.sizes()
 		}
 	}
+
+	return
 }
 
 type baseans struct {
@@ -518,7 +539,9 @@ func (a *algans) merge(b *algans) {
 	if a.ips == nil {
 		a.ips = b.ips
 	} else {
-		a.ips.merge(b.ips)
+		prialiv, totpri, secaliv, totsec := a.ips.merge(b.ips)
+		logeif(totpri < 0 || totsec < 0)("alg: merge: err ips merge; pri(%d/%d) sec(%d/%d), out(%s)",
+			prialiv, totpri, secaliv, totsec, a)
 	}
 	a.domains = copyUniq(a.domains, b.domains)
 	a.blocklists = b.blocklists // TODO: merge?
@@ -1183,8 +1206,8 @@ func (t *dnsgateway) registerLocked(q, tid, uid string, algip4, algip6 netip.Add
 		didRegister = true
 	}
 
-	logeif(!didRegister)("alg: algips (reg? %t / new? %t) %s+%s for %s@%s[%s]; real? %d, sec? %d; until (ans: %s / xips: %s)",
-		didRegister, newEntry, algip4, algip6, q, tid, uid, len(realips), len(secres.ips), time.Until(ansttl), time.Until(xipsttl))
+	logeif(!didRegister)("alg: algips (reg? %t / new? %t) (alg: %s+%s => real: %s) for %s@%s[%s]; real? %d, sec? %d; until (ans: %s / xips: %s)",
+		didRegister, newEntry, algip4, algip6, realips, q, tid, uid, len(realips), len(secres.ips), time.Until(ansttl), time.Until(xipsttl))
 
 	if !didRegister {
 		return false
@@ -1471,7 +1494,6 @@ func (t *dnsgateway) xLocked(maybeAlg netip.Addr, usestale bool, uid string, tid
 				}
 			}
 			until, fresh = ans.fresh()
-
 		} else if ans, undidPtr = t.ptr[unmapped]; undidPtr {
 			// for IPs (unlike domains), it is okay to fallback on ptr as the
 			// maybeAlg may be an algip OR realip (latter in the case where an
