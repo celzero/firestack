@@ -8,7 +8,6 @@ package ipn
 
 import (
 	"context"
-	"fmt"
 	"net"
 	"time"
 
@@ -584,7 +583,8 @@ func (a *auto) dialIfHealthy(p Proxy, network, local, remote string) (net.Conn, 
 
 func (*auto) announceIfHealthy(p Proxy, network, local string) (net.PacketConn, error) {
 	if err := healthy(p); err != nil {
-		return nil, fmt.Errorf("auto announce; %s %s not ok; %v: %s", p.ID(), network, err, local)
+		log.E("auto announce; %s %s not ok; %v: %s", p.ID(), network, err, local)
+		time.Sleep(delayForUnhealthyProxies)
 	}
 	return p.Dialer().Announce(network, local)
 }
