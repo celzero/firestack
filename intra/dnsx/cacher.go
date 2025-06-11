@@ -542,9 +542,9 @@ func fillSummary(s *x.DNSSummary, out *x.DNSSummary) {
 		return
 	}
 
-	// pefer out
+	// prefer out
 
-	if len(out.Type) != 0 {
+	if len(out.Type) == 0 {
 		out.Type = s.Type
 	}
 	if len(out.ID) <= 0 {
