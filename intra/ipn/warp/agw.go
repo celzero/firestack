@@ -775,7 +775,7 @@ func unpadPKCS7(data []byte, blockSize int) ([]byte, error) {
 	return data[:len(data)-padding], nil
 }
 
-func (w *Client) MakeAmzWg() (*AgwClient, error) {
+func (w *BaseClient) MakeAmzWg() (*AgwClient, error) {
 	k, err := x.NewWgPrivateKey()
 	if err != nil {
 		return nil, err
@@ -798,7 +798,7 @@ func (w *Client) MakeAmzWg() (*AgwClient, error) {
 	return a, nil
 }
 
-func (w *Client) MakeAmzWgFrom(existingStateJson []byte) (*AgwClient, error) {
+func (w *BaseClient) MakeAmzWgFrom(existingStateJson []byte) (*AgwClient, error) {
 	log.I("agw: make: from: %d", len(existingStateJson))
 
 	var config AmzWgConfig

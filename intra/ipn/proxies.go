@@ -251,7 +251,7 @@ type proxifier struct {
 	grounded *ground // grounded proxy, never changes
 	auto     *auto   // auto proxy, never changes
 
-	extc *warp.Client // external wg registration, never changes
+	extc *warp.BaseClient // external wg registration, never changes
 
 	sec *seasy.SEApi // se proxy registration, never changes; may be nil
 
@@ -1151,7 +1151,7 @@ func (px *proxifier) RegisterWarp(existingState *x.Gobyte) (stateJson *x.Gobyte,
 
 	wc, err := px.registerWarp(existingStateJson)
 	if err != nil || core.IsNil(wc) {
-		return nil, core.JoinErr(err, errNilWarpId)
+		return nil, core.OneErr(err, errNilWarpId)
 	}
 	state, err := wc.State()
 	if err != nil {

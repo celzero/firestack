@@ -48,7 +48,7 @@ var _ RpnAcc = (*AgwClient)(nil)
 var _ RpnAcc = (*ProtonClient)(nil)
 var _ RpnAcc = (*WarpClient)(nil)
 
-type Client struct {
+type BaseClient struct {
 	d  *protect.RDial
 	h2 http.Client
 }
@@ -120,8 +120,17 @@ func newWarpClient(d *protect.RDial, id *Identity) (wc *WarpClient, err error) {
 	log.I("warp: make: client for %s; new? %t; from: %s until: %s",
 		wc.Who(), id == nil, fmtUnixMillis(wc.Created()), fmtUnixMillis(wc.Expires()))
 
-	wc.h.Transport = &http.Transport{
-		DialTLSContext: wc.utlsDial,
+	if useUtlsWarpApis {
+		wc.h.Transport = &http.Transport{
+			DialTLSContext: wc.utlsDial,
+		}
+	} else {
+		wc.h.Transport = &http.Transport{
+			DialContext:           wc.dial,
+			ForceAttemptHTTP2:     true,
+			ResponseHeaderTimeout: 15 * time.Second,
+			IdleConnTimeout:       30 * time.Second,
+		}
 	}
 
 	if restoring {
@@ -131,9 +140,9 @@ func newWarpClient(d *protect.RDial, id *Identity) (wc *WarpClient, err error) {
 	return wc, nil
 }
 
-func NewExtClient(ctx context.Context, c protect.Controller) *Client {
+func NewExtClient(ctx context.Context, c protect.Controller) *BaseClient {
 	d := protect.MakeNsRDial("extclient", ctx, c)
-	w := &Client{d: d}
+	w := &BaseClient{d: d}
 	w.h2.Transport = &http.Transport{
 		Dial:                  d.Dial,
 		ForceAttemptHTTP2:     true,
@@ -141,6 +150,10 @@ func NewExtClient(ctx context.Context, c protect.Controller) *Client {
 		IdleConnTimeout:       30 * time.Second,
 	}
 	return w
+}
+
+func (w *WarpClient) dial(ctx context.Context, network, addr string) (net.Conn, error) {
+	return dialers.SplitDial(w.d, network, addr)
 }
 
 func (w *WarpClient) utlsDial(ctx context.Context, network, addr string) (net.Conn, error) {
@@ -432,7 +445,7 @@ func (w *WarpClient) Conf(cc string) (string, error) {
 
 // from: github.com/bepass-org/warp-plus/blob/19ac233cc/warp/account.go
 
-func (w *Client) MakeWarp() (*WarpClient, error) {
+func (w *BaseClient) MakeWarp() (*WarpClient, error) {
 	wc, err := newWarpClient(w.d, nil)
 	if err != nil {
 		return nil, err
@@ -450,7 +463,7 @@ func (w *Client) MakeWarp() (*WarpClient, error) {
 	return wc, nil
 }
 
-func (w *Client) MakeWarpFrom(existingStateJson []byte) (*WarpClient, error) {
+func (w *BaseClient) MakeWarpFrom(existingStateJson []byte) (*WarpClient, error) {
 	var id Identity
 	err := json.Unmarshal(existingStateJson, &id)
 	if err != nil {

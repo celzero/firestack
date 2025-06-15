@@ -39,6 +39,9 @@ var cfip141 = netip.MustParsePrefix("141.101.113.0/24")
 // use random but valid warp ip:port
 const usePooledWarpEndpoints = false
 
+// use utls for warp api requests
+const useUtlsWarpApis = false
+
 var warpPorts = []uint16{
 	500,
 	854,

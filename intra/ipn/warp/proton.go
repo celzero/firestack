@@ -1426,7 +1426,7 @@ func (a *ProtonClient) Conf(cc string) (string, error) {
 	return "", errNoProtonCcConf
 }
 
-func (w *Client) MakeProtonWg(allServersFilePath string) (*ProtonClient, error) {
+func (w *BaseClient) MakeProtonWg(allServersFilePath string) (*ProtonClient, error) {
 	k, err := newProtonKeyPair()
 	if err != nil {
 		return nil, err
@@ -1446,7 +1446,7 @@ func (w *Client) MakeProtonWg(allServersFilePath string) (*ProtonClient, error) 
 	return a, nil
 }
 
-func (w *Client) MakeProtonWgFrom(existingConfigJson []byte, allServersFilePath string) (*ProtonClient, error) {
+func (w *BaseClient) MakeProtonWgFrom(existingConfigJson []byte, allServersFilePath string) (*ProtonClient, error) {
 	if len(existingConfigJson) <= 0 {
 		return nil, errNoProtonJsonConfig
 	}
