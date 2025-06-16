@@ -1525,7 +1525,7 @@ func (t *dnsgateway) xLocked(maybeAlg netip.Addr, usestale bool, uid string, tid
 		unnated = t.maybeUndoNat64Locked(realips...)
 	} // else: send realips as is
 
-	logeif(!hasrealips)("alg: dns64: for %v[%s] (didnotAlg? %t / fresh? %t / undidAlg? %t / undidPtr? %t / staleok? %t) algip(%v) => realips(%v) => unnated(%v); until: %s",
+	logeif(!hasrealips && !didnotAlg)("alg: dns64: for %v[%s] (didnotAlg? %t / fresh? %t / undidAlg? %t / undidPtr? %t / staleok? %t) algip(%v) => realips(%v) => unnated(%v); until: %s",
 		tids, uid, didnotAlg, fresh, undidPtr, undidAlg, usestale, unmapped, realips, unnated, until)
 
 	if len(unnated) > 0 { // unnated is already de-duplicated
