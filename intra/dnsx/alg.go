@@ -670,7 +670,7 @@ func (t *dnsgateway) fromInternalCache(tid, uid string, q *dns.Msg, typ iptype) 
 	}
 
 	ttl := uint32(until.Seconds())
-	log.VV("alg: response for %s by %s[%s] (v4? %t / v6? %t) realip; in cache? %v [until: %s] (or stale? %v)",
+	log.VV("alg: response for %s by %s[%s] (v4? %t / v6? %t) realip; in cache? %v [until: %d] (or stale? %v)",
 		domain, tid, uid, a, aaaa, cachedips, ttl, stale)
 
 	if len(cachedips) <= 0 {
