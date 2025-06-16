@@ -163,7 +163,7 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target netip.AddrPort)
 
 	if h.status.Load() == HDLEND {
 		err = errTcpEnd
-		log.D("tcp: proxy: end %s => %s", src, target)
+		log.D("tcp: proxy: %s end %s => %s [%v]", cid, src, target, actualTargets)
 		clos(gconn)
 		h.queueSummary(smm.done(err))
 		return deny
@@ -201,10 +201,15 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target netip.AddrPort)
 		} // else not a dns request
 	} // if ipn.Exit then let it connect as-is (aka exit)
 
+	log.VV("tcp: %s proxying %s => %s [%v] for %s; pids: %s",
+		cid, src, target, actualTargets, uid, pids)
+
 	// pick all realips to connect to
 	for i, dstipp := range actualTargets {
 		var px ipn.Proxy = nil
 		if px, err = h.prox.ProxyTo(dstipp, uid, pids); err != nil || px == nil {
+			log.W("tcp: dial: #%d: %s proxy(%s) to dst(%s) for %s; err %v",
+				i, cid, pidstr(px), dstipp, uid, err)
 			continue
 		}
 
@@ -232,6 +237,9 @@ func (h *tcpHandler) handle(px ipn.Proxy, src net.Conn, boundSrc, target netip.A
 	var dst net.Conn
 
 	start := time.Now()
+
+	log.VV("tcp: %s dial %s: attempt:  %s [%s] => %s for %s",
+		smm.ID, pidstr(px), src.LocalAddr(), boundSrc, target, smm.UID)
 
 	// github.com/google/gvisor/blob/5ba35f516b5c2/test/benchmarks/tcp/tcp_proxy.go#L359
 	// ref: stackoverflow.com/questions/63656117

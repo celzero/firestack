@@ -261,12 +261,16 @@ func (h *udpHandler) Connect(gconn *netstack.GUDPConn, src, target netip.AddrPor
 			pids = []string{muxpid}
 		} // else: mxr will dial this conn with a different pid
 	}
+
+	log.VV("udp: connect: %s proxying %s => %s [%v] for %s; pids: %s, mux? %t",
+		cid, src, target, actualTargets, uid, pids, mux)
+
 	// note: fake-dns-ips shouldn't be un-nated / un-alg'd
 	for i, dstipp := range actualTargets {
 		rttstart := time.Now()
 
 		if px, err = h.prox.ProxyTo(dstipp, uid, pids); err != nil || px == nil {
-			log.W("udp: connect: %s failed to get proxy from %s: %v", cid, pids, err)
+			log.W("udp: connect: #%d: %s failed to get proxy from %s: %v", i, cid, pidstr(px), err)
 			errs = err // disconnect if loop terminates
 			continue
 		}
@@ -275,6 +279,10 @@ func (h *udpHandler) Connect(gconn *netstack.GUDPConn, src, target netip.AddrPor
 		if mux { // mux is not supported by all proxies (few like Exit, Base, WG support it)
 			pc, err = h.mux.associate(cid, pxid, uid, src, selectedTarget, px.Dialer().Announce, vendor(dmx))
 		} else {
+
+			log.VV("udp: connect: #%d: attempt: %s proxy(%s) to dst(%s) for %s; mux? %t",
+				i, cid, pxid, selectedTarget, uid, mux)
+
 			if settings.PortForward.Load() {
 				boundSrc := makeAnyAddrPort(src)
 				pc, err = px.Dialer().DialBind("udp", boundSrc.String(), selectedTarget.String())
