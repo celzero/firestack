@@ -682,6 +682,12 @@ func (t *dnsgateway) fromInternalCache(tid, uid string, q *dns.Msg, typ iptype) 
 func (t *dnsgateway) qp(t1 Transport, uid, network string, q *dns.Msg, innersummary *x.DNSSummary) (ans *dns.Msg, err error) {
 	// For A/AAAA queries, check if xips has an answer for the qname.
 	if ans, err := t.fromInternalCache(idstr(t1), uid, q, typreal); err == nil {
+		innersummary.ID = idstr(t1)
+		innersummary.Server = getaddrstr(t1)
+		innersummary.RData = xdns.GetInterestingRData(ans)
+		innersummary.RCode = xdns.Rcode(ans)
+		innersummary.RTtl = xdns.RTtl(ans)
+		innersummary.Status = Complete
 		innersummary.Cached = true
 		return ans, nil
 	}
@@ -745,6 +751,14 @@ func (t *dnsgateway) querySecondary(t2 Transport, uid, network string, msg *dns.
 		if r, err = t.fromInternalCache(idstr(t2), uid, msg, typsecondary); err != nil {
 			// else: query secondary to get answer for q
 			r, err = Req(t2, network, msg, result.smm)
+		} else {
+			result.smm.ID = idstr(t2)
+			result.smm.Server = getaddrstr(t2)
+			result.smm.RData = xdns.GetInterestingRData(r)
+			result.smm.RCode = xdns.Rcode(r)
+			result.smm.RTtl = xdns.RTtl(r)
+			result.smm.Status = Complete
+			result.smm.Cached = true
 		}
 	}
 
@@ -1943,6 +1957,13 @@ func idstr(t Transport) string {
 		return notransport
 	}
 	return t.ID().V()
+}
+
+func getaddrstr(t Transport) string {
+	if t == nil {
+		return notransport
+	}
+	return t.GetAddr().V()
 }
 
 func ipok(ip netip.Addr) bool {
