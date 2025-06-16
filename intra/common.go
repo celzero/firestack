@@ -57,7 +57,7 @@ type zeroListener struct{}
 
 var _ SocketListener = (*zeroListener)(nil)
 
-func (*zeroListener) Preflow(_, _ int32, _, _, _ *x.Gostr) *PreMark    { return nil }
+func (*zeroListener) Preflow(_, _ int32, _, _ *x.Gostr) *PreMark       { return nil }
 func (*zeroListener) Flow(_, _ int32, _, _, _, _, _, _ *x.Gostr) *Mark { return nil }
 func (*zeroListener) Inflow(_, _ int32, _, _ *x.Gostr) *Mark           { return nil }
 func (*zeroListener) OnSocketClosed(*SocketSummary)                    {}
@@ -161,7 +161,7 @@ func (h *baseHandler) onFlow(localaddr, target netip.AddrPort) (fm *Mark, undidA
 	var pdoms, blocklists string
 
 	pre, _ := core.Grx(h.proto+".preflow", func(_ context.Context) (*PreMark, error) {
-		return h.listener.Preflow(proto, int32(uid), x.StrOf(src), x.StrOf(dst), x.StrOf(doms)), nil
+		return h.listener.Preflow(proto, int32(uid), x.StrOf(src), x.StrOf(dst)), nil
 	}, onFlowTimeout)
 
 	hasPre := pre != nil

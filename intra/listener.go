@@ -47,10 +47,8 @@ type SocketSummary struct {
 
 type SocketListener interface {
 	// Preflow is called before a new connection is established; return owner "uid", which is
-	// later used by dnsx.Resolver to determine the DNS transport to use for that "uid". That
-	// DNS transport will re-resolve "domains" (iff previously resolved to a "fake IP" by
-	// dnsx.alg) to determine the real egress IP to connect to.
-	Preflow(protocol, uid int32, src, dst, domains *x.Gostr) *PreMark
+	// later used by dnsx.Resolver to determine the DNS transport to use for that "uid".
+	Preflow(protocol, uid int32, src, dst *x.Gostr) *PreMark
 	// Flow is called on a new connection; return Proxy IDs to forward the connection
 	// to a pre-registered proxy; "Base" or "Exit" to allow the connection; "Block" to block it.
 	// "connid" is used to uniquely identify a connection across all proxies, and a summary of the
