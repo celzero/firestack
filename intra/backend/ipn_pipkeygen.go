@@ -86,6 +86,18 @@ func AsPipMsg(m *Gostr) *PipMsg {
 	return p
 }
 
+func NewPipMsgWith(tok *PipToken) *PipMsg {
+	if tok == nil {
+		return nil
+	}
+	msg := token()
+	if len(msg) != 2*msgsize {
+		log.E("pipkey: new: invalid msg size; want %d, got %d", 2*msgsize, len(msg))
+		return nil
+	}
+	return pipmsgof(msg + tok.S)
+}
+
 // go.dev/play/p/OTMIv7FLtVs
 func pipmsgof(m string) *PipMsg {
 	// 2 chars per byte in hex
@@ -93,8 +105,8 @@ func pipmsgof(m string) *PipMsg {
 		log.E("pipkey: fromv: invalid msg size; want %d, got %d", sz, len(m))
 		return nil
 	}
-	// m is a 64 byte hex encoded string
-	return &PipMsg{S: m}
+	// m is a 64 byte hex encoded string + tok is a 64 byte
+	return (*PipMsg)(StrOf(m))
 }
 
 // Returns empty Gostr if p is nil or invalid PipMsg.
@@ -136,12 +148,22 @@ func (p *PipMsg) cid() []byte {
 }
 
 // Opaque returns the client id part of the PipMsg as hex string.
-func (p *PipMsg) Opaque() *Gostr {
+func (p *PipMsg) Opaque() *PipToken {
 	if p == nil || !p.ok() {
 		log.E("pipkey: opaque: invalid; got %d", len(p.S))
 		return nil
 	}
-	return StrOf(p.S[2*(msgsize) : 2*(msgsize+cidsize)])
+	tok, err := asPipToken(p.S[2*(msgsize) : 2*(msgsize+cidsize)])
+	if err != nil {
+		log.E("pipkey: opaque conv: %v", err)
+		return nil
+	}
+	return tok
+}
+
+// Rotate creates a new PipMsg with the same opaque identifier but a different msg.
+func (p *PipMsg) Rotate() (new *PipMsg) {
+	return NewPipMsgWith(p.Opaque())
 }
 
 type PipKey struct {
@@ -544,11 +566,15 @@ func (k *pkgen) finalize(blindSig string) (*PipKey, error) {
 
 // Token gnerates a 32 byte random as hex (auths dataplane ops)
 func Token() (*PipToken, error) {
-	if tokstr := StrOf(token()); tokstr != nil && tokstr.Len() > 0 {
-		tok := PipToken(*tokstr)
-		return &tok, nil
+	return asPipToken(token())
+}
+
+func asPipToken(tok string) (*PipToken, error) {
+	if len(tok) != 2*tokensize {
+		return nil, errTokenCreat
 	}
-	return nil, errTokenCreat
+	// StrOf interns the string
+	return (*PipToken)(StrOf(tok)), nil
 }
 
 func token() string {
