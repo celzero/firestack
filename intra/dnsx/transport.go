@@ -1157,6 +1157,13 @@ func RegisterAddrs(id, hostname string, ipps []string) (ok bool) {
 	return
 }
 
+func Fastest(a, b Transport) int {
+	if a == nil || b == nil {
+		return 0 // unlikely
+	}
+	return int(a.P50() - b.P50())
+}
+
 func IsEncrypted(t Transport) bool {
 	return t != nil && isEncrypted(t.Type().V())
 }
