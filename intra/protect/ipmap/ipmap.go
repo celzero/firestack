@@ -25,7 +25,6 @@ package ipmap
 
 import (
 	"context"
-	"math/rand"
 	"net"
 	"net/netip"
 	"strings"
@@ -577,12 +576,7 @@ func (s *IPSet) Addrs() []netip.Addr {
 	c = append(c, s.ips...)
 	s.mu.RUnlock()
 
-	if len(c) > 1 {
-		rand.Shuffle(len(c), func(i, j int) {
-			c[i], c[j] = c[j], c[i]
-		})
-	}
-	return c
+	return core.ShuffleInPlace(c)
 }
 
 func (s *IPSet) Protected() bool {

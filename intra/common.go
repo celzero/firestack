@@ -491,10 +491,7 @@ func makeIPPorts(ips []netip.Addr, origipp netip.AddrPort, cap int) []netip.Addr
 		use4, use6, origipp, len(ips), ips, r)
 
 	if len(r) > 0 {
-		rand.Shuffle(len(r), func(i, j int) {
-			r[i], r[j] = r[j], r[i]
-		})
-		return r
+		return core.ShuffleInPlace(r)
 	}
 	return []netip.AddrPort{origipp}
 }

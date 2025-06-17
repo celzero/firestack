@@ -496,6 +496,5 @@ func closeOnErr(err error, c io.Closer) {
 }
 
 func shuffle[T any](a []T) []T {
-	rand.Shuffle(len(a), func(i, j int) { a[i], a[j] = a[j], a[i] })
-	return a
+	return core.ShuffleInPlace(a)
 }
