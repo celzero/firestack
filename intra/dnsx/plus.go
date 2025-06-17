@@ -16,6 +16,7 @@ import (
 	x "github.com/celzero/firestack/intra/backend"
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/log"
+	"github.com/celzero/firestack/intra/settings"
 	"github.com/celzero/firestack/intra/xdns"
 	"github.com/miekg/dns"
 )
@@ -157,6 +158,17 @@ func (t *plus) ordered() ([]Transport, error) {
 	}
 	ord = append(ord, preferred...)
 	ord = append(ord, recov...)
+
+	strat := settings.PlusStrat.Load()
+	if strat == settings.PlusFilterSafest {
+		ord = core.FilterLeft(ord, IsEncrypted)
+	} else if strat == settings.PlusOrderRandom {
+		ord = core.ShuffleInPlace(ord)
+	} else if strat == settings.PlusOrderFastest {
+		ord = core.Sort(ord, Fastest)
+	} else if strat == settings.PlusOrderRobust {
+		// nothing to do
+	}
 
 	if len(ord) <= 0 {
 		log.W("plus: zero transports avail [exp: %d]: errored: %v / ended: %v",
