@@ -132,20 +132,26 @@ type TransportMultInternal interface {
 	x.DNSTransportMult
 }
 
+type TransportMultProviderInternal interface {
+	x.DNSTransportMultProvider
+	// GetMultInternal returns multi-transport, if available
+	GetMultInternal(id string) (TransportMult, error)
+}
+
 type TransportProviderInternal interface {
+	x.DNSTransportProvider
 	// GetInternal returns the internal transport interface for the given ID.
 	GetInternal(id string) (Transport, error)
 
 	// special purpose pre-defined transports:
 
-	// GetMultInternal returns multi-transport, if available
-	GetMultInternal(id string) (TransportMult, error)
 	// Gateway implements a DNS ALG transport
 	Gateway() Gateway
 }
 
 type Resolver interface {
 	TransportProviderInternal
+	TransportMultProviderInternal
 	TransportMultInternal
 	ResolverSelf
 	RdnsResolver
@@ -182,6 +188,7 @@ type resolver struct {
 }
 
 var _ Resolver = (*resolver)(nil)
+var _ x.DNSResolver = (*resolver)(nil)
 
 func NewResolver(pctx context.Context, fakeaddrs string, dtr x.DNSTransport, l x.DNSListener, pt NatPt) *resolver {
 	ctx, cancel := context.WithCancel(pctx)
@@ -331,6 +338,10 @@ func (r *resolver) Add(dt x.DNSTransport) (ok bool) {
 		log.E("dns: unknown transport(%s) type: %s", t.ID(), t.Type())
 	}
 	return false
+}
+
+func (r *resolver) GetMult(id *x.Gostr) (x.DNSTransportMult, error) {
+	return r.GetMultInternal(id.V())
 }
 
 func (r *resolver) GetMultInternal(id string) (TransportMult, error) {

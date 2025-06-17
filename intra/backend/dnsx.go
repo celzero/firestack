@@ -94,16 +94,20 @@ type DNSTransport interface {
 }
 
 type DNSTransportMult interface {
+	DNSTransportProvider
 	// Add adds a transport to this multi-transport.
 	Add(t DNSTransport) bool
 	// Remove removes a transport from this multi-transport.
 	Remove(id *Gostr) bool
-	// Get returns a transport from this multi-transport.
-	Get(id *Gostr) (DNSTransport, error)
 	// Refresh re-registers transports and returns a csv of active ones.
 	Refresh() (*Gostr, error)
 	// LiveTransports returns a csv of active transports.
 	LiveTransports() *Gostr
+}
+
+type DNSTransportProvider interface {
+	// Get returns a transport from this multi-transport.
+	Get(id *Gostr) (DNSTransport, error)
 }
 
 type RDNS interface {
@@ -132,8 +136,14 @@ type RDNSResolver interface {
 	Translate(bool)
 }
 
+type DNSTransportMultProvider interface {
+	// GetMult returns a multi-transport by id.
+	GetMult(id *Gostr) (DNSTransportMult, error)
+}
+
 type DNSResolver interface {
 	DNSTransportMult
+	DNSTransportMultProvider
 	RDNSResolver
 }
 
