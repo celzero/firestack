@@ -6,7 +6,10 @@
 
 package core
 
-import "slices"
+import (
+	"math/rand"
+	"slices"
+)
 
 // flattens and returns a (stable) copy with dups removed, if any.
 // go.dev/play/p/OzJs4s6XvQe
@@ -39,6 +42,21 @@ func FilterLeft[T any](arr []T, test TestFn[T]) (out []T) {
 		}
 	}
 	return out
+}
+
+func ShuffleInPlace[T any](c []T) []T {
+	if len(c) <= 1 {
+		return c
+	}
+	rand.Shuffle(len(c), func(i, j int) {
+		c[i], c[j] = c[j], c[i]
+	})
+	return c
+}
+
+func Sort[T any](arr []T, less func(a, b T) int) []T {
+	slices.SortFunc(arr, less)
+	return arr
 }
 
 func Map[T, U any](arr []T, transform func(T) U) (out []U) {
