@@ -136,7 +136,7 @@ func calcTimeout(rtt time.Duration) time.Duration {
 	// These values were chosen to have a <1% false positive rate based on test data.
 	// False positives trigger an unnecessary retry, which can make connections slower, so they are
 	// worth avoiding.  However, overly long timeouts make retry slower and less useful.
-	return 400*time.Millisecond + max(2*rtt, 100*time.Millisecond)
+	return 500*time.Millisecond + min(2*rtt, 100*time.Millisecond)
 }
 
 // DialWithSplitRetry returns a TCP connection that transparently retries by
@@ -448,8 +448,8 @@ func (r *retrier) Read(buf []byte) (n int, err error) {
 		if n == 0 && err == nil {
 			err = io.ErrNoProgress
 		}
-		logeor(err, note)("retrier: read: %s: [%s<=%s] b: %d/%d (tee: %d); err: %v",
-			r.dialerID(), laddr(c), r.raddr, n, len(buf), len(r.tee), err)
+		logeor(err, note)("retrier: read: %s: [%s<=%s]; t: %s; b: %d/%d (tee: %d); err: %v",
+			r.dialerID(), laddr(c), r.raddr, core.FmtPeriod(r.timeout), n, len(buf), len(r.tee), err)
 	} // else: needs retry as c == nil
 
 	note = log.D
@@ -476,21 +476,21 @@ func (r *retrier) Read(buf []byte) (n int, err error) {
 					retryReadErr = nil // break
 					err = nil          // return no error
 				}
-				logeor(retryReadErr, note)("retrier: read: %s: #%d + (mult? %d %T / c: %d): [%s<=%s] b:%d/%d; err? %v",
-					r.dialerID(), r.retryCount, len(r.dialers), c, r.nextDialerIdx, laddr(c), r.raddr, n, len(buf), retryReadErr)
+				logeor(retryReadErr, note)("retrier: read: %s: #%d + (mult? %d %T / c: %d): [%s<=%s]; t: %s; b:%d/%d; err? %v",
+					r.dialerID(), r.retryCount, len(r.dialers), c, r.nextDialerIdx, core.FmtPeriod(r.timeout), laddr(c), r.raddr, n, len(buf), retryReadErr)
 			}
 			if c != nil && core.IsNotNil(c) {
 				// caller might have set read or write deadlines before the retry
 				_ = c.SetReadDeadline(r.readDeadline)
 				_ = c.SetWriteDeadline(r.writeDeadline)
 			}
-			logeor(err, note)("retrier: read: %s: #%d + (mult? %d / %d) [%s<=%s] b: %d/%d; err? %v",
-				r.dialerID(), r.retryCount, len(r.dialers), r.nextDialerIdx, laddr(c), r.raddr, n, len(buf), err)
+			logeor(err, note)("retrier: read: %s: #%d + (mult? %d / %d) [%s<=%s]; t: %s; b: %d/%d; err? %v",
+				r.dialerID(), r.retryCount, len(r.dialers), r.nextDialerIdx, core.FmtPeriod(r.timeout), laddr(c), r.raddr, n, len(buf), err)
 			r.tee = nil // discard teed data
 			return
 		}
-		logeor(err, note)("retrier: read: %s already retried! [%s<=%s] b: %d/%d; err? %v",
-			r.dialerID(), laddr(c), r.raddr, n, len(buf), err)
+		logeor(err, note)("retrier: read: %s already retried! [%s<=%s]; t: %s; b: %d/%d; err? %v",
+			r.dialerID(), laddr(c), r.raddr, core.FmtPeriod(r.timeout), n, len(buf), err)
 	} // else: just one read is enough; no retry needed
 	return
 }
@@ -545,8 +545,8 @@ func (r *retrier) Write(b []byte) (int, error) {
 			note = log.I
 		}
 
-		logeor(err, note)("retrier: write: %s: (first? %t, sent? %t) (rtimeout: %dms) [%v=>%s] b: %d/%d (tee: %d); write-err? %v",
-			r.dialerID(), first, sentAndCopied, r.timeout.Milliseconds(), src, r.raddr, n, len(b), len(r.tee), err)
+		logeor(err, note)("retrier: write: %s: (first? %t, sent? %t) [%v=>%s]; t: %s; b: %d/%d (tee: %d); write-err? %v",
+			r.dialerID(), first, sentAndCopied, src, r.raddr, core.FmtPeriod(r.timeout), n, len(b), len(r.tee), err)
 
 		if sentAndCopied {
 			// if Write() does not wait for <-retryDoneCh in absence of errors,
@@ -569,8 +569,8 @@ func (r *retrier) Write(b []byte) (int, error) {
 			select {
 			case <-r.retryDoneCh:
 			case <-time.After(3 * maxExpectedReadTimeout): // arb high timeout; it should rarely if ever needed
-				log.W("retrier: write: %s: 1st write timed-out waiting for %dms [calc-rtt: %dms] 1st read b/w [%s=>%s], mult: %d, b: %d/%d, err: %v",
-					r.dialerID(), (3 * maxExpectedReadTimeout).Milliseconds(), r.timeout.Milliseconds(), src, r.raddr, len(r.dialers), n, len(b), err)
+				log.W("retrier: write: %s: 1st write timed-out waiting for %s [calc-rtt: %s] 1st read b/w [%s=>%s], mult: %d, b: %d/%d, err: %v",
+					r.dialerID(), core.FmtPeriod(3*maxExpectedReadTimeout), core.FmtPeriod(r.timeout), src, r.raddr, len(r.dialers), n, len(b), err)
 				return n, core.JoinErr(err, errRetryTimeout)
 			}
 
