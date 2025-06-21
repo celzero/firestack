@@ -286,7 +286,7 @@ func (e *endpoint) Swap(fd int) (err error) {
 			prevfd, fd, hasDispatcher)
 		go e.dispatchLoop(e.inboundDispatcher)
 	} else {
-		log.W("ns: tun(%d => %d): swap: no dispatcher? %t for new fd; err %v",
+		log.E("ns: tun(%d => %d): swap: no dispatcher? %t for new fd; err %v",
 			prevfd, fd, !hasDispatcher, err)
 	}
 	return
