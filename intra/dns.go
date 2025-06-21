@@ -30,14 +30,14 @@ func addIPMapper(ctx context.Context, r dnsx.Resolver, protos string) {
 }
 
 // AddDNSProxy creates and adds a DNS53 transport to the tunnel's resolver.
-func AddDNSProxy(t Tunnel, id, ip, port string) error {
+func AddDNSProxy(t Tunnel, id, ip, port *x.Gostr) error {
 	p, perr := t.internalProxies()
 	r, rerr := t.internalResolver()
 	if rerr != nil || perr != nil {
 		return core.JoinErr(rerr, perr)
 	}
 	ctx := t.internalCtx()
-	if dns, err := dns53.NewTransport(ctx, id, ip, port, p); err != nil {
+	if dns, err := dns53.NewTransport(ctx, id.V(), ip.V(), port.V(), p); err != nil {
 		return err
 	} else {
 		return addDNSTransport(r, dns)
@@ -50,10 +50,11 @@ func newSystemDNSProxy(ctx context.Context, p ipn.ProxyProvider, ipcsv string) (
 }
 
 // SetSystemDNS creates and adds a DNS53 transport of the specified IP addresses.
-func SetSystemDNS(t Tunnel, ipcsv string) error {
+func SetSystemDNS(t Tunnel, ipcsvx *x.Gostr) error {
 	r, rerr := t.internalResolver()
 	p, perr := t.internalProxies()
 	ctx := t.internalCtx()
+	ipcsv := ipcsvx.V()
 	n := len(ipcsv)
 	if r == nil || p == nil {
 		log.W("dns: cannot set system dns; n: %d, errs: %v %v", n, rerr, perr)
@@ -112,7 +113,7 @@ func newMDNSTransport(ctx context.Context, protos string, px ipn.ProxyProvider) 
 
 // AddDefaultTransport adds a special default transport to the tunnel's resolver
 // It may be either a DoH or a DNS53 transport.
-func AddDefaultTransport(t Tunnel, typ, ippOrUrl, ips string) error {
+func AddDefaultTransport(t Tunnel, typ, ippOrUrl, ips *x.Gostr) error {
 	r, rerr := t.GetResolver()
 	if rerr != nil {
 		return rerr
@@ -126,7 +127,7 @@ func AddDefaultTransport(t Tunnel, typ, ippOrUrl, ips string) error {
 		return dnsx.ErrNotDefaultTransport
 	}
 	// on error, default transport remains unchanged
-	return defaultransport.reinit(typ, ippOrUrl, ips)
+	return defaultransport.reinit(typ.V(), ippOrUrl.V(), ips.V())
 }
 
 // AddProxyDNS creates and adds a DNS53 transport as defined in Proxy's configuration.
@@ -167,18 +168,19 @@ func AddProxyDNS(t Tunnel, p x.Proxy) error {
 
 // AddDoHTransport creates and adds a Transport that connects to the specified DoH server.
 // `url` is the URL of a DoH server (no template, POST-only).
-func AddDoHTransport(t Tunnel, id, url, ips string) error {
+func AddDoHTransport(t Tunnel, id, url, ipcsv *x.Gostr) error {
 	pxr, perr := t.internalProxies()
 	r, rerr := t.internalResolver()
 	if rerr != nil || perr != nil {
 		return core.JoinErr(rerr, perr)
 	}
+	ips := ipcsv.V()
 	ctx := t.internalCtx()
 	split := []string{}
 	if len(ips) > 0 {
 		split = strings.Split(ips, ",")
 	}
-	if dns, err := doh.NewTransport(ctx, id, url, split, pxr); err != nil {
+	if dns, err := doh.NewTransport(ctx, id.V(), url.V(), split, pxr); err != nil {
 		return err
 	} else {
 		return addDNSTransport(r, dns)
@@ -187,18 +189,19 @@ func AddDoHTransport(t Tunnel, id, url, ips string) error {
 
 // AddODoHTransport creates and adds a Transport that connects to the specified ODoH server.
 // `endpoint` is the entry / proxy for the ODoH server, `resolver` is the URL of the target ODoH server.
-func AddODoHTransport(t Tunnel, id, endpoint, resolver, epips string) error {
+func AddODoHTransport(t Tunnel, id, endpoint, resolver, epipcsv *x.Gostr) error {
 	pxr, perr := t.internalProxies()
 	r, rerr := t.internalResolver()
 	if rerr != nil || perr != nil {
 		return core.JoinErr(rerr, perr)
 	}
+	epips := epipcsv.V()
 	ctx := t.internalCtx()
 	split := []string{}
 	if len(epips) > 0 {
 		split = strings.Split(epips, ",")
 	}
-	if dns, err := doh.NewOdohTransport(ctx, id, endpoint, resolver, split, pxr); err != nil {
+	if dns, err := doh.NewOdohTransport(ctx, id.V(), endpoint.V(), resolver.V(), split, pxr); err != nil {
 		return err
 	} else {
 		return addDNSTransport(r, dns)
@@ -206,7 +209,7 @@ func AddODoHTransport(t Tunnel, id, endpoint, resolver, epips string) error {
 }
 
 // AddDoTTransport creates and adds a Transport that connects to the specified DoT server.
-func AddDoTTransport(t Tunnel, id, url, ips string) error {
+func AddDoTTransport(t Tunnel, id, url, ipcsv *x.Gostr) error {
 	pxr, perr := t.internalProxies()
 	r, rerr := t.internalResolver()
 	if rerr != nil || perr != nil {
@@ -214,10 +217,11 @@ func AddDoTTransport(t Tunnel, id, url, ips string) error {
 	}
 	ctx := t.internalCtx()
 	split := []string{}
+	ips := ipcsv.V()
 	if len(ips) > 0 {
 		split = strings.Split(ips, ",")
 	}
-	if dns, err := dns53.NewTLSTransport(ctx, id, url, split, pxr); err != nil {
+	if dns, err := dns53.NewTLSTransport(ctx, id.V(), url.V(), split, pxr); err != nil {
 		return err
 	} else {
 		return addDNSTransport(r, dns)
@@ -225,7 +229,7 @@ func AddDoTTransport(t Tunnel, id, url, ips string) error {
 }
 
 // AddDNSCryptTransport creates and adds a DNSCrypt transport to the tunnel's resolver.
-func AddDNSCryptTransport(t Tunnel, id, stamp string) (err error) {
+func AddDNSCryptTransport(t Tunnel, id, stamp *x.Gostr) (err error) {
 	r, rerr := t.internalResolver()
 	if rerr != nil {
 		return rerr
@@ -237,7 +241,7 @@ func AddDNSCryptTransport(t Tunnel, id, stamp string) (err error) {
 	}
 	// todo: unexpose DcMulti, cast to TransportMult
 	if p, ok := tm.(*dnscrypt.DcMulti); ok {
-		if dns, err := dnscrypt.AddTransport(p, id, stamp); err != nil {
+		if dns, err := dnscrypt.AddTransport(p, id.V(), stamp.V()); err != nil {
 			return err
 		} else {
 			return addDNSTransport(r, dns)
@@ -248,7 +252,7 @@ func AddDNSCryptTransport(t Tunnel, id, stamp string) (err error) {
 }
 
 // AddDNSCryptRelay adds a DNSCrypt relay transport to the tunnel's resolver.
-func AddDNSCryptRelay(t Tunnel, stamp string) error {
+func AddDNSCryptRelay(t Tunnel, stamp *x.Gostr) error {
 	var tm dnsx.TransportMult
 	var err error
 	r, rerr := t.internalResolver()
@@ -260,7 +264,7 @@ func AddDNSCryptRelay(t Tunnel, stamp string) error {
 	}
 	if p, ok := tm.(*dnscrypt.DcMulti); ok {
 		// relay transports are not added to the resolver
-		return dnscrypt.AddRelayTransport(p, stamp)
+		return dnscrypt.AddRelayTransport(p, stamp.V())
 	} else {
 		return dnsx.ErrNoDcProxy
 	}
