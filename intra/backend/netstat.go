@@ -28,6 +28,14 @@ type NICStat struct {
 	Drops int64
 }
 
+type TUNStat struct {
+	Open     bool
+	Up       bool
+	Fd       int
+	Mtu      int32
+	PcapMode string
+}
+
 type NICInfo struct {
 	Name        string
 	HwAddr      string
@@ -215,6 +223,7 @@ type GoStat struct {
 // NetStat is a collection of network engine statistics.
 type NetStat struct {
 	NICSt  NICStat
+	TUNSt  TUNStat
 	NICIn  NICInfo
 	IPSt   IPStat
 	FWDSt  IPFwdStat

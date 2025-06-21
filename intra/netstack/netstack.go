@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"net/netip"
+	"strings"
 	"syscall"
 
 	"github.com/celzero/firestack/intra/core"
@@ -73,7 +74,7 @@ func snoop(ep SeamlessEndpoint, sink io.WriteCloser) (SeamlessEndpoint, error) {
 	}
 }
 
-func LogPcap(y bool) (ok bool) {
+func Pcap2Stdout(y bool) (ok bool) {
 	if y {
 		ok = LogPackets.CompareAndSwap(0, 1)
 	} else {
@@ -83,7 +84,7 @@ func LogPcap(y bool) (ok bool) {
 	return
 }
 
-func LogFile(y bool) (ok bool) {
+func Pcap2File(y bool) (ok bool) {
 	if y {
 		ok = WritePCAP.CompareAndSwap(0, 1)
 	} else {
@@ -91,6 +92,24 @@ func LogFile(y bool) (ok bool) {
 	}
 	log.I("netstack: pcap file(%t): done?(%t)", y, ok)
 	return
+}
+
+// PCAP logging modes:
+// - stdout: packets are logged to stdout
+// - file: packets are logged to a file
+// - none: no packets are logged
+func PcapModes() string {
+	var modes []string
+	if LogPackets.Load() == 1 {
+		modes = append(modes, "stdout")
+	}
+	if WritePCAP.Load() == 1 {
+		modes = append(modes, "file")
+	}
+	if len(modes) == 0 {
+		return "none"
+	}
+	return strings.Join(modes, ",")
 }
 
 // ref: github.com/brewlin/net-protocol/blob/ec64e5f899/internal/endpoint/endpoint.go#L20
