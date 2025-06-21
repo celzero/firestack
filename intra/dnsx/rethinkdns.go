@@ -204,7 +204,7 @@ func (r *rethinkdns) FlagsToStamp(flagscsv *x.Gostr, enctyp int) (*x.Gostr, erro
 
 func (r *rethinkdns) flagsToStamp(flagscsv string, enctyp int) (string, error) {
 	fstr := strings.Split(flagscsv, ",")
-	if len(fstr) <= 0 {
+	if len(fstr) <= 0 || firstEmpty(fstr) {
 		return "", errMissingCsv
 	}
 
@@ -450,7 +450,7 @@ func load(configjson string) ([]string, map[string]string, error) {
 	return rflags, fdata, nil
 }
 
-func (r *rethinkdns) decode(stamp string, ver string, enctyp int) (info []*listinfo, err error) {
+func (r *rethinkdns) decode(stamp, ver string, enctyp int) (info []*listinfo, err error) {
 	haspad := strings.Contains(stamp, "=")
 	decoder := b64.RawStdEncoding
 	decoder32 := b32.StdEncoding.WithPadding(b32.NoPadding)
