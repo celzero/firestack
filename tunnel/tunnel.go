@@ -289,12 +289,13 @@ func (t *gtunnel) SetRoute(engine int) error {
 
 func (t *gtunnel) Stat() (*x.NetStat, error) {
 	st, err := netstack.Stat(t.stack)
-	st.TUNSt.Open = !t.closed.Load()
-	st.TUNSt.Up = t.ep.IsAttached()
-	st.TUNSt.Fd = t.ep.Cur()
-	st.TUNSt.Mtu = int32(t.ep.MTU())
-	st.TUNSt.PcapMode = t.pcapio.mode()
 	if err == nil && st != nil {
+		st.TUNSt.Open = !t.closed.Load()
+		st.TUNSt.Up = t.ep.IsAttached()
+		st.TUNSt.Fd = t.ep.Cur()
+		st.TUNSt.Mtu = int32(t.ep.MTU())
+		st.TUNSt.PcapMode = t.pcapio.mode()
+
 		if t := t.hdl.TCP(); t != nil {
 			st.RDNSIn.OpenConnsTCP = t.OpenConns()
 		}
