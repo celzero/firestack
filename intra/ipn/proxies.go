@@ -1129,12 +1129,12 @@ func (px *proxifier) Contains(ipprefix *x.Gostr) bool {
 }
 
 // Reaches implements x.Router.
-func (px *proxifier) Reaches(hostportOrIPPortCsv *x.Gostr) bool {
+func (px *proxifier) Reaches(urlOrHostPortOrIPPortCsv *x.Gostr) bool {
 	px.RLock()
 	defer px.RUnlock()
 
 	for _, p := range px.p {
-		if r := p.Router(); r != nil && r.Reaches(hostportOrIPPortCsv) {
+		if r := p.Router(); r != nil && r.Reaches(urlOrHostPortOrIPPortCsv) {
 			return true
 		}
 	}

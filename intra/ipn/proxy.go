@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/http"
 	"net/netip"
 	"net/url"
 	"os"
@@ -247,14 +248,39 @@ func (pxr *proxifier) fromOpts(id string, opts *settings.ProxyOptions) (Proxy, e
 	return p, err
 }
 
-func Reaches(p Proxy, hostportOrIPPortCsv string, protos ...string) bool {
+func Reaches(p Proxy, urlOrHostPortOrIPPortCsv string, protos ...string) bool {
 	if p == nil || p.Status() == END {
 		return false
 	}
-	if len(hostportOrIPPortCsv) <= 0 {
+	if len(urlOrHostPortOrIPPortCsv) <= 0 {
 		return true
 	}
 
+	if urls := httpURLs(urlOrHostPortOrIPPortCsv); len(urls) > 0 {
+		// For URLs, only test HTTPS connectivity
+		tests := make([]core.WorkCtx[bool], 0)
+		for _, u := range urls {
+			tests = append(tests, httpsReachesWorkCtx(p, u))
+		}
+
+		pid := idstr(p)
+		if len(tests) <= 0 {
+			log.W("proxy: %s reaches: %v; no HTTPS tests", pid, urlOrHostPortOrIPPortCsv)
+			return false
+		}
+
+		okays, errs := core.All("reach."+pid, 5*time.Second, tests...)
+
+		overall := core.IsAll(errs, func(err error) bool { return err == nil }) &&
+			core.IsAll(okays, func(ok bool) bool { return ok })
+
+		logeif(overall)("proxy: %s reaches: %v verdict (https): reachable? %t [oks? %v; errs? %v]",
+			pid, urlOrHostPortOrIPPortCsv, overall, okays, errs)
+
+		return overall
+	}
+
+	// Original logic for host:port or ip:port
 	hastcp := has(protos, "tcp") || has(protos, "tcp4") || has(protos, "tcp6")
 	hasudp := has(protos, "udp") || has(protos, "udp4") || has(protos, "udp6")
 	hasicmp := has(protos, "icmp") || has(protos, "icmp4") || has(protos, "icmp6")
@@ -270,7 +296,7 @@ func Reaches(p Proxy, hostportOrIPPortCsv string, protos ...string) bool {
 	//	upstream = pdns
 	// }
 	ipps := make([]netip.AddrPort, 0)
-	for x := range strings.SplitSeq(hostportOrIPPortCsv, ",") {
+	for x := range strings.SplitSeq(urlOrHostPortOrIPPortCsv, ",") {
 		host, port, err := net.SplitHostPort(x)
 		if err != nil {
 			port = "80"
@@ -307,7 +333,7 @@ func Reaches(p Proxy, hostportOrIPPortCsv string, protos ...string) bool {
 	pid := idstr(p)
 	if len(tests) <= 0 {
 		log.W("proxy: %s reaches: %v / %v; no tests for %s",
-			pid, hostportOrIPPortCsv, ipps, protos)
+			pid, urlOrHostPortOrIPPortCsv, ipps, protos)
 		return false
 	}
 
@@ -318,7 +344,7 @@ func Reaches(p Proxy, hostportOrIPPortCsv string, protos ...string) bool {
 		core.IsAll(okays, func(ok bool) bool { return ok })
 
 	logeif(overall)("proxy: %s reaches: %v => %v verdict (%s): reachable? %t [oks? %v; errs? %v]",
-		pid, hostportOrIPPortCsv, ipps, protos, overall, okays, errs)
+		pid, urlOrHostPortOrIPPortCsv, ipps, protos, overall, okays, errs)
 
 	return overall
 }
@@ -560,4 +586,83 @@ func removeElem[T comparable](s []T, rmv T) []T {
 // addElem adds add to s if it is not already present.
 func addElem[T comparable](s []T, add T) []T {
 	return core.WithElem(s, add)
+}
+
+// httpURLs extracts valid URLs from comma-separated input
+func httpURLs(input string) (urls []*url.URL) {
+	for x := range strings.SplitSeq(input, ",") {
+		x = strings.TrimSpace(x)
+		if len(x) == 0 {
+			continue
+		}
+		// Check if it's a URL (contains scheme)
+		if u, err := url.Parse(x); err == nil && strings.Contains(u.Scheme, "http") {
+			urls = append(urls, u)
+		}
+	}
+	return urls
+}
+
+func httpsReachesWorkCtx(p Proxy, url *url.URL) core.WorkCtx[bool] {
+	return func(ctx context.Context) (bool, error) {
+		return httpsReaches(p, url)
+	}
+}
+
+func httpsReaches(p Proxy, url *url.URL) (bool, error) {
+	start := time.Now()
+
+	requestednetwork := url.Fragment
+	switch requestednetwork {
+	case "tcp", "tcp4", "tcp6":
+	case "udp", "udp4", "udp6":
+	case "v4", "ipv4":
+		requestednetwork = "tcp4" // default to tcp4 for v4
+	case "v6", "ipv6":
+		requestednetwork = "tcp6" // default to tcp6 for v6
+	default:
+		requestednetwork = "tcp" // default to tcp for any other case
+	}
+
+	// TODO: share http.Transport across checks
+	client := &http.Client{
+		Timeout: 5 * time.Second,
+		Transport: &http.Transport{
+			Dial: func(network, addr string) (net.Conn, error) {
+				if _, err := netip.ParseAddrPort(addr); err != nil {
+					// addr is likely host:port
+					network = requestednetwork
+				}
+				log.VV("proxy: %s reaches: dial(%s, %s) for %s", idstr(p), network, addr, url)
+				return p.Dial(network, addr)
+			},
+		},
+	}
+
+	req, err := http.NewRequest("HEAD", url.String(), nil)
+	if err != nil {
+		return false, fmt.Errorf("proxy: reaches: err creating req: %w", err)
+	}
+	req.Header.Set("User-Agent", "intra")
+
+	resp, err := client.Do(req)
+	if resp != nil {
+		defer core.Close(resp.Body)
+	}
+
+	rtt := time.Since(start)
+	statuscode := -1
+	if resp != nil {
+		statuscode = resp.StatusCode
+	}
+
+	ok := err == nil && statuscode > 0 && statuscode < 500
+
+	logeif(!ok)("proxy: %s reaches: %v (%s); ok? %t, status: %d, rtt: %s; err: %v",
+		idstr(p), url, requestednetwork, ok, statuscode, core.FmtPeriod(rtt), err)
+
+	if ok {
+		err = nil // wipe out err as it makes core.Race discard "ok"
+	}
+	return ok, err
 }
