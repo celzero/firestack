@@ -169,20 +169,21 @@ func All[T any](who string, timeout time.Duration, fs ...WorkCtx[T]) ([]T, []err
 		Gg(fid, func() {
 			out, err := f(ctx)
 			select {
-			case <-ctx.Done(): // discard out, err
+			case <-ctx.Done(): // timeout
+				ch <- &res{fidx: i, err: errTimeout}
 			case ch <- &res{i, out, err}:
 			}
 		}, func() {
 			select {
-			case <-ctx.Done(): // discard out, err
+			case <-ctx.Done(): // timeout
 				ch <- &res{fidx: i, err: errTimeout}
 			case ch <- &res{fidx: i, err: errPanic(fid)}:
 			}
 		})
 	}
 
-	results := make([]T, 0, len(fs))
-	errs := make([]error, 0, len(fs))
+	results := make([]T, len(fs))
+	errs := make([]error, len(fs))
 
 	for range len(fs) {
 		r := <-ch
