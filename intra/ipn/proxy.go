@@ -311,12 +311,16 @@ func Reaches(p Proxy, hostportOrIPPortCsv string, protos ...string) bool {
 		return false
 	}
 
-	ok, who, err := core.Race("reach."+pid, getproxytimeout, tests...)
+	okays, errs := core.All("reach."+pid, getproxytimeout, tests...)
 
-	logeif(!ok)("proxy: %s reaches: %v => %v ok? %t; who: %d, err? %v",
-		pid, hostportOrIPPortCsv, ipps, ok, who, err)
+	// overall is false if any okays is false, or if all errs are not nil
+	overall := core.IsAll(errs, func(err error) bool { return err == nil }) &&
+		core.IsAll(okays, func(ok bool) bool { return ok })
 
-	return ok
+	logeif(overall)("proxy: %s reaches: %v => %v verdict: reachable? %t [oks? %v; errs? %v]",
+		pid, hostportOrIPPortCsv, ipps, overall, okays, errs)
+
+	return overall
 }
 
 func AnyAddrForUDP(ipp netip.AddrPort) (proto, anyaddr string) {
