@@ -256,28 +256,25 @@ func Reaches(p Proxy, urlOrHostPortOrIPPortCsv string, protos ...string) bool {
 		return true
 	}
 
-	if urls := httpURLs(urlOrHostPortOrIPPortCsv); len(urls) > 0 {
-		// For URLs, only test HTTPS connectivity
+	pid := idstr(p)
+	hostportOrIPPort := strings.Split(urlOrHostPortOrIPPortCsv, ",")
+	if urls, oth := extractHttpURLs(urlOrHostPortOrIPPortCsv); len(urls) > 0 {
+		log.V("proxy: %s reaches: testing for %v", idstr(p), urls)
+
+		hostportOrIPPort = oth
 		tests := make([]core.WorkCtx[bool], 0)
 		for _, u := range urls {
 			tests = append(tests, httpsReachesWorkCtx(p, u))
 		}
 
-		pid := idstr(p)
-		if len(tests) <= 0 {
-			log.W("proxy: %s reaches: %v; no HTTPS tests", pid, urlOrHostPortOrIPPortCsv)
-			return false
+		ok, who, errs := core.Race("reach.http."+pid, 5*time.Second, tests...)
+
+		logeif(!ok)("proxy: %s #%d reaches: %v verdict (https): reachable? %t; errs? %v",
+			pid, who, urlOrHostPortOrIPPortCsv, ok, errs)
+
+		if !ok || len(oth) <= 0 {
+			return ok
 		}
-
-		okays, errs := core.All("reach."+pid, 5*time.Second, tests...)
-
-		overall := core.IsAll(errs, func(err error) bool { return err == nil }) &&
-			core.IsAll(okays, func(ok bool) bool { return ok })
-
-		logeif(overall)("proxy: %s reaches: %v verdict (https): reachable? %t [oks? %v; errs? %v]",
-			pid, urlOrHostPortOrIPPortCsv, overall, okays, errs)
-
-		return overall
 	}
 
 	// Original logic for host:port or ip:port
@@ -296,7 +293,7 @@ func Reaches(p Proxy, urlOrHostPortOrIPPortCsv string, protos ...string) bool {
 	//	upstream = pdns
 	// }
 	ipps := make([]netip.AddrPort, 0)
-	for x := range strings.SplitSeq(urlOrHostPortOrIPPortCsv, ",") {
+	for _, x := range hostportOrIPPort {
 		host, port, err := net.SplitHostPort(x)
 		if err != nil {
 			port = "80"
@@ -315,38 +312,53 @@ func Reaches(p Proxy, urlOrHostPortOrIPPortCsv string, protos ...string) bool {
 			}
 		}
 	}
-	log.V("proxy: %s reaches: testing for %s", p.ID(), ipps)
-	tests := make([]core.WorkCtx[bool], 0)
+
+	n := 0
+	log.V("proxy: %s reaches: testing for %s", pid, ipps)
+	tests := make([][]core.WorkCtx[bool], 0)
 	for _, ipp := range ipps {
+		fns := make([]core.WorkCtx[bool], 0)
 		ippstr := ipp.String()
 		if hastcp {
-			tests = append(tests, tcpReachesWorkCtx(p, ippstr))
+			fns = append(fns, tcpReachesWorkCtx(p, ippstr))
 		}
 		if hasudp {
-			tests = append(tests, udpReachesWorkCtx(p, ippstr))
+			fns = append(fns, udpReachesWorkCtx(p, ippstr))
 		}
 		if hasicmp {
-			tests = append(tests, icmpReachesWorkCtx(p, ipp))
+			fns = append(fns, icmpReachesWorkCtx(p, ipp))
 		}
+		tests = append(tests, fns)
+		n += len(fns)
 	}
 
-	pid := idstr(p)
-	if len(tests) <= 0 {
+	if n <= 0 {
 		log.W("proxy: %s reaches: %v / %v; no tests for %s",
 			pid, urlOrHostPortOrIPPortCsv, ipps, protos)
 		return false
 	}
 
-	okays, errs := core.All("reach."+pid, getproxytimeout, tests...)
+	ok, who, errs := core.Race("reach"+"."+pid, getproxytimeout, every(pid, tests)...)
 
-	// overall is false if any okays is false, or if all errs are not nil
-	overall := core.IsAll(errs, func(err error) bool { return err == nil }) &&
-		core.IsAll(okays, func(ok bool) bool { return ok })
+	logeif(!ok)("proxy: %s #%d reaches: %v => %v verdict (%s): reachable? %t; errs? %v",
+		pid, who, urlOrHostPortOrIPPortCsv, ipps, protos, ok, errs)
 
-	logeif(overall)("proxy: %s reaches: %v => %v verdict (%s): reachable? %t [oks? %v; errs? %v]",
-		pid, urlOrHostPortOrIPPortCsv, ipps, protos, overall, okays, errs)
+	return ok
+}
 
-	return overall
+func every(who string, tests [][]core.WorkCtx[bool]) []core.WorkCtx[bool] {
+	all := make([]core.WorkCtx[bool], 0, len(tests))
+	for _, t := range tests {
+		t := t
+		all = append(all, func(ctx context.Context) (bool, error) {
+			okays, errs := core.All("reach.all."+who, getproxytimeout, t...)
+			// overall is false if any okays is false, or if all errs are not nil
+			overall := core.IsAll(errs, func(err error) bool { return err == nil }) &&
+				core.IsAll(okays, func(ok bool) bool { return ok })
+			return overall, core.JoinErr(errs...)
+		})
+	}
+	return all
 }
 
 func AnyAddrForUDP(ipp netip.AddrPort) (proto, anyaddr string) {
@@ -588,9 +600,9 @@ func addElem[T comparable](s []T, add T) []T {
 	return core.WithElem(s, add)
 }
 
-// httpURLs extracts valid URLs from comma-separated input
-func httpURLs(input string) (urls []*url.URL) {
-	for x := range strings.SplitSeq(input, ",") {
+// extractHttpURLs extracts valid URLs from comma-separated input
+func extractHttpURLs(csv string) (urls []*url.URL, oth []string) {
+	for x := range strings.SplitSeq(csv, ",") {
 		x = strings.TrimSpace(x)
 		if len(x) == 0 {
 			continue
@@ -598,46 +610,58 @@ func httpURLs(input string) (urls []*url.URL) {
 		// Check if it's a URL (contains scheme)
 		if u, err := url.Parse(x); err == nil && strings.Contains(u.Scheme, "http") {
 			urls = append(urls, u)
+		} else {
+			oth = append(oth, x)
 		}
 	}
-	return urls
+	return
 }
 
 func httpsReachesWorkCtx(p Proxy, url *url.URL) core.WorkCtx[bool] {
 	return func(ctx context.Context) (bool, error) {
-		return httpsReaches(p, url)
+		requestednetwork := url.Fragment
+		switch requestednetwork {
+		case "tcp", "tcp4", "tcp6":
+		case "udp", "udp4", "udp6":
+		case "v4", "ipv4":
+			requestednetwork = "tcp4" // default to tcp4 for v4
+		case "v6", "ipv6":
+			requestednetwork = "tcp6" // default to tcp6 for v6
+		default:
+			requestednetwork = "tcp" // default to tcp for any other case
+		}
+		// Lightweight transport for one-time use
+		client := &http.Client{
+			Timeout: 5 * time.Second,
+			Transport: &http.Transport{
+				Dial: func(network, addr string) (net.Conn, error) {
+					if _, err := netip.ParseAddrPort(addr); err != nil {
+						// addr is likely host:port
+						network = requestednetwork
+					}
+					log.VV("proxy: %s reaches: dial(%s, %s) for %s",
+						idstr(p), network, addr, url)
+					return p.Dial(network, addr)
+				},
+				// Disable connection pooling for one-time use
+				DisableKeepAlives:   true,
+				MaxIdleConns:        -1,
+				MaxIdleConnsPerHost: -1,
+				// Disable compression to reduce overhead
+				DisableCompression: true,
+				// Short timeouts for quick failure detection
+				ResponseHeaderTimeout: 3 * time.Second,
+				// Prefer h1 to simplify conn handling
+				ForceAttemptHTTP2:   false,
+				TLSHandshakeTimeout: 3 * time.Second,
+			},
+		}
+		return httpsReaches(idstr(p), client, url)
 	}
 }
 
-func httpsReaches(p Proxy, url *url.URL) (bool, error) {
+func httpsReaches(who string, c *http.Client, url *url.URL) (bool, error) {
 	start := time.Now()
-
-	requestednetwork := url.Fragment
-	switch requestednetwork {
-	case "tcp", "tcp4", "tcp6":
-	case "udp", "udp4", "udp6":
-	case "v4", "ipv4":
-		requestednetwork = "tcp4" // default to tcp4 for v4
-	case "v6", "ipv6":
-		requestednetwork = "tcp6" // default to tcp6 for v6
-	default:
-		requestednetwork = "tcp" // default to tcp for any other case
-	}
-
-	// TODO: share http.Transport across checks
-	client := &http.Client{
-		Timeout: 5 * time.Second,
-		Transport: &http.Transport{
-			Dial: func(network, addr string) (net.Conn, error) {
-				if _, err := netip.ParseAddrPort(addr); err != nil {
-					// addr is likely host:port
-					network = requestednetwork
-				}
-				log.VV("proxy: %s reaches: dial(%s, %s) for %s", idstr(p), network, addr, url)
-				return p.Dial(network, addr)
-			},
-		},
-	}
 
 	req, err := http.NewRequest("HEAD", url.String(), nil)
 	if err != nil {
@@ -645,7 +669,7 @@ func httpsReaches(p Proxy, url *url.URL) (bool, error) {
 	}
 	req.Header.Set("User-Agent", "intra")
 
-	resp, err := client.Do(req)
+	resp, err := c.Do(req)
 	if resp != nil {
 		defer core.Close(resp.Body)
 	}
@@ -658,8 +682,8 @@ func httpsReaches(p Proxy, url *url.URL) (bool, error) {
 
 	ok := err == nil && statuscode > 0 && statuscode < 500
 
-	logeif(!ok)("proxy: %s reaches: %v (%s); ok? %t, status: %d, rtt: %s; err: %v",
-		idstr(p), url, requestednetwork, ok, statuscode, core.FmtPeriod(rtt), err)
+	logeif(!ok)("proxy: %s reaches: %v; ok? %t, status: %d, rtt: %s; err: %v",
+		who, url, ok, statuscode, core.FmtPeriod(rtt), err)
 
 	if ok {
 		err = nil // wipe out err as it makes core.Race discard "ok"
