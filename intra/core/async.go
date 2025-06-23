@@ -151,6 +151,47 @@ loop:
 	return // zz
 }
 
+func All[T any](who string, timeout time.Duration, fs ...WorkCtx[T]) ([]T, []error) {
+	type res struct {
+		fidx int // index of the function in fs
+		t    T
+		err  error
+	}
+
+	ch := make(chan *res, len(fs))
+
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	for i, f := range fs {
+		i, f := i, f
+		fid := who + ".all." + strconv.Itoa(i)
+		Gg(fid, func() {
+			out, err := f(ctx)
+			select {
+			case <-ctx.Done(): // discard out, err
+			case ch <- &res{i, out, err}:
+			}
+		}, func() {
+			select {
+			case <-ctx.Done(): // discard out, err
+				ch <- &res{fidx: i, err: errTimeout}
+			case ch <- &res{fidx: i, err: errPanic(fid)}:
+			}
+		})
+	}
+
+	results := make([]T, 0, len(fs))
+	errs := make([]error, 0, len(fs))
+
+	for range len(fs) {
+		r := <-ch
+		results[r.fidx] = r.t
+		errs[r.fidx] = r.err
+	}
+	return results, errs
+}
+
 func Every(id string, pctx context.Context, d time.Duration, f func()) context.Context {
 	ctx, done := context.WithCancel(pctx)
 	Go("every."+id, func() {

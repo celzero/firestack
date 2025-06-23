@@ -103,3 +103,21 @@ func WithoutNils[T any](arr []T) (out []T) {
 	}
 	return out
 }
+
+func IsAny[T any](arr []T, test TestFn[T]) bool {
+	for _, x := range arr {
+		if test(x) {
+			return true
+		}
+	}
+	return false
+}
+
+func IsAll[T any](arr []T, test TestFn[T]) bool {
+	for _, x := range arr {
+		if !test(x) {
+			return false
+		}
+	}
+	return true
+}
