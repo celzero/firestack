@@ -1542,12 +1542,7 @@ func isWG(id string) bool {
 }
 
 func IsAnyLocalProxy(ids ...string) bool {
-	for _, id := range ids {
-		if local(id) {
-			return true
-		}
-	}
-	return false
+	return core.IsAny(ids, local)
 }
 
 // Base, Block, Exit, Rpn64, Ingress
