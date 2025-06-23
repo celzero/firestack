@@ -240,6 +240,9 @@ func (n *NetStat) NIC() *NICStat { return &n.NICSt }
 // NICI returns the network interface info.
 func (n *NetStat) NICINFO() *NICInfo { return &n.NICIn }
 
+// TUN returns the internal tunnel statistics.
+func (n *NetStat) TUN() *TUNStat { return &n.TUNSt }
+
 // IP returns the IP statistics.
 func (n *NetStat) IP() *IPStat { return &n.IPSt }
 
