@@ -95,8 +95,8 @@ func (h *exit) dial(network, local, remote string) (protect.Conn, error) {
 	defer localDialStatus(h.status, err)
 
 	kaenabled := maybeKeepAlive(c)
-	log.I("proxy: exit: dial(%s) %s => %s, ka? %t; err? %v",
-		network, local, remote, kaenabled, err)
+	log.I("proxy: %s: dial(%s) %s => %s, ka? %t; err? %v",
+		h.id, network, local, remote, kaenabled, err)
 	return c, err
 }
 
@@ -107,7 +107,7 @@ func (h *exit) Announce(network, local string) (protect.PacketConn, error) {
 	}
 	c, err := dialers.ListenPacket(h.outbound, network, local)
 	defer localDialStatus(h.status, err)
-	log.I("proxy: exit: announce(%s) on %s; err? %v", network, local, err)
+	log.I("proxy: %s: announce(%s) on %s; err? %v", h.id, network, local, err)
 	return c, err
 }
 
@@ -126,7 +126,7 @@ func (h *exit) Probe(network, local string) (protect.PacketConn, error) {
 	}
 	c, err := dialers.Probe(h.outbound, network, local)
 	defer localDialStatus(h.status, err)
-	log.I("proxy: exit: probe(%s) on %s; err? %v", network, local, err)
+	log.I("proxy: %s: probe(%s) on %s; err? %v", h.id, network, local, err)
 	return c, err
 }
 
@@ -169,7 +169,7 @@ func (h *exit) Status() int {
 func (h *exit) Stop() error {
 	h.status.Store(END)
 	h.done()
-	log.I("proxy: exit: stopped")
+	log.I("proxy: %s: stopped", h.id)
 	return nil
 }
 
