@@ -262,8 +262,8 @@ func Reaches(p Proxy, hostportOrIPPortCsv string, protos ...string) bool {
 	if !hastcp && !hasudp && !hasicmp { // fail open
 		hastcp = true
 		hasudp = true
-		hasicmp = true
-		protos = []string{"tcp", "udp", "icmp"}
+		hasicmp = false
+		protos = []string{"tcp", "udp"}
 	}
 	// upstream := dnsx.Default
 	// if pdns := p.DNS(); len(pdns) > 0 {
@@ -317,8 +317,8 @@ func Reaches(p Proxy, hostportOrIPPortCsv string, protos ...string) bool {
 	overall := core.IsAll(errs, func(err error) bool { return err == nil }) &&
 		core.IsAll(okays, func(ok bool) bool { return ok })
 
-	logeif(overall)("proxy: %s reaches: %v => %v verdict: reachable? %t [oks? %v; errs? %v]",
-		pid, hostportOrIPPortCsv, ipps, overall, okays, errs)
+	logeif(overall)("proxy: %s reaches: %v => %v verdict (%s): reachable? %t [oks? %v; errs? %v]",
+		pid, hostportOrIPPortCsv, ipps, protos, overall, okays, errs)
 
 	return overall
 }
