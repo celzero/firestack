@@ -663,8 +663,12 @@ func httpsReachesWorkCtx(p Proxy, url *url.URL) core.WorkCtx[bool] {
 
 					n := rand.Intn(len(ipps))
 
-					log.VV("proxy: %s reaches: dial(%s, %s => %s [among %v]) for %s",
-						idstr(p), network, addr, ipps[n], ipps, url)
+					logeif(len(ipps) == 0)("proxy: %s reaches: dial(%s, %s => %d [among %v]) for %s",
+						idstr(p), network, addr, n, ipps, url)
+
+					if len(ipps) <= 0 {
+						return nil, errNoSuitableAddress
+					}
 
 					// filter out the revelant IPs ourselves as dialers pkg does not
 					// respect ip-specific network type "tcp4" or "tcp6"
