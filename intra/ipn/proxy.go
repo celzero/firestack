@@ -10,6 +10,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/rand"
 	"net"
 	"net/http"
 	"net/netip"
@@ -619,29 +620,52 @@ func extractHttpURLs(csv string) (urls []*url.URL, oth []string) {
 
 func httpsReachesWorkCtx(p Proxy, url *url.URL) core.WorkCtx[bool] {
 	return func(ctx context.Context) (bool, error) {
-		requestednetwork := url.Fragment
-		switch requestednetwork {
-		case "tcp", "tcp4", "tcp6":
-		case "udp", "udp4", "udp6":
-		case "v4", "ipv4":
-			requestednetwork = "tcp4" // default to tcp4 for v4
-		case "v6", "ipv6":
-			requestednetwork = "tcp6" // default to tcp6 for v6
+		v4, v6 := true, true
+		switch url.Fragment {
+		case "tcp", "udp":
+		case "v4", "ipv4", "upd4", "tcp4":
+			v6 = false // only v4
+		case "v6", "ipv6", "upd6", "tcp6":
+			v4 = false // only v6
 		default:
-			requestednetwork = "tcp" // default to tcp for any other case
 		}
 		// Lightweight transport for one-time use
 		client := &http.Client{
 			Timeout: 5 * time.Second,
 			Transport: &http.Transport{
 				Dial: func(network, addr string) (net.Conn, error) {
-					if _, err := netip.ParseAddrPort(addr); err != nil {
-						// addr is likely host:port
-						network = requestednetwork
+					host, port, err := net.SplitHostPort(addr)
+					if err != nil {
+						if url.Scheme == "https" {
+							port = "443"
+						} else {
+							port = "80"
+						}
+					} else {
+						addr = host
 					}
-					log.VV("proxy: %s reaches: dial(%s, %s) for %s",
-						idstr(p), network, addr, url)
-					return p.Dial(network, addr)
+					on, _ := strconv.ParseUint(port, 10, 16)
+					if on == 0 {
+						if url.Scheme == "https" {
+							on = 443
+						} else {
+							on = 80
+						}
+					}
+					ipps := make([]netip.AddrPort, 0)
+					ips := dialers.For(addr)
+					for _, ip := range ips {
+						if v4 && ip.Is4() || v6 && ip.Is6() {
+							ipp := netip.AddrPortFrom(ip, uint16(on))
+							ipps = append(ipps, ipp)
+						}
+					}
+
+					n := rand.Intn(len(ipps))
+
+					log.VV("proxy: %s reaches: dial(%s, %s => %s [among %v]) for %s",
+						idstr(p), network, addr, ipps[n], ipps, url)
+					return p.Dial(network, ipps[n].String())
 				},
 				// Disable connection pooling for one-time use
 				DisableKeepAlives:   true,
