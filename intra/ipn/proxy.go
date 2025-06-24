@@ -665,6 +665,10 @@ func httpsReachesWorkCtx(p Proxy, url *url.URL) core.WorkCtx[bool] {
 
 					log.VV("proxy: %s reaches: dial(%s, %s => %s [among %v]) for %s",
 						idstr(p), network, addr, ipps[n], ipps, url)
+
+					// filter out the revelant IPs ourselves as dialers pkg does not
+					// respect ip-specific network type "tcp4" or "tcp6"
+					// see: cdial.go:commondial2()
 					return p.Dial(network, ipps[n].String())
 				},
 				// Disable connection pooling for one-time use
