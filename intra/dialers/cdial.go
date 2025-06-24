@@ -93,6 +93,7 @@ func commondial2[D rdials, C rconns](d D, network, laddr, raddr string, connect 
 		log.D("commondial: duration: %s; addr %s; confirmed? %s, sz: %d", dur, raddr, confirmed, ips.Size())
 	}()
 
+	// TODO: confirmedIPOK must be used depending on network type "tcp4", "udp4", "tcp6", "udp6" etc
 	if confirmedIPOK {
 		remote := netip.AddrPortFrom(confirmed, uint16(port))
 		log.V("commondial: dialing confirmed ip %s for %s", confirmed, remote)
@@ -120,6 +121,7 @@ func commondial2[D rdials, C rconns](d D, network, laddr, raddr string, connect 
 	}
 
 	ipset := ips.Addrs()
+	// TODO: maybeFilter should consider incoming network types "tcp4", "udp4", "tcp6", "udp6" etc
 	allips, failingopen := maybeFilter(ipset, confirmed)
 	if len(allips) <= 0 || failingopen {
 		var ok bool
@@ -151,7 +153,7 @@ func commondial2[D rdials, C rconns](d D, network, laddr, raddr string, connect 
 				return conn, nil
 			}
 			errs = core.JoinErr(errs, err)
-			logwd(err)("rdial: commondial: ip %s for %s failed; err %v", ip, remote, err)
+			logwd(err)("commondial: ip %s for %s failed; err %v", ip, remote, err)
 		} else {
 			log.W("commondial: ip %s not ok for %s", ip, raddr)
 		}
