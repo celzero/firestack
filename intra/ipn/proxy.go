@@ -699,7 +699,15 @@ func httpsReaches(who string, c *http.Client, url *url.URL) (bool, error) {
 	if err != nil {
 		return false, fmt.Errorf("proxy: reaches: err creating req: %w", err)
 	}
-	req.Header.Set("User-Agent", "intra")
+
+	setua := settings.SetUserAgentForDoH.Load()
+	if setua {
+		// standard for 204 connectivity checks
+		// PROBE_HTTPS https://www.google.com/generate_204 time=183ms ret=204 request={Connection=[close], User-Agent=[Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/60.0.3112.32 Safari/537.36]}
+		// headers={null=[HTTP/1.1 204 No Content], Alt-Svc=[h3=":443"; ma=2592000,h3-29=":443"; ma=2592000], Connection=[close], Content-Length=[0], Cross-Origin-Resource-Policy=[cross-origin],
+		// Date=[Fri, 27 Jun 2025 10:56:24 GMT], X-Android-Received-Millis=[1751021784573], X-Android-Response-Source=[NETWORK 204], X-Android-Selected-Protocol=[http/1.1], X-Android-Sent-Millis=[1751021784495]}
+		req.Header.Set("User-Agent", "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/60.0.3112.32 Safari/537.36")
+	}
 
 	resp, err := c.Do(req)
 	if resp != nil {
@@ -714,8 +722,8 @@ func httpsReaches(who string, c *http.Client, url *url.URL) (bool, error) {
 
 	ok := err == nil && statuscode > 0 && statuscode < 500
 
-	logeif(!ok)("proxy: %s reaches: %v; ok? %t, status: %d, rtt: %s; err: %v",
-		who, url, ok, statuscode, core.FmtPeriod(rtt), err)
+	logeif(!ok)("proxy: %s reaches: %v (ua? %t); ok? %t, status: %d, rtt: %s; err: %v",
+		who, url, setua, ok, statuscode, core.FmtPeriod(rtt), err)
 
 	if ok {
 		err = nil // wipe out err as it makes core.Race discard "ok"
