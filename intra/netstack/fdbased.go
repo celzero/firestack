@@ -243,13 +243,16 @@ func (e *endpoint) Dispose() (err error) {
 		log.W("ns: tun: Dispose: no fds")
 		return nil
 	}
+
+	e.Lock()
+	defer e.Unlock()
+
 	prevfd := e.fds.Swap(invalidfd) // prevfd may be invalidfd
 	if prevfd == invalidfd {
 		log.W("ns: tun: Dispose: invalid prevfd")
 		return nil
 	}
-	e.Lock()
-	defer e.Unlock()
+
 	if e.inboundDispatcher == nil {
 		log.W("ns: tun: Dispose: no inbound dispatcher")
 		// nothing to do
@@ -267,12 +270,12 @@ func (e *endpoint) Swap(fd int) (err error) {
 		return fmt.Errorf("ns: tun: set non blocking(%d) failed: %v", fd, err)
 	}
 
-	prevfd := e.fds.Swap(fd) // commence WritePackets() on fd
-
-	log.D("ns: swap: tun fd %d => %d", prevfd, fd)
-
 	e.Lock()
 	defer e.Unlock()
+
+	prevfd := e.fds.Swap(fd) // commence WritePackets() on fd
+	log.D("ns: swap: tun fd %d => %d", prevfd, fd)
+
 	if e.inboundDispatcher == nil { // prevfd must be 0 value if inbound is nil
 		e.inboundDispatcher, err = createInboundDispatcher(e, fd)
 	} else {
