@@ -674,8 +674,8 @@ func (t *transport) asDohRequest(msg *dns.Msg) (req *http.Request, err error) {
 	}
 	req.Header.Set("content-type", dohmimetype)
 	req.Header.Set("accept", dohmimetype)
-	if settings.SetUserAgentForDoH.Load() {
-		req.Header.Set("user-agent", "Intra")
+	if settings.SetUserAgent.Load() {
+		req.Header.Set("user-agent", settings.IntraUa)
 	}
 	return
 }

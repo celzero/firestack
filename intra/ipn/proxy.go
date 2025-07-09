@@ -700,13 +700,9 @@ func httpsReaches(who string, c *http.Client, url *url.URL) (bool, error) {
 		return false, fmt.Errorf("proxy: reaches: err creating req: %w", err)
 	}
 
-	setua := settings.SetUserAgentForDoH.Load()
+	setua := settings.SetUserAgent.Load()
 	if setua {
-		// standard for 204 connectivity checks
-		// PROBE_HTTPS https://www.google.com/generate_204 time=183ms ret=204 request={Connection=[close], User-Agent=[Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/60.0.3112.32 Safari/537.36]}
-		// headers={null=[HTTP/1.1 204 No Content], Alt-Svc=[h3=":443"; ma=2592000,h3-29=":443"; ma=2592000], Connection=[close], Content-Length=[0], Cross-Origin-Resource-Policy=[cross-origin],
-		// Date=[Fri, 27 Jun 2025 10:56:24 GMT], X-Android-Received-Millis=[1751021784573], X-Android-Response-Source=[NETWORK 204], X-Android-Selected-Protocol=[http/1.1], X-Android-Sent-Millis=[1751021784495]}
-		req.Header.Set("User-Agent", "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/60.0.3112.32 Safari/537.36")
+		req.Header.Set("User-Agent", settings.AndroidCcUa)
 	}
 
 	resp, err := c.Do(req)

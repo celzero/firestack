@@ -143,7 +143,7 @@ func UndelegatedDomains(useSystemDNS bool) {
 func Transparency(eim, eif bool) {
 	settings.EndpointIndependentMapping.Store(eim)
 	settings.EndpointIndependentFiltering.Store(eif)
-	settings.SetUserAgentForDoH.Store(eim || eif)
+	settings.SetUserAgent.Store(eim || eif)
 	log.I("tun: eim? %t / eif? %t", eim, eif)
 }
 

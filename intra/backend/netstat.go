@@ -154,7 +154,7 @@ type RDNSInfo struct {
 	Transparency            bool
 	PanicTest               bool
 	SystemDNSForUndelegated bool
-	SendDohUserAgent        bool
+	SetUserAgent            bool
 
 	Dialer4    bool
 	Dialer6    bool
