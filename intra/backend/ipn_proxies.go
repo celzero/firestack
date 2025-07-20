@@ -25,8 +25,10 @@ const ( // see ipn/proxies.go
 	RpnWg = WG + "w" + RPN
 	// RPN Amnezia (must be registered by Rpn.RegisterAmnezia)
 	RpnAmz = WG + "a" + RPN
-	// RPN Proton (must be registered by Rpn.RegisterProton)
-	RpnPro = WG + "p" + RPN
+	// RPN Win proxy (must be registered by Rpn.RegisterWin)
+	RpnWin = WG + "y" + RPN
+	// Alias for RPN Win
+	RpnPro = RpnWin
 	// RPN WebSockets (unused)
 	RpnWs = PIPWS + RPN
 	// RPN HTTP/2 (unused)
@@ -90,21 +92,27 @@ type Rpn interface {
 	RegisterSE() error
 	// RegisterAmnezia registers a new Amnezia installation.
 	RegisterAmnezia(existingStateJson *Gobyte) (json *Gobyte, err error)
-	// RegisterProton registers a new Proton installation.
-	RegisterProton(existingStateJson *Gobyte) (json *Gobyte, err error)
+	// RegisterProton is alias for RegisterWin.
+	RegisterProton(entitlementOrStateJson *Gobyte) (json *Gobyte, err error)
+	// RegisterWin is alias for RegisterWin.
+	RegisterWin(entitlementOrStateJson *Gobyte) (json *Gobyte, err error)
 	// UnregisterWarp unregisters a Warp public key.
 	UnregisterWarp() bool
 	// UnregisterAmnezia unregisters an Amnezia installation.
 	UnregisterAmnezia() bool
-	// UnregisterProton unregisters a Proton installation.
+	// UnregisterProton is an alias for UnregisterWin.
 	UnregisterProton() bool
+	// UnregisterWin unregisters a Windscribe installation.
+	UnregisterWin() bool
 	// UnregisterSE unregisters a SurfEasy user.
 	UnregisterSE() bool
 	// TestWarp connects to some Warp IPs and returns reachable ones.
 	TestWarp() (ips *Gostr, errs error)
 	// TestAmnezia connects to the Amnezia gateway and returns its IP if reachable.
 	TestAmnezia() (ips *Gostr, errs error)
-	// TestProton connects to the Proton gateway and returns its IP if reachable.
+	// TestWin connects to the Windscribe gateway and returns its IP if reachable.
+	TestWin() (ips *Gostr, errs error)
+	// TestProton is an alias for TestWin.
 	TestProton() (ips *Gostr, errs error)
 	// TestSE connects to some SurfEasy IPs and returns reachable ones.
 	TestSE() (ips *Gostr, errs error)
@@ -112,7 +120,9 @@ type Rpn interface {
 	TestExit64() (ips *Gostr, errs error)
 	// Warp returns a Cloudflare Warp WireGuard proxy.
 	Warp() (wg RpnProxy, err error)
-	// Proton returns a Proton WireGuard proxy.
+	// Win returns a Windscribe WireGuard proxy.
+	Win() (wg RpnProxy, err error)
+	// Proton is an alias for Win.
 	Proton() (wg RpnProxy, err error)
 	// Amnezia returns a Amnezia WireGuard proxy.
 	Amnezia() (awg RpnProxy, err error)

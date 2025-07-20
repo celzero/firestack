@@ -39,7 +39,8 @@ const (
 	OrbotH1  = x.OrbotH1
 	GlobalH1 = x.GlobalH1
 	RpnWg    = x.RpnWg
-	RpnPro   = x.RpnPro
+	RpnPro   = x.RpnWin // pro is an alias for win
+	RpnWin   = x.RpnWin
 	RpnAmz   = x.RpnAmz
 	RpnWs    = x.RpnWs
 	Rpn64    = x.Rpn64
@@ -124,7 +125,7 @@ var (
 	errHopGlobalProxy     = errors.New("proxy: hop must be global proxy")
 	errHopNotConnected    = errors.New("proxy: set but not connected over hop")
 	errNilAmzId           = errors.New("proxy: amz id nil")
-	errNilProtonCfg       = errors.New("proxy: proton cfg nil")
+	errNilWinCfg          = errors.New("proxy: win cfg nil")
 	errNilWarpId          = errors.New("proxy: warp id nil")
 	errNilSEProxy         = errors.New("proxy: se proxy nil")
 	errNotRpnProxy        = errors.New("proxy: rpn not found")
@@ -255,10 +256,10 @@ type proxifier struct {
 
 	sec *seasy.SEApi // se proxy registration, never changes; may be nil
 
-	lastSeErr     *core.Volatile[error] // se proxy registration error
-	lastWarpErr   *core.Volatile[error] // warp registration error
-	lastAmzErr    *core.Volatile[error] // amnezia registration error
-	lastProtonErr *core.Volatile[error] // proton registration error
+	lastSeErr   *core.Volatile[error] // se proxy registration error
+	lastWarpErr *core.Volatile[error] // warp registration error
+	lastAmzErr  *core.Volatile[error] // amnezia registration error
+	lastWinErr  *core.Volatile[error] // win registration error
 }
 
 type LinkProps struct {
@@ -294,11 +295,11 @@ func NewProxifier(pctx context.Context, l3 string, mtu int, c protect.Controller
 
 		hp: make(map[string][]string),
 
-		rp:            make(map[string]RpnProxy),
-		lastSeErr:     core.NewZeroVolatile[error](),
-		lastWarpErr:   core.NewZeroVolatile[error](),
-		lastAmzErr:    core.NewZeroVolatile[error](),
-		lastProtonErr: core.NewZeroVolatile[error](),
+		rp:          make(map[string]RpnProxy),
+		lastSeErr:   core.NewZeroVolatile[error](),
+		lastWarpErr: core.NewZeroVolatile[error](),
+		lastAmzErr:  core.NewZeroVolatile[error](),
+		lastWinErr:  core.NewZeroVolatile[error](),
 	}
 
 	pxr.exit = NewExitProxy(pctx, c)
@@ -1216,41 +1217,43 @@ func (px *proxifier) registerAmnezia(existingStateJson []byte) (RpnAcc, error) {
 
 // RegisterProton implements x.Rpn.
 func (px *proxifier) RegisterProton(existingState *x.Gobyte) (stateJson *x.Gobyte, err error) {
+	return px.RegisterWin(existingState) // same as RegisterWin
+}
+
+// RegisterWin implements x.Rpn.
+func (px *proxifier) RegisterWin(entitlementOrState *x.Gobyte) (stateJson *x.Gobyte, err error) {
 	defer func() {
-		px.lastProtonErr.Store(err) // may be nil
+		px.lastWinErr.Store(err) // may be nil
 	}()
-	existingStateJson := existingState.V()
+	existingStateJson := entitlementOrState.V()
 	restore := len(existingStateJson) > 0
 
-	pro, err := px.registerProton(existingStateJson)
-	if err != nil || core.IsNil(pro) {
-		log.E("proxy: proton: make failed: %v", err)
-		return nil, core.JoinErr(err, errNilProtonCfg)
+	win, err := px.registerWin(existingStateJson)
+	if err != nil || core.IsNil(win) {
+		log.E("proxy: ws: make failed: %v", err)
+		return nil, core.JoinErr(err, errNilWinCfg)
 	}
 
-	state, err := pro.State()
+	state, err := win.State()
 	if err != nil {
 		// TODO: RpnAcc may be stateless, in which case err is expected & could be ignored
 		return nil, err
 	}
 
-	rp, err := px.addRpnProxy(pro, mainCountryCode)
+	// TODO: create a new proxy type for win, so Refresh() could be sent to /connect
+
+	rp, err := px.addRpnProxy(win, mainCountryCode)
 	if err != nil || rp == nil {
-		log.E("proxy: proton: add wg for %s failed: %v", pro.Who(), err)
+		log.E("proxy: ws: add wg for %s failed: %v", win.Who(), err)
 		return nil, core.JoinErr(err, errNotRpnProxy)
 	}
 
-	log.I("proxy: proton: registered: %s / %d; new? %t", pro.Who(), state.Len(), !restore)
+	log.I("proxy: ws: registered: %s / %d; new? %t", win.Who(), state.Len(), !restore)
 	return state, nil
 }
 
-func (px *proxifier) registerProton(existingStateJson []byte) (RpnAcc, error) {
-	const nostore = ""
-	if len(existingStateJson) > 0 {
-		return px.extc.MakeProtonWgFrom(existingStateJson, nostore)
-	} else {
-		return px.extc.MakeProtonWg(nostore)
-	}
+func (px *proxifier) registerWin(entitlementOrStateJson []byte) (RpnAcc, error) {
+	return px.extc.MakeWsWgFrom(entitlementOrStateJson)
 }
 
 // RegisterSE implements x.Rpn.
@@ -1291,7 +1294,12 @@ func (px *proxifier) UnregisterAmnezia() bool {
 
 // UnregisterProton implements x.Rpn.
 func (px *proxifier) UnregisterProton() bool {
-	return px.unregisterRpn(RpnPro)
+	return px.UnregisterWin()
+}
+
+// UnregisterWin implements x.Rpn.
+func (px *proxifier) UnregisterWin() bool {
+	return px.unregisterRpn(RpnWin)
 }
 
 // UnregisterSE implements x.Rpn.
@@ -1326,11 +1334,16 @@ func (px *proxifier) Warp() (x.RpnProxy, error) {
 
 // Proton implements x.Rpn.
 func (px *proxifier) Proton() (x.RpnProxy, error) {
-	pro, err := px.mainRpnProxyOf(RpnPro)
-	if pro == nil {
-		return nil, core.JoinErr(err, px.lastProtonErr.Load())
+	return px.Win()
+}
+
+// Win implements x.Rpn.
+func (px *proxifier) Win() (x.RpnProxy, error) {
+	win, err := px.mainRpnProxyOf(RpnWin)
+	if win == nil {
+		return nil, core.JoinErr(err, px.lastWinErr.Load())
 	}
-	return pro, nil
+	return win, nil
 }
 
 // Amnezia implements x.Rpn.
@@ -1444,19 +1457,26 @@ func (px *proxifier) testWarp() (string, error) {
 
 // TestProton implements x.Rpn.
 func (px *proxifier) TestProton() (*x.Gostr, error) {
-	return x.StrOfFunc(px.testProton)
+	return px.TestWin()
 }
 
-func (px *proxifier) testProton() (string, error) {
-	v4, _, err := warp.ProtonEndpoints()
+// TestWin implements x.Rpn.
+func (px *proxifier) TestWin() (*x.Gostr, error) {
+	return x.StrOfFunc(px.testWin)
+}
+
+func (px *proxifier) testWin() (string, error) {
+	v4, v6, err := warp.WinEndpoints()
 	if err != nil {
-		log.W("proxy: proton: err testing endpoints: %v", err)
+		log.W("proxy: ws: err testing endpoints: %v", err)
 		return "", err
 	}
 
+	n := 0
+	const maxpings = 5
 	// todo: proton does not use ipv6 for api servers
 	oks := make([]string, 0, len(v4))
-	for _, ip := range v4 {
+	for _, ip := range append(v4, v6...) {
 		ipstr := ip.String()
 		// base can route back into netstack (settings.LoopingBack)
 		// in which  case all endpoints will "seem" reachable.
@@ -1464,12 +1484,16 @@ func (px *proxifier) testProton() (string, error) {
 		// the true, unhindered path to the underlying network.
 		if Reaches(px.exit, ipstr, "tcp") {
 			oks = append(oks, ipstr)
+			n++
+		}
+		if n >= maxpings {
+			break // stop after maxpings
 		}
 	}
 
 	if len(oks) <= 0 {
-		log.E("proxy: proton: no reachable addrs among %v", v4)
-		return "", core.JoinErr(errNoSuitableAddress, px.lastProtonErr.Load())
+		log.E("proxy: ws: no reachable addrs among %v", v4)
+		return "", core.JoinErr(errNoSuitableAddress, px.lastWinErr.Load())
 	}
 	return strings.Join(oks, ","), nil
 }

@@ -47,6 +47,7 @@ type RpnAcc interface {
 var _ RpnAcc = (*AgwClient)(nil)
 var _ RpnAcc = (*ProtonClient)(nil)
 var _ RpnAcc = (*WarpClient)(nil)
+var _ RpnAcc = (*WsClient)(nil)
 
 type BaseClient struct {
 	d  *protect.RDial

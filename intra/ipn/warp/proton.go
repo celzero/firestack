@@ -8,8 +8,6 @@ package warp
 
 import (
 	"bytes"
-	"encoding/base64"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -18,7 +16,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	x "github.com/celzero/firestack/intra/backend"
@@ -47,10 +44,6 @@ const (
 	// ipv6: github.com/ProtonVPN/android-app/commit/80ac0af8583f32cc579fab7a012702bff52c83f3
 	protonClientAddr6 = "2a07:b944::2:2"
 	protonDNSAddr6    = "2a07:b944::2:1"
-	// github.com/ProtonVPN/android-app/blob/b9c6e59de40/app/src/main/java/com/protonvpn/android/models/vpn/ConnectionParamsWireguard.kt#L96
-	protonAllowedIPs = gw4
-
-	protonAllowedIPv6s = gw6
 )
 
 // github.com/ProtonVPN/android-app/blob/b9c6e59de40/app/src/main/java/com/protonvpn/android/models/vpn/Server.kt#L28
@@ -486,137 +479,6 @@ type ProtonWgConfig struct {
 	RegionalWgConfs []*RegionalWgConf `json:"RegionalWgConfs"`
 }
 
-type RegionalWgConf struct {
-	CC   string `json:"CC"`
-	Name string `json:"Name"`
-
-	ClientAddr4   string `json:"ClientAddr4"`
-	ClientAddr6   string `json:"ClientAddr6"`
-	ClientPrivKey string `json:"ClientPrivKey"`
-	ClientPubKey  string `json:"ClientPubKey"`
-	ClientDNS4    string `json:"ClientDNS4"`
-	ClientDNS6    string `json:"ClientDNS6"`
-
-	PskKey string `json:"PskKey"`
-
-	ServerPubKey     string   `json:"ServerPubKey"`
-	ServerIPPort4    string   `json:"ServerIPPort4"`
-	ServerIPPort6    string   `json:"ServerIPPort6"`
-	ServerDomainPort string   `json:"ServerDomainPort"`
-	AllowedIPs       []string `json:"AllowedIPs"` // csv
-
-	WgConf     string `json:"wgconf"`     // generated
-	UapiWgConf string `json:"uapiwgconf"` // generated
-}
-
-func (rwg *RegionalWgConf) String() string {
-	if rwg == nil {
-		return "<nil>"
-	}
-	return fmt.Sprintf("%s: %s", rwg.CC, rwg.Name)
-}
-
-func toHex(b64 string) string {
-	b, err := base64.StdEncoding.DecodeString(b64)
-	if err != nil {
-		return ""
-	}
-	return hex.EncodeToString(b)
-}
-
-func (rwg *RegionalWgConf) genUapiConfig() {
-	// github.com/WireGuard/wireguard-android/blob/4ba87947ae/tunnel/src/main/java/com/wireguard/config/Config.java#L179
-	// github.com/WireGuard/wireguard-android/blob/4ba87947ae/tunnel/src/main/java/com/wireguard/config/Interface.java#L257
-	// allowedips must be individual entries in uapi, but our custom impl can handle csv
-	// see: wgproxy.go:wgIfConfigOf => wgproxy.go:loadIPNets
-	allowedips := rwg.AllowedIPs
-	if len(allowedips) <= 0 {
-		allowedips = []string{protonAllowedIPs}
-	}
-
-	// not added: listen_port, persistent_keepalive_interval
-	rwg.UapiWgConf = fmt.Sprintf(`private_key=%s
-replace_peers=true
-address=%s
-dns=%s
-mtu=(auto)
-public_key=%s
-endpoint=%s
-endpoint=%s`,
-		toHex(rwg.ClientPrivKey),
-		rwg.ClientAddr4,
-		rwg.ClientDNS4,
-		toHex(rwg.ServerPubKey),
-		rwg.ServerIPPort4,
-		rwg.ServerDomainPort)
-	if len(rwg.PskKey) > 0 {
-		rwg.UapiWgConf += "\npreshared_key=" + toHex(rwg.PskKey)
-	}
-	if len(rwg.ClientAddr6) > 0 {
-		rwg.UapiWgConf += "\naddress=" + rwg.ClientAddr6
-	}
-	if len(rwg.ClientDNS6) > 0 {
-		rwg.UapiWgConf += "\ndns=" + rwg.ClientDNS6
-	}
-	for _, ip := range allowedips {
-		rwg.UapiWgConf += fmt.Sprintf("\nallowed_ip=%s", ip)
-	}
-}
-
-func (rwg *RegionalWgConf) dnsCsv() string {
-	var dnses []string
-	if len(rwg.ClientDNS4) > 0 {
-		dnses = append(dnses, rwg.ClientDNS4)
-	}
-	if len(rwg.ClientDNS6) > 0 {
-		dnses = append(dnses, rwg.ClientDNS6)
-	}
-	if len(dnses) <= 0 {
-		dnses = []string{cfdns4}
-	}
-	return strings.Join(dnses, ",")
-}
-
-func (rwg *RegionalWgConf) addrCsv() string {
-	var addrs []string
-	if len(rwg.ClientAddr4) > 0 {
-		addrs = append(addrs, rwg.ClientAddr4)
-	}
-	if len(rwg.ClientAddr6) > 0 {
-		addrs = append(addrs, rwg.ClientAddr6)
-	}
-	if len(addrs) <= 0 {
-		addrs = []string{protonAllowedIPs}
-	}
-	return strings.Join(addrs, ",")
-}
-
-func (rwg *RegionalWgConf) genWgConf() {
-	if rwg == nil {
-		return
-	}
-	rwg.WgConf = fmt.Sprintf(`[Interface]
-PrivateKey = %s
-PublicKey = %s
-Address = %s
-DNS = %s
-[Peer]
-PublicKey = %s
-Endpoint = %s
-Endpoint = %s
-AllowedIPs = %s`,
-		rwg.ClientPrivKey,
-		rwg.ClientPubKey,
-		rwg.addrCsv(),
-		rwg.dnsCsv(),
-		rwg.ServerPubKey,
-		rwg.ServerIPPort4,
-		rwg.ServerDomainPort,
-		strings.Join(rwg.AllowedIPs, ","),
-	)
-	rwg.genUapiConfig()
-}
-
 func (id *ProtonWgConfig) Json() ([]byte, error) {
 	if id == nil {
 		return nil, errNoProtonConfig
@@ -771,12 +633,13 @@ func (a *ProtonClient) newConf() error {
 				wc.ServerPubKey = s.X25519PublicKey
 				wc.ServerIPPort4 = fmt.Sprintf("%s:%d", s.EntryIP, protonPrimaryTcpPort)
 				wc.ServerDomainPort = fmt.Sprintf("%s:%d", s.Domain, protonPrimaryTcpPort)
-				wc.AllowedIPs = []string{protonAllowedIPs}
+				// github.com/ProtonVPN/android-app/blob/b9c6e59de40/app/src/main/java/com/protonvpn/android/models/vpn/ConnectionParamsWireguard.kt#L96
+				wc.AllowedIPs = []string{gw4}
 
 				if s.ipv6() {
 					wc.ClientAddr6 = protonClientAddr6
 					wc.ClientDNS6 = protonDNSAddr6
-					wc.AllowedIPs = append(wc.AllowedIPs, protonAllowedIPv6s)
+					wc.AllowedIPs = append(wc.AllowedIPs, gw6)
 				}
 
 				rwgConfs = append(rwgConfs, wc)

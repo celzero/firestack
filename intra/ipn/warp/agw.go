@@ -841,3 +841,7 @@ func (w *BaseClient) MakeAmzWgFrom(existingStateJson []byte) (*AgwClient, error)
 func fmtUnixMillis(ms int64) string {
 	return core.FmtUnixMillisAsTimestamp(ms)
 }
+
+func fmtTime(t time.Time) string {
+	return core.FmtTimeAsPeriod(t)
+}

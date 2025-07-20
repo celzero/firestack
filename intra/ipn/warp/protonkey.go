@@ -8,13 +8,18 @@ package warp
 
 import (
 	"crypto/ed25519"
+	"crypto/hmac"
+	"crypto/sha256"
 	"crypto/sha512"
 	"crypto/x509"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/pem"
 	"errors"
+	"io"
 
 	x "github.com/celzero/firestack/intra/backend"
+	"github.com/celzero/firestack/intra/log"
 )
 
 var (
@@ -38,9 +43,14 @@ type protonKeyPair struct {
 
 var _ ProtonKey = (*protonKeyPair)(nil)
 
-// newProtonKeyPair generates new ED25519 key pair
+// newProtonKeyPair generates new ED25519 key pair.
 func newProtonKeyPair() (*protonKeyPair, error) {
-	_, pri, err := ed25519.GenerateKey(nil)
+	return newProtonKeyPairOf(nil)
+}
+
+// newProtonKeyPair generates new ED25519 key pair seeding from rand.
+func newProtonKeyPairOf(rand io.Reader) (*protonKeyPair, error) {
+	_, pri, err := ed25519.GenerateKey(rand)
 	if err != nil {
 		return nil, err
 	}
@@ -104,4 +114,27 @@ func toPEM(bytes []byte, header string) string {
 		},
 	)
 	return string(encoded)
+}
+
+func hmac256(m, k []byte) []byte {
+	mac := hmac.New(sha256.New, k)
+	mac.Write(m)
+	return mac.Sum(nil)
+}
+
+func sha(p string) []byte {
+	digest := sha256.Sum256([]byte(p))
+	return digest[:]
+}
+
+func hex2byte(s string) []byte {
+	b, err := hex.DecodeString(s)
+	if err != nil {
+		log.E("hex2byte: err %v", err)
+	}
+	return b
+}
+
+func byte2hex(b []byte) string {
+	return hex.EncodeToString(b)
 }
