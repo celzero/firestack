@@ -9,8 +9,8 @@ env:
   BOUT: "build/intra/tun2socks.aar"
   BOUTDBG: "build/intra/tun2socks-debug.aar"
   SOURCES: "build/intra/tun2socks-sources.jar"
-  NDKVER: "28.1.13356709"
-  SDKVER: "35"
+  NDKVER: "28.2.13676358"
+  SDKVER: "36"
 before_install:
 # - sdk install java 17.0.8-jbr
 # - sdk use java 17.0.8-jbr
