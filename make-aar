@@ -26,21 +26,30 @@ CLASSDBG="${CLASSDBG:-debug}"
 # artifact bytecode sources
 SOURCES="${SOURCES:-build/intra/tun2socks-sources.jar}"
 # android sdk/ndk versions
-NDKVER="${NDKVER:-28.1.13356709}"
-SDKVER="${SDKVER:-35}"
+NDKVER="${NDKVER:-0}"
+SDKVER="${SDKVER:-36}"
 
 ARG1="${1:-go}"
 ARG2="${2:-debug}"
 
-ANDROID_NDK_HOME="${ANDROID_HOME}/ndk/${NDKVER}"
-ANDROID_NDK_ROOT="${ANDROID_NDK_HOME}"
 
 # debug
 printenv
+
 ls -ltr $ANDROID_HOME/**
 head $ANDROID_HOME/ndk-bundle/source.properties || true
-ls -ltr $ANDROID_NDK_HOME
-head $ANDROID_NDK_HOME/source.properties || true
+
+# gomobile picks up the latest ndk by walking the ndk dir
+# in $ANDROID_HOME (on gh-actions: /usr/local/lib/android/sdk/ndk)
+# if NDKVER is set, override gomobile's behaviour by force setting
+# $ANDROID_NDK_HOME & $ANDROID_NDK_ROOT to the requested NDK version.
+if [ "$NDKVER" != "0" ]; then
+  ANDROID_NDK_HOME="${ANDROID_HOME}/ndk/${NDKVER}"
+  ANDROID_NDK_ROOT="${ANDROID_NDK_HOME}"
+  # ls will fail if NDKVER is missing, which is what we want!
+  ls -ltr $ANDROID_NDK_HOME
+  head $ANDROID_NDK_HOME/source.properties || true
+fi
 
 if [ "$ARG1" = "go" ]; then
   # download from go.dev/dl
