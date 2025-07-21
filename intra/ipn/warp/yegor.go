@@ -1362,9 +1362,14 @@ func (w *BaseClient) MakeWsWgFrom(entitlementOrWsConfigJson []byte) (*WsClient, 
 
 	var existingConf WsWgConfig
 	err := json.Unmarshal(entitlementOrWsConfigJson, &existingConf)
-	if err != nil {
+
+	sz := len(entitlementOrWsConfigJson)
+	hasEnt := existingConf.Entitlement == nil
+	hasTok := hasEnt && len(existingConf.Entitlement.SessionToken) <= 0
+	if err != nil || !hasEnt || !hasTok {
 		// may be this is an entitlement?
-		log.W("ws: make: unmarshal config err: %v; retry as entitlement", err)
+		log.W("ws: make: unmarshal config (sz %d / hasEnt %t / hasTok %t) err? %v; retry as entitlement",
+			sz, hasEnt, hasTok, err)
 		return w.MakeWsWg(entitlementOrWsConfigJson)
 	}
 

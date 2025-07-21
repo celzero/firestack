@@ -559,16 +559,19 @@ func (l *simpleLogger) writelog(lvl LogLevel, at int, msg string, args ...any) {
 	if ll || cc {
 		switch lvl {
 		case ERROR:
-			_, x := caller1(at+nextframe+3, ">>")
+			_, x := caller1(at+nextframe+4, ">")
 			trace += x
 			fallthrough
 		case WARN:
-			_, y := caller1(at+nextframe+2, ">>")
+			_, y := caller1(at+nextframe+3, ">")
 			trace += y
 			fallthrough
 		case INFO:
-			_, z := caller1(at+nextframe+1, ">>")
+			_, z := caller1(at+nextframe+2, ">")
 			trace += z
+		case DEBUG:
+			_, w := caller1(at+nextframe+1, ">")
+			trace += w
 		}
 		msg = l.msgstr(lvl, trace+file1+msg, args...)
 		if ll {
