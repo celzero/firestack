@@ -1364,7 +1364,7 @@ func (w *BaseClient) MakeWsWgFrom(entitlementOrWsConfigJson []byte) (*WsClient, 
 	err := json.Unmarshal(entitlementOrWsConfigJson, &existingConf)
 
 	sz := len(entitlementOrWsConfigJson)
-	hasEnt := existingConf.Entitlement == nil
+	hasEnt := existingConf.Entitlement != nil
 	hasTok := hasEnt && len(existingConf.Entitlement.SessionToken) <= 0
 	if err != nil || !hasEnt || !hasTok {
 		// may be this is an entitlement?
