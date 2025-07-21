@@ -17,6 +17,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -98,6 +99,8 @@ const (
 	wslocpath     = "/serverlist/mob-v2/1/" // + $loc_hash
 
 	wsbestloc = "/BestLocation"
+
+	maxPerRegionWgConfs = 3
 )
 
 // github.com/Windscribe/Android-App/blob/746d505dc69/base/src/main/java/com/windscribe/vpn/constants/NetworkErrorCodes.kt
@@ -122,6 +125,7 @@ var (
 	errNoLocHash        = errors.New("ws: no loc hash")
 	errNoWsServerList   = errors.New("ws: no server list")
 	errWsRetryUpdate    = errors.New("ws: retry update")
+	errNoWsCcConfig     = errors.New("ws: not available in that location")
 )
 
 /*
@@ -699,7 +703,7 @@ type WsEntitlement struct {
 
 func (id *WsWgConfig) Json() ([]byte, error) {
 	if id == nil {
-		return nil, errNoProtonConfig
+		return nil, errNoWsConfig
 	}
 
 	var w bytewriter
@@ -711,7 +715,7 @@ func (id *WsWgConfig) Json() ([]byte, error) {
 
 func (id *WsWgConfig) writeJson(w io.Writer) error {
 	if id == nil {
-		return errNoProtonConfig
+		return errNoWsConfig
 	}
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
@@ -734,7 +738,8 @@ func (a *WsClient) Who() *x.Gostr {
 	if c == nil || c.Session == nil {
 		return nil
 	}
-	return x.StrOf(c.Session.UserID + "@" + a.kid())
+	status := strconv.FormatInt(int64(c.Session.Status), 10)
+	return x.StrOf(status + ":" + c.Session.UserID + "+" + trunc8(byte2hex(sha(c.Session.SessionAuthHash))) + "@" + a.kid())
 }
 
 // ProviderID implements RpnAcc.
@@ -835,13 +840,14 @@ func (a *WsClient) Conf(cc string) (string, error) {
 		return out[r], nil
 	}
 	log.D("proton: conf: cc %s not found (tot: %d)", cc, tot)
-	return "", errNoProtonCcConf
+	return "", errNoWsCcConfig
 }
 
 func baseurl(test bool) string {
 	if test {
 		return wsTestUrl
 	}
+	// TODO: use wsProdUrl2 if wsProdUrl is not reachable?
 	return wsProdUrl
 }
 
@@ -1081,7 +1087,7 @@ keyagain:
 	var priv x.WgKey
 	if !useExistingCreds {
 		// register a deterministic WireGuard key for this client
-		m := sha(ent.Cid)
+		m := shab(hex2byte(ent.Cid))
 		if ord := ordFromPid(ent.Sid); len(ord) > 0 {
 			m = append(m, sha(ord)...)
 		}
@@ -1092,7 +1098,7 @@ keyagain:
 			} // give up silently, same key as when keyed == 0
 		}
 		seed := hmac256(m, sha(sess.SessionAuthHash))
-		key, err := newProtonKeyPairOf(bytes.NewReader(seed))
+		key, err := newEdKeyPairOf(bytes.NewReader(seed))
 		if err != nil {
 			return nil, nil, err
 		}

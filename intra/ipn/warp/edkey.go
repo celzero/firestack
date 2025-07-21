@@ -30,34 +30,29 @@ var (
 // prefixEd25519PKIXPub  = []byte{0x30, 0x2A, 0x30, 0x05, 0x06, 0x03, 0x2B, 0x65, 0x70, 0x03, 0x21, 0x00}
 // prefixEd25519PKIXPriv = []byte{0x30, 0x2E, 0x02, 0x01, 0x00, 0x30, 0x05, 0x06, 0x03, 0x2B, 0x65, 0x70, 0x04, 0x22, 0x04, 0x20}
 
-type ProtonKey interface {
+type EdKey interface {
 	PrivateKeyBase64() string
 	PublicKeyPKIXPem() string
 	Clear()
 	ToX25519() x.WgKey
 }
 
-type protonKeyPair struct {
+type edKeyPair struct {
 	private ed25519.PrivateKey
 }
 
-var _ ProtonKey = (*protonKeyPair)(nil)
-
-// newProtonKeyPair generates new ED25519 key pair.
-func newProtonKeyPair() (*protonKeyPair, error) {
-	return newProtonKeyPairOf(nil)
-}
+var _ EdKey = (*edKeyPair)(nil)
 
 // newProtonKeyPair generates new ED25519 key pair seeding from rand.
-func newProtonKeyPairOf(rand io.Reader) (*protonKeyPair, error) {
+func newEdKeyPairOf(rand io.Reader) (*edKeyPair, error) {
 	_, pri, err := ed25519.GenerateKey(rand)
 	if err != nil {
 		return nil, err
 	}
-	return &protonKeyPair{pri}, nil
+	return &edKeyPair{pri}, nil
 }
 
-func newProtonKeyPairFrom(privateKeyBase64 string) (*protonKeyPair, error) {
+func NewEdKeyPairFrom(privateKeyBase64 string) (*edKeyPair, error) {
 	private, err := base64.StdEncoding.DecodeString(privateKeyBase64)
 	if err != nil {
 		return nil, err
@@ -65,33 +60,33 @@ func newProtonKeyPairFrom(privateKeyBase64 string) (*protonKeyPair, error) {
 	if len(private) != ed25519.SeedSize {
 		return nil, errPrivateKeySize
 	}
-	return &protonKeyPair{ed25519.NewKeyFromSeed(private)}, nil
+	return &edKeyPair{ed25519.NewKeyFromSeed(private)}, nil
 }
 
 // Clear clears memory storing key pair
-func (key *protonKeyPair) Clear() {
+func (key *edKeyPair) Clear() {
 	for i := range key.private {
 		key.private[i] = 0
 	}
 }
 
-func (key *protonKeyPair) PrivateKeyBase64() string {
+func (key *edKeyPair) PrivateKeyBase64() string {
 	return base64.StdEncoding.EncodeToString(key.PrivateKeyBytes())
 }
 
-func (key *protonKeyPair) PrivateKeyBytes() []byte {
+func (key *edKeyPair) PrivateKeyBytes() []byte {
 	// publickey: return key.private[ed25519.SeedSize:]
 	return key.private.Seed()
 }
 
 // publicKeyPKIX returns public key in PKIX, ASN.1 DER format
-func (key *protonKeyPair) publicKeyPKIX() ([]byte, error) {
+func (key *edKeyPair) publicKeyPKIX() ([]byte, error) {
 	// privatekey: return append(prefixEd25519PKIXPriv[:], key.PrivateKeyBytes()...)
 	return x509.MarshalPKIXPublicKey(key.private.Public())
 }
 
 // PublicKeyPKIXPem returns public key in ASN.1 DER representation as PEM
-func (key *protonKeyPair) PublicKeyPKIXPem() string {
+func (key *edKeyPair) PublicKeyPKIXPem() string {
 	// privatekey: return toPEM(key.privateKeyPKIX(), "PRIVATE KEY")
 	bytes, err := key.publicKeyPKIX()
 	if err != nil {
@@ -101,7 +96,7 @@ func (key *protonKeyPair) PublicKeyPKIXPem() string {
 }
 
 // ToX25519 converts to X25519 secret key.
-func (key *protonKeyPair) ToX25519() x.WgKey {
+func (key *edKeyPair) ToX25519() x.WgKey {
 	prandom := sha512.Sum512(key.PrivateKeyBytes())
 	return x.NewWgPrivateKeyFrom([ed25519.SeedSize]byte(prandom[:32]))
 }
@@ -123,7 +118,11 @@ func hmac256(m, k []byte) []byte {
 }
 
 func sha(p string) []byte {
-	digest := sha256.Sum256([]byte(p))
+	return shab([]byte(p))
+}
+
+func shab(b []byte) []byte {
+	digest := sha256.Sum256(b)
 	return digest[:]
 }
 
