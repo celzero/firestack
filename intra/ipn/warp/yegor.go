@@ -100,7 +100,9 @@ const (
 
 	wsbestloc = "/BestLocation"
 
-	maxPerRegionWgConfs = 4
+	wsMinServerLinkSpeed = 1   // 1mbps
+	wsMaxServerHealth    = 100 // min is 0
+	maxPerRegionWgConfs  = 4
 )
 
 // github.com/Windscribe/Android-App/blob/746d505dc69/base/src/main/java/com/windscribe/vpn/constants/NetworkErrorCodes.kt
@@ -1038,14 +1040,29 @@ func convertToRegionalWgConfs(id *WsWgCreds, reservation *WsWgConnectData, list 
 		return nil, errWsNoServerList
 	}
 
+	tot := make(map[string]int)
 	out := make([]*RegionalWgConf, 0, len(list))
 	for _, server := range list {
 		if skipWsServer(server) {
 			continue
 		}
 
+		cc := server.CountryCode
 		port := wsRandomPort()
-		for _, group := range server.Groups {
+		sorted := core.Sort(server.Groups, func(a, b WsServerGroup) int {
+			ia, _ := strconv.ParseInt(a.LinkSpeed, 10, 64)
+			ib, _ := strconv.ParseInt(b.LinkSpeed, 10, 64)
+			la := min(int(ia), wsMinServerLinkSpeed) * (wsMaxServerHealth - a.Health)
+			lb := min(int(ib), wsMinServerLinkSpeed) * (wsMaxServerHealth - b.Health)
+			if la < lb { // ascending order by Health (lower is healthier)
+				return -1
+			} else if la > lb {
+				return 1
+			}
+			return 0
+		})
+
+		for _, group := range sorted {
 			servername := group.City + " (" + group.Nick + ")"
 			if len(group.WgPubKey) <= 0 || len(group.WgEndpoint) <= 0 {
 				continue // skip servers without wg
@@ -1054,6 +1071,12 @@ func convertToRegionalWgConfs(id *WsWgCreds, reservation *WsWgConnectData, list 
 				log.W("ws: wgconfs: no nodes in %s (%s)", group.City, group.Nick)
 				continue // skip servers without nodes
 			}
+			if tot[cc] >= maxPerRegionWgConfs*2 {
+				log.D("ws: wgconfs: skip! %s (%s) has %d configs already",
+					cc, servername, tot[cc])
+				break // we have enough configs for this region
+			}
+			tot[cc] = tot[cc] + 1
 			out = append(out, &RegionalWgConf{
 				CC:               server.CountryCode,
 				Name:             servername,
@@ -1069,6 +1092,7 @@ func convertToRegionalWgConfs(id *WsWgCreds, reservation *WsWgConnectData, list 
 				AllowedIPs: []string{gw4},
 			})
 		}
+
 	}
 
 	if len(out) <= 0 {
