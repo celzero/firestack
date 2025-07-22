@@ -51,7 +51,7 @@ func toHex(b64 string) string {
 	return hex.EncodeToString(b)
 }
 
-func (rwg *RegionalWgConf) genUapiConfig() {
+func (rwg *RegionalWgConf) genUapiConfig() bool {
 	// github.com/WireGuard/wireguard-android/blob/4ba87947ae/tunnel/src/main/java/com/wireguard/config/Config.java#L179
 	// github.com/WireGuard/wireguard-android/blob/4ba87947ae/tunnel/src/main/java/com/wireguard/config/Interface.java#L257
 	// allowedips must be individual entries in uapi, but our custom impl can handle csv
@@ -95,6 +95,8 @@ public_key=%s`,
 	for _, ip := range allowedips {
 		rwg.UapiWgConf += fmt.Sprintf("\nallowed_ip=%s", ip)
 	}
+
+	return true
 }
 
 func (rwg *RegionalWgConf) dnsCsv() string {
@@ -118,9 +120,6 @@ func (rwg *RegionalWgConf) addrCsv() string {
 	}
 	if len(rwg.ClientAddr6) > 0 {
 		addrs = append(addrs, rwg.ClientAddr6)
-	}
-	if len(addrs) <= 0 {
-		addrs = []string{gw4}
 	}
 	return strings.Join(addrs, ",")
 }

@@ -178,6 +178,8 @@ type RpnAcc interface {
 	Created() int64
 	// Expires returns the time (unix millis) currently active account expires.
 	Expires() int64
+	// Locations returns a list of servers worldwide. May be nil.
+	Locations() []RpnServer
 	// Update updates the account creating new state.
 	Update() (newstate *Gobyte, err error)
 }
@@ -266,4 +268,13 @@ type RouterStats struct {
 	LastOK int64
 	// uptime in millis
 	Since int64
+}
+
+type RpnServer struct {
+	// Name of the server, if any.
+	Name string
+	// CSV of IP:Port and/or Domain:Port
+	Addrs string
+	// Country code of the location.
+	CC string
 }

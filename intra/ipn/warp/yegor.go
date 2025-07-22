@@ -100,7 +100,7 @@ const (
 
 	wsbestloc = "/BestLocation"
 
-	maxPerRegionWgConfs = 3
+	maxPerRegionWgConfs = 4
 )
 
 // github.com/Windscribe/Android-App/blob/746d505dc69/base/src/main/java/com/windscribe/vpn/constants/NetworkErrorCodes.kt
@@ -113,19 +113,20 @@ const (
 var wswgports = []string{"443", "80", "53", "123", "1194", "65142"}
 
 var (
-	errInvalidWsGwArgs  = errors.New("ws: cannot make gw; missing args")
-	errNoWsConfig       = errors.New("ws: no config")
-	errNoWsJsonConfig   = errors.New("ws: no json config")
-	errNoWsSession      = errors.New("ws: no session info")
+	errWsBadGatewayArgs = errors.New("ws: cannot make gw; missing args")
+	errWsNoConfig       = errors.New("ws: no config")
+	errWsNoJsonConfig   = errors.New("ws: no json config")
+	errWsNoSession      = errors.New("ws: no session info")
 	errWsSessionExpired = errors.New("ws: session expired")
-	errNoWsClient       = errors.New("ws: no client")
-	errNoEntitlement    = errors.New("ws: missing entitlement")
-	errNoWsToken        = errors.New("ws: missing token")
-	errNoWsResponse     = errors.New("ws: no response")
-	errNoLocHash        = errors.New("ws: no loc hash")
-	errNoWsServerList   = errors.New("ws: no server list")
+	errWsNoClient       = errors.New("ws: no client")
+	errWsNoEntitlement  = errors.New("ws: missing entitlement")
+	errWsNoToken        = errors.New("ws: missing token")
+	errWsNoResponse     = errors.New("ws: no response")
+	errWsNoLocHash      = errors.New("ws: no loc hash")
+	errWsNoServerList   = errors.New("ws: no server list")
+	errWsBadServerList  = errors.New("ws: invalid server list")
 	errWsRetryUpdate    = errors.New("ws: retry update")
-	errNoWsCcConfig     = errors.New("ws: not available in that location")
+	errWsNoCcConfig     = errors.New("ws: not available in that location")
 )
 
 /*
@@ -139,7 +140,7 @@ var (
 */
 type WsPortMapResponse struct {
 	Data struct {
-		PortMap []PortMap `json:"portmap"`
+		PortMap []WsPortMap `json:"portmap"`
 	} `json:"data"`
 	Metadata WsMetadata `json:"metadata"`
 }
@@ -273,7 +274,7 @@ type WsMetadata struct {
 	        ]
 	}
 */
-type PortMap struct {
+type WsPortMap struct {
 	Protocol    string   `json:"protocol"`
 	Heading     string   `json:"heading"`
 	Use         string   `json:"use"`
@@ -703,7 +704,7 @@ type WsEntitlement struct {
 
 func (id *WsWgConfig) Json() ([]byte, error) {
 	if id == nil {
-		return nil, errNoWsConfig
+		return nil, errWsNoConfig
 	}
 
 	var w bytewriter
@@ -715,7 +716,7 @@ func (id *WsWgConfig) Json() ([]byte, error) {
 
 func (id *WsWgConfig) writeJson(w io.Writer) error {
 	if id == nil {
-		return errNoWsConfig
+		return errWsNoConfig
 	}
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
@@ -748,11 +749,11 @@ func (*WsClient) ProviderID() string { return x.RpnWin }
 // State implements x.RpnAcc.
 func (a *WsClient) State() (*x.Gobyte, error) {
 	if a == nil {
-		return nil, errNoWsClient
+		return nil, errWsNoClient
 	}
 	c := a.config()
 	if c == nil {
-		return nil, errNoWsConfig
+		return nil, errWsNoConfig
 	}
 	return x.BytesOfFunc(c.Json)
 }
@@ -789,6 +790,46 @@ func (a *WsClient) Expires() int64 {
 	return refreshAt.UnixMilli()
 }
 
+func (a *WsClient) Locations() []x.RpnServer {
+	if a == nil {
+		return nil
+	}
+	c := a.config()
+	if c == nil {
+		log.W("ws: locations: no session")
+		return nil
+	}
+	if len(c.Configs) <= 0 {
+		log.W("ws: locations: no configs")
+		return nil
+	}
+	visited := make(map[string]bool, len(c.Configs))
+	s := make([]x.RpnServer, 0, len(c.Configs)/maxPerRegionWgConfs)
+	for i, rc := range c.Configs {
+		if rc == nil {
+			log.W("ws: locations: config %d is nil", i)
+			continue
+		}
+		if len(rc.ServerPubKey) <= 0 {
+			log.D("ws: locations: config#%d has no wg conf", i)
+			continue
+		}
+		if len(rc.CC) <= 0 {
+			log.W("ws: locations: config#%d has no cc", i)
+			continue
+		}
+		if !visited[rc.CC] {
+			s = append(s, x.RpnServer{
+				CC:    rc.CC,
+				Name:  rc.Name,
+				Addrs: strings.Join([]string{rc.ServerDomainPort, rc.addrCsv()}, ","),
+			})
+		}
+		visited[rc.CC] = true
+	}
+	return s
+}
+
 // Update implements x.RpnAcc.
 func (a *WsClient) Update() (newstate *x.Gobyte, err error) {
 	b, refreshed, err := makeWsWgFrom(a.http, a.config())
@@ -812,7 +853,7 @@ func (a *WsClient) shallowCopyConfig(b *WsClient) error {
 	bc := b.config()
 	if bc == nil {
 		log.E("ws: shallowcopy: storing nil config...")
-		return errNoWsConfig
+		return errWsNoConfig
 	}
 	a.configExt.Store(bc)
 	return nil
@@ -822,15 +863,17 @@ func (a *WsClient) shallowCopyConfig(b *WsClient) error {
 func (a *WsClient) Conf(cc string) (string, error) {
 	cfg := a.config()
 	if cfg == nil {
-		return "", errNoWsConfig
+		return "", errWsNoConfig
 	}
 	tot := 0
 	c := 0
 	out := make([]string, 0, maxPerRegionWgConfs)
 	for _, rc := range cfg.Configs {
 		if rc.CC == cc && c < maxPerRegionWgConfs {
-			out = append(out, rc.UapiWgConf)
-			c++
+			if rc.genUapiConfig() {
+				out = append(out, rc.UapiWgConf)
+				c++
+			}
 		}
 		tot++
 	}
@@ -840,7 +883,7 @@ func (a *WsClient) Conf(cc string) (string, error) {
 		return out[r], nil
 	}
 	log.D("proton: conf: cc %s not found (tot: %d)", cc, tot)
-	return "", errNoWsCcConfig
+	return "", errWsNoCcConfig
 }
 
 func baseurl(test bool) string {
@@ -865,7 +908,7 @@ func wsErr(res *http.Response, op string) error {
 
 func wsErr2(res *http.Response, op string) (*WsErrorResponse, error) {
 	if res == nil {
-		return nil, fmt.Errorf("ws: %s: %v", op, errNoWsResponse)
+		return nil, fmt.Errorf("ws: %s: %v", op, errWsNoResponse)
 	}
 	body, err := io.ReadAll(res.Body)
 	if err != nil {
@@ -883,7 +926,7 @@ func wsErr2(res *http.Response, op string) (*WsErrorResponse, error) {
 
 func wsRes[T any](res *http.Response, out *T, op string) (*T, error) {
 	if res == nil {
-		return nil, fmt.Errorf("ws: %s: %v", op, errNoWsResponse)
+		return nil, fmt.Errorf("ws: %s: %v", op, errWsNoResponse)
 	}
 	if out == nil {
 		return nil, fmt.Errorf("ws: %s: out is nil", op)
@@ -903,7 +946,7 @@ func wsRes[T any](res *http.Response, out *T, op string) (*T, error) {
 
 func getSession(h *http.Client, tok string, test bool) (*WsSession, error) {
 	if len(tok) <= 0 {
-		return nil, errNoWsToken
+		return nil, errWsNoToken
 	}
 	/*
 		curl -x GET '.../Session'
@@ -992,7 +1035,7 @@ func wsRandomIP3(nodes []WsServerNode) string {
 
 func convertToRegionalWgConfs(id *WsWgCreds, reservation *WsWgConnectData, list []WsServerList, sess *WsSession, test bool) ([]*RegionalWgConf, error) {
 	if id == nil || reservation == nil || len(list) <= 0 {
-		return nil, errNoWsServerList
+		return nil, errWsNoServerList
 	}
 
 	out := make([]*RegionalWgConf, 0, len(list))
@@ -1028,20 +1071,24 @@ func convertToRegionalWgConfs(id *WsWgCreds, reservation *WsWgConnectData, list 
 		}
 	}
 
+	if len(out) <= 0 {
+		return nil, errWsBadServerList
+	}
+
 	return out, nil
 }
 
 func getServerList(h *http.Client, sess *WsSession, ent *WsEntitlement) (*WsServerListResponse, error) {
 	if sess == nil || ent == nil {
-		return nil, errNoWsSession
+		return nil, errWsNoSession
 	}
 	lochash := sess.LocHash
 	if len(lochash) <= 0 {
-		return nil, errNoLocHash
+		return nil, errWsNoLocHash
 	}
 	bearer := sess.SessionAuthHash
 	if len(bearer) <= 0 {
-		return nil, errNoWsToken
+		return nil, errWsNoToken
 	}
 	test := ent.Test
 
@@ -1068,15 +1115,15 @@ func getServerList(h *http.Client, sess *WsSession, ent *WsEntitlement) (*WsServ
 
 func genWgConfs(h *http.Client, existingCreds *WsWgCreds, sess *WsSession, servers []WsServerList, ent *WsEntitlement) (*WsWgCreds, []*RegionalWgConf, error) {
 	if sess == nil || ent == nil {
-		return nil, nil, errNoWsSession
+		return nil, nil, errWsNoSession
 	}
 	lochash := sess.LocHash
 	if len(lochash) <= 0 {
-		return nil, nil, errNoLocHash
+		return nil, nil, errWsNoLocHash
 	}
 	bearer := sess.SessionAuthHash
 	if len(bearer) <= 0 {
-		return nil, nil, errNoWsToken
+		return nil, nil, errWsNoToken
 	}
 	test := ent.Test
 
@@ -1293,7 +1340,7 @@ func prng(n int) []byte {
 
 func newWsGw(c *WsWgConfig, h *http.Client) (*WsClient, error) {
 	if h == nil || c == nil || c.Session == nil || c.Creds == nil {
-		return nil, errInvalidWsGwArgs
+		return nil, errWsBadGatewayArgs
 	}
 	a := &WsClient{
 		http:      h,
@@ -1307,7 +1354,7 @@ func newWsGw(c *WsWgConfig, h *http.Client) (*WsClient, error) {
 
 func (w *BaseClient) MakeWsWg(entitlement []byte) (*WsClient, error) {
 	if len(entitlement) <= 0 {
-		return nil, errNoEntitlement
+		return nil, errWsNoEntitlement
 	}
 
 	var ent WsEntitlement
@@ -1326,7 +1373,7 @@ func (w *BaseClient) makeWsWg(hent *WsEntitlement) (*WsClient, error) {
 func makeWsWg(h *http.Client, ent *WsEntitlement) (*WsClient, error) {
 	if ent == nil || len(ent.SessionToken) <= 0 {
 		log.E("ws: makeWsWg: entitlement is nil")
-		return nil, errNoEntitlement
+		return nil, errWsNoEntitlement
 	}
 
 	sess, err := getSession(h, ent.SessionToken, ent.Test)
@@ -1357,7 +1404,7 @@ func makeWsWg(h *http.Client, ent *WsEntitlement) (*WsClient, error) {
 
 func (w *BaseClient) MakeWsWgFrom(entitlementOrWsConfigJson []byte) (*WsClient, error) {
 	if len(entitlementOrWsConfigJson) <= 0 {
-		return nil, errNoWsJsonConfig
+		return nil, errWsNoJsonConfig
 	}
 
 	var existingConf WsWgConfig
@@ -1384,7 +1431,7 @@ func (w *BaseClient) makeWsWgFrom(existingConf *WsWgConfig) (*WsClient, error) {
 func makeWsWgFrom(h *http.Client, existingConf *WsWgConfig) (ws *WsClient, refreshedSess bool, err error) {
 	existingEnt := existingConf.Entitlement
 	if existingEnt == nil || len(existingEnt.SessionToken) <= 0 {
-		err = errNoEntitlement
+		err = errWsNoEntitlement
 		return
 	}
 
@@ -1435,7 +1482,7 @@ func makeWsWgFrom(h *http.Client, existingConf *WsWgConfig) (ws *WsClient, refre
 				maybeNewServers = newServersRes.Data
 				hasnew = true
 			} else { // no new servers, no existing servers; bail
-				return nil, refreshedSess, core.OneErr(err, errNoWsServerList)
+				return nil, refreshedSess, core.OneErr(err, errWsNoServerList)
 			}
 		}
 
@@ -1444,9 +1491,11 @@ func makeWsWgFrom(h *http.Client, existingConf *WsWgConfig) (ws *WsClient, refre
 		maybeNewCreds, maybeNewWgConfs, err := genWgConfs(h, existingCreds, newSess, maybeNewServers, existingConf.Entitlement)
 		loge(err)("ws: make: gen wg confs; new loc? %t; err? %v", hasnew, err)
 
-		existingConf.Servers = maybeNewServers
-		existingConf.Configs = maybeNewWgConfs
-		existingConf.Creds = maybeNewCreds
+		if err == nil {
+			existingConf.Servers = maybeNewServers
+			existingConf.Configs = maybeNewWgConfs
+			existingConf.Creds = maybeNewCreds
+		}
 	}
 
 	ws, err = newWsGw(existingConf, h)

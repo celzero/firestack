@@ -67,7 +67,8 @@ func (RpnMultiCountry) MultiCountry() bool { return true }
 
 type RpnCountryless struct{}
 
-func (c RpnCountryless) MultiCountry() bool { return false }
+func (c RpnCountryless) MultiCountry() bool       { return false }
+func (c RpnCountryless) Locations() []x.RpnServer { return nil }
 
 type RpnStateless struct {
 	RpnUpdateless
