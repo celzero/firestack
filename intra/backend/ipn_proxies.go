@@ -178,8 +178,8 @@ type RpnAcc interface {
 	Created() int64
 	// Expires returns the time (unix millis) currently active account expires.
 	Expires() int64
-	// Locations returns a list of servers worldwide. May be nil.
-	Locations() []RpnServer
+	// Locations returns RpnServers encapsulating this proxy's worldwide server presence.
+	Locations() (RpnServers, error)
 	// Update updates the account creating new state.
 	Update() (newstate *Gobyte, err error)
 }
@@ -268,6 +268,15 @@ type RouterStats struct {
 	LastOK int64
 	// uptime in millis
 	Since int64
+}
+
+type RpnServers interface {
+	// Get returns the RpnServer at index i; errors if i is out of bounds.
+	Get(i int) (*RpnServer, error)
+	// Len returns the number of RpnServers.
+	Len() int
+	// Json returns the RpnServer struct as JSON bytes.
+	Json() (*Gobyte, error)
 }
 
 type RpnServer struct {

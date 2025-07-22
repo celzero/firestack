@@ -366,7 +366,13 @@ func TestProtonReaches(t *testing.T) {
 
 	const maxVisited = 10
 	visited := make(map[string]struct{}, 0)
-	for _, c := range win.Locations() {
+	locs, err := win.Locations()
+	ko(t, err)
+	for i := 0; i < locs.Len(); i++ {
+		c, err := locs.Get(i)
+		if err != nil {
+			continue
+		}
 		if _, ok := visited[c.CC]; !ok {
 			// _, _ = pxr.AddProxy(ipn.RpnPro+c.CC, c.UapiConfig())
 			visited[c.CC] = struct{}{}

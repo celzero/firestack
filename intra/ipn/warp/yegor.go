@@ -792,18 +792,16 @@ func (a *WsClient) Expires() int64 {
 	return refreshAt.UnixMilli()
 }
 
-func (a *WsClient) Locations() []x.RpnServer {
+func (a *WsClient) Locations() (x.RpnServers, error) {
 	if a == nil {
-		return nil
+		return nil, errWsNoClient
 	}
 	c := a.config()
 	if c == nil {
-		log.W("ws: locations: no session")
-		return nil
+		return nil, errWsNoConfig
 	}
 	if len(c.Configs) <= 0 {
-		log.W("ws: locations: no configs")
-		return nil
+		return nil, errWsNoCcConfig
 	}
 	visited := make(map[string]bool, len(c.Configs))
 	s := make([]x.RpnServer, 0, len(c.Configs)/maxPerRegionWgConfs)
@@ -829,7 +827,7 @@ func (a *WsClient) Locations() []x.RpnServer {
 		}
 		visited[rc.CC] = true
 	}
-	return s
+	return &RpnMultiCountryServers{s}, nil
 }
 
 // Update implements x.RpnAcc.

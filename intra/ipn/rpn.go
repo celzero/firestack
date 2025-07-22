@@ -192,6 +192,6 @@ func (r *rpnp) Update() (newState *x.Gobyte, err error) {
 	return r.RpnAcc.Update()
 }
 
-func (r *rpnp) Locations() []x.RpnServer {
+func (r *rpnp) Locations() (x.RpnServers, error) {
 	return r.RpnAcc.Locations()
 }

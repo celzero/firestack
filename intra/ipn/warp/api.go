@@ -33,8 +33,9 @@ import (
 )
 
 var (
-	errRpnStateless  = errors.New("rpn has no state or config")
-	errRpnUpdateless = errors.New("rpn cannot be updated only registered")
+	errRpnCountryless = errors.New("rpn is not multi-country")
+	errRpnStateless   = errors.New("rpn has no state or config")
+	errRpnUpdateless  = errors.New("rpn cannot be updated only registered")
 )
 
 type RpnAcc interface {
@@ -67,8 +68,8 @@ func (RpnMultiCountry) MultiCountry() bool { return true }
 
 type RpnCountryless struct{}
 
-func (c RpnCountryless) MultiCountry() bool       { return false }
-func (c RpnCountryless) Locations() []x.RpnServer { return nil }
+func (c RpnCountryless) MultiCountry() bool               { return false }
+func (c RpnCountryless) Locations() (x.RpnServers, error) { return nil, errRpnCountryless }
 
 type RpnStateless struct {
 	RpnUpdateless
@@ -80,6 +81,34 @@ func (RpnStateless) Conf(cc string) (string, error) { return "", errRpnStateless
 type RpnUpdateless struct{}
 
 func (RpnUpdateless) Update() (*x.Gobyte, error) { return nil, errRpnUpdateless }
+
+type RpnMultiCountryServers struct {
+	all []x.RpnServer
+}
+
+var _ x.RpnServers = (*RpnMultiCountryServers)(nil)
+
+func (s *RpnMultiCountryServers) Get(i int) (*x.RpnServer, error) {
+	if i < 0 || i >= len(s.all) {
+		return nil, fmt.Errorf("rpn: %d out of range [0, %d)", i, len(s.all))
+	}
+	return &s.all[i], nil
+}
+
+func (s *RpnMultiCountryServers) Len() int {
+	return len(s.all)
+}
+
+func (s *RpnMultiCountryServers) Json() (*x.Gobyte, error) {
+	if s == nil || len(s.all) <= 0 {
+		return nil, fmt.Errorf("rpn: no servers")
+	}
+	b, err := json.Marshal(s.all)
+	if err != nil {
+		return nil, fmt.Errorf("rpn: marshal servers: %w", err)
+	}
+	return x.BytesOf(b), nil
+}
 
 type WarpClient struct {
 	RpnCountryless
