@@ -99,20 +99,6 @@ public_key=%s`,
 	return true
 }
 
-func (rwg *RegionalWgConf) dnsCsv() string {
-	var dnses []string
-	if len(rwg.ClientDNS4) > 0 {
-		dnses = append(dnses, rwg.ClientDNS4)
-	}
-	if len(rwg.ClientDNS6) > 0 {
-		dnses = append(dnses, rwg.ClientDNS6)
-	}
-	if len(dnses) <= 0 {
-		dnses = []string{cfdns4}
-	}
-	return strings.Join(dnses, ",")
-}
-
 func (rwg *RegionalWgConf) addrCsv() string {
 	var addrs []string
 	if len(rwg.ClientAddr4) > 0 {
@@ -122,42 +108,4 @@ func (rwg *RegionalWgConf) addrCsv() string {
 		addrs = append(addrs, rwg.ClientAddr6)
 	}
 	return strings.Join(addrs, ",")
-}
-
-func (rwg *RegionalWgConf) genWgConf() {
-	if rwg == nil {
-		return
-	}
-	rwg.WgConf = fmt.Sprintf(`[Interface]
-PrivateKey = %s
-PublicKey = %s
-Address = %s
-DNS = %s
-[Peer]
-PublicKey = %s`,
-		rwg.ClientPrivKey,
-		rwg.ClientPubKey,
-		rwg.addrCsv(),
-		rwg.dnsCsv(),
-		rwg.ServerPubKey,
-	)
-	if len(rwg.PskKey) > 0 {
-		rwg.WgConf += fmt.Sprintf("\nPresharedKey = %s", rwg.PskKey)
-	}
-	if len(rwg.ServerIPPort4) > 0 {
-		rwg.WgConf += fmt.Sprintf("\nEndpoint = %s", rwg.ServerIPPort4)
-	}
-	if len(rwg.ServerIPPort6) > 0 {
-		rwg.WgConf += fmt.Sprintf("\nEndpoint = %s", rwg.ServerIPPort6)
-	}
-	if len(rwg.ServerDomainPort) > 0 {
-		rwg.WgConf += fmt.Sprintf("\nEndpoint = %s", rwg.ServerDomainPort)
-	}
-	if len(rwg.AllowedIPs) > 0 {
-		rwg.WgConf += "\nAllowedIPs = " + strings.Join(rwg.AllowedIPs, ",")
-	} else {
-		rwg.WgConf += "\nAllowedIPs = " + gw4 // default
-	}
-
-	rwg.genUapiConfig()
 }

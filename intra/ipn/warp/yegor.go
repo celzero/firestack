@@ -36,8 +36,8 @@ const (
 	wsProdAssets  = "https://assets.windscribe.com/"
 	wsProdAssets2 = "https://assets.totallyacdn.com/"
 
-	wsMyIp  = "https://checkip.windscribe.com/"
-	wsMyIp2 = "https://checkip.totallyacdn.com/"
+	// wsMyIp  = "https://checkip.windscribe.com/"
+	// wsMyIp2 = "https://checkip.totallyacdn.com/"
 )
 
 const (
@@ -92,13 +92,13 @@ const (
 	// github.com/Windscribe/Android-App/blob/3f9c2ab98a70fa/base/src/main/java/com/windscribe/vpn/repository/WgConfigRepository.kt#L143
 	wgttl = "3600" // an hour in seconds
 
-	wspxpath = "ServerCredentials/"
-
 	wssessionpath = "Session/"
 	wsportpath    = "PortMap/"
-	wslocpath     = "/serverlist/mob-v2/1/" // + $loc_hash
+	wslocpath     = "serverlist/mob-v2/1/" // + $loc_hash
 
-	wsbestloc = "/BestLocation"
+	// for ovpn (unused):
+	// wspxpath = "ServerCredentials/"
+	// wsbestloc = "BestLocation/"
 
 	wsMinServerLinkSpeed = 1   // 1mbps
 	wsMaxServerHealth    = 100 // min is 0
@@ -119,7 +119,6 @@ var (
 	errWsNoConfig       = errors.New("ws: no config")
 	errWsNoJsonConfig   = errors.New("ws: no json config")
 	errWsNoSession      = errors.New("ws: no session info")
-	errWsSessionExpired = errors.New("ws: session expired")
 	errWsNoClient       = errors.New("ws: no client")
 	errWsNoEntitlement  = errors.New("ws: missing entitlement")
 	errWsNoToken        = errors.New("ws: missing token")
@@ -893,12 +892,34 @@ func (a *WsClient) Conf(cc string) (string, error) {
 	return "", errWsNoCcConfig
 }
 
+// unused on the control plane, so use a fixed but valid hostname
+func fixedValidWsEndpoint(test bool) string {
+	if test {
+		return "ca.windscribe.dev"
+	}
+	return "ca.windscribe.com"
+}
+
 func baseurl(test bool) string {
 	if test {
 		return wsTestUrl
 	}
 	// TODO: use wsProdUrl2 if wsProdUrl is not reachable?
+	if rand.IntN(10000)%2 == 0 {
+		return wsProdUrl2
+	}
 	return wsProdUrl
+}
+
+func assetsurl(test bool) string {
+	if test {
+		return wsTestAssets
+	}
+	// TODO: use wsProdAssets2 if wsProdUrl is not reachable?
+	if rand.IntN(10000)%2 == 0 {
+		return wsProdAssets2
+	}
+	return wsProdAssets
 }
 
 func authHeader(req *http.Request, t string) {
@@ -1007,27 +1028,6 @@ func skipWsServer(server WsServerList) bool {
 	return false // this server is okay to use
 }
 
-func anyWsEndpoint(s []WsServerList) string {
-	if len(s) <= 0 {
-		return ""
-	}
-	for _, server := range s {
-		if skipWsServer(server) {
-			continue
-		}
-		for _, g := range server.Groups {
-			if len(g.Nodes) <= 0 {
-				continue // skip servers without nodes
-			}
-			if len(g.WgPubKey) <= 0 || len(g.WgEndpoint) <= 0 {
-				continue // skip servers without wg
-			}
-			return g.WgEndpoint // return the first wg endpoint found
-		}
-	}
-	return "" // no wg endpoint found
-}
-
 func wsRandomPort() string {
 	// return a random port from the list of WireGuard ports
 	return wswgports[rand.Int32N(int32(len(wswgports)))]
@@ -1038,6 +1038,18 @@ func wsRandomIP3(nodes []WsServerNode) string {
 		return ""
 	}
 	return nodes[rand.Int32N(int32(len(nodes)))].IP3
+}
+
+func hasIP3(nodes []WsServerNode) bool {
+	if len(nodes) <= 0 {
+		return false
+	}
+	for _, node := range nodes {
+		if len(node.IP3) > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 func convertToRegionalWgConfs(id *WsWgCreds, reservation *WsWgConnectData, list []WsServerList, sess *WsSession, test bool) ([]*RegionalWgConf, error) {
@@ -1072,8 +1084,9 @@ func convertToRegionalWgConfs(id *WsWgCreds, reservation *WsWgConnectData, list 
 			if len(group.WgPubKey) <= 0 || len(group.WgEndpoint) <= 0 {
 				continue // skip servers without wg
 			}
-			if len(group.Nodes) <= 0 {
-				log.W("ws: wgconfs: no nodes in %s (%s)", group.City, group.Nick)
+			noip3 := !hasIP3(group.Nodes)
+			if len(group.Nodes) <= 0 || noip3 {
+				log.W("ws: wgconfs: no nodes in %s (%s); ip3? %t", group.City, group.Nick, noip3)
 				continue // skip servers without nodes
 			}
 			if tot[cc] >= maxPerRegionWgConfs*2 {
@@ -1082,22 +1095,27 @@ func convertToRegionalWgConfs(id *WsWgCreds, reservation *WsWgConnectData, list 
 				break // we have enough configs for this region
 			}
 			tot[cc] = tot[cc] + 1
+			dnsaddr := reservation.Config.DNS
+			if len(dnsaddr) <= 0 {
+				dnsaddr = cfdns4
+			}
+			// Use any IPv4 permutation of AllowedIPs. The API only sends a hint.
+			// IPv6s are firewalled.
+			allowed := []string{gw4}
 			out = append(out, &RegionalWgConf{
 				CC:               server.CountryCode,
 				Name:             servername,
 				ClientAddr4:      reservation.Config.Address,
 				ClientPrivKey:    id.PrivateKey,
 				ClientPubKey:     id.PublicKey,
-				ClientDNS4:       reservation.Config.DNS,
+				ClientDNS4:       dnsaddr,
 				PskKey:           id.PresharedKey,
 				ServerPubKey:     group.WgPubKey,
 				ServerDomainPort: net.JoinHostPort(group.WgEndpoint, port),
 				ServerIPPort4:    net.JoinHostPort(wsRandomIP3(group.Nodes), port),
-				// TODO: ipv6 or use id.AllowedIPs
-				AllowedIPs: []string{gw4},
+				AllowedIPs:       allowed,
 			})
 		}
-
 	}
 
 	if len(out) <= 0 {
@@ -1122,7 +1140,7 @@ func getServerList(h *http.Client, sess *WsSession, ent *WsEntitlement) (*WsServ
 	test := ent.Test
 
 	// curl -x GET '.../serverlist/mob-v2/1/<lochash>'
-	locreq, err := http.NewRequest("GET", baseurl(test)+wslocpath+lochash, nil)
+	locreq, err := http.NewRequest("GET", assetsurl(test)+wslocpath+lochash, nil)
 	if err != nil {
 		return nil, fmt.Errorf("ws: wgconfs: req err: %v", err)
 	}
@@ -1264,10 +1282,11 @@ initagain:
 
 	log.I("ws: wgconfs: got creds for %s, usingExisting? %t", trunc8(pubkeybase64), useExistingCreds)
 
-	someEndpoint := anyWsEndpoint(servers)
+	someEndpoint := fixedValidWsEndpoint(test)
 	if len(someEndpoint) <= 0 {
 		return nil, nil, fmt.Errorf("ws: wgconfs: no endpoint")
 	}
+	// github.com/Windscribe/Android-App/blob/746d505dc69/base/src/main/java/com/windscribe/vpn/backend/utils/WindVpnController.kt#L159
 	/*
 		curl -x POST '.../WgConfigs/connect' \
 		--data-urlencode 'hostname=<>' \
@@ -1277,7 +1296,8 @@ initagain:
 		-H 'Authorization: Bearer id:typ:epochsec:sig1:sig2'
 	*/
 	cdata := url.Values{}
-	// github.com/Windscribe/Android-App/blob/746d505dc69/base/src/main/java/com/windscribe/vpn/backend/utils/WindVpnController.kt#L159
+	// The "hostname" for WgConfigs/connect call is requested, but currently it
+	// does nothing as we never made use of this server side.
 	cdata.Set("hostname", someEndpoint)
 	cdata.Set("wg_pubkey", pubkeybase64)
 	cdata.Set("wg_ttl", wgttl)
@@ -1487,6 +1507,10 @@ func makeWsWgFrom(h *http.Client, existingConf *WsWgConfig) (ws *WsClient, refre
 	}
 
 	exp, err := time.Parse(time.DateOnly, newSess.ExpiryDate)
+	if err != nil {
+		err = fmt.Errorf("ws: make: parsing expiry %s; err: %v", newSess.ExpiryDate, err)
+		return
+	}
 	active := exp.After(time.Now())
 	if !active {
 		log.W("ws: make: session expired at %s", fmtTime(exp))
