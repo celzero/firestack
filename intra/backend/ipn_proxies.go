@@ -277,4 +277,5 @@ type RpnServer struct {
 	Addrs string
 	// Country code of the location.
 	CC string
+	// TODO: number of servers, health, link speed, etc?
 }
