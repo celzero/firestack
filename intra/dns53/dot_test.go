@@ -8,7 +8,6 @@ package dns53
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"log"
 	"net"
@@ -23,7 +22,6 @@ import (
 	"github.com/celzero/firestack/intra/dnsx"
 	"github.com/celzero/firestack/intra/doh"
 	"github.com/celzero/firestack/intra/ipn"
-	"github.com/celzero/firestack/intra/ipn/warp"
 	ilog "github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
 	"github.com/celzero/firestack/intra/settings"
@@ -326,18 +324,18 @@ func TestProtonReaches(t *testing.T) {
 	resolv := dnsx.NewResolver(ctx, "10.111.222.3:53", dtr, bdg, natpt)
 	resolv.Add(tr)
 
-	projson, err := os.ReadFile("proton.json")
+	entjson, err := os.ReadFile("ent.json")
 	if err != nil {
-		projson = nil
+		t.Fatal(err)
 	}
 
-	ilog.D("proton: read file: err? %v", err)
-	if proreg, err := pxr.RegisterProton(x.BytesOf(projson)); err != nil {
+	ilog.D("proton: read ent: %d", len(entjson))
+	if wreg, err := pxr.RegisterWin(x.BytesOf(entjson)); err != nil {
 		t.Fatal(err)
 	} else {
-		projson = proreg.V()
-		_ = os.WriteFile("proton.json", projson, 0644)
-		ilog.D("proton: setup %d", len(projson))
+		entjson = wreg.V()
+		_ = os.WriteFile("proton.json", entjson, 0644)
+		ilog.D("proton: setup %d", len(entjson))
 	}
 
 	amzjson, err := os.ReadFile("amz.json")
@@ -360,14 +358,15 @@ func TestProtonReaches(t *testing.T) {
 	// 	ilog.D("se: %v", ips)
 	// }
 
-	var pro warp.ProtonWgConfig
-	if err = json.Unmarshal(projson, &pro); err != nil {
-		t.Fatal(err)
+	win, err := pxr.Win()
+	ko(t, err)
+	if win == nil {
+		t.Fatal("nil main proton proxy")
 	}
 
 	const maxVisited = 10
 	visited := make(map[string]struct{}, 0)
-	for _, c := range pro.RegionalWgConfs {
+	for _, c := range win.Locations() {
 		if _, ok := visited[c.CC]; !ok {
 			// _, _ = pxr.AddProxy(ipn.RpnPro+c.CC, c.UapiConfig())
 			visited[c.CC] = struct{}{}
@@ -378,28 +377,21 @@ func TestProtonReaches(t *testing.T) {
 	}
 	ilog.I("available proxy CCs (limited to 10): %v", visited)
 
-	proton, err := pxr.Proton()
-	ko(t, err)
-
 	_, err = pxr.Amnezia()
 	ko(t, err)
-
-	if proton == nil {
-		t.Fatal("nil main proton proxy")
-	}
 
 	// _, err = proton.Fork("UK")
 	// ko(t, err)
 	// _, err = proton.Fork("CH")
 	// ko(t, err)
-	_, err = proton.Fork(x.StrOf("CH"))
+	_, err = win.Fork(x.StrOf("US"))
 	ko(t, err)
 
 	settings.SetAutoDialsParallel(false)
 	settings.SetAutoMode(settings.AutoModeRemote)
 
 	propx, _ := pxr.ProxyFor(ipn.RpnPro)
-	propx2, _ := pxr.ProxyFor(ipn.RpnPro + "CH")
+	propx2, _ := pxr.ProxyFor(ipn.RpnPro + "GT")
 	amzpx, _ := pxr.ProxyFor(ipn.RpnAmz)
 	auto, _ := pxr.ProxyFor(ipn.Auto)
 	if propx == nil || propx2 == nil || amzpx == nil || auto == nil {
