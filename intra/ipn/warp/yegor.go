@@ -514,7 +514,7 @@ type WsServerListResponse struct {
 	        "rebill": 0,
 	        "premium_expiry_date": "2025-07-15",
 	        "reg_date": 1749999508,
-	        "last_reset": null,
+	        "last_reset": "2025-07-12", // or null
 	        "loc_rev": 2672,
 	        "loc_hash": "6ad01549d66..."
 	}
@@ -528,7 +528,7 @@ type WsSession struct {
 	// However it could change to a new format in the future.
 	SessionAuthHash string `json:"session_auth_hash"`
 	Username        string `json:"username"`
-	// TrafficUsed shows byte count of data used since LastReset date.
+	// TrafficUsed shows byte count of data used since LastReset date?
 	TrafficUsed int64 `json:"traffic_used"`
 	TrafficMax  int64 `json:"traffic_max"`
 	// Status is 1 under normal circumstances. Any other state means
@@ -544,10 +544,10 @@ type WsSession struct {
 	Rebill        int    `json:"rebill"`
 	// This will downgrade on this date, unless its renewed.
 	// ex: "2025-07-22" go.dev/play/p/IoeH1Ee6cZ3
-	ExpiryDate string    `json:"premium_expiry_date"`
-	RegDate    int64     `json:"reg_date"`
-	LastReset  time.Time `json:"last_reset"` // can be null
-	LocRev     int       `json:"loc_rev"`
+	ExpiryDate string `json:"premium_expiry_date"`
+	RegDate    int64  `json:"reg_date"`
+	LastReset  string `json:"last_reset"` // can be null
+	LocRev     int    `json:"loc_rev"`
 	// Latest revision hash of the server list.
 	LocHash string `json:"loc_hash"`
 }
