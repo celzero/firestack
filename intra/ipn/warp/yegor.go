@@ -1238,7 +1238,7 @@ initagain:
 		d := wgCreds.Data
 		creds = &d.Config
 		if d.Success != 1 {
-			return nil, nil, fmt.Errorf("ws: wgconfs: success != 1; debug: %d", d.Debug)
+			return nil, nil, fmt.Errorf("ws: wgconfs: success != 1; debug: %v", d.Debug)
 		}
 		if len(d.Config.PrivateKey) <= 0 { // private key is generated locally (by the client)
 			d.Config.PrivateKey = priv.Base64().V()
