@@ -832,7 +832,14 @@ func (a *WsClient) Locations() (x.RpnServers, error) {
 
 // Update implements x.RpnAcc.
 func (a *WsClient) Update() (newstate *x.Gobyte, err error) {
-	b, refreshed, err := makeWsWgFrom(a.http, a.config())
+	if a == nil {
+		return nil, errWsNoClient
+	}
+	c := a.config()
+	if c == nil {
+		return nil, errWsNoConfig
+	}
+	b, refreshed, err := makeWsWgFrom(a.http, c)
 	if err != nil || !refreshed {
 		log.E("ws: update: refreshed? %t; err: %v", refreshed, err)
 		return nil, core.OneErr(err, errWsRetryUpdate)
@@ -959,10 +966,10 @@ func getSession(h *http.Client, tok string, test bool) (*WsSession, error) {
 	authHeader(req, tok)
 
 	res, err := h.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("ws: getsess: req err: %v", err)
+	if err != nil || res == nil {
+		return nil, fmt.Errorf("ws: getsess: res err (nil? %t): %v", res == nil, err)
 	}
-	defer res.Body.Close()
+	defer core.Close(res.Body)
 	if res.StatusCode != http.StatusOK {
 		return nil, wsErr(res, "getsess")
 	}
@@ -1121,8 +1128,8 @@ func getServerList(h *http.Client, sess *WsSession, ent *WsEntitlement) (*WsServ
 	}
 
 	locres, err := h.Do(locreq)
-	if err != nil {
-		return nil, fmt.Errorf("ws: wgconfs: res err: %v", err)
+	if err != nil || locres == nil {
+		return nil, fmt.Errorf("ws: wgconfs: res err (nil? %t): %v", locres == nil, err)
 	}
 
 	defer core.Close(locres.Body)
@@ -1209,14 +1216,14 @@ initagain:
 
 		initres, err := h.Do(initreq)
 
-		if err != nil {
-			return nil, nil, fmt.Errorf("ws: wgconfs: res err: %v", err)
+		if err != nil || initres == nil {
+			return nil, nil, fmt.Errorf("ws: wgconfs: res err (nil? %t): %v", initres == nil, err)
 		}
 
 		if initres.StatusCode != http.StatusOK {
 			wserr, err := wsErr2(initres, "wsinit")
 			core.Close(initres.Body)
-			if wserr.Code == ekeylimit {
+			if wserr != nil && wserr.Code == ekeylimit {
 				if force != "1" {
 					log.I("ws: wgconfs: redo init with force for %s; err: %v", trunc8(pubkeybase64), err)
 					force = "1"
@@ -1283,13 +1290,13 @@ initagain:
 	authHeader(creq, sess.SessionAuthHash)
 
 	cres, err := h.Do(creq)
-	if err != nil {
-		return nil, nil, fmt.Errorf("ws: wgconfs: connect send err: %v", err)
+	if err != nil || cres == nil {
+		return nil, nil, fmt.Errorf("ws: wgconfs: connect res err (nil? %t): %v", cres == nil, err)
 	}
 	if cres.StatusCode != http.StatusOK {
-		core.Close(cres.Body)
 		wserr, err := wsErr2(cres, "wsconnect")
-		if wserr.Code == ekeyinvalid { // the key was deleted!
+		core.Close(cres.Body)
+		if wserr != nil && wserr.Code == ekeyinvalid { // the key was deleted!
 			if keyed == 0 {
 				keyed = 1
 				goto keyagain // try again with a non-default key
@@ -1300,7 +1307,7 @@ initagain:
 
 	var wgConnect WsWgConnectResponse
 	_, err = wsRes(cres, &wgConnect, "wgconfs")
-	core.Close(cres.Body)
+	defer core.Close(cres.Body)
 	if err != nil {
 		return nil, nil, fmt.Errorf("ws: wgconfs: connect res err: %v", err)
 	}

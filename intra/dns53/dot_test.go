@@ -368,6 +368,9 @@ func TestProtonReaches(t *testing.T) {
 	visited := make(map[string]struct{}, 0)
 	locs, err := win.Locations()
 	ko(t, err)
+	if locs == nil {
+		t.Fatalf("expected locations for %s", win.Who())
+	}
 	for i := 0; i < locs.Len(); i++ {
 		c, err := locs.Get(i)
 		if err != nil {
