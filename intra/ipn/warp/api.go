@@ -103,9 +103,10 @@ func (s *RpnMultiCountryServers) Json() (*x.Gobyte, error) {
 	if s == nil || len(s.all) <= 0 {
 		return nil, fmt.Errorf("rpn: no servers")
 	}
+	// go.dev/play/p/Cxy0imeHYKx
 	b, err := json.Marshal(s.all)
 	if err != nil {
-		return nil, fmt.Errorf("rpn: marshal servers: %w", err)
+		return nil, fmt.Errorf("rpn: json: %w", err)
 	}
 	return x.BytesOf(b), nil
 }
