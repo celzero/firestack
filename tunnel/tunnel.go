@@ -76,6 +76,7 @@ type gtunnel struct {
 	ctx    context.Context
 	stack  *stack.Stack              // a tcpip stack
 	ep     netstack.SeamlessEndpoint // endpoint for the stack
+	sid    *core.Volatile[int]       // session id (almost always tunnel fd)
 	hdl    netstack.GConnHandler     // tcp, udp, and icmp handlers
 	pcapio *pcapsink                 // pcap output, if any
 	closed atomic.Bool               // open/close?
@@ -207,6 +208,7 @@ func NewGTunnel(pctx context.Context, fd, mtu int, l3 string, hdl netstack.GConn
 		ctx:    pctx,
 		stack:  stack,
 		ep:     ep,
+		sid:    core.NewVolatile(fd), // fd is the og tun device
 		hdl:    hdl,
 		pcapio: sink,
 		closed: atomic.Bool{},
@@ -258,8 +260,16 @@ func (t *gtunnel) Unlink() error {
 	return t.ep.Dispose()
 }
 
-func (t *gtunnel) SetLink(fd int) error {
+func (t *gtunnel) SetLink(fd int) (err error) {
 	defer core.Recover(core.Exit11, "g.SetLink")
+
+	defer func() {
+		if err != nil {
+			t.sid.Store(-1) // reset sid
+		} else {
+			t.sid.Store(fd) // set sid to fd
+		}
+	}()
 
 	dupfd, err := dup(fd) // tunnel will own dupfd
 	if err != nil {
@@ -293,6 +303,7 @@ func (t *gtunnel) Stat() (*x.NetStat, error) {
 		st.TUNSt.Open = !t.closed.Load()
 		st.TUNSt.Up = t.ep.IsAttached()
 		st.TUNSt.Fd = t.ep.Cur()
+		st.TUNSt.Sid = t.sid.Load() // session id (tunnel fd)
 		st.TUNSt.Mtu = int32(t.ep.MTU())
 		st.TUNSt.PcapMode = t.pcapio.mode()
 
