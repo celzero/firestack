@@ -102,6 +102,7 @@ type Tunnel interface {
 
 type rtunnel struct {
 	tunnel.Tunnel
+	tunmu    sync.Mutex // serializes access to tunnel.Tunnel
 	ctx      context.Context
 	done     context.CancelFunc
 	proxies  ipn.Proxies
@@ -224,6 +225,9 @@ func (t *rtunnel) SetLinkAndRoutes(fd, mtu, engine int) error {
 		return errClosed
 	}
 
+	t.tunmu.Lock()
+	defer t.tunmu.Unlock()
+
 	mtudiff := t.Tunnel.Mtu() != int32(mtu)
 	l3 := settings.L3(engine)
 	l3diff := dialers.IPProtos(l3)
@@ -303,7 +307,9 @@ func (t *rtunnel) Stat() (*x.NetStat, error) {
 }
 
 func (t *rtunnel) stat() (*x.NetStat, error) {
+	t.tunmu.Lock()
 	out, err := t.Tunnel.Stat()
+	t.tunmu.Unlock()
 
 	if err != nil {
 		return nil, err
