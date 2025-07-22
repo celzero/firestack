@@ -27,8 +27,8 @@ type RpnAcc = warp.RpnAcc
 // TODO: override Probe, Ping, Announce, Accept, Dial, DialBind
 // and kick-off an update if the acc is expired?
 type rpnp struct {
-	Proxy
-	RpnAcc
+	Proxy  // TODO: unembed to assert Proxy impl
+	RpnAcc // TODO: unembed to assert RpnAcc impl
 
 	pxr Rpn
 
@@ -37,6 +37,8 @@ type rpnp struct {
 }
 
 var _ RpnProxy = (*rpnp)(nil)
+var _ RpnAcc = (*rpnp)(nil) // (useless) assertion always succeeds, see above
+var _ Proxy = (*rpnp)(nil)  // (useless) assertion always succeeds, see above
 
 var (
 	errRpnBadArgs          = errors.New("proxy: rpn: bad args")
@@ -188,4 +190,8 @@ func (r *rpnp) Expires() int64 {
 
 func (r *rpnp) Update() (newState *x.Gobyte, err error) {
 	return r.RpnAcc.Update()
+}
+
+func (r *rpnp) Locations() []x.RpnServer {
+	return r.RpnAcc.Locations()
 }
