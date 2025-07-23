@@ -1186,7 +1186,7 @@ keyagain:
 			m = append(m, sha(ord)...)
 		}
 		if keyed != 0 {
-			r := prng(16)
+			r := csprng(16)
 			if len(r) > 0 {
 				m = append(m, r...)
 			} // give up silently, same key as when keyed == 0
@@ -1374,7 +1374,7 @@ func trunc8(s string) string {
 	return s[:8] + "..."
 }
 
-func prng(n int) []byte {
+func csprng(n int) []byte {
 	if n <= 0 {
 		return nil
 	}

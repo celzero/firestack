@@ -440,16 +440,6 @@ func uuid4() string {
 	)
 }
 
-// prandom generates cryptographically secure prandom bytes of the given length.
-func prandom(sz int) ([]byte, error) {
-	bytes := make([]byte, sz)
-	_, err := rand.Read(bytes)
-	if err != nil {
-		return nil, err
-	}
-	return bytes, nil
-}
-
 // wrap encrypts data encryption keys in data using RSA public key.
 func (a *AgwClient) wrap(data []byte, typ string) ([]byte, error) {
 	switch typ {
@@ -481,21 +471,13 @@ func (a *AgwClient) wrap(data []byte, typ string) ([]byte, error) {
 // }
 
 func newAgwc(wgkey x.WgKey, uuid string, c *http.Client) (*AgwClient, error) {
-	key, err := prandom(32)
-	if err != nil {
-		return nil, err
+	// uses the first 16 bytes for the iv but send all 32 bytes to the server
+	// salt is unused: github.com/amnezia-vpn/QSimpleCrypto/blob/c99b33f0e08b72/src/sources/QBlockCipher.cpp#L78
+	key, iv, salt := csprng(32), csprng(32), csprng(8)
+	if len(key) != 32 || len(iv) != 32 || len(salt) != 8 {
+		return nil, fmt.Errorf("agw: invalid key/iv/salt length: %d/%d/%d", len(key), len(iv), len(salt))
 	}
-	// use the first 16 bytes for the iv
-	// but send all 32 bytes to the server
-	iv, err := prandom(32)
-	if err != nil {
-		return nil, err
-	}
-	// unused: github.com/amnezia-vpn/QSimpleCrypto/blob/c99b33f0e08b72/src/sources/QBlockCipher.cpp#L78
-	salt, err := prandom(8)
-	if err != nil {
-		return nil, err
-	}
+
 	publicKey := agwDevRsaPublicKey
 	if prod {
 		publicKey = agwProdRsaPublicKey
