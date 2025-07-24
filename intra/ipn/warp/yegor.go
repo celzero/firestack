@@ -703,25 +703,25 @@ type WsEntitlement struct {
 	Test   bool      `json:"test"`   // true if this is a test entitlement
 }
 
-func (id *WsWgConfig) Json() ([]byte, error) {
-	if id == nil {
+func (a *WsWgConfig) Json() ([]byte, error) {
+	if a == nil {
 		return nil, errWsNoConfig
 	}
 
 	var w bytewriter
-	if err := id.writeJson(&w); err != nil {
+	if err := a.writeJson(&w); err != nil {
 		return nil, err
 	}
 	return w.Bytes(), nil
 }
 
-func (id *WsWgConfig) writeJson(w io.Writer) error {
-	if id == nil {
+func (a *WsWgConfig) writeJson(w io.Writer) error {
+	if a == nil {
 		return errWsNoConfig
 	}
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
-	return enc.Encode(id)
+	return enc.Encode(a)
 }
 
 func (a *WsClient) config() *WsWgConfig {
@@ -844,25 +844,26 @@ func (a *WsClient) Update() (newstate *x.Gobyte, err error) {
 		return nil, core.OneErr(err, errWsRetryUpdate)
 	}
 
-	if err = a.shallowCopyConfig(b); err != nil {
+	// If configs have changed, the current proxies using those, if any,
+	// will need to be updated.
+	if _, err := a.shallowCopyConfig(b); err != nil {
 		log.E("ws: update: shallow copy err: %v", err)
 		return nil, err
 	}
-
 	return a.State()
 }
 
-func (a *WsClient) shallowCopyConfig(b *WsClient) error {
+func (a *WsClient) shallowCopyConfig(b *WsClient) (copied bool, err error) {
 	if a == nil || b == nil {
-		return nil // no-op
+		return false, nil // no-op
 	}
 	bc := b.config()
 	if bc == nil {
 		log.E("ws: shallowcopy: storing nil config...")
-		return errWsNoConfig
+		return false, errWsNoConfig
 	}
 	a.configExt.Store(bc)
-	return nil
+	return true, nil
 }
 
 // Conf implements RpnAcc.
