@@ -29,13 +29,20 @@ type RpnAcc = warp.RpnAcc
 // TODO: override Probe, Ping, Announce, Accept, Dial, DialBind
 // and kick-off an update if the acc is expired?
 type rpnp struct {
-	Proxy  // TODO: unembed to assert Proxy impl
-	RpnAcc // TODO: unembed to assert RpnAcc impl
+	mu sync.RWMutex // protects Proxy & kids
 
+	// parent Proxy
+	// TODO: unembed to type assert Proxy impl and to use mu
+	Proxy
+	// Rpn-specific accounting
+	// TODO: unembed to type assert RpnAcc impl
+	RpnAcc
+
+	// rpn proxy manager
 	pxr Rpn
 
+	// forked child proxy IDs, may be empty (returned proxy IDs may have stopped)
 	kids map[string]struct{}
-	kmu  sync.RWMutex
 }
 
 var _ RpnProxy = (*rpnp)(nil)
@@ -110,35 +117,66 @@ func (r *rpnp) Fork(cc *x.Gostr) (x.Proxy, error) {
 }
 
 func (r *rpnp) fork(cc string) (x.Proxy, error) {
-	if !r.RpnAcc.MultiCountry() {
-		return nil, errRpnNotMultiCC
-	}
+	// do not hold lock while calling into pxr as it can callback via Emplace.
+	r.mu.RLock()
+	main := r.Proxy
+	acc := r.RpnAcc
+	r.mu.RUnlock()
+
 	if len(cc) < 2 {
 		return nil, errRpnBadCC
 	}
 	cc = strings.ToUpper(cc)
-	provider := r.RpnAcc.ProviderID()
+	provider := acc.ProviderID()
 
-	pid := r.Proxy.ID().V()
-	if strings.HasSuffix(pid, cc) {
-		log.W("proxy: rpn: fork: %s already cc %s", provider, cc)
-		return r, nil
+	mainpid := idstr(main)
+	if strings.HasSuffix(mainpid, cc) { // re-forking main proxy
+		log.I("proxy: rpn: fork: %s main cc %s<>%s; re-adding...", provider, maincc(acc), cc)
+		// expect Emplace to be called
+		return r.pxr.addRpnProxy(acc, cc) // re-generates conf and re-adds
 	}
 
-	if r.Proxy.Status() == END {
+	if !acc.MultiCountry() {
+		return nil, errRpnNotMultiCC
+	}
+
+	if len(mainpid) <= 0 || main.Status() == END {
+		// TODO: PurgeAll?
 		return nil, errRpnMainProxyStopped
 	}
 
 	// re-adds + updates if the proxy already exists
-	rp, err := r.pxr.addRpnProxy(r.RpnAcc, cc)
+	kid, err := r.pxr.addRpnProxy(acc, cc)
 
-	if rp != nil {
-		r.kmu.Lock()
+	if kid != nil {
+		r.mu.Lock()
 		r.kids[cc] = struct{}{}
-		r.kmu.Unlock()
+		r.mu.Unlock()
 	}
 
-	return rp, err
+	return kid, err
+}
+
+func (r *rpnp) forkMain() {
+	provider := r.RpnAcc.ProviderID()
+	cc := maincc(r.RpnAcc)
+
+	_, err := r.fork(cc) // re-adds main proxy (via Emplace)
+
+	logei(err)("proxy: rpn: forkMain: %s[%s]; err? %v", provider, cc, err)
+}
+
+func (r *rpnp) forkAll() {
+	provider := r.RpnAcc.ProviderID()
+	log.I("proxy: rpn: forkAll: %s[%s]", provider, r.kidsCsv())
+
+	r.forkMain()
+
+	for _, cc := range r.flattenKids() {
+		_, err := r.fork(cc)
+		loged(err)("proxy: rpn: forkAll: forked %s[%s]; err? %v", provider, cc, err)
+	}
+
 }
 
 func (r *rpnp) PurgeAll() (n uint32) {
@@ -148,10 +186,14 @@ func (r *rpnp) PurgeAll() (n uint32) {
 		}
 	}
 
-	if r.pxr.removeRpnProxy(r.RpnAcc, mainCountryCode) {
+	if r.purgeMain() {
 		n++
 	}
 	return
+}
+
+func (r *rpnp) purgeMain() bool {
+	return r.pxr.removeRpnProxy(r.RpnAcc, maincc(r.RpnAcc))
 }
 
 // Purge implements x.RpnProxy.
@@ -160,20 +202,26 @@ func (r *rpnp) Purge(cc *x.Gostr) bool {
 }
 
 func (r *rpnp) purge(cc string) bool {
-	provider := r.RpnAcc.ProviderID()
-	if !r.RpnAcc.MultiCountry() {
+	acc := r.RpnAcc
+	provider := acc.ProviderID()
+	cc = strings.ToUpper(cc)
+
+	if !acc.MultiCountry() {
 		log.D("proxy: rpn: purge: %s not multi-country %s", cc, provider)
 		return false
-	} else if cc == mainCountryCode {
-		log.W("proxy: rpn: purge: %s is main; call unregister instead", cc, provider)
+	} else if cc == maincc(acc) {
+		log.W("proxy: rpn: purge: %s is main; call PurgeAll instead", cc, provider)
+		return false
+	} else if len(cc) < 2 {
+		log.W("proxy: rpn: purge: %s bad country code; not purging", cc)
 		return false
 	}
 
-	rmv := r.pxr.removeRpnProxy(r.RpnAcc, cc)
+	rmv := r.pxr.removeRpnProxy(acc, cc)
 
-	r.kmu.Lock()
+	r.mu.Lock()
 	delete(r.kids, cc)
-	r.kmu.Unlock()
+	r.mu.Unlock()
 
 	log.D("proxy: rpn: purge: %s[%s]? %t", provider, cc, rmv)
 	return rmv
@@ -185,19 +233,28 @@ func (r *rpnp) Get(cc *x.Gostr) (x.Proxy, error) {
 }
 
 func (r *rpnp) get(cc string) (x.Proxy, error) {
-	if !r.RpnAcc.MultiCountry() {
+	if len(cc) < 2 {
+		log.W("proxy: rpn: get: %s bad country code", cc)
+		return nil, errRpnBadCC
+	}
+	cc = strings.ToUpper(cc)
+
+	acc := r.RpnAcc
+	if cc == maincc(acc) {
+		// TODO: r.Proxy needs to be got after r.mu.RLock()
+		return r, nil
+	} else if !acc.MultiCountry() {
 		return nil, errRpnNotMultiCC
 	}
 
-	r.kmu.RLock()
+	r.mu.RLock()
 	_, gotCC := r.kids[cc]
-	r.kmu.RUnlock()
+	r.mu.RUnlock()
 
-	if gotCC {
-		cc = strings.ToUpper(cc)
-		return r.pxr.rpnProxyFor(r.RpnAcc.ProviderID(), cc)
+	if !gotCC {
+		return nil, errRpnNotForked
 	}
-	return nil, errRpnNotForked
+	return r.pxr.rpnProxyFor(acc.ProviderID(), cc)
 }
 
 // Kids implements x.RpnProxy.
@@ -209,13 +266,13 @@ func (r *rpnp) kidsCsv() string {
 	return strings.Join(r.flattenKids(), ",")
 }
 
-func (r *rpnp) flattenKids() (ids []string) {
-	r.kmu.RLock()
-	defer r.kmu.RUnlock()
+func (r *rpnp) flattenKids() (ccs []string) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 
-	ids = make([]string, len(r.kids))
-	for k := range r.kids {
-		ids = append(ids, k)
+	ccs = make([]string, len(r.kids))
+	for cc := range r.kids {
+		ccs = append(ccs, cc)
 	}
 	return
 }
@@ -229,7 +286,11 @@ func (r *rpnp) Expires() int64 {
 }
 
 func (r *rpnp) Update() (newState *x.Gobyte, err error) {
-	return r.RpnAcc.Update()
+	newState, err = r.RpnAcc.Update()
+	if err == nil {
+		go r.forkAll()
+	}
+	return
 }
 
 func (r *rpnp) Locations() (x.RpnServers, error) {
