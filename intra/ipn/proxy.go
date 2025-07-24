@@ -99,29 +99,11 @@ func (pxr *proxifier) addRpnProxy(acc RpnAcc, cc string) (Proxy, error) {
 
 	p, err := pxr.addProxy(typ+cc, txt)
 	if p == nil {
+		pxr.postAddRpnProxyError(acc) // remove from pxr.rp if exists
 		return nil, core.JoinErr(err, errAddProxy)
 	}
 
-	// add rpn proxy iff rpn proxy isn't multicountry (in which case only one
-	// instance of it can exist and hence it is being re-added if already present)
-	// or, if it is multicountry, add it only if the country code is the main country,
-	// as forked children countries only need be added as plain-old proxies (done above).
-	pid := idstr(p)
-	if !acc.MultiCountry() || strings.HasSuffix(pid, mainCountryCode) {
-		rp, err := asRpnProxy(p, acc, pxr)
-		if rp == nil {
-			defer pxr.removeProxy(pid, true /*force*/)
-			return nil, core.JoinErr(err, errAddProxyAsRpn)
-		}
-
-		// TODO: setup hop from mainCountryCode to forked rpn proxies
-
-		pxr.rpnmu.Lock()
-		pxr.rp[acc.ProviderID()] = rp // removed on unregister
-		pxr.rpnmu.Unlock()
-	}
-
-	return p, nil
+	return pxr.postAddRpnProxy(p, acc)
 }
 
 // TODO: on add / update a via proxy; refresh all dependent origins
@@ -132,28 +114,50 @@ func (pxr *proxifier) addRpnProxy2(p Proxy, acc RpnAcc) (Proxy, error) {
 		return nil, errNotRpnProxy
 	}
 
-	rp, err := asRpnProxy(p, acc, pxr)
-	if rp == nil {
-		defer pxr.removeProxy(proxyid, true /*force*/)
-		return nil, core.JoinErr(err, errAddProxyAsRpn)
-	}
-
 	ok := pxr.add(p)
 	if !ok {
+		pxr.postAddRpnProxyError(acc) // remove from pxr.rp if exists
 		return nil, errAddProxy
 	}
 
-	// see: addRpnProxy() above
+	// TODO: setup hop from mainCountryCode to forked rpn proxies
+	go pxr.refreshHopOriginsIfAny(p, "postAddRpnProxy."+proxyid)
+
+	return pxr.postAddRpnProxy(p, acc)
+}
+
+func (pxr *proxifier) postAddRpnProxy(p Proxy, acc RpnAcc) (_ Proxy, err error) {
+	proxyid := idstr(p)
+
+	// add rpn proxy iff rpn proxy isn't multicountry (in which case only one
+	// instance of it can exist and hence it is being re-added if already present)
+	// or, if it is multicountry, add it only if the country code is the main country,
+	// as forked children countries only need be added as plain-old proxies (done above).
 	if !acc.MultiCountry() || strings.HasSuffix(proxyid, mainCountryCode) {
 		pxr.rpnmu.Lock()
-		pxr.rp[acc.ProviderID()] = rp // removed on unregister
+		rp := pxr.rp[acc.ProviderID()]
 		pxr.rpnmu.Unlock()
+
+		if rp == nil {
+			rp, err = asRpnProxy(p, acc, pxr)
+			if rp == nil { // should not happen; unexpected!
+				defer pxr.removeProxy(proxyid, true /*force*/)
+				return nil, core.JoinErr(err, errAddProxyAsRpn)
+			}
+			// TODO: setup hop from mainCountryCode to forked rpn proxies
+			pxr.rpnmu.Lock()
+			pxr.rp[acc.ProviderID()] = rp // removed on unregister
+			pxr.rpnmu.Unlock()
+		} else {
+			go rp.Emplace(p)
+		}
 	}
 
-	// TODO: setup hop from mainCountryCode to forked rpn proxies
-	go pxr.refreshHopOriginsIfAny(p, "addRpnProxy2."+proxyid)
-
 	return p, nil
+}
+
+func (pxr *proxifier) postAddRpnProxyError(acc RpnAcc) (removed bool) {
+	return pxr.unregisterRpn(acc.ProviderID()) // unregisters if it exists
 }
 
 func (pxr *proxifier) addProxy(id, txt string) (p Proxy, err error) {

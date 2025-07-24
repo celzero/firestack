@@ -12,6 +12,7 @@ import (
 	"sync"
 
 	x "github.com/celzero/firestack/intra/backend"
+	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/ipn/warp"
 	"github.com/celzero/firestack/intra/log"
 )
@@ -19,6 +20,7 @@ import (
 type RpnProxy interface {
 	x.RpnProxy
 	Proxy
+	Emplace(Proxy) error
 	PurgeAll() (n uint32)
 }
 
@@ -42,6 +44,7 @@ var _ Proxy = (*rpnp)(nil)  // (useless) assertion always succeeds, see above
 
 var (
 	errRpnBadArgs          = errors.New("proxy: rpn: bad args")
+	errRpnBadEmplace       = errors.New("proxy: rpn: emplace: bad args")
 	errRpnBadCC            = errors.New("proxy: rpn: bad country code")
 	errRpnNotMultiCC       = errors.New("proxy: rpn: not multi-country")
 	errRpnIDsMismatch      = errors.New("proxy: rpn: provider x proxy mismatch")
@@ -49,19 +52,56 @@ var (
 	errRpnNotForked        = errors.New("proxy: rpn: not forked")
 )
 
+// nb: client code isn't really expecting error from asRpnProxy.
 func asRpnProxy(e Proxy, acc RpnAcc, pxr Rpn) (RpnProxy, error) {
 	if e == nil || acc == nil || pxr == nil {
 		return nil, errRpnBadArgs
 	}
 
-	proxyid := e.ID().V() // must be of form "provider-id + country-code"
+	proxyid := idstr(e) // must be of form "provider-id + country-code"
 	providerid := acc.ProviderID()
 	if !strings.HasPrefix(proxyid, providerid) {
 		log.W("proxy: rpn: make: %s <> %s mismatch", proxyid, providerid)
 		return nil, errRpnIDsMismatch
 	}
 	log.D("proxy: rpn: make: %s[%s]", providerid, proxyid)
-	return &rpnp{e, acc, pxr, make(map[string]struct{}, 0), sync.RWMutex{}}, nil
+	return &rpnp{sync.RWMutex{}, e, acc, pxr, make(map[string]struct{}, 0)}, nil
+}
+
+// Emplace implements RpnProxy.
+func (r *rpnp) Emplace(new Proxy) (err error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	old := r.Proxy
+	oldid := idstr(old)
+	newid := idstr(new)
+
+	defer func() {
+		core.Go("rpn.emplace."+oldid, func() {
+			if err != nil {
+				n := r.PurgeAll() // purge all kids on error
+				log.I("proxy: rpn: emplace: %s[%s] failed; purged %d kids", oldid, newid, n)
+			} else if !Same(old, new) {
+				serr := old.Stop() // stop old proxy if it is different
+				log.I("proxy: rpn: emplace: %s; %s stopped; err %v", oldid, newid, serr)
+			}
+		})
+	}()
+
+	if new == nil {
+		log.W("proxy: rpn: emplace: bad args; remove all...")
+		return errRpnBadEmplace
+	}
+
+	if oldid != newid {
+		log.W("proxy: rpn: emplace: %s <> %s mismatch", oldid, newid)
+	}
+
+	r.Proxy = new
+
+	log.D("proxy: rpn: emplace: %s[%s]", r.RpnAcc.ProviderID(), newid)
+	return nil
 }
 
 // Fork implements x.RpnProxy.
