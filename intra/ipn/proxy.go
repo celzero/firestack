@@ -269,6 +269,62 @@ func Reaches(p Proxy, urlOrHostPortOrIPPortCsv string, protos ...string) bool {
 		return true
 	}
 
+	// auto:[ip,http,https]:[v4,v6]
+	if strings.HasPrefix(urlOrHostPortOrIPPortCsv, "auto") {
+		const autoSize = 5
+		prefs := strings.Split(urlOrHostPortOrIPPortCsv, ":")
+		scheme := "https"
+		if len(prefs) >= 2 {
+			scheme = prefs[1]
+		}
+		ipfrag := ""
+		if len(prefs) >= 3 {
+			ipfrag = prefs[2] // "v4", "v6", ""
+		}
+
+		protos = []string{}
+		switch scheme {
+		case "http", "https":
+			urls := []string{}
+			for _, h := range dialers.SampleHosts(autoSize) {
+				u := url.URL{
+					Scheme:   scheme,
+					Host:     h,
+					Fragment: ipfrag, // if empty, connectivity over v4+v6 is attempted
+				}
+				urls = append(urls, u.String())
+			}
+			log.I("proxy: %s reaches: auto:http for %v urls", idstr(p), urls)
+			urlOrHostPortOrIPPortCsv = strings.Join(urls, ",")
+		case "ip":
+			ips := make([]netip.Addr, 0, autoSize)
+			log.I("proxy: %s reaches: auto:ip for %v ips", idstr(p), ips)
+
+			if ipfrag == "v4" {
+				protos = append(protos, "tcp4", "udp4")
+			} else if ipfrag == "v6" {
+				protos = append(protos, "tcp6", "udp6")
+			} else {
+				protos = append(protos, "tcp", "udp")
+			}
+			for _, ip := range dialers.SampleIPs(autoSize) {
+				if ipfrag == "v4" && ip.Is4() {
+					ips = append(ips, ip)
+				} else if ipfrag == "v6" && ip.Is6() {
+					ips = append(ips, ip)
+				} else if ipfrag == "" {
+					ips = append(ips, ip) // both v4 and v6
+				}
+
+			}
+			// default port for ip:port is 80 if left unspecified (see below)
+			urlOrHostPortOrIPPortCsv = strings.Join(core.Map(ips, func(ip netip.Addr) string { return ip.String() }), ",")
+		default:
+			log.E("proxy: %s reaches: auto:%s for %v protos; unsupported scheme", idstr(p), scheme, protos)
+			return false
+		}
+	}
+
 	pid := idstr(p)
 	hostportOrIPPort := strings.Split(urlOrHostPortOrIPPortCsv, ",")
 	if urls, oth := extractHttpURLs(urlOrHostPortOrIPPortCsv); len(urls) > 0 {
