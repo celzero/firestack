@@ -31,6 +31,14 @@ import (
 const mainCountryCode = "US"  // always uppercase
 const noCountryForOldMen = "" // zz
 
+func maincc(acc RpnAcc) string {
+	cc := mainCountryCode
+	if !acc.MultiCountry() {
+		cc = noCountryForOldMen
+	}
+	return cc
+}
+
 func (pxr *proxifier) NewSocks5Proxy(id, user, pwd, ip, port string) (p *socks5, err error) {
 	opts := settings.NewAuthProxyOptions("socks5", user, pwd, ip, port, nil)
 	return NewSocks5Proxy(id, pxr.ctx, pxr.ctl, pxr, opts)

@@ -1159,7 +1159,7 @@ func (px *proxifier) RegisterWarp(existingState *x.Gobyte) (stateJson *x.Gobyte,
 		return nil, err
 	}
 
-	rp, err := px.addRpnProxy(wc, mainCountryCode)
+	rp, err := px.addRpnProxy(wc, maincc(wc))
 	if err != nil || rp == nil {
 		log.E("proxy: warp: add wg for %s failed: %v", wc.Who(), err)
 		return nil, core.JoinErr(err, errNotRpnProxy)
@@ -1197,7 +1197,7 @@ func (px *proxifier) RegisterAmnezia(existingState *x.Gobyte) (stateJson *x.Goby
 		return nil, err
 	}
 
-	rp, err := px.addRpnProxy(ac, mainCountryCode)
+	rp, err := px.addRpnProxy(ac, maincc(ac))
 	if err != nil || rp == nil {
 		log.E("proxy: amz: add wg for %s failed: %v", ac.Who(), err)
 		return nil, core.JoinErr(err, errNotRpnProxy)
@@ -1242,7 +1242,7 @@ func (px *proxifier) RegisterWin(entitlementOrState *x.Gobyte) (stateJson *x.Gob
 
 	// TODO: create a new proxy type for win, so Refresh() could be sent to /connect
 	// TODO: best location: github.com/Windscribe/browser-extension/blob/ed83749ad1/modules/ext/src/utils/getBestLocation.js
-	rp, err := px.addRpnProxy(win, mainCountryCode)
+	rp, err := px.addRpnProxy(win, maincc(win))
 	if err != nil || rp == nil {
 		log.E("proxy: ws: add wg for %s failed: %v", win.Who(), err)
 		return nil, core.JoinErr(err, errNotRpnProxy)
