@@ -101,12 +101,16 @@ type IPMap interface {
 	// Subsequent calls to GetAny return the same IPSet. Never returns nil.
 	// hostOrIP may be host:port, or ip:port, or host, or ip.
 	GetAny(hostOrIP string) *IPSet
+	// GetMany returns a list of sampled IPs from the ipmap cache.
+	GetMany(n uint8) []netip.Addr
 	// MakeIPSet creates an IPSet for this hostname bootstrapped with given IPs
 	// or IP:Ports. Subsequent calls to MakeIPSet return a new, overridden IPSet.
 	// hostOrIP may be host:port, or ip:port, or host, or ip.
 	MakeIPSet(hostOrIP string, ipps []string, typ IPSetType) *IPSet
 	// Reverse lookup; returns hostnames for the given IP address.
 	ReverseGet(ip netip.Addr) []string
+	// ReverseGetMany returns a list of sampled hostnames from the ipmap cache.
+	ReverseGetMany(n uint8) []string
 	// With sets the default resolver to use for hostname resolution.
 	With(r IPMapper)
 	// Clear removes all IPSets from the map.
@@ -253,6 +257,34 @@ func (m *ipmap) Add(hostOrIP string) *IPSet {
 	return s
 }
 
+func (m *ipmap) ReverseGetMany(n uint8) []string {
+	hosts := make([]string, 0, n)
+	m.RLock()
+	defer m.RUnlock()
+
+	for host := range m.m {
+		if len(hosts) >= int(n) {
+			break
+		}
+		if _, err := netip.ParseAddr(host); err != nil {
+			// append if not an IP address
+			hosts = append(hosts, host)
+		}
+	}
+	for host := range m.p {
+		if len(hosts) >= int(n) {
+			break
+		}
+		if _, err := netip.ParseAddr(host); err != nil {
+			// append if not an IP address
+			hosts = append(hosts, host)
+		}
+	}
+
+	log.I("ipmap: ReverseGetMany: sampled %d hosts", len(hosts))
+	return hosts
+}
+
 func (m *ipmap) ReverseGet(ip netip.Addr) []string {
 	q := x.StrOf(ip.String())
 
@@ -315,6 +347,53 @@ func (m *ipmap) get(hostOrIP string, typ IPSetType) (s *IPSet) {
 	}
 
 	return s
+}
+
+func (m *ipmap) GetMany(n uint8) []netip.Addr {
+	m.RLock()
+	defer m.RUnlock()
+
+	ips := make([]netip.Addr, 0, n)
+
+	oneip := func(s *IPSet) (zz netip.Addr) {
+		confirmed := s.confirmed.Load()
+		if confirmed.IsGlobalUnicast() {
+			return confirmed
+		}
+		for _, ip := range s.ips {
+			if ip.IsGlobalUnicast() {
+				return ip
+			}
+		}
+		return
+	}
+	for _, s := range m.m {
+		if len(ips) >= int(n) {
+			break
+		}
+		if ip := oneip(s); ip.IsGlobalUnicast() {
+			ips = append(ips, ip)
+		}
+	}
+	for _, s := range m.p {
+		if len(ips) >= int(n) {
+			break
+		}
+		if ip := oneip(s); ip.IsGlobalUnicast() {
+			ips = append(ips, ip)
+		}
+	}
+	for _, s := range m.ip {
+		if len(ips) >= int(n) {
+			break
+		}
+		if ip := oneip(s); ip.IsGlobalUnicast() {
+			ips = append(ips, ip)
+		}
+	}
+
+	log.I("ipmap: GetMany: sampled %d ips", len(ips))
+	return ips
 }
 
 func (m *ipmap) MakeIPSet(hostOrIP string, ipps []string, typ IPSetType) *IPSet {

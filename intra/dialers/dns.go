@@ -51,6 +51,14 @@ func ResolveForUrl(s string) []netip.Addr {
 	return For(u.Hostname())
 }
 
+func SampleHosts(n uint8) []string {
+	return ipm.ReverseGetMany(n)
+}
+
+func SampleIPs(n uint8) []netip.Addr {
+	return ipm.GetMany(n)
+}
+
 // ECH returns the ECH config, if any, for the given hostname.
 // The query is resolved using IPMapper's default resolver.
 func ECH(hostname string) ([]byte, error) {
