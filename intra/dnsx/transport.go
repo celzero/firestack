@@ -199,7 +199,7 @@ func NewResolver(pctx context.Context, fakeaddrs string, dtr x.DNSTransport, l x
 		listener:     l,
 		smms:         make(chan *x.DNSSummary, 64),
 		transports:   make(map[string]Transport),
-		localdomains: newUndelegatedDomainsTrie(),
+		localdomains: ipmap.UndelegatedDomainsTrie,
 	}
 	r.loadaddrs(fakeaddrs)
 	r.gateway = NewDNSGateway(ctx, r.dnsaddrs, r, pt)
@@ -1046,6 +1046,19 @@ func (r *resolver) preferencesFrom(qname string, qtyp uint16, s *x.DNSOpts, chos
 		pidcsv = overrideProxyIfNeeded(s.PIDCSV, id1, id2)
 	} else {
 		pidcsv = NetNoProxy
+	}
+	return
+}
+
+func (r *resolver) requiresGoosOrLocal(qname string) (id string) {
+	if strings.HasSuffix(qname, ".local") || xdns.IsMDNSQuery(qname) {
+		id = Local
+	} else if !settings.SystemDNSForUndelegatedDomains.Load() {
+		// todo: remove this once we let users "pin" domains to resolvers
+		// github.com/celzero/rethink-app/issues/1153
+		// skip override when preventing DNS capture on port53 is turned off
+	} else if len(qname) > 0 && r.localdomains.HasAny(x.StrOf(qname)) {
+		id = Goos // system is primary; see: transport.go:determineTransports()
 	}
 	return
 }

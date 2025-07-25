@@ -35,6 +35,7 @@ import (
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
+	"github.com/celzero/firestack/intra/xdns"
 )
 
 const maxFailLimit = 8
@@ -64,6 +65,16 @@ func (h IPSetType) String() string {
 	default:
 		return "Unknown"
 	}
+}
+
+var UndelegatedDomainsTrie = newUndelegatedDomainTrie()
+
+func newUndelegatedDomainTrie() x.RadixTree {
+	t := x.NewRadixTree()
+	for _, domain := range core.UndelegatedDomains {
+		t.Add(x.StrOf(domain))
+	}
+	return t
 }
 
 // IPMapper is an interface for resolving hostnames to IP addresses.
@@ -263,12 +274,24 @@ func (m *ipmap) ReverseGetMany(n uint8) []string {
 	m.RLock()
 	defer m.RUnlock()
 
+	possiblyPublicHost := func(host string) bool {
+		if xdns.IsMDNSQuery(host) {
+			return false
+		}
+		if UndelegatedDomainsTrie.HasAny(x.StrOf(host)) {
+			return false
+		}
+		if _, err := netip.ParseAddr(host); err == nil {
+			return false // not a host, but an IP address
+		}
+		return strings.Contains(host, ".")
+	}
 	// TODO: use hosts with public prefixes
 	for host := range m.m {
 		if len(hosts) >= int(n) {
 			break
 		}
-		if _, err := netip.ParseAddr(host); err != nil {
+		if possiblyPublicHost(host) {
 			// append if not an IP address
 			hosts = append(hosts, host)
 		}
@@ -277,7 +300,7 @@ func (m *ipmap) ReverseGetMany(n uint8) []string {
 		if len(hosts) >= int(n) {
 			break
 		}
-		if _, err := netip.ParseAddr(host); err != nil {
+		if possiblyPublicHost(host) {
 			// append if not an IP address
 			hosts = append(hosts, host)
 		}
