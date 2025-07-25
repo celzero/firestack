@@ -259,9 +259,11 @@ func (m *ipmap) Add(hostOrIP string) *IPSet {
 
 func (m *ipmap) ReverseGetMany(n uint8) []string {
 	hosts := make([]string, 0, n)
+
 	m.RLock()
 	defer m.RUnlock()
 
+	// TODO: use hosts with public prefixes
 	for host := range m.m {
 		if len(hosts) >= int(n) {
 			break

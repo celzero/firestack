@@ -217,13 +217,16 @@ func TestProxyReaches(t *testing.T) {
 	if exit == nil {
 		t.Fatal("proxy: exit proxy nil")
 	}
-	c, cerr := exit.Dial("tcp", "34.245.245.138:443")
-	core.Close(c)
-	if cerr != nil {
-		t.Fatal(cerr)
+
+	c1, _ := exit.Dial("tcp", "google.com:443")
+	c2, _ := exit.Dial("tcp", "cloudflare.com:443")
+	c3, _ := exit.Dial("tcp", "microsoft.com:443")
+	core.Close(c1, c2, c3)
+	if ok := ipn.Reaches(exit, "auto:https"); !ok {
+		t.Fatal("does not reach auto:https (google/cloudflare/microsoft)")
 	}
 	if ok, err := ipn.IcmpReaches(exit, netip.MustParseAddrPort("34.245.245.138:153")); !ok {
-		t.Fatal(err)
+		t.Fatal(err) // always fails
 	}
 	t.Log("proxy reaches")
 }
