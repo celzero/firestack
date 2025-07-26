@@ -7,7 +7,6 @@
 package warp
 
 import (
-	"bytes"
 	crand "crypto/rand"
 	"encoding/json"
 	"errors"
@@ -28,14 +27,7 @@ import (
 
 // github.com/Windscribe/browser-extension/blob/ed83749ad/modules/ext/src/utils/constants.js#L31
 const (
-	wsTestUrl  = "https://api-staging.windscribe.com/"
-	wsProdUrl  = "https://api.windscribe.com/"
-	wsProdUrl2 = "https://api.totallyacdn.com/"
-
-	wsTestAssets  = "https://assets-staging.windscribe.com/"
-	wsProdAssets  = "https://assets.windscribe.com/"
-	wsProdAssets2 = "https://assets.totallyacdn.com/"
-
+	svchost = "svc.rethinkdns.com"
 	// wsMyIp  = "https://checkip.windscribe.com/"
 	// wsMyIp2 = "https://checkip.totallyacdn.com/"
 )
@@ -901,26 +893,34 @@ func fixedValidWsEndpoint(test bool) string {
 	return "ca.windscribe.com"
 }
 
-func baseurl(test bool) string {
+func baseurl(test bool) *url.URL {
+	u := url.URL{
+		Scheme: "https",
+		Host:   svchost,
+	}
+
 	if test {
-		return wsTestUrl
+		u.Query().Set("rpn", "wstest")
+	} else {
+		u.Query().Set("rpn", "ws")
 	}
-	// TODO: use wsProdUrl2 if wsProdUrl is not reachable?
-	if rand.IntN(10000)%2 == 0 {
-		return wsProdUrl2
-	}
-	return wsProdUrl
+
+	return &u
 }
 
-func assetsurl(test bool) string {
+func assetsurl(test bool) *url.URL {
+	u := url.URL{
+		Scheme: "https",
+		Host:   svchost,
+	}
+
 	if test {
-		return wsTestAssets
+		u.Query().Set("rpn", "wstestassets")
+	} else {
+		u.Query().Set("rpn", "wsassets")
 	}
-	// TODO: use wsProdAssets2 if wsProdUrl is not reachable?
-	if rand.IntN(10000)%2 == 0 {
-		return wsProdAssets2
-	}
-	return wsProdAssets
+
+	return &u
 }
 
 func authHeader(req *http.Request, t string) {
@@ -981,7 +981,8 @@ func getSession(h *http.Client, tok string, test bool) (*WsSession, error) {
 		curl -x GET '.../Session'
 		-H 'Authorization: Bearer id:typ:epochsec:sig1:sig2'
 	*/
-	req, err := http.NewRequest("GET", baseurl(test)+wssessionpath, nil)
+	u := baseurl(test).JoinPath(wssessionpath)
+	req, err := http.NewRequest("GET", u.String(), nil)
 	if err != nil {
 		return nil, fmt.Errorf("ws: getsess: make req err: %v", err)
 	}
@@ -1141,7 +1142,8 @@ func getServerList(h *http.Client, sess *WsSession, ent *WsEntitlement) (*WsServ
 	test := ent.Test
 
 	// curl -x GET '.../serverlist/mob-v2/1/<lochash>'
-	locreq, err := http.NewRequest("GET", assetsurl(test)+wslocpath+lochash, nil)
+	u := assetsurl(test).JoinPath(wslocpath, lochash)
+	locreq, err := http.NewRequest("GET", u.String(), nil)
 	if err != nil {
 		return nil, fmt.Errorf("ws: wgconfs: req err: %v", err)
 	}
@@ -1181,23 +1183,11 @@ keyagain:
 
 	var priv x.WgKey
 	if !useExistingCreds {
-		// register a deterministic WireGuard key for this client
-		m := shab(hex2byte(ent.Cid))
-		if ord := ordFromPid(ent.Sid); len(ord) > 0 {
-			m = append(m, sha(ord)...)
-		}
-		if keyed != 0 {
-			r := csprng(16)
-			if len(r) > 0 {
-				m = append(m, r...)
-			} // give up silently, same key as when keyed == 0
-		}
-		seed := hmac256(m, sha(sess.SessionAuthHash))
-		key, err := newEdKeyPairOf(bytes.NewReader(seed))
+		var err error
+		priv, err = x.NewWgPrivateKey()
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, fmt.Errorf("ws: wgconfs: gen key err: %v", err)
 		}
-		priv = key.ToX25519()
 	} else {
 		var err error
 		// use the existing key, which is already registered
@@ -1226,7 +1216,8 @@ initagain:
 		initdata := url.Values{}
 		initdata.Set("wg_pubkey", pubkeybase64)
 		initdata.Set("force_init", force)
-		initreq, err := http.NewRequest("POST", baseurl(test)+wswginitpath, strings.NewReader(initdata.Encode()))
+		u := baseurl(test).JoinPath(wswginitpath)
+		initreq, err := http.NewRequest("POST", u.String(), strings.NewReader(initdata.Encode()))
 		if err != nil {
 			return nil, nil, fmt.Errorf("ws: wgconfs: req err: %v", err)
 		}
@@ -1302,8 +1293,8 @@ initagain:
 	cdata.Set("hostname", someEndpoint)
 	cdata.Set("wg_pubkey", pubkeybase64)
 	cdata.Set("wg_ttl", wgttl)
-
-	creq, err := http.NewRequest("POST", baseurl(test)+wswgconnectpath, strings.NewReader(cdata.Encode()))
+	u := baseurl(test).JoinPath(wswgconnectpath)
+	creq, err := http.NewRequest("POST", u.String(), strings.NewReader(cdata.Encode()))
 	if err != nil {
 		return nil, nil, fmt.Errorf("ws: wgconfs: connect req err: %v", err)
 	}
