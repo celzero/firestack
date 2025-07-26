@@ -520,8 +520,8 @@ type WsSession struct {
 	// to each session token. Session token is the "bearer token".
 	// The session/bearer token is of shape, id:type:timestamp:sig1:sig2.
 	// However it could change to a new format in the future.
-	SessionAuthHash string `json:"session_auth_hash"`
-	Username        string `json:"username"`
+	SessionToken string `json:"session_auth_hash"`
+	Username     string `json:"username"`
 	// TrafficUsed shows byte count of data used since LastReset date?
 	TrafficUsed int64 `json:"traffic_used"`
 	TrafficMax  int64 `json:"traffic_max"`
@@ -733,7 +733,7 @@ func (a *WsClient) Who() *x.Gostr {
 		return nil
 	}
 	status := strconv.FormatInt(int64(c.Session.Status), 10)
-	return x.StrOf(status + ":" + c.Session.UserID + "+" + trunc8(byte2hex(sha(c.Session.SessionAuthHash))) + "@" + a.kid())
+	return x.StrOf(status + ":" + c.Session.UserID + "+" + trunc8(byte2hex(sha(c.Session.SessionToken))) + "@" + a.kid())
 }
 
 // ProviderID implements RpnAcc.
@@ -1135,7 +1135,7 @@ func getServerList(h *http.Client, sess *WsSession, ent *WsEntitlement) (*WsServ
 	if len(lochash) <= 0 {
 		return nil, errWsNoLocHash
 	}
-	bearer := sess.SessionAuthHash
+	bearer := sess.SessionToken
 	if len(bearer) <= 0 {
 		return nil, errWsNoToken
 	}
@@ -1171,7 +1171,7 @@ func genWgConfs(h *http.Client, existingCreds *WsWgCreds, sess *WsSession, serve
 	if len(lochash) <= 0 {
 		return nil, nil, errWsNoLocHash
 	}
-	bearer := sess.SessionAuthHash
+	bearer := sess.SessionToken
 	if len(bearer) <= 0 {
 		return nil, nil, errWsNoToken
 	}
@@ -1299,7 +1299,7 @@ initagain:
 		return nil, nil, fmt.Errorf("ws: wgconfs: connect req err: %v", err)
 	}
 	creq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	authHeader(creq, sess.SessionAuthHash)
+	authHeader(creq, sess.SessionToken)
 
 	cres, err := h.Do(creq)
 	if err != nil || cres == nil {
@@ -1478,18 +1478,19 @@ func makeWsWgFrom(h *http.Client, existingConf *WsWgConfig) (ws *WsClient, refre
 
 	existingSess := existingConf.Session
 	existingCreds := existingConf.Creds
-	if existingCreds == nil || existingSess == nil || len(existingSess.SessionAuthHash) <= 0 {
+	if existingCreds == nil || existingSess == nil || len(existingSess.SessionToken) <= 0 {
 		ws, err = makeWsWg(h, existingEnt)
 		refreshedSess = true
 		return
 	}
 
+	existingToken := existingEnt.SessionToken
 	existingLocHash := existingSess.LocHash
-	if existingEnt.SessionToken != existingSess.SessionAuthHash {
+	if existingEnt.SessionToken != existingToken {
 		log.W("ws: make: entitlement does not match session")
 	}
 
-	newSess, err := getSession(h, existingEnt.SessionToken, existingEnt.Test)
+	newSess, err := getSession(h, existingToken, existingEnt.Test)
 	if err == nil {
 		existingConf.Session = newSess // update session with the latest info
 		refreshedSess = true
