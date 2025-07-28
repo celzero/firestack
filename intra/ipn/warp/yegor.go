@@ -8,6 +8,8 @@ package warp
 
 import (
 	crand "crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -1567,4 +1569,17 @@ func loge(err error) log.LogFn {
 		return log.I
 	}
 	return log.E
+}
+
+func sha(p string) []byte {
+	return shab([]byte(p))
+}
+
+func shab(b []byte) []byte {
+	digest := sha256.Sum256(b)
+	return digest[:]
+}
+
+func byte2hex(b []byte) string {
+	return hex.EncodeToString(b)
 }
