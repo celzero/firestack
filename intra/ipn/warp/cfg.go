@@ -167,7 +167,8 @@ func WarpEndpoints() (v4 netip.AddrPort, v6 netip.AddrPort, err error) {
 
 func WinEndpoints() (v4 []netip.AddrPort, v6 []netip.AddrPort, err error) {
 	var v4ok, v6ok bool
-	for _, u := range []string{wsProdUrl, wsProdUrl2} {
+	for _, u := range []string{svchost, wsMyIp2, wsMyIp} {
+		// svchost is a host, but url.Parse will work
 		for _, ip := range dialers.ResolveForUrl(u) {
 			if ipok(ip) {
 				if ip.Is4() {

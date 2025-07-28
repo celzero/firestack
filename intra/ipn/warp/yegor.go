@@ -28,8 +28,8 @@ import (
 // github.com/Windscribe/browser-extension/blob/ed83749ad/modules/ext/src/utils/constants.js#L31
 const (
 	svchost = "svc.rethinkdns.com"
-	// wsMyIp  = "https://checkip.windscribe.com/"
-	// wsMyIp2 = "https://checkip.totallyacdn.com/"
+	wsMyIp  = "https://checkip.windscribe.com/"
+	wsMyIp2 = "https://checkip.totallyacdn.com/"
 )
 
 const (
@@ -515,10 +515,10 @@ type WsServerListResponse struct {
 */
 type WsSession struct {
 	UserID string `json:"user_id"`
-	// Account session token authenticates this user with the API to get
+	// Encrypted account session token authenticates this user with the API to get
 	// and set any state, incl WG configuration which are unique and bound
 	// to each session token. Session token is the "bearer token".
-	// The session/bearer token is of shape, id:type:timestamp:sig1:sig2.
+	// Unencrypted session/bearer token is of shape, id:type:timestamp:sig1:sig2.
 	// However it could change to a new format in the future.
 	SessionToken string `json:"session_auth_hash"`
 	Username     string `json:"username"`
@@ -678,7 +678,7 @@ type WsWgConfig struct {
 "kind": "ws#v1",
 "cid": "hex", // Identifier
 "sid": "id:epochsec:parentcidsig", // profile identifier, if any
-"sessiontoken": "id:typ:epochsec:sig1:sig2",
+"sessiontoken": enc("id:typ:epochsec:sig1:sig2"),
 "expiry": "2025-07-15T00:00:00Z", // Expiry date of the entitlement
 "status": "valid" // "valid" | "invalid" | "banned" | "expired" | "unknown"
 "test": false // true if this is a test entitlement
@@ -688,7 +688,7 @@ type WsEntitlement struct {
 	Kind         string `json:"kind"`          // e.g. "ws#v1"
 	Cid          string `json:"cid"`           // Client ID
 	Sid          string `json:"pid,omitempty"` // Share ID
-	SessionToken string `json:"sessiontoken"`  // Session token
+	SessionToken string `json:"sessiontoken"`  // Encrypted session token
 	// Expiry date of the entitlement; go.dev/play/p/d2gshytEF61
 	Expiry time.Time `json:"expiry"`
 	Status string    `json:"status"` // "valid" | "invalid" | "banned" | "expired" | "unknown"
