@@ -366,8 +366,8 @@ func (t *ctransport) fetch(network string, q *dns.Msg, smmout *x.DNSSummary, cb 
 			// ans may be nil
 			cc.ans, qerr = Req(t.Transport, network, q, smm2)
 			t.hangoverCheckpoint()
-			// cb.put no-ops when ans is nil or xdns.Len(ans) is 0
-			cb.put(key, cc.ans, smm2)
+			// cb.put no-ops when ans is nil or rcode != success (0)
+			cb.put(key, cc.ans.Copy(), smm2)
 			return cc, qerr
 		})
 
@@ -539,6 +539,9 @@ func copySummary(from *x.DNSSummary) (to *x.DNSSummary) {
 // fillSummary copies non-zero values into out.
 func fillSummary(s *x.DNSSummary, out *x.DNSSummary) {
 	if out == nil || s == out {
+		return
+	}
+	if s == out {
 		return
 	}
 
