@@ -165,6 +165,8 @@ jobs:
         # 10 chars of the commit SHA
         VCSVER="${GITHUB_SHA:0:10}"
 
+        # uploaded at:
+        # maven.pkg.github.com/celzero/firestack/com/github/celzero/firestack/<commit>/firestack-<commit>.aar
         # TODO: firestack-debug
         # github.com/deelaa-marketplace/commons-workflow/blob/637dc111/flows/publish-api.yml#L49
         # github.com/markocto/cf-octopub/blob/bba2de2c/github/script/action.yaml#L118

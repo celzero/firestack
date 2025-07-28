@@ -24,7 +24,15 @@ mvn install:install-file \
     -DartifactId=${ARTIFACT} \
     -Dsources=${SOURCES}
 #    -Dclassifier=${CLASSFULL} \
+
 # usage: docs.gradle.org/current/userguide/dependency_management.html
+# mvn install:install-file
+# -Dfile=firestack.aar
+# -Dpackaging=aar
+# -Dversion=9744e5fad9
+# -DgroupId=com.github.celzero
+# -DartifactId=firestack
+# -Dsources=build/intra/tun2socks-sources.jar
 mvn -X install:install-file \
     -Dfile=${FOUTDBG} \
     -Dpackaging=${PACK} \
