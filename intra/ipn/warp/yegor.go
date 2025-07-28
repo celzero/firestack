@@ -732,7 +732,7 @@ func (a *WsClient) Who() *x.Gostr {
 	if c == nil || c.Session == nil {
 		return nil
 	}
-	status := strconv.FormatInt(int64(c.Session.Status), 10)
+	status := strconv.Itoa(c.Session.Status)
 	return x.StrOf(status + ":" + c.Session.UserID + "+" + trunc8(byte2hex(sha(c.Session.SessionToken))) + "@" + a.kid())
 }
 
@@ -977,6 +977,7 @@ func getSession(h *http.Client, tok string, test bool) (*WsSession, error) {
 	if len(tok) <= 0 {
 		return nil, errWsNoToken
 	}
+	tokst := tokenState(tok)
 	/*
 		curl -x GET '.../Session'
 		-H 'Authorization: Bearer id:typ:epochsec:sig1:sig2'
@@ -990,7 +991,7 @@ func getSession(h *http.Client, tok string, test bool) (*WsSession, error) {
 
 	res, err := h.Do(req)
 	if err != nil || res == nil {
-		return nil, fmt.Errorf("ws: getsess: res err (nil? %t): %v", res == nil, err)
+		return nil, fmt.Errorf("ws: getsess: res err (nil? %t / tok? %s): %v", res == nil, tokst, err)
 	}
 	defer core.Close(res.Body)
 	if res.StatusCode != http.StatusOK {
@@ -1004,19 +1005,6 @@ func getSession(h *http.Client, tok string, test bool) (*WsSession, error) {
 	}
 
 	return &wsSess.Data, nil
-}
-
-func ordFromPid(pid string) string {
-	if len(pid) <= 0 {
-		return ""
-	}
-	// "id:epochsec:parentcidsig" => "id"
-	parts := strings.Split(pid, ":")
-	if len(parts) <= 0 {
-		return ""
-	}
-	// return the first part, which is the "id"
-	return parts[0]
 }
 
 func skipWsServer(server WsServerList) bool {
@@ -1127,6 +1115,32 @@ func convertToRegionalWgConfs(id *WsWgCreds, reservation *WsWgConnectData, list 
 	return out, nil
 }
 
+func tokenState(t string) (s string) {
+	l := strconv.Itoa(len(t))
+	if len(t) <= 0 {
+		s = "notok-"
+	} else if len(strings.Split(t, ":")) > 4 {
+		s = "plaintok-" + l
+	} else {
+		s = "enctok-" + l
+	}
+	return
+}
+
+func (a *WsWgConfig) tokenState() string {
+	if a == nil {
+		return "no-cfg"
+	}
+	s1, s2 := "no-ent", "no-sess"
+	if ent := a.Entitlement; ent != nil {
+		s1 = "ent-" + tokenState(ent.SessionToken)
+	}
+	if sess := a.Session; sess != nil {
+		s2 = "sess-" + tokenState(sess.SessionToken)
+	}
+	return s1 + " | " + s2
+}
+
 func getServerList(h *http.Client, sess *WsSession, ent *WsEntitlement) (*WsServerListResponse, error) {
 	if sess == nil || ent == nil {
 		return nil, errWsNoSession
@@ -1176,6 +1190,8 @@ func genWgConfs(h *http.Client, existingCreds *WsWgCreds, sess *WsSession, serve
 		return nil, nil, errWsNoToken
 	}
 	test := ent.Test
+
+	tokst := "sess-" + tokenState(bearer)
 
 	keyed := 0
 keyagain:
@@ -1227,7 +1243,7 @@ initagain:
 		initres, err := h.Do(initreq)
 
 		if err != nil || initres == nil {
-			return nil, nil, fmt.Errorf("ws: wgconfs: res err (nil? %t): %v", initres == nil, err)
+			return nil, nil, fmt.Errorf("ws: wgconfs: res err (nil? %t / tok? %s): %v", initres == nil, tokst, err)
 		}
 
 		if initres.StatusCode != http.StatusOK {
@@ -1303,7 +1319,7 @@ initagain:
 
 	cres, err := h.Do(creq)
 	if err != nil || cres == nil {
-		return nil, nil, fmt.Errorf("ws: wgconfs: connect res err (nil? %t): %v", cres == nil, err)
+		return nil, nil, fmt.Errorf("ws: wgconfs: connect res err (nil? %t / tok? %s): %v", cres == nil, tokst, err)
 	}
 	if cres.StatusCode != http.StatusOK {
 		wserr, err := wsErr2(cres, "wsconnect")
@@ -1340,7 +1356,7 @@ initagain:
 		return nil, nil, fmt.Errorf("ws: wgconfs: no regions found for %s; %v", trunc8(pubkeybase64), err)
 	}
 
-	log.I("ws: wgconfs: found %d regions for %s", len(regconfs), trunc8(pubkeybase64))
+	log.I("ws: wgconfs: (tok? %s) found %d regions for %s", tokst, len(regconfs), trunc8(pubkeybase64))
 	return creds, regconfs, nil
 }
 
@@ -1388,7 +1404,8 @@ func newWsGw(c *WsWgConfig, h *http.Client) (*WsClient, error) {
 		configExt: core.NewVolatile(c),
 	}
 
-	log.I("ws: gw: for %s; from: %s until: %s", a.Who(), fmtUnixMillis(a.Created()), fmtUnixMillis(a.Expires()))
+	log.I("ws: gw: for %s/%s; from: %s until: %s",
+		a.Who(), c.tokenState(), fmtUnixMillis(a.Created()), fmtUnixMillis(a.Expires()))
 
 	return a, nil
 }
@@ -1404,11 +1421,7 @@ func (w *BaseClient) MakeWsWg(entitlement []byte) (*WsClient, error) {
 		return nil, err
 	}
 
-	return w.makeWsWg(&ent)
-}
-
-func (w *BaseClient) makeWsWg(hent *WsEntitlement) (*WsClient, error) {
-	return makeWsWg(&w.h2, hent)
+	return makeWsWg(&w.h2, &ent)
 }
 
 func makeWsWg(h *http.Client, ent *WsEntitlement) (*WsClient, error) {
@@ -1453,9 +1466,9 @@ func (w *BaseClient) MakeWsWgFrom(entitlementOrWsConfigJson []byte) (*WsClient, 
 
 	sz := len(entitlementOrWsConfigJson)
 	hasEnt := existingConf.Entitlement != nil
-	hasTok := hasEnt && len(existingConf.Entitlement.SessionToken) <= 0
+	hasTok := hasEnt && len(existingConf.Entitlement.SessionToken) > 0
 	if err != nil || !hasEnt || !hasTok {
-		// may be this is an entitlement?
+		// may be this is an entitlement and not conf?
 		log.W("ws: make: unmarshal config (sz %d / hasEnt %t / hasTok %t) err? %v; retry as entitlement",
 			sz, hasEnt, hasTok, err)
 		return w.MakeWsWg(entitlementOrWsConfigJson)
@@ -1484,10 +1497,11 @@ func makeWsWgFrom(h *http.Client, existingConf *WsWgConfig) (ws *WsClient, refre
 		return
 	}
 
+	tokst := existingConf.tokenState()
 	existingToken := existingEnt.SessionToken
 	existingLocHash := existingSess.LocHash
 	if existingEnt.SessionToken != existingToken {
-		log.W("ws: make: entitlement does not match session")
+		log.W("ws: make: entitlement does not match session; tok? %s", tokst)
 	}
 
 	newSess, err := getSession(h, existingToken, existingEnt.Test)
@@ -1495,7 +1509,7 @@ func makeWsWgFrom(h *http.Client, existingConf *WsWgConfig) (ws *WsClient, refre
 		existingConf.Session = newSess // update session with the latest info
 		refreshedSess = true
 	} else {
-		log.W("ws: make: get session err: %v; using existing", err)
+		log.W("ws: make: get session err: %v; using existing; tok? %s", err, tokst)
 		newSess = existingConf.Session // use existing session
 	}
 
@@ -1506,7 +1520,7 @@ func makeWsWgFrom(h *http.Client, existingConf *WsWgConfig) (ws *WsClient, refre
 	}
 	active := exp.After(time.Now())
 	if !active {
-		log.W("ws: make: session expired at %s", fmtTime(exp))
+		log.W("ws: make: session expired at %s; tok? %s", fmtTime(exp), tokst)
 	}
 
 	existingServers := existingConf.Servers
@@ -1535,7 +1549,7 @@ func makeWsWgFrom(h *http.Client, existingConf *WsWgConfig) (ws *WsClient, refre
 		// create wg confs from new or existing server list
 		// always reconfigure (as /WgConfigs/connect must be done once every wg_ttl, which is 60m)
 		maybeNewCreds, maybeNewWgConfs, err := genWgConfs(h, existingCreds, newSess, maybeNewServers, existingConf.Entitlement)
-		loge(err)("ws: make: gen wg confs; new loc? %t; err? %v", hasnew, err)
+		loge(err)("ws: make: gen wg confs; tok? %s; new loc? %t; err? %v", tokst, hasnew, err)
 
 		if err == nil {
 			existingConf.Servers = maybeNewServers
