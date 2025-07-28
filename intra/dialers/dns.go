@@ -44,7 +44,7 @@ func Resolve(hostname string, tids ...string) (addrs []netip.Addr, err error) {
 }
 
 func ResolveForUrl(s string) []netip.Addr {
-	u, err := url.Parse(s)
+	u, err := url.Parse(s) // works if s is mere hostname; ex: example.com
 	if err != nil {
 		return For(s) // fallback on hostOrIP
 	}
