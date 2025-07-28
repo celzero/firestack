@@ -29,9 +29,10 @@ import (
 
 // github.com/Windscribe/browser-extension/blob/ed83749ad/modules/ext/src/utils/constants.js#L31
 const (
-	svchost = "svc.rethinkdns.com"
-	wsMyIp  = "https://checkip.windscribe.com/"
-	wsMyIp2 = "https://checkip.totallyacdn.com/"
+	svchost     = "svc.rethinkdns.com"
+	svchosttest = "redir.nile.workers.dev"
+	wsMyIp      = "https://checkip.windscribe.com/"
+	wsMyIp2     = "https://checkip.totallyacdn.com/"
 )
 
 const (
@@ -116,6 +117,7 @@ var (
 	errWsNoClient       = errors.New("ws: no client")
 	errWsNoEntitlement  = errors.New("ws: missing entitlement")
 	errWsNoToken        = errors.New("ws: missing token")
+	errWsNoCid          = errors.New("ws: missing cid")
 	errWsNoResponse     = errors.New("ws: no response")
 	errWsNoLocHash      = errors.New("ws: no loc hash")
 	errWsNoServerList   = errors.New("ws: no server list")
@@ -895,12 +897,12 @@ func fixedValidWsEndpoint(test bool) string {
 	return "ca.windscribe.com"
 }
 
-func baseurl(test bool) *url.URL {
+func baseurl(test bool, cid string) *url.URL {
 	u := url.URL{
 		Scheme: "https",
-		Host:   svchost,
+		Host:   svchosttest,
 	}
-
+	u.Query().Set("cid", cid)
 	if test {
 		u.Query().Set("rpn", "wstest")
 	} else {
@@ -913,7 +915,7 @@ func baseurl(test bool) *url.URL {
 func assetsurl(test bool) *url.URL {
 	u := url.URL{
 		Scheme: "https",
-		Host:   svchost,
+		Host:   svchosttest,
 	}
 
 	if test {
@@ -975,7 +977,7 @@ func wsRes[T any](res *http.Response, out *T, op string) (*T, error) {
 	return out, nil
 }
 
-func getSession(h *http.Client, tok string, test bool) (*WsSession, error) {
+func getSession(h *http.Client, cid, tok string, test bool) (*WsSession, error) {
 	if len(tok) <= 0 {
 		return nil, errWsNoToken
 	}
@@ -984,7 +986,7 @@ func getSession(h *http.Client, tok string, test bool) (*WsSession, error) {
 		curl -x GET '.../Session'
 		-H 'Authorization: Bearer id:typ:epochsec:sig1:sig2'
 	*/
-	u := baseurl(test).JoinPath(wssessionpath)
+	u := baseurl(test, cid).JoinPath(wssessionpath)
 	req, err := http.NewRequest("GET", u.String(), nil)
 	if err != nil {
 		return nil, fmt.Errorf("ws: getsess: make req err: %v", err)
@@ -1191,6 +1193,10 @@ func genWgConfs(h *http.Client, existingCreds *WsWgCreds, sess *WsSession, serve
 	if len(bearer) <= 0 {
 		return nil, nil, errWsNoToken
 	}
+	cid := ent.Cid
+	if len(cid) <= 0 {
+		return nil, nil, errWsNoCid
+	}
 	test := ent.Test
 
 	tokst := "sess-" + tokenState(bearer)
@@ -1234,7 +1240,7 @@ initagain:
 		initdata := url.Values{}
 		initdata.Set("wg_pubkey", pubkeybase64)
 		initdata.Set("force_init", force)
-		u := baseurl(test).JoinPath(wswginitpath)
+		u := baseurl(test, cid).JoinPath(wswginitpath)
 		initreq, err := http.NewRequest("POST", u.String(), strings.NewReader(initdata.Encode()))
 		if err != nil {
 			return nil, nil, fmt.Errorf("ws: wgconfs: req err: %v", err)
@@ -1311,7 +1317,7 @@ initagain:
 	cdata.Set("hostname", someEndpoint)
 	cdata.Set("wg_pubkey", pubkeybase64)
 	cdata.Set("wg_ttl", wgttl)
-	u := baseurl(test).JoinPath(wswgconnectpath)
+	u := baseurl(test, cid).JoinPath(wswgconnectpath)
 	creq, err := http.NewRequest("POST", u.String(), strings.NewReader(cdata.Encode()))
 	if err != nil {
 		return nil, nil, fmt.Errorf("ws: wgconfs: connect req err: %v", err)
@@ -1432,7 +1438,7 @@ func makeWsWg(h *http.Client, ent *WsEntitlement) (*WsClient, error) {
 		return nil, errWsNoEntitlement
 	}
 
-	sess, err := getSession(h, ent.SessionToken, ent.Test)
+	sess, err := getSession(h, ent.Cid, ent.SessionToken, ent.Test)
 	if err != nil {
 		return nil, err
 	}
@@ -1499,6 +1505,7 @@ func makeWsWgFrom(h *http.Client, existingConf *WsWgConfig) (ws *WsClient, refre
 		return
 	}
 
+	cid := existingEnt.Cid
 	tokst := existingConf.tokenState()
 	existingToken := existingEnt.SessionToken
 	existingLocHash := existingSess.LocHash
@@ -1506,7 +1513,7 @@ func makeWsWgFrom(h *http.Client, existingConf *WsWgConfig) (ws *WsClient, refre
 		log.W("ws: make: entitlement does not match session; tok? %s", tokst)
 	}
 
-	newSess, err := getSession(h, existingToken, existingEnt.Test)
+	newSess, err := getSession(h, cid, existingToken, existingEnt.Test)
 	if err == nil {
 		existingConf.Session = newSess // update session with the latest info
 		refreshedSess = true
