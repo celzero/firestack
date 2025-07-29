@@ -25,8 +25,10 @@ CLASSFULL="${CLASSFULL:-full}" # unused
 CLASSDBG="${CLASSDBG:-debug}"
 # artifact bytecode sources
 SOURCES="${SOURCES:-build/intra/tun2socks-sources.jar}"
-# android sdk/ndk versions
-NDKVER="${NDKVER:-0}"
+# android sdk/ndk versions (ANDROID_NDK_LATEST_HOME is set on github)
+LATESTNDK=${ANDROID_NDK_LATEST_HOME:-0}
+# default: stackoverflow.com/a/2013573
+NDKVER="${NDKVER:-$LATESTNDK}"
 SDKVER="${SDKVER:-36}"
 
 ARG1="${1:-go}"
