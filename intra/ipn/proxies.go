@@ -123,7 +123,6 @@ var (
 	errHop6Gateway        = errors.New("proxy: hop cannot route ip6")
 	errHopGlobalProxy     = errors.New("proxy: hop must be global proxy")
 	errHopNotConnected    = errors.New("proxy: set but not connected over hop")
-	errNilAmzId           = errors.New("proxy: amz id nil")
 	errNilWinCfg          = errors.New("proxy: win cfg nil")
 	errNilWarpId          = errors.New("proxy: warp id nil")
 	errNilSEProxy         = errors.New("proxy: se proxy nil")

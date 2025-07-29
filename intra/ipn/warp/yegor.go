@@ -7,7 +7,6 @@
 package warp
 
 import (
-	crand "crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -1388,19 +1387,6 @@ func trunc8(s string) string {
 		return s
 	}
 	return s[:8] + "..."
-}
-
-func csprng(n int) []byte {
-	if n <= 0 {
-		return nil
-	}
-	b := make([]byte, n)
-	_, err := crand.Read(b)
-	if err != nil {
-		log.E("ws: randbytes: cannot read %d bytes; err: %v", n, err)
-		return nil
-	}
-	return b
 }
 
 func newWsGw(c *WsWgConfig, h *http.Client) (*WsClient, error) {
