@@ -234,7 +234,7 @@ jobs:
           -Dpackaging="${PACK}" \
           -Dfile="${FOUT}" \
           -DrepositoryId="${REPO_OSSRH}" \
-          -DpomFile=pom.xml \
+          -DpomFile=ossrhpom.xml \
           -Dgpg.keyname==C3F3F4A160BB2CFFB5528699F19CE6642C40085C \
           -Dsources="${SOURCES}" \
           -Durl="https://ossrh-staging-api.central.sonatype.com/service/local/staging/deploy/maven2/"

@@ -12,7 +12,7 @@
     <groupId>com.celzero</groupId>
     <artifactId>firestack</artifactId>
     <version>0.1</version>
-    <packaging>aar</packaging>
+    <packaging>jar</packaging>
 
     <name>Firestack</name>
     <description> Userspace wireguard and network monitor.</description>
