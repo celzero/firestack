@@ -28,31 +28,31 @@ WireGuard integration was sponsored by [FOSS United](https://fossunited.org/gran
 Firestack is released as an Android Library (`aar`) and can be integrated into
 your Android builds via [Jitpack](https://jitpack.io/#celzero/firestack) ([ref](https://github.com/celzero/rethink-app/commit/a6e2abca7)) or [Maven Central (OSSRH)](https://central.sonatype.com/artifact/com.celzero/firestack/overview).
 
-```kotlin
-    # add this to your project's build.gradle
+```gradle
+    // add this to your project's build.gradle
     allprojects {
         repositories {
             ...
-            # if consuming from maven central
-            # ref: central.sonatype.org/consume
+            // if consuming from maven central
+            // ref: central.sonatype.org/consume
             mavenCentral()
             ...
-            # if consuming from jitpack
-            # ref: docs.jitpack.io/android/#installing
+            // if consuming from jitpack
+            // ref: docs.jitpack.io/android/#installing
             maven { url 'https://jitpack.io' }
             ...
         }
     }
 
-    add the dep to your app's build.gradle
+    // add the dep to your app's build.gradle
     dependencies {
         ...
-        # maven central (stripped)
+        // maven central (stripped)
         implementation 'com.celzero:firestack:Tag@aar'
         ...
-        # jitpack (stripped)
+        // jitpack (stripped)
         implementation 'com.github.celzero:firestack:Tag@aar'
-        # jitpack (debug symbols)
+        // jitpack (debug symbols)
         implementation 'com.github.celzero:firestack:Tag:debug@aar'
         ...
     }
