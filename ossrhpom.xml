@@ -41,7 +41,7 @@
     <scm>
         <connection>scm:git:git://github.com/celzero/firestack.git</connection>
         <developerConnection>scm:git:ssh://github.com:celzero/firestack.git</developerConnection>
-        <url>http://github.com/celzero/firestack/tree/main</url>
+        <url>https://github.com/celzero/firestack/tree/main</url>
     </scm>
 
     <!--
