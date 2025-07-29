@@ -26,22 +26,35 @@ WireGuard integration was sponsored by [FOSS United](https://fossunited.org/gran
 [![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/celzero/firestack/badge)](https://securityscorecards.dev/viewer/?uri=github.com/celzero/firestack)
 
 Firestack is released as an Android Library (`aar`) and can be integrated into
-your [Android builds via jitpack.io](https://jitpack.io/#celzero/firestack) ([ref](https://github.com/celzero/rethink-app/commit/a6e2abca7)).
+your Android builds via [Jitpack](https://jitpack.io/#celzero/firestack) ([ref](https://github.com/celzero/rethink-app/commit/a6e2abca7)) or [Maven Central (OSSRH)](https://central.sonatype.com/artifact/com.celzero/firestack/overview).
 
 ```kotlin
     # add this to your project's build.gradle
     allprojects {
         repositories {
             ...
+            # if consuming from maven central
+            # ref: central.sonatype.org/consume
+            mavenCentral()
+            ...
+            # if consuming from jitpack
+            # ref: docs.jitpack.io/android/#installing
             maven { url 'https://jitpack.io' }
+            ...
         }
     }
 
-    # add the dep to your app's build.gradle
+    add the dep to your app's build.gradle
     dependencies {
+        ...
+        # maven central (stripped)
+        implementation 'com.celzero:firestack:Tag@aar'
+        ...
+        # jitpack (stripped)
         implementation 'com.github.celzero:firestack:Tag@aar'
-        # with debug symbols
+        # jitpack (debug symbols)
         implementation 'com.github.celzero:firestack:Tag:debug@aar'
+        ...
     }
 ```
 
@@ -69,12 +82,12 @@ Firestack APIs are available only on Android builds for now. iOS and Linux suppo
 - [sdkmanager](https://developer.android.com/studio/command-line/sdkmanager)
   1. Download the command line tools from [developer.android.com](https://developer.android.com/studio).
   1. Unzip the pacakge as `~/Android/Sdk/cmdline-tools/latest/`. Make sure `sdkmanager` is located at `~/Android/Sdk/cmdline-tools/latest/bin/sdkmanager`
-- Android NDK 23+
-  1. Install the NDK with `~/Android/Sdk/cmdline-tools/latest/bin/sdkmanager "platforms;android-30" "ndk;23.1.7779620"`
+- Android NDK 28+
+  1. Install the NDK with `~/Android/Sdk/cmdline-tools/latest/bin/sdkmanager "platforms;android-36" "ndk;28.2.13676358"`
     (platform from [outline-client](https://github.com/Jigsaw-Code/outline-client#building-the-android-app), exact NDK 23 version obtained from `sdkmanager --list`)
   1. Set up the environment variables:
      ```
-     export ANDROID_NDK_HOME=~/Android/Sdk/ndk/23.1.7779620 ANDROID_HOME=~/Android/Sdk
+    export ANDROID_NDK_HOME=~/Android/Sdk/ndk/28.2.13676358 ANDROID_HOME=~/Android/Sdk
      ```
 - [gomobile](https://pkg.go.dev/golang.org/x/mobile/cmd/gobind) (installed as needed by `make`)
 
