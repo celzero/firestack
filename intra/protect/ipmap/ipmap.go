@@ -113,7 +113,8 @@ type IPMap interface {
 	// hostOrIP may be host:port, or ip:port, or host, or ip.
 	GetAny(hostOrIP string) *IPSet
 	// GetMany returns a list of sampled IPs from the ipmap cache.
-	GetMany(n uint8) []netip.Addr
+	// ipver is one of "v4", "v6", or "" (for both).
+	GetMany(n uint8, ipver string) []netip.Addr
 	// MakeIPSet creates an IPSet for this hostname bootstrapped with given IPs
 	// or IP:Ports. Subsequent calls to MakeIPSet return a new, overridden IPSet.
 	// hostOrIP may be host:port, or ip:port, or host, or ip.
@@ -121,7 +122,8 @@ type IPMap interface {
 	// Reverse lookup; returns hostnames for the given IP address.
 	ReverseGet(ip netip.Addr) []string
 	// ReverseGetMany returns a list of sampled hostnames from the ipmap cache.
-	ReverseGetMany(n uint8) []string
+	// ipver is one of "v4", "v6", or "" (for both).
+	ReverseGetMany(n uint8, ipver string) []string
 	// With sets the default resolver to use for hostname resolution.
 	With(r IPMapper)
 	// Clear removes all IPSets from the map.
@@ -155,6 +157,9 @@ type IPSet struct {
 
 	confirmed *core.Volatile[netip.Addr] // netip.Addr confirmed to be working.
 	fails     atomic.Uint32              // Number of times the confirmed IP has failed.
+
+	any4 atomic.Bool // Whether this set has IPv4 addresses.
+	any6 atomic.Bool // Whether this set has IPv6 addresses.
 }
 
 func NewIPMap() *ipmap {
@@ -268,11 +273,21 @@ func (m *ipmap) Add(hostOrIP string) *IPSet {
 	return s
 }
 
-func (m *ipmap) ReverseGetMany(n uint8) []string {
+func (m *ipmap) ReverseGetMany(n uint8, ipver string) []string {
 	hosts := make([]string, 0, n)
 
 	m.RLock()
 	defer m.RUnlock()
+
+	hasDesiredIPFamily := func(ips *IPSet, ipver string) bool {
+		if ipver == "v4" {
+			return ips.has4()
+		}
+		if ipver == "v6" {
+			return ips.has6()
+		}
+		return true
+	}
 
 	possiblyPublicHost := func(host string) bool {
 		if xdns.IsMDNSQuery(host) {
@@ -287,20 +302,20 @@ func (m *ipmap) ReverseGetMany(n uint8) []string {
 		return strings.Contains(host, ".")
 	}
 	// TODO: use hosts with public prefixes
-	for host := range m.m {
+	for host, ips := range m.m {
 		if len(hosts) >= int(n) {
 			break
 		}
-		if possiblyPublicHost(host) {
+		if possiblyPublicHost(host) && hasDesiredIPFamily(ips, ipver) {
 			// append if not an IP address
 			hosts = append(hosts, host)
 		}
 	}
-	for host := range m.p {
+	for host, ips := range m.p {
 		if len(hosts) >= int(n) {
 			break
 		}
-		if possiblyPublicHost(host) {
+		if possiblyPublicHost(host) && hasDesiredIPFamily(ips, ipver) {
 			// append if not an IP address
 			hosts = append(hosts, host)
 		}
@@ -551,6 +566,20 @@ func (s *IPSet) hasLocked(ip netip.Addr) bool {
 
 // Adds an IP to the set if it is not present.  Must be called under Lock.
 func (s *IPSet) addLocked(ips ...netip.Addr) {
+	if s.typ == IPAddr { // nothing to do as this ipset only has one ipaddr
+		if len(ips) > 0 {
+			log.W("ipmap: addLocked: ipaddr type; ignoring %d ips", len(ips))
+		}
+		return
+	}
+
+	if len(ips) <= 0 {
+		log.W("ipmap: addLocked: remove all")
+		s.ips = nil // remove all ips
+		s.any4.Store(false)
+		s.any6.Store(false)
+		return
+	}
 	for i, ip := range ips {
 		// always unmapped; github.com/golang/go/issues/53607
 		ip = ip.Unmap()
@@ -559,6 +588,8 @@ func (s *IPSet) addLocked(ips ...netip.Addr) {
 		newip := !s.hasLocked(ip)
 		if uns && valip && newip {
 			s.ips = append(s.ips, ip)
+			s.any4.Store(s.any4.Load() || ip.Is4())
+			s.any6.Store(s.any6.Load() || ip.Is6())
 		} else {
 			log.D("ipmap: add #%d: fail %s; !uns? %t, val? %t, !new? %t", i, ip, uns, valip, newip)
 		}
@@ -606,9 +637,11 @@ func (s *IPSet) add(hostOrIP string) ([]netip.Addr, bool) {
 		log.D("ipmap: Add: resolved? %s => %s", hostOrIP, resolved)
 	}
 
-	s.mu.Lock()
-	s.addLocked(resolved...) // resolved may be nil
-	s.mu.Unlock()
+	if len(resolved) > 0 {
+		s.mu.Lock()
+		s.addLocked(resolved...) // resolved may be nil
+		s.mu.Unlock()
+	}
 
 	ok := !s.Empty()
 	if ok {
@@ -641,6 +674,26 @@ func (s *IPSet) bootstrap() (n int) {
 		}
 	}
 	return n
+}
+
+func (s *IPSet) has4() bool {
+	if s == nil {
+		return false
+	}
+	if s.typ == IPAddr { // ipaddr always has one ip
+		return s.confirmed.Load().Is4()
+	}
+	return s.any4.Load()
+}
+
+func (s *IPSet) has6() bool {
+	if s == nil {
+		return false
+	}
+	if s.typ == IPAddr { // ipaddr always has one ip
+		return s.confirmed.Load().Is6()
+	}
+	return s.any6.Load()
 }
 
 // Empty reports whether the set is empty.
@@ -758,7 +811,7 @@ func (s *IPSet) clear() {
 
 	if s.typ != Protected {
 		s.mu.Lock()
-		s.ips = nil
+		s.addLocked() // removes all ips
 		s.mu.Unlock()
 	}
 	s.confirmed.Store(zeroaddr)

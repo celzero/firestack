@@ -51,12 +51,16 @@ func ResolveForUrl(s string) []netip.Addr {
 	return For(u.Hostname())
 }
 
-func SampleHosts(n uint8) []string {
-	return ipm.ReverseGetMany(n)
+// SampleHosts returns a slice of random hosts, of size n, for the given ipver.
+// ipver is one of "v4", "v6", or "" (for both).
+func SampleHosts(n uint8, ipver string) []string {
+	return ipm.ReverseGetMany(n, ipver)
 }
 
-func SampleIPs(n uint8) []netip.Addr {
-	return ipm.GetMany(n)
+// SampleIPs returns a slice of random IPs, of size n, for the given ipver.
+// ipver is one of "v4", "v6", or "" (for both).
+func SampleIPs(n uint8, ipver string) []netip.Addr {
+	return ipm.GetMany(n, ipver)
 }
 
 // ECH returns the ECH config, if any, for the given hostname.

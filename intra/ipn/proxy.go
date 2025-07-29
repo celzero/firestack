@@ -279,6 +279,7 @@ func Reaches(p Proxy, urlOrHostPortOrIPPortCsv string, protos ...string) bool {
 		}
 		ipfrag := ""
 		if len(prefs) >= 3 {
+			// TODO: change "ipv4", "ipv6", "tcp4", "tcp6", "udp4", "udp6" to "v4", "v6"
 			ipfrag = prefs[2] // "v4", "v6", ""
 		}
 
@@ -286,7 +287,7 @@ func Reaches(p Proxy, urlOrHostPortOrIPPortCsv string, protos ...string) bool {
 		switch scheme {
 		case "http", "https":
 			urls := []string{}
-			for _, h := range dialers.SampleHosts(autoSize) {
+			for _, h := range dialers.SampleHosts(autoSize, ipfrag) {
 				u := url.URL{
 					Scheme:   scheme,
 					Host:     h,
@@ -307,7 +308,7 @@ func Reaches(p Proxy, urlOrHostPortOrIPPortCsv string, protos ...string) bool {
 			} else {
 				protos = append(protos, "tcp", "udp")
 			}
-			for _, ip := range dialers.SampleIPs(autoSize) {
+			for _, ip := range dialers.SampleIPs(autoSize, ipfrag) {
 				if ipfrag == "v4" && ip.Is4() {
 					ips = append(ips, ip)
 				} else if ipfrag == "v6" && ip.Is6() {
