@@ -389,19 +389,28 @@ func (m *ipmap) get(hostOrIP string, typ IPSetType) (s *IPSet) {
 	return s
 }
 
-func (m *ipmap) GetMany(n uint8) []netip.Addr {
+func (m *ipmap) GetMany(n uint8, ipver string) []netip.Addr {
 	m.RLock()
 	defer m.RUnlock()
 
 	ips := make([]netip.Addr, 0, n)
 
+	desiredfamily := func(ip netip.Addr) bool {
+		if ipver == "v4" {
+			return ip.Is4()
+		}
+		if ipver == "v6" {
+			return ip.Is6()
+		}
+		return ip.IsValid() // both
+	}
 	oneip := func(s *IPSet) (zz netip.Addr) {
 		confirmed := s.confirmed.Load()
-		if confirmed.IsGlobalUnicast() {
+		if desiredfamily(confirmed) && confirmed.IsGlobalUnicast() {
 			return confirmed
 		}
 		for _, ip := range s.ips {
-			if ip.IsGlobalUnicast() {
+			if desiredfamily(ip) && ip.IsGlobalUnicast() {
 				return ip
 			}
 		}
@@ -411,7 +420,7 @@ func (m *ipmap) GetMany(n uint8) []netip.Addr {
 		if len(ips) >= int(n) {
 			break
 		}
-		if ip := oneip(s); ip.IsGlobalUnicast() {
+		if ip := oneip(s); ip.IsValid() {
 			ips = append(ips, ip)
 		}
 	}
@@ -419,7 +428,7 @@ func (m *ipmap) GetMany(n uint8) []netip.Addr {
 		if len(ips) >= int(n) {
 			break
 		}
-		if ip := oneip(s); ip.IsGlobalUnicast() {
+		if ip := oneip(s); ip.IsValid() {
 			ips = append(ips, ip)
 		}
 	}
@@ -427,7 +436,7 @@ func (m *ipmap) GetMany(n uint8) []netip.Addr {
 		if len(ips) >= int(n) {
 			break
 		}
-		if ip := oneip(s); ip.IsGlobalUnicast() {
+		if ip := oneip(s); ip.IsValid() {
 			ips = append(ips, ip)
 		}
 	}
