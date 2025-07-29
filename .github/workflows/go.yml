@@ -166,6 +166,9 @@ jobs:
         # 10 chars of the commit SHA
         VCSVER="${GITHUB_SHA:0:10}"
 
+        # POM for Maven Central
+        POM_OSSRH="ossrhpom.xml"
+
         echo "GROUP_GITHUB=${GROUP_GITHUB}" >> $GITHUB_ENV
         echo "GROUP_OSSRH=${GROUP_OSSRH}" >> $GITHUB_ENV
         echo "ARTIFACT=${ARTIFACT}" >> $GITHUB_ENV
@@ -178,6 +181,7 @@ jobs:
         echo "CLASSDBG=${CLASSDBG}" >> $GITHUB_ENV
         echo "SOURCES=${SOURCES}" >> $GITHUB_ENV
         echo "VCSVER=${VCSVER}" >> $GITHUB_ENV
+        echo "POM_OSSRH=${POM_OSSRH}" >> $GITHUB_ENV
       shell: bash
 
     - name: 🏷️ Setup for GitHub Packages
@@ -226,6 +230,7 @@ jobs:
     - name: 📦 Publish to Maven Central
       shell: bash
       run: |
+        mvn -f ${POM_OSSRH} versions:set -DnewVersion=${VCSVER} -DgenerateBackupPoms=false
         # central.sonatype.org/publish/publish-portal-ossrh-staging-api/#getting-started-for-maven-api-like-plugins
         # github.com/videolan/vlc-android/blob/c393dd0699/buildsystem/maven/deploy-to-mavencentral.sh#L119
         mvn gpg:sign-and-deploy-file \
@@ -235,7 +240,7 @@ jobs:
           -Dpackaging="${PACK}" \
           -Dfile="${FOUT}" \
           -DrepositoryId="${REPO_OSSRH}" \
-          -DpomFile=ossrhpom.xml \
+          -DpomFile=${POM_OSSRH} \
           -Dgpg.keyname=C3F3F4A160BB2CFFB5528699F19CE6642C40085C \
           -Dsources="${SOURCES}" \
           -Durl="https://ossrh-staging-api.central.sonatype.com/service/local/staging/deploy/maven2/"
