@@ -45,7 +45,6 @@ type RpnAcc interface {
 	Conf(key string) (string, error)
 }
 
-var _ RpnAcc = (*AgwClient)(nil)
 var _ RpnAcc = (*WarpClient)(nil)
 var _ RpnAcc = (*WsClient)(nil)
 
@@ -56,6 +55,7 @@ type BaseClient struct {
 
 var dob = time.Now()
 var neverEver = time.Date(5253, time.March, 6, 0, 0, 0, 0, time.UTC)
+var twentyTwoHours = 22 * time.Hour
 
 type RpnForever struct{}
 
@@ -513,4 +513,12 @@ func (w *BaseClient) MakeWarpFrom(existingStateJson []byte) (*WarpClient, error)
 	}
 
 	return newWarpClient(w.d, &id)
+}
+
+func fmtUnixMillis(ms int64) string {
+	return core.FmtUnixMillisAsTimestamp(ms)
+}
+
+func fmtTime(t time.Time) string {
+	return core.FmtTimeAsPeriod(t)
 }
