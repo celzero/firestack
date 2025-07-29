@@ -41,7 +41,6 @@ const (
 	RpnWg    = x.RpnWg
 	RpnPro   = x.RpnWin // pro is an alias for win
 	RpnWin   = x.RpnWin
-	RpnAmz   = x.RpnAmz
 	RpnWs    = x.RpnWs
 	Rpn64    = x.Rpn64
 	RpnH2    = x.RpnH2
@@ -258,7 +257,6 @@ type proxifier struct {
 
 	lastSeErr   *core.Volatile[error] // se proxy registration error
 	lastWarpErr *core.Volatile[error] // warp registration error
-	lastAmzErr  *core.Volatile[error] // amnezia registration error
 	lastWinErr  *core.Volatile[error] // win registration error
 }
 
@@ -298,7 +296,6 @@ func NewProxifier(pctx context.Context, l3 string, mtu int, c protect.Controller
 		rp:          make(map[string]RpnProxy),
 		lastSeErr:   core.NewZeroVolatile[error](),
 		lastWarpErr: core.NewZeroVolatile[error](),
-		lastAmzErr:  core.NewZeroVolatile[error](),
 		lastWinErr:  core.NewZeroVolatile[error](),
 	}
 
@@ -1177,44 +1174,6 @@ func (px *proxifier) registerWarp(existingStateJson []byte) (wc RpnAcc, err erro
 	}
 }
 
-// RegisterAmnezia implements x.Rpn.
-func (px *proxifier) RegisterAmnezia(existingState *x.Gobyte) (stateJson *x.Gobyte, err error) {
-	defer func() {
-		px.lastAmzErr.Store(err) // may be nil
-	}()
-	existingStateJson := existingState.V()
-	restore := len(existingStateJson) > 0
-
-	ac, err := px.registerAmnezia(existingStateJson)
-
-	if err != nil || core.IsNil(ac) {
-		log.E("proxy: amz: make (restore? %t) failed: %v", restore, err)
-		return nil, core.JoinErr(err, errNilAmzId)
-	}
-
-	state, err := ac.State()
-	if err != nil {
-		return nil, err
-	}
-
-	rp, err := px.addRpnProxy(ac, maincc(ac))
-	if err != nil || rp == nil {
-		log.E("proxy: amz: add wg for %s failed: %v", ac.Who(), err)
-		return nil, core.JoinErr(err, errNotRpnProxy)
-	}
-
-	log.I("proxy: amz: registered: %s / %d; new? %t", ac.Who(), state.Len(), !restore)
-	return state, nil
-}
-
-func (px *proxifier) registerAmnezia(existingStateJson []byte) (RpnAcc, error) {
-	if len(existingStateJson) > 0 { // restore
-		return px.extc.MakeAmzWgFrom(existingStateJson)
-	} else {
-		return px.extc.MakeAmzWg()
-	}
-}
-
 // RegisterProton implements x.Rpn.
 func (px *proxifier) RegisterProton(existingState *x.Gobyte) (stateJson *x.Gobyte, err error) {
 	return px.RegisterWin(existingState) // same as RegisterWin
@@ -1287,11 +1246,6 @@ func (px *proxifier) UnregisterWarp() bool {
 	return px.unregisterRpn(RpnWg)
 }
 
-// UnregisterAmnezia implements x.Rpn.
-func (px *proxifier) UnregisterAmnezia() bool {
-	return px.unregisterRpn(RpnAmz)
-}
-
 // UnregisterProton implements x.Rpn.
 func (px *proxifier) UnregisterProton() bool {
 	return px.UnregisterWin()
@@ -1344,15 +1298,6 @@ func (px *proxifier) Win() (x.RpnProxy, error) {
 		return nil, core.JoinErr(err, px.lastWinErr.Load())
 	}
 	return win, nil
-}
-
-// Amnezia implements x.Rpn.
-func (px *proxifier) Amnezia() (x.RpnProxy, error) {
-	amz, err := px.mainRpnProxyOf(RpnAmz)
-	if amz == nil {
-		return nil, core.JoinErr(err, px.lastAmzErr.Load())
-	}
-	return amz, nil
 }
 
 // Pip implements x.Rpn.
@@ -1494,38 +1439,6 @@ func (px *proxifier) testWin() (string, error) {
 	if len(oks) <= 0 {
 		log.E("proxy: ws: no reachable addrs among %v", v4)
 		return "", core.JoinErr(errNoSuitableAddress, px.lastWinErr.Load())
-	}
-	return strings.Join(oks, ","), nil
-}
-
-// TestAmnezia implements x.Rpn.
-func (px *proxifier) TestAmnezia() (*x.Gostr, error) {
-	return x.StrOfFunc(px.testAmnezia)
-}
-
-func (px *proxifier) testAmnezia() (ips string, errs error) {
-	v4, _, err := warp.AmzEndpoints()
-	if err != nil {
-		log.W("proxy: amz: err testing endpoints: %v", err)
-		return "", err
-	}
-
-	// todo: amnezia presently does not support ipv6
-	oks := make([]string, 0, len(v4))
-	for _, ip := range v4 {
-		ipstr := ip.String()
-		// base can route back into netstack (settings.LoopingBack)
-		// in which  case all endpoints will "seem" reachable.
-		// exit, however, never routes back into netstack and has
-		// the true, unhindered path to the underlying network.
-		if Reaches(px.exit, ipstr, "tcp") {
-			oks = append(oks, ipstr)
-		}
-	}
-
-	if len(oks) <= 0 {
-		log.E("proxy: amz: no reachable addrs among %v", v4)
-		return "", core.JoinErr(errNoSuitableAddress, px.lastAmzErr.Load())
 	}
 	return strings.Join(oks, ","), nil
 }

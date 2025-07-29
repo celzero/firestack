@@ -187,25 +187,6 @@ func WinEndpoints() (v4 []netip.AddrPort, v6 []netip.AddrPort, err error) {
 	return
 }
 
-func AmzEndpoints() (v4 []netip.AddrPort, v6 []netip.AddrPort, err error) {
-	var v4ok, v6ok bool
-	for _, ip := range dialers.ResolveForUrl(agwProdUrl) {
-		if ipok(ip) {
-			if ip.Is4() {
-				v4 = append(v4, netip.AddrPortFrom(ip, uint16(80)))
-				v4ok = true
-			} else if ip.Is6() {
-				v6 = append(v6, netip.AddrPortFrom(ip, uint16(80)))
-				v6ok = true
-			}
-		}
-	}
-	if !v4ok && !v6ok {
-		err = errZeroRandomEp
-	}
-	return
-}
-
 func Exit64Endpoints() (v6 []netip.Addr, errs error) {
 	for _, cidr6 := range Net6to4 {
 		if ip6, err := core.RandomIPFromPrefix(cidr6); err == nil {
