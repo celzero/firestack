@@ -83,12 +83,12 @@ Firestack APIs are available only on Android builds for now. iOS and Linux suppo
   1. Download the command line tools from [developer.android.com](https://developer.android.com/studio).
   1. Unzip the pacakge as `~/Android/Sdk/cmdline-tools/latest/`. Make sure `sdkmanager` is located at `~/Android/Sdk/cmdline-tools/latest/bin/sdkmanager`
 - Android NDK 28+
-  1. Install the NDK with `~/Android/Sdk/cmdline-tools/latest/bin/sdkmanager "platforms;android-36" "ndk;28.2.13676358"`
-    (platform from [outline-client](https://github.com/Jigsaw-Code/outline-client#building-the-android-app), exact NDK 23 version obtained from `sdkmanager --list`)
-  1. Set up the environment variables:
-     ```
-    export ANDROID_NDK_HOME=~/Android/Sdk/ndk/28.2.13676358 ANDROID_HOME=~/Android/Sdk
-     ```
+  ```bash
+  # Install the NDK (exact NDK version obtained from `sdkmanager --list`)
+  ~/Android/Sdk/cmdline-tools/latest/bin/sdkmanager "platforms;android-36" "ndk;28.2.13676358"
+  # Set up the environment variables:
+  export ANDROID_NDK_HOME=~/Android/Sdk/ndk/28.2.13676358 ANDROID_HOME=~/Android/Sdk
+  ```
 - [gomobile](https://pkg.go.dev/golang.org/x/mobile/cmd/gobind) (installed as needed by `make`)
 
 ### Apple (iOS and macOS)
