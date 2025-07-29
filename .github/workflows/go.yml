@@ -246,8 +246,9 @@ jobs:
           -Durl="https://ossrh-staging-api.central.sonatype.com/service/local/staging/deploy/maven2/"
 
         # central.sonatype.org/publish/publish-portal-ossrh-staging-api/#1-modify-your-ci-script
+        # central.sonatype.org/publish/publish-portal-ossrh-staging-api/#post-to-manualuploaddefaultrepositorynamespace
         curl -D - -X POST -u "${MAVEN_USERNAME}:${MAVEN_PASSWORD}" \
-          "https://ossrh-staging-api.central.sonatype.com/manual/upload/defaultRepository/${GROUP_OSSRH}"
+          "https://ossrh-staging-api.central.sonatype.com/manual/upload/defaultRepository/${GROUP_OSSRH}&publishing_type=automatic"
       env:
           MAVEN_USERNAME: ${{ secrets.OSSRH_USERNAME }}
           MAVEN_PASSWORD: ${{ secrets.OSSRH_TOKEN }}
