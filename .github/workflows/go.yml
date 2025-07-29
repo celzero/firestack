@@ -146,6 +146,7 @@ jobs:
 
         # Repository
         REPO_GITHUB="github"
+        # central.sonatype.org/pages/ossrh-eol
         REPO_OSSRH="ossrh" # or "central"
 
         # artefact type
@@ -235,7 +236,7 @@ jobs:
           -Dfile="${FOUT}" \
           -DrepositoryId="${REPO_OSSRH}" \
           -DpomFile=ossrhpom.xml \
-          -Dgpg.keyname==C3F3F4A160BB2CFFB5528699F19CE6642C40085C \
+          -Dgpg.keyname=C3F3F4A160BB2CFFB5528699F19CE6642C40085C \
           -Dsources="${SOURCES}" \
           -Durl="https://ossrh-staging-api.central.sonatype.com/service/local/staging/deploy/maven2/"
 
