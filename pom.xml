@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+
+    <!--
+        github.com/simpligility/ossrh-demo/blob/a1a78460ae/pom.xml
+        github.com/AdamKorcz/test-java-project/blob/c01d65d89d/pom.xml
+        central.sonatype.org/publish/requirements/#a-complete-example-pom
+    -->
+
+    <modelVersion>4.0.0</modelVersion>
+    <groupId>com.celzero</groupId>
+    <artifactId>firestack</artifactId>
+    <version>0.1</version>
+    <packaging>aar</packaging>
+
+    <name>Firestack</name>
+    <description> Userspace wireguard and network monitor.</description>
+    <url>https://github.com/celzero/firestack</url>
+    <properties>
+        <maven.compiler.source>1.8</maven.compiler.source>
+        <maven.compiler.target>1.8</maven.compiler.target>
+    </properties>
+
+    <licenses>
+        <license>
+            <name>Mozilla Public License 2.0</name>
+            <url>https://opensource.org/license/mpl-2-0</url>
+        </license>
+    </licenses>
+
+    <developers>
+        <developer>
+            <name>The Rethink DNS Open Source Project</name>
+            <email>hello@celzero.com</email>
+            <organization>Celzero</organization>
+            <organizationUrl>https://celzero.com</organizationUrl>
+        </developer>
+    </developers>
+
+    <scm>
+        <connection>scm:git:git://github.com/celzero/firestack.git</connection>
+        <developerConnection>scm:git:ssh://github.com:celzero/firestack.git</developerConnection>
+        <url>http://github.com/celzero/firestack/tree/main</url>
+    </scm>
+
+    <!--
+        github.com/sofastack/sofa-boot/blob/f4326d71c276/pom.xml#L125
+    -->
+    <distributionManagement>
+        <snapshotRepository>
+            <id>ossrh</id>
+            <url>https://central.sonatype.com/repository/maven-snapshots/</url>
+        </snapshotRepository>
+        <repository>
+            <id>ossrh</id>
+            <url>https://ossrh-staging-api.central.sonatype.com/service/local/staging/deploy/maven2/</url>
+        </repository>
+    </distributionManagement>
+
+    <properties>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    </properties>
+</project>

@@ -22,12 +22,6 @@ jobs:
       with:
         go-version: '>=1.24'
 
-    - name: ☕ Setup Java 17
-      uses: actions/setup-java@v4
-      with:
-        java-version: '17'
-        distribution: 'temurin'
-
     - name: 🏗️ Make
       run: |
         # outputs firestack.aar and firestack-arm.aar; also see: "Obj" below
@@ -141,47 +135,118 @@ jobs:
         echo "====================="
       shell: bash
 
+    - name: 🛸 Env
+      run: |
+        # docs.github.com/en/actions/reference/workflows-and-actions/contexts#github-context
+        GROUP_GITHUB="com.github.${{ github.repository_owner }}"
+        GROUP_OSSRH="com.celzero"
+
+        # project artifactId; see: pom.xml
+        ARTIFACT="firestack"
+
+        # Repository
+        REPO_GITHUB="github"
+        REPO_OSSRH="ossrh" # or "central"
+
+        # artefact type
+        PACK="${PACK:-aar}"
+
+        # final out from make-aar
+        FOUT="${FOUT:-firestack.aar}"
+        FOUTDBG="${FOUTDBG:-firestack-debug.aar}"
+
+        # artifact classifier
+        CLASSFULL="${CLASSFULL:-full}" # unused
+        CLASSDBG="${CLASSDBG:-debug}"
+
+        # artifact bytecode sources
+        SOURCES="${SOURCES:-build/intra/tun2socks-sources.jar}"
+
+        # 10 chars of the commit SHA
+        VCSVER="${GITHUB_SHA:0:10}"
+
+        echo "GROUP_GITHUB=${GROUP_GITHUB}" >> $GITHUB_ENV
+        echo "GROUP_OSSRH=${GROUP_OSSRH}" >> $GITHUB_ENV
+        echo "ARTIFACT=${ARTIFACT}" >> $GITHUB_ENV
+        echo "REPO_GITHUB=${REPO_GITHUB}" >> $GITHUB_ENV
+        echo "REPO_OSSRH=${REPO_OSSRH}" >> $GITHUB_ENV
+        echo "PACK=${PACK}" >> $GITHUB_ENV
+        echo "FOUT=${FOUT}" >> $GITHUB_ENV
+        echo "FOUTDBG=${FOUTDBG}" >> $GITHUB_ENV
+        echo "CLASSFULL=${CLASSFULL}" >> $GITHUB_ENV
+        echo "CLASSDBG=${CLASSDBG}" >> $GITHUB_ENV
+        echo "SOURCES=${SOURCES}" >> $GITHUB_ENV
+        echo "VCSVER=${VCSVER}" >> $GITHUB_ENV
+      shell: bash
+
+    - name: 🏷️ Setup for GitHub Packages
+      uses: actions/setup-java@v4
+      with:
+        java-version: '17'
+        distribution: 'temurin'
+
     # docs.github.com/en/actions/tutorials/build-and-test-code/java-with-maven
     # docs.github.com/en/actions/tutorials/publish-packages/publish-java-packages-with-maven#publishing-packages-to-github-packages
     - name: 📦 Publish
       shell: bash
       run: |
-        # docs.github.com/en/actions/reference/workflows-and-actions/contexts#github-context
-        GROUP="com.github.${{ github.repository_owner }}"
-        # project artifactId; see: pom.xml
-        ARTIFACT="firestack"
-        # Repository
-        REPO="github"
-        # artefact type
-        PACK="${PACK:-aar}"
-        # final out from make-aar
-        FOUT="${FOUT:-firestack.aar}"
-        FOUTDBG="${FOUTDBG:-firestack-debug.aar}"
-        # artifact classifier
-        CLASSFULL="${CLASSFULL:-full}" # unused
-        CLASSDBG="${CLASSDBG:-debug}"
-        # artifact bytecode sources
-        SOURCES="${SOURCES:-build/intra/tun2socks-sources.jar}"
-        # 10 chars of the commit SHA
-        VCSVER="${GITHUB_SHA:0:10}"
-
         # uploaded at:
         # maven.pkg.github.com/celzero/firestack/com/github/celzero/firestack/<commit>/firestack-<commit>.aar
         # TODO: firestack-debug
         # github.com/deelaa-marketplace/commons-workflow/blob/637dc111/flows/publish-api.yml#L49
         # github.com/markocto/cf-octopub/blob/bba2de2c/github/script/action.yaml#L118
         mvn deploy:deploy-file \
-          -DgroupId="${GROUP}" \
+          -DgroupId="${GROUP_GITHUB}" \
           -DartifactId="${ARTIFACT}" \
           -Dversion="${VCSVER}" \
           -Dpackaging="${PACK}" \
           -Dfile="${FOUT}" \
-          -DrepositoryId="${REPO}" \
+          -DrepositoryId="${REPO_GITHUB}" \
           -Dsources="${SOURCES}" \
           -Durl="https://maven.pkg.github.com/${{ github.repository }}"
       env:
         GITHUB_ACTOR: ${{ github.actor }}
         GITHUB_TOKEN: ${{ github.token }}
+
+    # central.sonatype.org/publish/publish-portal-api/#authentication-authorization
+    # github.com/slsa-framework/slsa-github-generator/blob/4876e96b8268/actions/maven/publish/action.yml#L49
+    # docs.github.com/en/actions/tutorials/publish-packages/publish-java-packages-with-maven#publishing-packages-to-the-maven-central-repository-and-github-packages
+    - name: 🏛️ Setup for Maven Central
+      uses: actions/setup-java@v4
+      with:
+        java-version: '17'
+        distribution: 'temurin'
+        server-id: ossrh
+        server-username: MAVEN_USERNAME
+        server-password: MAVEN_PASSWORD
+        gpg-private-key: ${{ secrets.OSSRH_CELZERO_GPG_PRIVATE_KEY }}
+        # gpg-passphrase: secrets.OSSRH_CELZERO_GPG_PASSPHRASE
+
+    - name: 📦 Publish to Maven Central
+      shell: bash
+      run: |
+        # central.sonatype.org/publish/publish-portal-ossrh-staging-api/#getting-started-for-maven-api-like-plugins
+        # github.com/videolan/vlc-android/blob/c393dd0699/buildsystem/maven/deploy-to-mavencentral.sh#L119
+        mvn gpg:sign-and-deploy-file \
+          -DgroupId="${GROUP_OSSRH}" \
+          -DartifactId="${ARTIFACT}" \
+          -Dversion="${VCSVER}" \
+          -Dpackaging="${PACK}" \
+          -Dfile="${FOUT}" \
+          -DrepositoryId="${REPO_OSSRH}" \
+          -DpomFile=pom.xml \
+          -Dgpg.keyname==C3F3F4A160BB2CFFB5528699F19CE6642C40085C \
+          -Dsources="${SOURCES}" \
+          -Durl="https://ossrh-staging-api.central.sonatype.com/service/local/staging/deploy/maven2/"
+
+        # central.sonatype.org/publish/publish-portal-ossrh-staging-api/#1-modify-your-ci-script
+        curl -D - -X POST -u "${MAVEN_USERNAME}:${MAVEN_PASSWORD}" \
+          "https://ossrh-staging-api.central.sonatype.com/manual/upload/defaultRepository/${GROUP_OSSRH}"
+      env:
+          MAVEN_USERNAME: ${{ secrets.OSSRH_USERNAME }}
+          MAVEN_PASSWORD: ${{ secrets.OSSRH_TOKEN }}
+          MAVEN_NS: ${{ secrets.OSSRH_CELZERO_NAMESPACE }}
+          # MAVEN_GPG_PASSPHRASE: secrets.OSSRH_CELZERO_GPG_PASSPHRASE
 
         # github.com/actions/upload-artifact
     - name: 🚀 Upload
