@@ -415,6 +415,79 @@ func Reaches(p Proxy, urlOrHostPortOrIPPortCsv string, protos ...string) bool {
 	return ok
 }
 
+func httpclient(p Proxy, url *url.URL) (client *http.Client) {
+	v4, v6 := true, true
+	switch url.Fragment {
+	case "tcp", "udp":
+	case "v4", "ipv4", "upd4", "tcp4":
+		v6 = false // only v4
+	case "v6", "ipv6", "upd6", "tcp6":
+		v4 = false // only v6
+	default:
+	}
+	// Lightweight transport for one-time use
+	client = &http.Client{
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse // do not follow redirects
+		},
+		Timeout: 5 * time.Second,
+		Transport: &http.Transport{
+			Dial: func(network, addr string) (net.Conn, error) {
+				host, port, err := net.SplitHostPort(addr)
+				if err != nil {
+					if url.Scheme == "https" {
+						port = "443"
+					} else {
+						port = "80"
+					}
+				} else {
+					addr = host
+				}
+				on, _ := strconv.ParseUint(port, 10, 16)
+				if on == 0 {
+					if url.Scheme == "https" {
+						on = 443
+					} else {
+						on = 80
+					}
+				}
+				ipps := make([]netip.AddrPort, 0)
+				ips := dialers.For(addr)
+				for _, ip := range ips {
+					if v4 && ip.Is4() || v6 && ip.Is6() {
+						ipp := netip.AddrPortFrom(ip, uint16(on))
+						ipps = append(ipps, ipp)
+					}
+				}
+
+				logeif(len(ipps) == 0)("proxy: %s reaches: dial(%s, %s [among %v]) for %s",
+					idstr(p), network, addr, ipps, url)
+
+				if len(ipps) <= 0 {
+					return nil, errNoSuitableAddress
+				}
+
+				n := rand.Intn(len(ipps))
+
+				// filter out the revelant IPs ourselves as dialers pkg does not
+				// respect ip-specific network type "tcp4" or "tcp6"
+				// see: cdial.go:commondial2()
+				return p.Dial(network, ipps[n].String())
+			},
+			// Disable connection pooling for one-time use
+			DisableKeepAlives:   true,
+			MaxIdleConns:        -1,
+			MaxIdleConnsPerHost: -1,
+			// Short timeouts for quick failure detection
+			ResponseHeaderTimeout: 3 * time.Second,
+			// TODO: Prefer h1 to simplify conn handling?
+			ForceAttemptHTTP2:   true,
+			TLSHandshakeTimeout: 3 * time.Second,
+		},
+	}
+	return
+}
+
 func every(who string, tests [][]core.WorkCtx[bool]) []core.WorkCtx[bool] {
 	all := make([]core.WorkCtx[bool], 0, len(tests))
 	for _, t := range tests {
@@ -688,75 +761,7 @@ func extractHttpURLs(csv string) (urls []*url.URL, oth []string) {
 
 func httpsReachesWorkCtx(p Proxy, url *url.URL) core.WorkCtx[bool] {
 	return func(ctx context.Context) (bool, error) {
-		v4, v6 := true, true
-		switch url.Fragment {
-		case "tcp", "udp":
-		case "v4", "ipv4", "upd4", "tcp4":
-			v6 = false // only v4
-		case "v6", "ipv6", "upd6", "tcp6":
-			v4 = false // only v6
-		default:
-		}
-		// Lightweight transport for one-time use
-		client := &http.Client{
-			Timeout: 5 * time.Second,
-			Transport: &http.Transport{
-				Dial: func(network, addr string) (net.Conn, error) {
-					host, port, err := net.SplitHostPort(addr)
-					if err != nil {
-						if url.Scheme == "https" {
-							port = "443"
-						} else {
-							port = "80"
-						}
-					} else {
-						addr = host
-					}
-					on, _ := strconv.ParseUint(port, 10, 16)
-					if on == 0 {
-						if url.Scheme == "https" {
-							on = 443
-						} else {
-							on = 80
-						}
-					}
-					ipps := make([]netip.AddrPort, 0)
-					ips := dialers.For(addr)
-					for _, ip := range ips {
-						if v4 && ip.Is4() || v6 && ip.Is6() {
-							ipp := netip.AddrPortFrom(ip, uint16(on))
-							ipps = append(ipps, ipp)
-						}
-					}
-
-					logeif(len(ipps) == 0)("proxy: %s reaches: dial(%s, %s [among %v]) for %s",
-						idstr(p), network, addr, ipps, url)
-
-					if len(ipps) <= 0 {
-						return nil, errNoSuitableAddress
-					}
-
-					n := rand.Intn(len(ipps))
-
-					// filter out the revelant IPs ourselves as dialers pkg does not
-					// respect ip-specific network type "tcp4" or "tcp6"
-					// see: cdial.go:commondial2()
-					return p.Dial(network, ipps[n].String())
-				},
-				// Disable connection pooling for one-time use
-				DisableKeepAlives:   true,
-				MaxIdleConns:        -1,
-				MaxIdleConnsPerHost: -1,
-				// Disable compression to reduce overhead
-				DisableCompression: true,
-				// Short timeouts for quick failure detection
-				ResponseHeaderTimeout: 3 * time.Second,
-				// Prefer h1 to simplify conn handling
-				ForceAttemptHTTP2:   false,
-				TLSHandshakeTimeout: 3 * time.Second,
-			},
-		}
-		return httpsReaches(idstr(p), client, url)
+		return httpsReaches(idstr(p), httpclient(p, url), url)
 	}
 }
 
@@ -773,21 +778,17 @@ func httpsReaches(who string, c *http.Client, url *url.URL) (bool, error) {
 		req.Header.Set("User-Agent", settings.AndroidCcUa)
 	}
 
+	statuscode := -1
 	resp, err := c.Do(req)
 	if resp != nil {
 		defer core.Close(resp.Body)
-	}
-
-	rtt := time.Since(start)
-	statuscode := -1
-	if resp != nil {
 		statuscode = resp.StatusCode
 	}
 
-	ok := err == nil && statuscode > 0 && statuscode < 500
+	ok := statuscode > 0
 
 	logeif(!ok)("proxy: %s reaches: %v (ua? %t); ok? %t, status: %d, rtt: %s; err: %v",
-		who, url, setua, ok, statuscode, core.FmtPeriod(rtt), err)
+		who, url, setua, ok, statuscode, core.FmtPeriod(time.Since(start)), err)
 
 	if ok {
 		err = nil // wipe out err as it makes core.Race discard "ok"
