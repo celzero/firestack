@@ -341,20 +341,6 @@ func TestProtonReaches(t *testing.T) {
 		ilog.D("proton: setup %d", len(entjson))
 	}
 
-	amzjson, err := os.ReadFile("amz.json")
-	if err != nil {
-		amzjson = nil
-	}
-
-	ilog.D("amz: read file: err? %v", err)
-	if amzreg, err := pxr.RegisterAmnezia(x.BytesOf(amzjson)); err != nil {
-		t.Fatal(err)
-	} else {
-		amzjson = amzreg.V()
-		_ = os.WriteFile("amz.json", amzjson, 0644)
-		ilog.D("amz: setup %d", len(amzjson))
-	}
-
 	// if ips, err := pxr.TestProton(); err != nil {
 	// 	t.Fatal(err)
 	// } else {
@@ -389,9 +375,6 @@ func TestProtonReaches(t *testing.T) {
 	}
 	ilog.I("available proxy CCs (limited to 10): %v", visited)
 
-	_, err = pxr.Amnezia()
-	ko(t, err)
-
 	// _, err = proton.Fork("UK")
 	// ko(t, err)
 	// _, err = proton.Fork("CH")
@@ -404,9 +387,8 @@ func TestProtonReaches(t *testing.T) {
 
 	propx, _ := pxr.ProxyFor(ipn.RpnPro)
 	propx2, _ := pxr.ProxyFor(ipn.RpnPro + "GT")
-	amzpx, _ := pxr.ProxyFor(ipn.RpnAmz)
 	auto, _ := pxr.ProxyFor(ipn.Auto)
-	if propx == nil || propx2 == nil || amzpx == nil || auto == nil {
+	if propx == nil || propx2 == nil || auto == nil {
 		t.Fatal("nil proxies")
 	}
 
