@@ -24,7 +24,6 @@
 package netstack
 
 import (
-	"errors"
 	"fmt"
 	"strconv"
 	"syscall"
@@ -32,8 +31,6 @@ import (
 	"github.com/celzero/firestack/intra/log"
 	"golang.org/x/sys/unix"
 )
-
-var errInvalidTunFd = errors.New("tun: invalid fd")
 
 var invalidFds = &fds{stopFd{efd: -1}, invalidfd}
 

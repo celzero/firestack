@@ -173,7 +173,6 @@ func (b *iovecBuffer) pullBuffer(n int) (pulled buffer.Buffer, ok bool) {
 // readVDispatcher uses readv() system call to read inbound packets and
 // dispatches them.
 type readVDispatcher struct {
-	fds    *core.Volatile[*fds]
 	e      *endpoint    // e is the endpoint this dispatcher is attached to.
 	buf    *iovecBuffer // buf is the iovec buffer that contains packets.
 	closed atomic.Bool  // closed is set to true when fd is closed.
