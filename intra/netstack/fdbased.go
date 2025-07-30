@@ -322,8 +322,8 @@ func (e *endpoint) Attach(dispatcher stack.NetworkDispatcher) {
 		log.I("ns: tun(%d): attach: detach dispatcher (and inbound? %t)", fd, pipe)
 		allLoopersExited := true
 		if rx != nil {
+			go rx.stop() // avoid mutex
 			fds.stop()
-			go rx.stop() // avoid mutex; closes fd
 
 			allLoopersExited = e.wait(waitttl) // on all inboundDispatcher w/ mutex locked?
 		}
@@ -513,7 +513,7 @@ func dispatchLoop(inbound linkDispatcher, f *fds, wg *sync.WaitGroup) tcpip.Erro
 	for {
 		cont, err := inbound.dispatch(f)
 		if err != nil {
-			log.W("ns: tun(%d): dispatchLoop: dur: %s; continue? %t; err: %v",
+			logei(cont)("ns: tun(%d): dispatchLoop: dur: %s; continue? %t; err: %v",
 				f.tun(), core.FmtTimeAsPeriod(start), cont, err)
 		}
 		if !cont {

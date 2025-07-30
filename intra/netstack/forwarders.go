@@ -194,7 +194,7 @@ type supervisor struct {
 	processors []processor
 	seed       uint32
 	wg         sync.WaitGroup
-	fd         *core.Volatile[int] // tun fd for diagnostics
+	sid        *core.Volatile[int] // tun fd for diagnostics
 	ready      []bool
 }
 
@@ -202,7 +202,7 @@ type supervisor struct {
 func newSupervisor(e stack.InjectableLinkEndpoint, fd int) *supervisor {
 	m := &supervisor{
 		seed:       rand.Uint32(),
-		fd:         core.NewVolatile(fd),
+		sid:        core.NewVolatile(fd),
 		ready:      make([]bool, maxForwarders),
 		processors: make([]processor, maxForwarders),
 		wg:         sync.WaitGroup{},
@@ -220,21 +220,21 @@ func newSupervisor(e stack.InjectableLinkEndpoint, fd int) *supervisor {
 	return m
 }
 
-// tun returns the tun fd (use for diagnostics only).
-func (m *supervisor) tun() int {
-	return m.fd.Load()
+// tunid returns a unique identifier (usually current tun fd); used for diagnostics only.
+func (m *supervisor) tunid() int {
+	return m.sid.Load()
 }
 
 // note notes the new tun fd (used for diagnostics only).
 func (m *supervisor) note(sid int) {
-	m.fd.Store(sid)
+	m.sid.Store(sid)
 }
 
 // start starts the processor goroutines if the processor manager is configured
 // with more than one processor.
 func (m *supervisor) start() {
 	if settings.Debug {
-		log.D("ns: tun(%d): forwarder: starting %d procs %d", m.tun(), len(m.processors), m.seed)
+		log.D("ns: tun(%d): forwarder: starting %d procs %d", m.tunid(), len(m.processors), m.seed)
 	}
 	if m.canDeliverInline() {
 		return
@@ -275,12 +275,12 @@ func (m *supervisor) id(t *fiveTuple) uint32 {
 // queuePacket queues a packet to be delivered to the appropriate processor.
 func (m *supervisor) queuePacket(pkt *stack.PacketBuffer, hasEthHeader bool) {
 	sz := uint32(len(m.processors))
-	fd := m.tun()
+	sid := m.tunid()
 	var pIdx uint32
 	tup, nonConnectionPkt := tcpipConnectionID(pkt)
 	if !hasEthHeader {
 		if nonConnectionPkt {
-			log.D("ns: tun(%d): forwarder: drop non-connection pkt (sz: %d)", fd, pkt.Size())
+			log.D("ns: tun(%d): forwarder: drop non-connection pkt (sz: %d)", sid, pkt.Size())
 			// If there's no eth header this should be a standard tcpip packet. If
 			// it isn't the packet is invalid so drop it.
 			return
@@ -297,13 +297,13 @@ func (m *supervisor) queuePacket(pkt *stack.PacketBuffer, hasEthHeader bool) {
 	// despite uint32, pIdx goes negative? github.com/celzero/firestack/issues/59
 	// go.dev/ref/spec#Integer_overflow?
 	if pIdx > sz {
-		log.W("ns: tun(%d): forwarder: invalid processor index %d, %s", fd, pIdx, tup)
+		log.W("ns: tun(%d): forwarder: invalid processor index %d, %s", sid, pIdx, tup)
 		pIdx = 0
 	}
 	p := &m.processors[pIdx]
 
 	if settings.Debug {
-		log.VV("ns: tun(%d): forwarder: q on proc %d, %s", fd, pIdx, tup)
+		log.VV("ns: tun(%d): forwarder: q on proc %d, %s", sid, pIdx, tup)
 	}
 
 	p.mu.Lock()
@@ -315,11 +315,9 @@ func (m *supervisor) queuePacket(pkt *stack.PacketBuffer, hasEthHeader bool) {
 
 // stop stops all processor goroutines.
 func (m *supervisor) stop() {
-	fd := m.tun()
+	sid := m.tunid()
 	start := time.Now()
-	if settings.Debug {
-		log.D("ns: tun(%d): forwarder: stopping %d procs", fd, len(m.processors))
-	}
+	log.D("ns: tun(%d): forwarder: stopping %d procs", sid, len(m.processors))
 	if !m.canDeliverInline() {
 		for i := range m.processors {
 			p := &m.processors[i]
@@ -327,10 +325,7 @@ func (m *supervisor) stop() {
 		}
 		m.wg.Wait()
 	} // else: no goroutines to stop or wait for.
-	if settings.Debug {
-		elapsed := time.Since(start).Milliseconds() / 1000
-		log.D("ns: tun(%d): forwarder: stopped %d procs in %ds", fd, len(m.processors), elapsed)
-	}
+	log.D("ns: tun(%d): forwarder: stopped %d procs in %s", sid, len(m.processors), core.FmtTimeAsPeriod(start))
 }
 
 // wakeReady wakes up all processors that have a packet queued. If there is only
