@@ -245,9 +245,12 @@ jobs:
           -Dsources="${SOURCES}" \
           -Durl="https://ossrh-staging-api.central.sonatype.com/service/local/staging/deploy/maven2/"
 
+        # central.sonatype.org/publish/publish-portal-api/#authentication-authorization
+        tok=$(printf "${MAVEN_USERNAME}:${MAVEN_PASSWORD}" | base64)
         # central.sonatype.org/publish/publish-portal-ossrh-staging-api/#1-modify-your-ci-script
         # central.sonatype.org/publish/publish-portal-ossrh-staging-api/#post-to-manualuploaddefaultrepositorynamespace
-        curl -D - -X POST -u "${MAVEN_USERNAME}:${MAVEN_PASSWORD}" \
+        # auth required for publishing_type=automatic
+        curl -D - -X POST -H "Authorization: Bearer ${tok}" \
           "https://ossrh-staging-api.central.sonatype.com/manual/upload/defaultRepository/${GROUP_OSSRH}&publishing_type=automatic"
       env:
           MAVEN_USERNAME: ${{ secrets.OSSRH_USERNAME }}
