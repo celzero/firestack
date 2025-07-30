@@ -359,7 +359,8 @@ func (e *endpoint) Attach(dispatcher stack.NetworkDispatcher) {
 
 // IsAttached implements stack.LinkEndpoint.IsAttached.
 func (e *endpoint) IsAttached() bool {
-	return e.getDispatcher() != nil
+	d, _ := e.getDispatcher()
+	return d != nil
 }
 
 // MTU implements stack.LinkEndpoint.MTU. It returns the value initialized
@@ -541,16 +542,16 @@ func (e *endpoint) SetMTU(mtu uint32) {
 	e.mtu.Store(mtu)
 }
 
-func (e *endpoint) getDispatcher() stack.NetworkDispatcher {
+func (e *endpoint) getDispatcher() (stack.NetworkDispatcher, *fds) {
 	e.RLock()
 	defer e.RUnlock()
-	return e.dispatcher
+	return e.dispatcher, e.fds.Load()
 }
 
 // InjectInbound ingresses a netstack-inbound packet.
 func (e *endpoint) InjectInbound(protocol tcpip.NetworkProtocolNumber, pkt *stack.PacketBuffer) {
-	d := e.getDispatcher()
-	fd := e.fd()
+	d, fds := e.getDispatcher()
+	fd := fds.tun()
 	log.VV("ns: tun(%d): inject-inbound (from tun) %d", fd, protocol)
 	if d != nil && pkt != nil {
 		d.DeliverNetworkPacket(protocol, pkt)

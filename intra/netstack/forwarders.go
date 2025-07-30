@@ -225,9 +225,9 @@ func (m *supervisor) tun() int {
 	return m.fd.Load()
 }
 
-// swap notes the new tun fd (used for diagnostics only).
-func (m *supervisor) swap(tun int) {
-	m.fd.Store(tun)
+// note notes the new tun fd (used for diagnostics only).
+func (m *supervisor) note(sid int) {
+	m.fd.Store(sid)
 }
 
 // start starts the processor goroutines if the processor manager is configured

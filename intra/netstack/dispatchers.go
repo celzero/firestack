@@ -200,7 +200,7 @@ func newReadVDispatcher(fd int, e *endpoint) (linkDispatcher, error) {
 // On error, it closes fd.
 func (d *readVDispatcher) prepare(f *fds) {
 	if !d.closed.Load() {
-		d.mgr.swap(f.tun()) // used for diagnostics only
+		d.mgr.note(f.tun()) // used for diagnostics only
 	}
 }
 
