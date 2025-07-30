@@ -212,10 +212,27 @@ func Every(id string, pctx context.Context, d time.Duration, f func()) context.C
 	return ctx
 }
 
+func Await(f func(), until time.Duration) (awaited bool) {
+	done := make(chan struct{})
+	Go("await", func() {
+		defer close(done)
+		f()
+	})
+
+	select {
+	case <-time.After(until):
+		return false
+	case <-done:
+		return true
+	}
+}
+
 func EitherOr(either <-chan struct{}, or Callback, until time.Duration) (esc bool) {
 	select {
 	case <-time.Tick(until):
-		or()
+		if or != nil {
+			or()
+		}
 		return false
 	case <-either:
 		return true
