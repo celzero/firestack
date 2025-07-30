@@ -32,7 +32,6 @@ package netstack
 import (
 	"fmt"
 	"sync/atomic"
-	"syscall"
 	"time"
 
 	"github.com/celzero/firestack/intra/core"
@@ -53,6 +52,8 @@ var _ FdSwapper = (*linkFdSwap)(nil)
 
 const invalidfd int = -1
 
+const waitttl = wrapttl
+
 type FdSwapper interface {
 	// Cur returns the current FD.
 	Cur() int
@@ -71,8 +72,9 @@ type SeamlessEndpoint interface {
 // NetworkDispatcher.
 type linkDispatcher interface {
 	stop()
-	swap(fd int) error
-	dispatch() (bool, tcpip.Error)
+	prepare(fd *fds)
+	dispatch(fd *fds) (bool, tcpip.Error)
+	wrapup(prev *fds, ttl time.Duration)
 }
 
 type endpoint struct {
@@ -80,7 +82,7 @@ type endpoint struct {
 	// fds is the set of file descriptors each identifying one inbound/outbound
 	// channel. The endpoint will dispatch from all inbound channels as well as
 	// hash outbound packets to specific channels based on the packet hash.
-	fds *core.Volatile[int]
+	fds *core.Volatile[*fds]
 
 	// mtu (maximum transmission unit) is the maximum size of a packet.
 	mtu atomic.Uint32
@@ -196,7 +198,7 @@ func NewFdbasedInjectableEndpoint(opts *Options) (SeamlessEndpoint, error) {
 
 	e := &endpoint{
 		mtu:     atomic.Uint32{},
-		fds:     core.NewVolatile(invalidfd),
+		fds:     core.NewVolatile(invalidFds),
 		caps:    caps,
 		addr:    opts.Address,
 		hdrSize: hdrSize,
@@ -239,16 +241,11 @@ func (e *endpoint) Cur() int {
 }
 
 func (e *endpoint) Dispose() (err error) {
-	if e.fds == nil {
-		log.W("ns: tun: Dispose: no fds")
-		return nil
-	}
-
 	e.Lock()
 	defer e.Unlock()
 
-	prevfd := e.fds.Swap(invalidfd) // prevfd may be invalidfd
-	if prevfd == invalidfd {
+	prevfd := e.fds.Swap(invalidFds) // prevfd may be invalidfd
+	if !prevfd.ok() {
 		log.W("ns: tun: Dispose: invalid prevfd")
 		return nil
 	}
@@ -258,47 +255,48 @@ func (e *endpoint) Dispose() (err error) {
 		// nothing to do
 		return nil
 	}
-	// e.inboundDispatcher.swap() will close prevfd
-	// e.dispatchLoop() will auto-exit due to invalidfd
-	return e.inboundDispatcher.swap(invalidfd)
+	// e.inboundDispatcher.prepare() will not close prevfd
+	// dispatchLoop() will auto-exit on invalidfd
+	core.Go("ns.dispose.wrapup", func() { e.inboundDispatcher.wrapup(prevfd, wrapttl) })
+	e.inboundDispatcher.prepare(invalidFds)
+
+	return nil
 }
 
 // Implements Swapper.
 func (e *endpoint) Swap(fd int) (err error) {
-	if err = unix.SetNonblock(fd, true); err != nil {
-		clos(fd)
-		return fmt.Errorf("ns: tun: set non blocking(%d) failed: %v", fd, err)
-	}
-
 	e.Lock()
 	defer e.Unlock()
 
-	prevfd := e.fds.Swap(fd) // commence WritePackets() on fd
-	log.D("ns: swap: tun fd %d => %d", prevfd, fd)
+	f, err := newTun(fd) // fd may be invalid (ex: -1)
+	if err != nil {
+		fd = invalidfd
+		err = log.EE("ns: tun: swap: (%d) err: %v / %v; using invalidfd", fd, err)
+	}
+
+	prevfd := e.fds.Swap(f) // commence WritePackets() on fd
+	core.Go(
+		"ns.swap.wrapup", func() { e.inboundDispatcher.wrapup(prevfd, wrapttl) },
+	) // closes prevfd, which may be invalidfd
+
+	log.D("ns: tun: swap: fd %s => %d", prevfd, fd)
 
 	if e.inboundDispatcher == nil { // prevfd must be 0 value if inbound is nil
 		e.inboundDispatcher, err = createInboundDispatcher(e, fd)
 	} else {
-		err = e.inboundDispatcher.swap(fd) // always closes prevfd
-		// todo: on err != nil e.inboundDispatcher = nil?
+		e.inboundDispatcher.prepare(f)
 	}
 
 	hasDispatcher := e.dispatcher != nil
 	if err == nil && hasDispatcher { // attached?
-		log.I("ns: tun(%d => %d): swap: restart looper %t for new fd",
+		log.I("ns: tun: (%s => %d) swap: restart looper %t for new fd",
 			prevfd, fd, hasDispatcher)
-		go e.dispatchLoop(e.inboundDispatcher)
+		go dispatchLoop(e.inboundDispatcher, f, &e.wg)
 	} else {
-		log.E("ns: tun(%d => %d): swap: no dispatcher? %t for new fd; err %v",
+		log.E("ns: tun: (%s => %d) swap: no dispatcher? %t for new fd; err %v",
 			prevfd, fd, !hasDispatcher, err)
 	}
 	return
-}
-
-func clos(fd int) {
-	if fd > 0 || fd != invalidfd {
-		_ = syscall.Close(fd)
-	}
 }
 
 // Attach launches the goroutine that reads packets from the file descriptor and
@@ -310,41 +308,52 @@ func (e *endpoint) Attach(dispatcher stack.NetworkDispatcher) {
 	defer e.Unlock()
 
 	rx := e.inboundDispatcher
-	fd := e.fd()
+
+	fds := e.fds.Load()
+	fd := fds.tun()
+
 	attach := dispatcher != nil   // nil means the NIC is being removed.
 	pipe := rx != nil             // nil means there's no read dispatcher.
 	exists := e.dispatcher != nil // nil means the NIC is already detached.
+
 	// Attach is called when the NIC is being created and then enabled.
 	// stack.CreateNIC -> nic.newNIC -> ep.Attach
 	if dispatcher == nil && e.dispatcher != nil {
 		log.I("ns: tun(%d): attach: detach dispatcher (and inbound? %t)", fd, pipe)
+		allLoopersExited := true
 		if rx != nil {
+			fds.stop()
 			go rx.stop() // avoid mutex; closes fd
-			e.Wait()     // on all inboundDispatcher w/ mutex locked?
+
+			allLoopersExited = e.wait(waitttl) // on all inboundDispatcher w/ mutex locked?
 		}
 		e.dispatcher = nil
 		e.inboundDispatcher = nil // rx
-		e.fds.Store(invalidfd)
-		log.I("ns: tun(%d): attach: done detaching dispatcher", fd)
+		e.fds.Store(invalidFds)
+		logei(!allLoopersExited)("ns: tun(%d): attach: done detaching dispatcher; all loopers done? %t",
+			fd, allLoopersExited)
 		return
 	}
+
 	if dispatcher != nil && e.dispatcher == nil {
 		log.I("ns: tun(%d): attach: new dispatcher & looper", fd)
 		e.dispatcher = dispatcher
-		if e.inboundDispatcher == nil && fd != invalidfd { // unlikely
+		if e.inboundDispatcher == nil && fds.ok() { // unlikely
 			var err error
 			e.inboundDispatcher, err = createInboundDispatcher(e, fd)
 			logeif(err)("ns: tun(%d): attach: just-in-time createInboundDispatcher; err? %v", fd, err)
 			rx = e.inboundDispatcher
 		}
-		go e.dispatchLoop(rx)
+		go dispatchLoop(rx, fds, &e.wg)
 		return
 	}
+
 	if dispatcher != nil {
 		log.W("ns: tun(%d): attach: discard? %t; but switch to new anyway", fd, exists)
 		e.dispatcher = dispatcher
 		return
 	}
+
 	log.W("ns: tun(%d): attach: discard? %t; hadDispatcher? %t hadInbound? %t", fd, exists, attach, pipe)
 }
 
@@ -382,6 +391,11 @@ func (e *endpoint) Wait() {
 	e.wg.Wait()
 }
 
+func (e *endpoint) wait(d time.Duration) bool {
+	// wait on e.Wait() until ttl expires
+	return core.Await(func() { e.Wait() }, d)
+}
+
 // AddHeader implements stack.LinkEndpoint.AddHeader.
 func (e *endpoint) AddHeader(pkt *stack.PacketBuffer) {
 	if e.hdrSize > 0 && pkt != nil {
@@ -416,10 +430,7 @@ func (e *endpoint) ParseHeader(pkt *stack.PacketBuffer) bool {
 
 // fd returns the file descriptor associated with the endpoint.
 func (e *endpoint) fd() int {
-	if fd := e.fds.Load(); fd > 0 {
-		return fd
-	}
-	return invalidfd
+	return e.fds.Load().tun()
 }
 
 // writePackets writes outbound packets to the file descriptor. If it is not
@@ -482,31 +493,33 @@ func (e *endpoint) notifyRestart() {
 */
 
 // dispatchLoop reads packets from the file descriptor in a loop and dispatches
-// them to the network stack. Must be run as a goroutine.
-func (e *endpoint) dispatchLoop(inbound linkDispatcher) tcpip.Error {
+// them to the network stack (linkDispatcher). Must be run as a goroutine.
+func dispatchLoop(inbound linkDispatcher, f *fds, wg *sync.WaitGroup) tcpip.Error {
 	// defer core.RecoverFn("ns.e.dispatch", e.notifyRestart)
 	defer core.Recover(core.Exit11, "ns.e.dispatch")
 
-	e.wg.Add(1)
-	defer e.wg.Done()
+	wg.Add(1)
+	defer wg.Done()
 
-	fd := e.fd()
 	if inbound == nil || core.IsNil(inbound) {
-		log.W("ns: tun(%d): dispatchLoop: inbound nil", fd)
+		defer f.stop()
+		log.W("ns: tun(%d): dispatchLoop: inbound nil", f.tun())
 		return &tcpip.ErrUnknownDevice{}
 	}
 
 	start := time.Now()
-	log.I("ns: tun(%d): dispatchLoop: start", fd)
+	log.I("ns: tun(%d): dispatchLoop: start", f.tun())
 	for {
-		cont, err := inbound.dispatch()
+		cont, err := inbound.dispatch(f)
+		if err != nil {
+			log.W("ns: tun(%d): dispatchLoop: dur: %s; continue? %t; err: %v",
+				f.tun(), core.FmtTimeAsPeriod(start), cont, err)
+		}
 		if !cont {
-			elapsed := time.Since(start)
-			log.W("ns: tun(%d): dispatchLoop: exit; dur: %s; err? %v", fd, elapsed, err)
+			defer f.stop()
 			return err
-		} else if err != nil {
-			log.W("ns: tun(%d): dispatchLoop: continue on err: %v", fd, err)
 		} // else: continue dispatching
+
 	}
 }
 

@@ -24,12 +24,18 @@
 package netstack
 
 import (
+	"errors"
 	"fmt"
+	"strconv"
 	"syscall"
 
 	"github.com/celzero/firestack/intra/log"
 	"golang.org/x/sys/unix"
 )
+
+var errInvalidTunFd = errors.New("tun: invalid fd")
+
+var invalidFds = &fds{stopFd{efd: -1}, invalidfd}
 
 // stopFd is an eventfd used to signal the stop of a dispatcher.
 type stopFd struct {
@@ -62,9 +68,19 @@ type fds struct {
 	tunFd  int
 }
 
+// Takes ownership of fd, which must be a valid TUN file descriptor.
 func newTun(fd int) (*fds, error) {
+	if fd == invalidfd {
+		return invalidFds, nil
+	}
+	err := unix.SetNonblock(fd, true)
+	if err != nil {
+		clos(fd)
+		return nil, err
+	}
 	stopFd, err := newStopFd()
 	if err != nil {
+		clos(fd)
 		return nil, err
 	}
 	return &fds{stopFd, fd}, nil
@@ -96,5 +112,15 @@ func (f *fds) stop() {
 			f.stopFd.efd, f.tunFd, err)
 	} else {
 		log.W("ns: dispatch: fds: stop: no-op")
+	}
+}
+
+func (f *fds) String() string {
+	return strconv.Itoa(f.tunFd)
+}
+
+func clos(fd int) {
+	if fd > 0 || fd != invalidfd {
+		_ = syscall.Close(fd)
 	}
 }

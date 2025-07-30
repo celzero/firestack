@@ -25,7 +25,6 @@ package netstack
 
 import (
 	"math/rand"
-	"net"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -187,14 +186,8 @@ var _ linkDispatcher = (*readVDispatcher)(nil)
 // newReadVDispatcher creates a new linkDispatcher that vector reads packets from
 // fd and dispatches them to endpoint e. It assumes ownership of fd but not of e.
 func newReadVDispatcher(fd int, e *endpoint) (linkDispatcher, error) {
-	tun, err := newTun(fd)
-	if err != nil {
-		clos(fd)
-		return nil, err
-	}
 	d := &readVDispatcher{
 		e:   e,
-		fds: core.NewVolatile(tun),
 		buf: newIovecBuffer(bufcfg),
 		mgr: newSupervisor(e, fd),
 	}
@@ -206,26 +199,10 @@ func newReadVDispatcher(fd int, e *endpoint) (linkDispatcher, error) {
 
 // swap atomically swaps existing fd for this new one.
 // On error, it closes fd.
-func (d *readVDispatcher) swap(fd int) error {
-	done := d.closed.Load()
-	if done {
-		clos(fd)
-		return net.ErrClosed
+func (d *readVDispatcher) prepare(f *fds) {
+	if !d.closed.Load() {
+		d.mgr.swap(f.tun()) // used for diagnostics only
 	}
-
-	note := log.I
-	f, err := newTun(fd) // fd may be invalid (ex: -1)
-	if err != nil {
-		defer clos(fd)
-		note = log.W
-	}
-
-	prev := d.fds.Swap(f)   // f may be nil
-	d.wrapup(prev, wrapttl) // prev may be nil
-	d.mgr.swap(f.tun())     // used for diagnostics only
-
-	note("ns: dispatch: swap: tun(%d => %d); err %v", prev.tun(), fd, err)
-	return err
 }
 
 // stop stops the dispatcher once. Safe to call multiple times.
@@ -234,7 +211,6 @@ func (d *readVDispatcher) stop() {
 
 	d.once.Do(func() {
 		d.closed.Store(true)
-		d.fds.Load().stop()
 		d.mgr.stop()
 		log.I("ns: dispatch: closed!")
 	})
@@ -244,8 +220,8 @@ const abort = false // abort indicates that the dispatcher should stop.
 const cont = true   // cont indicates that the dispatcher should continue delivering packets despite an error.
 
 // dispatch reads packets from the current file descriptor in d.fds and dispatches it to netstack.
-func (d *readVDispatcher) dispatch() (bool, tcpip.Error) {
-	return d.io(d.fds.Load())
+func (d *readVDispatcher) dispatch(fd *fds) (bool, tcpip.Error) {
+	return d.io(fd)
 }
 
 // wrapup reads packets from fds and dispatches it to netstack
@@ -255,6 +231,8 @@ func (d *readVDispatcher) wrapup(fds *fds, noMoreThan30s time.Duration) {
 	if !fds.ok() { // fds may be nil
 		return
 	}
+	defer fds.stop()
+
 	// Loopback is set to true when VPN is in lockdown mode (block connections
 	// without vpn). It is observed that by closing the previous tun after delay
 	// results in "connection was reset" errors in netstack's TCP handler, which
@@ -263,21 +241,11 @@ func (d *readVDispatcher) wrapup(fds *fds, noMoreThan30s time.Duration) {
 	// quite a while or the device switches to a new network (on Android 14+).
 	if !threadSafe || settings.Loopingback.Load() {
 		log.I("ns: tun(%d): wrapup: immediate (loopback)", fds.tun())
-		fds.stop()
 		return
 	}
 
-	noMoreThan30s = min(30*time.Second, noMoreThan30s)
-	secs := int64(noMoreThan30s.Seconds())
-
-	go func() {
-		<-time.After(noMoreThan30s)
-		log.W("ns: tun(%d): drain: timeout! %dsecs", fds.tun(), secs)
-		fds.stop()
-	}()
-
-	go func() {
-		log.I("ns: tun(%d): drain: start w timeout in %dsecs", fds.tun(), secs)
+	awaited := core.Await(func() {
+		log.I("ns: tun(%d): drain: start w timeout in %s", fds.tun(), core.FmtPeriod(noMoreThan30s))
 		for {
 			cont, err := d.io(fds)
 			if fd := fds.tun(); !cont {
@@ -287,7 +255,9 @@ func (d *readVDispatcher) wrapup(fds *fds, noMoreThan30s time.Duration) {
 				log.W("ns: tun(%d): drain: continue on err: %v", fd, err)
 			} // else: continue draining
 		}
-	}()
+	}, min(30*time.Second, noMoreThan30s))
+
+	logei(awaited)("ns: tun(%d): drain: timeout!", fds.tun())
 }
 
 // io reads packets from fds and dispatches it to netstack.
