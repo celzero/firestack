@@ -184,15 +184,15 @@ var _ linkDispatcher = (*readVDispatcher)(nil)
 
 // newReadVDispatcher creates a new linkDispatcher that vector reads packets from
 // fd and dispatches them to endpoint e. It assumes ownership of fd but not of e.
-func newReadVDispatcher(fd int, e *endpoint) (linkDispatcher, error) {
+func newReadVDispatcher(fd *fds, e *endpoint) (linkDispatcher, error) {
 	d := &readVDispatcher{
 		e:   e,
 		buf: newIovecBuffer(bufcfg),
-		mgr: newSupervisor(e, fd),
+		mgr: newSupervisor(e, fd.tun()),
 	}
 	d.mgr.start()
 
-	log.I("ns: dispatch: newReadVDispatcher: tun(%d)", fd)
+	log.I("ns: dispatch: newReadVDispatcher: tun(%s)", fd)
 	return d, nil
 }
 
@@ -256,7 +256,7 @@ func (d *readVDispatcher) wrapup(fds *fds, noMoreThan30s time.Duration) {
 		}
 	}, min(30*time.Second, noMoreThan30s))
 
-	logei(awaited)("ns: tun(%d): drain: timeout!", fds.tun())
+	logei(!awaited)("ns: tun(%d): drain: timeout!", fds.tun())
 }
 
 // io reads packets from fds and dispatches it to netstack.

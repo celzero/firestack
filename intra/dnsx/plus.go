@@ -159,14 +159,16 @@ func (t *plus) ordered() ([]Transport, error) {
 	ord = append(ord, preferred...)
 	ord = append(ord, recov...)
 
+	prev := ord
 	strat := settings.PlusStrat.Load()
-	if strat == settings.PlusFilterSafest {
+	switch strat {
+	case settings.PlusFilterSafest:
 		ord = core.FilterLeft(ord, IsEncrypted)
-	} else if strat == settings.PlusOrderRandom {
+	case settings.PlusOrderRandom:
 		ord = core.ShuffleInPlace(ord)
-	} else if strat == settings.PlusOrderFastest {
+	case settings.PlusOrderFastest:
 		ord = core.Sort(ord, Fastest)
-	} else if strat == settings.PlusOrderRobust {
+	case settings.PlusOrderRobust:
 		// nothing to do
 	}
 
@@ -174,6 +176,8 @@ func (t *plus) ordered() ([]Transport, error) {
 		log.W("plus: zero transports avail [exp: %d]: errored: %v / ended: %v",
 			expected, errored, ended)
 		return nil, errNoSuchTransport
+	} else if len(ord) < len(prev) {
+		log.VV("plus: filtered %d < chosen %d; chosen: %v", len(ord), len(prev), ord)
 	}
 
 	return ord, nil

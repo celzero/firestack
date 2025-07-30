@@ -226,12 +226,12 @@ func NewFdbasedInjectableEndpoint(opts *Options) (SeamlessEndpoint, error) {
 	return e, nil
 }
 
-func createInboundDispatcher(e *endpoint, fd int) (linkDispatcher, error) {
+func createInboundDispatcher(e *endpoint, f *fds) (linkDispatcher, error) {
 	// By default use the readv() dispatcher as it works with all kinds of
 	// FDs (tap/tun/unix domain sockets and af_packet).
-	d, err := newReadVDispatcher(fd, e)
+	d, err := newReadVDispatcher(f, e)
 	if err != nil {
-		return nil, fmt.Errorf("newReadVDispatcher(%d, %+v) = %v", fd, e, err)
+		return nil, fmt.Errorf("newReadVDispatcher(%s, %+v) = %v", f, e, err)
 	}
 	return d, nil
 }
@@ -270,7 +270,6 @@ func (e *endpoint) Swap(fd int) (err error) {
 
 	f, err := newTun(fd) // fd may be invalid (ex: -1)
 	if err != nil {
-		fd = invalidfd
 		err = log.EE("ns: tun: swap: (%d) err: %v / %v; using invalidfd", fd, err)
 	}
 
@@ -279,10 +278,10 @@ func (e *endpoint) Swap(fd int) (err error) {
 		"ns.swap.wrapup", func() { e.inboundDispatcher.wrapup(prevfd, wrapttl) },
 	) // closes prevfd, which may be invalidfd
 
-	log.D("ns: tun: swap: fd %s => %d", prevfd, fd)
+	log.D("ns: tun: swap: fd %s => %d; err? %v", prevfd, fd, err)
 
 	if e.inboundDispatcher == nil { // prevfd must be 0 value if inbound is nil
-		e.inboundDispatcher, err = createInboundDispatcher(e, fd)
+		e.inboundDispatcher, err = createInboundDispatcher(e, f)
 	} else {
 		e.inboundDispatcher.prepare(f)
 	}
@@ -340,7 +339,7 @@ func (e *endpoint) Attach(dispatcher stack.NetworkDispatcher) {
 		e.dispatcher = dispatcher
 		if e.inboundDispatcher == nil && fds.ok() { // unlikely
 			var err error
-			e.inboundDispatcher, err = createInboundDispatcher(e, fd)
+			e.inboundDispatcher, err = createInboundDispatcher(e, fds)
 			logeif(err)("ns: tun(%d): attach: just-in-time createInboundDispatcher; err? %v", fd, err)
 			rx = e.inboundDispatcher
 		}

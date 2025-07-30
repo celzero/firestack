@@ -199,10 +199,10 @@ type supervisor struct {
 }
 
 // newSupervisor creates a new supervisor for the processors of endpoint e.
-func newSupervisor(e stack.InjectableLinkEndpoint, fd int) *supervisor {
+func newSupervisor(e stack.InjectableLinkEndpoint, sid int) *supervisor {
 	m := &supervisor{
 		seed:       rand.Uint32(),
-		sid:        core.NewVolatile(fd),
+		sid:        core.NewVolatile(sid),
 		ready:      make([]bool, maxForwarders),
 		processors: make([]processor, maxForwarders),
 		wg:         sync.WaitGroup{},
