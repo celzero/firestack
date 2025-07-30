@@ -31,7 +31,10 @@
 
 package log
 
-import "fmt"
+import (
+	"errors"
+	"fmt"
+)
 
 // based on: github.com/eycorsican/go-tun2socks/blob/301549c43/common/log/log.go#L5
 var Glogger Logger = defaultLogger()
@@ -122,6 +125,14 @@ func W(msg string, args ...any) {
 // E logs an error message.
 func E(msg string, args ...any) {
 	E2(callerat, msg, args...)
+}
+
+func EE(msg string, args ...any) (err error) {
+	if len(args) > 0 {
+		msg = fmt.Sprintf(msg, args...)
+	}
+	E2(callerat, msg)
+	return errors.New(msg)
 }
 
 // P logs a private message.

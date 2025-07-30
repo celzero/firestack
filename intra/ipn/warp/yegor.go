@@ -11,7 +11,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"math/rand/v2"
 	"net"
@@ -940,37 +939,37 @@ func wsErr(res *http.Response, op string) error {
 
 func wsErr2(res *http.Response, op string) (*WsErrorResponse, error) {
 	if res == nil {
-		return nil, fmt.Errorf("ws: %s: %v", op, errWsNoResponse)
+		return nil, log.EE("ws: %s: %v", op, errWsNoResponse)
 	}
 	body, err := io.ReadAll(res.Body)
 	if err != nil {
-		return nil, fmt.Errorf("ws: %s: read body err: %v", op, err)
+		return nil, log.EE("ws: %s: read body err: %v", op, err)
 	}
 
 	var wsErr WsErrorResponse
 	err = json.Unmarshal(body, &wsErr)
 	if err != nil {
-		return nil, fmt.Errorf("ws: unmarshal err: %v; body: %s", err, body)
+		return nil, log.EE("ws: unmarshal err: %v; body: %s", err, body)
 	}
 
-	return &wsErr, fmt.Errorf("ws: status: %d, error %d: %s; why: %s", res.StatusCode, wsErr.Code, wsErr.Msg, wsErr.Desc)
+	return &wsErr, log.EE("ws: status: %d, error %d: %s; why: %s", res.StatusCode, wsErr.Code, wsErr.Msg, wsErr.Desc)
 }
 
 func wsRes[T any](res *http.Response, out *T, op string) (*T, error) {
 	if res == nil {
-		return nil, fmt.Errorf("ws: %s: %v", op, errWsNoResponse)
+		return nil, log.EE("ws: %s: %v", op, errWsNoResponse)
 	}
 	if out == nil {
-		return nil, fmt.Errorf("ws: %s: out is nil", op)
+		return nil, log.EE("ws: %s: out is nil", op)
 	}
 	body, err := io.ReadAll(res.Body)
 	if err != nil {
-		return nil, fmt.Errorf("ws: %s: read res err: %v", op, err)
+		return nil, log.EE("ws: %s: read res err: %v", op, err)
 	}
 
 	err = json.Unmarshal(body, out)
 	if err != nil {
-		return nil, fmt.Errorf("ws: %s: unmarshal err: %v; res: %s", op, err, body)
+		return nil, log.EE("ws: %s: unmarshal err: %v; res: %s", op, err, body)
 	}
 
 	return out, nil
@@ -988,13 +987,13 @@ func getSession(h *http.Client, cid, tok string, test bool) (*WsSession, error) 
 	u := baseurl(test, cid).JoinPath(wssessionpath)
 	req, err := http.NewRequest("GET", u.String(), nil)
 	if err != nil {
-		return nil, fmt.Errorf("ws: getsess: make req err: %v", err)
+		return nil, log.EE("ws: getsess: make req err: %v", err)
 	}
 	authHeader(req, tok)
 
 	res, err := h.Do(req)
 	if err != nil || res == nil {
-		return nil, fmt.Errorf("ws: getsess: res err (nil? %t / tok? %s): %v", res == nil, tokst, err)
+		return nil, log.EE("ws: getsess: res err (nil? %t / tok? %s): %v", res == nil, tokst, err)
 	}
 	defer core.Close(res.Body)
 	if res.StatusCode != http.StatusOK {
@@ -1162,12 +1161,12 @@ func getServerList(h *http.Client, sess *WsSession, ent *WsEntitlement) (*WsServ
 	u := assetsurl(test).JoinPath(wslocpath, lochash)
 	locreq, err := http.NewRequest("GET", u.String(), nil)
 	if err != nil {
-		return nil, fmt.Errorf("ws: wgconfs: req err: %v", err)
+		return nil, log.EE("ws: wgconfs: req err: %v", err)
 	}
 
 	locres, err := h.Do(locreq)
 	if err != nil || locres == nil {
-		return nil, fmt.Errorf("ws: wgconfs: res err (nil? %t): %v", locres == nil, err)
+		return nil, log.EE("ws: wgconfs: res err (nil? %t): %v", locres == nil, err)
 	}
 
 	defer core.Close(locres.Body)
@@ -1209,14 +1208,14 @@ keyagain:
 		var err error
 		priv, err = x.NewWgPrivateKey()
 		if err != nil {
-			return nil, nil, fmt.Errorf("ws: wgconfs: gen key err: %v", err)
+			return nil, nil, log.EE("ws: wgconfs: gen key err: %v", err)
 		}
 	} else {
 		var err error
 		// use the existing key, which is already registered
 		priv, err = x.NewWgPrivateKeyOf(existingCreds.PrivateKey)
 		if err != nil {
-			return nil, nil, fmt.Errorf("ws: wgconfs: existing key err: %v", err)
+			return nil, nil, log.EE("ws: wgconfs: existing key err: %v", err)
 		}
 	}
 	pub := priv.Mult()
@@ -1242,7 +1241,7 @@ initagain:
 		u := baseurl(test, cid).JoinPath(wswginitpath)
 		initreq, err := http.NewRequest("POST", u.String(), strings.NewReader(initdata.Encode()))
 		if err != nil {
-			return nil, nil, fmt.Errorf("ws: wgconfs: req err: %v", err)
+			return nil, nil, log.EE("ws: wgconfs: req err: %v", err)
 		}
 		initreq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 		authHeader(initreq, bearer)
@@ -1250,7 +1249,7 @@ initagain:
 		initres, err := h.Do(initreq)
 
 		if err != nil || initres == nil {
-			return nil, nil, fmt.Errorf("ws: wgconfs: res err (nil? %t / tok? %s): %v", initres == nil, tokst, err)
+			return nil, nil, log.EE("ws: wgconfs: res err (nil? %t / tok? %s): %v", initres == nil, tokst, err)
 		}
 
 		if initres.StatusCode != http.StatusOK {
@@ -1278,12 +1277,12 @@ initagain:
 		d := wgCreds.Data
 		creds = &d.Config
 		if d.Success != 1 {
-			return nil, nil, fmt.Errorf("ws: wgconfs: success != 1; debug: %v", d.Debug)
+			return nil, nil, log.EE("ws: wgconfs: success != 1; debug: %v", d.Debug)
 		}
 		if len(d.Config.PrivateKey) <= 0 { // private key is generated locally (by the client)
 			d.Config.PrivateKey = priv.Base64().V()
 			if d.Config.PublicKey != pubkeybase64 { // registered public key must match the local one
-				return nil, nil, fmt.Errorf("ws: wgconfs: pubkey mismatch; expected %s, got %s",
+				return nil, nil, log.EE("ws: wgconfs: pubkey mismatch; expected %s, got %s",
 					pubkeybase64, d.Config.PublicKey)
 			}
 		} // TODO: else panic?
@@ -1292,15 +1291,12 @@ initagain:
 	}
 
 	if creds == nil || len(creds.PublicKey) <= 0 || len(creds.PrivateKey) <= 0 {
-		return nil, nil, fmt.Errorf("ws: wgconfs: invalid creds for %s, useExisting? %t", trunc8(pubkeybase64), useExistingCreds)
+		return nil, nil, log.EE("ws: wgconfs: invalid creds for %s, useExisting? %t", trunc8(pubkeybase64), useExistingCreds)
 	}
 
 	log.I("ws: wgconfs: got creds for %s, usingExisting? %t", trunc8(pubkeybase64), useExistingCreds)
 
 	someEndpoint := fixedValidWsEndpoint(test)
-	if len(someEndpoint) <= 0 {
-		return nil, nil, fmt.Errorf("ws: wgconfs: no endpoint")
-	}
 	// github.com/Windscribe/Android-App/blob/746d505dc69/base/src/main/java/com/windscribe/vpn/backend/utils/WindVpnController.kt#L159
 	/*
 		curl -x POST '.../WgConfigs/connect' \
@@ -1319,14 +1315,14 @@ initagain:
 	u := baseurl(test, cid).JoinPath(wswgconnectpath)
 	creq, err := http.NewRequest("POST", u.String(), strings.NewReader(cdata.Encode()))
 	if err != nil {
-		return nil, nil, fmt.Errorf("ws: wgconfs: connect req err: %v", err)
+		return nil, nil, log.EE("ws: wgconfs: connect req err: %v", err)
 	}
 	creq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	authHeader(creq, sess.SessionToken)
 
 	cres, err := h.Do(creq)
 	if err != nil || cres == nil {
-		return nil, nil, fmt.Errorf("ws: wgconfs: connect res err (nil? %t / tok? %s): %v", cres == nil, tokst, err)
+		return nil, nil, log.EE("ws: wgconfs: connect res err (nil? %t / tok? %s): %v", cres == nil, tokst, err)
 	}
 	if cres.StatusCode != http.StatusOK {
 		wserr, err := wsErr2(cres, "wsconnect")
@@ -1344,15 +1340,15 @@ initagain:
 	_, err = wsRes(cres, &wgConnect, "wgconfs")
 	defer core.Close(cres.Body)
 	if err != nil {
-		return nil, nil, fmt.Errorf("ws: wgconfs: connect res err: %v", err)
+		return nil, nil, log.EE("ws: wgconfs: connect res err: %v", err)
 	}
 
 	if wgConnect.Data.Success != 1 {
-		return nil, nil, fmt.Errorf("ws: wgconfs: connect success != 1; debug: %v", wgConnect.Data.Debug)
+		return nil, nil, log.EE("ws: wgconfs: connect success != 1; debug: %v", wgConnect.Data.Debug)
 	}
 
 	if len(wgConnect.Data.Config.Address) <= 0 || len(wgConnect.Data.Config.DNS) <= 0 {
-		return nil, nil, fmt.Errorf("ws: wgconfs: connect missing config; debug: %v", wgConnect.Data.Debug)
+		return nil, nil, log.EE("ws: wgconfs: connect missing config; debug: %v", wgConnect.Data.Debug)
 	}
 
 	// TODO: if wgconnect.Data.Config.Address has not changed and useExistingCreds is true,
@@ -1360,7 +1356,7 @@ initagain:
 	regconfs, err := convertToRegionalWgConfs(creds, &wgConnect.Data, servers, sess, test)
 
 	if err != nil || len(regconfs) <= 0 {
-		return nil, nil, fmt.Errorf("ws: wgconfs: no regions found for %s; %v", trunc8(pubkeybase64), err)
+		return nil, nil, log.EE("ws: wgconfs: no regions found for %s; %v", trunc8(pubkeybase64), err)
 	}
 
 	log.I("ws: wgconfs: (tok? %s) found %d regions for %s", tokst, len(regconfs), trunc8(pubkeybase64))
@@ -1510,7 +1506,7 @@ func makeWsWgFrom(h *http.Client, existingConf *WsWgConfig) (ws *WsClient, refre
 
 	exp, err := time.Parse(time.DateOnly, newSess.ExpiryDate)
 	if err != nil {
-		err = fmt.Errorf("ws: make: parsing expiry %s; err: %v", newSess.ExpiryDate, err)
+		err = log.EE("ws: make: parsing expiry %s; err: %v", newSess.ExpiryDate, err)
 		return
 	}
 	active := exp.After(time.Now())
