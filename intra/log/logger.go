@@ -212,6 +212,8 @@ var spammsgThreshold = [NONE + 1]uint32{
 	NONE:       256 >> 9, // 0
 }
 
+const callerunknown = "???"
+
 const defaultFlags = 0 // no flags
 
 func defaultLogger() *simpleLogger {
@@ -516,7 +518,7 @@ func caller1(at int, sep string) (pc uintptr, who string) {
 func caller2(at int, sep1, sep2 string) (pc uintptr, who string) {
 	pc, file, line, _ := runtime.Caller(at)
 	if len(file) <= 0 {
-		file = "???"
+		file = callerunknown
 	} else {
 		file = shortfile(file) + sep1 + fmt.Sprint(line) + sep2
 	}
@@ -556,22 +558,37 @@ func (l *simpleLogger) writelog(lvl LogLevel, at int, msg string, args ...any) {
 		}
 	}
 
+	tracecaller := func(s string) bool {
+		if len(s) <= 0 || s == callerunknown {
+			return false
+		}
+		// ex: asm_arm64.s:1223>async.go:49>async.go:121>proxy.go:789
+		if strings.Contains(s, "asm_") && strings.Contains(s, ".s") {
+			return false // asm files are not useful
+		}
+
+		return true
+	}
 	if ll || cc {
 		switch lvl {
 		case ERROR:
-			_, x := caller1(at+nextframe+4, ">")
-			trace += x
+			if _, x := caller1(at+nextframe+4, ">"); tracecaller(x) {
+				trace += x
+			}
 			fallthrough
 		case WARN:
-			_, y := caller1(at+nextframe+3, ">")
-			trace += y
+			if _, x := caller1(at+nextframe+3, ">"); tracecaller(x) {
+				trace += x
+			}
 			fallthrough
 		case INFO:
-			_, z := caller1(at+nextframe+2, ">")
-			trace += z
+			if _, x := caller1(at+nextframe+2, ">"); tracecaller(x) {
+				trace += x
+			}
+			fallthrough
 		case DEBUG:
-			_, w := caller1(at+nextframe+1, ">")
-			trace += w
+			_, x := caller1(at+nextframe+1, ">")
+			trace += x
 		}
 		msg = l.msgstr(lvl, trace+file1+msg, args...)
 		if ll {
