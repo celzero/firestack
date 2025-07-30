@@ -251,7 +251,7 @@ jobs:
         # central.sonatype.org/publish/publish-portal-ossrh-staging-api/#post-to-manualuploaddefaultrepositorynamespace
         # auth required for publishing_type=automatic
         curl -D - -X POST -H "Authorization: Bearer ${tok}" \
-          "https://ossrh-staging-api.central.sonatype.com/manual/upload/defaultRepository/${GROUP_OSSRH}&publishing_type=automatic"
+          "https://ossrh-staging-api.central.sonatype.com/manual/upload/defaultRepository/${GROUP_OSSRH}?publishing_type=automatic"
       env:
           MAVEN_USERNAME: ${{ secrets.OSSRH_USERNAME }}
           MAVEN_PASSWORD: ${{ secrets.OSSRH_TOKEN }}
