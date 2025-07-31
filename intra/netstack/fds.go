@@ -26,13 +26,15 @@ package netstack
 import (
 	"fmt"
 	"strconv"
+	"sync"
+	"sync/atomic"
 	"syscall"
 
 	"github.com/celzero/firestack/intra/log"
 	"golang.org/x/sys/unix"
 )
 
-var invalidFds = &fds{stopFd{efd: invalidfd}, invalidfd}
+var invalidFds = &fds{stopFd: stopFd{efd: invalidfd}, tunFd: invalidfd}
 
 // stopFd is an eventfd used to signal the stop of a dispatcher.
 type stopFd struct {
@@ -67,6 +69,9 @@ func (s *stopFd) stop() error {
 type fds struct {
 	stopFd stopFd
 	tunFd  int
+
+	closed atomic.Bool
+	once   sync.Once // ensures that stop() is called only once
 }
 
 // Takes ownership of fd, which must be a valid TUN file descriptor.
@@ -85,11 +90,11 @@ func newTun(fd int) (*fds, error) {
 		clos(fd)
 		return invalidFds, err
 	}
-	return &fds{stopFd, fd}, nil
+	return &fds{stopFd: stopFd, tunFd: fd}, nil
 }
 
 func (f *fds) ok() bool {
-	return f != nil && f.tun() != invalidfd
+	return f != nil && f.tun() != invalidfd && !f.closed.Load()
 }
 
 func (f *fds) eve() int {
@@ -108,10 +113,14 @@ func (f *fds) tun() int {
 
 func (f *fds) stop() {
 	if f.ok() {
-		err1 := f.stopFd.stop()
-		err2 := syscall.Close(f.tunFd)
-		logeif(err1)("ns: dispatch: fds: stop: eve(%d) tun(%d); errs? %v %v",
-			f.stopFd.efd, f.tunFd, err1, err2)
+		f.once.Do(func() {
+			defer f.closed.Store(true)
+
+			err1 := f.stopFd.stop()
+			err2 := syscall.Close(f.tunFd)
+			logeif(err1)("ns: dispatch: fds: stop: eve(%d) tun(%d); errs? %v %v",
+				f.stopFd.efd, f.tunFd, err1, err2)
+		})
 	} else {
 		log.W("ns: dispatch: fds: stop: no-op")
 	}
