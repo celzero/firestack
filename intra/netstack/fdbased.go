@@ -274,15 +274,15 @@ func (e *endpoint) Swap(fd int) (err error) {
 	}
 
 	prevfd := e.fds.Swap(f) // commence WritePackets() on fd
-	core.Go(
-		"ns.swap.wrapup", func() { e.inboundDispatcher.wrapup(prevfd, wrapttl) },
-	) // closes prevfd, which may be invalidfd
 
 	log.D("ns: tun: swap: fd %s => %d; err? %v", prevfd, fd, err)
 
 	if e.inboundDispatcher == nil { // prevfd must be 0 value if inbound is nil
+		prevfd.stop() // prevfd may be invalid
 		e.inboundDispatcher, err = createInboundDispatcher(e, f)
 	} else {
+		// closes prevfd, which may be invalidfd
+		core.Go("ns.swap.wrapup", func() { e.inboundDispatcher.wrapup(prevfd, wrapttl) })
 		e.inboundDispatcher.prepare(f)
 	}
 
