@@ -279,7 +279,7 @@ func (t *gtunnel) SetLink(fd int) (err error) {
 
 	err = t.ep.Swap(dupfd) // swap fd and mtu
 
-	log.I("tun: new link, fd(%d); err? %v", dupfd, err)
+	log.I("tun: new link, fd(%d => %d); err? %v", fd, dupfd, err)
 	return err
 }
 
