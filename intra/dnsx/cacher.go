@@ -52,13 +52,14 @@ const (
 )
 
 var (
-	errNoQuestion            = errors.New("no question")
-	errNoAnswer              = errors.New("no answer")
-	errServFail              = errors.New("answer servfail")
-	errHangover              = errors.New("no connectivity")
-	errNilCacheResponse      = errors.New("nil cache response")
-	errSkipInternalCache     = errors.New("skip internal cache")
-	errCacheResponseMismatch = errors.New("cache response mismatch")
+	errNoQuestion            = errors.New("dns: no question")
+	errNoAnswer              = errors.New("dns: no answer")
+	errServFail              = errors.New("dns: answer servfail")
+	errBlocked               = errors.New("dns: answer blocked")
+	errHangover              = errors.New("dns: no connectivity")
+	errNilCacheResponse      = errors.New("dns: nil cache response")
+	errSkipInternalCache     = errors.New("dns: skip internal cache")
+	errCacheResponseMismatch = errors.New("dns: cache response mismatch")
 )
 
 type Cacher interface {

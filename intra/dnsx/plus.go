@@ -195,8 +195,7 @@ func (t *plus) Query(network string, q *dns.Msg, smm *x.DNSSummary) (ans *dns.Ms
 	return t.forward(network, q, smm, ord...)
 }
 
-func (t *plus) forward(network string, q *dns.Msg, outSmm *x.DNSSummary, all ...Transport) (*dns.Msg, error) {
-	var errs error
+func (t *plus) forward(network string, q *dns.Msg, outSmm *x.DNSSummary, all ...Transport) (finalans *dns.Msg, errs error) {
 	qname := qname(q)
 	qtyp := qtype(q)
 	tries := plusMaxTries
@@ -232,33 +231,52 @@ func (t *plus) forward(network string, q *dns.Msg, outSmm *x.DNSSummary, all ...
 
 		failed := xdns.IsServFailOrInvalid(ans)
 		noans := !failed && !xdns.HasAnyAnswer(ans)
+		ipblock := xdns.HasAQuadAQuestion(q) && xdns.AQuadAUnspecified(ans)
+		// HTTPS/SVCB blocks have 0 answer records when blocked
+		svcbblock := (xdns.HasHTTPQuestion(q) || xdns.HasSVCBQuestion(q)) && noans
 
 		loged(err != nil || failed || noans)("plus: queried %s for %s:%d; data: %s, code: %d, err? %v",
 			idstr(tr), qname, qtyp, curSmm.RData, curSmm.RCode, err)
 
-		if err != nil {
-			errs = core.JoinErr(errs, err)
+		if err != nil || ans == nil {
+			errs = core.JoinErr(errs, core.OneErr(err, errNoAnswer))
 			continue
 		}
+
+		finalans = ans // may be this is the final answer
+
 		if failed {
 			errs = core.JoinErr(errs, errServFail)
 			continue
 		}
-		if noans {
+
+		if ipblock || svcbblock {
+			errs = core.JoinErr(errs, errBlocked)
+			continue
+		}
+
+		// an ipv4 only service/website will always return nxdomain (no answer)
+		// for ipv6 queries, and so, always treating those as errors is not
+		// what we want but instead to note the nxdomain response down and see
+		// if other resolvers return an answer or not (censoring resolvers may
+		// also return nxdomain or blocked answers, which is why we must continue
+		// to try other resolvers).
+		if noans { // servfail, nxdomain, etc.
 			errs = core.JoinErr(errs, errNoAnswer)
 			// wind down faster if multiple transports return no answer
 			if len(visited) > tries/2 {
-				return ans, nil
+				break
 			}
 			continue
 		}
 
 		t.last.Store(tr)
-		return ans, nil
+		errs = nil // all okay
+		return     // current finalans
 	}
 
 	log.W("plus: [exp: %d / tried: %d]: all transports failed: %v", len(all), len(visited), errs)
-	return nil, errs
+	return // finalans probably nil
 }
 
 func (t *plus) P50() int64 {
