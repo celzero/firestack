@@ -533,7 +533,7 @@ func (t *ctransport) Clear() {
 
 func copySummary(from *x.DNSSummary) (to *x.DNSSummary) {
 	to = new(x.DNSSummary)
-	*to = *from
+	*to = *from // go.dev/play/p/rcGKAcju0FU
 	return
 }
 

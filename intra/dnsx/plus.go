@@ -200,14 +200,14 @@ func (t *plus) forward(network string, q *dns.Msg, outSmm *x.DNSSummary, all ...
 	qtyp := qtype(q)
 	tries := plusMaxTries
 	visited := make(map[string]struct{}, len(all))
-	var curSmm *x.DNSSummary
+	var finalSmm *x.DNSSummary
 
 	defer func() {
-		fillSummary(curSmm, outSmm)
+		fillSummary(finalSmm, outSmm)
 	}()
 
 	for _, tr := range all {
-		curSmm = new(x.DNSSummary)
+		finalSmm = copySummary(outSmm)
 
 		if len(visited) > tries {
 			break
@@ -227,7 +227,7 @@ func (t *plus) forward(network string, q *dns.Msg, outSmm *x.DNSSummary, all ...
 		}
 		visited[id] = struct{}{}
 
-		ans, err := tr.Query(network, q, curSmm)
+		ans, err := tr.Query(network, q, finalSmm)
 
 		failed := xdns.IsServFailOrInvalid(ans)
 		noans := !failed && !xdns.HasAnyAnswer(ans)
@@ -236,7 +236,7 @@ func (t *plus) forward(network string, q *dns.Msg, outSmm *x.DNSSummary, all ...
 		svcbblock := (xdns.HasHTTPQuestion(q) || xdns.HasSVCBQuestion(q)) && noans
 
 		loged(err != nil || failed || noans)("plus: queried %s for %s:%d; data: %s, code: %d, err? %v",
-			idstr(tr), qname, qtyp, curSmm.RData, curSmm.RCode, err)
+			idstr(tr), qname, qtyp, finalSmm.RData, finalSmm.RCode, err)
 
 		if err != nil || ans == nil {
 			errs = core.JoinErr(errs, core.OneErr(err, errNoAnswer))
