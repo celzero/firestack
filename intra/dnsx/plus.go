@@ -200,14 +200,18 @@ func (t *plus) forward(network string, q *dns.Msg, outSmm *x.DNSSummary, all ...
 	qtyp := qtype(q)
 	tries := plusMaxTries
 	visited := make(map[string]struct{}, len(all))
-	var finalSmm *x.DNSSummary
+	finalsmm := copySummary(outSmm)
 
 	defer func() {
-		fillSummary(finalSmm, outSmm)
+		fillSummary(finalsmm, outSmm)
+		if finalans != nil { // suppress errors
+			log.D("plus: suppressing errors for %s:%d[%s]: %v", qname, qtype, finalsmm.RData, errs)
+			errs = nil
+		}
 	}()
 
 	for _, tr := range all {
-		finalSmm = copySummary(outSmm)
+		cursmm := copySummary(outSmm)
 
 		if len(visited) > tries {
 			break
@@ -227,7 +231,7 @@ func (t *plus) forward(network string, q *dns.Msg, outSmm *x.DNSSummary, all ...
 		}
 		visited[id] = struct{}{}
 
-		ans, err := tr.Query(network, q, finalSmm)
+		ans, err := tr.Query(network, q, cursmm)
 
 		failed := xdns.IsServFailOrInvalid(ans)
 		noans := !failed && !xdns.HasAnyAnswer(ans)
@@ -235,8 +239,10 @@ func (t *plus) forward(network string, q *dns.Msg, outSmm *x.DNSSummary, all ...
 		// HTTPS/SVCB blocks have 0 answer records when blocked
 		svcbblock := (xdns.HasHTTPQuestion(q) || xdns.HasSVCBQuestion(q)) && noans
 
+		finalsmm = cursmm
+
 		loged(err != nil || failed || noans)("plus: queried %s for %s:%d; data: %s, code: %d, err? %v",
-			idstr(tr), qname, qtyp, finalSmm.RData, finalSmm.RCode, err)
+			idstr(tr), qname, qtyp, finalsmm.RData, finalsmm.RCode, err)
 
 		if err != nil || ans == nil {
 			errs = core.JoinErr(errs, core.OneErr(err, errNoAnswer))
@@ -264,15 +270,13 @@ func (t *plus) forward(network string, q *dns.Msg, outSmm *x.DNSSummary, all ...
 		if noans { // servfail, nxdomain, etc.
 			errs = core.JoinErr(errs, errNoAnswer)
 			// wind down faster if multiple transports return no answer
-			if len(visited) > tries/2 {
-				break
-			}
-			continue
+			if len(visited) <= tries/2 {
+				continue
+			} // fallthrough and return current finalans
 		}
 
 		t.last.Store(tr)
-		errs = nil // all okay
-		return     // current finalans
+		return // current finalans
 	}
 
 	log.W("plus: [exp: %d / tried: %d]: all transports failed: %v", len(all), len(visited), errs)
