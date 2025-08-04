@@ -256,8 +256,13 @@ func (cb *cache) freshCopy(key string) (v *cres, ok bool) {
 
 // put caches val against key, and returns true if the cache was updated.
 // val must be a valid dns packet with successful rcode with no truncation.
-func (cb *cache) put(key string, ans *dns.Msg, s *x.DNSSummary) (ok bool) {
+func (cb *cache) put(key string, cc *cres) (ok bool) {
 	ok = false
+	if cc == nil {
+		return
+	}
+
+	ans := cc.ans
 	// only cache successful responses
 	// TODO: implement negative caching
 	if ans == nil || !xdns.HasRcodeSuccess(ans) || xdns.HasTCFlag(ans) {
@@ -288,9 +293,9 @@ func (cb *cache) put(key string, ans *dns.Msg, s *x.DNSSummary) (ok bool) {
 		ansttl = ansttl + cb.halflife
 	}
 	exp := time.Now().Add(ansttl)
-	v := &cres{
-		ans:    ans,
-		s:      s,
+	v := &cres{ // TODO: copy is not required?
+		ans:    cc.ans.Copy(),
+		s:      copySummary(cc.s),
 		expiry: exp,
 		bumps:  0,
 	}
@@ -366,9 +371,10 @@ func (t *ctransport) fetch(network string, q *dns.Msg, smmout *x.DNSSummary, cb 
 			reqsent = true
 			// ans may be nil
 			cc.ans, qerr = Req(t.Transport, network, q, smm2)
+			cc.s = copySummary(smm2) // copy summary to cc
 			t.hangoverCheckpoint()
 			// cb.put no-ops when ans is nil or rcode != success (0)
-			cb.put(key, cc.ans.Copy(), smm2)
+			cb.put(key, cc)
 			return cc, qerr
 		})
 
@@ -460,6 +466,7 @@ func (t *ctransport) fetch(network string, q *dns.Msg, smmout *x.DNSSummary, cb 
 		log.D("cache: miss(k: %s): cached? %t, hangover? %t, stale? %t", key, v != nil, !trok, !isfresh)
 	}
 
+	// send request in the foreground, and return the response
 	return sendRequest(smmout) // summary is filled by underlying transport
 }
 
