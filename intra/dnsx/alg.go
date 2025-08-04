@@ -493,7 +493,7 @@ func (a *baseans) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("xips(%v) domains(%v) blocklists(%s) ttl(%s)",
-		a.ips, a.domains, a.blocklists, time.Until(a.ttl))
+		a.ips, a.domains, a.blocklists, core.FmtTimeAsPeriod(a.ttl))
 }
 
 // fresh returns false if a has expired or if a is nil
@@ -541,7 +541,7 @@ func (a *algans) merge(b *algans) {
 		a.ips = b.ips
 	} else {
 		prialiv, totpri, secaliv, totsec := a.ips.merge(b.ips)
-		logeif(totpri < 0 || totsec < 0)("alg: merge: err ips merge; pri(%d/%d) sec(%d/%d), out(%s)",
+		logeif(totpri < 0 && totsec < 0)("alg: merge: err ips merge; pri(%d/%d) sec(%d/%d), out(%s)",
 			prialiv, totpri, secaliv, totsec, a)
 	}
 	a.domains = copyUniq(a.domains, b.domains)
