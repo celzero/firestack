@@ -633,13 +633,13 @@ func (r *resolver) forward(q []byte, uid string, chosenids ...string) (res0 []by
 		smm.Status = Complete
 	}
 	hasblocklists := len(blocklistnames) > 0
-	if hasblocklists {
+	if hasblocklists { // blocklists added even if pref.NOBLOCK is set
 		smm.Blocklists = blocklistnames
 	}
 	ansblocked := xdns.AQuadAUnspecified(ans1)
 
-	log.V("dns: fwd: 5 for %s[%s]; query %s; new-ans? %t, blocklists? %t, blocked? %t",
-		smm.ID, uid, qname, isnewans, hasblocklists, ansblocked)
+	log.V("dns: fwd: 5 for %s[%s]; query %s, smm[data: %s, status: %d]; new-ans? %t, blocklists? %t, blocked? %t",
+		smm.ID, uid, qname, smm.RData, smm.Status, isnewans, hasblocklists, ansblocked)
 
 	return res2, smm.ID, nil
 }
