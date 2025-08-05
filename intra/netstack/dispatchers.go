@@ -184,15 +184,15 @@ var _ linkDispatcher = (*readVDispatcher)(nil)
 
 // newReadVDispatcher creates a new linkDispatcher that vector reads packets from
 // fd and dispatches them to endpoint e. It assumes ownership of fd but not of e.
-func newReadVDispatcher(fd *fds, e *endpoint) (linkDispatcher, error) {
+func newReadVDispatcher(f *fds, e *endpoint) (linkDispatcher, error) {
 	d := &readVDispatcher{
 		e:   e,
 		buf: newIovecBuffer(bufcfg),
-		mgr: newSupervisor(e, fd.tun()),
+		mgr: newSupervisor(e, f.tun()),
 	}
 	d.mgr.start()
 
-	log.I("ns: dispatch: newReadVDispatcher: tun(%s)", fd)
+	log.I("ns: dispatch: newReadVDispatcher: tun(%s)", f)
 	return d, nil
 }
 
@@ -269,7 +269,7 @@ func (d *readVDispatcher) io(fds *fds) (bool, tcpip.Error) {
 		return abort, new(tcpip.ErrAborted)
 	}
 
-	if !fds.ok() {
+	if fds == nil || !fds.ok() { // nil check for nilaway
 		log.W("ns: tun(%d): dispatch: fd closed or invalid!", fds.tun())
 		return abort, new(tcpip.ErrNoSuchFile)
 	}

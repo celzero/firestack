@@ -299,7 +299,8 @@ func (e *endpoint) Swap(fd int) (err error) {
 	defer e.Unlock()
 
 	f, err := newTun(fd) // fd may be invalid (ex: -1)
-	if err != nil {
+	if err != nil || f == nil {
+		f = invalidFds // nilaway
 		err = log.EE("ns: tun: swap: (%d) err: %v / %v; using invalidfd", fd, err)
 	}
 
