@@ -571,6 +571,10 @@ func (l *simpleLogger) writelog(lvl LogLevel, at int, msg string, args ...any) {
 	}
 	if ll || cc {
 		switch lvl {
+		case VERBOSE:
+			fallthrough
+		case VVERBOSE:
+			fallthrough
 		case ERROR:
 			if _, x := caller1(at+nextframe+4, ">"); tracecaller(x) {
 				trace += x
