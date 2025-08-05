@@ -50,8 +50,13 @@ var _ stack.LinkEndpoint = (*endpoint)(nil)
 var _ stack.LinkEndpoint = (*linkFdSwap)(nil)
 var _ FdSwapper = (*linkFdSwap)(nil)
 
+// placeholder FD for whenever existing FD wrapped in struct fds is closed.
 const invalidfd int = -1
 
+// Should WritePackets return NoSuchFile error if the fd is invalid?
+const errorOnInvalidFD = false
+
+// wrapttl is the time to wait for the dispatcher to wrap up (close a previous FD).
 const waitttl = wrapttl
 
 type FdSwapper interface {
@@ -442,10 +447,13 @@ func (e *endpoint) WritePackets(pkts stack.PacketBufferList) (int, tcpip.Error) 
 	// segment can get split into 46 segments of 1420 bytes and a single 216
 	// byte segment.
 	const batchSz = 47
-	fd := e.fd()         // may have been closed
-	if fd == invalidfd { // unlikely; panic instead?
-		log.E("ns: tun(-1): WritePackets (to tun): fd invalid")
-		return 0, &tcpip.ErrNoSuchFile{}
+	fd := e.fd() // if closed, returns invalidfd
+	if fd == invalidfd {
+		log.E("ns: tun(-1): WritePackets (to tun): fd invalid (pkts: %d)", pkts.Len())
+		if errorOnInvalidFD {
+			return 0, &tcpip.ErrNoSuchFile{}
+		}
+		return 0, nil
 	}
 	batch := make([]unix.Iovec, 0, batchSz)
 	packets, written := 0, 0
