@@ -250,8 +250,7 @@ func (e *endpoint) Cur() int {
 func (e *endpoint) Stat() string {
 	fds := e.fds.Load()
 	if fds == nil {
-		// fd, age, read, written, lastRead, lastWrite
-		return "-1,0,0,0,0,0"
+		return "<nil>"
 	}
 
 	t := time.Now()
@@ -261,11 +260,11 @@ func (e *endpoint) Stat() string {
 
 	age := t.Sub(time.UnixMilli(fds.since.Load()))
 
-	return fmt.Sprintf("%d,%s,%d,%d,%s,%s",
+	return fmt.Sprintf("Fd: %d, Age: %s, R: %s, W: %s, LastRead: %s, LastWrite%s",
 		fds.tunFd, // f.tun() returns invalidfd if f.tunFd is closed
 		core.FmtPeriod(age),
-		fds.read.Load(),
-		fds.written.Load(),
+		core.FmtBytes(uint64(fds.read.Load())),
+		core.FmtBytes(uint64(fds.written.Load())),
 		core.FmtUnixMillisAsPeriod(fds.lastRead.Load()),
 		core.FmtUnixMillisAsPeriod(fds.lastWrite.Load()))
 }
