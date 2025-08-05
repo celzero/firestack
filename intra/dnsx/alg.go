@@ -1539,7 +1539,7 @@ func (t *dnsgateway) xLocked(maybeAlg netip.Addr, usestale bool, uid string, tid
 		unnated = t.maybeUndoNat64Locked(realips...)
 	} // else: send realips as is
 
-	logeif(!hasrealips && (!undidAlg || !undidPtr))("alg: dns64: for %v[%s] (didnotAlg? %t / fresh? %t / undidAlg? %t / undidPtr? %t / staleok? %t) algip(%v) => realips(%v) => unnated(%v); until: %s",
+	logeif(!hasrealips && (!usestale && (!undidAlg || !undidPtr)))("alg: dns64: for %v[%s] (didnotAlg? %t / fresh? %t / undidAlg? %t / undidPtr? %t / staleok? %t) algip(%v) => realips(%v) => unnated(%v); until: %s",
 		tids, uid, didnotAlg, fresh, undidPtr, undidAlg, usestale, unmapped, realips, unnated, until)
 
 	if len(unnated) > 0 { // unnated is already de-duplicated
@@ -1547,13 +1547,13 @@ func (t *dnsgateway) xLocked(maybeAlg netip.Addr, usestale bool, uid string, tid
 	}
 
 	if !hasrealips {
-		// when realips are empty but one of undidAlg / undidPtr is not false,
+		// when realips is empty but one of undidAlg / undidPtr is not false,
 		// it means the client code may retry re-resolving the corresponding
 		// domain to freshen up alg mapping; which is to say, sending empty
 		// realips instead of unmapped as-is is a way to signal that
 		// the alg mapping is stale.
 		if undidAlg || undidPtr {
-			return realips, undidAlg
+			return realips, undidAlg // realips is empty here
 		}
 		// no algip, no realips, no unnated;
 		// ptr + nat alg mapping do not exist / apply;
