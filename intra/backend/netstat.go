@@ -34,6 +34,7 @@ type TUNStat struct {
 	Fd       int
 	Sid      int
 	Mtu      int32
+	EpStats  string
 	PcapMode string
 }
 

@@ -29,7 +29,9 @@ import (
 	"sync"
 	"sync/atomic"
 	"syscall"
+	"time"
 
+	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/log"
 	"golang.org/x/sys/unix"
 )
@@ -70,6 +72,13 @@ type fds struct {
 	stopFd stopFd
 	tunFd  int
 
+	read      atomic.Int64 // number of bytes read
+	written   atomic.Int64 // number of bytes written
+	since     atomic.Int64 // when fd was created
+	death     atomic.Int64 // age in millis
+	lastRead  atomic.Int64 // last read time in millis
+	lastWrite atomic.Int64 // last write time in millis
+
 	closed atomic.Bool
 	once   sync.Once // ensures that stop() is called only once
 }
@@ -90,7 +99,12 @@ func newTun(fd int) (*fds, error) {
 		clos(fd)
 		return invalidFds, err
 	}
-	return &fds{stopFd: stopFd, tunFd: fd}, nil
+	f := &fds{
+		stopFd: stopFd,
+		tunFd:  fd,
+	}
+	f.since.Store(time.Now().UnixMilli())
+	return f, nil
 }
 
 func (f *fds) ok() bool {
@@ -116,10 +130,14 @@ func (f *fds) stop() {
 		f.once.Do(func() {
 			defer f.closed.Store(true)
 
+			now := time.Now().UnixMilli()
+			f.death.Store(now)
+			age := now - f.since.Load()
+
 			err1 := f.stopFd.stop()
 			err2 := syscall.Close(f.tunFd)
-			logeif(err1)("ns: dispatch: fds: stop: eve(%d) tun(%d); errs? %v %v",
-				f.stopFd.efd, f.tunFd, err1, err2)
+			logeif(err1)("ns: dispatch: fds: stop: eve(%d) tun(%d) age(%s); errs? %v %v",
+				f.stopFd.efd, f.tunFd, core.FmtMillis(age), err1, err2)
 		})
 	} else {
 		log.W("ns: dispatch: fds: stop: no-op")

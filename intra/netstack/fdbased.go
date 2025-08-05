@@ -66,6 +66,8 @@ type FdSwapper interface {
 	Swap(fd int) error
 	// Dispose closes all existing FDs.
 	Dispose() error
+	// Stat returns csv (fd, age, read, written, lastRead, lastWrite) stats.
+	Stat() string
 }
 
 type SeamlessEndpoint interface {
@@ -243,6 +245,29 @@ func createInboundDispatcher(e *endpoint, f *fds) (linkDispatcher, error) {
 
 func (e *endpoint) Cur() int {
 	return e.fd()
+}
+
+func (e *endpoint) Stat() string {
+	fds := e.fds.Load()
+	if fds == nil {
+		// fd, age, read, written, lastRead, lastWrite
+		return "-1,0,0,0,0,0"
+	}
+
+	t := time.Now()
+	if death := fds.death.Load(); death > 0 {
+		t = time.UnixMilli(death)
+	}
+
+	age := t.Sub(time.UnixMilli(fds.since.Load()))
+
+	return fmt.Sprintf("%d,%s,%d,%d,%s,%s",
+		fds.tunFd, // f.tun() returns invalidfd if f.tunFd is closed
+		core.FmtPeriod(age),
+		fds.read.Load(),
+		fds.written.Load(),
+		core.FmtUnixMillisAsPeriod(fds.lastRead.Load()),
+		core.FmtUnixMillisAsPeriod(fds.lastWrite.Load()))
 }
 
 func (e *endpoint) Dispose() (err error) {
@@ -447,7 +472,9 @@ func (e *endpoint) WritePackets(pkts stack.PacketBufferList) (int, tcpip.Error) 
 	// segment can get split into 46 segments of 1420 bytes and a single 216
 	// byte segment.
 	const batchSz = 47
-	fd := e.fd() // if closed, returns invalidfd
+	fds := e.fds.Load()
+	fd := fds.tun() // if closed, returns invalidfd
+
 	if fd == invalidfd {
 		log.E("ns: tun(-1): WritePackets (to tun): fd invalid (pkts: %d)", pkts.Len())
 		if errorOnInvalidFD {
@@ -455,9 +482,16 @@ func (e *endpoint) WritePackets(pkts stack.PacketBufferList) (int, tcpip.Error) 
 		}
 		return 0, nil
 	}
+
 	batch := make([]unix.Iovec, 0, batchSz)
 	packets, written := 0, 0
 	total := pkts.Len()
+
+	defer func() {
+		fds.written.Add(int64(written)) // update written bytes
+		fds.lastWrite.Store(time.Now().UnixMilli())
+	}()
+
 	for _, pkt := range pkts.AsSlice() {
 		views := pkt.AsSlices()
 		numIovecs := len(views)
@@ -570,9 +604,25 @@ func (e *endpoint) InjectInbound(protocol tcpip.NetworkProtocolNumber, pkt *stac
 // Unused: InjectOutobund implements stack.InjectableEndpoint.InjectOutbound.
 // InjectOutbound egresses a tun-inbound packet.
 func (e *endpoint) InjectOutbound(dest tcpip.Address, packet *buffer.View) tcpip.Error {
-	fd := e.fd()
-	log.VV("ns: tun(%d): inject-outbound (to tun) to dst(%v)", fd, dest)
-	errno := rawfile.NonBlockingWrite(fd, packet.AsSlice())
+	f := e.fds.Load()
+	fd := f.tun()
+
+	if !f.ok() {
+		log.E("ns: tun(%d): inject-outbound (to tun) to dst(%v): endpoint not attached", fd, dest)
+		if errorOnInvalidFD {
+			return &tcpip.ErrUnknownDevice{}
+		}
+		return nil // nothing to do
+	}
+
+	b := packet.AsSlice()
+	sz := int64(len(b))
+	defer f.written.Add(sz) // update written bytes
+	defer f.lastWrite.Store(time.Now().UnixMilli())
+
+	log.VV("ns: tun(%d): inject-outbound (to tun) to dst(%v) sz(%d)", fd, dest, sz)
+
+	errno := rawfile.NonBlockingWrite(fd, b)
 	return tcpip.TranslateErrno(errno)
 }
 

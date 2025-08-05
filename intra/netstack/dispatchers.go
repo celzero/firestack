@@ -289,9 +289,12 @@ func (d *readVDispatcher) io(fds *fds) (bool, tcpip.Error) {
 	// github.com/google/gvisor/blob/d59375d82/pkg/tcpip/link/fdbased/packet_dispatchers.go#L186
 	n, errno := rawfile.BlockingReadvUntilStopped(fds.eve(), fds.tun(), iov)
 
+	fds.read.Add(int64(n))                     // update read bytes
+	fds.lastRead.Store(time.Now().UnixMilli()) // update last read time
+
 	if settings.Debug {
-		log.VV("ns: tun(%d): dispatch: after %s, got(iov: %d / bytes: %d), err(%v)",
-			fds.tun(), core.FmtPeriod(time.Since(start)), len(iov), n, errno)
+		log.VV("ns: tun(%d): dispatch: after %s, got(iov: %d / bytes: %d / tot: %d), err(%v)",
+			fds.tun(), core.FmtPeriod(time.Since(start)), len(iov), n, fds.read.Load(), errno)
 	}
 
 	if n <= 0 || errno != 0 {

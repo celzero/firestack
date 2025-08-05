@@ -68,6 +68,10 @@ func FmtSecs(s int64) string {
 	return FmtPeriod(time.Duration(s) * time.Second)
 }
 
+func FmtMillis(ms int64) string {
+	return FmtPeriod(time.Duration(ms) * time.Millisecond)
+}
+
 func FmtUnixMillisAsTimestamp(ms int64) string {
 	return time.UnixMilli(ms).Format(time.Stamp)
 }
