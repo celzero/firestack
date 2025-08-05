@@ -263,25 +263,37 @@ func (d *readVDispatcher) wrapup(fds *fds, noMoreThan30s time.Duration) {
 // not thread safe (see: threadSafe).
 func (d *readVDispatcher) io(fds *fds) (bool, tcpip.Error) {
 	done := d.closed.Load()
-	log.VV("ns: tun(%d): dispatch: done? %t", fds.tun(), done)
 	if done {
+		log.W("ns: tun(%d): dispatch: done! %t", fds.tun(), done)
 		d.buf.release() // not thread safe
 		return abort, new(tcpip.ErrAborted)
 	}
 
 	if !fds.ok() {
+		log.W("ns: tun(%d): dispatch: fd closed or invalid!", fds.tun())
 		return abort, new(tcpip.ErrNoSuchFile)
 	}
 
 	iov := d.buf.nextIovecs() // not thread safe
 	if len(iov) == 0 {
+		log.E("ns: tun(%d): dispatch: iov == 0", fds.tun())
 		return abort, new(tcpip.ErrBadBuffer)
 	}
+
+	if settings.Debug {
+		log.VV("ns: tun(%d): dispatch: start iov: %d", fds.tun(), len(iov))
+	}
+
+	start := time.Now()
 
 	// github.com/google/gvisor/blob/d59375d82/pkg/tcpip/link/fdbased/packet_dispatchers.go#L186
 	n, errno := rawfile.BlockingReadvUntilStopped(fds.eve(), fds.tun(), iov)
 
-	log.VV("ns: tun(%d): dispatch: got(%d bytes), err(%v)", fds.tun(), n, errno)
+	if settings.Debug {
+		log.VV("ns: tun(%d): dispatch: after %s, got(iov: %d / bytes: %d), err(%v)",
+			fds.tun(), core.FmtPeriod(time.Since(start)), len(iov), n, errno)
+	}
+
 	if n <= 0 || errno != 0 {
 		if errno == 0 {
 			return abort, new(tcpip.ErrNoSuchFile)
@@ -291,6 +303,7 @@ func (d *readVDispatcher) io(fds *fds) (bool, tcpip.Error) {
 
 	b, ok := d.buf.pullBuffer(n) // not thread safe
 	if !ok {
+		log.E("ns: tun(%d): dispatch: pullBuffer err; n: %d", fds.tun(), n)
 		return abort, new(tcpip.ErrBadBuffer)
 	}
 
@@ -307,8 +320,18 @@ func (d *readVDispatcher) io(fds *fds) (bool, tcpip.Error) {
 		pkt.NetworkProtocolNumber = header.Ethernet(pkt.LinkHeader().Slice()).Type()
 	}
 
+	start = time.Now()
+	if settings.Debug {
+		log.VV("ns: tun(%d): dispatch: pkt sz: %d", fds.tun(), pkt.Size())
+	}
+
 	d.mgr.queuePacket(pkt, iseth)
 	d.mgr.wakeReady()
+
+	if settings.Debug {
+		log.VV("ns: tun(%d): dispatch: done after %s; pkt sz: %d",
+			fds.tun(), core.FmtPeriod(time.Since(start)), pkt.Size())
+	}
 
 	return cont, nil
 }
