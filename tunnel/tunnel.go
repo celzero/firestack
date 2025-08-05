@@ -306,6 +306,7 @@ func (t *gtunnel) Stat() (*x.NetStat, error) {
 		st.TUNSt.Sid = t.sid.Load() // session id (tunnel fd)
 		st.TUNSt.Mtu = int32(t.ep.MTU())
 		st.TUNSt.PcapMode = t.pcapio.mode()
+		st.TUNSt.EpStats = t.ep.Stat()
 
 		if t := t.hdl.TCP(); t != nil {
 			st.RDNSIn.OpenConnsTCP = t.OpenConns()
