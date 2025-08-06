@@ -60,14 +60,43 @@ const errorOnInvalidFD = false
 const waitttl = wrapttl
 
 type FdSwapper interface {
-	// Cur returns the current FD.
-	Cur() int
 	// Swap closes existing FDs; uses new fd.
 	Swap(fd int) error
 	// Dispose closes all existing FDs.
 	Dispose() error
-	// Stat returns csv (fd, age, read, written, lastRead, lastWrite) stats.
-	Stat() string
+	// Stat returns EpStat (fd, age, read, written, lastRead, lastWrite).
+	Stat() EpStat
+}
+
+type EpStat struct {
+	// Fd is the file descriptor of the endpoint.
+	Fd int
+	// Alive indicates whether the endpoint is alive.
+	Alive bool
+	// Age is the age of the endpoint.
+	Age string
+	// Read is the number of bytes read from the endpoint.
+	Read string
+	// Written is the number of bytes written to the endpoint.
+	Written string
+	// LastRead is the last time the endpoint was read from.
+	LastRead string
+	// LastWrite is the last time the endpoint was written to.
+	LastWrite string
+}
+
+func (s EpStat) String() string {
+	if s.Fd == 0 {
+		return "<nil>"
+	}
+	return fmt.Sprintf("Fd: %d,Alive: %t,Age: %s,R: %s,W: %s,LastRead: %s,LastWrite: %s",
+		s.Fd,
+		s.Alive,
+		s.Age,
+		s.Read,
+		s.Written,
+		s.LastRead,
+		s.LastWrite)
 }
 
 type SeamlessEndpoint interface {
@@ -243,14 +272,10 @@ func createInboundDispatcher(e *endpoint, f *fds) (linkDispatcher, error) {
 	return d, nil
 }
 
-func (e *endpoint) Cur() int {
-	return e.fd()
-}
-
-func (e *endpoint) Stat() string {
+func (e *endpoint) Stat() (zz EpStat) {
 	fds := e.fds.Load()
 	if fds == nil {
-		return "<nil>"
+		return
 	}
 
 	t := time.Now()
@@ -260,13 +285,15 @@ func (e *endpoint) Stat() string {
 
 	age := t.Sub(time.UnixMilli(fds.since.Load()))
 
-	return fmt.Sprintf("Fd: %d, Age: %s, R: %s, W: %s, LastRead: %s, LastWrite%s",
-		fds.tunFd, // f.tun() returns invalidfd if f.tunFd is closed
-		core.FmtPeriod(age),
-		core.FmtBytes(uint64(fds.read.Load())),
-		core.FmtBytes(uint64(fds.written.Load())),
-		core.FmtUnixMillisAsPeriod(fds.lastRead.Load()),
-		core.FmtUnixMillisAsPeriod(fds.lastWrite.Load()))
+	return EpStat{
+		Fd:        fds.tunFd, // f.tun() returns invalidfd if f.tunFd is closed
+		Alive:     !fds.closed.Load(),
+		Age:       core.FmtPeriod(age),
+		Read:      core.FmtBytes(uint64(fds.read.Load())),
+		Written:   core.FmtBytes(uint64(fds.written.Load())),
+		LastRead:  core.FmtUnixMillisAsPeriod(fds.lastRead.Load()),
+		LastWrite: core.FmtUnixMillisAsPeriod(fds.lastWrite.Load()),
+	}
 }
 
 func (e *endpoint) Dispose() (err error) {

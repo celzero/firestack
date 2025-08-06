@@ -192,7 +192,7 @@ func NewGTunnel(pctx context.Context, fd, mtu int, l3 string, hdl netstack.GConn
 	}
 	netstack.Route(stack, l3)
 
-	who := strconv.Itoa(ep.Cur())
+	who := strconv.Itoa(ep.Stat().Fd)
 
 	var nic tcpip.NICID
 	// Enabled() may temporarily return false when Up() is in progress.
@@ -302,11 +302,10 @@ func (t *gtunnel) Stat() (*x.NetStat, error) {
 	if err == nil && st != nil {
 		st.TUNSt.Open = !t.closed.Load()
 		st.TUNSt.Up = t.ep.IsAttached()
-		st.TUNSt.Fd = t.ep.Cur()
 		st.TUNSt.Sid = t.sid.Load() // session id (tunnel fd)
 		st.TUNSt.Mtu = int32(t.ep.MTU())
 		st.TUNSt.PcapMode = t.pcapio.mode()
-		st.TUNSt.EpStats = t.ep.Stat()
+		st.TUNSt.EpStats = t.ep.Stat().String()
 
 		if t := t.hdl.TCP(); t != nil {
 			st.RDNSIn.OpenConnsTCP = t.OpenConns()

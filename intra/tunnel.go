@@ -144,7 +144,7 @@ func NewTunnel(fd, mtu int, fakedns string, dtr DefaultDNS, bdg Bridge) (t Tunne
 
 	const dualstack = settings.IP46
 
-	log.SetConsole(&clogAdapter{bdg})
+	log.SetConsole(ctx, &clogAdapter{bdg})
 	natpt := x64.NewNatPt()
 	proxies := ipn.NewProxifier(ctx, dualstack, mtu, bdg, bdg)
 	services := rnet.NewServices(ctx, proxies, bdg, bdg)
@@ -293,6 +293,11 @@ func (t *rtunnel) GetServices() (x.Services, error) {
 }
 
 func (t *rtunnel) Stat() (*x.NetStat, error) {
+	if settings.Debug {
+		// if debugging, bypass the barrier
+		return t.stat()
+	}
+
 	v, err := bar.DoIt("stat", func() (*x.NetStat, error) {
 		return t.stat()
 	})

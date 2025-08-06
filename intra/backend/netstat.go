@@ -31,9 +31,8 @@ type NICStat struct {
 type TUNStat struct {
 	Open     bool
 	Up       bool
-	Fd       int
-	Sid      int
 	Mtu      int32
+	Sid      int
 	EpStats  string
 	PcapMode string
 }
