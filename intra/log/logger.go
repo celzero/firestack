@@ -36,6 +36,7 @@ import (
 	"fmt"
 	golog "log"
 	"os"
+	"reflect"
 	"runtime"
 	"strings"
 	"sync"
@@ -84,7 +85,10 @@ type simpleLogger struct {
 
 type atom[T any] atomic.Value
 
-func (a *atom[T]) get() T {
+func (a *atom[T]) get() (zz T) {
+	if a == nil {
+		return
+	}
 	aa := (*atomic.Value)(a)
 	return aa.Load().(T)
 }
@@ -262,7 +266,7 @@ func (l *simpleLogger) SetConsoleLevel(n LogLevel) {
 func (l *simpleLogger) SetConsole(c Console) {
 	l.clearStCounts()
 
-	l.c.set(c)
+	l.c.set(c) // c may point to nil impl
 }
 
 func (l *simpleLogger) clearStCounts() {
@@ -289,7 +293,7 @@ func (l *simpleLogger) consoleDispatcher() {
 			continue
 		}
 		load := (len(l.cmsgC) / cap(l.cmsgC) * 100) // load percentage
-		if c := l.c.get(); c != nil {               // look for l.c on every msg
+		if c := l.c.get(); c != nil && !IsNil(c) {  // look for l.c on every msg
 			switch m.t {
 			case NONE:
 				// drop
@@ -390,7 +394,7 @@ func (l *simpleLogger) emitStack(at int, msgs ...string) {
 		}
 		if !sendtoconsole {
 			l.err(at+nextframe, msg)
-		} else if c != nil {
+		} else if c != nil && !IsNil(c) {
 			// c.Stack() on the same go routine, since
 			// the caller (ex: core.Recover) may exit
 			// immediately once simpleLogger.Stack() returns
@@ -663,4 +667,20 @@ top:
 		tt = tt * 30 / 100 // allow upto 30% of ticks
 	}
 	return uint16(v) > tt
+}
+
+// Cannot import pkg core here.
+// from: intra/core/typ.go:IsNil
+func IsNil(x any) bool {
+	// from: stackoverflow.com/a/76595928
+	if x == nil {
+		return true
+	}
+	v := reflect.ValueOf(x)
+	k := v.Kind()
+	switch k {
+	case reflect.Pointer, reflect.UnsafePointer, reflect.Interface, reflect.Chan, reflect.Func, reflect.Map, reflect.Slice:
+		return v.IsNil()
+	}
+	return false
 }

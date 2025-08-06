@@ -32,6 +32,7 @@
 package log
 
 import (
+	"context"
 	"errors"
 	"fmt"
 )
@@ -76,9 +77,12 @@ func SetConsoleLevel(level LogLevel) {
 }
 
 // SetConsole sets external console to redirect log output to.
-func SetConsole(c Console) {
+func SetConsole(consoleCtx context.Context, c Console) {
 	Glogger.SetConsole(c)
 
+	context.AfterFunc(consoleCtx, func() {
+		Glogger.SetConsole(nil) // reset console to nil
+	})
 }
 
 func Of(tag string, l LogFn2) LogFn {
