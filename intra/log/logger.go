@@ -601,8 +601,9 @@ func (l *simpleLogger) writelog(lvl LogLevel, at int, msg string, args ...any) {
 			}
 			fallthrough
 		case DEBUG:
-			_, x := caller1(at+nextframe+1, ">")
-			trace += x
+			if _, x := caller1(at+nextframe+1, ">"); tracecaller(x) {
+				trace += x
+			}
 		}
 		msg = l.msgstr(lvl, trace+file1+msg, args...)
 		if ll {
