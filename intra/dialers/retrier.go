@@ -238,9 +238,10 @@ func (r *retrier) SetKeepAlive(y bool) error {
 	return syscall.EINVAL
 }
 
-func (r *retrier) dialStratLocked() (strat int32, err error) {
+func (r *retrier) dialStratLocked() (strat int32, canRetry bool, err error) {
 	auto := r.dialerOpts.Strat == settings.SplitAuto
 	retryStrat := r.dialerOpts.Retry
+	canRetry = retryStrat != settings.RetryNever
 	split := r.dialerOpts.Strat != settings.SplitNever
 
 	switch retryStrat {
@@ -307,7 +308,7 @@ func (r *retrier) dialerID() string {
 func (r *retrier) dialLocked() error {
 	clos(r.conn) // close existing connection, if any
 
-	strat, err := r.dialStratLocked()
+	strat, canRetry, err := r.dialStratLocked()
 	if err != nil {
 		return err
 	}
@@ -322,10 +323,16 @@ func (r *retrier) dialLocked() error {
 		r.conn = nil
 	}
 
-	r.timeout = calcTimeout(rtt)
+	if canRetry {
+		r.timeout = calcTimeout(rtt)
+	} else {
+		// if retries are disabled, then do not aggressively timeout
+		// as there's nothing else for the retrier to do.
+		r.timeout = 0
+	}
 
-	logeif(err)("retrier: dial(%s) %s=>%s; strat: %d (mult? %d %T), rtt: %dms; err? %v",
-		r.dialerID(), laddr(c), r.raddr, strat, len(r.dialers), c, rtt.Milliseconds(), err)
+	logeif(err)("retrier: dial(%s) %s=>%s; strat: %d+%d (mult? %d %T), rtt: %dms; err? %v",
+		r.dialerID(), laddr(c), r.raddr, strat, r.dialerOpts.Retry, len(r.dialers), c, rtt.Milliseconds(), err)
 
 	return err
 }
@@ -477,7 +484,7 @@ func (r *retrier) Read(buf []byte) (n int, err error) {
 					err = nil          // return no error
 				}
 				logeor(retryReadErr, note)("retrier: read: %s: #%d + (mult? %d %T / c: %d): [%s<=%s]; t: %s; b:%d/%d; err? %v",
-					r.dialerID(), r.retryCount, len(r.dialers), c, r.nextDialerIdx, core.FmtPeriod(r.timeout), laddr(c), r.raddr, n, len(buf), retryReadErr)
+					r.dialerID(), r.retryCount, len(r.dialers), c, r.nextDialerIdx, laddr(c), r.raddr, core.FmtPeriod(r.timeout), n, len(buf), retryReadErr)
 			}
 			if c != nil && core.IsNotNil(c) {
 				// caller might have set read or write deadlines before the retry
@@ -485,7 +492,7 @@ func (r *retrier) Read(buf []byte) (n int, err error) {
 				_ = c.SetWriteDeadline(r.writeDeadline)
 			}
 			logeor(err, note)("retrier: read: %s: #%d + (mult? %d / %d) [%s<=%s]; t: %s; b: %d/%d; err? %v",
-				r.dialerID(), r.retryCount, len(r.dialers), r.nextDialerIdx, core.FmtPeriod(r.timeout), laddr(c), r.raddr, n, len(buf), err)
+				r.dialerID(), r.retryCount, len(r.dialers), r.nextDialerIdx, laddr(c), r.raddr, core.FmtPeriod(r.timeout), n, len(buf), err)
 			r.tee = nil // discard teed data
 			return
 		}
