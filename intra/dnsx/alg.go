@@ -669,14 +669,14 @@ func (t *dnsgateway) fromInternalCache(tid, uid string, q *dns.Msg, typ iptype) 
 		cachedips = cached6s
 	}
 
-	ttl := uint32(until.Seconds())
-	log.VV("alg: response for %s by %s[%s] (v4? %t / v6? %t) realip; in cache? %v [until: %d] (or stale? %v)",
-		domain, tid, uid, a, aaaa, cachedips, ttl, stale)
+	ttl := int64(until / time.Second)
+	log.VV("alg: response for %s by %s[%s] (v4? %t / v6? %t) realip; in cache? %v [until: %s] (or stale? %v)",
+		domain, tid, uid, a, aaaa, cachedips, core.FmtSecs(ttl), stale)
 
 	if len(cachedips) <= 0 {
 		return nil, errNilCacheResponse
 	}
-	return xdns.AQuadAForQueryTTL(q, ttl, cachedips...)
+	return xdns.AQuadAForQueryTTL(q, uint32(ttl), cachedips...)
 }
 
 func (t *dnsgateway) qp(t1 Transport, uid, network string, q *dns.Msg, innersummary *x.DNSSummary) (ans *dns.Msg, err error) {

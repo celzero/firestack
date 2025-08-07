@@ -753,8 +753,8 @@ func (t *transport) Query(network string, q *dns.Msg, smm *x.DNSSummary) (r *dns
 	if err != nil {
 		smm.Msg = err.Error()
 	}
-	log.V("doh: (p/px/via %s/%s/%s); a:%d/sz:%d/pad:%d, q: %s, data: %s, via: %s, err? %v",
-		network, pid, rpid, xdns.Len(r), xdns.Size(r), xdns.EDNS0PadLen(r), smm.QName, smm.RData, smm.PID, err)
+	log.V("doh: (p/px/via %s/%s/%s); a:%d/sz:%d/pad:%d, q: %s:%s, data: %s, via: %s, err? %v",
+		network, pid, rpid, xdns.Len(r), xdns.Size(r), xdns.EDNS0PadLen(r), smm.QName, smm.QType, smm.RData, smm.PID, err)
 	return r, err
 }
 
