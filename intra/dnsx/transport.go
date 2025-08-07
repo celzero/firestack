@@ -1102,9 +1102,9 @@ func Categorize(ts []Transport) (best []Transport, preferred []Transport, recove
 		switch t.Status() {
 		case Complete:
 			best = append(best, t)
-		case Start, NoResponse:
+		case Start, NoResponse, BadQuery:
 			preferred = append(preferred, t)
-		case BadResponse, BadQuery:
+		case BadResponse:
 			preferred = append(preferred, t)
 		case InternalError, TransportError, Unknown:
 			recoverables = append(recoverables, t)
