@@ -159,6 +159,11 @@ func (t *plus) ordered() ([]Transport, error) {
 	ord = append(ord, preferred...)
 	ord = append(ord, recov...)
 
+	ord = core.CopyUniq(ord)
+	if len(ord) < plusMaxTries {
+		ord = core.CopyUniq(ord, errored)
+	}
+
 	prev := ord
 	strat := settings.PlusStrat.Load()
 	switch strat {
@@ -173,11 +178,12 @@ func (t *plus) ordered() ([]Transport, error) {
 	}
 
 	if len(ord) <= 0 {
-		log.W("plus: zero transports avail [exp: %d]: errored: %v / ended: %v",
-			expected, errored, ended)
+		log.W("plus: strat %d: zero transports avail [exp: %d]: sys? %s / pref: %s / errored: %v / ended: %v",
+			strat, expected, idstr(sys), infcsv(preferred...), infcsv(errored...), infcsv(ended...))
 		return nil, errNoSuchTransport
 	} else if len(ord) < len(prev) {
-		log.VV("plus: filtered %d < chosen %d; chosen: %v", len(ord), len(prev), ord)
+		log.VV("plus: strat %d: filtered %d < chosen %d; chosen: %s / pref: %v",
+			strat, len(ord), len(prev), infcsv(ord...), infcsv(preferred...))
 	}
 
 	return ord, nil
@@ -205,7 +211,7 @@ func (t *plus) forward(network string, q *dns.Msg, outSmm *x.DNSSummary, all ...
 	defer func() {
 		fillSummary(finalsmm, outSmm)
 		if finalans != nil { // suppress errors
-			log.D("plus: suppressing errors for %s:%d[%s]: %v", qname, qtype, finalsmm.RData, errs)
+			log.D("plus: suppressing errors for %s:%d[%s]: %v", qname, qtyp, outSmm.RData, errs)
 			errs = nil
 		}
 	}()

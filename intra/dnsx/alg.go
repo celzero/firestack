@@ -1959,6 +1959,14 @@ func idstr(t Transport) string {
 	return t.ID().V()
 }
 
+func infcsv(ts ...Transport) string {
+	var s []string
+	for _, t := range ts {
+		s = append(s, idstr(t)+":"+getaddrstr(t))
+	}
+	return strings.Join(s, ",")
+}
+
 func getaddrstr(t Transport) string {
 	if t == nil {
 		return notransport
