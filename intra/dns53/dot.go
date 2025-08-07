@@ -345,8 +345,8 @@ func (t *dot) Query(network string, q *dns.Msg, smm *x.DNSSummary) (ans *dns.Msg
 	smm.Status = status
 	t.est.Add(smm.Latency)
 
-	log.V("dot: len(res): a:%d/sz:%d/pad:%d, data: %s, via: %s, err? %v",
-		xdns.Len(ans), xdns.Size(ans), xdns.EDNS0PadLen(ans), smm.RData, smm.PID, err)
+	log.V("dot: len(res): fro %s:%d a:%d/sz:%d/pad:%d, data: %s, via: %s, err? %v",
+		smm.QName, smm.QType, xdns.Len(ans), xdns.Size(ans), xdns.EDNS0PadLen(ans), smm.RData, smm.PID, err)
 
 	return
 }
