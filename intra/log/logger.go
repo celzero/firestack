@@ -48,6 +48,7 @@ type Logger interface {
 	SetLevel(level LogLevel)
 	SetConsoleLevel(level LogLevel)
 	SetConsole(c Console)
+	UnsetConsole(c Console)
 	Usr(msg string)
 	Printf(msg string, args ...any)
 	VeryVerbosef(at int, msg string, args ...any)
@@ -94,8 +95,19 @@ func (a *atom[T]) get() (zz T) {
 }
 
 func (a *atom[T]) set(t T) {
+	if a == nil {
+		return
+	}
 	aa := (*atomic.Value)(a)
 	aa.Store(t)
+}
+
+func (a *atom[T]) cas(old T, new T) bool {
+	if a == nil {
+		return false
+	}
+	aa := (*atomic.Value)(a)
+	return aa.CompareAndSwap(old, new)
 }
 
 const pcbuckets = 512
@@ -172,6 +184,15 @@ const defaultLevel = INFO
 const defaultClevel = STACKTRACE
 
 var _ Logger = (*simpleLogger)(nil)
+var _ Console = (*noopclog)(nil)
+
+// noopclog is a no-op Console logger that does nothing.
+type noopclog struct{}
+
+func (z *noopclog) Log(level LogLevel, msg string) {}
+
+// default console is a no-op
+var zzclog = &noopclog{}
 
 // runtime crashes "E Go ..." are sent to logd / /dev/log from here:
 // github.com/golang/go/blob/3fd729b2a1/src/runtime/write_err_android.go#L13
@@ -226,6 +247,7 @@ func defaultLogger() *simpleLogger {
 		clevel:  defaultClevel,
 		cmsgC:   make(chan *conMsg, consoleChSize),
 		stcount: make(map[string]uint32),
+		c:       *newclog(), // zero console
 		// gomobile pipes stderr & stdout to logcat
 		// github.com/golang/mobile/blob/fa72addaaa/internal/mobileinit/mobileinit_android.go#L74-L92
 		e: golog.New(os.Stderr, "", defaultFlags),
@@ -234,6 +256,12 @@ func defaultLogger() *simpleLogger {
 	}
 	go l.consoleDispatcher()
 	return l
+}
+
+func newclog() *atom[Console] {
+	a := new(atom[Console])
+	a.set(zzclog) // default console is a no-op
+	return a      // escape stack
 }
 
 // NewLogger creates a new Glogger with the given tag.
@@ -266,7 +294,16 @@ func (l *simpleLogger) SetConsoleLevel(n LogLevel) {
 func (l *simpleLogger) SetConsole(c Console) {
 	l.clearStCounts()
 
+	if c == nil || IsNil(c) {
+		c = zzclog // no-op console
+	}
 	l.c.set(c) // c may point to nil impl
+}
+
+func (l *simpleLogger) UnsetConsole(c Console) {
+	l.clearStCounts()
+
+	l.c.cas(c, zzclog) // reset console to no-op
 }
 
 func (l *simpleLogger) clearStCounts() {
@@ -293,7 +330,7 @@ func (l *simpleLogger) consoleDispatcher() {
 			continue
 		}
 		load := (len(l.cmsgC) / cap(l.cmsgC) * 100) // load percentage
-		if c := l.c.get(); c != nil && !IsNil(c) {  // look for l.c on every msg
+		if c := l.c.get(); c != nil {               // look for l.c on every msg
 			switch m.t {
 			case NONE:
 				// drop
@@ -394,7 +431,7 @@ func (l *simpleLogger) emitStack(at int, msgs ...string) {
 		}
 		if !sendtoconsole {
 			l.err(at+nextframe, msg)
-		} else if c != nil && !IsNil(c) {
+		} else if c != nil {
 			// c.Stack() on the same go routine, since
 			// the caller (ex: core.Recover) may exit
 			// immediately once simpleLogger.Stack() returns

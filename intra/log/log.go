@@ -81,7 +81,7 @@ func SetConsole(consoleCtx context.Context, c Console) {
 	Glogger.SetConsole(c)
 
 	context.AfterFunc(consoleCtx, func() {
-		Glogger.SetConsole(nil) // reset console to nil
+		Glogger.UnsetConsole(c) // reset console to nil
 	})
 }
 
