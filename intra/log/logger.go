@@ -612,16 +612,21 @@ func (l *simpleLogger) writelog(lvl LogLevel, at int, msg string, args ...any) {
 	}
 	if ll || cc {
 		switch lvl {
+		case USR, STACKTRACE, NONE: // no-op
 		case VVERBOSE:
-			if _, x := caller1(at+nextframe+6, ">"); tracecaller(x) {
+			if _, x := caller1(at+nextframe+7, ">"); tracecaller(x) {
 				trace += x
 			}
 			fallthrough
 		case VERBOSE:
-			if _, x := caller1(at+nextframe+5, ">"); tracecaller(x) {
+			if _, x := caller1(at+nextframe+6, ">"); tracecaller(x) {
 				trace += x
 			}
 			fallthrough
+		case DEBUG:
+			if _, x := caller1(at+nextframe+5, ">"); tracecaller(x) {
+				trace += x
+			}
 		case ERROR:
 			if _, x := caller1(at+nextframe+4, ">"); tracecaller(x) {
 				trace += x
@@ -637,7 +642,7 @@ func (l *simpleLogger) writelog(lvl LogLevel, at int, msg string, args ...any) {
 				trace += x
 			}
 			fallthrough
-		case DEBUG:
+		default:
 			if _, x := caller1(at+nextframe+1, ">"); tracecaller(x) {
 				trace += x
 			}
