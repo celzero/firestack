@@ -96,17 +96,22 @@ func (a *atom[T]) get() (zz T) {
 	return zz
 }
 
-func (a *atom[T]) set(t T) {
+func (a *atom[T]) set(t T) (ok bool) {
 	if a == nil {
 		return
 	}
-	if IsNil(t) {
+	if isNil(t) {
 		zz := &atom[T]{}
 		*a = *zz
 		return
 	}
+	old := a.get()
+	if !typeEq(old, t) {
+		r := &atom[T]{}
+		*a = *r
+	}
 	aa := (*atomic.Value)(a)
-	aa.Store(t)
+	return aa.CompareAndSwap(old, t)
 }
 
 const pcbuckets = 512
@@ -304,7 +309,7 @@ func (l *simpleLogger) consoleDispatcher() {
 			continue
 		}
 		load := (len(l.cmsgC) / cap(l.cmsgC) * 100) // load percentage
-		if c := l.c.get(); c != nil && !IsNil(c) {  // look for l.c on every msg
+		if c := l.c.get(); c != nil && !isNil(c) {  // look for l.c on every msg
 			switch m.t {
 			case NONE:
 				// drop
@@ -405,7 +410,7 @@ func (l *simpleLogger) emitStack(at int, msgs ...string) {
 		}
 		if !sendtoconsole {
 			l.err(at+nextframe, msg)
-		} else if c != nil && !IsNil(c) {
+		} else if c != nil && !isNil(c) {
 			// c.Stack() on the same go routine, since
 			// the caller (ex: core.Recover) may exit
 			// immediately once simpleLogger.Stack() returns
@@ -687,8 +692,8 @@ top:
 }
 
 // Cannot import pkg core here.
-// from: intra/core/typ.go:IsNil
-func IsNil(x any) bool {
+// from: intra/core/typ.go:isNil
+func isNil(x any) bool {
 	// from: stackoverflow.com/a/76595928
 	if x == nil {
 		return true
@@ -700,4 +705,14 @@ func IsNil(x any) bool {
 		return v.IsNil()
 	}
 	return false
+}
+
+// from: intra/core/typ.go:typeEq
+func typeEq(a, b any) bool {
+	if isNil(a) {
+		return false
+	} else if isNil(b) {
+		return false
+	}
+	return reflect.TypeOf(a) == reflect.TypeOf(b)
 }
