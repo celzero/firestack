@@ -16,8 +16,10 @@ func Test192(tst *testing.T) {
 	t.Add(StrOf("1.1.1.0/24"), StrOf("*:80"))
 	t.Add(StrOf("192.1.0.0/16"), StrOf("app1921:80"))
 	t.Set(StrOf("192.2.0.0/16"), StrOf("app1922:0"))
+	t.Set(StrOf("192.2.0.0/16"), StrOf("app1922:unset"))
 	t.Add(StrOf("192.1.1.1/32"), StrOf("app192111:0"))
 	t.Add(StrOf("0.0.0.0/0"), StrOf("test0000"))
+	t.Add(StrOf("192.0.0.0/8"), StrOf("app192:443"))
 
 	g8, err := t.Get(StrOf("192.0.0.0/8"))
 	ko(tst, err)
