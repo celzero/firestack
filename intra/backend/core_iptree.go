@@ -457,8 +457,8 @@ func (c *iptree) routesLike(cidr, like string) string {
 			if !strings.Contains(s, like) {
 				return true // next
 			}
-			all := strings.Split(s, Vsep) // grab all occurrences of v in csv s
-			for _, val := range all {
+			// grab all occurrences of v in csv s
+			for val := range strings.SplitSeq(s, Vsep) {
 				if strings.HasPrefix(val, like) {
 					rt = append(rt, val)
 				}
@@ -491,8 +491,8 @@ func (c *iptree) valuesLike(cidr, like string) string {
 			if !strings.Contains(s, like) {
 				return true // next
 			}
-			all := strings.Split(s, Vsep) // grab all occurrences of v in csv s
-			for _, val := range all {
+			// grab all occurrences of v in csv s
+			for val := range strings.SplitSeq(s, Vsep) {
 				if strings.HasPrefix(val, like) {
 					vt = append(vt, val)
 				}
