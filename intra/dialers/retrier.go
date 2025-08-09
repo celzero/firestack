@@ -126,8 +126,8 @@ func (r *retrier) retryCompleted() bool {
 	return closed(r.retryDoneCh)
 }
 
-func (r *retrier) canRetryLocked() bool {
-	return r.dialerOpts.Retry != settings.RetryNever && r.retryCount < maxRetryCount
+func (r *retrier) canRetry() bool {
+	return r.dialerOpts.Retry != settings.RetryNever
 }
 
 // Given rtt of a successful socket connection (SYN sent - SYNACK received),
@@ -238,10 +238,9 @@ func (r *retrier) SetKeepAlive(y bool) error {
 	return syscall.EINVAL
 }
 
-func (r *retrier) dialStratLocked() (strat int32, canRetry bool, err error) {
+func (r *retrier) dialStratLocked() (strat int32, err error) {
 	auto := r.dialerOpts.Strat == settings.SplitAuto
 	retryStrat := r.dialerOpts.Retry
-	canRetry = retryStrat != settings.RetryNever
 	split := r.dialerOpts.Strat != settings.SplitNever
 
 	switch retryStrat {
@@ -308,7 +307,7 @@ func (r *retrier) dialerID() string {
 func (r *retrier) dialLocked() error {
 	clos(r.conn) // close existing connection, if any
 
-	strat, canRetry, err := r.dialStratLocked()
+	strat, err := r.dialStratLocked()
 	if err != nil {
 		return err
 	}
@@ -323,7 +322,7 @@ func (r *retrier) dialLocked() error {
 		r.conn = nil
 	}
 
-	if canRetry {
+	if r.canRetry() {
 		r.timeout = calcTimeout(rtt)
 	} else {
 		// if retries are disabled, then do not aggressively timeout
@@ -425,6 +424,9 @@ func (r *retrier) retryWriteReadLocked(buf []byte) (int, error) {
 		r.dialerID(), len(r.dialers), newConn, laddr(newConn), r.raddr, nw, len(r.tee), readdone, writedone, core.FmtTimeAsPeriod(r.readDeadline), core.FmtTimeAsPeriod(r.writeDeadline))
 
 	newConn.SetReadDeadline(time.Now().Add(r.timeout))
+	// all of buf was written to c
+	// require a response within a short timeout on r.conn (same as newConn)
+	r.shorterReadDeadlineForRetryLocked()
 	return newConn.Read(buf)
 }
 
@@ -471,7 +473,7 @@ func (r *retrier) Read(buf []byte) (n int, err error) {
 
 			retryReadErr := err
 			// retry on errs like timeouts or connection resets
-			for (c == nil || core.IsNil(c) || retryReadErr != nil) && r.canRetryLocked() {
+			for (c == nil || core.IsNil(c) || retryReadErr != nil) && (r.canRetry() && r.retryCount < maxRetryCount) {
 				r.retryCount++
 
 				n, retryReadErr = r.retryWriteReadLocked(buf)
@@ -525,17 +527,22 @@ func (r *retrier) teedFirstWrite(b []byte) (n int, firstWrite, didAttemptWrite b
 		// capture first write, aka "hello"
 		r.tee = append(r.tee, b...)
 		didAttemptWrite = true
-
 		// all of b was written to r.tee if not to c
 		// require a response or another write within a short timeout.
-		if r.dialerOpts.Retry != settings.RetryNever {
-			_ = c.SetReadDeadline(r.readDeadline)
-		} else {
-			_ = c.SetReadDeadline(time.Now().Add(r.timeout))
-		}
+		r.shorterReadDeadlineForRetryLocked()
 	}
 
 	return
+}
+
+func (r *retrier) shorterReadDeadlineForRetryLocked() {
+	c := r.conn
+	if r.timeout > 0 && r.canRetry() {
+		_ = c.SetReadDeadline(time.Now().Add(r.timeout))
+	} else {
+		// if timeout is set to 0, then use client requested deadline
+		_ = c.SetReadDeadline(r.readDeadline)
+	}
 }
 
 // Write data in b to retrier's underlying conn, r.conn
