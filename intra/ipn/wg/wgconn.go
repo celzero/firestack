@@ -319,6 +319,30 @@ again:
 	return fns, uint16(port), nil
 }
 
+func (s *StdNetBind) Pause() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.blackhole4 = true
+	s.blackhole6 = true
+
+	log.I("wg: bind: %s pausing... v4? %t v6? %t", s.id, s.ipv4 != nil, s.ipv6 != nil)
+
+	return true
+}
+
+func (s *StdNetBind) Resume() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.blackhole4 = false
+	s.blackhole6 = false
+
+	log.I("wg: bind: %s resuming... v4? %t v6? %t", s.id, s.ipv4 != nil, s.ipv6 != nil)
+
+	return true
+}
+
 func (s *StdNetBind) Close() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

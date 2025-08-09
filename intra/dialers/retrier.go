@@ -537,7 +537,7 @@ func (r *retrier) teedFirstWrite(b []byte) (n int, firstWrite, didAttemptWrite b
 
 func (r *retrier) shorterReadDeadlineForRetryLocked() {
 	c := r.conn
-	if r.timeout > 0 && r.canRetry() {
+	if r.timeout > 0 {
 		_ = c.SetReadDeadline(time.Now().Add(r.timeout))
 	} else {
 		// if timeout is set to 0, then use client requested deadline

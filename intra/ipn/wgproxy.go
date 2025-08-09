@@ -146,6 +146,8 @@ type wgtun struct {
 type wgconn interface {
 	conn.Bind
 	RemoteAddr() netip.AddrPort
+	Pause() bool
+	Resume() bool
 }
 
 var _ WgProxy = (*wgproxy)(nil)
@@ -1300,20 +1302,33 @@ func (h *wgtun) Status() int {
 }
 
 // Pause implements x.Proxy.
-func (h *wgproxy) Pause() bool {
+func (h *wgproxy) Pause() (paused bool) {
+	defer func() {
+		if paused {
+			h.wgep.Pause()
+		}
+	}()
+
 	st := h.status.Load()
 	if st == END {
 		log.W("wg: %s pause called when stopped", h.tag())
 		return false
 	}
 
-	ok := h.status.Cas(st, TPU)
-	log.I("wg: %s paused? %t", h.tag(), ok)
-	return ok
+	paused = h.status.Cas(st, TPU)
+	log.I("wg: %s paused? %t", h.tag(), paused)
+
+	return
 }
 
 // Resume implements x.Proxy.
-func (h *wgproxy) Resume() bool {
+func (h *wgproxy) Resume() (resumed bool) {
+	defer func() {
+		if resumed {
+			h.wgep.Resume()
+		}
+	}()
+
 	st := h.status.Load()
 	if st != TPU {
 		log.W("wg: %s resume called when not paused; status %d", h.tag(), st)
@@ -1321,9 +1336,10 @@ func (h *wgproxy) Resume() bool {
 	}
 
 	go h.Refresh() // reconnect
-	ok := h.status.Cas(st, TUP)
-	log.I("wg: %s resumed? %t", h.tag(), ok)
-	return ok
+	resumed = h.status.Cas(st, TUP)
+	log.I("wg: %s resumed? %t", h.tag(), resumed)
+
+	return
 }
 
 // DNS implements x.Proxy.

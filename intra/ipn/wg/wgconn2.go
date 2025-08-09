@@ -468,6 +468,29 @@ func (s *StdNetBind2) BatchSize() int {
 	return 1
 }
 
+func (s *StdNetBind2) Pause() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.blackhole4 = true
+	s.blackhole6 = true
+
+	log.I("wg: bind2: %s pausing... v4? %t, v6? %t", s.id, s.ipv4 != nil, s.ipv6 != nil)
+	return true
+}
+
+func (s *StdNetBind2) Resume() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.blackhole4 = false
+	s.blackhole6 = false
+
+	log.I("wg: bind2: %s resuming... v4? %t, v6? %t", s.id, s.ipv4 != nil, s.ipv6 != nil)
+
+	return true
+}
+
 func (s *StdNetBind2) Close() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
