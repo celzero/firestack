@@ -468,6 +468,12 @@ func (px *proxifier) ProxyTo(ipp netip.AddrPort, uid string, pids []string) (_ P
 		}
 		logev(err)("proxy: pin: %s+%s; pin pid0: %s (stalled? %ds); err? %v",
 			uid, ippstr, pids[0], stalledSec, err)
+		st := p.Status()
+		if st == END {
+			return nil, core.OneErr(err, errProxyStopped)
+		} else if st == TPU {
+			return nil, core.OneErr(err, errProxyPaused)
+		}
 		// alwaysPin is set to true, so wipe out err; return p, even if err is not nil
 		if alwaysPin && p != nil {
 			return p, nil
@@ -492,7 +498,7 @@ func (px *proxifier) ProxyTo(ipp netip.AddrPort, uid string, pids []string) (_ P
 		p, err := px.pinID(uid, ipp, pinnedpid) // repin
 		if p != nil && err == nil && hasroute(p, ippstr) {
 			return p, nil
-		} // else: pinnedpid not ok or no route
+		} // else: pinnedpid not ok (ex: END/TPU) or no route
 	} else if pinok && !chosen {
 		px.delpin(uid, ipp)
 	}
@@ -578,6 +584,15 @@ func (px *proxifier) ProxyTo(ipp netip.AddrPort, uid string, pids []string) (_ P
 	}
 
 	stalledSec = px.stall(uid + ippstr)
+
+	if len(missproxies) <= 0 &&
+		len(norouteproxies) <= 0 &&
+		len(endproxies) <= 0 &&
+		len(notokproxies) <= 0 &&
+		len(pausedproxies) > 0 {
+		return nil, errProxyPaused
+	}
+
 	return nil, errProxyAllDown
 }
 
