@@ -499,6 +499,7 @@ func (px *proxifier) ProxyTo(ipp netip.AddrPort, uid string, pids []string) (_ P
 
 	notokproxies := make([]string, 0)
 	endproxies := make([]string, 0)
+	pausedproxies := make([]string, 0)
 	norouteproxies := make([]string, 0)
 	missproxies := make([]string, 0)
 	loproxies := make([]string, 0)
@@ -507,8 +508,8 @@ func (px *proxifier) ProxyTo(ipp netip.AddrPort, uid string, pids []string) (_ P
 	}
 
 	defer func() {
-		logev(err)("proxy: pin: %s+%s; stalled? %ds; miss: %v; notok: %v; noroute: %v; ended %v",
-			uid, ipp, stalledSec, missproxies, notokproxies, norouteproxies, endproxies)
+		logev(err)("proxy: pin: %s+%s; stalled? %ds; miss: %v; notok: %v; noroute: %v; paused %v; ended %v",
+			uid, ipp, stalledSec, missproxies, notokproxies, norouteproxies, pausedproxies, endproxies)
 	}()
 
 	for _, pid := range pids {
@@ -526,7 +527,11 @@ func (px *proxifier) ProxyTo(ipp netip.AddrPort, uid string, pids []string) (_ P
 			continue
 		}
 
-		if p.Status() == END {
+		st := p.Status()
+		if st == TPU {
+			pausedproxies = append(pausedproxies, pid)
+			continue
+		} else if st == END {
 			endproxies = append(endproxies, pid)
 			continue
 		}

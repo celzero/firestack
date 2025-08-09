@@ -134,6 +134,7 @@ type wgtun struct {
 
 	refreshBa *core.Barrier[bool, string] // 2mins refresh barrier
 
+	// TODO: move status to a state-machine for all proxies
 	status     *core.Volatile[int] // status of this interface
 	latestPing atomic.Int64        // last ping time in unix millis
 	latestRx   atomic.Int64        // last rx time in unix millis
@@ -242,8 +243,8 @@ func (w *wgproxy) OnProtoChange(lp LinkProps) (string, bool) {
 // As backpressure, pings are sent once in a 5s period.
 func (w *wgproxy) Ping() bool {
 	status := w.status.Load()
-	if status == END {
-		log.V("proxy: wg: %s ping: ENDed, status(%d)", w.id, pxstatus(status))
+	if err := candial2(status); err != nil {
+		log.V("proxy: wg: %s ping: err %v, status(%d)", w.id, err, pxstatus(status))
 		return false
 	}
 
@@ -317,10 +318,11 @@ func (w *wgproxy) onNotOK() (didRefresh, allok bool) {
 // Refresh implements Proxy.
 func (w *wgproxy) Refresh() (err error) {
 	status := w.status.Load()
+
 	// todo: Refresh may be called by hop-related changes which may result in one Refresh calls too many.
-	if status == END {
-		log.W("proxy: wg: %s refresh failed; end status(%s)", w.tag(), pxstatus(status))
-		return errProxyStopped
+	if err := candial2(status); err != nil {
+		log.W("proxy: wg: %s refresh failed; status(%s)", w.tag(), pxstatus(status))
+		return err
 	}
 
 	resetDevice := (resetDeviceOnTNT && status == TNT) ||
@@ -1037,10 +1039,11 @@ func (tun *wgtun) Close() error {
 
 	var err error
 	tun.once.Do(func() {
-		log.D("wg: %s tun: closing...", tun.tag())
+		prev := tun.status.Swap(END) // TODO: move this to wgproxy.Close()?
 
-		close(tun.finalize)   // unblock all receivers
-		tun.status.Store(END) // TODO: move this to wgproxy.Close()?
+		log.D("wg: %s tun: (prev status: %s) closing...", tun.tag(), pxstatus(prev))
+
+		close(tun.finalize) // unblock all receivers
 
 		tun.stack.RemoveNIC(wgnic)
 		// if tun.events != nil {
@@ -1112,8 +1115,8 @@ func (tun *wgtun) BatchSize() int {
 // Dial implements proxy.Dialer and protect.RDialer
 func (h *wgtun) Dial(network, address string) (c net.Conn, err error) {
 	// wgproxy.Dial => dialers.ProxyDial => wgtun.Dial
-	if h.status.Load() == END {
-		return nil, errProxyStopped
+	if err := candial(h.status); err != nil {
+		return nil, err
 	}
 
 	log.D("wg: %s dial: start %s %s", h.tag(), network, address)
@@ -1129,8 +1132,8 @@ func (h *wgtun) Dial(network, address string) (c net.Conn, err error) {
 // DialBind implements proxy.Dialer and protect.RDialer
 func (h *wgtun) DialBind(network, local, remote string) (c net.Conn, err error) {
 	// wgproxy.DialBind => wgtun.Dial
-	if h.status.Load() == END {
-		return nil, errProxyStopped
+	if err := candial(h.status); err != nil {
+		return nil, err
 	}
 
 	log.D("wg: %s dialbind: start %s %s=>%s", h.tag(), network, local, remote)
@@ -1146,8 +1149,8 @@ func (h *wgtun) DialBind(network, local, remote string) (c net.Conn, err error) 
 // Announce implements protect.RDialer
 func (h *wgtun) Announce(network, local string) (pc net.PacketConn, err error) {
 	// wgproxy.Dial => dialers.ProxyListenPacket => protect.AnnounceUDP => wgtun.Announce
-	if h.status.Load() == END {
-		return nil, errProxyStopped
+	if err := candial(h.status); err != nil {
+		return nil, err
 	}
 
 	log.D("wg: %s announce: start %s %s", h.tag(), network, local)
@@ -1165,8 +1168,8 @@ func (h *wgtun) Announce(network, local string) (pc net.PacketConn, err error) {
 // Accept implements protect.RDialer
 func (h *wgtun) Accept(network, local string) (ln net.Listener, err error) {
 	// wgproxy.Dial => dialers.ProxyListen => protect.AcceptTCP => wgtun.Accept
-	if h.status.Load() == END {
-		return nil, errProxyStopped
+	if err := candial(h.status); err != nil {
+		return nil, err
 	}
 
 	log.D("wg: %s accept: start %s %s", h.tag(), network, local)
@@ -1184,8 +1187,8 @@ func (h *wgtun) Accept(network, local string) (ln net.Listener, err error) {
 // Probe implements protect.RDialer
 func (h *wgtun) Probe(network, local string) (pc net.PacketConn, err error) {
 	// wgproxy.Dial => dialers.ProxyListen => protect.AcceptTCP => wgtun.Accept
-	if h.status.Load() == END {
-		return nil, errProxyStopped
+	if err := candial(h.status); err != nil {
+		return nil, err
 	}
 
 	log.D("wg: %s probe: start %s %s", h.tag(), network, local)
@@ -1377,8 +1380,8 @@ func (h *wgtun) Contains(ippOrCidr *x.Gostr) bool {
 }
 
 func (h *wgtun) serve(network, local string) (pc net.PacketConn, err error) {
-	if h.status.Load() == END {
-		return nil, errProxyStopped
+	if err := candial(h.status); err != nil {
+		return nil, err
 	}
 
 	// todo: dial into both direct & via if via cannot handle all routes?
@@ -1413,7 +1416,8 @@ func (h *wgtun) serve(network, local string) (pc net.PacketConn, err error) {
 
 func (h *wgtun) listener(op wg.PktDir, err error) {
 	s := h.status.Load()
-	if s == END {
+	if s == END || s == TPU { // stopped or paused
+		log.E("wg: %s listener: %s; status %s; ignoring", h.tag(), op, pxstatus(s))
 		return
 	}
 

@@ -88,8 +88,8 @@ func (h *exit) DialBind(network, local, remote string) (protect.Conn, error) {
 }
 
 func (h *exit) dial(network, local, remote string) (protect.Conn, error) {
-	if h.status.Load() == END {
-		return nil, errProxyStopped
+	if err := candial(h.status); err != nil {
+		return nil, err
 	}
 	// exit always splits
 	c, err := localDialStrat(h.outbound, network, local, remote)
@@ -103,8 +103,8 @@ func (h *exit) dial(network, local, remote string) (protect.Conn, error) {
 
 // Announce implements Proxy.
 func (h *exit) Announce(network, local string) (protect.PacketConn, error) {
-	if h.status.Load() == END {
-		return nil, errProxyStopped
+	if err := candial(h.status); err != nil {
+		return nil, err
 	}
 	c, err := dialers.ListenPacket(h.outbound, network, local)
 	defer localDialStatus(h.status, err)
@@ -114,16 +114,16 @@ func (h *exit) Announce(network, local string) (protect.PacketConn, error) {
 
 // Accept implements Proxy.
 func (h *exit) Accept(network, local string) (protect.Listener, error) {
-	if h.status.Load() == END {
-		return nil, errProxyStopped
+	if err := candial(h.status); err != nil {
+		return nil, err
 	}
 	return dialers.Listen(h.outbound, network, local)
 }
 
 // Probe implements Proxy.
 func (h *exit) Probe(network, local string) (protect.PacketConn, error) {
-	if h.status.Load() == END {
-		return nil, errProxyStopped
+	if err := candial(h.status); err != nil {
+		return nil, err
 	}
 	c, err := dialers.Probe(h.outbound, network, local)
 	defer localDialStatus(h.status, err)
@@ -174,15 +174,15 @@ func (h *exit) Stop() error {
 	return nil
 }
 
-func localDialStatus(status *core.Volatile[int], err error) {
-	if status.Load() == END {
-		return
+func localDialStatus(status *core.Volatile[int], err error) bool {
+	cur := status.Load()
+	if cur == END || cur == TPU {
+		return false
 	}
 	if err != nil {
-		status.Store(TKO)
-	} else {
-		status.Store(TOK)
+		return status.Cas(cur, TKO)
 	}
+	return status.Cas(cur, TOK)
 }
 
 func idhandle(p Proxy) string {

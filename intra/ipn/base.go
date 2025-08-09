@@ -94,8 +94,8 @@ func (h *base) DialBind(network, local, remote string) (c protect.Conn, err erro
 }
 
 func (h *base) dial(network, local, remote string) (c protect.Conn, err error) {
-	if h.status.Load() == END {
-		return nil, errProxyStopped
+	if err := candial(h.status); err != nil {
+		return nil, err
 	}
 
 	who := idstr(h)
@@ -128,8 +128,8 @@ func (h *base) dial(network, local, remote string) (c protect.Conn, err error) {
 
 // Announce implements Proxy.
 func (h *base) Announce(network, local string) (protect.PacketConn, error) {
-	if h.status.Load() == END {
-		return nil, errProxyStopped
+	if err := candial(h.status); err != nil {
+		return nil, err
 	}
 	c, err := dialers.ListenPacket(h.outbound, network, local)
 	defer localDialStatus(h.status, err)
@@ -139,16 +139,16 @@ func (h *base) Announce(network, local string) (protect.PacketConn, error) {
 
 // Accept implements Proxy.
 func (h *base) Accept(network, local string) (protect.Listener, error) {
-	if h.status.Load() == END {
-		return nil, errProxyStopped
+	if err := candial(h.status); err != nil {
+		return nil, err
 	}
 	return dialers.Listen(h.outbound, network, local)
 }
 
 // Probe implements Proxy.
 func (h *base) Probe(network, local string) (protect.PacketConn, error) {
-	if h.status.Load() == END {
-		return nil, errProxyStopped
+	if err := candial(h.status); err != nil {
+		return nil, err
 	}
 	c, err := dialers.Probe(h.outbound, network, local)
 	defer localDialStatus(h.status, err)

@@ -377,8 +377,8 @@ func (h *seproxy) Router() x.Router {
 
 // Dial implements Proxy.
 func (h *seproxy) Dial(network, addr string) (protect.Conn, error) {
-	if h.status.Load() == END {
-		return nil, errProxyStopped
+	if err := candial(h.status); err != nil {
+		return nil, err
 	}
 
 	defer h.maybeRefresh()

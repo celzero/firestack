@@ -33,15 +33,16 @@ const (
 )
 
 var (
-	errNoServer   = errors.New("no such server")
-	errSvcRunning = errors.New("service is running")
-	errNotUdp     = errors.New("not udp conn")
-	errNotTcp     = errors.New("not tcp conn")
-	errNoAddr     = errors.New("no address")
-	errServerEnd  = errors.New("server stopped")
-	errProxyEnd   = errors.New("proxy stopped")
-	errNotProxy   = errors.New("not a proxy")
-	errBlocked    = errors.New("blocked")
+	errNoServer    = errors.New("svc: no such server")
+	errSvcRunning  = errors.New("svc: service is running")
+	errNotUdp      = errors.New("svc: not udp conn")
+	errNotTcp      = errors.New("svc: not tcp conn")
+	errNoAddr      = errors.New("svc: no address")
+	errServerEnd   = errors.New("svc: server stopped")
+	errProxyEnd    = errors.New("svc: proxy stopped")
+	errProxyPaused = errors.New("svc: proxy paused")
+	errNotProxy    = errors.New("svc: not a proxy")
+	errBlocked     = errors.New("svc: blocked")
 
 	udptimeoutsec = 5 * 60                    // 5m
 	tcptimeoutsec = (2 * 60 * 60) + (40 * 60) // 2h40m

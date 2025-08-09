@@ -397,7 +397,7 @@ func (t *piph2) DialBind(network, local, remote string) (protect.Conn, error) {
 }
 
 func (t *piph2) forward(network, addr string) (protect.Conn, error) {
-	if t.status.Load() == END {
+	if err := candial(t.status); err != nil {
 		return nil, errProxyStopped
 	}
 	if network != "tcp" {

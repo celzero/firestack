@@ -106,8 +106,8 @@ func (h *http1) DialerHandle() uintptr {
 
 // Dial implements Proxy.
 func (h *http1) Dial(network, addr string) (c protect.Conn, err error) {
-	if h.status.Load() == END {
-		return nil, errProxyStopped
+	if err := candial(h.status); err != nil {
+		return nil, err
 	}
 
 	h.lastdial = time.Now()
@@ -244,7 +244,7 @@ func (h *http1) Stop() error {
 
 // OnProtoChange implements Proxy.
 func (h *http1) OnProtoChange(_ LinkProps) (string, bool) {
-	if h.status.Load() == END {
+	if err := candial(h.status); err != nil {
 		return "", false
 	}
 	return h.opts.FullUrl(), true

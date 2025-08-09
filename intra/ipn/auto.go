@@ -109,8 +109,8 @@ func (h *auto) DialBind(network, local, remote string) (protect.Conn, error) {
 }
 
 func (h *auto) dial(network, laddr, raddr string) (protect.Conn, error) {
-	if h.status.Load() == END {
-		return nil, errProxyStopped
+	if err := candial(h.status); err != nil {
+		return nil, err
 	}
 
 	exit, exerr := h.pxr.ProxyFor(Exit)
@@ -302,8 +302,8 @@ func (h *auto) dial(network, laddr, raddr string) (protect.Conn, error) {
 
 // Announce implements Proxy.
 func (h *auto) Announce(network, local string) (protect.PacketConn, error) {
-	if h.status.Load() == END {
-		return nil, errProxyStopped
+	if err := candial(h.status); err != nil {
+		return nil, err
 	}
 
 	exit, exerr := h.pxr.ProxyFor(Exit)
@@ -375,8 +375,8 @@ func (h *auto) Announce(network, local string) (protect.PacketConn, error) {
 
 // Accept implements Proxy.
 func (h *auto) Accept(network, local string) (l protect.Listener, err error) {
-	if h.status.Load() == END {
-		return nil, errProxyStopped
+	if err := candial(h.status); err != nil {
+		return nil, err
 	}
 	if settings.AutoAlwaysRemote() {
 		log.E("proxy: auto: accept(%s) on %s remote-dial unimplemented", network, local)
@@ -394,8 +394,8 @@ func (h *auto) Accept(network, local string) (l protect.Listener, err error) {
 
 // Probe implements Proxy.
 func (h *auto) Probe(network, local string) (pc protect.PacketConn, err error) {
-	if h.status.Load() == END {
-		return nil, errProxyStopped
+	if err := candial(h.status); err != nil {
+		return nil, err
 	}
 	if settings.AutoAlwaysRemote() {
 		log.E("proxy: auto: probe(%s) on %s remote-dial unimplemented", network, local)

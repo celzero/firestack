@@ -82,8 +82,8 @@ func (h *exit64) DialBind(network, local, remote string) (protect.Conn, error) {
 }
 
 func (h *exit64) dial(network, local, remote string) (protect.Conn, error) {
-	if h.status.Load() == END {
-		return nil, errProxyStopped
+	if err := candial(h.status); err != nil {
+		return nil, err
 	}
 
 	addr64 := addr4to6(remote)
@@ -105,8 +105,8 @@ func (h *exit64) dial(network, local, remote string) (protect.Conn, error) {
 
 // Announce implements Proxy.
 func (h *exit64) Announce(network, local string) (protect.PacketConn, error) {
-	if h.status.Load() == END {
-		return nil, errProxyStopped
+	if err := candial(h.status); err != nil {
+		return nil, err
 	}
 	var local64 string
 	if ipp, _ := netip.ParseAddrPort(local); ipp.IsValid() {
@@ -129,8 +129,8 @@ func (h *exit64) Announce(network, local string) (protect.PacketConn, error) {
 
 // Accept implements Proxy.
 func (h *exit64) Accept(network, local string) (protect.Listener, error) {
-	if h.status.Load() == END {
-		return nil, errProxyStopped
+	if err := candial(h.status); err != nil {
+		return nil, err
 	}
 	var local64 string
 	if ipp, _ := netip.ParseAddrPort(local); ipp.IsValid() {
@@ -153,8 +153,8 @@ func (h *exit64) Accept(network, local string) (protect.Listener, error) {
 
 // Probe implements Proxy.
 func (h *exit64) Probe(network, local string) (protect.PacketConn, error) {
-	if h.status.Load() == END {
-		return nil, errProxyStopped
+	if err := candial(h.status); err != nil {
+		return nil, err
 	}
 	var local64 string
 	if ipp, _ := netip.ParseAddrPort(local); ipp.IsValid() {

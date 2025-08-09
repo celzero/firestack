@@ -212,8 +212,8 @@ func (h *socks5) DialBind(network, local, remote string) (c protect.Conn, err er
 
 // todo: bind to local
 func (h *socks5) dial(network, _, remote string) (c protect.Conn, err error) {
-	if h.status.Load() == END {
-		return nil, errProxyStopped
+	if err := candial(h.status); err != nil {
+		return nil, err
 	}
 
 	h.lastdial = time.Now()
@@ -244,13 +244,7 @@ func (h *socks5) dial(network, _, remote string) (c protect.Conn, err error) {
 		log.W("proxy: socks5: %s dial(%s) failed %s => %s: %v",
 			h.ID(), network, h.GetAddr(), remote, err)
 	}
-	if err == nil {
-		log.I("proxy: socks5: %s dial(%s) from %s => %s",
-			h.ID(), network, h.GetAddr(), remote)
-		h.status.Store(TOK)
-	} else {
-		h.status.Store(TKO)
-	}
+	defer localDialStatus(h.status, err)
 	return
 }
 
@@ -357,7 +351,7 @@ func (h *socks5) Stop() error {
 
 // OnProtoChange implements Proxy.
 func (h *socks5) OnProtoChange(_ LinkProps) (string, bool) {
-	if h.status.Load() == END {
+	if err := candial(h.status); err != nil {
 		return "", false
 	}
 	return h.opts.FullUrl(), true

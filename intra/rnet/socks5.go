@@ -245,8 +245,13 @@ func (h *socks5) candial() error {
 	if h.Status() != END {
 		return errProxyEnd // no
 	}
-	if px := h.hdl.px.Load(); px != nil && core.IsNotNil(px) && px.Status() == ipn.END {
-		return errProxyEnd // no
+	if px := h.hdl.px.Load(); px != nil && core.IsNotNil(px) {
+		st := px.Status()
+		if st == ipn.END {
+			return errProxyEnd // no
+		} else if st == ipn.TPU {
+			return errProxyPaused // no
+		} // fallthrough
 	}
 	return nil // yes
 }

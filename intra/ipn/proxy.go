@@ -262,7 +262,12 @@ func (pxr *proxifier) fromOpts(id string, opts *settings.ProxyOptions) (Proxy, e
 }
 
 func Reaches(p Proxy, urlOrHostPortOrIPPortCsv string, protos ...string) bool {
-	if p == nil || p.Status() == END {
+	if p == nil {
+		return false
+	}
+	st := p.Status()
+	if err := candial2(st); err != nil {
+		log.W("proxy: %s reaches: err %v, status(%s)", idstr(p), err, pxstatus(st))
 		return false
 	}
 	if len(urlOrHostPortOrIPPortCsv) <= 0 {
@@ -639,8 +644,8 @@ func healthy(p Proxy) error {
 		return nil
 	}
 
-	if p.Status() == END {
-		return errProxyStopped
+	if err := candial2(p.Status()); err != nil {
+		return err
 	} // TODO: err on TNT, TKO?
 
 	stat := p.Router().Stat()
@@ -697,6 +702,20 @@ func ViaID(p Proxy) string {
 		return novia
 	}
 	return vid
+}
+
+func candial2(st int) error {
+	if st == END {
+		return errProxyStopped
+	}
+	if st == TPU {
+		return errProxyPaused
+	}
+	return nil
+}
+
+func candial(state *core.Volatile[int]) error {
+	return candial2(state.Load())
 }
 
 func usevia(viaID *core.Volatile[string]) bool {
