@@ -109,6 +109,7 @@ func (c *iptree) add(cidr string, v string) error {
 }
 
 func (c *iptree) Set(cidr *Gostr, v *Gostr) error {
+	c.del(cidr.V()) // delete any previous value
 	return c.add(cidr.V(), v.V())
 }
 
