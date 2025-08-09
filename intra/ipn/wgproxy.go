@@ -77,6 +77,8 @@ const (
 
 	removeViaOnErrors = false
 	resetDeviceOnTNT  = false
+	// reset device if it is in TUP state (resuming...)
+	resetDeviceOnTUP = false
 
 	FAST = x.WGFAST
 
@@ -321,7 +323,8 @@ func (w *wgproxy) Refresh() (err error) {
 		return errProxyStopped
 	}
 
-	resetDevice := resetDeviceOnTNT && status == TNT
+	resetDevice := (resetDeviceOnTNT && status == TNT) ||
+		(resetDeviceOnTUP && status == TUP)
 
 	w.latestPing.Store(0) // reset latest ping time
 
@@ -340,6 +343,8 @@ func (w *wgproxy) Refresh() (err error) {
 
 	if err = w.resetMtu(via); err == nil {
 		err = w.Device.Down()
+
+		// for now, never reset since resetDeviceOnTNT is false
 		resetDevice = resetDevice && w.wgtun.ignoreTUNClose.CompareAndSwap(false, true)
 		if resetDevice && err == nil {
 			var newdev *device.Device
@@ -1289,6 +1294,33 @@ func (h *wgproxy) Via() (x.Proxy, error) {
 // Stats implements Proxy.
 func (h *wgtun) Status() int {
 	return h.status.Load()
+}
+
+// Pause implements x.Proxy.
+func (h *wgproxy) Pause() bool {
+	st := h.status.Load()
+	if st == END {
+		log.W("wg: %s pause called when stopped", h.tag())
+		return false
+	}
+
+	ok := h.status.Cas(st, TPU)
+	log.I("wg: %s paused? %t", h.tag(), ok)
+	return ok
+}
+
+// Resume implements x.Proxy.
+func (h *wgproxy) Resume() bool {
+	st := h.status.Load()
+	if st != TPU {
+		log.W("wg: %s resume called when not paused; status %d", h.tag(), st)
+		return false
+	}
+
+	go h.Refresh() // reconnect
+	ok := h.status.Cas(st, TUP)
+	log.I("wg: %s resumed? %t", h.tag(), ok)
+	return ok
 }
 
 // DNS implements x.Proxy.

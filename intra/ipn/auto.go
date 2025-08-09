@@ -29,6 +29,7 @@ type auto struct {
 	NoDNS
 	ProtoAgnostic
 	SkipRefresh
+	CantPause
 	GW
 	pxr  ProxyProvider
 	addr string

@@ -460,6 +460,32 @@ func (h *seproxy) Status() int {
 	return h.status.Load()
 }
 
+// Pause implements x.Proxy.
+func (h *seproxy) Pause() bool {
+	st := h.status.Load()
+	if st == END {
+		log.W("proxy: se: pause called when stopped")
+		return false
+	}
+
+	ok := h.status.Cas(st, TPU)
+	log.I("proxy: se: paused? %t", ok)
+	return ok
+}
+
+// Resume implements x.Proxy.
+func (h *seproxy) Resume() bool {
+	st := h.status.Load()
+	if st != TPU {
+		log.W("proxy: se: resume called when not paused; status %d", st)
+		return false
+	}
+
+	ok := h.status.Cas(st, TUP)
+	log.I("proxy: se: resumed? %t", ok)
+	return ok
+}
+
 // Stop implements Proxy.
 func (h *seproxy) Stop() error {
 	h.status.Store(END)

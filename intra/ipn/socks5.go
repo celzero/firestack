@@ -321,6 +321,32 @@ func (h *socks5) Status() int {
 	return s
 }
 
+// Pause implements x.Proxy.
+func (h *socks5) Pause() bool {
+	st := h.status.Load()
+	if st == END {
+		log.W("proxy: socks5: pause called when stopped")
+		return false
+	}
+
+	ok := h.status.Cas(st, TPU)
+	log.I("proxy: socks5: paused? %t", ok)
+	return ok
+}
+
+// Resume implements x.Proxy.
+func (h *socks5) Resume() bool {
+	st := h.status.Load()
+	if st != TPU {
+		log.W("proxy: socks5: resume called when not paused; status %d", st)
+		return false
+	}
+
+	ok := h.status.Cas(st, TUP)
+	log.I("proxy: socks5: resumed? %t", ok)
+	return ok
+}
+
 // Stop implements Proxy.
 func (h *socks5) Stop() error {
 	h.status.Store(END)

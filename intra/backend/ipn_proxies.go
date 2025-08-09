@@ -69,6 +69,8 @@ const ( // see ipn/proxies.go
 
 	// status of proxies
 
+	// proxy paused until resumed; will not dial
+	TPU = 3
 	// proxy UP but not responding
 	TNT = 2
 	// proxy idle
@@ -140,6 +142,10 @@ type Proxy interface {
 	Status() int
 	// Ping pings this proxy.
 	Ping() bool
+	// Pause pauses this proxy.
+	Pause() bool
+	// Resume resumes this proxy.
+	Resume() bool
 	// Stop stops this proxy.
 	Stop() error
 	// Refresh re-registers this proxy, if necessary.

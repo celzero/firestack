@@ -209,6 +209,32 @@ func (h *http1) Status() int {
 	return s
 }
 
+// Pause implements x.Proxy.
+func (h *http1) Pause() bool {
+	st := h.status.Load()
+	if st == END {
+		log.W("proxy: http1: pause called when stopped")
+		return false
+	}
+
+	ok := h.status.Cas(st, TPU)
+	log.I("proxy: http1: paused? %t", ok)
+	return ok
+}
+
+// Resume implements x.Proxy.
+func (h *http1) Resume() bool {
+	st := h.status.Load()
+	if st != TPU {
+		log.W("proxy: http1: resume called when not paused; status %d", st)
+		return false
+	}
+
+	ok := h.status.Cas(st, TUP)
+	log.I("proxy: http1: resumed? %t", ok)
+	return ok
+}
+
 // Stop implements Proxy.
 func (h *http1) Stop() error {
 	h.status.Store(END)

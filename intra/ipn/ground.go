@@ -18,6 +18,7 @@ type ground struct {
 	ProtoAgnostic
 	SkipRefresh
 	GWNoVia
+	CantPause
 	addr string
 }
 

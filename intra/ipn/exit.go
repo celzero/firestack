@@ -31,6 +31,7 @@ type exit struct {
 	NoDNS
 	ProtoAgnostic
 	SkipRefresh
+	CantPause
 	GWNoVia
 	id       string
 	addr     string

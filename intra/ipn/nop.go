@@ -103,6 +103,14 @@ func (SkipRefresh) onNotOK() (didRefresh bool, allOK bool) { return false, true 
 // Ping implements Proxy.
 func (SkipRefresh) Ping() bool { return false }
 
+type CantPause struct{}
+
+// Pause implements Proxy.
+func (CantPause) Pause() bool { return false }
+
+// Resume implements Proxy.
+func (CantPause) Resume() bool { return false }
+
 // NoFwd is a proxy that does not support listening or forwarding.
 type NoFwd struct{}
 
@@ -139,6 +147,7 @@ type NoProxy struct {
 	ProtoAgnostic
 	SkipRefresh
 	NoFwd
+	CantPause
 	GWNoVia
 }
 

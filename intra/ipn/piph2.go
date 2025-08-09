@@ -338,6 +338,32 @@ func (t *piph2) Status() int {
 	return st
 }
 
+// Since implements x.Proxy.
+func (h *piph2) Pause() bool {
+	st := h.status.Load()
+	if st == END {
+		log.W("proxy: piph2: pause called when stopped")
+		return false
+	}
+
+	ok := h.status.Cas(st, TPU)
+	log.I("proxy: piph2: paused? %t", ok)
+	return ok
+}
+
+// Resume implements x.Proxy.
+func (h *piph2) Resume() bool {
+	st := h.status.Load()
+	if st != TPU {
+		log.W("proxy: piph2: resume called when not paused; status %d", st)
+		return false
+	}
+
+	ok := h.status.Cas(st, TUP)
+	log.I("proxy: piph2: resumed? %t", ok)
+	return ok
+}
+
 // Scenario 4: privacypass.github.io/protocol
 func (t *piph2) claim(msg string) []string {
 	if len(t.token) == 0 || len(t.toksig) == 0 {

@@ -55,6 +55,7 @@ const (
 	INTERNET = x.INTERNET
 	RPN      = x.RPN
 
+	TPU = x.TPU
 	TNT = x.TNT
 	TZZ = x.TZZ
 	TUP = x.TUP
@@ -102,6 +103,7 @@ var (
 	errNoProxyConn        = errors.New("proxy: not a tcp/udp conn")
 	errNotUDPConn         = errors.New("proxy: not a udp conn")
 	errProxyStopped       = errors.New("proxy: stopped")
+	errProxyPaused        = errors.New("proxy: paused")
 	errProxyConfig        = errors.New("proxy: invalid config")
 	errProxyReadd         = errors.New("proxy: cannot update; readd config")
 	errNoProxyResponse    = errors.New("proxy: no response from upstream")

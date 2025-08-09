@@ -25,6 +25,7 @@ type base struct {
 	NoDNS
 	ProtoAgnostic
 	SkipRefresh
+	CantPause
 	GW
 	id       string
 	addr     string
