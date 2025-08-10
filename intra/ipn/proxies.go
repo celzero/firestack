@@ -468,15 +468,18 @@ func (px *proxifier) ProxyTo(ipp netip.AddrPort, uid string, pids []string) (_ P
 		}
 		logev(err)("proxy: pin: %s+%s; pin pid0: %s (stalled? %ds); err? %v",
 			uid, ippstr, pids[0], stalledSec, err)
-		st := p.Status()
-		if st == END {
-			return nil, core.OneErr(err, errProxyStopped)
-		} else if st == TPU {
-			return nil, core.OneErr(err, errProxyPaused)
-		}
-		// alwaysPin is set to true, so wipe out err; return p, even if err is not nil
-		if alwaysPin && p != nil {
-			return p, nil
+		if p != nil {
+			st := p.Status()
+			switch st {
+			case END:
+				return nil, core.OneErr(err, errProxyStopped)
+			case TPU:
+				return nil, core.OneErr(err, errProxyPaused)
+			}
+			// alwaysPin is set to true, so wipe out err; return p, even if err is not nil
+			if alwaysPin {
+				return p, nil
+			}
 		}
 		return nil, err
 	}
