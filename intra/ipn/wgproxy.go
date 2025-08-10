@@ -1441,6 +1441,15 @@ func (h *wgtun) listener(op wg.PktDir, err error) {
 		return
 	}
 
+	defer func() {
+		cur := h.status.Load()
+		if cur == END || cur == TPU { // stopped or paused
+			log.E("wg: %s listener: %s; status %s; ignoring", h.tag(), op, pxstatus(s))
+			return
+		}
+		h.status.Cas(cur, s)
+	}()
+
 	if err != nil { // failing
 		s = TKO
 		if op == wg.Opn { // could not open conn to wg endpoint
@@ -1483,8 +1492,6 @@ func (h *wgtun) listener(op wg.PktDir, err error) {
 				h.tag(), op, pxstatus(s), n)
 		}
 	}
-
-	h.status.Store(s)
 }
 
 // func Handle(), GetAddr(), Dialer(), Reaches(), Stop(),
