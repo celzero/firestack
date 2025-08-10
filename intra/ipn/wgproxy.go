@@ -363,8 +363,8 @@ func (w *wgproxy) Refresh() (err error) {
 	}
 	// not required since wgconn:NewBind() is namespace aware
 	// bindok := bindWgSockets(w.ID(), w.remote.AnyAddr(), w.wgdev, w.ctl)
-	logei(err)("proxy: wg: %s: refresh done; len(dns): %d, len(peer): %d; viaOK? %t, didWait? %t / reset? %t / status: %s; err? %v",
-		w.tag(), n, nn, viaOK, didWait, resetDevice, pxstatus(w.Status()), err)
+	logei(err)("proxy: wg: %s: refresh done; len(dns): %d, len(peer): %d; viaOK? %t, didWait? %t / reset? %t / status: %s => %s; err? %v",
+		w.tag(), n, nn, viaOK, didWait, resetDevice, pxstatus(status), pxstatus(w.Status()), err)
 	return
 }
 

@@ -941,6 +941,7 @@ func (px *proxifier) stopProxies() {
 
 // RefreshProxies implements x.Proxies.
 func (px *proxifier) RefreshProxies() (*x.Gostr, error) {
+	// TODO: remove error in the return value
 	defer core.Recover(core.Exit11, "pxr.RefreshProxies")
 
 	ptot, ptotu := px.clearpins()
