@@ -237,10 +237,14 @@ type ProxyListener interface {
 	// OnProxyRemoved is called when a proxy is removed except when all
 	// proxies are stopped, in which case OnProxiesStopped is called.
 	OnProxyRemoved(id *Gostr)
-	// OnProxyStopped is called when a proxy is stopped.
+	// OnProxyStopped is called when a proxy is stopped instead of being
+	// removed (that is, this callback is not called in all proxy stop scenarios).
+	// A stopped proxy, if added again, is replaced/updated instead; and subsequently,
+	// the onProxyAdded callback is invoked.
 	OnProxyStopped(id *Gostr)
 	// OnProxiesStopped is called when all proxies are stopped.
-	// Note: OnProxyRemoved is not called for each proxy.
+	// Note: OnProxyRemoved is not called for each proxy, even
+	// if they are removed instead of being merely "stopped".
 	OnProxiesStopped()
 }
 
