@@ -1335,8 +1335,9 @@ func (h *wgproxy) Resume() (resumed bool) {
 		return false
 	}
 
-	go h.Refresh() // reconnect
 	resumed = h.status.Cas(st, TUP)
+	go h.Refresh() // refresh unconditionally
+
 	log.I("wg: %s resumed? %t", h.tag(), resumed)
 
 	return
