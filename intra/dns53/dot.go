@@ -367,6 +367,14 @@ func (t *dot) GetAddr() *x.Gostr {
 	return x.StrOf(t.getAddr())
 }
 
+func (t *dot) GetRelay() x.Proxy {
+	if r := t.relay; len(r) > 0 {
+		px, _ := t.proxies.ProxyFor(r)
+		return px
+	}
+	return nil
+}
+
 func (t *dot) getAddr() (addr string) {
 	if t.c3 != nil {
 		addr = dnsx.EchPrefix + t.addrport

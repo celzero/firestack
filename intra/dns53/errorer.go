@@ -27,7 +27,7 @@ type errorer struct {
 
 var _ dnsx.Transport = (*errorer)(nil)
 
-// NewGroundedTransport returns a DNS transport that blocks all DNS queries.
+// NewErrorerTransport returns a DNS transport that always errors out on queries.
 func NewErrorerTransport(id string) *errorer {
 	t := &errorer{
 		id:     id, // typically, dnsx.Fixed
@@ -63,6 +63,10 @@ func (*errorer) P50() int64 {
 
 func (t *errorer) GetAddr() *x.Gostr {
 	return x.StrOf(t.ipport)
+}
+
+func (t *errorer) GetRelay() x.Proxy {
+	return nil
 }
 
 func (t *errorer) IPPorts() []netip.AddrPort {

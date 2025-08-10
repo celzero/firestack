@@ -58,7 +58,7 @@ type serverinfo struct {
 	UDPAddr            *net.UDPAddr
 	TCPAddr            *net.TCPAddr
 	proxies            ipn.ProxyProvider // proxy-provider, may be nil
-	relay              ipn.Proxy         // proxy relay to use, may be nil
+	relay              string            // proxy relay to use, may be nil
 	est                core.P2QuantileEstimator
 
 	// fields below are mutable
@@ -260,7 +260,7 @@ func fetchDNSCryptServerInfo(proxy *DcMulti, name string, stamp stamps.ServerSta
 		RelayTCPAddrs:      core.NewZeroVolatile[[]*net.TCPAddr](), // populated later; see proxy.refreshRoutes()
 		RelayUDPAddrs:      core.NewZeroVolatile[[]*net.UDPAddr](), // populated later; see proxy.refreshRoutes()
 		proxies:            px,
-		relay:              relay,
+		relay:              relay.ID().V(),
 		est:                core.NewP50Estimator(ctx),
 		status:             core.NewVolatile(dnsx.Start),
 	}
@@ -393,6 +393,18 @@ func (s *serverinfo) getAddr() string {
 	return s.HostName
 }
 
+func (s *serverinfo) GetRelay() x.Proxy {
+	return s.getRelay()
+}
+
+func (s *serverinfo) getRelay() ipn.Proxy {
+	if r := s.relay; len(r) > 0 {
+		px, _ := s.proxies.ProxyFor(r)
+		return px
+	}
+	return nil
+}
+
 func (s *serverinfo) IPPorts() []netip.AddrPort {
 	if relay := s.RelayUDPAddrs.Load(); relay != nil {
 		return addr2ipp(relay...)
@@ -413,7 +425,7 @@ func (s *serverinfo) Stop() error {
 }
 
 func (s *serverinfo) dialudp(pid string, addr *net.UDPAddr) (net.Conn, error) {
-	userelay := s.relay != nil
+	userelay := s.GetRelay() != nil
 	useproxy := len(pid) != 0 // pid == dnsx.NetNoProxy => ipn.Base
 	if userelay || useproxy {
 		return s.dialpx(pid, "udp", addr.String())
@@ -422,7 +434,7 @@ func (s *serverinfo) dialudp(pid string, addr *net.UDPAddr) (net.Conn, error) {
 }
 
 func (s *serverinfo) dialtcp(pid string, addr *net.TCPAddr) (net.Conn, error) {
-	userelay := s.relay != nil
+	userelay := s.GetRelay() != nil
 	useproxy := len(pid) != 0 // pid == dnsx.NetNoProxy => ipn.Base
 	if userelay || useproxy {
 		return s.dialpx(pid, "tcp", addr.String())
@@ -431,7 +443,7 @@ func (s *serverinfo) dialtcp(pid string, addr *net.TCPAddr) (net.Conn, error) {
 }
 
 func (s *serverinfo) dialpx(pid, proto string, addr string) (net.Conn, error) {
-	relay := s.relay
+	relay := s.getRelay()
 	if relay != nil {
 		// addr is always ip:port; hence protect.dialers are not needed
 		return relay.Dialer().Dial(proto, addr)

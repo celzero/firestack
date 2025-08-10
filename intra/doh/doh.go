@@ -783,6 +783,14 @@ func (t *transport) getAddr() string {
 	return addr
 }
 
+func (t *transport) GetRelay() x.Proxy {
+	if r := t.relay; len(r) > 0 {
+		px, _ := t.proxies.ProxyFor(r)
+		return px
+	}
+	return nil
+}
+
 func (t *transport) IPPorts() (ipps []netip.AddrPort) {
 	addr := t.hostname
 	port := t.port

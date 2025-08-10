@@ -310,8 +310,8 @@ func resolve(network string, data *dns.Msg, si *serverinfo, smm *x.DNSSummary) (
 	useudp := proto == dnsx.NetTypeUDP
 	pid := dnsx.NetNoProxy
 	if si != nil {
-		if r := si.relay; r != nil {
-			pid = si.chooseProxy([]string{r.ID().V()})
+		if r := si.relay; len(r) > 0 {
+			pid = si.chooseProxy([]string{r})
 		} else {
 			pid = si.chooseProxy(pids)
 		}
@@ -657,6 +657,10 @@ func (p *DcMulti) GetAddr() *x.Gostr {
 
 func (p *DcMulti) getAddr() string {
 	return p.lastAddr
+}
+
+func (p *DcMulti) GetRelay() x.Proxy {
+	return nil
 }
 
 func (p *DcMulti) IPPorts() []netip.AddrPort {

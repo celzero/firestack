@@ -203,6 +203,10 @@ func (t *dnssd) GetAddr() *x.Gostr {
 	return x.StrOf(t.ipport)
 }
 
+func (t *dnssd) GetRelay() x.Proxy {
+	return nil
+}
+
 func (t *dnssd) IPPorts() []netip.AddrPort {
 	return []netip.AddrPort{
 		xdns.MDNSAddr4.AddrPort(),

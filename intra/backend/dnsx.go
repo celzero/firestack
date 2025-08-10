@@ -89,6 +89,9 @@ type DNSTransport interface {
 	P50() int64
 	// Return the server host address used to initialize this transport.
 	GetAddr() *Gostr
+	// Return the proxy (relay) always used by this transport.
+	// Returns nil if there isn't any.
+	GetRelay() Proxy
 	// State of the transport after previous query (see: queryerror.go)
 	Status() int
 }
@@ -153,7 +156,8 @@ type ResolverListener interface {
 	// OnDNSRemoved is called when a DNS transport with id is removed, except
 	// when the transport is stopped, then OnDNSStopped is called instead.
 	OnDNSRemoved(id *Gostr)
-	// OnDNSStopped is called when the DNS transport is stopped. Note:
-	// OnDNSRemoved is not called for each transport before this.
+	// OnDNSStopped is called when all DNS transports are stopped. Note:
+	// OnDNSRemoved is not called for each transport even if they are
+	// being removed and not just stopped.
 	OnDNSStopped()
 }

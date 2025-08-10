@@ -288,6 +288,10 @@ func (b *bootstrap) GetAddr() *x.Gostr {
 	return x.StrOf(dnsx.NoDNS)
 }
 
+func (b *bootstrap) GetRelay() x.Proxy {
+	return nil
+}
+
 func (b *bootstrap) IPPorts() []netip.AddrPort {
 	if tr := b.tr; tr != nil {
 		return tr.IPPorts()

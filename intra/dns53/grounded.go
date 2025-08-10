@@ -74,6 +74,10 @@ func (t *grounded) GetAddr() *x.Gostr {
 	return x.StrOf(t.ipport)
 }
 
+func (t *grounded) GetRelay() x.Proxy {
+	return nil
+}
+
 func (t *grounded) IPPorts() []netip.AddrPort {
 	return dnsx.NoIPPort
 }

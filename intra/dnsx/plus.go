@@ -304,6 +304,10 @@ func (t *plus) getAddr() string {
 	return PrefixFor(t.ID().V()) + t.ipports[0].String()
 }
 
+func (t *plus) GetRelay() x.Proxy {
+	return nil
+}
+
 func (t *plus) IPPorts() []netip.AddrPort {
 	return t.ipports
 }

@@ -345,6 +345,14 @@ func (t *transport) getAddr() string {
 	return addr
 }
 
+func (t *transport) GetRelay() x.Proxy {
+	if r := t.relay; len(r) > 0 {
+		px, _ := t.proxies.ProxyFor(r)
+		return px
+	}
+	return nil
+}
+
 func (t *transport) IPPorts() (ipps []netip.AddrPort) {
 	for _, ip := range dialers.For(t.addrport) {
 		ipps = append(ipps, netip.AddrPortFrom(ip, t.port))
