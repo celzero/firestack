@@ -210,7 +210,7 @@ type Proxies interface {
 	// RPN returns the Rethink Proxy Network api.
 	Rpn() Rpn
 	// Refresh re-registers proxies and returns a csv of active ones.
-	RefreshProxies() (*Gostr, error)
+	RefreshProxies() *Gostr
 }
 
 type Router interface {

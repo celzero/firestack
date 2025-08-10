@@ -940,7 +940,7 @@ func (px *proxifier) stopProxies() {
 }
 
 // RefreshProxies implements x.Proxies.
-func (px *proxifier) RefreshProxies() (*x.Gostr, error) {
+func (px *proxifier) RefreshProxies() *x.Gostr {
 	// TODO: remove error in the return value
 	defer core.Recover(core.Exit11, "pxr.RefreshProxies")
 
@@ -969,7 +969,7 @@ func (px *proxifier) RefreshProxies() (*x.Gostr, error) {
 
 	log.I("proxy: refreshed %d / %d: %v", len(which), tot, which)
 
-	return x.StrOf(strings.Join(which, ",")), nil
+	return x.StrOf(strings.Join(which, ","))
 }
 
 // LiveProxies implements x.Proxies.
