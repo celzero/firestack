@@ -238,9 +238,12 @@ func fetchDNSCryptServerInfo(proxy *DcMulti, name string, stamp stamps.ServerSta
 		return serverinfo{}, errNoServers
 	}
 	px := proxy.proxies
-	var relay ipn.Proxy
+	var relay string
 	if px != nil {
-		relay, _ = px.ProxyFor(name)
+		x, _ := px.ProxyFor(name)
+		if x != nil {
+			relay = x.ID().V()
+		}
 	}
 
 	ctx, done := context.WithCancel(proxy.ctx)
@@ -260,11 +263,11 @@ func fetchDNSCryptServerInfo(proxy *DcMulti, name string, stamp stamps.ServerSta
 		RelayTCPAddrs:      core.NewZeroVolatile[[]*net.TCPAddr](), // populated later; see proxy.refreshRoutes()
 		RelayUDPAddrs:      core.NewZeroVolatile[[]*net.UDPAddr](), // populated later; see proxy.refreshRoutes()
 		proxies:            px,
-		relay:              relay.ID().V(),
+		relay:              relay,
 		est:                core.NewP50Estimator(ctx),
 		status:             core.NewVolatile(dnsx.Start),
 	}
-	log.I("dnscrypt: (%s) setup: %s; anonrelay? %t, proxy? %t", name, si.HostName, relay != nil)
+	log.I("dnscrypt: (%s) setup: %s; anonrelay? %t, proxy? %t", name, si.HostName, len(relay) > 0)
 	return si, nil
 }
 
