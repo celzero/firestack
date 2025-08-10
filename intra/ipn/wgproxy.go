@@ -1433,7 +1433,7 @@ func (h *wgtun) serve(network, local string) (pc net.PacketConn, err error) {
 func (h *wgtun) listener(op wg.PktDir, err error) {
 	s := h.status.Load()
 	if s == END || s == TPU { // stopped or paused
-		log.E("wg: %s listener: %s; status %s; ignoring", h.tag(), op, pxstatus(s))
+		log.E("wg: %s listener: %s; status %s; ignoring1", h.tag(), op, pxstatus(s))
 		return
 	}
 
@@ -1444,7 +1444,7 @@ func (h *wgtun) listener(op wg.PktDir, err error) {
 	defer func() {
 		cur := h.status.Load()
 		if cur == END || cur == TPU { // stopped or paused
-			log.E("wg: %s listener: %s; status %s; ignoring", h.tag(), op, pxstatus(s))
+			log.E("wg: %s listener: %s; status %s; ignoring2", h.tag(), op, pxstatus(s))
 			return
 		}
 		h.status.Cas(cur, s)
@@ -1479,9 +1479,10 @@ func (h *wgtun) listener(op wg.PktDir, err error) {
 	}
 
 	if s != TOK {
-		if op == wg.Rcv {
+		switch op {
+		case wg.Rcv:
 			h.errRx.Add(1)
-		} else if op == wg.Snd {
+		case wg.Snd:
 			h.errTx.Add(1)
 		}
 	}
