@@ -1025,7 +1025,7 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []netip.Addr, network, uid strin
 	// substituions needn't happen when no alg ips to begin with
 	// but must happen if (real) ips are fixed
 	mustsubst := false || usefixed
-	ansmod := ansin.Copy()
+	ansmod := xdns.CopyAns(ansin)
 	// TODO: substitute ips in additional section
 	if algip4hints.IsValid() {
 		substok4 = xdns.SubstSVCBRecordIPs( /*out*/ ansmod, dns.SVCB_IPV4HINT, algip4hints, algXlatTtl) || substok4
