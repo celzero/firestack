@@ -43,6 +43,10 @@ type DNSSummary struct {
 	// True if any among upstream transports (primary or secondary) returned blocked ans.
 	// Only valid for A/AAAA queries. Unspecified IPs are considered as "blocked ans".
 	UpstreamBlocks bool
+	// True if DNSSEC OK bit is set.
+	DO bool
+	// True if DNSSEC validation was successful.
+	AD bool
 	// Diag message from Transport, if any. Typically, "no error"
 	Msg string
 	// Region of the Rethink DNS+ server (if used)

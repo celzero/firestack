@@ -165,8 +165,9 @@ func (d *dns64) eval(network string, force64 bool, ansin *dns.Msg, r, uid string
 	hasq6 := xdns.HasAAAAQuestion(ansin)
 	hasans6 := xdns.HasAAAAAnswer(ansin)
 	ans00006 := xdns.AQuadAUnspecified(ansin)
+	hasauth := xdns.IsDNSSECAnswerAuthenticated(ansin)
 	// treat as if v6 answer missing if enforcing 6to4
-	if !hasq6 || (hasans6 && !force64) || ans00006 {
+	if !hasq6 || ((hasauth || hasans6) && !force64) || ans00006 {
 		// nb: has-aaaa-answer should cover for cases where
 		// the response is blocked by dnsx.RDNS
 		log.D("dns64: for(%s %s), no-op q(%s), q6(%t), ans6(%t), force64(%t), ans0000(%t)",
@@ -182,9 +183,9 @@ func (d *dns64) eval(network string, force64 bool, ansin *dns.Msg, r, uid string
 				ip64 = d.ip64[dnsx.Local464Resolver]
 			}
 		}
-		log.D("dns64: attempt underlay/local464 resolver [%s@%s] ip64 w len(%d)", r, uid, len(ip64))
+		log.D("dns64: attempt underlay/local464 resolver [%s@%s] ip64 (ad? %t) w len(%d)", r, uid, hasauth, len(ip64))
 	} else {
-		log.V("dns64: for %s, no resolver id(%s[%s]) registered", uid, r, id)
+		log.V("dns64: for %s, no resolver id(%s[%s]) registered (ad? %t)", uid, r, id, hasauth)
 	}
 
 	ans4, err := d.query64(network, ansin, r, uid)

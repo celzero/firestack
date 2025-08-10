@@ -835,6 +835,9 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []netip.Addr, network, uid strin
 	// the effort of setting up alg/ptr/nat caches which is wasteful in this case.
 	dontalg := usepreset || skipcache || uidself
 	synthAns := usepreset || usefixed
+	hasdnssec := xdns.IsDNSSECRequested(q)
+
+	smm.DO = hasdnssec
 
 	if discarduid {
 		uid = core.UNKNOWN_UID_STR
@@ -888,13 +891,16 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []netip.Addr, network, uid strin
 		if !xdns.HasRcodeSuccess(ansin) {
 			return ansin, err
 		}
-		log.D("alg: err but ans ok: %d; self? %t synth? %t; qerr %v",
-			xdns.Len(ansin), uidself, synthAns, err)
+		log.D("alg: for %s:%s err but ans ok: %d; do? %t, self? %t synth? %t; qerr %v",
+			qname(q), qtype(q), xdns.Len(ansin), hasdnssec, uidself, synthAns, err)
 	}
 
 	if ansin == nil { // may be nil on errors
 		return nil, errNoAnswer // err is nil
 	}
+
+	hasauth64 := false
+	hasauth := xdns.IsDNSSECAnswerAuthenticated(ansin)
 
 	qname := qname(ansin)
 	qtyp := qtype(ansin)
@@ -904,13 +910,18 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []netip.Addr, network, uid strin
 	// if usefixed is true, then d64 is no-op, as preset fixed ip does have ipv6
 	ans64 := t.dns64.D64(network, t1.ID().V(), uid, ansin) // ans64 may be nil if no D64 or error
 	if ans64 != nil {
-		log.D("alg: %s<>%s:%s[%s] %d dns64; s/ans(%d)/ans64(%d)",
-			qname, smm.ID, idstr(t1), uid, qtyp, xdns.Len(ansin), xdns.Len(ans64))
+		log.D("alg: %s<>%s:%s[%s] %d dns64; dnssec? %t; s/ans(%d)/ans64(%d)",
+			qname, smm.ID, idstr(t1), uid, qtyp, hasdnssec, xdns.Len(ansin), xdns.Len(ans64))
 		withDNS64Summary(ans64, smm)
 		// todo: for uidself, skip dns64? see: ipmapper.go:undoAlgAndOrNat64
 		// todo: skip for for undelegated domains like ipv4only.arpa?
 		ansin = ans64
+		// false if ans64 is synthesized or nil
+		// or its value matches hasauth
+		hasauth64 = xdns.IsDNSSECAnswerAuthenticated(ans64)
 	} // else: no dns64, or error; continue with ansin
+
+	smm.AD = hasauth && hasauth64 // true if both ansin and ans64 are authenticated
 
 	hasq := xdns.HasAAAAQuestion(ansin) || xdns.HasAQuestion(ansin) ||
 		xdns.HasSVCBQuestion(ansin) || xdns.HasHTTPQuestion(ansin)
@@ -927,8 +938,8 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []netip.Addr, network, uid strin
 
 	// todo: skip alg for undelegated domains like ipv4only.arpa?
 	if !hasq || !hasans || !rgood || ans0000 || dontalg {
-		log.D("alg: skip; query %s<>%s[%s]:%s:%d / a:%d, self(%t) dontalg(%t) hasq(%t) hasans(%t) rgood(%t), ans0000(%t)",
-			smm.ID, idstr(t1), uid, qname, qtyp, xdns.Len(ansin), uidself, dontalg, hasq, hasans, rgood, ans0000)
+		log.D("alg: skip; query %s<>%s[%s]:%s:%d / a:%d, dnssec(do? %t /ad? %t) self(%t) dontalg(%t) hasq(%t) hasans(%t) rgood(%t), ans0000(%t)",
+			smm.ID, idstr(t1), uid, qname, qtyp, xdns.Len(ansin), smm.DO, smm.AD, uidself, dontalg, hasq, hasans, rgood, ans0000)
 		return ansin, nil
 	}
 
@@ -1044,8 +1055,8 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []netip.Addr, network, uid strin
 		mustsubst = true
 	}
 
-	log.D("alg: %s<>%s[%s]; %s:%d a6(a %d / h %d / s %t) : a4(a %d / h %d / s %t); ttl: %s",
-		smm.ID, idstr(t1), uid, qname, qtyp, len(a6), len(ip6hints), substok6, len(a4), len(ip4hints), substok4, ansttl)
+	log.D("alg: %s<>%s[%s]; %s:%d (do? %t / ad? %t) a6(a %d / h %d / s %t) : a4(a %d / h %d / s %t); ttl: %s",
+		smm.ID, idstr(t1), uid, qname, qtyp, smm.DO, smm.AD, len(a6), len(ip6hints), substok6, len(a4), len(ip4hints), substok4, ansttl)
 	if !substok4 && !substok6 {
 		if mustsubst {
 			err = errAlgCannotSubst
@@ -1084,13 +1095,13 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []netip.Addr, network, uid strin
 	// the answer, whose ID != to t1 (cacher) itself. OTOH, dnsx.Resolver
 	// uses DNSSummary.ID when returning ans to the caller (ex: ipmapper)
 	tidToReg := smm.ID
-	log.D("alg: ok; for %s<>%s[%s]:%s:%d, domains %s real: %s / fix: %s => subst %s | %s; (mod? %t / fix? %t / synth? %t); sec %s; ttl %s",
-		tidToReg, idstr(t1), uid, qname, qtyp, targets, realip, fixedips, algip4, algip6, mod, usefixed, synthAns, secres.ips, ansttl)
+	log.D("alg: ok; for %s<>%s[%s]:%s:%d (do? %t / ad? %t), domains %s real: %s / fix: %s => subst %s | %s; (mod? %t / fix? %t / synth? %t); sec %s; ttl %s",
+		tidToReg, idstr(t1), uid, qname, qtyp, smm.DO, smm.AD, targets, realip, fixedips, algip4, algip6, mod, usefixed, synthAns, secres.ips, ansttl)
 
 	if t.registerLocked(qname, tidToReg, uid, algip4, algip6, realip, ansttl, targets, secres) {
 		// if mod is set, send modified answer
 		if mod {
-			withAlgSummaryIfNeeded(smm, algip4, algip6)
+			withAlgSummary(smm, algip4, algip6)
 			return ansmod, nil
 		} else {
 			return ansin, nil
@@ -1130,7 +1141,7 @@ func withDNS64Summary(ans64 *dns.Msg, s *x.DNSSummary) {
 	}
 }
 
-func withAlgSummaryIfNeeded(s *x.DNSSummary, algips ...netip.Addr) {
+func withAlgSummary(s *x.DNSSummary, algips ...netip.Addr) {
 	if settings.Debug {
 		// convert algips to ipcsv; any algips may be invalid
 		ipcsv := Netip2Csv(algips)
@@ -1147,6 +1158,8 @@ func withAlgSummaryIfNeeded(s *x.DNSSummary, algips ...netip.Addr) {
 			s.Server = prefix + notransport
 		}
 	}
+	// if modified alg ips are being returned, then these are not authentic
+	s.AD = len(algips) > 0
 }
 
 func (t *dnsgateway) registerLocked(q, tid, uid string, algip4, algip6 netip.Addr, realips []netip.Addr, ttl time.Duration, targets []string, secres secans) bool {

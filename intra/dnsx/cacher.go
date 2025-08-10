@@ -58,6 +58,7 @@ var (
 	errBlocked               = errors.New("dns: answer blocked")
 	errHangover              = errors.New("dns: no connectivity")
 	errNilCacheResponse      = errors.New("dns: nil cache response")
+	errCannotUseStaleCache   = errors.New("dns: cannot use stale cache response")
 	errSkipInternalCache     = errors.New("dns: skip internal cache")
 	errCacheResponseMismatch = errors.New("dns: cache response mismatch")
 )
@@ -193,8 +194,12 @@ func mkcachekey(q *dns.Msg) (string, uint8, bool) {
 		return "", 0, false
 	}
 	qtyp := strconv.Itoa(int(xdns.QType(q)))
+	do := "0"
+	if xdns.IsDNSSECRequested(q) {
+		do = "1"
+	}
 
-	return qname + cacheKeySep + qtyp, hash(qname), true
+	return qname + cacheKeySep + qtyp + cacheKeySep + do, hash(qname), true
 }
 
 // scrubCache deletes expired entries from the cache.
@@ -287,11 +292,19 @@ func (cb *cache) put(key string, cc *cres) (ok bool) {
 	// 1. ansttl is 0 for synthesized "block" answers (see xdns.BlockTTL)
 	// 2. for most empty ans (like qtype:65), ansttl is 0
 	ansttl := time.Duration(xdns.RTtl(ans)) * time.Second
-	if ansttl < cb.ttl {
-		ansttl = cb.ttl
-	} else { // bump up a bit longer than the ttl
-		ansttl = ansttl + cb.halflife
+
+	if !xdns.IsDNSSECAnswerAuthenticated(ans) {
+		if ansttl < cb.ttl {
+			ansttl = cb.ttl
+		} else { // bump up a bit longer than the ttl
+			ansttl = ansttl + cb.halflife
+		}
 	}
+
+	if ansttl == 0 {
+		return
+	}
+
 	exp := time.Now().Add(ansttl)
 	v := &cres{ // TODO: copy is not required?
 		ans:    cc.ans.Copy(),
@@ -319,6 +332,11 @@ func asResponse(q *dns.Msg, v *cres, fresh bool) (a *dns.Msg, s *x.DNSSummary, e
 		err = errNilCacheResponse
 		return
 	}
+	if !fresh && xdns.IsDNSSECAnswerAuthenticated(a) {
+		// for stale responses, TTL is modified which violates DNSSEC?
+		err = errCannotUseStaleCache
+		return
+	}
 	aname := qname(a)
 	qname := qname(q)
 	if aname != qname {
@@ -327,7 +345,7 @@ func asResponse(q *dns.Msg, v *cres, fresh bool) (a *dns.Msg, s *x.DNSSummary, e
 		return
 	}
 
-	a.Id = q.Id
+	a.Id = q.Id // OK to change even if dnssec?
 	// dns 0x20 may mangle the question section, so preserve it
 	// github.com/jedisct1/edgedns#correct-support-for-the-dns0x20-extension
 	a.Question = q.Question
@@ -589,6 +607,8 @@ func fillSummary(s *x.DNSSummary, out *x.DNSSummary) {
 
 	if len(s.RData) != 0 {
 		out.RData = s.RData
+		out.AD = s.AD
+		out.DO = s.DO
 	}
 
 	out.Cached = s.Cached
