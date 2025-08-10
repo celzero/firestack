@@ -301,7 +301,7 @@ func TestSEProxy(t *testing.T) {
 	log.Output(10, xdns.Ans(ans6))
 }
 
-func TestProtonReaches(t *testing.T) {
+func TestWinReaches(t *testing.T) {
 	netr := &fakeResolver{}
 	ctx := context.TODO()
 	ctl := &fakeCtl{}
@@ -332,25 +332,19 @@ func TestProtonReaches(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	ilog.D("proton: read ent: %d", len(entjson))
+	ilog.D("ws: read ent: %d", len(entjson))
 	if wreg, err := pxr.RegisterWin(x.BytesOf(entjson)); err != nil {
 		t.Fatal(err)
 	} else {
 		entjson = wreg.V()
-		_ = os.WriteFile("proton.json", entjson, 0644)
-		ilog.D("proton: setup %d", len(entjson))
+		_ = os.WriteFile("win.json", entjson, 0644)
+		ilog.D("ws: setup %d", len(entjson))
 	}
-
-	// if ips, err := pxr.TestProton(); err != nil {
-	// 	t.Fatal(err)
-	// } else {
-	// 	ilog.D("se: %v", ips)
-	// }
 
 	win, err := pxr.Win()
 	ko(t, err)
 	if win == nil {
-		t.Fatal("nil main proton proxy")
+		t.Fatal("nil main ws proxy")
 	}
 
 	const maxVisited = 10
@@ -375,18 +369,14 @@ func TestProtonReaches(t *testing.T) {
 	}
 	ilog.I("available proxy CCs (limited to 10): %v", visited)
 
-	// _, err = proton.Fork("UK")
-	// ko(t, err)
-	// _, err = proton.Fork("CH")
-	// ko(t, err)
 	_, err = win.Fork(x.StrOf("US"))
 	ko(t, err)
 
 	settings.SetAutoDialsParallel(false)
 	settings.SetAutoMode(settings.AutoModeRemote)
 
-	propx, _ := pxr.ProxyFor(ipn.RpnPro)
-	propx2, _ := pxr.ProxyFor(ipn.RpnPro + "GT")
+	propx, _ := pxr.ProxyFor(ipn.RpnWin)
+	propx2, _ := pxr.ProxyFor(ipn.RpnWin + "GT")
 	auto, _ := pxr.ProxyFor(ipn.Auto)
 	if propx == nil || propx2 == nil || auto == nil {
 		t.Fatal("nil proxies")

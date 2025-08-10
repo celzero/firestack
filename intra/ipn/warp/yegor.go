@@ -880,10 +880,10 @@ func (a *WsClient) Conf(cc string) (string, error) {
 	}
 	if len(out) > 0 {
 		r := rand.IntN(len(out))
-		log.I("proton: conf: cc %s: %d/%d => chosen: %d", cc, c, len(out), r)
+		log.I("ws: conf: cc %s: %d/%d => chosen: %d", cc, c, len(out), r)
 		return out[r], nil
 	}
-	log.D("proton: conf: cc %s not found (tot: %d)", cc, tot)
+	log.D("ws: conf: cc %s not found (tot: %d)", cc, tot)
 	return "", errWsNoCcConfig
 }
 

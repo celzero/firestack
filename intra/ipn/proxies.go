@@ -39,7 +39,6 @@ const (
 	OrbotH1  = x.OrbotH1
 	GlobalH1 = x.GlobalH1
 	RpnWg    = x.RpnWg
-	RpnPro   = x.RpnWin // pro is an alias for win
 	RpnWin   = x.RpnWin
 	RpnWs    = x.RpnWs
 	Rpn64    = x.Rpn64
@@ -686,7 +685,7 @@ func (px *proxifier) ProxyFor(id string) (Proxy, error) {
 	if isRPN(id) {
 		rpn, _ := core.Grx("pxr.mainRpnProxyFor: "+id, func(_ context.Context) (RpnProxy, error) {
 			// id here must be non-countrycode "rpn provider"
-			// ex: x.RpnPro; not "rpn+cc": x.RpnPro+US, x.RpnPro+MX
+			// ex: x.RpnWin; not "rpn+cc": x.RpnWin+US, x.RpnWin+MX
 			if p, err := px.mainRpnProxyOf(id); err == nil {
 				return p, nil
 			}
@@ -1199,11 +1198,6 @@ func (px *proxifier) registerWarp(existingStateJson []byte) (wc RpnAcc, err erro
 	}
 }
 
-// RegisterProton implements x.Rpn.
-func (px *proxifier) RegisterProton(existingState *x.Gobyte) (stateJson *x.Gobyte, err error) {
-	return px.RegisterWin(existingState) // same as RegisterWin
-}
-
 // RegisterWin implements x.Rpn.
 func (px *proxifier) RegisterWin(entitlementOrState *x.Gobyte) (stateJson *x.Gobyte, err error) {
 	defer func() {
@@ -1271,11 +1265,6 @@ func (px *proxifier) UnregisterWarp() bool {
 	return px.unregisterRpn(RpnWg)
 }
 
-// UnregisterProton implements x.Rpn.
-func (px *proxifier) UnregisterProton() bool {
-	return px.UnregisterWin()
-}
-
 // UnregisterWin implements x.Rpn.
 func (px *proxifier) UnregisterWin() bool {
 	return px.unregisterRpn(RpnWin)
@@ -1309,11 +1298,6 @@ func (px *proxifier) Warp() (x.RpnProxy, error) {
 		return nil, core.JoinErr(err, px.lastWarpErr.Load())
 	}
 	return rp, nil
-}
-
-// Proton implements x.Rpn.
-func (px *proxifier) Proton() (x.RpnProxy, error) {
-	return px.Win()
 }
 
 // Win implements x.Rpn.
@@ -1425,11 +1409,6 @@ func (px *proxifier) testWarp() (string, error) {
 	return strings.Join(oks, ","), nil
 }
 
-// TestProton implements x.Rpn.
-func (px *proxifier) TestProton() (*x.Gostr, error) {
-	return px.TestWin()
-}
-
 // TestWin implements x.Rpn.
 func (px *proxifier) TestWin() (*x.Gostr, error) {
 	return x.StrOfFunc(px.testWin)
@@ -1444,7 +1423,6 @@ func (px *proxifier) testWin() (string, error) {
 
 	n := 0
 	const maxpings = 5
-	// todo: proton does not use ipv6 for api servers
 	oks := make([]string, 0, len(v4))
 	for _, ip := range append(v4, v6...) {
 		ipstr := ip.String()

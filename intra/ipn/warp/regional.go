@@ -58,7 +58,6 @@ func (rwg *RegionalWgConf) genUapiConfig() bool {
 	// see: wgproxy.go:wgIfConfigOf => wgproxy.go:loadIPNets
 	allowedips := rwg.AllowedIPs
 	if len(allowedips) <= 0 {
-		// github.com/ProtonVPN/android-app/blob/b9c6e59de40/app/src/main/java/com/protonvpn/android/models/vpn/ConnectionParamsWireguard.kt#L96
 		allowedips = []string{gw4}
 	}
 

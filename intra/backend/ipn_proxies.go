@@ -90,14 +90,10 @@ type Rpn interface {
 	RegisterWarp(existingStateJson *Gobyte) (json *Gobyte, err error)
 	// RegisterSE registers a new SurfEasy user.
 	RegisterSE() error
-	// RegisterProton is alias for RegisterWin.
-	RegisterProton(entitlementOrStateJson *Gobyte) (json *Gobyte, err error)
 	// RegisterWin is alias for RegisterWin.
 	RegisterWin(entitlementOrStateJson *Gobyte) (json *Gobyte, err error)
 	// UnregisterWarp unregisters a Warp public key.
 	UnregisterWarp() bool
-	// UnregisterProton is an alias for UnregisterWin.
-	UnregisterProton() bool
 	// UnregisterWin unregisters a Windscribe installation.
 	UnregisterWin() bool
 	// UnregisterSE unregisters a SurfEasy user.
@@ -106,8 +102,6 @@ type Rpn interface {
 	TestWarp() (ips *Gostr, errs error)
 	// TestWin connects to the Windscribe gateway and returns its IP if reachable.
 	TestWin() (ips *Gostr, errs error)
-	// TestProton is an alias for TestWin.
-	TestProton() (ips *Gostr, errs error)
 	// TestSE connects to some SurfEasy IPs and returns reachable ones.
 	TestSE() (ips *Gostr, errs error)
 	// TestExit64 connects to public NAT64 endpoints and returns reachable ones.
@@ -116,8 +110,6 @@ type Rpn interface {
 	Warp() (wg RpnProxy, err error)
 	// Win returns a Windscribe WireGuard proxy.
 	Win() (wg RpnProxy, err error)
-	// Proton is an alias for Win.
-	Proton() (wg RpnProxy, err error)
 	// Pip returns a RpnWs proxy.
 	Pip() (ws RpnProxy, err error)
 	// Exit64 returns a Exit proxy hopping over preset publicly-available
