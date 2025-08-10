@@ -811,14 +811,14 @@ func (a *WsClient) Locations() (x.RpnServers, error) {
 			log.W("ws: locations: config#%d has no cc", i)
 			continue
 		}
-		if !visited[rc.CC] {
+		if !visited[rc.Name] {
 			s = append(s, x.RpnServer{
 				CC:    rc.CC,
 				Name:  rc.Name,
 				Addrs: strings.Join([]string{rc.ServerDomainPort, rc.addrCsv()}, ","),
 			})
 		}
-		visited[rc.CC] = true
+		visited[rc.Name] = true
 	}
 	return &RpnMultiCountryServers{s}, nil
 }
