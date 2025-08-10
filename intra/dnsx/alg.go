@@ -865,7 +865,7 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []netip.Addr, network, uid strin
 		t2 = nil // assert t2 == nil?
 	}
 	t1res := make(chan *dns.Msg, 1)
-	innersummary := new(x.DNSSummary)
+	innersummary := copySummary(smm)
 	// todo: use context?
 	secch := t.qs(t2, uid, network, q, t1res) // t2 may be nil
 
