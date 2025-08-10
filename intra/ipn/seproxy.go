@@ -482,6 +482,7 @@ func (h *seproxy) Resume() bool {
 	}
 
 	ok := h.status.Cas(st, TUP)
+	go h.Refresh() // no-op since SkipRefresh
 	log.I("proxy: se: resumed? %t", ok)
 	return ok
 }

@@ -267,22 +267,22 @@ func (t *pipws) swapVia(new Proxy) Proxy {
 	return swapVia(idstr(t), new, t.viaID, t.via)
 }
 
-// ID implements Proxy.
+// ID implements x.Proxy.
 func (t *pipws) ID() *x.Gostr {
 	return x.StrOf(RpnWs)
 }
 
-// Type implements Proxy.
+// Type implements x.Proxy.
 func (t *pipws) Type() *x.Gostr {
 	return x.StrOf(PIPWS)
 }
 
-// GetAddr implements Proxy.
+// GetAddr implements x.Proxy.
 func (t *pipws) GetAddr() *x.Gostr {
 	return x.StrOf(t.hostname + ":" + strconv.Itoa(t.port))
 }
 
-// Router implements Proxy.
+// Router implements x.Proxy.
 func (t *pipws) Router() x.Router {
 	return t
 }
@@ -320,6 +320,7 @@ func (h *pipws) Via() (x.Proxy, error) {
 	return nil, errNoHop
 }
 
+// Stop implements x.Proxy.
 func (t *pipws) Stop() error {
 	t.status.Store(END)
 	t.done()
@@ -358,6 +359,8 @@ func (h *pipws) Resume() bool {
 	}
 
 	ok := h.status.Cas(st, TUP)
+	go h.Refresh()
+
 	log.I("proxy: pipws: resumed? %t", ok)
 	return ok
 }

@@ -232,6 +232,7 @@ func (h *exit64) Resume() bool {
 	}
 
 	ok := h.status.Cas(st, TUP)
+	go h.Refresh() // no-op since SkipRefresh
 	log.I("proxy: exit64: resumed? %t", ok)
 	return ok
 }

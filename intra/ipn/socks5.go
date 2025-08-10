@@ -337,6 +337,7 @@ func (h *socks5) Resume() bool {
 	}
 
 	ok := h.status.Cas(st, TUP)
+	go h.Refresh() // no-op since SkipRefresh
 	log.I("proxy: socks5: resumed? %t", ok)
 	return ok
 }
