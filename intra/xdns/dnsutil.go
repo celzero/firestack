@@ -544,6 +544,37 @@ func AddEDNS0PaddingIfNoneFound(msg *dns.Msg) {
 	edns0.Option = append(edns0.Option, optPadding(paddingLen))
 }
 
+// IsDNSSECRequested checks if the DNSSEC OK (DO) bit is set in the DNS query.
+func IsDNSSECRequested(q *dns.Msg) bool {
+	if q != nil {
+		if edns0 := q.IsEdns0(); edns0 != nil {
+			return edns0.Do()
+		}
+	}
+	return false
+}
+
+// IsDNSSECAnswerAuthenticated checks if the DNSSEC authenticated bit is set in the DNS answer.
+func IsDNSSECAnswerAuthenticated(a *dns.Msg) bool {
+	if a != nil {
+		return a.AuthenticatedData
+	}
+	return false
+}
+
+func CopyAns(a *dns.Msg) *dns.Msg {
+	if a == nil {
+		return nil
+	}
+	out := a.Copy()
+	out.AuthenticatedData = false
+	out.RecursionDesired = false
+	out.CheckingDisabled = false
+	// TODO: msg.Ns = nil
+	// TODO: msg.Extra = nil
+	return out
+}
+
 func Question(domain string, qtyp uint16) ([]byte, error) {
 	msg := &dns.Msg{}
 	msg.SetQuestion(dns.Fqdn(domain), qtyp)

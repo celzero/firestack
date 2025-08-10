@@ -651,6 +651,10 @@ func (t *dnsgateway) fromInternalCache(tid, uid string, q *dns.Msg, typ iptype) 
 	if skipInternalCache(tid) {
 		return nil, errSkipInternalCache
 	}
+	// Skip answering from internal cache when DNSSEC is requested
+	if typ == typreal && xdns.IsDNSSECRequested(q) {
+		return nil, errSkipInternalCache
+	}
 	a, aaaa := xdns.HasAQuestion(q), xdns.HasAAAAQuestion(q)
 	if !a && !aaaa {
 		return nil, errNilCacheResponse
