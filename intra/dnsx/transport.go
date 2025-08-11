@@ -592,6 +592,10 @@ func (r *resolver) forward(q []byte, uid string, chosenids ...string) (res0 []by
 	// in the case of an alg transport, if there's no-alg,
 	// err is set which should be ignored if res2 is not nil
 	if err != nil && !algerr {
+		if smm.Status == Start {
+			smm.Status = InternalError // TODO: servfail?
+		}
+		smm.Msg = err.Error()
 		// both err and res2 are set when res2 has rcode error or servfail
 		// summary latency, ips, response, status already set by transport t
 		return res2, smm.ID, err
