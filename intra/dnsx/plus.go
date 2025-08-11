@@ -168,12 +168,12 @@ func (t *plus) ordered() ([]Transport, error) {
 	ord = append(ord, recov...)
 
 	ord = core.CopyUniq(ord)
-	if len(ord) < plusMaxTries {
-		ord = core.CopyUniq(ord, errored)
-	}
 
 	prev := ord
 	strat := settings.PlusStrat.Load()
+
+	refiltered := false
+refilter:
 	switch strat {
 	case settings.PlusFilterSafest:
 		ord = core.FilterLeft(ord, IsEncrypted)
@@ -183,6 +183,12 @@ func (t *plus) ordered() ([]Transport, error) {
 		ord = core.Sort(ord, Fastest)
 	case settings.PlusOrderRobust:
 		// nothing to do
+	}
+
+	if !refiltered && len(ord) < plusMaxTries {
+		ord = core.CopyUniq(ord, errored)
+		refiltered = true
+		goto refilter
 	}
 
 	if len(ord) <= 0 {
