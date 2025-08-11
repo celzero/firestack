@@ -63,6 +63,8 @@ const maxEOFTries = uint8(2)
 
 const purgethreshold = 1 * time.Minute
 
+const echRetryPeriod = 8 * time.Hour
+
 var errNoClient error = errors.New("no doh client")
 
 type odohtransport struct {
@@ -87,16 +89,17 @@ type transport struct {
 	url            string // endpoint URL
 	hostname       string // endpoint hostname
 	port           uint16
-	skipTLSVerify  bool                       // skips tls verification
-	tlsconfig      *tls.Config                // preset tlsconfig for the endpoint
-	echconfig      *tls.Config                // preset echconfig for the endpoint
-	echrejects     atomic.Uint32              // number of running ech rejections
-	pxcmu          sync.RWMutex               // protects pxclients
-	pxclients      map[string]*proxytransport // todo: use weak pointers for Proxy
-	lastpurge      *core.Volatile[time.Time]  // last scrubbed time for stale pxclients
-	preferGET      bool                       // saw 405 Method Not Allowed
-	proxies        ipn.ProxyProvider          // proxy provider, may be nil
-	relay          string                     // dial doh via relay, may be empty
+	skipTLSVerify  bool                        // skips tls verification
+	tlsconfig      *tls.Config                 // preset tlsconfig for the endpoint
+	echconfig      *core.Volatile[*tls.Config] // echconfig for the endpoint; may be nil
+	echrejects     atomic.Uint32               // number of running ech rejections
+	echlastattempt *core.Volatile[time.Time]   // last attempt fetching ech cfg
+	pxcmu          sync.RWMutex                // protects pxclients
+	pxclients      map[string]*proxytransport  // todo: use weak pointers for Proxy
+	lastpurge      *core.Volatile[time.Time]   // last scrubbed time for stale pxclients
+	preferGET      bool                        // saw 405 Method Not Allowed
+	proxies        ipn.ProxyProvider           // proxy provider, may be nil
+	relay          string                      // dial doh via relay, may be empty
 	status         *core.Volatile[int]
 	est            core.P2QuantileEstimator
 }
@@ -136,16 +139,18 @@ func newTransport(ctx context.Context, typ, id, rawurl, otargeturl string, addrs
 	ctx, done := context.WithCancel(ctx)
 
 	t := &transport{
-		ctx:       ctx,
-		done:      done,
-		id:        id,
-		typ:       typ,
-		proxies:   px,    // may be nil
-		relay:     relay, // may be empty
-		status:    core.NewVolatile(dnsx.Start),
-		pxclients: make(map[string]*proxytransport),
-		lastpurge: core.NewVolatile(time.Now()),
-		est:       core.NewP50Estimator(ctx),
+		ctx:            ctx,
+		done:           done,
+		id:             id,
+		typ:            typ,
+		proxies:        px,    // may be nil
+		relay:          relay, // may be empty
+		status:         core.NewVolatile(dnsx.Start),
+		pxclients:      make(map[string]*proxytransport),
+		echconfig:      core.NewZeroVolatile[*tls.Config](),
+		echlastattempt: core.NewZeroVolatile[time.Time](),
+		lastpurge:      core.NewVolatile(time.Now()),
+		est:            core.NewP50Estimator(ctx),
 	}
 	if !isodoh {
 		parsedurl, err := url.Parse(rawurl)
@@ -216,7 +221,8 @@ func newTransport(ctx context.Context, typ, id, rawurl, otargeturl string, addrs
 		log.I("doh: ODOH for %s -> %s", proxy, otargeturl)
 	}
 
-	ech := t.ech()
+	echcfg := t.getOrCreateEchConfigIfNeeded()
+
 	// TODO: ClientAuth
 	// Supply a client certificate during TLS handshakes.
 	// if auth != nil {
@@ -226,16 +232,7 @@ func newTransport(ctx context.Context, typ, id, rawurl, otargeturl string, addrs
 	// 		ServerName:           t.hostname,
 	// 	}
 	// }
-	if len(ech) > 0 {
-		t.echconfig = &tls.Config{
-			InsecureSkipVerify:                  t.skipTLSVerify,
-			MinVersion:                          tls.VersionTLS13, // must be 1.3
-			EncryptedClientHelloConfigList:      ech,
-			SessionTicketsDisabled:              false,
-			ClientSessionCache:                  core.TlsSessionCache(),
-			EncryptedClientHelloRejectionVerify: t.echVerifyFn(),
-		}
-	}
+
 	t.tlsconfig = &tls.Config{
 		InsecureSkipVerify: t.skipTLSVerify,
 		MinVersion:         tls.VersionTLS12,
@@ -246,7 +243,7 @@ func newTransport(ctx context.Context, typ, id, rawurl, otargeturl string, addrs
 	}
 
 	log.I("doh: new transport(%s): %s; relay? %t; addrs? %v; resolved? %t, ech? %t",
-		t.typ, t.url, len(relay) > 0, addrs, renewed, len(ech) > 0)
+		t.typ, t.url, len(relay) > 0, addrs, renewed, echcfg != nil)
 	return t, nil
 }
 
@@ -331,40 +328,108 @@ func (t *transport) purgeProxyClients() {
 	}
 }
 
+func (t *transport) getOrCreateEchConfigIfNeeded() *tls.Config {
+	echcfg := t.echconfig.Load()
+	if echcfg != nil {
+		return echcfg
+	}
+
+	prev := t.echlastattempt.Load()
+	if time.Since(prev) < echRetryPeriod {
+		return nil
+	}
+	refetch := t.echlastattempt.Cas(prev, time.Now())
+	if !refetch {
+		return nil
+	}
+
+	if ech := t.ech(); len(ech) > 0 {
+		echcfg = &tls.Config{
+			InsecureSkipVerify:                  t.skipTLSVerify,
+			MinVersion:                          tls.VersionTLS13, // must be 1.3
+			EncryptedClientHelloConfigList:      ech,
+			SessionTicketsDisabled:              false,
+			ClientSessionCache:                  core.TlsSessionCache(),
+			EncryptedClientHelloRejectionVerify: t.echVerifyFn(),
+		}
+		t.echconfig.Store(echcfg)
+	}
+
+	ok := echcfg == nil
+	logeif(!ok)("doh: %s fetch ech... ok? %t", t.ID(), ok)
+	return echcfg
+}
+
 func (t *transport) httpClientsFor(p ipn.Proxy) (c3, c *http.Client) {
 	pid := p.ID().V()
 	t.pxcmu.RLock()
 	pxtr, ok := t.pxclients[pid]
-	t.pxcmu.RUnlock()
-
 	same := pxtr != nil && pxtr.p.Handle() == p.Handle()
 	if ok && same {
-		return pxtr.c3, pxtr.c
+		c = pxtr.c
+		c3 = pxtr.c3
 	}
+	t.pxcmu.RUnlock()
 
 	pdial := p.Dialer().Dial
+	if c != nil {
+		if c3 == nil {
+			if echcfg := t.getOrCreateEchConfigIfNeeded(); echcfg != nil {
+				c3 = new(http.Client)
+				c3.Transport = h2(pdial, echcfg)
+				t.updateHttpClientsFor(p, c, c3)
+			}
+		}
+		return c3, c // c3 may be nil
+	}
 
 	var client http.Client
 	var client3 *http.Client
 	client.Transport = h2(pdial, t.tlsconfig)
-	if t.echconfig != nil {
+	if echcfg := t.echconfig.Load(); echcfg != nil {
 		client3 = new(http.Client)
-		client3.Transport = h2(pdial, t.echconfig)
+		client3.Transport = h2(pdial, echcfg)
 	}
 
 	// last writer wins
-	t.pxcmu.Lock()
-	t.pxclients[pid] = &proxytransport{
-		p:  p,
-		c:  &client,
-		c3: client3, // may be nil
-	}
-	t.pxcmu.Unlock()
+	t.updateHttpClientsFor(p, &client, client3)
 
 	// check if other proxies need to be purged
 	go t.purgeProxyClients()
 
 	return client3, &client
+}
+
+// updateHttpClientsFor only updates non-nil http clients dialing via Proxy p.
+func (t *transport) updateHttpClientsFor(p ipn.Proxy, c, c3 *http.Client) {
+	if c == nil && c3 == nil {
+		log.E("doh: %s cannot set/update, all clients nil", t.ID())
+		return
+	}
+
+	pid := p.ID().V()
+
+	t.pxcmu.Lock()
+	defer t.pxcmu.Unlock()
+
+	if pt := t.pxclients[pid]; pt != nil {
+		if c != nil {
+			pt.c = c
+		}
+		if c3 != nil {
+			pt.c3 = c3
+		}
+	} else {
+		if c == nil {
+			log.E("doh: %s cannot set http client to nil", t.ID())
+			return
+		}
+		t.pxclients[pid] = &proxytransport{
+			p:  p,
+			c:  c,
+			c3: c3, // may be nil
+		}
+	}
 }
 
 // Given a raw DNS query (including the query ID), this function sends the
@@ -426,7 +491,7 @@ func (t *transport) fetch(pid string, req *http.Request) (*http.Response, string
 	r, rpid, echdialer, err := t.multifetch(req, pid)
 	if err != nil {
 		log.W("doh: fetch: %s, mayech? %t / echdialer? %t, err: %v",
-			ustr, t.echconfig != nil, echdialer, err)
+			ustr, t.echconfig.Load() != nil, echdialer, err)
 		return r, rpid, echdialer, uerr(err)
 	}
 	return r, rpid, echdialer, nil
@@ -462,15 +527,20 @@ func (t *transport) multifetch(req *http.Request, pid string) (res *http.Respons
 			if eerr := new(tls.ECHRejectionError); errors.As(err, &eerr) {
 				cont = true
 				ech := eerr.RetryConfigList
-				useech := t.echconfig != nil
+
+				echcfg := t.echconfig.Load()
+				useech := echcfg != nil
 				if len(ech) <= 0 && useech {
 					ech = t.ech() // todo: use t.echconfig.ServerName?
 					log.I("doh: fetch #%d: err %v; grab new ech? %t",
 						i, eerr, len(ech) > 0)
 				}
 				if len(ech) > 0 && useech {
-					t.echconfig.EncryptedClientHelloConfigList = ech
-					c.Transport = h2(px.Dialer().Dial, t.echconfig)
+					echcfg.EncryptedClientHelloConfigList = ech
+					c.Transport = h2(px.Dialer().Dial, echcfg)
+					t.echconfig.Store(echcfg) // update ech config
+					t.echlastattempt.Store(time.Now())
+					t.updateHttpClientsFor(px, nil, c) // update c3
 				}
 				n := t.echrejects.Add(1)
 				log.I("doh: fetch #%d: ech rejected; retry? %t, ech? %t; total rejects: %d",
@@ -496,7 +566,7 @@ func (t *transport) prepare(pid string) (px ipn.Proxy, err error) {
 	userelay := len(t.relay) > 0
 	hasproxy := t.proxies != nil
 	useproxy := len(pid) != 0 // if pid == dnsx.NetNoProxy, then px is ipn.Block
-	useech := t.echconfig != nil
+	useech := t.echconfig.Load() != nil
 
 	if userelay || useproxy {
 		if userelay { // relay takes precedence
@@ -812,4 +882,11 @@ func (t *transport) Stop() error {
 	t.status.Store(dnsx.DEnd)
 	t.done()
 	return nil
+}
+
+func logeif(cond bool) log.LogFn {
+	if cond {
+		return log.E
+	}
+	return log.D
 }
