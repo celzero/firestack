@@ -390,11 +390,24 @@ func (t *plus) Get(id *x.Gostr) (x.DNSTransport, error) {
 	return nil, errNoSuchTransport
 }
 
+func (t *plus) refresh() {
+	if !plusSupportsCachedTransports {
+		return
+	}
+	for _, t := range t.all() {
+		// clear caches of cached transports:
+		if ct := asCachedTransport(t); ct != nil {
+			ct.Clear() // one at a time ...
+		}
+	}
+}
+
 // Refresh implements TransportMult.
 func (t *plus) Refresh() (*x.Gostr, error) {
-	// no-op as dialers.Clear in transport.go already clears the cache
+	// dialers.Clear in transport.go already clears the cache
 	// that holds ips <> doh hostnames mapping.
-	return t.ID(), nil
+	go t.refresh()
+	return t.LiveTransports(), nil
 }
 
 // LiveTransports implements TransportMult.
