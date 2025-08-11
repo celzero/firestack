@@ -1862,7 +1862,7 @@ func Req(t Transport, network string, q *dns.Msg, smm *x.DNSSummary) (*dns.Msg, 
 		return r, nil
 	}
 
-	log.V("alg: Req: %s:%d servfail; by: %s, rdata: %d, status: %s, rcode %d",
+	log.V("alg: Req: %s:%d servfail; by: %s, rdata: %d, status: %d, rcode %d",
 		qname, qtyp, smm.ID, smm.RData, smm.Status, xdns.Rcode(r))
 	return r, err
 }

@@ -392,6 +392,11 @@ func (t *ctransport) fetch(network string, q *dns.Msg, smmout *x.DNSSummary, cb 
 			return ccx, qerr
 		})
 
+		if cc == nil {
+			log.E("cache: barrier: %s; nil return for %s; err? %v", t.ID(), key, err)
+			ccx = cc
+		}
+
 		cachedres, fresh := cb.freshCopy(key) // always prefer value from cache
 		cachehit := cachedres != nil
 		// nil ans when Transport returns err (no servfail) and cache is empty

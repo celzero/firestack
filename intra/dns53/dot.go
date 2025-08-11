@@ -9,11 +9,13 @@ package dns53
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"net"
 	"net/netip"
 	"net/url"
 	"strconv"
+	"sync/atomic"
 	"time"
 
 	x "github.com/celzero/firestack/intra/backend"
