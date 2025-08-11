@@ -380,44 +380,43 @@ func (t *ctransport) fetch(network string, q *dns.Msg, smmout *x.DNSSummary, cb 
 			}
 		}()
 
-		cc := &cres{ans: nil, s: copySummary(smm2)}
+		ccx := &cres{ans: nil, s: copySummary(smm2)}
 		cc, err := t.reqbarrier.DoIt(key, func() (_ *cres, qerr error) {
 			reqsent = true
 			// ans may be nil
-			cc.ans, qerr = Req(t.Transport, network, q, smm2)
-			cc.s = copySummary(smm2) // copy summary to cc
+			ccx.ans, qerr = Req(t.Transport, network, q, smm2)
+			ccx.s = copySummary(smm2) // copy summary to cc
 			t.hangoverCheckpoint()
 			// cb.put no-ops when ans is nil or rcode != success (0)
-			cb.put(key, cc)
-			return cc, qerr
+			cb.put(key, ccx)
+			return ccx, qerr
 		})
 
 		cachedres, fresh := cb.freshCopy(key) // always prefer value from cache
 		cachehit := cachedres != nil
 		// nil ans when Transport returns err (no servfail) and cache is empty
-		hasans := cachedres != nil && cachedres.ans != nil
-
-		// expect fresh values, except on verrs
-		logwif(!fresh)("cache: barrier: (k: %s) hit? %t / hasans? %t / stale? %t; sent? %t, barrier: %s (cache: %s); qerr? %v",
-			key, cachehit, hasans, !fresh, reqsent, cc, cachedres, err)
-
-		if !cachehit || !hasans { // cc.Val may be uncacheable (ex: rcode != 0)
-			cachedres = cc.copy() // cc (cres) never nil; but cc.ans may be nil
-		}
+		cachedans := cachedres != nil && cachedres.ans != nil
 
 		// if there's no network connectivity (in hangover for 10s) don't
 		// return cached/barriered response, instead return an error
 		inhangover := t.hangover.Exceeds(httl)
+
+		// expect fresh values, except on verrs
+		logwif(cachehit && !fresh || err != nil)("cache: barrier: (k: %s) hit? %t / hitans? %t / stale? %t / sent? %t / hangover? %t, barrier: %s (cache: %s); qerr? %v",
+			key, cachehit, cachedans, !fresh, reqsent, inhangover, cc, cachedres, err)
+
+		if !cachehit || !cachedans { // cc.Val may be uncacheable (ex: rcode != 0)
+			cachedres = cc // cc (cres) never nil; but cc.ans may be nil
+		}
+
 		if inhangover {
 			err = core.JoinErr(err, errHangover)
 			log.W("cache: barrier: hangover(k: %s); sent? %t, discard ans (has? %t)",
-				key, reqsent, hasans)
-			if cachehit {
-				fillSummary(cachedres.s, smm2)
-			}
+				key, reqsent, cachedans)
+			fillSummary(cachedres.s, smm2)
 			// mimic send fail
 			smm2.Msg = err.Error()
-			smm2.RCode = dns.RcodeServerFailure
+			smm2.RCode = dns.RcodeBadTime
 			smm2.Status = SendFailed
 			// do not return any response (stall / drop silently)
 			return nil, err
@@ -425,9 +424,7 @@ func (t *ctransport) fetch(network string, q *dns.Msg, smmout *x.DNSSummary, cb 
 
 		// fres may be nil
 		fres, cachedsmm, ferr := asResponse(q, cachedres, fresh)
-		if cachehit { // fill from cachedsmm despite any err if cache was hit
-			fillSummary(cachedsmm, smm2) // cachedsmm may itself be smm2
-		}
+		fillSummary(cachedsmm, smm2) // cachedsmm may itself be smm2
 
 		return fres, core.JoinErr(err, ferr)
 	}
@@ -504,7 +501,6 @@ func (t *ctransport) Query(network string, q *dns.Msg, smm *x.DNSSummary) (*dns.
 		t.Unlock()
 
 		response, err = t.fetch(network, q, smm, cb, key)
-
 	} else {
 		err = errMissingQueryName // not really a transport error
 	}
@@ -559,9 +555,6 @@ func copySummary(from *x.DNSSummary) (to *x.DNSSummary) {
 // fillSummary copies non-zero values into out.
 func fillSummary(s *x.DNSSummary, out *x.DNSSummary) {
 	if out == nil || s == out {
-		return
-	}
-	if s == out {
 		return
 	}
 

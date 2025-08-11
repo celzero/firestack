@@ -934,8 +934,8 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []netip.Addr, network, uid strin
 
 	// todo: skip alg for undelegated domains like ipv4only.arpa?
 	if !hasq || !hasans || !rgood || ans0000 || dontalg {
-		log.D("alg: skip; query %s<>%s[%s]:%s:%d / a:%d, dnssec(do? %t /ad? %t) self(%t) dontalg(%t) hasq(%t) hasans(%t) rgood(%t), ans0000(%t)",
-			smm.ID, idstr(t1), uid, qname, qtyp, xdns.Len(ansin), smm.DO, smm.AD, uidself, dontalg, hasq, hasans, rgood, ans0000)
+		log.D("alg: skip; query %s<>%s[%s]:%s:%d / a:%d + rdata: %s + status: %d, dnssec(do? %t /ad? %t) self(%t) dontalg(%t) hasq(%t) hasans(%t) rgood(%t), ans0000(%t)",
+			smm.ID, idstr(t1), uid, qname, qtyp, xdns.Len(ansin), smm.RData, smm.Status, smm.DO, smm.AD, uidself, dontalg, hasq, hasans, rgood, ans0000)
 		return ansin, nil
 	}
 
@@ -1854,14 +1854,16 @@ func Req(t Transport, network string, q *dns.Msg, smm *x.DNSSummary) (*dns.Msg, 
 	r, err := t.Query(network, q, smm)
 
 	if r == nil {
-		log.V("alg: Req: %s:%d no answer; rdata: %s, rcode: %d; err? %v", qname, qtyp, smm.RData, smm.Status, err)
+		log.V("alg: Req: %s:%d no answer; by: %s, rdata: %s, status: %d; err? %v",
+			qname, qtyp, smm.ID, smm.RData, smm.Status, err)
 		return nil, err // err may be nil
 	}
 	if !xdns.IsServFailOrInvalid(r) {
 		return r, nil
 	}
 
-	log.V("alg: Req: %s:%d servfail; status: %d, rdata: %s, rcode %d", qname, qtyp, smm.RData, smm.Status, xdns.Rcode(r))
+	log.V("alg: Req: %s:%d servfail; by: %s, rdata: %d, status: %s, rcode %d",
+		qname, qtyp, smm.ID, smm.RData, smm.Status, xdns.Rcode(r))
 	return r, err
 }
 
