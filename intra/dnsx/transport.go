@@ -1266,14 +1266,17 @@ func isAnyDefault(ids ...string) bool {
 func overrideProxyIfNeeded(pid string, ids ...string) string {
 	for _, id := range ids {
 		switch id {
-		// note: Goos is anyway hard-coded to use NetExitProxy
+		// notes:
+		// 1. Goos is anyway hard-coded to use NetExitProxy.
+		// 2. Plus simply delegates queries to underlying servers,
+		// which may or may not use proxies.
 		case Goos, Local: // exit
 			return NetExitProxy
 		case CT + Goos, CT + Local: // exit
 			return NetExitProxy
-		case Bootstrap, Default, Plus, System, Preset: // base
+		case Bootstrap, Default, System, Preset: // base
 			return NetBaseProxy
-		case CT + Bootstrap, CT + Default, CT + Plus, CT + System, CT + Preset: // base
+		case CT + Bootstrap, CT + Default, CT + System, CT + Preset: // base
 			return NetBaseProxy
 		}
 	}
@@ -1285,10 +1288,10 @@ func skipBlock(tr ...Transport) bool {
 		if t == nil {
 			continue
 		}
-		switch t.ID().V() {
-		case Default, Plus, BlockFree, Alg, Bootstrap:
+		switch t.ID().V() { // Plus/CT+Plus to skip blocks conditionally?
+		case Default, BlockFree, Alg, Bootstrap:
 			return true
-		case CT + Default, CT + Plus, CT + BlockFree, CT + Alg, CT + Bootstrap:
+		case CT + Default, CT + BlockFree, CT + Alg, CT + Bootstrap:
 			return true
 		}
 	}
