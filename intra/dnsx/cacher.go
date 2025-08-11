@@ -458,15 +458,7 @@ func (t *ctransport) fetch(network string, q *dns.Msg, smmout *x.DNSSummary, cb 
 			// fallthrough to sendRequest
 		} else if cachedsmm != nil {
 			if !isfresh { // not fresh, fetch in the background
-				testpanic := settings.PanicAtRandom.Load() && rand10pc()
-				g := core.Gx
-				if testpanic {
-					g = core.Go // does not exit on panic
-				}
-				g("c.sendRequest: "+t.ID().V()+t.Type().V(), func() {
-					if testpanic {
-						panic("dns: cache: fetch: sendRequest: rand10pc")
-					}
+				core.Gx("c.sendRequest: "+key+t.ID().V(), func() {
 					_, _ = sendRequest(copySummary(smmout)) // summary may be cached
 				})
 			}
@@ -619,8 +611,4 @@ func fillSummary(s *x.DNSSummary, out *x.DNSSummary) {
 
 func rand33pc() bool {
 	return rand.Intn(99999) < 33000
-}
-
-func rand10pc() bool {
-	return rand.Intn(99999) < 10000
 }
