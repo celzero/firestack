@@ -545,6 +545,17 @@ func caller2(at int, sep1, sep2 string) (pc uintptr, who string) {
 	return pc, file
 }
 
+func tracecaller(s string) bool {
+	if len(s) <= 0 || s == callerunknown {
+		return false
+	}
+	// ex: asm_arm64.s:1223>async.go:49>async.go:121>proxy.go:789
+	if strings.Contains(s, "asm_") && strings.Contains(s, ".s") {
+		return false // asm files are not useful
+	}
+	return true
+}
+
 func shortfile(file string) string {
 	if i := strings.LastIndexByte(file, '/'); i >= 0 {
 		file = file[i+1:]
@@ -578,17 +589,6 @@ func (l *simpleLogger) writelog(lvl LogLevel, at int, msg string, args ...any) {
 		}
 	}
 
-	tracecaller := func(s string) bool {
-		if len(s) <= 0 || s == callerunknown {
-			return false
-		}
-		// ex: asm_arm64.s:1223>async.go:49>async.go:121>proxy.go:789
-		if strings.Contains(s, "asm_") && strings.Contains(s, ".s") {
-			return false // asm files are not useful
-		}
-
-		return true
-	}
 	if ll || cc {
 		switch lvl {
 		case USR, STACKTRACE, NONE: // no-op
