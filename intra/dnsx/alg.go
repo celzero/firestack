@@ -882,21 +882,17 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []netip.Addr, network, uid strin
 	// override relevant values in smm
 	fillSummary(innersummary, smm)
 
-	if err != nil {
+	if err != nil || ansin == nil {
 		if ansin == nil {
 			log.I("alg: abort no ans on %s+%s[%s]; self? %t synth? %t; qerr %v",
 				idstr(t1), idstr(t2), uid, uidself, synthAns, err)
-			return nil, err
+			return nil, core.JoinErr(err, errNoAnswer)
 		}
 		if !xdns.HasRcodeSuccess(ansin) {
 			return ansin, err
 		}
 		log.D("alg: for %s:%s err but ans ok: %d; do? %t, self? %t synth? %t; qerr %v",
 			qname(q), qtype(q), xdns.Len(ansin), hasdnssec, uidself, synthAns, err)
-	}
-
-	if ansin == nil { // may be nil on errors
-		return nil, errNoAnswer // err is nil
 	}
 
 	hasauth64 := false
