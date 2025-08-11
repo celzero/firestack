@@ -433,9 +433,6 @@ func httpclient(p Proxy, url *url.URL) (client *http.Client) {
 	}
 	// Lightweight transport for one-time use
 	client = &http.Client{
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			return http.ErrUseLastResponse // do not follow redirects
-		},
 		Timeout: 5 * time.Second,
 		Transport: &http.Transport{
 			Dial: func(network, addr string) (net.Conn, error) {
