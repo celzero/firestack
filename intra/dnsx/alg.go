@@ -674,7 +674,7 @@ func (t *dnsgateway) fromInternalCache(tid, uid string, q *dns.Msg, typ iptype) 
 	}
 
 	ttl := int64(until / time.Second)
-	log.VV("alg: response for %s by %s[%s] (v4? %t / v6? %t) realip; in cache? %v [until: %s] (or stale? %v)",
+	log.VV("alg: response for %s by %s[%s] (q4? %t / q6? %t) realip; in cache? %v [until: %s] (or stale? %v)",
 		domain, tid, uid, a, aaaa, cachedips, core.FmtSecs(ttl), stale)
 
 	if len(cachedips) <= 0 {
@@ -1837,6 +1837,7 @@ func Req(t Transport, network string, q *dns.Msg, smm *x.DNSSummary) (*dns.Msg, 
 		return nil, errNoQuestion
 	}
 	qname := qname(q)
+	qtyp := qtype(q)
 
 	if smm == nil { // discard smm
 		discarded := new(x.DNSSummary)
@@ -1847,21 +1848,20 @@ func Req(t Transport, network string, q *dns.Msg, smm *x.DNSSummary) (*dns.Msg, 
 		smm.QName = qname
 	}
 	if smm.QType <= 0 {
-		qtyp := qtype(q)
 		smm.QType = qtyp
 	}
 
 	r, err := t.Query(network, q, smm)
 
 	if r == nil {
-		log.V("alg: Req: %s no answer; but err? %v", qname, err)
+		log.V("alg: Req: %s:%d no answer; rdata: %s, rcode: %d; err? %v", qname, qtyp, smm.RData, smm.Status, err)
 		return nil, err // err may be nil
 	}
 	if !xdns.IsServFailOrInvalid(r) {
 		return r, nil
 	}
 
-	log.V("alg: Req: %s servfail; rcode %d", qname, xdns.Rcode(r))
+	log.V("alg: Req: %s:%d servfail; status: %d, rdata: %s, rcode %d", qname, qtyp, smm.RData, smm.Status, xdns.Rcode(r))
 	return r, err
 }
 
