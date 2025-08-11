@@ -447,10 +447,15 @@ func (t *ctransport) fetch(network string, q *dns.Msg, smmout *x.DNSSummary, cb 
 		log.D("cache: hit(k: %s / stale? %t / ans? %t): %s", key, !isfresh, hasans, v)
 		r, cachedsmm, err := asResponse(q, v, isfresh) // return cached response, may be stale
 		if err != nil {
-			log.W("cache: hit(k: %s) %s, but err? %v", key, v, err)
-			if err == errCacheResponseMismatch {
+			nilOrMismatch := errors.Is(err, errNilCacheResponse) ||
+				errors.Is(err, errCacheResponseMismatch)
+
+			logeif(nilOrMismatch)("cache: hit(k: %s) %s, but err? %v", key, v, err)
+
+			if nilOrMismatch {
 				// FIXME: this is a hack to fix an issue where the cache
-				// returns a response that does not match the fqdn in query.
+				// returns a response that does not match the fqdn in query
+				// or somehow has wrapper cache-obj but not the dns answer.
 				cb.mu.Lock()
 				delete(cb.c, key) // del the corrupted entry
 				cb.mu.Unlock()
