@@ -2002,3 +2002,10 @@ func logeif(cond bool) log.LogFn {
 	}
 	return log.D
 }
+
+func logwif(cond bool) log.LogFn {
+	if cond {
+		return log.W
+	}
+	return log.D
+}

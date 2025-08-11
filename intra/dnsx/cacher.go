@@ -21,7 +21,6 @@ import (
 	x "github.com/celzero/firestack/intra/backend"
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/log"
-	"github.com/celzero/firestack/intra/settings"
 	"github.com/celzero/firestack/intra/xdns"
 	"github.com/miekg/dns"
 )
@@ -293,16 +292,13 @@ func (cb *cache) put(key string, cc *cres) (ok bool) {
 	// 2. for most empty ans (like qtype:65), ansttl is 0
 	ansttl := time.Duration(xdns.RTtl(ans)) * time.Second
 
-	if !xdns.IsDNSSECAnswerAuthenticated(ans) {
-		if ansttl < cb.ttl {
-			ansttl = cb.ttl
-		} else { // bump up a bit longer than the ttl
-			ansttl = ansttl + cb.halflife
-		}
-	}
-
-	if ansttl == 0 {
-		return
+	// cache must keep the answer alive for a min of cb.ttl
+	// because the client code may fail if the cache marks
+	// a recently incubated answer as stale.
+	if ansttl < cb.ttl {
+		ansttl = cb.ttl
+	} else { // bump up a bit longer than the ttl
+		ansttl = ansttl + cb.halflife
 	}
 
 	exp := time.Now().Add(ansttl)
