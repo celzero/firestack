@@ -9,13 +9,11 @@ package dns53
 import (
 	"context"
 	"crypto/tls"
-	"errors"
 	"fmt"
 	"net"
 	"net/netip"
 	"net/url"
 	"strconv"
-	"sync/atomic"
 	"time"
 
 	x "github.com/celzero/firestack/intra/backend"
@@ -31,6 +29,8 @@ import (
 
 const usepool = true
 
+const echRetryPeriod = 8 * time.Hour
+
 type dot struct {
 	ctx  context.Context
 	done context.CancelFunc
@@ -43,13 +43,15 @@ type dot struct {
 	host     string // hostname from the url
 
 	c             *dns.Client
-	c3            *dns.Client       // with ech
 	proxies       ipn.ProxyProvider // may be nil
 	relay         string            // may be empty
 	skipTLSVerify bool
 
 	pool    *core.MultConnPool[uintptr]
 	usepool bool
+
+	echconfig      *core.Volatile[*tls.Config] // echconfig for the endpoint; may be nil
+	echlastattempt *core.Volatile[time.Time]   // last attempt fetching ech cfg
 
 	est    core.P2QuantileEstimator
 	status *core.Volatile[int]
@@ -63,10 +65,7 @@ func NewTLSTransport(ctx context.Context, id, rawurl string, addrs []string, px 
 		MinVersion:             tls.VersionTLS12,
 		SessionTicketsDisabled: false,
 	}
-	echcfg := &tls.Config{
-		MinVersion:             tls.VersionTLS13,
-		SessionTicketsDisabled: false,
-	}
+
 	// rawurl is either tls:host[:port] or tls://host[:port] or host[:port]
 	parsedurl, err := url.Parse(rawurl)
 	if err != nil {
@@ -76,7 +75,6 @@ func NewTLSTransport(ctx context.Context, id, rawurl string, addrs []string, px 
 	if parsedurl.Scheme != "tls" {
 		log.I("dot: disabling tls verification for %s", rawurl)
 		tlscfg.InsecureSkipVerify = true
-		echcfg.InsecureSkipVerify = true
 		skipTLSVerify = true
 	}
 	var relay string
@@ -97,32 +95,28 @@ func NewTLSTransport(ctx context.Context, id, rawurl string, addrs []string, px 
 	tlscfg.ClientSessionCache = core.TlsSessionCache()
 	addrport, port := url2addrport(rawurl)
 	t = &dot{
-		ctx:           ctx,
-		done:          done,
-		id:            id,
-		url:           rawurl,
-		host:          hostname,
-		skipTLSVerify: skipTLSVerify,
-		addrport:      addrport, // may or may not be ipaddr
-		port:          port,
-		status:        core.NewVolatile(x.Start),
-		proxies:       px,
-		relay:         relay,
-		pool:          core.NewMultConnPool[uintptr](ctx),
-		usepool:       usepool,
-		est:           core.NewP50Estimator(ctx),
+		ctx:            ctx,
+		done:           done,
+		id:             id,
+		url:            rawurl,
+		host:           hostname,
+		skipTLSVerify:  skipTLSVerify,
+		addrport:       addrport, // may or may not be ipaddr
+		port:           port,
+		status:         core.NewVolatile(x.Start),
+		proxies:        px,
+		relay:          relay,
+		pool:           core.NewMultConnPool[uintptr](ctx),
+		usepool:        usepool,
+		est:            core.NewP50Estimator(ctx),
+		echconfig:      core.NewZeroVolatile[*tls.Config](),
+		echlastattempt: core.NewZeroVolatile[time.Time](),
 	}
-	ech := t.ech()
-	if len(ech) > 0 {
-		echcfg.ClientSessionCache = core.TlsSessionCache()
-		echcfg.EncryptedClientHelloConfigList = ech
-		echcfg.EncryptedClientHelloRejectionVerify = t.echVerifyFn()
-		t.c3 = dnsclient(echcfg)
-	}
+	echcfg := t.getOrCreateEchConfigIfNeeded()
 	// local dialer: protect.MakeNsDialer(id, ctl)
 	t.c = dnsclient(tlscfg)
 	log.I("dot: (%s) setup: %s; relay? %t; resolved? %t, ech? %t",
-		id, rawurl, len(relay) > 0, ok, len(ech) > 0)
+		id, rawurl, len(relay) > 0, ok, echcfg != nil)
 	return t, nil
 }
 
@@ -131,8 +125,8 @@ func dnsclient(c *tls.Config) *dns.Client {
 		Net:            "tcp-tls",
 		Dialer:         nil, // unused; dialers from px take precedence
 		Timeout:        dottimeout,
-		SingleInflight: true, // coalsece queries
-		TLSConfig:      c.Clone(),
+		SingleInflight: true,      // coalsece queries
+		TLSConfig:      c.Clone(), // may be left unused
 	}
 }
 
@@ -156,7 +150,7 @@ func (t *dot) echVerifyFn() func(tls.ConnectionState) error {
 	return nil // delegate to stdlib
 }
 
-func (t *dot) doQuery(pid string, q *dns.Msg) (response *dns.Msg, rpid string, elapsed time.Duration, qerr *dnsx.QueryError) {
+func (t *dot) doQuery(pid string, q *dns.Msg) (response *dns.Msg, rpid string, ech bool, elapsed time.Duration, qerr *dnsx.QueryError) {
 	if q == nil || !xdns.HasAnyQuestion(q) {
 		qerr = dnsx.NewBadQueryError(fmt.Errorf("err len(query) %d", xdns.Len(q)))
 		return
@@ -167,7 +161,7 @@ func (t *dot) doQuery(pid string, q *dns.Msg) (response *dns.Msg, rpid string, e
 		return
 	}
 
-	response, rpid, elapsed, qerr = t.sendRequest(pid, q)
+	response, rpid, ech, elapsed, qerr = t.sendRequest(pid, q)
 
 	if qerr != nil { // only on send-request errors
 		response = xdns.Servfail(q)
@@ -175,7 +169,7 @@ func (t *dot) doQuery(pid string, q *dns.Msg) (response *dns.Msg, rpid string, e
 	return
 }
 
-func (t *dot) tlsdial(p ipn.Proxy) (dc *dns.Conn, who uintptr, err error) {
+func (t *dot) tlsdial(p ipn.Proxy) (dc *dns.Conn, who uintptr, usingech bool, err error) {
 	who = p.Handle()
 
 	defer func() {
@@ -189,32 +183,38 @@ func (t *dot) tlsdial(p ipn.Proxy) (dc *dns.Conn, who uintptr, err error) {
 	}()
 
 	if dc = t.fromPool(who); dc != nil {
-		return
+		return dc, who, false, nil // pooled connections don't track ECH state
 	}
 
-	var usingech bool
 	var c net.Conn = nil // dot is always tcp
 	addr := t.addrport   // t.addr may be ip or hostname
-	if t.c3 != nil {     // may be nil if ech is not available
-		cfg := t.c3.TLSConfig // don't clone; may be modified by dialers.DialWithTls
-		c, err = dialers.DialWithTls(p.Dialer(), cfg, "tcp", addr)
-		usingech = true
+
+	// Try ECH first if available
+	if echcfg := t.getOrCreateEchConfigIfNeeded(); echcfg != nil {
+		// update ech config which may have been changed by DialWithTls
+		defer t.echconfig.Store(echcfg)
+		c, err = dialers.DialWithTls(p.Dialer(), echcfg, "tcp", addr)
 	}
+
 	if c == nil && core.IsNil(c) { // no ech or ech failed
 		cfg := t.c.TLSConfig
 		c, err = dialers.DialWithTls(p.Dialer(), cfg, "tcp", addr)
+		usingech = false
 	}
 	if c != nil && core.IsNotNil(c) {
-		return &dns.Conn{Conn: c}, who, err
+		if tlsConn, ok := c.(*tls.Conn); ok && usingech {
+			usingech = tlsConn.ConnectionState().ECHAccepted
+		}
+		return &dns.Conn{Conn: c}, who, usingech, err
 	} else {
 		err = core.OneErr(err, errNoNet)
 		log.W("dot: tlsdial: (%s) nil conn/err for %s, ech? %t; err? %v",
 			t.id, addr, usingech, err)
 	}
-	return nil, who, err
+	return nil, who, false, err
 }
 
-func (t *dot) pxdial(pid string) (*dns.Conn, string, uintptr, error) {
+func (t *dot) pxdial(pid string) (*dns.Conn, string, uintptr, bool, error) {
 	var px ipn.Proxy
 	if len(t.relay) > 0 { // relay takes precedence
 		pid = t.relay
@@ -222,19 +222,19 @@ func (t *dot) pxdial(pid string) (*dns.Conn, string, uintptr, error) {
 	if t.proxies != nil { // err if t.proxies is nil
 		var err error
 		if px, err = t.proxies.ProxyFor(pid); err != nil {
-			return nil, "", core.Nobody, err
+			return nil, "", core.Nobody, false, err
 		}
 	}
 	if px == nil {
-		return nil, "", core.Nobody, dnsx.ErrNoProxyProvider
+		return nil, "", core.Nobody, false, dnsx.ErrNoProxyProvider
 	}
 	pid = px.ID().V()
 	rpid := ipn.ViaID(px)
 	log.V("dot: pxdial: (%s) using relay/proxy %s (via: %s) at %s",
 		t.id, pid, rpid, px.GetAddr())
 
-	c, who, err := t.tlsdial(px)
-	return c, rpid, who, err
+	c, who, ech, err := t.tlsdial(px)
+	return c, rpid, who, ech, err
 }
 
 // toPool takes ownership of c.
@@ -269,7 +269,7 @@ func clos(c net.Conn) {
 	core.CloseConn(c)
 }
 
-func (t *dot) sendRequest(pid string, q *dns.Msg) (ans *dns.Msg, rpid string, elapsed time.Duration, qerr *dnsx.QueryError) {
+func (t *dot) sendRequest(pid string, q *dns.Msg) (ans *dns.Msg, rpid string, ech bool, elapsed time.Duration, qerr *dnsx.QueryError) {
 	var err error
 
 	if q == nil || !xdns.HasAnyQuestion(q) {
@@ -282,12 +282,13 @@ func (t *dot) sendRequest(pid string, q *dns.Msg) (ans *dns.Msg, rpid string, el
 	userelay := len(t.relay) > 0
 	useproxy := len(pid) != 0 // pid == dnsx.NetNoProxy => ipn.Block
 	if useproxy || userelay { // ref dns.Client.Dial
-		conn, rpid, who, err = t.pxdial(pid)
+		conn, rpid, who, ech, err = t.pxdial(pid)
 	} else {
 		err = dnsx.ErrNoProxyProvider
 	}
 
 	if err == nil {
+		// tls config is not used with this exchange as conn is pre-supplied
 		ans, elapsed, err = t.c.ExchangeWithConnContext(t.ctx, q, conn)
 	} // fallthrough
 
@@ -316,6 +317,7 @@ func (t *dot) Query(network string, q *dns.Msg, smm *x.DNSSummary) (ans *dns.Msg
 	var qerr *dnsx.QueryError
 	var elapsed time.Duration
 	var pid, rpid string
+	var ech bool
 
 	if r := t.relay; len(r) > 0 {
 		pid = t.chooseProxy(r)
@@ -324,7 +326,7 @@ func (t *dot) Query(network string, q *dns.Msg, smm *x.DNSSummary) (ans *dns.Msg
 		pid = t.chooseProxy(pids...)
 	}
 
-	ans, rpid, elapsed, qerr = t.doQuery(pid, q)
+	ans, rpid, ech, elapsed, qerr = t.doQuery(pid, q)
 
 	status := dnsx.Complete
 	if qerr != nil {
@@ -339,6 +341,9 @@ func (t *dot) Query(network string, q *dns.Msg, smm *x.DNSSummary) (ans *dns.Msg
 	smm.RCode = xdns.Rcode(ans)
 	smm.RTtl = xdns.RTtl(ans)
 	smm.Server = t.getAddr()
+	if ech {
+		smm.Server = dnsx.EchPrefix + smm.Server
+	}
 	smm.PID = pid   // may be local dnsx.IsLocalProxy
 	smm.RPID = rpid // may be empty
 	if err != nil {
@@ -347,8 +352,8 @@ func (t *dot) Query(network string, q *dns.Msg, smm *x.DNSSummary) (ans *dns.Msg
 	smm.Status = status
 	t.est.Add(smm.Latency)
 
-	log.V("dot: len(res): fro %s:%d a:%d/sz:%d/pad:%d, data: %s, via: %s, err? %v",
-		smm.QName, smm.QType, xdns.Len(ans), xdns.Size(ans), xdns.EDNS0PadLen(ans), smm.RData, smm.PID, err)
+	log.V("dot: %s ech? %t; len(res): fro %s:%d a:%d/sz:%d/pad:%d, data: %s / status: %d, via: %s, err? %v",
+		t.id, ech, smm.QName, smm.QType, xdns.Len(ans), xdns.Size(ans), xdns.EDNS0PadLen(ans), smm.RData, smm.Status, smm.PID, err)
 
 	return
 }
@@ -378,7 +383,7 @@ func (t *dot) GetRelay() x.Proxy {
 }
 
 func (t *dot) getAddr() (addr string) {
-	if t.c3 != nil {
+	if t.echconfig.Load() != nil {
 		addr = dnsx.EchPrefix + t.addrport
 	} else if t.skipTLSVerify {
 		addr = dnsx.NoPkiPrefix + t.addrport
@@ -426,9 +431,34 @@ func url2addrport(url string) (string, uint16) {
 	return url, port
 }
 
-func logwif(cond bool) log.LogFn {
-	if cond {
-		return log.W
+func (t *dot) getOrCreateEchConfigIfNeeded() *tls.Config {
+	echcfg := t.echconfig.Load()
+	if echcfg != nil {
+		return echcfg
 	}
-	return log.V
+
+	prev := t.echlastattempt.Load()
+	if time.Since(prev) < echRetryPeriod {
+		return nil
+	}
+	refetch := t.echlastattempt.Cas(prev, time.Now())
+	if !refetch {
+		return nil
+	}
+
+	if ech := t.ech(); len(ech) > 0 {
+		echcfg = &tls.Config{
+			InsecureSkipVerify:                  t.skipTLSVerify,
+			MinVersion:                          tls.VersionTLS13, // must be 1.3
+			EncryptedClientHelloConfigList:      ech,
+			SessionTicketsDisabled:              false,
+			ClientSessionCache:                  core.TlsSessionCache(),
+			EncryptedClientHelloRejectionVerify: t.echVerifyFn(),
+		}
+		t.echconfig.Store(echcfg)
+	}
+
+	ok := echcfg != nil
+	logwif(!ok)("dot: %s fetch ech... ok? %t", t.id, ok)
+	return echcfg
 }

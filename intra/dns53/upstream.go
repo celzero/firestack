@@ -386,3 +386,10 @@ func logev(err error) log.LogFn {
 	}
 	return log.V
 }
+
+func logwif(cond bool) log.LogFn {
+	if cond {
+		return log.W
+	}
+	return log.V
+}
