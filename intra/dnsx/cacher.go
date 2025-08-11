@@ -381,7 +381,7 @@ func (t *ctransport) fetch(network string, q *dns.Msg, smmout *x.DNSSummary, cb 
 		}()
 
 		cc := &cres{ans: nil, s: copySummary(smm2)}
-		v, err := t.reqbarrier.DoIt(key, func() (_ *cres, qerr error) {
+		cc, err := t.reqbarrier.DoIt(key, func() (_ *cres, qerr error) {
 			reqsent = true
 			// ans may be nil
 			cc.ans, qerr = Req(t.Transport, network, q, smm2)
@@ -394,17 +394,17 @@ func (t *ctransport) fetch(network string, q *dns.Msg, smmout *x.DNSSummary, cb 
 
 		cachedres, fresh := cb.freshCopy(key) // always prefer value from cache
 		cachehit := cachedres != nil
-		if !cachehit { // v.Val may be uncacheable (ex: rcode != 0)
+		// nil ans when Transport returns err (no servfail) and cache is empty
+		hasans := cachedres != nil && cachedres.ans != nil
+
+		// expect fresh values, except on verrs
+		logwif(!fresh)("cache: barrier: (k: %s) hit? %t / hasans? %t / stale? %t; sent? %t, barrier: %s (cache: %s); qerr? %v",
+			key, cachehit, hasans, !fresh, reqsent, cc, cachedres, err)
+
+		if !cachehit || !hasans { // cc.Val may be uncacheable (ex: rcode != 0)
 			cachedres = cc.copy() // cc (cres) never nil; but cc.ans may be nil
-			log.D("cache: barrier: empty(k: %s); sent? %t; barrier: %s; qerr? %v",
-				key, reqsent, v, err)
-		} else if !fresh { // expect fresh values, except on verrs
-			log.W("cache: barrier: stale(k: %s); sent? %t, barrier: %s (cache: %s); qerr? %v",
-				key, reqsent, v, cachedres, err)
 		}
 
-		// nil ans when Transport returns err (no servfail) and cache is empty
-		hasans := cachedres.ans != nil
 		// if there's no network connectivity (in hangover for 10s) don't
 		// return cached/barriered response, instead return an error
 		inhangover := t.hangover.Exceeds(httl)
@@ -477,7 +477,8 @@ func (t *ctransport) fetch(network string, q *dns.Msg, smmout *x.DNSSummary, cb 
 			return r, nil
 		} // else: fallthrough to sendRequest
 	} else {
-		log.D("cache: miss(k: %s): cached? %t, hangover? %t, stale? %t", key, v != nil, !trok, !isfresh)
+		log.D("cache: miss(k: %s): cached? %t, hangover? %t, stale? %t",
+			key, v != nil, !trok, !isfresh)
 	}
 
 	// send request in the foreground, and return the response
