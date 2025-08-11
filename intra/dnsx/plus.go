@@ -22,6 +22,8 @@ import (
 )
 
 const plusSupportsCachedTransports = false
+const plusUsesPreferred = false
+const plusUsesSystem = false
 
 const plusMaxTries = 6
 
@@ -126,10 +128,16 @@ func (t *plus) defaultdns() (Transport, error) {
 }
 
 func (t *plus) systemdns() (Transport, error) {
+	if !plusUsesSystem {
+		return nil, errNoSuchTransport
+	}
 	return t.r.GetInternal(System) // may return Goos or Default
 }
 
 func (t *plus) preferreddns() (Transport, error) {
+	if !plusUsesPreferred {
+		return nil, errNoSuchTransport
+	}
 	return t.r.GetInternal(Preferred) // may return Default
 }
 
