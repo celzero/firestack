@@ -165,11 +165,9 @@ func (ba *Barrier[T, K]) DoIt(k K, once Work[T]) (zz T, err error) {
 	v, _ := ba.Do(k, once)
 	if v == nil || v.Err != nil {
 		if v == nil { // unlikely
-			err = errNoFruitOfLabour
-		} else {
-			err = v.Err
+			return zz, errNoFruitOfLabour
 		}
-		return
+		return v.Val, v.Err
 	}
 	return v.Val, nil
 }
