@@ -76,8 +76,9 @@ var (
 
 func init() {
 	if BustDnsproxydResNetCache {
-		blockTTL = uint32(0)
-		ansTTL = uint32(0)
+		// setting these to 0 trips apps like GrayJay? github.com/futo-org/grayjay-android/issues/2605
+		blockTTL = ZeroTTL
+		ansTTL = ZeroTTL
 	}
 }
 
