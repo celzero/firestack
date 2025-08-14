@@ -26,6 +26,7 @@ package dialers
 import (
 	"context"
 	"io"
+	"math"
 	"net"
 	"net/netip"
 	"strings"
@@ -420,10 +421,9 @@ func (r *retrier) retryWriteReadLocked(buf []byte) (int, error) {
 		core.CloseOp(newConn, core.CopW)
 	}
 
-	logedcond(readdone || writedone)("retrier: retryLocked: done! strat(%s; mult? %d %T) %s=>%s; write? %d/%d; closed r/w? %t/%t; deadline r/w: %v/%v",
-		r.dialerID(), len(r.dialers), newConn, laddr(newConn), r.raddr, nw, len(r.tee), readdone, writedone, core.FmtTimeAsPeriod(r.readDeadline), core.FmtTimeAsPeriod(r.writeDeadline))
+	logedcond(readdone || writedone)("retrier: retryLocked: done! strat(%s; mult? %d %T) %s=>%s; write? %d/%d; closed r/w? %t/%t; rtt: %s, deadline r/w: %v/%v",
+		r.dialerID(), len(r.dialers), newConn, laddr(newConn), r.raddr, nw, len(r.tee), readdone, writedone, core.FmtPeriod(r.timeout), core.FmtTimeAsPeriod(r.readDeadline), core.FmtTimeAsPeriod(r.writeDeadline))
 
-	newConn.SetReadDeadline(time.Now().Add(r.timeout))
 	// all of buf was written to c
 	// require a response within a short timeout on r.conn (same as newConn)
 	r.shorterReadDeadlineForRetryLocked()
@@ -545,6 +545,17 @@ func (r *retrier) shorterReadDeadlineForRetryLocked() {
 	}
 }
 
+func (r *retrier) readTimeout() time.Duration {
+	if r.timeout > 0 {
+		return r.timeout
+	}
+	if r.readDeadline.IsZero() {
+		// 2501h 59m 59s 25ms: a comfortably high duration in nanos
+		return math.MaxInt64 >> 10
+	}
+	return time.Until(r.readDeadline)
+}
+
 // Write data in b to retrier's underlying conn, r.conn
 func (r *retrier) Write(b []byte) (int, error) {
 	// Double-checked locking pattern.  This avoids lock acquisition on
@@ -576,15 +587,16 @@ func (r *retrier) Write(b []byte) (int, error) {
 			// by the retry procedure. Block until we have a final socket (which will
 			// already have replayed r.tee), and retry.
 			// ie, wait until first write is done on the final socket.
-			maxExpectedReadTimeout := r.timeout * maxRetryCount
+			until := r.readTimeout()
+			maxUntil := max(until, until*maxRetryCount)
 			if r.multidial {
-				maxExpectedReadTimeout = r.timeout * time.Duration(len(r.dialers))
+				maxUntil = max(maxUntil, maxUntil*time.Duration(len(r.dialers)))
 			}
 			select {
 			case <-r.retryDoneCh:
-			case <-time.After(3 * maxExpectedReadTimeout): // arb high timeout; it should rarely if ever needed
+			case <-time.After(maxUntil): // arb high timeout; it should rarely if ever needed
 				log.W("retrier: write: %s: 1st write timed-out waiting for %s [calc-rtt: %s] 1st read b/w [%s=>%s], mult: %d, b: %d/%d, err: %v",
-					r.dialerID(), core.FmtPeriod(3*maxExpectedReadTimeout), core.FmtPeriod(r.timeout), src, r.raddr, len(r.dialers), n, len(b), err)
+					r.dialerID(), core.FmtPeriod(maxUntil), core.FmtPeriod(r.timeout), src, r.raddr, len(r.dialers), n, len(b), err)
 				return n, core.JoinErr(err, errRetryTimeout)
 			}
 
