@@ -104,22 +104,26 @@ func PcapModes() string {
 
 // Swap implements FdSwapper.
 func (l *linkSwap) Swap(fd int) error {
-	l.Lock()
-	defer l.Unlock()
-
 	if l.FdSwapper == nil {
 		return errNoFdSwapper
 	}
 
 	err := l.FdSwapper.Swap(fd)
 	if errors.Is(err, errNeedsNewEndpoint) {
-		umtu := uint32(l.e.MTU())
+		umtu := uint32(l.MTU())
 		opt := Options{
 			FDs: []int{fd},
 			MTU: umtu,
 		}
-		core.Go("linkFdSwap."+strconv.Itoa(fd), l.e.Close)
-		l.e, err = newFdbasedInjectableEndpoint(&opt)
+		if ep, err := newFdbasedInjectableEndpoint(&opt); err == nil {
+			l.Lock()
+			core.Go("linkFdSwap."+strconv.Itoa(fd), l.e.Close)
+			l.e = ep
+			l.Unlock()
+		} else {
+			log.E("netstack: linkFdSwap(%d); err %v", fd, err)
+			return err
+		}
 	}
 
 	return err
@@ -127,90 +131,105 @@ func (l *linkSwap) Swap(fd int) error {
 
 func (l *linkSwap) MTU() uint32 {
 	l.Lock()
-	defer l.Unlock()
-	return l.e.MTU()
+	e := l.e
+	l.Unlock()
+	return e.MTU()
 }
 
 func (l *linkSwap) SetMTU(mtu uint32) {
 	l.Lock()
-	defer l.Unlock()
-	l.e.SetMTU(mtu)
+	e := l.e
+	l.Unlock()
+	e.SetMTU(mtu)
 }
 
 func (l *linkSwap) MaxHeaderLength() uint16 {
 	l.Lock()
-	defer l.Unlock()
-	return l.e.MaxHeaderLength()
+	e := l.e
+	l.Unlock()
+	return e.MaxHeaderLength()
 }
 
 func (l *linkSwap) LinkAddress() tcpip.LinkAddress {
 	l.Lock()
-	defer l.Unlock()
-	return l.e.LinkAddress()
+	e := l.e
+	l.Unlock()
+	return e.LinkAddress()
 }
 
 func (l *linkSwap) SetLinkAddress(addr tcpip.LinkAddress) {
 	l.Lock()
-	defer l.Unlock()
-	l.e.SetLinkAddress(addr)
+	e := l.e
+	l.Unlock()
+	e.SetLinkAddress(addr)
 }
 
 func (l *linkSwap) Capabilities() stack.LinkEndpointCapabilities {
 	l.Lock()
-	defer l.Unlock()
-	return l.e.Capabilities()
+	e := l.e
+	l.Unlock()
+	return e.Capabilities()
 }
 
 func (l *linkSwap) Attach(dispatcher stack.NetworkDispatcher) {
 	l.Lock()
-	defer l.Unlock()
-	l.e.Attach(dispatcher)
+	e := l.e
+	l.Unlock()
+	e.Attach(dispatcher)
 }
 
 func (l *linkSwap) IsAttached() bool {
 	l.Lock()
-	defer l.Unlock()
-	return l.e.IsAttached()
+	e := l.e
+	l.Unlock()
+	return e.IsAttached()
 }
 
 func (l *linkSwap) WritePackets(pkts stack.PacketBufferList) (int, tcpip.Error) {
 	l.Lock()
-	defer l.Unlock()
-	return l.e.WritePackets(pkts)
+	e := l.e
+	l.Unlock()
+	return e.WritePackets(pkts)
 }
 
 func (l *linkSwap) Wait() {
 	l.Lock()
-	defer l.Unlock()
-	l.e.Wait()
+	e := l.e
+	l.Unlock()
+	e.Wait()
 }
 
 func (l *linkSwap) ARPHardwareType() header.ARPHardwareType {
 	l.Lock()
-	defer l.Unlock()
-	return l.e.ARPHardwareType()
+	e := l.e
+	l.Unlock()
+	return e.ARPHardwareType()
 }
 
 func (l *linkSwap) AddHeader(pkt *stack.PacketBuffer) {
 	l.Lock()
-	defer l.Unlock()
-	l.e.AddHeader(pkt)
+	e := l.e
+	l.Unlock()
+	e.AddHeader(pkt)
 }
 
 func (l *linkSwap) ParseHeader(pkt *stack.PacketBuffer) bool {
 	l.Lock()
-	defer l.Unlock()
-	return l.e.ParseHeader(pkt)
+	e := l.e
+	l.Unlock()
+	return e.ParseHeader(pkt)
 }
 
 func (l *linkSwap) Close() {
 	l.Lock()
-	defer l.Unlock()
-	l.e.Close()
+	e := l.e
+	l.Unlock()
+	e.Close()
 }
 
 func (l *linkSwap) SetOnCloseAction(f func()) {
 	l.Lock()
-	defer l.Unlock()
-	l.e.SetOnCloseAction(f)
+	e := l.e
+	l.Unlock()
+	e.SetOnCloseAction(f)
 }
