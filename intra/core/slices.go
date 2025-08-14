@@ -54,8 +54,10 @@ func ShuffleInPlace[T any](c []T) []T {
 	return c
 }
 
+// sorts arr x in ascending order. less(a, b) < 0 when a < b, a > 0 when a > b
+// and 0 when a == b.
 func Sort[T any](arr []T, less func(a, b T) int) []T {
-	slices.SortFunc(arr, less)
+	slices.SortStableFunc(arr, less)
 	return arr
 }
 
