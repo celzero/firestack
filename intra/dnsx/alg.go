@@ -118,10 +118,11 @@ func (sec *secans) initIfNeeded() {
 type expaddr struct {
 	ips []netip.Addr
 	ttl time.Time
+	dob time.Time
 }
 
 func (a expaddr) String() string {
-	return fmt.Sprintf("addrs(%v / ttl: %s)", a.ips, time.Until(a.ttl))
+	return fmt.Sprintf("addrs(%v / ttl: %s / dob: %s)", a.ips, core.FmtTimeAsPeriod(a.ttl), core.FmtTimeAsPeriod(a.dob))
 }
 
 func (a expaddr) sizes() (alive, tot int) {
@@ -150,21 +151,20 @@ func (a expaddr) fresh() (rem time.Duration, y bool) {
 }
 
 func (a expaddr) after(b expaddr) bool {
-	if a.ttl.IsZero() {
-		return b.ttl.IsZero()
+	if a.dob.IsZero() {
+		return b.dob.IsZero()
 	}
-	return a.ttl.After(b.ttl)
+	return a.dob.After(b.dob)
 }
 
 func (a expaddr) get(s xaddrstatus) (out []netip.Addr) {
 	if a.ips == nil {
 		return
 	}
-	_, fresh := a.fresh()
 	if s == xall {
 		return a.ips
 	} else if s == xalive {
-		if fresh {
+		if _, y := a.fresh(); y {
 			return a.ips
 		}
 	}
@@ -229,15 +229,16 @@ func NewXips(tid, uid string, pri, sec []netip.Addr, ttl time.Time) *xips {
 		pri: make(map[string]expaddr),
 		aux: make(map[string]expaddr), // sec may be nil
 	}
+	now := time.Now()
 	// id == "" for dnsx.NoDNS, in which case pri should be empty
 	if len(pri) > 0 { // pri may be nil
-		x.pri[tid] = expaddr{pri, ttl}
+		x.pri[tid] = expaddr{pri, ttl, now}
 	}
 	if len(uid) <= 0 {
 		uid = core.UNKNOWN_UID_STR
 	}
 	if len(sec) > 0 { // sec may be same as pri
-		x.aux[tid+uid] = expaddr{sec, ttl}
+		x.aux[tid+uid] = expaddr{sec, ttl, now}
 	}
 	return x
 }
@@ -284,7 +285,22 @@ func (p *xips) allips(t xaddrtyp, s xaddrstatus) (out []netip.Addr) {
 		g = p.aux
 	}
 	const all = 0
+	addrs := make([]expaddr, 0)
 	for _, v := range vals(g, all) {
+		addrs = append(addrs, v)
+	}
+
+	// go.dev/play/p/t24GYIQERsp
+	sorted := core.Sort(addrs, func(a, b expaddr) int {
+		if a.after(b) {
+			return -1
+		} else if b.after(a) {
+			return 1
+		}
+		return 0
+	})
+
+	for _, v := range sorted {
 		out = append(out, v.get(s)...)
 	}
 	return
@@ -380,7 +396,7 @@ func (p *xips) rmv(tid string) (done bool) {
 		p.pri[tid] = xaddr
 	}
 	for k, v := range p.aux {
-		if _, ok := v.fresh(); !ok {
+		if _, y := v.fresh(); !y {
 			continue
 		}
 		if strings.HasPrefix(k, tid) {
@@ -445,17 +461,24 @@ func (p *xips) merge(q *xips) (szprialiv, szpri, szsecaliv, szsec int) {
 			p.pri[qk] = qv // copy v from q into p
 			szprialiv, szpri = qv.sizes()
 		} else {
-			ips := copyUniq(pv.alive(), qv.alive())
+			var ips []netip.Addr
 			ttl := pv.ttl
+			dob := pv.dob
 			if !pv.after(qv) {
+				// qv is younger, so qv's ips should come first (youngest first ordering)
+				ips = copyUniq(qv.alive(), pv.alive())
 				// ips from aa & v both get assigned the latest ttl
 				// which is strictly incorrect, but for accounting
 				// purposes (that is, algip->realip translations),
 				// it is preferable to keep as many realips around
 				// as possible (even at the slight cost of correctness).
 				ttl = qv.ttl
+				dob = qv.dob
+			} else {
+				// pv is younger, so pv's ips should come first (youngest first ordering)
+				ips = copyUniq(pv.alive(), qv.alive())
 			}
-			v := expaddr{ips, ttl}
+			v := expaddr{ips, ttl, dob}
 			p.pri[qk] = v
 			szprialiv, szpri = v.sizes()
 		}
@@ -467,12 +490,19 @@ func (p *xips) merge(q *xips) (szprialiv, szpri, szsecaliv, szsec int) {
 			p.aux[qk] = qv // copy v from q into p
 			szsecaliv, szsec = qv.sizes()
 		} else {
-			ips := copyUniq(pv.alive(), qv.alive())
+			var ips []netip.Addr
 			ttl := pv.ttl
+			dob := pv.dob
 			if !pv.after(qv) {
+				// qv is younger, so qv's ips should come first (youngest first ordering)
+				ips = copyUniq(qv.alive(), pv.alive())
 				ttl = qv.ttl
+				dob = qv.dob
+			} else {
+				// pv is younger, so pv's ips should come first (youngest first ordering)
+				ips = copyUniq(pv.alive(), qv.alive())
 			}
-			v := expaddr{ips, ttl}
+			v := expaddr{ips, ttl, dob}
 			p.aux[qk] = v
 			szsecaliv, szsec = v.sizes()
 		}
