@@ -48,8 +48,8 @@ import (
 
 var _ stack.InjectableLinkEndpoint = (*endpoint)(nil)
 var _ stack.LinkEndpoint = (*endpoint)(nil)
-var _ stack.LinkEndpoint = (*linkFdSwap)(nil)
-var _ FdSwapper = (*linkFdSwap)(nil)
+var _ stack.LinkEndpoint = (*linkSwap)(nil)
+var _ FdSwapper = (*linkSwap)(nil)
 
 // placeholder FD for whenever existing FD wrapped in struct fds is closed.
 const invalidfd int = -1

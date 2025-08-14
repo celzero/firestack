@@ -9,12 +9,7 @@ package netstack
 import (
 	"errors"
 	"fmt"
-	"io"
 	"net/netip"
-	"strconv"
-	"strings"
-	"sync"
-	"syscall"
 
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/log"
@@ -31,116 +26,6 @@ import (
 
 // enable forwarding of packets on the interface
 const nicfwd = false
-
-// SnapLen is the maximum bytes of a packet to be saved. Packets with a length
-// less than or equal to snapLen will be saved in their entirety. Longer
-// packets will be truncated to snapLen.
-const SnapLen uint32 = 2048 // in bytes; some sufficient value
-
-var (
-	errNoFdSwapper = errors.New("linkFdSwap: no FdSwapper")
-)
-
-type linkFdSwap struct {
-	sync.Mutex
-	stack.LinkEndpoint
-	FdSwapper
-}
-
-// Swap implements FdSwapper.
-func (l *linkFdSwap) Swap(fd int) error {
-	l.Lock()
-	defer l.Unlock()
-
-	if l.FdSwapper == nil {
-		return errNoFdSwapper
-	}
-
-	err := l.FdSwapper.Swap(fd)
-	if errors.Is(err, errNeedsNewEndpoint) {
-		umtu := uint32(l.MTU())
-		opt := Options{
-			FDs: []int{fd},
-			MTU: umtu,
-		}
-		core.Go("linkFdSwap."+strconv.Itoa(fd), l.LinkEndpoint.Close)
-		l.LinkEndpoint, err = newFdbasedInjectableEndpoint(&opt)
-	}
-
-	return err
-}
-
-// ref: github.com/google/gvisor/blob/91f58d2cc/pkg/tcpip/sample/tun_tcp_echo/main.go#L102
-func NewEndpoint(dev, mtu int, sink io.WriteCloser) (ep SeamlessEndpoint, err error) {
-	defer func() {
-		if err != nil {
-			_ = syscall.Close(dev)
-		}
-		log.I("netstack: new endpoint(fd:%d / mtu:%d); err? %v", dev, mtu, err)
-	}()
-
-	umtu := uint32(mtu)
-	opt := Options{
-		FDs: []int{dev},
-		MTU: umtu,
-	}
-
-	if ep, err = newFdbasedInjectableEndpoint(&opt); err != nil {
-		return nil, err
-	}
-	// ref: github.com/google/gvisor/blob/aeabb785278/pkg/tcpip/link/sniffer/sniffer.go#L111-L131
-	return snoop(ep, sink)
-}
-
-func snoop(ep SeamlessEndpoint, sink io.WriteCloser) (SeamlessEndpoint, error) {
-	if sink == nil {
-		return ep, nil
-	}
-	// TODO: MTU instead of SnapLen? Must match pcapsink.begin()
-	if link, err := NewSnoopyEndpoint(ep, sink); err != nil {
-		return nil, err
-	} else {
-		return &linkFdSwap{sync.Mutex{}, link, ep}, nil
-	}
-}
-
-func Pcap2Stdout(y bool) (ok bool) {
-	if y {
-		ok = LogPackets.CompareAndSwap(0, 1)
-	} else {
-		ok = LogPackets.CompareAndSwap(1, 0)
-	}
-	log.I("netstack: pcap stdout(%t): done?(%t)", y, ok)
-	return
-}
-
-func Pcap2File(y bool) (ok bool) {
-	if y {
-		ok = WritePCAP.CompareAndSwap(0, 1)
-	} else {
-		ok = WritePCAP.CompareAndSwap(1, 0)
-	}
-	log.I("netstack: pcap file(%t): done?(%t)", y, ok)
-	return
-}
-
-// PCAP logging modes:
-// - stdout: packets are logged to stdout
-// - file: packets are logged to a file
-// - none: no packets are logged
-func PcapModes() string {
-	var modes []string
-	if LogPackets.Load() == 1 {
-		modes = append(modes, "stdout")
-	}
-	if WritePCAP.Load() == 1 {
-		modes = append(modes, "file")
-	}
-	if len(modes) == 0 {
-		return "none"
-	}
-	return strings.Join(modes, ",")
-}
 
 // ref: github.com/brewlin/net-protocol/blob/ec64e5f899/internal/endpoint/endpoint.go#L20
 func Up(who string, s *stack.Stack, ep stack.LinkEndpoint, h GConnHandler) (tcpip.NICID, error) {
