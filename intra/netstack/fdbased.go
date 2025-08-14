@@ -301,16 +301,14 @@ func (e *endpoint) Dispose() (err error) {
 	defer e.Unlock()
 
 	prevfd := e.fds.Swap(invalidFds) // prevfd may be invalidfd
-	if !prevfd.ok() {
-		log.W("ns: tun: Dispose: invalid prevfd")
-		return nil
-	}
 
 	if e.inboundDispatcher == nil {
-		log.W("ns: tun: Dispose: no inbound dispatcher")
+		prevfd.stop() // prevfd may be invalidfd
+		log.W("ns: tun: Dispose: %d; no inbound dispatcher", prevfd.tun())
 		// nothing to do
 		return nil
 	}
+
 	// e.inboundDispatcher.prepare() will not close prevfd
 	// dispatchLoop() will auto-exit on invalidfd
 	core.Go("ns.dispose.wrapup", func() { e.inboundDispatcher.wrapup(prevfd, wrapttl) })
@@ -398,6 +396,9 @@ func (e *endpoint) Attach(dispatcher stack.NetworkDispatcher) {
 			var err error
 			e.inboundDispatcher, err = createInboundDispatcher(e, fds)
 			logeif(err)("ns: tun(%d): attach: just-in-time createInboundDispatcher; err? %v", fd, err)
+			if e.inboundDispatcher != nil {
+				e.inboundDispatcher.prepare(fds)
+			}
 			rx = e.inboundDispatcher
 		}
 		go dispatchLoop(rx, fds, &e.wg)
