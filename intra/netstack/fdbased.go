@@ -30,6 +30,7 @@
 package netstack
 
 import (
+	"errors"
 	"fmt"
 	"sync/atomic"
 	"time"
@@ -58,6 +59,8 @@ const errorOnInvalidFD = false
 
 // wrapttl is the time to wait for the dispatcher to wrap up (close a previous FD).
 const waitttl = wrapttl
+
+var errNeedsNewEndpoint = errors.New("ns: needs new endpoint")
 
 type FdSwapper interface {
 	// Swap closes existing FDs; uses new fd.
@@ -200,7 +203,7 @@ type Options struct {
 // Makes fd non-blocking, but does not take ownership of fd, which must remain
 // open for the lifetime of the returned endpoint (until after the endpoint has
 // stopped being using and Wait returns).
-func NewFdbasedInjectableEndpoint(opts *Options) (SeamlessEndpoint, error) {
+func newFdbasedInjectableEndpoint(opts *Options) (SeamlessEndpoint, error) {
 	caps := stack.LinkEndpointCapabilities(0)
 	if opts.RXChecksumOffload {
 		caps |= stack.CapabilityRXChecksumOffload
@@ -255,7 +258,7 @@ func NewFdbasedInjectableEndpoint(opts *Options) (SeamlessEndpoint, error) {
 
 	e.SetMTU(opts.MTU)
 
-	if err := e.Swap(opts.FDs[0]); err != nil {
+	if err := e.swap(opts.FDs[0], true); err != nil {
 		return nil, err
 	}
 
@@ -319,8 +322,17 @@ func (e *endpoint) Dispose() (err error) {
 
 // Implements Swapper.
 func (e *endpoint) Swap(fd int) (err error) {
+	return e.swap(fd, false)
+}
+
+func (e *endpoint) swap(fd int, force bool) (err error) {
 	e.Lock()
 	defer e.Unlock()
+
+	prevfd := e.fds.Load()
+	if !force && !prevfd.ok() {
+		return errNeedsNewEndpoint
+	} // if prevfd is nil, then we're creating a new endpoint
 
 	f, err := newTun(fd) // fd may be invalid (ex: -1)
 	if err != nil || f == nil {
@@ -328,7 +340,7 @@ func (e *endpoint) Swap(fd int) (err error) {
 		err = log.EE("ns: tun: swap: (%d) err: %v / %v; using invalidfd", fd, err)
 	}
 
-	prevfd := e.fds.Swap(f) // commence WritePackets() on fd
+	e.fds.Store(f) // commence WritePackets() on fd
 
 	log.D("ns: tun: swap: fd %s => %d; err? %v", prevfd, fd, err)
 

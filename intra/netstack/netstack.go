@@ -11,7 +11,9 @@ import (
 	"fmt"
 	"io"
 	"net/netip"
+	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 
 	"github.com/celzero/firestack/intra/core"
@@ -35,9 +37,37 @@ const nicfwd = false
 // packets will be truncated to snapLen.
 const SnapLen uint32 = 2048 // in bytes; some sufficient value
 
+var (
+	errNoFdSwapper = errors.New("linkFdSwap: no FdSwapper")
+)
+
 type linkFdSwap struct {
+	sync.Mutex
 	stack.LinkEndpoint
 	FdSwapper
+}
+
+// Swap implements FdSwapper.
+func (l *linkFdSwap) Swap(fd int) error {
+	l.Lock()
+	defer l.Unlock()
+
+	if l.FdSwapper == nil {
+		return errNoFdSwapper
+	}
+
+	err := l.FdSwapper.Swap(fd)
+	if errors.Is(err, errNeedsNewEndpoint) {
+		umtu := uint32(l.MTU())
+		opt := Options{
+			FDs: []int{fd},
+			MTU: umtu,
+		}
+		core.Go("linkFdSwap."+strconv.Itoa(fd), l.LinkEndpoint.Close)
+		l.LinkEndpoint, err = newFdbasedInjectableEndpoint(&opt)
+	}
+
+	return err
 }
 
 // ref: github.com/google/gvisor/blob/91f58d2cc/pkg/tcpip/sample/tun_tcp_echo/main.go#L102
@@ -55,7 +85,7 @@ func NewEndpoint(dev, mtu int, sink io.WriteCloser) (ep SeamlessEndpoint, err er
 		MTU: umtu,
 	}
 
-	if ep, err = NewFdbasedInjectableEndpoint(&opt); err != nil {
+	if ep, err = newFdbasedInjectableEndpoint(&opt); err != nil {
 		return nil, err
 	}
 	// ref: github.com/google/gvisor/blob/aeabb785278/pkg/tcpip/link/sniffer/sniffer.go#L111-L131
@@ -70,7 +100,7 @@ func snoop(ep SeamlessEndpoint, sink io.WriteCloser) (SeamlessEndpoint, error) {
 	if link, err := NewSnoopyEndpoint(ep, sink); err != nil {
 		return nil, err
 	} else {
-		return linkFdSwap{link, ep}, nil
+		return &linkFdSwap{sync.Mutex{}, link, ep}, nil
 	}
 }
 
