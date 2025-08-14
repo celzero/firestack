@@ -103,6 +103,7 @@ var (
 	errNotUDPConn         = errors.New("proxy: not a udp conn")
 	errProxyStopped       = errors.New("proxy: stopped")
 	errProxyPaused        = errors.New("proxy: paused")
+	errProxyRoute         = errors.New("proxy: no route to host")
 	errProxyConfig        = errors.New("proxy: invalid config")
 	errProxyReadd         = errors.New("proxy: cannot update; readd config")
 	errNoProxyResponse    = errors.New("proxy: no response from upstream")
@@ -459,7 +460,6 @@ func (px *proxifier) ProxyTo(ipp netip.AddrPort, uid string, pids []string) (_ P
 	ippstr := ipp.String()
 
 	if len(pids) == 1 { // there's no other pid to choose from
-		// skip hasroute, as there is only one pid to route to
 		p, err := px.pinID(uid, ipp, pids[0]) // repin
 		if err != nil || p == nil {
 			err = core.OneErr(err, errProxyNotFound)
@@ -468,14 +468,13 @@ func (px *proxifier) ProxyTo(ipp netip.AddrPort, uid string, pids []string) (_ P
 		logev(err)("proxy: pin: %s+%s; pin pid0: %s (stalled? %ds); err? %v",
 			uid, ippstr, pids[0], stalledSec, err)
 		if p != nil {
-			st := p.Status()
-			switch st {
-			case END:
-				return nil, core.OneErr(err, errProxyStopped)
-			case TPU:
-				return nil, core.OneErr(err, errProxyPaused)
-			}
+			if !hasroute(p, ippstr) {
+				px.delpin(uid, ipp)
+				return nil, errProxyRoute
+			} // there is only one pid to route to
+
 			// alwaysPin is set to true, so wipe out err; return p, even if err is not nil
+			// alwaysPin helps client code verify for itself just why this proxy won't work...
 			if alwaysPin {
 				return p, nil
 			}
@@ -498,8 +497,11 @@ func (px *proxifier) ProxyTo(ipp netip.AddrPort, uid string, pids []string) (_ P
 		lopinned = pinnedpid
 	} else if pinok && chosen {
 		p, err := px.pinID(uid, ipp, pinnedpid) // repin
-		if p != nil && err == nil && hasroute(p, ippstr) {
-			return p, nil
+		if p != nil && err == nil {
+			if hasroute(p, ippstr) {
+				return p, nil
+			}
+			px.delpin(uid, ipp) // del pin if no route
 		} // else: pinnedpid not ok (ex: END/TPU) or no route
 	} else if pinok && !chosen {
 		px.delpin(uid, ipp)
