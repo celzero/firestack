@@ -20,9 +20,7 @@ import (
 // packets will be truncated to snapLen.
 const SnapLen uint32 = 2048 // in bytes; some sufficient value
 
-var (
-	errNoFdSwapper = errors.New("magiclink: no FdSwapper")
-)
+var errNoFdSwapper = errors.New("magiclink: no FdSwapper")
 
 type FdSwapper interface {
 	// Swap closes existing FDs; uses new fd.
@@ -77,6 +75,7 @@ type magiclink struct {
 
 var _ stack.LinkEndpoint = (*magiclink)(nil)
 var _ stack.NetworkDispatcher = (*magiclink)(nil)
+var _ stack.GSOEndpoint = (*magiclink)(nil)
 var _ FdSwapper = (*magiclink)(nil)
 
 // ref: github.com/google/gvisor/blob/91f58d2cc/pkg/tcpip/sample/tun_tcp_echo/main.go#L102
@@ -166,21 +165,24 @@ func (l *magiclink) Swap(fd int) error {
 			FDs: []int{fd},
 			MTU: umtu,
 		}
-		if ep, err := newFdbasedInjectableEndpoint(&opt); err == nil {
-			if old := l.e.Swap(ep); old != nil {
-				core.Go("magic."+strconv.Itoa(fd), old.Close)
-			}
-			if l.d.Load() == nil {
-				log.W("netstack: %d magic(mtu: %d); new ep but no dispatcher", fd, umtu)
-				ep.Attach(nil) // attach the new endpoint to the dispatcher
-			} else {
-				log.I("netstack: %d magic(mtu: %d); new ep, attaching dispatcher", fd, umtu)
-				ep.Attach(l) // attach the new endpoint to the existing dispatcher
-			}
-		} else {
+
+		ep, err := newFdbasedInjectableEndpoint(&opt)
+		if err != nil {
 			log.E("netstack: magic(%d); err %v", fd, err)
 			return err
 		}
+
+		if old := l.e.Swap(ep); old != nil {
+			core.Go("magic."+strconv.Itoa(fd), old.Close)
+		}
+
+		d := l.d.Load()
+		if d == nil {
+			ep.Attach(nil) // attach the new endpoint to the dispatcher
+		} else {
+			ep.Attach(l) // attach the new endpoint to the existing dispatcher
+		}
+		logei(d == nil)("netstack: %d magic(mtu: %d); new ep... dispatch? %t", fd, umtu, d != nil)
 	}
 
 	return err
@@ -300,3 +302,8 @@ func (l *magiclink) SetOnCloseAction(f func()) {
 		e.SetOnCloseAction(f)
 	}
 }
+
+func (l *magiclink) GSOMaxSize() uint32 { return 0 }
+
+// SupportedGSO returns the supported segmentation offloading.
+func (l *magiclink) SupportedGSO() stack.SupportedGSO { return stack.GSONotSupported }
