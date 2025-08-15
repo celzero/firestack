@@ -622,7 +622,7 @@ func (px *proxifier) pinID(uid string, ipp netip.AddrPort, id string) (Proxy, er
 	p, err := px.ProxyFor(id)
 	if err != nil || p == nil {
 		err = core.OneErr(err, errProxyNotFound)
-		return nil, fmt.Errorf("proxy: pin: id %s; err: %v", id, err)
+		return p, fmt.Errorf("proxy: pin: id %s; err: %v", id, err)
 	}
 	err = px.pin(uid, ipp, p)
 	return p, err
