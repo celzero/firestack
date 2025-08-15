@@ -50,11 +50,28 @@ type SnoopyEndpoint struct {
 	writer     io.Writer
 	maxPCAPLen uint32
 	logPrefix  string
+	fdSwapper  FdSwapper
+}
+
+// Dispose implements SeamlessEndpoint.
+func (e *SnoopyEndpoint) Dispose() error {
+	return e.fdSwapper.Dispose()
+}
+
+// Stat implements SeamlessEndpoint.
+func (e *SnoopyEndpoint) Stat() EpStat {
+	return e.fdSwapper.Stat()
+}
+
+// Swap implements SeamlessEndpoint.
+func (e *SnoopyEndpoint) Swap(fd int) error {
+	return e.fdSwapper.Swap(fd)
 }
 
 var _ stack.GSOEndpoint = (*SnoopyEndpoint)(nil)
 var _ stack.LinkEndpoint = (*SnoopyEndpoint)(nil)
 var _ stack.NetworkDispatcher = (*SnoopyEndpoint)(nil)
+var _ SeamlessEndpoint = (*SnoopyEndpoint)(nil)
 
 // A Direction indicates whether the packing is being sent or received.
 type Direction int
@@ -101,20 +118,23 @@ func WritePCAPHeader(w io.Writer) error {
 	})
 }
 
-// NewSnoopyEndpoint creates a new snoop link-layer endpoint. It wraps around
+// newSnoopyEndpoint creates a new snoop link-layer endpoint. It wraps around
 // another endpoint and logs packets as they traverse the endpoint.
 //
 // Each packet is written to writer in the pcap format in a single Write call
 // without synchronization. A snoop created with this function will not emit
 // packets using the standard log package.
-func NewSnoopyEndpoint(lower stack.LinkEndpoint, writer io.Writer) (*SnoopyEndpoint, error) {
-	if err := WritePCAPHeader(writer); err != nil {
-		return nil, err
+func newSnoopyEndpoint(lower SeamlessEndpoint, w io.Writer, writeheader bool) (*SnoopyEndpoint, error) {
+	if writeheader {
+		if err := WritePCAPHeader(w); err != nil {
+			return nil, err
+		}
 	}
 	s := &SnoopyEndpoint{
-		writer:     writer,
+		writer:     w,
 		maxPCAPLen: SnapLen,
 		logPrefix:  "",
+		fdSwapper:  lower,
 	}
 	s.Endpoint.Init(lower, s)
 	return s, nil

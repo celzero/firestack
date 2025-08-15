@@ -68,15 +68,15 @@ type SeamlessEndpoint interface {
 }
 
 type magiclink struct {
-	e *core.Volatile[stack.LinkEndpoint]
+	e *core.Volatile[SeamlessEndpoint]
 	d *core.Volatile[stack.NetworkDispatcher]
-	FdSwapper
+	s io.WriteCloser
 }
 
 var _ stack.LinkEndpoint = (*magiclink)(nil)
 var _ stack.NetworkDispatcher = (*magiclink)(nil)
 var _ stack.GSOEndpoint = (*magiclink)(nil)
-var _ FdSwapper = (*magiclink)(nil)
+var _ SeamlessEndpoint = (*magiclink)(nil)
 
 // ref: github.com/google/gvisor/blob/91f58d2cc/pkg/tcpip/sample/tun_tcp_echo/main.go#L102
 func NewEndpoint(dev, mtu int, sink io.WriteCloser) (ep SeamlessEndpoint, err error) {
@@ -105,13 +105,14 @@ func snoop(ep SeamlessEndpoint, sink io.WriteCloser) (SeamlessEndpoint, error) {
 		return ep, nil
 	}
 	// TODO: MTU instead of SnapLen? Must match pcapsink.begin()
-	if link, err := NewSnoopyEndpoint(ep, sink); err != nil {
+	link, err := newSnoopyEndpoint(ep, sink, true /*write header*/)
+	if err != nil {
 		return nil, err
-	} else {
-		v := core.NewVolatile[stack.LinkEndpoint](link)
-		d := core.NewZeroVolatile[stack.NetworkDispatcher]()
-		return &magiclink{v, d, ep}, nil
 	}
+
+	v := core.NewVolatile[SeamlessEndpoint](link)
+	d := core.NewZeroVolatile[stack.NetworkDispatcher]()
+	return &magiclink{v, d, sink}, nil
 }
 
 func Pcap2Stdout(y bool) (ok bool) {
@@ -152,13 +153,14 @@ func PcapModes() string {
 	return strings.Join(modes, ",")
 }
 
-// Swap implements FdSwapper.
+// Swap implements SeamlessEndpoint.
 func (l *magiclink) Swap(fd int) error {
-	if l.FdSwapper == nil {
+	e := l.e.Load()
+	if e == nil {
 		return errNoFdSwapper
 	}
 
-	err := l.FdSwapper.Swap(fd)
+	err := e.Swap(fd)
 	if errors.Is(err, errNeedsNewEndpoint) {
 		umtu := uint32(l.MTU())
 		opt := Options{
@@ -172,7 +174,13 @@ func (l *magiclink) Swap(fd int) error {
 			return err
 		}
 
-		if old := l.e.Swap(ep); old != nil {
+		link, err := newSnoopyEndpoint(ep, l.s, false /*write header*/)
+		if err != nil {
+			log.E("netstack: magic(%d); err %v", fd, err)
+			return err
+		}
+
+		if old := l.e.Swap(link); old != nil {
 			core.Go("magic."+strconv.Itoa(fd), old.Close)
 		}
 
@@ -186,6 +194,24 @@ func (l *magiclink) Swap(fd int) error {
 	}
 
 	return err
+}
+
+// Dispose implements SeamlessEndpoint.
+func (l *magiclink) Dispose() error {
+	if e := l.e.Load(); e != nil {
+		l.e.Store(nil) // clear the endpoint
+		return e.Dispose()
+	}
+	log.W("netstack: magic: dispose; no endpoint")
+	return nil
+}
+
+// Stat implements SeamlessEndpoint.
+func (l *magiclink) Stat() EpStat {
+	if e := l.e.Load(); e != nil {
+		return e.Stat()
+	}
+	return EpStat{}
 }
 
 func (l *magiclink) MTU() uint32 {
