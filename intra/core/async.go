@@ -212,6 +212,16 @@ func Every(id string, pctx context.Context, d time.Duration, f func()) context.C
 	return ctx
 }
 
+// SigFin runs f in a goroutine and returns a channel that is closed when f returns.
+func SigFin(f func()) <-chan struct{} {
+	done := make(chan struct{})
+	Go("take", func() {
+		defer close(done)
+		f()
+	})
+	return done
+}
+
 func Await(f func(), until time.Duration) (awaited bool) {
 	done := make(chan struct{})
 	Go("await", func() {
