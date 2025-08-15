@@ -54,6 +54,7 @@ var bar = core.NewKeyedBarrier[*x.NetStat, string](30 * time.Second)
 var (
 	errNoStatCache = errors.New("netstat: stat in cache is nil")
 	errClosed      = errors.New("tunnel closed for business")
+	errMakeTunnel  = errors.New("could not make tunnel")
 )
 
 type Bridge interface {
@@ -92,6 +93,8 @@ type Tunnel interface {
 	SetRoute(engine int) error
 	// SetLinkAndRoutes sets the tun fd as link with mtu & engine as routes for the tunnel.
 	SetLinkAndRoutes(fd, mtu, engine int) error
+	// Restart restarts the tunnel with the given fd, mtu, and engine.
+	Restart(fd, mtu, engine int) error
 
 	// Sets pcap output to fpcap which is the absolute filepath
 	// to which a PCAP file will be written to.
@@ -105,6 +108,7 @@ type rtunnel struct {
 	tunmu    sync.Mutex // serializes access to tunnel.Tunnel
 	ctx      context.Context
 	done     context.CancelFunc
+	handlers netstack.GConnHandler
 	proxies  ipn.Proxies
 	resolver dnsx.Resolver
 	services rnet.Services
@@ -183,19 +187,21 @@ func NewTunnel(fd, mtu int, fakedns string, dtr DefaultDNS, bdg Bridge) (t Tunne
 
 	gt, revhdl, err := tunnel.NewGTunnel(ctx, fd, mtu, dualstack, hdl)
 
-	if err != nil {
+	if gt == nil || err != nil {
 		log.W("tun: <<< new >>>; err(%v)", err)
-		return nil, err
+		return nil, core.OneErr(err, errMakeTunnel)
 	}
 
 	log.D("tun: <<< new >>>; netstack: ok")
 
+	// TODO: err on reverser errors too?
 	rerr := proxies.Reverser(revhdl)
 
 	t = &rtunnel{
 		Tunnel:   gt,
 		ctx:      ctx,
 		done:     cancel,
+		handlers: hdl,
 		proxies:  proxies,
 		resolver: resolver,
 		services: services,
@@ -244,6 +250,51 @@ func (t *rtunnel) SetLinkAndRoutes(fd, mtu, engine int) error {
 		if l3diff {
 			t.resolver.Add(newMDNSTransport(t.ctx, l3, t.proxies))
 		}
+	})
+
+	return err
+}
+
+func (t *rtunnel) Restart(fd, mtu, engine int) error {
+	if t.closed.Load() {
+		log.W("tun: <<< restart >>>; already closed")
+		return errClosed
+	}
+
+	countdown := make(chan struct{})
+	defer close(countdown)
+
+	ontimeout := func() {
+		log.E("tun: <<< restart >>>; timed out ...")
+		t.done()
+	}
+
+	go core.EitherOr(countdown, ontimeout, mktunTimeout)
+
+	l3 := settings.L3(engine)
+	l3diff := dialers.IPProtos(l3)
+
+	gt, revhdl, err := tunnel.NewGTunnel(t.ctx, fd, mtu, l3, t.handlers)
+
+	if gt == nil || err != nil {
+		log.W("tun: <<< restart >>>; err(%v)", err)
+		t.Tunnel.Disconnect()
+		return core.OneErr(err, errMakeTunnel)
+	}
+
+	t.tunmu.Lock()
+	t.Tunnel.Disconnect()
+	t.Tunnel = gt
+	t.tunmu.Unlock()
+
+	// TODO: err on reverser errors too?
+	rerr := t.proxies.Reverser(revhdl)
+
+	log.D("tun: <<< restart >>>; netstack: ok; rev err? %v", rerr)
+
+	core.Gx("i.RestartRefresh", func() {
+		// Refresh proxies to update to the new reverser
+		go t.proxies.RefreshProto(l3, mtu, true /*force; reverser changed*/) // also updates reverser
 		if l3diff {
 			t.resolver.Add(newMDNSTransport(t.ctx, l3, t.proxies))
 		}
