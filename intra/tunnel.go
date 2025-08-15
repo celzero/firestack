@@ -239,7 +239,10 @@ func (t *rtunnel) SetLinkAndRoutes(fd, mtu, engine int) error {
 		if l3diff || mtudiff {
 			// dialers.IPProtos must always preced calls to other refreshes
 			// as it carries the global state for dialers and ipn/multihost
-			go t.proxies.RefreshProto(l3, mtu)
+			go t.proxies.RefreshProto(l3, mtu, false /*force*/)
+		}
+		if l3diff {
+			t.resolver.Add(newMDNSTransport(t.ctx, l3, t.proxies))
 		}
 		if l3diff {
 			t.resolver.Add(newMDNSTransport(t.ctx, l3, t.proxies))

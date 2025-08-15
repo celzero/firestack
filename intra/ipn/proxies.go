@@ -215,7 +215,7 @@ type Proxies interface {
 	ProxyProvider
 	Rpn
 	// RefreshProto broadcasts proto change to all active proxies.
-	RefreshProto(l3 string, mtu int)
+	RefreshProto(l3 string, mtu int, force bool)
 	// LiveProxies returns a csv of active proxies.
 	LiveProxies() string
 	// Reverser sets the reverse proxy for all proxies.
@@ -989,13 +989,13 @@ func (px *proxifier) LiveProxies() string {
 }
 
 // RefreshProto implements x.Proxies.
-func (px *proxifier) RefreshProto(l3 string, mtu int) {
+func (px *proxifier) RefreshProto(l3 string, mtu int, force bool) {
 	defer core.Recover(core.Exit11, "pxr.RefreshProto")
 	// must unlock from deferred since panics are recovered above
 	px.Lock()
 	defer px.Unlock()
 
-	if px.lp.l3 == l3 && px.lp.mtu == mtu {
+	if !force && px.lp.l3 == l3 && px.lp.mtu == mtu {
 		log.D("proxy: refreshProto (%s == %s & %d == %d) unchanged",
 			px.lp.l3, l3, px.lp.mtu, mtu)
 		return
