@@ -54,6 +54,13 @@ func ShuffleInPlace[T any](c []T) []T {
 	return c
 }
 
+func ChooseOne[T any](c []T) (zz T) {
+	if len(c) <= 0 {
+		return zz
+	}
+	return c[rand.Intn(len(c))]
+}
+
 // sorts arr x in ascending order. less(a, b) < 0 when a < b, a > 0 when a > b
 // and 0 when a == b.
 func Sort[T any](arr []T, less func(a, b T) int) []T {
@@ -107,12 +114,7 @@ func WithoutNils[T any](arr []T) (out []T) {
 }
 
 func IsAny[T any](arr []T, test TestFn[T]) bool {
-	for _, x := range arr {
-		if test(x) {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(arr, test)
 }
 
 func IsAll[T any](arr []T, test TestFn[T]) bool {
