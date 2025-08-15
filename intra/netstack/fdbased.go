@@ -48,8 +48,6 @@ import (
 
 var _ stack.InjectableLinkEndpoint = (*endpoint)(nil)
 var _ stack.LinkEndpoint = (*endpoint)(nil)
-var _ stack.LinkEndpoint = (*linkSwap)(nil)
-var _ FdSwapper = (*linkSwap)(nil)
 
 // placeholder FD for whenever existing FD wrapped in struct fds is closed.
 const invalidfd int = -1
@@ -61,51 +59,6 @@ const errorOnInvalidFD = false
 const waitttl = wrapttl
 
 var errNeedsNewEndpoint = errors.New("ns: needs new endpoint")
-
-type FdSwapper interface {
-	// Swap closes existing FDs; uses new fd.
-	Swap(fd int) error
-	// Dispose closes all existing FDs.
-	Dispose() error
-	// Stat returns EpStat (fd, age, read, written, lastRead, lastWrite).
-	Stat() EpStat
-}
-
-type EpStat struct {
-	// Fd is the file descriptor of the endpoint.
-	Fd int
-	// Alive indicates whether the endpoint is alive.
-	Alive bool
-	// Age is the age of the endpoint.
-	Age string
-	// Read is the number of bytes read from the endpoint.
-	Read string
-	// Written is the number of bytes written to the endpoint.
-	Written string
-	// LastRead is the last time the endpoint was read from.
-	LastRead string
-	// LastWrite is the last time the endpoint was written to.
-	LastWrite string
-}
-
-func (s EpStat) String() string {
-	if s.Fd == 0 {
-		return "<nil>"
-	}
-	return fmt.Sprintf("Fd: %d,Alive: %t,Age: %s,R: %s,W: %s,LastRead: %s,LastWrite: %s",
-		s.Fd,
-		s.Alive,
-		s.Age,
-		s.Read,
-		s.Written,
-		s.LastRead,
-		s.LastWrite)
-}
-
-type SeamlessEndpoint interface {
-	stack.LinkEndpoint
-	FdSwapper
-}
 
 // linkDispatcher reads packets from the link FD and dispatches them to the
 // NetworkDispatcher.

@@ -2,10 +2,10 @@ package netstack
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"strconv"
 	"strings"
-	"sync"
 	"syscall"
 
 	"github.com/celzero/firestack/intra/core"
@@ -21,14 +21,63 @@ import (
 const SnapLen uint32 = 2048 // in bytes; some sufficient value
 
 var (
-	errNoFdSwapper = errors.New("linkFdSwap: no FdSwapper")
+	errNoFdSwapper = errors.New("magiclink: no FdSwapper")
 )
 
-type linkSwap struct {
-	sync.Mutex
-	e stack.LinkEndpoint
+type FdSwapper interface {
+	// Swap closes existing FDs; uses new fd.
+	Swap(fd int) error
+	// Dispose closes all existing FDs.
+	Dispose() error
+	// Stat returns EpStat (fd, age, read, written, lastRead, lastWrite).
+	Stat() EpStat
+}
+
+type EpStat struct {
+	// Fd is the file descriptor of the endpoint.
+	Fd int
+	// Alive indicates whether the endpoint is alive.
+	Alive bool
+	// Age is the age of the endpoint.
+	Age string
+	// Read is the number of bytes read from the endpoint.
+	Read string
+	// Written is the number of bytes written to the endpoint.
+	Written string
+	// LastRead is the last time the endpoint was read from.
+	LastRead string
+	// LastWrite is the last time the endpoint was written to.
+	LastWrite string
+}
+
+func (s EpStat) String() string {
+	if s.Fd == 0 {
+		return "<nil>"
+	}
+	return fmt.Sprintf("Fd: %d,Alive: %t,Age: %s,R: %s,W: %s,LastRead: %s,LastWrite: %s",
+		s.Fd,
+		s.Alive,
+		s.Age,
+		s.Read,
+		s.Written,
+		s.LastRead,
+		s.LastWrite)
+}
+
+type SeamlessEndpoint interface {
+	stack.LinkEndpoint
 	FdSwapper
 }
+
+type magiclink struct {
+	e *core.Volatile[stack.LinkEndpoint]
+	d *core.Volatile[stack.NetworkDispatcher]
+	FdSwapper
+}
+
+var _ stack.LinkEndpoint = (*magiclink)(nil)
+var _ stack.NetworkDispatcher = (*magiclink)(nil)
+var _ FdSwapper = (*magiclink)(nil)
 
 // ref: github.com/google/gvisor/blob/91f58d2cc/pkg/tcpip/sample/tun_tcp_echo/main.go#L102
 func NewEndpoint(dev, mtu int, sink io.WriteCloser) (ep SeamlessEndpoint, err error) {
@@ -60,7 +109,9 @@ func snoop(ep SeamlessEndpoint, sink io.WriteCloser) (SeamlessEndpoint, error) {
 	if link, err := NewSnoopyEndpoint(ep, sink); err != nil {
 		return nil, err
 	} else {
-		return &linkSwap{sync.Mutex{}, link, ep}, nil
+		v := core.NewVolatile[stack.LinkEndpoint](link)
+		d := core.NewZeroVolatile[stack.NetworkDispatcher]()
+		return &magiclink{v, d, ep}, nil
 	}
 }
 
@@ -103,7 +154,7 @@ func PcapModes() string {
 }
 
 // Swap implements FdSwapper.
-func (l *linkSwap) Swap(fd int) error {
+func (l *magiclink) Swap(fd int) error {
 	if l.FdSwapper == nil {
 		return errNoFdSwapper
 	}
@@ -116,12 +167,18 @@ func (l *linkSwap) Swap(fd int) error {
 			MTU: umtu,
 		}
 		if ep, err := newFdbasedInjectableEndpoint(&opt); err == nil {
-			l.Lock()
-			core.Go("linkFdSwap."+strconv.Itoa(fd), l.e.Close)
-			l.e = ep
-			l.Unlock()
+			if old := l.e.Swap(ep); old != nil {
+				core.Go("magic."+strconv.Itoa(fd), old.Close)
+			}
+			if l.d.Load() == nil {
+				log.W("netstack: %d magic(mtu: %d); new ep but no dispatcher", fd, umtu)
+				ep.Attach(nil) // attach the new endpoint to the dispatcher
+			} else {
+				log.I("netstack: %d magic(mtu: %d); new ep, attaching dispatcher", fd, umtu)
+				ep.Attach(l) // attach the new endpoint to the existing dispatcher
+			}
 		} else {
-			log.E("netstack: linkFdSwap(%d); err %v", fd, err)
+			log.E("netstack: magic(%d); err %v", fd, err)
 			return err
 		}
 	}
@@ -129,107 +186,117 @@ func (l *linkSwap) Swap(fd int) error {
 	return err
 }
 
-func (l *linkSwap) MTU() uint32 {
-	l.Lock()
-	e := l.e
-	l.Unlock()
-	return e.MTU()
+func (l *magiclink) MTU() uint32 {
+	if e := l.e.Load(); e != nil {
+		return e.MTU()
+	}
+	return 0
 }
 
-func (l *linkSwap) SetMTU(mtu uint32) {
-	l.Lock()
-	e := l.e
-	l.Unlock()
-	e.SetMTU(mtu)
+func (l *magiclink) SetMTU(mtu uint32) {
+	if e := l.e.Load(); e != nil {
+		e.SetMTU(mtu)
+	}
 }
 
-func (l *linkSwap) MaxHeaderLength() uint16 {
-	l.Lock()
-	e := l.e
-	l.Unlock()
-	return e.MaxHeaderLength()
+func (l *magiclink) MaxHeaderLength() uint16 {
+	if e := l.e.Load(); e != nil {
+		return e.MaxHeaderLength()
+	}
+	return 0
 }
 
-func (l *linkSwap) LinkAddress() tcpip.LinkAddress {
-	l.Lock()
-	e := l.e
-	l.Unlock()
-	return e.LinkAddress()
+func (l *magiclink) LinkAddress() tcpip.LinkAddress {
+	if e := l.e.Load(); e != nil {
+		return e.LinkAddress()
+	}
+	return ""
 }
 
-func (l *linkSwap) SetLinkAddress(addr tcpip.LinkAddress) {
-	l.Lock()
-	e := l.e
-	l.Unlock()
-	e.SetLinkAddress(addr)
+func (l *magiclink) SetLinkAddress(addr tcpip.LinkAddress) {
+	if e := l.e.Load(); e != nil {
+		e.SetLinkAddress(addr)
+	}
 }
 
-func (l *linkSwap) Capabilities() stack.LinkEndpointCapabilities {
-	l.Lock()
-	e := l.e
-	l.Unlock()
-	return e.Capabilities()
+func (l *magiclink) Capabilities() stack.LinkEndpointCapabilities {
+	if e := l.e.Load(); e != nil {
+		return e.Capabilities()
+	}
+	return 0
 }
 
-func (l *linkSwap) Attach(dispatcher stack.NetworkDispatcher) {
-	l.Lock()
-	e := l.e
-	l.Unlock()
-	e.Attach(dispatcher)
+func (l *magiclink) Attach(dispatcher stack.NetworkDispatcher) {
+	l.d.Store(dispatcher) // update the dispatcher
+	if e := l.e.Load(); e != nil {
+		if dispatcher == nil {
+			e.Attach(nil) // detach
+		} else {
+			e.Attach(l)
+		}
+	}
 }
 
-func (l *linkSwap) IsAttached() bool {
-	l.Lock()
-	e := l.e
-	l.Unlock()
-	return e.IsAttached()
+func (l *magiclink) IsAttached() bool {
+	if e := l.e.Load(); e != nil {
+		return e.IsAttached()
+	}
+	return false
 }
 
-func (l *linkSwap) WritePackets(pkts stack.PacketBufferList) (int, tcpip.Error) {
-	l.Lock()
-	e := l.e
-	l.Unlock()
-	return e.WritePackets(pkts)
+func (l *magiclink) DeliverNetworkPacket(protocol tcpip.NetworkProtocolNumber, pkt *stack.PacketBuffer) {
+	if d := l.d.Load(); d != nil {
+		d.DeliverNetworkPacket(protocol, pkt)
+	}
 }
 
-func (l *linkSwap) Wait() {
-	l.Lock()
-	e := l.e
-	l.Unlock()
-	e.Wait()
+func (l *magiclink) DeliverLinkPacket(protocol tcpip.NetworkProtocolNumber, pkt *stack.PacketBuffer) {
+	if d := l.d.Load(); d != nil {
+		d.DeliverLinkPacket(protocol, pkt)
+	}
 }
 
-func (l *linkSwap) ARPHardwareType() header.ARPHardwareType {
-	l.Lock()
-	e := l.e
-	l.Unlock()
-	return e.ARPHardwareType()
+func (l *magiclink) WritePackets(pkts stack.PacketBufferList) (int, tcpip.Error) {
+	if e := l.e.Load(); e != nil {
+		return e.WritePackets(pkts)
+	}
+	return 0, &tcpip.ErrInvalidEndpointState{}
 }
 
-func (l *linkSwap) AddHeader(pkt *stack.PacketBuffer) {
-	l.Lock()
-	e := l.e
-	l.Unlock()
-	e.AddHeader(pkt)
+func (l *magiclink) Wait() {
+	if e := l.e.Load(); e != nil {
+		e.Wait()
+	}
 }
 
-func (l *linkSwap) ParseHeader(pkt *stack.PacketBuffer) bool {
-	l.Lock()
-	e := l.e
-	l.Unlock()
-	return e.ParseHeader(pkt)
+func (l *magiclink) ARPHardwareType() header.ARPHardwareType {
+	if e := l.e.Load(); e != nil {
+		return e.ARPHardwareType()
+	}
+	return 0
 }
 
-func (l *linkSwap) Close() {
-	l.Lock()
-	e := l.e
-	l.Unlock()
-	e.Close()
+func (l *magiclink) AddHeader(pkt *stack.PacketBuffer) {
+	if e := l.e.Load(); e != nil {
+		e.AddHeader(pkt)
+	}
 }
 
-func (l *linkSwap) SetOnCloseAction(f func()) {
-	l.Lock()
-	e := l.e
-	l.Unlock()
-	e.SetOnCloseAction(f)
+func (l *magiclink) ParseHeader(pkt *stack.PacketBuffer) bool {
+	if e := l.e.Load(); e != nil {
+		return e.ParseHeader(pkt)
+	}
+	return false
+}
+
+func (l *magiclink) Close() {
+	if e := l.e.Load(); e != nil {
+		e.Close()
+	}
+}
+
+func (l *magiclink) SetOnCloseAction(f func()) {
+	if e := l.e.Load(); e != nil {
+		e.SetOnCloseAction(f)
+	}
 }
