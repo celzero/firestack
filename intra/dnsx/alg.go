@@ -285,10 +285,7 @@ func (p *xips) allips(t xaddrtyp, s xaddrstatus) (out []netip.Addr) {
 		g = p.aux
 	}
 	const all = 0
-	addrs := make([]expaddr, 0)
-	for _, v := range vals(g, all) {
-		addrs = append(addrs, v)
-	}
+	addrs := append([]expaddr{}, vals(g, all)...)
 
 	// go.dev/play/p/t24GYIQERsp
 	sorted := core.Sort(addrs, func(a, b expaddr) int {
