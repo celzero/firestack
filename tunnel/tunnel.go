@@ -119,7 +119,7 @@ func (t *gtunnel) waitForEndpoint(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			log.D("tun: waiter: ctx done; #%d", i)
-			i = maxchecks // exit loop
+			return
 		case <-core.SigFin(t.ep.Wait): // wait until endpoint closes
 			log.D("tun: waiter: endpoint not running; #%d", i)
 		}
@@ -137,12 +137,11 @@ func (t *gtunnel) waitForEndpoint(ctx context.Context) {
 			i++
 		}
 	}
-	waitDone := core.FmtTimeAsPeriod(waitStart)
 	if !t.closed.Load() {
 		// the endpoint closed without a Disconnect, this may happen
 		// in cases where a panic was recovered and endpoint was
 		// closed without a t.ep.Swap or t.stack.Destroy
-		log.U(fmt.Sprintf("Deactivated! Down after %s", waitDone))
+		log.U(fmt.Sprintf("Deactivated! Down after %s", core.FmtTimeAsPeriod(waitStart)))
 		// todo: disconnect parent tunnel
 		t.Disconnect() // may already be disconnected
 	}
@@ -228,6 +227,7 @@ func NewGTunnel(pctx context.Context, fd, mtu int, l3 string, hdl netstack.GConn
 		defer done()
 		t.waitForEndpoint(ctx)
 	}()
+
 	return
 }
 
