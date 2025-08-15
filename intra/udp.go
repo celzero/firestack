@@ -249,7 +249,7 @@ func (h *udpHandler) Connect(gconn *netstack.GUDPConn, src, target netip.AddrPor
 		} // else: not a dns query or target is not a dns addr
 	} // else: proxy src to dst
 
-	var pxid string
+	var pxid, rxid, lastselected string
 	var px ipn.Proxy
 	var errs error
 	var selectedTarget netip.AddrPort
@@ -269,13 +269,21 @@ func (h *udpHandler) Connect(gconn *netstack.GUDPConn, src, target netip.AddrPor
 	for i, dstipp := range actualTargets {
 		rttstart := time.Now()
 
-		if px, err = h.prox.ProxyTo(dstipp, uid, pids); err != nil || px == nil {
+		px, err = h.prox.ProxyTo(dstipp, uid, pids)
+
+		if px != nil { // last chosen (but not dialed in) proxy
+			pxid = pidstr(px)
+			rxid = ipn.ViaID(px)
+			lastselected = dstipp.Addr().String()
+		}
+		selectedTarget = dstipp
+
+		if err != nil || px == nil {
 			log.W("udp: connect: #%d: %s failed to get proxy from %s: %v", i, cid, pidstr(px), err)
 			errs = err // disconnect if loop terminates
 			continue
 		}
-		pxid = px.ID().V()
-		selectedTarget = dstipp
+
 		if mux { // mux is not supported by all proxies (few like Exit, Base, WG support it)
 			pc, err = h.mux.associate(cid, pxid, uid, src, selectedTarget, px.Dialer().Announce, vendor(dmx))
 		} else {
@@ -297,11 +305,17 @@ func (h *udpHandler) Connect(gconn *netstack.GUDPConn, src, target netip.AddrPor
 		errs = err // store just the last err; complicates logging
 		end := time.Since(smm.start)
 		smm.Rtt = time.Since(rttstart).Milliseconds()
-		log.W("udp: connect: #%d: %s failed; mux? %t, addr(%s) / fallback? %t; for uid %s (rtt:%dms, dur:%dms) w err(%v)",
-			i, cid, mux, dstipp, fallingback, uid, smm.Rtt, end.Milliseconds(), err)
+		log.W("udp: connect: #%d: %s failed; mux? %t, addr(%s) / fallback? %t; for uid %s (rtt:%dms, dur:%s) w err(%v)",
+			i, cid, mux, dstipp, fallingback, uid, smm.Rtt, core.FmtPeriod(end), err)
 		if end > retryTimeout {
 			break
 		}
+	}
+
+	if len(pxid) > 0 { // last chosen proxy which may have errored
+		smm.PID = pxid
+		smm.RPID = rxid
+		smm.Target = lastselected // may be invalid
 	}
 
 	if !selectedTarget.IsValid() {
@@ -312,10 +326,6 @@ func (h *udpHandler) Connect(gconn *netstack.GUDPConn, src, target netip.AddrPor
 	// pc.RemoteAddr may be that of the proxy, not the actual dst
 	// ex: pc.RemoteAddr is 127.0.0.1 for Orbot
 	smm.Target = selectedTarget.Addr().String()
-	if px != nil { // nil when all ProxyTo attempts for actualTargets fail
-		smm.PID = pxid
-		smm.RPID = ipn.ViaID(px)
-	}
 
 	if errs != nil {
 		return nil, smm, errs // disconnect
@@ -334,12 +344,12 @@ func (h *udpHandler) Connect(gconn *netstack.GUDPConn, src, target netip.AddrPor
 	default:
 		clos(pc)
 		log.E("udp: connect: %s proxy(%s) does not impl core.UDPConn(%s/%s); mux? %t, uid %s",
-			cid, px.ID(), target, selectedTarget, mux, uid)
+			cid, pxid, target, selectedTarget, mux, uid)
 		return nil, smm, errUdpSetupConn // disconnect
 	}
 
 	log.I("udp: connect: %s (proxy? %s@%s) %v => %s/%s; fallback? %t / mux? %t, uid %s",
-		cid, px.ID(), px.GetAddr(), laddr, target, selectedTarget, fallingback, mux, uid)
+		cid, pxid, px.GetAddr(), laddr, target, selectedTarget, fallingback, mux, uid)
 
 	return pc, smm, nil // connect
 }

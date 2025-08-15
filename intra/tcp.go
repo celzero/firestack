@@ -207,7 +207,14 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target netip.AddrPort)
 	// pick all realips to connect to
 	for i, dstipp := range actualTargets {
 		var px ipn.Proxy = nil
-		if px, err = h.prox.ProxyTo(dstipp, uid, pids); err != nil || px == nil {
+		px, err = h.prox.ProxyTo(dstipp, uid, pids)
+
+		// last chosen (but not dialed in) proxy (which error)
+		smm.Target = dstipp.Addr().String() // addr may be invalid
+		smm.PID = pidstr(px)                // px may be nil
+		smm.RPID = ipn.ViaID(px)
+
+		if err != nil || px == nil {
 			log.W("tcp: dial: #%d: %s proxy(%s) to dst(%s) for %s; err %v",
 				i, cid, pidstr(px), dstipp, uid, err)
 			continue
@@ -217,10 +224,10 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target netip.AddrPort)
 			// smm instead queued by handle() => forward()
 			return allow
 		} // else try the next realip
+
 		end := time.Since(smm.start)
-		elapsed := int32(end.Seconds() * 1000)
-		log.W("tcp: dial: #%d: %s failed; addr(%s) / fallback? %t; for uid %s (%d); w err(%v)",
-			i, cid, dstipp, fallingback, uid, elapsed, err)
+		log.W("tcp: dial: #%d: %s failed; addr(%s) / fallback? %t; for uid %s (%s); w err(%v)",
+			i, cid, dstipp, fallingback, uid, core.FmtPeriod(end), err)
 		if end > retryTimeout {
 			break
 		}
@@ -271,7 +278,7 @@ func (h *tcpHandler) handle(px ipn.Proxy, src net.Conn, boundSrc, target netip.A
 	// pc.RemoteAddr may be that of the proxy, not the actual dst
 	// ex: pc.RemoteAddr is 127.0.0.1 for Orbot
 	smm.Target = target.Addr().String()
-	smm.PID = px.ID().V()
+	smm.PID = pidstr(px)
 	smm.RPID = ipn.ViaID(px)
 
 	if err != nil {

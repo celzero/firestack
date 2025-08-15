@@ -63,6 +63,8 @@ func (h *icmpHandler) Ping(msg []byte, source, target netip.AddrPort) (echoed bo
 	smm := icmpSummary(cid, uid)
 
 	defer func() {
+		smm.PID = pidstr(px)
+		smm.RPID = ipn.ViaID(px)
 		smm.Tx = int64(tx)
 		smm.Rx = int64(rx)
 		smm.Rtt = rtt.Milliseconds()
@@ -102,10 +104,6 @@ func (h *icmpHandler) Ping(msg []byte, source, target netip.AddrPort) (echoed bo
 	defer core.Close(uc)
 	ucnil := uc == nil || core.IsNil(uc)
 
-	pid := px.ID().V()
-	smm.PID = pid
-	smm.RPID = ipn.ViaID(px)
-
 	// nilaway: tx.socks5 returns nil conn even if err == nil
 	if err != nil || ucnil {
 		err = core.OneErr(err, unix.ENETUNREACH)
@@ -114,7 +112,7 @@ func (h *icmpHandler) Ping(msg []byte, source, target netip.AddrPort) (echoed bo
 		return false // unhandled
 	}
 
-	h.conntracker.Track(cid, uid, pid, uc)
+	h.conntracker.Track(cid, uid, pidstr(px), uc)
 	defer h.conntracker.Untrack(cid)
 
 	tx = len(msg)
@@ -123,8 +121,8 @@ func (h *icmpHandler) Ping(msg []byte, source, target netip.AddrPort) (echoed bo
 	rx = len(reply)
 	rtt = time.Since(rttstart)
 	// todo: ignore non-ICMP replies in b: github.com/prometheus-community/pro-bing/blob/0bacb2d5e7/ping.go#L630
-	log.D("t.icmp: ingress: read(%v <= %v / %v) ping done (send: %d, recv: %d, rtt: %dms); err? %v",
-		source, from, dst, tx, rx, rtt.Milliseconds(), err)
+	log.D("t.icmp: ingress: read(%v <= %v / %v) ping done (send: %d, recv: %d, rtt: %s); err? %v",
+		source, from, dst, tx, rx, core.FmtPeriod(rtt), err)
 
 	return true // echoed; even if err != nil
 }
