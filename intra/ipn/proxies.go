@@ -589,11 +589,15 @@ func (px *proxifier) ProxyTo(ipp netip.AddrPort, uid string, pids []string) (_ P
 
 	stalledSec = px.stall(uid + ippstr)
 
-	if len(missproxies) <= 0 &&
-		len(norouteproxies) <= 0 &&
-		len(endproxies) <= 0 &&
-		len(notokproxies) <= 0 &&
-		len(pausedproxies) > 0 {
+	if len(notokproxies) > 0 {
+		return nil, errNoProxyHealthy
+	} else if len(missproxies) > 0 {
+		return nil, errProxyNotFound
+	} else if len(norouteproxies) > 0 {
+		return nil, errProxyRoute
+	} else if len(endproxies) > 0 {
+		return nil, errProxyStopped
+	} else if len(pausedproxies) > 0 {
 		return nil, errProxyPaused
 	}
 
