@@ -20,8 +20,6 @@ import (
 // packets will be truncated to snapLen.
 const SnapLen uint32 = 2048 // in bytes; some sufficient value
 
-var errNoFdSwapper = errors.New("magiclink: no FdSwapper")
-
 type FdSwapper interface {
 	// Swap closes existing FDs; uses new fd.
 	Swap(fd int) error
@@ -154,14 +152,23 @@ func PcapModes() string {
 }
 
 // Swap implements SeamlessEndpoint.
-func (l *magiclink) Swap(fd int) error {
+func (l *magiclink) Swap(fd int) (err error) {
 	e := l.e.Load()
-	if e == nil {
-		return errNoFdSwapper
+	hasSwappedFd := false
+	needsNewEndpoint := e == nil
+	if e != nil {
+		err = e.Swap(fd)
+		hasSwappedFd = err == nil
+		needsNewEndpoint = errors.Is(err, errNeedsNewEndpoint)
 	}
 
-	err := e.Swap(fd)
-	if errors.Is(err, errNeedsNewEndpoint) {
+	if !needsNewEndpoint {
+		logei(!hasSwappedFd)("netstack: magic(%d); swap: ok? %t; err? %v",
+			fd, hasSwappedFd, err)
+		return err
+	}
+
+	if needsNewEndpoint {
 		umtu := uint32(l.MTU())
 		opt := Options{
 			FDs: []int{fd},
@@ -170,13 +177,13 @@ func (l *magiclink) Swap(fd int) error {
 
 		ep, err := newFdbasedInjectableEndpoint(&opt)
 		if err != nil {
-			log.E("netstack: magic(%d); err %v", fd, err)
+			log.E("netstack: magic(%d); swap: err %v", fd, err)
 			return err
 		}
 
 		link, err := newSnoopyEndpoint(ep, l.s, false /*write header*/)
 		if err != nil {
-			log.E("netstack: magic(%d); err %v", fd, err)
+			log.E("netstack: magic(%d); swap: err %v", fd, err)
 			return err
 		}
 
@@ -190,10 +197,11 @@ func (l *magiclink) Swap(fd int) error {
 		} else {
 			ep.Attach(l) // attach the new endpoint to the existing dispatcher
 		}
-		logei(d == nil)("netstack: %d magic(mtu: %d); new ep... dispatch? %t", fd, umtu, d != nil)
+		logei(d == nil)("netstack: magic(%d) mtu: %d; swap: new ep... dispatch? %t",
+			fd, umtu, d != nil)
 	}
 
-	return err
+	return nil
 }
 
 // Dispose implements SeamlessEndpoint.
