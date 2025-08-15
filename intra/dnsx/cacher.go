@@ -392,9 +392,9 @@ func (t *ctransport) fetch(network string, q *dns.Msg, smmout *x.DNSSummary, cb 
 			return ccx, qerr
 		})
 
-		if cc == nil {
+		if cc == nil { // may be nil for example when barrier times outs
 			log.E("cache: barrier: %s; nil return for %s; err? %v", t.ID(), key, err)
-			ccx = cc
+			cc = ccx
 		}
 
 		cachedres, fresh := cb.freshCopy(key) // always prefer value from cache
