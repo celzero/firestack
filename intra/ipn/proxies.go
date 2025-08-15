@@ -569,11 +569,11 @@ func (px *proxifier) ProxyTo(ipp netip.AddrPort, uid string, pids []string) (_ P
 
 	// can route but not healthy; choose any one on random
 	if len(notokproxies) > 0 {
+		// stall to allow a non-healthy proxy to recover
 		stalledSec = px.stall(uid + ippstr)
-		if alwaysPin && someproxy != nil {
+		if someproxy != nil {
 			return someproxy, nil
 		}
-		return nil, errNoProxyHealthy
 	}
 
 	// lopinned is always the first element, if any.
