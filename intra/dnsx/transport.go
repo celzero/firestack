@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"io"
 	"net/netip"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -1221,12 +1222,7 @@ func canUseDefaultDNS(id string) bool {
 }
 
 func isTransportID(match string, ids ...string) bool {
-	for _, t := range ids {
-		if t == match {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(ids, match)
 }
 
 func isAnyBlockAll(ids ...string) bool {
@@ -1251,12 +1247,7 @@ func isAnyLocal(ids ...string) bool {
 }
 
 func isAnyPlus(ids ...string) bool {
-	for _, id := range ids {
-		if isPlus(id) {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(ids, isPlus)
 }
 
 func isAnyDefault(ids ...string) bool {
