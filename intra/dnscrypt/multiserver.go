@@ -20,7 +20,6 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"math/rand"
 	"net"
 	"net/netip"
 	"strings"
@@ -85,10 +84,7 @@ var (
 )
 
 func chooseAny[T any](s []T) (zz T) {
-	if len(s) <= 0 {
-		return // zz
-	}
-	return s[rand.Intn(len(s))]
+	return core.ChooseOne(s)
 }
 
 func udpExchange(pid string, serverInfo *serverinfo, relayAddrs []*net.UDPAddr, sharedKey *[32]byte, encryptedQuery []byte, clientNonce []byte) (res []byte, relay net.Addr, err error) {

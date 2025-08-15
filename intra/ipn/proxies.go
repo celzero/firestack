@@ -483,7 +483,7 @@ func (px *proxifier) ProxyTo(ipp netip.AddrPort, uid string, pids []string) (_ P
 	}
 
 	var lopinned string
-	var someproxy Proxy
+	var someproxy []Proxy
 
 	pinnedpid, pinok := px.getpin(uid, ipp)
 	chosen := has(pids, pinnedpid)
@@ -559,8 +559,8 @@ func (px *proxifier) ProxyTo(ipp netip.AddrPort, uid string, pids []string) (_ P
 				return p, nil
 			} // else: proxy not ok
 			notokproxies = append(notokproxies, pid)
-			if someproxy == nil {
-				someproxy = p
+			if p != nil {
+				someproxy = append(someproxy, p)
 			}
 		} else { // else: proxy cannot route; split-tunnel
 			norouteproxies = append(norouteproxies, pid)
@@ -571,9 +571,7 @@ func (px *proxifier) ProxyTo(ipp netip.AddrPort, uid string, pids []string) (_ P
 	if len(notokproxies) > 0 {
 		// stall to allow a non-healthy proxy to recover
 		stalledSec = px.stall(uid + ippstr)
-		if someproxy != nil {
-			return someproxy, nil
-		}
+		return core.ChooseOne(someproxy), nil
 	}
 
 	// lopinned is always the first element, if any.

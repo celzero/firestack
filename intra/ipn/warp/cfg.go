@@ -129,7 +129,7 @@ var warpDefaultHeaders = map[string]string{
 }
 
 func randomWarpCidrs() (v4 netip.Prefix, v6 netip.Prefix) {
-	return warpCidrs4[rand.Intn(len(warpCidrs4))], warpCidrs6[rand.Intn(len(warpCidrs6))]
+	return core.ChooseOne(warpCidrs4), core.ChooseOne(warpCidrs6)
 }
 
 func randomWarpPort() uint16 {

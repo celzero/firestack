@@ -8,7 +8,6 @@ package ipn
 
 import (
 	"context"
-	"math/rand"
 	"net"
 	"net/netip"
 	"time"
@@ -283,7 +282,7 @@ func addr4to6(addr string) string {
 		return ""
 	}
 	// embed IPv4 in IPv6
-	ippre := warp.Net6to4[rand.Intn(len(warp.Net6to4))]
+	ippre := core.ChooseOne(warp.Net6to4)
 	ip6 := ip4to6(ippre, ip4)
 	if !ip6.IsValid() {
 		log.W("proxy: auto: exit64: addr64: failed to embed(%s) in v6(%s)", ip4, ippre)
