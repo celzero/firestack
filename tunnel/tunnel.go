@@ -80,7 +80,6 @@ var _ Tunnel = (*gtunnel)(nil)
 
 var (
 	errInvalidTunFd = errors.New("invalid tun fd")
-	errNoWriter     = errors.New("no write() on netstack")
 	zerowriter      = &nowrite{}
 )
 
