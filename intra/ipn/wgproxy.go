@@ -34,7 +34,6 @@ import (
 	x "github.com/celzero/firestack/intra/backend"
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/ipn/multihost"
-	"github.com/celzero/firestack/intra/ipn/warp"
 	"github.com/celzero/firestack/intra/ipn/wg"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/netstack"
@@ -531,17 +530,7 @@ func wgIfConfigOf(id string, txtptr *string) (opts wgifopts, err error) {
 			pcfg.WriteString(line + "\n")
 		case "endpoint": // may exist more than once
 			// TODO: endpoint could be v4 or v6 or a hostname
-			n := 0
-			if id == RpnWg { // warp
-				v4, v6, err := warp.WarpEndpoints()
-				if err == nil { // may err if random warp endpoints are disabled
-					warpipcsv := v4.String() + "," + v6.String()
-					n = loadMH(currentPeer, warpipcsv)
-				}
-				logev(err)("proxy: wg: %s v4 %s, v6 %s; added? %d; err? %v",
-					id, v4, v6, n, err)
-			}
-			n += loadMH(currentPeer, v) // append more endpoints
+			n := loadMH(currentPeer, v) // append endpoints
 			log.D("proxy: wg: %s ifconfig: endpoints(%d) %s", id, n, v)
 
 			// peer config: carry over endpoints

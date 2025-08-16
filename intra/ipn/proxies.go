@@ -38,7 +38,6 @@ const (
 	OrbotS5  = x.OrbotS5
 	OrbotH1  = x.OrbotH1
 	GlobalH1 = x.GlobalH1
-	RpnWg    = x.RpnWg
 	RpnWin   = x.RpnWin
 	RpnWs    = x.RpnWs
 	Rpn64    = x.Rpn64
@@ -126,7 +125,6 @@ var (
 	errHopGlobalProxy     = errors.New("proxy: hop must be global proxy")
 	errHopNotConnected    = errors.New("proxy: set but not connected over hop")
 	errNilWinCfg          = errors.New("proxy: win cfg nil")
-	errNilWarpId          = errors.New("proxy: warp id nil")
 	errNilSEProxy         = errors.New("proxy: se proxy nil")
 	errNotRpnProxy        = errors.New("proxy: rpn not found")
 	errNotRpnID           = errors.New("proxy: not rpn id")
@@ -256,9 +254,8 @@ type proxifier struct {
 
 	sec *seasy.SEApi // se proxy registration, never changes; may be nil
 
-	lastSeErr   *core.Volatile[error] // se proxy registration error
-	lastWarpErr *core.Volatile[error] // warp registration error
-	lastWinErr  *core.Volatile[error] // win registration error
+	lastSeErr  *core.Volatile[error] // se proxy registration error
+	lastWinErr *core.Volatile[error] // win registration error
 }
 
 type LinkProps struct {
@@ -294,10 +291,9 @@ func NewProxifier(pctx context.Context, l3 string, mtu int, c protect.Controller
 
 		hp: make(map[string][]string),
 
-		rp:          make(map[string]RpnProxy),
-		lastSeErr:   core.NewZeroVolatile[error](),
-		lastWarpErr: core.NewZeroVolatile[error](),
-		lastWinErr:  core.NewZeroVolatile[error](),
+		rp:         make(map[string]RpnProxy),
+		lastSeErr:  core.NewZeroVolatile[error](),
+		lastWinErr: core.NewZeroVolatile[error](),
 	}
 
 	pxr.exit = NewExitProxy(pctx, c)
@@ -483,7 +479,7 @@ func (px *proxifier) ProxyTo(ipp netip.AddrPort, uid string, pids []string) (_ P
 	}
 
 	var lopinned string
-	var someproxy []Proxy
+	var notok []Proxy
 
 	pinnedpid, pinok := px.getpin(uid, ipp)
 	chosen := has(pids, pinnedpid)
@@ -1167,41 +1163,6 @@ func (px *proxifier) Reaches(urlOrHostPortOrIPPortCsv *x.Gostr) bool {
 	return false
 }
 
-// RegisterWarp implements x.Rpn.
-func (px *proxifier) RegisterWarp(existingState *x.Gobyte) (stateJson *x.Gobyte, err error) {
-	defer func() {
-		px.lastWarpErr.Store(err) // may be nil
-	}()
-	existingStateJson := existingState.V()
-	restore := len(existingStateJson) > 0
-
-	wc, err := px.registerWarp(existingStateJson)
-	if err != nil || core.IsNil(wc) {
-		return nil, core.OneErr(err, errNilWarpId)
-	}
-	state, err := wc.State()
-	if err != nil {
-		return nil, err
-	}
-
-	rp, err := px.addRpnProxy(wc, maincc(wc))
-	if err != nil || rp == nil {
-		log.E("proxy: warp: add wg for %s failed: %v", wc.Who(), err)
-		return nil, core.JoinErr(err, errNotRpnProxy)
-	}
-
-	log.I("proxy: warp: registered: %s / %d, new? %t", wc.Who(), state.Len(), !restore)
-	return state, nil
-}
-
-func (px *proxifier) registerWarp(existingStateJson []byte) (wc RpnAcc, err error) {
-	if len(existingStateJson) > 0 {
-		return px.extc.MakeWarpFrom(existingStateJson)
-	} else {
-		return px.extc.MakeWarp()
-	}
-}
-
 // RegisterWin implements x.Rpn.
 func (px *proxifier) RegisterWin(entitlementOrState *x.Gobyte) (stateJson *x.Gobyte, err error) {
 	defer func() {
@@ -1264,11 +1225,6 @@ func (px *proxifier) RegisterSE() (err error) {
 	return nil
 }
 
-// RegisterExit implements x.Rpn.
-func (px *proxifier) UnregisterWarp() bool {
-	return px.unregisterRpn(RpnWg)
-}
-
 // UnregisterWin implements x.Rpn.
 func (px *proxifier) UnregisterWin() bool {
 	return px.unregisterRpn(RpnWin)
@@ -1293,15 +1249,6 @@ func (px *proxifier) unregisterRpn(provider string) bool {
 
 	log.I("proxy: %s: unregistered; forks: %d", provider, n)
 	return true
-}
-
-// Warp implements x.Rpn.
-func (px *proxifier) Warp() (x.RpnProxy, error) {
-	rp, err := px.mainRpnProxyOf(RpnWg)
-	if rp == nil {
-		return nil, core.JoinErr(err, px.lastWarpErr.Load())
-	}
-	return rp, nil
 }
 
 // Win implements x.Rpn.
@@ -1367,48 +1314,6 @@ func (px *proxifier) testSE() (string, error) {
 	if len(oks) <= 0 {
 		log.E("proxy: se: no reachable addrs among %v", notoks)
 		return "", core.JoinErr(errNoSuitableAddress, px.lastSeErr.Load())
-	}
-	return strings.Join(oks, ","), nil
-}
-
-// TestWarp implements x.Rpn
-func (px *proxifier) TestWarp() (*x.Gostr, error) {
-	return x.StrOfFunc(px.testWarp)
-}
-
-func (px *proxifier) testWarp() (string, error) {
-	const totalpings = 5
-
-	oks := make([]string, 0, totalpings*2)
-	notoks := make([]string, 0, totalpings)
-
-	for i := 0; i < totalpings; i++ {
-		v4, v6, err := warp.WarpEndpoints()
-		if err != nil {
-			log.W("proxy: warp: ping#%d: %v", i, err)
-			continue
-		}
-		v4str := v4.String()
-		v6str := v6.String()
-		// base can route back into netstack (settings.LoopingBack)
-		// in which  case all endpoints will "seem" reachable.
-		// exit, however, never routes back into netstack and has
-		// the true, unhindered path to the underlying network.
-		if Reaches(px.exit, v4str, "udp") {
-			oks = append(oks, v4str)
-		} else {
-			notoks = append(notoks, v4str)
-		}
-		if Reaches(px.exit, v6str, "udp") {
-			oks = append(oks, v6str)
-		} else {
-			notoks = append(notoks, v6str)
-		}
-	}
-
-	if len(oks) <= 0 {
-		log.E("proxy: warp: no reachable addrs among %v", notoks)
-		return "", core.JoinErr(errNoSuitableAddress, px.lastWarpErr.Load())
 	}
 	return strings.Join(oks, ","), nil
 }

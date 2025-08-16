@@ -14,15 +14,20 @@
 package warp
 
 import (
-	"math/rand"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
 	"net/netip"
 	"time"
 
+	x "github.com/celzero/firestack/intra/backend"
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/dialers"
+	"github.com/celzero/firestack/intra/protect"
 )
-
-const warpApiUrl string = "https://api.cloudflareclient.com/v0a4005"
 
 // developers.cloudflare.com/1.1.1.1/ip-addresses/
 const cfdns4 = "1.1.1.1"
@@ -30,87 +35,6 @@ const cfdns6 = "2606:4700:4700::1001"
 
 const gw4 = "0.0.0.0/0" // netip.ParsePrefix("0.0.0.0/0")
 const gw6 = "::/0"      // netip.ParsePrefix("::/0")
-
-// 141.101.113.0 cloudflare ip fronting
-var cfip141 = netip.MustParsePrefix("141.101.113.0/24")
-
-// use random but valid warp ip:port
-const usePooledWarpEndpoints = false
-
-// use utls for warp api requests
-const useUtlsWarpApis = false
-
-var warpPorts = []uint16{
-	500,
-	854,
-	859,
-	864,
-	878,
-	880,
-	890,
-	891,
-	894,
-	903,
-	908,
-	928,
-	934,
-	939,
-	942,
-	943,
-	945,
-	946,
-	955,
-	968,
-	987,
-	988,
-	1002,
-	1010,
-	1014,
-	1018,
-	1070,
-	1074,
-	1180,
-	1387,
-	1701,
-	1843,
-	2371,
-	2408,
-	2506,
-	3138,
-	3476,
-	3581,
-	3854,
-	4177,
-	4198,
-	4233,
-	4500,
-	5279,
-	5956,
-	7103,
-	7152,
-	7156,
-	7281,
-	7559,
-	8319,
-	8742,
-	8854,
-	8886,
-}
-
-var warpCidrs4 = []netip.Prefix{
-	netip.MustParsePrefix("162.159.192.0/24"),
-	netip.MustParsePrefix("162.159.193.0/24"),
-	netip.MustParsePrefix("162.159.195.0/24"),
-	netip.MustParsePrefix("188.114.96.0/24"),
-	netip.MustParsePrefix("188.114.97.0/24"),
-	netip.MustParsePrefix("188.114.98.0/24"),
-	netip.MustParsePrefix("188.114.99.0/24"),
-}
-
-var warpCidrs6 = []netip.Prefix{
-	netip.MustParsePrefix("2606:4700:d0::/64"),
-	netip.MustParsePrefix("2606:4700:d1::/64"),
-}
 
 // preset 6to4 NATs; from: nat64.xyz
 var Net6to4 = []netip.Prefix{
@@ -122,45 +46,84 @@ var Net6to4 = []netip.Prefix{
 	netip.MustParsePrefix("2001:67c:2b0:db32:0:1::/96"), // trex
 }
 
-var warpDefaultHeaders = map[string]string{
-	"Content-Type":      "application/json; charset=UTF-8",
-	"User-Agent":        "okhttp/3.12.1",
-	"CF-Client-Version": "a-6.30-3596",
+var (
+	errRpnCountryless = errors.New("rpn is not multi-country")
+	errRpnStateless   = errors.New("rpn has no state or config")
+	errRpnUpdateless  = errors.New("rpn cannot be updated only registered")
+
+	errZeroRandomEp = errors.New("warp: zero random endpoint")
+)
+
+type RpnAcc interface {
+	x.RpnAcc
+	ProviderID() string // x.RpnWg, x.RpnPro, x.RpnAmz
+	MultiCountry() bool
+	Conf(key string) (string, error)
 }
 
-func randomWarpCidrs() (v4 netip.Prefix, v6 netip.Prefix) {
-	return core.ChooseOne(warpCidrs4), core.ChooseOne(warpCidrs6)
+var _ RpnAcc = (*WsClient)(nil)
+
+type BaseClient struct {
+	d  *protect.RDial
+	h2 http.Client
 }
 
-func randomWarpPort() uint16 {
-	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
-	return warpPorts[rng.Intn(len(warpPorts))]
+var dob = time.Now()
+var neverEver = time.Date(5253, time.March, 6, 0, 0, 0, 0, time.UTC)
+var twentyTwoHours = 22 * time.Hour
+
+type RpnForever struct{}
+
+func (RpnForever) Created() int64 { return dob.UnixMilli() }
+func (RpnForever) Expires() int64 { return neverEver.UnixMilli() }
+
+type RpnMultiCountry struct{}
+
+func (RpnMultiCountry) MultiCountry() bool { return true }
+
+type RpnCountryless struct{}
+
+func (c RpnCountryless) MultiCountry() bool               { return false }
+func (c RpnCountryless) Locations() (x.RpnServers, error) { return nil, errRpnCountryless }
+
+type RpnStateless struct {
+	RpnUpdateless
 }
 
-func WarpEndpoints() (v4 netip.AddrPort, v6 netip.AddrPort, err error) {
-	if usePooledWarpEndpoints {
-		err = errDisabledRandomEp
-		return
+func (RpnStateless) State() (*x.Gobyte, error)      { return nil, errRpnStateless }
+func (RpnStateless) Conf(cc string) (string, error) { return "", errRpnStateless }
+
+type RpnUpdateless struct{}
+
+func (RpnUpdateless) Update() (*x.Gobyte, error) { return nil, errRpnUpdateless }
+
+type RpnMultiCountryServers struct {
+	all []x.RpnServer
+}
+
+var _ x.RpnServers = (*RpnMultiCountryServers)(nil)
+
+func (s *RpnMultiCountryServers) Get(i int) (*x.RpnServer, error) {
+	if i < 0 || i >= len(s.all) {
+		return nil, fmt.Errorf("rpn: %d out of range [0, %d)", i, len(s.all))
 	}
-	cidr4, cidr6 := randomWarpCidrs()
-	ip4, err4 := core.RandomIPFromPrefix(cidr4)
-	ip6, err6 := core.RandomIPFromPrefix(cidr6)
-	if err4 != nil && err6 != nil {
-		err = core.JoinErr(err4, err6)
-		return
+	return &s.all[i], nil
+}
+
+func (s *RpnMultiCountryServers) Len() int {
+	return len(s.all)
+}
+
+func (s *RpnMultiCountryServers) Json() (*x.Gobyte, error) {
+	if s == nil || len(s.all) <= 0 {
+		return nil, fmt.Errorf("rpn: no servers")
 	}
-	v4ok, v6ok := ipok(ip4), ipok(ip6)
-	if !v4ok && !v6ok {
-		err = errZeroRandomEp
-		return
+	// go.dev/play/p/Cxy0imeHYKx
+	b, err := json.Marshal(s.all)
+	if err != nil {
+		return nil, fmt.Errorf("rpn: json: %w", err)
 	}
-	if v4ok {
-		v4 = netip.AddrPortFrom(ip4, randomWarpPort())
-	}
-	if v6ok {
-		v6 = netip.AddrPortFrom(ip6, randomWarpPort())
-	}
-	return
+	return x.BytesOf(b), nil
 }
 
 func WinEndpoints() (v4 []netip.AddrPort, v6 []netip.AddrPort, err error) {
@@ -201,6 +164,46 @@ func Exit64Endpoints() (v6 []netip.Addr, errs error) {
 	return v6, nil
 }
 
+func NewExtClient(ctx context.Context, c protect.Controller) *BaseClient {
+	d := protect.MakeNsRDial("extclient", ctx, c)
+	w := &BaseClient{d: d}
+	w.h2.Transport = &http.Transport{
+		Dial:                  d.Dial,
+		ForceAttemptHTTP2:     true,
+		ResponseHeaderTimeout: 15 * time.Second,
+		IdleConnTimeout:       30 * time.Second,
+	}
+	return w
+}
+
 func ipok(ip netip.Addr) bool {
 	return ip.IsValid() && !ip.IsUnspecified()
+}
+
+func fmtUnixMillis(ms int64) string {
+	return core.FmtUnixMillisAsTimestamp(ms)
+}
+
+func fmtTime(t time.Time) string {
+	return core.FmtTimeAsPeriod(t)
+}
+
+type bytewriter struct {
+	b []byte
+}
+
+var _ io.WriteCloser = (*bytewriter)(nil)
+
+func (w *bytewriter) Write(p []byte) (n int, err error) {
+	w.b = append(w.b, p...)
+	return len(p), nil
+}
+
+func (w *bytewriter) Close() error {
+	w.b = nil
+	return nil
+}
+
+func (w *bytewriter) Bytes() []byte {
+	return w.b
 }

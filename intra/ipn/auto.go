@@ -85,9 +85,6 @@ func (h *auto) DialerHandle() (mix uintptr) {
 			mix ^= exit64.DialerHandle()
 		}
 	}
-	if warp, _ := h.pxr.mainRpnProxyOf(RpnWg); warp != nil {
-		mix ^= warp.DialerHandle()
-	}
 	if win, _ := h.pxr.mainRpnProxyOf(RpnWin); win != nil {
 		mix ^= win.DialerHandle()
 	}
@@ -115,11 +112,10 @@ func (h *auto) dial(network, laddr, raddr string) (protect.Conn, error) {
 
 	exit, exerr := h.pxr.ProxyFor(Exit)
 	exit64, ex64err := h.pxr.ProxyFor(Rpn64)
-	warp, waerr := h.pxr.mainRpnProxyOf(RpnWg)
 	win, winerr := h.pxr.mainRpnProxyOf(RpnWin)
 	sep, seerr := h.pxr.mainRpnProxyOf(RpnSE)
 
-	pxrerrs := core.JoinErr(exerr, waerr, winerr, seerr, ex64err)
+	pxrerrs := core.JoinErr(exerr, winerr, seerr, ex64err)
 
 	if usevia(h.viaID) {
 		if v, vok := h.via.Get(); !vok {
@@ -134,7 +130,7 @@ func (h *auto) dial(network, laddr, raddr string) (protect.Conn, error) {
 	parallelDial := settings.AutoDialsParallel.Load()
 
 	if !parallelDial {
-		rpns := []Proxy{exit, warp, exit64, sep, win}
+		rpns := []Proxy{exit, exit64, sep, win}
 		healthy := core.Map(
 			core.FilterLeft(
 				rpns,
@@ -204,25 +200,6 @@ func (h *auto) dial(network, laddr, raddr string) (protect.Conn, error) {
 			return h.dialIfReachable(exit, network, laddr, raddr)
 		}, func(ctx context.Context) (protect.Conn, error) {
 			const myidx = 1
-			if warp == nil {
-				return nil, waerr
-			}
-			if recent {
-				if previdx != myidx {
-					return nil, errNotPinned
-				}
-				// ip pinned to this proxy
-				return h.dialAlways(warp, network, laddr, raddr)
-			}
-
-			select {
-			case <-ctx.Done():
-				return nil, ctx.Err()
-			case <-time.After(shortdelay * myidx): // 200ms
-			}
-			return h.dialIfHealthy(warp, network, laddr, raddr)
-		}, func(ctx context.Context) (protect.Conn, error) {
-			const myidx = 2
 			if exit64 == nil {
 				return nil, ex64err
 			}
@@ -244,7 +221,7 @@ func (h *auto) dial(network, laddr, raddr string) (protect.Conn, error) {
 			}
 			return h.dialIfHealthy(exit64, network, laddr, raddr)
 		}, func(ctx context.Context) (protect.Conn, error) {
-			const myidx = 3
+			const myidx = 2
 			if sep == nil {
 				return nil, seerr
 			}
@@ -263,7 +240,7 @@ func (h *auto) dial(network, laddr, raddr string) (protect.Conn, error) {
 			}
 			return h.dialIfHealthy(sep, network, laddr, raddr)
 		}, func(ctx context.Context) (protect.Conn, error) {
-			const myidx = 4
+			const myidx = 3
 			if win == nil {
 				return nil, winerr
 			}
@@ -307,8 +284,7 @@ func (h *auto) Announce(network, local string) (protect.PacketConn, error) {
 	}
 
 	exit, exerr := h.pxr.ProxyFor(Exit)
-	warp, waerr := h.pxr.mainRpnProxyOf(RpnWg)
-	win, proerr := h.pxr.mainRpnProxyOf(RpnWin)
+	win, winerr := h.pxr.mainRpnProxyOf(RpnWin)
 
 	previdx, recent := h.exp.Get(local)
 
@@ -332,7 +308,7 @@ func (h *auto) Announce(network, local string) (protect.PacketConn, error) {
 		}, func(ctx context.Context) (protect.PacketConn, error) {
 			const myidx = 1
 			if win == nil {
-				return nil, proerr
+				return nil, winerr
 			}
 			if recent {
 				if previdx != myidx {
@@ -347,24 +323,6 @@ func (h *auto) Announce(network, local string) (protect.PacketConn, error) {
 			case <-time.After(shortdelay * myidx): // 100ms
 			}
 			return h.announceIfHealthy(win, network, local)
-		}, func(ctx context.Context) (protect.PacketConn, error) {
-			const myidx = 2
-			if warp == nil {
-				return nil, waerr
-			}
-			if recent {
-				if previdx != myidx {
-					return nil, errNotPinned
-				}
-				// ip pinned to this proxy
-				return h.announceIfHealthy(warp, network, local)
-			}
-			select {
-			case <-ctx.Done():
-				return nil, ctx.Err()
-			case <-time.After(shortdelay * myidx): // 200ms
-			}
-			return h.announceIfHealthy(warp, network, local)
 		}, // seasy-proxy does not support udp?
 	)
 	defer localDialStatus(h.status, err)
@@ -450,12 +408,9 @@ func (h *auto) Hop(p Proxy, dryrun bool) error {
 		return errProxyStopped
 	}
 
-	var warp, sep, win Proxy
+	var sep, win Proxy
 	var waerr, seerr, winerr error
 	old := h.swapVia(p)
-	if warp, waerr = h.pxr.mainRpnProxyOf(RpnWg); warp != nil {
-		waerr = warp.Hop(p, dryrun)
-	}
 	if win, winerr = h.pxr.mainRpnProxyOf(RpnWin); win != nil {
 		winerr = win.Hop(p, dryrun)
 	}

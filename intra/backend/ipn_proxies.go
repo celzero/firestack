@@ -21,8 +21,6 @@ const ( // see ipn/proxies.go
 	Ingress = "Ingress"
 	// Auto uses ipn.Exit or any of the RPN proxies (built-in)
 	Auto = "Auto"
-	// RPN Warp (must be registered by Rpn.RegisterWarp)
-	RpnWg = WG + "w" + RPN
 	// RPN Win proxy (must be registered by Rpn.RegisterWin)
 	RpnWin = WG + "y" + RPN
 	// Alias for RPN Win
@@ -86,28 +84,20 @@ const ( // see ipn/proxies.go
 )
 
 type Rpn interface {
-	// RegisterWarp registers a new Warp installation.
-	RegisterWarp(existingStateJson *Gobyte) (json *Gobyte, err error)
 	// RegisterSE registers a new SurfEasy user.
 	RegisterSE() error
 	// RegisterWin is alias for RegisterWin.
 	RegisterWin(entitlementOrStateJson *Gobyte) (json *Gobyte, err error)
-	// UnregisterWarp unregisters a Warp public key.
-	UnregisterWarp() bool
 	// UnregisterWin unregisters a Windscribe installation.
 	UnregisterWin() bool
 	// UnregisterSE unregisters a SurfEasy user.
 	UnregisterSE() bool
-	// TestWarp connects to some Warp IPs and returns reachable ones.
-	TestWarp() (ips *Gostr, errs error)
 	// TestWin connects to the Windscribe gateway and returns its IP if reachable.
 	TestWin() (ips *Gostr, errs error)
 	// TestSE connects to some SurfEasy IPs and returns reachable ones.
 	TestSE() (ips *Gostr, errs error)
 	// TestExit64 connects to public NAT64 endpoints and returns reachable ones.
 	TestExit64() (ips *Gostr, errs error)
-	// Warp returns a Cloudflare Warp WireGuard proxy.
-	Warp() (wg RpnProxy, err error)
 	// Win returns a Windscribe WireGuard proxy.
 	Win() (wg RpnProxy, err error)
 	// Pip returns a RpnWs proxy.
