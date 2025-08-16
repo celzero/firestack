@@ -32,7 +32,7 @@ import (
 )
 
 const (
-	smmchSize           = 64
+	smmchSize           = 256 // some comfortably high number
 	UNKNOWN_UID         = core.UNKNOWN_UID
 	UNKNOWN_UID_STR     = core.UNKNOWN_UID_STR
 	SELF_UID            = protect.UidSelf
