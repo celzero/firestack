@@ -15,7 +15,6 @@ import (
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
-	utls "github.com/refraction-networking/utls"
 )
 
 func netConnect2(d *protect.RDialer, proto string, laddr, raddr netip.AddrPort) (net.Conn, error) {
@@ -206,23 +205,6 @@ func dialtls[D rdials](d D, cfg *tls.Config, network, local, remote string, how 
 		tlsconn = nil
 	}
 	return tlsconn, err
-}
-
-// DialWithUTls dials a uTLS connection to addr and cfg.
-func DialWithUTls(d *protect.RDial, cfg *utls.Config, network, addr string) (net.Conn, error) {
-	c, err := unPtr(commondial(d, network, addr, adaptRDial(ipConnect)))
-	if err != nil {
-		clos(c)
-		return nil, err
-	}
-
-	cfg = ensureSni2(cfg, addr)
-	utlsConn, err := utlsHello(c, cfg, cfg.ServerName)
-	if err != nil {
-		clos(c)
-		return nil, err
-	}
-	return utlsConn, nil
 }
 
 func tlsHello(c net.Conn, cfg *tls.Config, addr string) (*tls.Conn, error) {
