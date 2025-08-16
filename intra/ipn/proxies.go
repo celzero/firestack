@@ -555,19 +555,17 @@ func (px *proxifier) ProxyTo(ipp netip.AddrPort, uid string, pids []string) (_ P
 				return p, nil
 			} // else: proxy not ok
 			notokproxies = append(notokproxies, pid)
-			if p != nil {
-				someproxy = append(someproxy, p)
-			}
+			notok = append(notok, p)
 		} else { // else: proxy cannot route; split-tunnel
 			norouteproxies = append(norouteproxies, pid)
 		}
 	}
 
 	// can route but not healthy; choose any one on random
-	if len(notokproxies) > 0 {
+	if len(notok) > 0 {
 		// stall to allow a non-healthy proxy to recover
 		stalledSec = px.stall(uid + ippstr)
-		return core.ChooseOne(someproxy), nil
+		return core.ChooseOne(notok), nil
 	}
 
 	// lopinned is always the first element, if any.
