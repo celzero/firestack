@@ -702,7 +702,7 @@ func logwif(cond bool) log.LogFn {
 
 func pidstr(p ipn.Proxy) string {
 	if p == nil {
-		return "nil"
+		return ""
 	}
 	return p.ID().V()
 }
