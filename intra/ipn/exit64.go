@@ -15,7 +15,7 @@ import (
 	x "github.com/celzero/firestack/intra/backend"
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/dialers"
-	"github.com/celzero/firestack/intra/ipn/warp"
+	"github.com/celzero/firestack/intra/ipn/rpn"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
 )
@@ -33,9 +33,9 @@ type exit64 struct {
 	SkipRefresh
 	GWNoVia
 
-	warp.RpnForever
-	warp.RpnStateless
-	warp.RpnCountryless
+	rpn.RpnForever
+	rpn.RpnStateless
+	rpn.RpnCountryless
 
 	outbound *protect.RDial // outbound dialer
 	addr     string
@@ -282,7 +282,7 @@ func addr4to6(addr string) string {
 		return ""
 	}
 	// embed IPv4 in IPv6
-	ippre := core.ChooseOne(warp.Net6to4)
+	ippre := core.ChooseOne(rpn.Net6to4)
 	ip6 := ip4to6(ippre, ip4)
 	if !ip6.IsValid() {
 		log.W("proxy: auto: exit64: addr64: failed to embed(%s) in v6(%s)", ip4, ippre)

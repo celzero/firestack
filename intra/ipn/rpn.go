@@ -13,7 +13,7 @@ import (
 
 	x "github.com/celzero/firestack/intra/backend"
 	"github.com/celzero/firestack/intra/core"
-	"github.com/celzero/firestack/intra/ipn/warp"
+	"github.com/celzero/firestack/intra/ipn/rpn"
 	"github.com/celzero/firestack/intra/log"
 )
 
@@ -24,7 +24,7 @@ type RpnProxy interface {
 	PurgeAll() (n uint32)
 }
 
-type RpnAcc = warp.RpnAcc
+type RpnAcc = rpn.RpnAcc
 
 // TODO: override Probe, Ping, Announce, Accept, Dial, DialBind
 // and kick-off an update if the acc is expired?

@@ -36,8 +36,8 @@ import (
 	x "github.com/celzero/firestack/intra/backend"
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/dialers"
+	"github.com/celzero/firestack/intra/ipn/rpn"
 	"github.com/celzero/firestack/intra/ipn/seasy"
-	"github.com/celzero/firestack/intra/ipn/warp"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
 	"github.com/noql-net/certpool"
@@ -83,8 +83,8 @@ type seproxy struct {
 	ProtoAgnostic
 	GW
 
-	warp.RpnStateless
-	warp.RpnCountryless
+	rpn.RpnStateless
+	rpn.RpnCountryless
 
 	done      context.CancelFunc
 	sec       *seasy.SEApi

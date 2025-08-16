@@ -22,7 +22,7 @@ import (
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/dialers"
 	"github.com/celzero/firestack/intra/ipn/seasy"
-	"github.com/celzero/firestack/intra/ipn/warp"
+	"github.com/celzero/firestack/intra/ipn/rpn"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/netstack"
 	"github.com/celzero/firestack/intra/protect"
@@ -250,7 +250,7 @@ type proxifier struct {
 	grounded *ground // grounded proxy, never changes
 	auto     *auto   // auto proxy, never changes
 
-	extc *warp.BaseClient // external wg registration, never changes
+	extc *rpn.BaseClient // external wg registration, never changes
 
 	sec *seasy.SEApi // se proxy registration, never changes; may be nil
 
@@ -305,7 +305,7 @@ func NewProxifier(pctx context.Context, l3 string, mtu int, c protect.Controller
 	pxr.ipPins = core.NewSieve[netip.AddrPort, string](pctx, pintimeout)
 	pxr.uidPins = core.NewSieve2K[string, netip.AddrPort, string](pctx, pintimeout)
 
-	pxr.extc = warp.NewExtClient(pctx, c)
+	pxr.extc = rpn.NewExtClient(pctx, c)
 	if se, serr := seasy.NewSEasyClient(pxr.exit); serr != nil {
 		pxr.lastSeErr.Store(serr)
 	} else {
@@ -1322,7 +1322,7 @@ func (px *proxifier) TestWin() (*x.Gostr, error) {
 }
 
 func (px *proxifier) testWin() (string, error) {
-	v4, v6, err := warp.WinEndpoints()
+	v4, v6, err := rpn.WinEndpoints()
 	if err != nil {
 		log.W("proxy: ws: err testing endpoints: %v", err)
 		return "", err
@@ -1359,7 +1359,7 @@ func (px *proxifier) TestExit64() (*x.Gostr, error) {
 }
 
 func (px *proxifier) testExit64() (ips string, errs error) {
-	v6, err := warp.Exit64Endpoints()
+	v6, err := rpn.Exit64Endpoints()
 	if err != nil {
 		log.W("proxy: exit64: err testing endpoints %v", err)
 		return "", err
