@@ -54,14 +54,8 @@ type Tunnel interface {
 	Disconnect()
 	// Enabled checks if the tunnel is up and running.
 	Enabled() bool
-	// Write writes input data to the TUN interface.
-	Write(data []byte) (int, error)
-	// Close connections by pid, cid, uid.
-	CloseConns(activecsv string) (closedcsv string)
 	// Creates a new link using fd (tun device).
-	SetLink(fd, mtu int) error
-	// New route
-	SetRoute(engine int) error
+	SetLinkAndRoutes(fd, mtu, engine int) error
 	// Unsets existing link and closes the fd (tun device).
 	Unlink() error
 	// Set or unset the pcap sink
@@ -72,6 +66,7 @@ type Tunnel interface {
 
 type gtunnel struct {
 	ctx    context.Context
+	done   context.CancelFunc
 	stack  *stack.Stack              // a tcpip stack
 	ep     netstack.SeamlessEndpoint // endpoint for the stack
 	sid    *core.Volatile[int]       // session id (almost always tunnel fd)
@@ -116,6 +111,7 @@ func (t *gtunnel) waitForEndpoint(ctx context.Context) {
 
 		select {
 		case <-ctx.Done():
+			t.Disconnect() // may already be disconnected
 			log.D("tun: waiter: ctx done; #%d", i)
 			return
 		case <-core.SigFin(t.ep.Wait): // wait until endpoint closes
@@ -169,11 +165,6 @@ func (t *gtunnel) IsConnected() bool {
 	return !t.closed.Load()
 }
 
-func (t *gtunnel) Write([]byte) (int, error) {
-	// May be: t.endpoint.WritePackets()
-	return 0, errNoWriter
-}
-
 // fd must be non-blocking.
 func NewGTunnel(pctx context.Context, fd, mtu int, l3 string, hdl netstack.GConnHandler) (t *gtunnel, rev netstack.GConnHandler, err error) {
 	dupfd, err := dup(fd) // tunnel will own dupfd
@@ -212,6 +203,7 @@ func NewGTunnel(pctx context.Context, fd, mtu int, l3 string, hdl netstack.GConn
 
 	t = &gtunnel{
 		ctx:    ctx,
+		done:   done,
 		stack:  stack,
 		ep:     ep,
 		sid:    core.NewVolatile(fd), // fd is the og tun device
@@ -221,18 +213,9 @@ func NewGTunnel(pctx context.Context, fd, mtu int, l3 string, hdl netstack.GConn
 		once:   sync.Once{},
 	}
 
-	go func() {
-		defer done()
-		t.waitForEndpoint(ctx)
-	}()
+	go t.waitForEndpoint(ctx)
 
 	return
-}
-
-func (t *gtunnel) CloseConns(activecsv string) (closedcsv string) {
-	defer core.Recover(core.Exit11, "g.CloseConns")
-
-	return t.hdl.CloseConns(activecsv)
 }
 
 func (t *gtunnel) SetPcap(fp string) error {
@@ -265,9 +248,16 @@ func (t *gtunnel) Unlink() error {
 	return t.ep.Dispose()
 }
 
-func (t *gtunnel) SetLink(fd, mtu int) (err error) {
-	defer core.Recover(core.Exit11, "g.SetLink")
+func (t *gtunnel) SetLinkAndRoutes(fd, mtu, engine int) (err error) {
+	defer core.Recover(core.Exit11, "g.SetLinkAndRoutes")
 
+	if err := t.setLink(fd, mtu); err != nil {
+		return err
+	}
+	return t.setRoute(engine)
+}
+
+func (t *gtunnel) setLink(fd, mtu int) (err error) {
 	defer func() {
 		if err != nil {
 			t.sid.Store(-1) // reset sid
@@ -288,9 +278,7 @@ func (t *gtunnel) SetLink(fd, mtu int) (err error) {
 	return err
 }
 
-func (t *gtunnel) SetRoute(engine int) error {
-	defer core.Recover(core.Exit11, "g.SetRoute")
-
+func (t *gtunnel) setRoute(engine int) error {
 	// netstack route is never changed; always dual-stack
 	netstack.Route(t.stack, settings.IP46)
 	log.I("tun: new route; (no-op) got %s but set %s", settings.L3(engine), settings.IP46)

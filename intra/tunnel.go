@@ -88,24 +88,26 @@ type Tunnel interface {
 	// Get local services.
 	GetServices() (x.Services, error)
 
-	// Sets new default routes for the given engine, where engine is
-	// one of the constants (Ns4, Ns6, Ns46) defined in package settings.
-	SetRoute(engine int) error
 	// SetLinkAndRoutes sets the tun fd as link with mtu & engine as routes for the tunnel.
+	// where engine is one of the constants (Ns4, Ns6, Ns46) defined in package settings.
 	SetLinkAndRoutes(fd, mtu, engine int) error
 	// Restart restarts the tunnel with the given fd, mtu, and engine.
 	Restart(fd, mtu, engine int) error
+
+	// Close connections by pid, cid, uid.
+	CloseConns(activecsv string) (closedcsv string)
 
 	// Sets pcap output to fpcap which is the absolute filepath
 	// to which a PCAP file will be written to.
 	// If len(fpcap) is 0, no PCAP file will be written.
 	// If len(fpcap) is 1, PCAP be written to stdout.
 	SetPcap(fpcap string) error
+	// NIC, IP, TCP, UDP, and ICMP stats.
+	Stat() (*x.NetStat, error)
 }
 
 type rtunnel struct {
-	tunnel.Tunnel
-	tunmu    sync.Mutex // serializes access to tunnel.Tunnel
+	t        *core.Volatile[tunnel.Tunnel]
 	ctx      context.Context
 	done     context.CancelFunc
 	handlers netstack.GConnHandler
@@ -114,6 +116,20 @@ type rtunnel struct {
 	services rnet.Services
 	closed   atomic.Bool
 	once     sync.Once
+}
+
+var _ Tunnel = (*rtunnel)(nil)
+
+type clogAdapter struct {
+	b Bridge
+}
+
+var _ log.Console = (*clogAdapter)(nil)
+
+func (l *clogAdapter) Log(lvl log.LogLevel, msg log.Logmsg) {
+	if bdg := l.b; bdg != nil {
+		bdg.Log(int32(lvl), x.StrOf(msg)) // adopt the log message
+	}
 }
 
 func NewTunnel(fd, mtu int, fakedns string, dtr DefaultDNS, bdg Bridge) (t Tunnel, err error) {
@@ -198,7 +214,7 @@ func NewTunnel(fd, mtu int, fakedns string, dtr DefaultDNS, bdg Bridge) (t Tunne
 	rerr := proxies.Reverser(revhdl)
 
 	t = &rtunnel{
-		Tunnel:   gt,
+		t:        core.NewVolatile[tunnel.Tunnel](gt),
 		ctx:      ctx,
 		done:     cancel,
 		handlers: hdl,
@@ -231,15 +247,15 @@ func (t *rtunnel) SetLinkAndRoutes(fd, mtu, engine int) error {
 		return errClosed
 	}
 
-	t.tunmu.Lock()
-	defer t.tunmu.Unlock()
+	tunnel := t.t.Load()
 
-	mtudiff := t.Tunnel.Mtu() != int32(mtu)
+	mtudiff := tunnel.Mtu() != int32(mtu)
 	l3 := settings.L3(engine)
 	l3diff := dialers.IPProtos(l3)
 
-	err := t.Tunnel.SetLink(fd, mtu) // route is always dual-stack
+	err := tunnel.SetLinkAndRoutes(fd, mtu, engine) // route is always dual-stack
 
+	// TODO: skip refresh on err?
 	core.Gx("i.setLinkAndRoutesRefresh", func() {
 		if l3diff || mtudiff {
 			// dialers.IPProtos must always preced calls to other refreshes
@@ -275,16 +291,16 @@ func (t *rtunnel) Restart(fd, mtu, engine int) error {
 
 	gt, revhdl, err := tunnel.NewGTunnel(t.ctx, fd, mtu, l3, t.handlers)
 
-	if gt == nil || err != nil {
-		log.W("tun: <<< restart >>>; err(%v)", err)
-		t.Tunnel.Disconnect()
+	old := t.t.Load()
+	old.Disconnect() // may hve been disconnected already
+
+	if err != nil || gt == nil || core.IsNil(gt) {
+		log.W("tun: <<< restart >>>; new? %t; err(%v)", gt != nil, err)
 		return core.OneErr(err, errMakeTunnel)
 	}
 
-	t.tunmu.Lock()
-	t.Tunnel.Disconnect()
-	t.Tunnel = gt
-	t.tunmu.Unlock()
+	// TODO: CompareAndSwap
+	t.t.Store(gt) // gt never nil
 
 	// TODO: err on reverser errors too?
 	rerr := t.proxies.Reverser(revhdl)
@@ -365,9 +381,9 @@ func (t *rtunnel) Stat() (*x.NetStat, error) {
 }
 
 func (t *rtunnel) stat() (*x.NetStat, error) {
-	t.tunmu.Lock()
-	out, err := t.Tunnel.Stat()
-	t.tunmu.Unlock()
+	tunnel := t.t.Load()
+
+	out, err := tunnel.Stat()
 
 	if err != nil {
 		return nil, err
@@ -455,6 +471,43 @@ func (t *rtunnel) stat() (*x.NetStat, error) {
 	return out, nil
 }
 
+// CloseConns implements Tunnel.
+func (t *rtunnel) CloseConns(activecsv string) (closedcsv string) {
+	defer core.Recover(core.Exit11, "i.CloseConns")
+
+	return t.handlers.CloseConns(activecsv)
+}
+
+// Enabled implements Tunnel.
+func (t *rtunnel) Enabled() bool {
+	tunnel := t.t.Load()
+	return tunnel.Enabled()
+}
+
+// IsConnected implements Tunnel.
+func (t *rtunnel) IsConnected() bool {
+	tunnel := t.t.Load()
+	return tunnel.IsConnected()
+}
+
+// Mtu implements Tunnel.
+func (t *rtunnel) Mtu() int32 {
+	tunnel := t.t.Load()
+	return tunnel.Mtu()
+}
+
+// SetPcap implements Tunnel.
+func (t *rtunnel) SetPcap(fpcap string) error {
+	tunnel := t.t.Load()
+	return tunnel.SetPcap(fpcap)
+}
+
+// Unlink implements Tunnel.
+func (t *rtunnel) Unlink() error {
+	tunnel := t.t.Load()
+	return tunnel.Unlink()
+}
+
 func csv2ssv(csv string) string {
 	return strings.ReplaceAll(csv, ",", ";")
 }
@@ -479,17 +532,5 @@ func fetchDNSInfo(r dnsx.Resolver, id string) string {
 		return sb.String()
 	} else {
 		return rerr.Error()
-	}
-}
-
-type clogAdapter struct {
-	b Bridge
-}
-
-var _ log.Console = (*clogAdapter)(nil)
-
-func (l *clogAdapter) Log(lvl log.LogLevel, msg log.Logmsg) {
-	if bdg := l.b; bdg != nil {
-		bdg.Log(int32(lvl), x.StrOf(msg)) // adopt the log message
 	}
 }
