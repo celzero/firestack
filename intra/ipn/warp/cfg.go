@@ -31,10 +31,8 @@ import (
 
 // developers.cloudflare.com/1.1.1.1/ip-addresses/
 const cfdns4 = "1.1.1.1"
-const cfdns6 = "2606:4700:4700::1001"
 
 const gw4 = "0.0.0.0/0" // netip.ParsePrefix("0.0.0.0/0")
-const gw6 = "::/0"      // netip.ParsePrefix("::/0")
 
 // preset 6to4 NATs; from: nat64.xyz
 var Net6to4 = []netip.Prefix{
@@ -70,7 +68,6 @@ type BaseClient struct {
 
 var dob = time.Now()
 var neverEver = time.Date(5253, time.March, 6, 0, 0, 0, 0, time.UTC)
-var twentyTwoHours = 22 * time.Hour
 
 type RpnForever struct{}
 
