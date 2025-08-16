@@ -18,7 +18,6 @@ require (
 	github.com/crazy-max/xgo v0.31.0
 	github.com/elazarl/goproxy v0.0.0-20230808193330-2592e75ae04a
 	github.com/noql-net/certpool v0.0.0-20240719060413-a5ed62ecc62a
-	github.com/refraction-networking/utls v1.7.0
 	github.com/tailscale/depaware v0.0.0-20240804103531-585336c3e1b3
 	github.com/txthinking/socks5 v0.0.0-20230325130024-4230056ae301
 	go4.org/unsafe/assume-no-moving-gc v0.0.0-20231121144256-b99613f794b6
@@ -34,7 +33,6 @@ require (
 	github.com/Snawoot/go-http-digest-auth-client v1.1.3 // indirect
 	github.com/aead/chacha20 v0.0.0-20180709150244-8b13a72661da // indirect
 	github.com/aead/poly1305 v0.0.0-20180717145839-3fee0db0b635 // indirect
-	github.com/andybalholm/brotli v1.0.6 // indirect
 	github.com/cisco/go-hpke v0.0.0-20210215210317-01c430f1f302 // indirect
 	github.com/cisco/go-tls-syntax v0.0.0-20200617162716-46b0cfb76b9b // indirect
 	github.com/cloudflare/circl v1.6.1 // indirect

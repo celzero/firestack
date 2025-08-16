@@ -92,8 +92,6 @@ github.com/pkg/diff v0.0.0-20200914180035-5b29258ca4f7 h1:+/+DxvQaYifJ+grD4klzrS
 github.com/pkg/diff v0.0.0-20200914180035-5b29258ca4f7/go.mod h1:zO8QMzTeZd5cpnIkz/Gn6iK0jDfGicM1nynOkkPIl28=
 github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZbAQM=
 github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
-github.com/refraction-networking/utls v1.7.0 h1:9JTnze/Md74uS3ZWiRAabityY0un69rOLXsBf8LGgTs=
-github.com/refraction-networking/utls v1.7.0/go.mod h1:lV0Gwc1/Fi+HYH8hOtgFRdHfKo4FKSn6+FdyOz9hRms=
 github.com/rogpeppe/go-charset v0.0.0-20180617210344-2471d30d28b4/go.mod h1:qgYeAmZ5ZIpBWTGllZSQnw97Dj+woV0toclVaRGI8pc=
 github.com/sergi/go-diff v1.0.0 h1:Kpca3qRNrduNnOQeazBd0ysaKrUJiIuISHxogkT9RPQ=
 github.com/sergi/go-diff v1.0.0/go.mod h1:0CfEIISq7TuYL3j771MWULgwwjU+GofnZX9QAmXWZgo=
