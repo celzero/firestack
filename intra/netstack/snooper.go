@@ -35,43 +35,21 @@ import (
 	"gvisor.dev/gvisor/pkg/tcpip"
 	"gvisor.dev/gvisor/pkg/tcpip/header"
 	"gvisor.dev/gvisor/pkg/tcpip/header/parse"
-	"gvisor.dev/gvisor/pkg/tcpip/link/nested"
 	"gvisor.dev/gvisor/pkg/tcpip/stack"
 )
 
 // from: github.com/google/gvisor/blob/596e8d22/pkg/tcpip/link/sniffer/sniffer.go
 
-var LogPackets atomicbitops.Uint32 = atomicbitops.FromUint32(0)
-var WritePCAP atomicbitops.Uint32 = atomicbitops.FromUint32(0)
+var logPackets atomicbitops.Uint32 = atomicbitops.FromUint32(0)
+var writePCAP atomicbitops.Uint32 = atomicbitops.FromUint32(0)
 
-// SnoopyEndpoint is used to snoop and log network traffic.
-type SnoopyEndpoint struct {
-	nested.Endpoint
-	writer     io.Writer
-	maxPCAPLen uint32
-	logPrefix  string
-	fdSwapper  FdSwapper
-}
+const logPrefix = ""
 
-// Dispose implements SeamlessEndpoint.
-func (e *SnoopyEndpoint) Dispose() error {
-	return e.fdSwapper.Dispose()
-}
-
-// Stat implements SeamlessEndpoint.
-func (e *SnoopyEndpoint) Stat() EpStat {
-	return e.fdSwapper.Stat()
-}
-
-// Swap implements SeamlessEndpoint.
-func (e *SnoopyEndpoint) Swap(fd int) error {
-	return e.fdSwapper.Swap(fd)
-}
-
-var _ stack.GSOEndpoint = (*SnoopyEndpoint)(nil)
-var _ stack.LinkEndpoint = (*SnoopyEndpoint)(nil)
-var _ stack.NetworkDispatcher = (*SnoopyEndpoint)(nil)
-var _ SeamlessEndpoint = (*SnoopyEndpoint)(nil)
+// SnapLen is the maximum bytes of a packet to be saved. Packets with a length
+// less than or equal to snapLen will be saved in their entirety. Longer
+// packets will be truncated to snapLen.
+// TODO: MTU instead of SnapLen? Must match pcapsink.begin()
+const SnapLen uint32 = 2048 // in bytes; some sufficient value
 
 // A Direction indicates whether the packing is being sent or received.
 type Direction int
@@ -118,75 +96,39 @@ func WritePCAPHeader(w io.Writer) error {
 	})
 }
 
-// newSnoopyEndpoint creates a new snoop link-layer endpoint. It wraps around
-// another endpoint and logs packets as they traverse the endpoint.
-//
-// Each packet is written to writer in the pcap format in a single Write call
-// without synchronization. A snoop created with this function will not emit
-// packets using the standard log package.
-func newSnoopyEndpoint(lower SeamlessEndpoint, w io.Writer, writeheader bool) (*SnoopyEndpoint, error) {
-	if writeheader {
-		if err := WritePCAPHeader(w); err != nil {
-			return nil, err
-		}
+func (l *magiclink) doPCAP() bool {
+	if logPackets.Load() == 1 {
+		return true
 	}
-	s := &SnoopyEndpoint{
-		writer:     w,
-		maxPCAPLen: SnapLen,
-		logPrefix:  "",
-		fdSwapper:  lower,
+	if writePCAP.Load() == 1 {
+		return l.s != nil
 	}
-	s.Endpoint.Init(lower, s)
-	return s, nil
-}
-
-// DeliverNetworkPacket implements the stack.NetworkDispatcher interface. It is
-// called by the link-layer endpoint being wrapped when a packet arrives, and
-// logs the packet before forwarding to the actual dispatcher.
-func (e *SnoopyEndpoint) DeliverNetworkPacket(protocol tcpip.NetworkProtocolNumber, pkt *stack.PacketBuffer) {
-	e.DumpPacket(DirectionRecv, protocol, pkt, nil)
-	e.Endpoint.DeliverNetworkPacket(protocol, pkt)
+	return false
 }
 
 // DumpPacket logs a packet, depending on configuration, to stderr and/or a
 // pcap file. ts is an optional timestamp for the packet.
-func (e *SnoopyEndpoint) DumpPacket(dir Direction, protocol tcpip.NetworkProtocolNumber, pkt *stack.PacketBuffer, ts *time.Time) {
+func (l *magiclink) DumpPacket(dir Direction, protocol tcpip.NetworkProtocolNumber, pkt *stack.PacketBuffer) {
 	if pkt == nil { // nilaway
 		return
 	}
-	if LogPackets.Load() == 1 {
-		LogPacket(e.logPrefix, dir, protocol, pkt)
+	if logPackets.Load() == 1 {
+		LogPacket(logPrefix, dir, protocol, pkt)
 	}
-	if WritePCAP.Load() == 1 && e.writer != nil {
+	if writePCAP.Load() == 1 && l.s != nil {
 		packet := core.PcapPacket{
 			Packet:        pkt,
-			MaxCaptureLen: int(e.maxPCAPLen),
+			MaxCaptureLen: int(SnapLen),
 		}
-		if ts == nil {
-			packet.Timestamp = time.Now()
-		} else {
-			packet.Timestamp = *ts
-		}
+		packet.Timestamp = time.Now()
 		b, err := packet.MarshalBinary()
 		if err != nil {
 			log.Warningf("snoop: pkt err %v", err)
 		}
-		if _, err := e.writer.Write(b); err != nil {
+		if _, err := l.s.Write(b); err != nil {
 			log.Warningf("snoop: write err %v", err)
 		}
 	}
-}
-
-// WritePackets implements the stack.LinkEndpoint interface. It is called by
-// higher-level protocols to write packets; it just logs the packet and
-// forwards the request to the lower endpoint.
-func (e *SnoopyEndpoint) WritePackets(pkts stack.PacketBufferList) (int, tcpip.Error) {
-	for _, pkt := range pkts.AsSlice() {
-		if pkt != nil { // nilaway
-			e.DumpPacket(DirectionSend, pkt.NetworkProtocolNumber, pkt, nil)
-		}
-	}
-	return e.Endpoint.WritePackets(pkts)
 }
 
 // LogPacket logs a packet to stdout.

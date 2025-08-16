@@ -52,9 +52,6 @@ var _ stack.LinkEndpoint = (*endpoint)(nil)
 // placeholder FD for whenever existing FD wrapped in struct fds is closed.
 const invalidfd int = -1
 
-// Should WritePackets return NoSuchFile error if the fd is invalid?
-const errorOnInvalidFD = false
-
 // wrapttl is the time to wait for the dispatcher to wrap up (close a previous FD).
 const waitttl = wrapttl
 
@@ -273,8 +270,9 @@ func (e *endpoint) Dispose() (err error) {
 	return nil
 }
 
-// Implements Swapper.
-func (e *endpoint) Swap(fd int) (err error) {
+// Implements FdSwapper.
+func (e *endpoint) Swap(fd, mtu int) (err error) {
+	e.SetMTU(uint32(mtu))
 	return e.swap(fd, false)
 }
 
@@ -470,10 +468,7 @@ func (e *endpoint) WritePackets(pkts stack.PacketBufferList) (int, tcpip.Error) 
 
 	if fd == invalidfd {
 		log.E("ns: tun(-1): WritePackets (to tun): fd invalid (pkts: %d)", pkts.Len())
-		if errorOnInvalidFD {
-			return 0, &tcpip.ErrNoSuchFile{}
-		}
-		return 0, nil
+		return 0, &tcpip.ErrNoSuchFile{}
 	}
 
 	batch := make([]unix.Iovec, 0, batchSz)
@@ -602,10 +597,7 @@ func (e *endpoint) InjectOutbound(dest tcpip.Address, packet *buffer.View) tcpip
 
 	if !f.ok() {
 		log.E("ns: tun(%d): inject-outbound (to tun) to dst(%v): endpoint not attached", fd, dest)
-		if errorOnInvalidFD {
-			return &tcpip.ErrUnknownDevice{}
-		}
-		return nil // nothing to do
+		return &tcpip.ErrUnknownDevice{}
 	}
 
 	b := packet.AsSlice()

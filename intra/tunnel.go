@@ -238,8 +238,7 @@ func (t *rtunnel) SetLinkAndRoutes(fd, mtu, engine int) error {
 	l3 := settings.L3(engine)
 	l3diff := dialers.IPProtos(l3)
 
-	t.Tunnel.SetMTU(int32(mtu))
-	err := t.Tunnel.SetLink(fd) // route is always dual-stack
+	err := t.Tunnel.SetLink(fd, mtu) // route is always dual-stack
 
 	core.Gx("i.setLinkAndRoutesRefresh", func() {
 		if l3diff || mtudiff {

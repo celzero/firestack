@@ -59,9 +59,7 @@ type Tunnel interface {
 	// Close connections by pid, cid, uid.
 	CloseConns(activecsv string) (closedcsv string)
 	// Creates a new link using fd (tun device).
-	SetLink(fd int) error
-	// Sets the MTU.
-	SetMTU(mtu int32)
+	SetLink(fd, mtu int) error
 	// New route
 	SetRoute(engine int) error
 	// Unsets existing link and closes the fd (tun device).
@@ -267,7 +265,7 @@ func (t *gtunnel) Unlink() error {
 	return t.ep.Dispose()
 }
 
-func (t *gtunnel) SetLink(fd int) (err error) {
+func (t *gtunnel) SetLink(fd, mtu int) (err error) {
 	defer core.Recover(core.Exit11, "g.SetLink")
 
 	defer func() {
@@ -284,15 +282,10 @@ func (t *gtunnel) SetLink(fd int) (err error) {
 		return err
 	}
 
-	err = t.ep.Swap(dupfd) // swap fd and mtu
+	err = t.ep.Swap(dupfd, mtu) // swap fd and mtu
 
-	log.I("tun: new link, fd(%d => %d); err? %v", fd, dupfd, err)
+	log.I("tun: new link, fd(%d => %d) mtu(%d); err? %v", fd, dupfd, mtu, err)
 	return err
-}
-
-func (t *gtunnel) SetMTU(mtu int32) {
-	t.ep.SetMTU(uint32(mtu))
-	log.I("tun: new mtu; %d", mtu)
 }
 
 func (t *gtunnel) SetRoute(engine int) error {

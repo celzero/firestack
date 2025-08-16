@@ -15,14 +15,13 @@ import (
 	"gvisor.dev/gvisor/pkg/tcpip/stack"
 )
 
-// SnapLen is the maximum bytes of a packet to be saved. Packets with a length
-// less than or equal to snapLen will be saved in their entirety. Longer
-// packets will be truncated to snapLen.
-const SnapLen uint32 = 2048 // in bytes; some sufficient value
+// Clearing endpoint on Dispose will result in all stack.Linkpoint APIs
+// returning zero values (which may trip netstack?)
+const clearEndpointOnDispose = false
 
 type FdSwapper interface {
 	// Swap closes existing FDs; uses new fd.
-	Swap(fd int) error
+	Swap(fd, mtu int) error
 	// Dispose closes all existing FDs.
 	Dispose() error
 	// Stat returns EpStat (fd, age, read, written, lastRead, lastWrite).
@@ -76,6 +75,8 @@ var _ stack.NetworkDispatcher = (*magiclink)(nil)
 var _ stack.GSOEndpoint = (*magiclink)(nil)
 var _ SeamlessEndpoint = (*magiclink)(nil)
 
+var errMissingSink = errors.New("magic: pcap sink is nil")
+
 // ref: github.com/google/gvisor/blob/91f58d2cc/pkg/tcpip/sample/tun_tcp_echo/main.go#L102
 func NewEndpoint(dev, mtu int, sink io.WriteCloser) (ep SeamlessEndpoint, err error) {
 	defer func() {
@@ -84,6 +85,10 @@ func NewEndpoint(dev, mtu int, sink io.WriteCloser) (ep SeamlessEndpoint, err er
 		}
 		log.I("netstack: new endpoint(fd:%d / mtu:%d); err? %v", dev, mtu, err)
 	}()
+
+	if sink == nil {
+		return nil, errMissingSink
+	}
 
 	umtu := uint32(mtu)
 	opt := Options{
@@ -95,29 +100,17 @@ func NewEndpoint(dev, mtu int, sink io.WriteCloser) (ep SeamlessEndpoint, err er
 		return nil, err
 	}
 	// ref: github.com/google/gvisor/blob/aeabb785278/pkg/tcpip/link/sniffer/sniffer.go#L111-L131
-	return snoop(ep, sink)
-}
-
-func snoop(ep SeamlessEndpoint, sink io.WriteCloser) (SeamlessEndpoint, error) {
-	if sink == nil {
-		return ep, nil
-	}
-	// TODO: MTU instead of SnapLen? Must match pcapsink.begin()
-	link, err := newSnoopyEndpoint(ep, sink, true /*write header*/)
-	if err != nil {
-		return nil, err
-	}
-
-	v := core.NewVolatile[SeamlessEndpoint](link)
+	v := core.NewVolatile[SeamlessEndpoint](ep)
 	d := core.NewZeroVolatile[stack.NetworkDispatcher]()
-	return &magiclink{v, d, sink}, nil
+	
+	return &magiclink{v, d /*nil*/, sink}, nil
 }
 
 func Pcap2Stdout(y bool) (ok bool) {
 	if y {
-		ok = LogPackets.CompareAndSwap(0, 1)
+		ok = logPackets.CompareAndSwap(0, 1)
 	} else {
-		ok = LogPackets.CompareAndSwap(1, 0)
+		ok = logPackets.CompareAndSwap(1, 0)
 	}
 	log.I("netstack: pcap stdout(%t): done?(%t)", y, ok)
 	return
@@ -125,9 +118,9 @@ func Pcap2Stdout(y bool) (ok bool) {
 
 func Pcap2File(y bool) (ok bool) {
 	if y {
-		ok = WritePCAP.CompareAndSwap(0, 1)
+		ok = writePCAP.CompareAndSwap(0, 1)
 	} else {
-		ok = WritePCAP.CompareAndSwap(1, 0)
+		ok = writePCAP.CompareAndSwap(1, 0)
 	}
 	log.I("netstack: pcap file(%t): done?(%t)", y, ok)
 	return
@@ -139,10 +132,10 @@ func Pcap2File(y bool) (ok bool) {
 // - none: no packets are logged
 func PcapModes() string {
 	var modes []string
-	if LogPackets.Load() == 1 {
+	if logPackets.Load() == 1 {
 		modes = append(modes, "stdout")
 	}
-	if WritePCAP.Load() == 1 {
+	if writePCAP.Load() == 1 {
 		modes = append(modes, "file")
 	}
 	if len(modes) == 0 {
@@ -152,12 +145,12 @@ func PcapModes() string {
 }
 
 // Swap implements SeamlessEndpoint.
-func (l *magiclink) Swap(fd int) (err error) {
+func (l *magiclink) Swap(fd, mtu int) (err error) {
 	e := l.e.Load()
 	hasSwappedFd := false
 	needsNewEndpoint := e == nil
 	if e != nil {
-		err = e.Swap(fd)
+		err = e.Swap(fd, mtu)
 		hasSwappedFd = err == nil
 		needsNewEndpoint = errors.Is(err, errNeedsNewEndpoint)
 	}
@@ -168,38 +161,30 @@ func (l *magiclink) Swap(fd int) (err error) {
 		return err
 	}
 
-	if needsNewEndpoint {
-		umtu := uint32(l.MTU())
-		opt := Options{
-			FDs: []int{fd},
-			MTU: umtu,
-		}
-
-		ep, err := newFdbasedInjectableEndpoint(&opt)
-		if err != nil {
-			log.E("netstack: magic(%d); swap: err %v", fd, err)
-			return err
-		}
-
-		link, err := newSnoopyEndpoint(ep, l.s, false /*write header*/)
-		if err != nil {
-			log.E("netstack: magic(%d); swap: err %v", fd, err)
-			return err
-		}
-
-		if old := l.e.Swap(link); old != nil {
-			core.Go("magic."+strconv.Itoa(fd), old.Close)
-		}
-
-		d := l.d.Load()
-		if d == nil {
-			ep.Attach(nil) // attach the new endpoint to the dispatcher
-		} else {
-			ep.Attach(l) // attach the new endpoint to the existing dispatcher
-		}
-		logei(d == nil)("netstack: magic(%d) mtu: %d; swap: new ep... dispatch? %t",
-			fd, umtu, d != nil)
+	umtu := uint32(mtu)
+	opt := Options{
+		FDs: []int{fd},
+		MTU: umtu,
 	}
+
+	ep, err := newFdbasedInjectableEndpoint(&opt)
+	if err != nil {
+		log.E("netstack: magic(%d); swap: err %v", fd, err)
+		return err
+	}
+
+	if old := l.e.Swap(ep); old != nil {
+		core.Go("magic."+strconv.Itoa(fd), old.Close)
+	}
+
+	d := l.d.Load()
+	if d == nil {
+		ep.Attach(nil) // attach the new endpoint to the dispatcher
+	} else {
+		ep.Attach(l) // attach the new endpoint to the existing dispatcher
+	}
+	logei(d == nil)("netstack: magic(%d) mtu: %d; swap: new ep... dispatch? %t",
+		fd, umtu, d != nil)
 
 	return nil
 }
@@ -207,7 +192,14 @@ func (l *magiclink) Swap(fd int) (err error) {
 // Dispose implements SeamlessEndpoint.
 func (l *magiclink) Dispose() error {
 	if e := l.e.Load(); e != nil {
-		l.e.Store(nil) // clear the endpoint
+		if clearEndpointOnDispose {
+			// will result in stack.LinkEndpoint impls return zero values
+			// unsure if this will trip netstack in to thinking if this
+			// endpoint is kaput, when in reality, this endpoint can swap
+			// in a healthy endpoint at a later point in time, which then
+			// we'd expect netstack to use as expected.
+			l.e.Store(nil)
+		}
 		return e.Dispose()
 	}
 	log.W("netstack: magic: dispose; no endpoint")
@@ -271,6 +263,7 @@ func (l *magiclink) Attach(dispatcher stack.NetworkDispatcher) {
 			e.Attach(l)
 		}
 	}
+	log.I("netstack: magic: attach dispatcher? %t", dispatcher == nil)
 }
 
 func (l *magiclink) IsAttached() bool {
@@ -281,6 +274,7 @@ func (l *magiclink) IsAttached() bool {
 }
 
 func (l *magiclink) DeliverNetworkPacket(protocol tcpip.NetworkProtocolNumber, pkt *stack.PacketBuffer) {
+	l.DumpPacket(DirectionRecv, protocol, pkt)
 	if d := l.d.Load(); d != nil {
 		d.DeliverNetworkPacket(protocol, pkt)
 	}
@@ -293,9 +287,17 @@ func (l *magiclink) DeliverLinkPacket(protocol tcpip.NetworkProtocolNumber, pkt 
 }
 
 func (l *magiclink) WritePackets(pkts stack.PacketBufferList) (int, tcpip.Error) {
+	if l.doPCAP() {
+		for _, pkt := range pkts.AsSlice() {
+			if pkt != nil { // nilaway
+				l.DumpPacket(DirectionSend, pkt.NetworkProtocolNumber, pkt)
+			}
+		}
+	}
 	if e := l.e.Load(); e != nil {
 		return e.WritePackets(pkts)
 	}
+	log.E("netstack: magic: write packets; no endpoint")
 	return 0, &tcpip.ErrInvalidEndpointState{}
 }
 
