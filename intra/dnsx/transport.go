@@ -659,7 +659,7 @@ func (r *resolver) Serve(proto string, c protect.Conn, uid string) {
 	// if Serve (which is called by common.go:dnsOverride) calls in with a uid
 	// that is not UNKNOWN_UID_STR, then we know that the query is from an app
 	// and we can presume per app split tunnel is working as expected.
-	if uid != core.UNKNOWN_UID_STR && len(uid) > 4 && uid != core.DNS_UID_STR {
+	if len(uid) > 0 && uid != core.UNKNOWN_UID_STR && uid != core.DNS_UID_STR {
 		r.gateway.splitTunnel()
 	}
 
