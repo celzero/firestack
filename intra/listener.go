@@ -68,6 +68,10 @@ type SocketListener interface {
 	// except for the CID field, which is sent back via OnSocketClosed, and "Block" proxy which
 	// will drop this connection on the floor.
 	Inflow(protocol, uid int32, src, dst *x.Gostr) *Mark
+	// PostFlow is called after a flow is marked by Flow or Inflow.
+	// It denotes the final Mark that was applied to the flow.
+	// The only major discernable effect is PIDCSV has a single PID.
+	PostFlow(m *Mark)
 	// OnSocketClosed reports summary after a socket closes.
 	OnSocketClosed(*SocketSummary)
 }
@@ -133,6 +137,17 @@ func udpSummary(id, uid string, dst netip.Addr) *SocketSummary {
 	s := tcpSummary(id, uid, dst)
 	s.Proto = ProtoTypeUDP
 	return s
+}
+
+func (s *SocketSummary) postMark() *Mark {
+	if s == nil {
+		return nil
+	}
+	return &Mark{
+		PIDCSV: s.PID,
+		CID:    s.ID,
+		UID:    s.UID,
+	}
 }
 
 // String implements fmt.Stringer.

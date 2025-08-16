@@ -115,6 +115,8 @@ func (h *icmpHandler) Ping(msg []byte, source, target netip.AddrPort) (echoed bo
 	h.conntracker.Track(cid, uid, pidstr(px), uc)
 	defer h.conntracker.Untrack(cid)
 
+	h.listener.PostFlow(smm.postMark())
+
 	tx = len(msg)
 	// todo: construct ICMP header? github.com/prometheus-community/pro-bing/blob/0bacb2d5e7/ping.go#L717
 	reply, from, err := core.Echo(uc, msg, net.UDPAddrFromAddrPort(dst), target.Addr().Is4())

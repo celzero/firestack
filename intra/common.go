@@ -60,6 +60,7 @@ var _ SocketListener = (*zeroListener)(nil)
 func (*zeroListener) Preflow(_, _ int32, _, _ *x.Gostr) *PreMark       { return nil }
 func (*zeroListener) Flow(_, _ int32, _, _, _, _, _, _ *x.Gostr) *Mark { return nil }
 func (*zeroListener) Inflow(_, _ int32, _, _ *x.Gostr) *Mark           { return nil }
+func (*zeroListener) PostFlow(*Mark)                                   {}
 func (*zeroListener) OnSocketClosed(*SocketSummary)                    {}
 
 var nooplistener = new(zeroListener)

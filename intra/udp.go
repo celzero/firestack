@@ -169,6 +169,7 @@ func (h *udpHandler) proxy(gconn *netstack.GUDPConn, src, dst netip.AddrPort, dm
 
 	cid := smm.ID
 	core.Go("udp.forward."+cid, func() {
+		h.listener.PostFlow(smm.postMark())
 		h.forward(gconn, rwext{remote, udptimeout}, smm)
 	})
 	return true // ok

@@ -289,6 +289,7 @@ func (h *tcpHandler) handle(px ipn.Proxy, src net.Conn, boundSrc, target netip.A
 	}
 
 	core.Go("tcp.forward."+smm.ID, func() {
+		h.listener.PostFlow(smm.postMark())
 		h.forward(src, rwext{dst, tcptimeout}, smm) // src always *gonet.TCPConn
 	})
 	return nil // handled; takes ownership of src
