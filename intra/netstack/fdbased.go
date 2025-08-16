@@ -37,6 +37,7 @@ import (
 
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/log"
+	"github.com/celzero/firestack/intra/settings"
 	"golang.org/x/sys/unix"
 	"gvisor.dev/gvisor/pkg/buffer"
 	"gvisor.dev/gvisor/pkg/rawfile"
@@ -509,7 +510,9 @@ func (e *endpoint) WritePackets(pkts stack.PacketBufferList) (int, tcpip.Error) 
 		written += packets
 	}
 
-	log.VV("ns: tun(%d): WritePackets (to tun): written(%d)/total(%d)", fd, written, total)
+	if settings.Debug {
+		log.VV("ns: tun(%d): WritePackets (to tun): written(%d)/total(%d)", fd, written, total)
+	}
 	return written, nil
 }
 
@@ -605,7 +608,9 @@ func (e *endpoint) InjectOutbound(dest tcpip.Address, packet *buffer.View) tcpip
 	defer f.written.Add(sz) // update written bytes
 	defer f.lastWrite.Store(time.Now().UnixMilli())
 
-	log.VV("ns: tun(%d): inject-outbound (to tun) to dst(%v) sz(%d)", fd, dest, sz)
+	if settings.Debug {
+		log.VV("ns: tun(%d): inject-outbound (to tun) to dst(%v) sz(%d)", fd, dest, sz)
+	}
 
 	errno := rawfile.NonBlockingWrite(fd, b)
 	return tcpip.TranslateErrno(errno)
