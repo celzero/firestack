@@ -67,6 +67,13 @@ func DefaultTunMode() {
 	SetTunMode(DNSModeIP, BlockModeNone, PtModeNo46)
 }
 
+// DupTunFd instructs whether the TUN fd should be duplicated
+// (netstack to own a clone of the TUN fd, and will not
+// assume ownership of the TUN fd shared with it).
+func DupTunFd(yn bool) (prev bool) {
+	return !OwnTunFd.Swap(!yn)
+}
+
 func init() {
 	DefaultTunMode()
 }

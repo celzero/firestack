@@ -166,7 +166,7 @@ func (t *gtunnel) IsConnected() bool {
 
 // fd must be non-blocking.
 func NewGTunnel(pctx context.Context, fd, mtu int, l3 string, hdl netstack.GConnHandler) (t *gtunnel, rev netstack.GConnHandler, err error) {
-	dupfd, err := dup(fd) // tunnel will own dupfd
+	myfd, err := maybeDup(fd) // tunnel will own myfd
 	if err != nil {
 		return nil, nil, err
 	}
@@ -175,8 +175,8 @@ func NewGTunnel(pctx context.Context, fd, mtu int, l3 string, hdl netstack.GConn
 
 	sink := newSink(ctx)
 	stack := netstack.NewNetstack() // always dual-stack
-	// NewEndpoint takes ownership of dupfd; closes it on errors
-	ep, eerr := netstack.NewEndpoint(dupfd, mtu, sink)
+	// NewEndpoint takes ownership of myfd; closes it on errors
+	ep, eerr := netstack.NewEndpoint(myfd, mtu, sink)
 	if eerr != nil {
 		done()
 		return nil, nil, eerr
@@ -198,7 +198,7 @@ func NewGTunnel(pctx context.Context, fd, mtu int, l3 string, hdl netstack.GConn
 
 	rev = netstack.NewReverseGConnHandler(who, ctx, stack, nic, ep, hdl)
 
-	log.I("tun: new netstack(%d) up; fd(%d=>%d), mtu(%d)", nic, fd, dupfd, mtu)
+	log.I("tun: new netstack(%d) up; fd(%d=>%d), mtu(%d)", nic, fd, myfd, mtu)
 
 	t = &gtunnel{
 		ctx:    ctx,
@@ -224,19 +224,19 @@ func (t *gtunnel) SetPcap(fp string) error {
 
 	ignored := pcap.recycle() // close any existing pcap sink
 	if len(fp) == 0 {
-		log.I("netstack: pcap closed (ignored-err? %v)", ignored)
+		log.I("tun: pcap closed (ignored-err? %v)", ignored)
 		return nil // nothing else to do; pcap closed
 	} else if len(fp) == 1 {
 		// if fdpcap is 0, 1, or 2 then pcap is written to stdout
 		ok := pcap.log(true)
-		log.I("netstack: pcap(%s)/log(%t)", fp, ok)
+		log.I("tun: pcap(%s)/log(%t)", fp, ok)
 		return nil // fdbased will write to stdout
 	} else if fout, err := os.OpenFile(filepath.Clean(fp), os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0600); err == nil {
 		ignored = pcap.file(fout) // attach
-		log.I("netstack: pcap(%s)/file(%v) (ignored-err? %v)", fp, fout, ignored)
+		log.I("tun: pcap(%s)/file(%v) (ignored-err? %v)", fp, fout, ignored)
 		return nil // sniffer will write to fout
 	} else {
-		log.E("netstack: pcap(%s); (err? %v)", fp, err)
+		log.E("tun: pcap(%s); (err? %v)", fp, err)
 		return err // no pcap
 	}
 }
@@ -265,15 +265,15 @@ func (t *gtunnel) setLink(fd, mtu int) (err error) {
 		}
 	}()
 
-	dupfd, err := dup(fd) // tunnel will own dupfd
+	myfd, err := maybeDup(fd) // endpoint owns myfd
 	if err != nil {
 		log.E("tun: new link; err %v", err)
 		return err
 	}
 
-	err = t.ep.Swap(dupfd, mtu) // swap fd and mtu
+	err = t.ep.Swap(myfd, mtu) // swap fd and mtu
 
-	log.I("tun: new link, fd(%d => %d) mtu(%d); err? %v", fd, dupfd, mtu, err)
+	log.I("tun: new link, fd(%d => %d) mtu(%d); err? %v", fd, myfd, mtu, err)
 	return err
 }
 
@@ -308,10 +308,18 @@ func (t *gtunnel) Stat() (*x.NetStat, error) {
 }
 
 // copy so golang gc may not close orig fd
-func dup(fd int) (int, error) {
+func maybeDup(fd int) (int, error) {
 	if fd < 0 {
 		return 0, errInvalidTunFd
 	}
+	if settings.OwnTunFd.Load() {
+		// if OwnTunFd is true, then do not dup the fd
+		// as netstack owns the TUN fd and will not
+		// assume ownership of the TUN fd shared with it.
+		log.I("tun: assuming fd ownership %d", fd)
+		return fd, nil
+	}
+
 	// ref: github.com/mdlayher/socket/blob/9c51a391b/conn.go#L309
 	// fctnl(2) to dup the fd & set cloexec in one syscall
 	newfd, err := unix.FcntlInt(uintptr(fd), unix.F_DUPFD_CLOEXEC, 0)

@@ -58,3 +58,6 @@ const IntraUa = "Intra"
 // PanicAtRandom is a global flag to panic the network engine
 // every once in a while (for testing).
 var PanicAtRandom = atomic.Bool{}
+
+// OwnTunFd is a global flag to indicate that the TUN fd is fully owned by netstack.
+var OwnTunFd = atomic.Bool{}
