@@ -26,6 +26,7 @@ import (
 
 // enable forwarding of packets on the interface
 const nicfwd = false
+const mustAddIfAddrs = false
 
 // ref: github.com/brewlin/net-protocol/blob/ec64e5f899/internal/endpoint/endpoint.go#L20
 func Up(who string, s *stack.Stack, ep stack.LinkEndpoint, h GConnHandler) (tcpip.NICID, error) {
@@ -115,6 +116,11 @@ func e(err tcpip.Error) error {
 }
 
 func addIfAddrs(s *stack.Stack, nic tcpip.NICID) error {
+	if !mustAddIfAddrs {
+		log.I("netstack: %d add ifaddrs skipped", nic)
+		return nil
+	}
+
 	// TODO: make it configurable like fakedns is
 	// The NIC is set in Spoofing mode. When the UDP Endpoint uses a non-local
 	// address to "Connect", netstack generates a temporary addressState to
@@ -170,6 +176,8 @@ func addIfAddrs(s *stack.Stack, nic tcpip.NICID) error {
 	if err := s.AddProtocolAddress(nic, protoaddr6, asMainAddr); err != nil {
 		return fmt.Errorf("netstack: %d add addr(%v): %v", nic, ifaddr4, err)
 	}
+
+	log.I("netstack: %d ifaddrs 4(%v) 6(%v)", nic, ifaddr4, ifaddr6)
 	return nil
 }
 
