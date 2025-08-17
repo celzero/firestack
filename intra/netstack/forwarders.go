@@ -42,7 +42,7 @@ import (
 
 // adopted from: github.com/google/gvisor/blob/a244eff8ad/pkg/tcpip/link/fdbased/processors.go
 
-const maxForwarders = 6
+const maxForwarders = 8
 
 type fiveTuple struct {
 	srcAddr, dstAddr []byte
