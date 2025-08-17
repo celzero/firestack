@@ -27,10 +27,10 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"sync/atomic"
 	"time"
 
 	"github.com/celzero/firestack/intra/core"
-	"gvisor.dev/gvisor/pkg/atomicbitops"
 	"gvisor.dev/gvisor/pkg/log"
 	"gvisor.dev/gvisor/pkg/tcpip"
 	"gvisor.dev/gvisor/pkg/tcpip/header"
@@ -40,8 +40,8 @@ import (
 
 // from: github.com/google/gvisor/blob/596e8d22/pkg/tcpip/link/sniffer/sniffer.go
 
-var logPackets atomicbitops.Uint32 = atomicbitops.FromUint32(0)
-var writePCAP atomicbitops.Uint32 = atomicbitops.FromUint32(0)
+var logPackets atomic.Uint32
+var writePCAP atomic.Uint32
 
 const logPrefix = ""
 

@@ -23,8 +23,8 @@ require (
 	go4.org/unsafe/assume-no-moving-gc v0.0.0-20231121144256-b99613f794b6
 	golang.org/x/mobile v0.0.0-20250506005352-78cd7a343bde
 	golang.org/x/net v0.40.0
-	golang.zx2c4.com/wireguard v0.0.0-20231211153847-12269c276173
-	gvisor.dev/gvisor v0.0.0-20250816195534-fc2f4df6597a
+	golang.zx2c4.com/wireguard v0.0.0-20250521234502-f333402bd9cb
+	gvisor.dev/gvisor v0.0.0-20250816201027-ba3b9ca85f20
 	nhooyr.io/websocket v1.8.7
 )
 
@@ -36,15 +36,36 @@ require (
 	github.com/cisco/go-hpke v0.0.0-20210215210317-01c430f1f302 // indirect
 	github.com/cisco/go-tls-syntax v0.0.0-20200617162716-46b0cfb76b9b // indirect
 	github.com/cloudflare/circl v1.6.1 // indirect
+	github.com/davecgh/go-spew v1.1.1 // indirect
+	github.com/elazarl/goproxy/ext v0.0.0-20190711103511-473e67f1d7d2 // indirect
+	github.com/gin-contrib/sse v0.1.0 // indirect
+	github.com/gin-gonic/gin v1.6.3 // indirect
+	github.com/go-playground/locales v0.13.0 // indirect
+	github.com/go-playground/universal-translator v0.17.0 // indirect
+	github.com/go-playground/validator/v10 v10.2.0 // indirect
+	github.com/gobwas/httphead v0.0.0-20180130184737-2c6c146eadee // indirect
+	github.com/gobwas/pool v0.2.0 // indirect
+	github.com/gobwas/ws v1.0.2 // indirect
+	github.com/golang/protobuf v1.5.4 // indirect
 	github.com/google/btree v1.1.2 // indirect
+	github.com/google/go-cmp v0.6.0 // indirect
+	github.com/gorilla/websocket v1.4.1 // indirect
 	github.com/klauspost/compress v1.17.4 // indirect
+	github.com/leodido/go-urn v1.2.0 // indirect
+	github.com/mattn/go-isatty v0.0.12 // indirect
 	github.com/patrickmn/go-cache v2.1.0+incompatible // indirect
 	github.com/pkg/diff v0.0.0-20200914180035-5b29258ca4f7 // indirect
+	github.com/pmezard/go-difflib v1.0.0 // indirect
+	github.com/stretchr/testify v1.6.1 // indirect
 	github.com/txthinking/runnergroup v0.0.0-20210608031112-152c7c4432bf // indirect
+	github.com/ugorji/go/codec v1.1.7 // indirect
 	golang.org/x/mod v0.25.0 // indirect
 	golang.org/x/sync v0.15.0 // indirect
 	golang.org/x/text v0.26.0 // indirect
 	golang.org/x/time v0.7.0 // indirect
 	golang.org/x/tools v0.33.0 // indirect
 	golang.zx2c4.com/wintun v0.0.0-20230126152724-0fa3db229ce2 // indirect
+	google.golang.org/protobuf v1.33.0 // indirect
+	gopkg.in/yaml.v2 v2.4.0 // indirect
+	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
