@@ -203,7 +203,6 @@ func (g *GTCPConn) synack(complete bool) (rst bool, err error) {
 				g.o, complete, ep != nil, g.LocalAddr(), g.RemoteAddr(), err)
 			// prevent potential half-open TCP connection leak.
 			// hopefully doesn't break happy-eyeballs datatracker.ietf.org/doc/html/rfc8305#section-5
-			// ie, apps that expect network-unreachable ICMP msgs instead of TCP RSTs?
 			// TCP RST here is indistinguishable to an app from being firewalled.
 			return true, e(err) // close, err
 		} else {

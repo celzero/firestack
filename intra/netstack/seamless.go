@@ -102,7 +102,7 @@ func NewEndpoint(dev, mtu int, sink io.WriteCloser) (ep SeamlessEndpoint, err er
 	// ref: github.com/google/gvisor/blob/aeabb785278/pkg/tcpip/link/sniffer/sniffer.go#L111-L131
 	v := core.NewVolatile[SeamlessEndpoint](ep)
 	d := core.NewZeroVolatile[stack.NetworkDispatcher]()
-	
+
 	return &magiclink{v, d /*nil*/, sink}, nil
 }
 
@@ -168,9 +168,9 @@ func (l *magiclink) Swap(fd, mtu int) (err error) {
 	}
 
 	ep, err := newFdbasedInjectableEndpoint(&opt)
-	if err != nil {
-		log.E("netstack: magic(%d); swap: err %v", fd, err)
-		return err
+	if err != nil || ep == nil {
+		log.E("netstack: magic(%d); swap: ep missing? %t; err %v", fd, ep == nil, err)
+		return core.OneErr(err, errMissingEp)
 	}
 
 	if old := l.e.Swap(ep); old != nil {
