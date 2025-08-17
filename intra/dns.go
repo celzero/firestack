@@ -8,6 +8,7 @@ package intra
 
 import (
 	"context"
+	"strconv"
 	"strings"
 
 	x "github.com/celzero/firestack/intra/backend"
@@ -275,4 +276,31 @@ func addDNSTransport(r dnsx.Resolver, t dnsx.Transport) error {
 		return dnsx.ErrAddFailed
 	}
 	return nil
+}
+
+func csv2ssv(csv string) string {
+	return strings.ReplaceAll(csv, ",", ";")
+}
+
+func fetchDNSInfo(r dnsx.Resolver, id string) string {
+	if tr, rerr := r.GetInternal(id); rerr == nil {
+		var sb strings.Builder
+		sb.WriteString(tr.GetAddr().V())
+		sb.WriteString("[")
+		sb.WriteString(tr.Type().V())
+		sb.WriteString("/")
+		sb.WriteString(dnsx.Status2Str(tr.Status()))
+		sb.WriteString("/")
+		sb.WriteString(strconv.FormatInt(tr.P50(), 10))
+		sb.WriteString("ms] ")
+		for _, ipp := range tr.IPPorts() {
+			if ipp.IsValid() {
+				sb.WriteString(ipp.Addr().String())
+				sb.WriteString(";")
+			}
+		}
+		return sb.String()
+	} else {
+		return rerr.Error()
+	}
 }

@@ -28,8 +28,6 @@ import (
 	"errors"
 	"fmt"
 	"runtime"
-	"strconv"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -506,31 +504,4 @@ func (t *rtunnel) SetPcap(fpcap string) error {
 func (t *rtunnel) Unlink() error {
 	tunnel := t.t.Load()
 	return tunnel.Unlink()
-}
-
-func csv2ssv(csv string) string {
-	return strings.ReplaceAll(csv, ",", ";")
-}
-
-func fetchDNSInfo(r dnsx.Resolver, id string) string {
-	if tr, rerr := r.GetInternal(id); rerr == nil {
-		var sb strings.Builder
-		sb.WriteString(tr.GetAddr().V())
-		sb.WriteString("[")
-		sb.WriteString(tr.Type().V())
-		sb.WriteString("/")
-		sb.WriteString(dnsx.Status2Str(tr.Status()))
-		sb.WriteString("/")
-		sb.WriteString(strconv.FormatInt(tr.P50(), 10))
-		sb.WriteString("ms] ")
-		for _, ipp := range tr.IPPorts() {
-			if ipp.IsValid() {
-				sb.WriteString(ipp.Addr().String())
-				sb.WriteString(";")
-			}
-		}
-		return sb.String()
-	} else {
-		return rerr.Error()
-	}
 }
