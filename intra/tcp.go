@@ -186,17 +186,18 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target netip.AddrPort)
 		return deny
 	}
 
-	// handshake; since we assume a duplex-stream from here on
-	if open, err = gconn.Establish(); !open {
-		log.E("tcp: %s connect err %v; %s => %s for %s", cid, err, src, target, uid)
-		clos(gconn)
-		h.queueSummary(smm.done(err))
-		return deny // == !open
-	}
-
 	if isAnyBasePid(pids) { // see udp.go:Connect
-		if h.dnsOverride(gconn, target, uid) {
+		if target.IsValid() && h.resolver.IsDnsAddr(target) {
 			// SocketSummary not sent; x.DNSSummary supercedes it
+			if _, err := gconn.Establish(); err != nil {
+				clos(gconn)
+				h.queueSummary(smm.done(err))
+				return deny // == !open
+			}
+			// conn closed by the resolver
+			core.Gx(h.proto+".dns", func() {
+				h.resolver.Serve(h.proto, gconn, uid)
+			})
 			return allow
 		} // else not a dns request
 	} // if ipn.Exit then let it connect as-is (aka exit)
@@ -285,6 +286,12 @@ func (h *tcpHandler) handle(px ipn.Proxy, src net.Conn, boundSrc, target netip.A
 		clos(pc)
 		log.W("tcp: err dialing %s proxy(%s) to dst(%v) for %s: %v",
 			smm.ID, px.ID(), target, smm.UID, err)
+		return err
+	}
+
+	gconn := src.(*netstack.GTCPConn)
+	if _, err := gconn.Establish(); err != nil {
+		clos(pc)
 		return err
 	}
 
