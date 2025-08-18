@@ -95,7 +95,7 @@ func (t *gtunnel) waitForEndpoint(ctx context.Context) {
 
 	const maxchecks = 5
 	const betweenChecks = 3 * time.Second
-	const uptimeThreshold = 10 * time.Second
+	const uptimeThreshold = 3 * time.Second
 
 	waitStart := time.Now()
 	i := 0
