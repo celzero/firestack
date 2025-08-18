@@ -258,7 +258,7 @@ func (e *endpoint) Dispose() (err error) {
 
 	if e.inboundDispatcher == nil {
 		prevfd.stop() // prevfd may be invalidfd
-		log.W("ns: tun: Dispose: %d; no inbound dispatcher", prevfd.tun())
+		log.W("ns: tun(%d): Dispose, no inbound dispatcher", prevfd.tun())
 		// nothing to do
 		return nil
 	}
@@ -289,12 +289,12 @@ func (e *endpoint) swap(fd int, force bool) (err error) {
 	f, err := newTun(fd) // fd may be invalid (ex: -1)
 	if err != nil || f == nil {
 		f = invalidFds // nilaway
-		err = log.EE("ns: tun: swap: (%d) err: %v / %v; using invalidfd", fd, err)
+		err = log.EE("ns: tun(%d): swap: err: %v / %v; using invalidfd", fd, err)
 	}
 
 	e.fds.Store(f) // commence WritePackets() on fd
 
-	log.D("ns: tun: swap: fd %s => %d; err? %v", prevfd, fd, err)
+	log.D("ns: tun(%d): swap: fd %s => %d; err? %v", prevfd, prevfd, fd, err)
 
 	if e.inboundDispatcher == nil { // prevfd must be 0 value if inbound is nil
 		prevfd.stop() // prevfd may be invalid
@@ -307,12 +307,12 @@ func (e *endpoint) swap(fd int, force bool) (err error) {
 
 	hasDispatcher := e.dispatcher != nil
 	if err == nil && hasDispatcher { // attached?
-		log.I("ns: tun: (%s => %d) swap: restart looper %t for new fd",
-			prevfd, fd, hasDispatcher)
+		log.I("ns: tun(%d): (%s => %d) swap: restart looper %t for new fd",
+			prevfd, prevfd, fd, hasDispatcher)
 		go dispatchLoop(e.inboundDispatcher, f, &e.wg)
 	} else {
-		log.E("ns: tun: (%s => %d) swap: no dispatcher? %t for new fd; err %v",
-			prevfd, fd, !hasDispatcher, err)
+		log.E("ns: tun(%d): (%s => %d) swap: no dispatcher? %t for new fd; err %v",
+			prevfd, prevfd, fd, !hasDispatcher, err)
 	}
 	return
 }

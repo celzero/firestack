@@ -277,13 +277,19 @@ func (l *magiclink) DeliverNetworkPacket(protocol tcpip.NetworkProtocolNumber, p
 	l.DumpPacket(DirectionRecv, protocol, pkt)
 	if d := l.d.Load(); d != nil {
 		d.DeliverNetworkPacket(protocol, pkt)
+		return
 	}
+	log.E("netstack: magic: deliver network packet; no dispatcher")
 }
 
+// unused
 func (l *magiclink) DeliverLinkPacket(protocol tcpip.NetworkProtocolNumber, pkt *stack.PacketBuffer) {
+	l.DumpPacket(DirectionRecv, protocol, pkt)
 	if d := l.d.Load(); d != nil {
 		d.DeliverLinkPacket(protocol, pkt)
+		return
 	}
+	log.E("netstack: magic: deliver link packet; no dispatcher")
 }
 
 func (l *magiclink) WritePackets(pkts stack.PacketBufferList) (int, tcpip.Error) {
@@ -298,7 +304,7 @@ func (l *magiclink) WritePackets(pkts stack.PacketBufferList) (int, tcpip.Error)
 		return e.WritePackets(pkts)
 	}
 	log.E("netstack: magic: write packets; no endpoint")
-	return 0, &tcpip.ErrInvalidEndpointState{}
+	return 0, &tcpip.ErrNotPermitted{}
 }
 
 func (l *magiclink) Wait() {
