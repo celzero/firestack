@@ -100,7 +100,7 @@ func NewEndpoint(dev, mtu int, sink io.WriteCloser) (ep SeamlessEndpoint, err er
 		return nil, err
 	}
 	// ref: github.com/google/gvisor/blob/aeabb785278/pkg/tcpip/link/sniffer/sniffer.go#L111-L131
-	v := core.NewVolatile[SeamlessEndpoint](ep)
+	v := core.NewVolatile(ep)
 	d := core.NewZeroVolatile[stack.NetworkDispatcher]()
 
 	return &magiclink{v, d /*nil*/, sink}, nil
@@ -279,7 +279,7 @@ func (l *magiclink) DeliverNetworkPacket(protocol tcpip.NetworkProtocolNumber, p
 		d.DeliverNetworkPacket(protocol, pkt)
 		return
 	}
-	log.E("netstack: magic: deliver network packet; no dispatcher")
+	log.E("netstack: magic: deliver network packet (sz: %d); no dispatcher", pkt.Size())
 }
 
 // unused
@@ -289,7 +289,7 @@ func (l *magiclink) DeliverLinkPacket(protocol tcpip.NetworkProtocolNumber, pkt 
 		d.DeliverLinkPacket(protocol, pkt)
 		return
 	}
-	log.E("netstack: magic: deliver link packet; no dispatcher")
+	log.E("netstack: magic: deliver link packet (sz: %d); no dispatcher", pkt.Size())
 }
 
 func (l *magiclink) WritePackets(pkts stack.PacketBufferList) (int, tcpip.Error) {
