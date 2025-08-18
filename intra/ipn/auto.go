@@ -265,14 +265,18 @@ func (h *auto) dial(network, laddr, raddr string) (protect.Conn, error) {
 	)
 
 	defer localDialStatus(h.status, err)
-	if err != nil {
+
+	delpin := false
+	if err != nil || c == nil || core.IsNil(c) {
 		h.exp.Del(raddr)
+		c = nil
+		delpin = true // remove pin
 	} else {
 		h.exp.Put(raddr, who)
 	}
 	kaenabled := maybeKeepAlive(c)
-	logei(err)("proxy: auto: w(%d) pin(%t/%d), dial(%s) %s, ka? %t; errs? %v+%v",
-		who, recent, previdx, network, raddr, kaenabled, err, pxrerrs)
+	logei(err)("proxy: auto: w(%d) pin(%t+%t/%d), dial(%s) %s, ka? %t; errs? %v+%v",
+		who, recent, !delpin, previdx, network, raddr, kaenabled, err, pxrerrs)
 
 	return c, err
 }
@@ -506,6 +510,10 @@ func maybeKeepAlive(c net.Conn) (keepingalive bool) {
 }
 
 func maybeKeepAlive2(c net.Conn) (keepingalive, ok bool) {
+	if c == nil {
+		return
+	}
+
 	if settings.GetDialerOpts().LowerKeepAlive {
 		// adjust socket's keepalive config
 		lowered := core.SetKeepAliveConfigSockOpt(c)
