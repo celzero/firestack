@@ -56,6 +56,9 @@ func (h *icmpHandler) Ping(msg []byte, source, target netip.AddrPort) (echoed bo
 
 	// flow is alg/nat-aware, do not change target or any addrs
 	res, undidAlg, realips, doms := h.onFlow(source, target)
+
+	h.maybeReplaceDest(res, &target)
+
 	preferred, _, _ := filterFamilyForDialing(realips)
 	dst := oneRealIPPort(preferred, target)
 	// on Android, uid is always "unknown" for icmp

@@ -91,6 +91,9 @@ type Mark struct {
 	CID string
 	// UID of the app which owns the flow.
 	UID string
+	// Preferred IP (for egress) to use for the flow (not guaranteed
+	// as the flow may prefer IPv4 or IPv6 and the IP may not be of that family).
+	IP string
 }
 
 const (
@@ -147,6 +150,7 @@ func (s *SocketSummary) postMark() *Mark {
 		PIDCSV: s.PID,
 		CID:    s.ID,
 		UID:    s.UID,
+		IP:     s.Target,
 	}
 }
 

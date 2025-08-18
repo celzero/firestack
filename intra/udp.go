@@ -133,6 +133,7 @@ func (h *udpHandler) Error(gconn *netstack.GUDPConn, src, target netip.AddrPort,
 		return
 	}
 	res, _, _, _ := h.onFlow(src, target)
+	h.maybeReplaceDest(res, &target)
 	cid, uid, _, pids := h.judge(res)
 	smm := udpSummary(cid, uid, target.Addr())
 
@@ -178,19 +179,20 @@ func (h *udpHandler) proxy(gconn *netstack.GUDPConn, src, dst netip.AddrPort, dm
 // Connect connects the proxy server; thread-safe.
 func (h *udpHandler) Connect(gconn *netstack.GUDPConn, src, target netip.AddrPort, dmx netstack.DemuxerFn) (pc net.Conn, smm *SocketSummary, err error) {
 	mux := dmx != nil
-	smmTarget := target.Addr()
 
 	// flow is alg/nat-aware, do not change target or any addrs
 	res, undidAlg, realips, domains := h.onFlow(src, target)
-	first, _, fallingback := filterFamilyForDialing(realips)
-	actualTargets := makeIPPorts(first, target, 0)
+
+	h.maybeReplaceDest(res, &target)
+
+	filtered, _, fallingback := filterFamilyForDialing(realips)
+	actualTargets := makeIPPorts(filtered, target, 0)
 	cid, uid, fid, pids := h.judge(res, domains, target.String())
-	if len(actualTargets) > 0 {
-		smmTarget = actualTargets[0].Addr()
-	} else { // unlikely
+
+	if len(actualTargets) <= 0 { // unlikely
 		actualTargets = []netip.AddrPort{target}
 	}
-	smm = udpSummary(cid, uid, smmTarget)
+	smm = udpSummary(cid, uid, actualTargets[0].Addr())
 
 	if h.status.Load() == HDLEND {
 		log.D("udp: connect: %s %v => %v, end", cid, src, target)

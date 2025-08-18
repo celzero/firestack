@@ -94,6 +94,9 @@ func (h *tcpHandler) Error(gconn *netstack.GTCPConn, src, dst netip.AddrPort, er
 		return
 	}
 	res, _, _, _ := h.onFlow(src, dst)
+
+	h.maybeReplaceDest(res, &dst)
+
 	cid, uid, _, pids := h.judge(res)
 	smm := tcpSummary(cid, uid, dst.Addr())
 
@@ -149,17 +152,19 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target netip.AddrPort)
 	// flow/dns-override are nat-aware, as in, they can deal with
 	// nat-ed ips just fine, and so, use target as-is instead of ipx4
 	res, undidAlg, realips, domains := h.onFlow(src, target)
-	smmTarget := target.Addr()
-	first, _, fallingback := filterFamilyForDialing(realips)
-	actualTargets := makeIPPorts(first, target, 0)
-	boundSrc := makeAnyAddrPort(src)
+
+	h.maybeReplaceDest(res, &target)
+
+	// TODO: use res.IP only if set
+	filtered, _, fallingback := filterFamilyForDialing(realips)
+	actualTargets := makeIPPorts(filtered, target, 0)
 	cid, uid, fid, pids := h.judge(res, domains, target.String())
-	if len(actualTargets) > 0 {
-		smmTarget = actualTargets[0].Addr()
-	} else { // unlikely
+
+	if len(actualTargets) <= 0 { // unlikely
 		actualTargets = []netip.AddrPort{target}
 	}
-	smm = tcpSummary(cid, uid, smmTarget)
+	// actualTargets[0] may be same as target
+	smm = tcpSummary(cid, uid, actualTargets[0].Addr())
 
 	if h.status.Load() == HDLEND {
 		err = errTcpEnd
@@ -204,6 +209,7 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target netip.AddrPort)
 	log.VV("tcp: %s proxying %s => %s [%v] for %s; pids: %s",
 		cid, src, target, actualTargets, uid, pids)
 
+	boundSrc := makeAnyAddrPort(src)
 	// pick all realips to connect to
 	for i, dstipp := range actualTargets {
 		var px ipn.Proxy = nil

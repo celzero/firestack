@@ -599,6 +599,17 @@ func (h *baseHandler) judge(decision *Mark, aux ...string) (cid, uid, fid string
 	return
 }
 
+func (h *baseHandler) maybeReplaceDest(res *Mark, target *netip.AddrPort) {
+	if len(res.IP) <= 0 {
+		return
+	} else if resip, err := netip.ParseAddr(res.IP); resip.IsValid() && err == nil {
+		// if res.IP is set, then use it as the target
+		log.D("%s: proxy: %s %s target instead of %s",
+			h.proto, res.CID, resip, target)
+		*target = netip.AddrPortFrom(resip, target.Port())
+	}
+}
+
 func conn2str(a net.Conn, b net.Conn) string {
 	ar := a.RemoteAddr()
 	br := b.RemoteAddr()

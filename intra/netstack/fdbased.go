@@ -294,7 +294,7 @@ func (e *endpoint) swap(fd int, force bool) (err error) {
 
 	e.fds.Store(f) // commence WritePackets() on fd
 
-	log.D("ns: tun(%d): swap: fd %s => %d; err? %v", prevfd, prevfd, fd, err)
+	log.D("ns: tun(%s): swap: fd %s => %d; err? %v", prevfd, prevfd, fd, err)
 
 	if e.inboundDispatcher == nil { // prevfd must be 0 value if inbound is nil
 		prevfd.stop() // prevfd may be invalid
@@ -307,11 +307,11 @@ func (e *endpoint) swap(fd int, force bool) (err error) {
 
 	hasDispatcher := e.dispatcher != nil
 	if err == nil && hasDispatcher { // attached?
-		log.I("ns: tun(%d): (%s => %d) swap: restart looper %t for new fd",
+		log.I("ns: tun(%s): (%s => %d) swap: restart looper %t for new fd",
 			prevfd, prevfd, fd, hasDispatcher)
 		go dispatchLoop(e.inboundDispatcher, f, &e.wg)
 	} else {
-		log.E("ns: tun(%d): (%s => %d) swap: no dispatcher? %t for new fd; err %v",
+		log.E("ns: tun(%s): (%s => %d) swap: no dispatcher? %t for new fd; err %v",
 			prevfd, prevfd, fd, !hasDispatcher, err)
 	}
 	return
