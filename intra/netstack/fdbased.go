@@ -265,7 +265,7 @@ func (e *endpoint) Dispose() (err error) {
 
 	// e.inboundDispatcher.prepare() will not close prevfd
 	// dispatchLoop() will auto-exit on invalidfd
-	core.Go("ns.dispose.wrapup", func() { e.inboundDispatcher.wrapup(prevfd, wrapttl) })
+	e.inboundDispatcher.wrapup(prevfd, wrapttl)
 	e.inboundDispatcher.prepare(invalidFds)
 
 	return nil
@@ -301,7 +301,7 @@ func (e *endpoint) swap(fd int, force bool) (err error) {
 		e.inboundDispatcher, err = createInboundDispatcher(e, f)
 	} else {
 		// closes prevfd, which may be invalidfd
-		core.Go("ns.swap.wrapup", func() { e.inboundDispatcher.wrapup(prevfd, wrapttl) })
+		e.inboundDispatcher.wrapup(prevfd, wrapttl)
 		e.inboundDispatcher.prepare(f)
 	}
 
