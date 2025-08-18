@@ -218,6 +218,7 @@ func (g *GUDPConn) Establish() error {
 		wq := new(waiter.Queue)
 		if ep, err := g.req.CreateEndpoint(wq); err != nil || ep == nil {
 			// ex: CONNECT endpoint for [fd66:f83a:c650::1]:15753 => [fd66:f83a:c650::3]:53; err(no route to host)
+			// 'bad local addrs' on missing NIC, 'invalid state' if could not be bound/connected
 			log.E("ns: udp: %s: connect: endpoint(ok? %t) for %v => %v; err(%v)",
 				g.o, ep != nil, g.src, g.dst, err)
 			return e(err)
