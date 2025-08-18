@@ -116,11 +116,6 @@ func e(err tcpip.Error) error {
 }
 
 func addIfAddrs(s *stack.Stack, nic tcpip.NICID) error {
-	if !settings.ExperimentalWireGuard.Load() {
-		log.W("netstack: %d add ifaddrs: skipped; experimental features, disabled", nic)
-		return nil
-	}
-
 	// TODO: make ifaddrs configurable like fakedns is
 	// The NIC is set in Spoofing mode. When the UDP Endpoint uses a non-local
 	// address to "Connect", netstack generates a temporary addressState to
