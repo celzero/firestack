@@ -284,10 +284,11 @@ func (t *rtunnel) Restart(fd, mtu, engine int) error {
 
 	go core.EitherOr(countdown, ontimeout, mktunTimeout)
 
+	dualstack := settings.IP46
 	l3 := settings.L3(engine)
 	l3diff := dialers.IPProtos(l3)
 
-	gt, revhdl, err := tunnel.NewGTunnel(t.ctx, fd, mtu, l3, t.handlers)
+	gt, revhdl, err := tunnel.NewGTunnel(t.ctx, fd, mtu, dualstack, t.handlers)
 
 	old := t.t.Load()
 	old.Disconnect() // may hve been disconnected already
