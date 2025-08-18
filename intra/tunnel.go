@@ -288,10 +288,10 @@ func (t *rtunnel) Restart(fd, mtu, engine int) error {
 	l3 := settings.L3(engine)
 	l3diff := dialers.IPProtos(l3)
 
-	gt, revhdl, err := tunnel.NewGTunnel(t.ctx, fd, mtu, dualstack, t.handlers)
-
 	old := t.t.Load()
-	old.Disconnect() // may hve been disconnected already
+	old.Disconnect() // could have been disconnected by the client already
+
+	gt, revhdl, err := tunnel.NewGTunnel(t.ctx, fd, mtu, dualstack, t.handlers)
 
 	if err != nil || gt == nil || core.IsNil(gt) {
 		log.W("tun: <<< restart >>>; for: %d, new? %t; err(%v)", fd, gt != nil, err)
@@ -299,7 +299,10 @@ func (t *rtunnel) Restart(fd, mtu, engine int) error {
 	}
 
 	// TODO: CompareAndSwap
-	t.t.Store(gt) // gt never nil
+	if !t.t.Cas(old, gt) { // gt never nil
+		gt.Disconnect() // close the new tunnel
+		log.W("tun: <<< restart >>>; for: %d, cas failed; old %X, new %X", fd, old, gt)
+	}
 
 	// TODO: err on reverser errors too?
 	rerr := t.proxies.Reverser(revhdl)
