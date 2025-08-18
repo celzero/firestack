@@ -270,7 +270,7 @@ func (t *rtunnel) SetLinkAndRoutes(fd, mtu, engine int) error {
 
 func (t *rtunnel) Restart(fd, mtu, engine int) error {
 	if t.closed.Load() {
-		log.W("tun: <<< restart >>>; already closed")
+		log.W("tun: <<< restart >>>; for: %d, intra closed", fd)
 		return errClosed
 	}
 
@@ -278,7 +278,7 @@ func (t *rtunnel) Restart(fd, mtu, engine int) error {
 	defer close(countdown)
 
 	ontimeout := func() {
-		log.E("tun: <<< restart >>>; timed out ...")
+		log.E("tun: <<< restart >>>; for: %d, timed out ...", fd)
 		t.done()
 	}
 
@@ -294,7 +294,7 @@ func (t *rtunnel) Restart(fd, mtu, engine int) error {
 	old.Disconnect() // may hve been disconnected already
 
 	if err != nil || gt == nil || core.IsNil(gt) {
-		log.W("tun: <<< restart >>>; new? %t; err(%v)", gt != nil, err)
+		log.W("tun: <<< restart >>>; for: %d, new? %t; err(%v)", fd, gt != nil, err)
 		return core.OneErr(err, errMakeTunnel)
 	}
 
@@ -304,7 +304,7 @@ func (t *rtunnel) Restart(fd, mtu, engine int) error {
 	// TODO: err on reverser errors too?
 	rerr := t.proxies.Reverser(revhdl)
 
-	log.D("tun: <<< restart >>>; netstack: ok; rev err? %v", rerr)
+	log.D("tun: <<< restart >>>; for: %d, netstack ok; rev err? %v", fd, rerr)
 
 	core.Gx("i.RestartRefresh", func() {
 		// Refresh proxies to update to the new reverser
