@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"net/netip"
+	"strconv"
 
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/log"
@@ -29,8 +30,9 @@ const nicfwd = false
 const mustAddIfAddrs = false
 
 // ref: github.com/brewlin/net-protocol/blob/ec64e5f899/internal/endpoint/endpoint.go#L20
-func Up(who string, s *stack.Stack, ep stack.LinkEndpoint, h GConnHandler) (tcpip.NICID, error) {
+func Up(s *stack.Stack, ep SeamlessEndpoint, h GConnHandler) (tcpip.NICID, error) {
 	nic := tcpip.NICID(settings.NICID)
+	who := strconv.Itoa(ep.Stat().Fd)
 
 	// fetch existing routes before adding removing nic, which wipes out routes
 	existingroutes := s.GetRouteTable()

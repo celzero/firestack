@@ -10,6 +10,7 @@ import (
 	"context"
 	"net"
 	"net/netip"
+	"strconv"
 	"sync/atomic"
 
 	"github.com/celzero/firestack/intra/core"
@@ -51,7 +52,8 @@ var _ GTCPConnHandler = (*revtcp)(nil)
 var _ GUDPConnHandler = (*revudp)(nil)
 var _ GICMPHandler = (*revicmp)(nil)
 
-func NewReverseGConnHandler(id string, pctx context.Context, to *stack.Stack, of tcpip.NICID, ep stack.LinkEndpoint, via GConnHandler) *gconnhandler {
+func NewReverseGConnHandler(pctx context.Context, to *stack.Stack, of tcpip.NICID, ep SeamlessEndpoint, via GConnHandler) *gconnhandler {
+	id := strconv.Itoa(ep.Stat().Fd)
 	h := &gconnhandler{
 		tcp:  newReverseTCP(id, to, of, via.TCP()),
 		udp:  newReverseUDP(id, to, of, via.UDP()),

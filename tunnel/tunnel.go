@@ -29,7 +29,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -182,21 +181,19 @@ func NewGTunnel(pctx context.Context, fd, mtu int, l3 string, hdl netstack.GConn
 		return nil, nil, eerr
 	}
 
+	var nic tcpip.NICID
 	if l3 != settings.IP46 {
+		l3 = settings.IP46 // always dual-stack
 		log.W("tun: new netstack(%d) l3 is %s needed %s", fd, l3, settings.IP46)
 	}
 	netstack.Route(stack, l3)
-
-	who := strconv.Itoa(ep.Stat().Fd)
-
-	var nic tcpip.NICID
 	// Enabled() may temporarily return false when Up() is in progress.
-	if nic, err = netstack.Up(who, stack, ep, hdl); err != nil { // attach new endpoint
+	if nic, err = netstack.Up(stack, ep, hdl); err != nil { // attach new endpoint
 		done()
 		return nil, nil, err
 	}
 
-	rev = netstack.NewReverseGConnHandler(who, ctx, stack, nic, ep, hdl)
+	rev = netstack.NewReverseGConnHandler(ctx, stack, nic, ep, hdl)
 
 	log.I("tun: new netstack(%d) up; fd(%d=>%d), mtu(%d)", nic, fd, myfd, mtu)
 
