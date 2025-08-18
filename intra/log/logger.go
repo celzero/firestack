@@ -606,6 +606,7 @@ func (l *simpleLogger) writelog(lvl LogLevel, at int, msg string, args ...any) {
 			if _, x := caller1(at+nextframe+5, ">"); tracecaller(x) {
 				trace += x
 			}
+			fallthrough
 		case ERROR:
 			if _, x := caller1(at+nextframe+4, ">"); tracecaller(x) {
 				trace += x
