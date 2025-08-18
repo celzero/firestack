@@ -97,14 +97,13 @@ func Up(s *stack.Stack, ep SeamlessEndpoint, h GConnHandler) (tcpip.NICID, error
 	// s.SetNICMulticastForwarding(nic, ipv4.ProtocolNumber, nicfwd)
 	// s.SetNICMulticastForwarding(nic, ipv6.ProtocolNumber, nicfwd)
 	// use existing routes if the nic is being recycled
-	if !newnic && len(existingroutes) > 0 {
-		log.I("netstack: %s: up(%d)! addrs: %v %v; existing routes? %s; new routes: %s",
-			who, nic, if4, if6, s.GetRouteTable(), existingroutes)
+	useExistingRoutes := !newnic && len(existingroutes) > 0
+	if useExistingRoutes {
 		s.SetRouteTable(existingroutes)
-	} else {
-		log.I("netstack: %s: up(%d)! new? %t; addrs: %v %v; routes? %s",
-			who, nic, newnic, if4, if6, s.GetRouteTable())
 	}
+
+	log.I("netstack: %s: up(%d)! new? %t; addrs: %v %v; routes? %s / existing? %t: %s",
+		who, nic, newnic, if4, if6, s.GetRouteTable(), useExistingRoutes, existingroutes)
 
 	return nic, nil
 }
