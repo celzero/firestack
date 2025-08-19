@@ -912,7 +912,7 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []netip.Addr, network, uid strin
 		if ansin == nil {
 			log.I("alg: abort no ans on %s+%s[%s]; self? %t synth? %t; qerr %v",
 				idstr(t1), idstr(t2), uid, uidself, synthAns, err)
-			return nil, core.JoinErr(err, errNoAnswer)
+			return nil, nil, core.JoinErr(err, errNoAnswer)
 		}
 		if !xdns.HasRcodeSuccess(ansin) {
 			return ansin, nil, err
