@@ -151,6 +151,18 @@ loop:
 	return // zz
 }
 
+func First[T any](who string, overallTimeout time.Duration, fs ...WorkCtx[T]) (zz T, idx int) {
+	timeoutPerFn := overallTimeout / time.Duration(len(fs))
+	for i, f := range fs {
+		i, f := i, f
+		fid := who + ".all." + strconv.Itoa(i)
+		if x, ok := Grx(fid, f, timeoutPerFn); ok {
+			return x, i
+		}
+	}
+	return zz, -1
+}
+
 func All[T any](who string, timeout time.Duration, fs ...WorkCtx[T]) ([]T, []error) {
 	type res struct {
 		fidx int // index of the function in fs
