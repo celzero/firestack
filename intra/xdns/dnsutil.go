@@ -953,6 +953,10 @@ func SubstSVCBRecordIPs(out *dns.Msg, x dns.SVCBKey, subiphints netip.Addr, ttl 
 	return i > 0
 }
 
+func IPs(msg *dns.Msg) []netip.Addr {
+	return AQuadAAnswers(msg)
+}
+
 func IPHints(msg *dns.Msg, x dns.SVCBKey) []netip.Addr {
 	if msg == nil {
 		return nil

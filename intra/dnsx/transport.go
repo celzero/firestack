@@ -71,7 +71,7 @@ const (
 
 	ttl10m = 10 * time.Minute
 
-	onQueryTimeout = 3 * time.Second
+	listenerTimeout = 3 * time.Second
 
 	// pseudo transport ID to tag dns64 responses
 	AlgDNS64 = "dns64"
@@ -94,19 +94,20 @@ var (
 )
 
 var (
-	ErrNotDefaultTransport = errors.New("not a default dns transport")
-	ErrNoDcProxy           = errors.New("no dnscrypt-proxy")
-	ErrNoProxyProvider     = errors.New("no proxy provider for dns")
-	ErrNoProxyDNS          = errors.New("no proxy dns")
-	ErrAddFailed           = errors.New("dns add failed")
-	errNoSuchTransport     = errors.New("missing dns transport")
-	errTransportEnd        = errors.New("transport ended")
-	errOnQueryTimeout      = errors.New("timeout fetching dns prefs")
-	errBlockFreeTransport  = errors.New("block free transport")
-	errNoRdns              = errors.New("no rdns")
-	errTransportNotMult    = errors.New("not a multi-transport")
-	errMissingQueryName    = errors.New("no query name")
-	errResolverClosed      = errors.New("dns closed for business")
+	ErrNotDefaultTransport     = errors.New("not a default dns transport")
+	ErrNoDcProxy               = errors.New("no dnscrypt-proxy")
+	ErrNoProxyProvider         = errors.New("no proxy provider for dns")
+	ErrNoProxyDNS              = errors.New("no proxy dns")
+	ErrAddFailed               = errors.New("dns add failed")
+	errNoSuchTransport         = errors.New("missing dns transport")
+	errTransportEnd            = errors.New("transport ended")
+	errOnQueryTimeout          = errors.New("timeout fetching dns prefs")
+	errOnUpstreamAnswerTimeout = errors.New("timeout fetching dns prefs for upstream answer")
+	errBlockFreeTransport      = errors.New("block free transport")
+	errNoRdns                  = errors.New("no rdns")
+	errTransportNotMult        = errors.New("not a multi-transport")
+	errMissingQueryName        = errors.New("no query name")
+	errResolverClosed          = errors.New("dns closed for business")
 )
 
 // Transport represents a DNS query transport.  This interface is exported by gobind,
@@ -480,68 +481,67 @@ func (r *resolver) LocalLookup(q []byte) ([]byte, string, error) {
 
 func (r *resolver) forward(q []byte, uid string, chosenids ...string) (res0 []byte, tid0 string, err0 error) {
 	starttime := time.Now()
-	smm := &x.DNSSummary{
+	ogsmm := &x.DNSSummary{
 		ID:     NoDNS,
 		UID:    uid, // may be overwritten to by Cacher via fillSummary
 		QName:  invalidQname,
 		Status: Start,
 		Msg:    errNop.Error(),
 	}
-	// always call up to the listener
-	defer func() {
-		if settings.Debug {
-			smm.Latency = time.Since(starttime).Seconds()
-		}
-		smm.UID = uid
-		if len(smm.Msg) <= 0 {
-			smm.Msg = errNop.Error()
-		}
-		// must match w/ ID used by alg.go:registerLocked (alg/nat/ptr caches)
-		// as ipmapper uses this ID (tid0) subsequently to undoAlg
-		tid0 = smm.ID
-		r.queueSummary(smm)
-	}()
 
 	msg, err := unpack(q)
 	if err != nil {
 		log.W("dns: fwd: for %s; %d not a dns packet %v", uid, len(q), err)
-		smm.Latency = time.Since(starttime).Seconds()
-		smm.Status = BadQuery
-		smm.Msg = err.Error()
+		ogsmm.Latency = time.Since(starttime).Seconds()
+		ogsmm.Status = BadQuery
+		ogsmm.Msg = err.Error()
+		r.queueSummary(ogsmm)
 		return nil, NoDNS, err
 	}
 
 	// figure out transport to use
 	qname := qname(msg)
 	qtyp := qtype(msg)
-	smm.QName = qname
-	smm.QType = qtyp
+	ogsmm.QName = qname
+	ogsmm.QType = qtyp
 
 	if len(qname) <= 0 { // unexpected; github.com/celzero/rethink-app/issues/1210
-		smm.Latency = time.Since(starttime).Seconds()
-		smm.Status = BadQuery
-		smm.Msg = errMissingQueryName.Error()
+		ogsmm.Latency = time.Since(starttime).Seconds()
+		ogsmm.Status = BadQuery
+		ogsmm.Msg = errMissingQueryName.Error()
+		r.queueSummary(ogsmm)
 		return nil, NoDNS, errMissingQueryName
 	}
 
 	pref, oqcompleted := core.Grx("r.onQuery", func(_ context.Context) (*x.DNSOpts, error) {
 		return r.listener.OnQuery(x.StrOf(uid), x.StrOf(qname), qtyp), nil
-	}, onQueryTimeout)
+	}, listenerTimeout)
 	if !oqcompleted || pref == nil {
 		log.W("dns: fwd: for %s; no preferences (%t) for %s:%d", uid, pref == nil, qname, qtyp)
-		smm.Latency = time.Since(starttime).Seconds()
-		smm.Status = ClientError
-		smm.Msg = errOnQueryTimeout.Error()
+		ogsmm.Latency = time.Since(starttime).Seconds()
+		ogsmm.Status = ClientError
+		ogsmm.Msg = errOnQueryTimeout.Error()
+		r.queueSummary(ogsmm)
 		return nil, NoDNS, errOnQueryTimeout
 	}
 
-	log.V("dns: fwd: 1 for %s; query %s:%d [prefs:%v; chosen:%v]", uid, qname, qtyp, pref, chosenids)
+	run := 0
+runagain:
+	run++
+	smm := copySummary(ogsmm)
+
+	// do not use defer func() and do copy: go.dev/play/p/oGUJepa3VUo
+	// must match w/ ID used by alg.go:registerLocked (alg/nat/ptr caches)
+	// as ipmapper uses this ID (tid0) subsequently to undoAlg
+	defer r.queueSummary(copySummary(smm)) // always call up to the listener
+
+	log.V("dns: fwd: 1 for %s; query %s:%d, r%d; [prefs:%v; chosen:%v]", uid, qname, qtyp, run, pref, chosenids)
 
 	id, sid, pids, presetIPs := r.preferencesFrom(qname, uint16(qtyp), pref, chosenids...)
 	t := r.determineTransport(id) // id may be empty if pref is nil
 
-	log.V("dns: fwd: 2 for %s; query %s:%d [prefs:%v; chosen:%v]; id? %s, sid? %s, pid? %s, ips? %v",
-		uid, qname, qtyp, pref, chosenids, id, sid, pids, presetIPs)
+	log.V("dns: fwd: 2 for %s; query %s:%d, r%d; [prefs:%v; chosen:%v]; id? %s, sid? %s, pid? %s, ips? %v",
+		uid, qname, qtyp, run, pref, chosenids, id, sid, pids, presetIPs)
 
 	if t == nil || core.IsNil(t) {
 		smm.Latency = time.Since(starttime).Seconds()
@@ -561,7 +561,7 @@ func (r *resolver) forward(q []byte, uid string, chosenids ...string) (res0 []by
 	if err == nil {
 		if pref.NOBLOCK { // only add blocklists and do not actually block
 			smm.Blocklists = blocklists
-		} else {
+		} else { // block the query
 			b, e := res1.Pack()
 			smm.Latency = time.Since(starttime).Seconds()
 			smm.Status = Complete
@@ -569,47 +569,47 @@ func (r *resolver) forward(q []byte, uid string, chosenids ...string) (res0 []by
 			smm.RData = xdns.GetInterestingRData(res1)
 			if e != nil {
 				smm.Msg = e.Error()
+			} else {
+				smm.Msg = errNop.Error()
 			}
-			log.V("dns: fwd: 3 for %s; query blocked %s by %s", uid, qname, blocklists)
-
+			log.V("dns: fwd: 3 for %s; r%d, query blocked %s:%d by %s", uid, run, qname, qtyp, blocklists)
 			return b, smm.ID, e
 		}
 	} else {
-		log.V("dns: fwd: 4 for %s; query NOT blocked %s; why? %v", uid, qname, err)
+		log.V("dns: fwd: 4 for %s; r%d, query NOT blocked %s:%d; why? %v", uid, run, qname, qtyp, err)
 	}
 
 	var res2 []byte
-	var ans1 *dns.Msg
+	var nonalg, ans1 *dns.Msg // alg'd answer
 
 	netid := xdns.NetAndProxyID(NetTypeUDP, pids)
 
 	// with t2 as the secondary transport, which could be nil
-	ans1, err = r.gateway.q(t, t2, presetIPs, netid, uid, msg, smm)
+	nonalg, ans1, err = r.gateway.q(t, t2, presetIPs, netid, uid, msg, smm)
 
-	algerr := isAlgErr(err) // not set when gw.translate is off
-	if algerr {
-		log.W("dns: fwd: for %s; alg error %s for %s", uid, err, qname)
+	if smm.Latency <= 0 {
+		smm.Latency = time.Since(starttime).Seconds()
 	}
-	// in the case of an alg transport, if there's no-alg,
-	// err is set which should be ignored if res2 is not nil
-	if err != nil && !algerr {
-		if smm.Status == Start {
-			smm.Status = InternalError // TODO: servfail?
+	smm.UID = uid // reset uid as it may have been cleared by cacher
+
+	if nonalg == nil || err != nil { // TODO: servfail?
+		if isAlgErr(err) { // alg errs not set when gw.translate is off
+			log.W("dns: fwd: for %s; r%d, alg error %s for %s:%d", uid, run, err, qname, qtyp)
+			smm.Status = NoResponse
+		} else if smm.Status == Start {
+			smm.Status = InternalError
 		}
+		err = core.OneErr(err, errNoAnswer)
 		smm.Msg = err.Error()
 		// both err and res2 are set when res2 has rcode error or servfail
 		// summary latency, ips, response, status already set by transport t
 		return res2, smm.ID, err
 	}
-	if ans1 == nil {
-		// very unlikely that ans1 is nil but err is not
-		err = core.OneErr(err, errNoAnswer)
-		if err != nil {
-			smm.Msg = err.Error()
-		}
-		smm.Status = NoResponse // TODO: servfail?
-		return res2, smm.ID, err
-	} // discard alg err
+
+	err = nil        // discard alg errs if any
+	if ans1 == nil { // ans1 is nil when alg is disabled
+		ans1 = nonalg
+	}
 
 	res2, err = ans1.Pack()
 	if err != nil {
@@ -618,33 +618,65 @@ func (r *resolver) forward(q []byte, uid string, chosenids ...string) (res0 []by
 		return res2, smm.ID, err
 	}
 
-	ans2, blocklistnames := r.blockA(t, t2, msg, ans1, smm.Blocklists)
+	ans2, blocklistnames := r.blockA(t, t2, msg, nonalg, smm.Blocklists)
 
 	isnewans := ans2 != nil
+	hasblocklists := len(blocklistnames) > 0
+	hasmsg := len(smm.Msg) > 0
+
+	if hasblocklists { // blocklists added even if pref.NOBLOCK is set
+		smm.Blocklists = blocklistnames
+	}
+	if !hasmsg {
+		smm.Msg = errNop.Error() // no error
+	}
 	// do not block, only add blocklists if NOBLOCK is set
 	if !pref.NOBLOCK && isnewans {
 		// overwrite if new answer
 		ans1 = ans2
+		// summary latency, response, status, ips also set by transports
+		smm.RTtl = xdns.RTtl(ans2)
+		smm.RCode = xdns.Rcode(ans2)
+		smm.RData = xdns.GetInterestingRData(ans2)
+		smm.Status = Complete
 		res2, err = ans2.Pack()
 		if err != nil {
+			smm.RTtl = 0
+			smm.RCode = dns.RcodeFormatError
 			smm.Status = BadResponse // TODO: servfail?
 			smm.Msg = err.Error()
-			return res2, smm.ID, err
 		}
-		// summary latency, response, status, ips also set by transport t
-		smm.RData = xdns.GetInterestingRData(ans2)
-		smm.RCode = xdns.Rcode(ans2)
-		smm.RTtl = xdns.RTtl(ans2)
-		smm.Status = Complete
+
+		log.V("dns: fwd: 5 for %s[%s]; query %s:%d, r%d, smm[data: %s, status: %d] blocked",
+			smm.ID, uid, qname, qtyp, run, smm.RData, smm.Status)
+		return res2, smm.ID, err
 	}
-	hasblocklists := len(blocklistnames) > 0
-	if hasblocklists { // blocklists added even if pref.NOBLOCK is set
-		smm.Blocklists = blocklistnames
-	}
+
+	realips := Netip2Csv(xdns.IPs(nonalg))
 	ansblocked := xdns.AQuadAUnspecified(ans1)
 
-	log.V("dns: fwd: 5 for %s[%s]; query %s:%d, smm[data: %s, status: %d]; new-ans? %t, blocklists? %t, blocked? %t",
-		smm.ID, uid, qname, qtyp, smm.RData, smm.Status, isnewans, hasblocklists, ansblocked)
+	log.V("dns: fwd: 6 for %s[%s]; query %s:%d, r%d, ips: %s; smm[data: %s, status: %d]; new-ans? %t, blocklists? %t, blocked? %t",
+		smm.ID, uid, qname, qtyp, realips, run, smm.RData, smm.Status, isnewans, hasblocklists, ansblocked)
+
+	if run == 1 {
+		pref2, ouacompleted := core.Grx("r.onUA."+qname, func(_ context.Context) (*x.DNSOpts, error) {
+			return r.listener.OnUpstreamAnswer(smm, x.StrOf(realips)), nil
+		}, listenerTimeout)
+		if !ouacompleted {
+			log.W("dns: fwd: for %s[%s]; preferences2 missing for %s:%d; ips? %s", smm.ID, uid, qname, qtyp, realips)
+			smm.Status = ClientError
+			smm.Msg = errOnUpstreamAnswerTimeout.Error()
+			smm.ID = NoDNS
+			return nil, NoDNS, errOnUpstreamAnswerTimeout
+		}
+
+		if pref2 != nil && len(pref2.TIDCSV) > 0 && pref2.TIDCSV != pref.TIDCSV {
+			goto runagain // re-run with new pids
+		}
+
+		log.V("dns: fwd: 7 for %s[%s], r%d; preferences2 skipped for %s:%d [ips? %s]: %v",
+			smm.ID, uid, run, qname, qtyp, realips, pref2)
+	}
 
 	return res2, smm.ID, nil
 }

@@ -54,7 +54,9 @@ type DNSSummary struct {
 }
 
 type DNSOpts struct {
-	// csv of proxy ids to use for this query.
+	// csv of proxy ids to use for this query. Not all transports are proxied.
+	// For instance, dnsx.System, dnsx.Local, dnsx.Goos, dnsx.Preset, dnsx.Default
+	// are never proxied.
 	PIDCSV string
 	// csv of ips to answer for this query; incl unspecified ips, if any.
 	// applicable only for A/AAAA queries.
@@ -88,9 +90,15 @@ func (s *DNSSummary) String() string {
 type DNSListener interface {
 	ResolverListener
 	// OnQuery is called when a DNS query is received. The listener
-	// can return a DNSOpts to modify
+	// can return a DNSOpts to specify how the query should be handled.
 	OnQuery(uid, domain *Gostr, qtyp int) *DNSOpts
-	// OnResponse is called when a DNS response is received.
+	// OnUpstreamAnswer is called before an upstream DNS answer (not blocked by firestack) is sent to the OS.
+	// The listener may return DNSOpts to specify if another upstream should override that answer.
+	// Another round of OnQuery is NOT called in this case, but 2 rounds of OnResponse are called if
+	// the DNSOpts returned by OnUpstreamAnswer has a non-empty TIDCSV (overriding the original TIDCSV).
+	OnUpstreamAnswer(smm *DNSSummary, ipcsv *Gostr) *DNSOpts
+	// OnResponse is called when a DNS response is received. May be called twice for the same query,
+	// for instance, when different options are requested through OnUpstreamAnswer.
 	OnResponse(*DNSSummary)
 }
 
