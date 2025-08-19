@@ -341,11 +341,12 @@ func Reaches(p Proxy, urlOrHostPortOrIPPortCsv string, protos ...string) bool {
 		for _, u := range urls {
 			tests = append(tests, httpsReachesWorkCtx(p, u))
 		}
+		threeSecsPerTest := time.Duration(len(tests)) * 3 * time.Second
 
-		ok, who, errs := core.Race("reach.http."+pid, 5*time.Second, tests...)
+		ok, who := core.First("reach.http."+pid, threeSecsPerTest, tests...)
 
-		logeif(!ok)("proxy: %s #%d reaches: %v verdict (https): reachable? %t; errs? %v",
-			pid, who, urlOrHostPortOrIPPortCsv, ok, errs)
+		logeif(!ok)("proxy: %s #%d reaches: %v verdict (https): reachable? %t",
+			pid, who, urlOrHostPortOrIPPortCsv, ok)
 
 		if !ok || len(oth) <= 0 {
 			return ok
