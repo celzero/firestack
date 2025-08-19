@@ -413,7 +413,7 @@ func (proxy *DcMulti) start() error {
 	curve25519.ScalarBaseMult(&proxy.proxyPublicKey, &proxy.proxySecretKey)
 
 	_, err := proxy.Refresh()
-	_ = core.Every("dcmulti.start", proxy.ctx, certRefreshDelay, func() {
+	_ = core.Periodic("dcmulti.start", proxy.ctx, certRefreshDelay, func() {
 		maxtries := 10
 		i := 0
 		for {

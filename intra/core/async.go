@@ -205,9 +205,9 @@ func All[T any](who string, timeout time.Duration, fs ...WorkCtx[T]) ([]T, []err
 	return results, errs
 }
 
-func Every(id string, pctx context.Context, d time.Duration, f func()) context.Context {
+func Periodic(id string, pctx context.Context, d time.Duration, f func()) context.Context {
 	ctx, done := context.WithCancel(pctx)
-	Go("every."+id, func() {
+	Go("periodic."+id, func() {
 		t := time.NewTicker(d)
 		defer t.Stop()
 		defer done()
