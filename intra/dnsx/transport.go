@@ -658,7 +658,7 @@ runagain:
 	ansblocked := xdns.AQuadAUnspecified(ans1)
 
 	log.V("dns: fwd: 6 for %s[%s]; query %s:%d, r%d, ips: %s; smm[data: %s, status: %d]; new-ans? %t, blocklists? %t, blocked? %t",
-		smm.ID, uid, qname, qtyp, realips, run, smm.RData, smm.Status, isnewans, hasblocklists, ansblocked)
+		smm.ID, uid, qname, qtyp, run, realips, smm.RData, smm.Status, isnewans, hasblocklists, ansblocked)
 
 	if run == 1 {
 		pref2, ouacompleted := core.Grx("r.onUA."+qname, func(_ context.Context) (*x.DNSOpts, error) {
