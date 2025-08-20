@@ -256,7 +256,9 @@ func (s *StdNetBind) listenNet(network string, port int) (net.PacketConn, int, e
 	if uaddr == nil {
 		return nil, 0, errNoLocalAddr
 	}
-	log.V("wg: bind: %s %s: listen(%v)", s.id, network, laddr)
+	if settings.Debug {
+		log.VV("wg: bind: %s %s: listen(%v)", s.id, network, laddr)
+	}
 	// typecast is safe, because "network" is always udp[4|6]; see: Open
 	return conn, uaddr.Port, nil
 }
@@ -443,8 +445,10 @@ func (s *StdNetBind) Send(buf [][]byte, peer conn.Endpoint) (err error) {
 	for _, data := range buf {
 		bufok := len(data) > 0
 
-		log.V("wg: bind: send: %s addr(%v) exp? %t, blackhole? %t; noconn? %t; hasbuf? %t",
-			s.id, dstIpp, experimentalWg, blackhole, noconn, bufok)
+		if settings.Debug {
+			log.VV("wg: bind: send: %s addr(%v) exp? %t, blackhole? %t; noconn? %t; hasbuf? %t",
+				s.id, dstIpp, experimentalWg, blackhole, noconn, bufok)
+		}
 
 		if blackhole || !bufok {
 			return nil
@@ -525,8 +529,10 @@ func (s *StdNetBind) flood(c net.PacketConn, dst StdNetEndpoint, why floodkind) 
 			time.Sleep(wait)
 		}
 
-		log.I("wg: bind: %s flood %s %s: expected sent?(%v) / tot(%d)",
-			s.id, why, dst, expectedsent, n)
+		if settings.Debug {
+			log.D("wg: bind: %s flood %s %s: expected sent?(%v) / tot(%d)",
+				s.id, why, dst, expectedsent, n)
+		}
 		return n, nil
 	})
 }

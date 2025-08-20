@@ -24,6 +24,7 @@ import (
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/ipn/multihost"
 	"github.com/celzero/firestack/intra/log"
+	"github.com/celzero/firestack/intra/settings"
 	"golang.org/x/net/ipv4"
 	"golang.org/x/net/ipv6"
 	"golang.zx2c4.com/wireguard/conn"
@@ -248,7 +249,9 @@ func (s *StdNetBind2) listenNet(network string, port int) (*net.UDPConn, int, er
 		log.E("wg: bind2: %s %s: listen(%v); resolve-addr nil", s.id, network, saddr)
 		return nil, 0, errNoLocalAddr
 	}
-	log.D("wg: bind2: %s %s: listen(%v)", s.id, network, laddr)
+	if settings.Debug {
+		log.VV("wg: bind2: %s %s: listen(%v)", s.id, network, laddr)
+	}
 	// typecast is safe, because "network" is always udp[4|6]; see: Open
 	if udpconn, ok := conn.(*net.UDPConn); ok {
 		return udpconn, uaddr.Port, nil
@@ -414,7 +417,9 @@ func (s *StdNetBind2) receiveIP(
 		getSrcFromControl(msg.OOB[:msg.NN], ep)            // no-op on Android
 		eps[i] = ep
 	}
-	log.D("wg: bind2: %s received %d messages", s.id, numMsgs)
+	if settings.Debug {
+		log.VV("wg: bind2: %s received %d messages", s.id, numMsgs)
+	}
 	return numMsgs, nil
 }
 
@@ -606,7 +611,7 @@ retry:
 			}
 			s.mu.Unlock()
 			retried = true
-			log.I("wg: bind2: %s GSO: disabled on %s / v4? %t; err %v", s.id, ua, !is6, err)
+			log.E("wg: bind2: %s GSO: disabled on %s / v4? %t; err %v", s.id, ua, !is6, err)
 			goto retry
 		}
 	} else {
