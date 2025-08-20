@@ -1312,12 +1312,6 @@ func (h *wgproxy) Pause() (paused bool) {
 
 // Resume implements x.Proxy.
 func (h *wgproxy) Resume() (resumed bool) {
-	defer func() {
-		if resumed {
-			h.wgep.Resume()
-		}
-	}()
-
 	st := h.status.Load()
 	if st != TPU {
 		log.W("wg: %s resume called when not paused; status %d", h.tag(), st)
@@ -1325,6 +1319,9 @@ func (h *wgproxy) Resume() (resumed bool) {
 	}
 
 	resumed = h.status.Cas(st, TUP)
+	if resumed {
+		h.wgep.Resume()
+	}
 	go h.Refresh() // refresh unconditionally
 
 	log.I("wg: %s resumed? %t", h.tag(), resumed)
