@@ -1078,16 +1078,16 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []netip.Addr, network, uid strin
 		mustsubst = true
 	}
 
-	log.D("alg: %s<>%s[%s]; %s:%d (do? %t / ad? %t) a6(a %d / h %d / s %t) : a4(a %d / h %d / s %t); ttl: %s",
-		smm.ID, idstr(t1), uid, qname, qtyp, smm.DO, smm.AD, len(a6), len(ip6hints), substok6, len(a4), len(ip4hints), substok4, ansttl)
+	log.D("alg: %s<>%s[%s]; %s:%d (split? %t, do? %t / ad? %t) a6(a %d / h %d / s %t) : a4(a %d / h %d / s %t); ttl: %s",
+		smm.ID, idstr(t1), uid, qname, qtyp, !discarduid, smm.DO, smm.AD, len(a6), len(ip6hints), substok6, len(a4), len(ip4hints), substok4, ansttl)
 	if !substok4 && !substok6 {
 		if mustsubst {
 			err = errAlgCannotSubst
 		} else { // no algips
 			err = nil
 		}
-		logeif(err != nil)("alg: %s<>%s[%s]: skip; err(%v); ips subst %s:%d; fixed? %t",
-			smm.ID, idstr(t1), uid, err, qname, qtyp, usefixed)
+		logeif(err != nil)("alg: %s<>%s[%s]: skip; err(%v); ips subst %s:%d; fixed? %t, split? %t",
+			smm.ID, idstr(t1), uid, err, qname, qtyp, usefixed, !discarduid)
 		return ansin, nil, err // ansin is nil if no alg ips
 	}
 
@@ -1118,8 +1118,8 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []netip.Addr, network, uid strin
 	// the answer, whose ID != to t1 (cacher) itself. OTOH, dnsx.Resolver
 	// uses DNSSummary.ID when returning ans to the caller (ex: ipmapper)
 	tidToReg := smm.ID
-	log.D("alg: ok; for %s<>%s[%s]:%s:%d (do? %t / ad? %t), domains %s real: %s / fix: %s => subst %s | %s; (mod? %t / fix? %t / synth? %t); sec %s; ttl %s",
-		tidToReg, idstr(t1), uid, qname, qtyp, smm.DO, smm.AD, targets, realip, fixedips, algip4, algip6, mod, usefixed, synthAns, secres.ips, ansttl)
+	log.D("alg: ok; for %s<>%s[%s]:%s:%d (do? %t / ad? %t), domains %s real: %s / fix: %s => subst %s | %s; (mod? %t / fix? %t / synth? %t / split? %t); sec %s; ttl %s",
+		tidToReg, idstr(t1), uid, qname, qtyp, smm.DO, smm.AD, targets, realip, fixedips, algip4, algip6, mod, usefixed, synthAns, !discarduid, secres.ips, ansttl)
 
 	// always register algips, even if mod is false, to maintain a hot cache.
 	// if client enables mod later, algips will be instantly available.
