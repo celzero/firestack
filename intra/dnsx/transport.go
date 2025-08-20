@@ -526,14 +526,16 @@ func (r *resolver) forward(q []byte, uid string, chosenids ...string) (res0 []by
 	}
 
 	run := 0
-runagain:
-	run++
 	smm := copySummary(ogsmm)
 
 	// do not use defer func() and do copy: go.dev/play/p/oGUJepa3VUo
 	// must match w/ ID used by alg.go:registerLocked (alg/nat/ptr caches)
 	// as ipmapper uses this ID (tid0) subsequently to undoAlg
-	defer r.queueSummary(copySummary(smm)) // always call up to the listener
+	defer r.queueSummary(smm) // always call up to the listener
+
+runagain:
+	run++
+	*smm = *copySummary(ogsmm)
 
 	log.V("dns: fwd: 1 for %s; query %s:%d, r%d; [prefs:%v; chosen:%v]", uid, qname, qtyp, run, pref, chosenids)
 

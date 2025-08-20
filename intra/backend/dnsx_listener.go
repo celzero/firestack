@@ -94,9 +94,9 @@ type DNSListener interface {
 	OnQuery(uid, domain *Gostr, qtyp int) *DNSOpts
 	// OnUpstreamAnswer is called before an upstream DNS answer (not blocked by firestack) is sent to the OS.
 	// The listener may return DNSOpts to specify if another upstream should override that answer.
-	// Another round of OnQuery is NOT called in this case, but 2 rounds of OnResponse are called if
-	// the DNSOpts returned by OnUpstreamAnswer has a non-empty TIDCSV (overriding the original TIDCSV).
-	OnUpstreamAnswer(smm *DNSSummary, ipcsv *Gostr) *DNSOpts
+	// Another round of OnQuery is NOT called in this case, and OnResponse is called once after processing
+	// DNSOpts returned by OnUpstreamAnswer if it has a non-empty TIDCSV (overriding the original TIDCSV).
+	OnUpstreamAnswer(smm *DNSSummary, unmodifiedipcsv *Gostr) *DNSOpts
 	// OnResponse is called when a DNS response is received. May be called twice for the same query,
 	// for instance, when different options are requested through OnUpstreamAnswer.
 	OnResponse(*DNSSummary)
