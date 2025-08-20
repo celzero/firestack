@@ -1097,6 +1097,9 @@ func (tun *wgtun) MTU() (int, error) {
 }
 
 func (tun *wgtun) BatchSize() int {
+	if tun.preferOffload {
+		return conn.IdealBatchSize
+	}
 	return 1
 }
 
