@@ -839,10 +839,11 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []netip.Addr, network, uid strin
 	var ansin *dns.Msg // answer got from transports
 	var err error
 
-	usepreset := len(preset) > 0              // preset may be nil
-	mod := t.mod.Load()                       // allow alg?
-	discarduid := !t.split.Load()             // do not split tunnel?
-	uidself := uid == protect.UidSelf         // us?
+	usepreset := len(preset) > 0      // preset may be nil
+	mod := t.mod.Load()               // allow alg?
+	discarduid := !t.split.Load()     // do not split tunnel?
+	uidself := uid == protect.UidSelf // us?
+	hasblock := isAnyBlockAll(idstr(t2), idstr(t2))
 	hasfixed := isAnyFixed(idstr(t1))         // fixed transport?
 	usefixed := !usepreset && mod && hasfixed // use preset fixed realips?
 	skipcache := skipInternalCache(idstr(t1), idstr(t2))
@@ -859,7 +860,7 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []netip.Addr, network, uid strin
 	// should not be alg'd as the alg'd ips will end up as "realips" in xips caches.
 	// nb: setting mod = false will achieve the same effect but it goes through
 	// the effort of setting up alg/ptr/nat caches which is wasteful in this case.
-	dontalg := usepreset || skipcache || uidself
+	dontalg := usepreset || skipcache || uidself || hasblock
 	synthAns := usepreset || usefixed
 	hasdnssec := xdns.IsDNSSECRequested(q)
 
