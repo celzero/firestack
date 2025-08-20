@@ -671,6 +671,7 @@ runagain:
 		}
 
 		if pref2 != nil && len(pref2.TIDCSV) > 0 && pref2.TIDCSV != pref.TIDCSV {
+			pref = pref2
 			goto runagain // re-run with new pids
 		}
 
