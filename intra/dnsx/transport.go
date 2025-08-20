@@ -528,10 +528,10 @@ func (r *resolver) forward(q []byte, uid string, chosenids ...string) (res0 []by
 	run := 0
 	smm := copySummary(ogsmm)
 
-	// do not use defer func() and do copy: go.dev/play/p/oGUJepa3VUo
-	// must match w/ ID used by alg.go:registerLocked (alg/nat/ptr caches)
-	// as ipmapper uses this ID (tid0) subsequently to undoAlg
-	defer r.queueSummary(smm) // always call up to the listener
+	// TODO? do not use defer func() and do copy: go.dev/play/p/oGUJepa3VUo
+	defer func() {
+		r.queueSummary(smm) // always call up to the listener
+	}()
 
 runagain:
 	run++
@@ -681,6 +681,8 @@ runagain:
 			smm.ID, uid, run, qname, qtyp, realips, pref2)
 	}
 
+	// return transport ID match w/ ID used by alg.go:registerLocked (alg/nat/ptr caches)
+	// as ipmapper uses this ID (tid0) subsequently to undoAlg
 	return res2, smm.ID, nil
 }
 
