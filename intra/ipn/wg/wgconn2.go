@@ -14,19 +14,16 @@
 package wg
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"net"
 	"net/netip"
-	"strconv"
 	"sync"
 	"syscall"
 
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/ipn/multihost"
 	"github.com/celzero/firestack/intra/log"
-	"github.com/celzero/firestack/intra/protect"
 	"golang.org/x/net/ipv4"
 	"golang.org/x/net/ipv6"
 	"golang.zx2c4.com/wireguard/conn"
@@ -41,10 +38,11 @@ import (
 type StdNetBind2 struct {
 	mu       sync.Mutex // protects following fields
 	id       string
-	ctl      protect.Controller
+	connect  connector
 	observer rwobserver
-	sendAddr *core.Volatile[netip.AddrPort] // may be invalid
-	pm       *multihost.MHMap               // peer ip:port or host => preferred-addrs
+	sendAddr *core.Volatile[netip.AddrPort]   // may be invalid
+	pm       *core.Volatile[*multihost.MHMap] // peer ip:port or host => preferred-addrs
+	amnezia  *core.Volatile[*Amnezia]         // unused; amnezia/warp config, if any
 
 	ipv4 *net.UDPConn
 	ipv6 *net.UDPConn
@@ -113,6 +111,8 @@ var (
 	_ conn.Endpoint = &StdNetEndpoint2{}
 )
 
+var errSplitOverflow = errors.New("wg: splitting coalesced packet resulted in overflow")
+
 func (e ErrUDPGSODisabled) Error() string {
 	return fmt.Sprintf("disabled UDP GSO on %s, NIC(s) may not support checksum offload", e.onLaddr)
 }
@@ -121,12 +121,13 @@ func (e ErrUDPGSODisabled) Unwrap() error {
 	return e.RetryErr
 }
 
-func NewEndpoint2(id string, ctl protect.Controller, pm *multihost.MHMap, f rwobserver) *StdNetBind2 {
+func NewEndpoint2(id string, d connector, pm *core.Volatile[*multihost.MHMap], f rwobserver, a *core.Volatile[*Amnezia]) *StdNetBind2 {
 	return &StdNetBind2{
 		id:       id,
-		ctl:      ctl,
+		connect:  d,
 		observer: f,
 		pm:       pm,
+		amnezia:  a,
 
 		udpAddrPool: sync.Pool{
 			New: func() any {
@@ -165,7 +166,7 @@ func (e *StdNetBind2) ParseEndpoint(s string) (conn.Endpoint, error) {
 		return nil, err
 	}*/
 	// d.Add([]string{host}) // resolves host if needed
-	d, err := e.pm.Get(s)
+	d, err := e.pm.Load().Get(s)
 	if err != nil || d == nil /*nilaway; can't happen*/ {
 		log.E("wg: bind2: %s parse: invalid endpoint in(%s); err: %v", e.id, s, err)
 		return nil, err
@@ -212,36 +213,47 @@ func (s *StdNetBind2) RemoteAddr() netip.AddrPort {
 }
 
 func (s *StdNetBind2) listenNet(network string, port int) (*net.UDPConn, int, error) {
-	lc := protect.MakeNsListenConfigExt(s.id, s.ctl, controlFns)
-	saddr := ":" + strconv.Itoa(port) // wildcard address
-	c, err := lc.ListenPacket(context.Background(), network, saddr)
+	var anyaddr netip.Addr
+	if network == "udp4" {
+		anyaddr = netip.IPv4Unspecified()
+	} else {
+		anyaddr = netip.IPv6Unspecified()
+	}
+	saddr := net.JoinHostPort(anyaddr.String(), fmt.Sprintf("%d", port))
+
+	conn, err := s.connect(network, saddr)
 	if err != nil {
 		log.E("wg: bind2: %s %s: listen(%v); err: %v", s.id, network, saddr, err)
 		return nil, 0, err
 	}
-	if c == nil || core.IsNil(c) {
+	if conn == nil {
 		log.E("wg: bind2: %s %s: listen(%v); conn nil", s.id, network, saddr)
 		return nil, 0, errNoListen
 	}
 
-	caddr := c.LocalAddr()
-	if caddr == nil {
+	laddr := conn.LocalAddr()
+	if laddr == nil {
 		log.E("wg: bind2: %s %s: listen(%v); local-addr nil", s.id, network, saddr)
 		return nil, 0, errNoLocalAddr
 	}
-	src, err := net.ResolveUDPAddr(caddr.Network(), caddr.String())
+	uaddr, err := net.ResolveUDPAddr(
+		laddr.Network(),
+		laddr.String(),
+	)
 	if err != nil {
+		log.E("wg: bind2: %s %s: listen(%v); resolve-addr err: %v", s.id, network, saddr, err)
 		return nil, 0, err
 	}
-	if src == nil {
+	if uaddr == nil {
+		log.E("wg: bind2: %s %s: listen(%v); resolve-addr nil", s.id, network, saddr)
 		return nil, 0, errNoLocalAddr
 	}
-	log.D("wg: bind2: %s %s: listen(%v)", s.id, network, caddr)
-	// typecast is safe; see Open
-	if udpconn, ok := c.(*net.UDPConn); ok {
-		return udpconn, src.Port, nil
+	log.D("wg: bind2: %s %s: listen(%v)", s.id, network, laddr)
+	// typecast is safe, because "network" is always udp[4|6]; see: Open
+	if udpconn, ok := conn.(*net.UDPConn); ok {
+		return udpconn, uaddr.Port, nil
 	} else {
-		clos(c)
+		clos(conn)
 		return nil, 0, errNotUDP
 	}
 }
@@ -327,7 +339,7 @@ func (s *StdNetBind2) receiveIP(
 	eps []conn.Endpoint,
 ) (n int, err error) {
 	defer func() {
-		s.observer("r", err)
+		s.observer(Rcv, err)
 	}()
 
 	if conn == nil && br == nil {
@@ -523,9 +535,9 @@ func (s *StdNetBind2) Send(bufs [][]byte, peer conn.Endpoint) (err error) {
 	defer func() {
 		target := &ErrUDPGSODisabled{}
 		if errors.As(err, target) {
-			s.observer("w", target.Unwrap())
+			s.observer(Snd, target.Unwrap())
 		} else {
-			s.observer("w", err)
+			s.observer(Snd, err)
 		}
 	}()
 
@@ -738,7 +750,7 @@ func splitCoalescedMessages(msgs []ipv6.Message, firstMsgAt int, getGSO getGSOFu
 		}
 		for j := 0; j < numToSplit; j++ {
 			if n > i {
-				return n, errors.New("splitting coalesced packet resulted in overflow")
+				return n, errSplitOverflow
 			}
 			copied := copy(msgs[n].Buffers[0], msg.Buffers[0][start:end])
 			msgs[n].N = copied

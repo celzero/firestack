@@ -167,8 +167,6 @@ func (e *StdNetBind) ParseEndpoint(s string) (conn.Endpoint, error) {
 			return nil, err
 		}
 	*/
-	// do what tailscale does, and share a preferred endpoint regardless of "s"
-	// github.com/tailscale/tailscale/blob/3a6d3f1a5b7/wgengine/magicsock/magicsock.go#L2568
 	// d.Add([]string{host}) // resolves host if needed
 	d, err := e.pm.Load().Get(s)
 	if err != nil || d == nil /*nilaway; can't happen*/ {
@@ -176,6 +174,8 @@ func (e *StdNetBind) ParseEndpoint(s string) (conn.Endpoint, error) {
 		return nil, err
 	}
 
+	// do what tailscale does, and share a preferred endpoint regardless of "s"
+	// github.com/tailscale/tailscale/blob/3a6d3f1a5b7/wgengine/magicsock/magicsock.go#L2568
 	ipport := d.PreferredAddr()
 	if !ipport.IsValid() || ipport.Addr().IsUnspecified() {
 		log.E("wg: bind: %s parse: invalid endpoint; chosen(%v) => in(%s) => out(%s, %s)", e.id, ipport, s, d.Names(), d.Addrs())
@@ -319,6 +319,7 @@ again:
 	return fns, uint16(port), nil
 }
 
+// Pause implements wgconn
 func (s *StdNetBind) Pause() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -331,6 +332,7 @@ func (s *StdNetBind) Pause() bool {
 	return true
 }
 
+// Resume implements wgconn
 func (s *StdNetBind) Resume() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()

@@ -676,10 +676,7 @@ func NewWgProxy(id string, ctl protect.Controller, px ProxyProvider, lp LinkProp
 
 	var wgep wgconn
 	if wgtun.preferOffload {
-		// todo: use wgtun.serve fn instead of ctl
-		// todo: wgtun.remote instead of opts.eps
-		// todo: amnezia/warp config
-		wgep = wg.NewEndpoint2(id, ctl, opts.eps, wgtun.listener)
+		wgep = wg.NewEndpoint2(id, wgtun.serve, wgtun.remote, wgtun.listener, wgtun.amnezia)
 	} else {
 		wgep = wg.NewEndpoint(id, wgtun.serve, wgtun.remote, wgtun.listener, wgtun.amnezia)
 	}
