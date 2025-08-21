@@ -94,8 +94,10 @@ func newTransport(pctx context.Context, id string, do *settings.DNSOptions, px i
 	}
 	ctx, done := context.WithCancel(pctx)
 	var relay string
-	if p, _ := px.ProxyFor(id); p != nil {
-		relay = p.ID().V()
+	if id != dnsx.Bootstrap && id != dnsx.System {
+		if p, _ := px.ProxyFor(id); p != nil {
+			relay = p.ID().V()
+		}
 	}
 	tx := &transport{
 		ctx:      ctx,
@@ -141,7 +143,9 @@ func NewTransportFrom(ctx context.Context, id string, ipp netip.AddrPort, px ipn
 }
 
 func (t *transport) pxdial(network, pid string) (*dns.Conn, string, uintptr, error) {
-	if len(t.relay) > 0 { // relay takes precedence
+	if t.id == dnsx.Bootstrap || t.id == dnsx.System { // bootstrap/default never be proxied
+		pid = dnsx.NetBaseProxy
+	} else if len(t.relay) > 0 { // relay takes precedence
 		pid = t.relay
 	}
 	px, err := t.proxies.ProxyFor(pid)

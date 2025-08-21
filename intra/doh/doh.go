@@ -130,7 +130,7 @@ func newTransport(ctx context.Context, typ, id, rawurl, otargeturl string, addrs
 
 	var renewed bool
 	var relay string
-	if px != nil {
+	if id != dnsx.Bootstrap && px != nil {
 		if p, _ := px.ProxyFor(id); p != nil {
 			relay = p.ID().V()
 		}
@@ -783,7 +783,9 @@ func (t *transport) Query(network string, q *dns.Msg, smm *x.DNSSummary) (r *dns
 	var elapsed time.Duration
 	var qerr *dnsx.QueryError
 
-	if r := t.relay; len(r) > 0 {
+	if t.id == dnsx.Bootstrap { // bootstrap/default never be proxied
+		pid = dnsx.NetBaseProxy
+	} else if r := t.relay; len(r) > 0 {
 		pid = t.chooseProxy(r)
 	} else {
 		_, pids := xdns.Net2ProxyID(network)
