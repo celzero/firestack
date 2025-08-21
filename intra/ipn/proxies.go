@@ -21,8 +21,8 @@ import (
 	x "github.com/celzero/firestack/intra/backend"
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/dialers"
-	"github.com/celzero/firestack/intra/ipn/seasy"
 	"github.com/celzero/firestack/intra/ipn/rpn"
+	"github.com/celzero/firestack/intra/ipn/seasy"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/netstack"
 	"github.com/celzero/firestack/intra/protect"
@@ -81,6 +81,8 @@ func (s pxstatus) String() string {
 		return "idle"
 	case TNT:
 		return "unresponsive"
+	case TPU:
+		return "paused"
 	case END:
 		return "ended"
 	default:
