@@ -56,10 +56,10 @@ func fetchCurrentDNSCryptCert(proxy *DcMulti, serverName *string, pk ed25519.Pub
 	exit := proxy.exit
 
 	if exit == nil {
-		return certinfo{}, dnsx.ErrNoProxyProvider
+		return certinfo{}, log.EE("%v for %s", dnsx.ErrNoProxyProvider, serverAddress)
 	}
 	if len(pk) != ed25519.PublicKeySize {
-		return certinfo{}, errors.New("invalid public key length")
+		return certinfo{}, log.EE("invalid public key length for %s", serverAddress)
 	}
 	if !strings.HasSuffix(providerName, ".") {
 		providerName = providerName + "."
@@ -77,7 +77,7 @@ func fetchCurrentDNSCryptCert(proxy *DcMulti, serverName *string, pk ed25519.Pub
 	in, rtt, err := dnsExchange(exit.Dialer(), &query, serverAddress, serverName)
 	if err != nil || in == nil {
 		log.W("dnscrypt: [%s] TIMEOUT %v", *serverName, err)
-		return certinfo{}, core.OneErr(err, errFetchingCerts)
+		return certinfo{}, log.EE("%v for %s: %v", errFetchingCerts, serverAddress, err)
 	}
 	now := uint32(time.Now().Unix())
 	certInfo := certinfo{CryptoConstruction: xdns.UndefinedConstruction}
@@ -172,7 +172,7 @@ func fetchCurrentDNSCryptCert(proxy *DcMulti, serverName *string, pk ed25519.Pub
 		certCountStr = " - additional certificate"
 	}
 	if certInfo.CryptoConstruction == xdns.UndefinedConstruction {
-		return certInfo, errors.New("no useable cert found")
+		return certInfo, log.EE("no useable cert found for %s", serverAddress)
 	}
 	return certInfo, nil
 }

@@ -201,17 +201,18 @@ func (serversInfo *ServersInfo) refreshServer(proxy *DcMulti, name string, stamp
 }
 
 func fetchServerInfo(proxy *DcMulti, name string, stamp stamps.ServerStamp) (serverinfo, error) {
-	if stamp.Proto == stamps.StampProtoTypeDNSCrypt {
+	switch stamp.Proto {
+	case stamps.StampProtoTypeDNSCrypt:
 		return fetchDNSCryptServerInfo(proxy, name, stamp)
-	} else if stamp.Proto == stamps.StampProtoTypeDoH {
+	case stamps.StampProtoTypeDoH:
 		return fetchDoHServerInfo(proxy, name, stamp)
 	}
-	return serverinfo{}, errors.New("unsupported protocol")
+	return serverinfo{}, log.EE("unsupported protocol for %s", stamp.ServerAddrStr)
 }
 
 func fetchDNSCryptServerInfo(proxy *DcMulti, name string, stamp stamps.ServerStamp) (serverinfo, error) {
 	if len(stamp.ServerPk) != ed25519.PublicKeySize {
-		serverPk, err := hex.DecodeString(strings.Replace(string(stamp.ServerPk), ":", "", -1))
+		serverPk, err := hex.DecodeString(strings.ReplaceAll(string(stamp.ServerPk), ":", ""))
 		if err != nil || len(serverPk) != ed25519.PublicKeySize {
 			return serverinfo{}, fmt.Errorf("unsupported public key for [%s]: [%s]", name, stamp.ServerPk)
 		}
@@ -235,7 +236,7 @@ func fetchDNSCryptServerInfo(proxy *DcMulti, name string, stamp stamps.ServerSta
 		return serverinfo{}, fmt.Errorf("dnscrypt: no ips for [%s]: %v", s, err)
 	}
 	if udpaddr == nil || tcpaddr == nil {
-		return serverinfo{}, errNoServers
+		return serverinfo{}, log.EE("%v for %s", errNoServers, stamp.ServerAddrStr)
 	}
 	px := proxy.proxies
 	var relay string
