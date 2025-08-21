@@ -584,7 +584,10 @@ runagain:
 	var res2 []byte
 	var nonalg, ans1 *dns.Msg // alg'd answer
 
-	netid := xdns.NetAndProxyID(NetTypeUDP, pids)
+	// t, t2 could be different from user-selected sid & pid
+	// when sid and pid fallback on Default or System DNS
+	// in which case, selected proxy must be overriden
+	netid := xdns.NetAndProxyID(NetTypeUDP, overrideProxyIfNeeded(pids, idstr(t), idstr(t2)))
 
 	// with t2 as the secondary transport, which could be nil
 	nonalg, ans1, err = r.gateway.q(t, t2, presetIPs, netid, uid, msg, smm)
