@@ -115,7 +115,7 @@ var (
 var errSplitOverflow = errors.New("wg: splitting coalesced packet resulted in overflow")
 
 func (e ErrUDPGSODisabled) Error() string {
-	return fmt.Sprintf("disabled UDP GSO on %s, NIC(s) may not support checksum offload", e.onLaddr)
+	return fmt.Sprintf("disabled udp gso on %s, NIC(s) may not support checksum offload", e.onLaddr)
 }
 
 func (e ErrUDPGSODisabled) Unwrap() error {
@@ -368,34 +368,36 @@ func (s *StdNetBind2) receiveIP(
 		msg.OOB = msg.OOB[:cap(msg.OOB)]
 	}
 
+	batch := false
 	var numMsgs int
 	if br != nil {
 		if rxOffload {
 			readAt := len(*msgs) - (IdealBatchSize / udpSegmentMaxDatagrams)
 			numMsgs, err = br.ReadBatch((*msgs)[readAt:], 0)
 			waddr := msgAddr(msgs)
-			loge(err)("wg: bind2: %s GRO: readAt(%d) addr(%v) numMsgs(%d) err(%v)", s.id, readAt, waddr, numMsgs, err)
 			if err != nil {
+				log.E("wg: bind2: %s GRO: readAt(%d) addr(%v) numMsgs(%d) err(%v)", s.id, readAt, waddr, numMsgs, err)
 				return 0, err
 			}
 
 			numMsgs, err = splitCoalescedMessages(*msgs, readAt, getGSOSize)
-			loge(err)("wg: bind2: %s GRO: splitCoalescedMessages(at: %d; from: %v) numMsgs(%d) err(%v)", s.id, readAt, waddr, numMsgs, err)
 			if err != nil {
+				log.E("wg: bind2: %s GRO: splitCoalescedMessages(at: %d; from: %v) numMsgs(%d) err(%v)", s.id, readAt, waddr, numMsgs, err)
 				return 0, err
 			}
 		} else {
+			batch = true
 			numMsgs, err = br.ReadBatch(*msgs, 0)
-			loge(err)("wg: bind2: %s ReadBatch(sz: %d; from: %s) numMsgs(%d) err(%v)", s.id, len(*msgs), msgAddr(msgs), numMsgs, err)
 			if err != nil {
+				log.E("wg: bind2: %s ReadBatch(sz: %d; from: %s) numMsgs(%d) err(%v)", s.id, len(*msgs), msgAddr(msgs), numMsgs, err)
 				return 0, err
 			}
 		}
 	} else {
 		msg := &(*msgs)[0]
 		msg.N, msg.NN, _, msg.Addr, err = conn.ReadMsgUDP(msg.Buffers[0], msg.OOB)
-		loge(err)("wg: bind2: %s ReadMsgUDP(sz: %d; from: %v) err(%v)", s.id, msg.N, msg.Addr, err)
 		if err != nil {
+			log.E("wg: bind2: %s ReadMsgUDP(sz: %d; from: %v) err(%v)", s.id, msg.N, msg.Addr, err)
 			return 0, err
 		}
 		numMsgs = 1
@@ -404,7 +406,7 @@ func (s *StdNetBind2) receiveIP(
 	for i := 0; i < numMsgs; i++ {
 		msg := &(*msgs)[i]
 		sizes[i] = msg.N
-		if sizes[i] == 0 {
+		if sizes[i] == 0 && settings.Debug {
 			log.V("wg: bind2: %s zero-sized message from %v", s.id, msg.Addr)
 			continue
 		}
@@ -418,7 +420,7 @@ func (s *StdNetBind2) receiveIP(
 		eps[i] = ep
 	}
 	if settings.Debug {
-		log.VV("wg: bind2: %s received %d messages", s.id, numMsgs)
+		log.VV("wg: bind2: %s received (batch? %t, offload? %t) %d messages", s.id, batch, rxOffload, numMsgs)
 	}
 	return numMsgs, nil
 }
@@ -598,8 +600,9 @@ retry:
 	if offload {
 		n := coalesceMessages(ua, ep, bufs, *msgs, setGSOSize)
 		// send coalesced msgs; ie, len(*msgs) <= len(bufs)
-		err = s.send(c, br, (*msgs)[:n])
-		loge(err)("wg: bind2: %s GSO: send(%d/%d) to %s; err(%v)", s.id, n, len(bufs), ua, err)
+		if err = s.send(c, br, (*msgs)[:n], "gso"); err != nil {
+			log.E("wg: bind2: %s gso: send(%d/%d) to %s; err(%v)", s.id, n, len(bufs), ua, err)
+		}
 
 		if shouldDisableUDPGSOOnError(err) { // err may be nil
 			offload = false
@@ -611,7 +614,7 @@ retry:
 			}
 			s.mu.Unlock()
 			retried = true
-			log.E("wg: bind2: %s GSO: disabled on %s / v4? %t; err %v", s.id, ua, !is6, err)
+			log.E("wg: bind2: %s gso: disabled on %s / v4? %t; err %v", s.id, ua, !is6, err)
 			goto retry
 		}
 	} else {
@@ -623,21 +626,22 @@ retry:
 			setSrcControl(&msg.OOB, ep) // no-op on Android
 		}
 		// send all msgs
-		err = s.send(c, br, (*msgs)[:len(bufs)])
-		loge(err)("wg: bind2: %s GSO: send(%d) to %s (retry? %t); err(%v)", s.id, len(bufs), ua, retried, err)
+		if err = s.send(c, br, (*msgs)[:len(bufs)], "batch"); err != nil {
+			log.E("wg: bind2: %s gso: send(%d) to %s (retry? %t); err(%v)", s.id, len(bufs), ua, retried, err)
+		}
 	}
 	if retried {
 		x := zeroaddr
 		if a := c.LocalAddr(); a != nil {
 			x = a
 		}
-		log.W("wg: bind2: %s disabled UDP GSO on %s; err %v", s.id, x, err)
+		log.W("wg: bind2: %s disabled udp gso on %s; err %v", s.id, x, err)
 		return ErrUDPGSODisabled{onLaddr: x.String(), RetryErr: err}
 	}
 	return err
 }
 
-func (s *StdNetBind2) send(conn *net.UDPConn, pc batchWriter, msgs []ipv6.Message) (err error) {
+func (s *StdNetBind2) send(conn *net.UDPConn, pc batchWriter, msgs []ipv6.Message, who string) (err error) {
 	var n, start int
 
 	batch := pc != nil && core.IsNotNil(pc)
@@ -653,18 +657,22 @@ func (s *StdNetBind2) send(conn *net.UDPConn, pc batchWriter, msgs []ipv6.Messag
 		for _, msg := range msgs {
 			addr, ok := msg.Addr.(*net.UDPAddr)
 			if !ok { // unlikely
-				log.E("wg: bind2: %s wrong addr type %s %T", s.id, msg.Addr, msg.Addr)
+				log.E("wg: bind2: %s send: %s wrong addr type %s %T", s.id, who, msg.Addr, msg.Addr)
 				continue
 			}
 			_, _, err = conn.WriteMsgUDP(msg.Buffers[0], msg.OOB, addr)
 			if err != nil {
-				log.E("wg: bind2: %s send: to %v; err %v", s.id, addr, err)
+				log.E("wg: bind2: %s send: %s to %v; err %v", s.id, who, addr, err)
 				break
 			}
 			n += 1
 		}
 	}
-	loge(err)("wg: bind2: %s send: batch? %t; n(%d); err? %v", s.id, batch, n, err)
+	if err != nil {
+		log.E("wg: bind2: %s send: %s batch? %t; n(%d); err? %v", s.id, who, batch, n, err)
+	} else {
+		log.V("wg: bind2: %s send: %s batch? %t; n(%d); err? %v", s.id, who, batch, n, err)
+	}
 	return err
 }
 

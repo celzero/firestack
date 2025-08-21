@@ -399,8 +399,13 @@ func (s *StdNetBind) makeReceiveFn(uc net.PacketConn) conn.ReceiveFunc {
 			eps[i] = s.asEndpoint(addr)
 		}
 
-		logeif(err != nil && !timedout(err))("wg: bind: %s recvFrom(%v): %d / ov? %t<=%t / err? %v",
-			s.id, addr, n, usingamz, overwritten, err)
+		if err != nil && !timedout(err) {
+			log.E("wg: bind: %s recvFrom(%v): %d / ov? %t<=%t / err? %v",
+				s.id, addr, n, usingamz, overwritten, err)
+		} else if settings.Debug {
+			log.V("wg: bind: %s recvFrom(%v): %d / ov? %t<=%t / err? %v",
+				s.id, addr, n, usingamz, overwritten, err)
+		}
 		return numMsgs, err
 	}
 }
@@ -480,8 +485,14 @@ func (s *StdNetBind) Send(buf [][]byte, peer conn.Endpoint) (err error) {
 
 	s.sendAddr.Store(dstIpp)
 
-	loge(errs)("wg: bind: send: %s addr(%v) parcels(%d) tx(%d) (exp? %t / flood? %t / overw? %t); err? %v",
-		s.id, dstIpp, len(buf), nn, experimentalWg, flooded, overwritten, errs)
+	if errs != nil {
+		log.E("wg: bind: send: %s addr(%v) parcels(%d) tx(%d) (exp? %t / flood? %t / overw? %t); err? %v",
+			s.id, dstIpp, len(buf), nn, experimentalWg, flooded, overwritten, errs)
+	} else if settings.Debug {
+		log.V("wg: bind: send: %s addr(%v) parcels(%d) tx(%d) (exp? %t / flood? %t / overw? %t); err? %v",
+			s.id, dstIpp, len(buf), nn, experimentalWg, flooded, overwritten, errs)
+	}
+
 	return errs
 }
 
@@ -620,13 +631,6 @@ func loge(err error) log.LogFn {
 		l = log.W
 	}
 	return l
-}
-
-func logeif(cond bool) log.LogFn {
-	if cond {
-		return log.E
-	}
-	return log.V
 }
 
 func extend(c core.MinConn, t time.Duration) {
