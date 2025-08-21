@@ -148,7 +148,9 @@ func (x *muxer) awaiters() {
 	for {
 		select {
 		case c := <-x.dxconns:
-			log.D("udp: mux: %s awaiter: watching %s => %s", c.cid, c.laddr, c.raddr)
+			if settings.Debug {
+				log.D("udp: mux: %s awaiter: watching %s => %s", c.cid, c.laddr, c.raddr)
+			}
 			x.dxconnWG.Add(1) // accept
 			core.Gx("udpmux.vend.close", func() {
 				<-c.closed // conn closed
@@ -165,7 +167,9 @@ func (x *muxer) awaiters() {
 // stop closes conns in the backlog, stops accepting new conns,
 // closes muxconn, and waits for demuxed conns to close.
 func (x *muxer) stop() error {
-	log.D("udp: mux: %s stop", x.cid)
+	if settings.Debug {
+		log.D("udp: mux: %s stop", x.cid)
+	}
 
 	var err error
 	x.once.Do(func() {
@@ -187,7 +191,9 @@ func (x *muxer) drain() {
 	defer x.rmu.Unlock()
 
 	defer clear(x.routes)
-	log.D("udp: mux: %s drain: closing %d demuxed conns", x.cid, len(x.routes))
+	if settings.Debug {
+		log.D("udp: mux: %s drain: closing %d demuxed conns", x.cid, len(x.routes))
+	}
 	for _, c := range x.routes {
 		clos(c) // will unroute as well
 	}
@@ -225,7 +231,9 @@ func (x *muxer) readers() {
 			if timeouterrors < maxtimeouterrors {
 				// extend by preset (min) udp timeout
 				x.extend(time.Now().Add(time.Second * udptimeout))
-				log.D("udp: mux: %s read timeout(%d): %v", x.cid, timeouterrors, err)
+				if settings.Debug {
+					log.D("udp: mux: %s read timeout(%d): %v", x.cid, timeouterrors, err)
+				}
 				recycle()
 				continue
 			}
@@ -427,8 +435,10 @@ func (c *demuxconn) WriteTo(p []byte, to net.Addr) (int, error) {
 
 // Close implements core.UDPConn.Close
 func (c *demuxconn) Close() error {
-	log.D("udp: mux: %s demux %s => %s close, in: %d, over: %d",
-		c.out.id(), c.laddr, c.raddr, len(c.inCh), len(c.overflowCh))
+	if settings.Debug {
+		log.D("udp: mux: %s demux %s => %s close, in: %d, over: %d",
+			c.out.id(), c.laddr, c.raddr, len(c.inCh), len(c.overflowCh))
+	}
 	c.once.Do(func() {
 		close(c.closed) // sig close
 		defer c.wt.Stop()
@@ -511,7 +521,9 @@ func (c *demuxconn) io(out *[]byte, in *slice) (int, error) {
 			return n, io.ErrShortWrite
 		}
 	} else {
-		log.VV("udp: mux: %s demux: read: %v <= %v done(sz: %d)", id, c.laddr, c.raddr, n)
+		if settings.Debug {
+			log.VV("udp: mux: %s demux: read: %v <= %v done(sz: %d)", id, c.laddr, c.raddr, n)
+		}
 		in.fin()
 	}
 	return n, nil

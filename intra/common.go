@@ -189,7 +189,7 @@ func (h *baseHandler) onFlow(localaddr, target netip.AddrPort) (fm *Mark, undidA
 		hasNewIPs := false
 		if hasPre {
 			for d := range strings.SplitSeq(doms, ",") {
-				if len(d) <= 0 {
+				if len(d) <= 0 && settings.Debug {
 					log.V("com: %s: onFlow: preflow: empty domain in %v from %v => %v for %s; skip!",
 						h.proto, doms, src, target, preuid)
 					continue
@@ -211,12 +211,16 @@ func (h *baseHandler) onFlow(localaddr, target netip.AddrPort) (fm *Mark, undidA
 			return fm, undidAlg, "", ""
 		} // else: if we've got target and/or old ips, dial them
 	} else {
-		log.D("com: %s: onFlow: noalg? %t or hasips? %t", h.proto, !undidAlg, hasOldIPs)
+		if settings.Debug {
+			log.D("com: %s: onFlow: noalg? %t or hasips? %t", h.proto, !undidAlg, hasOldIPs)
+		}
 	}
 
 	if len(ips) <= 0 || len(doms) <= 0 {
-		log.D("com: %s: onFlow: no realips(%s) or domains(%s + %s), for src=%s dst=%s",
-			h.proto, ips, doms, pdoms, localaddr, target)
+		if settings.Debug {
+			log.D("com: %s: onFlow: no realips(%s) or domains(%s + %s), for src=%s dst=%s",
+				h.proto, ips, doms, pdoms, localaddr, target)
+		}
 	}
 
 	fm, ok := core.Grx(h.proto+".flow", func(_ context.Context) (*Mark, error) {
@@ -306,7 +310,9 @@ func (h *baseHandler) queueSummary(s *SocketSummary) {
 	// log.VV("com: %s: queueSummary: %x %x %s", h.proto, h.smmch, h.ctx, s.ID)
 	select {
 	case <-h.ctx.Done():
-		log.D("%s: queueSummary: end: %s", h.proto, s)
+		if settings.Debug {
+			log.D("%s: queueSummary: end: %s", h.proto, s)
+		}
 	default:
 		select {
 		case <-h.ctx.Done():
@@ -343,7 +349,9 @@ func (h *baseHandler) sendSummary(s *SocketSummary, after time.Duration) {
 		time.Sleep(after)
 	}
 
-	log.VV("com: %s: end? sendNotif: %s", h.proto, s)
+	if settings.Debug {
+		log.VV("com: %s: end? sendNotif: %s", h.proto, s)
+	}
 	h.listener.OnSocketClosed(s) // s.Duration may be uninitialized (zero)
 }
 
@@ -431,8 +439,10 @@ func upload(id string, local, remote net.Conn, ioch chan<- ioinfo) {
 
 	n, err := core.Pipe(remote, local)
 
-	log.D("com: %s upload(%d) done(%v) b/w %s",
-		id, n, err, conn2str(local, remote))
+	if settings.Debug {
+		log.D("com: %s upload(%d) done(%v) b/w %s",
+			id, n, err, conn2str(local, remote))
+	}
 	ioch <- ioinfo{n, err}
 }
 
@@ -442,8 +452,10 @@ func download(id string, local, remote net.Conn) (n int64, err error) {
 
 	n, err = core.Pipe(local, remote)
 
-	log.D("com: %s download(%d) done(%v) b/w %s",
-		id, n, err, conn2str(local, remote))
+	if settings.Debug {
+		log.D("com: %s download(%d) done(%v) b/w %s",
+			id, n, err, conn2str(local, remote))
+	}
 	return
 }
 
@@ -488,8 +500,10 @@ func makeIPPorts(ips []netip.Addr, origipp netip.AddrPort, cap int) []netip.Addr
 		} // else: discard ip
 	}
 
-	log.VV("com: makeIPPorts(v4? %t, v6? %t) for %v; tot: %d; in: %v, out: %v",
-		use4, use6, origipp, len(ips), ips, r)
+	if settings.Debug {
+		log.VV("com: makeIPPorts(v4? %t, v6? %t) for %v; tot: %d; in: %v, out: %v",
+			use4, use6, origipp, len(ips), ips, r)
+	}
 
 	if len(r) > 0 {
 		return core.ShuffleInPlace(r)
@@ -604,8 +618,10 @@ func (h *baseHandler) maybeReplaceDest(res *Mark, target *netip.AddrPort) {
 		return
 	} else if resip, err := netip.ParseAddr(res.IP); resip.IsValid() && err == nil {
 		// if res.IP is set, then use it as the target
-		log.D("%s: proxy: %s %s target instead of %s",
-			h.proto, res.CID, resip, target)
+		if settings.Debug {
+			log.D("%s: proxy: %s %s target instead of %s",
+				h.proto, res.CID, resip, target)
+		}
 		*target = netip.AddrPortFrom(resip, target.Port())
 	}
 }

@@ -195,7 +195,9 @@ func (h *udpHandler) Connect(gconn *netstack.GUDPConn, src, target netip.AddrPor
 	smm = udpSummary(cid, uid, actualTargets[0].Addr())
 
 	if h.status.Load() == HDLEND {
-		log.D("udp: connect: %s %v => %v, end", cid, src, target)
+		if settings.Debug {
+			log.D("udp: connect: %s %v => %v, end", cid, src, target)
+		}
 		return nil, smm, errUdpEnd // disconnect, no nat
 	}
 
@@ -259,14 +261,18 @@ func (h *udpHandler) Connect(gconn *netstack.GUDPConn, src, target netip.AddrPor
 
 	if mux {
 		if muxpid := h.mux.pid(src); len(muxpid) > 0 && containsPid(pids, muxpid) {
-			log.D("udp: connect: %s mux: %s => %s using muxed-pid %s; all pids %s",
-				cid, src, target, muxpid, pids)
+			if settings.Debug {
+				log.D("udp: connect: %s mux: %s => %s using muxed-pid %s; all pids %s",
+					cid, src, target, muxpid, pids)
+			}
 			pids = []string{muxpid}
 		} // else: mxr will dial this conn with a different pid
 	}
 
-	log.VV("udp: connect: %s proxying %s => %s [%v] for %s; pids: %s, mux? %t",
-		cid, src, target, actualTargets, uid, pids, mux)
+	if settings.Debug {
+		log.VV("udp: connect: %s proxying %s => %s [%v] for %s; pids: %s, mux? %t",
+			cid, src, target, actualTargets, uid, pids, mux)
+	}
 
 	// note: fake-dns-ips shouldn't be un-nated / un-alg'd
 	for i, dstipp := range actualTargets {
@@ -290,8 +296,10 @@ func (h *udpHandler) Connect(gconn *netstack.GUDPConn, src, target netip.AddrPor
 		if mux { // mux is not supported by all proxies (few like Exit, Base, WG support it)
 			pc, err = h.mux.associate(cid, pxid, uid, src, selectedTarget, px.Dialer().Announce, vendor(dmx))
 		} else {
-			log.VV("udp: connect: #%d: attempt: %s proxy(%s) to dst(%s) for %s; mux? %t",
-				i, cid, pxid, selectedTarget, uid, mux)
+			if settings.Debug {
+				log.VV("udp: connect: #%d: attempt: %s proxy(%s) to dst(%s) for %s; mux? %t",
+					i, cid, pxid, selectedTarget, uid, mux)
+			}
 
 			if settings.PortForward.Load() {
 				boundSrc := makeAnyAddrPort(src)
