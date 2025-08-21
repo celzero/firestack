@@ -506,8 +506,10 @@ func (t *transport) multifetch(req *http.Request, pid string) (res *http.Respons
 	rpid = ipn.ViaID(px)
 	c3, c0 := t.httpClientsFor(px) // c3 may be nil
 
-	log.VV("doh: using proxy %s+%s:%s ech? %t / other? %t",
-		px.ID(), rpid, px.GetAddr(), c3 != nil, c0 != nil)
+	if settings.Debug {
+		log.VV("doh: using proxy %s+%s:%s ech? %t / other? %t",
+			px.ID(), rpid, px.GetAddr(), c3 != nil, c0 != nil)
+	}
 
 	clients := []*http.Client{c3, c0}
 
@@ -672,7 +674,9 @@ func (t *transport) do(pid string, req *http.Request) (ans []byte, rpid, blockli
 		return
 	}
 	core.Close(res.Body)
-	log.V("doh: closed response of sz %d; used ech? %t", len(ans), withech)
+	if settings.Debug {
+		log.V("doh: closed response of sz %d; used ech? %t", len(ans), withech)
+	}
 
 	// update the hostname, which could have changed due to a redirect
 	// for ex, 1.1.1.1 or cloudflare-dns.com => one.one.one.one
@@ -823,8 +827,10 @@ func (t *transport) Query(network string, q *dns.Msg, smm *x.DNSSummary) (r *dns
 	if err != nil {
 		smm.Msg = err.Error()
 	}
-	log.V("doh: (p/px/via %s/%s/%s); a:%d/sz:%d/pad:%d, q: %s:%d, data: %s, code: %d, via: %s, err? %v",
-		network, pid, rpid, xdns.Len(r), xdns.Size(r), xdns.EDNS0PadLen(r), smm.QName, smm.QType, smm.RData, smm.RCode, smm.PID, err)
+	if settings.Debug {
+		log.V("doh: (p/px/via %s/%s/%s); a:%d/sz:%d/pad:%d, q: %s:%d, data: %s, code: %d, via: %s, err? %v",
+			network, pid, rpid, xdns.Len(r), xdns.Size(r), xdns.EDNS0PadLen(r), smm.QName, smm.QType, smm.RData, smm.RCode, smm.PID, err)
+	}
 	return r, err
 }
 

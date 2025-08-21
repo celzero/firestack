@@ -321,7 +321,9 @@ func (p *xips) realips(uid string, s xaddrstatus) (pri []netip.Addr) {
 		// those are made redundant by primary.
 		pri = append(pri, anyaddr4, anyaddr6)
 	}
-	log.VV("alg: xips: x(%s): zz(%s)? %t; %v", s, uid, zz, pri)
+	if settings.Debug {
+		log.VV("alg: xips: x(%s): zz(%s)? %t; %v", s, uid, zz, pri)
+	}
 	return pri // may be nil / empty
 }
 
@@ -348,7 +350,9 @@ func (p *xips) ipsFor(tid, uid string, t xaddrtyp, s xaddrstatus) (out []netip.A
 
 	if t == xpri && (tid == notransport || tid == NoDNS || len(tid) <= 0) {
 		out = p.allips(xpri, s)
-		log.VV("alg: xips: xof(%s,%s): no tid? %s[%s]; returning all %v", t, s, tid, uid, out)
+		if settings.Debug {
+			log.VV("alg: xips: xof(%s,%s): no tid? %s[%s]; returning all %v", t, s, tid, uid, out)
+		}
 		return
 	}
 
@@ -371,7 +375,9 @@ func (p *xips) ipsFor(tid, uid string, t xaddrtyp, s xaddrstatus) (out []netip.A
 		out = p.pri[tid].all()
 	}
 
-	log.VV("alg: xips: xof(%s,%s): tid %s + uid %s; %v", t, s, tid, uid, out)
+	if settings.Debug {
+		log.VV("alg: xips: xof(%s,%s): tid %s + uid %s; %v", t, s, tid, uid, out)
+	}
 	return
 }
 
@@ -404,7 +410,9 @@ func (p *xips) rmv(tid string) (done bool) {
 		}
 	}
 	if done = i > 0 || j > 0; done {
-		log.D("alg: xips: rmv(%s): pri(%d), sec(%d); ok? %t", tid, i, j, done)
+		if settings.Debug {
+			log.D("alg: xips: rmv(%s): pri(%d), sec(%d); ok? %t", tid, i, j, done)
+		}
 	}
 	return
 }
@@ -918,8 +926,10 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []netip.Addr, network, uid strin
 		if !xdns.HasRcodeSuccess(ansin) {
 			return ansin, nil, err
 		}
-		log.D("alg: for %s:%s err but ans ok: %d; do? %t, self? %t synth? %t; qerr %v",
-			qname(q), qtype(q), xdns.Len(ansin), hasdnssec, uidself, synthAns, err)
+		if settings.Debug {
+			log.D("alg: for %s:%s err but ans ok: %d; do? %t, self? %t synth? %t; qerr %v",
+				qname(q), qtype(q), xdns.Len(ansin), hasdnssec, uidself, synthAns, err)
+		}
 	}
 
 	hasauth64 := false
@@ -933,8 +943,10 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []netip.Addr, network, uid strin
 	// if usefixed is true, then d64 is no-op, as preset fixed ip does have ipv6
 	ans64 := t.dns64.D64(network, t1.ID().V(), uid, ansin) // ans64 may be nil if no D64 or error
 	if ans64 != nil {
-		log.D("alg: %s<>%s:%s[%s] %d dns64; dnssec? %t; s/ans(%d)/ans64(%d)",
-			qname, smm.ID, idstr(t1), uid, qtyp, hasdnssec, xdns.Len(ansin), xdns.Len(ans64))
+		if settings.Debug {
+			log.D("alg: %s<>%s:%s[%s] %d dns64; dnssec? %t; s/ans(%d)/ans64(%d)",
+				qname, smm.ID, idstr(t1), uid, qtyp, hasdnssec, xdns.Len(ansin), xdns.Len(ans64))
+		}
 		withDNS64Summary(ans64, smm)
 		// todo: for uidself, skip dns64? see: ipmapper.go:undoAlgAndOrNat64
 		// todo: skip for for undelegated domains like ipv4only.arpa?
@@ -961,8 +973,10 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []netip.Addr, network, uid strin
 
 	// todo: skip alg for undelegated domains like ipv4only.arpa?
 	if !hasq || !hasans || !rgood || ans0000 || dontalg {
-		log.D("alg: skip; query %s<>%s[%s]:%s:%d / a:%d + rdata: %s + status: %d, dnssec(do? %t /ad? %t) self(%t) dontalg(%t) hasq(%t) hasans(%t) rgood(%t), ans0000(%t)",
-			smm.ID, idstr(t1), uid, qname, qtyp, xdns.Len(ansin), smm.RData, smm.Status, smm.DO, smm.AD, uidself, dontalg, hasq, hasans, rgood, ans0000)
+		if settings.Debug {
+			log.D("alg: skip; query %s<>%s[%s]:%s:%d / a:%d + rdata: %s + status: %d, dnssec(do? %t /ad? %t) self(%t) dontalg(%t) hasq(%t) hasans(%t) rgood(%t), ans0000(%t)",
+				smm.ID, idstr(t1), uid, qname, qtyp, xdns.Len(ansin), smm.RData, smm.Status, smm.DO, smm.AD, uidself, dontalg, hasq, hasans, rgood, ans0000)
+		}
 		return ansin, nil, nil
 	}
 
@@ -996,8 +1010,10 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []netip.Addr, network, uid strin
 		xdns.BustAndroidCacheIfNeeded(outmsg)
 
 		if isAlgErr(outerr) && !mod {
-			log.D("alg: %s<>%s[%s]:%s:%d no mod; suppress err %v",
-				smm.ID, idstr(t1), uid, qname, qtyp, outerr)
+			if settings.Debug {
+				log.D("alg: %s<>%s[%s]:%s:%d no mod; suppress err %v",
+					smm.ID, idstr(t1), uid, qname, qtyp, outerr)
+			}
 			outerr = nil // ignore alg errors if no modification is desired
 		}
 	}()
@@ -1078,8 +1094,10 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []netip.Addr, network, uid strin
 		mustsubst = true
 	}
 
-	log.D("alg: %s<>%s[%s]; %s:%d (split? %t, do? %t / ad? %t) a6(a %d / h %d / s %t) : a4(a %d / h %d / s %t); ttl: %s",
-		smm.ID, idstr(t1), uid, qname, qtyp, !discarduid, smm.DO, smm.AD, len(a6), len(ip6hints), substok6, len(a4), len(ip4hints), substok4, ansttl)
+	if settings.Debug {
+		log.D("alg: %s<>%s[%s]; %s:%d (split? %t, do? %t / ad? %t) a6(a %d / h %d / s %t) : a4(a %d / h %d / s %t); ttl: %s",
+			smm.ID, idstr(t1), uid, qname, qtyp, !discarduid, smm.DO, smm.AD, len(a6), len(ip6hints), substok6, len(a4), len(ip4hints), substok4, ansttl)
+	}
 	if !substok4 && !substok6 {
 		if mustsubst {
 			err = errAlgCannotSubst
@@ -1118,8 +1136,10 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []netip.Addr, network, uid strin
 	// the answer, whose ID != to t1 (cacher) itself. OTOH, dnsx.Resolver
 	// uses DNSSummary.ID when returning ans to the caller (ex: ipmapper)
 	tidToReg := smm.ID
-	log.D("alg: ok; for %s<>%s[%s]:%s:%d (do? %t / ad? %t), domains %s real: %s / fix: %s => subst %s | %s; (mod? %t / fix? %t / synth? %t / split? %t); sec %s; ttl %s",
-		tidToReg, idstr(t1), uid, qname, qtyp, smm.DO, smm.AD, targets, realip, fixedips, algip4, algip6, mod, usefixed, synthAns, !discarduid, secres.ips, ansttl)
+	if settings.Debug {
+		log.D("alg: ok; for %s<>%s[%s]:%s:%d (do? %t / ad? %t), domains %s real: %s / fix: %s => subst %s | %s; (mod? %t / fix? %t / synth? %t / split? %t); sec %s; ttl %s",
+			tidToReg, idstr(t1), uid, qname, qtyp, smm.DO, smm.AD, targets, realip, fixedips, algip4, algip6, mod, usefixed, synthAns, !discarduid, secres.ips, ansttl)
+	}
 
 	// always register algips, even if mod is false, to maintain a hot cache.
 	// if client enables mod later, algips will be instantly available.
@@ -1691,8 +1711,10 @@ func (t *dnsgateway) resolvLocked(domain string, typ iptype, tid, uid string) (i
 				break
 			}
 		}
-		log.V("alg: resolv: %s:%s[%s] => alg ip4 %d, ip6 %d (until: %s); stale %v",
-			domain, tid, uid, len(ip4s), len(ip6s), until, staleips)
+		if settings.Debug {
+			log.V("alg: resolv: %s:%s[%s] => alg ip4 %d, ip6 %d (until: %s); stale %v",
+				domain, tid, uid, len(ip4s), len(ip6s), until, staleips)
+		}
 	case typreal:
 		for i := range 2 { // a = 0, https/svcb = 1+
 			k4 := partkey4 + strconv.Itoa(i)
@@ -1722,8 +1744,10 @@ func (t *dnsgateway) resolvLocked(domain string, typ iptype, tid, uid string) (i
 				break
 			} // continue
 		}
-		log.V("alg: resolv: %s:%s[%s] => real(ip4 %d, ip6 %d) until: %s; stale %v",
-			domain, tid, uid, len(ip4s), len(ip6s), until, staleips)
+		if settings.Debug {
+			log.V("alg: resolv: %s:%s[%s] => real(ip4 %d, ip6 %d) until: %s; stale %v",
+				domain, tid, uid, len(ip4s), len(ip6s), until, staleips)
+		}
 	case typsecondary:
 		for i := range 2 { // a = 0, https/svcb = 1+
 			k4 := partkey4 + strconv.Itoa(i)
@@ -1753,8 +1777,10 @@ func (t *dnsgateway) resolvLocked(domain string, typ iptype, tid, uid string) (i
 				break
 			} // continue
 		}
-		log.V("alg: resolv: %s:%s[%s] => secondary ip4 %d, ip6 %d (until: %s); stale %v",
-			domain, tid, uid, len(ip4s), len(ip6s), until, staleips)
+		if settings.Debug {
+			log.V("alg: resolv: %s:%s[%s] => secondary ip4 %d, ip6 %d (until: %s); stale %v",
+				domain, tid, uid, len(ip4s), len(ip6s), until, staleips)
+		}
 	}
 
 	return
@@ -1885,16 +1911,20 @@ func Req(t Transport, network string, q *dns.Msg, smm *x.DNSSummary) (*dns.Msg, 
 	r, err := t.Query(network, q, smm)
 
 	if r == nil {
-		log.V("alg: Req: %s:%d no answer; by: %s, rdata: %s, status: %d; err? %v",
-			qname, qtyp, smm.ID, smm.RData, smm.Status, err)
+		if settings.Debug {
+			log.V("alg: Req: %s:%d no answer; by: %s, rdata: %s, status: %d; err? %v",
+				qname, qtyp, smm.ID, smm.RData, smm.Status, err)
+		}
 		return nil, err // err may be nil
 	}
 	if !xdns.IsServFailOrInvalid(r) {
 		return r, nil
 	}
 
-	log.V("alg: Req: %s:%d servfail; by: %s, rdata: %d, status: %d, rcode %d",
-		qname, qtyp, smm.ID, smm.RData, smm.Status, xdns.Rcode(r))
+	if settings.Debug {
+		log.V("alg: Req: %s:%d servfail; by: %s, rdata: %d, status: %d, rcode %d",
+			qname, qtyp, smm.ID, smm.RData, smm.Status, xdns.Rcode(r))
+	}
 	return r, err
 }
 

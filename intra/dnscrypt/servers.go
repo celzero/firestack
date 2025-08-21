@@ -32,6 +32,7 @@ import (
 	"github.com/celzero/firestack/intra/dnsx"
 	"github.com/celzero/firestack/intra/ipn"
 	"github.com/celzero/firestack/intra/log"
+	"github.com/celzero/firestack/intra/settings"
 	"github.com/celzero/firestack/intra/xdns"
 	"github.com/miekg/dns"
 
@@ -101,7 +102,9 @@ func (serversInfo *ServersInfo) getAll() []*serverinfo {
 			servers = append(servers, si)
 		}
 	}
-	log.V("dnscrypt: getAll: servers [%d/%d]", len(servers), len(serversInfo.inner))
+	if settings.Debug {
+		log.V("dnscrypt: getAll: servers [%d/%d]", len(servers), len(serversInfo.inner))
+	}
 	return servers
 }
 
@@ -120,7 +123,9 @@ retry:
 	for _, si := range serversInfo.inner {
 		if i == candidate || selectAny {
 			if si != nil && si.status.Load() != dnsx.DEnd {
-				log.V("dnscrypt: candidate [%v]", si) // may be nil?
+				if settings.Debug {
+					log.V("dnscrypt: candidate [%v]", si) // may be nil?
+				}
 				serverInfo = si
 				break
 			}
@@ -168,7 +173,9 @@ func (serversInfo *ServersInfo) registerServer(name string, stamp stamps.ServerS
 }
 
 func (serversInfo *ServersInfo) refresh(proxy *DcMulti) ([]string, error) {
-	log.D("dnscrypt: refreshing certificates")
+	if settings.Debug {
+		log.D("dnscrypt: refreshing certificates")
+	}
 	var liveServers []string
 	var err error
 	for _, registeredServer := range serversInfo.registeredServers {

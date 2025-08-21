@@ -22,6 +22,7 @@ import (
 	"github.com/celzero/firestack/intra/ipn"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
+	"github.com/celzero/firestack/intra/settings"
 	"github.com/celzero/firestack/intra/xdns"
 	"github.com/miekg/dns"
 )
@@ -267,7 +268,9 @@ func (b *bootstrap) Query(network string, q *dns.Msg, smm *x.DNSSummary) (*dns.M
 	smm.Type = b.typ
 	smm.UID = protect.UidSelf
 	if tr := b.tr; tr != nil {
-		log.V("dns: default: %s query? %t", network, q != nil)
+		if settings.Debug {
+			log.V("dns: default: %s query? %t", network, q != nil)
+		}
 		return dnsx.Req(tr, network, q, smm)
 	}
 	smm.Status = dnsx.TransportError // InternalError?

@@ -157,8 +157,10 @@ func (t *transport) pxdial(network, pid string) (*dns.Conn, string, uintptr, err
 		return c, rpid, who, nil
 	}
 
-	log.V("dns53: pxdial: (%s) using %s relay/proxy %s at %s",
-		t.id, network, px.ID(), px.GetAddr())
+	if settings.Debug {
+		log.V("dns53: pxdial: (%s) using %s relay/proxy %s at %s",
+			t.id, network, px.ID(), px.GetAddr())
+	}
 
 	pxconn, err := px.Dialer().Dial(network, t.addrport)
 	if err != nil {
@@ -198,7 +200,9 @@ func (t *transport) fromPool(id uintptr) (c *dns.Conn) {
 		log.W("dns53: pool: (%s) not a dns.Conn for %d!", t.id, id)
 		return &dns.Conn{Conn: pooled}
 	}
-	log.V("dns53: pool: (%s) got conn for %d", t.id, id)
+	if settings.Debug {
+		log.V("dns53: pool: (%s) got conn for %d", t.id, id)
+	}
 	return
 }
 
@@ -308,8 +312,10 @@ func (t *transport) Query(network string, q *dns.Msg, smm *x.DNSSummary) (ans *d
 	smm.Status = status
 	t.est.Add(smm.Latency)
 
-	log.V("dns53: (%s) len(res): %d, data: %s, via: %s, err? %v",
-		t.id, xdns.Len(ans), smm.RData, smm.PID, err)
+	if settings.Debug {
+		log.V("dns53: (%s) len(res): %d, data: %s, via: %s, err? %v",
+			t.id, xdns.Len(ans), smm.RData, smm.PID, err)
+	}
 
 	return ans, err
 }

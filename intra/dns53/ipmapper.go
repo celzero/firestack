@@ -20,6 +20,7 @@ import (
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
 	"github.com/celzero/firestack/intra/protect/ipmap"
+	"github.com/celzero/firestack/intra/settings"
 	"github.com/celzero/firestack/intra/xdns"
 	"github.com/miekg/dns"
 )
@@ -122,7 +123,9 @@ func (m *ipmapper) queryIP2(_ context.Context, network, host, uid string, tid ..
 		return []netip.Addr{ip}, nil
 	}
 
-	log.V("ipmapper: lookup: host %s:%s for %s on %v", network, host, uid, tid)
+	if settings.Debug {
+		log.V("ipmapper: lookup: host %s:%s for %s on %v", network, host, uid, tid)
+	}
 
 	var q4, q6 []byte
 	var err4, err6 error
@@ -197,8 +200,10 @@ func (m *ipmapper) queryIP2(_ context.Context, network, host, uid string, tid ..
 	ip6 = m.undoAlgAndOrNat64(ip6, tid6, uid) // nat64 cannot really be "undone" for ip6!
 	ips := append(ip4, ip6...)
 
-	log.D("ipmapper: host %s => ips (out: %v / in: %d+%d); uid: %s, tids: %s+%s; err4: %v, err6: %v",
-		host, ips, len(r4), len(r6), uid, tid4, tid6, lerr4, lerr6)
+	if settings.Debug {
+		log.D("ipmapper: host %s => ips (out: %v / in: %d+%d); uid: %s, tids: %s+%s; err4: %v, err6: %v",
+			host, ips, len(r4), len(r6), uid, tid4, tid6, lerr4, lerr6)
+	}
 	return ips, nil
 }
 
@@ -216,7 +221,9 @@ func (m *ipmapper) queryAny2(q []byte, uid string, tids ...string) ([]byte, erro
 	qtype := int(xdns.QType(msg))
 	qtypestr := strconv.Itoa(qtype)
 
-	log.V("ipmapper: lookup: host %s, uid: %v", qname, uid)
+	if settings.Debug {
+		log.V("ipmapper: lookup: host %s, uid: %v", qname, uid)
+	}
 
 	var v *core.V[answer, string]
 	if len(tids) > 0 {
@@ -269,7 +276,9 @@ func (m *ipmapper) locallookup(q []byte) func() (answer, error) {
 func (m *ipmapper) undoAlg(ans []byte, tid, uid string) ([]byte, error) {
 	gw := m.g
 	if gw == nil {
-		log.V("ipmapper: undoAlg: no-op for %s[%s]; no gateway", tid, uid)
+		if settings.Debug {
+			log.V("ipmapper: undoAlg: no-op for %s[%s]; no gateway", tid, uid)
+		}
 		return ans, nil
 	}
 
@@ -286,8 +295,10 @@ func (m *ipmapper) undoAlg(ans []byte, tid, uid string) ([]byte, error) {
 	is6 := !is4 && xdns.HasAAAAQuestion(msg)
 
 	if !is4 && !is6 || noips {
-		log.VV("ipmapper: undoAlg: no a? (%t), aaaa? (%t), ans? (%t); no-op",
-			!is4, !is6, noips)
+		if settings.Debug {
+			log.VV("ipmapper: undoAlg: no a? (%t), aaaa? (%t), ans? (%t); no-op",
+				!is4, !is6, noips)
+		}
 		return ans, nil
 	}
 
@@ -348,7 +359,9 @@ func (m *ipmapper) undoAlgAndOrNat64(ip64 []netip.Addr, tid, uid string) []netip
 	// based on the dialers.Use4/Use6 settings.
 	gw := m.g
 	if gw == nil {
-		log.V("ipmapper: undoAlg: no-op for %v on %s[%s]; no gateway", ip64, tid, uid)
+		if settings.Debug {
+			log.V("ipmapper: undoAlg: no-op for %v on %s[%s]; no gateway", ip64, tid, uid)
+		}
 		return ip64
 	}
 	realips := make([]netip.Addr, 0, len(ip64))

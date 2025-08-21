@@ -20,6 +20,7 @@ import (
 	"github.com/celzero/firestack/intra/ipn"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
+	"github.com/celzero/firestack/intra/settings"
 	"github.com/celzero/firestack/intra/xdns"
 )
 
@@ -72,6 +73,9 @@ func SetSystemDNS(t Tunnel, ipcsvx *x.Gostr) error {
 	// this is the case if kotlin-land is unable to determine
 	// DNS servers. This is equivalent to using x.Goos Transport.
 	if strings.HasPrefix(ipcsv, "localhost") {
+		if settings.Debug {
+			log.D("dns: system dns is localhost, using loopback")
+		}
 		ipcsv = localip4 + "," + localip6
 	}
 

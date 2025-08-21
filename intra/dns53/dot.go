@@ -22,6 +22,7 @@ import (
 	"github.com/celzero/firestack/intra/dnsx"
 	"github.com/celzero/firestack/intra/ipn"
 	"github.com/celzero/firestack/intra/log"
+	"github.com/celzero/firestack/intra/settings"
 	"github.com/celzero/firestack/intra/xdns"
 	"github.com/miekg/dns"
 	_ "go4.org/unsafe/assume-no-moving-gc"
@@ -230,8 +231,10 @@ func (t *dot) pxdial(pid string) (*dns.Conn, string, uintptr, bool, error) {
 	}
 	pid = px.ID().V()
 	rpid := ipn.ViaID(px)
-	log.V("dot: pxdial: (%s) using relay/proxy %s (via: %s) at %s",
-		t.id, pid, rpid, px.GetAddr())
+	if settings.Debug {
+		log.V("dot: pxdial: (%s) using relay/proxy %s (via: %s) at %s",
+			t.id, pid, rpid, px.GetAddr())
+	}
 
 	c, who, ech, err := t.tlsdial(px)
 	return c, rpid, who, ech, err
@@ -261,7 +264,9 @@ func (t *dot) fromPool(id uintptr) (c *dns.Conn) {
 	if c, ok = pooled.(*dns.Conn); !ok { // unlikely
 		return &dns.Conn{Conn: pooled}
 	}
-	log.V("dot: pool: (%s) got conn from %v", t.id, id)
+	if settings.Debug {
+		log.V("dot: pool: (%s) got conn from %v", t.id, id)
+	}
 	return
 }
 
@@ -352,8 +357,10 @@ func (t *dot) Query(network string, q *dns.Msg, smm *x.DNSSummary) (ans *dns.Msg
 	smm.Status = status
 	t.est.Add(smm.Latency)
 
-	log.V("dot: %s ech? %t; len(res): fro %s:%d a:%d/sz:%d/pad:%d, data: %s / status: %d, via: %s, err? %v",
-		t.id, ech, smm.QName, smm.QType, xdns.Len(ans), xdns.Size(ans), xdns.EDNS0PadLen(ans), smm.RData, smm.Status, smm.PID, err)
+	if settings.Debug {
+		log.V("dot: %s ech? %t; len(res): fro %s:%d a:%d/sz:%d/pad:%d, data: %s / status: %d, via: %s, err? %v",
+			t.id, ech, smm.QName, smm.QType, xdns.Len(ans), xdns.Size(ans), xdns.EDNS0PadLen(ans), smm.RData, smm.Status, smm.PID, err)
+	}
 
 	return
 }

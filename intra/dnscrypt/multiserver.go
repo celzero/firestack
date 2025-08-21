@@ -32,6 +32,7 @@ import (
 	"github.com/celzero/firestack/intra/ipn"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
+	"github.com/celzero/firestack/intra/settings"
 	"github.com/celzero/firestack/intra/xdns"
 	"github.com/miekg/dns"
 	"golang.org/x/crypto/curve25519"
@@ -349,8 +350,10 @@ func resolve(network string, data *dns.Msg, si *serverinfo, smm *x.DNSSummary) (
 		smm.PID = pid
 	}
 
-	log.V("dnscrypt: len(res): %d, data: %s, via: %s, err? %v",
-		xdns.Len(ans), smm.RData, smm.PID, err)
+	if settings.Debug {
+		log.V("dnscrypt: len(res): %d, data: %s, via: %s, err? %v",
+			xdns.Len(ans), smm.RData, smm.PID, err)
+	}
 
 	return // ans, err
 }
@@ -375,7 +378,9 @@ func (proxy *DcMulti) refreshOne(uid string) (bool, error) {
 		log.E("dnscrypt: refresh failed %s: %s; err: %v", r.name, stamp2str(r.stamp), err)
 		return false, err
 	}
-	log.D("dnscrypt: refresh success %s: %s", r.name, stamp2str(r.stamp))
+	if settings.Debug {
+		log.D("dnscrypt: refresh success %s: %s", r.name, stamp2str(r.stamp))
+	}
 	return true, nil
 }
 
@@ -523,7 +528,9 @@ func (proxy *DcMulti) RemoveGateways(routescsv string) (int, error) {
 	if l != n { // routes changed
 		go proxy.refreshRoutes()
 	}
-	log.V("dnscrypt: removed %d/%d; relays: %s", l-n, l, routescsv)
+	if settings.Debug {
+		log.V("dnscrypt: removed %d/%d; relays: %s", l-n, l, routescsv)
+	}
 	return l - n, nil
 }
 
@@ -534,7 +541,9 @@ func (proxy *DcMulti) removeOne(uid string) int {
 
 	// TODO: handle err
 	n, err := proxy.serversInfo.unregisterServer(uid)
-	log.D("dnscrypt: removed %s; %d servers (err? %v)", uid, n, err)
+	if settings.Debug {
+		log.D("dnscrypt: removed %s; %d servers (err? %v)", uid, n, err)
+	}
 	return n
 }
 
@@ -543,7 +552,9 @@ func (proxy *DcMulti) Remove(uid *x.Gostr) bool {
 	// may be a gateway / relay or a dnscrypt server
 	n := proxy.removeOne(uid.V())
 	nr, nerr := proxy.RemoveGateways(uid.V())
-	log.D("dnscrypt: removed %s; %d servers; %d relays [err %v]", uid, n, nr, nerr)
+	if settings.Debug {
+		log.D("dnscrypt: removed %s; %d servers; %d relays [err %v]", uid, n, nr, nerr)
+	}
 	return true
 }
 
@@ -580,7 +591,9 @@ func (proxy *DcMulti) addOne(uid, rawstamp string) (string, error) {
 	proxy.registeredServers[uid] = registeredserver{name: uid, stamp: stamp}
 	proxy.Unlock()
 
-	log.D("dnscrypt: added [%s] %s", uid, stamp2str(stamp))
+	if settings.Debug {
+		log.D("dnscrypt: added [%s] %s", uid, stamp2str(stamp))
+	}
 	return uid, nil
 }
 

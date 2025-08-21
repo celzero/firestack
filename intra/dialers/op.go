@@ -14,6 +14,7 @@ import (
 
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/log"
+	"github.com/celzero/firestack/intra/settings"
 )
 
 // Copy one buffer from src to dst, using dst.Write.
@@ -81,7 +82,9 @@ func writeTCPSplit(w net.Conn, hello []byte) (n int, err error) {
 		log.E("op: splits: TCP2 %s (%d): err %v", to, len(second), err)
 		return p + q, err
 	}
-	log.D("op: splits: %s=>%s; TCP: %d/%d,%d/%d", from, to, p, len(first), q, len(second))
+	if settings.Debug {
+		log.D("op: splits: %s=>%s; TCP: %d/%d,%d/%d", from, to, p, len(first), q, len(second))
+	}
 
 	return p + q, nil
 }
@@ -94,7 +97,9 @@ func writeTCPOrTLSSplit(w net.Conn, hello []byte) (n int, err error) {
 
 	if len(hello) <= 1 {
 		n, err = w.Write(hello)
-		log.D("op: splits: %s=>%s; len(hello) <= 1; n: %d; err: %v", from, to, n, err)
+		if settings.Debug {
+			log.D("op: splits: %s=>%s; len(hello) <= 1; n: %d; err: %v", from, to, n, err)
+		}
 		return
 	}
 
