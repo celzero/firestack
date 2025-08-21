@@ -288,7 +288,6 @@ func (e *endpoint) swap(fd int, force bool) (err error) {
 
 	f, err := newTun(fd) // fd may be invalid (ex: -1)
 	if err != nil || f == nil {
-		f = invalidFds // nilaway
 		clos(fd)
 		return log.EE("ns: tun(%d): swap: err: %v / %v; using invalidfd", fd, err)
 	}
