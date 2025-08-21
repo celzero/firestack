@@ -100,7 +100,9 @@ func (t *gtunnel) waitForEndpoint(ctx context.Context) {
 	waitStart := time.Now()
 	i := 0
 
-	defer log.I("tun: waiter: done; #%d, %s", i, core.FmtTimeAsPeriod(waitStart))
+	defer func() {
+		log.I("tun: waiter: done; #%d, %s", i, core.FmtTimeAsPeriod(waitStart))
+	}()
 
 	for i < maxchecks && !t.closed.Load() {
 		// wait a bit to let the endpoint settle
