@@ -624,7 +624,7 @@ retry:
 		}
 		// send all msgs
 		err = s.send(c, br, (*msgs)[:len(bufs)])
-		loge(err)("wg: bind2: %s send(%d) to %s (retry? %t); err(%v)", s.id, len(bufs), ua, retried, err)
+		loge(err)("wg: bind2: %s GSO: send(%d) to %s (retry? %t); err(%v)", s.id, len(bufs), ua, retried, err)
 	}
 	if retried {
 		x := zeroaddr
@@ -640,7 +640,8 @@ retry:
 func (s *StdNetBind2) send(conn *net.UDPConn, pc batchWriter, msgs []ipv6.Message) (err error) {
 	var n, start int
 
-	if pc != nil && core.IsNotNil(pc) {
+	batch := pc != nil && core.IsNotNil(pc)
+	if batch {
 		for {
 			n, err = pc.WriteBatch(msgs[start:], 0)
 			if err != nil || n == len(msgs[start:]) {
@@ -660,9 +661,10 @@ func (s *StdNetBind2) send(conn *net.UDPConn, pc batchWriter, msgs []ipv6.Messag
 				log.E("wg: bind2: %s send: to %v; err %v", s.id, addr, err)
 				break
 			}
+			n += 1
 		}
 	}
-	loge(err)("wg: bind2: %s send: n(%d); err? %v", s.id, n, err)
+	loge(err)("wg: bind2: %s send: batch? %t; n(%d); err? %v", s.id, batch, n, err)
 	return err
 }
 
