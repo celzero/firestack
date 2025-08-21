@@ -363,20 +363,20 @@ func (proxy *DcMulti) LiveTransports() *x.Gostr {
 	return x.StrOf(strings.Join(proxy.liveServers[:], ","))
 }
 
-func (proxy *DcMulti) refreshOne(uid string) bool {
+func (proxy *DcMulti) refreshOne(uid string) (bool, error) {
 	proxy.RLock()
 	r, ok := proxy.registeredServers[uid]
 	proxy.RUnlock()
 
 	if !ok {
-		return false
+		return false, errNoServers
 	}
 	if err := proxy.serversInfo.refreshServer(proxy, r.name, r.stamp); err != nil {
 		log.E("dnscrypt: refresh failed %s: %s; err: %v", r.name, stamp2str(r.stamp), err)
-		return false
+		return false, err
 	}
 	log.D("dnscrypt: refresh success %s: %s", r.name, stamp2str(r.stamp))
-	return true
+	return true, nil
 }
 
 // Refresh re-registers servers
@@ -708,7 +708,7 @@ func AddTransport(p *DcMulti, id, serverstamp string) (*serverinfo, error) {
 		return nil, dnsx.ErrNoDcProxy
 	}
 	if _, err := p.addOne(id, serverstamp); err == nil {
-		if ok := p.refreshOne(id); ok {
+		if ok, err := p.refreshOne(id); ok {
 			log.I("dnscrypt: added %s; %s", id, serverstamp)
 			if tr := p.serversInfo.get(id); tr != nil {
 				go p.refreshRoutes()
@@ -719,7 +719,7 @@ func AddTransport(p *DcMulti, id, serverstamp string) (*serverinfo, error) {
 		} else {
 			log.W("dnscrypt: failed to add2 %s; %s", id, serverstamp)
 			p.removeOne(id)
-			return nil, errNoCert
+			return nil, core.OneErr(err, errNoCert)
 		}
 	} else {
 		return nil, err

@@ -224,7 +224,7 @@ func dnsExchange(dialer protect.RDialer, query *dns.Msg, serverAddress string, s
 	var err error
 	options := 0
 
-	for tries := 0; tries < 4; tries++ {
+	for tries := range 4 {
 		queryCopy := query.Copy()
 		queryCopy.Id += uint16(options)
 		timeout := time.Duration(200*tries) * time.Millisecond
