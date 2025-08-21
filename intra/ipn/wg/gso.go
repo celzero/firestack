@@ -90,17 +90,25 @@ func supportsUDPOffload(conn *net.UDPConn) (txOffload, rxOffload bool) {
 		log.W("wg: gso: syscall conn nil")
 		return
 	}
+
+	var opt int
+	var errSyscallTx, errSyscallRx error
 	err = rc.Control(func(fd uintptr) {
-		_, errSyscall := unix.GetsockoptInt(int(fd), unix.IPPROTO_UDP, unix.UDP_SEGMENT)
-		txOffload = errSyscall == nil
-		opt, errSyscall := unix.GetsockoptInt(int(fd), unix.IPPROTO_UDP, unix.UDP_GRO)
-		rxOffload = errSyscall == nil && opt == 1
+		_, errSyscallTx = unix.GetsockoptInt(int(fd), unix.IPPROTO_UDP, unix.UDP_SEGMENT)
+		opt, errSyscallRx = unix.GetsockoptInt(int(fd), unix.IPPROTO_UDP, unix.UDP_GRO)
+
 	})
+
 	if err != nil {
 		log.W("wg: gso: no support; err: %v", err)
-		return false, false
+		return
 	}
-	log.I("wg: gso: txOffload: %v, rxOffload: %v", txOffload, rxOffload)
+
+	txOffload = errSyscallTx == nil
+	rxOffload = errSyscallRx == nil && opt == 1
+
+	log.I("wg: gso: txOffload: %t (errTx: %v), rxOffload: %t (opt: %d; errRx: %v)",
+		txOffload, rxOffload, errSyscallTx, opt, errSyscallRx)
 	return txOffload, rxOffload
 }
 
