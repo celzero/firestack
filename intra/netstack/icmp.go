@@ -117,41 +117,29 @@ func (f *icmpForwarder) reply4(id stack.TransportEndpointID, pkt *stack.PacketBu
 		if !f.h.Ping(data, src, dst) { // unreachable
 			err = f.icmpErr4(pkt, header.ICMPv4DstUnreachable, header.ICMPv4HostUnreachable)
 		} else { // reachable
-			newOptions := f.ipOpts(pkt, ipHdr)
+			originRef := replyData.AsSlice()
+			replyBuf := buffer.NewViewSize(len(originRef))
+			replyRef := replyBuf.AsSlice()
 
-			// Correct IP header length (IHL in 32-bit words).
-			replyHeaderLength := uint8(header.IPv4MinimumSize + len(newOptions))
-			replyIPHdrView := buffer.NewView(int(replyHeaderLength))
-			replyIPHdrView.Write(ipHdr[:header.IPv4MinimumSize])
-			replyIPHdrView.Write(newOptions)
-
-			replyIPHdr := header.IPv4(replyIPHdrView.AsSlice())
-			replyIPHdr.SetHeaderLength(replyHeaderLength >> 2) // IHL in 32-bit words.
-			replyIPHdr.SetSourceAddress(route.LocalAddress())
-			replyIPHdr.SetDestinationAddress(route.RemoteAddress())
-			replyIPHdr.SetTTL(route.DefaultTTL())
-			replyIPHdr.SetTotalLength(uint16(len(replyIPHdr) + len(replyData.AsSlice())))
-			replyIPHdr.SetChecksum(0)
-			replyIPHdr.SetChecksum(^replyIPHdr.CalculateChecksum())
-
-			replyICMPHdr := header.ICMPv4(replyData.AsSlice())
+			copy(replyRef[4:], originRef[4:])
+			replyICMPHdr := header.ICMPv4(replyRef)
 			replyICMPHdr.SetType(header.ICMPv4EchoReply)
 			replyICMPHdr.SetCode(0) // EchoReply must have Code=0.
-			replyICMPHdr.SetChecksum(0)
-			replyICMPHdr.SetChecksum(^checksum.Checksum(replyData.AsSlice(), 0))
+			replyICMPHdr.SetChecksum(^checksum.Checksum(replyRef, 0))
 
-			replyBuf := buffer.MakeWithView(replyIPHdrView)
-			replyBuf.Append(replyData.Clone())
 			replyPkt := stack.NewPacketBuffer(stack.PacketBufferOptions{
 				ReserveHeaderBytes: int(route.MaxHeaderLength()),
-				Payload:            replyBuf,
+				Payload:            buffer.MakeWithView(replyBuf),
 			})
 
 			log.D("icmp: v4: %s: ok type %v/%v sz[%d] from %v <= %v",
 				f.o, replyICMPHdr.Type(), replyICMPHdr.Code(), len(replyICMPHdr), src, dst)
 
 			// github.com/google/gvisor/blob/738e1d995f/pkg/tcpip/network/ipv4/icmp.go#L794
-			err = route.WriteHeaderIncludedPacket(replyPkt)
+			err = route.WritePacket(stack.NetworkHeaderParams{
+				Protocol: header.ICMPv4ProtocolNumber,
+				TTL:      route.DefaultTTL(),
+			}, replyPkt)
 		}
 		loge(err)("icmp: v4: %s: wrote reply to tun; err? %v", f.o, err)
 	})
