@@ -490,8 +490,12 @@ func (px *proxifier) ProxyTo(ipp netip.AddrPort, uid string, pids []string) (_ P
 	chosen := has(pids, pinnedpid)
 	lo := local(pinnedpid)
 
-	log.VV("proxy: pin: %s+%s; pinned: %s; chosen? %t / local? %t; from pids: %v",
-		uid, ippstr, pinnedpid, chosen, lo, pids)
+	log.VV("proxy: pin: %s+%s; pinned: %s (ok? %t); chosen? %t / local? %t; from pids: %v",
+		uid, ippstr, pinnedpid, pinok, chosen, lo, pids)
+
+	if !pinok { // discard pinnedpid if pin has expired
+		pinnedpid = ""
+	}
 
 	if pinok && chosen && lo {
 		// always favour remote proxy pins over local, if any
@@ -504,6 +508,8 @@ func (px *proxifier) ProxyTo(ipp netip.AddrPort, uid string, pids []string) (_ P
 			}
 			px.delpin(uid, ipp) // del pin if no route
 		} // else: pinnedpid not ok (ex: END/TPU) or no route
+		log.W("proxy: pin: %s+%s; chosen and pinned: %s (but err? %v); hasproxy? %t (or no route)",
+			uid, ippstr, pinnedpid, err, p != nil)
 	} else if pinok && !chosen {
 		px.delpin(uid, ipp)
 	}
@@ -524,7 +530,7 @@ func (px *proxifier) ProxyTo(ipp netip.AddrPort, uid string, pids []string) (_ P
 	}()
 
 	for _, pid := range pids {
-		if pid == pinnedpid { // already tried above
+		if pinok && pid == pinnedpid { // already tried above
 			continue
 		}
 		if local(pid) { // skip local; prefer remote
