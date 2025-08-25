@@ -447,15 +447,18 @@ func (px *proxifier) removeProxy(id string, force bool) bool {
 // May return both a Proxy and an error, in which case, the error
 // denotes that while the Proxy is not healthy, it is still registered.
 func (px *proxifier) ProxyTo(ipp netip.AddrPort, uid string, pids []string) (_ Proxy, err error) {
+	ippstr := ipp.String()
+	e := func(err error) error {
+		return fmt.Errorf("%v for %s to %s among %v", err, uid, ippstr, pids)
+	}
 	if len(pids) <= 0 || firstEmpty(pids) {
-		return nil, errMissingProxyID
+		return nil, e(errMissingProxyID)
 	}
 	if !ipp.IsValid() {
-		return nil, errMissingAddress
+		return nil, e(errMissingAddress)
 	}
 
 	stalledSec := uint32(0)
-	ippstr := ipp.String()
 
 	if len(pids) == 1 { // there's no other pid to choose from
 		p, err := px.pinID(uid, ipp, pids[0]) // repin
@@ -468,7 +471,7 @@ func (px *proxifier) ProxyTo(ipp netip.AddrPort, uid string, pids []string) (_ P
 		if p != nil {
 			if !hasroute(p, ippstr) {
 				px.delpin(uid, ipp)
-				return nil, errProxyRoute
+				return nil, e(core.JoinErr(err, errProxyRoute))
 			} // there is only one pid to route to
 
 			// alwaysPin is set to true, so wipe out err; return p, even if err is not nil
@@ -477,7 +480,7 @@ func (px *proxifier) ProxyTo(ipp netip.AddrPort, uid string, pids []string) (_ P
 				return p, nil
 			}
 		}
-		return nil, err
+		return nil, e(err)
 	}
 
 	var lopinned string
@@ -516,8 +519,8 @@ func (px *proxifier) ProxyTo(ipp netip.AddrPort, uid string, pids []string) (_ P
 	}
 
 	defer func() {
-		logev(err)("proxy: pin: %s+%s; stalled? %ds; miss: %v; notok: %v; noroute: %v; paused %v; ended %v",
-			uid, ipp, stalledSec, missproxies, notokproxies, norouteproxies, pausedproxies, endproxies)
+		logev(err)("proxy: pin: %s+%s; stalled? %ds; local: %v; miss: %v; notok: %v; noroute: %v; paused %v; ended %v",
+			uid, ipp, stalledSec, loproxies, missproxies, notokproxies, norouteproxies, pausedproxies, endproxies)
 	}()
 
 	for _, pid := range pids {
@@ -584,18 +587,18 @@ func (px *proxifier) ProxyTo(ipp netip.AddrPort, uid string, pids []string) (_ P
 	stalledSec = px.stall(uid + ippstr)
 
 	if len(notokproxies) > 0 {
-		return nil, errNoProxyHealthy
+		return nil, e(errNoProxyHealthy)
 	} else if len(missproxies) > 0 {
-		return nil, errProxyNotFound
+		return nil, e(errProxyNotFound)
 	} else if len(norouteproxies) > 0 {
-		return nil, errProxyRoute
+		return nil, e(errProxyRoute)
 	} else if len(endproxies) > 0 {
-		return nil, errProxyStopped
+		return nil, e(errProxyStopped)
 	} else if len(pausedproxies) > 0 {
-		return nil, errProxyPaused
+		return nil, e(errProxyPaused)
 	}
 
-	return nil, errProxyAllDown
+	return nil, e(errProxyAllDown)
 }
 
 func (px *proxifier) stall(k string) (secs uint32) {
