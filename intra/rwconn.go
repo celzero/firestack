@@ -24,12 +24,20 @@ type rwext struct {
 
 var _ core.RetrierConn = (*rwext)(nil)
 
-func (rw rwext) SetTimeoutSockOpt() (secs int, didSet bool) {
+func (rw rwext) SetTimeout() (secs int, didSet bool) {
 	r, w := rw.deadlines()
 	secs = max(int(r), int(w))
 	if r > 0 {
 		// always returns false for udp conns
 		didSet = core.SetTimeoutSockOpt(rw.Unwrap(), secs*1000)
+	}
+	if !didSet {
+		if dx, ok := rw.Unwrap().(*demuxconn); ok {
+			// udp demuxconn: set on underlying conn
+			extendr(dx, time.Second*time.Duration(r))
+			extendw(dx, time.Second*time.Duration(w))
+			didSet = true
+		}
 	}
 	return
 }
