@@ -128,7 +128,7 @@ func (h *udpHandler) ProxyMux(gconn *netstack.GUDPConn, src, dst netip.AddrPort,
 func (h *udpHandler) Error(gconn *netstack.GUDPConn, src, target netip.AddrPort, err error) {
 	defer clos(gconn) // if open
 
-	log.W("udp: proxy: %v =>  %v; err %v", src, target, err)
+	log.W("udp: proxy: %v => %v; err %v", src, target, err)
 	if !src.IsValid() || !target.IsValid() {
 		return
 	}
@@ -196,13 +196,13 @@ func (h *udpHandler) Connect(gconn *netstack.GUDPConn, src, target netip.AddrPor
 
 	if h.status.Load() == HDLEND {
 		if settings.Debug {
-			log.D("udp: connect: %s %v => %v, end", cid, src, target)
+			log.D("udp: connect: %s [%s] %v => %v, end", cid, uid, src, target)
 		}
 		return nil, smm, errUdpEnd // disconnect, no nat
 	}
 
 	if !target.IsValid() { // must call h.Bind?
-		log.E("udp: connect: %s %s => %s; invalid dst", cid, src, target)
+		log.E("udp: connect: %s [%s] %s => %s; invalid dst", cid, uid, src, target)
 		return nil, smm, errUdpUnconnected
 	}
 
@@ -217,15 +217,16 @@ func (h *udpHandler) Connect(gconn *netstack.GUDPConn, src, target netip.AddrPor
 			defer clos(gconn)
 			defer h.queueSummary(smm.done(err))
 			secs := h.stall(fid)
-			log.I("udp: %s firewalled from %s => %s (dom: %s / real: %s) for %s; stall? %ds",
-				cid, src, target, domains, realips, uid, secs)
+			log.I("udp: %s [%s] firewalled from %s => %s (dom: %s / real: %s) for %s; stall? %ds",
+				cid, uid, src, target, domains, realips, uid, secs)
 		})
 		return nil, nil, nil // disconnect override, no dst
 	}
 
 	// connect gconn right away, since we assume a duplex-stream from here on
 	if err = gconn.Establish(); err != nil {
-		log.W("udp: connect: %s gconn.Est, mux? %t, %s => %s err: %v", cid, mux, src, target, err)
+		log.W("udp: connect: %s [%s] gconn.Est, mux? %t, %s => %s err: %v",
+			cid, uid, mux, src, target, err)
 		return nil, smm, err // disconnect
 	}
 
@@ -262,16 +263,16 @@ func (h *udpHandler) Connect(gconn *netstack.GUDPConn, src, target netip.AddrPor
 	if mux {
 		if muxpid := h.mux.pid(src); len(muxpid) > 0 && containsPid(pids, muxpid) {
 			if settings.Debug {
-				log.D("udp: connect: %s mux: %s => %s using muxed-pid %s; all pids %s",
-					cid, src, target, muxpid, pids)
+				log.D("udp: connect: %s [%s] mux: %s => %s using muxed-pid %s; all pids %s",
+					cid, uid, src, target, muxpid, pids)
 			}
 			pids = []string{muxpid}
 		} // else: mxr will dial this conn with a different pid
 	}
 
 	if settings.Debug {
-		log.VV("udp: connect: %s proxying %s => %s [%v] for %s; pids: %s, mux? %t",
-			cid, src, target, actualTargets, uid, pids, mux)
+		log.VV("udp: connect: %s [%s] proxying %s => %s [%v]; pids: %s, mux? %t",
+			cid, uid, src, target, actualTargets, pids, mux)
 	}
 
 	// note: fake-dns-ips shouldn't be un-nated / un-alg'd
@@ -288,7 +289,7 @@ func (h *udpHandler) Connect(gconn *netstack.GUDPConn, src, target netip.AddrPor
 		selectedTarget = dstipp
 
 		if err != nil || px == nil {
-			log.W("udp: connect: #%d: %s failed to get proxy from %s: %v", i, cid, pidstr(px), err)
+			log.W("udp: connect: #%d: %s [%s] failed to get proxy from %s: %v", i, cid, uid, pidstr(px), err)
 			errs = err // disconnect if loop terminates
 			continue
 		}
@@ -297,8 +298,8 @@ func (h *udpHandler) Connect(gconn *netstack.GUDPConn, src, target netip.AddrPor
 			pc, err = h.mux.associate(cid, pxid, uid, src, selectedTarget, px.Dialer().Announce, vendor(dmx))
 		} else {
 			if settings.Debug {
-				log.VV("udp: connect: #%d: attempt: %s proxy(%s) to dst(%s) for %s; mux? %t",
-					i, cid, pxid, selectedTarget, uid, mux)
+				log.VV("udp: connect: #%d: attempt: %s [%s] proxy(%s) to dst(%s); mux? %t",
+					i, cid, uid, pxid, selectedTarget, mux)
 			}
 
 			if settings.PortForward.Load() {
@@ -316,8 +317,8 @@ func (h *udpHandler) Connect(gconn *netstack.GUDPConn, src, target netip.AddrPor
 		errs = err // store just the last err; complicates logging
 		end := time.Since(smm.start)
 		smm.Rtt = time.Since(rttstart).Milliseconds()
-		log.W("udp: connect: #%d: %s failed; mux? %t, addr(%s) / fallback? %t; for uid %s (rtt:%dms, dur:%s) w err(%v)",
-			i, cid, mux, dstipp, fallingback, uid, smm.Rtt, core.FmtPeriod(end), err)
+		log.W("udp: connect: #%d: %s [%s] failed; mux? %t, addr(%s) / fallback? %t; (rtt:%dms, dur:%s) w err(%v)",
+			i, cid, uid, mux, dstipp, fallingback, smm.Rtt, core.FmtPeriod(end), err)
 		if end > retryTimeout {
 			break
 		}
@@ -330,7 +331,7 @@ func (h *udpHandler) Connect(gconn *netstack.GUDPConn, src, target netip.AddrPor
 	}
 
 	if !selectedTarget.IsValid() {
-		log.E("udp: connect: %s no target addr for %s from %v; uid %s", cid, target, actualTargets, uid)
+		log.E("udp: connect: %s [%s] no target addr for %s from %v", cid, uid, target, actualTargets)
 		return nil, smm, errUdpNoTarget
 	}
 
@@ -341,8 +342,8 @@ func (h *udpHandler) Connect(gconn *netstack.GUDPConn, src, target netip.AddrPor
 	if errs != nil {
 		return nil, smm, errs // disconnect
 	} else if px == nil || pc == nil || core.IsNil(pc) {
-		log.W("udp: connect: %s no proxy/egress-conn (mux? %t) for addr(%s/%s), uid %s",
-			cid, mux, target, selectedTarget, uid)
+		log.W("udp: connect: %s [%s] no proxy/egress-conn (mux? %t) for addr(%s/%s)",
+			cid, uid, mux, target, selectedTarget)
 		return nil, smm, errUdpSetupConn // disconnect
 	}
 
@@ -354,13 +355,13 @@ func (h *udpHandler) Connect(gconn *netstack.GUDPConn, src, target netip.AddrPor
 		laddr = x.LocalAddr()
 	default:
 		clos(pc)
-		log.E("udp: connect: %s proxy(%s) does not impl core.UDPConn(%s/%s); mux? %t, uid %s",
-			cid, pxid, target, selectedTarget, mux, uid)
+		log.E("udp: connect: %s [%s] proxy(%s) does not impl core.UDPConn(%s/%s); mux? %t",
+			cid, uid, pxid, target, selectedTarget, mux, uid)
 		return nil, smm, errUdpSetupConn // disconnect
 	}
 
-	log.I("udp: connect: %s (proxy? %s@%s) %v => %s/%s; fallback? %t / mux? %t, uid %s",
-		cid, pxid, px.GetAddr(), laddr, target, selectedTarget, fallingback, mux, uid)
+	log.I("udp: connect: %s [%s] (proxy? %s@%s) %v => %s/%s; fallback? %t / mux? %t",
+		cid, uid, pxid, px.GetAddr(), laddr, target, selectedTarget, fallingback, mux)
 
 	return pc, smm, nil // connect
 }

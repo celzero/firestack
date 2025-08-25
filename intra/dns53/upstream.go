@@ -260,8 +260,8 @@ func (t *transport) send(network, pid string, q *dns.Msg) (ans *dns.Msg, rpid st
 	if err != nil {
 		clos(conn)
 		ok := dialers.Disconfirm2(t.addrport, lastaddr)
-		log.V("dns53: sendRequest: (%s) for %s; err: %v; disconfirm? %t %s => %s",
-			t.id, qname, err, ok, t.addrport, lastaddr)
+		log.E("dns53: sendRequest: (%s) for %s (elapsed: %s); err: %v; disconfirm? %t %s => %s",
+			t.id, qname, core.FmtPeriod(elapsed), err, ok, t.addrport, lastaddr)
 		qerr = dnsx.NewSendFailedQueryError(err)
 	} else if ans == nil {
 		t.toPool(who, conn) // or close

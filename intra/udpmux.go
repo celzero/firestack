@@ -436,7 +436,7 @@ func (c *demuxconn) WriteTo(p []byte, to net.Addr) (int, error) {
 // Close implements core.UDPConn.Close
 func (c *demuxconn) Close() error {
 	if settings.Debug {
-		log.D("udp: mux: %s demux %s => %s close, in: %d, over: %d",
+		log.D("udp: mux: %s demux %s => %s close, inC: %d, overC: %d",
 			c.out.id(), c.laddr, c.raddr, len(c.inCh), len(c.overflowCh))
 	}
 	c.once.Do(func() {
