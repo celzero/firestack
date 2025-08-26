@@ -485,11 +485,8 @@ func (s *StdNetBind) Send(buf [][]byte, peer conn.Endpoint) (err error) {
 
 	s.sendAddr.Store(dstIpp)
 
-	if errs != nil {
-		log.E("wg: bind: send: %s addr(%v) parcels(%d) tx(%d) (exp? %t / flood? %t / overw? %t); err? %v",
-			s.id, dstIpp, len(buf), nn, experimentalWg, flooded, overwritten, errs)
-	} else if settings.Debug {
-		log.V("wg: bind: send: %s addr(%v) parcels(%d) tx(%d) (exp? %t / flood? %t / overw? %t); err? %v",
+	if settings.Debug && errs != nil {
+		loge(err)("wg: bind: send: %s addr(%v) parcels(%d) tx(%d) (exp? %t / flood? %t / overw? %t); err? %v",
 			s.id, dstIpp, len(buf), nn, experimentalWg, flooded, overwritten, errs)
 	}
 
