@@ -1008,6 +1008,7 @@ func (r *resolver) preferencesFrom(qname string, qtyp uint16, s *x.DNSOpts, chos
 		if y := strings.Split(s.IPCSV, ","); len(y) > 0 {
 			ips = make([]netip.Addr, 0, len(y))
 			for _, a := range y {
+				a = strings.TrimSpace(a)
 				if len(a) <= 0 {
 					continue
 				}
@@ -1124,6 +1125,7 @@ func (r *resolver) chooseOne(ids ...string) (theone string) {
 	trs := make([]Transport, 0, len(ids))
 	r.RLock()
 	for _, id := range ids {
+		id = strings.TrimSpace(id)
 		if t := r.transports[id]; t != nil {
 			trs = append(trs, t)
 		}

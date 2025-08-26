@@ -604,6 +604,7 @@ func (h *baseHandler) judge(decision *Mark, aux ...string) (cid, uid, fid string
 				pids = []string{ipn.Block}
 				return
 			}
+			v = strings.TrimSpace(v)
 			if len(v) > 0 {
 				pids = append(pids, v)
 			}
