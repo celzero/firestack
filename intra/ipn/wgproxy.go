@@ -1524,21 +1524,21 @@ func (w *wgproxy) maybeResetMtu(via Proxy, dryrun bool) error {
 	if has6 := w.IP6(); has6 {
 		minmtu = minmtu6
 	}
-	if mtuAvailable < minmtu {
-		log.W("wg: %s proxy: not hopping %s; needs %d; mtu(%d) < min(%d)", w.id, viaid, mtuAvailable, minmtu)
-		return errHopMtuInsufficient
-	}
-
 	if hopping && mtuNeededByUs > mtuAvailable {
-		note("wg: %s proxy: maybe hopping %s; mtu(needed: %d >> avail: %d << min: %d); set to avail",
-			w.id, viaid, mtuNeededByUs, mtuAvailable, minmtu)
+		note("wg: %s proxy: maybe hopping %t %s; mtu(needed: %d >> avail: %d << min: %d); set to avail",
+			w.id, hopping, viaid, mtuNeededByUs, mtuAvailable, minmtu)
 		mtuNeededByUs = mtuAvailable
 	} // else: mtu needed is well within the hop's / network's capacity
 
+	if mtuAvailable < minmtu {
+		return log.EE("wg: %s proxy: hopping? %t %s; needs1 %d; avail(%d) < min(%d); %v",
+			w.id, hopping, viaid, mtuNeededByUs, mtuAvailable, minmtu, errHopMtuInsufficient)
+	}
+
 	finalMtu := reconcileMtu(mtuAvailable, mtuNeededByUs, minmtu)
 	if finalMtu <= NOMTU {
-		log.W("wg: %s proxy: not hopping %s; mtu(%d or %d) <= NOMTU(%d)", w.id, viaid, mtuNeededByUs, mtuAvailable, finalMtu)
-		return errHopMtuInsufficient
+		return log.EE("wg: %s proxy: hopping? %t %s; needs2 %d or avail %d <= NOMTU(%d); %v",
+			w.id, hopping, viaid, mtuNeededByUs, mtuAvailable, finalMtu, errHopMtuInsufficient)
 	}
 
 	if !dryrun {

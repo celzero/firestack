@@ -234,6 +234,6 @@ func StackAddrs(s *stack.Stack, nic tcpip.NICID) (netip.Addr, netip.Addr) {
 	if !mainaddr6.Address.Equal(zeromainaddr.Address) {
 		ip6 = netip.AddrFrom16(mainaddr6.Address.As16())
 	}
-	log.V("rev: StackAddrs %v %v", ip4, ip6)
+	log.V("netstack: StackAddrs %v %v", ip4, ip6)
 	return ip4, ip6
 }
