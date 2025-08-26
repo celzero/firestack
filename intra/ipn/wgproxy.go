@@ -387,11 +387,11 @@ func (w *wgproxy) update(id, txt string) bool {
 	const anew = false  // cannot update in-place; create new tunnel
 	status := w.status.Load()
 	if status == END {
-		log.W("proxy: wg: update(%s<>%s): END; status(%s)", id, w.id, status)
+		log.W("proxy: wg: update(%s<>%s): END; status(%s)", id, w.id, pxstatus(status))
 		return anew
 	}
 	if status == TNT {
-		log.W("proxy: wg: update(%s<>%s): TNT; status(%s) - marking session as un-updatable", id, w.id, status)
+		log.W("proxy: wg: update(%s<>%s): TNT; status(%s) - marking session as un-updatable", id, w.id, pxstatus(status))
 		return anew
 	}
 
@@ -506,7 +506,8 @@ func wgIfConfigOf(id string, txtptr *string) (opts wgifopts, err error) {
 			}
 		case "dns": // may exist more than once: github.com/celzero/rethink-app/issues/1298
 			n := loadMH(opts.dns, v)
-			log.D("proxy: wg: %s ifconfig: dns(%d) %s", id, n, v)
+			aerr := loadIPNets(&opts.allowed, v)
+			log.D("proxy: wg: %s ifconfig: dns(%d) %s; allowed err? %v", id, n, v, aerr)
 		case "mtu":
 			maxxed := false
 			if len(v) <= 0 || v == AUTOMTU || v == AUTOMTU2 {
