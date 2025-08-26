@@ -526,7 +526,7 @@ func (px *proxifier) ProxyTo(ipp netip.AddrPort, uid string, pids []string) (the
 
 	defer func() {
 		logev(err)("proxy: pin: %s+%s; chosen? %s; stalled? %ds; local: %v; miss: %v; notok: %v; noroute: %v; paused %v; ended %v",
-			uid, ipp, theone, stalledSec, loproxies, missproxies, notokproxies, norouteproxies, pausedproxies, endproxies)
+			uid, ipp, idstr(theone), stalledSec, loproxies, missproxies, notokproxies, norouteproxies, pausedproxies, endproxies)
 	}()
 
 	for _, pid := range pids {
