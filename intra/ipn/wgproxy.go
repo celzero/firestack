@@ -1520,33 +1520,35 @@ func (w *wgproxy) maybeResetMtu(via Proxy, dryrun bool) error {
 		}
 	}
 
+	has4 := w.IP4()
+	has6 := w.IP6()
 	minmtu := minmtu4
-	if has6 := w.IP6(); has6 {
+	if has6 {
 		minmtu = minmtu6
 	}
 	if hopping && mtuNeededByUs > mtuAvailable {
-		note("wg: %s proxy: maybe hopping %t %s; mtu(needed: %d >> avail: %d << min: %d); set to avail",
-			w.id, hopping, viaid, mtuNeededByUs, mtuAvailable, minmtu)
+		note("wg: %s (4? %t / 6? %t) proxy: maybe hopping %t %s; mtu(needed: %d >> avail: %d << min: %d); set to avail",
+			w.id, has4, has6, hopping, viaid, mtuNeededByUs, mtuAvailable, minmtu)
 		mtuNeededByUs = mtuAvailable
 	} // else: mtu needed is well within the hop's / network's capacity
 
 	if mtuAvailable < minmtu {
-		return log.EE("wg: %s proxy: hopping? %t %s; needs1 %d; avail(%d) < min(%d); %v",
-			w.id, hopping, viaid, mtuNeededByUs, mtuAvailable, minmtu, errHopMtuInsufficient)
+		return log.EE("wg: (4? %t / 6? %t) %s proxy: hopping? %t %s; needs1 %d; avail(%d) < min(%d); %v",
+			w.id, has4, has6, hopping, viaid, mtuNeededByUs, mtuAvailable, minmtu, errHopMtuInsufficient)
 	}
 
 	finalMtu := reconcileMtu(mtuAvailable, mtuNeededByUs, minmtu)
 	if finalMtu <= NOMTU {
-		return log.EE("wg: %s proxy: hopping? %t %s; needs2 %d or avail %d <= NOMTU(%d); %v",
-			w.id, hopping, viaid, mtuNeededByUs, mtuAvailable, finalMtu, errHopMtuInsufficient)
+		return log.EE("wg: %s (4? %t / 6? %t) proxy: hopping? %t %s; needs2 %d or avail %d <= NOMTU(%d); %v",
+			w.id, has4, has6, hopping, viaid, mtuNeededByUs, mtuAvailable, finalMtu, errHopMtuInsufficient)
 	}
 
 	if !dryrun {
 		w.ep.SetMTU(uint32(finalMtu))
 		w.wgtun.events <- tun.EventMTUUpdate
 	}
-	note("wg: %s proxy: hopping %s; mtu(needed:%d, avail: %d => final: %d); hopping? %t, dryrun? %t",
-		w.id, viaid, mtuNeededByUs, mtuAvailable, finalMtu, hopping, dryrun)
+	note("wg: (4? %t / 6? %t) %s proxy: hopping %s; mtu(needed:%d, avail: %d => final: %d); hopping? %t, dryrun? %t",
+		w.id, has4, has6, viaid, mtuNeededByUs, mtuAvailable, finalMtu, hopping, dryrun)
 	return nil
 }
 
