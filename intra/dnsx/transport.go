@@ -1110,7 +1110,7 @@ func (r *resolver) requiresGoosOrLocal(qname string) (id string) {
 	return
 }
 
-func (r *resolver) chooseOne(ids ...string) string {
+func (r *resolver) chooseOne(ids ...string) (theone string) {
 	if len(ids) <= 0 {
 		return ""
 	}
@@ -1131,14 +1131,21 @@ func (r *resolver) chooseOne(ids ...string) string {
 	r.RUnlock()
 
 	best, preferred, recoverables, errored, ended := Categorize(trs)
+	if settings.Debug {
+		defer func() {
+			loged(len(theone) <= 0)("dns: pref: chose: %s from best(%v) prefer(%v) recov(%v) err(%v) dead(%v)",
+				theone, best, preferred, recoverables, errored, ended)
+		}()
+	}
+
 	if len(best) > 0 {
-		return best[0].ID().V()
+		return idstr(best[0])
 	} else if len(preferred) > 0 {
-		return preferred[0].ID().V()
+		return idstr(preferred[0])
 	} else if len(recoverables) > 0 {
-		return recoverables[0].ID().V()
+		return idstr(core.ChooseOne(recoverables))
 	} else if len(errored) > 0 {
-		return errored[0].ID().V()
+		return idstr(core.ChooseOne(errored))
 	}
 	log.E("dns: pref: no transports for %v [all ended? %v]", ids, ended)
 	return ""

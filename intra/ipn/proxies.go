@@ -446,7 +446,7 @@ func (px *proxifier) removeProxy(id string, force bool) bool {
 // ProxyTo implements Proxies.
 // May return both a Proxy and an error, in which case, the error
 // denotes that while the Proxy is not healthy, it is still registered.
-func (px *proxifier) ProxyTo(ipp netip.AddrPort, uid string, pids []string) (_ Proxy, err error) {
+func (px *proxifier) ProxyTo(ipp netip.AddrPort, uid string, pids []string) (theone Proxy, err error) {
 	ippstr := ipp.String()
 	e := func(err error) error {
 		return fmt.Errorf("%v for %s to %s among %v", err, uid, ippstr, pids)
@@ -525,8 +525,8 @@ func (px *proxifier) ProxyTo(ipp netip.AddrPort, uid string, pids []string) (_ P
 	}
 
 	defer func() {
-		logev(err)("proxy: pin: %s+%s; stalled? %ds; local: %v; miss: %v; notok: %v; noroute: %v; paused %v; ended %v",
-			uid, ipp, stalledSec, loproxies, missproxies, notokproxies, norouteproxies, pausedproxies, endproxies)
+		logev(err)("proxy: pin: %s+%s; chosen? %s; stalled? %ds; local: %v; miss: %v; notok: %v; noroute: %v; paused %v; ended %v",
+			uid, ipp, theone, stalledSec, loproxies, missproxies, notokproxies, norouteproxies, pausedproxies, endproxies)
 	}()
 
 	for _, pid := range pids {
