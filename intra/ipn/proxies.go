@@ -559,7 +559,7 @@ func (px *proxifier) ProxyTo(ipp netip.AddrPort, uid string, pids []string) (the
 		}
 
 		if hasroute(p, ippstr) {
-			err := px.pin(uid, ipp, p) // repin
+			err := px.pin(uid, ipp, p) // repin & ping if needed
 			if err == nil {
 				log.VV("proxy: pin: %s+%s; pinned: %s; from pids: %v",
 					uid, ippstr, pid, pids)
@@ -701,6 +701,7 @@ func (px *proxifier) ProxyFor(id string) (Proxy, error) {
 			return nil, errNotRpnID
 		}, getproxytimeout/2)
 		if rpn != nil && core.IsNotNil(rpn) {
+			_ = healthy(rpn)
 			return rpn, nil
 		} // else: search for id in px.p, which includes rpn+cc proxies
 	}
@@ -721,6 +722,9 @@ func (px *proxifier) ProxyFor(id string) (Proxy, error) {
 	if p == nil || core.IsNil(p) {
 		log.W("proxy: for: %s; not found", id)
 		return nil, errProxyNotFound
+	}
+	if isWG(idstr(p)) {
+		_ = healthy(p) // ping or refresh
 	}
 	return p, nil
 }
