@@ -76,8 +76,9 @@ var (
 
 func init() {
 	if BustDnsproxydResNetCache {
-		blockTTL = uint32(0)
-		ansTTL = uint32(0)
+		// setting these to 0 trips apps like GrayJay? github.com/futo-org/grayjay-android/issues/2605
+		blockTTL = ZeroTTL
+		ansTTL = ZeroTTL
 	}
 }
 
@@ -137,8 +138,9 @@ func Net2ProxyID(network string) (proto string, pids []string) {
 	return
 }
 
+// Bust cache as needed and if ans is not authenticated.
 func BustAndroidCacheIfNeeded(ans *dns.Msg) bool {
-	if BustDnsproxydResNetCache {
+	if BustDnsproxydResNetCache && !IsDNSSECAnswerAuthenticated(ans) {
 		// TODO: skip negative records (SOA, NXDOMAIN, etc)
 		return WithTtl(ans, ZeroTTL, dns.TypeA, dns.TypeAAAA)
 	}

@@ -12,7 +12,11 @@ const ( // see protect/protect.go
 	Localhost = "localhost"
 )
 
-// Controller provides answers to filter network traffic.
+type Console interface {
+	Log(int32, *Gostr)
+}
+
+// Controller provides a way to bind and protect socket file descriptors.
 type Controller interface {
 	// Bind4 binds fd to any internet-capable IPv4 interface.
 	Bind4(who, addrport string, fd int)
@@ -24,6 +28,7 @@ type Controller interface {
 }
 
 type Protector interface {
-	// Returns ip to bind given a local/remote ip:port
+	// UIP returns ip (network-order byte) to bind given a local/remote ipp (ip:port).
+	// (unused)
 	UIP(ipp string) []byte
 }

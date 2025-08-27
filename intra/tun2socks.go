@@ -24,22 +24,28 @@
 package intra
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"runtime/debug"
 
+	x "github.com/celzero/firestack/intra/backend"
 	"github.com/celzero/firestack/intra/core"
+	"github.com/celzero/firestack/intra/ipn"
+	"github.com/celzero/firestack/intra/rnet"
 	"github.com/celzero/firestack/intra/settings"
 
 	"github.com/celzero/firestack/intra/log"
 )
 
-var buildinfo, _ = debug.ReadBuildInfo()
-
 // pkg.go.dev/runtime#hdr-Environment_Variables
 type traceout string
 
-type Console log.Console
+type Console x.Console
+type Controller x.Controller
+type ProxyListener x.ProxyListener
+type DNSListener x.DNSListener
+type ServerListener rnet.ServerListener
 
 const (
 	one  traceout = "single" // offending go routine
@@ -67,7 +73,15 @@ func init() {
 // Throws an exception if the TUN file descriptor cannot be opened, or if the tunnel fails to
 // connect.
 func Connect(fd, mtu int, fakedns string, dtr DefaultDNS, bdg Bridge) (t Tunnel, err error) {
-	return NewTunnel(fd, mtu, fakedns, settings.DefaultTunMode(), dtr, bdg)
+	return NewTunnel(fd, mtu, fakedns, dtr, bdg)
+}
+
+// ControlledRouter creates a [backend.Router] over a [backend.Internet] proxy (like [backend.Exit]),
+// but one that uses custom Controller c. id and addrport are used only for
+// diagnostics and logging, and could be left empty. Typical usage is to use
+// Router.Reaches() to check if a host:port is reachable over this Controller c.
+func ControlledRouter(c Controller, id, addrport string) x.Router {
+	return ipn.NewExitProxyWithID(id, addrport, context.Background(), c).Router()
 }
 
 // Change log level to very verbose (0), verbose (1), debug (2), info (3), warn (4), error (5),
@@ -78,7 +92,7 @@ func LogLevel(gologLevel, consolelogLevel int32) {
 	clvl := log.LevelOf(consolelogLevel)
 	log.SetLevel(dlvl)
 	log.SetConsoleLevel(clvl)
-	settings.Debug = dlvl <= log.DEBUG
+	settings.Debug = dlvl <= log.DEBUG || clvl <= log.DEBUG
 	if settings.Debug {
 		debug.SetTraceback(usr.s())
 	} else {
@@ -129,17 +143,16 @@ func UndelegatedDomains(useSystemDNS bool) {
 func Transparency(eim, eif bool) {
 	settings.EndpointIndependentMapping.Store(eim)
 	settings.EndpointIndependentFiltering.Store(eif)
-	settings.SetUserAgentForDoH.Store(eim || eif)
+	settings.SetUserAgent.Store(eim || eif)
 	log.I("tun: eim? %t / eif? %t", eim, eif)
 }
 
 // Build returns the build information.
-func Build(full bool) string {
-	v := "unknown"
+func Build(full bool) (v string) {
 	if !full {
 		v = core.Version()
-	} else if buildinfo != nil {
-		v = buildinfo.String()
+	} else {
+		v = core.BuildInfo()
 	}
 	log.V("tun: build version %s", v)
 	return v

@@ -18,6 +18,7 @@ import (
 const (
 	UNKNOWN_UID         = -1
 	UNKNOWN_UID_STR     = "-1"
+	DNS_UID_STR         = "1051"
 	UNSUPPORTED_NETWORK = -1
 )
 
@@ -75,11 +76,19 @@ type UDPConn interface {
 type DuplexConn interface {
 	TCPConn
 	PoolableConn
-	io.ReaderFrom
+	KeepAliveConn
 }
+
+// so it can be used by dialers/retrier.go
+type RetrierConn io.ReaderFrom
 
 // so it can be pooled by ConnPool.
 type PoolableConn syscall.Conn
+
+// KeepAliveConn supports keep-alive probes.
+type KeepAliveConn interface {
+	SetKeepAlive(bool) error
+}
 
 type ICMPConn interface {
 	net.PacketConn

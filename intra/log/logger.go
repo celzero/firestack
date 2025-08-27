@@ -36,6 +36,7 @@ import (
 	"fmt"
 	golog "log"
 	"os"
+	"reflect"
 	"runtime"
 	"strings"
 	"sync"
@@ -66,7 +67,7 @@ type simpleLogger struct {
 
 	level LogLevel // golog (internal log) level
 
-	c      Console
+	c      atom[Console]
 	clevel LogLevel      // may be different from level
 	cmsgC  chan *conMsg  // never closed
 	cskips atomic.Uint32 // number of dropped console msgs
@@ -80,6 +81,37 @@ type simpleLogger struct {
 
 	clock
 	skips
+}
+
+type atom[T any] atomic.Value
+
+func (a *atom[T]) get() (zz T) {
+	if a == nil {
+		return
+	}
+	aa := (*atomic.Value)(a)
+	if t, ok := aa.Load().(T); ok {
+		return t
+	}
+	return zz
+}
+
+func (a *atom[T]) set(t T) (ok bool) {
+	if a == nil {
+		return
+	}
+	if isNil(t) {
+		zz := &atom[T]{}
+		*a = *zz
+		return
+	}
+	old := a.get()
+	if !typeEq(old, t) {
+		r := &atom[T]{}
+		*a = *r
+	}
+	aa := (*atomic.Value)(a)
+	return aa.CompareAndSwap(old, t)
 }
 
 const pcbuckets = 512
@@ -113,7 +145,6 @@ func (a *uatom[T]) cas(old, new T) bool {
 
 var _ Logger = (*simpleLogger)(nil)
 
-// based on: github.com/eycorsican/go-tun2socks/blob/301549c43/common/log/logger.go
 type LogLevel uint32
 
 const (
@@ -131,7 +162,7 @@ const (
 func (l LogLevel) s() string {
 	switch l {
 	case VVERBOSE:
-		return "VV "
+		return "Y "
 	case VERBOSE:
 		return "V "
 	case DEBUG:
@@ -147,9 +178,9 @@ func (l LogLevel) s() string {
 	case USR:
 		return "U "
 	case NONE:
-		return ""
+		return "  "
 	default:
-		return " ? "
+		return "? "
 	}
 }
 
@@ -158,23 +189,35 @@ const defaultClevel = STACKTRACE
 
 var _ Logger = (*simpleLogger)(nil)
 
+// runtime crashes "E Go ..." are sent to logd / /dev/log from here:
+// github.com/golang/go/blob/3fd729b2a1/src/runtime/write_err_android.go#L13
 // github.com/golang/mobile/blob/fa72addaaa/internal/mobileinit/mobileinit_android.go#L52
 // const logcatLineSize = 1024
 
+const spamConsole = false // send spammy logs to console
+const logPiif = false     // enable sensitive logs
+
 // qSize is the number of recent log msgs to keep in the ring buffer.
-const qSize = 256
+const qSize = 512
+
+// minQSize is the minimum most number of recent log msgs to actually log.
+// by default, all msgs in the qSize'd ring buffer are logged.
+const minQSize = 16
 
 // consoleChSize is the size of the console channel.
-const consoleChSize = 256
+const consoleChSize = 512
 
-// minNeededForFullStacktrace is the size needed for a full stacktrace.
-const minNeededForFullStacktrace = 16 << 10 // 16KB
+// minBytesForFullStacktrace is the size needed for a full stacktrace.
+const minBytesForFullStacktrace = 16 << 10 // 16KB
 
 // similarTraceThreshold is the no. of similar stacktraces to report before suppressing.
 const similarTraceThreshold = 8
 
 // similarUsrMsgThreshold is the no. of similar user msgs to report before suppressing.
 const similarUsrMsgThreshold = 3
+
+// charsPerLine is max no. of characters per log line.
+const charsPerLine = 300
 
 // spamMsgThreshold is the min. no. of spammy msgs to report.
 var spammsgThreshold = [NONE + 1]uint32{
@@ -189,9 +232,9 @@ var spammsgThreshold = [NONE + 1]uint32{
 	NONE:       256 >> 9, // 0
 }
 
-const defaultFlags = 0 // no flags
+const callerunknown = "???"
 
-var _ = RegisterLogger(defaultLogger())
+const defaultFlags = 0 // no flags
 
 func defaultLogger() *simpleLogger {
 	l := &simpleLogger{
@@ -199,7 +242,7 @@ func defaultLogger() *simpleLogger {
 		clevel:  defaultClevel,
 		cmsgC:   make(chan *conMsg, consoleChSize),
 		stcount: make(map[string]uint32),
-		// gomobile redirects stderr and stdout to logcat
+		// gomobile pipes stderr & stdout to logcat
 		// github.com/golang/mobile/blob/fa72addaaa/internal/mobileinit/mobileinit_android.go#L74-L92
 		e: golog.New(os.Stderr, "", defaultFlags),
 		o: golog.New(os.Stdout, "", defaultFlags),
@@ -239,7 +282,7 @@ func (l *simpleLogger) SetConsoleLevel(n LogLevel) {
 func (l *simpleLogger) SetConsole(c Console) {
 	l.clearStCounts()
 
-	l.c = c
+	l.c.set(c) // c may point to nil impl
 }
 
 func (l *simpleLogger) clearStCounts() {
@@ -266,30 +309,30 @@ func (l *simpleLogger) consoleDispatcher() {
 			continue
 		}
 		load := (len(l.cmsgC) / cap(l.cmsgC) * 100) // load percentage
-		if c := l.c; c != nil {                     // look for l.c on every msg
+		if c := l.c.get(); c != nil && !isNil(c) {  // look for l.c on every msg
 			switch m.t {
 			case NONE:
 				// drop
 			case VVERBOSE, VERBOSE, DEBUG, INFO:
 				if load < 50 {
-					c.Log(int32(m.t), m.m)
+					c.Log(m.t, m.m)
 					continue
 				} // drop
 			case WARN, ERROR:
 				if load < 5 {
 					if d := l.cskips.Swap(0); d > 0 {
-						c.Log(int32(WARN), l.msgstr(WARN, "backpressure... dropped %d msgs", d))
+						c.Log(WARN, Logmsg(l.msgstr(WARN, "backpressure... dropped %d msgs", d)))
 					}
 				}
 				if load < 80 {
-					c.Log(int32(m.t), m.m)
+					c.Log(m.t, m.m)
 					continue
 				} // drop
 			case STACKTRACE:
-				c.Log(int32(m.t), m.m)
+				c.Log(m.t, m.m)
 				continue
 			case USR:
-				c.Log(int32(m.t), m.m)
+				c.Log(m.t, m.m)
 				continue
 			}
 		} // dropped
@@ -310,7 +353,7 @@ func (l *simpleLogger) Usr(msg string) {
 		if count := l.incrStCount(msg); count > similarUsrMsgThreshold {
 			return
 		}
-		l.consoleQueue(&conMsg{msg, USR})
+		l.consoleQueue(&conMsg{Logmsg(msg), USR})
 	}
 }
 
@@ -332,7 +375,9 @@ func (l *simpleLogger) Debugf(at int, msg string, args ...any) {
 }
 
 func (l *simpleLogger) Piif(at int, msg string, args ...any) {
-	l.writelog(INFO, at+nextframe, msg, args...)
+	if logPiif {
+		l.writelog(INFO, at+nextframe, msg, args...)
+	}
 }
 
 func (l *simpleLogger) Infof(at int, msg string, args ...any) {
@@ -358,18 +403,18 @@ func (l *simpleLogger) Fatalf(at int, msg string, args ...any) {
 func (l *simpleLogger) emitStack(at int, msgs ...string) {
 	sendtoconsole := at <= callerat
 
-	c := l.c
+	c := l.c.get()
 	for _, msg := range msgs {
 		if len(msg) <= 0 {
 			continue
 		}
 		if !sendtoconsole {
 			l.err(at+nextframe, msg)
-		} else if c != nil {
+		} else if c != nil && !isNil(c) {
 			// c.Stack() on the same go routine, since
 			// the caller (ex: core.Recover) may exit
 			// immediately once simpleLogger.Stack() returns
-			c.Log(int32(STACKTRACE), msg)
+			c.Log(STACKTRACE, Logmsg(msg))
 		} else {
 			// msg, which is unsafely type-coerced from []byte,
 			// is pooled; but the caller owns []byte and so it
@@ -401,9 +446,30 @@ func (l *simpleLogger) Stack(at int, msg string, scratch []byte) {
 		return
 	}
 
+	// full stacktrace iff large enough scratch
+	full := len(scratch) > minBytesForFullStacktrace // 16KB
+	n := runtime.Stack(scratch, full)
+
+	if n == len(scratch) {
+		msg += "[trunc]"
+	}
+
+	prev := l.queued(full)
+
+	// byt2str accepted proposal: github.com/golang/go/issues/19367
+	// previous discussion: github.com/golang/go/issues/25484
+	trace := unsafe.String(&scratch[0], n)
+	l.emitStack(at, prev, msg, trace)
+}
+
+func (l *simpleLogger) queued(all bool) (appendix string) {
+	maxlines := qSize
+	if !all {
+		maxlines = minQSize
+	}
 	i := 0
 	// todo: interned strings github.com/golang/go/issues/62483
-	lines := make([]string, qSize)
+	lines := make([]string, maxlines)
 	for recent := range l.q.Iter() {
 		lines[i] = recent
 		i++
@@ -411,29 +477,39 @@ func (l *simpleLogger) Stack(at int, msg string, scratch []byte) {
 			break
 		}
 	}
-	var appendix string
 	if i > 0 {
 		appendix = strings.Join(lines[:i], "\n")
 	}
-
-	// full stacktrace iff large enough scratch
-	full := len(scratch) > minNeededForFullStacktrace // 16KB
-	n := runtime.Stack(scratch, full)
-
-	if n == len(scratch) {
-		msg += "[trunc]"
-	}
-	// byt2str accepted proposal: github.com/golang/go/issues/19367
-	// previous discussion: github.com/golang/go/issues/25484
-	l.emitStack(at, appendix, msg, unsafe.String(&scratch[0], n))
+	return
 }
 
-func (l *simpleLogger) msgstr(lvl LogLevel, f string, args ...any) string {
-	msg := fmt.Sprintf(f, args...)
-	if len(l.tag) > 0 {
-		msg = l.tag + msg
+func (l *simpleLogger) msgstr(lvl LogLevel, f string, args ...any) (msg string) {
+	level := lvl.s()
+
+	if len(f) <= 0 {
+		return level + l.tag + "<empty>"
 	}
-	return lvl.s() + msg
+	if len(args) <= 0 {
+		return level + l.tag + f
+	}
+	msg = fmt.Sprintf(f, args...)
+	if len(msg) <= charsPerLine { // excl tag+level
+		return level + l.tag + msg
+	}
+
+	var s strings.Builder
+	for i := 0; i < len(msg); i += charsPerLine {
+		if i > 0 {
+			s.WriteByte('\n')
+		}
+		s.WriteString(level)
+		if len(l.tag) > 0 {
+			s.WriteString(l.tag)
+		}
+		end := min(i+charsPerLine, len(msg))
+		s.WriteString(msg[i:end])
+	}
+	return s.String()
 }
 
 // out logs to stdout and pushes msg into ring buffer.
@@ -452,13 +528,32 @@ func (l *simpleLogger) err(at int, msg string) {
 }
 
 func caller(at int) (pc uintptr, who string) {
+	return caller2(at+nextframe, ":", ": ")
+}
+
+func caller1(at int, sep string) (pc uintptr, who string) {
+	return caller2(at+nextframe, ":", sep)
+}
+
+func caller2(at int, sep1, sep2 string) (pc uintptr, who string) {
 	pc, file, line, _ := runtime.Caller(at)
 	if len(file) <= 0 {
-		file = "???"
+		file = callerunknown
 	} else {
-		file = shortfile(file) + ":" + fmt.Sprint(line) + ": "
+		file = shortfile(file) + sep1 + fmt.Sprint(line) + sep2
 	}
 	return pc, file
+}
+
+func tracecaller(s string) bool {
+	if len(s) <= 0 || s == callerunknown {
+		return false
+	}
+	// ex: asm_arm64.s:1223>async.go:49>async.go:121>proxy.go:789
+	if strings.Contains(s, "asm_") && strings.Contains(s, ".s") {
+		return false // asm files are not useful
+	}
+	return true
 }
 
 func shortfile(file string) string {
@@ -473,35 +568,72 @@ func (l *simpleLogger) writelog(lvl LogLevel, at int, msg string, args ...any) {
 	cc := l.clevel <= lvl
 
 	pc, file1 := caller(at + nextframe)
-	file2 := ""
+	trace := ""
 
-	if l.spammy(lvl, pc) {
+	isspam := l.spammy(lvl, pc)
+	if isspam {
 		l.skips[lvl].Add(1)
-		return
-	} else if n := l.skips[lvl].Load(); n > spammsgThreshold[lvl] {
+	}
+
+	if n := l.skips[lvl].Load(); n > spammsgThreshold[lvl] {
 		swapped := l.skips[lvl].CompareAndSwap(n, 0)
 		if swapped && (cc || ll) {
-			spammsg := l.msgstr(lvl, file1+"spammy... dropped %d msgs", n)
+			spammsg := l.msgstr(lvl, file1+"spammy... %d msgs; dropped? %t", n, !spamConsole)
 			if ll {
 				l.out(spammsg)
 			}
-			if cc {
-				l.consoleQueue(&conMsg{spammsg, lvl})
+			// print spammsg only if spamming is not allowed
+			if cc && !spamConsole {
+				l.consoleQueue(&conMsg{Logmsg(spammsg), lvl})
 			}
 		}
 	}
 
 	if ll || cc {
-		if lvl == ERROR {
-			_, file2 = caller(at + nextframe*2)
+		switch lvl {
+		case USR, STACKTRACE, NONE: // no-op
+		case VVERBOSE:
+			if _, x := caller1(at+nextframe+7, ">"); tracecaller(x) {
+				trace += x
+			}
+			fallthrough
+		case VERBOSE:
+			if _, x := caller1(at+nextframe+6, ">"); tracecaller(x) {
+				trace += x
+			}
+			fallthrough
+		case DEBUG:
+			if _, x := caller1(at+nextframe+5, ">"); tracecaller(x) {
+				trace += x
+			}
+			fallthrough
+		case ERROR:
+			if _, x := caller1(at+nextframe+4, ">"); tracecaller(x) {
+				trace += x
+			}
+			fallthrough
+		case WARN:
+			if _, x := caller1(at+nextframe+3, ">"); tracecaller(x) {
+				trace += x
+			}
+			fallthrough
+		case INFO:
+			if _, x := caller1(at+nextframe+2, ">"); tracecaller(x) {
+				trace += x
+			}
+			fallthrough
+		default:
+			if _, x := caller1(at+nextframe+1, ">"); tracecaller(x) {
+				trace += x
+			}
 		}
-		msg = l.msgstr(lvl, file1+file2+msg, args...)
+		msg = l.msgstr(lvl, trace+file1+msg, args...)
 		if ll {
 			// go's internal logger grabs mutex before every write
 			l.out(msg)
 		}
-		if cc {
-			l.consoleQueue(&conMsg{msg, lvl})
+		if cc && (!isspam || spamConsole) {
+			l.consoleQueue(&conMsg{Logmsg(msg), lvl})
 		}
 	}
 }
@@ -533,15 +665,16 @@ top:
 	// and in that generation, bkt has not yet born.
 	// and so reset bkt to 0 or any value < t
 	if v > t {
-		resyncd := (l.clock.l2[lvl][bkt]).cas(t, t/2) // set to 0?
+		resyncd := (l.clock.l2[lvl][bkt]).cas(t, 0) // set to t/2?
 		if resyncd {
 			return false // not spammy
 		} // else: someone else won the race
 		resyncAttempts++
-		if resyncAttempts > 3 {
-			return false // permissively assume not spammy
-		}
-		goto top
+		if resyncAttempts <= 3 {
+			goto top
+		} // else: so many calls that atomic updates won't go through
+		// assume spammy as that's most likely to be the case
+		return false
 	}
 
 	tt := uint16(t) // tolerable ticks
@@ -557,4 +690,30 @@ top:
 		tt = tt * 30 / 100 // allow upto 30% of ticks
 	}
 	return uint16(v) > tt
+}
+
+// Cannot import pkg core here.
+// from: intra/core/typ.go:isNil
+func isNil(x any) bool {
+	// from: stackoverflow.com/a/76595928
+	if x == nil {
+		return true
+	}
+	v := reflect.ValueOf(x)
+	k := v.Kind()
+	switch k {
+	case reflect.Pointer, reflect.UnsafePointer, reflect.Interface, reflect.Chan, reflect.Func, reflect.Map, reflect.Slice:
+		return v.IsNil()
+	}
+	return false
+}
+
+// from: intra/core/typ.go:typeEq
+func typeEq(a, b any) bool {
+	if isNil(a) {
+		return false
+	} else if isNil(b) {
+		return false
+	}
+	return reflect.TypeOf(a) == reflect.TypeOf(b)
 }

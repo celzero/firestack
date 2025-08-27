@@ -28,6 +28,7 @@ import (
 	"net"
 	"net/netip"
 	"syscall"
+	"time"
 
 	b "github.com/celzero/firestack/intra/backend"
 	"github.com/celzero/firestack/intra/core"
@@ -39,6 +40,10 @@ const (
 	UidSelf   = b.UidSelf
 	UidSystem = b.UidSystem
 	Localhost = b.Localhost
+
+	// When advertised routes are actually null routed (no reply)
+	// this timeout will help short circuit dial attempts on it.
+	defaultConnectTimeout = 10 * time.Second
 )
 
 // never resolve system/default resolver; expected to have seeded ips
@@ -135,6 +140,7 @@ func MakeDialer(p Protector) *net.Dialer {
 	if p != nil && core.IsNotNil(p) {
 		x.Control = ipbind(p)
 	}
+	x.Timeout = defaultConnectTimeout // overriden by deadlines
 	return x
 }
 
@@ -153,6 +159,7 @@ func MakeNsDialer(who string, c Controller) *net.Dialer {
 	if c != nil && core.IsNotNil(c) {
 		x.Control = ifbind(who, c)
 	}
+	x.Timeout = defaultConnectTimeout // overriden by deadlines
 	return x
 }
 

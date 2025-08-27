@@ -105,9 +105,13 @@ func (p *pcapsink) file(f io.WriteCloser) (err error) {
 }
 
 func (p *pcapsink) log(y bool) bool {
-	return netstack.LogPcap(y)
+	return netstack.Pcap2Stdout(y)
 }
 
 func (p *pcapsink) fout(y bool) bool {
-	return netstack.LogFile(y)
+	return netstack.Pcap2File(y)
+}
+
+func (p *pcapsink) mode() string {
+	return netstack.PcapModes()
 }

@@ -20,7 +20,6 @@ import (
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/ipn"
 	"github.com/celzero/firestack/intra/netstack"
-	"github.com/celzero/firestack/intra/settings"
 )
 
 type icmpHandler struct {
@@ -29,9 +28,9 @@ type icmpHandler struct {
 
 var _ netstack.GICMPHandler = (*icmpHandler)(nil)
 
-func NewICMPHandler(pctx context.Context, resolver dnsx.Resolver, prox ipn.ProxyProvider, tunMode *settings.TunMode, listener Listener) netstack.GICMPHandler {
+func NewICMPHandler(pctx context.Context, resolver dnsx.Resolver, prox ipn.ProxyProvider, listener Listener) netstack.GICMPHandler {
 	h := &icmpHandler{
-		baseHandler: newBaseHandler(pctx, "icmp", resolver, prox, tunMode, listener),
+		baseHandler: newBaseHandler(pctx, "icmp", resolver, prox, listener),
 	}
 
 	go h.processSummaries()
@@ -57,6 +56,9 @@ func (h *icmpHandler) Ping(msg []byte, source, target netip.AddrPort) (echoed bo
 
 	// flow is alg/nat-aware, do not change target or any addrs
 	res, undidAlg, realips, doms := h.onFlow(source, target)
+
+	h.maybeReplaceDest(res, &target)
+
 	preferred, _, _ := filterFamilyForDialing(realips)
 	dst := oneRealIPPort(preferred, target)
 	// on Android, uid is always "unknown" for icmp
@@ -64,9 +66,11 @@ func (h *icmpHandler) Ping(msg []byte, source, target netip.AddrPort) (echoed bo
 	smm := icmpSummary(cid, uid)
 
 	defer func() {
+		smm.PID = pidstr(px)
+		smm.RPID = ipn.ViaID(px)
 		smm.Tx = int64(tx)
 		smm.Rx = int64(rx)
-		smm.Rtt = int32(rtt.Seconds() * 1000)
+		smm.Rtt = rtt.Milliseconds()
 		smm.Target = dst.Addr().String()
 		h.queueSummary(smm.done(err)) // err may be nil
 	}()
@@ -103,9 +107,6 @@ func (h *icmpHandler) Ping(msg []byte, source, target netip.AddrPort) (echoed bo
 	defer core.Close(uc)
 	ucnil := uc == nil || core.IsNil(uc)
 
-	smm.PID = px.ID()
-	smm.RPID = ipn.ViaID(px)
-
 	// nilaway: tx.socks5 returns nil conn even if err == nil
 	if err != nil || ucnil {
 		err = core.OneErr(err, unix.ENETUNREACH)
@@ -114,8 +115,10 @@ func (h *icmpHandler) Ping(msg []byte, source, target netip.AddrPort) (echoed bo
 		return false // unhandled
 	}
 
-	h.conntracker.Track(cid, uc)
+	h.conntracker.Track(cid, uid, pidstr(px), uc)
 	defer h.conntracker.Untrack(cid)
+
+	h.listener.PostFlow(smm.postMark())
 
 	tx = len(msg)
 	// todo: construct ICMP header? github.com/prometheus-community/pro-bing/blob/0bacb2d5e7/ping.go#L717
@@ -123,8 +126,8 @@ func (h *icmpHandler) Ping(msg []byte, source, target netip.AddrPort) (echoed bo
 	rx = len(reply)
 	rtt = time.Since(rttstart)
 	// todo: ignore non-ICMP replies in b: github.com/prometheus-community/pro-bing/blob/0bacb2d5e7/ping.go#L630
-	log.D("t.icmp: ingress: read(%v <= %v / %v) ping done (send: %d, recv: %d, rtt: %dms); err? %v",
-		source, from, dst, tx, rx, rtt.Milliseconds(), err)
+	log.D("t.icmp: ingress: read(%v <= %v / %v) ping done (send: %d, recv: %d, rtt: %s); err? %v",
+		source, from, dst, tx, rx, core.FmtPeriod(rtt), err)
 
 	return true // echoed; even if err != nil
 }

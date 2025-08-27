@@ -41,8 +41,8 @@ func SetKeepAliveConfig(c MinConn) bool {
 }
 
 func SetTimeoutSockOpt(c MinConn, timeoutms int) bool {
-	if tc, ok := c.(*net.TCPConn); ok {
-		id := conn2str(tc)
+	if tc, ok := c.(PoolableConn); ok {
+		id := conn2str(c)
 		rawConn, err := tc.SyscallConn()
 		if err != nil || rawConn == nil {
 			return false
@@ -65,15 +65,31 @@ func SetTimeoutSockOpt(c MinConn, timeoutms int) bool {
 	return false
 }
 
+func DisableKeepAlive(c MinConn) (done bool) {
+	if sc, ok := c.(PoolableConn); ok {
+		raw, err := sc.SyscallConn()
+		if raw == nil || err != nil {
+			return
+		}
+		err = raw.Control(func(fd uintptr) {
+			err = syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_KEEPALIVE, 0)
+		})
+		return err == nil
+	}
+	return
+}
+
 // SetKeepAliveConfigSockOpt sets for a TCP connection, SO_KEEPALIVE,
 // TCP_KEEPIDLE, TCP_KEEPINTVL, TCP_KEEPCNT, TCP_USER_TIMEOUT.
 // args is optional, and should be in the order of idle, interval, count.
 func SetKeepAliveConfigSockOpt(c MinConn, args ...int) (ok bool) {
-	var tc *net.TCPConn
-	if tc, ok = c.(*net.TCPConn); ok {
-		id := conn2str(tc)
+	switch pc := c.(type) {
+	case *net.UDPConn:
+		return
+	case PoolableConn:
+		id := conn2str(c)
 
-		rawConn, err := tc.SyscallConn()
+		rawConn, err := pc.SyscallConn()
 		if err != nil || rawConn == nil {
 			ok = false
 			return ok
@@ -97,24 +113,24 @@ func SetKeepAliveConfigSockOpt(c MinConn, args ...int) (ok bool) {
 		err = rawConn.Control(func(fd uintptr) {
 			sock := int(fd)
 			if err := syscall.SetsockoptInt(sock, syscall.SOL_SOCKET, syscall.SO_KEEPALIVE, boolint(true)); err != nil {
-				log.D("core: sockopt: set SO_KEEPALIVE %s (%d) failed: %v", id, sock, err)
+				log.V("core: sockopt: set SO_KEEPALIVE %s (%d) failed: %v", id, sock, err)
 				ok = false
 			}
 			if err := syscall.SetsockoptInt(sock, syscall.IPPROTO_TCP, syscall.TCP_KEEPIDLE, idle); err != nil {
-				log.D("core: sockopt: set TCP_KEEPIDLE %s (%d) failed: %ds, %v", id, sock, idle, err)
+				log.V("core: sockopt: set TCP_KEEPIDLE %s (%d) failed: %ds, %v", id, sock, idle, err)
 				ok = false
 			}
 			if err := syscall.SetsockoptInt(sock, syscall.IPPROTO_TCP, syscall.TCP_KEEPINTVL, interval); err != nil {
-				log.D("core: sockopt: set TCP_KEEPINTVL %s (%d) failed: %ds, %v", id, sock, interval, err)
+				log.V("core: sockopt: set TCP_KEEPINTVL %s (%d) failed: %ds, %v", id, sock, interval, err)
 				ok = false
 			}
 			if err := syscall.SetsockoptInt(sock, syscall.IPPROTO_TCP, syscall.TCP_KEEPCNT, count); err != nil {
-				log.D("core: sockopt: set TCP_KEEPCNT %s (%d) failed: #%d, %v", id, sock, count, err)
+				log.V("core: sockopt: set TCP_KEEPCNT %s (%d) failed: #%d, %v", id, sock, count, err)
 				ok = false
 			}
 			// code.googlesource.com/google-api-go-client/+/master/transport/grpc/dial_socketopt.go#30
 			if err := unix.SetsockoptInt(sock, unix.SOL_TCP, unix.TCP_USER_TIMEOUT, usertimeoutms); err != nil {
-				log.D("core: sockopt: set TCP_USER_TIMEOUT %s (%d) failed: %dms, %v", id, sock, usertimeoutms, err)
+				log.V("core: sockopt: set TCP_USER_TIMEOUT %s (%d) failed: %dms, %v", id, sock, usertimeoutms, err)
 				ok = false
 			}
 		})

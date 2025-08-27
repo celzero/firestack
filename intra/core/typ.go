@@ -53,6 +53,12 @@ func TypeEq(a, b any) bool {
 	return reflect.TypeOf(a) == reflect.TypeOf(b)
 }
 
+func LocEq(a, b any) bool {
+	loca := Loc(a)
+	locb := Loc(b)
+	return loca > 0 && locb > 0 && loca == locb
+}
+
 func IsZero(x any) bool {
 	if IsNil(x) {
 		return true

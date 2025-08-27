@@ -30,13 +30,14 @@
 package netstack
 
 import (
+	"errors"
 	"fmt"
 	"sync/atomic"
-	"syscall"
 	"time"
 
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/log"
+	"github.com/celzero/firestack/intra/settings"
 	"golang.org/x/sys/unix"
 	"gvisor.dev/gvisor/pkg/buffer"
 	"gvisor.dev/gvisor/pkg/rawfile"
@@ -48,31 +49,22 @@ import (
 
 var _ stack.InjectableLinkEndpoint = (*endpoint)(nil)
 var _ stack.LinkEndpoint = (*endpoint)(nil)
-var _ stack.LinkEndpoint = (*linkFdSwap)(nil)
-var _ FdSwapper = (*linkFdSwap)(nil)
 
+// placeholder FD for whenever existing FD wrapped in struct fds is closed.
 const invalidfd int = -1
 
-type FdSwapper interface {
-	// Cur returns the current FD.
-	Cur() int
-	// Swap closes existing FDs; uses new fd.
-	Swap(fd int) error
-	// Dispose closes all existing FDs.
-	Dispose() error
-}
+// wrapttl is the time to wait for the dispatcher to wrap up (close a previous FD).
+const waitttl = wrapttl
 
-type SeamlessEndpoint interface {
-	stack.LinkEndpoint
-	FdSwapper
-}
+var errNeedsNewEndpoint = errors.New("ns: needs new endpoint")
 
 // linkDispatcher reads packets from the link FD and dispatches them to the
 // NetworkDispatcher.
 type linkDispatcher interface {
 	stop()
-	swap(fd int) error
-	dispatch() (bool, tcpip.Error)
+	prepare(fd *fds)
+	dispatch(fd *fds) (bool, tcpip.Error)
+	wrapup(prev *fds, ttl time.Duration)
 }
 
 type endpoint struct {
@@ -80,7 +72,7 @@ type endpoint struct {
 	// fds is the set of file descriptors each identifying one inbound/outbound
 	// channel. The endpoint will dispatch from all inbound channels as well as
 	// hash outbound packets to specific channels based on the packet hash.
-	fds *core.Volatile[int]
+	fds *core.Volatile[*fds]
 
 	// mtu (maximum transmission unit) is the maximum size of a packet.
 	mtu atomic.Uint32
@@ -162,7 +154,7 @@ type Options struct {
 // Makes fd non-blocking, but does not take ownership of fd, which must remain
 // open for the lifetime of the returned endpoint (until after the endpoint has
 // stopped being using and Wait returns).
-func NewFdbasedInjectableEndpoint(opts *Options) (SeamlessEndpoint, error) {
+func newFdbasedInjectableEndpoint(opts *Options) (SeamlessEndpoint, error) {
 	caps := stack.LinkEndpointCapabilities(0)
 	if opts.RXChecksumOffload {
 		caps |= stack.CapabilityRXChecksumOffload
@@ -196,7 +188,7 @@ func NewFdbasedInjectableEndpoint(opts *Options) (SeamlessEndpoint, error) {
 
 	e := &endpoint{
 		mtu:     atomic.Uint32{},
-		fds:     core.NewVolatile(invalidfd),
+		fds:     core.NewVolatile(invalidFds),
 		caps:    caps,
 		addr:    opts.Address,
 		hdrSize: hdrSize,
@@ -217,85 +209,112 @@ func NewFdbasedInjectableEndpoint(opts *Options) (SeamlessEndpoint, error) {
 
 	e.SetMTU(opts.MTU)
 
-	if err := e.Swap(opts.FDs[0]); err != nil {
+	if err := e.swap(opts.FDs[0], true); err != nil {
 		return nil, err
 	}
 
 	return e, nil
 }
 
-func createInboundDispatcher(e *endpoint, fd int) (linkDispatcher, error) {
+func createInboundDispatcher(e *endpoint, f *fds) (linkDispatcher, error) {
 	// By default use the readv() dispatcher as it works with all kinds of
 	// FDs (tap/tun/unix domain sockets and af_packet).
-	d, err := newReadVDispatcher(fd, e)
+	d, err := newReadVDispatcher(f, e)
 	if err != nil {
-		return nil, fmt.Errorf("newReadVDispatcher(%d, %+v) = %v", fd, e, err)
+		return nil, fmt.Errorf("newReadVDispatcher(%s, %+v) = %v", f, e, err)
 	}
 	return d, nil
 }
 
-func (e *endpoint) Cur() int {
-	return e.fd()
+func (e *endpoint) Stat() (zz EpStat) {
+	fds := e.fds.Load()
+	if fds == nil {
+		return
+	}
+
+	t := time.Now()
+	if death := fds.death.Load(); death > 0 {
+		t = time.UnixMilli(death)
+	}
+
+	age := t.Sub(time.UnixMilli(fds.since.Load()))
+
+	return EpStat{
+		Fd:        fds.tunFd, // f.tun() returns invalidfd if f.tunFd is closed
+		Alive:     !fds.closed.Load(),
+		Age:       core.FmtPeriod(age),
+		Read:      core.FmtBytes(uint64(fds.read.Load())),
+		Written:   core.FmtBytes(uint64(fds.written.Load())),
+		LastRead:  core.FmtUnixMillisAsPeriod(fds.lastRead.Load()),
+		LastWrite: core.FmtUnixMillisAsPeriod(fds.lastWrite.Load()),
+	}
 }
 
 func (e *endpoint) Dispose() (err error) {
-	if e.fds == nil {
-		log.W("ns: tun: Dispose: no fds")
-		return nil
-	}
-	prevfd := e.fds.Swap(invalidfd) // prevfd may be invalidfd
-	if prevfd == invalidfd {
-		log.W("ns: tun: Dispose: invalid prevfd")
-		return nil
-	}
 	e.Lock()
 	defer e.Unlock()
+
+	prevfd := e.fds.Swap(invalidFds) // prevfd may be invalidfd
+
 	if e.inboundDispatcher == nil {
-		log.W("ns: tun: Dispose: no inbound dispatcher")
+		prevfd.stop() // prevfd may be invalidfd
+		log.W("ns: tun(%d): Dispose, no inbound dispatcher", prevfd.tun())
 		// nothing to do
 		return nil
 	}
-	// e.inboundDispatcher.swap() will close prevfd
-	// e.dispatchLoop() will auto-exit due to invalidfd
-	return e.inboundDispatcher.swap(invalidfd)
+
+	// e.inboundDispatcher.prepare() will not close prevfd
+	// dispatchLoop() will auto-exit on invalidfd
+	e.inboundDispatcher.wrapup(prevfd, wrapttl)
+	e.inboundDispatcher.prepare(invalidFds)
+
+	return nil
 }
 
-// Implements Swapper.
-func (e *endpoint) Swap(fd int) (err error) {
-	if err = unix.SetNonblock(fd, true); err != nil {
-		clos(fd)
-		return fmt.Errorf("ns: tun: set non blocking(%d) failed: %v", fd, err)
-	}
+// Implements FdSwapper.
+func (e *endpoint) Swap(fd, mtu int) (err error) {
+	e.SetMTU(uint32(mtu))
+	return e.swap(fd, false)
+}
 
-	prevfd := e.fds.Swap(fd) // commence WritePackets() on fd
-
-	log.D("ns: swap: tun fd %d => %d", prevfd, fd)
-
+func (e *endpoint) swap(fd int, force bool) (err error) {
 	e.Lock()
 	defer e.Unlock()
+
+	prevfd := e.fds.Load()
+	if !force && !prevfd.ok() {
+		return errNeedsNewEndpoint
+	} // if prevfd is nil, then we're creating a new endpoint
+
+	f, err := newTun(fd) // fd may be invalid (ex: -1)
+	if err != nil || f == nil {
+		clos(fd)
+		return log.EE("ns: tun(%d): swap: err: %v / %v; using invalidfd", fd, err)
+	}
+
+	e.fds.Store(f) // commence WritePackets() on fd
+
+	log.D("ns: tun(%s): swap: fd %s => %d; err? %v", prevfd, prevfd, fd, err)
+
 	if e.inboundDispatcher == nil { // prevfd must be 0 value if inbound is nil
-		e.inboundDispatcher, err = createInboundDispatcher(e, fd)
+		prevfd.stop() // prevfd may be invalid
+		e.inboundDispatcher, err = createInboundDispatcher(e, f)
 	} else {
-		err = e.inboundDispatcher.swap(fd) // always closes prevfd
-		// todo: on err != nil e.inboundDispatcher = nil?
+		// closes prevfd, which may be invalidfd
+		e.inboundDispatcher.wrapup(prevfd, wrapttl)
+		e.inboundDispatcher.prepare(f)
 	}
 
 	hasDispatcher := e.dispatcher != nil
 	if err == nil && hasDispatcher { // attached?
-		log.I("ns: tun(%d => %d): swap: restart looper %t for new fd",
-			prevfd, fd, hasDispatcher)
-		go e.dispatchLoop(e.inboundDispatcher)
+		log.I("ns: tun(%s): (%s => %d) swap: restart looper %t for new fd",
+			prevfd, prevfd, fd, hasDispatcher)
+		go dispatchLoop(e.inboundDispatcher, f, &e.wg)
 	} else {
-		log.W("ns: tun(%d => %d): swap: no dispatcher? %t for new fd; err %v",
-			prevfd, fd, !hasDispatcher, err)
+		log.E("ns: tun(%s): (%s => %d) swap: no dispatcher? %t for new fd; err %v",
+			prevfd, prevfd, fd, !hasDispatcher, err)
 	}
 	return
-}
-
-func clos(fd int) {
-	if fd > 0 || fd != invalidfd {
-		_ = syscall.Close(fd)
-	}
 }
 
 // Attach launches the goroutine that reads packets from the file descriptor and
@@ -307,47 +326,62 @@ func (e *endpoint) Attach(dispatcher stack.NetworkDispatcher) {
 	defer e.Unlock()
 
 	rx := e.inboundDispatcher
-	fd := e.fd()
+
+	fds := e.fds.Load()
+	fd := fds.tun()
+
 	attach := dispatcher != nil   // nil means the NIC is being removed.
 	pipe := rx != nil             // nil means there's no read dispatcher.
 	exists := e.dispatcher != nil // nil means the NIC is already detached.
+
 	// Attach is called when the NIC is being created and then enabled.
 	// stack.CreateNIC -> nic.newNIC -> ep.Attach
 	if dispatcher == nil && e.dispatcher != nil {
 		log.I("ns: tun(%d): attach: detach dispatcher (and inbound? %t)", fd, pipe)
+		allLoopersExited := true
 		if rx != nil {
-			go rx.stop() // avoid mutex; closes fd
-			e.Wait()     // on all inboundDispatcher w/ mutex locked?
+			go rx.stop() // avoid mutex
+			fds.stop()
+
+			allLoopersExited = e.wait(waitttl) // on all inboundDispatcher w/ mutex locked?
 		}
 		e.dispatcher = nil
 		e.inboundDispatcher = nil // rx
-		e.fds.Store(invalidfd)
-		log.I("ns: tun(%d): attach: done detaching dispatcher", fd)
+		e.fds.Store(invalidFds)
+		logei(!allLoopersExited)("ns: tun(%d): attach: done detaching dispatcher; all loopers done? %t",
+			fd, allLoopersExited)
 		return
 	}
+
 	if dispatcher != nil && e.dispatcher == nil {
 		log.I("ns: tun(%d): attach: new dispatcher & looper", fd)
 		e.dispatcher = dispatcher
-		if e.inboundDispatcher == nil && fd != invalidfd { // unlikely
+		if e.inboundDispatcher == nil && fds.ok() { // unlikely
 			var err error
-			e.inboundDispatcher, err = createInboundDispatcher(e, fd)
+			e.inboundDispatcher, err = createInboundDispatcher(e, fds)
 			logeif(err)("ns: tun(%d): attach: just-in-time createInboundDispatcher; err? %v", fd, err)
+			if e.inboundDispatcher != nil {
+				e.inboundDispatcher.prepare(fds)
+			}
 			rx = e.inboundDispatcher
 		}
-		go e.dispatchLoop(rx)
+		go dispatchLoop(rx, fds, &e.wg)
 		return
 	}
+
 	if dispatcher != nil {
 		log.W("ns: tun(%d): attach: discard? %t; but switch to new anyway", fd, exists)
 		e.dispatcher = dispatcher
 		return
 	}
+
 	log.W("ns: tun(%d): attach: discard? %t; hadDispatcher? %t hadInbound? %t", fd, exists, attach, pipe)
 }
 
 // IsAttached implements stack.LinkEndpoint.IsAttached.
 func (e *endpoint) IsAttached() bool {
-	return e.getDispatcher() != nil
+	d, _ := e.getDispatcher()
+	return d != nil
 }
 
 // MTU implements stack.LinkEndpoint.MTU. It returns the value initialized
@@ -377,6 +411,11 @@ func (e *endpoint) LinkAddress() tcpip.LinkAddress {
 // reading from its FD.
 func (e *endpoint) Wait() {
 	e.wg.Wait()
+}
+
+func (e *endpoint) wait(d time.Duration) bool {
+	// wait on e.Wait() until ttl expires
+	return core.Await(func() { e.Wait() }, d)
 }
 
 // AddHeader implements stack.LinkEndpoint.AddHeader.
@@ -413,10 +452,7 @@ func (e *endpoint) ParseHeader(pkt *stack.PacketBuffer) bool {
 
 // fd returns the file descriptor associated with the endpoint.
 func (e *endpoint) fd() int {
-	if fd := e.fds.Load(); fd > 0 {
-		return fd
-	}
-	return invalidfd
+	return e.fds.Load().tun()
 }
 
 // writePackets writes outbound packets to the file descriptor. If it is not
@@ -428,14 +464,23 @@ func (e *endpoint) WritePackets(pkts stack.PacketBufferList) (int, tcpip.Error) 
 	// segment can get split into 46 segments of 1420 bytes and a single 216
 	// byte segment.
 	const batchSz = 47
-	fd := e.fd()         // may have been closed
-	if fd == invalidfd { // unlikely; panic instead?
-		log.E("ns: tun(-1): WritePackets (to tun): fd invalid")
+	fds := e.fds.Load()
+	fd := fds.tun() // if closed, returns invalidfd
+
+	if fd == invalidfd {
+		log.E("ns: tun(-1): WritePackets (to tun): fd invalid (pkts: %d)", pkts.Len())
 		return 0, &tcpip.ErrNoSuchFile{}
 	}
+
 	batch := make([]unix.Iovec, 0, batchSz)
 	packets, written := 0, 0
 	total := pkts.Len()
+
+	defer func() {
+		fds.written.Add(int64(written)) // update written bytes
+		fds.lastWrite.Store(time.Now().UnixMilli())
+	}()
+
 	for _, pkt := range pkts.AsSlice() {
 		views := pkt.AsSlices()
 		numIovecs := len(views)
@@ -465,7 +510,9 @@ func (e *endpoint) WritePackets(pkts stack.PacketBufferList) (int, tcpip.Error) 
 		written += packets
 	}
 
-	log.VV("ns: tun(%d): WritePackets (to tun): written(%d)/total(%d)", fd, written, total)
+	if settings.Debug {
+		log.VV("ns: tun(%d): WritePackets (to tun): written(%d)/total(%d)", fd, written, total)
+	}
 	return written, nil
 }
 
@@ -479,31 +526,33 @@ func (e *endpoint) notifyRestart() {
 */
 
 // dispatchLoop reads packets from the file descriptor in a loop and dispatches
-// them to the network stack. Must be run as a goroutine.
-func (e *endpoint) dispatchLoop(inbound linkDispatcher) tcpip.Error {
+// them to the network stack (linkDispatcher). Must be run as a goroutine.
+func dispatchLoop(inbound linkDispatcher, f *fds, wg *sync.WaitGroup) tcpip.Error {
 	// defer core.RecoverFn("ns.e.dispatch", e.notifyRestart)
 	defer core.Recover(core.Exit11, "ns.e.dispatch")
 
-	e.wg.Add(1)
-	defer e.wg.Done()
+	wg.Add(1)
+	defer wg.Done()
 
-	fd := e.fd()
 	if inbound == nil || core.IsNil(inbound) {
-		log.W("ns: tun(%d): dispatchLoop: inbound nil", fd)
+		defer f.stop()
+		log.W("ns: tun(%d): dispatchLoop: inbound nil", f.tun())
 		return &tcpip.ErrUnknownDevice{}
 	}
 
 	start := time.Now()
-	log.I("ns: tun(%d): dispatchLoop: start", fd)
+	log.I("ns: tun(%d): dispatchLoop: start", f.tun())
 	for {
-		cont, err := inbound.dispatch()
+		cont, err := inbound.dispatch(f)
+		if err != nil {
+			logei(cont)("ns: tun(%d): dispatchLoop: dur: %s; continue? %t; err: %v",
+				f.tun(), core.FmtTimeAsPeriod(start), cont, err)
+		}
 		if !cont {
-			elapsed := time.Since(start)
-			log.W("ns: tun(%d): dispatchLoop: exit; dur: %s; err? %v", fd, elapsed, err)
+			defer f.stop()
 			return err
-		} else if err != nil {
-			log.W("ns: tun(%d): dispatchLoop: continue on err: %v", fd, err)
 		} // else: continue dispatching
+
 	}
 }
 
@@ -525,16 +574,16 @@ func (e *endpoint) SetMTU(mtu uint32) {
 	e.mtu.Store(mtu)
 }
 
-func (e *endpoint) getDispatcher() stack.NetworkDispatcher {
+func (e *endpoint) getDispatcher() (stack.NetworkDispatcher, *fds) {
 	e.RLock()
 	defer e.RUnlock()
-	return e.dispatcher
+	return e.dispatcher, e.fds.Load()
 }
 
 // InjectInbound ingresses a netstack-inbound packet.
 func (e *endpoint) InjectInbound(protocol tcpip.NetworkProtocolNumber, pkt *stack.PacketBuffer) {
-	d := e.getDispatcher()
-	fd := e.fd()
+	d, fds := e.getDispatcher()
+	fd := fds.tun()
 	log.VV("ns: tun(%d): inject-inbound (from tun) %d", fd, protocol)
 	if d != nil && pkt != nil {
 		d.DeliverNetworkPacket(protocol, pkt)
@@ -546,9 +595,24 @@ func (e *endpoint) InjectInbound(protocol tcpip.NetworkProtocolNumber, pkt *stac
 // Unused: InjectOutobund implements stack.InjectableEndpoint.InjectOutbound.
 // InjectOutbound egresses a tun-inbound packet.
 func (e *endpoint) InjectOutbound(dest tcpip.Address, packet *buffer.View) tcpip.Error {
-	fd := e.fd()
-	log.VV("ns: tun(%d): inject-outbound (to tun) to dst(%v)", fd, dest)
-	errno := rawfile.NonBlockingWrite(fd, packet.AsSlice())
+	f := e.fds.Load()
+	fd := f.tun()
+
+	if !f.ok() {
+		log.E("ns: tun(%d): inject-outbound (to tun) to dst(%v): endpoint not attached", fd, dest)
+		return &tcpip.ErrUnknownDevice{}
+	}
+
+	b := packet.AsSlice()
+	sz := int64(len(b))
+	defer f.written.Add(sz) // update written bytes
+	defer f.lastWrite.Store(time.Now().UnixMilli())
+
+	if settings.Debug {
+		log.VV("ns: tun(%d): inject-outbound (to tun) to dst(%v) sz(%d)", fd, dest, sz)
+	}
+
+	errno := rawfile.NonBlockingWrite(fd, b)
 	return tcpip.TranslateErrno(errno)
 }
 

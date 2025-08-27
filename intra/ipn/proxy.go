@@ -10,7 +10,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/rand"
 	"net"
+	"net/http"
 	"net/netip"
 	"net/url"
 	"os"
@@ -18,8 +20,6 @@ import (
 	"strings"
 	"syscall"
 	"time"
-
-	"slices"
 
 	x "github.com/celzero/firestack/intra/backend"
 	"github.com/celzero/firestack/intra/core"
@@ -31,20 +31,33 @@ import (
 const mainCountryCode = "US"  // always uppercase
 const noCountryForOldMen = "" // zz
 
+func maincc(acc RpnAcc) string {
+	cc := mainCountryCode
+	if !acc.MultiCountry() {
+		cc = noCountryForOldMen
+	}
+	return cc
+}
+
 func (pxr *proxifier) NewSocks5Proxy(id, user, pwd, ip, port string) (p *socks5, err error) {
 	opts := settings.NewAuthProxyOptions("socks5", user, pwd, ip, port, nil)
 	return NewSocks5Proxy(id, pxr.ctx, pxr.ctl, pxr, opts)
 }
 
-// AddProxy implements Proxifier.
-func (pxr *proxifier) AddProxy(id, txt string) (x.Proxy, error) {
-	defer core.Recover(core.Exit11, "prx.AddProxy."+id)
+func (pxr *proxifier) Underlay(id *x.Gostr, c x.Controller) x.Proxy {
+	return newBasicProxy(id.V(), fakeBaseAddr, pxr.ctx, c, pxr)
+}
 
-	if isRPN(id) { // must call addRpnProxy instead
+// AddProxy implements Proxifier.
+func (pxr *proxifier) AddProxy(id, txt *x.Gostr) (x.Proxy, error) {
+	defer core.Recover(core.Exit11, "prx.AddProxy."+id.V())
+
+	pid := id.V()
+	if isRPN(pid) { // must call addRpnProxy instead
 		return nil, errAddProxyAsRpn
 	}
 
-	return pxr.addProxy(id, txt)
+	return pxr.addProxy(pid, txt.V())
 }
 
 func (pxr *proxifier) removeRpnProxy(acc RpnAcc, cc string) bool {
@@ -86,51 +99,69 @@ func (pxr *proxifier) addRpnProxy(acc RpnAcc, cc string) (Proxy, error) {
 
 	p, err := pxr.addProxy(typ+cc, txt)
 	if p == nil {
+		pxr.postAddRpnProxyError(acc) // remove from pxr.rp if exists
 		return nil, core.JoinErr(err, errAddProxy)
 	}
 
-	rp, err := asRpnProxy(p, acc, pxr)
-	if rp == nil {
-		defer pxr.removeProxy(p.ID(), true /*force*/)
-		return nil, core.JoinErr(err, errAddProxyAsRpn)
-	}
-
-	pxr.rpnmu.Lock()
-	pxr.rp[acc.ProviderID()] = rp // removed on unregister
-	pxr.rpnmu.Unlock()
-
-	return p, nil
+	return pxr.postAddRpnProxy(p, acc)
 }
 
 // TODO: on add / update a via proxy; refresh all dependent origins
 func (pxr *proxifier) addRpnProxy2(p Proxy, acc RpnAcc) (Proxy, error) {
-	proxyid := p.ID()
+	proxyid := idstr(p)
 	providerid := acc.ProviderID()
 	if !isRPN(proxyid) || !isRPN(providerid) {
 		return nil, errNotRpnProxy
 	}
 
-	rp, err := asRpnProxy(p, acc, pxr)
-	if rp == nil {
-		return nil, core.JoinErr(err, errAddProxyAsRpn)
-	}
-
 	ok := pxr.add(p)
 	if !ok {
+		pxr.postAddRpnProxyError(acc) // remove from pxr.rp if exists
 		return nil, errAddProxy
 	}
 
-	pxr.rpnmu.Lock()
-	pxr.rp[acc.ProviderID()] = rp // removed on unregister
-	pxr.rpnmu.Unlock()
+	// TODO: setup hop from mainCountryCode to forked rpn proxies
+	go pxr.refreshHopOriginsIfAny(p, "postAddRpnProxy."+proxyid)
 
-	go pxr.refreshHopOriginsIfAny(p, "addRpnProxy2."+proxyid)
+	return pxr.postAddRpnProxy(p, acc)
+}
+
+func (pxr *proxifier) postAddRpnProxy(p Proxy, acc RpnAcc) (_ Proxy, err error) {
+	proxyid := idstr(p)
+
+	// add rpn proxy iff rpn proxy isn't multicountry (in which case only one
+	// instance of it can exist and hence it is being re-added if already present)
+	// or, if it is multicountry, add it only if the country code is the main country,
+	// as forked children countries only need be added as plain-old proxies (done above).
+	if !acc.MultiCountry() || strings.HasSuffix(proxyid, mainCountryCode) {
+		pxr.rpnmu.Lock()
+		rp := pxr.rp[acc.ProviderID()]
+		pxr.rpnmu.Unlock()
+
+		if rp == nil {
+			rp, err = asRpnProxy(p, acc, pxr)
+			if rp == nil { // should not happen; unexpected!
+				defer pxr.removeProxy(proxyid, true /*force*/)
+				return nil, core.JoinErr(err, errAddProxyAsRpn)
+			}
+			// TODO: setup hop from mainCountryCode to forked rpn proxies
+			pxr.rpnmu.Lock()
+			pxr.rp[acc.ProviderID()] = rp // removed on unregister
+			pxr.rpnmu.Unlock()
+		} else {
+			go rp.Emplace(p)
+		}
+	}
 
 	return p, nil
 }
 
+func (pxr *proxifier) postAddRpnProxyError(acc RpnAcc) (removed bool) {
+	return pxr.unregisterRpn(acc.ProviderID()) // unregisters if it exists
+}
+
 func (pxr *proxifier) addProxy(id, txt string) (p Proxy, err error) {
-	if len(txt) <= 0 {
+	if len(id) <= 0 {
 		return nil, errAddProxy
 	}
 
@@ -147,24 +178,6 @@ func (pxr *proxifier) addProxy(id, txt string) (p Proxy, err error) {
 		pxr.Unlock()
 		if p, _ = pxr.ProxyFor(id); p != nil {
 			if wgp, ok := p.(WgProxy); ok && wgp.update(id, txt) {
-				opts, err0 := wgIfConfigOf(id, &txt) // removes wg ifconfig from txt
-
-				logev(err0)("proxy: updating wg(%s); ifaddrs(%v), dns(%v), mtu(%d); err? %v",
-					id, opts.ifaddrs, opts.dns, opts.mtu, err)
-
-				if err0 != nil {
-					return nil, err0
-				}
-
-				err1 := wgp.IpcSet(txt)
-				if err1 != nil {
-					log.W("proxy: err1 updating wg(%s); %v", id, err1)
-					return nil, err1
-				} else {
-					// sensitive log: peercfg contains private key
-					log.P("proxy: updating wg(%s) len(peercfg(%d))", id, len(txt))
-				}
-
 				newcfg, readd := wgp.OnProtoChange(lp)
 				if readd || len(newcfg) > 0 {
 					log.W("proxy: cannot update wg(%s); readd it!", id)
@@ -177,13 +190,16 @@ func (pxr *proxifier) addProxy(id, txt string) (p Proxy, err error) {
 		} // else: new
 		// txt is both wg ifconfig and peercfg
 		p, err = NewWgProxy(id, pxr.ctl, pxr, lp, txt)
+	} else if len(txt) <= 0 {
+		p = NewBasicProxy(id, pxr.ctx, pxr.ctl, pxr)
+		err = nil
 	} else {
 		var strurl string
 		var usr string
 		var pwd string
 		var u *url.URL
 		// go.dev/play/p/2DTBGO0Wisj
-		// scheme://usr:pwd@domain.tld:8080/p/a/t/h?q&u=e&r=y#f,r
+		// scheme://usr:pwd@domain.tld:port/p/a/t/h?q&u=e&r=y#f,r
 		u, err = url.Parse(txt)
 		if err != nil {
 			return nil, err
@@ -193,7 +209,7 @@ func (pxr *proxifier) addProxy(id, txt string) (p Proxy, err error) {
 			usr = u.User.Username()    // usr
 			pwd, _ = u.User.Password() // pwd
 		}
-		strurl = u.Host + u.RequestURI() // domain.tld:8080/p/a/t/h?q&u=e&r=y#f,r
+		strurl = u.Host + u.RequestURI() // domain.tld:port/p/a/t/h?q&u=e&r=y#f,r
 		addrs := strings.Split(u.Fragment, ",")
 		// opts may be nil
 		opts := settings.NewAuthProxyOptions(u.Scheme, usr, pwd, strurl, u.Port(), addrs)
@@ -245,14 +261,99 @@ func (pxr *proxifier) fromOpts(id string, opts *settings.ProxyOptions) (Proxy, e
 	return p, err
 }
 
-func Reaches(p Proxy, hostportOrIPPortCsv string, protos ...string) bool {
-	if p == nil || p.Status() == END {
+func Reaches(p Proxy, urlOrHostPortOrIPPortCsv string, protos ...string) bool {
+	if p == nil {
 		return false
 	}
-	if len(hostportOrIPPortCsv) <= 0 {
+	st := p.Status()
+	if err := candial2(st); err != nil {
+		log.W("proxy: %s reaches: err %v, status(%s)", idstr(p), err, pxstatus(st))
+		return false
+	}
+	if len(urlOrHostPortOrIPPortCsv) <= 0 {
 		return true
 	}
 
+	// auto:[ip,http,https]:[v4,v6]
+	if strings.HasPrefix(urlOrHostPortOrIPPortCsv, "auto") {
+		const autoSize = 5
+		prefs := strings.Split(urlOrHostPortOrIPPortCsv, ":")
+		scheme := "https"
+		if len(prefs) >= 2 {
+			scheme = prefs[1]
+		}
+		ipfrag := ""
+		if len(prefs) >= 3 {
+			// TODO: change "ipv4", "ipv6", "tcp4", "tcp6", "udp4", "udp6" to "v4", "v6"
+			ipfrag = prefs[2] // "v4", "v6", ""
+		}
+
+		protos = []string{}
+		switch scheme {
+		case "http", "https":
+			urls := []string{}
+			for _, h := range dialers.SampleHosts(autoSize, ipfrag) {
+				u := url.URL{
+					Scheme:   scheme,
+					Host:     h,
+					Fragment: ipfrag, // if empty, connectivity over v4+v6 is attempted
+				}
+				urls = append(urls, u.String())
+			}
+			log.I("proxy: %s reaches: auto:http for %v urls", idstr(p), urls)
+			urlOrHostPortOrIPPortCsv = strings.Join(urls, ",")
+		case "ip":
+			ips := make([]netip.Addr, 0, autoSize)
+			log.I("proxy: %s reaches: auto:ip for %v ips", idstr(p), ips)
+
+			if ipfrag == "v4" {
+				protos = append(protos, "tcp4", "udp4")
+			} else if ipfrag == "v6" {
+				protos = append(protos, "tcp6", "udp6")
+			} else {
+				protos = append(protos, "tcp", "udp")
+			}
+			for _, ip := range dialers.SampleIPs(autoSize, ipfrag) {
+				if ipfrag == "v4" && ip.Is4() {
+					ips = append(ips, ip)
+				} else if ipfrag == "v6" && ip.Is6() {
+					ips = append(ips, ip)
+				} else if ipfrag == "" {
+					ips = append(ips, ip) // both v4 and v6
+				}
+
+			}
+			// default port for ip:port is 80 if left unspecified (see below)
+			urlOrHostPortOrIPPortCsv = strings.Join(core.Map(ips, func(ip netip.Addr) string { return ip.String() }), ",")
+		default:
+			log.E("proxy: %s reaches: auto:%s for %v protos; unsupported scheme", idstr(p), scheme, protos)
+			return false
+		}
+	}
+
+	pid := idstr(p)
+	hostportOrIPPort := strings.Split(urlOrHostPortOrIPPortCsv, ",")
+	if urls, oth := extractHttpURLs(urlOrHostPortOrIPPortCsv); len(urls) > 0 {
+		log.V("proxy: %s reaches: testing for %v", idstr(p), urls)
+
+		hostportOrIPPort = oth
+		tests := make([]core.WorkCtx[bool], 0)
+		for _, u := range urls {
+			tests = append(tests, httpsReachesWorkCtx(p, u))
+		}
+		threeSecsPerTest := time.Duration(len(tests)) * 3 * time.Second
+
+		ok, who := core.First("reach.http."+pid, threeSecsPerTest, tests...)
+
+		logeif(!ok)("proxy: %s #%d reaches: %v verdict (https): reachable? %t",
+			pid, who, urlOrHostPortOrIPPortCsv, ok)
+
+		if !ok || len(oth) <= 0 {
+			return ok
+		}
+	}
+
+	// Original logic for host:port or ip:port
 	hastcp := has(protos, "tcp") || has(protos, "tcp4") || has(protos, "tcp6")
 	hasudp := has(protos, "udp") || has(protos, "udp4") || has(protos, "udp6")
 	hasicmp := has(protos, "icmp") || has(protos, "icmp4") || has(protos, "icmp6")
@@ -260,15 +361,15 @@ func Reaches(p Proxy, hostportOrIPPortCsv string, protos ...string) bool {
 	if !hastcp && !hasudp && !hasicmp { // fail open
 		hastcp = true
 		hasudp = true
-		hasicmp = true
-		protos = []string{"tcp", "udp", "icmp"}
+		hasicmp = false
+		protos = []string{"tcp", "udp"}
 	}
 	// upstream := dnsx.Default
 	// if pdns := p.DNS(); len(pdns) > 0 {
 	//	upstream = pdns
 	// }
 	ipps := make([]netip.AddrPort, 0)
-	for x := range strings.SplitSeq(hostportOrIPPortCsv, ",") {
+	for _, x := range hostportOrIPPort {
 		host, port, err := net.SplitHostPort(x)
 		if err != nil {
 			port = "80"
@@ -287,33 +388,123 @@ func Reaches(p Proxy, hostportOrIPPortCsv string, protos ...string) bool {
 			}
 		}
 	}
-	log.V("proxy: %s reaches: testing for %s", p.ID(), ipps)
-	tests := make([]core.WorkCtx[bool], 0)
+
+	n := 0
+	log.V("proxy: %s reaches: testing for %s", pid, ipps)
+	tests := make([][]core.WorkCtx[bool], 0)
 	for _, ipp := range ipps {
+		fns := make([]core.WorkCtx[bool], 0)
 		ippstr := ipp.String()
 		if hastcp {
-			tests = append(tests, tcpReachesWorkCtx(p, ippstr))
+			fns = append(fns, tcpReachesWorkCtx(p, ippstr))
 		}
 		if hasudp {
-			tests = append(tests, udpReachesWorkCtx(p, ippstr))
+			fns = append(fns, udpReachesWorkCtx(p, ippstr))
 		}
 		if hasicmp {
-			tests = append(tests, icmpReachesWorkCtx(p, ipp))
+			fns = append(fns, icmpReachesWorkCtx(p, ipp))
 		}
+		tests = append(tests, fns)
+		n += len(fns)
 	}
 
-	if len(tests) <= 0 {
+	if n <= 0 {
 		log.W("proxy: %s reaches: %v / %v; no tests for %s",
-			p.ID(), hostportOrIPPortCsv, ipps, protos)
+			pid, urlOrHostPortOrIPPortCsv, ipps, protos)
 		return false
 	}
 
-	ok, who, err := core.Race("reach."+p.ID(), getproxytimeout, tests...)
+	ok, who, errs := core.Race("reach"+"."+pid, getproxytimeout, every(pid, tests)...)
 
-	log.D("proxy: %s reaches: %v => %v ok? %t; who: %d, err? %v",
-		p.ID(), hostportOrIPPortCsv, ipps, ok, who, err)
+	logeif(!ok)("proxy: %s #%d reaches: %v => %v verdict (%s): reachable? %t; errs? %v",
+		pid, who, urlOrHostPortOrIPPortCsv, ipps, protos, ok, errs)
 
 	return ok
+}
+
+func httpclient(p Proxy, url *url.URL) (client *http.Client) {
+	v4, v6 := true, true
+	switch url.Fragment {
+	case "tcp", "udp":
+	case "v4", "ipv4", "upd4", "tcp4":
+		v6 = false // only v4
+	case "v6", "ipv6", "upd6", "tcp6":
+		v4 = false // only v6
+	default:
+	}
+	// Lightweight transport for one-time use
+	client = &http.Client{
+		Timeout: 5 * time.Second,
+		Transport: &http.Transport{
+			Dial: func(network, addr string) (net.Conn, error) {
+				host, port, err := net.SplitHostPort(addr)
+				if err != nil {
+					if url.Scheme == "https" {
+						port = "443"
+					} else {
+						port = "80"
+					}
+				} else {
+					addr = host
+				}
+				on, _ := strconv.ParseUint(port, 10, 16)
+				if on == 0 {
+					if url.Scheme == "https" {
+						on = 443
+					} else {
+						on = 80
+					}
+				}
+				ipps := make([]netip.AddrPort, 0)
+				ips := dialers.For(addr)
+				for _, ip := range ips {
+					if v4 && ip.Is4() || v6 && ip.Is6() {
+						ipp := netip.AddrPortFrom(ip, uint16(on))
+						ipps = append(ipps, ipp)
+					}
+				}
+
+				logeif(len(ipps) == 0)("proxy: %s reaches: dial(%s, %s [among %v]) for %s",
+					idstr(p), network, addr, ipps, url)
+
+				if len(ipps) <= 0 {
+					return nil, errNoSuitableAddress
+				}
+
+				n := rand.Intn(len(ipps))
+
+				// filter out the revelant IPs ourselves as dialers pkg does not
+				// respect ip-specific network type "tcp4" or "tcp6"
+				// see: cdial.go:commondial2()
+				return p.Dial(network, ipps[n].String())
+			},
+			// Disable connection pooling for one-time use
+			DisableKeepAlives:   true,
+			MaxIdleConns:        -1,
+			MaxIdleConnsPerHost: -1,
+			// Short timeouts for quick failure detection
+			ResponseHeaderTimeout: 3 * time.Second,
+			// TODO: Prefer h1 to simplify conn handling?
+			ForceAttemptHTTP2:   true,
+			TLSHandshakeTimeout: 3 * time.Second,
+		},
+	}
+	return
+}
+
+func every(who string, tests [][]core.WorkCtx[bool]) []core.WorkCtx[bool] {
+	all := make([]core.WorkCtx[bool], 0, len(tests))
+	for _, t := range tests {
+		t := t
+		all = append(all, func(ctx context.Context) (bool, error) {
+			okays, errs := core.All("reach.all."+who, getproxytimeout, t...)
+			// overall is false if any okays is false, or if all errs are not nil
+			overall := core.IsAll(errs, func(err error) bool { return err == nil }) &&
+				core.IsAll(okays, func(ok bool) bool { return ok })
+			return overall, core.JoinErr(errs...)
+		})
+	}
+	return all
 }
 
 func AnyAddrForUDP(ipp netip.AddrPort) (proto, anyaddr string) {
@@ -370,7 +561,7 @@ func udpReaches(p Proxy, ippstr string) (bool, error) {
 		ok = ok || syserr.Err == syscall.ECONNREFUSED
 	}
 
-	log.V("proxy: %s reaches: tcp: %s ok? %t, rtt: %s; err: %v",
+	log.V("proxy: %s reaches: udp: %s ok? %t, rtt: %s; err: %v",
 		p.ID(), ippstr, ok, rtt, err)
 	if ok { // wipe out err as it makes core.Race discard "ok"
 		err = nil
@@ -437,7 +628,7 @@ func hasroute(p Proxy, ipp string) bool {
 	if p == nil {
 		return false
 	}
-	return p.Router().Contains(ipp)
+	return p.Router().Contains(x.StrOf(ipp))
 }
 
 func healthy(p Proxy) error {
@@ -445,13 +636,14 @@ func healthy(p Proxy) error {
 		return errProxyNotFound
 	}
 
-	pid := p.ID()
-	if local(pid) { // fast path for local proxies which are always ok
+	pid := idstr(p)
+	typ := typstr(p)
+	if local(pid) || noop(typ) { // fast path for local proxies which are always ok
 		return nil
 	}
 
-	if p.Status() == END {
-		return errProxyStopped
+	if err := candial2(p.Status()); err != nil {
+		return err
 	} // TODO: err on TNT, TKO?
 
 	stat := p.Router().Stat()
@@ -465,6 +657,8 @@ func healthy(p Proxy) error {
 			pid, lastOKNeverOK, lastOKBeyondThres)
 	} else if now-lastOK > tzzTimeout.Milliseconds() {
 		go p.onNotOK()
+	} else if p.Status() != TOK {
+		go p.Ping()
 	}
 
 	return nil // ok
@@ -494,14 +688,32 @@ func ViaID(p Proxy) string {
 	if p == nil {
 		return novia
 	}
-	if v, _ := p.Router().Via(); v != nil {
-		if v.ID() == p.ID() {
-			log.W("proxy: %s via %s; loop detected", p.ID(), v.ID())
-			return novia
-		}
-		return v.ID()
+	v, _ := p.Router().Via()
+	if v == nil {
+		return novia
 	}
-	return novia
+	// TODO: change all equality checks on ID() to use idstr
+	vid := idstr(v)
+	pid := idstr(p)
+	if vid == pid {
+		log.W("proxy: %s via %s; loop detected", p.ID(), v.ID())
+		return novia
+	}
+	return vid
+}
+
+func candial2(st int) error {
+	if st == END {
+		return errProxyStopped
+	}
+	if st == TPU {
+		return errProxyPaused
+	}
+	return nil
+}
+
+func candial(state *core.Volatile[int]) error {
+	return candial2(state.Load())
 }
 
 func usevia(viaID *core.Volatile[string]) bool {
@@ -513,7 +725,7 @@ func viafor(who, viaID string, px ProxyProvider) *Proxy {
 		return nil
 	}
 	via, err := px.ProxyFor(viaID)
-	logei(err)("proxy: %s: viafor %s@%s; err? %v", who, viaID, idhandle(via), err)
+	logei(err)("proxy: %s: viafor %s; err? %v", who, idhandle(via), err)
 
 	if err != nil || via == nil || core.IsNil(via) {
 		return nil
@@ -521,17 +733,17 @@ func viafor(who, viaID string, px ProxyProvider) *Proxy {
 	return &via
 }
 
-func swapVia(who string, new Proxy, on *core.Volatile[string], ref *core.WeakRef[Proxy]) (old Proxy) {
+func swapVia(who string, new Proxy, on *core.Volatile[string], ref *core.WeakRef[Proxy]) (oldRef Proxy) {
 	newID := idstr(new)
-	old = ref.Load()         // old may be nil
+	oldRef = ref.Load()      // old may be nil
 	oldID := on.Tango(newID) // newID/oldID may be empty
-	if idstr(old) != oldID {
+	if idstr(oldRef) != oldID {
 		log.W("proxy: wg: %s setVia(%s) old(%s != %s)",
-			who, newID, idstr(old), oldID)
+			who, newID, idstr(oldRef), oldID)
 		return nil
 	}
-	log.I("proxy: wg: %s setVia(%s); remove old(%s)", who, newID, oldID)
-	return old
+	log.I("proxy: wg: %s setVia(%s); rmv old(%s)", who, newID, oldID)
+	return oldRef
 }
 
 func viaok(p *Proxy) bool {
@@ -540,24 +752,64 @@ func viaok(p *Proxy) bool {
 
 // removeElem removes the all occurrences of rmv from s.
 func removeElem[T comparable](s []T, rmv T) []T {
-	if len(s) <= 0 {
-		return s
-	}
-	for i, v := range s {
-		if v == rmv {
-			return removeElem(slices.Delete(s, i, i+1), rmv)
-		}
-	}
-	return s
+	return core.WithoutElem(s, rmv)
 }
 
 // addElem adds add to s if it is not already present.
 func addElem[T comparable](s []T, add T) []T {
-	if len(s) <= 0 {
-		return []T{add}
+	return core.WithElem(s, add)
+}
+
+// extractHttpURLs extracts valid URLs from comma-separated input
+func extractHttpURLs(csv string) (urls []*url.URL, oth []string) {
+	for x := range strings.SplitSeq(csv, ",") {
+		x = strings.TrimSpace(x)
+		if len(x) == 0 {
+			continue
+		}
+		// Check if it's a URL (contains scheme)
+		if u, err := url.Parse(x); err == nil && strings.Contains(u.Scheme, "http") {
+			urls = append(urls, u)
+		} else {
+			oth = append(oth, x)
+		}
 	}
-	if slices.Contains(s, add) {
-		return s
+	return
+}
+
+func httpsReachesWorkCtx(p Proxy, url *url.URL) core.WorkCtx[bool] {
+	return func(ctx context.Context) (bool, error) {
+		return httpsReaches(idstr(p), httpclient(p, url), url)
 	}
-	return append(s, add)
+}
+
+func httpsReaches(who string, c *http.Client, url *url.URL) (bool, error) {
+	start := time.Now()
+
+	req, err := http.NewRequest("HEAD", url.String(), nil)
+	if err != nil {
+		return false, fmt.Errorf("proxy: reaches: err creating req: %w", err)
+	}
+
+	setua := settings.SetUserAgent.Load()
+	if setua {
+		req.Header.Set("User-Agent", settings.AndroidCcUa)
+	}
+
+	statuscode := -1
+	resp, err := c.Do(req)
+	if resp != nil {
+		defer core.Close(resp.Body)
+		statuscode = resp.StatusCode
+	}
+
+	ok := statuscode > 0
+
+	logeif(!ok)("proxy: %s reaches: %v (ua? %t); ok? %t, status: %d, rtt: %s; err: %v",
+		who, url, setua, ok, statuscode, core.FmtPeriod(time.Since(start)), err)
+
+	if ok {
+		err = nil // wipe out err as it makes core.Race discard "ok"
+	}
+	return ok, err
 }

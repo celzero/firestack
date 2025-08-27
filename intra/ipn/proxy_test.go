@@ -213,25 +213,25 @@ func TestProxyReaches(t *testing.T) {
 
 	var projson []byte
 	var err error
-	if projson, err = pxr.RegisterProton(nil); err != nil {
+	if projson, err = pxr.RegisterWin(nil); err != nil {
 		t.Fatal(err)
 	}
-	if ips, err := pxr.TestProton(); err != nil {
+	if ips, err := pxr.TestWin(); err != nil {
 		t.Fatal(err)
 	} else {
 		ilog.D("se: %v", ips)
 	}
 
-	pxr.AddProxy(RpnPro)
+	pxr.AddProxy(RpnWin)
 
-	se, _ := pxr.ProxyFor(RpnPro)
+	se, _ := pxr.ProxyFor(RpnWin)
 	if ok := Reaches(se, "google.com", "tcp"); !ok {
 		t.Fail()
 	}
 	t.Log("proxy reaches")
 }
 
-func TestProtonReaches(t *testing.T) {
+func TestWindscribeReaches(t *testing.T) {
 	netr := &fakeResolver{}
 	ctx := context.TODO()
 	ctl := &fakeCtl{}

@@ -20,7 +20,6 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"math/rand"
 	"net"
 	"net/netip"
 	"strings"
@@ -33,11 +32,12 @@ import (
 	"github.com/celzero/firestack/intra/ipn"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
+	"github.com/celzero/firestack/intra/settings"
 	"github.com/celzero/firestack/intra/xdns"
 	"github.com/miekg/dns"
+	"golang.org/x/crypto/curve25519"
 
 	stamps "github.com/jedisct1/go-dnsstamps"
-	"golang.org/x/crypto/curve25519"
 )
 
 // DcMulti is a dnsx.TransportMult supporting dnscrypt servers and relays
@@ -53,7 +53,7 @@ type DcMulti struct {
 	proxies             ipn.ProxyProvider
 	ctx                 context.Context
 	sigterm             context.CancelFunc
-	lastStatus          int
+	lastStatus          *core.Volatile[int]
 	lastAddr            string
 	ctl                 protect.Controller
 	exit                ipn.Proxy // may be nil
@@ -85,10 +85,7 @@ var (
 )
 
 func chooseAny[T any](s []T) (zz T) {
-	if len(s) <= 0 {
-		return // zz
-	}
-	return s[rand.Intn(len(s))]
+	return core.ChooseOne(s)
 }
 
 func udpExchange(pid string, serverInfo *serverinfo, relayAddrs []*net.UDPAddr, sharedKey *[32]byte, encryptedQuery []byte, clientNonce []byte) (res []byte, relay net.Addr, err error) {
@@ -224,6 +221,11 @@ func query(pid string, packet *dns.Msg, serverInfo *serverinfo, useudp bool) (an
 		return // nil ans
 	}
 
+	if serverInfo.status.Load() == dnsx.DEnd {
+		qerr = dnsx.NewEndQueryError()
+		return // nil ans
+	}
+
 	query, err := intercepted.Pack()
 	if err != nil {
 		log.E("dnscrypt: pack query err: %v", err)
@@ -305,7 +307,11 @@ func resolve(network string, data *dns.Msg, si *serverinfo, smm *x.DNSSummary) (
 	useudp := proto == dnsx.NetTypeUDP
 	pid := dnsx.NetNoProxy
 	if si != nil {
-		pid = si.chooseProxy(pids)
+		if r := si.relay; len(r) > 0 {
+			pid = si.chooseProxy([]string{r})
+		} else {
+			pid = si.chooseProxy(pids)
+		}
 	}
 
 	// ans, si may be nil
@@ -335,52 +341,51 @@ func resolve(network string, data *dns.Msg, si *serverinfo, smm *x.DNSSummary) (
 	smm.RCode = xdns.Rcode(ans)
 	smm.RTtl = xdns.RTtl(ans)
 	smm.Server = resolver
-	smm.RelayServer = anonrelay // may be empty
+	smm.PID = anonrelay // may be empty
 	smm.Status = status
 	if err != nil {
 		smm.Msg = err.Error()
 	}
-
-	noAnonRelay := len(anonrelay) <= 0
-	if si != nil && noAnonRelay {
-		if si.relay != nil {
-			smm.RelayServer = x.SummaryProxyLabel + si.relay.ID()
-		} else if !dnsx.IsLocalProxy(pid) {
-			smm.RelayServer = x.SummaryProxyLabel + pid
-		}
+	if len(anonrelay) <= 0 {
+		smm.PID = pid
 	}
 
-	log.V("dnscrypt: len(res): %d, data: %s, via: %s, err? %v", xdns.Len(ans), smm.RData, smm.RelayServer, err)
+	if settings.Debug {
+		log.V("dnscrypt: len(res): %d, data: %s, via: %s, err? %v",
+			xdns.Len(ans), smm.RData, smm.PID, err)
+	}
 
 	return // ans, err
 }
 
 // LiveTransports returns csv of dnscrypt server-names currently in-use
-func (proxy *DcMulti) LiveTransports() string {
+func (proxy *DcMulti) LiveTransports() *x.Gostr {
 	if len(proxy.liveServers) <= 0 {
-		return ""
+		return nil
 	}
-	return strings.Join(proxy.liveServers[:], ",")
+	return x.StrOf(strings.Join(proxy.liveServers[:], ","))
 }
 
-func (proxy *DcMulti) refreshOne(uid string) bool {
+func (proxy *DcMulti) refreshOne(uid string) (bool, error) {
 	proxy.RLock()
 	r, ok := proxy.registeredServers[uid]
 	proxy.RUnlock()
 
 	if !ok {
-		return false
+		return false, errNoServers
 	}
 	if err := proxy.serversInfo.refreshServer(proxy, r.name, r.stamp); err != nil {
 		log.E("dnscrypt: refresh failed %s: %s; err: %v", r.name, stamp2str(r.stamp), err)
-		return false
+		return false, err
 	}
-	log.D("dnscrypt: refresh success %s: %s", r.name, stamp2str(r.stamp))
-	return true
+	if settings.Debug {
+		log.D("dnscrypt: refresh success %s: %s", r.name, stamp2str(r.stamp))
+	}
+	return true, nil
 }
 
 // Refresh re-registers servers
-func (proxy *DcMulti) Refresh() (string, error) {
+func (proxy *DcMulti) Refresh() (*x.Gostr, error) {
 	var servers []*registeredserver
 	proxy.RLock()
 	for _, s := range proxy.registeredServers {
@@ -398,10 +403,11 @@ func (proxy *DcMulti) Refresh() (string, error) {
 		proxy.certIgnoreTimestamp = false
 	} else if err != nil {
 		// ignore error if live-servers are around
-		return "", err
+		return nil, err
 	}
 	go proxy.refreshRoutes()
-	return proxy.LiveTransports(), nil
+
+	return proxy.ID(), nil
 }
 
 // start starts this dnscrypt proxy
@@ -412,7 +418,7 @@ func (proxy *DcMulti) start() error {
 	curve25519.ScalarBaseMult(&proxy.proxyPublicKey, &proxy.proxySecretKey)
 
 	_, err := proxy.Refresh()
-	_ = core.Every("dcmulti.start", proxy.ctx, certRefreshDelay, func() {
+	_ = core.Periodic("dcmulti.start", proxy.ctx, certRefreshDelay, func() {
 		maxtries := 10
 		i := 0
 		for {
@@ -460,6 +466,7 @@ func (proxy *DcMulti) start() error {
 
 // Stop stops this dnscrypt proxy
 func (proxy *DcMulti) Stop() error {
+	proxy.lastStatus.Store(dnsx.DEnd)
 	proxy.sigterm()
 	return nil
 }
@@ -521,7 +528,9 @@ func (proxy *DcMulti) RemoveGateways(routescsv string) (int, error) {
 	if l != n { // routes changed
 		go proxy.refreshRoutes()
 	}
-	log.V("dnscrypt: removed %d/%d; relays: %s", l-n, l, routescsv)
+	if settings.Debug {
+		log.V("dnscrypt: removed %d/%d; relays: %s", l-n, l, routescsv)
+	}
 	return l - n, nil
 }
 
@@ -532,16 +541,20 @@ func (proxy *DcMulti) removeOne(uid string) int {
 
 	// TODO: handle err
 	n, err := proxy.serversInfo.unregisterServer(uid)
-	log.D("dnscrypt: removed %s; %d servers (err? %v)", uid, n, err)
+	if settings.Debug {
+		log.D("dnscrypt: removed %s; %d servers (err? %v)", uid, n, err)
+	}
 	return n
 }
 
 // Remove removes a dnscrypt server / relay, if any
-func (proxy *DcMulti) Remove(uid string) bool {
+func (proxy *DcMulti) Remove(uid *x.Gostr) bool {
 	// may be a gateway / relay or a dnscrypt server
-	n := proxy.removeOne(uid)
-	nr, nerr := proxy.RemoveGateways(uid)
-	log.D("dnscrypt: removed %s; %d servers; %d relays [err %v]", uid, n, nr, nerr)
+	n := proxy.removeOne(uid.V())
+	nr, nerr := proxy.RemoveGateways(uid.V())
+	if settings.Debug {
+		log.D("dnscrypt: removed %s; %d servers; %d relays [err %v]", uid, n, nr, nerr)
+	}
 	return true
 }
 
@@ -578,7 +591,9 @@ func (proxy *DcMulti) addOne(uid, rawstamp string) (string, error) {
 	proxy.registeredServers[uid] = registeredserver{name: uid, stamp: stamp}
 	proxy.Unlock()
 
-	log.D("dnscrypt: added [%s] %s", uid, stamp2str(stamp))
+	if settings.Debug {
+		log.D("dnscrypt: added [%s] %s", uid, stamp2str(stamp))
+	}
 	return uid, nil
 }
 
@@ -589,8 +604,8 @@ func (proxy *DcMulti) Add(t x.DNSTransport) bool {
 }
 
 // Get implements dnsx.TransportMult
-func (proxy *DcMulti) Get(id string) (x.DNSTransport, error) {
-	if t := proxy.serversInfo.get(id); t != nil {
+func (proxy *DcMulti) Get(id *x.Gostr) (x.DNSTransport, error) {
+	if t := proxy.serversInfo.get(id.V()); t != nil {
 		return t, nil
 	}
 	return nil, errNoServers
@@ -625,27 +640,36 @@ func (p *DcMulti) P50() int64 {
 }
 
 // ID implements dnsx.TransportMult
-func (p *DcMulti) ID() string {
-	return dnsx.DcProxy
+func (p *DcMulti) ID() *x.Gostr {
+	return x.StrOf(dnsx.DcProxy)
 }
 
 // Type implements dnsx.TransportMult
-func (p *DcMulti) Type() string {
-	return dnsx.DNSCrypt
+func (p *DcMulti) Type() *x.Gostr {
+	return x.StrOf(dnsx.DNSCrypt)
 }
 
 // Query implements dnsx.TransportMult
 func (p *DcMulti) Query(network string, q *dns.Msg, smm *x.DNSSummary) (r *dns.Msg, err error) {
+	// TODO: check if server is active (status != DEnd)
 	r, err = resolve(network, q, p.serversInfo.getOne(), smm)
-	p.lastStatus = smm.Status
+	p.lastStatus.Store(smm.Status)
 	p.lastAddr = smm.Server
 	p.est.Add(smm.Latency)
 	return
 }
 
 // GetAddr returns the last server address
-func (p *DcMulti) GetAddr() string {
+func (p *DcMulti) GetAddr() *x.Gostr {
+	return x.StrOf(p.getAddr())
+}
+
+func (p *DcMulti) getAddr() string {
 	return p.lastAddr
+}
+
+func (p *DcMulti) GetRelay() x.Proxy {
+	return nil
 }
 
 func (p *DcMulti) IPPorts() []netip.AddrPort {
@@ -655,7 +679,7 @@ func (p *DcMulti) IPPorts() []netip.AddrPort {
 
 // Status implements dnsx.TransportMult
 func (p *DcMulti) Status() int {
-	return p.lastStatus
+	return p.lastStatus.Load()
 }
 
 func stamp2str(s stamps.ServerStamp) string {
@@ -677,7 +701,7 @@ func NewDcMult(pctx context.Context, px ipn.ProxyProvider, ctl protect.Controlle
 		certIgnoreTimestamp: false,
 		serversInfo:         newServersInfo(),
 		liveServers:         nil,
-		lastStatus:          dnsx.Start,
+		lastStatus:          core.NewVolatile(dnsx.Start),
 		proxies:             px,
 		lastAddr:            "",
 		ctl:                 ctl,
@@ -697,7 +721,7 @@ func AddTransport(p *DcMulti, id, serverstamp string) (*serverinfo, error) {
 		return nil, dnsx.ErrNoDcProxy
 	}
 	if _, err := p.addOne(id, serverstamp); err == nil {
-		if ok := p.refreshOne(id); ok {
+		if ok, err := p.refreshOne(id); ok {
 			log.I("dnscrypt: added %s; %s", id, serverstamp)
 			if tr := p.serversInfo.get(id); tr != nil {
 				go p.refreshRoutes()
@@ -708,7 +732,7 @@ func AddTransport(p *DcMulti, id, serverstamp string) (*serverinfo, error) {
 		} else {
 			log.W("dnscrypt: failed to add2 %s; %s", id, serverstamp)
 			p.removeOne(id)
-			return nil, errNoCert
+			return nil, core.OneErr(err, errNoCert)
 		}
 	} else {
 		return nil, err

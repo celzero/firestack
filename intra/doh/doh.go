@@ -63,6 +63,8 @@ const maxEOFTries = uint8(2)
 
 const purgethreshold = 1 * time.Minute
 
+const echRetryPeriod = 8 * time.Hour
+
 var errNoClient error = errors.New("no doh client")
 
 type odohtransport struct {
@@ -87,17 +89,18 @@ type transport struct {
 	url            string // endpoint URL
 	hostname       string // endpoint hostname
 	port           uint16
-	skipTLSVerify  bool                       // skips tls verification
-	tlsconfig      *tls.Config                // preset tlsconfig for the endpoint
-	echconfig      *tls.Config                // preset echconfig for the endpoint
-	echrejects     atomic.Uint32              // number of running ech rejections
-	pxcmu          sync.RWMutex               // protects pxclients
-	pxclients      map[string]*proxytransport // todo: use weak pointers for Proxy
-	lastpurge      *core.Volatile[time.Time]  // last scrubbed time for stale pxclients
-	preferGET      bool                       // saw 405 Method Not Allowed
-	proxies        ipn.ProxyProvider          // proxy provider, may be nil
-	relay          ipn.Proxy                  // dial doh via relay, may be nil
-	status         int
+	skipTLSVerify  bool                        // skips tls verification
+	tlsconfig      *tls.Config                 // preset tlsconfig for the endpoint
+	echconfig      *core.Volatile[*tls.Config] // echconfig for the endpoint; may be nil
+	echrejects     atomic.Uint32               // number of running ech rejections
+	echlastattempt *core.Volatile[time.Time]   // last attempt fetching ech cfg
+	pxcmu          sync.RWMutex                // protects pxclients
+	pxclients      map[string]*proxytransport  // todo: use weak pointers for Proxy
+	lastpurge      *core.Volatile[time.Time]   // last scrubbed time for stale pxclients
+	preferGET      bool                        // saw 405 Method Not Allowed
+	proxies        ipn.ProxyProvider           // proxy provider, may be nil
+	relay          string                      // dial doh via relay, may be empty
+	status         *core.Volatile[int]
 	est            core.P2QuantileEstimator
 }
 
@@ -126,24 +129,28 @@ func newTransport(ctx context.Context, typ, id, rawurl, otargeturl string, addrs
 	isodoh := typ == dnsx.ODOH
 
 	var renewed bool
-	var relay ipn.Proxy
-	if px != nil {
-		relay, _ = px.ProxyFor(id)
+	var relay string
+	if id != dnsx.Bootstrap && px != nil {
+		if p, _ := px.ProxyFor(id); p != nil {
+			relay = p.ID().V()
+		}
 	}
 
 	ctx, done := context.WithCancel(ctx)
 
 	t := &transport{
-		ctx:       ctx,
-		done:      done,
-		id:        id,
-		typ:       typ,
-		proxies:   px,    // may be nil
-		relay:     relay, // may be nil
-		status:    dnsx.Start,
-		pxclients: make(map[string]*proxytransport),
-		lastpurge: core.NewVolatile(time.Now()),
-		est:       core.NewP50Estimator(ctx),
+		ctx:            ctx,
+		done:           done,
+		id:             id,
+		typ:            typ,
+		proxies:        px,    // may be nil
+		relay:          relay, // may be empty
+		status:         core.NewVolatile(dnsx.Start),
+		pxclients:      make(map[string]*proxytransport),
+		echconfig:      core.NewZeroVolatile[*tls.Config](),
+		echlastattempt: core.NewZeroVolatile[time.Time](),
+		lastpurge:      core.NewVolatile(time.Now()),
+		est:            core.NewP50Estimator(ctx),
 	}
 	if !isodoh {
 		parsedurl, err := url.Parse(rawurl)
@@ -214,7 +221,8 @@ func newTransport(ctx context.Context, typ, id, rawurl, otargeturl string, addrs
 		log.I("doh: ODOH for %s -> %s", proxy, otargeturl)
 	}
 
-	ech := t.ech()
+	echcfg := t.getOrCreateEchConfigIfNeeded()
+
 	// TODO: ClientAuth
 	// Supply a client certificate during TLS handshakes.
 	// if auth != nil {
@@ -224,16 +232,7 @@ func newTransport(ctx context.Context, typ, id, rawurl, otargeturl string, addrs
 	// 		ServerName:           t.hostname,
 	// 	}
 	// }
-	if len(ech) > 0 {
-		t.echconfig = &tls.Config{
-			InsecureSkipVerify:                  t.skipTLSVerify,
-			MinVersion:                          tls.VersionTLS13, // must be 1.3
-			EncryptedClientHelloConfigList:      ech,
-			SessionTicketsDisabled:              false,
-			ClientSessionCache:                  core.TlsSessionCache(),
-			EncryptedClientHelloRejectionVerify: t.echVerifyFn(),
-		}
-	}
+
 	t.tlsconfig = &tls.Config{
 		InsecureSkipVerify: t.skipTLSVerify,
 		MinVersion:         tls.VersionTLS12,
@@ -244,7 +243,7 @@ func newTransport(ctx context.Context, typ, id, rawurl, otargeturl string, addrs
 	}
 
 	log.I("doh: new transport(%s): %s; relay? %t; addrs? %v; resolved? %t, ech? %t",
-		t.typ, t.url, relay != nil, addrs, renewed, len(ech) > 0)
+		t.typ, t.url, len(relay) > 0, addrs, renewed, echcfg != nil)
 	return t, nil
 }
 
@@ -329,39 +328,108 @@ func (t *transport) purgeProxyClients() {
 	}
 }
 
-func (t *transport) httpClientsFor(p ipn.Proxy) (c3, c *http.Client) {
-	t.pxcmu.RLock()
-	pxtr, ok := t.pxclients[p.ID()]
-	t.pxcmu.RUnlock()
-
-	same := pxtr != nil && pxtr.p.Handle() == p.Handle()
-	if ok && same {
-		return pxtr.c3, pxtr.c
+func (t *transport) getOrCreateEchConfigIfNeeded() *tls.Config {
+	echcfg := t.echconfig.Load()
+	if echcfg != nil {
+		return echcfg
 	}
 
+	prev := t.echlastattempt.Load()
+	if time.Since(prev) < echRetryPeriod {
+		return nil
+	}
+	refetch := t.echlastattempt.Cas(prev, time.Now())
+	if !refetch {
+		return nil
+	}
+
+	if ech := t.ech(); len(ech) > 0 {
+		echcfg = &tls.Config{
+			InsecureSkipVerify:                  t.skipTLSVerify,
+			MinVersion:                          tls.VersionTLS13, // must be 1.3
+			EncryptedClientHelloConfigList:      ech,
+			SessionTicketsDisabled:              false,
+			ClientSessionCache:                  core.TlsSessionCache(),
+			EncryptedClientHelloRejectionVerify: t.echVerifyFn(),
+		}
+		t.echconfig.Store(echcfg)
+	}
+
+	ok := echcfg == nil
+	logeif(!ok)("doh: %s fetch ech... ok? %t", t.ID(), ok)
+	return echcfg
+}
+
+func (t *transport) httpClientsFor(p ipn.Proxy) (c3, c *http.Client) {
+	pid := p.ID().V()
+	t.pxcmu.RLock()
+	pxtr, ok := t.pxclients[pid]
+	same := pxtr != nil && pxtr.p.Handle() == p.Handle()
+	if ok && same {
+		c = pxtr.c
+		c3 = pxtr.c3
+	}
+	t.pxcmu.RUnlock()
+
 	pdial := p.Dialer().Dial
+	if c != nil {
+		if c3 == nil {
+			if echcfg := t.getOrCreateEchConfigIfNeeded(); echcfg != nil {
+				c3 = new(http.Client)
+				c3.Transport = h2(pdial, echcfg)
+				t.updateHttpClientsFor(p, c, c3)
+			}
+		}
+		return c3, c // c3 may be nil
+	}
 
 	var client http.Client
 	var client3 *http.Client
 	client.Transport = h2(pdial, t.tlsconfig)
-	if t.echconfig != nil {
+	if echcfg := t.echconfig.Load(); echcfg != nil {
 		client3 = new(http.Client)
-		client3.Transport = h2(pdial, t.echconfig)
+		client3.Transport = h2(pdial, echcfg)
 	}
 
 	// last writer wins
-	t.pxcmu.Lock()
-	t.pxclients[p.ID()] = &proxytransport{
-		p:  p,
-		c:  &client,
-		c3: client3, // may be nil
-	}
-	t.pxcmu.Unlock()
+	t.updateHttpClientsFor(p, &client, client3)
 
 	// check if other proxies need to be purged
 	go t.purgeProxyClients()
 
 	return client3, &client
+}
+
+// updateHttpClientsFor only updates non-nil http clients dialing via Proxy p.
+func (t *transport) updateHttpClientsFor(p ipn.Proxy, c, c3 *http.Client) {
+	if c == nil && c3 == nil {
+		log.E("doh: %s cannot set/update, all clients nil", t.ID())
+		return
+	}
+
+	pid := p.ID().V()
+
+	t.pxcmu.Lock()
+	defer t.pxcmu.Unlock()
+
+	if pt := t.pxclients[pid]; pt != nil {
+		if c != nil {
+			pt.c = c
+		}
+		if c3 != nil {
+			pt.c3 = c3
+		}
+	} else {
+		if c == nil {
+			log.E("doh: %s cannot set http client to nil", t.ID())
+			return
+		}
+		t.pxclients[pid] = &proxytransport{
+			p:  p,
+			c:  c,
+			c3: c3, // may be nil
+		}
+	}
 }
 
 // Given a raw DNS query (including the query ID), this function sends the
@@ -370,8 +438,13 @@ func (t *transport) httpClientsFor(p ipn.Proxy) (c3, c *http.Client) {
 // Independent of the query's success or failure, this function also returns the
 // address of the server on a best-effort basis, or nil if the address could not
 // be determined.
-func (t *transport) doDoh(pid string, q *dns.Msg) (response *dns.Msg, blocklists, region string, ech bool, elapsed time.Duration, qerr *dnsx.QueryError) {
+func (t *transport) doDoh(pid string, q *dns.Msg) (response *dns.Msg, rpid, blocklists, region string, ech bool, elapsed time.Duration, qerr *dnsx.QueryError) {
 	start := time.Now()
+	if t.status.Load() == dnsx.DEnd {
+		elapsed = time.Since(start)
+		qerr = dnsx.NewEndQueryError()
+		return
+	}
 	padQuery(q)
 
 	// zero out the query id
@@ -386,7 +459,7 @@ func (t *transport) doDoh(pid string, q *dns.Msg) (response *dns.Msg, blocklists
 		return
 	}
 
-	response, blocklists, region, ech, elapsed, qerr = t.send(pid, req)
+	response, rpid, blocklists, region, ech, elapsed, qerr = t.send(pid, req)
 
 	// restore dns query id
 	q.Id = id
@@ -398,7 +471,7 @@ func (t *transport) doDoh(pid string, q *dns.Msg) (response *dns.Msg, blocklists
 	return
 }
 
-func (t *transport) fetch(pid string, req *http.Request) (*http.Response, bool, error) {
+func (t *transport) fetch(pid string, req *http.Request) (*http.Response, string, bool, error) {
 	ustr := req.URL.String()
 
 	uerr := func(e error) *url.Error {
@@ -415,25 +488,28 @@ func (t *transport) fetch(pid string, req *http.Request) (*http.Response, bool, 
 		}
 	}
 
-	r, echdialer, err := t.multifetch(req, pid)
+	r, rpid, echdialer, err := t.multifetch(req, pid)
 	if err != nil {
 		log.W("doh: fetch: %s, mayech? %t / echdialer? %t, err: %v",
-			ustr, t.echconfig != nil, echdialer, err)
-		return r, echdialer, uerr(err)
+			ustr, t.echconfig.Load() != nil, echdialer, err)
+		return r, rpid, echdialer, uerr(err)
 	}
-	return r, echdialer, nil
+	return r, rpid, echdialer, nil
 }
 
-func (t *transport) multifetch(req *http.Request, pid string) (res *http.Response, echdialer bool, err error) {
+func (t *transport) multifetch(req *http.Request, pid string) (res *http.Response, rpid string, echdialer bool, err error) {
 	px, err := t.prepare(pid)
 	if err != nil || px == nil {
-		return nil, false, core.OneErr(err, dnsx.ErrNoProxyProvider)
+		return nil, "", false, core.OneErr(err, dnsx.ErrNoProxyProvider)
 	}
 
+	rpid = ipn.ViaID(px)
 	c3, c0 := t.httpClientsFor(px) // c3 may be nil
 
-	log.VV("doh: using proxy %s:%s ech? %t / other? %t",
-		px.ID(), px.GetAddr(), c3 != nil, c0 != nil)
+	if settings.Debug {
+		log.VV("doh: using proxy %s+%s:%s ech? %t / other? %t",
+			px.ID(), rpid, px.GetAddr(), c3 != nil, c0 != nil)
+	}
 
 	clients := []*http.Client{c3, c0}
 
@@ -448,20 +524,25 @@ func (t *transport) multifetch(req *http.Request, pid string) (res *http.Respons
 			cont = false
 			sent = true
 			if res, err = c.Do(req); err == nil {
-				return res, c == c3, nil // res is never nil here
+				return res, rpid, c == c3, nil // res is never nil here
 			}
 			if eerr := new(tls.ECHRejectionError); errors.As(err, &eerr) {
 				cont = true
 				ech := eerr.RetryConfigList
-				useech := t.echconfig != nil
+
+				echcfg := t.echconfig.Load()
+				useech := echcfg != nil
 				if len(ech) <= 0 && useech {
 					ech = t.ech() // todo: use t.echconfig.ServerName?
 					log.I("doh: fetch #%d: err %v; grab new ech? %t",
 						i, eerr, len(ech) > 0)
 				}
 				if len(ech) > 0 && useech {
-					t.echconfig.EncryptedClientHelloConfigList = ech
-					c.Transport = h2(px.Dialer().Dial, t.echconfig)
+					echcfg.EncryptedClientHelloConfigList = ech
+					c.Transport = h2(px.Dialer().Dial, echcfg)
+					t.echconfig.Store(echcfg) // update ech config
+					t.echlastattempt.Store(time.Now())
+					t.updateHttpClientsFor(px, nil, c) // update c3
 				}
 				n := t.echrejects.Add(1)
 				log.I("doh: fetch #%d: ech rejected; retry? %t, ech? %t; total rejects: %d",
@@ -470,7 +551,7 @@ func (t *transport) multifetch(req *http.Request, pid string) (res *http.Respons
 				eof := uerr.Err == io.EOF
 				if eof && res != nil {
 					log.D("doh: fetch #%d: EOF; but res exists! %t", i)
-					return res, c == c3, nil
+					return res, rpid, c == c3, nil
 				} // continue if EOF
 				cont = eof || uerr.Err == io.ErrUnexpectedEOF
 			} // terminate if not EOF
@@ -480,19 +561,20 @@ func (t *transport) multifetch(req *http.Request, pid string) (res *http.Respons
 	if !sent && err == nil { // should never happen
 		log.E("doh: fetch: no client sent request %d", len(clients))
 	}
-	return nil, false, core.OneErr(err, errNoClient)
+	return nil, rpid, false, core.OneErr(err, errNoClient)
 }
 
 func (t *transport) prepare(pid string) (px ipn.Proxy, err error) {
-	userelay := t.relay != nil
+	userelay := len(t.relay) > 0
 	hasproxy := t.proxies != nil
 	useproxy := len(pid) != 0 // if pid == dnsx.NetNoProxy, then px is ipn.Block
-	useech := t.echconfig != nil
+	useech := t.echconfig.Load() != nil
 
 	if userelay || useproxy {
 		if userelay { // relay takes precedence
-			px = t.relay
-		} else if hasproxy { // use proxy, if specified
+			pid = t.relay
+		}
+		if hasproxy {
 			px, err = t.proxies.ProxyFor(pid)
 		} else {
 			err = dnsx.ErrNoProxyProvider
@@ -504,7 +586,7 @@ func (t *transport) prepare(pid string) (px ipn.Proxy, err error) {
 	return
 }
 
-func (t *transport) do(pid string, req *http.Request) (ans []byte, blocklists, region string, withech bool, elapsed time.Duration, qerr *dnsx.QueryError) {
+func (t *transport) do(pid string, req *http.Request) (ans []byte, rpid, blocklists, region string, withech bool, elapsed time.Duration, qerr *dnsx.QueryError) {
 	var server net.Addr
 	var conn net.Conn
 	start := time.Now()
@@ -518,7 +600,7 @@ func (t *transport) do(pid string, req *http.Request) (ans []byte, blocklists, r
 		elapsed = time.Since(start)
 
 		// server addr would be of relay / proxy (ex: 127.0.0.1:9050) if used
-		usedrelay := t.relay != nil
+		usedrelay := len(t.relay) > 0
 		usedproxy := !dnsx.IsLocalProxy(pid) // pid == dnsx.NetNoProxy => ipn.Block
 		hasserveraddr := server != nil && !usedrelay && !usedproxy
 
@@ -574,7 +656,7 @@ func (t *transport) do(pid string, req *http.Request) (ans []byte, blocklists, r
 
 	log.VV("doh: sending query to: %s", t.hostname)
 
-	res, echdialer, err := t.fetch(pid, req)
+	res, rpid, echdialer, err := t.fetch(pid, req)
 
 	withech = withech || echdialer
 
@@ -592,7 +674,9 @@ func (t *transport) do(pid string, req *http.Request) (ans []byte, blocklists, r
 		return
 	}
 	core.Close(res.Body)
-	log.V("doh: closed response of sz %d; used ech? %t", len(ans), withech)
+	if settings.Debug {
+		log.V("doh: closed response of sz %d; used ech? %t", len(ans), withech)
+	}
 
 	// update the hostname, which could have changed due to a redirect
 	// for ex, 1.1.1.1 or cloudflare-dns.com => one.one.one.one
@@ -614,10 +698,10 @@ func (t *transport) do(pid string, req *http.Request) (ans []byte, blocklists, r
 	return
 }
 
-func (t *transport) send(pid string, req *http.Request) (msg *dns.Msg, blocklists, region string, ech bool, elapsed time.Duration, qerr *dnsx.QueryError) {
+func (t *transport) send(pid string, req *http.Request) (msg *dns.Msg, rpid, blocklists, region string, ech bool, elapsed time.Duration, qerr *dnsx.QueryError) {
 	var ans []byte
 	var err error
-	ans, blocklists, region, ech, elapsed, qerr = t.do(pid, req)
+	ans, rpid, blocklists, region, ech, elapsed, qerr = t.do(pid, req)
 	if qerr != nil {
 		return
 	}
@@ -642,7 +726,8 @@ func (t *transport) rdnsHeaders(h *http.Header) (blocklistStamp, region string) 
 			_, region, _ = strings.Cut(ck, "-")
 		}
 	}
-	log.VV("doh: header %s; region %s; stamp %v", h, region, blocklistStamp)
+	// too long:
+	// log.VV("doh: header %s; region %s; stamp %v", h, region, blocklistStamp)
 	return
 }
 
@@ -663,65 +748,57 @@ func (t *transport) asDohRequest(msg *dns.Msg) (req *http.Request, err error) {
 	}
 	req.Header.Set("content-type", dohmimetype)
 	req.Header.Set("accept", dohmimetype)
-	if settings.SetUserAgentForDoH.Load() {
-		req.Header.Set("user-agent", "Intra")
+	if settings.SetUserAgent.Load() {
+		req.Header.Set("user-agent", settings.IntraUa)
 	}
 	return
 }
 
-func (t *transport) ID() string {
-	return t.id
+func (t *transport) ID() *x.Gostr {
+	return x.StrOf(t.id)
 }
 
-func (t *transport) Type() string {
-	return t.typ
+func (t *transport) Type() *x.Gostr {
+	return x.StrOf(t.typ)
 }
 
-func (t *transport) chooseProxy(pids []string) string {
-	foundProxy := false
-	pid := dnsx.NetNoProxy
-	if len(pids) > 0 {
-		pid = pids[0]
-	}
-	for _, ipp := range t.IPPorts() {
-		if px, err := t.proxies.ProxyTo(ipp, core.UNKNOWN_UID_STR, pids); err == nil {
-			pid = proxyID(px) // px is never nil, but nilaway complains
-			foundProxy = true
-			log.VV("doh: (%s) proxy(%s) for %s@%s; among %v",
-				t.id, pid, t.GetAddr(), ipp, pids)
-			break
-		}
-	}
-	if !foundProxy {
-		log.W("doh: (%s) no proxy for %s; choosing %s among %v",
-			t.id, t.GetAddr(), pid, pids)
-	}
-	return pid
+func (t *transport) chooseProxy(pids ...string) string {
+	host, port := t.hostport()
+	return dnsx.ChooseHealthyProxyHostPort("doh: "+t.id, host, port, pids, t.proxies)
 }
 
-func proxyID(p ipn.Proxy) string {
-	if p == nil {
-		return dnsx.NetNoProxy
+func (t *transport) hostport() (addr string, port uint16) {
+	addr = t.hostname
+	port = t.port
+	if t.typ == dnsx.ODOH {
+		addr = t.odohproxyname
+		port = t.odohproxyport
 	}
-	return p.ID()
+	return
 }
 
 func (t *transport) Query(network string, q *dns.Msg, smm *x.DNSSummary) (r *dns.Msg, err error) {
-	var blocklists, region string
+	var rpid, pid, blocklists, region string
 	var ech bool
 	var elapsed time.Duration
 	var qerr *dnsx.QueryError
 
-	_, pids := xdns.Net2ProxyID(network)
-	pid := t.chooseProxy(pids)
-	if t.typ == dnsx.DOH {
-		r, blocklists, region, ech, elapsed, qerr = t.doDoh(pid, q)
+	if t.id == dnsx.Bootstrap { // bootstrap/default never be proxied
+		pid = dnsx.NetBaseProxy
+	} else if r := t.relay; len(r) > 0 {
+		pid = t.chooseProxy(r)
 	} else {
-		r, ech, elapsed, qerr = t.doOdoh(pid, q)
-		smm.RelayServer = t.odohproxyname
+		_, pids := xdns.Net2ProxyID(network)
+		pid = t.chooseProxy(pids...)
 	}
 
-	smm.Server = t.GetAddr()
+	if t.typ == dnsx.DOH {
+		r, rpid, blocklists, region, ech, elapsed, qerr = t.doDoh(pid, q)
+	} else {
+		r, ech, elapsed, qerr = t.doOdoh(pid, q)
+	}
+
+	smm.Server = t.getAddr()
 	if ech {
 		smm.Server = dnsx.EchPrefix + smm.Server
 	}
@@ -732,7 +809,7 @@ func (t *transport) Query(network string, q *dns.Msg, smm *x.DNSSummary) (r *dns
 		status = qerr.Status()
 		err = qerr.Unwrap()
 	}
-	t.status = status
+	t.status.Store(status)
 
 	t.est.Add(elapsed.Seconds())
 	smm.Latency = elapsed.Seconds()
@@ -742,19 +819,20 @@ func (t *transport) Query(network string, q *dns.Msg, smm *x.DNSSummary) (r *dns
 	smm.Status = status
 	smm.Region = region
 	smm.Blocklists = blocklists
-	noOdohRelay := len(smm.RelayServer) <= 0
-	if noOdohRelay {
-		if t.relay != nil {
-			smm.RelayServer = x.SummaryProxyLabel + t.relay.ID()
-		} else if !dnsx.IsLocalProxy(pid) {
-			smm.RelayServer = x.SummaryProxyLabel + pid
-		}
+	if t.typ == dnsx.ODOH {
+		smm.PID = t.odohproxyname // odoh proxy
+		smm.RPID = pid            // other proxy, if any
+	} else {
+		smm.PID = pid   // proxy, if any
+		smm.RPID = rpid // hopping proxy, if any
 	}
 	if err != nil {
 		smm.Msg = err.Error()
 	}
-	log.V("doh: (p/px %s/%s); a:%d/sz:%d/pad:%d, q: %s, data: %s, via: %s, err? %v",
-		network, pid, xdns.Len(r), xdns.Size(r), xdns.EDNS0PadLen(r), smm.QName, smm.RData, smm.RelayServer, err)
+	if settings.Debug {
+		log.V("doh: (p/px/via %s/%s/%s); a:%d/sz:%d/pad:%d, q: %s:%d, data: %s, code: %d, via: %s, err? %v",
+			network, pid, rpid, xdns.Len(r), xdns.Size(r), xdns.EDNS0PadLen(r), smm.QName, smm.QType, smm.RData, smm.RCode, smm.PID, err)
+	}
 	return r, err
 }
 
@@ -762,7 +840,11 @@ func (t *transport) P50() int64 {
 	return t.est.Get()
 }
 
-func (t *transport) GetAddr() string {
+func (t *transport) GetAddr() *x.Gostr {
+	return x.StrOf(t.getAddr())
+}
+
+func (t *transport) getAddr() string {
 	addr := t.hostname
 	if t.typ == dnsx.ODOH {
 		addr = t.odohtargetname
@@ -779,6 +861,14 @@ func (t *transport) GetAddr() string {
 	return addr
 }
 
+func (t *transport) GetRelay() x.Proxy {
+	if r := t.relay; len(r) > 0 {
+		px, _ := t.proxies.ProxyFor(r)
+		return px
+	}
+	return nil
+}
+
 func (t *transport) IPPorts() (ipps []netip.AddrPort) {
 	addr := t.hostname
 	port := t.port
@@ -793,10 +883,18 @@ func (t *transport) IPPorts() (ipps []netip.AddrPort) {
 }
 
 func (t *transport) Status() int {
-	return t.status
+	return t.status.Load()
 }
 
 func (t *transport) Stop() error {
+	t.status.Store(dnsx.DEnd)
 	t.done()
 	return nil
+}
+
+func logeif(cond bool) log.LogFn {
+	if cond {
+		return log.E
+	}
+	return log.D
 }

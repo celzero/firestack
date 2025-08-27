@@ -22,7 +22,6 @@ import (
 	"net/netip"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/dialers"
@@ -39,11 +38,6 @@ var (
 	errNumericPort       = errors.New("port must be numeric")
 	errNoSuitableAddress = errors.New("no suitable address found")
 	errMissingAddress    = errors.New("missing address")
-)
-
-const (
-	wgdnstimeout = time.Second * 5
-	wgbarrierttl = time.Second * 10
 )
 
 // intra/tcp expects dst conns to confirm to core.TCPConn
@@ -75,7 +69,7 @@ func (tnet *wgtun) LookupContextHost(ctx context.Context, host string) ([]netip.
 	}
 
 	// dialers.Resolve returns from cache (which may be stale)
-	if ips, err := dialers.Resolve(host, tnet.ID()); len(ips) <= 0 {
+	if ips, err := dialers.Resolve(host, tnet.ID().V()); len(ips) <= 0 {
 		if err == nil {
 			err = errNoSuchHost
 		}
@@ -128,11 +122,11 @@ func (tnet *wgtun) dial(network, local, remote string) (net.Conn, error) {
 		}
 	}
 
-	// allAddrs may be nil but shouldn't be when rverr is not nil
-	allAddrs, rverr := tnet.ba.DoIt(host, resolve(tnet, host))
-	if rverr != nil {
-		log.W("wg: %s dial: lookup failed %q: %v", tnet.id, host, rverr)
-		return nil, &net.OpError{Op: "dial", Err: rverr}
+	// allAddrs may be nil but shouldn't be when reserr is not nil
+	allAddrs, reserr := tnet.LookupHost(host)
+	if reserr != nil {
+		log.W("wg: %s dial: lookup failed %q: %v", tnet.id, host, reserr)
+		return nil, &net.OpError{Op: "dial", Err: reserr}
 	}
 
 	var addrs []netip.AddrPort
@@ -182,17 +176,11 @@ func (tnet *wgtun) dial(network, local, remote string) (net.Conn, error) {
 	return nil, errs
 }
 
-func resolve(tnet *wgtun, host string) core.Work[[]netip.Addr] {
-	return func() ([]netip.Addr, error) {
-		return tnet.LookupHost(host)
-	}
-}
-
 // --------------------------------------------------------------------
 // tcp and udp dialers
 // --------------------------------------------------------------------
 
-func fullAddrFrom(ipp netip.AddrPort) (tcpip.FullAddress, tcpip.NetworkProtocolNumber, bool) {
+func fullAddrFrom(by string, ipp netip.AddrPort) (tcpip.FullAddress, tcpip.NetworkProtocolNumber, bool) {
 	var protoNumber tcpip.NetworkProtocolNumber
 	var nsdaddr tcpip.Address
 	if !ipp.IsValid() {
@@ -206,7 +194,7 @@ func fullAddrFrom(ipp netip.AddrPort) (tcpip.FullAddress, tcpip.NetworkProtocolN
 		protoNumber = ipv6.ProtocolNumber
 		nsdaddr = tcpip.AddrFrom16(ipp.Addr().As16())
 	}
-	log.V("wg: dial: translate ipp: %v -> %v", ipp, nsdaddr)
+	log.VV("wg: dial: %s translate ipp: %v => %v", by, ipp, nsdaddr)
 	return tcpip.FullAddress{
 		NIC:  wgnic,
 		Addr: nsdaddr,
@@ -215,7 +203,7 @@ func fullAddrFrom(ipp netip.AddrPort) (tcpip.FullAddress, tcpip.NetworkProtocolN
 }
 
 func (tnet *wgtun) DialContextTCPAddrPort(ctx context.Context, addr netip.AddrPort) (*gonet.TCPConn, error) {
-	if faddr, protocol, ok := fullAddrFrom(addr); ok {
+	if faddr, protocol, ok := fullAddrFrom("tcp", addr); ok {
 		return gonet.DialContextTCP(ctx, tnet.stack, faddr, protocol)
 	}
 	log.W("wg: %s: tcp: dial: invalid addr %s", tnet.id, addr)
@@ -223,8 +211,8 @@ func (tnet *wgtun) DialContextTCPAddrPort(ctx context.Context, addr netip.AddrPo
 }
 
 func (tnet *wgtun) DialTCPAddrPort(laddr, raddr netip.AddrPort) (*gonet.TCPConn, error) {
-	remote, protocol, _ := fullAddrFrom(raddr) // prefer "proto" from remote
-	local, _, _ := fullAddrFrom(laddr)
+	remote, protocol, _ := fullAddrFrom("tcp:remote", raddr) // prefer "proto" from remote
+	local, _, _ := fullAddrFrom("tcp:local", laddr)
 	ctx := context.Background()
 	// return gonet.DialTCP(tnet.stack, remote, protocol)
 	return gonet.DialTCPWithBind(
@@ -237,7 +225,7 @@ func (tnet *wgtun) DialTCPAddrPort(laddr, raddr netip.AddrPort) (*gonet.TCPConn,
 }
 
 func (tnet *wgtun) ListenTCPAddrPort(addr netip.AddrPort) (*gonet.TCPListener, error) {
-	if fa, pn, ok := fullAddrFrom(addr); ok {
+	if fa, pn, ok := fullAddrFrom("tcp:listen", addr); ok {
 		return gonet.ListenTCP(tnet.stack, fa, pn)
 	}
 	log.W("wg: %s: tcp: listen: invalid addr %s", tnet.id, addr)
@@ -248,13 +236,13 @@ func (tnet *wgtun) DialUDPAddrPort(laddr, raddr netip.AddrPort) (*gonet.UDPConn,
 	var src, dst *tcpip.FullAddress
 	var protocol tcpip.NetworkProtocolNumber
 
-	if srcaddr, srcprotocol, ok := fullAddrFrom(laddr); ok {
+	if srcaddr, srcprotocol, ok := fullAddrFrom("udp:local", laddr); ok {
 		protocol = srcprotocol
 		if !srcaddr.Addr.Unspecified() {
 			src = &srcaddr
 		} // else: unbound; src must be left nil
 	} // else: laddr not valid
-	if dstaddr, dstprotocol, ok := fullAddrFrom(raddr); ok {
+	if dstaddr, dstprotocol, ok := fullAddrFrom("udp:remote", raddr); ok {
 		protocol = dstprotocol
 		if !dstaddr.Addr.Unspecified() {
 			dst = &dstaddr
@@ -268,7 +256,7 @@ func (tnet *wgtun) DialUDPAddrPort(laddr, raddr netip.AddrPort) (*gonet.UDPConn,
 	}
 
 	// if src is non-nil, addrs are acquired on wgnic;
-	// ep.Bind -> ep.BindAndThen -> ep.net.BindAndThen -> ep.checkV4Mapped
+	// ep.Bind => ep.BindAndThen => ep.net.BindAndThen => ep.checkV4Mapped
 	// github.com/google/gvisor/blob/932d9dc6/pkg/tcpip/stack/addressable_endpoint_state.go#L644
 	return gonet.DialUDP(tnet.stack, src, dst, protocol)
 }

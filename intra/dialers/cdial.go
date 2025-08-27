@@ -16,6 +16,7 @@ import (
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect/ipmap"
+	"github.com/celzero/firestack/intra/settings"
 )
 
 const dialRetryTimeout = 35 * time.Second
@@ -64,8 +65,10 @@ func commondial2[D rdials, C rconns](d D, network, laddr, raddr string, connect 
 	local, lerr := netip.ParseAddrPort(laddr) // okay if local is invalid
 	domain, portstr, err := net.SplitHostPort(raddr)
 
-	log.D("commondial: dialing (host:port) %s=>%s; errs? %v %v",
-		laddr, raddr, lerr, err)
+	if settings.Debug {
+		log.D("commondial: dialing (host:port) %s=>%s; errs? %v %v",
+			laddr, raddr, lerr, err)
+	}
 
 	if err != nil {
 		return nil, err
@@ -90,19 +93,27 @@ func commondial2[D rdials, C rconns](d D, network, laddr, raddr string, connect 
 
 	defer func() {
 		dur := time.Since(start)
-		log.D("commondial: duration: %s; addr %s; confirmed? %s, sz: %d", dur, raddr, confirmed, ips.Size())
+		if settings.Debug {
+			log.D("commondial: duration: %s; addr %s; confirmed? %s, sz: %d", dur, raddr, confirmed, ips.Size())
+		}
 	}()
 
+	// One the TODO is fixed, change ipn/proxy.go:Reaches to rely on this behaviour
+	// TODO: confirmedIPOK must be used depending on network type "tcp4", "udp4", "tcp6", "udp6" etc
 	if confirmedIPOK {
 		remote := netip.AddrPortFrom(confirmed, uint16(port))
-		log.V("commondial: dialing confirmed ip %s for %s", confirmed, remote)
+		if settings.Debug {
+			log.V("commondial: dialing confirmed ip %s for %s", confirmed, remote)
+		}
 		conn, err = connect(d, network, local, remote)
 		// nilaway: tx.socks5 returns nil conn even if err == nil
 		if conn == nil {
 			err = core.OneErr(err, errNoConn)
 		}
 		if err == nil {
-			log.V("commondial: ip %s works for %s", confirmed, remote)
+			if settings.Debug {
+				log.V("commondial: ip %s works for %s", confirmed, remote)
+			}
 			return conn, nil
 		}
 		errs = core.JoinErr(errs, err)
@@ -120,6 +131,8 @@ func commondial2[D rdials, C rconns](d D, network, laddr, raddr string, connect 
 	}
 
 	ipset := ips.Addrs()
+	// One the TODO is fixed, change ipn/proxy.go:Reaches to rely on this behaviour
+	// TODO: maybeFilter should consider incoming network types "tcp4", "udp4", "tcp6", "udp6" etc
 	allips, failingopen := maybeFilter(ipset, confirmed)
 	if len(allips) <= 0 || failingopen {
 		var ok bool
@@ -151,7 +164,7 @@ func commondial2[D rdials, C rconns](d D, network, laddr, raddr string, connect 
 				return conn, nil
 			}
 			errs = core.JoinErr(errs, err)
-			logwd(err)("rdial: commondial: ip %s for %s failed; err %v", ip, remote, err)
+			logwd(err)("commondial: ip %s for %s failed; err %v", ip, remote, err)
 		} else {
 			log.W("commondial: ip %s not ok for %s", ip, raddr)
 		}

@@ -68,7 +68,7 @@ func Gif(cond bool, who string, f func()) {
 
 // Grx runs work function f in a goroutine, blocking until it returns or timesout.
 func Grx[T any](who string, f WorkCtx[T], d time.Duration) (zz T, completed bool) {
-	ch := make(chan T) // synchronous
+	ch := make(chan T, 1) // non-blocking
 
 	ctx, cancel := context.WithTimeout(context.Background(), d)
 	defer cancel()
@@ -78,22 +78,21 @@ func Grx[T any](who string, f WorkCtx[T], d time.Duration) (zz T, completed bool
 		defer Recover(Exit11, who)
 		defer close(ch)
 
-		if out, err := f(ctx); err == nil {
-			ch <- out
-		} // else: discard
+		out, _ := f(ctx) // TODO: log error?
+		ch <- out
 	}()
 
 	select {
 	case out := <-ch:
 		return out, true
-	case <-time.After(d):
+	case <-ctx.Done(): // timeout
 	}
 	return zz, false
 }
 
 // errPanic returns an error indicating that the function at index i panicked.
 func errPanic(who string) error {
-	return errors.New(who + "fn panicked")
+	return errors.New(who + " fn panicked")
 }
 
 // Race runs all the functions in fs concurrently and returns the first non-error result.
@@ -141,7 +140,7 @@ loop:
 			} else {
 				return r.t, r.i, r.err
 			}
-		case <-time.After(timeout):
+		case <-ctx.Done():
 			// if one of WorkCtx functions times out, it
 			// means the rest have also lost the race.
 			// break out of the loop and return errTimeout.
@@ -152,9 +151,63 @@ loop:
 	return // zz
 }
 
-func Every(id string, pctx context.Context, d time.Duration, f func()) context.Context {
+func First[T any](who string, overallTimeout time.Duration, fs ...WorkCtx[T]) (zz T, idx int) {
+	timeoutPerFn := overallTimeout / time.Duration(len(fs))
+	for i, f := range fs {
+		i, f := i, f
+		fid := who + ".all." + strconv.Itoa(i)
+		if x, ok := Grx(fid, f, timeoutPerFn); ok {
+			return x, i
+		}
+	}
+	return zz, -1
+}
+
+func All[T any](who string, timeout time.Duration, fs ...WorkCtx[T]) ([]T, []error) {
+	type res struct {
+		fidx int // index of the function in fs
+		t    T
+		err  error
+	}
+
+	ch := make(chan *res, len(fs))
+
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	for i, f := range fs {
+		i, f := i, f
+		fid := who + ".all." + strconv.Itoa(i)
+		Gg(fid, func() {
+			out, err := f(ctx)
+			select {
+			case <-ctx.Done(): // timeout
+				ch <- &res{fidx: i, err: errTimeout}
+			case ch <- &res{i, out, err}:
+			}
+		}, func() {
+			select {
+			case <-ctx.Done(): // timeout
+				ch <- &res{fidx: i, err: errTimeout}
+			case ch <- &res{fidx: i, err: errPanic(fid)}:
+			}
+		})
+	}
+
+	results := make([]T, len(fs))
+	errs := make([]error, len(fs))
+
+	for range len(fs) {
+		r := <-ch
+		results[r.fidx] = r.t
+		errs[r.fidx] = r.err
+	}
+	return results, errs
+}
+
+func Periodic(id string, pctx context.Context, d time.Duration, f func()) context.Context {
 	ctx, done := context.WithCancel(pctx)
-	Go("every."+id, func() {
+	Go("periodic."+id, func() {
 		t := time.NewTicker(d)
 		defer t.Stop()
 		defer done()
@@ -171,10 +224,37 @@ func Every(id string, pctx context.Context, d time.Duration, f func()) context.C
 	return ctx
 }
 
+// SigFin runs f in a goroutine and returns a channel that is closed when f returns.
+func SigFin(f func()) <-chan struct{} {
+	done := make(chan struct{})
+	Go("take", func() {
+		defer close(done)
+		f()
+	})
+	return done
+}
+
+func Await(f func(), until time.Duration) (awaited bool) {
+	done := make(chan struct{})
+	Go("await", func() {
+		defer close(done)
+		f()
+	})
+
+	select {
+	case <-time.After(until):
+		return false
+	case <-done:
+		return true
+	}
+}
+
 func EitherOr(either <-chan struct{}, or Callback, until time.Duration) (esc bool) {
 	select {
 	case <-time.Tick(until):
-		or()
+		if or != nil {
+			or()
+		}
 		return false
 	case <-either:
 		return true

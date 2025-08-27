@@ -54,7 +54,7 @@ type ioinfo struct {
 }
 
 const (
-	retrytimeout  = 15 * time.Second
+	retryTimeout  = 15 * time.Second
 	onFlowTimeout = 5 * time.Second
 )
 
@@ -70,14 +70,14 @@ var _ netstack.GTCPConnHandler = (*tcpHandler)(nil)
 // Connections to `fakedns` are redirected to DOH.
 // All other traffic is forwarded using `dialer`.
 // `listener` is provided with a summary of each socket when it is closed.
-func NewTCPHandler(pctx context.Context, resolver dnsx.Resolver, prox ipn.ProxyProvider, tunMode *settings.TunMode, listener SocketListener) netstack.GTCPConnHandler {
+func NewTCPHandler(pctx context.Context, resolver dnsx.Resolver, prox ipn.ProxyProvider, listener SocketListener) netstack.GTCPConnHandler {
 	if listener == nil || core.IsNil(listener) {
 		log.W("tcp: using noop listener")
 		listener = nooplistener
 	}
 
 	h := &tcpHandler{
-		baseHandler: newBaseHandler(pctx, dnsx.NetTypeTCP, resolver, prox, tunMode, listener),
+		baseHandler: newBaseHandler(pctx, dnsx.NetTypeTCP, resolver, prox, listener),
 	}
 
 	go h.processSummaries()
@@ -94,6 +94,9 @@ func (h *tcpHandler) Error(gconn *netstack.GTCPConn, src, dst netip.AddrPort, er
 		return
 	}
 	res, _, _, _ := h.onFlow(src, dst)
+
+	h.maybeReplaceDest(res, &dst)
+
 	cid, uid, _, pids := h.judge(res)
 	smm := tcpSummary(cid, uid, dst.Addr())
 
@@ -149,21 +152,25 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target netip.AddrPort)
 	// flow/dns-override are nat-aware, as in, they can deal with
 	// nat-ed ips just fine, and so, use target as-is instead of ipx4
 	res, undidAlg, realips, domains := h.onFlow(src, target)
-	smmTarget := target.Addr()
-	first, _, fallingback := filterFamilyForDialing(realips)
-	actualTargets := makeIPPorts(first, target, 0)
-	boundSrc := makeAnyAddrPort(src)
+
+	h.maybeReplaceDest(res, &target)
+
+	// TODO: use res.IP only if set
+	filtered, _, fallingback := filterFamilyForDialing(realips)
+	actualTargets := makeIPPorts(filtered, target, 0)
 	cid, uid, fid, pids := h.judge(res, domains, target.String())
-	if len(actualTargets) > 0 {
-		smmTarget = actualTargets[0].Addr()
-	} else { // unlikely
+
+	if len(actualTargets) <= 0 { // unlikely
 		actualTargets = []netip.AddrPort{target}
 	}
-	smm = tcpSummary(cid, uid, smmTarget)
+	// actualTargets[0] may be same as target
+	smm = tcpSummary(cid, uid, actualTargets[0].Addr())
 
 	if h.status.Load() == HDLEND {
 		err = errTcpEnd
-		log.D("tcp: proxy: end %s => %s", src, target)
+		if settings.Debug {
+			log.D("tcp: proxy: %s end %s => %s [%v]", cid, src, target, actualTargets)
+		}
 		clos(gconn)
 		h.queueSummary(smm.done(err))
 		return deny
@@ -186,25 +193,40 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target netip.AddrPort)
 		return deny
 	}
 
-	// handshake; since we assume a duplex-stream from here on
-	if open, err = gconn.Establish(); !open {
-		log.E("tcp: %s connect err %v; %s => %s for %s", cid, err, src, target, uid)
-		clos(gconn)
-		h.queueSummary(smm.done(err))
-		return deny // == !open
-	}
-
 	if isAnyBasePid(pids) { // see udp.go:Connect
+		// handshake; since we assume a duplex-stream from here on
+		if _, err := gconn.Establish(); err != nil {
+			log.E("tcp: %s connect1 err %v; %s => %s for %s", cid, err, src, target, uid)
+			clos(gconn)
+			h.queueSummary(smm.done(err))
+			return deny // == !open
+		}
 		if h.dnsOverride(gconn, target, uid) {
 			// SocketSummary not sent; x.DNSSummary supercedes it
+			// conn closed by resolver
 			return allow
 		} // else not a dns request
 	} // if ipn.Exit then let it connect as-is (aka exit)
 
+	if settings.Debug {
+		log.VV("tcp: %s proxying %s => %s [%v] for %s; pids: %s",
+			cid, src, target, actualTargets, uid, pids)
+	}
+
+	boundSrc := makeAnyAddrPort(src)
 	// pick all realips to connect to
 	for i, dstipp := range actualTargets {
 		var px ipn.Proxy = nil
-		if px, err = h.prox.ProxyTo(dstipp, uid, pids); err != nil || px == nil {
+		px, err = h.prox.ProxyTo(dstipp, uid, pids)
+
+		// last chosen (but not dialed in) proxy (which error)
+		smm.Target = dstipp.Addr().String() // addr may be invalid
+		smm.PID = pidstr(px)                // px may be nil
+		smm.RPID = ipn.ViaID(px)
+
+		if err != nil || px == nil {
+			log.W("tcp: dial: #%d: %s proxy(%s) to dst(%s) for %s; err %v",
+				i, cid, pidstr(px), dstipp, uid, err)
 			continue
 		}
 
@@ -212,11 +234,11 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target netip.AddrPort)
 			// smm instead queued by handle() => forward()
 			return allow
 		} // else try the next realip
+
 		end := time.Since(smm.start)
-		elapsed := int32(end.Seconds() * 1000)
-		log.W("tcp: dial: #%d: %s failed; addr(%s) / fallback? %t; for uid %s (%d); w err(%v)",
-			i, cid, dstipp, fallingback, uid, elapsed, err)
-		if end > retrytimeout {
+		log.W("tcp: dial: #%d: %s failed; addr(%s) / fallback? %t; for uid %s (%s); w err(%v)",
+			i, cid, dstipp, fallingback, uid, core.FmtPeriod(end), err)
+		if end > retryTimeout {
 			break
 		}
 	}
@@ -227,11 +249,16 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target netip.AddrPort)
 }
 
 // handle connects to the target via the proxy, and pipes data between the src, target; thread-safe.
-func (h *tcpHandler) handle(px ipn.Proxy, src net.Conn, boundSrc, target netip.AddrPort, smm *SocketSummary) (err error) {
+func (h *tcpHandler) handle(px ipn.Proxy, src *netstack.GTCPConn, boundSrc, target netip.AddrPort, smm *SocketSummary) (err error) {
 	var pc protect.Conn
 	var dst net.Conn
 
 	start := time.Now()
+
+	if settings.Debug {
+		log.VV("tcp: %s dial %s: attempt:  %s [%s] => %s for %s",
+			smm.ID, pidstr(px), src.LocalAddr(), boundSrc, target, smm.UID)
+	}
 
 	// github.com/google/gvisor/blob/5ba35f516b5c2/test/benchmarks/tcp/tcp_proxy.go#L359
 	// ref: stackoverflow.com/questions/63656117
@@ -242,15 +269,18 @@ func (h *tcpHandler) handle(px ipn.Proxy, src net.Conn, boundSrc, target netip.A
 		pc, err = px.Dialer().Dial("tcp", target.String())
 	}
 	if err == nil {
-		smm.Rtt = int32(time.Since(start).Seconds() * 1000)
+		smm.Rtt = time.Since(start).Milliseconds()
 		switch uc := pc.(type) {
 		case *net.TCPConn: // usual
 			dst = uc
 		case *gonet.TCPConn: // from wgproxy
 			dst = uc
+		case core.DuplexConn: // using retrier (local proxies like: exit & base)
+			dst = uc
 		case core.TCPConn: // from confirming proxy dialers
 			dst = uc
 		case net.Conn: // from non-confirming proxy dialers
+			// TODO: log warn?
 			dst = uc
 		default:
 			err = errTcpSetupConn
@@ -260,17 +290,25 @@ func (h *tcpHandler) handle(px ipn.Proxy, src net.Conn, boundSrc, target netip.A
 	// pc.RemoteAddr may be that of the proxy, not the actual dst
 	// ex: pc.RemoteAddr is 127.0.0.1 for Orbot
 	smm.Target = target.Addr().String()
-	smm.PID = px.ID()
+	smm.PID = pidstr(px)
 	smm.RPID = ipn.ViaID(px)
 
 	if err != nil {
-		clos(pc)
+		clos(src, pc)
 		log.W("tcp: err dialing %s proxy(%s) to dst(%v) for %s: %v",
 			smm.ID, px.ID(), target, smm.UID, err)
 		return err
 	}
 
+	if _, err := src.Establish(); err != nil {
+		log.E("tcp: %s connect2 err %v; %s => %s for %s",
+			smm.ID, err, src.LocalAddr(), target, smm.UID)
+		clos(src, pc)
+		return err
+	}
+
 	core.Go("tcp.forward."+smm.ID, func() {
+		h.listener.PostFlow(smm.postMark())
 		h.forward(src, rwext{dst, tcptimeout}, smm) // src always *gonet.TCPConn
 	})
 	return nil // handled; takes ownership of src

@@ -50,7 +50,7 @@ func CloseTCP(c *net.TCPConn) {
 
 // CloseTCPRead closes the read end of r.
 func CloseTCPRead(r TCPConn) {
-	if r != nil {
+	if r != nil && IsNotNil(r) {
 		// avoid expensive reflection:
 		// groups.google.com/g/golang-nuts/c/wnH302gBa4I
 		switch x := r.(type) {
@@ -72,7 +72,7 @@ func CloseTCPRead(r TCPConn) {
 
 // CloseTCPWrite closes the write end of w.
 func CloseTCPWrite(w TCPConn) {
-	if w != nil {
+	if w != nil && IsNotNil(w) {
 		switch x := w.(type) {
 		case *net.TCPConn:
 			if x != nil {
@@ -93,7 +93,7 @@ func CloseTCPWrite(w TCPConn) {
 // CloseConn closes cs.
 func CloseConn(cs ...MinConn) {
 	for _, c := range cs {
-		if c == nil {
+		if c == nil || IsNil(c) {
 			continue
 		}
 		switch x := c.(type) {
@@ -130,7 +130,7 @@ func Close(cs ...io.Closer) {
 
 // CloseOp closes op on c.
 func CloseOp(c io.Closer, op CloserOp) {
-	if c == nil {
+	if c == nil || IsNil(c) {
 		return
 	}
 	switch x := c.(type) {

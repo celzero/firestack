@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/netip"
 	"strconv"
+	"sync/atomic"
 
 	"github.com/celzero/firestack/intra/log"
 )
@@ -118,4 +119,24 @@ func addrport(ip string, port string) (ipp netip.AddrPort, err error) {
 		return ipp, nil
 	}
 	return ipp, err
+}
+
+const (
+	PlusFilterSafest = iota
+	PlusOrderRandom
+	PlusOrderFastest
+	PlusOrderRobust
+)
+
+var PlusStrat = atomic.Int32{}
+
+// SetPlusStrategy returns the order strategy for Plus DNS transports.
+func SetPlusStrategy(new int) bool {
+	if new < PlusFilterSafest || new > PlusOrderRobust {
+		log.W("dnsopt: invalid plus order strategy %d", new)
+		return false
+	}
+	old := PlusStrat.Swap(int32(new))
+	log.I("dnsopt: set plus order strategy to %d <= %d", new, old)
+	return true
 }

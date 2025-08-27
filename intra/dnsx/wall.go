@@ -9,6 +9,7 @@ package dnsx
 import (
 	x "github.com/celzero/firestack/intra/backend"
 	"github.com/celzero/firestack/intra/log"
+	"github.com/celzero/firestack/intra/settings"
 	"github.com/celzero/firestack/intra/xdns"
 	"github.com/miekg/dns"
 )
@@ -111,7 +112,9 @@ func (r *resolver) blockQ(t, t2 Transport, msg *dns.Msg) (ans *dns.Msg, blocklis
 	b := r.getRdnsLocal()
 
 	if b == nil || !b.OnDeviceBlock() {
-		log.V("wall: no local blockerQ; letting through %s", qname)
+		if settings.Debug {
+			log.V("wall: no local blockerQ; letting through %s", qname)
+		}
 		return nil, "", errNoRdns
 	}
 	// OnDeviceBlock() is true; enforce blocklists
@@ -152,7 +155,7 @@ func (r *resolver) blockA(t, t2 Transport, q, ans *dns.Msg, blocklistStamp strin
 	qname := xdns.QName(q)
 
 	if len(blocklistStamp) > 0 && br != nil { // remote block resolution, if any
-		blocklistNames, err = br.StampToNames(blocklistStamp)
+		blocklistNames, err = br.stampToNames(blocklistStamp)
 		if err == nil {
 			log.D("wall: for %s blocklists %s", qname, blocklistNames)
 			return
@@ -169,22 +172,30 @@ func (r *resolver) blockA(t, t2 Transport, q, ans *dns.Msg, blocklistStamp strin
 
 	// local block resolution, if any
 	if b == nil {
-		log.V("wall: no local blockerA; letting through %s", qname)
+		if settings.Debug {
+			log.V("wall: no local blockerA; letting through %s", qname)
+		}
 		return nil, ""
 	}
 
 	if !b.OnDeviceBlock() {
-		log.D("wall: no local blockA for %s", qname)
+		if settings.Debug {
+			log.D("wall: no local blockA for %s", qname)
+		}
 		return
 	}
 
 	if blocklistNames, err = b.blockAnswer(ans); err != nil {
-		log.D("wall: answer for %s not blocked %v", qname, err)
+		if settings.Debug {
+			log.D("wall: answer for %s not blocked %v", qname, err)
+		}
 		return
 	}
 
 	if len(blocklistNames) <= 0 {
-		log.D("wall: answer %s not blocked blocklist empty", qname)
+		if settings.Debug {
+			log.D("wall: answer %s not blocked blocklist empty", qname)
+		}
 		return
 	}
 

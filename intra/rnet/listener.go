@@ -11,22 +11,15 @@ import (
 	"fmt"
 	"time"
 
+	x "github.com/celzero/firestack/intra/backend"
 	"github.com/celzero/firestack/intra/core"
 )
 
 var errNop = errors.New("no error")
 
-// Summary is a summary of a DNS transaction, reported when it is complete.
 type ServerSummary struct {
-	Type     string    // http1, socks5, etc.
-	SID      string    // Server id
-	PID      string    // Proxy ID (hop) that handled egress, if any.
-	CID      string    // Connection id
-	Tx       int       // Amount uploaded (bytes).
-	Rx       int       // Amount downloaded (bytes).
-	Duration int32     // Conn open duration (seconds).
-	start    time.Time // Tracks start time; unexported.
-	Msg      string    // Error message, if any.
+	*x.ServerSummary
+	start time.Time // Tracks start time; unexported.
 }
 
 func (s *ServerSummary) done(errs ...error) {
@@ -34,7 +27,7 @@ func (s *ServerSummary) done(errs ...error) {
 		return
 	}
 
-	s.Duration = int32(time.Since(s.start).Seconds())
+	s.Duration = time.Since(s.start).Milliseconds()
 
 	err := core.JoinErr(errs...) // errs may be nil
 	if err != nil {
@@ -59,24 +52,13 @@ func (s *ServerSummary) String() string {
 
 func serverSummary(typ, sid, pid, cid string) *ServerSummary {
 	return &ServerSummary{
-		Type:  typ,
-		SID:   sid,
-		PID:   pid,
-		CID:   cid,
+		ServerSummary: &x.ServerSummary{
+			Type: typ,
+			SID:  sid,
+			PID:  pid,
+			CID:  cid,
+			Msg:  errNop.Error(),
+		},
 		start: time.Now(),
-		Msg:   errNop.Error(),
 	}
-}
-
-// ServerListener receives Server events.
-type ServerListener interface {
-	// Route decides how to forward an incoming connection over service (sid).
-	Route(sid, pid, network, sipport, dipport string) *Tab
-	// OnComplete reports summary after a connection closes.
-	OnComplete(*ServerSummary)
-}
-
-type Tab struct {
-	CID   string // CID is the ID of this connection.
-	Block bool   // Block is true if this connection should be blocked.
 }

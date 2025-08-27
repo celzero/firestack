@@ -18,7 +18,11 @@ import (
 // https://github.com/amnezia-vpn/amneziawg-go/pull/2/files
 
 const (
-	sNoop = 0 // no-op size
+	// TODO: re-enable after figuring out how to account for
+	// changing the message header values for cookies mac1 & mac2
+	// here: github.com/amnezia-vpn/amneziawg-go/blob/27e661d68e/device/send.go#L167
+	disableAmenzia = true
+	sNoop          = 0 // no-op size
 )
 
 // Jc (Junk packet count) - number of packets with random data that are sent before the start of the session
@@ -49,6 +53,9 @@ func (a *Amnezia) String() string {
 	if a == nil {
 		return "<nil>"
 	}
+	if disableAmenzia {
+		return "<disabled>"
+	}
 	if !a.Set() {
 		return "<unset>"
 	}
@@ -57,7 +64,7 @@ func (a *Amnezia) String() string {
 }
 
 func (a *Amnezia) Set() bool {
-	if a == nil {
+	if a == nil || disableAmenzia {
 		return false
 	}
 
@@ -93,26 +100,25 @@ func (a *Amnezia) send(pktptr *[]byte) (ok bool) {
 
 	typ := binary.LittleEndian.Uint32(pkt)
 
-	defer a.logIfNeeded("send", typ, n)
-
 	*pktptr, _ = a.instate(pkt)
+
+	a.logIfNeeded("send", typ, n, len(*pktptr))
+
 	return true
 }
 
-func (a *Amnezia) recv(pktptr *[]byte) (ok bool) {
+func (a *Amnezia) recv(pkt []byte, upto int) (out []byte, ok bool) {
 	if a == nil || !a.Set() {
+		return
+	}
+	if upto < device.MinMessageSize {
 		return
 	}
 
 	var typ uint32
-	pkt := *pktptr
-
-	if len(pkt) < device.MinMessageSize {
-		return
-	}
 	// h := uint16(device.MessageTransportOffsetReceiver)
-
-	pkt, typ = a.strip(pkt)
+	pkt, typ = a.strip(pkt[:upto])
+	strippedSz := len(pkt)
 
 	switch typ {
 	case device.MessageInitiationType, a.H1:
@@ -127,12 +133,14 @@ func (a *Amnezia) recv(pktptr *[]byte) (ok bool) {
 	case device.MessageTransportType, a.H4: // must be default?
 		typ = device.MessageTransportType
 		binary.LittleEndian.PutUint32(pkt, device.MessageTransportType)
+	default:
+		log.W("wg: %s: amnezia: recv: unexpected type %d", a.id, typ)
+		// TODO: error?
 	}
 
-	defer a.logIfNeeded("recv", typ, len(pkt))
+	a.logIfNeeded("recv", typ, strippedSz, upto)
 
-	*pktptr = pkt
-	return true
+	return pkt, true
 }
 
 func (a *Amnezia) instate(pkt []byte) ([]byte, uint32) {
@@ -140,8 +148,8 @@ func (a *Amnezia) instate(pkt []byte) ([]byte, uint32) {
 
 	defaultType := binary.LittleEndian.Uint32(pkt)
 
-	var pad uint16 = 0
-	var obsType uint32 = 0
+	pad := uint16(0)
+	obsType := uint32(0)
 	maybeInstate := false
 
 	switch defaultType {
@@ -176,17 +184,18 @@ func (a *Amnezia) instate(pkt []byte) ([]byte, uint32) {
 	log.VV("wg: %s: amnezia: instate: msg size: %d, msg typ: (d: %d, o: %d), pad? %t, s1/s2: %d/%d, do? %t",
 		a.id, n, defaultType, obsType, pad > 0, a.S1, a.S2, maybeInstate)
 
-	if obsType > 0 {
+	useObsType := obsType > 0 && defaultType != obsType
+	if useObsType {
 		binary.LittleEndian.PutUint32(pkt, obsType)
 	}
 	// pad may be 0
 	if random, err := blob(pad); err != nil { // unlikely
-		log.E("wg: %s: amnezia: instate: %v", a.id, err)
-	} else if len(random) > 0 {
+		log.E("wg: %s: amnezia: instate: pad err %v", a.id, err)
+	} else if len(random) > 0 && len(random) == int(pad) {
 		pkt = append(random, pkt...)
 	}
 
-	if obsType > 0 {
+	if useObsType {
 		return pkt, obsType
 	}
 	return pkt, defaultType
@@ -197,7 +206,7 @@ func (a *Amnezia) strip(pkt []byte) ([]byte, uint32) {
 	h := uint16(device.MessageTransportOffsetReceiver)
 	// assume the correct msg type is in just the first byte:
 	// github.com/WireGuard/wireguard-go/blob/12269c2761/device/noise-protocol.go#L56
-	defaultType := uint8(pkt[0])
+	defaultType := binary.LittleEndian.Uint32(pkt[:h])
 
 	var discard uint16 = 0
 	var possibleType uint32 = 0
@@ -226,30 +235,30 @@ func (a *Amnezia) strip(pkt []byte) ([]byte, uint32) {
 		log.W("wg: %s: amnezia: strip: mismatched msg type %d != %d", a.id, obsType, possibleType)
 	} // else: nothing to discard
 
-	return pkt, uint32(defaultType)
+	return pkt, defaultType
 }
 
-func (a *Amnezia) logIfNeeded(dir string, typ uint32, n int) {
+func (a *Amnezia) logIfNeeded(dir string, typ uint32, n int, newn int) {
 	switch typ {
 	case device.MessageInitiationType:
 		notok := n != device.MessageInitiationSize
-		logif(notok)("wg: %s: amnezia: %s: err initiation %d != %d",
-			a.id, dir, n, device.MessageInitiationSize)
+		logif(notok)("wg: %s: amnezia: %s: err initiation %d != %d (=> %d)",
+			a.id, dir, n, device.MessageInitiationSize, newn)
 	case device.MessageResponseType:
 		notok := n != device.MessageResponseSize
-		logif(notok)("wg: %s: amnezia: %s: err response %d != %d",
-			a.id, dir, n, device.MessageResponseSize)
+		logif(notok)("wg: %s: amnezia: %s: err response %d != %d (=> %d)",
+			a.id, dir, n, device.MessageResponseSize, newn)
 	case device.MessageCookieReplyType:
 		notok := n != device.MessageCookieReplySize
-		logif(notok)("wg: %s: amnezia: %s: err cookie %d != %d",
-			a.id, dir, n, device.MessageCookieReplySize)
+		logif(notok)("wg: %s: amnezia: %s: err cookie %d != %d (=> %d)",
+			a.id, dir, n, device.MessageCookieReplySize, newn)
 	case device.MessageTransportType:
 		notok := n < device.MinMessageSize
-		logif(notok)("wg: %s: amnezia: %s: err data %d < %d",
-			a.id, dir, n, device.MinMessageSize)
+		logif(notok)("wg: %s: amnezia: %s: err data %d < %d (=> %d)",
+			a.id, dir, n, device.MinMessageSize, newn)
 	default:
-		log.W("wg: %s: amnezia: %s: unexpected type %d; sz(pkt): %d",
-			a.id, dir, typ, n)
+		log.W("wg: %s: amnezia: %s: unexpected type %d; sz(pkt): %d => %d",
+			a.id, dir, typ, n, newn)
 	}
 }
 

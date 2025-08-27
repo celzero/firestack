@@ -25,11 +25,18 @@ package netstack
 
 import (
 	"fmt"
+	"strconv"
+	"sync"
+	"sync/atomic"
 	"syscall"
+	"time"
 
+	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/log"
 	"golang.org/x/sys/unix"
 )
+
+var invalidFds = &fds{stopFd: stopFd{efd: invalidfd}, tunFd: invalidfd}
 
 // stopFd is an eventfd used to signal the stop of a dispatcher.
 type stopFd struct {
@@ -46,43 +53,73 @@ func newStopFd() (stopFd, error) {
 
 // stop writes to the eventfd and notifies the dispatcher to stop. It does not
 // block.
-func (s *stopFd) stop() {
+func (s *stopFd) stop() error {
+	if s.efd == invalidfd || s.efd <= 2 {
+		return nil
+	}
 	increment := []byte{1, 0, 0, 0, 0, 0, 0, 0}
 	if n, err := unix.Write(s.efd, increment); n != len(increment) || err != nil {
 		// There are two possible errors documented in eventfd(2) for writing:
 		// 1. We are writing 8 bytes and not 0xffffffffffffff, thus no EINVAL.
 		// 2. stop is only supposed to be called once, it can't reach the limit,
 		// thus no EAGAIN.
-		panic(fmt.Sprintf("write(efd) = (%d, %s), want (%d, nil)", n, err, len(increment)))
+		return fmt.Errorf("write(efd) = (%d, %s), want (%d, nil)", n, err, len(increment))
 	}
+	return nil
 }
 
 type fds struct {
 	stopFd stopFd
 	tunFd  int
+
+	read      atomic.Int64 // number of bytes read
+	written   atomic.Int64 // number of bytes written
+	since     atomic.Int64 // when fd was created
+	death     atomic.Int64 // age in millis
+	lastRead  atomic.Int64 // last read time in millis
+	lastWrite atomic.Int64 // last write time in millis
+
+	closed atomic.Bool
+	once   sync.Once // ensures that stop() is called only once
 }
 
+// Takes ownership of fd, which must be a valid TUN file descriptor.
+// Never returns nil, but may return an invalid fds (with tunFd = -1).
 func newTun(fd int) (*fds, error) {
+	if fd == invalidfd {
+		return invalidFds, nil
+	}
+	err := unix.SetNonblock(fd, true)
+	if err != nil {
+		clos(fd)
+		return invalidFds, err
+	}
 	stopFd, err := newStopFd()
 	if err != nil {
-		return nil, err
+		clos(fd)
+		return invalidFds, err
 	}
-	return &fds{stopFd, fd}, nil
+	f := &fds{
+		stopFd: stopFd,
+		tunFd:  fd,
+	}
+	f.since.Store(time.Now().UnixMilli())
+	return f, nil
 }
 
 func (f *fds) ok() bool {
-	return f != nil && f.tun() != invalidfd
+	return f != nil && f.tun() != invalidfd && !f.closed.Load()
 }
 
 func (f *fds) eve() int {
-	if f != nil {
+	if f != nil && f.stopFd.efd > 2 {
 		return f.stopFd.efd
 	}
 	return invalidfd
 }
 
 func (f *fds) tun() int {
-	if f != nil {
+	if f != nil && f.tunFd > 2 {
 		return f.tunFd
 	}
 	return invalidfd
@@ -90,10 +127,29 @@ func (f *fds) tun() int {
 
 func (f *fds) stop() {
 	if f.ok() {
-		f.stopFd.stop()
-		err := syscall.Close(f.tunFd)
-		log.I("ns: dispatch: fds: stop: eve(%d) tun(%d); err? %v", f.stopFd.efd, f.tunFd, err)
+		f.once.Do(func() {
+			defer f.closed.Store(true)
+
+			now := time.Now().UnixMilli()
+			f.death.Store(now)
+			age := now - f.since.Load()
+
+			err1 := f.stopFd.stop()
+			err2 := syscall.Close(f.tunFd)
+			logeif(err1)("ns: dispatch: fds: stop: eve(%d) tun(%d) age(%s); errs? %v %v",
+				f.stopFd.efd, f.tunFd, core.FmtMillis(age), err1, err2)
+		})
 	} else {
 		log.W("ns: dispatch: fds: stop: no-op")
+	}
+}
+
+func (f *fds) String() string {
+	return strconv.Itoa(f.tunFd)
+}
+
+func clos(fd int) {
+	if fd > 0 || fd != invalidfd {
+		_ = syscall.Close(fd)
 	}
 }

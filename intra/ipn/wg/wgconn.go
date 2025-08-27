@@ -94,15 +94,24 @@ func (k floodkind) String() string {
 	}
 }
 
-type rwobserver func(op string, err error)
+type rwobserver func(op PktDir, err error)
 type connector func(network, to string) (net.PacketConn, error)
+
+type PktDir string
+
+const (
+	Rcv PktDir = "recv"
+	Snd PktDir = "send"
+	Con PktDir = "conn" // e.g. dial, announce, accept
+	Opn PktDir = "open" // open conn to the wg endpoint
+)
 
 type StdNetBind struct {
 	id      string
 	connect connector
-	mh      *multihost.MH
+	pm      *core.Volatile[*multihost.MHMap] // peer ip:port or host => preferred-addrs
 
-	amnezia *Amnezia
+	amnezia *core.Volatile[*Amnezia] // may return nil *Amnezia
 	floodBa *core.Barrier[int, netip.AddrPort]
 
 	mu         sync.Mutex     // protects following fields
@@ -119,11 +128,11 @@ type StdNetBind struct {
 }
 
 // TODO: get d, ep, f, rb through an Opts bag?
-func NewEndpoint(id string, d connector, ep *multihost.MH, f rwobserver, a *Amnezia) *StdNetBind {
+func NewEndpoint(id string, d connector, pm *core.Volatile[*multihost.MHMap], f rwobserver, a *core.Volatile[*Amnezia]) *StdNetBind {
 	s := &StdNetBind{
 		id:       id,
 		connect:  d,
-		mh:       ep,
+		pm:       pm,
 		observer: f,
 		amnezia:  a,
 		floodBa:  core.NewKeyedBarrier[int, netip.AddrPort](minFloodInterval),
@@ -146,7 +155,6 @@ var (
 )
 
 func (e *StdNetBind) ParseEndpoint(s string) (conn.Endpoint, error) {
-	d := e.mh
 	/*
 		host, portstr, err := net.SplitHostPort(s)
 		if err != nil {
@@ -159,12 +167,18 @@ func (e *StdNetBind) ParseEndpoint(s string) (conn.Endpoint, error) {
 			return nil, err
 		}
 	*/
+	// d.Add([]string{host}) // resolves host if needed
+	d, err := e.pm.Load().Get(s)
+	if err != nil || d == nil /*nilaway; can't happen*/ {
+		log.E("wg: bind: %s parse: invalid endpoint in(%s); err: %v", e.id, s, err)
+		return nil, err
+	}
+
 	// do what tailscale does, and share a preferred endpoint regardless of "s"
 	// github.com/tailscale/tailscale/blob/3a6d3f1a5b7/wgengine/magicsock/magicsock.go#L2568
-	// d.Add([]string{host}) // resolves host if needed
 	ipport := d.PreferredAddr()
 	if !ipport.IsValid() || ipport.Addr().IsUnspecified() {
-		log.E("wg: bind: %s invalid endpoint; chosen(%v) => in(%s) => out(%s, %s)", e.id, ipport, s, d.Names(), d.Addrs())
+		log.E("wg: bind: %s parse: invalid endpoint; chosen(%v) => in(%s) => out(%s, %s)", e.id, ipport, s, d.Names(), d.Addrs())
 		// erroring out from here prevents PostConfig (handshake for this peer endpoint will always be zero)
 		// github.com/WireGuard/wireguard-go/blob/12269c276173/device/uapi.go#L183
 		return nil, errInvalidEndpoint
@@ -201,10 +215,7 @@ func (e StdNetEndpoint) SrcToString() string {
 
 func udpaddr(ipp netip.AddrPort) *net.UDPAddr {
 	if ipp.IsValid() {
-		return &net.UDPAddr{
-			IP:   ipp.Addr().AsSlice(),
-			Port: int(ipp.Port()),
-		}
+		return net.UDPAddrFromAddrPort(ipp)
 	}
 	return nil
 }
@@ -245,20 +256,22 @@ func (s *StdNetBind) listenNet(network string, port int) (net.PacketConn, int, e
 	if uaddr == nil {
 		return nil, 0, errNoLocalAddr
 	}
-	log.V("wg: bind: %s %s: listen(%v)", s.id, network, laddr)
+	if settings.Debug {
+		log.VV("wg: bind: %s %s: listen(%v)", s.id, network, laddr)
+	}
 	// typecast is safe, because "network" is always udp[4|6]; see: Open
 	return conn, uaddr.Port, nil
 }
 
-func (bind *StdNetBind) Open(uport uint16) ([]conn.ReceiveFunc, uint16, error) {
-	bind.mu.Lock()
-	defer bind.mu.Unlock()
+func (s *StdNetBind) Open(uport uint16) ([]conn.ReceiveFunc, uint16, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
 	var err error
 	var tries int
 
-	if bind.ipv4 != nil || bind.ipv6 != nil {
-		log.W("wg: bind: %s already open", bind.id)
+	if s.ipv4 != nil || s.ipv6 != nil {
+		log.W("wg: bind: %s already open at :%d", s.id, uport)
 		return nil, 0, conn.ErrBindAlreadyOpen
 	}
 
@@ -268,18 +281,18 @@ again:
 	port := int(uport)
 	var ipv4, ipv6 net.PacketConn
 
-	ipv4, port, err = bind.listenNet("udp4", port)
+	ipv4, port, err = s.listenNet("udp4", port)
 	no4 := errors.Is(err, syscall.EAFNOSUPPORT)
-	log.D("wg: bind: %s #%d listen4(%d); no4? %t err? %v", bind.id, tries, port, no4, err)
+	log.D("wg: bind: %s #%d listen4(%d); no4? %t err? %v", s.id, tries, port, no4, err)
 	if err != nil && !no4 {
 		return nil, 0, err
 	}
 
 	// Listen on the same port as we're using for ipv4.
-	ipv6, port, err = bind.listenNet("udp6", port)
+	ipv6, port, err = s.listenNet("udp6", port)
 	busy := errors.Is(err, syscall.EADDRINUSE)
 	no6 := errors.Is(err, syscall.EAFNOSUPPORT)
-	log.D("wg: bind: %s #%d listen6(%d); busy? %t no6? %t err? %v", bind.id, tries, port, busy, no6, err)
+	log.D("wg: bind: %s #%d listen6(%d); busy? %t no6? %t err? %v", s.id, tries, port, busy, no6, err)
 	if uport == 0 && busy && tries < maxbindtries {
 		clos(ipv4)
 		tries++
@@ -292,40 +305,66 @@ again:
 
 	var fns []conn.ReceiveFunc
 	if ipv4 != nil {
-		bind.ipv4 = ipv4
-		fns = append(fns, bind.makeReceiveFn(ipv4))
+		s.ipv4 = ipv4
+		fns = append(fns, s.makeReceiveFn(ipv4))
 	}
 	if ipv6 != nil {
-		bind.ipv6 = ipv6
-		fns = append(fns, bind.makeReceiveFn(ipv6))
+		s.ipv6 = ipv6
+		fns = append(fns, s.makeReceiveFn(ipv6))
 	}
 
-	log.I("wg: bind: %s opened port(%d) for v4? %t v6? %t",
-		bind.id, port, ipv4 != nil, ipv6 != nil)
+	log.I("wg: bind: %s opened port(requested %d => using %d) for v4? %t v6? %t",
+		s.id, uport, port, ipv4 != nil, ipv6 != nil)
 	if len(fns) == 0 {
 		return nil, 0, syscall.EAFNOSUPPORT
 	}
 	return fns, uint16(port), nil
 }
 
-func (bind *StdNetBind) Close() error {
-	bind.mu.Lock()
-	defer bind.mu.Unlock()
+// Pause implements wgconn
+func (s *StdNetBind) Pause() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.blackhole4 = true
+	s.blackhole6 = true
+
+	log.I("wg: bind: %s pausing... v4? %t v6? %t", s.id, s.ipv4 != nil, s.ipv6 != nil)
+
+	return true
+}
+
+// Resume implements wgconn
+func (s *StdNetBind) Resume() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.blackhole4 = false
+	s.blackhole6 = false
+
+	log.I("wg: bind: %s resuming... v4? %t v6? %t", s.id, s.ipv4 != nil, s.ipv6 != nil)
+
+	return true
+}
+
+func (s *StdNetBind) Close() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
 	var err1, err2 error
-	v4, v6 := bind.ipv4, bind.ipv6
+	v4, v6 := s.ipv4, s.ipv6
 	if v4 != nil {
 		err1 = v4.Close()
-		bind.ipv4 = nil
+		s.ipv4 = nil
 	}
 	if v6 != nil {
 		err2 = v6.Close()
-		bind.ipv6 = nil
+		s.ipv6 = nil
 	}
-	bind.blackhole4 = false
-	bind.blackhole6 = false
+	s.blackhole4 = false
+	s.blackhole6 = false
 
-	log.I("wg: bind: %s close; err4? %v err6? %v", bind.id, err1, err2)
+	log.I("wg: bind: %s close; err4? %v err6? %v", s.id, err1, err2)
 	return core.JoinErr(err1, err2)
 }
 
@@ -334,32 +373,38 @@ func (s *StdNetBind) makeReceiveFn(uc net.PacketConn) conn.ReceiveFunc {
 	return func(bufs [][]byte, sizes []int, eps []conn.Endpoint) (n int, err error) {
 		defer core.Recover(core.Exit11, "wgconn.recv."+s.id)
 		defer func() {
-			s.observer("r", err)
+			s.observer(Rcv, err)
 		}()
 
-		recvOverwritten := false
+		usingamz := s.amnezia.Load().Set()
+		overwritten := false
 
 		numMsgs := 0
-		b := bufs[0]
+		b := bufs[0] // usually sized device.MaxMessageSize
 
 		extend(uc, wgtimeout)
 		n, addr, err := uc.ReadFrom(b)
 		if err == nil {
-			recvOverwritten = s.amnezia.recv(&b)
+			b, overwritten = s.amnezia.Load().recv(b, n)
 			numMsgs++
 		}
 
-		for i := 0; i < numMsgs; i++ {
-			sizes[i] = n
+		for i := range numMsgs {
+			if overwritten {
+				copy(bufs[i], b)
+				sizes[i] = len(b)
+			} else { // bufs remained unchanged
+				sizes[i] = n
+			}
 			eps[i] = s.asEndpoint(addr)
 		}
 
-		s := fmt.Sprintf("wg: bind: %s recvFrom(%v): %d / ov? %t<=%t / err? %v",
-			s.id, addr, n, s.amnezia.Set(), recvOverwritten, err)
-		if err == nil || timedout(err) {
-			log.V(s)
-		} else {
-			log.E(s)
+		if err != nil && !timedout(err) {
+			log.E("wg: bind: %s recvFrom(%v): %d / ov? %t<=%t / err? %v",
+				s.id, addr, n, usingamz, overwritten, err)
+		} else if settings.Debug {
+			log.V("wg: bind: %s recvFrom(%v): %d / ov? %t<=%t / err? %v",
+				s.id, addr, n, usingamz, overwritten, err)
 		}
 		return numMsgs, err
 	}
@@ -376,7 +421,7 @@ func timedout(err error) bool {
 func (s *StdNetBind) Send(buf [][]byte, peer conn.Endpoint) (err error) {
 	defer core.Recover(core.Exit11, "wgconn.send."+s.id)
 	defer func() {
-		s.observer("w", err)
+		s.observer(Snd, err)
 	}()
 
 	// the peer endpoint
@@ -405,8 +450,10 @@ func (s *StdNetBind) Send(buf [][]byte, peer conn.Endpoint) (err error) {
 	for _, data := range buf {
 		bufok := len(data) > 0
 
-		log.V("wg: bind: send: %s addr(%v) exp? %t, blackhole? %t; noconn? %t; hasbuf? %t",
-			s.id, dstIpp, experimentalWg, blackhole, noconn, bufok)
+		if settings.Debug {
+			log.VV("wg: bind: send: %s addr(%v) exp? %t, blackhole? %t; noconn? %t; hasbuf? %t",
+				s.id, dstIpp, experimentalWg, blackhole, noconn, bufok)
+		}
 
 		if blackhole || !bufok {
 			return nil
@@ -417,9 +464,9 @@ func (s *StdNetBind) Send(buf [][]byte, peer conn.Endpoint) (err error) {
 
 		datalen := len(data) // grab the length before we overwrite it
 
-		overwritten = s.amnezia.send(&data)
+		overwritten = s.amnezia.Load().send(&data)
 
-		if !flooded && (experimentalWg || s.amnezia.Set()) {
+		if !flooded && (experimentalWg || s.amnezia.Load().Set()) {
 			if datalen == device.MessageInitiationSize {
 				s.flood(uc, ep, fkHandshake) // was probably a handshake
 				flooded = true
@@ -438,9 +485,12 @@ func (s *StdNetBind) Send(buf [][]byte, peer conn.Endpoint) (err error) {
 
 	s.sendAddr.Store(dstIpp)
 
-	loge(err)("wg: bind: send: %s addr(%v) parcels(%d) tx(%d) (exp? %t: flooded? %t / any-overwritten? %t); err? %v",
-		s.id, dstIpp, len(buf), nn, experimentalWg, flooded, overwritten, errs)
-	return err
+	if settings.Debug && errs != nil {
+		loge(err)("wg: bind: send: %s addr(%v) parcels(%d) tx(%d) (exp? %t / flood? %t / overw? %t); err? %v",
+			s.id, dstIpp, len(buf), nn, experimentalWg, flooded, overwritten, errs)
+	}
+
+	return errs
 }
 
 // flood c with random-sized, non-sense (unencrypted) packets.
@@ -456,10 +506,7 @@ func (s *StdNetBind) flood(c net.PacketConn, dst StdNetEndpoint, why floodkind) 
 		hdr[0] = mlist[mrand.UintN(uint(len(mlist)))]
 		_, _ = rand.Read(hdr[6:14])
 
-		tot := mrand.Uint64N(maxFloodPkts + 1)
-		if tot < minFloodPkts {
-			tot = minFloodPkts
-		}
+		tot := max(mrand.Uint64N(maxFloodPkts+1), minFloodPkts)
 		// go.dev/play/p/NkLihAUTqUO
 		maxWaitMs := maxFloodDuration.Milliseconds() / int64(tot)
 		expectedsent := make([]int, tot)
@@ -470,10 +517,7 @@ func (s *StdNetBind) flood(c net.PacketConn, dst StdNetEndpoint, why floodkind) 
 		pkt := make([]byte, maxFloodPktLen)
 		var n int
 		for i := uint64(0); i < tot; i++ {
-			sz := mrand.Uint64N(padlen + 1)
-			if sz < minFloodPktLen {
-				sz = minFloodPktLen
-			}
+			sz := max(mrand.Uint64N(padlen+1), minFloodPktLen)
 			_, _ = rand.Read(pkt[hdrlen:sz])
 			copy(pkt[0:], hdr)
 
@@ -493,8 +537,10 @@ func (s *StdNetBind) flood(c net.PacketConn, dst StdNetEndpoint, why floodkind) 
 			time.Sleep(wait)
 		}
 
-		log.I("wg: bind: %s flood %s %s: expected sent?(%v) / tot(%d)",
-			s.id, why, dst, expectedsent, n)
+		if settings.Debug {
+			log.D("wg: bind: %s flood %s %s: expected sent?(%v) / tot(%d)",
+				s.id, why, dst, expectedsent, n)
+		}
 		return n, nil
 	})
 }

@@ -7,11 +7,11 @@
 package intra
 
 import (
-	"errors"
 	"fmt"
 	"net/netip"
 	"time"
 
+	x "github.com/celzero/firestack/intra/backend"
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/ipn"
 )
@@ -19,26 +19,36 @@ import (
 // SocketSummary reports information about each TCP socket
 // or a non-DNS UDP association, or ICMP echo when it is closed.
 type SocketSummary struct {
-	Proto    string    // tcp, udp, icmp, etc.
-	ID       string    // Unique ID for this socket.
-	PID      string    // Proxy ID that handled this socket.
-	RPID     string    // Relay Proxy ID that tunneled PID.
-	UID      string    // UID of the app that owns this socket (sans ICMP).
-	Target   string    // Remote IP, if dialed in.
-	Rx       int64     // Total bytes downloaded.
-	Tx       int64     // Total bytes uploaded.
-	Duration int32     // Duration in seconds.
-	start    time.Time // Tracks start time; unexported.
-	Rtt      int32     // Round-trip time (millis).
-	Msg      string    // Err or other messages, if any.
+	// tcp, udp, or icmp.
+	Proto string
+	// Unique ID for this socket.
+	ID string
+	// Proxy ID that handled this socket.
+	PID string
+	// Relay Proxy ID that tunneled PID.
+	RPID string
+	// UID of the app that owns this socket (sans ICMP).
+	UID string
+	// Remote IP, if dialed in.
+	Target string
+	// Total bytes downloaded.
+	Rx int64
+	// Total bytes uploaded.
+	Tx int64
+	// Duration in milliseconds.
+	Duration int64
+	// Tracks start time; unexported.
+	start time.Time
+	// Round-trip time (millis).
+	Rtt int64
+	// Err or other messages, if any.
+	Msg string
 }
 
 type SocketListener interface {
 	// Preflow is called before a new connection is established; return owner "uid", which is
-	// later used by dnsx.Resolver to determine the DNS transport to use for that "uid". That
-	// DNS transport will re-resolve "domains" (iff previously resolved to a "fake IP" by
-	// dnsx.alg) to determine the real egress IP to connect to.
-	Preflow(protocol, uid int32, src, dst, domains string) *PreMark
+	// later used by dnsx.Resolver to determine the DNS transport to use for that "uid".
+	Preflow(protocol, uid int32, src, dst *x.Gostr) *PreMark
 	// Flow is called on a new connection; return Proxy IDs to forward the connection
 	// to a pre-registered proxy; "Base" or "Exit" to allow the connection; "Block" to block it.
 	// "connid" is used to uniquely identify a connection across all proxies, and a summary of the
@@ -47,18 +57,31 @@ type SocketListener interface {
 	// uid is -1 in case owner-uid of the connection couldn't be determined.
 	// src and dst are string'd representation of net.TCPAddr and net.UDPAddr.
 	// origdsts is a comma-separated list of original source IPs, this may be same as dst.
+	// origdsts may contain unspecified IPv4 or IPv6 addresses, which denote that the domain
+	// was blocked by a rdns blocklist (but the resolution was allowed to go through). Listener
+	// may choose to "Block" this connection based on that information.
 	// domains is a comma-separated list of domain names associated with origdsts, if any.
 	// probableDomains is a comma-separated list of probable domain names associated with origdsts, if any.
 	// blocklists is a comma-separated list of rdns blocklist names that apply, if any.
-	Flow(protocol, uid int32, src, dst, origdsts, domains, probableDomains, blocklists string) *Mark
-	Inflow(protocol, uid int32, src, dst string) *Mark
+	Flow(protocol, uid int32, src, dst, origdsts, domains, probableDomains, blocklists *x.Gostr) *Mark
+	// Inflow is called on a new incoming connection. Returned *Mark values have no discernable effect on these connections,
+	// except for the CID field, which is sent back via OnSocketClosed, and "Block" proxy which
+	// will drop this connection on the floor.
+	Inflow(protocol, uid int32, src, dst *x.Gostr) *Mark
+	// PostFlow is called after a flow is marked by Flow or Inflow.
+	// It denotes the final Mark that was applied to the flow.
+	// The only major discernable effect is PIDCSV has a single PID.
+	PostFlow(m *Mark)
 	// OnSocketClosed reports summary after a socket closes.
 	OnSocketClosed(*SocketSummary)
 }
 
 type PreMark struct {
 	// UID of the app which owns the flow.
+	// Set it to "-1" if unknown.
 	UID string
+	// Is the UID us (our app / process)?
+	IsUidSelf bool
 }
 
 type Mark struct {
@@ -68,6 +91,9 @@ type Mark struct {
 	CID string
 	// UID of the app which owns the flow.
 	UID string
+	// Preferred IP (for egress) to use for the flow (not guaranteed
+	// as the flow may prefer IPv4 or IPv6 and the IP may not be of that family).
+	IP string
 }
 
 const (
@@ -79,9 +105,15 @@ const (
 var (
 	optionsBlock = &Mark{PIDCSV: ipn.Block}
 	optionsExit  = &Mark{PIDCSV: ipn.Exit}
-
-	errNone = errors.New("no error")
 )
+
+var errNone noerror
+
+type noerror struct{}
+
+var _ error = noerror{}
+
+func (noerror) Error() string { return "no error" }
 
 func icmpSummary(id, uid string) *SocketSummary {
 	return &SocketSummary{
@@ -110,6 +142,18 @@ func udpSummary(id, uid string, dst netip.Addr) *SocketSummary {
 	return s
 }
 
+func (s *SocketSummary) postMark() *Mark {
+	if s == nil {
+		return nil
+	}
+	return &Mark{
+		PIDCSV: s.PID,
+		CID:    s.ID,
+		UID:    s.UID,
+		IP:     s.Target,
+	}
+}
+
 // String implements fmt.Stringer.
 func (s *SocketSummary) String() string {
 	if s != nil {
@@ -121,7 +165,7 @@ func (s *SocketSummary) String() string {
 
 func (s *SocketSummary) elapsed() {
 	if s != nil {
-		s.Duration = int32(time.Since(s.start).Seconds())
+		s.Duration = time.Since(s.start).Milliseconds()
 	}
 }
 
@@ -142,7 +186,7 @@ func (s *SocketSummary) done(errs ...error) *SocketSummary {
 		return s
 	}
 
-	err := core.JoinErr(errs...) // errs may be nil
+	err := core.UniqErr(errs...) // errs may be nil
 	if err != nil {
 		if s.Msg == errNone.Error() {
 			s.Msg = err.Error()

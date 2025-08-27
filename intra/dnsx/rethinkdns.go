@@ -68,6 +68,18 @@ type RdnsResolver interface {
 	blockA(Transport, Transport, *dns.Msg, *dns.Msg, string) (*dns.Msg, string)
 }
 
+// ResolverSelf is for internal resolution needs.
+type ResolverSelf interface {
+	// LocalLookup performs resolution on Default and/or Goos DNSes.
+	// To be only used by protect.UidSelf.
+	LocalLookup(q []byte) (a []byte, tid string, err error)
+	// Lookup performs resolution on chosen Transport.
+	// To be only used by protect.UidSelf.
+	Lookup(q []byte, chosen ...string) (a []byte, tid string, err error)
+	// LookupFor performs resolution for uid.
+	LookupFor(q []byte, uid string) (a []byte, tid string, err error)
+}
+
 type RDNS interface {
 	x.RDNS
 	OnDeviceBlock() bool // Mode
@@ -147,7 +159,11 @@ func (r *rethinkdns) OnDeviceBlock() bool {
 	return r.mode == localBlock
 }
 
-func (r *rethinkdns) GetStamp() (s string, err error) {
+func (r *rethinkdns) GetStamp() (*x.Gostr, error) {
+	return x.StrOfFunc(r.getStamp)
+}
+
+func (r *rethinkdns) getStamp() (s string, err error) {
 	if !r.OnDeviceBlock() {
 		err = errRemote
 		return
@@ -160,7 +176,11 @@ func (r *rethinkdns) GetStamp() (s string, err error) {
 	return
 }
 
-func (r *rethinkdns) SetStamp(stamp string) error {
+func (r *rethinkdns) SetStamp(stamp *x.Gostr) error {
+	return r.setStamp(stamp.V())
+}
+
+func (r *rethinkdns) setStamp(stamp string) error {
 	if !r.OnDeviceBlock() {
 		return errRemote
 	}
@@ -178,9 +198,13 @@ func (r *rethinkdns) SetStamp(stamp string) error {
 }
 
 // Returns blockstamp given comma-separated blocklist ids
-func (r *rethinkdns) FlagsToStamp(flagscsv string, enctyp int) (string, error) {
+func (r *rethinkdns) FlagsToStamp(flagscsv *x.Gostr, enctyp int) (*x.Gostr, error) {
+	return x.StrOfFunc2(r.flagsToStamp, flagscsv.V(), enctyp)
+}
+
+func (r *rethinkdns) flagsToStamp(flagscsv string, enctyp int) (string, error) {
 	fstr := strings.Split(flagscsv, ",")
-	if len(fstr) <= 0 {
+	if len(fstr) <= 0 || firstEmpty(fstr) {
 		return "", errMissingCsv
 	}
 
@@ -204,7 +228,11 @@ func (r *rethinkdns) FlagsToStamp(flagscsv string, enctyp int) (string, error) {
 }
 
 // Returns comma-separated blocklist ids, given a stamp of form version:base64
-func (r *rethinkdns) StampToFlags(stamp string) (string, error) {
+func (r *rethinkdns) StampToFlags(stamp *x.Gostr) (*x.Gostr, error) {
+	return x.StrOfFunc1(r.stampToFlags, stamp.V())
+}
+
+func (r *rethinkdns) stampToFlags(stamp string) (string, error) {
 	blocklists, err := r.stampToBlocklist(stamp)
 	if err != nil {
 		return "", err
@@ -218,7 +246,11 @@ func (r *rethinkdns) StampToFlags(stamp string) (string, error) {
 	return strings.Join(blocklistids[:], ","), nil
 }
 
-func (r *rethinkdns) StampToNames(stamp string) (string, error) {
+func (r *rethinkdns) StampToNames(stamp *x.Gostr) (*x.Gostr, error) {
+	return x.StrOfFunc1(r.stampToNames, stamp.V())
+}
+
+func (r *rethinkdns) stampToNames(stamp string) (string, error) {
 	blocklists, err := r.stampToBlocklist(stamp)
 	if err != nil {
 		return "", err
@@ -274,7 +306,7 @@ func (r *rethinkdnslocal) blockQuery(msg *dns.Msg) (blocklists string, err error
 		return
 	}
 
-	stamp, err := r.GetStamp()
+	stamp, err := r.getStamp()
 	if err != nil {
 		return
 	}
@@ -311,7 +343,7 @@ func (r *rethinkdnslocal) blockAnswer(msg *dns.Msg) (blocklists string, err erro
 		err = errNotEnoughAnswers
 		return
 	}
-	stamp, err := r.GetStamp()
+	stamp, err := r.getStamp()
 	if err != nil {
 		return
 	}
@@ -418,7 +450,7 @@ func load(configjson string) ([]string, map[string]string, error) {
 	return rflags, fdata, nil
 }
 
-func (r *rethinkdns) decode(stamp string, ver string, enctyp int) (info []*listinfo, err error) {
+func (r *rethinkdns) decode(stamp, ver string, enctyp int) (info []*listinfo, err error) {
 	haspad := strings.Contains(stamp, "=")
 	decoder := b64.RawStdEncoding
 	decoder32 := b32.StdEncoding.WithPadding(b32.NoPadding)
@@ -606,7 +638,7 @@ func encode(ver string, u16 []uint16, enctyp int) (string, error) {
 func (r *rethinkdns) normalizeStamp(s string) (string, error) {
 	// b64 -> 1:YAYBACABEDAgAA== / b32 -> 1-madacabaaeidaiaa
 	// b32 -> b64
-	flagscsv, err := r.StampToFlags(s) // validate stamp
+	flagscsv, err := r.stampToFlags(s) // validate stamp
 	if err != nil {
 		return "", err
 	}
@@ -616,7 +648,7 @@ func (r *rethinkdns) normalizeStamp(s string) (string, error) {
 	if !isb32 {
 		return s, nil
 	}
-	return r.FlagsToStamp(flagscsv, EB64) // encode as b64
+	return r.flagsToStamp(flagscsv, EB64) // encode as b64
 }
 
 func str2uint16(str string) []uint16 {

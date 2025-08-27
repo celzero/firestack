@@ -17,21 +17,21 @@ import (
 // A RadixTree is a thread-safe trie that supports insertion, deletion, and prefix matching.
 type RadixTree interface {
 	// Adds k to the trie. Returns true if k was not already in the trie.
-	Add(k string) bool
+	Add(k *Gostr) bool
 	// Sets k to v in the trie, overwriting any previous value.
-	Set(k, v string)
+	Set(k, v *Gostr)
 	// Deletes k from the trie. Returns true if k was in the trie.
-	Del(k string) bool
+	Del(k *Gostr) bool
 	// Gets the value of k from the trie or "" if k is not in the trie.
-	Get(k string) string
+	Get(k *Gostr) *Gostr
 	// Returns true if k is in the trie.
-	Has(k string) bool
+	Has(k *Gostr) bool
 	// Returns the value of the longest prefix of k in the trie or "".
-	GetAny(prefix string) string
+	GetAny(prefix *Gostr) *Gostr
 	// Returns true if any key in the trie has the prefix.
-	HasAny(prefix string) bool
+	HasAny(prefix *Gostr) bool
 	// Deletes all keys in the trie with the prefix. Returns the number of keys deleted.
-	DelAll(prefix string) int32
+	DelAll(prefix *Gostr) int32
 	// Clears the trie.
 	Clear()
 	// Returns the number of keys in the trie.
@@ -51,21 +51,33 @@ func reversed(s string) (b []byte) {
 	return []byte(xdns.StringReverse(s))
 }
 
-func (c *radix) Add(k string) bool {
+func (c *radix) Add(k *Gostr) bool {
+	return c.add(k.V())
+}
+
+func (c *radix) add(k string) bool {
 	c.Lock()
 	defer c.Unlock()
 
 	return c.t.Insert(reversed(k), "")
 }
 
-func (c *radix) Set(k string, v string) {
+func (c *radix) Set(k, v *Gostr) {
+	c.set(k.V(), v.V())
+}
+
+func (c *radix) set(k, v string) {
 	c.Lock()
 	defer c.Unlock()
 
 	c.t.Set(reversed(k), v)
 }
 
-func (c *radix) Del(k string) bool {
+func (c *radix) Del(k *Gostr) bool {
+	return c.del(k.V())
+}
+
+func (c *radix) del(k string) bool {
 	c.Lock()
 	defer c.Unlock()
 
@@ -73,14 +85,22 @@ func (c *radix) Del(k string) bool {
 	return ok
 }
 
-func (c *radix) Has(k string) bool {
+func (c *radix) Has(k *Gostr) bool {
+	return c.has(k.V())
+}
+
+func (c *radix) has(k string) bool {
 	c.RLock()
 	defer c.RUnlock()
 
 	return c.t.Contains(reversed(k))
 }
 
-func (c *radix) DelAll(prefix string) (n int32) {
+func (c *radix) DelAll(prefix *Gostr) (n int32) {
+	return c.delAll(prefix.V())
+}
+
+func (c *radix) delAll(prefix string) (n int32) {
 	c.Lock()
 	defer c.Unlock()
 
@@ -98,11 +118,19 @@ func (c *radix) DelAll(prefix string) (n int32) {
 	return
 }
 
-func (c *radix) HasAny(prefix string) bool {
-	return c.get(prefix) != nil
+func (c *radix) HasAny(prefix *Gostr) bool {
+	return c.hasAny(prefix.V())
 }
 
-func (c *radix) Get(k string) (v string) {
+func (c *radix) hasAny(prefix string) bool {
+	return c.getMatch(prefix) != nil
+}
+
+func (c *radix) Get(k *Gostr) (v *Gostr) {
+	return StrOf(c.get(k.V()))
+}
+
+func (c *radix) get(k string) (v string) {
 	c.RLock()
 	defer c.RUnlock()
 
@@ -113,14 +141,18 @@ func (c *radix) Get(k string) (v string) {
 	return
 }
 
-func (c *radix) GetAny(prefix string) (v string) {
-	if s := c.get(prefix); s != nil {
+func (c *radix) GetAny(prefix *Gostr) (v *Gostr) {
+	return StrOf(c.getAny(prefix.V()))
+}
+
+func (c *radix) getAny(prefix string) (v string) {
+	if s := c.getMatch(prefix); s != nil {
 		v = *s
 	}
 	return
 }
 
-func (c *radix) get(str string) *string {
+func (c *radix) getMatch(str string) *string {
 	c.RLock()
 	defer c.RUnlock()
 
@@ -144,6 +176,7 @@ func (c *radix) get(str string) *string {
 		// test: log.VV("radix: get: four: %s: %s [%d %d] %t", str, s, len(rev), len(match), ok)
 		// partial match (ipvonly.arpa) but not a subdomain/wildcard, discard
 	} else { // no match
+		// log.V("radix: get: no prefix match for %s", str)
 		return nil
 	}
 

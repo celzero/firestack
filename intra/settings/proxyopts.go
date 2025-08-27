@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/url"
 	"strings"
+	"sync/atomic"
 
 	"github.com/celzero/firestack/intra/log"
 	"golang.org/x/net/proxy"
@@ -105,4 +106,66 @@ func (p *ProxyOptions) FullUrl() string {
 // Url returns the url without auth.
 func (p *ProxyOptions) Url() string {
 	return p.Scheme + "://" + p.IPPort
+}
+
+// AutoMode is a global variable to instruct if backend.Auto proxy
+// is in local, remote, or hybrid mode. In local mode, backend.Auto
+// uses local proxies (ex: ipn.Exit) only. In remote mode,
+// backend.Auto uses remote proxies (ex: RPN).
+var AutoMode atomic.Int32
+
+type AutoModeType int32
+
+const (
+	// local mode: backend.Auto uses local proxies (ex: ipn.Exit) only.
+	AutoModeLocal int32 = iota
+	// remote mode: backend.Auto uses remote proxies (ex: RPN) only.
+	AutoModeRemote
+	// hybrid mode: backend.Auto uses local and remote proxies.
+	AutoModeHybrid
+)
+
+func (m AutoModeType) String() string {
+	switch int32(m) {
+	case AutoModeLocal:
+		return "local"
+	case AutoModeRemote:
+		return "remote"
+	case AutoModeHybrid:
+		return "hybrid"
+	default:
+		return "unknown"
+	}
+}
+
+// SetAutoMode sets the global AutoMode variable to y.
+// Indicates if backend.Auto proxy is in local, remote, or hybrid mode.
+func SetAutoMode(m int32) (prev int32) {
+	m = max(m, AutoModeLocal)
+	m = min(m, AutoModeHybrid)
+	return AutoMode.Swap(m)
+}
+
+func AutoModeStr() string {
+	return AutoModeType(AutoMode.Load()).String()
+}
+
+// backend.Auto must use remote proxies and never use local (ex: ipn.Exit) ones.
+func AutoAlwaysRemote() bool {
+	return AutoMode.Load() == AutoModeRemote
+}
+
+// backend.Auto is effecively not active.
+func AutoActive() bool {
+	return AutoMode.Load() != AutoModeLocal
+}
+
+// AutoDialsParallel is a global variable to instruct ipn.Auto proxy
+// to use parallel dialing for all proxies.
+var AutoDialsParallel atomic.Bool
+
+// SetAutoDialsParallel puts backend.Auto in parallel-dial mode if y is true.
+// That is, backend.Auto will dial all (available) RPN proxies in parallel.
+func SetAutoDialsParallel(y bool) (prev bool) {
+	return AutoDialsParallel.Swap(y)
 }

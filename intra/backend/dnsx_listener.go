@@ -22,7 +22,7 @@ type DNSSummary struct {
 	QName string
 	// Query type: A, AAAA, SVCB, HTTPS, etc. May be 0.
 	QType int
-	// Cached response
+	// Was this response returned from cache?
 	Cached bool
 	// DNS Response data, ex: a csv of ips for A, AAAA.
 	RData string
@@ -32,14 +32,21 @@ type DNSSummary struct {
 	RTtl int
 	// DNS Server (ip, ip:port, host, host:port)
 	Server string
-	// Hop, if any; proxy or a relay server address
-	RelayServer string
+	// Proxy or a relay server address
+	PID string
+	// Relay server PID hops over, if any
+	RPID string
 	// Transport status (Start, Complete, SendFailed, NoResponse, BadQuery, BadResponse, etc)
 	Status int
 	// CSV of Rethink DNS+ blocklists (local or remote) names (if used).
 	Blocklists string
 	// True if any among upstream transports (primary or secondary) returned blocked ans.
+	// Only valid for A/AAAA queries. Unspecified IPs are considered as "blocked ans".
 	UpstreamBlocks bool
+	// True if DNSSEC OK bit is set.
+	DO bool
+	// True if DNSSEC validation was successful.
+	AD bool
 	// Diag message from Transport, if any. Typically, "no error"
 	Msg string
 	// Region of the Rethink DNS+ server (if used)
@@ -47,15 +54,26 @@ type DNSSummary struct {
 }
 
 type DNSOpts struct {
-	// csv of proxy ids to use for this query.
+	// csv of proxy ids to use for this query. Not all transports are proxied.
+	// For instance, dnsx.System, dnsx.Local, dnsx.Goos, dnsx.Preset, dnsx.Default
+	// are never proxied.
 	PIDCSV string
-	// csv of ips to answer for this query; incl unspecified.
+	// csv of ips to answer for this query; incl unspecified ips, if any.
+	// applicable only for A/AAAA queries.
+	// if set, query bypasses on-device blocklists.
 	IPCSV string
-	// primary csv of transports ids to use for this query.
+	// primary transport ids to use for this query.
+	// dictated by user preferences (dnsx.Preferred, dnsx.System etc) or
+	// or user set rules (dnsx.BlockAll, dnsx.BlockFree, dnsx.Fixed etc)
 	TIDCSV string
 	// secondary transport ids to use for this query.
+	// usually, user-set DNS (dnsx.Preferred or dnsx.System) when primary is
+	// dnsx.BlockFree or dnsx.Fixed. Mostly, left unset.
 	TIDSECCSV string
-	// bypass on-device blocklists.
+	// If set, query bypasses on-device blocklists only, independent of whether TIDCSV
+	// has dnsx.BlockFree or not. The difference is, dnsx.BlockFree if pointing to a
+	// non-blocking resolver (like one.one.one.one or dns.google)
+	// will bypass both on-device & upstream blocklists.
 	NOBLOCK bool
 }
 
@@ -65,15 +83,24 @@ func (s *DNSSummary) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("type: %s, id: %s, latency: %f, qname: %s, rdata: %s, rcode: %d, rttl: %d, server: %s, relay: %s, status: %d, blocklists: %s, msg: %s, loc: %s",
-		s.Type, s.ID, s.Latency, s.QName, s.RData, s.RCode, s.RTtl, s.Server, s.RelayServer, s.Status, s.Blocklists, s.Msg, s.Region)
+		s.Type, s.ID, s.Latency, s.QName, s.RData, s.RCode, s.RTtl, s.Server, s.PID, s.Status, s.Blocklists, s.Msg, s.Region)
 }
 
 // DNSListener receives Summaries.
 type DNSListener interface {
 	ResolverListener
 	// OnQuery is called when a DNS query is received. The listener
-	// can return a DNSOpts to modify
-	OnQuery(uid, domain string, qtyp int) *DNSOpts
-	// OnResponse is called when a DNS response is received.
+	// can return a DNSOpts to specify how the query should be handled.
+	OnQuery(uid, domain *Gostr, qtyp int) *DNSOpts
+	// OnUpstreamAnswer is called before an upstream DNS answer (not blocked by firestack) is sent to the OS.
+	// The listener may return DNSOpts to specify if another upstream should override that answer.
+	// Another round of OnQuery is NOT called in this case, and OnResponse is called once after processing
+	// DNSOpts returned by OnUpstreamAnswer if it has a non-empty TIDCSV (overriding the original TIDCSV).
+	OnUpstreamAnswer(smm *DNSSummary, unmodifiedipcsv *Gostr) *DNSOpts
+	// OnResponse is called when a DNS response is received. May be called twice for the same query,
+	// for instance, when different options are requested through OnUpstreamAnswer.
 	OnResponse(*DNSSummary)
 }
+
+// args (string, string, int) is OK with cgo?
+// github.com/golang/go/issues/46893#issuecomment-868749896

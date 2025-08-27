@@ -7,7 +7,7 @@ package core
 
 import "sync/atomic"
 
-// go.dev/play/p/hHKxNa8PD5v
+// go.dev/play/p/bdaGAB_xsLN
 
 // Volatile is a non-panicking, non-atomic atomic.Value.
 type Volatile[T any] atomic.Value
@@ -69,6 +69,9 @@ func (a *Volatile[T]) safeStore(old, new T) {
 		return
 	}
 	if IsNil(old) || TypeEq(old, new) {
+		if LocEq(old, new) {
+			return
+		}
 		aa := (*atomic.Value)(a)
 		aa.Store(new)
 		return
@@ -90,7 +93,7 @@ func (a *Volatile[T]) Cas(old, new T) (ok bool) {
 		*a = *NewZeroVolatile[T]()
 		return true
 	}
-	if !TypeEq(old, new) {
+	if !TypeEq(old, new) || LocEq(old, new) {
 		return
 	}
 
@@ -112,6 +115,10 @@ func (a *Volatile[T]) Swap(new T) (old T) {
 		*a = *NewZeroVolatile[T]()
 		return
 	}
+	if LocEq(old, new) {
+		return old
+	}
+
 	aa := (*atomic.Value)(a)
 	old, _ = aa.Swap(new).(T)
 	return old

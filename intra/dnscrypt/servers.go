@@ -32,6 +32,7 @@ import (
 	"github.com/celzero/firestack/intra/dnsx"
 	"github.com/celzero/firestack/intra/ipn"
 	"github.com/celzero/firestack/intra/log"
+	"github.com/celzero/firestack/intra/settings"
 	"github.com/celzero/firestack/intra/xdns"
 	"github.com/miekg/dns"
 
@@ -58,7 +59,7 @@ type serverinfo struct {
 	UDPAddr            *net.UDPAddr
 	TCPAddr            *net.TCPAddr
 	proxies            ipn.ProxyProvider // proxy-provider, may be nil
-	relay              ipn.Proxy         // proxy relay to use, may be nil
+	relay              string            // proxy relay to use, may be nil
 	est                core.P2QuantileEstimator
 
 	// fields below are mutable
@@ -101,7 +102,9 @@ func (serversInfo *ServersInfo) getAll() []*serverinfo {
 			servers = append(servers, si)
 		}
 	}
-	log.V("dnscrypt: getAll: servers [%d/%d]", len(servers), len(serversInfo.inner))
+	if settings.Debug {
+		log.V("dnscrypt: getAll: servers [%d/%d]", len(servers), len(serversInfo.inner))
+	}
 	return servers
 }
 
@@ -113,15 +116,26 @@ func (serversInfo *ServersInfo) getOne() (serverInfo *serverinfo) {
 	if serversCount <= 0 {
 		return nil
 	}
-	candidate := rand.Intn(xdns.Min(serversCount, 5))
+	selectAny := false
+	candidate := rand.Intn(serversCount)
+retry:
 	i := 0
 	for _, si := range serversInfo.inner {
-		if i == candidate {
-			log.V("dnscrypt: candidate [%v]", si) // may be nil?
-			serverInfo = si
-			break
+		if i == candidate || selectAny {
+			if si != nil && si.status.Load() != dnsx.DEnd {
+				if settings.Debug {
+					log.V("dnscrypt: candidate [%v]", si) // may be nil?
+				}
+				serverInfo = si
+				break
+			}
 		}
 		i++
+	}
+
+	if serverInfo == nil && !selectAny {
+		selectAny = true
+		goto retry
 	}
 
 	return serverInfo
@@ -159,7 +173,9 @@ func (serversInfo *ServersInfo) registerServer(name string, stamp stamps.ServerS
 }
 
 func (serversInfo *ServersInfo) refresh(proxy *DcMulti) ([]string, error) {
-	log.D("dnscrypt: refreshing certificates")
+	if settings.Debug {
+		log.D("dnscrypt: refreshing certificates")
+	}
 	var liveServers []string
 	var err error
 	for _, registeredServer := range serversInfo.registeredServers {
@@ -192,17 +208,18 @@ func (serversInfo *ServersInfo) refreshServer(proxy *DcMulti, name string, stamp
 }
 
 func fetchServerInfo(proxy *DcMulti, name string, stamp stamps.ServerStamp) (serverinfo, error) {
-	if stamp.Proto == stamps.StampProtoTypeDNSCrypt {
+	switch stamp.Proto {
+	case stamps.StampProtoTypeDNSCrypt:
 		return fetchDNSCryptServerInfo(proxy, name, stamp)
-	} else if stamp.Proto == stamps.StampProtoTypeDoH {
+	case stamps.StampProtoTypeDoH:
 		return fetchDoHServerInfo(proxy, name, stamp)
 	}
-	return serverinfo{}, errors.New("unsupported protocol")
+	return serverinfo{}, log.EE("unsupported protocol for %s", stamp.ServerAddrStr)
 }
 
 func fetchDNSCryptServerInfo(proxy *DcMulti, name string, stamp stamps.ServerStamp) (serverinfo, error) {
 	if len(stamp.ServerPk) != ed25519.PublicKeySize {
-		serverPk, err := hex.DecodeString(strings.Replace(string(stamp.ServerPk), ":", "", -1))
+		serverPk, err := hex.DecodeString(strings.ReplaceAll(string(stamp.ServerPk), ":", ""))
 		if err != nil || len(serverPk) != ed25519.PublicKeySize {
 			return serverinfo{}, fmt.Errorf("unsupported public key for [%s]: [%s]", name, stamp.ServerPk)
 		}
@@ -226,12 +243,15 @@ func fetchDNSCryptServerInfo(proxy *DcMulti, name string, stamp stamps.ServerSta
 		return serverinfo{}, fmt.Errorf("dnscrypt: no ips for [%s]: %v", s, err)
 	}
 	if udpaddr == nil || tcpaddr == nil {
-		return serverinfo{}, errNoServers
+		return serverinfo{}, log.EE("%v for %s", errNoServers, stamp.ServerAddrStr)
 	}
 	px := proxy.proxies
-	var relay ipn.Proxy
+	var relay string
 	if px != nil {
-		relay, _ = px.ProxyFor(name)
+		x, _ := px.ProxyFor(name)
+		if x != nil {
+			relay = x.ID().V()
+		}
 	}
 
 	ctx, done := context.WithCancel(proxy.ctx)
@@ -253,9 +273,9 @@ func fetchDNSCryptServerInfo(proxy *DcMulti, name string, stamp stamps.ServerSta
 		proxies:            px,
 		relay:              relay,
 		est:                core.NewP50Estimator(ctx),
-		status:             core.NewVolatile[int](dnsx.Start),
+		status:             core.NewVolatile(dnsx.Start),
 	}
-	log.I("dnscrypt: (%s) setup: %s; anonrelay? %t, proxy? %t", name, si.HostName, relay != nil)
+	log.I("dnscrypt: (%s) setup: %s; anonrelay? %t, proxy? %t", name, si.HostName, len(relay) > 0)
 	return si, nil
 }
 
@@ -332,8 +352,8 @@ func (s *serverinfo) String() string {
 		return "<nil>"
 	}
 
-	serverid := s.ID()
-	servername := s.GetAddr()
+	serverid := s.ID().V()
+	servername := s.getAddr()
 	serveraddr := "notcp"
 	relayaddr := "norelay"
 	if s.TCPAddr != nil {
@@ -346,12 +366,12 @@ func (s *serverinfo) String() string {
 	return serverid + ":" + servername + "/" + serveraddr + "<=>" + relayaddr
 }
 
-func (s *serverinfo) ID() string {
-	return s.Name
+func (s *serverinfo) ID() *x.Gostr {
+	return x.StrOf(s.Name)
 }
 
-func (s *serverinfo) Type() string {
-	return dnsx.DNSCrypt
+func (s *serverinfo) Type() *x.Gostr {
+	return x.StrOf(dnsx.DNSCrypt)
 }
 
 func (s *serverinfo) Query(network string, q *dns.Msg, smm *x.DNSSummary) (r *dns.Msg, err error) {
@@ -376,8 +396,24 @@ func (s *serverinfo) P50() int64 {
 	}
 }
 
-func (s *serverinfo) GetAddr() string {
+func (s *serverinfo) GetAddr() *x.Gostr {
+	return x.StrOf(s.getAddr())
+}
+
+func (s *serverinfo) getAddr() string {
 	return s.HostName
+}
+
+func (s *serverinfo) GetRelay() x.Proxy {
+	return s.getRelay()
+}
+
+func (s *serverinfo) getRelay() ipn.Proxy {
+	if r := s.relay; len(r) > 0 {
+		px, _ := s.proxies.ProxyFor(r)
+		return px
+	}
+	return nil
 }
 
 func (s *serverinfo) IPPorts() []netip.AddrPort {
@@ -393,13 +429,14 @@ func (s *serverinfo) Status() int {
 
 func (s *serverinfo) Stop() error {
 	if s != nil {
+		s.status.Store(dnsx.DEnd)
 		s.done()
 	}
 	return nil
 }
 
 func (s *serverinfo) dialudp(pid string, addr *net.UDPAddr) (net.Conn, error) {
-	userelay := s.relay != nil
+	userelay := s.GetRelay() != nil
 	useproxy := len(pid) != 0 // pid == dnsx.NetNoProxy => ipn.Base
 	if userelay || useproxy {
 		return s.dialpx(pid, "udp", addr.String())
@@ -408,7 +445,7 @@ func (s *serverinfo) dialudp(pid string, addr *net.UDPAddr) (net.Conn, error) {
 }
 
 func (s *serverinfo) dialtcp(pid string, addr *net.TCPAddr) (net.Conn, error) {
-	userelay := s.relay != nil
+	userelay := s.GetRelay() != nil
 	useproxy := len(pid) != 0 // pid == dnsx.NetNoProxy => ipn.Base
 	if userelay || useproxy {
 		return s.dialpx(pid, "tcp", addr.String())
@@ -417,7 +454,7 @@ func (s *serverinfo) dialtcp(pid string, addr *net.TCPAddr) (net.Conn, error) {
 }
 
 func (s *serverinfo) dialpx(pid, proto string, addr string) (net.Conn, error) {
-	relay := s.relay
+	relay := s.getRelay()
 	if relay != nil {
 		// addr is always ip:port; hence protect.dialers are not needed
 		return relay.Dialer().Dial(proto, addr)
@@ -434,30 +471,7 @@ func (s *serverinfo) dialpx(pid, proto string, addr string) (net.Conn, error) {
 }
 
 func (s *serverinfo) chooseProxy(pids []string) string {
-	foundProxy := false
-	pid := dnsx.NetNoProxy
-	if len(pids) > 0 {
-		pid = pids[0]
-	}
-	ipp := chooseAny(s.IPPorts())
-	if px, err := s.proxies.ProxyTo(ipp, core.UNKNOWN_UID_STR, pids); err == nil {
-		pid = proxyID(px) // px is never nil, but nilaway complains
-		foundProxy = true
-		log.VV("dnscrypt: proxy: choose: (%s) proxy(%s) for %s; among %v",
-			s.ID(), pid, ipp, pids)
-	}
-	if !foundProxy {
-		log.W("dnscrypt: proxy: choose: (%s) no proxy for %s; choosing %s among %v",
-			s.ID(), ipp, pid, pids)
-	}
-	return pid
-}
-
-func proxyID(p ipn.Proxy) string {
-	if p == nil {
-		return dnsx.NetNoProxy
-	}
-	return p.ID()
+	return dnsx.ChooseHealthyProxy("dnscrypt: "+s.ID().V(), s.IPPorts(), pids, s.proxies)
 }
 
 func addr2ipp(u ...*net.UDPAddr) (ipps []netip.AddrPort) {

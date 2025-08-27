@@ -10,7 +10,11 @@ package core
 import (
 	"fmt"
 	"runtime"
+	"runtime/debug"
+	"strings"
 )
+
+var buildinfo, _ = debug.ReadBuildInfo()
 
 var (
 	// Commit set at link time by git rev-parse --short HEAD
@@ -20,5 +24,24 @@ var (
 )
 
 func Version() string {
-	return fmt.Sprintf("v%s-%s (%s/%s@%s)", Date, Commit, runtime.GOOS, runtime.GOARCH, runtime.Version())
+	return fmt.Sprintf("%s (%s/%s@%s)", stamp(), runtime.GOOS, runtime.GOARCH, runtime.Version())
+}
+
+func stamp() string {
+	path := ""
+	v := "v" + Date + "-" + Commit
+	if buildinfo != nil { // github.com/golang/go/issues/50603
+		path = buildinfo.Main.Path + "@"
+		if len(buildinfo.Main.Version) > 0 && !strings.Contains(buildinfo.Main.Version, "devel") {
+			v = "v" + buildinfo.Main.Version
+		}
+	}
+	return path + v
+}
+
+func BuildInfo() string {
+	if buildinfo == nil {
+		return "unknown"
+	}
+	return buildinfo.String()
 }

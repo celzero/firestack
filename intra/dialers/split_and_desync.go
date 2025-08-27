@@ -104,7 +104,7 @@ func exceedsTTL(cmsgs []unix.SocketControlMessage) bool {
 
 // tracert dials a UDP conn to the target address over a port range basePort to basePort+DESYNC_MAX_TTL, with TTL
 // set to 2, 3, ..., DESYNC_MAX_TTL. It does not take ownership of the conn (which must be closed by the caller).
-func tracert(d *protect.RDial, ipp netip.AddrPort, basePort int) (*net.UDPConn, int, error) {
+func tracert(d protect.RDialer, ipp netip.AddrPort, basePort int) (*net.UDPConn, int, error) {
 	udpAddr := net.UDPAddrFromAddrPort(ipp)
 	udpAddr.Port = 1 // unset port
 
@@ -119,7 +119,7 @@ func tracert(d *protect.RDial, ipp netip.AddrPort, basePort int) (*net.UDPConn, 
 	}
 
 	var udpFD int
-	uc, err := d.AnnounceUDP(proto, ":0")
+	uc, err := protect.AnnounceUDP(d, proto, ":0")
 	if err != nil {
 		log.E("desync: err announcing udp: %v", err)
 		return uc, udpFD, err
@@ -179,7 +179,7 @@ func tracert(d *protect.RDial, ipp netip.AddrPort, basePort int) (*net.UDPConn, 
 // If `payload` is smaller than the initial upstream segment, it launches the attack and splits.
 // This traceroute is not accurate, because of time limit (TCP handshake).
 // Note: The path the UDP packet took to reach the destination may differ from the path the TCP packet took.
-func desyncWithTraceroute(d *protect.RDial, local, remote netip.AddrPort) (*overwriteSplitter, error) {
+func desyncWithTraceroute(d protect.RDialer, local, remote netip.AddrPort) (*overwriteSplitter, error) {
 	const maxport = 65535
 	measureTTL := true
 	isIPv6 := remote.Addr().Is6()
@@ -255,7 +255,7 @@ func desyncWithTraceroute(d *protect.RDial, local, remote netip.AddrPort) (*over
 	return oc, nil
 }
 
-func desyncWithFixedTtl(d *protect.RDial, local, remote netip.AddrPort, initialTTL int) (*overwriteSplitter, error) {
+func desyncWithFixedTtl(d protect.RDialer, local, remote netip.AddrPort, initialTTL int) (*overwriteSplitter, error) {
 	var raddr *net.TCPAddr = net.TCPAddrFromAddrPort(remote)
 	var laddr *net.TCPAddr // nil is valid
 	if local.IsValid() {
@@ -271,7 +271,7 @@ func desyncWithFixedTtl(d *protect.RDial, local, remote netip.AddrPort, initialT
 		proto = "tcp6"
 	}
 
-	tcpConn, err := d.DialTCP(proto, laddr, raddr)
+	tcpConn, err := protect.DialTCP(d, proto, laddr, raddr)
 
 	logeif(err)("desync: dialTCP: %s => %s, do desync? %t, ttl: %d",
 		laddr, raddr, !avoidDesync, initialTTL)
@@ -298,9 +298,9 @@ func desyncWithFixedTtl(d *protect.RDial, local, remote netip.AddrPort, initialT
 // then returns a TCP connection that may launch TCB Desynchronization
 // and split the initial upstream segment.
 // ref: github.com/bol-van/zapret/blob/c369f11638/docs/readme.eng.md#dpi-desync-attack
-func dialWithSplitAndDesync(d *protect.RDial, laddr, raddr *net.TCPAddr) (*overwriteSplitter, error) {
-	remote := raddr.AddrPort() // must not be invalid
-	local := laddr.AddrPort()  // can be invalid
+func dialWithSplitAndDesync(d protect.RDialer, laddr, raddr net.Addr) (*overwriteSplitter, error) {
+	remote := asAddrPort(raddr) // must not be invalid
+	local := asAddrPort(laddr)  // can be invalid
 
 	if !remote.IsValid() {
 		log.E("desync: invalid raddr: conv %s to %s", raddr, remote)
@@ -341,12 +341,20 @@ func (s *overwriteSplitter) SetDeadline(t time.Time) error {
 	return nil // no-op
 }
 
-// SyscallConn implements core.PoolableConn.
+// SyscallConn implements core.DuplexConn.
 func (s *overwriteSplitter) SyscallConn() (syscall.RawConn, error) {
 	if c := s.conn; c != nil {
 		return c.SyscallConn()
 	}
 	return nil, syscall.EINVAL
+}
+
+// SetKeepAlive implements core.DuplexConn.
+func (s *overwriteSplitter) SetKeepAlive(y bool) error {
+	if c := s.conn; c != nil {
+		return c.SetKeepAlive(y)
+	}
+	return nil // no-op
 }
 
 // SetReadDeadline implements core.DuplexConn.
@@ -493,5 +501,13 @@ func (s *overwriteSplitter) ReadFrom(reader io.Reader) (bytes int64, err error) 
 	bytes += b
 	log.V("desync: readfrom: done; sz: %d; err: %v", bytes, err)
 
+	return
+}
+
+func asAddrPort(a net.Addr) (n netip.AddrPort) {
+	if a == nil {
+		return
+	}
+	n, _ = netip.ParseAddrPort(a.String())
 	return
 }

@@ -11,11 +11,17 @@ import (
 	"io"
 )
 
-var errNoPipe = errors.New("src or dst nil")
+var (
+	errNoPipe   = errors.New("pipe: src or dst nil")
+	errNoStream = errors.New("stream: reader or writer nil")
+
+	// errInvalidWrite means that a write returned an impossible count.
+	errInvalidWrite = errors.New("invalid write result")
+)
 
 // Pipe copies data from src to dst, and returns the number of bytes copied.
 // Prefers src.WriteTo(dst) and dst.ReadFrom(src) if available.
-// Otherwise, uses io.CopyBuffer, recycling buffers from global pool.
+// Otherwise, it uses core.Stream.
 func Pipe(dst io.Writer, src io.Reader) (int64, error) {
 	if IsNil(src) || IsNil(dst) {
 		return 0, errNoPipe
@@ -28,12 +34,99 @@ func Pipe(dst io.Writer, src io.Reader) (int64, error) {
 	} else if x, ok := dst.(io.ReaderFrom); ok {
 		return x.ReadFrom(src)
 	}
+	return Stream(dst, src)
+}
+
+// Stream reads data from src in to dst until error, and returns the no. of bytes read.
+// Internally, it bypasses io.ReaderFrom and io.WriterTo but uses io.CopyBuffer,
+// recycling buffers from a global pool.
+func Stream(dst io.Writer, src io.Reader) (written int64, err error) {
+	if IsNil(src) || IsNil(dst) {
+		return 0, errNoStream
+	}
+
+	if _, ok := src.(io.WriterTo); ok {
+		// hide WriteTo func of src
+		src = readerNoWriteTo{Reader: src}
+	}
+	if _, ok := dst.(io.ReaderFrom); ok {
+		// hide ReadFrom func of dst
+		dst = writerNoReadFrom{Writer: dst}
+	}
+
 	bptr := Alloc()
-	b := *bptr
-	b = b[:cap(b)]
+	buf := *bptr
+	buf = buf[:cap(buf)]
 	defer func() {
-		*bptr = b
+		*bptr = buf
 		Recycle(bptr)
 	}()
-	return io.CopyBuffer(dst, src, b)
+	// implementation from: io.CopyBuffer
+	// laid out here since "hiding" ReadFrom/WriteTo funcs
+	// did not work as expected and led to recursive calls.
+	for {
+		nr, er := src.Read(buf)
+		if nr > 0 {
+			nw, ew := dst.Write(buf[0:nr])
+			if nw < 0 || nr < nw {
+				nw = 0
+				if ew == nil {
+					ew = errInvalidWrite
+				}
+			}
+			written += int64(nw)
+			if ew != nil {
+				err = ew
+				break
+			}
+			if nr != nw {
+				err = io.ErrShortWrite
+				break
+			}
+		}
+		if er != nil {
+			if er != io.EOF {
+				err = er
+			}
+			break
+		}
+	}
+	return written, err
+}
+
+// ref: github.com/golang/go/issues/58808
+// from: go-review.googlesource.com/c/go/+/472475/20/src/net/net.go
+
+// noReadFrom can be embedded alongside another type to
+// hide the ReadFrom method of that other type.
+type noReadFrom struct{}
+
+// ReadFrom hides another ReadFrom method.
+// It should never be called.
+func (noReadFrom) ReadFrom(io.Reader) (int64, error) {
+	panic("noReadFrom: hidden func; should not be called")
+}
+
+// noWriteTo can be embedded alongside another type to
+// hide the WriterTo method of that other type.
+type noWriteTo struct{}
+
+func (noWriteTo) WriteTo(io.Writer) (int64, error) {
+	panic("noWriteTo: hidden func; should not be called")
+}
+
+// writerNoReadFrom implements all the methods of io.Writer other
+// than ReadFrom. This is used to permit ReadFrom to call io.Copy
+// without leading to a recursive call to ReadFrom.
+type writerNoReadFrom struct {
+	noReadFrom
+	io.Writer
+}
+
+// readerNoWriteTo implements all the methods of io.Reader other
+// than WriteTo. This is used to permit WriteTo to call io.Copy
+// without leading to a recursive call to WriteTo.
+type readerNoWriteTo struct {
+	noWriteTo
+	io.Reader
 }

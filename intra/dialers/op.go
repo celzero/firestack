@@ -14,6 +14,7 @@ import (
 
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/log"
+	"github.com/celzero/firestack/intra/settings"
 )
 
 // Copy one buffer from src to dst, using dst.Write.
@@ -81,7 +82,9 @@ func writeTCPSplit(w net.Conn, hello []byte) (n int, err error) {
 		log.E("op: splits: TCP2 %s (%d): err %v", to, len(second), err)
 		return p + q, err
 	}
-	log.D("op: splits: %s->%s; TCP: %d/%d,%d/%d", from, to, p, len(first), q, len(second))
+	if settings.Debug {
+		log.D("op: splits: %s=>%s; TCP: %d/%d,%d/%d", from, to, p, len(first), q, len(second))
+	}
 
 	return p + q, nil
 }
@@ -94,7 +97,9 @@ func writeTCPOrTLSSplit(w net.Conn, hello []byte) (n int, err error) {
 
 	if len(hello) <= 1 {
 		n, err = w.Write(hello)
-		log.D("op: splits: %s->%s; len(hello) <= 1; n: %d; err: %v", from, to, n, err)
+		if settings.Debug {
+			log.D("op: splits: %s=>%s; len(hello) <= 1; n: %d; err: %v", from, to, n, err)
+		}
 		return
 	}
 
@@ -157,7 +162,7 @@ func writeTCPOrTLSSplit(w net.Conn, hello []byte) (n int, err error) {
 	binary.BigEndian.PutUint16(parcel[3:5], uint16(recordSplit1Len))
 	n, err = w.Write(parcel[:p])
 	if err != nil {
-		log.E("op: Splits: %s->%s; TLS1 %d/%d; n: %d; err: %v", from, to, splitLen, len(hello), n, err)
+		log.E("op: Splits: %s=>%s; TLS1 %d/%d; n: %d; err: %v", from, to, splitLen, len(hello), n, err)
 		return
 	}
 
@@ -171,11 +176,11 @@ func writeTCPOrTLSSplit(w net.Conn, hello []byte) (n int, err error) {
 	// discount repeated 5-byte header from total bytes
 	n += max(m-aux, 0)
 
-	logeif(err)("op: splits: %s->%s; TLS2 %d/%d; n: %d, m: %d; err: %v",
+	logeif(err)("op: splits: %s=>%s; TLS2 %d/%d; n: %d, m: %d; err: %v",
 		from, to, splitLen, len(hello), n, m, err)
 	// if n > len(hello); return len(hello) to avoid confusion with the callers
 	// that expect bytes written to be equal to the length of the input buffer.
-	// splits: [:f29]:55476->[:f5e]:443; TLS2 51/2048; n: 2053; err: <nil>
+	// splits: [:f29]:55476=>[:f5e]:443; TLS2 51/2048; n: 2053; err: <nil>
 	// F c.upload: [11] runtime error: slice bounds out of range [:2053] with capacity 2048
 	// from: dialers.(*retrier).sendCopyHello
 	return min(n, len(hello)), err

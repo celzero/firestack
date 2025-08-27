@@ -16,6 +16,7 @@ import (
 	"github.com/celzero/firestack/intra/dialers"
 	"github.com/celzero/firestack/intra/dnsx"
 	"github.com/celzero/firestack/intra/log"
+	"github.com/celzero/firestack/intra/settings"
 	"github.com/celzero/firestack/intra/xdns"
 	"github.com/cloudflare/odoh-go"
 	"github.com/miekg/dns"
@@ -62,9 +63,11 @@ func (d *transport) doOdoh(pid string, q *dns.Msg) (res *dns.Msg, ech bool, elap
 		return
 	}
 
-	ans, _, _, ech, elapsed, qerr = d.do(pid, req)
-	log.V("odoh: send; proxy? %t, ech? %t, elapsed: %s; err? %v",
-		viaproxy, ech, elapsed, qerr)
+	ans, _, _, _, ech, elapsed, qerr = d.do(pid, req)
+	if settings.Debug {
+		log.V("odoh: send; proxy? %t, ech? %t, elapsed: %s; err? %v",
+			viaproxy, ech, elapsed, qerr)
+	}
 	if qerr != nil {
 		// datatracker.ietf.org/doc/rfc9230 section 4.3 and section 7
 		// 401 authorization error on hpke failure
@@ -150,7 +153,9 @@ func (d *transport) buildTargetQuery(msg *dns.Msg) (m odoh.ObliviousDNSMessage, 
 	key := ocfg.Contents
 	pad := xdns.ComputePaddingSize(msg)
 	oq := odoh.CreateObliviousDNSQuery(q, uint16(pad))
-	log.V("odoh: build-target: odoh qlen: %d / pad: %d", len(oq.DnsMessage), len(oq.Padding))
+	if settings.Debug {
+		log.V("odoh: build-target: odoh qlen: %d / pad: %d", len(oq.DnsMessage), len(oq.Padding))
+	}
 	return key.EncryptQuery(oq)
 }
 
@@ -207,7 +212,7 @@ func (d *transport) refreshTargetKeyWellKnown() (ocfg *odoh.ObliviousDoHConfig, 
 		return
 	}
 	// may use insecure TLS if user opts in; ref: d.tlsconfig
-	resp, _, err = d.fetch(dnsx.NetBaseProxy, req)
+	resp, _, _, err = d.fetch(dnsx.NetBaseProxy, req)
 	if err != nil {
 		return
 	}
@@ -245,7 +250,7 @@ func (d *transport) refreshTargetKeyDNS() (ocfg *odoh.ObliviousDoHConfig, exp ti
 		var req *http.Request
 		// fetch odoh-config from odohconfigdns
 		if req, err = d.asDohRequest(cmsg); err == nil {
-			cres, _, _, _, _, err = d.send(dnsx.NetBaseProxy, req)
+			cres, _, _, _, _, _, err = d.send(dnsx.NetBaseProxy, req)
 		}
 	}
 

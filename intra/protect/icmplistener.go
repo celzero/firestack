@@ -14,6 +14,7 @@
 package protect
 
 import (
+	"context"
 	"net"
 	"os"
 	"strconv"
@@ -42,7 +43,7 @@ type icmplistener struct {
 //	listenICMP("udp6", "::")
 //
 // from: cs.opensource.google/go/x/net/+/refs/tags/v0.28.0:icmp/listen_posix.go
-func (ln *icmplistener) listenICMP(network, address string) (net.PacketConn, error) {
+func (ln *icmplistener) listenICMP(_ context.Context, network, address string) (net.PacketConn, error) {
 	var family, proto int
 	switch network {
 	case "udp4":

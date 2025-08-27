@@ -455,7 +455,7 @@ func NormalizeQName(str string) (string, error) {
 	hasUpper := false
 	str = strings.TrimSuffix(str, ".")
 	strLen := len(str)
-	for i := 0; i < strLen; i++ {
+	for i := range strLen {
 		c := str[i]
 		if c >= utf8.RuneSelf {
 			return str, errNotAscii
@@ -467,7 +467,7 @@ func NormalizeQName(str string) (string, error) {
 	}
 	var b strings.Builder
 	b.Grow(len(str))
-	for i := 0; i < strLen; i++ {
+	for i := range strLen {
 		c := str[i]
 		if 'A' <= c && c <= 'Z' {
 			c += 'a' - 'A'
@@ -542,6 +542,37 @@ func AddEDNS0PaddingIfNoneFound(msg *dns.Msg) {
 	}
 
 	edns0.Option = append(edns0.Option, optPadding(paddingLen))
+}
+
+// IsDNSSECRequested checks if the DNSSEC OK (DO) bit is set in the DNS query.
+func IsDNSSECRequested(q *dns.Msg) bool {
+	if q != nil {
+		if edns0 := q.IsEdns0(); edns0 != nil {
+			return edns0.Do()
+		}
+	}
+	return false
+}
+
+// IsDNSSECAnswerAuthenticated checks if the DNSSEC authenticated bit is set in the DNS answer.
+func IsDNSSECAnswerAuthenticated(a *dns.Msg) bool {
+	if a != nil {
+		return a.AuthenticatedData
+	}
+	return false
+}
+
+func CopyAns(a *dns.Msg) *dns.Msg {
+	if a == nil {
+		return nil
+	}
+	out := a.Copy()
+	out.AuthenticatedData = false
+	out.RecursionDesired = false
+	out.CheckingDisabled = false
+	// TODO: msg.Ns = nil
+	// TODO: msg.Extra = nil
+	return out
 }
 
 func Question(domain string, qtyp uint16) ([]byte, error) {
@@ -630,6 +661,10 @@ func RefusedResponseFromMessage(srcMsg *dns.Msg) (dstMsg *dns.Msg, err error) {
 }
 
 func AQuadAForQuery(q *dns.Msg, ips ...netip.Addr) (a *dns.Msg, err error) {
+	return AQuadAForQueryTTL(q, ansTTL, ips...)
+}
+
+func AQuadAForQueryTTL(q *dns.Msg, ttl uint32, ips ...netip.Addr) (a *dns.Msg, err error) {
 	if q == nil {
 		return nil, errNoPacket
 	}
@@ -638,7 +673,6 @@ func AQuadAForQuery(q *dns.Msg, ips ...netip.Addr) (a *dns.Msg, err error) {
 		return nil, errNoPacket
 	}
 	a.Rcode = dns.RcodeSuccess
-	ttl := ansTTL
 
 	questions := q.Question
 	if len(questions) == 0 {
@@ -798,6 +832,44 @@ func SubstARecords(out *dns.Msg, subip4s netip.Addr, ttl uint32) bool {
 	return len(touched) > 0
 }
 
+func TranslateRecords(ansin *dns.Msg, typ uint16, translate func(dns.RR) (x []dns.RR, stop bool)) (ansout *dns.Msg, didTranslate bool) {
+	if !HasAnyAnswer(ansin) {
+		return
+	}
+	ansout = EmptyResponseFromMessage(ansin) // may be nil
+	if ansout == nil {
+		return
+	}
+	rrout := make([]dns.RR, 0, len(ansin.Answer))
+	for _, rr := range ansin.Answer {
+		if rr.Header().Rrtype != typ {
+			// could be a CNAME record which must be preserved as-is
+			// to maintain the integrity of the response; as MaybeToQuadA
+			// will reject any non-A records.
+			// qname: a.com
+			// ans: a.com -> cname -> b.com -> ipv4
+			// translated: a.com -> cname -> b.com -> ipv4
+			rrout = append(rrout, rr)
+		} else {
+			rrx, stop := translate(rr)
+			if rrx == nil {
+				rrout = append(rrout, rr)
+				if stop {
+					break
+				}
+			} else {
+				didTranslate = true
+				rrout = append(rrout, rrx...)
+				if stop {
+					break
+				}
+			}
+		}
+	}
+	ansout.Answer = append(ansout.Answer, rrout...)
+	return
+}
+
 func svcbstr(r *dns.SVCB) (s string) {
 	if r == nil {
 		return
@@ -879,6 +951,10 @@ func SubstSVCBRecordIPs(out *dns.Msg, x dns.SVCBKey, subiphints netip.Addr, ttl 
 		out.Extra = nil
 	}
 	return i > 0
+}
+
+func IPs(msg *dns.Msg) []netip.Addr {
+	return AQuadAAnswers(msg)
 }
 
 func IPHints(msg *dns.Msg, x dns.SVCBKey) []netip.Addr {
@@ -1118,7 +1194,7 @@ func MakeAAAARecord(name string, ip6 string, ttl uint32) *dns.AAAA {
 }
 
 // MaybeToQuadA translates an A record to a AAAA record if the prefix is not nil.
-// The ttl of the new record is the minimum of the original ttl and minttl.
+// The ttl of the new record is the max of the original ttl and minttl.
 // If the prefix is nil or answer has an empty A record, it returns nil.
 func MaybeToQuadA(answer dns.RR, prefix *net.IPNet) *dns.AAAA {
 	header := answer.Header()
@@ -1133,7 +1209,7 @@ func MaybeToQuadA(answer dns.RR, prefix *net.IPNet) *dns.AAAA {
 	if ipv4 == nil { // TODO: do not translate bogons?
 		return nil
 	}
-	ttl := min(ansTTL, header.Ttl)
+	ttl := max(ansTTL, header.Ttl)
 
 	ipv6 := ip4to6(*prefix, ipv4)
 
@@ -1146,6 +1222,46 @@ func MaybeToQuadA(answer dns.RR, prefix *net.IPNet) *dns.AAAA {
 	}
 	trec.AAAA = ipv6
 	return trec
+}
+
+func CloneA(base dns.RR, ip4 netip.Addr) *dns.A {
+	header := base.Header()
+	if !ip4.IsValid() || !ip4.Is4() || header.Rrtype != dns.TypeA {
+		return nil
+	}
+	ipxx, aok := base.(*dns.A)
+	if !aok || ipxx == nil || ipxx.A == nil {
+		return nil // only clone if the record has A data
+	}
+	c := new(dns.A)
+	c.Hdr = dns.RR_Header{
+		Name:   header.Name,
+		Rrtype: dns.TypeA,
+		Class:  header.Class,
+		Ttl:    max(ansTTL, header.Ttl),
+	}
+	c.A = ip4.Unmap().AsSlice()
+	return c
+}
+
+func CloneAAAA(base dns.RR, ip6 netip.Addr) *dns.AAAA {
+	header := base.Header()
+	if !ip6.IsValid() || !ip6.Is6() || header.Rrtype != dns.TypeAAAA {
+		return nil
+	}
+	ipxx, aok := base.(*dns.AAAA)
+	if !aok || ipxx == nil || ipxx.AAAA == nil {
+		return nil // only clone if the record has AAAA data
+	}
+	c := new(dns.AAAA)
+	c.Hdr = dns.RR_Header{
+		Name:   header.Name,
+		Rrtype: dns.TypeAAAA,
+		Class:  header.Class,
+		Ttl:    max(ansTTL, header.Ttl),
+	}
+	c.AAAA = ip6.AsSlice()
+	return c
 }
 
 func ToIp6Hint(answer dns.RR, prefix *net.IPNet) dns.RR {
@@ -1172,7 +1288,7 @@ func ToIp6Hint(answer dns.RR, prefix *net.IPNet) dns.RR {
 	if len(kv) <= 0 {
 		return nil
 	}
-	ttl := ansTTL
+	ttl := max(ansTTL, header.Ttl)
 
 	hint4 := make([]string, 0)
 	rest := make([]dns.SVCBKeyValue, 0)
@@ -1236,7 +1352,7 @@ func ip4to6(prefix6 net.IPNet, ip4 net.IP) net.IP {
 	copy(ip6, prefix6.IP)
 	n, _ := prefix6.Mask.Size()
 	ipShift := n / 8
-	for i := 0; i < net.IPv4len; i++ {
+	for i := range net.IPv4len {
 		// skip byte 8, datatracker.ietf.org/doc/html/rfc6052#section-2.2
 		if ipShift+i == 8 {
 			ipShift++

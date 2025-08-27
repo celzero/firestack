@@ -25,16 +25,17 @@ package ipmap
 
 import (
 	"context"
-	"math/rand"
 	"net"
 	"net/netip"
 	"strings"
 	"sync"
 	"sync/atomic"
 
+	x "github.com/celzero/firestack/intra/backend"
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
+	"github.com/celzero/firestack/intra/xdns"
 )
 
 const maxFailLimit = 8
@@ -66,13 +67,34 @@ func (h IPSetType) String() string {
 	}
 }
 
+var UndelegatedDomainsTrie = newUndelegatedDomainTrie()
+
+func newUndelegatedDomainTrie() x.RadixTree {
+	t := x.NewRadixTree()
+	for _, domain := range core.UndelegatedDomains {
+		t.Add(x.StrOf(domain))
+	}
+	return t
+}
+
 // IPMapper is an interface for resolving hostnames to IP addresses.
 // For internal used by firestack.
 type IPMapper interface {
-	Lookup(q []byte) ([]byte, error)
+	// Lookup resolves q over one of the tids. If tids is empty, either
+	// dnsx.Default, and if that fails, dnsx.System or dnsx.Goos tids.
+	Lookup(q []byte, tids ...string) ([]byte, error)
+	// LookupFor resolves q over client-code preferred tid conveyed via
+	// DNSOpts returned from DNSListener.OnQuery. As a special case, UID
+	// may be protect.UidSelf ("rethink") or core.UNKNOWN_UID_STR ("-1")
+	// but otherwise it is usually a Linux user-id assigned to a process
+	// which presumably is requesting this lookup.
+	LookupFor(q []byte, uid string) ([]byte, error)
+	// LookupNetIP is like Lookup but with empty tids.
 	LookupNetIP(ctx context.Context, network, host string) ([]netip.Addr, error)
+	// LookupNetIPFor is like LookupFor
 	LookupNetIPFor(ctx context.Context, network, host, uid string) ([]netip.Addr, error)
-	LookupNetIPOn(ctx context.Context, network, host string, tid ...string) ([]netip.Addr, error)
+	// LookupNetIPOn is like Lookup but with tids set to some preset IDs.
+	LookupNetIPOn(ctx context.Context, network, host string, tids ...string) ([]netip.Addr, error)
 }
 
 // IPMap maps hostnames to IPSets.
@@ -90,10 +112,18 @@ type IPMap interface {
 	// Subsequent calls to GetAny return the same IPSet. Never returns nil.
 	// hostOrIP may be host:port, or ip:port, or host, or ip.
 	GetAny(hostOrIP string) *IPSet
+	// GetMany returns a list of sampled IPs from the ipmap cache.
+	// ipver is one of "v4", "v6", or "" (for both).
+	GetMany(n uint8, ipver string) []netip.Addr
 	// MakeIPSet creates an IPSet for this hostname bootstrapped with given IPs
 	// or IP:Ports. Subsequent calls to MakeIPSet return a new, overridden IPSet.
 	// hostOrIP may be host:port, or ip:port, or host, or ip.
 	MakeIPSet(hostOrIP string, ipps []string, typ IPSetType) *IPSet
+	// Reverse lookup; returns hostnames for the given IP address.
+	ReverseGet(ip netip.Addr) []string
+	// ReverseGetMany returns a list of sampled hostnames from the ipmap cache.
+	// ipver is one of "v4", "v6", or "" (for both).
+	ReverseGetMany(n uint8, ipver string) []string
 	// With sets the default resolver to use for hostname resolution.
 	With(r IPMapper)
 	// Clear removes all IPSets from the map.
@@ -101,11 +131,18 @@ type IPMap interface {
 }
 
 type ipmap struct {
-	sync.RWMutex
+	sync.RWMutex // protects m, p, ip
+
+	// hostOrIP => ips
 	m  map[string]*IPSet // regular type
 	p  map[string]*IPSet // protected ips; immutable, never cleared
 	ip map[string]*IPSet // ipaddrs
-	r  IPMapper          // always the default system resolver
+
+	// ip => host
+	rptr x.IpTree // regular => hostname
+	pptr x.IpTree // protected => hostname
+
+	r *core.Volatile[IPMapper] // resolver
 }
 
 // IPSet represents an unordered collection of IP addresses for a single host.
@@ -120,6 +157,9 @@ type IPSet struct {
 
 	confirmed *core.Volatile[netip.Addr] // netip.Addr confirmed to be working.
 	fails     atomic.Uint32              // Number of times the confirmed IP has failed.
+
+	any4 atomic.Bool // Whether this set has IPv4 addresses.
+	any6 atomic.Bool // Whether this set has IPv6 addresses.
 }
 
 func NewIPMap() *ipmap {
@@ -132,13 +172,17 @@ func NewIPMapFor(r IPMapper) *ipmap {
 		m:  make(map[string]*IPSet),
 		p:  make(map[string]*IPSet),
 		ip: make(map[string]*IPSet),
-		r:  r, // may be nil
+
+		rptr: x.NewIpTree(),
+		pptr: x.NewIpTree(),
+
+		r: core.NewVolatile(r), // r may be nil
 	}
 }
 
 func (m *ipmap) With(r IPMapper) {
 	log.I("ipmap: new resolver; ok? %t", r != nil)
-	m.r = r // may be nil
+	m.r.Store(r) // may be nil
 }
 
 func (m *ipmap) Clear() {
@@ -167,13 +211,15 @@ func (m *ipmap) Clear() {
 		purge <- s // only clears confirmed ip
 		n++
 	}
+
+	go m.rptr.Clear()
 	// ipaddr type is not "cleared"
 	log.I("ipmap: clear: requested %d/%d sets", n, sz)
 }
 
 // Implements IPMapper.
 func (m *ipmap) LookupNetIP(ctx context.Context, network, host string) ([]netip.Addr, error) {
-	r := m.r // actual ipmapper implementation
+	r := m.r.Load() // actual ipmapper implementation
 	if r == nil {
 		return nil, &net.DNSError{Err: "no resolver", Name: host, Server: "localhost"}
 	}
@@ -181,17 +227,26 @@ func (m *ipmap) LookupNetIP(ctx context.Context, network, host string) ([]netip.
 }
 
 // Implements IPMapper.
-func (m *ipmap) Lookup(q []byte) ([]byte, error) {
-	r := m.r // actual ipmapper implementation
+func (m *ipmap) Lookup(q []byte, tids ...string) ([]byte, error) {
+	r := m.r.Load() // actual ipmapper implementation
 	if r == nil {
 		return nil, &net.DNSError{Err: "no resolver", Name: "Lookup", Server: "localhost"}
 	}
-	return r.Lookup(q)
+	return r.Lookup(q, tids...)
+}
+
+// Implements IPMapper.
+func (m *ipmap) LookupFor(q []byte, uid string) ([]byte, error) {
+	r := m.r.Load() // actual ipmapper implementation
+	if r == nil {
+		return nil, &net.DNSError{Err: "no resolver", Name: "LookupFor", Server: "localhost"}
+	}
+	return r.LookupFor(q, uid)
 }
 
 // Implements IPMapper.
 func (m *ipmap) LookupNetIPFor(ctx context.Context, network, host, uid string) ([]netip.Addr, error) {
-	r := m.r // actual ipmapper implementation
+	r := m.r.Load() // actual ipmapper implementation
 	if r == nil {
 		return nil, &net.DNSError{Err: "no resolver", Name: host, Server: "localhost"}
 	}
@@ -200,7 +255,7 @@ func (m *ipmap) LookupNetIPFor(ctx context.Context, network, host, uid string) (
 
 // Implements IPMapper.
 func (m *ipmap) LookupNetIPOn(ctx context.Context, network, host string, tid ...string) ([]netip.Addr, error) {
-	r := m.r // actual ipmapper implementation
+	r := m.r.Load() // actual ipmapper implementation
 	if r == nil {
 		return nil, &net.DNSError{Err: "no resolver", Name: host, Server: "localhost"}
 	}
@@ -209,19 +264,92 @@ func (m *ipmap) LookupNetIPOn(ctx context.Context, network, host string, tid ...
 
 func (m *ipmap) Add(hostOrIP string) *IPSet {
 	s := m.get(hostOrIP, AutoType)
-	log.I("ipmap: Add: resolving %s", hostOrIP)
-	if ok := s.add(hostOrIP); !ok {
+	if _, ok := s.add(hostOrIP); ok {
+		log.I("ipmap: Add: resolving %s", hostOrIP)
+		m.revmap(hostOrIP, s, nil)
+	} else {
 		log.W("ipmap: Add: zero ips for %s", hostOrIP)
 	}
 	return s
+}
+
+func (m *ipmap) ReverseGetMany(n uint8, ipver string) []string {
+	hosts := make([]string, 0, n)
+
+	m.RLock()
+	defer m.RUnlock()
+
+	hasDesiredIPFamily := func(ips *IPSet, ipver string) bool {
+		if ipver == "v4" {
+			return ips.has4()
+		}
+		if ipver == "v6" {
+			return ips.has6()
+		}
+		return true
+	}
+
+	possiblyPublicHost := func(host string) bool {
+		if xdns.IsMDNSQuery(host) {
+			return false
+		}
+		if UndelegatedDomainsTrie.HasAny(x.StrOf(host)) {
+			return false
+		}
+		if _, err := netip.ParseAddr(host); err == nil {
+			return false // not a host, but an IP address
+		}
+		return strings.Contains(host, ".")
+	}
+	// TODO: use hosts with public prefixes
+	for host, ips := range m.m {
+		if len(hosts) >= int(n) {
+			break
+		}
+		if possiblyPublicHost(host) && hasDesiredIPFamily(ips, ipver) {
+			// append if not an IP address
+			hosts = append(hosts, host)
+		}
+	}
+	for host, ips := range m.p {
+		if len(hosts) >= int(n) {
+			break
+		}
+		if possiblyPublicHost(host) && hasDesiredIPFamily(ips, ipver) {
+			// append if not an IP address
+			hosts = append(hosts, host)
+		}
+	}
+
+	log.I("ipmap: ReverseGetMany: sampled %d hosts", len(hosts))
+	return hosts
+}
+
+func (m *ipmap) ReverseGet(ip netip.Addr) []string {
+	q := x.StrOf(ip.String())
+
+	s, _ := m.rptr.Get(q)
+	hosts := s.V()
+	if len(hosts) > 0 {
+		return strings.Split(hosts, x.Vsep)
+	}
+
+	s, _ = m.pptr.Get(q)
+	hosts = s.V()
+	if len(hosts) > 0 {
+		return strings.Split(hosts, x.Vsep)
+	}
+	return nil
 }
 
 func (m *ipmap) Get(hostOrIP string) *IPSet {
 	s := m.get(hostOrIP, AutoType)
 	if s.Empty() {
 		log.I("ipmap: Get: resolving %s", hostOrIP)
-		if ok := s.add(hostOrIP); !ok {
+		if _, ok := s.add(hostOrIP); !ok {
 			log.W("ipmap: Get: zero ips for %s", hostOrIP)
+		} else {
+			m.revmap(hostOrIP, s, nil)
 		}
 	}
 	log.D("ipmap: Get: %s => %s", hostOrIP, s.ips)
@@ -259,6 +387,62 @@ func (m *ipmap) get(hostOrIP string, typ IPSetType) (s *IPSet) {
 	}
 
 	return s
+}
+
+func (m *ipmap) GetMany(n uint8, ipver string) []netip.Addr {
+	m.RLock()
+	defer m.RUnlock()
+
+	ips := make([]netip.Addr, 0, n)
+
+	desiredfamily := func(ip netip.Addr) bool {
+		if ipver == "v4" {
+			return ip.Is4()
+		}
+		if ipver == "v6" {
+			return ip.Is6()
+		}
+		return ip.IsValid() // both
+	}
+	oneip := func(s *IPSet) (zz netip.Addr) {
+		confirmed := s.confirmed.Load()
+		if desiredfamily(confirmed) && confirmed.IsGlobalUnicast() {
+			return confirmed
+		}
+		for _, ip := range s.ips {
+			if desiredfamily(ip) && ip.IsGlobalUnicast() {
+				return ip
+			}
+		}
+		return
+	}
+	for _, s := range m.m {
+		if len(ips) >= int(n) {
+			break
+		}
+		if ip := oneip(s); ip.IsValid() {
+			ips = append(ips, ip)
+		}
+	}
+	for _, s := range m.p {
+		if len(ips) >= int(n) {
+			break
+		}
+		if ip := oneip(s); ip.IsValid() {
+			ips = append(ips, ip)
+		}
+	}
+	for _, s := range m.ip {
+		if len(ips) >= int(n) {
+			break
+		}
+		if ip := oneip(s); ip.IsValid() {
+			ips = append(ips, ip)
+		}
+	}
+
+	log.I("ipmap: GetMany: sampled %d ips", len(ips))
+	return ips
 }
 
 func (m *ipmap) MakeIPSet(hostOrIP string, ipps []string, typ IPSetType) *IPSet {
@@ -303,8 +487,8 @@ func (m *ipmap) makeIPSet(hostname string, ipps []string, typ IPSetType) *IPSet 
 	s := &IPSet{
 		confirmed: core.NewZeroVolatile[netip.Addr](),
 		typ:       typ,
-		r:         m,
-		seed:      ipps,
+		r:         m, // m stays constant, but m.r may change
+		seed:      core.CopyUniq(ipps),
 		fails:     atomic.Uint32{},
 	}
 	if typ == IPAddr {
@@ -315,18 +499,68 @@ func (m *ipmap) makeIPSet(hostname string, ipps []string, typ IPSetType) *IPSet 
 		s.confirmed.Store(zeroaddr)
 	}
 
-	totalseeds := s.bootstrap()
+	totalseeds := s.bootstrap() // seed addrs only
 
 	// if typ is Protected, then seeds must never be empty
 	if typ == Protected && totalseeds <= 0 {
 		log.W("ipmap: makeIPSet: zero seeds; %s for type %s discarded", hostname, typ)
 	} else {
 		m.Lock()
-		mm[hostname] = s
+		prev := mm[hostname] // prev may be nil
+		mm[hostname] = s     // overwrites existing
 		m.Unlock()
+		m.revmap(hostname, s, prev)
 	}
 
 	return s
+}
+
+func (m *ipmap) revmap(hostOrIP string, new *IPSet, old *IPSet) {
+	if host, _, err := net.SplitHostPort(hostOrIP); err == nil {
+		hostOrIP = host
+	}
+	if maybeip, _ := netip.ParseAddr(hostOrIP); maybeip.IsValid() {
+		return // no-op
+	}
+	host := x.StrOf(hostOrIP)
+
+	add := new.Addrs()    // new may be nil or addrs() may be empty
+	remove := old.Addrs() // old may be nil or addrs() may be empty
+
+	addtree, rmvtree := m.rptr, m.rptr
+	if new != nil {
+		if new.typ == Protected {
+			addtree = m.pptr
+		}
+	}
+	if old != nil {
+		if old.typ == Protected {
+			rmvtree = m.pptr
+		}
+	}
+
+	var errs []error
+	r, a := 0, 0
+	for _, ip := range remove {
+		if ip.IsValid() {
+			q := x.StrOf(ip.String())
+			if rmvtree.Esc(q, host) {
+				r++
+			}
+		}
+	}
+	for _, ip := range add {
+		if ip.IsValid() {
+			q := x.StrOf(ip.String())
+			if err := addtree.Add(q, host); err == nil {
+				a++
+			} else {
+				errs = append(errs, err)
+			}
+		}
+	}
+	log.D("ipmap: rev: for %s: added %d/%d; removed %d/%d; errs: %v",
+		host, a, len(add), r, len(remove), core.UniqErr(errs...))
 }
 
 // Reports whether ip is in the set.  Must be called under RLock.
@@ -341,13 +575,30 @@ func (s *IPSet) hasLocked(ip netip.Addr) bool {
 
 // Adds an IP to the set if it is not present.  Must be called under Lock.
 func (s *IPSet) addLocked(ips ...netip.Addr) {
+	if s.typ == IPAddr { // nothing to do as this ipset only has one ipaddr
+		if len(ips) > 0 {
+			log.W("ipmap: addLocked: ipaddr type; ignoring %d ips", len(ips))
+		}
+		return
+	}
+
+	if len(ips) <= 0 {
+		log.W("ipmap: addLocked: remove all")
+		s.ips = nil // remove all ips
+		s.any4.Store(false)
+		s.any6.Store(false)
+		return
+	}
 	for i, ip := range ips {
+		// always unmapped; github.com/golang/go/issues/53607
+		ip = ip.Unmap()
 		uns := !ip.IsUnspecified()
 		valip := ip.IsValid()
-		newip := !s.hasLocked(ip.Unmap())
+		newip := !s.hasLocked(ip)
 		if uns && valip && newip {
-			// always unmapped; github.com/golang/go/issues/53607
-			s.ips = append(s.ips, ip.Unmap())
+			s.ips = append(s.ips, ip)
+			s.any4.Store(s.any4.Load() || ip.Is4())
+			s.any6.Store(s.any6.Load() || ip.Is6())
 		} else {
 			log.D("ipmap: add #%d: fail %s; !uns? %t, val? %t, !new? %t", i, ip, uns, valip, newip)
 		}
@@ -361,9 +612,9 @@ func (s *IPSet) Seed() []string {
 
 // add one or more IP addresses to the set.
 // The hostname can be a domain name or an IP address.
-func (s *IPSet) add(hostOrIP string) bool {
+func (s *IPSet) add(hostOrIP string) ([]netip.Addr, bool) {
 	if s.typ == IPAddr { // nothing to do as this ipset only has one ipaddr
-		return false
+		return nil, false
 	}
 
 	if host, _, err := net.SplitHostPort(hostOrIP); err == nil {
@@ -372,30 +623,44 @@ func (s *IPSet) add(hostOrIP string) bool {
 	r := s.r
 	if r == nil { // unlikely; s.r is never nil
 		log.W("ipmap: Add: no resolver for %s", hostOrIP)
-		return false
+		return nil, false
 	}
 
-	resolved, err := r.LookupNetIP(context.Background(), "ip", hostOrIP)
+	ctx := context.Background()
+
+	var resolved []netip.Addr
+	var err error
+	if s.typ == Protected {
+		// dnsx.System is "never resolved" and hence can be used to resolve
+		// "protected" IPSets like the one used by bootstrap's DoH (x.Default)
+		// see: protect.NeverResolve and dnsx.RegisterAddrs
+		resolved, err = r.LookupNetIPOn(ctx, "ip", hostOrIP, x.System)
+	} else if s.typ == Regular || s.typ == AutoType {
+		resolved, err = r.LookupNetIP(ctx, "ip", hostOrIP)
+	}
+
 	if err != nil {
 		log.W("ipmap: Add: err resolving %s: %v", hostOrIP, err)
-		return false
+		return nil, false
 	} else {
 		log.D("ipmap: Add: resolved? %s => %s", hostOrIP, resolved)
 	}
 
-	s.mu.Lock()
-	s.addLocked(resolved...) // resolved may be nil
-	s.mu.Unlock()
+	if len(resolved) > 0 {
+		s.mu.Lock()
+		s.addLocked(resolved...) // resolved may be nil
+		s.mu.Unlock()
+	}
 
 	ok := !s.Empty()
 	if ok {
 		s.fails.Store(0) // reset fails, since we have a new ips
 	}
 
-	return ok
+	return resolved, ok // resolved may be nil, even if ok == true
 }
 
-// Adds one or more IP addresses to the set.
+// Adds seed IP addresses to the set, if any.
 func (s *IPSet) bootstrap() (n int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -420,6 +685,26 @@ func (s *IPSet) bootstrap() (n int) {
 	return n
 }
 
+func (s *IPSet) has4() bool {
+	if s == nil {
+		return false
+	}
+	if s.typ == IPAddr { // ipaddr always has one ip
+		return s.confirmed.Load().Is4()
+	}
+	return s.any4.Load()
+}
+
+func (s *IPSet) has6() bool {
+	if s == nil {
+		return false
+	}
+	if s.typ == IPAddr { // ipaddr always has one ip
+		return s.confirmed.Load().Is6()
+	}
+	return s.any6.Load()
+}
+
 // Empty reports whether the set is empty.
 func (s *IPSet) Empty() bool {
 	// typ == IPAddr is never empty!
@@ -439,27 +724,25 @@ func (s *IPSet) Size() uint32 {
 // Addrs returns a copy of the IP set as a slice in random order.
 // The slice is owned by the caller, but the elements are owned by the set.
 func (s *IPSet) Addrs() []netip.Addr {
+	if s == nil {
+		return []netip.Addr{}
+	}
+
 	if s.typ == IPAddr { // fast path for ipaddrs
 		return []netip.Addr{s.confirmed.Load()}
 	}
 
 	s.mu.RLock()
-	ips := s.ips
-	s.mu.RUnlock()
-
-	sz := len(ips)
+	sz := len(s.ips)
 	if sz <= 0 {
+		s.mu.RUnlock()
 		return []netip.Addr{}
 	}
-
 	c := make([]netip.Addr, 0, sz)
-	c = append(c, ips...)
-	if len(c) > 1 {
-		rand.Shuffle(len(c), func(i, j int) {
-			c[i], c[j] = c[j], c[i]
-		})
-	}
-	return c
+	c = append(c, s.ips...)
+	s.mu.RUnlock()
+
+	return core.ShuffleInPlace(c)
 }
 
 func (s *IPSet) Protected() bool {
@@ -537,7 +820,7 @@ func (s *IPSet) clear() {
 
 	if s.typ != Protected {
 		s.mu.Lock()
-		s.ips = nil
+		s.addLocked() // removes all ips
 		s.mu.Unlock()
 	}
 	s.confirmed.Store(zeroaddr)

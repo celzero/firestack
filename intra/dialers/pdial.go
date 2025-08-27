@@ -48,7 +48,6 @@ func ProxyDials(dd []proxy.Dialer, network, addr string) (c net.Conn, errs error
 			break
 		}
 		conn, err := ProxyDial(d, network, addr)
-		c = conn
 		if conn == nil && err == nil {
 			errs = core.JoinErr(errs, errNoConn)
 		} else if err != nil {
@@ -56,13 +55,11 @@ func ProxyDials(dd []proxy.Dialer, network, addr string) (c net.Conn, errs error
 			log.W("pdial: trying %s dialer of %d / %d to %s", network, i, tot, addr)
 			errs = core.JoinErr(errs, err)
 		} else if conn != nil {
+			c = conn
 			errs = nil
 			return
 		}
 	}
-	if c == nil {
-		log.W("pdial: no dialer (sz: %d) succeeded for %s", tot, addr)
-		return nil, core.OneErr(errs, errNoDialer)
-	}
-	return
+	log.W("pdial: no dialer (sz: %d) could connect to %s", tot, addr)
+	return nil, core.OneErr(errs, errNoDialer)
 }

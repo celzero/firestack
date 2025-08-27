@@ -10,8 +10,10 @@ import (
 	"context"
 	"net"
 	"net/netip"
+	"strconv"
 	"sync/atomic"
 
+	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/log"
 	"gvisor.dev/gvisor/pkg/tcpip"
 	"gvisor.dev/gvisor/pkg/tcpip/header"
@@ -50,13 +52,14 @@ var _ GTCPConnHandler = (*revtcp)(nil)
 var _ GUDPConnHandler = (*revudp)(nil)
 var _ GICMPHandler = (*revicmp)(nil)
 
-func NewReverseGConnHandler(id string, pctx context.Context, to *stack.Stack, of tcpip.NICID, ep stack.LinkEndpoint, via GConnHandler) *gconnhandler {
+func NewReverseGConnHandler(pctx context.Context, to *stack.Stack, of tcpip.NICID, ep SeamlessEndpoint, via GConnHandler) *gconnhandler {
+	id := strconv.Itoa(ep.Stat().Fd)
 	h := &gconnhandler{
 		tcp:  newReverseTCP(id, to, of, via.TCP()),
 		udp:  newReverseUDP(id, to, of, via.UDP()),
 		icmp: newReverseICMP(id, to, ep, via.ICMP()),
 	}
-	log.I("rev: %s: newReverseGConnHandler %d @ %x", id, of, to)
+	log.I("rev: %s: newReverseGConnHandler %d @ %d", id, of, core.Loc(to))
 	context.AfterFunc(pctx, h.end)
 	return h
 }
@@ -208,6 +211,13 @@ func logeif(err error) log.LogFn {
 	return log.V
 }
 
+func logei(cond bool) log.LogFn {
+	if cond {
+		return log.E
+	}
+	return log.I
+}
+
 func StackAddrs(s *stack.Stack, nic tcpip.NICID) (netip.Addr, netip.Addr) {
 	zeromainaddr := tcpip.AddressWithPrefix{}
 	ip4 := netip.IPv4Unspecified()
@@ -224,6 +234,6 @@ func StackAddrs(s *stack.Stack, nic tcpip.NICID) (netip.Addr, netip.Addr) {
 	if !mainaddr6.Address.Equal(zeromainaddr.Address) {
 		ip6 = netip.AddrFrom16(mainaddr6.Address.As16())
 	}
-	log.V("rev: StackAddrs %v %v", ip4, ip6)
+	log.V("netstack: StackAddrs %v %v", ip4, ip6)
 	return ip4, ip6
 }

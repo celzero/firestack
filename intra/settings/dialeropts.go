@@ -26,10 +26,6 @@ type DialerOpts struct {
 	WriteTimeoutSec int32
 }
 
-func newDialerOpts() *DialerOpts {
-	return &DialerOpts{}
-}
-
 func (d DialerOpts) String() string {
 	s := func() string {
 		switch d.Strat {
@@ -63,7 +59,7 @@ func (d DialerOpts) String() string {
 		if d.LowerKeepAlive {
 			return "LowerKeepAlive"
 		}
-		return ""
+		return "DefaultKeepAlive"
 	}()
 	tmo := func() string {
 		return strconv.Itoa(int(d.ReadTimeoutSec)) +
@@ -99,7 +95,7 @@ const (
 	RetryNever
 )
 
-var dialerOpts = newDialerOpts()
+var dialerOpts = &DialerOpts{}
 
 // SetDialerOpts sets the dialer options to use.
 func SetDialerOpts(strat, retry, timeoutsec int32, keepalive bool) bool {

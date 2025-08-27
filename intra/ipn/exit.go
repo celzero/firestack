@@ -8,6 +8,10 @@ package ipn
 
 import (
 	"context"
+	crand "crypto/rand"
+	"encoding/hex"
+	"math/rand/v2"
+	"net"
 	"strconv"
 
 	x "github.com/celzero/firestack/intra/backend"
@@ -17,12 +21,19 @@ import (
 	"github.com/celzero/firestack/intra/protect"
 )
 
+const (
+	fakeExitAddr = "127.0.0.127"
+	fakeExitPort = "1337"
+)
+
 // exit is a proxy that always dials out to the internet.
 type exit struct {
 	NoDNS
 	ProtoAgnostic
 	SkipRefresh
+	CantPause
 	GWNoVia
+	id       string
 	addr     string
 	outbound *protect.RDial // outbound dialer
 	status   *core.Volatile[int]
@@ -31,9 +42,24 @@ type exit struct {
 
 // NewExitProxy returns a new exit proxy.
 func NewExitProxy(ctx context.Context, c protect.Controller) *exit {
+	return newExitProxy(Exit, net.JoinHostPort(fakeExitAddr, fakeExitPort), ctx, c)
+}
+
+func NewExitProxyWithID(id, addr string, ctx context.Context, c protect.Controller) *exit {
+	if len(id) <= 0 {
+		id = hex8()
+	}
+	if len(addr) <= 0 {
+		addr = net.JoinHostPort(fakeExitAddr, no65535())
+	}
+	return newExitProxy(id, addr, ctx, c)
+}
+
+func newExitProxy(id, addr string, ctx context.Context, c protect.Controller) *exit {
 	ctx, done := context.WithCancel(ctx)
 	h := &exit{
-		addr:     "127.0.0.127:1337",
+		id:       id,
+		addr:     addr,
 		outbound: protect.MakeNsRDial(Exit, ctx, c),
 		status:   core.NewVolatile(TUP),
 		done:     done,
@@ -44,6 +70,11 @@ func NewExitProxy(ctx context.Context, c protect.Controller) *exit {
 // Handle implements Proxy.
 func (h *exit) Handle() uintptr {
 	return core.Loc(h)
+}
+
+// DialerHandle implements Proxy.
+func (h *exit) DialerHandle() uintptr {
+	return core.Loc(h.outbound)
 }
 
 // Dial implements Proxy.
@@ -57,45 +88,46 @@ func (h *exit) DialBind(network, local, remote string) (protect.Conn, error) {
 }
 
 func (h *exit) dial(network, local, remote string) (protect.Conn, error) {
-	if h.status.Load() == END {
-		return nil, errProxyStopped
+	if err := candial(h.status); err != nil {
+		return nil, err
 	}
 	// exit always splits
 	c, err := localDialStrat(h.outbound, network, local, remote)
 	defer localDialStatus(h.status, err)
 
-	maybeKeepAlive(c)
-	log.I("proxy: exit: dial(%s) %s => %s; err? %v", network, local, remote, err)
+	kaenabled := maybeKeepAlive(c)
+	log.I("proxy: %s: dial(%s) %s => %s, ka? %t; err? %v",
+		h.id, network, local, remote, kaenabled, err)
 	return c, err
 }
 
 // Announce implements Proxy.
 func (h *exit) Announce(network, local string) (protect.PacketConn, error) {
-	if h.status.Load() == END {
-		return nil, errProxyStopped
+	if err := candial(h.status); err != nil {
+		return nil, err
 	}
 	c, err := dialers.ListenPacket(h.outbound, network, local)
 	defer localDialStatus(h.status, err)
-	log.I("proxy: exit: announce(%s) on %s; err? %v", network, local, err)
+	log.I("proxy: %s: announce(%s) on %s; err? %v", h.id, network, local, err)
 	return c, err
 }
 
 // Accept implements Proxy.
 func (h *exit) Accept(network, local string) (protect.Listener, error) {
-	if h.status.Load() == END {
-		return nil, errProxyStopped
+	if err := candial(h.status); err != nil {
+		return nil, err
 	}
 	return dialers.Listen(h.outbound, network, local)
 }
 
 // Probe implements Proxy.
 func (h *exit) Probe(network, local string) (protect.PacketConn, error) {
-	if h.status.Load() == END {
-		return nil, errProxyStopped
+	if err := candial(h.status); err != nil {
+		return nil, err
 	}
 	c, err := dialers.Probe(h.outbound, network, local)
 	defer localDialStatus(h.status, err)
-	log.I("proxy: exit: probe(%s) on %s; err? %v", network, local, err)
+	log.I("proxy: %s: probe(%s) on %s; err? %v", h.id, network, local, err)
 	return c, err
 }
 
@@ -105,13 +137,13 @@ func (h *exit) Dialer() protect.RDialer {
 }
 
 // ID implements x.Proxy.
-func (h *exit) ID() string {
-	return Exit
+func (h *exit) ID() *x.Gostr {
+	return x.StrOf(h.id)
 }
 
 // Type implements x.Proxy.
-func (h *exit) Type() string {
-	return INTERNET
+func (h *exit) Type() *x.Gostr {
+	return x.StrOf(INTERNET)
 }
 
 // Router implements x.Proxy.
@@ -120,13 +152,13 @@ func (h *exit) Router() x.Router {
 }
 
 // Reaches implements x.Router.
-func (h *exit) Reaches(hostportOrIPPortCsv string) bool {
-	return Reaches(h, hostportOrIPPortCsv)
+func (h *exit) Reaches(hostportOrIPPortCsv *x.Gostr) bool {
+	return Reaches(h, hostportOrIPPortCsv.V())
 }
 
 // GetAddr implements x.Proxy.
-func (h *exit) GetAddr() string {
-	return h.addr
+func (h *exit) GetAddr() *x.Gostr {
+	return x.StrOf(h.addr)
 }
 
 // Status implements x.Proxy.
@@ -138,31 +170,52 @@ func (h *exit) Status() int {
 func (h *exit) Stop() error {
 	h.status.Store(END)
 	h.done()
-	log.I("proxy: exit: stopped")
+	log.I("proxy: %s: stopped", h.id)
 	return nil
 }
 
-func localDialStatus(status *core.Volatile[int], err error) {
-	if status.Load() == END {
-		return
+func localDialStatus(status *core.Volatile[int], err error) bool {
+	cur := status.Load()
+	if cur == END || cur == TPU {
+		return false
 	}
 	if err != nil {
-		status.Store(TKO)
-	} else {
-		status.Store(TOK)
+		return status.Cas(cur, TKO)
 	}
+	return status.Cas(cur, TOK)
 }
 
 func idhandle(p Proxy) string {
 	if p == nil || core.IsNil(p) {
 		return ""
 	}
-	return p.ID() + "@" + strconv.Itoa(int(p.Handle()))
+	return idstr(p) + "@" + strconv.Itoa(int(p.Handle()))
 }
 
 func idstr(p x.Proxy) string {
 	if p == nil || core.IsNil(p) {
 		return ""
 	}
-	return p.ID()
+	return p.ID().V()
+}
+
+func typstr(p x.Proxy) string {
+	if p == nil || core.IsNil(p) {
+		return ""
+	}
+	return p.Type().V()
+}
+
+// create a random hex character string of length 8
+func hex8() string {
+	b := make([]byte, 4)
+	if _, err := crand.Read(b); err != nil {
+		return "deadbeef"
+	}
+	return hex.EncodeToString(b)
+}
+
+func no65535() string {
+	no := max(rand.IntN(65535), 1024)
+	return strconv.Itoa(no)
 }

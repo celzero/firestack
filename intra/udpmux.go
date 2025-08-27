@@ -8,6 +8,7 @@ package intra
 
 import (
 	"fmt"
+	"io"
 	"net"
 	"net/netip"
 	"os"
@@ -25,7 +26,8 @@ import (
 // from: github.com/pion/transport/blob/03c807b/udp/conn.go
 
 const maxtimeouterrors = 3
-const maxInFlight = 128
+const maxInFlight = 512
+const maxOverflow = maxInFlight / 4
 
 type flowkind int32
 
@@ -110,10 +112,10 @@ type demuxconn struct {
 	rto time.Duration // read timeout
 }
 
-// slice is a byte slice v and its recycler free.
+// slice is a byte slice v and its recycler fin.
 type slice struct {
-	v    []byte
-	free func()
+	v   []byte
+	fin core.Finally
 }
 
 var _ sender = (*muxer)(nil)
@@ -146,7 +148,9 @@ func (x *muxer) awaiters() {
 	for {
 		select {
 		case c := <-x.dxconns:
-			log.D("udp: mux: %s awaiter: watching %s => %s", c.cid, c.laddr, c.raddr)
+			if settings.Debug {
+				log.D("udp: mux: %s awaiter: watching %s => %s", c.cid, c.laddr, c.raddr)
+			}
 			x.dxconnWG.Add(1) // accept
 			core.Gx("udpmux.vend.close", func() {
 				<-c.closed // conn closed
@@ -163,7 +167,9 @@ func (x *muxer) awaiters() {
 // stop closes conns in the backlog, stops accepting new conns,
 // closes muxconn, and waits for demuxed conns to close.
 func (x *muxer) stop() error {
-	log.D("udp: mux: %s stop", x.cid)
+	if settings.Debug {
+		log.D("udp: mux: %s stop", x.cid)
+	}
 
 	var err error
 	x.once.Do(func() {
@@ -185,7 +191,9 @@ func (x *muxer) drain() {
 	defer x.rmu.Unlock()
 
 	defer clear(x.routes)
-	log.D("udp: mux: %s drain: closing %d demuxed conns", x.cid, len(x.routes))
+	if settings.Debug {
+		log.D("udp: mux: %s drain: closing %d demuxed conns", x.cid, len(x.routes))
+	}
 	for _, c := range x.routes {
 		clos(c) // will unroute as well
 	}
@@ -196,7 +204,7 @@ func (x *muxer) drain() {
 //     It can therefore not be ended until all Conns are closed.
 //  2. Creating a new Conn when receiving from a new remote.
 func (x *muxer) readers() {
-	// todo: recover must call "free()" if it wasn't.
+	// todo: recover must call "recycle()" if it wasn't.
 	defer core.Recover(core.Exit11, "udpmux.read."+x.pid+x.cid)
 	defer func() {
 		_ = x.stop() // stop muxer
@@ -207,12 +215,13 @@ func (x *muxer) readers() {
 		bptr := core.Alloc()
 		b := *bptr
 		b = b[:cap(b)]
-		// todo: if panics are recovered above, free() may never be called
-		free := func() {
+		// todo: if panics are recovered above, recycle() may never be called
+		recycle := func() {
 			*bptr = b
 			core.Recycle(bptr)
 		}
 
+		// on muxer.stop(), x.doneCh is also closed and x.mxconn.ReadFrom will error out.
 		n, who, err := x.mxconn.ReadFrom(b)
 
 		x.stats.tx.Add(uint32(n)) // upload
@@ -222,35 +231,42 @@ func (x *muxer) readers() {
 			if timeouterrors < maxtimeouterrors {
 				// extend by preset (min) udp timeout
 				x.extend(time.Now().Add(time.Second * udptimeout))
-				log.D("udp: mux: %s read timeout(%d): %v", x.cid, timeouterrors, err)
-				free()
+				if settings.Debug {
+					log.D("udp: mux: %s read timeout(%d): %v", x.cid, timeouterrors, err)
+				}
+				recycle()
 				continue
-			} // else: err out
+			}
 		}
 		if err != nil {
 			log.I("udp: mux: %s read done n(%d): %v", x.cid, n, err)
-			free()
+			recycle()
 			return
 		}
+
+		timeouterrors = 0 // reset on successful reads
+
 		if who == nil || n == 0 {
 			log.W("udp: mux: %s read done n(%d): nil remote addr; skip", x.cid, n)
-			free()
+			recycle()
 			continue
 		}
 
 		const todoCid = "todo"
-		// may be an existing route or a new route
+		// may be an existing route or a new route;
+		// recycle() if who is invalid or x is closed.
 		if dst := x.route(todoCid, addr2netip(who), ingress); dst != nil {
 			select {
-			case dst.inCh <- &slice{v: b[:n], free: free}: // incomingCh is never closed
+			case dst.inCh <- &slice{v: b[:n], fin: recycle}: // incomingCh is never closed
 			default: // dst probably closed, but not yet unrouted
-				log.W("udp: mux: %s read: drop(sz: %d); route to %s",
-					dst.cid, n, dst.raddr)
+				err = errUdpIncomingDrop
+				recycle()
 			}
-			log.VV("udp: mux: %s read: n(%d) from %v <= %v; err %v",
-				dst.cid, n, dst.raddr, who, err)
-		} // else: ignore (who is invalid or x is closed)
-		free()
+			logev(err)("udp: mux: %s read: n(%d) from %v <= %v; dropped? %v",
+				dst.cid, n, dst.laddr, who, err)
+		} else { // dst may be nil when x.doneCh is closed by muxer.stop().
+			recycle()
+		} // looping back is okay, as x.mxconn.ReadFrom should error out.
 	}
 }
 
@@ -352,7 +368,7 @@ func (x *muxer) newLocked(cid string, r netip.AddrPort) *demuxconn {
 		raddr:      net.UDPAddrFromAddrPort(r),     // remote addr
 		key:        r,                              // key (same as raddr)
 		inCh:       make(chan *slice, maxInFlight), // read from muxer
-		overflowCh: make(chan *slice, 16),          // overflow from read
+		overflowCh: make(chan *slice, maxOverflow), // overflow from read
 		closed:     make(chan struct{}),            // always unbuffered
 		wt:         time.NewTicker(writetimeout),
 		rt:         time.NewTicker(readtimeout),
@@ -419,8 +435,10 @@ func (c *demuxconn) WriteTo(p []byte, to net.Addr) (int, error) {
 
 // Close implements core.UDPConn.Close
 func (c *demuxconn) Close() error {
-	log.D("udp: mux: %s demux %s => %s close, in: %d, over: %d",
-		c.out.id(), c.laddr, c.raddr, len(c.inCh), len(c.overflowCh))
+	if settings.Debug {
+		log.D("udp: mux: %s demux %s => %s close, inC: %d, overC: %d",
+			c.out.id(), c.laddr, c.raddr, len(c.inCh), len(c.overflowCh))
+	}
 	c.once.Do(func() {
 		close(c.closed) // sig close
 		defer c.wt.Stop()
@@ -428,9 +446,9 @@ func (c *demuxconn) Close() error {
 		for {
 			select {
 			case sx := <-c.inCh:
-				sx.free()
+				sx.fin()
 			case sx := <-c.overflowCh:
-				sx.free()
+				sx.fin()
 			default:
 				log.I("udp: mux: %s demux from %s => %s closed", c.out.id(), c.laddr, c.raddr)
 				return
@@ -452,7 +470,7 @@ func (c *demuxconn) RemoteAddr() net.Addr {
 
 // SetDeadline implements core.UDPConn.SetDeadline
 func (c *demuxconn) SetDeadline(t time.Time) error {
-	werr := c.SetReadDeadline(t)
+	werr := c.SetWriteDeadline(t)
 	rerr := c.SetReadDeadline(t)
 	return core.JoinErr(werr, rerr)
 }
@@ -491,17 +509,22 @@ func (c *demuxconn) io(out *[]byte, in *slice) (int, error) {
 	n := copy(*out, in.v)
 	q := len(in.v) - n
 	if q > 0 {
-		ov := &slice{v: in.v[n:], free: in.free}
 		select {
 		case <-c.closed:
 			log.W("udp: mux: %s demux: read: %v <= %v drop(sz: %d)", id, c.laddr, c.raddr, q)
-			in.free()
-		case c.overflowCh <- ov: // overflowCh is never closed
+			in.fin()
+		case c.overflowCh <- &slice{v: in.v[n:], fin: in.fin}:
 			log.W("udp: mux: %s demux: read: %v <= %v overflow(sz: %d)", id, c.laddr, c.raddr, q)
+		default:
+			log.E("udp: mux: %s demux: read: %v <= %v dropped(sz: %d)", id, c.laddr, c.raddr, q)
+			in.fin()
+			return n, io.ErrShortWrite
 		}
 	} else {
-		log.VV("udp: mux: %s demux: read: %v <= %v done(sz: %d)", id, c.laddr, c.raddr, n)
-		in.free()
+		if settings.Debug {
+			log.VV("udp: mux: %s demux: read: %v <= %v done(sz: %d)", id, c.laddr, c.raddr, n)
+		}
+		in.fin()
 	}
 	return n, nil
 }

@@ -29,12 +29,14 @@ type goosr struct {
 	r    *net.Resolver
 	rcgo *net.Resolver
 	// dialer *protect.RDial
-	px ipn.Proxy // the only supported proxy is ipn.Exit
+	exit ipn.Proxy // the only supported proxy is ipn.Exit
 
 	status *core.Volatile[int]
 }
 
 var _ dnsx.Transport = (*goosr)(nil)
+
+const ttl30s = 30 // in secs
 
 // NewGoosTransport returns the default Go DNS resolver
 func NewGoosTransport(pctx context.Context, pxs ipn.ProxyProvider) (t *goosr, err error) {
@@ -57,7 +59,7 @@ func NewGoosTransport(pctx context.Context, pxs ipn.ProxyProvider) (t *goosr, er
 		done:   cancel,
 		status: core.NewVolatile(x.Start),
 		// dialer: d,
-		px: px,
+		exit: px,
 	}
 	tx.r = &net.Resolver{
 		PreferGo: true,
@@ -72,8 +74,9 @@ func NewGoosTransport(pctx context.Context, pxs ipn.ProxyProvider) (t *goosr, er
 
 func (t *goosr) pxdial(ctx context.Context, network, addr string) (conn net.Conn, err error) {
 	// addr must be ip:port
-	log.VV("dns53: goosr: pxdial: using %s proxy for %s:%s => %s", ipn.Exit, network, t.px.GetAddr(), addr)
-	return t.px.Dialer().Dial(network, addr)
+	log.VV("dns53: goosr: pxdial: using %s proxy for %s:%s => %s",
+		t.exit.ID(), network, t.exit.GetAddr(), addr)
+	return t.exit.Dialer().Dial(network, addr)
 }
 
 func (t *goosr) send(msg *dns.Msg) (ans *dns.Msg, elapsed time.Duration, qerr *dnsx.QueryError) {
@@ -81,6 +84,10 @@ func (t *goosr) send(msg *dns.Msg) (ans *dns.Msg, elapsed time.Duration, qerr *d
 	var ip netip.Addr
 	if msg == nil {
 		qerr = dnsx.NewBadQueryError(errQueryParse)
+		return
+	}
+	if t.status.Load() == dnsx.DEnd {
+		qerr = dnsx.NewEndQueryError()
 		return
 	}
 
@@ -114,14 +121,14 @@ func (t *goosr) send(msg *dns.Msg) (ans *dns.Msg, elapsed time.Duration, qerr *d
 			if settings.Loopingback.Load() {
 				if ips, errl := t.r.LookupNetIP(t.ctx, proto, host); errl == nil && xdns.HasAnyAnswer(msg) {
 					log.D("dns53: goosr: go resolver (why? %v) for %s => %s", errl, host, ips)
-					ans, err = xdns.AQuadAForQuery(msg, ips...)
+					ans, err = xdns.AQuadAForQueryTTL(msg, ttl30s, ips...)
 				} else {
 					err = errl
 				}
 			} else {
 				if ips, errc := t.rcgo.LookupNetIP(t.ctx, proto, host); errc == nil {
 					log.D("dns53: goosr: cgo resolver for %s => %s", host, ips)
-					ans, err = xdns.AQuadAForQuery(msg, ips...)
+					ans, err = xdns.AQuadAForQueryTTL(msg, ttl30s, ips...)
 				} else {
 					err = errc
 				}
@@ -157,31 +164,41 @@ func (t *goosr) Query(_ string, q *dns.Msg, smm *x.DNSSummary) (r *dns.Msg, err 
 	smm.RData = xdns.GetInterestingRData(r)
 	smm.RCode = xdns.Rcode(r)
 	smm.RTtl = xdns.RTtl(r)
-	smm.Server = t.GetAddr()
+	smm.Server = t.getAddr()
 	smm.Status = status
+	smm.PID = t.exit.ID().V()
 	if err != nil {
 		smm.Msg = err.Error()
 	}
 
-	log.V("dns53: goosr: len(res): %d, data: %s, via: %s, err? %v", xdns.Len(r), smm.RData, smm.RelayServer, err)
+	log.V("dns53: goosr: len(res): %d, data: %s, err? %v",
+		xdns.Len(r), smm.RData, err)
 
 	return r, err
 }
 
-func (t *goosr) ID() string {
-	return dnsx.Goos
+func (t *goosr) ID() *x.Gostr {
+	return x.StrOf(dnsx.Goos)
 }
 
-func (t *goosr) Type() string {
-	return dnsx.DNS53
+func (t *goosr) Type() *x.Gostr {
+	return x.StrOf(dnsx.DNS53)
 }
 
 func (t *goosr) P50() int64 {
 	return 1 // always fast
 }
 
-func (t *goosr) GetAddr() string {
+func (t *goosr) GetAddr() *x.Gostr {
+	return x.StrOf(t.getAddr())
+}
+
+func (t *goosr) getAddr() string {
 	return protect.Localhost + ":53" // dummy
+}
+
+func (t *goosr) GetRelay() x.Proxy {
+	return nil
 }
 
 func (t *goosr) IPPorts() []netip.AddrPort {
@@ -193,6 +210,7 @@ func (t *goosr) Status() int {
 }
 
 func (t *goosr) Stop() error {
+	t.status.Store(dnsx.DEnd)
 	t.done()
 	return nil
 }

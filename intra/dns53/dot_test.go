@@ -8,11 +8,11 @@ package dns53
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"log"
 	"net"
 	"net/netip"
+	"os"
 	"testing"
 	"time"
 
@@ -22,10 +22,8 @@ import (
 	"github.com/celzero/firestack/intra/dnsx"
 	"github.com/celzero/firestack/intra/doh"
 	"github.com/celzero/firestack/intra/ipn"
-	"github.com/celzero/firestack/intra/ipn/warp"
 	ilog "github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
-	"github.com/celzero/firestack/intra/rnet"
 	"github.com/celzero/firestack/intra/settings"
 	"github.com/celzero/firestack/intra/x64"
 	"github.com/celzero/firestack/intra/xdns"
@@ -36,7 +34,7 @@ type fakeResolver struct {
 	*net.Resolver
 }
 
-func (r fakeResolver) Lookup(q []byte) ([]byte, error) {
+func (r fakeResolver) Lookup(q []byte, _ ...string) ([]byte, error) {
 	// return nil, errors.New("lookup: not implemented")
 	msg := xdns.AsMsg(q)
 	if msg == nil {
@@ -74,6 +72,10 @@ func (r fakeResolver) Lookup(q []byte) ([]byte, error) {
 	return ans.Pack()
 }
 
+func (r fakeResolver) LookupFor(q []byte, _ string) ([]byte, error) {
+	return r.Lookup(q)
+}
+
 func (r fakeResolver) LookupNetIP(ctx context.Context, network, host string) ([]netip.Addr, error) {
 	// return nil, errors.New("lookup net ip: not implemented")
 	return r.Resolver.LookupNetIP(ctx, network, host)
@@ -100,9 +102,9 @@ type fakeObs struct {
 	x.ProxyListener
 }
 
-func (*fakeObs) OnProxyAdded(string)   {}
-func (*fakeObs) OnProxyRemoved(string) {}
-func (*fakeObs) OnProxiesStopped()     {}
+func (*fakeObs) OnProxyAdded(*x.Gostr)   {}
+func (*fakeObs) OnProxyRemoved(*x.Gostr) {}
+func (*fakeObs) OnProxiesStopped()       {}
 
 type fakeBdg struct {
 	protect.Controller
@@ -111,18 +113,18 @@ type fakeBdg struct {
 
 var (
 	// baseNsOpts = &x.DNSOpts{PIDCSV: dnsx.NetBaseProxy, IPCSV: "", TIDCSV: x.CT + "test0"}
-	baseTab  = &rnet.Tab{CID: "testcid", Block: false}
-	seNsOpts = &x.DNSOpts{PIDCSV: ipn.RpnSE, IPCSV: "", TIDCSV: x.CT + "test0"}
+	baseTab    = &x.Tab{CID: "testcid", Block: false}
+	autoNsOpts = &x.DNSOpts{PIDCSV: x.RpnSE, IPCSV: "", TIDCSV: x.CT + "test0"}
 )
 
-func (*fakeBdg) OnQuery(_, _ string, _ int) *x.DNSOpts { return seNsOpts }
-func (*fakeBdg) OnResponse(*x.DNSSummary)              {}
-func (*fakeBdg) OnDNSAdded(string)                     {}
-func (*fakeBdg) OnDNSRemoved(string)                   {}
-func (*fakeBdg) OnDNSStopped()                         {}
+func (*fakeBdg) OnQuery(_, _ *x.Gostr, _ int) *x.DNSOpts { return autoNsOpts }
+func (*fakeBdg) OnResponse(*x.DNSSummary)                {}
+func (*fakeBdg) OnDNSAdded(*x.Gostr)                     {}
+func (*fakeBdg) OnDNSRemoved(*x.Gostr)                   {}
+func (*fakeBdg) OnDNSStopped()                           {}
 
-func (*fakeBdg) Route(a, b, c, d, e string) *rnet.Tab { return baseTab }
-func (*fakeBdg) OnComplete(*rnet.ServerSummary)       {}
+func (*fakeBdg) Route(a, b, c, d, e string) *x.Tab { return baseTab }
+func (*fakeBdg) OnComplete(*x.ServerSummary)       {}
 
 const minmtu = 1280
 const dualstack = settings.IP46
@@ -153,12 +155,6 @@ func TestDot(t *testing.T) {
 	// smm := &x.DNSSummary{}
 	// smm6 := &x.DNSSummary{}
 	_ = xdns.NetAndProxyID("tcp", dnsx.NetBaseProxy)
-	tm := settings.NewTunMode(
-		settings.DNSModePort,
-		settings.BlockModeNone,
-		settings.PtModeAuto,
-	)
-
 	// tr, _ := NewTLSTransport(ctx, "test0", "max.rethinkdns.com", []string{"213.188.216.9"}, pxr, ctl)
 	dtr, _ := NewTransport(ctx, x.Default, "1.1.1.1", "53", pxr)
 	tr, _ := NewTransport(ctx, "test0", "1.0.0.2", "53", pxr)
@@ -166,15 +162,15 @@ func TestDot(t *testing.T) {
 		t.Fatal("nil dns transports")
 	}
 
-	natpt := x64.NewNatPt(tm, bdg)
-	resolv := dnsx.NewResolver(ctx, "10.111.222.3:53", tm, dtr, bdg, natpt)
+	natpt := x64.NewNatPt()
+	resolv := dnsx.NewResolver(ctx, "10.111.222.3:53", dtr, bdg, natpt)
 	resolv.Add(tr)
-	r4, _, err := resolv.Forward(b4)
-	r6, _, err6 := resolv.Forward(b6)
-	_, _, _ = resolv.Forward(b24)
-	_, _, _ = resolv.Forward(b26)
+	r4, _, err := resolv.Lookup(b4)
+	r6, _, err6 := resolv.Lookup(b6)
+	_, _, _ = resolv.Lookup(b24)
+	_, _, _ = resolv.Lookup(b26)
 	time.Sleep(1 * time.Second)
-	_, _, _ = resolv.Forward(b6)
+	_, _, _ = resolv.Lookup(b6)
 	if err != nil {
 		// log.Output(2, smm.Str())
 		t.Fatal(err)
@@ -207,33 +203,30 @@ func TestProxyReaches(t *testing.T) {
 	dialers.Mapper(netr)
 
 	_ = xdns.NetAndProxyID("tcp", dnsx.NetBaseProxy)
-	tm := settings.NewTunMode(
-		settings.DNSModePort,
-		settings.BlockModeNone,
-		settings.PtModeAuto,
-	)
-
 	tr, _ := NewTLSTransport(ctx, "test0", "1.1.1.1", nil, pxr)
 	dtr, _ := NewTransport(ctx, x.Default, "1.1.1.1", "53", pxr)
 	if tr == nil || dtr == nil {
 		t.Fatal("nil dns transports")
 	}
 
-	natpt := x64.NewNatPt(tm, bdg)
-	resolv := dnsx.NewResolver(ctx, "10.111.222.3", tm, dtr, bdg, natpt)
+	natpt := x64.NewNatPt()
+	resolv := dnsx.NewResolver(ctx, "10.111.222.3", dtr, bdg, natpt)
 	resolv.Add(tr)
 
 	exit, _ := pxr.ProxyFor(ipn.Exit)
 	if exit == nil {
 		t.Fatal("proxy: exit proxy nil")
 	}
-	c, cerr := exit.Dial("tcp", "34.245.245.138:443")
-	core.Close(c)
-	if cerr != nil {
-		t.Fatal(cerr)
+
+	c1, _ := exit.Dial("tcp", "google.com:443")
+	c2, _ := exit.Dial("tcp", "cloudflare.com:443")
+	c3, _ := exit.Dial("tcp", "microsoft.com:443")
+	core.Close(c1, c2, c3)
+	if ok := ipn.Reaches(exit, "auto:https"); !ok {
+		t.Fatal("does not reach auto:https (google/cloudflare/microsoft)")
 	}
 	if ok, err := ipn.IcmpReaches(exit, netip.MustParseAddrPort("34.245.245.138:153")); !ok {
-		t.Fatal(err)
+		t.Fatal(err) // always fails
 	}
 	t.Log("proxy reaches")
 }
@@ -253,11 +246,6 @@ func TestSEProxy(t *testing.T) {
 	dialers.Mapper(netr)
 
 	_ = xdns.NetAndProxyID("tcp", dnsx.NetBaseProxy)
-	tm := settings.NewTunMode(
-		settings.DNSModePort,
-		settings.BlockModeNone,
-		settings.PtModeAuto,
-	)
 
 	tr, _ := doh.NewTransport(ctx, "test0", "http://zero.rethinkdns.com/dns-query/", []string{"104.21.83.62"}, pxr)
 	dtr, _ := doh.NewTransport(ctx, x.Default, "http://zero.rethinkdns.com/dns-query/", []string{"172.67.214.246"}, pxr)
@@ -265,8 +253,8 @@ func TestSEProxy(t *testing.T) {
 		t.Fatal("nil dns transports")
 	}
 
-	natpt := x64.NewNatPt(tm, bdg)
-	resolv := dnsx.NewResolver(ctx, "10.111.222.3", tm, dtr, bdg, natpt)
+	natpt := x64.NewNatPt()
+	resolv := dnsx.NewResolver(ctx, "10.111.222.3:53", dtr, bdg, natpt)
 	resolv.Add(tr)
 
 	if err := pxr.RegisterSE(); err != nil {
@@ -294,8 +282,8 @@ func TestSEProxy(t *testing.T) {
 	b4, _ := q.Pack()
 	b6, _ := q6.Pack()
 
-	r4, _, err := resolv.Forward(b4)
-	r6, _, err6 := resolv.Forward(b6)
+	r4, _, err := resolv.Lookup(b4)
+	r6, _, err6 := resolv.Lookup(b6)
 	if err != nil {
 		// log.Output(2, smm.Str())
 		t.Fatal(err)
@@ -313,7 +301,7 @@ func TestSEProxy(t *testing.T) {
 	log.Output(10, xdns.Ans(ans6))
 }
 
-func TestProtonReaches(t *testing.T) {
+func TestWinReaches(t *testing.T) {
 	netr := &fakeResolver{}
 	ctx := context.TODO()
 	ctl := &fakeCtl{}
@@ -327,70 +315,104 @@ func TestProtonReaches(t *testing.T) {
 	settings.Debug = true
 	dialers.Mapper(netr)
 
-	_ = xdns.NetAndProxyID("tcp", ipn.Base)
-	tm := settings.NewTunMode(
-		settings.DNSModePort,
-		settings.BlockModeNone,
-		settings.PtModeAuto,
-	)
+	_ = xdns.NetAndProxyID("tcp", ipn.Auto)
 
-	tr, _ := NewTLSTransport(ctx, "test0", "1.1.1.1", nil, pxr)
+	tr, _ := NewTLSTransport(ctx, "test0", "8.8.8.8", nil, pxr)
 	dtr, _ := NewTransport(ctx, x.Default, "1.1.1.1", "53", pxr)
 	if tr == nil || dtr == nil {
 		t.Fatal("nil dns transports")
 	}
 
-	natpt := x64.NewNatPt(tm, bdg)
-	resolv := dnsx.NewResolver(ctx, "10.111.222.3", tm, dtr, bdg, natpt)
+	natpt := x64.NewNatPt()
+	resolv := dnsx.NewResolver(ctx, "10.111.222.3:53", dtr, bdg, natpt)
 	resolv.Add(tr)
 
-	var projson []byte
-	var err error
-	if projson, err = pxr.RegisterProton(nil); err != nil {
+	entjson, err := os.ReadFile("ent.json")
+	if err != nil {
 		t.Fatal(err)
 	}
-	if ips, err := pxr.TestProton(); err != nil {
+
+	ilog.D("ws: read ent: %d", len(entjson))
+	if wreg, err := pxr.RegisterWin(x.BytesOf(entjson)); err != nil {
 		t.Fatal(err)
 	} else {
-		ilog.D("se: %v", ips)
+		entjson = wreg.V()
+		_ = os.WriteFile("win.json", entjson, 0644)
+		ilog.D("ws: setup %d", len(entjson))
 	}
 
-	var pro warp.ProtonWgConfig
-	if err = json.Unmarshal(projson, &pro); err != nil {
-		t.Fatal(err)
+	win, err := pxr.Win()
+	ko(t, err)
+	if win == nil {
+		t.Fatal("nil main ws proxy")
 	}
 
-	const maxVisited = 6
-	once := false
+	const maxVisited = 10
 	visited := make(map[string]struct{}, 0)
-	for _, c := range pro.RegionalWgConfs {
-		if _, ok := visited[c.CC]; !ok {
-			ilog.I("adding proxy %s %s", c.CC, c.Name)
-			_, _ = pxr.AddProxy(ipn.RpnPro+c.CC, c.UapiConfig())
-			visited[c.CC] = struct{}{}
+	locs, err := win.Locations()
+	ko(t, err)
+	if locs == nil {
+		t.Fatalf("expected locations for %s", win.Who())
+	}
+	for i := 0; i < locs.Len(); i++ {
+		c, err := locs.Get(i)
+		if err != nil {
+			continue
 		}
-		if !once {
-			ilog.I("adding default proxy %s", ipn.RpnPro, c.Name)
-			pxr.AddProxy(ipn.RpnPro, c.UapiConfig())
-			once = true
+		if _, ok := visited[c.CC]; !ok {
+			// _, _ = pxr.AddProxy(ipn.RpnPro+c.CC, c.UapiConfig())
+			visited[c.CC] = struct{}{}
 		}
 		if len(visited) >= maxVisited {
 			break
 		}
 	}
+	ilog.I("available proxy CCs (limited to 10): %v", visited)
 
-	propx, _ := pxr.ProxyFor(ipn.RpnPro)
-	propx2, _ := pxr.ProxyFor(ipn.RpnPro + "MX")
-	if propx == nil || propx2 == nil {
+	_, err = win.Fork(x.StrOf("US"))
+	ko(t, err)
+
+	settings.SetAutoDialsParallel(false)
+	settings.SetAutoMode(settings.AutoModeRemote)
+
+	propx, _ := pxr.ProxyFor(ipn.RpnWin)
+	propx2, _ := pxr.ProxyFor(ipn.RpnWin + "GT")
+	auto, _ := pxr.ProxyFor(ipn.Auto)
+	if propx == nil || propx2 == nil || auto == nil {
 		t.Fatal("nil proxies")
 	}
-	ilog.I("proxies 1: %t; 2: %t", propx != nil, propx2 != nil)
+
+	/*ilog.VV("-----------------------MAIN--------------------------")
+	ilog.I("proxies 1: %t; 2: %t, 3: %t", propx != nil, propx2 != nil, auto != nil)
 	if ok := ipn.Reaches(propx, "google.com:443", "tcp"); !ok {
 		t.Fail()
 	}
+	ilog.VV("-----------------------MXCO--------------------------")
 	if ok := ipn.Reaches(propx2, "cloudflare.com:443", "tcp"); !ok {
 		t.Fail()
 	}
+	ilog.VV("-----------------------AUTO--------------------------")
+	if ok := ipn.Reaches(auto, "x.com:443", "tcp"); !ok {
+		t.Fail()
+	}*/
+	ilog.VV("-----------------------DNSX--------------------------")
+	b4, _ := aquery("skysports.com").Pack()
+	r4, _, err := resolv.Lookup(b4) // must use "test0"
+
+	ilog.D("%v", propx2.Router().Stat())
+	time.Sleep(2 * time.Second)
+
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ans := xdns.AsMsg(r4)
+	if xdns.Len(ans) <= 0 {
+		t.Fatal("no ans")
+	}
+	ilog.D("dns", xdns.Ans(ans))
+	ilog.VV("-----------------------END0--------------------------")
+
 	t.Log("proxy reaches")
 }
 
@@ -435,4 +457,10 @@ func aaaaquery(d string) *dns.Msg {
 	msg.SetQuestion(dns.Fqdn(d), dns.TypeAAAA)
 	msg.Id = 3456
 	return msg
+}
+
+func ko(t *testing.T, err error) {
+	if err != nil {
+		t.Fatal(err)
+	}
 }

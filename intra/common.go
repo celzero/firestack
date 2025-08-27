@@ -12,12 +12,14 @@ import (
 	"math/rand"
 	"net"
 	"net/netip"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"slices"
 
+	x "github.com/celzero/firestack/intra/backend"
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/dialers"
 	"github.com/celzero/firestack/intra/dnsx"
@@ -25,13 +27,15 @@ import (
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/netstack"
 	"github.com/celzero/firestack/intra/netstat"
+	"github.com/celzero/firestack/intra/protect"
 	"github.com/celzero/firestack/intra/settings"
 )
 
 const (
-	smmchSize           = 24
+	smmchSize           = 256 // some comfortably high number
 	UNKNOWN_UID         = core.UNKNOWN_UID
 	UNKNOWN_UID_STR     = core.UNKNOWN_UID_STR
+	SELF_UID            = protect.UidSelf
 	UNSUPPORTED_NETWORK = core.UNSUPPORTED_NETWORK
 )
 
@@ -53,10 +57,11 @@ type zeroListener struct{}
 
 var _ SocketListener = (*zeroListener)(nil)
 
-func (*zeroListener) Preflow(_, _ int32, _, _, _ string) *PreMark    { return nil }
-func (*zeroListener) Flow(_, _ int32, _, _, _, _, _, _ string) *Mark { return nil }
-func (*zeroListener) Inflow(_, _ int32, _, _ string) *Mark           { return nil }
-func (*zeroListener) OnSocketClosed(*SocketSummary)                  {}
+func (*zeroListener) Preflow(_, _ int32, _, _ *x.Gostr) *PreMark       { return nil }
+func (*zeroListener) Flow(_, _ int32, _, _, _, _, _, _ *x.Gostr) *Mark { return nil }
+func (*zeroListener) Inflow(_, _ int32, _, _ *x.Gostr) *Mark           { return nil }
+func (*zeroListener) PostFlow(*Mark)                                   {}
+func (*zeroListener) OnSocketClosed(*SocketSummary)                    {}
 
 var nooplistener = new(zeroListener)
 
@@ -64,7 +69,6 @@ type baseHandler struct {
 	proto string // tcp, udp, icmp
 	ctx   context.Context
 
-	tunMode  *settings.TunMode
 	resolver dnsx.Resolver     // dns resolver to forward queries to
 	prox     ipn.ProxyProvider // proxy provider
 	smmch    chan *SocketSummary
@@ -82,11 +86,10 @@ type baseHandler struct {
 
 var _ netstack.GBaseConnHandler = (*baseHandler)(nil)
 
-func newBaseHandler(pctx context.Context, proto string, r dnsx.Resolver, px ipn.ProxyProvider, tm *settings.TunMode, l SocketListener) *baseHandler {
+func newBaseHandler(pctx context.Context, proto string, r dnsx.Resolver, px ipn.ProxyProvider, l SocketListener) *baseHandler {
 	h := &baseHandler{
 		ctx:         pctx,
 		proto:       proto,
-		tunMode:     tm,
 		resolver:    r,
 		prox:        px,
 		smmch:       make(chan *SocketSummary, smmchSize),
@@ -101,7 +104,7 @@ func newBaseHandler(pctx context.Context, proto string, r dnsx.Resolver, px ipn.
 
 // to is the local address, from is the remote address.
 func (h *baseHandler) onInflow(to, from netip.AddrPort) (fm *Mark) {
-	blockmode := h.tunMode.BlockMode.Load()
+	blockmode := settings.BlockMode.Load()
 	fm = optionsBlock
 	// BlockModeNone returns false, BlockModeSink returns true
 	if blockmode == settings.BlockModeSink {
@@ -113,7 +116,7 @@ func (h *baseHandler) onInflow(to, from netip.AddrPort) (fm *Mark) {
 
 	// inflow does not go through nat/alg/dns/proxy
 	fm, ok := core.Grx(h.proto+".inflow", func(_ context.Context) (*Mark, error) {
-		return h.listener.Inflow(nn, int32(uid), to.String(), from.String()), nil
+		return h.listener.Inflow(nn, int32(uid), x.StrOf(to.String()), x.StrOf(from.String())), nil
 	}, onFlowTimeout)
 
 	if !ok || fm == nil {
@@ -127,7 +130,7 @@ func (h *baseHandler) onInflow(to, from netip.AddrPort) (fm *Mark) {
 
 // onFlow calls listener.Flow to determine egress rules and routes; thread-safe.
 func (h *baseHandler) onFlow(localaddr, target netip.AddrPort) (fm *Mark, undidAlg bool, ips, doms string) {
-	blockmode := h.tunMode.BlockMode.Load()
+	blockmode := settings.BlockMode.Load()
 	fm = optionsBlock
 	// BlockModeNone returns false, BlockModeSink returns true
 	if blockmode == settings.BlockModeSink {
@@ -138,10 +141,12 @@ func (h *baseHandler) onFlow(localaddr, target netip.AddrPort) (fm *Mark, undidA
 
 	// Implicit: BlockModeFilter or BlockModeFilterProc
 	uid := UNKNOWN_UID
+	preuid := UNKNOWN_UID_STR
 	if blockmode == settings.BlockModeFilterProc {
 		procEntry := netstat.FindProcNetEntry(h.proto, localaddr, target)
 		if procEntry != nil {
 			uid = procEntry.UserID
+			preuid = strconv.Itoa(uid)
 		}
 	}
 
@@ -155,28 +160,41 @@ func (h *baseHandler) onFlow(localaddr, target netip.AddrPort) (fm *Mark, undidA
 	dst := target.String()
 
 	var pdoms, blocklists string
-	var pre *PreMark
-	var ok bool
 
-	// alg happens after nat64, and so, alg knows nat-ed ips
-	// that is, real ips ("ips") are un-nated
-	undidAlg, ips, doms, pdoms, blocklists = h.undoAlg(target.Addr())
+	pre, _ := core.Grx(h.proto+".preflow", func(_ context.Context) (*PreMark, error) {
+		return h.listener.Preflow(proto, int32(uid), x.StrOf(src), x.StrOf(dst)), nil
+	}, onFlowTimeout)
+
+	hasPre := pre != nil
+	if hasPre && pre != nil /*nilaway*/ && len(pre.UID) > 0 {
+		if c, cerr := strconv.Atoi(pre.UID); cerr == nil {
+			uid = c
+			// alg.go, for its per-uid cache, uses a special UID to denote
+			// our own process (protect.UidSelf) and so make sure to use it.
+			if pre.IsUidSelf {
+				preuid = SELF_UID
+			} else {
+				preuid = pre.UID
+			}
+		} else {
+			log.W("com: %s: onFlow: preflow: uid %s is not a number; use %s", h.proto, pre.UID, uid)
+		}
+	}
+
+	// alg happens after nat64, and so, alg knows nat-ed ips and un-nats them;
+	// that is, real ips ("ips") are already un-nated where applicable.
+	undidAlg, ips, doms, pdoms, blocklists = h.undoAlg(target.Addr(), preuid)
 	hasOldIPs := len(ips) > 0
 	if undidAlg && !hasOldIPs {
-		pre, ok = core.Grx(h.proto+".preflow", func(_ context.Context) (*PreMark, error) {
-			return h.listener.Preflow(proto, int32(uid), src, dst, doms), nil
-		}, onFlowTimeout)
-
 		hasNewIPs := false
-		hasPre := pre != nil
-		if ok && hasPre {
+		if hasPre {
 			for d := range strings.SplitSeq(doms, ",") {
-				if len(d) <= 0 {
+				if len(d) <= 0 && settings.Debug {
 					log.V("com: %s: onFlow: preflow: empty domain in %v from %v => %v for %s; skip!",
-						h.proto, doms, src, target, pre.UID)
+						h.proto, doms, src, target, preuid)
 					continue
 				}
-				newips, err := dialers.ResolveFor(d, pre.UID)
+				newips, err := dialers.ResolveFor(d, preuid)
 				hasNewIPs = err == nil && len(newips) > 0
 				if hasNewIPs { // already unalg'd by ipmapper
 					// _, ips, doms, pdoms, blocklists = h.undoAlg(target.Addr())
@@ -186,31 +204,51 @@ func (h *baseHandler) onFlow(localaddr, target netip.AddrPort) (fm *Mark, undidA
 			}
 		} // else: either no known transport or preflow failed
 
-		if !ok || !hasPre || !hasNewIPs {
-			log.E("com: %s: onFlow: alg, but no preflow? %t / %t, ips? %t for %v; uid: %s; block!",
-				h.proto, ok, hasPre, hasNewIPs, doms, pre)
+		if !hasPre || !hasNewIPs {
+			log.E("com: %s: onFlow: alg, preflow? %t, ips? %t for %s; pre: %v; block!",
+				h.proto, hasPre, hasNewIPs, doms, pre)
 			// either optionsBase (BlockModeNone) or optionsBlock
 			return fm, undidAlg, "", ""
 		} // else: if we've got target and/or old ips, dial them
 	} else {
-		log.D("com: %s: onFlow: noalg? %t or hasips? %t", h.proto, undidAlg, hasOldIPs)
+		if settings.Debug {
+			log.D("com: %s: onFlow: noalg? %t or hasips? %t", h.proto, !undidAlg, hasOldIPs)
+		}
 	}
 
 	if len(ips) <= 0 || len(doms) <= 0 {
-		log.D("com: %s: onFlow: no realips(%s) or domains(%s + %s), for src=%s dst=%s",
-			h.proto, ips, doms, pdoms, localaddr, target)
+		if settings.Debug {
+			log.D("com: %s: onFlow: no realips(%s) or domains(%s + %s), for src=%s dst=%s",
+				h.proto, ips, doms, pdoms, localaddr, target)
+		}
 	}
 
-	fm, ok = core.Grx(h.proto+".flow", func(_ context.Context) (*Mark, error) {
-		return h.listener.Flow(proto, int32(uid), src, dst, ips, doms, pdoms, blocklists), nil
+	fm, ok := core.Grx(h.proto+".flow", func(_ context.Context) (*Mark, error) {
+		return h.listener.Flow(proto, int32(uid), x.StrOf(src), x.StrOf(dst), x.StrOf(ips), x.StrOf(doms), x.StrOf(pdoms), x.StrOf(blocklists)), nil
 	}, onFlowTimeout)
 
 	if fm == nil || !ok { // zeroListener returns nil
 		log.W("com: %s: onFlow: empty res or on flow timeout %t; block!", h.proto, ok)
 		fm = optionsBlock
 	} else if len(fm.PIDCSV) <= 0 {
-		log.E("com: %s: onFlow: no pid for (%s => %s) from kt (alg: %v + %v); exit!", h.proto, src, dst, ips, doms)
-		fm.PIDCSV = ipn.Exit
+		if preuid == SELF_UID {
+			fm.PIDCSV = ipn.Exit
+		} else if h.prox.AutoActive() {
+			fm.PIDCSV = ipn.Auto
+		} else {
+			fm.PIDCSV = ipn.Exit
+		}
+		log.E("com: %s: onFlow: missing proxyid for preuid %s (%s => %s) from kt (alg: %v + %v); %s!",
+			h.proto, preuid, src, dst, ips, doms, fm.PIDCSV)
+	}
+	if preuid == SELF_UID && !ipn.IsAnyLocalProxy(strings.Split(fm.PIDCSV, ",")...) {
+		egress := ipn.Exit
+		if h.resolver.IsDnsAddr(target) {
+			egress = ipn.Base // see: udp.go:dnsOverride
+		}
+		log.W("com: %s: onFlow: preflow: preuid %s (%s => %s) is rethink! override %s to %s!",
+			h.proto, preuid, src, dst, fm.PIDCSV, egress)
+		fm.PIDCSV = egress
 	}
 
 	return
@@ -221,31 +259,33 @@ func (h *baseHandler) onFlow(localaddr, target netip.AddrPort) (fm *Mark, undidA
 func (h *baseHandler) forward(local, remote net.Conn, smm *SocketSummary) {
 	cid := smm.ID
 	uid := smm.UID
-	via := strings.Join([]string{smm.Proto, smm.PID, smm.RPID}, ":")
+	pid := smm.PID
+	via := strings.Join([]string{smm.Proto, smm.PID, smm.RPID, smm.ID}, ":")
 
 	tup := conn2str(local, remote)
 
-	log.I("com: %s: forward: new conn %s via proxy(%s); %s for %s",
-		h.proto, cid, via, tup, uid)
-
-	h.conntracker.Track(cid, local, remote)
+	h.conntracker.Track(cid, uid, pid, local, remote)
 	defer h.conntracker.Untrack(cid)
 
+	isrwext := false
+	didSet := false
+	timeoutsecs := 0
 	// enable core.Pipe (sendfile/zero-copy) optimizations on TCP if
 	// read & write deadlines are not set (as in rwext is effectively
 	// a no-op) by unwrapping the underlying remote conn from rwext.
 	if r, ok := remote.(rwext); ok {
-		if r.IsZeroDeadline() {
-			remote = r.Unwrap()
-		} else if c, ok := r.SetAsTCPSockOpt(); ok {
-			remote = c
+		isrwext = true
+		if timeoutsecs, didSet = r.SetTimeout(); didSet || timeoutsecs <= 0 {
+			remote = r.Unwrap() // c may be *net.TCPConn or *demuxconn or *retrier or *splitter
 		}
 	}
+	log.I("com: %s: forward: new conn %s rwext? %t (%T), sockopt? %t (%ds); %s for %s",
+		h.proto, via, isrwext, remote, didSet, timeoutsecs, tup, uid)
 
 	uploadch := make(chan ioinfo)
 
-	go upload(cid, via, local, remote, uploadch)
-	dbytes, derr := download(cid, via, local, remote)
+	go upload(via, local, remote, uploadch)
+	dbytes, derr := download(via, local, remote)
 
 	upload := <-uploadch
 
@@ -270,7 +310,9 @@ func (h *baseHandler) queueSummary(s *SocketSummary) {
 	// log.VV("com: %s: queueSummary: %x %x %s", h.proto, h.smmch, h.ctx, s.ID)
 	select {
 	case <-h.ctx.Done():
-		log.D("%s: queueSummary: end: %s", h.proto, s)
+		if settings.Debug {
+			log.D("%s: queueSummary: end: %s", h.proto, s)
+		}
 	default:
 		select {
 		case <-h.ctx.Done():
@@ -307,7 +349,9 @@ func (h *baseHandler) sendSummary(s *SocketSummary, after time.Duration) {
 		time.Sleep(after)
 	}
 
-	log.VV("com: %s: end? sendNotif: %s", h.proto, s)
+	if settings.Debug {
+		log.VV("com: %s: end? sendNotif: %s", h.proto, s)
+	}
 	h.listener.OnSocketClosed(s) // s.Duration may be uninitialized (zero)
 }
 
@@ -317,15 +361,15 @@ func (h *baseHandler) OpenConns() string {
 }
 
 // CloseConns implements netstack.GBaseConnHandler
-func (h *baseHandler) CloseConns(cids []string) (closed []string) {
-	if len(cids) <= 0 {
-		closed = h.conntracker.Clear()
+func (h *baseHandler) CloseConns(cidsOrPidsOrUids []string) (closedCids []string) {
+	if len(cidsOrPidsOrUids) <= 0 {
+		closedCids = h.conntracker.Clear()
 	} else {
-		closed = h.conntracker.UntrackBatch(cids)
+		closedCids = h.conntracker.UntrackBatch(cidsOrPidsOrUids)
 	}
 
-	log.I("com: %s: closed %d/%d", h.proto, len(closed), len(cids))
-	return closed
+	log.I("com: %s: conns closed %d/%d", h.proto, len(closedCids), len(cidsOrPidsOrUids))
+	return closedCids
 }
 
 // aux is usually dst domains, ip, ip:port
@@ -387,27 +431,31 @@ func (h *baseHandler) End() {
 }
 
 // TODO: Propagate TCP RST using local.Abort(), on appropriate errors.
-func upload(cid, proto string, local net.Conn, remote net.Conn, ioch chan<- ioinfo) {
-	defer core.Recover(core.Exit11, "c.upload: "+cid)
+func upload(id string, local, remote net.Conn, ioch chan<- ioinfo) {
+	defer core.Recover(core.Exit11, "c.upload."+id)
 	defer core.CloseOp(local, core.CopR)
 	defer core.CloseOp(remote, core.CopW)
 	defer close(ioch)
 
 	n, err := core.Pipe(remote, local)
 
-	log.D("com: %s: %s upload(%d) done(%v) b/w %s",
-		proto, cid, n, err, conn2str(local, remote))
+	if settings.Debug {
+		log.D("com: %s upload(%d) done(%v) b/w %s",
+			id, n, err, conn2str(local, remote))
+	}
 	ioch <- ioinfo{n, err}
 }
 
-func download(cid, proto string, local net.Conn, remote net.Conn) (n int64, err error) {
+func download(id string, local, remote net.Conn) (n int64, err error) {
 	defer core.CloseOp(local, core.CopW)
 	defer core.CloseOp(remote, core.CopR)
 
 	n, err = core.Pipe(local, remote)
 
-	log.D("com: %s: %s download(%d) done(%v) b/w %s",
-		proto, cid, n, err, conn2str(local, remote))
+	if settings.Debug {
+		log.D("com: %s download(%d) done(%v) b/w %s",
+			id, n, err, conn2str(local, remote))
+	}
 	return
 }
 
@@ -452,44 +500,47 @@ func makeIPPorts(ips []netip.Addr, origipp netip.AddrPort, cap int) []netip.Addr
 		} // else: discard ip
 	}
 
-	log.VV("com: makeIPPorts(v4? %t, v6? %t); tot: %d; in: %v, out: %v", use4, use6, len(ips), ips, r)
-
-	if len(r) > 0 {
-		rand.Shuffle(len(r), func(i, j int) {
-			r[i], r[j] = r[j], r[i]
-		})
-		return r
+	if settings.Debug {
+		log.VV("com: makeIPPorts(v4? %t, v6? %t) for %v; tot: %d; in: %v, out: %v",
+			use4, use6, origipp, len(ips), ips, r)
 	}
 
-	log.VV("com: makeIPPorts(v4? %t, v6? %t): using origip; all: %d; out: %s",
-		use4, use6, len(ips), origipp)
+	if len(r) > 0 {
+		return core.ShuffleInPlace(r)
+	}
 	return []netip.AddrPort{origipp}
 }
 
 // algip may or may not be an actual alg ip.
 // returned realips may be incoming algip itself or translated from algip,
 // depending on whether alg is enabled (ref: undidAlg).
-func (h *baseHandler) undoAlg(algip netip.Addr, tids ...string) (undidAlg bool, realips, domains, probableDomains, blocklists string) {
+func (h *baseHandler) undoAlg(algip netip.Addr, uid string) (undidAlg bool, realips, domains, probableDomains, blocklists string) {
 	r := h.resolver
 	didForce := false
 	forcePTR := true // force PTR (realip => algans) translation?
-	if gw := r.Gateway(); !algip.IsUnspecified() && algip.IsValid() && gw != nil {
+	gw := r.Gateway()
+	ipok := !algip.IsUnspecified() && algip.IsValid()
+	hasreal := false
+	if ipok && gw != nil {
 		domains, didForce = gw.PTR(algip, !forcePTR) // does NAT (algip => algans) translation
 		if !didForce && len(domains) <= 0 {
 			probableDomains, _ = gw.PTR(algip, forcePTR)
 		}
 		var ips []netip.Addr
 		// ips will contain the incoming "algip" arg, in cases where alg is NOT enabled.
-		ips, undidAlg = gw.X(algip, tids...)
+		ips, undidAlg = gw.X(algip, uid)
 		realips = dnsx.Netip2Csv(ips)
+		hasreal = len(realips) > 0
 		blocklists = gw.RDNSBL(algip)
-	} else {
-		log.W("com: %s: alg: undoAlg: for %v; no gw(%t) or dst(%v)", h.proto, tids, gw == nil, algip)
-		return
+	}
+	if ipok && len(domains) <= 0 && len(probableDomains) <= 0 {
+		if hosts := dialers.Ptr(algip); len(hosts) > 0 {
+			probableDomains = strings.Join(hosts, ",")
+		}
 	}
 
-	log.VV("com: %s: alg: undoAlg: for %v (ok? %t, force? %t, withForce? %t) %s => %v (for %s / block: %s)",
-		h.proto, tids, undidAlg, didForce, forcePTR, algip, realips, domains, blocklists)
+	logwif(!hasreal)("com: %s: alg: undoAlg: for [%s] (gw? %t ok? %t, force? %t, withForce? %t) %s => %v (for %s + %s / block: %s)",
+		h.proto, uid, gw != nil, undidAlg, didForce, forcePTR, algip, realips, domains, probableDomains, blocklists)
 	return
 }
 
@@ -553,6 +604,7 @@ func (h *baseHandler) judge(decision *Mark, aux ...string) (cid, uid, fid string
 				pids = []string{ipn.Block}
 				return
 			}
+			v = strings.TrimSpace(v)
 			if len(v) > 0 {
 				pids = append(pids, v)
 			}
@@ -560,6 +612,19 @@ func (h *baseHandler) judge(decision *Mark, aux ...string) (cid, uid, fid string
 	}
 
 	return
+}
+
+func (h *baseHandler) maybeReplaceDest(res *Mark, target *netip.AddrPort) {
+	if len(res.IP) <= 0 {
+		return
+	} else if resip, err := netip.ParseAddr(res.IP); resip.IsValid() && err == nil {
+		// if res.IP is set, then use it as the target
+		if settings.Debug {
+			log.D("%s: proxy: %s %s target instead of %s",
+				h.proto, res.CID, resip, target)
+		}
+		*target = netip.AddrPortFrom(resip, target.Port())
+	}
 }
 
 func conn2str(a net.Conn, b net.Conn) string {
@@ -654,4 +719,18 @@ func logev(err error) log.LogFn {
 		f = log.VV
 	}
 	return f
+}
+
+func logwif(cond bool) log.LogFn {
+	if cond {
+		return log.W
+	}
+	return log.VV
+}
+
+func pidstr(p ipn.Proxy) string {
+	if p == nil {
+		return ""
+	}
+	return p.ID().V()
 }

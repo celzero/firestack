@@ -9,9 +9,8 @@ package netstack
 import (
 	"errors"
 	"fmt"
-	"io"
 	"net/netip"
-	"syscall"
+	"strconv"
 
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/log"
@@ -29,73 +28,10 @@ import (
 // enable forwarding of packets on the interface
 const nicfwd = false
 
-// SnapLen is the maximum bytes of a packet to be saved. Packets with a length
-// less than or equal to snapLen will be saved in their entirety. Longer
-// packets will be truncated to snapLen.
-const SnapLen uint32 = 2048 // in bytes; some sufficient value
-
-type linkFdSwap struct {
-	stack.LinkEndpoint
-	FdSwapper
-}
-
-// ref: github.com/google/gvisor/blob/91f58d2cc/pkg/tcpip/sample/tun_tcp_echo/main.go#L102
-func NewEndpoint(dev, mtu int, sink io.WriteCloser) (ep SeamlessEndpoint, err error) {
-	defer func() {
-		if err != nil {
-			_ = syscall.Close(dev)
-		}
-		log.I("netstack: new endpoint(fd:%d / mtu:%d); err? %v", dev, mtu, err)
-	}()
-
-	umtu := uint32(mtu)
-	opt := Options{
-		FDs: []int{dev},
-		MTU: umtu,
-	}
-
-	if ep, err = NewFdbasedInjectableEndpoint(&opt); err != nil {
-		return nil, err
-	}
-	// ref: github.com/google/gvisor/blob/aeabb785278/pkg/tcpip/link/sniffer/sniffer.go#L111-L131
-	return snoop(ep, sink)
-}
-
-func snoop(ep SeamlessEndpoint, sink io.WriteCloser) (SeamlessEndpoint, error) {
-	if sink == nil {
-		return ep, nil
-	}
-	// TODO: MTU instead of SnapLen? Must match pcapsink.begin()
-	if link, err := NewSnoopyEndpoint(ep, sink); err != nil {
-		return nil, err
-	} else {
-		return linkFdSwap{link, ep}, nil
-	}
-}
-
-func LogPcap(y bool) (ok bool) {
-	if y {
-		ok = LogPackets.CompareAndSwap(0, 1)
-	} else {
-		ok = LogPackets.CompareAndSwap(1, 0)
-	}
-	log.I("netstack: pcap stdout(%t): done?(%t)", y, ok)
-	return
-}
-
-func LogFile(y bool) (ok bool) {
-	if y {
-		ok = WritePCAP.CompareAndSwap(0, 1)
-	} else {
-		ok = WritePCAP.CompareAndSwap(1, 0)
-	}
-	log.I("netstack: pcap file(%t): done?(%t)", y, ok)
-	return
-}
-
 // ref: github.com/brewlin/net-protocol/blob/ec64e5f899/internal/endpoint/endpoint.go#L20
-func Up(who string, s *stack.Stack, ep stack.LinkEndpoint, h GConnHandler) (tcpip.NICID, error) {
+func Up(s *stack.Stack, ep SeamlessEndpoint, h GConnHandler) (tcpip.NICID, error) {
 	nic := tcpip.NICID(settings.NICID)
+	who := strconv.Itoa(ep.Stat().Fd)
 
 	// fetch existing routes before adding removing nic, which wipes out routes
 	existingroutes := s.GetRouteTable()
@@ -161,14 +97,13 @@ func Up(who string, s *stack.Stack, ep stack.LinkEndpoint, h GConnHandler) (tcpi
 	// s.SetNICMulticastForwarding(nic, ipv4.ProtocolNumber, nicfwd)
 	// s.SetNICMulticastForwarding(nic, ipv6.ProtocolNumber, nicfwd)
 	// use existing routes if the nic is being recycled
-	if !newnic && len(existingroutes) > 0 {
-		log.I("netstack: %s: up(%d)! addrs: %v %v; existing routes? %s; new routes: %s",
-			who, nic, if4, if6, s.GetRouteTable(), existingroutes)
+	useExistingRoutes := !newnic && len(existingroutes) > 0
+	if useExistingRoutes {
 		s.SetRouteTable(existingroutes)
-	} else {
-		log.I("netstack: %s: up(%d)! new? %t; addrs: %v %v; routes? %s",
-			who, nic, newnic, if4, if6, s.GetRouteTable())
 	}
+
+	log.I("netstack: %s: up(%d)! new? %t; addrs: %v %v; routes? %s / existing? %t: %s",
+		who, nic, newnic, if4, if6, s.GetRouteTable(), useExistingRoutes, existingroutes)
 
 	return nic, nil
 }
@@ -181,7 +116,7 @@ func e(err tcpip.Error) error {
 }
 
 func addIfAddrs(s *stack.Stack, nic tcpip.NICID) error {
-	// TODO: make it configurable like fakedns is
+	// TODO: make ifaddrs configurable like fakedns is
 	// The NIC is set in Spoofing mode. When the UDP Endpoint uses a non-local
 	// address to "Connect", netstack generates a temporary addressState to
 	// build a route, which can be primary but is always ephemeral. When this
@@ -236,6 +171,8 @@ func addIfAddrs(s *stack.Stack, nic tcpip.NICID) error {
 	if err := s.AddProtocolAddress(nic, protoaddr6, asMainAddr); err != nil {
 		return fmt.Errorf("netstack: %d add addr(%v): %v", nic, ifaddr4, err)
 	}
+
+	log.I("netstack: %d ifaddrs 4(%v) 6(%v)", nic, ifaddr4, ifaddr6)
 	return nil
 }
 

@@ -55,6 +55,7 @@ var (
 	errUdpSetupConn    = errors.New("udp: could not create conn")
 	errProxyMismatch   = errors.New("udp: proxy mismatch")
 	errUidMismatch     = errors.New("udp: uid mismatch")
+	errUdpIncomingDrop = errors.New("udp: at capacity; packet in dropped")
 	errUdpUnconnected  = errors.New("udp: cannot connect")
 	errUdpNoTarget     = errors.New("udp: no target addr")
 	errUdpEnd          = errors.New("udp: stopped")
@@ -71,69 +72,18 @@ const (
 
 var _ netstack.GUDPConnHandler = (*udpHandler)(nil)
 
-// rwext wraps MinConn and extends deadline to minimum(min, settings.DialerOpts)
-// on every read and write.
-type rwext struct {
-	net.Conn        // underlying conn
-	minidle  uint32 // min idle timeout in secs
-}
-
-func (rw rwext) IsZeroDeadline() bool {
-	r, w := rw.deadlines()
-	return r == 0 && w == 0
-}
-
-func (rw rwext) SetAsTCPSockOpt() (core.TCPConn, bool) {
-	r, _ := rw.deadlines()
-	c, ok := rw.Conn.(core.TCPConn) // no-op for tcp conns
-	if ok && r > 0 {
-		// always returns false for udp conns
-		ok = core.SetTimeoutSockOpt(c, int(r)*1000)
-	}
-	return c, ok
-}
-
-func (rw rwext) Unwrap() net.Conn {
-	return rw.Conn
-}
-
-func (rw rwext) Read(b []byte) (n int, err error) {
-	rw.extend()
-	return rw.Conn.Read(b)
-}
-
-func (rw rwext) Write(b []byte) (n int, err error) {
-	rw.extend()
-	return rw.Conn.Write(b)
-}
-
-func (rw rwext) deadlines() (r, w uint32) {
-	dopt := settings.GetDialerOpts()
-	// -ve ints go higher than 2^31 w/ uint: go.dev/play/p/Rrqk_V8a7W0
-	return max(rw.minidle, uint32(dopt.ReadTimeoutSec)),
-		max(rw.minidle, uint32(dopt.WriteTimeoutSec))
-}
-
-func (rw rwext) extend() {
-	r, w := rw.deadlines()
-	tr := time.Second * time.Duration(r)
-	tw := time.Second * time.Duration(w)
-
-	extendc(rw.Conn, tr, tw)
-}
-
 // NewUDPHandler makes a UDP handler with Intra-style DNS redirection:
 // All packets are routed directly to their destination.
 // `timeout` controls the effective NAT mapping lifetime.
 // `config` is used to bind new external UDP ports.
 // `listener` receives a summary about each UDP binding when it expires.
-func NewUDPHandler(pctx context.Context, resolver dnsx.Resolver, prox ipn.ProxyProvider, tunMode *settings.TunMode, listener SocketListener) netstack.GUDPConnHandler {
+func NewUDPHandler(pctx context.Context, resolver dnsx.Resolver, prox ipn.ProxyProvider, listener SocketListener) netstack.GUDPConnHandler {
 	if listener == nil || core.IsNil(listener) {
 		log.W("udp: using noop listener")
 		listener = nooplistener
 	}
 	h := &udpHandler{
-		baseHandler: newBaseHandler(pctx, dnsx.NetTypeUDP, resolver, prox, tunMode, listener),
+		baseHandler: newBaseHandler(pctx, dnsx.NetTypeUDP, resolver, prox, listener),
 		mux:         newMuxTable(),
 	}
 
@@ -178,11 +128,12 @@ func (h *udpHandler) ProxyMux(gconn *netstack.GUDPConn, src, dst netip.AddrPort,
 func (h *udpHandler) Error(gconn *netstack.GUDPConn, src, target netip.AddrPort, err error) {
 	defer clos(gconn) // if open
 
-	log.W("udp: proxy: %v =>  %v; err %v", src, target, err)
+	log.W("udp: proxy: %v => %v; err %v", src, target, err)
 	if !src.IsValid() || !target.IsValid() {
 		return
 	}
 	res, _, _, _ := h.onFlow(src, target)
+	h.maybeReplaceDest(res, &target)
 	cid, uid, _, pids := h.judge(res)
 	smm := udpSummary(cid, uid, target.Addr())
 
@@ -219,6 +170,7 @@ func (h *udpHandler) proxy(gconn *netstack.GUDPConn, src, dst netip.AddrPort, dm
 
 	cid := smm.ID
 	core.Go("udp.forward."+cid, func() {
+		h.listener.PostFlow(smm.postMark())
 		h.forward(gconn, rwext{remote, udptimeout}, smm)
 	})
 	return true // ok
@@ -227,27 +179,30 @@ func (h *udpHandler) proxy(gconn *netstack.GUDPConn, src, dst netip.AddrPort, dm
 // Connect connects the proxy server; thread-safe.
 func (h *udpHandler) Connect(gconn *netstack.GUDPConn, src, target netip.AddrPort, dmx netstack.DemuxerFn) (pc net.Conn, smm *SocketSummary, err error) {
 	mux := dmx != nil
-	smmTarget := target.Addr()
 
 	// flow is alg/nat-aware, do not change target or any addrs
 	res, undidAlg, realips, domains := h.onFlow(src, target)
-	first, _, fallingback := filterFamilyForDialing(realips)
-	actualTargets := makeIPPorts(first, target, 0)
+
+	h.maybeReplaceDest(res, &target)
+
+	filtered, _, fallingback := filterFamilyForDialing(realips)
+	actualTargets := makeIPPorts(filtered, target, 0)
 	cid, uid, fid, pids := h.judge(res, domains, target.String())
-	if len(actualTargets) > 0 {
-		smmTarget = actualTargets[0].Addr()
-	} else { // unlikely
+
+	if len(actualTargets) <= 0 { // unlikely
 		actualTargets = []netip.AddrPort{target}
 	}
-	smm = udpSummary(cid, uid, smmTarget)
+	smm = udpSummary(cid, uid, actualTargets[0].Addr())
 
 	if h.status.Load() == HDLEND {
-		log.D("udp: connect: %s %v => %v, end", cid, src, target)
+		if settings.Debug {
+			log.D("udp: connect: %s [%s] %v => %v, end", cid, uid, src, target)
+		}
 		return nil, smm, errUdpEnd // disconnect, no nat
 	}
 
 	if !target.IsValid() { // must call h.Bind?
-		log.E("udp: connect: %s %s => %s; invalid dst", cid, src, target)
+		log.E("udp: connect: %s [%s] %s => %s; invalid dst", cid, uid, src, target)
 		return nil, smm, errUdpUnconnected
 	}
 
@@ -262,15 +217,16 @@ func (h *udpHandler) Connect(gconn *netstack.GUDPConn, src, target netip.AddrPor
 			defer clos(gconn)
 			defer h.queueSummary(smm.done(err))
 			secs := h.stall(fid)
-			log.I("udp: %s firewalled from %s => %s (dom: %s / real: %s) for %s; stall? %ds",
-				cid, src, target, domains, realips, uid, secs)
+			log.I("udp: %s [%s] firewalled from %s => %s (dom: %s / real: %s) for %s; stall? %ds",
+				cid, uid, src, target, domains, realips, uid, secs)
 		})
 		return nil, nil, nil // disconnect override, no dst
 	}
 
 	// connect gconn right away, since we assume a duplex-stream from here on
 	if err = gconn.Establish(); err != nil {
-		log.W("udp: connect: %s gconn.Est, mux? %t, err %s => %s", src, target, mux, err)
+		log.W("udp: connect: %s [%s] gconn.Est, mux? %t, %s => %s err: %v",
+			cid, uid, mux, src, target, err)
 		return nil, smm, err // disconnect
 	}
 
@@ -299,30 +255,53 @@ func (h *udpHandler) Connect(gconn *netstack.GUDPConn, src, target netip.AddrPor
 		} // else: not a dns query or target is not a dns addr
 	} // else: proxy src to dst
 
+	var pxid, rxid, lastselected string
 	var px ipn.Proxy
 	var errs error
 	var selectedTarget netip.AddrPort
 
 	if mux {
 		if muxpid := h.mux.pid(src); len(muxpid) > 0 && containsPid(pids, muxpid) {
-			log.D("udp: connect: %s mux: %s => %s using muxed-pid %s; all pids %s",
-				cid, src, target, muxpid, pids)
+			if settings.Debug {
+				log.D("udp: connect: %s [%s] mux: %s => %s using muxed-pid %s; all pids %s",
+					cid, uid, src, target, muxpid, pids)
+			}
 			pids = []string{muxpid}
 		} // else: mxr will dial this conn with a different pid
 	}
+
+	if settings.Debug {
+		log.VV("udp: connect: %s [%s] proxying %s => %s [%v]; pids: %s, mux? %t",
+			cid, uid, src, target, actualTargets, pids, mux)
+	}
+
 	// note: fake-dns-ips shouldn't be un-nated / un-alg'd
 	for i, dstipp := range actualTargets {
 		rttstart := time.Now()
 
-		if px, err = h.prox.ProxyTo(dstipp, uid, pids); err != nil || px == nil {
-			log.W("udp: connect: %s failed to get proxy from %s: %v", cid, pids, err)
+		px, err = h.prox.ProxyTo(dstipp, uid, pids)
+
+		if px != nil { // last chosen (but not dialed in) proxy
+			pxid = pidstr(px)
+			rxid = ipn.ViaID(px)
+			lastselected = dstipp.Addr().String()
+		}
+		selectedTarget = dstipp
+
+		if err != nil || px == nil {
+			log.W("udp: connect: #%d: %s [%s] failed to get proxy from %s: %v", i, cid, uid, pidstr(px), err)
 			errs = err // disconnect if loop terminates
 			continue
 		}
-		selectedTarget = dstipp
+
 		if mux { // mux is not supported by all proxies (few like Exit, Base, WG support it)
-			pc, err = h.mux.associate(cid, px.ID(), uid, src, selectedTarget, px.Dialer().Announce, vendor(dmx))
+			pc, err = h.mux.associate(cid, pxid, uid, src, selectedTarget, px.Dialer().Announce, vendor(dmx))
 		} else {
+			if settings.Debug {
+				log.VV("udp: connect: #%d: attempt: %s [%s] proxy(%s) to dst(%s); mux? %t",
+					i, cid, uid, pxid, selectedTarget, mux)
+			}
+
 			if settings.PortForward.Load() {
 				boundSrc := makeAnyAddrPort(src)
 				pc, err = px.Dialer().DialBind("udp", boundSrc.String(), selectedTarget.String())
@@ -337,33 +316,34 @@ func (h *udpHandler) Connect(gconn *netstack.GUDPConn, src, target netip.AddrPor
 
 		errs = err // store just the last err; complicates logging
 		end := time.Since(smm.start)
-		rtt := time.Since(rttstart)
-		smm.Rtt = int32(rtt.Seconds() * 1000)
-		log.W("udp: connect: #%d: %s failed; mux? %t, addr(%s) / fallback? %t; for uid %s (%dms) w err(%v)",
-			i, cid, mux, dstipp, fallingback, uid, end.Milliseconds(), err)
-		if end > retrytimeout {
+		smm.Rtt = time.Since(rttstart).Milliseconds()
+		log.W("udp: connect: #%d: %s [%s] failed; mux? %t, addr(%s) / fallback? %t; (rtt:%dms, dur:%s) w err(%v)",
+			i, cid, uid, mux, dstipp, fallingback, smm.Rtt, core.FmtPeriod(end), err)
+		if end > retryTimeout {
 			break
 		}
 	}
 
+	if len(pxid) > 0 { // last chosen proxy which may have errored
+		smm.PID = pxid
+		smm.RPID = rxid
+		smm.Target = lastselected // may be invalid
+	}
+
 	if !selectedTarget.IsValid() {
-		log.E("udp: connect: %s no target addr for %s from %v; uid %s", cid, target, actualTargets, uid)
+		log.E("udp: connect: %s [%s] no target addr for %s from %v", cid, uid, target, actualTargets)
 		return nil, smm, errUdpNoTarget
 	}
 
 	// pc.RemoteAddr may be that of the proxy, not the actual dst
 	// ex: pc.RemoteAddr is 127.0.0.1 for Orbot
 	smm.Target = selectedTarget.Addr().String()
-	if px != nil { // nil when all ProxyTo attempts for actualTargets fail
-		smm.PID = px.ID()
-		smm.RPID = ipn.ViaID(px)
-	}
 
 	if errs != nil {
 		return nil, smm, errs // disconnect
 	} else if px == nil || pc == nil || core.IsNil(pc) {
-		log.W("udp: connect: %s no proxy/egress-conn (mux? %t) for addr(%s/%s), uid %s",
-			cid, mux, target, selectedTarget, uid)
+		log.W("udp: connect: %s [%s] no proxy/egress-conn (mux? %t) for addr(%s/%s)",
+			cid, uid, mux, target, selectedTarget)
 		return nil, smm, errUdpSetupConn // disconnect
 	}
 
@@ -375,13 +355,13 @@ func (h *udpHandler) Connect(gconn *netstack.GUDPConn, src, target netip.AddrPor
 		laddr = x.LocalAddr()
 	default:
 		clos(pc)
-		log.E("udp: connect: %s proxy(%s) does not impl core.UDPConn(%s/%s); mux? %t, uid %s",
-			cid, px.ID(), target, selectedTarget, mux, uid)
+		log.E("udp: connect: %s [%s] proxy(%s) does not impl core.UDPConn(%s/%s); mux? %t",
+			cid, uid, pxid, target, selectedTarget, mux, uid)
 		return nil, smm, errUdpSetupConn // disconnect
 	}
 
-	log.I("udp: connect: %s (proxy? %s@%s) %v => %s/%s; fallback? %t / mux? %t, uid %s",
-		cid, px.ID(), px.GetAddr(), laddr, target, selectedTarget, fallingback, mux, uid)
+	log.I("udp: connect: %s [%s] (proxy? %s@%s) %v => %s/%s; fallback? %t / mux? %t",
+		cid, uid, pxid, px.GetAddr(), laddr, target, selectedTarget, fallingback, mux)
 
 	return pc, smm, nil // connect
 }

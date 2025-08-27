@@ -112,7 +112,7 @@ func udpForwarder(who string, s *stack.Stack, h GUDPConnHandler) *udp.Forwarder 
 		return nil
 	}
 
-	return udp.NewForwarder(s, func(req *udp.ForwarderRequest) {
+	return udp.NewForwarder(s, func(req *udp.ForwarderRequest) (handled bool) {
 		if req == nil {
 			log.E("ns: udp: %s: forwarder: nil request", who)
 			return
@@ -162,23 +162,26 @@ func udpForwarder(who string, s *stack.Stack, h GUDPConnHandler) *udp.Forwarder 
 				log.E("ns: udp: %s: forwarder: connect: %v; src(%v) dst(%v)",
 					who, err, src, dst)
 				go h.Error(gc, src, dst, err)
-			} else { // gc already connected; safe to call the handler async
-				go handle(h, gc, src, dst, demux)
+				return false // not handled
 			}
+			// gc already connected; safe to call the handler async
+			go handle(h, gc, src, dst, demux)
+			return true // handled
 		} else {
 			// handler must connect sync; blocking netstack's processor
 			// but perform other ops like r/w to/from src/dst async.
-			handle(h, gc, src, dst, demux)
+			return handle(h, gc, src, dst, demux)
 		}
 	})
 }
 
-func handle(h GUDPConnHandler, gc *GUDPConn, src, dst netip.AddrPort, demux DemuxerFn) {
+func handle(h GUDPConnHandler, gc *GUDPConn, src, dst netip.AddrPort, demux DemuxerFn) (ok bool) {
 	if gc.eim {
-		h.ProxyMux(gc, src, dst, demux)
+		ok = h.ProxyMux(gc, src, dst, demux)
 	} else {
-		h.Proxy(gc, src, dst)
+		ok = h.Proxy(gc, src, dst)
 	}
+	return
 }
 
 func (g *GUDPConn) ok() bool {
@@ -215,6 +218,7 @@ func (g *GUDPConn) Establish() error {
 		wq := new(waiter.Queue)
 		if ep, err := g.req.CreateEndpoint(wq); err != nil || ep == nil {
 			// ex: CONNECT endpoint for [fd66:f83a:c650::1]:15753 => [fd66:f83a:c650::3]:53; err(no route to host)
+			// 'bad local addrs' on missing NIC, 'invalid state' if could not be bound/connected
 			log.E("ns: udp: %s: connect: endpoint(ok? %t) for %v => %v; err(%v)",
 				g.o, ep != nil, g.src, g.dst, err)
 			return e(err)

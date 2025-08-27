@@ -24,8 +24,12 @@
 package dialers
 
 import (
+	"context"
 	"io"
+	"math"
 	"net"
+	"net/netip"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -42,32 +46,43 @@ type zeroNetAddr struct{}
 func (zeroNetAddr) Network() string { return "no" }
 func (zeroNetAddr) String() string  { return "none" }
 
-const maxRetryCount = 3
+const (
+	maxRetryCount = 3
+	maxEmptyReads = 3
+)
+
+// ippPins maintains a limited-time mapping between ip:port addresses and dialer IDs.
+// TODO: invalidate cache on network changes.
+// TODO: with context.TODO, expmap's reaper goroutine will leak.
+var ippPins = core.NewSieve[netip.AddrPort, string](context.TODO(), desync_cache_ttl)
 
 // retrier implements the DuplexConn interface and must
 // be typecastable to *net.TCPConn (see: xdial.DialTCP)
 // inheritance: go.dev/play/p/mMiQgXsPM7Y
 type retrier struct {
-	dialer     *protect.RDial
-	dialerOpts settings.DialerOpts
-	raddr      *net.TCPAddr
-	laddr      *net.TCPAddr // laddr may be nil; TCPAddr.IP may be nil.
+	dialers       []protect.RDialer
+	dialerOpts    settings.DialerOpts
+	nextDialerIdx int
+	multidial     bool
+
+	raddr net.Addr
+	laddr net.Addr // laddr may be nil; TCPAddr.IP may be nil.
 
 	// Flags indicating whether the caller has called CloseRead and CloseWrite.
 	readDone  atomic.Bool
 	writeDone atomic.Bool
 
-	// mutex is a lock that guards conn, retryCount, tee, timeout,
+	// mu is a lock that guards conn, retryCount, tee, timeout,
 	// retryErr, retryDoneCh, readDeadline, and writeDeadline.
 	// After retryDoneCh is closed, these values will not be
 	// modified again so locking is no longer required for reads.
-	mutex sync.Mutex
+	mu sync.Mutex
 
 	// the current underlying connection.  It is only modified by the reader
 	// thread, so the reader functions may access it without acquiring a lock.
 	// nb: if embedding TCPConn; override its WriteTo instead of just ReadFrom
 	// as io.Copy prefers WriteTo over ReadFrom; or use core.Pipe
-	conn core.DuplexConn
+	conn protect.Conn
 
 	// External read and write deadlines.  These need to be stored here so that
 	// they can be re-applied in the event of a retry.
@@ -78,14 +93,16 @@ type retrier struct {
 	// tee is the contents written before the first read.  It is initially empty,
 	// and is cleared when the first byte is received.
 	tee []byte
-	// retryErr is set to the error from the last retry, if any.
-	retryErr   error
-	retryCount uint8
+	// retryWriteErr is set to the error from the last retry, if any.
+	retryWriteErr error
+	retryCount    uint8
 	// Flag indicating when retry is finished or unnecessary.
 	retryDoneCh chan struct{} // always unbuffered
 }
 
 var _ core.DuplexConn = (*retrier)(nil)
+
+var _ core.DuplexConn = (*net.TCPConn)(nil)
 
 // Helper functions for reading flags.
 // In this package, a "flag" is a thread-safe single-use status indicator that
@@ -110,13 +127,17 @@ func (r *retrier) retryCompleted() bool {
 	return closed(r.retryDoneCh)
 }
 
+func (r *retrier) canRetry() bool {
+	return r.dialerOpts.Retry != settings.RetryNever
+}
+
 // Given rtt of a successful socket connection (SYN sent - SYNACK received),
 // returns a timeout for replies to the first segment sent on this socket.
 func calcTimeout(rtt time.Duration) time.Duration {
 	// These values were chosen to have a <1% false positive rate based on test data.
 	// False positives trigger an unnecessary retry, which can make connections slower, so they are
 	// worth avoiding.  However, overly long timeouts make retry slower and less useful.
-	return 800*time.Millisecond + max(2*rtt, 100*time.Millisecond)
+	return max(min(rtt/2, 5*time.Second), 500*time.Millisecond) + min(2*rtt, 500*time.Millisecond)
 }
 
 // DialWithSplitRetry returns a TCP connection that transparently retries by
@@ -127,28 +148,95 @@ func calcTimeout(rtt time.Duration) time.Duration {
 // `addr` is the destination.
 func DialWithSplitRetry(d *protect.RDial, laddr, raddr *net.TCPAddr) (*retrier, error) {
 	r := &retrier{
-		dialer:      d,
+		dialers:     []protect.RDialer{d},
 		dialerOpts:  settings.GetDialerOpts(),
 		laddr:       laddr, // may be nil
 		raddr:       raddr, // must not be nil
 		retryDoneCh: make(chan struct{}),
 	}
 
-	r.mutex.Lock()
-	defer r.mutex.Unlock()
+	r.mu.Lock()
+	defer r.mu.Unlock()
 
-	if _, err := r.dialLocked(); err != nil {
+	if err := r.dialLocked(); err != nil {
 		return nil, err
 	}
 	return r, nil
 }
 
+func dialerOptsForMultiDialers() settings.DialerOpts {
+	return settings.DialerOpts{
+		Strat: settings.SplitNever,
+		Retry: settings.RetryWithSplit,
+	}
+}
+
+func reprioritize(ds []protect.RDialer, ipp netip.AddrPort) []protect.RDialer {
+	// reprioritize the dialers based on the IP:port pair
+	if !ipp.IsValid() {
+		return ds
+	}
+	if len(ds) <= 1 {
+		return ds
+	}
+	id, ok := ippPins.Get(ipp)
+	if !ok || len(id) <= 0 {
+		return ds
+	}
+	for i, d := range ds {
+		if d.ID().V() == id {
+			ds[i], ds[0] = ds[0], ds[i]
+			break
+		}
+	}
+	return ds
+}
+
+func DialAny(ds []protect.RDialer, laddr, raddr net.Addr) (*retrier, error) {
+	if len(ds) <= 0 {
+		return nil, errNoDialer
+	}
+
+	r := &retrier{
+		dialers:     reprioritize(ds, asAddrPort(raddr)),
+		dialerOpts:  dialerOptsForMultiDialers(),
+		multidial:   true,
+		laddr:       laddr, // may be nil
+		raddr:       raddr, // must not be nil
+		retryDoneCh: make(chan struct{}),
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if err := r.dialLocked(); err != nil {
+		return nil, err
+	}
+	return r, nil
+}
+
+// SycallConn implements core.DuplexConn.
 func (r *retrier) SyscallConn() (syscall.RawConn, error) {
-	if sc, ok := r.conn.(syscall.Conn); ok {
+	r.mu.Lock()
+	c := r.conn
+	r.mu.Unlock()
+	if sc, ok := c.(syscall.Conn); ok {
 		return sc.SyscallConn()
 	}
-	log.W("retrier: not a syscall.Conn: %T", r.conn)
+	log.W("retrier: not a syscall.Conn: %T", c)
 	return nil, syscall.EINVAL
+}
+
+// SetKeepAlive implements core.DuplexConn.
+func (r *retrier) SetKeepAlive(y bool) error {
+	r.mu.Lock()
+	c := r.conn
+	r.mu.Unlock()
+	if c, ok := c.(core.KeepAliveConn); ok {
+		return c.SetKeepAlive(y)
+	}
+	log.W("retrier: not a net.Conn: %T", c)
+	return syscall.EINVAL
 }
 
 func (r *retrier) dialStratLocked() (strat int32, err error) {
@@ -207,50 +295,98 @@ func (r *retrier) dialStratLocked() (strat int32, err error) {
 	return
 }
 
+func (r *retrier) dialerID() string {
+	di := 0
+	if r.multidial {
+		di = min(max(di, r.nextDialerIdx-1), len(r.dialers)-1)
+	}
+	return r.dialers[di].ID().V()
+}
+
 // dialLocked establishes a new connection to r.raddr and closes existing, if any.
 // Sets r.conn on non-errors and timeout as calculated from round-trip time.
-func (r *retrier) dialLocked() (c core.DuplexConn, err error) {
+func (r *retrier) dialLocked() error {
 	clos(r.conn) // close existing connection, if any
 
 	strat, err := r.dialStratLocked()
 	if err != nil {
-		return
+		return err
 	}
 
 	begin := time.Now()
-	c, err = r.doDialLocked(strat)
+	c, err := r.doDialLocked(strat)
 	rtt := time.Since(begin)
 
-	r.conn = c // c may be nil
-	r.timeout = calcTimeout(rtt)
+	if c != nil && core.IsNotNil(c) { // c may be deep nil
+		r.conn = c
+	} else {
+		r.conn = nil
+	}
 
-	logeif(err)("retrier: dial(%s) %s=>%s; strat: %d, rtt: %dms; err? %v",
-		r.dialerOpts, laddr(c), r.raddr, strat, rtt.Milliseconds(), err)
+	if r.canRetry() {
+		r.timeout = calcTimeout(rtt)
+	} else {
+		// if retries are disabled, then do not aggressively timeout
+		// as there's nothing else for the retrier to do.
+		r.timeout = 0
+	}
 
-	return
+	logeif(err)("retrier: dial(%s) %s=>%s; strat: %d+%d (mult? %d %T), rtt: %dms; err? %v",
+		r.dialerID(), laddr(c), r.raddr, strat, r.dialerOpts.Retry, len(r.dialers), c, rtt.Milliseconds(), err)
+
+	return err
 }
 
 // dialStrat returns a core.DuplexConn to r.raddr using a specified strategy, strat,
 // which is one of the settings.Split* constants.
-func (r *retrier) doDialLocked(dialStrat int32) (_ core.DuplexConn, err error) {
-	var conn *net.TCPConn
+func (r *retrier) doDialLocked(dialStrat int32) (protect.Conn, error) {
+	if r.multidial {
+		var errs error
+		if r.nextDialerIdx >= len(r.dialers) && r.retryCount < maxRetryCount {
+			r.nextDialerIdx = 0
+			log.D("retrier: mult: %s: reset dialer index; retry # %d / %d",
+				r.dialerID(), r.retryCount, maxRetryCount)
+		}
+		for r.nextDialerIdx < len(r.dialers) {
+			d := r.dialers[r.nextDialerIdx]
+			c, err := protect.Dial(d, r.laddr, r.raddr)
+			logeif(err)("retrier: mult: #%d/%d dial(%s: %s) %s=>%s; err? %v",
+				r.nextDialerIdx, len(r.dialers), d.ID(), r.dialerOpts, laddr(c), r.raddr, err)
 
-	// r.raddr may be nil or laddr.IP may be nil.
+			r.nextDialerIdx++ // incr regardless of err
+
+			if err == nil {
+				return c, nil
+			}
+			clos(c)
+			errs = core.JoinErr(errs, err)
+		}
+		return nil, core.OneErr(errs, errNoDialer)
+	}
+
+	di := r.dialers[0] // always use the first dialer when not multidialing
+
+	network := r.raddr.Network()
+	if isTCP := strings.HasPrefix(network, "tcp"); !isTCP {
+		return protect.Dial(di, r.laddr, r.raddr)
+	}
+
+	// r.laddr may be nil or laddr.IP may be nil.
 	switch dialStrat {
 	case settings.SplitNever:
-		return r.dialer.DialTCP(r.raddr.Network(), r.laddr, r.raddr)
+		return protect.Dial(di, r.laddr, r.raddr)
 	case settings.SplitDesync:
-		return dialWithSplitAndDesync(r.dialer, r.laddr, r.raddr)
+		return dialWithSplitAndDesync(di, r.laddr, r.raddr)
 	case settings.SplitTCP, settings.SplitTCPOrTLS:
 		fallthrough
 	default:
 	}
-	conn, err = r.dialer.DialTCP(r.raddr.Network(), r.laddr, r.raddr)
-	if err != nil || conn == nil {
-		return nil, err
+	tc, terr := protect.DialTCP(di, network, r.laddr, r.raddr)
+	if terr != nil || tc == nil {
+		return nil, core.JoinErr(terr, errNilConn)
 	}
-	// todo: strat must be tcp or tls
-	return &splitter{conn: conn, strat: dialStrat}, nil
+	// todo: assert strat must be tcp or tls?
+	return &splitter{conn: tc, strat: dialStrat}, nil
 }
 
 // retryWriteReadLocked closes the current connection, dials a new one, and writes
@@ -258,17 +394,18 @@ func (r *retrier) doDialLocked(dialStrat int32) (_ core.DuplexConn, err error) {
 // Returns an error if the dial fails or if the splits could not be written.
 func (r *retrier) retryWriteReadLocked(buf []byte) (int, error) {
 	// r.dialLocked also closes provisional socket
-	newConn, err := r.dialLocked() // errs on dial strat = no retries, too
-	if err != nil || newConn == nil {
+	err := r.dialLocked() // errs on dial strat = no retries, too
+	newConn := r.conn
+	if err != nil || newConn == nil || core.IsNil(newConn) {
 		return 0, core.OneErr(err, errNoConn)
 	}
 
 	var nw int
-	nw, r.retryErr = newConn.Write(r.tee)
-	logeif(r.retryErr)("retrier: retryLocked: strat(%s) %s=>%s; write? %d/%d; err? %v",
-		r.dialerOpts, laddr(newConn), r.raddr, nw, len(r.tee), r.retryErr)
-	if r.retryErr != nil {
-		return 0, r.retryErr
+	nw, r.retryWriteErr = newConn.Write(r.tee)
+	logeif(r.retryWriteErr)("retrier: retryLocked: strat(%s, mult? %d %T) %s=>%s; write? %d/%d; err? %v",
+		r.dialerID(), len(r.dialers), newConn, laddr(newConn), r.raddr, nw, len(r.tee), r.retryWriteErr)
+	if r.retryWriteErr != nil {
+		return 0, r.retryWriteErr
 	}
 
 	// while we were creating the new socket, the caller might have called CloseRead
@@ -278,101 +415,145 @@ func (r *retrier) retryWriteReadLocked(buf []byte) (int, error) {
 	readdone := r.readDone.Load()
 	writedone := r.writeDone.Load()
 	if readdone {
-		core.CloseTCPRead(newConn)
-	} else {
-		_ = newConn.SetReadDeadline(r.readDeadline)
+		core.CloseOp(newConn, core.CopR)
 	}
-	// caller might have set read or write deadlines before the retry.
 	if writedone {
-		core.CloseTCPWrite(newConn)
-	} else {
-		_ = newConn.SetWriteDeadline(r.writeDeadline)
+		core.CloseOp(newConn, core.CopW)
 	}
 
-	logedcond(readdone || writedone)("retrier: retryLocked: done! strat(%s) %s=>%s; write? %d/%d; closed r/w? %t/%t; deadline r/w: %v/%v",
-		r.dialerOpts, laddr(newConn), r.raddr, nw, len(r.tee), readdone, writedone, time.Since(r.readDeadline).Seconds(), time.Since(r.writeDeadline).Seconds())
+	logedcond(readdone || writedone)("retrier: retryLocked: done! strat(%s; mult? %d %T) %s=>%s; write? %d/%d; closed r/w? %t/%t; rtt: %s, deadline r/w: %v/%v",
+		r.dialerID(), len(r.dialers), newConn, laddr(newConn), r.raddr, nw, len(r.tee), readdone, writedone, core.FmtPeriod(r.timeout), core.FmtTimeAsPeriod(r.readDeadline), core.FmtTimeAsPeriod(r.writeDeadline))
 
+	// all of buf was written to c
+	// require a response within a short timeout on r.conn (same as newConn)
+	r.shorterReadDeadlineForRetryLocked()
 	return newConn.Read(buf)
 }
 
 // CloseRead closes r.conn for reads, and the read flag.
 func (r *retrier) CloseRead() error {
 	r.readDone.Store(true)
-	r.mutex.Lock()
-	defer r.mutex.Unlock()
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	core.CloseOp(r.conn, core.CopR)
 	return nil
 }
 
 // Read data from r.conn into buf
 func (r *retrier) Read(buf []byte) (n int, err error) {
-	c := r.conn
-	if c == nil || core.IsNil(c) { // should rarely happen
-		log.E("retrier: read: [] <= %s, no conn", r.raddr)
-		return 0, errNoConn
-	}
-
 	note := log.V
 
-	n, err = c.Read(buf)      // r.conn may be provisional or final connection
-	if n == 0 && err == nil { // no data and no error
-		note("retrier: read: no data; retrying [%s<=%s]", laddr(c), r.raddr)
-		return // nothing yet to retry; on to next read
-	}
-	logeor(err, note)("retrier: read: [%s<=%s] %d; err: %v", laddr(c), r.raddr, n, err)
+	c := r.conn // r.conn may be provisional or final connection
+	if c != nil && core.IsNotNil(c) {
+		for reads := range maxEmptyReads {
+			n, err = c.Read(buf)
+			if n == 0 && err == nil { // no data and no error
+				note("retrier: read: %s: no data #%d; retrying [%s<=%s], b: 0/%d",
+					r.dialerID(), reads, laddr(c), r.raddr, len(buf))
+				continue // nothing yet to retry; on to next read
+			} // else: check if retry is needed (c == nil or err != nil)
+			break
+		}
+		if n == 0 && err == nil {
+			err = io.ErrNoProgress
+		}
+		logeor(err, note)("retrier: read: %s: [%s<=%s]; t: %s; b: %d/%d (tee: %d); err: %v",
+			r.dialerID(), laddr(c), r.raddr, core.FmtPeriod(r.timeout), n, len(buf), len(r.tee), err)
+	} // else: needs retry as c == nil
 
 	note = log.D
+
 	if !r.retryCompleted() {
-		r.mutex.Lock()
-		defer r.mutex.Unlock()
+		r.mu.Lock()
+		defer r.mu.Unlock()
 
 		if !r.retryCompleted() {
+			note = log.I
 			defer close(r.retryDoneCh) // signal that retry is complete or unnecessary
-			var retryerr error
+
+			retryReadErr := err
 			// retry on errs like timeouts or connection resets
-			for (c == nil || err != nil) && r.retryCount < maxRetryCount {
+			for (c == nil || core.IsNil(c) || retryReadErr != nil) && (r.canRetry() && r.retryCount < maxRetryCount) {
 				r.retryCount++
-				n, retryerr = r.retryWriteReadLocked(buf)
+
+				n, retryReadErr = r.retryWriteReadLocked(buf)
 				c = r.conn // re-assign c to newConn, if any; may be nil
-				if c == nil {
-					err = core.UniqErr(err, retryerr)
+				if c == nil || core.IsNil(c) || retryReadErr != nil {
+					retryReadErr = core.OneErr(retryReadErr, errNoConn)
+					err = core.JoinErr(err, retryReadErr)
+				} else {
+					retryReadErr = nil // break
+					err = nil          // return no error
 				}
-				logeor(retryerr, log.I)("retrier: read# %d: [%s<=%s] %d; err? %v",
-					r.retryCount, laddr(c), r.raddr, n, retryerr)
+				logeor(retryReadErr, note)("retrier: read: %s: #%d + (mult? %d %T / c: %d): [%s<=%s]; t: %s; b:%d/%d; err? %v",
+					r.dialerID(), r.retryCount, len(r.dialers), c, r.nextDialerIdx, laddr(c), r.raddr, core.FmtPeriod(r.timeout), n, len(buf), retryReadErr)
 			}
 			if c != nil && core.IsNotNil(c) {
+				// caller might have set read or write deadlines before the retry
 				_ = c.SetReadDeadline(r.readDeadline)
 				_ = c.SetWriteDeadline(r.writeDeadline)
 			}
+			logeor(err, note)("retrier: read: %s: #%d + (mult? %d / %d) [%s<=%s]; t: %s; b: %d/%d; err? %v",
+				r.dialerID(), r.retryCount, len(r.dialers), r.nextDialerIdx, laddr(c), r.raddr, core.FmtPeriod(r.timeout), n, len(buf), err)
 			r.tee = nil // discard teed data
 			return
 		}
-		logeor(err, note)("retrier: read: already retried! [%s<=%s] %d; err? %v", laddr(c), r.raddr, n, err)
+		logeor(err, note)("retrier: read: %s already retried! [%s<=%s]; t: %s; b: %d/%d; err? %v",
+			r.dialerID(), laddr(c), r.raddr, core.FmtPeriod(r.timeout), n, len(buf), err)
 	} // else: just one read is enough; no retry needed
 	return
 }
 
-func (r *retrier) teeSend(b []byte) (n int, didWrite bool, src net.Addr, err error) {
-	r.mutex.Lock()
-	defer r.mutex.Unlock()
+func (r *retrier) teedFirstWrite(b []byte) (n int, firstWrite, didAttemptWrite bool, src net.Addr, err error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	firstWrite = len(r.tee) <= 0
 
 	c := r.conn
 	if c == nil || core.IsNil(c) {
 		err = errNilConn
-		log.E("retrier: send(tee): [] => %s, no conn; sz(%d)", r.raddr, len(b))
+		log.E("retrier: send: %s: tee [] => %s, no conn; sz(%d)",
+			r.dialerID(), r.raddr, len(b))
 		return
 	}
+
 	src = laddr(c)
 	if !r.retryCompleted() { // first write
+		_ = c.SetWriteDeadline(r.writeDeadline)
+
 		n, err = c.Write(b)
+
 		// capture first write, aka "hello"
 		r.tee = append(r.tee, b...)
+		didAttemptWrite = true
 		// all of b was written to r.tee if not to c
 		// require a response or another write within a short timeout.
-		_ = c.SetReadDeadline(time.Now().Add(r.timeout))
-		didWrite = true
+		r.shorterReadDeadlineForRetryLocked()
 	}
+
 	return
+}
+
+func (r *retrier) shorterReadDeadlineForRetryLocked() {
+	c := r.conn
+	if r.timeout > 0 {
+		_ = c.SetReadDeadline(time.Now().Add(r.timeout))
+	} else {
+		// if timeout is set to 0, then use client requested deadline
+		_ = c.SetReadDeadline(r.readDeadline)
+	}
+}
+
+func (r *retrier) readTimeout() time.Duration {
+	if r.timeout > 0 {
+		return r.timeout
+	}
+	if r.readDeadline.IsZero() {
+		// 2501h 59m 59s 25ms: a comfortably high duration in nanos
+		return math.MaxInt64 >> 10
+	}
+	return time.Until(r.readDeadline)
 }
 
 // Write data in b to retrier's underlying conn, r.conn
@@ -381,56 +562,75 @@ func (r *retrier) Write(b []byte) (int, error) {
 	// every packet after retry completes, while also ensuring that r.tee is
 	// empty at steady-state.
 	if !r.retryCompleted() {
-		n, sentAndCopied, src, err := r.teeSend(b)
+		// todo: what if sentAndCopied is false and err != nil?
+		n, first, sentAndCopied, src, err := r.teedFirstWrite(b)
 
 		note := log.D
 		if sentAndCopied {
 			note = log.I
 		}
 
-		logeor(err, note)("retrier: write: first?(%t) [%s=>%s] %d; 1st write-err? %v",
-			sentAndCopied, src, r.raddr, n, err)
+		logeor(err, note)("retrier: write: %s: (first? %t, sent? %t) [%v=>%s]; t: %s; b: %d/%d (tee: %d); write-err? %v",
+			r.dialerID(), first, sentAndCopied, src, r.raddr, core.FmtPeriod(r.timeout), n, len(b), len(r.tee), err)
 
 		if sentAndCopied {
-			// since Write() does not wait for <-retryDoneCh if there are no errors,
+			// if Write() does not wait for <-retryDoneCh in absence of errors,
 			// it is possible that ReadFrom() => copyOnce() is called before retryDoneCh
 			// is closed, resulting in two Write() calls, and r.tee containing buffers
 			// the size of two Writes()
 			if err == nil {
 				return n, nil
-			}
+			} // write failed, wait for retry to complete
 
 			start := time.Now()
 			// write error on the provisional socket should be handled
 			// by the retry procedure. Block until we have a final socket (which will
 			// already have replayed r.tee), and retry.
-			<-r.retryDoneCh
-
-			r.mutex.Lock()
-			elapsed := time.Since(start).Milliseconds()
-			if r.retryErr != nil {
-				r.mutex.Unlock()
-				// r.conn may be nil or closed
-				log.E("retrier: write: retry failed [%s=>%s] in %dms; old => new: %v => %v",
-					laddr(r.conn), r.raddr, elapsed, err, r.retryErr)
-				return n, err // pass on the og error
+			// ie, wait until first write is done on the final socket.
+			until := r.readTimeout()
+			maxUntil := max(until, until*maxRetryCount)
+			if r.multidial {
+				maxUntil = max(maxUntil, maxUntil*time.Duration(len(r.dialers)))
 			}
-			r.mutex.Unlock()
+			select {
+			case <-r.retryDoneCh:
+			case <-time.After(maxUntil): // arb high timeout; it should rarely if ever needed
+				log.W("retrier: write: %s: 1st write timed-out waiting for %s [calc-rtt: %s] 1st read b/w [%s=>%s], mult: %d, b: %d/%d, err: %v",
+					r.dialerID(), core.FmtPeriod(maxUntil), core.FmtPeriod(r.timeout), src, r.raddr, len(r.dialers), n, len(b), err)
+				return n, core.JoinErr(err, errRetryTimeout)
+			}
+
+			r.mu.Lock()
+			defer r.mu.Unlock()
+
+			elapsed := time.Since(start).Milliseconds()
+			// r.conn may be nil or closed by the time we get here
+			finalConn := r.conn
+			noconn := finalConn == nil || core.IsNil(finalConn)
+			if r.retryWriteErr != nil || noconn { // check if retried writes also failed
+				if noconn {
+					err = core.JoinErr(err, errNilConn)
+				}
+				log.E("retrier: write: %s: retry failed [%s=>%s] b: %d/%d (tee: %d) in %dms; old => new: %v => %v; noconn? %t",
+					r.dialerID(), laddr(r.conn), r.raddr, n, len(b), len(r.tee), elapsed, err, r.retryWriteErr, noconn)
+				return n, core.JoinErr(err, r.retryWriteErr) // pass on the og error, too
+			}
 
 			// if len(leftover) > 0 {
 			//	m, err = newConn.Write(leftover)
 			//  return n + m, err
 			// }
 
-			// retry succeeded, nil error
-			// all of b was written to r.tee which was replayed
+			// retry write succeeded, nil error
+			// ie, all of b was written to r.tee which was replayed
 			return len(b), nil
-		} // not sent by teeSend; do a normal write
+		} // not sent by teedFirstWrite; do a normal write
 	}
 
 	// retryCompleted() is true, so r.conn is final and doesn't need locking
-	if c := r.conn; c == nil {
-		log.E("retrier: write: [] => %s, no conn", r.raddr)
+	if c := r.conn; c == nil || core.IsNil(c) {
+		log.E("retrier: write: %s: [] => %s (b: %d, tee: %d), not retrying, but no conn",
+			r.dialerID(), r.raddr, len(b), len(r.tee))
 		return 0, errNilConn
 	} else {
 		return c.Write(b)
@@ -441,36 +641,73 @@ func (r *retrier) Write(b []byte) (int, error) {
 // retries are done; before which reads are delegated to copyOnce.
 func (r *retrier) ReadFrom(reader io.Reader) (bytes int64, err error) {
 	copies := 0
-	for !r.retryCompleted() {
+	// TODO: skip copyOnce if r.multidial set or if strat is SplitNever?
+	for !r.retryCompleted() { // should iter only once
 		b, e := copyOnce(r, reader)
 		copies++
 		bytes += b
-		logeif(err)("retrier: readfrom: copyOnce #%d; sz: %d/%d; err: %v", copies, b, bytes, err)
+		logeif(err)("retrier: readfrom: %s: copyOnce #%d; sz: %d/%d; err: %v",
+			r.dialerID(), copies, b, bytes, err)
 		if e != nil {
 			return bytes, e
 		}
+		// TODO: return after first copyOnce if strat is RetryNever?
 	}
 
-	c := r.conn
+	c := r.conn // reader thread does not need the mutex
 	if c == nil || core.IsNil(c) {
-		log.E("retrier: readfrom: [] <= %s, no conn; after# %d: sz(%d)", r.raddr, copies, bytes)
+		log.E("retrier: readfrom: %s: [] <= %s, no conn; after# %d: sz(%d) tee(%d)",
+			r.dialerID(), r.raddr, copies, bytes, len(r.tee))
 		return bytes, io.ErrUnexpectedEOF
 	}
 
-	// retryCompleted() is true, so r.conn is final and doesn't need locking
-	var b int64
-	b, err = c.ReadFrom(reader)
-	bytes += b
+	pinned := false
+	pinnedID := ""
+	if r.multidial {
+		if ipp := asAddrPort(r.raddr); ipp.IsValid() {
+			// cache the dialer ID for the IP:port pair
+			pinnedID = r.dialerID()
+			ippPins.Put(ipp, pinnedID)
+			pinned = true
+		}
+	}
 
-	logeif(err)("retrier: readfrom: done; sz: %d; err: %v", bytes, err)
+	optimizedReadFrom := true
+	var b int64
+	switch x := c.(type) {
+	case *net.TCPConn:
+		b, err = x.ReadFrom(reader)
+		bytes += b
+	case *splitter:
+		b, err = x.ReadFrom(reader)
+		bytes += b
+	case io.ReaderFrom:
+		b, err = x.ReadFrom(reader)
+		bytes += b
+	default: // net.UDPConn, net.PacketConn etc?
+		optimizedReadFrom = false
+		// read from reader until EOF
+		b, err = core.Stream(c, reader)
+		bytes += b
+	}
+
+	if optimizedReadFrom {
+		// disable read and write deadlines as io.ReaderFrom does not
+		// rely on io.Read and io.Write semantics from which deadlines
+		// are usually extended to avoid timeouts (see also: rwconn.go)
+		r.SetDeadline(time.Time{})
+	}
+
+	logeif(err)("retrier: readfrom: %s: (optimized? %t for %T) done (id: %s, pinned? %t); sz: %d; err: %v",
+		r.dialerID(), optimizedReadFrom, c, pinnedID, pinned, bytes, err)
 	return
 }
 
 // CloseWrite closes r.conn for writes, the write flag.
 func (r *retrier) CloseWrite() error {
 	r.writeDone.Store(true)
-	r.mutex.Lock()
-	defer r.mutex.Unlock()
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	core.CloseOp(r.conn, core.CopW)
 	return nil
 }
@@ -485,8 +722,8 @@ func (r *retrier) Close() error {
 // result of a retry.  However, LocalAddr is largely useless for
 // TCP client sockets anyway, so nothing should be relying on this.
 func (r *retrier) LocalAddr() net.Addr {
-	r.mutex.Lock()
-	defer r.mutex.Unlock()
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	if c := r.conn; c != nil && core.IsNotNil(c) {
 		return c.LocalAddr()
 	}
@@ -501,15 +738,15 @@ func (r *retrier) RemoteAddr() net.Addr {
 // SetReadDeadline sets the read deadline for the connection
 // if the retry is complete, otherwise it does so after the retry.
 func (r *retrier) SetReadDeadline(t time.Time) error {
-	r.mutex.Lock()
-	defer r.mutex.Unlock()
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	r.readDeadline = t
 	// Don't enforce read deadlines until after the retry
 	// is complete. Retry relies on setting its own read
 	// deadline, and we don't want this to interfere.
 	if r.retryCompleted() {
 		if c := r.conn; c != nil && core.IsNotNil(c) {
-			return c.SetWriteDeadline(t)
+			return c.SetReadDeadline(t)
 		}
 		return errNoConn
 	}
@@ -518,8 +755,8 @@ func (r *retrier) SetReadDeadline(t time.Time) error {
 
 // SetWriteDeadline sets the write deadline for the connection.
 func (r *retrier) SetWriteDeadline(t time.Time) error {
-	r.mutex.Lock()
-	defer r.mutex.Unlock()
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	r.writeDeadline = t
 	if c := r.conn; c != nil && core.IsNotNil(c) {
 		return c.SetWriteDeadline(t)

@@ -155,7 +155,7 @@ func NewSocks5Proxy(id string, ctx context.Context, ctl protect.Controller, px P
 	h.via = via
 
 	log.D("proxy: socks5: created %s with clients(%d), opts(%s)",
-		h.ID(), len(clients), po)
+		h.id, len(clients), po)
 
 	return h, nil
 }
@@ -169,7 +169,7 @@ func (h *socks5) swapVia(new Proxy) (old Proxy) {
 }
 
 func (h *socks5) txdial(n, src, dst string) (c net.Conn, err error) {
-	who := h.ID()
+	who := idstr(h)
 	if usevia(h.viaID) {
 		if v, vok := h.via.Get(); vok {
 			who = idstr(v)
@@ -179,7 +179,7 @@ func (h *socks5) txdial(n, src, dst string) (c net.Conn, err error) {
 			if removeViaOnErrors {
 				h.Hop(nil, false /*dryrun*/) // stale; unset
 			}
-			log.W("proxy: socks5: %s via(%s@%s) failing...", h.id, idstr(v), idhandle(v))
+			log.W("proxy: socks5: %s via(%s) failing...", h.id, idhandle(v))
 		}
 	} else {
 		c, err = h.d.DialBind(n, src, dst)
@@ -191,6 +191,11 @@ func (h *socks5) txdial(n, src, dst string) (c net.Conn, err error) {
 // Handle implements Proxy.
 func (h *socks5) Handle() uintptr {
 	return core.Loc(h)
+}
+
+// DialerHandle implements Proxy.
+func (h *socks5) DialerHandle() uintptr {
+	return core.Loc(h.d)
 }
 
 // Dial implements Proxy.
@@ -207,8 +212,8 @@ func (h *socks5) DialBind(network, local, remote string) (c protect.Conn, err er
 
 // todo: bind to local
 func (h *socks5) dial(network, _, remote string) (c protect.Conn, err error) {
-	if h.status.Load() == END {
-		return nil, errProxyStopped
+	if err := candial(h.status); err != nil {
+		return nil, err
 	}
 
 	h.lastdial = time.Now()
@@ -239,13 +244,7 @@ func (h *socks5) dial(network, _, remote string) (c protect.Conn, err error) {
 		log.W("proxy: socks5: %s dial(%s) failed %s => %s: %v",
 			h.ID(), network, h.GetAddr(), remote, err)
 	}
-	if err == nil {
-		log.I("proxy: socks5: %s dial(%s) from %s => %s",
-			h.ID(), network, h.GetAddr(), remote)
-		h.status.Store(TOK)
-	} else {
-		h.status.Store(TKO)
-	}
+	defer localDialStatus(h.status, err)
 	return
 }
 
@@ -254,24 +253,24 @@ func (h *socks5) Dialer() protect.RDialer {
 	return h
 }
 
-// ID implements Proxy.
-func (h *socks5) ID() string {
-	return h.id
+// ID implements x.Proxy.
+func (h *socks5) ID() *x.Gostr {
+	return x.StrOf(h.id)
 }
 
-// Type implements Proxy.
-func (h *socks5) Type() string {
-	return SOCKS5
+// Type implements x.Proxy.
+func (h *socks5) Type() *x.Gostr {
+	return x.StrOf(SOCKS5)
 }
 
-// Router implements Proxy.
+// Router implements x.Proxy.
 func (h *socks5) Router() x.Router {
 	return h
 }
 
 // Reaches implements x.Router.
-func (h *socks5) Reaches(hostportOrIPPortCsv string) bool {
-	return Reaches(h, hostportOrIPPortCsv)
+func (h *socks5) Reaches(hostportOrIPPortCsv *x.Gostr) bool {
+	return Reaches(h, hostportOrIPPortCsv.V())
 }
 
 // Hop implements Proxy.
@@ -279,7 +278,7 @@ func (h *socks5) Hop(p Proxy, dryrun bool) error {
 	if p == nil {
 		if !dryrun {
 			old := h.swapVia(nil)
-			log.I("socks5: hop(%s@%s) removed", idstr(old), idhandle(old))
+			log.I("socks5: hop(%s) removed", idhandle(old))
 		}
 		return nil
 	}
@@ -289,8 +288,7 @@ func (h *socks5) Hop(p Proxy, dryrun bool) error {
 
 	if !dryrun {
 		old := h.swapVia(p)
-		log.I("socks5: hop(%s@%s) => %s@%s",
-			idstr(old), idhandle(old), idstr(p), idhandle(p))
+		log.I("socks5: hop %s => %s", idhandle(old), idhandle(p))
 	}
 	return nil
 }
@@ -303,9 +301,9 @@ func (h *socks5) Via() (x.Proxy, error) {
 	return nil, errNoHop
 }
 
-// GetAddr implements Proxy.
-func (h *socks5) GetAddr() string {
-	return h.opts.IPPort
+// GetAddr implements x.Proxy.
+func (h *socks5) GetAddr() *x.Gostr {
+	return x.StrOf(h.opts.IPPort)
 }
 
 // Status implements Proxy.
@@ -315,6 +313,33 @@ func (h *socks5) Status() int {
 		return TZZ
 	}
 	return s
+}
+
+// Pause implements x.Proxy.
+func (h *socks5) Pause() bool {
+	st := h.status.Load()
+	if st == END {
+		log.W("proxy: socks5: pause called when stopped")
+		return false
+	}
+
+	ok := h.status.Cas(st, TPU)
+	log.I("proxy: socks5: paused? %t", ok)
+	return ok
+}
+
+// Resume implements x.Proxy.
+func (h *socks5) Resume() bool {
+	st := h.status.Load()
+	if st != TPU {
+		log.W("proxy: socks5: resume called when not paused; status %d", st)
+		return false
+	}
+
+	ok := h.status.Cas(st, TUP)
+	go h.Refresh() // no-op since SkipRefresh
+	log.I("proxy: socks5: resumed? %t", ok)
+	return ok
 }
 
 // Stop implements Proxy.
@@ -327,7 +352,7 @@ func (h *socks5) Stop() error {
 
 // OnProtoChange implements Proxy.
 func (h *socks5) OnProtoChange(_ LinkProps) (string, bool) {
-	if h.status.Load() == END {
+	if err := candial(h.status); err != nil {
 		return "", false
 	}
 	return h.opts.FullUrl(), true

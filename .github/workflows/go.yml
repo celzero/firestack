@@ -48,7 +48,7 @@ jobs:
         go install go.uber.org/nilaway/cmd/nilaway@latest
         nilaway ./...
         go install golang.org/x/vuln/cmd/govulncheck@latest
-        govulncheck -test ./...
+        govulncheck -show verbose -test ./...
       shell: bash
 
     - name: 🐍 Python3
@@ -99,9 +99,166 @@ jobs:
         #  WHERE tag = 'DW_TAG_subprogram'
         #  ORDER BY function_size DESC
         #  LIMIT 50;"
+        readelf -l jni/arm64-v8a/*.so
+
+        # from: cs.android.com/android/platform/superproject/main/+/main:system/extras/tools/check_elf_alignment.sh;drc=97bcb31779;l=87
+        RED="\e[31m"
+        GREEN="\e[32m"
+        ENDCOLOR="\e[0m"
+
+        unaligned_libs=()
+
+        echo
+        echo "=== ELF alignment ==="
+
+        matches="$(find jni/ -type f)"
+        IFS=$'\n'
+        for match in $matches; do
+          [[ $(file "${match}") == *"ELF"* ]] || continue
+
+          readelf -l "${match}"
+
+          res="$(objdump -p "${match}" | grep LOAD | awk '{ print $NF }' | head -1)"
+          if [[ $res =~ 2\*\*(1[4-9]|[2-9][0-9]|[1-9][0-9]{2,}) ]]; then
+            echo -e "${match}: ${GREEN}ALIGNED${ENDCOLOR} ($res)"
+          else
+            echo -e "${match}: ${RED}UNALIGNED${ENDCOLOR} ($res)"
+            unaligned_libs+=("${match}")
+          fi
+        done
+
+        if [ ${#unaligned_libs[@]} -gt 0 ]; then
+          echo -e "${RED}Found ${#unaligned_libs[@]} unaligned libs (only arm64-v8a/x86_64 libs need to be aligned).${ENDCOLOR}"
+        elif [ -n "${dir_filename}" ]; then
+          echo -e "ELF Verification Successful"
+        fi
+        echo "====================="
       shell: bash
 
-      # github.com/actions/upload-artifact
+    - name: 🛸 Env
+      run: |
+        # docs.github.com/en/actions/reference/workflows-and-actions/contexts#github-context
+        GROUP_GITHUB="com.github.${{ github.repository_owner }}"
+        GROUP_OSSRH="com.celzero"
+
+        # project artifactId; see: pom.xml
+        ARTIFACT="firestack"
+
+        # Repository
+        REPO_GITHUB="github"
+        # central.sonatype.org/pages/ossrh-eol
+        REPO_OSSRH="ossrh" # or "central"
+
+        # artefact type
+        PACK="${PACK:-aar}"
+
+        # final out from make-aar
+        FOUT="${FOUT:-firestack.aar}"
+        FOUTDBG="${FOUTDBG:-firestack-debug.aar}"
+
+        # artifact classifier
+        CLASSFULL="${CLASSFULL:-full}" # unused
+        CLASSDBG="${CLASSDBG:-debug}"
+
+        # artifact bytecode sources
+        SOURCES="${SOURCES:-build/intra/tun2socks-sources.jar}"
+
+        # 10 chars of the commit SHA
+        VCSVER="${GITHUB_SHA:0:10}"
+
+        # POM for Maven Central
+        POM_OSSRH="ossrhpom.xml"
+
+        echo "GROUP_GITHUB=${GROUP_GITHUB}" >> $GITHUB_ENV
+        echo "GROUP_OSSRH=${GROUP_OSSRH}" >> $GITHUB_ENV
+        echo "ARTIFACT=${ARTIFACT}" >> $GITHUB_ENV
+        echo "REPO_GITHUB=${REPO_GITHUB}" >> $GITHUB_ENV
+        echo "REPO_OSSRH=${REPO_OSSRH}" >> $GITHUB_ENV
+        echo "PACK=${PACK}" >> $GITHUB_ENV
+        echo "FOUT=${FOUT}" >> $GITHUB_ENV
+        echo "FOUTDBG=${FOUTDBG}" >> $GITHUB_ENV
+        echo "CLASSFULL=${CLASSFULL}" >> $GITHUB_ENV
+        echo "CLASSDBG=${CLASSDBG}" >> $GITHUB_ENV
+        echo "SOURCES=${SOURCES}" >> $GITHUB_ENV
+        echo "VCSVER=${VCSVER}" >> $GITHUB_ENV
+        echo "POM_OSSRH=${POM_OSSRH}" >> $GITHUB_ENV
+      shell: bash
+
+    - name: 🏷️ Setup for GitHub Packages
+      uses: actions/setup-java@v4
+      with:
+        java-version: '17'
+        distribution: 'temurin'
+
+    # docs.github.com/en/actions/tutorials/build-and-test-code/java-with-maven
+    # docs.github.com/en/actions/tutorials/publish-packages/publish-java-packages-with-maven#publishing-packages-to-github-packages
+    - name: 📦 Publish
+      shell: bash
+      run: |
+        # uploaded at:
+        # maven.pkg.github.com/celzero/firestack/com/github/celzero/firestack/<commit>/firestack-<commit>.aar
+        # TODO: firestack-debug
+        # github.com/deelaa-marketplace/commons-workflow/blob/637dc111/flows/publish-api.yml#L49
+        # github.com/markocto/cf-octopub/blob/bba2de2c/github/script/action.yaml#L118
+        mvn deploy:deploy-file \
+          -DgroupId="${GROUP_GITHUB}" \
+          -DartifactId="${ARTIFACT}" \
+          -Dversion="${VCSVER}" \
+          -Dpackaging="${PACK}" \
+          -Dfile="${FOUT}" \
+          -DrepositoryId="${REPO_GITHUB}" \
+          -Dsources="${SOURCES}" \
+          -Durl="https://maven.pkg.github.com/${{ github.repository }}"
+      env:
+        GITHUB_ACTOR: ${{ github.actor }}
+        GITHUB_TOKEN: ${{ github.token }}
+
+    # central.sonatype.org/publish/publish-portal-api/#authentication-authorization
+    # github.com/slsa-framework/slsa-github-generator/blob/4876e96b8268/actions/maven/publish/action.yml#L49
+    # docs.github.com/en/actions/tutorials/publish-packages/publish-java-packages-with-maven#publishing-packages-to-the-maven-central-repository-and-github-packages
+    - name: 🏛️ Setup for Maven Central
+      uses: actions/setup-java@v4
+      with:
+        java-version: '17'
+        distribution: 'temurin'
+        server-id: ossrh
+        server-username: MAVEN_USERNAME
+        server-password: MAVEN_PASSWORD
+        gpg-private-key: ${{ secrets.OSSRH_CELZERO_GPG_PRIVATE_KEY }}
+        gpg-passphrase: ${{ secrets.OSSRH_CELZERO_GPG_PASSPHRASE }}
+
+    - name: 📦 Publish to Maven Central
+      shell: bash
+      run: |
+        mvn -f ${POM_OSSRH} versions:set -DnewVersion=${VCSVER} -DgenerateBackupPoms=false
+        # central.sonatype.org/publish/publish-portal-ossrh-staging-api/#getting-started-for-maven-api-like-plugins
+        # github.com/videolan/vlc-android/blob/c393dd0699/buildsystem/maven/deploy-to-mavencentral.sh#L119
+        mvn gpg:sign-and-deploy-file \
+          -DgroupId="${GROUP_OSSRH}" \
+          -DartifactId="${ARTIFACT}" \
+          -Dversion="${VCSVER}" \
+          -Dpackaging="${PACK}" \
+          -Dfile="${FOUT}" \
+          -DrepositoryId="${REPO_OSSRH}" \
+          -DpomFile=${POM_OSSRH} \
+          -Dgpg.keyname=C3F3F4A160BB2CFFB5528699F19CE6642C40085C \
+          -Dsources="${SOURCES}" \
+          -Durl="https://ossrh-staging-api.central.sonatype.com/service/local/staging/deploy/maven2/"
+
+        # central.sonatype.org/publish/publish-portal-api/#authentication-authorization
+        tok=$(printf "${MAVEN_USERNAME}:${MAVEN_PASSWORD}" | base64)
+        # central.sonatype.org/publish/publish-portal-ossrh-staging-api/#1-modify-your-ci-script
+        # central.sonatype.org/publish/publish-portal-ossrh-staging-api/#post-to-manualuploaddefaultrepositorynamespace
+        # auth required for publishing_type=automatic
+        curl -D - -X POST -H "Authorization: Bearer ${tok}" \
+          "https://ossrh-staging-api.central.sonatype.com/manual/upload/defaultRepository/${GROUP_OSSRH}?publishing_type=automatic"
+      env:
+          MAVEN_USERNAME: ${{ secrets.OSSRH_USERNAME }}
+          MAVEN_PASSWORD: ${{ secrets.OSSRH_TOKEN }}
+          MAVEN_NS: ${{ secrets.OSSRH_CELZERO_NAMESPACE }}
+          MAVEN_GPG_PASSPHRASE: ${{ secrets.OSSRH_CELZERO_GPG_PASSPHRASE }}
+
+        # github.com/actions/upload-artifact
     - name: 🚀 Upload
       uses: actions/upload-artifact@v4
       if: success()

@@ -179,7 +179,7 @@ func (h *socks5) ID() string {
 
 func (h *socks5) GetAddr() string {
 	if px := h.hdl.px.Load(); px != nil && core.IsNotNil(px) {
-		return px.GetAddr()
+		return px.GetAddr().V()
 	}
 	return h.url
 }
@@ -232,21 +232,26 @@ func (h *socks5) dial(network, src, dst string) (cid string, conn net.Conn, err 
 
 func (h *socks5) pid() (x string) {
 	if px := h.hdl.px.Load(); px != nil && core.IsNotNil(px) {
-		x = px.ID()
+		x = px.ID().V()
 	}
 	return
 }
 
-func (h *socks5) route(network, src, dst string) *Tab {
-	return h.listener.Route(h.id, h.pid(), network, src, dst)
+func (h *socks5) route(network, src, dst string) *x.Tab {
+	return h.listener.SvcRoute(h.id, h.pid(), network, src, dst)
 }
 
 func (h *socks5) candial() error {
 	if h.Status() != END {
 		return errProxyEnd // no
 	}
-	if px := h.hdl.px.Load(); px != nil && core.IsNotNil(px) && px.Status() == ipn.END {
-		return errProxyEnd // no
+	if px := h.hdl.px.Load(); px != nil && core.IsNotNil(px) {
+		st := px.Status()
+		if st == ipn.END {
+			return errProxyEnd // no
+		} else if st == ipn.TPU {
+			return errProxyPaused // no
+		} // fallthrough
 	}
 	return nil // yes
 }
@@ -260,7 +265,7 @@ func (h *socks5) setDeadline(c net.Conn, secs int) error {
 }
 
 type pipefin struct {
-	ex  int   // bytes exchanged
+	ex  int64 // bytes exchanged
 	err error // error, if any
 }
 
@@ -272,7 +277,7 @@ func (h *socks5) pipe(r, w net.Conn, finch chan<- pipefin) {
 		*bptr = bf
 		core.Recycle(bptr)
 	}()
-	ex := 0
+	ex := int64(0)
 	laddr := r.LocalAddr()
 	raddr := w.RemoteAddr()
 	for {
@@ -281,7 +286,7 @@ func (h *socks5) pipe(r, w net.Conn, finch chan<- pipefin) {
 			break
 		}
 		n, err := r.Read(bf[:])
-		ex += n
+		ex += int64(n)
 		if err != nil {
 			log.E("svcsocks5: tcp: %s; read %s; err: %v", h.ID(), laddr, err)
 			finch <- pipefin{ex, err}
@@ -304,10 +309,10 @@ func (h *socks5) tcphandle(s *tx.Server, ingress *net.TCPConn, r *tx.Request) (e
 		var cid string
 		var egress *net.TCPConn
 		cid, egress, err = h.Connect(r, ingress)
-		summary := serverSummary(h.Type(), h.ID(), h.pid(), cid)
+		ssu := serverSummary(h.Type(), h.ID(), h.pid(), cid)
 		defer func() {
-			summary.done(err)
-			go h.listener.OnComplete(summary)
+			ssu.done(err)
+			go h.listener.OnSvcComplete(ssu.ServerSummary)
 		}()
 
 		log.D("svcsocks5: proxy-tcp: %s; socks5-connect %s", cid, r.Address())
@@ -329,8 +334,8 @@ func (h *socks5) tcphandle(s *tx.Server, ingress *net.TCPConn, r *tx.Request) (e
 
 		err = core.JoinErr(finrx.err, fintx.err)
 
-		summary.Rx = finrx.ex
-		summary.Tx = fintx.ex
+		ssu.Rx = finrx.ex
+		ssu.Tx = fintx.ex
 
 		return err
 	}
@@ -386,7 +391,7 @@ func (h *socks5) udphandle(s *tx.Server, addr *net.UDPAddr, pkt *tx.Datagram) (e
 			// writing to egress conn
 			n, werr := egress.RemoteConn.Write(data)
 			if ssu != nil {
-				ssu.Tx += n
+				ssu.Tx += int64(n)
 			}
 			log.D("svcsocks5: udp: %s; data sent; (err: %v / summary? %t)? client: %s server: %s remote: %s sz: %d", cid, werr, ssu != nil, uecaddr, ueladdr, ueraddr, n)
 			if werr != nil {
@@ -409,7 +414,7 @@ func (h *socks5) udphandle(s *tx.Server, addr *net.UDPAddr, pkt *tx.Datagram) (e
 	ssu := serverSummary(h.Type(), h.ID(), h.pid(), cid)
 	defer func() {
 		ssu.done(err)
-		go h.listener.OnComplete(ssu)
+		go h.listener.OnSvcComplete(ssu.ServerSummary)
 	}()
 
 	log.D("svcsocks5: udp: %s; dst %s", cid, dst)
@@ -473,7 +478,7 @@ func (h *socks5) udphandle(s *tx.Server, addr *net.UDPAddr, pkt *tx.Datagram) (e
 					log.E("svcsocks5: udp: %s; read err: %v", cid, err)
 					return
 				}
-				ssu.Rx += n
+				ssu.Rx += int64(n)
 				log.D("svcsocks5: udp: %s; got data; client: %s server: %s remote: %s data: %d", cid, uecaddr, ueladdr, ueraddr, n)
 				a, addr, port, err := tx.ParseAddress(dst)
 				if err != nil {

@@ -14,19 +14,17 @@
 package wg
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"net"
 	"net/netip"
-	"strconv"
 	"sync"
 	"syscall"
 
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/ipn/multihost"
 	"github.com/celzero/firestack/intra/log"
-	"github.com/celzero/firestack/intra/protect"
+	"github.com/celzero/firestack/intra/settings"
 	"golang.org/x/net/ipv4"
 	"golang.org/x/net/ipv6"
 	"golang.zx2c4.com/wireguard/conn"
@@ -41,10 +39,11 @@ import (
 type StdNetBind2 struct {
 	mu       sync.Mutex // protects following fields
 	id       string
-	ctl      protect.Controller
+	connect  connector
 	observer rwobserver
-	sendAddr *core.Volatile[netip.AddrPort] // may be invalid
-	mh       *multihost.MH
+	sendAddr *core.Volatile[netip.AddrPort]   // may be invalid
+	pm       *core.Volatile[*multihost.MHMap] // peer ip:port or host => preferred-addrs
+	amnezia  *core.Volatile[*Amnezia]         // unused; amnezia/warp config, if any
 
 	ipv4 *net.UDPConn
 	ipv6 *net.UDPConn
@@ -113,20 +112,23 @@ var (
 	_ conn.Endpoint = &StdNetEndpoint2{}
 )
 
+var errSplitOverflow = errors.New("wg: splitting coalesced packet resulted in overflow")
+
 func (e ErrUDPGSODisabled) Error() string {
-	return fmt.Sprintf("disabled UDP GSO on %s, NIC(s) may not support checksum offload", e.onLaddr)
+	return fmt.Sprintf("disabled udp gso on %s, NIC(s) may not support checksum offload", e.onLaddr)
 }
 
 func (e ErrUDPGSODisabled) Unwrap() error {
 	return e.RetryErr
 }
 
-func NewEndpoint2(id string, ctl protect.Controller, ep *multihost.MH, f rwobserver) *StdNetBind2 {
+func NewEndpoint2(id string, d connector, pm *core.Volatile[*multihost.MHMap], f rwobserver, a *core.Volatile[*Amnezia]) *StdNetBind2 {
 	return &StdNetBind2{
 		id:       id,
-		ctl:      ctl,
+		connect:  d,
 		observer: f,
-		mh:       ep,
+		pm:       pm,
+		amnezia:  a,
 
 		udpAddrPool: sync.Pool{
 			New: func() any {
@@ -154,7 +156,6 @@ func NewEndpoint2(id string, ctl protect.Controller, ep *multihost.MH, f rwobser
 }
 
 func (e *StdNetBind2) ParseEndpoint(s string) (conn.Endpoint, error) {
-	d := e.mh
 	/*host, portstr, err := net.SplitHostPort(s)
 	if err != nil {
 		log.E("wg: bind2: %s invalid endpoint in(%s); err: %v", e.id, s, err)
@@ -165,12 +166,18 @@ func (e *StdNetBind2) ParseEndpoint(s string) (conn.Endpoint, error) {
 		log.E("wg: bind2: %s invalid port in(%s); err: %v", e.id, s, err)
 		return nil, err
 	}*/
+	// d.Add([]string{host}) // resolves host if needed
+	d, err := e.pm.Load().Get(s)
+	if err != nil || d == nil /*nilaway; can't happen*/ {
+		log.E("wg: bind2: %s parse: invalid endpoint in(%s); err: %v", e.id, s, err)
+		return nil, err
+	}
+
 	// do what tailscale does, and share a preferred endpoint regardless of "s"
 	// github.com/tailscale/tailscale/blob/3a6d3f1a5b7/wgengine/magicsock/magicsock.go#L2568
-	// d.Add([]string{host}) // resolves host if needed
 	ipport := d.PreferredAddr()
 	if !ipport.IsValid() || ipport.Addr().IsUnspecified() {
-		log.E("wg: bind2: %s invalid endpoint addr %v in(%s); out(%s, %s)", e.id, ipport, s, d.Names(), d.Addrs())
+		log.E("wg: bind2: %s parse: invalid endpoint addr %v in(%s); out(%s, %s)", e.id, ipport, s, d.Names(), d.Addrs())
 		// erroring out from here prevents PostConfig (handshake for this peer endpoint will always be zero)
 		// github.com/WireGuard/wireguard-go/blob/12269c276173/device/uapi.go#L183
 		return nil, errInvalidEndpoint
@@ -207,36 +214,49 @@ func (s *StdNetBind2) RemoteAddr() netip.AddrPort {
 }
 
 func (s *StdNetBind2) listenNet(network string, port int) (*net.UDPConn, int, error) {
-	lc := protect.MakeNsListenConfigExt(s.id, s.ctl, controlFns)
-	saddr := ":" + strconv.Itoa(port) // wildcard address
-	c, err := lc.ListenPacket(context.Background(), network, saddr)
+	var anyaddr netip.Addr
+	if network == "udp4" {
+		anyaddr = netip.IPv4Unspecified()
+	} else {
+		anyaddr = netip.IPv6Unspecified()
+	}
+	saddr := net.JoinHostPort(anyaddr.String(), fmt.Sprintf("%d", port))
+
+	conn, err := s.connect(network, saddr)
 	if err != nil {
 		log.E("wg: bind2: %s %s: listen(%v); err: %v", s.id, network, saddr, err)
 		return nil, 0, err
 	}
-	if c == nil || core.IsNil(c) {
+	if conn == nil {
 		log.E("wg: bind2: %s %s: listen(%v); conn nil", s.id, network, saddr)
 		return nil, 0, errNoListen
 	}
 
-	caddr := c.LocalAddr()
-	if caddr == nil {
+	laddr := conn.LocalAddr()
+	if laddr == nil {
 		log.E("wg: bind2: %s %s: listen(%v); local-addr nil", s.id, network, saddr)
 		return nil, 0, errNoLocalAddr
 	}
-	src, err := net.ResolveUDPAddr(caddr.Network(), caddr.String())
+	uaddr, err := net.ResolveUDPAddr(
+		laddr.Network(),
+		laddr.String(),
+	)
 	if err != nil {
+		log.E("wg: bind2: %s %s: listen(%v); resolve-addr err: %v", s.id, network, saddr, err)
 		return nil, 0, err
 	}
-	if src == nil {
+	if uaddr == nil {
+		log.E("wg: bind2: %s %s: listen(%v); resolve-addr nil", s.id, network, saddr)
 		return nil, 0, errNoLocalAddr
 	}
-	log.D("wg: bind2: %s %s: listen(%v)", s.id, network, caddr)
-	// typecast is safe; see Open
-	if udpconn, ok := c.(*net.UDPConn); ok {
-		return udpconn, src.Port, nil
+	if settings.Debug {
+		log.VV("wg: bind2: %s %s: listen(%v)", s.id, network, laddr)
+	}
+	// typecast is safe, because "network" is always udp[4|6]; see: Open
+	if udpconn, ok := conn.(*net.UDPConn); ok {
+		return udpconn, uaddr.Port, nil
 	} else {
-		clos(c)
+		clos(conn)
 		return nil, 0, errNotUDP
 	}
 }
@@ -322,7 +342,7 @@ func (s *StdNetBind2) receiveIP(
 	eps []conn.Endpoint,
 ) (n int, err error) {
 	defer func() {
-		s.observer("r", err)
+		s.observer(Rcv, err)
 	}()
 
 	if conn == nil && br == nil {
@@ -348,34 +368,36 @@ func (s *StdNetBind2) receiveIP(
 		msg.OOB = msg.OOB[:cap(msg.OOB)]
 	}
 
+	batch := false
 	var numMsgs int
 	if br != nil {
 		if rxOffload {
 			readAt := len(*msgs) - (IdealBatchSize / udpSegmentMaxDatagrams)
 			numMsgs, err = br.ReadBatch((*msgs)[readAt:], 0)
 			waddr := msgAddr(msgs)
-			loge(err)("wg: bind2: %s GRO: readAt(%d) addr(%v) numMsgs(%d) err(%v)", s.id, readAt, waddr, numMsgs, err)
 			if err != nil {
+				log.E("wg: bind2: %s GRO: readAt(%d) addr(%v) numMsgs(%d) err(%v)", s.id, readAt, waddr, numMsgs, err)
 				return 0, err
 			}
 
 			numMsgs, err = splitCoalescedMessages(*msgs, readAt, getGSOSize)
-			loge(err)("wg: bind2: %s GRO: splitCoalescedMessages(at: %d; from: %v) numMsgs(%d) err(%v)", s.id, readAt, waddr, numMsgs, err)
 			if err != nil {
+				log.E("wg: bind2: %s GRO: splitCoalescedMessages(at: %d; from: %v) numMsgs(%d) err(%v)", s.id, readAt, waddr, numMsgs, err)
 				return 0, err
 			}
 		} else {
+			batch = true
 			numMsgs, err = br.ReadBatch(*msgs, 0)
-			loge(err)("wg: bind2: %s ReadBatch(sz: %d; from: %s) numMsgs(%d) err(%v)", s.id, len(*msgs), msgAddr(msgs), numMsgs, err)
 			if err != nil {
+				log.E("wg: bind2: %s ReadBatch(sz: %d; from: %s) numMsgs(%d) err(%v)", s.id, len(*msgs), msgAddr(msgs), numMsgs, err)
 				return 0, err
 			}
 		}
 	} else {
 		msg := &(*msgs)[0]
 		msg.N, msg.NN, _, msg.Addr, err = conn.ReadMsgUDP(msg.Buffers[0], msg.OOB)
-		loge(err)("wg: bind2: %s ReadMsgUDP(sz: %d; from: %v) err(%v)", s.id, msg.N, msg.Addr, err)
 		if err != nil {
+			log.E("wg: bind2: %s ReadMsgUDP(sz: %d; from: %v) err(%v)", s.id, msg.N, msg.Addr, err)
 			return 0, err
 		}
 		numMsgs = 1
@@ -384,7 +406,7 @@ func (s *StdNetBind2) receiveIP(
 	for i := 0; i < numMsgs; i++ {
 		msg := &(*msgs)[i]
 		sizes[i] = msg.N
-		if sizes[i] == 0 {
+		if sizes[i] == 0 && settings.Debug {
 			log.V("wg: bind2: %s zero-sized message from %v", s.id, msg.Addr)
 			continue
 		}
@@ -397,7 +419,9 @@ func (s *StdNetBind2) receiveIP(
 		getSrcFromControl(msg.OOB[:msg.NN], ep)            // no-op on Android
 		eps[i] = ep
 	}
-	log.D("wg: bind2: %s received %d messages", s.id, numMsgs)
+	if settings.Debug {
+		log.VV("wg: bind2: %s received (batch? %t, offload? %t) %d messages", s.id, batch, rxOffload, numMsgs)
+	}
 	return numMsgs, nil
 }
 
@@ -463,6 +487,29 @@ func (s *StdNetBind2) BatchSize() int {
 	return 1
 }
 
+func (s *StdNetBind2) Pause() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.blackhole4 = true
+	s.blackhole6 = true
+
+	log.I("wg: bind2: %s pausing... v4? %t, v6? %t", s.id, s.ipv4 != nil, s.ipv6 != nil)
+	return true
+}
+
+func (s *StdNetBind2) Resume() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.blackhole4 = false
+	s.blackhole6 = false
+
+	log.I("wg: bind2: %s resuming... v4? %t, v6? %t", s.id, s.ipv4 != nil, s.ipv6 != nil)
+
+	return true
+}
+
 func (s *StdNetBind2) Close() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -495,9 +542,9 @@ func (s *StdNetBind2) Send(bufs [][]byte, peer conn.Endpoint) (err error) {
 	defer func() {
 		target := &ErrUDPGSODisabled{}
 		if errors.As(err, target) {
-			s.observer("w", target.Unwrap())
+			s.observer(Snd, target.Unwrap())
 		} else {
-			s.observer("w", err)
+			s.observer(Snd, err)
 		}
 	}()
 
@@ -553,8 +600,9 @@ retry:
 	if offload {
 		n := coalesceMessages(ua, ep, bufs, *msgs, setGSOSize)
 		// send coalesced msgs; ie, len(*msgs) <= len(bufs)
-		err = s.send(c, br, (*msgs)[:n])
-		loge(err)("wg: bind2: %s GSO: send(%d/%d) to %s; err(%v)", s.id, n, len(bufs), ua, err)
+		if err = s.send(c, br, (*msgs)[:n], "gso"); err != nil {
+			log.E("wg: bind2: %s gso: send(%d/%d) to %s; err(%v)", s.id, n, len(bufs), ua, err)
+		}
 
 		if shouldDisableUDPGSOOnError(err) { // err may be nil
 			offload = false
@@ -566,7 +614,7 @@ retry:
 			}
 			s.mu.Unlock()
 			retried = true
-			log.I("wg: bind2: %s GSO: disabled on %s / v4? %t; err %v", s.id, ua, !is6, err)
+			log.E("wg: bind2: %s gso: disabled on %s / v4? %t; err %v", s.id, ua, !is6, err)
 			goto retry
 		}
 	} else {
@@ -578,24 +626,26 @@ retry:
 			setSrcControl(&msg.OOB, ep) // no-op on Android
 		}
 		// send all msgs
-		err = s.send(c, br, (*msgs)[:len(bufs)])
-		loge(err)("wg: bind2: %s send(%d) to %s (retry? %t); err(%v)", s.id, len(bufs), ua, retried, err)
+		if err = s.send(c, br, (*msgs)[:len(bufs)], "batch"); err != nil {
+			log.E("wg: bind2: %s gso: send(%d) to %s (retry? %t); err(%v)", s.id, len(bufs), ua, retried, err)
+		}
 	}
 	if retried {
 		x := zeroaddr
 		if a := c.LocalAddr(); a != nil {
 			x = a
 		}
-		log.W("wg: bind2: %s disabled UDP GSO on %s; err %v", s.id, x, err)
+		log.W("wg: bind2: %s disabled udp gso on %s; err %v", s.id, x, err)
 		return ErrUDPGSODisabled{onLaddr: x.String(), RetryErr: err}
 	}
 	return err
 }
 
-func (s *StdNetBind2) send(conn *net.UDPConn, pc batchWriter, msgs []ipv6.Message) (err error) {
+func (s *StdNetBind2) send(conn *net.UDPConn, pc batchWriter, msgs []ipv6.Message, who string) (err error) {
 	var n, start int
 
-	if pc != nil && core.IsNotNil(pc) {
+	batch := pc != nil && core.IsNotNil(pc)
+	if batch {
 		for {
 			n, err = pc.WriteBatch(msgs[start:], 0)
 			if err != nil || n == len(msgs[start:]) {
@@ -607,17 +657,22 @@ func (s *StdNetBind2) send(conn *net.UDPConn, pc batchWriter, msgs []ipv6.Messag
 		for _, msg := range msgs {
 			addr, ok := msg.Addr.(*net.UDPAddr)
 			if !ok { // unlikely
-				log.E("wg: bind2: %s wrong addr type %s %T", s.id, msg.Addr, msg.Addr)
+				log.E("wg: bind2: %s send: %s wrong addr type %s %T", s.id, who, msg.Addr, msg.Addr)
 				continue
 			}
 			_, _, err = conn.WriteMsgUDP(msg.Buffers[0], msg.OOB, addr)
 			if err != nil {
-				log.E("wg: bind2: %s send: to %v; err %v", s.id, addr, err)
+				log.E("wg: bind2: %s send: %s to %v; err %v", s.id, who, addr, err)
 				break
 			}
+			n += 1
 		}
 	}
-	loge(err)("wg: bind2: %s send: n(%d); err? %v", s.id, n, err)
+	if err != nil {
+		log.E("wg: bind2: %s send: %s batch? %t; n(%d); err? %v", s.id, who, batch, n, err)
+	} else {
+		log.V("wg: bind2: %s send: %s batch? %t; n(%d); err? %v", s.id, who, batch, n, err)
+	}
 	return err
 }
 
@@ -710,7 +765,7 @@ func splitCoalescedMessages(msgs []ipv6.Message, firstMsgAt int, getGSO getGSOFu
 		}
 		for j := 0; j < numToSplit; j++ {
 			if n > i {
-				return n, errors.New("splitting coalesced packet resulted in overflow")
+				return n, errSplitOverflow
 			}
 			copied := copy(msgs[n].Buffers[0], msg.Buffers[0][start:end])
 			msgs[n].N = copied

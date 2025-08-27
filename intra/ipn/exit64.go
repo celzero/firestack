@@ -8,7 +8,6 @@ package ipn
 
 import (
 	"context"
-	"math/rand"
 	"net"
 	"net/netip"
 	"time"
@@ -16,7 +15,7 @@ import (
 	x "github.com/celzero/firestack/intra/backend"
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/dialers"
-	"github.com/celzero/firestack/intra/ipn/warp"
+	"github.com/celzero/firestack/intra/ipn/rpn"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
 )
@@ -34,9 +33,9 @@ type exit64 struct {
 	SkipRefresh
 	GWNoVia
 
-	warp.RpnForever
-	warp.RpnStateless
-	warp.RpnCountryless
+	rpn.RpnForever
+	rpn.RpnStateless
+	rpn.RpnCountryless
 
 	outbound *protect.RDial // outbound dialer
 	addr     string
@@ -66,6 +65,11 @@ func (h *exit64) Handle() uintptr {
 	return core.Loc(h)
 }
 
+// DialerHandle implements Proxy.
+func (h *exit64) DialerHandle() uintptr {
+	return core.Loc(h.outbound)
+}
+
 // Dial implements Proxy.
 func (h *exit64) Dial(network, addr string) (protect.Conn, error) {
 	return h.dial(network, "", addr)
@@ -77,8 +81,8 @@ func (h *exit64) DialBind(network, local, remote string) (protect.Conn, error) {
 }
 
 func (h *exit64) dial(network, local, remote string) (protect.Conn, error) {
-	if h.status.Load() == END {
-		return nil, errProxyStopped
+	if err := candial(h.status); err != nil {
+		return nil, err
 	}
 
 	addr64 := addr4to6(remote)
@@ -91,17 +95,17 @@ func (h *exit64) dial(network, local, remote string) (protect.Conn, error) {
 	c, err := localDialStrat(h.outbound, network, local64, addr64)
 	defer localDialStatus(h.status, err)
 
-	maybeKeepAlive(c)
-	log.I("proxy: exit64: dial(%s) %s via %s to %s; err? %v",
-		network, local64, remote, addr64, err)
+	kaenabled := maybeKeepAlive(c)
+	log.I("proxy: exit64: dial(%s) %s via %s to %s, ka? %t; err? %v",
+		network, local64, remote, addr64, kaenabled, err)
 
 	return c, err
 }
 
 // Announce implements Proxy.
 func (h *exit64) Announce(network, local string) (protect.PacketConn, error) {
-	if h.status.Load() == END {
-		return nil, errProxyStopped
+	if err := candial(h.status); err != nil {
+		return nil, err
 	}
 	var local64 string
 	if ipp, _ := netip.ParseAddrPort(local); ipp.IsValid() {
@@ -124,8 +128,8 @@ func (h *exit64) Announce(network, local string) (protect.PacketConn, error) {
 
 // Accept implements Proxy.
 func (h *exit64) Accept(network, local string) (protect.Listener, error) {
-	if h.status.Load() == END {
-		return nil, errProxyStopped
+	if err := candial(h.status); err != nil {
+		return nil, err
 	}
 	var local64 string
 	if ipp, _ := netip.ParseAddrPort(local); ipp.IsValid() {
@@ -148,8 +152,8 @@ func (h *exit64) Accept(network, local string) (protect.Listener, error) {
 
 // Probe implements Proxy.
 func (h *exit64) Probe(network, local string) (protect.PacketConn, error) {
-	if h.status.Load() == END {
-		return nil, errProxyStopped
+	if err := candial(h.status); err != nil {
+		return nil, err
 	}
 	var local64 string
 	if ipp, _ := netip.ParseAddrPort(local); ipp.IsValid() {
@@ -176,13 +180,13 @@ func (h *exit64) Dialer() protect.RDialer {
 }
 
 // ID implements Proxy.
-func (h *exit64) ID() string {
-	return Rpn64
+func (h *exit64) ID() *x.Gostr {
+	return x.StrOf(Rpn64)
 }
 
 // Type implements Proxy.
-func (h *exit64) Type() string {
-	return INTERNET
+func (h *exit64) Type() *x.Gostr {
+	return x.StrOf(INTERNET)
 }
 
 // Router implements Proxy.
@@ -191,18 +195,45 @@ func (h *exit64) Router() x.Router {
 }
 
 // Reaches implements x.Router.
-func (h *exit64) Reaches(hostportOrIPPortCsv string) bool {
-	return Reaches(h, hostportOrIPPortCsv)
+func (h *exit64) Reaches(hostportOrIPPortCsv *x.Gostr) bool {
+	return Reaches(h, hostportOrIPPortCsv.V())
 }
 
 // GetAddr implements Proxy.
-func (h *exit64) GetAddr() string {
-	return h.addr
+func (h *exit64) GetAddr() *x.Gostr {
+	return x.StrOf(h.addr)
 }
 
 // Status implements Proxy.
 func (h *exit64) Status() int {
 	return h.status.Load()
+}
+
+// Since implements x.Proxy.
+func (h *exit64) Pause() bool {
+	st := h.status.Load()
+	if st == END {
+		log.W("proxy: exit64: pause called when stopped")
+		return false
+	}
+
+	ok := h.status.Cas(st, TPU)
+	log.I("proxy: exit64: paused? %t", ok)
+	return ok
+}
+
+// Resume implements x.Proxy.
+func (h *exit64) Resume() bool {
+	st := h.status.Load()
+	if st != TPU {
+		log.W("proxy: exit64: resume called when not paused; status %d", st)
+		return false
+	}
+
+	ok := h.status.Cas(st, TUP)
+	go h.Refresh() // no-op since SkipRefresh
+	log.I("proxy: exit64: resumed? %t", ok)
+	return ok
 }
 
 // Stop implements Proxy.
@@ -214,8 +245,8 @@ func (h *exit64) Stop() error {
 }
 
 // Who implements x.RpnAcc.
-func (h *exit64) Who() string {
-	return Rpn64
+func (h *exit64) Who() *x.Gostr {
+	return x.StrOf(Rpn64)
 }
 
 // Provider implements RpnAcc.
@@ -251,7 +282,7 @@ func addr4to6(addr string) string {
 		return ""
 	}
 	// embed IPv4 in IPv6
-	ippre := warp.Net6to4[rand.Intn(len(warp.Net6to4))]
+	ippre := core.ChooseOne(rpn.Net6to4)
 	ip6 := ip4to6(ippre, ip4)
 	if !ip6.IsValid() {
 		log.W("proxy: auto: exit64: addr64: failed to embed(%s) in v6(%s)", ip4, ippre)

@@ -164,7 +164,11 @@ type fakeResolver struct {
 	*net.Resolver
 }
 
-func (r fakeResolver) Lookup([]byte) ([]byte, error) {
+func (r fakeResolver) Lookup([]byte, ...string) ([]byte, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (r fakeResolver) LookupFor([]byte, string) ([]byte, error) {
 	return nil, errors.New("not implemented")
 }
 

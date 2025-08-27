@@ -37,9 +37,9 @@ type fakeObs struct {
 	x.ProxyListener
 }
 
-func (*fakeObs) OnProxyAdded(string)   {}
-func (*fakeObs) OnProxyRemoved(string) {}
-func (*fakeObs) OnProxiesStopped()     {}
+func (*fakeObs) OnProxyAdded(*x.Gostr)   {}
+func (*fakeObs) OnProxyRemoved(*x.Gostr) {}
+func (*fakeObs) OnProxiesStopped()       {}
 
 /*
 type fakeBdg struct {
@@ -67,7 +67,11 @@ type fakeResolver struct {
 	*net.Resolver
 }
 
-func (r fakeResolver) Lookup([]byte) ([]byte, error) {
+func (r fakeResolver) Lookup([]byte, ...string) ([]byte, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (r fakeResolver) LookupFor([]byte, string) ([]byte, error) {
 	return nil, errors.New("not implemented")
 }
 

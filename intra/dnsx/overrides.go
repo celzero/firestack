@@ -32,7 +32,7 @@ func (h *resolver) isDns(ipp netip.AddrPort) bool {
 		log.E("dnsx: missing dst-addr(%v) or dns(%v)", ipp, h.dnsaddrs)
 		return false
 	}
-	dnsmode := h.tunmode.DNSMode.Load()
+	dnsmode := settings.DNSMode.Load()
 	if dnsmode == settings.DNSModeIP {
 		if yes := h.isDnsIpPort(ipp); yes {
 			return true

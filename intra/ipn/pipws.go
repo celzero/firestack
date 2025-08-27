@@ -73,7 +73,7 @@ func (c *pipwsconn) CloseWrite() error { return c.Close() }
 // connects to the ws proxy at addr over tcp; used by t.client
 // dial is aware of proto changes via dialers.SplitDial
 func (t *pipws) dial(network, addr string) (c net.Conn, err error) {
-	who := t.ID()
+	who := idstr(t)
 	if usevia(t.viaID) {
 		if v, vok := t.via.Get(); vok { // dial via another proxy
 			who = idstr(v)
@@ -83,7 +83,7 @@ func (t *pipws) dial(network, addr string) (c net.Conn, err error) {
 			if removeViaOnErrors {
 				t.Hop(nil, false /*dryrun*/) // stale; unset
 			}
-			log.W("pipws: via(%s@%s) failing...", idstr(v), idhandle(v))
+			log.W("pipws: via(%s) failing...", idhandle(v))
 		}
 	} else {
 		if settings.Loopingback.Load() { // no split in loopback (rinr) mode
@@ -260,36 +260,36 @@ func (t *pipws) h2(cfg *tls.Config) *http.Transport {
 }
 
 func (t *pipws) viafor() *Proxy {
-	return viafor(t.ID(), t.viaID.Load(), t.px)
+	return viafor(idstr(t), t.viaID.Load(), t.px)
 }
 
 func (t *pipws) swapVia(new Proxy) Proxy {
-	return swapVia(t.ID(), new, t.viaID, t.via)
+	return swapVia(idstr(t), new, t.viaID, t.via)
 }
 
-// ID implements Proxy.
-func (t *pipws) ID() string {
-	return RpnWs
+// ID implements x.Proxy.
+func (t *pipws) ID() *x.Gostr {
+	return x.StrOf(RpnWs)
 }
 
-// Type implements Proxy.
-func (t *pipws) Type() string {
-	return PIPWS
+// Type implements x.Proxy.
+func (t *pipws) Type() *x.Gostr {
+	return x.StrOf(PIPWS)
 }
 
-// GetAddr implements Proxy.
-func (t *pipws) GetAddr() string {
-	return t.hostname + ":" + strconv.Itoa(t.port)
+// GetAddr implements x.Proxy.
+func (t *pipws) GetAddr() *x.Gostr {
+	return x.StrOf(t.hostname + ":" + strconv.Itoa(t.port))
 }
 
-// Router implements Proxy.
+// Router implements x.Proxy.
 func (t *pipws) Router() x.Router {
 	return t
 }
 
 // Reaches implements x.Router.
-func (t *pipws) Reaches(hostportOrIPPortCsv string) bool {
-	return Reaches(t, hostportOrIPPortCsv)
+func (t *pipws) Reaches(hostportOrIPPortCsv *x.Gostr) bool {
+	return Reaches(t, hostportOrIPPortCsv.V())
 }
 
 // Hop implements Proxy.
@@ -297,7 +297,7 @@ func (h *pipws) Hop(p Proxy, dryrun bool) error {
 	if p == nil {
 		if !dryrun {
 			old := h.swapVia(nil)
-			log.I("pipws: hop(%s@%s) removed", idstr(old), idhandle(old))
+			log.I("pipws: hop(%s) removed", idhandle(old))
 		}
 		return nil
 	}
@@ -307,8 +307,7 @@ func (h *pipws) Hop(p Proxy, dryrun bool) error {
 
 	if !dryrun {
 		old := h.swapVia(p)
-		log.I("pipws: hop(%s@%s) => %s",
-			idstr(old), idhandle(old), idstr(p), idhandle(p))
+		log.I("pipws: hop %s => %s", idhandle(old), idhandle(p))
 	}
 	return nil
 }
@@ -321,6 +320,7 @@ func (h *pipws) Via() (x.Proxy, error) {
 	return nil, errNoHop
 }
 
+// Stop implements x.Proxy.
 func (t *pipws) Stop() error {
 	t.status.Store(END)
 	t.done()
@@ -337,6 +337,34 @@ func (t *pipws) Status() int {
 	return s
 }
 
+// Pause implements x.Proxy.
+func (h *pipws) Pause() bool {
+	st := h.status.Load()
+	if st == END {
+		log.W("proxy: pipws: pause called when stopped")
+		return false
+	}
+
+	ok := h.status.Cas(st, TPU)
+	log.I("proxy: pipws: paused? %t", ok)
+	return ok
+}
+
+// Resume implements x.Proxy.
+func (h *pipws) Resume() bool {
+	st := h.status.Load()
+	if st != TPU {
+		log.W("proxy: pipws: resume called when not paused; status %d", st)
+		return false
+	}
+
+	ok := h.status.Cas(st, TUP)
+	go h.Refresh()
+
+	log.I("proxy: pipws: resumed? %t", ok)
+	return ok
+}
+
 // Scenario 4: privacypass.github.io/protocol
 func (t *pipws) claim(msg string) []string {
 	if len(t.token) == 0 || len(t.toksig) == 0 {
@@ -350,6 +378,11 @@ func (t *pipws) claim(msg string) []string {
 // Handle implements Proxy.
 func (t *pipws) Handle() uintptr {
 	return core.Loc(t)
+}
+
+// DialerHandle implements Proxy.
+func (t *pipws) DialerHandle() uintptr {
+	return core.Loc(t.outbound)
 }
 
 // Dial connects to addr via wsconn over this ws proxy

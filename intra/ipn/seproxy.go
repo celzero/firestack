@@ -36,8 +36,8 @@ import (
 	x "github.com/celzero/firestack/intra/backend"
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/dialers"
+	"github.com/celzero/firestack/intra/ipn/rpn"
 	"github.com/celzero/firestack/intra/ipn/seasy"
-	"github.com/celzero/firestack/intra/ipn/warp"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
 	"github.com/noql-net/certpool"
@@ -83,8 +83,8 @@ type seproxy struct {
 	ProtoAgnostic
 	GW
 
-	warp.RpnStateless
-	warp.RpnCountryless
+	rpn.RpnStateless
+	rpn.RpnCountryless
 
 	done      context.CancelFunc
 	sec       *seasy.SEApi
@@ -160,7 +160,7 @@ func NewSEasyProxy(ctx context.Context, c protect.Controller, px ProxyProvider, 
 
 	outbound := protect.MakeNsRDial(RpnSE, ctx, c)
 	dialfn := func(network, addr string) (c net.Conn, err error) {
-		who := sep.ID()
+		who := idstr(sep)
 		if usevia(sep.viaID) {
 			if v, vok := sep.via.Get(); vok {
 				who = idstr(v)
@@ -170,13 +170,13 @@ func NewSEasyProxy(ctx context.Context, c protect.Controller, px ProxyProvider, 
 				if removeViaOnErrors {
 					sep.Hop(nil, false /*dryrun*/)
 				}
-				log.W("proxy: se: via(%s@%s) failing...", idstr(v), idhandle(v))
+				log.W("proxy: se: via(%s) failing...", idhandle(v))
 			}
 		} else {
 			c, err = outbound.Dial(network, addr)
 		}
 		logei(err)("proxy: se: %s dial(%s) from %s => %s (via %s); err? %v",
-			sep.ID(), network, sep.GetAddr(), addr, who, err)
+			idstr(sep), network, sep.GetAddr(), addr, who, err)
 		return c, err
 	}
 
@@ -212,7 +212,7 @@ func (sed *sedialer) Dial(network, dest string) (conn net.Conn, err error) {
 	conn, err = sed.dialer(network, sed.addr)
 
 	defer func() {
-		closif(err)(conn)
+		closeOnErr(err, conn)
 	}()
 
 	if err != nil {
@@ -355,14 +355,19 @@ func (h *seproxy) Handle() uintptr {
 	return core.Loc(h)
 }
 
+// DialerHandle implements Proxy.
+func (h *seproxy) DialerHandle() uintptr {
+	return core.Loc(h.outbounds)
+}
+
 // ID implements Proxy.
-func (*seproxy) ID() string {
-	return RpnSE
+func (*seproxy) ID() *x.Gostr {
+	return x.StrOf(RpnSE)
 }
 
 // Type implements Proxy.
-func (*seproxy) Type() string {
-	return HTTP1
+func (*seproxy) Type() *x.Gostr {
+	return x.StrOf(HTTP1)
 }
 
 // Router implements Proxy.
@@ -372,8 +377,8 @@ func (h *seproxy) Router() x.Router {
 
 // Dial implements Proxy.
 func (h *seproxy) Dial(network, addr string) (protect.Conn, error) {
-	if h.status.Load() == END {
-		return nil, errProxyStopped
+	if err := candial(h.status); err != nil {
+		return nil, err
 	}
 
 	defer h.maybeRefresh()
@@ -401,16 +406,16 @@ func (d *seproxy) Dialer() protect.RDialer {
 }
 
 // Reaches implements x.Router.
-func (h *seproxy) Reaches(hostportOrIPPortCsv string) bool {
-	return Reaches(h, hostportOrIPPortCsv)
+func (h *seproxy) Reaches(hostportOrIPPortCsv *x.Gostr) bool {
+	return Reaches(h, hostportOrIPPortCsv.V())
 }
 
 func (h *seproxy) viafor() *Proxy {
-	return viafor(h.ID(), h.viaID.Load(), h.px)
+	return viafor(idstr(h), h.viaID.Load(), h.px)
 }
 
 func (h *seproxy) swapVia(new Proxy) Proxy {
-	return swapVia(h.ID(), new, h.viaID, h.via)
+	return swapVia(idstr(h), new, h.viaID, h.via)
 }
 
 // Hop implements Proxy.
@@ -418,7 +423,7 @@ func (h *seproxy) Hop(p Proxy, dryrun bool) error {
 	if p == nil {
 		if !dryrun {
 			old := h.swapVia(nil)
-			log.I("se: hop(%s@%s) removed", idstr(old), idhandle(old))
+			log.I("se: hop(%s) removed", idhandle(old))
 		}
 		return nil
 	}
@@ -428,8 +433,7 @@ func (h *seproxy) Hop(p Proxy, dryrun bool) error {
 
 	if !dryrun {
 		old := h.swapVia(p)
-		log.I("se: hop(%s@%s) => %s@%s",
-			idstr(old), idhandle(old), idstr(p), idhandle(p))
+		log.I("se: hop %s => %s", idhandle(old), idhandle(p))
 	}
 	return nil
 }
@@ -443,17 +447,44 @@ func (h *seproxy) Via() (x.Proxy, error) {
 }
 
 // GetAddr implements Proxy.
-func (h *seproxy) GetAddr() string {
+func (h *seproxy) GetAddr() *x.Gostr {
 	if len(h.addrs) <= 0 {
-		return ""
+		return nil
 	}
 	n := rand.IntN(len(h.addrs))
-	return h.addrs[n].String()
+	return x.StrOf(h.addrs[n].String())
 }
 
 // Status implements Proxy.
 func (h *seproxy) Status() int {
 	return h.status.Load()
+}
+
+// Pause implements x.Proxy.
+func (h *seproxy) Pause() bool {
+	st := h.status.Load()
+	if st == END {
+		log.W("proxy: se: pause called when stopped")
+		return false
+	}
+
+	ok := h.status.Cas(st, TPU)
+	log.I("proxy: se: paused? %t", ok)
+	return ok
+}
+
+// Resume implements x.Proxy.
+func (h *seproxy) Resume() bool {
+	st := h.status.Load()
+	if st != TPU {
+		log.W("proxy: se: resume called when not paused; status %d", st)
+		return false
+	}
+
+	ok := h.status.Cas(st, TUP)
+	go h.Refresh() // no-op since SkipRefresh
+	log.I("proxy: se: resumed? %t", ok)
+	return ok
 }
 
 // Stop implements Proxy.
@@ -465,11 +496,11 @@ func (h *seproxy) Stop() error {
 }
 
 // Who implements x.RpnAcc.
-func (h *seproxy) Who() string {
+func (h *seproxy) Who() *x.Gostr {
 	if h == nil || h.sec == nil {
-		return ""
+		return nil
 	}
-	return h.sec.AssignedDeviceID
+	return x.StrOf(h.sec.AssignedDeviceID)
 }
 
 // Provider implements RpnAcc.
@@ -485,15 +516,12 @@ func (h *seproxy) Expires() int64 {
 	return h.lastRefresh.Load().Add(fourHours).UnixMilli()
 }
 
-func closif(err error) func(io.Closer) {
-	return func(c io.Closer) {
-		if err != nil {
-			core.Close(c)
-		}
+func closeOnErr(err error, c io.Closer) {
+	if err != nil {
+		core.Close(c)
 	}
 }
 
 func shuffle[T any](a []T) []T {
-	rand.Shuffle(len(a), func(i, j int) { a[i], a[j] = a[j], a[i] })
-	return a
+	return core.ShuffleInPlace(a)
 }

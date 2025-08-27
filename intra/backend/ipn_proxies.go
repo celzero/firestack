@@ -9,38 +9,66 @@ package backend
 const ( // see ipn/proxies.go
 	// IDs for default proxies
 
-	Block    = "Block"        // blocks all traffic
-	Base     = "Base"         // does not proxy traffic; in sync w dnsx.NetNoProxy
-	Exit     = "Exit"         // always connects to the Internet (exit node); in sync w dnsx.NetExitProxy
-	Ingress  = "Ingress"      // incoming connections
-	Auto     = "Auto"         // auto uses ipn.Exit or any of the RPN proxies
-	RpnWg    = WG + "w" + RPN // RPN Warp
-	RpnAmz   = WG + "a" + RPN // RPN Amnezia
-	RpnPro   = WG + "p" + RPN // RPN Proton
-	RpnWs    = PIPWS + RPN    // RPN WebSockets
-	RpnH2    = PIPH2 + RPN    // RPN HTTP/2
-	Rpn64    = NAT64 + RPN    // RPN Exit hopping over NAT64
-	RpnSE    = SE + RPN       // RPN SurfEasy
-	OrbotS5  = "OrbotSocks5"  // Orbot: Base Tor-as-a-SOCKS5 proxy
-	OrbotH1  = "OrbotHttp1"   // Orbot: Base Tor-as-a-HTTP/1.1 proxy
-	GlobalH1 = "GlobalHttp1"  // Global: Global HTTP/1.1 proxy
+	// blocks all traffic (built-in)
+	Block = "Block"
+	// may send traffic out via underlying network (built-in)
+	// see: tun2socks.Loopback; alias for dnsx.NetNoProxy
+	Base = "Base"
+	// always sends traffic out via underlying network (built-in)
+	// see: Controller.Protect; alias for dnsx.NetExitProxy
+	Exit = "Exit"
+	// proxies incoming connections (built-in)
+	Ingress = "Ingress"
+	// Auto uses ipn.Exit or any of the RPN proxies (built-in)
+	Auto = "Auto"
+	// RPN Win proxy (must be registered by Rpn.RegisterWin)
+	RpnWin = WG + "y" + RPN
+	// Alias for RPN Win
+	RpnPro = RpnWin
+	// RPN WebSockets (unused)
+	RpnWs = PIPWS + RPN
+	// RPN HTTP/2 (unused)
+	RpnH2 = PIPH2 + RPN
+	// RPN Exit hopping over NAT64 (built-in)
+	Rpn64 = NAT64 + RPN
+	// RPN SurfEasy (must be registered by Rpn.RegisterSE)
+	RpnSE = SE + RPN
+	// Orbot: Base Tor-as-a-SOCKS5 proxy
+	OrbotS5 = "OrbotSocks5"
+	// Orbot: Base Tor-as-a-HTTP/1.1 proxy
+	OrbotH1 = "OrbotHttp1"
+	// Global: HTTP/1.1 proxy if required by underlying network.
+	GlobalH1 = "GlobalHttp1"
 
 	// type of proxies
 
-	SOCKS5   = "socks5" // SOCKS5 proxy
-	HTTP1    = "http1"  // HTTP/1.1 proxy
-	WG       = "wg"     // WireGuard-as-a-proxy
-	WGFAST   = "gsro"   // WireGuard-as-a-proxy w/ UDP GRO/GSO prefix
-	PIPH2    = "piph2"  // PIP: HTTP/2 proxy
-	PIPWS    = "pipws"  // PIP: WebSockets proxy
-	NOOP     = "noop"   // No proxy, ex: Base, Block
-	INTERNET = "net"    // egress network, ex: Exit
-	RPN      = "rpn"    // Rethink Proxy Network
-	NAT64    = "nat64"  // A NAT64 router
-	SE       = "se"     // SurfEasy
+	// SOCKS5 proxy type
+	SOCKS5 = "socks5"
+	// HTTP/1.1 proxy type
+	HTTP1 = "http1"
+	// WireGuard-as-a-proxy type and prefix
+	WG = "wg"
+	// No proxy (uses underlying network), ex: Base, Block, Ingress
+	NOOP = "noop"
+	// Egress, ex: Exit
+	INTERNET = "net"
+	// WireGuard-as-a-proxy w/ UDP GRO/GSO prefix (experimental)
+	WGFAST = "gsro"
+	// PIP: HTTP/2 proxy prefix (unused)
+	PIPH2 = "piph2"
+	// PIP: WebSockets proxy prefix (unused)
+	PIPWS = "pipws"
+	// A NAT64 router (prefix)
+	NAT64 = "nat64"
+	// SurfEasy proxy (prefix)
+	SE = "se"
+	// Rethink Proxy Network (suffix)
+	RPN = "rpn"
 
 	// status of proxies
 
+	// proxy paused until resumed; will not dial
+	TPU = 3
 	// proxy UP but not responding
 	TNT = 2
 	// proxy idle
@@ -56,41 +84,26 @@ const ( // see ipn/proxies.go
 )
 
 type Rpn interface {
-	// RegisterWarp registers a new Warp installation.
-	RegisterWarp(existingStateJson []byte) (json []byte, err error)
 	// RegisterSE registers a new SurfEasy user.
 	RegisterSE() error
-	// RegisterAmnezia registers a new Amnezia installation.
-	RegisterAmnezia(existingStateJson []byte) (json []byte, err error)
-	// RegisterProton registers a new Proton installation.
-	RegisterProton(existingStateJson []byte) (json []byte, err error)
-	// UnregisterWarp unregisters a Warp public key.
-	UnregisterWarp() bool
-	// UnregisterAmnezia unregisters an Amnezia installation.
-	UnregisterAmnezia() bool
-	// UnregisterProton unregisters a Proton installation.
-	UnregisterProton() bool
+	// RegisterWin is alias for RegisterWin.
+	RegisterWin(entitlementOrStateJson *Gobyte) (json *Gobyte, err error)
+	// UnregisterWin unregisters a Windscribe installation.
+	UnregisterWin() bool
 	// UnregisterSE unregisters a SurfEasy user.
 	UnregisterSE() bool
-	// TestWarp connects to some Warp IPs and returns reachable ones.
-	TestWarp() (ips string, errs error)
-	// TestAmnezia connects to the Amnezia gateway and returns its IP if reachable.
-	TestAmnezia() (ips string, errs error)
-	// TestProton connects to the Proton gateway and returns its IP if reachable.
-	TestProton() (ips string, errs error)
+	// TestWin connects to the Windscribe gateway and returns its IP if reachable.
+	TestWin() (ips *Gostr, errs error)
 	// TestSE connects to some SurfEasy IPs and returns reachable ones.
-	TestSE() (ips string, errs error)
+	TestSE() (ips *Gostr, errs error)
 	// TestExit64 connects to public NAT64 endpoints and returns reachable ones.
-	TestExit64() (ips string, errs error)
-	// Warp returns a RpnWg proxy.
-	Warp() (wg RpnProxy, err error)
-	// Proton returns a Proton WireGuard proxy.
-	Proton() (wg RpnProxy, err error)
-	// Amnezia returns a Amnezia WireGuard proxy.
-	Amnezia() (awg RpnProxy, err error)
+	TestExit64() (ips *Gostr, errs error)
+	// Win returns a Windscribe WireGuard proxy.
+	Win() (wg RpnProxy, err error)
 	// Pip returns a RpnWs proxy.
 	Pip() (ws RpnProxy, err error)
-	// Exit64 returns a Exit proxy hopping over NAT64.
+	// Exit64 returns a Exit proxy hopping over preset publicly-available
+	// NAT64 proxies.
 	Exit64() (nat64 RpnProxy, err error)
 	// SE returns a SurfEasy proxy.
 	SE() (se RpnProxy, err error)
@@ -98,19 +111,23 @@ type Rpn interface {
 
 type Proxy interface {
 	// ID returns the ID of this proxy.
-	ID() string
+	ID() *Gostr
 	// Type returns the type of this proxy.
-	Type() string
+	Type() *Gostr
 	// Returns x.Router.
 	Router() Router
 	// GetAddr returns the address of this proxy.
-	GetAddr() string
+	GetAddr() *Gostr
 	// DNS returns the ip:port or doh/dot url or dnscrypt stamp for this proxy.
-	DNS() string
+	DNS() *Gostr
 	// Status returns the status of this proxy.
 	Status() int
 	// Ping pings this proxy.
 	Ping() bool
+	// Pause pauses this proxy.
+	Pause() bool
+	// Resume resumes this proxy.
+	Resume() bool
 	// Stop stops this proxy.
 	Stop() error
 	// Refresh re-registers this proxy, if necessary.
@@ -121,46 +138,61 @@ type RpnProxy interface {
 	Proxy
 	RpnAcc
 	// Fork adds proxy for country code, cc.
-	Fork(cc string) (Proxy, error)
+	Fork(cc *Gostr) (Proxy, error)
 	// Purge removes proxy for country code, cc.
-	Purge(cc string) bool
+	Purge(cc *Gostr) bool
 	// Get returns proxy for country code, cc.
-	Get(cc string) (Proxy, error)
+	Get(cc *Gostr) (Proxy, error)
 	// Kids returns csv of forked proxy PIDs, excluding this one.
-	Kids() (csvpids string)
+	Kids() (csvpids *Gostr)
 }
 
 type RpnAcc interface {
 	// Who returns identifier for this account; may be empty.
-	Who() string
+	Who() *Gostr
 	// State returns the state (as json) of the account.
-	State() ([]byte, error)
+	State() (*Gobyte, error)
 	// Created returns the time (unix millis) currently active account was created.
 	Created() int64
 	// Expires returns the time (unix millis) currently active account expires.
 	Expires() int64
+	// Locations returns RpnServers encapsulating this proxy's worldwide server presence.
+	Locations() (RpnServers, error)
 	// Update updates the account creating new state.
-	Update() (newstate []byte, err error)
+	Update() (newstate *Gobyte, err error)
 }
 
 type Proxies interface {
+	// Underlay creates a [NOOP] proxy (that always connects over underlying network),
+	// but one that uses a custom Controller.
+	// This proxy is not tracked (APIs like GetProxy won't return these).
+	Underlay(id *Gostr, c Controller) Proxy
 	// Add adds a proxy to this multi-transport.
-	AddProxy(id, url string) (Proxy, error)
+	// "id" is a free-form unique identifier for this proxy, except:
+	// "id" for WireGuard proxies must be prefixed with [WG]
+	// "url" is WireGuard UAPI configuration.
+	// For HTTP1 and SOCKS5 proxies, "url" must be of the form:
+	// scheme://usr:pwd@domain.tld:port/p/a/t/h?q&u=e&r=y#f,r
+	// where scheme is "http" or "socks5", usr and/or pwd are optional
+	// port is the port number, and domain.tld could also be ip address.
+	AddProxy(id, url *Gostr) (Proxy, error)
 	// Remove removes a transport from this multi-transport.
-	RemoveProxy(id string) bool
+	RemoveProxy(id *Gostr) bool
 	// GetProxy returns a transport from this multi-transport.
-	GetProxy(id string) (Proxy, error)
+	GetProxy(id *Gostr) (Proxy, error)
 	// TestHop returns empty diag if origin can hop to via,
 	// otherwise returns a diagnosis of why it couldn't.
-	TestHop(via, origin string) (diag string)
+	// Only WireGuard via & origin are supported, for now.
+	TestHop(via, origin *Gostr) (diag *Gostr)
 	// Hop chains two proxies in the order of origin dialing through via.
-	Hop(via, origin string) error
+	// Only WireGuard via & origin are supported, for now.
+	Hop(via, origin *Gostr) error
 	// Router returns a lowest common denomination router for this multi-transport.
 	Router() Router
-	// RPN returns the Rethink Proxy Network interface.
+	// RPN returns the Rethink Proxy Network api.
 	Rpn() Rpn
 	// Refresh re-registers proxies and returns a csv of active ones.
-	RefreshProxies() (string, error)
+	RefreshProxies() *Gostr
 }
 
 type Router interface {
@@ -175,34 +207,66 @@ type Router interface {
 	// Via returns the gateway for this router, if any.
 	Via() (gw Proxy, err error)
 	// Reaches returns true if any host:port or ip:port is dialable.
-	Reaches(hostportOrIPPortCsv string) (y bool)
+	Reaches(hostportOrIPPortCsv *Gostr) (y bool)
 	// Contains returns true if this router can route ipprefix.
-	Contains(ipprefix string) (y bool)
+	Contains(ipprefix *Gostr) (y bool)
 }
 
 // ProxyListener is a listener for proxy events.
 type ProxyListener interface {
 	// OnProxyAdded is called when a proxy is added.
-	OnProxyAdded(id string)
+	OnProxyAdded(id *Gostr)
 	// OnProxyRemoved is called when a proxy is removed except when all
 	// proxies are stopped, in which case OnProxiesStopped is called.
-	OnProxyRemoved(id string)
-	// OnProxyStopped is called when a proxy is stopped.
-	OnProxyStopped(id string)
+	OnProxyRemoved(id *Gostr)
+	// OnProxyStopped is called when a proxy is stopped instead of being
+	// removed (that is, this callback is not called in all proxy stop scenarios).
+	// A stopped proxy, if added again, is replaced/updated instead; and subsequently,
+	// the onProxyAdded callback is invoked.
+	OnProxyStopped(id *Gostr)
 	// OnProxiesStopped is called when all proxies are stopped.
-	// Note: OnProxyRemoved is not called for each proxy.
+	// Note: OnProxyRemoved is not called for each proxy, even
+	// if they are removed instead of being merely "stopped".
 	OnProxiesStopped()
 }
 
 // RouterStats lists interesting stats of a Router.
 type RouterStats struct {
-	Addr   string // address of the router
-	Rx     int64  // bytes received
-	Tx     int64  // bytes transmitted
-	ErrRx  int64  // receive errors
-	ErrTx  int64  // transmit errors
-	LastRx int64  // last receive in millis
-	LastTx int64  // last transmit in millis
-	LastOK int64  // last handshake or ping or connect millis
-	Since  int64  // uptime in millis
+	// address of the router
+	Addr string
+	// bytes received
+	Rx int64
+	// bytes transmitted
+	Tx int64
+	// receive errors
+	ErrRx int64
+	// transmit errors
+	ErrTx int64
+	// last (most recent) receive in millis
+	LastRx int64
+	// last (most recent) transmit in millis
+	LastTx int64
+	// last (most recent) handshake or ping or connect millis
+	LastOK int64
+	// uptime in millis
+	Since int64
+}
+
+type RpnServers interface {
+	// Get returns the RpnServer at index i; errors if i is out of bounds.
+	Get(i int) (*RpnServer, error)
+	// Len returns the number of RpnServers.
+	Len() int
+	// Json returns the RpnServer struct as JSON bytes.
+	Json() (*Gobyte, error)
+}
+
+type RpnServer struct {
+	// Name of the server, if any.
+	Name string
+	// CSV of IP:Port and/or Domain:Port
+	Addrs string
+	// Country code of the location.
+	CC string
+	// TODO: number of servers, health, link speed, etc?
 }

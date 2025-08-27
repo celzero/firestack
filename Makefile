@@ -8,10 +8,12 @@ COMMIT_ID=$(shell git rev-parse --short HEAD)
 DATESTR=$(shell date -u +'%Y%m%d%H%M%S')
 XGO_LDFLAGS='-s -w -X main.version=$(COMMIT_ID)'
 # github.com/xjasonlyu/tun2socks/blob/bf745d0e0/Makefile#L14
-LDFLAGS_DEBUG='-X $(IMPORT_PATH)/intra/core.Date=$(DATESTR) -X $(IMPORT_PATH)/intra/core.Commit=$(COMMIT_ID)'
-LDFLAGS='-w -s -X $(IMPORT_PATH)/intra/core.Date=$(DATESTR) -X $(IMPORT_PATH)/intra/core.Commit=$(COMMIT_ID)'
+LDFLAGS_DEBUG='-buildid= -X $(IMPORT_PATH)/intra/core.Date=$(DATESTR) -X $(IMPORT_PATH)/intra/core.Commit=$(COMMIT_ID)'
+LDFLAGS='-w -s -buildid= -X $(IMPORT_PATH)/intra/core.Date=$(DATESTR) -X $(IMPORT_PATH)/intra/core.Commit=$(COMMIT_ID)'
+CGO_LDFLAGS="$(CGO_LDFLAGS) -s -w -Wl,-z,max-page-size=16384"
 
-GOBIND=bind -v -a
+# github.com/golang/mobile/blob/a1d90793fc/cmd/gomobile/bind.go#L36
+GOBIND=bind -trimpath -v -x -a -javapkg com.celzero.firestack
 # -work: keep the temporary directory for debugging
 ANDROID23=-androidapi 23 -target=android -tags='android' -work
 
@@ -21,12 +23,12 @@ LINUX_BUILDDIR=$(BUILDDIR)/linux
 # stack traces are not affected by ldflags -s -w: github.com/golang/go/issues/25035#issuecomment-495004689
 # trimpath: github.com/skycoin/skycoin/issues/719
 ANDROID_BUILD_CMD=env PATH=$(GOBIN):$(PATH) $(GOMOBILE) $(GOBIND) $(ANDROID23) \
-				-ldflags $(LDFLAGS) -gcflags='-trimpath=${HOME}'
+				-ldflags $(LDFLAGS) -gcflags='-trimpath'
 # built without stripping dwarf/symbols
 ANDROID_DEBUG_BUILD_CMD=env PATH=$(GOBIN):$(PATH) $(GOMOBILE) $(GOBIND) $(ANDROID23) \
 				-ldflags $(LDFLAGS_DEBUG)
 # exported pkgs
-INTRA_BUILD_CMD=$(IMPORT_PATH)/intra $(IMPORT_PATH)/intra/backend $(IMPORT_PATH)/intra/rnet $(IMPORT_PATH)/intra/settings
+INTRA_BUILD_CMD=$(IMPORT_PATH)/intra $(IMPORT_PATH)/intra/backend $(IMPORT_PATH)/intra/settings
 
 $(BUILDDIR)/intra/tun2socks.aar: $(GOMOBILE)
 	mkdir -p $(BUILDDIR)/intra

@@ -17,13 +17,17 @@ import (
 	"github.com/celzero/firestack/intra/settings"
 )
 
+const fakeBaseAddr = "127.8.4.5:3690"
+
 // base is no-op proxy that dials into the underlying network,
 // which typically is wifi or mobile but may also be a tun device.
 type base struct {
 	NoDNS
 	ProtoAgnostic
 	SkipRefresh
+	CantPause
 	GW
+	id       string
 	addr     string
 	outbound *protect.RDial         // outbound dialer
 	via      *core.WeakRef[Proxy]   // via dialer
@@ -35,9 +39,14 @@ type base struct {
 
 // Base returns a base proxy.
 func NewBaseProxy(ctx context.Context, c protect.Controller, px ProxyProvider) *base {
+	return newBasicProxy(Base, fakeBaseAddr, ctx, c, px)
+}
+
+func newBasicProxy(id, addr string, ctx context.Context, c protect.Controller, px ProxyProvider) *base {
 	ctx, done := context.WithCancel(ctx)
 	h := &base{
-		addr:     "127.8.4.5:3690",
+		id:       id,
+		addr:     addr,
 		px:       px,
 		outbound: protect.MakeNsRDial(Base, ctx, c),
 		viaID:    core.NewZeroVolatile[string](),
@@ -52,17 +61,26 @@ func NewBaseProxy(ctx context.Context, c protect.Controller, px ProxyProvider) *
 	return h
 }
 
+func NewBasicProxy(id string, ctx context.Context, c protect.Controller, px ProxyProvider) Proxy {
+	return newBasicProxy(id, fakeBaseAddr, ctx, c, px)
+}
+
 func (h *base) viafor() *Proxy {
-	return viafor(h.ID(), h.viaID.Load(), h.px)
+	return viafor(idstr(h), h.viaID.Load(), h.px)
 }
 
 func (h *base) swapVia(new Proxy) (old Proxy) {
-	return swapVia(h.ID(), new, h.viaID, h.via)
+	return swapVia(idstr(h), new, h.viaID, h.via)
 }
 
 // Handle implements Proxy.
 func (h *base) Handle() uintptr {
 	return core.Loc(h)
+}
+
+// DialerHandle implements Proxy.
+func (h *base) DialerHandle() uintptr {
+	return core.Loc(h.outbound)
 }
 
 // Dial implements Proxy.
@@ -76,11 +94,11 @@ func (h *base) DialBind(network, local, remote string) (c protect.Conn, err erro
 }
 
 func (h *base) dial(network, local, remote string) (c protect.Conn, err error) {
-	if h.status.Load() == END {
-		return nil, errProxyStopped
+	if err := candial(h.status); err != nil {
+		return nil, err
 	}
 
-	who := h.ID()
+	who := idstr(h)
 	if usevia(h.viaID) {
 		if v, vok := h.via.Get(); vok { // dial via another proxy
 			who = idstr(v)
@@ -90,7 +108,7 @@ func (h *base) dial(network, local, remote string) (c protect.Conn, err error) {
 			if removeViaOnErrors {
 				h.Hop(nil, false /*dryrun*/) // stale; unset
 			}
-			log.W("proxy: base: via(%s@%s) failing...", idstr(v), idhandle(v))
+			log.W("proxy: base: via(%s) failing...", idhandle(v))
 		}
 	} else {
 		if settings.Loopingback.Load() { // loopback (rinr) mode
@@ -102,15 +120,16 @@ func (h *base) dial(network, local, remote string) (c protect.Conn, err error) {
 	}
 	defer localDialStatus(h.status, err)
 
-	maybeKeepAlive(c)
-	log.I("proxy: base: dial(%s) to %s=>%s (via %s); err? %v", network, local, remote, who, err)
+	kaenabled := maybeKeepAlive(c)
+	log.I("proxy: base: dial(%s) to %s=>%s (via %s), ka? %t; err? %v",
+		network, local, remote, who, kaenabled, err)
 	return
 }
 
 // Announce implements Proxy.
 func (h *base) Announce(network, local string) (protect.PacketConn, error) {
-	if h.status.Load() == END {
-		return nil, errProxyStopped
+	if err := candial(h.status); err != nil {
+		return nil, err
 	}
 	c, err := dialers.ListenPacket(h.outbound, network, local)
 	defer localDialStatus(h.status, err)
@@ -120,16 +139,16 @@ func (h *base) Announce(network, local string) (protect.PacketConn, error) {
 
 // Accept implements Proxy.
 func (h *base) Accept(network, local string) (protect.Listener, error) {
-	if h.status.Load() == END {
-		return nil, errProxyStopped
+	if err := candial(h.status); err != nil {
+		return nil, err
 	}
 	return dialers.Listen(h.outbound, network, local)
 }
 
 // Probe implements Proxy.
 func (h *base) Probe(network, local string) (protect.PacketConn, error) {
-	if h.status.Load() == END {
-		return nil, errProxyStopped
+	if err := candial(h.status); err != nil {
+		return nil, err
 	}
 	c, err := dialers.Probe(h.outbound, network, local)
 	defer localDialStatus(h.status, err)
@@ -141,12 +160,12 @@ func (h *base) Dialer() protect.RDialer {
 	return h
 }
 
-func (h *base) ID() string {
-	return Base
+func (h *base) ID() *x.Gostr {
+	return x.StrOf(Base)
 }
 
-func (h *base) Type() string {
-	return NOOP
+func (h *base) Type() *x.Gostr {
+	return x.StrOf(NOOP)
 }
 
 func (h *base) Router() x.Router {
@@ -154,8 +173,8 @@ func (h *base) Router() x.Router {
 }
 
 // Reaches implements x.Router.
-func (h *base) Reaches(hostportOrIPPortCsv string) bool {
-	return Reaches(h, hostportOrIPPortCsv)
+func (h *base) Reaches(hostportOrIPPortCsv *x.Gostr) bool {
+	return Reaches(h, hostportOrIPPortCsv.V())
 }
 
 // Hop implements Proxy.
@@ -163,20 +182,20 @@ func (h *base) Hop(p Proxy, dryrun bool) error {
 	if p == nil {
 		if !dryrun {
 			old := h.swapVia(nil)
-			log.I("proxy: base: hop(%s@%s) removed", idstr(old), idhandle(old))
+			log.I("proxy: base: hop(%s) removed", idhandle(old))
 		}
 		return nil
 	}
 	if p.Status() == END {
 		return errProxyStopped
 	}
-	if p.ID() != GlobalH1 {
+	if idstr(p) != GlobalH1 {
 		return errHopGlobalProxy
 	}
 
 	if !dryrun {
 		old := h.swapVia(nil)
-		log.I("proxy: base: hop(%s@%s) => %s", idstr(old), idhandle(old), idhandle(p))
+		log.I("proxy: base: hop %s => %s", idhandle(old), idhandle(p))
 	}
 	return nil
 }
@@ -189,8 +208,8 @@ func (h *base) Via() (x.Proxy, error) {
 	return nil, errNoHop
 }
 
-func (h *base) GetAddr() string {
-	return h.addr
+func (h *base) GetAddr() *x.Gostr {
+	return x.StrOf(h.addr)
 }
 
 func (h *base) Status() int {

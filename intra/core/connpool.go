@@ -27,9 +27,9 @@ const pooluseread = false                 // never used; for documentation only
 const poolcapacity = 8                    // default capacity
 const poolmaxattempts = poolcapacity / 2  // max attempts to retrieve a conn from pool
 const Nobody = uintptr(0)                 // nobody
-const poolscrubinterval = 5 * time.Minute // interval between subsequent scrubs
 const poolmaxidle = 8 * time.Minute       // close unused pooled conns after this period
 const poolfreshttl = 1 * time.Minute      // considered fresh if less than this period
+const poolscrubinterval = poolmaxidle / 3 // interval between subsequent scrubs
 
 // go.dev/play/p/ig2Zpk-LTSv
 var (
@@ -211,7 +211,7 @@ func (c *ConnPool[T]) Get() (zz net.Conn) {
 			i++
 			select {
 			case aconn := <-c.p:
-				// if readable, return conn regardless of its freshness
+				// if readable/fresh, return conn regardless of its freshness
 				if aconn.ok() {
 					aconn.keepalive(false)
 					return aconn.c, nil
@@ -252,17 +252,19 @@ func (c *ConnPool[T]) Put(conn net.Conn) (ok bool) {
 
 	aconn := newAgingConn(conn)
 	if !aconn.ok() {
-		return false
+		return
 	}
+
+	aconn.resetDeadline()
 
 	select {
 	case c.p <- aconn:
 		aconn.keepalive(true)
 		return true
 	case <-c.ctx.Done(): // stop
-		return false
+		return
 	default: // pool full
-		return false
+		return
 	}
 }
 
@@ -376,8 +378,8 @@ func (a agingconn) keepalive(y bool) bool {
 		cleardeadline(a.c) // reset any previous timeout
 		return SetKeepAliveConfigSockOpt(a.c, kaidle, kainterval)
 	} else {
-		if tc, ok := a.c.(*net.TCPConn); ok {
-			return tc.SetKeepAlive(false) == nil
+		if c, ok := a.c.(KeepAliveConn); ok {
+			return c.SetKeepAlive(false) == nil
 		}
 		return false
 	}
@@ -394,7 +396,7 @@ func (a agingconn) canread() error {
 	var checkErr error
 	var ctlErr error
 
-	raw, err := sc.SyscallConn()
+	raw, err := sc.SyscallConn()  // some conns embed in retrier.go will err
 	if err != nil || raw == nil { // nilaway
 		return fmt.Errorf("pool: sysconn nil; err? %w", err)
 	}
@@ -435,6 +437,10 @@ func (a agingconn) canread() error {
 		})
 	}
 	return JoinErr(ctlErr, checkErr) // may return nil
+}
+
+func (a agingconn) resetDeadline() {
+	a.c.SetDeadline(time.Time{})
 }
 
 func logev(err error) log.LogFn {

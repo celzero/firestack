@@ -9,7 +9,6 @@ package dialers
 import (
 	"net"
 	"net/netip"
-	"net/url"
 
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
@@ -92,19 +91,16 @@ func For(hostOrIP string) []netip.Addr {
 	return nil
 }
 
+// Ptr returns hostnames from the ipmap cache, given an IP address.
+func Ptr(ip netip.Addr) []string {
+	return ipm.ReverseGet(ip)
+}
+
 func Confirmed(hostOrIP string) (zz netip.Addr) {
 	if ipset := ipm.GetAny(hostOrIP); ipset != nil {
 		return ipset.Confirmed()
 	}
 	return
-}
-
-func ForUrl(s string) []netip.Addr {
-	u, err := url.Parse(s)
-	if err != nil {
-		return For(s) // fallback on hostOrIP
-	}
-	return For(u.Hostname())
 }
 
 // CachedAddrs returns addresses for hostOrIP from cache. Use Resolve() to bypass cache.

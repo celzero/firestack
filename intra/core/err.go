@@ -12,6 +12,7 @@ import (
 )
 
 func OneErr(errs ...error) error {
+	// or: cmp.Or(errs...)
 	for _, err := range errs {
 		if err != nil {
 			return err
@@ -42,6 +43,18 @@ func joinErr(uniq bool, errs ...error) error {
 
 	var all []error
 	var m map[error]struct{}
+
+	if false { // unjoin?
+		for _, err := range errs {
+			if err == nil {
+				continue
+			}
+			var merr *errMult
+			if errors.As(err, &merr) {
+				all = append(all, merr.Unwrap()...)
+			}
+		}
+	}
 
 	if uniq {
 		m = make(map[error]struct{}, len(errs))

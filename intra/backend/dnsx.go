@@ -17,21 +17,38 @@ const ( // see dnsx/transport.go
 	CT = "Cache" // cached transport prefix
 
 	// special singleton DNS transports (IDs)
-	Goos      = "Goos"      // Go determined default resolver
-	System    = "System"    // network/os provided dns
-	Local     = "mdns"      // mdns; never cached!
-	Default   = "Default"   // default (fallback) dns
-	Preferred = "Preferred" // user preferred dns, primary for alg
-	Preset    = "Preset"    // synthesizes answers from presets (ex: IPs)
-	Fixed     = "Fixed"     // synthesizes A/AAAA from a single fixed IP
-	BlockFree = "BlockFree" // no local blocks; if not set, default is used
-	BlockAll  = "BlockAll"  // all blocks; never cached!
-	Bootstrap = "Bootstrap" // bootstrap dns; always encapsulted by Default
-	Alg       = "Alg"       // dns application-level gateway
-	DcProxy   = "DcProxy"   // dnscrypt.Proxy as a transport
-	IpMapper  = "IpMapper"  // dns resolver for dns resolvers
 
-	SummaryProxyLabel = "proxy:"
+	// Multiple DoH, DoT, ODoH resolvers
+	Plus = "Plus"
+	// Go determined default resolver (built-in)
+	Goos = "Goos"
+	// network/os provided dns (init using intra.SetSystemDNS)
+	System = "System"
+	// mdns; never cached! (built-in)
+	Local = "mdns"
+	// default (fallback) dns, used in place of special transports when unavailable
+	// (init using intra.AddDefaultTransport)
+	Default = "Default"
+	// client preferred dns
+	Preferred = "Preferred"
+	// synthesizes answers from presets (built-in)
+	Preset = "Preset"
+	// synthesizes A/AAAA from a single fixed IP (built-in)
+	Fixed = "Fixed"
+	// a transport that bypasses local blocklists (dnsx.SetRdnsLocal);
+	// if not set, Default is used
+	BlockFree = "BlockFree"
+	// all queries are blocked, answers never cached (built-in)
+	BlockAll = "BlockAll"
+	// Bootstrap DNS (built-in); encapsulates Default, if set; or Goos, otherwise.
+	Bootstrap = "Bootstrap"
+	// Application-level gateway
+	Alg = "Alg"
+	// dnscrypt.Proxy as a DNS Transport
+	DcProxy = "DcProxy"
+	// dns resolver for dns resolvers and for firestack (built-in)
+	// delegates queries to Bootstrap.
+	IpMapper = "IpMapper"
 )
 
 const ( // from dnsx/queryerror.go
@@ -53,6 +70,8 @@ const ( // from dnsx/queryerror.go
 	TransportError
 	// ClientError: Client has issues
 	ClientError
+	// DEnd: Transport stopped
+	DEnd
 )
 
 const ( // from: dnsx/rethinkdns.go
@@ -63,41 +82,48 @@ const ( // from: dnsx/rethinkdns.go
 // DNSTransport exports necessary methods from dnsx.Transport
 type DNSTransport interface {
 	// uniquely identifies this transport
-	ID() string
+	ID() *Gostr
 	// one of DNS53, DOH, DNSCrypt, System
-	Type() string
+	Type() *Gostr
 	// Median round-trip time for this transport, in millis.
 	P50() int64
 	// Return the server host address used to initialize this transport.
-	GetAddr() string
+	GetAddr() *Gostr
+	// Return the proxy (relay) always used by this transport.
+	// Returns nil if there isn't any.
+	GetRelay() Proxy
 	// State of the transport after previous query (see: queryerror.go)
 	Status() int
 }
 
 type DNSTransportMult interface {
+	DNSTransportProvider
 	// Add adds a transport to this multi-transport.
 	Add(t DNSTransport) bool
 	// Remove removes a transport from this multi-transport.
-	Remove(id string) bool
-	// Get returns a transport from this multi-transport.
-	Get(id string) (DNSTransport, error)
+	Remove(id *Gostr) bool
 	// Refresh re-registers transports and returns a csv of active ones.
-	Refresh() (string, error)
+	Refresh() (*Gostr, error)
 	// LiveTransports returns a csv of active transports.
-	LiveTransports() string
+	LiveTransports() *Gostr
+}
+
+type DNSTransportProvider interface {
+	// Get returns a transport from this multi-transport.
+	Get(id *Gostr) (DNSTransport, error)
 }
 
 type RDNS interface {
 	// SetStamp sets the rethinkdns blockstamp.
-	SetStamp(string) error
+	SetStamp(*Gostr) error
 	// GetStamp returns the current rethinkdns blockstamp.
-	GetStamp() (string, error)
+	GetStamp() (*Gostr, error)
 	// StampToNames returns csv group:names of blocklists in the given stamp s.
-	StampToNames(s string) (string, error)
+	StampToNames(s *Gostr) (*Gostr, error)
 	// FlagsToStamp returns a blockstamp for given csv blocklist-ids, if valid.
-	FlagsToStamp(csv string, enctyp int) (string, error)
+	FlagsToStamp(csv *Gostr, enctyp int) (*Gostr, error)
 	// StampToFlags retruns csv blocklist-ids given a valid blockstamp s.
-	StampToFlags(s string) (string, error)
+	StampToFlags(s *Gostr) (*Gostr, error)
 }
 
 type RDNSResolver interface {
@@ -113,18 +139,25 @@ type RDNSResolver interface {
 	Translate(bool)
 }
 
+type DNSTransportMultProvider interface {
+	// GetMult returns a multi-transport by id.
+	GetMult(id *Gostr) (DNSTransportMult, error)
+}
+
 type DNSResolver interface {
 	DNSTransportMult
+	DNSTransportMultProvider
 	RDNSResolver
 }
 
 type ResolverListener interface {
 	// OnDNSAdded is called when a new DNS transport with id is added.
-	OnDNSAdded(id string)
+	OnDNSAdded(id *Gostr)
 	// OnDNSRemoved is called when a DNS transport with id is removed, except
 	// when the transport is stopped, then OnDNSStopped is called instead.
-	OnDNSRemoved(id string)
-	// OnDNSStopped is called when the DNS transport is stopped. Note:
-	// OnDNSRemoved is not called for each transport before this.
+	OnDNSRemoved(id *Gostr)
+	// OnDNSStopped is called when all DNS transports are stopped. Note:
+	// OnDNSRemoved is not called for each transport even if they are
+	// being removed and not just stopped.
 	OnDNSStopped()
 }
