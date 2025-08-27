@@ -7,7 +7,6 @@
 package netstack
 
 import (
-	"encoding/binary"
 	"math"
 
 	"github.com/celzero/firestack/intra/core"
@@ -20,77 +19,46 @@ import (
 	"gvisor.dev/gvisor/pkg/tcpip/transport/icmp"
 )
 
-type ICMPHackTarget struct{}
+type ICMPHackTarget struct {
+	Handler func(id stack.TransportEndpointID, pkt *stack.PacketBuffer) bool
+}
 
 func (t *ICMPHackTarget) Action(pkt *stack.PacketBuffer, hook stack.Hook, r *stack.Route, _ stack.AddressableEndpoint) (stack.RuleVerdict, int) {
 	transportHdr := pkt.TransportHeader()
 	if len(transportHdr.Slice()) < 8 {
-		return stack.RuleDrop, 0
+		//the packet may be unparsed
+		return stack.RuleAccept, 0
 	}
 	switch pkt.TransportProtocolNumber {
 	case header.ICMPv6ProtocolNumber:
 		icmp6Hdr := header.ICMPv6(transportHdr.Slice())
 		if icmp6Hdr.Type() == header.ICMPv6EchoRequest {
 			//https://www.rfc-editor.org/rfc/rfc4443.html#section-2.1
-			//200 Private experimentation
-			icmp6Hdr.SetType(200)
-			icmp6Hdr.SetChecksum(0)
-
-			ipv6Hdr := pkt.NetworkHeader().Slice()
-			icmp6Msg := stack.PayloadSince(transportHdr).AsSlice()
-			t1 := checksum.Checksumer{}
-			t1.Add(ipv6Hdr[8:40])
-			var t2 [8]byte
-			binary.BigEndian.PutUint32(t2[:4], uint32(len(icmp6Msg)))
-			t2[7] = uint8(header.ICMPv6ProtocolNumber)
-			t1.Add(t2[:])
-			t1.Add(icmp6Msg)
-
-			icmp6Hdr.SetChecksum(t1.Checksum())
-		}
-	case header.ICMPv4ProtocolNumber:
-		icmp4Hdr := header.ICMPv4(transportHdr.Slice())
-		if icmp4Hdr.Type() == header.ICMPv4Echo {
-			//https://www.rfc-editor.org/rfc/rfc4727.html#section-4
-			//253 RFC3692-style Experiment 1
-			icmp4Hdr.SetType(253)
-			icmp4Hdr.SetChecksum(0)
-			icmp4Msg := stack.PayloadSince(transportHdr).AsSlice()
-			icmp4Hdr.SetChecksum(checksum.Checksum(icmp4Msg, 0))
+			n1 := pkt.Network()
+			icmpID := icmp6Hdr.Ident()
+			id := stack.TransportEndpointID{
+				LocalPort:     icmpID,
+				LocalAddress:  n1.DestinationAddress(),
+				RemotePort:    icmpID,
+				RemoteAddress: n1.SourceAddress(),
+			}
+			t.Handler(id, pkt)
+			return stack.RuleDrop, 0
 		}
 	}
 	return stack.RuleAccept, 0
 }
 
-func restoreICMPv6Type(h header.ICMPv6) {
-	if h.Type() == 200 {
-		h.SetType(header.ICMPv6EchoRequest)
-	}
-}
-func restoreICMPv4Type(h header.ICMPv4) {
-	if h.Type() == 253 {
-		h.SetType(header.ICMPv4Echo)
-	}
-}
-
 func ICMPHack(s *stack.Stack, target stack.Target) {
 	ipt := s.IPTables()
 
-	table := ipt.GetTable(stack.MangleID, true)
-	index := table.BuiltinChains[stack.Prerouting]
+	table := ipt.GetTable(stack.FilterID, true)
+	index := table.BuiltinChains[stack.Input]
 	rules := table.Rules
 	rules[index].Filter.Protocol = header.ICMPv6ProtocolNumber
 	rules[index].Filter.CheckProtocol = true
 	rules[index].Target = target
-	ipt.ReplaceTable(stack.MangleID, table, true)
-
-	table = ipt.GetTable(stack.MangleID, false)
-	index = table.BuiltinChains[stack.Prerouting]
-	rules = table.Rules
-	rules[index].Filter.Protocol = header.ICMPv4ProtocolNumber
-	rules[index].Filter.CheckProtocol = true
-	rules[index].Target = target
-	ipt.ReplaceTable(stack.MangleID, table, false)
+	ipt.ForceReplaceTable(stack.FilterID, table, true)
 }
 
 type GICMPHandler interface {
@@ -107,11 +75,8 @@ type icmpForwarder struct {
 // github.com/google/gvisor/blob/738e1d995f/pkg/tcpip/network/ipv4/icmp.go
 // github.com/google/gvisor/blob/738e1d995f/pkg/tcpip/network/ipv6/icmp.go
 func OutboundICMP(id string, s *stack.Stack, hdl GICMPHandler) {
-	ICMPHack(s, &ICMPHackTarget{})
-
 	// remove default handlers
 	s.SetTransportProtocolHandler(icmp.ProtocolNumber4, nil)
-	s.SetTransportProtocolHandler(icmp.ProtocolNumber6, nil)
 
 	if hdl == nil {
 		log.E("icmp: %s: no handler", id)
@@ -120,7 +85,9 @@ func OutboundICMP(id string, s *stack.Stack, hdl GICMPHandler) {
 
 	forwarder := newIcmpForwarder(id, s, hdl)
 	s.SetTransportProtocolHandler(icmp.ProtocolNumber4, forwarder.reply4)
-	s.SetTransportProtocolHandler(icmp.ProtocolNumber6, forwarder.reply6)
+	//gvisor v0.0.0-20250816201027-ba3b9ca85f20 never delivers ICMPv6 Echo Request Messages to TransportProtocolHandler
+	target := ICMPHackTarget{forwarder.reply6}
+	ICMPHack(s, &target)
 }
 
 func newIcmpForwarder(owner string, s *stack.Stack, h GICMPHandler) *icmpForwarder {
@@ -145,7 +112,6 @@ func (f *icmpForwarder) reply4(id stack.TransportEndpointID, pkt *stack.PacketBu
 
 	// ref: github.com/google/gvisor/blob/acf460d0d735/pkg/tcpip/stack/conntrack.go#L933
 	hdr := header.ICMPv4(pkt.TransportHeader().Slice())
-	restoreICMPv4Type(hdr)
 	if hdr.Type() != header.ICMPv4Echo {
 		// netstack handles other msgs except echo / ping
 		log.D("icmp: v4: %s: type %v passthrough", f.o, hdr.Type())
@@ -194,41 +160,30 @@ func (f *icmpForwarder) reply4(id stack.TransportEndpointID, pkt *stack.PacketBu
 		if !f.h.Ping(data, src, dst) { // unreachable
 			err = f.icmpErr4(pkt, header.ICMPv4DstUnreachable, header.ICMPv4HostUnreachable)
 		} else { // reachable
-			newOptions := f.ipOpts(pkt, ipHdr)
+			originRef := replyData.AsSlice()
+			replyBuf := buffer.NewViewSize(len(originRef))
+			replyRef := replyBuf.AsSlice()
 
-			// Correct IP header length (IHL in 32-bit words).
-			replyHeaderLength := uint8(header.IPv4MinimumSize + len(newOptions))
-			replyIPHdrView := buffer.NewView(int(replyHeaderLength))
-			replyIPHdrView.Write(ipHdr[:header.IPv4MinimumSize])
-			replyIPHdrView.Write(newOptions)
-
-			replyIPHdr := header.IPv4(replyIPHdrView.AsSlice())
-			replyIPHdr.SetHeaderLength(replyHeaderLength >> 2) // IHL in 32-bit words.
-			replyIPHdr.SetSourceAddress(route.LocalAddress())
-			replyIPHdr.SetDestinationAddress(route.RemoteAddress())
-			replyIPHdr.SetTTL(route.DefaultTTL())
-			replyIPHdr.SetTotalLength(uint16(len(replyIPHdr) + len(replyData.AsSlice())))
-			replyIPHdr.SetChecksum(0)
-			replyIPHdr.SetChecksum(^replyIPHdr.CalculateChecksum())
-
-			replyICMPHdr := header.ICMPv4(replyData.AsSlice())
+			copy(replyRef[4:], originRef[4:])
+			replyICMPHdr := header.ICMPv4(replyRef)
 			replyICMPHdr.SetType(header.ICMPv4EchoReply)
 			replyICMPHdr.SetCode(0) // EchoReply must have Code=0.
-			replyICMPHdr.SetChecksum(0)
-			replyICMPHdr.SetChecksum(^checksum.Checksum(replyData.AsSlice(), 0))
+			replyICMPHdr.SetChecksum(^checksum.Checksum(replyRef, 0))
 
-			replyBuf := buffer.MakeWithView(replyIPHdrView)
-			replyBuf.Append(replyData.Clone())
 			replyPkt := stack.NewPacketBuffer(stack.PacketBufferOptions{
 				ReserveHeaderBytes: int(route.MaxHeaderLength()),
-				Payload:            replyBuf,
+				Payload:            buffer.MakeWithView(replyBuf),
 			})
+			defer replyPkt.DecRef()
 
 			log.D("icmp: v4: %s: ok type %v/%v sz[%d] from %v <= %v",
 				f.o, replyICMPHdr.Type(), replyICMPHdr.Code(), len(replyICMPHdr), src, dst)
 
 			// github.com/google/gvisor/blob/738e1d995f/pkg/tcpip/network/ipv4/icmp.go#L794
-			err = route.WriteHeaderIncludedPacket(replyPkt)
+			err = route.WritePacket(stack.NetworkHeaderParams{
+				Protocol: header.ICMPv4ProtocolNumber,
+				TTL:      route.DefaultTTL(),
+			}, replyPkt)
 		}
 		loge(err)("icmp: v4: %s: wrote reply to tun; err? %v", f.o, err)
 	})
@@ -245,7 +200,6 @@ func (f *icmpForwarder) reply6(id stack.TransportEndpointID, pkt *stack.PacketBu
 	}
 
 	hdr := header.ICMPv6(pkt.TransportHeader().Slice())
-	restoreICMPv6Type(hdr)
 	if hdr.Type() != header.ICMPv6EchoRequest {
 		log.D("icmp: v6: %s: type %v/%v passthrough", f.o, hdr.Type(), hdr.Code())
 		return // netstack to handle other msgs except echo / ping
@@ -282,25 +236,28 @@ func (f *icmpForwarder) reply6(id stack.TransportEndpointID, pkt *stack.PacketBu
 		if !f.h.Ping(data, src, dst) { // unreachable
 			err = f.icmpErr6(id, pkt, header.ICMPv6DstUnreachable, header.ICMPv6NetworkUnreachable)
 		} else { // reachable
-			replyPkt := stack.NewPacketBuffer(stack.PacketBufferOptions{
-				ReserveHeaderBytes: int(route.MaxHeaderLength()) + header.ICMPv6EchoMinimumSize,
-				Payload:            pkt.Data().ToBuffer(),
-			})
-			defer replyPkt.DecRef()
-			replyHdr := header.ICMPv6(replyPkt.TransportHeader().Push(header.ICMPv6EchoMinimumSize))
-			replyPkt.TransportProtocolNumber = header.ICMPv6ProtocolNumber
-			copy(replyHdr, hdr)
+			originRef := stack.PayloadSince(pkt.TransportHeader()).AsSlice()
+			replyBuf := buffer.NewViewSize(len(originRef))
+			replyRef := replyBuf.AsSlice()
+
+			copy(replyRef[4:], originRef[4:])
+			replyHdr := header.ICMPv6(replyRef)
 			replyHdr.SetType(header.ICMPv6EchoReply)
-			replyData := replyPkt.Data()
-			replyHdr.SetChecksum(header.ICMPv6Checksum(header.ICMPv6ChecksumParams{
-				Header:      replyHdr,
-				Src:         route.LocalAddress(),  // or id.LocalAddress
-				Dst:         route.RemoteAddress(), // or id.RemoteAddress
-				PayloadCsum: replyData.Checksum(),
-				PayloadLen:  replyData.Size(),
-			}))
+			replyHdr.SetCode(0)
+			replyHdr.SetChecksum(0)
+			replyHdr.SetChecksum(^checksum.Checksum(replyRef, header.PseudoHeaderChecksum(
+				header.ICMPv6ProtocolNumber,
+				route.LocalAddress(),  // or id.LocalAddress
+				route.RemoteAddress(), // or id.RemoteAddress
+				uint16(len(replyRef)),
+			)))
 			log.D("icmp: v6: %s: ok type %v/%v sz[%d] from %v <= %v",
 				f.o, replyHdr.Type(), replyHdr.Code(), len(replyHdr), src, dst)
+			replyPkt := stack.NewPacketBuffer(stack.PacketBufferOptions{
+				ReserveHeaderBytes: int(route.MaxHeaderLength()),
+				Payload:            buffer.MakeWithView(replyBuf),
+			})
+			defer replyPkt.DecRef()
 
 			// github.com/google/gvisor/blob/738e1d995f/pkg/tcpip/network/ipv6/icmp.go#L694
 			replyclass, _ := l3.TOS()
@@ -746,14 +703,14 @@ func l4l7(pkt *stack.PacketBuffer, sz uint32) ([]byte, error) {
 }
 
 func l3l4(pkt *stack.PacketBuffer, sz int64) (b buffer.Buffer, err error) {
-    l3 := pkt.NetworkHeader().View()
-    l4 := pkt.TransportHeader().View()
-    combined := buffer.MakeWithView(l3)
-    if err = combined.Append(l4); err == nil {
-        payload := pkt.Data().ToBuffer()
-        combined.Merge(&payload)
-        combined.Truncate(sz)
-        b = combined
-    }
-    return
+	l3 := pkt.NetworkHeader().View()
+	l4 := pkt.TransportHeader().View()
+	combined := buffer.MakeWithView(l3)
+	if err = combined.Append(l4); err == nil {
+		payload := pkt.Data().ToBuffer()
+		combined.Merge(&payload)
+		combined.Truncate(sz)
+		b = combined
+	}
+	return
 }
