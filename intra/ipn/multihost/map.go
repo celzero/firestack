@@ -66,8 +66,12 @@ func (m *MHMap) Put(h *MH) (ok bool) {
 }
 
 func (m *MHMap) putLocked(h *MH) (ok bool) {
+	if h == nil {
+		return false
+	}
+	
 	if _, dup := m.uniq[h]; dup {
-		log.W("multihost: %s map: put: dup; call refresh instead?", m.k, dup)
+		log.W("multihost: %s map: put: dup; call refresh instead?", m.k)
 		return h.Len() > 0
 	}
 
