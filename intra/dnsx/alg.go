@@ -258,6 +258,8 @@ func (p *xips) String() string {
 	if p == nil {
 		return "<nil>"
 	}
+	p.pmu.RLock()
+	defer p.pmu.RUnlock()
 	return fmt.Sprintf("xips: pri(%v) sec(%v)", p.pri, p.aux)
 }
 
@@ -1922,7 +1924,7 @@ func Req(t Transport, network string, q *dns.Msg, smm *x.DNSSummary) (*dns.Msg, 
 	}
 
 	if settings.Debug {
-		log.V("alg: Req: %s:%d servfail; by: %s, rdata: %d, status: %d, rcode %d",
+		log.V("alg: Req: %s:%d servfail; by: %s, rdata: %s, status: %d, rcode %d",
 			qname, qtyp, smm.ID, smm.RData, smm.Status, xdns.Rcode(r))
 	}
 	return r, err

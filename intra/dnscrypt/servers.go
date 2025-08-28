@@ -19,6 +19,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"maps"
 	"math/rand"
 	"net"
 	"net/netip"
@@ -178,7 +179,14 @@ func (serversInfo *ServersInfo) refresh(proxy *DcMulti) ([]string, error) {
 	}
 	var liveServers []string
 	var err error
-	for _, registeredServer := range serversInfo.registeredServers {
+
+	// Get a snapshot of registered servers under lock to prevent race conditions
+	serversInfo.RLock()
+	copied := make(map[string]registeredserver)
+	maps.Copy(copied, serversInfo.registeredServers)
+	serversInfo.RUnlock()
+
+	for _, registeredServer := range copied {
 		if err = serversInfo.refreshServer(proxy, registeredServer.name, registeredServer.stamp); err == nil {
 			liveServers = append(liveServers, registeredServer.name)
 		} else {
