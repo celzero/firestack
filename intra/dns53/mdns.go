@@ -267,6 +267,7 @@ type client struct {
 	unicast4, unicast6     net.PacketConn
 	multicast4, multicast6 net.PacketConn
 
+	tmu     sync.RWMutex // protects tracker map
 	tracker map[string]*dnssdanswer
 	msgCh   chan *dns.Msg // never closed
 
@@ -577,15 +578,39 @@ func (c *client) recv(conn net.PacketConn) {
 }
 
 // untrack removes a name from the tracker;
-// name is NOT normalized. untrack is not thread safe.
+// name is NOT normalized.
 func (c *client) untrack(name string) {
+	c.tmu.Lock()
+	defer c.tmu.Unlock()
 	log.V("mdns: tracker: rmv %s", name)
 	delete(c.tracker, name)
 }
 
 // track marks a name as being tracked by this client;
-// name is NOT normalized. track is not thread safe.
+// name is NOT normalized.
 func (c *client) track(name string) *dnssdanswer {
+	c.tmu.Lock()
+	defer c.tmu.Unlock()
+
+	return c.trackLocked(name)
+}
+
+// alias sets up mapping between two tracked entries;
+// src and dst are NOT normalized.
+func (c *client) alias(src, dst string) {
+	c.tmu.Lock()
+	defer c.tmu.Unlock()
+
+	if se, ok := c.tracker[dst]; ok {
+		log.VV("mdns: tracker: discard %v for %s; aliased to %s", se, dst, src)
+	}
+	se := c.trackLocked(src)
+	log.V("mdns: tracker: alias %s <-> %s with %v", src, dst, se)
+	c.tracker[dst] = se
+}
+
+// trackLocked is the non-locking version of track, called when lock is already held
+func (c *client) trackLocked(name string) *dnssdanswer {
 	if tse, ok := c.tracker[name]; ok {
 		log.VV("mdns: tracker: exists %s with %v", name, tse)
 		return tse
@@ -596,17 +621,6 @@ func (c *client) track(name string) *dnssdanswer {
 	c.tracker[name] = se
 	log.V("mdns: tracker: start %s with %v", name, se)
 	return se
-}
-
-// alias sets up mapping between two tracked entries;
-// src and dst are NOT normalized. alias is not thread safe.
-func (c *client) alias(src, dst string) {
-	if se, ok := c.tracker[dst]; ok {
-		log.VV("mdns: tracker: discard %v for %s; aliased to %s", se, dst, src)
-	}
-	se := c.track(src)
-	log.V("mdns: tracker: alias %s <-> %s with %v", src, dst, se)
-	c.tracker[dst] = se
 }
 
 func extend(c net.PacketConn, t time.Duration) {
