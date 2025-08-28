@@ -270,7 +270,7 @@ func (r *rpnp) flattenKids() (ccs []string) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	ccs = make([]string, len(r.kids))
+	ccs = make([]string, 0, len(r.kids))
 	for cc := range r.kids {
 		ccs = append(ccs, cc)
 	}

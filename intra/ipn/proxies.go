@@ -13,6 +13,7 @@ import (
 	"math/rand"
 	"net"
 	"net/netip"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -107,7 +108,7 @@ var (
 	errProxyRoute         = errors.New("proxy: no route to host")
 	errProxyConfig        = errors.New("proxy: invalid config")
 	errProxyReadd         = errors.New("proxy: cannot update; readd config")
-	errNoProxyResponse    = errors.New("proxy: no response from upstream")
+	errNoProxyResponse    = errors.New("proxy: blocked or no response")
 	errNoSig              = errors.New("proxy: auth missing sig")
 	errNoMtu              = errors.New("proxy: missing mtu")
 	errNoOpts             = errors.New("proxy: no opts")
@@ -885,7 +886,7 @@ func (px *proxifier) refreshHopOriginsIfAny(hop Proxy, why string) (n int) {
 	}
 
 	px.hmu.RLock()
-	origins := px.hp[hopID]
+	origins := slices.Clone(px.hp[hopID]) // Create a copy to avoid race
 	px.hmu.RUnlock()
 
 	if len(origins) <= 0 {
