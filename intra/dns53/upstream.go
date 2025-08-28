@@ -237,8 +237,7 @@ func (t *transport) send(network, pid string, q *dns.Msg) (ans *dns.Msg, rpid st
 		qerr = dnsx.NewBadQueryError(errQueryParse)
 		return
 	}
-	if t.status.Load() == dnsx.DEnd {
-		qerr = dnsx.NewEndQueryError()
+	if qerr = dnsx.WillErr(t); qerr != nil {
 		return
 	}
 
@@ -371,6 +370,11 @@ func (t *transport) IPPorts() (ipps []netip.AddrPort) {
 }
 
 func (t *transport) Status() int {
+	if px := t.GetRelay(); px != nil {
+		if px.Status() == ipn.TPU {
+			return dnsx.Paused
+		}
+	}
 	return t.status.Load()
 }
 

@@ -101,8 +101,8 @@ func use6(l3 string) bool {
 }
 
 func (t *dnssd) oneshotQuery(msg *dns.Msg) (*dns.Msg, *dnsx.QueryError) {
-	if t.status.Load() == dnsx.DEnd {
-		return nil, dnsx.NewEndQueryError()
+	if qerr := dnsx.WillErr(t); qerr != nil {
+		return nil, qerr
 	}
 	service, tld := xdns.ExtractMDNSDomain(msg)
 	// always buffered; otherwise c.listen may block on writes into ansch / resch.

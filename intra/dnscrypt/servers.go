@@ -123,7 +123,7 @@ retry:
 	i := 0
 	for _, si := range serversInfo.inner {
 		if i == candidate || selectAny {
-			if si != nil && si.status.Load() != dnsx.DEnd {
+			if si != nil && dnsx.WillErr(si) == nil {
 				if settings.Debug {
 					log.V("dnscrypt: candidate [%v]", si) // may be nil?
 				}
@@ -432,6 +432,11 @@ func (s *serverinfo) IPPorts() []netip.AddrPort {
 }
 
 func (s *serverinfo) Status() int {
+	if px := s.getRelay(); px != nil {
+		if px.Status() == ipn.TPU {
+			return dnsx.Paused
+		}
+	}
 	return s.status.Load()
 }
 

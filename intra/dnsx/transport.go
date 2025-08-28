@@ -94,20 +94,21 @@ var (
 )
 
 var (
-	ErrNotDefaultTransport     = errors.New("not a default dns transport")
-	ErrNoDcProxy               = errors.New("no dnscrypt-proxy")
-	ErrNoProxyProvider         = errors.New("no proxy provider for dns")
-	ErrNoProxyDNS              = errors.New("no proxy dns")
-	ErrAddFailed               = errors.New("dns add failed")
-	errNoSuchTransport         = errors.New("missing dns transport")
-	errTransportEnd            = errors.New("transport ended")
-	errOnQueryTimeout          = errors.New("timeout fetching dns prefs")
-	errOnUpstreamAnswerTimeout = errors.New("timeout fetching dns prefs for upstream answer")
-	errBlockFreeTransport      = errors.New("block free transport")
-	errNoRdns                  = errors.New("no rdns")
-	errTransportNotMult        = errors.New("not a multi-transport")
-	errMissingQueryName        = errors.New("no query name")
-	errResolverClosed          = errors.New("dns closed for business")
+	ErrNotDefaultTransport     = errors.New("dns: not a default transport")
+	ErrNoDcProxy               = errors.New("dns: no dnscrypt-proxy")
+	ErrNoProxyProvider         = errors.New("dns: no proxy provider")
+	ErrNoProxyDNS              = errors.New("dns: no proxy")
+	ErrAddFailed               = errors.New("dns: add failed")
+	errNoSuchTransport         = errors.New("dns: missing transport")
+	errTransportEnd            = errors.New("dns: transport ended")
+	errTransportPaused         = errors.New("dns: transport paused")
+	errOnQueryTimeout          = errors.New("dns: timeout fetching prefs")
+	errOnUpstreamAnswerTimeout = errors.New("dns: timeout fetching prefs for upstream answer")
+	errBlockFreeTransport      = errors.New("dns: block free transport")
+	errNoRdns                  = errors.New("dns: no rdns")
+	errTransportNotMult        = errors.New("dns: not a multi-transport")
+	errMissingQueryName        = errors.New("dns: no query name")
+	errResolverClosed          = errors.New("dns: closed for business")
 )
 
 // Transport represents a DNS query transport.  This interface is exported by gobind,
@@ -1174,9 +1175,9 @@ func Categorize(ts []Transport) (best []Transport, preferred []Transport, recove
 			preferred = append(preferred, t)
 		case BadResponse:
 			preferred = append(preferred, t)
-		case InternalError, TransportError, Unknown:
+		case InternalError, TransportError:
 			recoverables = append(recoverables, t)
-		case DEnd: // discard
+		case DEnd, Paused, Unknown: // discard non-active transports
 			ended = append(ended, t)
 		default: // ClientError, SendFailed
 			errored = append(errored, t)
@@ -1422,12 +1423,23 @@ func cachedTransport(t Transport) bool {
 		strings.HasPrefix(t.GetAddr().V(), cacheprefix)
 }
 
+func WillErr(t Transport) *QueryError {
+	switch t.Status() {
+	case DEnd:
+		return NewEndQueryError()
+	case Paused:
+		return NewPausedQueryError()
+	}
+	return nil
+}
+
 func isPlus(id string) bool {
 	return strings.HasPrefix(id, Plus) || strings.HasPrefix(id, CT+Plus)
 }
 
 func activeTransport(t Transport) bool {
-	return t.Status() != DEnd
+	st := t.Status()
+	return st != DEnd && st != Paused && st != Unknown
 }
 
 func clos(c io.Closer) {
