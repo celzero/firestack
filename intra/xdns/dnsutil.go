@@ -406,7 +406,7 @@ func Targets(msg *dns.Msg) (targets []string) {
 	if msg == nil {
 		return targets
 	}
-	touched := make(map[string]any)
+	touched := make(map[string]struct{})
 	if qname, err := NormalizeQName(QName(msg)); err == nil {
 		targets = append(targets, qname)
 		touched[qname] = struct{}{}
@@ -769,7 +769,7 @@ func SubstAAAARecords(out *dns.Msg, subip6s netip.Addr, ttl uint32) bool {
 		return false
 	}
 	// substitute ips in any a / aaaa records
-	touched := make(map[string]any)
+	touched := make(map[string]struct{})
 	rrs := make([]dns.RR, 0)
 	i := 0
 	for _, answer := range out.Answer {
@@ -803,7 +803,7 @@ func SubstARecords(out *dns.Msg, subip4s netip.Addr, ttl uint32) bool {
 		return false
 	}
 	// substitute ips in any a / aaaa records
-	touched := make(map[string]any)
+	touched := make(map[string]struct{})
 	rrs := make([]dns.RR, 0)
 	i := 0
 	for _, answer := range out.Answer {
