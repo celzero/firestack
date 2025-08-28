@@ -615,7 +615,7 @@ func (s *StdNetBind) asEndpoint(ap net.Addr) conn.Endpoint {
 	} else if udp, ok := ap.(*net.UDPAddr); ok {
 		ipp := udp.AddrPort()
 		ep = StdNetEndpoint{ipp, udpaddr(ipp)} // copy udp addr
-	} else if ipp, err := netip.ParseAddrPort(ap.String()); err != nil {
+	} else if ipp, err := netip.ParseAddrPort(ap.String()); err == nil {
 		ep = StdNetEndpoint{ipp, udpaddr(ipp)}
 	}
 	s.eps[ap] = ep // ep may be zero value
