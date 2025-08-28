@@ -7,6 +7,7 @@
 package x64
 
 import (
+	"maps"
 	"net"
 	"net/netip"
 
@@ -90,7 +91,12 @@ func (n *natPt) X64(id string, ip6 netip.Addr) (ip4 netip.Addr) {
 
 	rawip := addr2ip(ip6)
 	if id == dnsx.AnyResolver {
-		for tid, prefixes := range n.ip64 {
+		n.RLock()
+		all := make(map[string][]*net.IPNet, len(n.ip64))
+		maps.Copy(all, n.ip64)
+		n.RUnlock()
+
+		for tid, prefixes := range all {
 			if len(prefixes) <= 0 {
 				continue
 			}
@@ -157,11 +163,7 @@ func (n *natPt) UIP(network string) []byte {
 }
 
 func (n *natPt) nat64PrefixForResolver(id string) []*net.IPNet {
-	if ips, ok := n.ip64[id]; !ok {
-		return nil
-	} else {
-		return ips
-	}
+	return n.get(id)
 }
 
 // match returns the first matching prefix for ip in nets.
