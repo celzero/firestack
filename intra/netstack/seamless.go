@@ -173,9 +173,7 @@ func (l *magiclink) Swap(fd, mtu int) (err error) {
 		return core.OneErr(err, errMissingEp)
 	}
 
-	if old := l.e.Swap(ep); old != nil {
-		core.Go("magic."+strconv.Itoa(fd), old.Close)
-	}
+	old := l.e.Swap(ep)
 
 	d := l.d.Load()
 	if d == nil {
@@ -183,6 +181,13 @@ func (l *magiclink) Swap(fd, mtu int) (err error) {
 	} else {
 		ep.Attach(l) // attach the new endpoint to the existing dispatcher
 	}
+	
+	// Close the old endpoint after the new one is attached to ensure
+	// proper sequencing and avoid WaitGroup reuse issues
+	if old != nil {
+		core.Go("magic."+strconv.Itoa(fd), old.Close)
+	}
+	
 	logei(d == nil)("netstack: magic(%d) mtu: %d; swap: new ep... dispatch? %t",
 		fd, umtu, d != nil)
 
@@ -308,7 +313,15 @@ func (l *magiclink) WritePackets(pkts stack.PacketBufferList) (int, tcpip.Error)
 }
 
 func (l *magiclink) Wait() {
-	if e := l.e.Load(); e != nil {
+	// Atomically load the current endpoint to prevent race conditions
+	// during endpoint swapping. If endpoint is swapped while we're 
+	// waiting, we should wait on the endpoint we loaded, not the new one.
+	// This prevents WaitGroup reuse issues.
+	e := l.e.Load()
+	if e != nil {
+		// Use a recovered call to prevent panics from propagating
+		// in case of WaitGroup reuse issues
+		defer core.Recover(core.Exit11, "magiclink.wait")
 		e.Wait()
 	}
 }
