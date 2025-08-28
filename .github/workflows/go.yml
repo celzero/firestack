@@ -22,6 +22,11 @@ jobs:
       with:
         go-version: '>=1.24'
 
+    - name: 🐍 Python3
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.10'
+
     - name: 🏗️ Make
       run: |
         # outputs firestack.aar and firestack-arm.aar; also see: "Obj" below
@@ -34,27 +39,6 @@ jobs:
         go env
         # go test -v -race -bench=. -benchtime=100ms ./...
         echo "::notice::success"
-
-    - name: 🔮 Vet
-      run: |
-        # github.com/actions/setup-go/issues/27
-        export PATH=${PATH}:`go env GOPATH`/bin
-
-        # vet: fails: archive.is/XcDl6
-        go vet ./...
-        # staticcheck
-        # go install honnef.co/go/tools/cmd/staticcheck@latest
-        # staticcheck ./...
-        go install go.uber.org/nilaway/cmd/nilaway@latest
-        nilaway ./...
-        go install golang.org/x/vuln/cmd/govulncheck@latest
-        govulncheck -show verbose -test ./...
-      shell: bash
-
-    - name: 🐍 Python3
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.10'
 
     - name: 💿 Obj
       run: |
@@ -135,7 +119,24 @@ jobs:
         echo "====================="
       shell: bash
 
+    - name: 🔮 Vet
+      run: |
+        # github.com/actions/setup-go/issues/27
+        export PATH=${PATH}:`go env GOPATH`/bin
+
+        # vet: fails: archive.is/XcDl6
+        go vet ./...
+        # staticcheck
+        # go install honnef.co/go/tools/cmd/staticcheck@latest
+        # staticcheck ./...
+        go install go.uber.org/nilaway/cmd/nilaway@latest
+        nilaway ./...
+        go install golang.org/x/vuln/cmd/govulncheck@latest
+        govulncheck -show verbose -test ./...
+      shell: bash
+
     - name: 🛸 Env
+      if: success()
       run: |
         # docs.github.com/en/actions/reference/workflows-and-actions/contexts#github-context
         GROUP_GITHUB="com.github.${{ github.repository_owner }}"
@@ -185,6 +186,7 @@ jobs:
       shell: bash
 
     - name: 🏷️ Setup for GitHub Packages
+      if: success() && github.event_name == 'push'
       uses: actions/setup-java@v4
       with:
         java-version: '17'
@@ -193,6 +195,7 @@ jobs:
     # docs.github.com/en/actions/tutorials/build-and-test-code/java-with-maven
     # docs.github.com/en/actions/tutorials/publish-packages/publish-java-packages-with-maven#publishing-packages-to-github-packages
     - name: 📦 Publish
+      if: success() && github.event_name == 'push'
       shell: bash
       run: |
         # uploaded at:
@@ -217,6 +220,7 @@ jobs:
     # github.com/slsa-framework/slsa-github-generator/blob/4876e96b8268/actions/maven/publish/action.yml#L49
     # docs.github.com/en/actions/tutorials/publish-packages/publish-java-packages-with-maven#publishing-packages-to-the-maven-central-repository-and-github-packages
     - name: 🏛️ Setup for Maven Central
+      if: success() && github.event_name == 'push'
       uses: actions/setup-java@v4
       with:
         java-version: '17'
@@ -228,6 +232,7 @@ jobs:
         gpg-passphrase: ${{ secrets.OSSRH_CELZERO_GPG_PASSPHRASE }}
 
     - name: 📦 Publish to Maven Central
+      if: success() && github.event_name == 'push'
       shell: bash
       run: |
         mvn -f ${POM_OSSRH} versions:set -DnewVersion=${VCSVER} -DgenerateBackupPoms=false
@@ -260,8 +265,8 @@ jobs:
 
         # github.com/actions/upload-artifact
     - name: 🚀 Upload
+      if: success() && github.event_name == 'push'
       uses: actions/upload-artifact@v4
-      if: success()
       with:
         name: firestack-aar-${{ github.sha }} # must be unique
         path: firestack*.aar # see: make-aar
