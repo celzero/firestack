@@ -110,16 +110,14 @@ func (h *cm) addByPidLocked(pid, cid string) {
 	if len(pid) <= 0 || len(cid) <= 0 {
 		return
 	}
-	// TODO: remove duplicates
-	h.tracp[pid] = append(h.tracp[pid], cid)
+	h.tracp[pid] = CopyUniq(h.tracp[pid], []string{cid})
 }
 
 func (h *cm) addByUidLocked(uid, cid string) {
 	if len(uid) <= 0 || len(cid) <= 0 {
 		return
 	}
-	// TODO: remove duplicates
-	h.tracu[uid] = append(h.tracu[uid], cid)
+	h.tracu[uid] = CopyUniq(h.tracu[uid], []string{cid})
 }
 
 func (h *cm) getLocked(cid string) *connstat {
