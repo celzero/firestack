@@ -662,16 +662,22 @@ func (r *retrier) ReadFrom(reader io.Reader) (bytes int64, err error) {
 		}
 	}
 
+	// disable read and write deadlines as io.ReaderFrom does not
+	// rely on io.Read and io.Write semantics for "r.conn" from which
+	// deadlines are extended to avoid timeouts (see also: rwconn.go)
 	optimizedReadFrom := true
 	var b int64
 	switch x := c.(type) {
 	case *net.TCPConn:
+		r.SetDeadline(time.Time{})
 		b, err = x.ReadFrom(reader)
 		bytes += b
 	case *splitter:
+		r.SetDeadline(time.Time{})
 		b, err = x.ReadFrom(reader)
 		bytes += b
 	case io.ReaderFrom:
+		r.SetDeadline(time.Time{})
 		b, err = x.ReadFrom(reader)
 		bytes += b
 	default: // net.UDPConn, net.PacketConn etc?
@@ -679,13 +685,6 @@ func (r *retrier) ReadFrom(reader io.Reader) (bytes int64, err error) {
 		// read from reader until EOF
 		b, err = core.Stream(c, reader)
 		bytes += b
-	}
-
-	if optimizedReadFrom {
-		// disable read and write deadlines as io.ReaderFrom does not
-		// rely on io.Read and io.Write semantics from which deadlines
-		// are usually extended to avoid timeouts (see also: rwconn.go)
-		r.SetDeadline(time.Time{})
 	}
 
 	logeif(err)("retrier: readfrom: %s: (optimized? %t for %T) done (id: %s, pinned? %t); sz: %d; err: %v",
