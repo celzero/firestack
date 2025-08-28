@@ -426,7 +426,7 @@ func (r *retrier) retryWriteReadLocked(buf []byte) (int, error) {
 
 	// all of buf was written to c
 	// require a response within a short timeout on r.conn (same as newConn)
-	r.shorterReadDeadlineForRetryLocked()
+	newConn.SetReadDeadline(time.Now().Add(r.readTimeoutLocked()))
 	return newConn.Read(buf)
 }
 
@@ -493,8 +493,8 @@ func (r *retrier) Read(buf []byte) (n int, err error) {
 				_ = c.SetReadDeadline(r.readDeadline)
 				_ = c.SetWriteDeadline(r.writeDeadline)
 			}
-			logeor(err, note)("retrier: read: %s: #%d + (mult? %d / %d) [%s<=%s]; t: %s; b: %d/%d; err? %v",
-				r.dialerID(), r.retryCount, len(r.dialers), r.nextDialerIdx, laddr(c), r.raddr, core.FmtPeriod(r.timeout), n, len(buf), err)
+			logeor(err, note)("retrier: read: %s: #%d + (mult? %d / %d) [%s<=%s]; rshortt: %s / rfullt: %s; b: %d/%d; err? %v",
+				r.dialerID(), r.retryCount, len(r.dialers), r.nextDialerIdx, laddr(c), r.raddr, core.FmtPeriod(r.timeout), core.FmtTimeAsPeriod(r.readDeadline), n, len(buf), err)
 			r.tee = nil // discard teed data
 			return
 		}
@@ -504,7 +504,7 @@ func (r *retrier) Read(buf []byte) (n int, err error) {
 	return
 }
 
-func (r *retrier) teedFirstWrite(b []byte) (n int, firstWrite, didAttemptWrite bool, src net.Addr, err error) {
+func (r *retrier) teedFirstWrite(b []byte) (n int, firstWrite, didAttemptWrite bool, readWait time.Duration, src net.Addr, err error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -519,7 +519,7 @@ func (r *retrier) teedFirstWrite(b []byte) (n int, firstWrite, didAttemptWrite b
 	}
 
 	src = laddr(c)
-	if !r.retryCompleted() { // first write
+	if !r.retryCompleted() { // may be first write
 		_ = c.SetWriteDeadline(r.writeDeadline)
 
 		n, err = c.Write(b)
@@ -527,25 +527,16 @@ func (r *retrier) teedFirstWrite(b []byte) (n int, firstWrite, didAttemptWrite b
 		// capture first write, aka "hello"
 		r.tee = append(r.tee, b...)
 		didAttemptWrite = true
+		readWait = r.readTimeoutLocked()
 		// all of b was written to r.tee if not to c
 		// require a response or another write within a short timeout.
-		r.shorterReadDeadlineForRetryLocked()
+		c.SetReadDeadline(time.Now().Add(readWait))
 	}
 
 	return
 }
 
-func (r *retrier) shorterReadDeadlineForRetryLocked() {
-	c := r.conn
-	if r.timeout > 0 {
-		_ = c.SetReadDeadline(time.Now().Add(r.timeout))
-	} else {
-		// if timeout is set to 0, then use client requested deadline
-		_ = c.SetReadDeadline(r.readDeadline)
-	}
-}
-
-func (r *retrier) readTimeout() time.Duration {
+func (r *retrier) readTimeoutLocked() time.Duration {
 	if r.timeout > 0 {
 		return r.timeout
 	}
@@ -563,7 +554,7 @@ func (r *retrier) Write(b []byte) (int, error) {
 	// empty at steady-state.
 	if !r.retryCompleted() {
 		// todo: what if sentAndCopied is false and err != nil?
-		n, first, sentAndCopied, src, err := r.teedFirstWrite(b)
+		n, first, sentAndCopied, until, src, err := r.teedFirstWrite(b)
 
 		note := log.D
 		if sentAndCopied {
@@ -587,7 +578,6 @@ func (r *retrier) Write(b []byte) (int, error) {
 			// by the retry procedure. Block until we have a final socket (which will
 			// already have replayed r.tee), and retry.
 			// ie, wait until first write is done on the final socket.
-			until := r.readTimeout()
 			maxUntil := max(until, until*maxRetryCount)
 			if r.multidial {
 				maxUntil = max(maxUntil, maxUntil*time.Duration(len(r.dialers)))
@@ -595,15 +585,14 @@ func (r *retrier) Write(b []byte) (int, error) {
 			select {
 			case <-r.retryDoneCh:
 			case <-time.After(maxUntil): // arb high timeout; it should rarely if ever needed
-				log.W("retrier: write: %s: 1st write timed-out waiting for %s [calc-rtt: %s] 1st read b/w [%s=>%s], mult: %d, b: %d/%d, err: %v",
+				rerr := log.EE("retrier: write: %s: 1st write timed-out waiting for %s [calc-rtt: %s] 1st read b/w [%s=>%s], mult: %d, b: %d/%d, err: %v",
 					r.dialerID(), core.FmtPeriod(maxUntil), core.FmtPeriod(r.timeout), src, r.raddr, len(r.dialers), n, len(b), err)
-				return n, core.JoinErr(err, errRetryTimeout)
+				return n, core.JoinErr(err, rerr, errRetryTimeout)
 			}
 
 			r.mu.Lock()
 			defer r.mu.Unlock()
 
-			elapsed := time.Since(start).Milliseconds()
 			// r.conn may be nil or closed by the time we get here
 			finalConn := r.conn
 			noconn := finalConn == nil || core.IsNil(finalConn)
@@ -611,9 +600,9 @@ func (r *retrier) Write(b []byte) (int, error) {
 				if noconn {
 					err = core.JoinErr(err, errNilConn)
 				}
-				log.E("retrier: write: %s: retry failed [%s=>%s] b: %d/%d (tee: %d) in %dms; old => new: %v => %v; noconn? %t",
-					r.dialerID(), laddr(r.conn), r.raddr, n, len(b), len(r.tee), elapsed, err, r.retryWriteErr, noconn)
-				return n, core.JoinErr(err, r.retryWriteErr) // pass on the og error, too
+				werr := log.EE("retrier: write: %s: retry failed [%s=>%s] b: %d/%d (tee: %d) in %s; old => new: %v => %v; noconn? %t",
+					r.dialerID(), laddr(r.conn), r.raddr, n, len(b), len(r.tee), core.FmtTimeAsPeriod(start), err, r.retryWriteErr, noconn)
+				return n, core.JoinErr(err, r.retryWriteErr, werr) // pass on the og error, too
 			}
 
 			// if len(leftover) > 0 {
@@ -629,9 +618,9 @@ func (r *retrier) Write(b []byte) (int, error) {
 
 	// retryCompleted() is true, so r.conn is final and doesn't need locking
 	if c := r.conn; c == nil || core.IsNil(c) {
-		log.E("retrier: write: %s: [] => %s (b: %d, tee: %d), not retrying, but no conn",
+		cerr := log.EE("retrier: write: %s: [] => %s (b: %d, tee: %d), not retrying, but no conn",
 			r.dialerID(), r.raddr, len(b), len(r.tee))
-		return 0, errNilConn
+		return 0, core.JoinErr(cerr, errNilConn)
 	} else {
 		return c.Write(b)
 	}
