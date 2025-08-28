@@ -489,7 +489,8 @@ func (r *retrier) Read(buf []byte) (n int, err error) {
 					r.dialerID(), r.retryCount, len(r.dialers), c, r.nextDialerIdx, laddr(c), r.raddr, core.FmtPeriod(r.timeout), n, len(buf), retryReadErr)
 			}
 			if c != nil && core.IsNotNil(c) {
-				// caller might have set read or write deadlines before the retry
+				// caller might have set read or write deadlines before the retry;
+				// if not, clear any deadlines set by the retrier
 				_ = c.SetReadDeadline(r.readDeadline)
 				_ = c.SetWriteDeadline(r.writeDeadline)
 			}
