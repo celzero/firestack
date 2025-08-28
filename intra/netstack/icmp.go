@@ -125,10 +125,11 @@ func (f *icmpForwarder) reply4(id stack.TransportEndpointID, pkt *stack.PacketBu
 			replyICMPHdr.SetCode(0) // EchoReply must have Code=0.
 			replyICMPHdr.SetChecksum(^checksum.Checksum(replyRef, 0))
 
-			replyPkt := stack.NewPacketBuffer(stack.PacketBufferOptions{
+			var replyPkt *stack.PacketBuffer = stack.NewPacketBuffer(stack.PacketBufferOptions{
 				ReserveHeaderBytes: int(route.MaxHeaderLength()),
 				Payload:            buffer.MakeWithView(replyBuf),
 			})
+			defer replyPkt.DecRef()
 
 			log.D("icmp: v4: %s: ok type %v/%v sz[%d] from %v <= %v",
 				f.o, replyICMPHdr.Type(), replyICMPHdr.Code(), len(replyICMPHdr), src, dst)
@@ -503,14 +504,14 @@ func l4l7(pkt *stack.PacketBuffer, sz uint32) ([]byte, error) {
 }
 
 func l3l4(pkt *stack.PacketBuffer, sz int64) (b buffer.Buffer, err error) {
-    l3 := pkt.NetworkHeader().View()
-    l4 := pkt.TransportHeader().View()
-    combined := buffer.MakeWithView(l3)
-    if err = combined.Append(l4); err == nil {
-        payload := pkt.Data().ToBuffer()
-        combined.Merge(&payload)
-        combined.Truncate(sz)
-        b = combined
-    }
-    return
+	l3 := pkt.NetworkHeader().View()
+	l4 := pkt.TransportHeader().View()
+	combined := buffer.MakeWithView(l3)
+	if err = combined.Append(l4); err == nil {
+		payload := pkt.Data().ToBuffer()
+		combined.Merge(&payload)
+		combined.Truncate(sz)
+		b = combined
+	}
+	return
 }
