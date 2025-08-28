@@ -225,9 +225,9 @@ func Periodic(id string, pctx context.Context, d time.Duration, f func()) contex
 }
 
 // SigFin runs f in a goroutine and returns a channel that is closed when f returns.
-func SigFin(f func()) <-chan struct{} {
+func SigFin(id string, f func()) <-chan struct{} {
 	done := make(chan struct{})
-	Go("take", func() {
+	Go("sigfin."+id, func() {
 		defer close(done)
 		f()
 	})

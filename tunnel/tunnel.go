@@ -29,6 +29,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -108,13 +109,14 @@ func (t *gtunnel) waitForEndpoint(ctx context.Context) {
 		// wait a bit to let the endpoint settle
 		time.Sleep(betweenChecks)
 		start := time.Now()
+		runid := "g." + strconv.Itoa(i)
 
 		select {
 		case <-ctx.Done():
 			t.Disconnect() // may already be disconnected
 			log.D("tun: waiter: ctx done; #%d", i)
 			return
-		case <-core.SigFin(t.ep.Wait): // wait until endpoint closes
+		case <-core.SigFin(runid, t.ep.Wait): // wait until endpoint closes
 			log.D("tun: waiter: endpoint not running; #%d", i)
 		}
 
