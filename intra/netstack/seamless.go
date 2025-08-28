@@ -155,7 +155,7 @@ func (l *magiclink) Swap(fd, mtu int) (err error) {
 		needsNewEndpoint = errors.Is(err, errNeedsNewEndpoint)
 	}
 
-	if !needsNewEndpoint {
+	if hasSwappedFd || !needsNewEndpoint {
 		logei(!hasSwappedFd)("netstack: magic(%d); swap: ok? %t; err? %v",
 			fd, hasSwappedFd, err)
 		return err
@@ -173,21 +173,22 @@ func (l *magiclink) Swap(fd, mtu int) (err error) {
 		return core.OneErr(err, errMissingEp)
 	}
 
-	old := l.e.Swap(ep)
-
+	// attach eventually runs a dispatchLoop which kickstarts the endpoint's
+	// delivery of packets to netstack's dispatcher.
 	d := l.d.Load()
 	if d == nil {
 		ep.Attach(nil) // attach the new endpoint to the dispatcher
 	} else {
 		ep.Attach(l) // attach the new endpoint to the existing dispatcher
 	}
-	
-	// Close the old endpoint after the new one is attached to ensure
-	// proper sequencing and avoid WaitGroup reuse issues
-	if old != nil {
+
+	// swap endpoints after the dispatchLoop has had the chance to start
+	// to avoid cases where clients end up calling ep.Wait() before dispatchLoop
+	// could begin (as it is responsible for keeping ep alive)
+	if old := l.e.Swap(ep); old != nil {
 		core.Go("magic."+strconv.Itoa(fd), old.Close)
 	}
-	
+
 	logei(d == nil)("netstack: magic(%d) mtu: %d; swap: new ep... dispatch? %t",
 		fd, umtu, d != nil)
 
@@ -313,16 +314,12 @@ func (l *magiclink) WritePackets(pkts stack.PacketBufferList) (int, tcpip.Error)
 }
 
 func (l *magiclink) Wait() {
-	// Atomically load the current endpoint to prevent race conditions
-	// during endpoint swapping. If endpoint is swapped while we're 
-	// waiting, we should wait on the endpoint we loaded, not the new one.
-	// This prevents WaitGroup reuse issues.
-	e := l.e.Load()
-	if e != nil {
-		// Use a recovered call to prevent panics from propagating
-		// in case of WaitGroup reuse issues
-		defer core.Recover(core.Exit11, "magiclink.wait")
-		e.Wait()
+	if e := l.e.Load(); e != nil {
+		if e.IsAttached() {
+			e.Wait() // may panic in case of WaitGroup reuse issues
+		} else {
+			log.W("netstack: magic: wait; dispatcher not attached; has dispatcher? %t", l.d.Load() != nil)
+		}
 	}
 }
 

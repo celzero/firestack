@@ -310,7 +310,7 @@ func (e *endpoint) swap(fd int, force bool) (err error) {
 		log.I("ns: tun(%s): (%s => %d) swap: restart looper %t for new fd",
 			prevfd, prevfd, fd, hasDispatcher)
 		go dispatchLoop(e.inboundDispatcher, f, &e.wg)
-	} else {
+	} else { // wait for Attach to be called eventually
 		log.E("ns: tun(%s): (%s => %d) swap: no dispatcher? %t for new fd; err %v",
 			prevfd, prevfd, fd, !hasDispatcher, err)
 	}
@@ -552,7 +552,6 @@ func dispatchLoop(inbound linkDispatcher, f *fds, wg *sync.WaitGroup) tcpip.Erro
 			defer f.stop()
 			return err
 		} // else: continue dispatching
-
 	}
 }
 
