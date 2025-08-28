@@ -555,7 +555,7 @@ func (t *transport) multifetch(req *http.Request, pid string) (res *http.Respons
 				} // continue if EOF
 				cont = eof || uerr.Err == io.ErrUnexpectedEOF
 			} // terminate if not EOF
-			log.W("doh: fetch #%d (cont? %t); err: %v", i, cont, err)
+			log.W("doh: fetch #%d (cont? %t) px: %s[%s]; err: %v", i, cont, pid, rpid, err)
 		}
 	}
 	if !sent && err == nil { // should never happen
