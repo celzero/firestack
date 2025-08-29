@@ -243,11 +243,11 @@ func (f *icmpForwarder) reply6(id stack.TransportEndpointID, pkt *stack.PacketBu
 			replyHdr.SetType(header.ICMPv6EchoReply)
 			replyHdr.SetCode(0)
 			replyHdr.SetChecksum(header.ICMPv6Checksum(header.ICMPv6ChecksumParams{
-				replyRef,
-				route.LocalAddress(),  // or id.LocalAddress
-				route.RemoteAddress(), // or id.RemoteAddress
-				0,
-				0,
+				Header:      replyRef,
+				Src:         route.LocalAddress(),  // or id.LocalAddress
+				Dst:         route.RemoteAddress(), // or id.RemoteAddress
+				PayloadCsum: 0,
+				PayloadLen:  0,
 			}))
 			log.D("icmp: v6: %s: ok type %v/%v sz[%d] from %v <= %v",
 				f.o, replyHdr.Type(), replyHdr.Code(), len(replyHdr), src, dst)
