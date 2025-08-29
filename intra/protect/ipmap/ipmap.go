@@ -212,6 +212,11 @@ func (m *ipmap) Clear() {
 		n++
 	}
 
+	// Clear the maps after sending all items to the purge channel
+	clear(m.m)
+	// Don't clear m.p as it contains protected entries
+	// Don't clear m.ip as it contains IP address entries
+
 	go m.rptr.Clear()
 	// ipaddr type is not "cleared"
 	log.I("ipmap: clear: requested %d/%d sets", n, sz)

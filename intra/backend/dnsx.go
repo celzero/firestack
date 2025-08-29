@@ -70,6 +70,8 @@ const ( // from dnsx/queryerror.go
 	TransportError
 	// ClientError: Client has issues
 	ClientError
+	// Paused: Transport is paused
+	Paused
 	// DEnd: Transport stopped
 	DEnd
 )

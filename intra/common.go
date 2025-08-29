@@ -279,7 +279,7 @@ func (h *baseHandler) forward(local, remote net.Conn, smm *SocketSummary) {
 			remote = r.Unwrap() // c may be *net.TCPConn or *demuxconn or *retrier or *splitter
 		}
 	}
-	log.I("com: %s: forward: new conn %s rwext? %t (%T), sockopt? %t (%ds); %s for %s",
+	log.I("com: %s: forward: new conn %s rwext? %t (%T), optset? %t (%ds); %s for %s",
 		h.proto, via, isrwext, remote, didSet, timeoutsecs, tup, uid)
 
 	uploadch := make(chan ioinfo)

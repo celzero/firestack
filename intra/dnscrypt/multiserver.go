@@ -221,8 +221,7 @@ func query(pid string, packet *dns.Msg, serverInfo *serverinfo, useudp bool) (an
 		return // nil ans
 	}
 
-	if serverInfo.status.Load() == dnsx.DEnd {
-		qerr = dnsx.NewEndQueryError()
+	if qerr = dnsx.WillErr(serverInfo); qerr != nil {
 		return // nil ans
 	}
 

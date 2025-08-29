@@ -440,13 +440,11 @@ func (t *transport) updateHttpClientsFor(p ipn.Proxy, c, c3 *http.Client) {
 // be determined.
 func (t *transport) doDoh(pid string, q *dns.Msg) (response *dns.Msg, rpid, blocklists, region string, ech bool, elapsed time.Duration, qerr *dnsx.QueryError) {
 	start := time.Now()
-	if t.status.Load() == dnsx.DEnd {
-		elapsed = time.Since(start)
-		qerr = dnsx.NewEndQueryError()
+	if qerr = dnsx.WillErr(t); qerr != nil {
 		return
 	}
-	padQuery(q)
 
+	padQuery(q)
 	// zero out the query id
 	id := q.Id
 	q.Id = 0
@@ -555,7 +553,7 @@ func (t *transport) multifetch(req *http.Request, pid string) (res *http.Respons
 				} // continue if EOF
 				cont = eof || uerr.Err == io.ErrUnexpectedEOF
 			} // terminate if not EOF
-			log.W("doh: fetch #%d (cont? %t); err: %v", i, cont, err)
+			log.W("doh: fetch #%d (cont? %t) px: %s[%s]; err: %v", i, cont, pid, rpid, err)
 		}
 	}
 	if !sent && err == nil { // should never happen
@@ -883,6 +881,11 @@ func (t *transport) IPPorts() (ipps []netip.AddrPort) {
 }
 
 func (t *transport) Status() int {
+	if px := t.GetRelay(); px != nil {
+		if px.Status() == ipn.TPU { // relay paused => transport paused
+			return dnsx.Paused
+		}
+	}
 	return t.status.Load()
 }
 

@@ -94,20 +94,21 @@ var (
 )
 
 var (
-	ErrNotDefaultTransport     = errors.New("not a default dns transport")
-	ErrNoDcProxy               = errors.New("no dnscrypt-proxy")
-	ErrNoProxyProvider         = errors.New("no proxy provider for dns")
-	ErrNoProxyDNS              = errors.New("no proxy dns")
-	ErrAddFailed               = errors.New("dns add failed")
-	errNoSuchTransport         = errors.New("missing dns transport")
-	errTransportEnd            = errors.New("transport ended")
-	errOnQueryTimeout          = errors.New("timeout fetching dns prefs")
-	errOnUpstreamAnswerTimeout = errors.New("timeout fetching dns prefs for upstream answer")
-	errBlockFreeTransport      = errors.New("block free transport")
-	errNoRdns                  = errors.New("no rdns")
-	errTransportNotMult        = errors.New("not a multi-transport")
-	errMissingQueryName        = errors.New("no query name")
-	errResolverClosed          = errors.New("dns closed for business")
+	ErrNotDefaultTransport     = errors.New("dns: not a default transport")
+	ErrNoDcProxy               = errors.New("dns: no dnscrypt-proxy")
+	ErrNoProxyProvider         = errors.New("dns: no proxy provider")
+	ErrNoProxyDNS              = errors.New("dns: no proxy")
+	ErrAddFailed               = errors.New("dns: add failed")
+	errNoSuchTransport         = errors.New("dns: missing transport")
+	errTransportEnd            = errors.New("dns: transport ended")
+	errTransportPaused         = errors.New("dns: transport paused")
+	errOnQueryTimeout          = errors.New("dns: timeout fetching prefs")
+	errOnUpstreamAnswerTimeout = errors.New("dns: timeout fetching prefs for upstream answer")
+	errBlockFreeTransport      = errors.New("dns: block free transport")
+	errNoRdns                  = errors.New("dns: no rdns")
+	errTransportNotMult        = errors.New("dns: not a multi-transport")
+	errMissingQueryName        = errors.New("dns: no query name")
+	errResolverClosed          = errors.New("dns: closed for business")
 )
 
 // Transport represents a DNS query transport.  This interface is exported by gobind,
@@ -212,9 +213,9 @@ func NewResolver(pctx context.Context, fakeaddrs string, dtr x.DNSTransport, l x
 	} else {
 		ctr := NewCachingTransport(tr, ttl10m)
 		r.Lock()
-		r.transports[tr.ID().V()] = tr // regular
+		r.transports[idstr(tr)] = tr // regular
 		if ctr != nil {
-			r.transports[ctr.ID().V()] = ctr // cached
+			r.transports[idstr(ctr)] = ctr // cached
 		} else {
 			log.W("dns: no caching transport for %s", tr.ID())
 		}
@@ -918,7 +919,7 @@ func (r *resolver) accept(c io.ReadWriteCloser, uid string) {
 // StopAll stops all transports and closes the resolver.
 func (r *resolver) StopAll() {
 	r.once.Do(func() {
-		core.Go("r.onStop", func() { r.listener.OnDNSStopped() })
+		defer core.Go("r.onStop", func() { r.listener.OnDNSStopped() })
 		r.done()
 
 		if dc, err := r.dcProxy(); err == nil {
@@ -929,17 +930,29 @@ func (r *resolver) StopAll() {
 			_ = p.Stop()
 		}
 
+		// Stop all transports in a separate goroutine to avoid blocking
+		core.Go("r.stopAllTransports", func() {
+			r.Lock()
+			for _, tr := range r.transports {
+				_ = tr.Stop()
+				// r.gateway.onStopped(id) is not required
+				// as the entire setup is closed and going away
+			}
+			clear(r.transports)
+			r.Unlock()
+		})
+
 		close(r.smms) // close listener chan
 	})
 }
 
 func (r *resolver) all() []Transport {
 	r.RLock()
+	defer r.RUnlock()
 	out := make([]Transport, 0, len(r.transports))
 	for _, t := range r.transports {
 		out = append(out, t)
 	}
-	r.RUnlock()
 	return out
 }
 
@@ -1162,9 +1175,9 @@ func Categorize(ts []Transport) (best []Transport, preferred []Transport, recove
 			preferred = append(preferred, t)
 		case BadResponse:
 			preferred = append(preferred, t)
-		case InternalError, TransportError, Unknown:
+		case InternalError, TransportError:
 			recoverables = append(recoverables, t)
-		case DEnd: // discard
+		case DEnd, Paused, Unknown: // discard non-active transports
 			ended = append(ended, t)
 		default: // ClientError, SendFailed
 			errored = append(errored, t)
@@ -1410,12 +1423,23 @@ func cachedTransport(t Transport) bool {
 		strings.HasPrefix(t.GetAddr().V(), cacheprefix)
 }
 
+func WillErr(t Transport) *QueryError {
+	switch t.Status() {
+	case DEnd:
+		return NewEndQueryError()
+	case Paused:
+		return NewPausedQueryError()
+	}
+	return nil
+}
+
 func isPlus(id string) bool {
 	return strings.HasPrefix(id, Plus) || strings.HasPrefix(id, CT+Plus)
 }
 
 func activeTransport(t Transport) bool {
-	return t.Status() != DEnd
+	st := t.Status()
+	return st != DEnd && st != Paused && st != Unknown
 }
 
 func clos(c io.Closer) {

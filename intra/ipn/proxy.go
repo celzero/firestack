@@ -16,6 +16,7 @@ import (
 	"net/netip"
 	"net/url"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -665,12 +666,7 @@ func healthy(p Proxy) error {
 }
 
 func has[T comparable](pids []T, pid T) bool {
-	for _, v := range pids {
-		if v == pid {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(pids, pid)
 }
 
 func Same(a, b Proxy) bool {

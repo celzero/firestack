@@ -178,9 +178,9 @@ func (d *dns64) eval(network string, force64 bool, ansin *dns.Msg, r, uid string
 	id := id64(r)
 	ip64 := d.get(id)
 	if len(ip64) <= 0 {
-		if ip64 = d.ip64[dnsx.UnderlayResolver]; len(ip64) <= 0 {
-			if ip64 = d.ip64[dnsx.OverlayResolver]; len(ip64) <= 0 {
-				ip64 = d.ip64[dnsx.Local464Resolver]
+		if ip64 = d.get(dnsx.UnderlayResolver); len(ip64) <= 0 {
+			if ip64 = d.get(dnsx.OverlayResolver); len(ip64) <= 0 {
+				ip64 = d.get(dnsx.Local464Resolver)
 			}
 		}
 		log.D("dns64: attempt underlay/local464 resolver [%s@%s] ip64 (ad? %t) w len(%d)", r, uid, hasauth, len(ip64))

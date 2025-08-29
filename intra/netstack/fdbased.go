@@ -310,7 +310,7 @@ func (e *endpoint) swap(fd int, force bool) (err error) {
 		log.I("ns: tun(%s): (%s => %d) swap: restart looper %t for new fd",
 			prevfd, prevfd, fd, hasDispatcher)
 		go dispatchLoop(e.inboundDispatcher, f, &e.wg)
-	} else {
+	} else { // wait for Attach to be called eventually
 		log.E("ns: tun(%s): (%s => %d) swap: no dispatcher? %t for new fd; err %v",
 			prevfd, prevfd, fd, !hasDispatcher, err)
 	}
@@ -380,7 +380,7 @@ func (e *endpoint) Attach(dispatcher stack.NetworkDispatcher) {
 
 // IsAttached implements stack.LinkEndpoint.IsAttached.
 func (e *endpoint) IsAttached() bool {
-	d, _ := e.getDispatcher()
+	d, _ := e.getDispatchers()
 	return d != nil
 }
 
@@ -552,7 +552,6 @@ func dispatchLoop(inbound linkDispatcher, f *fds, wg *sync.WaitGroup) tcpip.Erro
 			defer f.stop()
 			return err
 		} // else: continue dispatching
-
 	}
 }
 
@@ -574,7 +573,7 @@ func (e *endpoint) SetMTU(mtu uint32) {
 	e.mtu.Store(mtu)
 }
 
-func (e *endpoint) getDispatcher() (stack.NetworkDispatcher, *fds) {
+func (e *endpoint) getDispatchers() (stack.NetworkDispatcher, *fds) {
 	e.RLock()
 	defer e.RUnlock()
 	return e.dispatcher, e.fds.Load()
@@ -582,7 +581,7 @@ func (e *endpoint) getDispatcher() (stack.NetworkDispatcher, *fds) {
 
 // InjectInbound ingresses a netstack-inbound packet.
 func (e *endpoint) InjectInbound(protocol tcpip.NetworkProtocolNumber, pkt *stack.PacketBuffer) {
-	d, fds := e.getDispatcher()
+	d, fds := e.getDispatchers()
 	fd := fds.tun()
 	log.VV("ns: tun(%d): inject-inbound (from tun) %d", fd, protocol)
 	if d != nil && pkt != nil {

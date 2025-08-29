@@ -21,6 +21,7 @@ const (
 	InternalError  = x.InternalError
 	TransportError = x.TransportError
 	ClientError    = x.ClientError
+	Paused         = x.Paused
 	DEnd           = x.DEnd
 	Unknown        = 100
 )
@@ -47,6 +48,8 @@ func Status2Str(status int) string {
 		return "Missing"
 	case DEnd:
 		return "End"
+	case Paused:
+		return "Paused"
 	default:
 		return "Unknown" // 100
 	}
@@ -84,30 +87,7 @@ func (e *QueryError) strstatus() string {
 	if e == nil {
 		return "[nil]"
 	}
-	switch e.status {
-	case Start:
-		return "Start"
-	case Complete:
-		return "Complete"
-	case SendFailed:
-		return "SendFailed"
-	case NoResponse:
-		return "NoResponse"
-	case BadQuery:
-		return "BadQuery"
-	case BadResponse:
-		return "BadResponse"
-	case InternalError:
-		return "InternalError"
-	case TransportError:
-		return "TransportError"
-	case ClientError:
-		return "ClientError"
-	case DEnd:
-		return "End"
-	default:
-		return "Unknown" // 100
-	}
+	return Status2Str(e.status)
 }
 
 func (e *QueryError) String() string {
@@ -149,6 +129,10 @@ func NewTransportQueryError(err error) *QueryError {
 // with http, for 4xx errors
 func NewClientQueryError(err error) *QueryError {
 	return newQueryError(ClientError, err)
+}
+
+func NewPausedQueryError() *QueryError {
+	return newQueryError(Paused, errTransportPaused)
 }
 
 func NewEndQueryError() *QueryError {

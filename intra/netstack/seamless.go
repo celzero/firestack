@@ -155,7 +155,7 @@ func (l *magiclink) Swap(fd, mtu int) (err error) {
 		needsNewEndpoint = errors.Is(err, errNeedsNewEndpoint)
 	}
 
-	if !needsNewEndpoint {
+	if hasSwappedFd || !needsNewEndpoint {
 		logei(!hasSwappedFd)("netstack: magic(%d); swap: ok? %t; err? %v",
 			fd, hasSwappedFd, err)
 		return err
@@ -173,16 +173,22 @@ func (l *magiclink) Swap(fd, mtu int) (err error) {
 		return core.OneErr(err, errMissingEp)
 	}
 
-	if old := l.e.Swap(ep); old != nil {
-		core.Go("magic."+strconv.Itoa(fd), old.Close)
-	}
-
+	// attach eventually runs a dispatchLoop which kickstarts the endpoint's
+	// delivery of packets to netstack's dispatcher.
 	d := l.d.Load()
 	if d == nil {
 		ep.Attach(nil) // attach the new endpoint to the dispatcher
 	} else {
 		ep.Attach(l) // attach the new endpoint to the existing dispatcher
 	}
+
+	// swap endpoints after the dispatchLoop has had the chance to start
+	// to avoid cases where clients end up calling ep.Wait() before dispatchLoop
+	// could begin (as it is responsible for keeping ep alive)
+	if old := l.e.Swap(ep); old != nil {
+		core.Go("magic."+strconv.Itoa(fd), old.Close)
+	}
+
 	logei(d == nil)("netstack: magic(%d) mtu: %d; swap: new ep... dispatch? %t",
 		fd, umtu, d != nil)
 
@@ -309,7 +315,11 @@ func (l *magiclink) WritePackets(pkts stack.PacketBufferList) (int, tcpip.Error)
 
 func (l *magiclink) Wait() {
 	if e := l.e.Load(); e != nil {
-		e.Wait()
+		if e.IsAttached() {
+			e.Wait() // may panic in case of WaitGroup reuse issues
+		} else {
+			log.W("netstack: magic: wait; dispatcher not attached; has dispatcher? %t", l.d.Load() != nil)
+		}
 	}
 }
 

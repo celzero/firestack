@@ -19,6 +19,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"maps"
 	"math/rand"
 	"net"
 	"net/netip"
@@ -122,7 +123,7 @@ retry:
 	i := 0
 	for _, si := range serversInfo.inner {
 		if i == candidate || selectAny {
-			if si != nil && si.status.Load() != dnsx.DEnd {
+			if si != nil && dnsx.WillErr(si) == nil {
 				if settings.Debug {
 					log.V("dnscrypt: candidate [%v]", si) // may be nil?
 				}
@@ -178,7 +179,14 @@ func (serversInfo *ServersInfo) refresh(proxy *DcMulti) ([]string, error) {
 	}
 	var liveServers []string
 	var err error
-	for _, registeredServer := range serversInfo.registeredServers {
+
+	// Get a snapshot of registered servers under lock to prevent race conditions
+	serversInfo.RLock()
+	copied := make(map[string]registeredserver)
+	maps.Copy(copied, serversInfo.registeredServers)
+	serversInfo.RUnlock()
+
+	for _, registeredServer := range copied {
 		if err = serversInfo.refreshServer(proxy, registeredServer.name, registeredServer.stamp); err == nil {
 			liveServers = append(liveServers, registeredServer.name)
 		} else {
@@ -424,6 +432,11 @@ func (s *serverinfo) IPPorts() []netip.AddrPort {
 }
 
 func (s *serverinfo) Status() int {
+	if px := s.getRelay(); px != nil {
+		if px.Status() == ipn.TPU {
+			return dnsx.Paused
+		}
+	}
 	return s.status.Load()
 }
 

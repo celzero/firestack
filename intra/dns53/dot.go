@@ -157,8 +157,7 @@ func (t *dot) doQuery(pid string, q *dns.Msg) (response *dns.Msg, rpid string, e
 		return
 	}
 
-	if t.status.Load() == dnsx.DEnd {
-		qerr = dnsx.NewEndQueryError()
+	if qerr = dnsx.WillErr(t); qerr != nil {
 		return
 	}
 
@@ -408,6 +407,11 @@ func (t *dot) IPPorts() (ipps []netip.AddrPort) {
 }
 
 func (t *dot) Status() int {
+	if px := t.GetRelay(); px != nil {
+		if px.Status() == ipn.TPU { // relay paused => transport paused
+			return dnsx.Paused
+		}
+	}
 	return t.status.Load()
 }
 
