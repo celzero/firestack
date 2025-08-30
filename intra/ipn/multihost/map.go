@@ -24,6 +24,19 @@ type MHMap struct {
 	byHostport map[string]*MH         // host:port => MH
 }
 
+func (m *MHMap) All() (all []*MH) {
+	if m == nil {
+		return
+	}
+
+	m.RLock()
+	defer m.RUnlock()
+	for h := range m.uniq {
+		all = append(all, h)
+	}
+	return
+}
+
 func (m *MHMap) Get(hostOrIpport string) (h *MH, _ error) {
 	if m == nil {
 		return nil, errMhNotFound
@@ -69,7 +82,7 @@ func (m *MHMap) putLocked(h *MH) (ok bool) {
 	if h == nil {
 		return false
 	}
-	
+
 	if _, dup := m.uniq[h]; dup {
 		log.W("multihost: %s map: put: dup; call refresh instead?", m.k)
 		return h.Len() > 0
@@ -194,6 +207,15 @@ func (m *MHMap) String() string {
 		sb.WriteString("  /  ")
 	}
 	return sb.String()
+}
+
+func Flatten(m []*MH) (addrs []netip.AddrPort) {
+	if len(m) > 0 {
+		for _, h := range m {
+			addrs = append(addrs, h.Addrs()...)
+		}
+	}
+	return
 }
 
 func NewMap(id string) *MHMap {

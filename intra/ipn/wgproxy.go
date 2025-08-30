@@ -1260,13 +1260,18 @@ func (h *wgproxy) Hop(via Proxy, dryrun bool) (err error) {
 		return errHopWireGuard
 	}
 
-	if err := hopCanRoute(h, via); err != nil {
+	if err := viaCanBind(h, via); err != nil {
 		return err
 	}
 
 	// mtu needed to tunnel this wg
 	if err := h.maybeResetMtu(via, dryrun); err != nil {
 		return err // could not set mtu
+	}
+
+	// hop must be able to route all of orig's peers
+	if err := h.viaCanRoute(via, dryrun); err != nil {
+		return err // via cannot not route peers
 	}
 
 	if !dryrun {
@@ -1493,6 +1498,42 @@ func now() int64 {
 
 func (w *wgproxy) resetMtu(via Proxy) error {
 	return w.maybeResetMtu(via, false /*dryrun*/)
+}
+
+func (w *wgproxy) viaCanRoute(via Proxy, dryrun bool) error {
+	pk := w.peers.Load()
+	if len(pk) <= 0 {
+		log.W("wg: %s proxy: viaCanRoute: no peers", w.id)
+		return nil // no peers; nothing to route
+	}
+
+	weCan4 := w.IP4()
+	hopCan4 := via.Router().IP4()
+	weCan6 := w.IP6()
+	hopCan6 := via.Router().IP6()
+
+	check4 := weCan4 && hopCan4
+	check6 := weCan6 && hopCan6
+
+	if !check4 && !check6 {
+		return errHopProxyRoutes
+	}
+
+	viaRouter := via.Router()
+	all := w.remote.Load().All()
+	for _, p := range multihost.Flatten(all) {
+		ip := p.Addr()
+		if (ip.Is4() && check4) || (ip.Is6() && check6) {
+			if !viaRouter.Contains(x.StrOf(ip.String())) {
+				return log.EE("wg: %s proxy: viaCanRoute: via %s cannot route peer %s; dryrun? %t",
+					w.id, idstr(via), p, dryrun)
+			}
+		}
+	}
+
+	log.D("wg: %s proxy: viaCanRoute: via %s can route all peers %v (dryrun? %t / 4? %t / 6? %t)",
+		w.id, idstr(via), all, dryrun, check4, check6)
+	return nil
 }
 
 func (w *wgproxy) maybeResetMtu(via Proxy, dryrun bool) error {

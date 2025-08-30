@@ -605,12 +605,11 @@ func IcmpReaches(p Proxy, ipp netip.AddrPort) (bool, error) {
 	return ok, err
 }
 
-func hopCanRoute(orig Proxy, hop Proxy) error {
+func viaCanBind(orig Proxy, hop Proxy) error {
 	pxCan4 := orig.Router().IP4()
 	hopCan4 := hop.Router().IP4()
 	pxCan6 := orig.Router().IP6()
 	hopCan6 := hop.Router().IP6()
-	// todo: check if all routes for p & h overlap
 	if pxCan4 { // suffices if px's ip4 is routable over hop
 		if !hopCan4 {
 			return errHop4Gateway
