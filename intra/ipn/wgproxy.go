@@ -1573,7 +1573,8 @@ func (w *wgproxy) maybeResetMtu(via Proxy, dryrun bool) error {
 	if has6 {
 		minmtu = minmtu6
 	}
-	if hopping && mtuNeededByUs > mtuAvailable {
+
+	if mtuNeededByUs > mtuAvailable {
 		note("wg: %s (4? %t / 6? %t) proxy: maybe hopping %t %s; mtu(needed: %d >> avail: %d << min: %d); set to avail",
 			w.id, has4, has6, hopping, viaid, mtuNeededByUs, mtuAvailable, minmtu)
 		mtuNeededByUs = mtuAvailable
@@ -1594,7 +1595,7 @@ func (w *wgproxy) maybeResetMtu(via Proxy, dryrun bool) error {
 		w.ep.SetMTU(uint32(finalMtu))
 		w.wgtun.events <- tun.EventMTUUpdate
 	}
-	note("wg: (4? %t / 6? %t) %s proxy: hopping %s; mtu(needed:%d, avail: %d => final: %d); hopping? %t, dryrun? %t",
+	note("wg: %s (4? %t / 6? %t) proxy: hopping %s; mtu(needed:%d, avail: %d => final: %d); hopping? %t, dryrun? %t",
 		w.id, has4, has6, viaid, mtuNeededByUs, mtuAvailable, finalMtu, hopping, dryrun)
 	return nil
 }
