@@ -948,7 +948,9 @@ func (tun *wgtun) Read(buf [][]byte, sizes []int, offset int) (int, error) {
 		return 0, err
 	}
 
-	log.VV("wg: %s tun: read(%d)", tun.tag(), n)
+	if settings.Debug {
+		log.VV("wg: %s tun: read(%d)", tun.tag(), n)
+	}
 	sizes[0] = n
 	return 1, nil
 }
@@ -977,8 +979,10 @@ func (tun *wgtun) Write(bufs [][]byte, offset int) (int, error) {
 				tun.tag(), protoid, sz)
 			return 0, syscall.EAFNOSUPPORT
 		}
-		log.VV("wg: %s tun: write: sz(%d); proto %d",
-			tun.tag(), sz, protoid)
+		if settings.Debug {
+			log.VV("wg: %s tun: write: sz(%d); proto %d",
+				tun.tag(), sz, protoid)
+		}
 	}
 
 	return len(bufs), nil
@@ -1005,8 +1009,10 @@ func (tun *wgtun) WriteNotify() {
 		select {
 		case <-tun.finalize:
 		case tun.ingress <- view: // closed chans panic on send: groups.google.com/g/golang-nuts/c/SDIBFSkDlK4
-			log.VV("wg: %s tun: write: notify sz(%d)",
-				tun.tag(), sz)
+			if settings.Debug {
+				log.VV("wg: %s tun: write: notify sz(%d)",
+					tun.tag(), sz)
+			}
 		default: // ingress is full and finalize is blocked
 			e := tun.status.Load()
 			log.W("wg: %s tun: write: closed? %s; dropped pkt; sz(%d)",
@@ -1081,7 +1087,7 @@ func (w *wgproxy) Stat() (out *x.RouterStats) {
 	out.Since = w.since
 
 	log.VV("proxy: wg: %s stats: rx: %d, tx: %d, lastok: %s",
-		w.id, out.Rx, out.Tx, core.FmtUnixMillisAsPeriod(out.LastOK))
+		w.tag(), out.Rx, out.Tx, core.FmtUnixMillisAsPeriod(out.LastOK))
 	return out
 }
 
@@ -1418,8 +1424,8 @@ func (h *wgtun) serve(network, local string) (pc net.PacketConn, err error) {
 	h.viaUp.Store(usingvia)
 	defer h.listener(wg.Opn, err)
 
-	logei(err)("wg: %s serve: %s (id? %s / via? %s / usingVia? %t); err? %v",
-		h.id, local, who, idstr(v), usingvia, err)
+	logei(err)("wg: %s serve: %s (id? %s / via? %s %t / usingVia? %t); err? %v",
+		h.id, local, who, idstr(v), hasvia, usingvia, err)
 	return
 }
 
