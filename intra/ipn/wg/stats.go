@@ -45,6 +45,7 @@ type peerstats struct {
 
 // ifstats holds the statistics for peers.
 type ifstats struct {
+	o           string
 	stats       map[string]peerstats
 	lastTouched time.Time
 }
@@ -54,16 +55,19 @@ func (s *ifstats) String() string {
 		return "<nil>"
 	}
 
+	o := s.o
 	d := s.lastTouched.UnixMilli()
 	rx := s.TotalRx()
 	tx := s.TotalTx()
 	hdshk := s.LatestRecentHandshake()
-	return fmt.Sprintf("ifstats{lastTouched: %d, rx: %d, tx: %d, lastOK: %d}", d, rx, tx, hdshk)
+	return fmt.Sprintf("ifstats{o: %s, lastTouched: %d, rx: %d, tx: %d, lastOK: %d}",
+		o, d, rx, tx, hdshk)
 }
 
 // newStats creates a new Statistics instance.
-func newStats() *ifstats {
+func newStats(owner string) *ifstats {
 	return &ifstats{
+		o:           owner,
 		stats:       make(map[string]peerstats),
 		lastTouched: time.Now(),
 	}
@@ -71,7 +75,7 @@ func newStats() *ifstats {
 
 // add adds a new peer's statistics to the map.
 func (s *ifstats) add(key string, rx, tx, latestHandshake int64) bool {
-	log.VV("wg: ReadStats: add %s, %d, %d, %d", key, rx, tx, latestHandshake)
+	log.VV("wg: ReadStats: %s: add %s, %d, %d, %d", s.o, key, rx, tx, latestHandshake)
 	s.stats[key] = peerstats{RxBytes: rx, TxBytes: tx, LatestHandshakeEpochMillis: latestHandshake}
 	return latestHandshake > 0
 }
@@ -121,8 +125,8 @@ func (s *ifstats) LatestRecentHandshake() int64 {
 	for _, stats := range s.stats {
 		least = max(least, stats.LatestHandshakeEpochMillis)
 	}
-	log.VV("wg: ReadStats: LatestRecentHandshake: %s, Peers: %d",
-		core.FmtUnixMillisAsPeriod(least), len(s.stats))
+	log.VV("wg: ReadStats: %s: LatestRecentHandshake: %s, Peers: %d",
+		s.o, core.FmtUnixMillisAsPeriod(least), len(s.stats))
 	return least
 }
 
@@ -143,7 +147,7 @@ func ReadStats(who string, id uintptr, cfn core.Work[string]) *ifstats {
 
 // readStats parses a configuration string and returns a Statistics instance.
 func readStats(who, config string) (*ifstats, error) {
-	stats := newStats()
+	stats := newStats(who)
 	var key string
 	var rx, tx, latestHandshakeMillis int64
 	var anyStatOK bool
