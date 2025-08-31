@@ -93,16 +93,31 @@ func (h *tcpHandler) Error(gconn *netstack.GTCPConn, src, dst netip.AddrPort, er
 	if !src.IsValid() || !dst.IsValid() {
 		return
 	}
-	res, _, _, _ := h.onFlow(src, dst)
+	res, undidAlg, realips, domains := h.onFlow(src, dst)
 
 	h.maybeReplaceDest(res, &dst)
 
-	cid, uid, _, pids := h.judge(res)
+	cid, uid, fid, pids := h.judge(res)
 	smm := tcpSummary(cid, uid, dst.Addr())
 
 	if isAnyBlockPid(pids) {
-		err = errTcpFirewalled
+		smm.PID = ipn.Block
+
+		if undidAlg && len(realips) <= 0 && len(domains) > 0 {
+			err = core.JoinErr(err, errNoIPsForDomain)
+		} else {
+			err = core.JoinErr(errTcpFirewalled, err)
+		}
+		core.Go("tcp.stall."+fid, func() {
+			defer clos(gconn)
+			defer h.queueSummary(smm.done(err))
+			secs := h.stall(fid)
+			log.I("tcp: error: %s firewalled from %s => %s (dom: %s / real: %s) for %s; stall? %ds; err %v",
+				cid, src, dst, domains, realips, uid, secs, err)
+		})
+		return
 	}
+
 	h.queueSummary(smm.done(err))
 }
 

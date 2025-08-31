@@ -128,18 +128,32 @@ func (h *udpHandler) ProxyMux(gconn *netstack.GUDPConn, src, dst netip.AddrPort,
 func (h *udpHandler) Error(gconn *netstack.GUDPConn, src, target netip.AddrPort, err error) {
 	defer clos(gconn) // if open
 
-	log.W("udp: proxy: %v => %v; err %v", src, target, err)
+	log.W("udp: error: %v => %v; err %v", src, target, err)
 	if !src.IsValid() || !target.IsValid() {
 		return
 	}
-	res, _, _, _ := h.onFlow(src, target)
+	res, undidAlg, realips, domains := h.onFlow(src, target)
 	h.maybeReplaceDest(res, &target)
-	cid, uid, _, pids := h.judge(res)
+	cid, uid, fid, pids := h.judge(res)
 	smm := udpSummary(cid, uid, target.Addr())
 
 	if isAnyBlockPid(pids) {
-		err = errUdpFirewalled
+		smm.PID = ipn.Block
+		if undidAlg && len(realips) <= 0 && len(domains) > 0 {
+			err = core.JoinErr(errNoIPsForDomain, err)
+		} else {
+			err = core.JoinErr(errUdpFirewalled, err)
+		}
+		core.Go("udp.stall."+fid, func() {
+			defer clos(gconn)
+			defer h.queueSummary(smm.done(err))
+			secs := h.stall(fid)
+			log.I("udp: error: %s [%s] firewalled from %s => %s (dom: %s / real: %s) for %s; stall? %ds",
+				cid, uid, src, target, domains, realips, uid, secs)
+		})
+		return
 	}
+
 	h.queueSummary(smm.done(err))
 }
 
