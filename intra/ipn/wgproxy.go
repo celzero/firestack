@@ -1405,21 +1405,29 @@ func (h *wgtun) serve(network, local string) (pc net.PacketConn, err error) {
 	hasvia, usingvia := false, false
 	if hasvia = usevia(h.viaID); hasvia {
 		if v, usingvia = h.via.Get(); v != nil && usingvia {
-			// TODO: use Dial if announce fails to "port-forward" on via
-			pc, err = v.Announce(network, local)
+			if rerr := h.viaCanRoute(v, false /*dryrun*/); rerr != nil {
+				usingvia = false
+				err = rerr
+			} else {
+				// TODO: use Dial if announce fails to "port-forward" on via
+				pc, err = v.Announce(network, local)
+			}
 		} else {
 			usingvia = false
 			err = errNoHop
-			// wgproxy.Refresh() is not needed since serve is called
-			// at the time of wgproxy.Device.Up() anyway.
-			if removeViaOnErrors {
-				// todo: ideally, must call h.Hop(nil) here
-				h.swapVia(nil) // stale; unset
-			}
-			log.W("wg: %s via(%s) failing...", h.id, idhandle(v))
 		}
 	} else { // dial direct
 		pc, err = h.direct.Announce(network, local)
+	}
+
+	if !usingvia {
+		// wgproxy.Refresh() is not needed since serve is called
+		// at the time of wgproxy.Device.Up() anyway.
+		if removeViaOnErrors {
+			// todo: call h.Hop(nil) instead?
+			h.swapVia(nil) // stale; unset
+		}
+		log.W("wg: %s via(%s) failing... %v", h.id, idhandle(v), err)
 	}
 	h.viaUp.Store(usingvia)
 	defer h.listener(wg.Opn, err)
@@ -1506,7 +1514,7 @@ func (w *wgproxy) resetMtu(via Proxy) error {
 	return w.maybeResetMtu(via, false /*dryrun*/)
 }
 
-func (w *wgproxy) viaCanRoute(via Proxy, dryrun bool) error {
+func (w *wgtun) viaCanRoute(via Proxy, dryrun bool) error {
 	pk := w.peers.Load()
 	if len(pk) <= 0 {
 		log.W("wg: %s proxy: viaCanRoute: no peers", w.id)
