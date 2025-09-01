@@ -370,7 +370,7 @@ func (t *ctransport) hangoverCheckpoint() {
 }
 
 func (t *ctransport) fetch(network string, q *dns.Msg, smmout *x.DNSSummary, cb *cache, key string) (*dns.Msg, error) {
-	sendRequest := func(smm2 *x.DNSSummary) (*dns.Msg, error) {
+	sendRequest := func(q2 *dns.Msg, smm2 *x.DNSSummary) (*dns.Msg, error) {
 		reqsent := false
 
 		defer func() {
@@ -384,7 +384,7 @@ func (t *ctransport) fetch(network string, q *dns.Msg, smmout *x.DNSSummary, cb 
 		cc, err := t.reqbarrier.DoIt(key, func() (_ *cres, qerr error) {
 			reqsent = true
 			// ans may be nil
-			ccx.ans, qerr = Req(t.Transport, network, q, smm2)
+			ccx.ans, qerr = Req(t.Transport, network, q2, smm2)
 			ccx.s = copySummary(smm2) // copy summary to cc
 			t.hangoverCheckpoint()
 			// cb.put no-ops when ans is nil or rcode != success (0)
@@ -428,7 +428,7 @@ func (t *ctransport) fetch(network string, q *dns.Msg, smmout *x.DNSSummary, cb 
 		}
 
 		// fres may be nil
-		fres, cachedsmm, ferr := asResponse(q, cachedres, fresh)
+		fres, cachedsmm, ferr := asResponse(q2, cachedres, fresh)
 		fillSummary(cachedsmm, smm2) // cachedsmm may itself be smm2
 
 		return fres, core.JoinErr(err, ferr)
@@ -466,7 +466,7 @@ func (t *ctransport) fetch(network string, q *dns.Msg, smmout *x.DNSSummary, cb 
 		} else if cachedsmm != nil {
 			if !isfresh { // not fresh, fetch in the background
 				core.Gx("c.sendRequest: "+key+t.ID().V(), func() {
-					_, _ = sendRequest(copySummary(smmout)) // summary may be cached
+					_, _ = sendRequest(q.Copy(), copySummary(smmout)) // summary may be cached
 				})
 			}
 			// change summary fields to reflect cached response, except for latency
@@ -481,7 +481,7 @@ func (t *ctransport) fetch(network string, q *dns.Msg, smmout *x.DNSSummary, cb 
 	}
 
 	// send request in the foreground, and return the response
-	return sendRequest(smmout) // summary is filled by underlying transport
+	return sendRequest(q, smmout) // summary is filled by underlying transport
 }
 
 func (t *ctransport) Query(network string, q *dns.Msg, smm *x.DNSSummary) (*dns.Msg, error) {
