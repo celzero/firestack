@@ -396,7 +396,7 @@ func (r *retrier) retryWriteReadLocked(buf []byte) (int, error) {
 	// r.dialLocked also closes provisional socket
 	err := r.dialLocked() // errs on dial strat = no retries, too
 	newConn := r.conn
-	if err != nil || newConn == nil || core.IsNil(newConn) {
+	if err != nil || newConn == nil {
 		return 0, core.OneErr(err, errNoConn)
 	}
 
@@ -441,10 +441,10 @@ func (r *retrier) CloseRead() error {
 
 // Read data from r.conn into buf
 func (r *retrier) Read(buf []byte) (n int, err error) {
-	note := log.V
+	note := log.VV
 
 	c := r.conn // r.conn may be provisional or final connection
-	if c != nil && core.IsNotNil(c) {
+	if c != nil {
 		for reads := range maxEmptyReads {
 			n, err = c.Read(buf)
 			if n == 0 && err == nil { // no data and no error
@@ -473,12 +473,12 @@ func (r *retrier) Read(buf []byte) (n int, err error) {
 
 			retryReadErr := err
 			// retry on errs like timeouts or connection resets
-			for (c == nil || core.IsNil(c) || retryReadErr != nil) && (r.canRetry() && r.retryCount < maxRetryCount) {
+			for (c == nil || retryReadErr != nil) && (r.canRetry() && r.retryCount < maxRetryCount) {
 				r.retryCount++
 
 				n, retryReadErr = r.retryWriteReadLocked(buf)
 				c = r.conn // re-assign c to newConn, if any; may be nil
-				if c == nil || core.IsNil(c) || retryReadErr != nil {
+				if c == nil || retryReadErr != nil {
 					retryReadErr = core.OneErr(retryReadErr, errNoConn)
 					err = core.JoinErr(err, retryReadErr)
 				} else {
@@ -488,7 +488,7 @@ func (r *retrier) Read(buf []byte) (n int, err error) {
 				logeor(retryReadErr, note)("retrier: read: %s: #%d + (mult? %d %T / c: %d): [%s<=%s]; t: %s; b:%d/%d; err? %v",
 					r.dialerID(), r.retryCount, len(r.dialers), c, r.nextDialerIdx, laddr(c), r.raddr, core.FmtPeriod(r.timeout), n, len(buf), retryReadErr)
 			}
-			if c != nil && core.IsNotNil(c) {
+			if c != nil {
 				// caller might have set read or write deadlines before the retry;
 				// if not, clear any deadlines set by the retrier
 				_ = c.SetReadDeadline(r.readDeadline)
@@ -512,7 +512,7 @@ func (r *retrier) teedFirstWrite(b []byte) (n int, firstWrite, didAttemptWrite b
 	firstWrite = len(r.tee) <= 0
 
 	c := r.conn
-	if c == nil || core.IsNil(c) {
+	if c == nil {
 		err = errNilConn
 		log.E("retrier: send: %s: tee [] => %s, no conn; sz(%d)",
 			r.dialerID(), r.raddr, len(b))
@@ -618,7 +618,7 @@ func (r *retrier) Write(b []byte) (int, error) {
 	}
 
 	// retryCompleted() is true, so r.conn is final and doesn't need locking
-	if c := r.conn; c == nil || core.IsNil(c) {
+	if c := r.conn; c == nil {
 		cerr := log.EE("retrier: write: %s: [] => %s (b: %d, tee: %d), not retrying, but no conn",
 			r.dialerID(), r.raddr, len(b), len(r.tee))
 		return 0, core.JoinErr(cerr, errNilConn)
@@ -645,7 +645,7 @@ func (r *retrier) ReadFrom(reader io.Reader) (bytes int64, err error) {
 	}
 
 	c := r.conn // reader thread does not need the mutex
-	if c == nil || core.IsNil(c) {
+	if c == nil {
 		log.E("retrier: readfrom: %s: [] <= %s, no conn; after# %d: sz(%d) tee(%d)",
 			r.dialerID(), r.raddr, copies, bytes, len(r.tee))
 		return bytes, io.ErrUnexpectedEOF
@@ -713,7 +713,7 @@ func (r *retrier) Close() error {
 func (r *retrier) LocalAddr() net.Addr {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if c := r.conn; c != nil && core.IsNotNil(c) {
+	if c := r.conn; c != nil {
 		return c.LocalAddr()
 	}
 	return zeroNetAddr{}
@@ -734,7 +734,7 @@ func (r *retrier) SetReadDeadline(t time.Time) error {
 	// is complete. Retry relies on setting its own read
 	// deadline, and we don't want this to interfere.
 	if r.retryCompleted() {
-		if c := r.conn; c != nil && core.IsNotNil(c) {
+		if c := r.conn; c != nil {
 			return c.SetReadDeadline(t)
 		}
 		return errNoConn
@@ -747,7 +747,7 @@ func (r *retrier) SetWriteDeadline(t time.Time) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.writeDeadline = t
-	if c := r.conn; c != nil && core.IsNotNil(c) {
+	if c := r.conn; c != nil {
 		return c.SetWriteDeadline(t)
 	}
 	return errNoConn
