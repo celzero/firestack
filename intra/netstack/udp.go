@@ -215,6 +215,10 @@ func (g *GUDPConn) Establish() error {
 			g.c.Store(conn)
 		}
 	} else { // egressing (process netstack's req from tun)
+		if settings.Debug {
+			log.V("ns: udp: %s: connect: creating endpoint for %v => %v", g.o, g.src, g.dst)
+		}
+
 		wq := new(waiter.Queue)
 		if ep, err := g.req.CreateEndpoint(wq); err != nil || ep == nil {
 			// ex: CONNECT endpoint for [fd66:f83a:c650::1]:15753 => [fd66:f83a:c650::3]:53; err(no route to host)

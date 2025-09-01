@@ -211,6 +211,9 @@ func (g *GTCPConn) synack(complete bool) (rst bool, err error) {
 			g.c.Store(conn)
 		}
 	} else { // ingressing (process a conn into tun)
+		if settings.Debug {
+			log.V("ns: tcp: %s: connect: creating endpoint for %v => %v", g.o, g.LocalAddr(), g.RemoteAddr())
+		}
 		src, proto := addrport2nsaddr(g.dst) // remote addr is local addr in netstack
 		dst, _ := addrport2nsaddr(g.src)     // local addr is remote addr in netstack
 		bg := context.Background()
