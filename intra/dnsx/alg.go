@@ -315,17 +315,14 @@ func (p *xips) realips(uid string, s xaddrstatus) (pri []netip.Addr) {
 
 	pri = p.allips(xpri, s)
 
-	// check for "block" responses for just this uid
-	zz := p.zz(uid)
-	if (s == xalive && len(pri) > 0) && zz {
+	zz := p.zz(uid) // check for "block" responses for just this uid
+	if zz {
 		// if aux had unspecified ips, then append those to
 		// primary ips. if aux has proper ips or no ips,
 		// those are made redundant by primary.
 		pri = append(pri, anyaddr4, anyaddr6)
 	}
-	if settings.Debug {
-		log.VV("alg: xips: x(%s): zz(%s)? %t; %v", s, uid, zz, pri)
-	}
+	loged(len(pri) == 0)("alg: xips: x(%s): zz(%s)? %t; %v", s, uid, zz, pri)
 	return pri // may be nil / empty
 }
 
