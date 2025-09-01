@@ -157,8 +157,8 @@ func (s *SocketSummary) postMark() *Mark {
 // String implements fmt.Stringer.
 func (s *SocketSummary) String() string {
 	if s != nil {
-		return fmt.Sprintf("socket-summary: id=%s pid=%s uid=%s down=%d up=%d dur=%d synack=%d msg=%s",
-			s.ID, s.PID, s.UID, s.Rx, s.Tx, s.Duration, s.Rtt, s.Msg)
+		return fmt.Sprintf("socket-summary: %s: id=%s pid=%s:%s uid=%s to=%s down=%s up=%s dur=%s synack=%s msg=%s",
+			s.Proto, s.ID, s.PID, s.RPID, s.UID, s.Target, core.FmtBytes(uint64(s.Rx)), core.FmtBytes(uint64(s.Tx)), core.FmtMillis(s.Duration), core.FmtMillis(s.Rtt), s.Msg)
 	}
 	return "<nil>"
 }
