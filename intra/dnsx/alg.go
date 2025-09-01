@@ -320,6 +320,12 @@ func (p *xips) realips(uid string, s xaddrstatus) (pri []netip.Addr) {
 		// if aux had unspecified ips, then append those to
 		// primary ips. if aux has proper ips or no ips,
 		// those are made redundant by primary.
+		// append unspecified ips (zz) to pri regardless of xaddrstatus, s,
+		// which is set to xall by xLocked if alg is disabled (mod == false),
+		// but that does not mean the values from aux (secondary) are not
+		// needed; ie, the "domain block" decision (indicated by aux) must
+		// be commmunicated to the client at all costs. However, aux itself
+		// must be xalive (not expired).
 		pri = append(pri, anyaddr4, anyaddr6)
 	}
 	loged(len(pri) == 0)("alg: xips: x(%s): zz(%s)? %t; %v", s, uid, zz, pri)
