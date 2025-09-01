@@ -740,6 +740,7 @@ func (t *dnsgateway) qp(t1 Transport, uid, network string, q *dns.Msg, innersumm
 
 func (t *dnsgateway) qs(t2 Transport, uid, network string, msg *dns.Msg, t1res <-chan *dns.Msg) <-chan secans {
 	t2res := make(chan secans, 1)
+	msg = msg.Copy() // to avoid racing against changes made by caller
 
 	go func() {
 		defer close(t2res)
