@@ -64,22 +64,19 @@ func (a *Volatile[T]) safeStore(old, new T) {
 	if a == nil {
 		return
 	}
-	if IsNil(new) {
+	if IsNil(new) { // nothing to store
 		*a = *NewZeroVolatile[T]()
 		return
 	}
-	if IsNil(old) || TypeEq(old, new) {
-		if LocEq(old, new) {
-			return
-		}
-		aa := (*atomic.Value)(a)
-		aa.Store(new)
-		return
+
+	// old may be a diff concrete type than new
+	if IsNil(old) || !TypeEq(old, new) {
+		*a = *NewZeroVolatile[T]()
+	} else if LocEq(old, new) {
+		return // old is same as new; no-op
 	}
-	// old is of a different concrete type
-	*a = *NewZeroVolatile[T]()
 	aa := (*atomic.Value)(a)
-	aa.Store(new)
+	aa.Store(new) // new is a not nil
 }
 
 // Cas compares and swaps the value of a with new, returns true if the value was swapped.
