@@ -24,6 +24,8 @@ type rwext struct {
 
 var _ core.RetrierConn = (*rwext)(nil)
 
+// TODO? var _ core.DuplexCloser = (*rwext)(nil)
+
 func (rw rwext) SetTimeout() (secs int, didSet bool) {
 	r, w := rw.deadlines()
 	secs = max(int(r), int(w))

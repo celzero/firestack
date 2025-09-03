@@ -76,6 +76,12 @@ func Connect(fd, mtu int, fakedns string, dtr DefaultDNS, bdg Bridge) (t Tunnel,
 	return NewTunnel(fd, mtu, fakedns, dtr, bdg)
 }
 
+// Connect2 is like Connect, but does not require passing a Default DNS resolver.
+// The tunnel will instead attempt to use the system DNS resolver (best effort).
+func Connect2(fd, mtu int, fakedns string, bdg Bridge) (t Tunnel, err error) {
+	return NewTunnel(fd, mtu, fakedns, nil, bdg)
+}
+
 // ControlledRouter creates a [backend.Router] over a [backend.Internet] proxy (like [backend.Exit]),
 // but one that uses custom Controller c. id and addrport are used only for
 // diagnostics and logging, and could be left empty. Typical usage is to use
