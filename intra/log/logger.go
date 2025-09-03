@@ -545,6 +545,44 @@ func caller2(at int, sep1, sep2 string) (pc uintptr, who string) {
 	return pc, file
 }
 
+// go.dev/play/p/h9Woqcp0Xz0
+func callers(at, until int, sep1 string) (pcs []uintptr, files []string, skipped int) {
+	if until <= 0 {
+		return []uintptr{0}, []string{callerunknown}, 0
+	} else if until == 1 {
+		pc, who := caller1(at+nextframe, ": ")
+		return []uintptr{pc}, []string{who}, 0
+	}
+
+	rpc := make([]uintptr, until)
+	n := runtime.Callers(at+nextframe, rpc)
+	if n < 1 {
+		return []uintptr{0}, []string{callerunknown}, until
+	}
+
+	pcs = make([]uintptr, 0, until)
+	files = make([]string, 0, until)
+	frames := runtime.CallersFrames(rpc)
+	for i := range until {
+		frame, more := frames.Next()
+		pc := frame.PC // may be 0
+		file := frame.File
+		line := frame.Line
+		if len(file) <= 0 { // more is false when file is empty
+			file = callerunknown
+		} else {
+			file = shortfile(file) + sep1 + fmt.Sprint(line)
+		}
+		pcs = append(pcs, pc)
+		files = append(files, file)
+		if !more || file == callerunknown {
+			break
+		}
+		skipped = until - i
+	}
+	return
+}
+
 func tracecaller(s string) bool {
 	if len(s) <= 0 || s == callerunknown {
 		return false
@@ -590,41 +628,42 @@ func (l *simpleLogger) writelog(lvl LogLevel, at int, msg string, args ...any) {
 	}
 
 	if ll || cc {
+		_, x, _ := callers(at+nextframe, 7, ":")
 		switch lvl {
 		case USR, STACKTRACE, NONE: // no-op
 		case VVERBOSE:
-			if _, x := caller1(at+nextframe+7, ">"); tracecaller(x) {
-				trace += x
+			if len(x) >= 7 && tracecaller(x[6]) {
+				trace += x[7]
 			}
 			fallthrough
 		case VERBOSE:
-			if _, x := caller1(at+nextframe+6, ">"); tracecaller(x) {
-				trace += x
+			if len(x) >= 6 && tracecaller(x[5]) {
+				trace += x[5]
 			}
 			fallthrough
 		case DEBUG:
-			if _, x := caller1(at+nextframe+5, ">"); tracecaller(x) {
-				trace += x
+			if len(x) >= 5 && tracecaller(x[4]) {
+				trace += x[4]
 			}
 			fallthrough
 		case ERROR:
-			if _, x := caller1(at+nextframe+4, ">"); tracecaller(x) {
-				trace += x
+			if len(x) >= 4 && tracecaller(x[3]) {
+				trace += x[3]
 			}
 			fallthrough
 		case WARN:
-			if _, x := caller1(at+nextframe+3, ">"); tracecaller(x) {
-				trace += x
+			if len(x) >= 3 && tracecaller(x[2]) {
+				trace += x[2]
 			}
 			fallthrough
 		case INFO:
-			if _, x := caller1(at+nextframe+2, ">"); tracecaller(x) {
-				trace += x
+			if len(x) >= 2 && tracecaller(x[1]) {
+				trace += x[1]
 			}
 			fallthrough
 		default:
-			if _, x := caller1(at+nextframe+1, ">"); tracecaller(x) {
-				trace += x
+			if len(x) >= 1 && tracecaller(x[0]) {
+				trace += x[0]
 			}
 		}
 		msg = l.msgstr(lvl, trace+file1+msg, args...)
