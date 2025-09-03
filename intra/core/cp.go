@@ -19,7 +19,7 @@ var (
 	errInvalidWrite = errors.New("invalid write result")
 )
 
-// Pipe copies data from src to dst, and returns the number of bytes copied.
+// Pipe reads data from src to dst, and returns the number of bytes copied.
 // Prefers src.WriteTo(dst) and dst.ReadFrom(src) if available.
 // Otherwise, it uses core.Stream.
 func Pipe(dst io.Writer, src io.Reader) (int64, error) {
