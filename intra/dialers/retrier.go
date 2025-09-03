@@ -637,8 +637,8 @@ func (r *retrier) WriteTo(w io.Writer) (bytes int64, err error) {
 		b, e := copyOnce(w, r)
 		writes++
 		bytes += b
-		logeif(err)("retrier: writerto: %s: #%d; sz: %d/%d; err: %v",
-			r.dialerID(), writes, b, bytes, err)
+		logeif(err)("retrier: writerto: %s: #%d %s<=%s; sz: %d/%d; err: %v",
+			r.dialerID(), writes, r.laddr, r.raddr, b, bytes, err)
 		if e != nil {
 			return bytes, e
 		}
@@ -677,8 +677,8 @@ func (r *retrier) WriteTo(w io.Writer) (bytes int64, err error) {
 		bytes += b
 	}
 
-	logeif(err)("retrier: writerto: %s: (optimized? %t for %T) done; sz: %d; err: %v",
-		r.dialerID(), optimizedWriteTo, c, bytes, err)
+	logeif(err)("retrier: writerto: %s: (optimized? %t for %T) %s<=%s done; sz: %d; err: %v",
+		r.dialerID(), optimizedWriteTo, c, r.laddr, r.raddr, bytes, err)
 	return
 }
 
@@ -691,8 +691,8 @@ func (r *retrier) ReadFrom(reader io.Reader) (bytes int64, err error) {
 		b, e := copyOnce(r, reader)
 		copies++
 		bytes += b
-		logeif(err)("retrier: readfrom: %s: copyOnce #%d; sz: %d/%d; err: %v",
-			r.dialerID(), copies, b, bytes, err)
+		logeif(err)("retrier: readfrom: %s: copyOnce #%d %s<=%s; sz: %d/%d; err: %v",
+			r.dialerID(), copies, r.laddr, r.raddr, b, bytes, err)
 		if e != nil {
 			return bytes, e
 		}
@@ -701,8 +701,8 @@ func (r *retrier) ReadFrom(reader io.Reader) (bytes int64, err error) {
 
 	c := r.conn // reader thread does not need the mutex
 	if c == nil {
-		log.E("retrier: readfrom: %s: [] <= %s, no conn; after# %d: sz(%d) tee(%d)",
-			r.dialerID(), r.raddr, copies, bytes, len(r.tee))
+		log.E("retrier: readfrom: %s: [] <= %s, no conn %s; after# %d: sz(%d) tee(%d)",
+			r.dialerID(), r.raddr, copies, r.raddr, bytes, len(r.tee))
 		return bytes, io.ErrUnexpectedEOF
 	}
 
@@ -742,8 +742,8 @@ func (r *retrier) ReadFrom(reader io.Reader) (bytes int64, err error) {
 		bytes += b
 	}
 
-	logeif(err)("retrier: readfrom: %s: (optimized? %t for %T) done (id: %s, pinned? %t); sz: %d; err: %v",
-		r.dialerID(), optimizedReadFrom, c, pinnedID, pinned, bytes, err)
+	logeif(err)("retrier: readfrom: %s: (optimized? %t for %T) done (id: %s, pinned? %t) %s<=%s; sz: %d; err: %v",
+		r.dialerID(), optimizedReadFrom, c, pinnedID, pinned, r.laddr, r.raddr, bytes, err)
 	return
 }
 
