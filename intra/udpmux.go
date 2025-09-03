@@ -50,8 +50,7 @@ type sender interface {
 }
 
 type stats struct {
-	dur   time.Duration // set only once; on stop()
-	start time.Time     // set only once; on ctor
+	start time.Time // set only once; on ctor
 
 	dxcount atomic.Uint32
 	tx      atomic.Uint32
@@ -62,7 +61,7 @@ func (s *stats) String() string {
 	if s == nil {
 		return "<nil>"
 	}
-	return fmt.Sprintf("tx: %d, rx: %d, conns: %d, dur: %ds", s.tx.Load(), s.rx.Load(), s.dxcount.Load(), int64(s.dur.Seconds()))
+	return fmt.Sprintf("tx: %d, rx: %d, conns: %d, dur: %s", s.tx.Load(), s.rx.Load(), s.dxcount.Load(), core.FmtTimeAsPeriod(s.start))
 }
 
 type vendor func(fwd net.Conn, dst netip.AddrPort) error
@@ -182,7 +181,6 @@ func (x *muxer) stop() error {
 
 		x.dxconnWG.Wait()          // all conns close / error out
 		core.Go("udpmux.cb", x.cb) // dissociate
-		x.stats.dur = time.Since(x.stats.start)
 		log.I("udp: mux: %s stopped; stats: %s", x.cid, x.stats)
 	})
 
