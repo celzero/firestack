@@ -531,10 +531,6 @@ func caller(at int) (pc uintptr, who string) {
 	return caller2(at+nextframe, ":", ": ")
 }
 
-func caller1(at int, sep string) (pc uintptr, who string) {
-	return caller2(at+nextframe, ":", sep)
-}
-
 func caller2(at int, sep1, sep2 string) (pc uintptr, who string) {
 	pc, file, line, _ := runtime.Caller(at)
 	if len(file) <= 0 {
@@ -550,7 +546,7 @@ func callers(at, until int, sep1 string) (pcs []uintptr, files []string, skipped
 	if until <= 0 {
 		return []uintptr{0}, []string{callerunknown}, 0
 	} else if until == 1 {
-		pc, who := caller1(at+nextframe, ": ")
+		pc, who := caller2(at+nextframe, sep1, "")
 		return []uintptr{pc}, []string{who}, 0
 	}
 
@@ -633,7 +629,7 @@ func (l *simpleLogger) writelog(lvl LogLevel, at int, msg string, args ...any) {
 		case USR, STACKTRACE, NONE: // no-op
 		case VVERBOSE:
 			if len(x) >= 7 && tracecaller(x[6]) {
-				trace += x[7]
+				trace += x[6]
 			}
 			fallthrough
 		case VERBOSE:
