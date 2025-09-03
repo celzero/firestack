@@ -629,6 +629,69 @@ func (r *retrier) Write(b []byte) (int, error) {
 	}
 }
 
+func (r *retrier) WriterTo(w io.Writer) (bytes int64, err error) {
+	writes := 0
+	// TODO: skip copyOnce if r.multidial set or if strat is SplitNever?
+	for !r.retryCompleted() { // should iter only once
+		b, e := copyOnce(w, r)
+		writes++
+		bytes += b
+		logeif(err)("retrier: writerto: %s: #%d; sz: %d/%d; err: %v",
+			r.dialerID(), writes, b, bytes, err)
+		if e != nil {
+			return bytes, e
+		}
+		// TODO: return after first copyOnce if strat is RetryNever?
+	}
+
+	r.mu.Lock()
+	c := r.conn
+	r.mu.Unlock()
+
+	if c == nil {
+		log.E("retrier: writerto: %s: [] <= %s, no conn; after# %d: sz(%d) tee(%d)",
+			r.dialerID(), r.raddr, writes, bytes, len(r.tee))
+		return bytes, io.ErrUnexpectedEOF
+	}
+
+	pinned := false
+	pinnedID := ""
+	if r.multidial {
+		if ipp := asAddrPort(r.raddr); ipp.IsValid() {
+			// cache the dialer ID for the IP:port pair
+			pinnedID = r.dialerID()
+			ippPins.Put(ipp, pinnedID)
+			pinned = true
+		}
+	}
+
+	optimizedWriteTo := true
+	var b int64
+	switch x := c.(type) {
+	case *net.TCPConn:
+		r.SetDeadline(time.Time{})
+		b, err = x.WriteTo(w)
+		bytes += b
+	case *splitter:
+		r.SetDeadline(time.Time{})
+		b, err = x.WriterTo(w)
+		bytes += b
+	case io.WriterTo:
+		r.SetDeadline(time.Time{})
+		b, err = x.WriteTo(w)
+		bytes += b
+	default: // net.UDPConn, net.PacketConn etc?
+		optimizedWriteTo = false
+		// read from reader until EOF
+		b, err = core.Stream(w, c)
+		bytes += b
+	}
+
+	logeif(err)("retrier: writerto: %s: (optimized? %t for %T) done (id: %s, pinned? %t); sz: %d; err: %v",
+		r.dialerID(), optimizedWriteTo, c, pinnedID, pinned, bytes, err)
+	return
+}
+
 // ReadFrom reads data from reader via r.conn.ReadFrom, after (as needed)
 // retries are done; before which reads are delegated to copyOnce.
 func (r *retrier) ReadFrom(reader io.Reader) (bytes int64, err error) {

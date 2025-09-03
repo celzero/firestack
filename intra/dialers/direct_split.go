@@ -63,7 +63,6 @@ func (s *splitter) writeSplit(b []byte) (n int, err error) {
 	return
 }
 
-// ReadFrom implements core.DuplexConn.
 func (s *splitter) ReadFrom(reader io.Reader) (bytes int64, err error) {
 	if !s.used.Load() {
 		// This is the first write on this socket.
@@ -78,6 +77,10 @@ func (s *splitter) ReadFrom(reader io.Reader) (bytes int64, err error) {
 	b, err = s.conn.ReadFrom(reader)
 	bytes += b
 	return
+}
+
+func (s *splitter) WriterTo(w io.Writer) (bytes int64, err error) {
+	return s.conn.WriteTo(w)
 }
 
 // Read implements core.DuplexConn.
