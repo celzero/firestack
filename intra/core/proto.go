@@ -25,6 +25,8 @@ const (
 // TCPConn abstracts a TCP connection coming from TUN. This connection
 // should be handled by a registered TCP proxy handler.
 type TCPConn interface {
+	DuplexCloser
+
 	// RemoteAddr returns the destination network address.
 	RemoteAddr() net.Addr
 	// LocalAddr returns the local client network address.
@@ -34,15 +36,7 @@ type TCPConn interface {
 	Write([]byte) (int, error)
 	Read([]byte) (int, error)
 
-	Close() error
-	// CloseWrite closes the writing side by sending a FIN
-	// segment to local peer. That means we can write no further
-	// data to TUN.
-	CloseWrite() error
-	// CloseRead closes the reading side. That means we can no longer
-	// read more from TUN.
-	CloseRead() error
-
+	// Implements MinConn and net.Conn
 	SetDeadline(time.Time) error
 	SetReadDeadline(time.Time) error
 	SetWriteDeadline(time.Time) error
@@ -51,8 +45,11 @@ type TCPConn interface {
 // UDPConn abstracts a UDP connection coming from TUN. This connection
 // should be handled by a registered UDP proxy handler.
 type UDPConn interface {
+	io.Closer
+
 	// LocalAddr returns the local client network address.
 	LocalAddr() net.Addr
+	// RemoteAddr returns the destination network address.
 	RemoteAddr() net.Addr
 
 	// confirms to protect.Conn
@@ -63,18 +60,22 @@ type UDPConn interface {
 	WriteTo([]byte, net.Addr) (int, error)
 	ReadFrom([]byte) (int, net.Addr, error)
 
-	// Close closes the connection.
-	Close() error
-
-	// Implements net.Conn and net.PacketConn
+	// Implements MinConn, net.Conn, and net.PacketConn
 	SetDeadline(time.Time) error
 	SetReadDeadline(time.Time) error
 	SetWriteDeadline(time.Time) error
 }
 
+type DuplexCloser interface {
+	io.Closer
+	CloseRead() error
+	CloseWrite() error
+}
+
 // DuplexConn represents a bidirectional stream socket.
 type DuplexConn interface {
 	TCPConn
+	DuplexCloser
 	PoolableConn
 	KeepAliveConn
 }
@@ -97,6 +98,8 @@ type ICMPConn interface {
 // MinConn is a minimal connection interface that is
 // a subset of both net.Conn and net.PacketConn.
 type MinConn interface {
+	io.Closer
+
 	LocalAddr() net.Addr
 
 	// Doc copied from net.Conn:
@@ -136,6 +139,4 @@ type MinConn interface {
 	// some of the data was successfully written.
 	// A zero value for t means Write will not time out.
 	SetWriteDeadline(t time.Time) error
-
-	Close() error
 }

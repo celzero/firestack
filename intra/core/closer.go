@@ -142,6 +142,15 @@ func CloseOp(c io.Closer, op CloserOp) {
 		} else { // == "rw" or "any"
 			CloseConn(x)
 		}
+	// some udp conns (ex: demuxconn) may conform to DuplexCloser
+	case DuplexCloser:
+		if op == CopR {
+			_ = x.CloseRead()
+		} else if op == CopW {
+			_ = x.CloseWrite()
+		} else { // == "rw" or "any"
+			_ = x.Close()
+		}
 	case *net.UDPConn:
 		CloseUDP(x)
 	case UDPConn:

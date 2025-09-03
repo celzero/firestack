@@ -103,8 +103,10 @@ type demuxconn struct {
 	inCh       chan *slice // incoming data from muxer, never closed
 	overflowCh chan *slice // overflow data, never closed
 
-	closed chan struct{} // close signal
-	once   sync.Once     // close once
+	closed      chan struct{} // close signal
+	readClosed  atomic.Bool   // true if read side is closed
+	writeClosed atomic.Bool   // true if write side is closed
+	once        sync.Once     // close once
 
 	wt  *time.Ticker  // write deadline
 	rt  *time.Ticker  // read deadline
@@ -120,6 +122,7 @@ type slice struct {
 
 var _ sender = (*muxer)(nil)
 var _ core.UDPConn = (*demuxconn)(nil)
+var _ core.DuplexCloser = (*demuxconn)(nil)
 
 // newMuxer creates a muxer/demuxer for a connectionless conn.
 func newMuxer(cid, pid, uid string, conn net.PacketConn, vnd vendor, f core.Finally) *muxer {
@@ -379,8 +382,13 @@ func (x *muxer) newLocked(cid string, r netip.AddrPort) *demuxconn {
 
 // Read implements core.UDPConn.Read
 func (c *demuxconn) Read(p []byte) (int, error) {
-	defer c.rt.Reset(c.rto)
 	sz := len(p)
+	if c.readClosed.Load() {
+		return 0, log.EE("udp: mux: %s demux: read: %v <= %v; closed (sz: %d)",
+			c.out.id(), c.laddr, c.raddr, sz)
+	}
+
+	defer c.rt.Reset(c.rto)
 	select {
 	case <-c.rt.C:
 		log.W("udp: mux: %s demux: read: %v <= %v; timeout (sz: %d)",
@@ -399,8 +407,14 @@ func (c *demuxconn) Read(p []byte) (int, error) {
 
 // Write implements core.UDPConn.Write
 func (c *demuxconn) Write(p []byte) (n int, err error) {
-	defer c.wt.Reset(c.wto)
 	sz := len(p)
+
+	if c.writeClosed.Load() {
+		return 0, log.EE("udp: mux: %s demux: write: %v => %v; closed (sz: %d)",
+			c.out.id(), c.laddr, c.raddr, sz)
+	}
+
+	defer c.wt.Reset(c.wto)
 	select {
 	case <-c.wt.C:
 		log.W("udp: mux: %s demux: write: %v => %v; timeout (sz: %d)",
@@ -433,6 +447,34 @@ func (c *demuxconn) WriteTo(p []byte, to net.Addr) (int, error) {
 	return c.Write(p)
 }
 
+// Implements core.DuplexCloser.
+func (c *demuxconn) CloseRead() (err error) {
+	if c.readClosed.CompareAndSwap(false, true) {
+		closeall := c.writeClosed.Load()
+		if closeall {
+			err = c.Close() // both sides closed
+		}
+		logev(err)("udp: mux: %s demux: %s => %s close read (and conn? %t), err: %v",
+			c.cid, c.laddr, c.raddr, closeall, err)
+		return
+	}
+	return net.ErrClosed
+}
+
+// Implements core.DuplexCloser.
+func (c *demuxconn) CloseWrite() (err error) {
+	if c.writeClosed.CompareAndSwap(false, true) {
+		closeall := c.readClosed.Load()
+		if closeall {
+			err = c.Close() // both sides closed
+		}
+		logev(err)("udp: mux: %s demux: %s => %s close write (and conn? %t), err: %v",
+			c.cid, c.laddr, c.raddr, closeall, err)
+		return err
+	}
+	return net.ErrClosed
+}
+
 // Close implements core.UDPConn.Close
 func (c *demuxconn) Close() error {
 	if settings.Debug {
@@ -441,6 +483,10 @@ func (c *demuxconn) Close() error {
 	}
 	c.once.Do(func() {
 		close(c.closed) // sig close
+
+		c.readClosed.Store(true)
+		c.writeClosed.Store(true)
+
 		defer c.wt.Stop()
 		defer c.rt.Stop()
 		for {
