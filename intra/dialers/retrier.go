@@ -457,12 +457,14 @@ func (r *retrier) Read(buf []byte) (n int, err error) {
 		if n == 0 && err == nil {
 			err = io.ErrNoProgress
 		}
-		logeor(err, note)("retrier: read: %s: [%s<=%s]; t: %s; b: %d/%d (tee: %d); err: %v",
-			r.dialerID(), laddr(c), r.raddr, core.FmtPeriod(r.timeout), n, len(buf), len(r.tee), err)
+		logeor(err, note)("retrier: read: %s: [%s<=%s]; (rtt: %s / read: %s); b: %d/%d (tee: %d); err: %v",
+			r.dialerID(), laddr(c), r.raddr, core.FmtPeriod(r.timeout), core.FmtTimeAsPeriod(r.readDeadline), n, len(buf), len(r.tee), err)
 	} // else: needs retry as c == nil
 
 	note = log.D
 
+	// must enter this block at least once (even if c != nil)
+	// as it resets read timeout and teed write buffer
 	if !r.retryCompleted() {
 		r.mu.Lock()
 		defer r.mu.Unlock()

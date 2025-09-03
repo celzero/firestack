@@ -276,7 +276,7 @@ func (h *baseHandler) forward(local, remote net.Conn, smm *SocketSummary) {
 	if r, ok := remote.(rwext); ok {
 		isrwext = true
 		if timeoutsecs, didSet = r.SetTimeout(); didSet || timeoutsecs <= 0 {
-			remote = r.Unwrap() // c may be *net.TCPConn or *demuxconn or *retrier or *splitter
+			remote = r.Unwrap() // c may be *net.TCPConn or *demuxconn or *dialers.retrier|splitter
 		}
 	}
 	log.I("com: %s: forward: new conn %s rwext? %t (%T), optset? %t (%ds); %s for %s",

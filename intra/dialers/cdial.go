@@ -94,7 +94,8 @@ func commondial2[D rdials, C rconns](d D, network, laddr, raddr string, connect 
 	defer func() {
 		dur := time.Since(start)
 		if settings.Debug {
-			log.D("commondial: duration: %s; addr %s; confirmed? %s, sz: %d", dur, raddr, confirmed, ips.Size())
+			log.D("commondial: duration: %s; addr %s; confirmed? %s, sz: %d",
+				core.FmtPeriod(dur), raddr, confirmed, ips.Size())
 		}
 	}()
 
