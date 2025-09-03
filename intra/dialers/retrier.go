@@ -654,17 +654,6 @@ func (r *retrier) WriterTo(w io.Writer) (bytes int64, err error) {
 		return bytes, io.ErrUnexpectedEOF
 	}
 
-	pinned := false
-	pinnedID := ""
-	if r.multidial {
-		if ipp := asAddrPort(r.raddr); ipp.IsValid() {
-			// cache the dialer ID for the IP:port pair
-			pinnedID = r.dialerID()
-			ippPins.Put(ipp, pinnedID)
-			pinned = true
-		}
-	}
-
 	optimizedWriteTo := true
 	var b int64
 	switch x := c.(type) {
@@ -687,8 +676,8 @@ func (r *retrier) WriterTo(w io.Writer) (bytes int64, err error) {
 		bytes += b
 	}
 
-	logeif(err)("retrier: writerto: %s: (optimized? %t for %T) done (id: %s, pinned? %t); sz: %d; err: %v",
-		r.dialerID(), optimizedWriteTo, c, pinnedID, pinned, bytes, err)
+	logeif(err)("retrier: writerto: %s: (optimized? %t for %T) done; sz: %d; err: %v",
+		r.dialerID(), optimizedWriteTo, c, bytes, err)
 	return
 }
 
