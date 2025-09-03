@@ -634,35 +634,38 @@ func (l *simpleLogger) writelog(lvl LogLevel, at int, msg string, args ...any) {
 			fallthrough
 		case VERBOSE:
 			if len(x) >= 6 && tracecaller(x[5]) {
-				trace += x[5]
+				trace += ">" + x[5]
 			}
 			fallthrough
 		case DEBUG:
 			if len(x) >= 5 && tracecaller(x[4]) {
-				trace += x[4]
+				trace += ">" + x[4]
 			}
 			fallthrough
 		case ERROR:
 			if len(x) >= 4 && tracecaller(x[3]) {
-				trace += x[3]
+				trace += ">" + x[3]
 			}
 			fallthrough
 		case WARN:
 			if len(x) >= 3 && tracecaller(x[2]) {
-				trace += x[2]
+				trace += ">" + x[2]
 			}
 			fallthrough
 		case INFO:
 			if len(x) >= 2 && tracecaller(x[1]) {
-				trace += x[1]
+				trace += ">" + x[1]
 			}
 			fallthrough
 		default:
-			if len(x) >= 1 && tracecaller(x[0]) {
-				trace += x[0]
+			if tracecaller(file1) { // same as x[0]
+				trace += ">" + file1
+			}
+			if len(trace) > 0 {
+				trace += ": " // end-of-trace marker
 			}
 		}
-		msg = l.msgstr(lvl, trace+file1+msg, args...)
+		msg = l.msgstr(lvl, trace+msg, args...)
 		if ll {
 			// go's internal logger grabs mutex before every write
 			l.out(msg)
