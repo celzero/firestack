@@ -81,7 +81,14 @@ type DuplexConn interface {
 }
 
 // so it can be used by dialers/retrier.go
-type RetrierConn io.ReaderFrom
+type ReadRetrierConn io.ReaderFrom
+
+type WriteRetrierConn io.WriterTo
+
+type RetrierConn interface {
+	ReadRetrierConn
+	WriteRetrierConn
+}
 
 // so it can be pooled by ConnPool.
 type PoolableConn syscall.Conn

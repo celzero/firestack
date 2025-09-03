@@ -22,9 +22,9 @@ type rwext struct {
 	minidle  uint32 // min idle timeout in secs
 }
 
-var _ core.RetrierConn = (*rwext)(nil)
-
+// TODO? var _ core.RetrierConn = (*rwext)(nil)
 // TODO? var _ core.DuplexCloser = (*rwext)(nil)
+var _ core.ReadRetrierConn = (*rwext)(nil)
 
 func (rw rwext) SetTimeout() (secs int, didSet bool) {
 	r, w := rw.deadlines()

@@ -101,6 +101,7 @@ type retrier struct {
 }
 
 var _ core.DuplexConn = (*retrier)(nil)
+var _ core.RetrierConn = (*retrier)(nil)
 
 var _ core.DuplexConn = (*net.TCPConn)(nil)
 
@@ -629,7 +630,7 @@ func (r *retrier) Write(b []byte) (int, error) {
 	}
 }
 
-func (r *retrier) WriterTo(w io.Writer) (bytes int64, err error) {
+func (r *retrier) WriteTo(w io.Writer) (bytes int64, err error) {
 	writes := 0
 	// TODO: skip copyOnce if r.multidial set or if strat is SplitNever?
 	for !r.retryCompleted() { // should iter only once
@@ -663,7 +664,7 @@ func (r *retrier) WriterTo(w io.Writer) (bytes int64, err error) {
 		bytes += b
 	case *splitter:
 		r.SetDeadline(time.Time{})
-		b, err = x.WriterTo(w)
+		b, err = x.WriteTo(w)
 		bytes += b
 	case io.WriterTo:
 		r.SetDeadline(time.Time{})

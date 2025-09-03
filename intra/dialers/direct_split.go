@@ -79,7 +79,7 @@ func (s *splitter) ReadFrom(reader io.Reader) (bytes int64, err error) {
 	return
 }
 
-func (s *splitter) WriterTo(w io.Writer) (bytes int64, err error) {
+func (s *splitter) WriteTo(w io.Writer) (bytes int64, err error) {
 	return s.conn.WriteTo(w)
 }
 
