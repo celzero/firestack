@@ -53,8 +53,6 @@ var (
 	errUdpInFirewalled = errors.New("udp: ingress firewalled")
 	errUdpInEstErr     = errors.New("udp: ingress establish error")
 	errUdpSetupConn    = errors.New("udp: could not create conn")
-	errProxyMismatch   = errors.New("udp: proxy mismatch")
-	errUidMismatch     = errors.New("udp: uid mismatch")
 	errUdpIncomingDrop = errors.New("udp: at capacity; packet in dropped")
 	errUdpUnconnected  = errors.New("udp: cannot connect")
 	errUdpNoTarget     = errors.New("udp: no target addr")

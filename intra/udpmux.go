@@ -615,11 +615,12 @@ func (e *muxTable) associate(cid, pid, uid string, src, dst netip.AddrPort, mk a
 		// and so, rely on dst to determine the family to listen on.
 		proto := "udp"
 		anyaddr := anyaddr6
+		anyport := uint16(0)
 		if dst.Addr().Is4() && !dialers.Use6() {
 			proto = "udp4"
 			anyaddr = anyaddr4
 		}
-		anyaddrport := netip.AddrPortFrom(anyaddr, 0)
+		anyaddrport := netip.AddrPortFrom(anyaddr, anyport)
 		if settings.PortForward.Load() || ipn.Remote(pid) {
 			anyaddrport = netip.AddrPortFrom(anyaddr, src.Port())
 		}
@@ -641,24 +642,21 @@ func (e *muxTable) associate(cid, pid, uid string, src, dst netip.AddrPort, mk a
 	}
 
 	if mxr.pid != pid {
-		log.E("udp: mux: %s assoc proxy mismatch: %s != %s or %s != %s",
+		e.Unlock()
+		return nil, log.EE("udp: mux: %s assoc proxy mismatch: %s != %s or %s != %s",
 			cid, mxr.pid, pid, mxr.uid, uid)
-		e.Unlock()                   // unlock
-		return nil, errProxyMismatch // return
 	} else if mxr.uid != uid &&
 		(uid != UNKNOWN_UID_STR || mxr.uid != UNKNOWN_UID_STR) {
-		log.E("udp: mux: %s assoc uid mismatch: %s != %s or %s != %s",
+		e.Unlock()
+		return nil, log.EE("udp: mux: %s assoc uid mismatch: %s != %s or %s != %s",
 			cid, mxr.pid, pid, mxr.uid, uid)
-		e.Unlock()                 // unlock
-		return nil, errUidMismatch // return
 	}
 
 	e.Unlock() // unlock
 	// do not hold e.lock on calls into mxr
 	c := mxr.route(cid, dst, egress)
 	if c == nil {
-		log.E("udp: mux: %s vend: no conn for %s", cid, dst)
-		return nil, errUdpSetupConn
+		return nil, log.EE("udp: mux: %s vend: no conn for %s", cid, dst)
 	}
 	return c, nil
 }
