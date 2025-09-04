@@ -288,7 +288,7 @@ func (r *resolver) Add(dt x.DNSTransport) (ok bool) {
 	if !ok { // unlikely
 		return false
 	}
-	tid := t.ID().V()
+	tid := idstr(t)
 	if tid == Default || cachedTransport(t) {
 		log.W("dns: cannot re-add default/cached transports; ignoring: %s", t.GetAddr())
 		return false
@@ -310,8 +310,6 @@ func (r *resolver) Add(dt x.DNSTransport) (ok bool) {
 	caching := false
 	switch t.Type().V() {
 	case DNS53, DNSCrypt, DOH, DOT, ODOH:
-		tid := t.ID().V()
-
 		r.Lock()
 		// stop existing transport if different
 		if oldt := r.transports[tid]; t != oldt {
@@ -320,7 +318,7 @@ func (r *resolver) Add(dt x.DNSTransport) (ok bool) {
 		}
 		// always recreate caching transport
 		if ct := NewCachingTransport(t, ttl10m); ct != nil {
-			ctid := ct.ID().V()
+			ctid := idstr(ct)
 			r.stopIfExistsLocked(ctid)
 			r.transports[ctid] = ct
 			caching = true
@@ -558,7 +556,7 @@ runagain:
 	}
 
 	smm.Type = t.Type().V()
-	smm.ID = t.ID().V()
+	smm.ID = idstr(t)
 
 	res1, blocklists, err := r.blockQ(t, t2, msg) // skips if the t, t2 are alg/block-free
 	if err == nil {
@@ -1343,7 +1341,7 @@ func skipBlock(tr ...Transport) bool {
 		if t == nil {
 			continue
 		}
-		switch t.ID().V() { // Plus/CT+Plus to skip blocks conditionally?
+		switch idstr(t) { // Plus/CT+Plus to skip blocks conditionally?
 		case Default, BlockFree, Alg, Bootstrap:
 			return true
 		case CT + Default, CT + BlockFree, CT + Alg, CT + Bootstrap:
@@ -1377,7 +1375,7 @@ func tr2csv(ts []Transport) string {
 	s := ""
 	for _, t := range ts {
 		if activeTransport(t) {
-			s += t.ID().V() + ","
+			s += idstr(t) + ","
 		}
 	}
 	return trimcsv(s)
@@ -1419,7 +1417,7 @@ func asCachedTransport(t Transport) Cacher {
 }
 
 func cachedTransport(t Transport) bool {
-	return strings.HasSuffix(t.ID().V(), CT) ||
+	return strings.HasSuffix(idstr(t), CT) ||
 		strings.HasPrefix(t.GetAddr().V(), cacheprefix)
 }
 
