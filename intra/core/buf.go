@@ -54,6 +54,10 @@ func Alloc() *[]byte {
 	return AllocRegion(B4096)
 }
 
+func Alloc16() *[]byte {
+	return AllocRegion(B16384)
+}
+
 // LOB returns a truncated byte slice of size 524288
 func LOB() *[]byte {
 	return AllocRegion(B524288)

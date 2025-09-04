@@ -54,7 +54,7 @@ func Stream(dst io.Writer, src io.Reader) (written int64, err error) {
 		dst = writerNoReadFrom{Writer: dst}
 	}
 
-	bptr := AllocRegion(B16384) // TLS record size?
+	bptr := Alloc16() // TLS record size?
 	buf := *bptr
 	buf = buf[:cap(buf)]
 	defer func() {

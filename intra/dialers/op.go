@@ -21,7 +21,7 @@ import (
 func copyOnce(dst io.Writer, src io.Reader) (int64, error) {
 	// A buffer large enough to hold any ordinary first write
 	// without introducing extra splitting.
-	bptr := core.Alloc()
+	bptr := core.Alloc16()
 	buf := *bptr
 	buf = buf[:cap(buf)]
 	defer func() {

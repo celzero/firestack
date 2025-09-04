@@ -270,7 +270,7 @@ type pipefin struct {
 }
 
 func (h *socks5) pipe(r, w net.Conn, finch chan<- pipefin) {
-	bptr := core.Alloc()
+	bptr := core.Alloc16()
 	bf := *bptr
 	bf = bf[:cap(bf)]
 	defer func() {

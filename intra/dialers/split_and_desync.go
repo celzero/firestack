@@ -203,7 +203,7 @@ func desyncWithTraceroute(d protect.RDialer, local, remote netip.AddrPort) (*ove
 
 	var msgBuf [probeSize]byte
 
-	bptr := core.Alloc()
+	bptr := core.Alloc16()
 	cmsgBuf := *bptr
 	cmsgBuf = cmsgBuf[:cap(cmsgBuf)]
 	defer func() {
