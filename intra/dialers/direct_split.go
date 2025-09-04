@@ -33,6 +33,7 @@ type splitter struct {
 }
 
 var _ core.DuplexConn = (*splitter)(nil)
+var _ core.RetrierConn = (*splitter)(nil)
 
 // Write implements core.DuplexConn.
 func (s *splitter) Write(b []byte) (n int, err error) {
@@ -63,6 +64,7 @@ func (s *splitter) writeSplit(b []byte) (n int, err error) {
 	return
 }
 
+// ReadFrom reads from reader and writes to s.
 func (s *splitter) ReadFrom(reader io.Reader) (bytes int64, err error) {
 	if !s.used.Load() {
 		// This is the first write on this socket.
@@ -79,6 +81,7 @@ func (s *splitter) ReadFrom(reader io.Reader) (bytes int64, err error) {
 	return
 }
 
+// WriteTo reads from s and writes to w.
 func (s *splitter) WriteTo(w io.Writer) (bytes int64, err error) {
 	return s.conn.WriteTo(w)
 }

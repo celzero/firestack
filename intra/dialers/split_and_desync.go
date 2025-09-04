@@ -54,6 +54,7 @@ type overwriteSplitter struct {
 }
 
 var _ core.DuplexConn = (*overwriteSplitter)(nil)
+var _ core.RetrierConn = (*overwriteSplitter)(nil)
 
 // exceedsHopLimit checks if cmsgs contains an ICMPv6 hop limit exceeded SockExtendedErr
 //
@@ -491,7 +492,8 @@ func (s *overwriteSplitter) Write(b []byte) (n int, err error) {
 func (s *overwriteSplitter) ReadFrom(reader io.Reader) (bytes int64, err error) {
 	if !s.used.Load() {
 		bytes, err = copyOnce(s, reader)
-		logeif(err)("desync: readfrom: copyOnce; sz: %d; err: %v", bytes, err)
+		logeif(err)("desync: readfrom: copyOnce; sz: %d %s=>%s; err: %v",
+			bytes, s.LocalAddr(), s.RemoteAddr(), err)
 		if err != nil {
 			return
 		}
@@ -499,8 +501,18 @@ func (s *overwriteSplitter) ReadFrom(reader io.Reader) (bytes int64, err error) 
 
 	b, err := s.conn.ReadFrom(reader)
 	bytes += b
-	log.V("desync: readfrom: done; sz: %d; err: %v", bytes, err)
+	log.V("desync: readfrom: done; sz: %d %s=>%s; err: %v",
+		bytes, s.LocalAddr(), s.RemoteAddr(), err)
 
+	return
+}
+
+// WriteTo reads from s and writes to w.
+func (s *overwriteSplitter) WriteTo(w io.Writer) (bytes int64, err error) {
+	b, err := s.conn.WriteTo(w)
+	bytes += b
+	log.V("desync: writeto: done; sz: %d %s<=%s; err: %v",
+		bytes, s.LocalAddr(), s.RemoteAddr(), err)
 	return
 }
 
