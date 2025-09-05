@@ -23,6 +23,12 @@ func SetNetstackOpts(s *stack.Stack) {
 	sack := tcpip.TCPSACKEnabled(true)
 	_ = s.SetTransportProtocolOption(tcp.ProtocolNumber, &sack)
 
+	// from: github.com/tailscale/tailscale/commit/83808029d8c
+	// See https://github.com/tailscale/tailscale/issues/9707
+	// RACKs lead to spurious retransmissions and a reduced congestion window.
+	tcpRecoveryOpt := tcpip.TCPRecovery(0)
+	_ = s.SetTransportProtocolOption(tcp.ProtocolNumber, &tcpRecoveryOpt)
+
 	// from: github.com/telepresenceio/telepresence/blob/ab7dda7d55/pkg/vif/stack.go#L232
 	// Enable Receive Buffer Auto-Tuning, see: github.com/google/gvisor/issues/1666
 	bufauto := tcpip.TCPModerateReceiveBufferOption(true)
