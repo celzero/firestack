@@ -17,6 +17,48 @@ import (
 	"gvisor.dev/gvisor/pkg/tcpip/transport/icmp"
 )
 
+type ICMPHackTarget struct {
+	Handler func(id stack.TransportEndpointID, pkt *stack.PacketBuffer) bool
+}
+
+func (t *ICMPHackTarget) Action(pkt *stack.PacketBuffer, hook stack.Hook, r *stack.Route, _ stack.AddressableEndpoint) (stack.RuleVerdict, int) {
+	transportHdr := pkt.TransportHeader()
+	if len(transportHdr.Slice()) < 8 {
+		//the packet may be unparsed
+		return stack.RuleAccept, 0
+	}
+	switch pkt.TransportProtocolNumber {
+	case header.ICMPv6ProtocolNumber:
+		icmp6Hdr := header.ICMPv6(transportHdr.Slice())
+		if icmp6Hdr.Type() == header.ICMPv6EchoRequest {
+			//https://www.rfc-editor.org/rfc/rfc4443.html#section-2.1
+			n1 := pkt.Network()
+			icmpID := icmp6Hdr.Ident()
+			id := stack.TransportEndpointID{
+				LocalPort:     icmpID,
+				LocalAddress:  n1.DestinationAddress(),
+				RemotePort:    icmpID,
+				RemoteAddress: n1.SourceAddress(),
+			}
+			t.Handler(id, pkt)
+			return stack.RuleDrop, 0
+		}
+	}
+	return stack.RuleAccept, 0
+}
+
+func ICMPHack(s *stack.Stack, target stack.Target) {
+	ipt := s.IPTables()
+
+	table := ipt.GetTable(stack.FilterID, true)
+	index := table.BuiltinChains[stack.Input]
+	rules := table.Rules
+	rules[index].Filter.Protocol = header.ICMPv6ProtocolNumber
+	rules[index].Filter.CheckProtocol = true
+	rules[index].Target = target
+	ipt.ForceReplaceTable(stack.FilterID, table, true)
+}
+
 type GICMPHandler interface {
 	GBaseConnHandler
 	GEchoConnHandler
@@ -33,7 +75,6 @@ type icmpForwarder struct {
 func OutboundICMP(id string, s *stack.Stack, hdl GICMPHandler) {
 	// remove default handlers
 	s.SetTransportProtocolHandler(icmp.ProtocolNumber4, nil)
-	s.SetTransportProtocolHandler(icmp.ProtocolNumber6, nil)
 
 	if hdl == nil {
 		log.E("icmp: %s: no handler", id)
@@ -42,7 +83,9 @@ func OutboundICMP(id string, s *stack.Stack, hdl GICMPHandler) {
 
 	forwarder := newIcmpForwarder(id, s, hdl)
 	s.SetTransportProtocolHandler(icmp.ProtocolNumber4, forwarder.reply4)
-	s.SetTransportProtocolHandler(icmp.ProtocolNumber6, forwarder.reply6)
+	//gvisor v0.0.0-20250816201027-ba3b9ca85f20 never delivers ICMPv6 Echo Request Messages to TransportProtocolHandler
+	target := ICMPHackTarget{forwarder.reply6}
+	ICMPHack(s, &target)
 }
 
 func newIcmpForwarder(owner string, s *stack.Stack, h GICMPHandler) *icmpForwarder {
@@ -191,25 +234,28 @@ func (f *icmpForwarder) reply6(id stack.TransportEndpointID, pkt *stack.PacketBu
 		if !f.h.Ping(data, src, dst) { // unreachable
 			err = f.icmpErr6(id, pkt, header.ICMPv6DstUnreachable, header.ICMPv6NetworkUnreachable)
 		} else { // reachable
-			replyPkt := stack.NewPacketBuffer(stack.PacketBufferOptions{
-				ReserveHeaderBytes: int(route.MaxHeaderLength()) + header.ICMPv6EchoMinimumSize,
-				Payload:            pkt.Data().ToBuffer(),
-			})
-			defer replyPkt.DecRef()
-			replyHdr := header.ICMPv6(replyPkt.TransportHeader().Push(header.ICMPv6EchoMinimumSize))
-			replyPkt.TransportProtocolNumber = header.ICMPv6ProtocolNumber
-			copy(replyHdr, hdr)
+			originRef := stack.PayloadSince(pkt.TransportHeader()).AsSlice()
+			replyBuf := buffer.NewViewSize(len(originRef))
+			replyRef := replyBuf.AsSlice()
+
+			copy(replyRef[4:], originRef[4:])
+			replyHdr := header.ICMPv6(replyRef)
 			replyHdr.SetType(header.ICMPv6EchoReply)
-			replyData := replyPkt.Data()
+			replyHdr.SetCode(0)
 			replyHdr.SetChecksum(header.ICMPv6Checksum(header.ICMPv6ChecksumParams{
-				Header:      replyHdr,
+				Header:      replyRef,
 				Src:         route.LocalAddress(),  // or id.LocalAddress
 				Dst:         route.RemoteAddress(), // or id.RemoteAddress
-				PayloadCsum: replyData.Checksum(),
-				PayloadLen:  replyData.Size(),
+				PayloadCsum: 0,
+				PayloadLen:  0,
 			}))
 			log.D("icmp: v6: %s: ok type %v/%v sz[%d] from %v <= %v",
 				f.o, replyHdr.Type(), replyHdr.Code(), len(replyHdr), src, dst)
+			replyPkt := stack.NewPacketBuffer(stack.PacketBufferOptions{
+				ReserveHeaderBytes: int(route.MaxHeaderLength()),
+				Payload:            buffer.MakeWithView(replyBuf),
+			})
+			defer replyPkt.DecRef()
 
 			// github.com/google/gvisor/blob/738e1d995f/pkg/tcpip/network/ipv6/icmp.go#L694
 			replyclass, _ := l3.TOS()
