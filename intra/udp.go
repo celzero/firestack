@@ -51,7 +51,6 @@ var (
 	errIcmpFirewalled  = errors.New("icmp: firewalled")
 	errUdpFirewalled   = errors.New("udp: firewalled")
 	errUdpInFirewalled = errors.New("udp: ingress firewalled")
-	errUdpInEstErr     = errors.New("udp: ingress establish error")
 	errUdpSetupConn    = errors.New("udp: could not create conn")
 	errUdpIncomingDrop = errors.New("udp: at capacity; packet in dropped")
 	errUdpUnconnected  = errors.New("udp: cannot connect")
@@ -95,17 +94,22 @@ func (h *udpHandler) ReverseProxy(gconn *netstack.GUDPConn, in net.Conn, to, fro
 	fm := h.onInflow(to, from)
 	cid, uid, _, pids := h.judge(fm)
 	smm := udpSummary(cid, uid, from.Addr())
+
+	if settings.Debug {
+		log.VV("udp: %s [%s]: reverse: %s => %s; pids: %v", cid, uid, from, to, pids)
+	}
+
 	if isAnyBlockPid(pids) {
-		log.I("udp: %s reverse: block %s => %s", cid, from, to)
+		log.I("udp: %s [%s]: reverse: block %s => %s", cid, uid, from, to)
 		clos(gconn, in) // blocked
 		h.queueSummary(smm.done(errUdpInFirewalled))
 		return true // ok
 	} // else: pid should only be ipn.Ingress
 
 	if err := gconn.Establish(); err != nil { // gconn.Establish() failed
-		log.W("udp: %s reverse: %s gconn.Est, err %s => %s", cid, to, from, err)
+		err = log.EE("udp: %s [%s]: reverse: %s gconn.Est, err %s => %s: %v", cid, uid, to, from, err)
 		clos(gconn, in) // teardown
-		h.queueSummary(smm.done(errUdpInEstErr))
+		h.queueSummary(smm.done(err))
 		return false // not ok
 	}
 

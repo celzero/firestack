@@ -125,8 +125,12 @@ func (h *tcpHandler) ReverseProxy(gconn *netstack.GTCPConn, in net.Conn, to, fro
 	cid, uid, _, pids := h.judge(fm)
 	smm := tcpSummary(cid, uid, from.Addr())
 
+	if settings.Debug {
+		log.VV("tcp: %s [%s]: reverse: %s => %s; pids: %v", cid, uid, from, to, pids)
+	}
+
 	if isAnyBlockPid(pids) {
-		log.I("tcp: reverse: block %s => %s", from, to)
+		log.I("tcp: %s [%s]: reverse: block %s => %s", cid, uid, from, to)
 		clos(gconn, in)
 		h.queueSummary(smm.done(errUdpInFirewalled))
 		return true
@@ -134,9 +138,8 @@ func (h *tcpHandler) ReverseProxy(gconn *netstack.GTCPConn, in net.Conn, to, fro
 
 	// handshake; since we assume a duplex-stream from here on
 	if open, err := gconn.Establish(); !open {
-		err = fmt.Errorf("tcp: %s reverse: gconn.Est, err %v; %s => %s for %s",
-			cid, err, to, from, uid)
-		log.E("%v", err)
+		err = log.EE("tcp: %s [%s]: reverse: gconn.Est, err %v; %s => %s for %s",
+			cid, uid, err, to, from, uid)
 		h.queueSummary(smm.done(err))
 		return false
 	}
