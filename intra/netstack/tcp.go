@@ -32,6 +32,9 @@ const maxInFlight = 512 // arbitrary
 // syn-ack before delivering to handler?
 const earlyConnect = true
 
+// retry connect when earlyConnect fails?
+const retryLateConnect = true
+
 var (
 	// defaults: github.com/google/gvisor/blob/fa49677e141db/pkg/tcpip/transport/tcp/protocol.go#L73
 	// idle: 2h; count: 9; interval: 75s
@@ -67,18 +70,24 @@ type GTCPConn struct {
 // dialing to from (dst) from to (src).
 func InboundTCP(who string, s *stack.Stack, in net.Conn, to, from netip.AddrPort, h GTCPConnHandler) error {
 	newgc := makeGTCPConn(who, s, nil /*not a forwarder req*/, to, from)
-	if earlyConnect && !settings.SingleThreaded.Load() {
-		if open, err := newgc.tryConnect(); err != nil || !open {
-			log.E("ns: tcp: %s: inbound: tryConnect err src(%v) => dst(%v); open? %t, err(%v)",
-				newgc.o, to, from, open, err)
+
+	if earlyConnect {
+		open, err := newgc.tryConnect()
+
+		if settings.Debug {
+			logeif(err)("ns: tcp: %s: inbound: tryConnect err src(%v) => dst(%v); open? %t / retry? %t, err(%v)",
+				newgc.o, to, from, open, retryLateConnect, err)
+		}
+		// TODO: call in a go routine if settings.SingleThreaded is set
+		if !retryLateConnect && (err != nil || !open) {
 			if err == nil {
 				err = errMissingEp
 			}
-			go h.Error(newgc, to, from, err) // error
+			h.Error(newgc, to, from, err) // error
 			return err
 		}
 	}
-	go h.ReverseProxy(newgc, in, to, from)
+	h.ReverseProxy(newgc, in, to, from)
 	return nil
 }
 
@@ -118,14 +127,18 @@ func tcpForwarder(who string, s *stack.Stack, h GTCPConnHandler) *tcp.Forwarder 
 
 		// setup endpoint right away, so that netstack's internal state is consistent
 		// in case there are multiple forwarders dispatching from the TUN device.
-		if earlyConnect && !settings.SingleThreaded.Load() {
+		if earlyConnect {
 			opened, err := gtcp.tryConnect()
-			if err != nil || !opened {
-				log.E("ns: tcp: %s: forwarder: tryConnect err src(%v) => dst(%v); open? %t, err(%v)",
+
+			if settings.Debug {
+				logeif(err)("ns: tcp: %s: forwarder: tryConnect err src(%v) => dst(%v); open? %t, err(%v)",
 					who, src, dst, opened, err)
-				go h.Error(gtcp, src, dst, core.OneErr(err, errMissingEp)) // error
-			} else { // gtcp is connected, optimize and proxy async
-				go h.Proxy(gtcp, src, dst)
+			}
+			// TODO: call in a go routine if settings.SingleThreaded is set
+			if !retryLateConnect && (err != nil || !opened) {
+				h.Error(gtcp, src, dst, core.OneErr(err, errMissingEp)) // error
+			} else { // gtcp may be connected
+				h.Proxy(gtcp, src, dst)
 			}
 		} else {
 			// call the handler in-line, blocking the netstack "processor",
@@ -199,7 +212,7 @@ func (g *GTCPConn) synack(complete bool) (rst bool, err error) {
 		wq := new(waiter.Queue)
 		// the passive-handshake (SYN) may not successful for a non-existent route (say, ipv6)
 		if ep, err := g.req.CreateEndpoint(wq); err != nil || ep == nil {
-			log.E("ns: tcp: %s: forwarder: synack(complete? %t / ep? %t) src(%v) => dst(%v); err(%v)",
+			log.E("ns: tcp: %s: connect: (outbound) synack(complete? %t / ep? %t) src(%v) => dst(%v); err(%v)",
 				g.o, complete, ep != nil, g.LocalAddr(), g.RemoteAddr(), err)
 			// prevent potential half-open TCP connection leak.
 			// hopefully doesn't break happy-eyeballs datatracker.ietf.org/doc/html/rfc8305#section-5
@@ -212,13 +225,13 @@ func (g *GTCPConn) synack(complete bool) (rst bool, err error) {
 		}
 	} else { // ingressing (process a conn into tun)
 		if settings.Debug {
-			log.V("ns: tcp: %s: connect: creating endpoint for %v => %v", g.o, g.LocalAddr(), g.RemoteAddr())
+			log.V("ns: tcp: %s: dial: (inbound) creating endpoint for %v => %v", g.o, g.LocalAddr(), g.RemoteAddr())
 		}
 		src, proto := addrport2nsaddr(g.dst) // remote addr is local addr in netstack
 		dst, _ := addrport2nsaddr(g.src)     // local addr is remote addr in netstack
 		bg := context.Background()
 		if conn, err := gonet.DialTCPWithBind(bg, g.stack, src, dst, proto); err != nil {
-			log.E("ns: tcp: %s: forwarder: synack(complete? %t) src(%v) => dst(%v); err(%v)",
+			log.E("ns: tcp: %s: dial: (inbound) synack(complete? %t) src(%v) => dst(%v); err(%v)",
 				g.o, complete, g.LocalAddr(), g.RemoteAddr(), err)
 			return true, err // close, err
 		} else {

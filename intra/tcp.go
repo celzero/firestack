@@ -28,7 +28,6 @@ package intra
 import (
 	"context"
 	"errors"
-	"fmt"
 	"net"
 	"net/netip"
 	"time"
@@ -208,14 +207,15 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target netip.AddrPort)
 		return deny
 	}
 
+	// handshake; since we assume a duplex-stream from here on
+	if _, err := gconn.Establish(); err != nil {
+		log.E("tcp: %s connect1 err %v; %s => %s for %s", cid, err, src, target, uid)
+		clos(gconn)
+		h.queueSummary(smm.done(err))
+		return deny // == !open
+	}
+
 	if isAnyBasePid(pids) { // see udp.go:Connect
-		// handshake; since we assume a duplex-stream from here on
-		if _, err := gconn.Establish(); err != nil {
-			log.E("tcp: %s connect1 err %v; %s => %s for %s", cid, err, src, target, uid)
-			clos(gconn)
-			h.queueSummary(smm.done(err))
-			return deny // == !open
-		}
 		if h.dnsOverride(gconn, target, uid) {
 			// SocketSummary not sent; x.DNSSummary supercedes it
 			// conn closed by resolver
@@ -312,13 +312,6 @@ func (h *tcpHandler) handle(px ipn.Proxy, src *netstack.GTCPConn, boundSrc, targ
 		clos(src, pc)
 		log.W("tcp: err dialing %s proxy(%s) to dst(%v) for %s: %v",
 			smm.ID, px.ID(), target, smm.UID, err)
-		return err
-	}
-
-	if _, err := src.Establish(); err != nil {
-		log.E("tcp: %s connect2 err %v; %s => %s for %s",
-			smm.ID, err, src.LocalAddr(), target, smm.UID)
-		clos(src, pc)
 		return err
 	}
 

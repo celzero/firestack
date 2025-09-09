@@ -84,15 +84,21 @@ func OutboundUDP(id string, s *stack.Stack, h GUDPConnHandler) {
 
 func InboundUDP(who string, s *stack.Stack, in net.Conn, to, from netip.AddrPort, h GUDPConnHandler) error {
 	newgc := makeGUDPConn(who, s, nil /*not a forwarder req*/, to, from)
-	if earlyConnect && !settings.SingleThreaded.Load() {
-		if err := newgc.Establish(); err != nil {
-			log.E("ns: udp: %s: inbound: dial: %v; src(%v) dst(%v)",
+	if earlyConnect {
+		err := newgc.Establish()
+
+		if settings.Debug {
+			logeif(err)("ns: udp: %s: inbound: dial: %v; src(%v) dst(%v)",
 				who, err, to, from)
-			go h.Error(newgc, to, from, err)
+		}
+
+		// TODO: call in a go routine if settings.SingleThreaded is set
+		if !retryLateConnect && err != nil {
+			h.Error(newgc, to, from, err)
 			return err
 		}
 	}
-	go h.ReverseProxy(newgc, in, to, from)
+	h.ReverseProxy(newgc, in, to, from)
 	return nil
 }
 
@@ -157,16 +163,20 @@ func udpForwarder(who string, s *stack.Stack, h GUDPConnHandler) *udp.Forwarder 
 
 		// setup to recv right away, so that netstack's internal state is consistent
 		// in case there are multiple forwarders dispatching from the TUN device.
-		if earlyConnect && !settings.SingleThreaded.Load() {
-			if err := gc.Establish(); err != nil {
-				log.E("ns: udp: %s: forwarder: connect: %v; src(%v) dst(%v)",
+		if earlyConnect {
+			err := gc.Establish()
+
+			if settings.Debug {
+				logeif(err)("ns: udp: %s: forwarder: connect: %v; src(%v) dst(%v)",
 					who, err, src, dst)
-				go h.Error(gc, src, dst, err)
+			}
+			// TODO: call in a go routine if settings.SingleThreaded is set
+			if !retryLateConnect && err != nil {
+				h.Error(gc, src, dst, err)
 				return false // not handled
 			}
-			// gc already connected; safe to call the handler async
-			go handle(h, gc, src, dst, demux)
-			return true // handled
+			handle(h, gc, src, dst, demux) // gc may be connected
+			return true                    // handled
 		} else {
 			// handler must connect sync; blocking netstack's processor
 			// but perform other ops like r/w to/from src/dst async.
@@ -208,7 +218,7 @@ func (g *GUDPConn) Establish() error {
 		dst, _ := addrport2nsaddr(g.src)     // local addr is remote addr in netstack
 		// ingress socket w/ gonet.DialUDP
 		if conn, err := gonet.DialUDP(g.stack, &src, &dst, proto); err != nil {
-			log.E("ns: udp: %s: dial: endpoint for %v => %v; err(%v)",
+			log.E("ns: udp: %s: dial: (inbound) endpoint for %v => %v; err(%v)",
 				g.o, g.src, g.dst, err)
 			return err
 		} else {
@@ -223,7 +233,7 @@ func (g *GUDPConn) Establish() error {
 		if ep, err := g.req.CreateEndpoint(wq); err != nil || ep == nil {
 			// ex: CONNECT endpoint for [fd66:f83a:c650::1]:15753 => [fd66:f83a:c650::3]:53; err(no route to host)
 			// 'bad local addrs' on missing NIC, 'invalid state' if could not be bound/connected
-			log.E("ns: udp: %s: connect: endpoint(ok? %t) for %v => %v; err(%v)",
+			log.E("ns: udp: %s: connect: (outbound) endpoint(ok? %t) for %v => %v; err(%v)",
 				g.o, ep != nil, g.src, g.dst, err)
 			return e(err)
 		} else {
