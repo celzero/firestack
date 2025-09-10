@@ -55,6 +55,7 @@ type GEchoConnHandler interface {
 }
 
 type GConnHandler interface {
+	Src() []netip.Prefix
 	TCP() GTCPConnHandler         // TCP returns the TCP handler.
 	UDP() GUDPConnHandler         // UDP returns the UDP handler.
 	ICMP() GICMPHandler           // ICMP returns the ICMP handler.
@@ -62,6 +63,7 @@ type GConnHandler interface {
 }
 
 type gconnhandler struct {
+	src  []netip.Prefix
 	tcp  GTCPConnHandler
 	udp  GUDPConnHandler
 	icmp GICMPHandler
@@ -69,12 +71,18 @@ type gconnhandler struct {
 
 var _ GConnHandler = (*gconnhandler)(nil)
 
-func NewGConnHandler(tcp GTCPConnHandler, udp GUDPConnHandler, icmp GICMPHandler) GConnHandler {
+func NewGConnHandler(addrs []netip.Prefix, tcp GTCPConnHandler, udp GUDPConnHandler, icmp GICMPHandler) GConnHandler {
 	return &gconnhandler{
+		src:  addrs,
 		tcp:  tcp,
 		udp:  udp,
 		icmp: icmp,
 	}
+}
+
+func (g *gconnhandler) Src() []netip.Prefix {
+	// TODO? slices.Clone(g.src)
+	return g.src
 }
 
 func (g *gconnhandler) TCP() GTCPConnHandler {

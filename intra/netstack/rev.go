@@ -25,20 +25,25 @@ type revbase[T gconns] struct {
 	ended atomic.Bool
 }
 
-type revtcp struct {
-	*revbase[*GTCPConn]
-	revstack *stack.Stack
-	reverser GTCPConnHandler
+type revip struct {
+	if4      netip.Prefix
+	if6      netip.Prefix
 	stackip4 netip.Addr
 	stackip6 netip.Addr
 }
 
+type revtcp struct {
+	*revbase[*GTCPConn]
+	revip
+	revstack *stack.Stack
+	reverser GTCPConnHandler
+}
+
 type revudp struct {
 	*revbase[*GUDPConn]
+	revip
 	revstack *stack.Stack
 	reverser GUDPConnHandler
-	stackip4 netip.Addr
-	stackip6 netip.Addr
 }
 
 type revicmp struct {
@@ -54,37 +59,42 @@ var _ GICMPHandler = (*revicmp)(nil)
 
 func NewReverseGConnHandler(pctx context.Context, to *stack.Stack, of tcpip.NICID, ep SeamlessEndpoint, via GConnHandler) *gconnhandler {
 	id := strconv.Itoa(ep.Stat().Fd)
+	ip4, ip6 := StackAddrs(to, of)
+	if4, if6 := HandlerAddrs(via)
+	ifaddrs := revip{
+		if4:      if4,
+		if6:      if6,
+		stackip4: ip4,
+		stackip6: ip6,
+	}
 	h := &gconnhandler{
-		tcp:  newReverseTCP(id, to, of, via.TCP()),
-		udp:  newReverseUDP(id, to, of, via.UDP()),
+		src:  via.Src(),
+		tcp:  newReverseTCP(id, to, of, ifaddrs, via.TCP()),
+		udp:  newReverseUDP(id, to, of, ifaddrs, via.UDP()),
 		icmp: newReverseICMP(id, to, ep, via.ICMP()),
 	}
-	log.I("rev: %s: newReverseGConnHandler %d @ %d", id, of, core.Loc(to))
+	log.I("rev: %s: newReverseGConnHandler %d @ %d on %s", id, of, core.Loc(to), ifaddrs)
 	context.AfterFunc(pctx, h.end)
 	return h
 }
 
-func newReverseTCP(id string, s *stack.Stack, nic tcpip.NICID, h GTCPConnHandler) *revtcp {
-	ip4, ip6 := StackAddrs(s, nic)
-	log.I("rev: %s: nic %d newReverseTCP %v %v", id, nic, ip4, ip6)
+func newReverseTCP(id string, s *stack.Stack, nic tcpip.NICID, ifaddrs revip, h GTCPConnHandler) *revtcp {
+	log.I("rev: %s: nic %d newReverseTCP %s", id, nic, ifaddrs)
 	return &revtcp{
 		revbase:  &revbase[*GTCPConn]{o: id},
+		revip:    ifaddrs,
 		revstack: s,
 		reverser: h,
-		stackip4: ip4,
-		stackip6: ip6,
 	}
 }
 
-func newReverseUDP(id string, s *stack.Stack, nic tcpip.NICID, h GUDPConnHandler) *revudp {
-	ip4, ip6 := StackAddrs(s, nic)
-	log.I("rev: %s: nic %d newReverseUDP %v %v", id, nic, ip4, ip6)
+func newReverseUDP(id string, s *stack.Stack, nic tcpip.NICID, ifaddrs revip, h GUDPConnHandler) *revudp {
+	log.I("rev: %s: nic %d newReverseUDP %s", id, nic, ifaddrs)
 	return &revudp{
 		revbase:  &revbase[*GUDPConn]{o: id},
+		revip:    ifaddrs,
 		revstack: s,
 		reverser: h,
-		stackip4: ip4,
-		stackip6: ip6,
 	}
 }
 
@@ -236,4 +246,22 @@ func StackAddrs(s *stack.Stack, nic tcpip.NICID) (netip.Addr, netip.Addr) {
 	}
 	log.V("netstack: StackAddrs %v %v", ip4, ip6)
 	return ip4, ip6
+}
+
+func HandlerAddrs(hdl GConnHandler) (ifaddr4 netip.Prefix, ifaddr6 netip.Prefix) {
+	if hdl == nil {
+		return
+	}
+	// TODO: add multiple addrs of same family
+	for _, x := range hdl.Src() {
+		if x.Addr().Is4() && !ifaddr4.IsValid() {
+			ifaddr4 = x
+		} else if x.Addr().Is6() && !ifaddr6.IsValid() {
+			ifaddr6 = x
+		}
+		if ifaddr4.IsValid() && ifaddr6.IsValid() {
+			break
+		}
+	}
+	return ifaddr4, ifaddr6
 }

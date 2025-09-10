@@ -67,19 +67,29 @@ func init() {
 // `fd` is the TUN device. The tunnel acquires an additional reference to it, which is
 // released by Disconnect(), so the caller must close `fd` and Disconnect() to close the TUN device.
 // `mtu` is the MTU of the TUN device.
-// `fakedns` are the DNS servers that the system believes it is using, in "host:port" style.
+// `ifaddrs` is a comma-separated list of interface addresses with prefix lengths, "ip/prefixlen".
+// `fakedns` is a comman-separated list of the nameservers that the system believes it is using, in "host:port" style.
 // `bdg` is a kotlin object that implements the Bridge interface.
 // `dtr` is the DefaultDNS (see: intra.NewDefaultDNS); can be nil. Changeable via intra.AddDefaultTransport.
 // Throws an exception if the TUN file descriptor cannot be opened, or if the tunnel fails to
 // connect.
-func Connect(fd, mtu int, fakedns string, dtr DefaultDNS, bdg Bridge) (t Tunnel, err error) {
-	return NewTunnel(fd, mtu, fakedns, dtr, bdg)
+func Connect(fd, mtu int, ifaddrs, fakedns string, dtr DefaultDNS, bdg Bridge) (t Tunnel, err error) {
+	return NewTunnel(fd, mtu, ifaddrs, fakedns, dtr, bdg)
 }
 
-// Connect2 is like Connect, but does not require passing a Default DNS resolver.
+// Connect2 is like Connect, but assumes defaults for ifaddrs and fakedns
+// as ["10.111.222.1/24", "fd66:f83a:c650::0/120"] and ["10.111.222.3", "fd66:f83a:c650::3"]
+// respectively.
+func Connect2(fd, mtu int, dtr DefaultDNS, bdg Bridge) (t Tunnel, err error) {
+	// usually, 10.111.222.0/24 / [fd66:f83a:c650::0]/120
+	// github.com/celzero/rethink-app/blob/59aa0daae/app/src/main/java/com/celzero/bravedns/service/BraveVPNService.kt#L2813
+	return NewTunnel(fd, mtu, "10.111.222.1/24,fd66:f83a:c650::0/120", "10.111.222.3,fd66:f83a:c650::3", nil, bdg)
+}
+
+// Connect3 is like Connect2, but does not require passing a Default DNS resolver.
 // The tunnel will instead attempt to use the system DNS resolver (best effort).
-func Connect2(fd, mtu int, fakedns string, bdg Bridge) (t Tunnel, err error) {
-	return NewTunnel(fd, mtu, fakedns, nil, bdg)
+func Connect3(fd, mtu int, bdg Bridge) (t Tunnel, err error) {
+	return Connect2(fd, mtu, nil, bdg)
 }
 
 // ControlledRouter creates a [backend.Router] over a [backend.Internet] proxy (like [backend.Exit]),

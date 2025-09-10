@@ -27,7 +27,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/netip"
 	"runtime"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -130,7 +132,7 @@ func (l *clogAdapter) Log(lvl log.LogLevel, msg log.Logmsg) {
 	}
 }
 
-func NewTunnel(fd, mtu int, fakedns string, dtr DefaultDNS, bdg Bridge) (t Tunnel, err error) {
+func NewTunnel(fd, mtu int, ifaddrs, fakedns string, dtr DefaultDNS, bdg Bridge) (t Tunnel, err error) {
 	defer core.Recover(core.Exit11, "i.newTunnel")
 
 	if dtr == nil || core.IsNil(dtr) {
@@ -192,10 +194,25 @@ func NewTunnel(fd, mtu int, fakedns string, dtr DefaultDNS, bdg Bridge) (t Tunne
 	dialers.IPProtos(dualstack)           // assume dual-stack
 	addIPMapper(ctx, resolver, dualstack) // namespace aware os-resolver for pkg dialers
 
+	var src []netip.Prefix
+	for s := range strings.SplitSeq(ifaddrs, ",") {
+		if p, err := netip.ParsePrefix(s); p.IsValid() && err == nil {
+			src = append(src, p)
+		} else {
+			log.W("tun: <<< new >>>; invalid ifaddr %s; err? %v", s, err)
+		}
+	}
+
+	// usually, 10.111.222.0/24 / [fd66:f83a:c650::0]/120
+	// github.com/celzero/rethink-app/blob/59aa0daae/app/src/main/java/com/celzero/bravedns/service/BraveVPNService.kt#L2813
+	if len(src) <= 0 { // default
+		src = []netip.Prefix{netip.MustParsePrefix("10.111.222.1/24"), netip.MustParsePrefix("fd66:f83a:c650::1/120")}
+	}
+
 	tcph := NewTCPHandler(ctx, resolver, proxies, bdg)
 	udph := NewUDPHandler(ctx, resolver, proxies, bdg)
 	icmph := NewICMPHandler(ctx, resolver, proxies, bdg)
-	hdl := netstack.NewGConnHandler(tcph, udph, icmph)
+	hdl := netstack.NewGConnHandler(src, tcph, udph, icmph)
 
 	log.D("tun: <<< new >>>; protocol handlers: ok")
 

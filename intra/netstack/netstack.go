@@ -9,10 +9,10 @@ package netstack
 import (
 	"errors"
 	"fmt"
-	"net/netip"
 	"strconv"
+	"sync"
 
-	"github.com/celzero/firestack/intra/core"
+	packet "github.com/celzero/firestack/intra/core/wire"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/settings"
 	"gvisor.dev/gvisor/pkg/tcpip"
@@ -74,7 +74,7 @@ func Up(s *stack.Stack, ep SeamlessEndpoint, h GConnHandler) (tcpip.NICID, error
 		return nic, e(nerr)
 	}
 	// add addrs to this nic just attached to netstack s
-	if err := addIfAddrs(s, nic); err != nil {
+	if err := addIfAddrs(s, nic, h); err != nil {
 		return nic, err
 	}
 
@@ -115,7 +115,7 @@ func e(err tcpip.Error) error {
 	return nil
 }
 
-func addIfAddrs(s *stack.Stack, nic tcpip.NICID) error {
+func addIfAddrs(s *stack.Stack, nic tcpip.NICID, hdl GConnHandler) error {
 	// TODO: make ifaddrs configurable like fakedns is
 	// The NIC is set in Spoofing mode. When the UDP Endpoint uses a non-local
 	// address to "Connect", netstack generates a temporary addressState to
@@ -131,45 +131,43 @@ func addIfAddrs(s *stack.Stack, nic tcpip.NICID) error {
 	// In fact, for multicast, the sender normally does not expect a response.
 	// So, the ep.net.Connect is unnecessary.
 
-	// 10.111.222.0/24 / [fd66:f83a:c650::0]/120
-	// must match with:
-	// github.com/celzero/rethink-app/blob/59aa0daae/app/src/main/java/com/celzero/bravedns/service/BraveVPNService.kt#L2813
-	ifaddr4, err4 := netip.ParsePrefix("10.111.222.1/24")
-	ifaddr6, err6 := netip.ParsePrefix("fd66:f83a:c650::1/120")
-
-	if err4 != nil || err6 != nil { // should never happen
-		return core.JoinErr(err4, err6)
-	}
-
-	// go.dev/play/p/Clg4geOwXMf
-	nsaddr4 := tcpip.AddrFrom4(ifaddr4.Addr().As4())
-	nsaddr6 := tcpip.AddrFrom16(ifaddr6.Addr().As16())
-
-	ap4 := tcpip.AddressWithPrefix{
-		Address:   nsaddr4,        // 10.111.222.1
-		PrefixLen: ifaddr4.Bits(), // 24
-	}
-	ap6 := tcpip.AddressWithPrefix{
-		Address:   nsaddr6,        // fd66:f83a:c650::1
-		PrefixLen: ifaddr6.Bits(), // 120
-	}
-	protoaddr4 := tcpip.ProtocolAddress{
-		Protocol:          ipv4.ProtocolNumber,
-		AddressWithPrefix: ap4,
-	}
-	protoaddr6 := tcpip.ProtocolAddress{
-		Protocol:          ipv6.ProtocolNumber,
-		AddressWithPrefix: ap6,
+	ifaddr4, ifaddr6 := HandlerAddrs(hdl)
+	if !ifaddr4.IsValid() && !ifaddr6.IsValid() {
+		return fmt.Errorf("netstack: %d no ifaddrs from handler", nic)
 	}
 
 	asMainAddr := stack.AddressProperties{PEB: stack.CanBePrimaryEndpoint}
 
-	// at: github.com/google/gvisor/blob/1f4299ee3f/pkg/tcpip/stack/addressable_endpoint_state.go#L177
-	if err := s.AddProtocolAddress(nic, protoaddr4, asMainAddr); err != nil {
-		return fmt.Errorf("netstack: %d add addr(%v): %v", nic, ifaddr6, err)
+	// go.dev/play/p/Clg4geOwXMf
+	if ifaddr4.IsValid() {
+		nsaddr4 := tcpip.AddrFrom4(ifaddr4.Addr().As4())
+		ap4 := tcpip.AddressWithPrefix{
+			Address:   nsaddr4,        // 10.111.222.1
+			PrefixLen: ifaddr4.Bits(), // 24
+		}
+		protoaddr4 := tcpip.ProtocolAddress{
+			Protocol:          ipv4.ProtocolNumber,
+			AddressWithPrefix: ap4,
+		}
+		// at: github.com/google/gvisor/blob/1f4299ee3f/pkg/tcpip/stack/addressable_endpoint_state.go#L177
+		if err := s.AddProtocolAddress(nic, protoaddr4, asMainAddr); err != nil {
+			return fmt.Errorf("netstack: %d add addr(%v): %v", nic, ifaddr6, err)
+		}
 	}
-	if err := s.AddProtocolAddress(nic, protoaddr6, asMainAddr); err != nil {
-		return fmt.Errorf("netstack: %d add addr(%v): %v", nic, ifaddr4, err)
+
+	if ifaddr6.IsValid() {
+		nsaddr6 := tcpip.AddrFrom16(ifaddr6.Addr().As16())
+		ap6 := tcpip.AddressWithPrefix{
+			Address:   nsaddr6,        // fd66:f83a:c650::1
+			PrefixLen: ifaddr6.Bits(), // 120
+		}
+		protoaddr6 := tcpip.ProtocolAddress{
+			Protocol:          ipv6.ProtocolNumber,
+			AddressWithPrefix: ap6,
+		}
+		if err := s.AddProtocolAddress(nic, protoaddr6, asMainAddr); err != nil {
+			return fmt.Errorf("netstack: %d add addr(%v): %v", nic, ifaddr4, err)
+		}
 	}
 
 	log.I("netstack: %d ifaddrs 4(%v) 6(%v)", nic, ifaddr4, ifaddr6)
