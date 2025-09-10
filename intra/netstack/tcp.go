@@ -30,10 +30,10 @@ const rcvwnd = 0
 const maxInFlight = 512 // arbitrary
 
 // syn-ack before delivering to handler?
-const earlyConnect = true
+const earlyConnect = false
 
 // retry connect when earlyConnect fails?
-const retryLateConnect = true
+const retryLateConnect = earlyConnect && true
 
 var (
 	// defaults: github.com/google/gvisor/blob/fa49677e141db/pkg/tcpip/transport/tcp/protocol.go#L73
