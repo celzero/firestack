@@ -45,15 +45,7 @@ func Stream(dst io.Writer, src io.Reader) (written int64, err error) {
 		return 0, errNoStream
 	}
 
-	if _, ok := src.(io.WriterTo); ok {
-		// hide WriteTo func of src
-		src = readerNoWriteTo{Reader: src}
-	}
-	if _, ok := dst.(io.ReaderFrom); ok {
-		// hide ReadFrom func of dst
-		dst = writerNoReadFrom{Writer: dst}
-	}
-
+	// TODO: writerNoReadFrom and readerNoWriteTo
 	bptr := Alloc16() // TLS record size?
 	buf := *bptr
 	buf = buf[:cap(buf)]
@@ -99,34 +91,34 @@ func Stream(dst io.Writer, src io.Reader) (written int64, err error) {
 
 // noReadFrom can be embedded alongside another type to
 // hide the ReadFrom method of that other type.
-type noReadFrom struct{}
+// type noReadFrom struct{}
 
 // ReadFrom hides another ReadFrom method.
 // It should never be called.
-func (noReadFrom) ReadFrom(io.Reader) (int64, error) {
-	panic("noReadFrom: hidden func; should not be called")
-}
+// func (noReadFrom) ReadFrom(io.Reader) (int64, error) {
+// 	panic("noReadFrom: hidden func; should not be called")
+// }
 
 // noWriteTo can be embedded alongside another type to
 // hide the WriterTo method of that other type.
-type noWriteTo struct{}
+// type noWriteTo struct{}
 
-func (noWriteTo) WriteTo(io.Writer) (int64, error) {
-	panic("noWriteTo: hidden func; should not be called")
-}
+// func (noWriteTo) WriteTo(io.Writer) (int64, error) {
+// 	panic("noWriteTo: hidden func; should not be called")
+// }
 
-// writerNoReadFrom implements all the methods of io.Writer other
+// noReadFromWriter implements all the methods of io.Writer other
 // than ReadFrom. This is used to permit ReadFrom to call io.Copy
 // without leading to a recursive call to ReadFrom.
-type writerNoReadFrom struct {
-	noReadFrom
-	io.Writer
-}
+// type noReadFromWriter struct {
+// 	noReadFrom
+// 	io.Writer
+// }
 
-// readerNoWriteTo implements all the methods of io.Reader other
+// noWriteToReader implements all the methods of io.Reader other
 // than WriteTo. This is used to permit WriteTo to call io.Copy
 // without leading to a recursive call to WriteTo.
-type readerNoWriteTo struct {
-	noWriteTo
-	io.Reader
-}
+// type noWriteToReader struct {
+// 	noWriteTo
+// 	io.Reader
+// }
