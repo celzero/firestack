@@ -156,6 +156,10 @@ func checksumCombine(a, b uint16) uint16 {
 //
 // The initial checksum must have been computed on an even number of bytes.
 func checksumBytes(buf []byte, initial uint16) uint16 {
+	if len(buf) <= 0 {
+		return initial
+	}
+
 	v := uint32(initial)
 
 	odd := len(buf)%2 == 1
