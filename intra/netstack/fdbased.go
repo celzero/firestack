@@ -459,6 +459,10 @@ func (e *endpoint) fd() int {
 // currently writable, the packet is dropped.
 // Way more simplified than og impl, ref: github.com/google/gvisor/issues/7125
 func (e *endpoint) WritePackets(pkts stack.PacketBufferList) (int, tcpip.Error) {
+	if pkts.Len() == 0 {
+		return 0, nil
+	}
+
 	// Preallocate to avoid repeated reallocation as we append to batch.
 	// batchSz is 47 because when SWGSO is in use then a single 65KB TCP
 	// segment can get split into 46 segments of 1420 bytes and a single 216
@@ -583,7 +587,8 @@ func (e *endpoint) getDispatchers() (stack.NetworkDispatcher, *fds) {
 func (e *endpoint) InjectInbound(protocol tcpip.NetworkProtocolNumber, pkt *stack.PacketBuffer) {
 	d, fds := e.getDispatchers()
 	fd := fds.tun()
-	log.VV("ns: tun(%d): inject-inbound (from tun) %d", fd, protocol)
+
+	log.VV("ns: tun(%d): inject-inbound (from tun) %s; %d", fd, fds, protocol)
 	if d != nil && pkt != nil {
 		d.DeliverNetworkPacket(protocol, pkt)
 	} else {
