@@ -171,17 +171,9 @@ func (p *processor) deliverPackets() {
 	defer core.Recover(code, "ns.forwarder.deliverPackets")
 
 	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	for p.pkts.Len() > 0 {
-		pkt := p.pkts.PopFront()
-		p.mu.Unlock()
-		if pkt != nil {
-			p.e.InjectInbound(pkt.NetworkProtocolNumber, pkt)
-			pkt.DecRef()
-		}
-		p.mu.Lock()
-	}
+	p.e.WritePackets(p.pkts)
+	p.pkts.Reset()
+	p.mu.Unlock()
 
 	if testpanic {
 		panic("ns: tun: forwarder: deliverPackets rand10pc")
