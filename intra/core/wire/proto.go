@@ -113,9 +113,9 @@ func (p Proto) String() string {
 // https://www.iana.org/assignments/protocol-numbers/protocol-numbers.xhtml
 // unless otherwise noted.
 var (
-	// preferredNames is the set of protocol names that re produced by
+	// PreferredNames is the set of protocol names that re produced by
 	// MarshalText, and are the preferred representation.
-	preferredNames = map[Proto]string{
+	PreferredNames = map[Proto]string{
 		51:     "ah",
 		DCCP:   "dccp",
 		8:      "egp",
@@ -131,9 +131,9 @@ var (
 		UDP:    "udp",
 	}
 
-	// acceptedNames is the set of protocol names that are accepted by
+	// AcceptedNames is the set of protocol names that are accepted by
 	// UnmarshalText.
-	acceptedNames = map[string]Proto{
+	AcceptedNames = map[string]Proto{
 		"ah":        51,
 		"dccp":      DCCP,
 		"egp":       8,

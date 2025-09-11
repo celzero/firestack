@@ -10,9 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
-	"sync"
 
-	packet "github.com/celzero/firestack/intra/core/wire"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/settings"
 	"gvisor.dev/gvisor/pkg/tcpip"
