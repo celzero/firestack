@@ -656,16 +656,9 @@ func (r *retrier) WriteTo(w io.Writer) (bytes int64, err error) {
 	}
 
 	// TODO: skip copyOnce if r.multidial set or if strat is SplitNever?
-	for !r.retryCompleted() { // should iter only once
-		b, e := copyOnce(w, r)
-		writes++
-		bytes += b
-		logeif(err)("retrier: writerto: %s: #%d %s<=%s; sz: %d/%d; err: %v",
-			r.dialerID(), writes, laddr(r.conn), r.raddr, b, bytes, err)
-		if e != nil {
-			return bytes, e
-		}
-		// TODO: return after first copyOnce if strat is RetryNever?
+	select {
+	case <-r.retryDoneCh: // already done; skip to write
+	case <-time.After(r.timeout): // (0 when no need to wait for retry)
 	}
 
 	r.mu.Lock() // may block if retry in progress
