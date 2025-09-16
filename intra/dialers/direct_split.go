@@ -28,8 +28,10 @@ import (
 
 type splitter struct {
 	conn  *net.TCPConn
-	strat int32       // settings.Split* constant
-	used  atomic.Bool // Initially false.  Becomes true after the first write.
+	strat int32 // settings.Split* constant
+
+	used  atomic.Bool   // Initially false.  Becomes true after the first write.
+	await chan struct{} // closed used is set to true.
 }
 
 var _ core.DuplexConn = (*splitter)(nil)
@@ -41,6 +43,7 @@ func (s *splitter) Write(b []byte) (n int, err error) {
 		// after the first write, there is no special write behavior.
 		return s.conn.Write(b)
 	} else if ok := s.used.CompareAndSwap(false, true); ok {
+		close(s.await)
 		// setting `used` to true ensures that this code only runs once per socket.
 		n, err = s.writeSplit(b)
 		return n, err
@@ -66,6 +69,7 @@ func (s *splitter) writeSplit(b []byte) (n int, err error) {
 
 // ReadFrom reads from reader and writes to s.
 func (s *splitter) ReadFrom(reader io.Reader) (bytes int64, err error) {
+	start := time.Now()
 	if !s.used.Load() {
 		// This is the first write on this socket.
 		// Use copyOnce(), which calls Write(), to get Write's splitting behavior for
@@ -75,15 +79,29 @@ func (s *splitter) ReadFrom(reader io.Reader) (bytes int64, err error) {
 		}
 	}
 
+	<-s.await
+	elapsed := time.Since(start)
+
 	var b int64
 	b, err = s.conn.ReadFrom(reader)
 	bytes += b
+
+	logeif(err)("split: readfrom: done %s<=%s; sz: %d; dur: %s, wait: %s; err: %v",
+		laddr(s.conn), raddr(s.conn), bytes, core.FmtTimeAsPeriod(start), core.FmtPeriod(elapsed), err)
 	return
 }
 
 // WriteTo reads from s and writes to w.
 func (s *splitter) WriteTo(w io.Writer) (bytes int64, err error) {
-	return s.conn.WriteTo(w)
+	start := time.Now()
+	<-s.await
+	elapsed := time.Since(start)
+
+	bytes, err = s.conn.WriteTo(w)
+
+	logeif(err)("split: writeto: done %s=>%s; sz: %d; dur: %s, wait: %s; err: %v",
+		laddr(s.conn), raddr(s.conn), bytes, core.FmtTimeAsPeriod(start), core.FmtPeriod(elapsed), err)
+	return
 }
 
 // Read implements core.DuplexConn.

@@ -388,7 +388,7 @@ func (r *retrier) doDialLocked(dialStrat int32) (protect.Conn, error) {
 		return nil, core.JoinErr(terr, errNilConn)
 	}
 	// todo: assert strat must be tcp or tls?
-	return &splitter{conn: tc, strat: dialStrat}, nil
+	return &splitter{conn: tc, await: make(chan struct), strat: dialStrat}, nil
 }
 
 // retryWriteReadLocked closes the current connection, dials a new one, and writes
