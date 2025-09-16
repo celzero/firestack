@@ -630,14 +630,21 @@ func (r *retrier) Write(b []byte) (int, error) {
 		} // not sent by teedFirstWrite; do a normal write
 	}
 
-	// retryCompleted() is true, so r.conn is final and doesn't need locking
-	if c := r.conn; c == nil {
-		cerr := log.EE("retrier: write: %s: [] => %s (b: %d, tee: %d), not retrying, but no conn",
-			r.dialerID(), r.raddr, len(b), len(r.tee))
+	r.mu.Lock()
+	c := r.conn // retry has completed, so r.conn is final and may not need locking?
+	r.mu.Unlock()
+	if c == nil {
+		cerr := log.EE("retrier: write: %s: [] => %s (b: %d, tee: %d), not retrying, but no conn; after: %s",
+			r.dialerID(), r.raddr, len(b), len(r.tee), core.FmtTimeAsPeriod(start))
 		return 0, core.JoinErr(cerr, errNilConn)
-	} else {
-		return c.Write(b)
 	}
+
+	n, err := c.Write(b)
+	if err != nil {
+		err = log.EE("retrier: write: %s: [%s=>%s]; b: %d/%d (retried? %t); after: %s; err? %v",
+			r.dialerID(), laddr(c), r.raddr, n, len(b), r.retryCompleted(), core.FmtTimeAsPeriod(start), err)
+	}
+	return n, err
 }
 
 func (r *retrier) WriteTo(w io.Writer) (bytes int64, err error) {
