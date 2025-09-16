@@ -25,6 +25,7 @@ package dialers
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"math"
 	"net"
@@ -444,7 +445,10 @@ func (r *retrier) CloseRead() error {
 func (r *retrier) Read(buf []byte) (n int, err error) {
 	note := log.VV
 
+	r.mu.Lock()
 	c := r.conn // r.conn may be provisional or final connection
+	r.mu.Unlock()
+
 	if c != nil {
 		for reads := range maxEmptyReads {
 			n, err = c.Read(buf)
@@ -699,10 +703,14 @@ func (r *retrier) ReadFrom(reader io.Reader) (bytes int64, err error) {
 		// TODO: return after first copyOnce if strat is RetryNever?
 	}
 
-	c := r.conn // reader thread does not need the mutex
+	r.mu.Lock()
+	c := r.conn // reader thread does not need the mutex?
+	tee := len(r.tee)
+	r.mu.Unlock()
+
 	if c == nil {
-		log.E("retrier: readfrom: %s: [] <= %s, no conn; after# %d: sz(%d) tee(%d)",
-			r.dialerID(), r.raddr, copies, bytes, len(r.tee))
+		log.E("retrier: readfrom: %s: [] <= %s, no conn; after# %d: sz(%d) tee(%d); after %s",
+			r.dialerID(), r.raddr, copies, bytes, tee, core.FmtTimeAsPeriod(start))
 		return bytes, io.ErrUnexpectedEOF
 	}
 
