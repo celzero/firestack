@@ -506,9 +506,14 @@ func (r *retrier) Read(buf []byte) (n int, err error) {
 			r.tee = nil // discard teed data
 			return
 		}
-		logeor(err, note)("retrier: read: %s already retried! [%s<=%s]; t: %s; b: %d/%d; err? %v",
-			r.dialerID(), laddr(c), r.raddr, core.FmtPeriod(r.timeout), n, len(buf), err)
+		logeor(err, note)("retrier: read: %s already retried! (conn? %t) [%s<=%s]; t: %s; b: %d/%d; err? %v",
+			r.dialerID(), c != nil, laddr(c), r.raddr, core.FmtPeriod(r.timeout), n, len(buf), err)
 	} // else: just one read is enough; no retry needed
+	if c == nil { // retry completed but no conn
+		cerr := log.EE("retrier: read: %s: no conn! [<=%s]; t: %s; b: %d/%d",
+			r.dialerID(), r.raddr, core.FmtPeriod(r.timeout), n, len(buf))
+		err = core.JoinErr(err, cerr, errNilConn)
+	}
 	return
 }
 
@@ -557,20 +562,21 @@ func (r *retrier) readTimeoutLocked() time.Duration {
 
 // Write data in b to retrier's underlying conn, r.conn
 func (r *retrier) Write(b []byte) (int, error) {
+	start := time.Now()
 	// Double-checked locking pattern.  This avoids lock acquisition on
 	// every packet after retry completes, while also ensuring that r.tee is
 	// empty at steady-state.
 	if !r.retryCompleted() {
 		// todo: what if sentAndCopied is false and err != nil?
-		n, first, sentAndCopied, until, src, err := r.teedFirstWrite(b)
+		n, first, sentAndCopied, waitForRead, src, err := r.teedFirstWrite(b)
 
 		note := log.D
 		if sentAndCopied {
 			note = log.I
 		}
 
-		logeor(err, note)("retrier: write: %s: (first? %t, sent? %t) [%v=>%s]; t: %s; b: %d/%d (tee: %d); write-err? %v",
-			r.dialerID(), first, sentAndCopied, src, r.raddr, core.FmtPeriod(r.timeout), n, len(b), len(r.tee), err)
+		logeor(err, note)("retrier: write: %s: (first? %t, sent? %t) [%v=>%s]; t: %s; b: %d/%d (tee: %d); after: %s; write-err? %v",
+			r.dialerID(), first, sentAndCopied, src, r.raddr, core.FmtPeriod(r.timeout), n, len(b), len(r.tee), core.FmtTimeAsPeriod(start), err)
 
 		if sentAndCopied {
 			// if Write() does not wait for <-retryDoneCh in absence of errors,
@@ -586,7 +592,7 @@ func (r *retrier) Write(b []byte) (int, error) {
 			// by the retry procedure. Block until we have a final socket (which will
 			// already have replayed r.tee), and retry.
 			// ie, wait until first write is done on the final socket.
-			maxUntil := max(until, until*maxRetryCount)
+			maxUntil := max(waitForRead, waitForRead*maxRetryCount)
 			if r.multidial {
 				maxUntil = max(maxUntil, maxUntil*time.Duration(len(r.dialers)))
 			}
@@ -608,8 +614,8 @@ func (r *retrier) Write(b []byte) (int, error) {
 				if noconn {
 					err = core.JoinErr(err, errNilConn)
 				}
-				werr := log.EE("retrier: write: %s: retry failed [%s=>%s] b: %d/%d (tee: %d) in %s; old => new: %v => %v; noconn? %t",
-					r.dialerID(), laddr(r.conn), r.raddr, n, len(b), len(r.tee), core.FmtTimeAsPeriod(start), err, r.retryWriteErr, noconn)
+				werr := log.EE("retrier: write: %s: retry failed (conn? %t) [%s=>%s] b: %d/%d (tee: %d) in %s; old => new: %v => %v",
+					r.dialerID(), !noconn, laddr(r.conn), r.raddr, n, len(b), len(r.tee), core.FmtTimeAsPeriod(start), err, r.retryWriteErr)
 				return n, core.JoinErr(err, r.retryWriteErr, werr) // pass on the og error, too
 			}
 
@@ -635,7 +641,13 @@ func (r *retrier) Write(b []byte) (int, error) {
 }
 
 func (r *retrier) WriteTo(w io.Writer) (bytes int64, err error) {
-	writes := 0
+	start := time.Now()
+
+	if settings.Debug {
+		log.VV("retrier: writerto: %s: [] <= %s; waiting...",
+			r.dialerID(), r.raddr)
+	}
+
 	// TODO: skip copyOnce if r.multidial set or if strat is SplitNever?
 	for !r.retryCompleted() { // should iter only once
 		b, e := copyOnce(w, r)
@@ -649,13 +661,15 @@ func (r *retrier) WriteTo(w io.Writer) (bytes int64, err error) {
 		// TODO: return after first copyOnce if strat is RetryNever?
 	}
 
-	r.mu.Lock()
+	r.mu.Lock() // may block if retry in progress
 	c := r.conn
+	tee := len(r.tee)
 	r.mu.Unlock()
 
+	logedcond(c == nil)("retrier: writerto: %s: (conn? %t) [%s <= %s], tee(%d), waited %s",
+		r.dialerID(), c != nil, laddr(c), r.raddr, tee, core.FmtTimeAsPeriod(start))
+
 	if c == nil {
-		log.E("retrier: writerto: %s: [] %s<= %s, no conn; after# %d: sz(%d) tee(%d)",
-			r.dialerID(), laddr(r.conn), r.raddr, writes, bytes, len(r.tee))
 		return bytes, io.ErrUnexpectedEOF
 	}
 
@@ -681,14 +695,22 @@ func (r *retrier) WriteTo(w io.Writer) (bytes int64, err error) {
 		bytes += b
 	}
 
-	logeif(err)("retrier: writerto: %s: (optimized? %t for %T) %s<=%s done; sz: %d; err: %v",
-		r.dialerID(), optimizedWriteTo, c, laddr(c), r.raddr, bytes, err)
-	return
+	msg := fmt.Sprintf("retrier: writerto: %s: (optimized? %t for %T) %s<=%s done; sz: %d; after: %s; err: %v",
+		r.dialerID(), optimizedWriteTo, c, laddr(c), r.raddr, bytes, core.FmtTimeAsPeriod(start), err)
+
+	if err != nil {
+		err = log.EE(msg)
+	} else {
+		log.V(msg)
+	}
+
+	return bytes, err
 }
 
 // ReadFrom reads data from reader via r.conn.ReadFrom, after (as needed)
 // retries are done; before which reads are delegated to copyOnce.
 func (r *retrier) ReadFrom(reader io.Reader) (bytes int64, err error) {
+	start := time.Now()
 	copies := 0
 	// TODO: skip copyOnce if r.multidial set or if strat is SplitNever?
 	for !r.retryCompleted() { // should iter only once
@@ -750,8 +772,14 @@ func (r *retrier) ReadFrom(reader io.Reader) (bytes int64, err error) {
 		bytes += b
 	}
 
-	logeif(err)("retrier: readfrom: %s: (optimized? %t for %T) done (id:%s/pinned?%t) %s<=%s; sz: %d; err: %v",
-		r.dialerID(), optimizedReadFrom, c, pinnedID, pinned, laddr(c), r.raddr, bytes, err)
+	msg := fmt.Sprintf("retrier: readfrom: %s: (optimized? %t for %T) done (id:%s/pinned?%t) %s<=%s; sz: %d; after: %s; err: %v",
+		r.dialerID(), optimizedReadFrom, c, pinnedID, pinned, laddr(c), r.raddr, bytes, core.FmtTimeAsPeriod(start), err)
+
+	if err != nil {
+		err = log.EE(msg)
+	} else {
+		log.V(msg)
+	}
 	return
 }
 
