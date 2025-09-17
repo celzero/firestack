@@ -29,8 +29,7 @@ type splitter struct {
 	conn  *net.TCPConn
 	strat int32 // settings.Split* constant
 
-	used  *core.SigCond // Signalled after the first write.
-	await chan struct{} // closed used is set to true.
+	used *core.SigCond // Signalled after the first write.
 }
 
 var _ core.DuplexConn = (*splitter)(nil)
