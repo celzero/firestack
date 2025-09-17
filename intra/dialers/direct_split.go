@@ -17,7 +17,6 @@ package dialers
 import (
 	"io"
 	"net"
-	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -30,7 +29,7 @@ type splitter struct {
 	conn  *net.TCPConn
 	strat int32 // settings.Split* constant
 
-	used  atomic.Bool   // Initially false.  Becomes true after the first write.
+	used  *core.SigCond // Signalled after the first write.
 	await chan struct{} // closed used is set to true.
 }
 
@@ -39,18 +38,16 @@ var _ core.RetrierConn = (*splitter)(nil)
 
 // Write implements core.DuplexConn.
 func (s *splitter) Write(b []byte) (n int, err error) {
-	if s.used.Load() {
+	if s.used.Cond() {
 		// after the first write, there is no special write behavior.
 		return s.conn.Write(b)
-	} else if ok := s.used.CompareAndSwap(false, true); ok {
-		close(s.await)
-		// setting `used` to true ensures that this code only runs once per socket.
+	}
+	if s.used.Signal() { // first writer splits
 		n, err = s.writeSplit(b)
 		return n, err
-	} else {
-		// if `used` is already swapped or set, then the split has already been done.
-		return s.conn.Write(b)
 	}
+	// if `used` is already swapped or set, then the split has already been done.
+	return s.conn.Write(b)
 }
 
 func (s *splitter) writeSplit(b []byte) (n int, err error) {
@@ -70,7 +67,7 @@ func (s *splitter) writeSplit(b []byte) (n int, err error) {
 // ReadFrom reads from reader and writes to s.
 func (s *splitter) ReadFrom(reader io.Reader) (bytes int64, err error) {
 	start := time.Now()
-	if !s.used.Load() {
+	if !s.used.Cond() {
 		// This is the first write on this socket.
 		// Use copyOnce(), which calls Write(), to get Write's splitting behavior for
 		// the first segment.
@@ -78,8 +75,8 @@ func (s *splitter) ReadFrom(reader io.Reader) (bytes int64, err error) {
 			return
 		}
 	}
-
-	<-s.await
+	// wait for first write (split) to complete if concurrent
+	s.used.Wait()
 	elapsed := time.Since(start)
 
 	var b int64
@@ -94,7 +91,7 @@ func (s *splitter) ReadFrom(reader io.Reader) (bytes int64, err error) {
 // WriteTo reads from s and writes to w.
 func (s *splitter) WriteTo(w io.Writer) (bytes int64, err error) {
 	start := time.Now()
-	<-s.await
+	s.used.Wait()
 	elapsed := time.Since(start)
 
 	bytes, err = s.conn.WriteTo(w)

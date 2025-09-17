@@ -13,7 +13,6 @@ import (
 	"math/rand"
 	"net"
 	"net/netip"
-	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -47,7 +46,7 @@ var ttlcache = core.NewSieve[netip.Addr, int](context.TODO(), desync_cache_ttl)
 type overwriteSplitter struct {
 	conn *net.TCPConn // underlying connection
 
-	used  atomic.Bool   // set to true to stop desync writer
+	used  *core.SigCond // signalled to stop desync writer
 	await chan struct{} // closed when used is set to false
 
 	ttl     int    // desync TTL
@@ -251,8 +250,7 @@ func desyncWithTraceroute(d protect.RDialer, local, remote netip.AddrPort) (*ove
 	// the measurement is successful.
 	avoidDesync := oc.ttl <= desync_noop_ttl
 	if avoidDesync {
-		oc.used.Store(avoidDesync)
-		close(oc.await)
+		oc.used.Signal()
 	}
 
 	log.D("desync: done: %v, do desync? %t, ttl: %d", remote, !avoidDesync, oc.ttl)
@@ -290,15 +288,13 @@ func desyncWithFixedTtl(d protect.RDialer, local, remote netip.AddrPort, initial
 
 	s := &overwriteSplitter{
 		conn:    tcpConn,
-		await:   make(chan struct{}),
+		used:    core.NewSigCond(),
 		ttl:     initialTTL,
 		payload: []byte(desync_http1_1str),
 		ip6:     isIPv6,
 	}
-
 	if avoidDesync {
-		s.used.Store(avoidDesync)
-		close(s.await)
+		s.used.Signal()
 	}
 
 	return s, nil
@@ -395,15 +391,15 @@ func (s *overwriteSplitter) Write(b []byte) (n int, err error) {
 
 	noop := len(b) == 0 // go vet has us handle this case
 	short := len(b) < len(s.payload)
-	swapped := false
-	used := s.used.Load() // also true when s.ttl <= desync_noop_ttl
+	signalled := false
+	used := s.used.Cond() // also true when s.ttl <= desync_noop_ttl
 	if noop {
 		n, err = 0, nil
 	} else if used {
 		// after the first write, there is no special write behavior.
 		// used may also be set to true to avoid desync.
 		n, err = conn.Write(b)
-	} else if swapped = s.used.CompareAndSwap(false, true); !swapped {
+	} else if signalled = s.used.Signal(); !signalled {
 		close(s.await) // wake up any ReadFrom waiting for desync to complete
 		// set `used` to ensure this code only runs once per conn;
 		// if !swapped, some other goroutine has already swapped it.
@@ -411,9 +407,9 @@ func (s *overwriteSplitter) Write(b []byte) (n int, err error) {
 	} else if short {
 		n, err = conn.Write(b)
 	}
-	if used || short || !swapped || noop {
+	if used || short || !signalled || noop {
 		logeif(err)("desync: write: %s => %s; desync done %d; (noop? %t, used? %t, short? %t, race? %t); err? %v",
-			laddr, raddr, n, noop, used, short, !swapped, err)
+			laddr, raddr, n, noop, used, short, !signalled, err)
 		return n, err
 	}
 
@@ -496,7 +492,7 @@ func (s *overwriteSplitter) Write(b []byte) (n int, err error) {
 // ReadFrom reads from the reader and writes to s.
 func (s *overwriteSplitter) ReadFrom(reader io.Reader) (bytes int64, err error) {
 	start := time.Now()
-	if !s.used.Load() {
+	if !s.used.Cond() {
 		bytes, err = copyOnce(s, reader)
 		logeif(err)("desync: readfrom: copyOnce; sz: %d %s=>%s; err: %v",
 			bytes, s.LocalAddr(), s.RemoteAddr(), err)
@@ -504,8 +500,8 @@ func (s *overwriteSplitter) ReadFrom(reader io.Reader) (bytes int64, err error) 
 			return
 		}
 	}
-
-	<-s.await // wait for desync to complete
+	// wait for desync to complete
+	s.used.Wait()
 	elapsed := time.Since(start)
 
 	b, err := s.conn.ReadFrom(reader)
@@ -519,7 +515,7 @@ func (s *overwriteSplitter) ReadFrom(reader io.Reader) (bytes int64, err error) 
 // WriteTo reads from s and writes to w.
 func (s *overwriteSplitter) WriteTo(w io.Writer) (bytes int64, err error) {
 	start := time.Now()
-	<-s.await // wait for desync to complete, if commenced
+	s.used.Wait()
 	elapsed := time.Since(start)
 
 	b, err := s.conn.WriteTo(w)

@@ -74,7 +74,7 @@ type retrier struct {
 	writeDone atomic.Bool
 
 	// mu is a lock that guards conn, retryCount, tee, timeout,
-	// retryErr, retryDoneCh, readDeadline, and writeDeadline.
+	// retryErr, retryDone, readDeadline, and writeDeadline.
 	// After retryDoneCh is closed, these values will not be
 	// modified again so locking is no longer required for reads.
 	mu sync.Mutex
@@ -98,7 +98,7 @@ type retrier struct {
 	retryWriteErr error
 	retryCount    uint8
 	// Flag indicating when retry is finished or unnecessary.
-	retryDoneCh chan struct{} // always unbuffered
+	retryDone *core.SigCond
 }
 
 var _ core.DuplexConn = (*retrier)(nil)
@@ -106,28 +106,8 @@ var _ core.RetrierConn = (*retrier)(nil)
 
 var _ core.DuplexConn = (*net.TCPConn)(nil)
 
-// Helper functions for reading flags.
-// In this package, a "flag" is a thread-safe single-use status indicator that
-// starts in the "open" state and transitions to "closed" when close() is called.
-// It is implemented as a channel over which no data is ever sent.
-// Some advantages of this implementation:
-//   - The language enforces the one-way transition.
-//   - Nonblocking and blocking access are both straightforward.
-//   - Checking the status of a closed flag should be extremely fast (although currently
-//     it's not optimized: https://github.com/golang/go/issues/32529)
-func closed(c <-chan struct{}) bool {
-	select {
-	case <-c: // The channel has been closed.
-		return true
-	default:
-		return false
-	}
-}
-
 // retryCompleted returns true if the retry is complete or unnecessary.
-func (r *retrier) retryCompleted() bool {
-	return closed(r.retryDoneCh)
-}
+func (r *retrier) retryCompleted() bool { return r.retryDone.Cond() }
 
 func (r *retrier) canRetry() bool {
 	return r.dialerOpts.Retry != settings.RetryNever
@@ -150,11 +130,11 @@ func calcTimeout(rtt time.Duration) time.Duration {
 // `addr` is the destination.
 func DialWithSplitRetry(d *protect.RDial, laddr, raddr *net.TCPAddr) (*retrier, error) {
 	r := &retrier{
-		dialers:     []protect.RDialer{d},
-		dialerOpts:  settings.GetDialerOpts(),
-		laddr:       laddr, // may be nil
-		raddr:       raddr, // must not be nil
-		retryDoneCh: make(chan struct{}),
+		dialers:    []protect.RDialer{d},
+		dialerOpts: settings.GetDialerOpts(),
+		laddr:      laddr, // may be nil
+		raddr:      raddr, // must not be nil
+		retryDone:  core.NewSigCond(),
 	}
 
 	r.mu.Lock()
@@ -200,12 +180,12 @@ func DialAny(ds []protect.RDialer, laddr, raddr net.Addr) (*retrier, error) {
 	}
 
 	r := &retrier{
-		dialers:     reprioritize(ds, asAddrPort(raddr)),
-		dialerOpts:  dialerOptsForMultiDialers(),
-		multidial:   true,
-		laddr:       laddr, // may be nil
-		raddr:       raddr, // must not be nil
-		retryDoneCh: make(chan struct{}),
+		dialers:    reprioritize(ds, asAddrPort(raddr)),
+		dialerOpts: dialerOptsForMultiDialers(),
+		multidial:  true,
+		laddr:      laddr, // may be nil
+		raddr:      raddr, // must not be nil
+		retryDone:  core.NewSigCond(),
 	}
 
 	r.mu.Lock()
@@ -388,7 +368,7 @@ func (r *retrier) doDialLocked(dialStrat int32) (protect.Conn, error) {
 		return nil, core.JoinErr(terr, errNilConn)
 	}
 	// todo: assert strat must be tcp or tls?
-	return &splitter{conn: tc, await: make(chan struct), strat: dialStrat}, nil
+	return &splitter{conn: tc, strat: dialStrat, used: core.NewSigCond()}, nil
 }
 
 // retryWriteReadLocked closes the current connection, dials a new one, and writes
@@ -476,7 +456,7 @@ func (r *retrier) Read(buf []byte) (n int, err error) {
 
 		if !r.retryCompleted() {
 			note = log.I
-			defer close(r.retryDoneCh) // signal that retry is complete or unnecessary
+			defer r.retryDone.Signal() // signal completion (success or not)
 
 			retryReadErr := err
 			// retry on errs like timeouts or connection resets
@@ -596,9 +576,7 @@ func (r *retrier) Write(b []byte) (int, error) {
 			if r.multidial {
 				maxUntil = max(maxUntil, maxUntil*time.Duration(len(r.dialers)))
 			}
-			select {
-			case <-r.retryDoneCh:
-			case <-time.After(maxUntil): // arb high timeout; it should rarely if ever needed
+			if !r.retryDone.TryWait(maxUntil) { // timed out waiting for retry completion
 				rerr := log.EE("retrier: write: %s: 1st write timed-out waiting for %s [calc-rtt: %s] 1st read b/w [%s=>%s], mult: %d, b: %d/%d, err: %v",
 					r.dialerID(), core.FmtPeriod(maxUntil), core.FmtPeriod(r.timeout), src, r.raddr, len(r.dialers), n, len(b), err)
 				return n, core.JoinErr(err, rerr, errRetryTimeout)
@@ -656,9 +634,8 @@ func (r *retrier) WriteTo(w io.Writer) (bytes int64, err error) {
 	}
 
 	// TODO: skip copyOnce if r.multidial set or if strat is SplitNever?
-	select {
-	case <-r.retryDoneCh: // already done; skip to write
-	case <-time.After(r.timeout): // (0 when no need to wait for retry)
+	if !r.retryCompleted() {
+		_ = r.retryDone.TryWait(r.timeout) // 0 when no need to wait for retry
 	}
 
 	r.mu.Lock() // may block if retry in progress
