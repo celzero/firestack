@@ -425,7 +425,7 @@ func (s *serverinfo) getRelay() ipn.Proxy {
 }
 
 func (s *serverinfo) IPPorts() []netip.AddrPort {
-	if relay := s.RelayUDPAddrs.Load(); relay != nil {
+	if relay := s.RelayUDPAddrs.Load(); len(relay) > 0 {
 		return addr2ipp(relay...)
 	}
 	return addr2ipp(s.UDPAddr)

@@ -90,10 +90,14 @@ func chooseAny[T any](s []T) (zz T) {
 
 func udpExchange(pid string, serverInfo *serverinfo, relayAddrs []*net.UDPAddr, sharedKey *[32]byte, encryptedQuery []byte, clientNonce []byte) (res []byte, relay net.Addr, err error) {
 	upstreamAddr := serverInfo.UDPAddr
-	userelay := len(relayAddrs) > 0
-	if userelay {
-		upstreamAddr = chooseAny(relayAddrs)
-		relay = upstreamAddr
+	userelay := false
+	if len(relayAddrs) > 0 {
+		oneaddr := chooseAny(relayAddrs)
+		if oneaddr != nil && oneaddr.AddrPort().IsValid() {
+			upstreamAddr = oneaddr
+			relay = upstreamAddr
+			userelay = true
+		}
 	}
 
 	pc, err := serverInfo.dialudp(pid, upstreamAddr)
@@ -140,10 +144,14 @@ func udpExchange(pid string, serverInfo *serverinfo, relayAddrs []*net.UDPAddr, 
 
 func tcpExchange(pid string, serverInfo *serverinfo, relayAddrs []*net.TCPAddr, sharedKey *[32]byte, encryptedQuery []byte, clientNonce []byte) (res []byte, relay net.Addr, err error) {
 	upstreamAddr := serverInfo.TCPAddr
-	userelay := len(relayAddrs) > 0
-	if userelay {
-		upstreamAddr = chooseAny(relayAddrs)
-		relay = upstreamAddr
+	userelay := false
+	if len(relayAddrs) > 0 {
+		oneaddr := chooseAny(relayAddrs)
+		if oneaddr != nil && oneaddr.AddrPort().IsValid() {
+			upstreamAddr = oneaddr
+			relay = upstreamAddr
+			userelay = true
+		}
 	}
 
 	pc, err := serverInfo.dialtcp(pid, upstreamAddr)
