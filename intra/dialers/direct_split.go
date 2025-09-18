@@ -73,6 +73,7 @@ func (s *splitter) writeSplit(b []byte) (n int, err error) {
 }
 
 // ReadFrom reads from reader and writes to s.
+// Usually, ReadFrom is executing the "upload" phase of egressing conn (r).
 func (s *splitter) ReadFrom(reader io.Reader) (bytes int64, err error) {
 	start := time.Now()
 	if !s.used.Cond() {
@@ -97,15 +98,16 @@ func (s *splitter) ReadFrom(reader io.Reader) (bytes int64, err error) {
 }
 
 // WriteTo reads from s and writes to w.
+// Usually, WriteTo is executing the "download" phase of egressing conn (w).
 func (s *splitter) WriteTo(w io.Writer) (bytes int64, err error) {
 	start := time.Now()
-	s.used.Wait()
+	waited := s.used.TryWait(uploadTimeoutForDownload)
 	elapsed := time.Since(start)
 
 	bytes, err = s.conn.WriteTo(w)
 
-	logeif(err)("split: writeto: done %s=>%s; sz: %d; dur: %s, wait: %s; err: %v",
-		laddr(s.conn), raddr(s.conn), bytes, core.FmtTimeAsPeriod(start), core.FmtPeriod(elapsed), err)
+	logeif(err)("split: writeto: done %s=>%s; sz: %d; dur: %s, wait: %s (%t); err: %v",
+		laddr(s.conn), raddr(s.conn), bytes, core.FmtTimeAsPeriod(start), core.FmtPeriod(elapsed), waited, err)
 	return
 }
 

@@ -50,6 +50,9 @@ func (zeroNetAddr) String() string  { return "none" }
 const (
 	maxRetryCount = 3
 	maxEmptyReads = 3
+
+	// max timeout (for ReadFrom, before WriteTo) for desync to complete
+	uploadTimeoutForDownload = 3 * time.Second
 )
 
 // ippPins maintains a limited-time mapping between ip:port addresses and dialer IDs.
@@ -119,7 +122,7 @@ func calcTimeout(rtt time.Duration) time.Duration {
 	// These values were chosen to have a <1% false positive rate based on test data.
 	// False positives trigger an unnecessary retry, which can make connections slower, so they are
 	// worth avoiding.  However, overly long timeouts make retry slower and less useful.
-	return max(min(rtt/2, 5*time.Second), 500*time.Millisecond) + min(2*rtt, 500*time.Millisecond)
+	return max(min(rtt/2, 3*time.Second), 500*time.Millisecond) + min(2*rtt, 500*time.Millisecond)
 }
 
 // DialWithSplitRetry returns a TCP connection that transparently retries by
@@ -625,6 +628,9 @@ func (r *retrier) Write(b []byte) (int, error) {
 	return n, err
 }
 
+// WriteTo writes data to writer via r.conn.WriteTo, after (as needed)
+// retries are done; before which reads are delegated to copyOnce.
+// Usually, WriteTo is executing the "download" phase of egressing conn (w).
 func (r *retrier) WriteTo(w io.Writer) (bytes int64, err error) {
 	start := time.Now()
 
@@ -634,9 +640,7 @@ func (r *retrier) WriteTo(w io.Writer) (bytes int64, err error) {
 	}
 
 	// TODO: skip copyOnce if r.multidial set or if strat is SplitNever?
-	if !r.retryCompleted() {
-		_ = r.retryDone.TryWait(r.timeout) // 0 when no need to wait for retry
-	}
+	_ = r.retryDone.TryWait(r.timeout) // 0 when no need to wait for retry
 
 	r.mu.Lock() // may block if retry in progress
 	c := r.conn
@@ -686,6 +690,7 @@ func (r *retrier) WriteTo(w io.Writer) (bytes int64, err error) {
 
 // ReadFrom reads data from reader via r.conn.ReadFrom, after (as needed)
 // retries are done; before which reads are delegated to copyOnce.
+// Usually, ReadFrom is executing the "upload" phase of egressing conn (r).
 func (r *retrier) ReadFrom(reader io.Reader) (bytes int64, err error) {
 	start := time.Now()
 	copies := 0

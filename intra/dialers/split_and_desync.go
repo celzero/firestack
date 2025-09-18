@@ -513,15 +513,16 @@ func (s *overwriteSplitter) ReadFrom(reader io.Reader) (bytes int64, err error) 
 }
 
 // WriteTo reads from s and writes to w.
+// Usually, WriteTo is executing the "download" phase of egressing conn (w).
 func (s *overwriteSplitter) WriteTo(w io.Writer) (bytes int64, err error) {
 	start := time.Now()
-	s.used.Wait()
+	waited := s.used.TryWait(uploadTimeoutForDownload)
 	elapsed := time.Since(start)
 
 	b, err := s.conn.WriteTo(w)
 	bytes += b
-	log.V("desync: writeto: done; sz: %d %s<=%s; dur: %s, wait: %s; err: %v",
-		bytes, s.LocalAddr(), s.RemoteAddr(), core.FmtTimeAsPeriod(start), core.FmtPeriod(elapsed), err)
+	log.V("desync: writeto: done; sz: %d %s<=%s; dur: %s, wait: %s (%t); err: %v",
+		bytes, s.LocalAddr(), s.RemoteAddr(), core.FmtTimeAsPeriod(start), core.FmtPeriod(elapsed), waited, err)
 	return
 }
 
