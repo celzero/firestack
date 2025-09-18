@@ -256,7 +256,7 @@ type proxytransport struct {
 func (t *transport) ech() []byte {
 	// host http.Client connects to may change on redirects
 	name := t.hostname
-	if t.typ == dnsx.ODOH {
+	if t.typ == dnsx.ODOH && len(t.odohproxyname) > 0 {
 		name = t.odohproxyname
 	}
 	if len(name) <= 0 {
@@ -768,7 +768,7 @@ func (t *transport) chooseProxy(pids ...string) string {
 func (t *transport) hostport() (addr string, port uint16) {
 	addr = t.hostname
 	port = t.port
-	if t.typ == dnsx.ODOH {
+	if t.typ == dnsx.ODOH && len(t.odohproxyname) > 0 {
 		addr = t.odohproxyname
 		port = t.odohproxyport
 	}
@@ -817,7 +817,7 @@ func (t *transport) Query(network string, q *dns.Msg, smm *x.DNSSummary) (r *dns
 	smm.Status = status
 	smm.Region = region
 	smm.Blocklists = blocklists
-	if t.typ == dnsx.ODOH {
+	if t.typ == dnsx.ODOH && len(t.odohproxyname) > 0 {
 		smm.PID = t.odohproxyname // odoh proxy
 		smm.RPID = pid            // other proxy, if any
 	} else {
@@ -870,7 +870,7 @@ func (t *transport) GetRelay() x.Proxy {
 func (t *transport) IPPorts() (ipps []netip.AddrPort) {
 	addr := t.hostname
 	port := t.port
-	if t.typ == dnsx.ODOH {
+	if t.typ == dnsx.ODOH && len(t.odohproxyname) > 0 {
 		addr = t.odohproxyname
 		port = t.odohproxyport
 	}
