@@ -633,22 +633,31 @@ func (r *retrier) Write(b []byte) (int, error) {
 // Usually, WriteTo is executing the "download" phase of egressing conn (w).
 func (r *retrier) WriteTo(w io.Writer) (bytes int64, err error) {
 	start := time.Now()
-
-	if settings.Debug {
-		log.VV("retrier: writerto: %s: [] <= %s; waiting...",
-			r.dialerID(), r.raddr)
+	copies := 0
+	// TODO: skip copyOnce if r.multidial set or if strat is SplitNever?
+	for !r.retryCompleted() { // should iter only once
+		b, e := copyOnce(w, r)
+		copies++
+		bytes += b
+		err = e
+		done := r.retryCompleted()
+		logeif(e)("retrier: writerto: %s: copyOnce #%d (done? %t) %s<=%s; sz: %d/%d; err: %v",
+			r.dialerID(), copies, done, laddr(r.conn), r.raddr, b, bytes, e)
+		if e != nil {
+			return bytes, e
+		} // TODO: return after first copyOnce if strat is RetryNever?
 	}
 
-	// TODO: skip copyOnce if r.multidial set or if strat is SplitNever?
-	_ = r.retryDone.TryWait(r.timeout) // 0 when no need to wait for retry
+	wait := r.timeout
+	// _ = r.retryDone.TryWait(wait) // 0 when no need to wait for retry
 
 	r.mu.Lock() // may block if retry in progress
 	c := r.conn
 	tee := len(r.tee)
 	r.mu.Unlock()
 
-	logedcond(c == nil)("retrier: writerto: %s: (conn? %t) [%s <= %s], tee(%d), waited %s",
-		r.dialerID(), c != nil, laddr(c), r.raddr, tee, core.FmtTimeAsPeriod(start))
+	logedcond(c == nil)("retrier: writerto: %s: (conn? %t) [%s <= %s], tee(%d), waited %s/%s",
+		r.dialerID(), c != nil, laddr(c), r.raddr, tee, core.FmtTimeAsPeriod(start), core.FmtPeriod(wait))
 
 	if c == nil {
 		return bytes, io.ErrUnexpectedEOF
@@ -699,8 +708,10 @@ func (r *retrier) ReadFrom(reader io.Reader) (bytes int64, err error) {
 		b, e := copyOnce(r, reader)
 		copies++
 		bytes += b
-		logeif(err)("retrier: readfrom: %s: copyOnce #%d %s<=%s; sz: %d/%d; err: %v",
-			r.dialerID(), copies, laddr(r.conn), r.raddr, b, bytes, err)
+		err = e
+		done := r.retryCompleted()
+		logeif(e)("retrier: readfrom: %s: copyOnce #%d (done? %t) %s<=%s; sz: %d/%d; err: %v",
+			r.dialerID(), copies, done, laddr(r.conn), r.raddr, b, bytes, e)
 		if e != nil {
 			return bytes, e
 		}
