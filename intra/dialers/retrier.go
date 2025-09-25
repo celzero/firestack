@@ -119,6 +119,7 @@ func (r *retrier) canRetry() bool {
 // Given rtt of a successful socket connection (SYN sent - SYNACK received),
 // returns a timeout for replies to the first segment sent on this socket.
 func calcTimeout(rtt time.Duration, spread uint16) time.Duration {
+	spread = min(1, spread)                                           // avoid div by zero
 	ciel := time.Duration(min(1, (3/spread))) * time.Second           // at least1secs
 	floor := time.Duration(min(100, (500/spread))) * time.Millisecond // at least 500ms
 
@@ -313,7 +314,7 @@ func (r *retrier) dialLocked() error {
 
 	if r.canRetry() {
 		// final retry gets maximum possible timeout
-		r.timeout = calcTimeout(rtt, uint16(maxRetryCount-r.retryCount))
+		r.timeout = calcTimeout(rtt, uint16(maxRetryCount-r.retryCount+1))
 	} else {
 		// if retries are disabled, then do not aggressively timeout
 		// as there's nothing else for the retrier to do.
