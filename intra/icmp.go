@@ -76,7 +76,7 @@ func (h *icmpHandler) Ping(msg []byte, source, target netip.AddrPort) (echoed bo
 	}()
 
 	if h.status.Load() == HDLEND {
-		err = log.EE("t.icmp: handler ended (%s => %s); err: %v", source, target, errIcmpEnd)
+		err = log.EE("t.icmp: handler ended (%s => %s)", source, target)
 		return false // not handled
 	}
 

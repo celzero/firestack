@@ -55,8 +55,6 @@ var (
 	errUdpIncomingDrop = errors.New("udp: at capacity; packet in dropped")
 	errUdpUnconnected  = errors.New("udp: cannot connect")
 	errUdpNoTarget     = errors.New("udp: no target addr")
-	errUdpEnd          = errors.New("udp: stopped")
-	errIcmpEnd         = errors.New("icmp: stopped")
 )
 
 const (
@@ -211,10 +209,8 @@ func (h *udpHandler) Connect(gconn *netstack.GUDPConn, src, target netip.AddrPor
 	smm = udpSummary(cid, uid, actualTargets[0].Addr())
 
 	if h.status.Load() == HDLEND {
-		if settings.Debug {
-			log.D("udp: connect: %s [%s] %v => %v, end", cid, uid, src, target)
-		}
-		return nil, smm, errUdpEnd // disconnect, no nat
+		err = log.EE("udp: connect: %s [%s] %v => %v, end", cid, uid, src, target)
+		return nil, smm, err // disconnect, no nat
 	}
 
 	if !target.IsValid() { // must call h.Bind?

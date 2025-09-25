@@ -60,7 +60,6 @@ const (
 var (
 	errTcpFirewalled = errors.New("tcp: firewalled")
 	errTcpSetupConn  = errors.New("tcp: could not create conn")
-	errTcpEnd        = errors.New("tcp: stopped")
 )
 
 var _ netstack.GTCPConnHandler = (*tcpHandler)(nil)
@@ -184,7 +183,6 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target netip.AddrPort)
 	smm = tcpSummary(cid, uid, actualTargets[0].Addr())
 
 	if h.status.Load() == HDLEND {
-		err = errTcpEnd
 		err = log.EE("tcp: proxy: %s end %s => %s [%v]", cid, src, target, actualTargets)
 		clos(gconn)
 		h.queueSummary(smm.done(err))
