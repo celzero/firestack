@@ -126,6 +126,14 @@ func W(msg string, args ...any) {
 	W2(callerat, msg, args...)
 }
 
+func WE(msg string, args ...any) (err error) {
+	if len(args) > 0 {
+		msg = fmt.Sprintf(msg, args...)
+	}
+	W2(callerat, msg)
+	return errors.New(msg)
+}
+
 // E logs an error message.
 func E(msg string, args ...any) {
 	E2(callerat, msg, args...)
