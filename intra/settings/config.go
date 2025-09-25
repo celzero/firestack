@@ -52,6 +52,7 @@ var SetUserAgent = atomic.Bool{}
 // PROBE_HTTPS https://www.google.com/generate_204 time=183ms ret=204 request={Connection=[close], User-Agent=[Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/60.0.3112.32 Safari/537.36]}
 // headers={null=[HTTP/1.1 204 No Content], Alt-Svc=[h3=":443"; ma=2592000,h3-29=":443"; ma=2592000], Connection=[close], Content-Length=[0], Cross-Origin-Resource-Policy=[cross-origin],
 // Date=[Fri, 27 Jun 2025 10:56:24 GMT], X-Android-Received-Millis=[1751021784573], X-Android-Response-Source=[NETWORK 204], X-Android-Selected-Protocol=[http/1.1], X-Android-Sent-Millis=[1751021784495]}
+// also: android-developers.googleblog.com/2024/12/user-agent-reduction-on-android-webview.html
 const AndroidCcUa = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/60.0.3112.32 Safari/537.36"
 const IntraUa = "Intra"
 
