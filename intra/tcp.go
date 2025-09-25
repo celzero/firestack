@@ -88,7 +88,7 @@ func NewTCPHandler(pctx context.Context, resolver dnsx.Resolver, prox ipn.ProxyP
 // Error implements netstack.GTCPConnHandler.
 // It must be called from a goroutine.
 func (h *tcpHandler) Error(gconn *netstack.GTCPConn, src, dst netip.AddrPort, err error) {
-	log.W("tcp: error: %s => %s; err %v", src, dst, err)
+	err = log.EE("tcp: error: %s => %s; err %v", src, dst, err)
 	if !src.IsValid() || !dst.IsValid() {
 		return
 	}
@@ -185,9 +185,7 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target netip.AddrPort)
 
 	if h.status.Load() == HDLEND {
 		err = errTcpEnd
-		if settings.Debug {
-			log.D("tcp: proxy: %s end %s => %s [%v]", cid, src, target, actualTargets)
-		}
+		err = log.EE("tcp: proxy: %s end %s => %s [%v]", cid, src, target, actualTargets)
 		clos(gconn)
 		h.queueSummary(smm.done(err))
 		return deny
@@ -212,7 +210,7 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target netip.AddrPort)
 
 	// handshake; since we assume a duplex-stream from here on
 	if _, err := gconn.Establish(); err != nil {
-		log.E("tcp: %s connect1 err %v; %s => %s for %s", cid, err, src, target, uid)
+		err = log.EE("tcp: %s connect1 err %v; %s => %s for %s", cid, err, src, target, uid)
 		clos(gconn)
 		h.queueSummary(smm.done(err))
 		return deny // == !open
@@ -243,21 +241,20 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target netip.AddrPort)
 		smm.RPID = ipn.ViaID(px)
 
 		if err != nil || px == nil {
-			log.W("tcp: dial: #%d: %s proxy(%s) to dst(%s) for %s; err %v",
+			err = log.WE("tcp: dial: #%d: %s proxy(%s) to dst(%s) for %s; err %v",
 				i, cid, pidstr(px), dstipp, uid, err)
 			continue
 		}
 
 		if err = h.handle(px, gconn, boundSrc, dstipp, smm); err == nil {
-			// smm instead queued by handle() => forward()
-			return allow
-		} // else try the next realip
-
-		end := time.Since(smm.start)
-		log.W("tcp: dial: #%d: %s failed; addr(%s) / fallback? %t; for uid %s (%s); w err(%v)",
-			i, cid, dstipp, fallingback, uid, core.FmtPeriod(end), err)
-		if end > retryTimeout {
-			break
+			return allow // smm instead queued by handle() => forward()
+		} else {
+			end := time.Since(smm.start)
+			err = log.WE("tcp: dial: #%d: %s failed; addr(%s) / fallback? %t; for uid %s (%s); w err(%v)",
+				i, cid, dstipp, fallingback, uid, core.FmtPeriod(end), err)
+			if end > retryTimeout {
+				break // return err
+			} // else: continue; try the next realip
 		}
 	}
 
