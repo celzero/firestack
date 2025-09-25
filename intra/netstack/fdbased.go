@@ -94,7 +94,7 @@ type endpoint struct {
 	dispatcher stack.NetworkDispatcher
 
 	// wg keeps track of running goroutines.
-	wg sync.WaitGroup
+	wg core.RollingWaitGroup
 
 	// maxSyscallHeaderBytes has the same meaning as
 	// Options.MaxSyscallHeaderBytes.
@@ -531,7 +531,7 @@ func (e *endpoint) notifyRestart() {
 
 // dispatchLoop reads packets from the file descriptor in a loop and dispatches
 // them to the network stack (linkDispatcher). Must be run as a goroutine.
-func dispatchLoop(inbound linkDispatcher, f *fds, wg *sync.WaitGroup) tcpip.Error {
+func dispatchLoop(inbound linkDispatcher, f *fds, wg *core.RollingWaitGroup) tcpip.Error {
 	// defer core.RecoverFn("ns.e.dispatch", e.notifyRestart)
 	defer core.Recover(core.Exit11, "ns.e.dispatch")
 
