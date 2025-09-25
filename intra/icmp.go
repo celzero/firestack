@@ -76,8 +76,7 @@ func (h *icmpHandler) Ping(msg []byte, source, target netip.AddrPort) (echoed bo
 	}()
 
 	if h.status.Load() == HDLEND {
-		err = errIcmpEnd
-		log.D("t.icmp: handler ended (%s => %s)", source, target)
+		err = log.EE("t.icmp: handler ended (%s => %s); err: %v", source, target, errIcmpEnd)
 		return false // not handled
 	}
 
@@ -96,7 +95,7 @@ func (h *icmpHandler) Ping(msg []byte, source, target netip.AddrPort) (echoed bo
 	}
 
 	if px, err = h.prox.ProxyTo(dst, uid, pids); err != nil || px == nil {
-		log.E("t.icmp: egress: no proxy(%s); err %v", pids, err)
+		err = log.EE("t.icmp: egress: no proxy(%s); err %v", pids, err)
 		return false // denied
 	}
 
@@ -110,7 +109,7 @@ func (h *icmpHandler) Ping(msg []byte, source, target netip.AddrPort) (echoed bo
 	// nilaway: tx.socks5 returns nil conn even if err == nil
 	if err != nil || ucnil {
 		err = core.OneErr(err, unix.ENETUNREACH)
-		log.E("t.icmp: egress: dial(%s); hasConn? %s(%t); err %v",
+		err = log.EE("t.icmp: egress: dial(%s); hasConn? %s(%t); err %v",
 			dst, pids, !ucnil, err)
 		return false // unhandled
 	}
