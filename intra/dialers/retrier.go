@@ -118,11 +118,14 @@ func (r *retrier) canRetry() bool {
 
 // Given rtt of a successful socket connection (SYN sent - SYNACK received),
 // returns a timeout for replies to the first segment sent on this socket.
-func calcTimeout(rtt time.Duration) time.Duration {
+func calcTimeout(rtt time.Duration, spread uint16) time.Duration {
+	ciel := time.Duration(min(1, (3/spread))) * time.Second           // at least1secs
+	floor := time.Duration(min(100, (500/spread))) * time.Millisecond // at least 500ms
+
 	// These values were chosen to have a <1% false positive rate based on test data.
 	// False positives trigger an unnecessary retry, which can make connections slower, so they are
 	// worth avoiding.  However, overly long timeouts make retry slower and less useful.
-	return max(min(rtt/2, 3*time.Second), 500*time.Millisecond) + min(2*rtt, 500*time.Millisecond)
+	return max(min(rtt/2, ciel), floor) + min(2*rtt, floor)
 }
 
 // DialWithSplitRetry returns a TCP connection that transparently retries by
@@ -309,7 +312,8 @@ func (r *retrier) dialLocked() error {
 	}
 
 	if r.canRetry() {
-		r.timeout = calcTimeout(rtt)
+		// final retry gets maximum possible timeout
+		r.timeout = calcTimeout(rtt, uint16(maxRetryCount-r.retryCount))
 	} else {
 		// if retries are disabled, then do not aggressively timeout
 		// as there's nothing else for the retrier to do.
