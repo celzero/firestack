@@ -213,7 +213,7 @@ func (g *GUDPConn) Establish() error {
 		return nil
 	}
 
-	if g.req == nil { // ingressing (process a conn into tun)
+	if g.req == nil { // ingressing (a network conn inbound to tun)
 		src, proto := addrport2nsaddr(g.dst) // remote addr is local addr in netstack
 		dst, _ := addrport2nsaddr(g.src)     // local addr is remote addr in netstack
 		// ingress socket w/ gonet.DialUDP
@@ -224,7 +224,7 @@ func (g *GUDPConn) Establish() error {
 		} else {
 			g.c.Store(conn)
 		}
-	} else { // egressing (process netstack's req from tun)
+	} else { // egressing (netstack's conn from tun outbound to network)
 		if settings.Debug {
 			log.V("ns: udp: %s: connect: creating endpoint for %v => %v", g.o, g.src, g.dst)
 		}
