@@ -89,7 +89,7 @@ const (
 const (
 	// RetryAfterSplit retries connection as-is after split fails.
 	RetryAfterSplit int32 = iota
-	// RetryWithSplit connects as-is, but retries with split.
+	// RetryWithSplit ("auto" mode) connects as-is, but retries with split.
 	RetryWithSplit
 	// RetryNever never retries.
 	RetryNever

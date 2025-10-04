@@ -246,6 +246,7 @@ func (r *retrier) dialStratLocked() (strat int32, err error) {
 		split = split && r.retryCount == 0 // split at 1st attempt
 		if auto {
 			// split at all attempts except the last
+			// (also see "auto" cond block below)
 			split = split && r.retryCount < maxRetryCount
 		}
 	}
@@ -253,27 +254,31 @@ func (r *retrier) dialStratLocked() (strat int32, err error) {
 	if !split {
 		strat = settings.SplitNever
 	} else if auto {
-		cycle := r.retryCount % maxRetryCount
+		// auto always attempts TCP split first as TLS splits
+		// as not all TLS servers play nice with split TLS records.
+		attemptCycle := r.retryCount % maxRetryCount
 		switch retryStrat {
 		case settings.RetryNever:
 			// only one attempt allowed; neither retried nor split
-			strat = settings.SplitTCPOrTLS
-		case settings.RetryWithSplit:
+			strat = settings.SplitTCP
+		case settings.RetryWithSplit: // "auto" retry
 			// if retrying (retryCount > 0), always split
-			if cycle == 1 {
-				strat = settings.SplitTCPOrTLS
-			} else if cycle == 2 {
-				strat = settings.SplitDesync
-			} else { // split is either true or false
+			if attemptCycle == 1 {
 				strat = settings.SplitTCP
+			} else if attemptCycle == 2 {
+				strat = settings.SplitTCPOrTLS
+			} else { // split is either true or false
+				strat = settings.SplitDesync
 			}
 		case settings.RetryAfterSplit:
 			// split for the first two attempts
-			if cycle == 0 {
+			if attemptCycle == 0 {
+				strat = settings.SplitTCP
+			} else if attemptCycle == 1 {
 				strat = settings.SplitTCPOrTLS
-			} else if cycle == 1 {
-				strat = settings.SplitDesync
-			} else { // split is false, so strat does not matter
+			} else {
+				// split is false when retryCount >= maxRetryCount,
+				// and so, the strat here does not matter
 				strat = settings.SplitTCP
 			}
 		}
