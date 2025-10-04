@@ -21,8 +21,7 @@ type RollingWaitGroup struct {
 	wgs        [2]*sync.WaitGroup
 }
 
-// Add adds delta, which may be negative, to the WaitGroup counter for the
-// current generation.
+// Add adds non-negative delta to the current generation WaitGroup counter.
 func (m *RollingWaitGroup) Add(delta uint16) bool {
 	d := int(delta)
 	if d < 0 {
@@ -43,15 +42,16 @@ func (m *RollingWaitGroup) Add(delta uint16) bool {
 // Done decrements the WaitGroup counter for the current generation by one.
 func (m *RollingWaitGroup) Done() {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	g := m.generation % 2
 	if m.deltas[g] <= 0 {
 		m.wgs[g] = nil // should already be nil, but just in case
+		m.mu.Unlock()
 		return
 	}
 	wg := m.wgs[g]
 	if wg == nil {
 		m.deltas[g] = 0 // should already be 0, but just in case
+		m.mu.Unlock()
 		return
 	}
 
@@ -60,6 +60,7 @@ func (m *RollingWaitGroup) Done() {
 		m.wgs[g] = nil
 		m.generation++
 	}
+	m.mu.Unlock()
 
 	wg.Done()
 }
