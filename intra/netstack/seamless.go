@@ -185,7 +185,7 @@ func (l *magiclink) Swap(fd, mtu int) (err error) {
 	// swap endpoints after the dispatchLoop has had the chance to start
 	// to avoid cases where clients end up calling ep.Wait() before dispatchLoop
 	// could begin (as it is responsible for keeping ep alive)
-	if old := l.e.Swap(ep); old != nil {
+	if old := l.e.Tango(ep); old != nil {
 		core.Go("magic."+strconv.Itoa(fd), old.Close)
 	}
 
