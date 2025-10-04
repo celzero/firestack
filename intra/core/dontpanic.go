@@ -68,7 +68,7 @@ func Recover(code ExitCode, aux any) (didpanic bool) {
 		return false
 	}
 
-	msg := fmt.Sprintf("%s [%d] %v\n", aux, code, recovered)
+	msg := fmt.Sprintf("%s [%d] %v [%s]\n", aux, code, recovered, stamp())
 	log.E2(parentCallerDepthAt, msg)
 
 	trace(code, msg)
