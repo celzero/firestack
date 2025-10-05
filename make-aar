@@ -1,5 +1,5 @@
 #!/bin/bash
-#
+
 # Copyright (c) 2021 RethinkDNS and its authors.
 #
 # This Source Code Form is subject to the terms of the Mozilla Public
@@ -62,8 +62,8 @@ fi
 
 if [ "$ARG1" = "go" ]; then
   # download from go.dev/dl
-  curl -Lso go.tar.gz https://go.dev/dl/go1.24.3.linux-amd64.tar.gz
-  echo "3333f6ea53afa971e9078895eaa4ac7204a8c6b5c68c10e6bc9a33e8e391bdd8 go.tar.gz" | sha256sum -c -
+  curl -Lso go.tar.gz https://go.dev/dl/go1.25.1.linux-amd64.tar.gz
+  echo "7716a0d940a0f6ae8e1f3b3f4f36299dc53e31b16840dbd171254312c41ca12e go.tar.gz" | sha256sum -c -
 
   # HOME=/home/jitpack
   # PWD=/home/jitpack/build
