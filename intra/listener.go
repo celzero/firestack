@@ -29,6 +29,8 @@ type SocketSummary struct {
 	RPID string
 	// UID of the app that owns this socket (sans ICMP).
 	UID string
+	// Source IP.
+	Source string
 	// Remote IP, if dialed in.
 	Target string
 	// Total bytes downloaded.
@@ -125,19 +127,20 @@ func icmpSummary(id, uid string) *SocketSummary {
 	}
 }
 
-func tcpSummary(id, uid string, dst netip.Addr) *SocketSummary {
+func tcpSummary(id, uid string, src, dst netip.Addr) *SocketSummary {
 	return &SocketSummary{
 		Proto:  ProtoTypeTCP,
 		ID:     id,
 		UID:    uid,
+		Source: src.String(),
 		Target: dst.String(),
 		start:  time.Now(),
 		Msg:    errNone.Error(),
 	}
 }
 
-func udpSummary(id, uid string, dst netip.Addr) *SocketSummary {
-	s := tcpSummary(id, uid, dst)
+func udpSummary(id, uid string, src, dst netip.Addr) *SocketSummary {
+	s := tcpSummary(id, uid, src, dst)
 	s.Proto = ProtoTypeUDP
 	return s
 }

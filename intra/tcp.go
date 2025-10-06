@@ -32,6 +32,7 @@ import (
 	"net/netip"
 	"time"
 
+	x "github.com/celzero/firestack/intra/backend"
 	"github.com/celzero/firestack/intra/dnsx"
 	"github.com/celzero/firestack/intra/log"
 	"gvisor.dev/gvisor/pkg/tcpip/adapters/gonet"
@@ -96,7 +97,7 @@ func (h *tcpHandler) Error(gconn *netstack.GTCPConn, src, dst netip.AddrPort, er
 	h.maybeReplaceDest(res, &dst)
 
 	cid, uid, fid, pids := h.judge(res)
-	smm := tcpSummary(cid, uid, dst.Addr())
+	smm := tcpSummary(cid, uid, src.Addr(), dst.Addr())
 
 	if isAnyBlockPid(pids) {
 		smm.PID = ipn.Block
@@ -122,7 +123,7 @@ func (h *tcpHandler) Error(gconn *netstack.GTCPConn, src, dst netip.AddrPort, er
 func (h *tcpHandler) ReverseProxy(gconn *netstack.GTCPConn, in net.Conn, to, from netip.AddrPort) (open bool) {
 	fm := h.onInflow(to, from)
 	cid, uid, _, pids := h.judge(fm)
-	smm := tcpSummary(cid, uid, from.Addr())
+	smm := tcpSummary(cid, uid, to.Addr(), from.Addr())
 
 	if settings.Debug {
 		log.VV("tcp: %s [%s]: reverse: %s => %s; pids: %v", cid, uid, from, to, pids)
@@ -147,6 +148,20 @@ func (h *tcpHandler) ReverseProxy(gconn *netstack.GTCPConn, in net.Conn, to, fro
 		h.forward(gconn, rwext{in, tcptimeout}, smm)
 	})
 	return true
+}
+
+func (h *tcpHandler) handshakeIfNeededOrClose(gconn *netstack.GTCPConn, smm *SocketSummary) (bool, error) {
+	const allow bool = true  // allowed
+	const deny bool = !allow // blocked
+
+	if _, err := gconn.Establish(); err != nil {
+		err = log.EE("tcp: %s handshake err %v; %s => %s for %s",
+			smm.ID, err, smm.Source, smm.Target, smm.UID)
+		clos(gconn)
+		h.queueSummary(smm.done(err))
+		return deny, err // == !open
+	}
+	return allow, nil
 }
 
 // Proxy implements netstack.GTCPConnHandler
@@ -180,7 +195,7 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target netip.AddrPort)
 		actualTargets = []netip.AddrPort{target}
 	}
 	// actualTargets[0] may be same as target
-	smm = tcpSummary(cid, uid, actualTargets[0].Addr())
+	smm = tcpSummary(cid, uid, src.Addr(), actualTargets[0].Addr())
 
 	if h.status.Load() == HDLEND {
 		err = log.EE("tcp: proxy: %s end %s => %s [%v]", cid, src, target, actualTargets)
@@ -206,16 +221,8 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target netip.AddrPort)
 		return deny
 	}
 
-	// handshake; since we assume a duplex-stream from here on
-	if _, err := gconn.Establish(); err != nil {
-		err = log.EE("tcp: %s connect1 err %v; %s => %s for %s", cid, err, src, target, uid)
-		clos(gconn)
-		h.queueSummary(smm.done(err))
-		return deny // == !open
-	}
-
 	if isAnyBasePid(pids) { // see udp.go:Connect
-		if h.dnsOverride(gconn, target, uid) {
+		if synack, _ := h.handshakeIfNeededOrClose(gconn, smm); synack && h.dnsOverride(gconn, target, uid) {
 			// SocketSummary not sent; x.DNSSummary supercedes it
 			// conn closed by resolver
 			return allow
@@ -227,15 +234,18 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target netip.AddrPort)
 			cid, src, target, actualTargets, uid, pids)
 	}
 
+	cont := true
 	boundSrc := makeAnyAddrPort(src)
 	// pick all realips to connect to
 	for i, dstipp := range actualTargets {
+		targetstr := dstipp.Addr().String()
+
 		var px ipn.Proxy = nil
 		px, err = h.prox.ProxyTo(dstipp, uid, pids)
 
 		// last chosen (but not dialed in) proxy (which error)
-		smm.Target = dstipp.Addr().String() // addr may be invalid
-		smm.PID = pidstr(px)                // px may be nil
+		smm.Target = targetstr // addr may be invalid
+		smm.PID = pidstr(px)   // px may be nil
 		smm.RPID = ipn.ViaID(px)
 
 		if err != nil || px == nil {
@@ -244,13 +254,13 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target netip.AddrPort)
 			continue
 		}
 
-		if err = h.handle(px, gconn, boundSrc, dstipp, smm); err == nil {
+		if cont, err = h.handle(px, gconn, boundSrc, dstipp, smm); err == nil {
 			return allow // smm instead queued by handle() => forward()
 		} else {
 			end := time.Since(smm.start)
-			err = log.WE("tcp: dial: #%d: %s failed; addr(%s) / fallback? %t; for uid %s (%s); w err(%v)",
-				i, cid, dstipp, fallingback, uid, core.FmtPeriod(end), err)
-			if end > retryTimeout {
+			err = log.WE("tcp: dial: #%d: %s failed; addr(%s) / fallback? %t / cont? %t; for uid %s (%s); w err(%v)",
+				i, cid, dstipp, fallingback, cont, uid, core.FmtPeriod(end), err)
+			if !cont || end > retryTimeout {
 				break // return err
 			} // else: continue; try the next realip
 		}
@@ -262,7 +272,16 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target netip.AddrPort)
 }
 
 // handle connects to the target via the proxy, and pipes data between the src, target; thread-safe.
-func (h *tcpHandler) handle(px ipn.Proxy, src *netstack.GTCPConn, boundSrc, target netip.AddrPort, smm *SocketSummary) (err error) {
+func (h *tcpHandler) handle(px ipn.Proxy, src *netstack.GTCPConn, boundSrc, target netip.AddrPort, smm *SocketSummary) (next bool, err error) {
+	cont := true
+	stop := !cont
+	targetstr := target.String()
+
+	// make sure to not synack in HappyEyeballs scenarios
+	if canroute := px.Router().Contains(x.StrOf(targetstr)); !canroute {
+		return cont, log.WE("proxy(%s) has no route to %s", pidstr(px), targetstr)
+	}
+
 	var pc protect.Conn
 	var dst net.Conn
 
@@ -270,16 +289,16 @@ func (h *tcpHandler) handle(px ipn.Proxy, src *netstack.GTCPConn, boundSrc, targ
 
 	if settings.Debug {
 		log.VV("tcp: %s dial %s: attempt:  %s [%s] => %s for %s",
-			smm.ID, pidstr(px), src.LocalAddr(), boundSrc, target, smm.UID)
+			smm.ID, pidstr(px), src.LocalAddr(), boundSrc, targetstr, smm.UID)
 	}
 
 	// github.com/google/gvisor/blob/5ba35f516b5c2/test/benchmarks/tcp/tcp_proxy.go#L359
 	// ref: stackoverflow.com/questions/63656117
 	// ref: stackoverflow.com/questions/40328025
 	if settings.PortForward.Load() {
-		pc, err = px.Dialer().DialBind("tcp", boundSrc.String(), target.String())
+		pc, err = px.Dialer().DialBind("tcp", boundSrc.String(), targetstr)
 	} else {
-		pc, err = px.Dialer().Dial("tcp", target.String())
+		pc, err = px.Dialer().Dial("tcp", targetstr)
 	}
 	if err == nil {
 		smm.Rtt = time.Since(start).Milliseconds()
@@ -307,15 +326,20 @@ func (h *tcpHandler) handle(px ipn.Proxy, src *netstack.GTCPConn, boundSrc, targ
 	smm.RPID = ipn.ViaID(px)
 
 	if err != nil {
-		clos(src, pc)
+		clos(pc)
 		log.W("tcp: err dialing %s proxy(%s) to dst(%v) for %s: %v",
-			smm.ID, px.ID(), target, smm.UID, err)
-		return err
+			smm.ID, smm.PID, smm.Target, smm.UID, err)
+		return cont, err
+	}
+
+	if _, synackerr := h.handshakeIfNeededOrClose(src, smm); synackerr != nil {
+		clos(pc)
+		return stop, synackerr
 	}
 
 	core.Go("tcp.forward."+smm.ID, func() {
 		h.listener.PostFlow(smm.postMark())
 		h.forward(src, rwext{dst, tcptimeout}, smm) // src always *gonet.TCPConn
 	})
-	return nil // handled; takes ownership of src
+	return cont, nil // handled; takes ownership of src
 }

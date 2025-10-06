@@ -29,11 +29,8 @@ const rcvwnd = 0
 
 const maxInFlight = 512 // arbitrary
 
-// syn-ack before delivering to handler?
-const earlyConnect = false
-
-// retry connect when earlyConnect fails?
-const retryLateConnect = earlyConnect && true
+// retry connect when early connect (done when no happy eyeballs) fails?
+const retryLateConnect = false
 
 var (
 	// defaults: github.com/google/gvisor/blob/fa49677e141db/pkg/tcpip/transport/tcp/protocol.go#L73
@@ -71,7 +68,8 @@ type GTCPConn struct {
 func InboundTCP(who string, s *stack.Stack, in net.Conn, to, from netip.AddrPort, h GTCPConnHandler) error {
 	newgc := makeGTCPConn(who, s, nil /*not a forwarder req*/, to, from)
 
-	if earlyConnect {
+	// early syn/ack is okay if happy eyeballs isn't strictly required
+	if !settings.HappyEyeballs.Load() {
 		open, err := newgc.tryConnect()
 
 		if settings.Debug {
@@ -127,7 +125,7 @@ func tcpForwarder(who string, s *stack.Stack, h GTCPConnHandler) *tcp.Forwarder 
 
 		// setup endpoint right away, so that netstack's internal state is consistent
 		// in case there are multiple forwarders dispatching from the TUN device.
-		if earlyConnect {
+		if !settings.HappyEyeballs.Load() { // syn-ack before delivering to handler?
 			opened, err := gtcp.tryConnect()
 
 			if settings.Debug {

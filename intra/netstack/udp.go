@@ -84,7 +84,7 @@ func OutboundUDP(id string, s *stack.Stack, h GUDPConnHandler) {
 
 func InboundUDP(who string, s *stack.Stack, in net.Conn, to, from netip.AddrPort, h GUDPConnHandler) error {
 	newgc := makeGUDPConn(who, s, nil /*not a forwarder req*/, to, from)
-	if earlyConnect {
+	if !settings.HappyEyeballs.Load() { // ref comment in netstack/tcp.go
 		err := newgc.Establish()
 
 		if settings.Debug {
@@ -163,7 +163,7 @@ func udpForwarder(who string, s *stack.Stack, h GUDPConnHandler) *udp.Forwarder 
 
 		// setup to recv right away, so that netstack's internal state is consistent
 		// in case there are multiple forwarders dispatching from the TUN device.
-		if earlyConnect {
+		if !settings.HappyEyeballs.Load() {
 			err := gc.Establish()
 
 			if settings.Debug {

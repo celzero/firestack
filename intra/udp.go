@@ -91,7 +91,7 @@ func NewUDPHandler(pctx context.Context, resolver dnsx.Resolver, prox ipn.ProxyP
 func (h *udpHandler) ReverseProxy(gconn *netstack.GUDPConn, in net.Conn, to, from netip.AddrPort) (ok bool) {
 	fm := h.onInflow(to, from)
 	cid, uid, _, pids := h.judge(fm)
-	smm := udpSummary(cid, uid, from.Addr())
+	smm := udpSummary(cid, uid, to.Addr(), from.Addr())
 
 	if settings.Debug {
 		log.VV("udp: %s [%s]: reverse: %s => %s; pids: %v", cid, uid, from, to, pids)
@@ -135,7 +135,7 @@ func (h *udpHandler) Error(gconn *netstack.GUDPConn, src, target netip.AddrPort,
 	res, undidAlg, realips, domains := h.onFlow(src, target)
 	h.maybeReplaceDest(res, &target)
 	cid, uid, fid, pids := h.judge(res)
-	smm := udpSummary(cid, uid, target.Addr())
+	smm := udpSummary(cid, uid, src.Addr(), target.Addr())
 
 	if isAnyBlockPid(pids) {
 		smm.PID = ipn.Block
@@ -206,7 +206,7 @@ func (h *udpHandler) Connect(gconn *netstack.GUDPConn, src, target netip.AddrPor
 	if len(actualTargets) <= 0 { // unlikely
 		actualTargets = []netip.AddrPort{target}
 	}
-	smm = udpSummary(cid, uid, actualTargets[0].Addr())
+	smm = udpSummary(cid, uid, src.Addr(), actualTargets[0].Addr())
 
 	if h.status.Load() == HDLEND {
 		err = log.EE("udp: connect: %s [%s] %v => %v, end", cid, uid, src, target)
