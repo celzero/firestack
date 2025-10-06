@@ -65,31 +65,35 @@ func (f *Flow[T]) stream() {
 		select {
 		case <-f.ctx.Done():
 			return
-		default:
-			select {
-			case <-f.ctx.Done():
-				return
-			case <-f.c:
+		case <-f.c:
+			go func() {
 				notflowing := make(map[FlowOn]struct{}, 0)
 				for _, o := range f.observers() {
 					if ok := o.flow(); !ok {
 						notflowing[o] = struct{}{}
 					}
 				}
-				go f.removeFinallys(notflowing)
-			}
+				f.removeFinallys(notflowing)
+			}()
 		}
 	}
 }
 
 func (f *Flow[T]) removeFinallys(obsolete map[FlowOn]struct{}) {
-	if len(obsolete) <= 0 {
+	obssz := len(obsolete)
+	if obssz <= 0 {
 		return
 	}
 
 	f.fmu.Lock()
 	defer f.fmu.Unlock()
-	flowing := make([]FlowOn, 0, len(f.o)-len(obsolete))
+
+	cursz := len(f.o)
+	if cursz <= 0 {
+		return
+	}
+
+	flowing := make([]FlowOn, 0, cursz)
 	for _, o := range f.o {
 		if _, ok := obsolete[o]; ok {
 			continue
@@ -97,7 +101,6 @@ func (f *Flow[T]) removeFinallys(obsolete map[FlowOn]struct{}) {
 		flowing = append(flowing, o)
 	}
 	f.o = flowing
-
 }
 
 func (f *Flow[T]) observers() []FlowOn {
@@ -110,18 +113,23 @@ func (f *Flow[T]) pub() {
 	select {
 	case <-f.ctx.Done():
 		return
-	case f.c <- struct{}{}: // f.c never closed
+	default:
+		select {
+		case <-f.ctx.Done():
+			return
+		case f.c <- struct{}{}: // f.c never closed
+		}
 	}
 }
 
-// On (is a hot flow) which immediately calls o (in the same goroutine)
+// On (is a hot flow) which immediately calls o (in a separate goroutine)
 // and later calls o on changes to the underlying Volatile variable.
 func (f *Flow[T]) On(until context.Context, o Finally) {
 	f.fmu.Lock()
 	defer f.fmu.Unlock()
 	on := FlowOn{until, &o}
 	f.o = append(f.o, on)
-	on.flow()
+	go on.flow()
 }
 
 func (f *Flow[T]) Store(v T) {
