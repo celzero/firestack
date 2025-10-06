@@ -114,10 +114,14 @@ func (f *Flow[T]) pub() {
 	}
 }
 
+// On (is a hot flow) which immediately calls o (in the same goroutine)
+// and later calls o on changes to the underlying Volatile variable.
 func (f *Flow[T]) On(until context.Context, o Finally) {
 	f.fmu.Lock()
 	defer f.fmu.Unlock()
-	f.o = append(f.o, FlowOn{until, &o})
+	on := FlowOn{until, &o}
+	f.o = append(f.o, on)
+	on.flow()
 }
 
 func (f *Flow[T]) Store(v T) {
