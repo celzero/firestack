@@ -815,11 +815,10 @@ func (t *wgtun) maybeSpoof() {
 func makeWgTun(id, cfg string, ctl protect.Controller, px ProxyProvider, lp LinkProps, ifopts wgifopts) (*wgtun, error) {
 	ctx, done := context.WithCancel(context.Background())
 
-	acceptIncoming := true || settings.ExperimentalWireGuard.Load() // allow ingress?
 	opts := stack.Options{
 		NetworkProtocols:   []stack.NetworkProtocolFactory{ipv4.NewProtocol, ipv6.NewProtocol},
 		TransportProtocols: []stack.TransportProtocolFactory{tcp.NewProtocol, udp.NewProtocol, icmp.NewProtocol6, icmp.NewProtocol4},
-		HandleLocal:        !acceptIncoming,
+		HandleLocal:        true,
 	}
 
 	minmtu := minmtu6 // ip6 or ip6 or ip4+ip6
