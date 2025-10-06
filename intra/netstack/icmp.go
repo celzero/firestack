@@ -9,6 +9,7 @@ package netstack
 import (
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/log"
+	"github.com/celzero/firestack/intra/settings"
 	"gvisor.dev/gvisor/pkg/buffer"
 	"gvisor.dev/gvisor/pkg/tcpip"
 	"gvisor.dev/gvisor/pkg/tcpip/checksum"
@@ -55,7 +56,9 @@ func newIcmpForwarder(owner string, s *stack.Stack, h GICMPHandler) *icmpForward
 func (f *icmpForwarder) reply4(id stack.TransportEndpointID, pkt *stack.PacketBuffer) (handled bool) {
 	var err tcpip.Error
 
-	log.VV("icmp: v4: %s: packet? %v", f.o, pkt)
+	if settings.Debug {
+		log.VV("icmp: v4: %s: packet? %v", f.o, pkt)
+	}
 
 	if pkt == nil {
 		log.E("icmp: v4: %s: nil packet", f.o)
@@ -100,8 +103,10 @@ func (f *icmpForwarder) reply4(id stack.TransportEndpointID, pkt *stack.PacketBu
 		return // not handled
 	}
 
-	log.D("icmp: v4: %s: type %v/%v sz [%v]; src(%v) => dst(%v)",
-		f.o, hdr.Type(), hdr.Code(), len(data), src, dst)
+	if settings.Debug {
+		log.D("icmp: v4: %s: type %v/%v sz [%v]; src(%v) => dst(%v)",
+			f.o, hdr.Type(), hdr.Code(), len(data), src, dst)
+	}
 
 	// always forward in a goroutine to avoid blocking netstack
 	// see: netstack/dispatcher.go:newReadvDispatcher
@@ -129,11 +134,13 @@ func (f *icmpForwarder) reply4(id stack.TransportEndpointID, pkt *stack.PacketBu
 				ReserveHeaderBytes: int(route.MaxHeaderLength()),
 				Payload:            buffer.MakeWithView(replyBuf),
 			})
+			replyPkt.NICID = pkt.NICID
 			defer replyPkt.DecRef()
 
-			log.D("icmp: v4: %s: ok type %v/%v sz[%d] from %v <= %v",
-				f.o, replyICMPHdr.Type(), replyICMPHdr.Code(), len(replyICMPHdr), src, dst)
-
+			if settings.Debug {
+				log.D("icmp: v4: %s: ok type %v/%v sz[%d] from %v <= %v",
+					f.o, replyICMPHdr.Type(), replyICMPHdr.Code(), len(replyICMPHdr), src, dst)
+			}
 			// github.com/google/gvisor/blob/738e1d995f/pkg/tcpip/network/ipv4/icmp.go#L794
 			err = route.WritePacket(stack.NetworkHeaderParams{
 				Protocol: header.ICMPv4ProtocolNumber,
@@ -147,7 +154,9 @@ func (f *icmpForwarder) reply4(id stack.TransportEndpointID, pkt *stack.PacketBu
 }
 
 func (f *icmpForwarder) reply6(id stack.TransportEndpointID, pkt *stack.PacketBuffer) (handled bool) {
-	log.VV("icmp: v6: %s: packet? %v", f.o, pkt)
+	if settings.Debug {
+		log.VV("icmp: v6: %s: packet? %v", f.o, pkt)
+	}
 
 	if pkt == nil {
 		log.E("icmp: v6: %s: nil packet", f.o)
@@ -176,8 +185,10 @@ func (f *icmpForwarder) reply6(id stack.TransportEndpointID, pkt *stack.PacketBu
 		return // not handled
 	}
 
-	log.D("icmp: v6: %s: type %v/%v sz[%d] from src(%v) => dst(%v)",
-		f.o, hdr.Type(), hdr.Code(), len(data), src, dst)
+	if settings.Debug {
+		log.D("icmp: v6: %s: type %v/%v sz[%d] from src(%v) => dst(%v)",
+			f.o, hdr.Type(), hdr.Code(), len(data), src, dst)
+	}
 
 	// always forward in a goroutine to avoid blocking netstack
 	// see: netstack/dispatcher.go:newReadvDispatcher
@@ -208,9 +219,11 @@ func (f *icmpForwarder) reply6(id stack.TransportEndpointID, pkt *stack.PacketBu
 				PayloadCsum: replyData.Checksum(),
 				PayloadLen:  replyData.Size(),
 			}))
-			log.D("icmp: v6: %s: ok type %v/%v sz[%d] from %v <= %v",
-				f.o, replyHdr.Type(), replyHdr.Code(), len(replyHdr), src, dst)
 
+			if settings.Debug {
+				log.D("icmp: v6: %s: ok type %v/%v sz[%d] from %v <= %v",
+					f.o, replyHdr.Type(), replyHdr.Code(), len(replyHdr), src, dst)
+			}
 			// github.com/google/gvisor/blob/738e1d995f/pkg/tcpip/network/ipv6/icmp.go#L694
 			replyclass, _ := l3.TOS()
 			err = route.WritePacket(stack.NetworkHeaderParams{
