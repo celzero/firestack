@@ -735,10 +735,10 @@ func newdevice(wgtun *wgtun, wgep wgconn, uapicfg string) (*device.Device, error
 }
 
 func (t *wgtun) setupReverserIfNeeded() {
-	setupReverserIfNeeded(t.id, t.stack, t.rev.Load())
-}
+	s := t.stack
+	id := t.id
+	rev := t.rev.Load()
 
-func setupReverserIfNeeded(id string, s *stack.Stack, rev netstack.GConnHandler) {
 	if rev != nil && settings.ExperimentalWireGuard.Load() {
 		// inbound (aka reverse outbound)
 		netstack.OutboundTCP(id, s, rev.TCP())
@@ -836,11 +836,6 @@ func makeWgTun(id, cfg string, ctl protect.Controller, px ProxyProvider, lp Link
 	s := stack.New(opts)
 	ep := channel.New(epsize, uint32(tunMtu), "")
 	netstack.SetNetstackOpts(s)
-	setupReverserIfNeeded(id, s, lp.rev) // rev may be nil
-
-	settings.ExperimentalWireGuard.On(ctx, func() {
-		setupReverserIfNeeded(id, s, lp.rev) // rev may be nil
-	})
 
 	t := &wgtun{
 		ctx:           ctx,
