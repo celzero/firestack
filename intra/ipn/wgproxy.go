@@ -96,6 +96,9 @@ type wgifopts struct {
 }
 
 type wgtun struct {
+	ctx  context.Context
+	done context.CancelFunc
+
 	id  string // id
 	cfg string // original config
 
@@ -123,6 +126,8 @@ type wgtun struct {
 
 	desiredmtu atomic.Uint32 // desired mtu
 	netmtu     atomic.Uint32 // underlay network mtu
+
+	rev *core.Volatile[netstack.GConnHandler] // reverser for local packets
 
 	peers   *core.Volatile[map[string]device.NoisePublicKey] // peer (remote endpoint) public keys
 	dns     *core.Volatile[*multihost.MH]                    // dns resolver for this interface
@@ -230,9 +235,10 @@ func (h *wgproxy) GetAddr() *x.Gostr {
 // onProtoChange implements Proxy
 func (w *wgproxy) OnProtoChange(lp LinkProps) (string, bool) {
 	oldmtu := w.netmtu.Swap(uint32(lp.mtu))
+	oldrev := w.rev.Tango(lp.rev)
 	setupReverserIfNeeded(w.id, w.stack, lp.rev)
-	log.V("proxy: wg: %s; lp changed; l3: %s, mtu %d=>%d, rev %X",
-		w.id, lp.l3, lp.mtu, oldmtu, lp.rev)
+	log.V("proxy: wg: %s; lp changed; l3: %s, mtu %d=>%d, rev %X => %X",
+		w.id, lp.l3, lp.mtu, oldmtu, oldrev, lp.rev)
 	if err := w.Refresh(); err != nil {
 		log.W("proxy: wg: %s; lp changed; err: %v", w.id, err)
 		// TODO: return w.cfg, true
@@ -792,7 +798,7 @@ func (w *wgtun) viaStatus() (s string) {
 
 // ref: github.com/WireGuard/wireguard-go/blob/469159ecf7/tun/netstack/tun.go#L54
 func makeWgTun(id, cfg string, ctl protect.Controller, px ProxyProvider, lp LinkProps, ifopts wgifopts) (*wgtun, error) {
-	ctx := context.TODO()
+	ctx, done := context.WithCancel(context.Background())
 
 	acceptIncoming := settings.ExperimentalWireGuard.Load() // allow ingress?
 	opts := stack.Options{
@@ -816,7 +822,13 @@ func makeWgTun(id, cfg string, ctl protect.Controller, px ProxyProvider, lp Link
 	netstack.SetNetstackOpts(s)
 	setupReverserIfNeeded(id, s, lp.rev) // rev may be nil
 
+	settings.ExperimentalWireGuard.On(ctx, func() {
+		setupReverserIfNeeded(id, s, lp.rev) // rev may be nil
+	})
+
 	t := &wgtun{
+		ctx:           ctx,
+		done:          done,
 		id:            stripPrefixIfNeeded(id),
 		cfg:           cfg,
 		addrs:         ifopts.ifaddrs,
@@ -830,6 +842,7 @@ func makeWgTun(id, cfg string, ctl protect.Controller, px ProxyProvider, lp Link
 		viaID:         core.NewZeroVolatile[string](),
 		viaUp:         core.NewZeroVolatile[bool](),
 		dns:           core.NewVolatile(ifopts.dns),
+		rev:           core.NewVolatile(lp.rev),
 		remote:        core.NewVolatile(ifopts.eps),   // may be nil
 		peers:         core.NewVolatile(ifopts.peers), // its entries must never be modified
 		rt:            x.NewIpTree(),                  // must be set to allowedaddrs
@@ -849,10 +862,10 @@ func makeWgTun(id, cfg string, ctl protect.Controller, px ProxyProvider, lp Link
 		t.via = viaref
 	}
 
-	// see WriteNotify below
-	ep.AddNotify(t)
-
+	// TODO: wgnic := s.NextNICID()
 	if err := s.CreateNIC(wgnic, ep); err != nil {
+		done()
+		ep.Close()
 		return nil, fmt.Errorf("wg: %s create nic: %v", t.id, err)
 	}
 
@@ -864,6 +877,8 @@ func makeWgTun(id, cfg string, ctl protect.Controller, px ProxyProvider, lp Link
 	}
 
 	if err := t.setRoutes(ifopts.ifaddrs); err != nil {
+		done()
+		ep.Close()
 		return nil, err
 	}
 
@@ -1039,7 +1054,7 @@ func (tun *wgtun) Close() error {
 
 		log.D("wg: %s tun: (prev status: %s) closing...", tun.tag(), pxstatus(prev))
 
-		close(tun.finalize) // unblock all receivers
+		tun.done() // unblock inject and dialers
 
 		tun.stack.RemoveNIC(wgnic)
 		// if tun.events != nil {
@@ -1121,7 +1136,7 @@ func (h *wgtun) Dial(network, address string) (c net.Conn, err error) {
 	log.D("wg: %s dial: start %s %s", h.tag(), network, address)
 
 	// DialContext resolves addr if needed; then dialing into all resolved ips.
-	c, err = h.DialContext(context.TODO(), network, address)
+	c, err = h.DialContext(h.ctx, network, address)
 	defer h.listener(wg.Con, err) // status updated by h.listener
 
 	log.I("wg: %s dial: end %s %s; err %v", h.tag(), network, address, err)
@@ -1138,7 +1153,7 @@ func (h *wgtun) DialBind(network, local, remote string) (c net.Conn, err error) 
 	log.D("wg: %s dialbind: start %s %s=>%s", h.tag(), network, local, remote)
 
 	// DialContext resolves addr if needed; then dialing into all resolved ips.
-	c, err = h.DialContext(context.TODO(), network, remote)
+	c, err = h.DialContext(h.ctx, network, remote)
 	defer h.listener(wg.Con, err) // status updated by h.listener when creating conns
 
 	log.I("wg: %s dialbind: end %s %s=>%s; err %v", h.tag(), network, local, remote, err)

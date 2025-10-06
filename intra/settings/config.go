@@ -8,6 +8,8 @@ package settings
 
 import (
 	"sync/atomic"
+
+	"github.com/celzero/firestack/intra/core"
 )
 
 // NICID is the default network interface card ID for the network stack.
@@ -28,9 +30,11 @@ var SingleThreaded = atomic.Bool{}
 // for the outgoing conn as the incoming sockisfied conn.
 var PortForward = atomic.Bool{}
 
+var HappyEyeballs = atomic.Bool{}
+
 // ExperimentalWireGuard is a global flag to enable experimental
 // settings for WireGuard.
-var ExperimentalWireGuard = atomic.Bool{}
+var ExperimentalWireGuard = core.NewForeverFlow(false)
 
 // EndpointIndependentMapping is a global flag to enable endpoint-independent
 // mapping for UDP as per RFC 4787.

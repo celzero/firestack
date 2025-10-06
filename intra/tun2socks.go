@@ -131,6 +131,11 @@ func Slowdown(y bool) {
 	log.I("tun: slowdown? %t / ok? %t", y, ok)
 }
 
+func HappyEyeballs(y bool) {
+	ok := settings.HappyEyeballs.CompareAndSwap(!y, y)
+	log.I("tun: happy eyeballs %t / ok? %t", y, ok)
+}
+
 // Experimental enables/disables experimental features. For testing only.
 func Experimental(y bool) {
 	// todo: move to its own method
