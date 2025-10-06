@@ -236,7 +236,7 @@ func (h *wgproxy) GetAddr() *x.Gostr {
 func (w *wgproxy) OnProtoChange(lp LinkProps) (string, bool) {
 	oldmtu := w.netmtu.Swap(uint32(lp.mtu))
 	oldrev := w.rev.Tango(lp.rev)
-	setupReverserIfNeeded(w.id, w.stack, lp.rev)
+	w.setupReverserIfNeeded()
 	log.V("proxy: wg: %s; lp changed; l3: %s, mtu %d=>%d, rev %X => %X",
 		w.id, lp.l3, lp.mtu, oldmtu, oldrev, lp.rev)
 	if err := w.Refresh(); err != nil {
@@ -734,15 +734,21 @@ func newdevice(wgtun *wgtun, wgep wgconn, uapicfg string) (*device.Device, error
 	return wgdev, nil
 }
 
+func (t *wgtun) setupReverserIfNeeded() {
+	setupReverserIfNeeded(t.id, t.stack, t.rev.Load())
+}
+
 func setupReverserIfNeeded(id string, s *stack.Stack, rev netstack.GConnHandler) {
-	if rev != nil && settings.ExperimentalWireGuard.Load() && settings.EndpointIndependentFiltering.Load() {
+	if rev != nil && settings.ExperimentalWireGuard.Load() {
 		// inbound (aka reverse outbound)
 		netstack.OutboundTCP(id, s, rev.TCP())
 		netstack.OutboundUDP(id, s, rev.UDP())
 		log.I("proxy: wg: %s rev @ %X enabled", id, rev)
 		return
 	} // do not use reverser
+
 	log.W("proxy: wg: %s remove rev %X", id, rev)
+
 	netstack.OutboundTCP(id, s, nil) // unset
 	netstack.OutboundUDP(id, s, nil) // unset
 }
@@ -796,11 +802,20 @@ func (w *wgtun) viaStatus() (s string) {
 	return s
 }
 
+func (t *wgtun) maybeSpoof() {
+	if settings.ExperimentalWireGuard.Load() {
+		// github.com/xjasonlyu/tun2socks/blob/31468620e/core/stack.go#L80
+		_ = t.stack.SetSpoofing(wgnic, true)
+		// github.com/tailscale/tailscale/blob/c4d0237e5c/wgengine/netstack/netstack.go#L345-L350
+		_ = t.stack.SetPromiscuousMode(wgnic, true)
+	}
+}
+
 // ref: github.com/WireGuard/wireguard-go/blob/469159ecf7/tun/netstack/tun.go#L54
 func makeWgTun(id, cfg string, ctl protect.Controller, px ProxyProvider, lp LinkProps, ifopts wgifopts) (*wgtun, error) {
 	ctx, done := context.WithCancel(context.Background())
 
-	acceptIncoming := settings.ExperimentalWireGuard.Load() // allow ingress?
+	acceptIncoming := true || settings.ExperimentalWireGuard.Load() // allow ingress?
 	opts := stack.Options{
 		NetworkProtocols:   []stack.NetworkProtocolFactory{ipv4.NewProtocol, ipv6.NewProtocol},
 		TransportProtocols: []stack.TransportProtocolFactory{tcp.NewProtocol, udp.NewProtocol, icmp.NewProtocol6, icmp.NewProtocol4},
@@ -871,12 +886,10 @@ func makeWgTun(id, cfg string, ctl protect.Controller, px ProxyProvider, lp Link
 		return nil, fmt.Errorf("wg: %s create nic: %v", t.id, err)
 	}
 
-	if settings.ExperimentalWireGuard.Load() {
-		// github.com/xjasonlyu/tun2socks/blob/31468620e/core/stack.go#L80
-		_ = s.SetSpoofing(wgnic, true)
-		// github.com/tailscale/tailscale/blob/c4d0237e5c/wgengine/netstack/netstack.go#L345-L350
-		_ = s.SetPromiscuousMode(wgnic, true)
-	}
+	settings.ExperimentalWireGuard.On(ctx, func() {
+		t.maybeSpoof()
+		t.setupReverserIfNeeded() // rev may be nil
+	})
 
 	if err := t.setRoutes(ifopts.ifaddrs); err != nil {
 		done()
