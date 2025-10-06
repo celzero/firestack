@@ -138,7 +138,6 @@ func (f *Flow[T]) Store(v T) {
 }
 
 func (f *Flow[T]) Load() T {
-	defer f.pub()
 	return f.v.Load()
 }
 
@@ -148,16 +147,25 @@ func (f *Flow[T]) Swap(new T) (old T) {
 }
 
 func (f *Flow[T]) Tango(new T) (old T) {
-	defer f.pub()
+	defer func() {
+		if !LocEq(new, old) {
+			f.pub()
+		}
+	}()
+
 	return f.v.Tango(new)
 }
 
 func (f *Flow[T]) CompareAndSwap(old, new T) bool {
-	defer f.pub()
-	return f.v.Cas(old, new)
+	return f.Cas(old, new)
 }
 
-func (f *Flow[T]) Cas(old, new T) bool {
-	defer f.pub()
+func (f *Flow[T]) Cas(old, new T) (success bool) {
+	defer func() {
+		if success {
+			f.pub()
+		}
+	}()
+
 	return f.v.Cas(old, new)
 }
