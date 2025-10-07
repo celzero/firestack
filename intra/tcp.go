@@ -234,10 +234,14 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target netip.AddrPort)
 			cid, src, target, actualTargets, excluded, uid, pids)
 	}
 
+	isTarget6 := target.Addr().Is6()
+	happyeyeballs := settings.HappyEyeballs.Load()
+	delayForHappyEyeballs := happyeyeballs && isTarget6
 	cont := true
 	boundSrc := makeAnyAddrPort(src)
 	// pick all realips to connect to
 	for i, dstipp := range actualTargets {
+		// dstipp may be v4 or v6 regardless of target addr
 		targetstr := dstipp.Addr().String()
 
 		var px ipn.Proxy = nil
@@ -254,12 +258,12 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target netip.AddrPort)
 			continue
 		}
 
-		if cont, err = h.handle(px, gconn, boundSrc, dstipp, smm); err == nil {
+		if cont, err = h.handle(px, gconn, boundSrc, dstipp, delayForHappyEyeballs, smm); err == nil {
 			return allow // smm instead queued by handle() => forward()
 		} else {
 			end := time.Since(smm.start)
-			err = log.WE("tcp: dial: #%d: %s failed; addr(%s) / fallback? %t / cont? %t; for uid %s (%s); w err(%v)",
-				i, cid, dstipp, fallingback, cont, uid, core.FmtPeriod(end), err)
+			err = log.WE("tcp: dial: #%d: %s failed; addr(%s) / fallback? %t / cont? %t / he? %t; for uid %s (%s); w err(%v)",
+				i, cid, dstipp, fallingback, cont, happyeyeballs, uid, core.FmtPeriod(end), err)
 			if !cont || end > retryTimeout {
 				break // return err
 			} // else: continue; try the next realip
@@ -267,19 +271,25 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target netip.AddrPort)
 	}
 
 	h.queueSummary(smm.done(err))
+	// if IPv6, stall a bit more so apps doing HappyEyeballs will try IPv4
+	if delayForHappyEyeballs {
+		time.Sleep(400 * time.Millisecond)
+	}
 	clos(gconn) // denied
 	return deny
 }
 
 // handle connects to the target via the proxy, and pipes data between the src, target; thread-safe.
-func (h *tcpHandler) handle(px ipn.Proxy, src *netstack.GTCPConn, boundSrc, target netip.AddrPort, smm *SocketSummary) (next bool, err error) {
-	cont := true
+func (h *tcpHandler) handle(px ipn.Proxy, src *netstack.GTCPConn, boundSrc, target netip.AddrPort, errOnNoRoute bool, smm *SocketSummary) (cont bool, err error) {
+	cont = true
 	stop := !cont
 	targetstr := target.String()
 
-	// make sure to not synack in HappyEyeballs scenarios
-	if canroute := px.Router().Contains(x.StrOf(targetstr)); !canroute {
-		return cont, log.WE("proxy(%s) has no route to %s", pidstr(px), targetstr)
+	if errOnNoRoute {
+		if canroute := px.Router().Contains(x.StrOf(targetstr)); !canroute {
+			// make sure to not delay in HappyEyeballs scenario?
+			return cont, log.WE("proxy(%s) has no route to %s", pidstr(px), targetstr)
+		}
 	}
 
 	var pc protect.Conn
