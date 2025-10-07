@@ -33,6 +33,11 @@ linters:
     - goconst
     - staticcheck
   exclusions:
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
     generated: disable
     rules:
       - path: '(.+)_test\.go'
@@ -50,7 +55,6 @@ formatters:
     - goimports
 
 issues:
-  exclude-use-default: false
   max-issues-per-linter: 0
   max-same-issues: 0
   uniq-by-line: true
