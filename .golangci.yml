@@ -13,10 +13,11 @@ output:
   # sort-results: true
   # print-linter-name: true
 
-cyclop:
-  max-complexity: 5
-  package-average: 0.5
-  # skip-tests: true
+linters:
+  settings:
+    cyclop:
+      max-complexity: 5
+      package-average: 0.5
 
 linters:
   enable:
