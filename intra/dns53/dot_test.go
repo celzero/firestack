@@ -301,6 +301,89 @@ func TestSEProxy(t *testing.T) {
 	log.Output(10, xdns.Ans(ans6))
 }
 
+func TestWgReaches(t *testing.T) {
+	netr := &fakeResolver{}
+	ctx := context.TODO()
+	ctl := &fakeCtl{}
+	obs := &fakeObs{}
+	bdg := &fakeBdg{Controller: ctl}
+	pxr := ipn.NewProxifier(ctx, dualstack, minmtu, ctl, obs)
+	if pxr == nil {
+		t.Fatal("testwg: nil proxifier")
+	}
+	ilog.SetLevel(0)
+	settings.Debug = true
+	dialers.Mapper(netr)
+
+	_ = xdns.NetAndProxyID("tcp", ipn.Auto)
+
+	tr, _ := NewTLSTransport(ctx, "test0", "8.8.8.8", nil, pxr)
+	dtr, _ := NewTransport(ctx, x.Default, "1.1.1.1", "53", pxr)
+	if tr == nil || dtr == nil {
+		t.Fatal("nil dns transports")
+	}
+
+	natpt := x64.NewNatPt()
+	resolv := dnsx.NewResolver(ctx, "10.111.222.3:53", dtr, bdg, natpt)
+	resolv.Add(tr)
+
+	wgconf, err := os.ReadFile("wg.conf")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ilog.D("testwg: read wg: %d", len(wgconf))
+
+	wgid := x.WG + "1111"
+	win, err := pxr.AddProxy(x.StrOf(wgid), x.StrOf(string(wgconf)))
+	ko(t, err)
+
+	ilog.D("testwg: setup %d", len(wgconf))
+
+	if win == nil {
+		t.Fatal("testwg: nil main ws proxy")
+	}
+
+	settings.SetAutoDialsParallel(false)
+	settings.SetAutoMode(settings.AutoModeRemote)
+
+	propx, _ := pxr.ProxyFor(wgid)
+	if propx == nil {
+		t.Fatal("testwg: nil proxies")
+	}
+
+	/*ilog.VV("-----------------------MAIN--------------------------")
+	ilog.I("proxies 1: %t; 2: %t, 3: %t", propx != nil, propx2 != nil, auto != nil)
+	if ok := ipn.Reaches(propx, "google.com:443", "tcp"); !ok {
+		t.Fail()
+	}
+	ilog.VV("-----------------------MXCO--------------------------")
+	if ok := ipn.Reaches(propx2, "cloudflare.com:443", "tcp"); !ok {
+		t.Fail()
+	}
+	ilog.VV("-----------------------AUTO--------------------------")
+	if ok := ipn.Reaches(auto, "x.com:443", "tcp"); !ok {
+		t.Fail()
+	}*/
+	ilog.VV("-----------------------DNSX--------------------------")
+	b4, _ := aquery("skysports.com").Pack()
+	r4, _, err := resolv.Lookup(b4) // must use "test0"
+
+	ilog.D("testwg: %v", win.Router().Stat())
+	time.Sleep(2 * time.Second)
+
+	ko(t, err)
+
+	ans := xdns.AsMsg(r4)
+	if xdns.Len(ans) <= 0 {
+		t.Fatal("testwg: no ans")
+	}
+	ilog.D("dns", xdns.Ans(ans))
+	ilog.VV("-----------------------END0--------------------------")
+
+	t.Log("testwg: proxy reaches")
+}
+
 func TestWinReaches(t *testing.T) {
 	netr := &fakeResolver{}
 	ctx := context.TODO()
