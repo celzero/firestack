@@ -8,6 +8,7 @@ package dns53
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"log"
 	"net"
@@ -22,6 +23,7 @@ import (
 	"github.com/celzero/firestack/intra/dnsx"
 	"github.com/celzero/firestack/intra/doh"
 	"github.com/celzero/firestack/intra/ipn"
+	"github.com/celzero/firestack/intra/ipn/rpn"
 	ilog "github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
 	"github.com/celzero/firestack/intra/settings"
@@ -117,11 +119,12 @@ var (
 	autoNsOpts = &x.DNSOpts{PIDCSV: x.RpnSE, IPCSV: "", TIDCSV: x.CT + "test0"}
 )
 
-func (*fakeBdg) OnQuery(_, _ *x.Gostr, _ int) *x.DNSOpts { return autoNsOpts }
-func (*fakeBdg) OnResponse(*x.DNSSummary)                {}
-func (*fakeBdg) OnDNSAdded(*x.Gostr)                     {}
-func (*fakeBdg) OnDNSRemoved(*x.Gostr)                   {}
-func (*fakeBdg) OnDNSStopped()                           {}
+func (*fakeBdg) OnQuery(_, _ *x.Gostr, _ int) *x.DNSOpts                 { return autoNsOpts }
+func (*fakeBdg) OnUpstreamAnswer(_ *x.DNSSummary, _ *x.Gostr) *x.DNSOpts { return nil }
+func (*fakeBdg) OnResponse(*x.DNSSummary)                                {}
+func (*fakeBdg) OnDNSAdded(*x.Gostr)                                     {}
+func (*fakeBdg) OnDNSRemoved(*x.Gostr)                                   {}
+func (*fakeBdg) OnDNSStopped()                                           {}
 
 func (*fakeBdg) Route(a, b, c, d, e string) *x.Tab { return baseTab }
 func (*fakeBdg) OnComplete(*x.ServerSummary)       {}
@@ -315,7 +318,10 @@ func TestWgReaches(t *testing.T) {
 	settings.Debug = true
 	dialers.Mapper(netr)
 
-	_ = xdns.NetAndProxyID("tcp", ipn.Auto)
+	wgid := x.WG + "1111"
+	autoNsOpts.PIDCSV = wgid
+
+	_ = xdns.NetAndProxyID("tcp", wgid)
 
 	tr, _ := NewTLSTransport(ctx, "test0", "8.8.8.8", nil, pxr)
 	dtr, _ := NewTransport(ctx, x.Default, "1.1.1.1", "53", pxr)
@@ -332,13 +338,24 @@ func TestWgReaches(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	ilog.D("testwg: read wg: %d", len(wgconf))
+	// read wgconf json into regionalwgconf
 
-	wgid := x.WG + "1111"
-	win, err := pxr.AddProxy(x.StrOf(wgid), x.StrOf(string(wgconf)))
+	rwg := &rpn.RegionalWgConf{}
+	if err := json.Unmarshal(wgconf, rwg); err != nil {
+		t.Fatal(err)
+	}
+
+	ilog.D("testwg: read wg: %s: %d", rwg.Name, len(wgconf))
+
+	confok := rwg.GenUapiConfig()
+	if !confok {
+		t.Fatal("testwg: gen uapi conf failed")
+	}
+
+	win, err := pxr.AddProxy(x.StrOf(wgid), x.StrOf(rwg.UapiWgConf))
 	ko(t, err)
 
-	ilog.D("testwg: setup %d", len(wgconf))
+	ilog.D("testwg: setup %s: %d", rwg.Name, len(rwg.UapiWgConf))
 
 	if win == nil {
 		t.Fatal("testwg: nil main ws proxy")
@@ -378,7 +395,7 @@ func TestWgReaches(t *testing.T) {
 	if xdns.Len(ans) <= 0 {
 		t.Fatal("testwg: no ans")
 	}
-	ilog.D("dns", xdns.Ans(ans))
+	ilog.D("dns %s", xdns.Ans(ans))
 	ilog.VV("-----------------------END0--------------------------")
 
 	t.Log("testwg: proxy reaches")

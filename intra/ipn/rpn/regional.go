@@ -51,6 +51,11 @@ func toHex(b64 string) string {
 	return hex.EncodeToString(b)
 }
 
+func (rwg *RegionalWgConf) GenUapiConfig() bool {
+	return rwg.genUapiConfig()
+}
+
+// TODO: genWgConf github.com/celzero/firestack/blob/31633dc6f3/intra/ipn/warp/id.go#L260
 func (rwg *RegionalWgConf) genUapiConfig() bool {
 	// github.com/WireGuard/wireguard-android/blob/4ba87947ae/tunnel/src/main/java/com/wireguard/config/Config.java#L179
 	// github.com/WireGuard/wireguard-android/blob/4ba87947ae/tunnel/src/main/java/com/wireguard/config/Interface.java#L257
