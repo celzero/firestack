@@ -410,7 +410,7 @@ func (e *endpoint) LinkAddress() tcpip.LinkAddress {
 // Wait implements stack.LinkEndpoint.Wait. It waits for the endpoint to stop
 // reading from its FD.
 func (e *endpoint) Wait() {
-	e.wg.Wait()
+	(&e.wg).Wait()
 }
 
 func (e *endpoint) wait(d time.Duration) bool {
