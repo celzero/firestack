@@ -816,10 +816,11 @@ func (t *wgtun) maybeSpoof() {
 func makeWgTun(id, cfg string, ctl protect.Controller, px ProxyProvider, lp LinkProps, ifopts wgifopts) (*wgtun, error) {
 	ctx, done := context.WithCancel(context.Background())
 
+	allowIncoming := settings.ExperimentalWireGuard.Load()
 	opts := stack.Options{
 		NetworkProtocols:   []stack.NetworkProtocolFactory{ipv4.NewProtocol, ipv6.NewProtocol},
 		TransportProtocols: []stack.TransportProtocolFactory{tcp.NewProtocol, udp.NewProtocol, icmp.NewProtocol6, icmp.NewProtocol4},
-		HandleLocal:        true,
+		HandleLocal:        !allowIncoming,
 	}
 
 	minmtu := minmtu6 // ip6 or ip6 or ip4+ip6
@@ -899,8 +900,8 @@ func makeWgTun(id, cfg string, ctl protect.Controller, px ProxyProvider, lp Link
 	t.events <- tun.EventUp
 
 	if4, if6 := netstack.StackAddrs(s, wgnic)
-	log.I("proxy: wg: %s tun: created; dns[%s]; dst[%s]; mtu[%d]; ifaddrs[%v / %v]; amnezia[%t]",
-		t.id, ifopts.dns, ifopts.eps, tunMtu, if4, if6, ifopts.amnezia.Set())
+	log.I("proxy: wg: %s tun: created; handleLocal[%t]; dns[%s]; dst[%s]; mtu[%d]; ifaddrs[%v / %v]; amnezia[%t]",
+		t.id, !allowIncoming, ifopts.dns, ifopts.eps, tunMtu, if4, if6, ifopts.amnezia.Set())
 
 	return t, nil
 }
