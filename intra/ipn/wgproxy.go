@@ -875,6 +875,9 @@ func makeWgTun(id, cfg string, ctl protect.Controller, px ProxyProvider, lp Link
 	}
 
 	// TODO: wgnic := s.NextNICID()
+	// see WriteNotify below
+	ep.AddNotify(t)
+
 	if err := s.CreateNIC(wgnic, ep); err != nil {
 		done()
 		ep.Close()
