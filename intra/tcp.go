@@ -187,7 +187,7 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target netip.AddrPort)
 	h.maybeReplaceDest(res, &target)
 
 	// TODO: use res.IP only if set
-	filtered, _, fallingback := filterFamilyForDialing(realips)
+	filtered, excluded, fallingback := filterFamilyForDialing(realips)
 	actualTargets := makeIPPorts(filtered, target, 0)
 	cid, uid, fid, pids := h.judge(res, domains, target.String())
 
@@ -230,8 +230,8 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target netip.AddrPort)
 	} // if ipn.Exit then let it connect as-is (aka exit)
 
 	if settings.Debug {
-		log.VV("tcp: %s proxying %s => %s [%v] for %s; pids: %s",
-			cid, src, target, actualTargets, uid, pids)
+		log.VV("tcp: %s proxying %s => %s [%v] (excluded: %v) for %s; pids: %s",
+			cid, src, target, actualTargets, excluded, uid, pids)
 	}
 
 	cont := true
