@@ -14,12 +14,6 @@ output:
   # print-linter-name: true
 
 linters:
-  settings:
-    cyclop:
-      max-complexity: 5
-      package-average: 0.5
-
-linters:
   enable:
     - errcheck
     - errchkjson
@@ -33,6 +27,10 @@ linters:
     - govet
     - goconst
     - staticcheck
+  settings:
+    cyclop:
+      max-complexity: 5
+      package-average: 0.5
   exclusions:
     presets:
       - comments
