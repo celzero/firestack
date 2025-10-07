@@ -413,6 +413,10 @@ func (t *rtunnel) stat() (*x.NetStat, error) {
 	out.RDNSIn.Looping = settings.Loopingback.Load()
 	out.RDNSIn.Slowdown = settings.SingleThreaded.Load()
 	out.RDNSIn.NewWireGuard = settings.ExperimentalWireGuard.Load()
+	out.RDNSIn.HappyEyeballs = settings.HappyEyeballs.Load()
+	out.RDNSIn.EIMEIF = boolstr(settings.EndpointIndependentMapping.Load(), settings.EndpointIndependentFiltering.Load())
+	out.RDNSIn.OwnTunFd = settings.OwnTunFd.Load()
+	out.RDNSIn.PortForward = settings.PortForward.Load()
 	out.RDNSIn.Transparency = settings.EndpointIndependentFiltering.Load()
 	out.RDNSIn.PanicTest = settings.PanicAtRandom.Load()
 	out.RDNSIn.SetUserAgent = settings.SetUserAgent.Load()
@@ -525,4 +529,19 @@ func (t *rtunnel) SetPcap(fpcap string) error {
 func (t *rtunnel) Unlink() error {
 	tunnel := t.t.Load()
 	return tunnel.Unlink()
+}
+
+func boolstr(b ...bool) string {
+	var sb strings.Builder
+	for i, v := range b {
+		if i > 0 {
+			sb.WriteString(", ")
+		}
+		if v {
+			sb.WriteString("y")
+		} else {
+			sb.WriteString("n")
+		}
+	}
+	return sb.String()
 }

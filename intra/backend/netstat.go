@@ -153,9 +153,13 @@ type RDNSInfo struct {
 	Slowdown                bool
 	NewWireGuard            bool
 	Transparency            bool
+	HappyEyeballs           bool
 	PanicTest               bool
 	SystemDNSForUndelegated bool
 	SetUserAgent            bool
+	OwnTunFd                bool
+	PortForward             bool
+	EIMEIF                  string
 
 	Dialer4    bool
 	Dialer6    bool
