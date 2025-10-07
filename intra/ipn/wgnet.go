@@ -50,10 +50,6 @@ var _ core.UDPConn = (*gonet.UDPConn)(nil)
 // dns dialer
 // --------------------------------------------------------------------
 
-func (net *wgtun) LookupHost(host string) (addrs []netip.Addr, err error) {
-	return net.LookupContextHost(context.Background(), host)
-}
-
 func (tnet *wgtun) LookupContextHost(ctx context.Context, host string) ([]netip.Addr, error) {
 	if len(host) <= 0 || (!tnet.hasV6.Load() && !tnet.hasV4.Load()) {
 		return nil, &net.DNSError{Err: errNoSuchHost.Error(), Name: host, IsNotFound: true}
@@ -84,11 +80,11 @@ func (tnet *wgtun) LookupContextHost(ctx context.Context, host string) ([]netip.
 // generic dialer
 // --------------------------------------------------------------------
 
-func (tnet *wgtun) DialContext(_ context.Context, network, address string) (net.Conn, error) {
-	return tnet.dial(network, "", address)
+func (tnet *wgtun) DialContext(ctx context.Context, network, address string) (net.Conn, error) {
+	return tnet.dial(ctx, network, "", address)
 }
 
-func (tnet *wgtun) dial(network, local, remote string) (net.Conn, error) {
+func (tnet *wgtun) dial(ctx context.Context, network, local, remote string) (net.Conn, error) {
 	var acceptV4, acceptV6 bool
 	switch network {
 	case "tcp", "udp", "ping":
@@ -123,7 +119,7 @@ func (tnet *wgtun) dial(network, local, remote string) (net.Conn, error) {
 	}
 
 	// allAddrs may be nil but shouldn't be when reserr is not nil
-	allAddrs, reserr := tnet.LookupHost(host)
+	allAddrs, reserr := tnet.LookupContextHost(ctx, host)
 	if reserr != nil {
 		log.W("wg: %s dial: lookup failed %q: %v", tnet.id, host, reserr)
 		return nil, &net.OpError{Op: "dial", Err: reserr}
@@ -157,7 +153,7 @@ func (tnet *wgtun) dial(network, local, remote string) (net.Conn, error) {
 		var err error
 		switch network {
 		case "tcp", "tcp4", "tcp6":
-			c, err = tnet.DialTCPAddrPort(laddr, raddr)
+			c, err = tnet.DialTCPAddrPort(ctx, laddr, raddr)
 		case "udp", "udp4", "udp6":
 			c, err = tnet.DialUDPAddrPort(laddr, raddr)
 		case "ping", "ping4", "ping6":
@@ -210,10 +206,9 @@ func (tnet *wgtun) DialContextTCPAddrPort(ctx context.Context, addr netip.AddrPo
 	return nil, errInvalidAddr
 }
 
-func (tnet *wgtun) DialTCPAddrPort(laddr, raddr netip.AddrPort) (*gonet.TCPConn, error) {
+func (tnet *wgtun) DialTCPAddrPort(ctx context.Context, laddr, raddr netip.AddrPort) (*gonet.TCPConn, error) {
 	remote, protocol, _ := fullAddrFrom("tcp:remote", raddr) // prefer "proto" from remote
 	local, _, _ := fullAddrFrom("tcp:local", laddr)
-	ctx := context.Background()
 	// return gonet.DialTCP(tnet.stack, remote, protocol)
 	return gonet.DialTCPWithBind(
 		ctx,
