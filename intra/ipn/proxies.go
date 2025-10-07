@@ -1008,8 +1008,8 @@ func (px *proxifier) RefreshProto(l3 string, mtu int, force bool) {
 	defer px.Unlock()
 
 	if !force && px.lp.l3 == l3 && px.lp.mtu == mtu {
-		log.D("proxy: refreshProto (%s == %s & %d == %d) unchanged",
-			px.lp.l3, l3, px.lp.mtu, mtu)
+		log.D("proxy: refreshProto (forced? %t): (%s == %s & %d == %d) unchanged",
+			force, px.lp.l3, l3, px.lp.mtu, mtu)
 		return
 	}
 
@@ -1027,8 +1027,8 @@ func (px *proxifier) RefreshProto(l3 string, mtu int, force bool) {
 				// px.addProxy -> px.add -> px.Lock() -> deadlock
 				_, err := px.addProxy(id, cfg)
 				// TODO: preserve hop?
-				log.I("proxy: refreshProto (%s/%s/%s) re-add; err? %v",
-					id, curp.Type(), curp.GetAddr(), err)
+				log.I("proxy: refreshProto (forced? %t): (%s/%s/%s) re-add; err? %v",
+					force, id, curp.Type(), curp.GetAddr(), err)
 			}
 		})
 	}
