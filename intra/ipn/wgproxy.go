@@ -1448,12 +1448,15 @@ func (h *wgtun) serve(network, local string) (pc net.PacketConn, err error) {
 	if !usingvia {
 		// wgproxy.Refresh() is not needed since serve is called
 		// at the time of wgproxy.Device.Up() anyway.
-		if removeViaOnErrors {
-			// todo: call h.Hop(nil) instead?
-			h.swapVia(nil) // stale; unset
+		if hasvia {
+			log.W("wg: %s via(%s) failing... %v", h.id, idhandle(v), err)
+			if removeViaOnErrors {
+				// todo: call h.Hop(nil) instead?
+				h.swapVia(nil) // stale; unset
+			}
 		}
-		log.W("wg: %s via(%s) failing... %v", h.id, idhandle(v), err)
 	}
+
 	h.viaUp.Store(usingvia)
 	defer h.listener(wg.Opn, err)
 
