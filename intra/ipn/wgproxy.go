@@ -739,7 +739,8 @@ func (t *wgtun) setupReverserIfNeeded() {
 	id := t.id
 	rev := t.rev.Load()
 
-	if rev != nil && settings.ExperimentalWireGuard.Load() {
+	setRev := settings.ExperimentalWireGuard.Load()
+	if rev != nil && setRev {
 		// inbound (aka reverse outbound)
 		netstack.OutboundTCP(id, s, rev.TCP())
 		netstack.OutboundUDP(id, s, rev.UDP())
@@ -747,7 +748,7 @@ func (t *wgtun) setupReverserIfNeeded() {
 		return
 	} // do not use reverser
 
-	log.W("proxy: wg: %s remove rev %X", id, rev)
+	logeif(setRev)("proxy: wg: %s remove rev; must set?", id, setRev)
 
 	netstack.OutboundTCP(id, s, nil) // unset
 	netstack.OutboundUDP(id, s, nil) // unset
@@ -803,12 +804,12 @@ func (w *wgtun) viaStatus() (s string) {
 }
 
 func (t *wgtun) maybeSpoof() {
-	if settings.ExperimentalWireGuard.Load() {
-		// github.com/xjasonlyu/tun2socks/blob/31468620e/core/stack.go#L80
-		_ = t.stack.SetSpoofing(wgnic, true)
-		// github.com/tailscale/tailscale/blob/c4d0237e5c/wgengine/netstack/netstack.go#L345-L350
-		_ = t.stack.SetPromiscuousMode(wgnic, true)
-	}
+	spoof := settings.ExperimentalWireGuard.Load()
+	log.I("proxy: wg: %s spoofing? %t", t.id, spoof)
+	// github.com/xjasonlyu/tun2socks/blob/31468620e/core/stack.go#L80
+	_ = t.stack.SetSpoofing(wgnic, spoof)
+	// github.com/tailscale/tailscale/blob/c4d0237e5c/wgengine/netstack/netstack.go#L345-L350
+	_ = t.stack.SetPromiscuousMode(wgnic, spoof)
 }
 
 // ref: github.com/WireGuard/wireguard-go/blob/469159ecf7/tun/netstack/tun.go#L54
@@ -882,7 +883,7 @@ func makeWgTun(id, cfg string, ctl protect.Controller, px ProxyProvider, lp Link
 
 	settings.ExperimentalWireGuard.On(ctx, func() {
 		t.maybeSpoof()
-		t.setupReverserIfNeeded() // rev may be nil
+		t.setupReverserIfNeeded()
 	})
 
 	if err := t.setRoutes(ifopts.ifaddrs); err != nil {
