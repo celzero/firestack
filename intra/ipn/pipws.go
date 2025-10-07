@@ -23,7 +23,7 @@ import (
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
 	"github.com/celzero/firestack/intra/settings"
-	"nhooyr.io/websocket"
+	"github.com/coder/websocket"
 )
 
 const (

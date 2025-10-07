@@ -15,6 +15,7 @@ require (
 require (
 	github.com/Snawoot/opera-proxy v1.5.0
 	github.com/cloudflare/odoh-go v1.0.0
+	github.com/coder/websocket v1.8.14
 	github.com/crazy-max/xgo v0.31.0
 	github.com/elazarl/goproxy v0.0.0-20230808193330-2592e75ae04a
 	github.com/noql-net/certpool v0.0.0-20240719060413-a5ed62ecc62a
@@ -25,7 +26,6 @@ require (
 	golang.org/x/net v0.40.0
 	golang.zx2c4.com/wireguard v0.0.0-20250521234502-f333402bd9cb
 	gvisor.dev/gvisor v0.0.0-20250816201027-ba3b9ca85f20
-	nhooyr.io/websocket v1.8.7
 )
 
 require (
