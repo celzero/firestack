@@ -32,14 +32,15 @@ func addIPMapper(ctx context.Context, r dnsx.Resolver, protos string) {
 }
 
 // AddDNSProxy creates and adds a DNS53 transport to the tunnel's resolver.
-func AddDNSProxy(t Tunnel, id, ip, port *x.Gostr) error {
+func AddDNSProxy(t Tunnel, id, ippcsv *x.Gostr) error {
 	p, perr := t.internalProxies()
 	r, rerr := t.internalResolver()
 	if rerr != nil || perr != nil {
 		return core.JoinErr(rerr, perr)
 	}
 	ctx := t.internalCtx()
-	if dns, err := dns53.NewTransport(ctx, id.V(), ip.V(), port.V(), p); err != nil {
+	specialHostname := protect.HostlessPrefix + id.V()
+	if dns, err := dns53.NewTransportFromHostname(ctx, id.V(), specialHostname, ippcsv.V(), p); err != nil {
 		return err
 	} else {
 		return addDNSTransport(r, dns)

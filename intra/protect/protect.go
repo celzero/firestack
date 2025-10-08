@@ -27,6 +27,7 @@ import (
 	"context"
 	"net"
 	"net/netip"
+	"strings"
 	"syscall"
 	"time"
 
@@ -41,14 +42,19 @@ const (
 	UidSystem = b.UidSystem
 	Localhost = b.Localhost
 
+	// hostless is a special placeholder prefix for dns53 transport that
+	// has multiple IP:port addresses and is "protected" (never resolved nor
+	// cleaned up on refresh, but only "updated").
+	HostlessPrefix = "hostless."
+
 	// When advertised routes are actually null routed (no reply)
 	// this timeout will help short circuit dial attempts on it.
 	defaultConnectTimeout = 10 * time.Second
 )
 
-// never resolve system/default resolver; expected to have seeded ips
+// never resolve system/default/"hostless" resolver; expected to have seeded ips
 func NeverResolve(hostname string) bool {
-	return hostname == UidSelf || hostname == UidSystem
+	return hostname == UidSelf || hostname == UidSystem || strings.HasPrefix(hostname, HostlessPrefix)
 }
 
 type Controller = b.Controller

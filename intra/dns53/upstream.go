@@ -48,7 +48,7 @@ type transport struct {
 
 	id string
 
-	addrport string // hostname, ip:port, protect.UidSelf:53, protect.System:53
+	addrport string // hostname, ip:port, protect.UidSelf:53, protect.System:53, protect.HostlessXYZ:53
 	port     uint16
 
 	client  *dns.Client
@@ -166,6 +166,8 @@ func (t *transport) pxdial(network, pid string) (*dns.Conn, string, uintptr, err
 			t.id, network, px.ID(), px.GetAddr())
 	}
 
+	// t.addrport may be hostless / system / self but we expect the
+	// proxies to be able to handle these from ipmapper, as expected.
 	pxconn, err := px.Dialer().Dial(network, t.addrport)
 	if err != nil {
 		clos(pxconn)
