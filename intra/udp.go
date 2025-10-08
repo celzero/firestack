@@ -172,8 +172,8 @@ func (h *udpHandler) proxy(gconn *netstack.GUDPConn, src, dst netip.AddrPort, dm
 	if err != nil {
 		clos(gconn, remote) // teardown
 		// smm may be nil; in which case this is a no-op
-		h.queueSummary(smm.done(err))
-		return false // not ok
+		h.queueSummary(smm.done(err)) // no-op if smm is nil
+		return false                  // not ok
 	} else if remote == nil || smm == nil { // dnsOverride or ipn.Block
 		// do not close gconn here; it is either
 		// connected (overridden) or disconnected (blocked) already
@@ -260,8 +260,8 @@ func (h *udpHandler) Connect(gconn *netstack.GUDPConn, src, target netip.AddrPor
 	// as seen (with Flow) is owned by Rethink, then expect the conn
 	// to be marked ipn.Base for queries sent to tunnel's fake DNS addr
 	// and ipn.Exit for anywhere else.
-	if isAnyBasePid(pids) {
-		if h.dnsOverride(gconn, target, uid) {
+	if isAnyBasePid(pids) && h.isDNS(target) {
+		if h.dnsOverride(gconn, uid) {
 			// SocketSummary is not sent to listener; x.DNSSummary is
 			return nil, nil, nil // connect override, no dst
 		} // else: not a dns query or target is not a dns addr

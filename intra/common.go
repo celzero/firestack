@@ -407,17 +407,18 @@ func (h *baseHandler) stall(flowid string) (secs uint32) {
 	return
 }
 
-func (h *baseHandler) dnsOverride(conn net.Conn, addr netip.AddrPort, uid string) bool {
+func (h *baseHandler) isDNS(addr netip.AddrPort) bool {
+	return addr.IsValid() && h.resolver.IsDnsAddr(addr)
+}
+
+func (h *baseHandler) dnsOverride(conn net.Conn, uid string) bool {
 	// addr with zone information removed; see: netip.ParseAddrPort which h.resolver relies on
 	// addr2 := &net.TCPAddr{IP: addr.IP, Port: addr.Port}
-	if addr.IsValid() && h.resolver.IsDnsAddr(addr) {
-		// conn closed by the resolver
-		core.Gx(h.proto+".dns", func() {
-			h.resolver.Serve(h.proto, conn, uid)
-		})
-		return true
-	}
-	return false
+	// conn closed by the resolver
+	core.Gx(h.proto+".dns", func() {
+		h.resolver.Serve(h.proto, conn, uid)
+	})
+	return true
 }
 
 // End implements netstack.GBaseConnHandler

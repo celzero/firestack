@@ -157,8 +157,8 @@ func (h *tcpHandler) handshakeIfNeededOrClose(gconn *netstack.GTCPConn, smm *Soc
 	if _, err := gconn.Establish(); err != nil {
 		err = log.EE("tcp: %s handshake err %v; %s => %s for %s",
 			smm.ID, err, smm.Source, smm.Target, smm.UID)
-		clos(gconn)
-		h.queueSummary(smm.done(err))
+		// clos(gconn)
+		// h.queueSummary(smm.done(err))
 		return deny, err // == !open
 	}
 	return allow, nil
@@ -221,8 +221,22 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target netip.AddrPort)
 		return deny
 	}
 
-	if isAnyBasePid(pids) { // see udp.go:Connect
-		if synack, _ := h.handshakeIfNeededOrClose(gconn, smm); synack && h.dnsOverride(gconn, target, uid) {
+	isTarget6 := target.Addr().Is6()
+	happyeyeballs := settings.HappyEyeballs.Load()
+	delayForHappyEyeballs := happyeyeballs && isTarget6
+
+	if isAnyBasePid(pids) && h.isDNS(target) { // see udp.go:Connect
+		synack, synackerr := h.handshakeIfNeededOrClose(gconn, smm)
+		if !synack {
+			// if IPv6, stall a bit more so apps doing HappyEyeballs will try IPv4
+			if delayForHappyEyeballs {
+				time.Sleep(400 * time.Millisecond)
+			}
+			clos(gconn)
+			h.queueSummary(smm.done(synackerr))
+			return deny
+		}
+		if h.dnsOverride(gconn, uid) {
 			// SocketSummary not sent; x.DNSSummary supercedes it
 			// conn closed by resolver
 			return allow
@@ -234,9 +248,6 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target netip.AddrPort)
 			cid, src, target, actualTargets, excluded, uid, pids)
 	}
 
-	isTarget6 := target.Addr().Is6()
-	happyeyeballs := settings.HappyEyeballs.Load()
-	delayForHappyEyeballs := happyeyeballs && isTarget6
 	cont := true
 	boundSrc := makeAnyAddrPort(src)
 	// pick all realips to connect to
@@ -270,11 +281,11 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target netip.AddrPort)
 		}
 	}
 
-	h.queueSummary(smm.done(err))
 	// if IPv6, stall a bit more so apps doing HappyEyeballs will try IPv4
 	if delayForHappyEyeballs {
 		time.Sleep(400 * time.Millisecond)
 	}
+	h.queueSummary(smm.done(err))
 	clos(gconn) // denied
 	return deny
 }
