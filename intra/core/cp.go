@@ -30,9 +30,9 @@ func Pipe(dst io.Writer, src io.Reader) (int64, error) {
 	// Retrier conns have specific entry-points; make sure those
 	// get priority over regular copy.
 	if x, ok := src.(WriteRetrierConn); ok {
-		x.WriteTo(dst)
+		return x.WriteTo(dst)
 	} else if x, ok := dst.(ReadRetrierConn); ok {
-		x.ReadFrom(src)
+		return x.ReadFrom(src)
 	}
 
 	// Prefer WriteTo/ReadFrom if available as they are zero-copy.
