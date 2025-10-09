@@ -146,8 +146,9 @@ type UDPStat struct {
 }
 
 type RDNSInfo struct {
-	Open  bool
-	Debug bool
+	Open      bool
+	Debug     bool
+	Recording bool
 
 	Looping                 bool
 	Slowdown                bool

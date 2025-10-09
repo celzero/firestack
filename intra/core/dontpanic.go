@@ -70,6 +70,10 @@ func RecoverFn(aux string, fn Finally) (didpanic bool) {
 	return didpanic
 }
 
+func Recording() bool {
+	return recorder.Enabled()
+}
+
 func Record(start bool) (recording bool, err error) {
 	recording = recorder.Enabled()
 	if start {

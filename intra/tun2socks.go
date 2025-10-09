@@ -122,7 +122,7 @@ func LogLevel(gologLevel, consolelogLevel int32) {
 
 // FlightRecorder starts Go runtime's flight recorder if y is true,
 // and stops it if y is false. The contents of the flight recorder
-// (limited to 15s) is written to log.Console on panics.
+// (limited to 15s) is written to log.Console on panics. Thread-safe.
 func FlightRecorder(y bool) (bool, error) {
 	return core.Record(y)
 }
@@ -209,13 +209,13 @@ func PrintStack(onConsole bool) {
 
 // PrintFlightRecord dumps the contents of the flight recorder
 // to stdout if onConsole is false, otherwise to Console.
-// For testing only.
+// For testing only. Thread-safe.
 func PrintFlightRecord(onConsole bool) (logged bool) {
 	return core.DumpRecorder(onConsole)
 }
 
-// PanicAtRandom instruct portions under test of the network engine
-// to panic at random.
+// PanicAtRandom instructs portions under test to panic at random.
+// For testing only.
 func PanicAtRandom(y bool) {
 	settings.PanicAtRandom.Store(y)
 	log.I("tun: panic at random? %t", y)

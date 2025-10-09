@@ -410,6 +410,7 @@ func (t *rtunnel) stat() (*x.NetStat, error) {
 	// rdns info
 	out.RDNSIn.Open = !t.closed.Load()
 	out.RDNSIn.Debug = settings.Debug
+	out.RDNSIn.Recording = core.Recording()
 	out.RDNSIn.Looping = settings.Loopingback.Load()
 	out.RDNSIn.Slowdown = settings.SingleThreaded.Load()
 	out.RDNSIn.NewWireGuard = settings.ExperimentalWireGuard.Load()
