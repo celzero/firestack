@@ -11,12 +11,14 @@ import (
 	"sync"
 )
 
-type FlowOn struct {
+type FlowFunc[T any] func(v T)
+
+type FlowOn[T any] struct {
 	ctx context.Context
-	f   *Finally
+	f   *FlowFunc[T]
 }
 
-func (f FlowOn) flow() (flowed bool) {
+func (f FlowOn[T]) flow(v T) (flowed bool) {
 	on := f.f
 	if on == nil {
 		return false
@@ -24,7 +26,7 @@ func (f FlowOn) flow() (flowed bool) {
 	select {
 	case <-f.ctx.Done():
 	default:
-		(*on)()
+		(*on)(v)
 		return true
 	}
 	return false
@@ -34,10 +36,10 @@ type Flow[T any] struct {
 	ctx context.Context
 
 	v *Volatile[T]
-	c chan struct{}
+	c chan T
 
 	fmu sync.RWMutex
-	o   []FlowOn
+	o   []FlowOn[T]
 }
 
 func NewForeverFlow[T any](v T) *Flow[T] {
@@ -51,8 +53,8 @@ func NewFlowFor[T any](ctx context.Context, v *Volatile[T]) *Flow[T] {
 
 	f := &Flow[T]{
 		v:   v,
-		o:   make([]FlowOn, 0),
-		c:   make(chan struct{}),
+		o:   make([]FlowOn[T], 0),
+		c:   make(chan T),
 		ctx: ctx,
 	}
 	go f.stream()
@@ -65,11 +67,11 @@ func (f *Flow[T]) stream() {
 		select {
 		case <-f.ctx.Done():
 			return
-		case <-f.c:
+		case v := <-f.c:
 			go func() {
-				notflowing := make(map[FlowOn]struct{}, 0)
+				notflowing := make(map[FlowOn[T]]struct{}, 0)
 				for _, o := range f.observers() {
-					if ok := o.flow(); !ok {
+					if ok := o.flow(v); !ok {
 						notflowing[o] = struct{}{}
 					}
 				}
@@ -79,7 +81,7 @@ func (f *Flow[T]) stream() {
 	}
 }
 
-func (f *Flow[T]) removeFinallys(obsolete map[FlowOn]struct{}) {
+func (f *Flow[T]) removeFinallys(obsolete map[FlowOn[T]]struct{}) {
 	obssz := len(obsolete)
 	if obssz <= 0 {
 		return
@@ -93,7 +95,7 @@ func (f *Flow[T]) removeFinallys(obsolete map[FlowOn]struct{}) {
 		return
 	}
 
-	flowing := make([]FlowOn, 0, cursz)
+	flowing := make([]FlowOn[T], 0, cursz)
 	for _, o := range f.o {
 		if _, ok := obsolete[o]; ok {
 			continue
@@ -103,13 +105,13 @@ func (f *Flow[T]) removeFinallys(obsolete map[FlowOn]struct{}) {
 	f.o = flowing
 }
 
-func (f *Flow[T]) observers() []FlowOn {
+func (f *Flow[T]) observers() []FlowOn[T] {
 	f.fmu.RLock()
 	defer f.fmu.RUnlock()
 	return slices.Clone(f.o)
 }
 
-func (f *Flow[T]) pub() {
+func (f *Flow[T]) pub(v T) {
 	select {
 	case <-f.ctx.Done():
 		return
@@ -117,23 +119,23 @@ func (f *Flow[T]) pub() {
 		select {
 		case <-f.ctx.Done():
 			return
-		case f.c <- struct{}{}: // f.c never closed
+		case f.c <- v: // f.c never closed
 		}
 	}
 }
 
 // On (is a hot flow) which immediately calls o (in a separate goroutine)
 // and later calls o on changes to the underlying Volatile variable.
-func (f *Flow[T]) On(until context.Context, o Finally) {
+func (f *Flow[T]) On(until context.Context, o FlowFunc[T]) {
 	f.fmu.Lock()
 	defer f.fmu.Unlock()
-	on := FlowOn{until, &o}
+	on := FlowOn[T]{until, &o}
 	f.o = append(f.o, on)
-	go on.flow()
+	go on.flow(f.v.Load())
 }
 
 func (f *Flow[T]) Store(v T) {
-	defer f.pub()
+	defer f.pub(v)
 	f.v.Store(v)
 }
 
@@ -142,14 +144,14 @@ func (f *Flow[T]) Load() T {
 }
 
 func (f *Flow[T]) Swap(new T) (old T) {
-	defer f.pub()
+	defer f.pub(new)
 	return f.v.Swap(new)
 }
 
 func (f *Flow[T]) Tango(new T) (old T) {
 	defer func() {
 		if !LocEq(new, old) {
-			f.pub()
+			f.pub(new)
 		}
 	}()
 
@@ -163,7 +165,7 @@ func (f *Flow[T]) CompareAndSwap(old, new T) bool {
 func (f *Flow[T]) Cas(old, new T) (success bool) {
 	defer func() {
 		if success {
-			f.pub()
+			f.pub(new)
 		}
 	}()
 

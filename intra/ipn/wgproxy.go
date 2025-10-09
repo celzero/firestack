@@ -236,9 +236,10 @@ func (h *wgproxy) GetAddr() *x.Gostr {
 func (w *wgproxy) OnProtoChange(lp LinkProps) (string, bool) {
 	oldmtu := w.netmtu.Swap(uint32(lp.mtu))
 	oldrev := w.rev.Tango(lp.rev)
-	w.setupReverserIfNeeded()
-	log.V("proxy: wg: %s; lp changed; l3: %s, mtu %d=>%d, rev %X => %X",
-		w.id, lp.l3, lp.mtu, oldmtu, oldrev, lp.rev)
+	setRev := settings.ExperimentalWireGuard.Load()
+	w.setupReverserIfNeeded(setRev)
+	log.V("proxy: wg: %s; lp changed; setReverser? %t, l3: %s, mtu %d=>%d, rev %X => %X",
+		w.id, setRev, lp.l3, lp.mtu, oldmtu, oldrev, lp.rev)
 	if err := w.Refresh(); err != nil {
 		log.W("proxy: wg: %s; lp changed; err: %v", w.id, err)
 		// TODO: return w.cfg, true
@@ -734,24 +735,24 @@ func newdevice(wgtun *wgtun, wgep wgconn, uapicfg string) (*device.Device, error
 	return wgdev, nil
 }
 
-func (t *wgtun) setupReverserIfNeeded() {
+func (t *wgtun) setupReverserIfNeeded(set bool) (didSet bool) {
 	s := t.stack
 	id := t.id
 	rev := t.rev.Load()
 
-	setRev := settings.ExperimentalWireGuard.Load()
-	if rev != nil && setRev {
+	if rev != nil && set {
 		// inbound (aka reverse outbound)
 		netstack.OutboundTCP(id, s, rev.TCP())
 		netstack.OutboundUDP(id, s, rev.UDP())
 		log.I("proxy: wg: %s rev @ %X enabled", id, rev)
-		return
+		return true
 	} // do not use reverser
 
-	logeif(setRev)("proxy: wg: %s remove rev; must set?", id, setRev)
+	logeif(set)("proxy: wg: %s remove rev; must set?", id, set)
 
 	netstack.OutboundTCP(id, s, nil) // unset
 	netstack.OutboundUDP(id, s, nil) // unset
+	return false
 }
 
 func (w *wgtun) swapVia(new Proxy) (old Proxy) {
@@ -803,8 +804,7 @@ func (w *wgtun) viaStatus() (s string) {
 	return s
 }
 
-func (t *wgtun) maybeSpoof() {
-	spoof := settings.ExperimentalWireGuard.Load()
+func (t *wgtun) maybeSpoof(spoof bool) {
 	log.I("proxy: wg: %s spoofing? %t", t.id, spoof)
 	// github.com/xjasonlyu/tun2socks/blob/31468620e/core/stack.go#L80
 	_ = t.stack.SetSpoofing(wgnic, spoof)
@@ -885,9 +885,9 @@ func makeWgTun(id, cfg string, ctl protect.Controller, px ProxyProvider, lp Link
 		return nil, fmt.Errorf("wg: %s create nic: %v", t.id, err)
 	}
 
-	settings.ExperimentalWireGuard.On(ctx, func() {
-		t.maybeSpoof()
-		t.setupReverserIfNeeded()
+	settings.ExperimentalWireGuard.On(ctx, func(yn bool) {
+		t.maybeSpoof(yn)
+		t.setupReverserIfNeeded(yn)
 	})
 
 	if err := t.setRoutes(ifopts.ifaddrs); err != nil {
