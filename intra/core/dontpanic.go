@@ -65,7 +65,7 @@ func RecoverFn(aux string, fn Finally) (didpanic bool) {
 	msg := fmt.Sprintf("%s [%d] %v\n", aux, DontExit, recovered)
 	log.E2(parentCallerDepthAt+1, msg)
 
-	runtimelog()
+	recorderToConsole()
 	applog(DontExit, msg)
 	return didpanic
 }
@@ -86,8 +86,12 @@ func Record(start bool) (recording bool, err error) {
 	return
 }
 
+func recorderToConsole() (logged bool) {
+	return DumpRecorder(true /* onConsole */)
+}
+
 // Logs Cmsg using recoder.WriteTo
-func runtimelog() (logged bool) {
+func DumpRecorder(onConsole bool) (logged bool) {
 	if !recorder.Enabled() {
 		return
 	}
@@ -104,10 +108,14 @@ func runtimelog() (logged bool) {
 	}()
 
 	r := bytes.NewBuffer(lob)
-	n, err := recorder.WriteTo(r)
+	n, _ := recorder.WriteTo(r)
 
 	if logged = n > 0; logged {
-		log.Cmsg("%s\n%v", r.String(), err)
+		if onConsole {
+			log.Cmsg(r.String())
+		} else {
+			log.TALL(r.String(), nil /* no-stacktrace*/)
+		}
 	}
 
 	return
@@ -125,7 +133,7 @@ func Recover(code ExitCode, aux any) (didpanic bool) {
 	msg := fmt.Sprintf("%s [%d] %v [%s]\n", aux, code, recovered, stamp())
 	log.E2(parentCallerDepthAt, msg)
 
-	runtimelog()
+	recorderToConsole()
 	applog(code, msg)
 	return didpanic
 }

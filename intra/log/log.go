@@ -190,7 +190,7 @@ func T(msg string, args ...any) {
 // TALL logs the stack trace of all active goroutines.
 func TALL(msg string, atleast64k []byte) {
 	E2(callerat, "----START----")
-	Glogger.Stack(callerat, msg, atleast64k)
+	Glogger.Stack(callerat, msg, atleast64k /*may be nil*/)
 	E2(callerat, "----STOPP----")
 }
 

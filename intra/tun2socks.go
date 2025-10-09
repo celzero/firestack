@@ -116,10 +116,15 @@ func LogLevel(gologLevel, consolelogLevel int32) {
 		debug.SetTraceback(one.s())
 	}
 
-	recording, recerr := core.Record(dbg)
+	log.I("tun: new levels; golog: %d, consolelog: %d; debug? %t",
+		dlvl, clvl, dbg)
+}
 
-	log.I("tun: new levels; golog: %d, consolelog: %d; debug? %t, recording? %t, recorder error: %v",
-		dlvl, clvl, dbg, recording, recerr)
+// FlightRecorder starts Go runtime's flight recorder if y is true,
+// and stops it if y is false. The contents of the flight recorder
+// (limited to 15s) is written to log.Console on panics.
+func FlightRecorder(y bool) (bool, error) {
+	return core.Record(y)
 }
 
 // LowMem triggers garbage collection cycle & allows for
@@ -200,6 +205,13 @@ func PrintStack(onConsole bool) {
 	} else {
 		log.TALL("tun: debug trace (not a crash)", b)
 	}
+}
+
+// PrintFlightRecord dumps the contents of the flight recorder
+// to stdout if onConsole is false, otherwise to Console.
+// For testing only.
+func PrintFlightRecord(onConsole bool) (logged bool) {
+	return core.DumpRecorder(onConsole)
 }
 
 // PanicAtRandom instruct portions under test of the network engine

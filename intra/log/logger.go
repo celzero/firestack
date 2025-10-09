@@ -34,6 +34,7 @@ package log
 import (
 	"context"
 	"fmt"
+	"hash/fnv"
 	golog "log"
 	"os"
 	"reflect"
@@ -73,7 +74,7 @@ type simpleLogger struct {
 	cskips atomic.Uint32 // number of dropped console msgs
 
 	stmu    sync.Mutex        // guards stcount
-	stcount map[string]uint32 // stack trace counter for identical traces
+	stcount map[uint64]uint32 // stack trace counter for identical traces
 
 	o *golog.Logger
 	e *golog.Logger
@@ -241,7 +242,7 @@ func defaultLogger() *simpleLogger {
 		level:   defaultLevel,
 		clevel:  defaultClevel,
 		cmsgC:   make(chan *conMsg, consoleChSize),
-		stcount: make(map[string]uint32),
+		stcount: make(map[uint64]uint32),
 		// gomobile pipes stderr & stdout to logcat
 		// github.com/golang/mobile/blob/fa72addaaa/internal/mobileinit/mobileinit_android.go#L74-L92
 		e: golog.New(os.Stderr, "", defaultFlags),
@@ -291,12 +292,23 @@ func (l *simpleLogger) clearStCounts() {
 	clear(l.stcount)
 }
 
+// xor fold fnv to 48 bits: www.isthe.com/chongo/tech/comp/fnv
+func fhash(b []byte) uint64 {
+	h := fnv.New64a()
+	_, _ = h.Write(b)
+	return h.Sum64()
+}
+
 func (l *simpleLogger) incrStCount(id string) (c uint32) {
 	l.stmu.Lock()
 	defer l.stmu.Unlock()
 
-	c = l.stcount[id]
-	l.stcount[id]++
+	if len(id) > 500 {
+		id = id[:500]
+	}
+	loc := fhash([]byte(id))
+	c = l.stcount[loc]
+	l.stcount[loc]++
 	return c
 }
 
