@@ -162,7 +162,14 @@ func C(msg string, scratch []byte) {
 	E2(callerat, "----START----")
 	Glogger.Stack( /*console-only*/ 0, msg, scratch)
 	E2(callerat, "----STOPP----")
+}
 
+// Cmsg log msg to Console.
+func Cmsg(msg string, args ...any) {
+	if len(args) > 0 {
+		msg = fmt.Sprintf(msg, args...)
+	}
+	Glogger.Stack( /*console-only*/ 0, msg, nil /*no-stacktrace*/)
 }
 
 // U logs a user message (notifies the user).
@@ -181,9 +188,9 @@ func T(msg string, args ...any) {
 }
 
 // TALL logs the stack trace of all active goroutines.
-func TALL(msg string, scratch64k []byte) {
+func TALL(msg string, atleast64k []byte) {
 	E2(callerat, "----START----")
-	Glogger.Stack(callerat, msg, scratch64k)
+	Glogger.Stack(callerat, msg, atleast64k)
 	E2(callerat, "----STOPP----")
 }
 

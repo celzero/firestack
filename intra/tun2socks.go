@@ -108,13 +108,18 @@ func LogLevel(gologLevel, consolelogLevel int32) {
 	clvl := log.LevelOf(consolelogLevel)
 	log.SetLevel(dlvl)
 	log.SetConsoleLevel(clvl)
-	settings.Debug = dlvl <= log.DEBUG || clvl <= log.DEBUG
+	dbg := dlvl <= log.DEBUG || clvl <= log.DEBUG
+	settings.Debug = dbg
 	if settings.Debug {
 		debug.SetTraceback(usr.s())
 	} else {
 		debug.SetTraceback(one.s())
 	}
-	log.I("tun: new levels; golog: %d, consolelog: %d", dlvl, clvl)
+
+	recording, recerr := core.Record(dbg)
+
+	log.I("tun: new levels; golog: %d, consolelog: %d; debug? %t, recording? %t, recorder error: %v",
+		dlvl, clvl, dbg, recording, recerr)
 }
 
 // LowMem triggers garbage collection cycle & allows for

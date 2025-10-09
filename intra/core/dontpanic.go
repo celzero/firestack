@@ -8,9 +8,12 @@
 package core
 
 import (
+	"bytes"
 	"fmt"
 	"os"
+	"runtime/trace"
 	"sync"
+	"time"
 
 	"github.com/celzero/firestack/intra/log"
 )
@@ -38,7 +41,14 @@ const DontExit ExitCode = 0
 // is able to print the panic message and exit the process.
 var _pmu sync.RWMutex
 
+// protects recorder.WriteTo.
+var _rmu sync.Mutex
+
 var parentCallerDepthAt = 1
+
+var recorder *trace.FlightRecorder = trace.NewFlightRecorder(trace.FlightRecorderConfig{
+	MinAge: 10 * time.Second,
+})
 
 // fn is called in a separate goroutine, if a panic is recovered.
 // RecoverFn must be called as a defered function, and must be the first
@@ -55,8 +65,52 @@ func RecoverFn(aux string, fn Finally) (didpanic bool) {
 	msg := fmt.Sprintf("%s [%d] %v\n", aux, DontExit, recovered)
 	log.E2(parentCallerDepthAt+1, msg)
 
-	trace(DontExit, msg)
+	runtimelog()
+	applog(DontExit, msg)
 	return didpanic
+}
+
+func Record(start bool) (recording bool, err error) {
+	recording = recorder.Enabled()
+	if start {
+		if !recording {
+			err = recorder.Start()
+			recording = err == nil
+		}
+	} else {
+		if recording {
+			go recorder.Stop()
+			recording = false
+		}
+	}
+	return
+}
+
+// Logs Cmsg using recoder.WriteTo
+func runtimelog() (logged bool) {
+	if !recorder.Enabled() {
+		return
+	}
+
+	_rmu.Lock()
+	defer _rmu.Unlock()
+
+	lobptr := LOB()
+	lob := *lobptr
+	lob = lob[:cap(lob)]
+	defer func() {
+		*lobptr = lob
+		Recycle(lobptr)
+	}()
+
+	r := bytes.NewBuffer(lob)
+	n, err := recorder.WriteTo(r)
+
+	if logged = n > 0; logged {
+		log.Cmsg("%s\n%v", r.String(), err)
+	}
+
+	return
 }
 
 // Recover must be called as a defered function, and must be the first
@@ -71,11 +125,12 @@ func Recover(code ExitCode, aux any) (didpanic bool) {
 	msg := fmt.Sprintf("%s [%d] %v [%s]\n", aux, code, recovered, stamp())
 	log.E2(parentCallerDepthAt, msg)
 
-	trace(code, msg)
+	runtimelog()
+	applog(code, msg)
 	return didpanic
 }
 
-func trace(code ExitCode, msg string) {
+func applog(code ExitCode, msg string) {
 	// have all managed goroutines checkin here, and prevent them from exiting
 	// if there's a panic in progress. While this can't lock the entire runtime
 	// to block progress, we can prevent some cases where firestack may return
