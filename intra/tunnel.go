@@ -536,7 +536,7 @@ func boolstr(b ...bool) string {
 	var sb strings.Builder
 	for i, v := range b {
 		if i > 0 {
-			sb.WriteString(", ")
+			sb.WriteString("; ")
 		}
 		if v {
 			sb.WriteString("y")
