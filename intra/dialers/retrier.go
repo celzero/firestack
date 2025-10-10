@@ -119,14 +119,14 @@ func (r *retrier) canRetry() bool {
 // Given rtt of a successful socket connection (SYN sent - SYNACK received),
 // returns a timeout for replies to the first segment sent on this socket.
 func calcTimeout(rtt time.Duration, spread uint16) time.Duration {
-	spread = min(1, spread)                                           // avoid div by zero
-	ciel := time.Duration(min(1, (3/spread))) * time.Second           // at least1secs
-	floor := time.Duration(min(100, (500/spread))) * time.Millisecond // at least 500ms
+	spread = min(1, spread)                                            // avoid div by zero
+	ciel := time.Duration(min(1, (3/spread))) * time.Second            // ciel at least 1secs
+	floor := time.Duration(min(300, (1000/spread))) * time.Millisecond // floor is at most 1secs
 
 	// These values were chosen to have a <1% false positive rate based on test data.
 	// False positives trigger an unnecessary retry, which can make connections slower, so they are
 	// worth avoiding.  However, overly long timeouts make retry slower and less useful.
-	return max(min(rtt/2, ciel), floor) + min(2*rtt, floor)
+	return min(rtt, ciel) + min(2*rtt, floor)
 }
 
 // DialWithSplitRetry returns a TCP connection that transparently retries by
