@@ -164,12 +164,12 @@ func C(msg string, scratch []byte) {
 	E2(callerat, "----STOPP----")
 }
 
-// Cmsg log msg to Console.
-func Cmsg(msg string, args ...any) {
+// R logs msg to as error to log if c is false, or to console otherwise.
+func R(c bool, msg string, args ...any) {
 	if len(args) > 0 {
 		msg = fmt.Sprintf(msg, args...)
 	}
-	Glogger.Stack( /*console-only*/ 0, msg, nil /*no-stacktrace*/)
+	Glogger.Trace(c, msg)
 }
 
 // U logs a user message (notifies the user).

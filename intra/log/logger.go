@@ -59,6 +59,7 @@ type Logger interface {
 	Warnf(at int, msg string, args ...any)
 	Errorf(at int, msg string, args ...any)
 	Fatalf(at int, msg string, args ...any)
+	Trace(c bool, t string)
 	Stack(at int, msg string, scratch []byte)
 }
 
@@ -435,6 +436,17 @@ func (l *simpleLogger) emitStack(at int, msgs ...string) {
 			l.cskips.Add(1)
 		}
 	}
+}
+
+func (l *simpleLogger) Trace(c bool, t string) {
+	if len(t) <= 0 {
+		return
+	}
+	at := callerat // emits to console
+	if !c {
+		at += nextframe // emits to stdout
+	}
+	l.emitStack(at, t)
 }
 
 func (l *simpleLogger) Stack(at int, msg string, scratch []byte) {

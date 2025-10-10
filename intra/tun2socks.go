@@ -208,10 +208,13 @@ func PrintStack(onConsole bool) {
 }
 
 // PrintFlightRecord dumps the contents of the flight recorder
-// to stdout if onConsole is false, otherwise to Console.
+// to Console if get is false, or returns the dumped bytes.
 // For testing only. Thread-safe.
-func PrintFlightRecord(onConsole bool) (logged bool) {
-	return core.DumpRecorder(onConsole)
+func PrintFlightRecord(get bool) []byte {
+	if got, b := core.DumpRecorder(!get /* onConsole */); get && got {
+		return b.Bytes()
+	}
+	return nil
 }
 
 // PanicAtRandom instructs portions under test to panic at random.

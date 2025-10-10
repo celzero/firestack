@@ -91,11 +91,13 @@ func Record(start bool) (recording bool, err error) {
 }
 
 func recorderToConsole() (logged bool) {
-	return DumpRecorder(true /* onConsole */)
+	logged, _ = DumpRecorder(true /* onConsole */)
+	return
 }
 
-// Logs Cmsg using recoder.WriteTo
-func DumpRecorder(onConsole bool) (logged bool) {
+// Logs flight recorder to console if onConsole is true.
+// The returned value b contains recorded bytes when got is true.
+func DumpRecorder(onConsole bool) (got bool, b bytes.Buffer) {
 	if !recorder.Enabled() {
 		return
 	}
@@ -103,26 +105,13 @@ func DumpRecorder(onConsole bool) (logged bool) {
 	_rmu.Lock()
 	defer _rmu.Unlock()
 
-	lobptr := LOB()
-	lob := *lobptr
-	lob = lob[:cap(lob)]
-	defer func() {
-		*lobptr = lob
-		Recycle(lobptr)
-	}()
+	n, _ := recorder.WriteTo(&b)
 
-	r := bytes.NewBuffer(lob)
-	n, _ := recorder.WriteTo(r)
-
-	if logged = n > 0; logged {
-		if onConsole {
-			log.Cmsg(r.String())
-		} else {
-			log.TALL(r.String(), nil /* no-stacktrace*/)
-		}
+	if got = n > 0; got && onConsole {
+		log.R( /*console*/ true, b.String())
 	}
 
-	return
+	return got, b
 }
 
 // Recover must be called as a defered function, and must be the first
