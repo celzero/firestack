@@ -35,6 +35,8 @@ import (
 	"github.com/celzero/firestack/intra/rnet"
 	"github.com/celzero/firestack/intra/settings"
 
+	_ "github.com/ianlancetaylor/cgosymbolizer"
+
 	"github.com/celzero/firestack/intra/log"
 )
 
@@ -123,6 +125,7 @@ func LogLevel(gologLevel, consolelogLevel int32) {
 // FlightRecorder starts Go runtime's flight recorder if y is true,
 // and stops it if y is false. The contents of the flight recorder
 // (limited to 15s) is written to log.Console on panics. Thread-safe.
+// go.dev/blog/flight-recorder
 func FlightRecorder(y bool) (bool, error) {
 	return core.Record(y)
 }
@@ -226,19 +229,12 @@ func PanicAtRandom(y bool) {
 
 // SetCrashFd sets output file to go runtime crashes to.
 func SetCrashFd(fp string) (ok bool) {
-	defer func() {
-		// if crash fd cannot be set, panic on fault to at least
-		// capture faults (as panics) via core.DontPanic.
-		debug.SetPanicOnFault(!ok)
-	}()
-
 	if len(fp) > 0 {
-		f, err := os.OpenFile(filepath.Clean(fp), os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0600)
+		f, err := os.OpenFile(filepath.Clean(fp), os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0o600)
 		defer core.CloseFile(f)
 
 		if err == nil {
-			var zz debug.CrashOptions
-			err = debug.SetCrashOutput(f, zz)
+			err = debug.SetCrashOutput(f, debug.CrashOptions{})
 		}
 		note := log.I
 		if err != nil {
