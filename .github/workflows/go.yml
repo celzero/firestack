@@ -207,6 +207,7 @@ jobs:
         mvn deploy:deploy-file \
           -DgroupId="${GROUP_GITHUB}" \
           -DartifactId="${ARTIFACT}" \
+          -Dclassifier=${CLASSFULL} \
           -Dversion="${VCSVER}" \
           -Dpackaging="${PACK}" \
           -Dfile="${FOUT}" \
@@ -256,6 +257,7 @@ jobs:
         mvn gpg:sign-and-deploy-file \
           -DgroupId="${GROUP_OSSRH}" \
           -DartifactId="${ARTIFACT}" \
+          -Dclassifier=${CLASSFULL} \
           -Dversion="${VCSVER}" \
           -Dpackaging="${PACK}" \
           -Dfile="${FOUT}" \
@@ -327,7 +329,7 @@ jobs:
           # github.com/google/capslock/tree/4bb7636/docs
           go install github.com/google/capslock/cmd/capslock@latest
           # TODO: store output to compare with subsequent runs
-          capslock -output=j ./...
+          capslock -output=j
       - name: 🕵️ Gosec Scanner
         uses: securego/gosec@master
         with:
