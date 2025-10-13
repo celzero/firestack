@@ -319,6 +319,13 @@ jobs:
       - name: 🥏 Checkout
         uses: actions/checkout@v4
 
+      - name: 🔤 Capslock
+        run: |
+          # security.googleblog.com/2023/09/capslock-what-is-your-code-really.html
+          # github.com/google/capslock/tree/4bb7636/docs
+          go install github.com/google/capslock/cmd/capslock@latest
+          # TODO: store output to compare with subsequent runs
+          capslock -output=j ./...
       - name: 🕵️ Gosec Scanner
         uses: securego/gosec@master
         with:
