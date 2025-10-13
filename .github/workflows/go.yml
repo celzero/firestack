@@ -200,15 +200,28 @@ jobs:
       run: |
         # uploaded at:
         # maven.pkg.github.com/celzero/firestack/com/github/celzero/firestack/<commit>/firestack-<commit>.aar
-        # TODO: firestack-debug
         # github.com/deelaa-marketplace/commons-workflow/blob/637dc111/flows/publish-api.yml#L49
         # github.com/markocto/cf-octopub/blob/bba2de2c/github/script/action.yaml#L118
+
+        # stripped
         mvn deploy:deploy-file \
           -DgroupId="${GROUP_GITHUB}" \
           -DartifactId="${ARTIFACT}" \
           -Dversion="${VCSVER}" \
           -Dpackaging="${PACK}" \
           -Dfile="${FOUT}" \
+          -DrepositoryId="${REPO_GITHUB}" \
+          -Dsources="${SOURCES}" \
+          -Durl="https://maven.pkg.github.com/${{ github.repository }}"
+
+        # debug
+        mvn deploy:deploy-file \
+          -DgroupId="${GROUP_GITHUB}" \
+          -DartifactId="${ARTIFACT}" \
+          -Dclassifier=${CLASSDBG} \
+          -Dversion="${VCSVER}" \
+          -Dpackaging="${PACK}" \
+          -Dfile="${FOUTDBG}" \
           -DrepositoryId="${REPO_GITHUB}" \
           -Dsources="${SOURCES}" \
           -Durl="https://maven.pkg.github.com/${{ github.repository }}"
@@ -238,6 +251,8 @@ jobs:
         mvn -f ${POM_OSSRH} versions:set -DnewVersion=${VCSVER} -DgenerateBackupPoms=false
         # central.sonatype.org/publish/publish-portal-ossrh-staging-api/#getting-started-for-maven-api-like-plugins
         # github.com/videolan/vlc-android/blob/c393dd0699/buildsystem/maven/deploy-to-mavencentral.sh#L119
+
+        # stripped
         mvn gpg:sign-and-deploy-file \
           -DgroupId="${GROUP_OSSRH}" \
           -DartifactId="${ARTIFACT}" \
@@ -257,15 +272,33 @@ jobs:
         # auth required for publishing_type=automatic
         curl -D - -X POST -H "Authorization: Bearer ${tok}" \
           "https://ossrh-staging-api.central.sonatype.com/manual/upload/defaultRepository/${GROUP_OSSRH}?publishing_type=automatic"
+
+        # debug
+        mvn gpg:sign-and-deploy-file \
+          -DgroupId="${GROUP_OSSRH}" \
+          -DartifactId="${ARTIFACT}" \
+          -Dclassifier=${CLASSDBG} \
+          -Dversion="${VCSVER}" \
+          -Dpackaging="${PACK}" \
+          -Dfile="${FOUTDBG}" \
+          -DrepositoryId="${REPO_OSSRH}" \
+          -DpomFile=${POM_OSSRH} \
+          -Dgpg.keyname=C3F3F4A160BB2CFFB5528699F19CE6642C40085C \
+          -Dsources="${SOURCES}" \
+          -Durl="https://ossrh-staging-api.central.sonatype.com/service/local/staging/deploy/maven2/"
+
+        # auth required for publishing_type=automatic
+        curl -D - -X POST -H "Authorization: Bearer ${tok}" \
+          "https://ossrh-staging-api.central.sonatype.com/manual/upload/defaultRepository/${GROUP_OSSRH}?publishing_type=automatic"
       env:
           MAVEN_USERNAME: ${{ secrets.OSSRH_USERNAME }}
           MAVEN_PASSWORD: ${{ secrets.OSSRH_TOKEN }}
           MAVEN_NS: ${{ secrets.OSSRH_CELZERO_NAMESPACE }}
           MAVEN_GPG_PASSPHRASE: ${{ secrets.OSSRH_CELZERO_GPG_PASSPHRASE }}
 
-        # github.com/actions/upload-artifact
+    # github.com/actions/upload-artifact
     - name: 🚀 Upload
-      if: success() && github.event_name == 'push'
+      if: failure() && github.event_name == 'push'
       uses: actions/upload-artifact@v4
       with:
         name: firestack-aar-${{ github.sha }} # must be unique
