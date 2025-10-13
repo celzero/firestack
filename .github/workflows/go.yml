@@ -211,6 +211,7 @@ jobs:
           -Dpackaging="${PACK}" \
           -Dfile="${FOUT}" \
           -Dfiles="${FOUTDBG}" \
+          -Dtypes="${PACK}" \
           -Dclassifiers=${CLASSDBG} \
           -DrepositoryId="${REPO_GITHUB}" \
           -Dsources="${SOURCES}" \
@@ -249,6 +250,7 @@ jobs:
           -Dpackaging="${PACK}" \
           -Dfile="${FOUT}" \
           -Dfiles="${FOUTDBG}" \
+          -Dtypes="${PACK}" \
           -Dclassifiers=${CLASSDBG} \
           -DrepositoryId="${REPO_OSSRH}" \
           -DpomFile=${POM_OSSRH} \
@@ -299,7 +301,7 @@ jobs:
         run: |
           # github.com/actions/setup-go/issues/27
           export PATH=${PATH}:`go env GOPATH`/bin
-          go get ./...
+          go mod download
           # security.googleblog.com/2023/09/capslock-what-is-your-code-really.html
           # github.com/google/capslock/tree/4bb7636/docs
           go install github.com/google/capslock/cmd/capslock@latest
