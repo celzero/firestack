@@ -270,9 +270,8 @@ jobs:
           -DartifactId="${ARTIFACT}" \
           -Dversion="${VCSVER}" \
           -Dpackaging="${PACK}" \
-          -Dfiles="${FOUTDBG}" \
-          -Dtypes="${PACK}" \
-          -Dclassifiers=${CLASSDBG} \
+          -Dfile="${FOUTDBG}" \
+          -Dclassifier=${CLASSDBG} \
           -DrepositoryId="${REPO_OSSRH}" \
           -DgeneratePom=false \
           -Dgpg.keyname=C3F3F4A160BB2CFFB5528699F19CE6642C40085C \
