@@ -259,11 +259,21 @@ jobs:
           -Dversion="${VCSVER}" \
           -Dpackaging="${PACK}" \
           -Dfile="${FOUT}" \
-          -Dfiles="${FOUTDBG},${SOURCES}" \
-          -Dclassifiers=${CLASSDBG},sources \
-          -Dtypes="${PACK},jar" \
           -DrepositoryId="${REPO_OSSRH}" \
           -DpomFile=${POM_OSSRH} \
+          -Dgpg.keyname=C3F3F4A160BB2CFFB5528699F19CE6642C40085C \
+          -Dsources="${SOURCES}" \
+          -Durl="https://ossrh-staging-api.central.sonatype.com/service/local/staging/deploy/maven2/"
+
+        mvn gpg:sign-and-deploy-file \
+          -DgroupId="${GROUP_OSSRH}" \
+          -DartifactId="${ARTIFACT}" \
+          -Dversion="${VCSVER}" \
+          -Dpackaging="${PACK}" \
+          -Dfile="${FOUTDBG}" \
+          -Dclassifier=${CLASSDBG} \
+          -DrepositoryId="${REPO_OSSRH}" \
+          -DgeneratePom=false \
           -Dgpg.keyname=C3F3F4A160BB2CFFB5528699F19CE6642C40085C \
           -Durl="https://ossrh-staging-api.central.sonatype.com/service/local/staging/deploy/maven2/"
 
