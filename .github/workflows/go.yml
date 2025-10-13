@@ -248,6 +248,7 @@ jobs:
         mvn -f ${POM_OSSRH} versions:set -DnewVersion=${VCSVER} -DgenerateBackupPoms=false
         # central.sonatype.org/publish/publish-portal-ossrh-staging-api/#getting-started-for-maven-api-like-plugins
         # github.com/videolan/vlc-android/blob/c393dd0699/buildsystem/maven/deploy-to-mavencentral.sh#L119
+
         # upload both stripped and debug
         mvn gpg:sign-and-deploy-file \
           -DgroupId="${GROUP_OSSRH}" \
@@ -255,13 +256,23 @@ jobs:
           -Dversion="${VCSVER}" \
           -Dpackaging="${PACK}" \
           -Dfile="${FOUT}" \
-          -Dfiles="${FOUTDBG}" \
-          -Dtypes="${PACK}" \
-          -Dclassifiers=${CLASSDBG} \
           -DrepositoryId="${REPO_OSSRH}" \
           -DpomFile=${POM_OSSRH} \
           -Dgpg.keyname=C3F3F4A160BB2CFFB5528699F19CE6642C40085C \
           -Dsources="${SOURCES}" \
+          -Durl="https://ossrh-staging-api.central.sonatype.com/service/local/staging/deploy/maven2/"
+
+        mvn gpg:sign-and-deploy-file \
+          -DgroupId="${GROUP_OSSRH}" \
+          -DartifactId="${ARTIFACT}" \
+          -Dversion="${VCSVER}" \
+          -Dpackaging="${PACK}" \
+          -Dfiles="${FOUTDBG}" \
+          -Dtypes="${PACK}" \
+          -Dclassifiers=${CLASSDBG} \
+          -DrepositoryId="${REPO_OSSRH}" \
+          -DgeneratePom=false \
+          -Dgpg.keyname=C3F3F4A160BB2CFFB5528699F19CE6642C40085C \
           -Durl="https://ossrh-staging-api.central.sonatype.com/service/local/staging/deploy/maven2/"
 
         # central.sonatype.org/publish/publish-portal-api/#authentication-authorization
