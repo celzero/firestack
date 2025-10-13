@@ -136,9 +136,12 @@ jobs:
 
         # security.googleblog.com/2023/09/capslock-what-is-your-code-really.html
         # github.com/google/capslock/tree/4bb7636/docs
-        go install github.com/google/capslock/cmd/capslock@latest
+        # go install github.com/google/capslock/cmd/capslock@latest
         # TODO: store output to compare with subsequent runs
-        capslock -output=j
+        # TODO: fails to detect the firestack package/module and its deps
+        # XXX: Couldn't load package "." in the current module.  Trying again in a temporary module.
+        # XXX: go: .: no package to get in current directory
+        # capslock -output=j
       shell: bash
 
     - name: 🛸 Env
