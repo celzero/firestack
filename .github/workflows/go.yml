@@ -29,7 +29,7 @@ jobs:
 
     - name: 🏗️ Make
       run: |
-        # outputs firestack.aar and firestack-arm.aar; also see: "Obj" below
+        # outputs firestack.aar and firestack-debug.aar; also see: "Obj" below
         ./make-aar nogo debug
       shell: bash
 
@@ -194,7 +194,7 @@ jobs:
 
     # docs.github.com/en/actions/tutorials/build-and-test-code/java-with-maven
     # docs.github.com/en/actions/tutorials/publish-packages/publish-java-packages-with-maven#publishing-packages-to-github-packages
-    - name: 📦 Publish
+    - name: 😺 GitHub Packages
       if: success() && github.event_name == 'push'
       shell: bash
       run: |
@@ -203,26 +203,15 @@ jobs:
         # github.com/deelaa-marketplace/commons-workflow/blob/637dc111/flows/publish-api.yml#L49
         # github.com/markocto/cf-octopub/blob/bba2de2c/github/script/action.yaml#L118
 
-        # stripped
+        # publish both stripped and debug
         mvn deploy:deploy-file \
           -DgroupId="${GROUP_GITHUB}" \
           -DartifactId="${ARTIFACT}" \
-          -Dclassifier=${CLASSFULL} \
           -Dversion="${VCSVER}" \
           -Dpackaging="${PACK}" \
           -Dfile="${FOUT}" \
-          -DrepositoryId="${REPO_GITHUB}" \
-          -Dsources="${SOURCES}" \
-          -Durl="https://maven.pkg.github.com/${{ github.repository }}"
-
-        # debug
-        mvn deploy:deploy-file \
-          -DgroupId="${GROUP_GITHUB}" \
-          -DartifactId="${ARTIFACT}" \
-          -Dclassifier=${CLASSDBG} \
-          -Dversion="${VCSVER}" \
-          -Dpackaging="${PACK}" \
-          -Dfile="${FOUTDBG}" \
+          -Dfiles="${FOUTDBG}" \
+          -Dclassifiers=${CLASSDBG} \
           -DrepositoryId="${REPO_GITHUB}" \
           -Dsources="${SOURCES}" \
           -Durl="https://maven.pkg.github.com/${{ github.repository }}"
@@ -252,29 +241,15 @@ jobs:
         mvn -f ${POM_OSSRH} versions:set -DnewVersion=${VCSVER} -DgenerateBackupPoms=false
         # central.sonatype.org/publish/publish-portal-ossrh-staging-api/#getting-started-for-maven-api-like-plugins
         # github.com/videolan/vlc-android/blob/c393dd0699/buildsystem/maven/deploy-to-mavencentral.sh#L119
-
-        # stripped
+        # upload both stripped and debug
         mvn gpg:sign-and-deploy-file \
           -DgroupId="${GROUP_OSSRH}" \
           -DartifactId="${ARTIFACT}" \
-          -Dclassifier=${CLASSFULL} \
           -Dversion="${VCSVER}" \
           -Dpackaging="${PACK}" \
           -Dfile="${FOUT}" \
-          -DrepositoryId="${REPO_OSSRH}" \
-          -DpomFile=${POM_OSSRH} \
-          -Dgpg.keyname=C3F3F4A160BB2CFFB5528699F19CE6642C40085C \
-          -Dsources="${SOURCES}" \
-          -Durl="https://ossrh-staging-api.central.sonatype.com/service/local/staging/deploy/maven2/"
-
-        # debug
-        mvn gpg:sign-and-deploy-file \
-          -DgroupId="${GROUP_OSSRH}" \
-          -DartifactId="${ARTIFACT}" \
-          -Dclassifier=${CLASSDBG} \
-          -Dversion="${VCSVER}" \
-          -Dpackaging="${PACK}" \
-          -Dfile="${FOUTDBG}" \
+          -Dfiles="${FOUTDBG}" \
+          -Dclassifiers=${CLASSDBG} \
           -DrepositoryId="${REPO_OSSRH}" \
           -DpomFile=${POM_OSSRH} \
           -Dgpg.keyname=C3F3F4A160BB2CFFB5528699F19CE6642C40085C \
@@ -295,7 +270,7 @@ jobs:
           MAVEN_GPG_PASSPHRASE: ${{ secrets.OSSRH_CELZERO_GPG_PASSPHRASE }}
 
     # github.com/actions/upload-artifact
-    - name: 🚀 Upload
+    - name: 🚀 Upload as artifact
       if: failure() && github.event_name == 'push'
       uses: actions/upload-artifact@v4
       with:
@@ -324,7 +299,7 @@ jobs:
         run: |
           # github.com/actions/setup-go/issues/27
           export PATH=${PATH}:`go env GOPATH`/bin
-
+          go get ./...
           # security.googleblog.com/2023/09/capslock-what-is-your-code-really.html
           # github.com/google/capslock/tree/4bb7636/docs
           go install github.com/google/capslock/cmd/capslock@latest
