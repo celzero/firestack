@@ -265,14 +265,6 @@ jobs:
           -Dsources="${SOURCES}" \
           -Durl="https://ossrh-staging-api.central.sonatype.com/service/local/staging/deploy/maven2/"
 
-        # central.sonatype.org/publish/publish-portal-api/#authentication-authorization
-        tok=$(printf "${MAVEN_USERNAME}:${MAVEN_PASSWORD}" | base64)
-        # central.sonatype.org/publish/publish-portal-ossrh-staging-api/#1-modify-your-ci-script
-        # central.sonatype.org/publish/publish-portal-ossrh-staging-api/#post-to-manualuploaddefaultrepositorynamespace
-        # auth required for publishing_type=automatic
-        curl -D - -X POST -H "Authorization: Bearer ${tok}" \
-          "https://ossrh-staging-api.central.sonatype.com/manual/upload/defaultRepository/${GROUP_OSSRH}?publishing_type=automatic"
-
         # debug
         mvn gpg:sign-and-deploy-file \
           -DgroupId="${GROUP_OSSRH}" \
@@ -287,6 +279,10 @@ jobs:
           -Dsources="${SOURCES}" \
           -Durl="https://ossrh-staging-api.central.sonatype.com/service/local/staging/deploy/maven2/"
 
+        # central.sonatype.org/publish/publish-portal-api/#authentication-authorization
+        tok=$(printf "${MAVEN_USERNAME}:${MAVEN_PASSWORD}" | base64)
+        # central.sonatype.org/publish/publish-portal-ossrh-staging-api/#1-modify-your-ci-script
+        # central.sonatype.org/publish/publish-portal-ossrh-staging-api/#post-to-manualuploaddefaultrepositorynamespace
         # auth required for publishing_type=automatic
         curl -D - -X POST -H "Authorization: Bearer ${tok}" \
           "https://ossrh-staging-api.central.sonatype.com/manual/upload/defaultRepository/${GROUP_OSSRH}?publishing_type=automatic"
@@ -318,9 +314,15 @@ jobs:
     steps:
       - name: 🥏 Checkout
         uses: actions/checkout@v4
-
+      - name: 🐼 Setup go1.25+
+        uses: actions/setup-go@v5
+        with:
+          go-version: '>=1.25'
       - name: 🔤 Capslock
         run: |
+          # github.com/actions/setup-go/issues/27
+          export PATH=${PATH}:`go env GOPATH`/bin
+
           # security.googleblog.com/2023/09/capslock-what-is-your-code-really.html
           # github.com/google/capslock/tree/4bb7636/docs
           go install github.com/google/capslock/cmd/capslock@latest
