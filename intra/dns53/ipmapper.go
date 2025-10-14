@@ -114,7 +114,7 @@ func (m *ipmapper) queryIP2(_ context.Context, network, host, uid string, tid ..
 	if protect.NeverResolve(host) {
 		return nil, nil
 	}
-	if host == "localhost" || host == "localhost." {
+	if host == protect.Localhost || host == "localhost." {
 		return []netip.Addr{loopback4, loopback6}, nil
 	}
 	// no lookups when host is already an IP
