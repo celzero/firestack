@@ -380,6 +380,7 @@ func (m *ipmap) get(hostOrIP string, typ IPSetType) (s *IPSet) {
 		s = sp          // may be nil or empty
 		typ = Protected // discard Regular or AutoType
 	} else if si != nil || typ == IPAddr {
+		// TODO: assert hostOrIP is a valid IP or IP:Port
 		s = si
 		typ = IPAddr
 	} else { // Regular or AutoType
@@ -588,26 +589,34 @@ func (s *IPSet) addLocked(ips ...netip.Addr) {
 	}
 
 	if len(ips) <= 0 {
-		log.W("ipmap: addLocked: remove all")
-		s.ips = nil // remove all ips
-		s.any4.Store(false)
-		s.any6.Store(false)
+		if s.typ == Regular {
+			log.I("ipmap: addLocked: remove all")
+			s.ips = nil // remove all ips
+			s.any4.Store(false)
+			s.any6.Store(false)
+		} else {
+			log.E("ipmap: addLocked: Protected/IPAddr type; ignoring empty add; seed: %v", s.seed)
+		}
 		return
 	}
+	new4, new6 := false, false
 	for i, ip := range ips {
 		// always unmapped; github.com/golang/go/issues/53607
 		ip = ip.Unmap()
-		uns := !ip.IsUnspecified()
+		nouns := !ip.IsUnspecified()
 		valip := ip.IsValid()
 		newip := !s.hasLocked(ip)
-		if uns && valip && newip {
+		if nouns && valip && newip {
 			s.ips = append(s.ips, ip)
-			s.any4.Store(s.any4.Load() || ip.Is4())
-			s.any6.Store(s.any6.Load() || ip.Is6())
+			new4 = new4 || ip.Is4()
+			new6 = new6 || ip.Is6()
 		} else {
-			log.D("ipmap: add #%d: fail %s; !uns? %t, val? %t, !new? %t", i, ip, uns, valip, newip)
+			log.D("ipmap: add #%d: fail %s; uns? %t, val? %t, !new? %t", i, ip, !nouns, valip, newip)
 		}
 	}
+
+	s.any4.Store(new4 || s.any4.Load())
+	s.any6.Store(new6 || s.any6.Load())
 }
 
 // Returns bootstrap ips or ip:ports.
@@ -780,7 +789,7 @@ func (s *IPSet) Confirm(ip netip.Addr) {
 	// reset can happen once a generous maxFailLimit is exhausted.
 	// s.fails.Store(0)
 	if ip.Compare(s.confirmed.Load()) == 0 {
-		return
+		return // no-op
 	}
 
 	// since mutex are acquired, perform ops asynchronously
@@ -797,6 +806,7 @@ func (s *IPSet) Confirm(ip netip.Addr) {
 		// a goroutine using the previous UidSelf / UidSystem IPSet may
 		// end up confirming IP address in the new one.
 		if s.typ == Protected && newIP {
+			s.confirmed.Store(zeroaddr) // reset instead
 			return
 		}
 
