@@ -458,11 +458,13 @@ func (m *ipmap) MakeIPSet(hostOrIP string, ipps []string, typ IPSetType) *IPSet 
 	if len(ipps) <= 0 && typ == Protected {
 		ip, err := netip.ParseAddr(hostOrIP)
 		if err != nil || !ip.IsValid() {
-			// TODO: return error?
+			// TODO: error?
 			log.T("ipmap: renew: %s; empty seed for Protected!", hostOrIP)
+			ipps = nil // fallback to AutoType
+		} else {
+			ipps = []string{hostOrIP}
+			log.I("ipmap: renew: %s Protected type seeded from hostOrIP: %v", hostOrIP, ipps)
 		}
-		ipps = []string{hostOrIP}
-		log.I("ipmap: renew: %s Protected type seeded from hostOrIP: %v", hostOrIP, ipps)
 	} else {
 		// TODO: hostOrIP must be IP (or IP:Port) if typ == IPAddr
 		log.D("ipmap: renew: %s / seed: %v / typ: %s", hostOrIP, ipps, typ)
@@ -470,10 +472,12 @@ func (m *ipmap) MakeIPSet(hostOrIP string, ipps []string, typ IPSetType) *IPSet 
 	return m.makeIPSet(hostOrIP, ipps, typ)
 }
 
-func (m *ipmap) makeIPSet(hostname string, ipps []string, typ IPSetType) *IPSet {
+func (m *ipmap) makeIPSet(hostname string, ipps []string, ogtyp IPSetType) *IPSet {
 	var ip netip.Addr
 	var err error
-	if ipps == nil {
+	typ := ogtyp
+	if len(ipps) == 0 {
+		typ = AutoType
 		ipps = []string{}
 	}
 
@@ -488,7 +492,7 @@ func (m *ipmap) makeIPSet(hostname string, ipps []string, typ IPSetType) *IPSet 
 		typ = Regular // discard AutoType & IPAddr type
 	}
 
-	log.D("ipmap: makeIPSet: %s, seed: %v, typ: %s", hostname, ipps, typ)
+	logeif(ogtyp != typ)("ipmap: makeIPSet: %s, seed: %v, typ: %s, ogtyp: %s", hostname, ipps, typ, ogtyp)
 
 	s := &IPSet{
 		confirmed: core.NewZeroVolatile[netip.Addr](),
@@ -721,6 +725,9 @@ func (s *IPSet) has6() bool {
 
 // Empty reports whether the set is empty.
 func (s *IPSet) Empty() bool {
+	if s == nil {
+		return true
+	}
 	// typ == IPAddr is never empty!
 	return s.Size() == 0
 }
@@ -876,4 +883,11 @@ func (s *IPSet) Disconfirm(ip netip.Addr) (done bool) {
 		}
 	})
 	return
+}
+
+func logeif(cond bool) log.LogFn {
+	if cond {
+		return log.E
+	}
+	return log.D
 }
