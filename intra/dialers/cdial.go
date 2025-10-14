@@ -23,36 +23,36 @@ const dialRetryTimeout = 35 * time.Second
 
 var errRetryTimeout = errors.New("dialers: retry timeout")
 
-func maybeFilter(ips []netip.Addr, alwaysExclude netip.Addr) ([]netip.Addr, bool) {
+func reorderIPs(ips []netip.Addr, alwaysExclude netip.Addr) ([]netip.Addr, bool) {
 	failingopen := true
 	use4 := Use4()
 	use6 := Use6()
 
-	filtered := make([]netip.Addr, 0, len(ips))
-	unfiltered := make([]netip.Addr, 0, len(ips))
+	front := make([]netip.Addr, 0, len(ips))
+	back := make([]netip.Addr, 0, len(ips))
 	for _, ip := range ips {
 		if ip.Compare(alwaysExclude) == 0 || !ip.IsValid() {
 			continue
 		} else if use4 && ip.Is4() {
-			filtered = append(filtered, ip)
+			front = append(front, ip)
 		} else if use6 && ip.Is6() {
-			filtered = append(filtered, ip)
+			front = append(front, ip)
 		} else {
-			unfiltered = append(unfiltered, ip)
+			back = append(back, ip)
 		}
 	}
-	if len(filtered) <= 0 {
+	if len(front) <= 0 {
 		// if all ips are filtered out, fail open and return unfiltered
-		return unfiltered, failingopen
+		return back, failingopen
 	}
-	if len(unfiltered) > 0 {
+	if len(back) > 0 {
 		// sample one unfiltered ip in an ironic case that it works
 		// but the filtered out ones don't. this can happen in scenarios
 		// where tunnel's ipProto is IP4 but the underlying network is IP6:
 		// that is, IP6 is filtered out even though it might have worked.
-		filtered = append(filtered, unfiltered[0])
+		front = append(front, back...)
 	}
-	return filtered, !failingopen
+	return front, !failingopen
 }
 
 func commondial[D rdials, C rconns](d D, network, addr string, connect dialFn[D, C]) (C, error) {
@@ -134,18 +134,18 @@ func commondial2[D rdials, C rconns](d D, network, laddr, raddr string, connect 
 	ipset := ips.Addrs()
 	// One the TODO is fixed, change ipn/proxy.go:Reaches to rely on this behaviour
 	// TODO: maybeFilter should consider incoming network types "tcp4", "udp4", "tcp6", "udp6" etc
-	allips, failingopen := maybeFilter(ipset, confirmed)
-	if len(allips) <= 0 || failingopen {
-		var ok bool
-		if ips, ok = renew(domain, ips); ok {
+	ordered, failingopen := reorderIPs(ipset, confirmed)
+	if len(ordered) <= 0 || failingopen {
+		var renewed bool
+		if ips, renewed = renew(domain, ips); renewed {
 			ipset = ips.Addrs()
-			allips, failingopen = maybeFilter(ipset, confirmed)
+			ordered, failingopen = reorderIPs(ipset, confirmed)
 		}
-		log.D("commondial: renew ips for %s; ok? %t, failingopen? %t", raddr, ok, failingopen)
+		log.D("commondial: renew ips for %s; renewed? %t, failingopen? %t", raddr, renewed, failingopen)
 	}
-	log.D("commondial: trying all ips %d %v for %s, failingopen? %t",
-		len(allips), allips, raddr, failingopen)
-	for _, ip := range allips {
+	log.D("commondial: trying all ips %d/%d %v for %s, failingopen? %t",
+		len(ordered), len(ipset), ordered, raddr, failingopen)
+	for _, ip := range ordered {
 		end := time.Since(start)
 		if end > dialRetryTimeout {
 			errs = core.JoinErr(errs, errRetryTimeout)
