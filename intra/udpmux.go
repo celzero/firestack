@@ -213,7 +213,7 @@ func (x *muxer) readers() {
 
 	timeouterrors := 0
 	for {
-		bptr := core.Alloc()
+		bptr := core.Alloc16()
 		b := *bptr
 		b = b[:cap(b)]
 		// todo: if panics are recovered above, recycle() may never be called
