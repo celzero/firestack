@@ -9,13 +9,14 @@ package core
 // from: github.com/eycorsican/go-tun2socks/blob/301549c435/core/buffer_pool.go
 
 import (
-	"strconv"
 	"sync"
 )
 
-var slabs map[string]*sync.Pool // read-only after init
+var slabs [totalSlabs]*sync.Pool // read-only after init
 
 const (
+	totalSlabs = 7 // total slab types
+
 	// B524288 is slab of size 512k
 	B524288 = 512 * 1024
 	// B65536 is slab of size 64k
@@ -54,6 +55,7 @@ func Alloc() *[]byte {
 	return AllocRegion(B4096)
 }
 
+// Alloc16 returns a truncated byte slice of size 16384
 func Alloc16() *[]byte {
 	return AllocRegion(B16384)
 }
@@ -83,7 +85,6 @@ func Recycle(b *[]byte) bool {
 
 // github.com/v2fly/v2ray-core/blob/0c5abc7e53a/common/bytespool/pool.go#L63
 func init() {
-	slabs = make(map[string]*sync.Pool)
 	slabs[k(B2048)] = newpool(B2048)
 	slabs[k(B4096)] = newpool(B4096)
 	slabs[k(B8192)] = newpool(B8192)
@@ -131,6 +132,6 @@ func newpool(size int) *sync.Pool {
 	}
 }
 
-func k(i int) string {
-	return strconv.Itoa(i)
+func k(i uint32) int {
+	return int(min(i>>1, totalSlabs-1))
 }
