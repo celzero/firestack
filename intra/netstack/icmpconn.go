@@ -15,6 +15,7 @@ import (
 	"net"
 	"net/netip"
 	"os"
+	"syscall"
 	"time"
 
 	"github.com/celzero/firestack/intra/core"
@@ -31,6 +32,7 @@ var (
 	errStub            = errors.New("not implemented")
 	errIPProtoMismatch = fmt.Errorf("ping write: mismatched protocols")
 	errWrongAddr       = errors.New("ping write: wrong address type")
+	errNotASyscallConn = errors.New("ping: not a syscall conn")
 )
 
 type GICMPConn struct {
@@ -119,6 +121,11 @@ func DialPingAddr(s *stack.Stack, nic tcpip.NICID, laddr, raddr netip.Addr) (*GI
 	} // unconnected
 
 	return pc, nil
+}
+
+// SyscallConn implements core.ICMPConn.
+func (pc *GICMPConn) SyscallConn() (syscall.RawConn, error) {
+	return nil, errNotASyscallConn
 }
 
 func (pc *GICMPConn) LocalAddr() net.Addr {

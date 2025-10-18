@@ -19,6 +19,8 @@ import (
 	"os"
 	"strconv"
 	"syscall"
+
+	"github.com/celzero/firestack/intra/core"
 )
 
 const (
@@ -28,6 +30,16 @@ const (
 
 type icmplistener struct {
 	Control ControlFn
+}
+
+var _ core.ICMPConn = (*icmpConn)(nil)
+
+type icmpConn struct {
+	net.PacketConn
+}
+
+func (s *icmpConn) SyscallConn() (syscall.RawConn, error) {
+	return sysconn(s.PacketConn)
 }
 
 // listenICMP listens for incoming ICMP packets addressed to
@@ -43,7 +55,7 @@ type icmplistener struct {
 //	listenICMP("udp6", "::")
 //
 // from: cs.opensource.google/go/x/net/+/refs/tags/v0.28.0:icmp/listen_posix.go
-func (ln *icmplistener) listenICMP(_ context.Context, network, address string) (net.PacketConn, error) {
+func (ln *icmplistener) listenICMP(_ context.Context, network, address string) (core.ICMPConn, error) {
 	var family, proto int
 	switch network {
 	case "udp4":
@@ -72,7 +84,7 @@ func (ln *icmplistener) listenICMP(_ context.Context, network, address string) (
 	}
 	// why? github.com/golang/go/issues/15021#issuecomment-308562480
 	f := os.NewFile(uintptr(s), "datagram-oriented icmp")
-	c, cerr = net.FilePacketConn(f)
+	c, cerr = net.FilePacketConn(f) // expecting a *net.UDPConn
 	f.Close()
 	if cerr != nil {
 		clos(c)
@@ -88,7 +100,7 @@ func (ln *icmplistener) listenICMP(_ context.Context, network, address string) (
 			return nil, err
 		}
 	}
-	return c, nil
+	return &icmpConn{c}, nil
 }
 
 func sysconn(c net.PacketConn) (syscall.RawConn, error) {

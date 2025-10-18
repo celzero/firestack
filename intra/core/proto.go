@@ -92,6 +92,7 @@ type RetrierConn interface {
 
 // so it can be pooled by ConnPool.
 type PoolableConn syscall.Conn
+type ControlConn = PoolableConn
 
 // KeepAliveConn supports keep-alive probes.
 type KeepAliveConn interface {
@@ -99,6 +100,7 @@ type KeepAliveConn interface {
 }
 
 type ICMPConn interface {
+	ControlConn // see: ping.go:setttl
 	net.PacketConn
 }
 
