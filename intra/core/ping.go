@@ -22,7 +22,11 @@ import (
 	"golang.org/x/net/ipv6"
 )
 
-var errNotICMPEchoReply = errors.New("icmp: expecting echo reply")
+var (
+	errNotICMPEchoReply     = errors.New("ping: expecting echo reply")
+	errPacketConnNotNetConn = errors.New("ping: net.PacketConn is not net.Conn")
+	errNotASyscallConn      = errors.New("ping: not a syscall.RawConn")
+)
 
 const (
 	payloadSize      = 16 // bytes
@@ -147,7 +151,8 @@ func timeToBytes(t time.Time) []byte {
 
 func bytesToTime(b []byte) time.Time {
 	var nsec int64
-	for i := uint8(0); i < 8; i++ {
+	maxiter := uint8(8)
+	for i := range maxiter {
 		nsec += int64(b[i]) << ((7 - i) * 8)
 	}
 	return time.Unix(nsec/1000000000, nsec%1000000000)
@@ -168,13 +173,19 @@ func setttl(c MinConn, v4 bool) (err error) {
 	case *ipv6.PacketConn:
 		raw6 = x
 	case net.PacketConn:
-		if v4 {
-			raw4 = ipv4.NewPacketConn(x)
+		if _, ok := x.(net.Conn); ok {
+			// ipv[4|6].NewPacketConn panics if the
+			// passed net.PacketConn is not net.Conn
+			if v4 {
+				raw4 = ipv4.NewPacketConn(x)
+			} else {
+				raw6 = ipv6.NewPacketConn(x)
+			}
 		} else {
-			raw6 = ipv6.NewPacketConn(x)
+			return errPacketConnNotNetConn
 		}
 	default:
-		return
+		return errNotASyscallConn
 	}
 	if raw4 != nil {
 		err1 := raw4.SetControlMessage(ipv4.FlagTTL, true)

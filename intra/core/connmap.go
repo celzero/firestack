@@ -323,7 +323,7 @@ func minconn2str(c ...MinConn) (csv string) {
 			raddr := cc.RemoteAddr()
 			s = append(s, fmt.Sprintf("%s=>%s", laddr, raddr))
 		} else if laddr != nil { // nilaway
-			s = append(s, laddr.String())
+			s = append(s, laddr.String()) // net.PacketConn
 		}
 	}
 	return strings.Join(s, ",")
