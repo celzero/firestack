@@ -487,12 +487,13 @@ func (m *ipmap) makeIPSet(hostname string, ipps []string, ogtyp IPSetType) *IPSe
 		typ = Protected // discard Regular or AutoType
 	} else if ip, err = netip.ParseAddr(hostname); err == nil && !ip.IsUnspecified() && ip.IsValid() {
 		mm = m.ip
+		ogtyp = IPAddr // reset (avoid err log below)
 		typ = IPAddr
 	} else {
 		typ = Regular // discard AutoType & IPAddr type
 	}
 
-	logeif(ogtyp != typ)("ipmap: makeIPSet: %s, seed: %v, typ: %s, ogtyp: %s", hostname, ipps, typ, ogtyp)
+	logeif(typ != ogtyp)("ipmap: makeIPSet: %s, seed: %v, typ: %s, ogtyp: %s", hostname, ipps, typ, ogtyp)
 
 	s := &IPSet{
 		confirmed: core.NewZeroVolatile[netip.Addr](),
