@@ -35,8 +35,6 @@ import (
 	"github.com/celzero/firestack/intra/rnet"
 	"github.com/celzero/firestack/intra/settings"
 
-	_ "github.com/ianlancetaylor/cgosymbolizer"
-
 	"github.com/celzero/firestack/intra/log"
 )
 
