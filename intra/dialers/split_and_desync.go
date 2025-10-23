@@ -8,7 +8,7 @@ package dialers
 
 import (
 	"context"
-	secrand "crypto/rand"
+	csprng "crypto/rand"
 	"io"
 	"math/rand"
 	"net"
@@ -28,10 +28,9 @@ const (
 
 	desync_http1_1str = "POST / HTTP/1.1\r\nHost: 10.0.0.1\r\nContent-Type: application/octet-stream\r\nContent-Length: 9999999\r\n\r\n"
 	// from: github.com/bol-van/zapret/blob/c369f11638/nfq/darkmagic.h#L214-L216
-	desync_max_ttl     = 20
-	desync_noop_ttl    = 3
-	desync_delta_ttl   = 1
-	desync_invalid_ttl = -1
+	desync_max_ttl   = 20
+	desync_noop_ttl  = 3
+	desync_delta_ttl = 1
 
 	desync_cache_ttl = 30 * time.Second
 )
@@ -155,7 +154,7 @@ func tracert(d protect.RDialer, ipp netip.AddrPort, basePort int) (*net.UDPConn,
 
 	var msgBuf [probeSize]byte
 	for ttl := 2; ttl <= desync_max_ttl; ttl += desync_delta_ttl {
-		_, err = secrand.Read(msgBuf[:])
+		_, err = csprng.Read(msgBuf[:])
 		if err != nil {
 			return uc, udpFD, err
 		}
