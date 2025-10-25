@@ -39,7 +39,7 @@ var (
 
 var (
 	errUnexpectedRead   = errors.New("pool: unexpected read")
-	errNotSyscallConn   = errors.New("pool: not a syscall.Conn")
+	errNotSyscallConn   = errors.New("core: not a syscall.Conn")
 	errAttemptsExceeded = errors.New("pool: max attempts exceeded")
 )
 

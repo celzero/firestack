@@ -20,12 +20,12 @@ import (
 	"golang.org/x/net/icmp"
 	"golang.org/x/net/ipv4"
 	"golang.org/x/net/ipv6"
+	"golang.org/x/sys/unix"
 )
 
 var (
 	errNotICMPEchoReply     = errors.New("ping: expecting echo reply")
-	errPacketConnNotNetConn = errors.New("ping: net.PacketConn is not net.Conn")
-	errNotASyscallConn      = errors.New("ping: not a syscall.RawConn")
+	errPacketConnNotNetConn = errors.New("net.PacketConn is neither net.Conn nor syscall.Conn")
 )
 
 const (
@@ -159,6 +159,24 @@ func bytesToTime(b []byte) time.Time {
 }
 
 func setttl(c MinConn, v4 bool) (err error) {
+	if c, ok := c.(ControlConn); ok {
+		raw, ctlErr := c.SyscallConn()
+		if ctlErr != nil || raw == nil {
+			return OneErr(ctlErr, errNotSyscallConn)
+		}
+		var ttlErr error
+		ctlErr = raw.Control(func(fd uintptr) {
+			if v4 {
+				// err1 := unix.SetsockoptInt(int(fd), unix.IPPROTO_IP, unix.IP_RECVTTL, 1)
+				ttlErr = unix.SetsockoptInt(int(fd), unix.IPPROTO_IP, unix.IP_TTL, ttl)
+			} else {
+				// err1 := unix.SetsockoptInt(int(fd), unix.IPPROTO_IPV6, unix.IPV6_RECVHOPLIMIT, 1)
+				ttlErr = unix.SetsockoptInt(int(fd), unix.IPPROTO_IPV6, unix.IPV6_UNICAST_HOPS, ttl)
+			}
+		})
+		return JoinErr(ctlErr, ttlErr)
+	}
+
 	var raw4 *ipv4.PacketConn
 	var raw6 *ipv6.PacketConn
 	switch x := c.(type) {
@@ -181,22 +199,21 @@ func setttl(c MinConn, v4 bool) (err error) {
 			} else {
 				raw6 = ipv6.NewPacketConn(x)
 			}
-		} else {
-			return errPacketConnNotNetConn
-		}
-	default:
-		return errNotASyscallConn
+		} // eventually returns error errPacketConnNotNetConn
+	default: // eventually returns error errPacketConnNotNetConn
 	}
+
 	if raw4 != nil {
 		err1 := raw4.SetControlMessage(ipv4.FlagTTL, true)
 		err2 := raw4.SetTTL(ttl)
-		err = JoinErr(err1, err2)
-	} else if raw6 != nil {
+		return JoinErr(err1, err2)
+	}
+	if raw6 != nil {
 		err1 := raw6.SetControlMessage(ipv6.FlagHopLimit, true)
 		err2 := raw6.SetHopLimit(ttl)
-		err = JoinErr(err1, err2)
+		return JoinErr(err1, err2)
 	}
-	return
+	return errPacketConnNotNetConn
 }
 
 func extend(c MinConn) {
