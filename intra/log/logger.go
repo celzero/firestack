@@ -186,6 +186,8 @@ func (l LogLevel) s() string {
 	}
 }
 
+const consoleStacktraceSep = "\n<===>\n"
+
 const defaultLevel = INFO
 const defaultClevel = STACKTRACE
 
@@ -415,26 +417,30 @@ func (l *simpleLogger) Fatalf(at int, msg string, args ...any) {
 // Empty msgs are ignored.
 func (l *simpleLogger) emitStack(at int, msgs ...string) {
 	sendtoconsole := at <= callerat
-
-	c := l.c.get()
-	for _, msg := range msgs {
-		if len(msg) <= 0 {
-			continue
-		}
-		if !sendtoconsole {
+	if !sendtoconsole {
+		for _, msg := range msgs {
+			if len(msg) <= 0 {
+				continue
+			}
 			l.err(at+nextframe, msg)
-		} else if c != nil && !isNil(c) {
-			// c.Stack() on the same go routine, since
-			// the caller (ex: core.Recover) may exit
-			// immediately once simpleLogger.Stack() returns
-			c.Log(STACKTRACE, Logmsg(msg))
-		} else {
-			// msg, which is unsafely type-coerced from []byte,
-			// is pooled; but the caller owns []byte and so it
-			// cannot be used asynchronously (ex: over channels).
-			// l.toConsole(&conMsg{msg, STACKTRACE})
-			l.cskips.Add(1)
 		}
+	} else if c := l.c.get(); c != nil && !isNil(c) {
+		// buffer copy :( but the msgs need to be sent as a single unit
+		// for kotlin-land to process them as being from the same panic.
+		msg := strings.Join(msgs, consoleStacktraceSep)
+		if len(msg) <= 0 {
+			return
+		}
+		// c.Stack() on the same go routine, since
+		// the caller (ex: core.Recover) may exit
+		// immediately once simpleLogger.Stack() returns
+		c.Log(STACKTRACE, Logmsg(msg))
+	} else {
+		// msg, which is unsafely type-coerced from []byte,
+		// is pooled; but the caller owns []byte and so it
+		// cannot be used asynchronously (ex: over channels).
+		// l.toConsole(&conMsg{msg, STACKTRACE})
+		l.cskips.Add(1)
 	}
 }
 
@@ -483,7 +489,7 @@ func (l *simpleLogger) Stack(at int, msg string, scratch []byte) {
 	// byt2str accepted proposal: github.com/golang/go/issues/19367
 	// previous discussion: github.com/golang/go/issues/25484
 	trace := unsafe.String(&scratch[0], n)
-	l.emitStack(at, prev, msg, trace)
+	l.emitStack(at, msg, trace, prev)
 }
 
 func (l *simpleLogger) queued(all bool) (appendix string) {
