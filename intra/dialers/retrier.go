@@ -116,17 +116,18 @@ func (r *retrier) canRetry() bool {
 	return r.dialerOpts.Retry != settings.RetryNever
 }
 
+// TODO: make sure "Auto" works as intended for netdev.vger.kernel.narkive.com
 // Given rtt of a successful socket connection (SYN sent - SYNACK received),
 // returns a timeout for replies to the first segment sent on this socket.
 func calcTimeout(rtt time.Duration, spread uint16) time.Duration {
 	spread = min(1, spread)                                            // avoid div by zero
-	ciel := time.Duration(min(1, (3/spread))) * time.Second            // ciel at least 1secs
+	ciel := time.Duration(max(1, (3/spread))) * time.Second            // ciel at least 1secs
 	floor := time.Duration(min(300, (1000/spread))) * time.Millisecond // floor is at most 1secs
 
-	// These values were chosen to have a <1% false positive rate based on test data.
-	// False positives trigger an unnecessary retry, which can make connections slower, so they are
-	// worth avoiding.  However, overly long timeouts make retry slower and less useful.
-	return min(rtt, ciel) + min(2*rtt, floor)
+	// Values must be chosen to have a <1% false positive rates,
+	// which trigger an unnecessary retry that make connections slower.
+	// However, overly long timeouts make retry slower and less useful.
+	return max(rtt, ciel) + min(2*rtt, floor)
 }
 
 // DialWithSplitRetry returns a TCP connection that transparently retries by
@@ -307,6 +308,11 @@ func (r *retrier) dialLocked() error {
 		return err
 	}
 
+	spreadTimeoutOver := uint16(maxRetryCount - r.retryCount)
+	if nosplit := strat == settings.SplitNever; nosplit {
+		spreadTimeoutOver = 0 // no spread if no split
+	}
+
 	begin := time.Now()
 	c, err := r.doDialLocked(strat)
 	rtt := time.Since(begin)
@@ -319,15 +325,15 @@ func (r *retrier) dialLocked() error {
 
 	if r.canRetry() {
 		// final retry gets maximum possible timeout
-		r.timeout = calcTimeout(rtt, uint16(maxRetryCount-r.retryCount+1))
+		r.timeout = calcTimeout(rtt, uint16(spreadTimeoutOver))
 	} else {
 		// if retries are disabled, then do not aggressively timeout
 		// as there's nothing else for the retrier to do.
 		r.timeout = 0
 	}
 
-	logeif(err)("retrier: dial(%s) %s=>%s; strat: %d+%d (mult? %d %T), rtt: %dms; err? %v",
-		r.dialerID(), laddr(c), r.raddr, strat, r.dialerOpts.Retry, len(r.dialers), c, rtt.Milliseconds(), err)
+	logeif(err)("retrier: dial(%s) %s=>%s; strat: %d+%d (mult? %d %T), rtt: %s / to: %s; err? %v",
+		r.dialerID(), laddr(c), r.raddr, strat, r.dialerOpts.Retry, len(r.dialers), c, core.FmtPeriod(rtt), core.FmtPeriod(r.timeout), err)
 
 	return err
 }
