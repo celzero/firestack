@@ -907,7 +907,17 @@ func makeWgTun(id, cfg string, ctl protect.Controller, px ProxyProvider, lp Link
 }
 
 func (t *wgtun) setRoutes(ifaddrs []netip.Prefix) error {
+	has4, has6 := false, false
 	processed := make(map[netip.Prefix]bool)
+	// clear existing addresses
+	if addr4, err := t.stack.GetMainNICAddress(wgnic, ipv4.ProtocolNumber); err == nil {
+		log.I("proxy: wg: %s replacing permanent addr4(%d) %v", t.id, wgnic, addr4.Address)
+		t.stack.RemoveAddress(wgnic, addr4.Address)
+	}
+	if addr6, err := t.stack.GetMainNICAddress(wgnic, ipv6.ProtocolNumber); err == nil {
+		log.I("proxy: wg: %s replacing permanent addr6(%d) %v", t.id, wgnic, addr6.Address)
+		t.stack.RemoveAddress(wgnic, addr6.Address)
+	}
 	for _, ipnet := range ifaddrs {
 		ip := ipnet.Addr()
 		if processed[ipnet] {
@@ -922,9 +932,11 @@ func (t *wgtun) setRoutes(ifaddrs []netip.Prefix) error {
 		if ip.Is4() {
 			protoid = ipv4.ProtocolNumber
 			nsaddr = tcpip.AddrFrom4(ip.As4())
+			has4 = true
 		} else if ip.Is6() {
 			protoid = ipv6.ProtocolNumber
 			nsaddr = tcpip.AddrFrom16(ip.As16())
+			has6 = true
 		}
 		ap := tcpip.AddressWithPrefix{
 			Address:   nsaddr,
@@ -935,17 +947,29 @@ func (t *wgtun) setRoutes(ifaddrs []netip.Prefix) error {
 			AddressWithPrefix: ap,
 		}
 		if err := t.stack.AddProtocolAddress(wgnic, protoaddr, stack.AddressProperties{}); err != nil {
-			return fmt.Errorf("wg: %s add addr(%v): %v", t.id, ip, err)
+			return fmt.Errorf("wg: %s add (v4? %t) addr(%v): %v", t.id, has4, ip, err)
 		}
-		t.hasV4.Store(t.hasV4.Load() || ip.Is4())
-		t.hasV6.Store(t.hasV6.Load() || ip.Is6())
-		log.D("proxy: wg: %s added ifaddr(%v)", t.id, ap)
+
+		log.I("proxy: wg: %s added (v4? %t) ifaddr(%v)", t.id, has4, ap)
 	}
-	if t.hasV4.Load() {
+
+	if has4 || t.hasV4.Load() {
+		t.hasV4.Store(true)
 		t.stack.AddRoute(tcpip.Route{Destination: header.IPv4EmptySubnet, NIC: wgnic})
+	} else {
+		t.hasV4.Store(false)
+		t.stack.RemoveRoutes(func(r tcpip.Route) bool {
+			return r.Destination == header.IPv4EmptySubnet && r.NIC == wgnic
+		})
 	}
-	if t.hasV6.Load() {
+	if has6 || t.hasV6.Load() {
+		t.hasV6.Store(true)
 		t.stack.AddRoute(tcpip.Route{Destination: header.IPv6EmptySubnet, NIC: wgnic})
+	} else {
+		t.hasV6.Store(false)
+		t.stack.RemoveRoutes(func(r tcpip.Route) bool {
+			return r.Destination == header.IPv6EmptySubnet && r.NIC == wgnic
+		})
 	}
 	return nil
 }
