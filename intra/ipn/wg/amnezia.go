@@ -107,6 +107,18 @@ func (a *Amnezia) send(pktptr *[]byte) (ok bool) {
 	return true
 }
 
+// IsTransportType reports whether plain is a transport message.
+// "plain" must be free of Amnezia-like modifications.
+func IsTransportType(plain []byte) (y bool) {
+	n := len(plain)
+	if n < device.MinMessageSize {
+		return
+	}
+
+	typ := binary.LittleEndian.Uint32(plain)
+	return typ == device.MessageTransportType
+}
+
 func (a *Amnezia) recv(pkt []byte, upto int) (out []byte, ok bool) {
 	if a == nil || !a.Set() {
 		return
@@ -212,7 +224,7 @@ func (a *Amnezia) strip(pkt []byte) ([]byte, uint32) {
 	var possibleType uint32 = 0
 	maybeStrip := false
 
-	// ref: https://github.com/amnezia-vpn/amneziawg-go/blob/2e3f7d122c/device/device.go#L765
+	// ref: github.com/amnezia-vpn/amneziawg-go/blob/2e3f7d122c/device/device.go#L765
 	if size == a.S1+device.MessageInitiationSize {
 		discard = a.S1
 		possibleType = a.H1

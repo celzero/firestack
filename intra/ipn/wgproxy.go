@@ -1544,10 +1544,10 @@ func (h *wgtun) listener(op wg.PktDir, err error) {
 			h.latestRx.Store(now())
 		} else if op == wg.Snd { // write ok
 			h.latestTx.Store(now())
-		}
+		} // else: not a transport message
 	}
 
-	if s != TNT {
+	if s != TNT { // s may also be TOK (for successful handshakes but not for transport data)
 		lastSuccessfulRead := h.latestRx.Load()
 		writeElapsedMs := h.latestTx.Load() - lastSuccessfulRead // may be negative
 		// if no reads since last write, mark as unresponsive

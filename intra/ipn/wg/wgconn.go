@@ -15,6 +15,7 @@ package wg
 
 import (
 	"crypto/rand"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
@@ -100,10 +101,12 @@ type connector func(network, to string) (net.PacketConn, error)
 type PktDir string
 
 const (
-	Rcv PktDir = "recv"
-	Snd PktDir = "send"
+	Rcv PktDir = "recv" // data received
+	Snd PktDir = "send" // data sent
+	Not PktDir = "nott" // not transport data
 	Con PktDir = "conn" // e.g. dial, announce, accept
 	Opn PktDir = "open" // open conn to the wg endpoint
+	Drp PktDir = "drop" // ignored packet
 )
 
 type StdNetBind struct {
@@ -372,8 +375,14 @@ func (s *StdNetBind) makeReceiveFn(uc net.PacketConn) conn.ReceiveFunc {
 	// github.com/WireGuard/wireguard-go/blob/469159ecf/device/device.go#L531
 	return func(bufs [][]byte, sizes []int, eps []conn.Endpoint) (n int, err error) {
 		defer core.Recover(core.Exit11, "wgconn.recv."+s.id)
+
+		anyTransportTyp := false
 		defer func() {
-			s.observer(Rcv, err)
+			op := Rcv
+			if !anyTransportTyp {
+				op = Not
+			}
+			s.observer(op, err)
 		}()
 
 		usingamz := s.amnezia.Load().Set()
@@ -390,6 +399,7 @@ func (s *StdNetBind) makeReceiveFn(uc net.PacketConn) conn.ReceiveFunc {
 		}
 
 		for i := range numMsgs {
+			anyTransportTyp = anyTransportTyp || transportType(b)
 			if overwritten {
 				copy(bufs[i], b)
 				sizes[i] = len(b)
@@ -400,11 +410,11 @@ func (s *StdNetBind) makeReceiveFn(uc net.PacketConn) conn.ReceiveFunc {
 		}
 
 		if err != nil && !timedout(err) {
-			log.E("wg: bind: %s recvFrom(%v): %d / ov? %t<=%t / err? %v",
-				s.id, addr, n, usingamz, overwritten, err)
+			log.E("wg: bind: %s recvFrom(%v): %d / ov? %t<=%t / trans? %t / err? %v",
+				s.id, addr, n, usingamz, overwritten, anyTransportTyp, err)
 		} else if settings.Debug {
-			log.V("wg: bind: %s recvFrom(%v): %d / ov? %t<=%t / err? %v",
-				s.id, addr, n, usingamz, overwritten, err)
+			log.V("wg: bind: %s recvFrom(%v): %d / ov? %t<=%t / trans? %t / err? %v",
+				s.id, addr, n, usingamz, overwritten, anyTransportTyp, err)
 		}
 		return numMsgs, err
 	}
@@ -420,8 +430,14 @@ func timedout(err error) bool {
 
 func (s *StdNetBind) Send(buf [][]byte, peer conn.Endpoint) (err error) {
 	defer core.Recover(core.Exit11, "wgconn.send."+s.id)
+
+	anyTransportTyp := false
 	defer func() {
-		s.observer(Snd, err)
+		op := Snd
+		if !anyTransportTyp {
+			op = Not
+		}
+		s.observer(op, err)
 	}()
 
 	// the peer endpoint
@@ -462,6 +478,8 @@ func (s *StdNetBind) Send(buf [][]byte, peer conn.Endpoint) (err error) {
 			return syscall.EAFNOSUPPORT
 		}
 
+		anyTransportTyp = anyTransportTyp || transportType(data)
+
 		datalen := len(data) // grab the length before we overwrite it
 
 		overwritten = s.amnezia.Load().send(&data)
@@ -486,8 +504,8 @@ func (s *StdNetBind) Send(buf [][]byte, peer conn.Endpoint) (err error) {
 	s.sendAddr.Store(dstIpp)
 
 	if settings.Debug && errs != nil {
-		loge(err)("wg: bind: send: %s addr(%v) parcels(%d) tx(%d) (exp? %t / flood? %t / overw? %t); err? %v",
-			s.id, dstIpp, len(buf), nn, experimentalWg, flooded, overwritten, errs)
+		loge(err)("wg: bind: send: %s addr(%v) parcels(%d) tx(%d) (exp? %t / flood? %t / overw? %t / trans? %t); err? %v",
+			s.id, dstIpp, len(buf), nn, experimentalWg, flooded, overwritten, anyTransportTyp, errs)
 	}
 
 	return errs
@@ -516,7 +534,7 @@ func (s *StdNetBind) flood(c net.PacketConn, dst StdNetEndpoint, why floodkind) 
 		padlen := uint64(maxFloodPktLen - hdrlen)
 		pkt := make([]byte, maxFloodPktLen)
 		var n int
-		for i := uint64(0); i < tot; i++ {
+		for i := range tot {
 			sz := max(mrand.Uint64N(padlen+1), minFloodPktLen)
 			_, _ = rand.Read(pkt[hdrlen:sz])
 			copy(pkt[0:], hdr)
@@ -551,8 +569,8 @@ func (s *StdNetBind) BatchSize() int {
 
 // from: github.com/WireGuard/wireguard-go/blob/1417a47c8/conn/mark_unix.go
 func (s *StdNetBind) SetMark(mark uint32) (err error) {
-	uc4, _ := s.ipv4.(core.PoolableConn) // may be nil
-	uc6, _ := s.ipv6.(core.PoolableConn) // may be nil
+	uc4, _ := s.ipv4.(core.ControlConn) // may be nil
+	uc6, _ := s.ipv6.(core.ControlConn) // may be nil
 	var operr error
 	var raw4, raw6 syscall.RawConn
 	fwmarkIoctl := 36 /* unix.SO_MARK */
@@ -638,4 +656,16 @@ func extend(c core.MinConn, t time.Duration) {
 
 func clos(c io.Closer) {
 	core.CloseOp(c, core.CopRW)
+}
+
+// transportType reports whether unobs is a transport message.
+// "unobs" must be free of Amnezia-like obfuscations.
+func transportType(unobs []byte) (y bool) {
+	n := len(unobs)
+	if n < device.MinMessageSize {
+		return
+	}
+
+	typ := binary.LittleEndian.Uint32(unobs)
+	return typ == device.MessageTransportType
 }
