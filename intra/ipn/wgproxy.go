@@ -701,7 +701,7 @@ func NewWgProxy(id string, ctl protect.Controller, px ProxyProvider, lp LinkProp
 	}
 
 	log.D("proxy: wg: new %s; addrs(%v) mtu(%d/%d) peers(%d) / v4(%t) v6(%t)",
-		id, opts.ifaddrs, opts.mtu, w.ep.MTU(), len(opts.peers), wgtun.hasV4.Load(), wgtun.hasV6.Load())
+		id, opts.ifaddrs, opts.mtu, w.ep.MTU(), len(opts.peers), wgtun.IP4(), wgtun.IP6())
 
 	return w, nil
 }
@@ -1443,9 +1443,25 @@ func (h *wgtun) IP6() bool { return h.hasV6.Load() }
 
 // Contains implements x.Router.
 func (h *wgtun) Contains(ippOrCidr *x.Gostr) bool {
-	y, err := h.rt.HasAny(ippOrCidr)
-	logev(err)("wg: %s router: %s contains? %t; err? %v", h.tag(), ippOrCidr, y, err)
-	return y
+	var err error
+	y1, y2 := false, false
+	canroute6 := h.IP6()
+	canroute4 := h.IP4()
+
+	y1, err = h.rt.HasAny(ippOrCidr)
+	if y1 {
+		y2 = true // assume all okay
+		if cidr, err := core.IP2Cidr2(ippOrCidr.V()); err == nil {
+			is6 := cidr.Addr().Is6()
+			is4 := cidr.Addr().Is4()
+			y2 = (is6 && canroute6) || (is4 && canroute4)
+		} // fallback onto y1 on errs.
+	} // y2 is also false.
+
+	logev(err)("wg: %s router: (4/6? %t/%t) %s; allowed? %t / contains? %t; err? %v",
+		h.tag(), canroute4, canroute6, ippOrCidr, y1, y2, err)
+
+	return y1 && y2
 }
 
 func (h *wgtun) serve(network, local string) (pc net.PacketConn, err error) {
