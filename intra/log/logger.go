@@ -489,7 +489,8 @@ func (l *simpleLogger) Stack(at int, msg string, scratch []byte) {
 	// byt2str accepted proposal: github.com/golang/go/issues/19367
 	// previous discussion: github.com/golang/go/issues/25484
 	trace := unsafe.String(&scratch[0], n)
-	l.emitStack(at, msg, trace, prev)
+	msgcat := strings.Join([]string{msg, trace, prev}, consoleStacktraceSep)
+	l.emitStack(at, msgcat)
 }
 
 func (l *simpleLogger) queued(all bool) (appendix string) {
