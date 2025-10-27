@@ -120,7 +120,7 @@ func (r *retrier) canRetry() bool {
 // Given rtt of a successful socket connection (SYN sent - SYNACK received),
 // returns a timeout for replies to the first segment sent on this socket.
 func calcTimeout(rtt time.Duration, spread uint16) time.Duration {
-	spread = min(1, spread)                                            // avoid div by zero
+	spread = max(1, spread)                                            // avoid div by zero
 	ciel := time.Duration(max(1, (3/spread))) * time.Second            // ciel at least 1secs
 	floor := time.Duration(min(300, (1000/spread))) * time.Millisecond // floor is at most 1secs
 

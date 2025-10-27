@@ -107,18 +107,6 @@ func (a *Amnezia) send(pktptr *[]byte) (ok bool) {
 	return true
 }
 
-// IsTransportType reports whether plain is a transport message.
-// "plain" must be free of Amnezia-like modifications.
-func IsTransportType(plain []byte) (y bool) {
-	n := len(plain)
-	if n < device.MinMessageSize {
-		return
-	}
-
-	typ := binary.LittleEndian.Uint32(plain)
-	return typ == device.MessageTransportType
-}
-
 func (a *Amnezia) recv(pkt []byte, upto int) (out []byte, ok bool) {
 	if a == nil || !a.Set() {
 		return
