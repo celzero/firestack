@@ -376,11 +376,12 @@ func (s *StdNetBind) makeReceiveFn(uc net.PacketConn) conn.ReceiveFunc {
 	return func(bufs [][]byte, sizes []int, eps []conn.Endpoint) (n int, err error) {
 		defer core.Recover(core.Exit11, "wgconn.recv."+s.id)
 
+		anyProcessed := false // true when numMsgs > 0 (ex: no error)
 		anyTransportTyp := false
 		defer func() {
 			op := Rcv
-			if !anyTransportTyp {
-				op = Not
+			if !anyTransportTyp && anyProcessed {
+				op = Not // processed packets not transport data
 			}
 			s.observer(op, err)
 		}()
@@ -399,6 +400,7 @@ func (s *StdNetBind) makeReceiveFn(uc net.PacketConn) conn.ReceiveFunc {
 		}
 
 		for i := range numMsgs {
+			anyProcessed = true
 			anyTransportTyp = anyTransportTyp || transportType(b)
 			if overwritten {
 				copy(bufs[i], b)
@@ -431,11 +433,12 @@ func timedout(err error) bool {
 func (s *StdNetBind) Send(buf [][]byte, peer conn.Endpoint) (err error) {
 	defer core.Recover(core.Exit11, "wgconn.send."+s.id)
 
+	anyProcessed := false
 	anyTransportTyp := false
 	defer func() {
 		op := Snd
-		if !anyTransportTyp {
-			op = Not
+		if !anyTransportTyp && anyProcessed {
+			op = Not // processed packet not transport data
 		}
 		s.observer(op, err)
 	}()
@@ -478,6 +481,7 @@ func (s *StdNetBind) Send(buf [][]byte, peer conn.Endpoint) (err error) {
 			return syscall.EAFNOSUPPORT
 		}
 
+		anyProcessed = true
 		anyTransportTyp = anyTransportTyp || transportType(data)
 
 		datalen := len(data) // grab the length before we overwrite it
