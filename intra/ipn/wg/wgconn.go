@@ -507,10 +507,8 @@ func (s *StdNetBind) Send(buf [][]byte, peer conn.Endpoint) (err error) {
 
 	s.sendAddr.Store(dstIpp)
 
-	if settings.Debug && errs != nil {
-		loge(err)("wg: bind: send: %s addr(%v) parcels(%d) tx(%d) (exp? %t / flood? %t / overw? %t / trans? %t); err? %v",
-			s.id, dstIpp, len(buf), nn, experimentalWg, flooded, overwritten, anyTransportTyp, errs)
-	}
+	loge(err)("wg: bind: send: %s addr(%v) parcels(%d) tx(%d) (exp? %t / flood? %t / overw? %t / trans? %t); err? %v",
+		s.id, dstIpp, len(buf), nn, experimentalWg, flooded, overwritten, anyTransportTyp, errs)
 
 	return errs
 }
@@ -645,9 +643,11 @@ func (s *StdNetBind) asEndpoint(ap net.Addr) conn.Endpoint {
 }
 
 func loge(err error) log.LogFn {
-	l := log.V
+	l := log.N // no-op
 	if err != nil {
 		l = log.W
+	} else if settings.Debug {
+		l = log.V
 	}
 	return l
 }
@@ -665,11 +665,20 @@ func clos(c io.Closer) {
 // transportType reports whether unobs is a transport message.
 // "unobs" must be free of Amnezia-like obfuscations.
 func transportType(unobs []byte) (y bool) {
+	var typ uint32
 	n := len(unobs)
+
+	defer func() {
+		if settings.Debug && !y {
+			log.V("wg: bind: transportType: len(%d) type(%d) => trans? %t", n, typ, y)
+		}
+	}()
+
 	if n < device.MinMessageSize {
 		return
 	}
 
-	typ := binary.LittleEndian.Uint32(unobs)
-	return typ == device.MessageTransportType
+	typ = binary.LittleEndian.Uint32(unobs)
+	y = typ == device.MessageTransportType
+	return
 }
