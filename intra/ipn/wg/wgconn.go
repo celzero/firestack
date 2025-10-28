@@ -401,13 +401,13 @@ func (s *StdNetBind) makeReceiveFn(uc net.PacketConn) conn.ReceiveFunc {
 
 		for i := range numMsgs {
 			anyProcessed = true
-			anyTransportTyp = anyTransportTyp || transportType(b)
 			if overwritten {
 				copy(bufs[i], b)
 				sizes[i] = len(b)
 			} else { // bufs remained unchanged
 				sizes[i] = n
 			}
+			anyTransportTyp = anyTransportTyp || transportType(bufs[i])
 			eps[i] = s.asEndpoint(addr)
 		}
 
