@@ -272,7 +272,7 @@ func (w *wgproxy) Ping() bool {
 		pinged := 0
 		// or: w.Device.SendKeepalivesToPeersWithCurrentKeypair()
 		for _, k := range tracked {
-			if peer := w.LookupPeer(k); peer != nil {
+			if peer := w.Device.LookupPeer(k); peer != nil {
 				pinged++
 				// keepalive are empty packets but always padded to 16 bytes
 				// github.com/bepass-org/warp-plus/blob/12269c2761/wireguard/device/noise-protocol.go#L67
@@ -449,7 +449,7 @@ func (w *wgproxy) update(id, txt string) bool {
 	w.amnezia.Store(opts.amnezia)
 	w.resetMtu(w.getVia())
 
-	ipcerr := w.IpcSet(cptxt)
+	ipcerr := w.Device.IpcSet(cptxt)
 	if ipcerr != nil {
 		log.W("proxy: updating wg(%s) ipcset; err %v", id, ipcerr)
 		return anew
@@ -1128,7 +1128,7 @@ func (w *wgproxy) Stat() (out *x.RouterStats) {
 		return // zz
 	}
 
-	stat := wg.ReadStats(w.id, w.Handle(), w.IpcGet)
+	stat := wg.ReadStats(w.id, w.Handle(), w.Device.IpcGet)
 	if stat == nil { // unlikely
 		log.V("proxy: wg: %s stats: readstats: nil", w.tag())
 		return // zz
