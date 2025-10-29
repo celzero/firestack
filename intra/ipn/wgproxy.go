@@ -1720,12 +1720,18 @@ func logev(err error) log.LogFn {
 	if err != nil {
 		return log.E
 	}
-	return log.VV
+	if settings.Debug {
+		return log.VV
+	}
+	return log.N
 }
 
 func loged(err error) log.LogFn {
 	if err != nil {
 		return log.E
 	}
-	return log.D
+	if settings.Debug {
+		return log.D
+	}
+	return log.N
 }

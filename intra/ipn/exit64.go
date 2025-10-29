@@ -18,6 +18,7 @@ import (
 	"github.com/celzero/firestack/intra/ipn/rpn"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
+	"github.com/celzero/firestack/intra/settings"
 )
 
 var (
@@ -321,7 +322,10 @@ func logeif(e bool) log.LogFn {
 	if e {
 		return log.E
 	}
-	return log.D
+	if settings.Debug {
+		return log.D
+	}
+	return log.N
 }
 
 func logei(err error) log.LogFn {
